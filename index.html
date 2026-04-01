@@ -421,6 +421,38 @@
   .disclaimer-text { padding: 10px 14px 12px; font-size: 12px; color: var(--text-sub); line-height: 1.7; }
   .page-credit { text-align: center; font-size: 11px; color: #475569; padding: 14px 0 4px; letter-spacing: 0.3px; }
   .page-credit span { color: #64748b; }
+  /* ─── RxTx PAGE ─────────────────────────────── */
+  .rxtx-rx .card-header { background: #0e7490; }
+  .rxtx-tx .card-header { background: #92400e; }
+  .rxtx-section-sep {
+    display: flex; align-items: center; gap: 10px; margin: 4px 0 8px;
+    font-size: 11px; font-weight: 700; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .rxtx-section-sep::before, .rxtx-section-sep::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .rxtx-result-box {
+    background: #0a1628; border: 1.5px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; margin-top: 10px;
+  }
+  .rxtx-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+  .rxtx-result-item { display: flex; flex-direction: column; }
+  .rxtx-result-label {
+    font-size: 10px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px;
+  }
+  .rxtx-result-val { font-size: 15px; font-weight: 700; color: var(--accent); }
+  .rxtx-result-val.ok  { color: var(--success); }
+  .rxtx-result-val.err { color: var(--error); }
+  .rxtx-htv-row { display: flex; gap: 10px; margin-top: 10px; }
+  .rxtx-htv-item {
+    flex: 1; background: #0a1628; border: 1.5px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; text-align: center;
+  }
+  .rxtx-htv-label { font-size: 10px; color: var(--text-sub); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+  .rxtx-htv-val { font-size: 20px; font-weight: 700; color: var(--text); margin-top: 2px; }
+  .rxtx-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 </style>
 </head>
 <body>
@@ -439,6 +471,14 @@
         <div class="tool-card-body">
           <div class="tool-card-title">mLVDS 分顆(分時) Skew 計算工具</div>
           <div class="tool-card-desc">示波器設定 &amp; UI cof_cnt 分界值計算</div>
+        </div>
+        <div class="tool-card-arrow">›</div>
+      </div>
+      <div class="tool-card" onclick="showPage('rxtx')">
+        <div class="tool-card-icon">📡</div>
+        <div class="tool-card-body">
+          <div class="tool-card-title">Rx/Tx 頻率計算工具</div>
+          <div class="tool-card-desc">LVDS / eDP Rx & mLVDS / P2P Tx 頻率與 Bit Rate 計算</div>
         </div>
         <div class="tool-card-arrow">›</div>
       </div>
@@ -659,6 +699,266 @@
 
   </div><!-- /container -->
 </div><!-- /page-calc -->
+
+<!-- ══ PAGE 3: Rx/Tx 頻率計算 ══ -->
+<div id="page-rxtx" style="display:none">
+  <div class="header">
+    <div class="back-row">
+      <button class="back-btn" onclick="showPage('home')">‹ 返回主頁</button>
+    </div>
+    <h1>📡 Rx/Tx 頻率計算工具</h1>
+    <p>TCON Rx/Tx 頻率、Pixel Rate、eDP/P2P Bit Rate 計算</p>
+  </div>
+  <div class="container">
+
+    <!-- 基本參數 -->
+    <div class="card">
+      <div class="card-header"><span class="icon">📐</span>基本參數（所有計算共用）</div>
+      <div class="card-body">
+        <div class="rxtx-2col">
+          <div class="field">
+            <label>Hactive<span class="required">*</span></label>
+            <input type="number" id="rt-hactive" value="2560" min="1" step="1">
+          </div>
+          <div class="field">
+            <label>Hblank<span class="required">*</span></label>
+            <input type="number" id="rt-hblank" value="200" min="1" step="1">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Vactive<span class="required">*</span></label>
+            <input type="number" id="rt-vactive" value="1440" min="1" step="1">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Vblank<span class="required">*</span></label>
+            <input type="number" id="rt-vblank" value="30" min="1" step="1">
+          </div>
+        </div>
+        <div class="rxtx-htv-row">
+          <div class="rxtx-htv-item">
+            <div class="rxtx-htv-label">Htotal</div>
+            <div class="rxtx-htv-val" id="rt-htotal">2760</div>
+          </div>
+          <div class="rxtx-htv-item">
+            <div class="rxtx-htv-label">Vtotal</div>
+            <div class="rxtx-htv-val" id="rt-vtotal">1470</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TCON Rx ── -->
+    <div class="rxtx-section-sep">TCON Rx</div>
+
+    <!-- Rx LVDS -->
+    <div class="card rxtx-rx">
+      <div class="card-header"><span class="icon">🔵</span>LVDS Rx 頻率計算</div>
+      <div class="card-body">
+        <div class="field">
+          <label>TCON Rx Port</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-1" value="1"><label for="rt-rx-port-1">1</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-2" value="2"><label for="rt-rx-port-2">2</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-4" value="4" checked><label for="rt-rx-port-4">4</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-8" value="8"><label for="rt-rx-port-8">8</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>計算模式</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-a" value="a" checked><label for="rt-lvds-mode-a">給定<br>FPGA DCLK</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-b" value="b"><label for="rt-lvds-mode-b">給定<br>TCON DCLK</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-c" value="c"><label for="rt-lvds-mode-c">給定<br>Frame Rate</label></div>
+          </div>
+        </div>
+        <div class="field" id="rt-lvds-input-a">
+          <label>FPGA UI DCLK [MHz]<span class="required">*</span></label>
+          <input type="number" id="rt-fpga-dclk" value="204" min="0.001" step="any">
+          <div class="field-hint">LVDS per port = FPGA UI DCLK</div>
+        </div>
+        <div class="field" id="rt-lvds-input-b" style="display:none">
+          <label>TCON UI DCLK [MHz]<span class="required">*</span></label>
+          <input type="number" id="rt-tcon-dclk-in" value="408" min="0.001" step="any">
+          <div class="field-hint">FPGA UI DCLK = TCON UI DCLK ÷ 2</div>
+        </div>
+        <div class="field" id="rt-lvds-input-c" style="display:none">
+          <label>Frame Rate [Hz]<span class="required">*</span></label>
+          <input type="number" id="rt-lvds-fps-in" value="144" min="1" step="any">
+        </div>
+        <div class="rxtx-result-box">
+          <div class="rxtx-result-grid">
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">Frame Rate</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-fps">—</span>
+            </div>
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">Pixel Rate</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-px">—</span>
+            </div>
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">FPGA UI DCLK</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-fpga">—</span>
+            </div>
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">TCON UI DCLK</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-tcon">—</span>
+            </div>
+            <div class="rxtx-result-item" style="grid-column:1/-1">
+              <span class="rxtx-result-label">LVDS per Port</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-port">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rx eDP -->
+    <div class="card rxtx-rx">
+      <div class="card-header"><span class="icon">🟣</span>eDP Rx Bit Rate 計算</div>
+      <div class="card-body">
+        <div class="field">
+          <label>Color Depth [bits/channel]</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d6" value="6"><label for="rt-edp-d6">6</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d8" value="8" checked><label for="rt-edp-d8">8</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d10" value="10"><label for="rt-edp-d10">10</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d12" value="12"><label for="rt-edp-d12">12</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>TCON Rx Lane</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-edp-lane" id="rt-edp-l1" value="1"><label for="rt-edp-l1">1</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-edp-lane" id="rt-edp-l2" value="2" checked><label for="rt-edp-l2">2</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-edp-lane" id="rt-edp-l4" value="4"><label for="rt-edp-l4">4</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Frame Rate [Hz]<span class="required">*</span></label>
+          <input type="number" id="rt-edp-fps" value="144" min="1" step="any">
+        </div>
+        <div class="rxtx-2col">
+          <div class="field" style="margin-bottom:0">
+            <label>Encoding In [bits]</label>
+            <input type="number" id="rt-edp-enc-in" value="8" min="1" step="1">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Encoding Out [bits]</label>
+            <input type="number" id="rt-edp-enc-out" value="10" min="1" step="1">
+          </div>
+        </div>
+        <div class="rxtx-result-box">
+          <div class="rxtx-result-grid">
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">Rx Bit Rate / Lane</span>
+              <span class="rxtx-result-val" id="rt-edp-r-rate">—</span>
+            </div>
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">需最低 eDP 規格</span>
+              <span class="rxtx-result-val" id="rt-edp-r-std">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TCON Tx ── -->
+    <div class="rxtx-section-sep">TCON Tx</div>
+
+    <!-- Tx mLVDS -->
+    <div class="card rxtx-tx">
+      <div class="card-header"><span class="icon">🟠</span>mLVDS Tx 頻率計算</div>
+      <div class="card-body">
+        <div class="field">
+          <label>Driver bits</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-mls-bits" id="rt-mls-b6" value="6"><label for="rt-mls-b6">6 bits</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-mls-bits" id="rt-mls-b8" value="8" checked><label for="rt-mls-b8">8 bits</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>TCON Tx Port</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-mls-port" id="rt-mls-p1" value="1"><label for="rt-mls-p1">1</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-mls-port" id="rt-mls-p2" value="2"><label for="rt-mls-p2">2</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-mls-port" id="rt-mls-p4" value="4" checked><label for="rt-mls-p4">4</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Driver pairs / Port</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-mls-pairs" id="rt-mls-pr2" value="2"><label for="rt-mls-pr2">2</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-mls-pairs" id="rt-mls-pr3" value="3" checked><label for="rt-mls-pr3">3</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-mls-pairs" id="rt-mls-pr6" value="6"><label for="rt-mls-pr6">6</label></div>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Frame Rate [Hz]<span class="required">*</span></label>
+          <input type="number" id="rt-mls-fps" value="144" min="1" step="any">
+        </div>
+        <div class="rxtx-result-box">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Tx Freq. [MHz]</span>
+            <span class="rxtx-result-val" id="rt-mls-r">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tx P2P -->
+    <div class="card rxtx-tx">
+      <div class="card-header"><span class="icon">🟢</span>P2P Tx Rate 計算</div>
+      <div class="card-body">
+        <div class="field">
+          <label>Driver bits</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-p2p-bits" id="rt-p2p-b6" value="6"><label for="rt-p2p-b6">6 bits</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-p2p-bits" id="rt-p2p-b8" value="8" checked><label for="rt-p2p-b8">8 bits</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>TCON Tx Port</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-p2p-port" id="rt-p2p-p1" value="1"><label for="rt-p2p-p1">1</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-p2p-port" id="rt-p2p-p2" value="2"><label for="rt-p2p-p2">2</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-p2p-port" id="rt-p2p-p4" value="4" checked><label for="rt-p2p-p4">4</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Driver pairs / Port</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr2" value="2" checked><label for="rt-p2p-pr2">2</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr3" value="3"><label for="rt-p2p-pr3">3</label></div>
+            <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr4" value="4"><label for="rt-p2p-pr4">4</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Frame Rate [Hz]<span class="required">*</span></label>
+          <input type="number" id="rt-p2p-fps" value="144" min="1" step="any">
+        </div>
+        <div class="rxtx-2col">
+          <div class="field" style="margin-bottom:0">
+            <label>Encoding In [bits]</label>
+            <input type="number" id="rt-p2p-enc-in" value="8" min="1" step="1">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Encoding Out [bits]</label>
+            <input type="number" id="rt-p2p-enc-out" value="9" min="1" step="1">
+          </div>
+        </div>
+        <div class="rxtx-result-box">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Tx Rate [Mbps]</span>
+            <span class="rxtx-result-val" id="rt-p2p-r">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-back">
+      <button class="back-btn-footer" onclick="showPage('home')">‹ 返回主頁</button>
+    </div>
+  </div>
+</div><!-- /page-rxtx -->
 
 <script>
 // ─── Page navigation ──────────────────────────────────────────────────
@@ -988,6 +1288,148 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   selectChips(3);
+  rtCalcAll();
+});
+
+// ─── Rx/Tx 頻率計算 ───────────────────────────────────────────────────
+const EDP_LINK_RATES = [1.62, 2.7, 5.4, 8.1, 10.0];
+const EDP_LINK_NAMES = ['RBR (1.62G)', 'HBR (2.7G)', 'HBR2 (5.4G)', 'HBR3 (8.1G)', 'HBR3+ (10.0G)'];
+
+function rtNum(id) {
+  const el = document.getElementById(id);
+  return el ? (parseFloat(el.value) || 0) : 0;
+}
+function rtRadio(name) {
+  const r = document.querySelector(`input[name="${name}"]:checked`);
+  return r ? parseFloat(r.value) : null;
+}
+function rtRadioStr(name) {
+  const r = document.querySelector(`input[name="${name}"]:checked`);
+  return r ? r.value : null;
+}
+function rtSetText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function rtCalcAll() {
+  const ha = rtNum('rt-hactive'), hb = rtNum('rt-hblank');
+  const va = rtNum('rt-vactive'), vb = rtNum('rt-vblank');
+  const Ht = ha + hb, Vt = va + vb;
+  rtSetText('rt-htotal', (Ht > 0) ? Ht : '—');
+  rtSetText('rt-vtotal', (Vt > 0) ? Vt : '—');
+  if (!Ht || !Vt) return;
+
+  // ── Rx LVDS ──────────────────────────────────────────────────────────
+  const rxPort = rtRadio('rt-rx-port') || 4;
+  const mode   = rtRadioStr('rt-lvds-mode') || 'a';
+  let fps_lvds, fpga_dclk, tcon_dclk, pixel_rate, lvds_per_port;
+
+  if (mode === 'a') {
+    fpga_dclk    = rtNum('rt-fpga-dclk');
+    lvds_per_port = fpga_dclk;
+    pixel_rate   = fpga_dclk * rxPort;
+    tcon_dclk    = fpga_dclk * 2;
+    fps_lvds     = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+  } else if (mode === 'b') {
+    tcon_dclk    = rtNum('rt-tcon-dclk-in');
+    fpga_dclk    = tcon_dclk / 2;
+    lvds_per_port = fpga_dclk;
+    pixel_rate   = fpga_dclk * rxPort;
+    fps_lvds     = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+  } else {
+    fps_lvds     = rtNum('rt-lvds-fps-in');
+    pixel_rate   = Ht * Vt * fps_lvds / 1e6;
+    lvds_per_port = rxPort ? pixel_rate / rxPort : 0;
+    fpga_dclk    = lvds_per_port;
+    tcon_dclk    = lvds_per_port * 2;
+  }
+
+  const f3 = (v, u) => (v > 0 && isFinite(v)) ? v.toFixed(3) + ' ' + u : '—';
+  rtSetText('rt-lvds-r-fps',  f3(fps_lvds,     'Hz'));
+  rtSetText('rt-lvds-r-px',   f3(pixel_rate,   'MHz'));
+  rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,    'MHz'));
+  rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,    'MHz'));
+  rtSetText('rt-lvds-r-port', f3(lvds_per_port,'MHz'));
+
+  // ── Rx eDP ───────────────────────────────────────────────────────────
+  const depth   = rtRadio('rt-edp-depth') || 8;
+  const lane    = rtRadio('rt-edp-lane') || 2;
+  const fps_edp = rtNum('rt-edp-fps');
+  const enc_in  = rtNum('rt-edp-enc-in') || 8;
+  const enc_out = rtNum('rt-edp-enc-out') || 10;
+
+  if (fps_edp > 0 && enc_in > 0 && lane > 0) {
+    const bit_rate = Ht * Vt * fps_edp * depth * 3 * (enc_out / enc_in) / (lane * 1e9);
+    const rateEl = document.getElementById('rt-edp-r-rate');
+    const stdEl  = document.getElementById('rt-edp-r-std');
+    if (rateEl) rateEl.textContent = bit_rate.toFixed(4) + ' Gbps';
+    const idx = EDP_LINK_RATES.findIndex(r => r >= bit_rate);
+    if (stdEl) {
+      if (idx >= 0) {
+        stdEl.textContent = EDP_LINK_NAMES[idx];
+        stdEl.className = 'rxtx-result-val ok';
+      } else {
+        stdEl.textContent = '超出規格範圍';
+        stdEl.className = 'rxtx-result-val err';
+      }
+    }
+  }
+
+  // ── Tx mLVDS ─────────────────────────────────────────────────────────
+  const mls_bits  = rtRadio('rt-mls-bits') || 8;
+  const mls_port  = rtRadio('rt-mls-port') || 4;
+  const mls_pairs = rtRadio('rt-mls-pairs') || 3;
+  const mls_fps   = rtNum('rt-mls-fps');
+
+  if (mls_fps > 0 && mls_port > 0 && mls_pairs > 0) {
+    const mls_freq = Ht * Vt * mls_fps * (mls_bits / 2) / (mls_port * (mls_pairs / 3) * 1e6);
+    rtSetText('rt-mls-r', mls_freq.toFixed(4) + ' MHz');
+  }
+
+  // ── Tx P2P ───────────────────────────────────────────────────────────
+  const p2p_bits   = rtRadio('rt-p2p-bits') || 8;
+  const p2p_port   = rtRadio('rt-p2p-port') || 4;
+  const p2p_pairs  = rtRadio('rt-p2p-pairs') || 2;
+  const p2p_fps    = rtNum('rt-p2p-fps');
+  const p2p_enc_in = rtNum('rt-p2p-enc-in') || 8;
+  const p2p_enc_out= rtNum('rt-p2p-enc-out') || 9;
+
+  if (p2p_fps > 0 && p2p_port > 0 && p2p_pairs > 0 && p2p_enc_in > 0) {
+    const p2p_rate = Ht * Vt * p2p_fps * p2p_bits * 3 * (p2p_enc_out / p2p_enc_in) / (p2p_port * p2p_pairs * 1e6);
+    rtSetText('rt-p2p-r', p2p_rate.toFixed(4) + ' Mbps');
+  }
+}
+
+// LVDS mode input switcher
+document.querySelectorAll('input[name="rt-lvds-mode"]').forEach(r => {
+  r.addEventListener('change', function() {
+    ['a','b','c'].forEach(m => {
+      const el = document.getElementById('rt-lvds-input-' + m);
+      if (el) el.style.display = (m === this.value) ? 'block' : 'none';
+    });
+    rtCalcAll();
+  });
+});
+
+// Number inputs
+['rt-hactive','rt-hblank','rt-vactive','rt-vblank',
+ 'rt-fpga-dclk','rt-tcon-dclk-in','rt-lvds-fps-in',
+ 'rt-edp-fps','rt-edp-enc-in','rt-edp-enc-out',
+ 'rt-mls-fps','rt-p2p-fps','rt-p2p-enc-in','rt-p2p-enc-out'
+].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', rtCalcAll);
+});
+
+// Radio groups
+['rt-rx-port','rt-edp-depth','rt-edp-lane',
+ 'rt-mls-bits','rt-mls-port','rt-mls-pairs',
+ 'rt-p2p-bits','rt-p2p-port','rt-p2p-pairs'
+].forEach(name => {
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+    r.addEventListener('change', rtCalcAll);
+  });
 });
 </script>
 
