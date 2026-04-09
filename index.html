@@ -260,12 +260,10 @@
     cursor: pointer;
   }
   /* ─── SKEW SECTION ───────────────────────────── */
-  /* [Change 2] Softer red for skew card header */
   .skew-section .card-header {
     background: linear-gradient(135deg, #6b1d1d 0%, #8b2020 100%);
   }
   .skew-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  /* [Change 3] Group borders for CKSK and Fine sections */
   .skew-group {
     border: 1.5px solid #2d3f55;
     border-radius: 8px;
@@ -351,7 +349,7 @@
   .lane-table td:first-child { font-weight: 700; color: #93c5fd; font-family: monospace; }
   .lane-code { font-family: monospace; font-size: 11px; color: #9ca3af; }
   .divider { height: 1px; background: var(--border); margin: 10px 0; }
-  /* ─── SUMMARY BADGE ─── [Change 4] Light yellow */
+  /* ─── SUMMARY BADGE ─── */
   .calc-summary {
     background: #fefce8;
     color: #78350f;
@@ -623,7 +621,6 @@
 
     <!-- Results -->
     <div id="results">
-      <!-- [Change 4] Light yellow summary row -->
       <div class="calc-summary">
         <span class="icon">✅</span>
         <span id="calc-summary-text">計算完成</span>
@@ -681,7 +678,6 @@
       <div class="card-header"><span class="icon">📋</span>Skew 檔位參照表</div>
       <div class="card-body">
         <div class="skew-grid">
-          <!-- [Change 3] 左：非分顆(時間)調整 CKSK group box -->
           <div class="skew-group">
             <div class="skew-group-title">非分顆(時間)調整，只移動CLK</div>
             <div class="skew-sub-label">cksk lane 對應</div>
@@ -719,7 +715,6 @@
             </table>
           </div><!-- /skew-group CKSK -->
 
-          <!-- [Change 3] 右：分顆(時間)調整 Fine group box -->
           <div class="skew-group">
             <div class="skew-group-title">分顆(時間)調整</div>
             <div class="skew-sub-label">微調（fine）</div>
@@ -1076,7 +1071,7 @@ function showPage(pageId) {
 // ─── State ────────────────────────────────────────────────────────────
 let selectedChips = 0;
 let lastCofs = [];
-let manualEdited = new Set(); // tracks X2~Xn indices manually edited by user
+let manualEdited = new Set();
 const EM_OPTS = {
   'EM01': ['-', 'cof1', 'cof2', 'cof3'],
   'EM02': ['-', 'cof1', 'cof2', 'cof3', 'cof4', 'cof5', 'cof6', 'cof7']
@@ -1092,13 +1087,13 @@ function selectChips(n) {
 }
 
 function buildXiInputs(n) {
-  const sec         = document.getElementById('xi-section');
-  const x1Container = document.getElementById('x1-container');
-  const grid        = document.getElementById('xi-grid');
+  const sec          = document.getElementById('xi-section');
+  const x1Container  = document.getElementById('x1-container');
+  const grid         = document.getElementById('xi-grid');
 
   x1Container.innerHTML = '';
   grid.innerHTML = '';
-  manualEdited.clear(); // reset manual-edit flags on rebuild
+  manualEdited.clear();
 
   const x1Field = document.createElement('div');
   x1Field.className = 'field';
@@ -1115,7 +1110,6 @@ function buildXiInputs(n) {
   const x1Inp = x1Field.querySelector('input');
   attachClearError(x1Inp, false);
 
-  // X1 change → auto-copy to X2~Xn that haven't been manually edited
   x1Inp.addEventListener('input', function() {
     const val = this.value;
     for (let j = 2; j <= selectedChips; j++) {
@@ -1141,7 +1135,6 @@ function buildXiInputs(n) {
     `;
     grid.appendChild(div);
     const inp = div.querySelector('input');
-    // Mark as manually edited when user types (so auto-copy won't overwrite)
     inp.addEventListener('input', () => { manualEdited.add(i); });
     attachClearError(inp, false);
   }
@@ -1150,12 +1143,12 @@ function buildXiInputs(n) {
   document.getElementById('results').style.display = 'none';
 }
 
-// ─── Copy X1 to all Xn (also resets manual-edit flags) ───────────────
+// ─── Copy X1 to all Xn ───────────────────────────────────────────────
 function copyX1ToAll() {
   const x1Val = document.getElementById('x1').value;
   if (!x1Val) { alert('請先輸入 X1 值'); return; }
   for (let i = 2; i <= selectedChips; i++) {
-    manualEdited.delete(i); // allow auto-copy again after explicit force-copy
+    manualEdited.delete(i);
     const inp = document.getElementById(`x${i}`);
     inp.value = x1Val;
     const field = inp.closest('.field');
@@ -1197,40 +1190,27 @@ function setError(fieldId, hasError) {
   if (inp) inp.classList.toggle('error', hasError);
 }
 
-// ─── COF table: rows = max(N chips, maxCof for selected TCON) ────────
-// Priority rule: show ALL Xi boundaries AND ALL cof items.
-// Whichever is larger determines row count; re-renders on TCON switch.
-//
-//   row i < N-1  → position "Xi+1, Xi+2",  value = calculated boundary
-//   row i = N-1  → position "XN, End",      value = 2047
-//   row i >= N   → position "-" (cof-only), value = 2047
-//   col: cof{i+1} if i < maxCof, else '-'
+// ─── COF table render ─────────────────────────────────────────────────
 function renderCofTable(cofs, chips) {
   const cofTbody   = document.getElementById('cof-tbody');
   const selectedEM = document.getElementById('em-select').value;
-  const emOpts     = EM_OPTS[selectedEM];   // ['-', 'cof1', 'cof2', ...]
-  const maxCof     = emOpts.length - 1;     // 3 for EM01, 7 for EM02
+  const emOpts     = EM_OPTS[selectedEM];
+  const maxCof     = emOpts.length - 1;
   const N          = chips;
-  const rowCount   = Math.max(N, maxCof);   // KEY: whichever is larger
+  const rowCount   = Math.max(N, maxCof);
 
   cofTbody.innerHTML = '';
 
   for (let i = 0; i < rowCount; i++) {
     const tr = document.createElement('tr');
-
-    // COF item: assign cof{i+1} if within TCON range, else '-'
     const cofName = (i < maxCof) ? emOpts[i + 1] : '-';
+    const value   = (i < N - 1 && cofs[i] !== undefined) ? cofs[i] : 2047;
 
-    // Value: calculated boundary for inter-chip rows, 2047 otherwise
-    const value = (i < N - 1 && cofs[i] !== undefined) ? cofs[i] : 2047;
-
-    // Position label
     let posText;
     if (i < N - 1)      posText = `X${i+1}, X${i+2}`;
     else if (i === N-1) posText = `X${N}, End`;
-    else                posText = '-'; // extra rows: cof exists but no chip boundary
+    else                posText = '-';
 
-    // Build select options
     const optionsHtml = ['-', ...emOpts.slice(1)].map(opt =>
       `<option value="${opt}"${opt === cofName ? ' selected' : ''}>${opt}</option>`
     ).join('');
@@ -1245,11 +1225,6 @@ function renderCofTable(cofs, chips) {
 }
 
 // ─── COF cascade enforcement ──────────────────────────────────────────
-// When a cof item is placed at a row, the old position of that cof is
-// cleared, and all subsequent cof items in sequence are cascaded
-// consecutively into the rows immediately following the placed cof.
-// e.g. if table was [cof1,cof2,cof3,-,-,-] and user places cof2 at
-// row5, result becomes [cof1,-,-,-,cof2,cof3].
 function enforceCofOrder(changedSelect) {
   const tbody      = document.getElementById('cof-tbody');
   const selects    = [...tbody.querySelectorAll('.cof-item-select')];
@@ -1258,23 +1233,19 @@ function enforceCofOrder(changedSelect) {
 
   const changedIdx  = selects.indexOf(changedSelect);
   const selectedEM  = document.getElementById('em-select').value;
-  const emOpts      = EM_OPTS[selectedEM]; // ['-', 'cof1', 'cof2', ...]
-  const cofSeqIdx   = emOpts.indexOf(newVal); // position in emOpts (1-based)
+  const emOpts      = EM_OPTS[selectedEM];
+  const cofSeqIdx   = emOpts.indexOf(newVal);
 
-  // Step 1: clear old position of the placed cof
   selects.forEach((sel, i) => {
     if (i !== changedIdx && sel.value === newVal) sel.value = '-';
   });
 
-  // Step 2: cascade subsequent cof items to fill positions after changedIdx
   for (let k = 1; cofSeqIdx + k < emOpts.length && changedIdx + k < selects.length; k++) {
     const nextCofName = emOpts[cofSeqIdx + k];
     const targetPos   = changedIdx + k;
-    // Clear old position of nextCofName (if any)
     selects.forEach((sel, i) => {
       if (i !== targetPos && sel.value === nextCofName) sel.value = '-';
     });
-    // Place nextCofName at target position
     selects[targetPos].value = nextCofName;
   }
 }
@@ -1318,7 +1289,6 @@ function calculate() {
   const R  = parseInt(rst);
   const N  = selectedChips;
 
-  // Oscilloscope events
   const events = [];
   for (let i = 0; i < N; i++) {
     let ev;
@@ -1327,14 +1297,12 @@ function calculate() {
     events.push(ev);
   }
 
-  // cof_cnt boundaries (N-1 values)
   const cofs = [];
   for (let i = 1; i < N; i++) {
     cofs.push(Math.floor(H / 2 / N / gate * i - 1));
   }
   lastCofs = cofs;
 
-  // Render oscilloscope table
   const oscTbody = document.getElementById('osc-tbody');
   oscTbody.innerHTML = '';
   events.forEach((ev, i) => {
@@ -1343,10 +1311,8 @@ function calculate() {
     oscTbody.appendChild(tr);
   });
 
-  // Render cof table
   renderCofTable(cofs, N);
 
-  // [Change 4] Summary with safety guards + light yellow styling
   const safeH    = (!isNaN(H) && H > 0) ? H : '—';
   const safeGate = (!isNaN(gate) && gate > 0) ? gate : '—';
   document.getElementById('calc-summary-text').textContent =
@@ -1431,31 +1397,31 @@ function rtCalcAll() {
   let fps_lvds, fpga_dclk, tcon_dclk, pixel_rate, lvds_per_port;
 
   if (mode === 'a') {
-    fpga_dclk    = rtNum('rt-fpga-dclk');
+    fpga_dclk     = rtNum('rt-fpga-dclk');
     lvds_per_port = fpga_dclk;
-    pixel_rate   = fpga_dclk * rxPort;
-    tcon_dclk    = fpga_dclk * 2;
-    fps_lvds     = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+    pixel_rate    = fpga_dclk * rxPort;
+    tcon_dclk     = fpga_dclk * 2;
+    fps_lvds      = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
   } else if (mode === 'b') {
-    tcon_dclk    = rtNum('rt-tcon-dclk-in');
-    fpga_dclk    = tcon_dclk / 2;
+    tcon_dclk     = rtNum('rt-tcon-dclk-in');
+    fpga_dclk     = tcon_dclk / 2;
     lvds_per_port = fpga_dclk;
-    pixel_rate   = fpga_dclk * rxPort;
-    fps_lvds     = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+    pixel_rate    = fpga_dclk * rxPort;
+    fps_lvds      = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
   } else {
-    fps_lvds     = rtNum('rt-lvds-fps-in');
-    pixel_rate   = Ht * Vt * fps_lvds / 1e6;
+    fps_lvds      = rtNum('rt-lvds-fps-in');
+    pixel_rate    = Ht * Vt * fps_lvds / 1e6;
     lvds_per_port = rxPort ? pixel_rate / rxPort : 0;
-    fpga_dclk    = lvds_per_port;
-    tcon_dclk    = lvds_per_port * 2;
+    fpga_dclk     = lvds_per_port;
+    tcon_dclk     = lvds_per_port * 2;
   }
 
   const f3 = (v, u) => (v > 0 && isFinite(v)) ? v.toFixed(3) + ' ' + u : '—';
-  rtSetText('rt-lvds-r-fps',  f3(fps_lvds,     'Hz'));
-  rtSetText('rt-lvds-r-px',   f3(pixel_rate,   'MHz'));
-  rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,    'MHz'));
-  rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,    'MHz'));
-  rtSetText('rt-lvds-r-port', f3(lvds_per_port,'MHz'));
+  rtSetText('rt-lvds-r-fps',  f3(fps_lvds,      'Hz'));
+  rtSetText('rt-lvds-r-px',   f3(pixel_rate,    'MHz'));
+  rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,     'MHz'));
+  rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,     'MHz'));
+  rtSetText('rt-lvds-r-port', f3(lvds_per_port, 'MHz'));
 
   // ── Rx eDP ───────────────────────────────────────────────────────────
   const depth   = rtRadio('rt-edp-depth') || 8;
@@ -1509,13 +1475,13 @@ function rtCalcAll() {
 
 // ── I/F selector: P2P Rx (eDP) ───────────────────────────────────────
 function rtApplyEdpIF() {
-  const sel = document.getElementById('rt-edp-if');
+  const sel   = document.getElementById('rt-edp-if');
   const ifVal = sel ? sel.value : 'edp';
   const encIn  = document.getElementById('rt-edp-enc-in');
   const encOut = document.getElementById('rt-edp-enc-out');
   const stdRow = document.getElementById('rt-edp-std-row');
   if (ifVal === 'edp') {
-    if (encIn)  { encIn.value = 8;  encIn.classList.add('enc-locked');  encIn.readOnly = true; }
+    if (encIn)  { encIn.value = 8;   encIn.classList.add('enc-locked');  encIn.readOnly = true; }
     if (encOut) { encOut.value = 10; encOut.classList.add('enc-locked'); encOut.readOnly = true; }
     if (stdRow) stdRow.style.display = '';
   } else {
@@ -1528,7 +1494,7 @@ function rtApplyEdpIF() {
 
 // ── I/F selector: P2P Tx ─────────────────────────────────────────────
 function rtApplyP2pIF() {
-  const sel = document.getElementById('rt-p2p-if');
+  const sel   = document.getElementById('rt-p2p-if');
   const ifVal = sel ? sel.value : 'isp';
   const encIn  = document.getElementById('rt-p2p-enc-in');
   const encOut = document.getElementById('rt-p2p-enc-out');
