@@ -266,6 +266,20 @@
     background: #000;
     border: 1px solid #334155;
     border-radius: 6px;
+    cursor: zoom-in;
+    position: relative;
+  }
+  .osc-diagram-wrap::after {
+    content: "🔍 點擊放大";
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 10px;
+    color: #94a3b8;
+    background: rgba(2,6,23,0.7);
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
   }
   .osc-diagram {
     display: block;
@@ -279,6 +293,64 @@
     text-align: center;
     margin-top: 6px;
     line-height: 1.5;
+  }
+  /* Lightbox：點擊後全螢幕+雙指縮放 */
+  .osc-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.92);
+    touch-action: none;
+    overflow: hidden;
+  }
+  .osc-lightbox.active { display: block; }
+  .osc-lightbox-stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .osc-lightbox-svg {
+    width: 96vw;
+    max-width: 1400px;
+    height: auto;
+    transform-origin: 0 0;
+    will-change: transform;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+  }
+  .osc-lightbox-close {
+    position: fixed;
+    top: 12px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(30,41,59,0.9);
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    font-size: 22px;
+    line-height: 36px;
+    text-align: center;
+    cursor: pointer;
+    z-index: 10000;
+  }
+  .osc-lightbox-hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #94a3b8;
+    background: rgba(30,41,59,0.85);
+    padding: 6px 12px;
+    border-radius: 14px;
+    z-index: 10000;
+    white-space: nowrap;
   }
 
   /* ─── SKEW SECTION ───────────────────────────── */
@@ -621,7 +693,7 @@
       <div class="tool-card" onclick="showPage('calc')">
         <div class="tool-card-icon"><svg width="30" height="24" viewBox="0 0 30 24" fill="none" style="display:block"><path d="M1 5 L8 5 L15 12 L22 5 L29 5" stroke="#fbbf24" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 19 L8 19 L15 12 L22 19 L29 19" stroke="#fbbf24" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="15" cy="12" rx="2.5" ry="3" stroke="#fbbf24" stroke-width="1.5"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title">mLVDS 分顆(分時) Skew 計算工具 <span style="display:inline-block;background:#fbbf24;color:#0f172a;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.0</span></div>
+          <div class="tool-card-title">mLVDS 分顆(分時) Skew 計算工具 <span style="display:inline-block;background:#fbbf24;color:#0f172a;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.5.0</span></div>
           <div class="tool-card-desc">示波器設定 &amp; UI cof_cnt 分界值計算</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -725,8 +797,8 @@
           <div class="field-hint" style="color:#f87171;font-weight:700;">(Trig=A event B，A=XSTB(TP)正緣，B=mLVDS CLK正負緣)</div>
           <div class="error-msg">請輸入正整數（或 0）</div>
         </div>
-        <div class="osc-diagram-wrap">
-          <svg viewBox="0 0 800 340" class="osc-diagram" xmlns="http://www.w3.org/2000/svg">
+        <div class="osc-diagram-wrap" id="osc-diagram-wrap" onclick="oscOpenLightbox()">
+          <svg viewBox="0 0 800 340" class="osc-diagram" id="osc-diagram-src" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <!-- 次格線 -->
               <pattern id="oscSubGrid" x="0" y="0" width="16" height="17" patternUnits="userSpaceOnUse">
@@ -1864,6 +1936,165 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
   const el = document.getElementById(id);
   if (el) el.addEventListener('input', rtCalcAll);
 });
+
+// ═══════════ 示波器圖 Lightbox（雙指縮放 / 平移） ═══════════
+(function(){
+  let state = { scale: 1, tx: 0, ty: 0, baseScale: 1 };
+  let pinch = null;   // {d0, sx, sy, cx, cy, scale0, tx0, ty0}
+  let pan = null;     // {x, y, tx0, ty0}
+  let svgEl, stageEl, lightbox;
+
+  function applyTransform(){
+    if (!svgEl) return;
+    svgEl.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+  }
+  function resetTransform(){
+    // 初始把 SVG 置中：以 stage 為基準
+    const sRect = svgEl.getBoundingClientRect();
+    const pRect = stageEl.getBoundingClientRect();
+    state.scale = 1;
+    state.tx = (pRect.width - sRect.width) / 2;
+    state.ty = (pRect.height - sRect.height) / 2;
+    // 讓 transform-origin = 0,0，直接用 tx/ty 置中
+    applyTransform();
+  }
+  function dist(t1, t2){
+    const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  }
+  function mid(t1, t2){
+    return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+  }
+
+  window.oscOpenLightbox = function(){
+    if (!lightbox) {
+      // 建立一次
+      lightbox = document.createElement('div');
+      lightbox.className = 'osc-lightbox';
+      lightbox.innerHTML = `
+        <div class="osc-lightbox-stage" id="osc-lb-stage"></div>
+        <button class="osc-lightbox-close" id="osc-lb-close" aria-label="關閉">×</button>
+        <div class="osc-lightbox-hint">雙指縮放 · 單指拖曳 · 雙擊還原</div>
+      `;
+      document.body.appendChild(lightbox);
+      stageEl = lightbox.querySelector('#osc-lb-stage');
+      lightbox.querySelector('#osc-lb-close').addEventListener('click', oscCloseLightbox);
+      // 點黑底也關閉
+      lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) oscCloseLightbox();
+      });
+      bindGestures();
+    }
+    // 複製一份 SVG 進去
+    stageEl.innerHTML = '';
+    const src = document.getElementById('osc-diagram-src');
+    const clone = src.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.classList.remove('osc-diagram');
+    clone.classList.add('osc-lightbox-svg');
+    stageEl.appendChild(clone);
+    svgEl = clone;
+    lightbox.classList.add('active');
+    // 等瀏覽器 layout 完再置中
+    requestAnimationFrame(resetTransform);
+  };
+  window.oscCloseLightbox = function(){
+    if (lightbox) lightbox.classList.remove('active');
+  };
+
+  function bindGestures(){
+    const target = lightbox;
+    let lastTap = 0;
+
+    target.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const m = mid(t1, t2);
+        pinch = {
+          d0: dist(t1, t2),
+          cx: m.x, cy: m.y,
+          scale0: state.scale,
+          tx0: state.tx, ty0: state.ty
+        };
+        pan = null;
+      } else if (e.touches.length === 1) {
+        pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx0: state.tx, ty0: state.ty };
+        // 雙擊還原
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          resetTransform();
+          lastTap = 0;
+        } else {
+          lastTap = now;
+        }
+      }
+    }, { passive: false });
+
+    target.addEventListener('touchmove', (e) => {
+      if (pinch && e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const d = dist(t1, t2);
+        const ratio = d / pinch.d0;
+        const newScale = Math.max(0.5, Math.min(8, pinch.scale0 * ratio));
+        // 以 pinch 中心為錨點縮放（保持手指中點位置不變）
+        // transform: translate(tx,ty) scale(s)，transform-origin 0 0
+        // 世界座標 px0 = (cx - tx0) / scale0；新 tx = cx - px0 * newScale
+        const px = (pinch.cx - pinch.tx0) / pinch.scale0;
+        const py = (pinch.cy - pinch.ty0) / pinch.scale0;
+        state.scale = newScale;
+        state.tx = pinch.cx - px * newScale;
+        state.ty = pinch.cy - py * newScale;
+        applyTransform();
+      } else if (pan && e.touches.length === 1) {
+        e.preventDefault();
+        state.tx = pan.tx0 + (e.touches[0].clientX - pan.x);
+        state.ty = pan.ty0 + (e.touches[0].clientY - pan.y);
+        applyTransform();
+      }
+    }, { passive: false });
+
+    target.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) pinch = null;
+      if (e.touches.length === 0) pan = null;
+    });
+
+    // 桌面：滾輪縮放（以滑鼠位置為錨點）
+    target.addEventListener('wheel', (e) => {
+      if (!lightbox.classList.contains('active')) return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 1/1.1;
+      const newScale = Math.max(0.5, Math.min(8, state.scale * factor));
+      const px = (e.clientX - state.tx) / state.scale;
+      const py = (e.clientY - state.ty) / state.scale;
+      state.scale = newScale;
+      state.tx = e.clientX - px * newScale;
+      state.ty = e.clientY - py * newScale;
+      applyTransform();
+    }, { passive: false });
+
+    // 桌面：ESC 關閉
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightbox.classList.contains('active')) oscCloseLightbox();
+    });
+
+    // 桌面：滑鼠拖曳
+    let mouseDown = null;
+    target.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.osc-lightbox-close')) return;
+      mouseDown = { x: e.clientX, y: e.clientY, tx0: state.tx, ty0: state.ty };
+    });
+    target.addEventListener('mousemove', (e) => {
+      if (!mouseDown) return;
+      state.tx = mouseDown.tx0 + (e.clientX - mouseDown.x);
+      state.ty = mouseDown.ty0 + (e.clientY - mouseDown.y);
+      applyTransform();
+    });
+    target.addEventListener('mouseup', () => mouseDown = null);
+    target.addEventListener('mouseleave', () => mouseDown = null);
+  }
+})();
 </script>
 
 </body>
