@@ -563,6 +563,7 @@
     /* 單指 pan 交給瀏覽器，2 指 pinch 交給 JS（不含 pinch-zoom，使 JS 能接到 2 指事件） */
     touch-action: pan-x pan-y;
     position: relative;
+    contain: layout style;
   }
   .isp-wave-svg {
     display: block;
@@ -3593,7 +3594,8 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       const polAttrs = isPol ? ' onclick="ispTogglePol()" style="cursor:pointer;"' : '';
       // 背景淡色（6-bit mode 下另外疊 R/G/B 淡色條紋在資料 bit 上，呈現 byte 內的 component 分佈）
       parts.push(`<rect x="${cursorX}" y="${labelH}" width="${segW}" height="${waveH}" fill="${seg.color}" fill-opacity="0.10"${polAttrs}/>`);
-      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length) {
+      // Component stripe backgrounds: skip when segment count > 100 (perf)
+      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length && segs.length <= 100) {
         for (let j = 0; j < seg.componentStripe.length; j++) {
           const entry = seg.componentStripe[j];
           if (!entry) continue;
@@ -3611,13 +3613,13 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       if (segW > 14) {
         parts.push(`<text x="${cursorX + segW/2}" y="${labelH - 6}" text-anchor="middle" fill="white" font-size="10" font-weight="700"${polAttrs}>${seg.label}</text>`);
       }
-      // 6-bit mode component stripe：在 label 色塊底部畫 R/G/B sub-color 條紋，視覺上呈現 byte 邊界跨 pixel 18-bit 結構
-      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length) {
+      // 6-bit mode component stripe：label 底部 R/G/B 條紋（segment 太多時跳過以提升效能）
+      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length && segs.length <= 100) {
         const stripeH = 3.5;
         const stripeY = labelH - 3 - stripeH - 0.5;
         for (let j = 0; j < seg.componentStripe.length; j++) {
           const entry = seg.componentStripe[j];
-          if (!entry) continue; // DLL marker 或 padding，保留底層深紫
+          if (!entry) continue;
           const compColor = entry.c === 'R' ? COLOR.R : (entry.c === 'G' ? COLOR.G : COLOR.B);
           const bx = cursorX + j * bitW;
           parts.push(`<rect x="${bx + 0.2}" y="${stripeY}" width="${Math.max(0.4, bitW - 0.4)}" height="${stripeH}" fill="${compColor}"/>`);
@@ -3625,13 +3627,15 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       }
       parts.push(`<line x1="${cursorX}" y1="${labelH}" x2="${cursorX}" y2="${labelH + waveH}" stroke="#475569" stroke-width="1"/>`);
 
-      if (bitW > 1.2) {
+      // Inter-bit dividers: skip when total segments > 100 to reduce SVG nodes
+      if (bitW > 1.2 && segs.length <= 100) {
         for (let b = 1; b < seg.bits.length; b++) {
           const bx = cursorX + b * bitW;
           parts.push(`<line x1="${bx}" y1="${labelH}" x2="${bx}" y2="${labelH + waveH}" stroke="#1e293b" stroke-width="0.5"/>`);
         }
       }
-      if (bitW > 14) {
+      // Bit labels: skip when total segments > 50
+      if (bitW > 14 && segs.length <= 50) {
         for (let b = 0; b < seg.bits.length; b++) {
           const bx = cursorX + b * bitW + bitW/2;
           parts.push(`<text x="${bx}" y="${labelH + waveH + 13}" text-anchor="middle" fill="#64748b" font-size="9">${seg.bits[b]}</text>`);
@@ -3986,26 +3990,41 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     svg.innerHTML = parts.join('');
   }
 
+  // 快取 minimap DOM 參照，避免每次 scroll 都 getElementById
+  let _mmWaveBox = null, _mmWave = null, _mmVp = null, _mmMini = null;
+  function _mmCache() {
+    _mmWaveBox = document.getElementById('isp-wave-box');
+    _mmWave = document.getElementById('isp-wave-svg');
+    _mmVp = document.getElementById('isp-minimap-viewport');
+    _mmMini = document.getElementById('isp-minimap-box');
+  }
   function ispUpdateMinimapViewport() {
-    const waveBox = document.getElementById('isp-wave-box');
-    const wave    = document.getElementById('isp-wave-svg');
-    const vp      = document.getElementById('isp-minimap-viewport');
-    const mini    = document.getElementById('isp-minimap-box');
-    if (!waveBox || !wave || !vp || !mini) return;
-    const svgW = parseFloat(wave.getAttribute('width')) || wave.getBoundingClientRect().width;
-    const visibleW = waveBox.clientWidth;
-    const scrollLeft = waveBox.scrollLeft;
-    const miniW = mini.clientWidth;
+    if (!_mmWaveBox || !_mmVp) _mmCache();
+    if (!_mmWaveBox || !_mmWave || !_mmVp || !_mmMini) return;
+    const svgW = parseFloat(_mmWave.getAttribute('width')) || 0;
+    const visibleW = _mmWaveBox.clientWidth;
+    const scrollLeft = _mmWaveBox.scrollLeft;
+    const miniW = _mmMini.clientWidth;
     if (svgW <= visibleW + 1) {
-      vp.style.left = '0px';
-      vp.style.width = miniW + 'px';
+      _mmVp.style.left = '0px';
+      _mmVp.style.width = miniW + 'px';
     } else {
       const ratio = miniW / svgW;
       const left = scrollLeft * ratio;
       const width = visibleW * ratio;
-      vp.style.left = Math.max(0, left) + 'px';
-      vp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
+      _mmVp.style.left = Math.max(0, left) + 'px';
+      _mmVp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
     }
+  }
+  // rAF-throttled 版本：scroll 高頻事件只用這個
+  let _mmRafPending = false;
+  function ispUpdateMinimapViewportThrottled() {
+    if (_mmRafPending) return;
+    _mmRafPending = true;
+    requestAnimationFrame(() => {
+      _mmRafPending = false;
+      ispUpdateMinimapViewport();
+    });
   }
 
   window.ispZoomH = function(dir) {
@@ -4556,6 +4575,7 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
           waveSvg.style.willChange = 'transform';
         }
       }, { passive: false });
+      let _pinchRafPending = false;
       waveBox.addEventListener('touchmove', (e) => {
         if (boxPinch && e.touches.length === 2) {
           e.preventDefault();
@@ -4564,10 +4584,16 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
           const d = Math.hypot(dx, dy);
           const ratio = d / boxPinch.d0;
           const newZoom = Math.max(0.001, Math.min(12, boxPinch.zoom0 * ratio));
-          const visualRatio = newZoom / boxPinch.zoom0;
-          waveSvg.style.transform = `scaleX(${visualRatio})`;
           ispZoomHVal = newZoom;
-          ispUpdateZoomDisplay();
+          if (!_pinchRafPending) {
+            _pinchRafPending = true;
+            requestAnimationFrame(() => {
+              _pinchRafPending = false;
+              const visualRatio = ispZoomHVal / boxPinch.zoom0;
+              waveSvg.style.transform = `scaleX(${visualRatio})`;
+              ispUpdateZoomDisplay();
+            });
+          }
         }
       }, { passive: false });
       const commitPinch = () => {
@@ -4588,15 +4614,14 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       });
       waveBox.addEventListener('touchcancel', () => commitPinch());
 
-      // scroll → update minimap viewport
-      waveBox.addEventListener('scroll', ispUpdateMinimapViewport, { passive: true });
-
-      // 2-pair scroll sync: pair 0 → pair 1
+      // scroll → update minimap viewport（rAF-throttled）+ pair sync
+      const _box1Ref = document.getElementById('isp-wave-box-1');
       waveBox.addEventListener('scroll', () => {
-        const box1 = document.getElementById('isp-wave-box-1');
-        if (box1 && box1.style.display !== 'none') {
-          box1.scrollLeft = waveBox.scrollLeft;
+        // pair sync
+        if (_box1Ref && _box1Ref.style.display !== 'none') {
+          _box1Ref.scrollLeft = waveBox.scrollLeft;
         }
+        ispUpdateMinimapViewportThrottled();
       }, { passive: true });
     }
 
@@ -4639,11 +4664,10 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     const waveBox1 = document.getElementById('isp-wave-box-1');
     if (waveBox1) {
       waveBox1.addEventListener('scroll', () => {
-        const box0 = document.getElementById('isp-wave-box');
-        if (box0 && waveBox1.style.display !== 'none') {
-          box0.scrollLeft = waveBox1.scrollLeft;
+        if (waveBox && waveBox1.style.display !== 'none') {
+          waveBox.scrollLeft = waveBox1.scrollLeft;
         }
-        ispUpdateMinimapViewport();
+        ispUpdateMinimapViewportThrottled();
       }, { passive: true });
     }
 
