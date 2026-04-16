@@ -620,10 +620,9 @@
     box-sizing: border-box;
     min-width: 6px;
   }
-  /* 全螢幕內部 SVG（H-only 縮放，V 高度固定） */
+  /* 全螢幕內部 SVG（H-only 縮放，V 高度由 JS 動態設定） */
   .isp-fs-svg {
     display: block;
-    height: 160px;
     flex: 0 0 auto;
   }
   /* 2-pair dual waveform */
@@ -632,15 +631,17 @@
     font-weight: 700;
     color: #a78bfa;
     margin-bottom: 2px;
-    margin-top: 8px;
+    margin-top: 4px;
+    padding-left: 4px;
+    position: sticky;
+    left: 0;
+    z-index: 1;
   }
   .isp-pair-label:first-child { margin-top: 0; }
   .isp-wave-svg.is-dual {
     height: 130px;
   }
-  .isp-fs-svg.is-dual {
-    height: 130px;
-  }
+  /* is-dual 高度由 JS 在 ispFsRender 動態設定 */
   .isp-minimap-box.is-dual {
     height: 72px;
   }
@@ -759,13 +760,7 @@
   .isp-rev-card { margin-top: 16px; }
   .isp-rev-card .card-header {
     background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
-    cursor: pointer; user-select: none;
   }
-  .isp-rev-card .card-header::after {
-    content: '▼'; float: right; font-size: 10px; transition: transform .2s;
-  }
-  .isp-rev-card.is-collapsed .card-header::after { transform: rotate(-90deg); }
-  .isp-rev-card.is-collapsed .card-body { display: none; }
   .isp-rev-wave-wrap {
     background: #000000; border: 1px solid #334155; border-radius: 8px;
     margin: 12px 0 6px; padding: 0; overflow: hidden;
@@ -2145,13 +2140,11 @@
         </div>
 
         <div id="isp-wave-container">
-          <div class="isp-pair-label" id="isp-pair0-label" style="display:none">Pair 0</div>
           <div class="isp-wave-box" id="isp-wave-box">
+            <div class="isp-pair-label" id="isp-pair0-label" style="display:none">Pair 0</div>
             <svg class="isp-wave-svg" id="isp-wave-svg" xmlns="http://www.w3.org/2000/svg"></svg>
-          </div>
-          <div class="isp-pair-label" id="isp-pair1-label" style="display:none">Pair 1</div>
-          <div class="isp-wave-box" id="isp-wave-box-1" style="display:none">
-            <svg class="isp-wave-svg" id="isp-wave-svg-1" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div class="isp-pair-label" id="isp-pair1-label" style="display:none">Pair 1</div>
+            <svg class="isp-wave-svg" id="isp-wave-svg-1" style="display:none" xmlns="http://www.w3.org/2000/svg"></svg>
           </div>
         </div>
 
@@ -2181,7 +2174,7 @@
 
     <!-- ─── 波形反推（8-bit only） ─── -->
     <div class="card isp-rev-card" id="isp-rev-card" style="display:none">
-      <div class="card-header" onclick="ispRevToggle()">
+      <div class="card-header">
         <span data-i18n="isp.revHeader">波形反推（8-bit）</span>
       </div>
       <div class="card-body">
@@ -3837,16 +3830,15 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
 
     const buildParams = {bits, rGray, gGray, bGray, pixelCount: pixels, bkBefore, bkAfter, regEnable, regBytes, polSign: ispPolSign, pixelData};
 
-    // UI elements for dual mode
+    // UI elements for dual mode (both SVGs are in the same scroll container now)
     const p0Label = document.getElementById('isp-pair0-label');
     const p1Label = document.getElementById('isp-pair1-label');
-    const waveBox1 = document.getElementById('isp-wave-box-1');
     const svg1 = document.getElementById('isp-wave-svg-1');
     const waveBox = document.getElementById('isp-wave-box');
     const miniBox = document.getElementById('isp-minimap-box');
 
     if (ispPairCount === 2) {
-      // ── 2-pair mode ──
+      // ── 2-pair mode (single scroll container) ──
       const frames = ispBuild2PairFrames(buildParams);
       const segs0 = frames.pair0;
       const segs1 = frames.pair1;
@@ -3857,10 +3849,10 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       ispLastPair1Segs = segs1;
       ispLastPair1TotalBits = totalBits1;
 
-      // Show dual UI
+      // Show dual UI — both SVGs inside the same isp-wave-box
       if (p0Label) p0Label.style.display = '';
       if (p1Label) p1Label.style.display = '';
-      if (waveBox1) waveBox1.style.display = '';
+      if (svg1) svg1.style.display = '';
       svg.classList.add('is-dual');
       if (svg1) svg1.classList.add('is-dual');
       if (miniBox) miniBox.classList.add('is-dual');
@@ -3874,7 +3866,7 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       svg.style.transform = '';
       svg.style.transformOrigin = '';
 
-      // Render pair 1
+      // Render pair 1 (same container, naturally scrolls together)
       if (svg1) {
         const r1 = ispBuildSvgInner(segs1, totalBits1, ispZoomHVal);
         svg1.setAttribute('viewBox', `0 0 ${r1.totalW} ${r1.totalH}`);
@@ -3883,11 +3875,6 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
         svg1.innerHTML = r1.html;
         svg1.style.transform = '';
         svg1.style.transformOrigin = '';
-      }
-
-      // Sync scroll between pair 0 and pair 1
-      if (waveBox && waveBox1) {
-        waveBox.scrollLeft = waveBox.scrollLeft; // keep current
       }
 
       // Info
@@ -3927,7 +3914,7 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       // Hide dual UI
       if (p0Label) p0Label.style.display = 'none';
       if (p1Label) p1Label.style.display = 'none';
-      if (waveBox1) waveBox1.style.display = 'none';
+      if (svg1) svg1.style.display = 'none';
       svg.classList.remove('is-dual');
       if (svg1) svg1.classList.remove('is-dual');
       if (miniBox) miniBox.classList.remove('is-dual');
@@ -4271,19 +4258,28 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     if (ispFs.p1Label) ispFs.p1Label.style.display = (ispPairCount === 2) ? '' : 'none';
     if (ispFs.svg1) ispFs.svg1.style.display = (ispPairCount === 2) ? '' : 'none';
 
-    // Update dual class
-    if (ispFs.svg) {
-      if (ispPairCount === 2) ispFs.svg.classList.add('is-dual');
-      else ispFs.svg.classList.remove('is-dual');
-    }
-    if (ispFs.svg1) {
-      if (ispPairCount === 2) ispFs.svg1.classList.add('is-dual');
-      else ispFs.svg1.classList.remove('is-dual');
+    // Dynamic height: landscape 2-pair fills screen, otherwise use natural SVG height (=reverse lookup)
+    const isLandscape = window.innerWidth > window.innerHeight;
+    const toolbarH = 47; // top bar height approx
+    const labelH = 24;   // pair label height approx
+    if (ispPairCount === 2 && isLandscape) {
+      // Fill viewport: available = screen - toolbar - 2 labels, split between 2 pairs
+      const availH = window.innerHeight - toolbarH - labelH * 2;
+      const pairH = Math.max(80, Math.floor(availH / 2));
+      ispFs.svg.style.height = pairH + 'px';
+      if (ispFs.svg1) ispFs.svg1.style.height = pairH + 'px';
+    } else if (ispPairCount === 2) {
+      // Portrait 2-pair: use natural height (matches reverse lookup)
+      ispFs.svg.style.height = r0.totalH + 'px';
+      if (ispFs.svg1) ispFs.svg1.style.height = r0.totalH + 'px';
+    } else {
+      // 1-pair: natural height (= reverse lookup proportions)
+      ispFs.svg.style.height = r0.totalH + 'px';
     }
   }
 
   function ispFsFit() {
-    // 初始 zoomH：讓全部波形剛好 fit 到 stage 寬度（V 高度永遠 = 160px）
+    // 初始 zoomH：讓全部波形剛好 fit 到 stage 寬度（V 高度動態計算）
     if (!ispFs || !ispFs.stage || ispLastTotalBits <= 0) return;
     const stageW = ispFs.stage.clientWidth || window.innerWidth;
     const basePerBit = 12;
@@ -4384,6 +4380,15 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
         if (lb) window.ispCloseLightbox();
       }
     });
+
+    // Orientation / resize → re-render fullscreen (dynamic height recalc)
+    const fsResizeHandler = () => {
+      if (ispFs && ispFs.open) ispFsRender();
+    };
+    window.addEventListener('orientationchange', () => setTimeout(fsResizeHandler, 200));
+    window.addEventListener('resize', () => {
+      if (ispFs && ispFs.open) requestAnimationFrame(fsResizeHandler);
+    });
   }
 
   window.ispOpenLightbox = function() {
@@ -4423,7 +4428,7 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       ispFs.p1Label = lb.querySelector('#isp-fs-p1-label');
       ispFs.open = true;
     }
-    // 用主頁當前 segs 做初始 render（V 高度 = 160 固定）
+    // 用主頁當前 segs 做初始 render（V 高度動態計算）
     ispFsZoomH = ispZoomHVal;
     ispFsRender();
     // 下一幀 layout 完成後再 fit 一次（若太寬自動縮到 fit-screen）
@@ -4623,12 +4628,6 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       }
     }
   }
-
-  // Toggle collapse
-  window.ispRevToggle = function() {
-    const card = document.getElementById('isp-rev-card');
-    if (card) card.classList.toggle('is-collapsed');
-  };
 
   // 初始化：綁定 slider/number 雙向
   function ispInit() {
@@ -4841,9 +4840,6 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     bindModeBC('dec');
 
     // --- #2 嵌入波形雙指縮放（連續流暢 preview + touchend commit） ---
-    // CRITICAL: _scrollLock shared between pair 0 & pair 1 scroll handlers
-    // prevents A→B→A scroll ping-pong loop in 2-pair mode
-    let _scrollLock = false;
     const waveBox = document.getElementById('isp-wave-box');
     const waveSvg = document.getElementById('isp-wave-svg');
     if (waveBox && waveSvg) {
@@ -4903,16 +4899,9 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       });
       waveBox.addEventListener('touchcancel', () => commitPinch());
 
-      // scroll → update minimap viewport（rAF-throttled）+ pair sync
-      const _box1Ref = document.getElementById('isp-wave-box-1');
+      // scroll → update minimap viewport（rAF-throttled）
       waveBox.addEventListener('scroll', () => {
-        if (_scrollLock) return;
-        _scrollLock = true;
-        if (_box1Ref && _box1Ref.style.display !== 'none') {
-          _box1Ref.scrollLeft = waveBox.scrollLeft;
-        }
         ispUpdateMinimapViewportThrottled();
-        requestAnimationFrame(() => { _scrollLock = false; });
       }, { passive: true });
     }
 
@@ -4949,20 +4938,6 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       }, { passive: false });
       minimap.addEventListener('touchend', () => { miniTouching = false; });
       minimap.addEventListener('touchcancel', () => { miniTouching = false; });
-    }
-
-    // 2-pair: pair 1 wave box scroll sync (shares _scrollLock with pair 0)
-    const waveBox1 = document.getElementById('isp-wave-box-1');
-    if (waveBox1) {
-      waveBox1.addEventListener('scroll', () => {
-        if (_scrollLock) return;
-        _scrollLock = true;
-        if (waveBox && waveBox1.style.display !== 'none') {
-          waveBox.scrollLeft = waveBox1.scrollLeft;
-        }
-        ispUpdateMinimapViewportThrottled();
-        requestAnimationFrame(() => { _scrollLock = false; });
-      }, { passive: true });
     }
 
     // 視窗大小改變 → 重新 render（讓 minimap 寬度重新計算）
