@@ -3841,15 +3841,29 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       }
     });
 
-    // ResizeObserver：minimap 尺寸變化（頁面首次切換、視窗調整）即時重算
+    // ResizeObserver + MutationObserver：minimap 尺寸變化或 iSP 頁切入時即時重算
+    const refreshMinimap = () => {
+      if (ispLastSegs && ispLastTotalBits > 0 && minimap && minimap.clientWidth > 0) {
+        ispRenderMinimap(ispLastSegs, ispLastTotalBits);
+        ispUpdateMinimapViewport();
+      }
+    };
     if (typeof ResizeObserver !== 'undefined' && minimap) {
-      const ro = new ResizeObserver(() => {
-        if (ispLastSegs && ispLastTotalBits > 0) {
-          ispRenderMinimap(ispLastSegs, ispLastTotalBits);
-          ispUpdateMinimapViewport();
-        }
-      });
+      const ro = new ResizeObserver(refreshMinimap);
       ro.observe(minimap);
+    }
+    // MutationObserver 監聽 page-isp 的 display 變化（home/rxtx/calc → isp 切換）
+    if (typeof MutationObserver !== 'undefined') {
+      const pageIsp = document.getElementById('page-isp');
+      if (pageIsp) {
+        const mo = new MutationObserver(() => {
+          if (pageIsp.style.display !== 'none') {
+            // 下一幀 layout 完成後再 refresh
+            requestAnimationFrame(() => requestAnimationFrame(refreshMinimap));
+          }
+        });
+        mo.observe(pageIsp, { attributes: true, attributeFilter: ['style'] });
+      }
     }
 
     // 初始渲染
