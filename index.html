@@ -558,17 +558,21 @@
     background: #000000;
     border: 1px solid #334155;
     border-radius: 8px;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     /* 單指 pan 交給瀏覽器，2 指 pinch 交給 JS（不含 pinch-zoom，使 JS 能接到 2 指事件） */
     touch-action: pan-x pan-y;
     position: relative;
     contain: layout style;
+    will-change: scroll-position;
   }
   .isp-wave-svg {
     display: block;
     height: 160px;
     min-width: 100%;
+    will-change: transform;
+    transform: translateZ(0);
   }
   .isp-wave-hint {
     font-size: 10px;
@@ -762,33 +766,27 @@
   }
   .isp-rev-card.is-collapsed .card-header::after { transform: rotate(-90deg); }
   .isp-rev-card.is-collapsed .card-body { display: none; }
-  .isp-rev-bits {
-    display: flex; gap: 4px; justify-content: center; align-items: flex-start;
-    flex-wrap: wrap; margin: 12px 0 8px;
+  .isp-rev-wave-wrap {
+    background: #000000; border: 1px solid #334155; border-radius: 8px;
+    margin: 12px 0 6px; padding: 0; overflow: hidden;
   }
-  .isp-rev-bit-col {
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  .isp-rev-wave-wrap svg { display: block; width: 100%; cursor: pointer; }
+  .isp-rev-cb-row {
+    display: flex; justify-content: space-around; padding: 4px 6px 6px;
   }
-  .isp-rev-bit-label {
-    font-size: 10px; color: var(--text-sub); font-weight: 600;
+  .isp-rev-cb-col {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    flex: 1;
   }
-  .isp-rev-wave-cell {
-    width: 28px; height: 36px; border: 1.5px solid #334155;
-    border-radius: 4px; background: #0f172a; position: relative; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: border-color .15s;
+  .isp-rev-cb-col label {
+    font-size: 9px; color: var(--text-sub); font-weight: 600; cursor: pointer;
   }
-  .isp-rev-wave-cell.is-high { border-color: #22c55e; }
-  .isp-rev-wave-cell svg { width: 22px; height: 30px; }
-  .isp-rev-cb-wrap {
-    display: flex; align-items: center; justify-content: center;
-  }
-  .isp-rev-cb-wrap input[type="checkbox"] {
-    width: 18px; height: 18px; accent-color: #22c55e; cursor: pointer;
+  .isp-rev-cb-col input[type="checkbox"] {
+    width: 16px; height: 16px; accent-color: #22c55e; cursor: pointer;
   }
   .isp-rev-9b-val {
     text-align: center; font-family: 'SF Mono', monospace; font-size: 13px;
-    color: #93c5fd; margin: 6px 0 14px; font-weight: 600;
+    color: #93c5fd; margin: 4px 0 12px; font-weight: 600;
   }
   .isp-rev-results { display: flex; flex-direction: column; gap: 10px; }
   .isp-rev-result-row {
@@ -2188,8 +2186,12 @@
       </div>
       <div class="card-body">
         <div class="hint" data-i18n="isp.revHint">輸入示波器上看到的 9-bit 波形，即時反推可能的 Command 或 Data Level</div>
-        <!-- 9-bit waveform input -->
-        <div class="isp-rev-bits" id="isp-rev-bits"></div>
+        <!-- 9-bit waveform display (matches main waveform style) -->
+        <div class="isp-rev-wave-wrap" id="isp-rev-wave-wrap">
+          <svg id="isp-rev-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <!-- Checkboxes row below waveform -->
+        <div class="isp-rev-cb-row" id="isp-rev-cb-row"></div>
         <!-- 9-bit hex value display -->
         <div class="isp-rev-9b-val" id="isp-rev-9b-val">0x000 (000000000)</div>
         <!-- Results -->
@@ -4443,56 +4445,115 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
   // ═══════════ 波形反推（Reverse Lookup）═══════════
   // 9-bit checkbox → reverse lookup against ISP_CTRL + ISP_BK_PLL + DLL/PLL LUT
   const _revBits = [0,0,0,0,0,0,0,0,0]; // b0..b8 (LSB-first)
+  const _revCBs = []; // checkbox references
 
   function ispRevBuildUI() {
-    const container = document.getElementById('isp-rev-bits');
-    if (!container) return;
-    container.innerHTML = '';
+    // Build checkbox row
+    const cbRow = document.getElementById('isp-rev-cb-row');
+    if (!cbRow) return;
+    cbRow.innerHTML = '';
+    _revCBs.length = 0;
     for (let i = 0; i < 9; i++) {
       const col = document.createElement('div');
-      col.className = 'isp-rev-bit-col';
-      // Label
-      const lbl = document.createElement('div');
-      lbl.className = 'isp-rev-bit-label';
-      lbl.textContent = 'b' + i;
-      col.appendChild(lbl);
-      // Wave cell (mini waveform showing 0 or 1)
-      const cell = document.createElement('div');
-      cell.className = 'isp-rev-wave-cell';
-      cell.dataset.idx = i;
-      cell.innerHTML = _revMiniSVG(0);
-      cell.addEventListener('click', () => {
-        _revBits[i] = _revBits[i] ? 0 : 1;
-        cell.innerHTML = _revMiniSVG(_revBits[i]);
-        cell.classList.toggle('is-high', _revBits[i] === 1);
-        ispRevUpdate();
-      });
-      col.appendChild(cell);
-      // Checkbox
-      const cbWrap = document.createElement('div');
-      cbWrap.className = 'isp-rev-cb-wrap';
+      col.className = 'isp-rev-cb-col';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.dataset.idx = i;
+      cb.id = 'isp-rev-cb-' + i;
+      const idx = i;
       cb.addEventListener('change', () => {
-        _revBits[i] = cb.checked ? 1 : 0;
-        cell.innerHTML = _revMiniSVG(_revBits[i]);
-        cell.classList.toggle('is-high', _revBits[i] === 1);
+        _revBits[idx] = cb.checked ? 1 : 0;
+        ispRevRenderWave();
         ispRevUpdate();
       });
-      cbWrap.appendChild(cb);
-      col.appendChild(cbWrap);
-      container.appendChild(col);
+      const lbl = document.createElement('label');
+      lbl.htmlFor = cb.id;
+      lbl.textContent = 'b' + i;
+      col.appendChild(lbl);
+      col.appendChild(cb);
+      cbRow.appendChild(col);
+      _revCBs.push(cb);
     }
+    // Click on SVG waveform to toggle bits
+    const svg = document.getElementById('isp-rev-svg');
+    if (svg) {
+      svg.addEventListener('click', (e) => {
+        const rect = svg.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const svgW = rect.width;
+        const pad = svgW * 6 / _revSvgTotalW();
+        const bitAreaW = svgW - 2 * pad;
+        const bitIdx = Math.floor((x - pad) / (bitAreaW / 9));
+        if (bitIdx >= 0 && bitIdx < 9) {
+          _revBits[bitIdx] = _revBits[bitIdx] ? 0 : 1;
+          if (_revCBs[bitIdx]) _revCBs[bitIdx].checked = !!_revBits[bitIdx];
+          ispRevRenderWave();
+          ispRevUpdate();
+        }
+      });
+    }
+    ispRevRenderWave();
   }
 
-  function _revMiniSVG(val) {
-    // Simple waveform: low = flat bottom line, high = flat top line
-    if (val) {
-      return '<svg viewBox="0 0 22 30"><line x1="0" y1="6" x2="22" y2="6" stroke="#22c55e" stroke-width="2.5"/></svg>';
-    } else {
-      return '<svg viewBox="0 0 22 30"><line x1="0" y1="24" x2="22" y2="24" stroke="#64748b" stroke-width="2.5"/></svg>';
+  function _revSvgTotalW() {
+    // Match main waveform proportions: 9 bits × 12px base + 2×6 pad
+    return 9 * 12 + 12;
+  }
+
+  function ispRevRenderWave() {
+    const svg = document.getElementById('isp-rev-svg');
+    if (!svg) return;
+    // Use exact same dimensions/proportions as ispBuildSvgInner
+    const bitW = 12; // base per bit (zoom = 1)
+    const pad = 6;
+    const labelH = 22;
+    const waveH = 72;
+    const axisH = 22;
+    const totalW = 9 * bitW + pad * 2;
+    const totalH = labelH + waveH + axisH;
+    const signalY0 = labelH + waveH - 4;
+    const signalY1 = labelH + 4;
+
+    const parts = [];
+    // Background reference lines (dashed)
+    parts.push('<line x1="' + pad + '" y1="' + signalY1 + '" x2="' + (totalW - pad) + '" y2="' + signalY1 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
+    parts.push('<line x1="' + pad + '" y1="' + signalY0 + '" x2="' + (totalW - pad) + '" y2="' + signalY0 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
+    // Level labels
+    parts.push('<text x="' + (pad - 2) + '" y="' + (signalY1 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">1</text>');
+    parts.push('<text x="' + (pad - 2) + '" y="' + (signalY0 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">0</text>');
+
+    // Bit dividers + bit labels
+    for (let b = 0; b <= 9; b++) {
+      const bx = pad + b * bitW;
+      parts.push('<line x1="' + bx + '" y1="' + labelH + '" x2="' + bx + '" y2="' + (labelH + waveH) + '" stroke="' + (b === 0 || b === 9 ? '#475569' : '#1e293b') + '" stroke-width="' + (b === 0 || b === 9 ? '1' : '0.5') + '"/>');
     }
+    for (let b = 0; b < 9; b++) {
+      const bx = pad + b * bitW + bitW / 2;
+      parts.push('<text x="' + bx + '" y="' + (labelH + waveH + 13) + '" text-anchor="middle" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">' + _revBits[b] + '</text>');
+      // Label bar at top (b0..b8)
+      parts.push('<text x="' + bx + '" y="' + (labelH - 6) + '" text-anchor="middle" fill="#94a3b8" font-size="9" font-weight="600" font-family="-apple-system,system-ui,sans-serif">b' + b + '</text>');
+    }
+
+    // Waveform path (step wave, identical to main)
+    let d = '';
+    let lastY = -1;
+    for (let b = 0; b < 9; b++) {
+      const bx0 = pad + b * bitW;
+      const bx1 = bx0 + bitW;
+      const y = _revBits[b] ? signalY1 : signalY0;
+      if (d === '') {
+        d = 'M ' + bx0 + ' ' + y;
+        lastY = y;
+      } else if (y !== lastY) {
+        d += ' L ' + bx0 + ' ' + lastY + ' L ' + bx0 + ' ' + y;
+        lastY = y;
+      }
+      d += ' L ' + bx1 + ' ' + y;
+      lastY = y;
+    }
+    parts.push('<path d="' + d + '" stroke="#22c55e" stroke-width="1.8" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>');
+
+    svg.setAttribute('viewBox', '0 0 ' + totalW + ' ' + totalH);
+    svg.innerHTML = parts.join('');
   }
 
   function ispRevUpdate() {
@@ -4780,6 +4841,9 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     bindModeBC('dec');
 
     // --- #2 嵌入波形雙指縮放（連續流暢 preview + touchend commit） ---
+    // CRITICAL: _scrollLock shared between pair 0 & pair 1 scroll handlers
+    // prevents A→B→A scroll ping-pong loop in 2-pair mode
+    let _scrollLock = false;
     const waveBox = document.getElementById('isp-wave-box');
     const waveSvg = document.getElementById('isp-wave-svg');
     if (waveBox && waveSvg) {
@@ -4842,11 +4906,13 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       // scroll → update minimap viewport（rAF-throttled）+ pair sync
       const _box1Ref = document.getElementById('isp-wave-box-1');
       waveBox.addEventListener('scroll', () => {
-        // pair sync
+        if (_scrollLock) return;
+        _scrollLock = true;
         if (_box1Ref && _box1Ref.style.display !== 'none') {
           _box1Ref.scrollLeft = waveBox.scrollLeft;
         }
         ispUpdateMinimapViewportThrottled();
+        requestAnimationFrame(() => { _scrollLock = false; });
       }, { passive: true });
     }
 
@@ -4885,14 +4951,17 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       minimap.addEventListener('touchcancel', () => { miniTouching = false; });
     }
 
-    // 2-pair: pair 1 wave box scroll sync + pinch
+    // 2-pair: pair 1 wave box scroll sync (shares _scrollLock with pair 0)
     const waveBox1 = document.getElementById('isp-wave-box-1');
     if (waveBox1) {
       waveBox1.addEventListener('scroll', () => {
+        if (_scrollLock) return;
+        _scrollLock = true;
         if (waveBox && waveBox1.style.display !== 'none') {
           waveBox.scrollLeft = waveBox1.scrollLeft;
         }
         ispUpdateMinimapViewportThrottled();
+        requestAnimationFrame(() => { _scrollLock = false; });
       }, { passive: true });
     }
 
