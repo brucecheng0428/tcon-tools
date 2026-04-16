@@ -1169,7 +1169,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.1</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.2</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1203,7 +1203,7 @@
       <div class="tool-card" onclick="showPage('isp')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><path d="M1 17 L4 17 L4 5 L7 5 L7 17 L10 17 L10 5 L13 5 L13 17 L16 17 L16 5 L19 5 L19 17 L22 17 L22 5 L25 5 L25 17 L29 17" stroke="#a78bfa" stroke-width="1.8" fill="none" stroke-linejoin="miter"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.2</span></div>
           <div class="tool-card-desc" data-i18n="home.ispDesc">8B9B 編碼、Control Code 產生 iSP 差動訊號波形</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3724,13 +3724,24 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
   }
 
   // 純函式：給定 segs + totalBits + zoomH，回傳 SVG inner HTML 與尺寸
-  function ispBuildSvgInner(segs, totalBits, zoomH) {
+  // opts.overrideH: 若提供，用此高度作為 totalH，依比例放大 labelH/waveH/axisH
+  function ispBuildSvgInner(segs, totalBits, zoomH, opts) {
     const basePerBit = 12;
     const bitW = basePerBit * zoomH;
     const pad = 6;
-    const labelH = 22;
-    const waveH = 72;
-    const axisH = 22;
+    let labelH = 22;
+    let waveH = 72;
+    let axisH = 22;
+    let fontScale = 1;
+    if (opts && opts.overrideH && opts.overrideH > 0) {
+      const oh = opts.overrideH;
+      // 按比例分配，但 labelH 和 axisH 上限避免佔太多
+      const baseTotal = 116;
+      fontScale = Math.min(3, oh / baseTotal);
+      labelH = Math.max(18, Math.min(60, Math.round(22 * fontScale)));
+      axisH  = Math.max(16, Math.min(50, Math.round(22 * fontScale)));
+      waveH  = Math.max(40, oh - labelH - axisH);
+    }
     const totalW = Math.max(200, Math.round(totalBits * bitW + pad * 2));
     const totalH = labelH + waveH + axisH;
 
@@ -4323,21 +4334,42 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
 
   function ispFsRender() {
     if (!ispFs || !ispFs.svg || !ispLastSegs) return;
-    const r0 = ispBuildSvgInner(ispLastSegs, ispLastTotalBits, ispFsZoomH);
+
+    // ── Step 1: 計算每條波形可用高度（先算高度，再傳給 ispBuildSvgInner） ──
+    const toolbarH = 47;  // 提示列
+    const minimapH = 56;  // minimap wrap (44px box + 12px padding)
+    const pairLabelH = 22; // pair label
+    const padExtra = 4;
+    const screenH = window.innerHeight;
+
+    let pairH;
+    if (ispPairCount === 2) {
+      const availH = screenH - toolbarH - minimapH - pairLabelH * 2 - padExtra;
+      pairH = Math.max(100, Math.floor(availH / 2));
+    } else {
+      const availH = screenH - toolbarH - minimapH - padExtra;
+      pairH = Math.max(100, availH);
+    }
+
+    // ── Step 2: 用 overrideH 建立波形（viewBox 高度 = pairH，內部座標填滿） ──
+    const fsOpts = { overrideH: pairH };
+    const r0 = ispBuildSvgInner(ispLastSegs, ispLastTotalBits, ispFsZoomH, fsOpts);
     ispFs.svg.setAttribute('viewBox', `0 0 ${r0.totalW} ${r0.totalH}`);
     ispFs.svg.setAttribute('width', r0.totalW);
     ispFs.svg.setAttribute('height', r0.totalH);
     ispFs.svg.innerHTML = r0.html;
+    ispFs.svg.style.height = '';  // 清除舊的 style.height，用 SVG 自身 height attr
     ispFs.svg.style.transform = '';
     ispFs.svg.style.transformOrigin = '';
 
     // 2-pair: render pair 1
     if (ispPairCount === 2 && ispFs.svg1 && ispLastPair1Segs) {
-      const r1 = ispBuildSvgInner(ispLastPair1Segs, ispLastPair1TotalBits, ispFsZoomH);
+      const r1 = ispBuildSvgInner(ispLastPair1Segs, ispLastPair1TotalBits, ispFsZoomH, fsOpts);
       ispFs.svg1.setAttribute('viewBox', `0 0 ${r1.totalW} ${r1.totalH}`);
       ispFs.svg1.setAttribute('width', r1.totalW);
       ispFs.svg1.setAttribute('height', r1.totalH);
       ispFs.svg1.innerHTML = r1.html;
+      ispFs.svg1.style.height = '';
       ispFs.svg1.style.transform = '';
       ispFs.svg1.style.transformOrigin = '';
     }
@@ -4346,29 +4378,6 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     if (ispFs.p0Label) ispFs.p0Label.style.display = (ispPairCount === 2) ? '' : 'none';
     if (ispFs.p1Label) ispFs.p1Label.style.display = (ispPairCount === 2) ? '' : 'none';
     if (ispFs.svg1) ispFs.svg1.style.display = (ispPairCount === 2) ? '' : 'none';
-
-    // ── Dynamic height: fill available screen space ──
-    // Fixed element heights
-    const toolbarH = 47;  // top hint bar
-    const minimapH = 56;  // minimap wrap (44px box + 12px padding)
-    const labelH = 22;    // pair label height
-    const padExtra = 8;   // breathing room
-
-    const screenH = window.innerHeight;
-    const isLandscape = window.innerWidth > window.innerHeight;
-
-    if (ispPairCount === 2) {
-      // 2 labels + 2 SVGs + toolbar + minimap
-      const availH = screenH - toolbarH - minimapH - labelH * 2 - padExtra;
-      const pairH = Math.max(80, Math.floor(availH / 2));
-      ispFs.svg.style.height = pairH + 'px';
-      if (ispFs.svg1) ispFs.svg1.style.height = pairH + 'px';
-    } else {
-      // 1-pair: 1 SVG + toolbar + minimap
-      const availH = screenH - toolbarH - minimapH - padExtra;
-      const pairH = Math.max(80, availH);
-      ispFs.svg.style.height = pairH + 'px';
-    }
 
     // ── Fullscreen minimap ──
     ispFsRenderMinimap();
