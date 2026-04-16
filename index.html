@@ -1089,7 +1089,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.8.2</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.8.3</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1123,7 +1123,7 @@
       <div class="tool-card" onclick="showPage('isp')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><path d="M1 17 L4 17 L4 5 L7 5 L7 17 L10 17 L10 5 L13 5 L13 17 L16 17 L16 5 L19 5 L19 17 L22 17 L22 5 L25 5 L25 17 L29 17" stroke="#a78bfa" stroke-width="1.8" fill="none" stroke-linejoin="miter"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.1</span></div>
           <div class="tool-card-desc" data-i18n="home.ispDesc">8B9B 編碼、Control Code 產生 iSP 差動訊號波形</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3187,17 +3187,20 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
 
   // 6-bit mode 下 Data 區的 byte segments：LSB-first 串流切 byte，每 byte 過 8B9B DLL 編碼。
   // 回傳 segs 陣列，每個 seg 對應一個 8B9B packet（9 bits）。
+  // 每個 seg 另帶 componentStripe（9 entry）：index 0 為 DLL marker（null），
+  // index 1..8 對應原始 byte 的 bit0..bit7，每 entry 標註其所屬的 R/G/B 與 pixel 編號。
   function ispBuild6bDataSegs(rGray, gGray, bGray, pixelCount) {
     const segs = [];
     const stream = [];
+    const compStream = []; // 與 stream 等長：每個 raw bit 對應 {c:'R'|'G'|'B', p: pixel#} 或 null（padding）
     // Build LSB-first bit stream: R[0..5] G[0..5] B[0..5] per pixel
-    for (let p = 0; p < pixelCount; p++) {
-      for (let i = 0; i < 6; i++) stream.push((rGray >> i) & 1);
-      for (let i = 0; i < 6; i++) stream.push((gGray >> i) & 1);
-      for (let i = 0; i < 6; i++) stream.push((bGray >> i) & 1);
+    for (let p = 1; p <= pixelCount; p++) {
+      for (let i = 0; i < 6; i++) { stream.push((rGray >> i) & 1); compStream.push({c:'R', p}); }
+      for (let i = 0; i < 6; i++) { stream.push((gGray >> i) & 1); compStream.push({c:'G', p}); }
+      for (let i = 0; i < 6; i++) { stream.push((bGray >> i) & 1); compStream.push({c:'B', p}); }
     }
     // Pad 到 8 的倍數（末端補 0）
-    while (stream.length % 8 !== 0) stream.push(0);
+    while (stream.length % 8 !== 0) { stream.push(0); compStream.push(null); }
     const totalBytes = stream.length / 8;
     for (let k = 0; k < totalBytes; k++) {
       const bitStart = k * 8;
@@ -3205,7 +3208,11 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       let byte = 0;
       for (let j = 0; j < 8; j++) byte |= (stream[bitStart + j] << j);
       const label = ispBuild6bByteLabel(bitStart, bitEnd, pixelCount);
-      segs.push({ label, color: COLOR.PACKED, bits: ispEncode8bDLL(byte) });
+      const encoded = ispEncode8bDLL(byte);
+      // componentStripe 對齊 encoded 的 9 bits：[null(DLL), bit0, bit1, ..., bit7]
+      const componentStripe = [null];
+      for (let j = 0; j < 8; j++) componentStripe.push(compStream[bitStart + j] || null);
+      segs.push({ label, color: COLOR.PACKED, bits: encoded, componentStripe });
     }
     return segs;
   }
@@ -3313,8 +3320,17 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       const segW = seg.bits.length * bitW;
       const isPol = (seg.kind === 'pol');
       const polAttrs = isPol ? ' onclick="ispTogglePol()" style="cursor:pointer;"' : '';
-      // 背景淡色
+      // 背景淡色（6-bit mode 下另外疊 R/G/B 淡色條紋在資料 bit 上，呈現 byte 內的 component 分佈）
       parts.push(`<rect x="${cursorX}" y="${labelH}" width="${segW}" height="${waveH}" fill="${seg.color}" fill-opacity="0.10"${polAttrs}/>`);
+      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length) {
+        for (let j = 0; j < seg.componentStripe.length; j++) {
+          const entry = seg.componentStripe[j];
+          if (!entry) continue;
+          const compColor = entry.c === 'R' ? COLOR.R : (entry.c === 'G' ? COLOR.G : COLOR.B);
+          const bx = cursorX + j * bitW;
+          parts.push(`<rect x="${bx}" y="${labelH}" width="${bitW}" height="${waveH}" fill="${compColor}" fill-opacity="0.10"/>`);
+        }
+      }
       // Label 色塊
       if (segW > 1.5) {
         parts.push(`<rect x="${cursorX + 0.5}" y="1" width="${Math.max(0.5, segW - 1)}" height="${labelH - 3}" fill="${seg.color}" rx="2"${polAttrs}/>`);
@@ -3323,6 +3339,18 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       }
       if (segW > 14) {
         parts.push(`<text x="${cursorX + segW/2}" y="${labelH - 6}" text-anchor="middle" fill="white" font-size="10" font-weight="700"${polAttrs}>${seg.label}</text>`);
+      }
+      // 6-bit mode component stripe：在 label 色塊底部畫 R/G/B sub-color 條紋，視覺上呈現 byte 邊界跨 pixel 18-bit 結構
+      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length) {
+        const stripeH = 3.5;
+        const stripeY = labelH - 3 - stripeH - 0.5;
+        for (let j = 0; j < seg.componentStripe.length; j++) {
+          const entry = seg.componentStripe[j];
+          if (!entry) continue; // DLL marker 或 padding，保留底層深紫
+          const compColor = entry.c === 'R' ? COLOR.R : (entry.c === 'G' ? COLOR.G : COLOR.B);
+          const bx = cursorX + j * bitW;
+          parts.push(`<rect x="${bx + 0.2}" y="${stripeY}" width="${Math.max(0.4, bitW - 0.4)}" height="${stripeH}" fill="${compColor}"/>`);
+        }
       }
       parts.push(`<line x1="${cursorX}" y1="${labelH}" x2="${cursorX}" y2="${labelH + waveH}" stroke="#475569" stroke-width="1"/>`);
 
