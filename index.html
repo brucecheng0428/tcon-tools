@@ -1169,7 +1169,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.1</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1203,7 +1203,7 @@
       <div class="tool-card" onclick="showPage('isp')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><path d="M1 17 L4 17 L4 5 L7 5 L7 17 L10 17 L10 5 L13 5 L13 17 L16 17 L16 5 L19 5 L19 17 L22 17 L22 5 L25 5 L25 17 L29 17" stroke="#a78bfa" stroke-width="1.8" fill="none" stroke-linejoin="miter"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.1</span></div>
           <div class="tool-card-desc" data-i18n="home.ispDesc">8B9B 編碼、Control Code 產生 iSP 差動訊號波形</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -4347,23 +4347,97 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     if (ispFs.p1Label) ispFs.p1Label.style.display = (ispPairCount === 2) ? '' : 'none';
     if (ispFs.svg1) ispFs.svg1.style.display = (ispPairCount === 2) ? '' : 'none';
 
-    // Dynamic height: landscape 2-pair fills screen, otherwise use natural SVG height (=reverse lookup)
+    // ── Dynamic height: fill available screen space ──
+    // Fixed element heights
+    const toolbarH = 47;  // top hint bar
+    const minimapH = 56;  // minimap wrap (44px box + 12px padding)
+    const labelH = 22;    // pair label height
+    const padExtra = 8;   // breathing room
+
+    const screenH = window.innerHeight;
     const isLandscape = window.innerWidth > window.innerHeight;
-    const toolbarH = 47; // top bar height approx
-    const labelH = 24;   // pair label height approx
-    if (ispPairCount === 2 && isLandscape) {
-      // Fill viewport: available = screen - toolbar - 2 labels, split between 2 pairs
-      const availH = window.innerHeight - toolbarH - labelH * 2;
+
+    if (ispPairCount === 2) {
+      // 2 labels + 2 SVGs + toolbar + minimap
+      const availH = screenH - toolbarH - minimapH - labelH * 2 - padExtra;
       const pairH = Math.max(80, Math.floor(availH / 2));
       ispFs.svg.style.height = pairH + 'px';
       if (ispFs.svg1) ispFs.svg1.style.height = pairH + 'px';
-    } else if (ispPairCount === 2) {
-      // Portrait 2-pair: 2x natural height for better visibility
-      ispFs.svg.style.height = (r0.totalH * 2) + 'px';
-      if (ispFs.svg1) ispFs.svg1.style.height = (r0.totalH * 2) + 'px';
     } else {
-      // 1-pair portrait: 2x natural height for better visibility
-      ispFs.svg.style.height = (r0.totalH * 2) + 'px';
+      // 1-pair: 1 SVG + toolbar + minimap
+      const availH = screenH - toolbarH - minimapH - padExtra;
+      const pairH = Math.max(80, availH);
+      ispFs.svg.style.height = pairH + 'px';
+    }
+
+    // ── Fullscreen minimap ──
+    ispFsRenderMinimap();
+    ispFsUpdateMinimapVp();
+  }
+
+  // Fullscreen minimap rendering (reuse logic from normal minimap)
+  function ispFsRenderMinimap() {
+    if (!ispFs || !ispFs.miniSvg || !ispFs.miniBox) return;
+    const boxW = ispFs.miniBox.clientWidth || 300;
+    const isDual = (ispPairCount === 2 && ispLastPair1Segs && ispLastPair1TotalBits > 0);
+    const boxH = isDual ? 58 : 44;
+    ispFs.miniBox.style.height = boxH + 'px';
+
+    if (isDual) {
+      // 2-pair minimap: top half = pair 0, bottom half = pair 1
+      const halfH = boxH / 2;
+      const gap = 1;
+      const parts = [];
+      parts.push(`<line x1="0" y1="${halfH}" x2="${boxW}" y2="${halfH}" stroke="#475569" stroke-width="0.5"/>`);
+
+      function drawHalf(segs, totalBits, yOff, h) {
+        const lH = 5, wTop = yOff + lH + 1, wH = h - lH - 2;
+        const bW = boxW / totalBits;
+        let cx = 0;
+        segs.forEach(seg => { const w = seg.bits.length * bW; parts.push(`<rect x="${cx}" y="${yOff}" width="${w}" height="${lH}" fill="${seg.color}"/>`); cx += w; });
+        let d = '', ly = -1; cx = 0;
+        const y1 = wTop + 1, y0 = wTop + wH - 1;
+        segs.forEach(seg => { for (let b = 0; b < seg.bits.length; b++) { const bx0 = cx, bx1 = bx0 + bW, y = seg.bits[b] ? y1 : y0; if (d === '') { d = `M ${bx0} ${y}`; ly = y; } else if (y !== ly) { d += ` L ${bx0} ${ly} L ${bx0} ${y}`; ly = y; } d += ` L ${bx1} ${y}`; ly = y; cx += bW; }});
+        parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="1" fill="none"/>`);
+      }
+      drawHalf(ispLastSegs, ispLastTotalBits, 0, halfH - gap);
+      drawHalf(ispLastPair1Segs, ispLastPair1TotalBits, halfH + gap, halfH - gap);
+      parts.push(`<text x="3" y="10" fill="#a78bfa" font-size="8" font-weight="700">P0</text>`);
+      parts.push(`<text x="3" y="${halfH + 10}" fill="#a78bfa" font-size="8" font-weight="700">P1</text>`);
+      ispFs.miniSvg.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`);
+      ispFs.miniSvg.innerHTML = parts.join('');
+    } else {
+      // 1-pair minimap
+      const lH = 7, wTop = lH + 2, wH = boxH - wTop - 2;
+      const bW = boxW / ispLastTotalBits;
+      const parts = [];
+      let cx = 0;
+      ispLastSegs.forEach(seg => { const w = seg.bits.length * bW; parts.push(`<rect x="${cx}" y="0" width="${w}" height="${lH}" fill="${seg.color}"/>`); cx += w; });
+      let d = '', ly = -1; cx = 0;
+      const y1 = wTop + 1, y0 = wTop + wH - 1;
+      ispLastSegs.forEach(seg => { for (let b = 0; b < seg.bits.length; b++) { const bx0 = cx, bx1 = bx0 + bW, y = seg.bits[b] ? y1 : y0; if (d === '') { d = `M ${bx0} ${y}`; ly = y; } else if (y !== ly) { d += ` L ${bx0} ${ly} L ${bx0} ${y}`; ly = y; } d += ` L ${bx1} ${y}`; ly = y; cx += bW; }});
+      parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="1" fill="none"/>`);
+      ispFs.miniSvg.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`);
+      ispFs.miniSvg.innerHTML = parts.join('');
+    }
+  }
+
+  // Fullscreen minimap viewport indicator
+  function ispFsUpdateMinimapVp() {
+    if (!ispFs || !ispFs.miniVp || !ispFs.miniBox || !ispFs.stage || !ispFs.svg) return;
+    const svgW = parseFloat(ispFs.svg.getAttribute('width')) || 0;
+    const visibleW = ispFs.stage.clientWidth;
+    const scrollLeft = ispFs.stage.scrollLeft;
+    const miniW = ispFs.miniBox.clientWidth;
+    if (svgW <= visibleW + 1) {
+      ispFs.miniVp.style.left = '0px';
+      ispFs.miniVp.style.width = miniW + 'px';
+    } else {
+      const ratio = miniW / svgW;
+      const left = scrollLeft * ratio;
+      const width = visibleW * ratio;
+      ispFs.miniVp.style.left = Math.max(0, left) + 'px';
+      ispFs.miniVp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
     }
   }
 
@@ -4384,6 +4458,28 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     if (!ispFs) return;
     const stage = ispFs.stage;
     let lastTap = 0;
+
+    // Minimap viewport tracking on scroll
+    let _fsMmRaf = false;
+    stage.addEventListener('scroll', () => {
+      if (_fsMmRaf) return;
+      _fsMmRaf = true;
+      requestAnimationFrame(() => { _fsMmRaf = false; ispFsUpdateMinimapVp(); });
+    });
+
+    // Minimap click-to-jump
+    if (ispFs.miniBox) {
+      ispFs.miniBox.style.cursor = 'pointer';
+      ispFs.miniBox.addEventListener('click', (e) => {
+        const rect = ispFs.miniBox.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const miniW = ispFs.miniBox.clientWidth;
+        const svgW = parseFloat(ispFs.svg.getAttribute('width')) || 0;
+        if (svgW <= 0 || miniW <= 0) return;
+        const targetScroll = (clickX / miniW) * svgW - stage.clientWidth / 2;
+        stage.scrollLeft = Math.max(0, targetScroll);
+      });
+    }
 
     stage.addEventListener('touchstart', (e) => {
       if (e.target && e.target.closest('button')) return;
@@ -4491,11 +4587,17 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
           '<span style="color:#c4b5fd;font-size:12px;font-weight:600;" data-i18n="isp.fsHint">兩指橫向縮放（V 固定） / 左右滑動捲動 / 雙擊還原 / 右上關閉</span>' +
           '<button type="button" style="background:#4c1d95;border:1px solid #7c3aed;color:#ddd6fe;border-radius:6px;padding:5px 12px;font-weight:600;cursor:pointer;" onclick="ispCloseLightbox()">×</button>' +
         '</div>' +
-        '<div id="isp-fs-stage" style="flex:1 1 auto;overflow-x:auto;overflow-y:auto;background:#000;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;">' +
-          '<div id="isp-fs-p0-label" class="isp-pair-label" style="display:none;padding-left:12px;margin-top:6px;">Pair 0</div>' +
+        '<div id="isp-fs-stage" style="flex:1 1 auto;overflow-x:auto;overflow-y:hidden;background:#000;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;">' +
+          '<div id="isp-fs-p0-label" class="isp-pair-label" style="display:none;padding-left:12px;margin-top:4px;">Pair 0</div>' +
           '<svg id="isp-fs-svg" class="isp-fs-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
           '<div id="isp-fs-p1-label" class="isp-pair-label" style="display:none;padding-left:12px;">Pair 1</div>' +
           '<svg id="isp-fs-svg-1" class="isp-fs-svg" xmlns="http://www.w3.org/2000/svg" style="display:none;"></svg>' +
+        '</div>' +
+        '<div id="isp-fs-minimap-wrap" style="flex:0 0 auto;padding:4px 8px 6px;background:#0f172a;border-top:1px solid #334155;">' +
+          '<div style="position:relative;width:100%;height:44px;background:#000;border:1px solid #334155;border-radius:4px;overflow:hidden;" id="isp-fs-minimap-box">' +
+            '<svg id="isp-fs-minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" style="display:block;width:100%;height:100%;"></svg>' +
+            '<div id="isp-fs-minimap-vp" style="position:absolute;top:0;height:100%;border:2px solid #a78bfa;background:rgba(167,139,250,0.18);pointer-events:none;box-sizing:border-box;min-width:6px;"></div>' +
+          '</div>' +
         '</div>';
       document.body.appendChild(lb);
       ispFs = {
@@ -4505,6 +4607,10 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
         svg1: lb.querySelector('#isp-fs-svg-1'),
         p0Label: lb.querySelector('#isp-fs-p0-label'),
         p1Label: lb.querySelector('#isp-fs-p1-label'),
+        miniBox: lb.querySelector('#isp-fs-minimap-box'),
+        miniSvg: lb.querySelector('#isp-fs-minimap-svg'),
+        miniVp: lb.querySelector('#isp-fs-minimap-vp'),
+        miniWrap: lb.querySelector('#isp-fs-minimap-wrap'),
         open: true,
         pinch: null
       };
@@ -4515,6 +4621,10 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       ispFs.svg1 = lb.querySelector('#isp-fs-svg-1');
       ispFs.p0Label = lb.querySelector('#isp-fs-p0-label');
       ispFs.p1Label = lb.querySelector('#isp-fs-p1-label');
+      ispFs.miniBox = lb.querySelector('#isp-fs-minimap-box');
+      ispFs.miniSvg = lb.querySelector('#isp-fs-minimap-svg');
+      ispFs.miniVp = lb.querySelector('#isp-fs-minimap-vp');
+      ispFs.miniWrap = lb.querySelector('#isp-fs-minimap-wrap');
       ispFs.open = true;
     }
     // 用主頁當前 segs 做初始 render（V 高度動態計算）
