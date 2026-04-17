@@ -1331,7 +1331,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.1</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1373,7 +1373,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.1</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -8466,20 +8466,75 @@ function auxUpdateRepRaw() {
   el.textContent = bytes.map(function(b) { return b.toString(16).toUpperCase().padStart(2, '0'); }).join(' ');
 }
 
+// ─── DPCD 地址對照表（多 byte 讀寫時逐地址解析）───
+function auxRenderDpcdTable(startAddr, dataBytes) {
+  if (!dataBytes || dataBytes.length === 0) return '';
+  var html = '<div style="font-size:12px;font-weight:700;color:var(--accent);margin:10px 0 6px;text-transform:uppercase;letter-spacing:0.4px">';
+  html += '📋 DPCD 地址對照（' + startAddr.toString(16).toUpperCase().padStart(5,'0') + 'h ~ ';
+  html += (startAddr + dataBytes.length - 1).toString(16).toUpperCase().padStart(5,'0') + 'h，共 ' + dataBytes.length + ' bytes）</div>';
+  html += '<div class="aux-table-wrap"><table class="aux-bit-table">';
+  html += '<tr><th style="width:70px">地址</th><th>名稱</th><th style="width:40px">值</th><th>說明</th></tr>';
+  for (var i = 0; i < dataBytes.length; i++) {
+    var addr = startAddr + i;
+    var addrHex = addr.toString(16).toUpperCase().padStart(5, '0');
+    var val = dataBytes[i];
+    var valHex = val.toString(16).toUpperCase().padStart(2, '0');
+    var entry = DPCD_DB[addrHex];
+
+    // 名稱
+    var nameHtml = '';
+    if (entry) {
+      nameHtml = '<span class="aux-bit-name">' + entry.n + '</span>';
+      if (entry.c) nameHtml += '<br><span style="font-size:10px;color:var(--text-sub)">' + entry.c + '</span>';
+    } else {
+      nameHtml = '<span style="color:var(--text-sub);font-style:italic">未收錄</span>';
+    }
+
+    // 說明（優先用 summarize，其次 validValues，最後顯示 hex）
+    var desc = '';
+    if (entry) {
+      var sumFn = DPCD_SUMMARIZE[addrHex];
+      if (sumFn) {
+        try { desc = sumFn(val); } catch(e) { desc = valHex + 'h'; }
+      } else if (entry.vv && entry.vv.length > 0) {
+        var matched = false;
+        for (var j = 0; j < entry.vv.length; j++) {
+          if (entry.vv[j].v === val) { desc = entry.vv[j].l; matched = true; break; }
+        }
+        if (!matched && val === 0) desc = '0（預設 / 未設定）';
+        else if (!matched) desc = valHex + 'h（⚠ 不在合法值清單中）';
+      } else {
+        desc = valHex + 'h';
+      }
+    } else {
+      desc = valHex + 'h';
+    }
+
+    // 值顏色：非 0 綠色高亮，0 灰色
+    var valClass = val !== 0 ? 'bit-active' : 'bit-zero';
+
+    // 地址可點擊跳到 DPCD 查詢
+    var addrClick = entry
+      ? ' onclick="auxJumpToDpcd(\'' + addrHex + '\',\'' + valHex + '\')" style="cursor:pointer;color:var(--accent);text-decoration:underline"'
+      : '';
+
+    html += '<tr>';
+    html += '<td class="aux-bit-range"' + addrClick + '>' + addrHex + 'h</td>';
+    html += '<td>' + nameHtml + '</td>';
+    html += '<td class="aux-bit-val ' + valClass + '">' + valHex + '</td>';
+    html += '<td style="font-size:11px;color:var(--text-sub);max-width:220px">' + desc + '</td>';
+    html += '</tr>';
+  }
+  html += '</table></div>';
+  return html;
+}
+
 // 解碼主函式（從結構化輸入組合 bytes 後解碼）
 window.auxDecodeAll = function() {
   var reqBytes = auxBuildReqBytes();
   var repBytes = auxBuildRepBytes();
   var resultCard = document.getElementById('aux-decode-result');
   var resultBody = document.getElementById('aux-decode-result-body');
-
-  // 驗證 address
-  var addrStr = document.getElementById('aux-req-addr').value.replace(/[^0-9a-fA-F]/g, '');
-  if (!addrStr) {
-    resultCard.style.display = 'block';
-    resultBody.innerHTML = '<div class="aux-not-found">請輸入目標位址（Address）</div>';
-    return;
-  }
 
   var html = '';
   html += auxDecodeRequest(reqBytes);
@@ -8494,7 +8549,6 @@ window.auxDecodeAll = function() {
 };
 
 function auxParseHexBytes(str) {
-  // 支援 "9F 00 00 00" 或 "9F,00,00,00" 或 "9F000000"
   var cleaned = str.replace(/[,\s]+/g,' ').trim();
   var tokens;
   if (cleaned.indexOf(' ') >= 0) {
@@ -8531,7 +8585,6 @@ function auxDecodeRequest(bytes) {
       html += '<br><span style="color:#10b981;font-size:11px">' + dpcdEntry.n + '</span>';
     }
     html += '</span></div>';
-    html += '<div style="text-align:right;margin-top:2px"><button class="aux-link-btn" onclick="auxJumpToDpcd(\'' + addrHex + '\')">📋 查看此地址定義 →</button></div>';
   } else {
     var i2cAddr = (addr >> 1) & 0x7F;
     var known = I2C_KNOWN_ADDR[i2cAddr] || I2C_KNOWN_ADDR[addr & 0xFF];
@@ -8539,12 +8592,19 @@ function auxDecodeRequest(bytes) {
     html += '</span></div>';
   }
 
+  // 數據長度
   if (bytes.length > 3) {
     var dataLen = (bytes[3] & 0xFF) + 1;
-    html += '<div class="aux-result-row"><span class="aux-result-label">數據長度</span><span class="aux-result-value">' + dataLen + ' byte' + (dataLen > 1 ? 's' : '') + '</span></div>';
+    html += '<div class="aux-result-row"><span class="aux-result-label">數據長度</span><span class="aux-result-value">' + dataLen + ' byte' + (dataLen > 1 ? 's' : '') + '（地址範圍 ' + addrHex + 'h ~ ' + (addr + dataLen - 1).toString(16).toUpperCase().padStart(5,'0') + 'h）</span></div>';
+
+    // Native Write：顯示寫入數據 + DPCD 地址對照表
     if (bytes.length > 4) {
       var dataBytes = bytes.slice(4);
       html += '<div class="aux-result-row"><span class="aux-result-label">數據</span><span class="aux-result-value">' + dataBytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
+      // Native Write 的 DPCD 對照表
+      if (cmdInfo.isNative) {
+        html += auxRenderDpcdTable(addr, dataBytes);
+      }
     }
   }
 
@@ -8561,6 +8621,12 @@ function auxDecodeReply(bytes, reqBytes) {
   var reqCmd = reqBytes ? ((reqBytes[0] >> 4) & 0xF) : 0;
   var isNative = reqCmd >= 8;
 
+  // 從 Request 取出起始地址
+  var reqAddr = 0;
+  if (reqBytes && reqBytes.length >= 3) {
+    reqAddr = ((reqBytes[0] & 0xF) << 16) | (reqBytes[1] << 8) | reqBytes[2];
+  }
+
   var html = '<div style="font-size:14px;font-weight:700;color:#10b981;margin-bottom:8px">📥 AUX Reply</div>';
 
   if (isNative) {
@@ -8574,17 +8640,14 @@ function auxDecodeReply(bytes, reqBytes) {
     html += '<div class="aux-result-row"><span class="aux-result-label">I2C 狀態</span><span class="aux-result-value">' + i2cStatus + '</span></div>';
   }
 
+  // 數據
   if (bytes.length > 1) {
     var dataBytes = bytes.slice(1);
     html += '<div class="aux-result-row"><span class="aux-result-label">數據</span><span class="aux-result-value">' + dataBytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
 
-    if (isNative && reqBytes && reqBytes.length >= 3 && dataBytes.length === 1) {
-      var addr = ((reqBytes[0] & 0xF) << 16) | (reqBytes[1] << 8) | reqBytes[2];
-      var addrHex = addr.toString(16).toUpperCase().padStart(5, '0');
-      var entry = DPCD_DB[addrHex];
-      if (entry) {
-        html += '<div style="text-align:right;margin-top:4px"><button class="aux-link-btn" onclick="auxJumpToDpcd(\'' + addrHex + '\',\'' + dataBytes[0].toString(16).toUpperCase().padStart(2,'0') + '\')">📋 以此值查看 ' + entry.n + ' 定義 →</button></div>';
-      }
+    // Native Read Reply：顯示 DPCD 地址對照表（不論單 byte 或多 byte 都顯示）
+    if (isNative && reqAddr >= 0) {
+      html += auxRenderDpcdTable(reqAddr, dataBytes);
     }
   }
 
