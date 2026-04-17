@@ -1169,7 +1169,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.3</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.12.0</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1203,7 +1203,7 @@
       <div class="tool-card" onclick="showPage('isp')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><path d="M1 17 L4 17 L4 5 L7 5 L7 17 L10 17 L10 5 L13 5 L13 17 L16 17 L16 5 L19 5 L19 17 L22 17 L22 5 L25 5 L25 17 L29 17" stroke="#a78bfa" stroke-width="1.8" fill="none" stroke-linejoin="miter"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.11.3</span></div>
+          <div class="tool-card-title"><span data-i18n="home.ispTitle">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.12.0</span></div>
           <div class="tool-card-desc" data-i18n="home.ispDesc">8B9B 編碼、Control Code 產生 iSP 差動訊號波形</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2468,8 +2468,18 @@ function shareApp() {
 // ─── Page navigation ──────────────────────────────────────────────────
 function showPage(pageId) {
   document.querySelectorAll('[id^="page-"]').forEach(p => p.style.display = 'none');
-  document.getElementById('page-' + pageId).style.display = 'block';
+  const target = document.getElementById('page-' + pageId);
+  if (!target) return;
+  target.style.display = 'block';
   window.scrollTo(0, 0);
+  // 記住目前頁面（供重整後還原）
+  if (pageId !== 'home') {
+    history.replaceState(null, '', '#' + pageId);
+    try { sessionStorage.setItem('tcon_page', pageId); } catch(e) {}
+  } else {
+    history.replaceState(null, '', location.pathname + location.search);
+    try { sessionStorage.removeItem('tcon_page'); } catch(e) {}
+  }
   // 切到 iSP 頁後，等 layout 完成再刷新 minimap（防止 clientWidth=0 時 viewport 塌成 min-width）
   if (pageId === 'isp' && typeof window.ispRefreshMinimap === 'function') {
     requestAnimationFrame(() => requestAnimationFrame(() => window.ispRefreshMinimap()));
@@ -4912,8 +4922,9 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
       const revCard = document.getElementById('isp-rev-card');
       // 反推卡片永遠顯示（獨立工具，不隨 bits 模式切換）
     }
-    // 對外曝露（讓 radio change handler 呼叫）
+    // 對外曝露（讓 radio change handler 與 session restore 呼叫）
     page._ispApplyBitsMode = ispApplyBitsMode;
+    window._ispApplyBitsMode = ispApplyBitsMode;
 
     // --- Pixels slider + number ---
     const pxSlider = document.getElementById('isp-pixels-slider');
@@ -5173,8 +5184,9 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
         ispUpdateMinimapViewport();
       }
     };
-    // Expose for showPage()
+    // Expose for showPage() and session persistence
     window.ispRefreshMinimap = refreshMinimap;
+    window.ispRender = ispRender;
     if (typeof ResizeObserver !== 'undefined' && minimap) {
       const ro = new ResizeObserver(refreshMinimap);
       ro.observe(minimap);
@@ -5209,6 +5221,141 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     document.addEventListener('DOMContentLoaded', ispInit);
   } else {
     ispInit();
+  }
+})();
+
+// ═══════════ Session Persistence（頁面重整後保留子頁面 + 表單設定）═══════════
+(function(){
+  const SS_KEY = 'tcon_form';
+
+  // ── 儲存：收集所有 radio / input / checkbox 的值 ──
+  function saveFormState() {
+    try {
+      const state = {};
+      // 所有 radio groups
+      const radios = document.querySelectorAll('input[type="radio"]:checked');
+      radios.forEach(r => { if (r.name) state['r:' + r.name] = r.value; });
+      // 所有 number / text / range inputs（有 id 的）
+      const inputs = document.querySelectorAll('input[type="number"][id], input[type="range"][id], input[type="text"][id]');
+      inputs.forEach(inp => { state['i:' + inp.id] = inp.value; });
+      // 所有 checkbox（有 id 的）
+      const cbs = document.querySelectorAll('input[type="checkbox"][id]');
+      cbs.forEach(cb => { state['c:' + cb.id] = cb.checked ? '1' : '0'; });
+      // select
+      const selects = document.querySelectorAll('select[id]');
+      selects.forEach(sel => { state['s:' + sel.id] = sel.value; });
+      sessionStorage.setItem(SS_KEY, JSON.stringify(state));
+    } catch(e) {}
+  }
+
+  // ── 還原：從 sessionStorage 恢復所有值 ──
+  function restoreFormState() {
+    try {
+      const raw = sessionStorage.getItem(SS_KEY);
+      if (!raw) return false;
+      const state = JSON.parse(raw);
+      if (!state || typeof state !== 'object') return false;
+
+      let restored = false;
+
+      // Restore radios
+      Object.keys(state).forEach(key => {
+        if (key.startsWith('r:')) {
+          const name = key.slice(2);
+          const val = state[key];
+          const radio = document.querySelector('input[type="radio"][name="' + name + '"][value="' + val + '"]');
+          if (radio) { radio.checked = true; restored = true; }
+        }
+      });
+
+      // Restore inputs (number / range / text)
+      Object.keys(state).forEach(key => {
+        if (key.startsWith('i:')) {
+          const id = key.slice(2);
+          const el = document.getElementById(id);
+          if (el) { el.value = state[key]; restored = true; }
+        }
+      });
+
+      // Restore checkboxes
+      Object.keys(state).forEach(key => {
+        if (key.startsWith('c:')) {
+          const id = key.slice(2);
+          const el = document.getElementById(id);
+          if (el) { el.checked = state[key] === '1'; restored = true; }
+        }
+      });
+
+      // Restore selects
+      Object.keys(state).forEach(key => {
+        if (key.startsWith('s:')) {
+          const id = key.slice(2);
+          const el = document.getElementById(id);
+          if (el) { el.value = state[key]; restored = true; }
+        }
+      });
+
+      return restored;
+    } catch(e) { return false; }
+  }
+
+  // ── 初始化：頁面載入時還原頁面 + 表單 ──
+  function initSessionPersistence() {
+    // 1. 還原表單設定值（在各工具 init 之前的 DOM 值會被覆蓋，所以要在 init 後重新設定）
+    const formRestored = restoreFormState();
+
+    // 2. 還原子頁面
+    const hash = location.hash.replace('#', '');
+    const savedPage = hash || (function(){ try { return sessionStorage.getItem('tcon_page'); } catch(e){ return null; } })();
+    if (savedPage && document.getElementById('page-' + savedPage)) {
+      showPage(savedPage);
+    }
+
+    // 3. 如果有恢復表單，觸發各工具的 re-render
+    if (formRestored) {
+      // iSP: 先套用 bits mode（clamp slider ranges），再重新讀取恢復的數值
+      const bitsChecked = document.querySelector('input[name="isp-bits"]:checked');
+      if (bitsChecked && typeof window._ispApplyBitsMode === 'function') {
+        window._ispApplyBitsMode(parseInt(bitsChecked.value, 10) || 8);
+      }
+      // 再次 restore（因為 ispApplyBitsMode 會把 slider 值 clamp 到預設，要再覆蓋一次）
+      restoreFormState();
+      // 同步 slider ↔ number（逐對同步）
+      document.querySelectorAll('input[type="range"][id]').forEach(slider => {
+        const numId = slider.id.replace('-slider', '-num');
+        const numEl = document.getElementById(numId);
+        if (numEl) numEl.value = slider.value;
+      });
+      document.querySelectorAll('input[type="number"][id]').forEach(num => {
+        const sliderId = num.id.replace('-num', '-slider');
+        const slider = document.getElementById(sliderId);
+        if (slider) slider.value = num.value;
+      });
+      // 觸發 iSP 完整 re-render
+      if (typeof window.ispRender === 'function') window.ispRender();
+      requestAnimationFrame(() => {
+        if (typeof window.ispRefreshMinimap === 'function') window.ispRefreshMinimap();
+      });
+      // 觸發 Rx/Tx 計算
+      if (typeof window.rtCalcAll === 'function') window.rtCalcAll();
+    }
+
+    // 4. 監聽所有表單變動，自動儲存
+    document.addEventListener('input', debounce(saveFormState, 300));
+    document.addEventListener('change', debounce(saveFormState, 100));
+  }
+
+  // 簡易 debounce
+  function debounce(fn, ms) {
+    let timer;
+    return function() { clearTimeout(timer); timer = setTimeout(fn, ms); };
+  }
+
+  // 等所有工具 init 完成後再初始化 session persistence（延遲確保 iSP / Skew / RxTx 的 init 先完成）
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(initSessionPersistence, 250));
+  } else {
+    setTimeout(initSessionPersistence, 250);
   }
 })();
 </script>
