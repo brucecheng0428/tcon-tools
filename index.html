@@ -1435,7 +1435,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.2</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.3</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1477,7 +1477,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.4</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.5</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9010,8 +9010,9 @@ function createHexPicker(drumEl, onChange) {
   var startY = 0;
   var startOffset = 0;
   var velocity = 0;
-  var lastMoveY = 0;
-  var lastMoveTime = 0;
+  // 速度採樣環形緩衝區（追蹤最近 ~100ms 的 move 事件）
+  var moveSamples = [];  // [{ y, t }, ...]
+  var MAX_SAMPLE_AGE = 100; // ms
 
   function indexToY(idx) {
     // Position so that HEX[idx] in the center copy sits at the highlight bar
@@ -9092,8 +9093,7 @@ function createHexPicker(drumEl, onChange) {
     startY = y;
     startOffset = currentY;
     velocity = 0;
-    lastMoveY = y;
-    lastMoveTime = Date.now();
+    moveSamples = [{ y: y, t: Date.now() }];
     track.classList.remove('snapping');
   }
 
@@ -9101,23 +9101,32 @@ function createHexPicker(drumEl, onChange) {
     if (!dragging) return;
     var dy = y - startY;
     setTrackY(startOffset + dy, false);
-    // Track velocity
+    // 記錄採樣點，淘汰過期的
     var now = Date.now();
-    var dt = now - lastMoveTime;
-    if (dt > 0) {
-      velocity = (y - lastMoveY) / dt; // px/ms
-      lastMoveY = y;
-      lastMoveTime = now;
+    moveSamples.push({ y: y, t: now });
+    var cutoff = now - MAX_SAMPLE_AGE;
+    while (moveSamples.length > 1 && moveSamples[0].t < cutoff) {
+      moveSamples.shift();
     }
+  }
+
+  function computeReleaseVelocity() {
+    // 從最近 100ms 的採樣計算平均速度 (px/ms)
+    if (moveSamples.length < 2) return 0;
+    var first = moveSamples[0];
+    var last = moveSamples[moveSamples.length - 1];
+    var dt = last.t - first.t;
+    if (dt <= 0) return 0;
+    return (last.y - first.y) / dt;
   }
 
   function onPointerEnd() {
     if (!dragging) return;
     dragging = false;
-    if (Math.abs(velocity) > 0.15) {
+    velocity = computeReleaseVelocity();
+    if (Math.abs(velocity) > 0.08) {
       startMomentum();
     } else {
-      // Low velocity — snap to nearest from current position
       var idx = yToNearestIndex(currentY);
       snapTo(idx, true);
     }
@@ -9125,22 +9134,25 @@ function createHexPicker(drumEl, onChange) {
 
   // ── rAF 慣性減速 + 最後小段 CSS snap ──
   var momentumRaf = 0;
+  var MOMENTUM_FRICTION = 0.975;  // 每 16ms 保留 97.5% 速度（接近 iOS picker 手感）
+  var MOMENTUM_BOOST = 1.3;       // 初速度放大係數
+  var MOMENTUM_STOP = 0.3;        // 停止閾值 (px/frame)
 
   function startMomentum() {
-    var v = velocity * 16; // px/frame scale (velocity 是 px/ms)
-    var friction = 0.92;
+    // velocity 是 px/ms，轉成 px/frame (16ms) 並放大
+    var v = velocity * 16 * MOMENTUM_BOOST;
     var lastTime = performance.now();
 
     function tick(now) {
-      // 用時間差做 frame-rate-independent 減速
       var dt = now - lastTime;
+      if (dt <= 0) { momentumRaf = requestAnimationFrame(tick); return; }
       lastTime = now;
-      // 每 16ms 衰減一次，多幀按比例
-      var frames = dt / 16;
-      v *= Math.pow(friction, frames);
+      // frame-rate independent: 每 16ms 衰減一次
+      var decay = Math.pow(MOMENTUM_FRICTION, dt / 16);
+      v *= decay;
 
-      // 速度夠低時，做最後 snap（此時離 snap 目標很近）
-      if (Math.abs(v) < 0.8) {
+      // 速度夠低 → 最後 snap（此時離 snap 目標 < 半格）
+      if (Math.abs(v) < MOMENTUM_STOP) {
         momentumRaf = 0;
         var idx = yToNearestIndex(currentY);
         snapTo(idx, true);
@@ -9148,7 +9160,6 @@ function createHexPicker(drumEl, onChange) {
       }
 
       setTrackY(currentY + v, false);
-      // 邊滾邊 recentre（防止滾出 copies 範圍）
       wrapTrackIfNeeded();
       momentumRaf = requestAnimationFrame(tick);
     }
