@@ -1378,10 +1378,11 @@
     position: absolute;
     left: 0;
     right: 0;
+    z-index: 1;
     will-change: transform;
   }
   .hex-drum-track.snapping {
-    transition: transform 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+    transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
   }
   .hex-drum-cell {
     display: flex;
@@ -1476,7 +1477,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.3</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.4</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9114,7 +9115,7 @@ function createHexPicker(drumEl, onChange) {
     if (!dragging) return;
     dragging = false;
     if (Math.abs(velocity) > 0.15) {
-      glideToSnap();
+      startMomentum();
     } else {
       // Low velocity — snap to nearest from current position
       var idx = yToNearestIndex(currentY);
@@ -9122,47 +9123,56 @@ function createHexPicker(drumEl, onChange) {
     }
   }
 
-  // ── 方案 C：一次性 CSS transition 滑到目標 ──
-  // velocity (px/ms) × decay → 幾何級數總位移 = v0 / (1 - friction)
-  // 算出慣性終點後，取最近 snap cell，用 ease-out transition 直達
-  function glideToSnap() {
-    var FRICTION = 0.05; // 1 - 0.95，與舊 rAF friction 等效
-    var scaledV = velocity * 16; // 同舊 scale
-    var projectedDist = scaledV / FRICTION;
-    var projectedY = currentY + projectedDist;
+  // ── rAF 慣性減速 + 最後小段 CSS snap ──
+  var momentumRaf = 0;
 
-    // 找慣性終點最近的 snap cell
-    var targetIdx = yToNearestIndex(projectedY);
-    selectedIndex = targetIdx;
-    var prevVal = hiddenInput.value;
-    hiddenInput.value = HEX[selectedIndex];
+  function startMomentum() {
+    var v = velocity * 16; // px/frame scale (velocity 是 px/ms)
+    var friction = 0.92;
+    var lastTime = performance.now();
 
-    // 計算目標 Y（使用離 currentY 最近的那份 copy，避免跨 copy 跳動）
-    var targetY = nearestCopyY(targetIdx, currentY);
+    function tick(now) {
+      // 用時間差做 frame-rate-independent 減速
+      var dt = now - lastTime;
+      lastTime = now;
+      // 每 16ms 衰減一次，多幀按比例
+      var frames = dt / 16;
+      v *= Math.pow(friction, frames);
 
-    // 依距離決定 duration（距離越遠動畫越長，但有上下限）
-    var dist = Math.abs(targetY - currentY);
-    var dur = Math.min(Math.max(dist * 1.2, 150), 500); // 150~500ms
+      // 速度夠低時，做最後 snap（此時離 snap 目標很近）
+      if (Math.abs(v) < 0.8) {
+        momentumRaf = 0;
+        var idx = yToNearestIndex(currentY);
+        snapTo(idx, true);
+        return;
+      }
 
-    // 套用自訂 duration 到 track transition
-    track.style.transition = 'transform ' + Math.round(dur) + 'ms cubic-bezier(0.23,1,0.32,1)';
-    track.style.transform = 'translateY(' + targetY + 'px)';
-    currentY = targetY;
-    updateCellColors();
+      setTrackY(currentY + v, false);
+      // 邊滾邊 recentre（防止滾出 copies 範圍）
+      wrapTrackIfNeeded();
+      momentumRaf = requestAnimationFrame(tick);
+    }
+    momentumRaf = requestAnimationFrame(tick);
+  }
 
-    // transition 結束後清理 + recentre
-    clearTimeout(glideTimer);
-    glideTimer = setTimeout(function() {
-      track.style.transition = '';
-      recentre();
-    }, Math.round(dur) + 30);
-
-    if (hiddenInput.value !== prevVal && onChange) onChange(HEX[selectedIndex]);
+  // 如果 track 滾出 copies 範圍，瞬間跳回 center copy（視覺不中斷因為內容重複）
+  function wrapTrackIfNeeded() {
+    var centerOffset = (VISIBLE - 1) / 2;
+    var minY = -((COPIES * 16 - 1) - centerOffset) * CELL_H;
+    var maxY = centerOffset * CELL_H;
+    if (currentY < minY || currentY > maxY) {
+      // 算出等效的 center copy 位置
+      var idx = yToNearestIndex(currentY);
+      var homeY = indexToY(idx);
+      var remainder = currentY - nearestCopyY(idx, currentY);
+      currentY = homeY + remainder;
+      track.style.transform = 'translateY(' + currentY + 'px)';
+    }
   }
 
   // 給定 hex index (0-15)，找離 refY 最近的那份 copy 的 Y 位置
   function nearestCopyY(idx, refY) {
-    var best = indexToY(idx); // center copy
+    var best = indexToY(idx);
     var bestDist = Math.abs(best - refY);
     for (var c = 0; c < COPIES; c++) {
       var cellIdx = c * 16 + idx;
@@ -9176,14 +9186,11 @@ function createHexPicker(drumEl, onChange) {
     return best;
   }
 
-  var glideTimer = 0;
-
   function cancelMomentum() {
-    // 取消進行中的 glide transition
-    if (glideTimer) { clearTimeout(glideTimer); glideTimer = 0; }
-    // 讀取當前實際 translateY（transition 可能進行到一半）
+    if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0; }
+    // 讀取當前實際 translateY（CSS transition snap 可能進行到一半）
     var cs = getComputedStyle(track);
-    var mat = cs.transform; // "matrix(a,b,c,d,tx,ty)" or "none"
+    var mat = cs.transform;
     if (mat && mat !== 'none') {
       var parts = mat.match(/matrix.*\((.+)\)/);
       if (parts) {
@@ -9191,7 +9198,7 @@ function createHexPicker(drumEl, onChange) {
         currentY = parseFloat(vals[vals.length - 1]) || currentY;
       }
     }
-    track.style.transition = '';
+    track.classList.remove('snapping');
     track.style.transform = 'translateY(' + currentY + 'px)';
   }
 
@@ -9205,21 +9212,23 @@ function createHexPicker(drumEl, onChange) {
   });
   document.addEventListener('mouseup', function() { onPointerEnd(); });
 
-  // Touch events — always preventDefault to block browser scroll / pull-to-refresh
+  // Touch events — preventDefault + stopPropagation 阻止瀏覽器 scroll / pull-to-refresh
   drumEl.addEventListener('touchstart', function(e) {
     e.preventDefault();
+    e.stopPropagation();
     if (e.touches.length === 1) {
       onPointerStart(e.touches[0].clientY);
     }
   }, { passive: false });
   drumEl.addEventListener('touchmove', function(e) {
     e.preventDefault();
+    e.stopPropagation();
     if (dragging && e.touches.length === 1) {
       onPointerMove(e.touches[0].clientY);
     }
   }, { passive: false });
-  drumEl.addEventListener('touchend', function() { onPointerEnd(); });
-  drumEl.addEventListener('touchcancel', function() { onPointerEnd(); });
+  drumEl.addEventListener('touchend', function(e) { e.stopPropagation(); onPointerEnd(); });
+  drumEl.addEventListener('touchcancel', function(e) { e.stopPropagation(); onPointerEnd(); });
 
   // Wheel event
   drumEl.addEventListener('wheel', function(e) {
@@ -9255,8 +9264,8 @@ function createHexPicker(drumEl, onChange) {
 // ─── 在 picker group 容器上攔截 touch，防止冒泡觸發 pull-to-refresh ───
 function blockContainerTouch(container) {
   if (!container) return;
-  container.addEventListener('touchstart', function(e) { e.preventDefault(); }, { passive: false });
-  container.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
+  container.addEventListener('touchstart', function(e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+  container.addEventListener('touchmove', function(e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
 }
 
 // ─── 初始化所有 drum picker ───
