@@ -1395,9 +1395,8 @@
     color: var(--text-sub);
     pointer-events: none;
   }
-  /* 中間高亮列 — 用 ::after 畫在容器上，不受 track stacking context 影響 */
-  .hex-drum::after {
-    content: '';
+  /* 中間高亮列 — 用獨立 DOM div，避免 iOS Safari GPU compositing 吃掉 pseudo-element */
+  .hex-drum-highlight {
     position: absolute;
     top: 50%;
     left: 2px;
@@ -1408,7 +1407,8 @@
     border-radius: 5px;
     background: rgba(56, 189, 248, 0.08);
     pointer-events: none;
-    z-index: 4;
+    z-index: 2;
+    /* 不設 will-change，避免產生新的 stacking context */
   }
   /* 上下漸層遮罩 */
   .hex-drum-fade-top,
@@ -1436,7 +1436,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.8</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.10</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1478,7 +1478,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.10</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.12</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -8953,9 +8953,9 @@ window.auxJumpToDpcd = function(addr, val) {
       for (var i = 0; i < sel.options.length; i++) {
         if (sel.options[i].value.toUpperCase() === val.toUpperCase()) { sel.value = sel.options[i].value; found = true; break; }
       }
-      if (!found) { var w = document.getElementById('aux-dpcd-val-custom-wrap'); sel.style.display = 'none'; w.style.display = 'inline'; inp.value = val; }
+      if (!found) { var w = document.getElementById('aux-dpcd-val-custom-wrap'); sel.style.display = 'none'; w.style.display = 'block'; inp.value = val; }
     } else {
-      var w2 = document.getElementById('aux-dpcd-val-custom-wrap'); w2.style.display = 'inline'; inp.value = val;
+      var w2 = document.getElementById('aux-dpcd-val-custom-wrap'); w2.style.display = 'block'; inp.value = val;
     }
   }
   auxLookupDPCD(addr, val || '');
@@ -8991,7 +8991,10 @@ function createHexPicker(drumEl, onChange) {
   }
   drumEl.appendChild(track);
 
-  // Highlight bar: 已改用 .hex-drum::after pseudo-element，無需 JS 建立
+  // Highlight bar: 獨立 DOM div，避免 iOS Safari GPU compositing 吃掉 pseudo-element
+  var hl = document.createElement('div');
+  hl.className = 'hex-drum-highlight';
+  drumEl.appendChild(hl);
 
   // Fade masks
   var ft = document.createElement('div');
@@ -9404,7 +9407,9 @@ function auxUpdateValCombo(addrStr) {
   if (!hasVV) {
     // 無合法值清單：隱藏 select，顯示自訂輸入，隱藏「↩ 選單」按鈕（無選單可返回）
     sel.style.display = 'none';
-    wrap.style.display = 'inline';
+    sel.innerHTML = '';
+    sel.value = '';
+    wrap.style.display = 'block';
     if (backBtn) backBtn.style.display = 'none';
     return;
   }
@@ -9470,7 +9475,7 @@ function auxInitListeners() {
       if (valSelect.value === '__custom__') {
         var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
         valSelect.style.display = 'none';
-        wrap.style.display = 'inline';
+        wrap.style.display = 'block';
         valInput.value = '';
         valInput.focus();
       } else {
@@ -9660,7 +9665,7 @@ if (document.readyState === 'loading') {
           if (dpcdSel && dpcdWrap) {
             if (dpcdSel.value === '__custom__') {
               dpcdSel.style.display = 'none';
-              dpcdWrap.style.display = 'inline';
+              dpcdWrap.style.display = 'block';
             }
           }
           // Step 5: 觸發查詢
