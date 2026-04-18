@@ -1350,7 +1350,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.5</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.6</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1392,7 +1392,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.5</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.6</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -8793,6 +8793,39 @@ function auxInitDecodeStructural() {
   auxUpdateRepOptions();
   auxUpdateReqRaw();
   auxUpdateRepRaw();
+
+  // ── 事件委派：確保所有 Request/Reply 欄位變更都觸發預覽更新 ──
+  // 涵蓋動態生成的 hex box、select、input 等所有元素
+  var reqCmd = document.getElementById('aux-req-cmd');
+  var reqAddr = document.getElementById('aux-req-addr');
+  var reqLen = document.getElementById('aux-req-len');
+  var reqDataFields = document.getElementById('aux-req-data-fields');
+  var repDataFields = document.getElementById('aux-rep-data-fields');
+  var repStatusSel = document.getElementById('aux-rep-status-select');
+  var repStatusInp = document.getElementById('aux-rep-status-input');
+
+  // Request 欄位：用 addEventListener 補強 inline handler
+  if (reqCmd) reqCmd.addEventListener('change', function() { auxOnReqChange(); });
+  if (reqAddr) reqAddr.addEventListener('input', function() { auxUpdateReqRaw(); });
+  if (reqLen) reqLen.addEventListener('change', function() { auxOnReqChange(); });
+
+  // Request Data hex boxes 容器：事件委派（捕捉動態生成的 input）
+  if (reqDataFields) {
+    reqDataFields.addEventListener('input', function(e) {
+      if (e.target.classList.contains('aux-hex-box')) auxUpdateReqRaw();
+    });
+  }
+
+  // Reply Data hex boxes 容器：事件委派
+  if (repDataFields) {
+    repDataFields.addEventListener('input', function(e) {
+      if (e.target.classList.contains('aux-hex-box')) auxUpdateRepRaw();
+    });
+  }
+
+  // Reply Status：補強事件綁定
+  if (repStatusSel) repStatusSel.addEventListener('change', function() { auxOnRepStatusSelect(); });
+  if (repStatusInp) repStatusInp.addEventListener('input', function() { auxOnRepChange(); });
 }
 
 // ─── 連動：從 AUX 解碼跳到 DPCD 查詢 ───
@@ -9027,6 +9060,8 @@ if (document.readyState === 'loading') {
       });
       // 觸發 Rx/Tx 計算
       if (typeof window.rtCalcAll === 'function') window.rtCalcAll();
+      // 觸發 AUX 解碼封包預覽重算
+      if (typeof window.auxOnReqChange === 'function') window.auxOnReqChange();
     }
 
     // 4. 監聽所有表單變動，自動儲存
