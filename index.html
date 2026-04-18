@@ -1436,7 +1436,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.7</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.8</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1478,7 +1478,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.9</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.10</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9397,15 +9397,18 @@ function auxUpdateValCombo(addrStr) {
   var sel = document.getElementById('aux-dpcd-val-select');
   var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
   if (!sel || !wrap) return;
+  var backBtn = wrap.querySelector('.aux-combo-back');
   var addr = addrStr ? addrStr.toUpperCase().replace(/^0X/i,'').padStart(5,'0') : '';
   var entry = addr ? DPCD_DB[addr] : null;
-  if (!entry || !entry.vv || entry.vv.length === 0) {
-    // 無合法值清單：隱藏 select，顯示自訂輸入
+  var hasVV = entry && entry.vv && entry.vv.length > 0;
+  if (!hasVV) {
+    // 無合法值清單：隱藏 select，顯示自訂輸入，隱藏「↩ 選單」按鈕（無選單可返回）
     sel.style.display = 'none';
     wrap.style.display = 'inline';
+    if (backBtn) backBtn.style.display = 'none';
     return;
   }
-  // 有合法值：顯示 select，隱藏自訂輸入
+  // 有合法值：顯示 select，隱藏自訂輸入，確保「↩ 選單」按鈕恢復
   sel.innerHTML = '<option value="" style="color:#94a3b8">— 選擇合法值 —</option>';
   entry.vv.forEach(function(item) {
     var hex = item.v.toString(16).toUpperCase().padStart(2,'0');
@@ -9414,18 +9417,26 @@ function auxUpdateValCombo(addrStr) {
   sel.innerHTML += '<option value="__custom__" style="color:#fbbf24">✏️ 自訂輸入…</option>';
   sel.style.display = 'block';
   wrap.style.display = 'none';
+  if (backBtn) backBtn.style.display = '';
   sel.value = '';
 }
 
-// DPCD 值 combo：返回選單
+// DPCD 值 combo：返回選單（安全版：若當前地址無 vv 則不切換）
 window.auxDpcdValBackToSelect = function() {
+  var addr = auxGetAddrFromWheels();
+  var addrNorm = addr ? addr.toUpperCase().replace(/^0X/i,'').padStart(5,'0') : '';
+  var entry = addrNorm ? DPCD_DB[addrNorm] : null;
+  if (!entry || !entry.vv || entry.vv.length === 0) {
+    // 當前地址沒有合法值選單，不做切換
+    return;
+  }
   var sel = document.getElementById('aux-dpcd-val-select');
   var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
   sel.style.display = 'block';
   wrap.style.display = 'none';
   sel.value = '';
   // 觸發查詢更新
-  auxLookupDPCD(auxGetAddrFromWheels(), '');
+  auxLookupDPCD(addr, '');
 };
 
 function auxGetCurrentVal() {
@@ -9478,6 +9489,8 @@ function auxInitAll() {
   initAllHexDrums();
   auxInitListeners();
   auxInitDecodeStructural();
+  // 初始化 val combo box 狀態（drum init 不觸發 onChange，需手動設定初始地址的 combo 狀態）
+  auxUpdateValCombo(auxGetAddrFromWheels());
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', auxInitAll);
