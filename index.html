@@ -1006,6 +1006,18 @@
     padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #ef4444; font-weight: 600;
   }
   .aux-anomaly { color: #ef4444; font-weight: 600; }
+  .aux-reply-hint {
+    border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px; font-weight: 600; line-height: 1.6;
+  }
+  .aux-reply-hint.hint-red {
+    background: rgba(239,68,68,0.10); border: 1.5px solid #ef4444; color: #ef4444;
+  }
+  .aux-reply-hint.hint-orange {
+    background: rgba(251,146,60,0.10); border: 1.5px solid #fb923c; color: #fb923c;
+  }
+  .aux-reply-hint.hint-info {
+    background: rgba(56,189,248,0.08); border: 1.5px solid #38bdf8; color: #7dd3fc;
+  }
   .aux-summary-block {
     background: linear-gradient(135deg, #0c2d1f 0%, #0f1f2e 100%);
     border: 1.5px solid #065f46; border-radius: 10px; padding: 12px 14px; margin-top: 12px;
@@ -1332,7 +1344,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.2</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.4</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1374,7 +1386,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.4</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2478,7 +2490,11 @@
           <div class="aux-struct-section" style="color:#10b981">📥 AUX Reply（選填）</div>
           <div class="aux-struct-grid">
             <span class="aux-struct-label">Reply Status</span>
-            <select id="aux-rep-status" class="aux-struct-select" onchange="auxOnRepChange()"></select>
+            <div>
+              <select id="aux-rep-status-select" class="aux-struct-select" onchange="auxOnRepStatusSelect()"></select>
+              <input type="text" id="aux-rep-status-input" class="aux-struct-input" maxlength="2" placeholder="hex" autocomplete="off" spellcheck="false" style="display:none;max-width:100px" oninput="auxOnRepChange()">
+              <div class="aux-struct-hint">選擇已知回覆狀態，或自訂輸入任意 hex byte</div>
+            </div>
 
             <span class="aux-struct-label" id="aux-rep-data-label" style="display:none">Reply Data</span>
             <div id="aux-rep-data-wrap" style="display:none">
@@ -8351,41 +8367,86 @@ window.auxOnReqChange = function() {
   auxUpdateReqRaw();
 };
 
-// 更新 Reply 狀態下拉選項（根據 Request Command 類型）
+// 更新 Reply 狀態下拉選項
 function auxUpdateRepOptions() {
-  var cmd = parseInt(document.getElementById('aux-req-cmd').value);
-  var sel = document.getElementById('aux-rep-status');
-  var oldVal = sel.value;
+  var sel = document.getElementById('aux-rep-status-select');
+  var inp = document.getElementById('aux-rep-status-input');
+  var oldVal = auxGetRepStatusVal();
   sel.innerHTML = '';
-  if (auxIsNativeCmd(cmd)) {
-    // Native: reply code = [xxxx] in upper nibble, only lower 2 bits matter
-    sel.innerHTML += '<option value="0">00 — AUX ACK（正常回應）</option>';
-    sel.innerHTML += '<option value="1">01 — AUX NACK（拒絕）</option>';
-    sel.innerHTML += '<option value="2">02 — AUX DEFER（忙碌，稍後重試）</option>';
+  sel.innerHTML += '<option value="__skip__" style="color:#94a3b8">-- 不填（略過 Reply）</option>';
+  sel.innerHTML += '<option value="0">00h — AUX ACK（正常回應）</option>';
+  sel.innerHTML += '<option value="1">10h — AUX NACK（裝置拒絕）</option>';
+  sel.innerHTML += '<option value="2">20h — AUX DEFER（裝置忙碌）</option>';
+  sel.innerHTML += '<option value="4">40h — I2C NACK（I2C 端無回應）</option>';
+  sel.innerHTML += '<option value="8">80h — I2C DEFER（I2C 端忙碌）</option>';
+  sel.innerHTML += '<option value="__custom__" style="color:#fbbf24">✏️ 自訂輸入…</option>';
+  // 恢復選擇
+  if (oldVal === '__skip__' || !oldVal) {
+    sel.value = '__skip__';
+    sel.style.display = '';
+    inp.style.display = 'none';
   } else {
-    // I2C: [I2C_Reply][AUX_Reply] in upper nibble
-    sel.innerHTML += '<option value="0">00 — AUX ACK + I2C ACK</option>';
-    sel.innerHTML += '<option value="4">04 — AUX ACK + I2C NACK</option>';
-    sel.innerHTML += '<option value="8">08 — AUX ACK + I2C DEFER</option>';
-    sel.innerHTML += '<option value="1">01 — AUX NACK</option>';
-    sel.innerHTML += '<option value="2">02 — AUX DEFER</option>';
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === oldVal) { sel.value = oldVal; found = true; break; }
+    }
+    if (!found) {
+      // 之前是自訂值，保持 input 模式
+      sel.style.display = 'none';
+      inp.style.display = '';
+    } else {
+      sel.style.display = '';
+      inp.style.display = 'none';
+    }
   }
-  // 嘗試恢復選擇
-  for (var i = 0; i < sel.options.length; i++) {
-    if (sel.options[i].value === oldVal) { sel.value = oldVal; break; }
+}
+
+// select 選擇改動
+window.auxOnRepStatusSelect = function() {
+  var sel = document.getElementById('aux-rep-status-select');
+  var inp = document.getElementById('aux-rep-status-input');
+  if (sel.value === '__custom__') {
+    sel.style.display = 'none';
+    inp.style.display = '';
+    inp.value = '';
+    inp.focus();
+  } else {
+    sel.style.display = '';
+    inp.style.display = 'none';
   }
-  // 加上「不填（略過 Reply）」選項
-  var skipOpt = document.createElement('option');
-  skipOpt.value = '__skip__';
-  skipOpt.textContent = '-- 不填（略過 Reply）';
-  skipOpt.style.color = '#94a3b8';
-  sel.insertBefore(skipOpt, sel.firstChild);
-  if (!oldVal || oldVal === '__skip__') sel.value = '__skip__';
+  auxOnRepChange();
+};
+
+// 取得目前 Reply Status 值（回傳 '__skip__' 或 nibble code 數字字串或自訂 hex）
+function auxGetRepStatusVal() {
+  var sel = document.getElementById('aux-rep-status-select');
+  var inp = document.getElementById('aux-rep-status-input');
+  if (inp && inp.style.display !== 'none') {
+    // 自訂輸入模式
+    var v = inp.value.replace(/[^0-9a-fA-F]/g, '');
+    return v ? '__hex__' + v : '__skip__';
+  }
+  return sel ? sel.value : '__skip__';
+}
+
+// 從 auxGetRepStatusVal 解析出 reply byte（上半 nibble）
+function auxGetRepByte() {
+  var val = auxGetRepStatusVal();
+  if (val === '__skip__') return -1;
+  if (val.indexOf('__hex__') === 0) {
+    // 自訂 hex：使用者輸入的是整個 byte 值（如 30、A0）
+    var hexStr = val.substring(7);
+    var parsed = parseInt(hexStr, 16);
+    return isNaN(parsed) ? -1 : (parsed & 0xFF);
+  }
+  // 已知選項：value 是 nibble code（0/1/2/4/8），shift 成 byte
+  var code = parseInt(val);
+  return isNaN(code) ? -1 : ((code & 0xF) << 4);
 }
 
 // Reply 欄位改動 → 更新 Reply Data 欄位和封包預覽
 window.auxOnRepChange = function() {
-  var repVal = document.getElementById('aux-rep-status').value;
+  var repVal = auxGetRepStatusVal();
   var cmd = parseInt(document.getElementById('aux-req-cmd').value);
   var len = parseInt(document.getElementById('aux-req-len').value);
   var dataCount = len + 1;
@@ -8398,7 +8459,6 @@ window.auxOnRepChange = function() {
     dataLabel.style.display = 'none';
     dataWrap.style.display = 'none';
   } else if (isRead) {
-    // Read Reply 需要 Data 欄位
     dataLabel.style.display = '';
     dataWrap.style.display = '';
     auxGenHexBoxes('aux-rep-data-fields', dataCount, 'rep');
@@ -8437,11 +8497,8 @@ function auxBuildReqBytes() {
 
 // 組合 Reply 原始 hex 封包
 function auxBuildRepBytes() {
-  var repVal = document.getElementById('aux-rep-status').value;
-  if (repVal === '__skip__') return null;
-  var repCode = parseInt(repVal) & 0xF;
-  // Reply byte 0: reply code in upper nibble
-  var byte0 = (repCode << 4);
+  var byte0 = auxGetRepByte();
+  if (byte0 < 0) return null;
   var bytes = [byte0];
 
   var cmd = parseInt(document.getElementById('aux-req-cmd').value);
@@ -8616,8 +8673,9 @@ function auxDecodeRequest(bytes) {
 
 function auxDecodeReply(bytes, reqBytes) {
   var replyCode = (bytes[0] >> 4) & 0xF;
-  var nativeReply = replyCode & 0x3;
-  var i2cReply = (replyCode >> 2) & 0x3;
+  var nativeReply = replyCode & 0x3;  // bits [1:0] of upper nibble
+  var i2cReply = (replyCode >> 2) & 0x3; // bits [3:2] of upper nibble
+  var replyByte = bytes[0] & 0xF0; // 實際 reply byte（上半 nibble）
 
   var reqCmd = reqBytes ? ((reqBytes[0] >> 4) & 0xF) : 0;
   var isNative = reqCmd >= 8;
@@ -8630,23 +8688,80 @@ function auxDecodeReply(bytes, reqBytes) {
 
   var html = '<div style="font-size:14px;font-weight:700;color:#10b981;margin-bottom:8px">📥 AUX Reply</div>';
 
-  if (isNative) {
-    var statusText = AUX_REP_NATIVE[nativeReply] || ('Unknown (0x' + nativeReply.toString(16) + ')');
-    var statusColor = nativeReply === 0 ? '#10b981' : nativeReply === 2 ? '#fbbf24' : '#f87171';
-    html += '<div class="aux-result-row"><span class="aux-result-label">狀態</span><span class="aux-result-value" style="color:' + statusColor + '">' + statusText + '</span></div>';
+  // ─── 狀態顯示 ───
+  // 統一顯示完整狀態，不分 Native/I2C 模式
+  var replyHex = replyByte.toString(16).toUpperCase().padStart(2, '0') + 'h';
+  var statusLabel = '';
+  var statusColor = '#10b981';
+
+  if (nativeReply === 0 && i2cReply === 0) {
+    statusLabel = 'AUX ACK' + (isNative ? '' : ' + I2C ACK');
+    statusColor = '#10b981'; // 綠
+  } else if (nativeReply === 1) {
+    statusLabel = 'AUX NACK（裝置拒絕）';
+    statusColor = '#f87171'; // 紅
+  } else if (nativeReply === 2) {
+    statusLabel = 'AUX DEFER（裝置忙碌）';
+    statusColor = '#fbbf24'; // 黃
+  } else if (nativeReply === 0 && i2cReply === 1) {
+    statusLabel = 'AUX ACK + I2C NACK（I2C 端無回應）';
+    statusColor = '#fb923c'; // 橘
+  } else if (nativeReply === 0 && i2cReply === 2) {
+    statusLabel = 'AUX ACK + I2C DEFER（I2C 端忙碌）';
+    statusColor = '#fb923c'; // 橘
   } else {
-    var auxStatus = AUX_REP_NATIVE[nativeReply] || 'Unknown';
-    var i2cStatus = AUX_REP_I2C[i2cReply] || 'Unknown';
-    html += '<div class="aux-result-row"><span class="aux-result-label">AUX 狀態</span><span class="aux-result-value">' + auxStatus + '</span></div>';
-    html += '<div class="aux-result-row"><span class="aux-result-label">I2C 狀態</span><span class="aux-result-value">' + i2cStatus + '</span></div>';
+    statusLabel = '未定義的 Reply Code (0x' + replyCode.toString(16).toUpperCase() + ')';
+    statusColor = '#f87171';
   }
 
-  // 數據
+  // 檢查是否為已知 reply code（上半 nibble）
+  var knownCodes = {0:1, 1:1, 2:1, 4:1, 8:1};
+  var isKnownCode = !!knownCodes[replyCode];
+
+  html += '<div class="aux-result-row"><span class="aux-result-label">Reply Status</span><span class="aux-result-value" style="color:' + statusColor + '">' + replyHex + ' — ' + statusLabel + '</span></div>';
+
+  // 如果有 I2C 部分且非 Native，分別顯示
+  if (!isNative && (i2cReply !== 0 || nativeReply !== 0)) {
+    var auxStatusText = AUX_REP_NATIVE[nativeReply] || 'Unknown';
+    var i2cStatusText = AUX_REP_I2C[i2cReply] || 'Unknown';
+    html += '<div class="aux-result-row"><span class="aux-result-label">AUX 層</span><span class="aux-result-value">' + auxStatusText + '</span></div>';
+    html += '<div class="aux-result-row"><span class="aux-result-label">I2C 層</span><span class="aux-result-value">' + i2cStatusText + '</span></div>';
+  }
+
+  // ─── 異常判斷 / 情境提示 ───
+  if (isNative && (i2cReply === 1 || i2cReply === 2)) {
+    // Native 收到 I2C NACK/DEFER → 紅色警告
+    html += '<div class="aux-reply-hint hint-red">⚠ Native DPCD 交易不應出現 I2C NACK/DEFER（Reply=' + replyHex + '），可能是 TCON 韌體異常或 AUX 通訊資料錯誤。</div>';
+  } else if (!isNative && nativeReply === 0 && i2cReply === 1) {
+    // I2C 收到 40h → 橘色
+    html += '<div class="aux-reply-hint hint-orange">⚠ I2C NACK：AUX 通道正常，但 I2C slave 無回應。常見原因：EDID ROM 未接、I2C 地址錯誤、TCON I2C bridge 異常。</div>';
+  } else if (!isNative && nativeReply === 0 && i2cReply === 2) {
+    // I2C 收到 80h → 橘色
+    html += '<div class="aux-reply-hint hint-orange">⚠ I2C DEFER：I2C slave 忙碌，Source 應重試。常見原因：EDID ROM 忙碌、TCON 內部 I2C bus 衝突。</div>';
+  }
+  // NACK（不分 Native/I2C）
+  if (nativeReply === 1) {
+    html += '<div class="aux-reply-hint hint-orange">⚠ AUX NACK：目標裝置拒絕此請求。常見原因：不支援的 DPCD 地址、裝置未就緒、HPD 未觸發。</div>';
+  }
+  // DEFER（不分 Native/I2C）
+  if (nativeReply === 2) {
+    html += '<div class="aux-reply-hint hint-info">ℹ AUX DEFER：裝置忙碌，Source 應稍後重試。這在 Link Training 期間或 TCON 開機初期是正常的。</div>';
+  }
+  // 未定義的 Reply Code
+  if (!isKnownCode) {
+    html += '<div class="aux-reply-hint hint-red">⚠ 未定義的 Reply Status（' + replyHex + '），此值不在 DP 規格定義的合法回覆中。可能是 AUX 通訊異常、Sink 韌體 bug、或讀取資料損壞。</div>';
+  }
+  // 下半 nibble 非 0 警告（DP 規格要求 Reply byte 下半 nibble 應為 0）
+  if ((bytes[0] & 0x0F) !== 0) {
+    html += '<div class="aux-reply-hint hint-orange">⚠ Reply byte 的低 4 bits 不為 0（完整 byte = 0x' + bytes[0].toString(16).toUpperCase().padStart(2,'0') + '）。DP 規格定義 Reply byte 低半 nibble 應為 0，此值異常。</div>';
+  }
+
+  // ─── 數據 ───
   if (bytes.length > 1) {
     var dataBytes = bytes.slice(1);
     html += '<div class="aux-result-row"><span class="aux-result-label">數據</span><span class="aux-result-value">' + dataBytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
 
-    // Native Read Reply：顯示 DPCD 地址對照表（不論單 byte 或多 byte 都顯示）
+    // Native Read Reply：顯示 DPCD 地址對照表
     if (isNative && reqAddr >= 0) {
       html += auxRenderDpcdTable(reqAddr, dataBytes);
     }
