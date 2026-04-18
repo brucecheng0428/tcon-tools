@@ -1350,7 +1350,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.6</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.15.7</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1392,7 +1392,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.6</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.7</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -7934,6 +7934,8 @@ window.auxSwitchTab = function(tab) {
   document.querySelectorAll('#page-aux .aux-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('aux-tab-dpcd').style.display = tab === 'dpcd' ? 'block' : 'none';
   document.getElementById('aux-tab-decode').style.display = tab === 'decode' ? 'block' : 'none';
+  // 記住目前 tab，重整後還原
+  try { sessionStorage.setItem('aux_active_tab', tab); } catch(e) {}
 };
 
 // ─── DPCD 查詢邏輯 ───
@@ -8934,6 +8936,11 @@ function auxInitListeners() {
   }
 }
 
+// 暴露到 window 供 Session Persistence 還原後呼叫
+window.auxLookupDPCD = auxLookupDPCD;
+window.auxUpdateValCombo = auxUpdateValCombo;
+window.auxGetCurrentVal = auxGetCurrentVal;
+
 function auxInitAll() {
   auxInitListeners();
   auxInitDecodeStructural();
@@ -9062,9 +9069,64 @@ if (document.readyState === 'loading') {
       if (typeof window.rtCalcAll === 'function') window.rtCalcAll();
       // 觸發 AUX 解碼封包預覽重算
       if (typeof window.auxOnReqChange === 'function') window.auxOnReqChange();
+
+      // ── AUX 子頁完整還原 ──
+      (function() {
+        // (a) Reply Status combo box 顯示狀態還原
+        var repSel = document.getElementById('aux-rep-status-select');
+        var repWrap = document.getElementById('aux-rep-status-custom-wrap');
+        if (repSel && repWrap) {
+          if (repSel.value === '__custom__') {
+            repSel.style.display = 'none';
+            repWrap.style.display = 'inline';
+          } else {
+            repSel.style.display = '';
+            repWrap.style.display = 'none';
+          }
+        }
+
+        // (b) DPCD 查詢還原（順序重要）
+        //  1. auxUpdateValCombo → 依地址填充 select 選項 + 設定顯示狀態
+        //  2. restoreFormState → 還原之前選中的 select 值
+        //  3. 檢查是否在自訂模式 → 切換顯示狀態
+        //  4. auxLookupDPCD → 觸發查詢
+        var addrEl = document.getElementById('aux-dpcd-addr');
+        if (addrEl && addrEl.value.trim()) {
+          // Step 1: 填充 select 選項
+          if (typeof window.auxUpdateValCombo === 'function') {
+            window.auxUpdateValCombo(addrEl.value.trim());
+          }
+          // Step 2: 還原 select 值（auxUpdateValCombo 會重設為空）
+          restoreFormState();
+          // Step 3: 還原 combo box 顯示狀態
+          var dpcdSel = document.getElementById('aux-dpcd-val-select');
+          var dpcdWrap = document.getElementById('aux-dpcd-val-custom-wrap');
+          if (dpcdSel && dpcdWrap) {
+            if (dpcdSel.value === '__custom__') {
+              dpcdSel.style.display = 'none';
+              dpcdWrap.style.display = 'inline';
+            }
+            // 如果 auxUpdateValCombo 已經設定了正確的顯示狀態（如：該地址無合法值清單時強制自訂模式），就不覆蓋
+          }
+          // Step 4: 觸發查詢
+          var currentVal = '';
+          if (typeof window.auxGetCurrentVal === 'function') currentVal = window.auxGetCurrentVal();
+          if (typeof window.auxLookupDPCD === 'function') {
+            window.auxLookupDPCD(addrEl.value.trim(), currentVal);
+          }
+        }
+      })();
     }
 
-    // 4. 監聽所有表單變動，自動儲存
+    // 4. 還原 AUX 子頁的 active tab（DPCD 查詢 or AUX 解碼）
+    try {
+      const savedAuxTab = sessionStorage.getItem('aux_active_tab');
+      if (savedAuxTab && typeof window.auxSwitchTab === 'function') {
+        window.auxSwitchTab(savedAuxTab);
+      }
+    } catch(e) {}
+
+    // 5. 監聽所有表單變動，自動儲存
     document.addEventListener('input', debounce(saveFormState, 300));
     document.addEventListener('change', debounce(saveFormState, 100));
   }
