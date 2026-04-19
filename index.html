@@ -1442,7 +1442,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.2</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1484,7 +1484,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.2</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9586,12 +9586,12 @@ function auxWaveBuildReqFrame(bytes) {
   if (!bytes || bytes.length < 4) return null;
   var segs = [];
 
-  // 1. Preamble 20 bits: alternating 1010...10
+  // 1. Preamble 20 bits: 20 consecutive 0s (DP spec: pre-charge pulses, each is '0' in Manchester-II)
   var preambleBits = [];
-  for (var i = 0; i < 20; i++) preambleBits.push(i % 2 === 0 ? 1 : 0);
+  for (var i = 0; i < 20; i++) preambleBits.push(0);
   segs.push({ label: 'Preamble', bits: preambleBits, color: AUXW_COLOR.preamble, kind: 'preamble' });
 
-  // 2. Start 4 bits: HHLL = 1100
+  // 2. Start (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods (illegal in Manchester-II)
   segs.push({ label: 'Start', bits: [1, 1, 0, 0], color: AUXW_COLOR.start, kind: 'start' });
 
   // 3. Command 4 bits: upper nibble of byte0
@@ -9619,7 +9619,7 @@ function auxWaveBuildReqFrame(bytes) {
     segs.push({ label: 'Data[' + (bytes.length - 4) + ']', bits: dataBits, color: AUXW_COLOR.data, kind: 'data' });
   }
 
-  // 7. Stop 4 bits: HHLL = 1100
+  // 7. Stop (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods
   segs.push({ label: 'Stop', bits: [1, 1, 0, 0], color: AUXW_COLOR.stop, kind: 'stop' });
 
   return segs;
@@ -9630,12 +9630,12 @@ function auxWaveBuildRepFrame(bytes) {
   if (!bytes || bytes.length < 1) return null;
   var segs = [];
 
-  // 1. Preamble 20 bits
+  // 1. Preamble 20 bits: 20 consecutive 0s (DP spec: pre-charge pulses)
   var preambleBits = [];
-  for (var i = 0; i < 20; i++) preambleBits.push(i % 2 === 0 ? 1 : 0);
+  for (var i = 0; i < 20; i++) preambleBits.push(0);
   segs.push({ label: 'Preamble', bits: preambleBits, color: AUXW_COLOR.preamble, kind: 'preamble' });
 
-  // 2. Start 4 bits: HHLL = 1100
+  // 2. Start (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods
   segs.push({ label: 'Start', bits: [1, 1, 0, 0], color: AUXW_COLOR.start, kind: 'start' });
 
   // 3. Command/Status 8 bits: byte0
@@ -9652,14 +9652,15 @@ function auxWaveBuildRepFrame(bytes) {
     segs.push({ label: 'Data[' + (bytes.length - 1) + ']', bits: dataBits, color: AUXW_COLOR.data, kind: 'data' });
   }
 
-  // 5. Stop 4 bits: HHLL = 1100
+  // 5. Stop (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods
   segs.push({ label: 'Stop', bits: [1, 1, 0, 0], color: AUXW_COLOR.stop, kind: 'stop' });
 
   return segs;
 }
 
 // Build SVG inner HTML for Manchester II encoded waveform
-// Manchester II: bit 1 = H→L at midpoint, bit 0 = L→H at midpoint
+// Manchester II (G.E. Thomas): bit 1 = H→L at mid-bit, bit 0 = L→H at mid-bit
+// START/STOP are raw HHLL (not Manchester II). Idle = LOW.
 function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
   var basePerBit = 12;
   var bitW = basePerBit * zoomH;
@@ -9699,6 +9700,7 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
     var seg = segs[si];
     var segW = seg.bits.length * bitW;
     var isIdle = (seg.kind === 'idle');
+    var isStartStop = (seg.kind === 'start' || seg.kind === 'stop');
 
     // Background color block
     parts.push('<rect x="' + cursorX + '" y="' + labelH + '" width="' + segW + '" height="' + waveH + '" fill="' + seg.color + '" fill-opacity="0.10"/>');
@@ -9725,65 +9727,76 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
       }
     }
 
-    // Midpoint markers (Manchester II transition points) - subtle dashed lines
-    if (bitW > 6 && !isIdle) {
+    // Midpoint markers (Manchester II mid-bit transition points) — skip for START/STOP (raw HHLL)
+    if (bitW > 6 && !isIdle && !isStartStop) {
       for (var bm = 0; bm < seg.bits.length; bm++) {
         var bmx = cursorX + bm * bitW + bitW / 2;
         parts.push('<line x1="' + bmx + '" y1="' + (labelH + 2) + '" x2="' + bmx + '" y2="' + (labelH + waveH - 2) + '" stroke="#334155" stroke-width="0.3" stroke-dasharray="2,2"/>');
       }
     }
 
-    // Bit value labels (axis area)
+    // Bit value labels (axis area); START/STOP show H/L instead of 1/0
     if (bitW > 5) {
       for (var bl = 0; bl < seg.bits.length; bl++) {
         var blx = cursorX + bl * bitW + bitW / 2;
-        parts.push('<text x="' + blx + '" y="' + (labelH + waveH + 13) + '" text-anchor="middle" fill="#64748b" font-size="9">' + seg.bits[bl] + '</text>');
+        var blLabel = isStartStop ? (seg.bits[bl] ? 'H' : 'L') : seg.bits[bl];
+        parts.push('<text x="' + blx + '" y="' + (labelH + waveH + 13) + '" text-anchor="middle" fill="#64748b" font-size="9">' + blLabel + '</text>');
       }
     }
 
-    // Manchester II waveform path
+    // Waveform path
     if (isIdle) {
-      // Idle: keep line high
-      for (var bi = 0; bi < seg.bits.length; bi++) {
-        var ibx0 = cursorX + bi * bitW;
-        var ibx1 = ibx0 + bitW;
-        var idleY = signalY1; // idle = high
-        if (d === '') {
-          d = 'M ' + ibx0 + ' ' + idleY;
-        } else if (prevEndLevel !== idleY) {
-          d += ' L ' + ibx0 + ' ' + prevEndLevel + ' L ' + ibx0 + ' ' + idleY;
-        }
-        d += ' L ' + ibx1 + ' ' + idleY;
-        prevEndLevel = idleY;
+      // Idle = common mode (differential mid-level, midpoint between H and L)
+      var idleY = (signalY1 + signalY0) / 2;
+      var idleX1 = cursorX + seg.bits.length * bitW;
+      if (d === '') {
+        d = 'M ' + cursorX + ' ' + idleY;
+      } else if (prevEndLevel !== idleY) {
+        d += ' L ' + cursorX + ' ' + idleY;
       }
+      d += ' L ' + idleX1 + ' ' + idleY;
+      prevEndLevel = idleY;
+
+    } else if (isStartStop) {
+      // START/STOP: raw HHLL voltage — H for 2 bit-periods, L for 2 bit-periods
+      // NOT Manchester II encoded (DP spec: "illegal in Manchester-II code")
+      // bits = [1,1,0,0]: each element is 1 bit-period at that raw level
+      for (var bw = 0; bw < seg.bits.length; bw++) {
+        var rawBit = seg.bits[bw];
+        var bwx0 = cursorX + bw * bitW;
+        var bwx1 = bwx0 + bitW;
+        var rawY = rawBit ? signalY1 : signalY0;
+        if (d === '') {
+          d = 'M ' + bwx0 + ' ' + rawY;
+        } else if (prevEndLevel !== rawY) {
+          d += ' L ' + bwx0 + ' ' + rawY;
+        }
+        d += ' L ' + bwx1 + ' ' + rawY;
+        prevEndLevel = rawY;
+      }
+
     } else {
-      // Manchester II encoding
+      // Manchester II encoding (G.E. Thomas convention, DP AUX standard)
+      // Bit 1: first-half HIGH → mid-bit H→L → second-half LOW  (H to L = 1)
+      // Bit 0: first-half LOW  → mid-bit L→H → second-half HIGH (L to H = 0)
+      // Bit boundary: vertical transition only when prev end-level ≠ current start-level
       for (var bw = 0; bw < seg.bits.length; bw++) {
         var bit = seg.bits[bw];
-        var bwx0 = cursorX + bw * bitW;
+        var bwx0   = cursorX + bw * bitW;
         var bwxMid = bwx0 + bitW / 2;
-        var bwx1 = bwx0 + bitW;
-
-        // bit 1: start H, mid transition H→L, end L
-        // bit 0: start L, mid transition L→H, end H
-        var startY = bit ? signalY1 : signalY0;
-        var endY   = bit ? signalY0 : signalY1;
+        var bwx1   = bwx0 + bitW;
+        var startY = bit ? signalY1 : signalY0;  // 1→H, 0→L
+        var endY   = bit ? signalY0 : signalY1;  // 1→L, 0→H
 
         if (d === '') {
           d = 'M ' + bwx0 + ' ' + startY;
-          prevEndLevel = startY;
-        } else {
-          // Boundary transition if needed
-          if (prevEndLevel !== startY) {
-            d += ' L ' + bwx0 + ' ' + prevEndLevel + ' L ' + bwx0 + ' ' + startY;
-          }
+        } else if (prevEndLevel !== startY) {
+          // Bit boundary transition: vertical edge at bwx0
+          d += ' L ' + bwx0 + ' ' + startY;
         }
-        // First half: maintain start level to midpoint
-        d += ' L ' + bwxMid + ' ' + startY;
-        // Midpoint transition
-        d += ' L ' + bwxMid + ' ' + endY;
-        // Second half: maintain end level to bit end
-        d += ' L ' + bwx1 + ' ' + endY;
+        d += ' L ' + bwxMid + ' ' + startY;   // first half
+        d += ' L ' + bwxMid + ' ' + endY;     // mid-bit transition
+        d += ' L ' + bwx1   + ' ' + endY;     // second half
         prevEndLevel = endY;
       }
     }
@@ -9819,17 +9832,17 @@ function auxWaveRender() {
   var reqSegs = auxWaveBuildReqFrame(reqBytes);
   if (!reqSegs) { card.style.display = 'none'; return; }
 
-  // Combine all segments
+  // Combine all segments — Req → Idle(common mode 100μs) → Rep
   var allSegs = reqSegs.slice();
 
-  // If reply is available, add idle gap + reply frame
+  // If reply is available, add idle gap (common mode) + reply frame
   var repSegs = null;
   if (repBytes && repBytes.length >= 1) {
     repSegs = auxWaveBuildRepFrame(repBytes);
     if (repSegs) {
-      // 100μs idle gap (100 bits at 1MHz)
+      // 100μs idle gap at common mode (differential mid-level between H and L)
       var idleBits = [];
-      for (var ig = 0; ig < 100; ig++) idleBits.push(1); // idle = high
+      for (var ig = 0; ig < 100; ig++) idleBits.push(0);
       allSegs.push({ label: 'Idle 100μs', bits: idleBits, color: AUXW_COLOR.idle, kind: 'idle' });
       for (var rs = 0; rs < repSegs.length; rs++) allSegs.push(repSegs[rs]);
     }
@@ -9911,6 +9924,7 @@ function auxWaveRenderMinimap(segs, totalBits) {
   for (var ms = 0; ms < segs.length; ms++) {
     var mseg = segs[ms];
     var isIdle = (mseg.kind === 'idle');
+    var isSS = (mseg.kind === 'start' || mseg.kind === 'stop');
     for (var mb = 0; mb < mseg.bits.length; mb++) {
       var mbit = mseg.bits[mb];
       var mbx0 = cX2;
@@ -9918,16 +9932,23 @@ function auxWaveRenderMinimap(segs, totalBits) {
       var mbx1 = mbx0 + bitW;
 
       if (isIdle) {
-        var idleYm = my1;
+        var idleYm = (my1 + my0) / 2; // idle = common mode (mid-level)
         if (md === '') { md = 'M ' + mbx0 + ' ' + idleYm; prevEnd = idleYm; }
-        else if (prevEnd !== idleYm) { md += ' L ' + mbx0 + ' ' + prevEnd + ' L ' + mbx0 + ' ' + idleYm; }
+        else if (prevEnd !== idleYm) { md += ' L ' + mbx0 + ' ' + idleYm; }
         md += ' L ' + mbx1 + ' ' + idleYm;
         prevEnd = idleYm;
+      } else if (isSS) {
+        // START/STOP: raw voltage (H or L for full bit period)
+        var ssY = mbit ? my1 : my0;
+        if (md === '') { md = 'M ' + mbx0 + ' ' + ssY; }
+        else if (prevEnd !== ssY) { md += ' L ' + mbx0 + ' ' + ssY; }
+        md += ' L ' + mbx1 + ' ' + ssY;
+        prevEnd = ssY;
       } else {
         var msY = mbit ? my1 : my0;
         var meY = mbit ? my0 : my1;
         if (md === '') { md = 'M ' + mbx0 + ' ' + msY; prevEnd = msY; }
-        else if (prevEnd !== msY) { md += ' L ' + mbx0 + ' ' + prevEnd + ' L ' + mbx0 + ' ' + msY; }
+        else if (prevEnd !== msY) { md += ' L ' + mbx0 + ' ' + msY; }
         md += ' L ' + mbxMid + ' ' + msY + ' L ' + mbxMid + ' ' + meY + ' L ' + mbx1 + ' ' + meY;
         prevEnd = meY;
       }
@@ -10037,19 +10058,27 @@ function auxWaveFsRenderMinimap() {
   for (var ms2 = 0; ms2 < auxWaveLastAllSegs.length; ms2++) {
     var mseg2 = auxWaveLastAllSegs[ms2];
     var isIdle2 = (mseg2.kind === 'idle');
+    var isSS2 = (mseg2.kind === 'start' || mseg2.kind === 'stop');
     for (var mb2 = 0; mb2 < mseg2.bits.length; mb2++) {
       var bit2 = mseg2.bits[mb2];
       var bx0m = cx2, bxMidm = bx0m + bW / 2, bx1m = bx0m + bW;
       if (isIdle2) {
-        if (md2 === '') { md2 = 'M ' + bx0m + ' ' + y1m; pe2 = y1m; }
-        else if (pe2 !== y1m) { md2 += ' L ' + bx0m + ' ' + pe2 + ' L ' + bx0m + ' ' + y1m; }
-        md2 += ' L ' + bx1m + ' ' + y1m;
-        pe2 = y1m;
+        var idYm2 = (y1m + y0m) / 2; // common mode
+        if (md2 === '') { md2 = 'M ' + bx0m + ' ' + idYm2; pe2 = idYm2; }
+        else if (pe2 !== idYm2) { md2 += ' L ' + bx0m + ' ' + idYm2; }
+        md2 += ' L ' + bx1m + ' ' + idYm2;
+        pe2 = idYm2;
+      } else if (isSS2) {
+        var ssY2 = bit2 ? y1m : y0m;
+        if (md2 === '') { md2 = 'M ' + bx0m + ' ' + ssY2; }
+        else if (pe2 !== ssY2) { md2 += ' L ' + bx0m + ' ' + ssY2; }
+        md2 += ' L ' + bx1m + ' ' + ssY2;
+        pe2 = ssY2;
       } else {
         var sy = bit2 ? y1m : y0m;
         var ey = bit2 ? y0m : y1m;
         if (md2 === '') { md2 = 'M ' + bx0m + ' ' + sy; pe2 = sy; }
-        else if (pe2 !== sy) { md2 += ' L ' + bx0m + ' ' + pe2 + ' L ' + bx0m + ' ' + sy; }
+        else if (pe2 !== sy) { md2 += ' L ' + bx0m + ' ' + sy; }
         md2 += ' L ' + bxMidm + ' ' + sy + ' L ' + bxMidm + ' ' + ey + ' L ' + bx1m + ' ' + ey;
         pe2 = ey;
       }
