@@ -1442,7 +1442,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.2</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.3</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1484,7 +1484,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.3</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9832,8 +9832,15 @@ function auxWaveRender() {
   var reqSegs = auxWaveBuildReqFrame(reqBytes);
   if (!reqSegs) { card.style.display = 'none'; return; }
 
-  // Combine all segments — Req → Idle(common mode 100μs) → Rep
-  var allSegs = reqSegs.slice();
+  // Combine all segments — Idle(common) → Req → Idle(common 100μs) → Rep → Idle(common)
+  var allSegs = [];
+
+  // Leading idle at common mode (shows AUX line before transmission)
+  var leadBits = [];
+  for (var li = 0; li < 8; li++) leadBits.push(0);
+  allSegs.push({ label: 'Idle', bits: leadBits, color: AUXW_COLOR.idle, kind: 'idle' });
+
+  for (var rsi = 0; rsi < reqSegs.length; rsi++) allSegs.push(reqSegs[rsi]);
 
   // If reply is available, add idle gap (common mode) + reply frame
   var repSegs = null;
@@ -9847,6 +9854,11 @@ function auxWaveRender() {
       for (var rs = 0; rs < repSegs.length; rs++) allSegs.push(repSegs[rs]);
     }
   }
+
+  // Trailing idle at common mode (shows AUX line after transmission)
+  var trailBits = [];
+  for (var ti = 0; ti < 8; ti++) trailBits.push(0);
+  allSegs.push({ label: 'Idle', bits: trailBits, color: AUXW_COLOR.idle, kind: 'idle' });
 
   var totalBits = 0;
   for (var s = 0; s < allSegs.length; s++) totalBits += allSegs[s].bits.length;
