@@ -1442,7 +1442,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.15</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.16</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1484,7 +1484,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.15</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.16</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -8134,7 +8134,7 @@ function auxLookupDPCD(addrStr, valStr) {
     if (entry.vv && entry.vv.length > 0) {
       var isValid = entry.vv.some(function(item) { return item.v === val; });
       if (!isValid) {
-        html += '<div class="aux-val-warn">⚠ 輸入值異常 — 0x' + val.toString(16).toUpperCase().padStart(2,'0') + ' 不在此暫存器的常見合法值清單中。可能是錯誤讀取或保留值。合法值：' + entry.vv.map(function(item){return item.l}).join('、') + '</div>';
+        html += '<div class="aux-val-warn">⚠ 輸入值異常 — 0x' + val.toString(16).toUpperCase().padStart(2,'0') + ' 不在此暫存器的常見合法值清單中。可能是錯誤讀取或保留值。合法值：' + entry.vv.map(function(item){return normVvLabel(item.l)}).join('、') + '</div>';
       }
     }
   }
@@ -8187,7 +8187,7 @@ function auxLookupDPCD(addrStr, valStr) {
           if (dk) decoded = ' → ' + dk;
         }
         var valClass = bv > 0 ? 'aux-bit-val bit-active' : 'aux-bit-val bit-zero';
-        html += '<td class="' + valClass + '">' + bv + decoded + '</td>';
+        html += '<td class="' + valClass + '">0x' + bvHexPad + decoded + '</td>';
       }
       html += '<td><div class="aux-bit-desc">' + bDesc + '</div></td></tr>';
     });
@@ -8705,6 +8705,13 @@ function auxUpdateRepRaw() {
 }
 
 // ─── DPCD 地址對照表（多 byte 讀寫時逐地址解析）───
+// Normalize vv label from "0Ah — desc" or "0Ah" style to "0x0A — desc" / "0x0A"
+function normVvLabel(l) {
+  return l.replace(/^([0-9A-Fa-f]{1,2})h/, function(m, hex) {
+    return '0x' + hex.toUpperCase().padStart(2, '0');
+  });
+}
+
 function auxRenderDpcdTable(startAddr, dataBytes) {
   if (!dataBytes || dataBytes.length === 0) return '';
   var html = '<div style="font-size:12px;font-weight:700;color:var(--accent);margin:10px 0 6px;text-transform:uppercase;letter-spacing:0.4px">';
@@ -8733,19 +8740,19 @@ function auxRenderDpcdTable(startAddr, dataBytes) {
     if (entry) {
       var sumFn = DPCD_SUMMARIZE[addrHex];
       if (sumFn) {
-        try { desc = sumFn(val); } catch(e) { desc = valHex + 'h'; }
+        try { desc = sumFn(val); } catch(e) { desc = '0x' + valHex; }
       } else if (entry.vv && entry.vv.length > 0) {
         var matched = false;
         for (var j = 0; j < entry.vv.length; j++) {
-          if (entry.vv[j].v === val) { desc = entry.vv[j].l; matched = true; break; }
+          if (entry.vv[j].v === val) { desc = normVvLabel(entry.vv[j].l); matched = true; break; }
         }
-        if (!matched && val === 0) desc = '0（預設 / 未設定）';
-        else if (!matched) desc = '<span class="aux-anomaly">' + valHex + 'h（⚠ 不在合法值清單中）</span>';
+        if (!matched && val === 0) desc = '0x00（預設 / 未設定）';
+        else if (!matched) desc = '<span class="aux-anomaly">0x' + valHex + '（⚠ 不在合法值清單中）</span>';
       } else {
-        desc = valHex + 'h';
+        desc = '0x' + valHex;
       }
     } else {
-      desc = valHex + 'h';
+      desc = '0x' + valHex;
     }
 
     // 值顏色：非 0 綠色高亮，0 灰色
@@ -8759,7 +8766,7 @@ function auxRenderDpcdTable(startAddr, dataBytes) {
     html += '<tr>';
     html += '<td class="aux-bit-range"' + addrClick + '>' + addrHex + 'h</td>';
     html += '<td>' + nameHtml + '</td>';
-    html += '<td class="aux-bit-val ' + valClass + '">' + valHex + '</td>';
+    html += '<td class="aux-bit-val ' + valClass + '">0x' + valHex + '</td>';
     html += '<td style="font-size:11px;color:var(--text-sub);max-width:220px">' + desc + '</td>';
     html += '</tr>';
   }
