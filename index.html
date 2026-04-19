@@ -1045,6 +1045,26 @@
   }
   .aux-summary-text { font-size: 13px; line-height: 1.7; color: var(--text); }
   .aux-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+  /* ─── DPCD 反向搜尋 ─── */
+  .aux-dpcd-search-input {
+    width: 100%; box-sizing: border-box; padding: 10px 12px;
+    border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px;
+    color: var(--text); background: #0f172a; outline: none;
+  }
+  .aux-dpcd-search-input:focus { border-color: var(--primary); }
+  .aux-dpcd-search-results { margin-top: 8px; }
+  .aux-dpcd-search-item {
+    padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: #0f172a; margin-bottom: 6px;
+  }
+  .aux-dpcd-search-item:last-child { margin-bottom: 0; }
+  .aux-search-addr {
+    color: var(--primary); text-decoration: underline; cursor: pointer;
+    font-weight: 700; font-size: 13px; font-family: monospace;
+  }
+  .aux-search-match { font-size: 11px; color: var(--text-sub); margin-top: 3px; }
+  .aux-search-highlight { background: rgba(37,99,235,0.28); color: #e2e8f0; border-radius: 2px; padding: 0 1px; }
+  .aux-search-more { font-size: 12px; color: var(--text-sub); text-align: center; padding: 6px 0; border-top: 1px solid var(--border); margin-top: 6px; }
   /* ─── AUX Decode structural input ─── */
   .aux-struct-section {
     font-size: 14px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
@@ -1453,7 +1473,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.24</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.25</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1495,7 +1515,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.24</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.25</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2691,6 +2711,14 @@
             </div>
             <div class="field-hint" data-i18n="aux.dpcdValHint">有合法值清單的地址會顯示下拉選單，也可選「自訂輸入」手動填寫</div>
           </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="icon">🔍</span> DPCD 反向搜尋</div>
+        <div class="card-body">
+          <input type="text" id="aux-dpcd-search-input" class="aux-dpcd-search-input" placeholder="搜尋 DPCD（如 LANE_COUNT、頻寬、HBR...）" autocomplete="off" spellcheck="false">
+          <div class="field-hint">搜尋暫存器名稱、說明或值標籤，點擊結果地址自動查詢</div>
+          <div id="aux-dpcd-search-results" class="aux-dpcd-search-results" style="display:none"></div>
         </div>
       </div>
       <div id="aux-dpcd-result" class="card" style="display:none">
@@ -9577,6 +9605,97 @@ function auxInitListeners() {
 window.auxLookupDPCD = auxLookupDPCD;
 window.auxUpdateValCombo = auxUpdateValCombo;
 window.auxGetCurrentVal = auxGetCurrentVal;
+
+// ─── DPCD 反向搜尋 ───
+(function() {
+  var searchTimer = null;
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function escRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  }
+  function hlText(text, query) {
+    if (!text) return '';
+    var safe = escHtml(String(text));
+    if (!query) return safe;
+    var re = new RegExp('(' + escRe(escHtml(query)) + ')', 'gi');
+    return safe.replace(re, '<span class="aux-search-highlight">$1</span>');
+  }
+
+  function auxDpcdSearch(query) {
+    var container = document.getElementById('aux-dpcd-search-results');
+    if (!container) return;
+    query = (query || '').trim();
+    if (query.length < 2) {
+      container.style.display = 'none';
+      container.innerHTML = '';
+      return;
+    }
+    var q = query.toLowerCase();
+    var results = [];
+    if (typeof DPCD_DB !== 'undefined') {
+      var addrs = Object.keys(DPCD_DB);
+      for (var i = 0; i < addrs.length; i++) {
+        var addr = addrs[i];
+        var e = DPCD_DB[addr];
+        var matchText = null;
+        if (e.n && e.n.toLowerCase().indexOf(q) >= 0) { matchText = e.n; }
+        else if (e.c && e.c.toLowerCase().indexOf(q) >= 0) { matchText = e.c; }
+        else if (e.d && e.d.toLowerCase().indexOf(q) >= 0) { matchText = e.d; }
+        else if (e.vv) {
+          for (var vi = 0; vi < e.vv.length && !matchText; vi++) {
+            if (e.vv[vi].l && e.vv[vi].l.toLowerCase().indexOf(q) >= 0) matchText = e.vv[vi].l;
+          }
+        }
+        else if (e.b) {
+          for (var bi = 0; bi < e.b.length && !matchText; bi++) {
+            if (e.b[bi].n && e.b[bi].n.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].n;
+            else if (e.b[bi].d && e.b[bi].d.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].d;
+          }
+        }
+        if (matchText !== null) results.push({ addr: addr, n: e.n || '', c: e.c || '', matchText: matchText });
+      }
+    }
+    if (results.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:var(--text-sub);padding:6px 0">找不到符合的 DPCD 暫存器</div>';
+      container.style.display = 'block';
+      return;
+    }
+    var shown = Math.min(results.length, 20);
+    var html = '';
+    for (var r = 0; r < shown; r++) {
+      var res = results[r];
+      var isNameMatch = res.n && res.n.toLowerCase().indexOf(q) >= 0;
+      var isCMatch = res.c && res.c.toLowerCase().indexOf(q) >= 0;
+      html += '<div class="aux-dpcd-search-item">';
+      html += '<span class="aux-search-addr" onclick="auxJumpToDpcd(\'' + res.addr + '\',\'\')" title="跳至 DPCD 查詢">0x' + res.addr + '</span>';
+      if (res.n) html += '<span style="font-size:13px;color:var(--text);margin-left:8px">' + hlText(res.n, isNameMatch ? query : '') + '</span>';
+      if (res.c) html += '<span style="font-size:12px;color:var(--text-sub);margin-left:6px">' + hlText(res.c, isCMatch ? query : '') + '</span>';
+      if (!isNameMatch && !isCMatch) html += '<div class="aux-search-match">' + hlText(res.matchText, query) + '</div>';
+      html += '</div>';
+    }
+    if (results.length > 20) html += '<div class="aux-search-more">還有 ' + (results.length - 20) + ' 筆，請縮小搜尋範圍</div>';
+    container.innerHTML = html;
+    container.style.display = 'block';
+  }
+  window.auxDpcdSearch = auxDpcdSearch;
+
+  function initDpcdSearch() {
+    var inp = document.getElementById('aux-dpcd-search-input');
+    if (!inp) return;
+    inp.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() { auxDpcdSearch(inp.value); }, 300);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDpcdSearch);
+  } else {
+    initDpcdSearch();
+  }
+})();
 
 // ═══════════ AUX 波形（Manchester II）═══════════
 
