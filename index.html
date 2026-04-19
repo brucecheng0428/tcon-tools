@@ -1442,7 +1442,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.7</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.8</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1484,7 +1484,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.7</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.8</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9689,6 +9689,7 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
   var d = '';
   var prevEndLevel = -1; // -1 = unset
   var cursorX = pad;
+  var ssPathParts = []; // separate orange paths for Start/Stop (non-Manchester II) segments
 
   for (var si = 0; si < segs.length; si++) {
     var seg = segs[si];
@@ -9698,6 +9699,14 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
 
     // Background color block
     parts.push('<rect x="' + cursorX + '" y="' + labelH + '" width="' + segW + '" height="' + waveH + '" fill="' + seg.color + '" fill-opacity="0.10"/>');
+    // Start/Stop highlight: orange overlay + diagonal hatching to mark non-Manchester II raw HHLL region
+    if (isStartStop) {
+      parts.push('<rect x="' + cursorX + '" y="' + labelH + '" width="' + segW + '" height="' + waveH + '" fill="#f97316" fill-opacity="0.13"/>');
+      var hatchId = 'hatch_' + si;
+      parts.push('<defs><pattern id="' + hatchId + '" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">' +
+        '<line x1="0" y1="0" x2="0" y2="6" stroke="#f97316" stroke-width="1" stroke-opacity="0.25"/></pattern></defs>');
+      parts.push('<rect x="' + cursorX + '" y="' + labelH + '" width="' + segW + '" height="' + waveH + '" fill="url(#' + hatchId + ')"/>');
+    }
 
     // Label bar at top
     if (segW > 1.5) {
@@ -9762,6 +9771,8 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
       // START/STOP: raw HHLL voltage — H for 2 bit-periods, L for 2 bit-periods
       // NOT Manchester II encoded (DP spec: "illegal in Manchester-II code")
       // bits = [1,1,0,0]: each element is 1 bit-period at that raw level
+      var ssd = '';
+      var ssPrevY = -1;
       for (var bw = 0; bw < seg.bits.length; bw++) {
         var rawBit = seg.bits[bw];
         var bwx0 = cursorX + bw * bitW;
@@ -9774,7 +9785,13 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
         }
         d += ' L ' + bwx1 + ' ' + rawY;
         prevEndLevel = rawY;
+        // Build separate orange overlay path
+        if (ssd === '') { ssd = 'M ' + bwx0 + ' ' + rawY; ssPrevY = rawY; }
+        else if (ssPrevY !== rawY) { ssd += ' L ' + bwx0 + ' ' + rawY; }
+        ssd += ' L ' + bwx1 + ' ' + rawY;
+        ssPrevY = rawY;
       }
+      if (ssd) ssPathParts.push(ssd);
 
     } else {
       // Manchester II encoding (G.E. Thomas convention, DP AUX standard)
@@ -9808,9 +9825,13 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
   // End divider
   parts.push('<line x1="' + cursorX + '" y1="' + labelH + '" x2="' + cursorX + '" y2="' + (labelH + waveH) + '" stroke="#475569" stroke-width="1"/>');
 
-  // Waveform stroke
+  // Waveform stroke (green for Manchester II segments)
   var strokeW = zoomH < 0.1 ? 0.8 : 1.8;
   parts.push('<path d="' + d + '" stroke="#22c55e" stroke-width="' + strokeW + '" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>');
+  // Orange overlay paths for Start/Stop (non-Manchester II raw HHLL) — drawn on top
+  for (var spi = 0; spi < ssPathParts.length; spi++) {
+    parts.push('<path d="' + ssPathParts[spi] + '" stroke="#fb923c" stroke-width="' + (strokeW + 0.4) + '" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>');
+  }
 
   return { html: parts.join(''), totalW: totalW, totalH: totalH, bitW: bitW };
 }
