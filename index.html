@@ -1442,7 +1442,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.9</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.10</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1484,7 +1484,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.9</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.10</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9572,6 +9572,25 @@ var auxWaveLastTotalBits = 0;
 var auxWaveFs = null;
 var auxWaveFsZoomH = 1.0;
 
+// Check if a DPCD byte value at a given address is flagged as abnormal
+function auxIsAbnormalDpcdByte(addrNum, byteVal) {
+  var addrHex = addrNum.toString(16).toUpperCase().padStart(5, '0');
+  if (typeof DPCD_SUMMARIZE !== 'undefined' && DPCD_SUMMARIZE[addrHex]) {
+    var res = DPCD_SUMMARIZE[addrHex](byteVal);
+    if (res && res.indexOf('aux-anomaly') >= 0) return true;
+  }
+  if (typeof DPCD_DB !== 'undefined' && DPCD_DB[addrHex]) {
+    var entry = DPCD_DB[addrHex];
+    if (entry.vv && entry.vv.length > 0) {
+      for (var vi = 0; vi < entry.vv.length; vi++) {
+        if (entry.vv[vi].v === byteVal) return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 // Convert a byte to an array of bits (MSB-first)
 function auxWaveByteToBits(byte, count) {
   var bits = [];
@@ -9689,7 +9708,8 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
   var d = '';
   var prevEndLevel = -1; // -1 = unset
   var cursorX = pad;
-  var abnX0 = -1, abnX1 = -1; // x-range of abnormal reply region (for red overlay)
+  var abnRanges = []; // [{x0,x1}] — each contiguous run of abnormal segments
+  var lastWasAbnormal = false;
 
   for (var si = 0; si < segs.length; si++) {
     var seg = segs[si];
@@ -9699,10 +9719,16 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
 
     // Background color block
     parts.push('<rect x="' + cursorX + '" y="' + labelH + '" width="' + segW + '" height="' + waveH + '" fill="' + seg.color + '" fill-opacity="0.10"/>');
-    // Track abnormal region x-range
+    // Track abnormal regions (group contiguous abnormal segments)
     if (seg.abnormal) {
-      if (abnX0 < 0) abnX0 = cursorX;
-      abnX1 = cursorX + segW;
+      if (lastWasAbnormal) {
+        abnRanges[abnRanges.length - 1].x1 = cursorX + segW;
+      } else {
+        abnRanges.push({ x0: cursorX, x1: cursorX + segW });
+      }
+      lastWasAbnormal = true;
+    } else {
+      lastWasAbnormal = false;
     }
 
     // Label bar at top
@@ -9817,12 +9843,12 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
   // Waveform stroke
   var strokeW = zoomH < 0.1 ? 0.8 : 1.8;
   parts.push('<path d="' + d + '" stroke="#22c55e" stroke-width="' + strokeW + '" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>');
-  // Red frosted-glass overlay for abnormal reply (NACK/DEFER) — drawn on top of waveform
-  if (abnX0 >= 0) {
-    var abnW = abnX1 - abnX0;
-    parts.push('<rect x="' + abnX0 + '" y="0" width="' + abnW + '" height="' + (labelH + waveH) + '" fill="#ef4444" fill-opacity="0.09"/>');
-    parts.push('<line x1="' + abnX0 + '" y1="0" x2="' + abnX0 + '" y2="' + (labelH + waveH) + '" stroke="#ef4444" stroke-width="1.5" stroke-opacity="0.45"/>');
-    parts.push('<line x1="' + abnX1 + '" y1="0" x2="' + abnX1 + '" y2="' + (labelH + waveH) + '" stroke="#ef4444" stroke-width="1.5" stroke-opacity="0.45"/>');
+  // Red frosted-glass overlay for abnormal segments — drawn on top of waveform
+  for (var ai = 0; ai < abnRanges.length; ai++) {
+    var ax0 = abnRanges[ai].x0, ax1 = abnRanges[ai].x1, aw = ax1 - ax0;
+    parts.push('<rect x="' + ax0 + '" y="0" width="' + aw + '" height="' + (labelH + waveH) + '" fill="#ef4444" fill-opacity="0.20"/>');
+    parts.push('<line x1="' + ax0 + '" y1="0" x2="' + ax0 + '" y2="' + (labelH + waveH) + '" stroke="#ef4444" stroke-width="1.5" stroke-opacity="0.55"/>');
+    parts.push('<line x1="' + ax1 + '" y1="0" x2="' + ax1 + '" y2="' + (labelH + waveH) + '" stroke="#ef4444" stroke-width="1.5" stroke-opacity="0.55"/>');
   }
 
   return { html: parts.join(''), totalW: totalW, totalH: totalH, bitW: bitW };
@@ -9846,6 +9872,15 @@ function auxWaveRender() {
   var reqSegs = auxWaveBuildReqFrame(reqBytes);
   if (!reqSegs) { card.style.display = 'none'; return; }
 
+  // Mark abnormal request data bytes via DPCD lookup
+  // reqSegs layout: [0]=Preamble [1]=Start [2]=CMD [3]=ADDR [4]=LEN [5+]=Data bytes
+  var dpcdBaseAddr = ((reqBytes[0] & 0xF) << 16) | (reqBytes[1] << 8) | reqBytes[2];
+  for (var di = 0; di < reqBytes.length - 4; di++) {
+    if (auxIsAbnormalDpcdByte(dpcdBaseAddr + di, reqBytes[4 + di])) {
+      if (reqSegs[5 + di]) reqSegs[5 + di].abnormal = true;
+    }
+  }
+
   // Combine all segments — Idle(common) → Req → Idle(common 100μs) → Rep → Idle(common)
   var allSegs = [];
 
@@ -9865,6 +9900,14 @@ function auxWaveRender() {
       var repIsAbnormal = (repStatus !== 0x00); // anything non-ACK is an error
       if (repIsAbnormal) {
         for (var ra = 0; ra < repSegs.length; ra++) repSegs[ra].abnormal = true;
+      } else {
+        // ACK reply: mark individual data bytes that fail DPCD validation
+        // repSegs layout: [0]=Preamble [1]=Start [2]=Status [3+]=Data bytes
+        for (var rdi = 0; rdi < repBytes.length - 1; rdi++) {
+          if (auxIsAbnormalDpcdByte(dpcdBaseAddr + rdi, repBytes[1 + rdi])) {
+            if (repSegs[3 + rdi]) repSegs[3 + rdi].abnormal = true;
+          }
+        }
       }
       // 100μs idle gap at common mode (differential mid-level between H and L)
       var idleBits = [];
