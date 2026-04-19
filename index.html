@@ -1441,7 +1441,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.13</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE 常用計算工具</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.14</span></h1>
     <div class="subtitle-row">
       <p data-i18n="home.subtitle">Raydium TCON FAE 專用工具箱</p>
       <div class="lang-switcher">
@@ -1483,7 +1483,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.15</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.16</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -9052,23 +9052,21 @@ function createHexPicker(drumEl, onChange) {
   }
 
   // 即時更新 cell-based 高亮：找到當前位於中間的 cell，加上 .hex-drum-cell-selected
-  var _lastHighlightedCell = null;
+  // 每次清除全部 cell 再加到正確的那個，避免 wrap 後追蹤失效（80 cell 效能無感）
+  var _lastHighlightedIdx = -1;
   function updateSelectedCellClass(y) {
     var centerOffset = (VISIBLE - 1) / 2;
     var cellIdx = Math.round(-y / CELL_H + centerOffset);
     // Clamp to valid range
     if (cellIdx < 0) cellIdx = 0;
     if (cellIdx >= TOTAL) cellIdx = TOTAL - 1;
+    if (cellIdx === _lastHighlightedIdx) return; // 同一個 index 就跳過
     var cells = track.children;
-    var target = cells[cellIdx] || null;
-    if (target === _lastHighlightedCell) return;
-    if (_lastHighlightedCell) {
-      _lastHighlightedCell.classList.remove('hex-drum-cell-selected');
+    for (var i = 0; i < cells.length; i++) {
+      cells[i].classList.remove('hex-drum-cell-selected');
     }
-    if (target) {
-      target.classList.add('hex-drum-cell-selected');
-    }
-    _lastHighlightedCell = target;
+    cells[cellIdx].classList.add('hex-drum-cell-selected');
+    _lastHighlightedIdx = cellIdx;
   }
 
   // Recentre track to avoid drifting too far from center copy
@@ -9077,8 +9075,8 @@ function createHexPicker(drumEl, onChange) {
     var cellIdx = Math.round(-currentY / CELL_H + centerOffset);
     // Bring cellIdx into center copy range
     var homeIdx = CENTER_COPY * 16 + selectedIndex;
-    if (Math.abs(cellIdx - homeIdx) > 16) {
-      // Jump without animation
+    if (Math.abs(cellIdx - homeIdx) >= 16) {
+      // Jump without animation — >=16 確保相鄰 copy 也能回歸 center
       setTrackY(indexToY(selectedIndex), false);
     }
   }
@@ -9093,9 +9091,14 @@ function createHexPicker(drumEl, onChange) {
     if (hiddenInput.value !== prevVal && onChange) onChange(HEX[selectedIndex]);
   }
 
+  var _recentreTimer = 0;
   function recentreAfterSnap() {
     // After snap animation ends, silently recentre
-    setTimeout(function() { recentre(); }, 280);
+    clearTimeout(_recentreTimer);
+    _recentreTimer = setTimeout(function() { _recentreTimer = 0; recentre(); }, 280);
+  }
+  function cancelRecentreTimer() {
+    if (_recentreTimer) { clearTimeout(_recentreTimer); _recentreTimer = 0; }
   }
 
   function updateCellColors() {
@@ -9120,6 +9123,7 @@ function createHexPicker(drumEl, onChange) {
   // ── Pointer (mouse + touch) handling ──
   function onPointerStart(y) {
     cancelMomentum();
+    cancelRecentreTimer();
     dragging = true;
     startY = y;
     startOffset = currentY;
