@@ -2641,20 +2641,20 @@
           <div class="aux-struct-grid">
             <span class="aux-struct-label">系統 Preamble</span>
             <div>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <label style="font-size:12px;color:var(--text-sub)">Preamble 總數</label>
-                <input type="number" id="aux-sys-preamble" class="aux-struct-input" value="32" min="0" max="64" style="max-width:80px" oninput="auxOnPreambleChange()">
-                <span style="font-size:12px;color:#94a3b8">zeros（Pre-charge + SYNC 合計）</span>
+              <div class="isp-slider-row" data-aux-preamble="sys">
+                <input type="range" id="aux-sys-preamble-slider" min="0" max="64" value="32" step="1">
+                <input type="number" id="aux-sys-preamble" class="isp-num" min="0" max="64" value="32">
+                <span style="font-size:12px;color:#94a3b8;white-space:nowrap">zeros</span>
               </div>
               <div class="aux-struct-hint">系統（Source）發送的 Preamble pulse 總數</div>
               <div id="aux-sys-compliance" style="margin-top:6px;font-size:12px;line-height:1.8"></div>
             </div>
             <span class="aux-struct-label">TCON Reply</span>
             <div>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <label style="font-size:12px;color:var(--text-sub)">Preamble 總數</label>
-                <input type="number" id="aux-rep-preamble" class="aux-struct-input" value="32" min="0" max="64" style="max-width:80px" oninput="auxOnPreambleChange()">
-                <span style="font-size:12px;color:#94a3b8">zeros（Pre-charge + SYNC 合計）</span>
+              <div class="isp-slider-row" data-aux-preamble="rep">
+                <input type="range" id="aux-rep-preamble-slider" min="0" max="64" value="32" step="1">
+                <input type="number" id="aux-rep-preamble" class="isp-num" min="0" max="64" value="32">
+                <span style="font-size:12px;color:#94a3b8;white-space:nowrap">zeros</span>
               </div>
               <div class="aux-struct-hint">TCON（Sink）回覆的 Preamble pulse 總數</div>
               <div id="aux-rep-compliance" style="margin-top:6px;font-size:12px;line-height:1.8"></div>
@@ -10527,6 +10527,54 @@ window.auxOnPreambleChange = function() {
   // Re-render waveform to reflect preamble changes + abnormal marking
   if (typeof auxWaveRender === 'function') auxWaveRender();
 };
+
+// --- AUX Preamble slider init: sync slider↔number, add +/- buttons ---
+(function auxPreambleSliderInit() {
+  function setup(sliderId, numId) {
+    var slider = document.getElementById(sliderId);
+    var num = document.getElementById(numId);
+    if (!slider || !num) return;
+    // Sync slider → number → trigger validation
+    slider.addEventListener('input', function() {
+      num.value = slider.value;
+      if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+    });
+    num.addEventListener('input', function() {
+      var v = Math.max(parseInt(num.min)||0, Math.min(parseInt(num.max)||64, parseInt(num.value)||0));
+      slider.value = v;
+      if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+    });
+    // Add +/- buttons (same style as iSP)
+    var step = parseFloat(slider.step) || 1;
+    var minusBtn = document.createElement('button');
+    minusBtn.type = 'button';
+    minusBtn.className = 'isp-slider-btn';
+    minusBtn.textContent = '\u2212'; // minus sign
+    minusBtn.setAttribute('aria-label', 'decrease');
+    var plusBtn = document.createElement('button');
+    plusBtn.type = 'button';
+    plusBtn.className = 'isp-slider-btn';
+    plusBtn.textContent = '+';
+    plusBtn.setAttribute('aria-label', 'increase');
+    slider.parentNode.insertBefore(minusBtn, slider);
+    slider.parentNode.insertBefore(plusBtn, slider.nextSibling);
+    function nudge(delta) {
+      var min = parseFloat(slider.min) || 0;
+      var max = parseFloat(slider.max) || 64;
+      var cur = parseFloat(slider.value) || 0;
+      var nv = Math.max(min, Math.min(max, cur + delta));
+      slider.value = nv;
+      num.value = nv;
+      if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+    }
+    minusBtn.addEventListener('click', function() { nudge(-step); });
+    plusBtn.addEventListener('click', function() { nudge(step); });
+  }
+  setup('aux-sys-preamble-slider', 'aux-sys-preamble');
+  setup('aux-rep-preamble-slider', 'aux-rep-preamble');
+  // Trigger initial compliance check
+  if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+})();
 
 // Build SVG inner HTML for Manchester II encoded waveform
 // Manchester II (G.E. Thomas): bit 1 = H→L at mid-bit, bit 0 = L→H at mid-bit
