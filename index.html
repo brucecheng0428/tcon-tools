@@ -2641,7 +2641,7 @@
           <div class="aux-struct-grid">
             <span class="aux-struct-label">系統 Preamble</span>
             <div>
-              <div class="isp-slider-row" data-aux-preamble="sys">
+              <div class="aux-slider-row isp-slider-row" data-aux-preamble="sys">
                 <input type="range" id="aux-sys-preamble-slider" min="0" max="64" value="32" step="1">
                 <input type="number" id="aux-sys-preamble" class="isp-num" min="0" max="64" value="32">
                 <span style="font-size:12px;color:#94a3b8;white-space:nowrap">zeros</span>
@@ -2651,7 +2651,7 @@
             </div>
             <span class="aux-struct-label">TCON Reply</span>
             <div>
-              <div class="isp-slider-row" data-aux-preamble="rep">
+              <div class="aux-slider-row isp-slider-row" data-aux-preamble="rep">
                 <input type="range" id="aux-rep-preamble-slider" min="0" max="64" value="32" step="1">
                 <input type="number" id="aux-rep-preamble" class="isp-num" min="0" max="64" value="32">
                 <span style="font-size:12px;color:#94a3b8;white-space:nowrap">zeros</span>
@@ -2675,6 +2675,7 @@
         <div class="card-header" style="background:#4c1d95"><span class="icon">📟</span> <span data-i18n="aux.waveTitle">AUX 波形（Manchester II）</span></div>
         <div class="card-body">
           <div class="isp-wave-info" id="aux-wave-info" style="margin-bottom:6px;font-size:11px;color:#94a3b8;"></div>
+          <div id="aux-wave-preamble-warn" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;line-height:1.6"></div>
 
           <div class="isp-wave-ctrl">
             <label>H-Zoom</label>
@@ -5912,7 +5913,7 @@ if (portSelEl) portSelEl.addEventListener('change', rtCalcAll);
     // 反推卡片永遠顯示（獨立工具）
 
     // --- #3 所有 slider 左右加 +/- 按鈕 ---
-    document.querySelectorAll('.isp-slider-row input[type="range"]').forEach(slider => {
+    document.querySelectorAll('.isp-slider-row:not(.aux-slider-row) input[type="range"]').forEach(slider => {
       const step = parseFloat(slider.step) || 1;
       const minusBtn = document.createElement('button');
       minusBtn.type = 'button';
@@ -10861,6 +10862,36 @@ function auxWaveRender() {
     infoEl.textContent = info;
   }
 
+  // --- Preamble compliance warning banner inside wave card ---
+  var warnEl = document.getElementById('aux-wave-preamble-warn');
+  if (warnEl) {
+    var pSpecs = [
+      { name: 'DP / eDP 1.2~1.3', totalMin: 26, totalMax: 32 },
+      { name: 'eDP 1.4+',         totalMin: 18, totalMax: 24 }
+    ];
+    var sysP = parseInt(document.getElementById('aux-sys-preamble').value) || 0;
+    var repP = parseInt(document.getElementById('aux-rep-preamble').value) || 0;
+    var pWarns = [];
+    function pChk(label, val) {
+      var issues = [];
+      pSpecs.forEach(function(sp) {
+        if (val < sp.totalMin) issues.push('\u2716 ' + sp.name + '(' + val + ' < ' + sp.totalMin + ')');
+        else if (val > sp.totalMax) issues.push('\u26A0 ' + sp.name + '(' + val + ' > ' + sp.totalMax + ')');
+      });
+      if (issues.length > 0) pWarns.push('<b>' + label + ' Preamble = ' + val + '</b>: ' + issues.join(', '));
+    }
+    pChk('System', sysP);
+    if (repSegs) pChk('TCON Reply', repP);
+    if (pWarns.length > 0) {
+      var hasCritical = (sysP < 18) || (repSegs && repP < 18);
+      warnEl.style.display = 'block';
+      warnEl.style.background = hasCritical ? 'rgba(220,38,38,0.15)' : 'rgba(234,179,8,0.15)';
+      warnEl.style.color = hasCritical ? '#fca5a5' : '#fde047';
+      warnEl.innerHTML = (hasCritical ? '\ud83d\udea8 ' : '\u26a0\ufe0f ') + 'Preamble \u898f\u7bc4\u8b66\u544a:<br>' + pWarns.join('<br>');
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
   // Minimap + viewport
   auxWaveRenderMinimap(allSegs, totalBits);
   auxWaveUpdateMinimapVp();
