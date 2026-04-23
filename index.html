@@ -1485,7 +1485,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.46</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.17.47</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1526,7 +1526,7 @@
       <div class="tool-card" onclick="showPage('aux')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="3" width="28" height="16" rx="3" stroke="#34d399" stroke-width="1.8" fill="none"/><path d="M7 8 L13 8 M7 11 L17 11 M7 14 L11 14" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/><circle cx="23" cy="11" r="4" stroke="#34d399" stroke-width="1.5" fill="none"/><path d="M23 9 L23 13 M21 11 L25 11" stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.36</span></div>
+          <div class="tool-card-title"><span data-i18n="home.auxTitle">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.37</span></div>
           <div class="tool-card-desc" data-i18n="home.auxDesc">AUX Transaction 解碼 &amp; DPCD 暫存器查詢</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2665,15 +2665,15 @@
           </div>
         </div>
       </div>
-      <div id="aux-decode-result" class="card" style="display:none">
-        <div class="card-header" style="background:#065f46"><span class="icon">📊</span> <span data-i18n="aux.decodeResultTitle">解碼結果</span></div>
-        <div class="card-body" id="aux-decode-result-body"></div>
+      <div id="aux-decode-result" class="card">
+        <div class="card-header" id="aux-decode-result-header" style="background:#065f46;opacity:0.55"><span class="icon">📊</span> <span data-i18n="aux.decodeResultTitle">解碼結果</span><span id="aux-decode-result-hint" style="font-size:10px;font-weight:400;opacity:0.8;margin-left:8px">（解碼後顯示）</span></div>
+        <div class="card-body" id="aux-decode-result-body" style="display:none"></div>
       </div>
 
       <!-- ── AUX 波形卡片 ── -->
-      <div id="aux-wave-card" class="card" style="display:none">
-        <div class="card-header" style="background:#4c1d95"><span class="icon">📟</span> <span data-i18n="aux.waveTitle">AUX 波形（Manchester II）</span></div>
-        <div class="card-body">
+      <div id="aux-wave-card" class="card">
+        <div class="card-header" id="aux-wave-card-header" style="background:#4c1d95;opacity:0.55"><span class="icon">📟</span> <span data-i18n="aux.waveTitle">AUX 波形（Manchester II）</span><span id="aux-wave-card-hint" style="font-size:10px;font-weight:400;opacity:0.8;margin-left:8px">（解碼後顯示）</span></div>
+        <div class="card-body" id="aux-wave-body" style="display:none">
           <div class="isp-wave-info" id="aux-wave-info" style="margin-bottom:6px;font-size:11px;color:#94a3b8;"></div>
           <div id="aux-wave-preamble-warn" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;line-height:1.6"></div>
 
@@ -9437,8 +9437,12 @@ window.auxDecodeAll = function() {
     html += auxDecodeReply(repBytes, reqBytes);
   }
 
-  resultCard.style.display = 'block';
   resultBody.innerHTML = html;
+  resultBody.style.display = '';
+  var _drHdr = document.getElementById('aux-decode-result-header');
+  var _drHint = document.getElementById('aux-decode-result-hint');
+  if (_drHdr) _drHdr.style.opacity = '';
+  if (_drHint) _drHint.style.display = 'none';
 };
 
 function auxParseHexBytes(str) {
@@ -10383,6 +10387,7 @@ var auxWaveLastTotalBits = 0;
 // AUX 波形 fullscreen state
 var auxWaveFs = null;
 var auxWaveFsZoomH = 1.0;
+var _auxWaveUnlocked = false; // only show wave body after decode button is pressed
 
 // Check if a DPCD byte value at a given address is flagged as abnormal
 function auxIsAbnormalDpcdByte(addrNum, byteVal) {
@@ -10779,19 +10784,20 @@ function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
 function auxWaveRender() {
   var svg = document.getElementById('aux-wave-svg');
   var card = document.getElementById('aux-wave-card');
+  var waveBody = document.getElementById('aux-wave-body');
   if (!svg || !card) return;
 
   var reqBytes = auxBuildReqBytes();
   var repBytes = auxBuildRepBytes();
 
   if (!reqBytes || reqBytes.length < 4) {
-    card.style.display = 'none';
+    if (waveBody) waveBody.style.display = 'none';
     return;
   }
 
   // Build request frame
   var reqSegs = auxWaveBuildReqFrame(reqBytes);
-  if (!reqSegs) { card.style.display = 'none'; return; }
+  if (!reqSegs) { if (waveBody) waveBody.style.display = 'none'; return; }
 
   // Mark abnormal request data bytes via DPCD lookup
   // reqSegs layout: [0]=Preamble [1]=Start [2]=CMD [3]=ADDR [4]=LEN [5+]=Data bytes
@@ -10859,8 +10865,8 @@ function auxWaveRender() {
   svg.style.transform = '';
   svg.style.transformOrigin = '';
 
-  // Show card
-  card.style.display = '';
+  // Show wave body only after decode button has been pressed
+  if (_auxWaveUnlocked && waveBody) waveBody.style.display = '';
 
   // Info line
   var infoEl = document.getElementById('aux-wave-info');
@@ -11469,8 +11475,13 @@ window.auxOnRepChange = function() {
 // Also hook into auxDecodeAll
 var _origAuxDecodeAll = window.auxDecodeAll;
 window.auxDecodeAll = function() {
+  _auxWaveUnlocked = true;
   if (_origAuxDecodeAll) _origAuxDecodeAll();
   auxWaveRender();
+  var _wvHdr = document.getElementById('aux-wave-card-header');
+  var _wvHint = document.getElementById('aux-wave-card-hint');
+  if (_wvHdr) _wvHdr.style.opacity = '';
+  if (_wvHint) _wvHint.style.display = 'none';
 };
 
 function auxInitAll() {
