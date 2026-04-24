@@ -1565,7 +1565,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.18.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.18.1</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1614,7 +1614,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.0.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.1.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2696,8 +2696,20 @@
                 <option value="" data-i18n="wfg.loadPreset">載入預設…</option>
                 <option value="fhd_60hz_sg">FHD 60Hz Single Gate</option>
               </select>
+              <button class="wfg-btn" onclick="document.getElementById('wfg-kvdat-input').click()" style="white-space:nowrap">📂 匯入 .kvdat</button>
+              <input type="file" id="wfg-kvdat-input" accept=".kvdat" style="display:none" onchange="wfgImportKvdat(this)">
             </div>
             <div id="wfg-signal-list"></div>
+            <div id="wfg-kvdat-info" style="display:none">
+              <div style="padding:8px 12px;background:#1a2332;border-radius:6px;border:1px solid #334155;margin-top:8px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <span style="font-size:12px;font-weight:600;color:#38bdf8">📂 kvdat 檔案</span>
+                  <button class="wfg-btn wfg-btn-danger" onclick="wfgClearKvdat()" style="font-size:11px;padding:3px 8px">✕ 清除匯入</button>
+                </div>
+                <div id="wfg-kvdat-details" style="font-size:11px;color:#94a3b8;line-height:1.6"></div>
+              </div>
+              <div id="wfg-kvdat-channel-list" style="margin-top:8px"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -11781,6 +11793,7 @@ function wfgBuildLevels(sig, vtotal) {
 
 // ─── Canvas Renderer ───
 function wfgRender() {
+  if (wfgKvdatMode) { wfgRenderKvdat(); return; }
   const canvas = document.getElementById('wfg-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -11960,7 +11973,7 @@ window.wfgResizeCanvas = function() {
   if (!wrap) return;
   const rect = wrap.getBoundingClientRect();
   const w = Math.floor(rect.width) || 800;
-  const sigCount = Math.max(wfgSignals.length, 1);
+  const sigCount = Math.max(wfgKvdatMode ? wfgKvdatChannels.length : wfgSignals.length, 1);
   const h = Math.max(300, WFG_AXIS_H + sigCount * (WFG_ROW_H + WFG_ROW_GAP) + 10);
   canvas.width = w * (window.devicePixelRatio || 1);
   canvas.height = h * (window.devicePixelRatio || 1);
@@ -12105,6 +12118,14 @@ window.wfgToggleSignalCard = wfgToggleSignalCard;
 
 // ─── Zoom / Pan ───
 function wfgZoomIn() {
+  if (wfgKvdatMode) {
+    const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+    const center = (wfgKvdatTimeStart + wfgKvdatTimeEnd) / 2;
+    const newRange = Math.max(100, range * 0.6);
+    wfgKvdatTimeStart = center - newRange / 2;
+    wfgKvdatTimeEnd = center + newRange / 2;
+    wfgRender(); return;
+  }
   const range = wfgViewEnd - wfgViewStart;
   const center = (wfgViewStart + wfgViewEnd) / 2;
   const newRange = Math.max(10, range * 0.6);
@@ -12113,6 +12134,15 @@ function wfgZoomIn() {
   wfgRender();
 }
 function wfgZoomOut() {
+  if (wfgKvdatMode) {
+    const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+    const center = (wfgKvdatTimeStart + wfgKvdatTimeEnd) / 2;
+    const totalRange = wfgKvdatTotalEnd - wfgKvdatTotalStart;
+    const newRange = Math.min(totalRange * 1.2, range * 1.6);
+    wfgKvdatTimeStart = center - newRange / 2;
+    wfgKvdatTimeEnd = center + newRange / 2;
+    wfgRender(); return;
+  }
   const range = wfgViewEnd - wfgViewStart;
   const center = (wfgViewStart + wfgViewEnd) / 2;
   const newRange = Math.min(wfgFrame.vtotal, range * 1.6);
@@ -12121,11 +12151,21 @@ function wfgZoomOut() {
   wfgRender();
 }
 function wfgFitAll() {
+  if (wfgKvdatMode) {
+    wfgKvdatTimeStart = wfgKvdatTotalStart;
+    wfgKvdatTimeEnd = wfgKvdatTotalEnd;
+    wfgRender(); return;
+  }
   wfgViewStart = 0;
   wfgViewEnd = wfgFrame.vtotal;
   wfgRender();
 }
 function wfgResetView() {
+  if (wfgKvdatMode) {
+    wfgKvdatTimeStart = wfgKvdatTotalStart;
+    wfgKvdatTimeEnd = wfgKvdatTotalEnd;
+    wfgRender(); return;
+  }
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgFrame.vtotal);
   wfgRender();
@@ -12155,9 +12195,18 @@ function wfgInitCanvas() {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
-    const frac = (mouseX - WFG_LABEL_W) / (rect.width - WFG_LABEL_W);
+    const frac = Math.max(0, Math.min(1, (mouseX - WFG_LABEL_W) / (rect.width - WFG_LABEL_W)));
+    if (wfgKvdatMode) {
+      const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+      const pivot = wfgKvdatTimeStart + range * frac;
+      const factor = e.deltaY > 0 ? 1.2 : 0.8;
+      const newRange = Math.max(100, range * factor);
+      wfgKvdatTimeStart = pivot - newRange * frac;
+      wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
+      wfgRender(); return;
+    }
     const range = wfgViewEnd - wfgViewStart;
-    const pivot = wfgViewStart + range * Math.max(0, Math.min(1, frac));
+    const pivot = wfgViewStart + range * frac;
     const factor = e.deltaY > 0 ? 1.2 : 0.8;
     const newRange = Math.max(10, Math.min(wfgFrame.vtotal, range * factor));
     wfgViewStart = Math.max(0, Math.round(pivot - newRange * frac));
@@ -12166,11 +12215,13 @@ function wfgInitCanvas() {
   }, { passive: false });
 
   // Drag pan
+  let wfgDragStartViewKvdat = 0;
   canvas.addEventListener('mousedown', function(e) {
     if (e.button !== 0) return;
     wfgDragging = true;
     wfgDragStartX = e.clientX;
     wfgDragStartView = wfgViewStart;
+    wfgDragStartViewKvdat = wfgKvdatTimeStart;
     canvas.style.cursor = 'grabbing';
   });
   window.addEventListener('mousemove', function(e) {
@@ -12180,8 +12231,15 @@ function wfgInitCanvas() {
     const rect = canvas.getBoundingClientRect();
     const drawW = rect.width - WFG_LABEL_W;
     if (drawW <= 0) return;
-    const range = wfgViewEnd - wfgViewStart;
     const dx = e.clientX - wfgDragStartX;
+    if (wfgKvdatMode) {
+      const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+      const dt = -(dx / drawW) * range;
+      wfgKvdatTimeStart = wfgDragStartViewKvdat + dt;
+      wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
+      wfgRender(); return;
+    }
+    const range = wfgViewEnd - wfgViewStart;
     const dLines = -(dx / drawW) * range;
     let newStart = Math.round(wfgDragStartView + dLines);
     newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
@@ -12199,15 +12257,16 @@ function wfgInitCanvas() {
   canvas.style.cursor = 'grab';
 
   // Touch support
-  let touchStartX = 0, touchStartView = 0;
+  let touchStartX = 0, touchStartView = 0, touchStartViewKvdat = 0;
   let pinchStartDist = 0, pinchStartRange = 0;
   canvas.addEventListener('touchstart', function(e) {
     if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX;
       touchStartView = wfgViewStart;
+      touchStartViewKvdat = wfgKvdatTimeStart;
     } else if (e.touches.length === 2) {
       pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      pinchStartRange = wfgViewEnd - wfgViewStart;
+      pinchStartRange = wfgKvdatMode ? (wfgKvdatTimeEnd - wfgKvdatTimeStart) : (wfgViewEnd - wfgViewStart);
     }
   }, { passive: true });
   canvas.addEventListener('touchmove', function(e) {
@@ -12216,8 +12275,15 @@ function wfgInitCanvas() {
       const rect = canvas.getBoundingClientRect();
       const drawW = rect.width - WFG_LABEL_W;
       if (drawW <= 0) return;
-      const range = wfgViewEnd - wfgViewStart;
       const dx = e.touches[0].clientX - touchStartX;
+      if (wfgKvdatMode) {
+        const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+        const dt = -(dx / drawW) * range;
+        wfgKvdatTimeStart = touchStartViewKvdat + dt;
+        wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
+        wfgRender(); return;
+      }
+      const range = wfgViewEnd - wfgViewStart;
       const dLines = -(dx / drawW) * range;
       let newStart = Math.round(touchStartView + dLines);
       newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
@@ -12228,6 +12294,13 @@ function wfgInitCanvas() {
       const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       if (pinchStartDist <= 0) return;
       const factor = pinchStartDist / dist;
+      if (wfgKvdatMode) {
+        const newRange = Math.max(100, pinchStartRange * factor);
+        const center = (wfgKvdatTimeStart + wfgKvdatTimeEnd) / 2;
+        wfgKvdatTimeStart = center - newRange / 2;
+        wfgKvdatTimeEnd = center + newRange / 2;
+        wfgRender(); return;
+      }
       const newRange = Math.max(10, Math.min(wfgFrame.vtotal, Math.round(pinchStartRange * factor)));
       const center = (wfgViewStart + wfgViewEnd) / 2;
       wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
@@ -12251,6 +12324,341 @@ function wfgInit() {
   wfgInitCanvas();
   wfgRenderSignalList();
   wfgRender();
+}
+
+// ─── kvdat Import ───
+let wfgKvdatMode = false;
+let wfgKvdatChannels = []; // {name, color, edges:Float64Array, edgeCount, index}
+let wfgKvdatSmpFreqX1000 = 200000000;
+let wfgKvdatTimeStart = 0;
+let wfgKvdatTimeEnd = 0;
+let wfgKvdatTotalStart = 0;
+let wfgKvdatTotalEnd = 0;
+
+window.wfgImportKvdat = async function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+
+    // 1. Find XML end
+    const endTag = new TextEncoder().encode('</settings>');
+    let xmlEndMarker = -1;
+    outer1: for (let i = 0; i <= data.length - endTag.length; i++) {
+      for (let j = 0; j < endTag.length; j++) {
+        if (data[i+j] !== endTag[j]) continue outer1;
+      }
+      xmlEndMarker = i; break;
+    }
+    if (xmlEndMarker < 0) throw new Error('找不到 </settings> 標記');
+    const xmlEnd = xmlEndMarker + endTag.length;
+
+    // 2. Parse XML
+    const xmlStr = new TextDecoder('utf-8').decode(data.slice(0, xmlEnd));
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlStr, 'text/xml');
+    const smpFrequ = parseInt(xmlDoc.querySelector('smpFrequ')?.textContent || '200000');
+    const chnEnable = (xmlDoc.querySelector('chnEnable')?.textContent || '').split(',').map(Number);
+    const channelNames = [];
+    for (let i = 0; i < 16; i++) {
+      const el = xmlDoc.querySelector('chnShowName' + i);
+      channelNames[i] = el?.textContent || ('CH' + i);
+    }
+
+    // 3. Find binary start (skip \r\n)
+    let binStart = xmlEnd;
+    while (binStart < data.length && (data[binStart] === 0x0D || data[binStart] === 0x0A)) binStart++;
+
+    // 4. Parse global header (40 bytes)
+    const magic = new TextDecoder().decode(data.slice(binStart, binStart + 5));
+    if (magic !== 'kvdat') throw new Error('二進位區塊 magic 不符');
+    const dv = new DataView(arrayBuffer, binStart);
+    const smpFreqX1000 = kvdatReadU64LE(dv, 16);
+    const channelCount = kvdatReadU64LE(dv, 32);
+
+    // 5. Parse ##D blocks
+    const channels = [];
+    let pos = binStart + 40;
+    while (pos + 16 <= data.length) {
+      if (data[pos] !== 0x23 || data[pos+1] !== 0x23 || data[pos+2] !== 0x44) break;
+      const chIdx = data[pos + 4];
+      const edgeCount = data[pos+8] | (data[pos+9]<<8) | (data[pos+10]<<16) | ((data[pos+11]<<24)>>>0);
+      const edges = new Float64Array(edgeCount);
+      const edgeDataStart = pos + 16;
+      for (let i = 0; i < edgeCount; i++) {
+        const off = edgeDataStart + i * 5;
+        edges[i] = data[off] + data[off+1]*256 + data[off+2]*65536 + data[off+3]*16777216 + data[off+4]*4294967296;
+      }
+      const chName = channelNames[chIdx] || ('CH' + chIdx);
+      const color = WFG_COLORS[channels.length % WFG_COLORS.length];
+      channels.push({ index: chIdx, name: chName, color: color, edges: edges, edgeCount: edgeCount });
+      pos = edgeDataStart + edgeCount * 5;
+    }
+
+    // 6. Switch to kvdat mode
+    wfgKvdatMode = true;
+    wfgKvdatChannels = channels;
+    wfgKvdatSmpFreqX1000 = smpFreqX1000;
+
+    let minT = Infinity, maxT = -Infinity;
+    for (const ch of channels) {
+      if (ch.edgeCount > 0) {
+        minT = Math.min(minT, ch.edges[0]);
+        maxT = Math.max(maxT, ch.edges[ch.edgeCount - 1]);
+      }
+    }
+    if (minT === Infinity) { minT = 0; maxT = 1000; }
+    wfgKvdatTotalStart = minT;
+    wfgKvdatTotalEnd = maxT;
+    wfgKvdatTimeStart = minT;
+    wfgKvdatTimeEnd = maxT;
+
+    wfgShowKvdatInfo(file.name, smpFrequ, channels);
+    wfgResizeAndRender();
+  } catch (e) {
+    alert('kvdat 解析失敗: ' + e.message);
+    console.error(e);
+  }
+  input.value = '';
+};
+
+function kvdatReadU64LE(dv, off) {
+  return dv.getUint32(off, true) + dv.getUint32(off + 4, true) * 4294967296;
+}
+
+function wfgShowKvdatInfo(fileName, smpFrequ, channels) {
+  // Hide normal signal controls, show kvdat info
+  const sigList = document.getElementById('wfg-signal-list');
+  const kvdatInfo = document.getElementById('wfg-kvdat-info');
+  const sigActions = document.querySelector('.wfg-signal-actions');
+  const frameCard = document.querySelector('#page-wfg .wfg-card'); // first card = Frame params
+  if (sigList) sigList.style.display = 'none';
+  if (sigActions) sigActions.style.display = 'none';
+  if (frameCard) frameCard.style.display = 'none';
+  if (kvdatInfo) kvdatInfo.style.display = 'block';
+
+  const details = document.getElementById('wfg-kvdat-details');
+  if (details) {
+    let freqStr = smpFrequ >= 1e6 ? (smpFrequ/1e6).toFixed(1) + ' MHz' : (smpFrequ/1e3).toFixed(1) + ' kHz';
+    details.innerHTML = '檔案：' + fileName + '<br>取樣率：' + freqStr + '<br>通道數：' + channels.length;
+  }
+
+  const chList = document.getElementById('wfg-kvdat-channel-list');
+  if (chList) {
+    let html = '';
+    for (const ch of channels) {
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:12px;color:#cbd5e1">'
+        + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + ch.color + '"></span>'
+        + '<span style="flex:1">' + ch.name + '</span>'
+        + '<span style="color:#64748b;font-size:11px">' + ch.edgeCount.toLocaleString() + ' edges</span>'
+        + '</div>';
+    }
+    chList.innerHTML = html;
+  }
+}
+
+window.wfgClearKvdat = function() {
+  wfgKvdatMode = false;
+  wfgKvdatChannels = [];
+  // Restore normal UI
+  const sigList = document.getElementById('wfg-signal-list');
+  const kvdatInfo = document.getElementById('wfg-kvdat-info');
+  const sigActions = document.querySelector('.wfg-signal-actions');
+  const frameCard = document.querySelector('#page-wfg .wfg-card');
+  if (sigList) sigList.style.display = '';
+  if (sigActions) sigActions.style.display = '';
+  if (frameCard) frameCard.style.display = '';
+  if (kvdatInfo) kvdatInfo.style.display = 'none';
+  wfgResizeAndRender();
+};
+
+function wfgFormatTime(timestampUnits, smpFreqX1000) {
+  const seconds = timestampUnits / smpFreqX1000;
+  if (seconds === 0) return '0';
+  const abs = Math.abs(seconds);
+  if (abs < 1e-6) return (seconds * 1e9).toFixed(1) + ' ns';
+  if (abs < 1e-3) return (seconds * 1e6).toFixed(2) + ' μs';
+  if (abs < 1) return (seconds * 1e3).toFixed(3) + ' ms';
+  return seconds.toFixed(4) + ' s';
+}
+
+// Binary search: find first index in sorted Float64Array where value >= target
+function kvdatLowerBound(arr, len, target) {
+  let lo = 0, hi = len;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid] < target) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+function wfgRenderKvdat() {
+  const canvas = document.getElementById('wfg-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const emptyEl = document.getElementById('wfg-empty');
+  const channels = wfgKvdatChannels;
+
+  if (channels.length === 0) {
+    canvas.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'flex';
+    wfgRenderKvdatLabels();
+    return;
+  }
+  canvas.style.display = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const drawW = w - WFG_LABEL_W;
+  const drawX0 = WFG_LABEL_W;
+
+  // Clear
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, w, h);
+
+  const tStart = wfgKvdatTimeStart;
+  const tEnd = wfgKvdatTimeEnd;
+  const tRange = tEnd - tStart;
+  if (tRange <= 0) return;
+
+  function timeToX(t) {
+    return drawX0 + ((t - tStart) / tRange) * drawW;
+  }
+
+  // Grid & time axis
+  const tRangeSec = tRange / wfgKvdatSmpFreqX1000;
+  let gridStepSec = 1e-9;
+  const steps = [1,2,5];
+  const minGridPx = 60;
+  while (true) {
+    const gridStepPx = (gridStepSec / tRangeSec) * drawW;
+    if (gridStepPx >= minGridPx) break;
+    // Next step
+    const decade = Math.pow(10, Math.floor(Math.log10(gridStepSec)));
+    const mantissa = gridStepSec / decade;
+    if (mantissa < 1.5) gridStepSec = 2 * decade;
+    else if (mantissa < 3.5) gridStepSec = 5 * decade;
+    else gridStepSec = 10 * decade;
+    if (gridStepSec > 1e6) break;
+  }
+  const gridStepT = gridStepSec * wfgKvdatSmpFreqX1000; // in timestamp units
+
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#484f58';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+
+  const firstGrid = Math.ceil(tStart / gridStepT) * gridStepT;
+  for (let g = firstGrid; g <= tEnd; g += gridStepT) {
+    const x = timeToX(g);
+    if (x < drawX0 || x > w) continue;
+    ctx.beginPath();
+    ctx.moveTo(x, WFG_AXIS_H);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+    ctx.fillText(wfgFormatTime(g, wfgKvdatSmpFreqX1000), x, WFG_AXIS_H - 6);
+  }
+
+  // Draw waveforms
+  for (let i = 0; i < channels.length; i++) {
+    const ch = channels[i];
+    const y0 = WFG_AXIS_H + i * (WFG_ROW_H + WFG_ROW_GAP);
+    const yHigh = y0 + 6;
+    const yLow = y0 + WFG_ROW_H - 4;
+
+    // Separator
+    if (i > 0) {
+      ctx.strokeStyle = '#21262d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(drawX0, y0 - WFG_ROW_GAP / 2);
+      ctx.lineTo(w, y0 - WFG_ROW_GAP / 2);
+      ctx.stroke();
+    }
+
+    const edges = ch.edges;
+    const ec = ch.edgeCount;
+
+    if (ec === 0) {
+      // Flat LOW
+      ctx.strokeStyle = ch.color;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(drawX0, yLow);
+      ctx.lineTo(w, yLow);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      continue;
+    }
+
+    // Binary search for first visible edge
+    let startIdx = kvdatLowerBound(edges, ec, tStart);
+    if (startIdx > 0) startIdx--;
+
+    // Determine initial level at view start
+    // Signal starts LOW. Edges alternate: 0=rising, 1=falling, 2=rising, ...
+    // Before startIdx edges have occurred, so level depends on parity
+    // Count edges before tStart
+    let edgesBeforeView = kvdatLowerBound(edges, ec, tStart);
+    let curLevel = edgesBeforeView % 2 === 0 ? 0 : 1; // 0=LOW, even edges passed means still LOW origin
+
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let curY = curLevel ? yHigh : yLow;
+    ctx.moveTo(drawX0, curY);
+
+    for (let j = edgesBeforeView; j < ec; j++) {
+      const t = edges[j];
+      if (t > tEnd) break;
+      const x = timeToX(t);
+
+      // Horizontal to edge
+      if (x > drawX0) {
+        ctx.lineTo(Math.max(drawX0, x), curY);
+      }
+      // Toggle level
+      curLevel = curLevel ? 0 : 1;
+      const newY = curLevel ? yHigh : yLow;
+      if (x >= drawX0) {
+        ctx.lineTo(x, newY);
+      }
+      curY = newY;
+    }
+    // Continue to end
+    ctx.lineTo(w, curY);
+    ctx.stroke();
+  }
+
+  // Label background
+  ctx.fillStyle = 'rgba(13,17,23,0.92)';
+  ctx.fillRect(0, 0, WFG_LABEL_W, h);
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(WFG_LABEL_W, 0);
+  ctx.lineTo(WFG_LABEL_W, h);
+  ctx.stroke();
+
+  wfgRenderKvdatLabels();
+}
+
+function wfgRenderKvdatLabels() {
+  const el = document.getElementById('wfg-labels');
+  if (!el) return;
+  let html = '<div style="height:' + WFG_AXIS_H + 'px"></div>';
+  for (let i = 0; i < wfgKvdatChannels.length; i++) {
+    const ch = wfgKvdatChannels[i];
+    html += '<div class="wfg-label-item"><span class="wfg-label-dot" style="background:' + ch.color + '"></span>' + ch.name + '</div>';
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.wfg-label-item').forEach(item => {
+    item.style.height = (WFG_ROW_H + WFG_ROW_GAP) + 'px';
+  });
 }
 
 if (document.readyState === 'loading') {
