@@ -1557,6 +1557,17 @@
   .wfg-label-item { height: 48px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #c9d1d9; gap: 5px; }
   .wfg-label-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
   .wfg-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #64748b; font-size: 13px; gap: 8px; }
+  /* ── WFG Import Progress Overlay ── */
+  .wfg-progress-overlay { position: absolute; inset: 0; background: rgba(13,17,23,0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; gap: 12px; }
+  .wfg-progress-bar-wrap { width: 70%; max-width: 320px; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+  .wfg-progress-bar { height: 100%; width: 0%; background: #f97316; border-radius: 3px; transition: width 0.2s ease; }
+  .wfg-progress-text { font-size: 12px; color: #94a3b8; }
+  /* ── WFG Minimap ── */
+  .wfg-minimap-wrap { padding: 4px 10px 6px; background: #0d1117; border-top: 1px solid #21262d; }
+  .wfg-minimap-label { font-size: 9px; color: #64748b; letter-spacing: 1px; margin-bottom: 3px; text-transform: uppercase; }
+  .wfg-minimap-box { position: relative; width: 100%; height: 44px; background: #000; border: 1px solid #334155; border-radius: 4px; overflow: hidden; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .wfg-minimap-box canvas { display: block; width: 100%; height: 100%; }
+  .wfg-minimap-viewport { position: absolute; top: 0; height: 100%; border: 2px solid #f97316; background: rgba(249,115,22,0.18); pointer-events: none; box-sizing: border-box; min-width: 6px; }
 </style>
 </head>
 <body>
@@ -1565,7 +1576,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.18.2</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.19.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1614,7 +1625,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.1.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2728,6 +2739,17 @@
           <div id="wfg-empty" class="wfg-empty-state">
             <span style="font-size:32px;opacity:0.4">📟</span>
             <span data-i18n="wfg.emptyHint">請載入預設或新增信號以開始</span>
+          </div>
+          <div id="wfg-progress-overlay" class="wfg-progress-overlay" style="display:none">
+            <div class="wfg-progress-bar-wrap"><div class="wfg-progress-bar" id="wfg-progress-bar"></div></div>
+            <div class="wfg-progress-text" id="wfg-progress-text">讀取檔案…</div>
+          </div>
+        </div>
+        <div class="wfg-minimap-wrap" id="wfg-minimap-wrap" style="display:none">
+          <div class="wfg-minimap-label">Overview · 點擊跳轉</div>
+          <div class="wfg-minimap-box" id="wfg-minimap-box">
+            <canvas id="wfg-minimap-canvas"></canvas>
+            <div class="wfg-minimap-viewport" id="wfg-minimap-viewport"></div>
           </div>
         </div>
       </div>
@@ -12042,6 +12064,8 @@ function wfgOnParamChange() {
   const gateRadio = document.querySelector('input[name="wfg-gate"]:checked');
   wfgFrame.gateType = gateRadio ? gateRadio.value : 'single';
   wfgRender();
+  wfgRenderMinimap();
+  wfgUpdateMinimapViewport();
 }
 
 function wfgOnSignalChange(index, field, value) {
@@ -12055,6 +12079,8 @@ function wfgOnSignalChange(index, field, value) {
   }
   if (field === 'name' || field === 'color') wfgRenderLabels();
   wfgRender();
+  wfgRenderMinimap();
+  wfgUpdateMinimapViewport();
 }
 
 // ─── Signal List UI ───
@@ -12124,14 +12150,14 @@ function wfgZoomIn() {
     const newRange = Math.max(100, range * 0.6);
     wfgKvdatTimeStart = center - newRange / 2;
     wfgKvdatTimeEnd = center + newRange / 2;
-    wfgRender(); return;
+    wfgRender(); wfgUpdateMinimapViewport(); return;
   }
   const range = wfgViewEnd - wfgViewStart;
   const center = (wfgViewStart + wfgViewEnd) / 2;
   const newRange = Math.max(10, range * 0.6);
   wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
   wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(center + newRange / 2));
-  wfgRender();
+  wfgRender(); wfgUpdateMinimapViewport();
 }
 function wfgZoomOut() {
   if (wfgKvdatMode) {
@@ -12141,34 +12167,34 @@ function wfgZoomOut() {
     const newRange = Math.min(totalRange * 1.2, range * 1.6);
     wfgKvdatTimeStart = center - newRange / 2;
     wfgKvdatTimeEnd = center + newRange / 2;
-    wfgRender(); return;
+    wfgRender(); wfgUpdateMinimapViewport(); return;
   }
   const range = wfgViewEnd - wfgViewStart;
   const center = (wfgViewStart + wfgViewEnd) / 2;
   const newRange = Math.min(wfgFrame.vtotal, range * 1.6);
   wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
   wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(center + newRange / 2));
-  wfgRender();
+  wfgRender(); wfgUpdateMinimapViewport();
 }
 function wfgFitAll() {
   if (wfgKvdatMode) {
     wfgKvdatTimeStart = wfgKvdatTotalStart;
     wfgKvdatTimeEnd = wfgKvdatTotalEnd;
-    wfgRender(); return;
+    wfgRender(); wfgUpdateMinimapViewport(); return;
   }
   wfgViewStart = 0;
   wfgViewEnd = wfgFrame.vtotal;
-  wfgRender();
+  wfgRender(); wfgUpdateMinimapViewport();
 }
 function wfgResetView() {
   if (wfgKvdatMode) {
     wfgKvdatTimeStart = wfgKvdatTotalStart;
     wfgKvdatTimeEnd = wfgKvdatTotalEnd;
-    wfgRender(); return;
+    wfgRender(); wfgUpdateMinimapViewport(); return;
   }
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgFrame.vtotal);
-  wfgRender();
+  wfgRender(); wfgUpdateMinimapViewport();
 }
 window.wfgZoomIn = wfgZoomIn;
 window.wfgZoomOut = wfgZoomOut;
@@ -12180,10 +12206,10 @@ window.wfgOnParamChange = wfgOnParamChange;
 window.wfgOnSignalChange = wfgOnSignalChange;
 window.wfgRemoveSignal = wfgRemoveSignal;
 
-function wfgResizeAndRender() {
+let wfgResizeAndRender = function() {
   if (typeof window.wfgResizeCanvas === 'function') window.wfgResizeCanvas();
   else wfgRender();
-}
+};
 
 // ─── Canvas Interaction (mouse) ───
 function wfgInitCanvas() {
@@ -12203,7 +12229,7 @@ function wfgInitCanvas() {
       const newRange = Math.max(100, range * factor);
       wfgKvdatTimeStart = pivot - newRange * frac;
       wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
-      wfgRender(); return;
+      wfgRender(); wfgUpdateMinimapViewport(); return;
     }
     const range = wfgViewEnd - wfgViewStart;
     const pivot = wfgViewStart + range * frac;
@@ -12211,7 +12237,7 @@ function wfgInitCanvas() {
     const newRange = Math.max(10, Math.min(wfgFrame.vtotal, range * factor));
     wfgViewStart = Math.max(0, Math.round(pivot - newRange * frac));
     wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(wfgViewStart + newRange));
-    wfgRender();
+    wfgRender(); wfgUpdateMinimapViewport();
   }, { passive: false });
 
   // Drag pan
@@ -12237,7 +12263,7 @@ function wfgInitCanvas() {
       const dt = -(dx / drawW) * range;
       wfgKvdatTimeStart = wfgDragStartViewKvdat + dt;
       wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
-      wfgRender(); return;
+      wfgRender(); wfgUpdateMinimapViewport(); return;
     }
     const range = wfgViewEnd - wfgViewStart;
     const dLines = -(dx / drawW) * range;
@@ -12245,7 +12271,7 @@ function wfgInitCanvas() {
     newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
     wfgViewEnd = newStart + range;
     wfgViewStart = newStart;
-    wfgRender();
+    wfgRender(); wfgUpdateMinimapViewport();
   });
   window.addEventListener('mouseup', function() {
     if (wfgDragging) {
@@ -12256,9 +12282,11 @@ function wfgInitCanvas() {
   });
   canvas.style.cursor = 'grab';
 
-  // Touch support
+  // Touch support — pinch zoom with center-point anchoring + rAF throttle
   let touchStartX = 0, touchStartView = 0, touchStartViewKvdat = 0;
   let pinchStartDist = 0, pinchStartRange = 0;
+  let pinchStartPivot = 0; // pivot value in data coordinates
+  let wfgTouchRafPending = false;
   canvas.addEventListener('touchstart', function(e) {
     if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX;
@@ -12267,46 +12295,64 @@ function wfgInitCanvas() {
     } else if (e.touches.length === 2) {
       pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       pinchStartRange = wfgKvdatMode ? (wfgKvdatTimeEnd - wfgKvdatTimeStart) : (wfgViewEnd - wfgViewStart);
+      // Calculate pinch center as fraction of drawW (for center-point zoom)
+      const rect = canvas.getBoundingClientRect();
+      const drawW = rect.width - WFG_LABEL_W;
+      const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left - WFG_LABEL_W;
+      const pinchFrac = Math.max(0, Math.min(1, cx / drawW));
+      if (wfgKvdatMode) {
+        pinchStartPivot = wfgKvdatTimeStart + pinchStartRange * pinchFrac;
+      } else {
+        pinchStartPivot = wfgViewStart + pinchStartRange * pinchFrac;
+      }
     }
   }, { passive: true });
   canvas.addEventListener('touchmove', function(e) {
     e.preventDefault();
-    if (e.touches.length === 1) {
-      const rect = canvas.getBoundingClientRect();
-      const drawW = rect.width - WFG_LABEL_W;
-      if (drawW <= 0) return;
-      const dx = e.touches[0].clientX - touchStartX;
-      if (wfgKvdatMode) {
-        const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
-        const dt = -(dx / drawW) * range;
-        wfgKvdatTimeStart = touchStartViewKvdat + dt;
-        wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
-        wfgRender(); return;
+    if (wfgTouchRafPending) return;
+    wfgTouchRafPending = true;
+    requestAnimationFrame(function() {
+      wfgTouchRafPending = false;
+      if (e.touches.length === 1) {
+        const rect = canvas.getBoundingClientRect();
+        const drawW = rect.width - WFG_LABEL_W;
+        if (drawW <= 0) return;
+        const dx = e.touches[0].clientX - touchStartX;
+        if (wfgKvdatMode) {
+          const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+          const dt = -(dx / drawW) * range;
+          wfgKvdatTimeStart = touchStartViewKvdat + dt;
+          wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
+          wfgRender(); wfgUpdateMinimapViewport(); return;
+        }
+        const range = wfgViewEnd - wfgViewStart;
+        const dLines = -(dx / drawW) * range;
+        let newStart = Math.round(touchStartView + dLines);
+        newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
+        wfgViewEnd = newStart + range;
+        wfgViewStart = newStart;
+        wfgRender(); wfgUpdateMinimapViewport();
+      } else if (e.touches.length === 2) {
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (pinchStartDist <= 0) return;
+        const scale = pinchStartDist / dist; // >1 = zoom out, <1 = zoom in
+        // Recalc current pinch center for smooth panning during pinch
+        const rect = canvas.getBoundingClientRect();
+        const drawW = rect.width - WFG_LABEL_W;
+        const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left - WFG_LABEL_W;
+        const currentFrac = Math.max(0, Math.min(1, cx / drawW));
+        if (wfgKvdatMode) {
+          const newRange = Math.max(100, pinchStartRange * scale);
+          wfgKvdatTimeStart = pinchStartPivot - newRange * currentFrac;
+          wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
+          wfgRender(); wfgUpdateMinimapViewport(); return;
+        }
+        const newRange = Math.max(10, Math.min(wfgFrame.vtotal, Math.round(pinchStartRange * scale)));
+        wfgViewStart = Math.max(0, Math.round(pinchStartPivot - newRange * currentFrac));
+        wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(wfgViewStart + newRange));
+        wfgRender(); wfgUpdateMinimapViewport();
       }
-      const range = wfgViewEnd - wfgViewStart;
-      const dLines = -(dx / drawW) * range;
-      let newStart = Math.round(touchStartView + dLines);
-      newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
-      wfgViewEnd = newStart + range;
-      wfgViewStart = newStart;
-      wfgRender();
-    } else if (e.touches.length === 2) {
-      const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      if (pinchStartDist <= 0) return;
-      const factor = pinchStartDist / dist;
-      if (wfgKvdatMode) {
-        const newRange = Math.max(100, pinchStartRange * factor);
-        const center = (wfgKvdatTimeStart + wfgKvdatTimeEnd) / 2;
-        wfgKvdatTimeStart = center - newRange / 2;
-        wfgKvdatTimeEnd = center + newRange / 2;
-        wfgRender(); return;
-      }
-      const newRange = Math.max(10, Math.min(wfgFrame.vtotal, Math.round(pinchStartRange * factor)));
-      const center = (wfgViewStart + wfgViewEnd) / 2;
-      wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
-      wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(center + newRange / 2));
-      wfgRender();
-    }
+    });
   }, { passive: false });
 
   // Resize observer
@@ -12335,6 +12381,21 @@ let wfgKvdatTimeEnd = 0;
 let wfgKvdatTotalStart = 0;
 let wfgKvdatTotalEnd = 0;
 
+// ─── Progress helpers ───
+function wfgShowProgress(pct, text) {
+  const overlay = document.getElementById('wfg-progress-overlay');
+  const bar = document.getElementById('wfg-progress-bar');
+  const txt = document.getElementById('wfg-progress-text');
+  if (overlay) overlay.style.display = 'flex';
+  if (bar) bar.style.width = pct + '%';
+  if (txt) txt.textContent = text;
+}
+function wfgHideProgress() {
+  const overlay = document.getElementById('wfg-progress-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+function wfgYield() { return new Promise(r => setTimeout(r, 0)); }
+
 window.wfgImportKvdat = async function(input) {
   const file = input.files[0];
   if (!file) return;
@@ -12352,9 +12413,15 @@ window.wfgImportKvdat = async function(input) {
   wfgKvdatChannels.forEach(ch => { ch.edges = null; });
   wfgKvdatChannels = [];
 
+  wfgShowProgress(5, '讀取檔案…');
+  await wfgYield();
+
   try {
     const arrayBuffer = await file.arrayBuffer();
     const data = new Uint8Array(arrayBuffer);
+
+    wfgShowProgress(20, '解析 XML 設定…');
+    await wfgYield();
 
     // 1. Find XML end
     const endTag = new TextEncoder().encode('</settings>');
@@ -12380,6 +12447,9 @@ window.wfgImportKvdat = async function(input) {
       channelNames[i] = el?.textContent || ('CH' + i);
     }
 
+    wfgShowProgress(35, '解析波形資料…');
+    await wfgYield();
+
     // 3. Find binary start (skip \r\n)
     let binStart = xmlEnd;
     while (binStart < data.length && (data[binStart] === 0x0D || data[binStart] === 0x0A)) binStart++;
@@ -12391,9 +12461,10 @@ window.wfgImportKvdat = async function(input) {
     const smpFreqX1000 = kvdatReadU64LE(dv, 16);
     const channelCount = kvdatReadU64LE(dv, 32);
 
-    // 5. Parse ##D blocks
+    // 5. Parse ##D blocks (with progress updates)
     const channels = [];
     let pos = binStart + 40;
+    const totalBinLen = data.length - pos;
     while (pos + 16 <= data.length) {
       if (data[pos] !== 0x23 || data[pos+1] !== 0x23 || data[pos+2] !== 0x44) break;
       const chIdx = data[pos + 4];
@@ -12408,7 +12479,13 @@ window.wfgImportKvdat = async function(input) {
       const color = WFG_COLORS[channels.length % WFG_COLORS.length];
       channels.push({ index: chIdx, name: chName, color: color, edges: edges, edgeCount: edgeCount });
       pos = edgeDataStart + edgeCount * 5;
+      const binProgress = totalBinLen > 0 ? (pos - binStart - 40) / totalBinLen : 1;
+      wfgShowProgress(35 + Math.round(binProgress * 45), '解析波形資料… (' + channels.length + ' 通道)');
+      await wfgYield();
     }
+
+    wfgShowProgress(85, '渲染波形…');
+    await wfgYield();
 
     // 6. Switch to kvdat mode
     wfgKvdatMode = true;
@@ -12430,7 +12507,11 @@ window.wfgImportKvdat = async function(input) {
 
     wfgShowKvdatInfo(file.name, smpFrequ, channels);
     wfgResizeAndRender();
+    wfgShowProgress(100, '完成！');
+    await wfgYield();
+    wfgHideProgress();
   } catch (e) {
+    wfgHideProgress();
     alert('kvdat 解析失敗: ' + e.message);
     console.error(e);
   }
@@ -12474,6 +12555,7 @@ function wfgShowKvdatInfo(fileName, smpFrequ, channels) {
 
 window.wfgClearKvdat = function() {
   wfgKvdatMode = false;
+  wfgKvdatChannels.forEach(ch => { ch.edges = null; });
   wfgKvdatChannels = [];
   // Restore normal UI
   const sigList = document.getElementById('wfg-signal-list');
@@ -12688,10 +12770,187 @@ function wfgRenderKvdatLabels() {
   });
 }
 
+// ─── Minimap ───
+function wfgRenderMinimap() {
+  const wrap = document.getElementById('wfg-minimap-wrap');
+  const miniCanvas = document.getElementById('wfg-minimap-canvas');
+  if (!miniCanvas) return;
+  const box = document.getElementById('wfg-minimap-box');
+  if (!box) return;
+
+  const hasSignals = wfgKvdatMode ? wfgKvdatChannels.length > 0 : wfgSignals.length > 0;
+  if (wrap) wrap.style.display = hasSignals ? '' : 'none';
+  if (!hasSignals) return;
+
+  const boxW = box.clientWidth || 300;
+  const boxH = 44;
+  const dpr = window.devicePixelRatio || 1;
+  miniCanvas.width = boxW * dpr;
+  miniCanvas.height = boxH * dpr;
+  miniCanvas.style.width = boxW + 'px';
+  miniCanvas.style.height = boxH + 'px';
+  const ctx = miniCanvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, boxW, boxH);
+
+  if (wfgKvdatMode) {
+    const channels = wfgKvdatChannels;
+    const tStart = wfgKvdatTotalStart;
+    const tEnd = wfgKvdatTotalEnd;
+    const tRange = tEnd - tStart;
+    if (tRange <= 0) return;
+
+    const rowH = Math.max(4, (boxH - 2) / channels.length);
+    for (let i = 0; i < channels.length; i++) {
+      const ch = channels[i];
+      const y0 = 1 + i * rowH;
+      const yHigh = y0 + 1;
+      const yLow = y0 + rowH - 2;
+      if (ch.edgeCount === 0) continue;
+
+      ctx.strokeStyle = ch.color;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+
+      let j = 0, curLevel = 0, curY = yLow;
+      ctx.moveTo(0, curY);
+      for (let px = 0; px < boxW; px++) {
+        const tRight = tStart + ((px + 1) / boxW) * tRange;
+        let count = 0;
+        while (j < ch.edgeCount && ch.edges[j] < tRight) { j++; count++; }
+        if (count === 0) continue;
+        const xPx = px + 0.5;
+        ctx.lineTo(xPx, curY);
+        if (count >= 2) { ctx.lineTo(xPx, yHigh); ctx.lineTo(xPx, yLow); }
+        if (count % 2 === 1) curLevel = curLevel ? 0 : 1;
+        curY = curLevel ? yHigh : yLow;
+        ctx.lineTo(xPx, curY);
+      }
+      ctx.lineTo(boxW, curY);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  } else {
+    const vtotal = wfgFrame.vtotal;
+    if (vtotal <= 0) return;
+    const rowH = Math.max(4, (boxH - 2) / wfgSignals.length);
+    for (let i = 0; i < wfgSignals.length; i++) {
+      const sig = wfgSignals[i];
+      const y0 = 1 + i * rowH;
+      const yHigh = y0 + 1;
+      const yLow = y0 + rowH - 2;
+      const transitions = wfgBuildLevels(sig, vtotal);
+
+      ctx.strokeStyle = sig.color;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+
+      let curLevel = 0, curY = yLow;
+      ctx.moveTo(0, curY);
+      for (const t of transitions) {
+        const fracDly = wfgFrame.htotal > 0 ? t.dly / wfgFrame.htotal : 0;
+        const x = ((t.line + fracDly) / vtotal) * boxW;
+        ctx.lineTo(x, curY);
+        curLevel = t.level;
+        curY = curLevel ? yHigh : yLow;
+        ctx.lineTo(x, curY);
+      }
+      ctx.lineTo(boxW, curY);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function wfgUpdateMinimapViewport() {
+  const vp = document.getElementById('wfg-minimap-viewport');
+  const box = document.getElementById('wfg-minimap-box');
+  if (!vp || !box) return;
+  const boxW = box.clientWidth || 1;
+
+  let frac0, frac1;
+  if (wfgKvdatMode) {
+    const totalRange = wfgKvdatTotalEnd - wfgKvdatTotalStart;
+    if (totalRange <= 0) { vp.style.display = 'none'; return; }
+    frac0 = (wfgKvdatTimeStart - wfgKvdatTotalStart) / totalRange;
+    frac1 = (wfgKvdatTimeEnd - wfgKvdatTotalStart) / totalRange;
+  } else {
+    const vtotal = wfgFrame.vtotal;
+    if (vtotal <= 0) { vp.style.display = 'none'; return; }
+    frac0 = wfgViewStart / vtotal;
+    frac1 = wfgViewEnd / vtotal;
+  }
+  frac0 = Math.max(0, Math.min(1, frac0));
+  frac1 = Math.max(0, Math.min(1, frac1));
+
+  if (frac0 <= 0.001 && frac1 >= 0.999) {
+    vp.style.display = 'none'; return;
+  }
+  vp.style.display = '';
+  vp.style.left = (frac0 * boxW) + 'px';
+  vp.style.width = Math.max(6, (frac1 - frac0) * boxW) + 'px';
+}
+
+function wfgInitMinimap() {
+  const box = document.getElementById('wfg-minimap-box');
+  if (!box) return;
+  let miniDragging = false;
+
+  function jumpTo(clientX) {
+    const rect = box.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    if (wfgKvdatMode) {
+      const totalRange = wfgKvdatTotalEnd - wfgKvdatTotalStart;
+      const viewRange = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+      const center = wfgKvdatTotalStart + frac * totalRange;
+      wfgKvdatTimeStart = center - viewRange / 2;
+      wfgKvdatTimeEnd = wfgKvdatTimeStart + viewRange;
+    } else {
+      const viewRange = wfgViewEnd - wfgViewStart;
+      const center = frac * wfgFrame.vtotal;
+      wfgViewStart = Math.max(0, Math.round(center - viewRange / 2));
+      wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(wfgViewStart + viewRange));
+    }
+    wfgRender(); wfgUpdateMinimapViewport();
+  }
+
+  box.addEventListener('click', function(e) { jumpTo(e.clientX); });
+  box.addEventListener('touchstart', function(e) {
+    miniDragging = true;
+    if (e.touches.length === 1) jumpTo(e.touches[0].clientX);
+  }, { passive: true });
+  box.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (miniDragging && e.touches.length === 1) jumpTo(e.touches[0].clientX);
+  }, { passive: false });
+  box.addEventListener('touchend', function() { miniDragging = false; });
+  box.addEventListener('touchcancel', function() { miniDragging = false; });
+
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(function() {
+      if (document.getElementById('page-wfg') && document.getElementById('page-wfg').style.display !== 'none') {
+        wfgRenderMinimap(); wfgUpdateMinimapViewport();
+      }
+    }).observe(box);
+  }
+}
+
+// Patch wfgResizeAndRender to also refresh minimap
+const _origWfgRAR = wfgResizeAndRender;
+wfgResizeAndRender = function() {
+  if (typeof window.wfgResizeCanvas === 'function') window.wfgResizeCanvas();
+  else wfgRender();
+  wfgRenderMinimap(); wfgUpdateMinimapViewport();
+};
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', wfgInit);
+  document.addEventListener('DOMContentLoaded', function() { wfgInit(); wfgInitMinimap(); });
 } else {
-  wfgInit();
+  wfgInit(); wfgInitMinimap();
 }
 
 })();
