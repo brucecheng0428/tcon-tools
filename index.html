@@ -1513,7 +1513,11 @@
     .wfg-panel { width: 340px; flex-shrink: 0; max-height: calc(100vh - 100px); overflow-y: auto; }
     .wfg-canvas-wrap { flex: 1; min-width: 0; }
   }
-  .wfg-panel { display: flex; flex-direction: column; gap: 10px; }
+  @media (min-width: 1024px) {
+    .wfg-container { max-width: calc(100vw - 40px); padding: 12px 20px 80px; }
+    .wfg-canvas-area { min-height: calc(100vh - 200px); }
+  }
+  .wfg-panel { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
   .wfg-card { background: var(--card); border-radius: 12px; overflow: hidden; }
   .wfg-card-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; user-select: none; }
   .wfg-card-head h3 { font-size: 14px; color: #f1f5f9; margin: 0; }
@@ -1576,7 +1580,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.19.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.20.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1625,7 +1629,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.2.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2717,7 +2721,7 @@
                   <span style="font-size:12px;font-weight:600;color:#38bdf8">📂 kvdat 檔案</span>
                   <button class="wfg-btn wfg-btn-danger" onclick="wfgClearKvdat()" style="font-size:11px;padding:3px 8px">✕ 清除匯入</button>
                 </div>
-                <div id="wfg-kvdat-details" style="font-size:11px;color:#94a3b8;line-height:1.6"></div>
+                <div id="wfg-kvdat-details" style="font-size:11px;color:#94a3b8;line-height:1.6;overflow:hidden;word-break:break-all"></div>
               </div>
               <div id="wfg-kvdat-channel-list" style="margin-top:8px"></div>
             </div>
@@ -12282,28 +12286,42 @@ function wfgInitCanvas() {
   });
   canvas.style.cursor = 'grab';
 
-  // Touch support — pinch zoom with center-point anchoring + rAF throttle
+  // Touch support — pinch zoom with center-point anchoring + inertia scrolling
   let touchStartX = 0, touchStartView = 0, touchStartViewKvdat = 0;
-  let pinchStartDist = 0, pinchStartRange = 0;
-  let pinchStartPivot = 0; // pivot value in data coordinates
+  let pinchStartDist = 0, pinchStartRange = 0, pinchStartZoom = 0;
+  let pinchStartPivot = 0; // pivot in data coordinates
+  let pinchStartFrac = 0;  // pivot screen fraction (fixed during pinch)
+  let pinchStartViewStart = 0; // kvdat or normal viewStart at pinch start
   let wfgTouchRafPending = false;
+  // Inertia tracking
+  let wfgTouchHistory = []; // {x, t} for velocity calc
+  let wfgInertiaRaf = 0;   // rAF id for inertia animation
+  let wfgInertiaActive = false;
   canvas.addEventListener('touchstart', function(e) {
+    // Stop any ongoing inertia animation
+    if (wfgInertiaActive) {
+      cancelAnimationFrame(wfgInertiaRaf);
+      wfgInertiaActive = false;
+    }
     if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX;
       touchStartView = wfgViewStart;
       touchStartViewKvdat = wfgKvdatTimeStart;
+      wfgTouchHistory = [{ x: e.touches[0].clientX, t: performance.now() }];
     } else if (e.touches.length === 2) {
+      wfgTouchHistory = []; // no inertia during pinch
       pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       pinchStartRange = wfgKvdatMode ? (wfgKvdatTimeEnd - wfgKvdatTimeStart) : (wfgViewEnd - wfgViewStart);
-      // Calculate pinch center as fraction of drawW (for center-point zoom)
+      // Record pivot screen fraction (fixed for entire pinch gesture)
       const rect = canvas.getBoundingClientRect();
       const drawW = rect.width - WFG_LABEL_W;
       const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left - WFG_LABEL_W;
-      const pinchFrac = Math.max(0, Math.min(1, cx / drawW));
+      pinchStartFrac = Math.max(0, Math.min(1, cx / drawW));
+      // Pivot in data coordinates
       if (wfgKvdatMode) {
-        pinchStartPivot = wfgKvdatTimeStart + pinchStartRange * pinchFrac;
+        pinchStartPivot = wfgKvdatTimeStart + pinchStartRange * pinchStartFrac;
       } else {
-        pinchStartPivot = wfgViewStart + pinchStartRange * pinchFrac;
+        pinchStartPivot = wfgViewStart + pinchStartRange * pinchStartFrac;
       }
     }
   }, { passive: true });
@@ -12311,13 +12329,22 @@ function wfgInitCanvas() {
     e.preventDefault();
     if (wfgTouchRafPending) return;
     wfgTouchRafPending = true;
+    const touchesCopy = [];
+    for (let i = 0; i < e.touches.length; i++) {
+      touchesCopy.push({ clientX: e.touches[i].clientX, clientY: e.touches[i].clientY });
+    }
     requestAnimationFrame(function() {
       wfgTouchRafPending = false;
-      if (e.touches.length === 1) {
+      if (touchesCopy.length === 1) {
         const rect = canvas.getBoundingClientRect();
         const drawW = rect.width - WFG_LABEL_W;
         if (drawW <= 0) return;
-        const dx = e.touches[0].clientX - touchStartX;
+        const dx = touchesCopy[0].clientX - touchStartX;
+        // Track for inertia
+        const now = performance.now();
+        wfgTouchHistory.push({ x: touchesCopy[0].clientX, t: now });
+        // Keep only last 80ms of history
+        while (wfgTouchHistory.length > 1 && now - wfgTouchHistory[0].t > 80) wfgTouchHistory.shift();
         if (wfgKvdatMode) {
           const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
           const dt = -(dx / drawW) * range;
@@ -12332,28 +12359,65 @@ function wfgInitCanvas() {
         wfgViewEnd = newStart + range;
         wfgViewStart = newStart;
         wfgRender(); wfgUpdateMinimapViewport();
-      } else if (e.touches.length === 2) {
-        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      } else if (touchesCopy.length === 2) {
+        const dist = Math.hypot(touchesCopy[0].clientX - touchesCopy[1].clientX, touchesCopy[0].clientY - touchesCopy[1].clientY);
         if (pinchStartDist <= 0) return;
         const scale = pinchStartDist / dist; // >1 = zoom out, <1 = zoom in
-        // Recalc current pinch center for smooth panning during pinch
-        const rect = canvas.getBoundingClientRect();
-        const drawW = rect.width - WFG_LABEL_W;
-        const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left - WFG_LABEL_W;
-        const currentFrac = Math.max(0, Math.min(1, cx / drawW));
         if (wfgKvdatMode) {
           const newRange = Math.max(100, pinchStartRange * scale);
-          wfgKvdatTimeStart = pinchStartPivot - newRange * currentFrac;
+          // Keep pivot at the same screen fraction
+          wfgKvdatTimeStart = pinchStartPivot - newRange * pinchStartFrac;
           wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
           wfgRender(); wfgUpdateMinimapViewport(); return;
         }
         const newRange = Math.max(10, Math.min(wfgFrame.vtotal, Math.round(pinchStartRange * scale)));
-        wfgViewStart = Math.max(0, Math.round(pinchStartPivot - newRange * currentFrac));
+        wfgViewStart = Math.max(0, Math.round(pinchStartPivot - newRange * pinchStartFrac));
         wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(wfgViewStart + newRange));
         wfgRender(); wfgUpdateMinimapViewport();
       }
     });
   }, { passive: false });
+  // Inertia on touchend
+  canvas.addEventListener('touchend', function(e) {
+    if (e.touches.length > 0) return; // still has fingers
+    if (wfgTouchHistory.length < 2) return;
+    const last = wfgTouchHistory[wfgTouchHistory.length - 1];
+    const first = wfgTouchHistory[0];
+    const dt = last.t - first.t;
+    if (dt <= 0 || dt > 150) return; // too slow or stale
+    const canvasEl = document.getElementById('wfg-canvas');
+    if (!canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const drawW = rect.width - WFG_LABEL_W;
+    if (drawW <= 0) return;
+    const pxPerMs = (last.x - first.x) / dt; // px/ms
+    let velocity = -pxPerMs * 16; // px per frame (~16ms), negative because drag left = scroll right
+    const decay = 0.95;
+    const threshold = 0.3;
+    wfgInertiaActive = true;
+    function inertiaStep() {
+      if (!wfgInertiaActive || Math.abs(velocity) < threshold) {
+        wfgInertiaActive = false; return;
+      }
+      if (wfgKvdatMode) {
+        const range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+        const dataV = (velocity / drawW) * range;
+        wfgKvdatTimeStart += dataV;
+        wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
+      } else {
+        const range = wfgViewEnd - wfgViewStart;
+        const dLines = (velocity / drawW) * range;
+        let newStart = wfgViewStart + dLines;
+        newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, Math.round(newStart)));
+        wfgViewEnd = newStart + range;
+        wfgViewStart = newStart;
+      }
+      velocity *= decay;
+      wfgRender(); wfgUpdateMinimapViewport();
+      wfgInertiaRaf = requestAnimationFrame(inertiaStep);
+    }
+    wfgInertiaRaf = requestAnimationFrame(inertiaStep);
+  }, { passive: true });
 
   // Resize observer
   if (window.ResizeObserver) {
