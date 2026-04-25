@@ -1624,9 +1624,9 @@
   .wfg-canvas-area { position: relative; width: 100%; min-height: 300px; }
   #wfg-canvas { display: block; width: 100%; touch-action: none; }
   .wfg-labels { position: absolute; left: 0; top: 0; bottom: 0; width: 110px; background: rgba(13,17,23,0.92); border-right: 1px solid #21262d; overflow: hidden; z-index: 2; }
-  .wfg-label-item { height: 48px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #c9d1d9; gap: 5px; cursor: grab; user-select: none; -webkit-user-select: none; transition: background 0.15s; }
+  .wfg-label-item { height: 48px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #c9d1d9; gap: 5px; cursor: grab; user-select: none; -webkit-user-select: none; transition: background 0.15s, transform 0.15s ease; }
   .wfg-label-item:hover { background: rgba(56,139,253,0.15); }
-  .wfg-label-item.wfg-label-dragging { opacity: 0.5; cursor: grabbing; }
+  .wfg-label-item.wfg-label-dragging { opacity: 0.7; cursor: grabbing; z-index: 5; position: relative; transition: none; }
   .wfg-label-drop-indicator { position: absolute; left: 4px; right: 4px; height: 2px; background: #f97316; border-radius: 1px; pointer-events: none; z-index: 10; display: none; }
   .wfg-label-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
   .wfg-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #64748b; font-size: 13px; gap: 8px; }
@@ -1662,7 +1662,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.34.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.35.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1711,7 +1711,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.15.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.16.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12711,16 +12711,34 @@ function wfgRender() {
 
   // Draw waveforms for each visible channel + cache transitions for measurement
   _wfgLastVisibleChs = visibleChs;
-  _wfgLastChTransitions = [];
+  _wfgLastChTransitions = new Array(visibleChs.length);
+  var rowStep = WFG_ROW_H + WFG_ROW_GAP;
+  var dragYOffsets = wfgCalcDragYOffsets(visibleChs.length, WFG_AXIS_H, rowStep, _wfgLabelDrag);
+  var isDragging = _wfgLabelDrag && _wfgLabelDrag.fromIdx >= 0;
+  var dragFromIdx = isDragging ? _wfgLabelDrag.fromIdx : -1;
+
+  // Draw non-dragged channels first, then dragged channel on top
+  var drawOrder = [];
   for (var i = 0; i < visibleChs.length; i++) {
+    if (i !== dragFromIdx) drawOrder.push(i);
+  }
+  if (dragFromIdx >= 0 && dragFromIdx < visibleChs.length) drawOrder.push(dragFromIdx);
+
+  for (var di = 0; di < drawOrder.length; di++) {
+    var i = drawOrder[di];
     var ch = visibleChs[i];
     var gpio = wfgGpios[ch.gpioIdx];
-    var y0 = WFG_AXIS_H + i * (WFG_ROW_H + WFG_ROW_GAP);
+    var y0 = dragYOffsets[i];
     var yHigh = Math.round(y0 + 6) + 0.5;
     var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
+    var isThisDragged = (i === dragFromIdx);
 
-    // Separator line
-    if (i > 0) {
+    // Set alpha for dragged channel
+    if (isThisDragged) ctx.globalAlpha = 0.7;
+
+    // Separator line (skip for dragged channel)
+    if (!isThisDragged && i > 0) {
+      var prevY0 = dragYOffsets[i];
       ctx.strokeStyle = '#21262d';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -12732,11 +12750,11 @@ function wfgRender() {
     // Compute transitions with OAX applied
     var baseTransitions = allGpioTransitions[ch.gpioIdx];
     var transitions = wfgApplyOAX(ch.gpioIdx, baseTransitions, allGpioTransitions, effHtotal);
-    _wfgLastChTransitions.push(transitions);
+    _wfgLastChTransitions[i] = transitions;
     if (transitions.length === 0) {
       ctx.strokeStyle = ch.color;
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.6;
+      if (!isThisDragged) ctx.globalAlpha = 0.6;
       ctx.beginPath();
       ctx.moveTo(drawX0, yLow);
       ctx.lineTo(w, yLow);
@@ -12751,8 +12769,6 @@ function wfgRender() {
     ctx.beginPath();
 
     // Determine initial level at view left boundary
-    // Use pixel position (including delay) — same criterion as drawing loop
-    // R_DLY/F_DLY are in DCLK units; one line has dclkPerLine DCLKs
     var curLevel = 0;
     var firstVisIdx = 0;
     for (var ti = 0; ti < transitions.length; ti++) {
@@ -12786,6 +12802,7 @@ function wfgRender() {
     }
     ctx.lineTo(w, curY);
     ctx.stroke();
+    if (isThisDragged) ctx.globalAlpha = 1;
   }
 
   // Label background
@@ -12799,7 +12816,7 @@ function wfgRender() {
   ctx.stroke();
 
   wfgMeasDrawArrow(ctx);
-  wfgRenderLabels();
+  if (!_wfgLabelDrag) wfgRenderLabels();
 }
 
 function wfgRenderLabels() {
@@ -12831,6 +12848,7 @@ function wfgRenderLabels() {
 
 // ─── Label Drag Setup ───
 var _wfgLabelDrag = null;
+var _wfgDragRafId = 0;
 function wfgLabelDragSetup(container, visMap, rowH) {
   var items = container.querySelectorAll('.wfg-label-item');
   var indicator = document.getElementById('wfg-label-drop-indicator');
@@ -12841,9 +12859,15 @@ function wfgLabelDragSetup(container, visMap, rowH) {
   }
 
   function startDrag(idx, startY) {
-    _wfgLabelDrag = { fromIdx: idx, startY: startY, currentIdx: idx };
+    var canvas = document.getElementById('wfg-canvas');
+    var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+    _wfgLabelDrag = {
+      fromIdx: idx, startY: startY, currentIdx: idx,
+      mouseY: startY, canvasRect: canvasRect, totalCount: visMap.length
+    };
     items[idx].classList.add('wfg-label-dragging');
     if (indicator) { indicator.style.display = 'block'; }
+    scheduleDragRender();
   }
 
   function moveDrag(clientY) {
@@ -12853,9 +12877,70 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     var targetIdx = Math.round(relY / rowH);
     targetIdx = Math.max(0, Math.min(visMap.length, targetIdx));
     _wfgLabelDrag.currentIdx = targetIdx;
+    _wfgLabelDrag.mouseY = clientY;
+    var canvas = document.getElementById('wfg-canvas');
+    if (canvas) _wfgLabelDrag.canvasRect = canvas.getBoundingClientRect();
     if (indicator) {
       indicator.style.top = (getAxisH() + targetIdx * rowH - 1) + 'px';
     }
+    // Move label items to match canvas waveform positions
+    updateLabelPositions();
+    scheduleDragRender();
+  }
+
+  function updateLabelPositions() {
+    if (!_wfgLabelDrag) return;
+    var drag = _wfgLabelDrag;
+    var count = items.length;
+    var axH = getAxisH();
+    var from = drag.fromIdx;
+    var target = drag.currentIdx;
+    if (target > count) target = count;
+    if (target < 0) target = 0;
+    var gapSlot = target > from ? target - 1 : target;
+
+    // Calculate where the dragged label should be (relative to its normal position)
+    var canvas = document.getElementById('wfg-canvas');
+    var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+    var draggedY;
+    if (canvasRect) {
+      draggedY = drag.mouseY - canvasRect.top - rowH / 2;
+      var minY = WFG_AXIS_H;
+      var maxY = WFG_AXIS_H + (count - 1) * rowH;
+      if (draggedY < minY) draggedY = minY;
+      if (draggedY > maxY) draggedY = maxY;
+    } else {
+      draggedY = axH + from * rowH;
+    }
+
+    var slot = 0;
+    for (var i = 0; i < count; i++) {
+      if (i === from) {
+        // Dragged item: position based on mouse
+        var normalY = axH + i * rowH;
+        var offset = draggedY - (axH + from * rowH);
+        items[i].style.transform = 'translateY(' + offset + 'px)';
+        items[i].style.zIndex = '5';
+        items[i].style.position = 'relative';
+      } else {
+        if (slot === gapSlot) slot++;
+        var normalY = axH + i * rowH;
+        var targetY = axH + slot * rowH;
+        var offset = targetY - normalY;
+        items[i].style.transform = offset !== 0 ? 'translateY(' + offset + 'px)' : '';
+        items[i].style.zIndex = '';
+        items[i].style.position = '';
+        slot++;
+      }
+    }
+  }
+
+  function scheduleDragRender() {
+    if (_wfgDragRafId) return;
+    _wfgDragRafId = requestAnimationFrame(function() {
+      _wfgDragRafId = 0;
+      if (_wfgLabelDrag) wfgRender();
+    });
   }
 
   function endDrag() {
@@ -12864,6 +12949,13 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     var to = _wfgLabelDrag.currentIdx;
     items[from].classList.remove('wfg-label-dragging');
     if (indicator) { indicator.style.display = 'none'; }
+    // Clear label transforms
+    for (var ci = 0; ci < items.length; ci++) {
+      items[ci].style.transform = '';
+      items[ci].style.zIndex = '';
+      items[ci].style.position = '';
+    }
+    _wfgLabelDrag = null;
 
     if (from !== to && to !== from + 1) {
       if (typeof wfgKvdatMode !== 'undefined' && wfgKvdatMode) {
@@ -12891,8 +12983,10 @@ function wfgLabelDragSetup(container, visMap, rowH) {
         wfgRenderLabels();
         wfgResizeAndRender();
       }
+    } else {
+      // No reorder but need to redraw without drag offset
+      wfgRender();
     }
-    _wfgLabelDrag = null;
   }
 
   items.forEach(function(item, idx) {
@@ -12901,11 +12995,10 @@ function wfgLabelDragSetup(container, visMap, rowH) {
       startDrag(idx, e.clientY);
     });
   });
-  container.addEventListener('mousemove', function(e) {
+  document.addEventListener('mousemove', function(e) {
     if (_wfgLabelDrag) { e.preventDefault(); moveDrag(e.clientY); }
   });
-  container.addEventListener('mouseup', function() { endDrag(); });
-  container.addEventListener('mouseleave', function() { endDrag(); });
+  document.addEventListener('mouseup', function() { endDrag(); });
 
   items.forEach(function(item, idx) {
     item.addEventListener('touchstart', function(e) {
@@ -12915,14 +13008,72 @@ function wfgLabelDragSetup(container, visMap, rowH) {
       }
     }, { passive: false });
   });
-  container.addEventListener('touchmove', function(e) {
+  document.addEventListener('touchmove', function(e) {
     if (_wfgLabelDrag && e.touches.length === 1) {
       e.preventDefault();
       moveDrag(e.touches[0].clientY);
     }
   }, { passive: false });
-  container.addEventListener('touchend', function() { endDrag(); });
-  container.addEventListener('touchcancel', function() { endDrag(); });
+  document.addEventListener('touchend', function() { endDrag(); });
+  document.addEventListener('touchcancel', function() { endDrag(); });
+}
+
+// Helper: compute y-offsets for each visible channel during drag
+function wfgCalcDragYOffsets(count, axisH, rowStep, drag) {
+  var offsets = new Array(count);
+  if (!drag || drag.fromIdx < 0 || drag.fromIdx >= count) {
+    for (var i = 0; i < count; i++) offsets[i] = axisH + i * rowStep;
+    return offsets;
+  }
+  var from = drag.fromIdx;
+  var target = drag.currentIdx;
+  // Clamp target
+  if (target > count) target = count;
+  if (target < 0) target = 0;
+
+  // Calculate dragged channel y from mouse position
+  var canvasRect = drag.canvasRect;
+  var draggedY;
+  if (canvasRect) {
+    draggedY = drag.mouseY - canvasRect.top - rowStep / 2;
+    // Clamp within canvas
+    var minY = axisH;
+    var maxY = axisH + (count - 1) * rowStep;
+    if (draggedY < minY) draggedY = minY;
+    if (draggedY > maxY) draggedY = maxY;
+  } else {
+    draggedY = axisH + from * rowStep;
+  }
+
+  // Build visual order: remove 'from', insert gap at 'target'
+  var slot = 0;
+  for (var i = 0; i < count; i++) {
+    if (i === from) {
+      offsets[i] = draggedY; // dragged channel follows mouse
+    } else {
+      // Skip the target slot (reserved for the dragged channel)
+      if (slot === target || (target > from && slot === target - 1 && i < from)) {
+        // We need a different approach: build the reordered list
+      }
+      offsets[i] = axisH + slot * rowStep;
+      slot++;
+    }
+  }
+
+  // Better approach: figure out visual slot for each non-dragged channel
+  // Remove 'from' from list, then other channels fill slots 0..count-2
+  // The gap is at position 'target' (or target-1 if target > from)
+  var gapSlot = target > from ? target - 1 : target;
+  slot = 0;
+  for (var i = 0; i < count; i++) {
+    if (i === from) continue;
+    if (slot === gapSlot) slot++; // skip gap
+    offsets[i] = axisH + slot * rowStep;
+    slot++;
+  }
+  offsets[from] = draggedY;
+
+  return offsets;
 }
 
 // ─── Canvas Resize ───
@@ -14421,13 +14572,29 @@ function wfgRenderKvdat() {
     ctx.fillText(wfgFormatTime(g, wfgKvdatSmpFreqX1000), x, WFG_AXIS_H - 6);
   }
 
+  var kvRowStep = WFG_ROW_H + WFG_ROW_GAP;
+  var kvDragYOffsets = wfgCalcDragYOffsets(channels.length, WFG_AXIS_H, kvRowStep, _wfgLabelDrag);
+  var kvIsDragging = _wfgLabelDrag && _wfgLabelDrag.fromIdx >= 0;
+  var kvDragFrom = kvIsDragging ? _wfgLabelDrag.fromIdx : -1;
+
+  // Draw non-dragged channels first, then dragged on top
+  var kvDrawOrder = [];
   for (var i = 0; i < channels.length; i++) {
+    if (i !== kvDragFrom) kvDrawOrder.push(i);
+  }
+  if (kvDragFrom >= 0 && kvDragFrom < channels.length) kvDrawOrder.push(kvDragFrom);
+
+  for (var di = 0; di < kvDrawOrder.length; di++) {
+    var i = kvDrawOrder[di];
     var ch = channels[i];
-    var y0 = WFG_AXIS_H + i * (WFG_ROW_H + WFG_ROW_GAP);
+    var y0 = kvDragYOffsets[i];
     var yHigh = y0 + 6;
     var yLow = y0 + WFG_ROW_H - 4;
+    var isThisDragged = (i === kvDragFrom);
 
-    if (i > 0) {
+    if (isThisDragged) ctx.globalAlpha = 0.7;
+
+    if (!isThisDragged && i > 0) {
       ctx.strokeStyle = '#21262d';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -14442,7 +14609,7 @@ function wfgRenderKvdat() {
     if (ec === 0) {
       ctx.strokeStyle = ch.color;
       ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6;
+      if (!isThisDragged) ctx.globalAlpha = 0.6;
       ctx.beginPath();
       ctx.moveTo(drawX0, yLow);
       ctx.lineTo(w, yLow);
@@ -14476,26 +14643,30 @@ function wfgRenderKvdat() {
         curY = newY;
       }
     } else {
+      // Dense mode: use min/max level per pixel for clean rendering
       var j = edgesBeforeView;
       var pixelCount = Math.ceil(drawW);
       for (var px = 0; px < pixelCount; px++) {
         var tRight = tStart + ((px + 1) / drawW) * tRange;
         var count = 0;
+        var startLevel = curLevel;
         while (j < ec && edges[j] < tRight) { j++; count++; }
         if (count === 0) continue;
-        var xPx = drawX0 + px + 0.5;
-        ctx.lineTo(xPx, curY);
-        if (count >= 2) {
-          ctx.lineTo(xPx, yHigh);
-          ctx.lineTo(xPx, yLow);
-        }
         if (count % 2 === 1) curLevel = curLevel ? 0 : 1;
-        curY = curLevel ? yHigh : yLow;
-        ctx.lineTo(xPx, curY);
+        var endLevel = curLevel;
+        var xPx = drawX0 + px + 0.5;
+        // Draw horizontal to this pixel, then handle transition
+        ctx.lineTo(xPx, startLevel ? yHigh : yLow);
+        if (startLevel !== endLevel) {
+          // Level changed: draw vertical edge
+          ctx.lineTo(xPx, endLevel ? yHigh : yLow);
+        }
+        curY = endLevel ? yHigh : yLow;
       }
     }
     ctx.lineTo(w, curY);
     ctx.stroke();
+    if (isThisDragged) ctx.globalAlpha = 1;
   }
 
   ctx.fillStyle = 'rgba(13,17,23,0.92)';
@@ -14508,7 +14679,7 @@ function wfgRenderKvdat() {
   ctx.stroke();
 
   wfgMeasDrawArrow(ctx);
-  wfgRenderKvdatLabels();
+  if (!_wfgLabelDrag) wfgRenderKvdatLabels();
 }
 
 function wfgRenderKvdatLabels() {
