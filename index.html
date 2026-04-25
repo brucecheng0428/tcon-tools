@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.24.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12681,14 +12681,18 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   // Data 1 on Line 0 of current frame, Data 2 on Line 1, etc.
   // So RX DE is shifted -1 line relative to data index.
   // RX DE is active for Vactive data lines, each line shows DE HIGH for rxDeFrac DCLKs.
-  var vactiveView = isDual ? vactive * 2 : vactive;
+  // RX DE: always exactly vactive data entries, regardless of gate mode
+  // In Dual Gate, each RX data spans 2 view lines (1 RX line = htotal/2 DCLK = 2 view lines)
+  var rxViewLinesPerData = isDual ? 2 : 1;
+  var vtotalRx = wfgFrame.vtotal; // RX operates at original vtotal
   for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
     var lineInFrame = ln % vtotalView;
-    // Data index: Single Gate shift=1 (Data 0 at last line of prev frame),
-    // Dual Gate shift=2 (Data 0 at second-to-last line of prev frame)
-    var rxShift = isDual ? 2 : 1;
-    var dataIdx = (lineInFrame + rxShift) % vtotalView;
-    if (dataIdx >= vactiveView) {
+    // Map view line to RX line index
+    var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : lineInFrame;
+    var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : 0;
+    // Data index: shift by 1 (Data 0 at last RX line of prev frame)
+    var dataIdx = (rxLineIdx + 1) % vtotalRx;
+    if (dataIdx >= vactive) {
       // blanking region - draw low
       var xL = Math.max(drawX0, lineToX(ln));
       var xR = Math.min(w, lineToX(ln + 1));
@@ -12698,41 +12702,66 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
       }
       continue;
     }
-    // Active: DE high for rxDeFrac, then low
+    // DE spans rxDeFrac view lines starting from posInRxData=0
+    // This view line covers [posInRxData, posInRxData+1) within the RX data period
+    var deTo = Math.min(posInRxData + 1, rxDeFrac);
     var xLineStart = lineToX(ln);
-    var xDeEnd = lineToX(ln + rxDeFrac);
     var xLineEnd = lineToX(ln + 1);
     var xL2 = Math.max(drawX0, xLineStart);
-    var xDE = Math.min(w, xDeEnd);
     var xR2 = Math.min(w, xLineEnd);
-    // Rising edge at line start
-    if (xL2 < xDE) {
-      ctx.moveTo(xL2, rxLow);
-      ctx.lineTo(xL2, rxHigh);
-      ctx.lineTo(xDE, rxHigh);
-      ctx.lineTo(xDE, rxLow);
-      // Fill the DE high block
-      ctx.save();
-      ctx.fillStyle = WFG_INTERNAL_COLORS.rxde;
-      ctx.globalAlpha = 0.15;
-      ctx.fillRect(xL2, rxHigh, xDE - xL2, rxLow - rxHigh);
-      ctx.restore();
-    }
-    if (xDE < xR2) {
-      ctx.moveTo(xDE, rxLow);
-      ctx.lineTo(xR2, rxLow);
-    }
-    // Data N label inside DE block
-    var dePxW = xDE - xL2;
-    if (dePxW > 8) {
-      ctx.save();
-      ctx.fillStyle = '#ffffff';
-      ctx.globalAlpha = 0.9;
-      ctx.textAlign = 'center';
-      ctx.font = dePxW > 40 ? '8px sans-serif' : '7px sans-serif';
-      var label = dePxW > 40 ? 'D' + dataIdx : '' + dataIdx;
-      ctx.fillText(label, (xL2 + xDE) / 2, (rxHigh + rxLow) / 2 + 3);
-      ctx.restore();
+    if (deTo > posInRxData) {
+      // This view line has DE active portion
+      var fracEnd = deTo - posInRxData; // 0..1 fraction within this view line
+      var xDeEnd = lineToX(ln + fracEnd);
+      var xDEc = Math.min(w, xDeEnd);
+      if (xL2 < xDEc) {
+        // Rising edge only at DE start (first view line of this data)
+        if (posInRxData === 0) {
+          ctx.moveTo(xL2, rxLow);
+          ctx.lineTo(xL2, rxHigh);
+        } else {
+          ctx.moveTo(xL2, rxHigh);
+        }
+        ctx.lineTo(xDEc, rxHigh);
+        // Falling edge only if DE ends within this view line
+        if (fracEnd < 1) {
+          ctx.lineTo(xDEc, rxLow);
+        }
+        // Fill DE block
+        ctx.save();
+        ctx.fillStyle = WFG_INTERNAL_COLORS.rxde;
+        ctx.globalAlpha = 0.15;
+        ctx.fillRect(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh);
+        ctx.restore();
+      }
+      // Low after DE ends
+      if (fracEnd < 1 && xDEc < xR2) {
+        ctx.moveTo(xDEc, rxLow);
+        ctx.lineTo(xR2, rxLow);
+      }
+      // Data label (only in first view line of this data)
+      if (posInRxData === 0) {
+        var totalDeEndX = lineToX(ln + Math.min(rxDeFrac, rxViewLinesPerData));
+        var tDS = Math.max(drawX0, xLineStart);
+        var tDE = Math.min(w, totalDeEndX);
+        var dePxW = tDE - tDS;
+        if (dePxW > 8) {
+          ctx.save();
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 0.9;
+          ctx.textAlign = 'center';
+          ctx.font = dePxW > 40 ? '8px sans-serif' : '7px sans-serif';
+          var label = dePxW > 40 ? 'D' + dataIdx : '' + dataIdx;
+          ctx.fillText(label, (tDS + tDE) / 2, (rxHigh + rxLow) / 2 + 3);
+          ctx.restore();
+        }
+      }
+    } else {
+      // No DE in this view line - all blanking, draw low
+      if (xL2 < xR2) {
+        ctx.moveTo(xL2, rxLow);
+        ctx.lineTo(xR2, rxLow);
+      }
     }
   }
   ctx.stroke();
@@ -15373,7 +15402,14 @@ function wfgInit() {
   wfgRenderChannelList();
   wfgUpdateDclkLabel();
   wfgUpdateTconInternalVisibility();
-  wfgRender();
+  // Restore checkbox state if browser autocomplete preserved it
+  var cb = document.getElementById('wfg-tcon-internal-cb');
+  if (cb && cb.checked && !wfgTconInternalMode) {
+    wfgTconInternalMode = true;
+    var lbWrap = document.getElementById('wfg-linebuf-wrap');
+    if (lbWrap) lbWrap.style.display = 'flex';
+  }
+  wfgResizeAndRender();
 }
 
 // ─── kvdat Import ───
