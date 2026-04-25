@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.41.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.22.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.23.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2898,6 +2898,15 @@
           <button onclick="wfgZoomOut()" title="Zoom Out">🔍－</button>
           <button onclick="wfgFitAll()" data-i18n="wfg.fitAll" title="Fit All">📏 全覽</button>
           <button onclick="wfgResetView()" data-i18n="wfg.reset" title="Reset">↺ 重置</button>
+          <span style="width:1px;height:18px;background:#30363d;margin:0 2px;flex-shrink:0"></span>
+          <label id="wfg-tcon-internal-wrap" style="display:none;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer;white-space:nowrap;margin:0 4px;">
+            <input type="checkbox" id="wfg-tcon-internal-cb" onchange="wfgToggleTconInternal(this.checked)" style="accent-color:#f97316;cursor:pointer;">
+            <span>TCON 內部運算</span>
+          </label>
+          <label id="wfg-linebuf-wrap" style="display:none;align-items:center;gap:3px;font-size:11px;color:#94a3b8;white-space:nowrap;">
+            <span>Line Buffer:</span>
+            <input type="number" id="wfg-linebuf" value="6" min="0" max="15" style="width:42px;padding:2px 4px;font-size:11px;color:#e2e8f0;background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnLineBufferChange(this.value)">
+          </label>
           <span style="width:1px;height:18px;background:#30363d;margin:0 2px;flex-shrink:0"></span>
           <button class="wfg-cursor-btn" data-cursor-idx="0" onclick="wfgToggleCursorBtn(0)" title="A1 (快捷鍵 1)" style="--cbtn-color:#facc15">A1</button>
           <button class="wfg-cursor-btn" data-cursor-idx="1" onclick="wfgToggleCursorBtn(1)" title="A2 (快捷鍵 2)" style="--cbtn-color:#facc15">A2</button>
@@ -12335,6 +12344,14 @@ function wfgEnsureTransitions() {
 let wfgDragStartX = 0;
 let wfgDragStartView = 0;
 let wfgCurrentMode = 'tcon'; // 'tcon' or 'siggen'
+// ─── TCON Internal Mode State ───
+let wfgTconInternalMode = false;
+let wfgLineBuffer = 6;
+const WFG_INTERNAL_ROW_H = 22; // height per internal row (RX DE, TX DE, R_PH_CNT, F_PH_CNT)
+const WFG_INTERNAL_ROW_GAP = 2;
+const WFG_INTERNAL_ROWS = 4; // RX DE, TX DE, R_PH_CNT, F_PH_CNT
+const WFG_INTERNAL_COLORS = { rxde: '#38bdf8', txde: '#f97316', rph: '#4ade80', fph: '#fb923c' };
+
 const WFG_ROW_H = 40;
 const WFG_ROW_GAP = 8;
 const WFG_LABEL_W = 110;
@@ -12345,6 +12362,12 @@ const WFG_LINE_Y = 16;
 const WFG_LINE_H = 22;
 const WFG_DCLK_Y = 38;
 const WFG_DCLK_H = 16;
+
+// ─── Helper: TCON Internal extra height ───
+function wfgInternalExtraH() {
+  if (!wfgTconInternalMode || wfgKvdatMode) return 0;
+  return WFG_INTERNAL_ROWS * (WFG_INTERNAL_ROW_H + WFG_INTERNAL_ROW_GAP);
+}
 
 // ─── Helper: totalLines ───
 function wfgTotalLines() {
@@ -12362,8 +12385,37 @@ function wfgSwitchMode(mode) {
   var siggenContent = document.getElementById('wfg-siggen-content');
   if (tconContent) tconContent.style.display = mode === 'tcon' ? '' : 'none';
   if (siggenContent) siggenContent.style.display = mode === 'siggen' ? '' : 'none';
+  wfgUpdateTconInternalVisibility();
 }
 window.wfgSwitchMode = wfgSwitchMode;
+
+// ─── TCON Internal Mode Toggle ───
+function wfgToggleTconInternal(checked) {
+  wfgTconInternalMode = !!checked;
+  var lbWrap = document.getElementById('wfg-linebuf-wrap');
+  if (lbWrap) lbWrap.style.display = wfgTconInternalMode ? 'flex' : 'none';
+  wfgResizeAndRender();
+}
+window.wfgToggleTconInternal = wfgToggleTconInternal;
+
+function wfgOnLineBufferChange(val) {
+  wfgLineBuffer = Math.max(0, Math.min(15, parseInt(val) || 0));
+  wfgRender();
+}
+window.wfgOnLineBufferChange = wfgOnLineBufferChange;
+
+// Show/hide TCON Internal checkbox based on mode
+function wfgUpdateTconInternalVisibility() {
+  var wrap = document.getElementById('wfg-tcon-internal-wrap');
+  if (wrap) wrap.style.display = (wfgCurrentMode === 'tcon' && !wfgKvdatMode) ? 'flex' : 'none';
+  if (wfgCurrentMode !== 'tcon' || wfgKvdatMode) {
+    wfgTconInternalMode = false;
+    var cb = document.getElementById('wfg-tcon-internal-cb');
+    if (cb) cb.checked = false;
+    var lbWrap = document.getElementById('wfg-linebuf-wrap');
+    if (lbWrap) lbWrap.style.display = 'none';
+  }
+}
 
 // ─── Phase Counter Engine (per GPIO) ───
 // ST_LINE: counter loads initial values here, no counting before this line.
@@ -12591,6 +12643,205 @@ function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
     }
   }
   return result;
+}
+
+// ─── TCON Internal Rows Drawing ───
+function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRange, lineToX, vtotalView, dclkPerLine) {
+  var baseY = WFG_AXIS_H;
+  var rowH = WFG_INTERNAL_ROW_H;
+  var gap = WFG_INTERNAL_ROW_GAP;
+  var isDual = wfgFrame.gateType === 'dual';
+  var hactive = wfgFrame.hactive;
+  var vactive = wfgFrame.vactive;
+
+  // RX DE width: always Hactive / 2 DCLKs (independent of gate type)
+  var rxDeWidthDclk = hactive / 2;
+  // TX DE width: Hactive / (2 × gate_count) DCLKs
+  var gateCount = isDual ? 2 : 1;
+  var txDeWidthDclk = hactive / (2 * gateCount);
+  // Convert to fractional lines
+  var rxDeFrac = dclkPerLine > 0 ? rxDeWidthDclk / dclkPerLine : 0;
+  var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
+
+  // Line Buffer shift: in Dual Gate mode, shift is doubled
+  var lbShift = isDual ? wfgLineBuffer * 2 : wfgLineBuffer;
+
+  // Visible line range
+  var firstVisLine = Math.max(0, Math.floor(viewStart));
+  var lastVisLine = Math.min(wfgTotalLines() - 1, Math.ceil(viewEnd));
+
+  // ── Row 0: RX DE ──
+  var rxY = baseY;
+  var rxHigh = rxY + 3;
+  var rxLow = rxY + rowH - 3;
+  ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // RX DE: Data 0 appears on the LAST line of the PREVIOUS frame (Vtotal-1),
+  // Data 1 on Line 0 of current frame, Data 2 on Line 1, etc.
+  // So RX DE is shifted -1 line relative to data index.
+  // RX DE is active for Vactive data lines, each line shows DE HIGH for rxDeFrac DCLKs.
+  var vactiveView = isDual ? vactive * 2 : vactive;
+  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+    var lineInFrame = ln % vtotalView;
+    // Data index for this line: lineInFrame + 1 (because Data 0 is at line vtotalView-1 of prev frame)
+    // Equivalently: data is active when (lineInFrame+1) % vtotalView is in [0, vactiveView-1]
+    var dataIdx = (lineInFrame + 1) % vtotalView;
+    if (dataIdx >= vactiveView) {
+      // blanking region - draw low
+      var xL = Math.max(drawX0, lineToX(ln));
+      var xR = Math.min(w, lineToX(ln + 1));
+      if (xR > drawX0 && xL < w) {
+        ctx.moveTo(xL, rxLow);
+        ctx.lineTo(xR, rxLow);
+      }
+      continue;
+    }
+    // Active: DE high for rxDeFrac, then low
+    var xLineStart = lineToX(ln);
+    var xDeEnd = lineToX(ln + rxDeFrac);
+    var xLineEnd = lineToX(ln + 1);
+    var xL2 = Math.max(drawX0, xLineStart);
+    var xDE = Math.min(w, xDeEnd);
+    var xR2 = Math.min(w, xLineEnd);
+    // Rising edge at line start
+    if (xL2 < xDE) {
+      ctx.moveTo(xL2, rxLow);
+      ctx.lineTo(xL2, rxHigh);
+      ctx.lineTo(xDE, rxHigh);
+      ctx.lineTo(xDE, rxLow);
+    }
+    if (xDE < xR2) {
+      ctx.moveTo(xDE, rxLow);
+      ctx.lineTo(xR2, rxLow);
+    }
+  }
+  ctx.stroke();
+
+  // ── Row 1: TX DE ──
+  var txY = baseY + (rowH + gap);
+  var txHigh = txY + 3;
+  var txLow = txY + rowH - 3;
+  ctx.strokeStyle = WFG_INTERNAL_COLORS.txde;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // TX DE: Data N appears above Line (N + lbShift)
+  // Data range: 0..Vactive-1 (single) or 0..Vactive*2-1 (dual for vtotalView)
+  // TX DE width = txDeFrac lines
+  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+    var lineInFrame = ln % vtotalView;
+    var vactiveView2 = isDual ? vactive * 2 : vactive;
+    // Data index for this line = lineInFrame - lbShift
+    var dataIdx = lineInFrame - lbShift;
+    if (dataIdx < 0 || dataIdx >= vactiveView2) {
+      // No TX DE on this line (or blanking)
+      var xL3 = Math.max(drawX0, lineToX(ln));
+      var xR3 = Math.min(w, lineToX(ln + 1));
+      if (xR3 > drawX0 && xL3 < w) {
+        ctx.moveTo(xL3, txLow);
+        ctx.lineTo(xR3, txLow);
+      }
+      continue;
+    }
+    // TX DE active
+    var xLS = lineToX(ln);
+    var xDEEnd = lineToX(ln + txDeFrac);
+    var xLE = lineToX(ln + 1);
+    var xA = Math.max(drawX0, xLS);
+    var xB = Math.min(w, xDEEnd);
+    var xC = Math.min(w, xLE);
+    if (xA < xB) {
+      ctx.moveTo(xA, txLow);
+      ctx.lineTo(xA, txHigh);
+      ctx.lineTo(xB, txHigh);
+      ctx.lineTo(xB, txLow);
+    }
+    if (xB < xC) {
+      ctx.moveTo(xB, txLow);
+      ctx.lineTo(xC, txLow);
+    }
+  }
+  ctx.stroke();
+
+  // ── Row 2 & 3: R_PH_CNT / F_PH_CNT (show when hovering a channel) ──
+  var rphY = baseY + 2 * (rowH + gap);
+  var fphY = baseY + 3 * (rowH + gap);
+  // We only draw these if a channel is being hovered (measured)
+  if (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) {
+    var hoverChIdx = _wfgMeasArrow._tconHoverChIdx;
+    var ch = _wfgLastVisibleChs[hoverChIdx];
+    if (ch && ch.gpioIdx >= 0) {
+      var gpio = wfgGpios[ch.gpioIdx];
+      if (gpio.enable) {
+        var actType = gpio.act_type;
+        var stLine = Math.max(0, gpio.st_line);
+        var spLine = Math.min(vtotalView - 1, gpio.sp_line);
+        // Draw R_PH_CNT
+        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w);
+        // Draw F_PH_CNT
+        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w);
+      }
+    }
+  }
+
+  // Draw row separators and labels in label area
+  ctx.strokeStyle = 'rgba(48,54,61,0.5)';
+  ctx.lineWidth = 1;
+  for (var ri = 0; ri < WFG_INTERNAL_ROWS; ri++) {
+    var ry = baseY + ri * (rowH + gap) + rowH + gap / 2;
+    ctx.beginPath();
+    ctx.moveTo(drawX0, ry);
+    ctx.lineTo(w, ry);
+    ctx.stroke();
+  }
+}
+
+function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w) {
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  var textY = y + rowH / 2 + 3;
+
+  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+    var lineInFrame = ln % vtotalView;
+    var xL = lineToX(ln);
+    var xR = lineToX(ln + 1);
+    var pxW = xR - xL;
+    if (xR < drawX0 || xL > w) continue;
+    if (pxW < 10) continue; // too narrow to show text
+
+    if (lineInFrame < stLine || lineInFrame > spLine) {
+      // Outside active region - show '--'
+      ctx.globalAlpha = 0.3;
+      ctx.fillText('--', (Math.max(drawX0, xL) + Math.min(w, xR)) / 2, textY);
+      ctx.globalAlpha = 1;
+      continue;
+    }
+
+    // Counter value: starts at iniPh at stLine, increments each line, wraps at actType+1
+    var linesFromSt = lineInFrame - stLine;
+    var counterVal;
+    if (actType === 0) {
+      counterVal = 0; // actType=0 means always 0 (triggers every line)
+    } else {
+      counterVal = (iniPh + linesFromSt) % (actType + 1);
+    }
+
+    // Highlight when counter == actType (trigger point)
+    if (counterVal === actType) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.25;
+      ctx.fillRect(Math.max(drawX0, xL), y, Math.min(w, xR) - Math.max(drawX0, xL), rowH);
+      ctx.restore();
+      ctx.fillStyle = color;
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(counterVal.toString(), (Math.max(drawX0, xL) + Math.min(w, xR)) / 2, textY);
+      ctx.font = '9px monospace';
+    } else {
+      ctx.fillText(counterVal.toString(), (Math.max(drawX0, xL) + Math.min(w, xR)) / 2, textY);
+    }
+  }
 }
 
 // ─── Canvas Renderer ───
@@ -12830,11 +13081,18 @@ function wfgRender() {
   var effHtotal = cache.effHtotal;
   var allGpioTransitions = cache.transitions;
 
+  // ── TCON Internal Rows (RX DE, TX DE, R_PH_CNT, F_PH_CNT) ──
+  var internalExtraH = wfgInternalExtraH();
+  var wfgWaveY0 = WFG_AXIS_H + internalExtraH; // waveform area starts after axis + internal rows
+  if (wfgTconInternalMode && !wfgKvdatMode) {
+    wfgDrawInternalRows(ctx, drawX0, drawW, w, wfgViewStart, wfgViewEnd, viewRange, lineToX, vtotalView, dclkPerLine);
+  }
+
   // Draw waveforms for each visible channel + cache transitions for measurement
   _wfgLastVisibleChs = visibleChs;
   _wfgLastChTransitions = new Array(visibleChs.length);
   var rowStep = WFG_ROW_H + WFG_ROW_GAP;
-  var dragYOffsets = wfgCalcDragYOffsets(visibleChs.length, WFG_AXIS_H, rowStep, _wfgLabelDrag);
+  var dragYOffsets = wfgCalcDragYOffsets(visibleChs.length, wfgWaveY0, rowStep, _wfgLabelDrag);
   var isDragging = _wfgLabelDrag && _wfgLabelDrag.fromIdx >= 0;
   var dragFromIdx = isDragging ? _wfgLabelDrag.fromIdx : -1;
 
@@ -12981,6 +13239,13 @@ function wfgRenderLabels() {
     html += '<div style="height:' + WFG_TIME_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#6e7681;">Time</div>';
     html += '<div style="height:' + WFG_LINE_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#c9d1d9;background:rgba(30,58,95,0.5);">Line</div>';
     html += '<div style="height:' + WFG_DCLK_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#58a6ff;">DCLK</div>';
+    if (wfgTconInternalMode) {
+      var irH = WFG_INTERNAL_ROW_H + WFG_INTERNAL_ROW_GAP;
+      html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.rxde + ';white-space:nowrap;">RX DE</div>';
+      html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.txde + ';white-space:nowrap;">TX DE</div>';
+      html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.rph + ';white-space:nowrap;">R_PH_CNT</div>';
+      html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.fph + ';white-space:nowrap;">F_PH_CNT</div>';
+    }
   } else {
     html += '<div style="height:' + WFG_AXIS_H + 'px"></div>';
   }
@@ -13009,7 +13274,7 @@ function wfgLabelDragSetup(container, visMap, rowH) {
 
   function getAxisH() {
     if (typeof wfgKvdatMode !== 'undefined' && wfgKvdatMode) return WFG_AXIS_H;
-    return WFG_TIME_H + WFG_LINE_H + WFG_DCLK_H;
+    return WFG_TIME_H + WFG_LINE_H + WFG_DCLK_H + wfgInternalExtraH();
   }
 
   function startDrag(idx, startY) {
@@ -13248,7 +13513,7 @@ window.wfgResizeCanvas = function() {
     }
   }
   sigCount = Math.max(sigCount, 1);
-  var contentH = WFG_AXIS_H + sigCount * (WFG_ROW_H + WFG_ROW_GAP) + 10;
+  var contentH = WFG_AXIS_H + wfgInternalExtraH() + sigCount * (WFG_ROW_H + WFG_ROW_GAP) + 10;
   var canvasTop = wrap.getBoundingClientRect().top;
   var viewH = window.innerHeight - canvasTop - 70;
   var h = Math.max(300, Math.max(contentH, viewH));
@@ -14232,9 +14497,10 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   var visibleChs = _wfgLastVisibleChs;
   if (!visibleChs || visibleChs.length === 0) { wfgMeasClear(); return; }
 
+  var waveAreaY0 = WFG_AXIS_H + wfgInternalExtraH();
   var chIdx = -1;
   for (var i = 0; i < visibleChs.length; i++) {
-    var y0 = WFG_AXIS_H + i * (WFG_ROW_H + WFG_ROW_GAP);
+    var y0 = waveAreaY0 + i * (WFG_ROW_H + WFG_ROW_GAP);
     if (cy >= y0 && cy < y0 + WFG_ROW_H + WFG_ROW_GAP) { chIdx = i; break; }
   }
   if (chIdx < 0) { wfgMeasClear(); return; }
@@ -14326,10 +14592,79 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   function lineToXLocal(line) {
     return drawX0 + ((line - wfgViewStart) / viewRange) * drawW;
   }
-  var y0 = WFG_AXIS_H + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
+  var y0 = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
   var yHigh = Math.round(y0 + 6) + 0.5;
   var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
 
+  if (wfgTconInternalMode && !wfgKvdatMode) {
+    // ── TCON Internal Mode: R_DLY / F_DLY single-direction arrows ──
+    var gpio = wfgGpios[ch.gpioIdx];
+    var actType = gpio.act_type;
+    var stLine = Math.max(0, gpio.st_line);
+    var isDualM = wfgFrame.gateType === 'dual';
+    var vtotalViewM = isDualM ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
+
+    // Find the rising and falling edge surrounding the mouse position
+    // Left edge of current block = rising edge position, right edge = falling edge position
+    // curLevel tells us if mouse is on a HIGH (pulse) or LOW block
+    var arrowResult = { x1: 0, x2: 0, y: 0, arrow2: null, _tconHoverChIdx: chIdx };
+
+    if (curLevel === 1) {
+      // Mouse is on a HIGH block: leftEdge is a rising edge, rightEdge is a falling edge
+      // R_DLY arrow: from R_PH_CNT trigger point to left edge (rising edge)
+      var rTrigger = wfgFindPhCntTriggerBefore(leftEdge, gpio.r_ph, actType, stLine, vtotalViewM, dclkPerLine);
+      if (rTrigger !== null) {
+        var rTrigX = lineToXLocal(rTrigger);
+        var rEdgeX = lineToXLocal(leftEdge);
+        arrowResult.x1 = Math.max(drawX0, rTrigX);
+        arrowResult.x2 = Math.min(w, rEdgeX);
+        arrowResult.y = yHigh - 3;
+        arrowResult._rDlyArrow = true;
+      }
+      // F_DLY arrow: from F_PH_CNT trigger point to right edge (falling edge)
+      var fTrigger = wfgFindPhCntTriggerBefore(rightEdge, gpio.f_ph, actType, stLine, vtotalViewM, dclkPerLine);
+      if (fTrigger !== null) {
+        var fTrigX = lineToXLocal(fTrigger);
+        var fEdgeX = lineToXLocal(rightEdge);
+        arrowResult.arrow2 = {
+          x1: Math.max(drawX0, fTrigX),
+          x2: Math.min(w, fEdgeX),
+          y: yLow + 3,
+          _fDlyArrow: true
+        };
+      }
+    } else {
+      // Mouse is on a LOW block: leftEdge is a falling edge, rightEdge is a rising edge
+      // F_DLY arrow: from F_PH_CNT trigger to left edge (falling edge)
+      var fTrigger2 = wfgFindPhCntTriggerBefore(leftEdge, gpio.f_ph, actType, stLine, vtotalViewM, dclkPerLine);
+      if (fTrigger2 !== null) {
+        var fTrigX2 = lineToXLocal(fTrigger2);
+        var fEdgeX2 = lineToXLocal(leftEdge);
+        arrowResult.x1 = Math.max(drawX0, fTrigX2);
+        arrowResult.x2 = Math.min(w, fEdgeX2);
+        arrowResult.y = yLow + 3;
+        arrowResult._fDlyArrow = true;
+      }
+      // R_DLY arrow: from R_PH_CNT trigger to right edge (rising edge)
+      var rTrigger2 = wfgFindPhCntTriggerBefore(rightEdge, gpio.r_ph, actType, stLine, vtotalViewM, dclkPerLine);
+      if (rTrigger2 !== null) {
+        var rTrigX2 = lineToXLocal(rTrigger2);
+        var rEdgeX2 = lineToXLocal(rightEdge);
+        arrowResult.arrow2 = {
+          x1: Math.max(drawX0, rTrigX2),
+          x2: Math.min(w, rEdgeX2),
+          y: yHigh - 3,
+          _rDlyArrow: true
+        };
+      }
+    }
+
+    _wfgMeasArrow = arrowResult;
+    wfgRender();
+    return;
+  }
+
+  // ── Normal mode: bi-directional pulse width arrows ──
   // Arrow 1: current block
   var a1x1 = Math.max(drawX0, lineToXLocal(leftEdge));
   var a1x2 = Math.min(w, lineToXLocal(rightEdge));
@@ -14462,18 +14797,65 @@ function wfgMeasSetVal(id, text) {
   el.className = text === '--' ? 'wfg-meas-val inactive' : 'wfg-meas-val';
 }
 
+// ─── TCON Internal: find the phase counter trigger line before a given edge ───
+// An edge at position `edgePos` (fractional line) was triggered by a counter hit at some line.
+// The counter hit line is the integer line where PH_CNT == ACT_TYPE.
+// DLY shifts the actual edge: edgeLine = triggerLine + dly/dclkPerLine
+// So we need to find the trigger line from the transition that created this edge.
+function wfgFindPhCntTriggerBefore(edgePos, iniPh, actType, stLine, vtotalView, dclkPerLine) {
+  // edgePos is a fractional line position (line + dly/dclkPerLine)
+  // The trigger line is the integer line where the counter hit actType
+  // For each frame, counter starts at iniPh at stLine, increments each line.
+  // Counter == actType when: (iniPh + (line - stLine)) % (actType + 1) == actType
+  // i.e., (line - stLine) ≡ (actType - iniPh) mod (actType + 1)
+  // We need to find the largest such line where line + dly/dclkPerLine ≈ edgePos
+
+  var edgeLine = Math.floor(edgePos);
+  var frameIdx = Math.floor(edgeLine / vtotalView);
+  var lineInFrame = edgeLine % vtotalView;
+
+  if (actType <= 0) {
+    // actType=0: triggers every line at stLine or later
+    if (lineInFrame >= stLine) return edgeLine; // trigger is on same line (DLY shifts within line)
+    return null;
+  }
+
+  var period = actType + 1;
+  // Target offset from stLine where counter == actType
+  var targetOffset = ((actType - iniPh) % period + period) % period;
+
+  // Search backwards from lineInFrame
+  for (var candidate = lineInFrame; candidate >= stLine; candidate--) {
+    var offset = candidate - stLine;
+    if (offset % period === targetOffset) {
+      return frameIdx * vtotalView + candidate;
+    }
+  }
+  // Check previous frame
+  if (frameIdx > 0) {
+    var prevFrame = frameIdx - 1;
+    for (var candidate = vtotalView - 1; candidate >= stLine; candidate--) {
+      var offset = candidate - stLine;
+      if (offset % period === targetOffset) {
+        return prevFrame * vtotalView + candidate;
+      }
+    }
+  }
+  return null;
+}
+
 function wfgMeasDrawArrow(ctx) {
   if (!_wfgMeasArrow) return;
   var a = _wfgMeasArrow;
 
   ctx.save();
-  ctx.strokeStyle = '#f8fafc';
-  ctx.fillStyle = '#f8fafc';
   ctx.lineWidth = 1;
   ctx.globalAlpha = 0.85;
 
-  // Draw a single bi-directional arrow
-  function drawOneArrow(x1, x2, y) {
+  var isTconMode = wfgTconInternalMode && !wfgKvdatMode;
+
+  // Draw a single bi-directional arrow (normal mode)
+  function drawBiArrow(x1, x2, y) {
     y = Math.round(y) + 0.5;
     if (x2 - x1 < 4) return;
     ctx.beginPath();
@@ -14489,12 +14871,49 @@ function wfgMeasDrawArrow(ctx) {
     ctx.closePath(); ctx.fill();
   }
 
-  // Arrow 1: current block
-  drawOneArrow(a.x1, a.x2, a.y);
+  // Draw a single uni-directional arrow (TCON internal mode: left→right)
+  function drawUniArrow(x1, x2, y, color) {
+    y = Math.round(y) + 0.5;
+    if (x2 - x1 < 4) return;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+    var ah = 5;
+    // Right-pointing arrowhead
+    ctx.beginPath();
+    ctx.moveTo(x2, y); ctx.lineTo(x2 - ah, y - ah); ctx.lineTo(x2 - ah, y + ah);
+    ctx.closePath(); ctx.fill();
+    // Small dot at start
+    ctx.beginPath();
+    ctx.arc(x1, y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  // Arrow 2: next block
-  if (a.arrow2) {
-    drawOneArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y);
+  if (isTconMode) {
+    // TCON internal arrows
+    if (a._rDlyArrow) {
+      drawUniArrow(a.x1, a.x2, a.y, WFG_INTERNAL_COLORS.rph);
+    } else if (a._fDlyArrow) {
+      drawUniArrow(a.x1, a.x2, a.y, WFG_INTERNAL_COLORS.fph);
+    }
+    if (a.arrow2) {
+      if (a.arrow2._rDlyArrow) {
+        drawUniArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y, WFG_INTERNAL_COLORS.rph);
+      } else if (a.arrow2._fDlyArrow) {
+        drawUniArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y, WFG_INTERNAL_COLORS.fph);
+      }
+    }
+  } else {
+    // Normal mode: white bi-directional arrows
+    ctx.strokeStyle = '#f8fafc';
+    ctx.fillStyle = '#f8fafc';
+    drawBiArrow(a.x1, a.x2, a.y);
+    if (a.arrow2) {
+      drawBiArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y);
+    }
   }
 
   ctx.restore();
@@ -14916,6 +15335,7 @@ function wfgInit() {
   wfgRenderGpioList();
   wfgRenderChannelList();
   wfgUpdateDclkLabel();
+  wfgUpdateTconInternalVisibility();
   wfgRender();
 }
 
@@ -15028,6 +15448,7 @@ window.wfgImportKvdat = async function(input) {
     await wfgYield();
 
     wfgKvdatMode = true;
+    wfgUpdateTconInternalVisibility();
     wfgKvdatChannels = channels;
     wfgKvdatSmpFreqX1000 = smpFreqX1000;
 
@@ -15097,6 +15518,7 @@ function wfgShowKvdatInfo(fileName, smpFrequ, channels) {
 
 window.wfgClearKvdat = function() {
   wfgKvdatMode = false;
+  wfgUpdateTconInternalVisibility();
   wfgInvalidateCache();
   wfgKvdatChannels.forEach(function(ch) { ch.edges = null; });
   wfgKvdatChannels = [];
