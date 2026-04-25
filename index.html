@@ -1662,7 +1662,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.31.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.32.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1711,7 +1711,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.12.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.13.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12528,8 +12528,8 @@ function wfgRender() {
   var vtotalView = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
   var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
   var dclkFreqHz = wfgFrame.dclk * 1e6;
-  // Time per line: for dual gate, one frame time / (vtotal*2)
-  var timePerLine = dclkFreqHz > 0 ? (isDual ? wfgFrame.htotal / 2 : wfgFrame.htotal) / dclkFreqHz : 0;
+  // Time per line = dclkPerLine / dclkFreqHz
+  var timePerLine = dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
 
   // ── Layer 1: Time labels (top row) ──
   var timeStart = wfgViewStart * timePerLine;
@@ -13897,46 +13897,36 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
 
   var pulseWidthLines = rightEdge - leftEdge;
 
-  // Find period: from leftEdge's direction to next same direction
-  // The edge at idx transitions TO curLevel. Find the previous edge that also transitions TO curLevel.
-  // Period = distance between two consecutive edges of same direction.
-  // Find the next edge that transitions TO curLevel (i.e., tPos[j].level === curLevel and tPos[j-1].level !== curLevel)
-  var periodLines = null;
-  var prevSameEdge = null;
-  var nextSameEdge = null;
-
-  // Find previous rising/falling edge same as current
-  for (var j = idx - 1; j >= 0; j--) {
-    if (tPos[j].level === curLevel && (j === 0 || tPos[j-1].level !== curLevel)) {
-      prevSameEdge = tPos[j].pos;
-      break;
-    }
-  }
-  // Find next same-direction edge after idx
+  // Find right edge of the NEXT block (adjacent right block)
+  var rightEdge2 = null;
+  var nextLevel = curLevel === 1 ? 0 : 1;
   for (var j = idx + 1; j < tPos.length; j++) {
-    if (tPos[j].level === curLevel && (j === 0 || tPos[j-1].level !== curLevel)) {
-      nextSameEdge = tPos[j].pos;
+    if (tPos[j].level !== curLevel) {
+      // This is the start of the next block (= rightEdge). Find its end.
+      for (var k = j + 1; k < tPos.length; k++) {
+        if (tPos[k].level !== nextLevel) { rightEdge2 = tPos[k].pos; break; }
+      }
       break;
     }
   }
 
-  if (prevSameEdge !== null) {
-    periodLines = leftEdge - prevSameEdge;
-  } else if (nextSameEdge !== null) {
-    periodLines = nextSameEdge - leftEdge;
-  }
+  // Period = current block + next block
+  var periodLines = rightEdge2 !== null ? rightEdge2 - leftEdge : null;
+  var nextBlockLines = rightEdge2 !== null ? rightEdge2 - rightEdge : null;
 
-  // Convert lines to seconds
+  // Convert lines to seconds: dclkPerLine / dclkFreqHz
   var dclkFreqHz = wfgFrame.dclk * 1e6;
-  var timePerLine = dclkFreqHz > 0 ? (isDual ? wfgFrame.htotal / 2 : wfgFrame.htotal) / dclkFreqHz : 0;
+  var timePerLine = dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
 
   var pulseWidthSec = pulseWidthLines * timePerLine;
   var periodSec = periodLines ? periodLines * timePerLine : null;
 
-  // Also need complementary pulse to compute duty cycle
-  var complementWidth = periodSec ? periodSec - pulseWidthSec : null;
-  var highTime = curLevel === 1 ? pulseWidthSec : complementWidth;
-  var dutyCycle = periodSec ? (highTime / periodSec * 100) : null;
+  // Duty cycle: HIGH block width / period
+  var highTimeSec = null;
+  if (periodSec) {
+    highTimeSec = curLevel === 1 ? pulseWidthSec : (nextBlockLines * timePerLine);
+  }
+  var dutyCycle = (periodSec && highTimeSec !== null) ? (highTimeSec / periodSec * 100) : null;
   var frequency = periodSec ? (1 / periodSec) : null;
 
   // Update UI
@@ -13947,16 +13937,29 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   var chEl = document.getElementById('wfg-meas-ch');
   if (chEl) chEl.textContent = ch.name;
 
-  // Compute arrow pixel positions
+  // Compute arrow pixel positions (two arrows)
   function lineToXLocal(line) {
     return drawX0 + ((line - wfgViewStart) / viewRange) * drawW;
   }
-  var arrowX1 = Math.max(drawX0, lineToXLocal(leftEdge));
-  var arrowX2 = Math.min(w, lineToXLocal(rightEdge));
   var y0 = WFG_AXIS_H + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
-  var arrowY = y0 + WFG_ROW_H / 2;
+  var yHigh = Math.round(y0 + 6) + 0.5;
+  var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
 
-  _wfgMeasArrow = { x1: arrowX1, x2: arrowX2, y: arrowY };
+  // Arrow 1: current block
+  var a1x1 = Math.max(drawX0, lineToXLocal(leftEdge));
+  var a1x2 = Math.min(w, lineToXLocal(rightEdge));
+  var a1y = curLevel === 1 ? yHigh : yLow;
+
+  // Arrow 2: next block (if exists)
+  var a2 = null;
+  if (rightEdge2 !== null) {
+    var a2x1 = Math.max(drawX0, lineToXLocal(rightEdge));
+    var a2x2 = Math.min(w, lineToXLocal(rightEdge2));
+    var a2y = nextLevel === 1 ? yHigh : yLow;
+    a2 = { x1: a2x1, x2: a2x2, y: a2y };
+  }
+
+  _wfgMeasArrow = { x1: a1x1, x2: a1x2, y: a1y, arrow2: a2 };
   wfgRender();
 }
 
@@ -14019,21 +14022,20 @@ function wfgMeasUpdateKvdat(cx, cy, drawX0, drawW, w, canvas) {
   var pulseWidthSamples = rightEdgeTime - leftEdgeTime;
   var pulseWidthSec = pulseWidthSamples / wfgKvdatSmpFreqX1000;
 
-  // Period: find next same-direction edge
-  // Same direction = same parity index. Current edge is edgeIdx.
-  // Next same = edgeIdx + 2 (if exists), prev same = edgeIdx - 2
+  // Period = current block + next block (edgeIdx to edgeIdx+2)
+  var rightEdge2Time = (edgeIdx + 2 < ec) ? edges[edgeIdx + 2] : null;
   var periodSec = null;
-  if (edgeIdx + 2 < ec) {
-    periodSec = (edges[edgeIdx + 2] - edges[edgeIdx]) / wfgKvdatSmpFreqX1000;
-  } else if (edgeIdx >= 2) {
-    periodSec = (edges[edgeIdx] - edges[edgeIdx - 2]) / wfgKvdatSmpFreqX1000;
+  var nextBlockSec = null;
+  if (rightEdge2Time !== null) {
+    periodSec = (rightEdge2Time - leftEdgeTime) / wfgKvdatSmpFreqX1000;
+    nextBlockSec = (rightEdge2Time - rightEdgeTime) / wfgKvdatSmpFreqX1000;
   }
 
-  var highTime, dutyCycle = null, frequency = null;
+  var nextLevel = curLevel === 1 ? 0 : 1;
+  var highTimeSec = null, dutyCycle = null, frequency = null;
   if (periodSec) {
-    var complementSec = periodSec - pulseWidthSec;
-    highTime = curLevel === 1 ? pulseWidthSec : complementSec;
-    dutyCycle = highTime / periodSec * 100;
+    highTimeSec = curLevel === 1 ? pulseWidthSec : nextBlockSec;
+    dutyCycle = highTimeSec / periodSec * 100;
     frequency = 1 / periodSec;
   }
 
@@ -14044,14 +14046,27 @@ function wfgMeasUpdateKvdat(cx, cy, drawX0, drawW, w, canvas) {
   var chEl = document.getElementById('wfg-meas-ch');
   if (chEl) chEl.textContent = ch.name;
 
-  // Arrow
+  // Two arrows
   function timeToXLocal(t) { return drawX0 + ((t - tStart) / tRange) * drawW; }
-  var arrowX1 = Math.max(drawX0, timeToXLocal(leftEdgeTime));
-  var arrowX2 = Math.min(w, timeToXLocal(rightEdgeTime));
   var y0 = WFG_AXIS_H + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
-  var arrowY = y0 + WFG_ROW_H / 2;
+  var yHigh = Math.round(y0 + 6) + 0.5;
+  var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
 
-  _wfgMeasArrow = { x1: arrowX1, x2: arrowX2, y: arrowY };
+  // Arrow 1: current block
+  var a1x1 = Math.max(drawX0, timeToXLocal(leftEdgeTime));
+  var a1x2 = Math.min(w, timeToXLocal(rightEdgeTime));
+  var a1y = curLevel === 1 ? yHigh : yLow;
+
+  // Arrow 2: next block
+  var a2 = null;
+  if (rightEdge2Time !== null) {
+    var a2x1 = Math.max(drawX0, timeToXLocal(rightEdgeTime));
+    var a2x2 = Math.min(w, timeToXLocal(rightEdge2Time));
+    var a2y = nextLevel === 1 ? yHigh : yLow;
+    a2 = { x1: a2x1, x2: a2x2, y: a2y };
+  }
+
+  _wfgMeasArrow = { x1: a1x1, x2: a1x2, y: a1y, arrow2: a2 };
   wfgRender();
 }
 
@@ -14065,8 +14080,6 @@ function wfgMeasSetVal(id, text) {
 function wfgMeasDrawArrow(ctx) {
   if (!_wfgMeasArrow) return;
   var a = _wfgMeasArrow;
-  var x1 = a.x1, x2 = a.x2, y = Math.round(a.y) + 0.5;
-  if (x2 - x1 < 4) return; // too narrow to draw
 
   ctx.save();
   ctx.strokeStyle = '#f8fafc';
@@ -14074,28 +14087,30 @@ function wfgMeasDrawArrow(ctx) {
   ctx.lineWidth = 1;
   ctx.globalAlpha = 0.85;
 
-  // Horizontal line
-  ctx.beginPath();
-  ctx.moveTo(x1, y);
-  ctx.lineTo(x2, y);
-  ctx.stroke();
+  // Draw a single bi-directional arrow
+  function drawOneArrow(x1, x2, y) {
+    y = Math.round(y) + 0.5;
+    if (x2 - x1 < 4) return;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+    var ah = 5;
+    ctx.beginPath();
+    ctx.moveTo(x1, y); ctx.lineTo(x1 + ah, y - ah); ctx.lineTo(x1 + ah, y + ah);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x2, y); ctx.lineTo(x2 - ah, y - ah); ctx.lineTo(x2 - ah, y + ah);
+    ctx.closePath(); ctx.fill();
+  }
 
-  // Left arrowhead
-  var ah = 5; // arrowhead size
-  ctx.beginPath();
-  ctx.moveTo(x1, y);
-  ctx.lineTo(x1 + ah, y - ah);
-  ctx.lineTo(x1 + ah, y + ah);
-  ctx.closePath();
-  ctx.fill();
+  // Arrow 1: current block
+  drawOneArrow(a.x1, a.x2, a.y);
 
-  // Right arrowhead
-  ctx.beginPath();
-  ctx.moveTo(x2, y);
-  ctx.lineTo(x2 - ah, y - ah);
-  ctx.lineTo(x2 - ah, y + ah);
-  ctx.closePath();
-  ctx.fill();
+  // Arrow 2: next block
+  if (a.arrow2) {
+    drawOneArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y);
+  }
 
   ctx.restore();
 }
