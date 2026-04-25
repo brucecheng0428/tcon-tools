@@ -1743,7 +1743,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.21.4</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.21.5</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -14020,9 +14020,22 @@ function wfgInitCanvas() {
   var wfgTouchRafPending = false;
   var wfgTouchLastX = 0, wfgTouchLastTime = 0;
   var wfgIsPinching = false;
+  var wfgTouchTrackingCursor = false; // true when touch is dragging a moving cursor
   canvas.addEventListener('touchstart', function(e) {
     wfgStopInertia();
     if (e.touches.length === 1) {
+      // Check if a cursor is in moving state → track it instead of panning
+      var hasMoving = false;
+      for (var ci = 0; ci < wfgCursors.length; ci++) {
+        if (wfgCursors[ci].moving) { hasMoving = true; break; }
+      }
+      if (hasMoving) {
+        wfgTouchTrackingCursor = true;
+        // Update cursor position to touch point
+        wfgCursorTrackTouch(e.touches[0].clientX);
+        return; // Don't set up drag-pan
+      }
+      wfgTouchTrackingCursor = false;
       touchStartX = e.touches[0].clientX;
       touchStartView = wfgViewStart;
       touchStartViewKvdat = wfgKvdatTimeStart;
@@ -14031,6 +14044,7 @@ function wfgInitCanvas() {
       wfgVelocity = 0;
       wfgIsPinching = false;
     } else if (e.touches.length === 2) {
+      wfgTouchTrackingCursor = false; // pinch overrides cursor tracking
       wfgIsPinching = true;
       pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       pinchStartRange = wfgKvdatMode ? (wfgKvdatTimeEnd - wfgKvdatTimeStart) : (wfgViewEnd - wfgViewStart);
@@ -14047,6 +14061,11 @@ function wfgInitCanvas() {
   }, { passive: true });
   canvas.addEventListener('touchmove', function(e) {
     e.preventDefault();
+    // If tracking a cursor, update cursor position from touch
+    if (wfgTouchTrackingCursor && e.touches.length === 1) {
+      wfgCursorTrackTouch(e.touches[0].clientX);
+      return;
+    }
     if (wfgTouchRafPending) return;
     wfgTouchRafPending = true;
     requestAnimationFrame(function() {
@@ -14095,6 +14114,10 @@ function wfgInitCanvas() {
     });
   }, { passive: false });
   canvas.addEventListener('touchend', function(e) {
+    if (wfgTouchTrackingCursor && e.touches.length === 0) {
+      wfgTouchTrackingCursor = false;
+      return; // Don't trigger inertia when we were tracking cursor
+    }
     if (e.touches.length === 0 && !wfgIsPinching) {
       if (performance.now() - wfgTouchLastTime < 50) wfgStartInertia();
       else wfgVelocity = 0;
@@ -14585,6 +14608,33 @@ function wfgCursorTrackMouse(e) {
   wfgRender();
 }
 
+// Touch-based cursor tracking (for mobile)
+function wfgCursorTrackTouch(clientX) {
+  var canvas = document.getElementById('wfg-canvas');
+  if (!canvas) return;
+  var rect = canvas.getBoundingClientRect();
+  var dpr = window.devicePixelRatio || 1;
+  var cx = clientX - rect.left;
+  var scaleX = (canvas.width / dpr) / rect.width;
+  cx = cx * scaleX;
+
+  var p = wfgCursorGetTimeParams();
+  if (!p) return;
+  var rawTime = wfgCursorXToTime(cx, p);
+  var snappedTime = wfgCursorSnapTime(rawTime, cx, p);
+
+  // Also update _wfgCursorMouseTime so subsequent cursor creation uses last touch pos
+  _wfgCursorMouseTime = snappedTime;
+
+  for (var ci = 0; ci < wfgCursors.length; ci++) {
+    if (wfgCursors[ci].moving) {
+      wfgCursors[ci].time = snappedTime;
+    }
+  }
+  wfgUpdateCursorPanel();
+  wfgRender();
+}
+
 function wfgDrawCursors(ctx) {
   var p = wfgCursorGetTimeParams();
   if (!p) return;
@@ -14741,24 +14791,49 @@ function wfgUpdateCursorPanel() {
 }
 
 // ─── Cursor Button Toggle (shared by keyboard & toolbar buttons) ───
+// State machine: inactive → active+moving → active+placed → inactive
+// On mobile, button tap cycles through these 3 states.
+// On desktop, canvas click can also place (moving → placed).
 function wfgToggleCursor(idx) {
   var cur = wfgCursors[idx];
   if (!cur.active) {
+    // inactive → active + moving (create cursor)
     cur.active = true;
     cur.moving = true;
-    cur.time = _wfgCursorMouseTime || 0;
+    // On mobile _wfgCursorMouseTime is null; use center of visible area
+    if (_wfgCursorMouseTime != null) {
+      cur.time = _wfgCursorMouseTime;
+    } else {
+      cur.time = wfgCursorGetCenterTime();
+    }
     wfgCursorStartAnim();
-  } else if (!cur.moving) {
-    cur.moving = true;
-    wfgCursorStartAnim();
+  } else if (cur.moving) {
+    // active + moving → active + placed (fix cursor position)
+    cur.moving = false;
+    wfgCursorStopAnim();
   } else {
+    // active + placed → inactive (remove cursor)
     cur.active = false;
     cur.moving = false;
     cur.time = null;
-    wfgCursorStopAnim();
   }
   wfgUpdateCursorPanel();
   wfgRender();
+}
+
+// Helper: get the time value at center of current visible area
+function wfgCursorGetCenterTime() {
+  var p = wfgCursorGetTimeParams();
+  if (!p) return 0;
+  if (p.mode === 'kvdat') {
+    // Center of kvdat view in sample domain → convert to time
+    var centerSample = p.tStart + p.tRange / 2;
+    return centerSample / wfgKvdatSmpFreqX1000;
+  } else {
+    // Center of phase-counter view
+    var centerLine = (wfgViewStart + wfgViewEnd) / 2;
+    return centerLine * p.timePerLine;
+  }
 }
 
 function wfgToggleCursorBtn(idx) { wfgToggleCursor(idx); }
