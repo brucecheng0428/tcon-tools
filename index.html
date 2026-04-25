@@ -1578,7 +1578,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.20.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.21.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1627,7 +1627,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.3.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.4.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12037,7 +12037,13 @@ let wfgDragStartView = 0;
 const WFG_ROW_H = 40;
 const WFG_ROW_GAP = 8;
 const WFG_LABEL_W = 110;
-const WFG_AXIS_H = 24;
+const WFG_AXIS_H = 56;
+const WFG_TIME_Y = 0;
+const WFG_TIME_H = 16;
+const WFG_LINE_Y = 16;
+const WFG_LINE_H = 22;
+const WFG_DCLK_Y = 38;
+const WFG_DCLK_H = 16;
 const WFG_MAX_SIGNALS = 16;
 
 const WFG_ACT_LABELS = [];
@@ -12114,34 +12120,151 @@ function wfgRender() {
     return drawX0 + ((line - wfgViewStart) / viewRange) * drawW;
   }
 
-  // Draw grid - vertical lines for line numbers
-  ctx.strokeStyle = '#21262d';
-  ctx.lineWidth = 1;
-  let gridStep = 1;
-  const minGridPx = 40;
-  while ((drawW / viewRange) * gridStep < minGridPx && gridStep < 10000) {
-    if (gridStep < 5) gridStep = 5;
-    else if (gridStep < 10) gridStep = 10;
-    else if (gridStep < 50) gridStep = 50;
-    else if (gridStep < 100) gridStep = 100;
-    else if (gridStep < 500) gridStep = 500;
-    else gridStep *= 2;
+  // ─── Three-layer axis labels (Phase Counter mode) ───
+  const isDual = wfgFrame.gateType === 'dual';
+  const dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+  const dclkFreqHz = wfgFrame.dclk * 1e6;
+  const timePerLine = dclkFreqHz > 0 ? wfgFrame.htotal / dclkFreqHz : 0;
+
+  // ── Layer 1: Time labels (top row) ──
+  const timeStart = wfgViewStart * timePerLine;
+  const timeEnd = wfgViewEnd * timePerLine;
+  const timeRange = timeEnd - timeStart;
+  if (timePerLine > 0 && timeRange > 0) {
+    let tGridStep = 1e-12;
+    const tMinGridPx = 70;
+    while (true) {
+      const tGridPx = (tGridStep / timeRange) * drawW;
+      if (tGridPx >= tMinGridPx) break;
+      const decade = Math.pow(10, Math.floor(Math.log10(tGridStep)));
+      const mantissa = tGridStep / decade;
+      if (mantissa < 1.5) tGridStep = 2 * decade;
+      else if (mantissa < 3.5) tGridStep = 5 * decade;
+      else tGridStep = 10 * decade;
+      if (tGridStep > 1e6) break;
+    }
+    ctx.fillStyle = '#6e7681';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    const tFirst = Math.ceil(timeStart / tGridStep) * tGridStep;
+    for (let t = tFirst; t <= timeEnd; t += tGridStep) {
+      const linePos = t / timePerLine;
+      const x = lineToX(linePos);
+      if (x < drawX0 || x > w) continue;
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, WFG_TIME_Y + WFG_TIME_H - 3);
+      ctx.lineTo(x, WFG_TIME_Y + WFG_TIME_H);
+      ctx.stroke();
+      ctx.fillStyle = '#6e7681';
+      ctx.fillText(wfgFormatTimeSec(t), x, WFG_TIME_Y + WFG_TIME_H - 4);
+    }
   }
 
-  // Axis labels (top)
-  ctx.fillStyle = '#484f58';
-  ctx.font = '10px monospace';
-  ctx.textAlign = 'center';
-  const firstGrid = Math.ceil(wfgViewStart / gridStep) * gridStep;
-  for (let g = firstGrid; g <= wfgViewEnd; g += gridStep) {
-    const x = lineToX(g);
-    if (x < drawX0 || x > w) continue;
+  // ── Layer 2: Line labels (middle row, banner style) ──
+  const lineColors = ['rgba(30,58,95,0.85)', 'rgba(40,50,75,0.85)'];
+  const firstVisLine = Math.max(0, Math.floor(wfgViewStart));
+  const lastVisLine = Math.min(wfgFrame.vtotal - 1, Math.floor(wfgViewEnd));
+  for (let ln = firstVisLine; ln <= lastVisLine; ln++) {
+    const xLeft = Math.max(drawX0, lineToX(ln));
+    const xRight = Math.min(w, lineToX(ln + 1));
+    if (xRight <= drawX0 || xLeft >= w) continue;
+    const bw = xRight - xLeft;
+    ctx.fillStyle = lineColors[ln % 2];
+    ctx.fillRect(xLeft, WFG_LINE_Y, bw, WFG_LINE_H);
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x, WFG_AXIS_H);
-    ctx.lineTo(x, h);
+    ctx.moveTo(xLeft, WFG_LINE_Y);
+    ctx.lineTo(xLeft, WFG_LINE_Y + WFG_LINE_H);
     ctx.stroke();
-    ctx.fillText(g.toString(), x, WFG_AXIS_H - 6);
+    // Grid line down to waveform area
+    ctx.strokeStyle = '#21262d';
+    ctx.beginPath();
+    ctx.moveTo(xLeft, WFG_AXIS_H);
+    ctx.lineTo(xLeft, h);
+    ctx.stroke();
+    if (bw > 30) {
+      ctx.fillStyle = '#c9d1d9';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Line ' + ln, (xLeft + xRight) / 2, WFG_LINE_Y + 15);
+    } else if (bw > 14) {
+      ctx.fillStyle = '#c9d1d9';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(ln.toString(), (xLeft + xRight) / 2, WFG_LINE_Y + 15);
+    }
   }
+  // Right border of last visible line
+  {
+    const xLast = Math.min(w, lineToX(lastVisLine + 1));
+    if (xLast > drawX0 && xLast < w) {
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xLast, WFG_LINE_Y);
+      ctx.lineTo(xLast, WFG_LINE_Y + WFG_LINE_H);
+      ctx.stroke();
+      ctx.strokeStyle = '#21262d';
+      ctx.beginPath();
+      ctx.moveTo(xLast, WFG_AXIS_H);
+      ctx.lineTo(xLast, h);
+      ctx.stroke();
+    }
+  }
+
+  // ── Layer 3: DCLK labels (bottom row) ──
+  if (dclkPerLine > 0) {
+    const pxPerDclk = drawW / (viewRange * dclkPerLine);
+    let dclkStep = 1;
+    const dMinPx = 40;
+    while (pxPerDclk * dclkStep < dMinPx && dclkStep < dclkPerLine * 2) {
+      if (dclkStep < 5) dclkStep = 5;
+      else if (dclkStep < 10) dclkStep = 10;
+      else if (dclkStep < 20) dclkStep = 20;
+      else if (dclkStep < 50) dclkStep = 50;
+      else if (dclkStep < 100) dclkStep = 100;
+      else if (dclkStep < 200) dclkStep = 200;
+      else if (dclkStep < 500) dclkStep = 500;
+      else dclkStep *= 2;
+    }
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    for (let ln = firstVisLine; ln <= lastVisLine; ln++) {
+      const xLeft = lineToX(ln);
+      const xRight = lineToX(ln + 1);
+      for (let d = 0; d < dclkPerLine; d += dclkStep) {
+        const frac = d / dclkPerLine;
+        const x = xLeft + (xRight - xLeft) * frac;
+        if (x < drawX0 || x > w) continue;
+        ctx.strokeStyle = '#21262d';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, WFG_DCLK_Y + WFG_DCLK_H - 3);
+        ctx.lineTo(x, WFG_DCLK_Y + WFG_DCLK_H);
+        ctx.stroke();
+        if (d > 0) {
+          ctx.strokeStyle = 'rgba(33,38,45,0.5)';
+          ctx.beginPath();
+          ctx.moveTo(x, WFG_AXIS_H);
+          ctx.lineTo(x, h);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#58a6ff';
+        ctx.fillText(d.toString(), x, WFG_DCLK_Y + WFG_DCLK_H - 4);
+      }
+    }
+  }
+
+  // Separator line below header
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(drawX0, WFG_AXIS_H - 1);
+  ctx.lineTo(w, WFG_AXIS_H - 1);
+  ctx.stroke();
 
   // Draw horizontal separators + waveforms
   for (let i = 0; i < wfgSignals.length; i++) {
@@ -12242,13 +12365,19 @@ function wfgRender() {
 function wfgRenderLabels() {
   const el = document.getElementById('wfg-labels');
   if (!el) return;
-  let html = '<div style="height:' + WFG_AXIS_H + 'px"></div>';
+  let html = '';
+  if (!wfgKvdatMode) {
+    html += '<div style="height:' + WFG_TIME_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#6e7681;">Time</div>';
+    html += '<div style="height:' + WFG_LINE_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#c9d1d9;background:rgba(30,58,95,0.5);">Line</div>';
+    html += '<div style="height:' + WFG_DCLK_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#58a6ff;">DCLK</div>';
+  } else {
+    html += '<div style="height:' + WFG_AXIS_H + 'px"></div>';
+  }
   for (let i = 0; i < wfgSignals.length; i++) {
     const sig = wfgSignals[i];
     html += '<div class="wfg-label-item"><span class="wfg-label-dot" style="background:' + sig.color + '"></span>' + sig.name + '</div>';
   }
   el.innerHTML = html;
-  // Sync label item height
   el.querySelectorAll('.wfg-label-item').forEach(item => {
     item.style.height = (WFG_ROW_H + WFG_ROW_GAP) + 'px';
   });
@@ -12421,9 +12550,9 @@ function wfgZoomIn() {
   }
   const range = wfgViewEnd - wfgViewStart;
   const center = (wfgViewStart + wfgViewEnd) / 2;
-  const newRange = Math.max(10, range * 0.6);
-  wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
-  wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(center + newRange / 2));
+  const newRange = Math.max(0.001, range * 0.6);
+  wfgViewStart = Math.max(0, center - newRange / 2);
+  wfgViewEnd = Math.min(wfgFrame.vtotal, wfgViewStart + newRange);
   wfgRender(); wfgUpdateMinimapViewport();
 }
 function wfgZoomOut() {
@@ -12439,8 +12568,8 @@ function wfgZoomOut() {
   const range = wfgViewEnd - wfgViewStart;
   const center = (wfgViewStart + wfgViewEnd) / 2;
   const newRange = Math.min(wfgFrame.vtotal, range * 1.6);
-  wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
-  wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(center + newRange / 2));
+  wfgViewStart = Math.max(0, center - newRange / 2);
+  wfgViewEnd = Math.min(wfgFrame.vtotal, wfgViewStart + newRange);
   wfgRender(); wfgUpdateMinimapViewport();
 }
 function wfgFitAll() {
@@ -12515,7 +12644,7 @@ function wfgInitCanvas() {
       } else {
         const range = wfgViewEnd - wfgViewStart;
         const dLines = -(wfgVelocity / drawW) * range;
-        let newStart = Math.round(wfgViewStart + dLines);
+        let newStart = wfgViewStart + dLines;
         newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
         wfgViewEnd = newStart + range;
         wfgViewStart = newStart;
@@ -12545,9 +12674,9 @@ function wfgInitCanvas() {
     const range = wfgViewEnd - wfgViewStart;
     const pivot = wfgViewStart + range * frac;
     const factor = e.deltaY > 0 ? 1.2 : 0.8;
-    const newRange = Math.max(10, Math.min(wfgFrame.vtotal, range * factor));
-    wfgViewStart = Math.max(0, Math.round(pivot - newRange * frac));
-    wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(wfgViewStart + newRange));
+    const newRange = Math.max(0.001, Math.min(wfgFrame.vtotal, range * factor));
+    wfgViewStart = Math.max(0, pivot - newRange * frac);
+    wfgViewEnd = Math.min(wfgFrame.vtotal, wfgViewStart + newRange);
     wfgRender(); wfgUpdateMinimapViewport();
   }, { passive: false });
 
@@ -12588,7 +12717,7 @@ function wfgInitCanvas() {
     }
     const range = wfgViewEnd - wfgViewStart;
     const dLines = -(dx / drawW) * range;
-    let newStart = Math.round(wfgDragStartView + dLines);
+    let newStart = wfgDragStartView + dLines;
     newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
     wfgViewEnd = newStart + range;
     wfgViewStart = newStart;
@@ -12665,7 +12794,7 @@ function wfgInitCanvas() {
         }
         const range = wfgViewEnd - wfgViewStart;
         const dLines = -(dx / drawW) * range;
-        let newStart = Math.round(touchStartView + dLines);
+        let newStart = touchStartView + dLines;
         newStart = Math.max(0, Math.min(wfgFrame.vtotal - range, newStart));
         wfgViewEnd = newStart + range;
         wfgViewStart = newStart;
@@ -12680,9 +12809,9 @@ function wfgInitCanvas() {
           wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
           wfgRender(); wfgUpdateMinimapViewport(); return;
         }
-        const newRange = Math.max(10, Math.min(wfgFrame.vtotal, Math.round(pinchStartRange * scale)));
-        wfgViewStart = Math.max(0, Math.round(pinchStartPivot - newRange * pinchStartCenterFrac));
-        wfgViewEnd = Math.min(wfgFrame.vtotal, Math.round(wfgViewStart + newRange));
+        const newRange = Math.max(0.001, Math.min(wfgFrame.vtotal, pinchStartRange * scale));
+        wfgViewStart = Math.max(0, pinchStartPivot - newRange * pinchStartCenterFrac);
+        wfgViewEnd = Math.min(wfgFrame.vtotal, wfgViewStart + newRange);
         wfgRender(); wfgUpdateMinimapViewport();
       }
     });
@@ -12912,6 +13041,15 @@ window.wfgClearKvdat = function() {
   if (kvdatInfo) kvdatInfo.style.display = 'none';
   wfgResizeAndRender();
 };
+
+function wfgFormatTimeSec(seconds) {
+  if (seconds === 0) return '0';
+  const abs = Math.abs(seconds);
+  if (abs < 1e-6) return (seconds * 1e9).toFixed(1) + ' ns';
+  if (abs < 1e-3) return (seconds * 1e6).toFixed(2) + ' μs';
+  if (abs < 1) return (seconds * 1e3).toFixed(3) + ' ms';
+  return seconds.toFixed(4) + ' s';
+}
 
 function wfgFormatTime(timestampUnits, smpFreqX1000) {
   const seconds = timestampUnits / smpFreqX1000;
