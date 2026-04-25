@@ -1711,7 +1711,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.19.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.19.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12498,77 +12498,6 @@ function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
   return result;
 }
 
-// ─── Shared dense waveform renderer ───
-// edges: Float64Array of sorted edge positions (line-units or time-units)
-// edgeCount: number of edges; viewStart/viewEnd: visible range in same units
-function wfgDenseWaveform(ctx, edges, edgeCount, viewStart, viewEnd, drawX0, drawW, yHigh, yLow, color, canvasW) {
-  var lo = 0, hi = edgeCount;
-  while (lo < hi) {
-    var mid = (lo + hi) >>> 1;
-    if (edges[mid] < viewStart) lo = mid + 1; else hi = mid;
-  }
-  var edgesBeforeView = lo;
-  var curLevel = edgesBeforeView % 2 === 0 ? 0 : 1;
-  var visibleEnd = edgesBeforeView;
-  while (visibleEnd < edgeCount && edges[visibleEnd] <= viewEnd) visibleEnd++;
-  var visibleCount = visibleEnd - edgesBeforeView;
-
-  ctx.strokeStyle = color;
-  ctx.beginPath();
-  var curY = curLevel ? yHigh : yLow;
-  ctx.moveTo(drawX0, curY);
-
-  var tRange = viewEnd - viewStart;
-
-  if (visibleCount <= drawW * 3) {
-    // Sparse: draw each edge individually (sharp when zoomed in)
-    ctx.lineWidth = 1.5;
-    for (var j = edgesBeforeView; j < visibleEnd; j++) {
-      var x = drawX0 + ((edges[j] - viewStart) / tRange) * drawW;
-      var snapX = Math.round(x);
-      if (snapX > drawX0) ctx.lineTo(Math.max(drawX0, snapX), curY);
-      curLevel = curLevel ? 0 : 1;
-      var newY = curLevel ? yHigh : yLow;
-      if (snapX >= drawX0) ctx.lineTo(snapX, newY);
-      curY = newY;
-    }
-  } else {
-    // Dense: one drawing op per pixel column — guaranteed smooth
-    ctx.lineWidth = 1;
-    var j = edgesBeforeView;
-    var pixelCount = Math.ceil(drawW);
-    for (var px = 0; px < pixelCount; px++) {
-      var tRight = viewStart + ((px + 1) / drawW) * tRange;
-      var count = 0;
-      while (j < edgeCount && edges[j] < tRight) { j++; count++; }
-      if (count % 2 === 1) curLevel = curLevel ? 0 : 1;
-      var xPx = drawX0 + px + 0.5;
-      if (count > 0) {
-        ctx.lineTo(xPx, yLow);
-        ctx.lineTo(xPx, yHigh);
-        curY = curLevel ? yHigh : yLow;
-        ctx.lineTo(xPx, curY);
-      } else {
-        curY = curLevel ? yHigh : yLow;
-        ctx.lineTo(xPx, curY);
-      }
-    }
-  }
-  ctx.lineTo(canvasW, curY);
-  ctx.stroke();
-}
-
-// Convert Phase Counter transitions to Float64Array edge positions (line-units)
-function wfgTransitionsToEdges(transitions, dclkPerLine) {
-  var n = transitions.length;
-  var arr = new Float64Array(n);
-  for (var i = 0; i < n; i++) {
-    var t = transitions[i];
-    arr[i] = t.line + (dclkPerLine > 0 ? t.dly / dclkPerLine : 0);
-  }
-  return arr;
-}
-
 // ─── Canvas Renderer ───
 function wfgRender() {
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
@@ -12853,9 +12782,76 @@ function wfgRender() {
       continue;
     }
 
-    // Convert transitions to Float64Array edge positions, use shared dense renderer
-    var edgeArr = wfgTransitionsToEdges(transitions, dclkPerLine);
-    wfgDenseWaveform(ctx, edgeArr, transitions.length, wfgViewStart, wfgViewEnd, drawX0, drawW, yHigh, yLow, ch.color, w);
+    // Draw waveform (lineWidth=1 + half-pixel offset for pixel-perfect edges)
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+
+    // Binary search: find first transition with position >= wfgViewStart (O(log n))
+    var _blo = 0, _bhi = transitions.length;
+    while (_blo < _bhi) {
+      var _bmid = (_blo + _bhi) >>> 1;
+      var _bt = transitions[_bmid];
+      if (_bt.line + (dclkPerLine > 0 ? _bt.dly / dclkPerLine : 0) < wfgViewStart) _blo = _bmid + 1; else _bhi = _bmid;
+    }
+    var firstVisIdx = _blo;
+    var curLevel = firstVisIdx > 0 ? transitions[firstVisIdx - 1].level : 0;
+
+    var curY = curLevel ? yHigh : yLow;
+    ctx.moveTo(drawX0, curY);
+
+    // Binary search: find end of visible range (O(log n))
+    var _blo2 = firstVisIdx, _bhi2 = transitions.length;
+    while (_blo2 < _bhi2) {
+      var _bmid2 = (_blo2 + _bhi2) >>> 1;
+      if (transitions[_bmid2].line <= wfgViewEnd) _blo2 = _bmid2 + 1; else _bhi2 = _bmid2;
+    }
+    var visTransCount = _blo2 - firstVisIdx;
+
+    if (visTransCount <= drawW * 3) {
+      // Sparse mode: draw each transition individually
+      for (var ti = firstVisIdx; ti < transitions.length; ti++) {
+        var t = transitions[ti];
+        if (t.line > wfgViewEnd) break;
+        var fracDly = dclkPerLine > 0 ? t.dly / dclkPerLine : 0;
+        var x = lineToX(t.line + fracDly);
+        var snapX = Math.round(x) + 0.5;
+        ctx.lineTo(snapX, curY);
+        var newY = t.level ? yHigh : yLow;
+        ctx.lineTo(snapX, newY);
+        curY = newY;
+        curLevel = t.level;
+      }
+    } else {
+      // Dense mode: one drawing op per pixel column
+      var pixelCount = Math.ceil(drawW);
+      var ti = firstVisIdx;
+      for (var px = 0; px < pixelCount; px++) {
+        // X range of this pixel column in line units
+        var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
+        var count = 0;
+        var lastLevel = curLevel;
+        while (ti < transitions.length && transitions[ti].line <= lineRight) {
+          var t = transitions[ti];
+          if (t.line > wfgViewEnd) break;
+          lastLevel = t.level;
+          ti++; count++;
+        }
+        curLevel = lastLevel;
+        var xPx = drawX0 + px + 0.5;
+        if (count > 0) {
+          ctx.lineTo(xPx, yLow);
+          ctx.lineTo(xPx, yHigh);
+          curY = curLevel ? yHigh : yLow;
+          ctx.lineTo(xPx, curY);
+        } else {
+          curY = curLevel ? yHigh : yLow;
+          ctx.lineTo(xPx, curY);
+        }
+      }
+    }
+    ctx.lineTo(w, curY);
+    ctx.stroke();
     if (isThisDragged) ctx.globalAlpha = 1;
   }
 
@@ -14679,7 +14675,56 @@ function wfgRenderKvdat() {
       continue;
     }
 
-    wfgDenseWaveform(ctx, edges, ec, tStart, tEnd, drawX0, drawW, yHigh, yLow, ch.color, w);
+    var edgesBeforeView = kvdatLowerBound(edges, ec, tStart);
+    var curLevel = edgesBeforeView % 2 === 0 ? 0 : 1;
+
+    var visibleEnd = edgesBeforeView;
+    while (visibleEnd < ec && edges[visibleEnd] <= tEnd) visibleEnd++;
+    var visibleCount = visibleEnd - edgesBeforeView;
+
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    var curY = curLevel ? yHigh : yLow;
+    ctx.moveTo(drawX0, curY);
+
+    if (visibleCount <= drawW * 3) {
+      // Sparse mode with snap fix
+      for (var j = edgesBeforeView; j < visibleEnd; j++) {
+        var x = timeToX(edges[j]);
+        var snapX = Math.round(x);
+        if (snapX > drawX0) ctx.lineTo(Math.max(drawX0, snapX), curY);
+        curLevel = curLevel ? 0 : 1;
+        var newY = curLevel ? yHigh : yLow;
+        if (snapX >= drawX0) ctx.lineTo(snapX, newY);
+        curY = newY;
+      }
+    } else {
+      // Dense mode: one drawing op per pixel column — no skipping, no thick lines
+      var j = edgesBeforeView;
+      var pixelCount = Math.ceil(drawW);
+      ctx.lineWidth = 1;
+      for (var px = 0; px < pixelCount; px++) {
+        var tRight = tStart + ((px + 1) / drawW) * tRange;
+        var count = 0;
+        while (j < ec && edges[j] < tRight) { j++; count++; }
+        if (count % 2 === 1) curLevel = curLevel ? 0 : 1;
+        var xPx = drawX0 + px + 0.5;
+        if (count > 0) {
+          // Has edge(s): draw 1px vertical line yLow→yHigh
+          ctx.lineTo(xPx, yLow);
+          ctx.lineTo(xPx, yHigh);
+          curY = curLevel ? yHigh : yLow;
+          ctx.lineTo(xPx, curY);
+        } else {
+          // No edge: continue horizontal at current level
+          curY = curLevel ? yHigh : yLow;
+          ctx.lineTo(xPx, curY);
+        }
+      }
+    }
+    ctx.lineTo(w, curY);
+    ctx.stroke();
     if (isThisDragged) ctx.globalAlpha = 1;
   }
 
