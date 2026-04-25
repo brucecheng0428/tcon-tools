@@ -1662,7 +1662,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.36.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.37.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1711,7 +1711,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.17.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.18.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12215,6 +12215,28 @@ let wfgDragging = false;
 // Cache: per-channel transitions from last render (for measurement)
 var _wfgLastVisibleChs = [];
 var _wfgLastChTransitions = [];
+// ─── Phase Counter Transition Cache ───
+// Stores pre-computed base transitions for each GPIO so that zoom/pan/scroll
+// only read from cache instead of re-running wfgCalcGpio every frame.
+var _wfgTransitionCache = null; // { effVtotal, effHtotal, transitions: [] } or null
+function wfgInvalidateCache() { _wfgTransitionCache = null; }
+function wfgEnsureTransitions() {
+  var isDual = wfgFrame.gateType === 'dual';
+  var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
+  var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+  var effHtotal = Math.round(dclkPerLine);
+  if (_wfgTransitionCache &&
+      _wfgTransitionCache.effVtotal === effVtotal &&
+      _wfgTransitionCache.effHtotal === effHtotal) {
+    return _wfgTransitionCache;
+  }
+  var transitions = [];
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    transitions.push(wfgCalcGpio(wfgGpios[gi], effVtotal, effHtotal, wfgFrame.frameCount));
+  }
+  _wfgTransitionCache = { effVtotal: effVtotal, effHtotal: effHtotal, transitions: transitions };
+  return _wfgTransitionCache;
+}
 let wfgDragStartX = 0;
 let wfgDragStartView = 0;
 let wfgCurrentMode = 'tcon'; // 'tcon' or 'siggen'
@@ -12700,14 +12722,11 @@ function wfgRender() {
     ctx.setLineDash([]);
   }
 
-  // Pre-compute all GPIO base transitions (for OAX)
-  // For dual gate: vtotal doubled, htotal halved per line
-  var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
-  var effHtotal = Math.round(dclkPerLine); // one line = htotal/2 DCLKs (single) or htotal/4 (dual)
-  var allGpioTransitions = [];
-  for (var gi = 0; gi < wfgGpios.length; gi++) {
-    allGpioTransitions.push(wfgCalcGpio(wfgGpios[gi], effVtotal, effHtotal, wfgFrame.frameCount));
-  }
+  // Use cached transitions (only recomputed when parameters change)
+  var cache = wfgEnsureTransitions();
+  var effVtotal = cache.effVtotal;
+  var effHtotal = cache.effHtotal;
+  var allGpioTransitions = cache.transitions;
 
   // Draw waveforms for each visible channel + cache transitions for measurement
   _wfgLastVisibleChs = visibleChs;
@@ -13155,6 +13174,7 @@ function wfgLoadPresetFromSelect(sel) {
 function wfgLoadPreset(presetName) {
   var preset = WFG_PRESETS[presetName];
   if (!preset) return;
+  wfgInvalidateCache();
   // Apply frame
   wfgFrame = { vtotal: preset.frame.vtotal, vactive: preset.frame.vactive, htotal: preset.frame.htotal, htotalBase: preset.frame.htotal, hactive: preset.frame.hactive, dclk: preset.frame.dclk, frameRate: preset.frame.frameRate || 60, gateType: preset.frame.gateType, frameCount: preset.frame.frameCount || 10 };
   document.getElementById('wfg-vtotal').value = wfgFrame.vtotal;
@@ -13209,6 +13229,7 @@ function wfgUpdateDclkLabel() {
   if (el) el.textContent = '(≥' + wfgCalcDclk().toFixed(2) + ')';
 }
 function wfgOnFrameRateChange() {
+  wfgInvalidateCache();
   wfgFrame.frameRate = parseInt(document.getElementById('wfg-framerate').value) || 60;
   var calcDclk = wfgCalcDclk();
   // If current DCLK < calculated, snap up; update Htotal accordingly
@@ -13227,6 +13248,7 @@ function wfgOnFrameRateChange() {
   wfgUpdateMinimapViewport();
 }
 function wfgOnDclkManualChange() {
+  wfgInvalidateCache();
   var newDclk = parseFloat(document.getElementById('wfg-dclk').value) || 1;
   var calcDclk = wfgCalcDclk();
   if (newDclk < calcDclk) {
@@ -13254,6 +13276,7 @@ window.wfgOnFrameRateChange = wfgOnFrameRateChange;
 window.wfgOnDclkManualChange = wfgOnDclkManualChange;
 
 function wfgOnParamChange() {
+  wfgInvalidateCache();
   wfgFrame.vtotal = parseInt(document.getElementById('wfg-vtotal').value) || 1;
   wfgFrame.vactive = parseInt(document.getElementById('wfg-vactive').value) || 1;
   wfgFrame.htotal = parseInt(document.getElementById('wfg-htotal').value) || 1;
@@ -13261,6 +13284,7 @@ function wfgOnParamChange() {
   wfgFrame.hactive = parseInt(document.getElementById('wfg-hactive').value) || 1;
   wfgFrame.frameRate = parseInt(document.getElementById('wfg-framerate').value) || 60;
   wfgFrame.frameCount = Math.max(1, Math.min(255, parseInt(document.getElementById('wfg-frame-count').value) || 10));
+  document.getElementById('wfg-frame-count').value = wfgFrame.frameCount;
   var gateRadio = document.querySelector('input[name="wfg-gate"]:checked');
   wfgFrame.gateType = gateRadio ? gateRadio.value : 'single';
   // Recalculate DCLK from Htotal/Vtotal/FrameRate
@@ -13277,6 +13301,7 @@ function wfgOnParamChange() {
 
 function wfgOnGpioChange(gpioIdx, field, value) {
   if (gpioIdx < 0 || gpioIdx >= wfgGpios.length) return;
+  wfgInvalidateCache();
   var gpio = wfgGpios[gpioIdx];
   if (field === 'enable' || field === 'inv' || field === 'toggle' || field === 'f_st_sel') {
     gpio[field] = !!value;
@@ -14499,6 +14524,7 @@ function wfgShowKvdatInfo(fileName, smpFrequ, channels) {
 
 window.wfgClearKvdat = function() {
   wfgKvdatMode = false;
+  wfgInvalidateCache();
   wfgKvdatChannels.forEach(function(ch) { ch.edges = null; });
   wfgKvdatChannels = [];
   var gpioCard = document.getElementById('wfg-gpio-card');
@@ -14825,14 +14851,11 @@ function wfgRenderMinimap() {
       if (wfgChannels[ci].visible && wfgChannels[ci].gpioIdx >= 0) visibleChs.push(wfgChannels[ci]);
     }
     if (visibleChs.length === 0) return;
-    // Pre-compute all GPIO transitions for OAX
-    var mmIsDual = wfgFrame.gateType === 'dual';
-    var mmEffVtotal = mmIsDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
-    var mmEffHtotal = mmIsDual ? Math.round(wfgFrame.htotal / 4) : Math.round(wfgFrame.htotal / 2);
-    var mmAllGpioTr = [];
-    for (var mgi = 0; mgi < wfgGpios.length; mgi++) {
-      mmAllGpioTr.push(wfgCalcGpio(wfgGpios[mgi], mmEffVtotal, mmEffHtotal, wfgFrame.frameCount));
-    }
+    // Use cached transitions (same cache as main render)
+    var mmCache = wfgEnsureTransitions();
+    var mmEffVtotal = mmCache.effVtotal;
+    var mmEffHtotal = mmCache.effHtotal;
+    var mmAllGpioTr = mmCache.transitions;
     var rowH = Math.max(4, (boxH - 2) / visibleChs.length);
     for (var i = 0; i < visibleChs.length; i++) {
       var ch = visibleChs[i];
