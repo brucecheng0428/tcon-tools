@@ -1644,7 +1644,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.0.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.1.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12087,6 +12087,7 @@ function wfgMakeGpio(name) {
     name: name, act_type: 0, r_ph: 0, f_ph: 0,
     st_line: 0, sp_line: 0, r_dly: 0, f_dly: 0,
     f_st_sel: false, ini_val: 0, toggle: false, tg_ini_val: 0,
+    frm_no_0: 0, frm_no_1: 0, frm_no_2: 0,
     inv: false, enable: false, oax_mode: 0, oax_sel: 0
   };
 }
@@ -12133,7 +12134,13 @@ let wfgCurrentMode = 'tcon'; // 'tcon' or 'siggen'
 const WFG_ROW_H = 40;
 const WFG_ROW_GAP = 8;
 const WFG_LABEL_W = 110;
-const WFG_AXIS_H = 24;
+const WFG_AXIS_H = 56;
+const WFG_TIME_Y = 0;
+const WFG_TIME_H = 16;
+const WFG_LINE_Y = 16;
+const WFG_LINE_H = 22;
+const WFG_DCLK_Y = 38;
+const WFG_DCLK_H = 16;
 
 // ─── Helper: totalLines ───
 function wfgTotalLines() {
@@ -12158,18 +12165,48 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   // Returns array of transitions: { line (absolute across frames), dly, level }
   if (!gpio.enable) return [];
 
-  const period = (gpio.act_type + 1);
-  const allTransitions = [];
-  let prevFrameEndLevel = 0;
+  var period = (gpio.act_type + 1);
+  var allTransitions = [];
+  var prevFrameEndLevel = 0;
 
-  for (let frame = 0; frame < frameCount; frame++) {
-    const lineOffset = frame * vtotal;
+  // Toggle mode state
+  var toggleLevel = 0; // current toggle state
+  var toggleFrmCounter = 0; // frame counter for toggle
+  var toggleFrmThreshold; // how many frames per toggle
+  if (gpio.toggle) {
+    var frmNoVal = gpio.tg_ini_val === 0 ? gpio.frm_no_0 : (gpio.tg_ini_val === 1 ? gpio.frm_no_1 : gpio.frm_no_2);
+    toggleFrmThreshold = frmNoVal + 1; // frm_no=0 → every 1 frame, frm_no=1 → every 2 frames
+  }
 
+  for (var frame = 0; frame < frameCount; frame++) {
+    var lineOffset = frame * vtotal;
+
+    if (gpio.toggle) {
+      // ── Toggle mode: only look at st_line + r_dly for toggle trigger ──
+      toggleFrmCounter++;
+      if (toggleFrmCounter >= toggleFrmThreshold) {
+        toggleFrmCounter = 0;
+        toggleLevel = toggleLevel ? 0 : 1;
+      }
+      // Toggle produces a single edge at st_line + r_dly each trigger frame
+      var absLine = lineOffset + Math.max(0, gpio.st_line);
+      if (toggleFrmCounter === 0) {
+        // This frame had a toggle event
+        allTransitions.push({ line: absLine, dly: gpio.r_dly, level: toggleLevel });
+      } else if (frame === 0) {
+        // First frame, set initial level
+        allTransitions.push({ line: lineOffset, dly: 0, level: 0 });
+      }
+      prevFrameEndLevel = toggleLevel;
+      continue;
+    }
+
+    // ── Normal (Phase Counter) mode ──
     // Determine initial level for this frame
     var initLevel;
     if (gpio.ini_val === 0) initLevel = 0;
     else if (gpio.ini_val === 1) initLevel = 1;
-    else initLevel = (frame === 0) ? 0 : prevFrameEndLevel; // keep
+    else initLevel = (frame === 0) ? 0 : prevFrameEndLevel; // keep (2 or 3)
 
     var level = initLevel;
     var edges = [];
@@ -12177,20 +12214,38 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
     var sp = Math.min(vtotal - 1, gpio.sp_line);
 
     // Compute rise/fall edges within active region
-    var rCount = 0, fCount = 0;
     for (var line = st; line <= sp; line++) {
       var counter = line - st;
       var phase = counter % period;
       if (phase === (gpio.r_ph % period)) {
-        edges.push({ line: lineOffset + line, type: 'r', dly: gpio.r_dly });
+        var rDlyAbs = gpio.r_dly;
+        // f_st_sel: if delay overshoots line boundary into next frame, skip
+        if (gpio.f_st_sel && rDlyAbs >= htotal) continue;
+        edges.push({ line: lineOffset + line, type: 'r', dly: rDlyAbs });
       }
       if (phase === (gpio.f_ph % period)) {
-        edges.push({ line: lineOffset + line, type: 'f', dly: gpio.f_dly });
+        var fDlyAbs = gpio.f_dly;
+        if (gpio.f_st_sel && fDlyAbs >= htotal) continue;
+        edges.push({ line: lineOffset + line, type: 'f', dly: fDlyAbs });
       }
     }
 
     // Sort by line then dly
     edges.sort(function(a, b) { return a.line - b.line || a.dly - b.dly; });
+
+    // f_st_sel: if edge goes beyond sp_line, skip it
+    if (gpio.f_st_sel) {
+      var filtered = [];
+      for (var fi = 0; fi < edges.length; fi++) {
+        var e = edges[fi];
+        // Edge actual line position = e.line + e.dly/htotal
+        var effectiveLine = (e.line - lineOffset) + (htotal > 0 ? e.dly / htotal : 0);
+        if (effectiveLine <= sp + 1) {
+          filtered.push(e);
+        }
+      }
+      edges = filtered;
+    }
 
     // Build transitions
     for (var ei = 0; ei < edges.length; ei++) {
@@ -12198,6 +12253,16 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       if (e.type === 'r') level = 1;
       else level = 0;
       allTransitions.push({ line: e.line, dly: e.dly, level: level });
+    }
+
+    // f_st_sel: at end of active region, force level to 0 (clear count)
+    // unless ini_val is keep (2 or 3)
+    if (gpio.f_st_sel && !(gpio.ini_val >= 2)) {
+      // Force clear at sp_line end
+      if (level !== 0) {
+        allTransitions.push({ line: lineOffset + sp, dly: htotal > 0 ? htotal - 1 : 0, level: 0 });
+        level = 0;
+      }
     }
 
     prevFrameEndLevel = level;
@@ -12211,6 +12276,73 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   }
 
   return allTransitions;
+}
+
+// ─── OAX: build level array from transitions for a given time range ───
+function wfgBuildLevelArray(transitions, htotal) {
+  var sorted = [];
+  for (var i = 0; i < transitions.length; i++) {
+    var t = transitions[i];
+    var pos = t.line + (htotal > 0 ? t.dly / htotal : 0);
+    sorted.push({ pos: pos, level: t.level });
+  }
+  sorted.sort(function(a, b) { return a.pos - b.pos; });
+  return function getLevelAt(line, dly) {
+    var pos = line + (htotal > 0 ? dly / htotal : 0);
+    var level = 0;
+    for (var i = 0; i < sorted.length; i++) {
+      if (sorted[i].pos <= pos) level = sorted[i].level;
+      else break;
+    }
+    return level;
+  };
+}
+
+// ─── OAX: apply OAX logic to transitions ───
+function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
+  var gpio = wfgGpios[gpioIdx];
+  if (gpio.oax_mode === 0) return baseTransitions;
+  var otherIdx = gpio.oax_sel;
+  if (otherIdx < 0 || otherIdx >= wfgGpios.length || otherIdx === gpioIdx) return baseTransitions;
+  var otherTransitions = allGpioTransitions[otherIdx];
+  if (!otherTransitions) return baseTransitions;
+
+  var otherGetLevel = wfgBuildLevelArray(otherTransitions, htotal);
+  var baseGetLevel = wfgBuildLevelArray(baseTransitions, htotal);
+
+  // Merge both transition point sets
+  var allPoints = {};
+  function addPoint(line, dly) {
+    var key = line + ':' + dly;
+    if (!allPoints[key]) allPoints[key] = { line: line, dly: dly };
+  }
+  for (var i = 0; i < baseTransitions.length; i++) {
+    addPoint(baseTransitions[i].line, baseTransitions[i].dly);
+  }
+  for (var i = 0; i < otherTransitions.length; i++) {
+    addPoint(otherTransitions[i].line, otherTransitions[i].dly);
+  }
+
+  var pointList = [];
+  for (var k in allPoints) pointList.push(allPoints[k]);
+  pointList.sort(function(a, b) { return a.line - b.line || a.dly - b.dly; });
+
+  var result = [];
+  var prevLevel = -1;
+  for (var i = 0; i < pointList.length; i++) {
+    var p = pointList[i];
+    var a = baseGetLevel(p.line, p.dly);
+    var b = otherGetLevel(p.line, p.dly);
+    var combined;
+    if (gpio.oax_mode === 1) combined = (a | b);
+    else if (gpio.oax_mode === 2) combined = (a & b);
+    else combined = (a ^ b);
+    if (combined !== prevLevel) {
+      result.push({ line: p.line, dly: p.dly, level: combined });
+      prevLevel = combined;
+    }
+  }
+  return result;
 }
 
 // ─── Canvas Renderer ───
@@ -12259,36 +12391,153 @@ function wfgRender() {
     return drawX0 + ((line - wfgViewStart) / viewRange) * drawW;
   }
 
-  // Draw grid
-  ctx.strokeStyle = '#21262d';
-  ctx.lineWidth = 1;
-  var gridStep = 1;
-  var minGridPx = 40;
-  while ((drawW / viewRange) * gridStep < minGridPx && gridStep < 100000) {
-    if (gridStep < 5) gridStep = 5;
-    else if (gridStep < 10) gridStep = 10;
-    else if (gridStep < 50) gridStep = 50;
-    else if (gridStep < 100) gridStep = 100;
-    else if (gridStep < 500) gridStep = 500;
-    else if (gridStep < 1000) gridStep = 1000;
-    else if (gridStep < 5000) gridStep = 5000;
-    else gridStep *= 2;
+  // ─── Three-layer axis labels (Phase Counter mode) ───
+  var isDual = wfgFrame.gateType === 'dual';
+  var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+  var dclkFreqHz = wfgFrame.dclk * 1e6;
+  var timePerLine = dclkFreqHz > 0 ? wfgFrame.htotal / dclkFreqHz : 0;
+
+  // ── Layer 1: Time labels (top row) ──
+  var timeStart = wfgViewStart * timePerLine;
+  var timeEnd = wfgViewEnd * timePerLine;
+  var timeRange = timeEnd - timeStart;
+  if (timePerLine > 0 && timeRange > 0) {
+    var tGridStep = 1e-12;
+    var tMinGridPx = 70;
+    while (true) {
+      var tGridPx = (tGridStep / timeRange) * drawW;
+      if (tGridPx >= tMinGridPx) break;
+      var decade = Math.pow(10, Math.floor(Math.log10(tGridStep)));
+      var mantissa = tGridStep / decade;
+      if (mantissa < 1.5) tGridStep = 2 * decade;
+      else if (mantissa < 3.5) tGridStep = 5 * decade;
+      else tGridStep = 10 * decade;
+      if (tGridStep > 1e6) break;
+    }
+    ctx.fillStyle = '#6e7681';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    var tFirst = Math.ceil(timeStart / tGridStep) * tGridStep;
+    for (var t = tFirst; t <= timeEnd; t += tGridStep) {
+      var linePos = t / timePerLine;
+      var x = lineToX(linePos);
+      if (x < drawX0 || x > w) continue;
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, WFG_TIME_Y + WFG_TIME_H - 3);
+      ctx.lineTo(x, WFG_TIME_Y + WFG_TIME_H);
+      ctx.stroke();
+      ctx.fillStyle = '#6e7681';
+      ctx.fillText(wfgFormatTimeSec(t), x, WFG_TIME_Y + WFG_TIME_H - 4);
+    }
   }
 
-  // Axis labels (top)
-  ctx.fillStyle = '#484f58';
-  ctx.font = '10px monospace';
-  ctx.textAlign = 'center';
-  var firstGrid = Math.ceil(wfgViewStart / gridStep) * gridStep;
-  for (var g = firstGrid; g <= wfgViewEnd; g += gridStep) {
-    var gx = lineToX(g);
-    if (gx < drawX0 || gx > w) continue;
+  // ── Layer 2: Line labels (middle row, banner style) ──
+  var lineColors = ['rgba(30,58,95,0.85)', 'rgba(40,50,75,0.85)'];
+  var firstVisLine = Math.max(0, Math.floor(wfgViewStart));
+  var lastVisLine = Math.min(totalLines - 1, Math.floor(wfgViewEnd));
+  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+    var xLeft = Math.max(drawX0, lineToX(ln));
+    var xRight = Math.min(w, lineToX(ln + 1));
+    if (xRight <= drawX0 || xLeft >= w) continue;
+    var bw = xRight - xLeft;
+    // Show line number relative to frame
+    var lineInFrame = ln % wfgFrame.vtotal;
+    ctx.fillStyle = lineColors[lineInFrame % 2];
+    ctx.fillRect(xLeft, WFG_LINE_Y, bw, WFG_LINE_H);
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(gx, WFG_AXIS_H);
-    ctx.lineTo(gx, h);
+    ctx.moveTo(xLeft, WFG_LINE_Y);
+    ctx.lineTo(xLeft, WFG_LINE_Y + WFG_LINE_H);
     ctx.stroke();
-    ctx.fillText(g.toString(), gx, WFG_AXIS_H - 6);
+    // Grid line down to waveform area
+    ctx.strokeStyle = '#21262d';
+    ctx.beginPath();
+    ctx.moveTo(xLeft, WFG_AXIS_H);
+    ctx.lineTo(xLeft, h);
+    ctx.stroke();
+    if (bw > 30) {
+      ctx.fillStyle = '#c9d1d9';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Line ' + lineInFrame, (xLeft + xRight) / 2, WFG_LINE_Y + 15);
+    } else if (bw > 14) {
+      ctx.fillStyle = '#c9d1d9';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(lineInFrame.toString(), (xLeft + xRight) / 2, WFG_LINE_Y + 15);
+    }
   }
+  // Right border of last visible line
+  {
+    var xLast = Math.min(w, lineToX(lastVisLine + 1));
+    if (xLast > drawX0 && xLast < w) {
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xLast, WFG_LINE_Y);
+      ctx.lineTo(xLast, WFG_LINE_Y + WFG_LINE_H);
+      ctx.stroke();
+      ctx.strokeStyle = '#21262d';
+      ctx.beginPath();
+      ctx.moveTo(xLast, WFG_AXIS_H);
+      ctx.lineTo(xLast, h);
+      ctx.stroke();
+    }
+  }
+
+  // ── Layer 3: DCLK labels (bottom row) ──
+  if (dclkPerLine > 0) {
+    var pxPerDclk = drawW / (viewRange * dclkPerLine);
+    var dclkStep = 1;
+    var dMinPx = 40;
+    while (pxPerDclk * dclkStep < dMinPx && dclkStep < dclkPerLine * 2) {
+      if (dclkStep < 5) dclkStep = 5;
+      else if (dclkStep < 10) dclkStep = 10;
+      else if (dclkStep < 20) dclkStep = 20;
+      else if (dclkStep < 50) dclkStep = 50;
+      else if (dclkStep < 100) dclkStep = 100;
+      else if (dclkStep < 200) dclkStep = 200;
+      else if (dclkStep < 500) dclkStep = 500;
+      else dclkStep *= 2;
+    }
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
+      var dxLeft = lineToX(dln);
+      var dxRight = lineToX(dln + 1);
+      for (var d = 0; d < dclkPerLine; d += dclkStep) {
+        var frac = d / dclkPerLine;
+        var dx = dxLeft + (dxRight - dxLeft) * frac;
+        if (dx < drawX0 || dx > w) continue;
+        ctx.strokeStyle = '#21262d';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(dx, WFG_DCLK_Y + WFG_DCLK_H - 3);
+        ctx.lineTo(dx, WFG_DCLK_Y + WFG_DCLK_H);
+        ctx.stroke();
+        if (d > 0) {
+          ctx.strokeStyle = 'rgba(33,38,45,0.5)';
+          ctx.beginPath();
+          ctx.moveTo(dx, WFG_AXIS_H);
+          ctx.lineTo(dx, h);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#58a6ff';
+        ctx.fillText(d.toString(), dx, WFG_DCLK_Y + WFG_DCLK_H - 4);
+      }
+    }
+  }
+
+  // Separator line below header
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(drawX0, WFG_AXIS_H - 1);
+  ctx.lineTo(w, WFG_AXIS_H - 1);
+  ctx.stroke();
 
   // Draw frame boundaries
   if (wfgFrame.frameCount > 1) {
@@ -12305,6 +12554,12 @@ function wfgRender() {
       }
     }
     ctx.setLineDash([]);
+  }
+
+  // Pre-compute all GPIO base transitions (for OAX)
+  var allGpioTransitions = [];
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    allGpioTransitions.push(wfgCalcGpio(wfgGpios[gi], wfgFrame.vtotal, wfgFrame.htotal, wfgFrame.frameCount));
   }
 
   // Draw waveforms for each visible channel
@@ -12325,8 +12580,9 @@ function wfgRender() {
       ctx.stroke();
     }
 
-    // Compute transitions
-    var transitions = wfgCalcGpio(gpio, wfgFrame.vtotal, wfgFrame.htotal, wfgFrame.frameCount);
+    // Compute transitions with OAX applied
+    var baseTransitions = allGpioTransitions[ch.gpioIdx];
+    var transitions = wfgApplyOAX(ch.gpioIdx, baseTransitions, allGpioTransitions, wfgFrame.htotal);
     if (transitions.length === 0) {
       ctx.strokeStyle = ch.color;
       ctx.lineWidth = 1.5;
@@ -12395,7 +12651,14 @@ function wfgRender() {
 function wfgRenderLabels() {
   var el = document.getElementById('wfg-labels');
   if (!el) return;
-  var html = '<div style="height:' + WFG_AXIS_H + 'px"></div>';
+  var html = '';
+  if (!wfgKvdatMode) {
+    html += '<div style="height:' + WFG_TIME_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#6e7681;">Time</div>';
+    html += '<div style="height:' + WFG_LINE_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#c9d1d9;background:rgba(30,58,95,0.5);">Line</div>';
+    html += '<div style="height:' + WFG_DCLK_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#58a6ff;">DCLK</div>';
+  } else {
+    html += '<div style="height:' + WFG_AXIS_H + 'px"></div>';
+  }
   for (var i = 0; i < wfgChannels.length; i++) {
     var ch = wfgChannels[i];
     if (!ch.visible || ch.gpioIdx < 0) continue;
@@ -12510,7 +12773,7 @@ function wfgOnGpioChange(gpioIdx, field, value) {
   var gpio = wfgGpios[gpioIdx];
   if (field === 'enable' || field === 'inv' || field === 'toggle' || field === 'f_st_sel') {
     gpio[field] = !!value;
-  } else if (field === 'ini_val' || field === 'tg_ini_val' || field === 'oax_mode' || field === 'oax_sel') {
+  } else if (field === 'ini_val' || field === 'tg_ini_val' || field === 'oax_mode' || field === 'oax_sel' || field === 'frm_no_0' || field === 'frm_no_1' || field === 'frm_no_2') {
     gpio[field] = parseInt(value) || 0;
   } else {
     gpio[field] = parseInt(value) || 0;
@@ -12579,6 +12842,13 @@ function wfgRenderGpioList() {
       + '<option value="1"' + (g.tg_ini_val === 1 ? ' selected' : '') + '>1</option>'
       + '<option value="2"' + (g.tg_ini_val === 2 ? ' selected' : '') + '>2</option>'
       + '</select></div>'
+      + '</div>';
+
+    // Row 4b: FRM_NO_0, FRM_NO_1, FRM_NO_2 (for toggle mode)
+    html += '<div class="wfg-gpio-grid"' + (g.toggle ? '' : ' style="opacity:0.4"') + '>'
+      + '<div class="wfg-field"><label>FRM_NO_0 (0~4095)</label><input type="number" value="' + g.frm_no_0 + '" min="0" max="4095" onchange="wfgOnGpioChange(' + i + ',\'frm_no_0\',this.value)"></div>'
+      + '<div class="wfg-field"><label>FRM_NO_1 (0~4095)</label><input type="number" value="' + g.frm_no_1 + '" min="0" max="4095" onchange="wfgOnGpioChange(' + i + ',\'frm_no_1\',this.value)"></div>'
+      + '<div class="wfg-field"><label>FRM_NO_2 (0~4095)</label><input type="number" value="' + g.frm_no_2 + '" min="0" max="4095" onchange="wfgOnGpioChange(' + i + ',\'frm_no_2\',this.value)"></div>'
       + '</div>';
 
     // Row 5: f_st_sel, inv, enable
@@ -13438,6 +13708,11 @@ function wfgRenderMinimap() {
       if (wfgChannels[ci].visible && wfgChannels[ci].gpioIdx >= 0) visibleChs.push(wfgChannels[ci]);
     }
     if (visibleChs.length === 0) return;
+    // Pre-compute all GPIO transitions for OAX
+    var mmAllGpioTr = [];
+    for (var mgi = 0; mgi < wfgGpios.length; mgi++) {
+      mmAllGpioTr.push(wfgCalcGpio(wfgGpios[mgi], wfgFrame.vtotal, wfgFrame.htotal, wfgFrame.frameCount));
+    }
     var rowH = Math.max(4, (boxH - 2) / visibleChs.length);
     for (var i = 0; i < visibleChs.length; i++) {
       var ch = visibleChs[i];
@@ -13445,7 +13720,7 @@ function wfgRenderMinimap() {
       var y0 = 1 + i * rowH;
       var yHigh = y0 + 1;
       var yLow = y0 + rowH - 2;
-      var transitions = wfgCalcGpio(gpio, wfgFrame.vtotal, wfgFrame.htotal, wfgFrame.frameCount);
+      var transitions = wfgApplyOAX(ch.gpioIdx, mmAllGpioTr[ch.gpioIdx], mmAllGpioTr, wfgFrame.htotal);
 
       ctx.strokeStyle = ch.color;
       ctx.lineWidth = 1;
