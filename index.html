@@ -1649,7 +1649,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.28.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.29.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1698,7 +1698,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.8.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.9.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12284,14 +12284,18 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
 
       if (!counterActive) continue;
 
-      // Check R_PH_CNT == ACT_TYPE → rising edge
+      var rFired = false, fFired = false;
+      var rDlyVal = 0, fDlyVal = 0;
+
+      // Check R_PH_CNT == ACT_TYPE → rising edge (set to 1)
       if (rCnt === actType) {
         // Rising only fires if line <= SP_LINE
         if (line <= sp) {
           var rDly = gpio.r_dly;
           if (!(gpio.f_st_sel && rDly >= htotal)) {
             allTransitions.push({ line: lineOffset + line, dly: rDly, level: 1 });
-            level = 1;
+            rFired = true;
+            rDlyVal = rDly;
           }
         }
         rCnt = 0;
@@ -12299,24 +12303,39 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
         rCnt++;
       }
 
-      // Check F_PH_CNT == ACT_TYPE → falling edge
+      // Check F_PH_CNT == ACT_TYPE → falling edge (set to 0)
       if (fCnt === actType) {
         // Falling fires if line <= SP_LINE, OR if pulse is open (level===1) to complete it
         if (line <= sp || level === 1) {
           var fDly = gpio.f_dly;
           if (!(gpio.f_st_sel && fDly >= htotal)) {
             allTransitions.push({ line: lineOffset + line, dly: fDly, level: 0 });
-            level = 0;
+            fFired = true;
+            fDlyVal = fDly;
           }
         }
         fCnt = 0;
       } else {
         fCnt++;
       }
+
+      // Determine temporal end-of-line level based on which DLY fires last
+      if (rFired && fFired) {
+        level = (rDlyVal >= fDlyVal) ? 1 : 0;
+      } else if (rFired) {
+        level = 1;
+      } else if (fFired) {
+        level = 0;
+      }
     }
 
     prevFrameEndLevel = level;
   }
+
+  // Sort transitions by temporal position (line, then dly) for correct rendering
+  allTransitions.sort(function(a, b) {
+    return a.line - b.line || a.dly - b.dly;
+  });
 
   // Apply inv
   if (gpio.inv) {
