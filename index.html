@@ -1595,7 +1595,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.21.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.22.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1644,7 +1644,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.2.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.3.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12585,8 +12585,8 @@ function wfgRender() {
     var ch = visibleChs[i];
     var gpio = wfgGpios[ch.gpioIdx];
     var y0 = WFG_AXIS_H + i * (WFG_ROW_H + WFG_ROW_GAP);
-    var yHigh = y0 + 6;
-    var yLow = y0 + WFG_ROW_H - 4;
+    var yHigh = Math.round(y0 + 6) + 0.5;
+    var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
 
     // Separator line
     if (i > 0) {
@@ -12603,7 +12603,7 @@ function wfgRender() {
     var transitions = wfgApplyOAX(ch.gpioIdx, baseTransitions, allGpioTransitions, effHtotal);
     if (transitions.length === 0) {
       ctx.strokeStyle = ch.color;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1;
       ctx.globalAlpha = 0.6;
       ctx.beginPath();
       ctx.moveTo(drawX0, yLow);
@@ -12613,9 +12613,9 @@ function wfgRender() {
       continue;
     }
 
-    // Draw waveform
+    // Draw waveform (lineWidth=1 + half-pixel offset for pixel-perfect edges)
     ctx.strokeStyle = ch.color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1;
     ctx.beginPath();
 
     // Determine initial level (before viewStart)
@@ -12641,8 +12641,8 @@ function wfgRender() {
         continue;
       }
 
-      // Horizontal to edge position, then vertical edge (snap X for crisp lines)
-      var snapX = Math.round(x);
+      // Horizontal to edge position, then vertical edge (snap X to pixel boundary)
+      var snapX = Math.round(x) + 0.5;
       ctx.lineTo(snapX, curY);
       var newY = t.level ? yHigh : yLow;
       ctx.lineTo(snapX, newY);
@@ -12881,6 +12881,12 @@ window.wfgOnChannelChange = wfgOnChannelChange;
 function wfgRenderGpioList() {
   var container = document.getElementById('wfg-gpio-list');
   if (!container) return;
+  // Save expanded state before re-render
+  var expandedSet = {};
+  var oldHeads = container.querySelectorAll('.wfg-signal-mini-head');
+  for (var hi = 0; hi < oldHeads.length; hi++) {
+    if (!oldHeads[hi].classList.contains('collapsed')) expandedSet[hi] = true;
+  }
   var html = '';
   for (var i = 0; i < wfgGpios.length; i++) {
     var g = wfgGpios[i];
@@ -12964,6 +12970,15 @@ function wfgRenderGpioList() {
     html += '</div></div>';
   }
   container.innerHTML = html;
+  // Restore expanded state after re-render
+  var newHeads = container.querySelectorAll('.wfg-signal-mini-head');
+  for (var hi = 0; hi < newHeads.length; hi++) {
+    if (expandedSet[hi]) {
+      newHeads[hi].classList.remove('collapsed');
+      var body = newHeads[hi].nextElementSibling;
+      if (body) body.classList.remove('collapsed');
+    }
+  }
 }
 
 // ─── Channel List UI ───
@@ -13029,7 +13044,7 @@ function wfgZoomIn() {
   var totalLines = wfgTotalLines();
   var range = wfgViewEnd - wfgViewStart;
   var center = (wfgViewStart + wfgViewEnd) / 2;
-  var newRange = Math.max(0.5, range * 0.6);
+  var newRange = Math.max(0.005, range * 0.6);
   wfgViewStart = Math.max(0, center - newRange / 2);
   wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
   wfgRender(); wfgUpdateMinimapViewport();
@@ -13048,8 +13063,8 @@ function wfgZoomOut() {
   var range = wfgViewEnd - wfgViewStart;
   var center = (wfgViewStart + wfgViewEnd) / 2;
   var newRange = Math.min(totalLines, range * 1.6);
-  wfgViewStart = Math.max(0, Math.round(center - newRange / 2));
-  wfgViewEnd = Math.min(totalLines, Math.round(center + newRange / 2));
+  wfgViewStart = Math.max(0, center - newRange / 2);
+  wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
   wfgRender(); wfgUpdateMinimapViewport();
 }
 function wfgFitAll() {
@@ -13121,7 +13136,7 @@ function wfgInitCanvas() {
         var totalLines = wfgTotalLines();
         var range = wfgViewEnd - wfgViewStart;
         var dLines = -(wfgVelocity / drawW) * range;
-        var newStart = Math.round(wfgViewStart + dLines);
+        var newStart = wfgViewStart + dLines;
         newStart = Math.max(0, Math.min(totalLines - range, newStart));
         wfgViewEnd = newStart + range;
         wfgViewStart = newStart;
@@ -13152,7 +13167,7 @@ function wfgInitCanvas() {
     var range = wfgViewEnd - wfgViewStart;
     var pivot = wfgViewStart + range * frac;
     var factor = e.deltaY > 0 ? 1.2 : 0.8;
-    var newRange = Math.max(0.5, Math.min(totalLines, range * factor));
+    var newRange = Math.max(0.005, Math.min(totalLines, range * factor));
     wfgViewStart = Math.max(0, pivot - newRange * frac);
     wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
     wfgRender(); wfgUpdateMinimapViewport();
@@ -13195,7 +13210,7 @@ function wfgInitCanvas() {
     var totalLines = wfgTotalLines();
     var range = wfgViewEnd - wfgViewStart;
     var dLines = -(dx / drawW) * range;
-    var newStart = Math.round(wfgDragStartView + dLines);
+    var newStart = wfgDragStartView + dLines;
     newStart = Math.max(0, Math.min(totalLines - range, newStart));
     wfgViewEnd = newStart + range;
     wfgViewStart = newStart;
@@ -13271,7 +13286,7 @@ function wfgInitCanvas() {
         var totalLines = wfgTotalLines();
         var range = wfgViewEnd - wfgViewStart;
         var dLines = -(dx / drawW) * range;
-        var newStart = Math.round(touchStartView + dLines);
+        var newStart = touchStartView + dLines;
         newStart = Math.max(0, Math.min(totalLines - range, newStart));
         wfgViewEnd = newStart + range;
         wfgViewStart = newStart;
@@ -13287,9 +13302,9 @@ function wfgInitCanvas() {
           wfgRender(); wfgUpdateMinimapViewport(); return;
         }
         var totalLines = wfgTotalLines();
-        var newRange = Math.max(0.5, Math.min(totalLines, pinchStartRange * scale));
-        wfgViewStart = Math.max(0, Math.round(pinchStartPivot - newRange * pinchStartCenterFrac));
-        wfgViewEnd = Math.min(totalLines, Math.round(wfgViewStart + newRange));
+        var newRange = Math.max(0.005, Math.min(totalLines, pinchStartRange * scale));
+        wfgViewStart = Math.max(0, pinchStartPivot - newRange * pinchStartCenterFrac);
+        wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
         wfgRender(); wfgUpdateMinimapViewport();
       }
     });
@@ -13891,8 +13906,8 @@ function wfgInitMinimap() {
       var totalLines = wfgTotalLines();
       var viewRange = wfgViewEnd - wfgViewStart;
       var center = frac * totalLines;
-      wfgViewStart = Math.max(0, Math.round(center - viewRange / 2));
-      wfgViewEnd = Math.min(totalLines, Math.round(wfgViewStart + viewRange));
+      wfgViewStart = Math.max(0, center - viewRange / 2);
+      wfgViewEnd = Math.min(totalLines, wfgViewStart + viewRange);
     }
     wfgRender();
     wfgUpdateMinimapViewport();
