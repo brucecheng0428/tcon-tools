@@ -12539,11 +12539,16 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
           // F_ST_SEL: only suppress if transition goes beyond current frame
           if (gpio.f_st_sel && fActualLine >= vtotal) {
             // Transition exceeds frame boundary — suppress under F_ST_SEL
+            fFired = true;
+            fDlyVal = fDly;
+          } else if (fExtraLines >= 1 && fDly > htotal + gpio.r_dly) {
+            // F_DLY crossed to next line past next line's R_DLY position — suppress
+            // Level stays high (no falling edge), fFired stays false
           } else {
             allTransitions.push({ line: lineOffset + fActualLine, dly: fNormDly, level: 0 });
+            fFired = true;
+            fDlyVal = fDly;
           }
-          fFired = true;
-          fDlyVal = fDly;
         }
         fCnt = 0;
       } else {
@@ -12841,7 +12846,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   var rphY = baseY + 2 * (rowH + gap);
   var fphY = baseY + 3 * (rowH + gap);
   // Show for hovered channel if measuring, otherwise first visible channel
-  var _phChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : 0;
+  var _phChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : (_wfgLastHoverChIdx >= 0 ? _wfgLastHoverChIdx : 0);
   // Determine if hovered channel has no pulse (flat waveform) → force PH_CNT non-highlight
   // Check the channel's base transitions from cache (all edges across all frames),
   // NOT _wfgLastChTransitions which may not be populated yet in the render cycle.
@@ -12849,9 +12854,9 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   if (_wfgMeasArrow && _wfgMeasArrow._deRow != null) {
     // Hovering on DE rows (no GPIO context) → force non-highlight
     _phNoPulse = true;
-  } else if (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) {
+  } else if ((_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) || (!_wfgMeasArrow && _wfgLastHoverChIdx >= 0)) {
     // Check if the channel's GPIO has any transitions at all (not just near hover)
-    var _phVisChIdx = _wfgMeasArrow._tconHoverChIdx;
+    var _phVisChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : _wfgLastHoverChIdx;
     if (_wfgLastVisibleChs && _phVisChIdx < _wfgLastVisibleChs.length) {
       var _phCh = _wfgLastVisibleChs[_phVisChIdx];
       if (_phCh && _phCh.gpioIdx >= 0 && _wfgTransitionCache) {
@@ -14556,6 +14561,7 @@ function wfgInitCanvas() {
 // ─── Measurement Card Logic ───
 var _wfgMeasRaf = null;
 var _wfgMeasArrow = null; // {x1, x2, y, chIdx} for overlay drawing
+var _wfgLastHoverChIdx = -1; // last hovered channel index, persists after mouseleave
 
 function wfgMeasClear() {
   _wfgMeasArrow = null;
@@ -14822,6 +14828,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
       var yHighNp = Math.round(y0np + 6) + 0.5;
       var yLowNp = Math.round(y0np + WFG_ROW_H - 4) + 0.5;
       _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx, _midY: (yHighNp + yLowNp) / 2 };
+      _wfgLastHoverChIdx = chIdx;
       wfgMeasSetVal('wfg-meas-pw', '--');
       wfgMeasSetVal('wfg-meas-per', '--');
       wfgMeasSetVal('wfg-meas-duty', '--');
@@ -14869,6 +14876,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     if (wfgTconInternalMode && !wfgKvdatMode) {
       // No pulse edge found, but still show PH_CNT (all non-highlight since no trigger)
       _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx, _midY: (yHigh + yLow) / 2 };
+      _wfgLastHoverChIdx = chIdx;
       wfgMeasSetVal('wfg-meas-pw', '--');
       wfgMeasSetVal('wfg-meas-per', '--');
       wfgMeasSetVal('wfg-meas-duty', '--');
@@ -14939,6 +14947,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     // Left edge of current block = rising edge position, right edge = falling edge position
     // curLevel tells us if mouse is on a HIGH (pulse) or LOW block
     var arrowResult = { x1: 0, x2: 0, y: 0, arrow2: null, _tconHoverChIdx: chIdx, _midY: (yHigh + yLow) / 2 };
+    _wfgLastHoverChIdx = chIdx;
 
     if (curLevel === 1) {
       // Mouse is on a HIGH block: leftEdge is a rising edge, rightEdge is a falling edge
