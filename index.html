@@ -1635,8 +1635,8 @@
   @keyframes wfg-cursor-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
   .wfg-canvas-area { position: relative; width: 100%; min-height: 300px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   #wfg-canvas { display: block; width: 100%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-  .wfg-labels { position: absolute; left: 0; top: 0; bottom: 0; width: 110px; background: rgba(13,17,23,0.92); border-right: 1px solid #21262d; overflow: hidden; z-index: 2; pointer-events: none; }
-  .wfg-label-item { height: 48px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #c9d1d9; gap: 5px; cursor: grab; user-select: none; -webkit-user-select: none; transition: background 0.15s, transform 0.15s ease; }
+  .wfg-labels { position: absolute; left: 0; top: 0; bottom: 0; width: 110px; background: rgba(13,17,23,0.92); border-right: 1px solid #21262d; overflow: hidden; z-index: 2; }
+  .wfg-label-item { height: 48px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #c9d1d9; gap: 5px; cursor: grab; user-select: none; -webkit-user-select: none; transition: background 0.15s, transform 0.15s ease; pointer-events: auto; }
   .wfg-label-item:hover { background: rgba(56,139,253,0.15); }
   .wfg-label-item.wfg-label-dragging { opacity: 0.7; cursor: grabbing; z-index: 5; position: relative; transition: none; }
   .wfg-label-drop-indicator { position: absolute; left: 4px; right: 4px; height: 2px; background: #f97316; border-radius: 1px; pointer-events: none; z-index: 10; display: none; }
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.16</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.17</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -13409,7 +13409,7 @@ function wfgRender() {
     var visTransCount = _blo2 - firstVisIdx;
 
     if (visTransCount <= drawW * 3) {
-      // Sparse mode: draw each transition individually
+      // Sparse mode: draw each transition individually (stroke path)
       for (var ti = firstVisIdx; ti < transitions.length; ti++) {
         var t = transitions[ti];
         if (t.line > wfgViewEnd) break;
@@ -13422,12 +13422,19 @@ function wfgRender() {
         curY = newY;
         curLevel = t.level;
       }
+      ctx.lineTo(w, curY);
+      ctx.stroke();
     } else {
-      // Dense mode: one drawing op per pixel column
+      // Dense mode: fillRect per pixel column — eliminates anti-aliasing ripple
+      // (stroke path creates cross-column diagonal segments whose miter joins
+      //  extend above yHigh by ~0.2px, producing a periodic sine-wave artifact)
+      var yHighI = Math.round(yHigh - 0.5);
+      var yLowI = Math.round(yLow - 0.5);
+      var fillH = yLowI - yHighI + 1;
+      ctx.fillStyle = ch.color;
       var pixelCount = Math.ceil(drawW);
       var ti = firstVisIdx;
       for (var px = 0; px < pixelCount; px++) {
-        // X range of this pixel column in line units
         var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
         var count = 0;
         var lastLevel = curLevel;
@@ -13438,20 +13445,17 @@ function wfgRender() {
           ti++; count++;
         }
         curLevel = lastLevel;
-        var xPx = drawX0 + px + 0.5;
+        var xI = drawX0 + px;
         if (count > 0) {
-          ctx.lineTo(xPx, yLow);
-          ctx.lineTo(xPx, yHigh);
-          curY = curLevel ? yHigh : yLow;
-          ctx.lineTo(xPx, curY);
+          ctx.fillRect(xI, yHighI, 1, fillH);
         } else {
-          curY = curLevel ? yHigh : yLow;
-          ctx.lineTo(xPx, curY);
+          ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
         }
       }
+      // Extend to right edge
+      var remW = Math.ceil(w - drawX0 - pixelCount);
+      if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
     }
-    ctx.lineTo(w, curY);
-    ctx.stroke();
     if (isThisDragged) ctx.globalAlpha = 1;
   }
 
@@ -16260,7 +16264,7 @@ function wfgRenderKvdat() {
     ctx.moveTo(drawX0, curY);
 
     if (visibleCount <= drawW * 3) {
-      // Sparse mode with snap fix
+      // Sparse mode with snap fix (stroke path)
       for (var j = edgesBeforeView; j < visibleEnd; j++) {
         var x = timeToX(edges[j]);
         var snapX = Math.round(x) + 0.5;
@@ -16270,32 +16274,32 @@ function wfgRenderKvdat() {
         if (snapX >= drawX0) ctx.lineTo(snapX, newY);
         curY = newY;
       }
+      ctx.lineTo(w, curY);
+      ctx.stroke();
     } else {
-      // Dense mode: one drawing op per pixel column — no skipping, no thick lines
+      // Dense mode: fillRect per pixel column — eliminates anti-aliasing ripple
       var j = edgesBeforeView;
       var pixelCount = Math.ceil(drawW);
-      ctx.lineWidth = 1;
+      var yHighI = Math.round(yHigh - 0.5);
+      var yLowI = Math.round(yLow - 0.5);
+      var fillH = yLowI - yHighI + 1;
+      ctx.fillStyle = ch.color;
       for (var px = 0; px < pixelCount; px++) {
         var tRight = tStart + ((px + 1) / drawW) * tRange;
         var count = 0;
         while (j < ec && edges[j] < tRight) { j++; count++; }
         if (count % 2 === 1) curLevel = curLevel ? 0 : 1;
-        var xPx = drawX0 + px + 0.5;
+        var xI = drawX0 + px;
         if (count > 0) {
-          // Has edge(s): draw 1px vertical line yLow→yHigh
-          ctx.lineTo(xPx, yLow);
-          ctx.lineTo(xPx, yHigh);
-          curY = curLevel ? yHigh : yLow;
-          ctx.lineTo(xPx, curY);
+          ctx.fillRect(xI, yHighI, 1, fillH);
         } else {
-          // No edge: continue horizontal at current level
-          curY = curLevel ? yHigh : yLow;
-          ctx.lineTo(xPx, curY);
+          ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
         }
       }
+      // Extend to right edge
+      var remW = Math.ceil(w - drawX0 - pixelCount);
+      if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
     }
-    ctx.lineTo(w, curY);
-    ctx.stroke();
     if (isThisDragged) ctx.globalAlpha = 1;
   }
 
@@ -16382,33 +16386,25 @@ function wfgRenderMinimap() {
 
       if (ch.edgeCount === 0) continue;
 
-      ctx.strokeStyle = ch.color;
-      ctx.lineWidth = 1;
       ctx.globalAlpha = 0.8;
-      ctx.beginPath();
-
+      ctx.fillStyle = ch.color;
       var j = 0;
       var curLevel = 0;
-      var curY = yLow;
-      ctx.moveTo(0, curY);
+      var yHighI = Math.round(yHigh);
+      var yLowI = Math.round(yLow);
+      var fillH = Math.max(1, yLowI - yHighI + 1);
 
       for (var px = 0; px < boxW; px++) {
         var tRight = tStart + ((px + 1) / boxW) * tRange;
         var count = 0;
         while (j < ch.edgeCount && ch.edges[j] < tRight) { j++; count++; }
-        if (count === 0) continue;
-        var xPx = px + 0.5;
-        ctx.lineTo(xPx, curY);
-        if (count >= 2) {
-          ctx.lineTo(xPx, yHigh);
-          ctx.lineTo(xPx, yLow);
-        }
         if (count % 2 === 1) curLevel = curLevel ? 0 : 1;
-        curY = curLevel ? yHigh : yLow;
-        ctx.lineTo(xPx, curY);
+        if (count > 0) {
+          ctx.fillRect(px, yHighI, 1, fillH);
+        } else {
+          ctx.fillRect(px, curLevel ? yHighI : yLowI, 1, 1);
+        }
       }
-      ctx.lineTo(boxW, curY);
-      ctx.stroke();
       ctx.globalAlpha = 1;
     }
   } else {
@@ -16446,7 +16442,11 @@ function wfgRenderMinimap() {
 
       var mmDclkPerLine = mmIsDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
       if (transitions.length > boxW * 3) {
-        // Dense mode: one drawing op per pixel column (O(boxW) not O(transitions))
+        // Dense mode: fillRect per pixel column — eliminates anti-aliasing ripple
+        var yHighI = Math.round(yHigh);
+        var yLowI = Math.round(yLow);
+        var fillH = Math.max(1, yLowI - yHighI + 1);
+        ctx.fillStyle = ch.color;
         var ti2 = 0;
         for (var px = 0; px < boxW; px++) {
           var lineRight = ((px + 1) / boxW) * totalLines;
@@ -16457,15 +16457,10 @@ function wfgRenderMinimap() {
             ti2++; count++;
           }
           curLevel = lastLevel;
-          var xPx = px + 0.5;
           if (count > 0) {
-            ctx.lineTo(xPx, yLow);
-            ctx.lineTo(xPx, yHigh);
-            curY = curLevel ? yHigh : yLow;
-            ctx.lineTo(xPx, curY);
+            ctx.fillRect(px, yHighI, 1, fillH);
           } else {
-            curY = curLevel ? yHigh : yLow;
-            ctx.lineTo(xPx, curY);
+            ctx.fillRect(px, curLevel ? yHighI : yLowI, 1, 1);
           }
         }
       } else {
@@ -16479,9 +16474,9 @@ function wfgRenderMinimap() {
           ctx.lineTo(x, newY);
           curY = newY;
         }
+        ctx.lineTo(boxW, curY);
+        ctx.stroke();
       }
-      ctx.lineTo(boxW, curY);
-      ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
