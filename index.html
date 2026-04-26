@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.3</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.4</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.6</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.7</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12550,6 +12550,14 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
         fCnt++;
       }
 
+      // Cancel overlapping R/F transitions at same position (no pulse)
+      if (rFired && fFired && rActualLine === fActualLine && rNormDly === fNormDly) {
+        allTransitions.pop();
+        allTransitions.pop();
+        rFired = false;
+        fFired = false;
+      }
+
       // Determine temporal end-of-line level based on which DLY fires last
       if (rFired && fFired) {
         level = (rDlyVal >= fDlyVal) ? 1 : 0;
@@ -14632,7 +14640,26 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   for (var j = idx + 1; j < tPos.length; j++) {
     if (tPos[j].level !== curLevel) { rightEdge = tPos[j].pos; break; }
   }
-  if (rightEdge === null) { wfgMeasClear(); return; }
+  // Pre-compute Y positions (needed for no-pulse TCON handling below)
+  var y0 = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
+  var yHigh = Math.round(y0 + 6) + 0.5;
+  var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
+
+  if (rightEdge === null) {
+    if (wfgTconInternalMode && !wfgKvdatMode) {
+      // No pulse edge found, but still show PH_CNT (all non-highlight since no trigger)
+      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx, _midY: (yHigh + yLow) / 2 };
+      wfgMeasSetVal('wfg-meas-pw', '--');
+      wfgMeasSetVal('wfg-meas-per', '--');
+      wfgMeasSetVal('wfg-meas-duty', '--');
+      wfgMeasSetVal('wfg-meas-freq', '--');
+      var chEl = document.getElementById('wfg-meas-ch');
+      if (chEl) chEl.textContent = ch.name;
+      wfgRender();
+      return;
+    }
+    wfgMeasClear(); return;
+  }
 
   var pulseWidthLines = rightEdge - leftEdge;
 
@@ -14680,10 +14707,6 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   function lineToXLocal(line) {
     return drawX0 + ((line - wfgViewStart) / viewRange) * drawW;
   }
-  var y0 = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
-  var yHigh = Math.round(y0 + 6) + 0.5;
-  var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
-
   if (wfgTconInternalMode && !wfgKvdatMode) {
     // ── TCON Internal Mode: R_DLY / F_DLY single-direction arrows ──
     var gpio = wfgGpios[ch.gpioIdx];
@@ -14695,7 +14718,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     // Find the rising and falling edge surrounding the mouse position
     // Left edge of current block = rising edge position, right edge = falling edge position
     // curLevel tells us if mouse is on a HIGH (pulse) or LOW block
-    var arrowResult = { x1: 0, x2: 0, y: 0, arrow2: null, _tconHoverChIdx: chIdx };
+    var arrowResult = { x1: 0, x2: 0, y: 0, arrow2: null, _tconHoverChIdx: chIdx, _midY: (yHigh + yLow) / 2 };
 
     if (curLevel === 1) {
       // Mouse is on a HIGH block: leftEdge is a rising edge, rightEdge is a falling edge
@@ -14984,9 +15007,10 @@ function wfgMeasDrawArrow(ctx) {
     // Also draw white bi-directional arrows in TCON mode
     ctx.strokeStyle = '#f8fafc';
     ctx.fillStyle = '#f8fafc';
-    drawBiArrow(a.x1, a.x2, a.y);
+    var biY = a._midY || a.y;
+    drawBiArrow(a.x1, a.x2, biY);
     if (a.arrow2) {
-      drawBiArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y);
+      drawBiArrow(a.arrow2.x1, a.arrow2.x2, biY);
     }
     // TCON internal colored uni-arrows with labels
     if (a._rDlyArrow) {
