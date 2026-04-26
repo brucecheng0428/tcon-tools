@@ -12506,9 +12506,11 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
 
       // INI_VAL reset: if previous F_DLY was suppressed (level drifted from INI_VAL)
       // and rising is about to fire on this line, reset signal to INI_VAL at line start
+      var iniResetted = false;
       if (rCnt === actType && line <= sp && level !== initLevel) {
         allTransitions.push({ line: lineOffset + line, dly: 0, level: initLevel });
         level = initLevel;
+        iniResetted = true;
       }
 
       // Check R_PH_CNT == ACT_TYPE → rising edge (set to 1)
@@ -12524,7 +12526,9 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
           if (gpio.f_st_sel && rActualLine >= vtotal) {
             // Transition exceeds frame boundary — suppress under F_ST_SEL
           } else {
-            allTransitions.push({ line: lineOffset + rActualLine, dly: rNormDly, level: 1 });
+            // If INI_VAL was just reset on this line, ensure at least 1 DCLK gap
+            var rEffDly = (iniResetted && rExtraLines === 0 && rNormDly < 1) ? 1 : rNormDly;
+            allTransitions.push({ line: lineOffset + rActualLine, dly: rEffDly, level: 1 });
           }
           rFired = true;
           rDlyVal = rDly;
