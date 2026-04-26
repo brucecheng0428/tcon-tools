@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.8</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.9</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.13</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.14</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12323,7 +12323,11 @@ var _wfgLastChTransitions = [];
 // Stores pre-computed base transitions for each GPIO so that zoom/pan/scroll
 // only read from cache instead of re-running wfgCalcGpio every frame.
 var _wfgTransitionCache = null; // { effVtotal, effHtotal, transitions: [] } or null
-function wfgInvalidateCache() { _wfgTransitionCache = null; }
+// ─── OAX Result Cache ───
+// Stores per-channel OAX-applied transitions so zoom/pan doesn't re-merge/sort.
+// Keyed by gpioIdx → result array. Invalidated together with transition cache.
+var _wfgOaxCache = null; // Map: gpioIdx → transitions (with OAX applied)
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
   var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
@@ -12339,7 +12343,16 @@ function wfgEnsureTransitions() {
     transitions.push(wfgCalcGpio(wfgGpios[gi], effVtotal, effHtotal, wfgFrame.frameCount));
   }
   _wfgTransitionCache = { effVtotal: effVtotal, effHtotal: effHtotal, transitions: transitions };
+  _wfgOaxCache = null; // OAX depends on base transitions, invalidate
   return _wfgTransitionCache;
+}
+// Get OAX-applied transitions for a channel, with caching
+function wfgGetOaxTransitions(gpioIdx, baseTransitions, allGpioTransitions, effHtotal) {
+  if (!_wfgOaxCache) _wfgOaxCache = {};
+  if (_wfgOaxCache[gpioIdx] !== undefined) return _wfgOaxCache[gpioIdx];
+  var result = wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, effHtotal);
+  _wfgOaxCache[gpioIdx] = result;
+  return result;
 }
 let wfgDragStartX = 0;
 let wfgDragStartView = 0;
@@ -13069,24 +13082,34 @@ function wfgRender() {
     ctx.fillStyle = 'rgba(35,54,85,0.85)';
     ctx.fillRect(drawX0, WFG_LINE_Y, drawW, WFG_LINE_H);
   } else {
+  // Pass 1: fill banners
+  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+    var xLeft = Math.max(drawX0, lineToX(ln));
+    var xRight = Math.min(w, lineToX(ln + 1));
+    if (xRight <= drawX0 || xLeft >= w) continue;
+    var lineInFrame = ln % vtotalView;
+    ctx.fillStyle = lineColors[lineInFrame % 2];
+    ctx.fillRect(xLeft, WFG_LINE_Y, xRight - xLeft, WFG_LINE_H);
+  }
+  // Pass 2: batch gridlines into one path
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+    var xLeft = Math.max(drawX0, lineToX(ln));
+    if (xLeft <= drawX0 && ln === firstVisLine) continue;
+    if (xLeft < drawX0 || xLeft >= w) continue;
+    ctx.moveTo(xLeft, WFG_LINE_Y);
+    ctx.lineTo(xLeft, h);
+  }
+  ctx.stroke();
+  // Pass 3: text labels
   for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
     var xLeft = Math.max(drawX0, lineToX(ln));
     var xRight = Math.min(w, lineToX(ln + 1));
     if (xRight <= drawX0 || xLeft >= w) continue;
     var bw = xRight - xLeft;
-    // Show line number relative to frame
     var lineInFrame = ln % vtotalView;
-    ctx.fillStyle = lineColors[lineInFrame % 2];
-    ctx.fillRect(xLeft, WFG_LINE_Y, bw, WFG_LINE_H);
-    // Single continuous gridline from Line banner top to bottom (avoid double lines)
-    if (ln > firstVisLine || xLeft > drawX0) {
-      ctx.strokeStyle = '#21262d';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(xLeft, WFG_LINE_Y);
-      ctx.lineTo(xLeft, h);
-      ctx.stroke();
-    }
     if (bw > 30) {
       ctx.fillStyle = '#c9d1d9';
       ctx.font = '10px monospace';
@@ -13132,43 +13155,63 @@ function wfgRender() {
     var showDclkGrid = pxPerDclk >= 4;
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
-    for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
-      var dxLeft = lineToX(dln);
-      var dxRight = lineToX(dln + 1);
-      // Secondary DCLK gridlines (every 1 DCLK)
-      if (showDclkGrid && dclkStep > 1) {
-        ctx.strokeStyle = 'rgba(33,38,45,0.3)';
-        ctx.lineWidth = 1;
+    // Batch secondary DCLK gridlines into one path
+    if (showDclkGrid && dclkStep > 1) {
+      ctx.strokeStyle = 'rgba(33,38,45,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
+        var dxLeft = lineToX(dln);
+        var dxRight = lineToX(dln + 1);
         for (var dd = 1; dd < dclkPerLine; dd++) {
-          if (dd % dclkStep === 0) continue; // skip major gridline positions
+          if (dd % dclkStep === 0) continue;
           var dfrac = dd / dclkPerLine;
           var ddx = dxLeft + (dxRight - dxLeft) * dfrac;
           if (ddx < drawX0 || ddx > w) continue;
-          ctx.beginPath();
           ctx.moveTo(ddx, WFG_AXIS_H);
           ctx.lineTo(ddx, h);
-          ctx.stroke();
         }
       }
-      // Major DCLK labels + gridlines
+      ctx.stroke();
+    }
+    // Batch major DCLK tick marks
+    ctx.strokeStyle = '#21262d';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    var _majorDclkGridPts = []; // collect {dx} for grid lines below
+    for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
+      var dxLeft = lineToX(dln);
+      var dxRight = lineToX(dln + 1);
       for (var d = 0; d < dclkPerLine; d += dclkStep) {
         var frac = d / dclkPerLine;
         var dx = dxLeft + (dxRight - dxLeft) * frac;
         if (dx < drawX0 || dx > w) continue;
-        ctx.strokeStyle = '#21262d';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
         ctx.moveTo(dx, WFG_DCLK_Y + WFG_DCLK_H - 3);
         ctx.lineTo(dx, WFG_DCLK_Y + WFG_DCLK_H);
-        ctx.stroke();
-        if (d > 0) {
-          ctx.strokeStyle = 'rgba(33,38,45,0.5)';
-          ctx.beginPath();
-          ctx.moveTo(dx, WFG_AXIS_H);
-          ctx.lineTo(dx, h);
-          ctx.stroke();
-        }
-        ctx.fillStyle = '#58a6ff';
+        if (d > 0) _majorDclkGridPts.push(dx);
+      }
+    }
+    ctx.stroke();
+    // Batch major DCLK gridlines
+    if (_majorDclkGridPts.length > 0) {
+      ctx.strokeStyle = 'rgba(33,38,45,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var gi2 = 0; gi2 < _majorDclkGridPts.length; gi2++) {
+        ctx.moveTo(_majorDclkGridPts[gi2], WFG_AXIS_H);
+        ctx.lineTo(_majorDclkGridPts[gi2], h);
+      }
+      ctx.stroke();
+    }
+    // DCLK labels (text must be drawn individually)
+    ctx.fillStyle = '#58a6ff';
+    for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
+      var dxLeft = lineToX(dln);
+      var dxRight = lineToX(dln + 1);
+      for (var d = 0; d < dclkPerLine; d += dclkStep) {
+        var frac = d / dclkPerLine;
+        var dx = dxLeft + (dxRight - dxLeft) * frac;
+        if (dx < drawX0 || dx > w) continue;
         ctx.fillText(d.toString(), dx, WFG_DCLK_Y + WFG_DCLK_H - 4);
       }
     }
@@ -13182,12 +13225,14 @@ function wfgRender() {
   ctx.lineTo(w, WFG_AXIS_H - 1);
   ctx.stroke();
 
-  // Draw frame boundaries
+  // Draw frame boundaries (viewport-culled)
   if (wfgFrame.frameCount > 1) {
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
-    for (var fi = 1; fi < wfgFrame.frameCount; fi++) {
+    var fbFirst = Math.max(1, Math.ceil(wfgViewStart / vtotalView));
+    var fbLast = Math.min(wfgFrame.frameCount - 1, Math.floor(wfgViewEnd / vtotalView));
+    for (var fi = fbFirst; fi <= fbLast; fi++) {
       var fx = lineToX(fi * vtotalView);
       if (fx > drawX0 && fx < w) {
         ctx.beginPath();
@@ -13252,7 +13297,7 @@ function wfgRender() {
 
     // Compute transitions with OAX applied
     var baseTransitions = allGpioTransitions[ch.gpioIdx];
-    var transitions = wfgApplyOAX(ch.gpioIdx, baseTransitions, allGpioTransitions, effHtotal);
+    var transitions = wfgGetOaxTransitions(ch.gpioIdx, baseTransitions, allGpioTransitions, effHtotal);
     _wfgLastChTransitions[i] = transitions;
     if (transitions.length === 0) {
       ctx.strokeStyle = ch.color;
@@ -13351,8 +13396,8 @@ function wfgRender() {
 
   wfgMeasDrawArrow(ctx);
   wfgDrawCursors(ctx);
-  if (!_wfgLabelDrag) wfgRenderLabels();
-  if (typeof wfgPulseRefresh === 'function') wfgPulseRefresh();
+  if (!_wfgLabelDrag && !wfgDragging) wfgRenderLabels();
+  if (typeof wfgPulseRefresh === 'function' && !wfgDragging) wfgPulseRefresh();
 }
 
 function wfgRenderLabels() {
@@ -14304,30 +14349,40 @@ function wfgInitCanvas() {
     wfgInertiaRaf = requestAnimationFrame(step);
   }
 
-  // Wheel zoom
+  // Wheel zoom (rAF-throttled for perf)
+  var _wfgWheelRaf = 0;
+  var _wfgWheelAccum = 0; // accumulate deltaY between frames
+  var _wfgWheelFrac = 0.5;
   canvas.addEventListener('wheel', function(e) {
     e.preventDefault();
     wfgStopInertia();
     var rect = canvas.getBoundingClientRect();
     var mouseX = e.clientX - rect.left;
-    var frac = Math.max(0, Math.min(1, (mouseX - WFG_LABEL_W) / (rect.width - WFG_LABEL_W)));
-    if (wfgKvdatMode) {
-      var range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
-      var pivot = wfgKvdatTimeStart + range * frac;
-      var factor = e.deltaY > 0 ? 1.2 : 0.8;
-      var newRange = Math.max(100, range * factor);
-      wfgKvdatTimeStart = pivot - newRange * frac;
-      wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
-      wfgRender(); wfgUpdateMinimapViewport(); return;
-    }
-    var totalLines = wfgTotalLines();
-    var range = wfgViewEnd - wfgViewStart;
-    var pivot = wfgViewStart + range * frac;
-    var factor = e.deltaY > 0 ? 1.2 : 0.8;
-    var newRange = Math.max(0.005, Math.min(totalLines, range * factor));
-    wfgViewStart = Math.max(0, pivot - newRange * frac);
-    wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
-    wfgRender(); wfgUpdateMinimapViewport();
+    _wfgWheelFrac = Math.max(0, Math.min(1, (mouseX - WFG_LABEL_W) / (rect.width - WFG_LABEL_W)));
+    _wfgWheelAccum += e.deltaY;
+    if (_wfgWheelRaf) return; // already scheduled
+    _wfgWheelRaf = requestAnimationFrame(function() {
+      _wfgWheelRaf = 0;
+      var dy = _wfgWheelAccum;
+      _wfgWheelAccum = 0;
+      if (wfgKvdatMode) {
+        var range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+        var pivot = wfgKvdatTimeStart + range * _wfgWheelFrac;
+        var factor = dy > 0 ? 1.2 : 0.8;
+        var newRange = Math.max(100, range * factor);
+        wfgKvdatTimeStart = pivot - newRange * _wfgWheelFrac;
+        wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
+        wfgRender(); wfgUpdateMinimapViewport(); return;
+      }
+      var totalLines = wfgTotalLines();
+      var range = wfgViewEnd - wfgViewStart;
+      var pivot = wfgViewStart + range * _wfgWheelFrac;
+      var factor = dy > 0 ? 1.2 : 0.8;
+      var newRange = Math.max(0.005, Math.min(totalLines, range * factor));
+      wfgViewStart = Math.max(0, pivot - newRange * _wfgWheelFrac);
+      wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
+      wfgRender(); wfgUpdateMinimapViewport();
+    });
   }, { passive: false });
 
   // Drag pan (mouse) with velocity tracking
@@ -14356,34 +14411,45 @@ function wfgInitCanvas() {
     wfgVelocity = 0;
     canvas.style.cursor = 'grabbing';
   });
+  // Drag pan mousemove (rAF-throttled for perf)
+  var _wfgDragRaf = 0;
+  var _wfgDragLastE = null;
   window.addEventListener('mousemove', function(e) {
     if (!wfgDragging) return;
-    var canvas = document.getElementById('wfg-canvas');
-    if (!canvas) return;
-    var rect = canvas.getBoundingClientRect();
-    var drawW = rect.width - WFG_LABEL_W;
-    if (drawW <= 0) return;
+    // Always track velocity (needs every event for accuracy)
     var now = performance.now();
     var dtMs = now - wfgLastMoveTime;
     if (dtMs > 0) wfgVelocity = (e.clientX - wfgLastMoveX) / Math.max(1, dtMs) * 16;
     wfgLastMoveX = e.clientX;
     wfgLastMoveTime = now;
-    var dx = e.clientX - wfgDragStartX;
-    if (wfgKvdatMode) {
-      var range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
-      var dt = -(dx / drawW) * range;
-      wfgKvdatTimeStart = wfgDragStartViewKvdat + dt;
-      wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
-      wfgRender(); wfgUpdateMinimapViewport(); return;
-    }
-    var totalLines = wfgTotalLines();
-    var range = wfgViewEnd - wfgViewStart;
-    var dLines = -(dx / drawW) * range;
-    var newStart = wfgDragStartView + dLines;
-    newStart = Math.max(0, Math.min(totalLines - range, newStart));
-    wfgViewEnd = newStart + range;
-    wfgViewStart = newStart;
-    wfgRender(); wfgUpdateMinimapViewport();
+    _wfgDragLastE = e;
+    if (_wfgDragRaf) return; // already scheduled
+    _wfgDragRaf = requestAnimationFrame(function() {
+      _wfgDragRaf = 0;
+      var ev = _wfgDragLastE;
+      if (!ev || !wfgDragging) return;
+      var canvas = document.getElementById('wfg-canvas');
+      if (!canvas) return;
+      var rect = canvas.getBoundingClientRect();
+      var drawW = rect.width - WFG_LABEL_W;
+      if (drawW <= 0) return;
+      var dx = ev.clientX - wfgDragStartX;
+      if (wfgKvdatMode) {
+        var range = wfgKvdatTimeEnd - wfgKvdatTimeStart;
+        var dt = -(dx / drawW) * range;
+        wfgKvdatTimeStart = wfgDragStartViewKvdat + dt;
+        wfgKvdatTimeEnd = wfgKvdatTimeStart + range;
+        wfgRender(); wfgUpdateMinimapViewport(); return;
+      }
+      var totalLines = wfgTotalLines();
+      var range = wfgViewEnd - wfgViewStart;
+      var dLines = -(dx / drawW) * range;
+      var newStart = wfgDragStartView + dLines;
+      newStart = Math.max(0, Math.min(totalLines - range, newStart));
+      wfgViewEnd = newStart + range;
+      wfgViewStart = newStart;
+      wfgRender(); wfgUpdateMinimapViewport();
+    });
   });
   window.addEventListener('mouseup', function() {
     if (wfgDragging) {
@@ -14391,7 +14457,7 @@ function wfgInitCanvas() {
       var canvas = document.getElementById('wfg-canvas');
       if (canvas) canvas.style.cursor = 'grab';
       if (performance.now() - wfgLastMoveTime < 50) wfgStartInertia();
-      else wfgVelocity = 0;
+      else { wfgVelocity = 0; wfgRender(); } // final render with labels+pulse
     }
   });
   canvas.style.cursor = 'grab';
@@ -16291,7 +16357,7 @@ function wfgRenderMinimap() {
       var y0 = 1 + i * rowH;
       var yHigh = y0 + 1;
       var yLow = y0 + rowH - 2;
-      var transitions = wfgApplyOAX(ch.gpioIdx, mmAllGpioTr[ch.gpioIdx], mmAllGpioTr, mmEffHtotal);
+      var transitions = wfgGetOaxTransitions(ch.gpioIdx, mmAllGpioTr[ch.gpioIdx], mmAllGpioTr, mmEffHtotal);
 
       ctx.strokeStyle = ch.color;
       ctx.lineWidth = 1;
@@ -16531,7 +16597,7 @@ function wfgPulseCountTcon(item) {
   var rangeStartLine = range.t1 / timePerLine;
   var rangeEndLine = range.t2 / timePerLine;
 
-  var transitions = wfgApplyOAX(ch.gpioIdx, cache.transitions[ch.gpioIdx], cache.transitions, cache.effHtotal);
+  var transitions = wfgGetOaxTransitions(ch.gpioIdx, cache.transitions[ch.gpioIdx], cache.transitions, cache.effHtotal);
   if (transitions.length === 0) return 0;
 
   // Build position/level arrays in range
