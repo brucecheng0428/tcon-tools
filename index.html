@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.43.5</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.44.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.26.5</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.27.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2826,8 +2826,18 @@
                 <input type="number" id="wfg-framerate" value="60" min="1" step="1" oninput="wfgOnFrameRateChange()">
               </div>
               <div class="wfg-field">
-                <label>DCLK (MHz) <span id="wfg-dclk-calc" style="font-size:10px;color:#64748b"></span></label>
+                <label>RX DCLK (MHz)</label>
+                <input type="number" id="wfg-rx-dclk" value="74.25" readonly style="background:#1a2332;color:#94a3b8;cursor:not-allowed;">
+              </div>
+            </div>
+            <div class="wfg-field-row">
+              <div class="wfg-field">
+                <label>TCON DCLK (MHz) <span id="wfg-dclk-calc" style="font-size:10px;color:#64748b"></span></label>
                 <input type="number" id="wfg-dclk" value="74.25" min="0.1" step="any" onchange="wfgOnDclkManualChange()">
+              </div>
+              <div class="wfg-field">
+                <label>TCON Htotal</label>
+                <input type="number" id="wfg-tcon-htotal" value="2200" readonly style="background:#1a2332;color:#94a3b8;cursor:not-allowed;">
               </div>
             </div>
             <div class="wfg-field-row">
@@ -12302,7 +12312,7 @@ let wfgGpios = WFG_GPIO_NAMES.map(n => wfgMakeGpio(n));
 let wfgChannels = [];
 for (let i = 0; i < 16; i++) wfgChannels.push(wfgMakeChannel(i));
 
-let wfgFrame = { vtotal: 1125, vactive: 1080, htotal: 2200, htotalBase: 2200, hactive: 1920, dclk: 74.25, frameRate: 60, gateType: 'single', frameCount: 10 };
+let wfgFrame = { vtotal: 1125, vactive: 1080, htotal: 2200, htotalBase: 2200, hactive: 1920, dclk: 74.25, rxDclk: 74.25, tconHtotal: 2200, frameRate: 60, gateType: 'single', frameCount: 10 };
 let wfgViewStart = 0;
 let wfgViewEnd = 100;
 let wfgDragging = false;
@@ -12399,7 +12409,7 @@ let wfgTconInternalMode = false;
 let wfgLineBuffer = 6;
 const WFG_INTERNAL_ROW_H = 22; // height per internal row (RX DE, TX DE, R_PH_CNT, F_PH_CNT)
 const WFG_INTERNAL_ROW_GAP = 2;
-const WFG_INTERNAL_ROWS = 4; // RX DE, TX DE, R_PH_CNT, F_PH_CNT
+const WFG_INTERNAL_ROWS = 6; // RX DCLK label, RX DE, TCON DCLK label, TX DE, R_PH_CNT, F_PH_CNT
 const WFG_INTERNAL_COLORS = { rxde: '#38bdf8', txde: '#f97316', rph: '#4ade80', fph: '#fb923c' };
 
 const WFG_ROW_H = 40;
@@ -12941,22 +12951,23 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
 
   // Sub-pixel optimization: when too many lines, draw simplified bars instead of per-line detail
   if (_irVisLineCount > drawW * 2) {
-    // RX DE: blended bar
+    // RX DE: blended bar (row 1)
+    var rxY0 = baseY + (rowH + gap);
     ctx.fillStyle = 'rgba(56,189,248,0.15)';
-    ctx.fillRect(drawX0, baseY, drawW, rowH);
+    ctx.fillRect(drawX0, rxY0, drawW, rowH);
     ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
-    ctx.beginPath(); ctx.moveTo(drawX0, baseY + rowH/2); ctx.lineTo(drawX0 + drawW, baseY + rowH/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(drawX0, rxY0 + rowH/2); ctx.lineTo(drawX0 + drawW, rxY0 + rowH/2); ctx.stroke();
     ctx.globalAlpha = 1;
-    // TX DE: blended bar
-    var txY0 = baseY + (rowH + gap);
+    // TX DE: blended bar (row 3)
+    var txY0 = baseY + 3 * (rowH + gap);
     ctx.fillStyle = 'rgba(249,115,22,0.15)';
     ctx.fillRect(drawX0, txY0, drawW, rowH);
     ctx.strokeStyle = WFG_INTERNAL_COLORS.txde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
     ctx.beginPath(); ctx.moveTo(drawX0, txY0 + rowH/2); ctx.lineTo(drawX0 + drawW, txY0 + rowH/2); ctx.stroke();
     ctx.globalAlpha = 1;
-    // R_PH_CNT / F_PH_CNT: blended bars (no detail at this zoom)
-    var rphY0 = baseY + 2 * (rowH + gap);
-    var fphY0 = baseY + 3 * (rowH + gap);
+    // R_PH_CNT / F_PH_CNT: blended bars (row 4 & 5)
+    var rphY0 = baseY + 4 * (rowH + gap);
+    var fphY0 = baseY + 5 * (rowH + gap);
     ctx.fillStyle = 'rgba(74,222,128,0.10)';
     ctx.fillRect(drawX0, rphY0, drawW, rowH);
     ctx.fillStyle = 'rgba(251,146,60,0.10)';
@@ -12970,8 +12981,8 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     return;
   }
 
-  // ── Row 0: RX DE ──
-  var rxY = baseY;
+  // ── Row 1: RX DE ──
+  var rxY = baseY + (rowH + gap);
   var rxHigh = rxY + 3;
   var rxLow = rxY + rowH - 3;
   ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
@@ -13066,8 +13077,8 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   }
   ctx.stroke();
 
-  // ── Row 1: TX DE ──
-  var txY = baseY + (rowH + gap);
+  // ── Row 3: TX DE ──
+  var txY = baseY + 3 * (rowH + gap);
   var txHigh = txY + 3;
   var txLow = txY + rowH - 3;
   ctx.strokeStyle = WFG_INTERNAL_COLORS.txde;
@@ -13129,9 +13140,9 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   }
   ctx.stroke();
 
-  // ── Row 2 & 3: R_PH_CNT / F_PH_CNT (always visible for first channel) ──
-  var rphY = baseY + 2 * (rowH + gap);
-  var fphY = baseY + 3 * (rowH + gap);
+  // ── Row 4 & 5: R_PH_CNT / F_PH_CNT (always visible for first channel) ──
+  var rphY = baseY + 4 * (rowH + gap);
+  var fphY = baseY + 5 * (rowH + gap);
   // Show for hovered channel if measuring, otherwise first visible channel
   var _phChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : (_wfgLastHoverChIdx >= 0 ? _wfgLastHoverChIdx : 0);
   // Determine if hovered channel has no pulse (flat waveform) → force PH_CNT non-highlight
@@ -13784,7 +13795,11 @@ function wfgRenderLabels() {
     html += '<div style="height:' + WFG_DCLK_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#58a6ff;">DCLK(' + dclkNs + 'ns)</div>';
     if (wfgTconInternalMode) {
       var irH = WFG_INTERNAL_ROW_H + WFG_INTERNAL_ROW_GAP;
+      var rxDclkNs = wfgFrame.rxDclk > 0 ? (1000 / wfgFrame.rxDclk).toFixed(1) : '—';
+      var tconDclkNs = wfgFrame.dclk > 0 ? (1000 / wfgFrame.dclk).toFixed(1) : '—';
+      html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:2px;font-size:8px;color:' + WFG_INTERNAL_COLORS.rxde + ';white-space:nowrap;">RX DCLK(' + rxDclkNs + 'ns)</div>';
       html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.rxde + ';white-space:nowrap;">RX DE</div>';
+      html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:2px;font-size:8px;color:' + WFG_INTERNAL_COLORS.txde + ';white-space:nowrap;">TCON DCLK(' + tconDclkNs + 'ns)</div>';
       html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.txde + ';white-space:nowrap;">TX DE</div>';
       html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.rph + ';white-space:nowrap;">R_PH_CNT</div>';
       html += '<div style="height:' + irH + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:' + WFG_INTERNAL_COLORS.fph + ';white-space:nowrap;">F_PH_CNT</div>';
@@ -14085,10 +14100,14 @@ function wfgLoadPreset(presetName) {
   if (!preset) return;
   wfgInvalidateCache();
   // Apply frame
-  wfgFrame = { vtotal: preset.frame.vtotal, vactive: preset.frame.vactive, htotal: preset.frame.htotal, htotalBase: preset.frame.htotal, hactive: preset.frame.hactive, dclk: preset.frame.dclk, frameRate: preset.frame.frameRate || 60, gateType: preset.frame.gateType, frameCount: preset.frame.frameCount || 10 };
+  wfgFrame = { vtotal: preset.frame.vtotal, vactive: preset.frame.vactive, htotal: preset.frame.htotal, htotalBase: preset.frame.htotal, hactive: preset.frame.hactive, dclk: preset.frame.dclk, rxDclk: 0, tconHtotal: preset.frame.htotal, frameRate: preset.frame.frameRate || 60, gateType: preset.frame.gateType, frameCount: preset.frame.frameCount || 10 };
+  // Compute derived values
+  wfgUpdateRxDclk();
+  wfgClampTconDclk();
+  wfgUpdateTconHtotal();
   document.getElementById('wfg-vtotal').value = wfgFrame.vtotal;
   document.getElementById('wfg-vactive').value = wfgFrame.vactive;
-  document.getElementById('wfg-htotal').value = wfgFrame.htotal;
+  document.getElementById('wfg-htotal').value = wfgFrame.htotalBase;
   document.getElementById('wfg-hactive').value = wfgFrame.hactive;
   document.getElementById('wfg-dclk').value = wfgFrame.dclk;
   document.getElementById('wfg-framerate').value = wfgFrame.frameRate;
@@ -14129,28 +14148,50 @@ function wfgLoadPreset(presetName) {
   wfgResizeAndRender();
 }
 
-function wfgCalcDclk() {
-  // DCLK(MHz) = Htotal × Vtotal × FrameRate / 2 / 1e6
+function wfgCalcRxDclk() {
+  // RX DCLK(MHz) = Htotal × Vtotal × FrameRate / 2 / 1e6
   return wfgFrame.htotalBase * wfgFrame.vtotal * wfgFrame.frameRate / 2 / 1e6;
+}
+// Backward compat alias
+function wfgCalcDclk() { return wfgCalcRxDclk(); }
+function wfgUpdateRxDclk() {
+  var rxDclk = wfgCalcRxDclk();
+  wfgFrame.rxDclk = parseFloat(rxDclk.toFixed(4));
+  var rxEl = document.getElementById('wfg-rx-dclk');
+  if (rxEl) rxEl.value = wfgFrame.rxDclk;
+}
+function wfgUpdateTconHtotal() {
+  // TCON Htotal = RX Htotal × (TCON DCLK / RX DCLK)
+  if (wfgFrame.rxDclk > 0) {
+    wfgFrame.tconHtotal = Math.round(wfgFrame.htotalBase * wfgFrame.dclk / wfgFrame.rxDclk);
+  } else {
+    wfgFrame.tconHtotal = wfgFrame.htotalBase;
+  }
+  // Also update wfgFrame.htotal for rendering (htotal = TCON Htotal)
+  wfgFrame.htotal = wfgFrame.tconHtotal;
+  var el = document.getElementById('wfg-tcon-htotal');
+  if (el) el.value = wfgFrame.tconHtotal;
+}
+function wfgClampTconDclk() {
+  if (wfgFrame.dclk < wfgFrame.rxDclk) {
+    wfgFrame.dclk = wfgFrame.rxDclk;
+    document.getElementById('wfg-dclk').value = wfgFrame.dclk;
+  }
 }
 function wfgUpdateDclkLabel() {
   var el = document.getElementById('wfg-dclk-calc');
-  if (el) el.textContent = '(≥' + wfgCalcDclk().toFixed(2) + ')';
+  if (el) el.textContent = '(≥' + wfgCalcRxDclk().toFixed(2) + ')';
 }
 function wfgOnFrameRateChange() {
   wfgInvalidateCache();
   wfgFrame.frameRate = parseInt(document.getElementById('wfg-framerate').value) || 60;
-  var calcDclk = wfgCalcDclk();
-  // If current DCLK < calculated, snap up; update Htotal accordingly
-  if (wfgFrame.dclk < calcDclk) {
-    wfgFrame.dclk = parseFloat(calcDclk.toFixed(4));
-    wfgFrame.htotal = wfgFrame.htotalBase;
-    document.getElementById('wfg-dclk').value = wfgFrame.dclk;
-    document.getElementById('wfg-htotal').value = wfgFrame.htotal;
-  } else {
-    // Recalculate Htotal to maintain line time with current DCLK
-    wfgRecalcHtotal();
-  }
+  // Update RX DCLK
+  wfgUpdateRxDclk();
+  // Clamp TCON DCLK ≥ RX DCLK
+  wfgClampTconDclk();
+  // Recalculate Htotal to maintain line time with current TCON DCLK
+  wfgRecalcHtotal();
+  wfgUpdateTconHtotal();
   wfgUpdateDclkLabel();
   wfgRender();
   wfgRenderMinimap();
@@ -14159,27 +14200,23 @@ function wfgOnFrameRateChange() {
 function wfgOnDclkManualChange() {
   wfgInvalidateCache();
   var newDclk = parseFloat(document.getElementById('wfg-dclk').value) || 1;
-  var calcDclk = wfgCalcDclk();
-  if (newDclk < calcDclk) {
-    newDclk = calcDclk;
-    document.getElementById('wfg-dclk').value = newDclk.toFixed(4);
+  // Clamp: TCON DCLK ≥ RX DCLK
+  if (newDclk < wfgFrame.rxDclk) {
+    newDclk = wfgFrame.rxDclk;
+    document.getElementById('wfg-dclk').value = newDclk;
   }
   wfgFrame.dclk = newDclk;
   // Recalculate Htotal: line time = 1/(FrameRate*Vtotal), Htotal = DCLK*1e6 * lineTime * 2
   wfgRecalcHtotal();
+  wfgUpdateTconHtotal();
   wfgRender();
   wfgRenderMinimap();
   wfgUpdateMinimapViewport();
 }
 function wfgRecalcHtotal() {
-  // Line time = 1/(FrameRate*Vtotal)
-  // Htotal = DCLK*1e6 * lineTime * 2 = DCLK*1e6*2 / (FrameRate*Vtotal)
-  if (wfgFrame.frameRate > 0 && wfgFrame.vtotal > 0) {
-    var newHtotal = Math.round(wfgFrame.dclk * 1e6 * 2 / (wfgFrame.frameRate * wfgFrame.vtotal));
-    if (newHtotal < wfgFrame.htotalBase) newHtotal = wfgFrame.htotalBase;
-    wfgFrame.htotal = newHtotal;
-    document.getElementById('wfg-htotal').value = newHtotal;
-  }
+  // TCON Htotal = RX Htotal × (TCON DCLK / RX DCLK)
+  // wfg-htotal input stays as htotalBase (RX Htotal), don't overwrite it
+  wfgUpdateTconHtotal();
 }
 window.wfgOnFrameRateChange = wfgOnFrameRateChange;
 window.wfgOnDclkManualChange = wfgOnDclkManualChange;
@@ -14196,12 +14233,12 @@ function wfgOnParamChange() {
   document.getElementById('wfg-frame-count').value = wfgFrame.frameCount;
   var gateRadio = document.querySelector('input[name="wfg-gate"]:checked');
   wfgFrame.gateType = gateRadio ? gateRadio.value : 'single';
-  // Recalculate DCLK from Htotal/Vtotal/FrameRate
-  var calcDclk = wfgCalcDclk();
-  if (wfgFrame.dclk < calcDclk) {
-    wfgFrame.dclk = parseFloat(calcDclk.toFixed(4));
-    document.getElementById('wfg-dclk').value = wfgFrame.dclk;
-  }
+  // Update RX DCLK from Htotal/Vtotal/FrameRate
+  wfgUpdateRxDclk();
+  // Clamp TCON DCLK ≥ RX DCLK
+  wfgClampTconDclk();
+  wfgRecalcHtotal();
+  wfgUpdateTconHtotal();
   wfgUpdateDclkLabel();
   wfgRender();
   wfgRenderMinimap();
@@ -15255,7 +15292,9 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
   // Compute arrow pixel positions (white bi-directional arrows)
   var irRowH = WFG_INTERNAL_ROW_H;
   var irGap = WFG_INTERNAL_ROW_GAP;
-  var rowY0 = WFG_AXIS_H + deRowIdx * (irRowH + irGap);
+  // Row mapping: deRowIdx 0=RX DE (row 1), 1=TX DE (row 3)
+  var rowOffset = deRowIdx === 0 ? 1 : 3;
+  var rowY0 = WFG_AXIS_H + rowOffset * (irRowH + irGap);
   var yHigh = rowY0 + 3;
   var yLow = rowY0 + irRowH - 3;
   var midY = (yHigh + yLow) / 2;
@@ -15287,8 +15326,8 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     if (wfgTconInternalMode && !wfgKvdatMode) {
       var irRowH = WFG_INTERNAL_ROW_H;
       var irGap = WFG_INTERNAL_ROW_GAP;
-      var rxDeY0 = WFG_AXIS_H;
-      var txDeY0 = WFG_AXIS_H + irRowH + irGap;
+      var rxDeY0 = WFG_AXIS_H + (irRowH + irGap); // row 1
+      var txDeY0 = WFG_AXIS_H + 3 * (irRowH + irGap); // row 3
       var deRowIdx = -1; // 0=RX DE, 1=TX DE
       if (cy >= rxDeY0 && cy < rxDeY0 + irRowH) deRowIdx = 0;
       else if (cy >= txDeY0 && cy < txDeY0 + irRowH) deRowIdx = 1;
@@ -16212,6 +16251,8 @@ function wfgInit() {
   wfgInitCanvas();
   wfgRenderGpioList();
   wfgRenderChannelList();
+  wfgUpdateRxDclk();
+  wfgUpdateTconHtotal();
   wfgUpdateDclkLabel();
   wfgUpdateTconInternalVisibility();
   // Force-sync checkbox UI with wfgTconInternalMode after visibility update
@@ -17363,9 +17404,13 @@ window.wfgImportConfig = function(jsonStr) {
     wfgFrame.gateType = f.gateType || 'single';
     wfgFrame.frameCount = f.frameCount || 10;
   }
+  // Compute derived values: RX DCLK, TCON Htotal
+  wfgUpdateRxDclk();
+  wfgClampTconDclk();
+  wfgUpdateTconHtotal();
   document.getElementById('wfg-vtotal').value = wfgFrame.vtotal;
   document.getElementById('wfg-vactive').value = wfgFrame.vactive;
-  document.getElementById('wfg-htotal').value = wfgFrame.htotal;
+  document.getElementById('wfg-htotal').value = wfgFrame.htotalBase;
   document.getElementById('wfg-hactive').value = wfgFrame.hactive;
   document.getElementById('wfg-dclk').value = wfgFrame.dclk;
   document.getElementById('wfg-framerate').value = wfgFrame.frameRate;
