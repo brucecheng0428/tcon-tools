@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.14</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.15</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12322,28 +12322,37 @@ var _wfgLastChTransitions = [];
 // ─── Phase Counter Transition Cache ───
 // Stores pre-computed base transitions for each GPIO so that zoom/pan/scroll
 // only read from cache instead of re-running wfgCalcGpio every frame.
-var _wfgTransitionCache = null; // { effVtotal, effHtotal, transitions: [] } or null
+var _wfgTransitionCache = null; // { effVtotal, effHtotal, frameCount, transitions: [] } or null
 // ─── OAX Result Cache ───
 // Stores per-channel OAX-applied transitions so zoom/pan doesn't re-merge/sort.
 // Keyed by gpioIdx → result array. Invalidated together with transition cache.
 var _wfgOaxCache = null; // Map: gpioIdx → transitions (with OAX applied)
-function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; }
+// ─── Minimap offscreen cache ───
+var _wfgMinimapCache = null; // { canvas: OffscreenCanvas|HTMLCanvasElement, w, h } or null
+// ─── Performance timing ───
+var _wfgPerfEnabled = false; // Toggle: _wfgPerfEnabled = true in console
+var _wfgPerfLast = {};
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
   var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
   var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
   var effHtotal = Math.round(dclkPerLine);
+  var fc = wfgFrame.frameCount || 1;
   if (_wfgTransitionCache &&
       _wfgTransitionCache.effVtotal === effVtotal &&
-      _wfgTransitionCache.effHtotal === effHtotal) {
+      _wfgTransitionCache.effHtotal === effHtotal &&
+      _wfgTransitionCache.frameCount === fc) {
     return _wfgTransitionCache;
   }
+  var t0 = performance.now();
   var transitions = [];
   for (var gi = 0; gi < wfgGpios.length; gi++) {
-    transitions.push(wfgCalcGpio(wfgGpios[gi], effVtotal, effHtotal, wfgFrame.frameCount));
+    transitions.push(wfgCalcGpio(wfgGpios[gi], effVtotal, effHtotal, fc));
   }
-  _wfgTransitionCache = { effVtotal: effVtotal, effHtotal: effHtotal, transitions: transitions };
+  _wfgTransitionCache = { effVtotal: effVtotal, effHtotal: effHtotal, frameCount: fc, transitions: transitions };
   _wfgOaxCache = null; // OAX depends on base transitions, invalidate
+  if (_wfgPerfEnabled) console.warn('[WFG perf] cache MISS — wfgCalcGpio recomputed in ' + (performance.now() - t0).toFixed(1) + 'ms');
   return _wfgTransitionCache;
 }
 // Get OAX-applied transitions for a channel, with caching
@@ -12698,6 +12707,38 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   // Visible line range
   var firstVisLine = Math.max(0, Math.floor(viewStart));
   var lastVisLine = Math.min(wfgTotalLines() - 1, Math.ceil(viewEnd));
+  var _irVisLineCount = lastVisLine - firstVisLine + 1;
+
+  // Sub-pixel optimization: when too many lines, draw simplified bars instead of per-line detail
+  if (_irVisLineCount > drawW * 2) {
+    // RX DE: blended bar
+    ctx.fillStyle = 'rgba(56,189,248,0.15)';
+    ctx.fillRect(drawX0, baseY, drawW, rowH);
+    ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(drawX0, baseY + rowH/2); ctx.lineTo(drawX0 + drawW, baseY + rowH/2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // TX DE: blended bar
+    var txY0 = baseY + (rowH + gap);
+    ctx.fillStyle = 'rgba(249,115,22,0.15)';
+    ctx.fillRect(drawX0, txY0, drawW, rowH);
+    ctx.strokeStyle = WFG_INTERNAL_COLORS.txde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(drawX0, txY0 + rowH/2); ctx.lineTo(drawX0 + drawW, txY0 + rowH/2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // R_PH_CNT / F_PH_CNT: blended bars (no detail at this zoom)
+    var rphY0 = baseY + 2 * (rowH + gap);
+    var fphY0 = baseY + 3 * (rowH + gap);
+    ctx.fillStyle = 'rgba(74,222,128,0.10)';
+    ctx.fillRect(drawX0, rphY0, drawW, rowH);
+    ctx.fillStyle = 'rgba(251,146,60,0.10)';
+    ctx.fillRect(drawX0, fphY0, drawW, rowH);
+    // Row separators
+    ctx.strokeStyle = 'rgba(48,54,61,0.5)'; ctx.lineWidth = 1;
+    for (var ri = 0; ri < WFG_INTERNAL_ROWS; ri++) {
+      var ry = baseY + ri * (rowH + gap) + rowH + gap / 2;
+      ctx.beginPath(); ctx.moveTo(drawX0, ry); ctx.lineTo(w, ry); ctx.stroke();
+    }
+    return;
+  }
 
   // ── Row 0: RX DE ──
   var rxY = baseY;
@@ -12984,6 +13025,7 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
 // ─── Canvas Renderer ───
 function wfgRender() {
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
+  var _pT0 = _wfgPerfEnabled ? performance.now() : 0;
   var canvas = document.getElementById('wfg-canvas');
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
@@ -13014,6 +13056,7 @@ function wfgRender() {
   var drawX0 = WFG_LABEL_W;
 
   // Clear
+  var _pTaxis0 = _wfgPerfEnabled ? performance.now() : 0;
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, w, h);
 
@@ -13244,19 +13287,25 @@ function wfgRender() {
     ctx.setLineDash([]);
   }
 
+  if (_wfgPerfEnabled) _wfgPerfLast.axis = performance.now() - _pTaxis0;
+
   // Use cached transitions (only recomputed when parameters change)
+  var _pT1 = _wfgPerfEnabled ? performance.now() : 0;
   var cache = wfgEnsureTransitions();
   var effVtotal = cache.effVtotal;
   var effHtotal = cache.effHtotal;
   var allGpioTransitions = cache.transitions;
+  if (_wfgPerfEnabled) _wfgPerfLast.cache = performance.now() - _pT1;
 
   // ── TCON Internal Rows (RX DE, TX DE, R_PH_CNT, F_PH_CNT) ──
   var internalExtraH = wfgInternalExtraH();
   var wfgWaveY0 = WFG_AXIS_H + internalExtraH; // waveform area starts after axis + internal rows
   _wfgLastVisibleChs = visibleChs; // must set BEFORE drawInternalRows (R_PH_CNT/F_PH_CNT needs it)
+  var _pT2 = _wfgPerfEnabled ? performance.now() : 0;
   if (wfgTconInternalMode && !wfgKvdatMode) {
     wfgDrawInternalRows(ctx, drawX0, drawW, w, wfgViewStart, wfgViewEnd, viewRange, lineToX, vtotalView, dclkPerLine);
   }
+  if (_wfgPerfEnabled) _wfgPerfLast.internalRows = performance.now() - _pT2;
 
   // Draw waveforms for each visible channel + cache transitions for measurement
   _wfgLastChTransitions = new Array(visibleChs.length);
@@ -13266,6 +13315,7 @@ function wfgRender() {
   var dragFromIdx = isDragging ? _wfgLabelDrag.fromIdx : -1;
 
   // Draw non-dragged channels first, then dragged channel on top
+  var _pT3 = _wfgPerfEnabled ? performance.now() : 0;
   var drawOrder = [];
   for (var i = 0; i < visibleChs.length; i++) {
     if (i !== dragFromIdx) drawOrder.push(i);
@@ -13394,10 +13444,15 @@ function wfgRender() {
   ctx.lineTo(WFG_LABEL_W, h);
   ctx.stroke();
 
+  if (_wfgPerfEnabled) _wfgPerfLast.waveforms = performance.now() - _pT3;
   wfgMeasDrawArrow(ctx);
   wfgDrawCursors(ctx);
   if (!_wfgLabelDrag && !wfgDragging) wfgRenderLabels();
   if (typeof wfgPulseRefresh === 'function' && !wfgDragging) wfgPulseRefresh();
+  if (_wfgPerfEnabled) {
+    _wfgPerfLast.total = performance.now() - _pT0;
+    console.log('[WFG perf] render: ' + JSON.stringify(_wfgPerfLast) + ' ms');
+  }
 }
 
 function wfgRenderLabels() {
@@ -16369,15 +16424,40 @@ function wfgRenderMinimap() {
       ctx.moveTo(0, curY);
 
       var mmDclkPerLine = mmIsDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
-      for (var ti = 0; ti < transitions.length; ti++) {
-        var t = transitions[ti];
-        var fracDly = mmDclkPerLine > 0 ? t.dly / mmDclkPerLine : 0;
-        var x = ((t.line + fracDly) / totalLines) * boxW;
-        ctx.lineTo(x, curY);
-        curLevel = t.level;
-        var newY = curLevel ? yHigh : yLow;
-        ctx.lineTo(x, newY);
-        curY = newY;
+      if (transitions.length > boxW * 3) {
+        // Dense mode: one drawing op per pixel column (O(boxW) not O(transitions))
+        var ti2 = 0;
+        for (var px = 0; px < boxW; px++) {
+          var lineRight = ((px + 1) / boxW) * totalLines;
+          var count = 0;
+          var lastLevel = curLevel;
+          while (ti2 < transitions.length && transitions[ti2].line <= lineRight) {
+            lastLevel = transitions[ti2].level;
+            ti2++; count++;
+          }
+          curLevel = lastLevel;
+          var xPx = px + 0.5;
+          if (count > 0) {
+            ctx.lineTo(xPx, yLow);
+            ctx.lineTo(xPx, yHigh);
+            curY = curLevel ? yHigh : yLow;
+            ctx.lineTo(xPx, curY);
+          } else {
+            curY = curLevel ? yHigh : yLow;
+            ctx.lineTo(xPx, curY);
+          }
+        }
+      } else {
+        for (var ti = 0; ti < transitions.length; ti++) {
+          var t = transitions[ti];
+          var fracDly = mmDclkPerLine > 0 ? t.dly / mmDclkPerLine : 0;
+          var x = ((t.line + fracDly) / totalLines) * boxW;
+          ctx.lineTo(x, curY);
+          curLevel = t.level;
+          var newY = curLevel ? yHigh : yLow;
+          ctx.lineTo(x, newY);
+          curY = newY;
+        }
       }
       ctx.lineTo(boxW, curY);
       ctx.stroke();
