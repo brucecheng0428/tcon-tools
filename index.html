@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.11</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.12</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.19</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.20</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12369,11 +12369,11 @@ function wfgEnsureTransitions() {
   var t0 = performance.now();
   var transitions = [];
   for (var gi = 0; gi < wfgGpios.length; gi++) {
-    transitions.push(wfgCalcGpio(wfgGpios[gi], effVtotal, effHtotal, fc));
+    transitions.push(wfgCalcGpioSmart(wfgGpios[gi], effVtotal, effHtotal, fc));
   }
   _wfgTransitionCache = { effVtotal: effVtotal, effHtotal: effHtotal, frameCount: fc, transitions: transitions };
-  _wfgOaxCache = null; // OAX depends on base transitions, invalidate
-  if (_wfgPerfEnabled) console.warn('[WFG perf] cache MISS — wfgCalcGpio recomputed in ' + (performance.now() - t0).toFixed(1) + 'ms');
+  _wfgOaxCache = null;
+  if (_wfgPerfEnabled) console.warn('[WFG perf] cache MISS — wfgCalcGpioSmart computed in ' + (performance.now() - t0).toFixed(1) + 'ms');
   return _wfgTransitionCache;
 }
 // Get OAX-applied transitions for a channel, with caching
@@ -12657,6 +12657,200 @@ function wfgBuildLevelArray(transitions, htotal) {
   };
 }
 
+// ─── Smart Template: compute GPIO transitions with period detection ───
+// Returns { isPeriodic, prelude, template, steadyStart, period, vtotal, frameCount, periodVtotal }
+// For non-periodic signals, returns { isPeriodic: false, transitions: flatArray }
+function wfgCalcGpioSmart(gpio, vtotal, htotal, frameCount) {
+  if (!gpio.enable) return { isPeriodic: true, prelude: [], template: [], steadyStart: 0, period: 1, vtotal: vtotal, frameCount: frameCount, periodVtotal: vtotal };
+  if (frameCount <= 3) {
+    return { isPeriodic: false, transitions: wfgCalcGpio(gpio, vtotal, htotal, frameCount) };
+  }
+  // Compute 3 frames to detect periodicity
+  var threeFr = wfgCalcGpio(gpio, vtotal, htotal, 3);
+  // Split into per-frame relative transitions
+  var frames = [[], [], []];
+  for (var i = 0; i < threeFr.length; i++) {
+    var t = threeFr[i];
+    var fi = 0;
+    if (t.line >= 2 * vtotal) fi = 2;
+    else if (t.line >= vtotal) fi = 1;
+    frames[fi].push({ relLine: t.line - fi * vtotal, dly: t.dly, level: t.level });
+  }
+  // Check if frame 1 == frame 2 (period=1)
+  var f1 = frames[1], f2 = frames[2];
+  var match = f1.length === f2.length;
+  if (match) {
+    for (var i = 0; i < f1.length; i++) {
+      if (f1[i].relLine !== f2[i].relLine || f1[i].dly !== f2[i].dly || f1[i].level !== f2[i].level) { match = false; break; }
+    }
+  }
+  if (match) {
+    // Periodic! prelude = frame 0, template = frame 1
+    var prelude = [];
+    for (var i = 0; i < frames[0].length; i++) {
+      var t = frames[0][i];
+      prelude.push({ line: t.relLine, dly: t.dly, level: t.level });
+    }
+    return { isPeriodic: true, prelude: prelude, template: f1, steadyStart: 1, period: 1, vtotal: vtotal, frameCount: frameCount, periodVtotal: vtotal };
+  }
+  // Check period=2: compare [f0,f1] with [f2,f3] — need 5 frames
+  if (frameCount > 5) {
+    var fiveFr = wfgCalcGpio(gpio, vtotal, htotal, 5);
+    var frames5 = [[], [], [], [], []];
+    for (var i = 0; i < fiveFr.length; i++) {
+      var t = fiveFr[i];
+      var fi = Math.min(4, Math.floor(t.line / vtotal));
+      frames5[fi].push({ relLine: t.line - fi * vtotal, dly: t.dly, level: t.level });
+    }
+    // Check f1+f2 == f3+f4 (period=2 from frame 1)
+    var p2match = true;
+    for (var pp = 0; pp < 2 && p2match; pp++) {
+      var fa = frames5[1 + pp], fb = frames5[3 + pp];
+      if (fa.length !== fb.length) { p2match = false; break; }
+      for (var j = 0; j < fa.length; j++) {
+        if (fa[j].relLine !== fb[j].relLine || fa[j].dly !== fb[j].dly || fa[j].level !== fb[j].level) { p2match = false; break; }
+      }
+    }
+    if (p2match) {
+      var prelude2 = [];
+      for (var i = 0; i < frames5[0].length; i++) {
+        var t = frames5[0][i];
+        prelude2.push({ line: t.relLine, dly: t.dly, level: t.level });
+      }
+      var tpl2 = [];
+      for (var pp = 0; pp < 2; pp++) {
+        for (var j = 0; j < frames5[1 + pp].length; j++) {
+          var t = frames5[1 + pp][j];
+          tpl2.push({ relLine: pp * vtotal + t.relLine, dly: t.dly, level: t.level });
+        }
+      }
+      return { isPeriodic: true, prelude: prelude2, template: tpl2, steadyStart: 1, period: 2, vtotal: vtotal, frameCount: frameCount, periodVtotal: 2 * vtotal };
+    }
+  }
+  // Fallback: full computation
+  return { isPeriodic: false, transitions: wfgCalcGpio(gpio, vtotal, htotal, frameCount) };
+}
+
+// ─── Expand smart transitions for a line range [startLine, endLine] ───
+function wfgExpandRange(smart, startLine, endLine) {
+  if (!smart.isPeriodic) {
+    var trans = smart.transitions;
+    // Binary search for start
+    var lo = 0, hi = trans.length;
+    while (lo < hi) { var mid = (lo + hi) >>> 1; if (trans[mid].line < startLine) lo = mid + 1; else hi = mid; }
+    var si = lo;
+    // Binary search for end
+    lo = si; hi = trans.length;
+    while (lo < hi) { var mid = (lo + hi) >>> 1; if (trans[mid].line <= endLine) lo = mid + 1; else hi = mid; }
+    return trans.slice(si, lo);
+  }
+  var result = [];
+  var steadyLine = smart.steadyStart * smart.vtotal;
+  // Prelude transitions in range
+  for (var i = 0; i < smart.prelude.length; i++) {
+    var t = smart.prelude[i];
+    if (t.line > endLine) break;
+    if (t.line >= startLine) result.push(t);
+  }
+  // Template transitions for steady-state
+  if (endLine >= steadyLine) {
+    var pv = smart.periodVtotal;
+    var effStart = Math.max(startLine, steadyLine);
+    var startPeriod = Math.floor((effStart - steadyLine) / pv);
+    var endPeriod = Math.floor((endLine - steadyLine) / pv);
+    var maxPeriod = Math.ceil((smart.frameCount - smart.steadyStart) / smart.period) - 1;
+    endPeriod = Math.min(endPeriod, maxPeriod);
+    for (var p = startPeriod; p <= endPeriod; p++) {
+      var pOff = steadyLine + p * pv;
+      for (var j = 0; j < smart.template.length; j++) {
+        var tpl = smart.template[j];
+        var absLine = pOff + tpl.relLine;
+        if (absLine > endLine) break;
+        if (absLine >= startLine) result.push({ line: absLine, dly: tpl.dly, level: tpl.level });
+      }
+    }
+  }
+  return result;
+}
+
+// ─── Get signal level at a given line position ───
+function wfgGetInitLevel(smart, atLine) {
+  if (!smart.isPeriodic) {
+    var trans = smart.transitions;
+    var lo = 0, hi = trans.length - 1, idx = -1;
+    while (lo <= hi) { var mid = (lo + hi) >>> 1; if (trans[mid].line <= atLine) { idx = mid; lo = mid + 1; } else hi = mid - 1; }
+    return idx >= 0 ? trans[idx].level : 0;
+  }
+  var steadyLine = smart.steadyStart * smart.vtotal;
+  if (atLine < steadyLine) {
+    var level = 0;
+    for (var i = smart.prelude.length - 1; i >= 0; i--) {
+      if (smart.prelude[i].line <= atLine) { level = smart.prelude[i].level; break; }
+    }
+    return level;
+  }
+  var pv = smart.periodVtotal;
+  var relLine = (atLine - steadyLine) % pv;
+  // Default: end-of-period level (wraps from previous period)
+  var level = smart.template.length > 0 ? smart.template[smart.template.length - 1].level : 0;
+  for (var i = smart.template.length - 1; i >= 0; i--) {
+    if (smart.template[i].relLine <= relLine) { level = smart.template[i].level; break; }
+  }
+  return level;
+}
+
+// ─── Viewport-aware OAX: expand + apply OAX for a line range ───
+function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine) {
+  var gpio = wfgGpios[gpioIdx];
+  var baseSmart = allGpioSmarts[gpioIdx];
+  if (gpio.oax_mode === 0 || gpio.oax_sel < 0 || gpio.oax_sel >= wfgGpios.length || gpio.oax_sel === gpioIdx) {
+    return { transitions: wfgExpandRange(baseSmart, startLine, endLine), initLevel: wfgGetInitLevel(baseSmart, startLine) };
+  }
+  var otherSmart = allGpioSmarts[gpio.oax_sel];
+  var baseExp = wfgExpandRange(baseSmart, startLine, endLine);
+  var otherExp = wfgExpandRange(otherSmart, startLine, endLine);
+  var baseInit = wfgGetInitLevel(baseSmart, startLine);
+  var otherInit = wfgGetInitLevel(otherSmart, startLine);
+  // Merge transition points
+  var allPts = {};
+  function addP(line, dly) { var k = line + ':' + dly; if (!allPts[k]) allPts[k] = { line: line, dly: dly }; }
+  for (var i = 0; i < baseExp.length; i++) addP(baseExp[i].line, baseExp[i].dly);
+  for (var i = 0; i < otherExp.length; i++) addP(otherExp[i].line, otherExp[i].dly);
+  var ptList = [];
+  for (var k in allPts) ptList.push(allPts[k]);
+  ptList.sort(function(a, b) { return a.line - b.line || a.dly - b.dly; });
+  // Build level functions (with initLevel)
+  function makeLevelFn(trans, initLvl, ht) {
+    var sorted = [];
+    for (var i = 0; i < trans.length; i++) {
+      var t = trans[i];
+      sorted.push({ pos: t.line + (ht > 0 ? t.dly / ht : 0), level: t.level });
+    }
+    sorted.sort(function(a, b) { return a.pos - b.pos; });
+    return function(line, dly) {
+      var pos = line + (ht > 0 ? dly / ht : 0);
+      var lvl = initLvl;
+      for (var i = 0; i < sorted.length; i++) {
+        if (sorted[i].pos <= pos) lvl = sorted[i].level; else break;
+      }
+      return lvl;
+    };
+  }
+  var baseFn = makeLevelFn(baseExp, baseInit, effHtotal);
+  var otherFn = makeLevelFn(otherExp, otherInit, effHtotal);
+  var result = [];
+  var prevLvl = -1;
+  var oaxMode = gpio.oax_mode;
+  for (var i = 0; i < ptList.length; i++) {
+    var p = ptList[i];
+    var a = baseFn(p.line, p.dly), b = otherFn(p.line, p.dly);
+    var combined = oaxMode === 1 ? (a | b) : oaxMode === 2 ? (a & b) : (a ^ b);
+    if (combined !== prevLvl) { result.push({ line: p.line, dly: p.dly, level: combined }); prevLvl = combined; }
+  }
+  var initLvl = oaxMode === 1 ? (baseInit | otherInit) : oaxMode === 2 ? (baseInit & otherInit) : (baseInit ^ otherInit);
+  return { transitions: result, initLevel: initLvl };
+}
+
 // ─── OAX: apply OAX logic to transitions ───
 function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
   var gpio = wfgGpios[gpioIdx];
@@ -12938,8 +13132,9 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     if (_wfgLastVisibleChs && _phVisChIdx < _wfgLastVisibleChs.length) {
       var _phCh = _wfgLastVisibleChs[_phVisChIdx];
       if (_phCh && _phCh.gpioIdx >= 0 && _wfgTransitionCache) {
-        var _phBaseTrans = _wfgTransitionCache.transitions[_phCh.gpioIdx];
-        if (!_phBaseTrans || _phBaseTrans.length < 2) _phNoPulse = true;
+        var _phSmartTrans = _wfgTransitionCache.transitions[_phCh.gpioIdx];
+        var _phHasTrans = _phSmartTrans && ((_phSmartTrans.isPeriodic && (_phSmartTrans.prelude.length + _phSmartTrans.template.length) >= 2) || (!_phSmartTrans.isPeriodic && _phSmartTrans.transitions && _phSmartTrans.transitions.length >= 2));
+        if (!_phHasTrans) _phNoPulse = true;
       } else {
         _phNoPulse = true; // no valid channel data
       }
@@ -13366,17 +13561,18 @@ function wfgRender() {
       ctx.stroke();
     }
 
-    // Compute transitions with OAX applied
-    var baseTransitions = allGpioTransitions[ch.gpioIdx];
-    var transitions = wfgGetOaxTransitions(ch.gpioIdx, baseTransitions, allGpioTransitions, effHtotal);
+    // Compute transitions with OAX applied — viewport-only expansion
+    var oaxResult = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, wfgViewStart, wfgViewEnd);
+    var transitions = oaxResult.transitions;
+    var curLevel = oaxResult.initLevel;
     _wfgLastChTransitions[i] = transitions;
     if (transitions.length === 0) {
       ctx.strokeStyle = ch.color;
       ctx.lineWidth = 1;
       if (!isThisDragged) ctx.globalAlpha = 0.6;
       ctx.beginPath();
-      ctx.moveTo(drawX0, yLow);
-      ctx.lineTo(w, yLow);
+      ctx.moveTo(drawX0, curLevel ? yHigh : yLow);
+      ctx.lineTo(w, curLevel ? yHigh : yLow);
       ctx.stroke();
       ctx.globalAlpha = 1;
       continue;
@@ -13388,32 +13584,15 @@ function wfgRender() {
     ctx.lineJoin = 'bevel';
     ctx.beginPath();
 
-    // Binary search: find first transition with position >= wfgViewStart (O(log n))
-    var _blo = 0, _bhi = transitions.length;
-    while (_blo < _bhi) {
-      var _bmid = (_blo + _bhi) >>> 1;
-      var _bt = transitions[_bmid];
-      if (_bt.line + (dclkPerLine > 0 ? _bt.dly / dclkPerLine : 0) < wfgViewStart) _blo = _bmid + 1; else _bhi = _bmid;
-    }
-    var firstVisIdx = _blo;
-    var curLevel = firstVisIdx > 0 ? transitions[firstVisIdx - 1].level : 0;
+    var visTransCount = transitions.length;
 
     var curY = curLevel ? yHigh : yLow;
     ctx.moveTo(drawX0, curY);
 
-    // Binary search: find end of visible range (O(log n))
-    var _blo2 = firstVisIdx, _bhi2 = transitions.length;
-    while (_blo2 < _bhi2) {
-      var _bmid2 = (_blo2 + _bhi2) >>> 1;
-      if (transitions[_bmid2].line <= wfgViewEnd) _blo2 = _bmid2 + 1; else _bhi2 = _bmid2;
-    }
-    var visTransCount = _blo2 - firstVisIdx;
-
     if (visTransCount <= drawW * 2) {
       // Sparse mode: draw each transition individually (stroke path)
-      for (var ti = firstVisIdx; ti < transitions.length; ti++) {
+      for (var ti = 0; ti < transitions.length; ti++) {
         var t = transitions[ti];
-        if (t.line > wfgViewEnd) break;
         var fracDly = dclkPerLine > 0 ? t.dly / dclkPerLine : 0;
         var x = lineToX(t.line + fracDly);
         var snapX = Math.round(x) + 0.5;
@@ -13426,23 +13605,19 @@ function wfgRender() {
       ctx.lineTo(w, curY);
       ctx.stroke();
     } else {
-      // Dense mode: fillRect per pixel column — eliminates anti-aliasing ripple
-      // (stroke path creates cross-column diagonal segments whose miter joins
-      //  extend above yHigh by ~0.2px, producing a periodic sine-wave artifact)
+      // Dense mode: fillRect per pixel column
       var yHighI = Math.round(yHigh - 0.5);
       var yLowI = Math.round(yLow - 0.5);
       var fillH = yLowI - yHighI + 1;
       ctx.fillStyle = ch.color;
       var pixelCount = Math.ceil(drawW);
-      var ti = firstVisIdx;
+      var ti = 0;
       for (var px = 0; px < pixelCount; px++) {
         var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
         var count = 0;
         var lastLevel = curLevel;
         while (ti < transitions.length && transitions[ti].line <= lineRight) {
-          var t = transitions[ti];
-          if (t.line > wfgViewEnd) break;
-          lastLevel = t.level;
+          lastLevel = transitions[ti].level;
           ti++; count++;
         }
         curLevel = lastLevel;
@@ -15537,14 +15712,15 @@ function wfgCursorSnapTime(rawTime, cx, p) {
   var bestDist = Infinity;
 
   if (p.mode === 'phase') {
-    // Phase Counter: use transition cache
+    // Phase Counter: use transition cache (viewport-only expansion)
     var cache = _wfgTransitionCache;
     if (cache && cache.transitions) {
       var dclkPerLine = p.dclkPerLine;
       var timePerLine = p.timePerLine;
       for (var gi = 0; gi < cache.transitions.length; gi++) {
-        var edges = cache.transitions[gi];
-        if (!edges) continue;
+        var smart = cache.transitions[gi];
+        if (!smart) continue;
+        var edges = smart.isPeriodic !== undefined ? wfgExpandRange(smart, wfgViewStart, wfgViewEnd) : (smart.transitions || []);
         for (var ei = 0; ei < edges.length; ei++) {
           var tr = edges[ei];
           var edgeTime = (tr.line + tr.dly / dclkPerLine) * timePerLine;
@@ -16426,60 +16602,93 @@ function wfgRenderMinimap() {
     var mmAllGpioTr = mmCache.transitions;
     var mmIsDual = wfgFrame.gateType === 'dual';
     var rowH = Math.max(4, (boxH - 2) / visibleChs.length);
+    var mmDclkPerLine = mmIsDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
     for (var i = 0; i < visibleChs.length; i++) {
       var ch = visibleChs[i];
       var gpio = wfgGpios[ch.gpioIdx];
       var y0 = 1 + i * rowH;
       var yHigh = y0 + 1;
       var yLow = y0 + rowH - 2;
-      var transitions = wfgGetOaxTransitions(ch.gpioIdx, mmAllGpioTr[ch.gpioIdx], mmAllGpioTr, mmEffHtotal);
+      var yHighI = Math.round(yHigh);
+      var yLowI = Math.round(yLow);
+      var fillH = Math.max(1, yLowI - yHighI + 1);
+      var smart = mmAllGpioTr[ch.gpioIdx];
 
-      ctx.strokeStyle = ch.color;
-      ctx.lineWidth = 1;
-      ctx.lineJoin = 'bevel';
       ctx.globalAlpha = 0.8;
-      ctx.beginPath();
 
-      var curLevel = 0;
-      var curY = yLow;
-      ctx.moveTo(0, curY);
-
-      var mmDclkPerLine = mmIsDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
-      if (transitions.length > boxW * 2) {
-        // Dense mode: fillRect per pixel column — eliminates anti-aliasing ripple
-        var yHighI = Math.round(yHigh);
-        var yLowI = Math.round(yLow);
-        var fillH = Math.max(1, yLowI - yHighI + 1);
+      // Template-aware minimap: avoid expanding all transitions
+      if (smart.isPeriodic && smart.template.length > 0) {
+        var linesPerPx = totalLines / boxW;
+        if (linesPerPx >= smart.vtotal && smart.template.length > 0) {
+          // Each pixel covers >= 1 full frame → every pixel guaranteed to have transitions
+          // Draw solid bar (visually identical to iterating all transitions)
+          ctx.fillStyle = ch.color;
+          ctx.fillRect(0, yHighI, boxW, fillH);
+        } else {
+          // Per-pixel expansion from template (avoids full expansion)
+          ctx.fillStyle = ch.color;
+          var curLevel = 0;
+          for (var px = 0; px < boxW; px++) {
+            var lineLeft = (px / boxW) * totalLines;
+            var lineRight = ((px + 1) / boxW) * totalLines;
+            var pxTrans = wfgExpandRange(smart, lineLeft, lineRight);
+            if (gpio.oax_mode !== 0) {
+              var oaxR = wfgGetOaxForRange(ch.gpioIdx, mmAllGpioTr, mmEffHtotal, lineLeft, lineRight);
+              pxTrans = oaxR.transitions;
+              if (px === 0) curLevel = oaxR.initLevel;
+            } else if (px === 0) {
+              curLevel = wfgGetInitLevel(smart, 0);
+            }
+            var count = pxTrans.length;
+            var lastLvl = curLevel;
+            for (var j = 0; j < pxTrans.length; j++) lastLvl = pxTrans[j].level;
+            curLevel = lastLvl;
+            if (count > 0) {
+              ctx.fillRect(px, yHighI, 1, fillH);
+            } else {
+              ctx.fillRect(px, curLevel ? yHighI : yLowI, 1, 1);
+            }
+          }
+        }
+      } else if (!smart.isPeriodic) {
+        // Non-periodic: use flat transitions with old dense/sparse logic
+        var transitions = smart.transitions;
         ctx.fillStyle = ch.color;
-        var ti2 = 0;
-        for (var px = 0; px < boxW; px++) {
-          var lineRight = ((px + 1) / boxW) * totalLines;
-          var count = 0;
-          var lastLevel = curLevel;
-          while (ti2 < transitions.length && transitions[ti2].line <= lineRight) {
-            lastLevel = transitions[ti2].level;
-            ti2++; count++;
+        ctx.strokeStyle = ch.color;
+        ctx.lineWidth = 1;
+        ctx.lineJoin = 'bevel';
+        var curLevel = 0;
+        if (transitions.length > boxW * 2) {
+          var ti2 = 0;
+          for (var px = 0; px < boxW; px++) {
+            var lineRight = ((px + 1) / boxW) * totalLines;
+            var count = 0;
+            var lastLevel = curLevel;
+            while (ti2 < transitions.length && transitions[ti2].line <= lineRight) {
+              lastLevel = transitions[ti2].level;
+              ti2++; count++;
+            }
+            curLevel = lastLevel;
+            if (count > 0) ctx.fillRect(px, yHighI, 1, fillH);
+            else ctx.fillRect(px, curLevel ? yHighI : yLowI, 1, 1);
           }
-          curLevel = lastLevel;
-          if (count > 0) {
-            ctx.fillRect(px, yHighI, 1, fillH);
-          } else {
-            ctx.fillRect(px, curLevel ? yHighI : yLowI, 1, 1);
+        } else {
+          ctx.beginPath();
+          var curY = yLow;
+          ctx.moveTo(0, curY);
+          for (var ti = 0; ti < transitions.length; ti++) {
+            var t = transitions[ti];
+            var fracDly = mmDclkPerLine > 0 ? t.dly / mmDclkPerLine : 0;
+            var x = ((t.line + fracDly) / totalLines) * boxW;
+            ctx.lineTo(x, curY);
+            curLevel = t.level;
+            var newY = curLevel ? yHigh : yLow;
+            ctx.lineTo(x, newY);
+            curY = newY;
           }
+          ctx.lineTo(boxW, curY);
+          ctx.stroke();
         }
-      } else {
-        for (var ti = 0; ti < transitions.length; ti++) {
-          var t = transitions[ti];
-          var fracDly = mmDclkPerLine > 0 ? t.dly / mmDclkPerLine : 0;
-          var x = ((t.line + fracDly) / totalLines) * boxW;
-          ctx.lineTo(x, curY);
-          curLevel = t.level;
-          var newY = curLevel ? yHigh : yLow;
-          ctx.lineTo(x, newY);
-          curY = newY;
-        }
-        ctx.lineTo(boxW, curY);
-        ctx.stroke();
       }
       ctx.globalAlpha = 1;
     }
@@ -16697,18 +16906,15 @@ function wfgPulseCountTcon(item) {
   var rangeStartLine = range.t1 / timePerLine;
   var rangeEndLine = range.t2 / timePerLine;
 
-  var transitions = wfgGetOaxTransitions(ch.gpioIdx, cache.transitions[ch.gpioIdx], cache.transitions, cache.effHtotal);
+  var oaxR = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, cache.effHtotal, rangeStartLine, rangeEndLine);
+  var transitions = oaxR.transitions;
   if (transitions.length === 0) return 0;
 
   // Build position/level arrays in range
   var positions = [];
-  var initLevel = 0;
+  var initLevel = oaxR.initLevel;
   for (var ti = 0; ti < transitions.length; ti++) {
-    var t = transitions[ti];
-    var pos = t.line + (dclkPerLine > 0 ? t.dly / dclkPerLine : 0);
-    if (pos < rangeStartLine) { initLevel = t.level; continue; }
-    if (pos > rangeEndLine) break;
-    positions.push({ level: t.level });
+    positions.push({ level: transitions[ti].level });
   }
   return wfgPulseCount(positions, initLevel, item.mode);
 }
