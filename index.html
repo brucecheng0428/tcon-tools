@@ -16858,6 +16858,7 @@ if (document.readyState === 'loading') {
 }
 
 // ─── Global benchmark function for profiling ───
+window.wfgInvalidateCache = wfgInvalidateCache;
 window.wfgBenchZoom = function(frames) {
   if (frames) {
     wfgFrame.frameCount = frames;
@@ -16884,6 +16885,47 @@ window.wfgBenchZoom = function(frames) {
   wfgUpdateMinimapViewport();
   var elapsed = performance.now() - t0;
   _wfgPerfEnabled = false;
+  return {totalMs: elapsed, breakdown: JSON.parse(JSON.stringify(_wfgPerfLast))};
+};
+window.wfgBenchCacheMiss = function(frames) {
+  if (frames) {
+    wfgFrame.frameCount = frames;
+    document.getElementById('wfg-frame-count').value = frames;
+  }
+  wfgViewStart = 0; wfgViewEnd = wfgTotalLines();
+  _wfgPerfEnabled = true;
+  wfgInvalidateCache(); // Force recalculation
+  var t0 = performance.now();
+  wfgRender();
+  var elapsed = performance.now() - t0;
+  _wfgPerfEnabled = false;
+  return {totalMs: elapsed, breakdown: JSON.parse(JSON.stringify(_wfgPerfLast))};
+};
+window.wfgBenchInternal = function(frames) {
+  if (frames) {
+    wfgFrame.frameCount = frames;
+    document.getElementById('wfg-frame-count').value = frames;
+    wfgInvalidateCache();
+    wfgResizeAndRender();
+  }
+  // Enable TCON Internal mode
+  wfgTconInternalMode = true;
+  wfgResizeAndRender();
+  // Warm cache
+  wfgEnsureTransitions();
+  // Benchmark zoom
+  _wfgPerfEnabled = true;
+  var range = wfgViewEnd - wfgViewStart;
+  var center = (wfgViewStart + wfgViewEnd) / 2;
+  var newRange = range * 0.8;
+  wfgViewStart = Math.max(0, center - newRange / 2);
+  wfgViewEnd = Math.min(wfgTotalLines(), wfgViewStart + newRange);
+  var t0 = performance.now();
+  wfgRender();
+  var elapsed = performance.now() - t0;
+  _wfgPerfEnabled = false;
+  wfgTconInternalMode = false;
+  wfgResizeAndRender();
   return {totalMs: elapsed, breakdown: JSON.parse(JSON.stringify(_wfgPerfLast))};
 };
 
