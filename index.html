@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.9</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.10</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12843,13 +12843,25 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   // Show for hovered channel if measuring, otherwise first visible channel
   var _phChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : 0;
   // Determine if hovered channel has no pulse (flat waveform) → force PH_CNT non-highlight
+  // Check the channel's base transitions from cache (all edges across all frames),
+  // NOT _wfgLastChTransitions which may not be populated yet in the render cycle.
   var _phNoPulse = false;
-  if (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) {
-    var _phTrans = _wfgLastChTransitions[_wfgMeasArrow._tconHoverChIdx];
-    if (!_phTrans || _phTrans.length < 2) _phNoPulse = true;
+  if (_wfgMeasArrow && _wfgMeasArrow._deRow != null) {
+    // Hovering on DE rows (no GPIO context) → force non-highlight
+    _phNoPulse = true;
+  } else if (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) {
+    // Check if the channel's GPIO has any transitions at all (not just near hover)
+    var _phVisChIdx = _wfgMeasArrow._tconHoverChIdx;
+    if (_wfgLastVisibleChs && _phVisChIdx < _wfgLastVisibleChs.length) {
+      var _phCh = _wfgLastVisibleChs[_phVisChIdx];
+      if (_phCh && _phCh.gpioIdx >= 0 && _wfgTransitionCache) {
+        var _phBaseTrans = _wfgTransitionCache.transitions[_phCh.gpioIdx];
+        if (!_phBaseTrans || _phBaseTrans.length < 2) _phNoPulse = true;
+      } else {
+        _phNoPulse = true; // no valid channel data
+      }
+    }
   }
-  // Also force non-highlight when hovering on DE rows (no GPIO context)
-  if (_wfgMeasArrow && _wfgMeasArrow._deRow != null) _phNoPulse = true;
   if (_wfgLastVisibleChs && _wfgLastVisibleChs.length > _phChIdx && _phChIdx >= 0) {
     var ch = _wfgLastVisibleChs[_phChIdx];
     if (ch && ch.gpioIdx >= 0) {
