@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.5</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.6</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.8</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.9</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12851,9 +12851,9 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
         var stLine = Math.max(0, gpio.st_line);
         var spLine = Math.min(vtotalView - 1, gpio.sp_line);
         // Draw R_PH_CNT
-        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w);
+        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _wfgHoverLinePos);
         // Draw F_PH_CNT
-        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w);
+        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _wfgHoverLinePos);
       }
     }
   }
@@ -12870,7 +12870,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   }
 }
 
-function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w) {
+function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, hoverLinePos) {
   ctx.textAlign = 'center';
   var textY = y + rowH / 2 + 3;
   var cycle = actType + 1;
@@ -12913,7 +12913,16 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     // Effective counter for trigger detection
     var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
     var isTrigger = (effCnt === actType) && inHL;
-    if (!inHL) {
+    // When hovering, only show trigger coloring if mouse is on THIS trigger line
+    var hoverLine = (hoverLinePos != null) ? Math.floor(hoverLinePos) % vtotalView : -1;
+    var hoverActive = (hoverLinePos != null);
+    var isHoverOnThisTrigger = isTrigger && (hoverLine >= 0) && (lineInFrame === hoverLine);
+    // Determine display mode:
+    // When hover active: only the trigger cell under the mouse gets trigger coloring; everything else → dim
+    // When no hover: original behavior (non-highlight=grey, trigger=colored, highlight=normal)
+    var showTrigger = hoverActive ? isHoverOnThisTrigger : isTrigger;
+    var showDim = hoverActive ? !isHoverOnThisTrigger : !inHL;
+    if (showDim) {
       // Non-highlight: grey mask + dim text
       ctx.save();
       ctx.fillStyle = 'rgba(128,128,128,0.4)';
@@ -12922,8 +12931,8 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
       ctx.fillStyle = dimColor;
       ctx.font = '9px monospace';
       ctx.fillText(counterVal.toString(), (clampL + clampR) / 2, textY);
-    } else if (isTrigger) {
-      // Highlight + triggered: colored bg + bold
+    } else if (showTrigger) {
+      // Triggered: colored bg + bold
       ctx.save();
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.25;
@@ -14536,9 +14545,11 @@ function wfgInitCanvas() {
 // ─── Measurement Card Logic ───
 var _wfgMeasRaf = null;
 var _wfgMeasArrow = null; // {x1, x2, y, chIdx} for overlay drawing
+var _wfgHoverLinePos = null; // fractional line position of mouse hover (for PH_CNT highlight)
 
 function wfgMeasClear() {
   _wfgMeasArrow = null;
+  _wfgHoverLinePos = null;
   var els = ['wfg-meas-pw','wfg-meas-per','wfg-meas-duty','wfg-meas-freq'];
   for (var i = 0; i < els.length; i++) {
     var el = document.getElementById(els[i]);
@@ -14588,6 +14599,172 @@ function wfgMeasUpdate(mouseX, mouseY) {
   }
 }
 
+// ─── DE Row Measurement (RX DE / TX DE white arrows) ───
+function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
+  var isDual = wfgFrame.gateType === 'dual';
+  var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+  var viewRange = wfgViewEnd - wfgViewStart;
+  if (viewRange <= 0) { wfgMeasClear(); return; }
+
+  var mouseLinePos = wfgViewStart + ((cx - drawX0) / drawW) * viewRange;
+  _wfgHoverLinePos = mouseLinePos;
+
+  var hactive = wfgFrame.hactive;
+  var vactive = wfgFrame.vactive;
+  var vtotalView = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
+  var vtotalRx = wfgFrame.vtotal;
+  var gateCount = isDual ? 2 : 1;
+  var lbShift = isDual ? wfgLineBuffer * 2 : wfgLineBuffer;
+
+  // Compute DE fractional widths (in view lines)
+  var rxDeWidthDclk = hactive / 2;
+  var txDeWidthDclk = hactive / (2 * gateCount);
+  var rxDeFrac = dclkPerLine > 0 ? rxDeWidthDclk / dclkPerLine : 0;
+  var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
+  var rxViewLinesPerData = isDual ? 2 : 1;
+
+  // Helper: line to X pixel
+  function lineToXLocal(line) {
+    return drawX0 + ((line - wfgViewStart) / viewRange) * drawW;
+  }
+
+  // Find the block (HIGH or LOW) the mouse is in, and the next block
+  var lineInFrame = ((mouseLinePos % vtotalView) + vtotalView) % vtotalView;
+  var leftEdge = null, rightEdge = null, rightEdge2 = null;
+  var curLevel = 0;
+  var deName = deRowIdx === 0 ? 'RX DE' : 'TX DE';
+
+  if (deRowIdx === 0) {
+    // ── RX DE ──
+    var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : Math.floor(lineInFrame);
+    var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : (lineInFrame - Math.floor(lineInFrame));
+    var dataIdx = (rxLineIdx + 1) % vtotalRx;
+    if (dataIdx >= vactive) {
+      // Blanking region - find blanking block edges
+      // Find first blanking line and first active line
+      var blankStartDataIdx = vactive;
+      var blankStartRxLine = blankStartDataIdx > 0 ? blankStartDataIdx - 1 : vtotalRx - 1;
+      // leftEdge: start of blanking = end of last active DE
+      var lastActiveDataIdx = vactive - 1;
+      var lastActiveStartLine = isDual ? ((lastActiveDataIdx > 0 ? lastActiveDataIdx - 1 : vtotalRx - 1) * rxViewLinesPerData) : ((lastActiveDataIdx > 0 ? lastActiveDataIdx - 1 : vtotalRx - 1));
+      // This is complex in multi-frame, just show "--" for blanking
+      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _deRow: deRowIdx };
+      wfgMeasSetVal('wfg-meas-pw', '--');
+      wfgMeasSetVal('wfg-meas-per', '--');
+      wfgMeasSetVal('wfg-meas-duty', '--');
+      wfgMeasSetVal('wfg-meas-freq', '--');
+      var chEl = document.getElementById('wfg-meas-ch');
+      if (chEl) chEl.textContent = deName;
+      wfgRender();
+      return;
+    }
+    // Active region: compute DE boundaries for this data entry
+    // Data entry starts at view line: (dataIdx > 0 ? dataIdx - 1 : vtotalRx - 1) * rxViewLinesPerData
+    var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
+    var dataStartRxLine = dataIdx > 0 ? dataIdx - 1 : vtotalRx - 1;
+    var dataStartViewLine = frameBase + dataStartRxLine * rxViewLinesPerData;
+    var deRise = dataStartViewLine; // DE rises at start of data period
+    var deFall = dataStartViewLine + rxDeFrac; // DE falls after rxDeFrac
+    var nextDeRise = dataStartViewLine + rxViewLinesPerData; // Next data entry starts
+
+    var fracPos = mouseLinePos - deRise;
+    if (fracPos >= 0 && fracPos < rxDeFrac) {
+      // Mouse is in DE-HIGH
+      curLevel = 1;
+      leftEdge = deRise;
+      rightEdge = deFall;
+      rightEdge2 = nextDeRise; // end of LOW block = start of next HIGH
+    } else {
+      // Mouse is in DE-LOW (after DE falls, before next data)
+      curLevel = 0;
+      leftEdge = deFall;
+      rightEdge = nextDeRise;
+      // Next block is HIGH again
+      rightEdge2 = nextDeRise + rxDeFrac;
+    }
+  } else {
+    // ── TX DE ──
+    var vactiveView = isDual ? vactive * 2 : vactive;
+    var intLine = Math.floor(lineInFrame);
+    var txDataIdx = intLine - lbShift;
+    if (txDataIdx < 0 || txDataIdx >= vactiveView) {
+      // Blanking
+      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _deRow: deRowIdx };
+      wfgMeasSetVal('wfg-meas-pw', '--');
+      wfgMeasSetVal('wfg-meas-per', '--');
+      wfgMeasSetVal('wfg-meas-duty', '--');
+      wfgMeasSetVal('wfg-meas-freq', '--');
+      var chEl = document.getElementById('wfg-meas-ch');
+      if (chEl) chEl.textContent = deName;
+      wfgRender();
+      return;
+    }
+    // Active TX DE line
+    var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
+    var lineStart = frameBase + intLine;
+    var deRise = lineStart;
+    var deFall = lineStart + txDeFrac;
+    var nextLineStart = lineStart + 1; // next data line
+    var fracInLine = mouseLinePos - lineStart;
+    if (fracInLine >= 0 && fracInLine < txDeFrac) {
+      curLevel = 1;
+      leftEdge = deRise;
+      rightEdge = deFall;
+      rightEdge2 = deFall + (1 - txDeFrac) + txDeFrac; // next DE fall = nextLine + txDeFrac
+      // Actually: next block LOW ends at nextLineStart, next HIGH starts there
+      rightEdge2 = nextLineStart;
+    } else {
+      curLevel = 0;
+      leftEdge = deFall;
+      rightEdge = nextLineStart;
+      rightEdge2 = nextLineStart + txDeFrac;
+    }
+  }
+
+  if (leftEdge === null || rightEdge === null) { wfgMeasClear(); return; }
+
+  // Compute measurements
+  var dclkFreqHz = wfgFrame.dclk * 1e6;
+  var timePerLine = dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
+  var pulseWidthLines = rightEdge - leftEdge;
+  var pulseWidthSec = pulseWidthLines * timePerLine;
+  var periodLines = rightEdge2 !== null ? rightEdge2 - leftEdge : null;
+  var periodSec = periodLines ? periodLines * timePerLine : null;
+  var nextBlockLines = rightEdge2 !== null ? rightEdge2 - rightEdge : null;
+  var highTimeSec = null;
+  if (periodSec) {
+    highTimeSec = curLevel === 1 ? pulseWidthSec : (nextBlockLines * timePerLine);
+  }
+  var dutyCycle = (periodSec && highTimeSec !== null) ? (highTimeSec / periodSec * 100) : null;
+  var frequency = periodSec ? (1 / periodSec) : null;
+
+  // Update measurement UI
+  wfgMeasSetVal('wfg-meas-pw', wfgMeasFormatTime(pulseWidthSec));
+  wfgMeasSetVal('wfg-meas-per', periodSec ? wfgMeasFormatTime(periodSec) : '--');
+  wfgMeasSetVal('wfg-meas-duty', dutyCycle !== null ? dutyCycle.toFixed(1) + '%' : '--');
+  wfgMeasSetVal('wfg-meas-freq', frequency !== null ? wfgMeasFormatFreq(frequency) : '--');
+  var chEl = document.getElementById('wfg-meas-ch');
+  if (chEl) chEl.textContent = deName;
+
+  // Compute arrow pixel positions (white bi-directional arrows)
+  var irRowH = WFG_INTERNAL_ROW_H;
+  var irGap = WFG_INTERNAL_ROW_GAP;
+  var rowY0 = WFG_AXIS_H + deRowIdx * (irRowH + irGap);
+  var yHigh = rowY0 + 3;
+  var yLow = rowY0 + irRowH - 3;
+  var midY = (yHigh + yLow) / 2;
+
+  var a1x1 = Math.max(drawX0, lineToXLocal(leftEdge));
+  var a1x2 = Math.min(w, lineToXLocal(rightEdge));
+  var a2 = null;
+  if (rightEdge2 !== null) {
+    a2 = { x1: Math.max(drawX0, lineToXLocal(rightEdge)), x2: Math.min(w, lineToXLocal(rightEdge2)), y: midY };
+  }
+  _wfgMeasArrow = { x1: a1x1, x2: a1x2, y: midY, arrow2: a2, _deRow: deRowIdx };
+
+  wfgRender();
+}
+
 function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   // Use cached visible channels and transitions from last render
   var visibleChs = _wfgLastVisibleChs;
@@ -14599,7 +14776,23 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     var y0 = waveAreaY0 + i * (WFG_ROW_H + WFG_ROW_GAP);
     if (cy >= y0 && cy < y0 + WFG_ROW_H + WFG_ROW_GAP) { chIdx = i; break; }
   }
-  if (chIdx < 0) { wfgMeasClear(); return; }
+  if (chIdx < 0) {
+    // Check if mouse is on RX DE or TX DE internal rows (TCON mode only)
+    if (wfgTconInternalMode && !wfgKvdatMode) {
+      var irRowH = WFG_INTERNAL_ROW_H;
+      var irGap = WFG_INTERNAL_ROW_GAP;
+      var rxDeY0 = WFG_AXIS_H;
+      var txDeY0 = WFG_AXIS_H + irRowH + irGap;
+      var deRowIdx = -1; // 0=RX DE, 1=TX DE
+      if (cy >= rxDeY0 && cy < rxDeY0 + irRowH) deRowIdx = 0;
+      else if (cy >= txDeY0 && cy < txDeY0 + irRowH) deRowIdx = 1;
+      if (deRowIdx >= 0) {
+        wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx);
+        return;
+      }
+    }
+    wfgMeasClear(); return;
+  }
 
   var ch = visibleChs[chIdx];
   var isDual = wfgFrame.gateType === 'dual';
@@ -14609,6 +14802,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
 
   // Convert cx to line position
   var mouseLinePos = wfgViewStart + ((cx - drawX0) / drawW) * viewRange;
+  _wfgHoverLinePos = mouseLinePos;
 
   // Use cached transitions
   var transitions = _wfgLastChTransitions[chIdx];
@@ -15028,6 +15222,17 @@ function wfgMeasDrawArrow(ctx) {
   }
 
   if (isTconMode) {
+    // DE row arrows: white bi-directional only (no DLY)
+    if (a._deRow != null && a._deRow >= 0) {
+      ctx.strokeStyle = '#f8fafc';
+      ctx.fillStyle = '#f8fafc';
+      drawBiArrow(a.x1, a.x2, a.y);
+      if (a.arrow2) {
+        drawBiArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y);
+      }
+      ctx.restore();
+      return;
+    }
     // Draw white bi-directional arrows for pulse width (stored separately)
     ctx.strokeStyle = '#f8fafc';
     ctx.fillStyle = '#f8fafc';
