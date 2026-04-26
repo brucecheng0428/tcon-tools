@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.27.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.27.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2814,6 +2814,7 @@
               <div class="wfg-field">
                 <label>Htotal</label>
                 <input type="number" id="wfg-htotal" value="2200" min="1" oninput="wfgOnParamChange()">
+                <div style="margin-top:3px"><span class="rxtx-result-label">TCON HTOTAL</span> <span class="rxtx-result-val" id="wfg-tcon-htotal" style="font-size:13px;">2200</span></div>
               </div>
               <div class="wfg-field">
                 <label>Hactive</label>
@@ -2826,18 +2827,14 @@
                 <input type="number" id="wfg-framerate" value="60" min="1" step="1" oninput="wfgOnFrameRateChange()">
               </div>
               <div class="wfg-field">
-                <label>RX DCLK (MHz)</label>
-                <input type="number" id="wfg-rx-dclk" value="74.25" readonly style="background:#1a2332;color:#94a3b8;cursor:not-allowed;">
+                <div style="margin-bottom:4px"><span class="rxtx-result-label">RX DCLK (MHz)</span></div>
+                <span class="rxtx-result-val" id="wfg-rx-dclk" style="font-size:14px;">74.25</span>
               </div>
             </div>
             <div class="wfg-field-row">
               <div class="wfg-field">
                 <label>TCON DCLK (MHz) <span id="wfg-dclk-calc" style="font-size:10px;color:#64748b"></span></label>
                 <input type="number" id="wfg-dclk" value="74.25" min="0.1" step="any" onchange="wfgOnDclkManualChange()">
-              </div>
-              <div class="wfg-field">
-                <label>TCON Htotal</label>
-                <input type="number" id="wfg-tcon-htotal" value="2200" readonly style="background:#1a2332;color:#94a3b8;cursor:not-allowed;">
               </div>
             </div>
             <div class="wfg-field-row">
@@ -12415,13 +12412,11 @@ const WFG_INTERNAL_COLORS = { rxde: '#38bdf8', txde: '#f97316', rph: '#4ade80', 
 const WFG_ROW_H = 40;
 const WFG_ROW_GAP = 8;
 const WFG_LABEL_W = 110;
-const WFG_AXIS_H = 56;
+const WFG_AXIS_H = 40; // Time(16) + Line(22) + 2px separator (DCLK moved to internal rows)
 const WFG_TIME_Y = 0;
 const WFG_TIME_H = 16;
 const WFG_LINE_Y = 16;
 const WFG_LINE_H = 22;
-const WFG_DCLK_Y = 38;
-const WFG_DCLK_H = 16;
 
 // ─── Helper: TCON Internal extra height ───
 function wfgInternalExtraH() {
@@ -12932,13 +12927,14 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   var hactive = wfgFrame.hactive;
   var vactive = wfgFrame.vactive;
 
-  // RX DE width: always Hactive / 2 DCLKs (independent of gate type)
+  // RX DE width: always Hactive / 2 RX DCLKs (independent of gate type)
   var rxDeWidthDclk = hactive / 2;
-  // TX DE width: Hactive / (2 × gate_count) DCLKs
+  // TX DE width: Hactive / (2 × gate_count) TCON DCLKs
   var gateCount = isDual ? 2 : 1;
   var txDeWidthDclk = hactive / (2 * gateCount);
-  // Convert to fractional lines
-  var rxDeFrac = dclkPerLine > 0 ? rxDeWidthDclk / dclkPerLine : 0;
+  // RX side uses htotalBase, TX side uses htotal (TCON Htotal)
+  var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+  var rxDeFrac = rxDclkPerLine > 0 ? rxDeWidthDclk / rxDclkPerLine : 0;
   var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
 
   // Line Buffer shift: in Dual Gate mode, shift is doubled
@@ -13182,7 +13178,16 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     }
   }
 
-  // Draw row separators and labels in label area
+  // ── Row 0: RX DCLK tick marks & labels ──
+  var rxDclkRow0Y = baseY;
+  var _rxDpl = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+  wfgDrawDclkRow(ctx, rxDclkRow0Y, rowH, _rxDpl, WFG_INTERNAL_COLORS.rxde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+
+  // ── Row 2: TCON DCLK tick marks & labels ──
+  var tconDclkRow2Y = baseY + 2 * (rowH + gap);
+  wfgDrawDclkRow(ctx, tconDclkRow2Y, rowH, dclkPerLine, WFG_INTERNAL_COLORS.txde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+
+  // Draw row separators
   ctx.strokeStyle = 'rgba(48,54,61,0.5)';
   ctx.lineWidth = 1;
   for (var ri = 0; ri < WFG_INTERNAL_ROWS; ri++) {
@@ -13192,6 +13197,59 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     ctx.lineTo(w, ry);
     ctx.stroke();
   }
+}
+
+// ─── DCLK Row Drawing (tick marks + labels) ───
+function wfgDrawDclkRow(ctx, y, rowH, dclkPerLine, color, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW) {
+  if (dclkPerLine <= 0) return;
+  var pxPerDclk = drawW / (viewRange * dclkPerLine);
+  if (pxPerDclk < 2) return; // too zoomed out
+  var dclkStep = 1;
+  var dMinPx = 40;
+  while (pxPerDclk * dclkStep < dMinPx && dclkStep < dclkPerLine * 2) {
+    if (dclkStep < 5) dclkStep = 5;
+    else if (dclkStep < 10) dclkStep = 10;
+    else if (dclkStep < 20) dclkStep = 20;
+    else if (dclkStep < 50) dclkStep = 50;
+    else if (dclkStep < 100) dclkStep = 100;
+    else if (dclkStep < 200) dclkStep = 200;
+    else if (dclkStep < 500) dclkStep = 500;
+    else dclkStep *= 2;
+  }
+  // Tick marks
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
+    var dxLeft = lineToX(dln);
+    var dxRight = lineToX(dln + 1);
+    for (var d = 0; d < dclkPerLine; d += dclkStep) {
+      var frac = d / dclkPerLine;
+      var dx = dxLeft + (dxRight - dxLeft) * frac;
+      if (dx < drawX0 || dx > w) continue;
+      ctx.moveTo(dx, y + rowH - 3);
+      ctx.lineTo(dx, y + rowH);
+    }
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  // Labels
+  ctx.fillStyle = color;
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'center';
+  ctx.globalAlpha = 0.8;
+  for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
+    var dxLeft = lineToX(dln);
+    var dxRight = lineToX(dln + 1);
+    for (var d = 0; d < dclkPerLine; d += dclkStep) {
+      var frac = d / dclkPerLine;
+      var dx = dxLeft + (dxRight - dxLeft) * frac;
+      if (dx < drawX0 || dx > w) continue;
+      ctx.fillText(d.toString(), dx, y + rowH - 4);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight) {
@@ -13421,8 +13479,8 @@ function wfgRender() {
   }
   } // end else: per-line drawing
 
-  // ── Layer 3: DCLK labels (bottom row) ──
-  if (dclkPerLine > 0 && _visLineCount <= drawW * 2) {
+  // ── Layer 3: TCON DCLK vertical gridlines (extend through waveform area) ──
+  if (wfgTconInternalMode && dclkPerLine > 0 && _visLineCount <= drawW * 2) {
     var pxPerDclk = drawW / (viewRange * dclkPerLine);
     var dclkStep = 1;
     var dMinPx = 40;
@@ -13436,11 +13494,8 @@ function wfgRender() {
       else if (dclkStep < 500) dclkStep = 500;
       else dclkStep *= 2;
     }
-    // Draw secondary (individual DCLK) gridlines when zoomed in enough (≥4px per DCLK)
     var showDclkGrid = pxPerDclk >= 4;
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'center';
-    // Batch secondary DCLK gridlines into one path
+    // Secondary gridlines
     if (showDclkGrid && dclkStep > 1) {
       ctx.strokeStyle = 'rgba(33,38,45,0.3)';
       ctx.lineWidth = 1;
@@ -13459,25 +13514,18 @@ function wfgRender() {
       }
       ctx.stroke();
     }
-    // Batch major DCLK tick marks
-    ctx.strokeStyle = '#21262d';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    var _majorDclkGridPts = []; // collect {dx} for grid lines below
+    // Major DCLK gridlines
+    var _majorDclkGridPts = [];
     for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
       var dxLeft = lineToX(dln);
       var dxRight = lineToX(dln + 1);
-      for (var d = 0; d < dclkPerLine; d += dclkStep) {
+      for (var d = dclkStep; d < dclkPerLine; d += dclkStep) {
         var frac = d / dclkPerLine;
         var dx = dxLeft + (dxRight - dxLeft) * frac;
         if (dx < drawX0 || dx > w) continue;
-        ctx.moveTo(dx, WFG_DCLK_Y + WFG_DCLK_H - 3);
-        ctx.lineTo(dx, WFG_DCLK_Y + WFG_DCLK_H);
-        if (d > 0) _majorDclkGridPts.push(dx);
+        _majorDclkGridPts.push(dx);
       }
     }
-    ctx.stroke();
-    // Batch major DCLK gridlines
     if (_majorDclkGridPts.length > 0) {
       ctx.strokeStyle = 'rgba(33,38,45,0.5)';
       ctx.lineWidth = 1;
@@ -13487,18 +13535,6 @@ function wfgRender() {
         ctx.lineTo(_majorDclkGridPts[gi2], h);
       }
       ctx.stroke();
-    }
-    // DCLK labels (text must be drawn individually)
-    ctx.fillStyle = '#58a6ff';
-    for (var dln = firstVisLine; dln <= lastVisLine; dln++) {
-      var dxLeft = lineToX(dln);
-      var dxRight = lineToX(dln + 1);
-      for (var d = 0; d < dclkPerLine; d += dclkStep) {
-        var frac = d / dclkPerLine;
-        var dx = dxLeft + (dxRight - dxLeft) * frac;
-        if (dx < drawX0 || dx > w) continue;
-        ctx.fillText(d.toString(), dx, WFG_DCLK_Y + WFG_DCLK_H - 4);
-      }
     }
   }
 
@@ -13791,8 +13827,6 @@ function wfgRenderLabels() {
   if (!wfgKvdatMode) {
     html += '<div style="height:' + WFG_TIME_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#6e7681;">Time</div>';
     html += '<div style="height:' + WFG_LINE_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#c9d1d9;background:rgba(30,58,95,0.5);">Line</div>';
-    var dclkNs = wfgFrame.dclk > 0 ? (1000 / wfgFrame.dclk).toFixed(1) : '—';
-    html += '<div style="height:' + WFG_DCLK_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#58a6ff;">DCLK(' + dclkNs + 'ns)</div>';
     if (wfgTconInternalMode) {
       var irH = WFG_INTERNAL_ROW_H + WFG_INTERNAL_ROW_GAP;
       var rxDclkNs = wfgFrame.rxDclk > 0 ? (1000 / wfgFrame.rxDclk).toFixed(1) : '—';
@@ -13832,7 +13866,7 @@ function wfgLabelDragSetup(container, visMap, rowH) {
 
   function getAxisH() {
     if (typeof wfgKvdatMode !== 'undefined' && wfgKvdatMode) return WFG_AXIS_H;
-    return WFG_TIME_H + WFG_LINE_H + WFG_DCLK_H + wfgInternalExtraH();
+    return WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH();
   }
 
   function startDrag(idx, startY) {
@@ -14158,7 +14192,7 @@ function wfgUpdateRxDclk() {
   var rxDclk = wfgCalcRxDclk();
   wfgFrame.rxDclk = parseFloat(rxDclk.toFixed(4));
   var rxEl = document.getElementById('wfg-rx-dclk');
-  if (rxEl) rxEl.value = wfgFrame.rxDclk;
+  if (rxEl) rxEl.textContent = wfgFrame.rxDclk;
 }
 function wfgUpdateTconHtotal() {
   // TCON Htotal = RX Htotal × (TCON DCLK / RX DCLK)
@@ -14170,7 +14204,7 @@ function wfgUpdateTconHtotal() {
   // Also update wfgFrame.htotal for rendering (htotal = TCON Htotal)
   wfgFrame.htotal = wfgFrame.tconHtotal;
   var el = document.getElementById('wfg-tcon-htotal');
-  if (el) el.value = wfgFrame.tconHtotal;
+  if (el) el.textContent = wfgFrame.tconHtotal;
 }
 function wfgClampTconDclk() {
   if (wfgFrame.dclk < wfgFrame.rxDclk) {
@@ -15142,7 +15176,8 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
   // Compute DE fractional widths (in view lines)
   var rxDeWidthDclk = hactive / 2;
   var txDeWidthDclk = hactive / (2 * gateCount);
-  var rxDeFrac = dclkPerLine > 0 ? rxDeWidthDclk / dclkPerLine : 0;
+  var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+  var rxDeFrac = rxDclkPerLine > 0 ? rxDeWidthDclk / rxDclkPerLine : 0;
   var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
   var rxViewLinesPerData = isDual ? 2 : 1;
 
