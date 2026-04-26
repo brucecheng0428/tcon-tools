@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.12</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.13</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.20</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.21</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -13573,7 +13573,7 @@ function wfgRender() {
       estTransCount = baseSmart.transitions ? baseSmart.transitions.length : 0;
     }
 
-    var useDenseTemplate = estTransCount > drawW * 2 && baseSmart.isPeriodic && gpio.oax_mode === 0;
+    var useDenseTemplate = estTransCount > drawW * 2 && baseSmart.isPeriodic;
 
     if (useDenseTemplate) {
       // ═══ Smart Dense Mode: render directly from template, no full expansion ═══
@@ -13582,54 +13582,88 @@ function wfgRender() {
       var fillH = yLowI - yHighI + 1;
       ctx.fillStyle = ch.color;
       var pixelCount = Math.ceil(drawW);
-      var curLevel = wfgGetInitLevel(baseSmart, wfgViewStart);
       var tpl = baseSmart.template;
       var tplLen = tpl.length;
       var sVtotal = baseSmart.vtotal;
       var pv = baseSmart.periodVtotal;
       var steadyLine = baseSmart.steadyStart * sVtotal;
-      // For each pixel column, count transitions from template
-      for (var px = 0; px < pixelCount; px++) {
-        var lineLeft = wfgViewStart + (px / drawW) * viewRange;
-        var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
-        var count = 0;
-        var lastLevel = curLevel;
-        // Fast path: if pixel covers >= 1 full frame and template has transitions
-        if ((lineRight - lineLeft) >= sVtotal && tplLen > 0) {
-          count = tplLen; // guaranteed transitions
-          lastLevel = tpl[tplLen - 1].level;
-        } else if (lineRight >= steadyLine && tplLen > 0) {
-          // Compute which template transitions fall in [lineLeft, lineRight]
-          var relLeft = (lineLeft - steadyLine) % pv;
-          var relRight = relLeft + (lineRight - lineLeft);
-          if (relLeft < 0) relLeft = 0;
-          for (var tj = 0; tj < tplLen; tj++) {
-            if (tpl[tj].relLine >= relLeft && tpl[tj].relLine <= relRight) {
-              count++;
-              lastLevel = tpl[tj].level;
-            }
-          }
-        }
-        // Check prelude too
-        if (lineLeft < steadyLine) {
-          for (var pj = 0; pj < baseSmart.prelude.length; pj++) {
-            if (baseSmart.prelude[pj].line >= lineLeft && baseSmart.prelude[pj].line <= lineRight) {
-              count++;
-              lastLevel = baseSmart.prelude[pj].level;
-            }
-          }
-        }
-        curLevel = lastLevel;
-        var xI = drawX0 + px;
-        if (count > 0) {
-          ctx.fillRect(xI, yHighI, 1, fillH);
+      var linesPerPixel = viewRange / drawW;
+
+      // Ultra-dense: every pixel covers >= 1 full frame → solid bar
+      if (linesPerPixel >= sVtotal && tplLen > 0 && gpio.oax_mode === 0) {
+        ctx.fillRect(drawX0, yHighI, Math.ceil(drawW), fillH);
+      } else if (linesPerPixel >= sVtotal && tplLen > 0 && gpio.oax_mode !== 0) {
+        // OAX ultra-dense: both signals guaranteed transitions per pixel → solid bar
+        var otherSmart = allGpioTransitions[gpio.oax_sel];
+        if (otherSmart && otherSmart.isPeriodic && otherSmart.template.length > 0) {
+          ctx.fillRect(drawX0, yHighI, Math.ceil(drawW), fillH);
         } else {
-          ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
+          // OAX other has no transitions → render base only as solid
+          ctx.fillRect(drawX0, yHighI, Math.ceil(drawW), fillH);
         }
+      } else if (gpio.oax_mode === 0) {
+        // Per-pixel template scan (non-OAX)
+        var curLevel = wfgGetInitLevel(baseSmart, wfgViewStart);
+        for (var px = 0; px < pixelCount; px++) {
+          var lineLeft = wfgViewStart + (px / drawW) * viewRange;
+          var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
+          var count = 0;
+          var lastLevel = curLevel;
+          if ((lineRight - lineLeft) >= sVtotal && tplLen > 0) {
+            count = tplLen;
+            lastLevel = tpl[tplLen - 1].level;
+          } else if (lineRight >= steadyLine && tplLen > 0) {
+            var relLeft = (lineLeft - steadyLine) % pv;
+            var relRight = relLeft + (lineRight - lineLeft);
+            if (relLeft < 0) relLeft = 0;
+            for (var tj = 0; tj < tplLen; tj++) {
+              if (tpl[tj].relLine >= relLeft && tpl[tj].relLine <= relRight) {
+                count++;
+                lastLevel = tpl[tj].level;
+              }
+            }
+          }
+          if (lineLeft < steadyLine) {
+            for (var pj = 0; pj < baseSmart.prelude.length; pj++) {
+              if (baseSmart.prelude[pj].line >= lineLeft && baseSmart.prelude[pj].line <= lineRight) {
+                count++;
+                lastLevel = baseSmart.prelude[pj].level;
+              }
+            }
+          }
+          curLevel = lastLevel;
+          var xI = drawX0 + px;
+          if (count > 0) {
+            ctx.fillRect(xI, yHighI, 1, fillH);
+          } else {
+            ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
+          }
+        }
+        var remW = Math.ceil(w - drawX0 - pixelCount);
+        if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
+      } else {
+        // OAX per-pixel: expand small ranges per pixel
+        var curLevel = 0;
+        for (var px = 0; px < pixelCount; px++) {
+          var lineLeft = wfgViewStart + (px / drawW) * viewRange;
+          var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
+          var oaxR = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, lineLeft, lineRight);
+          if (px === 0) curLevel = oaxR.initLevel;
+          var count = oaxR.transitions.length;
+          var lastLvl = curLevel;
+          for (var oj = 0; oj < oaxR.transitions.length; oj++) lastLvl = oaxR.transitions[oj].level;
+          curLevel = lastLvl;
+          var xI = drawX0 + px;
+          if (count > 0) {
+            ctx.fillRect(xI, yHighI, 1, fillH);
+          } else {
+            ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
+          }
+        }
+        var remW = Math.ceil(w - drawX0 - pixelCount);
+        if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
       }
-      var remW = Math.ceil(w - drawX0 - pixelCount);
-      if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
-      _wfgLastChTransitions[i] = []; // no expanded transitions cached for measurement in dense mode
+      _wfgLastChTransitions[i] = [];
     } else {
       // ═══ Normal mode: expand viewport transitions ═══
       var oaxResult = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, wfgViewStart, wfgViewEnd);
