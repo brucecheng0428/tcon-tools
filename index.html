@@ -13561,64 +13561,63 @@ function wfgRender() {
       ctx.stroke();
     }
 
-    // Compute transitions with OAX applied — viewport-only expansion
-    var oaxResult = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, wfgViewStart, wfgViewEnd);
-    var transitions = oaxResult.transitions;
-    var curLevel = oaxResult.initLevel;
-    _wfgLastChTransitions[i] = transitions;
-    if (transitions.length === 0) {
-      ctx.strokeStyle = ch.color;
-      ctx.lineWidth = 1;
-      if (!isThisDragged) ctx.globalAlpha = 0.6;
-      ctx.beginPath();
-      ctx.moveTo(drawX0, curLevel ? yHigh : yLow);
-      ctx.lineTo(w, curLevel ? yHigh : yLow);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      continue;
+    // Estimate visible transition count to choose render strategy
+    var baseSmart = allGpioTransitions[ch.gpioIdx];
+    var estTransCount = 0;
+    if (baseSmart.isPeriodic) {
+      var framesInView = viewRange / baseSmart.vtotal;
+      estTransCount = baseSmart.template.length * Math.max(1, framesInView);
+      // Add prelude transitions in view
+      if (wfgViewStart < baseSmart.steadyStart * baseSmart.vtotal) estTransCount += baseSmart.prelude.length;
+    } else {
+      estTransCount = baseSmart.transitions ? baseSmart.transitions.length : 0;
     }
 
-    // Draw waveform (lineWidth=1 + half-pixel offset for pixel-perfect edges)
-    ctx.strokeStyle = ch.color;
-    ctx.lineWidth = 1;
-    ctx.lineJoin = 'bevel';
-    ctx.beginPath();
+    var useDenseTemplate = estTransCount > drawW * 2 && baseSmart.isPeriodic && gpio.oax_mode === 0;
 
-    var visTransCount = transitions.length;
-
-    var curY = curLevel ? yHigh : yLow;
-    ctx.moveTo(drawX0, curY);
-
-    if (visTransCount <= drawW * 2) {
-      // Sparse mode: draw each transition individually (stroke path)
-      for (var ti = 0; ti < transitions.length; ti++) {
-        var t = transitions[ti];
-        var fracDly = dclkPerLine > 0 ? t.dly / dclkPerLine : 0;
-        var x = lineToX(t.line + fracDly);
-        var snapX = Math.round(x) + 0.5;
-        ctx.lineTo(snapX, curY);
-        var newY = t.level ? yHigh : yLow;
-        ctx.lineTo(snapX, newY);
-        curY = newY;
-        curLevel = t.level;
-      }
-      ctx.lineTo(w, curY);
-      ctx.stroke();
-    } else {
-      // Dense mode: fillRect per pixel column
+    if (useDenseTemplate) {
+      // ═══ Smart Dense Mode: render directly from template, no full expansion ═══
       var yHighI = Math.round(yHigh - 0.5);
       var yLowI = Math.round(yLow - 0.5);
       var fillH = yLowI - yHighI + 1;
       ctx.fillStyle = ch.color;
       var pixelCount = Math.ceil(drawW);
-      var ti = 0;
+      var curLevel = wfgGetInitLevel(baseSmart, wfgViewStart);
+      var tpl = baseSmart.template;
+      var tplLen = tpl.length;
+      var sVtotal = baseSmart.vtotal;
+      var pv = baseSmart.periodVtotal;
+      var steadyLine = baseSmart.steadyStart * sVtotal;
+      // For each pixel column, count transitions from template
       for (var px = 0; px < pixelCount; px++) {
+        var lineLeft = wfgViewStart + (px / drawW) * viewRange;
         var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
         var count = 0;
         var lastLevel = curLevel;
-        while (ti < transitions.length && transitions[ti].line <= lineRight) {
-          lastLevel = transitions[ti].level;
-          ti++; count++;
+        // Fast path: if pixel covers >= 1 full frame and template has transitions
+        if ((lineRight - lineLeft) >= sVtotal && tplLen > 0) {
+          count = tplLen; // guaranteed transitions
+          lastLevel = tpl[tplLen - 1].level;
+        } else if (lineRight >= steadyLine && tplLen > 0) {
+          // Compute which template transitions fall in [lineLeft, lineRight]
+          var relLeft = (lineLeft - steadyLine) % pv;
+          var relRight = relLeft + (lineRight - lineLeft);
+          if (relLeft < 0) relLeft = 0;
+          for (var tj = 0; tj < tplLen; tj++) {
+            if (tpl[tj].relLine >= relLeft && tpl[tj].relLine <= relRight) {
+              count++;
+              lastLevel = tpl[tj].level;
+            }
+          }
+        }
+        // Check prelude too
+        if (lineLeft < steadyLine) {
+          for (var pj = 0; pj < baseSmart.prelude.length; pj++) {
+            if (baseSmart.prelude[pj].line >= lineLeft && baseSmart.prelude[pj].line <= lineRight) {
+              count++;
+              lastLevel = baseSmart.prelude[pj].level;
+            }
+          }
         }
         curLevel = lastLevel;
         var xI = drawX0 + px;
@@ -13628,9 +13627,78 @@ function wfgRender() {
           ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
         }
       }
-      // Extend to right edge
       var remW = Math.ceil(w - drawX0 - pixelCount);
       if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
+      _wfgLastChTransitions[i] = []; // no expanded transitions cached for measurement in dense mode
+    } else {
+      // ═══ Normal mode: expand viewport transitions ═══
+      var oaxResult = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, wfgViewStart, wfgViewEnd);
+      var transitions = oaxResult.transitions;
+      var curLevel = oaxResult.initLevel;
+      _wfgLastChTransitions[i] = transitions;
+      if (transitions.length === 0) {
+        ctx.strokeStyle = ch.color;
+        ctx.lineWidth = 1;
+        if (!isThisDragged) ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(drawX0, curLevel ? yHigh : yLow);
+        ctx.lineTo(w, curLevel ? yHigh : yLow);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        continue;
+      }
+
+      ctx.strokeStyle = ch.color;
+      ctx.lineWidth = 1;
+      ctx.lineJoin = 'bevel';
+      ctx.beginPath();
+
+      var visTransCount = transitions.length;
+      var curY = curLevel ? yHigh : yLow;
+      ctx.moveTo(drawX0, curY);
+
+      if (visTransCount <= drawW * 2) {
+        // Sparse mode: draw each transition individually
+        for (var ti = 0; ti < transitions.length; ti++) {
+          var t = transitions[ti];
+          var fracDly = dclkPerLine > 0 ? t.dly / dclkPerLine : 0;
+          var x = lineToX(t.line + fracDly);
+          var snapX = Math.round(x) + 0.5;
+          ctx.lineTo(snapX, curY);
+          var newY = t.level ? yHigh : yLow;
+          ctx.lineTo(snapX, newY);
+          curY = newY;
+          curLevel = t.level;
+        }
+        ctx.lineTo(w, curY);
+        ctx.stroke();
+      } else {
+        // Dense mode with expanded transitions
+        var yHighI = Math.round(yHigh - 0.5);
+        var yLowI = Math.round(yLow - 0.5);
+        var fillH = yLowI - yHighI + 1;
+        ctx.fillStyle = ch.color;
+        var pixelCount = Math.ceil(drawW);
+        var ti = 0;
+        for (var px = 0; px < pixelCount; px++) {
+          var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
+          var count = 0;
+          var lastLevel = curLevel;
+          while (ti < transitions.length && transitions[ti].line <= lineRight) {
+            lastLevel = transitions[ti].level;
+            ti++; count++;
+          }
+          curLevel = lastLevel;
+          var xI = drawX0 + px;
+          if (count > 0) {
+            ctx.fillRect(xI, yHighI, 1, fillH);
+          } else {
+            ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
+          }
+        }
+        var remW = Math.ceil(w - drawX0 - pixelCount);
+        if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
+      }
     }
     if (isThisDragged) ctx.globalAlpha = 1;
   }
