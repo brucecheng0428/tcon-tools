@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.7</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.42.8</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.12</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.25.13</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -14658,24 +14658,26 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
     var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : (lineInFrame - Math.floor(lineInFrame));
     var dataIdx = (rxLineIdx + 1) % vtotalRx;
     if (dataIdx >= vactive) {
-      // Blanking region - find blanking block edges
-      // Find first blanking line and first active line
-      var blankStartDataIdx = vactive;
-      var blankStartRxLine = blankStartDataIdx > 0 ? blankStartDataIdx - 1 : vtotalRx - 1;
-      // leftEdge: start of blanking = end of last active DE
-      var lastActiveDataIdx = vactive - 1;
-      var lastActiveStartLine = isDual ? ((lastActiveDataIdx > 0 ? lastActiveDataIdx - 1 : vtotalRx - 1) * rxViewLinesPerData) : ((lastActiveDataIdx > 0 ? lastActiveDataIdx - 1 : vtotalRx - 1));
-      // This is complex in multi-frame, just show "--" for blanking
-      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _deRow: deRowIdx };
-      wfgMeasSetVal('wfg-meas-pw', '--');
-      wfgMeasSetVal('wfg-meas-per', '--');
-      wfgMeasSetVal('wfg-meas-duty', '--');
-      wfgMeasSetVal('wfg-meas-freq', '--');
-      var chEl = document.getElementById('wfg-meas-ch');
-      if (chEl) chEl.textContent = deName;
-      wfgRender();
-      return;
-    }
+      // Vblank region: compute blanking block edges
+      if (vactive < 2) {
+        _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _deRow: deRowIdx };
+        wfgMeasSetVal('wfg-meas-pw', '--');
+        wfgMeasSetVal('wfg-meas-per', '--');
+        wfgMeasSetVal('wfg-meas-duty', '--');
+        wfgMeasSetVal('wfg-meas-freq', '--');
+        var chEl = document.getElementById('wfg-meas-ch');
+        if (chEl) chEl.textContent = deName;
+        wfgRender();
+        return;
+      }
+      var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
+      // Last active DE (dataIdx=vactive-1) at rxLineIdx=vactive-2
+      leftEdge = frameBase + (vactive - 2) * rxViewLinesPerData + rxDeFrac;
+      // Next active DE (dataIdx=0) at rxLineIdx=vtotalRx-1
+      rightEdge = frameBase + (vtotalRx - 1) * rxViewLinesPerData;
+      rightEdge2 = rightEdge + rxDeFrac;
+      curLevel = 0;
+    } else {
     // Active region: compute DE boundaries for this data entry
     // Data entry starts at view line: (dataIdx > 0 ? dataIdx - 1 : vtotalRx - 1) * rxViewLinesPerData
     var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
@@ -14700,23 +14702,40 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
       // Next block is HIGH again
       rightEdge2 = nextDeRise + rxDeFrac;
     }
+    } // close RX DE active else
   } else {
     // ── TX DE ──
     var vactiveView = isDual ? vactive * 2 : vactive;
     var intLine = Math.floor(lineInFrame);
     var txDataIdx = intLine - lbShift;
     if (txDataIdx < 0 || txDataIdx >= vactiveView) {
-      // Blanking
-      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _deRow: deRowIdx };
-      wfgMeasSetVal('wfg-meas-pw', '--');
-      wfgMeasSetVal('wfg-meas-per', '--');
-      wfgMeasSetVal('wfg-meas-duty', '--');
-      wfgMeasSetVal('wfg-meas-freq', '--');
-      var chEl = document.getElementById('wfg-meas-ch');
-      if (chEl) chEl.textContent = deName;
-      wfgRender();
-      return;
-    }
+      // Vblank region: compute blanking block edges
+      if (vactiveView === 0) {
+        _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _deRow: deRowIdx };
+        wfgMeasSetVal('wfg-meas-pw', '--');
+        wfgMeasSetVal('wfg-meas-per', '--');
+        wfgMeasSetVal('wfg-meas-duty', '--');
+        wfgMeasSetVal('wfg-meas-freq', '--');
+        var chEl = document.getElementById('wfg-meas-ch');
+        if (chEl) chEl.textContent = deName;
+        wfgRender();
+        return;
+      }
+      var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
+      var firstActiveViewLine = lbShift;
+      var lastActiveViewLine = lbShift + vactiveView - 1;
+      if (txDataIdx < 0) {
+        // Before active region: blank from prev frame's last DE fall to this frame's first DE rise
+        leftEdge = (frameBase - vtotalView) + lastActiveViewLine + txDeFrac;
+        rightEdge = frameBase + firstActiveViewLine;
+      } else {
+        // After active region: blank from this frame's last DE fall to next frame's first DE rise
+        leftEdge = frameBase + lastActiveViewLine + txDeFrac;
+        rightEdge = (frameBase + vtotalView) + firstActiveViewLine;
+      }
+      rightEdge2 = rightEdge + txDeFrac;
+      curLevel = 0;
+    } else {
     // Active TX DE line
     var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
     var lineStart = frameBase + intLine;
@@ -14737,6 +14756,7 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
       rightEdge = nextLineStart;
       rightEdge2 = nextLineStart + txDeFrac;
     }
+    } // close TX DE active else
   }
 
   if (leftEdge === null || rightEdge === null) { wfgMeasClear(); return; }
