@@ -12330,8 +12330,29 @@ var _wfgOaxCache = null; // Map: gpioIdx → transitions (with OAX applied)
 // ─── Minimap offscreen cache ───
 var _wfgMinimapCache = null; // { canvas: OffscreenCanvas|HTMLCanvasElement, w, h } or null
 // ─── Performance timing ───
-var _wfgPerfEnabled = false; // Toggle: _wfgPerfEnabled = true in console
+var _wfgPerfEnabled = false; // Toggle: window._wfgPerfEnabled = true in console
 var _wfgPerfLast = {};
+window._wfgPerfEnabled = _wfgPerfEnabled; // Expose to global scope for console access
+window._wfgPerfLast = _wfgPerfLast;
+// Getter/setter so console toggle works across scopes
+Object.defineProperty(window, '_wfgPerfEnabled', {
+  get: function() { return _wfgPerfEnabled; },
+  set: function(v) { _wfgPerfEnabled = v; },
+  configurable: true
+});
+Object.defineProperty(window, '_wfgPerfLast', {
+  get: function() { return _wfgPerfLast; },
+  configurable: true
+});
+// Expose key state for external profiling
+Object.defineProperty(window, '_wfgTransitionCache', {
+  get: function() { return _wfgTransitionCache; },
+  configurable: true
+});
+Object.defineProperty(window, '_wfgFrame', {
+  get: function() { return wfgFrame; },
+  configurable: true
+});
 function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
@@ -16835,6 +16856,36 @@ if (document.readyState === 'loading') {
   wfgInit();
   wfgInitMinimap();
 }
+
+// ─── Global benchmark function for profiling ───
+window.wfgBenchZoom = function(frames) {
+  if (frames) {
+    wfgFrame.frameCount = frames;
+    document.getElementById('wfg-frame-count').value = frames;
+    wfgInvalidateCache();
+    wfgResizeAndRender();
+    wfgRenderMinimap();
+    wfgUpdateMinimapViewport();
+  }
+  // Fit all view first
+  wfgViewStart = 0; wfgViewEnd = wfgTotalLines();
+  wfgRender(); wfgUpdateMinimapViewport();
+  // Warm up cache
+  wfgEnsureTransitions();
+  // Now benchmark a single zoom
+  _wfgPerfEnabled = true;
+  var t0 = performance.now();
+  var range = wfgViewEnd - wfgViewStart;
+  var center = (wfgViewStart + wfgViewEnd) / 2;
+  var newRange = range * 0.8; // 20% zoom in
+  wfgViewStart = Math.max(0, center - newRange / 2);
+  wfgViewEnd = Math.min(wfgTotalLines(), wfgViewStart + newRange);
+  wfgRender();
+  wfgUpdateMinimapViewport();
+  var elapsed = performance.now() - t0;
+  _wfgPerfEnabled = false;
+  return {totalMs: elapsed, breakdown: JSON.parse(JSON.stringify(_wfgPerfLast))};
+};
 
 })();
 
