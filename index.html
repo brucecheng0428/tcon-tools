@@ -12842,6 +12842,14 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   var fphY = baseY + 3 * (rowH + gap);
   // Show for hovered channel if measuring, otherwise first visible channel
   var _phChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : 0;
+  // Determine if hovered channel has no pulse (flat waveform) → force PH_CNT non-highlight
+  var _phNoPulse = false;
+  if (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) {
+    var _phTrans = _wfgLastChTransitions[_wfgMeasArrow._tconHoverChIdx];
+    if (!_phTrans || _phTrans.length < 2) _phNoPulse = true;
+  }
+  // Also force non-highlight when hovering on DE rows (no GPIO context)
+  if (_wfgMeasArrow && _wfgMeasArrow._deRow != null) _phNoPulse = true;
   if (_wfgLastVisibleChs && _wfgLastVisibleChs.length > _phChIdx && _phChIdx >= 0) {
     var ch = _wfgLastVisibleChs[_phChIdx];
     if (ch && ch.gpioIdx >= 0) {
@@ -12851,9 +12859,9 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
         var stLine = Math.max(0, gpio.st_line);
         var spLine = Math.min(vtotalView - 1, gpio.sp_line);
         // Draw R_PH_CNT
-        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _wfgHoverLinePos);
+        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse);
         // Draw F_PH_CNT
-        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _wfgHoverLinePos);
+        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse);
       }
     }
   }
@@ -12870,7 +12878,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   }
 }
 
-function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, hoverLinePos) {
+function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight) {
   ctx.textAlign = 'center';
   var textY = y + rowH / 2 + 3;
   var cycle = actType + 1;
@@ -12900,7 +12908,7 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     var clampL = Math.max(drawX0, xL);
     var clampR = Math.min(w, xR);
     var linesFromSt = ((lineInFrame - stLine) + vtotalView) % vtotalView;
-    var inHL = (linesFromSt < highlightLen);
+    var inHL = forceNonHighlight ? false : (linesFromSt < highlightLen);
     // Display counter value
     var counterVal;
     if (actType === 0) {
@@ -12913,16 +12921,7 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     // Effective counter for trigger detection
     var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
     var isTrigger = (effCnt === actType) && inHL;
-    // When hovering, only show trigger coloring if mouse is on THIS trigger line
-    var hoverLine = (hoverLinePos != null) ? Math.floor(hoverLinePos) % vtotalView : -1;
-    var hoverActive = (hoverLinePos != null);
-    var isHoverOnThisTrigger = isTrigger && (hoverLine >= 0) && (lineInFrame === hoverLine);
-    // Determine display mode:
-    // When hover active: only the trigger cell under the mouse gets trigger coloring; everything else → dim
-    // When no hover: original behavior (non-highlight=grey, trigger=colored, highlight=normal)
-    var showTrigger = hoverActive ? isHoverOnThisTrigger : isTrigger;
-    var showDim = hoverActive ? !isHoverOnThisTrigger : !inHL;
-    if (showDim) {
+    if (!inHL) {
       // Non-highlight: grey mask + dim text
       ctx.save();
       ctx.fillStyle = 'rgba(128,128,128,0.4)';
@@ -12931,8 +12930,8 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
       ctx.fillStyle = dimColor;
       ctx.font = '9px monospace';
       ctx.fillText(counterVal.toString(), (clampL + clampR) / 2, textY);
-    } else if (showTrigger) {
-      // Triggered: colored bg + bold
+    } else if (isTrigger) {
+      // Highlight + triggered: colored bg + bold
       ctx.save();
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.25;
@@ -14545,11 +14544,9 @@ function wfgInitCanvas() {
 // ─── Measurement Card Logic ───
 var _wfgMeasRaf = null;
 var _wfgMeasArrow = null; // {x1, x2, y, chIdx} for overlay drawing
-var _wfgHoverLinePos = null; // fractional line position of mouse hover (for PH_CNT highlight)
 
 function wfgMeasClear() {
   _wfgMeasArrow = null;
-  _wfgHoverLinePos = null;
   var els = ['wfg-meas-pw','wfg-meas-per','wfg-meas-duty','wfg-meas-freq'];
   for (var i = 0; i < els.length; i++) {
     var el = document.getElementById(els[i]);
@@ -14607,7 +14604,7 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx) {
   if (viewRange <= 0) { wfgMeasClear(); return; }
 
   var mouseLinePos = wfgViewStart + ((cx - drawX0) / drawW) * viewRange;
-  _wfgHoverLinePos = mouseLinePos;
+
 
   var hactive = wfgFrame.hactive;
   var vactive = wfgFrame.vactive;
@@ -14802,7 +14799,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
 
   // Convert cx to line position
   var mouseLinePos = wfgViewStart + ((cx - drawX0) / drawW) * viewRange;
-  _wfgHoverLinePos = mouseLinePos;
+
 
   // Use cached transitions
   var transitions = _wfgLastChTransitions[chIdx];
