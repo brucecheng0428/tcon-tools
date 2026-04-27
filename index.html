@@ -12521,6 +12521,50 @@ function wfgDebugPulses() {
   return result;
 }
 window.wfgDebugPulses = wfgDebugPulses;
+// Enhanced debug: compute pixel-level pulse widths matching actual rendering
+window.wfgDebugPixelPulses = function() {
+  var cache = _wfgTransitionCache;
+  if (!cache) return 'No cache';
+  var isDual = wfgFrame.gateType === 'dual';
+  var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+  var ht = cache.effHtotal;
+  var dpr = window.devicePixelRatio || 1;
+  var canvas = document.getElementById('wfg-canvas');
+  var w = canvas ? canvas.width / dpr : 0;
+  var drawW = w - 110;
+  var drawX0 = 110;
+  var viewRange = wfgViewEnd - wfgViewStart;
+  function lineToX(line) { return drawX0 + ((line - wfgViewStart) / viewRange) * drawW; }
+  var result = { viewStart: wfgViewStart, viewEnd: wfgViewEnd, viewRange: viewRange,
+    drawW: drawW, drawX0: drawX0, effHtotal: ht, dclkPerLine: dclkPerLine, channels: [] };
+  for (var ci = 0; ci < wfgChannels.length; ci++) {
+    var ch = wfgChannels[ci];
+    if (!ch.visible || ch.gpioIdx < 0 || ch.gpioIdx >= wfgGpios.length) continue;
+    var oax = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, ht, wfgViewStart, wfgViewEnd);
+    var chInfo = { name: ch.name, initLevel: oax.initLevel, transCount: oax.transitions.length, pulses: [] };
+    var curLevel = oax.initLevel;
+    var riseX = curLevel === 1 ? drawX0 : null;
+    for (var j = 0; j < oax.transitions.length; j++) {
+      var tr = oax.transitions[j];
+      var fracDly = dclkPerLine > 0 ? tr.dly / dclkPerLine : 0;
+      var x = lineToX(tr.line + fracDly);
+      var snapX = Math.round(x) + 0.5;
+      if (tr.level === 1) { riseX = snapX; }
+      else if (tr.level === 0 && riseX !== null) {
+        chInfo.pulses.push({ riseX: +riseX.toFixed(1), fallX: +snapX.toFixed(1), pxWidth: +(snapX - riseX).toFixed(2), fromBoundary: riseX <= drawX0 + 1 });
+        riseX = null;
+      }
+      curLevel = tr.level;
+    }
+    chInfo.pulses = chInfo.pulses.slice(0, 12);
+    chInfo.firstTrans = oax.transitions.slice(0, 8).map(function(t) {
+      var fd = dclkPerLine > 0 ? t.dly / dclkPerLine : 0;
+      return { line: t.line, dly: t.dly, level: t.level, renderPos: +(t.line + fd).toFixed(6), pixelX: +(Math.round(lineToX(t.line + fd)) + 0.5).toFixed(1) };
+    });
+    result.channels.push(chInfo);
+  }
+  return result;
+};
 window.wfgSetView = function(start, end) {
   wfgViewStart = start; wfgViewEnd = end;
   wfgRender();
