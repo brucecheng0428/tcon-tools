@@ -15328,9 +15328,12 @@ window.wfgResizeCanvas = function() {
   canvas.height = Math.round(h * dpr);
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  wfgRender();
   // Sync left panel height to canvas-wrap height (desktop only)
-  // Use requestAnimationFrame to read canvas-wrap's rendered height after layout
-  requestAnimationFrame(function() {
+  // Run after render so layout reflects final canvas size
+  setTimeout(function() {
     var panel = document.querySelector('.wfg-panel');
     var cWrap = document.querySelector('.wfg-canvas-wrap');
     if (panel && cWrap && window.innerWidth >= 769) {
@@ -15339,10 +15342,7 @@ window.wfgResizeCanvas = function() {
     } else if (panel) {
       panel.style.height = '';
     }
-  });
-  var ctx = canvas.getContext('2d');
-  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-  wfgRender();
+  }, 0);
 };
 
 // ─── Preset / Param ───
@@ -17753,8 +17753,9 @@ function wfgInit() {
 }
 
 // ─── Left panel height sync via ResizeObserver ───
-if (typeof ResizeObserver !== 'undefined') {
-  var _wfgPanelSyncRO = new ResizeObserver(function() {
+(function() {
+  if (typeof ResizeObserver === 'undefined') return;
+  function syncPanelHeight() {
     var panel = document.querySelector('.wfg-panel');
     var cWrap = document.querySelector('.wfg-canvas-wrap');
     if (panel && cWrap && window.innerWidth >= 769) {
@@ -17763,10 +17764,13 @@ if (typeof ResizeObserver !== 'undefined') {
     } else if (panel) {
       panel.style.height = '';
     }
-  });
-  var _wfgCWrap = document.querySelector('.wfg-canvas-wrap');
-  if (_wfgCWrap) _wfgPanelSyncRO.observe(_wfgCWrap);
-}
+  }
+  var ro = new ResizeObserver(function() { setTimeout(syncPanelHeight, 0); });
+  var cw = document.querySelector('.wfg-canvas-wrap');
+  if (cw) ro.observe(cw);
+  // Also sync on window resize (mobile ↔ desktop breakpoint)
+  window.addEventListener('resize', function() { setTimeout(syncPanelHeight, 50); });
+})();
 
 // ─── kvdat Import ───
 let wfgKvdatMode = false;
