@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.47.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.48.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.30.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.31.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12791,31 +12791,39 @@ function wfgCalcGpioSmart(gpio, vtotal, htotal, frameCount) {
 }
 
 // ─── Expand smart transitions for a line range [startLine, endLine] ───
-function wfgExpandRange(smart, startLine, endLine) {
+function wfgExpandRange(smart, startLine, endLine, htotal) {
+  var ht = htotal || 0;
   if (!smart.isPeriodic) {
     var trans = smart.transitions;
-    // Binary search for start
+    // Binary search for start — use temporal position (line + dly/htotal) so transitions
+    // with line < startLine but dly pushing them past startLine are included
     var lo = 0, hi = trans.length;
-    while (lo < hi) { var mid = (lo + hi) >>> 1; if (trans[mid].line < startLine) lo = mid + 1; else hi = mid; }
+    while (lo < hi) {
+      var mid = (lo + hi) >>> 1;
+      var tPos = ht > 0 ? trans[mid].line + (trans[mid].dly || 0) / ht : trans[mid].line;
+      if (tPos < startLine) lo = mid + 1; else hi = mid;
+    }
     var si = lo;
-    // Binary search for end
+    // Binary search for end (line-based is fine — dly only adds, so line > endLine guarantees tPos > endLine)
     lo = si; hi = trans.length;
     while (lo < hi) { var mid = (lo + hi) >>> 1; if (trans[mid].line <= endLine) lo = mid + 1; else hi = mid; }
     return trans.slice(si, lo);
   }
   var result = [];
   var steadyLine = smart.steadyStart * smart.vtotal;
-  // Prelude transitions in range
+  // Prelude transitions in range — use temporal position for start boundary
   for (var i = 0; i < smart.prelude.length; i++) {
     var t = smart.prelude[i];
     if (t.line > endLine) break;
-    if (t.line >= startLine) result.push(t);
+    var tPos = ht > 0 ? t.line + (t.dly || 0) / ht : t.line;
+    if (tPos >= startLine) result.push(t);
   }
-  // Template transitions for steady-state
+  // Template transitions for steady-state — use temporal position for start boundary
   if (endLine >= steadyLine) {
     var pv = smart.periodVtotal;
     var effStart = Math.max(startLine, steadyLine);
-    var startPeriod = Math.floor((effStart - steadyLine) / pv);
+    // Back up startPeriod by 1 to catch transitions with dly crossing the boundary
+    var startPeriod = Math.max(0, Math.floor((effStart - steadyLine) / pv) - (ht > 0 ? 1 : 0));
     var endPeriod = Math.floor((endLine - steadyLine) / pv);
     var maxPeriod = Math.ceil((smart.frameCount - smart.steadyStart) / smart.period) - 1;
     endPeriod = Math.min(endPeriod, maxPeriod);
@@ -12825,7 +12833,8 @@ function wfgExpandRange(smart, startLine, endLine) {
         var tpl = smart.template[j];
         var absLine = pOff + tpl.relLine;
         if (absLine > endLine) break;
-        if (absLine >= startLine) result.push({ line: absLine, dly: tpl.dly, level: tpl.level });
+        var tPos = ht > 0 ? absLine + (tpl.dly || 0) / ht : absLine;
+        if (tPos >= startLine) result.push({ line: absLine, dly: tpl.dly, level: tpl.level });
       }
     }
   }
@@ -12871,11 +12880,11 @@ function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine
   var gpio = wfgGpios[gpioIdx];
   var baseSmart = allGpioSmarts[gpioIdx];
   if (gpio.oax_mode === 0 || gpio.oax_sel < 0 || gpio.oax_sel >= wfgGpios.length || gpio.oax_sel === gpioIdx) {
-    return { transitions: wfgExpandRange(baseSmart, startLine, endLine), initLevel: wfgGetInitLevel(baseSmart, startLine, effHtotal) };
+    return { transitions: wfgExpandRange(baseSmart, startLine, endLine, effHtotal), initLevel: wfgGetInitLevel(baseSmart, startLine, effHtotal) };
   }
   var otherSmart = allGpioSmarts[gpio.oax_sel];
-  var baseExp = wfgExpandRange(baseSmart, startLine, endLine);
-  var otherExp = wfgExpandRange(otherSmart, startLine, endLine);
+  var baseExp = wfgExpandRange(baseSmart, startLine, endLine, effHtotal);
+  var otherExp = wfgExpandRange(otherSmart, startLine, endLine, effHtotal);
   var baseInit = wfgGetInitLevel(baseSmart, startLine, effHtotal);
   var otherInit = wfgGetInitLevel(otherSmart, startLine, effHtotal);
   // Merge transition points
@@ -16066,7 +16075,7 @@ function wfgCursorSnapTime(rawTime, cx, p) {
       for (var gi = 0; gi < cache.transitions.length; gi++) {
         var smart = cache.transitions[gi];
         if (!smart) continue;
-        var edges = smart.isPeriodic !== undefined ? wfgExpandRange(smart, wfgViewStart, wfgViewEnd) : (smart.transitions || []);
+        var edges = smart.isPeriodic !== undefined ? wfgExpandRange(smart, wfgViewStart, wfgViewEnd, cache.effHtotal) : (smart.transitions || []);
         for (var ei = 0; ei < edges.length; ei++) {
           var tr = edges[ei];
           var edgeTime = (tr.line + tr.dly / dclkPerLine) * timePerLine;
@@ -16976,7 +16985,7 @@ function wfgRenderMinimap() {
           for (var px = 0; px < boxW; px++) {
             var lineLeft = (px / boxW) * totalLines;
             var lineRight = ((px + 1) / boxW) * totalLines;
-            var pxTrans = wfgExpandRange(smart, lineLeft, lineRight);
+            var pxTrans = wfgExpandRange(smart, lineLeft, lineRight, mmEffHtotal);
             if (gpio.oax_mode !== 0) {
               var oaxR = wfgGetOaxForRange(ch.gpioIdx, mmAllGpioTr, mmEffHtotal, lineLeft, lineRight);
               pxTrans = oaxR.transitions;
