@@ -1718,7 +1718,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.66.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.67.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1767,7 +1767,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.49.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.50.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -14118,13 +14118,39 @@ function wfgRender() {
     dragYOffsets[_dragSlot] = _dragMouseY;
   }
 
-  // Draw promoted groups first (behind channels)
+  // If IR drag (promoted group drag) is active, adjust promoted group Y to follow mouse
+  var _irDragGrpIdx = -1;
+  if (_wfgIrDrag && _wfgIrDrag.fromPromoted && _wfgIrDrag.canvasRect &&
+      (_wfgIrDrag.mode === 'channel-reorder' || _wfgIrDrag.mode === 'demote')) {
+    _irDragGrpIdx = _wfgIrDrag.grpIdx;
+    var _irDragSlot = (_promotedSlots[_irDragGrpIdx] !== undefined) ? _promotedSlots[_irDragGrpIdx] : -1;
+    if (_irDragSlot >= 0) {
+      var _irMouseY = _wfgIrDrag.mouseY - _wfgIrDrag.canvasRect.top - rowStep / 2;
+      var _irMinDY = wfgWaveY0;
+      var _irMaxDY = wfgWaveY0 + (_totalSlots - 1) * rowStep;
+      if (_irMouseY < _irMinDY) _irMouseY = _irMinDY;
+      if (_irMouseY > _irMaxDY) _irMouseY = _irMaxDY;
+      dragYOffsets[_irDragSlot] = _irMouseY;
+    }
+  }
+
+  // Draw promoted groups (non-dragged first, then dragged on top)
   if (_displayList && _promotedCount > 0) {
+    // Non-dragged promoted groups first
     for (var _pg = 0; _pg < _displayList.length; _pg++) {
       if (_displayList[_pg].type !== 'promoted') continue;
+      if (_displayList[_pg].grpIdx === _irDragGrpIdx) continue; // draw dragged one later
       var _pSlot = _promotedSlots[_displayList[_pg].grpIdx];
       var _pY0 = dragYOffsets[_pSlot];
       wfgDrawPromotedGroup(ctx, _pY0, _displayList[_pg].grpIdx, drawX0, drawW, w, wfgViewStart, wfgViewEnd, viewRange, lineToX, vtotalView, dclkPerLine);
+    }
+    // Dragged promoted group on top with reduced opacity
+    if (_irDragGrpIdx >= 0 && _promotedSlots[_irDragGrpIdx] !== undefined) {
+      ctx.globalAlpha = 0.7;
+      var _pdSlot = _promotedSlots[_irDragGrpIdx];
+      var _pdY0 = dragYOffsets[_pdSlot];
+      wfgDrawPromotedGroup(ctx, _pdY0, _irDragGrpIdx, drawX0, drawW, w, wfgViewStart, wfgViewEnd, viewRange, lineToX, vtotalView, dclkPerLine);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -14370,7 +14396,7 @@ function wfgRender() {
   if (_wfgPerfEnabled) _wfgPerfLast.waveforms = performance.now() - _pT3;
   wfgMeasDrawArrow(ctx);
   wfgDrawCursors(ctx);
-  if (!_wfgLabelDrag && !wfgDragging) wfgRenderLabels();
+  if (!_wfgLabelDrag && !_wfgIrDrag && !wfgDragging) wfgRenderLabels();
   if (typeof wfgPulseRefresh === 'function' && !wfgDragging) wfgPulseRefresh();
   if (_wfgPerfEnabled) {
     _wfgPerfLast.total = performance.now() - _pT0;
@@ -14390,9 +14416,9 @@ function wfgRenderLabels() {
       var tconDclkNs = wfgFrame.dclk > 0 ? (1000 / wfgFrame.dclk).toFixed(1) : '—';
       var _irLabels = [
         { text: 'RX DCLK(' + rxDclkNs + 'ns)', color: WFG_INTERNAL_COLORS.rxde, pl: '2px', fs: '9px' },
-        { text: 'RX DE', color: WFG_INTERNAL_COLORS.rxde, pl: '6px', fs: '9px' },
+        { text: 'RX DE', color: WFG_INTERNAL_COLORS.rxde, pl: '2px', fs: '9px' },
         { text: 'TCON DCLK(' + tconDclkNs + 'ns)', color: WFG_INTERNAL_COLORS.txde, pl: '2px', fs: '9px' },
-        { text: 'TX DE', color: WFG_INTERNAL_COLORS.txde, pl: '6px', fs: '9px' },
+        { text: 'TX DE', color: WFG_INTERNAL_COLORS.txde, pl: '2px', fs: '9px' },
         { text: 'R_PH_CNT', color: WFG_INTERNAL_COLORS.rph, pl: '6px', fs: '9px' },
         { text: 'F_PH_CNT', color: WFG_INTERNAL_COLORS.fph, pl: '6px', fs: '9px' }
       ];
@@ -14485,6 +14511,7 @@ function wfgRenderLabels() {
 // ─── Internal Row Group Drag (with promote/demote to channel area) ───
 var _wfgIrDrag = null;
 var _wfgIrDocHandlers = null; // Store document-level handlers for cleanup on re-setup
+var _wfgIrDragRafId = 0; // RAF id for IR drag rendering
 function wfgIrDragSetup(container) {
   // Setup drag for internal row labels (non-promoted groups reorder within internal section,
   // groups 0/1 can be dragged to channel area to promote)
@@ -14515,9 +14542,12 @@ function wfgIrDragSetup(container) {
       return; // Do nothing — fixed rows cannot be dragged
     }
     var grpRows = WFG_IR_GROUPS[grpIdx];
+    var canvas = document.getElementById('wfg-canvas');
+    var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
     _wfgIrDrag = {
       grpIdx: grpIdx, grpRows: grpRows, startY: startY, mouseY: startY,
-      fromPromoted: fromPromoted || false, mode: 'undecided' // 'undecided', 'internal-reorder', 'promote', 'channel-reorder', 'demote'
+      fromPromoted: fromPromoted || false, mode: 'undecided', // 'undecided', 'internal-reorder', 'promote', 'channel-reorder', 'demote'
+      canvasRect: canvasRect
     };
     // Visual feedback
     if (!fromPromoted) {
@@ -14618,6 +14648,21 @@ function wfgIrDragSetup(container) {
     } else if (indicator) {
       indicator.style.display = 'none';
     }
+
+    // Update canvas rect and schedule render so waveform follows mouse during drag
+    var canvas = document.getElementById('wfg-canvas');
+    if (canvas) drag.canvasRect = canvas.getBoundingClientRect();
+    if (drag.fromPromoted && (drag.mode === 'channel-reorder' || drag.mode === 'demote')) {
+      scheduleIrDragRender();
+    }
+  }
+
+  function scheduleIrDragRender() {
+    if (_wfgIrDragRafId) return;
+    _wfgIrDragRafId = requestAnimationFrame(function() {
+      _wfgIrDragRafId = 0;
+      if (_wfgIrDrag) wfgRender();
+    });
   }
 
   function moveInternalReorder(clientY) {
