@@ -14558,6 +14558,11 @@ function wfgIrDragSetup(container) {
     if (WFG_IR_FIXED_GROUPS.indexOf(grpIdx) >= 0 && !fromPromoted) {
       return; // Do nothing — fixed rows cannot be dragged
     }
+    // Cancel any stale RAF from a previous drag session
+    if (_wfgIrDragRafId) {
+      cancelAnimationFrame(_wfgIrDragRafId);
+      _wfgIrDragRafId = 0;
+    }
     var grpRows = WFG_IR_GROUPS[grpIdx];
     var canvas = document.getElementById('wfg-canvas');
     var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
@@ -14688,22 +14693,26 @@ function wfgIrDragSetup(container) {
     var drag = _wfgIrDrag;
     var promEl = container.querySelector('[data-promoted-grp="' + drag.grpIdx + '"]');
     if (!promEl) return;
-    // Fresh canvasRect every call (same as GPIO)
+    // Fresh canvasRect every call (same as GPIO) — also store back into drag
+    // so the canvas render uses the same rect (prevents label/waveform desync)
     var canvas = document.getElementById('wfg-canvas');
     var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
     if (!canvasRect) return;
+    drag.canvasRect = canvasRect; // keep drag.canvasRect in sync for render
 
+    // axH: top of channel waveform area (matches canvas's wfgWaveY0)
+    var axH = WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH();
     // draggedY: mouse position in canvas coords (identical to GPIO)
     var draggedY = drag.mouseY - canvasRect.top - rowH / 2;
-    // Clamp: match GPIO range — WFG_AXIS_H to WFG_AXIS_H + (totalSlots-1)*rowH
+    // Clamp to channel waveform area (axH to axH + (totalSlots-1)*rowH)
+    // This matches the canvas render's [wfgWaveY0, wfgWaveY0 + (_totalSlots-1)*rowStep]
     var totalSlots = _irTotalDisplaySlots || 1;
-    var minY = WFG_AXIS_H;
-    var maxY = WFG_AXIS_H + Math.max(0, totalSlots - 1) * rowH;
+    var minY = axH;
+    var maxY = axH + Math.max(0, totalSlots - 1) * rowH;
     if (draggedY < minY) draggedY = minY;
     if (draggedY > maxY) draggedY = maxY;
 
     // normalY: geometric position (identical to GPIO's axH + naturalSlot * rowH)
-    var axH = WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH();
     var slotIdx = _promotedDisplaySlots[drag.grpIdx];
     if (slotIdx === undefined) slotIdx = 0;
     var normalY = axH + slotIdx * rowH;
@@ -14802,6 +14811,11 @@ function wfgIrDragSetup(container) {
 
   function endDrag() {
     if (!_wfgIrDrag) return;
+    // Cancel any pending RAF to prevent stale renders
+    if (_wfgIrDragRafId) {
+      cancelAnimationFrame(_wfgIrDragRafId);
+      _wfgIrDragRafId = 0;
+    }
     var drag = _wfgIrDrag;
     _wfgIrDrag = null;
 
