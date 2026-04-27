@@ -1718,7 +1718,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.64.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.65.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1767,7 +1767,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.47.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.48.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12481,10 +12481,10 @@ const WFG_INTERNAL_COLORS = { rxde: '#38bdf8', txde: '#f97316', rph: '#4ade80', 
 const WFG_ROW_H = 40;
 const WFG_ROW_GAP = 8;
 const WFG_LABEL_W = 110;
-const WFG_AXIS_H = 40; // Time(16) + Line(22) + 2px separator (DCLK moved to internal rows)
+const WFG_AXIS_H = 54; // Time(30) + Line(22) + 2px separator
 const WFG_TIME_Y = 0;
-const WFG_TIME_H = 16;
-const WFG_LINE_Y = 16;
+const WFG_TIME_H = 30;  // dual timeline: major(15) + minor(15)
+const WFG_LINE_Y = 30;
 const WFG_LINE_H = 22;
 
 // ─── Helper: TCON Internal extra height ───
@@ -13779,40 +13779,115 @@ function wfgRender() {
   // Time per line = dclkPerLine / dclkFreqHz
   var timePerLine = dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
 
-  // ── Layer 1: Time labels (top row) ──
+  // ── Layer 1: Dual Time Axis (Major + Minor ticks, KingstVIS style) ──
   var timeStart = wfgViewStart * timePerLine;
   var timeEnd = wfgViewEnd * timePerLine;
   var timeRange = timeEnd - timeStart;
   if (timePerLine > 0 && timeRange > 0) {
-    var tGridStep = 1e-12;
-    var tMinGridPx = 70;
-    while (true) {
-      var tGridPx = (tGridStep / timeRange) * drawW;
-      if (tGridPx >= tMinGridPx) break;
-      var decade = Math.pow(10, Math.floor(Math.log10(tGridStep)));
-      var mantissa = tGridStep / decade;
-      if (mantissa < 1.5) tGridStep = 2 * decade;
-      else if (mantissa < 3.5) tGridStep = 5 * decade;
-      else tGridStep = 10 * decade;
-      if (tGridStep > 1e6) break;
-    }
-    ctx.fillStyle = '#a2d2fb';
-    ctx.font = '11px monospace';
+    // --- Major tick: power-of-10 step ---
+    var idealMajorStep = (150 / drawW) * timeRange;
+    var majorExp = Math.round(Math.log10(idealMajorStep));
+    var majorStep = Math.pow(10, majorExp);
+    var majorPx = (majorStep / timeRange) * drawW;
+    if (majorPx < 80) { majorStep *= 10; majorPx *= 10; }
+    if (majorPx > 600) { majorStep /= 10; majorPx /= 10; }
+    // Minor: 10 subdivisions
+    var minorStep = majorStep / 10;
+    var minorPx = majorPx / 10;
+    // If minor ticks too dense (<25px), use 5 subdivisions
+    var minorDiv = 10;
+    if (minorPx < 25) { minorDiv = 5; minorStep = majorStep / 5; minorPx = majorPx / 5; }
+    // If still too dense, skip minor labels
+    var showMinorLabels = minorPx >= 20;
+
+    // Major tick label precision: number of decimal digits
+    var majorDecimals = Math.max(0, -Math.floor(Math.log10(majorStep) + 0.0001));
+
+    // --- Draw major ticks & labels (top half of time area) ---
+    var majorY1 = WFG_TIME_Y;      // top of major area
+    var majorYText = majorY1 + 11;  // text baseline
+    var majorYTick0 = majorY1 + 13; // tick start
+    var majorYTick1 = majorY1 + 15; // tick end (= boundary to minor area)
+
     ctx.textAlign = 'center';
-    var tFirst = Math.ceil(timeStart / tGridStep) * tGridStep;
-    for (var t = tFirst; t <= timeEnd; t += tGridStep) {
-      var linePos = t / timePerLine;
-      var x = lineToX(linePos);
-      if (x < drawX0 || x > w) continue;
-      ctx.strokeStyle = '#30363d';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, WFG_TIME_Y + WFG_TIME_H - 3);
-      ctx.lineTo(x, WFG_TIME_Y + WFG_TIME_H);
-      ctx.stroke();
-      ctx.fillStyle = '#a2d2fb';
-      ctx.fillText(wfgFormatTimeSec(t), x, WFG_TIME_Y + WFG_TIME_H - 4);
+    var majorFirst = Math.ceil(timeStart / majorStep) * majorStep;
+    // Batch major tick lines
+    ctx.strokeStyle = '#58a6ff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var mt = majorFirst; mt <= timeEnd + majorStep * 0.001; mt += majorStep) {
+      var mx = lineToX(mt / timePerLine);
+      if (mx < drawX0 || mx > w) continue;
+      ctx.moveTo(mx, majorYTick0);
+      ctx.lineTo(mx, WFG_TIME_H);
     }
+    ctx.stroke();
+    // Major labels
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = 'bold 11px monospace';
+    for (var mt = majorFirst; mt <= timeEnd + majorStep * 0.001; mt += majorStep) {
+      var mx = lineToX(mt / timePerLine);
+      if (mx < drawX0 + 5 || mx > w - 5) continue;
+      ctx.fillText(mt.toFixed(majorDecimals) + 's', mx, majorYText);
+    }
+
+    // --- Draw minor ticks & labels (bottom half of time area) ---
+    var minorYText = WFG_TIME_H - 5; // text baseline for minor labels
+    var minorYTick0 = WFG_TIME_H - 3;
+    var minorYTick1 = WFG_TIME_H;
+
+    // Determine minor label unit
+    var minorUnit, minorScale;
+    if (minorStep >= 0.5e-3) { minorUnit = 'ms'; minorScale = 1e3; }
+    else if (minorStep >= 0.5e-6) { minorUnit = 'μs'; minorScale = 1e6; }
+    else { minorUnit = 'ns'; minorScale = 1e9; }
+
+    // Batch minor tick lines
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    var minorFirst = Math.ceil(timeStart / minorStep) * minorStep;
+    for (var nt = minorFirst; nt <= timeEnd + minorStep * 0.001; nt += minorStep) {
+      // Skip positions that coincide with major ticks
+      var nearMajor = Math.abs(nt - Math.round(nt / majorStep) * majorStep) < majorStep * 0.001;
+      if (nearMajor) continue;
+      var nx = lineToX(nt / timePerLine);
+      if (nx < drawX0 || nx > w) continue;
+      ctx.moveTo(nx, minorYTick0);
+      ctx.lineTo(nx, minorYTick1);
+    }
+    ctx.stroke();
+
+    // Minor labels
+    if (showMinorLabels) {
+      ctx.fillStyle = '#a2d2fb';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      for (var nt = minorFirst; nt <= timeEnd + minorStep * 0.001; nt += minorStep) {
+        var nearMajor = Math.abs(nt - Math.round(nt / majorStep) * majorStep) < majorStep * 0.001;
+        if (nearMajor) continue;
+        var nx = lineToX(nt / timePerLine);
+        if (nx < drawX0 + 3 || nx > w - 3) continue;
+        // Offset from preceding major tick
+        var prevMajor = Math.floor(nt / majorStep + 0.0001) * majorStep;
+        var offset = nt - prevMajor;
+        var offsetVal = Math.round(offset * minorScale);
+        if (offsetVal <= 0) continue;
+        ctx.fillText('+' + offsetVal + minorUnit, nx, minorYText);
+      }
+    }
+
+    // --- Major gridlines extending into waveform area ---
+    ctx.strokeStyle = 'rgba(88,166,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var mt = majorFirst; mt <= timeEnd + majorStep * 0.001; mt += majorStep) {
+      var mx = lineToX(mt / timePerLine);
+      if (mx < drawX0 || mx > w) continue;
+      ctx.moveTo(mx, WFG_TIME_H);
+      ctx.lineTo(mx, h);
+    }
+    ctx.stroke();
   }
 
   // ── Layer 2: Line labels (middle row, banner style) ──
@@ -17634,36 +17709,108 @@ function wfgRenderKvdat() {
     return drawX0 + ((t - tStart) / tRange) * drawW;
   }
 
+  // ── Dual Time Axis for kvdat (Major + Minor, KingstVIS style) ──
   var tRangeSec = tRange / wfgKvdatSmpFreqX1000;
-  var gridStepSec = 1e-9;
-  var minGridPx = 60;
-  while (true) {
-    var gridStepPx = (gridStepSec / tRangeSec) * drawW;
-    if (gridStepPx >= minGridPx) break;
-    var decade = Math.pow(10, Math.floor(Math.log10(gridStepSec)));
-    var mantissa = gridStepSec / decade;
-    if (mantissa < 1.5) gridStepSec = 2 * decade;
-    else if (mantissa < 3.5) gridStepSec = 5 * decade;
-    else gridStepSec = 10 * decade;
-    if (gridStepSec > 1e6) break;
-  }
-  var gridStepT = gridStepSec * wfgKvdatSmpFreqX1000;
+  if (tRangeSec > 0) {
+    var kvIdealMajor = (150 / drawW) * tRangeSec;
+    var kvMajorExp = Math.round(Math.log10(kvIdealMajor));
+    var kvMajorStep = Math.pow(10, kvMajorExp);
+    var kvMajorPx = (kvMajorStep / tRangeSec) * drawW;
+    if (kvMajorPx < 80) { kvMajorStep *= 10; kvMajorPx *= 10; }
+    if (kvMajorPx > 600) { kvMajorStep /= 10; kvMajorPx /= 10; }
+    var kvMinorDiv = 10;
+    var kvMinorStep = kvMajorStep / kvMinorDiv;
+    var kvMinorPx = kvMajorPx / kvMinorDiv;
+    if (kvMinorPx < 25) { kvMinorDiv = 5; kvMinorStep = kvMajorStep / 5; kvMinorPx = kvMajorPx / 5; }
+    var kvShowMinorLabels = kvMinorPx >= 20;
+    var kvMajorDecimals = Math.max(0, -Math.floor(Math.log10(kvMajorStep) + 0.0001));
 
-  ctx.strokeStyle = '#21262d';
-  ctx.lineWidth = 1;
-  ctx.fillStyle = '#a2d2fb';
-  ctx.font = '12px monospace';
-  ctx.textAlign = 'center';
+    var kvMajorStepT = kvMajorStep * wfgKvdatSmpFreqX1000;
+    var kvMinorStepT = kvMinorStep * wfgKvdatSmpFreqX1000;
 
-  var firstGrid = Math.ceil(tStart / gridStepT) * gridStepT;
-  for (var g = firstGrid; g <= tEnd; g += gridStepT) {
-    var x = timeToX(g);
-    if (x < drawX0 || x > w) continue;
+    // Major ticks
+    ctx.textAlign = 'center';
+    var kvMajorFirst = Math.ceil(tStart / kvMajorStepT) * kvMajorStepT;
+    ctx.strokeStyle = '#58a6ff';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x, WFG_AXIS_H);
-    ctx.lineTo(x, h);
+    for (var kvmt = kvMajorFirst; kvmt <= tEnd + kvMajorStepT * 0.001; kvmt += kvMajorStepT) {
+      var kvmx = timeToX(kvmt);
+      if (kvmx < drawX0 || kvmx > w) continue;
+      ctx.moveTo(kvmx, 13);
+      ctx.lineTo(kvmx, WFG_TIME_H);
+    }
     ctx.stroke();
-    ctx.fillText(wfgFormatTime(g, wfgKvdatSmpFreqX1000), x, WFG_AXIS_H - 6);
+    // Major labels
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = 'bold 11px monospace';
+    for (var kvmt = kvMajorFirst; kvmt <= tEnd + kvMajorStepT * 0.001; kvmt += kvMajorStepT) {
+      var kvmx = timeToX(kvmt);
+      if (kvmx < drawX0 + 5 || kvmx > w - 5) continue;
+      var kvSec = kvmt / wfgKvdatSmpFreqX1000;
+      ctx.fillText(kvSec.toFixed(kvMajorDecimals) + 's', kvmx, 11);
+    }
+    // Major gridlines into waveform
+    ctx.strokeStyle = 'rgba(88,166,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var kvmt = kvMajorFirst; kvmt <= tEnd + kvMajorStepT * 0.001; kvmt += kvMajorStepT) {
+      var kvmx = timeToX(kvmt);
+      if (kvmx < drawX0 || kvmx > w) continue;
+      ctx.moveTo(kvmx, WFG_TIME_H);
+      ctx.lineTo(kvmx, h);
+    }
+    ctx.stroke();
+
+    // Minor ticks
+    var kvMinorUnit, kvMinorScale;
+    if (kvMinorStep >= 0.5e-3) { kvMinorUnit = 'ms'; kvMinorScale = 1e3; }
+    else if (kvMinorStep >= 0.5e-6) { kvMinorUnit = 'μs'; kvMinorScale = 1e6; }
+    else { kvMinorUnit = 'ns'; kvMinorScale = 1e9; }
+
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    var kvMinorFirst = Math.ceil(tStart / kvMinorStepT) * kvMinorStepT;
+    for (var kvnt = kvMinorFirst; kvnt <= tEnd + kvMinorStepT * 0.001; kvnt += kvMinorStepT) {
+      var kvNearMajor = Math.abs(kvnt - Math.round(kvnt / kvMajorStepT) * kvMajorStepT) < kvMajorStepT * 0.001;
+      if (kvNearMajor) continue;
+      var kvnx = timeToX(kvnt);
+      if (kvnx < drawX0 || kvnx > w) continue;
+      ctx.moveTo(kvnx, WFG_TIME_H - 3);
+      ctx.lineTo(kvnx, WFG_TIME_H);
+    }
+    ctx.stroke();
+    // Minor gridlines
+    ctx.strokeStyle = '#21262d';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var kvnt = kvMinorFirst; kvnt <= tEnd + kvMinorStepT * 0.001; kvnt += kvMinorStepT) {
+      var kvNearMajor = Math.abs(kvnt - Math.round(kvnt / kvMajorStepT) * kvMajorStepT) < kvMajorStepT * 0.001;
+      if (kvNearMajor) continue;
+      var kvnx = timeToX(kvnt);
+      if (kvnx < drawX0 || kvnx > w) continue;
+      ctx.moveTo(kvnx, WFG_AXIS_H);
+      ctx.lineTo(kvnx, h);
+    }
+    ctx.stroke();
+    // Minor labels
+    if (kvShowMinorLabels) {
+      ctx.fillStyle = '#a2d2fb';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      for (var kvnt = kvMinorFirst; kvnt <= tEnd + kvMinorStepT * 0.001; kvnt += kvMinorStepT) {
+        var kvNearMajor = Math.abs(kvnt - Math.round(kvnt / kvMajorStepT) * kvMajorStepT) < kvMajorStepT * 0.001;
+        if (kvNearMajor) continue;
+        var kvnx = timeToX(kvnt);
+        if (kvnx < drawX0 + 3 || kvnx > w - 3) continue;
+        var kvPrevMajor = Math.floor(kvnt / kvMajorStepT + 0.0001) * kvMajorStepT;
+        var kvOffset = (kvnt - kvPrevMajor) / wfgKvdatSmpFreqX1000;
+        var kvOffsetVal = Math.round(kvOffset * kvMinorScale);
+        if (kvOffsetVal <= 0) continue;
+        ctx.fillText('+' + kvOffsetVal + kvMinorUnit, kvnx, WFG_TIME_H - 5);
+      }
+    }
   }
 
   var kvRowStep = WFG_ROW_H + WFG_ROW_GAP;
