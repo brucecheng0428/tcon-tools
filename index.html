@@ -12480,35 +12480,43 @@ function wfgDebugPulses() {
     viewStart: wfgViewStart, viewEnd: wfgViewEnd,
     effHtotal: ht, dclkPerLine: dclkPerLine,
     htotal: wfgFrame.htotal, htotalBase: wfgFrame.htotalBase,
+    channelCount: wfgChannels.length, gpioCount: wfgGpios.length,
     channels: []
   };
   for (var i = 0; i < wfgChannels.length; i++) {
     var ch = wfgChannels[i];
-    var oax = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, ht, wfgViewStart, wfgViewEnd);
-    var chInfo = {
-      name: ch.name, gpioIdx: ch.gpioIdx,
-      initLevel: oax.initLevel, transCount: oax.transitions.length,
-      first10: oax.transitions.slice(0, 10).map(function(t) {
-        return { line: t.line, dly: t.dly, level: t.level,
-                 tPos: t.line + (t.dly || 0) / ht,
-                 xFrac: (t.line + (t.dly || 0) / dclkPerLine - wfgViewStart) / (wfgViewEnd - wfgViewStart) };
-      })
-    };
-    // Compute pulse widths: measure consecutive rising→falling pairs
-    var pw = [];
-    var prevRise = null;
-    if (oax.initLevel === 1 && oax.transitions.length > 0 && oax.transitions[0].level === 0) {
-      pw.push({ from: 'boundary', to: oax.transitions[0].line + (oax.transitions[0].dly || 0) / ht,
-                width: oax.transitions[0].line + (oax.transitions[0].dly || 0) / ht - wfgViewStart, note: 'partial-left' });
+    if (!wfgGpios[ch.gpioIdx]) {
+      result.channels.push({ name: ch.name, gpioIdx: ch.gpioIdx, error: 'gpioIdx out of range' });
+      continue;
     }
-    for (var j = 0; j < oax.transitions.length; j++) {
-      var tr = oax.transitions[j];
-      var tPos = tr.line + (tr.dly || 0) / ht;
-      if (tr.level === 1) { prevRise = tPos; }
-      else if (tr.level === 0 && prevRise !== null) { pw.push({ from: prevRise, to: tPos, width: tPos - prevRise }); prevRise = null; }
+    try {
+      var oax = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, ht, wfgViewStart, wfgViewEnd);
+      var chInfo = {
+        name: ch.name, gpioIdx: ch.gpioIdx,
+        initLevel: oax.initLevel, transCount: oax.transitions.length,
+        first10: oax.transitions.slice(0, 10).map(function(t) {
+          return { line: t.line, dly: t.dly, level: t.level,
+                   tPos: t.line + (t.dly || 0) / ht,
+                   xFrac: (t.line + (t.dly || 0) / dclkPerLine - wfgViewStart) / (wfgViewEnd - wfgViewStart) };
+        })
+      };
+      var pw = [];
+      var prevRise = null;
+      if (oax.initLevel === 1 && oax.transitions.length > 0 && oax.transitions[0].level === 0) {
+        pw.push({ from: 'boundary', to: oax.transitions[0].line + (oax.transitions[0].dly || 0) / ht,
+                  width: oax.transitions[0].line + (oax.transitions[0].dly || 0) / ht - wfgViewStart, note: 'partial-left' });
+      }
+      for (var j = 0; j < oax.transitions.length; j++) {
+        var tr = oax.transitions[j];
+        var tPos = tr.line + (tr.dly || 0) / ht;
+        if (tr.level === 1) { prevRise = tPos; }
+        else if (tr.level === 0 && prevRise !== null) { pw.push({ from: prevRise, to: tPos, width: tPos - prevRise }); prevRise = null; }
+      }
+      chInfo.pulseWidths = pw.slice(0, 8);
+      result.channels.push(chInfo);
+    } catch (e) {
+      result.channels.push({ name: ch.name, gpioIdx: ch.gpioIdx, error: e.message });
     }
-    chInfo.pulseWidths = pw.slice(0, 8);
-    result.channels.push(chInfo);
   }
   return result;
 }
