@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.50.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.51.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.33.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.34.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12606,7 +12606,7 @@ function wfgUpdateTconInternalVisibility() {
   var wrap = document.getElementById('wfg-tcon-internal-wrap');
   var isTcon = (wfgCurrentMode === 'tcon' && !wfgKvdatMode);
   if (wrap) wrap.style.display = isTcon ? 'flex' : 'none';
-  // kvdat mode: hide FRM_NO card
+  // kvdat 模式下隱藏 FRM_NO 卡片（Toggle FRM_NO 是 TCON timing 專用）
   var frmNoCard = document.getElementById('wfg-frmno-card');
   if (frmNoCard) frmNoCard.style.display = wfgKvdatMode ? 'none' : '';
   if (!isTcon) {
@@ -16194,6 +16194,69 @@ function wfgCursorSnapTime(rawTime, cx, p) {
             bestDist = dist;
             bestTime = edgeTime;
           }
+        }
+      }
+    }
+    // ── RX DE / TX DE snap (TCON internal mode only) ──
+    if (wfgTconInternalMode && !wfgKvdatMode && p.timePerLine > 0) {
+      var _isDual = wfgFrame.gateType === 'dual';
+      var _hactive = wfgFrame.hactive;
+      var _vactive = wfgFrame.vactive;
+      var _vtotalView = _isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
+      var _gateCount = _isDual ? 2 : 1;
+      // RX DE params
+      var _rxDeWidthDclk = _hactive / 2;
+      var _rxDclkPerLine = _isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+      var _rxDeFrac = _rxDclkPerLine > 0 ? _rxDeWidthDclk / _rxDclkPerLine : 0;
+      var _rxViewLinesPerData = _isDual ? 2 : 1;
+      var _vtotalRx = wfgFrame.vtotal;
+      // TX DE params
+      var _txDeWidthDclk = _hactive / (2 * _gateCount);
+      var _txDeFrac = p.dclkPerLine > 0 ? _txDeWidthDclk / p.dclkPerLine : 0;
+      var _lbShift = _isDual ? wfgLineBuffer * 2 : wfgLineBuffer;
+      var _vactiveView = _isDual ? _vactive * 2 : _vactive;
+
+      var _firstVis = Math.max(0, Math.floor(wfgViewStart));
+      var _lastVis = Math.min(wfgTotalLines() - 1, Math.ceil(wfgViewEnd));
+
+      for (var _ln = _firstVis; _ln <= _lastVis; _ln++) {
+        var _lif = _ln % _vtotalView;
+        // ── RX DE edges ──
+        var _rxLineIdx = _isDual ? Math.floor(_lif / _rxViewLinesPerData) : _lif;
+        var _posInRxData = _isDual ? (_lif % _rxViewLinesPerData) : 0;
+        var _rxDataIdx = (_rxLineIdx + 1) % _vtotalRx;
+        if (_rxDataIdx < _vactive && _posInRxData === 0 && _rxDeFrac > 0) {
+          // Rising edge at line start
+          var _rxRiseTime = _ln * p.timePerLine;
+          var _rxRiseX = wfgCursorTimeToX(_rxRiseTime, p);
+          var _rxRDist = Math.abs(_rxRiseX - cx);
+          if (_rxRDist < snapThresholdPx && _rxRDist < bestDist) { bestDist = _rxRDist; bestTime = _rxRiseTime; }
+          // Falling edge at line + rxDeFrac (only in first view line for multi-view-line data)
+          var _rxFallTime = (_ln + _rxDeFrac) * p.timePerLine;
+          var _rxFallX = wfgCursorTimeToX(_rxFallTime, p);
+          var _rxFDist = Math.abs(_rxFallX - cx);
+          if (_rxFDist < snapThresholdPx && _rxFDist < bestDist) { bestDist = _rxFDist; bestTime = _rxFallTime; }
+        }
+        // In dual gate, DE may span multiple view lines — falling edge on second view line
+        if (_isDual && _rxDataIdx < _vactive && _posInRxData === 1 && _rxDeFrac > 1) {
+          var _rxFallTime2 = (_ln + (_rxDeFrac - 1)) * p.timePerLine;
+          var _rxFallX2 = wfgCursorTimeToX(_rxFallTime2, p);
+          var _rxFDist2 = Math.abs(_rxFallX2 - cx);
+          if (_rxFDist2 < snapThresholdPx && _rxFDist2 < bestDist) { bestDist = _rxFDist2; bestTime = _rxFallTime2; }
+        }
+        // ── TX DE edges ──
+        var _txDataIdx = _lif - _lbShift;
+        if (_txDataIdx >= 0 && _txDataIdx < _vactiveView && _txDeFrac > 0) {
+          // Rising edge at line start
+          var _txRiseTime = _ln * p.timePerLine;
+          var _txRiseX = wfgCursorTimeToX(_txRiseTime, p);
+          var _txRDist = Math.abs(_txRiseX - cx);
+          if (_txRDist < snapThresholdPx && _txRDist < bestDist) { bestDist = _txRDist; bestTime = _txRiseTime; }
+          // Falling edge at line + txDeFrac
+          var _txFallTime = (_ln + _txDeFrac) * p.timePerLine;
+          var _txFallX = wfgCursorTimeToX(_txFallTime, p);
+          var _txFDist = Math.abs(_txFallX - cx);
+          if (_txFDist < snapThresholdPx && _txFDist < bestDist) { bestDist = _txFDist; bestTime = _txFallTime; }
         }
       }
     }
