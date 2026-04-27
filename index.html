@@ -1718,7 +1718,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.65.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.66.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1767,7 +1767,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.48.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.49.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12464,8 +12464,10 @@ function wfgIrRowY(ri) {
   return y;
 }
 // Internal row order (for group drag, reset on reload)
-var _wfgIrOrder = [0, 1, 2, 3, 4, 5];
+var _wfgIrOrder = [4, 5, 0, 1, 2, 3]; // R_PH_CNT, F_PH_CNT first (fixed), then RX/TX groups (draggable)
 // Group definitions: RX DCLK(0)+RX DE(1), TCON DCLK(2)+TX DE(3), R_PH(4), F_PH(5)
+// Fixed groups (non-draggable, always at top): groups 2(R_PH) and 3(F_PH)
+var WFG_IR_FIXED_GROUPS = [2, 3];
 var WFG_IR_GROUPS = [[0,1],[2,3],[4],[5]];
 // Promoted group state: -1 = in internal section, >=0 = inserted before visible channel index N
 var _wfgPromotedRx = -1;   // group 0 (RX DCLK + RX DE)
@@ -14410,7 +14412,9 @@ function wfgRenderLabels() {
           html += '<div class="wfg-ir-group-border ' + _borderCls + '" data-ir-group-border="' + _grp + '">';
           _grpSeen[_grp] = true;
         }
-        html += '<div class="wfg-ir-label" data-ir-idx="' + _logRow + '" data-ir-group="' + _grp + '" style="height:' + _irH + 'px;display:flex;align-items:center;padding-left:' + _lb.pl + ';font-size:' + _lb.fs + ';color:' + _lb.color + ';white-space:nowrap;cursor:grab;user-select:none;">' + _lb.text + '</div>';
+        var _isFixed = WFG_IR_FIXED_GROUPS.indexOf(_grp) >= 0;
+        var _cursor = _isFixed ? 'default' : 'grab';
+        html += '<div class="wfg-ir-label" data-ir-idx="' + _logRow + '" data-ir-group="' + _grp + '" data-ir-fixed="' + (_isFixed ? '1' : '0') + '" style="height:' + _irH + 'px;display:flex;align-items:center;padding-left:' + _lb.pl + ';font-size:' + _lb.fs + ';color:' + _lb.color + ';white-space:nowrap;cursor:' + _cursor + ';user-select:none;">' + _lb.text + '</div>';
         // Close group border div after last member
         if (_grp === 0 || _grp === 1) {
           var _grpMembers = WFG_IR_GROUPS[_grp];
@@ -14506,11 +14510,9 @@ function wfgIrDragSetup(container) {
   function startIrDrag(logRow, startY, fromPromoted) {
     var grpIdx = wfgIrGroupOf(logRow);
     if (grpIdx < 0) return;
-    // Only groups 0 and 1 can be promoted; groups 2,3 (R_PH, F_PH) can only reorder within internal
-    if (grpIdx >= 2 && !fromPromoted) {
-      // R_PH / F_PH: original reorder-only behavior within internal section
-      startInternalReorder(logRow, startY);
-      return;
+    // Groups 2,3 (R_PH, F_PH) are fixed at top — completely non-draggable
+    if (WFG_IR_FIXED_GROUPS.indexOf(grpIdx) >= 0 && !fromPromoted) {
+      return; // Do nothing — fixed rows cannot be dragged
     }
     var grpRows = WFG_IR_GROUPS[grpIdx];
     _wfgIrDrag = {
@@ -14623,23 +14625,40 @@ function wfgIrDragSetup(container) {
     var rect = container.getBoundingClientRect();
     var axH = WFG_TIME_H + WFG_LINE_H;
     var relY = clientY - rect.top - axH;
-    // Build group slot positions (only non-promoted groups)
-    var groupOrder = [];
+    // Build group slot positions (only non-promoted, non-fixed groups for drag reorder)
+    // Fixed groups (R_PH, F_PH) are always at top and excluded from reorder
+    var fixedGroupOrder = []; // fixed groups at top
+    var groupOrder = []; // draggable groups
     var seen = {};
     for (var i = 0; i < _wfgIrOrder.length; i++) {
       var g = wfgIrGroupOf(_wfgIrOrder[i]);
       if (g === 0 && _wfgPromotedRx >= 0) continue;
       if (g === 1 && _wfgPromotedTcon >= 0) continue;
-      if (!seen[g]) { groupOrder.push(g); seen[g] = true; }
+      if (!seen[g]) {
+        if (WFG_IR_FIXED_GROUPS.indexOf(g) >= 0) {
+          fixedGroupOrder.push(g);
+        } else {
+          groupOrder.push(g);
+        }
+        seen[g] = true;
+      }
     }
-    var slotY = 0;
+    // Calculate fixed area height to offset draggable area
+    var fixedH = 0;
+    for (var fi = 0; fi < fixedGroupOrder.length; fi++) {
+      var fgrp = WFG_IR_GROUPS[fixedGroupOrder[fi]];
+      for (var fr = 0; fr < fgrp.length; fr++) fixedH += wfgIrRowH(fgrp[fr]) + WFG_INTERNAL_ROW_GAP;
+    }
+    var slotY = fixedH; // draggable area starts after fixed rows
     var targetSlot = groupOrder.length;
+    var adjRelY = relY - fixedH; // relative to draggable area
+    var slotAccum = 0;
     for (var s = 0; s < groupOrder.length; s++) {
       var grp = WFG_IR_GROUPS[groupOrder[s]];
       var slotH = 0;
       for (var r = 0; r < grp.length; r++) slotH += wfgIrRowH(grp[r]) + WFG_INTERNAL_ROW_GAP;
-      if (relY < slotY + slotH / 2) { targetSlot = s; break; }
-      slotY += slotH;
+      if (adjRelY < slotAccum + slotH / 2) { targetSlot = s; break; }
+      slotAccum += slotH;
     }
     var dragGrpIdx = _wfgIrDrag.grpIdx;
     var currentSlot = groupOrder.indexOf(dragGrpIdx);
@@ -14652,9 +14671,14 @@ function wfgIrDragSetup(container) {
       if (insertAt < 0) insertAt = 0;
       if (insertAt > newGroupOrder.length) insertAt = newGroupOrder.length;
       newGroupOrder.splice(insertAt, 0, dragGrpIdx);
-      // Rebuild full _wfgIrOrder: visible groups in new order, promoted groups keep their relative position
+      // Rebuild full _wfgIrOrder: fixed groups first, then draggable groups in new order
       var newOrder = [];
-      // First add non-promoted groups in new order
+      // Fixed groups always at top
+      for (var fg = 0; fg < fixedGroupOrder.length; fg++) {
+        var fgMembers = WFG_IR_GROUPS[fixedGroupOrder[fg]];
+        for (var fm = 0; fm < fgMembers.length; fm++) newOrder.push(fgMembers[fm]);
+      }
+      // Then draggable groups in new order
       for (var g2 = 0; g2 < newGroupOrder.length; g2++) {
         var grpMembers = WFG_IR_GROUPS[newGroupOrder[g2]];
         for (var m = 0; m < grpMembers.length; m++) newOrder.push(grpMembers[m]);
@@ -15094,7 +15118,7 @@ function wfgResetToDefault() {
   wfgInvalidateCache();
   _wfgPromotedRx = -1;
   _wfgPromotedTcon = -1;
-  _wfgIrOrder = [0, 1, 2, 3, 4, 5];
+  _wfgIrOrder = [4, 5, 0, 1, 2, 3];
   wfgLineBuffer = 6;
   var lbEl = document.getElementById('wfg-linebuf');
   if (lbEl) lbEl.value = wfgLineBuffer;
@@ -18717,7 +18741,17 @@ window.wfgImportConfig = function(jsonStr) {
   _wfgPromotedRx = typeof config.promotedRx === 'number' ? config.promotedRx : -1;
   _wfgPromotedTcon = typeof config.promotedTcon === 'number' ? config.promotedTcon : -1;
   if (Array.isArray(config.irOrder) && config.irOrder.length === WFG_INTERNAL_ROWS) {
-    _wfgIrOrder = config.irOrder.slice();
+    // Normalize: ensure fixed groups (R_PH, F_PH) are always at the top
+    var _loadedOrder = config.irOrder.slice();
+    var _fixedRows = [], _otherRows = [];
+    for (var _li2 = 0; _li2 < _loadedOrder.length; _li2++) {
+      if (WFG_IR_FIXED_GROUPS.indexOf(wfgIrGroupOf(_loadedOrder[_li2])) >= 0) {
+        _fixedRows.push(_loadedOrder[_li2]);
+      } else {
+        _otherRows.push(_loadedOrder[_li2]);
+      }
+    }
+    _wfgIrOrder = _fixedRows.concat(_otherRows);
   }
   var intCb = document.getElementById('wfg-tcon-internal-cb');
   if (intCb) intCb.checked = wfgTconInternalMode;
