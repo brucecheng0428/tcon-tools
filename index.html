@@ -1718,7 +1718,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.71.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.72.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1767,7 +1767,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.54.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.55.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -13142,6 +13142,20 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   var dclkH = WFG_DCLK_ROW_H;
   var gap = WFG_INTERNAL_ROW_GAP;
   var isDual = wfgFrame.gateType === 'dual';
+  // Internal drag Y offset for waveform following
+  var _intDragGrp = -1;
+  var _intDragOffset = 0;
+  if (_wfgIrDrag && _wfgIrDrag.mode === 'internal-reorder' && _wfgIrDrag.canvasRect) {
+    _intDragGrp = _wfgIrDrag.grpIdx;
+    var _idFirstRow = WFG_IR_GROUPS[_intDragGrp][0];
+    var _idFirstIdx = _wfgIrOrder.indexOf(_idFirstRow);
+    var _idNormalY = baseY + wfgIrRowYFiltered(_idFirstIdx);
+    var _idMouseY = _wfgIrDrag.mouseY - _wfgIrDrag.canvasRect.top;
+    var _idGrpRows = WFG_IR_GROUPS[_intDragGrp];
+    var _idGrpH = 0;
+    for (var _igi = 0; _igi < _idGrpRows.length; _igi++) _idGrpH += wfgIrRowH(_idGrpRows[_igi]) + WFG_INTERNAL_ROW_GAP;
+    _intDragOffset = _idMouseY - _idNormalY - _idGrpH / 2;
+  }
   var hactive = wfgFrame.hactive;
   var vactive = wfgFrame.vactive;
 
@@ -13167,7 +13181,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   if (_irVisLineCount > drawW * 2) {
     if (_wfgPromotedRx < 0) {
       // RX DE: blended bar (row 1)
-      var rxY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(1));
+      var rxY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(1)) + (_intDragGrp === 0 ? _intDragOffset : 0);
       ctx.fillStyle = 'rgba(56,189,248,0.15)';
       ctx.fillRect(drawX0, rxY0, drawW, rowH);
       ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
@@ -13176,7 +13190,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     }
     if (_wfgPromotedTcon < 0) {
       // TX DE: blended bar (row 3)
-      var txY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(3));
+      var txY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(3)) + (_intDragGrp === 1 ? _intDragOffset : 0);
       ctx.fillStyle = 'rgba(249,115,22,0.15)';
       ctx.fillRect(drawX0, txY0, drawW, rowH);
       ctx.strokeStyle = WFG_INTERNAL_COLORS.txde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
@@ -13197,7 +13211,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
       var grpOri = wfgIrGroupOf(_ori);
       if (grpOri === 0 && _wfgPromotedRx >= 0) continue;
       if (grpOri === 1 && _wfgPromotedTcon >= 0) continue;
-      var ry = baseY + wfgIrRowYFiltered(ri) + wfgIrRowH(_ori) + gap / 2;
+      var ry = baseY + wfgIrRowYFiltered(ri) + wfgIrRowH(_ori) + gap / 2 + (grpOri === _intDragGrp ? _intDragOffset : 0);
       ctx.beginPath(); ctx.moveTo(drawX0, ry); ctx.lineTo(w, ry); ctx.stroke();
     }
     return;
@@ -13205,7 +13219,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
 
   // ── Row 1: RX DE ── (skip if promoted to channel area)
   if (_wfgPromotedRx < 0) {
-  var rxY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(1));
+  var rxY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(1)) + (_intDragGrp === 0 ? _intDragOffset : 0);
   var rxHigh = rxY + 3;
   var rxLow = rxY + rowH - 3;
   ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
@@ -13303,7 +13317,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
 
   // ── Row 3: TX DE ── (skip if promoted to channel area)
   if (_wfgPromotedTcon < 0) {
-  var txY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(3));
+  var txY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(3)) + (_intDragGrp === 1 ? _intDragOffset : 0);
   var txHigh = txY + 3;
   var txLow = txY + rowH - 3;
   ctx.strokeStyle = WFG_INTERNAL_COLORS.txde;
@@ -13410,14 +13424,14 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
 
   // ── Row 0: RX DCLK tick marks & labels ── (skip if promoted)
   if (_wfgPromotedRx < 0) {
-    var rxDclkRow0Y = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(0));
+    var rxDclkRow0Y = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(0)) + (_intDragGrp === 0 ? _intDragOffset : 0);
     var _rxDpl = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
     wfgDrawDclkRow(ctx, rxDclkRow0Y, dclkH, _rxDpl, WFG_INTERNAL_COLORS.rxde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
   }
 
   // ── Row 2: TCON DCLK tick marks & labels ── (skip if promoted)
   if (_wfgPromotedTcon < 0) {
-    var tconDclkRow2Y = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(2));
+    var tconDclkRow2Y = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(2)) + (_intDragGrp === 1 ? _intDragOffset : 0);
     wfgDrawDclkRow(ctx, tconDclkRow2Y, dclkH, dclkPerLine, WFG_INTERNAL_COLORS.txde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
   }
 
@@ -13429,7 +13443,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     var grpOri2 = wfgIrGroupOf(_ori2);
     if (grpOri2 === 0 && _wfgPromotedRx >= 0) continue;
     if (grpOri2 === 1 && _wfgPromotedTcon >= 0) continue;
-    var ry = baseY + wfgIrRowYFiltered(ri) + wfgIrRowH(_ori2) + gap / 2;
+    var ry = baseY + wfgIrRowYFiltered(ri) + wfgIrRowH(_ori2) + gap / 2 + (grpOri2 === _intDragGrp ? _intDragOffset : 0);
     ctx.beginPath();
     ctx.moveTo(drawX0, ry);
     ctx.lineTo(w, ry);
@@ -14820,6 +14834,21 @@ function wfgIrDragSetup(container) {
       wfgRenderLabels();
       wfgResizeAndRender();
     }
+    // --- Internal reorder waveform following ---
+    var canvas = document.getElementById('wfg-canvas');
+    if (canvas) _wfgIrDrag.canvasRect = canvas.getBoundingClientRect();
+    var _irBorderDiv = container.querySelector('[data-ir-group-border="' + dragGrpIdx + '"]');
+    if (_irBorderDiv) {
+      _irBorderDiv.style.transform = '';
+      var _irNatRect = _irBorderDiv.getBoundingClientRect();
+      var _irNatCenter = _irNatRect.top + _irNatRect.height / 2;
+      var _irDragOff = clientY - _irNatCenter;
+      _irBorderDiv.style.transform = 'translateY(' + _irDragOff + 'px)';
+      _irBorderDiv.style.position = 'relative';
+      _irBorderDiv.style.zIndex = '5';
+      _irBorderDiv.style.opacity = '0.7';
+    }
+    scheduleIrDragRender();
   }
 
   function endDrag() {
@@ -14855,7 +14884,7 @@ function wfgIrDragSetup(container) {
     // Reset visual state
     irLabels.forEach(function(it) { it.style.opacity = ''; });
     var borderDivs = container.querySelectorAll('.wfg-ir-group-border');
-    borderDivs.forEach(function(bd) { bd.style.opacity = ''; });
+    borderDivs.forEach(function(bd) { bd.style.opacity = ''; bd.style.transform = ''; bd.style.zIndex = ''; bd.style.position = ''; });
     // Clear promoted group label transforms
     var promGroups = container.querySelectorAll('.wfg-promoted-group');
     promGroups.forEach(function(el) {
