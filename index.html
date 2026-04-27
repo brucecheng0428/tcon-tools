@@ -1612,7 +1612,7 @@
   @media (hover:hover) { .wfg-slider-btn:hover { background: #334155; } }
   .wfg-gpio-check-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
   .wfg-gpio-check-row label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; cursor: pointer; }
-  .wfg-ir-group-border { border: 1.5px solid; border-radius: 4px; margin: 1px 0; padding: 1px 0; }
+  .wfg-ir-group-border { border: 1.5px solid; border-radius: 4px; margin: 1px 0; padding: 1px 0; cursor: grab; user-select: none; -webkit-user-select: none; }
   .wfg-ir-group-rx { border-color: #38bdf8; }
   .wfg-ir-group-tcon { border-color: #f97316; }
   .wfg-promoted-group { border: 1.5px solid; border-radius: 4px; margin: 0; padding: 2px 0; cursor: grab; user-select: none; -webkit-user-select: none; }
@@ -14393,6 +14393,7 @@ function wfgRenderLabels() {
 
 // ─── Internal Row Group Drag (with promote/demote to channel area) ───
 var _wfgIrDrag = null;
+var _wfgIrDocHandlers = null; // Store document-level handlers for cleanup on re-setup
 function wfgIrDragSetup(container) {
   // Setup drag for internal row labels (non-promoted groups reorder within internal section,
   // groups 0/1 can be dragged to channel area to promote)
@@ -14455,8 +14456,13 @@ function wfgIrDragSetup(container) {
     var internalBottom = getInternalBottom();
 
     if (drag.mode === 'internal-reorder') {
-      moveInternalReorder(clientY);
-      return;
+      // Allow groups 0/1 to transition to promote when dragged below internal area
+      if ((drag.grpIdx === 0 || drag.grpIdx === 1) && clientY > internalBottom + 10) {
+        drag.mode = 'undecided'; // Reset to allow promote detection below
+      } else {
+        moveInternalReorder(clientY);
+        return;
+      }
     }
 
     // For groups 0/1: decide mode based on mouse position
@@ -14647,15 +14653,48 @@ function wfgIrDragSetup(container) {
     }, { passive: false });
   });
 
-  document.addEventListener('mousemove', function(e) { if (_wfgIrDrag) { e.preventDefault(); moveDrag(e.clientY); } });
-  document.addEventListener('mouseup', function() { endDrag(); });
-  document.addEventListener('touchmove', function(e) { if (_wfgIrDrag && e.touches.length === 1) { e.preventDefault(); moveDrag(e.touches[0].clientY); } }, { passive: false });
-  document.addEventListener('touchend', function() { endDrag(); });
-  document.addEventListener('touchcancel', function() { endDrag(); });
+  // Attach events to group border divs (so clicking on border/padding area also drags)
+  var groupBorders = container.querySelectorAll('.wfg-ir-group-border');
+  groupBorders.forEach(function(borderEl) {
+    var grpIdx = parseInt(borderEl.getAttribute('data-ir-group-border'));
+    var firstRow = WFG_IR_GROUPS[grpIdx][0];
+    borderEl.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      startIrDrag(firstRow, e.clientY, false);
+    });
+    borderEl.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) {
+        e.preventDefault(); e.stopPropagation();
+        startIrDrag(firstRow, e.touches[0].clientY, false);
+      }
+    }, { passive: false });
+  });
+
+  // Remove old document-level handlers before adding new ones (prevents accumulation on re-render)
+  if (_wfgIrDocHandlers) {
+    document.removeEventListener('mousemove', _wfgIrDocHandlers.mm);
+    document.removeEventListener('mouseup', _wfgIrDocHandlers.mu);
+    document.removeEventListener('touchmove', _wfgIrDocHandlers.tm);
+    document.removeEventListener('touchend', _wfgIrDocHandlers.te);
+    document.removeEventListener('touchcancel', _wfgIrDocHandlers.tc);
+  }
+  _wfgIrDocHandlers = {
+    mm: function(e) { if (_wfgIrDrag) { e.preventDefault(); moveDrag(e.clientY); } },
+    mu: function() { endDrag(); },
+    tm: function(e) { if (_wfgIrDrag && e.touches.length === 1) { e.preventDefault(); moveDrag(e.touches[0].clientY); } },
+    te: function() { endDrag(); },
+    tc: function() { endDrag(); }
+  };
+  document.addEventListener('mousemove', _wfgIrDocHandlers.mm);
+  document.addEventListener('mouseup', _wfgIrDocHandlers.mu);
+  document.addEventListener('touchmove', _wfgIrDocHandlers.tm, { passive: false });
+  document.addEventListener('touchend', _wfgIrDocHandlers.te);
+  document.addEventListener('touchcancel', _wfgIrDocHandlers.tc);
 }
 
 // ─── Label Drag Setup ───
 var _wfgLabelDrag = null;
+var _wfgLabelDocHandlers = null; // Store document-level handlers for cleanup on re-setup
 var _wfgDragRafId = 0;
 function wfgLabelDragSetup(container, visMap, rowH) {
   var items = container.querySelectorAll('.wfg-label-item');
@@ -14835,13 +14874,6 @@ function wfgLabelDragSetup(container, visMap, rowH) {
       e.preventDefault();
       startDrag(idx, e.clientY);
     });
-  });
-  document.addEventListener('mousemove', function(e) {
-    if (_wfgLabelDrag) { e.preventDefault(); moveDrag(e.clientY); }
-  });
-  document.addEventListener('mouseup', function() { endDrag(); });
-
-  items.forEach(function(item, idx) {
     item.addEventListener('touchstart', function(e) {
       if (e.touches.length === 1) {
         e.preventDefault();
@@ -14849,14 +14881,27 @@ function wfgLabelDragSetup(container, visMap, rowH) {
       }
     }, { passive: false });
   });
-  document.addEventListener('touchmove', function(e) {
-    if (_wfgLabelDrag && e.touches.length === 1) {
-      e.preventDefault();
-      moveDrag(e.touches[0].clientY);
-    }
-  }, { passive: false });
-  document.addEventListener('touchend', function() { endDrag(); });
-  document.addEventListener('touchcancel', function() { endDrag(); });
+
+  // Remove old document-level handlers before adding new ones (prevents accumulation on re-render)
+  if (_wfgLabelDocHandlers) {
+    document.removeEventListener('mousemove', _wfgLabelDocHandlers.mm);
+    document.removeEventListener('mouseup', _wfgLabelDocHandlers.mu);
+    document.removeEventListener('touchmove', _wfgLabelDocHandlers.tm);
+    document.removeEventListener('touchend', _wfgLabelDocHandlers.te);
+    document.removeEventListener('touchcancel', _wfgLabelDocHandlers.tc);
+  }
+  _wfgLabelDocHandlers = {
+    mm: function(e) { if (_wfgLabelDrag) { e.preventDefault(); moveDrag(e.clientY); } },
+    mu: function() { endDrag(); },
+    tm: function(e) { if (_wfgLabelDrag && e.touches.length === 1) { e.preventDefault(); moveDrag(e.touches[0].clientY); } },
+    te: function() { endDrag(); },
+    tc: function() { endDrag(); }
+  };
+  document.addEventListener('mousemove', _wfgLabelDocHandlers.mm);
+  document.addEventListener('mouseup', _wfgLabelDocHandlers.mu);
+  document.addEventListener('touchmove', _wfgLabelDocHandlers.tm, { passive: false });
+  document.addEventListener('touchend', _wfgLabelDocHandlers.te);
+  document.addEventListener('touchcancel', _wfgLabelDocHandlers.tc);
 }
 
 // Helper: compute y-offsets for each visible channel during drag
