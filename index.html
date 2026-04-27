@@ -1718,7 +1718,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.69.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.70.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1767,7 +1767,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.52.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.53.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -14519,6 +14519,23 @@ function wfgIrDragSetup(container) {
   var promotedGroups = container.querySelectorAll('.wfg-promoted-group');
   var rowH = WFG_ROW_H + WFG_ROW_GAP;
 
+  // Pre-compute promoted group display slots (geometric, same as GPIO _chItemSlots)
+  var _promotedDisplaySlots = {};
+  var _irTotalDisplaySlots = 0;
+  if (wfgTconInternalMode && !wfgKvdatMode) {
+    var _pdVisMap = [];
+    for (var _pdi = 0; _pdi < wfgChannels.length; _pdi++) {
+      if (wfgChannels[_pdi].visible && wfgChannels[_pdi].gpioIdx >= 0) _pdVisMap.push(_pdi);
+    }
+    var _pdDl = wfgBuildDisplayList(_pdVisMap.map(function(ci) { return wfgChannels[ci]; }));
+    _irTotalDisplaySlots = _pdDl.length;
+    for (var _pdli = 0; _pdli < _pdDl.length; _pdli++) {
+      if (_pdDl[_pdli].type === 'promoted') {
+        _promotedDisplaySlots[_pdDl[_pdli].grpIdx] = _pdli;
+      }
+    }
+  }
+
   function getInternalBottom() {
     var rect = container.getBoundingClientRect();
     return rect.top + WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH();
@@ -14666,24 +14683,32 @@ function wfgIrDragSetup(container) {
   }
 
   function updatePromotedLabelPosition() {
-    if (!_wfgIrDrag || !_wfgIrDrag.fromPromoted || !_wfgIrDrag.canvasRect) return;
+    // Mirror GPIO updateLabelPositions: geometric math, fresh canvasRect, same clamp range
+    if (!_wfgIrDrag || !_wfgIrDrag.fromPromoted) return;
     var drag = _wfgIrDrag;
     var promEl = container.querySelector('[data-promoted-grp="' + drag.grpIdx + '"]');
     if (!promEl) return;
-    // Target Y: mouse position relative to canvas top, centered on row
-    var targetY = drag.mouseY - drag.canvasRect.top - rowH / 2;
-    // Clamp to channel waveform area (same range as render code)
-    var wY0 = WFG_AXIS_H + wfgInternalExtraH();
-    var totalSlots = getVisibleChCount();
-    if (_wfgPromotedRx >= 0) totalSlots++;
-    if (_wfgPromotedTcon >= 0) totalSlots++;
-    var minY = wY0;
-    var maxY = wY0 + Math.max(0, totalSlots - 1) * rowH;
-    if (targetY < minY) targetY = minY;
-    if (targetY > maxY) targetY = maxY;
-    // Offset = target position minus element's natural layout position
-    var naturalY = promEl.offsetTop; // CSS transforms don't affect offsetTop
-    var offset = targetY - naturalY;
+    // Fresh canvasRect every call (same as GPIO)
+    var canvas = document.getElementById('wfg-canvas');
+    var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+    if (!canvasRect) return;
+
+    // draggedY: mouse position in canvas coords (identical to GPIO)
+    var draggedY = drag.mouseY - canvasRect.top - rowH / 2;
+    // Clamp: match GPIO range — WFG_AXIS_H to WFG_AXIS_H + (totalSlots-1)*rowH
+    var totalSlots = _irTotalDisplaySlots || 1;
+    var minY = WFG_AXIS_H;
+    var maxY = WFG_AXIS_H + Math.max(0, totalSlots - 1) * rowH;
+    if (draggedY < minY) draggedY = minY;
+    if (draggedY > maxY) draggedY = maxY;
+
+    // normalY: geometric position (identical to GPIO's axH + naturalSlot * rowH)
+    var axH = WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH();
+    var slotIdx = _promotedDisplaySlots[drag.grpIdx];
+    if (slotIdx === undefined) slotIdx = 0;
+    var normalY = axH + slotIdx * rowH;
+
+    var offset = draggedY - normalY;
     promEl.style.transform = 'translateY(' + offset + 'px)';
     promEl.style.zIndex = '5';
     promEl.style.position = 'relative';
