@@ -1712,7 +1712,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.46.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.47.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1761,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.29.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.30.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12833,18 +12833,25 @@ function wfgExpandRange(smart, startLine, endLine) {
 }
 
 // ─── Get signal level at a given line position ───
-function wfgGetInitLevel(smart, atLine) {
+function wfgGetInitLevel(smart, atLine, htotal) {
+  // htotal: when provided, account for sub-line dly offsets in temporal position
+  var ht = htotal || 0;
   if (!smart.isPeriodic) {
     var trans = smart.transitions;
     var lo = 0, hi = trans.length - 1, idx = -1;
-    while (lo <= hi) { var mid = (lo + hi) >>> 1; if (trans[mid].line <= atLine) { idx = mid; lo = mid + 1; } else hi = mid - 1; }
+    while (lo <= hi) {
+      var mid = (lo + hi) >>> 1;
+      var pos = ht > 0 ? trans[mid].line + (trans[mid].dly || 0) / ht : trans[mid].line;
+      if (pos <= atLine) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+    }
     return idx >= 0 ? trans[idx].level : 0;
   }
   var steadyLine = smart.steadyStart * smart.vtotal;
   if (atLine < steadyLine) {
     var level = 0;
     for (var i = smart.prelude.length - 1; i >= 0; i--) {
-      if (smart.prelude[i].line <= atLine) { level = smart.prelude[i].level; break; }
+      var pPos = ht > 0 ? smart.prelude[i].line + (smart.prelude[i].dly || 0) / ht : smart.prelude[i].line;
+      if (pPos <= atLine) { level = smart.prelude[i].level; break; }
     }
     return level;
   }
@@ -12853,7 +12860,8 @@ function wfgGetInitLevel(smart, atLine) {
   // Default: end-of-period level (wraps from previous period)
   var level = smart.template.length > 0 ? smart.template[smart.template.length - 1].level : 0;
   for (var i = smart.template.length - 1; i >= 0; i--) {
-    if (smart.template[i].relLine <= relLine) { level = smart.template[i].level; break; }
+    var tPos = ht > 0 ? smart.template[i].relLine + (smart.template[i].dly || 0) / ht : smart.template[i].relLine;
+    if (tPos <= relLine) { level = smart.template[i].level; break; }
   }
   return level;
 }
@@ -12863,13 +12871,13 @@ function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine
   var gpio = wfgGpios[gpioIdx];
   var baseSmart = allGpioSmarts[gpioIdx];
   if (gpio.oax_mode === 0 || gpio.oax_sel < 0 || gpio.oax_sel >= wfgGpios.length || gpio.oax_sel === gpioIdx) {
-    return { transitions: wfgExpandRange(baseSmart, startLine, endLine), initLevel: wfgGetInitLevel(baseSmart, startLine) };
+    return { transitions: wfgExpandRange(baseSmart, startLine, endLine), initLevel: wfgGetInitLevel(baseSmart, startLine, effHtotal) };
   }
   var otherSmart = allGpioSmarts[gpio.oax_sel];
   var baseExp = wfgExpandRange(baseSmart, startLine, endLine);
   var otherExp = wfgExpandRange(otherSmart, startLine, endLine);
-  var baseInit = wfgGetInitLevel(baseSmart, startLine);
-  var otherInit = wfgGetInitLevel(otherSmart, startLine);
+  var baseInit = wfgGetInitLevel(baseSmart, startLine, effHtotal);
+  var otherInit = wfgGetInitLevel(otherSmart, startLine, effHtotal);
   // Merge transition points
   var allPts = {};
   function addP(line, dly) { var k = line + ':' + dly; if (!allPts[k]) allPts[k] = { line: line, dly: dly }; }
@@ -13704,7 +13712,7 @@ function wfgRender() {
         }
       } else if (gpio.oax_mode === 0) {
         // Per-pixel template scan (non-OAX)
-        var curLevel = wfgGetInitLevel(baseSmart, wfgViewStart);
+        var curLevel = wfgGetInitLevel(baseSmart, wfgViewStart, effHtotal);
         for (var px = 0; px < pixelCount; px++) {
           var lineLeft = wfgViewStart + (px / drawW) * viewRange;
           var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
@@ -15476,14 +15484,22 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   var mouseLinePos = wfgViewStart + ((cx - drawX0) / drawW) * viewRange;
 
 
-  // Use cached transitions
-  var transitions = _wfgLastChTransitions[chIdx];
-  if (!transitions || transitions.length < 2) {
+  // Query transitions with extended range beyond viewport (like kvdat uses full edge array)
+  var cache = wfgEnsureTransitions();
+  var vtotalView = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
+  var totalLines = wfgTotalLines();
+  var measMargin = Math.max(vtotalView, viewRange);
+  var measStart = Math.max(0, mouseLinePos - measMargin);
+  var measEnd = Math.min(totalLines, mouseLinePos + measMargin);
+  var oaxResult = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, cache.effHtotal, measStart, measEnd);
+  var transitions = oaxResult.transitions;
+  if (transitions.length < 2) {
+    // Pre-compute Y positions for TCON fallback
+    var y0np = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
+    var yHighNp = Math.round(y0np + 6) + 0.5;
+    var yLowNp = Math.round(y0np + WFG_ROW_H - 4) + 0.5;
     if (wfgTconInternalMode && !wfgKvdatMode) {
       // No transitions but still show PH_CNT (all non-highlight)
-      var y0np = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
-      var yHighNp = Math.round(y0np + 6) + 0.5;
-      var yLowNp = Math.round(y0np + WFG_ROW_H - 4) + 0.5;
       _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx, _midY: (yHighNp + yLowNp) / 2 };
       _wfgLastHoverChIdx = chIdx;
       wfgMeasSetVal('wfg-meas-pw', '--');
@@ -15499,10 +15515,11 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   }
 
   // Convert transitions to fractional line positions
+  var effHtotal = cache.effHtotal;
   var tPos = [];
   for (var ti = 0; ti < transitions.length; ti++) {
     var t = transitions[ti];
-    tPos.push({ pos: t.line + (dclkPerLine > 0 ? t.dly / dclkPerLine : 0), level: t.level });
+    tPos.push({ pos: t.line + (effHtotal > 0 ? t.dly / effHtotal : 0), level: t.level });
   }
 
   // Binary search: find rightmost tPos where pos <= mouseLinePos
@@ -15512,21 +15529,37 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     if (tPos[mid].pos <= mouseLinePos) { idx = mid; lo = mid + 1; }
     else hi = mid - 1;
   }
-  if (idx < 0) idx = 0;
 
-  var curLevel = tPos[idx].level;
+  // Determine current level: if mouse is before all transitions, use initLevel from extended query
+  var curLevel;
+  if (idx < 0) {
+    curLevel = oaxResult.initLevel;
+  } else {
+    curLevel = tPos[idx].level;
+  }
 
   // Find current block boundaries
-  // Left boundary: walk back to find true block start (skip redundant same-level transitions)
-  var blockStart = idx;
-  while (blockStart > 0 && tPos[blockStart - 1].level === curLevel) {
-    blockStart--;
+  var leftEdge, rightEdge = null;
+  if (idx < 0) {
+    // Mouse is before all transitions in extended range → left edge unknown (far left)
+    leftEdge = measStart;
+    // Right edge is the first transition with a different level
+    for (var j = 0; j < tPos.length; j++) {
+      if (tPos[j].level !== curLevel) { rightEdge = tPos[j].pos; break; }
+    }
+  } else {
+    // Left boundary: walk back to find true block start (skip redundant same-level transitions)
+    var blockStart = idx;
+    while (blockStart > 0 && tPos[blockStart - 1].level === curLevel) {
+      blockStart--;
+    }
+    leftEdge = tPos[blockStart].pos;
+    // Right boundary: find next transition with different level
+    for (var j = idx + 1; j < tPos.length; j++) {
+      if (tPos[j].level !== curLevel) { rightEdge = tPos[j].pos; break; }
+    }
   }
-  var leftEdge = tPos[blockStart].pos;
-  var rightEdge = null;
-  for (var j = idx + 1; j < tPos.length; j++) {
-    if (tPos[j].level !== curLevel) { rightEdge = tPos[j].pos; break; }
-  }
+
   // Pre-compute Y positions (needed for no-pulse TCON handling below)
   var y0 = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
   var yHigh = Math.round(y0 + 6) + 0.5;
@@ -15554,7 +15587,9 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   // Find right edge of the NEXT block (adjacent right block)
   var rightEdge2 = null;
   var nextLevel = curLevel === 1 ? 0 : 1;
-  for (var j = idx + 1; j < tPos.length; j++) {
+  // Start searching from right after leftEdge position in tPos
+  var searchStart = (idx < 0) ? 0 : idx + 1;
+  for (var j = searchStart; j < tPos.length; j++) {
     if (tPos[j].level !== curLevel) {
       // This is the start of the next block (= rightEdge). Find its end.
       for (var k = j + 1; k < tPos.length; k++) {
@@ -16947,7 +16982,7 @@ function wfgRenderMinimap() {
               pxTrans = oaxR.transitions;
               if (px === 0) curLevel = oaxR.initLevel;
             } else if (px === 0) {
-              curLevel = wfgGetInitLevel(smart, 0);
+              curLevel = wfgGetInitLevel(smart, 0, mmEffHtotal);
             }
             var count = pxTrans.length;
             var lastLvl = curLevel;
