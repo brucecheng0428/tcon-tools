@@ -1612,6 +1612,12 @@
   @media (hover:hover) { .wfg-slider-btn:hover { background: #334155; } }
   .wfg-gpio-check-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
   .wfg-gpio-check-row label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; cursor: pointer; }
+  .wfg-ir-group-border { border: 1.5px solid; border-radius: 4px; margin: 1px 0; padding: 1px 0; }
+  .wfg-ir-group-rx { border-color: #38bdf8; }
+  .wfg-ir-group-tcon { border-color: #f97316; }
+  .wfg-promoted-group { border: 1.5px solid; border-radius: 4px; margin: 0; padding: 2px 0; cursor: grab; user-select: none; -webkit-user-select: none; }
+  .wfg-promoted-group:active { cursor: grabbing; }
+  .wfg-promoted-group .wfg-ir-label { cursor: grab; }
   .wfg-ch-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid #1e293b; position: relative; transition: background 0.15s; }
   .wfg-ch-row:last-child { border-bottom: none; }
   .wfg-ch-row.wfg-drag-over-above { box-shadow: inset 0 2px 0 0 #f97316; }
@@ -1712,7 +1718,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.57.0</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.58.0</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1761,7 +1767,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.40.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.41.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -12373,6 +12379,7 @@ var _wfgCursorAnimRaf = 0;
 // Cache: per-channel transitions from last render (for measurement)
 var _wfgLastVisibleChs = [];
 var _wfgLastChTransitions = [];
+var _wfgLastChSlotMap = {}; // channel idx -> display slot (for hover/measurement Y calc)
 // ─── Phase Counter Transition Cache ───
 // Stores pre-computed base transitions for each GPIO so that zoom/pan/scroll
 // only read from cache instead of re-running wfgCalcGpio every frame.
@@ -12460,6 +12467,9 @@ function wfgIrRowY(ri) {
 var _wfgIrOrder = [0, 1, 2, 3, 4, 5];
 // Group definitions: RX DCLK(0)+RX DE(1), TCON DCLK(2)+TX DE(3), R_PH(4), F_PH(5)
 var WFG_IR_GROUPS = [[0,1],[2,3],[4],[5]];
+// Promoted group state: -1 = in internal section, >=0 = inserted before visible channel index N
+var _wfgPromotedRx = -1;   // group 0 (RX DCLK + RX DE)
+var _wfgPromotedTcon = -1; // group 1 (TCON DCLK + TX DE)
 function wfgIrGroupOf(ri) {
   for (var g = 0; g < WFG_IR_GROUPS.length; g++) {
     if (WFG_IR_GROUPS[g].indexOf(ri) >= 0) return g;
@@ -12481,8 +12491,24 @@ const WFG_LINE_H = 22;
 function wfgInternalExtraH() {
   if (!wfgTconInternalMode || wfgKvdatMode) return 0;
   var h = 0;
-  for (var i = 0; i < WFG_INTERNAL_ROWS; i++) h += wfgIrRowH(i) + WFG_INTERNAL_ROW_GAP;
+  for (var i = 0; i < WFG_INTERNAL_ROWS; i++) {
+    var grp = wfgIrGroupOf(i);
+    if (grp === 0 && _wfgPromotedRx >= 0) continue;
+    if (grp === 1 && _wfgPromotedTcon >= 0) continue;
+    h += wfgIrRowH(i) + WFG_INTERNAL_ROW_GAP;
+  }
   return h;
+}
+// Compute Y offset for internal row ri, accounting for promoted groups
+function wfgIrRowYFiltered(ri) {
+  var y = 0;
+  for (var i = 0; i < ri; i++) {
+    var grp = wfgIrGroupOf(_wfgIrOrder[i]);
+    if (grp === 0 && _wfgPromotedRx >= 0) continue;
+    if (grp === 1 && _wfgPromotedTcon >= 0) continue;
+    y += wfgIrRowH(_wfgIrOrder[i]) + WFG_INTERNAL_ROW_GAP;
+  }
+  return y;
 }
 
 // ─── Helper: totalLines ───
@@ -12611,6 +12637,11 @@ window.wfgSwitchMode = wfgSwitchMode;
 // ─── TCON Internal Mode Toggle ───
 function wfgToggleTconInternal(checked) {
   wfgTconInternalMode = !!checked;
+  // Reset promoted groups when toggling internal mode
+  if (!wfgTconInternalMode) {
+    _wfgPromotedRx = -1;
+    _wfgPromotedTcon = -1;
+  }
   var lbWrap = document.getElementById('wfg-linebuf-wrap');
   if (lbWrap) lbWrap.style.display = wfgTconInternalMode ? 'flex' : 'none';
   wfgResizeAndRender();
@@ -13132,23 +13163,27 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
 
   // Sub-pixel optimization: when too many lines, draw simplified bars instead of per-line detail
   if (_irVisLineCount > drawW * 2) {
-    // RX DE: blended bar (row 1)
-    var rxY0 = baseY + wfgIrRowY(_wfgIrOrder[1]);
-    ctx.fillStyle = 'rgba(56,189,248,0.15)';
-    ctx.fillRect(drawX0, rxY0, drawW, rowH);
-    ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
-    ctx.beginPath(); ctx.moveTo(drawX0, rxY0 + rowH/2); ctx.lineTo(drawX0 + drawW, rxY0 + rowH/2); ctx.stroke();
-    ctx.globalAlpha = 1;
-    // TX DE: blended bar (row 3)
-    var txY0 = baseY + wfgIrRowY(_wfgIrOrder[3]);
-    ctx.fillStyle = 'rgba(249,115,22,0.15)';
-    ctx.fillRect(drawX0, txY0, drawW, rowH);
-    ctx.strokeStyle = WFG_INTERNAL_COLORS.txde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
-    ctx.beginPath(); ctx.moveTo(drawX0, txY0 + rowH/2); ctx.lineTo(drawX0 + drawW, txY0 + rowH/2); ctx.stroke();
-    ctx.globalAlpha = 1;
+    if (_wfgPromotedRx < 0) {
+      // RX DE: blended bar (row 1)
+      var rxY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(1));
+      ctx.fillStyle = 'rgba(56,189,248,0.15)';
+      ctx.fillRect(drawX0, rxY0, drawW, rowH);
+      ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(drawX0, rxY0 + rowH/2); ctx.lineTo(drawX0 + drawW, rxY0 + rowH/2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (_wfgPromotedTcon < 0) {
+      // TX DE: blended bar (row 3)
+      var txY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(3));
+      ctx.fillStyle = 'rgba(249,115,22,0.15)';
+      ctx.fillRect(drawX0, txY0, drawW, rowH);
+      ctx.strokeStyle = WFG_INTERNAL_COLORS.txde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(drawX0, txY0 + rowH/2); ctx.lineTo(drawX0 + drawW, txY0 + rowH/2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     // R_PH_CNT / F_PH_CNT: blended bars (row 4 & 5)
-    var rphY0 = baseY + wfgIrRowY(_wfgIrOrder[4]);
-    var fphY0 = baseY + wfgIrRowY(_wfgIrOrder[5]);
+    var rphY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(4));
+    var fphY0 = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(5));
     ctx.fillStyle = 'rgba(74,222,128,0.10)';
     ctx.fillRect(drawX0, rphY0, drawW, rowH);
     ctx.fillStyle = 'rgba(251,146,60,0.10)';
@@ -13157,14 +13192,18 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     ctx.strokeStyle = 'rgba(48,54,61,0.5)'; ctx.lineWidth = 1;
     for (var ri = 0; ri < WFG_INTERNAL_ROWS; ri++) {
       var _ori = _wfgIrOrder[ri];
-      var ry = baseY + wfgIrRowY(ri) + wfgIrRowH(_ori) + gap / 2;
+      var grpOri = wfgIrGroupOf(_ori);
+      if (grpOri === 0 && _wfgPromotedRx >= 0) continue;
+      if (grpOri === 1 && _wfgPromotedTcon >= 0) continue;
+      var ry = baseY + wfgIrRowYFiltered(ri) + wfgIrRowH(_ori) + gap / 2;
       ctx.beginPath(); ctx.moveTo(drawX0, ry); ctx.lineTo(w, ry); ctx.stroke();
     }
     return;
   }
 
-  // ── Row 1: RX DE ──
-  var rxY = baseY + wfgIrRowY(_wfgIrOrder.indexOf(1));
+  // ── Row 1: RX DE ── (skip if promoted to channel area)
+  if (_wfgPromotedRx < 0) {
+  var rxY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(1));
   var rxHigh = rxY + 3;
   var rxLow = rxY + rowH - 3;
   ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
@@ -13258,9 +13297,11 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     }
   }
   ctx.stroke();
+  } // end if (_wfgPromotedRx < 0) — RX DE
 
-  // ── Row 3: TX DE ──
-  var txY = baseY + wfgIrRowY(_wfgIrOrder.indexOf(3));
+  // ── Row 3: TX DE ── (skip if promoted to channel area)
+  if (_wfgPromotedTcon < 0) {
+  var txY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(3));
   var txHigh = txY + 3;
   var txLow = txY + rowH - 3;
   ctx.strokeStyle = WFG_INTERNAL_COLORS.txde;
@@ -13321,10 +13362,11 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     }
   }
   ctx.stroke();
+  } // end if (_wfgPromotedTcon < 0) — TX DE
 
   // ── Row 4 & 5: R_PH_CNT / F_PH_CNT (always visible for first channel) ──
-  var rphY = baseY + wfgIrRowY(_wfgIrOrder.indexOf(4));
-  var fphY = baseY + wfgIrRowY(_wfgIrOrder.indexOf(5));
+  var rphY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(4));
+  var fphY = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(5));
   // Show for hovered channel if measuring, otherwise first visible channel
   var _phChIdx = (_wfgMeasArrow && _wfgMeasArrow._tconHoverChIdx >= 0) ? _wfgMeasArrow._tconHoverChIdx : (_wfgLastHoverChIdx >= 0 ? _wfgLastHoverChIdx : 0);
   // Determine if hovered channel has no pulse (flat waveform) → force PH_CNT non-highlight
@@ -13364,26 +13406,197 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     }
   }
 
-  // ── Row 0: RX DCLK tick marks & labels ──
-  var rxDclkRow0Y = baseY + wfgIrRowY(_wfgIrOrder.indexOf(0));
-  var _rxDpl = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
-  wfgDrawDclkRow(ctx, rxDclkRow0Y, dclkH, _rxDpl, WFG_INTERNAL_COLORS.rxde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+  // ── Row 0: RX DCLK tick marks & labels ── (skip if promoted)
+  if (_wfgPromotedRx < 0) {
+    var rxDclkRow0Y = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(0));
+    var _rxDpl = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+    wfgDrawDclkRow(ctx, rxDclkRow0Y, dclkH, _rxDpl, WFG_INTERNAL_COLORS.rxde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+  }
 
-  // ── Row 2: TCON DCLK tick marks & labels ──
-  var tconDclkRow2Y = baseY + wfgIrRowY(_wfgIrOrder.indexOf(2));
-  wfgDrawDclkRow(ctx, tconDclkRow2Y, dclkH, dclkPerLine, WFG_INTERNAL_COLORS.txde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+  // ── Row 2: TCON DCLK tick marks & labels ── (skip if promoted)
+  if (_wfgPromotedTcon < 0) {
+    var tconDclkRow2Y = baseY + wfgIrRowYFiltered(_wfgIrOrder.indexOf(2));
+    wfgDrawDclkRow(ctx, tconDclkRow2Y, dclkH, dclkPerLine, WFG_INTERNAL_COLORS.txde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+  }
 
   // Draw row separators
   ctx.strokeStyle = 'rgba(48,54,61,0.5)';
   ctx.lineWidth = 1;
   for (var ri = 0; ri < WFG_INTERNAL_ROWS; ri++) {
     var _ori2 = _wfgIrOrder[ri];
-    var ry = baseY + wfgIrRowY(ri) + wfgIrRowH(_ori2) + gap / 2;
+    var grpOri2 = wfgIrGroupOf(_ori2);
+    if (grpOri2 === 0 && _wfgPromotedRx >= 0) continue;
+    if (grpOri2 === 1 && _wfgPromotedTcon >= 0) continue;
+    var ry = baseY + wfgIrRowYFiltered(ri) + wfgIrRowH(_ori2) + gap / 2;
     ctx.beginPath();
     ctx.moveTo(drawX0, ry);
     ctx.lineTo(w, ry);
     ctx.stroke();
   }
+}
+
+// ─── Draw Promoted Group in Channel Area ───
+// Draws a DCLK+DE group at arbitrary Y position (within a WFG_ROW_H slot)
+function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, viewEnd, viewRange, lineToX, vtotalView, dclkPerLine) {
+  var isDual = wfgFrame.gateType === 'dual';
+  var hactive = wfgFrame.hactive;
+  var vactive = wfgFrame.vactive;
+  var gateCount = isDual ? 2 : 1;
+  var dclkH = WFG_DCLK_ROW_H;
+  var rowH = WFG_INTERNAL_ROW_H;
+  var gap = WFG_INTERNAL_ROW_GAP;
+
+  // Layout within the WFG_ROW_H slot: DCLK(11) + gap(2) + DE(22) + remaining padding
+  var dclkY = y0 + 2; // slight top padding
+  var deY = dclkY + dclkH + gap;
+
+  var firstVisLine = Math.max(0, Math.floor(viewStart));
+  var lastVisLine = Math.min(wfgTotalLines() - 1, Math.ceil(viewEnd));
+  var _irVisLineCount = lastVisLine - firstVisLine + 1;
+
+  if (grpIdx === 0) {
+    // RX group
+    var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+    var rxDeWidthDclk = hactive / 2;
+    var rxDeFrac = rxDclkPerLine > 0 ? rxDeWidthDclk / rxDclkPerLine : 0;
+    var rxViewLinesPerData = isDual ? 2 : 1;
+    var vtotalRx = wfgFrame.vtotal;
+
+    // Draw DCLK ticks
+    wfgDrawDclkRow(ctx, dclkY, dclkH, rxDclkPerLine, WFG_INTERNAL_COLORS.rxde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+
+    // Draw DE
+    if (_irVisLineCount > drawW * 2) {
+      // Sub-pixel: simple bar
+      ctx.fillStyle = 'rgba(56,189,248,0.15)';
+      ctx.fillRect(drawX0, deY, drawW, rowH);
+      ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(drawX0, deY + rowH/2); ctx.lineTo(drawX0 + drawW, deY + rowH/2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else {
+      var rxHigh = deY + 3;
+      var rxLow = deY + rowH - 3;
+      ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+        var lineInFrame = ln % vtotalView;
+        var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : lineInFrame;
+        var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : 0;
+        var dataIdx = (rxLineIdx + 1) % vtotalRx;
+        if (dataIdx >= vactive) {
+          var xL = Math.max(drawX0, lineToX(ln));
+          var xR = Math.min(w, lineToX(ln + 1));
+          if (xR > drawX0 && xL < w) { ctx.moveTo(xL, rxLow); ctx.lineTo(xR, rxLow); }
+          continue;
+        }
+        var deTo = Math.min(posInRxData + 1, rxDeFrac);
+        var xLineStart = lineToX(ln);
+        var xLineEnd = lineToX(ln + 1);
+        var xL2 = Math.max(drawX0, xLineStart);
+        var xR2 = Math.min(w, xLineEnd);
+        if (deTo > posInRxData) {
+          var fracEnd = deTo - posInRxData;
+          var xDeEnd = lineToX(ln + fracEnd);
+          var xDEc = Math.min(w, xDeEnd);
+          if (xL2 < xDEc) {
+            if (posInRxData === 0) { ctx.moveTo(xL2, rxLow); ctx.lineTo(xL2, rxHigh); } else { ctx.moveTo(xL2, rxHigh); }
+            ctx.lineTo(xDEc, rxHigh);
+            if (fracEnd < 1) ctx.lineTo(xDEc, rxLow);
+            ctx.save(); ctx.fillStyle = WFG_INTERNAL_COLORS.rxde; ctx.globalAlpha = 0.15;
+            ctx.fillRect(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh); ctx.restore();
+          }
+          if (fracEnd < 1 && xDEc < xR2) { ctx.moveTo(xDEc, rxLow); ctx.lineTo(xR2, rxLow); }
+        } else {
+          if (xL2 < xR2) { ctx.moveTo(xL2, rxLow); ctx.lineTo(xR2, rxLow); }
+        }
+      }
+      ctx.stroke();
+    }
+  } else if (grpIdx === 1) {
+    // TCON group
+    var txDeWidthDclk = hactive / (2 * gateCount);
+    var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
+    var lbShift = isDual ? wfgLineBuffer * 2 : wfgLineBuffer;
+
+    // Draw DCLK ticks
+    wfgDrawDclkRow(ctx, dclkY, dclkH, dclkPerLine, WFG_INTERNAL_COLORS.txde, drawX0, w, firstVisLine, lastVisLine, lineToX, viewRange, drawW);
+
+    // Draw DE
+    if (_irVisLineCount > drawW * 2) {
+      ctx.fillStyle = 'rgba(249,115,22,0.15)';
+      ctx.fillRect(drawX0, deY, drawW, rowH);
+      ctx.strokeStyle = WFG_INTERNAL_COLORS.txde; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(drawX0, deY + rowH/2); ctx.lineTo(drawX0 + drawW, deY + rowH/2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else {
+      var txHigh = deY + 3;
+      var txLow = deY + rowH - 3;
+      ctx.strokeStyle = WFG_INTERNAL_COLORS.txde;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+        var lineInFrame = ln % vtotalView;
+        var vactiveView2 = isDual ? vactive * 2 : vactive;
+        var dataIdx = lineInFrame - lbShift;
+        if (dataIdx < 0 || dataIdx >= vactiveView2) {
+          var xL3 = Math.max(drawX0, lineToX(ln));
+          var xR3 = Math.min(w, lineToX(ln + 1));
+          if (xR3 > drawX0 && xL3 < w) { ctx.moveTo(xL3, txLow); ctx.lineTo(xR3, txLow); }
+          continue;
+        }
+        var xLS = lineToX(ln);
+        var xDEEnd = lineToX(ln + txDeFrac);
+        var xLE = lineToX(ln + 1);
+        var xA = Math.max(drawX0, xLS);
+        var xB = Math.min(w, xDEEnd);
+        var xC = Math.min(w, xLE);
+        if (xA < xB) {
+          ctx.moveTo(xA, txLow); ctx.lineTo(xA, txHigh); ctx.lineTo(xB, txHigh); ctx.lineTo(xB, txLow);
+          ctx.save(); ctx.fillStyle = WFG_INTERNAL_COLORS.txde; ctx.globalAlpha = 0.15;
+          ctx.fillRect(xA, txHigh, xB - xA, txLow - txHigh); ctx.restore();
+        }
+        if (xB < xC) { ctx.moveTo(xB, txLow); ctx.lineTo(xC, txLow); }
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Draw group border indicator on canvas (subtle colored line at bottom)
+  var borderColor = grpIdx === 0 ? WFG_INTERNAL_COLORS.rxde : WFG_INTERNAL_COLORS.txde;
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath();
+  ctx.moveTo(drawX0, y0 + WFG_ROW_H - 1);
+  ctx.lineTo(w, y0 + WFG_ROW_H - 1);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+// ─── Build display list with promoted groups interleaved ───
+function wfgBuildDisplayList(visibleChs) {
+  // Returns array of items: { type: 'channel', chIdx: i, ch: ch } or { type: 'promoted', grpIdx: 0|1 }
+  var list = [];
+  var rxInserted = false, tconInserted = false;
+  for (var i = 0; i <= visibleChs.length; i++) {
+    // Insert promoted groups at their position
+    if (_wfgPromotedRx >= 0 && _wfgPromotedRx === i && !rxInserted) {
+      list.push({ type: 'promoted', grpIdx: 0 });
+      rxInserted = true;
+    }
+    if (_wfgPromotedTcon >= 0 && _wfgPromotedTcon === i && !tconInserted) {
+      list.push({ type: 'promoted', grpIdx: 1 });
+      tconInserted = true;
+    }
+    if (i < visibleChs.length) {
+      list.push({ type: 'channel', chIdx: i, ch: visibleChs[i] });
+    }
+  }
+  // If not inserted yet (position beyond end), append
+  if (_wfgPromotedRx >= 0 && !rxInserted) list.push({ type: 'promoted', grpIdx: 0 });
+  if (_wfgPromotedTcon >= 0 && !tconInserted) list.push({ type: 'promoted', grpIdx: 1 });
+  return list;
 }
 
 // ─── DCLK Row Drawing (tick marks + labels) ───
@@ -13775,9 +13988,68 @@ function wfgRender() {
   // Draw waveforms for each visible channel + cache transitions for measurement
   _wfgLastChTransitions = new Array(visibleChs.length);
   var rowStep = WFG_ROW_H + WFG_ROW_GAP;
-  var dragYOffsets = wfgCalcDragYOffsets(visibleChs.length, wfgWaveY0, rowStep, _wfgLabelDrag);
+
+  // Build display list with promoted groups interleaved
+  var _displayList = (wfgTconInternalMode && !wfgKvdatMode) ? wfgBuildDisplayList(visibleChs) : null;
+  var _promotedCount = 0;
+  if (_displayList) {
+    for (var _pi = 0; _pi < _displayList.length; _pi++) {
+      if (_displayList[_pi].type === 'promoted') _promotedCount++;
+    }
+  }
+
+  // Compute static Y offsets for all display slots (promoted groups + channels)
+  var _totalSlots = visibleChs.length + _promotedCount;
+  var _slotY0 = []; // Y offset for each slot
+  for (var _si = 0; _si < _totalSlots; _si++) {
+    _slotY0.push(wfgWaveY0 + _si * rowStep);
+  }
+  // Map channel index to display slot index, and promoted group to slot
+  var _chSlotMap = {}; // chIdx -> slot
+  var _promotedSlots = {}; // grpIdx -> slot
+  if (_displayList && _promotedCount > 0) {
+    var _slot = 0;
+    for (var _di2 = 0; _di2 < _displayList.length; _di2++) {
+      if (_displayList[_di2].type === 'channel') {
+        _chSlotMap[_displayList[_di2].chIdx] = _slot;
+      } else {
+        _promotedSlots[_displayList[_di2].grpIdx] = _slot;
+      }
+      _slot++;
+    }
+  } else {
+    for (var _ci = 0; _ci < visibleChs.length; _ci++) _chSlotMap[_ci] = _ci;
+  }
+  _wfgLastChSlotMap = _chSlotMap; // save for hover/measurement
+
+  // For channel label drag: compute offsets for channels only (ignoring promoted groups in drag calc)
+  // We use the slot-mapped Y as the base, and the drag only moves channels
+  var dragYOffsets = new Array(_totalSlots);
+  for (var _si2 = 0; _si2 < _totalSlots; _si2++) dragYOffsets[_si2] = _slotY0[_si2];
+
   var isDragging = _wfgLabelDrag && _wfgLabelDrag.fromIdx >= 0;
   var dragFromIdx = isDragging ? _wfgLabelDrag.fromIdx : -1;
+
+  // If label drag is active, adjust channel positions (promoted groups stay fixed)
+  if (isDragging && _wfgLabelDrag.canvasRect) {
+    var _dragSlot = (_chSlotMap[dragFromIdx] !== undefined) ? _chSlotMap[dragFromIdx] : dragFromIdx;
+    var _dragMouseY = _wfgLabelDrag.mouseY - _wfgLabelDrag.canvasRect.top - rowStep / 2;
+    var _minDY = wfgWaveY0;
+    var _maxDY = wfgWaveY0 + (_totalSlots - 1) * rowStep;
+    if (_dragMouseY < _minDY) _dragMouseY = _minDY;
+    if (_dragMouseY > _maxDY) _dragMouseY = _maxDY;
+    dragYOffsets[_dragSlot] = _dragMouseY;
+  }
+
+  // Draw promoted groups first (behind channels)
+  if (_displayList && _promotedCount > 0) {
+    for (var _pg = 0; _pg < _displayList.length; _pg++) {
+      if (_displayList[_pg].type !== 'promoted') continue;
+      var _pSlot = _promotedSlots[_displayList[_pg].grpIdx];
+      var _pY0 = dragYOffsets[_pSlot];
+      wfgDrawPromotedGroup(ctx, _pY0, _displayList[_pg].grpIdx, drawX0, drawW, w, wfgViewStart, wfgViewEnd, viewRange, lineToX, vtotalView, dclkPerLine);
+    }
+  }
 
   // Draw non-dragged channels first, then dragged channel on top
   var _pT3 = _wfgPerfEnabled ? performance.now() : 0;
@@ -13791,7 +14063,8 @@ function wfgRender() {
     var i = drawOrder[di];
     var ch = visibleChs[i];
     var gpio = wfgGpios[ch.gpioIdx];
-    var y0 = dragYOffsets[i];
+    var _slotIdx = (_chSlotMap[i] !== undefined) ? _chSlotMap[i] : i;
+    var y0 = dragYOffsets[_slotIdx];
     var yHigh = Math.round(y0 + 6) + 0.5;
     var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
     var isThisDragged = (i === dragFromIdx);
@@ -13800,8 +14073,7 @@ function wfgRender() {
     if (isThisDragged) ctx.globalAlpha = 0.7;
 
     // Separator line (skip for dragged channel)
-    if (!isThisDragged && i > 0) {
-      var prevY0 = dragYOffsets[i];
+    if (!isThisDragged && _slotIdx > 0) {
       ctx.strokeStyle = '#21262d';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -14035,23 +14307,75 @@ function wfgRenderLabels() {
         { text: 'R_PH_CNT', color: WFG_INTERNAL_COLORS.rph, pl: '6px', fs: '9px' },
         { text: 'F_PH_CNT', color: WFG_INTERNAL_COLORS.fph, pl: '6px', fs: '9px' }
       ];
+      // Build group order from _wfgIrOrder, group rows and wrap in border divs
+      var _grpSeen = {};
       for (var _iri = 0; _iri < WFG_INTERNAL_ROWS; _iri++) {
         var _logRow = _wfgIrOrder[_iri];
+        var _grp = wfgIrGroupOf(_logRow);
+        // Skip promoted groups in internal section
+        if (_grp === 0 && _wfgPromotedRx >= 0) continue;
+        if (_grp === 1 && _wfgPromotedTcon >= 0) continue;
         var _lb = _irLabels[_logRow];
         var _irH = wfgIrRowH(_logRow) + WFG_INTERNAL_ROW_GAP;
-        var _grp = wfgIrGroupOf(_logRow);
+        // Open group border div at first member of group 0 or 1
+        if ((_grp === 0 || _grp === 1) && !_grpSeen[_grp]) {
+          var _borderCls = _grp === 0 ? 'wfg-ir-group-rx' : 'wfg-ir-group-tcon';
+          html += '<div class="wfg-ir-group-border ' + _borderCls + '" data-ir-group-border="' + _grp + '">';
+          _grpSeen[_grp] = true;
+        }
         html += '<div class="wfg-ir-label" data-ir-idx="' + _logRow + '" data-ir-group="' + _grp + '" style="height:' + _irH + 'px;display:flex;align-items:center;padding-left:' + _lb.pl + ';font-size:' + _lb.fs + ';color:' + _lb.color + ';white-space:nowrap;cursor:grab;user-select:none;">' + _lb.text + '</div>';
+        // Close group border div after last member
+        if (_grp === 0 || _grp === 1) {
+          var _grpMembers = WFG_IR_GROUPS[_grp];
+          var _isLast = true;
+          for (var _nextI = _iri + 1; _nextI < WFG_INTERNAL_ROWS; _nextI++) {
+            if (wfgIrGroupOf(_wfgIrOrder[_nextI]) === _grp) { _isLast = false; break; }
+          }
+          if (_isLast) html += '</div>';
+        }
       }
     }
   } else {
     html += '<div style="height:' + WFG_AXIS_H + 'px"></div>';
   }
+  // Build visible channels list
   var visMap = [];
   for (var i = 0; i < wfgChannels.length; i++) {
     var ch = wfgChannels[i];
     if (!ch.visible || ch.gpioIdx < 0) continue;
-    html += '<div class="wfg-label-item" data-ch-idx="' + i + '"><span class="wfg-label-dot" style="background:' + ch.color + '"></span>' + ch.name + '</div>';
     visMap.push(i);
+  }
+  // Build display list interleaving promoted groups with channels
+  var _lblDisplayList = (wfgTconInternalMode && !wfgKvdatMode) ? wfgBuildDisplayList(visMap.map(function(ci) { return wfgChannels[ci]; })) : null;
+  if (_lblDisplayList) {
+    for (var _li = 0; _li < _lblDisplayList.length; _li++) {
+      var _item = _lblDisplayList[_li];
+      if (_item.type === 'channel') {
+        var _ci2 = visMap[_item.chIdx];
+        var _ch2 = wfgChannels[_ci2];
+        html += '<div class="wfg-label-item" data-ch-idx="' + _ci2 + '"><span class="wfg-label-dot" style="background:' + _ch2.color + '"></span>' + _ch2.name + '</div>';
+      } else {
+        // Promoted group label
+        var _pgIdx = _item.grpIdx;
+        var _borderColor = _pgIdx === 0 ? '#38bdf8' : '#f97316';
+        var _grpName = _pgIdx === 0 ? 'RX' : 'TCON';
+        var _pgLabels = _pgIdx === 0
+          ? [_irLabels[0], _irLabels[1]]
+          : [_irLabels[2], _irLabels[3]];
+        html += '<div class="wfg-promoted-group" data-promoted-grp="' + _pgIdx + '" style="border-color:' + _borderColor + ';">';
+        for (var _pli = 0; _pli < _pgLabels.length; _pli++) {
+          var _plb = _pgLabels[_pli];
+          var _plH = _pli === 0 ? (WFG_DCLK_ROW_H + 2) : (WFG_ROW_H - WFG_DCLK_ROW_H - 4);
+          html += '<div style="height:' + _plH + 'px;display:flex;align-items:center;padding-left:' + _plb.pl + ';font-size:' + _plb.fs + ';color:' + _plb.color + ';white-space:nowrap;">' + _plb.text + '</div>';
+        }
+        html += '</div>';
+      }
+    }
+  } else {
+    for (var i = 0; i < visMap.length; i++) {
+      var ch = wfgChannels[visMap[i]];
+      html += '<div class="wfg-label-item" data-ch-idx="' + visMap[i] + '"><span class="wfg-label-dot" style="background:' + ch.color + '"></span>' + ch.name + '</div>';
+    }
   }
   html += '<div class="wfg-label-drop-indicator" id="wfg-label-drop-indicator"></div>';
   el.innerHTML = html;
@@ -14059,44 +14383,164 @@ function wfgRenderLabels() {
   el.querySelectorAll('.wfg-label-item').forEach(function(item) {
     item.style.height = rowH + 'px';
   });
+  el.querySelectorAll('.wfg-promoted-group').forEach(function(item) {
+    item.style.height = rowH + 'px';
+  });
   wfgLabelDragSetup(el, visMap, rowH);
-  // Setup internal row group drag
+  // Setup internal row group drag (with promote/demote)
   wfgIrDragSetup(el);
 }
 
-// ─── Internal Row Group Drag ───
+// ─── Internal Row Group Drag (with promote/demote to channel area) ───
 var _wfgIrDrag = null;
 function wfgIrDragSetup(container) {
-  var items = container.querySelectorAll('.wfg-ir-label');
-  if (!items.length) return;
-  function startDrag(logRow, startY) {
+  // Setup drag for internal row labels (non-promoted groups reorder within internal section,
+  // groups 0/1 can be dragged to channel area to promote)
+  var irLabels = container.querySelectorAll('.wfg-ir-label');
+  var promotedGroups = container.querySelectorAll('.wfg-promoted-group');
+  var rowH = WFG_ROW_H + WFG_ROW_GAP;
+
+  function getInternalBottom() {
+    var rect = container.getBoundingClientRect();
+    return rect.top + WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH();
+  }
+  function getChannelAreaTop() {
+    return getInternalBottom();
+  }
+  function getVisibleChCount() {
+    var cnt = 0;
+    for (var i = 0; i < wfgChannels.length; i++) {
+      if (wfgChannels[i].visible && wfgChannels[i].gpioIdx >= 0) cnt++;
+    }
+    return cnt;
+  }
+
+  function startIrDrag(logRow, startY, fromPromoted) {
+    var grpIdx = wfgIrGroupOf(logRow);
+    if (grpIdx < 0) return;
+    // Only groups 0 and 1 can be promoted; groups 2,3 (R_PH, F_PH) can only reorder within internal
+    if (grpIdx >= 2 && !fromPromoted) {
+      // R_PH / F_PH: original reorder-only behavior within internal section
+      startInternalReorder(logRow, startY);
+      return;
+    }
+    var grpRows = WFG_IR_GROUPS[grpIdx];
+    _wfgIrDrag = {
+      grpIdx: grpIdx, grpRows: grpRows, startY: startY, mouseY: startY,
+      fromPromoted: fromPromoted || false, mode: 'undecided' // 'undecided', 'internal-reorder', 'promote', 'channel-reorder', 'demote'
+    };
+    // Visual feedback
+    if (!fromPromoted) {
+      var borderDiv = container.querySelector('[data-ir-group-border="' + grpIdx + '"]');
+      if (borderDiv) borderDiv.style.opacity = '0.5';
+    }
+  }
+
+  function startInternalReorder(logRow, startY) {
+    // Simple reorder for R_PH/F_PH within internal section (groups 2,3)
     var grpIdx = wfgIrGroupOf(logRow);
     if (grpIdx < 0) return;
     var grpRows = WFG_IR_GROUPS[grpIdx];
-    // Find positions of group members in current order
-    var posIndices = grpRows.map(function(r) { return _wfgIrOrder.indexOf(r); }).sort(function(a,b){return a-b;});
-    _wfgIrDrag = { grpIdx: grpIdx, grpRows: grpRows, posIndices: posIndices, startY: startY, mouseY: startY };
-    items.forEach(function(it) {
+    _wfgIrDrag = { grpIdx: grpIdx, grpRows: grpRows, startY: startY, mouseY: startY, mode: 'internal-reorder' };
+    irLabels.forEach(function(it) {
       var lr = parseInt(it.getAttribute('data-ir-idx'));
       if (grpRows.indexOf(lr) >= 0) it.style.opacity = '0.5';
     });
   }
+
   function moveDrag(clientY) {
     if (!_wfgIrDrag) return;
     _wfgIrDrag.mouseY = clientY;
+    var drag = _wfgIrDrag;
+    var internalBottom = getInternalBottom();
+
+    if (drag.mode === 'internal-reorder') {
+      moveInternalReorder(clientY);
+      return;
+    }
+
+    // For groups 0/1: decide mode based on mouse position
+    var visCnt = getVisibleChCount();
+    if (drag.fromPromoted) {
+      // Already promoted, dragging within channel area or back to internal
+      if (clientY < internalBottom - 10) {
+        drag.mode = 'demote';
+      } else {
+        drag.mode = 'channel-reorder';
+        var relY = clientY - internalBottom;
+        var slotIdx = Math.round(relY / rowH);
+        // Convert slot position to channel-relative index
+        // Slots include promoted groups, so subtract promoted groups before this slot
+        var promBefore = 0;
+        if (_wfgPromotedRx >= 0 && drag.grpIdx !== 0) {
+          // The other promoted group occupies a slot
+          var rxSlot = _wfgPromotedRx; // slot offset = RX's channel-index + promoted groups before it
+          if (_wfgPromotedTcon >= 0 && _wfgPromotedTcon <= _wfgPromotedRx && drag.grpIdx !== 1) rxSlot++;
+          if (slotIdx > rxSlot) promBefore++;
+        }
+        if (_wfgPromotedTcon >= 0 && drag.grpIdx !== 1) {
+          var tconSlot = _wfgPromotedTcon;
+          if (_wfgPromotedRx >= 0 && _wfgPromotedRx <= _wfgPromotedTcon && drag.grpIdx !== 0) tconSlot++;
+          if (slotIdx > tconSlot) promBefore++;
+        }
+        var targetIdx = slotIdx - promBefore;
+        targetIdx = Math.max(0, Math.min(visCnt, targetIdx));
+        drag.targetChIdx = targetIdx;
+      }
+    } else {
+      // Currently in internal section
+      if (clientY > internalBottom + 10) {
+        drag.mode = 'promote';
+        var relY = clientY - internalBottom;
+        var slotIdx = Math.round(relY / rowH);
+        // Convert to channel index (subtract existing promoted groups)
+        var promBefore = 0;
+        if (_wfgPromotedRx >= 0 && drag.grpIdx !== 0 && slotIdx > _wfgPromotedRx) promBefore++;
+        if (_wfgPromotedTcon >= 0 && drag.grpIdx !== 1 && slotIdx > _wfgPromotedTcon) promBefore++;
+        var targetIdx = slotIdx - promBefore;
+        targetIdx = Math.max(0, Math.min(visCnt, targetIdx));
+        drag.targetChIdx = targetIdx;
+      } else {
+        drag.mode = 'internal-reorder';
+        moveInternalReorder(clientY);
+        return;
+      }
+    }
+
+    // Show visual indicator for channel area insertion
+    var indicator = document.getElementById('wfg-label-drop-indicator');
+    if (indicator && (drag.mode === 'promote' || drag.mode === 'channel-reorder')) {
+      // Convert channel index to display slot for visual position
+      var _indicatorChIdx = drag.targetChIdx || 0;
+      var _indicatorSlot = _indicatorChIdx;
+      // Add promoted groups that appear before this channel index
+      if (_wfgPromotedRx >= 0 && drag.grpIdx !== 0 && _wfgPromotedRx <= _indicatorChIdx) _indicatorSlot++;
+      if (_wfgPromotedTcon >= 0 && drag.grpIdx !== 1 && _wfgPromotedTcon <= _indicatorChIdx) _indicatorSlot++;
+      indicator.style.display = 'block';
+      indicator.style.top = (WFG_TIME_H + WFG_LINE_H + wfgInternalExtraH() + _indicatorSlot * rowH - 1) + 'px';
+      indicator.style.left = '0'; indicator.style.right = '0'; indicator.style.height = '2px';
+      indicator.style.background = '#f97316'; indicator.style.position = 'absolute'; indicator.style.zIndex = '10';
+    } else if (indicator) {
+      indicator.style.display = 'none';
+    }
+  }
+
+  function moveInternalReorder(clientY) {
+    if (!_wfgIrDrag) return;
     var rect = container.getBoundingClientRect();
     var axH = WFG_TIME_H + WFG_LINE_H;
     var relY = clientY - rect.top - axH;
-    // Find which group-slot the mouse is over
-    // Build group slot positions
+    // Build group slot positions (only non-promoted groups)
     var groupOrder = [];
     var seen = {};
     for (var i = 0; i < _wfgIrOrder.length; i++) {
       var g = wfgIrGroupOf(_wfgIrOrder[i]);
+      if (g === 0 && _wfgPromotedRx >= 0) continue;
+      if (g === 1 && _wfgPromotedTcon >= 0) continue;
       if (!seen[g]) { groupOrder.push(g); seen[g] = true; }
     }
     var slotY = 0;
-    var targetSlot = groupOrder.length; // default: end
+    var targetSlot = groupOrder.length;
     for (var s = 0; s < groupOrder.length; s++) {
       var grp = WFG_IR_GROUPS[groupOrder[s]];
       var slotH = 0;
@@ -14104,12 +14548,9 @@ function wfgIrDragSetup(container) {
       if (relY < slotY + slotH / 2) { targetSlot = s; break; }
       slotY += slotH;
     }
-    _wfgIrDrag.targetSlot = targetSlot;
-    // Preview: reorder _wfgIrOrder temporarily
     var dragGrpIdx = _wfgIrDrag.grpIdx;
     var currentSlot = groupOrder.indexOf(dragGrpIdx);
     if (targetSlot !== currentSlot && targetSlot !== currentSlot + 1) {
-      // Build new group order
       var newGroupOrder = [];
       for (var i2 = 0; i2 < groupOrder.length; i2++) {
         if (groupOrder[i2] !== dragGrpIdx) newGroupOrder.push(groupOrder[i2]);
@@ -14118,36 +14559,94 @@ function wfgIrDragSetup(container) {
       if (insertAt < 0) insertAt = 0;
       if (insertAt > newGroupOrder.length) insertAt = newGroupOrder.length;
       newGroupOrder.splice(insertAt, 0, dragGrpIdx);
-      // Rebuild _wfgIrOrder from newGroupOrder
+      // Rebuild full _wfgIrOrder: visible groups in new order, promoted groups keep their relative position
       var newOrder = [];
+      // First add non-promoted groups in new order
       for (var g2 = 0; g2 < newGroupOrder.length; g2++) {
         var grpMembers = WFG_IR_GROUPS[newGroupOrder[g2]];
         for (var m = 0; m < grpMembers.length; m++) newOrder.push(grpMembers[m]);
+      }
+      // Append promoted groups' rows at end (they're invisible in internal section anyway)
+      if (_wfgPromotedRx >= 0) {
+        var rxRows = WFG_IR_GROUPS[0];
+        for (var ri = 0; ri < rxRows.length; ri++) newOrder.push(rxRows[ri]);
+      }
+      if (_wfgPromotedTcon >= 0) {
+        var tconRows = WFG_IR_GROUPS[1];
+        for (var ri = 0; ri < tconRows.length; ri++) newOrder.push(tconRows[ri]);
       }
       _wfgIrOrder = newOrder;
       wfgRenderLabels();
       wfgResizeAndRender();
     }
   }
+
   function endDrag() {
     if (!_wfgIrDrag) return;
+    var drag = _wfgIrDrag;
     _wfgIrDrag = null;
-    items.forEach(function(it) { it.style.opacity = ''; });
+
+    // Hide indicator
+    var indicator = document.getElementById('wfg-label-drop-indicator');
+    if (indicator) indicator.style.display = 'none';
+
+    if (drag.mode === 'promote' && (drag.grpIdx === 0 || drag.grpIdx === 1)) {
+      // Promote group to channel area (index relative to original channel array, independent of other promoted groups)
+      var insertIdx = drag.targetChIdx || 0;
+      if (drag.grpIdx === 0) _wfgPromotedRx = insertIdx;
+      else _wfgPromotedTcon = insertIdx;
+    } else if (drag.mode === 'demote') {
+      // Demote: move back to internal section
+      if (drag.grpIdx === 0) _wfgPromotedRx = -1;
+      else if (drag.grpIdx === 1) _wfgPromotedTcon = -1;
+    } else if (drag.mode === 'channel-reorder' && drag.targetChIdx !== undefined) {
+      // Reorder within channel area
+      var newIdx = drag.targetChIdx;
+      if (drag.grpIdx === 0) _wfgPromotedRx = newIdx;
+      else if (drag.grpIdx === 1) _wfgPromotedTcon = newIdx;
+    }
+
+    // Reset visual state
+    irLabels.forEach(function(it) { it.style.opacity = ''; });
+    var borderDivs = container.querySelectorAll('.wfg-ir-group-border');
+    borderDivs.forEach(function(bd) { bd.style.opacity = ''; });
+
     wfgRenderLabels();
     wfgResizeAndRender();
   }
-  items.forEach(function(item) {
+
+  // Attach events to internal row labels (non-promoted, in internal section)
+  irLabels.forEach(function(item) {
+    var logRow = parseInt(item.getAttribute('data-ir-idx'));
+    var grpIdx = wfgIrGroupOf(logRow);
     item.addEventListener('mousedown', function(e) {
       e.preventDefault(); e.stopPropagation();
-      startDrag(parseInt(item.getAttribute('data-ir-idx')), e.clientY);
+      startIrDrag(logRow, e.clientY, false);
     });
     item.addEventListener('touchstart', function(e) {
       if (e.touches.length === 1) {
         e.preventDefault(); e.stopPropagation();
-        startDrag(parseInt(item.getAttribute('data-ir-idx')), e.touches[0].clientY);
+        startIrDrag(logRow, e.touches[0].clientY, false);
       }
     }, { passive: false });
   });
+
+  // Attach events to promoted group labels (in channel area)
+  promotedGroups.forEach(function(grpEl) {
+    var grpIdx = parseInt(grpEl.getAttribute('data-promoted-grp'));
+    var firstRow = WFG_IR_GROUPS[grpIdx][0];
+    grpEl.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      startIrDrag(firstRow, e.clientY, true);
+    });
+    grpEl.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) {
+        e.preventDefault(); e.stopPropagation();
+        startIrDrag(firstRow, e.touches[0].clientY, true);
+      }
+    }, { passive: false });
+  });
+
   document.addEventListener('mousemove', function(e) { if (_wfgIrDrag) { e.preventDefault(); moveDrag(e.clientY); } });
   document.addEventListener('mouseup', function() { endDrag(); });
   document.addEventListener('touchmove', function(e) { if (_wfgIrDrag && e.touches.length === 1) { e.preventDefault(); moveDrag(e.touches[0].clientY); } }, { passive: false });
@@ -14161,6 +14660,24 @@ var _wfgDragRafId = 0;
 function wfgLabelDragSetup(container, visMap, rowH) {
   var items = container.querySelectorAll('.wfg-label-item');
   var indicator = document.getElementById('wfg-label-drop-indicator');
+
+  // Build slot map: for each channel label item index, find its slot in the display list
+  // (accounts for promoted groups taking up slots)
+  var _chItemSlots = []; // item index -> slot index in display list
+  var _totalDisplaySlots = visMap.length;
+  if (wfgTconInternalMode && !wfgKvdatMode) {
+    var _dl = wfgBuildDisplayList(visMap.map(function(ci) { return wfgChannels[ci]; }));
+    _totalDisplaySlots = _dl.length;
+    var _chItemIdx = 0;
+    for (var _dli = 0; _dli < _dl.length; _dli++) {
+      if (_dl[_dli].type === 'channel') {
+        _chItemSlots.push(_dli);
+        _chItemIdx++;
+      }
+    }
+  } else {
+    for (var _si = 0; _si < visMap.length; _si++) _chItemSlots.push(_si);
+  }
 
   function getAxisH() {
     if (typeof wfgKvdatMode !== 'undefined' && wfgKvdatMode) return WFG_AXIS_H;
@@ -14183,14 +14700,32 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     if (!_wfgLabelDrag) return;
     var rect = container.getBoundingClientRect();
     var relY = clientY - rect.top - getAxisH();
-    var targetIdx = Math.round(relY / rowH);
+    // Convert slot position to channel index (skip promoted group slots)
+    var slotIdx = Math.round(relY / rowH);
+    slotIdx = Math.max(0, Math.min(_totalDisplaySlots, slotIdx));
+    // Map slot back to channel index
+    var targetIdx = slotIdx;
+    // Count promoted groups before this slot
+    if (wfgTconInternalMode && !wfgKvdatMode) {
+      var promBefore = 0;
+      if (_wfgPromotedRx >= 0 && _wfgPromotedRx <= slotIdx) promBefore++;
+      if (_wfgPromotedTcon >= 0 && _wfgPromotedTcon <= slotIdx) promBefore++;
+      targetIdx = slotIdx - promBefore;
+    }
     targetIdx = Math.max(0, Math.min(visMap.length, targetIdx));
     _wfgLabelDrag.currentIdx = targetIdx;
     _wfgLabelDrag.mouseY = clientY;
     var canvas = document.getElementById('wfg-canvas');
     if (canvas) _wfgLabelDrag.canvasRect = canvas.getBoundingClientRect();
     if (indicator) {
-      indicator.style.top = (getAxisH() + targetIdx * rowH - 1) + 'px';
+      // Position indicator at the slot position
+      var indicatorSlot = targetIdx;
+      if (wfgTconInternalMode && !wfgKvdatMode) {
+        indicatorSlot = targetIdx;
+        if (_wfgPromotedRx >= 0 && _wfgPromotedRx <= indicatorSlot) indicatorSlot++;
+        if (_wfgPromotedTcon >= 0 && _wfgPromotedTcon <= indicatorSlot) indicatorSlot++;
+      }
+      indicator.style.top = (getAxisH() + indicatorSlot * rowH - 1) + 'px';
     }
     // Move label items to match canvas waveform positions
     updateLabelPositions();
@@ -14215,31 +14750,28 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     if (canvasRect) {
       draggedY = drag.mouseY - canvasRect.top - rowH / 2;
       var minY = WFG_AXIS_H;
-      var maxY = WFG_AXIS_H + (count - 1) * rowH;
+      var maxY = WFG_AXIS_H + (_totalDisplaySlots - 1) * rowH;
       if (draggedY < minY) draggedY = minY;
       if (draggedY > maxY) draggedY = maxY;
     } else {
-      draggedY = axH + from * rowH;
+      draggedY = axH + (_chItemSlots[from] || from) * rowH;
     }
 
     var slot = 0;
     for (var i = 0; i < count; i++) {
+      var naturalSlot = _chItemSlots[i] !== undefined ? _chItemSlots[i] : i;
       if (i === from) {
         // Dragged item: position based on mouse
-        var normalY = axH + i * rowH;
-        var offset = draggedY - (axH + from * rowH);
+        var normalY = axH + naturalSlot * rowH;
+        var offset = draggedY - normalY;
         items[i].style.transform = 'translateY(' + offset + 'px)';
         items[i].style.zIndex = '5';
         items[i].style.position = 'relative';
       } else {
-        if (slot === gapSlot) slot++;
-        var normalY = axH + i * rowH;
-        var targetY = axH + slot * rowH;
-        var offset = targetY - normalY;
-        items[i].style.transform = offset !== 0 ? 'translateY(' + offset + 'px)' : '';
+        // Non-dragged items keep their natural positions (with gap for drop target)
+        items[i].style.transform = '';
         items[i].style.zIndex = '';
         items[i].style.position = '';
-        slot++;
       }
     }
   }
@@ -14403,7 +14935,13 @@ window.wfgResizeCanvas = function() {
     }
   }
   sigCount = Math.max(sigCount, 1);
-  var contentH = WFG_AXIS_H + wfgInternalExtraH() + sigCount * (WFG_ROW_H + WFG_ROW_GAP) + 10;
+  // Add promoted groups as extra channel slots
+  var promotedExtra = 0;
+  if (wfgTconInternalMode && !wfgKvdatMode) {
+    if (_wfgPromotedRx >= 0) promotedExtra++;
+    if (_wfgPromotedTcon >= 0) promotedExtra++;
+  }
+  var contentH = WFG_AXIS_H + wfgInternalExtraH() + (sigCount + promotedExtra) * (WFG_ROW_H + WFG_ROW_GAP) + 10;
   var canvasTop = wrap.getBoundingClientRect().top;
   var viewH = window.innerHeight - canvasTop - 70;
   var h = Math.floor(Math.max(300, Math.max(contentH, viewH)));
@@ -14422,6 +14960,9 @@ const WFG_COLORS = ['#ff6b6b','#51cf66','#339af0','#ffd43b','#cc5de8','#ff922b',
 
 function wfgResetToDefault() {
   wfgInvalidateCache();
+  _wfgPromotedRx = -1;
+  _wfgPromotedTcon = -1;
+  _wfgIrOrder = [0, 1, 2, 3, 4, 5];
   wfgLineBuffer = 6;
   var lbEl = document.getElementById('wfg-linebuf');
   if (lbEl) lbEl.value = wfgLineBuffer;
@@ -15728,7 +16269,8 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   var waveAreaY0 = WFG_AXIS_H + wfgInternalExtraH();
   var chIdx = -1;
   for (var i = 0; i < visibleChs.length; i++) {
-    var y0 = waveAreaY0 + i * (WFG_ROW_H + WFG_ROW_GAP);
+    var _hSlot = (_wfgLastChSlotMap[i] !== undefined) ? _wfgLastChSlotMap[i] : i;
+    var y0 = waveAreaY0 + _hSlot * (WFG_ROW_H + WFG_ROW_GAP);
     if (cy >= y0 && cy < y0 + WFG_ROW_H + WFG_ROW_GAP) { chIdx = i; break; }
   }
   if (chIdx < 0) {
@@ -15738,8 +16280,8 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
       var irGap = WFG_INTERNAL_ROW_GAP;
       var _rxPos = _wfgIrOrder.indexOf(1);
       var _txPos = _wfgIrOrder.indexOf(3);
-      var rxDeY0 = WFG_AXIS_H + wfgIrRowY(_rxPos);
-      var txDeY0 = WFG_AXIS_H + wfgIrRowY(_txPos);
+      var rxDeY0 = (_wfgPromotedRx < 0) ? WFG_AXIS_H + wfgIrRowYFiltered(_rxPos) : -999;
+      var txDeY0 = (_wfgPromotedTcon < 0) ? WFG_AXIS_H + wfgIrRowYFiltered(_txPos) : -999;
       var deRowIdx = -1; // 0=RX DE, 1=TX DE
       if (cy >= rxDeY0 && cy < rxDeY0 + irRowH) deRowIdx = 0;
       else if (cy >= txDeY0 && cy < txDeY0 + irRowH) deRowIdx = 1;
@@ -15772,7 +16314,8 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   var transitions = oaxResult.transitions;
   if (transitions.length < 2) {
     // Pre-compute Y positions for TCON fallback
-    var y0np = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
+    var _slotNp = (_wfgLastChSlotMap[chIdx] !== undefined) ? _wfgLastChSlotMap[chIdx] : chIdx;
+    var y0np = waveAreaY0 + _slotNp * (WFG_ROW_H + WFG_ROW_GAP);
     var yHighNp = Math.round(y0np + 6) + 0.5;
     var yLowNp = Math.round(y0np + WFG_ROW_H - 4) + 0.5;
     if (wfgTconInternalMode && !wfgKvdatMode) {
@@ -15838,7 +16381,8 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   }
 
   // Pre-compute Y positions (needed for no-pulse TCON handling below)
-  var y0 = waveAreaY0 + chIdx * (WFG_ROW_H + WFG_ROW_GAP);
+  var _slotM = (_wfgLastChSlotMap[chIdx] !== undefined) ? _wfgLastChSlotMap[chIdx] : chIdx;
+  var y0 = waveAreaY0 + _slotM * (WFG_ROW_H + WFG_ROW_GAP);
   var yHigh = Math.round(y0 + 6) + 0.5;
   var yLow = Math.round(y0 + WFG_ROW_H - 4) + 0.5;
 
@@ -17835,6 +18379,9 @@ window.wfgExportConfig = function() {
     }),
     view: { start: wfgViewStart, end: wfgViewEnd },
     tconInternalMode: wfgTconInternalMode,
+    promotedRx: _wfgPromotedRx,
+    promotedTcon: _wfgPromotedTcon,
+    irOrder: _wfgIrOrder.slice(),
     lineBuffer: wfgLineBuffer,
     currentMode: wfgCurrentMode,
     pulseItems: wfgPulseItems.map(function(p) {
@@ -17957,6 +18504,11 @@ window.wfgImportConfig = function(jsonStr) {
 
   // ── TCON Internal Mode ──
   wfgTconInternalMode = !!config.tconInternalMode;
+  _wfgPromotedRx = typeof config.promotedRx === 'number' ? config.promotedRx : -1;
+  _wfgPromotedTcon = typeof config.promotedTcon === 'number' ? config.promotedTcon : -1;
+  if (Array.isArray(config.irOrder) && config.irOrder.length === WFG_INTERNAL_ROWS) {
+    _wfgIrOrder = config.irOrder.slice();
+  }
   var intCb = document.getElementById('wfg-tcon-internal-cb');
   if (intCb) intCb.checked = wfgTconInternalMode;
 
