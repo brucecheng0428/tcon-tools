@@ -1717,7 +1717,7 @@
 <!-- ══ PAGE 1: 主頁 ══ -->
 <div id="page-home">
   <div class="header">
-    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.72.15</span></h1>
+    <h1>🔧 <span data-i18n="home.title">TCON FAE專用工具箱</span> <span style="display:inline-block;background:#22c55e;color:#052e16;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.72.16</span></h1>
     <div class="subtitle-row">
 <div class="lang-switcher">
         <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1766,7 +1766,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.55.21</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.55.22</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2785,7 +2785,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.55.21</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.55.22</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -19196,10 +19196,13 @@ window.wfgScreenshot = function(callback) {
   var srcCanvas = document.getElementById('wfg-canvas');
   if (!srcCanvas) return;
   var labelsEl = document.getElementById('wfg-labels');
-  var labelW = labelsEl ? labelsEl.offsetWidth : 110;
+  var labelW = labelsEl ? labelsEl.offsetWidth : WFG_LABEL_W;
   var dpr = window.devicePixelRatio || 1;
-  // Output size = labels + canvas (at device resolution)
-  var outW = labelW * dpr + srcCanvas.width;
+  // Source canvas already contains label background area (0 to WFG_LABEL_W*dpr).
+  // We crop that out and replace it with DOM-rendered labels for pixel-perfect match.
+  var srcLabelPx = Math.round(WFG_LABEL_W * dpr); // label area width in source canvas device pixels
+  var waveW = srcCanvas.width - srcLabelPx;        // waveform-only width
+  var outW = Math.round(labelW * dpr) + waveW;
   var outH = srcCanvas.height;
   var offscreen = document.createElement('canvas');
   offscreen.width = outW;
@@ -19210,49 +19213,106 @@ window.wfgScreenshot = function(callback) {
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, outW, outH);
 
-  // Draw labels area
+  // Draw labels area background
+  var lblPx = Math.round(labelW * dpr);
   ctx.fillStyle = 'rgba(13,17,23,0.92)';
-  ctx.fillRect(0, 0, labelW * dpr, outH);
+  ctx.fillRect(0, 0, lblPx, outH);
   // Border line
   ctx.fillStyle = '#21262d';
-  ctx.fillRect(labelW * dpr - dpr, 0, dpr, outH);
+  ctx.fillRect(lblPx - dpr, 0, dpr, outH);
 
-  // Parse and draw label items
+  // Helper: draw a single leaf label element onto the offscreen canvas
+  var parentRect = labelsEl ? labelsEl.getBoundingClientRect() : null;
+  function drawLeafLabel(el) {
+    if (!el || !parentRect) return;
+    var r = el.getBoundingClientRect();
+    var y = (r.top - parentRect.top) * dpr;
+    var h = r.height * dpr;
+    var dot = el.querySelector('.wfg-label-dot');
+    var text = '';
+    // Get direct text content only (not from nested children for items with dots)
+    if (dot) {
+      // For wfg-label-item: text is the text node after the dot span
+      for (var cn = 0; cn < el.childNodes.length; cn++) {
+        if (el.childNodes[cn].nodeType === 3) text += el.childNodes[cn].textContent;
+      }
+      text = text.trim();
+      if (!text) text = el.textContent.replace(dot.textContent, '').trim();
+    } else {
+      text = el.textContent.trim();
+    }
+    var color = '#c9d1d9';
+    if (dot) {
+      color = dot.style.background || dot.style.backgroundColor || '#c9d1d9';
+    } else {
+      var cs = window.getComputedStyle(el);
+      color = cs.color || '#c9d1d9';
+    }
+    // Draw dot
+    if (dot) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(8 * dpr, y + h / 2, 4 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Draw text
+    ctx.fillStyle = color;
+    var fs = dot ? 11 : 9;
+    var fw = dot ? '600' : 'normal';
+    // Read font-size from inline style if available
+    if (el.style.fontSize) fs = parseFloat(el.style.fontSize);
+    ctx.font = fw + ' ' + (fs * dpr) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textBaseline = 'middle';
+    var pl = dot ? 18 : 6;
+    if (el.style.paddingLeft) pl = parseFloat(el.style.paddingLeft);
+    ctx.fillText(text, pl * dpr, y + h / 2);
+  }
+
+  // Parse and draw label items — handle nested structures
   if (labelsEl) {
     var items = labelsEl.children;
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       if (item.classList.contains('wfg-label-drop-indicator')) continue;
-      var rect = item.getBoundingClientRect();
-      var parentRect = labelsEl.getBoundingClientRect();
-      var y = (rect.top - parentRect.top) * dpr;
-      var h = rect.height * dpr;
-      // Get text and color
-      var dot = item.querySelector('.wfg-label-dot');
-      var text = item.textContent.trim();
-      var color = dot ? dot.style.background || dot.style.backgroundColor : '#c9d1d9';
-      // Use computed style color if no dot
-      if (!dot) {
-        var cs = window.getComputedStyle(item);
-        color = cs.color || '#c9d1d9';
-      }
-      // Draw dot
-      if (dot) {
-        ctx.fillStyle = color;
+
+      if (item.classList.contains('wfg-ir-group-border') || item.classList.contains('wfg-promoted-group')) {
+        // Draw group border
+        var gr = item.getBoundingClientRect();
+        var gy = (gr.top - parentRect.top) * dpr;
+        var gh = gr.height * dpr;
+        var borderColor = item.style.borderColor || window.getComputedStyle(item).borderColor || '#38bdf8';
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1.5 * dpr;
+        var bx = 1 * dpr, by = gy, bw = lblPx - 2 * dpr, bh = gh;
+        var br = 4 * dpr;
         ctx.beginPath();
-        ctx.arc(8 * dpr, y + h / 2, 4 * dpr, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(bx + br, by);
+        ctx.lineTo(bx + bw - br, by);
+        ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + br);
+        ctx.lineTo(bx + bw, by + bh - br);
+        ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - br, by + bh);
+        ctx.lineTo(bx + br, by + bh);
+        ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - br);
+        ctx.lineTo(bx, by + br);
+        ctx.quadraticCurveTo(bx, by, bx + br, by);
+        ctx.closePath();
+        ctx.stroke();
+        // Draw each child label inside the group
+        for (var j = 0; j < item.children.length; j++) {
+          drawLeafLabel(item.children[j]);
+        }
+      } else if (item.classList.contains('wfg-label-item')) {
+        // Channel label with dot
+        drawLeafLabel(item);
+      } else {
+        // Plain div (Time, Line, axis spacer, etc.)
+        drawLeafLabel(item);
       }
-      // Draw text
-      ctx.fillStyle = color;
-      ctx.font = (dot ? 11 : 9) * dpr + 'px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, (dot ? 18 : 6) * dpr, y + h / 2);
     }
   }
 
-  // Draw main canvas
-  ctx.drawImage(srcCanvas, labelW * dpr, 0);
+  // Draw main canvas — crop out source canvas's built-in label area
+  ctx.drawImage(srcCanvas, srcLabelPx, 0, waveW, outH, lblPx, 0, waveW, outH);
 
   callback(offscreen);
 };
