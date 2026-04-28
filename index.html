@@ -1766,7 +1766,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.56.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.57.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2785,7 +2785,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.56.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.57.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3376,6 +3376,7 @@ const I18N = {
   'wfg.importKvdat':    { 'zh-TW': '📂 匯入 .kvdat', 'en': '📂 Import .kvdat', 'zh-CN': '📂 导入 .kvdat' },
   'wfg.frmnoTitle':     { 'zh-TW': '🔄 Toggle FRM_NO（全域共用）', 'en': '🔄 Toggle FRM_NO (Global)', 'zh-CN': '🔄 Toggle FRM_NO（全局共用）' },
   'wfg.frmnoDesc':      { 'zh-TW': '所有 GPIO 的 Toggle 模式共用此 FRM_NO 設定', 'en': 'All GPIO Toggle modes share this FRM_NO setting', 'zh-CN': '所有 GPIO 的 Toggle 模式共用此 FRM_NO 设定' },
+  'wfg.xpolPresetLabel':{ 'zh-TW': 'XPOL Dot 模式快速設定（自動填入 ACT_TYPE / R_PH / F_PH）', 'en': 'XPOL Dot mode presets (auto-fill ACT_TYPE / R_PH / F_PH)', 'zh-CN': 'XPOL Dot 模式快速设定（自动填入 ACT_TYPE / R_PH / F_PH）' },
   'wfg.kvdatFile':      { 'zh-TW': '📂 kvdat 檔案', 'en': '📂 kvdat File', 'zh-CN': '📂 kvdat 文件' },
   'wfg.kvdatClear':     { 'zh-TW': '✕ 清除匯入', 'en': '✕ Clear Import', 'zh-CN': '✕ 清除导入' },
   // ─── WFG: Toolbar buttons ───
@@ -12821,20 +12822,53 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
     var lineOffset = frame * vtotal;
 
     if (gpio.toggle) {
-      // ── Toggle mode: only look at st_line + r_dly for toggle trigger ──
+      // ── Frame-level toggle counter (VBI & Dot modes both use) ──
       toggleFrmCounter++;
       if (toggleFrmCounter >= toggleFrmThreshold) {
         toggleFrmCounter = 0;
         toggleLevel = toggleLevel ? 0 : 1;
       }
-      var absLine = lineOffset + Math.max(0, gpio.st_line);
-      if (toggleFrmCounter === 0) {
-        allTransitions.push({ line: absLine, dly: gpio.r_dly, level: toggleLevel });
+
+      if (actType === 0) {
+        // ── VBI / Column mode: frame-level toggle only (original behavior) ──
+        var absLine = lineOffset + Math.max(0, gpio.st_line);
+        if (toggleFrmCounter === 0) {
+          allTransitions.push({ line: absLine, dly: gpio.r_dly, level: toggleLevel });
+        } else {
+          // Non-toggle frames: push current level at frame start so renderer has data
+          allTransitions.push({ line: lineOffset, dly: 0, level: toggleLevel });
+        }
+        prevFrameEndLevel = toggleLevel;
       } else {
-        // Non-toggle frames: push current level at frame start so renderer has data
-        allTransitions.push({ line: lineOffset, dly: 0, level: toggleLevel });
+        // ── XPOL Dot mode: line-level pattern XORed with frame polarity ──
+        // Per 6138 Timing doc: R_PH_CNT cycles from INI_R_PH, wraps at ACT_TYPE+1.
+        // Line level = ((R_PH_CNT & INI_F_PH) === 0) ? HIGH : LOW, then XOR toggleLevel.
+        // Modes: 1-line(AT=1,FP=1), 2-line(AT=3,FP=2), 1+2-line(AT=3,RP=1,FP=2),
+        //        4-line(AT=7,FP=4), 8-line(AT=15,FP=8), +-+(AT=2,FP=1)
+        var dotStLine = Math.max(0, gpio.st_line);
+        var dotSpLine = gpio.sp_line >= 16383 ? vtotal - 1 : Math.min(gpio.sp_line, vtotal - 1);
+        var dotPeriod = actType + 1;
+        var dotFPh = gpio.f_ph;
+        var dotRCnt = gpio.r_ph % dotPeriod;
+
+        // Frame start: emit carry-over level from previous frame (or initial for frame 0)
+        var dotCurLevel = prevFrameEndLevel;
+        if (frame > 0) {
+          allTransitions.push({ line: lineOffset, dly: 0, level: dotCurLevel });
+        }
+
+        // Active region: line-by-line dot pattern with transitions at level changes
+        for (var dotLine = dotStLine; dotLine <= dotSpLine && dotLine < vtotal; dotLine++) {
+          var dotBit = ((dotRCnt & dotFPh) === 0) ? 1 : 0;
+          var dotNewLevel = dotBit ^ toggleLevel;
+          if (dotNewLevel !== dotCurLevel) {
+            allTransitions.push({ line: lineOffset + dotLine, dly: gpio.r_dly, level: dotNewLevel });
+            dotCurLevel = dotNewLevel;
+          }
+          dotRCnt = (dotRCnt + 1) % dotPeriod;
+        }
+        prevFrameEndLevel = dotCurLevel;
       }
-      prevFrameEndLevel = toggleLevel;
       continue;
     }
 
@@ -15709,6 +15743,28 @@ function wfgOnGpioChange(gpioIdx, field, value) {
 }
 window.wfgOnGpioChange = wfgOnGpioChange;
 
+// ─── XPOL Dot Mode Preset Applier ───
+function wfgApplyXpolPreset(gpioIdx, actType, rPh, fPh) {
+  if (gpioIdx < 0 || gpioIdx >= wfgGpios.length) return;
+  wfgInvalidateCache();
+  var gpio = wfgGpios[gpioIdx];
+  gpio.act_type = actType;
+  gpio.r_ph = rPh;
+  gpio.f_ph = fPh;
+  // For VBI mode, set typical XPOL defaults: INI_VAL=2(Keep), ST_LINE=SP_LINE
+  if (actType === 0) {
+    gpio.ini_val = 2;
+  } else {
+    // For dot modes, set ST_LINE to typical start, SP_LINE=16383 (full frame)
+    gpio.sp_line = 16383;
+  }
+  wfgRenderGpioList();
+  wfgRender();
+  wfgRenderMinimap();
+  wfgUpdateMinimapViewport();
+}
+window.wfgApplyXpolPreset = wfgApplyXpolPreset;
+
 // Slider ↔ Number sync helpers
 function wfgSliderSync(rangeEl, gpioIdx, field) {
   var row = rangeEl.closest('.wfg-slider-row');
@@ -15916,6 +15972,31 @@ function wfgRenderGpioList() {
       + '<option value="2"' + (g.tg_ini_val === 2 ? ' selected' : '') + '>2</option>'
       + '</select></div>' : '<div class="wfg-field"></div>')
       + '</div>';
+
+    // Row 4b: XPOL dot mode preset buttons (visible only when Toggle is checked)
+    if (g.toggle) {
+      html += '<div style="margin:4px 0 8px;padding:6px 8px;background:#1a2540;border-radius:6px;border:1px solid #334155">'
+        + '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">' + t('wfg.xpolPresetLabel') + '</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      var xpolPresets = [
+        { label: 'VBI',     at: 0,  rp: 0, fp: 0 },
+        { label: '1-line',  at: 1,  rp: 0, fp: 1 },
+        { label: '2-line',  at: 3,  rp: 0, fp: 2 },
+        { label: '1+2-line',at: 3,  rp: 1, fp: 2 },
+        { label: '4-line',  at: 7,  rp: 0, fp: 4 },
+        { label: '8-line',  at: 15, rp: 0, fp: 8 },
+        { label: '+-+',     at: 2,  rp: 0, fp: 1 }
+      ];
+      for (var xpi = 0; xpi < xpolPresets.length; xpi++) {
+        var xp = xpolPresets[xpi];
+        var isActive = (g.act_type === xp.at && g.r_ph === xp.rp && g.f_ph === xp.fp);
+        html += '<button onclick="wfgApplyXpolPreset(' + i + ',' + xp.at + ',' + xp.rp + ',' + xp.fp + ')" '
+          + 'style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid ' + (isActive ? '#f97316' : '#475569')
+          + ';background:' + (isActive ? '#f97316' : 'transparent') + ';color:' + (isActive ? '#fff' : '#cbd5e1')
+          + ';cursor:pointer;font-family:inherit;white-space:nowrap">' + xp.label + '</button>';
+      }
+      html += '</div></div>';
+    }
 
     // FRM_NO_0/1/2 moved to global Frame settings
 
