@@ -1766,7 +1766,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.57.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.57.2</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2785,7 +2785,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.57.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.57.2</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12807,15 +12807,15 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   var allTransitions = [];
   var prevFrameEndLevel = 0;
 
-  // Toggle mode state
-  var toggleLevel = 0;
+  // Toggle mode state — initial polarity from INI_VAL (0→LOW, 1→HIGH, 2/3→default LOW)
+  var toggleLevel = (gpio.ini_val === 1) ? 1 : 0;
   var toggleFrmCounter = 0;
   var toggleFrmThreshold;
   if (gpio.toggle) {
     var frmNoVal = gpio.tg_ini_val === 0 ? wfgFrame.frm_no_0 : (gpio.tg_ini_val === 1 ? wfgFrame.frm_no_1 : wfgFrame.frm_no_2);
     toggleFrmThreshold = frmNoVal + 1;
     // Emit explicit initial level so INV can invert it correctly
-    allTransitions.push({ line: 0, dly: 0, level: 0 });
+    allTransitions.push({ line: 0, dly: 0, level: toggleLevel });
   }
 
   for (var frame = 0; frame < frameCount; frame++) {
@@ -12830,15 +12830,28 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       }
 
       if (actType === 0) {
-        // ── VBI / Column mode: frame-level toggle only (original behavior) ──
+        // ── VBI / Column mode: frame-level toggle ──
         var absLine = lineOffset + Math.max(0, gpio.st_line);
+        // Determine frame initial level based on INI_VAL
+        var vbiInitLevel;
+        if (gpio.ini_val === 0) vbiInitLevel = 0;
+        else if (gpio.ini_val === 1) vbiInitLevel = 1;
+        else vbiInitLevel = toggleLevel; // Keep (INI_VAL=2/3)
+
         if (toggleFrmCounter === 0) {
-          allTransitions.push({ line: absLine, dly: gpio.r_dly, level: toggleLevel });
+          // Toggle-flip frame: emit forced init level, then toggle transition at st_line
+          if (frame === 0 || vbiInitLevel !== prevFrameEndLevel) {
+            allTransitions.push({ line: lineOffset, dly: 0, level: vbiInitLevel });
+          }
+          if (toggleLevel !== vbiInitLevel) {
+            allTransitions.push({ line: absLine, dly: gpio.r_dly, level: toggleLevel });
+          }
+          prevFrameEndLevel = toggleLevel;
         } else {
-          // Non-toggle frames: push current level at frame start so renderer has data
-          allTransitions.push({ line: lineOffset, dly: 0, level: toggleLevel });
+          // Non-toggle frame: stays at INI_VAL-derived level
+          allTransitions.push({ line: lineOffset, dly: 0, level: vbiInitLevel });
+          prevFrameEndLevel = vbiInitLevel;
         }
-        prevFrameEndLevel = toggleLevel;
       } else {
         // ── XPOL Dot mode: line-level pattern XORed with frame polarity ──
         // Per 6138 Timing doc: R_PH_CNT cycles from INI_R_PH, wraps at ACT_TYPE+1.
@@ -12851,8 +12864,11 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
         var dotFPh = gpio.f_ph;
         var dotRCnt = gpio.r_ph % dotPeriod;
 
-        // Frame start: emit carry-over level from previous frame (or initial for frame 0)
-        var dotCurLevel = prevFrameEndLevel;
+        // Frame start: level based on INI_VAL (0→LOW, 1→HIGH, 2/3→Keep from prev frame)
+        var dotCurLevel;
+        if (gpio.ini_val === 0) dotCurLevel = 0;
+        else if (gpio.ini_val === 1) dotCurLevel = 1;
+        else dotCurLevel = (frame === 0) ? toggleLevel : prevFrameEndLevel; // Keep
         if (frame > 0) {
           allTransitions.push({ line: lineOffset, dly: 0, level: dotCurLevel });
         }
@@ -15751,11 +15767,10 @@ function wfgApplyXpolPreset(gpioIdx, actType, rPh, fPh) {
   gpio.act_type = actType;
   gpio.r_ph = rPh;
   gpio.f_ph = fPh;
-  // For VBI mode, set typical XPOL defaults: INI_VAL=2(Keep), ST_LINE=SP_LINE
-  if (actType === 0) {
-    gpio.ini_val = 2;
-  } else {
-    // For dot modes, set ST_LINE to typical start, SP_LINE=16383 (full frame)
+  // All XPOL presets: INI_VAL=2(Keep) so frame-to-frame carry-over is maintained
+  gpio.ini_val = 2;
+  if (actType > 0) {
+    // For dot modes, set SP_LINE=16383 (full frame)
     gpio.sp_line = 16383;
   }
   wfgRenderGpioList();
