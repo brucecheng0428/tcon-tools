@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.4</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.5</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.4</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.5</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -2944,14 +2944,25 @@
           </div>
         </div>
 
-        <!-- GPIO Signal Sources -->
+        <!-- Digital Signal Sources -->
         <div class="wfg-card" id="wfg-gpio-card">
           <div class="wfg-card-head" onclick="wfgToggleCard(this)">
-            <h3 data-i18n="wfg.gpioSources">📊 GPIO 信號源</h3>
+            <h3 data-i18n="wfg.gpioSources">📊 數位信號</h3>
             <span class="wfg-chevron">▼</span>
           </div>
           <div class="wfg-card-body">
             <div id="wfg-gpio-list"></div>
+          </div>
+        </div>
+
+        <!-- Analog Signal Sources -->
+        <div class="wfg-card" id="wfg-analog-card">
+          <div class="wfg-card-head" onclick="wfgToggleCard(this)">
+            <h3 data-i18n="wfg.analogSources">📈 類比信號</h3>
+            <span class="wfg-chevron">▼</span>
+          </div>
+          <div class="wfg-card-body">
+            <div id="wfg-analog-list"></div>
           </div>
         </div>
 
@@ -3425,7 +3436,8 @@ const I18N = {
   'wfg.frameParams':    { 'zh-TW': '📐 Frame 參數', 'en': '📐 Frame Parameters', 'zh-CN': '📐 Frame 参数' },
   'wfg.frameCount':     { 'zh-TW': 'Frame 重複數', 'en': 'Frame Repeat Count', 'zh-CN': 'Frame 重复数' },
   'wfg.gateType':       { 'zh-TW': 'Gate Type', 'en': 'Gate Type', 'zh-CN': 'Gate Type' },
-  'wfg.gpioSources':    { 'zh-TW': '📊 GPIO 信號源', 'en': '📊 GPIO Signal Sources', 'zh-CN': '📊 GPIO 信号源' },
+  'wfg.gpioSources':    { 'zh-TW': '📊 數位信號', 'en': '📊 Digital Signals', 'zh-CN': '📊 数字信号' },
+  'wfg.analogSources':  { 'zh-TW': '📈 類比信號', 'en': '📈 Analog Signals', 'zh-CN': '📈 模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '📺 輸出通道', 'en': '📺 Output Channels', 'zh-CN': '📺 输出通道' },
   'wfg.loadPreset':     { 'zh-TW': '載入預設…', 'en': 'Load Preset…', 'zh-CN': '载入预设…' },
   'wfg.fitAll':         { 'zh-TW': '📏 全覽', 'en': '📏 Fit All', 'zh-CN': '📏 全览' },
@@ -14765,31 +14777,64 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
 
 // Compute Level Shifter sample points from selected CK edges (1-CK-to-1-output).
 // Every CK↑ → target = voltage_max (VGH); every CK↓ → target = voltage_min (VGL).
-function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
+function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine, linesPerPixel) {
   var ac = gpio.analog_config;
   var ckIdx = ac.source_ck_idx | 0;
   if (ckIdx < 0 || ckIdx >= wfgGpios.length) {
-    return { initVoltage: ac.voltage_min, samples: [] };
+    return { initVoltage: ac.voltage_min, samples: [], smooth: true };
   }
   var pad = Math.max(effVtotal, 1);
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
   var oax = wfgGetOaxForRange(ckIdx, allGpioTransitions, effHtotal, extStart, extEnd);
   var trans = oax ? oax.transitions : [];
-  var samples = [];
+
+  // RC curvature — same model as Source Driver
+  var _curveRise = (ac.curvature_rise != null) ? (ac.curvature_rise | 0) : 0;
+  var _curveFall = (ac.curvature_fall != null) ? (ac.curvature_fall | 0) : 0;
+  var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
+  var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
+
+  // Build event list with target voltages
+  var events = [];
   for (var i = 0; i < trans.length; i++) {
     var tr = trans[i];
     var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
     var lineX = tr.line + fracDly;
-    var v = (tr.level === 1) ? ac.voltage_max : ac.voltage_min;
-    samples.push({ lineX: lineX, voltage: v });
+    var vTarget = (tr.level === 1) ? ac.voltage_max : ac.voltage_min;
+    events.push({ lineX: lineX, vTarget: vTarget });
   }
+
+  // Adaptive curve density
+  var CURVE_DENSITY = 16;
+  var curveDensity = CURVE_DENSITY;
+  if (linesPerPixel > 4) curveDensity = 4;
+  else if (linesPerPixel > 2) curveDensity = 8;
+
+  var samples = [];
+  var prevV = events.length > 0 ? events[0].vTarget : ac.voltage_min;
+
+  for (var ei = 0; ei < events.length; ei++) {
+    var ev = events[ei];
+    var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
+    var span = Math.max(1e-6, nextLineX - ev.lineX);
+    var curveSpan = Math.min(span, 1.0);
+    var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+    samples.push({ lineX: ev.lineX, voltage: prevV });
+    for (var k = 1; k <= curveDensity; k++) {
+      var dt = (k / curveDensity) * curveSpan;
+      var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
+      samples.push({ lineX: ev.lineX + dt, voltage: v });
+    }
+    prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
+  }
+
   var initVoltage = ac.voltage_min;
-  for (var k = 0; k < samples.length; k++) {
-    if (samples[k].lineX <= viewStartLine) initVoltage = samples[k].voltage;
+  for (var k2 = 0; k2 < samples.length; k2++) {
+    if (samples[k2].lineX <= viewStartLine) initVoltage = samples[k2].voltage;
     else break;
   }
-  return { initVoltage: initVoltage, samples: samples };
+  return { initVoltage: initVoltage, samples: samples, smooth: true };
 }
 
 // Voltage → canvas Y. yHigh < yLow (canvas Y grows downward).
@@ -15526,7 +15571,7 @@ function wfgRender() {
       if (gpio.waveform_type === 1) {
         _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, wfgViewStart, wfgViewEnd, wfgLineBuffer);
       } else if (gpio.waveform_type === 2) {
-        _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, wfgViewStart, wfgViewEnd);
+        _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, wfgViewStart, wfgViewEnd, (drawW > 0 ? (wfgViewEnd - wfgViewStart) / drawW : 1));
       }
       if (_anaData) {
         wfgDrawAnalogChannel(ctx, ch, gpio, _anaData, y0, _rowH, lineToX, drawX0, drawW, w, wfgViewStart, wfgViewEnd);
@@ -17249,13 +17294,19 @@ function wfgSliderHtml(gpioIdx, field, min, max, value) {
 // ─── GPIO List UI ───
 function wfgRenderGpioList(focusIdx) {
   var container = document.getElementById('wfg-gpio-list');
+  var anaContainer = document.getElementById('wfg-analog-list');
   if (!container) return;
-  // Save expanded state before re-render
+  // Save expanded state before re-render (across both containers)
   var expandedSet = {};
-  var oldHeads = container.querySelectorAll('.wfg-signal-mini-head');
-  for (var hi = 0; hi < oldHeads.length; hi++) {
-    if (!oldHeads[hi].classList.contains('collapsed')) expandedSet[hi] = true;
-  }
+  var _saveExpanded = function(el) {
+    var oldHeads = el.querySelectorAll('.wfg-signal-mini-head');
+    for (var hi = 0; hi < oldHeads.length; hi++) {
+      var idx = oldHeads[hi].getAttribute('data-gpio-idx');
+      if (idx != null && !oldHeads[hi].classList.contains('collapsed')) expandedSet[idx] = true;
+    }
+  };
+  _saveExpanded(container);
+  if (anaContainer) _saveExpanded(anaContainer);
   // Always show analog GPIOs expanded so the analog config panel is visible.
   for (var ag = 0; ag < wfgGpios.length; ag++) {
     if (wfgGpios[ag] && wfgGpios[ag].waveform_type !== 0) expandedSet[ag] = true;
@@ -17264,6 +17315,7 @@ function wfgRenderGpioList(focusIdx) {
     expandedSet[focusIdx] = true;
   }
   var html = '';
+  var anaHtml = '';
   for (var i = 0; i < wfgGpios.length; i++) {
     var g = wfgGpios[i];
     var isVirtualAnalog = wfgIsVirtualAnalogIdx(i);
@@ -17276,8 +17328,8 @@ function wfgRenderGpioList(focusIdx) {
     var sigBadge = isVirtualAnalog
       ? '<span style="color:#a78bfa;font-size:10px;margin-left:4px;font-weight:500">' + _wfTypeLabel(g.waveform_type) + '</span>'
       : '';
-    html += '<div class="wfg-signal-mini">'
-      + '<div class="wfg-signal-mini-head collapsed" onclick="wfgToggleSignalCard(this)">'
+    var _itemHtml = '<div class="wfg-signal-mini">'
+      + '<div class="wfg-signal-mini-head collapsed" data-gpio-idx="' + i + '" onclick="wfgToggleSignalCard(this)">'
       + '<span class="wfg-sig-name">' + g.name.toUpperCase() + sigBadge + enableTag + '</span>'
       + '<span class="wfg-chevron">▼</span></div>'
       + '<div class="wfg-signal-mini-body collapsed">';
@@ -17287,14 +17339,18 @@ function wfgRenderGpioList(focusIdx) {
     //   • Virtual analog slots: ENABLE checkbox only — type is fixed by slot
     //     name (sd1=Source Driver, ls1=Level Shifter).
     if (isVirtualAnalog) {
-      html += '<div class="wfg-gpio-check-row" style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+      _itemHtml += '<div class="wfg-gpio-check-row" style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
         + '<label style="font-size:12px;font-weight:600;color:#e2e8f0"><input type="checkbox"' + (g.enable ? ' checked' : '') + ' onchange="wfgOnGpioChange(' + i + ',\'enable\',this.checked)"> ENABLE</label>'
         + '<span style="font-size:11px;color:#94a3b8">' + t('wfg.waveformType') + ': <strong style="color:#cbd5e1">' + _wfTypeLabel(g.waveform_type) + '</strong></span>'
         + '</div>';
-      html += wfgRenderAnalogConfigHtml(i, g);
-      html += '</div></div>';
+      _itemHtml += wfgRenderAnalogConfigHtml(i, g);
+      _itemHtml += '</div></div>';
+      anaHtml += _itemHtml;
       continue;
     }
+
+    // Digital GPIO: append header first, then body content
+    html += _itemHtml;
 
     html += '<div class="wfg-gpio-check-row" style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
       + '<label style="font-size:12px;font-weight:600;color:#e2e8f0"><input type="checkbox"' + (g.enable ? ' checked' : '') + ' onchange="wfgOnGpioChange(' + i + ',\'enable\',this.checked)"> ENABLE</label>'
@@ -17397,15 +17453,21 @@ function wfgRenderGpioList(focusIdx) {
     html += '</div></div>';
   }
   container.innerHTML = html;
-  // Restore expanded state after re-render
-  var newHeads = container.querySelectorAll('.wfg-signal-mini-head');
-  for (var hi = 0; hi < newHeads.length; hi++) {
-    if (expandedSet[hi]) {
-      newHeads[hi].classList.remove('collapsed');
-      var body = newHeads[hi].nextElementSibling;
-      if (body) body.classList.remove('collapsed');
+  if (anaContainer) anaContainer.innerHTML = anaHtml;
+  // Restore expanded state after re-render (across both containers)
+  var _restoreExpanded = function(el) {
+    var heads = el.querySelectorAll('.wfg-signal-mini-head');
+    for (var hi2 = 0; hi2 < heads.length; hi2++) {
+      var idx2 = heads[hi2].getAttribute('data-gpio-idx');
+      if (idx2 != null && expandedSet[idx2]) {
+        heads[hi2].classList.remove('collapsed');
+        var body2 = heads[hi2].nextElementSibling;
+        if (body2) body2.classList.remove('collapsed');
+      }
     }
-  }
+  };
+  _restoreExpanded(container);
+  if (anaContainer) _restoreExpanded(anaContainer);
   // Attach hold-to-repeat on +/- buttons
   wfgAttachHoldRepeat(container);
   // If a focusIdx was provided, ensure the parent card is open and scroll the
