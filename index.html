@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.64.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.64.2</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.64.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.64.2</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14437,25 +14437,32 @@ function wfgEffVactive(effVtotal) {
 // VGMA1 is the highest voltage reached on a positive line for white pixels.
 //
 // Gamma curve: real source drivers use a non-linear voltage-data relationship.
-// The gamma reference voltages (VGMA1~VGMA14) create an S-shaped curve where:
-//   - Near black (low L): voltage changes steeply (large per-step delta)
+// The gamma reference voltages (VGMA1~VGMA14) create an S-shaped curve matching
+// the LCD panel V-T (Voltage-Transmittance) characteristic:
+//   - Near black (low L): voltage changes steeply (large voltage per gray step)
 //   - Mid gray: voltage changes slowly (flat, compressed region)
-//   - Near white (high L): voltage changes steeply again (large per-step delta)
-// This S-curve is modeled with a symmetric power function:
-//   lower half: gf = 0.5 * pow(2*x, gamma)
-//   upper half: gf = 1 - 0.5 * pow(2*(1-x), gamma)
-// gamma > 1 → steeper at extremes, flatter in the middle (S-shape).
-// gamma = 1 → linear. gamma = 2.2 → typical display gamma S-curve.
+//   - Near white (high L): voltage changes steeply again (large voltage per gray step)
+// This compensates for the LC material's nonlinear electro-optic response where
+// the V-T curve is flat at threshold and saturation, steep in the middle.
+//
+// Model: symmetric S-curve using pow(x, 1/gamma):
+//   lower half: gf = 0.5 * pow(2*x, 1/gamma)
+//   upper half: gf = 1 - 0.5 * pow(2*(1-x), 1/gamma)
+// With gamma=2.2: the 1/gamma=0.4545 exponent makes the curve steep at x=0 and x=1,
+// flat at x=0.5 — exactly matching the datasheet's Input Data vs Output Voltage curve.
 function wfgAnalogTargetVoltageWithPol(grayFrac, pol, ac) {
   var gamma = (ac.sd_gamma != null && ac.sd_gamma > 0) ? ac.sd_gamma : 2.2;
   var x = Math.max(0, Math.min(1, grayFrac));
   var gf;
   if (gamma === 1) {
     gf = x;
-  } else if (x <= 0.5) {
-    gf = 0.5 * Math.pow(2 * x, gamma);
   } else {
-    gf = 1.0 - 0.5 * Math.pow(2 * (1 - x), gamma);
+    var invG = 1.0 / gamma;
+    if (x <= 0.5) {
+      gf = 0.5 * Math.pow(2 * x, invG);
+    } else {
+      gf = 1.0 - 0.5 * Math.pow(2 * (1 - x), invG);
+    }
   }
   if (pol === 1) {
     var pMin = (ac.pos_gamma_min != null) ? ac.pos_gamma_min : (ac.voltage_min != null ? ac.voltage_min : 0);
