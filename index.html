@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.63.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.63.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.63.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.63.1</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14366,6 +14366,8 @@ var wfgVoltCursors = [
 var _wfgAnalogChSlots = [];
 // Active drag state for voltage cursors
 var _wfgVoltCursorDrag = null; // { ci, slotIdx, slotY, slotH, gpioIdx }
+// Cached label positions for touch hit-testing (populated during wfgDrawVoltCursors)
+var _wfgVoltCursorLabels = []; // [{ ci, slotIdx, gpioIdx, lx, ly, tw, th }]
 
 // Maximum L value for an analog config's bit depth (255 for 8-bit, 63 for 6-bit, 1023 for 10-bit).
 function wfgAnalogMaxL(ac) {
@@ -14921,6 +14923,7 @@ function wfgVoltCursorY(frac, yHigh, yLow) {
 // uses the channel's auto-scaled range (cached during channel render) so the
 // label tracks the actual visible voltage span instead of a fixed gamma rail.
 function wfgDrawVoltCursors(ctx) {
+  _wfgVoltCursorLabels = []; // reset label cache each frame
   if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return;
   var canvas = document.getElementById('wfg-canvas');
   if (!canvas) return;
@@ -14987,14 +14990,28 @@ function wfgDrawVoltCursors(ctx) {
       ctx.textBaseline = 'middle';
       ctx.fillText(label, lx + tw / 2, ly + th / 2);
       ctx.restore();
+      // Cache label position for touch hit-testing
+      _wfgVoltCursorLabels.push({ ci: ci, slotIdx: si, gpioIdx: slot.gpioIdx != null ? slot.gpioIdx : si, lx: lx, ly: ly, tw: tw, th: th });
     }
   }
 }
 
 // Hit-test for voltage cursor at canvas coords (cx, cy).
 // Returns { ci, slotIdx, gpioIdx } if cy is within ±5px of any cursor line, else null.
-function wfgVoltCursorHitTest(cx, cy) {
+function wfgVoltCursorHitTest(cx, cy, isTouch) {
   if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return null;
+  // On touch devices, first check if finger is on a V1/V2 label (generous 12px margin)
+  if (isTouch && _wfgVoltCursorLabels.length > 0) {
+    var margin = 12;
+    for (var li = 0; li < _wfgVoltCursorLabels.length; li++) {
+      var lb = _wfgVoltCursorLabels[li];
+      if (cx >= lb.lx - margin && cx <= lb.lx + lb.tw + margin &&
+          cy >= lb.ly - margin && cy <= lb.ly + lb.th + margin) {
+        return { ci: lb.ci, slotIdx: lb.slotIdx, gpioIdx: lb.gpioIdx };
+      }
+    }
+    return null; // touch must hit a label; don't fall through to thin line hit-test
+  }
   if (cx < WFG_LABEL_W) return null;
   for (var si = 0; si < _wfgAnalogChSlots.length; si++) {
     var slot = _wfgAnalogChSlots[si];
@@ -18154,6 +18171,19 @@ function wfgInitCanvas() {
     // Clear measurement arrows when a new touch gesture begins (mobile)
     wfgMeasClear();
     if (e.touches.length === 1) {
+      // ── Voltage cursor touch: check if finger is on a V1/V2 label ──
+      var _vtRect = canvas.getBoundingClientRect();
+      var _vtDpr = window.devicePixelRatio || 1;
+      var _vtSc = (canvas.width / _vtDpr) / _vtRect.width;
+      var _vtCx = (e.touches[0].clientX - _vtRect.left) * _vtSc;
+      var _vtCy = (e.touches[0].clientY - _vtRect.top) * _vtSc;
+      var _vtHit = wfgVoltCursorHitTest(_vtCx, _vtCy, true);
+      if (_vtHit && _wfgAnalogChSlots.length > 0) {
+        var _vtSlot = _wfgAnalogChSlots[_vtHit.slotIdx] || _wfgAnalogChSlots[0];
+        _wfgVoltCursorDrag = { ci: _vtHit.ci, slotY: _vtSlot.slotY, slotH: _vtSlot.slotH, gpioIdx: _vtHit.gpioIdx };
+        e.preventDefault();
+        return; // Don't set up drag-pan
+      }
       // Check if a cursor is in moving state → track it instead of panning
       var hasMoving = false;
       for (var ci = 0; ci < wfgCursors.length; ci++) {
@@ -18188,9 +18218,28 @@ function wfgInitCanvas() {
         pinchStartPivot = wfgViewStart + pinchStartRange * pinchStartCenterFrac;
       }
     }
-  }, { passive: true });
+  }, { passive: false });
   canvas.addEventListener('touchmove', function(e) {
     e.preventDefault();
+    // ── Voltage cursor touch drag ──
+    if (_wfgVoltCursorDrag && e.touches.length === 1) {
+      var _vtRect2 = canvas.getBoundingClientRect();
+      var _vtDpr2 = window.devicePixelRatio || 1;
+      var _vtSc2 = (canvas.height / _vtDpr2) / _vtRect2.height;
+      var _vtCy2 = (e.touches[0].clientY - _vtRect2.top) * _vtSc2;
+      var _vtD = _wfgVoltCursorDrag;
+      var _vtYH = _vtD.slotY + 6;
+      var _vtYL = _vtD.slotY + _vtD.slotH - 6;
+      var _vtSpan = _vtYL - _vtYH;
+      if (_vtSpan > 0) {
+        var _vtFrac = (_vtYL - _vtCy2) / _vtSpan;
+        if (_vtFrac < 0) _vtFrac = 0; else if (_vtFrac > 1) _vtFrac = 1;
+        var _vtSc3 = _wfgGetSlotCursors(_vtD.gpioIdx);
+        _vtSc3[wfgVoltCursors[_vtD.ci].key] = _vtFrac;
+        wfgRender();
+      }
+      return;
+    }
     // If tracking a cursor, update cursor position from touch
     if (wfgTouchTrackingCursor && e.touches.length === 1) {
       wfgCursorTrackTouch(e.touches[0].clientX);
@@ -18251,6 +18300,11 @@ function wfgInitCanvas() {
     });
   }, { passive: false });
   canvas.addEventListener('touchend', function(e) {
+    // ── Voltage cursor touch drag end ──
+    if (_wfgVoltCursorDrag && e.touches.length === 0) {
+      _wfgVoltCursorDrag = null;
+      return;
+    }
     if (wfgTouchTrackingCursor && e.touches.length === 0) {
       wfgTouchTrackingCursor = false;
       // Place all moving cursors at their current position (finger lifted)
