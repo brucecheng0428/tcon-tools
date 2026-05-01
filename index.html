@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.3</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.2</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.3</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14430,6 +14430,8 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   // LINE BUFFER shift: TX DE Data N appears on line (N + lbShift), so the L value
   // latched at lineInFrame is the data for (lineInFrame - lbShift). Must match
   // the TX DE drawing logic so SD voltage and TX DE Data labels stay in sync.
+  // For lineInFrame < lbShift, dataIdx is negative — no valid pixel data has
+  // arrived yet; SD holds its reset state at L=maxL (white).
   var isDualSD = wfgFrame.gateType === 'dual';
   var lbShiftSD = isDualSD ? wfgLineBuffer * 2 : wfgLineBuffer;
   // Extend by ~1 frame so we have enough context to derive HOLD voltage at viewStart
@@ -14451,7 +14453,24 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   var xpolLookup = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
 
   var maxL = wfgAnalogMaxL(ac);
-  var samples = [];
+
+  // RC charge/discharge model: at each XSTB↓ the SD output starts at the current
+  // voltage (V_prev) and exponentially approaches V_target. Densify with sub-line
+  // samples so the renderer (smooth mode) traces the analog curve.
+  var RC_TAU = 0.1;       // tau as fraction of one H period (lineX units)
+  var CURVE_DENSITY = 20; // sub-samples per H period
+
+  // Resolve target voltage for a TX line, applying the LINE BUFFER shift.
+  function targetForLine(lineInFrame, lineX) {
+    var dataIdx = lineInFrame - lbShiftSD;
+    var lValue = (dataIdx < 0) ? maxL : wfgAnalogLValueForLine(dataIdx, ac, effVactive);
+    var grayFrac = maxL > 0 ? lValue / maxL : 0;
+    var pol = xpolLookup(lineX);
+    return { vTarget: wfgAnalogTargetVoltageWithPol(grayFrac, pol, ac), pol: pol, lValue: lValue };
+  }
+
+  // Build event list (latch instants).
+  var events = [];
 
   // Count XSTB falling edges to decide between primary and fallback path
   var fallingCount = 0;
@@ -14460,7 +14479,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   }
 
   if (fallingCount > 0) {
-    // Primary path: one sample per XSTB↓ event in the active region.
+    // Primary path: one event per XSTB↓ in the active region.
     for (var i = 0; i < xstbTrans.length; i++) {
       var tr = xstbTrans[i];
       if (tr.level !== 0) continue; // Only falling edges latch
@@ -14468,14 +14487,10 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
       var lineX = tr.line + fracDly;
       var lineFloor = Math.floor(lineX);
       var lineInFrame = effVtotal > 0 ? ((lineFloor % effVtotal) + effVtotal) % effVtotal : 0;
-      // Apply LINE BUFFER shift so SD latches data N when TX DE shows Data N
-      // on line (N + lbShift). Skip lines where data isn't valid (matches TX DE).
-      var dataIdx = lineInFrame - lbShiftSD;
-      if (dataIdx < 0 || dataIdx >= effVactive) continue;
-      var lValue = wfgAnalogLValueForLine(dataIdx, ac, effVactive);
-      var grayFrac = maxL > 0 ? lValue / maxL : 0;
-      var pol = xpolLookup(lineX);
-      samples.push({ lineX: lineX, voltage: wfgAnalogTargetVoltageWithPol(grayFrac, pol, ac), pol: pol, lValue: lValue });
+      // Skip Vblank lines: TX DE is low, no new data — SD holds previous voltage.
+      if (lineInFrame >= effVactive) continue;
+      var t = targetForLine(lineInFrame, lineX);
+      events.push({ lineX: lineX, vTarget: t.vTarget, pol: t.pol, lValue: t.lValue });
     }
   } else {
     // Fallback path: XSTB disabled or has no falling edges — latch once per
@@ -14484,24 +14499,45 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     var lastLine = Math.ceil(extEnd);
     for (var L = firstLine; L <= lastLine; L++) {
       var lineInFrameF = effVtotal > 0 ? ((L % effVtotal) + effVtotal) % effVtotal : 0;
-      // Apply LINE BUFFER shift to match TX DE Data N → line (N + lbShift) mapping.
-      var dataIdxF = lineInFrameF - lbShiftSD;
-      if (dataIdxF < 0 || dataIdxF >= effVactive) continue;
-      var lValueF = wfgAnalogLValueForLine(dataIdxF, ac, effVactive);
-      var grayFracF = maxL > 0 ? lValueF / maxL : 0;
-      var lineXF = L; // sample at the start of the active line
-      var polF = xpolLookup(lineXF);
-      samples.push({ lineX: lineXF, voltage: wfgAnalogTargetVoltageWithPol(grayFracF, polF, ac), pol: polF, lValue: lValueF });
+      if (lineInFrameF >= effVactive) continue;
+      var lineXF = L;
+      var tF = targetForLine(lineInFrameF, lineXF);
+      events.push({ lineX: lineXF, vTarget: tF.vTarget, pol: tF.pol, lValue: tF.lValue });
     }
   }
+
+  // Bootstrap V_prev for the first event: assume settled at its own target.
+  // Subsequent events inherit V_prev from the previous event's settled voltage.
+  var samples = [];
+  var prevV = events.length > 0 ? events[0].vTarget : wfgAnalogTargetVoltageWithPol(0, xpolInitLevel, ac);
+
+  // Emit samples per event:
+  //   1. At lineX (latch instant): V = V_prev (voltage just before latch)
+  //   2. CURVE_DENSITY sub-samples on the RC curve over [lineX, lineX + curveSpan]
+  // curveSpan caps at 1 H period — across longer gaps (Vblank) the SD is settled
+  // and the next event's V=V_prev sample makes smooth interpolation flat.
+  for (var ei = 0; ei < events.length; ei++) {
+    var ev = events[ei];
+    var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
+    var span = Math.max(1e-6, nextLineX - ev.lineX);
+    var curveSpan = Math.min(span, 1.0);
+    samples.push({ lineX: ev.lineX, voltage: prevV, pol: ev.pol, lValue: ev.lValue });
+    for (var k = 1; k <= CURVE_DENSITY; k++) {
+      var dt = (k / CURVE_DENSITY) * curveSpan;
+      var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / RC_TAU);
+      samples.push({ lineX: ev.lineX + dt, voltage: v, pol: ev.pol, lValue: ev.lValue });
+    }
+    prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / RC_TAU);
+  }
+
   // Init voltage = most-recent sample at-or-before viewStartLine; else mid-rail
   var midDefault = wfgAnalogTargetVoltageWithPol(0, xpolInitLevel, ac);
   var initVoltage = midDefault;
-  for (var k = 0; k < samples.length; k++) {
-    if (samples[k].lineX <= viewStartLine) initVoltage = samples[k].voltage;
+  for (var k2 = 0; k2 < samples.length; k2++) {
+    if (samples[k2].lineX <= viewStartLine) initVoltage = samples[k2].voltage;
     else break;
   }
-  return { initVoltage: initVoltage, samples: samples };
+  return { initVoltage: initVoltage, samples: samples, smooth: true };
 }
 
 // Compute Level Shifter sample points from selected CK edges (1-CK-to-1-output).
@@ -14740,21 +14776,35 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   var prevX = drawX0 + 0.5;
   ctx.moveTo(prevX, prevY);
 
-  // Walk every sample whose latch event is at-or-after viewStart. For each one,
-  // hold the previous voltage flat up to the latch x, then jump vertically to
-  // the new voltage and continue flat from there. This matches the source
-  // driver's physical behaviour (instantaneous output update at XSTB↓).
+  // Walk every sample whose latch event is at-or-after viewStart.
+  //   • Smooth mode (analog SD): connect samples with straight lines so the
+  //     densely-sampled exponential trace renders as a smooth RC curve.
+  //   • Step mode (digital-like, e.g. Level Shifter): hold flat then jump,
+  //     matching instantaneous output updates.
   var firstInView = (startIdx >= 0) ? startIdx + 1 : 0;
-  for (var s = firstInView; s < endIdx && s < samples.length; s++) {
-    var smp = samples[s];
-    var x = lineToX(smp.lineX);
-    if (x < drawX0) x = drawX0;
-    if (x > w) x = w;
-    var newY = voltToY(smp.voltage);
-    if (x > prevX) ctx.lineTo(x, prevY);   // hold flat
-    if (newY !== prevY) ctx.lineTo(x, newY); // instantaneous step
-    prevX = x;
-    prevY = newY;
+  if (samplesData.smooth) {
+    for (var s = firstInView; s < endIdx && s < samples.length; s++) {
+      var smp = samples[s];
+      var x = lineToX(smp.lineX);
+      if (x < drawX0) x = drawX0;
+      if (x > w) x = w;
+      var newY = voltToY(smp.voltage);
+      ctx.lineTo(x, newY);
+      prevX = x;
+      prevY = newY;
+    }
+  } else {
+    for (var s2 = firstInView; s2 < endIdx && s2 < samples.length; s2++) {
+      var smp2 = samples[s2];
+      var x2 = lineToX(smp2.lineX);
+      if (x2 < drawX0) x2 = drawX0;
+      if (x2 > w) x2 = w;
+      var newY2 = voltToY(smp2.voltage);
+      if (x2 > prevX) ctx.lineTo(x2, prevY);   // hold flat
+      if (newY2 !== prevY) ctx.lineTo(x2, newY2); // instantaneous step
+      prevX = x2;
+      prevY = newY2;
+    }
   }
   if (prevX < w) ctx.lineTo(w, prevY);
   ctx.stroke();
