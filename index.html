@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.6</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.7</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.6</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.7</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14348,16 +14348,23 @@ function wfgAnalogDisplayRange(gpio) {
 }
 
 // ─── Voltage Cursor State ───
-// 2 horizontal dashed lines drawn within the FIRST visible analog channel slot.
-// voltageFrac: 0 = vMin (slot bottom), 1 = vMax (slot top).
+// Per-slot independent cursors: keyed by gpioIdx.
+// Each entry: { v1Frac, v2Frac } where 0 = vMin (bottom), 1 = vMax (top).
+var _wfgVoltCursorPerSlot = {}; // gpioIdx -> { v1Frac, v2Frac }
+function _wfgGetSlotCursors(gpioIdx) {
+  if (!_wfgVoltCursorPerSlot[gpioIdx]) {
+    _wfgVoltCursorPerSlot[gpioIdx] = { v1Frac: 0.25, v2Frac: 0.75 };
+  }
+  return _wfgVoltCursorPerSlot[gpioIdx];
+}
 var wfgVoltCursors = [
-  { id: 'V1', voltageFrac: 0.25, color: '#22d3ee', active: true },
-  { id: 'V2', voltageFrac: 0.75, color: '#f472b6', active: true }
+  { id: 'V1', key: 'v1Frac', color: '#22d3ee', active: true },
+  { id: 'V2', key: 'v2Frac', color: '#f472b6', active: true }
 ];
 // Populated during render — list of { chIdx, slotY, slotH, gpio } for each visible analog channel
 var _wfgAnalogChSlots = [];
 // Active drag state for voltage cursors
-var _wfgVoltCursorDrag = null; // { ci, slotY, slotH }
+var _wfgVoltCursorDrag = null; // { ci, slotIdx, slotY, slotH, gpioIdx }
 
 // Maximum L value for an analog config's bit depth (255 for 8-bit, 63 for 6-bit, 1023 for 10-bit).
 function wfgAnalogMaxL(ac) {
@@ -14789,6 +14796,21 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   var oax = wfgGetOaxForRange(ckIdx, allGpioTransitions, effHtotal, extStart, extEnd);
   var trans = oax ? oax.transitions : [];
 
+  // ── Fast path: thin raw CK transitions when zoomed out far ──
+  // CK toggles every few hundred lines; at 4096 frames that's millions of transitions.
+  // We only need ~2800 transitions (2 per pixel on a ~1400px canvas) to draw accurately.
+  if (linesPerPixel > 8 && trans.length > 3000) {
+    var _rawStep = Math.max(2, Math.floor(trans.length / 2800));
+    // Must step by even numbers to preserve toggle pairing (rise/fall)
+    if (_rawStep % 2 !== 0) _rawStep++;
+    var _rawThinned = [];
+    for (var _ri = 0; _ri < trans.length; _ri += _rawStep) {
+      _rawThinned.push(trans[_ri]);
+      if (_ri + 1 < trans.length) _rawThinned.push(trans[_ri + 1]);
+    }
+    trans = _rawThinned;
+  }
+
   // RC curvature — same model as Source Driver
   var _curveRise = (ac.curvature_rise != null) ? (ac.curvature_rise | 0) : 0;
   var _curveFall = (ac.curvature_fall != null) ? (ac.curvature_fall | 0) : 0;
@@ -14805,10 +14827,27 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     events.push({ lineX: lineX, vTarget: vTarget });
   }
 
+  // ── Fast path: when zoomed out far (4096 frames etc.), reduce event density ──
+  // LS events come from CK transitions which can be millions at max zoom.
+  // Thin out events to ~1 per pixel to avoid freezing.
+  if (linesPerPixel > 8 && events.length > 2000) {
+    var _thinStep = Math.max(1, Math.floor(events.length / 1400));
+    var _thinned = [];
+    for (var _ti = 0; _ti < events.length; _ti += _thinStep) {
+      _thinned.push(events[_ti]);
+    }
+    // Always keep last event
+    if (_thinned.length > 0 && _thinned[_thinned.length - 1] !== events[events.length - 1]) {
+      _thinned.push(events[events.length - 1]);
+    }
+    events = _thinned;
+  }
+
   // Adaptive curve density
   var CURVE_DENSITY = 16;
   var curveDensity = CURVE_DENSITY;
-  if (linesPerPixel > 4) curveDensity = 4;
+  if (linesPerPixel > 8) curveDensity = 2;
+  else if (linesPerPixel > 4) curveDensity = 4;
   else if (linesPerPixel > 2) curveDensity = 8;
 
   var samples = [];
@@ -14826,6 +14865,8 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     var _cd = curveDensity;
     if (curveSpan > 2) _cd = Math.max(curveDensity, Math.ceil(curveSpan * 4));
     if (_cd > 64) _cd = 64;
+    // In fast path, cap per-event samples more aggressively
+    if (linesPerPixel > 8 && _cd > 8) _cd = 8;
     samples.push({ lineX: ev.lineX, voltage: prevV });
     for (var k = 1; k <= _cd; k++) {
       var dt = (k / _cd) * curveSpan;
@@ -14883,11 +14924,13 @@ function wfgDrawVoltCursors(ctx) {
     } else {
       _range = wfgAnalogDisplayRange(gpio);
     }
+    var _sc = _wfgGetSlotCursors(slot.gpioIdx != null ? slot.gpioIdx : si);
     for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
       var c = wfgVoltCursors[ci];
       if (!c.active) continue;
-      var y = wfgVoltCursorY(c.voltageFrac, yHigh, yLow);
-      var voltage = _range.vMin + c.voltageFrac * (_range.vMax - _range.vMin);
+      var _frac = _sc[c.key];
+      var y = wfgVoltCursorY(_frac, yHigh, yLow);
+      var voltage = _range.vMin + _frac * (_range.vMax - _range.vMin);
 
       ctx.save();
       ctx.strokeStyle = c.color;
@@ -14931,25 +14974,24 @@ function wfgDrawVoltCursors(ctx) {
 }
 
 // Hit-test for voltage cursor at canvas coords (cx, cy).
-// Returns cursor index if cy is within ±5px of any cursor line, else -1.
+// Returns { ci, slotIdx, gpioIdx } if cy is within ±5px of any cursor line, else null.
 function wfgVoltCursorHitTest(cx, cy) {
-  if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return -1;
-  if (cx < WFG_LABEL_W) return -1;
-  // Check hit across ALL analog slots
+  if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return null;
+  if (cx < WFG_LABEL_W) return null;
   for (var si = 0; si < _wfgAnalogChSlots.length; si++) {
     var slot = _wfgAnalogChSlots[si];
     var yHigh = slot.slotY + 6;
     var yLow = slot.slotY + slot.slotH - 6;
-    // Only check if cy is roughly within this slot's vertical range
     if (cy < yHigh - 10 || cy > yLow + 10) continue;
+    var _sc = _wfgGetSlotCursors(slot.gpioIdx != null ? slot.gpioIdx : si);
     for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
       var c = wfgVoltCursors[ci];
       if (!c.active) continue;
-      var y = wfgVoltCursorY(c.voltageFrac, yHigh, yLow);
-      if (Math.abs(cy - y) <= 5) return ci;
+      var y = wfgVoltCursorY(_sc[c.key], yHigh, yLow);
+      if (Math.abs(cy - y) <= 5) return { ci: ci, slotIdx: si, gpioIdx: slot.gpioIdx };
     }
   }
-  return -1;
+  return null;
 }
 
 // Compute auto-scale voltage range (visible window) for an analog channel.
@@ -15590,7 +15632,7 @@ function wfgRender() {
       }
       // Cache slot info for voltage-cursor rendering / hit-testing
       if (!isThisDragged) {
-        _wfgAnalogChSlots.push({ chIdx: i, slotY: y0, slotH: _rowH, gpio: gpio, anaData: _anaData });
+        _wfgAnalogChSlots.push({ chIdx: i, slotY: y0, slotH: _rowH, gpio: gpio, anaData: _anaData, gpioIdx: ch.gpioIdx });
       }
       _wfgLastChTransitions[i] = [];
       if (isThisDragged) ctx.globalAlpha = 1;
@@ -17942,14 +17984,9 @@ function wfgInitCanvas() {
     var _vcCx = (e.clientX - _vcRect.left) * _vcSc;
     var _vcCy = (e.clientY - _vcRect.top) * _vcSc;
     var _vcHit = wfgVoltCursorHitTest(_vcCx, _vcCy);
-    if (_vcHit >= 0 && _wfgAnalogChSlots.length > 0) {
-      // Find which analog slot the cursor is in
-      var _vcSlot = _wfgAnalogChSlots[0];
-      for (var _vsi = 0; _vsi < _wfgAnalogChSlots.length; _vsi++) {
-        var _vs = _wfgAnalogChSlots[_vsi];
-        if (_vcCy >= _vs.slotY && _vcCy <= _vs.slotY + _vs.slotH) { _vcSlot = _vs; break; }
-      }
-      _wfgVoltCursorDrag = { ci: _vcHit, slotY: _vcSlot.slotY, slotH: _vcSlot.slotH };
+    if (_vcHit && _wfgAnalogChSlots.length > 0) {
+      var _vcSlot = _wfgAnalogChSlots[_vcHit.slotIdx] || _wfgAnalogChSlots[0];
+      _wfgVoltCursorDrag = { ci: _vcHit.ci, slotY: _vcSlot.slotY, slotH: _vcSlot.slotH, gpioIdx: _vcHit.gpioIdx };
       e.preventDefault();
       canvas.style.cursor = 'ns-resize';
       return;
@@ -17983,7 +18020,8 @@ function wfgInitCanvas() {
     if (span <= 0) return;
     var frac = (yLow - cy) / span;
     if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
-    wfgVoltCursors[d.ci].voltageFrac = frac;
+    var _dsc = _wfgGetSlotCursors(d.gpioIdx);
+    _dsc[wfgVoltCursors[d.ci].key] = frac;
     wfgRender();
   });
   window.addEventListener('mouseup', function() {
