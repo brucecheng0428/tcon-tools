@@ -1672,7 +1672,7 @@
   .wfg-ch-select { flex: 1; padding: 3px 6px; font-size: 11px; color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; }
   .wfg-ch-vis { cursor: pointer; font-size: 14px; }
   .wfg-siggen-placeholder { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #64748b; font-size: 14px; text-align: center; padding: 20px; }
-  .wfg-canvas-wrap { position: relative; background: #0d1117; border-radius: 12px; overflow: hidden; border: 1px solid #21262d; }
+  .wfg-canvas-wrap { position: relative; background: #0d1117; border-radius: 12px; overflow: clip; border: 1px solid #21262d; }
   .wfg-canvas-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: #161b22; border-bottom: 1px solid #21262d; flex-wrap: wrap; }
   .wfg-canvas-toolbar button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 12px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
   .wfg-canvas-toolbar button:active { background: #30363d; }
@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.5</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.6</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.5</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.6</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14818,11 +14818,17 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     var ev = events[ei];
     var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
     var span = Math.max(1e-6, nextLineX - ev.lineX);
-    var curveSpan = Math.min(span, 1.0);
     var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+    // LS events are far apart (hundreds of lines), so spread RC curve over
+    // up to 5*tau lines (>99% settled), not just 1 line like SD.
+    var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
+    // Increase density for longer curveSpans to keep smooth appearance
+    var _cd = curveDensity;
+    if (curveSpan > 2) _cd = Math.max(curveDensity, Math.ceil(curveSpan * 4));
+    if (_cd > 64) _cd = 64;
     samples.push({ lineX: ev.lineX, voltage: prevV });
-    for (var k = 1; k <= curveDensity; k++) {
-      var dt = (k / curveDensity) * curveSpan;
+    for (var k = 1; k <= _cd; k++) {
+      var dt = (k / _cd) * curveSpan;
       var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
       samples.push({ lineX: ev.lineX + dt, voltage: v });
     }
@@ -14857,69 +14863,70 @@ function wfgVoltCursorY(frac, yHigh, yLow) {
 // label tracks the actual visible voltage span instead of a fixed gamma rail.
 function wfgDrawVoltCursors(ctx) {
   if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return;
-  var slot = _wfgAnalogChSlots[0];
-  var gpio = slot.gpio;
-  var ac = gpio.analog_config;
-  if (!ac) return;
-  var yHigh = Math.round(slot.slotY + 6) + 0.5;
-  var yLow = Math.round(slot.slotY + slot.slotH - 6) + 0.5;
   var canvas = document.getElementById('wfg-canvas');
   if (!canvas) return;
   var dpr = window.devicePixelRatio || 1;
   var w = canvas.width / dpr;
 
-  // Prefer the auto-scaled range from the channel's last render pass; fall back
-  // to the static gamma-rail range if no samples were drawn yet.
-  var _range;
-  if (slot.anaData && isFinite(slot.anaData.autoVMin) && isFinite(slot.anaData.autoVMax)) {
-    _range = { vMin: slot.anaData.autoVMin, vMax: slot.anaData.autoVMax };
-  } else {
-    _range = wfgAnalogDisplayRange(gpio);
-  }
-  for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
-    var c = wfgVoltCursors[ci];
-    if (!c.active) continue;
-    var y = wfgVoltCursorY(c.voltageFrac, yHigh, yLow);
-    var voltage = _range.vMin + c.voltageFrac * (_range.vMax - _range.vMin);
+  // Draw cursors on ALL analog channel slots, not just the first
+  for (var si = 0; si < _wfgAnalogChSlots.length; si++) {
+    var slot = _wfgAnalogChSlots[si];
+    var gpio = slot.gpio;
+    var ac = gpio.analog_config;
+    if (!ac) continue;
+    var yHigh = Math.round(slot.slotY + 6) + 0.5;
+    var yLow = Math.round(slot.slotY + slot.slotH - 6) + 0.5;
 
-    ctx.save();
-    ctx.strokeStyle = c.color;
-    ctx.globalAlpha = 0.9;
-    ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(WFG_LABEL_W, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    var _range;
+    if (slot.anaData && isFinite(slot.anaData.autoVMin) && isFinite(slot.anaData.autoVMax)) {
+      _range = { vMin: slot.anaData.autoVMin, vMax: slot.anaData.autoVMax };
+    } else {
+      _range = wfgAnalogDisplayRange(gpio);
+    }
+    for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
+      var c = wfgVoltCursors[ci];
+      if (!c.active) continue;
+      var y = wfgVoltCursorY(c.voltageFrac, yHigh, yLow);
+      var voltage = _range.vMin + c.voltageFrac * (_range.vMax - _range.vMin);
 
-    // Voltage label on the right edge
-    ctx.font = 'bold 10px monospace';
-    var label = c.id + ' = ' + voltage.toFixed(2) + ' V';
-    var tw = ctx.measureText(label).width + 8;
-    var th = 14;
-    var lx = w - tw - 4;
-    var ly = Math.round(y - th / 2) + 0.5;
-    ctx.fillStyle = c.color;
-    ctx.globalAlpha = 1;
-    var r = 3;
-    ctx.beginPath();
-    ctx.moveTo(lx + r, ly);
-    ctx.lineTo(lx + tw - r, ly);
-    ctx.arcTo(lx + tw, ly, lx + tw, ly + r, r);
-    ctx.lineTo(lx + tw, ly + th - r);
-    ctx.arcTo(lx + tw, ly + th, lx + tw - r, ly + th, r);
-    ctx.lineTo(lx + r, ly + th);
-    ctx.arcTo(lx, ly + th, lx, ly + th - r, r);
-    ctx.lineTo(lx, ly + r);
-    ctx.arcTo(lx, ly, lx + r, ly, r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#0f172a';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, lx + tw / 2, ly + th / 2);
-    ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = c.color;
+      ctx.globalAlpha = 0.9;
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(WFG_LABEL_W, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.font = 'bold 10px monospace';
+      var label = c.id + ' = ' + voltage.toFixed(2) + ' V';
+      var tw = ctx.measureText(label).width + 8;
+      var th = 14;
+      var lx = w - tw - 4;
+      var ly = Math.round(y - th / 2) + 0.5;
+      ctx.fillStyle = c.color;
+      ctx.globalAlpha = 1;
+      var r = 3;
+      ctx.beginPath();
+      ctx.moveTo(lx + r, ly);
+      ctx.lineTo(lx + tw - r, ly);
+      ctx.arcTo(lx + tw, ly, lx + tw, ly + r, r);
+      ctx.lineTo(lx + tw, ly + th - r);
+      ctx.arcTo(lx + tw, ly + th, lx + tw - r, ly + th, r);
+      ctx.lineTo(lx + r, ly + th);
+      ctx.arcTo(lx, ly + th, lx, ly + th - r, r);
+      ctx.lineTo(lx, ly + r);
+      ctx.arcTo(lx, ly, lx + r, ly, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, lx + tw / 2, ly + th / 2);
+      ctx.restore();
+    }
   }
 }
 
@@ -14928,14 +14935,19 @@ function wfgDrawVoltCursors(ctx) {
 function wfgVoltCursorHitTest(cx, cy) {
   if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return -1;
   if (cx < WFG_LABEL_W) return -1;
-  var slot = _wfgAnalogChSlots[0];
-  var yHigh = slot.slotY + 6;
-  var yLow = slot.slotY + slot.slotH - 6;
-  for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
-    var c = wfgVoltCursors[ci];
-    if (!c.active) continue;
-    var y = wfgVoltCursorY(c.voltageFrac, yHigh, yLow);
-    if (Math.abs(cy - y) <= 5) return ci;
+  // Check hit across ALL analog slots
+  for (var si = 0; si < _wfgAnalogChSlots.length; si++) {
+    var slot = _wfgAnalogChSlots[si];
+    var yHigh = slot.slotY + 6;
+    var yLow = slot.slotY + slot.slotH - 6;
+    // Only check if cy is roughly within this slot's vertical range
+    if (cy < yHigh - 10 || cy > yLow + 10) continue;
+    for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
+      var c = wfgVoltCursors[ci];
+      if (!c.active) continue;
+      var y = wfgVoltCursorY(c.voltageFrac, yHigh, yLow);
+      if (Math.abs(cy - y) <= 5) return ci;
+    }
   }
   return -1;
 }
@@ -17470,6 +17482,15 @@ function wfgRenderGpioList(focusIdx) {
   if (anaContainer) _restoreExpanded(anaContainer);
   // Attach hold-to-repeat on +/- buttons
   wfgAttachHoldRepeat(container);
+  if (anaContainer) wfgAttachHoldRepeat(anaContainer);
+  // Collect all signal heads across both containers for focusIdx scrolling
+  var newHeads = [];
+  var _allHeads1 = container.querySelectorAll('.wfg-signal-mini-head');
+  for (var _h1 = 0; _h1 < _allHeads1.length; _h1++) newHeads.push(_allHeads1[_h1]);
+  if (anaContainer) {
+    var _allHeads2 = anaContainer.querySelectorAll('.wfg-signal-mini-head');
+    for (var _h2 = 0; _h2 < _allHeads2.length; _h2++) newHeads.push(_allHeads2[_h2]);
+  }
   // If a focusIdx was provided, ensure the parent card is open and scroll the
   // mini-card into view so the user can see the analog config they just enabled.
   if (typeof focusIdx === 'number' && focusIdx >= 0 && focusIdx < newHeads.length) {
@@ -17922,7 +17943,12 @@ function wfgInitCanvas() {
     var _vcCy = (e.clientY - _vcRect.top) * _vcSc;
     var _vcHit = wfgVoltCursorHitTest(_vcCx, _vcCy);
     if (_vcHit >= 0 && _wfgAnalogChSlots.length > 0) {
+      // Find which analog slot the cursor is in
       var _vcSlot = _wfgAnalogChSlots[0];
+      for (var _vsi = 0; _vsi < _wfgAnalogChSlots.length; _vsi++) {
+        var _vs = _wfgAnalogChSlots[_vsi];
+        if (_vcCy >= _vs.slotY && _vcCy <= _vs.slotY + _vs.slotH) { _vcSlot = _vs; break; }
+      }
       _wfgVoltCursorDrag = { ci: _vcHit, slotY: _vcSlot.slotY, slotH: _vcSlot.slotH };
       e.preventDefault();
       canvas.style.cursor = 'ns-resize';
