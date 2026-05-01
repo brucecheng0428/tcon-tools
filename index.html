@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.4</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.5</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.4</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.5</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13781,7 +13781,10 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
         ctx.moveTo(xDEc, rxLow);
         ctx.lineTo(xR2, rxLow);
       }
-      // Data label (only in first view line of this data)
+      // Data label (only in first view line of this data).
+      // Wide cells append the SD1 gray-level: "D5(L42)". RX uses dataIdx as the
+      // raw active-region position (no lbShift offset); pairing RX Data N with
+      // TX Data (N + lbShift) yields matching L values in single-gate mode.
       if (posInRxData === 0) {
         var totalDeEndX = lineToX(ln + Math.min(rxDeFrac, rxViewLinesPerData));
         var tDS = Math.max(drawX0, xLineStart);
@@ -13793,7 +13796,19 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
           ctx.globalAlpha = 0.9;
           ctx.textAlign = 'center';
           ctx.font = dePxW > 40 ? '10px sans-serif' : '8px sans-serif';
-          var label = dePxW > 40 ? 'D' + dataIdx : '' + dataIdx;
+          var label;
+          if (dePxW > 40) {
+            var sdGpio = wfgGpios[WFG_DIGITAL_GPIO_COUNT]; // sd1 (idx 18)
+            if (sdGpio && sdGpio.analog_config) {
+              var lValue = wfgAnalogLValueForLine(dataIdx, sdGpio.analog_config, vactive);
+              var combined = 'D' + dataIdx + '(L' + lValue + ')';
+              label = (ctx.measureText(combined).width <= dePxW - 4) ? combined : ('D' + dataIdx);
+            } else {
+              label = 'D' + dataIdx;
+            }
+          } else {
+            label = '' + dataIdx;
+          }
           ctx.fillText(label, (tDS + tDE) / 2, (rxHigh + rxLow) / 2 + 3);
           ctx.restore();
         }
@@ -14031,7 +14046,7 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
             ctx.fillRect(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh); ctx.restore();
           }
           if (fracEnd < 1 && xDEc < xR2) { ctx.moveTo(xDEc, rxLow); ctx.lineTo(xR2, rxLow); }
-          // Data label (promoted group)
+          // Data label (promoted group); wide cells append SD1 L value: "D5(L42)".
           if (posInRxData === 0) {
             var totalDeEndX = lineToX(ln + Math.min(rxDeFrac, rxViewLinesPerData));
             var tDS = Math.max(drawX0, xLineStart);
@@ -14043,7 +14058,19 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
               ctx.globalAlpha = 0.9;
               ctx.textAlign = 'center';
               ctx.font = dePxW > 40 ? '10px sans-serif' : '8px sans-serif';
-              var label = dePxW > 40 ? 'D' + dataIdx : '' + dataIdx;
+              var label;
+              if (dePxW > 40) {
+                var sdGpioR = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
+                if (sdGpioR && sdGpioR.analog_config) {
+                  var lValueR = wfgAnalogLValueForLine(dataIdx, sdGpioR.analog_config, vactive);
+                  var combinedR = 'D' + dataIdx + '(L' + lValueR + ')';
+                  label = (ctx.measureText(combinedR).width <= dePxW - 4) ? combinedR : ('D' + dataIdx);
+                } else {
+                  label = 'D' + dataIdx;
+                }
+              } else {
+                label = '' + dataIdx;
+              }
               ctx.fillText(label, (tDS + tDE) / 2, (rxHigh + rxLow) / 2 + 3);
               ctx.restore();
             }
