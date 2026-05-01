@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.7</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.8</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.7</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.8</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14798,15 +14798,27 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
 
   // ── Fast path: thin raw CK transitions when zoomed out far ──
   // CK toggles every few hundred lines; at 4096 frames that's millions of transitions.
-  // We only need ~2800 transitions (2 per pixel on a ~1400px canvas) to draw accurately.
+  // We only need ~1400 pairs (rise+fall) to draw accurately (~1 pair per pixel).
+  // CRITICAL: CK alternates high/low, so we must keep PAIRS to preserve both levels.
+  // Uniform step with even stride would sample only one phase → flat line bug.
   if (linesPerPixel > 8 && trans.length > 3000) {
-    var _rawStep = Math.max(2, Math.floor(trans.length / 2800));
-    // Must step by even numbers to preserve toggle pairing (rise/fall)
-    if (_rawStep % 2 !== 0) _rawStep++;
+    var _targetPairs = 1400;
+    var _totalPairs = Math.floor(trans.length / 2);
+    var _pairStep = Math.max(1, Math.floor(_totalPairs / _targetPairs));
     var _rawThinned = [];
-    for (var _ri = 0; _ri < trans.length; _ri += _rawStep) {
+    for (var _pi = 0; _pi < _totalPairs; _pi += _pairStep) {
+      var _ri = _pi * 2;
       _rawThinned.push(trans[_ri]);
       if (_ri + 1 < trans.length) _rawThinned.push(trans[_ri + 1]);
+    }
+    // Always keep last pair
+    var _lastPairIdx = (_totalPairs - 1) * 2;
+    if (_rawThinned.length > 0 && _lastPairIdx >= 0 && _lastPairIdx < trans.length) {
+      var _lastInThinned = _rawThinned[_rawThinned.length - 1];
+      if (_lastInThinned.line !== trans[_lastPairIdx].line) {
+        _rawThinned.push(trans[_lastPairIdx]);
+        if (_lastPairIdx + 1 < trans.length) _rawThinned.push(trans[_lastPairIdx + 1]);
+      }
     }
     trans = _rawThinned;
   }
@@ -14829,15 +14841,20 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
 
   // ── Fast path: when zoomed out far (4096 frames etc.), reduce event density ──
   // LS events come from CK transitions which can be millions at max zoom.
-  // Thin out events to ~1 per pixel to avoid freezing.
+  // CRITICAL: events alternate Vmax/Vmin (from CK toggle). Must thin in PAIRS
+  // to preserve both voltage levels; uniform even-stride would sample one phase only → flat line.
   if (linesPerPixel > 8 && events.length > 2000) {
-    var _thinStep = Math.max(1, Math.floor(events.length / 1400));
+    var _evTargetPairs = 1400;
+    var _evTotalPairs = Math.floor(events.length / 2);
+    var _evPairStep = Math.max(1, Math.floor(_evTotalPairs / _evTargetPairs));
     var _thinned = [];
-    for (var _ti = 0; _ti < events.length; _ti += _thinStep) {
-      _thinned.push(events[_ti]);
+    for (var _epi = 0; _epi < _evTotalPairs; _epi += _evPairStep) {
+      var _evi = _epi * 2;
+      _thinned.push(events[_evi]);
+      if (_evi + 1 < events.length) _thinned.push(events[_evi + 1]);
     }
-    // Always keep last event
-    if (_thinned.length > 0 && _thinned[_thinned.length - 1] !== events[events.length - 1]) {
+    // Keep last event
+    if (events.length > 0 && (_thinned.length === 0 || _thinned[_thinned.length - 1] !== events[events.length - 1])) {
       _thinned.push(events[events.length - 1]);
     }
     events = _thinned;
