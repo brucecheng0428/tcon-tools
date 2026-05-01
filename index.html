@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.60.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.60.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.60.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.60.1</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14306,19 +14306,29 @@ function wfgAnalogMaxL(ac) {
 }
 
 // L value (0..maxL) for a given active-region line index, per gray_mode.
-//   activeIdx: 0..vactive-1 (only meaningful in active region; in Vblank, SD holds.)
+//   activeIdx : 0..vactive-1 (only meaningful in active region; in Vblank, SD holds.)
+//   effVactive: number of active lines in the frame (TX DE high length).
+//
+// The ramp spans the FULL active region: across `vactive` lines, the L value
+// sweeps from L0 → LmaxL exactly once per frame (or LmaxL → L0 for decrement).
+// Formula: L = floor(activeIdx * (maxL+1) / vactive), clamped to [0, maxL].
+//
 //   Modes:
-//     0 = Incrementing: L0, L1, ..., maxL, L0, L1, ... (wraps every maxL+1 lines)
-//     1 = Decrementing: maxL, maxL-1, ..., L0, maxL, ... (wraps)
-//     2 = H1 alternate: L0, maxL, L0, maxL, ... (per-line alternation)
+//     0 = Incrementing: L0 → LmaxL across active region (one ramp per frame)
+//     1 = Decrementing: LmaxL → L0 across active region (one inverse ramp)
+//     2 = H1 alternate: L0, LmaxL, L0, LmaxL, ... (per-line alternation)
 //     3 = Fixed       : ac.gray_fixed_level (8-bit input scaled to bit_depth)
-function wfgAnalogLValueForLine(activeIdx, ac) {
+function wfgAnalogLValueForLine(activeIdx, ac, effVactive) {
   var maxL = wfgAnalogMaxL(ac);
   var period = maxL + 1;
   var mode = ac.gray_mode | 0;
   if (activeIdx < 0) activeIdx = 0;
-  if (mode === 0) return activeIdx % period;
-  if (mode === 1) return maxL - (activeIdx % period);
+  if (mode === 0 || mode === 1) {
+    if (!effVactive || effVactive <= 0) return mode === 0 ? 0 : maxL;
+    var l = Math.floor(activeIdx * period / effVactive);
+    if (l < 0) l = 0; else if (l > maxL) l = maxL;
+    return mode === 0 ? l : (maxL - l);
+  }
   if (mode === 2) return (activeIdx % 2 === 0) ? 0 : maxL;
   if (mode === 3) {
     var fix = (ac.gray_fixed_level | 0);
@@ -14331,10 +14341,10 @@ function wfgAnalogLValueForLine(activeIdx, ac) {
 }
 
 // 0..1 gray fraction for a given line — used by SD to pick voltage within a rail.
-function wfgAnalogGrayFracForLine(activeIdx, ac) {
+function wfgAnalogGrayFracForLine(activeIdx, ac, effVactive) {
   var maxL = wfgAnalogMaxL(ac);
   if (maxL <= 0) return 0;
-  return wfgAnalogLValueForLine(activeIdx, ac) / maxL;
+  return wfgAnalogLValueForLine(activeIdx, ac, effVactive) / maxL;
 }
 
 // Effective vactive in TCON-line units (doubled in dual-gate mode, matching effVtotal).
@@ -14419,7 +14429,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     var lineInFrame = effVtotal > 0 ? ((lineFloor % effVtotal) + effVtotal) % effVtotal : 0;
     // Skip Vblank lines: TX DE is low, no new data — SD holds previous voltage.
     if (lineInFrame >= effVactive) continue;
-    var lValue = wfgAnalogLValueForLine(lineInFrame, ac);
+    var lValue = wfgAnalogLValueForLine(lineInFrame, ac, effVactive);
     var maxL = wfgAnalogMaxL(ac);
     var grayFrac = maxL > 0 ? lValue / maxL : 0;
     var pol = xpolLookup(lineX);
@@ -14480,7 +14490,7 @@ function wfgComputeDataBusSegments(gpio, effVtotal, viewStartLine, viewEndLine) 
   for (var L = firstLine; L <= lastLine; L++) {
     var lineInFrame = effVtotal > 0 ? ((L % effVtotal) + effVtotal) % effVtotal : 0;
     if (lineInFrame >= effVactive) continue; // Vblank — no data segment
-    segments.push({ lineStart: L, lineEnd: L + 1, lValue: wfgAnalogLValueForLine(lineInFrame, ac) });
+    segments.push({ lineStart: L, lineEnd: L + 1, lValue: wfgAnalogLValueForLine(lineInFrame, ac, effVactive) });
   }
   return { segments: segments };
 }
@@ -20472,7 +20482,7 @@ window.wfgImportConfig = function(jsonStr) {
     }
     // Sanitize: digital GPIO slots (idx 0..17) must always be waveform_type=0;
     // virtual analog slots (idx 18+) must be 1 or 2. This keeps configs imported
-    // from v2.60.0 (which allowed gpo0/gpo1 → analog) consistent with v2.59+.
+    // from v2.60.1 (which allowed gpo0/gpo1 → analog) consistent with v2.59+.
     for (var gi2 = 0; gi2 < wfgGpios.length; gi2++) {
       if (gi2 < WFG_DIGITAL_GPIO_COUNT) {
         if (wfgGpios[gi2].waveform_type !== 0) {
