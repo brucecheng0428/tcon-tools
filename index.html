@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.9</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.61.9</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14477,16 +14477,39 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
 
-  // XSTB falling edges drive the latch
+  // Check if we should use the fast path (far zoom) — decide BEFORE expanding transitions
+  var _viewSpanPre = viewEndLine - viewStartLine;
+  var _lppPre = _viewSpanPre / 1400;
+  var _useFastPath = (_lppPre > 2 && effVtotal > 0);
+
+  // XSTB falling edges drive the latch.
+  // Fast path computes events mathematically, so we only need a small XSTB sample
+  // to extract the falling-edge delay — not the full multi-million transition list.
   var xstbGpio = wfgGpios[WFG_XSTB_GPIO_IDX];
   var xstbEnabled = !!(xstbGpio && xstbGpio.enable);
-  var xstbOax = xstbEnabled ? wfgGetOaxForRange(WFG_XSTB_GPIO_IDX, allGpioTransitions, effHtotal, extStart, extEnd) : null;
-  var xstbTrans = xstbOax ? xstbOax.transitions : [];
+  var xstbOax, xstbTrans;
+  if (_useFastPath) {
+    // Only expand 1 frame of XSTB to get the falling-edge delay
+    var _xstbSample = xstbEnabled ? wfgGetOaxForRange(WFG_XSTB_GPIO_IDX, allGpioTransitions, effHtotal, extStart, Math.min(extStart + effVtotal, extEnd)) : null;
+    xstbTrans = _xstbSample ? _xstbSample.transitions : [];
+    xstbOax = _xstbSample;
+  } else {
+    xstbOax = xstbEnabled ? wfgGetOaxForRange(WFG_XSTB_GPIO_IDX, allGpioTransitions, effHtotal, extStart, extEnd) : null;
+    xstbTrans = xstbOax ? xstbOax.transitions : [];
+  }
 
   // XPOL provides the per-line polarity. Default index = WFG_XPOL_GPIO_IDX (1).
   var xpolIdx = (ac.xpol_gpio_idx != null) ? (ac.xpol_gpio_idx | 0) : WFG_XPOL_GPIO_IDX;
   if (xpolIdx < 0 || xpolIdx >= wfgGpios.length) xpolIdx = WFG_XPOL_GPIO_IDX;
-  var xpolOax = wfgGetOaxForRange(xpolIdx, allGpioTransitions, effHtotal, extStart, extEnd);
+  // XPOL also uses fast-path sampling when zoomed out
+  var xpolOax;
+  if (_useFastPath) {
+    // XPOL typically has vtotal-period transitions. Expand full range is OK because
+    // XPOL has far fewer transitions than XSTB (~2 per frame vs ~1112 per frame).
+    xpolOax = wfgGetOaxForRange(xpolIdx, allGpioTransitions, effHtotal, extStart, extEnd);
+  } else {
+    xpolOax = wfgGetOaxForRange(xpolIdx, allGpioTransitions, effHtotal, extStart, extEnd);
+  }
   var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
   var xpolLookup = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
 
@@ -14519,64 +14542,173 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     return { vTarget: wfgAnalogTargetVoltageWithPol(grayFrac, pol, ac), pol: pol, lValue: lValue };
   }
 
-  // Build event list (latch instants).
+  // ── Build event list (latch instants) with adaptive detail ──
+  //
+  // Performance: at max zoom (4096 frames) the view spans ~4.5 M lines.
+  // Generating one event per XSTB↓ per line via wfgExpandRange is O(millions)
+  // and freezes the UI. Strategy:
+  //   When the view is zoomed out far enough (linesPerPixel > threshold), skip
+  //   the expensive per-transition path entirely. Instead, compute events
+  //   mathematically: iterate frames in the view range, emit only the key
+  //   boundary events per frame (hold→active, active→hold, polarity flip,
+  //   and a few representative data points for the gray ramp).
+  //   When zoomed in close, use the original per-XSTB-transition path.
+  var viewSpan = viewEndLine - viewStartLine;
+  var canvasRefW = 1400; // approximate drawing width in pixels
+  var linesPerPixel = viewSpan / canvasRefW;
+
   var events = [];
 
-  // Count XSTB falling edges to decide between primary and fallback path
-  var fallingCount = 0;
-  for (var fi = 0; fi < xstbTrans.length; fi++) {
-    if (xstbTrans[fi].level === 0) fallingCount++;
-  }
+  if (linesPerPixel > 2 && effVtotal > 0) {
+    // ── Fast path: mathematical per-frame event generation ──
+    // Instead of expanding all XSTB transitions, we know XSTB fires once per
+    // line. We compute key events per frame directly.
+    var MAX_EVENTS_PER_FRAME = Math.max(4, Math.min(40, Math.ceil(canvasRefW * 2 / Math.max(1, (viewSpan / effVtotal)))));
+    var firstFrame = Math.floor(extStart / effVtotal);
+    var lastFrame = Math.ceil(extEnd / effVtotal);
+    // Limit frame stepping so total events stay bounded
+    var totalFrames = lastFrame - firstFrame + 1;
+    var frameStep = Math.max(1, Math.floor(totalFrames / (canvasRefW / 2)));
 
-  if (fallingCount > 0) {
-    // Primary path: one event per XSTB↓.
-    // targetForData handles all dataIdx ranges:
-    //   dataIdx < 0          → holdL (TX DE not yet started, SD keeps last frame data)
-    //   0 ≤ dataIdx < Vact   → normal gray data from TX DE
-    //   dataIdx ≥ Vact       → holdL (Vblank, SD keeps D(Vactive-1))
-    for (var i = 0; i < xstbTrans.length; i++) {
-      var tr = xstbTrans[i];
-      if (tr.level !== 0) continue; // Only falling edges latch
-      var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
-      var lineX = tr.line + fracDly;
-      var lineFloor = Math.floor(lineX);
-      var lineInFrame = effVtotal > 0 ? ((lineFloor % effVtotal) + effVtotal) % effVtotal : 0;
-      var dataIdx = lineInFrame - lbShiftSD;
-      var t = targetForData(dataIdx, lineX);
-      events.push({ lineX: lineX, vTarget: t.vTarget, pol: t.pol, lValue: t.lValue });
+    // XSTB falling delay (fractional line offset) — use the first template dly if available
+    var xstbFracDly = 0;
+    if (xstbTrans.length > 0) {
+      for (var _fi = 0; _fi < xstbTrans.length; _fi++) {
+        if (xstbTrans[_fi].level === 0) {
+          xstbFracDly = effHtotal > 0 ? (xstbTrans[_fi].dly || 0) / effHtotal : 0;
+          break;
+        }
+      }
     }
+
+    for (var fr = firstFrame; fr <= lastFrame; fr += frameStep) {
+      var frameBase = fr * effVtotal;
+      // Key line positions within a frame:
+      //   hold region:  line 0 to lbShiftSD-1     → dataIdx < 0 → holdL
+      //   active region: line lbShiftSD to lbShiftSD+effVactive-1 → dataIdx 0..effVactive-1
+      //   vblank region: line lbShiftSD+effVactive to effVtotal-1 → dataIdx >= effVactive → holdL
+      // Emit event at each boundary and sample within active region
+      var holdStart = frameBase;
+      var activeStart = frameBase + lbShiftSD;
+      var activeEnd = frameBase + lbShiftSD + effVactive - 1;
+      var vblankStart = frameBase + lbShiftSD + effVactive;
+      var frameEnd = frameBase + effVtotal - 1;
+
+      // Clamp to visible range
+      var lo = Math.max(holdStart, Math.floor(extStart));
+      var hi = Math.min(frameEnd, Math.ceil(extEnd));
+      if (lo > hi) continue;
+
+      // Hold region (pre-TX-DE) — emit 1 event at start
+      if (lo < activeStart && lo <= hi) {
+        var lineX_h = lo + xstbFracDly;
+        var t_h = targetForData(-1, lineX_h);
+        events.push({ lineX: lineX_h, vTarget: t_h.vTarget, pol: t_h.pol, lValue: t_h.lValue });
+        // End of hold region
+        if (activeStart - 1 <= hi && activeStart - 1 > lo) {
+          var lineX_he = activeStart - 1 + xstbFracDly;
+          var t_he = targetForData(-1, lineX_he);
+          events.push({ lineX: lineX_he, vTarget: t_he.vTarget, pol: t_he.pol, lValue: t_he.lValue });
+        }
+      }
+
+      // Active region — sample at adaptive step
+      if (activeStart <= hi && activeEnd >= lo) {
+        var actLo = Math.max(activeStart, lo);
+        var actHi = Math.min(activeEnd, hi);
+        var actLines = actHi - actLo + 1;
+        var actStep = Math.max(1, Math.floor(actLines / MAX_EVENTS_PER_FRAME));
+        for (var aL = actLo; aL <= actHi; aL += actStep) {
+          var lineX_a = aL + xstbFracDly;
+          var lineInFrame_a = ((aL % effVtotal) + effVtotal) % effVtotal;
+          var dataIdx_a = lineInFrame_a - lbShiftSD;
+          var t_a = targetForData(dataIdx_a, lineX_a);
+          events.push({ lineX: lineX_a, vTarget: t_a.vTarget, pol: t_a.pol, lValue: t_a.lValue });
+        }
+        // Always emit last active line
+        if (actHi > actLo && (actHi - actLo) % actStep !== 0) {
+          var lineX_al = actHi + xstbFracDly;
+          var lineInFrame_al = ((actHi % effVtotal) + effVtotal) % effVtotal;
+          var dataIdx_al = lineInFrame_al - lbShiftSD;
+          var t_al = targetForData(dataIdx_al, lineX_al);
+          events.push({ lineX: lineX_al, vTarget: t_al.vTarget, pol: t_al.pol, lValue: t_al.lValue });
+        }
+      }
+
+      // Vblank region (post-active) — emit 1 event at start, 1 at end
+      if (vblankStart <= hi && vblankStart <= frameEnd) {
+        var vbLo = Math.max(vblankStart, lo);
+        var vbHi = Math.min(frameEnd, hi);
+        var lineX_v = vbLo + xstbFracDly;
+        var lineInFrame_v = ((vbLo % effVtotal) + effVtotal) % effVtotal;
+        var dataIdx_v = lineInFrame_v - lbShiftSD;
+        var t_v = targetForData(dataIdx_v, lineX_v);
+        events.push({ lineX: lineX_v, vTarget: t_v.vTarget, pol: t_v.pol, lValue: t_v.lValue });
+        if (vbHi > vbLo) {
+          var lineX_ve = vbHi + xstbFracDly;
+          var lineInFrame_ve = ((vbHi % effVtotal) + effVtotal) % effVtotal;
+          var dataIdx_ve = lineInFrame_ve - lbShiftSD;
+          var t_ve = targetForData(dataIdx_ve, lineX_ve);
+          events.push({ lineX: lineX_ve, vTarget: t_ve.vTarget, pol: t_ve.pol, lValue: t_ve.lValue });
+        }
+      }
+    }
+    // Sort events by lineX (frames may overlap at boundaries)
+    events.sort(function(a, b) { return a.lineX - b.lineX; });
   } else {
-    // Fallback path: XSTB disabled or has no falling edges — latch once per
-    // line, anchored at the line boundary. Same dataIdx semantics as primary.
-    var firstLine = Math.floor(extStart);
-    var lastLine = Math.ceil(extEnd);
-    for (var L = firstLine; L <= lastLine; L++) {
-      var lineInFrameF = effVtotal > 0 ? ((L % effVtotal) + effVtotal) % effVtotal : 0;
-      var dataIdxF = lineInFrameF - lbShiftSD;
-      var lineXF = L;
-      var tF = targetForData(dataIdxF, lineXF);
-      events.push({ lineX: lineXF, vTarget: tF.vTarget, pol: tF.pol, lValue: tF.lValue });
+    // ── Detailed path: one event per XSTB↓ (used when zoomed in) ──
+    // Count XSTB falling edges to decide between primary and fallback path
+    var fallingCount = 0;
+    for (var fi = 0; fi < xstbTrans.length; fi++) {
+      if (xstbTrans[fi].level === 0) fallingCount++;
+    }
+
+    if (fallingCount > 0) {
+      for (var i = 0; i < xstbTrans.length; i++) {
+        var tr = xstbTrans[i];
+        if (tr.level !== 0) continue;
+        var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
+        var lineX = tr.line + fracDly;
+        var lineFloor = Math.floor(lineX);
+        var lineInFrame = effVtotal > 0 ? ((lineFloor % effVtotal) + effVtotal) % effVtotal : 0;
+        var dataIdx = lineInFrame - lbShiftSD;
+        var t = targetForData(dataIdx, lineX);
+        events.push({ lineX: lineX, vTarget: t.vTarget, pol: t.pol, lValue: t.lValue });
+      }
+    } else {
+      var firstLine = Math.floor(extStart);
+      var lastLine = Math.ceil(extEnd);
+      for (var L = firstLine; L <= lastLine; L++) {
+        var lineInFrameF = effVtotal > 0 ? ((L % effVtotal) + effVtotal) % effVtotal : 0;
+        var dataIdxF = lineInFrameF - lbShiftSD;
+        var lineXF = L;
+        var tF = targetForData(dataIdxF, lineXF);
+        events.push({ lineX: lineXF, vTarget: tF.vTarget, pol: tF.pol, lValue: tF.lValue });
+      }
     }
   }
 
   // Bootstrap V_prev for the first event: assume settled at its own target.
-  // Subsequent events inherit V_prev from the previous event's settled voltage.
   var samples = [];
   var prevV = events.length > 0 ? events[0].vTarget : wfgAnalogTargetVoltageWithPol(0, xpolInitLevel, ac);
 
+  // Adaptive curve density: at far zoom each event spans many sub-pixel lines,
+  // so fewer sub-samples suffice.
+  var curveDensity = CURVE_DENSITY;
+  if (linesPerPixel > 4) curveDensity = 4;
+  else if (linesPerPixel > 2) curveDensity = 8;
+
   // Emit samples per event:
   //   1. At lineX (latch instant): V = V_prev (voltage just before latch)
-  //   2. CURVE_DENSITY sub-samples on the RC curve over [lineX, lineX + curveSpan]
-  // curveSpan caps at 1 H period — across longer gaps (Vblank) the SD is settled
-  // and the next event's V=V_prev sample makes smooth interpolation flat.
+  //   2. curveDensity sub-samples on the RC curve over [lineX, lineX + curveSpan]
   for (var ei = 0; ei < events.length; ei++) {
     var ev = events[ei];
     var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
     var span = Math.max(1e-6, nextLineX - ev.lineX);
     var curveSpan = Math.min(span, 1.0);
     samples.push({ lineX: ev.lineX, voltage: prevV, pol: ev.pol, lValue: ev.lValue });
-    for (var k = 1; k <= CURVE_DENSITY; k++) {
-      var dt = (k / CURVE_DENSITY) * curveSpan;
+    for (var k = 1; k <= curveDensity; k++) {
+      var dt = (k / curveDensity) * curveSpan;
       var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / RC_TAU);
       samples.push({ lineX: ev.lineX + dt, voltage: v, pol: ev.pol, lValue: ev.lValue });
     }
