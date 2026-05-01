@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.2</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.2</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14486,7 +14486,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   // Check if we should use the fast path (far zoom) — decide BEFORE expanding transitions
   var _viewSpanPre = viewEndLine - viewStartLine;
   var _lppPre = _viewSpanPre / 1400;
-  var _useFastPath = (_lppPre > 2 && effVtotal > 0);
+  var _useFastPath = (_lppPre > 8 && effVtotal > 0);
 
   // XSTB falling edges drive the latch.
   // Fast path computes events mathematically, so we only need a small XSTB sample
@@ -14565,11 +14565,15 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
 
   var events = [];
 
-  if (linesPerPixel > 2 && effVtotal > 0) {
+  if (linesPerPixel > 8 && effVtotal > 0) {
     // ── Fast path: mathematical per-frame event generation ──
     // Instead of expanding all XSTB transitions, we know XSTB fires once per
     // line. We compute key events per frame directly.
-    var MAX_EVENTS_PER_FRAME = Math.max(4, Math.min(40, Math.ceil(canvasRefW * 2 / Math.max(1, (viewSpan / effVtotal)))));
+    // Scale events per frame with pixel density so the transition from detailed
+    // to fast path is visually smooth.  pixelsPerFrame × 3 ensures at least ~3
+    // samples per pixel of active region, enough to capture H1 alternating.
+    var pixelsPerFrame = canvasRefW / Math.max(1, viewSpan / effVtotal);
+    var MAX_EVENTS_PER_FRAME = Math.max(4, Math.min(effVactive, Math.ceil(pixelsPerFrame * 3)));
     var firstFrame = Math.floor(extStart / effVtotal);
     var lastFrame = Math.ceil(extEnd / effVtotal);
     // Limit frame stepping so total events stay bounded
@@ -14618,21 +14622,34 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
         }
       }
 
-      // Active region — sample at adaptive step
+      // Active region — sample at adaptive step, emitting consecutive-line
+      // pairs (line N and N+1) so per-line alternating patterns (H1 mode)
+      // are captured even when actStep > 1.
       if (activeStart <= hi && activeEnd >= lo) {
         var actLo = Math.max(activeStart, lo);
         var actHi = Math.min(activeEnd, hi);
         var actLines = actHi - actLo + 1;
-        var actStep = Math.max(1, Math.floor(actLines / MAX_EVENTS_PER_FRAME));
+        // Step size is based on half MAX_EVENTS because we emit pairs
+        var actStep = Math.max(2, Math.floor(actLines / Math.max(1, MAX_EVENTS_PER_FRAME / 2)));
         for (var aL = actLo; aL <= actHi; aL += actStep) {
+          // Emit event at line aL
           var lineX_a = aL + xstbFracDly;
           var lineInFrame_a = ((aL % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_a = lineInFrame_a - lbShiftSD;
           var t_a = targetForData(dataIdx_a, lineX_a);
           events.push({ lineX: lineX_a, vTarget: t_a.vTarget, pol: t_a.pol, lValue: t_a.lValue });
+          // Emit event at line aL+1 (captures per-line alternation)
+          if (aL + 1 <= actHi) {
+            var lineX_b = aL + 1 + xstbFracDly;
+            var lineInFrame_b = (((aL + 1) % effVtotal) + effVtotal) % effVtotal;
+            var dataIdx_b = lineInFrame_b - lbShiftSD;
+            var t_b = targetForData(dataIdx_b, lineX_b);
+            events.push({ lineX: lineX_b, vTarget: t_b.vTarget, pol: t_b.pol, lValue: t_b.lValue });
+          }
         }
         // Always emit last active line
-        if (actHi > actLo && (actHi - actLo) % actStep !== 0) {
+        var lastEmitted = actLo + Math.floor((actHi - actLo) / actStep) * actStep;
+        if (lastEmitted < actHi && lastEmitted + 1 < actHi) {
           var lineX_al = actHi + xstbFracDly;
           var lineInFrame_al = ((actHi % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_al = lineInFrame_al - lbShiftSD;
