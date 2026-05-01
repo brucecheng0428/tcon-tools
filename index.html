@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.3</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.2</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.62.3</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14524,7 +14524,14 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   // RC charge/discharge model: at each XSTB↓ the SD output starts at the current
   // voltage (V_prev) and exponentially approaches V_target. Densify with sub-line
   // samples so the renderer (smooth mode) traces the analog curve.
-  var RC_TAU = 0.1;       // tau as fraction of one H period (lineX units)
+  // Map curvature (0-255) to RC tau (line periods) via exponential curve:
+  //   curvature 0   → tau 2.0   (very slow, ~10 lines to settle)
+  //   curvature 127 → tau ~0.1  (moderate, settles in ~0.5 line)
+  //   curvature 255 → tau 0.005 (nearly instantaneous)
+  var _curveRise = (ac.curvature_rise != null) ? ac.curvature_rise : 127;
+  var _curveFall = (ac.curvature_fall != null) ? ac.curvature_fall : 127;
+  var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * _curveRise);
+  var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * _curveFall);
   var CURVE_DENSITY = 20; // sub-samples per H period
 
   // L value the SD holds when no new TX DE data is available (before first
@@ -14724,18 +14731,21 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   // Emit samples per event:
   //   1. At lineX (latch instant): V = V_prev (voltage just before latch)
   //   2. curveDensity sub-samples on the RC curve over [lineX, lineX + curveSpan]
+  // Use directional tau: rising (vTarget > prevV) uses RC_TAU_RISE,
+  //                      falling (vTarget < prevV) uses RC_TAU_FALL.
   for (var ei = 0; ei < events.length; ei++) {
     var ev = events[ei];
     var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
     var span = Math.max(1e-6, nextLineX - ev.lineX);
     var curveSpan = Math.min(span, 1.0);
+    var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
     samples.push({ lineX: ev.lineX, voltage: prevV, pol: ev.pol, lValue: ev.lValue });
     for (var k = 1; k <= curveDensity; k++) {
       var dt = (k / curveDensity) * curveSpan;
-      var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / RC_TAU);
+      var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
       samples.push({ lineX: ev.lineX + dt, voltage: v, pol: ev.pol, lValue: ev.lValue });
     }
-    prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / RC_TAU);
+    prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
   }
 
   // Init voltage = most-recent sample at-or-before viewStartLine; else mid-rail
