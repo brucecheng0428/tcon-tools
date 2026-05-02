@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.65.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.65.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.65.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.65.1</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14357,7 +14357,7 @@ function wfgAnalogDisplayRange(gpio) {
 var _wfgVoltCursorPerSlot = {}; // gpioIdx -> { v1Frac, v2Frac }
 function _wfgGetSlotCursors(gpioIdx) {
   if (!_wfgVoltCursorPerSlot[gpioIdx]) {
-    _wfgVoltCursorPerSlot[gpioIdx] = { v1Frac: 0.25, v2Frac: 0.75 };
+    _wfgVoltCursorPerSlot[gpioIdx] = { v1Frac: 0.75, v2Frac: 0.25 };
   }
   return _wfgVoltCursorPerSlot[gpioIdx];
 }
@@ -20634,6 +20634,12 @@ function wfgPulseCountTcon(item) {
   var rangeStartLine = range.t1 / timePerLine;
   var rangeEndLine = range.t2 / timePerLine;
 
+  // ── Analog channel: use V1 cursor voltage as threshold ──
+  var gpio = (ch.gpioIdx >= 0 && ch.gpioIdx < wfgGpios.length) ? wfgGpios[ch.gpioIdx] : null;
+  if (gpio && gpio.waveform_type) {
+    return wfgPulseCountAnalog(gpio, ch, cache, rangeStartLine, rangeEndLine, item.mode);
+  }
+
   var oaxR = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, cache.effHtotal, rangeStartLine, rangeEndLine);
   var transitions = oaxR.transitions;
   if (transitions.length === 0) return 0;
@@ -20645,6 +20651,69 @@ function wfgPulseCountTcon(item) {
     positions.push({ level: transitions[ti].level });
   }
   return wfgPulseCount(positions, initLevel, item.mode);
+}
+
+// ─── Analog channel pulse counting using V1 cursor as threshold ───
+// Treats analog samples as digital: voltage >= V1 threshold → high (1), < V1 → low (0).
+function wfgPulseCountAnalog(gpio, ch, cache, rangeStartLine, rangeEndLine, mode) {
+  var effHtotal = cache.effHtotal;
+  var effVtotal = cache.effVtotal;
+  var allTrans = cache.transitions;
+
+  // Compute analog samples over the range
+  var pad = Math.max(effVtotal, 1);
+  var extStart = Math.max(0, rangeStartLine - pad);
+  var extEnd = rangeEndLine + pad;
+  var anaData = null;
+  if (gpio.waveform_type === 1) {
+    anaData = wfgComputeSourceDriverSamples(gpio, allTrans, effHtotal, effVtotal, extStart, extEnd, wfgLineBuffer);
+  } else if (gpio.waveform_type === 2) {
+    anaData = wfgComputeLevelShifterSamples(gpio, allTrans, effHtotal, effVtotal, extStart, extEnd, 1);
+  }
+  if (!anaData || anaData.samples.length === 0) return 0;
+
+  // Get V1 cursor threshold voltage for this analog slot.
+  // Use the same voltage range as the cursor display: auto-range from the
+  // cached slot if available (matches what V1 label shows), else static range.
+  var gpioIdx = ch.gpioIdx;
+  var _sc = _wfgGetSlotCursors(gpioIdx);
+  var dRange = wfgAnalogDisplayRange(gpio);
+  // Check for cached auto-range from the current render frame
+  if (_wfgAnalogChSlots) {
+    for (var _si = 0; _si < _wfgAnalogChSlots.length; _si++) {
+      var _slot = _wfgAnalogChSlots[_si];
+      if (_slot.gpioIdx === gpioIdx && _slot.anaData &&
+          isFinite(_slot.anaData.autoVMin) && isFinite(_slot.anaData.autoVMax)) {
+        dRange = { vMin: _slot.anaData.autoVMin, vMax: _slot.anaData.autoVMax };
+        break;
+      }
+    }
+  }
+  var v1Threshold = dRange.vMin + _sc.v1Frac * (dRange.vMax - dRange.vMin);
+
+  // Walk samples and convert to digital levels using V1 threshold
+  var samples = anaData.samples;
+  var initV = anaData.initVoltage;
+  var initLevel = (initV >= v1Threshold) ? 1 : 0;
+  var positions = [];
+  var prevLevel = initLevel;
+
+  for (var i = 0; i < samples.length; i++) {
+    var sx = samples[i].lineX;
+    if (sx < rangeStartLine) {
+      // Update carry-in level
+      prevLevel = (samples[i].voltage >= v1Threshold) ? 1 : 0;
+      initLevel = prevLevel;
+      continue;
+    }
+    if (sx > rangeEndLine) break;
+    var newLevel = (samples[i].voltage >= v1Threshold) ? 1 : 0;
+    if (newLevel !== prevLevel) {
+      positions.push({ level: newLevel });
+      prevLevel = newLevel;
+    }
+  }
+  return wfgPulseCount(positions, initLevel, mode);
 }
 
 // ─── kvdat mode pulse counting ───
