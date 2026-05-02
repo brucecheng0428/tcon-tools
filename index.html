@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.71.9</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.72.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.71.9</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.72.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12729,7 +12729,7 @@ function wfgMakeAnalogConfig(type, ckoIndex) {
       ? wfgLsGlobal.ck_sources[ckoIndex] : -1;
     return { voltage_min: wfgLsGlobal.vgl, voltage_max: wfgLsGlobal.vgh,
              curvature_rise: wfgLsGlobal.curvature_rise, curvature_fall: wfgLsGlobal.curvature_fall,
-             gray_mode: 0, gray_fixed_level: 128, source_ck_idx: _ckSrc, cko_index: (ckoIndex || 0) };
+             gray_mode: 0, gray_fixed_level: 128, source_ck_idx: _ckSrc, cko_index: (ckoIndex || 0), showCursors: true };
   }
   // Source Driver defaults: 0V (AGND) ~ 13V (AVDD), mid-rail ≈ 6.5V.
   // VGMA1~VGMA7 (positive gamma): 6.5V ~ 13V
@@ -12744,7 +12744,8 @@ function wfgMakeAnalogConfig(type, ckoIndex) {
     source_ck_idx: -1,
     bit_depth: 8,
     // Legacy fields kept for Level-Shifter compatibility / external API
-    voltage_min: 0, voltage_max: 13
+    voltage_min: 0, voltage_max: 13,
+    showCursors: true
   };
 }
 function wfgMakeGpio(name, idx) {
@@ -15441,6 +15442,25 @@ function wfgDrawVoltCursors(ctx) {
     var gpio = slot.gpio;
     var ac = gpio.analog_config;
     if (!ac) continue;
+
+    // Draw eye toggle icon for each analog slot (top-right corner of slot)
+    var _eyeOn = ac.showCursors !== false;
+    var _eyeX = w - 18;
+    var _eyeY = Math.round(slot.slotY + 4);
+    ctx.save();
+    ctx.globalAlpha = _eyeOn ? 0.7 : 0.35;
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = _eyeOn ? '#22d3ee' : '#64748b';
+    ctx.fillText(_eyeOn ? '👁' : '👁‍🗨', _eyeX, _eyeY);
+    ctx.restore();
+    // Cache eye icon position for click hit-testing
+    _wfgVoltCursorLabels.push({ ci: -1, slotIdx: si, gpioIdx: slot.gpioIdx != null ? slot.gpioIdx : si, lx: _eyeX - 10, ly: _eyeY - 2, tw: 20, th: 16, isEyeToggle: true });
+
+    // Skip cursor drawing if showCursors is off for this channel
+    if (!_eyeOn) continue;
+
     var yHigh = Math.round(slot.slotY + 6) + 0.5;
     var yLow = Math.round(slot.slotY + slot.slotH - 6) + 0.5;
 
@@ -18940,12 +18960,24 @@ function wfgInitCanvas() {
       wfgRender();
       return;
     }
-    // Voltage cursor hit-test (only when an analog channel is visible)
+    // Eye toggle hit-test: check if click is on a showCursors eye icon
     var _vcRect = canvas.getBoundingClientRect();
     var _vcDpr = window.devicePixelRatio || 1;
     var _vcSc = (canvas.width / _vcDpr) / _vcRect.width;
     var _vcCx = (e.clientX - _vcRect.left) * _vcSc;
     var _vcCy = (e.clientY - _vcRect.top) * _vcSc;
+    for (var _ei = 0; _ei < _wfgVoltCursorLabels.length; _ei++) {
+      var _elb = _wfgVoltCursorLabels[_ei];
+      if (_elb.isEyeToggle && _vcCx >= _elb.lx && _vcCx <= _elb.lx + _elb.tw && _vcCy >= _elb.ly && _vcCy <= _elb.ly + _elb.th) {
+        var _eGpio = wfgGpios[_elb.gpioIdx];
+        if (_eGpio && _eGpio.analog_config) {
+          _eGpio.analog_config.showCursors = _eGpio.analog_config.showCursors === false ? true : false;
+          wfgRender();
+        }
+        return;
+      }
+    }
+    // Voltage cursor hit-test (only when an analog channel is visible)
     var _vcHit = wfgVoltCursorHitTest(_vcCx, _vcCy);
     if (_vcHit && _wfgAnalogChSlots.length > 0) {
       var _vcSlot = _wfgAnalogChSlots[_vcHit.slotIdx] || _wfgAnalogChSlots[0];
@@ -19100,12 +19132,26 @@ function wfgInitCanvas() {
     // Clear measurement arrows when a new touch gesture begins (mobile)
     wfgMeasClear();
     if (e.touches.length === 1) {
-      // ── Voltage cursor touch: check if finger is on a V1/V2 label ──
+      // ── Eye toggle touch: check if finger is on a showCursors eye icon ──
       var _vtRect = canvas.getBoundingClientRect();
       var _vtDpr = window.devicePixelRatio || 1;
       var _vtSc = (canvas.width / _vtDpr) / _vtRect.width;
       var _vtCx = (e.touches[0].clientX - _vtRect.left) * _vtSc;
       var _vtCy = (e.touches[0].clientY - _vtRect.top) * _vtSc;
+      var _etMargin = 14;
+      for (var _eti = 0; _eti < _wfgVoltCursorLabels.length; _eti++) {
+        var _etLb = _wfgVoltCursorLabels[_eti];
+        if (_etLb.isEyeToggle && _vtCx >= _etLb.lx - _etMargin && _vtCx <= _etLb.lx + _etLb.tw + _etMargin && _vtCy >= _etLb.ly - _etMargin && _vtCy <= _etLb.ly + _etLb.th + _etMargin) {
+          var _etGpio = wfgGpios[_etLb.gpioIdx];
+          if (_etGpio && _etGpio.analog_config) {
+            _etGpio.analog_config.showCursors = _etGpio.analog_config.showCursors === false ? true : false;
+            wfgRender();
+          }
+          e.preventDefault();
+          return;
+        }
+      }
+      // ── Voltage cursor touch: check if finger is on a V1/V2 label ──
       var _vtHit = wfgVoltCursorHitTest(_vtCx, _vtCy, true);
       if (_vtHit && _wfgAnalogChSlots.length > 0) {
         var _vtSlot = _wfgAnalogChSlots[_vtHit.slotIdx] || _wfgAnalogChSlots[0];
