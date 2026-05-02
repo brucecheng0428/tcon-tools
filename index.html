@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.71.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.71.3</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.71.2</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.71.3</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14993,20 +14993,32 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     return { initVoltage: ac.voltage_min, samples: [], smooth: true };
   }
 
-  // Pair-based thinning for zoomed-out performance
+  // Pair-based thinning for zoomed-out performance.
+  // STV reset events (_reset flag) must be preserved — they are hard resets at frame
+  // boundaries that can't be skipped without causing CKO to appear stuck at VGH.
+  // Extract resets first, thin the rest, then merge back.
   if (linesPerPixel > 8 && events.length > 2000) {
+    var _resets = [];
+    var _normal = [];
+    for (var _ri = 0; _ri < events.length; _ri++) {
+      if (events[_ri]._reset) _resets.push(events[_ri]);
+      else _normal.push(events[_ri]);
+    }
     var _evTargetPairs = 1400;
-    var _evTotalPairs = Math.floor(events.length / 2);
+    var _evTotalPairs = Math.floor(_normal.length / 2);
     var _evPairStep = Math.max(1, Math.floor(_evTotalPairs / _evTargetPairs));
     var _thinned = [];
     for (var _epi = 0; _epi < _evTotalPairs; _epi += _evPairStep) {
       var _evi = _epi * 2;
-      _thinned.push(events[_evi]);
-      if (_evi + 1 < events.length) _thinned.push(events[_evi + 1]);
+      _thinned.push(_normal[_evi]);
+      if (_evi + 1 < _normal.length) _thinned.push(_normal[_evi + 1]);
     }
-    if (events.length > 0 && (_thinned.length === 0 || _thinned[_thinned.length - 1] !== events[events.length - 1])) {
-      _thinned.push(events[events.length - 1]);
+    if (_normal.length > 0 && (_thinned.length === 0 || _thinned[_thinned.length - 1] !== _normal[_normal.length - 1])) {
+      _thinned.push(_normal[_normal.length - 1]);
     }
+    // Merge resets back and re-sort
+    for (var _rj = 0; _rj < _resets.length; _rj++) _thinned.push(_resets[_rj]);
+    _thinned.sort(function(a, b) { return a.lineX - b.lineX; });
     events = _thinned;
   }
 
@@ -15029,6 +15041,15 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
 
   for (var ei = 0; ei < events.length; ei++) {
     var ev = events[ei];
+    // STV reset (_reset flag): instantaneous hard reset to vTarget.
+    // No RC curve — the voltage jumps immediately. This ensures CKO goes to VGL
+    // at the frame boundary even when the next CPV1 charge is only ~0.5/Htotal away.
+    if (ev._reset) {
+      samples.push({ lineX: ev.lineX, voltage: prevV });
+      samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+      prevV = ev.vTarget;
+      continue;
+    }
     var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
     var span = Math.max(1e-6, nextLineX - ev.lineX);
     var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
@@ -15314,7 +15335,12 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
     for (var f = firstFrame; f <= lastFrame; f++) {
       var fb = f * effVtotal;
       if (fb >= extStart && fb <= extEnd) {
-        merged.push({ lineX: Math.max(extStart, fb - resetEps), vTarget: vgl });
+        // _reset flag: STV reset is an instantaneous hard reset to VGL,
+        // not an RC-curve transition. The sample generator forces prevV = vTarget
+        // immediately, bypassing the exponential decay. This prevents the bug
+        // where the reset's tiny span before the next CPV1 charge (~0.5/Htotal)
+        // leaves prevV ≈ VGH because exp(-span/tau) ≈ 1.
+        merged.push({ lineX: Math.max(extStart, fb - resetEps), vTarget: vgl, _reset: true });
       }
     }
   }
