@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.70.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.70.2</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.70.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.70.2</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15099,10 +15099,16 @@ function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHto
   // Walk ALL VCE transitions and track which CKO is active.
   // Each rising edge triggers CKO[currentIdx] → VGH.
   // Each falling edge triggers CKO[currentIdx] → VGL, then advance to next CKO.
+  // IMPORTANT: only count REAL edges — skip redundant transitions where
+  // the level doesn't actually change (e.g. period-boundary re-assertions).
   var events = [];
   var currentCko = 0; // which CKO slot the next event targets
+  var prevLevelC = oax ? oax.initLevel : 0;
   for (var i = 0; i < trans.length; i++) {
     var tr = trans[i];
+    var isRealEdge = (tr.level !== prevLevelC);
+    prevLevelC = tr.level;
+    if (!isRealEdge) continue; // skip redundant "transitions"
     var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
     var lineX = tr.line + fracDly;
     if (tr.level === 1) {
@@ -15170,10 +15176,16 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
 
   // CPV1: each active edge charges CKO[chargeIdx] to VGH, round-robin.
   // Counter resets to 0 at each frame boundary (STV reset).
+  // IMPORTANT: only count REAL edges — skip redundant transitions where
+  // the level doesn't actually change (e.g. period-boundary re-assertions).
   var chargeIdx = 0;
   var lastChargeFrame = -1;
+  var prevLevel1 = oax1 ? oax1.initLevel : (activeLevel === 1 ? 0 : 1);
   for (var i = 0; i < trans1.length; i++) {
     var tr = trans1[i];
+    var isRealEdge = (tr.level !== prevLevel1);
+    prevLevel1 = tr.level;
+    if (!isRealEdge) continue; // skip redundant "transitions" (no actual level change)
     if (tr.level === activeLevel) {
       var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
       var lineX = tr.line + fracDly;
@@ -15194,10 +15206,15 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
 
   // CPV2: each active edge discharges CKO[dischargeIdx] to VGL, round-robin.
   // Counter resets to 0 at each frame boundary (STV reset).
+  // Same real-edge filtering as CPV1.
   var dischargeIdx = 0;
   var lastDischargeFrame = -1;
+  var prevLevel2 = oax2 ? oax2.initLevel : (activeLevel === 1 ? 0 : 1);
   for (var j = 0; j < trans2.length; j++) {
     var tr2 = trans2[j];
+    var isRealEdge2 = (tr2.level !== prevLevel2);
+    prevLevel2 = tr2.level;
+    if (!isRealEdge2) continue; // skip redundant "transitions"
     if (tr2.level === activeLevel) {
       var fracDly2 = effHtotal > 0 ? (tr2.dly || 0) / effHtotal : 0;
       var lineX2 = tr2.line + fracDly2;
