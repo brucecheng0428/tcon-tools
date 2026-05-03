@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.74.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.75.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.74.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.75.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12985,6 +12985,20 @@ var _wfgMinimapCache = null; // { canvas: OffscreenCanvas|HTMLCanvasElement, w, 
 // ─── Performance timing ───
 var _wfgPerfEnabled = false; // Toggle: window._wfgPerfEnabled = true in console
 var _wfgPerfLast = {};
+// ─── Continuous motion flag (wheel zoom / drag pan / pinch) ───
+// When true, skip expensive non-essential work (DOM labels, pulse refresh)
+var _wfgContinuousMotion = false;
+var _wfgContinuousMotionTimer = 0;
+function wfgMarkContinuousMotion() {
+  _wfgContinuousMotion = true;
+  if (_wfgContinuousMotionTimer) clearTimeout(_wfgContinuousMotionTimer);
+  _wfgContinuousMotionTimer = setTimeout(function() {
+    _wfgContinuousMotion = false;
+    _wfgContinuousMotionTimer = 0;
+    // Final render with labels + pulse now that motion stopped
+    wfgRender();
+  }, 150);
+}
 window._wfgPerfEnabled = _wfgPerfEnabled; // Expose to global scope for console access
 window._wfgPerfLast = _wfgPerfLast;
 // Getter/setter so console toggle works across scopes
@@ -13918,23 +13932,17 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  // RX DE: Data 0 appears on the LAST line of the PREVIOUS frame (Vtotal-1),
-  // Data 1 on Line 0 of current frame, Data 2 on Line 1, etc.
-  // So RX DE is shifted -1 line relative to data index.
-  // RX DE is active for Vactive data lines, each line shows DE HIGH for rxDeFrac DCLKs.
-  // RX DE: always exactly vactive data entries, regardless of gate mode
-  // In Dual Gate, each RX data spans 2 view lines (1 RX line = htotal/2 DCLK = 2 view lines)
+  // Collect DE fills and labels to batch-draw after stroke (eliminates save/restore per line)
+  var _rxFills = [];
+  var _rxLabels = [];
   var rxViewLinesPerData = isDual ? 2 : 1;
-  var vtotalRx = wfgFrame.vtotal; // RX operates at original vtotal
+  var vtotalRx = wfgFrame.vtotal;
   for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
     var lineInFrame = ln % vtotalView;
-    // Map view line to RX line index
     var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : lineInFrame;
     var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : 0;
-    // Data index: shift by 1 (Data 0 at last RX line of prev frame)
     var dataIdx = (rxLineIdx + 1) % vtotalRx;
     if (dataIdx >= vactive) {
-      // blanking region - draw low
       var xL = Math.max(drawX0, lineToX(ln));
       var xR = Math.min(w, lineToX(ln + 1));
       if (xR > drawX0 && xL < w) {
@@ -13943,20 +13951,16 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
       }
       continue;
     }
-    // DE spans rxDeFrac view lines starting from posInRxData=0
-    // This view line covers [posInRxData, posInRxData+1) within the RX data period
     var deTo = Math.min(posInRxData + 1, rxDeFrac);
     var xLineStart = lineToX(ln);
     var xLineEnd = lineToX(ln + 1);
     var xL2 = Math.max(drawX0, xLineStart);
     var xR2 = Math.min(w, xLineEnd);
     if (deTo > posInRxData) {
-      // This view line has DE active portion
-      var fracEnd = deTo - posInRxData; // 0..1 fraction within this view line
+      var fracEnd = deTo - posInRxData;
       var xDeEnd = lineToX(ln + fracEnd);
       var xDEc = Math.min(w, xDeEnd);
       if (xL2 < xDEc) {
-        // Rising edge only at DE start (first view line of this data)
         if (posInRxData === 0) {
           ctx.moveTo(xL2, rxLow);
           ctx.lineTo(xL2, rxHigh);
@@ -13964,56 +13968,25 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
           ctx.moveTo(xL2, rxHigh);
         }
         ctx.lineTo(xDEc, rxHigh);
-        // Falling edge only if DE ends within this view line
         if (fracEnd < 1) {
           ctx.lineTo(xDEc, rxLow);
         }
-        // Fill DE block
-        ctx.save();
-        ctx.fillStyle = WFG_INTERNAL_COLORS.rxde;
-        ctx.globalAlpha = 0.15;
-        ctx.fillRect(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh);
-        ctx.restore();
+        _rxFills.push(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh);
       }
-      // Low after DE ends
       if (fracEnd < 1 && xDEc < xR2) {
         ctx.moveTo(xDEc, rxLow);
         ctx.lineTo(xR2, rxLow);
       }
-      // Data label (only in first view line of this data).
-      // Wide cells append the SD1 gray-level: "D5(L42)". RX uses dataIdx as the
-      // raw active-region position (no lbShift offset); pairing RX Data N with
-      // TX Data (N + lbShift) yields matching L values in single-gate mode.
       if (posInRxData === 0) {
         var totalDeEndX = lineToX(ln + Math.min(rxDeFrac, rxViewLinesPerData));
         var tDS = Math.max(drawX0, xLineStart);
         var tDE = Math.min(w, totalDeEndX);
         var dePxW = tDE - tDS;
         if (dePxW > 8) {
-          ctx.save();
-          ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = 0.9;
-          ctx.textAlign = 'center';
-          ctx.font = dePxW > 40 ? '10px sans-serif' : '8px sans-serif';
-          var label;
-          if (dePxW > 40) {
-            var sdGpio = wfgGpios[WFG_DIGITAL_GPIO_COUNT]; // sd1 (idx 18)
-            if (sdGpio && sdGpio.analog_config) {
-              var lValue = wfgAnalogLValueForLine(dataIdx, sdGpio.analog_config, vactive);
-              var combined = 'D' + dataIdx + '(L' + lValue + ')';
-              label = (ctx.measureText(combined).width <= dePxW - 4) ? combined : ('D' + dataIdx);
-            } else {
-              label = 'D' + dataIdx;
-            }
-          } else {
-            label = '' + dataIdx;
-          }
-          ctx.fillText(label, (tDS + tDE) / 2, (rxHigh + rxLow) / 2 + 3);
-          ctx.restore();
+          _rxLabels.push(dataIdx, (tDS + tDE) / 2, dePxW);
         }
       }
     } else {
-      // No DE in this view line - all blanking, draw low
       if (xL2 < xR2) {
         ctx.moveTo(xL2, rxLow);
         ctx.lineTo(xR2, rxLow);
@@ -14021,6 +13994,44 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     }
   }
   ctx.stroke();
+  // Batch DE fills (single alpha set)
+  if (_rxFills.length > 0) {
+    ctx.fillStyle = WFG_INTERNAL_COLORS.rxde;
+    ctx.globalAlpha = 0.15;
+    for (var _fi = 0; _fi < _rxFills.length; _fi += 4) {
+      ctx.fillRect(_rxFills[_fi], _rxFills[_fi+1], _rxFills[_fi+2], _rxFills[_fi+3]);
+    }
+    ctx.globalAlpha = 1;
+  }
+  // Batch data labels (single style setup)
+  if (_rxLabels.length > 0) {
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.9;
+    ctx.textAlign = 'center';
+    var _rxLblYc = (rxHigh + rxLow) / 2 + 3;
+    var sdGpio = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
+    var _hasSdCfg = sdGpio && sdGpio.analog_config;
+    var _lastFont = '';
+    for (var _li = 0; _li < _rxLabels.length; _li += 3) {
+      var _lDataIdx = _rxLabels[_li];
+      var _lCx = _rxLabels[_li+1];
+      var _lPxW = _rxLabels[_li+2];
+      var _lFont = _lPxW > 40 ? '10px sans-serif' : '8px sans-serif';
+      if (_lFont !== _lastFont) { ctx.font = _lFont; _lastFont = _lFont; }
+      var label;
+      if (_lPxW > 40 && _hasSdCfg) {
+        var lValue = wfgAnalogLValueForLine(_lDataIdx, sdGpio.analog_config, vactive);
+        var combined = 'D' + _lDataIdx + '(L' + lValue + ')';
+        label = (ctx.measureText(combined).width <= _lPxW - 4) ? combined : ('D' + _lDataIdx);
+      } else if (_lPxW > 40) {
+        label = 'D' + _lDataIdx;
+      } else {
+        label = '' + _lDataIdx;
+      }
+      ctx.fillText(label, _lCx, _rxLblYc);
+    }
+    ctx.globalAlpha = 1;
+  }
   } // end if (_wfgPromotedRx < 0) — RX DE
 
   // ── Row 3: TX DE ── (skip if promoted to channel area)
@@ -14034,13 +14045,14 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   // TX DE: Data N appears above Line (N + lbShift)
   // Data range: 0..Vactive-1 (single) or 0..Vactive*2-1 (dual for vtotalView)
   // TX DE width = txDeFrac lines
+  // Collect TX DE fills and labels to batch-draw after stroke (eliminates save/restore per line)
+  var _txFills = [];
+  var _txLabels = [];
+  var vactiveView2 = isDual ? vactive * 2 : vactive;
   for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
     var lineInFrame = ln % vtotalView;
-    var vactiveView2 = isDual ? vactive * 2 : vactive;
-    // Data index for this line = lineInFrame - lbShift
     var dataIdx = lineInFrame - lbShift;
     if (dataIdx < 0 || dataIdx >= vactiveView2) {
-      // No TX DE on this line (or blanking)
       var xL3 = Math.max(drawX0, lineToX(ln));
       var xR3 = Math.min(w, lineToX(ln + 1));
       if (xR3 > drawX0 && xL3 < w) {
@@ -14049,7 +14061,6 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
       }
       continue;
     }
-    // TX DE active
     var xLS = lineToX(ln);
     var xDEEnd = lineToX(ln + txDeFrac);
     var xLE = lineToX(ln + 1);
@@ -14061,44 +14072,56 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
       ctx.lineTo(xA, txHigh);
       ctx.lineTo(xB, txHigh);
       ctx.lineTo(xB, txLow);
-      // Fill the DE high block
-      ctx.save();
-      ctx.fillStyle = WFG_INTERNAL_COLORS.txde;
-      ctx.globalAlpha = 0.15;
-      ctx.fillRect(xA, txHigh, xB - xA, txLow - txHigh);
-      ctx.restore();
+      _txFills.push(xA, txHigh, xB - xA, txLow - txHigh);
     }
     if (xB < xC) {
       ctx.moveTo(xB, txLow);
       ctx.lineTo(xC, txLow);
     }
-    // Data N label inside TX DE block.
-    // Wide cells append the SD1 gray-level value: "D47(L12)".
     var txDePxW = xB - xA;
     if (txDePxW > 8) {
-      ctx.save();
-      ctx.fillStyle = '#ffffff';
-      ctx.globalAlpha = 0.9;
-      ctx.textAlign = 'center';
-      ctx.font = txDePxW > 40 ? '10px sans-serif' : '8px sans-serif';
-      var txLabel;
-      if (txDePxW > 40) {
-        var sdGpio = wfgGpios[WFG_DIGITAL_GPIO_COUNT]; // sd1 (idx 18)
-        if (sdGpio && sdGpio.analog_config) {
-          var lValue = wfgAnalogLValueForLine(dataIdx, sdGpio.analog_config, vactiveView2);
-          var combined = 'D' + dataIdx + '(L' + lValue + ')';
-          txLabel = (ctx.measureText(combined).width <= txDePxW - 4) ? combined : ('D' + dataIdx);
-        } else {
-          txLabel = 'D' + dataIdx;
-        }
-      } else {
-        txLabel = '' + dataIdx;
-      }
-      ctx.fillText(txLabel, (xA + xB) / 2, (txHigh + txLow) / 2 + 3);
-      ctx.restore();
+      _txLabels.push(dataIdx, (xA + xB) / 2, txDePxW);
     }
   }
   ctx.stroke();
+  // Batch TX DE fills
+  if (_txFills.length > 0) {
+    ctx.fillStyle = WFG_INTERNAL_COLORS.txde;
+    ctx.globalAlpha = 0.15;
+    for (var _tfi = 0; _tfi < _txFills.length; _tfi += 4) {
+      ctx.fillRect(_txFills[_tfi], _txFills[_tfi+1], _txFills[_tfi+2], _txFills[_tfi+3]);
+    }
+    ctx.globalAlpha = 1;
+  }
+  // Batch TX data labels
+  if (_txLabels.length > 0) {
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.9;
+    ctx.textAlign = 'center';
+    var _txLblYc = (txHigh + txLow) / 2 + 3;
+    var sdGpio = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
+    var _hasSdCfg2 = sdGpio && sdGpio.analog_config;
+    var _lastFont2 = '';
+    for (var _tli = 0; _tli < _txLabels.length; _tli += 3) {
+      var _tDataIdx = _txLabels[_tli];
+      var _tCx = _txLabels[_tli+1];
+      var _tPxW = _txLabels[_tli+2];
+      var _tFont = _tPxW > 40 ? '10px sans-serif' : '8px sans-serif';
+      if (_tFont !== _lastFont2) { ctx.font = _tFont; _lastFont2 = _tFont; }
+      var txLabel;
+      if (_tPxW > 40 && _hasSdCfg2) {
+        var lValue = wfgAnalogLValueForLine(_tDataIdx, sdGpio.analog_config, vactiveView2);
+        var combined = 'D' + _tDataIdx + '(L' + lValue + ')';
+        txLabel = (ctx.measureText(combined).width <= _tPxW - 4) ? combined : ('D' + _tDataIdx);
+      } else if (_tPxW > 40) {
+        txLabel = 'D' + _tDataIdx;
+      } else {
+        txLabel = '' + _tDataIdx;
+      }
+      ctx.fillText(txLabel, _tCx, _txLblYc);
+    }
+    ctx.globalAlpha = 1;
+  }
   } // end if (_wfgPromotedTcon < 0) — TX DE
 
   // ── Row 4 & 5: R_PH_CNT / F_PH_CNT (always visible for first channel) ──
@@ -14217,6 +14240,8 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
       ctx.strokeStyle = WFG_INTERNAL_COLORS.rxde;
       ctx.lineWidth = 1;
       ctx.beginPath();
+      var _prxFills = [];
+      var _prxLabels = [];
       for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
         var lineInFrame = ln % vtotalView;
         var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : lineInFrame;
@@ -14241,44 +14266,47 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
             if (posInRxData === 0) { ctx.moveTo(xL2, rxLow); ctx.lineTo(xL2, rxHigh); } else { ctx.moveTo(xL2, rxHigh); }
             ctx.lineTo(xDEc, rxHigh);
             if (fracEnd < 1) ctx.lineTo(xDEc, rxLow);
-            ctx.save(); ctx.fillStyle = WFG_INTERNAL_COLORS.rxde; ctx.globalAlpha = 0.15;
-            ctx.fillRect(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh); ctx.restore();
+            _prxFills.push(xL2, rxHigh, xDEc - xL2, rxLow - rxHigh);
           }
           if (fracEnd < 1 && xDEc < xR2) { ctx.moveTo(xDEc, rxLow); ctx.lineTo(xR2, rxLow); }
-          // Data label (promoted group); wide cells append SD1 L value: "D5(L42)".
           if (posInRxData === 0) {
             var totalDeEndX = lineToX(ln + Math.min(rxDeFrac, rxViewLinesPerData));
             var tDS = Math.max(drawX0, xLineStart);
             var tDE = Math.min(w, totalDeEndX);
             var dePxW = tDE - tDS;
-            if (dePxW > 8) {
-              ctx.save();
-              ctx.fillStyle = '#ffffff';
-              ctx.globalAlpha = 0.9;
-              ctx.textAlign = 'center';
-              ctx.font = dePxW > 40 ? '10px sans-serif' : '8px sans-serif';
-              var label;
-              if (dePxW > 40) {
-                var sdGpioR = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
-                if (sdGpioR && sdGpioR.analog_config) {
-                  var lValueR = wfgAnalogLValueForLine(dataIdx, sdGpioR.analog_config, vactive);
-                  var combinedR = 'D' + dataIdx + '(L' + lValueR + ')';
-                  label = (ctx.measureText(combinedR).width <= dePxW - 4) ? combinedR : ('D' + dataIdx);
-                } else {
-                  label = 'D' + dataIdx;
-                }
-              } else {
-                label = '' + dataIdx;
-              }
-              ctx.fillText(label, (tDS + tDE) / 2, (rxHigh + rxLow) / 2 + 3);
-              ctx.restore();
-            }
+            if (dePxW > 8) { _prxLabels.push(dataIdx, (tDS + tDE) / 2, dePxW); }
           }
         } else {
           if (xL2 < xR2) { ctx.moveTo(xL2, rxLow); ctx.lineTo(xR2, rxLow); }
         }
       }
       ctx.stroke();
+      if (_prxFills.length > 0) {
+        ctx.fillStyle = WFG_INTERNAL_COLORS.rxde; ctx.globalAlpha = 0.15;
+        for (var _pfi = 0; _pfi < _prxFills.length; _pfi += 4) ctx.fillRect(_prxFills[_pfi], _prxFills[_pfi+1], _prxFills[_pfi+2], _prxFills[_pfi+3]);
+        ctx.globalAlpha = 1;
+      }
+      if (_prxLabels.length > 0) {
+        ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.9; ctx.textAlign = 'center';
+        var _prxYc = (rxHigh + rxLow) / 2 + 3;
+        var sdGpioR = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
+        var _hasSdR = sdGpioR && sdGpioR.analog_config;
+        var _lastFontR = '';
+        for (var _pri = 0; _pri < _prxLabels.length; _pri += 3) {
+          var _prDi = _prxLabels[_pri], _prCx = _prxLabels[_pri+1], _prPw = _prxLabels[_pri+2];
+          var _prF = _prPw > 40 ? '10px sans-serif' : '8px sans-serif';
+          if (_prF !== _lastFontR) { ctx.font = _prF; _lastFontR = _prF; }
+          var label;
+          if (_prPw > 40 && _hasSdR) {
+            var lValueR = wfgAnalogLValueForLine(_prDi, sdGpioR.analog_config, vactive);
+            var combinedR = 'D' + _prDi + '(L' + lValueR + ')';
+            label = (ctx.measureText(combinedR).width <= _prPw - 4) ? combinedR : ('D' + _prDi);
+          } else if (_prPw > 40) { label = 'D' + _prDi; }
+          else { label = '' + _prDi; }
+          ctx.fillText(label, _prCx, _prxYc);
+        }
+        ctx.globalAlpha = 1;
+      }
     }
   } else if (grpIdx === 1) {
     // TCON group
@@ -14302,9 +14330,11 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
       ctx.strokeStyle = WFG_INTERNAL_COLORS.txde;
       ctx.lineWidth = 1;
       ctx.beginPath();
+      var _ptxFills = [];
+      var _ptxLabels = [];
+      var vactiveView2 = isDual ? vactive * 2 : vactive;
       for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
         var lineInFrame = ln % vtotalView;
-        var vactiveView2 = isDual ? vactive * 2 : vactive;
         var dataIdx = lineInFrame - lbShift;
         if (dataIdx < 0 || dataIdx >= vactiveView2) {
           var xL3 = Math.max(drawX0, lineToX(ln));
@@ -14320,36 +14350,39 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
         var xC = Math.min(w, xLE);
         if (xA < xB) {
           ctx.moveTo(xA, txLow); ctx.lineTo(xA, txHigh); ctx.lineTo(xB, txHigh); ctx.lineTo(xB, txLow);
-          ctx.save(); ctx.fillStyle = WFG_INTERNAL_COLORS.txde; ctx.globalAlpha = 0.15;
-          ctx.fillRect(xA, txHigh, xB - xA, txLow - txHigh); ctx.restore();
-          // Data label (promoted group); wide cells append SD1 L value: "D47(L12)".
+          _ptxFills.push(xA, txHigh, xB - xA, txLow - txHigh);
           var txDePxW = xB - xA;
-          if (txDePxW > 8) {
-            ctx.save();
-            ctx.fillStyle = '#ffffff';
-            ctx.globalAlpha = 0.9;
-            ctx.textAlign = 'center';
-            ctx.font = txDePxW > 40 ? '10px sans-serif' : '8px sans-serif';
-            var txLabel;
-            if (txDePxW > 40) {
-              var sdGpioP = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
-              if (sdGpioP && sdGpioP.analog_config) {
-                var lValueP = wfgAnalogLValueForLine(dataIdx, sdGpioP.analog_config, vactiveView2);
-                var combinedP = 'D' + dataIdx + '(L' + lValueP + ')';
-                txLabel = (ctx.measureText(combinedP).width <= txDePxW - 4) ? combinedP : ('D' + dataIdx);
-              } else {
-                txLabel = 'D' + dataIdx;
-              }
-            } else {
-              txLabel = '' + dataIdx;
-            }
-            ctx.fillText(txLabel, (xA + xB) / 2, (txHigh + txLow) / 2 + 3);
-            ctx.restore();
-          }
+          if (txDePxW > 8) { _ptxLabels.push(dataIdx, (xA + xB) / 2, txDePxW); }
         }
         if (xB < xC) { ctx.moveTo(xB, txLow); ctx.lineTo(xC, txLow); }
       }
       ctx.stroke();
+      if (_ptxFills.length > 0) {
+        ctx.fillStyle = WFG_INTERNAL_COLORS.txde; ctx.globalAlpha = 0.15;
+        for (var _ptfi = 0; _ptfi < _ptxFills.length; _ptfi += 4) ctx.fillRect(_ptxFills[_ptfi], _ptxFills[_ptfi+1], _ptxFills[_ptfi+2], _ptxFills[_ptfi+3]);
+        ctx.globalAlpha = 1;
+      }
+      if (_ptxLabels.length > 0) {
+        ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.9; ctx.textAlign = 'center';
+        var _ptxYc = (txHigh + txLow) / 2 + 3;
+        var sdGpioP = wfgGpios[WFG_DIGITAL_GPIO_COUNT];
+        var _hasSdP = sdGpioP && sdGpioP.analog_config;
+        var _lastFontP = '';
+        for (var _ptli = 0; _ptli < _ptxLabels.length; _ptli += 3) {
+          var _ptDi = _ptxLabels[_ptli], _ptCx = _ptxLabels[_ptli+1], _ptPw = _ptxLabels[_ptli+2];
+          var _ptF = _ptPw > 40 ? '10px sans-serif' : '8px sans-serif';
+          if (_ptF !== _lastFontP) { ctx.font = _ptF; _lastFontP = _ptF; }
+          var txLabel;
+          if (_ptPw > 40 && _hasSdP) {
+            var lValueP = wfgAnalogLValueForLine(_ptDi, sdGpioP.analog_config, vactiveView2);
+            var combinedP = 'D' + _ptDi + '(L' + lValueP + ')';
+            txLabel = (ctx.measureText(combinedP).width <= _ptPw - 4) ? combinedP : ('D' + _ptDi);
+          } else if (_ptPw > 40) { txLabel = 'D' + _ptDi; }
+          else { txLabel = '' + _ptDi; }
+          ctx.fillText(txLabel, _ptCx, _ptxYc);
+        }
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
@@ -14487,21 +14520,18 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
     var isTrigger = (effCnt === actType) && inHL;
     if (!inHL) {
-      // Non-highlight: grey mask + dim text
-      ctx.save();
+      // Non-highlight: grey mask + dim text (no save/restore for perf)
       ctx.fillStyle = 'rgba(128,128,128,0.4)';
       ctx.fillRect(clampL, y, clampR - clampL, rowH);
-      ctx.restore();
       ctx.fillStyle = dimColor;
       ctx.font = '12px monospace';
       ctx.fillText(counterVal.toString(), (clampL + clampR) / 2, textY);
     } else if (isTrigger) {
-      // Highlight + triggered: colored bg + bold
-      ctx.save();
-      ctx.fillStyle = color;
+      // Highlight + triggered: colored bg + bold (no save/restore for perf)
       ctx.globalAlpha = 0.25;
+      ctx.fillStyle = color;
       ctx.fillRect(clampL, y, clampR - clampL, rowH);
-      ctx.restore();
+      ctx.globalAlpha = 1;
       ctx.fillStyle = color;
       ctx.font = 'bold 12px monospace';
       ctx.fillText(counterVal.toString(), (clampL + clampR) / 2, textY);
@@ -16482,8 +16512,8 @@ function wfgRender() {
   wfgMeasDrawArrow(ctx);
   wfgDrawVoltCursors(ctx);
   wfgDrawCursors(ctx);
-  if (!_wfgLabelDrag && !_wfgIrDrag && !wfgDragging) wfgRenderLabels();
-  if (typeof wfgPulseRefresh === 'function' && !wfgDragging) wfgPulseRefresh();
+  if (!_wfgLabelDrag && !_wfgIrDrag && !wfgDragging && !_wfgContinuousMotion) wfgRenderLabels();
+  if (typeof wfgPulseRefresh === 'function' && !wfgDragging && !_wfgContinuousMotion) wfgPulseRefresh();
   if (_wfgPerfEnabled) {
     _wfgPerfLast.total = performance.now() - _pT0;
     console.log('[WFG perf] render: ' + JSON.stringify(_wfgPerfLast) + ' ms');
@@ -18983,6 +19013,7 @@ function wfgInitCanvas() {
 
   function wfgStartInertia() {
     if (Math.abs(wfgVelocity) < WFG_INERTIA_MIN) return;
+    wfgMarkContinuousMotion();
     var canvas2 = document.getElementById('wfg-canvas');
     if (!canvas2) return;
     var rect = canvas2.getBoundingClientRect();
@@ -18992,11 +19023,11 @@ function wfgInitCanvas() {
       wfgVelocity *= WFG_INERTIA_DECAY;
       if (Math.abs(wfgVelocity) < WFG_INERTIA_MIN) {
         wfgVelocity = 0;
-        // Inertia finished — refresh measurement at current mouse position
         wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
         wfgRender();
         return;
       }
+      wfgMarkContinuousMotion();
       // Keep measurement arrows hidden during inertia scroll
       _wfgMeasArrow = null;
       if (wfgKvdatMode) {
@@ -19027,6 +19058,7 @@ function wfgInitCanvas() {
   canvas.addEventListener('wheel', function(e) {
     e.preventDefault();
     wfgStopInertia();
+    wfgMarkContinuousMotion();
     var rect = canvas.getBoundingClientRect();
     var mouseX = e.clientX - rect.left;
     _wfgWheelFrac = Math.max(0, Math.min(1, (mouseX - WFG_LABEL_W) / (rect.width - WFG_LABEL_W)));
@@ -19099,6 +19131,7 @@ function wfgInitCanvas() {
       return;
     }
     wfgStopInertia();
+    wfgMarkContinuousMotion();
     wfgDragging = true;
     // Hide measurement arrows immediately when drag starts
     _wfgMeasArrow = null;
@@ -19242,6 +19275,7 @@ function wfgInitCanvas() {
   var wfgTouchTrackingCursor = false; // true when touch is dragging a moving cursor
   canvas.addEventListener('touchstart', function(e) {
     wfgStopInertia();
+    wfgMarkContinuousMotion();
     wfgTouchGen++; // invalidate any pending rAF from previous gesture
     wfgTouchRafPending = false; // safety reset
     // Clear measurement arrows when a new touch gesture begins (mobile)
@@ -19306,6 +19340,7 @@ function wfgInitCanvas() {
   }, { passive: false });
   canvas.addEventListener('touchmove', function(e) {
     e.preventDefault();
+    wfgMarkContinuousMotion();
     // ── Voltage cursor touch drag ──
     if (_wfgVoltCursorDrag && e.touches.length === 1) {
       var _vtRect2 = canvas.getBoundingClientRect();
