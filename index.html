@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.3</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.79.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.3</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.79.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15121,10 +15121,15 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
 
   // LOD for LS (CKO) analog rendering:
-  // When zoomed out far, RC curves are invisible — draw as square waves (instant transitions).
-  //   linesPerPixel > 2: square wave mode (no Math.exp())
-  //   linesPerPixel ≤ 2: full RC curve with adaptive density
-  var _lsSkipRC = (linesPerPixel > 2);
+  // Skip RC when the exponential curve would be too small to see on screen.
+  // Dynamic threshold: need at least _RC_MIN_PX pixels for the curve to be
+  // visually meaningful.  With default curvature 127 the curve spans ~0.5 lines,
+  // so at lpp 0.6 it is sub-pixel → always skip.  With max curvature 255 the
+  // curve spans ~10 lines, so skip only when lpp > ~0.67.
+  var _RC_MIN_PX = 15;
+  var _rcMaxTau = Math.max(RC_TAU_RISE, RC_TAU_FALL);
+  var _rcSpanPx = (linesPerPixel > 0) ? (_rcMaxTau * 5) / linesPerPixel : 9999;
+  var _lsSkipRC = (_rcSpanPx < _RC_MIN_PX) || (linesPerPixel > 4);
   var curveDensity = 16;
   if (!_lsSkipRC) {
     if (linesPerPixel > 1) curveDensity = 8;
@@ -15218,7 +15223,7 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     if (samples[k2].lineX <= viewStartLine) initVoltage = samples[k2].voltage;
     else break;
   }
-  return { initVoltage: initVoltage, samples: samples, smooth: true };
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _lsSkipRC };
 }
 
 // ── Individual mode: 1 CK → 1 CKO ──
@@ -16468,13 +16473,17 @@ function wfgRender() {
         // — the motion-end timeout will re-render at correct resolution
         var _lppTol = _wfgContinuousMotion ? 1e9 : 4;
         _lppOk = (_acEntry.lpp <= _curLpp * _lppTol && _acEntry.lpp >= _curLpp / _lppTol);
-        // CRITICAL: invalidate if cached and current lpp are on opposite sides of LOD
-        // threshold (2). Otherwise stale LOD-simplified data renders at zoomed-in levels.
-        if (!_wfgContinuousMotion && _lppOk) {
-          var _LOD_THRESH = 2;
-          var _cachedIsSimplified = _acEntry.lpp > _LOD_THRESH;
-          var _currentNeedsDetail = _curLpp <= _LOD_THRESH;
-          if (_cachedIsSimplified && _currentNeedsDetail) _lppOk = false;
+        // CRITICAL: invalidate if cached data used skipRC but current zoom needs full RC,
+        // or vice versa.  The threshold is dynamic (based on RC tau), so compare the
+        // skipRC flag stored in the cached result against what current lpp would produce.
+        if (!_wfgContinuousMotion && _lppOk && _acEntry.data && _acEntry.data.skipRC !== undefined) {
+          var _RC_MIN_PX_C = 15;
+          var _crC = (gpio.analog_config && gpio.analog_config.curvature_rise) || 0;
+          var _cfC = (gpio.analog_config && gpio.analog_config.curvature_fall) || 0;
+          var _rcTauMaxC = 2.0 * Math.exp(-0.0235 * (255 - Math.max(_crC | 0, _cfC | 0)));
+          var _rcSpanPxC = (_curLpp > 0) ? (_rcTauMaxC * 5) / _curLpp : 9999;
+          var _expectSkipRC = (_rcSpanPxC < _RC_MIN_PX_C) || (_curLpp > 4);
+          if (_acEntry.data.skipRC !== _expectSkipRC) _lppOk = false;
         }
       }
       if (_acEntry && _lppOk && _acEntry.cacheVer === _wfgAnalogCacheVer &&
