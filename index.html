@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.76.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.77.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.76.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.77.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12995,8 +12995,11 @@ function wfgMarkContinuousMotion() {
   _wfgContinuousMotionTimer = setTimeout(function() {
     _wfgContinuousMotion = false;
     _wfgContinuousMotionTimer = 0;
-    // Final render with labels + pulse now that motion stopped
-    wfgRender();
+    // Restore measurement and do final render with labels + pulse
+    wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
+    // wfgMeasUpdate already calls wfgRender() internally when it has data
+    // but if the mouse isn't over a channel, we still need a render
+    if (!_wfgMeasArrow) wfgRender();
   }, 150);
 }
 // ─── Analog data cache: reuse computed samples when viewport is within cached range ───
@@ -16316,7 +16319,7 @@ function wfgRender() {
       // For LS channels, also check that cached lpp (lines-per-pixel) is close enough
       var _acMargin = _wfgContinuousMotion ? 0 : effVtotal * 0.5;
       var _lppOk = true;
-      if (_acEntry && gpio.waveform_type === 2 && _acEntry.lpp) {
+      if (_acEntry && (gpio.waveform_type === 1 || gpio.waveform_type === 2) && _acEntry.lpp) {
         var _curLpp = drawW > 0 ? viewRange / drawW : 1;
         // Allow 4x resolution mismatch before re-computing
         _lppOk = (_acEntry.lpp <= _curLpp * 4 && _acEntry.lpp >= _curLpp * 0.25);
@@ -16339,7 +16342,7 @@ function wfgRender() {
         }
         if (_anaData) {
           var _cacheEntry = { startLine: _cStartLine, endLine: _cEndLine, data: _anaData, cacheVer: _wfgAnalogCacheVer };
-          if (gpio.waveform_type === 2) _cacheEntry.lpp = drawW > 0 ? viewRange / drawW : 1;
+          _cacheEntry.lpp = drawW > 0 ? viewRange / drawW : 1;
           _wfgAnalogDataCache[_gpIdx] = _cacheEntry;
         }
       }
@@ -19081,8 +19084,9 @@ function wfgInitCanvas() {
       wfgVelocity *= WFG_INERTIA_DECAY;
       if (Math.abs(wfgVelocity) < WFG_INERTIA_MIN) {
         wfgVelocity = 0;
+        // wfgMeasUpdate calls wfgRender internally, no need for separate render
         wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
-        wfgRender();
+        if (!_wfgMeasArrow) wfgRender();
         return;
       }
       wfgMarkContinuousMotion();
@@ -19135,7 +19139,7 @@ function wfgInitCanvas() {
         wfgKvdatTimeStart = pivot - newRange * _wfgWheelFrac;
         wfgKvdatTimeEnd = wfgKvdatTimeStart + newRange;
         wfgClampKvdatView();
-        wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
+        _wfgMeasArrow = null;
         wfgRender(); wfgUpdateMinimapViewport();
         return;
       }
@@ -19146,7 +19150,9 @@ function wfgInitCanvas() {
       var newRange = Math.max(0.005, Math.min(totalLines, range * factor));
       wfgViewStart = Math.max(0, pivot - newRange * _wfgWheelFrac);
       wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
-      wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
+      // Skip measurement during continuous motion to avoid double-render
+      // (wfgMeasUpdate internally calls wfgRender)
+      _wfgMeasArrow = null;
       wfgRender(); wfgUpdateMinimapViewport();
     });
   }, { passive: false });
@@ -19280,8 +19286,9 @@ function wfgInitCanvas() {
       else {
         wfgVelocity = 0;
         // Drag ended without inertia — refresh measurement at current mouse position
+        // wfgMeasUpdate calls wfgRender internally, no need for separate render
         wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
-        wfgRender(); // final render with labels+pulse+measurement
+        if (!_wfgMeasArrow) wfgRender(); // final render with labels+pulse+measurement
       }
     }
   });
