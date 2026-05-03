@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.77.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.77.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15010,30 +15010,38 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   var samples = [];
   var prevV = events.length > 0 ? events[0].vTarget : wfgAnalogTargetVoltageWithPol(0, xpolInitLevel, ac);
 
-  // Adaptive curve density: at far zoom each event spans many sub-pixel lines,
-  // so fewer sub-samples suffice.
+  // LOD (Level of Detail) for SD analog rendering:
+  // When zoomed out far, RC exponential curves are invisible — skip Math.exp() entirely.
+  //   linesPerPixel > 2: each event ≤ ~0.5px wide → straight line (linear ramp)
+  //   linesPerPixel ≤ 2: full RC curve with adaptive density
+  var _sdSkipRC = (linesPerPixel > 2);
   var curveDensity = CURVE_DENSITY;
-  if (linesPerPixel > 4) curveDensity = 4;
-  else if (linesPerPixel > 2) curveDensity = 8;
+  if (!_sdSkipRC) {
+    if (linesPerPixel > 1) curveDensity = 8;
+  }
 
   // Emit samples per event:
-  //   1. At lineX (latch instant): V = V_prev (voltage just before latch)
-  //   2. curveDensity sub-samples on the RC curve over [lineX, lineX + curveSpan]
-  // Use directional tau: rising (vTarget > prevV) uses RC_TAU_RISE,
-  //                      falling (vTarget < prevV) uses RC_TAU_FALL.
+  //   LOD far (skip RC): 2 samples per event — prevV at lineX, vTarget at lineX+ε (straight line)
+  //   LOD close (full RC): curveDensity+1 sub-samples with Math.exp() per event
   for (var ei = 0; ei < events.length; ei++) {
     var ev = events[ei];
     var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
     var span = Math.max(1e-6, nextLineX - ev.lineX);
-    var curveSpan = Math.min(span, 1.0);
-    var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
     samples.push({ lineX: ev.lineX, voltage: prevV, pol: ev.pol, lValue: ev.lValue });
-    for (var k = 1; k <= curveDensity; k++) {
-      var dt = (k / curveDensity) * curveSpan;
-      var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
-      samples.push({ lineX: ev.lineX + dt, voltage: v, pol: ev.pol, lValue: ev.lValue });
+    if (_sdSkipRC) {
+      // Straight line: jump to target immediately (no RC curve)
+      samples.push({ lineX: ev.lineX + span * 0.01, voltage: ev.vTarget, pol: ev.pol, lValue: ev.lValue });
+      prevV = ev.vTarget;
+    } else {
+      var curveSpan = Math.min(span, 1.0);
+      var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+      for (var k = 1; k <= curveDensity; k++) {
+        var dt = (k / curveDensity) * curveSpan;
+        var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
+        samples.push({ lineX: ev.lineX + dt, voltage: v, pol: ev.pol, lValue: ev.lValue });
+      }
+      prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
     }
-    prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
   }
 
   // Init voltage = most-recent sample at-or-before viewStartLine; else mid-rail
@@ -15108,43 +15116,50 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
   var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
 
-  // Adaptive curve density
+  // LOD for LS (CKO) analog rendering:
+  // When zoomed out far, RC curves are invisible — draw as square waves (instant transitions).
+  //   linesPerPixel > 2: square wave mode (no Math.exp())
+  //   linesPerPixel ≤ 2: full RC curve with adaptive density
+  var _lsSkipRC = (linesPerPixel > 2);
   var curveDensity = 16;
-  if (linesPerPixel > 8) curveDensity = 2;
-  else if (linesPerPixel > 4) curveDensity = 4;
-  else if (linesPerPixel > 2) curveDensity = 8;
+  if (!_lsSkipRC) {
+    if (linesPerPixel > 1) curveDensity = 8;
+  }
 
   var samples = [];
   // Start at VGL (voltage_min) — at frame start (STV), all CKOs are reset to low.
-  // Previous bug: prevV = events[0].vTarget set it to VGH, hiding the first RC rise.
   var prevV = ac.voltage_min;
 
   for (var ei = 0; ei < events.length; ei++) {
     var ev = events[ei];
     // STV reset (_reset flag): instantaneous hard reset to vTarget.
-    // No RC curve — the voltage jumps immediately. This ensures CKO goes to VGL
-    // at the frame boundary even when the next CPV1 charge is only ~0.5/Htotal away.
     if (ev._reset) {
       samples.push({ lineX: ev.lineX, voltage: prevV });
       samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
       prevV = ev.vTarget;
       continue;
     }
-    var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
-    var span = Math.max(1e-6, nextLineX - ev.lineX);
-    var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
-    var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
-    var _cd = curveDensity;
-    if (curveSpan > 2) _cd = Math.max(curveDensity, Math.ceil(curveSpan * 4));
-    if (_cd > 64) _cd = 64;
-    if (linesPerPixel > 8 && _cd > 8) _cd = 8;
-    samples.push({ lineX: ev.lineX, voltage: prevV });
-    for (var k = 1; k <= _cd; k++) {
-      var dt = (k / _cd) * curveSpan;
-      var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
-      samples.push({ lineX: ev.lineX + dt, voltage: v });
+    if (_lsSkipRC) {
+      // Square wave: instant transition to vTarget (no RC curve)
+      samples.push({ lineX: ev.lineX, voltage: prevV });
+      samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+      prevV = ev.vTarget;
+    } else {
+      var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
+      var span = Math.max(1e-6, nextLineX - ev.lineX);
+      var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+      var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
+      var _cd = curveDensity;
+      if (curveSpan > 2) _cd = Math.max(curveDensity, Math.ceil(curveSpan * 4));
+      if (_cd > 64) _cd = 64;
+      samples.push({ lineX: ev.lineX, voltage: prevV });
+      for (var k = 1; k <= _cd; k++) {
+        var dt = (k / _cd) * curveSpan;
+        var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
+        samples.push({ lineX: ev.lineX + dt, voltage: v });
+      }
+      prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
     }
-    prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
   }
 
   var initVoltage = ac.voltage_min;
