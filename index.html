@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.75.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.76.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.75.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.76.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12999,6 +12999,12 @@ function wfgMarkContinuousMotion() {
     wfgRender();
   }, 150);
 }
+// ─── Analog data cache: reuse computed samples when viewport is within cached range ───
+// Keyed by gpioIdx. Each entry: { startLine, endLine, data, cacheVer }
+// cacheVer ties to the transition cache version so param changes invalidate.
+var _wfgAnalogDataCache = {};
+var _wfgAnalogCacheVer = 0; // bumped when transitions are recomputed
+
 window._wfgPerfEnabled = _wfgPerfEnabled; // Expose to global scope for console access
 window._wfgPerfLast = _wfgPerfLast;
 // Getter/setter so console toggle works across scopes
@@ -13020,7 +13026,7 @@ Object.defineProperty(window, '_wfgFrame', {
   get: function() { return wfgFrame; },
   configurable: true
 });
-function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; }
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
   var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
@@ -16250,6 +16256,7 @@ function wfgRender() {
 
   // Draw non-dragged channels first, then dragged channel on top
   var _pT3 = _wfgPerfEnabled ? performance.now() : 0;
+  var _pAnalogMs = 0, _pDigitalMs = 0; // sub-timers
   var drawOrder = [];
   for (var i = 0; i < visibleChs.length; i++) {
     if (i !== dragFromIdx) drawOrder.push(i);
@@ -16263,6 +16270,13 @@ function wfgRender() {
     var _slotIdx = (_chSlotMap[i] !== undefined) ? _chSlotMap[i] : i;
     var y0 = dragYOffsets[_slotIdx];
     var _rowH = _slotHeights[_slotIdx] || WFG_ROW_H;
+
+    // ── Offscreen culling: skip channels entirely below canvas ──
+    if (y0 > h + 10) {
+      _wfgLastChTransitions[i] = [];
+      continue;
+    }
+
     var yHigh = Math.round(y0 + 6) + 0.5;
     var yLow = Math.round(y0 + _rowH - 4) + 0.5;
     var isThisDragged = (i === dragFromIdx);
@@ -16282,11 +16296,39 @@ function wfgRender() {
 
     // ── Analog dispatcher: Source Driver / Level Shifter ──
     if (gpio && gpio.waveform_type) {
+      var _pAna0 = _wfgPerfEnabled ? performance.now() : 0;
       var _anaData = null;
-      if (gpio.waveform_type === 1) {
-        _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, wfgViewStart, wfgViewEnd, wfgLineBuffer);
-      } else if (gpio.waveform_type === 2) {
-        _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, wfgViewStart, wfgViewEnd, (drawW > 0 ? (wfgViewEnd - wfgViewStart) / drawW : 1));
+      var _gpIdx = ch.gpioIdx;
+      var _acEntry = _wfgAnalogDataCache[_gpIdx];
+      // Cache hit: reuse if (a) same cacheVer AND (b) cached range covers viewport with margin
+      // For LS channels, also check that cached lpp (lines-per-pixel) is close enough
+      var _acMargin = _wfgContinuousMotion ? 0 : effVtotal * 0.5;
+      var _lppOk = true;
+      if (_acEntry && gpio.waveform_type === 2 && _acEntry.lpp) {
+        var _curLpp = drawW > 0 ? viewRange / drawW : 1;
+        // Allow 4x resolution mismatch before re-computing
+        _lppOk = (_acEntry.lpp <= _curLpp * 4 && _acEntry.lpp >= _curLpp * 0.25);
+      }
+      if (_acEntry && _lppOk && _acEntry.cacheVer === _wfgAnalogCacheVer &&
+          _acEntry.startLine <= wfgViewStart - _acMargin &&
+          _acEntry.endLine >= wfgViewEnd + _acMargin) {
+        _anaData = _acEntry.data;
+      } else {
+        // Compute with extra margin so future zoom/pan steps reuse the cache
+        var _cacheMargin = Math.max(effVtotal * 2, viewRange * 3);
+        var _cStartLine = Math.max(0, wfgViewStart - _cacheMargin);
+        var _cEndLine = Math.min(wfgTotalLines(), wfgViewEnd + _cacheMargin);
+        if (gpio.waveform_type === 1) {
+          _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer);
+        } else if (gpio.waveform_type === 2) {
+          var _cLpp = drawW > 0 ? (_cEndLine - _cStartLine) / drawW : 1;
+          _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, _cLpp);
+        }
+        if (_anaData) {
+          var _cacheEntry = { startLine: _cStartLine, endLine: _cEndLine, data: _anaData, cacheVer: _wfgAnalogCacheVer };
+          if (gpio.waveform_type === 2) _cacheEntry.lpp = drawW > 0 ? (_cEndLine - _cStartLine) / drawW : 1;
+          _wfgAnalogDataCache[_gpIdx] = _cacheEntry;
+        }
       }
       if (_anaData) {
         wfgDrawAnalogChannel(ctx, ch, gpio, _anaData, y0, _rowH, lineToX, drawX0, drawW, w, wfgViewStart, wfgViewEnd);
@@ -16297,9 +16339,11 @@ function wfgRender() {
       }
       _wfgLastChTransitions[i] = [];
       if (isThisDragged) ctx.globalAlpha = 1;
+      if (_wfgPerfEnabled) _pAnalogMs += performance.now() - _pAna0;
       continue;
     }
 
+    var _pDig0 = _wfgPerfEnabled ? performance.now() : 0;
     // Estimate visible transition count to choose render strategy
     var baseSmart = allGpioTransitions[ch.gpioIdx];
     var estTransCount = 0;
@@ -16496,6 +16540,7 @@ function wfgRender() {
       }
     }
     if (isThisDragged) ctx.globalAlpha = 1;
+    if (_wfgPerfEnabled) _pDigitalMs += performance.now() - _pDig0;
   }
 
   // Label background
@@ -16508,7 +16553,7 @@ function wfgRender() {
   ctx.lineTo(WFG_LABEL_W, h);
   ctx.stroke();
 
-  if (_wfgPerfEnabled) _wfgPerfLast.waveforms = performance.now() - _pT3;
+  if (_wfgPerfEnabled) { _wfgPerfLast.waveforms = performance.now() - _pT3; _wfgPerfLast.analog = _pAnalogMs; _wfgPerfLast.digital = _pDigitalMs; }
   wfgMeasDrawArrow(ctx);
   wfgDrawVoltCursors(ctx);
   wfgDrawCursors(ctx);
