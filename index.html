@@ -22129,6 +22129,39 @@ window.wfgBenchInternal = function(frames) {
   return {totalMs: elapsed, breakdown: JSON.parse(JSON.stringify(_wfgPerfLast))};
 };
 
+// Deep zoom benchmark: zoom in repeatedly to ~1 frame, report each step's timing
+window.wfgBenchZoomDeep = function(steps) {
+  steps = steps || 20;
+  // Start from full view
+  wfgViewStart = 0; wfgViewEnd = wfgTotalLines();
+  wfgRender();
+  wfgEnsureTransitions();
+  var results = [];
+  var totalLines = wfgTotalLines();
+  // Compute target: ~1.5 frames
+  var effVt = wfgEnsureTransitions().effVtotal;
+  var targetRange = effVt * 1.5;
+  var currentRange = wfgViewEnd - wfgViewStart;
+  var factor = Math.pow(targetRange / currentRange, 1 / steps);
+  for (var i = 0; i < steps; i++) {
+    _wfgPerfEnabled = true;
+    var center = (wfgViewStart + wfgViewEnd) / 2;
+    var newRange = (wfgViewEnd - wfgViewStart) * factor;
+    wfgViewStart = Math.max(0, center - newRange / 2);
+    wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
+    var t0 = performance.now();
+    wfgRender();
+    var elapsed = performance.now() - t0;
+    results.push({step: i+1, ms: Math.round(elapsed*10)/10, range: Math.round(wfgViewEnd - wfgViewStart), breakdown: JSON.parse(JSON.stringify(_wfgPerfLast))});
+    _wfgPerfEnabled = false;
+  }
+  // Summary: last 5 steps (near 1-frame zoom)
+  var last5 = results.slice(-5);
+  var avgMs = last5.reduce(function(s,r){return s+r.ms;},0) / last5.length;
+  return {avgLast5Ms: Math.round(avgMs*10)/10, steps: results};
+};
+window.wfgRender = wfgRender;
+
 // ═══════════ WFG 設定匯出 / 匯入 ═══════════
 
 window.wfgExportConfig = function() {
