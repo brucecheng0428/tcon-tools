@@ -15624,12 +15624,17 @@ function wfgComputeAnalogAutoRange(samplesData, viewStartLine, viewEndLine, chan
   var vMin = Infinity, vMax = -Infinity;
   // Carry-in: last sample at-or-before viewStart represents the level held into view.
   var carryV = samplesData ? samplesData.initVoltage : 0;
-  for (var i = 0; i < samples.length; i++) {
-    if (samples[i].lineX <= viewStartLine) carryV = samples[i].voltage;
-    else break;
+  // Binary search for carry-in: last sample at-or-before viewStartLine
+  var _arLo = 0, _arHi = samples.length - 1, _arCI = -1;
+  while (_arLo <= _arHi) {
+    var _arMid = (_arLo + _arHi) >>> 1;
+    if (samples[_arMid].lineX <= viewStartLine) { _arCI = _arMid; _arLo = _arMid + 1; }
+    else _arHi = _arMid - 1;
   }
+  if (_arCI >= 0) carryV = samples[_arCI].voltage;
   if (isFinite(carryV)) { if (carryV < vMin) vMin = carryV; if (carryV > vMax) vMax = carryV; }
-  for (var j = 0; j < samples.length; j++) {
+  // Start scanning from the carry-in position
+  for (var j = Math.max(0, _arCI); j < samples.length; j++) {
     var sx = samples[j].lineX;
     if (sx < viewStartLine) continue;
     if (sx > viewEndLine) break;
@@ -15713,14 +15718,21 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   }
 
   // Anchor: last sample before viewStart; first one after viewEnd bounds the trailing curve
-  var startIdx = -1; // index of the sample carrying the level INTO the view; -1 = none, use initV
-  for (var i = 0; i < samples.length; i++) {
-    if (samples[i].lineX <= viewStartLine) startIdx = i;
-    else break;
+  // Binary search for startIdx: largest i where samples[i].lineX <= viewStartLine
+  var startIdx = -1;
+  var _bLo = 0, _bHi = samples.length - 1;
+  while (_bLo <= _bHi) {
+    var _bMid = (_bLo + _bHi) >>> 1;
+    if (samples[_bMid].lineX <= viewStartLine) { startIdx = _bMid; _bLo = _bMid + 1; }
+    else _bHi = _bMid - 1;
   }
+  // Binary search for endIdx: first j where samples[j].lineX > viewEndLine, then +1
   var endIdx = samples.length;
-  for (var j = (startIdx >= 0 ? startIdx : 0); j < samples.length; j++) {
-    if (samples[j].lineX > viewEndLine) { endIdx = j + 1; break; }
+  _bLo = (startIdx >= 0 ? startIdx : 0); _bHi = samples.length - 1;
+  while (_bLo <= _bHi) {
+    var _bMid = (_bLo + _bHi) >>> 1;
+    if (samples[_bMid].lineX <= viewEndLine) _bLo = _bMid + 1;
+    else { endIdx = _bMid + 1; _bHi = _bMid - 1; }
   }
 
   ctx.strokeStyle = ch.color;
