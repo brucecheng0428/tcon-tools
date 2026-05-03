@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.3</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.2</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.3</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14862,8 +14862,10 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
 
   var events = [];
 
-  if (linesPerPixel > 8 && effVtotal > 0) {
+  if ((_useFastPath || linesPerPixel > 8) && effVtotal > 0) {
     // ── Fast path: mathematical per-frame event generation ──
+    // Also forced when _useFastPath=true (XSTB only expanded for 1 frame)
+    // to avoid generating incomplete events from truncated XSTB data.
     // Instead of expanding all XSTB transitions, we know XSTB fires once per
     // line. We compute key events per frame directly.
     // Scale events per frame with pixel density so the transition from detailed
@@ -15187,6 +15189,28 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
       }
       prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
     }
+  }
+
+  // ── Gap-filling: ensure no pixel column is empty (prevents diagonal lines) ──
+  // When zoomed in, gaps larger than ~2*linesPerPixel between consecutive samples
+  // cause the renderer to draw a diagonal line across empty pixel columns.
+  // Insert hold samples at regular intervals to fill these gaps.
+  if (samples.length > 1 && linesPerPixel > 0) {
+    var maxGap = Math.max(2, linesPerPixel * 2);
+    var filled = [samples[0]];
+    for (var _gi = 1; _gi < samples.length; _gi++) {
+      var gap = samples[_gi].lineX - samples[_gi - 1].lineX;
+      if (gap > maxGap) {
+        // Insert hold samples at the previous voltage to fill the gap
+        var holdV = filled[filled.length - 1].voltage;
+        var startX = samples[_gi - 1].lineX + maxGap;
+        for (var _gx = startX; _gx < samples[_gi].lineX - 0.01; _gx += maxGap) {
+          filled.push({ lineX: _gx, voltage: holdV });
+        }
+      }
+      filled.push(samples[_gi]);
+    }
+    samples = filled;
   }
 
   var initVoltage = ac.voltage_min;
