@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.78.1</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14743,7 +14743,7 @@ function wfgMakeLevelLookup(initLevel, transitions, effHtotal) {
 // Fallback: if XSTB GPIO is disabled or produces no falling edges, fall back
 //   to one update per active H-line (sample at the start of each active line).
 // Returns { initVoltage, samples: [{lineX, voltage, pol, lValue}] }.
-function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine, lineBufferOverride) {
+function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine, lineBufferOverride, viewportLpp) {
   var ac = gpio.analog_config;
   var effVactive = wfgEffVactive(effVtotal);
   // LINE BUFFER shift: TX DE Data N appears on line (N + lbShift), so the L value
@@ -14856,7 +14856,9 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   //   When zoomed in close, use the original per-XSTB-transition path.
   var viewSpan = viewEndLine - viewStartLine;
   var canvasRefW = 1400; // approximate drawing width in pixels
-  var linesPerPixel = viewSpan / canvasRefW;
+  // Use viewport lpp when provided (from render loop) to ensure LOD decision
+  // matches actual zoom level, not the expanded cache range.
+  var linesPerPixel = (viewportLpp != null) ? viewportLpp : (viewSpan / canvasRefW);
 
   var events = [];
 
@@ -15134,6 +15136,14 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     var ev = events[ei];
     // STV reset (_reset flag): instantaneous hard reset to vTarget.
     if (ev._reset) {
+      // In square wave mode, add hold sample before reset if there's a gap
+      // (prevents diagonal slant across VBK region)
+      if (_lsSkipRC && samples.length > 0) {
+        var _lastSmp = samples[samples.length - 1];
+        if (ev.lineX - _lastSmp.lineX > 2) {
+          samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+        }
+      }
       samples.push({ lineX: ev.lineX, voltage: prevV });
       samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
       prevV = ev.vTarget;
@@ -15141,6 +15151,14 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     }
     if (_lsSkipRC) {
       // Square wave: instant transition to vTarget (no RC curve)
+      // Add hold sample if there's a significant gap from previous sample
+      // (prevents diagonal lines during hold periods like VBK)
+      if (samples.length > 0) {
+        var _lastSmp2 = samples[samples.length - 1];
+        if (ev.lineX - _lastSmp2.lineX > 2) {
+          samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+        }
+      }
       samples.push({ lineX: ev.lineX, voltage: prevV });
       samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
       prevV = ev.vTarget;
@@ -16417,6 +16435,14 @@ function wfgRender() {
         // — the motion-end timeout will re-render at correct resolution
         var _lppTol = _wfgContinuousMotion ? 1e9 : 4;
         _lppOk = (_acEntry.lpp <= _curLpp * _lppTol && _acEntry.lpp >= _curLpp / _lppTol);
+        // CRITICAL: invalidate if cached and current lpp are on opposite sides of LOD
+        // threshold (2). Otherwise stale LOD-simplified data renders at zoomed-in levels.
+        if (!_wfgContinuousMotion && _lppOk) {
+          var _LOD_THRESH = 2;
+          var _cachedIsSimplified = _acEntry.lpp > _LOD_THRESH;
+          var _currentNeedsDetail = _curLpp <= _LOD_THRESH;
+          if (_cachedIsSimplified && _currentNeedsDetail) _lppOk = false;
+        }
       }
       if (_acEntry && _lppOk && _acEntry.cacheVer === _wfgAnalogCacheVer &&
           _acEntry.startLine <= wfgViewStart - _acMargin &&
@@ -16427,11 +16453,11 @@ function wfgRender() {
         var _cacheMargin = Math.max(effVtotal * 2, viewRange * 3);
         var _cStartLine = Math.max(0, wfgViewStart - _cacheMargin);
         var _cEndLine = Math.min(wfgTotalLines(), wfgViewEnd + _cacheMargin);
+        var _cLpp = drawW > 0 ? viewRange / drawW : 1;
         if (gpio.waveform_type === 1) {
-          _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer);
+          _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer, _cLpp);
         } else if (gpio.waveform_type === 2) {
           // Use viewport lpp for resolution so cached samples look correct at this zoom level
-          var _cLpp = drawW > 0 ? viewRange / drawW : 1;
           _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, _cLpp);
         }
         if (_anaData) {
