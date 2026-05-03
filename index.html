@@ -1689,6 +1689,9 @@
   .wfg-label-item.wfg-label-dragging { opacity: 0.7; cursor: grabbing; z-index: 5; position: relative; transition: none; }
   .wfg-label-drop-indicator { position: absolute; left: 4px; right: 4px; height: 2px; background: #f97316; border-radius: 1px; pointer-events: none; z-index: 10; display: none; }
   .wfg-label-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .wfg-cursor-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 3px; cursor: pointer; user-select: none; -webkit-user-select: none; border: 1px solid #475569; background: transparent; transition: all 0.15s; flex-shrink: 0; opacity: 0.45; }
+  .wfg-cursor-toggle:hover { border-color: #22d3ee; opacity: 0.8; }
+  .wfg-cursor-toggle.active { background: rgba(34,211,238,0.15); border-color: #22d3ee; opacity: 1; }
   .wfg-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #64748b; font-size: 13px; gap: 8px; }
   /* ── WFG Import Progress Overlay ── */
   .wfg-progress-overlay { position: absolute; inset: 0; background: rgba(13,17,23,0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; gap: 12px; }
@@ -1810,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.73.2</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.74.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.73.2</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.74.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -14548,6 +14551,14 @@ var _wfgAnalogChSlots = [];
 var _wfgVoltCursorDrag = null; // { ci, slotIdx, slotY, slotH, gpioIdx }
 // Cached label positions for touch hit-testing (populated during wfgDrawVoltCursors)
 var _wfgVoltCursorLabels = []; // [{ ci, slotIdx, gpioIdx, lx, ly, tw, th }]
+// Toggle showCursors from label area button
+function wfgToggleCursorBtn(gpioIdx) {
+  var g = wfgGpios[gpioIdx];
+  if (!g || !g.analog_config) return;
+  g.analog_config.showCursors = g.analog_config.showCursors === false ? true : false;
+  wfgRenderLabels();
+  wfgRender();
+}
 
 // Maximum L value for an analog config's bit depth (255 for 8-bit, 63 for 6-bit, 1023 for 10-bit).
 function wfgAnalogMaxL(ac) {
@@ -15469,22 +15480,8 @@ function wfgDrawVoltCursors(ctx) {
     var ac = gpio.analog_config;
     if (!ac) continue;
 
-    // Draw eye toggle icon for each analog slot (top-right corner of slot)
-    var _eyeOn = ac.showCursors !== false;
-    var _eyeX = w - 18;
-    var _eyeY = Math.round(slot.slotY + 4);
-    ctx.save();
-    ctx.globalAlpha = _eyeOn ? 0.7 : 0.35;
-    ctx.font = '11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = _eyeOn ? '#22d3ee' : '#64748b';
-    ctx.fillText(_eyeOn ? '👁' : '👁‍🗨', _eyeX, _eyeY);
-    ctx.restore();
-    // Cache eye icon position for click hit-testing
-    _wfgVoltCursorLabels.push({ ci: -1, slotIdx: si, gpioIdx: slot.gpioIdx != null ? slot.gpioIdx : si, lx: _eyeX - 10, ly: _eyeY - 2, tw: 20, th: 16, isEyeToggle: true });
-
     // Skip cursor drawing if showCursors is off for this channel
+    var _eyeOn = ac.showCursors !== false;
     if (!_eyeOn) continue;
 
     var yHigh = Math.round(slot.slotY + 6) + 0.5;
@@ -15672,8 +15669,8 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   // is legible even when the slot is small. For LS channels, prefix VGH/VGL.
   var _isLS = gpio && gpio.waveform_type === 2;
   ctx.save();
-  ctx.font = '9px monospace';
-  ctx.fillStyle = 'rgba(148,163,184,0.7)';
+  ctx.font = 'bold 11px monospace';
+  ctx.fillStyle = '#e2e8f0';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText((_isLS ? 'VGH ' : '') + vMax.toFixed(2) + 'V', w - 4, yHigh + 1);
@@ -16546,7 +16543,14 @@ function wfgRenderLabels() {
       if (_item.type === 'channel') {
         var _ci2 = visMap[_item.chIdx];
         var _ch2 = wfgChannels[_ci2];
-        html += '<div class="wfg-label-item" data-ch-idx="' + _ci2 + '"><span class="wfg-label-dot" style="background:' + _ch2.color + '"></span>' + _ch2.name + '</div>';
+        var _lGp2 = (_ch2.gpioIdx >= 0 && _ch2.gpioIdx < wfgGpios.length) ? wfgGpios[_ch2.gpioIdx] : null;
+        var _isAna2 = !!(_lGp2 && _lGp2.waveform_type);
+        var _cursorBtn2 = '';
+        if (_isAna2) {
+          var _curOn2 = !_lGp2.analog_config || _lGp2.analog_config.showCursors !== false;
+          _cursorBtn2 = '<span class="wfg-cursor-toggle' + (_curOn2 ? ' active' : '') + '" onclick="event.stopPropagation();wfgToggleCursorBtn(' + _ch2.gpioIdx + ')" title="V1/V2 Cursor"><svg width="22" height="14" viewBox="0 0 22 14" style="display:block"><line x1="0" y1="3.5" x2="22" y2="3.5" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="3,2"/><text x="22" y="3" text-anchor="end" font-size="6" font-weight="bold" fill="#22d3ee" dy="-1">V1</text><line x1="0" y1="10.5" x2="22" y2="10.5" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="3,2"/><text x="22" y="10" text-anchor="end" font-size="6" font-weight="bold" fill="#f472b6" dy="-1">V2</text></svg></span>';
+        }
+        html += '<div class="wfg-label-item" data-ch-idx="' + _ci2 + '"><span class="wfg-label-dot" style="background:' + _ch2.color + '"></span>' + _ch2.name + _cursorBtn2 + '</div>';
       } else {
         // Promoted group label
         var _pgIdx = _item.grpIdx;
@@ -16567,7 +16571,14 @@ function wfgRenderLabels() {
   } else {
     for (var i = 0; i < visMap.length; i++) {
       var ch = wfgChannels[visMap[i]];
-      html += '<div class="wfg-label-item" data-ch-idx="' + visMap[i] + '"><span class="wfg-label-dot" style="background:' + ch.color + '"></span>' + wfgChDisplayName(ch, visMap[i]) + '</div>';
+      var _lGpN = (ch.gpioIdx >= 0 && ch.gpioIdx < wfgGpios.length) ? wfgGpios[ch.gpioIdx] : null;
+      var _isAnaN = !!(_lGpN && _lGpN.waveform_type);
+      var _cursorBtnN = '';
+      if (_isAnaN) {
+        var _curOnN = !_lGpN.analog_config || _lGpN.analog_config.showCursors !== false;
+        _cursorBtnN = '<span class="wfg-cursor-toggle' + (_curOnN ? ' active' : '') + '" onclick="event.stopPropagation();wfgToggleCursorBtn(' + ch.gpioIdx + ')" title="V1/V2 Cursor"><svg width="22" height="14" viewBox="0 0 22 14" style="display:block"><line x1="0" y1="3.5" x2="22" y2="3.5" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="3,2"/><text x="22" y="3" text-anchor="end" font-size="6" font-weight="bold" fill="#22d3ee" dy="-1">V1</text><line x1="0" y1="10.5" x2="22" y2="10.5" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="3,2"/><text x="22" y="10" text-anchor="end" font-size="6" font-weight="bold" fill="#f472b6" dy="-1">V2</text></svg></span>';
+      }
+      html += '<div class="wfg-label-item" data-ch-idx="' + visMap[i] + '"><span class="wfg-label-dot" style="background:' + ch.color + '"></span>' + wfgChDisplayName(ch, visMap[i]) + _cursorBtnN + '</div>';
     }
   }
   html += '<div class="wfg-label-drop-indicator" id="wfg-label-drop-indicator"></div>';
@@ -19030,24 +19041,12 @@ function wfgInitCanvas() {
       wfgRender();
       return;
     }
-    // Eye toggle hit-test: check if click is on a showCursors eye icon
+    // Time cursor (V cursor) label hit-test: click on label to drag-reposition
     var _vcRect = canvas.getBoundingClientRect();
     var _vcDpr = window.devicePixelRatio || 1;
     var _vcSc = (canvas.width / _vcDpr) / _vcRect.width;
     var _vcCx = (e.clientX - _vcRect.left) * _vcSc;
     var _vcCy = (e.clientY - _vcRect.top) * _vcSc;
-    for (var _ei = 0; _ei < _wfgVoltCursorLabels.length; _ei++) {
-      var _elb = _wfgVoltCursorLabels[_ei];
-      if (_elb.isEyeToggle && _vcCx >= _elb.lx && _vcCx <= _elb.lx + _elb.tw && _vcCy >= _elb.ly && _vcCy <= _elb.ly + _elb.th) {
-        var _eGpio = wfgGpios[_elb.gpioIdx];
-        if (_eGpio && _eGpio.analog_config) {
-          _eGpio.analog_config.showCursors = _eGpio.analog_config.showCursors === false ? true : false;
-          wfgRender();
-        }
-        return;
-      }
-    }
-    // Time cursor (V cursor) label hit-test: click on label to drag-reposition
     var _tcHit = wfgTimeCursorLabelHitTest(_vcCx, _vcCy, false);
     if (_tcHit >= 0 && !wfgCursors[_tcHit].moving) {
       wfgTimeCursorStartDrag(_tcHit);
@@ -19212,26 +19211,12 @@ function wfgInitCanvas() {
     // Clear measurement arrows when a new touch gesture begins (mobile)
     wfgMeasClear();
     if (e.touches.length === 1) {
-      // ── Eye toggle touch: check if finger is on a showCursors eye icon ──
+      // ── Time cursor (V cursor) label touch: tap label to drag-reposition ──
       var _vtRect = canvas.getBoundingClientRect();
       var _vtDpr = window.devicePixelRatio || 1;
       var _vtSc = (canvas.width / _vtDpr) / _vtRect.width;
       var _vtCx = (e.touches[0].clientX - _vtRect.left) * _vtSc;
       var _vtCy = (e.touches[0].clientY - _vtRect.top) * _vtSc;
-      var _etMargin = 14;
-      for (var _eti = 0; _eti < _wfgVoltCursorLabels.length; _eti++) {
-        var _etLb = _wfgVoltCursorLabels[_eti];
-        if (_etLb.isEyeToggle && _vtCx >= _etLb.lx - _etMargin && _vtCx <= _etLb.lx + _etLb.tw + _etMargin && _vtCy >= _etLb.ly - _etMargin && _vtCy <= _etLb.ly + _etLb.th + _etMargin) {
-          var _etGpio = wfgGpios[_etLb.gpioIdx];
-          if (_etGpio && _etGpio.analog_config) {
-            _etGpio.analog_config.showCursors = _etGpio.analog_config.showCursors === false ? true : false;
-            wfgRender();
-          }
-          e.preventDefault();
-          return;
-        }
-      }
-      // ── Time cursor (V cursor) label touch: tap label to drag-reposition ──
       var _ttHit = wfgTimeCursorLabelHitTest(_vtCx, _vtCy, true);
       if (_ttHit >= 0 && !wfgCursors[_ttHit].moving) {
         wfgTimeCursorStartDrag(_ttHit);
