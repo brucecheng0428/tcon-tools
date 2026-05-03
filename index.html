@@ -1810,7 +1810,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.72.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.72.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2847,7 +2847,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.72.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.72.1</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16132,7 +16132,8 @@ function wfgRender() {
   // If label drag is active, adjust channel positions (promoted groups stay fixed)
   if (isDragging && _wfgLabelDrag.canvasRect) {
     var _dragSlot = (_chSlotMap[dragFromIdx] !== undefined) ? _chSlotMap[dragFromIdx] : dragFromIdx;
-    var _dragMouseY = _wfgLabelDrag.mouseY - _wfgLabelDrag.canvasRect.top - rowStep / 2;
+    var _dragSlotH = _slotHeights[_dragSlot] || WFG_ROW_H;
+    var _dragMouseY = _wfgLabelDrag.mouseY - _wfgLabelDrag.canvasRect.top - _dragSlotH / 2;
     var _minDY = wfgWaveY0;
     var _maxDY = (_totalSlots > 0) ? _slotY0[_totalSlots - 1] : wfgWaveY0;
     if (_dragMouseY < _minDY) _dragMouseY = _minDY;
@@ -17036,8 +17037,9 @@ function wfgLabelDragSetup(container, visMap, rowH) {
   // (accounts for promoted groups taking up slots)
   var _chItemSlots = []; // item index -> slot index in display list
   var _totalDisplaySlots = visMap.length;
+  var _dl = null;
   if (wfgTconInternalMode && !wfgKvdatMode) {
-    var _dl = wfgBuildDisplayList(visMap.map(function(ci) { return wfgChannels[ci]; }));
+    _dl = wfgBuildDisplayList(visMap.map(function(ci) { return wfgChannels[ci]; }));
     _totalDisplaySlots = _dl.length;
     var _chItemIdx = 0;
     for (var _dli = 0; _dli < _dl.length; _dli++) {
@@ -17049,6 +17051,33 @@ function wfgLabelDragSetup(container, visMap, rowH) {
   } else {
     for (var _si = 0; _si < visMap.length; _si++) _chItemSlots.push(_si);
   }
+
+  // Build per-slot heights and cumulative Y offsets (analog channels are taller)
+  var _dragSlotHeights = new Array(_totalDisplaySlots);
+  for (var _dsh = 0; _dsh < _totalDisplaySlots; _dsh++) {
+    if (_dl) {
+      var _dle = _dl[_dsh];
+      if (_dle.type === 'channel') {
+        var _gA = wfgGpios[_dle.ch.gpioIdx];
+        _dragSlotHeights[_dsh] = (_gA && _gA.waveform_type) ? WFG_ANALOG_ROW_H : WFG_ROW_H;
+      } else {
+        _dragSlotHeights[_dsh] = WFG_ROW_H; // promoted = digital height
+      }
+    } else {
+      var _ciD = visMap[_dsh];
+      var _chD = (_ciD >= 0 && _ciD < wfgChannels.length) ? wfgChannels[_ciD] : null;
+      var _gpD = (_chD && _chD.gpioIdx >= 0) ? wfgGpios[_chD.gpioIdx] : null;
+      _dragSlotHeights[_dsh] = (_gpD && _gpD.waveform_type) ? WFG_ANALOG_ROW_H : WFG_ROW_H;
+    }
+  }
+  // Cumulative Y positions (relative to waveform area top, i.e. after axis)
+  var _dragSlotY0 = new Array(_totalDisplaySlots);
+  var _dragAccY = 0;
+  for (var _dsy = 0; _dsy < _totalDisplaySlots; _dsy++) {
+    _dragSlotY0[_dsy] = _dragAccY;
+    _dragAccY += _dragSlotHeights[_dsy] + WFG_ROW_GAP;
+  }
+  var _dragTotalH = _dragAccY; // total height of all slots
 
   function getAxisH() {
     if (typeof wfgKvdatMode !== 'undefined' && wfgKvdatMode) return WFG_AXIS_H;
@@ -17067,12 +17096,23 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     scheduleDragRender();
   }
 
+  // Convert mouse relY (relative to waveform area top) to nearest slot boundary index.
+  // Returns 0.._totalDisplaySlots (boundary between slots, or before first / after last).
+  function relYToSlotBoundary(relY) {
+    // Find the slot boundary closest to relY by checking midpoints of each slot
+    for (var s = 0; s < _totalDisplaySlots; s++) {
+      var slotMid = _dragSlotY0[s] + _dragSlotHeights[s] / 2;
+      if (relY < slotMid) return s;
+    }
+    return _totalDisplaySlots;
+  }
+
   function moveDrag(clientY) {
     if (!_wfgLabelDrag) return;
     var rect = container.getBoundingClientRect();
     var relY = clientY - rect.top - getAxisH();
-    // Convert slot position to channel index (skip promoted group slots)
-    var slotIdx = Math.round(relY / rowH);
+    // Convert mouse Y to nearest slot boundary using cumulative heights
+    var slotIdx = relYToSlotBoundary(relY);
     slotIdx = Math.max(0, Math.min(_totalDisplaySlots, slotIdx));
     // Map slot back to channel index
     var targetIdx = slotIdx;
@@ -17089,14 +17129,15 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     var canvas = document.getElementById('wfg-canvas');
     if (canvas) _wfgLabelDrag.canvasRect = canvas.getBoundingClientRect();
     if (indicator) {
-      // Position indicator at the slot position
+      // Position indicator at the slot boundary using cumulative Y offsets
       var indicatorSlot = targetIdx;
       if (wfgTconInternalMode && !wfgKvdatMode) {
         indicatorSlot = targetIdx;
         if (_wfgPromotedRx >= 0 && _wfgPromotedRx <= indicatorSlot) indicatorSlot++;
         if (_wfgPromotedTcon >= 0 && _wfgPromotedTcon <= indicatorSlot) indicatorSlot++;
       }
-      indicator.style.top = (getAxisH() + indicatorSlot * rowH - 1) + 'px';
+      var indicatorY = (indicatorSlot < _totalDisplaySlots) ? _dragSlotY0[indicatorSlot] : _dragTotalH;
+      indicator.style.top = (getAxisH() + indicatorY - 1) + 'px';
     }
     // Move label items to match canvas waveform positions
     updateLabelPositions();
@@ -17112,28 +17153,31 @@ function wfgLabelDragSetup(container, visMap, rowH) {
     var target = drag.currentIdx;
     if (target > count) target = count;
     if (target < 0) target = 0;
-    var gapSlot = target > from ? target - 1 : target;
 
     // Calculate where the dragged label should be (relative to its normal position)
     var canvas = document.getElementById('wfg-canvas');
     var canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+    var fromSlot = _chItemSlots[from] !== undefined ? _chItemSlots[from] : from;
+    var fromSlotH = _dragSlotHeights[fromSlot] || WFG_ROW_H;
     var draggedY;
     if (canvasRect) {
-      draggedY = drag.mouseY - canvasRect.top - rowH / 2;
+      draggedY = drag.mouseY - canvasRect.top - fromSlotH / 2;
       var minY = WFG_AXIS_H;
-      var maxY = WFG_AXIS_H + (_totalDisplaySlots - 1) * rowH;
+      // Max Y: top of the last slot
+      var lastSlotY = (_totalDisplaySlots > 0) ? _dragSlotY0[_totalDisplaySlots - 1] : 0;
+      var maxY = WFG_AXIS_H + lastSlotY;
       if (draggedY < minY) draggedY = minY;
       if (draggedY > maxY) draggedY = maxY;
     } else {
-      draggedY = axH + (_chItemSlots[from] || from) * rowH;
+      var fromY0 = (_dragSlotY0[fromSlot] !== undefined) ? _dragSlotY0[fromSlot] : 0;
+      draggedY = axH + fromY0;
     }
 
-    var slot = 0;
     for (var i = 0; i < count; i++) {
       var naturalSlot = _chItemSlots[i] !== undefined ? _chItemSlots[i] : i;
       if (i === from) {
         // Dragged item: position based on mouse
-        var normalY = axH + naturalSlot * rowH;
+        var normalY = axH + (_dragSlotY0[naturalSlot] || 0);
         var offset = draggedY - normalY;
         items[i].style.transform = 'translateY(' + offset + 'px)';
         items[i].style.zIndex = '5';
