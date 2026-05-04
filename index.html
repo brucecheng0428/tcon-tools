@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.87.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.88.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.87.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.88.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13198,8 +13198,45 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     prevV = settled[line];
   }
 
+  // ── Precompute RC sub-line samples for zero-compute band rendering ──
+  var RC_PTS = 20;
+  var rcSamples = new Float32Array(totalLines * RC_PTS);
+  var lineMinMax = new Float32Array(totalLines * 2);
+  for (var rL = 0; rL < totalLines; rL++) {
+    var rHoldV = rL > 0 ? settled[rL - 1] : settled[0];
+    var rTgtV = target[rL];
+    var rBase = rL * RC_PTS;
+    if (Math.abs(rTgtV - rHoldV) < 0.001) {
+      var rFlatV = settled[rL];
+      for (var rsi = 0; rsi < RC_PTS; rsi++) rcSamples[rBase + rsi] = rFlatV;
+      lineMinMax[rL * 2] = rFlatV;
+      lineMinMax[rL * 2 + 1] = rFlatV;
+    } else {
+      var rTau = (rTgtV >= rHoldV) ? expRise : expFall;
+      var rRcTau = (rTgtV >= rHoldV) ? RC_TAU_RISE : RC_TAU_FALL;
+      var rMin = rHoldV, rMax = rHoldV;
+      for (var rsi = 0; rsi < RC_PTS; rsi++) {
+        var rF = rsi / RC_PTS;
+        var rV;
+        if (rF < xstbFracDly) {
+          rV = rHoldV;
+        } else {
+          var rDt = rF - xstbFracDly;
+          rV = rTgtV + (rHoldV - rTgtV) * Math.exp(-rDt / rRcTau);
+        }
+        rcSamples[rBase + rsi] = rV;
+        if (rV < rMin) rMin = rV;
+        if (rV > rMax) rMax = rV;
+      }
+      lineMinMax[rL * 2] = rMin;
+      lineMinMax[rL * 2 + 1] = rMax;
+    }
+  }
+
   return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
-    rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL, ver: _wfgAnalogCacheVer };
+    rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
+    rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
+    ver: _wfgAnalogCacheVer };
 }
 
 // ─── LS channel precomputation ───
@@ -13258,8 +13295,50 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     }
   }
 
+  // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
+  var RC_PTS = 20;
+  var rcSamples = new Float32Array(totalLines * RC_PTS);
+  var lineMinMax = new Float32Array(totalLines * 2);
+  var _rsV = ac.voltage_min, _rsTarget = _rsV, _rsTau = RC_TAU_RISE;
+  var _rsLastX = 0, _rsBaseV = _rsV, _rsEi = 0;
+  for (var _rsLine = 0; _rsLine < totalLines; _rsLine++) {
+    var _rsBase = _rsLine * RC_PTS;
+    var _rsMin = Infinity, _rsMax = -Infinity;
+    for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
+      var _rsPos = _rsLine + _rsSi / RC_PTS;
+      while (_rsEi < events.length && events[_rsEi].lineX <= _rsPos) {
+        var _rsEv = events[_rsEi];
+        var _rsDt = _rsEv.lineX - _rsLastX;
+        if (_rsDt > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
+          _rsV = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt / _rsTau);
+        } else {
+          _rsV = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
+        }
+        if (_rsEv._reset) _rsV = _rsEv.vTarget;
+        _rsBaseV = _rsV;
+        _rsTarget = _rsEv.vTarget;
+        _rsTau = (_rsEv.vTarget >= _rsV) ? RC_TAU_RISE : RC_TAU_FALL;
+        _rsLastX = _rsEv.lineX;
+        _rsEi++;
+      }
+      var _rsDt2 = _rsPos - _rsLastX;
+      var _rsVal;
+      if (_rsDt2 > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
+        _rsVal = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt2 / _rsTau);
+      } else {
+        _rsVal = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
+      }
+      rcSamples[_rsBase + _rsSi] = _rsVal;
+      if (_rsVal < _rsMin) _rsMin = _rsVal;
+      if (_rsVal > _rsMax) _rsMax = _rsVal;
+    }
+    lineMinMax[_rsLine * 2] = _rsMin;
+    lineMinMax[_rsLine * 2 + 1] = _rsMax;
+  }
+
   return { settled: settled, events: events, totalLines: totalLines, effVtotal: effVtotal,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
+    rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
     vMin: ac.voltage_min, vMax: ac.voltage_max, ver: _wfgAnalogCacheVer };
 }
 
@@ -13269,23 +13348,133 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var totalLines = precomp.totalLines;
   var ac = gpio.analog_config;
   var lpp = drawW > 0 ? (viewEnd - viewStart) / drawW : 1;
+  var visibleLines = viewEnd - viewStart;
   var startLine = Math.max(0, Math.floor(viewStart) - 1);
   var endLine = Math.min(totalLines - 1, Math.ceil(viewEnd) + 1);
   if (startLine > endLine) startLine = endLine;
-  var samples = [];
-  var bandData = null;
   var isSD = gpio.waveform_type === 1;
   var isLS = gpio.waveform_type === 2;
+  var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
+  var RC_PTS = precomp.rcPts || 20;
 
-  if (lpp > 2 || (isSD && lpp > 0.5)) {
-    // ── Min/max band mode ──
-    // SD uses this path when zoomed out (lpp > 0.5, i.e. < 2 px/line) for performance
-    // and distortion-free rendering. Other channels use it only at lpp > 2.
-    // Build per-pixel min/max band directly from settled[]; skip samples[] entirely
-    // since the renderer uses bandData exclusively when _useBand is true.
-    var _bW = Math.max(0, Math.round(drawW));
-    bandData = new Float32Array(_bW * 2);
-    var bandVMin = Infinity, bandVMax = -Infinity;
+  // ═══ Path 1: Ultra-close zoom (≤ 10 lines visible) — real-time high-density ═══
+  if (visibleLines <= 10) {
+    var samples = [];
+    var pixelsPerLine = drawW / Math.max(1, visibleLines);
+    var numPts = Math.max(40, Math.round(pixelsPerLine * 2));
+    if (numPts > 200) numPts = 200;
+
+    if (isSD && precomp.target) {
+      var _ucTauR = precomp.rcTauRise, _ucTauF = precomp.rcTauFall;
+      var _ucDly = precomp.xstbFracDly || 0;
+      for (var L = startLine; L <= endLine; L++) {
+        var prevV = L > 0 ? settled[L - 1] : settled[0];
+        var tgtV = precomp.target[L];
+        var eventX = L + _ucDly;
+        samples.push({ lineX: eventX, voltage: prevV });
+        if (Math.abs(tgtV - prevV) > 0.001) {
+          var rcTau = (tgtV >= prevV) ? _ucTauR : _ucTauF;
+          var curveSpan = Math.min(1.0, rcTau * 5);
+          for (var kk = 1; kk <= numPts; kk++) {
+            var dt = (kk / numPts) * curveSpan;
+            samples.push({ lineX: eventX + dt, voltage: tgtV + (prevV - tgtV) * Math.exp(-dt / rcTau) });
+          }
+        }
+      }
+    } else if (isLS && precomp.events) {
+      var _ucTauR = precomp.rcTauRise, _ucTauF = precomp.rcTauFall;
+      var events = precomp.events;
+      var eVt = precomp.effVtotal || 1;
+      var nearStart = viewStart - eVt;
+      var _bLo = 0, _bHi = events.length - 1, firstIdx = 0;
+      while (_bLo <= _bHi) {
+        var _bMid = (_bLo + _bHi) >>> 1;
+        if (events[_bMid].lineX < nearStart) { firstIdx = _bMid + 1; _bLo = _bMid + 1; }
+        else _bHi = _bMid - 1;
+      }
+      var prevV = ac.voltage_min;
+      if (firstIdx > 0) prevV = events[firstIdx - 1].vTarget;
+      for (var ei = firstIdx; ei < events.length; ei++) {
+        var ev = events[ei];
+        if (ev.lineX > viewEnd + eVt) break;
+        if (samples.length > 0) {
+          var lastSmp = samples[samples.length - 1];
+          if (ev.lineX - lastSmp.lineX > 2) samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+        }
+        if (ev._reset) {
+          samples.push({ lineX: ev.lineX, voltage: prevV });
+          samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+          prevV = ev.vTarget;
+        } else {
+          samples.push({ lineX: ev.lineX, voltage: prevV });
+          var rcTau = (ev.vTarget >= prevV) ? _ucTauR : _ucTauF;
+          var nextEvtX = (ei + 1 < events.length) ? events[ei + 1].lineX : ev.lineX + 1;
+          var span = Math.max(1e-6, nextEvtX - ev.lineX);
+          var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
+          var _cd = numPts;
+          if (curveSpan > 2) _cd = Math.max(numPts, Math.ceil(curveSpan * 4));
+          if (_cd > 400) _cd = 400;
+          for (var kk = 1; kk <= _cd; kk++) {
+            var dt = (kk / _cd) * curveSpan;
+            samples.push({ lineX: ev.lineX + dt, voltage: ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau) });
+          }
+          prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
+        }
+      }
+    }
+    return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: false, bandData: null, bandW: 0 };
+  }
+
+  // ═══ Path 2: Normal — zero-compute band from precomputed data ═══
+  var _bW = Math.max(0, Math.round(drawW));
+  var bandData = new Float32Array(_bW * 2);
+  var bandVMin = Infinity, bandVMax = -Infinity;
+
+  if (precomp.rcSamples && lpp <= 2) {
+    // Sub-line detail from precomputed RC samples (medium/close zoom)
+    var rcs = precomp.rcSamples;
+    for (var px = 0; px < _bW; px++) {
+      var pxSF = viewStart + px * lpp;
+      var pxEF = viewStart + (px + 1) * lpp;
+      var lineS = Math.max(0, Math.floor(pxSF));
+      var lineE = Math.min(totalLines - 1, Math.floor(pxEF));
+      var bMin = Infinity, bMax = -Infinity;
+      for (var line = lineS; line <= lineE; line++) {
+        var fracS = (line === lineS) ? Math.max(0, pxSF - line) : 0;
+        var fracE = (line === lineE) ? Math.min(1, pxEF - line) : 1;
+        var siS = Math.max(0, Math.floor(fracS * RC_PTS));
+        var siE = Math.min(RC_PTS - 1, Math.ceil(fracE * RC_PTS));
+        var base = line * RC_PTS;
+        for (var si = siS; si <= siE; si++) {
+          var v = rcs[base + si];
+          if (v < bMin) bMin = v;
+          if (v > bMax) bMax = v;
+        }
+      }
+      if (!isFinite(bMin)) { bMin = bMax = settled[Math.max(0, Math.min(totalLines - 1, lineS))]; }
+      bandData[px * 2] = bMin;
+      bandData[px * 2 + 1] = bMax;
+      if (bMin < bandVMin) bandVMin = bMin;
+      if (bMax > bandVMax) bandVMax = bMax;
+    }
+  } else if (precomp.lineMinMax) {
+    // Zoomed out: per-line min/max (fast scan, zero Math.exp)
+    var lmm = precomp.lineMinMax;
+    for (var px = 0; px < _bW; px++) {
+      var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
+      var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
+      var bMin = lmm[pxS * 2], bMax = lmm[pxS * 2 + 1];
+      for (var k = pxS + 1; k <= pxE; k++) {
+        if (lmm[k * 2] < bMin) bMin = lmm[k * 2];
+        if (lmm[k * 2 + 1] > bMax) bMax = lmm[k * 2 + 1];
+      }
+      bandData[px * 2] = bMin;
+      bandData[px * 2 + 1] = bMax;
+      if (bMin < bandVMin) bandVMin = bMin;
+      if (bMax > bandVMax) bandVMax = bMax;
+    }
+  } else {
+    // Fallback: settled[] direct scan (channels without precomputed RC data)
     for (var px = 0; px < _bW; px++) {
       var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
       var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
@@ -13300,95 +13489,10 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       if (bMin < bandVMin) bandVMin = bMin;
       if (bMax > bandVMax) bandVMax = bMax;
     }
-    // Store band voltage range for auto-range (avoids scanning samples)
-    var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
-    return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: true,
-      bandData: bandData, bandW: _bW, bandVMin: bandVMin, bandVMax: bandVMax };
-  } else if (lpp > 0.5 || (!precomp.target && !precomp.events)) {
-    // ── Medium zoom: direct settled[] reference (zero allocation) ──
-    // For non-SD channels at 0.5 < lpp ≤ 2, or any channel without precomp data.
-    // SD never uses this path — it goes from bandData (lpp > 0.5) directly to
-    // RC curve (lpp ≤ 0.5) to avoid directSettled artifacts on analog waveforms.
-    var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
-    return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: false,
-      bandData: null, bandW: 0,
-      directSettled: settled, directStart: startLine, directEnd: endLine };
-  } else if (isSD && precomp.target) {
-    // ── Close zoom SD: sub-line RC curves from target[] ──
-    var RC_TAU_RISE = precomp.rcTauRise;
-    var RC_TAU_FALL = precomp.rcTauFall;
-    var xstbDly = precomp.xstbFracDly || 0;
-    var CURVE_PTS = 20;
-    for (var L = startLine; L <= endLine; L++) {
-      var prevV = L > 0 ? settled[L - 1] : settled[0];
-      var tgtV = precomp.target[L];
-      var eventX = L + xstbDly;
-      samples.push({ lineX: eventX, voltage: prevV });
-      if (Math.abs(tgtV - prevV) > 0.001) {
-        var rcTau = (tgtV >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
-        var curveSpan = Math.min(1.0, rcTau * 5);
-        for (var kk = 1; kk <= CURVE_PTS; kk++) {
-          var dt = (kk / CURVE_PTS) * curveSpan;
-          samples.push({ lineX: eventX + dt, voltage: tgtV + (prevV - tgtV) * Math.exp(-dt / rcTau) });
-        }
-      }
-    }
-  } else if (isLS && precomp.events) {
-    // ── Close zoom LS: RC curves from event list ──
-    var RC_TAU_RISE = precomp.rcTauRise;
-    var RC_TAU_FALL = precomp.rcTauFall;
-    var _RC_MIN_PX = 2;
-    var _rcMaxTau = Math.max(RC_TAU_RISE, RC_TAU_FALL);
-    var _rcSpanPx = (lpp > 0) ? (_rcMaxTau * 5) / lpp : 9999;
-    var _lsSkipRC = (_rcSpanPx < _RC_MIN_PX);
-    var CURVE_PTS = 16;
-    var events = precomp.events;
-    var eVt = precomp.effVtotal || 1;
-    // Binary search for first event near viewport
-    var nearStart = viewStart - eVt;
-    var _bLo = 0, _bHi = events.length - 1, firstIdx = 0;
-    while (_bLo <= _bHi) {
-      var _bMid = (_bLo + _bHi) >>> 1;
-      if (events[_bMid].lineX < nearStart) { firstIdx = _bMid + 1; _bLo = _bMid + 1; }
-      else _bHi = _bMid - 1;
-    }
-    var prevV = ac.voltage_min;
-    if (firstIdx > 0) prevV = events[firstIdx - 1].vTarget;
-    for (var ei = firstIdx; ei < events.length; ei++) {
-      var ev = events[ei];
-      if (ev.lineX > viewEnd + eVt) break;
-      if (samples.length > 0) {
-        var lastSmp = samples[samples.length - 1];
-        if (ev.lineX - lastSmp.lineX > 2) samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
-      }
-      if (ev._reset) {
-        samples.push({ lineX: ev.lineX, voltage: prevV });
-        samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
-        prevV = ev.vTarget;
-      } else if (_lsSkipRC) {
-        samples.push({ lineX: ev.lineX, voltage: prevV });
-        samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
-        prevV = ev.vTarget;
-      } else {
-        samples.push({ lineX: ev.lineX, voltage: prevV });
-        var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
-        var nextEvtX = (ei + 1 < events.length) ? events[ei + 1].lineX : ev.lineX + 1;
-        var span = Math.max(1e-6, nextEvtX - ev.lineX);
-        var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
-        var _cd = CURVE_PTS;
-        if (curveSpan > 2) _cd = Math.max(CURVE_PTS, Math.ceil(curveSpan * 4));
-        if (_cd > 64) _cd = 64;
-        for (var kk = 1; kk <= _cd; kk++) {
-          var dt = (kk / _cd) * curveSpan;
-          samples.push({ lineX: ev.lineX + dt, voltage: ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau) });
-        }
-        prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
-      }
-    }
   }
 
-  var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
-  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: lpp > 2, bandData: bandData, bandW: Math.round(drawW) };
+  return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: true,
+    bandData: bandData, bandW: _bW, bandVMin: bandVMin, bandVMax: bandVMax };
 }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
@@ -16283,40 +16387,6 @@ function wfgComputeAnalogAutoRange(samplesData, viewStartLine, viewEndLine, chan
     }
     return { vMin: bvMin, vMax: bvMax, flat: false };
   }
-  // Fast path: directSettled mode (medium zoom, zero allocation)
-  if (samplesData && samplesData.directSettled) {
-    var ds = samplesData.directSettled;
-    var dsS = Math.max(samplesData.directStart, Math.floor(viewStartLine));
-    var dsE = Math.min(samplesData.directEnd, Math.ceil(viewEndLine));
-    var vMin = Infinity, vMax = -Infinity;
-    // Include carry-in voltage
-    if (samplesData.directStart <= viewStartLine) {
-      var cvIdx = Math.min(Math.floor(viewStartLine), samplesData.directEnd);
-      var cv = ds[cvIdx];
-      if (isFinite(cv)) { vMin = cv; vMax = cv; }
-    }
-    for (var dl = dsS; dl <= dsE; dl++) {
-      var dv = ds[dl];
-      if (dv < vMin) vMin = dv;
-      if (dv > vMax) vMax = dv;
-    }
-    if (!isFinite(vMin) || !isFinite(vMax)) {
-      if (isFinite(chanVMin) && isFinite(chanVMax) && chanVMax - chanVMin > 0.005) {
-        return { vMin: chanVMin, vMax: chanVMax, flat: true };
-      }
-      var fb = samplesData.initVoltage || 0;
-      return { vMin: fb - 0.5, vMax: fb + 0.5, flat: true };
-    }
-    if (vMax - vMin < 0.005) {
-      if (isFinite(chanVMin) && isFinite(chanVMax) && chanVMax - chanVMin > 0.005) {
-        return { vMin: chanVMin, vMax: chanVMax, flat: true };
-      }
-      var mid = (vMin + vMax) / 2;
-      var pad = Math.max(Math.abs(mid) * 0.02, 0.5);
-      return { vMin: mid - pad, vMax: mid + pad, flat: true };
-    }
-    return { vMin: vMin, vMax: vMax, flat: false };
-  }
   var samples = (samplesData && samplesData.samples) || [];
   var vMin = Infinity, vMax = -Infinity;
   // Carry-in: last sample at-or-before viewStart represents the level held into view.
@@ -16488,37 +16558,7 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
     ctx.stroke();
   }
 
-  // ── Direct settled[] rendering for medium zoom (zero allocation) ──
-  var _useDirect = !!(samplesData.directSettled && !_useBand);
-  if (_useDirect) {
-    var ds = samplesData.directSettled;
-    var dsStart = samplesData.directStart;
-    var dsEnd = samplesData.directEnd;
-    ctx.strokeStyle = ch.color;
-    ctx.lineWidth = 1.4;
-    ctx.lineJoin = 'miter';
-    ctx.beginPath();
-    // Clip to visible range
-    var dsVisStart = Math.max(dsStart, Math.floor(viewStartLine));
-    var dsVisEnd = Math.min(dsEnd, Math.ceil(viewEndLine));
-    var firstDrawn = false;
-    // Hold voltage from before visible start
-    var holdV = (dsVisStart > 0 && dsVisStart <= dsEnd) ? ds[Math.max(dsStart, dsVisStart - 1)] : ds[dsStart];
-    var holdY = voltToY(holdV);
-    ctx.moveTo(drawX0, holdY);
-    for (var dL = dsVisStart; dL <= dsVisEnd; dL++) {
-      var dx = lineToX(dL);
-      if (dx < drawX0) { holdY = voltToY(ds[dL]); continue; }
-      if (dx > w) break;
-      ctx.lineTo(dx, voltToY(ds[dL]));
-      firstDrawn = true;
-    }
-    if (firstDrawn && lineToX(dsVisEnd) < w) ctx.lineTo(w, voltToY(ds[dsVisEnd]));
-    else if (!firstDrawn) ctx.lineTo(w, holdY);
-    ctx.stroke();
-  }
-
-  if (!_useBand && !_useDirect) {
+  if (!_useBand) {
   ctx.strokeStyle = ch.color;
   ctx.lineWidth = 1.4;
   ctx.lineJoin = 'miter';
