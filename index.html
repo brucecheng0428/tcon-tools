@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.89.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.89.2</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.89.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.89.2</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13297,38 +13297,28 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     voltLut[lutStride + lv] = wfgAnalogTargetVoltageWithPol(gf, 1, ac);
   }
 
-  // RC: precompute exp factors to avoid Math.exp in the main loop
+  // RC: precompute exp(-1/tau) factors to avoid Math.exp in the main loop
   var _curveRise = (ac.curvature_rise != null) ? ac.curvature_rise : 127;
   var _curveFall = (ac.curvature_fall != null) ? ac.curvature_fall : 127;
   var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
   var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
+  var expRise = Math.exp(-1.0 / RC_TAU_RISE);
+  var expFall = Math.exp(-1.0 / RC_TAU_FALL);
 
-  // XSTB fractional delay — must be determined BEFORE exp factors because
-  // the RC only runs from XSTB↓ to end-of-line, not for a full line period.
+  // XSTB fractional delay (for close-zoom RC curve positioning)
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
   var xstbFracDly = 0;
-  var _xstbHasFalling = false;
   var xstbFlat = _wfgFlatGpios[xstbIdx];
+  // v2.89: if XSTB is flat, skip OAX expansion — fracDly stays 0
   var xstbGpio = wfgGpios[xstbIdx];
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
     var xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, Math.min(effVtotal, totalLines));
     var xstbTrans = xstbOax ? xstbOax.transitions : [];
     for (var fi = 0; fi < xstbTrans.length; fi++) {
-      if (xstbTrans[fi].level === 0) {
-        xstbFracDly = effHtotal > 0 ? (xstbTrans[fi].dly || 0) / effHtotal : 0;
-        _xstbHasFalling = true;
-        break;
-      }
+      if (xstbTrans[fi].level === 0) { xstbFracDly = effHtotal > 0 ? (xstbTrans[fi].dly || 0) / effHtotal : 0; break; }
     }
   }
-
-  // RC duration per line = time from XSTB↓ to end of line period.
-  // Before XSTB↓ the SD holds its previous voltage (no RC activity).
-  // If XSTB has no falling edge at all, SD holds constant — no RC.
-  var _sdRcDuration = _xstbHasFalling ? Math.max(0.001, 1.0 - xstbFracDly) : 1.0;
-  var expRise = _xstbHasFalling ? Math.exp(-_sdRcDuration / RC_TAU_RISE) : 1.0;
-  var expFall = _xstbHasFalling ? Math.exp(-_sdRcDuration / RC_TAU_FALL) : 1.0;
 
   var settled = new Float32Array(totalLines);
   var target = new Float32Array(totalLines);
@@ -13341,57 +13331,55 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   target[0] = tgtV0;
   var prevV = tgtV0;
 
-  if (!_xstbHasFalling) {
-    // XSTB has no falling edge → SD holds initial voltage, never latches new data.
-    for (var line = 1; line < totalLines; line++) {
-      var lineInFrame = line % effVtotal;
-      target[line] = voltLut[polPerLine[line] * lutStride + lValuePerFrame[lineInFrame]];
-      settled[line] = tgtV0;
+  // Main loop: pure array lookups + multiply, no Math.exp
+  for (var line = 1; line < totalLines; line++) {
+    var lineInFrame = line % effVtotal;
+    var pol = polPerLine[line];
+    var lVal = lValuePerFrame[lineInFrame];
+    var tgtV = voltLut[pol * lutStride + lVal];
+    target[line] = tgtV;
+    if (tgtV === prevV) {
+      settled[line] = tgtV;
+    } else {
+      var factor = (tgtV >= prevV) ? expRise : expFall;
+      settled[line] = tgtV + (prevV - tgtV) * factor;
     }
-    prevV = tgtV0;
-  } else {
-    // Main loop: pure array lookups + multiply, no Math.exp
-    for (var line = 1; line < totalLines; line++) {
-      var lineInFrame = line % effVtotal;
-      var pol = polPerLine[line];
-      var lVal = lValuePerFrame[lineInFrame];
-      var tgtV = voltLut[pol * lutStride + lVal];
-      target[line] = tgtV;
-      if (tgtV === prevV) {
-        settled[line] = tgtV;
-      } else {
-        var factor = (tgtV >= prevV) ? expRise : expFall;
-        settled[line] = tgtV + (prevV - tgtV) * factor;
-      }
-      prevV = settled[line];
-    }
+    prevV = settled[line];
   }
 
   // ── Precompute RC sub-line samples for zero-compute band rendering ──
+  // holdV[] tracks the ACTUAL voltage the SD holds just before XSTB↓ on each
+  // line, using the correct RC duration (1 − xstbFracDly) instead of the
+  // simplified full-line factor in settled[].  This is the voltage visible
+  // at the XSTB falling edge position and is used by the close-zoom renderer.
   var RC_PTS = 20;
   var rcSamples = new Float32Array(totalLines * RC_PTS);
   var lineMinMax = new Float32Array(totalLines * 2);
+  var holdV = new Float32Array(totalLines);
+  var _rcDur = Math.max(0.001, 1.0 - xstbFracDly);
+  var _hExpR = Math.exp(-_rcDur / RC_TAU_RISE);
+  var _hExpF = Math.exp(-_rcDur / RC_TAU_FALL);
+  var hV = tgtV0;
   for (var rL = 0; rL < totalLines; rL++) {
-    var rHoldV = rL > 0 ? settled[rL - 1] : settled[0];
+    holdV[rL] = hV;
     var rTgtV = target[rL];
     var rBase = rL * RC_PTS;
-    if (Math.abs(rTgtV - rHoldV) < 0.001) {
-      var rFlatV = settled[rL];
-      for (var rsi = 0; rsi < RC_PTS; rsi++) rcSamples[rBase + rsi] = rFlatV;
-      lineMinMax[rL * 2] = rFlatV;
-      lineMinMax[rL * 2 + 1] = rFlatV;
+    if (Math.abs(rTgtV - hV) < 0.001) {
+      // Target ≈ hold → flat line at hold voltage
+      for (var rsi = 0; rsi < RC_PTS; rsi++) rcSamples[rBase + rsi] = hV;
+      lineMinMax[rL * 2] = hV;
+      lineMinMax[rL * 2 + 1] = hV;
+      // holdV for next line stays at hV (no RC movement)
     } else {
-      var rTau = (rTgtV >= rHoldV) ? expRise : expFall;
-      var rRcTau = (rTgtV >= rHoldV) ? RC_TAU_RISE : RC_TAU_FALL;
-      var rMin = rHoldV, rMax = rHoldV;
+      var rRcTau = (rTgtV >= hV) ? RC_TAU_RISE : RC_TAU_FALL;
+      var rMin = hV, rMax = hV;
       for (var rsi = 0; rsi < RC_PTS; rsi++) {
         var rF = rsi / RC_PTS;
         var rV;
         if (rF < xstbFracDly) {
-          rV = rHoldV;
+          rV = hV;
         } else {
-          var rDt = rF - xstbFracDly;
-          rV = rTgtV + (rHoldV - rTgtV) * Math.exp(-rDt / rRcTau);
+          rV = rTgtV + (hV - rTgtV) * Math.exp(-(rF - xstbFracDly) / rRcTau);
         }
         rcSamples[rBase + rsi] = rV;
         if (rV < rMin) rMin = rV;
@@ -13399,11 +13387,14 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
       }
       lineMinMax[rL * 2] = rMin;
       lineMinMax[rL * 2 + 1] = rMax;
+      // Update holdV: voltage at end of this line's RC = start of next hold
+      var _hExp = (rTgtV >= hV) ? _hExpR : _hExpF;
+      hV = rTgtV + (hV - rTgtV) * _hExp;
     }
   }
 
   return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
-    xstbHasFalling: _xstbHasFalling,
+    holdV: holdV,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
     ver: _wfgAnalogCacheVer };
@@ -13539,38 +13530,30 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     if (isSD && precomp.target) {
       var _ucTauR = precomp.rcTauRise, _ucTauF = precomp.rcTauFall;
       var _ucDly = precomp.xstbFracDly || 0;
-      var _ucHasFalling = precomp.xstbHasFalling !== false; // default true for legacy compat
-      // RC window: from XSTB↓ to end of line period. The SD holds its voltage
-      // before XSTB↓ (no RC activity), then RC charges toward target after XSTB↓.
+      var _ucHoldV = precomp.holdV; // precomputed hold voltage at XSTB↓ per line
+      // RC window: from XSTB↓ to end of line period
       var _sdRcWin = Math.max(0.001, 1.0 - _ucDly);
       for (var L = startLine; L <= endLine; L++) {
-        var prevV = L > 0 ? settled[L - 1] : settled[0];
+        // holdV[L] = voltage SD holds from previous line's RC end until this line's XSTB↓
+        var hV = _ucHoldV ? _ucHoldV[L] : (L > 0 ? settled[L - 1] : settled[0]);
         var tgtV = precomp.target[L];
-        // If XSTB has no falling edge, SD holds constant — just emit flat line.
-        if (!_ucHasFalling) {
-          samples.push({ lineX: L, voltage: prevV });
-          continue;
-        }
         var eventX = L + _ucDly;
-        // HOLD segment: flat from line start to XSTB↓.
-        // SD holds the previous settled voltage until new data is latched.
+        // HOLD segment: flat from line start to XSTB↓
         if (_ucDly > 0.01) {
-          samples.push({ lineX: L, voltage: prevV });
+          samples.push({ lineX: L, voltage: hV });
         }
         // Event at XSTB↓: voltage still at hold level (RC hasn't started)
-        samples.push({ lineX: eventX, voltage: prevV });
-        if (Math.abs(tgtV - prevV) > 0.001) {
-          var rcTau = (tgtV >= prevV) ? _ucTauR : _ucTauF;
-          // RC only runs from XSTB↓ to end of this line period, not into next line's hold.
+        samples.push({ lineX: eventX, voltage: hV });
+        if (Math.abs(tgtV - hV) > 0.001) {
+          var rcTau = (tgtV >= hV) ? _ucTauR : _ucTauF;
           var curveSpan = Math.min(_sdRcWin, rcTau * 5);
-          // Scale sample count to curve's pixel width to avoid over-dense sampling
           var pxForCurve = pixelsPerLine * curveSpan;
           var numPts = Math.max(20, Math.round(pxForCurve * 2));
           if (numPts > 200) numPts = 200;
           var maxDt = Math.max(0.001, curveSpan - 0.002);
           for (var kk = 1; kk <= numPts; kk++) {
             var dt = (kk / numPts) * maxDt;
-            samples.push({ lineX: eventX + dt, voltage: tgtV + (prevV - tgtV) * Math.exp(-dt / rcTau) });
+            samples.push({ lineX: eventX + dt, voltage: tgtV + (hV - tgtV) * Math.exp(-dt / rcTau) });
           }
         }
       }
