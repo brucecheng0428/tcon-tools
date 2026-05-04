@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.82.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.83.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.82.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.83.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13230,22 +13230,39 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var isLS = gpio.waveform_type === 2;
 
   if (lpp > 2) {
-    // ── Zoomed out: min-max per pixel region from Float32Array ──
-    var step = Math.max(1, Math.floor(lpp / 2));
-    for (var L = startLine; L <= endLine; L += step) {
-      var rangeEnd = Math.min(L + step - 1, endLine);
-      var minV = settled[L], maxV = settled[L], minL = L, maxL = L;
-      for (var k = L + 1; k <= rangeEnd; k++) {
-        var v = settled[k];
-        if (v < minV) { minV = v; minL = k; }
-        if (v > maxV) { maxV = v; maxL = k; }
+    // ── Zoomed out: hybrid subsampling from settled[] ──
+    // For each pixel-width window, check voltage swing:
+    //   Small swing → single midpoint sample (smooth curve for SD settling)
+    //   Large swing → min-max pair (preserves envelope for CKO oscillation)
+    // Target: ~drawW to ~2*drawW samples, at or below renderer decimation threshold.
+    var _vRange = 1;
+    if (ac && ac.voltage_max != null && ac.voltage_min != null) {
+      _vRange = Math.max(0.001, ac.voltage_max - ac.voltage_min);
+    }
+    var _transThresh = _vRange * 0.03;
+    var pixStep = Math.max(1, Math.round(lpp));
+    for (var L = startLine; L <= endLine; L += pixStep) {
+      var wEnd = Math.min(L + pixStep - 1, endLine);
+      if (wEnd >= totalLines) wEnd = totalLines - 1;
+      var wMinV = settled[L], wMaxV = settled[L], wMinL = L, wMaxL = L;
+      for (var k = L + 1; k <= wEnd; k++) {
+        var sv = settled[k];
+        if (sv < wMinV) { wMinV = sv; wMinL = k; }
+        if (sv > wMaxV) { wMaxV = sv; wMaxL = k; }
       }
-      if (minL <= maxL) {
-        samples.push({ lineX: minL, voltage: minV });
-        if (maxV !== minV) samples.push({ lineX: maxL, voltage: maxV });
+      if (wMaxV - wMinV > _transThresh) {
+        // High-variation window (CKO oscillation): emit min-max for envelope
+        if (wMinL <= wMaxL) {
+          samples.push({ lineX: wMinL, voltage: wMinV });
+          if (wMaxL !== wMinL) samples.push({ lineX: wMaxL, voltage: wMaxV });
+        } else {
+          samples.push({ lineX: wMaxL, voltage: wMaxV });
+          samples.push({ lineX: wMinL, voltage: wMinV });
+        }
       } else {
-        samples.push({ lineX: maxL, voltage: maxV });
-        if (minV !== maxV) samples.push({ lineX: minL, voltage: minV });
+        // Low-variation window (SD settling): single midpoint for smooth rendering
+        var midIdx = Math.min(L + (pixStep >> 1), wEnd);
+        samples.push({ lineX: midIdx, voltage: settled[midIdx] });
       }
     }
     if (samples.length > 0 && samples[samples.length - 1].lineX < endLine) {
