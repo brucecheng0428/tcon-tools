@@ -13308,22 +13308,27 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
   var xstbFracDly = 0;
+  var _xstbHasFalling = false;
   var xstbFlat = _wfgFlatGpios[xstbIdx];
-  // v2.89: if XSTB is flat, skip OAX expansion — fracDly stays 0
   var xstbGpio = wfgGpios[xstbIdx];
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
     var xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, Math.min(effVtotal, totalLines));
     var xstbTrans = xstbOax ? xstbOax.transitions : [];
     for (var fi = 0; fi < xstbTrans.length; fi++) {
-      if (xstbTrans[fi].level === 0) { xstbFracDly = effHtotal > 0 ? (xstbTrans[fi].dly || 0) / effHtotal : 0; break; }
+      if (xstbTrans[fi].level === 0) {
+        xstbFracDly = effHtotal > 0 ? (xstbTrans[fi].dly || 0) / effHtotal : 0;
+        _xstbHasFalling = true;
+        break;
+      }
     }
   }
 
   // RC duration per line = time from XSTB↓ to end of line period.
   // Before XSTB↓ the SD holds its previous voltage (no RC activity).
-  var _sdRcDuration = Math.max(0.001, 1.0 - xstbFracDly);
-  var expRise = Math.exp(-_sdRcDuration / RC_TAU_RISE);
-  var expFall = Math.exp(-_sdRcDuration / RC_TAU_FALL);
+  // If XSTB has no falling edge at all, SD holds constant — no RC.
+  var _sdRcDuration = _xstbHasFalling ? Math.max(0.001, 1.0 - xstbFracDly) : 1.0;
+  var expRise = _xstbHasFalling ? Math.exp(-_sdRcDuration / RC_TAU_RISE) : 1.0;
+  var expFall = _xstbHasFalling ? Math.exp(-_sdRcDuration / RC_TAU_FALL) : 1.0;
 
   var settled = new Float32Array(totalLines);
   var target = new Float32Array(totalLines);
@@ -13336,20 +13341,30 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   target[0] = tgtV0;
   var prevV = tgtV0;
 
-  // Main loop: pure array lookups + multiply, no Math.exp
-  for (var line = 1; line < totalLines; line++) {
-    var lineInFrame = line % effVtotal;
-    var pol = polPerLine[line];
-    var lVal = lValuePerFrame[lineInFrame];
-    var tgtV = voltLut[pol * lutStride + lVal];
-    target[line] = tgtV;
-    if (tgtV === prevV) {
-      settled[line] = tgtV;
-    } else {
-      var factor = (tgtV >= prevV) ? expRise : expFall;
-      settled[line] = tgtV + (prevV - tgtV) * factor;
+  if (!_xstbHasFalling) {
+    // XSTB has no falling edge → SD holds initial voltage, never latches new data.
+    for (var line = 1; line < totalLines; line++) {
+      var lineInFrame = line % effVtotal;
+      target[line] = voltLut[polPerLine[line] * lutStride + lValuePerFrame[lineInFrame]];
+      settled[line] = tgtV0;
     }
-    prevV = settled[line];
+    prevV = tgtV0;
+  } else {
+    // Main loop: pure array lookups + multiply, no Math.exp
+    for (var line = 1; line < totalLines; line++) {
+      var lineInFrame = line % effVtotal;
+      var pol = polPerLine[line];
+      var lVal = lValuePerFrame[lineInFrame];
+      var tgtV = voltLut[pol * lutStride + lVal];
+      target[line] = tgtV;
+      if (tgtV === prevV) {
+        settled[line] = tgtV;
+      } else {
+        var factor = (tgtV >= prevV) ? expRise : expFall;
+        settled[line] = tgtV + (prevV - tgtV) * factor;
+      }
+      prevV = settled[line];
+    }
   }
 
   // ── Precompute RC sub-line samples for zero-compute band rendering ──
@@ -13388,6 +13403,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
 
   return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
+    xstbHasFalling: _xstbHasFalling,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
     ver: _wfgAnalogCacheVer };
@@ -13523,12 +13539,18 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     if (isSD && precomp.target) {
       var _ucTauR = precomp.rcTauRise, _ucTauF = precomp.rcTauFall;
       var _ucDly = precomp.xstbFracDly || 0;
+      var _ucHasFalling = precomp.xstbHasFalling !== false; // default true for legacy compat
       // RC window: from XSTB↓ to end of line period. The SD holds its voltage
       // before XSTB↓ (no RC activity), then RC charges toward target after XSTB↓.
       var _sdRcWin = Math.max(0.001, 1.0 - _ucDly);
       for (var L = startLine; L <= endLine; L++) {
         var prevV = L > 0 ? settled[L - 1] : settled[0];
         var tgtV = precomp.target[L];
+        // If XSTB has no falling edge, SD holds constant — just emit flat line.
+        if (!_ucHasFalling) {
+          samples.push({ lineX: L, voltage: prevV });
+          continue;
+        }
         var eventX = L + _ucDly;
         // HOLD segment: flat from line start to XSTB↓.
         // SD holds the previous settled voltage until new data is latched.
