@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.80.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.81.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.80.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.81.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12995,8 +12995,10 @@ function wfgMarkContinuousMotion() {
   _wfgContinuousMotionTimer = setTimeout(function() {
     _wfgContinuousMotion = false;
     _wfgContinuousMotionTimer = 0;
-    // Invalidate analog cache so final render recomputes at correct lpp resolution
-    _wfgAnalogCacheVer++;
+    // v2.81: Do NOT bump _wfgAnalogCacheVer here — params didn't change.
+    // The lpp tolerance check + skipRC consistency check in the render loop
+    // will naturally invalidate channels whose zoom changed significantly.
+    // This eliminates the forced full-recomputation stutter after every gesture.
     // Restore measurement and do final render with labels + pulse
     wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
     // wfgMeasUpdate already calls wfgRender() internally when it has data
@@ -13032,7 +13034,12 @@ Object.defineProperty(window, '_wfgFrame', {
   get: function() { return wfgFrame; },
   configurable: true
 });
-function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; }
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; }
+// ─── Pre-computed analog event cache ───
+// Stores the zoom-independent event lists per channel. Events are recomputed only
+// when parameters change (_wfgAnalogCacheVer bumps). Zoom/pan only re-samples from
+// cached events — this is the "oscilloscope architecture" Bruce requested.
+var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpolInit, ... }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
   var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
@@ -14764,8 +14771,9 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   if (typeof window !== 'undefined') {
     window._sdLbDebug = { wfgLineBuffer: wfgLineBuffer, lineBufferOverride: lineBufferOverride, lbVal: lbVal, lbShiftSD: lbShiftSD, isDualSD: isDualSD };
   }
-  // Extend by ~1 frame so we have enough context to derive HOLD voltage at viewStart
-  var pad = Math.max(effVtotal, 1);
+  // Extend by partial frame for HOLD voltage context. Caller already adds generous
+  // cache margin (2×vtotal), so internal pad is kept minimal to avoid double-padding.
+  var pad = Math.max(Math.ceil(effVtotal * 0.3), 20);
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
 
@@ -15055,7 +15063,218 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     if (samples[k2].lineX <= viewStartLine) initVoltage = samples[k2].voltage;
     else break;
   }
-  return { initVoltage: initVoltage, samples: samples, smooth: true };
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _sdSkipRC, _events: events, _xpolInit: xpolInitLevel };
+}
+
+// ─── SD fast re-sampling from cached events (oscilloscope architecture) ───
+// When events are pre-computed and cached, this function only applies RC curves
+// to visible events — O(viewport) instead of O(full_waveform).
+function _wfgSampleSdFromEvents(evtCache, lpp, viewStart, viewEnd, gpio, effVtotal) {
+  var events = evtCache.events;
+  var xpolInitLevel = evtCache.xpolInit || 0;
+  var ac = gpio.analog_config;
+
+  // RC config
+  var _curveRise = (ac.curvature_rise != null) ? ac.curvature_rise : 127;
+  var _curveFall = (ac.curvature_fall != null) ? ac.curvature_fall : 127;
+  var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
+  var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
+  var CURVE_DENSITY = 20;
+
+  // LOD
+  var _sdSkipRC = (lpp > 2);
+  var curveDensity = CURVE_DENSITY;
+  if (!_sdSkipRC && lpp > 1) curveDensity = 8;
+
+  // Binary search for first event near viewport (with 1-vtotal margin for RC context)
+  var nearStart = viewStart - Math.max(effVtotal, 1);
+  var nearEnd = viewEnd + Math.max(effVtotal, 1);
+  var _bLo = 0, _bHi = events.length - 1, firstIdx = 0;
+  while (_bLo <= _bHi) {
+    var _bMid = (_bLo + _bHi) >>> 1;
+    if (events[_bMid].lineX < nearStart) { firstIdx = _bMid + 1; _bLo = _bMid + 1; }
+    else _bHi = _bMid - 1;
+  }
+  // Find last event
+  _bLo = firstIdx; _bHi = events.length - 1;
+  var lastIdx = events.length;
+  while (_bLo <= _bHi) {
+    var _bMid = (_bLo + _bHi) >>> 1;
+    if (events[_bMid].lineX <= nearEnd) _bLo = _bMid + 1;
+    else { lastIdx = _bMid; _bHi = _bMid - 1; }
+  }
+
+  // Bootstrap prevV from event just before our range
+  var prevV;
+  if (firstIdx > 0) {
+    prevV = events[firstIdx - 1].vTarget;
+  } else {
+    prevV = events.length > 0 ? events[0].vTarget : wfgAnalogTargetVoltageWithPol(0, xpolInitLevel, ac);
+  }
+
+  var samples = [];
+  for (var ei = firstIdx; ei < lastIdx && ei < events.length; ei++) {
+    var ev = events[ei];
+    var nextLineX = (ei + 1 < events.length) ? events[ei + 1].lineX : (ev.lineX + 1);
+    var span = Math.max(1e-6, nextLineX - ev.lineX);
+    samples.push({ lineX: ev.lineX, voltage: prevV, pol: ev.pol, lValue: ev.lValue });
+    if (_sdSkipRC) {
+      samples.push({ lineX: ev.lineX + span * 0.01, voltage: ev.vTarget, pol: ev.pol, lValue: ev.lValue });
+      prevV = ev.vTarget;
+    } else {
+      var curveSpan = Math.min(span, 1.0);
+      var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+      for (var k = 1; k <= curveDensity; k++) {
+        var dt = (k / curveDensity) * curveSpan;
+        var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
+        samples.push({ lineX: ev.lineX + dt, voltage: v, pol: ev.pol, lValue: ev.lValue });
+      }
+      prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
+    }
+  }
+
+  // Init voltage
+  var midDefault = wfgAnalogTargetVoltageWithPol(0, xpolInitLevel, ac);
+  var initVoltage = midDefault;
+  for (var k2 = 0; k2 < samples.length; k2++) {
+    if (samples[k2].lineX <= viewStart) initVoltage = samples[k2].voltage;
+    else break;
+  }
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _sdSkipRC };
+}
+
+// ─── LS fast re-sampling from cached events (oscilloscope architecture) ───
+function _wfgSampleLsFromEvents(evtCache, lpp, viewStart, viewEnd, gpio, effVtotal) {
+  var events = evtCache.events;
+  var ac = gpio.analog_config;
+
+  // Pair-based thinning (zoom-dependent, applied to cached raw events)
+  var workEvents = events;
+  if (lpp > 8 && events.length > 2000) {
+    var _resets = [], _normal = [];
+    for (var _ri = 0; _ri < events.length; _ri++) {
+      if (events[_ri]._reset) _resets.push(events[_ri]);
+      else _normal.push(events[_ri]);
+    }
+    var _evTargetPairs = 1400;
+    var _evTotalPairs = Math.floor(_normal.length / 2);
+    var _evPairStep = Math.max(1, Math.floor(_evTotalPairs / _evTargetPairs));
+    var _thinned = [];
+    for (var _epi = 0; _epi < _evTotalPairs; _epi += _evPairStep) {
+      var _evi = _epi * 2;
+      _thinned.push(_normal[_evi]);
+      if (_evi + 1 < _normal.length) _thinned.push(_normal[_evi + 1]);
+    }
+    if (_normal.length > 0 && (_thinned.length === 0 || _thinned[_thinned.length - 1] !== _normal[_normal.length - 1])) {
+      _thinned.push(_normal[_normal.length - 1]);
+    }
+    for (var _rj = 0; _rj < _resets.length; _rj++) _thinned.push(_resets[_rj]);
+    _thinned.sort(function(a, b) { return a.lineX - b.lineX; });
+    workEvents = _thinned;
+  }
+
+  // RC curvature
+  var _curveRise = (ac.curvature_rise != null) ? (ac.curvature_rise | 0) : 0;
+  var _curveFall = (ac.curvature_fall != null) ? (ac.curvature_fall | 0) : 0;
+  var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
+  var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
+  var _RC_MIN_PX = 2;
+  var _rcMaxTau = Math.max(RC_TAU_RISE, RC_TAU_FALL);
+  var _rcSpanPx = (lpp > 0) ? (_rcMaxTau * 5) / lpp : 9999;
+  var _lsSkipRC = (_rcSpanPx < _RC_MIN_PX);
+  var curveDensity = 16;
+  if (!_lsSkipRC && lpp > 1) curveDensity = 8;
+
+  // Binary search for events near viewport
+  var nearStart = viewStart - Math.max(effVtotal, 1);
+  var nearEnd = viewEnd + Math.max(effVtotal, 1);
+  var _bLo = 0, _bHi = workEvents.length - 1, firstIdx = 0;
+  while (_bLo <= _bHi) {
+    var _bMid = (_bLo + _bHi) >>> 1;
+    if (workEvents[_bMid].lineX < nearStart) { firstIdx = _bMid + 1; _bLo = _bMid + 1; }
+    else _bHi = _bMid - 1;
+  }
+  _bLo = firstIdx; _bHi = workEvents.length - 1;
+  var lastIdx = workEvents.length;
+  while (_bLo <= _bHi) {
+    var _bMid = (_bLo + _bHi) >>> 1;
+    if (workEvents[_bMid].lineX <= nearEnd) _bLo = _bMid + 1;
+    else { lastIdx = _bMid; _bHi = _bMid - 1; }
+  }
+
+  // Bootstrap prevV
+  var prevV = ac.voltage_min;
+  if (firstIdx > 0) {
+    prevV = workEvents[firstIdx - 1].vTarget;
+  }
+
+  var samples = [];
+  for (var ei = firstIdx; ei < lastIdx && ei < workEvents.length; ei++) {
+    var ev = workEvents[ei];
+    if (ev._reset) {
+      if (samples.length > 0) {
+        var _lastSmp = samples[samples.length - 1];
+        if (ev.lineX - _lastSmp.lineX > 2) samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+      }
+      samples.push({ lineX: ev.lineX, voltage: prevV });
+      samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+      prevV = ev.vTarget;
+      continue;
+    }
+    if (_lsSkipRC) {
+      if (samples.length > 0) {
+        var _lastSmp2 = samples[samples.length - 1];
+        if (ev.lineX - _lastSmp2.lineX > 2) samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+      }
+      samples.push({ lineX: ev.lineX, voltage: prevV });
+      samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+      prevV = ev.vTarget;
+    } else {
+      if (samples.length > 0) {
+        var _lastSmpRC = samples[samples.length - 1];
+        if (ev.lineX - _lastSmpRC.lineX > 1.5) samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+      }
+      var nextLineX = (ei + 1 < lastIdx && ei + 1 < workEvents.length) ? workEvents[ei + 1].lineX : (ev.lineX + 1);
+      var span = Math.max(1e-6, nextLineX - ev.lineX);
+      var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+      var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
+      var _cd = curveDensity;
+      if (curveSpan > 2) _cd = Math.max(curveDensity, Math.ceil(curveSpan * 4));
+      if (_cd > 64) _cd = 64;
+      samples.push({ lineX: ev.lineX, voltage: prevV });
+      for (var k = 1; k <= _cd; k++) {
+        var dt = (k / _cd) * curveSpan;
+        var v = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau);
+        samples.push({ lineX: ev.lineX + dt, voltage: v });
+      }
+      prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
+    }
+  }
+
+  // Gap-filling
+  if (samples.length > 1 && lpp > 0) {
+    var maxGap = Math.max(2, lpp * 2);
+    var filled = [samples[0]];
+    for (var _gi = 1; _gi < samples.length; _gi++) {
+      var gap = samples[_gi].lineX - samples[_gi - 1].lineX;
+      if (gap > maxGap) {
+        var holdV = filled[filled.length - 1].voltage;
+        var startX = samples[_gi - 1].lineX + maxGap;
+        for (var _gx = startX; _gx < samples[_gi].lineX - 0.01; _gx += maxGap) {
+          filled.push({ lineX: _gx, voltage: holdV });
+        }
+      }
+      filled.push(samples[_gi]);
+    }
+    samples = filled;
+  }
+
+  var initVoltage = ac.voltage_min;
+  for (var k2 = 0; k2 < samples.length; k2++) {
+    if (samples[k2].lineX <= viewStart) initVoltage = samples[k2].voltage;
+    else break;
+  }
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _lsSkipRC };
 }
 
 // ─── Level Shifter waveform computation (supports 3 driving modes) ───
@@ -15084,6 +15303,9 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   if (!events || events.length === 0) {
     return { initVoltage: ac.voltage_min, samples: [], smooth: true };
   }
+
+  // Save raw events before thinning for event cache (zoom-independent)
+  var _rawEventsForCache = events;
 
   // Pair-based thinning for zoomed-out performance.
   // STV reset events (_reset flag) must be preserved — they are hard resets at frame
@@ -15223,14 +15445,14 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     if (samples[k2].lineX <= viewStartLine) initVoltage = samples[k2].voltage;
     else break;
   }
-  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _lsSkipRC };
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _lsSkipRC, _events: _rawEventsForCache };
 }
 
 // ── Individual mode: 1 CK → 1 CKO ──
 function _wfgLsBuildIndividualEvents(ac, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine, linesPerPixel) {
   var ckIdx = ac.source_ck_idx | 0;
   if (ckIdx < 0 || ckIdx >= wfgGpios.length) return [];
-  var pad = Math.max(effVtotal, 1);
+  var pad = Math.max(Math.ceil(effVtotal * 0.3), 20);
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
   var oax = wfgGetOaxForRange(ckIdx, allGpioTransitions, effHtotal, extStart, extEnd);
@@ -15292,7 +15514,7 @@ function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHto
   // If ckoIndex >= condPhase, this CKO doesn't participate in condensed output
   if (ckoIndex >= condPhase) return [];
 
-  var pad = Math.max(effVtotal * 2, 100);
+  var pad = Math.max(effVtotal, 100);
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
   var oax = wfgGetOaxForRange(vceCkIdx, allGpioTransitions, effHtotal, extStart, extEnd);
@@ -15456,7 +15678,7 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
   // for rising-edge trigger, the active edge is level===1.
   var activeLevel = (trigEdge === 'rising') ? 1 : 0;
 
-  var pad = Math.max(effVtotal * 2, 100);
+  var pad = Math.max(effVtotal, 100);
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
 
@@ -16491,20 +16713,46 @@ function wfgRender() {
           _acEntry.endLine >= wfgViewEnd + _acMargin) {
         _anaData = _acEntry.data;
       } else {
-        // Compute with extra margin so future zoom/pan steps reuse the cache
+        // ── v2.81 Oscilloscope architecture: event cache + fast re-sampling ──
+        // Strategy: events (zoom-independent) are cached separately from samples.
+        // On sample cache miss, check event cache first → fast O(viewport) resample.
+        // Full computation only on event cache miss (param change or large pan).
         var _cacheMargin = Math.max(effVtotal * 2, viewRange * 1.5);
         var _cStartLine = Math.max(0, wfgViewStart - _cacheMargin);
         var _cEndLine = Math.min(wfgTotalLines(), wfgViewEnd + _cacheMargin);
         var _cLpp = drawW > 0 ? viewRange / drawW : 1;
-        if (gpio.waveform_type === 1) {
-          _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer, _cLpp);
-        } else if (gpio.waveform_type === 2) {
-          // Use viewport lpp for resolution so cached samples look correct at this zoom level
-          _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, _cLpp);
+        var _evtKey = (gpio.waveform_type === 1 ? 'sd_' : 'ls_') + _gpIdx;
+        var _evtC = _wfgAnalogEventCache[_evtKey];
+        var _evtHit = (_evtC && _evtC.ver === _wfgAnalogCacheVer &&
+          _evtC.startLine <= _cStartLine && _evtC.endLine >= _cEndLine);
+
+        if (_evtHit) {
+          // Event cache HIT → fast re-sample from pre-computed events
+          if (gpio.waveform_type === 1) {
+            _anaData = _wfgSampleSdFromEvents(_evtC, _cLpp, wfgViewStart, wfgViewEnd, gpio, effVtotal);
+          } else {
+            _anaData = _wfgSampleLsFromEvents(_evtC, _cLpp, wfgViewStart, wfgViewEnd, gpio, effVtotal);
+          }
+        } else {
+          // Event cache MISS → full computation (first render or large pan)
+          if (gpio.waveform_type === 1) {
+            _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer, _cLpp);
+          } else if (gpio.waveform_type === 2) {
+            _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, _cLpp);
+          }
+          // Cache events for future fast re-sampling
+          if (_anaData && _anaData._events) {
+            _wfgAnalogEventCache[_evtKey] = {
+              ver: _wfgAnalogCacheVer,
+              startLine: _cStartLine, endLine: _cEndLine,
+              events: _anaData._events,
+              xpolInit: _anaData._xpolInit || 0
+            };
+          }
         }
         if (_anaData) {
           var _cacheEntry = { startLine: _cStartLine, endLine: _cEndLine, data: _anaData, cacheVer: _wfgAnalogCacheVer };
-          _cacheEntry.lpp = drawW > 0 ? viewRange / drawW : 1;
+          _cacheEntry.lpp = _cLpp;
           _wfgAnalogDataCache[_gpIdx] = _cacheEntry;
         }
       }
