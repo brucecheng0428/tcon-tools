@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.87.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.87.1</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.87.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.87.1</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13277,10 +13277,10 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var isSD = gpio.waveform_type === 1;
   var isLS = gpio.waveform_type === 2;
 
-  if (lpp > 2 || isSD) {
+  if (lpp > 2 || (isSD && lpp > 0.5)) {
     // ── Min/max band mode ──
-    // SD always uses this path at ALL zoom levels (unified oscilloscope-style rendering).
-    // Other channels use it only when zoomed out (lpp > 2).
+    // SD uses this path when zoomed out (lpp > 0.5, i.e. < 2 px/line) for performance
+    // and distortion-free rendering. Other channels use it only at lpp > 2.
     // Build per-pixel min/max band directly from settled[]; skip samples[] entirely
     // since the renderer uses bandData exclusively when _useBand is true.
     var _bW = Math.max(0, Math.round(drawW));
@@ -13304,12 +13304,11 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
     return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: true,
       bandData: bandData, bandW: _bW, bandVMin: bandVMin, bandVMax: bandVMax };
-  } else if (lpp > 0.5 || (!precomp.target && !precomp.events) || (isSD && lpp > 0.08)) {
+  } else if (lpp > 0.5 || (!precomp.target && !precomp.events)) {
     // ── Medium zoom: direct settled[] reference (zero allocation) ──
-    // SD close-zoom RC curves are only used at lpp ≤ 0.08 (≥12.5 px/line)
-    // where sub-line RC transitions are clearly visible. At 0.08 < lpp ≤ 0.5,
-    // the RC curve spans too few pixels and sample gaps between RC end and
-    // next XSTB event cause visual artifacts (uneven pulse widths, dark gaps).
+    // For non-SD channels at 0.5 < lpp ≤ 2, or any channel without precomp data.
+    // SD never uses this path — it goes from bandData (lpp > 0.5) directly to
+    // RC curve (lpp ≤ 0.5) to avoid directSettled artifacts on analog waveforms.
     var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
     return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: false,
       bandData: null, bandW: 0,
