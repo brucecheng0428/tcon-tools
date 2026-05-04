@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.81.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.82.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.81.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.82.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13034,12 +13034,305 @@ Object.defineProperty(window, '_wfgFrame', {
   get: function() { return wfgFrame; },
   configurable: true
 });
-function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; }
-// ─── Pre-computed analog event cache ───
-// Stores the zoom-independent event lists per channel. Events are recomputed only
-// when parameters change (_wfgAnalogCacheVer bumps). Zoom/pan only re-samples from
-// cached events — this is the "oscilloscope architecture" Bruce requested.
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; _wfgPrecomputed = {}; _wfgPrecomputeVer = -1; }
+// ─── Pre-computed analog event cache (legacy — kept for fallback) ───
 var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpolInit, ... }
+
+// ─── Pre-computed analog waveform data (v2.82 oscilloscope architecture) ───
+// Float32Array per channel: voltage at each integer line position.
+// Computed ONCE on param change; zoom/scroll only reads from these arrays.
+var _wfgPrecomputed = {};      // gpioIdx → { settled, target(SD), events(LS), totalLines, ver, ... }
+var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
+
+// ─── Master precompute function ───
+function wfgPrecomputeAnalog() {
+  var t0 = performance.now();
+  var tc = wfgEnsureTransitions();
+  if (!tc) return;
+  var isDual = wfgFrame.gateType === 'dual';
+  var effVtotal = tc.effVtotal;
+  var effHtotal = tc.effHtotal;
+  var totalLines = wfgTotalLines();
+  var allTrans = tc.transitions;
+  var newPrecomp = {};
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var gpio = wfgGpios[gi];
+    if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
+    if (gpio.waveform_type === 1) {
+      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+    } else if (gpio.waveform_type === 2) {
+      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+    }
+  }
+  _wfgPrecomputed = newPrecomp;
+  _wfgPrecomputeVer = _wfgAnalogCacheVer;
+  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, channels=' + Object.keys(newPrecomp).length);
+}
+
+// ─── SD channel precomputation ───
+function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines) {
+  var ac = gpio.analog_config;
+  var effVactive = wfgEffVactive(effVtotal);
+  var isDualSD = wfgFrame.gateType === 'dual';
+  var lbShiftSD = isDualSD ? wfgLineBuffer * 2 : wfgLineBuffer;
+
+  // XPOL: expand for one frame, build per-frame polarity array
+  var xpolIdx = (ac.xpol_gpio_idx != null) ? (ac.xpol_gpio_idx | 0) : WFG_XPOL_GPIO_IDX;
+  if (xpolIdx < 0 || xpolIdx >= wfgGpios.length) xpolIdx = WFG_XPOL_GPIO_IDX;
+  var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, effVtotal);
+  var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
+  var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
+  var polPerFrame = new Uint8Array(effVtotal);
+  for (var pf = 0; pf < effVtotal; pf++) polPerFrame[pf] = xpolLookupFn(pf);
+
+  // L value per frame line
+  var maxL = wfgAnalogMaxL(ac);
+  var holdL = wfgAnalogLValueForLine(effVactive - 1, ac, effVactive);
+  var lValuePerFrame = new Uint16Array(effVtotal);
+  for (var lf = 0; lf < effVtotal; lf++) {
+    var dataIdx = lf - lbShiftSD;
+    lValuePerFrame[lf] = (dataIdx < 0 || dataIdx >= effVactive) ? holdL : wfgAnalogLValueForLine(dataIdx, ac, effVactive);
+  }
+
+  // Voltage lookup table: [pol=0][L=0..maxL], [pol=1][L=0..maxL]
+  var lutStride = maxL + 1;
+  var voltLut = new Float32Array(lutStride * 2);
+  for (var lv = 0; lv <= maxL; lv++) {
+    var gf = maxL > 0 ? lv / maxL : 0;
+    voltLut[lv] = wfgAnalogTargetVoltageWithPol(gf, 0, ac);
+    voltLut[lutStride + lv] = wfgAnalogTargetVoltageWithPol(gf, 1, ac);
+  }
+
+  // RC: precompute exp(-1/tau) factors to avoid Math.exp in the main loop
+  var _curveRise = (ac.curvature_rise != null) ? ac.curvature_rise : 127;
+  var _curveFall = (ac.curvature_fall != null) ? ac.curvature_fall : 127;
+  var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
+  var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
+  var expRise = Math.exp(-1.0 / RC_TAU_RISE);
+  var expFall = Math.exp(-1.0 / RC_TAU_FALL);
+
+  // XSTB fractional delay (for close-zoom RC curve positioning)
+  var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
+  if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
+  var xstbFracDly = 0;
+  var xstbGpio = wfgGpios[xstbIdx];
+  if (xstbGpio && xstbGpio.enable) {
+    var xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, Math.min(effVtotal, totalLines));
+    var xstbTrans = xstbOax ? xstbOax.transitions : [];
+    for (var fi = 0; fi < xstbTrans.length; fi++) {
+      if (xstbTrans[fi].level === 0) { xstbFracDly = effHtotal > 0 ? (xstbTrans[fi].dly || 0) / effHtotal : 0; break; }
+    }
+  }
+
+  var settled = new Float32Array(totalLines);
+  var target = new Float32Array(totalLines);
+
+  // Initial line
+  var pol0 = polPerFrame[0];
+  var lVal0 = lValuePerFrame[0];
+  var tgtV0 = voltLut[pol0 * lutStride + lVal0];
+  settled[0] = tgtV0;
+  target[0] = tgtV0;
+  var prevV = tgtV0;
+
+  // Main loop: pure array lookups + multiply, no Math.exp
+  for (var line = 1; line < totalLines; line++) {
+    var lineInFrame = line % effVtotal;
+    var pol = polPerFrame[lineInFrame];
+    var lVal = lValuePerFrame[lineInFrame];
+    var tgtV = voltLut[pol * lutStride + lVal];
+    target[line] = tgtV;
+    if (tgtV === prevV) {
+      settled[line] = tgtV;
+    } else {
+      var factor = (tgtV >= prevV) ? expRise : expFall;
+      settled[line] = tgtV + (prevV - tgtV) * factor;
+    }
+    prevV = settled[line];
+  }
+
+  return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
+    rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL, ver: _wfgAnalogCacheVer };
+}
+
+// ─── LS channel precomputation ───
+function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines) {
+  var ac = gpio.analog_config;
+  var mode = wfgLsGlobal.mode;
+  var ckoIndex = (ac.cko_index != null) ? ac.cko_index : 0;
+  var numCko = wfgLsGlobal.phase;
+
+  // Get all LS events for the FULL range (no zoom thinning)
+  var events;
+  if (mode === 'condensed') {
+    events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, totalLines);
+  } else if (mode === 'dual_cpv') {
+    events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, totalLines);
+  } else {
+    events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, 0, totalLines, 0.001);
+  }
+  if (!events) events = [];
+
+  // RC params
+  var _curveRise = (ac.curvature_rise != null) ? (ac.curvature_rise | 0) : 0;
+  var _curveFall = (ac.curvature_fall != null) ? (ac.curvature_fall | 0) : 0;
+  var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
+  var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
+
+  var settled = new Float32Array(totalLines);
+  var voltage = ac.voltage_min; // CKOs start at VGL
+  var curTarget = voltage;
+  var curRcTau = RC_TAU_RISE;
+  var lastEventX = 0;
+  var baseV = voltage;
+  var ei = 0;
+
+  for (var line = 0; line < totalLines; line++) {
+    // Process events at or before this line
+    while (ei < events.length && events[ei].lineX <= line) {
+      var ev = events[ei];
+      var dt = ev.lineX - lastEventX;
+      if (dt > 0 && Math.abs(curTarget - baseV) > 0.0001) {
+        voltage = curTarget + (baseV - curTarget) * Math.exp(-dt / curRcTau);
+      }
+      if (ev._reset) { voltage = ev.vTarget; }
+      baseV = voltage;
+      curTarget = ev.vTarget;
+      curRcTau = (ev.vTarget >= voltage) ? RC_TAU_RISE : RC_TAU_FALL;
+      lastEventX = ev.lineX;
+      ei++;
+    }
+    // Voltage at this line (continuing RC from last event)
+    var dt2 = line - lastEventX;
+    if (dt2 > 0 && Math.abs(curTarget - baseV) > 0.0001) {
+      settled[line] = curTarget + (baseV - curTarget) * Math.exp(-dt2 / curRcTau);
+    } else {
+      settled[line] = (Math.abs(curTarget - baseV) < 0.0001) ? curTarget : baseV;
+    }
+  }
+
+  return { settled: settled, events: events, totalLines: totalLines, effVtotal: effVtotal,
+    rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
+    vMin: ac.voltage_min, vMax: ac.voltage_max, ver: _wfgAnalogCacheVer };
+}
+
+// ─── Convert precomputed data → samples format for wfgDrawAnalogChannel ───
+function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, effVtotal) {
+  var settled = precomp.settled;
+  var totalLines = precomp.totalLines;
+  var ac = gpio.analog_config;
+  var lpp = drawW > 0 ? (viewEnd - viewStart) / drawW : 1;
+  var startLine = Math.max(0, Math.floor(viewStart) - 1);
+  var endLine = Math.min(totalLines - 1, Math.ceil(viewEnd) + 1);
+  if (startLine > endLine) startLine = endLine;
+  var samples = [];
+  var isSD = gpio.waveform_type === 1;
+  var isLS = gpio.waveform_type === 2;
+
+  if (lpp > 2) {
+    // ── Zoomed out: min-max per pixel region from Float32Array ──
+    var step = Math.max(1, Math.floor(lpp / 2));
+    for (var L = startLine; L <= endLine; L += step) {
+      var rangeEnd = Math.min(L + step - 1, endLine);
+      var minV = settled[L], maxV = settled[L], minL = L, maxL = L;
+      for (var k = L + 1; k <= rangeEnd; k++) {
+        var v = settled[k];
+        if (v < minV) { minV = v; minL = k; }
+        if (v > maxV) { maxV = v; maxL = k; }
+      }
+      if (minL <= maxL) {
+        samples.push({ lineX: minL, voltage: minV });
+        if (maxV !== minV) samples.push({ lineX: maxL, voltage: maxV });
+      } else {
+        samples.push({ lineX: maxL, voltage: maxV });
+        if (minV !== maxV) samples.push({ lineX: minL, voltage: minV });
+      }
+    }
+    if (samples.length > 0 && samples[samples.length - 1].lineX < endLine) {
+      samples.push({ lineX: endLine, voltage: settled[Math.min(endLine, totalLines - 1)] });
+    }
+  } else if (lpp > 0.5 || (!precomp.target && !precomp.events)) {
+    // ── Medium zoom: one sample per line ──
+    for (var L = startLine; L <= endLine; L++) {
+      samples.push({ lineX: L, voltage: settled[L] });
+    }
+  } else if (isSD && precomp.target) {
+    // ── Close zoom SD: sub-line RC curves from target[] ──
+    var RC_TAU_RISE = precomp.rcTauRise;
+    var RC_TAU_FALL = precomp.rcTauFall;
+    var xstbDly = precomp.xstbFracDly || 0;
+    var CURVE_PTS = 20;
+    for (var L = startLine; L <= endLine; L++) {
+      var prevV = L > 0 ? settled[L - 1] : settled[0];
+      var tgtV = precomp.target[L];
+      var eventX = L + xstbDly;
+      samples.push({ lineX: eventX, voltage: prevV });
+      if (Math.abs(tgtV - prevV) > 0.001) {
+        var rcTau = (tgtV >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+        var curveSpan = Math.min(1.0, rcTau * 5);
+        for (var kk = 1; kk <= CURVE_PTS; kk++) {
+          var dt = (kk / CURVE_PTS) * curveSpan;
+          samples.push({ lineX: eventX + dt, voltage: tgtV + (prevV - tgtV) * Math.exp(-dt / rcTau) });
+        }
+      }
+    }
+  } else if (isLS && precomp.events) {
+    // ── Close zoom LS: RC curves from event list ──
+    var RC_TAU_RISE = precomp.rcTauRise;
+    var RC_TAU_FALL = precomp.rcTauFall;
+    var _RC_MIN_PX = 2;
+    var _rcMaxTau = Math.max(RC_TAU_RISE, RC_TAU_FALL);
+    var _rcSpanPx = (lpp > 0) ? (_rcMaxTau * 5) / lpp : 9999;
+    var _lsSkipRC = (_rcSpanPx < _RC_MIN_PX);
+    var CURVE_PTS = 16;
+    var events = precomp.events;
+    var eVt = precomp.effVtotal || 1;
+    // Binary search for first event near viewport
+    var nearStart = viewStart - eVt;
+    var _bLo = 0, _bHi = events.length - 1, firstIdx = 0;
+    while (_bLo <= _bHi) {
+      var _bMid = (_bLo + _bHi) >>> 1;
+      if (events[_bMid].lineX < nearStart) { firstIdx = _bMid + 1; _bLo = _bMid + 1; }
+      else _bHi = _bMid - 1;
+    }
+    var prevV = ac.voltage_min;
+    if (firstIdx > 0) prevV = events[firstIdx - 1].vTarget;
+    for (var ei = firstIdx; ei < events.length; ei++) {
+      var ev = events[ei];
+      if (ev.lineX > viewEnd + eVt) break;
+      if (samples.length > 0) {
+        var lastSmp = samples[samples.length - 1];
+        if (ev.lineX - lastSmp.lineX > 2) samples.push({ lineX: ev.lineX - 0.001, voltage: prevV });
+      }
+      if (ev._reset) {
+        samples.push({ lineX: ev.lineX, voltage: prevV });
+        samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+        prevV = ev.vTarget;
+      } else if (_lsSkipRC) {
+        samples.push({ lineX: ev.lineX, voltage: prevV });
+        samples.push({ lineX: ev.lineX, voltage: ev.vTarget });
+        prevV = ev.vTarget;
+      } else {
+        samples.push({ lineX: ev.lineX, voltage: prevV });
+        var rcTau = (ev.vTarget >= prevV) ? RC_TAU_RISE : RC_TAU_FALL;
+        var nextEvtX = (ei + 1 < events.length) ? events[ei + 1].lineX : ev.lineX + 1;
+        var span = Math.max(1e-6, nextEvtX - ev.lineX);
+        var curveSpan = Math.min(span, Math.max(1.0, rcTau * 5));
+        var _cd = CURVE_PTS;
+        if (curveSpan > 2) _cd = Math.max(CURVE_PTS, Math.ceil(curveSpan * 4));
+        if (_cd > 64) _cd = 64;
+        for (var kk = 1; kk <= _cd; kk++) {
+          var dt = (kk / _cd) * curveSpan;
+          samples.push({ lineX: ev.lineX + dt, voltage: ev.vTarget + (prevV - ev.vTarget) * Math.exp(-dt / rcTau) });
+        }
+        prevV = ev.vTarget + (prevV - ev.vTarget) * Math.exp(-curveSpan / rcTau);
+      }
+    }
+  }
+
+  var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: lpp > 2 };
+}
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
   var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
@@ -13321,6 +13614,7 @@ window.wfgToggleTconInternal = wfgToggleTconInternal;
 
 function wfgOnLineBufferChange(val) {
   wfgLineBuffer = Math.max(0, Math.min(15, parseInt(val) || 0));
+  wfgInvalidateCache(); // line buffer affects SD precomputation
   wfgRender();
 }
 window.wfgOnLineBufferChange = wfgOnLineBufferChange;
@@ -16511,6 +16805,11 @@ function wfgRender() {
   var allGpioTransitions = cache.transitions;
   if (_wfgPerfEnabled) _wfgPerfLast.cache = performance.now() - _pT1;
 
+  // Lazy precompute analog data if stale
+  if (_wfgPrecomputeVer !== _wfgAnalogCacheVer) {
+    wfgPrecomputeAnalog();
+  }
+
   // ── TCON Internal Rows (RX DE, TX DE, R_PH_CNT, F_PH_CNT) ──
   var internalExtraH = wfgInternalExtraH();
   var wfgWaveY0 = WFG_AXIS_H + internalExtraH; // waveform area starts after axis + internal rows
@@ -16680,80 +16979,26 @@ function wfgRender() {
     }
 
     // ── Analog dispatcher: Source Driver / Level Shifter ──
+    // v2.82: uses precomputed Float32Array (oscilloscope architecture).
+    // Zoom/scroll only slices the precomputed array — zero Math.exp at render time.
     if (gpio && gpio.waveform_type) {
       var _pAna0 = _wfgPerfEnabled ? performance.now() : 0;
       var _anaData = null;
       var _gpIdx = ch.gpioIdx;
-      var _acEntry = _wfgAnalogDataCache[_gpIdx];
-      // Cache hit: reuse if (a) same cacheVer AND (b) cached range covers viewport with margin
-      // For LS channels, also check that cached lpp (lines-per-pixel) is close enough
-      var _acMargin = _wfgContinuousMotion ? 0 : effVtotal * 0.5;
-      var _lppOk = true;
-      if (_acEntry && (gpio.waveform_type === 1 || gpio.waveform_type === 2) && _acEntry.lpp) {
-        var _curLpp = drawW > 0 ? viewRange / drawW : 1;
-        // During continuous motion (wheel zoom / drag), accept any cached resolution
-        // — the motion-end timeout will re-render at correct resolution
-        var _lppTol = _wfgContinuousMotion ? 1e9 : 4;
-        _lppOk = (_acEntry.lpp <= _curLpp * _lppTol && _acEntry.lpp >= _curLpp / _lppTol);
-        // CRITICAL: invalidate if cached data used skipRC but current zoom needs full RC,
-        // or vice versa.  The threshold is dynamic (based on RC tau), so compare the
-        // skipRC flag stored in the cached result against what current lpp would produce.
-        if (!_wfgContinuousMotion && _lppOk && _acEntry.data && _acEntry.data.skipRC !== undefined) {
-          var _RC_MIN_PX_C = 2;
-          var _crC = (gpio.analog_config && gpio.analog_config.curvature_rise) || 0;
-          var _cfC = (gpio.analog_config && gpio.analog_config.curvature_fall) || 0;
-          var _rcTauMaxC = 2.0 * Math.exp(-0.0235 * (255 - Math.max(_crC | 0, _cfC | 0)));
-          var _rcSpanPxC = (_curLpp > 0) ? (_rcTauMaxC * 5) / _curLpp : 9999;
-          var _expectSkipRC = (_rcSpanPxC < _RC_MIN_PX_C);
-          if (_acEntry.data.skipRC !== _expectSkipRC) _lppOk = false;
-        }
-      }
-      if (_acEntry && _lppOk && _acEntry.cacheVer === _wfgAnalogCacheVer &&
-          _acEntry.startLine <= wfgViewStart - _acMargin &&
-          _acEntry.endLine >= wfgViewEnd + _acMargin) {
-        _anaData = _acEntry.data;
+      var _precomp = _wfgPrecomputed[_gpIdx];
+      if (_precomp && _precomp.ver === _wfgPrecomputeVer) {
+        // Precomputed data available → fast sample generation from Float32Array
+        _anaData = wfgSamplesFromPrecomputed(_precomp, gpio, wfgViewStart, wfgViewEnd, drawW, effVtotal);
       } else {
-        // ── v2.81 Oscilloscope architecture: event cache + fast re-sampling ──
-        // Strategy: events (zoom-independent) are cached separately from samples.
-        // On sample cache miss, check event cache first → fast O(viewport) resample.
-        // Full computation only on event cache miss (param change or large pan).
+        // Fallback: original computation (should not happen — precompute runs before render)
         var _cacheMargin = Math.max(effVtotal * 2, viewRange * 1.5);
         var _cStartLine = Math.max(0, wfgViewStart - _cacheMargin);
         var _cEndLine = Math.min(wfgTotalLines(), wfgViewEnd + _cacheMargin);
         var _cLpp = drawW > 0 ? viewRange / drawW : 1;
-        var _evtKey = (gpio.waveform_type === 1 ? 'sd_' : 'ls_') + _gpIdx;
-        var _evtC = _wfgAnalogEventCache[_evtKey];
-        var _evtHit = (_evtC && _evtC.ver === _wfgAnalogCacheVer &&
-          _evtC.startLine <= _cStartLine && _evtC.endLine >= _cEndLine);
-
-        if (_evtHit) {
-          // Event cache HIT → fast re-sample from pre-computed events
-          if (gpio.waveform_type === 1) {
-            _anaData = _wfgSampleSdFromEvents(_evtC, _cLpp, wfgViewStart, wfgViewEnd, gpio, effVtotal);
-          } else {
-            _anaData = _wfgSampleLsFromEvents(_evtC, _cLpp, wfgViewStart, wfgViewEnd, gpio, effVtotal);
-          }
-        } else {
-          // Event cache MISS → full computation (first render or large pan)
-          if (gpio.waveform_type === 1) {
-            _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer, _cLpp);
-          } else if (gpio.waveform_type === 2) {
-            _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, _cLpp);
-          }
-          // Cache events for future fast re-sampling
-          if (_anaData && _anaData._events) {
-            _wfgAnalogEventCache[_evtKey] = {
-              ver: _wfgAnalogCacheVer,
-              startLine: _cStartLine, endLine: _cEndLine,
-              events: _anaData._events,
-              xpolInit: _anaData._xpolInit || 0
-            };
-          }
-        }
-        if (_anaData) {
-          var _cacheEntry = { startLine: _cStartLine, endLine: _cEndLine, data: _anaData, cacheVer: _wfgAnalogCacheVer };
-          _cacheEntry.lpp = _cLpp;
-          _wfgAnalogDataCache[_gpIdx] = _cacheEntry;
+        if (gpio.waveform_type === 1) {
+          _anaData = wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, wfgLineBuffer, _cLpp);
+        } else if (gpio.waveform_type === 2) {
+          _anaData = wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effVtotal, _cStartLine, _cEndLine, _cLpp);
         }
       }
       if (_anaData) {
