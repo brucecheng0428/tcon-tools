@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.83.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.84.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.83.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.84.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13226,6 +13226,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var endLine = Math.min(totalLines - 1, Math.ceil(viewEnd) + 1);
   if (startLine > endLine) startLine = endLine;
   var samples = [];
+  var bandData = null;
   var isSD = gpio.waveform_type === 1;
   var isLS = gpio.waveform_type === 2;
 
@@ -13267,6 +13268,21 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     }
     if (samples.length > 0 && samples[samples.length - 1].lineX < endLine) {
       samples.push({ lineX: endLine, voltage: settled[Math.min(endLine, totalLines - 1)] });
+    }
+    // Build per-pixel min/max band for continuous filled rendering (eliminates block gaps)
+    var _bW = Math.max(0, Math.round(drawW));
+    bandData = new Float32Array(_bW * 2);
+    for (var px = 0; px < _bW; px++) {
+      var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
+      var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
+      var bMin = settled[pxS], bMax = settled[pxS];
+      for (var k = pxS + 1; k <= pxE; k++) {
+        var sv = settled[k];
+        if (sv < bMin) bMin = sv;
+        else if (sv > bMax) bMax = sv;
+      }
+      bandData[px * 2] = bMin;
+      bandData[px * 2 + 1] = bMax;
     }
   } else if (lpp > 0.5 || (!precomp.target && !precomp.events)) {
     // ── Medium zoom: one sample per line ──
@@ -13348,7 +13364,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   }
 
   var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
-  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: lpp > 2 };
+  return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: lpp > 2, bandData: bandData, bandW: Math.round(drawW) };
 }
 function wfgEnsureTransitions() {
   var isDual = wfgFrame.gateType === 'dual';
@@ -16345,6 +16361,61 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
     else { endIdx = _bMid + 1; _bHi = _bMid - 1; }
   }
 
+  // ── Band rendering for zoomed-out analog (continuous filled min/max envelope) ──
+  var _useBand = !!(samplesData.bandData && samplesData.bandData.length > 0);
+  if (_useBand) {
+    var band = samplesData.bandData;
+    var bandW = samplesData.bandW || (band.length >> 1);
+    // Parse hex color for RGBA fill
+    var _bc = ch.color, _br = 128, _bg2 = 128, _bb = 128;
+    if (_bc.charAt(0) === '#') {
+      var _bh = _bc.substring(1);
+      if (_bh.length >= 6) { _br = parseInt(_bh.substring(0,2),16); _bg2 = parseInt(_bh.substring(2,4),16); _bb = parseInt(_bh.substring(4,6),16); }
+    }
+    // Filled band: upper path (max left→right) + lower path (min right→left)
+    ctx.fillStyle = 'rgba('+_br+','+_bg2+','+_bb+',0.38)';
+    ctx.beginPath();
+    var _lastMaxY = 0, _lastMinY = 0;
+    for (var px = 0; px < bandW; px++) {
+      var x = drawX0 + px;
+      var yMax = voltToY(band[px * 2 + 1]);
+      if (px === 0) ctx.moveTo(x, yMax); else ctx.lineTo(x, yMax);
+      _lastMaxY = yMax;
+    }
+    _lastMinY = bandW > 0 ? voltToY(band[(bandW - 1) * 2]) : _lastMaxY;
+    // Extend to right edge if band doesn't cover full width
+    if (bandW > 0 && drawX0 + bandW - 1 < w) {
+      ctx.lineTo(w, _lastMaxY);
+      ctx.lineTo(w, _lastMinY);
+    }
+    for (var px = bandW - 1; px >= 0; px--) {
+      ctx.lineTo(drawX0 + px, voltToY(band[px * 2]));
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Stroke upper edge (max values)
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (var px = 0; px < bandW; px++) {
+      var x = drawX0 + px;
+      if (px === 0) ctx.moveTo(x, voltToY(band[px * 2 + 1]));
+      else ctx.lineTo(x, voltToY(band[px * 2 + 1]));
+    }
+    if (bandW > 0 && drawX0 + bandW - 1 < w) ctx.lineTo(w, _lastMaxY);
+    ctx.stroke();
+    // Stroke lower edge (min values)
+    ctx.beginPath();
+    for (var px = 0; px < bandW; px++) {
+      var x = drawX0 + px;
+      if (px === 0) ctx.moveTo(x, voltToY(band[px * 2]));
+      else ctx.lineTo(x, voltToY(band[px * 2]));
+    }
+    if (bandW > 0 && drawX0 + bandW - 1 < w) ctx.lineTo(w, _lastMinY);
+    ctx.stroke();
+  }
+
+  if (!_useBand) {
   ctx.strokeStyle = ch.color;
   ctx.lineWidth = 1.4;
   ctx.lineJoin = 'miter';
@@ -16462,6 +16533,7 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   }
   if (prevX < w) ctx.lineTo(w, prevY);
   ctx.stroke();
+  } // end if (!_useBand)
 
   // Edge label: print numerical vMin / vMax on the right rail so the auto-scale
   // is legible even when the slot is small. For LS channels, prefix VGH/VGL.
