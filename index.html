@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.84.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.85.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.84.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.85.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3579,6 +3579,7 @@ const I18N = {
   'wfg.progressWaveCh': { 'zh-TW': '解析波形資料… ({n} 通道)', 'en': 'Parsing waveform data… ({n} channels)', 'zh-CN': '解析波形数据… ({n} 通道)' },
   'wfg.progressRender': { 'zh-TW': '渲染波形…', 'en': 'Rendering waveform…', 'zh-CN': '渲染波形…' },
   'wfg.progressDone':   { 'zh-TW': '完成！', 'en': 'Done!', 'zh-CN': '完成！' },
+  'wfg.progressPrecomp':{ 'zh-TW': '預計算類比波形… ({n}/{total})', 'en': 'Precomputing analog… ({n}/{total})', 'zh-CN': '预计算模拟波形… ({n}/{total})' },
   'wfg.kvdatMagicErr':  { 'zh-TW': '二進位區塊 magic 不符', 'en': 'Binary block magic mismatch', 'zh-CN': '二进制区块 magic 不符' },
   'wfg.kvdatNoSettings':{ 'zh-TW': '找不到 </settings> 標記', 'en': 'Cannot find </settings> marker', 'zh-CN': '找不到 </settings> 标记' },
   'wfg.kvdatFail':      { 'zh-TW': 'kvdat 解析失敗: ', 'en': 'kvdat parse failed: ', 'zh-CN': 'kvdat 解析失败: ' },
@@ -13044,12 +13045,13 @@ var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpo
 var _wfgPrecomputed = {};      // gpioIdx → { settled, target(SD), events(LS), totalLines, ver, ... }
 var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
 
-// ─── Master precompute function ───
+// ─── Master precompute function (sync fast path + async with progress bar) ───
+var _wfgPrecompBusy = false;   // guard against overlapping async runs
 function wfgPrecomputeAnalog() {
+  // Synchronous fast path — used when called from render loop
   var t0 = performance.now();
   var tc = wfgEnsureTransitions();
   if (!tc) return;
-  var isDual = wfgFrame.gateType === 'dual';
   var effVtotal = tc.effVtotal;
   var effHtotal = tc.effHtotal;
   var totalLines = wfgTotalLines();
@@ -13069,6 +13071,50 @@ function wfgPrecomputeAnalog() {
   if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, channels=' + Object.keys(newPrecomp).length);
 }
 
+// Async precompute with progress bar — called on preset load / paste / import
+async function wfgPrecomputeAnalogAsync() {
+  if (_wfgPrecompBusy) return;
+  _wfgPrecompBusy = true;
+  var t0 = performance.now();
+  var tc = wfgEnsureTransitions();
+  if (!tc) { _wfgPrecompBusy = false; return; }
+  var effVtotal = tc.effVtotal;
+  var effHtotal = tc.effHtotal;
+  var totalLines = wfgTotalLines();
+  var allTrans = tc.transitions;
+  // Collect analog channel indices
+  var analogChs = [];
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var gpio = wfgGpios[gi];
+    if (gpio && gpio.enable && gpio.waveform_type) analogChs.push(gi);
+  }
+  if (analogChs.length === 0) { _wfgPrecompBusy = false; return; }
+  // Show progress bar only for heavy workloads (>200k total lines)
+  var showProg = totalLines > 200000;
+  if (showProg) wfgShowProgress(0, t('wfg.progressPrecomp').replace('{n}', '0').replace('{total}', String(analogChs.length)));
+  var newPrecomp = {};
+  for (var ci = 0; ci < analogChs.length; ci++) {
+    var gi = analogChs[ci];
+    var gpio = wfgGpios[gi];
+    if (gpio.waveform_type === 1) {
+      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+    } else if (gpio.waveform_type === 2) {
+      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+    }
+    if (showProg) {
+      var pct = Math.round(((ci + 1) / analogChs.length) * 100);
+      wfgShowProgress(pct, t('wfg.progressPrecomp').replace('{n}', String(ci + 1)).replace('{total}', String(analogChs.length)));
+      await wfgYield();
+    }
+  }
+  _wfgPrecomputed = newPrecomp;
+  _wfgPrecomputeVer = _wfgAnalogCacheVer;
+  if (showProg) wfgHideProgress();
+  _wfgPrecompBusy = false;
+  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog (async): ' + (performance.now() - t0).toFixed(1) + 'ms, channels=' + analogChs.length);
+  wfgRequestFrame();
+}
+
 // ─── SD channel precomputation ───
 function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines) {
   var ac = gpio.analog_config;
@@ -13079,11 +13125,12 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // XPOL: expand for one frame, build per-frame polarity array
   var xpolIdx = (ac.xpol_gpio_idx != null) ? (ac.xpol_gpio_idx | 0) : WFG_XPOL_GPIO_IDX;
   if (xpolIdx < 0 || xpolIdx >= wfgGpios.length) xpolIdx = WFG_XPOL_GPIO_IDX;
-  var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, effVtotal);
+  // XPOL must span ALL lines (not just one frame) so toggle-mode alternation is captured
+  var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, totalLines);
   var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
   var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
-  var polPerFrame = new Uint8Array(effVtotal);
-  for (var pf = 0; pf < effVtotal; pf++) polPerFrame[pf] = xpolLookupFn(pf);
+  var polPerLine = new Uint8Array(totalLines);
+  for (var pf = 0; pf < totalLines; pf++) polPerLine[pf] = xpolLookupFn(pf);
 
   // L value per frame line
   var maxL = wfgAnalogMaxL(ac);
@@ -13138,7 +13185,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // Main loop: pure array lookups + multiply, no Math.exp
   for (var line = 1; line < totalLines; line++) {
     var lineInFrame = line % effVtotal;
-    var pol = polPerFrame[lineInFrame];
+    var pol = polPerLine[line];
     var lVal = lValuePerFrame[lineInFrame];
     var tgtV = voltLut[pol * lutStride + lVal];
     target[line] = tgtV;
@@ -13231,47 +13278,12 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var isLS = gpio.waveform_type === 2;
 
   if (lpp > 2) {
-    // ── Zoomed out: hybrid subsampling from settled[] ──
-    // For each pixel-width window, check voltage swing:
-    //   Small swing → single midpoint sample (smooth curve for SD settling)
-    //   Large swing → min-max pair (preserves envelope for CKO oscillation)
-    // Target: ~drawW to ~2*drawW samples, at or below renderer decimation threshold.
-    var _vRange = 1;
-    if (ac && ac.voltage_max != null && ac.voltage_min != null) {
-      _vRange = Math.max(0.001, ac.voltage_max - ac.voltage_min);
-    }
-    var _transThresh = _vRange * 0.03;
-    var pixStep = Math.max(1, Math.round(lpp));
-    for (var L = startLine; L <= endLine; L += pixStep) {
-      var wEnd = Math.min(L + pixStep - 1, endLine);
-      if (wEnd >= totalLines) wEnd = totalLines - 1;
-      var wMinV = settled[L], wMaxV = settled[L], wMinL = L, wMaxL = L;
-      for (var k = L + 1; k <= wEnd; k++) {
-        var sv = settled[k];
-        if (sv < wMinV) { wMinV = sv; wMinL = k; }
-        if (sv > wMaxV) { wMaxV = sv; wMaxL = k; }
-      }
-      if (wMaxV - wMinV > _transThresh) {
-        // High-variation window (CKO oscillation): emit min-max for envelope
-        if (wMinL <= wMaxL) {
-          samples.push({ lineX: wMinL, voltage: wMinV });
-          if (wMaxL !== wMinL) samples.push({ lineX: wMaxL, voltage: wMaxV });
-        } else {
-          samples.push({ lineX: wMaxL, voltage: wMaxV });
-          samples.push({ lineX: wMinL, voltage: wMinV });
-        }
-      } else {
-        // Low-variation window (SD settling): single midpoint for smooth rendering
-        var midIdx = Math.min(L + (pixStep >> 1), wEnd);
-        samples.push({ lineX: midIdx, voltage: settled[midIdx] });
-      }
-    }
-    if (samples.length > 0 && samples[samples.length - 1].lineX < endLine) {
-      samples.push({ lineX: endLine, voltage: settled[Math.min(endLine, totalLines - 1)] });
-    }
-    // Build per-pixel min/max band for continuous filled rendering (eliminates block gaps)
+    // ── Zoomed out: band-only mode (zero object allocation) ──
+    // Build per-pixel min/max band directly from settled[]; skip samples[] entirely
+    // since the renderer uses bandData exclusively when _useBand is true.
     var _bW = Math.max(0, Math.round(drawW));
     bandData = new Float32Array(_bW * 2);
+    var bandVMin = Infinity, bandVMax = -Infinity;
     for (var px = 0; px < _bW; px++) {
       var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
       var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
@@ -13283,12 +13295,19 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       }
       bandData[px * 2] = bMin;
       bandData[px * 2 + 1] = bMax;
+      if (bMin < bandVMin) bandVMin = bMin;
+      if (bMax > bandVMax) bandVMax = bMax;
     }
+    // Store band voltage range for auto-range (avoids scanning samples)
+    var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
+    return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: true,
+      bandData: bandData, bandW: _bW, bandVMin: bandVMin, bandVMax: bandVMax };
   } else if (lpp > 0.5 || (!precomp.target && !precomp.events)) {
-    // ── Medium zoom: one sample per line ──
-    for (var L = startLine; L <= endLine; L++) {
-      samples.push({ lineX: L, voltage: settled[L] });
-    }
+    // ── Medium zoom: direct settled[] reference (zero allocation) ──
+    var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
+    return { initVoltage: initVoltage, samples: [], smooth: true, skipRC: false,
+      bandData: null, bandW: 0,
+      directSettled: settled, directStart: startLine, directEnd: endLine };
   } else if (isSD && precomp.target) {
     // ── Close zoom SD: sub-line RC curves from target[] ──
     var RC_TAU_RISE = precomp.rcTauRise;
@@ -16246,6 +16265,53 @@ function wfgVoltCursorHitTest(cx, cy, isTouch) {
 // uses the channel's full voltage range (voltage_min~voltage_max) so the flat
 // waveform stays at its true voltage position instead of being centred.
 function wfgComputeAnalogAutoRange(samplesData, viewStartLine, viewEndLine, chanVMin, chanVMax) {
+  // Fast path: band-only mode (lpp > 2) already has precomputed vMin/vMax
+  if (samplesData && isFinite(samplesData.bandVMin) && isFinite(samplesData.bandVMax)) {
+    var bvMin = samplesData.bandVMin, bvMax = samplesData.bandVMax;
+    if (bvMax - bvMin < 0.005) {
+      if (isFinite(chanVMin) && isFinite(chanVMax) && chanVMax - chanVMin > 0.005) {
+        return { vMin: chanVMin, vMax: chanVMax, flat: true };
+      }
+      var mid = (bvMin + bvMax) / 2;
+      var pad = Math.max(Math.abs(mid) * 0.02, 0.5);
+      return { vMin: mid - pad, vMax: mid + pad, flat: true };
+    }
+    return { vMin: bvMin, vMax: bvMax, flat: false };
+  }
+  // Fast path: directSettled mode (medium zoom, zero allocation)
+  if (samplesData && samplesData.directSettled) {
+    var ds = samplesData.directSettled;
+    var dsS = Math.max(samplesData.directStart, Math.floor(viewStartLine));
+    var dsE = Math.min(samplesData.directEnd, Math.ceil(viewEndLine));
+    var vMin = Infinity, vMax = -Infinity;
+    // Include carry-in voltage
+    if (samplesData.directStart <= viewStartLine) {
+      var cvIdx = Math.min(Math.floor(viewStartLine), samplesData.directEnd);
+      var cv = ds[cvIdx];
+      if (isFinite(cv)) { vMin = cv; vMax = cv; }
+    }
+    for (var dl = dsS; dl <= dsE; dl++) {
+      var dv = ds[dl];
+      if (dv < vMin) vMin = dv;
+      if (dv > vMax) vMax = dv;
+    }
+    if (!isFinite(vMin) || !isFinite(vMax)) {
+      if (isFinite(chanVMin) && isFinite(chanVMax) && chanVMax - chanVMin > 0.005) {
+        return { vMin: chanVMin, vMax: chanVMax, flat: true };
+      }
+      var fb = samplesData.initVoltage || 0;
+      return { vMin: fb - 0.5, vMax: fb + 0.5, flat: true };
+    }
+    if (vMax - vMin < 0.005) {
+      if (isFinite(chanVMin) && isFinite(chanVMax) && chanVMax - chanVMin > 0.005) {
+        return { vMin: chanVMin, vMax: chanVMax, flat: true };
+      }
+      var mid = (vMin + vMax) / 2;
+      var pad = Math.max(Math.abs(mid) * 0.02, 0.5);
+      return { vMin: mid - pad, vMax: mid + pad, flat: true };
+    }
+    return { vMin: vMin, vMax: vMax, flat: false };
+  }
   var samples = (samplesData && samplesData.samples) || [];
   var vMin = Infinity, vMax = -Infinity;
   // Carry-in: last sample at-or-before viewStart represents the level held into view.
@@ -16332,7 +16398,7 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   ctx.stroke();
   ctx.setLineDash([]);
 
-  var samples = samplesData.samples;
+  var samples = samplesData.samples || [];
   var initV = samplesData.initVoltage;
 
   // For truly degenerate range (vMin ≈ vMax) centre the trace.
@@ -16343,26 +16409,28 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
     return wfgVoltToY(v, vMin, vMax, yHigh, yLow);
   }
 
-  // Anchor: last sample before viewStart; first one after viewEnd bounds the trailing curve
-  // Binary search for startIdx: largest i where samples[i].lineX <= viewStartLine
-  var startIdx = -1;
-  var _bLo = 0, _bHi = samples.length - 1;
-  while (_bLo <= _bHi) {
-    var _bMid = (_bLo + _bHi) >>> 1;
-    if (samples[_bMid].lineX <= viewStartLine) { startIdx = _bMid; _bLo = _bMid + 1; }
-    else _bHi = _bMid - 1;
-  }
-  // Binary search for endIdx: first j where samples[j].lineX > viewEndLine, then +1
-  var endIdx = samples.length;
-  _bLo = (startIdx >= 0 ? startIdx : 0); _bHi = samples.length - 1;
-  while (_bLo <= _bHi) {
-    var _bMid = (_bLo + _bHi) >>> 1;
-    if (samples[_bMid].lineX <= viewEndLine) _bLo = _bMid + 1;
-    else { endIdx = _bMid + 1; _bHi = _bMid - 1; }
-  }
-
   // ── Band rendering for zoomed-out analog (continuous filled min/max envelope) ──
   var _useBand = !!(samplesData.bandData && samplesData.bandData.length > 0);
+
+  // Binary searches on samples[] — skip entirely in band-only mode (samples is empty)
+  var startIdx = -1, endIdx = samples.length;
+  if (samples.length > 0) {
+    // Anchor: last sample before viewStart; first one after viewEnd bounds the trailing curve
+    // Binary search for startIdx: largest i where samples[i].lineX <= viewStartLine
+    var _bLo = 0, _bHi = samples.length - 1;
+    while (_bLo <= _bHi) {
+      var _bMid = (_bLo + _bHi) >>> 1;
+      if (samples[_bMid].lineX <= viewStartLine) { startIdx = _bMid; _bLo = _bMid + 1; }
+      else _bHi = _bMid - 1;
+    }
+    // Binary search for endIdx: first j where samples[j].lineX > viewEndLine, then +1
+    _bLo = (startIdx >= 0 ? startIdx : 0); _bHi = samples.length - 1;
+    while (_bLo <= _bHi) {
+      var _bMid = (_bLo + _bHi) >>> 1;
+      if (samples[_bMid].lineX <= viewEndLine) _bLo = _bMid + 1;
+      else { endIdx = _bMid + 1; _bHi = _bMid - 1; }
+    }
+  }
   if (_useBand) {
     var band = samplesData.bandData;
     var bandW = samplesData.bandW || (band.length >> 1);
@@ -16415,7 +16483,37 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
     ctx.stroke();
   }
 
-  if (!_useBand) {
+  // ── Direct settled[] rendering for medium zoom (zero allocation) ──
+  var _useDirect = !!(samplesData.directSettled && !_useBand);
+  if (_useDirect) {
+    var ds = samplesData.directSettled;
+    var dsStart = samplesData.directStart;
+    var dsEnd = samplesData.directEnd;
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1.4;
+    ctx.lineJoin = 'miter';
+    ctx.beginPath();
+    // Clip to visible range
+    var dsVisStart = Math.max(dsStart, Math.floor(viewStartLine));
+    var dsVisEnd = Math.min(dsEnd, Math.ceil(viewEndLine));
+    var firstDrawn = false;
+    // Hold voltage from before visible start
+    var holdV = (dsVisStart > 0 && dsVisStart <= dsEnd) ? ds[Math.max(dsStart, dsVisStart - 1)] : ds[dsStart];
+    var holdY = voltToY(holdV);
+    ctx.moveTo(drawX0, holdY);
+    for (var dL = dsVisStart; dL <= dsVisEnd; dL++) {
+      var dx = lineToX(dL);
+      if (dx < drawX0) { holdY = voltToY(ds[dL]); continue; }
+      if (dx > w) break;
+      ctx.lineTo(dx, voltToY(ds[dL]));
+      firstDrawn = true;
+    }
+    if (firstDrawn && lineToX(dsVisEnd) < w) ctx.lineTo(w, voltToY(ds[dsVisEnd]));
+    else if (!firstDrawn) ctx.lineTo(w, holdY);
+    ctx.stroke();
+  }
+
+  if (!_useBand && !_useDirect) {
   ctx.strokeStyle = ch.color;
   ctx.lineWidth = 1.4;
   ctx.lineJoin = 'miter';
@@ -16533,7 +16631,7 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   }
   if (prevX < w) ctx.lineTo(w, prevY);
   ctx.stroke();
-  } // end if (!_useBand)
+  } // end if (!_useBand && !_useDirect)
 
   // Edge label: print numerical vMin / vMax on the right rail so the auto-scale
   // is legible even when the slot is small. For LS channels, prefix VGH/VGL.
@@ -16894,8 +16992,9 @@ function wfgRender() {
   var allGpioTransitions = cache.transitions;
   if (_wfgPerfEnabled) _wfgPerfLast.cache = performance.now() - _pT1;
 
-  // Lazy precompute analog data if stale
-  if (_wfgPrecomputeVer !== _wfgAnalogCacheVer) {
+  // Lazy precompute analog data if stale (sync path — async precompute with progress
+  // bar is triggered from wfgLoadPreset / wfgImportKvdat for heavy workloads)
+  if (_wfgPrecomputeVer !== _wfgAnalogCacheVer && !_wfgPrecompBusy) {
     wfgPrecomputeAnalog();
   }
 
@@ -18532,7 +18631,8 @@ function wfgLoadPreset(presetName) {
   wfgRenderFrmNoCard();
   wfgRenderGpioList();
   wfgRenderChannelList();
-  wfgResizeAndRender();
+  // Async precompute with progress bar, then render
+  wfgPrecomputeAnalogAsync().then(function() { wfgResizeAndRender(); });
 }
 
 function wfgCalcRxDclk() {
