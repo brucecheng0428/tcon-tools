@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.90.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.91.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.90.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.91.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13324,15 +13324,20 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     }
   }
 
-  // ── XSTB 無 falling edge 時，SD 完全不衰減 ──
-  // wfgCalcGpioSmart 在 f_dly 過大時會抑制 falling edge，
-  // 此時 xstbHasFalling=false，需設 sentinel 讓下游全部走「平線」路徑
+  // ── settled[] 衰減因子綁定 XSTB↓ 位置 (v2.91.0) ──
+  // RC 只在 XSTB falling edge 之後才發生，持續 (1 - xstbFracDly) 比例。
+  // settled[L] = 「line L 的 RC 結束後電壓」= 「line L+1 的 XSTB↓ 前 hold 電壓」。
   if (!xstbHasFalling) {
     xstbFracDly = 2.0; // sentinel > 1.0 → rcSamples 全 hold、Path1 _ucNoFalling=true
     expRise = 1.0;
     expFall = 1.0;
+  } else if (xstbFracDly > 0) {
+    // XSTB 不在行首 → RC 只跑 (1-fracDly) 的時間，衰減量比全行少
+    var _rcDurS = 1.0 - xstbFracDly;
+    expRise = Math.exp(-_rcDurS / RC_TAU_RISE);
+    expFall = Math.exp(-_rcDurS / RC_TAU_FALL);
   }
-  // xstbHasFalling=true → 保持原始 exp(-1/tau)，不動 RC 參數
+  // xstbFracDly === 0 → XSTB 在行首 → RC 跑全行 → 保持原 exp(-1/tau)
 
   var settled = new Float32Array(totalLines);
   var target = new Float32Array(totalLines);
@@ -13361,49 +13366,48 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     prevV = settled[line];
   }
 
-  // ── Precompute RC sub-line samples for zero-compute band rendering ──
-  // holdV[] tracks the ACTUAL voltage the SD holds just before XSTB↓ on each
-  // line, using the correct RC duration (1 − xstbFracDly) instead of the
-  // simplified full-line factor in settled[].  This is the voltage visible
-  // at the XSTB falling edge position and is used by the close-zoom renderer.
+  // ── Precompute RC sub-line samples for band rendering (v2.91.0) ──
+  // 預計算 RC 曲線形狀（只需 40 次 Math.exp），內迴圈全用乘法查表
   var RC_PTS = 20;
+  var rcExpRise = new Float32Array(RC_PTS);
+  var rcExpFall = new Float32Array(RC_PTS);
+  for (var _rci = 0; _rci < RC_PTS; _rci++) {
+    var _rcFrac = _rci / RC_PTS;
+    if (_rcFrac < xstbFracDly) {
+      rcExpRise[_rci] = 1.0;  // hold 區間：不衰減
+      rcExpFall[_rci] = 1.0;
+    } else {
+      var _rcDt = _rcFrac - xstbFracDly;
+      rcExpRise[_rci] = Math.exp(-_rcDt / RC_TAU_RISE);
+      rcExpFall[_rci] = Math.exp(-_rcDt / RC_TAU_FALL);
+    }
+  }
   var rcSamples = new Float32Array(totalLines * RC_PTS);
   var lineMinMax = new Float32Array(totalLines * 2);
+  // holdV[L] = XSTB↓ 之前的 hold 電壓 = settled[L-1]（已修正 exp 因子）
   var holdV = new Float32Array(totalLines);
-  var _rcDur = (xstbFracDly >= 1.0) ? 0 : (1.0 - xstbFracDly);
-  var _hExpR = (_rcDur > 0) ? Math.exp(-_rcDur / RC_TAU_RISE) : 1.0;
-  var _hExpF = (_rcDur > 0) ? Math.exp(-_rcDur / RC_TAU_FALL) : 1.0;
-  var hV = tgtV0;
+  holdV[0] = tgtV0;
+  for (var _hi = 1; _hi < totalLines; _hi++) holdV[_hi] = settled[_hi - 1];
+  // rcSamples: 純乘法查表，零 Math.exp
   for (var rL = 0; rL < totalLines; rL++) {
-    holdV[rL] = hV;
+    var hV = holdV[rL];
     var rTgtV = target[rL];
     var rBase = rL * RC_PTS;
     if (Math.abs(rTgtV - hV) < 0.001) {
-      // Target ≈ hold → flat line at hold voltage
       for (var rsi = 0; rsi < RC_PTS; rsi++) rcSamples[rBase + rsi] = hV;
       lineMinMax[rL * 2] = hV;
       lineMinMax[rL * 2 + 1] = hV;
-      // holdV for next line stays at hV (no RC movement)
     } else {
-      var rRcTau = (rTgtV >= hV) ? RC_TAU_RISE : RC_TAU_FALL;
+      var rcExp = (rTgtV >= hV) ? rcExpRise : rcExpFall;
       var rMin = hV, rMax = hV;
       for (var rsi = 0; rsi < RC_PTS; rsi++) {
-        var rF = rsi / RC_PTS;
-        var rV;
-        if (rF < xstbFracDly) {
-          rV = hV;
-        } else {
-          rV = rTgtV + (hV - rTgtV) * Math.exp(-(rF - xstbFracDly) / rRcTau);
-        }
+        var rV = rTgtV + (hV - rTgtV) * rcExp[rsi];
         rcSamples[rBase + rsi] = rV;
         if (rV < rMin) rMin = rV;
         if (rV > rMax) rMax = rV;
       }
       lineMinMax[rL * 2] = rMin;
       lineMinMax[rL * 2 + 1] = rMax;
-      // Update holdV: voltage at end of this line's RC = start of next hold
-      var _hExp = (rTgtV >= hV) ? _hExpR : _hExpF;
-      hV = rTgtV + (hV - rTgtV) * _hExp;
     }
   }
 
