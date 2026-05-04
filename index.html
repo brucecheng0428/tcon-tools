@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.79.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.80.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.79.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.80.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15126,10 +15126,10 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   // visually meaningful.  With default curvature 127 the curve spans ~0.5 lines,
   // so at lpp 0.6 it is sub-pixel → always skip.  With max curvature 255 the
   // curve spans ~10 lines, so skip only when lpp > ~0.67.
-  var _RC_MIN_PX = 15;
+  var _RC_MIN_PX = 2;
   var _rcMaxTau = Math.max(RC_TAU_RISE, RC_TAU_FALL);
   var _rcSpanPx = (linesPerPixel > 0) ? (_rcMaxTau * 5) / linesPerPixel : 9999;
-  var _lsSkipRC = (_rcSpanPx < _RC_MIN_PX) || (linesPerPixel > 4);
+  var _lsSkipRC = (_rcSpanPx < _RC_MIN_PX);
   var curveDensity = 16;
   if (!_lsSkipRC) {
     if (linesPerPixel > 1) curveDensity = 8;
@@ -16477,12 +16477,12 @@ function wfgRender() {
         // or vice versa.  The threshold is dynamic (based on RC tau), so compare the
         // skipRC flag stored in the cached result against what current lpp would produce.
         if (!_wfgContinuousMotion && _lppOk && _acEntry.data && _acEntry.data.skipRC !== undefined) {
-          var _RC_MIN_PX_C = 15;
+          var _RC_MIN_PX_C = 2;
           var _crC = (gpio.analog_config && gpio.analog_config.curvature_rise) || 0;
           var _cfC = (gpio.analog_config && gpio.analog_config.curvature_fall) || 0;
           var _rcTauMaxC = 2.0 * Math.exp(-0.0235 * (255 - Math.max(_crC | 0, _cfC | 0)));
           var _rcSpanPxC = (_curLpp > 0) ? (_rcTauMaxC * 5) / _curLpp : 9999;
-          var _expectSkipRC = (_rcSpanPxC < _RC_MIN_PX_C) || (_curLpp > 4);
+          var _expectSkipRC = (_rcSpanPxC < _RC_MIN_PX_C);
           if (_acEntry.data.skipRC !== _expectSkipRC) _lppOk = false;
         }
       }
@@ -16492,7 +16492,7 @@ function wfgRender() {
         _anaData = _acEntry.data;
       } else {
         // Compute with extra margin so future zoom/pan steps reuse the cache
-        var _cacheMargin = Math.max(effVtotal * 2, viewRange * 3);
+        var _cacheMargin = Math.max(effVtotal * 2, viewRange * 1.5);
         var _cStartLine = Math.max(0, wfgViewStart - _cacheMargin);
         var _cEndLine = Math.min(wfgTotalLines(), wfgViewEnd + _cacheMargin);
         var _cLpp = drawW > 0 ? viewRange / drawW : 1;
@@ -16568,76 +16568,115 @@ function wfgRender() {
           ctx.fillRect(drawX0, yHighI, Math.ceil(drawW), fillH);
         }
       } else if (gpio.oax_mode === 0) {
-        // Per-pixel template scan (non-OAX)
+        // Per-pixel template scan (non-OAX) — optimised with pre-computed positions + binary search
         var curLevel = wfgGetInitLevel(baseSmart, wfgViewStart, effHtotal);
+        // Pre-compute sorted temporal positions and levels for template entries
+        var _tplPos = new Float64Array(tplLen);
+        var _tplLvl = new Uint8Array(tplLen);
+        var _tplHasToggle = false; // true if template has ANY level change
+        for (var _tp = 0; _tp < tplLen; _tp++) {
+          _tplPos[_tp] = effHtotal > 0 ? tpl[_tp].relLine + (tpl[_tp].dly || 0) / effHtotal : tpl[_tp].relLine;
+          _tplLvl[_tp] = tpl[_tp].level;
+          if (_tp > 0 && tpl[_tp].level !== tpl[_tp - 1].level) _tplHasToggle = true;
+        }
+        if (tplLen > 0 && tpl[0].level !== tpl[tplLen - 1].level) _tplHasToggle = true;
+        // Pre-compute prelude temporal positions
+        var _preLen = baseSmart.prelude.length;
+        var _prePos = _preLen > 0 ? new Float64Array(_preLen) : null;
+        var _preLvl = _preLen > 0 ? new Uint8Array(_preLen) : null;
+        for (var _pp = 0; _pp < _preLen; _pp++) {
+          _prePos[_pp] = effHtotal > 0 ? baseSmart.prelude[_pp].line + (baseSmart.prelude[_pp].dly || 0) / effHtotal : baseSmart.prelude[_pp].line;
+          _preLvl[_pp] = baseSmart.prelude[_pp].level;
+        }
+        // Batch consecutive same-type pixels to reduce fillRect calls
+        var _batchStart = 0, _batchType = -1; // 0=toggle, 1=high, 2=low
+        function _flushBatch(endPx) {
+          if (_batchType < 0 || endPx <= _batchStart) return;
+          var bw = endPx - _batchStart;
+          if (_batchType === 0) ctx.fillRect(drawX0 + _batchStart, yHighI, bw, fillH);
+          else if (_batchType === 1) ctx.fillRect(drawX0 + _batchStart, yHighI, bw, 1);
+          else ctx.fillRect(drawX0 + _batchStart, yLowI, bw, 1);
+        }
         for (var px = 0; px < pixelCount; px++) {
           var lineLeft = wfgViewStart + (px / drawW) * viewRange;
           var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
-          var count = 0;
           var lastLevel = curLevel;
           var sawToggle = false;
           if ((lineRight - lineLeft) >= sVtotal && tplLen > 0) {
-            count = tplLen;
-            lastLevel = tpl[tplLen - 1].level;
-            for (var tk = 0; tk < tplLen; tk++) {
-              if (tpl[tk].level !== curLevel) { sawToggle = true; break; }
-            }
+            lastLevel = _tplLvl[tplLen - 1];
+            sawToggle = _tplHasToggle || (lastLevel !== curLevel);
           } else if (lineRight >= steadyLine && tplLen > 0) {
             var relLeft = (lineLeft - steadyLine) % pv;
             var relRight = relLeft + (lineRight - lineLeft);
             if (relLeft < 0) relLeft = 0;
-            for (var tj = 0; tj < tplLen; tj++) {
-              var tplTPos = effHtotal > 0 ? tpl[tj].relLine + (tpl[tj].dly || 0) / effHtotal : tpl[tj].relLine;
-              if (tplTPos >= relLeft && tplTPos <= relRight) {
-                count++;
-                if (tpl[tj].level !== curLevel) sawToggle = true;
-                lastLevel = tpl[tj].level;
-              }
+            // Binary search for first template entry >= relLeft
+            var _bsLo = 0, _bsHi = tplLen;
+            while (_bsLo < _bsHi) { var _bsM = (_bsLo + _bsHi) >>> 1; if (_tplPos[_bsM] < relLeft) _bsLo = _bsM + 1; else _bsHi = _bsM; }
+            for (var tj = _bsLo; tj < tplLen; tj++) {
+              if (_tplPos[tj] > relRight) break;
+              if (_tplLvl[tj] !== curLevel) sawToggle = true;
+              lastLevel = _tplLvl[tj];
             }
           }
-          if (lineLeft < steadyLine) {
-            for (var pj = 0; pj < baseSmart.prelude.length; pj++) {
-              var preTPos = effHtotal > 0 ? baseSmart.prelude[pj].line + (baseSmart.prelude[pj].dly || 0) / effHtotal : baseSmart.prelude[pj].line;
-              if (preTPos >= lineLeft && preTPos <= lineRight) {
-                count++;
-                if (baseSmart.prelude[pj].level !== curLevel) sawToggle = true;
-                lastLevel = baseSmart.prelude[pj].level;
-              }
+          if (lineLeft < steadyLine && _preLen > 0) {
+            // Binary search in prelude
+            var _bpLo = 0, _bpHi = _preLen;
+            while (_bpLo < _bpHi) { var _bpM = (_bpLo + _bpHi) >>> 1; if (_prePos[_bpM] < lineLeft) _bpLo = _bpM + 1; else _bpHi = _bpM; }
+            for (var pj = _bpLo; pj < _preLen; pj++) {
+              if (_prePos[pj] > lineRight) break;
+              if (_preLvl[pj] !== curLevel) sawToggle = true;
+              lastLevel = _preLvl[pj];
             }
           }
           curLevel = lastLevel;
-          var xI = drawX0 + px;
-          if (sawToggle) {
-            ctx.fillRect(xI, yHighI, 1, fillH);
-          } else {
-            ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
-          }
+          // Determine pixel type and batch
+          var _pxType = sawToggle ? 0 : (curLevel ? 1 : 2);
+          if (_pxType !== _batchType) { _flushBatch(px); _batchStart = px; _batchType = _pxType; }
         }
+        _flushBatch(pixelCount);
         var remW = Math.ceil(w - drawX0 - pixelCount);
         if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
       } else {
-        // OAX per-pixel: expand small ranges per pixel
-        var curLevel = 0;
+        // OAX per-pixel: expand ONCE for full view, then cursor-scan
+        var _oaxFull = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, wfgViewStart, wfgViewEnd);
+        var _oaxTrans = _oaxFull.transitions;
+        var curLevel = _oaxFull.initLevel;
+        // Pre-compute temporal positions for binary search
+        var _oaxLen = _oaxTrans.length;
+        var _oaxPos = new Float64Array(_oaxLen);
+        var _oaxLvl = new Uint8Array(_oaxLen);
+        for (var _oi = 0; _oi < _oaxLen; _oi++) {
+          _oaxPos[_oi] = effHtotal > 0 ? _oaxTrans[_oi].line + (_oaxTrans[_oi].dly || 0) / effHtotal : _oaxTrans[_oi].line;
+          _oaxLvl[_oi] = _oaxTrans[_oi].level;
+        }
+        var _oaxCursor = 0; // sliding cursor — transitions are sorted, pixels advance monotonically
+        var _oBatchStart = 0, _oBatchType = -1;
+        function _oFlushBatch(endPx) {
+          if (_oBatchType < 0 || endPx <= _oBatchStart) return;
+          var bw = endPx - _oBatchStart;
+          if (_oBatchType === 0) ctx.fillRect(drawX0 + _oBatchStart, yHighI, bw, fillH);
+          else if (_oBatchType === 1) ctx.fillRect(drawX0 + _oBatchStart, yHighI, bw, 1);
+          else ctx.fillRect(drawX0 + _oBatchStart, yLowI, bw, 1);
+        }
         for (var px = 0; px < pixelCount; px++) {
           var lineLeft = wfgViewStart + (px / drawW) * viewRange;
           var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
-          var oaxR = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, lineLeft, lineRight);
-          if (px === 0) curLevel = oaxR.initLevel;
-          var count = oaxR.transitions.length;
+          // Advance cursor past entries before this pixel
+          while (_oaxCursor < _oaxLen && _oaxPos[_oaxCursor] < lineLeft) {
+            curLevel = _oaxLvl[_oaxCursor];
+            _oaxCursor++;
+          }
           var lastLvl = curLevel;
           var sawToggle = false;
-          for (var oj = 0; oj < oaxR.transitions.length; oj++) {
-            if (oaxR.transitions[oj].level !== curLevel) sawToggle = true;
-            lastLvl = oaxR.transitions[oj].level;
+          for (var oj = _oaxCursor; oj < _oaxLen && _oaxPos[oj] <= lineRight; oj++) {
+            if (_oaxLvl[oj] !== curLevel) sawToggle = true;
+            lastLvl = _oaxLvl[oj];
           }
           curLevel = lastLvl;
-          var xI = drawX0 + px;
-          if (sawToggle) {
-            ctx.fillRect(xI, yHighI, 1, fillH);
-          } else {
-            ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
-          }
+          var _oPxType = sawToggle ? 0 : (curLevel ? 1 : 2);
+          if (_oPxType !== _oBatchType) { _oFlushBatch(px); _oBatchStart = px; _oBatchType = _oPxType; }
         }
+        _oFlushBatch(pixelCount);
         var remW = Math.ceil(w - drawX0 - pixelCount);
         if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
       }
@@ -16688,30 +16727,40 @@ function wfgRender() {
         ctx.lineTo(w, curY);
         ctx.stroke();
       } else {
-        // Dense mode with expanded transitions
+        // Dense mode with expanded transitions — batched fillRect
         var yHighI = Math.round(yHigh - 0.5);
         var yLowI = Math.round(yLow - 0.5);
         var fillH = yLowI - yHighI + 1;
         ctx.fillStyle = ch.color;
         var pixelCount = Math.ceil(drawW);
         var ti = 0;
+        var _dBatchStart = 0, _dBatchType = -1;
         for (var px = 0; px < pixelCount; px++) {
           var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
-          var count = 0;
           var lastLevel = curLevel;
           var sawToggle = false;
           while (ti < transitions.length && transitions[ti].line <= lineRight) {
             if (transitions[ti].level !== curLevel) sawToggle = true;
             lastLevel = transitions[ti].level;
-            ti++; count++;
+            ti++;
           }
           curLevel = lastLevel;
-          var xI = drawX0 + px;
-          if (sawToggle) {
-            ctx.fillRect(xI, yHighI, 1, fillH);
-          } else {
-            ctx.fillRect(xI, curLevel ? yHighI : yLowI, 1, 1);
+          var _dPxType = sawToggle ? 0 : (curLevel ? 1 : 2);
+          if (_dPxType !== _dBatchType) {
+            if (_dBatchType >= 0 && px > _dBatchStart) {
+              var _dbw = px - _dBatchStart;
+              if (_dBatchType === 0) ctx.fillRect(drawX0 + _dBatchStart, yHighI, _dbw, fillH);
+              else if (_dBatchType === 1) ctx.fillRect(drawX0 + _dBatchStart, yHighI, _dbw, 1);
+              else ctx.fillRect(drawX0 + _dBatchStart, yLowI, _dbw, 1);
+            }
+            _dBatchStart = px; _dBatchType = _dPxType;
           }
+        }
+        if (_dBatchType >= 0 && pixelCount > _dBatchStart) {
+          var _dbw = pixelCount - _dBatchStart;
+          if (_dBatchType === 0) ctx.fillRect(drawX0 + _dBatchStart, yHighI, _dbw, fillH);
+          else if (_dBatchType === 1) ctx.fillRect(drawX0 + _dBatchStart, yHighI, _dbw, 1);
+          else ctx.fillRect(drawX0 + _dBatchStart, yLowI, _dbw, 1);
         }
         var remW = Math.ceil(w - drawX0 - pixelCount);
         if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
