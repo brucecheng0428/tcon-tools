@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.88.5</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.89.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.88.5</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.89.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13008,6 +13008,139 @@ function wfgMarkContinuousMotion() {
   }, 150);
 }
 window.wfgMarkContinuousMotion = wfgMarkContinuousMotion;
+
+// ─── rAF Render Throttle (v2.89: slider drag → max 1 render/frame) ───
+var _wfgRafId = 0;
+var _wfgRenderDirty = false;
+function _wfgScheduleRender() {
+  _wfgRenderDirty = true;
+  if (!_wfgRafId) {
+    _wfgRafId = requestAnimationFrame(function() {
+      _wfgRafId = 0;
+      if (_wfgRenderDirty) {
+        _wfgRenderDirty = false;
+        wfgRender();
+        // Skip minimap during continuous motion or slider drag (deferred by _wfgScheduleFullRecompute)
+        if (!_wfgContinuousMotion && !_wfgSliderDragging) {
+          wfgRenderMinimap();
+          wfgUpdateMinimapViewport();
+        }
+      }
+    });
+  }
+}
+
+// ─── Precise Invalidation (v2.89) ───
+var _wfgDirtyGpios = new Set();
+// Analog dependency table: analogGpioIdx → Set of digital gpioIdx it depends on
+var _wfgAnalogDeps = {};
+
+function _wfgBuildAnalogDeps() {
+  _wfgAnalogDeps = {};
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var gpio = wfgGpios[gi];
+    if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
+    var deps = new Set();
+    deps.add(gi);
+    var ac = gpio.analog_config;
+    if (ac) {
+      var xpolIdx = (ac.xpol_gpio_idx != null) ? (ac.xpol_gpio_idx | 0) : -1;
+      if (xpolIdx >= 0) deps.add(xpolIdx);
+      if (gpio.waveform_type === 1) {
+        var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : -1;
+        if (xstbIdx >= 0) deps.add(xstbIdx);
+      }
+      if (gpio.waveform_type === 2) {
+        var ckIdx = (ac.ck_gpio_idx != null) ? (ac.ck_gpio_idx | 0) : -1;
+        if (ckIdx >= 0) deps.add(ckIdx);
+        var xstbLsIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : -1;
+        if (xstbLsIdx >= 0) deps.add(xstbLsIdx);
+      }
+    }
+    _wfgAnalogDeps[gi] = deps;
+  }
+}
+
+function wfgInvalidateDirty(gpioIdx) {
+  _wfgDirtyGpios.add(gpioIdx);
+  // Reset flat detection for this GPIO (may have changed)
+  delete _wfgFlatGpios[gpioIdx];
+  // Transition cache: recompute only this GPIO's transitions if frame params match
+  if (_wfgTransitionCache) {
+    var isDual = wfgFrame.gateType === 'dual';
+    var effVtotal = isDual ? wfgFrame.vtotal * 2 : wfgFrame.vtotal;
+    var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+    var effHtotal = Math.round(dclkPerLine);
+    var fc = wfgFrame.frameCount || 1;
+    if (_wfgTransitionCache.effVtotal === effVtotal &&
+        _wfgTransitionCache.effHtotal === effHtotal &&
+        _wfgTransitionCache.frameCount === fc) {
+      var gpio = wfgGpios[gpioIdx];
+      if (gpio && gpio.waveform_type !== 0) {
+        // Analog-only channel: transitions are trivial placeholder
+        _wfgTransitionCache.transitions[gpioIdx] = { isPeriodic: true, prelude: [], template: [], steadyStart: 0, period: 1, vtotal: effVtotal, frameCount: fc, periodVtotal: effVtotal };
+      } else if (gpio) {
+        _wfgTransitionCache.transitions[gpioIdx] = wfgCalcGpioSmart(gpio, effVtotal, effHtotal, fc);
+      }
+    } else {
+      _wfgTransitionCache = null;
+    }
+  }
+  // OAX: conservative clear (cross-channel dependencies possible)
+  _wfgOaxCache = null;
+  // Minimap: mark stale
+  _wfgMinimapCache = null;
+  // Analog precomputed: only clear affected channels
+  _wfgAnalogCacheVer++;
+  _wfgAnalogDataCache = {};
+  _wfgAnalogEventCache = {};
+  if (Object.keys(_wfgAnalogDeps).length === 0) _wfgBuildAnalogDeps();
+  for (var aIdx in _wfgAnalogDeps) {
+    if (_wfgAnalogDeps[aIdx].has(gpioIdx)) {
+      delete _wfgPrecomputed[aIdx | 0];
+    }
+  }
+  _wfgPrecomputeVer = -1;
+}
+
+// ─── Deferred Full Recompute (v2.89: minimap + full precompute on slider release) ───
+var _wfgFullRecomputeTimer = 0;
+var _wfgSliderDragging = false;
+
+function _wfgScheduleFullRecompute() {
+  _wfgSliderDragging = true;
+  if (_wfgFullRecomputeTimer) clearTimeout(_wfgFullRecomputeTimer);
+  _wfgFullRecomputeTimer = setTimeout(function() {
+    _wfgFullRecomputeTimer = 0;
+    _wfgSliderDragging = false;
+    // Full recompute and minimap update on slider release
+    wfgRender();
+    wfgRenderMinimap();
+    wfgUpdateMinimapViewport();
+  }, 300);
+}
+
+// ─── Flat GPIO Detection (v2.89) ───
+var _wfgFlatGpios = {}; // gpioIdx → { isFlat: true, level: 0|1 }
+
+function wfgDetectFlat() {
+  _wfgFlatGpios = {};
+  var tc = wfgEnsureTransitions();
+  if (!tc) return;
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var gpio = wfgGpios[gi];
+    if (!gpio) continue;
+    var smart = tc.transitions[gi];
+    if (!smart) continue;
+    // A GPIO is "flat" if it has no transitions at all
+    if (smart.prelude && smart.prelude.length === 0 && smart.template && smart.template.length === 0) {
+      var level = (gpio.ini_val === 1) ? 1 : 0;
+      if (gpio.inv) level = 1 - level;
+      _wfgFlatGpios[gi] = { isFlat: true, level: level };
+    }
+  }
+}
+
 // ─── Analog data cache: reuse computed samples when viewport is within cached range ───
 // Keyed by gpioIdx. Each entry: { startLine, endLine, data, cacheVer }
 // cacheVer ties to the transition cache version so param changes invalidate.
@@ -13035,7 +13168,7 @@ Object.defineProperty(window, '_wfgFrame', {
   get: function() { return wfgFrame; },
   configurable: true
 });
-function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; _wfgPrecomputed = {}; _wfgPrecomputeVer = -1; }
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; _wfgPrecomputed = {}; _wfgPrecomputeVer = -1; _wfgAnalogDeps = {}; _wfgFlatGpios = {}; _wfgDirtyGpios.clear(); }
 // ─── Pre-computed analog event cache (legacy — kept for fallback) ───
 var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpolInit, ... }
 
@@ -13049,26 +13182,32 @@ var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
 function wfgPrecomputeAnalog() {
   // Synchronous fast path — used when called from render loop
+  // v2.89: merge mode — preserve already-computed channels, only recompute missing/dirty ones
   var t0 = performance.now();
   var tc = wfgEnsureTransitions();
   if (!tc) return;
+  // v2.89: detect flat GPIOs for optimization
+  if (Object.keys(_wfgFlatGpios).length === 0) wfgDetectFlat();
   var effVtotal = tc.effVtotal;
   var effHtotal = tc.effHtotal;
   var totalLines = wfgTotalLines();
   var allTrans = tc.transitions;
-  var newPrecomp = {};
+  var recomputed = 0;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
+    // Skip if already computed at current version with correct totalLines
+    var existing = _wfgPrecomputed[gi];
+    if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines) continue;
     if (gpio.waveform_type === 1) {
-      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+      _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
     } else if (gpio.waveform_type === 2) {
-      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
     }
+    recomputed++;
   }
-  _wfgPrecomputed = newPrecomp;
   _wfgPrecomputeVer = _wfgAnalogCacheVer;
-  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, channels=' + Object.keys(newPrecomp).length);
+  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, recomputed=' + recomputed + '/' + Object.keys(_wfgPrecomputed).length);
 }
 
 // Async precompute with progress bar — called on preset load / paste / import
@@ -13125,12 +13264,20 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // XPOL: expand for one frame, build per-frame polarity array
   var xpolIdx = (ac.xpol_gpio_idx != null) ? (ac.xpol_gpio_idx | 0) : WFG_XPOL_GPIO_IDX;
   if (xpolIdx < 0 || xpolIdx >= wfgGpios.length) xpolIdx = WFG_XPOL_GPIO_IDX;
-  // XPOL must span ALL lines (not just one frame) so toggle-mode alternation is captured
-  var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, totalLines);
-  var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
-  var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
+  // v2.89: flat XPOL fast path — skip OAX expansion if XPOL has no transitions
+  var xpolFlat = _wfgFlatGpios[xpolIdx];
   var polPerLine = new Uint8Array(totalLines);
-  for (var pf = 0; pf < totalLines; pf++) polPerLine[pf] = xpolLookupFn(pf);
+  if (xpolFlat) {
+    // XPOL is constant — fill entire array with its static level
+    if (xpolFlat.level) polPerLine.fill(1);
+    // else already all zeros
+  } else {
+    // XPOL must span ALL lines (not just one frame) so toggle-mode alternation is captured
+    var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, totalLines);
+    var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
+    var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
+    for (var pf = 0; pf < totalLines; pf++) polPerLine[pf] = xpolLookupFn(pf);
+  }
 
   // L value per frame line
   var maxL = wfgAnalogMaxL(ac);
@@ -13162,8 +13309,10 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
   var xstbFracDly = 0;
+  var xstbFlat = _wfgFlatGpios[xstbIdx];
+  // v2.89: if XSTB is flat, skip OAX expansion — fracDly stays 0
   var xstbGpio = wfgGpios[xstbIdx];
-  if (xstbGpio && xstbGpio.enable) {
+  if (!xstbFlat && xstbGpio && xstbGpio.enable) {
     var xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, Math.min(effVtotal, totalLines));
     var xstbTrans = xstbOax ? xstbOax.transitions : [];
     for (var fi = 0; fi < xstbTrans.length; fi++) {
@@ -18754,8 +18903,9 @@ function wfgOnParamChange() {
 
 function wfgOnGpioChange(gpioIdx, field, value) {
   if (gpioIdx < 0 || gpioIdx >= wfgGpios.length) return;
-  wfgInvalidateCache();
   var gpio = wfgGpios[gpioIdx];
+  // Structural changes (waveform_type, enable) → full invalidation; param tweaks → dirty path
+  var isStructural = (field === 'waveform_type' || field === 'enable');
   if (field === 'enable' || field === 'inv' || field === 'toggle' || field === 'f_st_sel') {
     gpio[field] = !!value;
   } else if (field === 'ini_val' || field === 'tg_ini_val' || field === 'oax_mode' || field === 'oax_sel') {
@@ -18771,9 +18921,13 @@ function wfgOnGpioChange(gpioIdx, field, value) {
     gpio[field] = parseInt(value) || 0;
   }
   if (field === 'enable' || field === 'toggle') wfgRenderGpioList();
-  wfgRender();
-  wfgRenderMinimap();
-  wfgUpdateMinimapViewport();
+  if (isStructural) {
+    wfgInvalidateCache();
+  } else {
+    wfgInvalidateDirty(gpioIdx);
+  }
+  _wfgScheduleRender();
+  _wfgScheduleFullRecompute();
 }
 window.wfgOnGpioChange = wfgOnGpioChange;
 
@@ -18795,8 +18949,15 @@ function wfgOnAnalogConfigChange(gpioIdx, field, value) {
   }
   // Re-render gray_fixed_level row when gray_mode changes
   if (field === 'gray_mode') wfgRenderGpioList();
-  wfgInvalidateCache();
-  wfgRender();
+  // Dependency-changing fields → full invalidation; otherwise dirty path
+  var depFields = ['xpol_gpio_idx', 'xstb_gpio_idx', 'ck_gpio_idx', 'cko_index'];
+  if (depFields.indexOf(field) >= 0) {
+    wfgInvalidateCache();
+  } else {
+    wfgInvalidateDirty(gpioIdx);
+  }
+  _wfgScheduleRender();
+  _wfgScheduleFullRecompute();
 }
 window.wfgOnAnalogConfigChange = wfgOnAnalogConfigChange;
 
