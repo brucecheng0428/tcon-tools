@@ -13548,6 +13548,49 @@ function wfgDebugPulses() {
   return result;
 }
 window.wfgDebugPulses = wfgDebugPulses;
+// Debug: inspect XPOL toggle polarity in precomputed SD channel
+window.wfgDebugXpol = function() {
+  var cache = _wfgTransitionCache;
+  if (!cache) return 'No transition cache';
+  var effVtotal = cache.effVtotal;
+  var effHtotal = cache.effHtotal;
+  var totalLines = wfgTotalLines();
+  var allTrans = cache.transitions;
+  var sdGpio = wfgGpios[18]; // SD1
+  if (!sdGpio || !sdGpio.analog_config) return 'No SD1 gpio';
+  var ac = sdGpio.analog_config;
+  var xpolIdx = (ac.xpol_gpio_idx != null) ? (ac.xpol_gpio_idx | 0) : WFG_XPOL_GPIO_IDX;
+  var xpolGpio = wfgGpios[xpolIdx];
+  var xpolSmart = allTrans[xpolIdx];
+  // Get transitions
+  var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, totalLines);
+  var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
+  var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
+  // Sample polPerLine at frame boundaries
+  var frameSamples = [];
+  for (var f = 0; f < Math.min(6, wfgFrame.frameCount); f++) {
+    frameSamples.push({ frame: f, line: f * effVtotal, pol: xpolLookupFn(f * effVtotal) });
+  }
+  // Also check precomputed data
+  var precomp = _wfgPrecomputed[18];
+  var precompInfo = precomp ? {
+    ver: precomp.ver, totalLines: precomp.totalLines,
+    settled0: precomp.settled[0],
+    settled500: precomp.settled[500],
+    settledFrame1: precomp.settled[effVtotal + 500],
+    settledFrame2: precomp.settled[2 * effVtotal + 500]
+  } : 'no precomp';
+  return {
+    xpolIdx: xpolIdx,
+    xpolGpio: { name: xpolGpio.name, toggle: xpolGpio.toggle, ini_val: xpolGpio.ini_val, tg_ini_val: xpolGpio.tg_ini_val, enable: xpolGpio.enable, waveform_type: xpolGpio.waveform_type },
+    xpolSmart: { isPeriodic: xpolSmart.isPeriodic, transCount: xpolSmart.isPeriodic ? (xpolSmart.prelude.length + '/' + xpolSmart.template.length) : (xpolSmart.transitions ? xpolSmart.transitions.length : 0) },
+    xpolOaxTransCount: xpolOax ? xpolOax.transitions.length : 0,
+    xpolInitLevel: xpolInitLevel,
+    frameSamples: frameSamples,
+    precomp: precompInfo,
+    effVtotal: effVtotal, totalLines: totalLines, frameCount: wfgFrame.frameCount
+  };
+};
 // Enhanced debug: compute pixel-level pulse widths matching actual rendering
 window.wfgDebugPixelPulses = function() {
   var cache = _wfgTransitionCache;
