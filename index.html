@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.91.1</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.92.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.91.1</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.92.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13313,29 +13313,21 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var xstbFlat = _wfgFlatGpios[xstbIdx];
   var xstbGpio = wfgGpios[xstbIdx];
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
-    var xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, Math.min(effVtotal, totalLines));
-    var xstbTrans = xstbOax ? xstbOax.transitions : [];
-    // 找真正的 falling edge (1→0 轉態)，不是 frame reset 的 level=0
-    var _xstbPrevLvl = xstbOax ? xstbOax.initLevel : 0;
-    for (var fi = 0; fi < xstbTrans.length; fi++) {
-      if (xstbTrans[fi].level === 0 && _xstbPrevLvl === 1) {
-        // 真正的 1→0 falling edge
-        xstbFracDly = effHtotal > 0 ? (xstbTrans[fi].dly || 0) / effHtotal : 0;
-        xstbHasFalling = (xstbFracDly < 1.0);
-        break;
-      }
-      _xstbPrevLvl = xstbTrans[fi].level;
+    // v2.92.0: 直接從 GPIO 參數計算 falling edge 位置，
+    // 避免 transition search 被 frame-boundary reset 干擾
+    var _xfDly = xstbGpio.f_dly || 0;
+    var _xfExtra = effHtotal > 0 ? Math.floor(_xfDly / effHtotal) : 0;
+    var _xfNorm = effHtotal > 0 ? _xfDly % effHtotal : _xfDly;
+    // 鏡像 wfgCalcGpio 的抑制邏輯：fExtraLines>=1 && fDly > htotal + r_dly
+    if (_xfExtra >= 1 && _xfDly > effHtotal + (xstbGpio.r_dly || 0)) {
+      // falling edge 被抑制 → xstbHasFalling 維持 false
+    } else {
+      xstbFracDly = effHtotal > 0 ? _xfNorm / effHtotal : 0;
+      xstbHasFalling = (xstbFracDly < 1.0);
     }
   }
-  // DEBUG: trace the code path
-  window._sdPrecompTrace = {
-    xstbFlat: xstbFlat, xstbEnable: xstbGpio ? xstbGpio.enable : false,
-    xstbHasFalling: xstbHasFalling, xstbFracDly_beforeSentinel: xstbFracDly,
-    xstb_f_dly: xstbGpio ? xstbGpio.f_dly : 'N/A',
-    effHtotal: effHtotal
-  };
 
-  // ── settled[] 衰減因子綁定 XSTB↓ 位置 (v2.91.1) ──
+  // ── settled[] 衰減因子綁定 XSTB↓ 位置 (v2.92.0) ──
   // RC 只在 XSTB falling edge 之後才發生，持續 (1 - xstbFracDly) 比例。
   // settled[L] = 「line L 的 RC 結束後電壓」= 「line L+1 的 XSTB↓ 前 hold 電壓」。
   if (!xstbHasFalling) {
@@ -13349,9 +13341,6 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     expFall = Math.exp(-_rcDurS / RC_TAU_FALL);
   }
   // xstbFracDly === 0 → XSTB 在行首 → RC 跑全行 → 保持原 exp(-1/tau)
-  window._sdPrecompTrace.xstbFracDly_afterSentinel = xstbFracDly;
-  window._sdPrecompTrace.expRise = expRise;
-  window._sdPrecompTrace.expFall = expFall;
 
   var settled = new Float32Array(totalLines);
   var target = new Float32Array(totalLines);
@@ -13380,7 +13369,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     prevV = settled[line];
   }
 
-  // ── Precompute RC sub-line samples for band rendering (v2.91.1) ──
+  // ── Precompute RC sub-line samples for band rendering (v2.92.0) ──
   // 預計算 RC 曲線形狀（只需 40 次 Math.exp），內迴圈全用乘法查表
   var RC_PTS = 20;
   var rcExpRise = new Float32Array(RC_PTS);
@@ -15556,16 +15545,16 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     var totalFrames = lastFrame - firstFrame + 1;
     var frameStep = Math.max(1, Math.floor(totalFrames / (canvasRefW / 2)));
 
-    // XSTB falling delay (fractional line offset) — find true 1→0 falling edge
+    // v2.92.0: 直接從 GPIO 參數計算 XSTB falling edge 位置
     var xstbFracDly = 0;
-    if (xstbTrans.length > 0) {
-      var _xPrev = 0; // assume initial level is 0
-      for (var _fi = 0; _fi < xstbTrans.length; _fi++) {
-        if (xstbTrans[_fi].level === 0 && _xPrev === 1) {
-          xstbFracDly = effHtotal > 0 ? (xstbTrans[_fi].dly || 0) / effHtotal : 0;
-          break;
-        }
-        _xPrev = xstbTrans[_fi].level;
+    if (xstbGpio && xstbGpio.enable) {
+      var _bfDly = xstbGpio.f_dly || 0;
+      var _bfExtra = effHtotal > 0 ? Math.floor(_bfDly / effHtotal) : 0;
+      var _bfNorm = effHtotal > 0 ? _bfDly % effHtotal : _bfDly;
+      if (_bfExtra >= 1 && _bfDly > effHtotal + (xstbGpio.r_dly || 0)) {
+        xstbFracDly = 2.0; // falling suppressed → sentinel
+      } else {
+        xstbFracDly = effHtotal > 0 ? _bfNorm / effHtotal : 0;
       }
     }
 
@@ -23757,26 +23746,6 @@ window.wfgImportClipboard = async function() {
   } catch (e) {
     alert(t('wfg.clipboardFail').replace('{msg}', e.message));
   }
-};
-
-// ── Temporary debug export for verification (remove after v2.91.1 verified) ──
-window._wfgDebug = function() {
-  return {
-    precomputed: _wfgPrecomputed,
-    gpios: wfgGpios,
-    cacheVer: _wfgAnalogCacheVer,
-    precomputeVer: _wfgPrecomputeVer,
-    transitionCache: _wfgTransitionCache
-  };
-};
-window._wfgGetXstbTrans = function() {
-  var tc = _wfgTransitionCache;
-  if (!tc) return 'no cache';
-  var xstbSmart = tc.transitions[0]; // xstb is idx 0
-  if (!xstbSmart) return 'no xstb smart';
-  var effHt = tc.effHtotal;
-  var xstbTrans = wfgExpandRange(xstbSmart, 0, Math.min(tc.effVtotal, 100), effHt);
-  return { effHtotal: effHt, effVtotal: tc.effVtotal, first20: xstbTrans.slice(0, 20) };
 };
 
 })();
