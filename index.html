@@ -1818,7 +1818,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.24</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.25</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2855,7 +2855,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.24</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.25</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -2928,7 +2928,7 @@
             <div class="wfg-signal-actions" style="margin-top:8px">
               <select id="wfg-preset-select" onchange="wfgLoadPresetFromSelect(this)" style="flex:1;min-width:120px;padding:7px 10px;font-size:12px;color:#e2e8f0;background:#0f172a;border:1px solid #334155;border-radius:6px;">
                 <option value="" data-i18n="wfg.loadPreset">載入預設…</option>
-                <option value="fhd_60hz_sg">FHD 60Hz Single Gate</option>
+                <option value="fhd_60hz_sg">FHD 60Hz Single Gate(LS：Multi CPV)</option>
                 <option value="fhd_60hz_sg_ls_dual_cpv">FHD 60Hz Single Gate(LS：Dual CPV)</option>
               </select>
               <button class="wfg-btn" onclick="document.getElementById('wfg-kvdat-input').click()" style="white-space:nowrap" data-i18n="wfg.importKvdat">📂 匯入 .kvdat</button>
@@ -12892,7 +12892,7 @@ function wfgMakeChannel(idx) {
 // ─── Presets ───
 const WFG_PRESETS = {
   'fhd_60hz_sg': {
-    name: 'FHD 60Hz Single Gate',
+    name: 'FHD 60Hz Single Gate(LS：Multi CPV)',
     frame: { vtotal: 1112, vactive: 1080, htotal: 2668, htotalBase: 2080, hactive: 1920, dclk: 89, rxDclk: 69.3888, tconHtotal: 2668, frameRate: 60, gateType: 'single', frameCount: 1000, frm_no_0: 0, frm_no_1: 99, frm_no_2: 0 },
     gpios: [
       {"name":"xstb","act_type":0,"r_ph":0,"f_ph":0,"st_line":0,"sp_line":16383,"r_dly":1116,"f_dly":1182,"f_st_sel":true,"ini_val":0,"toggle":false,"tg_ini_val":0,"inv":false,"enable":true,"oax_mode":0,"oax_sel":0},
@@ -19758,6 +19758,16 @@ window.wfgOnDclkManualChange = wfgOnDclkManualChange;
 
 var _wfgParamRenderTimer = 0;
 var _wfgParamRenderSeq = 0;
+function wfgWaitForPrecomputeIdle() {
+  if (!_wfgPrecompBusy) return Promise.resolve();
+  return new Promise(function(resolve) {
+    function check() {
+      if (!_wfgPrecompBusy) resolve();
+      else setTimeout(check, 80);
+    }
+    check();
+  });
+}
 function wfgScheduleFrameParamRender() {
   _wfgParamRenderSeq++;
   var seq = _wfgParamRenderSeq;
@@ -19771,8 +19781,13 @@ function wfgScheduleFrameParamRender() {
     }
     if (seq !== _wfgParamRenderSeq) { if (heavy) wfgHideProgress(); return; }
     wfgRender();
+    if (heavy && _wfgPrecompBusy) {
+      wfgShowProgress(82, '類比波形計算中…');
+      await wfgWaitForPrecomputeIdle();
+      await wfgYield();
+    }
     if (heavy) {
-      wfgShowProgress(72, '更新 Overview…');
+      wfgShowProgress(90, '更新 Overview…');
       await wfgYield();
     }
     if (seq !== _wfgParamRenderSeq) { if (heavy) wfgHideProgress(); return; }
@@ -19780,7 +19795,7 @@ function wfgScheduleFrameParamRender() {
     wfgUpdateMinimapViewport();
     if (heavy) {
       wfgShowProgress(100, t('wfg.progressDone'));
-      await new Promise(function(resolve) { setTimeout(resolve, 120); });
+      await new Promise(function(resolve) { setTimeout(resolve, 650); });
       if (seq === _wfgParamRenderSeq) wfgHideProgress();
     }
   }, 180);
@@ -19791,17 +19806,28 @@ function wfgOnParamChange() {
   var prevVtotal = wfgFrame.vtotal;
   var prevHtotal = wfgFrame.htotal;
   var prevGate = wfgFrame.gateType;
-  wfgInvalidateCache();
-  wfgFrame.vtotal = parseInt(document.getElementById('wfg-vtotal').value) || 1;
-  wfgFrame.vactive = parseInt(document.getElementById('wfg-vactive').value) || 1;
-  wfgFrame.htotal = parseInt(document.getElementById('wfg-htotal').value) || 1;
-  wfgFrame.htotalBase = wfgFrame.htotal; // Update base when user directly changes Htotal
-  wfgFrame.hactive = parseInt(document.getElementById('wfg-hactive').value) || 1;
-  wfgFrame.frameRate = parseInt(document.getElementById('wfg-framerate').value) || 60;
-  wfgFrame.frameCount = Math.max(1, Math.min(4096, parseInt(document.getElementById('wfg-frame-count').value) || 10));
-  document.getElementById('wfg-frame-count').value = wfgFrame.frameCount;
+  var nextVtotal = parseInt(document.getElementById('wfg-vtotal').value) || 1;
+  var nextVactive = parseInt(document.getElementById('wfg-vactive').value) || 1;
+  var nextHtotal = parseInt(document.getElementById('wfg-htotal').value) || 1;
+  var nextHactive = parseInt(document.getElementById('wfg-hactive').value) || 1;
+  var nextFrameRate = parseInt(document.getElementById('wfg-framerate').value) || 60;
+  var nextFrameCount = Math.max(1, Math.min(4096, parseInt(document.getElementById('wfg-frame-count').value) || 10));
   var gateRadio = document.querySelector('input[name="wfg-gate"]:checked');
-  wfgFrame.gateType = gateRadio ? gateRadio.value : 'single';
+  var nextGate = gateRadio ? gateRadio.value : 'single';
+  var frameCountOnly = (nextFrameCount !== prevFrameCount &&
+    nextVtotal === prevVtotal &&
+    nextHtotal === prevHtotal &&
+    nextGate === prevGate);
+  wfgInvalidateCache();
+  wfgFrame.vtotal = nextVtotal;
+  wfgFrame.vactive = nextVactive;
+  wfgFrame.htotal = nextHtotal;
+  wfgFrame.htotalBase = wfgFrame.htotal; // Update base when user directly changes Htotal
+  wfgFrame.hactive = nextHactive;
+  wfgFrame.frameRate = nextFrameRate;
+  wfgFrame.frameCount = nextFrameCount;
+  document.getElementById('wfg-frame-count').value = wfgFrame.frameCount;
+  wfgFrame.gateType = nextGate;
   // Update RX DCLK from Htotal/Vtotal/FrameRate
   wfgUpdateRxDclk();
   // Clamp TCON DCLK ≥ RX DCLK
@@ -19809,11 +19835,7 @@ function wfgOnParamChange() {
   wfgRecalcHtotal();
   wfgUpdateTconHtotal();
   wfgUpdateDclkLabel();
-  var frameCountOnly = (wfgFrame.frameCount !== prevFrameCount &&
-    wfgFrame.vtotal === prevVtotal &&
-    wfgFrame.htotal === prevHtotal &&
-    wfgFrame.gateType === prevGate);
-  if (frameCountOnly && wfgTotalLines() > 200000) {
+  if (frameCountOnly) {
     wfgScheduleFrameParamRender();
     return;
   }
