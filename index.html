@@ -13065,6 +13065,11 @@ function _wfgBuildAnalogDeps() {
 
 function wfgInvalidateDirty(gpioIdx) {
   _wfgDirtyGpios.add(gpioIdx);
+  // Mark SD dirty for zoom-out recompute trigger (v2.97.0)
+  if (!_wfgSdParamDirty) {
+    _wfgSdParamDirty = true;
+    _wfgSdDirtyViewRange = wfgViewEnd - wfgViewStart;
+  }
   // Reset flat detection for this GPIO (may have changed)
   delete _wfgFlatGpios[gpioIdx];
   // Transition cache: recompute only this GPIO's transitions if frame params match
@@ -13169,7 +13174,7 @@ Object.defineProperty(window, '_wfgFrame', {
   get: function() { return wfgFrame; },
   configurable: true
 });
-function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; _wfgPrecomputed = {}; _wfgPrecomputeVer = -1; _wfgAnalogDeps = {}; _wfgFlatGpios = {}; _wfgDirtyGpios.clear(); }
+function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; _wfgPrecomputed = {}; _wfgPrecomputeVer = -1; _wfgAnalogDeps = {}; _wfgFlatGpios = {}; _wfgDirtyGpios.clear(); if (!_wfgSdParamDirty) { _wfgSdParamDirty = true; _wfgSdDirtyViewRange = wfgViewEnd - wfgViewStart; } }
 // ─── Pre-computed analog event cache (legacy — kept for fallback) ───
 var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpolInit, ... }
 
@@ -13178,6 +13183,68 @@ var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpo
 // Computed ONCE on param change; zoom/scroll only reads from these arrays.
 var _wfgPrecomputed = {};      // gpioIdx → { settled, target(SD), events(LS), totalLines, ver, ... }
 var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
+
+// ─── SD Dirty Flag (v2.97.0): zoom-out triggers full recompute when params changed ───
+var _wfgSdParamDirty = false;       // set true when digital params change, cleared after full recompute
+var _wfgSdDirtyViewRange = 0;       // viewEnd - viewStart at the moment params became dirty
+
+// Check if zoom-out happened while dirty → trigger full async recompute with progress bar
+function _wfgCheckDirtyZoomOut() {
+  if (!_wfgSdParamDirty) return;
+  var currentRange = wfgViewEnd - wfgViewStart;
+  if (currentRange <= _wfgSdDirtyViewRange) return; // not zoomed out beyond dirty point
+  // Has analog channels?
+  var hasAnalog = false;
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    if (wfgGpios[gi] && wfgGpios[gi].enable && wfgGpios[gi].waveform_type) { hasAnalog = true; break; }
+  }
+  if (!hasAnalog) { _wfgSdParamDirty = false; return; }
+  // Trigger full async recompute with forced progress bar
+  _wfgSdParamDirty = false;
+  _wfgSdFullRecomputeWithProgress();
+}
+
+async function _wfgSdFullRecomputeWithProgress() {
+  if (_wfgPrecompBusy) return;
+  _wfgPrecompBusy = true;
+  var tc = wfgEnsureTransitions();
+  if (!tc) { _wfgPrecompBusy = false; return; }
+  var effVtotal = tc.effVtotal;
+  var effHtotal = tc.effHtotal;
+  var totalLines = wfgTotalLines();
+  var allTrans = tc.transitions;
+  if (Object.keys(_wfgFlatGpios).length === 0) wfgDetectFlat();
+  var analogChs = [];
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var gpio = wfgGpios[gi];
+    if (gpio && gpio.enable && gpio.waveform_type) analogChs.push(gi);
+  }
+  if (analogChs.length === 0) { _wfgPrecompBusy = false; return; }
+  // Always show progress bar (this is the whole point of the dirty-zoom-out trigger)
+  wfgShowProgress(0, 'SD 全曲線重新計算...');
+  await wfgYield();
+  var sdExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + effVtotal + 100);
+  if (sdExtent < 1) sdExtent = Math.min(totalLines, effVtotal + 100);
+  var newPrecomp = {};
+  for (var ci = 0; ci < analogChs.length; ci++) {
+    var gi = analogChs[ci];
+    var gpio = wfgGpios[gi];
+    if (gpio.waveform_type === 1) {
+      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+    } else if (gpio.waveform_type === 2) {
+      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+    }
+    var pct = Math.round(((ci + 1) / analogChs.length) * 100);
+    wfgShowProgress(pct, 'SD 全曲線重新計算... (' + (ci + 1) + '/' + analogChs.length + ')');
+    await wfgYield();
+  }
+  _wfgPrecomputed = newPrecomp;
+  _wfgPrecomputeVer = _wfgAnalogCacheVer;
+  _wfgSdParamDirty = false; // v2.97.0: clear dirty after full recompute
+  wfgHideProgress();
+  _wfgPrecompBusy = false;
+  wfgRender();
+}
 
 // ─── Master precompute function (sync fast path + async with progress bar) ───
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
@@ -20461,6 +20528,7 @@ function wfgZoomOut() {
   wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
   wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
   wfgRender(); wfgUpdateMinimapViewport();
+  _wfgCheckDirtyZoomOut(); // v2.97.0: trigger full recompute if params dirty
 }
 function wfgFitAll() {
   if (wfgKvdatMode) {
@@ -20473,6 +20541,7 @@ function wfgFitAll() {
   wfgViewEnd = wfgTotalLines();
   wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
   wfgRender(); wfgUpdateMinimapViewport();
+  _wfgCheckDirtyZoomOut(); // v2.97.0: fit-all is zoom-out → check dirty
 }
 function wfgResetView() {
   if (wfgKvdatMode) {
@@ -20684,6 +20753,7 @@ function wfgInitCanvas() {
       // (wfgMeasUpdate internally calls wfgRender)
       _wfgMeasArrow = null;
       wfgRender(); wfgUpdateMinimapViewport();
+      if (dy > 0) _wfgCheckDirtyZoomOut(); // v2.97.0: wheel zoom out → check dirty
     });
   }, { passive: false });
 
@@ -21013,6 +21083,7 @@ function wfgInitCanvas() {
         wfgViewStart = Math.max(0, pinchStartPivot - newRange * pinchStartCenterFrac);
         wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
         wfgRender(); wfgUpdateMinimapViewport();
+        if (scale > 1) _wfgCheckDirtyZoomOut(); // v2.97.0: pinch zoom out → check dirty
       }
     });
   }, { passive: false });
