@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.17</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.18</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.17</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.18</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12992,15 +12992,18 @@ function wfgMarkContinuousMotion() {
   _wfgContinuousMotionTimer = setTimeout(function() {
     _wfgContinuousMotion = false;
     _wfgContinuousMotionTimer = 0;
-    // v2.97.17: zoom/pan 停止後，有類比通道就無條件全局重算+進度條
-    var _hasAnalog = false;
-    for (var _ai = 0; _ai < wfgGpios.length; _ai++) {
-      var _ag = wfgGpios[_ai];
-      if (_ag && _ag.enable && _ag.waveform_type) { _hasAnalog = true; break; }
-    }
-    if (_hasAnalog && !_wfgPrecompBusy) {
-      _wfgSdFullRecomputeWithProgress(true, true);
-      return;
+    // v2.97.18: zoom/pan 停止後，只有改過參數（precomp 不完整）時才全局重算
+    if (_wfgNeedsFullRecompute && !_wfgPrecompBusy) {
+      var _hasAnalog = false;
+      for (var _ai = 0; _ai < wfgGpios.length; _ai++) {
+        var _ag = wfgGpios[_ai];
+        if (_ag && _ag.enable && _ag.waveform_type) { _hasAnalog = true; break; }
+      }
+      if (_hasAnalog) {
+        _wfgNeedsFullRecompute = false;
+        _wfgSdFullRecomputeWithProgress(true, true);
+        return;
+      }
     }
     // Restore measurement and do final render with labels + pulse
     wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
@@ -13057,7 +13060,7 @@ function _wfgBuildAnalogDeps() {
         // Removing incorrect xstb dep so XSTB changes don't trigger LS recompute.
         var vceCkIdx = (typeof wfgLsGlobal !== 'undefined' && wfgLsGlobal.vce_ck_idx >= 0) ? wfgLsGlobal.vce_ck_idx : -1;
         if (vceCkIdx >= 0) deps.add(vceCkIdx);
-        // v2.97.17: dual_cpv mode depends on cpv1_ck_idx and cpv2_ck_idx
+        // v2.97.18: dual_cpv mode depends on cpv1_ck_idx and cpv2_ck_idx
         if (typeof wfgLsGlobal !== 'undefined') {
           var cpv1Idx = wfgLsGlobal.cpv1_ck_idx;
           var cpv2Idx = wfgLsGlobal.cpv2_ck_idx;
@@ -13072,7 +13075,7 @@ function _wfgBuildAnalogDeps() {
 
 function wfgInvalidateDirty(gpioIdx) {
   _wfgDirtyGpios.add(gpioIdx);
-  // v2.97.17: Mark SD/LS dirty separately based on affected analog channels
+  // v2.97.18: Mark SD/LS dirty separately based on affected analog channels
   if (Object.keys(_wfgAnalogDeps).length === 0) _wfgBuildAnalogDeps();
   for (var aIdx in _wfgAnalogDeps) {
     if (_wfgAnalogDeps[aIdx].has(gpioIdx)) {
@@ -13116,7 +13119,7 @@ function wfgInvalidateDirty(gpioIdx) {
   _wfgMinimapCache = null;
   _wfgAnalogDataCache = {};
   _wfgAnalogEventCache = {};
-  // v2.97.17: 改參數 = 即時同步重算（刪受影響通道的 precomp，觸發 render 時同步重算）
+  // v2.97.18: 改參數 = 即時同步重算（刪受影響通道的 precomp，觸發 render 時同步重算）
   // 進度條只在首次啟用 / preset 載入等全局重算時出現。
   if (_wfgSdParamDirty || _wfgLsParamDirty) {
     for (var _dpk in _wfgPrecomputed) {
@@ -13126,6 +13129,7 @@ function wfgInvalidateDirty(gpioIdx) {
       if (_dpkGpio.waveform_type === 2 && _wfgLsParamDirty) delete _wfgPrecomputed[_dpk];
     }
     _wfgPrecomputeVer = -1;
+    _wfgNeedsFullRecompute = true; // v2.97.18: 標記需要全局重算
     _wfgSdParamDirty = false;
     _wfgLsParamDirty = false;
   }
@@ -13134,7 +13138,8 @@ function wfgInvalidateDirty(gpioIdx) {
 // ─── Deferred Full Recompute (v2.89: minimap + full precompute on slider release) ───
 var _wfgFullRecomputeTimer = 0;
 var _wfgSliderDragging = false;
-var _wfgLsLightPrecomp = false; // v2.97.17: LS was computed without rcSamples (needs refresh on release)
+var _wfgNeedsFullRecompute = false; // v2.97.18: 改參數後設 true，zoom/pan 時觸���全局重算後設 false
+var _wfgLsLightPrecomp = false; // v2.97.18: LS was computed without rcSamples (needs refresh on release)
 
 function _wfgScheduleFullRecompute() {
   _wfgSliderDragging = true;
@@ -13142,7 +13147,7 @@ function _wfgScheduleFullRecompute() {
   _wfgFullRecomputeTimer = setTimeout(function() {
     _wfgFullRecomputeTimer = 0;
     _wfgSliderDragging = false;
-    // v2.97.17: 只刷新 lightMode entries（補上 rcSamples），不觸發全局重算
+    // v2.97.18: 只刷新 lightMode entries（補上 rcSamples），不觸發全局重算
     // 全局重算由 zoom/pan 超出已算範圍時 lazy extend 觸發
     if (_wfgLsLightPrecomp) {
       _wfgLsLightPrecomp = false;
@@ -13209,7 +13214,7 @@ Object.defineProperty(window, '_wfgFrame', {
   configurable: true
 });
 function wfgInvalidateCache() { _wfgTransitionCache = null; _wfgOaxCache = null; _wfgMinimapCache = null; _wfgAnalogCacheVer++; _wfgAnalogDataCache = {}; _wfgAnalogEventCache = {}; _wfgPrecomputed = {}; _wfgPrecomputeVer = -1; _wfgAnalogDeps = {}; _wfgFlatGpios = {}; _wfgDirtyGpios.clear(); if (!_wfgSdParamDirty || !_wfgLsParamDirty) { _wfgSdParamDirty = true; _wfgLsParamDirty = true; _wfgSdDirtyViewRange = wfgViewEnd - wfgViewStart; } }
-// v2.97.17: LS-only invalidation — CKO 即時同步重算（不走 async 進度條）。
+// v2.97.18: LS-only invalidation — CKO 即時同步重算（不走 async 進度條）。
 // CKO 計算量輕（相比 SD），可以即時重算讓使用者立刻看到效果。
 // SD 的 deferred 路徑不受影響（SD 只在 pan-end/zoom-out 才重算）。
 function _wfgInvalidateLsOnly() {
@@ -13240,7 +13245,7 @@ var _wfgAnalogEventCache = {}; // key → { ver, startLine, endLine, events, xpo
 var _wfgPrecomputed = {};      // gpioIdx → { settled, target(SD), events(LS), totalLines, ver, ... }
 var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
 
-// ─── Analog Dirty Flags (v2.97.17): separate SD/CKO tracking for targeted recompute ───
+// ─── Analog Dirty Flags (v2.97.18): separate SD/CKO tracking for targeted recompute ───
 var _wfgSdParamDirty = false;       // set true when SD-affecting params change
 var _wfgLsParamDirty = false;       // set true when LS/CKO-affecting params change
 var _wfgSdDirtyViewRange = 0;       // viewEnd - viewStart at the moment params became dirty
@@ -13306,7 +13311,7 @@ async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
                   recompSD ? 'SD 類比波形計算中...' : 'CKO 類比波形計算中...';
   wfgShowProgress(0, progLabel);
   await wfgYield();
-  // v2.97.17: always compute full frame range (no viewport-lazy)
+  // v2.97.18: always compute full frame range (no viewport-lazy)
   var sdExtent = totalLines;
   var newPrecomp = {};
   // Preserve existing precomp for channels NOT being recomputed
@@ -13343,7 +13348,7 @@ async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
 // ─── Master precompute function (sync fast path + async with progress bar) ───
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
 function wfgPrecomputeAnalog() {
-  // v2.97.17: always compute full frame range. For large datasets, delegate to async with progress bar.
+  // v2.97.18: always compute full frame range. For large datasets, delegate to async with progress bar.
   var tc = wfgEnsureTransitions();
   if (!tc) return;
   if (Object.keys(_wfgFlatGpios).length === 0) wfgDetectFlat();
@@ -13359,7 +13364,7 @@ function wfgPrecomputeAnalog() {
     if (gpio.waveform_type === 2) needLS = true;
   }
   if (!needSD && !needLS) { _wfgPrecomputeVer = _wfgAnalogCacheVer; return; }
-  // v2.97.17: 區分全局重算（wfgInvalidateCache bump ver）和改參數（entry 被刪除）
+  // v2.97.18: 區分全局重算（wfgInvalidateCache bump ver）和改參數（entry 被刪除）
   // 全局重算：existing entry 的 ver 不匹配 → 走 async 有進度條
   // 改參數：entry 被刪除（undefined）→ 走同步無進度條
   var _isGlobalRecompute = false;
@@ -13376,10 +13381,10 @@ function wfgPrecomputeAnalog() {
   var effVtotal = tc.effVtotal;
   var effHtotal = tc.effHtotal;
   var allTrans = tc.transitions;
-  // v2.97.17: 改參數只算 viewport 範圍，超出時 lazy extend
+  // v2.97.18: 改參數只算 viewport 範圍，超出時 lazy extend
   var viewPad = Math.max(effVtotal, Math.ceil((wfgViewEnd - wfgViewStart) * 0.5));
   var sdExtent = _isGlobalRecompute ? totalLines : Math.min(totalLines, Math.ceil(wfgViewEnd) + viewPad);
-  // v2.97.17: during slider drag, skip expensive rcSamples for LS (20x speedup)
+  // v2.97.18: during slider drag, skip expensive rcSamples for LS (20x speedup)
   var _lsSkipRc = _wfgSliderDragging && !_isGlobalRecompute;
   var recomputed = 0, sdRecomp = 0, lsRecomp = 0;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
@@ -13424,7 +13429,7 @@ async function wfgPrecomputeAnalogAsync() {
   // Show progress bar only for heavy workloads (>200k total lines)
   var showProg = totalLines > 200000;
   if (showProg) wfgShowProgress(0, t('wfg.progressPrecomp').replace('{n}', '0').replace('{total}', String(analogChs.length)));
-  // v2.97.17: always compute full frame range
+  // v2.97.18: always compute full frame range
   var sdExtent = totalLines;
   var newPrecomp = {};
   for (var ci = 0; ci < analogChs.length; ci++) {
@@ -13504,7 +13509,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var expRise = Math.exp(-1.0 / RC_TAU_RISE);
   var expFall = Math.exp(-1.0 / RC_TAU_FALL);
 
-  // XSTB: per-line falling edge detection (v2.97.17)
+  // XSTB: per-line falling edge detection (v2.97.18)
   // 每行獨立判斷 XSTB 是否有 falling edge，沒有 → SD 不轉態（持續 RC 衰減）
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
@@ -13640,7 +13645,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     ver: _wfgAnalogCacheVer };
 }
 
-// ─── SD lazy extend: compute settled/target/holdV from computedExtent to newExtent (v2.97.17: per-line XSTB) ───
+// ─── SD lazy extend: compute settled/target/holdV from computedExtent to newExtent (v2.97.18: per-line XSTB) ───
 function _wfgExtendSdPrecomp(precomp, newExtent) {
   if (newExtent <= precomp.computedExtent) return;
   if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
@@ -13793,7 +13798,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
 
   // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
-  // v2.97.17: skip rcSamples during continuous +/- interaction (20x speedup)
+  // v2.97.18: skip rcSamples during continuous +/- interaction (20x speedup)
   var RC_PTS = 20;
   var rcSamples = null;
   var lineMinMax = null;
@@ -13985,7 +13990,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var RC_PTS = precomp.rcPts || 20;
 
   // ═══ Path 1: Close zoom (≤ 500 lines visible) — real-time high-density RC ═══
-  // Threshold raised 50→100 (v2.88.5) → 500 (v2.97.17): band renderer's per-pixel
+  // Threshold raised 50→100 (v2.88.5) → 500 (v2.97.18): band renderer's per-pixel
   // min/max aggregation creates ghost/parallel lines at medium zoom (e.g. CKO at
   // ~20μs minor axis) where individual RC curves are still visually resolvable.
   // Smooth single-path rendering at ≤500 lines costs ~500×2×40 = 40K samples —
@@ -14126,7 +14131,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var bandVMin = Infinity, bandVMax = -Infinity;
 
   if (isSD && precomp.rcAfter_Rise) {
-    // ── SD viewport-lazy: per-line XSTB check (v2.97.17) ──
+    // ── SD viewport-lazy: per-line XSTB check (v2.97.18) ──
     var _sdBR = precomp.rcBefore_Rise, _sdBF = precomp.rcBefore_Fall;
     var _sdAR = precomp.rcAfter_Rise, _sdAF = precomp.rcAfter_Fall;
     var _sdXsi = precomp.xstbSampleIdx;
@@ -16940,7 +16945,7 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
     }
   }
 
-  // v2.97.17: CKO edges must align with source CK's r_dly/f_dly, not CPV's own dly.
+  // v2.97.18: CKO edges must align with source CK's r_dly/f_dly, not CPV's own dly.
   // CPV round-robin determines WHICH LINE a CKO fires on; the intra-line position
   // comes from the per-CKO source clock's rising/falling delay.
   var ckoGpioIdx = WFG_DIGITAL_GPIO_COUNT + 1 + ckoIndex;
@@ -16963,7 +16968,7 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
     prevLevel1 = tr.level;
     if (!isRealEdge) continue; // skip redundant "transitions" (no actual level change)
     if (tr.level === activeLevel) {
-      // v2.97.17: use source CK's r_dly for charge position (not CPV1's own dly)
+      // v2.97.18: use source CK's r_dly for charge position (not CPV1's own dly)
       var lineX = tr.line + srcRiseFrac;
       // Reset round-robin counter at frame boundary
       if (effVtotal > 0) {
@@ -16992,7 +16997,7 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
     prevLevel2 = tr2.level;
     if (!isRealEdge2) continue; // skip redundant "transitions"
     if (tr2.level === activeLevel) {
-      // v2.97.17: use source CK's f_dly for discharge position (not CPV2's own dly)
+      // v2.97.18: use source CK's f_dly for discharge position (not CPV2's own dly)
       var lineX2 = tr2.line + srcFallFrac;
       // Reset round-robin counter at frame boundary
       if (effVtotal > 0) {
@@ -17314,7 +17319,7 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
     ctx.closePath();
     ctx.fill();
     // Stroke: SD uses midpoint line; LS uses step-function to preserve square wave shape.
-    // v2.97.17: LS midpoint stroke caused triangle spikes at medium zoom where each pixel
+    // v2.97.18: LS midpoint stroke caused triangle spikes at medium zoom where each pixel
     // spans 1-2 CKO transitions. Step stroke draws vertical bars at transitions.
     var _isLSBand = gpio && gpio.waveform_type === 2;
     ctx.strokeStyle = ch.color;
@@ -20657,7 +20662,7 @@ function wfgZoomOut() {
   wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
   wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
   wfgRender(); wfgUpdateMinimapViewport();
-  _wfgCheckDirtyZoomOut(); // v2.97.17: trigger full recompute if params dirty
+  _wfgCheckDirtyZoomOut(); // v2.97.18: trigger full recompute if params dirty
 }
 function wfgFitAll() {
   if (wfgKvdatMode) {
@@ -20670,7 +20675,7 @@ function wfgFitAll() {
   wfgViewEnd = wfgTotalLines();
   wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
   wfgRender(); wfgUpdateMinimapViewport();
-  _wfgCheckDirtyZoomOut(); // v2.97.17: fit-all is zoom-out → check dirty
+  _wfgCheckDirtyZoomOut(); // v2.97.18: fit-all is zoom-out → check dirty
 }
 function wfgResetView() {
   if (wfgKvdatMode) {
@@ -20815,7 +20820,7 @@ function wfgInitCanvas() {
         // wfgMeasUpdate calls wfgRender internally, no need for separate render
         wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
         if (!_wfgMeasArrow) wfgRender();
-        _wfgCheckDirtyPan(); // v2.97.17: inertia end triggers SD recompute if dirty
+        _wfgCheckDirtyPan(); // v2.97.18: inertia end triggers SD recompute if dirty
         return;
       }
       wfgMarkContinuousMotion();
@@ -20883,7 +20888,7 @@ function wfgInitCanvas() {
       // (wfgMeasUpdate internally calls wfgRender)
       _wfgMeasArrow = null;
       wfgRender(); wfgUpdateMinimapViewport();
-      if (dy > 0) _wfgCheckDirtyZoomOut(); // v2.97.17: wheel zoom out → check dirty
+      if (dy > 0) _wfgCheckDirtyZoomOut(); // v2.97.18: wheel zoom out → check dirty
     });
   }, { passive: false });
 
@@ -21020,7 +21025,7 @@ function wfgInitCanvas() {
         wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
         if (!_wfgMeasArrow) wfgRender(); // final render with labels+pulse+measurement
       }
-      _wfgCheckDirtyPan(); // v2.97.17: pan triggers SD recompute if dirty
+      _wfgCheckDirtyPan(); // v2.97.18: pan triggers SD recompute if dirty
     }
   });
   canvas.style.cursor = 'default';
@@ -21214,7 +21219,7 @@ function wfgInitCanvas() {
         wfgViewStart = Math.max(0, pinchStartPivot - newRange * pinchStartCenterFrac);
         wfgViewEnd = Math.min(totalLines, wfgViewStart + newRange);
         wfgRender(); wfgUpdateMinimapViewport();
-        if (scale > 1) _wfgCheckDirtyZoomOut(); // v2.97.17: pinch zoom out → check dirty
+        if (scale > 1) _wfgCheckDirtyZoomOut(); // v2.97.18: pinch zoom out → check dirty
       }
     });
   }, { passive: false });
@@ -21239,7 +21244,7 @@ function wfgInitCanvas() {
     }
     if (e.touches.length === 0 && !wfgIsPinching) {
       if (performance.now() - wfgTouchLastTime < 50) wfgStartInertia();
-      else { wfgVelocity = 0; _wfgCheckDirtyPan(); } // v2.97.17: touch pan end triggers SD recompute if dirty
+      else { wfgVelocity = 0; _wfgCheckDirtyPan(); } // v2.97.18: touch pan end triggers SD recompute if dirty
     }
     // Pinch ending: kill velocity and bump generation to invalidate pending rAFs.
     // Do NOT clear wfgIsPinching here — it stays true until the next fresh
