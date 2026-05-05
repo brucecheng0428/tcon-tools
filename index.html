@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.92.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.93.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.92.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.93.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13313,7 +13313,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var xstbFlat = _wfgFlatGpios[xstbIdx];
   var xstbGpio = wfgGpios[xstbIdx];
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
-    // v2.92.0: 直接從 GPIO 參數計算 falling edge 位置，
+    // v2.93.0: 直接從 GPIO 參數計算 falling edge 位置，
     // 避免 transition search 被 frame-boundary reset 干擾
     var _xfDly = xstbGpio.f_dly || 0;
     var _xfExtra = effHtotal > 0 ? Math.floor(_xfDly / effHtotal) : 0;
@@ -13327,20 +13327,15 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     }
   }
 
-  // ── settled[] 衰減因子綁定 XSTB↓ 位置 (v2.92.0) ──
-  // RC 只在 XSTB falling edge 之後才發生，持續 (1 - xstbFracDly) 比例。
-  // settled[L] = 「line L 的 RC 結束後電壓」= 「line L+1 的 XSTB↓ 前 hold 電壓」。
+  // ── settled[] 衰減因子 (v2.93.0) ──
+  // RC 跑整整一個 XSTB↓ 周期 (= 1 line)，不受 xstbFracDly 影響。
+  // settled[L] = V_at_XSTB↓(L+1) = target[L] + (holdV[L] - target[L]) * exp(-1/tau)
   if (!xstbHasFalling) {
-    xstbFracDly = 2.0; // sentinel > 1.0 → rcSamples 全 hold、Path1 _ucNoFalling=true
+    xstbFracDly = 2.0; // sentinel > 1.0 → Path1 _ucNoFalling=true
     expRise = 1.0;
     expFall = 1.0;
-  } else if (xstbFracDly > 0) {
-    // XSTB 不在行首 → RC 只跑 (1-fracDly) 的時間，衰減量比全行少
-    var _rcDurS = 1.0 - xstbFracDly;
-    expRise = Math.exp(-_rcDurS / RC_TAU_RISE);
-    expFall = Math.exp(-_rcDurS / RC_TAU_FALL);
   }
-  // xstbFracDly === 0 → XSTB 在行首 → RC 跑全行 → 保持原 exp(-1/tau)
+  // xstbHasFalling=true → expRise/expFall 保持 exp(-1/tau)，RC 跑完整一行
 
   var settled = new Float32Array(totalLines);
   var target = new Float32Array(totalLines);
@@ -13369,55 +13364,50 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     prevV = settled[line];
   }
 
-  // ── Precompute RC sub-line samples for band rendering (v2.92.0) ──
-  // 預計算 RC 曲線形狀（只需 40 次 Math.exp），內迴圈全用乘法查表
+  // ── holdV + sub-line exp lookup tables (v2.93.0 viewport-lazy) ──
+  // 只預算 settled/target/holdV (O(totalLines) 乘法)，
+  // rcSamples/lineMinMax 不再全域預算，改為 render 時按視窗即時計算。
   var RC_PTS = 20;
-  var rcExpRise = new Float32Array(RC_PTS);
-  var rcExpFall = new Float32Array(RC_PTS);
-  for (var _rci = 0; _rci < RC_PTS; _rci++) {
-    var _rcFrac = _rci / RC_PTS;
-    if (_rcFrac < xstbFracDly) {
-      rcExpRise[_rci] = 1.0;  // hold 區間：不衰減
-      rcExpFall[_rci] = 1.0;
-    } else {
-      var _rcDt = _rcFrac - xstbFracDly;
-      rcExpRise[_rci] = Math.exp(-_rcDt / RC_TAU_RISE);
-      rcExpFall[_rci] = Math.exp(-_rcDt / RC_TAU_FALL);
-    }
-  }
-  var rcSamples = new Float32Array(totalLines * RC_PTS);
-  var lineMinMax = new Float32Array(totalLines * 2);
-  // holdV[L] = XSTB↓ 之前的 hold 電壓 = settled[L-1]（已修正 exp 因子）
   var holdV = new Float32Array(totalLines);
   holdV[0] = tgtV0;
   for (var _hi = 1; _hi < totalLines; _hi++) holdV[_hi] = settled[_hi - 1];
-  // rcSamples: 純乘法查表，零 Math.exp
-  for (var rL = 0; rL < totalLines; rL++) {
-    var hV = holdV[rL];
-    var rTgtV = target[rL];
-    var rBase = rL * RC_PTS;
-    if (Math.abs(rTgtV - hV) < 0.001) {
-      for (var rsi = 0; rsi < RC_PTS; rsi++) rcSamples[rBase + rsi] = hV;
-      lineMinMax[rL * 2] = hV;
-      lineMinMax[rL * 2 + 1] = hV;
+
+  // Precompute exp lookup for sub-line samples (共 80 個 Math.exp，一次性)
+  // Segment 1 (frac < xstbFracDly): continuing RC from previous period
+  //   dt = (1 - xstbFracDly) + frac
+  // Segment 2 (frac >= xstbFracDly): new RC toward current target
+  //   dt = frac - xstbFracDly
+  var rcBefore_Rise = new Float32Array(RC_PTS);
+  var rcBefore_Fall = new Float32Array(RC_PTS);
+  var rcAfter_Rise = new Float32Array(RC_PTS);
+  var rcAfter_Fall = new Float32Array(RC_PTS);
+  var xstbSampleIdx = Math.round(xstbFracDly * RC_PTS); // first sample in segment 2
+  if (xstbFracDly >= 1.0) xstbSampleIdx = RC_PTS; // no falling → all segment 1 (hold)
+  for (var _rci = 0; _rci < RC_PTS; _rci++) {
+    var _rcFrac = _rci / RC_PTS;
+    if (_rci < xstbSampleIdx) {
+      // Segment 1: dt from previous XSTB↓ = (1-xstbFracDly) + frac
+      var _dtBefore = (1.0 - xstbFracDly) + _rcFrac;
+      rcBefore_Rise[_rci] = Math.exp(-_dtBefore / RC_TAU_RISE);
+      rcBefore_Fall[_rci] = Math.exp(-_dtBefore / RC_TAU_FALL);
+      rcAfter_Rise[_rci] = 0; // unused
+      rcAfter_Fall[_rci] = 0;
     } else {
-      var rcExp = (rTgtV >= hV) ? rcExpRise : rcExpFall;
-      var rMin = hV, rMax = hV;
-      for (var rsi = 0; rsi < RC_PTS; rsi++) {
-        var rV = rTgtV + (hV - rTgtV) * rcExp[rsi];
-        rcSamples[rBase + rsi] = rV;
-        if (rV < rMin) rMin = rV;
-        if (rV > rMax) rMax = rV;
-      }
-      lineMinMax[rL * 2] = rMin;
-      lineMinMax[rL * 2 + 1] = rMax;
+      // Segment 2: dt from current XSTB↓ = frac - xstbFracDly
+      var _dtAfter = _rcFrac - xstbFracDly;
+      rcAfter_Rise[_rci] = Math.exp(-_dtAfter / RC_TAU_RISE);
+      rcAfter_Fall[_rci] = Math.exp(-_dtAfter / RC_TAU_FALL);
+      rcBefore_Rise[_rci] = 0; // unused
+      rcBefore_Fall[_rci] = 0;
     }
   }
 
   return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
     holdV: holdV,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
-    rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
+    rcPts: RC_PTS, xstbSampleIdx: xstbSampleIdx,
+    rcBefore_Rise: rcBefore_Rise, rcBefore_Fall: rcBefore_Fall,
+    rcAfter_Rise: rcAfter_Rise, rcAfter_Fall: rcAfter_Fall,
     ver: _wfgAnalogCacheVer };
 }
 
@@ -13553,7 +13543,6 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       var _ucDly = precomp.xstbFracDly || 0;
       var _ucHoldV = precomp.holdV;
       var _ucNoFalling = _ucDly >= 1.0; // XSTB 躺平 → SD 完全不轉態
-      var _sdRcWin = _ucNoFalling ? 0 : (1.0 - _ucDly);
       for (var L = startLine; L <= endLine; L++) {
         var hV = _ucHoldV ? _ucHoldV[L] : (L > 0 ? settled[L - 1] : settled[0]);
         // XSTB 無 falling edge → 輸出平線
@@ -13563,15 +13552,44 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
         }
         var tgtV = precomp.target[L];
         var eventX = L + _ucDly;
-        // HOLD segment: flat from line start to XSTB↓
-        if (_ucDly > 0.01) {
+
+        // ─ Segment 1: continuing RC from previous period (line start → XSTB↓) ─
+        // Before XSTB↓, pixel is still charging toward target[L-1]
+        if (_ucDly > 0.01 && L > 0) {
+          var prevTgt = precomp.target[L - 1];
+          var prevHoldV = _ucHoldV ? _ucHoldV[L - 1] : (L > 1 ? settled[L - 2] : settled[0]);
+          var seg1Tau = (prevTgt >= prevHoldV) ? _ucTauR : _ucTauF;
+          var seg1Diff = prevHoldV - prevTgt;
+          if (Math.abs(seg1Diff) > 0.001) {
+            // RC curve from line start to XSTB↓
+            var seg1Pts = Math.max(8, Math.round(pixelsPerLine * _ucDly));
+            if (seg1Pts > 60) seg1Pts = 60;
+            for (var s1 = 0; s1 <= seg1Pts; s1++) {
+              var frac1 = (s1 / seg1Pts) * _ucDly;
+              var dt1 = (1.0 - _ucDly) + frac1; // time since previous XSTB↓
+              samples.push({ lineX: L + frac1, voltage: prevTgt + seg1Diff * Math.exp(-dt1 / seg1Tau) });
+            }
+          } else {
+            // Previous RC already settled — flat segment
+            samples.push({ lineX: L, voltage: hV });
+            samples.push({ lineX: eventX, voltage: hV });
+          }
+        } else if (_ucDly > 0.01) {
+          // Line 0: no previous period, just flat
           samples.push({ lineX: L, voltage: hV });
+          samples.push({ lineX: eventX, voltage: hV });
         }
-        // Event at XSTB↓: voltage still at hold level
-        samples.push({ lineX: eventX, voltage: hV });
+
+        // ─ Segment 2: new RC from XSTB↓ onward (toward current target) ─
+        // At XSTB↓, voltage = holdV[L], new target = target[L]
         if (Math.abs(tgtV - hV) > 0.001) {
+          if (_ucDly <= 0.01) {
+            samples.push({ lineX: eventX, voltage: hV });
+          }
           var rcTau = (tgtV >= hV) ? _ucTauR : _ucTauF;
-          var curveSpan = Math.min(_sdRcWin, rcTau * 5);
+          // RC continues until next XSTB↓ (at position _ucDly in next line)
+          var seg2Span = 1.0; // full period = 1 line until next XSTB↓
+          var curveSpan = Math.min(seg2Span, rcTau * 5);
           var pxForCurve = pixelsPerLine * curveSpan;
           var numPts = Math.max(20, Math.round(pxForCurve * 2));
           if (numPts > 200) numPts = 200;
@@ -13579,6 +13597,11 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
           for (var kk = 1; kk <= numPts; kk++) {
             var dt = (kk / numPts) * maxDt;
             samples.push({ lineX: eventX + dt, voltage: tgtV + (hV - tgtV) * Math.exp(-dt / rcTau) });
+          }
+        } else {
+          // No transition this line
+          if (_ucDly <= 0.01) {
+            samples.push({ lineX: L, voltage: hV });
           }
         }
       }
@@ -13628,13 +13651,60 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: false, bandData: null, bandW: 0 };
   }
 
-  // ═══ Path 2: Normal — zero-compute band from precomputed data ═══
+  // ═══ Path 2: Normal — viewport-only band computation (v2.93.0) ═══
   var _bW = Math.max(0, Math.round(drawW));
   var bandData = new Float32Array(_bW * 2);
   var bandVMin = Infinity, bandVMax = -Infinity;
 
-  if (precomp.rcSamples && lpp <= 2) {
-    // Sub-line detail from precomputed RC samples (medium/close zoom)
+  if (isSD && precomp.rcAfter_Rise) {
+    // ── SD viewport-lazy: compute sub-line samples on-the-fly using exp lookup ──
+    var _sdBR = precomp.rcBefore_Rise, _sdBF = precomp.rcBefore_Fall;
+    var _sdAR = precomp.rcAfter_Rise, _sdAF = precomp.rcAfter_Fall;
+    var _sdXsi = precomp.xstbSampleIdx;
+    var _sdHoldV = precomp.holdV;
+    var _sdTarget = precomp.target;
+    for (var px = 0; px < _bW; px++) {
+      var pxSF = viewStart + px * lpp;
+      var pxEF = viewStart + (px + 1) * lpp;
+      var lineS = Math.max(0, Math.floor(pxSF));
+      var lineE = Math.min(totalLines - 1, Math.floor(pxEF));
+      var bMin = Infinity, bMax = -Infinity;
+      for (var line = lineS; line <= lineE; line++) {
+        var fracS = (line === lineS) ? Math.max(0, pxSF - line) : 0;
+        var fracE = (line === lineE) ? Math.min(1, pxEF - line) : 1;
+        var siS = Math.max(0, Math.floor(fracS * RC_PTS));
+        var siE = Math.min(RC_PTS - 1, Math.ceil(fracE * RC_PTS));
+        // Segment 1 data: continuing RC from previous period
+        var seg1Tgt = (line > 0) ? _sdTarget[line - 1] : _sdTarget[0];
+        var seg1Hold = (line > 0) ? _sdHoldV[line - 1] : _sdHoldV[0];
+        var seg1Diff = seg1Hold - seg1Tgt;
+        var seg1Exp = (seg1Tgt >= seg1Hold) ? _sdBR : _sdBF;
+        // Segment 2 data: new RC toward current target
+        var seg2Tgt = _sdTarget[line];
+        var seg2Hold = _sdHoldV[line];
+        var seg2Diff = seg2Hold - seg2Tgt;
+        var seg2Exp = (seg2Tgt >= seg2Hold) ? _sdAR : _sdAF;
+        for (var si = siS; si <= siE; si++) {
+          var v;
+          if (si < _sdXsi) {
+            // Segment 1: V = target[L-1] + (holdV[L-1] - target[L-1]) * exp(...)
+            v = seg1Tgt + seg1Diff * seg1Exp[si];
+          } else {
+            // Segment 2: V = target[L] + (holdV[L] - target[L]) * exp(...)
+            v = seg2Tgt + seg2Diff * seg2Exp[si];
+          }
+          if (v < bMin) bMin = v;
+          if (v > bMax) bMax = v;
+        }
+      }
+      if (!isFinite(bMin)) { bMin = bMax = settled[Math.max(0, Math.min(totalLines - 1, lineS))]; }
+      bandData[px * 2] = bMin;
+      bandData[px * 2 + 1] = bMax;
+      if (bMin < bandVMin) bandVMin = bMin;
+      if (bMax > bandVMax) bandVMax = bMax;
+    }
+  } else if (precomp.rcSamples && lpp <= 2) {
+    // LS channels: Sub-line detail from precomputed RC samples
     var rcs = precomp.rcSamples;
     for (var px = 0; px < _bW; px++) {
       var pxSF = viewStart + px * lpp;
@@ -13661,7 +13731,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       if (bMax > bandVMax) bandVMax = bMax;
     }
   } else if (precomp.lineMinMax) {
-    // Zoomed out: per-line min/max (fast scan, zero Math.exp)
+    // LS channels zoomed out: per-line min/max
     var lmm = precomp.lineMinMax;
     for (var px = 0; px < _bW; px++) {
       var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
@@ -13677,7 +13747,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       if (bMax > bandVMax) bandVMax = bMax;
     }
   } else {
-    // Fallback: settled[] direct scan (channels without precomputed RC data)
+    // Fallback: settled[] direct scan
     for (var px = 0; px < _bW; px++) {
       var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
       var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
@@ -15545,7 +15615,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     var totalFrames = lastFrame - firstFrame + 1;
     var frameStep = Math.max(1, Math.floor(totalFrames / (canvasRefW / 2)));
 
-    // v2.92.0: 直接從 GPIO 參數計算 XSTB falling edge 位置
+    // v2.93.0: 直接從 GPIO 參數計算 XSTB falling edge 位置
     var xstbFracDly = 0;
     if (xstbGpio && xstbGpio.enable) {
       var _bfDly = xstbGpio.f_dly || 0;
