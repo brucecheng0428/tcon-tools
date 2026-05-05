@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.93.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.94.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.93.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.94.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13090,8 +13090,7 @@ function wfgInvalidateDirty(gpioIdx) {
   _wfgOaxCache = null;
   // Minimap: mark stale
   _wfgMinimapCache = null;
-  // Analog precomputed: only clear affected channels
-  _wfgAnalogCacheVer++;
+  // Analog precomputed: only clear affected channels (v2.94.0: no longer bump global ver — only delete affected entries)
   _wfgAnalogDataCache = {};
   _wfgAnalogEventCache = {};
   if (Object.keys(_wfgAnalogDeps).length === 0) _wfgBuildAnalogDeps();
@@ -13182,7 +13181,7 @@ var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
 function wfgPrecomputeAnalog() {
   // Synchronous fast path — used when called from render loop
-  // v2.93.0: SD channels use viewport-lazy computation
+  // v2.94.0: SD + LS channels use viewport-lazy computation
   var t0 = performance.now();
   var tc = wfgEnsureTransitions();
   if (!tc) return;
@@ -13194,30 +13193,38 @@ function wfgPrecomputeAnalog() {
   // Viewport-based compute extent for SD (compute only up to viewEnd + margin)
   var sdExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + effVtotal + 100);
   if (sdExtent < 1) sdExtent = Math.min(totalLines, effVtotal + 100);
-  var recomputed = 0;
+  var recomputed = 0, sdRecomp = 0, lsRecomp = 0;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
     var existing = _wfgPrecomputed[gi];
     if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines) {
-      // Already computed — but for SD, check if we need to extend to cover viewport
+      // Already computed — check if we need to extend to cover viewport
       if (gpio.waveform_type === 1 && existing.computedExtent != null) {
         var needExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + 100);
         if (existing.computedExtent < needExtent) {
           _wfgExtendSdPrecomp(existing, needExtent);
         }
       }
+      if (gpio.waveform_type === 2 && existing.computedExtent != null && existing._lazyExtend) {
+        var needExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + 100);
+        if (existing.computedExtent < needExtent) {
+          _wfgExtendLsPrecomp(existing, needExtent);
+        }
+      }
       continue;
     }
     if (gpio.waveform_type === 1) {
       _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      sdRecomp++;
     } else if (gpio.waveform_type === 2) {
-      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      lsRecomp++;
     }
     recomputed++;
   }
   _wfgPrecomputeVer = _wfgAnalogCacheVer;
-  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, recomputed=' + recomputed + ', sdExtent=' + sdExtent + '/' + totalLines);
+  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, recomputed=' + recomputed + ' (SD=' + sdRecomp + ' LS=' + lsRecomp + '), extent=' + sdExtent + '/' + totalLines);
 }
 
 // Async precompute with progress bar — called on preset load / paste / import
@@ -13250,7 +13257,7 @@ async function wfgPrecomputeAnalogAsync() {
     if (gpio.waveform_type === 1) {
       newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
     } else if (gpio.waveform_type === 2) {
-      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, null);
     }
     if (showProg) {
       var pct = Math.round(((ci + 1) / analogChs.length) * 100);
@@ -13464,21 +13471,24 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   precomp.computedExtent = newExtent;
 }
 
-// ─── LS channel precomputation ───
-function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines) {
+// ─── LS channel precomputation (v2.94.0: viewport-lazy with computeExtent) ───
+function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent) {
+  // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.94.0)
+  // 後續可用 _wfgExtendLsPrecomp() 延伸
+  if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var ac = gpio.analog_config;
   var mode = wfgLsGlobal.mode;
   var ckoIndex = (ac.cko_index != null) ? ac.cko_index : 0;
   var numCko = wfgLsGlobal.phase;
 
-  // Get all LS events for the FULL range (no zoom thinning)
+  // Get LS events for range [0, computeExtent)
   var events;
   if (mode === 'condensed') {
-    events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, totalLines);
+    events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, computeExtent);
   } else if (mode === 'dual_cpv') {
-    events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, totalLines);
+    events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, computeExtent);
   } else {
-    events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, 0, totalLines, 0.001);
+    events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, 0, computeExtent, 0.001);
   }
   if (!events) events = [];
 
@@ -13488,7 +13498,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var RC_TAU_RISE = 2.0 * Math.exp(-0.0235 * (255 - _curveRise));
   var RC_TAU_FALL = 2.0 * Math.exp(-0.0235 * (255 - _curveFall));
 
-  var settled = new Float32Array(totalLines);
+  var settled = new Float32Array(computeExtent);
   var voltage = ac.voltage_min; // CKOs start at VGL
   var curTarget = voltage;
   var curRcTau = RC_TAU_RISE;
@@ -13496,7 +13506,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var baseV = voltage;
   var ei = 0;
 
-  for (var line = 0; line < totalLines; line++) {
+  for (var line = 0; line < computeExtent; line++) {
     // Process events at or before this line
     while (ei < events.length && events[ei].lineX <= line) {
       var ev = events[ei];
@@ -13522,11 +13532,11 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
 
   // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
   var RC_PTS = 20;
-  var rcSamples = new Float32Array(totalLines * RC_PTS);
-  var lineMinMax = new Float32Array(totalLines * 2);
+  var rcSamples = new Float32Array(computeExtent * RC_PTS);
+  var lineMinMax = new Float32Array(computeExtent * 2);
   var _rsV = ac.voltage_min, _rsTarget = _rsV, _rsTau = RC_TAU_RISE;
   var _rsLastX = 0, _rsBaseV = _rsV, _rsEi = 0;
-  for (var _rsLine = 0; _rsLine < totalLines; _rsLine++) {
+  for (var _rsLine = 0; _rsLine < computeExtent; _rsLine++) {
     var _rsBase = _rsLine * RC_PTS;
     var _rsMin = Infinity, _rsMax = -Infinity;
     for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
@@ -13564,21 +13574,146 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   return { settled: settled, events: events, totalLines: totalLines, effVtotal: effVtotal,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
-    vMin: ac.voltage_min, vMax: ac.voltage_max, ver: _wfgAnalogCacheVer };
+    vMin: ac.voltage_min, vMax: ac.voltage_max, ver: _wfgAnalogCacheVer,
+    computedExtent: computeExtent,
+    _lazyExtend: {
+      voltage: voltage, curTarget: curTarget, curRcTau: curRcTau,
+      lastEventX: lastEventX, baseV: baseV, eventIdx: ei,
+      _rsV: _rsV, _rsTarget: _rsTarget, _rsTau: _rsTau,
+      _rsLastX: _rsLastX, _rsBaseV: _rsBaseV, _rsEi: _rsEi,
+      gpioIdx: gpioIdx, ac: ac, mode: mode, ckoIndex: ckoIndex, numCko: numCko,
+      allTrans: allTrans, effHtotal: effHtotal, effVtotal: effVtotal,
+      RC_TAU_RISE: RC_TAU_RISE, RC_TAU_FALL: RC_TAU_FALL, RC_PTS: RC_PTS
+    }
+  };
+}
+
+// ─── LS lazy extend: compute settled/rcSamples/lineMinMax from computedExtent to newExtent (v2.94.0) ───
+function _wfgExtendLsPrecomp(precomp, newExtent) {
+  if (newExtent <= precomp.computedExtent) return;
+  if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
+  var le = precomp._lazyExtend;
+  var oldExtent = precomp.computedExtent;
+
+  // Build events for range [oldExtent, newExtent)
+  var newEvents;
+  if (le.mode === 'condensed') {
+    newEvents = _wfgLsBuildCondensedEvents(le.ckoIndex, le.numCko, le.allTrans, le.effHtotal, le.effVtotal, oldExtent, newExtent);
+  } else if (le.mode === 'dual_cpv') {
+    newEvents = _wfgLsBuildDualCpvEvents(le.ckoIndex, le.numCko, le.allTrans, le.effHtotal, le.effVtotal, oldExtent, newExtent);
+  } else {
+    newEvents = _wfgLsBuildIndividualEvents(le.ac, le.allTrans, le.effHtotal, le.effVtotal, oldExtent, newExtent, 0.001);
+  }
+  if (!newEvents) newEvents = [];
+
+  // Append new events
+  var events = precomp.events;
+  for (var ne = 0; ne < newEvents.length; ne++) events.push(newEvents[ne]);
+
+  // Grow arrays
+  var RC_PTS = le.RC_PTS;
+  var newSettled = new Float32Array(newExtent);
+  newSettled.set(precomp.settled);
+  var newRcSamples = new Float32Array(newExtent * RC_PTS);
+  newRcSamples.set(precomp.rcSamples);
+  var newLineMinMax = new Float32Array(newExtent * 2);
+  newLineMinMax.set(precomp.lineMinMax);
+
+  // Continue settled[] loop from stored state
+  var voltage = le.voltage, curTarget = le.curTarget, curRcTau = le.curRcTau;
+  var lastEventX = le.lastEventX, baseV = le.baseV, ei = le.eventIdx;
+  var RC_TAU_RISE = le.RC_TAU_RISE, RC_TAU_FALL = le.RC_TAU_FALL;
+
+  for (var line = oldExtent; line < newExtent; line++) {
+    while (ei < events.length && events[ei].lineX <= line) {
+      var ev = events[ei];
+      var dt = ev.lineX - lastEventX;
+      if (dt > 0 && Math.abs(curTarget - baseV) > 0.0001) {
+        voltage = curTarget + (baseV - curTarget) * Math.exp(-dt / curRcTau);
+      }
+      if (ev._reset) { voltage = ev.vTarget; }
+      baseV = voltage;
+      curTarget = ev.vTarget;
+      curRcTau = (ev.vTarget >= voltage) ? RC_TAU_RISE : RC_TAU_FALL;
+      lastEventX = ev.lineX;
+      ei++;
+    }
+    var dt2 = line - lastEventX;
+    if (dt2 > 0 && Math.abs(curTarget - baseV) > 0.0001) {
+      newSettled[line] = curTarget + (baseV - curTarget) * Math.exp(-dt2 / curRcTau);
+    } else {
+      newSettled[line] = (Math.abs(curTarget - baseV) < 0.0001) ? curTarget : baseV;
+    }
+  }
+
+  // Continue rcSamples[] + lineMinMax[] loop from stored state
+  var _rsV = le._rsV, _rsTarget = le._rsTarget, _rsTau = le._rsTau;
+  var _rsLastX = le._rsLastX, _rsBaseV = le._rsBaseV, _rsEi = le._rsEi;
+
+  for (var _rsLine = oldExtent; _rsLine < newExtent; _rsLine++) {
+    var _rsBase = _rsLine * RC_PTS;
+    var _rsMin = Infinity, _rsMax = -Infinity;
+    for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
+      var _rsPos = _rsLine + _rsSi / RC_PTS;
+      while (_rsEi < events.length && events[_rsEi].lineX <= _rsPos) {
+        var _rsEv = events[_rsEi];
+        var _rsDt = _rsEv.lineX - _rsLastX;
+        if (_rsDt > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
+          _rsV = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt / _rsTau);
+        } else {
+          _rsV = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
+        }
+        if (_rsEv._reset) _rsV = _rsEv.vTarget;
+        _rsBaseV = _rsV;
+        _rsTarget = _rsEv.vTarget;
+        _rsTau = (_rsEv.vTarget >= _rsV) ? RC_TAU_RISE : RC_TAU_FALL;
+        _rsLastX = _rsEv.lineX;
+        _rsEi++;
+      }
+      var _rsDt2 = _rsPos - _rsLastX;
+      var _rsVal;
+      if (_rsDt2 > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
+        _rsVal = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt2 / _rsTau);
+      } else {
+        _rsVal = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
+      }
+      newRcSamples[_rsBase + _rsSi] = _rsVal;
+      if (_rsVal < _rsMin) _rsMin = _rsVal;
+      if (_rsVal > _rsMax) _rsMax = _rsVal;
+    }
+    newLineMinMax[_rsLine * 2] = _rsMin;
+    newLineMinMax[_rsLine * 2 + 1] = _rsMax;
+  }
+
+  // Update precomp object
+  precomp.settled = newSettled;
+  precomp.rcSamples = newRcSamples;
+  precomp.lineMinMax = newLineMinMax;
+  precomp.events = events;
+  precomp.computedExtent = newExtent;
+  // Update continuation state
+  le.voltage = voltage; le.curTarget = curTarget; le.curRcTau = curRcTau;
+  le.lastEventX = lastEventX; le.baseV = baseV; le.eventIdx = ei;
+  le._rsV = _rsV; le._rsTarget = _rsTarget; le._rsTau = _rsTau;
+  le._rsLastX = _rsLastX; le._rsBaseV = _rsBaseV; le._rsEi = _rsEi;
 }
 
 // ─── Convert precomputed data → samples format for wfgDrawAnalogChannel ───
 function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, effVtotal) {
   var totalLines = precomp.totalLines;
-  // v2.93.0: SD lazy extend — ensure precomp covers the viewport
+  // v2.94.0: lazy extend — ensure precomp covers the viewport
   if (precomp.computedExtent != null && precomp._lazyExtend) {
     var needLine = Math.min(totalLines, Math.ceil(viewEnd) + 2);
     if (precomp.computedExtent < needLine) {
       var extTarget = Math.min(totalLines, needLine + 1000);
       if (extTarget - precomp.computedExtent > 50000) {
-        wfgShowProgress(0, '延伸 SD 計算...');
+        wfgShowProgress(0, gpio.waveform_type === 2 ? '延伸 LS 計算...' : '延伸 SD 計算...');
       }
-      _wfgExtendSdPrecomp(precomp, extTarget);
+      if (gpio.waveform_type === 1) {
+        _wfgExtendSdPrecomp(precomp, extTarget);
+      } else if (gpio.waveform_type === 2) {
+        _wfgExtendLsPrecomp(precomp, extTarget);
+      }
       if (extTarget - precomp.computedExtent <= 0) wfgHideProgress();
     }
   }
@@ -13656,8 +13791,10 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
             samples.push({ lineX: eventX, voltage: hV });
           }
           var rcTau = (tgtV >= hV) ? _ucTauR : _ucTauF;
-          // RC continues until next XSTB↓ (at position _ucDly in next line)
-          var seg2Span = 1.0; // full period = 1 line until next XSTB↓
+          // RC continues until end of this line (segment 1 of next line takes over)
+          // v2.94.0 fix: previously seg2Span=1.0 caused overlap past line boundary,
+          // creating backward polyline strokes that appeared as "resets" at each line.
+          var seg2Span = 1.0 - _ucDly; // only extend to next line boundary
           var curveSpan = Math.min(seg2Span, rcTau * 5);
           var pxForCurve = pixelsPerLine * curveSpan;
           var numPts = Math.max(20, Math.round(pxForCurve * 2));
