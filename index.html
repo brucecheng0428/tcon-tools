@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.94.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.95.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.94.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.95.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13053,7 +13053,7 @@ function _wfgBuildAnalogDeps() {
       if (gpio.waveform_type === 2) {
         var ckIdx = (ac.ck_gpio_idx != null) ? (ac.ck_gpio_idx | 0) : -1;
         if (ckIdx >= 0) deps.add(ckIdx);
-        // v2.94.0: LS precompute uses vce_ck_idx (from wfgLsGlobal), NOT xstb.
+        // v2.95.0: LS precompute uses vce_ck_idx (from wfgLsGlobal), NOT xstb.
         // Removing incorrect xstb dep so XSTB changes don't trigger LS recompute.
         var vceCkIdx = (typeof wfgLsGlobal !== 'undefined' && wfgLsGlobal.vce_ck_idx >= 0) ? wfgLsGlobal.vce_ck_idx : -1;
         if (vceCkIdx >= 0) deps.add(vceCkIdx);
@@ -13092,7 +13092,7 @@ function wfgInvalidateDirty(gpioIdx) {
   _wfgOaxCache = null;
   // Minimap: mark stale
   _wfgMinimapCache = null;
-  // Analog precomputed: only clear affected channels (v2.94.0: no longer bump global ver — only delete affected entries)
+  // Analog precomputed: only clear affected channels (v2.95.0: no longer bump global ver — only delete affected entries)
   _wfgAnalogDataCache = {};
   _wfgAnalogEventCache = {};
   if (Object.keys(_wfgAnalogDeps).length === 0) _wfgBuildAnalogDeps();
@@ -13183,7 +13183,7 @@ var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
 function wfgPrecomputeAnalog() {
   // Synchronous fast path — used when called from render loop
-  // v2.94.0: SD + LS channels use viewport-lazy computation
+  // v2.95.0: SD + LS channels use viewport-lazy computation
   var t0 = performance.now();
   var tc = wfgEnsureTransitions();
   if (!tc) return;
@@ -13205,7 +13205,12 @@ function wfgPrecomputeAnalog() {
       if (gpio.waveform_type === 1 && existing.computedExtent != null) {
         var needExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + 100);
         if (existing.computedExtent < needExtent) {
-          _wfgExtendSdPrecomp(existing, needExtent);
+          var _extGap = needExtent - existing.computedExtent;
+          if (_extGap > 50000 && !_wfgExtendBusy) {
+            _wfgExtendSdPrecompAsync(existing, needExtent);
+          } else if (!_wfgExtendBusy) {
+            _wfgExtendSdPrecomp(existing, needExtent);
+          }
         }
       }
       if (gpio.waveform_type === 2 && existing.computedExtent != null && existing._lazyExtend) {
@@ -13330,25 +13335,33 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var expRise = Math.exp(-1.0 / RC_TAU_RISE);
   var expFall = Math.exp(-1.0 / RC_TAU_FALL);
 
-  // XSTB fractional delay (for close-zoom RC curve positioning)
+  // XSTB: 讀取實際波形找 falling edge (v2.95.0)
+  // 不再獨立用公式計算 — 直接從 XSTB channel 的已計算波形取得 falling 位置
+  // 這樣所有邊緣條件（FDLY=RDLY 躺平、FDLY>effHtotal 跨行等）都自動正確
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
   var xstbFracDly = 0;
   var xstbHasFalling = false;
+  var xstbDataOffset = 0; // falling at line L latches lValuePerFrame[(L - xstbDataOffset)]
   var xstbFlat = _wfgFlatGpios[xstbIdx];
   var xstbGpio = wfgGpios[xstbIdx];
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
-    // v2.93.0: 直接從 GPIO 參數計算 falling edge 位置，
-    // 避免 transition search 被 frame-boundary reset 干擾
-    var _xfDly = xstbGpio.f_dly || 0;
-    var _xfExtra = effHtotal > 0 ? Math.floor(_xfDly / effHtotal) : 0;
-    var _xfNorm = effHtotal > 0 ? _xfDly % effHtotal : _xfDly;
-    // 鏡像 wfgCalcGpio 的抑制邏輯：fExtraLines>=1 && fDly > htotal + r_dly
-    if (_xfExtra >= 1 && _xfDly > effHtotal + (xstbGpio.r_dly || 0)) {
-      // falling edge 被抑制 → xstbHasFalling 維持 false
-    } else {
-      xstbFracDly = effHtotal > 0 ? _xfNorm / effHtotal : 0;
-      xstbHasFalling = (xstbFracDly < 1.0);
+    // 展開 XSTB 波形兩個 frame（確保跨 frame 邊界的 falling 也能捕捉）
+    var _xstbExpandEnd = Math.min(effVtotal * 2, computeExtent);
+    var _xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, _xstbExpandEnd);
+    var _xstbInitLvl = _xstbOax ? _xstbOax.initLevel : 0;
+    var _xstbTrans = _xstbOax ? _xstbOax.transitions : [];
+    // 找第一個 falling edge (1→0)
+    var _xstbPrevLvl = _xstbInitLvl;
+    for (var _xti = 0; _xti < _xstbTrans.length; _xti++) {
+      var _xt = _xstbTrans[_xti];
+      if (_xstbPrevLvl === 1 && _xt.level === 0) {
+        xstbHasFalling = true;
+        xstbFracDly = effHtotal > 0 ? _xt.dly / effHtotal : 0;
+        xstbDataOffset = _xt.line; // 第一個 falling 在 line N → data offset = N
+        break;
+      }
+      _xstbPrevLvl = _xt.level;
     }
   }
 
@@ -13365,9 +13378,10 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var settled = new Float32Array(computeExtent);
   var target = new Float32Array(computeExtent);
 
-  // Initial line
+  // Initial line (v2.95.0: 考慮 xstbDataOffset)
   var pol0 = polPerLine[0];
-  var lVal0 = lValuePerFrame[0];
+  var dataLine0 = (effVtotal - xstbDataOffset) % effVtotal;
+  var lVal0 = lValuePerFrame[dataLine0];
   var tgtV0 = voltLut[pol0 * lutStride + lVal0];
   settled[0] = tgtV0;
   target[0] = tgtV0;
@@ -13377,7 +13391,8 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   for (var line = 1; line < computeExtent; line++) {
     var lineInFrame = line % effVtotal;
     var pol = polPerLine[line];
-    var lVal = lValuePerFrame[lineInFrame];
+    var dataLineInFrame = (lineInFrame - xstbDataOffset + effVtotal) % effVtotal;
+    var lVal = lValuePerFrame[dataLineInFrame];
     var tgtV = voltLut[pol * lutStride + lVal];
     target[line] = tgtV;
     if (tgtV === prevV) {
@@ -13434,7 +13449,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     // Lazy-extend metadata: store config needed to extend computation
     _lazyExtend: { expRise: expRise, expFall: expFall, voltLut: voltLut,
       lutStride: lutStride, lValuePerFrame: lValuePerFrame, effVtotal: effVtotal,
-      polForLine: polForLine },
+      polForLine: polForLine, xstbDataOffset: xstbDataOffset },
     ver: _wfgAnalogCacheVer };
 }
 
@@ -13451,11 +13466,13 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   newSettled.set(precomp.settled);
   newTarget.set(precomp.target);
   newHoldV.set(precomp.holdV);
+  var _leDataOffset = le.xstbDataOffset || 0;
   var prevV = (oldExt > 0) ? newSettled[oldExt - 1] : newSettled[0];
   for (var line = oldExt; line < newExtent; line++) {
     var lineInFrame = line % le.effVtotal;
     var pol = le.polForLine(line);
-    var lVal = le.lValuePerFrame[lineInFrame];
+    var dataLineInFrame = (lineInFrame - _leDataOffset + le.effVtotal) % le.effVtotal;
+    var lVal = le.lValuePerFrame[dataLineInFrame];
     var tgtV = le.voltLut[pol * le.lutStride + lVal];
     newTarget[line] = tgtV;
     if (tgtV === prevV) {
@@ -13473,9 +13490,31 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   precomp.computedExtent = newExtent;
 }
 
-// ─── LS channel precomputation (v2.94.0: viewport-lazy with computeExtent) ───
+// ─── SD async extend with progress bar (v2.95.0) ───
+var _wfgExtendBusy = false;
+async function _wfgExtendSdPrecompAsync(precomp, newExtent) {
+  if (_wfgExtendBusy) return;
+  _wfgExtendBusy = true;
+  var oldExt = precomp.computedExtent;
+  var totalToExtend = newExtent - oldExt;
+  var CHUNK = 40000;
+  wfgShowProgress(0, '延伸 SD 計算...');
+  await wfgYield();
+  while (precomp.computedExtent < newExtent) {
+    var chunkEnd = Math.min(precomp.computedExtent + CHUNK, newExtent);
+    _wfgExtendSdPrecomp(precomp, chunkEnd);
+    var done = precomp.computedExtent - oldExt;
+    wfgShowProgress(Math.round(done / totalToExtend * 100), '延伸 SD 計算...');
+    await wfgYield();
+  }
+  wfgHideProgress();
+  _wfgExtendBusy = false;
+  wfgRender();
+}
+
+// ─── LS channel precomputation (v2.95.0: viewport-lazy with computeExtent) ───
 function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent) {
-  // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.94.0)
+  // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.95.0)
   // 後續可用 _wfgExtendLsPrecomp() 延伸
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var ac = gpio.analog_config;
@@ -13590,7 +13629,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   };
 }
 
-// ─── LS lazy extend: compute settled/rcSamples/lineMinMax from computedExtent to newExtent (v2.94.0) ───
+// ─── LS lazy extend: compute settled/rcSamples/lineMinMax from computedExtent to newExtent (v2.95.0) ───
 function _wfgExtendLsPrecomp(precomp, newExtent) {
   if (newExtent <= precomp.computedExtent) return;
   if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
@@ -13703,20 +13742,27 @@ function _wfgExtendLsPrecomp(precomp, newExtent) {
 // ─── Convert precomputed data → samples format for wfgDrawAnalogChannel ───
 function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, effVtotal) {
   var totalLines = precomp.totalLines;
-  // v2.94.0: lazy extend — ensure precomp covers the viewport
+  // v2.95.0: lazy extend — ensure precomp covers the viewport (async with progress for large gaps)
   if (precomp.computedExtent != null && precomp._lazyExtend) {
     var needLine = Math.min(totalLines, Math.ceil(viewEnd) + 2);
     if (precomp.computedExtent < needLine) {
       var extTarget = Math.min(totalLines, needLine + 1000);
-      if (extTarget - precomp.computedExtent > 50000) {
-        wfgShowProgress(0, gpio.waveform_type === 2 ? '延伸 LS 計算...' : '延伸 SD 計算...');
-      }
-      if (gpio.waveform_type === 1) {
-        _wfgExtendSdPrecomp(precomp, extTarget);
-      } else if (gpio.waveform_type === 2) {
+      var extGap = extTarget - precomp.computedExtent;
+      if (extGap > 50000 && gpio.waveform_type === 1 && !_wfgExtendBusy) {
+        // 大量延伸 → async + 進度條，避免 UI 凍結
+        _wfgExtendSdPrecompAsync(precomp, extTarget);
+        // 繼續用現有 computedExtent 範圍渲染（async 完成後 re-render）
+      } else if (extGap > 50000 && gpio.waveform_type === 2) {
+        wfgShowProgress(0, '延伸 LS 計算...');
         _wfgExtendLsPrecomp(precomp, extTarget);
+        wfgHideProgress();
+      } else if (!_wfgExtendBusy) {
+        if (gpio.waveform_type === 1) {
+          _wfgExtendSdPrecomp(precomp, extTarget);
+        } else if (gpio.waveform_type === 2) {
+          _wfgExtendLsPrecomp(precomp, extTarget);
+        }
       }
-      if (extTarget - precomp.computedExtent <= 0) wfgHideProgress();
     }
   }
   var settled = precomp.settled;
@@ -13794,7 +13840,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
           }
           var rcTau = (tgtV >= hV) ? _ucTauR : _ucTauF;
           // RC continues until end of this line (segment 1 of next line takes over)
-          // v2.94.0 fix: previously seg2Span=1.0 caused overlap past line boundary,
+          // v2.95.0 fix: previously seg2Span=1.0 caused overlap past line boundary,
           // creating backward polyline strokes that appeared as "resets" at each line.
           var seg2Span = 1.0 - _ucDly; // only extend to next line boundary
           var curveSpan = Math.min(seg2Span, rcTau * 5);
@@ -15823,18 +15869,21 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     var totalFrames = lastFrame - firstFrame + 1;
     var frameStep = Math.max(1, Math.floor(totalFrames / (canvasRefW / 2)));
 
-    // v2.93.0: 直接從 GPIO 參數計算 XSTB falling edge 位置
+    // v2.95.0: 從實際 XSTB 波形讀取 falling edge 位置（取代獨立公式計算）
     var xstbFracDly = 0;
-    if (xstbGpio && xstbGpio.enable) {
-      var _bfDly = xstbGpio.f_dly || 0;
-      var _bfExtra = effHtotal > 0 ? Math.floor(_bfDly / effHtotal) : 0;
-      var _bfNorm = effHtotal > 0 ? _bfDly % effHtotal : _bfDly;
-      if (_bfExtra >= 1 && _bfDly > effHtotal + (xstbGpio.r_dly || 0)) {
-        xstbFracDly = 2.0; // falling suppressed → sentinel
-      } else {
-        xstbFracDly = effHtotal > 0 ? _bfNorm / effHtotal : 0;
+    if (xstbEnabled && xstbTrans && xstbTrans.length > 0) {
+      var _lsFpInitLvl = xstbOax ? xstbOax.initLevel : 0;
+      var _lsFpPrevLvl = _lsFpInitLvl;
+      for (var _lsFi = 0; _lsFi < xstbTrans.length; _lsFi++) {
+        var _lsFt = xstbTrans[_lsFi];
+        if (_lsFpPrevLvl === 1 && _lsFt.level === 0) {
+          xstbFracDly = effHtotal > 0 ? _lsFt.dly / effHtotal : 0;
+          break;
+        }
+        _lsFpPrevLvl = _lsFt.level;
       }
     }
+    if (!xstbEnabled || xstbFracDly >= 1.0) xstbFracDly = 2.0; // no falling → sentinel
 
     for (var fr = firstFrame; fr <= lastFrame; fr += frameStep) {
       var frameBase = fr * effVtotal;
