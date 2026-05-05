@@ -1818,7 +1818,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.25</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.27</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2855,7 +2855,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.25</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.27</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -2922,7 +2922,7 @@
               </div>
               <div class="wfg-field">
                 <label data-i18n="wfg.frameCount">Frame 重複數</label>
-                <input type="number" id="wfg-frame-count" value="10" min="1" max="4096" oninput="wfgOnParamChange()">
+                <input type="number" id="wfg-frame-count" value="10" min="1" max="4096" oninput="wfgOnFrameCountChange()">
               </div>
             </div>
             <div class="wfg-signal-actions" style="margin-top:8px">
@@ -13477,7 +13477,8 @@ function wfgPrecomputeAnalog() {
 }
 
 // Async precompute with progress bar — called on preset load / paste / import
-async function wfgPrecomputeAnalogAsync() {
+async function wfgPrecomputeAnalogAsync(options) {
+  options = options || {};
   if (_wfgPrecompBusy) return;
   _wfgPrecompBusy = true;
   var t0 = performance.now();
@@ -13497,7 +13498,7 @@ async function wfgPrecomputeAnalogAsync() {
     }
     if (analogChs.length === 0) return;
     // Show progress bar only for heavy workloads (>200k total lines)
-    showProg = totalLines > 200000;
+    showProg = !!options.forceProgress || totalLines > 200000;
     if (showProg) wfgShowProgress(0, t('wfg.progressPrecomp').replace('{n}', '0').replace('{total}', String(analogChs.length)));
     // v2.97.19: always compute full frame range
     var sdExtent = totalLines;
@@ -13522,10 +13523,10 @@ async function wfgPrecomputeAnalogAsync() {
   } catch (e) {
     console.error('[WFG] Precompute analog failed:', e);
   } finally {
-    if (showProg) wfgHideProgress();
+    if (showProg && !options.keepProgress) wfgHideProgress();
     _wfgPrecompBusy = false;
   }
-  wfgRender();
+  if (!options.skipRender) wfgRender();
 }
 
 // ─── SD channel precomputation ───
@@ -19758,6 +19759,8 @@ window.wfgOnDclkManualChange = wfgOnDclkManualChange;
 
 var _wfgParamRenderTimer = 0;
 var _wfgParamRenderSeq = 0;
+var _wfgFrameCountRenderDirty = false;
+var WFG_FRAME_COUNT_DEBOUNCE_MS = 850;
 function wfgWaitForPrecomputeIdle() {
   if (!_wfgPrecompBusy) return Promise.resolve();
   return new Promise(function(resolve) {
@@ -19768,18 +19771,39 @@ function wfgWaitForPrecomputeIdle() {
     check();
   });
 }
+function wfgHasEnabledAnalogSignals() {
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var gpio = wfgGpios[gi];
+    if (gpio && gpio.enable && gpio.waveform_type) return true;
+  }
+  return false;
+}
 function wfgScheduleFrameParamRender() {
   _wfgParamRenderSeq++;
   var seq = _wfgParamRenderSeq;
   if (_wfgParamRenderTimer) clearTimeout(_wfgParamRenderTimer);
   _wfgParamRenderTimer = setTimeout(async function() {
     _wfgParamRenderTimer = 0;
-    var heavy = !wfgKvdatMode && wfgTotalLines() > 200000;
+    var heavy = !wfgKvdatMode && wfgTotalLines() > 50000;
+    if (_wfgFrameCountRenderDirty) {
+      wfgInvalidateCache();
+      _wfgFrameCountRenderDirty = false;
+    }
     if (heavy) {
       wfgShowProgress(5, '更新 Frame 資料…');
       await wfgYield();
     }
     if (seq !== _wfgParamRenderSeq) { if (heavy) wfgHideProgress(); return; }
+    if (heavy && wfgHasEnabledAnalogSignals()) {
+      wfgShowProgress(12, '類比波形計算中…');
+      await wfgPrecomputeAnalogAsync({ forceProgress: true, keepProgress: true, skipRender: true });
+      if (seq !== _wfgParamRenderSeq) { if (heavy) wfgHideProgress(); return; }
+      await wfgYield();
+    }
+    if (heavy) {
+      wfgShowProgress(82, '更新波形畫面…');
+      await wfgYield();
+    }
     wfgRender();
     if (heavy && _wfgPrecompBusy) {
       wfgShowProgress(82, '類比波形計算中…');
@@ -19798,13 +19822,25 @@ function wfgScheduleFrameParamRender() {
       await new Promise(function(resolve) { setTimeout(resolve, 650); });
       if (seq === _wfgParamRenderSeq) wfgHideProgress();
     }
-  }, 180);
+  }, WFG_FRAME_COUNT_DEBOUNCE_MS);
 }
+
+function wfgOnFrameCountChange() {
+  var input = document.getElementById('wfg-frame-count');
+  var nextFrameCount = Math.max(1, Math.min(4096, parseInt(input.value) || 10));
+  input.value = nextFrameCount;
+  if (wfgFrame.frameCount !== nextFrameCount) {
+    wfgFrame.frameCount = nextFrameCount;
+    _wfgFrameCountRenderDirty = true;
+  }
+  wfgScheduleFrameParamRender();
+}
+window.wfgOnFrameCountChange = wfgOnFrameCountChange;
 
 function wfgOnParamChange() {
   var prevFrameCount = wfgFrame.frameCount;
   var prevVtotal = wfgFrame.vtotal;
-  var prevHtotal = wfgFrame.htotal;
+  var prevHtotal = wfgFrame.htotalBase;
   var prevGate = wfgFrame.gateType;
   var nextVtotal = parseInt(document.getElementById('wfg-vtotal').value) || 1;
   var nextVactive = parseInt(document.getElementById('wfg-vactive').value) || 1;
@@ -19819,6 +19855,7 @@ function wfgOnParamChange() {
     nextHtotal === prevHtotal &&
     nextGate === prevGate);
   wfgInvalidateCache();
+  _wfgFrameCountRenderDirty = false;
   wfgFrame.vtotal = nextVtotal;
   wfgFrame.vactive = nextVactive;
   wfgFrame.htotal = nextHtotal;
