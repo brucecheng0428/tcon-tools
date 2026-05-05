@@ -13182,32 +13182,42 @@ var _wfgPrecomputeVer = -1;    // set to _wfgAnalogCacheVer after precomputing
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
 function wfgPrecomputeAnalog() {
   // Synchronous fast path — used when called from render loop
-  // v2.89: merge mode — preserve already-computed channels, only recompute missing/dirty ones
+  // v2.93.0: SD channels use viewport-lazy computation
   var t0 = performance.now();
   var tc = wfgEnsureTransitions();
   if (!tc) return;
-  // v2.89: detect flat GPIOs for optimization
   if (Object.keys(_wfgFlatGpios).length === 0) wfgDetectFlat();
   var effVtotal = tc.effVtotal;
   var effHtotal = tc.effHtotal;
   var totalLines = wfgTotalLines();
   var allTrans = tc.transitions;
+  // Viewport-based compute extent for SD (compute only up to viewEnd + margin)
+  var sdExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + effVtotal + 100);
+  if (sdExtent < 1) sdExtent = Math.min(totalLines, effVtotal + 100);
   var recomputed = 0;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
-    // Skip if already computed at current version with correct totalLines
     var existing = _wfgPrecomputed[gi];
-    if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines) continue;
+    if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines) {
+      // Already computed — but for SD, check if we need to extend to cover viewport
+      if (gpio.waveform_type === 1 && existing.computedExtent != null) {
+        var needExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + 100);
+        if (existing.computedExtent < needExtent) {
+          _wfgExtendSdPrecomp(existing, needExtent);
+        }
+      }
+      continue;
+    }
     if (gpio.waveform_type === 1) {
-      _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+      _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
     } else if (gpio.waveform_type === 2) {
       _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
     }
     recomputed++;
   }
   _wfgPrecomputeVer = _wfgAnalogCacheVer;
-  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, recomputed=' + recomputed + '/' + Object.keys(_wfgPrecomputed).length);
+  if (_wfgPerfEnabled) console.log('[WFG] Precompute analog: ' + (performance.now() - t0).toFixed(1) + 'ms, recomputed=' + recomputed + ', sdExtent=' + sdExtent + '/' + totalLines);
 }
 
 // Async precompute with progress bar — called on preset load / paste / import
@@ -13231,12 +13241,14 @@ async function wfgPrecomputeAnalogAsync() {
   // Show progress bar only for heavy workloads (>200k total lines)
   var showProg = totalLines > 200000;
   if (showProg) wfgShowProgress(0, t('wfg.progressPrecomp').replace('{n}', '0').replace('{total}', String(analogChs.length)));
+  var sdExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + effVtotal + 100);
+  if (sdExtent < 1) sdExtent = Math.min(totalLines, effVtotal + 100);
   var newPrecomp = {};
   for (var ci = 0; ci < analogChs.length; ci++) {
     var gi = analogChs[ci];
     var gpio = wfgGpios[gi];
     if (gpio.waveform_type === 1) {
-      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
+      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
     } else if (gpio.waveform_type === 2) {
       newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines);
     }
@@ -13255,7 +13267,10 @@ async function wfgPrecomputeAnalogAsync() {
 }
 
 // ─── SD channel precomputation ───
-function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines) {
+function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent) {
+  // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.93.0)
+  // 後續可用 _wfgExtendSdPrecomp() 延伸
+  if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var ac = gpio.analog_config;
   var effVactive = wfgEffVactive(effVtotal);
   var isDualSD = wfgFrame.gateType === 'dual';
@@ -13266,18 +13281,19 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   if (xpolIdx < 0 || xpolIdx >= wfgGpios.length) xpolIdx = WFG_XPOL_GPIO_IDX;
   // v2.89: flat XPOL fast path — skip OAX expansion if XPOL has no transitions
   var xpolFlat = _wfgFlatGpios[xpolIdx];
-  var polPerLine = new Uint8Array(totalLines);
+  // Build polForLine function (used for both initial compute and lazy extend)
+  var polForLine; // function(line) → 0 or 1
   if (xpolFlat) {
-    // XPOL is constant — fill entire array with its static level
-    if (xpolFlat.level) polPerLine.fill(1);
-    // else already all zeros
+    var _xpolLevel = xpolFlat.level ? 1 : 0;
+    polForLine = function() { return _xpolLevel; };
   } else {
-    // XPOL must span ALL lines (not just one frame) so toggle-mode alternation is captured
     var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, totalLines);
     var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
     var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
-    for (var pf = 0; pf < totalLines; pf++) polPerLine[pf] = xpolLookupFn(pf);
+    polForLine = xpolLookupFn;
   }
+  var polPerLine = new Uint8Array(computeExtent);
+  for (var pf = 0; pf < computeExtent; pf++) polPerLine[pf] = polForLine(pf);
 
   // L value per frame line
   var maxL = wfgAnalogMaxL(ac);
@@ -13337,8 +13353,8 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
   // xstbHasFalling=true → expRise/expFall 保持 exp(-1/tau)，RC 跑完整一行
 
-  var settled = new Float32Array(totalLines);
-  var target = new Float32Array(totalLines);
+  var settled = new Float32Array(computeExtent);
+  var target = new Float32Array(computeExtent);
 
   // Initial line
   var pol0 = polPerLine[0];
@@ -13348,8 +13364,8 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   target[0] = tgtV0;
   var prevV = tgtV0;
 
-  // Main loop: pure array lookups + multiply, no Math.exp
-  for (var line = 1; line < totalLines; line++) {
+  // Main loop: only compute up to computeExtent (viewport-lazy)
+  for (var line = 1; line < computeExtent; line++) {
     var lineInFrame = line % effVtotal;
     var pol = polPerLine[line];
     var lVal = lValuePerFrame[lineInFrame];
@@ -13365,12 +13381,10 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
 
   // ── holdV + sub-line exp lookup tables (v2.93.0 viewport-lazy) ──
-  // 只預算 settled/target/holdV (O(totalLines) 乘法)，
-  // rcSamples/lineMinMax 不再全域預算，改為 render 時按視窗即時計算。
   var RC_PTS = 20;
-  var holdV = new Float32Array(totalLines);
+  var holdV = new Float32Array(computeExtent);
   holdV[0] = tgtV0;
-  for (var _hi = 1; _hi < totalLines; _hi++) holdV[_hi] = settled[_hi - 1];
+  for (var _hi = 1; _hi < computeExtent; _hi++) holdV[_hi] = settled[_hi - 1];
 
   // Precompute exp lookup for sub-line samples (共 80 個 Math.exp，一次性)
   // Segment 1 (frac < xstbFracDly): continuing RC from previous period
@@ -13403,12 +13417,51 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
 
   return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
-    holdV: holdV,
+    holdV: holdV, computedExtent: computeExtent,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcPts: RC_PTS, xstbSampleIdx: xstbSampleIdx,
     rcBefore_Rise: rcBefore_Rise, rcBefore_Fall: rcBefore_Fall,
     rcAfter_Rise: rcAfter_Rise, rcAfter_Fall: rcAfter_Fall,
+    // Lazy-extend metadata: store config needed to extend computation
+    _lazyExtend: { expRise: expRise, expFall: expFall, voltLut: voltLut,
+      lutStride: lutStride, lValuePerFrame: lValuePerFrame, effVtotal: effVtotal,
+      polForLine: polForLine },
     ver: _wfgAnalogCacheVer };
+}
+
+// ─── SD lazy extend: compute settled/target/holdV from computedExtent to newExtent ───
+function _wfgExtendSdPrecomp(precomp, newExtent) {
+  if (newExtent <= precomp.computedExtent) return;
+  if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
+  var le = precomp._lazyExtend;
+  var oldExt = precomp.computedExtent;
+  // Grow arrays
+  var newSettled = new Float32Array(newExtent);
+  var newTarget = new Float32Array(newExtent);
+  var newHoldV = new Float32Array(newExtent);
+  newSettled.set(precomp.settled);
+  newTarget.set(precomp.target);
+  newHoldV.set(precomp.holdV);
+  var prevV = (oldExt > 0) ? newSettled[oldExt - 1] : newSettled[0];
+  for (var line = oldExt; line < newExtent; line++) {
+    var lineInFrame = line % le.effVtotal;
+    var pol = le.polForLine(line);
+    var lVal = le.lValuePerFrame[lineInFrame];
+    var tgtV = le.voltLut[pol * le.lutStride + lVal];
+    newTarget[line] = tgtV;
+    if (tgtV === prevV) {
+      newSettled[line] = tgtV;
+    } else {
+      var factor = (tgtV >= prevV) ? le.expRise : le.expFall;
+      newSettled[line] = tgtV + (prevV - tgtV) * factor;
+    }
+    prevV = newSettled[line];
+    newHoldV[line] = (line > 0) ? newSettled[line - 1] : newSettled[0];
+  }
+  precomp.settled = newSettled;
+  precomp.target = newTarget;
+  precomp.holdV = newHoldV;
+  precomp.computedExtent = newExtent;
 }
 
 // ─── LS channel precomputation ───
@@ -13516,17 +13569,33 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
 
 // ─── Convert precomputed data → samples format for wfgDrawAnalogChannel ───
 function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, effVtotal) {
-  var settled = precomp.settled;
   var totalLines = precomp.totalLines;
+  // v2.93.0: SD lazy extend — ensure precomp covers the viewport
+  if (precomp.computedExtent != null && precomp._lazyExtend) {
+    var needLine = Math.min(totalLines, Math.ceil(viewEnd) + 2);
+    if (precomp.computedExtent < needLine) {
+      var extTarget = Math.min(totalLines, needLine + 1000);
+      if (extTarget - precomp.computedExtent > 50000) {
+        wfgShowProgress(0, '延伸 SD 計算...');
+      }
+      _wfgExtendSdPrecomp(precomp, extTarget);
+      if (extTarget - precomp.computedExtent <= 0) wfgHideProgress();
+    }
+  }
+  var settled = precomp.settled;
   var ac = gpio.analog_config;
   var lpp = drawW > 0 ? (viewEnd - viewStart) / drawW : 1;
   var visibleLines = viewEnd - viewStart;
   var startLine = Math.max(0, Math.floor(viewStart) - 1);
   var endLine = Math.min(totalLines - 1, Math.ceil(viewEnd) + 1);
+  // Clamp to computed extent
+  if (precomp.computedExtent != null) {
+    endLine = Math.min(endLine, precomp.computedExtent - 1);
+  }
   if (startLine > endLine) startLine = endLine;
   var isSD = gpio.waveform_type === 1;
   var isLS = gpio.waveform_type === 2;
-  var initVoltage = (startLine > 0 && startLine < totalLines) ? settled[startLine] : (settled[0] || 0);
+  var initVoltage = (startLine > 0 && startLine < settled.length) ? settled[startLine] : (settled[0] || 0);
   var RC_PTS = precomp.rcPts || 20;
 
   // ═══ Path 1: Close zoom (≤ 100 lines visible) — real-time high-density RC ═══
