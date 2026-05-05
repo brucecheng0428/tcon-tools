@@ -1699,6 +1699,7 @@
   .wfg-cursor-toggle.active { background: rgba(34,211,238,0.15); border-color: #22d3ee; opacity: 1; }
   .wfg-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #64748b; font-size: 13px; gap: 8px; }
   /* ── WFG Import Progress Widget (floating toast style) ── */
+  body.wfg-progress-blocking::after { content: ""; position: fixed; inset: 0; z-index: 99998; background: rgba(2, 6, 23, 0.18); cursor: wait; }
   .wfg-progress-overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; background: #1e293b; flex-direction: column; align-items: center; justify-content: center; z-index: 99999; gap: 12px; padding: 20px 32px; border-radius: 12px; box-shadow: 0 6px 32px rgba(0,0,0,0.6), 0 0 15px rgba(34,197,94,0.15); border: 1px solid #334155; min-width: 340px; max-width: 420px; }
   .wfg-progress-bar-wrap { width: 100%; height: 14px; background: #21262d; border-radius: 7px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.4); }
   .wfg-progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #4ade80); border-radius: 7px; transition: width 0.3s cubic-bezier(0.4,0,0.2,1); box-shadow: 0 0 8px rgba(34,197,94,0.5); }
@@ -1818,7 +1819,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.27</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.28</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2855,7 +2856,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.27</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.28</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3881,7 +3882,11 @@ function showPage(pageId) {
   }
   // 切到 WFG 頁後，等 layout 完成再 resize canvas
   if (pageId === 'wfg' && typeof window.wfgResizeCanvas === 'function') {
-    requestAnimationFrame(() => requestAnimationFrame(() => window.wfgResizeCanvas()));
+    if (typeof window.wfgEnterPage === 'function') {
+      window.wfgEnterPage();
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(() => window.wfgResizeCanvas()));
+    }
   }
   // 重新套用語言，確保子頁面刷新後 i18n 正確
   if (typeof applyLang === 'function') applyLang(currentLang);
@@ -23049,6 +23054,7 @@ function wfgShowProgress(pct, text) {
   var overlay = document.getElementById('wfg-progress-overlay');
   var bar = document.getElementById('wfg-progress-bar');
   var txt = document.getElementById('wfg-progress-text');
+  document.body.classList.add('wfg-progress-blocking');
   if (overlay) overlay.style.display = 'flex';
   if (bar) bar.style.width = pct + '%';
   if (txt) txt.textContent = text;
@@ -23058,8 +23064,45 @@ function wfgHideProgress() {
   if (overlay) {
     overlay.style.display = 'none';
   }
+  document.body.classList.remove('wfg-progress-blocking');
 }
 function wfgYield() { return new Promise(function(r) { setTimeout(r, 0); }); }
+
+var _wfgEnterPageSeq = 0;
+var _wfgEnterPageReady = false;
+window.wfgEnterPage = async function() {
+  var seq = ++_wfgEnterPageSeq;
+  var firstLoad = !_wfgEnterPageReady;
+  wfgShowProgress(firstLoad ? 8 : 18, firstLoad ? '載入 WFG…' : '更新 WFG 畫面…');
+  await wfgYield();
+  if (seq !== _wfgEnterPageSeq) return;
+  requestAnimationFrame(async function() {
+    requestAnimationFrame(async function() {
+      if (seq !== _wfgEnterPageSeq) return;
+      try {
+        wfgShowProgress(25, '準備波形資料…');
+        await wfgYield();
+        if (!wfgKvdatMode && wfgHasEnabledAnalogSignals && wfgHasEnabledAnalogSignals()) {
+          await wfgPrecomputeAnalogAsync({ forceProgress: true, keepProgress: true, skipRender: true });
+        }
+        if (seq !== _wfgEnterPageSeq) return;
+        wfgShowProgress(78, '繪製示波器…');
+        await wfgYield();
+        if (typeof window.wfgResizeCanvas === 'function') window.wfgResizeCanvas();
+        else wfgRender();
+        wfgShowProgress(92, '更新 Overview…');
+        await wfgYield();
+        if (typeof wfgRenderMinimap === 'function') wfgRenderMinimap();
+        if (typeof wfgUpdateMinimapViewport === 'function') wfgUpdateMinimapViewport();
+        wfgShowProgress(100, t('wfg.progressDone'));
+        _wfgEnterPageReady = true;
+        await new Promise(function(resolve) { setTimeout(resolve, firstLoad ? 450 : 180); });
+      } finally {
+        if (seq === _wfgEnterPageSeq) wfgHideProgress();
+      }
+    });
+  });
+};
 
 window.wfgImportKvdat = async function(input) {
   var file = input.files[0];
