@@ -1813,7 +1813,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.95.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.96.0</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2850,7 +2850,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.95.0</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.96.0</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -13206,7 +13206,7 @@ function wfgPrecomputeAnalog() {
         var needExtent = Math.min(totalLines, Math.ceil(wfgViewEnd) + 100);
         if (existing.computedExtent < needExtent) {
           var _extGap = needExtent - existing.computedExtent;
-          if (_extGap > 50000 && !_wfgExtendBusy) {
+          if (_extGap > 5000 && !_wfgExtendBusy) {
             _wfgExtendSdPrecompAsync(existing, needExtent);
           } else if (!_wfgExtendBusy) {
             _wfgExtendSdPrecomp(existing, needExtent);
@@ -13335,31 +13335,36 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var expRise = Math.exp(-1.0 / RC_TAU_RISE);
   var expFall = Math.exp(-1.0 / RC_TAU_FALL);
 
-  // XSTB: 讀取實際波形找 falling edge (v2.95.0)
-  // 不再獨立用公式計算 — 直接從 XSTB channel 的已計算波形取得 falling 位置
-  // 這樣所有邊緣條件（FDLY=RDLY 躺平、FDLY>effHtotal 跨行等）都自動正確
+  // XSTB: per-line falling edge detection (v2.96.0)
+  // 每行獨立判斷 XSTB 是否有 falling edge，沒有 → SD 不轉態（持續 RC 衰減）
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
-  var xstbFracDly = 0;
-  var xstbHasFalling = false;
-  var xstbDataOffset = 0; // falling at line L latches lValuePerFrame[(L - xstbDataOffset)]
+  var xstbPerLine = new Uint8Array(computeExtent);  // 1 = has falling, 0 = no
+  var xstbFracPerLine = new Float32Array(computeExtent); // fractional position in line
+  var xstbHasAnyFalling = false;
+  var xstbCommonFracDly = 0; // typical fracDly for exp lookup tables
   var xstbFlat = _wfgFlatGpios[xstbIdx];
   var xstbGpio = wfgGpios[xstbIdx];
+  var xstbAllTransitions = []; // store for lazy extend
+  var xstbInitLevel = 0;
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
-    // 展開 XSTB 波形兩個 frame（確保跨 frame 邊界的 falling 也能捕捉）
-    var _xstbExpandEnd = Math.min(effVtotal * 2, computeExtent);
-    var _xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, _xstbExpandEnd);
-    var _xstbInitLvl = _xstbOax ? _xstbOax.initLevel : 0;
-    var _xstbTrans = _xstbOax ? _xstbOax.transitions : [];
-    // 找第一個 falling edge (1→0)
-    var _xstbPrevLvl = _xstbInitLvl;
-    for (var _xti = 0; _xti < _xstbTrans.length; _xti++) {
-      var _xt = _xstbTrans[_xti];
+    var _xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, computeExtent);
+    xstbInitLevel = _xstbOax ? _xstbOax.initLevel : 0;
+    xstbAllTransitions = _xstbOax ? _xstbOax.transitions : [];
+    // Walk ALL transitions, mark every falling edge (1→0)
+    var _xstbPrevLvl = xstbInitLevel;
+    for (var _xti = 0; _xti < xstbAllTransitions.length; _xti++) {
+      var _xt = xstbAllTransitions[_xti];
       if (_xstbPrevLvl === 1 && _xt.level === 0) {
-        xstbHasFalling = true;
-        xstbFracDly = effHtotal > 0 ? _xt.dly / effHtotal : 0;
-        xstbDataOffset = _xt.line; // 第一個 falling 在 line N → data offset = N
-        break;
+        var _xLine = _xt.line;
+        if (_xLine >= 0 && _xLine < computeExtent) {
+          xstbPerLine[_xLine] = 1;
+          xstbFracPerLine[_xLine] = effHtotal > 0 ? _xt.dly / effHtotal : 0;
+          if (!xstbHasAnyFalling) {
+            xstbCommonFracDly = xstbFracPerLine[_xLine];
+          }
+          xstbHasAnyFalling = true;
+        }
       }
       _xstbPrevLvl = _xt.level;
     }
@@ -13368,38 +13373,45 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // ── settled[] 衰減因子 (v2.93.0) ──
   // RC 跑整整一個 XSTB↓ 周期 (= 1 line)，不受 xstbFracDly 影響。
   // settled[L] = V_at_XSTB↓(L+1) = target[L] + (holdV[L] - target[L]) * exp(-1/tau)
-  if (!xstbHasFalling) {
-    xstbFracDly = 2.0; // sentinel > 1.0 → Path1 _ucNoFalling=true
+  if (!xstbHasAnyFalling) {
+    xstbCommonFracDly = 2.0; // sentinel > 1.0 → Path1 _ucNoFalling=true
     expRise = 1.0;
     expFall = 1.0;
   }
-  // xstbHasFalling=true → expRise/expFall 保持 exp(-1/tau)，RC 跑完整一行
+  // xstbHasAnyFalling=true → expRise/expFall 保持 exp(-1/tau)，RC 跑完整一行
 
   var settled = new Float32Array(computeExtent);
   var target = new Float32Array(computeExtent);
 
-  // Initial line (v2.95.0: 考慮 xstbDataOffset)
+  // Initial line: find the initial target from the LAST falling edge before line 0
   var pol0 = polPerLine[0];
-  var dataLine0 = (effVtotal - xstbDataOffset) % effVtotal;
-  var lVal0 = lValuePerFrame[dataLine0];
+  var lVal0 = lValuePerFrame[0];
   var tgtV0 = voltLut[pol0 * lutStride + lVal0];
-  settled[0] = tgtV0;
-  target[0] = tgtV0;
-  var prevV = tgtV0;
+  var lastTarget = tgtV0;
 
-  // Main loop: only compute up to computeExtent (viewport-lazy)
+  // If line 0 itself has a falling, use its data
+  if (xstbPerLine[0]) {
+    lastTarget = tgtV0;
+  }
+  settled[0] = lastTarget;
+  target[0] = lastTarget;
+  var prevV = lastTarget;
+
+  // Main loop: only update target when xstbPerLine[line] is 1
   for (var line = 1; line < computeExtent; line++) {
     var lineInFrame = line % effVtotal;
     var pol = polPerLine[line];
-    var dataLineInFrame = (lineInFrame - xstbDataOffset + effVtotal) % effVtotal;
-    var lVal = lValuePerFrame[dataLineInFrame];
-    var tgtV = voltLut[pol * lutStride + lVal];
-    target[line] = tgtV;
-    if (tgtV === prevV) {
-      settled[line] = tgtV;
+    if (xstbPerLine[line]) {
+      // XSTB has falling edge → latch new data for this line
+      var lVal = lValuePerFrame[lineInFrame];
+      lastTarget = voltLut[pol * lutStride + lVal];
+    }
+    target[line] = lastTarget;
+    if (lastTarget === prevV) {
+      settled[line] = lastTarget;
     } else {
-      var factor = (tgtV >= prevV) ? expRise : expFall;
-      settled[line] = tgtV + (prevV - tgtV) * factor;
+      var factor = (lastTarget >= prevV) ? expRise : expFall;
+      settled[line] = lastTarget + (prevV - lastTarget) * factor;
     }
     prevV = settled[line];
   }
@@ -13411,28 +13423,28 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   for (var _hi = 1; _hi < computeExtent; _hi++) holdV[_hi] = settled[_hi - 1];
 
   // Precompute exp lookup for sub-line samples (共 80 個 Math.exp，一次性)
-  // Segment 1 (frac < xstbFracDly): continuing RC from previous period
-  //   dt = (1 - xstbFracDly) + frac
-  // Segment 2 (frac >= xstbFracDly): new RC toward current target
-  //   dt = frac - xstbFracDly
+  // Segment 1 (frac < xstbCommonFracDly): continuing RC from previous period
+  //   dt = (1 - xstbCommonFracDly) + frac
+  // Segment 2 (frac >= xstbCommonFracDly): new RC toward current target
+  //   dt = frac - xstbCommonFracDly
   var rcBefore_Rise = new Float32Array(RC_PTS);
   var rcBefore_Fall = new Float32Array(RC_PTS);
   var rcAfter_Rise = new Float32Array(RC_PTS);
   var rcAfter_Fall = new Float32Array(RC_PTS);
-  var xstbSampleIdx = Math.round(xstbFracDly * RC_PTS); // first sample in segment 2
-  if (xstbFracDly >= 1.0) xstbSampleIdx = RC_PTS; // no falling → all segment 1 (hold)
+  var xstbSampleIdx = Math.round(xstbCommonFracDly * RC_PTS); // first sample in segment 2
+  if (xstbCommonFracDly >= 1.0) xstbSampleIdx = RC_PTS; // no falling → all segment 1 (hold)
   for (var _rci = 0; _rci < RC_PTS; _rci++) {
     var _rcFrac = _rci / RC_PTS;
     if (_rci < xstbSampleIdx) {
-      // Segment 1: dt from previous XSTB↓ = (1-xstbFracDly) + frac
-      var _dtBefore = (1.0 - xstbFracDly) + _rcFrac;
+      // Segment 1: dt from previous XSTB↓ = (1-xstbCommonFracDly) + frac
+      var _dtBefore = (1.0 - xstbCommonFracDly) + _rcFrac;
       rcBefore_Rise[_rci] = Math.exp(-_dtBefore / RC_TAU_RISE);
       rcBefore_Fall[_rci] = Math.exp(-_dtBefore / RC_TAU_FALL);
       rcAfter_Rise[_rci] = 0; // unused
       rcAfter_Fall[_rci] = 0;
     } else {
-      // Segment 2: dt from current XSTB↓ = frac - xstbFracDly
-      var _dtAfter = _rcFrac - xstbFracDly;
+      // Segment 2: dt from current XSTB↓ = frac - xstbCommonFracDly
+      var _dtAfter = _rcFrac - xstbCommonFracDly;
       rcAfter_Rise[_rci] = Math.exp(-_dtAfter / RC_TAU_RISE);
       rcAfter_Fall[_rci] = Math.exp(-_dtAfter / RC_TAU_FALL);
       rcBefore_Rise[_rci] = 0; // unused
@@ -13440,7 +13452,10 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     }
   }
 
-  return { settled: settled, target: target, totalLines: totalLines, xstbFracDly: xstbFracDly,
+  return { settled: settled, target: target, totalLines: totalLines,
+    xstbFracDly: xstbCommonFracDly,
+    xstbPerLine: xstbPerLine,
+    xstbFracPerLine: xstbFracPerLine,
     holdV: holdV, computedExtent: computeExtent,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcPts: RC_PTS, xstbSampleIdx: xstbSampleIdx,
@@ -13449,11 +13464,14 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     // Lazy-extend metadata: store config needed to extend computation
     _lazyExtend: { expRise: expRise, expFall: expFall, voltLut: voltLut,
       lutStride: lutStride, lValuePerFrame: lValuePerFrame, effVtotal: effVtotal,
-      polForLine: polForLine, xstbDataOffset: xstbDataOffset },
+      polForLine: polForLine,
+      xstbIdx: xstbIdx, allTrans: allTrans, effHtotal: effHtotal,
+      xstbAllTransitions: xstbAllTransitions, xstbInitLevel: xstbInitLevel,
+      lastTarget: lastTarget },
     ver: _wfgAnalogCacheVer };
 }
 
-// ─── SD lazy extend: compute settled/target/holdV from computedExtent to newExtent ───
+// ─── SD lazy extend: compute settled/target/holdV from computedExtent to newExtent (v2.96.0: per-line XSTB) ───
 function _wfgExtendSdPrecomp(precomp, newExtent) {
   if (newExtent <= precomp.computedExtent) return;
   if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
@@ -13463,23 +13481,48 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   var newSettled = new Float32Array(newExtent);
   var newTarget = new Float32Array(newExtent);
   var newHoldV = new Float32Array(newExtent);
+  var newXstbPerLine = new Uint8Array(newExtent);
+  var newXstbFracPerLine = new Float32Array(newExtent);
   newSettled.set(precomp.settled);
   newTarget.set(precomp.target);
   newHoldV.set(precomp.holdV);
-  var _leDataOffset = le.xstbDataOffset || 0;
+  if (precomp.xstbPerLine) newXstbPerLine.set(precomp.xstbPerLine);
+  if (precomp.xstbFracPerLine) newXstbFracPerLine.set(precomp.xstbFracPerLine);
+
+  // Extend XSTB per-line data: get transitions for [0, newExtent)
+  if (le.xstbIdx != null && le.allTrans && le.effHtotal) {
+    var _extOax = wfgGetOaxForRange(le.xstbIdx, le.allTrans, le.effHtotal, 0, newExtent);
+    var _extInitLvl = _extOax ? _extOax.initLevel : (le.xstbInitLevel || 0);
+    var _extTrans = _extOax ? _extOax.transitions : [];
+    // Re-scan transitions for the new range
+    var _extPrevLvl = _extInitLvl;
+    for (var _eti = 0; _eti < _extTrans.length; _eti++) {
+      var _et = _extTrans[_eti];
+      if (_et.line < oldExt) { _extPrevLvl = _et.level; continue; }
+      if (_et.line >= newExtent) break;
+      if (_extPrevLvl === 1 && _et.level === 0) {
+        newXstbPerLine[_et.line] = 1;
+        newXstbFracPerLine[_et.line] = le.effHtotal > 0 ? _et.dly / le.effHtotal : 0;
+      }
+      _extPrevLvl = _et.level;
+    }
+  }
+
+  var lastTarget = le.lastTarget || newTarget[oldExt - 1];
   var prevV = (oldExt > 0) ? newSettled[oldExt - 1] : newSettled[0];
   for (var line = oldExt; line < newExtent; line++) {
     var lineInFrame = line % le.effVtotal;
     var pol = le.polForLine(line);
-    var dataLineInFrame = (lineInFrame - _leDataOffset + le.effVtotal) % le.effVtotal;
-    var lVal = le.lValuePerFrame[dataLineInFrame];
-    var tgtV = le.voltLut[pol * le.lutStride + lVal];
-    newTarget[line] = tgtV;
-    if (tgtV === prevV) {
-      newSettled[line] = tgtV;
+    if (newXstbPerLine[line]) {
+      var lVal = le.lValuePerFrame[lineInFrame];
+      lastTarget = le.voltLut[pol * le.lutStride + lVal];
+    }
+    newTarget[line] = lastTarget;
+    if (lastTarget === prevV) {
+      newSettled[line] = lastTarget;
     } else {
-      var factor = (tgtV >= prevV) ? le.expRise : le.expFall;
-      newSettled[line] = tgtV + (prevV - tgtV) * factor;
+      var factor = (lastTarget >= prevV) ? le.expRise : le.expFall;
+      newSettled[line] = lastTarget + (prevV - lastTarget) * factor;
     }
     prevV = newSettled[line];
     newHoldV[line] = (line > 0) ? newSettled[line - 1] : newSettled[0];
@@ -13487,7 +13530,10 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   precomp.settled = newSettled;
   precomp.target = newTarget;
   precomp.holdV = newHoldV;
+  precomp.xstbPerLine = newXstbPerLine;
+  precomp.xstbFracPerLine = newXstbFracPerLine;
   precomp.computedExtent = newExtent;
+  le.lastTarget = lastTarget;
 }
 
 // ─── SD async extend with progress bar (v2.95.0) ───
@@ -13495,20 +13541,26 @@ var _wfgExtendBusy = false;
 async function _wfgExtendSdPrecompAsync(precomp, newExtent) {
   if (_wfgExtendBusy) return;
   _wfgExtendBusy = true;
-  var oldExt = precomp.computedExtent;
-  var totalToExtend = newExtent - oldExt;
-  var CHUNK = 40000;
-  wfgShowProgress(0, '延伸 SD 計算...');
-  await wfgYield();
-  while (precomp.computedExtent < newExtent) {
-    var chunkEnd = Math.min(precomp.computedExtent + CHUNK, newExtent);
-    _wfgExtendSdPrecomp(precomp, chunkEnd);
-    var done = precomp.computedExtent - oldExt;
-    wfgShowProgress(Math.round(done / totalToExtend * 100), '延伸 SD 計算...');
+  try {
+    var oldExt = precomp.computedExtent;
+    var totalToExtend = newExtent - oldExt;
+    var CHUNK = 40000;
+    wfgShowProgress(0, '延伸 SD 計算...');
     await wfgYield();
+    while (precomp.computedExtent < newExtent) {
+      var chunkEnd = Math.min(precomp.computedExtent + CHUNK, newExtent);
+      _wfgExtendSdPrecomp(precomp, chunkEnd);
+      var done = precomp.computedExtent - oldExt;
+      wfgShowProgress(Math.round(done / totalToExtend * 100), '延伸 SD 計算...');
+      await wfgYield();
+    }
+    wfgHideProgress();
+  } catch(e) {
+    console.error('SD async extend error:', e);
+    wfgHideProgress();
+  } finally {
+    _wfgExtendBusy = false;
   }
-  wfgHideProgress();
-  _wfgExtendBusy = false;
   wfgRender();
 }
 
@@ -13748,11 +13800,11 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     if (precomp.computedExtent < needLine) {
       var extTarget = Math.min(totalLines, needLine + 1000);
       var extGap = extTarget - precomp.computedExtent;
-      if (extGap > 50000 && gpio.waveform_type === 1 && !_wfgExtendBusy) {
+      if (extGap > 5000 && gpio.waveform_type === 1 && !_wfgExtendBusy) {
         // 大量延伸 → async + 進度條，避免 UI 凍結
         _wfgExtendSdPrecompAsync(precomp, extTarget);
         // 繼續用現有 computedExtent 範圍渲染（async 完成後 re-render）
-      } else if (extGap > 50000 && gpio.waveform_type === 2) {
+      } else if (extGap > 5000 && gpio.waveform_type === 2) {
         wfgShowProgress(0, '延伸 LS 計算...');
         _wfgExtendLsPrecomp(precomp, extTarget);
         wfgHideProgress();
@@ -13794,55 +13846,67 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       var _ucTauR = precomp.rcTauRise, _ucTauF = precomp.rcTauFall;
       var _ucDly = precomp.xstbFracDly || 0;
       var _ucHoldV = precomp.holdV;
-      var _ucNoFalling = _ucDly >= 1.0; // XSTB 躺平 → SD 完全不轉態
+      var _ucNoFalling = _ucDly >= 1.0;
+      var _ucPerLine = precomp.xstbPerLine;
+      var _ucFracPerLine = precomp.xstbFracPerLine;
       for (var L = startLine; L <= endLine; L++) {
         var hV = _ucHoldV ? _ucHoldV[L] : (L > 0 ? settled[L - 1] : settled[0]);
-        // XSTB 無 falling edge → 輸出平線
-        if (_ucNoFalling) {
-          samples.push({ lineX: L, voltage: hV });
+
+        // Check if this line has XSTB falling
+        var lineHasFalling = _ucPerLine && _ucPerLine[L];
+
+        // No XSTB falling on this line → continuous RC toward current target
+        if (_ucNoFalling || !lineHasFalling) {
+          var noFallTgt = precomp.target[L];
+          if (Math.abs(noFallTgt - hV) > 0.001) {
+            var rcTau = (noFallTgt >= hV) ? _ucTauR : _ucTauF;
+            var numPts = Math.max(12, Math.round(pixelsPerLine));
+            if (numPts > 100) numPts = 100;
+            for (var kk = 0; kk <= numPts; kk++) {
+              var dt = kk / numPts;
+              samples.push({ lineX: L + dt, voltage: noFallTgt + (hV - noFallTgt) * Math.exp(-dt / rcTau) });
+            }
+          } else {
+            samples.push({ lineX: L, voltage: hV });
+          }
           continue;
         }
+
+        // Has XSTB falling → use per-line fracDly
+        var _ucDlyL = _ucFracPerLine ? _ucFracPerLine[L] : _ucDly;
         var tgtV = precomp.target[L];
-        var eventX = L + _ucDly;
+        var eventX = L + _ucDlyL;
 
         // ─ Segment 1: continuing RC from previous period (line start → XSTB↓) ─
-        // Before XSTB↓, pixel is still charging toward target[L-1]
-        if (_ucDly > 0.01 && L > 0) {
+        if (_ucDlyL > 0.01 && L > 0) {
           var prevTgt = precomp.target[L - 1];
           var prevHoldV = _ucHoldV ? _ucHoldV[L - 1] : (L > 1 ? settled[L - 2] : settled[0]);
           var seg1Tau = (prevTgt >= prevHoldV) ? _ucTauR : _ucTauF;
           var seg1Diff = prevHoldV - prevTgt;
           if (Math.abs(seg1Diff) > 0.001) {
-            // RC curve from line start to XSTB↓
-            var seg1Pts = Math.max(8, Math.round(pixelsPerLine * _ucDly));
+            var seg1Pts = Math.max(8, Math.round(pixelsPerLine * _ucDlyL));
             if (seg1Pts > 60) seg1Pts = 60;
             for (var s1 = 0; s1 <= seg1Pts; s1++) {
-              var frac1 = (s1 / seg1Pts) * _ucDly;
-              var dt1 = (1.0 - _ucDly) + frac1; // time since previous XSTB↓
+              var frac1 = (s1 / seg1Pts) * _ucDlyL;
+              var dt1 = (1.0 - _ucDlyL) + frac1;
               samples.push({ lineX: L + frac1, voltage: prevTgt + seg1Diff * Math.exp(-dt1 / seg1Tau) });
             }
           } else {
-            // Previous RC already settled — flat segment
             samples.push({ lineX: L, voltage: hV });
             samples.push({ lineX: eventX, voltage: hV });
           }
-        } else if (_ucDly > 0.01) {
-          // Line 0: no previous period, just flat
+        } else if (_ucDlyL > 0.01) {
           samples.push({ lineX: L, voltage: hV });
           samples.push({ lineX: eventX, voltage: hV });
         }
 
-        // ─ Segment 2: new RC from XSTB↓ onward (toward current target) ─
-        // At XSTB↓, voltage = holdV[L], new target = target[L]
+        // ─ Segment 2: new RC from XSTB↓ onward ─
         if (Math.abs(tgtV - hV) > 0.001) {
-          if (_ucDly <= 0.01) {
+          if (_ucDlyL <= 0.01) {
             samples.push({ lineX: eventX, voltage: hV });
           }
           var rcTau = (tgtV >= hV) ? _ucTauR : _ucTauF;
-          // RC continues until end of this line (segment 1 of next line takes over)
-          // v2.95.0 fix: previously seg2Span=1.0 caused overlap past line boundary,
-          // creating backward polyline strokes that appeared as "resets" at each line.
-          var seg2Span = 1.0 - _ucDly; // only extend to next line boundary
+          var seg2Span = 1.0 - _ucDlyL;
           var curveSpan = Math.min(seg2Span, rcTau * 5);
           var pxForCurve = pixelsPerLine * curveSpan;
           var numPts = Math.max(20, Math.round(pxForCurve * 2));
@@ -13853,8 +13917,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
             samples.push({ lineX: eventX + dt, voltage: tgtV + (hV - tgtV) * Math.exp(-dt / rcTau) });
           }
         } else {
-          // No transition this line
-          if (_ucDly <= 0.01) {
+          if (_ucDlyL <= 0.01) {
             samples.push({ lineX: L, voltage: hV });
           }
         }
@@ -13911,12 +13974,14 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   var bandVMin = Infinity, bandVMax = -Infinity;
 
   if (isSD && precomp.rcAfter_Rise) {
-    // ── SD viewport-lazy: compute sub-line samples on-the-fly using exp lookup ──
+    // ── SD viewport-lazy: per-line XSTB check (v2.96.0) ──
     var _sdBR = precomp.rcBefore_Rise, _sdBF = precomp.rcBefore_Fall;
     var _sdAR = precomp.rcAfter_Rise, _sdAF = precomp.rcAfter_Fall;
     var _sdXsi = precomp.xstbSampleIdx;
     var _sdHoldV = precomp.holdV;
     var _sdTarget = precomp.target;
+    var _sdPerLine = precomp.xstbPerLine;
+    var _sdTauR = precomp.rcTauRise, _sdTauF = precomp.rcTauFall;
     for (var px = 0; px < _bW; px++) {
       var pxSF = viewStart + px * lpp;
       var pxEF = viewStart + (px + 1) * lpp;
@@ -13924,31 +13989,49 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       var lineE = Math.min(totalLines - 1, Math.floor(pxEF));
       var bMin = Infinity, bMax = -Infinity;
       for (var line = lineS; line <= lineE; line++) {
+        if (line >= precomp.computedExtent) break;
         var fracS = (line === lineS) ? Math.max(0, pxSF - line) : 0;
         var fracE = (line === lineE) ? Math.min(1, pxEF - line) : 1;
         var siS = Math.max(0, Math.floor(fracS * RC_PTS));
         var siE = Math.min(RC_PTS - 1, Math.ceil(fracE * RC_PTS));
-        // Segment 1 data: continuing RC from previous period
-        var seg1Tgt = (line > 0) ? _sdTarget[line - 1] : _sdTarget[0];
-        var seg1Hold = (line > 0) ? _sdHoldV[line - 1] : _sdHoldV[0];
-        var seg1Diff = seg1Hold - seg1Tgt;
-        var seg1Exp = (seg1Tgt >= seg1Hold) ? _sdBR : _sdBF;
-        // Segment 2 data: new RC toward current target
-        var seg2Tgt = _sdTarget[line];
-        var seg2Hold = _sdHoldV[line];
-        var seg2Diff = seg2Hold - seg2Tgt;
-        var seg2Exp = (seg2Tgt >= seg2Hold) ? _sdAR : _sdAF;
-        for (var si = siS; si <= siE; si++) {
-          var v;
-          if (si < _sdXsi) {
-            // Segment 1: V = target[L-1] + (holdV[L-1] - target[L-1]) * exp(...)
-            v = seg1Tgt + seg1Diff * seg1Exp[si];
+
+        if (!_sdPerLine || !_sdPerLine[line]) {
+          // No XSTB falling → continuous RC toward target
+          var nfTgt = _sdTarget[line];
+          var nfHold = _sdHoldV[line];
+          if (Math.abs(nfTgt - nfHold) < 0.001) {
+            // Settled — flat
+            if (nfTgt < bMin) bMin = nfTgt;
+            if (nfTgt > bMax) bMax = nfTgt;
           } else {
-            // Segment 2: V = target[L] + (holdV[L] - target[L]) * exp(...)
-            v = seg2Tgt + seg2Diff * seg2Exp[si];
+            var nfTau = (nfTgt >= nfHold) ? _sdTauR : _sdTauF;
+            for (var si = siS; si <= siE; si++) {
+              var dt = si / RC_PTS;
+              var v = nfTgt + (nfHold - nfTgt) * Math.exp(-dt / nfTau);
+              if (v < bMin) bMin = v;
+              if (v > bMax) bMax = v;
+            }
           }
-          if (v < bMin) bMin = v;
-          if (v > bMax) bMax = v;
+        } else {
+          // Has XSTB falling → segment 1/2 split
+          var seg1Tgt = (line > 0) ? _sdTarget[line - 1] : _sdTarget[0];
+          var seg1Hold = (line > 0) ? _sdHoldV[line - 1] : _sdHoldV[0];
+          var seg1Diff = seg1Hold - seg1Tgt;
+          var seg1Exp = (seg1Tgt >= seg1Hold) ? _sdBR : _sdBF;
+          var seg2Tgt = _sdTarget[line];
+          var seg2Hold = _sdHoldV[line];
+          var seg2Diff = seg2Hold - seg2Tgt;
+          var seg2Exp = (seg2Tgt >= seg2Hold) ? _sdAR : _sdAF;
+          for (var si = siS; si <= siE; si++) {
+            var v;
+            if (si < _sdXsi) {
+              v = seg1Tgt + seg1Diff * seg1Exp[si];
+            } else {
+              v = seg2Tgt + seg2Diff * seg2Exp[si];
+            }
+            if (v < bMin) bMin = v;
+            if (v > bMax) bMax = v;
+          }
         }
       }
       if (!isFinite(bMin)) { bMin = bMax = settled[Math.max(0, Math.min(totalLines - 1, lineS))]; }
