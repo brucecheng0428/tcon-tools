@@ -12992,21 +12992,14 @@ function wfgMarkContinuousMotion() {
   _wfgContinuousMotionTimer = setTimeout(function() {
     _wfgContinuousMotion = false;
     _wfgContinuousMotionTimer = 0;
-    // v2.97.19: zoom/pan 停止後，只有改過參數（precomp 不完整）時才全局重算
-    if (_wfgNeedsFullRecompute && !_wfgPrecompBusy) {
-      var _hasAnalog = false;
-      for (var _ai = 0; _ai < wfgGpios.length; _ai++) {
-        var _ag = wfgGpios[_ai];
-        if (_ag && _ag.enable && _ag.waveform_type) { _hasAnalog = true; break; }
-      }
-      if (_hasAnalog) {
-        _wfgNeedsFullRecompute = false;
-        _wfgSdFullRecomputeWithProgress(true, true);
-        return;
-      }
-    }
+    // v2.81: Do NOT bump _wfgAnalogCacheVer here — params didn't change.
+    // The lpp tolerance check + skipRC consistency check in the render loop
+    // will naturally invalidate channels whose zoom changed significantly.
+    // This eliminates the forced full-recomputation stutter after every gesture.
     // Restore measurement and do final render with labels + pulse
     wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
+    // wfgMeasUpdate already calls wfgRender() internally when it has data
+    // but if the mouse isn't over a channel, we still need a render
     if (!_wfgMeasArrow) wfgRender();
   }, 150);
 }
@@ -13129,7 +13122,6 @@ function wfgInvalidateDirty(gpioIdx) {
       if (_dpkGpio.waveform_type === 2 && _wfgLsParamDirty) delete _wfgPrecomputed[_dpk];
     }
     _wfgPrecomputeVer = -1;
-    _wfgNeedsFullRecompute = true; // v2.97.19: 標記需要全局重算
     _wfgSdParamDirty = false;
     _wfgLsParamDirty = false;
   }
@@ -13138,8 +13130,6 @@ function wfgInvalidateDirty(gpioIdx) {
 // ─── Deferred Full Recompute (v2.89: minimap + full precompute on slider release) ───
 var _wfgFullRecomputeTimer = 0;
 var _wfgSliderDragging = false;
-var _wfgNeedsFullRecompute = false; // v2.97.19: 改參數後設 true，zoom/pan 時觸���全局重算後設 false
-var _wfgLsLightPrecomp = false; // v2.97.19: LS was computed without rcSamples (needs refresh on release)
 
 function _wfgScheduleFullRecompute() {
   _wfgSliderDragging = true;
@@ -13147,18 +13137,7 @@ function _wfgScheduleFullRecompute() {
   _wfgFullRecomputeTimer = setTimeout(function() {
     _wfgFullRecomputeTimer = 0;
     _wfgSliderDragging = false;
-    // v2.97.19: 只刷新 lightMode entries（補上 rcSamples），不觸發全局重算
-    // 全局重算由 zoom/pan 超出已算範圍時 lazy extend 觸發
-    if (_wfgLsLightPrecomp) {
-      _wfgLsLightPrecomp = false;
-      for (var _lk in _wfgPrecomputed) {
-        if (_wfgPrecomputed[_lk] && _wfgPrecomputed[_lk].lightMode) {
-          delete _wfgPrecomputed[_lk];
-        }
-      }
-      _wfgPrecomputeVer = -1;
-    }
-    // Render viewport (sync viewport-only recompute, no progress bar)
+    // Full recompute and minimap update on slider release
     wfgRender();
     wfgRenderMinimap();
     wfgUpdateMinimapViewport();
@@ -13381,11 +13360,9 @@ function wfgPrecomputeAnalog() {
   var effVtotal = tc.effVtotal;
   var effHtotal = tc.effHtotal;
   var allTrans = tc.transitions;
-  // v2.97.19: 改參數只算 viewport 範圍，超出時 lazy extend
-  var viewPad = Math.max(effVtotal, Math.ceil((wfgViewEnd - wfgViewStart) * 0.5));
+  // v2.97.19: 連續操作時只算 viewport 剛好範圍（減少 CKO 計算量），停止後 lazy extend 補齊
+  var viewPad = _wfgSliderDragging ? 0 : Math.max(effVtotal, Math.ceil((wfgViewEnd - wfgViewStart) * 0.5));
   var sdExtent = _isGlobalRecompute ? totalLines : Math.min(totalLines, Math.ceil(wfgViewEnd) + viewPad);
-  // v2.97.19: during slider drag, skip expensive rcSamples for LS (20x speedup)
-  var _lsSkipRc = _wfgSliderDragging && !_isGlobalRecompute;
   var recomputed = 0, sdRecomp = 0, lsRecomp = 0;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
@@ -13396,12 +13373,11 @@ function wfgPrecomputeAnalog() {
       _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
       sdRecomp++;
     } else if (gpio.waveform_type === 2) {
-      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, _lsSkipRc);
+      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
       lsRecomp++;
     }
     recomputed++;
   }
-  if (_lsSkipRc && lsRecomp > 0) _wfgLsLightPrecomp = true;
   _wfgPrecomputeVer = _wfgAnalogCacheVer;
   if (sdRecomp > 0) _wfgSdParamDirty = false;
   if (lsRecomp > 0) _wfgLsParamDirty = false;
@@ -13748,7 +13724,7 @@ async function _wfgExtendSdPrecompAsync(precomp, newExtent) {
 }
 
 // ─── LS channel precomputation (v2.95.0: viewport-lazy with computeExtent) ───
-function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, skipRcSamples) {
+function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent) {
   // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.95.0)
   // 後續可用 _wfgExtendLsPrecomp() 延伸
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
@@ -13807,56 +13783,51 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
 
   // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
-  // v2.97.19: skip rcSamples during continuous +/- interaction (20x speedup)
   var RC_PTS = 20;
-  var rcSamples = null;
-  var lineMinMax = null;
+  var rcSamples = new Float32Array(computeExtent * RC_PTS);
+  var lineMinMax = new Float32Array(computeExtent * 2);
   var _rsV = ac.voltage_min, _rsTarget = _rsV, _rsTau = RC_TAU_RISE;
   var _rsLastX = 0, _rsBaseV = _rsV, _rsEi = 0;
-  if (!skipRcSamples) {
-    rcSamples = new Float32Array(computeExtent * RC_PTS);
-    lineMinMax = new Float32Array(computeExtent * 2);
-    for (var _rsLine = 0; _rsLine < computeExtent; _rsLine++) {
-      var _rsBase = _rsLine * RC_PTS;
-      var _rsMin = Infinity, _rsMax = -Infinity;
-      for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
-        var _rsPos = _rsLine + _rsSi / RC_PTS;
-        while (_rsEi < events.length && events[_rsEi].lineX <= _rsPos) {
-          var _rsEv = events[_rsEi];
-          var _rsDt = _rsEv.lineX - _rsLastX;
-          if (_rsDt > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
-            _rsV = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt / _rsTau);
-          } else {
-            _rsV = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
-          }
-          if (_rsEv._reset) _rsV = _rsEv.vTarget;
-          _rsBaseV = _rsV;
-          _rsTarget = _rsEv.vTarget;
-          _rsTau = (_rsEv.vTarget >= _rsV) ? RC_TAU_RISE : RC_TAU_FALL;
-          _rsLastX = _rsEv.lineX;
-          _rsEi++;
-        }
-        var _rsDt2 = _rsPos - _rsLastX;
-        var _rsVal;
-        if (_rsDt2 > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
-          _rsVal = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt2 / _rsTau);
+  for (var _rsLine = 0; _rsLine < computeExtent; _rsLine++) {
+    var _rsBase = _rsLine * RC_PTS;
+    var _rsMin = Infinity, _rsMax = -Infinity;
+    for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
+      var _rsPos = _rsLine + _rsSi / RC_PTS;
+      while (_rsEi < events.length && events[_rsEi].lineX <= _rsPos) {
+        var _rsEv = events[_rsEi];
+        var _rsDt = _rsEv.lineX - _rsLastX;
+        if (_rsDt > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
+          _rsV = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt / _rsTau);
         } else {
-          _rsVal = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
+          _rsV = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
         }
-        rcSamples[_rsBase + _rsSi] = _rsVal;
-        if (_rsVal < _rsMin) _rsMin = _rsVal;
-        if (_rsVal > _rsMax) _rsMax = _rsVal;
+        if (_rsEv._reset) _rsV = _rsEv.vTarget;
+        _rsBaseV = _rsV;
+        _rsTarget = _rsEv.vTarget;
+        _rsTau = (_rsEv.vTarget >= _rsV) ? RC_TAU_RISE : RC_TAU_FALL;
+        _rsLastX = _rsEv.lineX;
+        _rsEi++;
       }
-      lineMinMax[_rsLine * 2] = _rsMin;
-      lineMinMax[_rsLine * 2 + 1] = _rsMax;
+      var _rsDt2 = _rsPos - _rsLastX;
+      var _rsVal;
+      if (_rsDt2 > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
+        _rsVal = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt2 / _rsTau);
+      } else {
+        _rsVal = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
+      }
+      rcSamples[_rsBase + _rsSi] = _rsVal;
+      if (_rsVal < _rsMin) _rsMin = _rsVal;
+      if (_rsVal > _rsMax) _rsMax = _rsVal;
     }
+    lineMinMax[_rsLine * 2] = _rsMin;
+    lineMinMax[_rsLine * 2 + 1] = _rsMax;
   }
 
   return { settled: settled, events: events, totalLines: totalLines, effVtotal: effVtotal,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
     vMin: ac.voltage_min, vMax: ac.voltage_max, ver: _wfgAnalogCacheVer,
-    computedExtent: computeExtent, lightMode: !!skipRcSamples,
+    computedExtent: computeExtent,
     _lazyExtend: {
       voltage: voltage, curTarget: curTarget, curRcTau: curRcTau,
       lastEventX: lastEventX, baseV: baseV, eventIdx: ei,
@@ -13982,6 +13953,13 @@ function _wfgExtendLsPrecomp(precomp, newExtent) {
 // ─── Convert precomputed data → samples format for wfgDrawAnalogChannel ───
 function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, effVtotal) {
   var totalLines = precomp.totalLines;
+  // v2.97.11: viewport-based precomp — 如果 viewport 超出 computedExtent，同步延伸
+  var neededEnd = Math.min(totalLines, Math.ceil(viewEnd) + 2);
+  if (precomp.computedExtent != null && neededEnd > precomp.computedExtent && precomp._lazyExtend) {
+    var extTarget = Math.min(totalLines, neededEnd + Math.max(effVtotal, 100));
+    if (gpio.waveform_type === 1) _wfgExtendSdPrecomp(precomp, extTarget);
+    else if (gpio.waveform_type === 2) _wfgExtendLsPrecomp(precomp, extTarget);
+  }
   var settled = precomp.settled;
   var ac = gpio.analog_config;
   var lpp = drawW > 0 ? (viewEnd - viewStart) / drawW : 1;
