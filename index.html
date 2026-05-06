@@ -1620,6 +1620,7 @@
   .wfg-la-guide-dialog.download-opened .wfg-la-guide-actions [data-step="download"] { display: none; }
   .wfg-la-guide-dialog.download-opened .wfg-la-guide-actions [data-step="import"] { display: inline-flex; }
   .wfg-la-guide-secondary { color: #94a3b8; font-size: 12px; line-height: 1.55; }
+  @keyframes wfg-la-reconnect-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(330%); } }
   .wfg-la-preview { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; }
   .wfg-la-ch { height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #94a3b8; font-size: 10px; font-weight: 700; }
   .wfg-la-ch.active { color: #0f172a; background: #38bdf8; border-color: #38bdf8; }
@@ -1938,7 +1939,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.69</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.70</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2975,7 +2976,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.69</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.70</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15214,6 +15215,8 @@ var wfgLaFirmwareDbPromise = null;
 var wfgLaPendingRenumeration = false;
 var wfgLaUsbWatchersInstalled = false;
 var wfgLaUsbReconnectTimer = 0;
+var wfgLaUsbPollTimer = 0;
+var wfgLaReconnectAttemptToken = 0;
 var WFG_LA_PACKAGE_URL = 'https://218.161.24.173:5001/d/s/188EhAhjqJZwkZgaxNjMy89pxroSous8/DYvcvXiNKZb-WiD_oY2_qLtpr8fcUiTr-57iA8IjtLA0';
 
 function wfgLaInit() {
@@ -16356,21 +16359,57 @@ function wfgLaInstallUsbWatchers() {
   navigator.usb.addEventListener('disconnect', function(ev) {
     if (ev && ev.device && !wfgLaIsKingstDevice(ev.device)) return;
     if (wfgLaUsbReconnectTimer) clearTimeout(wfgLaUsbReconnectTimer);
+    wfgLaReconnectAttemptToken++;
     wfgLaForgetDevice('USB 已拔除；重新插入後若呈現不明裝置，請直接按單次/循環讓網頁載入檔案包初始化');
     wfgLaSetStatus('wfg-la-status-bridge', 'warn', 'USB disconnected');
     wfgLaSetCaptureState('stopped');
   });
   navigator.usb.addEventListener('connect', function(ev) {
     if (ev && ev.device && !wfgLaIsKingstDevice(ev.device)) return;
-    wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到 USB 重新連接，正在檢查授權裝置');
-    if (wfgLaUsbReconnectTimer) clearTimeout(wfgLaUsbReconnectTimer);
-    wfgLaUsbReconnectTimer = setTimeout(function() {
-      wfgLaRefreshUsbPresence({ autoInit: true, eventDevice: ev && ev.device }).catch(function(e) {
-        wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已重新連接；按單次/循環後選擇 77a1:01a2 裝置');
-      });
-    }, 650);
+    wfgLaStartReconnectAutoInit(ev && ev.device);
   });
+  wfgLaStartUsbPresencePoll();
   wfgLaRefreshUsbPresence({ autoInit: false }).catch(function() {});
+}
+
+function wfgLaStartReconnectAutoInit(eventDevice) {
+  if (!navigator.usb) return;
+  var token = ++wfgLaReconnectAttemptToken;
+  var started = Date.now();
+  var attempts = 0;
+  wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到 USB 重新連接，正在自動初始化');
+  wfgLaShowReconnectProgress('偵測到 USB 重新連接，正在自動初始化硬體...');
+  async function step() {
+    if (token !== wfgLaReconnectAttemptToken) return;
+    attempts++;
+    try {
+      var ok = await wfgLaRefreshUsbPresence({ autoInit: true, eventDevice: eventDevice, quietMissing: attempts < 5 });
+      if (ok) {
+        wfgLaShowReconnectProgress('硬體初始化完成，LA 已可使用。');
+        wfgLaHideReconnectProgress(900);
+        return;
+      }
+    } catch (e) {}
+    if (Date.now() - started >= 12000) {
+      wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已重新連接；若仍為黃色，請按單次/循環或 WebUSB 初始化硬體');
+      wfgLaShowReconnectProgress('Chrome 尚未授權此 USB 狀態；請按單次/循環或 WebUSB 初始化硬體選擇 77a1:01a2。');
+      wfgLaHideReconnectProgress(3500);
+      return;
+    }
+    wfgLaShowReconnectProgress('正在等待 Windows 完成 USB re-enumeration... (' + attempts + ')');
+    wfgLaUsbReconnectTimer = setTimeout(step, attempts < 5 ? 700 : 1200);
+  }
+  if (wfgLaUsbReconnectTimer) clearTimeout(wfgLaUsbReconnectTimer);
+  wfgLaUsbReconnectTimer = setTimeout(step, 500);
+}
+
+function wfgLaStartUsbPresencePoll() {
+  if (wfgLaUsbPollTimer || !navigator.usb || !navigator.usb.getDevices) return;
+  wfgLaUsbPollTimer = setInterval(function() {
+    if (document.hidden || wfgCurrentMode !== 'la' || wfgLaCaptureRunning) return;
+    if (wfgLaHardwareReady || wfgLaPendingRenumeration) return;
+    wfgLaRefreshUsbPresence({ autoInit: true, quietMissing: true, fromPoll: true }).catch(function() {});
+  }, 2500);
 }
 
 async function wfgLaRefreshUsbPresence(options) {
@@ -16383,7 +16422,7 @@ async function wfgLaRefreshUsbPresence(options) {
   }
   if (!dev && options.eventDevice && wfgLaIsKingstDevice(options.eventDevice)) dev = options.eventDevice;
   if (!dev) {
-    wfgLaForgetDevice('尚未授權 USB 裝置；按單次/循環時選擇 77a1:01a2');
+    if (!options.quietMissing) wfgLaForgetDevice('尚未授權 USB 裝置；按單次/循環時選擇 77a1:01a2');
     return false;
   }
   wfgLaRememberDevice(dev, 'warn');
@@ -16391,6 +16430,7 @@ async function wfgLaRefreshUsbPresence(options) {
     await wfgLaOpenDevice(dev);
     if (wfgLaLooksPreFirmwareDevice(dev)) {
       wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到未初始化 USB 裝置；會使用已匯入 zip 初始化');
+      if (options.autoInit) wfgLaShowReconnectProgress('偵測到未初始化 USB 裝置，正在載入檔案包...');
       if (options.autoInit) return await wfgLaInitHardwareFromStoredFirmware();
       return false;
     }
@@ -16398,9 +16438,11 @@ async function wfgLaRefreshUsbPresence(options) {
     if (protocolReady) {
       wfgLaSetStatus('wfg-la-status-device', 'ok', wfgLaDeviceDisplayName(dev));
       wfgLaSetStatus('wfg-la-status-bridge', 'ok', 'WebUSB device ready');
+      if (options.autoInit) wfgLaHideReconnectProgress(700);
       return true;
     }
     wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 裝置已授權但 protocol 未就緒；會重新載入檔案包初始化');
+    if (options.autoInit) wfgLaShowReconnectProgress('USB 已連接但 protocol 未就緒，正在重新初始化...');
     if (options.autoInit) return await wfgLaInitHardwareFromStoredFirmware();
   } catch (e) {
     wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已重新連接；按單次/循環後重新初始化');
@@ -16554,6 +16596,38 @@ function wfgLaClosePackageGuide() {
   if (modal) modal.remove();
 }
 window.wfgLaClosePackageGuide = wfgLaClosePackageGuide;
+
+function wfgLaShowReconnectProgress(text) {
+  var modal = document.getElementById('wfg-la-reconnect-backdrop');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'wfg-la-reconnect-backdrop';
+    modal.className = 'wfg-la-guide-backdrop show';
+    modal.innerHTML = [
+      '<div class="wfg-la-guide-dialog" role="dialog" aria-modal="true">',
+        '<div class="wfg-la-guide-head">',
+          '<div class="wfg-la-guide-title">WebUSB 自動連接</div>',
+        '</div>',
+        '<div class="wfg-la-guide-body">',
+          '<div class="wfg-la-guide-note" id="wfg-la-reconnect-text"></div>',
+          '<div style="height:8px;background:#111827;border:1px solid #374151;border-radius:999px;overflow:hidden;">',
+            '<div id="wfg-la-reconnect-bar" style="height:100%;width:30%;background:#22c55e;animation:wfg-la-reconnect-slide 1.1s linear infinite;"></div>',
+          '</div>',
+        '</div>',
+      '</div>'
+    ].join('');
+    document.body.appendChild(modal);
+  }
+  var msg = document.getElementById('wfg-la-reconnect-text');
+  if (msg) msg.textContent = text || '偵測到 USB 重新連接，正在初始化硬體...';
+}
+
+function wfgLaHideReconnectProgress(delay) {
+  setTimeout(function() {
+    var modal = document.getElementById('wfg-la-reconnect-backdrop');
+    if (modal) modal.remove();
+  }, Math.max(0, Number(delay) || 0));
+}
 
 function wfgLaOpenPackageDownload() {
   window.open(WFG_LA_PACKAGE_URL, '_blank', 'noopener');
