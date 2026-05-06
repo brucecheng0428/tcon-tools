@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.91</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.92</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.91</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.92</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16436,9 +16436,16 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
   setText('wfg-la-meas-duty', duty > 0 ? duty.toFixed(1) + '%' : '--');
   setText('wfg-la-meas-freq', period > 0 ? wfgLaFreqLabel(1 / period) : '--');
   setText('wfg-la-pulse-trigger', cfg.trigger.enabled ? ('CH' + cfg.trigger.channel + ' ' + cfg.trigger.edge) : '無觸發');
-  if (cfg.trigger.enabled && wfgLaCapturedWaveform && isFinite(wfgLaCapturedWaveform.triggerTimeSec)) {
-    var actualPct = Math.max(0, Math.min(100, wfgLaCapturedWaveform.triggerTimeSec / Math.max(wfgLaCaptureDuration(), 1e-12) * 100));
-    setText('wfg-la-pulse-trigger-pos', actualPct.toFixed(1) + '% / set ' + (Number(cfg.trigger.positionPercent) || 0).toFixed(0) + '%');
+  if (cfg.trigger.enabled && wfgLaCapturedWaveform) {
+    var durationForPct = Math.max(wfgLaCaptureDuration(), 1e-12);
+    var displayTime = isFinite(wfgLaCapturedWaveform.displayTriggerTimeSec) ? wfgLaCapturedWaveform.displayTriggerTimeSec : wfgLaCapturedWaveform.triggerTimeSec;
+    var measuredTime = isFinite(wfgLaCapturedWaveform.rawMeasuredTriggerTimeSec) ? wfgLaCapturedWaveform.rawMeasuredTriggerTimeSec : wfgLaCapturedWaveform.measuredTriggerTimeSec;
+    var displayPct = isFinite(displayTime) ? Math.max(0, Math.min(100, displayTime / durationForPct * 100)) : null;
+    var measuredPct = isFinite(measuredTime) ? Math.max(0, Math.min(100, measuredTime / durationForPct * 100)) : null;
+    var posText = displayPct == null ? '' : ('display ' + displayPct.toFixed(1) + '%');
+    if (measuredPct != null) posText += (posText ? ' / ' : '') + 'raw ' + measuredPct.toFixed(1) + '%';
+    posText += (posText ? ' / ' : '') + 'set ' + (Number(cfg.trigger.positionPercent) || 0).toFixed(0) + '%';
+    setText('wfg-la-pulse-trigger-pos', posText);
   } else {
     setText('wfg-la-pulse-trigger-pos', cfg.trigger.enabled ? ('set ' + (Number(cfg.trigger.positionPercent) || 0).toFixed(0) + '%') : '--');
   }
@@ -18124,14 +18131,19 @@ function wfgLaAssignTriggerZero(decoded, cfg, actualTriggerTimeSec) {
   var measuredTriggerTime = wfgLaFindActualTriggerTime(decoded, cfg, actualTriggerTimeSec);
   var alignedMeasuredTime = isFinite(measuredTriggerTime) ? Math.max(0, Math.min(duration, measuredTriggerTime)) : null;
   if (cfg.trigger && cfg.trigger.enabled && alignedMeasuredTime != null) {
-    decoded.triggerAlignOffsetSec = 0;
+    var alignOffset = configuredTriggerTime - alignedMeasuredTime;
+    if (Math.abs(alignOffset) > 1e-12) wfgLaShiftCaptureEdges(decoded, alignOffset);
+    decoded.triggerAlignOffsetSec = alignOffset;
     decoded.configuredTriggerTimeSec = configuredTriggerTime;
+    decoded.rawMeasuredTriggerTimeSec = alignedMeasuredTime;
     decoded.measuredTriggerTimeSec = alignedMeasuredTime;
-    decoded.triggerTimeSec = alignedMeasuredTime;
+    decoded.triggerTimeSec = configuredTriggerTime;
+    decoded.displayTriggerTimeSec = configuredTriggerTime;
   } else {
     decoded.measuredTriggerTimeSec = alignedMeasuredTime;
     decoded.configuredTriggerTimeSec = configuredTriggerTime;
     decoded.triggerTimeSec = configuredTriggerTime;
+    decoded.displayTriggerTimeSec = configuredTriggerTime;
   }
   return decoded;
 }
