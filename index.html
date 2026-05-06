@@ -1939,7 +1939,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.72</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.73</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2976,7 +2976,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.72</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.73</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15206,6 +15206,8 @@ var wfgLaUsbWatchersInstalled = false;
 var wfgLaUsbReconnectTimer = 0;
 var wfgLaUsbPollTimer = 0;
 var wfgLaReconnectAttemptToken = 0;
+var wfgLaLastInitErrorCode = '';
+var wfgLaPendingCaptureMode = '';
 var WFG_LA_PACKAGE_URL = 'https://218.161.24.173:5001/d/s/188EhAhjqJZwkZgaxNjMy89pxroSous8/DYvcvXiNKZb-WiD_oY2_qLtpr8fcUiTr-57iA8IjtLA0';
 
 function wfgLaInit() {
@@ -16626,21 +16628,28 @@ function wfgLaOpenPackageDownload() {
 window.wfgLaOpenPackageDownload = wfgLaOpenPackageDownload;
 
 function wfgLaOpenInitRetryGuide() {
+  wfgLaOpenSecondStageGuide('');
+}
+window.wfgLaOpenInitRetryGuide = wfgLaOpenInitRetryGuide;
+
+function wfgLaOpenSecondStageGuide(mode) {
+  if (mode) wfgLaPendingCaptureMode = mode;
   var old = document.getElementById('wfg-la-guide-backdrop');
   if (old) old.remove();
   var modal = document.createElement('div');
   modal.id = 'wfg-la-guide-backdrop';
   modal.className = 'wfg-la-guide-backdrop show';
+  var continueText = wfgLaPendingCaptureMode ? '選擇 Kingst Logic Analyzer 並繼續擷取' : '選擇 Kingst Logic Analyzer 並完成初始化';
   modal.innerHTML = [
     '<div class="wfg-la-guide-dialog download-opened" role="dialog" aria-modal="true" aria-labelledby="wfg-la-guide-title">',
       '<div class="wfg-la-guide-head">',
-        '<div class="wfg-la-guide-title" id="wfg-la-guide-title">選擇硬體並初始化</div>',
+        '<div class="wfg-la-guide-title" id="wfg-la-guide-title">等待第二階段 USB 裝置</div>',
         '<button class="wfg-la-guide-close" type="button" onclick="wfgLaClosePackageGuide()">×</button>',
       '</div>',
       '<div class="wfg-la-guide-body">',
-        '<div class="wfg-la-guide-note">檔案包已匯入。Chrome 需要你按一次按鈕來開啟 USB 裝置選擇視窗。</div>',
+        '<div class="wfg-la-guide-note">你剛剛選到的是不明裝置，網頁已完成第一階段 FX2 firmware 載入。USB 會重新枚舉成 Kingst Logic Analyzer；Chrome 需要你再按一次按鈕選擇這個第二階段裝置。</div>',
         '<div class="wfg-la-guide-actions">',
-          '<button class="wfg-btn wfg-btn-primary" type="button" onclick="wfgLaInitHardwareFromStoredFirmware().then(function(ok){ if (ok) wfgLaClosePackageGuide(); })">選擇硬體並初始化</button>',
+          '<button class="wfg-btn wfg-btn-primary" type="button" onclick="wfgLaResumeAfterSecondStageDevice()">' + continueText + '</button>',
           '<button class="wfg-btn wfg-btn-secondary" type="button" onclick="wfgLaClosePackageGuide()">稍後再說</button>',
         '</div>',
       '</div>',
@@ -16651,7 +16660,23 @@ function wfgLaOpenInitRetryGuide() {
   });
   document.body.appendChild(modal);
 }
-window.wfgLaOpenInitRetryGuide = wfgLaOpenInitRetryGuide;
+window.wfgLaOpenSecondStageGuide = wfgLaOpenSecondStageGuide;
+
+async function wfgLaResumeAfterSecondStageDevice() {
+  var mode = wfgLaPendingCaptureMode;
+  wfgLaClosePackageGuide();
+  if (mode) wfgLaSetAcqMode(mode);
+  await wfgLaDropCurrentUsbHandle('請在 USB 視窗選擇 Kingst Logic Analyzer，不要選不明裝置');
+  if (mode) {
+    wfgLaPendingCaptureMode = '';
+    wfgLaStartCapture();
+  } else {
+    wfgLaInitHardwareFromStoredFirmware().then(function(ok) {
+      if (!ok && wfgLaLastInitErrorCode === 'WFG_LA_REENUM_PERMISSION_LOST') wfgLaOpenSecondStageGuide('');
+    });
+  }
+}
+window.wfgLaResumeAfterSecondStageDevice = wfgLaResumeAfterSecondStageDevice;
 
 function wfgLaReadU16At(bytes, off) {
   return bytes[off] | (bytes[off + 1] << 8);
@@ -17182,6 +17207,7 @@ function wfgLaLooksPreFirmwareDevice(dev) {
 
 async function wfgLaInitHardwareFromStoredFirmware() {
   wfgLaInit();
+  wfgLaLastInitErrorCode = '';
   var log = document.getElementById('wfg-la-log');
   var lines = wfgLaMakeLiveLogLines([
     'LA2016 pure WebUSB hardware initialization',
@@ -17242,12 +17268,13 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     if (lines.flush) lines.flush();
     return true;
   } catch (e) {
+    wfgLaLastInitErrorCode = e && e.code ? e.code : '';
     lines.push('');
     if (e && e.code === 'WFG_LA_REENUM_PERMISSION_LOST') {
       lines.push('FX2 firmware upload completed, and the device re-enumerated outside the old Chrome USB permission.');
-      lines.push('Action required: press WebUSB 初始化硬體 again and select "Kingst Logic Analyzer" in the Chrome USB picker.');
-      lines.push('This second click is required by WebUSB because requestDevice() must be triggered by a user gesture after USB re-enumeration.');
-      wfgLaSetStatus('wfg-la-status-device', 'warn', 'FX2 已上傳；請再按一次 WebUSB 初始化硬體並選 Kingst Logic Analyzer');
+      lines.push('Action required: select "Kingst Logic Analyzer" in the Chrome USB picker for stage 2.');
+      lines.push('Do not select the unknown 77a1:01a2 device at this stage; that is only the pre-firmware boot device.');
+      wfgLaSetStatus('wfg-la-status-device', 'warn', '第一階段完成；請選 Kingst Logic Analyzer 完成第二階段');
     } else {
       lines.push('Initialization failed: ' + (e && e.message ? e.message : e));
       lines.push('If missing firmware, first extract/import the files from KingstVIS with sigrok-fwextract-kingst-la2016 or your existing extracted firmware set.');
@@ -17852,8 +17879,17 @@ async function wfgLaInitializeHardwareWithRetries(context, attempts) {
         wfgLaHideReconnectProgress(700);
         return true;
       }
+      if (wfgLaLastInitErrorCode === 'WFG_LA_REENUM_PERMISSION_LOST') {
+        wfgLaHideReconnectProgress(400);
+        return false;
+      }
     } catch (e) {
       lastErr = e;
+      if (e && e.code === 'WFG_LA_REENUM_PERMISSION_LOST') {
+        wfgLaLastInitErrorCode = e.code;
+        wfgLaHideReconnectProgress(400);
+        return false;
+      }
     }
     await wfgLaDropCurrentUsbHandle('初始化未完成，正在重新搜尋 USB 裝置');
     await wfgLaSleep(450 + i * 350);
@@ -17996,6 +18032,7 @@ async function wfgLaInitDiagnostic() {
 window.wfgLaInitDiagnostic = wfgLaInitDiagnostic;
 
 async function wfgLaEnsureHardwareInitializedForCapture() {
+  var mode = wfgLaGetAcqMode();
   if (!wfgLaHardwareReady) {
     await wfgLaDropCurrentUsbHandle('單次/循環觸發：正在重新搜尋 USB 裝置');
   }
@@ -18003,6 +18040,11 @@ async function wfgLaEnsureHardwareInitializedForCapture() {
   if (wfgLaLooksPreFirmwareDevice(dev)) {
     wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到不明/未初始化 USB 裝置，正在載入已匯入 zip');
     var okPre = await wfgLaInitializeHardwareWithRetries('單次/循環觸發前初始化', 3);
+    if (!okPre && wfgLaLastInitErrorCode === 'WFG_LA_REENUM_PERMISSION_LOST') {
+      wfgLaPendingCaptureMode = mode;
+      wfgLaOpenSecondStageGuide(mode);
+      throw new Error('第一階段 FX2 已完成；請在彈窗按鈕選擇 Kingst Logic Analyzer 後自動繼續擷取');
+    }
     if (!okPre) throw new Error('硬體尚未初始化：請確認 zip 檔案包已匯入，並在 USB 視窗選擇 77a1:01a2 裝置');
     return true;
   }
@@ -18013,6 +18055,11 @@ async function wfgLaEnsureHardwareInitializedForCapture() {
   }
   wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已連上但 protocol 未就緒，正在重新載入已匯入 zip');
   var ok = await wfgLaInitializeHardwareWithRetries('單次/循環觸發前重新初始化', 3);
+  if (!ok && wfgLaLastInitErrorCode === 'WFG_LA_REENUM_PERMISSION_LOST') {
+    wfgLaPendingCaptureMode = mode;
+    wfgLaOpenSecondStageGuide(mode);
+    throw new Error('第一階段 FX2 已完成；請在彈窗按鈕選擇 Kingst Logic Analyzer 後自動繼續擷取');
+  }
   if (!ok) throw new Error('硬體初始化失敗：請重新插拔 USB 後再按一次單次/循環');
   return true;
 }
