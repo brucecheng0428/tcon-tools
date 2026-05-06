@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.80</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.81</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.80</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.81</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15713,10 +15713,10 @@ function wfgLaLoadDemoCapture(options) {
     edgesByChannel: edgesByChannel,
     edgeCounts: edgeCounts,
     durationSec: duration,
-    triggerTimeSec: cfg.trigger.enabled ? duration * Math.max(0, Math.min(100, cfg.trigger.positionPercent)) / 100 : 0,
     effectiveRate: cfg.sampleRateHz,
     demo: true
   };
+  wfgLaAssignTriggerZero(wfgLaCapturedWaveform, cfg);
   if (options.preserveView) wfgLaSetViewRange(oldStart, oldEnd);
   else {
     wfgLaViewStart = 0;
@@ -16502,7 +16502,7 @@ function wfgLaCenterTrigger() {
   var duration = wfgLaCaptureDuration();
   var triggerTime = wfgLaTriggerZeroTime(cfg, duration);
   var targetRange = Math.min(duration, 10e-6);
-  if (targetRange <= 0) targetRange = duration;
+  if (!isFinite(targetRange) || targetRange <= 0) targetRange = duration;
   if (triggerTime - targetRange / 2 < 0 || triggerTime + targetRange / 2 > duration) {
     targetRange = Math.min(duration, Math.max(5e-9, 2 * Math.min(Math.max(triggerTime, 0), Math.max(duration - triggerTime, 0))));
   }
@@ -16987,6 +16987,19 @@ function wfgLaSetChannelEnabled(ch, enabled) {
   wfgLaRenderScope();
 }
 
+function wfgLaSetTriggerPositionFromSettings(value) {
+  var input = document.getElementById('wfg-la-trigger-position');
+  var v = Math.max(0, Math.min(100, Number(value) || 0));
+  if (input) input.value = String(v);
+  var dialogInput = document.getElementById('wfg-la-settings-trigger-position');
+  if (dialogInput && dialogInput.value !== String(v)) dialogInput.value = String(v);
+  if (!wfgLaCapturedWaveform || wfgLaCapturedWaveform.demo) wfgLaLoadDemoCapture({ preserveView: true });
+  else if (wfgLaCapturedWaveform) wfgLaAssignTriggerZero(wfgLaCapturedWaveform, wfgLaBuildConfig());
+  wfgLaUpdateSummary();
+  wfgLaRenderScope();
+}
+window.wfgLaSetTriggerPositionFromSettings = wfgLaSetTriggerPositionFromSettings;
+
 function wfgLaOpenSettingsDialog() {
   wfgLaInit();
   var old = document.getElementById('wfg-la-settings-backdrop');
@@ -17021,6 +17034,16 @@ function wfgLaOpenSettingsDialog() {
         '<button class="wfg-la-guide-close" type="button" onclick="wfgLaCloseSettingsDialog()">×</button>',
       '</div>',
       '<div class="wfg-la-guide-body">',
+        '<div class="wfg-field-row" style="margin-bottom:10px;">',
+          '<div class="wfg-field">',
+            '<label>Trigger Position (%)</label>',
+            '<input type="number" id="wfg-la-settings-trigger-position" min="0" max="100" step="1" value="' + cfg.trigger.positionPercent + '" oninput="wfgLaSetTriggerPositionFromSettings(this.value)">',
+          '</div>',
+          '<div class="wfg-field">',
+            '<label>Trigger Window</label>',
+            '<div style="height:38px;display:flex;align-items:center;color:#cbd5e1;font:12px monospace;">0%=全部在觸發後 · 50%=前後各半 · 100%=全部在觸發前</div>',
+          '</div>',
+        '</div>',
         '<div class="wfg-signal-actions">',
           '<button class="wfg-btn wfg-btn-secondary" type="button" onclick="wfgLaSetChannels(4); wfgLaOpenSettingsDialog()">CH0-3</button>',
           '<button class="wfg-btn wfg-btn-secondary" type="button" onclick="wfgLaSetChannels(8); wfgLaOpenSettingsDialog()">CH0-7</button>',
@@ -17992,12 +18015,44 @@ function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
   };
 }
 
+function wfgLaFindActualTriggerTime(decoded, cfg, fallbackTimeSec) {
+  if (!decoded || !decoded.edgesByChannel || !cfg || !cfg.trigger || !cfg.trigger.enabled) return fallbackTimeSec;
+  var ch = Math.max(0, Math.min(15, Number(cfg.trigger.channel) || 0));
+  var edges = decoded.edgesByChannel[ch] || [];
+  if (!edges.length) return fallbackTimeSec;
+  var duration = Math.max(Number(decoded.durationSec) || cfg.durationSec || 0, 0);
+  var target = isFinite(fallbackTimeSec) && fallbackTimeSec > 0
+    ? fallbackTimeSec
+    : duration * Math.max(0, Math.min(100, Number(cfg.trigger.positionPercent) || 0)) / 100;
+  var initial = (decoded.initialSample >>> ch) & 1;
+  var wanted = cfg.trigger.edge || 'rising';
+  var best = null;
+  var bestDist = Infinity;
+  for (var i = 0; i < edges.length; i++) {
+    var before = (initial + i) & 1;
+    var after = before ^ 1;
+    var match = false;
+    if (wanted === 'rising') match = before === 0 && after === 1;
+    else if (wanted === 'falling') match = before === 1 && after === 0;
+    else if (wanted === 'high') match = after === 1;
+    else if (wanted === 'low') match = after === 0;
+    if (!match) continue;
+    var dist = Math.abs(edges[i] - target);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = edges[i];
+    }
+  }
+  return best == null ? fallbackTimeSec : best;
+}
+
 function wfgLaAssignTriggerZero(decoded, cfg, actualTriggerTimeSec) {
   if (!decoded) return decoded;
   cfg = cfg || wfgLaBuildConfig();
   var duration = Math.max(Number(decoded.durationSec) || cfg.durationSec || 0, 0);
-  if (cfg.trigger && cfg.trigger.enabled && isFinite(actualTriggerTimeSec) && actualTriggerTimeSec > 0) {
-    decoded.triggerTimeSec = Math.max(0, Math.min(duration, actualTriggerTimeSec));
+  var measuredTriggerTime = wfgLaFindActualTriggerTime(decoded, cfg, actualTriggerTimeSec);
+  if (cfg.trigger && cfg.trigger.enabled && isFinite(measuredTriggerTime) && measuredTriggerTime > 0) {
+    decoded.triggerTimeSec = Math.max(0, Math.min(duration, measuredTriggerTime));
   } else {
     decoded.triggerTimeSec = cfg.trigger && cfg.trigger.enabled ? duration * Math.max(0, Math.min(100, Number(cfg.trigger.positionPercent) || 0)) / 100 : 0;
   }
