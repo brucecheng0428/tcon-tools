@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.90</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.91</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.90</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.91</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15742,6 +15742,9 @@ function wfgLaSignedTimeLabel(sec) {
 
 function wfgLaTriggerZeroTime(cfg, duration) {
   duration = Math.max(Number(duration) || wfgLaCaptureDuration(), 1e-9);
+  if (wfgLaCapturedWaveform && isFinite(wfgLaCapturedWaveform.displayTriggerTimeSec)) {
+    return Math.max(0, Math.min(duration, Number(wfgLaCapturedWaveform.displayTriggerTimeSec) || 0));
+  }
   if (wfgLaCapturedWaveform && isFinite(wfgLaCapturedWaveform.triggerTimeSec)) {
     return Math.max(0, Math.min(duration, Number(wfgLaCapturedWaveform.triggerTimeSec) || 0));
   }
@@ -18139,6 +18142,10 @@ function wfgLaApplyCapturedWaveform(decoded) {
   var oldEnd = wfgLaViewEnd;
   var oldRange = Math.max(oldEnd - oldStart, 0);
   var oldWasZoomed = oldDuration > 0 && oldRange > 0 && oldRange < oldDuration * 0.98;
+  var oldCfg = wfgLaBuildConfig();
+  var oldTriggerTime = oldCfg.trigger && oldCfg.trigger.enabled ? wfgLaTriggerZeroTime(oldCfg, oldDuration) : 0;
+  var oldRelStart = oldStart - oldTriggerTime;
+  var oldRelEnd = oldEnd - oldTriggerTime;
   wfgLaCapturedWaveform = decoded;
   wfgLaLastEdgeCounts = decoded.edgeCounts || [];
   var activeChannels = [];
@@ -18152,15 +18159,16 @@ function wfgLaApplyCapturedWaveform(decoded) {
   var newDuration = Math.max(decoded.durationSec || 1e-9, 1e-9);
   var newCfg = wfgLaBuildConfig();
   if (newCfg.trigger.enabled) {
+    var configuredTriggerTime = newDuration * wfgLaTriggerAnchorFraction(newCfg);
+    decoded.displayTriggerTimeSec = configuredTriggerTime;
     var triggerTime = wfgLaTriggerZeroTime(newCfg, newDuration);
     if (wfgLaTriggerFocusActive) {
       var maxCenteredRange = Math.max(5e-9, Math.min(newDuration, 2 * Math.min(triggerTime, newDuration - triggerTime)));
       var focusRange = Math.min(newDuration, 10e-6, maxCenteredRange);
       wfgLaSetAnchoredView(triggerTime, focusRange, 0.5);
     } else if (oldWasZoomed) {
-      var oldCenter = Math.max(0, Math.min(newDuration, (oldStart + oldEnd) / 2));
-      var preservedRange = Math.min(newDuration, oldRange);
-      wfgLaSetViewRange(oldCenter - preservedRange / 2, oldCenter + preservedRange / 2);
+      var relRange = Math.min(newDuration, Math.max(5e-9, oldRelEnd - oldRelStart));
+      wfgLaSetViewRange(triggerTime + oldRelStart, triggerTime + oldRelStart + relRange);
     } else {
       wfgLaSetAnchoredView(triggerTime, newDuration, wfgLaTriggerAnchorFraction(newCfg));
     }
