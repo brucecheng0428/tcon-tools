@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.56</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.57</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.56</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.57</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3448,6 +3448,7 @@
                 <button class="wfg-btn" onclick="document.getElementById('wfg-kvdat-input').click()" data-i18n="wfg.importKvdat">📂 匯入 .kvdat</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaCheckEnvironment()" data-i18n="wfg.laCheckEnv">檢查環境</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaConnectTest()" data-i18n="wfg.laConnect">連線測試</button>
+                <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaInitDiagnostic()">初始化診斷</button>
                 <button class="wfg-btn wfg-btn-primary" onclick="wfgLaStartCapture()" data-i18n="wfg.laStart">開始擷取</button>
                 <button class="wfg-btn wfg-btn-danger" onclick="wfgLaStopCapture()" data-i18n="wfg.laStop">停止</button>
               </div>
@@ -16440,6 +16441,30 @@ async function wfgLaEnableFpga(dev) {
   return init[0];
 }
 
+async function wfgLaTryCtrlInLine(dev, request, value, index, length, label) {
+  try {
+    var bytes = await wfgLaCtrlIn(dev, request, value, index, length);
+    return label + ' = ' + wfgLaHex(bytes);
+  } catch (e) {
+    return label + ' = ERROR ' + (e && e.message ? e.message : e);
+  }
+}
+
+async function wfgLaDumpInitState(dev, label) {
+  var lines = [];
+  lines.push('--- ' + label + ' ---');
+  lines.push('timestamp=' + new Date().toISOString());
+  lines.push(wfgLaDescribeDevice(dev));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0x50, 0x00, 0, 1, 'CMD_FPGA_INIT'));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0x20, 0x00, 0, 2, 'REG_RUN'));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0x20, 0x02, 0, 1, 'REG_PWM_EN'));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0x20, 0x04, 0, 2, 'REG_PIN_STATE'));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0x20, 0x10, 0, 12, 'REG_CAPTURE_INFO'));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0xa2, 0x08, 0, 8, 'EEPROM_ID'));
+  lines.push(await wfgLaTryCtrlInLine(dev, 0xa2, 0x20, 0, 4, 'EEPROM_MFG'));
+  return lines;
+}
+
 function wfgLaIdentifyMagic(bytes) {
   var magic = 0, magic2 = 0, source = 'invalid';
   if (((bytes[0] ^ bytes[1]) & 0xff) === 0xff && ((bytes[2] ^ bytes[3]) & 0xff) === 0xff) {
@@ -17006,6 +17031,51 @@ async function wfgLaConnectTest() {
   }
 }
 window.wfgLaConnectTest = wfgLaConnectTest;
+
+async function wfgLaInitDiagnostic() {
+  wfgLaInit();
+  var log = document.getElementById('wfg-la-log');
+  var lines = [
+    'LA2016 initialization diagnostic',
+    'Use this twice:',
+    '1) Before opening KingstVIS.',
+    '2) After KingstVIS has captured once and is closed.',
+    'Compare FPGA init / REG_RUN / PWM / PIN / capture info differences.',
+    ''
+  ];
+  try {
+    var dev = await wfgLaGetReadyDevice();
+    var claimed = [];
+    var interfaces = dev.configuration && dev.configuration.interfaces ? dev.configuration.interfaces : [];
+    for (var i = 0; i < interfaces.length; i++) {
+      var ifaceNo = interfaces[i].interfaceNumber;
+      try {
+        if (wfgLaClaimedInterfaces.indexOf(ifaceNo) < 0) await dev.claimInterface(ifaceNo);
+        claimed.push(ifaceNo);
+      } catch (e) {
+        lines.push('claim IF' + ifaceNo + ' failed: ' + (e && e.message ? e.message : e));
+      }
+    }
+    wfgLaClaimedInterfaces = claimed;
+    lines.push('claimed interfaces=' + (claimed.length ? claimed.join(',') : 'none'));
+    lines = lines.concat(await wfgLaDumpInitState(dev, 'state before web init'));
+    try {
+      await wfgLaCtrlOut(dev, 0x10, 0x01, 0, []);
+      await wfgLaSleep(40);
+      lines.push('CMD_FPGA_ENABLE 0x01 sent for diagnostic.');
+    } catch (enableErr) {
+      lines.push('CMD_FPGA_ENABLE failed: ' + (enableErr && enableErr.message ? enableErr.message : enableErr));
+    }
+    lines = lines.concat(await wfgLaDumpInitState(dev, 'state after web enable'));
+    wfgLaSetStatus('wfg-la-status-bridge', claimed.length ? 'ok' : 'warn', claimed.length ? 'diagnostic claim OK' : 'diagnostic no claimed interface');
+    wfgLaSetStatus('wfg-la-status-device', 'ok', wfgLaDeviceLabel || wfgLaDeviceDisplayName(dev));
+  } catch (e) {
+    lines.push('Diagnostic failed: ' + (e && e.message ? e.message : e));
+    wfgLaSetStatus('wfg-la-status-device', 'err', '初始化診斷失敗');
+  }
+  if (log) log.textContent = lines.join('\n');
+}
+window.wfgLaInitDiagnostic = wfgLaInitDiagnostic;
 
 async function wfgLaStartCapture() {
   if (wfgLaCaptureRunning) return;
