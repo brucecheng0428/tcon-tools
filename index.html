@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.57</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.58</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.57</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.58</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16521,6 +16521,8 @@ async function wfgLaProtocolProbe(dev) {
     await wfgLaCtrlOut(dev, CMD_FPGA_ENABLE, 0x01, 0, []);
     await wfgLaSleep(40);
     lines.push('CMD_FPGA_ENABLE value=0x01 sent.');
+    await wfgLaApplyOemStartupDefaults(dev);
+    lines.push('OEM startup defaults applied: PWM registers 0x70..0x7f and PWM enable 0x03.');
   }
 
   var run = await wfgLaCtrlIn(dev, CMD_FPGA_SPI, REG_RUN, 0, 2);
@@ -16554,6 +16556,17 @@ async function wfgLaSetCaptureModeRam(dev) {
 
 async function wfgLaSetRunMode(dev, mode) {
   await wfgLaCtrlOut(dev, 0x20, 0x00, 0, [mode & 0xff]);
+}
+
+async function wfgLaApplyOemStartupDefaults(dev) {
+  await wfgLaReadRunState(dev).catch(function() {});
+  await wfgLaReadRunState(dev).catch(function() {});
+  await wfgLaCtrlOut(dev, 0x20, 0x02, 0, [0x00]);
+  await wfgLaCtrlOut(dev, 0x20, 0x70, 0, [
+    0x40, 0x0d, 0x03, 0x00, 0xa0, 0x86, 0x01, 0x00,
+    0xd0, 0x07, 0x00, 0x00, 0xe8, 0x03, 0x00, 0x00
+  ]);
+  await wfgLaCtrlOut(dev, 0x20, 0x02, 0, [0x03]);
 }
 
 async function wfgLaSetThresholdVoltage(dev, voltage) {
@@ -16769,6 +16782,9 @@ async function wfgLaSafeCaptureProbe(dev) {
   var runAfterEnable = await wfgLaReadRunState(dev);
   lines.push('CMD_FPGA_ENABLE value=0x01 sent before capture; REG_RUN now 0x' + runAfterEnable.toString(16).padStart(4, '0') + ' ' + wfgLaRunStateLabel(runAfterEnable));
 
+  await wfgLaApplyOemStartupDefaults(dev);
+  lines.push('OEM startup defaults applied before capture.');
+
   var threshold = await wfgLaSetThresholdVoltage(dev, cfg.thresholdV);
   lines.push('REG_THRESHOLD voltage=' + threshold.voltage.toFixed(3) + 'V dutyR56=0x' + threshold.dutyR56.toString(16).padStart(4, '0') + ' dutyR79=0x' + threshold.dutyR79.toString(16).padStart(4, '0'));
 
@@ -16911,6 +16927,32 @@ async function wfgLaOpenDevice(dev) {
   }
 }
 
+async function wfgLaSelectBestAlternate(dev, ifaceNo) {
+  if (!dev || !dev.configuration) return null;
+  var iface = null;
+  var interfaces = dev.configuration.interfaces || [];
+  for (var i = 0; i < interfaces.length; i++) {
+    if (interfaces[i].interfaceNumber === ifaceNo) { iface = interfaces[i]; break; }
+  }
+  if (!iface || !iface.alternates || iface.alternates.length <= 1) return null;
+  var best = iface.alternates[0];
+  for (var a = 0; a < iface.alternates.length; a++) {
+    var alt = iface.alternates[a];
+    var hasEp2Out = false, hasEp6In = false;
+    for (var e = 0; e < (alt.endpoints || []).length; e++) {
+      var ep = alt.endpoints[e];
+      if (ep.endpointNumber === 2 && ep.direction === 'out') hasEp2Out = true;
+      if (ep.endpointNumber === 6 && ep.direction === 'in') hasEp6In = true;
+    }
+    if (hasEp2Out && hasEp6In) { best = alt; break; }
+  }
+  if (best && best.alternateSetting != null && best.alternateSetting !== 0) {
+    await dev.selectAlternateInterface(ifaceNo, best.alternateSetting);
+    return best.alternateSetting;
+  }
+  return best ? best.alternateSetting : null;
+}
+
 async function wfgLaGetReadyDevice() {
   var lastError = null;
   if (wfgLaUsbDevice) {
@@ -16987,8 +17029,9 @@ async function wfgLaProbeWebUsb(tryClaim) {
             await dev.claimInterface(ifaceNo);
           }
         }
+        var altSetting = await wfgLaSelectBestAlternate(dev, ifaceNo);
         claimed.push(ifaceNo);
-        logLines.push('  IF' + ifaceNo + ': OK');
+        logLines.push('  IF' + ifaceNo + ': OK' + (altSetting != null ? ' ALT' + altSetting : ''));
       } catch (e) {
         logLines.push('  IF' + ifaceNo + ': FAIL - ' + (e && e.message ? e.message : e));
       }
@@ -17007,8 +17050,10 @@ async function wfgLaProbeWebUsb(tryClaim) {
       } catch (probeErr) {
         logLines.push('');
         logLines.push('Protocol probe failed: ' + (probeErr && probeErr.message ? probeErr.message : probeErr));
+        logLines.push('Interpretation: EP0 vendor control transfer failed before FPGA/SPI registers were readable.');
+        logLines.push('Likely cause: FX2 firmware / FPGA bitstream is not in the KingstVIS-initialized state yet. Open KingstVIS once can warm up the volatile firmware, which matches your observation.');
         await wfgLaRecoverUsbDevice(dev);
-        wfgLaSetStatus('wfg-la-status-device', wfgLaUsbDevice ? 'warn' : 'err', 'protocol probe 失敗，已重置 WebUSB handle，可重試');
+        wfgLaSetStatus('wfg-la-status-device', wfgLaUsbDevice ? 'warn' : 'err', 'EP0 vendor transfer failed；可能尚未載入 KingstVIS firmware/FPGA');
       }
     } else {
       wfgLaSetStatus('wfg-la-status-bridge', 'err', 'claimInterface 全部失敗');
@@ -17051,6 +17096,7 @@ async function wfgLaInitDiagnostic() {
       var ifaceNo = interfaces[i].interfaceNumber;
       try {
         if (wfgLaClaimedInterfaces.indexOf(ifaceNo) < 0) await dev.claimInterface(ifaceNo);
+        await wfgLaSelectBestAlternate(dev, ifaceNo);
         claimed.push(ifaceNo);
       } catch (e) {
         lines.push('claim IF' + ifaceNo + ' failed: ' + (e && e.message ? e.message : e));
@@ -17063,6 +17109,8 @@ async function wfgLaInitDiagnostic() {
       await wfgLaCtrlOut(dev, 0x10, 0x01, 0, []);
       await wfgLaSleep(40);
       lines.push('CMD_FPGA_ENABLE 0x01 sent for diagnostic.');
+      await wfgLaApplyOemStartupDefaults(dev);
+      lines.push('OEM startup defaults applied for diagnostic.');
     } catch (enableErr) {
       lines.push('CMD_FPGA_ENABLE failed: ' + (enableErr && enableErr.message ? enableErr.message : enableErr));
     }
