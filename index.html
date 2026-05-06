@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.63</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.64</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.63</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.64</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16783,7 +16783,9 @@ async function wfgLaWaitForRenumeratedDevice(lines) {
     }
   }
   wfgLaPendingRenumeration = false;
-  throw new Error('FX2 firmware upload completed but device did not reappear in WebUSB permission list' + (lastErr ? ': ' + lastErr.message : ''));
+  var err = new Error('FX2 firmware upload completed and macOS should re-enumerate the device, but Chrome WebUSB permission list is empty' + (lastErr ? ': ' + lastErr.message : ''));
+  err.code = 'WFG_LA_REENUM_PERMISSION_LOST';
+  throw err;
 }
 
 async function wfgLaClaimKingstInterface(dev, lines) {
@@ -16844,6 +16846,21 @@ async function wfgLaCanReadProtocol(dev, lines, label) {
   }
 }
 
+function wfgLaLooksPreFirmwareDevice(dev) {
+  if (!dev || dev.vendorId !== 0x77a1 || dev.productId !== 0x01a2) return false;
+  if (dev.productName) return false;
+  var cfg = dev.configuration || (dev.configurations && dev.configurations[0]);
+  var interfaces = cfg && cfg.interfaces ? cfg.interfaces : [];
+  for (var i = 0; i < interfaces.length; i++) {
+    var alternates = interfaces[i].alternates || [];
+    for (var a = 0; a < alternates.length; a++) {
+      var alt = alternates[a];
+      if (alt.interfaceClass === 0xff && alt.interfaceSubclass === 0xff && alt.interfaceProtocol === 0xff) return true;
+    }
+  }
+  return true;
+}
+
 async function wfgLaInitHardwareFromStoredFirmware() {
   wfgLaInit();
   var log = document.getElementById('wfg-la-log');
@@ -16857,8 +16874,14 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     var dev = await wfgLaGetReadyDevice();
     lines.push(wfgLaDescribeDevice(dev));
     lines.push('');
-    var protocolReady = await wfgLaCanReadProtocol(dev, lines, 'before firmware upload');
-    lines.push('EEPROM/register protocol before firmware upload: ' + (protocolReady ? 'ready' : 'not ready'));
+    var protocolReady = false;
+    if (wfgLaLooksPreFirmwareDevice(dev)) {
+      lines.push('Device has no USB product string and exposes vendor-class alternates; treating it as pre-FX2-firmware state.');
+      lines.push('Skip EEPROM/register probe before firmware upload to avoid a stalled EP0 transfer.');
+    } else {
+      protocolReady = await wfgLaCanReadProtocol(dev, lines, 'before firmware upload');
+      lines.push('EEPROM/register protocol before firmware upload: ' + (protocolReady ? 'ready' : 'not ready'));
+    }
     if (!protocolReady) {
       var fw = await wfgLaEnsureStoredFirmware('fx2');
       await wfgLaRecoverUsbDevice(dev);
@@ -16899,9 +16922,16 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     lines.push('Initialization completed. You can press Start capture now.');
   } catch (e) {
     lines.push('');
-    lines.push('Initialization failed: ' + (e && e.message ? e.message : e));
-    lines.push('If missing firmware, first extract/import the files from KingstVIS with sigrok-fwextract-kingst-la2016 or your existing extracted firmware set.');
-    wfgLaSetStatus('wfg-la-status-device', 'err', 'WebUSB 初始化失敗');
+    if (e && e.code === 'WFG_LA_REENUM_PERMISSION_LOST') {
+      lines.push('FX2 firmware upload completed, and the device re-enumerated outside the old Chrome USB permission.');
+      lines.push('Action required: press WebUSB 初始化硬體 again and select "Kingst Logic Analyzer" in the Chrome USB picker.');
+      lines.push('This second click is required by WebUSB because requestDevice() must be triggered by a user gesture after USB re-enumeration.');
+      wfgLaSetStatus('wfg-la-status-device', 'warn', 'FX2 已上傳；請再按一次 WebUSB 初始化硬體並選 Kingst Logic Analyzer');
+    } else {
+      lines.push('Initialization failed: ' + (e && e.message ? e.message : e));
+      lines.push('If missing firmware, first extract/import the files from KingstVIS with sigrok-fwextract-kingst-la2016 or your existing extracted firmware set.');
+      wfgLaSetStatus('wfg-la-status-device', 'err', 'WebUSB 初始化失敗');
+    }
   }
   if (lines.flush) lines.flush();
 }
