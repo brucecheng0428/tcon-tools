@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.87</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.88</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.87</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.88</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15202,6 +15202,7 @@ var wfgLaSuppressNextClick = false;
 var wfgLaMeasArrow = null;
 var wfgLaPanning = null;
 var wfgLaHover = null;
+var wfgLaTriggerFocusActive = false;
 var wfgLaGeom = null;
 var wfgLaChannelDrag = null;
 var wfgLaDemoEdges = {};
@@ -15853,6 +15854,7 @@ function wfgLaBindScopeEvents() {
     if (wfgLaPanning) {
       var dx = info.x - wfgLaPanning.x;
       var dt = -dx / Math.max(1, wfgLaGeom.drawW) * wfgLaPanning.range;
+      if (Math.abs(dx) > 1) wfgLaMarkManualViewChange();
       wfgLaSetViewRange(wfgLaPanning.start + dt, wfgLaPanning.end + dt);
     }
     wfgLaRenderScope();
@@ -15914,10 +15916,12 @@ function wfgLaBindScopeEvents() {
     if (e.shiftKey) {
       var range = wfgLaViewEnd - wfgLaViewStart;
       var dt = (e.deltaY || e.deltaX) / 900 * range;
+      if (Math.abs(dt) > 0) wfgLaMarkManualViewChange();
       wfgLaSetViewRange(wfgLaViewStart + dt, wfgLaViewEnd + dt);
       wfgLaRenderScope();
     } else {
       var factor = e.deltaY < 0 ? 0.8 : 1.25;
+      wfgLaMarkManualViewChange();
       wfgLaZoomAt(info.time, factor);
     }
   }, { passive: false });
@@ -15959,6 +15963,10 @@ function wfgLaSetViewRange(start, end) {
   start = Math.max(0, Math.min(duration - range, start));
   wfgLaViewStart = start;
   wfgLaViewEnd = start + range;
+}
+
+function wfgLaMarkManualViewChange() {
+  wfgLaTriggerFocusActive = false;
 }
 
 function wfgLaSetAnchoredView(anchorTime, range, anchorFrac) {
@@ -16123,8 +16131,11 @@ function wfgLaRenderScope() {
   var tEnd = wfgLaViewEnd;
   var tRange = Math.max(tEnd - tStart, 1e-12);
   var triggerZero = wfgLaTriggerZeroTime(cfg, duration);
+  var relStart = tStart - triggerZero;
+  var relEnd = tEnd - triggerZero;
   wfgLaGeom = { labelW: labelW, drawX0: drawX0, drawW: drawW, tStart: tStart, tEnd: tEnd, triggerZero: triggerZero, axisH: axisH, rowStep: rowStep, channels: channels.slice(), cssW: cssW, cssH: cssH };
-  function xOf(t) { return drawX0 + ((t - tStart) / tRange) * drawW; }
+  function xOfRel(relT) { return drawX0 + ((relT - relStart) / tRange) * drawW; }
+  function xOf(t) { return xOfRel(t - triggerZero); }
 
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, cssW, cssH);
@@ -16148,8 +16159,8 @@ function wfgLaRenderScope() {
   var minorPx = majorPx / 10;
   if (minorPx < 25) { minorStep = step / 5; minorPx = majorPx / 5; }
   var showMinorLabels = minorPx >= 20;
-  var first = triggerZero + Math.ceil((tStart - triggerZero) / step) * step;
-  var minorFirst = triggerZero + Math.ceil((tStart - triggerZero) / minorStep) * minorStep;
+  var firstRel = Math.ceil(relStart / step) * step;
+  var minorFirstRel = Math.ceil(relStart / minorStep) * minorStep;
   var minorUnit = 'ns', minorScale = 1e9;
   if (minorStep >= 0.5e-3) { minorUnit = 'ms'; minorScale = 1e3; }
   else if (minorStep >= 0.5e-6) { minorUnit = 'us'; minorScale = 1e6; }
@@ -16157,10 +16168,10 @@ function wfgLaRenderScope() {
   ctx.strokeStyle = 'rgba(148,163,184,0.28)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  for (var mt = minorFirst; mt <= tEnd + minorStep * 0.001; mt += minorStep) {
-    var nearMajor = Math.abs((mt - triggerZero) - Math.round((mt - triggerZero) / step) * step) < step * 0.001;
+  for (var mtRel = minorFirstRel; mtRel <= relEnd + minorStep * 0.001; mtRel += minorStep) {
+    var nearMajor = Math.abs(mtRel - Math.round(mtRel / step) * step) < step * 0.001;
     if (nearMajor) continue;
-    var mx = xOf(mt);
+    var mx = xOfRel(mtRel);
     if (mx < drawX0 || mx > cssW) continue;
     ctx.moveTo(mx, axisH - 10);
     ctx.lineTo(mx, axisH);
@@ -16169,11 +16180,10 @@ function wfgLaRenderScope() {
   if (showMinorLabels) {
     ctx.fillStyle = '#a2d2fb';
     ctx.font = '10px monospace';
-    for (var nt = minorFirst; nt <= tEnd + minorStep * 0.001; nt += minorStep) {
-      var relNt = nt - triggerZero;
+    for (var relNt = minorFirstRel; relNt <= relEnd + minorStep * 0.001; relNt += minorStep) {
       var nearMajorLabel = Math.abs(relNt - Math.round(relNt / step) * step) < step * 0.001;
       if (nearMajorLabel) continue;
-      var nx = xOf(nt);
+      var nx = xOfRel(relNt);
       if (nx < drawX0 + 14 || nx > cssW - 14) continue;
       var prevMajor = Math.floor(relNt / step + 0.0001) * step;
       var offsetVal = Math.round((relNt - prevMajor) * minorScale);
@@ -16184,16 +16194,16 @@ function wfgLaRenderScope() {
   ctx.strokeStyle = 'rgba(88,166,255,0.16)';
   ctx.fillStyle = '#c9d1d9';
   ctx.font = '10px monospace';
-  for (var t = first; t <= tEnd + step * 0.001; t += step) {
-    var x = xOf(t);
+  for (var tRel = firstRel; tRel <= relEnd + step * 0.001; tRel += step) {
+    var x = xOfRel(tRel);
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, cssH);
     ctx.stroke();
-    if (x > drawX0 + 28 && x < cssW - 28) ctx.fillText(wfgLaSignedTimeLabel(t - triggerZero), x, 14);
+    if (x > drawX0 + 28 && x < cssW - 28) ctx.fillText(wfgLaSignedTimeLabel(tRel), x, 14);
   }
   if (cfg.trigger.enabled) {
-    var tx = xOf(triggerZero);
+    var tx = xOfRel(0);
     if (tx >= drawX0 && tx <= cssW) {
       ctx.fillStyle = '#9acd00';
       ctx.textAlign = 'center';
@@ -16512,6 +16522,7 @@ function wfgLaZoom(factor) {
 window.wfgLaZoom = wfgLaZoom;
 
 function wfgLaFitAll() {
+  wfgLaMarkManualViewChange();
   wfgLaViewStart = 0;
   wfgLaViewEnd = wfgLaCaptureDuration();
   wfgLaRenderScope();
@@ -16522,12 +16533,12 @@ function wfgLaCenterTrigger() {
   var cfg = wfgLaBuildConfig();
   var duration = wfgLaCaptureDuration();
   var triggerTime = wfgLaTriggerZeroTime(cfg, duration);
-  var currentRange = Math.max(wfgLaViewEnd - wfgLaViewStart, 0);
   var maxCenteredRange = Math.max(5e-9, Math.min(duration, 2 * Math.min(triggerTime, duration - triggerTime)));
-  var targetRange = Math.min(duration, currentRange || Math.min(duration, 10e-6), maxCenteredRange);
+  var targetRange = Math.min(duration, 10e-6, maxCenteredRange);
   if (!isFinite(targetRange) || targetRange <= 0) targetRange = duration;
   if (!isFinite(targetRange) || targetRange <= 0) targetRange = Math.min(duration, 10e-6);
   wfgLaSetAnchoredView(triggerTime, targetRange, 0.5);
+  wfgLaTriggerFocusActive = true;
   wfgLaRenderScope();
 }
 window.wfgLaCenterTrigger = wfgLaCenterTrigger;
@@ -18099,8 +18110,17 @@ function wfgLaApplyCapturedWaveform(decoded) {
   var newCfg = wfgLaBuildConfig();
   if (newCfg.trigger.enabled) {
     var triggerTime = wfgLaTriggerZeroTime(newCfg, newDuration);
-    var nextRange = oldWasZoomed ? Math.min(newDuration, oldRange) : newDuration;
-    wfgLaSetAnchoredView(triggerTime, nextRange, wfgLaTriggerAnchorFraction(newCfg));
+    if (wfgLaTriggerFocusActive) {
+      var maxCenteredRange = Math.max(5e-9, Math.min(newDuration, 2 * Math.min(triggerTime, newDuration - triggerTime)));
+      var focusRange = Math.min(newDuration, 10e-6, maxCenteredRange);
+      wfgLaSetAnchoredView(triggerTime, focusRange, 0.5);
+    } else if (oldWasZoomed) {
+      var oldCenter = Math.max(0, Math.min(newDuration, (oldStart + oldEnd) / 2));
+      var preservedRange = Math.min(newDuration, oldRange);
+      wfgLaSetViewRange(oldCenter - preservedRange / 2, oldCenter + preservedRange / 2);
+    } else {
+      wfgLaSetAnchoredView(triggerTime, newDuration, wfgLaTriggerAnchorFraction(newCfg));
+    }
   } else if (oldWasZoomed) {
     var center = Math.max(0, Math.min(newDuration, (oldStart + oldEnd) / 2));
     var newRange = Math.min(newDuration, oldRange);
