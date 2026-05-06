@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.58</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.59</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.58</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.59</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3448,9 +3448,14 @@
                 <button class="wfg-btn" onclick="document.getElementById('wfg-kvdat-input').click()" data-i18n="wfg.importKvdat">📂 匯入 .kvdat</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaCheckEnvironment()" data-i18n="wfg.laCheckEnv">檢查環境</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaConnectTest()" data-i18n="wfg.laConnect">連線測試</button>
+                <button class="wfg-btn wfg-btn-secondary" onclick="document.getElementById('wfg-la-fw-input').click()">匯入 FX2 .fw</button>
+                <button class="wfg-btn wfg-btn-secondary" onclick="document.getElementById('wfg-la-bitstream-input').click()">匯入 FPGA .bitstream</button>
+                <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaInitHardwareFromStoredFirmware()">WebUSB 初始化硬體</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaInitDiagnostic()">初始化診斷</button>
                 <button class="wfg-btn wfg-btn-primary" onclick="wfgLaStartCapture()" data-i18n="wfg.laStart">開始擷取</button>
                 <button class="wfg-btn wfg-btn-danger" onclick="wfgLaStopCapture()" data-i18n="wfg.laStop">停止</button>
+                <input type="file" id="wfg-la-fw-input" accept=".fw" style="display:none" onchange="wfgLaImportFirmwareFile(this, 'fx2')">
+                <input type="file" id="wfg-la-bitstream-input" accept=".bitstream,.bin" style="display:none" onchange="wfgLaImportFirmwareFile(this, 'fpga')">
               </div>
               <div class="wfg-la-status-grid">
                 <div class="wfg-la-status warn" id="wfg-la-status-browser"><span class="wfg-la-status-label" data-i18n="wfg.laBrowser">Browser</span><span class="wfg-la-status-val">未檢查</span></div>
@@ -15187,6 +15192,8 @@ var wfgLaChannelOrder = [];
 var wfgLaLastEdgeCounts = [];
 var wfgLaHardwareReady = false;
 var wfgLaCaptureState = 'stopped';
+var wfgLaFirmwareDbPromise = null;
+var wfgLaPendingRenumeration = false;
 
 function wfgLaInit() {
   if (!wfgLaInitialized) {
@@ -16339,6 +16346,102 @@ function wfgLaUsbFilters() {
   ];
 }
 
+function wfgLaOpenFirmwareDb() {
+  if (wfgLaFirmwareDbPromise) return wfgLaFirmwareDbPromise;
+  wfgLaFirmwareDbPromise = new Promise(function(resolve, reject) {
+    if (!window.indexedDB) {
+      reject(new Error('IndexedDB unavailable; firmware files cannot be saved in this browser'));
+      return;
+    }
+    var req = indexedDB.open('wfg-la2016-firmware', 1);
+    req.onupgradeneeded = function() {
+      req.result.createObjectStore('files', { keyPath: 'kind' });
+    };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror = function() { reject(req.error || new Error('IndexedDB open failed')); };
+  });
+  return wfgLaFirmwareDbPromise;
+}
+
+async function wfgLaFirmwareDbTx(mode, fn) {
+  var db = await wfgLaOpenFirmwareDb();
+  return new Promise(function(resolve, reject) {
+    var tx = db.transaction('files', mode);
+    var store = tx.objectStore('files');
+    var req;
+    try {
+      req = fn(store);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror = function() { reject(req.error || new Error('IndexedDB request failed')); };
+  });
+}
+
+async function wfgLaStoreFirmware(kind, file, bytes) {
+  var record = {
+    kind: kind,
+    name: file && file.name ? file.name : (kind === 'fx2' ? 'kingst-la-01a2.fw' : 'kingst-la2016-fpga.bitstream'),
+    size: bytes.byteLength,
+    updatedAt: new Date().toISOString(),
+    bytes: bytes
+  };
+  await wfgLaFirmwareDbTx('readwrite', function(store) { return store.put(record); });
+  return record;
+}
+
+async function wfgLaLoadFirmware(kind) {
+  var record = await wfgLaFirmwareDbTx('readonly', function(store) { return store.get(kind); });
+  if (!record || !record.bytes) return null;
+  var bytes;
+  if (record.bytes instanceof ArrayBuffer) {
+    bytes = new Uint8Array(record.bytes);
+  } else if (ArrayBuffer.isView(record.bytes)) {
+    bytes = new Uint8Array(record.bytes.buffer, record.bytes.byteOffset || 0, record.bytes.byteLength);
+  } else {
+    bytes = new Uint8Array(record.bytes);
+  }
+  return { kind: kind, name: record.name || kind, size: record.size || bytes.byteLength, updatedAt: record.updatedAt || '', bytes: bytes };
+}
+
+async function wfgLaImportFirmwareFile(input, kind) {
+  var file = input && input.files && input.files[0];
+  if (input) input.value = '';
+  if (!file) return;
+  var log = document.getElementById('wfg-la-log');
+  try {
+    var bytes = new Uint8Array(await file.arrayBuffer());
+    if (!bytes.byteLength) throw new Error('empty file');
+    if (kind === 'fx2' && bytes.byteLength > 65536) throw new Error('FX2 firmware is larger than 64 KiB; please select the extracted kingst-la-01a2.fw file');
+    var record = await wfgLaStoreFirmware(kind, file, bytes);
+    var label = kind === 'fx2' ? 'FX2 firmware' : 'FPGA bitstream';
+    var lines = [
+      'LA2016 firmware file imported',
+      label + ': ' + record.name,
+      'bytes=' + record.size,
+      'saved in this browser only; it will not be uploaded anywhere',
+      '',
+      'Next: press WebUSB 初始化硬體, then 開始擷取.'
+    ];
+    if (log) log.textContent = lines.join('\n');
+    wfgLaSetStatus('wfg-la-status-device', 'ok', label + ' 已匯入：' + record.name);
+  } catch (e) {
+    if (log) log.textContent = 'Firmware import failed: ' + (e && e.message ? e.message : e);
+    wfgLaSetStatus('wfg-la-status-device', 'err', 'firmware 匯入失敗');
+  }
+}
+window.wfgLaImportFirmwareFile = wfgLaImportFirmwareFile;
+
+async function wfgLaEnsureStoredFirmware(kind) {
+  var record = await wfgLaLoadFirmware(kind);
+  if (!record) {
+    throw new Error((kind === 'fx2' ? '缺少 FX2 .fw' : '缺少 FPGA .bitstream') + '：請先用左側按鈕匯入一次');
+  }
+  return record;
+}
+
 function wfgLaIsKingstDevice(dev) {
   return !!dev && (dev.vendorId === 0x77a1 || dev.vendorId === 0x08a9);
 }
@@ -16431,6 +16534,172 @@ async function wfgLaCtrlOut(dev, request, value, index, bytes) {
   }
   return res;
 }
+
+async function wfgLaFx2CpuReset(dev, reset) {
+  await wfgLaCtrlOut(dev, 0xa0, 0xe600, 0x0000, [reset ? 1 : 0]);
+}
+
+async function wfgLaUploadFx2Firmware(dev, fw, lines) {
+  if (!fw || !fw.bytes || !fw.bytes.byteLength) throw new Error('FX2 firmware file is empty');
+  if (fw.bytes.byteLength > 65536) throw new Error('FX2 firmware must be <= 64 KiB');
+  lines.push('FX2 firmware upload: ' + fw.name + ' bytes=' + fw.bytes.byteLength);
+  await wfgLaFx2CpuReset(dev, true);
+  lines.push('EZ-USB CPU reset ON (0xe600=1).');
+  var chunkSize = 4096;
+  for (var offset = 0; offset < fw.bytes.byteLength; offset += chunkSize) {
+    var chunk = fw.bytes.slice(offset, Math.min(fw.bytes.byteLength, offset + chunkSize));
+    await wfgLaCtrlOut(dev, 0xa0, offset & 0xffff, 0x0000, chunk);
+    if (offset === 0 || offset + chunkSize >= fw.bytes.byteLength) {
+      lines.push('  uploaded fw offset=0x' + offset.toString(16) + ' bytes=' + chunk.byteLength);
+    }
+  }
+  await wfgLaFx2CpuReset(dev, false);
+  lines.push('EZ-USB CPU reset OFF (0xe600=0); waiting for USB re-enumeration.');
+  wfgLaPendingRenumeration = true;
+}
+
+async function wfgLaWaitForRenumeratedDevice(lines) {
+  await wfgLaRecoverUsbDevice(wfgLaUsbDevice);
+  var deadline = Date.now() + 6000;
+  var lastErr = null;
+  while (Date.now() < deadline) {
+    await wfgLaSleep(350);
+    try {
+      if (navigator.usb && navigator.usb.getDevices) {
+        var known = await navigator.usb.getDevices();
+        for (var i = 0; i < known.length; i++) {
+          if (!wfgLaIsKingstDevice(known[i])) continue;
+          wfgLaRememberDevice(known[i], 'ok');
+          await wfgLaOpenDevice(known[i]);
+          lines.push('Re-enumerated device opened: ' + wfgLaDeviceDisplayName(known[i]));
+          wfgLaPendingRenumeration = false;
+          return known[i];
+        }
+      }
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  wfgLaPendingRenumeration = false;
+  throw new Error('FX2 firmware upload completed but device did not reappear in WebUSB permission list' + (lastErr ? ': ' + lastErr.message : ''));
+}
+
+async function wfgLaClaimKingstInterface(dev, lines) {
+  var interfaces = dev.configuration && dev.configuration.interfaces ? dev.configuration.interfaces : [];
+  for (var i = 0; i < interfaces.length; i++) {
+    var ifaceNo = interfaces[i].interfaceNumber;
+    if (wfgLaClaimedInterfaces.indexOf(ifaceNo) < 0) {
+      await dev.claimInterface(ifaceNo);
+      wfgLaClaimedInterfaces.push(ifaceNo);
+    }
+    var altSetting = await wfgLaSelectBestAlternate(dev, ifaceNo);
+    if (lines) lines.push('claim IF' + ifaceNo + ': OK' + (altSetting != null ? ' ALT' + altSetting : ''));
+    return ifaceNo;
+  }
+  throw new Error('No USB interface available to claim');
+}
+
+async function wfgLaUploadFpgaBitstream(dev, bitstream, lines) {
+  if (!bitstream || !bitstream.bytes || !bitstream.bytes.byteLength) throw new Error('FPGA bitstream file is empty');
+  lines.push('FPGA bitstream upload: ' + bitstream.name + ' bytes=' + bitstream.bytes.byteLength);
+  await wfgLaClaimKingstInterface(dev, lines);
+  var size = [];
+  wfgLaPushU32LE(size, bitstream.bytes.byteLength);
+  await wfgLaCtrlOut(dev, 0x50, 0x00, 0, size);
+  lines.push('CMD_FPGA_INIT size sent.');
+  var blockSize = 4096;
+  var padded = Math.ceil(bitstream.bytes.byteLength / blockSize) * blockSize;
+  for (var offset = 0; offset < padded; offset += blockSize) {
+    var len = Math.min(blockSize, Math.max(0, bitstream.bytes.byteLength - offset));
+    var block = new Uint8Array(blockSize);
+    if (len > 0) block.set(bitstream.bytes.slice(offset, offset + len));
+    var res = await dev.transferOut(2, block);
+    if (res.status !== 'ok' || res.bytesWritten !== block.byteLength) {
+      throw new Error('EP2 bitstream write failed at 0x' + offset.toString(16) + ' status=' + res.status + ' written=' + res.bytesWritten);
+    }
+    if (offset === 0 || offset + blockSize >= padded) {
+      lines.push('  EP2 block offset=0x' + offset.toString(16) + ' bytes=' + block.byteLength + (len < blockSize ? ' zero-padded' : ''));
+    }
+  }
+  var resp = await wfgLaCtrlIn(dev, 0x50, 0x00, 0, 1);
+  lines.push('CMD_FPGA_INIT response=0x' + resp[0].toString(16).padStart(2, '0'));
+  if (resp[0] !== 0) throw new Error('Unexpected FPGA init response after upload: 0x' + resp[0].toString(16));
+  await wfgLaSleep(30);
+  await wfgLaCtrlOut(dev, 0x10, 0x01, 0, []);
+  await wfgLaSleep(40);
+  lines.push('CMD_FPGA_ENABLE value=0x01 sent.');
+}
+
+async function wfgLaCanReadProtocol(dev) {
+  try {
+    await wfgLaCtrlIn(dev, 0xa2, 0x08, 0, 8);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function wfgLaInitHardwareFromStoredFirmware() {
+  wfgLaInit();
+  var log = document.getElementById('wfg-la-log');
+  var lines = [
+    'LA2016 pure WebUSB hardware initialization',
+    'Uses user-imported firmware files saved in this browser.',
+    'Expected extracted filenames: kingst-la-01a2.fw and the matching kingst-*-fpga.bitstream.',
+    ''
+  ];
+  try {
+    var dev = await wfgLaGetReadyDevice();
+    lines.push(wfgLaDescribeDevice(dev));
+    lines.push('');
+    var protocolReady = await wfgLaCanReadProtocol(dev);
+    lines.push('EEPROM/register protocol before firmware upload: ' + (protocolReady ? 'ready' : 'not ready'));
+    if (!protocolReady) {
+      var fw = await wfgLaEnsureStoredFirmware('fx2');
+      await wfgLaRecoverUsbDevice(dev);
+      await wfgLaSleep(250);
+      dev = await wfgLaGetReadyDevice();
+      lines.push('USB handle reopened before FX2 upload.');
+      await wfgLaUploadFx2Firmware(dev, fw, lines);
+      dev = await wfgLaWaitForRenumeratedDevice(lines);
+      protocolReady = await wfgLaCanReadProtocol(dev);
+      lines.push('EEPROM/register protocol after FX2 upload: ' + (protocolReady ? 'ready' : 'not ready'));
+      if (!protocolReady) throw new Error('FX2 firmware upload finished, but EEPROM/register protocol is still unavailable');
+    }
+    var eepromId = await wfgLaCtrlIn(dev, 0xa2, 0x08, 0, 8);
+    var ident = wfgLaIdentifyMagic(eepromId);
+    lines.push('EEPROM[0x08..0x0f] = ' + wfgLaHex(eepromId));
+    lines.push('identified model=' + ident.model + ' magic=0x' + ident.magic.toString(16) + ' source=' + ident.source);
+    var fpgaOk = false;
+    try {
+      await wfgLaEnableFpga(dev);
+      await wfgLaApplyOemStartupDefaults(dev);
+      await wfgLaReadRunState(dev);
+      fpgaOk = true;
+      lines.push('Existing FPGA bitstream is already usable; upload skipped.');
+    } catch (e2) {
+      lines.push('Existing FPGA bitstream check failed: ' + (e2 && e2.message ? e2.message : e2));
+    }
+    if (!fpgaOk) {
+      var bitstream = await wfgLaEnsureStoredFirmware('fpga');
+      await wfgLaUploadFpgaBitstream(dev, bitstream, lines);
+      await wfgLaApplyOemStartupDefaults(dev);
+      lines.push('OEM startup defaults applied after FPGA upload.');
+    }
+    lines = lines.concat(await wfgLaDumpInitState(dev, 'state after pure WebUSB init'));
+    wfgLaSetStatus('wfg-la-status-bridge', 'ok', 'WebUSB 初始化 OK');
+    wfgLaSetStatus('wfg-la-status-device', 'ok', 'LA2016 initialized by webpage');
+    lines.push('');
+    lines.push('Initialization completed. You can press Start capture now.');
+  } catch (e) {
+    lines.push('');
+    lines.push('Initialization failed: ' + (e && e.message ? e.message : e));
+    lines.push('If missing firmware, first extract/import the files from KingstVIS with sigrok-fwextract-kingst-la2016 or your existing extracted firmware set.');
+    wfgLaSetStatus('wfg-la-status-device', 'err', 'WebUSB 初始化失敗');
+  }
+  if (log) log.textContent = lines.join('\n');
+}
+window.wfgLaInitHardwareFromStoredFirmware = wfgLaInitHardwareFromStoredFirmware;
 
 async function wfgLaEnableFpga(dev) {
   var init = await wfgLaCtrlIn(dev, 0x50, 0x00, 0, 1);
