@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.59</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.60</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.59</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.60</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3448,6 +3448,7 @@
                 <button class="wfg-btn" onclick="document.getElementById('wfg-kvdat-input').click()" data-i18n="wfg.importKvdat">📂 匯入 .kvdat</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaCheckEnvironment()" data-i18n="wfg.laCheckEnv">檢查環境</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaConnectTest()" data-i18n="wfg.laConnect">連線測試</button>
+                <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaSelectKingstVisFolder()">選擇 KingstVIS 資料夾</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="document.getElementById('wfg-la-fw-input').click()">匯入 FX2 .fw</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="document.getElementById('wfg-la-bitstream-input').click()">匯入 FPGA .bitstream</button>
                 <button class="wfg-btn wfg-btn-secondary" onclick="wfgLaInitHardwareFromStoredFirmware()">WebUSB 初始化硬體</button>
@@ -3456,6 +3457,7 @@
                 <button class="wfg-btn wfg-btn-danger" onclick="wfgLaStopCapture()" data-i18n="wfg.laStop">停止</button>
                 <input type="file" id="wfg-la-fw-input" accept=".fw" style="display:none" onchange="wfgLaImportFirmwareFile(this, 'fx2')">
                 <input type="file" id="wfg-la-bitstream-input" accept=".bitstream,.bin" style="display:none" onchange="wfgLaImportFirmwareFile(this, 'fpga')">
+                <input type="file" id="wfg-la-folder-input" webkitdirectory directory multiple style="display:none" onchange="wfgLaImportKingstVisFolderFiles(this)">
               </div>
               <div class="wfg-la-status-grid">
                 <div class="wfg-la-status warn" id="wfg-la-status-browser"><span class="wfg-la-status-label" data-i18n="wfg.laBrowser">Browser</span><span class="wfg-la-status-val">未檢查</span></div>
@@ -16441,6 +16443,177 @@ async function wfgLaEnsureStoredFirmware(kind) {
   }
   return record;
 }
+
+function wfgLaFirmwareCandidateScore(item, kind, model) {
+  var name = (item.name || '').toLowerCase();
+  var path = (item.path || name).toLowerCase();
+  if (kind === 'fx2') {
+    if (!name.endsWith('.fw')) return -1;
+    var score = 10;
+    if (name === 'kingst-la-01a2.fw') score += 100;
+    if (path.indexOf('fwusb') >= 0) score += 30;
+    if (name.indexOf('01a2') >= 0) score += 40;
+    if (name.indexOf('kingst-la') >= 0) score += 20;
+    return score;
+  }
+  var isBitstream = name.endsWith('.bitstream') || (name.endsWith('.bin') && name.indexOf('fpga') >= 0);
+  if (!isBitstream) return -1;
+  var score2 = 10;
+  if (path.indexOf('fwfpga') >= 0) score2 += 30;
+  if (name.indexOf('fpga') >= 0) score2 += 20;
+  if ((model || '').toUpperCase() === 'LA1016') {
+    if (name.indexOf('la1016a1') >= 0) score2 += 90;
+    else if (name.indexOf('la1016') >= 0) score2 += 70;
+  } else {
+    if (name.indexOf('la2016a1') >= 0 || name.indexOf('la2016a') >= 0) score2 += 90;
+    else if (name.indexOf('la2016') >= 0) score2 += 70;
+  }
+  return score2;
+}
+
+function wfgLaPickFirmwareCandidate(items, kind) {
+  var cfg = wfgLaBuildConfig ? wfgLaBuildConfig() : { model: 'LA2016' };
+  var best = null;
+  var bestScore = -1;
+  for (var i = 0; i < items.length; i++) {
+    var score = wfgLaFirmwareCandidateScore(items[i], kind, cfg.model);
+    if (kind === 'fx2' && items[i].size > 65536) score = -1;
+    if (score > bestScore) {
+      best = items[i];
+      bestScore = score;
+    }
+  }
+  return bestScore >= 0 ? best : null;
+}
+
+async function wfgLaScanDirectoryHandle(dirHandle, prefix, depth, items, lines) {
+  if (!dirHandle || depth > 5) return;
+  for await (var entry of dirHandle.entries()) {
+    var name = entry[0];
+    var handle = entry[1];
+    var path = prefix ? prefix + '/' + name : name;
+    if (handle.kind === 'directory') {
+      if (/^(node_modules|\$recycle\.bin|system volume information)$/i.test(name)) continue;
+      await wfgLaScanDirectoryHandle(handle, path, depth + 1, items, lines);
+    } else if (handle.kind === 'file') {
+      var lower = name.toLowerCase();
+      if (lower.endsWith('.fw') || lower.endsWith('.bitstream') || lower.endsWith('.bin') || lower === 'kingstvis.exe') {
+        try {
+          var file = await handle.getFile();
+          items.push({ name: name, path: path, size: file.size, file: file });
+        } catch (e) {
+          lines.push('skip unreadable file: ' + path + ' - ' + (e && e.message ? e.message : e));
+        }
+      }
+    }
+  }
+}
+
+async function wfgLaScanKingstVisExeHints(exeItem, lines) {
+  if (!exeItem || !exeItem.file) return;
+  var maxScan = Math.min(exeItem.file.size, 80 * 1024 * 1024);
+  try {
+    var bytes = new Uint8Array(await exeItem.file.slice(0, maxScan).arrayBuffer());
+    var text = new TextDecoder('latin1').decode(bytes);
+    var hasFwUsb = text.indexOf('fwusb/fw') >= 0;
+    var hasFwFpga = text.indexOf('fwfpga/') >= 0;
+    lines.push('KingstVIS.exe found: ' + exeItem.path + ' bytes=' + exeItem.size);
+    lines.push('EXE resource hints: fwusb/fw=' + (hasFwUsb ? 'yes' : 'no') + ' fwfpga/=' + (hasFwFpga ? 'yes' : 'no'));
+    if (hasFwUsb || hasFwFpga) {
+      lines.push('Note: firmware appears embedded in KingstVIS.exe. Browser-side Windows PE/Qt resource extraction is not enabled yet; direct .fw/.bitstream files are still required for automatic import in this build.');
+    }
+  } catch (e) {
+    lines.push('KingstVIS.exe scan failed: ' + (e && e.message ? e.message : e));
+  }
+}
+
+async function wfgLaProcessKingstVisFolderItems(items, lines) {
+  var exe = null;
+  for (var i = 0; i < items.length; i++) {
+    if ((items[i].name || '').toLowerCase() === 'kingstvis.exe') { exe = items[i]; break; }
+  }
+  if (exe) await wfgLaScanKingstVisExeHints(exe, lines);
+  else lines.push('KingstVIS.exe not found in selected folder tree.');
+
+  var fx2 = wfgLaPickFirmwareCandidate(items, 'fx2');
+  var fpga = wfgLaPickFirmwareCandidate(items, 'fpga');
+  if (fx2) {
+    var fx2Bytes = new Uint8Array(await fx2.file.arrayBuffer());
+    await wfgLaStoreFirmware('fx2', fx2.file, fx2Bytes);
+    lines.push('FX2 .fw imported automatically: ' + fx2.path + ' bytes=' + fx2Bytes.byteLength);
+  } else {
+    lines.push('FX2 .fw not found. Expected extracted file like kingst-la-01a2.fw.');
+  }
+  if (fpga) {
+    var fpgaBytes = new Uint8Array(await fpga.file.arrayBuffer());
+    await wfgLaStoreFirmware('fpga', fpga.file, fpgaBytes);
+    lines.push('FPGA bitstream imported automatically: ' + fpga.path + ' bytes=' + fpgaBytes.byteLength);
+  } else {
+    lines.push('FPGA .bitstream not found. Expected extracted file like kingst-la2016a1-fpga.bitstream or kingst-la2016-fpga.bitstream.');
+  }
+  if (fx2 && fpga) {
+    lines.push('');
+    lines.push('Folder import completed. Next: press WebUSB 初始化硬體.');
+    wfgLaSetStatus('wfg-la-status-device', 'ok', 'KingstVIS firmware 已自動匯入');
+  } else {
+    wfgLaSetStatus('wfg-la-status-device', 'warn', '資料夾已掃描，但仍缺 firmware 檔');
+  }
+}
+
+async function wfgLaSelectKingstVisFolder() {
+  wfgLaInit();
+  var log = document.getElementById('wfg-la-log');
+  var lines = [
+    'KingstVIS folder import',
+    'Recommended Windows folder: C:\\Program Files\\KingstVIS',
+    'Browser security does not allow this page to pre-fill that path; please choose that folder once.',
+    ''
+  ];
+  if (!window.showDirectoryPicker) {
+    lines.push('showDirectoryPicker unavailable; falling back to webkitdirectory file input.');
+    if (log) log.textContent = lines.join('\n');
+    var input = document.getElementById('wfg-la-folder-input');
+    if (input) input.click();
+    return;
+  }
+  try {
+    var dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+    lines.push('Selected folder: ' + (dirHandle.name || '(folder)'));
+    var items = [];
+    await wfgLaScanDirectoryHandle(dirHandle, '', 0, items, lines);
+    lines.push('Candidate files found=' + items.length);
+    await wfgLaProcessKingstVisFolderItems(items, lines);
+  } catch (e) {
+    lines.push('Folder import cancelled/failed: ' + (e && e.message ? e.message : e));
+    wfgLaSetStatus('wfg-la-status-device', 'warn', 'KingstVIS 資料夾未匯入');
+  }
+  if (log) log.textContent = lines.join('\n');
+}
+window.wfgLaSelectKingstVisFolder = wfgLaSelectKingstVisFolder;
+
+async function wfgLaImportKingstVisFolderFiles(input) {
+  wfgLaInit();
+  var log = document.getElementById('wfg-la-log');
+  var lines = [
+    'KingstVIS folder import',
+    'Fallback folder input used.',
+    ''
+  ];
+  try {
+    var files = Array.prototype.slice.call(input && input.files ? input.files : []);
+    if (input) input.value = '';
+    var items = files.map(function(file) {
+      return { name: file.name, path: file.webkitRelativePath || file.name, size: file.size, file: file };
+    });
+    lines.push('Candidate files found=' + items.length);
+    await wfgLaProcessKingstVisFolderItems(items, lines);
+  } catch (e) {
+    lines.push('Folder import failed: ' + (e && e.message ? e.message : e));
+    wfgLaSetStatus('wfg-la-status-device', 'err', 'KingstVIS 資料夾匯入失敗');
+  }
+  if (log) log.textContent = lines.join('\n');
+}
+window.wfgLaImportKingstVisFolderFiles = wfgLaImportKingstVisFolderFiles;
 
 function wfgLaIsKingstDevice(dev) {
   return !!dev && (dev.vendorId === 0x77a1 || dev.vendorId === 0x08a9);
