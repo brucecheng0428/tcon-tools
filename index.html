@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.89</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.90</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.89</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.90</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3467,6 +3467,7 @@
                 <div class="wfg-la-meas-head">▾ 脈衝計數 <button class="wfg-la-panel-add" type="button">＋</button></div>
                 <div class="wfg-la-meas-body">
                   <div class="wfg-la-meas-row"><span class="wfg-la-meas-label">Trigger CH</span><span class="wfg-la-meas-val" id="wfg-la-pulse-trigger">--</span></div>
+                  <div class="wfg-la-meas-row"><span class="wfg-la-meas-label">Trigger position</span><span class="wfg-la-meas-val" id="wfg-la-pulse-trigger-pos">--</span></div>
                   <div class="wfg-la-meas-row"><span class="wfg-la-meas-label">Visible edges</span><span class="wfg-la-meas-val" id="wfg-la-pulse-edges">--</span></div>
                 </div>
               </div>
@@ -16180,15 +16181,20 @@ function wfgLaRenderScope() {
   if (showMinorLabels) {
     ctx.fillStyle = '#a2d2fb';
     ctx.font = '10px monospace';
+    var crossesTriggerZero = relStart < 0 && relEnd > 0;
     for (var relNt = minorFirstRel; relNt <= relEnd + minorStep * 0.001; relNt += minorStep) {
       var nearMajorLabel = Math.abs(relNt - Math.round(relNt / step) * step) < step * 0.001;
       if (nearMajorLabel) continue;
       var nx = xOfRel(relNt);
       if (nx < drawX0 + 14 || nx > cssW - 14) continue;
-      var prevMajor = Math.floor(relNt / step + 0.0001) * step;
-      var offsetVal = Math.round((relNt - prevMajor) * minorScale);
-      if (offsetVal <= 0) continue;
-      ctx.fillText('+' + offsetVal + minorUnit, nx, axisH - 14);
+      if (crossesTriggerZero) {
+        ctx.fillText(wfgLaSignedTimeLabel(relNt), nx, axisH - 14);
+      } else {
+        var prevMajor = Math.floor(relNt / step + 0.0001) * step;
+        var offsetVal = Math.round((relNt - prevMajor) * minorScale);
+        if (offsetVal <= 0) continue;
+        ctx.fillText('+' + offsetVal + minorUnit, nx, axisH - 14);
+      }
     }
   }
   ctx.strokeStyle = 'rgba(88,166,255,0.16)';
@@ -16427,6 +16433,12 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
   setText('wfg-la-meas-duty', duty > 0 ? duty.toFixed(1) + '%' : '--');
   setText('wfg-la-meas-freq', period > 0 ? wfgLaFreqLabel(1 / period) : '--');
   setText('wfg-la-pulse-trigger', cfg.trigger.enabled ? ('CH' + cfg.trigger.channel + ' ' + cfg.trigger.edge) : '無觸發');
+  if (cfg.trigger.enabled && wfgLaCapturedWaveform && isFinite(wfgLaCapturedWaveform.triggerTimeSec)) {
+    var actualPct = Math.max(0, Math.min(100, wfgLaCapturedWaveform.triggerTimeSec / Math.max(wfgLaCaptureDuration(), 1e-12) * 100));
+    setText('wfg-la-pulse-trigger-pos', actualPct.toFixed(1) + '% / set ' + (Number(cfg.trigger.positionPercent) || 0).toFixed(0) + '%');
+  } else {
+    setText('wfg-la-pulse-trigger-pos', cfg.trigger.enabled ? ('set ' + (Number(cfg.trigger.positionPercent) || 0).toFixed(0) + '%') : '--');
+  }
   var visibleForCh = 0;
   for (var vi = 0; vi < edges.length; vi++) {
     if (edges[vi] >= wfgLaViewStart && edges[vi] <= wfgLaViewEnd) visibleForCh++;
@@ -18009,11 +18021,13 @@ function wfgLaShiftCaptureEdges(decoded, offsetSec) {
   return decoded;
 }
 
-function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
+function wfgLaDecodeCaptureWaveform(bytes, effectiveRate, triggerPacketCount) {
   var transferSize = 16;
   var packetsPerChunk = 5;
   var preview = [];
   var totalSamples = 0;
+  var packetCount = 0;
+  var triggerPacketTimeSec = null;
   var initialSample = 0;
   var currentSample = null;
   var edgesByChannel = [];
@@ -18027,6 +18041,7 @@ function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
     for (var i = 0; i < packetsPerChunk; i++) {
       var sample = wfgLaReadU16LE(bytes, p);
       var rep = bytes[p + 2] || 0;
+      packetCount++;
       if (currentSample == null) {
         currentSample = sample;
         initialSample = sample;
@@ -18042,6 +18057,9 @@ function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
         currentSample = sample;
       }
       totalSamples += rep;
+      if (triggerPacketCount > 0 && triggerPacketTimeSec == null && packetCount >= triggerPacketCount) {
+        triggerPacketTimeSec = totalSamples / Math.max(1, effectiveRate);
+      }
       if (preview.length < 24) preview.push({ sample: sample, repetitions: rep });
       p += 3;
     }
@@ -18055,7 +18073,10 @@ function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
     edgesByChannel: edgesByChannel,
     edgeCounts: edgeCounts,
     durationSec: totalSamples / Math.max(1, effectiveRate),
-    effectiveRate: effectiveRate
+    effectiveRate: effectiveRate,
+    triggerPacketTimeSec: triggerPacketTimeSec,
+    triggerPacketCount: triggerPacketCount || 0,
+    decodedPacketCount: packetCount
   };
 }
 
@@ -18100,15 +18121,15 @@ function wfgLaAssignTriggerZero(decoded, cfg, actualTriggerTimeSec) {
   var measuredTriggerTime = wfgLaFindActualTriggerTime(decoded, cfg, actualTriggerTimeSec);
   var alignedMeasuredTime = isFinite(measuredTriggerTime) ? Math.max(0, Math.min(duration, measuredTriggerTime)) : null;
   if (cfg.trigger && cfg.trigger.enabled && alignedMeasuredTime != null) {
-    var alignOffset = configuredTriggerTime - alignedMeasuredTime;
-    if (Math.abs(alignOffset) > 1e-12) wfgLaShiftCaptureEdges(decoded, alignOffset);
-    decoded.triggerAlignOffsetSec = alignOffset;
-    decoded.rawMeasuredTriggerTimeSec = alignedMeasuredTime;
-    decoded.measuredTriggerTimeSec = configuredTriggerTime;
+    decoded.triggerAlignOffsetSec = 0;
+    decoded.configuredTriggerTimeSec = configuredTriggerTime;
+    decoded.measuredTriggerTimeSec = alignedMeasuredTime;
+    decoded.triggerTimeSec = alignedMeasuredTime;
   } else {
     decoded.measuredTriggerTimeSec = alignedMeasuredTime;
+    decoded.configuredTriggerTimeSec = configuredTriggerTime;
+    decoded.triggerTimeSec = configuredTriggerTime;
   }
-  decoded.triggerTimeSec = Math.max(0, Math.min(duration, configuredTriggerTime));
   return decoded;
 }
 
@@ -18325,7 +18346,12 @@ async function wfgLaSafeCaptureProbe(dev) {
     if (bulk.status !== 'ok' || !bulk.data) throw new Error('EP6 transferIn failed status=' + bulk.status);
     var received = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
     var chunk = received.slice(0, Math.min(packetBytes, received.length));
-    var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate);
+    var relativeTriggerPackets = nBeforeTrig;
+    if (partialDownload) {
+      var firstPacketInDownload = Math.max(0, nRepPackets - Math.floor(packetBytes / 16) * 5);
+      relativeTriggerPackets = nBeforeTrig > firstPacketInDownload ? nBeforeTrig - firstPacketInDownload : 0;
+    }
+    var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate, relativeTriggerPackets);
     var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
     if (wfgLaManualStopRequested && manualStopSec > 0) {
       decoded.manualStop = true;
@@ -18344,7 +18370,7 @@ async function wfgLaSafeCaptureProbe(dev) {
       decoded.durationSec = expectedDuration;
       lines.push('Partial EP6 window mapped to full capture duration; downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' displayDuration=' + wfgLaFormatDuration(decoded.durationSec));
     }
-    wfgLaAssignTriggerZero(decoded, cfg, nBeforeTrig / Math.max(1, sampleCfg.effectiveRate));
+    wfgLaAssignTriggerZero(decoded, cfg, decoded.triggerPacketTimeSec);
     var activeChannels = wfgLaApplyCapturedWaveform(decoded);
     lines.captureSummary = {
       samples: decoded.totalSamples,
@@ -18356,6 +18382,7 @@ async function wfgLaSafeCaptureProbe(dev) {
     lines.push('EP6 received bytes=' + received.length + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
     lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
     lines.push('edgeCounts CH0=' + decoded.edgeCounts[0] + ' CH1=' + decoded.edgeCounts[1] + ' all: ' + wfgLaEdgeSummary(decoded.edgeCounts));
+    if (cfg.trigger.enabled) lines.push('triggerPacketTime=' + (decoded.triggerPacketTimeSec == null ? 'unavailable' : wfgLaFormatDuration(decoded.triggerPacketTimeSec)) + ' packetCount=' + decoded.triggerPacketCount + '/' + decoded.decodedPacketCount);
     lines.push('activeChannels=' + (activeChannels.length ? activeChannels.map(function(ch) { return 'CH' + ch; }).join(', ') : 'none'));
     lines.push('edgeTimes ' + wfgLaEdgeTimeSummary(decoded, activeChannels.length ? activeChannels : [0, 1]));
     lines.push('preview packets=' + JSON.stringify(decoded.preview.slice(0, 12)));
