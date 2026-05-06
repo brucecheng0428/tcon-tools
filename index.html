@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.62</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.63</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.62</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.63</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16695,31 +16695,46 @@ function wfgLaPushU40LE(arr, v) {
   }
 }
 
+function wfgLaUsbTimeout(promise, label, ms) {
+  ms = Math.max(300, Number(ms) || 2500);
+  var timer;
+  var timeout = new Promise(function(_, reject) {
+    timer = setTimeout(function() {
+      reject(new Error(label + ' timeout after ' + ms + 'ms'));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(function() {
+    clearTimeout(timer);
+  });
+}
+
 async function wfgLaCtrlIn(dev, request, value, index, length) {
-  var res = await dev.controlTransferIn({
+  var label = 'ctrl IN req=0x' + request.toString(16) + ' value=0x' + value.toString(16);
+  var res = await wfgLaUsbTimeout(dev.controlTransferIn({
     requestType: 'vendor',
     recipient: 'device',
     request: request,
     value: value,
     index: index
-  }, length);
+  }, length), label, 2500);
   if (res.status !== 'ok' || !res.data || res.data.byteLength !== length) {
-    throw new Error('ctrl IN req=0x' + request.toString(16) + ' value=0x' + value.toString(16) + ' status=' + res.status + ' len=' + (res.data ? res.data.byteLength : 0) + '/' + length);
+    throw new Error(label + ' status=' + res.status + ' len=' + (res.data ? res.data.byteLength : 0) + '/' + length);
   }
   return new Uint8Array(res.data.buffer.slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength));
 }
 
 async function wfgLaCtrlOut(dev, request, value, index, bytes) {
   var data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
-  var res = await dev.controlTransferOut({
+  var label = 'ctrl OUT req=0x' + request.toString(16) + ' value=0x' + value.toString(16);
+  var res = await wfgLaUsbTimeout(dev.controlTransferOut({
     requestType: 'vendor',
     recipient: 'device',
     request: request,
     value: value,
     index: index
-  }, data);
+  }, data), label, 2500);
   if (res.status !== 'ok' || res.bytesWritten !== data.byteLength) {
-    throw new Error('ctrl OUT req=0x' + request.toString(16) + ' value=0x' + value.toString(16) + ' status=' + res.status + ' written=' + res.bytesWritten + '/' + data.byteLength);
+    throw new Error(label + ' status=' + res.status + ' written=' + res.bytesWritten + '/' + data.byteLength);
   }
   return res;
 }
@@ -16800,7 +16815,7 @@ async function wfgLaUploadFpgaBitstream(dev, bitstream, lines) {
     var len = Math.min(blockSize, Math.max(0, bitstream.bytes.byteLength - offset));
     var block = new Uint8Array(blockSize);
     if (len > 0) block.set(bitstream.bytes.slice(offset, offset + len));
-    var res = await dev.transferOut(2, block);
+    var res = await wfgLaUsbTimeout(dev.transferOut(2, block), 'EP2 bitstream transferOut offset=0x' + offset.toString(16), 5000);
     if (res.status !== 'ok' || res.bytesWritten !== block.byteLength) {
       throw new Error('EP2 bitstream write failed at 0x' + offset.toString(16) + ' status=' + res.status + ' written=' + res.bytesWritten);
     }
@@ -16817,11 +16832,14 @@ async function wfgLaUploadFpgaBitstream(dev, bitstream, lines) {
   lines.push('CMD_FPGA_ENABLE value=0x01 sent.');
 }
 
-async function wfgLaCanReadProtocol(dev) {
+async function wfgLaCanReadProtocol(dev, lines, label) {
+  if (lines) lines.push((label || 'EEPROM/register protocol check') + ': reading EEPROM[0x08..0x0f] via CMD_EEPROM 0xa2...');
   try {
     await wfgLaCtrlIn(dev, 0xa2, 0x08, 0, 8);
+    if (lines) lines.push((label || 'EEPROM/register protocol check') + ': EEPROM read OK.');
     return true;
   } catch (e) {
+    if (lines) lines.push((label || 'EEPROM/register protocol check') + ': EEPROM read failed - ' + (e && e.message ? e.message : e));
     return false;
   }
 }
@@ -16839,7 +16857,7 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     var dev = await wfgLaGetReadyDevice();
     lines.push(wfgLaDescribeDevice(dev));
     lines.push('');
-    var protocolReady = await wfgLaCanReadProtocol(dev);
+    var protocolReady = await wfgLaCanReadProtocol(dev, lines, 'before firmware upload');
     lines.push('EEPROM/register protocol before firmware upload: ' + (protocolReady ? 'ready' : 'not ready'));
     if (!protocolReady) {
       var fw = await wfgLaEnsureStoredFirmware('fx2');
@@ -16849,7 +16867,7 @@ async function wfgLaInitHardwareFromStoredFirmware() {
       lines.push('USB handle reopened before FX2 upload.');
       await wfgLaUploadFx2Firmware(dev, fw, lines);
       dev = await wfgLaWaitForRenumeratedDevice(lines);
-      protocolReady = await wfgLaCanReadProtocol(dev);
+      protocolReady = await wfgLaCanReadProtocol(dev, lines, 'after FX2 upload');
       lines.push('EEPROM/register protocol after FX2 upload: ' + (protocolReady ? 'ready' : 'not ready'));
       if (!protocolReady) throw new Error('FX2 firmware upload finished, but EEPROM/register protocol is still unavailable');
     }
