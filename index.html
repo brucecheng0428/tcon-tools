@@ -1864,7 +1864,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.43</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.44</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2901,7 +2901,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.43</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.44</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15074,6 +15074,15 @@ function wfgLaSetChannels(count, quiet) {
 }
 window.wfgLaSetChannels = wfgLaSetChannels;
 
+function wfgLaSetChannelsList(channels, quiet) {
+  var selected = {};
+  channels.forEach(function(ch) { selected[ch] = true; });
+  document.querySelectorAll('.wfg-la-channel-cb').forEach(function(cb) {
+    cb.checked = !!selected[Number(cb.value)];
+  });
+  if (!quiet) wfgLaUpdateSummary();
+}
+
 function wfgLaSelectedChannels() {
   var channels = [];
   document.querySelectorAll('.wfg-la-channel-cb').forEach(function(cb) {
@@ -15375,7 +15384,7 @@ function wfgLaRenderScope() {
     var edges = wave.edges;
     var level = wave.initialLevel ? 1 : 0;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = wave.source === 'capture' ? 2 : 1;
     ctx.beginPath();
     ctx.moveTo(drawX0 + 0.5, yLow);
     for (var ei = 0; ei < edges.length; ei++) {
@@ -15391,6 +15400,15 @@ function wfgLaRenderScope() {
     }
     ctx.lineTo(cssW, level ? yHigh : yLow);
     ctx.stroke();
+    if (wave.source === 'capture') {
+      ctx.fillStyle = color;
+      for (var mi = 0; mi < edges.length; mi++) {
+        if (edges[mi] < tStart) continue;
+        if (edges[mi] > tEnd) break;
+        var mx = Math.round(xOf(edges[mi])) + 0.5;
+        ctx.fillRect(mx - 2, y0 + 4, 4, rowStep - 12);
+      }
+    }
   }
 
   for (var ci2 = 0; ci2 < wfgLaCursorActive.length; ci2++) {
@@ -15873,15 +15891,35 @@ function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
 
 function wfgLaApplyCapturedWaveform(decoded) {
   wfgLaCapturedWaveform = decoded;
+  var activeChannels = [];
+  for (var i = 0; i < decoded.edgeCounts.length; i++) {
+    if (decoded.edgeCounts[i] > 0) activeChannels.push(i);
+  }
+  if (activeChannels.length > 0 && activeChannels.length < 16) {
+    wfgLaSetChannelsList(activeChannels, true);
+    wfgLaUpdateSummary();
+  }
   wfgLaViewStart = 0;
   wfgLaViewEnd = Math.max(decoded.durationSec || 1e-9, 1e-9);
   wfgLaRenderScope();
+  return activeChannels;
 }
 
 function wfgLaEdgeSummary(edgeCounts) {
   var parts = [];
   for (var i = 0; i < Math.min(16, edgeCounts.length); i++) {
     parts.push('CH' + i + '=' + edgeCounts[i]);
+  }
+  return parts.join(' ');
+}
+
+function wfgLaEdgeTimeSummary(decoded, channels) {
+  var parts = [];
+  for (var i = 0; i < channels.length; i++) {
+    var ch = channels[i];
+    var edges = decoded.edgesByChannel[ch] || [];
+    var shown = edges.slice(0, 8).map(function(t) { return wfgLaTimeLabel(t); });
+    parts.push('CH' + ch + '[' + shown.join(', ') + (edges.length > shown.length ? ', ...' : '') + ']');
   }
   return parts.join(' ');
 }
@@ -15961,10 +15999,12 @@ async function wfgLaSafeCaptureProbe(dev) {
     var received = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
     var chunk = received.slice(0, Math.min(packetBytes, received.length));
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate);
-    wfgLaApplyCapturedWaveform(decoded);
+    var activeChannels = wfgLaApplyCapturedWaveform(decoded);
     lines.push('EP6 received bytes=' + received.length + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
     lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
     lines.push('edgeCounts CH0=' + decoded.edgeCounts[0] + ' CH1=' + decoded.edgeCounts[1] + ' all: ' + wfgLaEdgeSummary(decoded.edgeCounts));
+    lines.push('activeChannels=' + (activeChannels.length ? activeChannels.map(function(ch) { return 'CH' + ch; }).join(', ') : 'none'));
+    lines.push('edgeTimes ' + wfgLaEdgeTimeSummary(decoded, activeChannels.length ? activeChannels : [0, 1]));
     lines.push('preview packets=' + JSON.stringify(decoded.preview.slice(0, 12)));
   }
 
