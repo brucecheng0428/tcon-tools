@@ -1864,7 +1864,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.40</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.41</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2901,7 +2901,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.40</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.41</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15583,6 +15583,15 @@ async function wfgLaCtrlOut(dev, request, value, index, bytes) {
   return res;
 }
 
+async function wfgLaEnableFpga(dev) {
+  var init = await wfgLaCtrlIn(dev, 0x50, 0x00, 0, 1);
+  if (init[0] !== 0) throw new Error('FPGA init response before enable is 0x' + init[0].toString(16).padStart(2, '0'));
+  await wfgLaSleep(30);
+  await wfgLaCtrlOut(dev, 0x10, 0x01, 0, []);
+  await wfgLaSleep(40);
+  return init[0];
+}
+
 function wfgLaIdentifyMagic(bytes) {
   var magic = 0, magic2 = 0, source = 'invalid';
   if (((bytes[0] ^ bytes[1]) & 0xff) === 0xff && ((bytes[2] ^ bytes[3]) & 0xff) === 0xff) {
@@ -15609,6 +15618,7 @@ function wfgLaIdentifyMagic(bytes) {
 
 async function wfgLaProtocolProbe(dev) {
   var lines = [];
+  var CMD_FPGA_ENABLE = 0x10;
   var CMD_FPGA_INIT = 0x50;
   var CMD_FPGA_SPI = 0x20;
   var CMD_EEPROM = 0xa2;
@@ -15633,6 +15643,12 @@ async function wfgLaProtocolProbe(dev) {
 
   var init = await wfgLaCtrlIn(dev, CMD_FPGA_INIT, 0x00, 0, 1);
   lines.push('FPGA init response = 0x' + init[0].toString(16).padStart(2, '0') + (init[0] === 0 ? ' (bitstream appears usable)' : ' (bitstream may need upload)'));
+
+  if (init[0] === 0) {
+    await wfgLaCtrlOut(dev, CMD_FPGA_ENABLE, 0x01, 0, []);
+    await wfgLaSleep(40);
+    lines.push('CMD_FPGA_ENABLE value=0x01 sent.');
+  }
 
   var run = await wfgLaCtrlIn(dev, CMD_FPGA_SPI, REG_RUN, 0, 2);
   var runState = wfgLaReadU16LE(run, 0);
@@ -15766,6 +15782,10 @@ async function wfgLaSafeCaptureProbe(dev) {
 
   await wfgLaSetRunMode(dev, 0x00);
   lines.push('RUNMODE_HALT sent.');
+
+  await wfgLaEnableFpga(dev);
+  var runAfterEnable = await wfgLaReadRunState(dev);
+  lines.push('CMD_FPGA_ENABLE value=0x01 sent before capture; REG_RUN now 0x' + runAfterEnable.toString(16).padStart(4, '0') + ' ' + wfgLaRunStateLabel(runAfterEnable));
 
   var threshold = await wfgLaSetThresholdVoltage(dev, cfg.thresholdV);
   lines.push('REG_THRESHOLD voltage=' + threshold.voltage.toFixed(3) + 'V dutyR56=0x' + threshold.dutyR56.toString(16).padStart(4, '0') + ' dutyR79=0x' + threshold.dutyR79.toString(16).padStart(4, '0'));
