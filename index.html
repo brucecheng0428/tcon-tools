@@ -1887,7 +1887,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.48</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.49</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2924,7 +2924,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.48</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.49</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15104,8 +15104,10 @@ function wfgLaInit() {
     }
     wfgLaRenderChannelGrid();
     wfgLaSetChannels(16, true);
+    wfgLaLoadDemoCapture();
     wfgLaInitialized = true;
   }
+  wfgLaBindScopeEvents();
   wfgLaUpdateSummary();
 }
 
@@ -15348,6 +15350,46 @@ function wfgLaGetWaveform(cfg, ch) {
     };
   }
   return { source: 'demo', edges: wfgLaBuildDemoEdges(cfg, ch), initialLevel: 0, durationSec: cfg.durationSec };
+}
+
+function wfgLaLoadDemoCapture() {
+  var duration = 0.05;
+  var edgesByChannel = [];
+  var edgeCounts = [];
+  for (var ch = 0; ch < 16; ch++) {
+    edgesByChannel[ch] = [];
+    edgeCounts[ch] = 0;
+  }
+  function addSquare(ch, freq, duty, phase) {
+    var period = 1 / freq;
+    var t = phase || 0;
+    while (t < duration) {
+      edgesByChannel[ch].push(t);
+      var fall = t + period * duty;
+      if (fall < duration) edgesByChannel[ch].push(fall);
+      t += period;
+    }
+    edgesByChannel[ch].sort(function(a, b) { return a - b; });
+    edgeCounts[ch] = edgesByChannel[ch].length;
+  }
+  addSquare(0, 60, 0.004, 0.00762);
+  addSquare(1, 60, 0.003, 0.00713);
+  addSquare(2, 1000, 0.5, 0.0003);
+  addSquare(3, 400, 0.28, 0.0009);
+  wfgLaCapturedWaveform = {
+    preview: [],
+    totalSamples: 5000000,
+    transfers: 0,
+    initialSample: 0,
+    finalSample: 0,
+    edgesByChannel: edgesByChannel,
+    edgeCounts: edgeCounts,
+    durationSec: duration,
+    effectiveRate: 100000000,
+    demo: true
+  };
+  wfgLaViewStart = 0;
+  wfgLaViewEnd = duration;
 }
 
 function wfgLaTimeLabel(sec) {
