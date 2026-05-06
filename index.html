@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.61</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.62</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.61</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.62</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16660,6 +16660,21 @@ function wfgLaHex(bytes) {
   }).join(' ');
 }
 
+function wfgLaMakeLiveLogLines(initialLines, logEl) {
+  var lines = (initialLines || []).slice();
+  var nativePush = lines.push;
+  lines.push = function() {
+    var ret = nativePush.apply(lines, arguments);
+    if (logEl) logEl.textContent = Array.prototype.join.call(lines, '\n');
+    return ret;
+  };
+  lines.flush = function() {
+    if (logEl) logEl.textContent = Array.prototype.join.call(lines, '\n');
+  };
+  lines.flush();
+  return lines;
+}
+
 function wfgLaReadU16LE(bytes, off) {
   return (bytes[off] || 0) | ((bytes[off + 1] || 0) << 8);
 }
@@ -16719,13 +16734,11 @@ async function wfgLaUploadFx2Firmware(dev, fw, lines) {
   lines.push('FX2 firmware upload: ' + fw.name + ' bytes=' + fw.bytes.byteLength);
   await wfgLaFx2CpuReset(dev, true);
   lines.push('EZ-USB CPU reset ON (0xe600=1).');
-  var chunkSize = 4096;
+  var chunkSize = 1024;
   for (var offset = 0; offset < fw.bytes.byteLength; offset += chunkSize) {
     var chunk = fw.bytes.slice(offset, Math.min(fw.bytes.byteLength, offset + chunkSize));
     await wfgLaCtrlOut(dev, 0xa0, offset & 0xffff, 0x0000, chunk);
-    if (offset === 0 || offset + chunkSize >= fw.bytes.byteLength) {
-      lines.push('  uploaded fw offset=0x' + offset.toString(16) + ' bytes=' + chunk.byteLength);
-    }
+    lines.push('  uploaded fw offset=0x' + offset.toString(16) + ' bytes=' + chunk.byteLength);
   }
   await wfgLaFx2CpuReset(dev, false);
   lines.push('EZ-USB CPU reset OFF (0xe600=0); waiting for USB re-enumeration.');
@@ -16816,12 +16829,12 @@ async function wfgLaCanReadProtocol(dev) {
 async function wfgLaInitHardwareFromStoredFirmware() {
   wfgLaInit();
   var log = document.getElementById('wfg-la-log');
-  var lines = [
+  var lines = wfgLaMakeLiveLogLines([
     'LA2016 pure WebUSB hardware initialization',
     'Uses user-imported firmware files saved in this browser.',
     'Expected extracted filenames: kingst-la-01a2.fw and the matching kingst-*-fpga.bitstream.',
     ''
-  ];
+  ], log);
   try {
     var dev = await wfgLaGetReadyDevice();
     lines.push(wfgLaDescribeDevice(dev));
@@ -16860,7 +16873,8 @@ async function wfgLaInitHardwareFromStoredFirmware() {
       await wfgLaApplyOemStartupDefaults(dev);
       lines.push('OEM startup defaults applied after FPGA upload.');
     }
-    lines = lines.concat(await wfgLaDumpInitState(dev, 'state after pure WebUSB init'));
+    var dumpLines = await wfgLaDumpInitState(dev, 'state after pure WebUSB init');
+    for (var di = 0; di < dumpLines.length; di++) lines.push(dumpLines[di]);
     wfgLaSetStatus('wfg-la-status-bridge', 'ok', 'WebUSB 初始化 OK');
     wfgLaSetStatus('wfg-la-status-device', 'ok', 'LA2016 initialized by webpage');
     lines.push('');
@@ -16871,7 +16885,7 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     lines.push('If missing firmware, first extract/import the files from KingstVIS with sigrok-fwextract-kingst-la2016 or your existing extracted firmware set.');
     wfgLaSetStatus('wfg-la-status-device', 'err', 'WebUSB 初始化失敗');
   }
-  if (log) log.textContent = lines.join('\n');
+  if (lines.flush) lines.flush();
 }
 window.wfgLaInitHardwareFromStoredFirmware = wfgLaInitHardwareFromStoredFirmware;
 
