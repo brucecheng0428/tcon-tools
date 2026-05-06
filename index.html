@@ -1864,7 +1864,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.37</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.38</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2901,7 +2901,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.37</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.38</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15667,6 +15667,27 @@ async function wfgLaSetRunMode(dev, mode) {
   await wfgLaCtrlOut(dev, 0x20, 0x00, 0, [mode & 0xff]);
 }
 
+async function wfgLaSetThresholdVoltage(dev, voltage) {
+  voltage = Math.max(-4, Math.min(4, Number(voltage) || 3.3));
+  var dutyR79, dutyR56;
+  if (voltage >= 2.9) {
+    dutyR79 = 0x0000;
+    dutyR56 = Math.round(302 * voltage - 363);
+  } else if (voltage > -0.4) {
+    dutyR79 = 0x00f2;
+    dutyR56 = Math.round(302 * voltage + 121);
+  } else {
+    dutyR79 = 0x02d7;
+    dutyR56 = Math.round(302 * voltage + 1090);
+  }
+  dutyR56 = Math.max(10, Math.min(1100, dutyR56));
+  var bytes = [];
+  wfgLaPushU16LE(bytes, dutyR56);
+  wfgLaPushU16LE(bytes, dutyR79);
+  await wfgLaCtrlOut(dev, 0x20, 0x68, 0, bytes);
+  return { voltage: voltage, dutyR56: dutyR56, dutyR79: dutyR79 };
+}
+
 async function wfgLaSetTriggerConfig(dev, cfg, options) {
   options = options || {};
   var channelMask = 0;
@@ -15684,9 +15705,13 @@ async function wfgLaSetTriggerConfig(dev, cfg, options) {
   return { channelMask: channelMask >>> 0, trigMask: trigMask >>> 0, levelMask: levelMask >>> 0, highOrFalling: highOrFalling >>> 0 };
 }
 
-async function wfgLaSetSampleConfig(dev, cfg, triggerInvolved) {
+async function wfgLaSetSampleConfig(dev, cfg, triggerInvolved, options) {
+  options = options || {};
   var sampleRate = Math.min(200000000, Math.max(4000, Number(cfg.sampleRateHz) || 100000000));
-  var limitSamples = Math.min(1000000, Math.max(1024, Number(cfg.sampleDepth) || 100000));
+  var requestedSamples = Math.max(1024, Number(cfg.sampleDepth) || 100000);
+  if (options.minDurationSec) requestedSamples = Math.max(requestedSamples, Math.ceil(sampleRate * options.minDurationSec));
+  var probeCap = Math.max(1024, Number(options.maxSamples) || 1000000);
+  var limitSamples = Math.min(probeCap, requestedSamples);
   var divider = Math.max(1, Math.min(65535, Math.floor(200000000 / sampleRate)));
   var effectiveRate = Math.floor(200000000 / divider);
   var preSamples = triggerInvolved ? Math.floor(limitSamples * Math.max(0, Math.min(100, cfg.trigger.positionPercent)) / 100) : 0;
@@ -15698,7 +15723,7 @@ async function wfgLaSetSampleConfig(dev, cfg, triggerInvolved) {
   wfgLaPushU16LE(bytes, divider);
   wfgLaPushU8(bytes, 0);
   await wfgLaCtrlOut(dev, 0x20, 0x10, 0, bytes);
-  return { requestedRate: sampleRate, effectiveRate: effectiveRate, limitSamples: limitSamples, preSamples: preSamples, divider: divider, preMemoryBytes: memoryBytes };
+  return { requestedRate: sampleRate, effectiveRate: effectiveRate, limitSamples: limitSamples, requestedSamples: requestedSamples, preSamples: preSamples, divider: divider, preMemoryBytes: memoryBytes };
 }
 
 async function wfgLaReadRunState(dev) {
@@ -15731,13 +15756,19 @@ function wfgLaDecodeCaptureChunk(bytes) {
 async function wfgLaSafeCaptureProbe(dev) {
   var cfg = wfgLaBuildConfig();
   var noTriggerProbe = true;
+  var probeMinDurationSec = Math.max(0.025, (cfg.durationSec || 0));
+  var probeMaxSamples = 5000000;
   var lines = [];
   lines.push('LA2016 safe capture probe');
-  lines.push('Note: sample depth is capped to 1MSa for browser safety in this probe.');
+  lines.push('Note: sample depth is capped to 5MSa for browser safety in this probe.');
   lines.push('This probe disables hardware trigger first, to verify basic run/download before trigger integration.');
+  lines.push('Probe window target=' + wfgLaFormatDuration(probeMinDurationSec) + ' (covers 16.666ms test period).');
 
   await wfgLaSetRunMode(dev, 0x00);
   lines.push('RUNMODE_HALT sent.');
+
+  var threshold = await wfgLaSetThresholdVoltage(dev, cfg.thresholdV);
+  lines.push('REG_THRESHOLD voltage=' + threshold.voltage.toFixed(3) + 'V dutyR56=0x' + threshold.dutyR56.toString(16).padStart(4, '0') + ' dutyR79=0x' + threshold.dutyR79.toString(16).padStart(4, '0'));
 
   await wfgLaSetCaptureModeRam(dev);
   lines.push('REG_CAPT_MODE = SDRAM capture.');
@@ -15745,8 +15776,8 @@ async function wfgLaSafeCaptureProbe(dev) {
   var trig = await wfgLaSetTriggerConfig(dev, cfg, { disableTrigger: noTriggerProbe });
   lines.push('REG_TRIGGER channelMask=0x' + trig.channelMask.toString(16) + ' trigMask=0x' + trig.trigMask.toString(16) + (noTriggerProbe ? ' trigger=disabled' : ' edge=' + cfg.trigger.edge));
 
-  var sampleCfg = await wfgLaSetSampleConfig(dev, cfg, !noTriggerProbe);
-  lines.push('REG_SAMPLING limit=' + sampleCfg.limitSamples + ' effRate=' + sampleCfg.effectiveRate + 'Hz divider=' + sampleCfg.divider + ' pre=' + sampleCfg.preSamples);
+  var sampleCfg = await wfgLaSetSampleConfig(dev, cfg, !noTriggerProbe, { minDurationSec: probeMinDurationSec, maxSamples: probeMaxSamples });
+  lines.push('REG_SAMPLING limit=' + sampleCfg.limitSamples + ' effRate=' + sampleCfg.effectiveRate + 'Hz divider=' + sampleCfg.divider + ' pre=' + sampleCfg.preSamples + ' requestedForWindow=' + sampleCfg.requestedSamples);
 
   await wfgLaSetRunMode(dev, 0x03);
   lines.push('RUNMODE_RUN sent; polling REG_RUN...');
