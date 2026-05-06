@@ -7,7 +7,7 @@
 <meta property="og:title" content="TCON FAE專用工具箱">
 <meta property="og:description" content="TCON FAE 常用工具集：Rx/Tx 頻率計算、mLVDS Skew 計算、iSP 波形產生器、eDP AUX 解碼與 DPCD 查詢">
 <meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png?v=1740">
-<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/?v=2.97.35">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/?v=2.97.36">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>TCON FAE專用工具箱</title>
@@ -1864,7 +1864,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.35</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.36</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2901,7 +2901,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.35</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.36</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -4110,7 +4110,7 @@ function applyLang(lang) {
 
 // ─── Share ─────────────────────────────────────────────────────────────
 function shareApp() {
-  const shareUrl = 'https://brucecheng0428.github.io/tcon-tools/?v=2.97.35';
+  const shareUrl = 'https://brucecheng0428.github.io/tcon-tools/?v=2.97.36';
   const shareData = {
     title: t('share.shareTitle'),
     text: t('share.shareText') + '\n' + shareUrl
@@ -15538,6 +15538,22 @@ function wfgLaReadU16LE(bytes, off) {
   return (bytes[off] || 0) | ((bytes[off + 1] || 0) << 8);
 }
 
+function wfgLaReadU32LE(bytes, off) {
+  return ((bytes[off] || 0) | ((bytes[off + 1] || 0) << 8) | ((bytes[off + 2] || 0) << 16) | ((bytes[off + 3] || 0) << 24)) >>> 0;
+}
+
+function wfgLaPushU8(arr, v) { arr.push(v & 0xff); }
+function wfgLaPushU16LE(arr, v) { arr.push(v & 0xff, (v >>> 8) & 0xff); }
+function wfgLaPushU24LE(arr, v) { arr.push(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff); }
+function wfgLaPushU32LE(arr, v) { arr.push(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff); }
+function wfgLaPushU40LE(arr, v) {
+  var n = Math.max(0, Math.floor(Number(v)));
+  for (var i = 0; i < 5; i++) {
+    arr.push(n & 0xff);
+    n = Math.floor(n / 256);
+  }
+}
+
 async function wfgLaCtrlIn(dev, request, value, index, length) {
   var res = await dev.controlTransferIn({
     requestType: 'vendor',
@@ -15550,6 +15566,21 @@ async function wfgLaCtrlIn(dev, request, value, index, length) {
     throw new Error('ctrl IN req=0x' + request.toString(16) + ' value=0x' + value.toString(16) + ' status=' + res.status + ' len=' + (res.data ? res.data.byteLength : 0) + '/' + length);
   }
   return new Uint8Array(res.data.buffer.slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength));
+}
+
+async function wfgLaCtrlOut(dev, request, value, index, bytes) {
+  var data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  var res = await dev.controlTransferOut({
+    requestType: 'vendor',
+    recipient: 'device',
+    request: request,
+    value: value,
+    index: index
+  }, data);
+  if (res.status !== 'ok' || res.bytesWritten !== data.byteLength) {
+    throw new Error('ctrl OUT req=0x' + request.toString(16) + ' value=0x' + value.toString(16) + ' status=' + res.status + ' written=' + res.bytesWritten + '/' + data.byteLength);
+  }
+  return res;
 }
 
 function wfgLaIdentifyMagic(bytes) {
@@ -15613,6 +15644,147 @@ async function wfgLaProtocolProbe(dev) {
   lines.push('');
   lines.push('Probe OK: Web page can talk to FX2/FPGA registers.');
   lines.push('Next step: implement safe acquisition setup (sampling/trigger/run) and EP6 compressed data read.');
+  return lines;
+}
+
+function wfgLaRunStateLabel(state) {
+  if (state & 0x0001) return 'idle';
+  var step = state & 0x000d;
+  if (step === 0x0000) return 'pre-trigger sampling';
+  if (step === 0x0008) return 'waiting trigger';
+  if (step === 0x000c) return 'post-trigger sampling';
+  return 'running/unknown';
+}
+
+async function wfgLaSetCaptureModeRam(dev) {
+  await wfgLaCtrlOut(dev, 0x20, 0x03, 0, [0x00]);
+}
+
+async function wfgLaSetRunMode(dev, mode) {
+  await wfgLaCtrlOut(dev, 0x20, 0x00, 0, [mode & 0xff]);
+}
+
+async function wfgLaSetTriggerConfig(dev, cfg) {
+  var channelMask = 0;
+  for (var i = 0; i < cfg.enabledChannels.length; i++) channelMask |= (1 << cfg.enabledChannels[i]);
+  if (!channelMask) channelMask = 0xffff;
+  var trigMask = 1 << cfg.trigger.channel;
+  var levelMask = 0; // edge trigger
+  var highOrFalling = cfg.trigger.edge === 'falling' ? trigMask : 0;
+  var bytes = [];
+  wfgLaPushU32LE(bytes, channelMask >>> 0);
+  wfgLaPushU32LE(bytes, trigMask >>> 0);
+  wfgLaPushU32LE(bytes, levelMask >>> 0);
+  wfgLaPushU32LE(bytes, highOrFalling >>> 0);
+  await wfgLaCtrlOut(dev, 0x20, 0x20, 16, bytes);
+  return { channelMask: channelMask >>> 0, trigMask: trigMask >>> 0, levelMask: levelMask >>> 0, highOrFalling: highOrFalling >>> 0 };
+}
+
+async function wfgLaSetSampleConfig(dev, cfg, triggerInvolved) {
+  var sampleRate = Math.min(200000000, Math.max(4000, Number(cfg.sampleRateHz) || 100000000));
+  var limitSamples = Math.min(1000000, Math.max(1024, Number(cfg.sampleDepth) || 100000));
+  var divider = Math.max(1, Math.min(65535, Math.floor(200000000 / sampleRate)));
+  var effectiveRate = Math.floor(200000000 / divider);
+  var preSamples = triggerInvolved ? Math.floor(limitSamples * Math.max(0, Math.min(100, cfg.trigger.positionPercent)) / 100) : 0;
+  var memoryBytes = triggerInvolved ? Math.max(0x100, Math.floor((128 * 1024 * 1024) * Math.max(0, Math.min(100, cfg.trigger.positionPercent)) / 100)) : 0x100;
+  var bytes = [];
+  wfgLaPushU40LE(bytes, limitSamples);
+  wfgLaPushU40LE(bytes, preSamples);
+  wfgLaPushU24LE(bytes, memoryBytes >>> 8);
+  wfgLaPushU16LE(bytes, divider);
+  wfgLaPushU8(bytes, 0);
+  await wfgLaCtrlOut(dev, 0x20, 0x10, 0, bytes);
+  return { requestedRate: sampleRate, effectiveRate: effectiveRate, limitSamples: limitSamples, preSamples: preSamples, divider: divider, preMemoryBytes: memoryBytes };
+}
+
+async function wfgLaReadRunState(dev) {
+  var run = await wfgLaCtrlIn(dev, 0x20, 0x00, 0, 2);
+  return wfgLaReadU16LE(run, 0);
+}
+
+async function wfgLaSleep(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+function wfgLaDecodeCaptureChunk(bytes) {
+  var out = [];
+  var totalSamples = 0;
+  var transferSize = 16;
+  var packetsPerChunk = 5;
+  for (var pos = 0; pos + transferSize <= bytes.length; pos += transferSize) {
+    var p = pos;
+    for (var i = 0; i < packetsPerChunk; i++) {
+      var sample = wfgLaReadU16LE(bytes, p);
+      var rep = bytes[p + 2] || 0;
+      totalSamples += rep;
+      if (out.length < 24) out.push({ sample: sample, repetitions: rep });
+      p += 3;
+    }
+  }
+  return { preview: out, totalSamples: totalSamples, transfers: Math.floor(bytes.length / transferSize) };
+}
+
+async function wfgLaSafeCaptureProbe(dev) {
+  var cfg = wfgLaBuildConfig();
+  var lines = [];
+  lines.push('LA2016 safe capture probe');
+  lines.push('Note: sample depth is capped to 1MSa for browser safety in this probe.');
+
+  await wfgLaSetRunMode(dev, 0x00);
+  lines.push('RUNMODE_HALT sent.');
+
+  await wfgLaSetCaptureModeRam(dev);
+  lines.push('REG_CAPT_MODE = SDRAM capture.');
+
+  var trig = await wfgLaSetTriggerConfig(dev, cfg);
+  lines.push('REG_TRIGGER channelMask=0x' + trig.channelMask.toString(16) + ' trigMask=0x' + trig.trigMask.toString(16) + ' edge=' + cfg.trigger.edge);
+
+  var sampleCfg = await wfgLaSetSampleConfig(dev, cfg, true);
+  lines.push('REG_SAMPLING limit=' + sampleCfg.limitSamples + ' effRate=' + sampleCfg.effectiveRate + 'Hz divider=' + sampleCfg.divider + ' pre=' + sampleCfg.preSamples);
+
+  await wfgLaSetRunMode(dev, 0x03);
+  lines.push('RUNMODE_RUN sent; polling REG_RUN...');
+
+  var finalState = 0;
+  for (var i = 0; i < 80; i++) {
+    finalState = await wfgLaReadRunState(dev);
+    lines.push('  poll ' + i + ': 0x' + finalState.toString(16).padStart(4, '0') + ' ' + wfgLaRunStateLabel(finalState));
+    if (finalState & 0x0001) break;
+    await wfgLaSleep(50);
+  }
+
+  if (!(finalState & 0x0001)) {
+    await wfgLaSetRunMode(dev, 0x00);
+    lines.push('Capture did not reach idle during probe window; HALT sent.');
+    return lines;
+  }
+
+  var info = await wfgLaCtrlIn(dev, 0x20, 0x10, 0, 12);
+  var nRepPackets = wfgLaReadU32LE(info, 0);
+  var nBeforeTrig = wfgLaReadU32LE(info, 4);
+  var writePos = wfgLaReadU32LE(info, 8);
+  lines.push('Capture info raw=' + wfgLaHex(info));
+  lines.push('nRepPackets=' + nRepPackets + ' beforeTrigger=' + nBeforeTrig + ' writePos=0x' + writePos.toString(16));
+
+  var packetBytes = Math.min(4096, Math.max(16, Math.floor(nRepPackets / 5) * 16));
+  if (packetBytes > 0) {
+    var readPos = (writePos - packetBytes) >>> 0;
+    var bulkCfg = [];
+    wfgLaPushU32LE(bulkCfg, readPos);
+    wfgLaPushU32LE(bulkCfg, packetBytes);
+    await wfgLaCtrlOut(dev, 0x38, 0x00, 0, []);
+    await wfgLaCtrlOut(dev, 0x20, 0x08, 0, bulkCfg);
+    await wfgLaCtrlOut(dev, 0x30, 0x00, 0, []);
+    lines.push('Bulk read setup readPos=0x' + readPos.toString(16) + ' bytes=' + packetBytes);
+    var bulk = await dev.transferIn(6, packetBytes);
+    if (bulk.status !== 'ok' || !bulk.data) throw new Error('EP6 transferIn failed status=' + bulk.status);
+    var chunk = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
+    var decoded = wfgLaDecodeCaptureChunk(chunk);
+    lines.push('EP6 received bytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples);
+    lines.push('preview packets=' + JSON.stringify(decoded.preview.slice(0, 12)));
+  }
+
+  lines.push('Safe capture probe completed.');
   return lines;
 }
 
@@ -15698,6 +15870,9 @@ async function wfgLaProbeWebUsb(tryClaim) {
         var probeLines = await wfgLaProtocolProbe(dev);
         logLines.push('');
         logLines = logLines.concat(probeLines);
+        logLines.push('');
+        var capLines = await wfgLaSafeCaptureProbe(dev);
+        logLines = logLines.concat(capLines);
         wfgLaSetStatus('wfg-la-status-device', 'ok', 'Protocol probe OK；下一步實作擷取設定與 EP6 讀取');
       } catch (probeErr) {
         logLines.push('');
