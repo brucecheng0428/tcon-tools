@@ -1938,7 +1938,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.67</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.68</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2975,7 +2975,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.67</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.68</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16501,6 +16501,34 @@ function wfgLaOpenPackageDownload() {
 }
 window.wfgLaOpenPackageDownload = wfgLaOpenPackageDownload;
 
+function wfgLaOpenInitRetryGuide() {
+  var old = document.getElementById('wfg-la-guide-backdrop');
+  if (old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'wfg-la-guide-backdrop';
+  modal.className = 'wfg-la-guide-backdrop show';
+  modal.innerHTML = [
+    '<div class="wfg-la-guide-dialog download-opened" role="dialog" aria-modal="true" aria-labelledby="wfg-la-guide-title">',
+      '<div class="wfg-la-guide-head">',
+        '<div class="wfg-la-guide-title" id="wfg-la-guide-title">選擇硬體並初始化</div>',
+        '<button class="wfg-la-guide-close" type="button" onclick="wfgLaClosePackageGuide()">×</button>',
+      '</div>',
+      '<div class="wfg-la-guide-body">',
+        '<div class="wfg-la-guide-note">檔案包已匯入。Chrome 需要你按一次按鈕來開啟 USB 裝置選擇視窗。</div>',
+        '<div class="wfg-la-guide-actions">',
+          '<button class="wfg-btn wfg-btn-primary" type="button" onclick="wfgLaInitHardwareFromStoredFirmware().then(function(ok){ if (ok) wfgLaClosePackageGuide(); })">選擇硬體並初始化</button>',
+          '<button class="wfg-btn wfg-btn-secondary" type="button" onclick="wfgLaClosePackageGuide()">稍後再說</button>',
+        '</div>',
+      '</div>',
+    '</div>'
+  ].join('');
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) wfgLaClosePackageGuide();
+  });
+  document.body.appendChild(modal);
+}
+window.wfgLaOpenInitRetryGuide = wfgLaOpenInitRetryGuide;
+
 function wfgLaReadU16At(bytes, off) {
   return bytes[off] | (bytes[off + 1] << 8);
 }
@@ -16593,7 +16621,8 @@ async function wfgLaImportPackageZip(input) {
     if (log) log.textContent = lines.join('\n');
     wfgLaSetStatus('wfg-la-status-device', 'ok', 'WebUSB 檔案包已匯入');
     wfgLaClosePackageGuide();
-    await wfgLaInitHardwareFromStoredFirmware();
+    var initOk = await wfgLaInitHardwareFromStoredFirmware();
+    if (!initOk) wfgLaOpenInitRetryGuide();
   } catch (e) {
     lines.push('Import failed: ' + (e && e.message ? e.message : e));
     if (log) log.textContent = lines.join('\n');
@@ -17087,6 +17116,8 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     wfgLaSetStatus('wfg-la-status-device', 'ok', 'LA2016 initialized by webpage');
     lines.push('');
     lines.push('Initialization completed. You can press Start capture now.');
+    if (lines.flush) lines.flush();
+    return true;
   } catch (e) {
     lines.push('');
     if (e && e.code === 'WFG_LA_REENUM_PERMISSION_LOST') {
@@ -17101,6 +17132,7 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     }
   }
   if (lines.flush) lines.flush();
+  return false;
 }
 window.wfgLaInitHardwareFromStoredFirmware = wfgLaInitHardwareFromStoredFirmware;
 
