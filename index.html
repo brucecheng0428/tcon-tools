@@ -1864,7 +1864,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.42</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.43</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2901,7 +2901,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.42</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.43</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15035,6 +15035,7 @@ var wfgLaDraggingCursor = false;
 var wfgLaHover = null;
 var wfgLaGeom = null;
 var wfgLaDemoEdges = {};
+var wfgLaCapturedWaveform = null;
 
 function wfgLaInit() {
   if (!wfgLaInitialized) {
@@ -15176,7 +15177,7 @@ function wfgLaBuildDemoEdges(cfg, ch) {
   var key = cfg.sampleRateHz + ':' + cfg.sampleDepth + ':' + ch;
   if (wfgLaDemoEdges[key]) return wfgLaDemoEdges[key];
   var edges = [];
-  var duration = Math.max(cfg.durationSec || 1e-3, 1e-9);
+  var duration = Math.max((wfgLaCapturedWaveform && wfgLaCapturedWaveform.durationSec) || cfg.durationSec || 1e-3, 1e-9);
   var freqBase = 2000 + ch * 1100;
   if (ch === cfg.trigger.channel) freqBase = Math.min(200000, Math.max(1000, cfg.sampleRateHz / 240));
   var period = Math.max(1 / freqBase, duration / 120);
@@ -15191,6 +15192,19 @@ function wfgLaBuildDemoEdges(cfg, ch) {
   }
   wfgLaDemoEdges[key] = edges;
   return edges;
+}
+
+function wfgLaGetWaveform(cfg, ch) {
+  if (wfgLaCapturedWaveform && wfgLaCapturedWaveform.edgesByChannel) {
+    var edges = wfgLaCapturedWaveform.edgesByChannel[ch] || [];
+    return {
+      source: 'capture',
+      edges: edges,
+      initialLevel: (wfgLaCapturedWaveform.initialSample >>> ch) & 1,
+      durationSec: wfgLaCapturedWaveform.durationSec
+    };
+  }
+  return { source: 'demo', edges: wfgLaBuildDemoEdges(cfg, ch), initialLevel: 0, durationSec: cfg.durationSec };
 }
 
 function wfgLaTimeLabel(sec) {
@@ -15286,7 +15300,7 @@ function wfgLaRenderScope() {
   if (!canvas) return;
   var cfg = wfgLaBuildConfig();
   var channels = cfg.enabledChannels.length ? cfg.enabledChannels : [cfg.trigger.channel];
-  var duration = Math.max(cfg.durationSec || 1e-3, 1e-9);
+  var duration = Math.max((wfgLaCapturedWaveform && wfgLaCapturedWaveform.durationSec) || cfg.durationSec || 1e-3, 1e-9);
   if (wfgLaViewEnd <= wfgLaViewStart || wfgLaViewEnd > duration * 1.001) {
     wfgLaViewStart = 0;
     wfgLaViewEnd = duration;
@@ -15357,8 +15371,9 @@ function wfgLaRenderScope() {
       ctx.stroke();
     }
     var color = WFG_CH_COLORS[ch % WFG_CH_COLORS.length];
-    var edges = wfgLaBuildDemoEdges(cfg, ch);
-    var level = 0;
+    var wave = wfgLaGetWaveform(cfg, ch);
+    var edges = wave.edges;
+    var level = wave.initialLevel ? 1 : 0;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -15430,8 +15445,9 @@ function wfgLaRenderMinimap(cfg, channels) {
     ctx.strokeStyle = color;
     ctx.globalAlpha = 0.8;
     ctx.beginPath();
-    var edges = wfgLaBuildDemoEdges(cfg, channels[i]);
-    var level = 0;
+    var wave = wfgLaGetWaveform(cfg, channels[i]);
+    var edges = wave.edges;
+    var level = wave.initialLevel ? 1 : 0;
     ctx.moveTo(0, y + 2);
     for (var e = 0; e < edges.length; e++) {
       var x = (edges[e] / duration) * cssW;
@@ -15453,7 +15469,7 @@ function wfgLaRenderMinimap(cfg, channels) {
 
 function wfgLaUpdateMeasure(cfg, visibleEdges) {
   var ch = (wfgLaHover && wfgLaHover.channel >= 0) ? wfgLaHover.channel : cfg.trigger.channel;
-  var edges = wfgLaBuildDemoEdges(cfg, ch);
+  var edges = wfgLaGetWaveform(cfg, ch).edges;
   var tProbe = wfgLaHover ? wfgLaHover.time : wfgLaViewStart;
   var startIdx = 0;
   while (startIdx < edges.length && edges[startIdx] < tProbe) startIdx++;
@@ -15504,13 +15520,14 @@ window.wfgLaZoom = wfgLaZoom;
 function wfgLaFitAll() {
   var cfg = wfgLaBuildConfig();
   wfgLaViewStart = 0;
-  wfgLaViewEnd = Math.max(cfg.durationSec || 1e-3, 1e-9);
+  wfgLaViewEnd = Math.max((wfgLaCapturedWaveform && wfgLaCapturedWaveform.durationSec) || cfg.durationSec || 1e-3, 1e-9);
   wfgLaRenderScope();
 }
 window.wfgLaFitAll = wfgLaFitAll;
 
 function wfgLaResetView() {
   wfgLaDemoEdges = {};
+  wfgLaCapturedWaveform = null;
   wfgLaFitAll();
 }
 window.wfgLaResetView = wfgLaResetView;
@@ -15719,7 +15736,7 @@ async function wfgLaSetRunMode(dev, mode) {
 }
 
 async function wfgLaSetThresholdVoltage(dev, voltage) {
-  voltage = Math.max(-4, Math.min(4, Number(voltage) || 3.3));
+  voltage = Math.max(-4, Math.min(4, Number(voltage) || 1.25));
   var dutyR79, dutyR56;
   if (voltage >= 2.9) {
     dutyR79 = 0x0000;
@@ -15804,6 +15821,71 @@ function wfgLaDecodeCaptureChunk(bytes) {
   return { preview: out, totalSamples: totalSamples, transfers: Math.floor(bytes.length / transferSize) };
 }
 
+function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
+  var transferSize = 16;
+  var packetsPerChunk = 5;
+  var preview = [];
+  var totalSamples = 0;
+  var initialSample = 0;
+  var currentSample = null;
+  var edgesByChannel = [];
+  var edgeCounts = [];
+  for (var ch = 0; ch < 16; ch++) {
+    edgesByChannel[ch] = [];
+    edgeCounts[ch] = 0;
+  }
+  for (var pos = 0; pos + transferSize <= bytes.length; pos += transferSize) {
+    var p = pos;
+    for (var i = 0; i < packetsPerChunk; i++) {
+      var sample = wfgLaReadU16LE(bytes, p);
+      var rep = bytes[p + 2] || 0;
+      if (currentSample == null) {
+        currentSample = sample;
+        initialSample = sample;
+      } else if (sample !== currentSample) {
+        var changed = (sample ^ currentSample) & 0xffff;
+        var edgeTime = totalSamples / Math.max(1, effectiveRate);
+        for (var bit = 0; bit < 16; bit++) {
+          if (changed & (1 << bit)) {
+            edgesByChannel[bit].push(edgeTime);
+            edgeCounts[bit]++;
+          }
+        }
+        currentSample = sample;
+      }
+      totalSamples += rep;
+      if (preview.length < 24) preview.push({ sample: sample, repetitions: rep });
+      p += 3;
+    }
+  }
+  return {
+    preview: preview,
+    totalSamples: totalSamples,
+    transfers: Math.floor(bytes.length / transferSize),
+    initialSample: initialSample,
+    finalSample: currentSample == null ? 0 : currentSample,
+    edgesByChannel: edgesByChannel,
+    edgeCounts: edgeCounts,
+    durationSec: totalSamples / Math.max(1, effectiveRate),
+    effectiveRate: effectiveRate
+  };
+}
+
+function wfgLaApplyCapturedWaveform(decoded) {
+  wfgLaCapturedWaveform = decoded;
+  wfgLaViewStart = 0;
+  wfgLaViewEnd = Math.max(decoded.durationSec || 1e-9, 1e-9);
+  wfgLaRenderScope();
+}
+
+function wfgLaEdgeSummary(edgeCounts) {
+  var parts = [];
+  for (var i = 0; i < Math.min(16, edgeCounts.length); i++) {
+    parts.push('CH' + i + '=' + edgeCounts[i]);
+  }
+  return parts.join(' ');
+}
+
 async function wfgLaSafeCaptureProbe(dev) {
   var cfg = wfgLaBuildConfig();
   var noTriggerProbe = true;
@@ -15858,21 +15940,31 @@ async function wfgLaSafeCaptureProbe(dev) {
   lines.push('Capture info raw=' + wfgLaHex(info));
   lines.push('nRepPackets=' + nRepPackets + ' beforeTrigger=' + nBeforeTrig + ' writePos=0x' + writePos.toString(16));
 
-  var packetBytes = Math.min(4096, Math.max(16, Math.floor(nRepPackets / 5) * 16));
+  var packetBytes = Math.max(16, Math.floor(nRepPackets / 5) * 16);
+  var readCapBytes = 512 * 1024;
+  if (packetBytes > readCapBytes) {
+    lines.push('Bulk read capped from ' + packetBytes + ' to ' + readCapBytes + ' bytes for browser safety.');
+    packetBytes = readCapBytes;
+  }
   if (packetBytes > 0) {
     var readPos = (writePos - packetBytes) >>> 0;
+    var transferBytes = Math.ceil(packetBytes / 512) * 512;
     var bulkCfg = [];
     wfgLaPushU32LE(bulkCfg, readPos);
     wfgLaPushU32LE(bulkCfg, packetBytes);
     await wfgLaCtrlOut(dev, 0x38, 0x00, 0, []);
     await wfgLaCtrlOut(dev, 0x20, 0x08, 0, bulkCfg);
     await wfgLaCtrlOut(dev, 0x30, 0x00, 0, []);
-    lines.push('Bulk read setup readPos=0x' + readPos.toString(16) + ' bytes=' + packetBytes);
-    var bulk = await dev.transferIn(6, packetBytes);
+    lines.push('Bulk read setup readPos=0x' + readPos.toString(16) + ' bytes=' + packetBytes + ' transferIn=' + transferBytes);
+    var bulk = await dev.transferIn(6, transferBytes);
     if (bulk.status !== 'ok' || !bulk.data) throw new Error('EP6 transferIn failed status=' + bulk.status);
-    var chunk = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
-    var decoded = wfgLaDecodeCaptureChunk(chunk);
-    lines.push('EP6 received bytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples);
+    var received = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
+    var chunk = received.slice(0, Math.min(packetBytes, received.length));
+    var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate);
+    wfgLaApplyCapturedWaveform(decoded);
+    lines.push('EP6 received bytes=' + received.length + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
+    lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
+    lines.push('edgeCounts CH0=' + decoded.edgeCounts[0] + ' CH1=' + decoded.edgeCounts[1] + ' all: ' + wfgLaEdgeSummary(decoded.edgeCounts));
     lines.push('preview packets=' + JSON.stringify(decoded.preview.slice(0, 12)));
   }
 
