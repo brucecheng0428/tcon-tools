@@ -7,7 +7,7 @@
 <meta property="og:title" content="TCON FAE專用工具箱">
 <meta property="og:description" content="TCON FAE 常用工具集：Rx/Tx 頻率計算、mLVDS Skew 計算、iSP 波形產生器、eDP AUX 解碼與 DPCD 查詢">
 <meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png?v=1740">
-<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/?v=2.97.34">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/?v=2.97.35">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>TCON FAE專用工具箱</title>
@@ -1864,7 +1864,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.34</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.35</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2901,7 +2901,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.34</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.35</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -4110,7 +4110,7 @@ function applyLang(lang) {
 
 // ─── Share ─────────────────────────────────────────────────────────────
 function shareApp() {
-  const shareUrl = 'https://brucecheng0428.github.io/tcon-tools/?v=2.97.34';
+  const shareUrl = 'https://brucecheng0428.github.io/tcon-tools/?v=2.97.35';
   const shareData = {
     title: t('share.shareTitle'),
     text: t('share.shareText') + '\n' + shareUrl
@@ -15528,6 +15528,94 @@ function wfgLaDescribeEndpoint(ep) {
   return 'EP' + ep.endpointNumber + ' ' + ep.direction + ' ' + ep.type + ' packet=' + ep.packetSize;
 }
 
+function wfgLaHex(bytes) {
+  return Array.from(bytes || []).map(function(v) {
+    return v.toString(16).padStart(2, '0');
+  }).join(' ');
+}
+
+function wfgLaReadU16LE(bytes, off) {
+  return (bytes[off] || 0) | ((bytes[off + 1] || 0) << 8);
+}
+
+async function wfgLaCtrlIn(dev, request, value, index, length) {
+  var res = await dev.controlTransferIn({
+    requestType: 'vendor',
+    recipient: 'device',
+    request: request,
+    value: value,
+    index: index
+  }, length);
+  if (res.status !== 'ok' || !res.data || res.data.byteLength !== length) {
+    throw new Error('ctrl IN req=0x' + request.toString(16) + ' value=0x' + value.toString(16) + ' status=' + res.status + ' len=' + (res.data ? res.data.byteLength : 0) + '/' + length);
+  }
+  return new Uint8Array(res.data.buffer.slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength));
+}
+
+function wfgLaIdentifyMagic(bytes) {
+  var magic = 0, magic2 = 0, source = 'invalid';
+  if (((bytes[0] ^ bytes[1]) & 0xff) === 0xff && ((bytes[2] ^ bytes[3]) & 0xff) === 0xff) {
+    magic = bytes[0]; magic2 = bytes[2]; source = 'primary';
+  } else if (((bytes[4] ^ bytes[5]) & 0xff) === 0xff && ((bytes[6] ^ bytes[7]) & 0xff) === 0xff) {
+    magic = bytes[4]; magic2 = bytes[6]; source = 'secondary';
+  } else if (((bytes[0] ^ bytes[1]) & 0xff) === 0xff) {
+    magic = bytes[0]; source = 'primary-short';
+  } else if (((bytes[4] ^ bytes[5]) & 0xff) === 0xff) {
+    magic = bytes[4]; source = 'secondary-short';
+  }
+  var key = magic + ':' + magic2;
+  var models = {
+    '2:0': 'LA2016',
+    '3:0': 'LA1016',
+    '8:65': 'LA2016a1',
+    '9:65': 'LA1016a1'
+  };
+  return { magic: magic, magic2: magic2, source: source, model: models[key] || models[magic + ':0'] || 'unknown' };
+}
+
+async function wfgLaProtocolProbe(dev) {
+  var lines = [];
+  var CMD_FPGA_INIT = 0x50;
+  var CMD_FPGA_SPI = 0x20;
+  var CMD_EEPROM = 0xa2;
+  var REG_RUN = 0x00;
+  var REG_PWM_EN = 0x02;
+  var REG_PIN_STATE = 0x04;
+
+  lines.push('LA2016 WebUSB protocol probe');
+  lines.push('Control transfers use vendor/device requests from sigrok kingst-la2016.');
+
+  var eepromId = await wfgLaCtrlIn(dev, CMD_EEPROM, 0x08, 0, 8);
+  var ident = wfgLaIdentifyMagic(eepromId);
+  lines.push('EEPROM[0x08..0x0f] = ' + wfgLaHex(eepromId));
+  lines.push('identify: source=' + ident.source + ' magic=0x' + ident.magic.toString(16) + ' magic2=0x' + ident.magic2.toString(16) + ' model=' + ident.model);
+
+  try {
+    var mfg = await wfgLaCtrlIn(dev, CMD_EEPROM, 0x20, 0, 4);
+    lines.push('EEPROM[0x20..0x23] = ' + wfgLaHex(mfg) + ' manufacture=20' + mfg[0].toString(16).padStart(2, '0') + '-' + mfg[1].toString(16).padStart(2, '0'));
+  } catch (e) {
+    lines.push('EEPROM manufacture read failed: ' + e.message);
+  }
+
+  var init = await wfgLaCtrlIn(dev, CMD_FPGA_INIT, 0x00, 0, 1);
+  lines.push('FPGA init response = 0x' + init[0].toString(16).padStart(2, '0') + (init[0] === 0 ? ' (bitstream appears usable)' : ' (bitstream may need upload)'));
+
+  var run = await wfgLaCtrlIn(dev, CMD_FPGA_SPI, REG_RUN, 0, 2);
+  var runState = wfgLaReadU16LE(run, 0);
+  lines.push('REG_RUN = ' + wfgLaHex(run) + ' state=0x' + runState.toString(16).padStart(4, '0'));
+
+  var pwm = await wfgLaCtrlIn(dev, CMD_FPGA_SPI, REG_PWM_EN, 0, 1);
+  lines.push('REG_PWM_EN = 0x' + pwm[0].toString(16).padStart(2, '0'));
+
+  var pin = await wfgLaCtrlIn(dev, CMD_FPGA_SPI, REG_PIN_STATE, 0, 2);
+  lines.push('REG_PIN_STATE = ' + wfgLaHex(pin) + ' value=0x' + wfgLaReadU16LE(pin, 0).toString(16).padStart(4, '0'));
+
+  lines.push('');
+  lines.push('Probe OK: Web page can talk to FX2/FPGA registers.');
+  lines.push('Next step: implement safe acquisition setup (sampling/trigger/run) and EP6 compressed data read.');
+  return lines;
+}
+
 function wfgLaDescribeDevice(dev) {
   var lines = [];
   lines.push('Device: ' + (dev.productName || 'USB device'));
@@ -15606,7 +15694,16 @@ async function wfgLaProbeWebUsb(tryClaim) {
     wfgLaClaimedInterfaces = claimed;
     if (claimed.length > 0) {
       wfgLaSetStatus('wfg-la-status-bridge', 'ok', 'claimInterface OK: IF' + claimed.join(', IF'));
-      wfgLaSetStatus('wfg-la-status-device', 'ok', 'WebUSB 可取得 interface；下一步需在 JS 實作 LA2016 protocol');
+      try {
+        var probeLines = await wfgLaProtocolProbe(dev);
+        logLines.push('');
+        logLines = logLines.concat(probeLines);
+        wfgLaSetStatus('wfg-la-status-device', 'ok', 'Protocol probe OK；下一步實作擷取設定與 EP6 讀取');
+      } catch (probeErr) {
+        logLines.push('');
+        logLines.push('Protocol probe failed: ' + (probeErr && probeErr.message ? probeErr.message : probeErr));
+        wfgLaSetStatus('wfg-la-status-device', 'err', 'claimInterface OK，但 protocol probe 失敗');
+      }
     } else {
       wfgLaSetStatus('wfg-la-status-bridge', 'err', 'claimInterface 全部失敗');
       wfgLaSetStatus('wfg-la-status-device', 'err', '純網頁無法取得 USB interface，可能被 Windows/KingstVIS driver 佔用');
