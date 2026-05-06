@@ -1601,6 +1601,7 @@
   .wfg-la-toolbar { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; padding: 4px; background: #4e5356; border-bottom: 1px solid #111; }
   .wfg-la-toolbar button { padding: 4px 8px; font-size: 11px; color: #f0f0f0; background: #2f3336; border: 1px solid #191919; border-radius: 3px; cursor: pointer; }
   .wfg-la-toolbar button.active { color: #0d1117; background: var(--cbtn-color, #58a6ff); border-color: var(--cbtn-color, #58a6ff); }
+  .wfg-la-toolbar button.moving { color: #0d1117; background: var(--cbtn-color, #58a6ff); border-color: var(--cbtn-color, #58a6ff); animation: wfg-cursor-blink 0.8s ease-in-out infinite; }
   .wfg-la-run-btn { min-width: 52px; font-size: 18px !important; line-height: 1; }
   .wfg-la-run-btn.play { color: #c6ff00 !important; }
   .wfg-la-run-btn.loop { color: #d7ff00 !important; }
@@ -1894,7 +1895,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.50</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.51</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2931,7 +2932,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.50</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.51</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15087,13 +15088,18 @@ var wfgLaDeviceSeen = false;
 var wfgLaDeviceLabel = '';
 var wfgLaViewStart = 0;
 var wfgLaViewEnd = 1;
-var wfgLaCursorActive = [true, true, true, true, false, false, false, false, false, false];
-var wfgLaCursorPos = [0.18, 0.48, 0.28, 0.58, 0.38, 0.68, 0.22, 0.72, 0.12, 0.82];
+var wfgLaCursorActive = [false, false, false, false, false, false, false, false, false, false];
+var wfgLaCursorMoving = [false, false, false, false, false, false, false, false, false, false];
+var wfgLaCursorPos = [null, null, null, null, null, null, null, null, null, null];
 var wfgLaCursorKeys = { '1':0, '2':1, '3':2, '4':3, '5':4, '6':5, '7':6, '8':7, '9':8, '0':9 };
 var wfgLaCursorNames = ['A1','A2','B1','B2','C1','C2','D1','D2','E1','E2'];
 var wfgLaCursorColors = ['#facc15','#facc15','#22d3ee','#22d3ee','#4ade80','#4ade80','#fb923c','#fb923c','#c084fc','#c084fc'];
 var wfgLaCursorSelected = -1;
-var wfgLaDraggingCursor = false;
+var wfgLaCursorMouseTime = null;
+var wfgLaCursorLabels = [];
+var wfgLaCursorAnimRaf = 0;
+var wfgLaSuppressNextClick = false;
+var wfgLaMeasArrow = null;
 var wfgLaPanning = null;
 var wfgLaHover = null;
 var wfgLaGeom = null;
@@ -15128,6 +15134,7 @@ function wfgLaInit() {
     wfgLaInitialized = true;
   }
   wfgLaBindScopeEvents();
+  wfgLaUpdateCursorButtons();
   wfgLaUpdateSummary();
 }
 
@@ -15462,9 +15469,15 @@ function wfgLaBindScopeEvents() {
     var info = wfgLaGetMouseInfo(e);
     if (!info) return;
     wfgLaHover = info;
-    if (wfgLaDraggingCursor && wfgLaCursorSelected >= 0) {
-      wfgLaCursorPos[wfgLaCursorSelected] = info.frac;
-    } else if (wfgLaPanning) {
+    wfgLaCursorMouseTime = wfgLaSnapTime(info.time, info.x);
+    var hasMoving = false;
+    for (var mi = 0; mi < wfgLaCursorMoving.length; mi++) {
+      if (wfgLaCursorMoving[mi]) {
+        wfgLaCursorPos[mi] = wfgLaCursorMouseTime;
+        hasMoving = true;
+      }
+    }
+    if (wfgLaPanning) {
       var dx = info.x - wfgLaPanning.x;
       var dt = -dx / Math.max(1, wfgLaGeom.drawW) * wfgLaPanning.range;
       wfgLaSetViewRange(wfgLaPanning.start + dt, wfgLaPanning.end + dt);
@@ -15473,29 +15486,45 @@ function wfgLaBindScopeEvents() {
   });
   surface.addEventListener('mouseleave', function() {
     wfgLaHover = null;
-    wfgLaDraggingCursor = false;
+    wfgLaMeasArrow = null;
     wfgLaPanning = null;
     surface.classList.remove('panning');
     wfgLaRenderScope();
   });
   surface.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
     var info = wfgLaGetMouseInfo(e);
     if (!info) return;
     surface.focus();
-    var nearest = wfgLaFindNearestActiveCursor(info.frac);
-    if (nearest >= 0) {
-      wfgLaCursorSelected = nearest;
-      wfgLaDraggingCursor = true;
-      wfgLaCursorPos[nearest] = info.frac;
+    var moving = wfgLaFindMovingCursor();
+    if (moving >= 0) {
+      wfgLaCursorPos[moving] = wfgLaSnapTime(info.time, info.x);
+      wfgLaCursorMoving[moving] = false;
+      wfgLaCursorStopAnim();
       wfgLaUpdateCursorButtons();
       wfgLaRenderScope();
+      e.preventDefault();
+      return;
+    }
+    var labelHit = wfgLaTimeCursorLabelHitTest(info.x, info.y);
+    if (labelHit >= 0) {
+      wfgLaTimeCursorStartDrag(labelHit);
+      wfgLaSuppressNextClick = true;
+      e.preventDefault();
+      return;
+    }
+    var nearest = wfgLaFindNearestActiveCursor(info.time);
+    if (nearest >= 0) {
+      wfgLaTimeCursorStartDrag(nearest);
+      wfgLaSuppressNextClick = true;
+      e.preventDefault();
+      return;
     } else {
       wfgLaPanning = { x: info.x, start: wfgLaViewStart, end: wfgLaViewEnd, range: wfgLaViewEnd - wfgLaViewStart };
       surface.classList.add('panning');
     }
   });
   window.addEventListener('mouseup', function() {
-    wfgLaDraggingCursor = false;
     wfgLaPanning = null;
     surface.classList.remove('panning');
   });
@@ -15514,10 +15543,17 @@ function wfgLaBindScopeEvents() {
     }
   }, { passive: false });
   surface.addEventListener('click', function(e) {
+    if (wfgLaSuppressNextClick) {
+      wfgLaSuppressNextClick = false;
+      return;
+    }
     var info = wfgLaGetMouseInfo(e);
-    if (!info || wfgLaCursorSelected < 0) return;
-    wfgLaCursorActive[wfgLaCursorSelected] = true;
-    wfgLaCursorPos[wfgLaCursorSelected] = info.frac;
+    if (!info) return;
+    var moving = wfgLaFindMovingCursor();
+    if (moving < 0) return;
+    wfgLaCursorPos[moving] = wfgLaSnapTime(info.time, info.x);
+    wfgLaCursorMoving[moving] = false;
+    wfgLaCursorStopAnim();
     wfgLaUpdateCursorButtons();
     wfgLaRenderScope();
   });
@@ -15556,14 +15592,105 @@ function wfgLaZoomAt(anchorTime, factor) {
   wfgLaRenderScope();
 }
 
-function wfgLaFindNearestActiveCursor(frac) {
-  var best = -1, bestDist = 0.018;
+function wfgLaFindMovingCursor() {
+  for (var i = 0; i < wfgLaCursorMoving.length; i++) {
+    if (wfgLaCursorActive[i] && wfgLaCursorMoving[i]) return i;
+  }
+  return -1;
+}
+
+function wfgLaFindNearestActiveCursor(time) {
+  if (!wfgLaGeom) return -1;
+  var best = -1, bestDist = 10;
+  var tRange = Math.max(wfgLaGeom.tEnd - wfgLaGeom.tStart, 1e-12);
+  var x = wfgLaGeom.drawX0 + ((time - wfgLaGeom.tStart) / tRange) * wfgLaGeom.drawW;
   for (var i = 0; i < wfgLaCursorActive.length; i++) {
-    if (!wfgLaCursorActive[i]) continue;
-    var d = Math.abs(wfgLaCursorPos[i] - frac);
+    if (!wfgLaCursorActive[i] || wfgLaCursorPos[i] == null) continue;
+    var cx = wfgLaGeom.drawX0 + ((wfgLaCursorPos[i] - wfgLaGeom.tStart) / tRange) * wfgLaGeom.drawW;
+    var d = Math.abs(cx - x);
     if (d < bestDist) { best = i; bestDist = d; }
   }
   return best;
+}
+
+function wfgLaTimeCursorLabelHitTest(x, y) {
+  for (var i = 0; i < wfgLaCursorLabels.length; i++) {
+    var lb = wfgLaCursorLabels[i];
+    var margin = 4;
+    if (x >= lb.lx - margin && x <= lb.lx + lb.lw + margin &&
+        y >= lb.ly - margin && y <= lb.ly + lb.lh + margin) return lb.ci;
+  }
+  return -1;
+}
+
+function wfgLaTimeCursorStartDrag(idx) {
+  for (var i = 0; i < wfgLaCursorMoving.length; i++) wfgLaCursorMoving[i] = false;
+  wfgLaCursorActive[idx] = true;
+  wfgLaCursorMoving[idx] = true;
+  wfgLaCursorSelected = idx;
+  if (wfgLaCursorMouseTime != null) wfgLaCursorPos[idx] = wfgLaCursorMouseTime;
+  else if (wfgLaCursorPos[idx] == null) wfgLaCursorPos[idx] = (wfgLaViewStart + wfgLaViewEnd) / 2;
+  wfgLaCursorStartAnim();
+  wfgLaUpdateCursorButtons();
+  wfgLaRenderScope();
+}
+
+function wfgLaCursorStartAnim() {
+  if (wfgLaCursorAnimRaf) return;
+  function tick() {
+    if (wfgCurrentMode !== 'la' || wfgLaFindMovingCursor() < 0) {
+      wfgLaCursorAnimRaf = 0;
+      return;
+    }
+    wfgLaRenderScope();
+    wfgLaCursorAnimRaf = requestAnimationFrame(tick);
+  }
+  wfgLaCursorAnimRaf = requestAnimationFrame(tick);
+}
+
+function wfgLaCursorStopAnim() {
+  if (wfgLaFindMovingCursor() < 0 && wfgLaCursorAnimRaf) {
+    cancelAnimationFrame(wfgLaCursorAnimRaf);
+    wfgLaCursorAnimRaf = 0;
+  }
+}
+
+function wfgLaLowerBound(edges, value) {
+  var lo = 0, hi = edges.length;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (edges[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function wfgLaSnapTime(rawTime, x) {
+  if (!wfgLaGeom) return rawTime;
+  var cfg = wfgLaBuildConfig();
+  var bestTime = rawTime;
+  var bestDist = Infinity;
+  var channels = cfg.enabledChannels.length ? cfg.enabledChannels : [cfg.trigger.channel];
+  function xOf(t) {
+    return wfgLaGeom.drawX0 + ((t - wfgLaGeom.tStart) / Math.max(wfgLaGeom.tEnd - wfgLaGeom.tStart, 1e-12)) * wfgLaGeom.drawW;
+  }
+  for (var ci = 0; ci < channels.length; ci++) {
+    var edges = wfgLaGetWaveform(cfg, channels[ci]).edges || [];
+    var idx = wfgLaLowerBound(edges, rawTime);
+    for (var k = Math.max(0, idx - 1); k <= Math.min(edges.length - 1, idx); k++) {
+      var edgeX = xOf(edges[k]);
+      var dist = Math.abs(edgeX - x);
+      if (dist < 10 && dist < bestDist) {
+        bestDist = dist;
+        bestTime = edges[k];
+      }
+    }
+  }
+  if (bestDist === Infinity) {
+    var step = 1 / Math.max(1, cfg.sampleRateHz || 1);
+    bestTime = Math.round(rawTime / step) * step;
+  }
+  return Math.max(0, Math.min(wfgLaCaptureDuration(), bestTime));
 }
 
 function wfgLaRenderScope() {
@@ -15643,8 +15770,12 @@ function wfgLaRenderScope() {
     var yLow = y0 + 35.5;
     var color = WFG_CH_COLORS[ch % WFG_CH_COLORS.length];
     var wave = wfgLaGetWaveform(cfg, ch);
-    var edges = wave.edges;
-    var level = wave.initialLevel ? 1 : 0;
+    var edges = wave.edges || [];
+    var edgesBeforeView = wfgLaLowerBound(edges, tStart);
+    var visibleEnd = edgesBeforeView;
+    while (visibleEnd < edges.length && edges[visibleEnd] <= tEnd) visibleEnd++;
+    var visibleCount = visibleEnd - edgesBeforeView;
+    var level = ((wave.initialLevel ? 1 : 0) + edgesBeforeView) % 2;
     ctx.fillStyle = ci % 2 ? 'rgba(15,23,42,0.28)' : 'rgba(2,6,23,0.22)';
     ctx.fillRect(labelW, y0, drawW, rowStep - 4);
     ctx.strokeStyle = '#263241';
@@ -15669,47 +15800,44 @@ function wfgLaRenderScope() {
     ctx.fillStyle = '#94a3b8';
     ctx.font = '10px monospace';
     ctx.fillText(level ? 'HIGH' : 'LOW', 64, y0 + 25);
+    if (ch === cfg.trigger.channel) triggerVisibleEdges += visibleCount;
     ctx.strokeStyle = color;
+    ctx.fillStyle = color;
     ctx.lineWidth = wave.source === 'capture' ? 2 : 1;
-    ctx.beginPath();
-    ctx.moveTo(drawX0 + 0.5, yLow);
-    for (var ei = 0; ei < edges.length; ei++) {
-      var et = edges[ei];
-      if (et < tStart) { level = level ? 0 : 1; continue; }
-      if (et > tEnd) break;
-      if (ch === cfg.trigger.channel) triggerVisibleEdges++;
-      var x = Math.round(xOf(et)) + 0.5;
-      var curY = level ? yHigh : yLow;
-      ctx.lineTo(x, curY);
-      level = level ? 0 : 1;
-      ctx.lineTo(x, level ? yHigh : yLow);
-    }
-    ctx.lineTo(cssW, level ? yHigh : yLow);
-    ctx.stroke();
-    if (wave.source === 'capture') {
-      ctx.fillStyle = color;
-      for (var mi = 0; mi < edges.length; mi++) {
-        if (edges[mi] < tStart) continue;
-        if (edges[mi] > tEnd) break;
-        var mx = Math.round(xOf(edges[mi])) + 0.5;
-        ctx.fillRect(mx - 2, y0 + 4, 4, rowStep - 12);
+    ctx.lineJoin = 'bevel';
+    if (visibleCount <= drawW * 2) {
+      var curLevel = level;
+      var curY = curLevel ? yHigh : yLow;
+      ctx.beginPath();
+      ctx.moveTo(drawX0 + 0.5, curY);
+      for (var ei = edgesBeforeView; ei < visibleEnd; ei++) {
+        var snapX = Math.round(xOf(edges[ei])) + 0.5;
+        if (snapX > drawX0) ctx.lineTo(Math.max(drawX0, snapX), curY);
+        curLevel = curLevel ? 0 : 1;
+        curY = curLevel ? yHigh : yLow;
+        if (snapX >= drawX0) ctx.lineTo(snapX, curY);
       }
+      ctx.lineTo(cssW, curY);
+      ctx.stroke();
+    } else {
+      var denseLevel = level;
+      var j = edgesBeforeView;
+      var pixelCount = Math.ceil(drawW);
+      var yHighI = Math.round(yHigh - 0.5);
+      var yLowI = Math.round(yLow - 0.5);
+      var fillH = yLowI - yHighI + 1;
+      for (var px = 0; px < pixelCount; px++) {
+        var tRight = tStart + ((px + 1) / drawW) * tRange;
+        var count = 0;
+        while (j < visibleEnd && edges[j] < tRight) { j++; count++; }
+        if (count % 2 === 1) denseLevel = denseLevel ? 0 : 1;
+        var xI = drawX0 + px;
+        if (count > 0) ctx.fillRect(xI, yHighI, 1, fillH);
+        else ctx.fillRect(xI, denseLevel ? yHighI : yLowI, 1, 1);
+      }
+      var remW = Math.ceil(cssW - drawX0 - pixelCount);
+      if (remW > 0) ctx.fillRect(drawX0 + pixelCount, denseLevel ? yHighI : yLowI, remW, 1);
     }
-  }
-
-  for (var ci2 = 0; ci2 < wfgLaCursorActive.length; ci2++) {
-    if (!wfgLaCursorActive[ci2]) continue;
-    var cx = drawX0 + wfgLaCursorPos[ci2] * drawW;
-    ctx.strokeStyle = wfgLaCursorColors[ci2];
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx + 0.5, 0);
-    ctx.lineTo(cx + 0.5, cssH);
-    ctx.stroke();
-    ctx.fillStyle = wfgLaCursorColors[ci2];
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(wfgLaCursorNames[ci2], cx + 4, 28);
   }
 
   if (wfgLaHover && wfgLaHover.channel >= 0) {
@@ -15725,8 +15853,41 @@ function wfgLaRenderScope() {
     ctx.fillRect(drawX0, hy, drawW, rowStep - 4);
   }
 
-  wfgLaRenderMinimap(cfg, channels);
   wfgLaUpdateMeasure(cfg, triggerVisibleEdges);
+  wfgLaDrawMeasureArrow(ctx);
+
+  wfgLaCursorLabels = [];
+  for (var ci2 = 0; ci2 < wfgLaCursorActive.length; ci2++) {
+    if (!wfgLaCursorActive[ci2] || wfgLaCursorPos[ci2] == null) continue;
+    var cx = xOf(wfgLaCursorPos[ci2]);
+    if (cx < drawX0 || cx > cssW) continue;
+    ctx.strokeStyle = wfgLaCursorColors[ci2];
+    ctx.globalAlpha = wfgLaCursorMoving[ci2] ? (0.75 + 0.25 * Math.sin(Date.now() / 160)) : 0.9;
+    ctx.lineWidth = wfgLaCursorMoving[ci2] ? 2 : 1.5;
+    ctx.setLineDash(wfgLaCursorMoving[ci2] ? [] : [6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(cx + 0.5, 0);
+    ctx.lineTo(cx + 0.5, cssH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    var label = wfgLaCursorNames[ci2];
+    ctx.font = 'bold 10px monospace';
+    var labelW2 = ctx.measureText(label).width + 10;
+    var labelH2 = 16;
+    var labelX = Math.max(drawX0 + 2, Math.min(cssW - labelW2 - 2, cx - labelW2 / 2));
+    var labelY = 22;
+    ctx.fillStyle = wfgLaCursorColors[ci2];
+    ctx.fillRect(labelX, labelY, labelW2, labelH2);
+    ctx.fillStyle = '#020617';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, labelX + labelW2 / 2, labelY + labelH2 / 2);
+    ctx.textBaseline = 'alphabetic';
+    wfgLaCursorLabels.push({ ci: ci2, lx: labelX, ly: labelY, lw: labelW2, lh: labelH2 });
+  }
+
+  wfgLaRenderMinimap(cfg, channels);
 }
 
 function wfgLaRenderMinimap(cfg, channels) {
@@ -15773,7 +15934,8 @@ function wfgLaRenderMinimap(cfg, channels) {
 
 function wfgLaUpdateMeasure(cfg, visibleEdges) {
   var ch = (wfgLaHover && wfgLaHover.channel >= 0) ? wfgLaHover.channel : cfg.trigger.channel;
-  var edges = wfgLaGetWaveform(cfg, ch).edges;
+  var wave = wfgLaGetWaveform(cfg, ch);
+  var edges = wave.edges || [];
   var tProbe = wfgLaHover ? wfgLaHover.time : wfgLaViewStart;
   var startIdx = 0;
   while (startIdx < edges.length && edges[startIdx] < tProbe) startIdx++;
@@ -15794,18 +15956,65 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
     if (edges[vi] >= wfgLaViewStart && edges[vi] <= wfgLaViewEnd) visibleForCh++;
   }
   setText('wfg-la-pulse-edges', String(ch === cfg.trigger.channel ? visibleEdges : visibleForCh));
+  wfgLaMeasArrow = null;
+  if (wfgLaHover && wfgLaHover.channel >= 0 && wfgLaGeom) {
+    var edgeIdx = wfgLaLowerBound(edges, tProbe);
+    var curLevel = ((wave.initialLevel ? 1 : 0) + edgeIdx) % 2;
+    var left = edgeIdx > 0 ? edges[edgeIdx - 1] : 0;
+    var right = edgeIdx < edges.length ? edges[edgeIdx] : Math.max(wave.durationSec || cfg.durationSec || wfgLaViewEnd, wfgLaViewEnd);
+    var rowY = wfgLaGeom.axisH + wfgLaHover.slot * wfgLaGeom.rowStep;
+    var y = curLevel ? rowY + 12 : rowY + 32;
+    var range = Math.max(wfgLaGeom.tEnd - wfgLaGeom.tStart, 1e-12);
+    var x1 = wfgLaGeom.drawX0 + ((left - wfgLaGeom.tStart) / range) * wfgLaGeom.drawW;
+    var x2 = wfgLaGeom.drawX0 + ((right - wfgLaGeom.tStart) / range) * wfgLaGeom.drawW;
+    x1 = Math.max(wfgLaGeom.drawX0, Math.min(wfgLaGeom.cssW, x1));
+    x2 = Math.max(wfgLaGeom.drawX0, Math.min(wfgLaGeom.cssW, x2));
+    wfgLaMeasArrow = { x1: x1, x2: x2, y: y };
+  }
   var body = document.getElementById('wfg-la-cursor-body');
   if (body) {
     var html = '';
     for (var gi = 0; gi < 5; gi++) {
       var i1 = gi * 2, i2 = i1 + 1;
       var name = String.fromCharCode(65 + gi);
-      var dt = Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1]) * (wfgLaViewEnd - wfgLaViewStart);
-      var val = (wfgLaCursorActive[i1] && wfgLaCursorActive[i2]) ? (wfgLaTimeLabel(dt) + ' / ' + wfgLaFreqLabel(1 / dt)) : '--';
+      var both = wfgLaCursorActive[i1] && wfgLaCursorActive[i2] && wfgLaCursorPos[i1] != null && wfgLaCursorPos[i2] != null;
+      var dt = both ? Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1]) : 0;
+      var val = both ? (wfgLaTimeLabel(dt) + ' / ' + wfgLaFreqLabel(1 / dt)) : '--';
       html += '<div class="wfg-la-meas-row"><span class="wfg-la-meas-label">' + name + ' ΔT</span><span class="wfg-la-meas-val">' + val + '</span></div>';
     }
     body.innerHTML = html;
   }
+}
+
+function wfgLaDrawMeasureArrow(ctx) {
+  var a = wfgLaMeasArrow;
+  if (!a || Math.abs(a.x2 - a.x1) < 6) return;
+  var x1 = Math.min(a.x1, a.x2);
+  var x2 = Math.max(a.x1, a.x2);
+  var y = Math.round(a.y) + 0.5;
+  ctx.save();
+  ctx.strokeStyle = '#f8fafc';
+  ctx.fillStyle = '#f8fafc';
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x2, y);
+  ctx.stroke();
+  var ah = 5;
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x1 + ah, y - ah);
+  ctx.lineTo(x1 + ah, y + ah);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x2, y);
+  ctx.lineTo(x2 - ah, y - ah);
+  ctx.lineTo(x2 - ah, y + ah);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function wfgLaZoom(factor) {
@@ -15829,9 +16038,20 @@ function wfgLaResetView() {
 window.wfgLaResetView = wfgLaResetView;
 
 function wfgLaToggleCursor(idx) {
-  wfgLaCursorActive[idx] = !wfgLaCursorActive[idx];
-  wfgLaCursorSelected = idx;
-  if (wfgLaHover) wfgLaCursorPos[idx] = wfgLaHover.frac;
+  if (!wfgLaCursorActive[idx]) {
+    for (var i = 0; i < wfgLaCursorMoving.length; i++) wfgLaCursorMoving[i] = false;
+    wfgLaCursorActive[idx] = true;
+    wfgLaCursorMoving[idx] = true;
+    wfgLaCursorSelected = idx;
+    wfgLaCursorPos[idx] = wfgLaCursorMouseTime != null ? wfgLaCursorMouseTime : (wfgLaViewStart + wfgLaViewEnd) / 2;
+    wfgLaCursorStartAnim();
+  } else {
+    wfgLaCursorActive[idx] = false;
+    wfgLaCursorMoving[idx] = false;
+    wfgLaCursorPos[idx] = null;
+    if (wfgLaCursorSelected === idx) wfgLaCursorSelected = -1;
+    wfgLaCursorStopAnim();
+  }
   wfgLaUpdateCursorButtons();
   wfgLaRenderScope();
 }
@@ -15840,7 +16060,8 @@ window.wfgLaToggleCursor = wfgLaToggleCursor;
 function wfgLaUpdateCursorButtons() {
   document.querySelectorAll('.wfg-la-cursor-btn').forEach(function(btn) {
     var idx = Number(btn.getAttribute('data-la-cursor'));
-    btn.classList.toggle('active', !!wfgLaCursorActive[idx]);
+    btn.classList.toggle('active', !!wfgLaCursorActive[idx] && !wfgLaCursorMoving[idx]);
+    btn.classList.toggle('moving', !!wfgLaCursorActive[idx] && !!wfgLaCursorMoving[idx]);
     btn.style.outline = idx === wfgLaCursorSelected ? '1px solid #e2e8f0' : '';
   });
 }
