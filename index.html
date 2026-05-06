@@ -1924,7 +1924,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.54</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.55</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2961,7 +2961,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.54</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.55</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3368,7 +3368,7 @@
                 </select>
                 <button class="wfg-la-run-btn play" id="wfg-la-single-btn" onclick="wfgLaSetAcqMode('single'); wfgLaStartCapture()" title="Start single sampling">▶</button>
                 <button class="wfg-la-run-btn loop" id="wfg-la-repeat-btn" onclick="wfgLaSetAcqMode('repeat'); wfgLaStartCapture()" title="Auto restart sampling">↻</button>
-                <button class="wfg-la-run-btn stop" onclick="wfgLaStopCapture()" title="Stop sampling">■</button>
+                <button class="wfg-la-run-btn stop" id="wfg-la-stop-btn" onclick="wfgLaStopCapture()" title="Stop sampling">■</button>
                 <span style="width:1px;height:20px;background:#222;margin:0 2px;flex-shrink:0"></span>
                 <button onclick="wfgLaZoom(0.5)">🔍＋</button>
                 <button onclick="wfgLaZoom(2)">🔍－</button>
@@ -15185,6 +15185,7 @@ var wfgLaChannelDescriptions = [];
 var wfgLaChannelOrder = [];
 var wfgLaLastEdgeCounts = [];
 var wfgLaHardwareReady = false;
+var wfgLaCaptureState = 'stopped';
 
 function wfgLaInit() {
   if (!wfgLaInitialized) {
@@ -15365,10 +15366,17 @@ function wfgLaUpdateToolbarState(cfg) {
   if (est) est.textContent = '預期取樣時間: ' + wfgLaFormatDuration(cfg.durationSec);
   var single = document.getElementById('wfg-la-single-btn');
   var repeat = document.getElementById('wfg-la-repeat-btn');
-  if (single) single.classList.toggle('acq-active', cfg.acquisitionMode === 'single');
-  if (repeat) repeat.classList.toggle('acq-active', cfg.acquisitionMode === 'repeat');
+  var stop = document.getElementById('wfg-la-stop-btn');
+  if (single) single.classList.toggle('acq-active', wfgLaCaptureState === 'running' && cfg.acquisitionMode === 'single');
+  if (repeat) repeat.classList.toggle('acq-active', wfgLaCaptureState === 'running' && cfg.acquisitionMode === 'repeat');
+  if (stop) stop.classList.toggle('acq-active', wfgLaCaptureState === 'stopped');
   if (single) single.classList.toggle('hardware-ready', !!wfgLaHardwareReady);
   if (repeat) repeat.classList.toggle('hardware-ready', !!wfgLaHardwareReady);
+}
+
+function wfgLaSetCaptureState(state) {
+  wfgLaCaptureState = state || 'stopped';
+  try { wfgLaUpdateToolbarState(wfgLaBuildConfig()); } catch (e) {}
 }
 
 function wfgLaGetAcqMode() {
@@ -15534,7 +15542,7 @@ function wfgLaLoadDemoCapture(options) {
   var oldStart = wfgLaViewStart;
   var oldEnd = wfgLaViewEnd;
   var duration = Math.max(cfg.durationSec || 0.01, 0.002);
-  duration = Math.min(duration, 2);
+  duration = Math.min(duration, 60);
   var edgesByChannel = [];
   var edgeCounts = [];
   for (var ch = 0; ch < 16; ch++) {
@@ -16305,9 +16313,9 @@ function wfgLaSetStatus(id, state, text) {
   var val = el.querySelector('.wfg-la-status-val');
   if (val) val.textContent = text;
   if (id === 'wfg-la-status-device') {
-    wfgLaHardwareReady = state === 'ok';
+    wfgLaHardwareReady = state === 'ok' || (state === 'warn' && !!wfgLaUsbDevice);
     var bar = document.getElementById('wfg-la-device-bar');
-    if (bar) bar.textContent = state === 'ok' ? '裝置已連接' : (state === 'err' ? '裝置連線錯誤' : '裝置未連接');
+    if (bar) bar.textContent = wfgLaHardwareReady ? '裝置已連接' : (state === 'err' ? '裝置連線錯誤' : '裝置未連接');
     try { wfgLaUpdateToolbarState(wfgLaBuildConfig()); } catch (e) {}
   }
 }
@@ -16576,6 +16584,16 @@ function wfgLaDecodeCaptureChunk(bytes) {
   return { preview: out, totalSamples: totalSamples, transfers: Math.floor(bytes.length / transferSize) };
 }
 
+function wfgLaShiftCaptureEdges(decoded, offsetSec) {
+  offsetSec = Number(offsetSec) || 0;
+  if (!decoded || !decoded.edgesByChannel || offsetSec <= 0) return decoded;
+  for (var ch = 0; ch < decoded.edgesByChannel.length; ch++) {
+    var edges = decoded.edgesByChannel[ch] || [];
+    for (var i = 0; i < edges.length; i++) edges[i] += offsetSec;
+  }
+  return decoded;
+}
+
 function wfgLaDecodeCaptureWaveform(bytes, effectiveRate) {
   var transferSize = 16;
   var packetsPerChunk = 5;
@@ -16732,8 +16750,11 @@ async function wfgLaSafeCaptureProbe(dev) {
   lines.push('nRepPackets=' + nRepPackets + ' beforeTrigger=' + nBeforeTrig + ' writePos=0x' + writePos.toString(16));
 
   var packetBytes = Math.max(16, Math.floor(nRepPackets / 5) * 16);
-  var readCapBytes = 512 * 1024;
+  var estimatedRleBytes = Math.ceil(sampleCfg.limitSamples / 252 / 5) * 16;
+  var readCapBytes = Math.min(32 * 1024 * 1024, Math.max(512 * 1024, Math.ceil(estimatedRleBytes * 1.35)));
+  var partialDownload = false;
   if (packetBytes > readCapBytes) {
+    partialDownload = true;
     lines.push('Bulk read capped from ' + packetBytes + ' to ' + readCapBytes + ' bytes for browser safety.');
     packetBytes = readCapBytes;
   }
@@ -16752,6 +16773,15 @@ async function wfgLaSafeCaptureProbe(dev) {
     var received = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
     var chunk = received.slice(0, Math.min(packetBytes, received.length));
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate);
+    var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
+    if (partialDownload && decoded.durationSec < expectedDuration) {
+      decoded.partialDownload = true;
+      decoded.downloadedDurationSec = decoded.durationSec;
+      decoded.captureStartSec = Math.max(0, expectedDuration - decoded.durationSec);
+      wfgLaShiftCaptureEdges(decoded, decoded.captureStartSec);
+      decoded.durationSec = expectedDuration;
+      lines.push('Partial EP6 window mapped to full capture duration; downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' displayDuration=' + wfgLaFormatDuration(decoded.durationSec));
+    }
     var activeChannels = wfgLaApplyCapturedWaveform(decoded);
     lines.push('EP6 received bytes=' + received.length + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
     lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
@@ -16821,11 +16851,29 @@ async function wfgLaRequestDevice() {
 }
 
 async function wfgLaOpenDevice(dev) {
-  if (!dev.opened) await dev.open();
+  if (!dev.opened) {
+    try {
+      await dev.open();
+    } catch (e) {
+      try { await dev.close(); } catch (closeErr) {}
+      await wfgLaSleep(120);
+      await dev.open();
+    }
+  }
   if (!dev.configuration) {
     var cfgVal = dev.configurations && dev.configurations[0] ? dev.configurations[0].configurationValue : 1;
     await dev.selectConfiguration(cfgVal);
   }
+}
+
+async function wfgLaRecoverUsbDevice(dev) {
+  if (!dev) return;
+  for (var i = 0; i < wfgLaClaimedInterfaces.length; i++) {
+    try { if (dev.opened) await dev.releaseInterface(wfgLaClaimedInterfaces[i]); } catch (e) {}
+  }
+  wfgLaClaimedInterfaces = [];
+  try { if (dev.opened) await dev.close(); } catch (e) {}
+  await wfgLaSleep(180);
 }
 
 async function wfgLaProbeWebUsb(tryClaim) {
@@ -16848,7 +16896,15 @@ async function wfgLaProbeWebUsb(tryClaim) {
     for (var i = 0; i < interfaces.length; i++) {
       var ifaceNo = interfaces[i].interfaceNumber;
       try {
-        if (wfgLaClaimedInterfaces.indexOf(ifaceNo) < 0) await dev.claimInterface(ifaceNo);
+        if (wfgLaClaimedInterfaces.indexOf(ifaceNo) < 0) {
+          try {
+            await dev.claimInterface(ifaceNo);
+          } catch (claimErr) {
+            await wfgLaRecoverUsbDevice(dev);
+            await wfgLaOpenDevice(dev);
+            await dev.claimInterface(ifaceNo);
+          }
+        }
         claimed.push(ifaceNo);
         logLines.push('  IF' + ifaceNo + ': OK');
       } catch (e) {
@@ -16869,7 +16925,8 @@ async function wfgLaProbeWebUsb(tryClaim) {
       } catch (probeErr) {
         logLines.push('');
         logLines.push('Protocol probe failed: ' + (probeErr && probeErr.message ? probeErr.message : probeErr));
-        wfgLaSetStatus('wfg-la-status-device', 'err', 'claimInterface OK，但 protocol probe 失敗');
+        await wfgLaRecoverUsbDevice(dev);
+        wfgLaSetStatus('wfg-la-status-device', wfgLaUsbDevice ? 'warn' : 'err', 'protocol probe 失敗，已重置 WebUSB handle，可重試');
       }
     } else {
       wfgLaSetStatus('wfg-la-status-bridge', 'err', 'claimInterface 全部失敗');
@@ -16897,21 +16954,25 @@ async function wfgLaStartCapture() {
   if (wfgLaCaptureRunning) return;
   wfgLaCaptureRunning = true;
   wfgLaLoopRequested = wfgLaGetAcqMode() === 'repeat';
+  wfgLaSetCaptureState('running');
   try {
     do {
       await wfgLaProbeWebUsb(true);
       if (wfgLaLoopRequested) await wfgLaSleep(180);
     } while (wfgLaLoopRequested);
   } catch (e) {
-    wfgLaSetStatus('wfg-la-status-device', 'err', e && e.message ? e.message : 'WebUSB claim failed');
+    await wfgLaRecoverUsbDevice(wfgLaUsbDevice);
+    wfgLaSetStatus('wfg-la-status-device', wfgLaUsbDevice ? 'warn' : 'err', (e && e.message ? e.message : 'WebUSB claim failed') + '；已重置連線，可重試');
   } finally {
     wfgLaCaptureRunning = false;
+    wfgLaSetCaptureState('stopped');
   }
 }
 window.wfgLaStartCapture = wfgLaStartCapture;
 
 async function wfgLaStopCapture() {
   wfgLaLoopRequested = false;
+  wfgLaSetCaptureState('stopped');
   if (wfgLaUsbDevice && wfgLaUsbDevice.opened) {
     try { await wfgLaSetRunMode(wfgLaUsbDevice, 0x00); } catch (e) {}
     for (var i = 0; i < wfgLaClaimedInterfaces.length; i++) {
