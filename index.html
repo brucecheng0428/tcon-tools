@@ -1938,7 +1938,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.68</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.69</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2975,7 +2975,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.68</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.69</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15212,6 +15212,8 @@ var wfgLaHardwareReady = false;
 var wfgLaCaptureState = 'stopped';
 var wfgLaFirmwareDbPromise = null;
 var wfgLaPendingRenumeration = false;
+var wfgLaUsbWatchersInstalled = false;
+var wfgLaUsbReconnectTimer = 0;
 var WFG_LA_PACKAGE_URL = 'https://218.161.24.173:5001/d/s/188EhAhjqJZwkZgaxNjMy89pxroSous8/DYvcvXiNKZb-WiD_oY2_qLtpr8fcUiTr-57iA8IjtLA0';
 
 function wfgLaInit() {
@@ -15239,6 +15241,7 @@ function wfgLaInit() {
     wfgLaInitialized = true;
   }
   wfgLaBindScopeEvents();
+  wfgLaInstallUsbWatchers();
   wfgLaUpdateCursorButtons();
   wfgLaUpdateSummary();
 }
@@ -16340,11 +16343,69 @@ function wfgLaSetStatus(id, state, text) {
   var val = el.querySelector('.wfg-la-status-val');
   if (val) val.textContent = text;
   if (id === 'wfg-la-status-device') {
-    wfgLaHardwareReady = state === 'ok' || (state === 'warn' && !!wfgLaUsbDevice);
+    wfgLaHardwareReady = state === 'ok';
     var bar = document.getElementById('wfg-la-device-bar');
     if (bar) bar.textContent = wfgLaHardwareReady ? '裝置已連接' : (state === 'err' ? '裝置連線錯誤' : '裝置未連接');
     try { wfgLaUpdateToolbarState(wfgLaBuildConfig()); } catch (e) {}
   }
+}
+
+function wfgLaInstallUsbWatchers() {
+  if (wfgLaUsbWatchersInstalled || !navigator.usb || !navigator.usb.addEventListener) return;
+  wfgLaUsbWatchersInstalled = true;
+  navigator.usb.addEventListener('disconnect', function(ev) {
+    if (ev && ev.device && !wfgLaIsKingstDevice(ev.device)) return;
+    if (wfgLaUsbReconnectTimer) clearTimeout(wfgLaUsbReconnectTimer);
+    wfgLaForgetDevice('USB 已拔除；重新插入後若呈現不明裝置，請直接按單次/循環讓網頁載入檔案包初始化');
+    wfgLaSetStatus('wfg-la-status-bridge', 'warn', 'USB disconnected');
+    wfgLaSetCaptureState('stopped');
+  });
+  navigator.usb.addEventListener('connect', function(ev) {
+    if (ev && ev.device && !wfgLaIsKingstDevice(ev.device)) return;
+    wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到 USB 重新連接，正在檢查授權裝置');
+    if (wfgLaUsbReconnectTimer) clearTimeout(wfgLaUsbReconnectTimer);
+    wfgLaUsbReconnectTimer = setTimeout(function() {
+      wfgLaRefreshUsbPresence({ autoInit: true, eventDevice: ev && ev.device }).catch(function(e) {
+        wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已重新連接；按單次/循環後選擇 77a1:01a2 裝置');
+      });
+    }, 650);
+  });
+  wfgLaRefreshUsbPresence({ autoInit: false }).catch(function() {});
+}
+
+async function wfgLaRefreshUsbPresence(options) {
+  options = options || {};
+  if (!navigator.usb || !navigator.usb.getDevices) return false;
+  var known = await navigator.usb.getDevices();
+  var dev = null;
+  for (var i = 0; i < known.length; i++) {
+    if (wfgLaIsKingstDevice(known[i])) { dev = known[i]; break; }
+  }
+  if (!dev && options.eventDevice && wfgLaIsKingstDevice(options.eventDevice)) dev = options.eventDevice;
+  if (!dev) {
+    wfgLaForgetDevice('尚未授權 USB 裝置；按單次/循環時選擇 77a1:01a2');
+    return false;
+  }
+  wfgLaRememberDevice(dev, 'warn');
+  try {
+    await wfgLaOpenDevice(dev);
+    if (wfgLaLooksPreFirmwareDevice(dev)) {
+      wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到未初始化 USB 裝置；會使用已匯入 zip 初始化');
+      if (options.autoInit) return await wfgLaInitHardwareFromStoredFirmware();
+      return false;
+    }
+    var protocolReady = await wfgLaCanReadProtocol(dev, null, 'USB reconnect protocol check');
+    if (protocolReady) {
+      wfgLaSetStatus('wfg-la-status-device', 'ok', wfgLaDeviceDisplayName(dev));
+      wfgLaSetStatus('wfg-la-status-bridge', 'ok', 'WebUSB device ready');
+      return true;
+    }
+    wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 裝置已授權但 protocol 未就緒；會重新載入檔案包初始化');
+    if (options.autoInit) return await wfgLaInitHardwareFromStoredFirmware();
+  } catch (e) {
+    wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已重新連接；按單次/循環後重新初始化');
+  }
+  return false;
 }
 
 async function wfgLaCheckEnvironment() {
@@ -17044,7 +17105,6 @@ async function wfgLaCanReadProtocol(dev, lines, label) {
 
 function wfgLaLooksPreFirmwareDevice(dev) {
   if (!dev || dev.vendorId !== 0x77a1 || dev.productId !== 0x01a2) return false;
-  if (dev.productName) return false;
   var cfg = dev.configuration || (dev.configurations && dev.configurations[0]);
   var interfaces = cfg && cfg.interfaces ? cfg.interfaces : [];
   for (var i = 0; i < interfaces.length; i++) {
@@ -17054,7 +17114,7 @@ function wfgLaLooksPreFirmwareDevice(dev) {
       if (alt.interfaceClass === 0xff && alt.interfaceSubclass === 0xff && alt.interfaceProtocol === 0xff) return true;
     }
   }
-  return true;
+  return !dev.productName;
 }
 
 async function wfgLaInitHardwareFromStoredFirmware() {
@@ -17063,7 +17123,7 @@ async function wfgLaInitHardwareFromStoredFirmware() {
   var lines = wfgLaMakeLiveLogLines([
     'LA2016 pure WebUSB hardware initialization',
     'Uses user-imported firmware files saved in this browser.',
-    'Expected extracted filenames: kingst-la-01a2.fw and the matching kingst-*-fpga.bitstream.',
+    'Expected package files: fx2-fw.bin and fpga-a1.bin.',
     ''
   ], log);
   try {
@@ -17562,6 +17622,12 @@ async function wfgLaSafeCaptureProbe(dev) {
       lines.push('Partial EP6 window mapped to full capture duration; downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' displayDuration=' + wfgLaFormatDuration(decoded.durationSec));
     }
     var activeChannels = wfgLaApplyCapturedWaveform(decoded);
+    lines.captureSummary = {
+      samples: decoded.totalSamples,
+      durationSec: decoded.durationSec,
+      activeChannels: activeChannels.slice(),
+      partialDownload: !!decoded.partialDownload
+    };
     lines.push('EP6 received bytes=' + received.length + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
     lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
     lines.push('edgeCounts CH0=' + decoded.edgeCounts[0] + ' CH1=' + decoded.edgeCounts[1] + ' all: ' + wfgLaEdgeSummary(decoded.edgeCounts));
@@ -17750,7 +17816,13 @@ async function wfgLaProbeWebUsb(tryClaim) {
         logLines.push('');
         var capLines = await wfgLaSafeCaptureProbe(dev);
         logLines = logLines.concat(capLines);
-        wfgLaSetStatus('wfg-la-status-device', 'ok', 'Protocol probe OK；下一步實作擷取設定與 EP6 讀取');
+        var capSummary = capLines.captureSummary || null;
+        if (capSummary) {
+          var sampleText = capSummary.samples >= 1000000 ? (capSummary.samples / 1000000).toFixed(1) + 'MSa' : Math.round(capSummary.samples) + 'Sa';
+          wfgLaSetStatus('wfg-la-status-device', 'ok', '擷取完成：' + wfgLaFormatDuration(capSummary.durationSec) + ' / ' + sampleText);
+        } else {
+          wfgLaSetStatus('wfg-la-status-device', 'warn', '擷取未完成或未讀到 EP6 波形資料');
+        }
       } catch (probeErr) {
         logLines.push('');
         logLines.push('Protocol probe failed: ' + (probeErr && probeErr.message ? probeErr.message : probeErr));
@@ -17829,12 +17901,32 @@ async function wfgLaInitDiagnostic() {
 }
 window.wfgLaInitDiagnostic = wfgLaInitDiagnostic;
 
+async function wfgLaEnsureHardwareInitializedForCapture() {
+  var dev = await wfgLaGetReadyDevice();
+  if (wfgLaLooksPreFirmwareDevice(dev)) {
+    wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到不明/未初始化 USB 裝置，正在載入已匯入 zip');
+    var okPre = await wfgLaInitHardwareFromStoredFirmware();
+    if (!okPre) throw new Error('硬體尚未初始化：請確認 zip 檔案包已匯入，並在 USB 視窗選擇 77a1:01a2 裝置');
+    return true;
+  }
+  var protocolReady = await wfgLaCanReadProtocol(dev, null, 'capture preflight protocol check');
+  if (protocolReady) {
+    wfgLaSetStatus('wfg-la-status-device', 'ok', wfgLaDeviceDisplayName(dev));
+    return true;
+  }
+  wfgLaSetStatus('wfg-la-status-device', 'warn', 'USB 已連上但 protocol 未就緒，正在重新載入已匯入 zip');
+  var ok = await wfgLaInitHardwareFromStoredFirmware();
+  if (!ok) throw new Error('硬體初始化失敗：請重新插拔 USB 後再按一次單次/循環');
+  return true;
+}
+
 async function wfgLaStartCapture() {
   if (wfgLaCaptureRunning) return;
   wfgLaCaptureRunning = true;
   wfgLaLoopRequested = wfgLaGetAcqMode() === 'repeat';
   wfgLaSetCaptureState('running');
   try {
+    await wfgLaEnsureHardwareInitializedForCapture();
     do {
       await wfgLaProbeWebUsb(true);
       if (wfgLaLoopRequested) await wfgLaSleep(180);
