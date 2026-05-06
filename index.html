@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.81</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.83</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.81</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.83</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15188,6 +15188,8 @@ var wfgLaDeviceSeen = false;
 var wfgLaDeviceLabel = '';
 var wfgLaViewStart = 0;
 var wfgLaViewEnd = 1;
+var wfgLaTriggerLockActive = false;
+var wfgLaTriggerLockRange = 10e-6;
 var wfgLaCursorActive = [false, false, false, false, false, false, false, false, false, false];
 var wfgLaCursorMoving = [false, false, false, false, false, false, false, false, false, false];
 var wfgLaCursorPos = [null, null, null, null, null, null, null, null, null, null];
@@ -15893,6 +15895,7 @@ function wfgLaBindScopeEvents() {
       e.preventDefault();
       return;
     } else {
+      wfgLaTriggerLockActive = false;
       wfgLaPanning = { x: info.x, start: wfgLaViewStart, end: wfgLaViewEnd, range: wfgLaViewEnd - wfgLaViewStart };
       surface.classList.add('panning');
     }
@@ -15912,11 +15915,13 @@ function wfgLaBindScopeEvents() {
     if (!info) return;
     e.preventDefault();
     if (e.shiftKey) {
+      wfgLaTriggerLockActive = false;
       var range = wfgLaViewEnd - wfgLaViewStart;
       var dt = (e.deltaY || e.deltaX) / 900 * range;
       wfgLaSetViewRange(wfgLaViewStart + dt, wfgLaViewEnd + dt);
       wfgLaRenderScope();
     } else {
+      wfgLaTriggerLockActive = false;
       var factor = e.deltaY < 0 ? 0.8 : 1.25;
       wfgLaZoomAt(info.time, factor);
     }
@@ -15959,6 +15964,16 @@ function wfgLaSetViewRange(start, end) {
   start = Math.max(0, Math.min(duration - range, start));
   wfgLaViewStart = start;
   wfgLaViewEnd = start + range;
+}
+
+function wfgLaSetTriggerLockedView(triggerTime, range) {
+  var duration = wfgLaCaptureDuration();
+  range = Math.max(5e-9, Number(range) || 10e-6);
+  triggerTime = Math.max(0, Math.min(duration, Number(triggerTime) || 0));
+  wfgLaViewStart = triggerTime - range / 2;
+  wfgLaViewEnd = triggerTime + range / 2;
+  wfgLaTriggerLockActive = true;
+  wfgLaTriggerLockRange = range;
 }
 
 function wfgLaZoomAt(anchorTime, factor) {
@@ -16081,7 +16096,7 @@ function wfgLaRenderScope() {
   var cfg = wfgLaBuildConfig();
   var channels = cfg.enabledChannels.length ? cfg.enabledChannels : [cfg.trigger.enabled ? cfg.trigger.channel : 0];
   var duration = Math.max((wfgLaCapturedWaveform && wfgLaCapturedWaveform.durationSec) || cfg.durationSec || 1e-3, 1e-9);
-  if (wfgLaViewEnd <= wfgLaViewStart || wfgLaViewEnd > duration * 1.001) {
+  if (wfgLaViewEnd <= wfgLaViewStart || (!wfgLaTriggerLockActive && wfgLaViewEnd > duration * 1.001)) {
     wfgLaViewStart = 0;
     wfgLaViewEnd = duration;
   }
@@ -16369,8 +16384,10 @@ function wfgLaRenderMinimap(cfg, channels) {
   ctx.globalAlpha = 1;
   var vp = document.getElementById('wfg-la-minimap-viewport');
   if (vp) {
-    vp.style.left = (wfgLaViewStart / duration * 100) + '%';
-    vp.style.width = ((wfgLaViewEnd - wfgLaViewStart) / duration * 100) + '%';
+    var leftPct = Math.max(0, Math.min(100, wfgLaViewStart / duration * 100));
+    var rightPct = Math.max(0, Math.min(100, wfgLaViewEnd / duration * 100));
+    vp.style.left = leftPct + '%';
+    vp.style.width = Math.max(0.2, rightPct - leftPct) + '%';
   }
 }
 
@@ -16491,6 +16508,7 @@ function wfgLaZoom(factor) {
 window.wfgLaZoom = wfgLaZoom;
 
 function wfgLaFitAll() {
+  wfgLaTriggerLockActive = false;
   wfgLaViewStart = 0;
   wfgLaViewEnd = wfgLaCaptureDuration();
   wfgLaRenderScope();
@@ -16503,11 +16521,8 @@ function wfgLaCenterTrigger() {
   var triggerTime = wfgLaTriggerZeroTime(cfg, duration);
   var targetRange = Math.min(duration, 10e-6);
   if (!isFinite(targetRange) || targetRange <= 0) targetRange = duration;
-  if (triggerTime - targetRange / 2 < 0 || triggerTime + targetRange / 2 > duration) {
-    targetRange = Math.min(duration, Math.max(5e-9, 2 * Math.min(Math.max(triggerTime, 0), Math.max(duration - triggerTime, 0))));
-  }
   if (!isFinite(targetRange) || targetRange <= 0) targetRange = Math.min(duration, 10e-6);
-  wfgLaSetViewRange(triggerTime - targetRange / 2, triggerTime + targetRange / 2);
+  wfgLaSetTriggerLockedView(triggerTime, targetRange);
   wfgLaRenderScope();
 }
 window.wfgLaCenterTrigger = wfgLaCenterTrigger;
@@ -18076,7 +18091,9 @@ function wfgLaApplyCapturedWaveform(decoded) {
   }
   wfgLaUpdateChannelSignalIndicators();
   var newDuration = Math.max(decoded.durationSec || 1e-9, 1e-9);
-  if (oldWasZoomed) {
+  if (wfgLaTriggerLockActive) {
+    wfgLaSetTriggerLockedView(wfgLaTriggerZeroTime(wfgLaBuildConfig(), newDuration), wfgLaTriggerLockRange || oldRange || 10e-6);
+  } else if (oldWasZoomed) {
     var center = Math.max(0, Math.min(newDuration, (oldStart + oldEnd) / 2));
     var newRange = Math.min(newDuration, oldRange);
     wfgLaSetViewRange(center - newRange / 2, center + newRange / 2);
@@ -18149,6 +18166,10 @@ async function wfgLaSafeCaptureProbe(dev) {
   var pollIntervalMs = cfg.durationSec > 5 ? 250 : 50;
   var pollCount = Math.ceil(pollLimitMs / pollIntervalMs);
   var manualStopSec = 0;
+  var triggerPercent = triggerInvolved ? Math.max(0, Math.min(100, Number(cfg.trigger.positionPercent) || 0)) : 0;
+  var preTargetMs = Math.max(1, (cfg.durationSec || 0) * 1000 * triggerPercent / 100);
+  var postTargetMs = Math.max(1, (cfg.durationSec || 0) * 1000 * (100 - triggerPercent) / 100);
+  var postTriggerStartedAtMs = 0;
   var markManualStop = async function() {
     await wfgLaSetRunMode(dev, 0x00);
     manualStopSec = Math.max(1e-6, wfgLaDisplayDurationOverrideSec || ((Date.now() - wfgLaCaptureStartedAtMs) / 1000));
@@ -18168,10 +18189,30 @@ async function wfgLaSafeCaptureProbe(dev) {
     }
     finalState = await wfgLaReadRunState(dev);
     var elapsedMs = i * pollIntervalMs;
-    var targetMs = Math.max(250, (cfg.durationSec || 0) * 1000);
-    var progress = Math.min(96, Math.max(2, elapsedMs / targetMs * 96));
-    wfgLaSetAcqProgress(progress, (cfg.acquisitionMode === 'repeat' ? '循環擷取' : '單次擷取') + '進行中', 'active');
-    lines.push('  poll ' + i + ': 0x' + finalState.toString(16).padStart(4, '0') + ' ' + wfgLaRunStateLabel(finalState));
+    var stateLabel = wfgLaRunStateLabel(finalState);
+    var progress = 2;
+    var progressText = (cfg.acquisitionMode === 'repeat' ? '循環擷取' : '單次擷取') + '進行中';
+    if (triggerInvolved) {
+      if (stateLabel === 'pre-trigger sampling') {
+        progress = Math.min(triggerPercent, Math.max(2, elapsedMs / preTargetMs * Math.max(triggerPercent, 2)));
+        progressText = 'Pre-trigger buffer：' + Math.round(progress) + '%';
+      } else if (stateLabel === 'waiting trigger') {
+        progress = Math.max(2, triggerPercent);
+        progressText = '等待觸發：' + Math.round(triggerPercent) + '%';
+      } else if (stateLabel === 'post-trigger sampling') {
+        if (!postTriggerStartedAtMs) postTriggerStartedAtMs = elapsedMs;
+        var postElapsed = Math.max(0, elapsedMs - postTriggerStartedAtMs);
+        progress = Math.min(99, triggerPercent + postElapsed / postTargetMs * Math.max(1, 100 - triggerPercent));
+        progressText = 'Post-trigger buffer：' + Math.round(progress) + '%';
+      } else {
+        progress = 99;
+      }
+    } else {
+      var targetMs = Math.max(250, (cfg.durationSec || 0) * 1000);
+      progress = Math.min(96, Math.max(2, elapsedMs / targetMs * 96));
+    }
+    wfgLaSetAcqProgress(progress, progressText, 'active');
+    lines.push('  poll ' + i + ': 0x' + finalState.toString(16).padStart(4, '0') + ' ' + stateLabel + ' progress=' + progress.toFixed(1) + '%');
     if (finalState & 0x0001) break;
     await wfgLaSleep(pollIntervalMs);
   }
