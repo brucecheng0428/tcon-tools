@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.95</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.96</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.95</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.96</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15231,6 +15231,7 @@ var wfgLaReconnectUserCancelled = false;
 var wfgLaIoSelectLockUntil = 0;
 var wfgLaManualStopRequested = false;
 var wfgLaCaptureStartedAtMs = 0;
+var wfgLaCurrentCaptureStartedAtMs = 0;
 var wfgLaDisplayDurationOverrideSec = 0;
 var wfgLaTriggerEnabled = true;
 var WFG_LA_PACKAGE_URL = 'https://218.161.24.173:5001/d/s/188EhAhjqJZwkZgaxNjMy89pxroSous8/DYvcvXiNKZb-WiD_oY2_qLtpr8fcUiTr-57iA8IjtLA0';
@@ -16019,6 +16020,17 @@ function wfgLaZoomAt(anchorTime, factor) {
   var newStart = anchorTime - range * anchorFrac;
   wfgLaSetViewRange(newStart, newStart + range);
   wfgLaRenderScope();
+}
+
+function wfgLaManualStopDisplayDuration() {
+  var cfg = wfgLaBuildConfig();
+  var startedAt = wfgLaCurrentCaptureStartedAtMs || wfgLaCaptureStartedAtMs || Date.now();
+  var elapsedSec = Math.max(1e-6, (Date.now() - startedAt) / 1000);
+  var configuredSec = Math.max(Number(cfg.durationSec) || 0, 0);
+  var waveformSec = Math.max(Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.durationSec) || 0, 0);
+  var capSec = configuredSec || waveformSec || elapsedSec;
+  if (waveformSec > 0 && configuredSec > 0) capSec = Math.min(configuredSec, waveformSec);
+  return Math.max(1e-6, Math.min(elapsedSec, capSec));
 }
 
 function wfgLaFindMovingCursor() {
@@ -18293,7 +18305,7 @@ async function wfgLaSafeCaptureProbe(dev) {
   var postTriggerStartedAtMs = 0;
   var markManualStop = async function() {
     await wfgLaSetRunMode(dev, 0x00);
-    manualStopSec = Math.max(1e-6, wfgLaDisplayDurationOverrideSec || ((Date.now() - wfgLaCaptureStartedAtMs) / 1000));
+    manualStopSec = Math.max(1e-6, wfgLaDisplayDurationOverrideSec || wfgLaManualStopDisplayDuration());
     wfgLaDisplayDurationOverrideSec = manualStopSec;
     if (wfgLaCapturedWaveform) wfgLaCapturedWaveform.durationSec = manualStopSec;
     wfgLaSetViewRange(0, manualStopSec);
@@ -18811,6 +18823,7 @@ async function wfgLaStartCapture() {
   try {
     await wfgLaEnsureHardwareInitializedForCapture();
     do {
+      wfgLaCurrentCaptureStartedAtMs = Date.now();
       wfgLaSetAcqProgress(0, wfgLaLoopRequested ? '循環擷取準備中' : '單次擷取準備中', 'active');
       await wfgLaRunOneCaptureWithRecovery();
       if (wfgLaLoopRequested) await wfgLaSleep(180);
@@ -18831,7 +18844,7 @@ window.wfgLaStartCapture = wfgLaStartCapture;
 async function wfgLaStopCapture() {
   var wasRunning = !!wfgLaCaptureRunning;
   if (wasRunning) {
-    var elapsedSec = Math.max(1e-6, (Date.now() - (wfgLaCaptureStartedAtMs || Date.now())) / 1000);
+    var elapsedSec = wfgLaManualStopDisplayDuration();
     wfgLaManualStopRequested = true;
     wfgLaDisplayDurationOverrideSec = elapsedSec;
     if (wfgLaCapturedWaveform) wfgLaCapturedWaveform.durationSec = elapsedSec;
