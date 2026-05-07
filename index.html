@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.99</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.100</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.99</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.100</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15210,6 +15210,7 @@ var wfgLaDemoEdges = {};
 var wfgLaCapturedWaveform = null;
 var wfgLaCaptureRunning = false;
 var wfgLaLoopRequested = false;
+var wfgLaCaptureSessionToken = 0;
 var wfgLaChannelNames = [];
 var wfgLaChannelDescriptions = [];
 var wfgLaChannelOrder = [];
@@ -16718,7 +16719,11 @@ function wfgLaInstallUsbWatchers() {
     } else if (wfgLaHardwareReady) {
       wfgLaReconnectRestoreReady = true;
     }
-    wfgLaForgetDevice('USB 已拔除；重新插入後若呈現不明裝置，請直接按單次/循環讓網頁載入檔案包初始化');
+    wfgLaCaptureSessionToken++;
+    wfgLaManualStopRequested = true;
+    wfgLaCaptureRunning = false;
+    wfgLaLoopRequested = false;
+    wfgLaForgetDevice('USB 已拔除；重新插入後會自動搜尋並恢復擷取');
     wfgLaSetStatus('wfg-la-status-bridge', 'warn', 'USB disconnected');
     wfgLaSetCaptureState('stopped');
     wfgLaDisconnectedWatch = true;
@@ -16738,7 +16743,7 @@ function wfgLaStartReconnectAutoInit(eventDevice) {
   wfgLaReconnectUserCancelled = false;
   var token = ++wfgLaReconnectAttemptToken;
   var started = Date.now();
-  var maxWaitMs = eventDevice ? 12000 : 90000;
+  var maxWaitMs = 120000;
   var attempts = 0;
   wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到 USB 重新連接，正在自動初始化');
   wfgLaShowReconnectProgress('偵測到 USB 重新連接，正在自動初始化硬體...');
@@ -16774,8 +16779,9 @@ function wfgLaStartReconnectAutoInit(eventDevice) {
       wfgLaOpenSecondStageGuide(wfgLaPendingCaptureMode || '');
       return;
     }
-    wfgLaShowReconnectProgress('正在等待 Windows 完成 USB re-enumeration... (' + attempts + ')');
-    wfgLaUsbReconnectTimer = setTimeout(step, attempts < 5 ? 700 : 1200);
+    wfgLaShowReconnectProgress('正在等待 USB re-enumeration / WebUSB 裝置授權... (' + attempts + ')');
+    var delay = attempts < 12 ? 250 : (attempts < 35 ? 600 : 1000);
+    wfgLaUsbReconnectTimer = setTimeout(step, delay);
   }
   if (wfgLaUsbReconnectTimer) clearTimeout(wfgLaUsbReconnectTimer);
   wfgLaUsbReconnectTimer = setTimeout(step, 500);
@@ -18858,6 +18864,7 @@ async function wfgLaRunOneCaptureWithRecovery() {
 
 async function wfgLaStartCapture() {
   if (wfgLaCaptureRunning) return;
+  var sessionToken = ++wfgLaCaptureSessionToken;
   wfgLaCaptureRunning = true;
   wfgLaLoopRequested = wfgLaGetAcqMode() === 'repeat';
   wfgLaManualStopRequested = false;
@@ -18868,20 +18875,24 @@ async function wfgLaStartCapture() {
   try {
     await wfgLaEnsureHardwareInitializedForCapture();
     do {
+      if (sessionToken !== wfgLaCaptureSessionToken) break;
       wfgLaCurrentCaptureStartedAtMs = Date.now();
       wfgLaSetAcqProgress(0, wfgLaLoopRequested ? '循環擷取準備中' : '單次擷取準備中', 'active');
       await wfgLaRunOneCaptureWithRecovery();
       if (wfgLaLoopRequested) await wfgLaSleep(180);
-    } while (wfgLaLoopRequested);
+    } while (wfgLaLoopRequested && sessionToken === wfgLaCaptureSessionToken);
   } catch (e) {
+    if (sessionToken !== wfgLaCaptureSessionToken) return;
     await wfgLaRecoverUsbDevice(wfgLaUsbDevice);
     var state = e && (e.code === 'WFG_LA_PACKAGE_MISSING' || e.code === 'WFG_LA_REENUM_PERMISSION_LOST') ? 'warn' : (wfgLaUsbDevice ? 'warn' : 'err');
     wfgLaSetStatus('wfg-la-status-device', state, (e && e.message ? e.message : 'WebUSB claim failed') + (state === 'err' ? '；已重置連線，可重試' : ''));
   } finally {
-    wfgLaCaptureRunning = false;
-    if (!wfgLaReconnectResumeMode) wfgLaPendingCaptureMode = '';
-    wfgLaSetCaptureState('stopped');
-    wfgLaManualStopRequested = false;
+    if (sessionToken === wfgLaCaptureSessionToken) {
+      wfgLaCaptureRunning = false;
+      if (!wfgLaReconnectResumeMode) wfgLaPendingCaptureMode = '';
+      wfgLaSetCaptureState('stopped');
+      wfgLaManualStopRequested = false;
+    }
   }
 }
 window.wfgLaStartCapture = wfgLaStartCapture;
@@ -18889,6 +18900,7 @@ window.wfgLaStartCapture = wfgLaStartCapture;
 async function wfgLaStopCapture() {
   var wasRunning = !!wfgLaCaptureRunning;
   if (wasRunning) {
+    wfgLaCaptureSessionToken++;
     var elapsedSec = wfgLaManualStopDisplayDuration();
     wfgLaManualStopRequested = true;
     wfgLaApplyManualStopDisplay(elapsedSec);
