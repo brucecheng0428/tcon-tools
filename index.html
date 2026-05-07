@@ -1964,7 +1964,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.111</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.112</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3001,7 +3001,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.111</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.112</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -18802,14 +18802,19 @@ async function wfgLaSafeCaptureProbe(dev) {
     } else if (partialDownload && decoded.durationSec < expectedDuration) {
       decoded.partialDownload = true;
       decoded.downloadedDurationSec = decoded.durationSec;
+      decoded.fullCaptureDurationSec = expectedDuration;
+      var downloadedStartSec = 0;
       if (cfg.trigger.enabled && relativeTriggerPackets > 0) {
         decoded.captureStartSec = null;
-        lines.push('Partial EP6 window kept trigger-relative and display is limited to downloaded data; downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' fullCapture=' + wfgLaFormatDuration(expectedDuration));
+        decoded.durationSec = expectedDuration;
+        lines.push('Partial EP6 window kept trigger-relative; display duration uses full selected capture window. downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' fullCapture=' + wfgLaFormatDuration(expectedDuration));
       } else {
-        decoded.captureStartSec = null;
-        lines.push('Partial EP6 tail window display is limited to downloaded data; downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' fullCapture=' + wfgLaFormatDuration(expectedDuration));
+        downloadedStartSec = Math.max(0, expectedDuration - decoded.downloadedDurationSec);
+        decoded.captureStartSec = downloadedStartSec;
+        decoded.durationSec = expectedDuration;
+        wfgLaShiftCaptureEdges(decoded, downloadedStartSec);
+        lines.push('Partial EP6 tail window placed at full selected capture end; downloadedWindow=' + wfgLaFormatDuration(decoded.downloadedDurationSec) + ' start=' + wfgLaFormatDuration(downloadedStartSec) + ' fullCapture=' + wfgLaFormatDuration(expectedDuration));
       }
-      decoded.fullCaptureDurationSec = expectedDuration;
     } else if (decoded.durationSec > expectedDuration + 0.5 / Math.max(1, sampleCfg.effectiveRate)) {
       var overrunDuration = decoded.durationSec;
       wfgLaTrimDecodedCapture(decoded, expectedDuration, sampleCfg.limitSamples);
@@ -18818,7 +18823,8 @@ async function wfgLaSafeCaptureProbe(dev) {
     wfgLaAssignTriggerZero(decoded, cfg, decoded.triggerPacketTimeSec);
     var activeChannels = wfgLaApplyCapturedWaveform(decoded);
     lines.captureSummary = {
-      samples: decoded.totalSamples,
+      samples: decoded.partialDownload ? sampleCfg.limitSamples : decoded.totalSamples,
+      downloadedSamples: decoded.partialDownload ? decoded.totalSamples : null,
       durationSec: decoded.durationSec,
       activeChannels: activeChannels.slice(),
       partialDownload: !!decoded.partialDownload,
