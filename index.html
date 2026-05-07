@@ -1964,7 +1964,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.113</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.114</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3001,7 +3001,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.113</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.114</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15678,6 +15678,31 @@ function wfgLaBuildConfig() {
   };
 }
 
+function wfgLaHardwareCaptureChannels(cfg) {
+  cfg = cfg || wfgLaBuildConfig();
+  var selected = (cfg.enabledChannels && cfg.enabledChannels.length ? cfg.enabledChannels : [cfg.trigger && cfg.trigger.channel != null ? cfg.trigger.channel : 0]).slice();
+  var selectedMap = {};
+  selected.forEach(function(ch) { selectedMap[ch] = true; });
+  if (selected.length <= 8 || Number(cfg.sampleDepth) <= 1000000000) return selected;
+  var picked = {};
+  function add(ch) {
+    ch = Number(ch);
+    if (isFinite(ch) && ch >= 0 && ch < 16 && selectedMap[ch]) picked[ch] = true;
+  }
+  if (cfg.trigger && cfg.trigger.enabled) add(cfg.trigger.channel);
+  for (var i = 0; i < wfgLaLastEdgeCounts.length; i++) {
+    if (wfgLaLastEdgeCounts[i] > 0) add(i);
+  }
+  add(selected[0]);
+  add(selected[1]);
+  var hardware = Object.keys(picked).map(Number).sort(function(a, b) { return a - b; });
+  return hardware.length ? hardware : selected;
+}
+
+function wfgLaChannelListLabel(channels) {
+  return (channels || []).map(function(ch) { return 'CH' + ch; }).join(', ');
+}
+
 function wfgLaFormatDuration(sec) {
   if (!isFinite(sec)) return '--';
   if (sec >= 1) return sec.toFixed(sec >= 10 ? 1 : 3) + ' s';
@@ -18344,7 +18369,8 @@ async function wfgLaSetThresholdVoltage(dev, voltage) {
 async function wfgLaSetTriggerConfig(dev, cfg, options) {
   options = options || {};
   var channelMask = 0;
-  for (var i = 0; i < cfg.enabledChannels.length; i++) channelMask |= (1 << cfg.enabledChannels[i]);
+  var hardwareChannels = cfg.hardwareChannels && cfg.hardwareChannels.length ? cfg.hardwareChannels : cfg.enabledChannels;
+  for (var i = 0; i < hardwareChannels.length; i++) channelMask |= (1 << hardwareChannels[i]);
   if (!channelMask) channelMask = 0xffff;
   var triggerDisabled = options.disableTrigger || !cfg.trigger.enabled;
   var trigMask = triggerDisabled ? 0 : (1 << cfg.trigger.channel);
@@ -18653,6 +18679,7 @@ function wfgLaEdgeTimeSummary(decoded, channels) {
 
 async function wfgLaSafeCaptureProbe(dev) {
   var cfg = wfgLaBuildConfig();
+  cfg.hardwareChannels = wfgLaHardwareCaptureChannels(cfg);
   var noTriggerProbe = false;
   var triggerInvolved = !noTriggerProbe && !!cfg.trigger.enabled;
   var probeMaxSamples = Math.max(1024, Number(cfg.sampleDepth) || 1000000);
@@ -18661,6 +18688,11 @@ async function wfgLaSafeCaptureProbe(dev) {
   lines.push('LA2016 capture');
   lines.push('Sample depth follows the selected UI value; EP6 download is capped for browser memory safety.');
   lines.push('Capture window target=' + wfgLaFormatDuration(cfg.durationSec) + ' from selected sampling settings.');
+  if (cfg.hardwareChannels.length !== cfg.enabledChannels.length) {
+    lines.push('Hardware channel mask optimized for deep compressed capture: ' + wfgLaChannelListLabel(cfg.hardwareChannels) + ' (visible channels remain ' + wfgLaChannelListLabel(cfg.enabledChannels) + ')');
+  } else {
+    lines.push('Hardware channel mask: ' + wfgLaChannelListLabel(cfg.hardwareChannels));
+  }
 
   await wfgLaSetRunMode(dev, 0x00);
   lines.push('RUNMODE_HALT sent.');
@@ -18758,6 +18790,7 @@ async function wfgLaSafeCaptureProbe(dev) {
       samples: 0,
       durationSec: cfg.durationSec,
       activeChannels: cfg.enabledChannels.slice(),
+      hardwareChannels: cfg.hardwareChannels.slice(),
       triggerTimeout: !!cfg.trigger.enabled
     };
     lines.push((cfg.trigger.enabled ? 'Trigger timeout; ' : 'Capture timeout; ') + 'RUNMODE_HALT sent. No recovery/re-init will be attempted for this timeout.');
@@ -18854,6 +18887,7 @@ async function wfgLaSafeCaptureProbe(dev) {
       downloadedSamples: decoded.partialDownload ? decoded.totalSamples : null,
       durationSec: decoded.durationSec,
       activeChannels: activeChannels.slice(),
+      hardwareChannels: cfg.hardwareChannels.slice(),
       partialDownload: !!decoded.partialDownload,
       manualStop: !!decoded.manualStop
     };
@@ -19090,10 +19124,11 @@ async function wfgLaProbeWebUsb(tryClaim) {
         var capSummary = capLines.captureSummary || null;
         if (capSummary) {
           var sampleText = capSummary.samples >= 1000000 ? (capSummary.samples / 1000000).toFixed(1) + 'MSa' : Math.round(capSummary.samples) + 'Sa';
+          var hardwareText = capSummary.hardwareChannels && capSummary.hardwareChannels.length ? ' / 擷取 ' + wfgLaChannelListLabel(capSummary.hardwareChannels) : '';
           if (capSummary.triggerTimeout) {
             wfgLaSetStatus('wfg-la-status-device', 'warn', '等待觸發逾時：' + wfgLaFormatDuration(capSummary.durationSec) + '，已停止但不重新初始化');
           } else {
-            wfgLaSetStatus('wfg-la-status-device', 'ok', (capSummary.manualStop ? '手動停止：' : '擷取完成：') + wfgLaFormatDuration(capSummary.durationSec) + ' / ' + sampleText);
+            wfgLaSetStatus('wfg-la-status-device', 'ok', (capSummary.manualStop ? '手動停止：' : '擷取完成：') + wfgLaFormatDuration(capSummary.durationSec) + ' / ' + sampleText + hardwareText);
           }
           captureOk = true;
         } else {
