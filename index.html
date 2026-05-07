@@ -1970,7 +1970,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.132</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.133</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3007,7 +3007,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.132</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.133</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3931,6 +3931,7 @@ const I18N = {
   'wfg.laRepeatModeShort': { 'zh-TW': '循環', 'en': 'repeat', 'zh-CN': '循环' },
   'wfg.laSwitchingMode': { 'zh-TW': '切換擷取模式中', 'en': 'Switching capture mode', 'zh-CN': '切换采集模式中' },
   'wfg.laReadingWaveData': { 'zh-TW': '讀取波形資料', 'en': 'Reading waveform data', 'zh-CN': '读取波形数据' },
+  'wfg.laStoppedKeepLast': { 'zh-TW': '已停止：保留最後完整擷取', 'en': 'Stopped: kept last complete capture', 'zh-CN': '已停止：保留最后完整采集' },
   'wfg.laImportedKvdat': { 'zh-TW': '已匯入 kvdat：{name}', 'en': 'Imported kvdat: {name}', 'zh-CN': '已导入 kvdat：{name}' },
   'wfg.laExportNoData': { 'zh-TW': '目前沒有可匯出的 LA 量測資料', 'en': 'No LA measurement data to export yet', 'zh-CN': '目前没有可导出的 LA 量测数据' },
   'wfg.frameParams':    { 'zh-TW': '📐 Frame 參數', 'en': '📐 Frame Parameters', 'zh-CN': '📐 Frame 参数' },
@@ -15302,6 +15303,7 @@ var wfgLaDisconnectedWatch = false;
 var wfgLaReconnectUserCancelled = false;
 var wfgLaIoSelectLockUntil = 0;
 var wfgLaManualStopRequested = false;
+var wfgLaManualStopKeepLastComplete = false;
 var wfgLaCaptureStartedAtMs = 0;
 var wfgLaCurrentCaptureStartedAtMs = 0;
 var wfgLaDisplayDurationOverrideSec = 0;
@@ -19169,6 +19171,13 @@ async function wfgLaSafeCaptureProbe(dev) {
   var markManualStop = async function() {
     await wfgLaSetRunMode(dev, 0x00);
     manualStopSec = Math.max(1e-6, wfgLaDisplayDurationOverrideSec || wfgLaManualStopDisplayDuration());
+    if (wfgLaManualStopKeepLastComplete) {
+      wfgLaSetAcqProgress(100, t('wfg.laStoppedKeepLast'), 'done');
+      lines.manualStop = true;
+      lines.keepLastComplete = true;
+      lines.push('Manual stop requested during repeat capture; RUNMODE_HALT sent and last complete capture is preserved.');
+      return;
+    }
     wfgLaApplyManualStopDisplay(manualStopSec);
     wfgLaRenderScope();
     wfgLaSetAcqProgress(100, '手動停止：' + wfgLaFormatDuration(manualStopSec), 'done');
@@ -19235,6 +19244,24 @@ async function wfgLaSafeCaptureProbe(dev) {
   }
   if (wfgLaManualStopRequested) {
     if (!manualStopSec) await markManualStop();
+  }
+  if (wfgLaManualStopRequested && wfgLaManualStopKeepLastComplete) {
+    var preservedDuration = wfgLaCaptureDuration();
+    var preservedActive = [];
+    var preservedCounts = (wfgLaCapturedWaveform && wfgLaCapturedWaveform.edgeCounts) || [];
+    for (var pc = 0; pc < preservedCounts.length; pc++) {
+      if (preservedCounts[pc] > 0) preservedActive.push(pc);
+    }
+    lines.captureSummary = {
+      samples: Math.max(0, Math.round(preservedDuration * Math.max(1, sampleCfg.effectiveRate))),
+      durationSec: preservedDuration,
+      activeChannels: preservedActive.length ? preservedActive : cfg.enabledChannels.slice(),
+      hardwareChannels: cfg.hardwareChannels.slice(),
+      manualStop: true,
+      keepLastComplete: true
+    };
+    lines.push('EP6 download skipped for interrupted repeat cycle; displayed waveform was not replaced by partial data.');
+    return lines;
   }
   if (!wfgLaManualStopRequested) {
     wfgLaSetAcqProgress(97, '讀取波形資料', 'active');
@@ -19705,6 +19732,7 @@ async function wfgLaStartCapture() {
   wfgLaCaptureRunning = true;
   wfgLaLoopRequested = wfgLaGetAcqMode() === 'repeat';
   wfgLaManualStopRequested = false;
+  wfgLaManualStopKeepLastComplete = false;
   wfgLaCaptureStartedAtMs = Date.now();
   wfgLaDisplayDurationOverrideSec = 0;
   if (!wfgLaReconnectResumeMode) wfgLaPendingCaptureMode = wfgLaLoopRequested ? 'repeat' : 'single';
@@ -19734,6 +19762,7 @@ async function wfgLaStartCapture() {
       if (!wfgLaReconnectResumeMode && !queuedMode) wfgLaPendingCaptureMode = '';
       wfgLaSetCaptureState(queuedMode ? 'running' : 'stopped');
       wfgLaManualStopRequested = false;
+      wfgLaManualStopKeepLastComplete = false;
       if (queuedMode) {
         wfgLaSetAcqMode(queuedMode);
         wfgLaSetAcqProgress(0, (queuedMode === 'repeat' ? '循環擷取' : '單次擷取') + '準備中', 'active');
@@ -19750,9 +19779,14 @@ async function wfgLaStopCapture() {
     wfgLaCaptureSessionToken++;
     var elapsedSec = wfgLaManualStopDisplayDuration();
     wfgLaManualStopRequested = true;
-    wfgLaApplyManualStopDisplay(elapsedSec);
-    wfgLaSetAcqProgress(100, '手動停止：' + wfgLaFormatDuration(elapsedSec), 'done');
-    wfgLaRenderScope();
+    wfgLaManualStopKeepLastComplete = !!wfgLaLoopRequested;
+    if (wfgLaManualStopKeepLastComplete) {
+      wfgLaSetAcqProgress(100, t('wfg.laStoppedKeepLast'), 'done');
+    } else {
+      wfgLaApplyManualStopDisplay(elapsedSec);
+      wfgLaSetAcqProgress(100, '手動停止：' + wfgLaFormatDuration(elapsedSec), 'done');
+      wfgLaRenderScope();
+    }
   }
   wfgLaLoopRequested = false;
   wfgLaQueuedCaptureMode = '';
