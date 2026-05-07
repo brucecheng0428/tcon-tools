@@ -1960,7 +1960,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.108</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.109</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2997,7 +2997,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.108</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.109</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3406,8 +3406,8 @@
                   <option value="50000">50 KHz</option>
                   <option value="10000">10 KHz</option>
                 </select>
-                <button class="wfg-la-run-btn play" id="wfg-la-single-btn" onclick="wfgLaSetAcqMode('single'); wfgLaStartCapture()" title="Start single sampling">▶</button>
-                <button class="wfg-la-run-btn loop" id="wfg-la-repeat-btn" onclick="wfgLaSetAcqMode('repeat'); wfgLaStartCapture()" title="Auto restart sampling">↻</button>
+                <button class="wfg-la-run-btn play" id="wfg-la-single-btn" onclick="wfgLaRequestCaptureMode('single')" title="Start single sampling">▶</button>
+                <button class="wfg-la-run-btn loop" id="wfg-la-repeat-btn" onclick="wfgLaRequestCaptureMode('repeat')" title="Auto restart sampling">↻</button>
                 <button class="wfg-la-run-btn stop" id="wfg-la-stop-btn" onclick="wfgLaStopCapture()" title="Stop sampling">■</button>
                 <span style="width:1px;height:20px;background:#222;margin:0 2px;flex-shrink:0"></span>
                 <button onclick="document.getElementById('wfg-kvdat-input').click()" title="匯入 .kvdat">📂</button>
@@ -15216,6 +15216,7 @@ var wfgLaDemoEdges = {};
 var wfgLaCapturedWaveform = null;
 var wfgLaCaptureRunning = false;
 var wfgLaLoopRequested = false;
+var wfgLaQueuedCaptureMode = '';
 var wfgLaCaptureSessionToken = 0;
 var wfgLaChannelNames = [];
 var wfgLaChannelDescriptions = [];
@@ -15545,6 +15546,28 @@ function wfgLaSetAcqMode(mode) {
   wfgLaUpdateSummary();
 }
 window.wfgLaSetAcqMode = wfgLaSetAcqMode;
+
+function wfgLaRequestCaptureMode(mode) {
+  mode = mode === 'repeat' ? 'repeat' : 'single';
+  wfgLaSetAcqMode(mode);
+  if (!wfgLaCaptureRunning) {
+    wfgLaQueuedCaptureMode = '';
+    wfgLaStartCapture();
+    return;
+  }
+  var currentMode = wfgLaLoopRequested ? 'repeat' : 'single';
+  if (currentMode === mode) return;
+  wfgLaQueuedCaptureMode = mode;
+  wfgLaLoopRequested = false;
+  wfgLaManualStopRequested = true;
+  wfgLaPendingCaptureMode = mode;
+  wfgLaSetStatus('wfg-la-status-bridge', 'warn', '正在切換為' + (mode === 'repeat' ? '循環' : '單次') + '擷取');
+  wfgLaSetAcqProgress(100, '切換擷取模式中', 'active');
+  if (wfgLaUsbDevice && wfgLaUsbDevice.opened) {
+    wfgLaSetRunMode(wfgLaUsbDevice, 0x00).catch(function() {});
+  }
+}
+window.wfgLaRequestCaptureMode = wfgLaRequestCaptureMode;
 
 function wfgLaMirrorSelect(fromId, toId) {
   var from = document.getElementById(fromId);
@@ -19130,10 +19153,17 @@ async function wfgLaStartCapture() {
     wfgLaSetStatus('wfg-la-status-device', state, (e && e.message ? e.message : 'WebUSB claim failed') + (state === 'err' ? '；已重置連線，可重試' : ''));
   } finally {
     if (sessionToken === wfgLaCaptureSessionToken) {
+      var queuedMode = wfgLaQueuedCaptureMode;
       wfgLaCaptureRunning = false;
-      if (!wfgLaReconnectResumeMode) wfgLaPendingCaptureMode = '';
-      wfgLaSetCaptureState('stopped');
+      wfgLaQueuedCaptureMode = '';
+      if (!wfgLaReconnectResumeMode && !queuedMode) wfgLaPendingCaptureMode = '';
+      wfgLaSetCaptureState(queuedMode ? 'running' : 'stopped');
       wfgLaManualStopRequested = false;
+      if (queuedMode) {
+        wfgLaSetAcqMode(queuedMode);
+        wfgLaSetAcqProgress(0, (queuedMode === 'repeat' ? '循環擷取' : '單次擷取') + '準備中', 'active');
+        setTimeout(function() { wfgLaStartCapture(); }, 80);
+      }
     }
   }
 }
@@ -19150,6 +19180,7 @@ async function wfgLaStopCapture() {
     wfgLaRenderScope();
   }
   wfgLaLoopRequested = false;
+  wfgLaQueuedCaptureMode = '';
   wfgLaReconnectResumeMode = '';
   wfgLaReconnectRestoreReady = false;
   wfgLaPendingCaptureMode = '';
