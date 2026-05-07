@@ -1956,7 +1956,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.105</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.106</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2993,7 +2993,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.105</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.106</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15192,11 +15192,13 @@ var wfgLaViewEnd = 1;
 var wfgLaCursorActive = [false, false, false, false, false, false, false, false, false, false];
 var wfgLaCursorMoving = [false, false, false, false, false, false, false, false, false, false];
 var wfgLaCursorPos = [null, null, null, null, null, null, null, null, null, null];
+var wfgLaCursorAnchors = [null, null, null, null, null, null, null, null, null, null];
 var wfgLaCursorKeys = { '1':0, '2':1, '3':2, '4':3, '5':4, '6':5, '7':6, '8':7, '9':8, '0':9 };
 var wfgLaCursorNames = ['A1','A2','B1','B2','C1','C2','D1','D2','E1','E2'];
 var wfgLaCursorColors = ['#facc15','#facc15','#22d3ee','#22d3ee','#4ade80','#4ade80','#fb923c','#fb923c','#c084fc','#c084fc'];
 var wfgLaCursorSelected = -1;
 var wfgLaCursorMouseTime = null;
+var wfgLaCursorMouseAnchor = null;
 var wfgLaCursorLabels = [];
 var wfgLaCursorAnimRaf = 0;
 var wfgLaSuppressNextClick = false;
@@ -15886,11 +15888,13 @@ function wfgLaBindScopeEvents() {
     var info = wfgLaGetMouseInfo(e);
     if (!info) return;
     wfgLaHover = info;
-    wfgLaCursorMouseTime = wfgLaSnapTime(info.time, info.x);
+    var cursorSnap = wfgLaSnapCursorInfo(info);
+    wfgLaCursorMouseTime = cursorSnap.time;
+    wfgLaCursorMouseAnchor = wfgLaCloneCursorAnchor(cursorSnap.anchor);
     var hasMoving = false;
     for (var mi = 0; mi < wfgLaCursorMoving.length; mi++) {
       if (wfgLaCursorMoving[mi]) {
-        wfgLaCursorPos[mi] = wfgLaCursorMouseTime;
+        wfgLaSetCursorFromSnap(mi, cursorSnap);
         hasMoving = true;
       }
     }
@@ -15916,7 +15920,7 @@ function wfgLaBindScopeEvents() {
     surface.focus();
     var moving = wfgLaFindMovingCursor();
     if (moving >= 0) {
-      wfgLaCursorPos[moving] = wfgLaSnapTime(info.time, info.x);
+      wfgLaSetCursorFromSnap(moving, wfgLaSnapCursorInfo(info));
       wfgLaCursorMoving[moving] = false;
       wfgLaCursorStopAnim();
       wfgLaUpdateCursorButtons();
@@ -15977,7 +15981,7 @@ function wfgLaBindScopeEvents() {
     if (!info) return;
     var moving = wfgLaFindMovingCursor();
     if (moving < 0) return;
-    wfgLaCursorPos[moving] = wfgLaSnapTime(info.time, info.x);
+    wfgLaSetCursorFromSnap(moving, wfgLaSnapCursorInfo(info));
     wfgLaCursorMoving[moving] = false;
     wfgLaCursorStopAnim();
     wfgLaUpdateCursorButtons();
@@ -16093,6 +16097,107 @@ function wfgLaFindNearestActiveCursor(time) {
   return best;
 }
 
+function wfgLaCloneCursorAnchor(anchor) {
+  return anchor ? {
+    ch: anchor.ch,
+    edgeIndex: anchor.edgeIndex,
+    edgeType: anchor.edgeType,
+    relTime: anchor.relTime
+  } : null;
+}
+
+function wfgLaEdgeTypeForIndex(initialLevel, edgeIndex) {
+  var before = ((initialLevel ? 1 : 0) + (edgeIndex & 1)) & 1;
+  return before ? 'falling' : 'rising';
+}
+
+function wfgLaCursorAnchorLabel(anchor) {
+  if (!anchor) return '';
+  return ' · CH' + anchor.ch + ' ' + (anchor.edgeType === 'rising' ? '↑' : '↓');
+}
+
+function wfgLaFindEdgeSnap(info) {
+  if (!wfgLaGeom || !info) return null;
+  var cfg = wfgLaBuildConfig();
+  var duration = wfgLaCaptureDuration();
+  var triggerZero = wfgLaTriggerZeroTime(cfg, duration);
+  var tRange = Math.max(wfgLaGeom.tEnd - wfgLaGeom.tStart, 1e-12);
+  var thresholdPx = 10;
+  var channels = [];
+  if (info.channel >= 0) channels.push(info.channel);
+  var visible = cfg.enabledChannels.length ? cfg.enabledChannels : [cfg.trigger.channel];
+  for (var vi = 0; vi < visible.length; vi++) {
+    if (channels.indexOf(visible[vi]) < 0) channels.push(visible[vi]);
+  }
+  var best = null;
+  function xOf(t) {
+    return wfgLaGeom.drawX0 + ((t - wfgLaGeom.tStart) / tRange) * wfgLaGeom.drawW;
+  }
+  for (var ci = 0; ci < channels.length; ci++) {
+    var ch = channels[ci];
+    var wave = wfgLaGetWaveform(cfg, ch);
+    var edges = wave.edges || [];
+    if (!edges.length) continue;
+    var idx = wfgLaLowerBound(edges, info.time);
+    for (var k = Math.max(0, idx - 1); k <= Math.min(edges.length - 1, idx + 1); k++) {
+      var edgeX = xOf(edges[k]);
+      var dist = Math.abs(edgeX - info.x);
+      if (dist > thresholdPx) continue;
+      var edgeType = wfgLaEdgeTypeForIndex(wave.initialLevel, k);
+      var rowBonus = ch === info.channel ? -0.35 : 0;
+      var score = dist + (ch === info.channel ? 0 : 2);
+      if (!best || score + rowBonus < best.score) {
+        best = {
+          time: edges[k],
+          anchor: { ch: ch, edgeIndex: k, edgeType: edgeType, relTime: edges[k] - triggerZero },
+          score: score,
+          dist: dist
+        };
+      }
+    }
+  }
+  return best;
+}
+
+function wfgLaSnapCursorInfo(info) {
+  var edgeSnap = wfgLaFindEdgeSnap(info);
+  if (edgeSnap) return { time: edgeSnap.time, anchor: edgeSnap.anchor };
+  var cfg = wfgLaBuildConfig();
+  var step = 1 / Math.max(1, cfg.sampleRateHz || 1);
+  var time = Math.round(info.time / step) * step;
+  return { time: Math.max(0, Math.min(wfgLaCaptureDuration(), time)), anchor: null };
+}
+
+function wfgLaSetCursorFromSnap(idx, snap) {
+  if (!snap) return;
+  wfgLaCursorPos[idx] = snap.time;
+  wfgLaCursorAnchors[idx] = wfgLaCloneCursorAnchor(snap.anchor);
+}
+
+function wfgLaResolveCursorAnchor(anchor, cfg, duration) {
+  if (!anchor || anchor.ch == null) return null;
+  cfg = cfg || wfgLaBuildConfig();
+  duration = Math.max(Number(duration) || wfgLaCaptureDuration(), 1e-9);
+  var wave = wfgLaGetWaveform(cfg, anchor.ch);
+  var edges = wave.edges || [];
+  if (!edges.length) return null;
+  var triggerZero = wfgLaTriggerZeroTime(cfg, duration);
+  var target = triggerZero + (Number(anchor.relTime) || 0);
+  var idx = wfgLaLowerBound(edges, target);
+  var best = null;
+  var bestDist = Infinity;
+  for (var k = Math.max(0, idx - 8); k <= Math.min(edges.length - 1, idx + 8); k++) {
+    var edgeType = wfgLaEdgeTypeForIndex(wave.initialLevel, k);
+    if (anchor.edgeType && edgeType !== anchor.edgeType) continue;
+    var dist = Math.abs(edges[k] - target);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = { time: edges[k], anchor: { ch: anchor.ch, edgeIndex: k, edgeType: edgeType, relTime: edges[k] - triggerZero } };
+    }
+  }
+  return best;
+}
+
 function wfgLaTimeCursorLabelHitTest(x, y) {
   for (var i = 0; i < wfgLaCursorLabels.length; i++) {
     var lb = wfgLaCursorLabels[i];
@@ -16108,7 +16213,10 @@ function wfgLaTimeCursorStartDrag(idx) {
   wfgLaCursorActive[idx] = true;
   wfgLaCursorMoving[idx] = true;
   wfgLaCursorSelected = idx;
-  if (wfgLaCursorMouseTime != null) wfgLaCursorPos[idx] = wfgLaCursorMouseTime;
+  if (wfgLaCursorMouseTime != null) {
+    wfgLaCursorPos[idx] = wfgLaCursorMouseTime;
+    wfgLaCursorAnchors[idx] = wfgLaCloneCursorAnchor(wfgLaCursorMouseAnchor);
+  }
   else if (wfgLaCursorPos[idx] == null) wfgLaCursorPos[idx] = (wfgLaViewStart + wfgLaViewEnd) / 2;
   wfgLaCursorStartAnim();
   wfgLaUpdateCursorButtons();
@@ -16559,8 +16667,8 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
         var val = both ? (wfgLaTimeLabel(dt) + ' / ' + wfgLaFreqLabel(1 / dt)) : '--';
         html += '<div class="wfg-la-cursor-group" style="--cursor-color:' + color + '">';
         html += '<div class="wfg-la-cursor-group-title"><span>|' + wfgLaCursorNames[i1] + ' - ' + wfgLaCursorNames[i2] + '|</span><span>' + val + '</span></div>';
-        html += '<div class="wfg-la-cursor-detail">' + wfgLaCursorNames[i1] + ' @ ' + (wfgLaCursorActive[i1] && wfgLaCursorPos[i1] != null ? wfgLaDisplayTimeLabel(wfgLaCursorPos[i1]) : '###') + '</div>';
-        html += '<div class="wfg-la-cursor-detail">' + wfgLaCursorNames[i2] + ' @ ' + (wfgLaCursorActive[i2] && wfgLaCursorPos[i2] != null ? wfgLaDisplayTimeLabel(wfgLaCursorPos[i2]) : '###') + '</div>';
+        html += '<div class="wfg-la-cursor-detail">' + wfgLaCursorNames[i1] + ' @ ' + (wfgLaCursorActive[i1] && wfgLaCursorPos[i1] != null ? wfgLaDisplayTimeLabel(wfgLaCursorPos[i1]) + wfgLaCursorAnchorLabel(wfgLaCursorAnchors[i1]) : '###') + '</div>';
+        html += '<div class="wfg-la-cursor-detail">' + wfgLaCursorNames[i2] + ' @ ' + (wfgLaCursorActive[i2] && wfgLaCursorPos[i2] != null ? wfgLaDisplayTimeLabel(wfgLaCursorPos[i2]) + wfgLaCursorAnchorLabel(wfgLaCursorAnchors[i2]) : '###') + '</div>';
         html += '</div>';
       } else {
         html += '<div class="wfg-la-meas-row"><span class="wfg-la-meas-label">' + name + ' ΔT</span><span class="wfg-la-meas-val">--</span></div>';
@@ -16643,11 +16751,13 @@ function wfgLaToggleCursor(idx) {
     wfgLaCursorMoving[idx] = true;
     wfgLaCursorSelected = idx;
     wfgLaCursorPos[idx] = wfgLaCursorMouseTime != null ? wfgLaCursorMouseTime : (wfgLaViewStart + wfgLaViewEnd) / 2;
+    wfgLaCursorAnchors[idx] = wfgLaCursorMouseTime != null ? wfgLaCloneCursorAnchor(wfgLaCursorMouseAnchor) : null;
     wfgLaCursorStartAnim();
   } else {
     wfgLaCursorActive[idx] = false;
     wfgLaCursorMoving[idx] = false;
     wfgLaCursorPos[idx] = null;
+    wfgLaCursorAnchors[idx] = null;
     if (wfgLaCursorSelected === idx) wfgLaCursorSelected = -1;
     wfgLaCursorStopAnim();
   }
@@ -18315,6 +18425,7 @@ function wfgLaApplyCapturedWaveform(decoded) {
   var oldCursorRel = wfgLaCursorPos.map(function(pos, idx) {
     return wfgLaCursorActive[idx] && pos != null && isFinite(pos) ? pos - oldTriggerTime : null;
   });
+  var oldCursorAnchors = wfgLaCursorAnchors.map(function(anchor) { return wfgLaCloneCursorAnchor(anchor); });
   wfgLaCapturedWaveform = decoded;
   wfgLaLastEdgeCounts = decoded.edgeCounts || [];
   var activeChannels = [];
@@ -18353,6 +18464,15 @@ function wfgLaApplyCapturedWaveform(decoded) {
     var cursorTriggerTime = wfgLaTriggerZeroTime(newCfg, newDuration);
     for (var ci = 0; ci < oldCursorRel.length; ci++) {
       if (oldCursorRel[ci] == null) continue;
+      if (oldCursorAnchors[ci]) {
+        var resolved = wfgLaResolveCursorAnchor(oldCursorAnchors[ci], newCfg, newDuration);
+        if (resolved) {
+          wfgLaCursorPos[ci] = resolved.time;
+          wfgLaCursorAnchors[ci] = wfgLaCloneCursorAnchor(resolved.anchor);
+          continue;
+        }
+        wfgLaCursorAnchors[ci] = null;
+      }
       wfgLaCursorPos[ci] = Math.max(0, Math.min(newDuration, cursorTriggerTime + oldCursorRel[ci]));
     }
   }
