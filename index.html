@@ -1964,7 +1964,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.112</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.113</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3001,7 +3001,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.112</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.113</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -17917,7 +17917,36 @@ function wfgLaUsbTimeout(promise, label, ms) {
 function wfgLaEp6TimeoutMs(cfg, transferBytes) {
   var durationMs = Math.max(0, (cfg && Number(cfg.durationSec) || 0) * 1000);
   var sizeMs = Math.max(0, Math.ceil((Number(transferBytes) || 0) / (512 * 1024)) * 350);
-  return Math.min(45000, Math.max(6000, durationMs + sizeMs + 4000));
+  return Math.min(180000, Math.max(6000, durationMs + sizeMs + 4000));
+}
+
+async function wfgLaReadEp6CaptureBytes(dev, packetBytes, cfg, lines) {
+  packetBytes = Math.max(0, Math.floor(Number(packetBytes) || 0));
+  var out = new Uint8Array(packetBytes);
+  var offset = 0;
+  var maxChunkBytes = 4 * 1024 * 1024;
+  var chunkIndex = 0;
+  while (offset < packetBytes) {
+    var wantedPacketBytes = Math.min(maxChunkBytes, packetBytes - offset);
+    var requestBytes = Math.ceil(wantedPacketBytes / 512) * 512;
+    var ep6TimeoutMs = wfgLaEp6TimeoutMs(cfg, requestBytes);
+    var bulk = await wfgLaUsbTimeout(dev.transferIn(6, requestBytes), 'EP6 capture transferIn chunk ' + (chunkIndex + 1), ep6TimeoutMs);
+    if (bulk.status !== 'ok' || !bulk.data) throw new Error('EP6 transferIn failed status=' + bulk.status + ' chunk=' + (chunkIndex + 1));
+    var received = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
+    var copyLen = Math.min(packetBytes - offset, received.length);
+    if (copyLen <= 0) throw new Error('EP6 transferIn returned no data at offset=' + offset);
+    out.set(received.slice(0, copyLen), offset);
+    offset += copyLen;
+    chunkIndex++;
+    var pct = 97 + Math.min(2, (offset / Math.max(1, packetBytes)) * 2);
+    wfgLaSetAcqProgress(pct, '讀取波形資料 ' + Math.round(offset / Math.max(1, packetBytes) * 100) + '%', 'active');
+    if (lines && (chunkIndex <= 3 || offset >= packetBytes || chunkIndex % 8 === 0)) {
+      lines.push('  EP6 chunk ' + chunkIndex + ': requested=' + requestBytes + ' received=' + received.length + ' copied=' + copyLen + ' total=' + offset + '/' + packetBytes);
+    }
+  }
+  out.receivedBytes = offset;
+  out.transferChunks = chunkIndex;
+  return out;
 }
 
 async function wfgLaCtrlIn(dev, request, value, index, length) {
@@ -18751,13 +18780,15 @@ async function wfgLaSafeCaptureProbe(dev) {
   var totalPacketGroups = Math.max(0, Math.floor(nRepPackets / 5));
   var packetBytes = Math.max(16, totalPacketGroups * 16);
   var estimatedRleBytes = Math.ceil(sampleCfg.limitSamples / 252 / 5) * 16;
-  var readCapBytes = Math.min(32 * 1024 * 1024, Math.max(512 * 1024, Math.ceil(estimatedRleBytes * 1.35)));
+  var maxEp6DownloadBytes = 192 * 1024 * 1024;
+  var readCapBytes = Math.min(maxEp6DownloadBytes, Math.max(512 * 1024, packetBytes));
   var partialDownload = false;
   var firstGroupInDownload = 0;
   var readableGroups = totalPacketGroups;
+  lines.push('RLE bytes actual=' + packetBytes + ' estimatedMin=' + estimatedRleBytes + ' maxWebDownload=' + maxEp6DownloadBytes);
   if (packetBytes > readCapBytes) {
     partialDownload = true;
-    lines.push('Bulk read capped from ' + packetBytes + ' to ' + readCapBytes + ' bytes for browser safety.');
+    lines.push('Bulk read capped from ' + packetBytes + ' to ' + readCapBytes + ' bytes for browser safety; capture will be partial.');
     readableGroups = Math.max(1, Math.floor(readCapBytes / 16));
     if (cfg.trigger.enabled && nBeforeTrig > 0) {
       var triggerGroup = Math.max(0, Math.floor(nBeforeTrig / 5));
@@ -18782,11 +18813,7 @@ async function wfgLaSafeCaptureProbe(dev) {
     await wfgLaCtrlOut(dev, 0x20, 0x08, 0, bulkCfg);
     await wfgLaCtrlOut(dev, 0x30, 0x00, 0, []);
     lines.push('Bulk read setup readPos=0x' + readPos.toString(16) + ' bytes=' + packetBytes + ' transferIn=' + transferBytes);
-    var ep6TimeoutMs = wfgLaEp6TimeoutMs(cfg, transferBytes);
-    var bulk = await wfgLaUsbTimeout(dev.transferIn(6, transferBytes), 'EP6 capture transferIn', ep6TimeoutMs);
-    if (bulk.status !== 'ok' || !bulk.data) throw new Error('EP6 transferIn failed status=' + bulk.status);
-    var received = new Uint8Array(bulk.data.buffer.slice(bulk.data.byteOffset, bulk.data.byteOffset + bulk.data.byteLength));
-    var chunk = received.slice(0, Math.min(packetBytes, received.length));
+    var chunk = await wfgLaReadEp6CaptureBytes(dev, packetBytes, cfg, lines);
     var relativeTriggerPackets = nBeforeTrig;
     if (partialDownload) {
       var firstPacketInDownload = firstGroupInDownload * 5;
@@ -18830,7 +18857,7 @@ async function wfgLaSafeCaptureProbe(dev) {
       partialDownload: !!decoded.partialDownload,
       manualStop: !!decoded.manualStop
     };
-    lines.push('EP6 received bytes=' + received.length + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
+    lines.push('EP6 received bytes=' + (chunk.receivedBytes || chunk.length) + ' chunks=' + (chunk.transferChunks || 1) + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
     lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
     lines.push('edgeCounts CH0=' + decoded.edgeCounts[0] + ' CH1=' + decoded.edgeCounts[1] + ' all: ' + wfgLaEdgeSummary(decoded.edgeCounts));
     if (cfg.trigger.enabled) lines.push('triggerPacketTime=' + (decoded.triggerPacketTimeSec == null ? 'unavailable' : wfgLaFormatDuration(decoded.triggerPacketTimeSec)) + ' packetCount=' + decoded.triggerPacketCount + '/' + decoded.decodedPacketCount);
