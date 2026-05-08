@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.158</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.159</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.158</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.159</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21204,21 +21204,20 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     if (len <= 0 || len > 16) return null;
     return { len: len, expectedBytes: 1 + len };
   }
-  function addShortTurnaroundReplyFrame(lastFrame, startSample, endSample, syncCountBits) {
+  function makeShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits, packetValue) {
     var info = shortReplyRequestInfo(lastFrame);
-    if (!info) return false;
+    if (!info) return null;
     var bitT = (2 * tHalf) / sampleRate;
     var expectedBits = info.expectedBytes * 8;
-    if (Math.abs(syncCountBits - expectedBits) > Math.max(8, Math.round(expectedBits * 0.15))) return false;
+    if (Math.abs(syncCountBits - expectedBits) > Math.max(8, Math.round(expectedBits * 0.15))) return null;
     var startTime = Math.max(0, startSample / sampleRate);
-    var payloadEnd = Math.max(endSample / sampleRate, startTime + expectedBits * bitT);
+    var payloadEnd = startTime + expectedBits * bitT;
     var bytes = [0x00];
     for (var bi = 0; bi < info.len; bi++) bytes.push(0x00);
     var bitTimes = [];
     for (var ti = 0; ti < expectedBits; ti++) bitTimes.push(startTime + (ti + 0.5) * bitT);
-    packet++;
-    frames.push({
-      packet: packet,
+    return {
+      packet: packetValue,
       channel: ch,
       time: startTime,
       endTime: payloadEnd,
@@ -21235,8 +21234,44 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       bitTimes: bitTimes,
       bytes: bytes,
       syntheticReply: true
-    });
+    };
+  }
+  function addShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits) {
+    var frame = makeShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits, packet + 1);
+    if (!frame) return false;
+    packet = frame.packet;
+    frames.push(frame);
     return true;
+  }
+  function isShortTurnaroundReplyCandidate(frame, lastFrame) {
+    var info = shortReplyRequestInfo(lastFrame);
+    if (!info || !frame) return false;
+    var expectedBits = info.expectedBytes * 8;
+    var syncCountBits = Math.max(0, Number(frame.syncCount) || 0);
+    if (Math.abs(syncCountBits - expectedBits) > Math.max(8, Math.round(expectedBits * 0.15))) return false;
+    var start = Number(frame.syncStartTime);
+    var lastEnd = Number(lastFrame.endTime);
+    if (!isFinite(start) || !isFinite(lastEnd)) return false;
+    var turnAround = start - lastEnd;
+    return turnAround >= -80e-6 && turnAround <= 300e-6;
+  }
+  function normalizeShortTurnaroundReplies(inputFrames) {
+    var out = [];
+    (inputFrames || []).forEach(function(frame) {
+      var lastFrame = out.length ? out[out.length - 1] : null;
+      if (isShortTurnaroundReplyCandidate(frame, lastFrame)) {
+        var lastEnd = Math.max(0, Number(lastFrame.endTime) || 0);
+        var startTime = Math.max(lastEnd, Number(frame.syncStartTime) || lastEnd);
+        var start = Math.max(0, Math.round(startTime * sampleRate));
+        var reply = makeShortTurnaroundReplyFrame(lastFrame, start, Number(frame.syncCount) || 0, frame.packet);
+        if (reply) {
+          out.push(reply);
+          return;
+        }
+      }
+      out.push(frame);
+    });
+    return out;
   }
   function addAnomaly(startSample, endSample, reason, syncCount) {
     if (!isFinite(startSample) || !isFinite(endSample) || endSample <= startSample) return;
@@ -21247,7 +21282,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       var lastEndSample = Math.round((Number(lastFrame.endTime) || 0) * sampleRate);
       var turnAround = startSample - lastEndSample;
       if (turnAround >= 0 && turnAround <= Math.round(sampleRate * 300e-6)) {
-        if (addShortTurnaroundReplyFrame(lastFrame, startSample, endSample, syncCountBits)) return;
+        if (addShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits)) return;
         return;
       }
     }
@@ -21410,6 +21445,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       });
     }
   }
+  frames = normalizeShortTurnaroundReplies(frames);
   var rows = [];
   var previousRequest = null;
   frames.forEach(function(frame) {
