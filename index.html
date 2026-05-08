@@ -1779,6 +1779,8 @@
   .wfg-la-decode-table tr.dpcd-warn:hover td { background: rgba(120,83,0,0.36); }
   .wfg-la-decode-table tr.protocol-error td { color: #fecaca; background: rgba(127,29,29,0.24); }
   .wfg-la-decode-table tr.protocol-error:hover td { background: rgba(127,29,29,0.36); }
+  .wfg-la-decode-table tr.aux-no-reply td { color: #fecaca; background: rgba(127,29,29,0.28); }
+  .wfg-la-decode-table tr.aux-no-reply:hover td { background: rgba(127,29,29,0.40); }
   .wfg-la-decode-badge { display: inline-block; min-width: 34px; text-align: center; border-radius: 3px; padding: 1px 4px; background: #374151; color: #e5e7eb; font-weight: 800; }
   .wfg-la-decode-badge.read { background: #075985; color: #bae6fd; }
   .wfg-la-decode-badge.write { background: #14532d; color: #bbf7d0; }
@@ -2054,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.150</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.151</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3091,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.150</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.151</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21065,6 +21067,19 @@ function wfgLaDpAuxMakeDpcdItems(addr, dataBytes) {
   return items;
 }
 
+function wfgLaMarkDpAuxCommunicationWarnings(rows) {
+  rows = rows || [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (!row) continue;
+    row.auxNoReply = false;
+    if (row.type !== 'REQ') continue;
+    var next = rows[i + 1];
+    if (!next || next.type !== 'REPLY') row.auxNoReply = true;
+  }
+  return rows;
+}
+
 function wfgLaDpAuxSourceBuildRow(frame, packet, previousRequest, forceTcon) {
   var bytes = frame.bytes || [];
   var firstNibble = bytes.length ? ((bytes[0] >> 4) & 0xf).toString(16).toUpperCase() : '';
@@ -21280,7 +21295,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       previousRequest = null;
     }
   });
-  return rows;
+  return wfgLaMarkDpAuxCommunicationWarnings(rows);
 }
 
 function wfgLaDecodeDpAuxFrames(decoded, cfg) {
@@ -21511,7 +21526,7 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   if (!rows.length) {
     rows.push({ time: 0, packet: '-', type: 'ERR', rw: '', value: 'No AUX frame found on CH' + ch, ack: 'ERR', channel: ch });
   }
-  return rows;
+  return wfgLaMarkDpAuxCommunicationWarnings(rows);
 }
 
 function wfgLaRunAnalyzers() {
@@ -21601,11 +21616,12 @@ function wfgLaRenderDecodeResults() {
     else if (a.type === 'dp_aux') {
       html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>#</th><th>Frame</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead><tbody>';
       rows.slice(0, 1000).forEach(function(r) {
-        var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR';
+        var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR' || r.auxNoReply;
         var cls = isProtocolError ? ' err' : '';
         var key = wfgLaDecodeRowKey(group, r);
-        var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
-        html += '<tr class="' + trCls.trim() + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
+        var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '') + (r.auxNoReply ? ' aux-no-reply' : '');
+        var statusText = r.auxNoReply ? 'NO REPLY' : (r.dpcdWarn ? 'DPCD WARN' : r.ack);
+        html += '<tr class="' + trCls.trim() + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
       });
       html += '</tbody></table></div>';
     } else if (a.type === 'i2c_eeprom') {
@@ -21770,21 +21786,21 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           if (bx < g.drawX0 || ax > g.cssW || bx <= ax) return null;
           return [Math.max(g.drawX0 + 1, ax), Math.min(g.cssW - 1, bx)];
         }
-        function regionMarker(t0, t1, my, text, fill, stroke) {
+        function regionMarker(t0, t1, labelY, labelH, text, fill, stroke) {
           var vr = visibleRangeX(t0, t1);
           if (!vr) return;
           var rw = Math.max(1, vr[1] - vr[0]);
           ctx.fillStyle = fill;
           ctx.strokeStyle = stroke;
-          ctx.fillRect(vr[0], my - 7, rw, 14);
-          ctx.strokeRect(Math.round(vr[0]) + 0.5, Math.round(my - 7) + 0.5, Math.round(rw), 14);
+          ctx.fillRect(vr[0], labelY, rw, labelH);
+          ctx.strokeRect(Math.round(vr[0]) + 0.5, Math.round(labelY) + 0.5, Math.round(rw), Math.round(labelH));
           ctx.save();
           ctx.beginPath();
-          ctx.rect(vr[0] + 2, my - 6, Math.max(1, rw - 4), 12);
+          ctx.rect(vr[0] + 2, labelY + 1, Math.max(1, rw - 4), Math.max(1, labelH - 2));
           ctx.clip();
           if (rw >= ctx.measureText(text).width + 8) {
             ctx.fillStyle = '#f8fafc';
-            ctx.fillText(text, (vr[0] + vr[1]) / 2, my + 0.5);
+            ctx.fillText(text, (vr[0] + vr[1]) / 2, labelY + labelH / 2 + 0.5);
           }
           ctx.restore();
         }
@@ -21822,10 +21838,10 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         if (row.syncCount) {
           var pst = preambleStatus(row.syncCount);
           drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
-          regionMarker(syncStart, syncEnd, y + h / 2, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
+          regionMarker(syncStart, syncEnd, y, h, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
         }
-        regionMarker(startStart, startEnd, y + h / 2, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
-        regionMarker(stopStart, stopEnd, y + h / 2, 'STOP', 'rgba(126,34,206,0.9)', '#d8b4fe');
+        regionMarker(startStart, startEnd, y, h, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
+        regionMarker(stopStart, stopEnd, y, h, 'STOP', 'rgba(126,34,206,0.9)', '#d8b4fe');
         var raw = row.raw || [];
         var bitTotal = raw.length * 8;
         var bitW = bitT ? (xOf(payloadStart + bitT) - xOf(payloadStart)) : 0;
