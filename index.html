@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.159</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.160</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.159</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.160</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -20941,6 +20941,18 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
   var cls = wfgLaDpAuxClassifyBytes(bytes, previousRequest);
   var firstTime = frame.startTime || (frame.bitTimes && frame.bitTimes.length ? frame.bitTimes[0] : 0);
   var endTime = frame.endTime || frame.stopTime || firstTime;
+  function applyTiming(row) {
+    var bitT = Number(frame.bitT) || 0;
+    row.auxBitT = bitT;
+    row.payloadStartTime = frame.payloadStart != null ? frame.payloadStart : null;
+    row.payloadEndTime = frame.payloadStart != null && bitT ? frame.payloadStart + (bytes.length * 8 * bitT) : null;
+    row.startRegionStart = frame.startTime != null ? frame.startTime : null;
+    row.startRegionEnd = frame.payloadStart != null ? frame.payloadStart : null;
+    row.stopRegionStart = row.payloadEndTime;
+    row.stopRegionEnd = frame.stopTime != null ? frame.stopTime : row.payloadEndTime;
+    row.bitTimes = frame.bitTimes && bitT ? frame.bitTimes.slice(0, bytes.length * 8).map(function(t) { return t + bitT / 2; }) : [];
+    return row;
+  }
   if (cls.kind === 'request') {
     var addr = wfgLaDpAuxAddressFromBytes(bytes);
     var len = bytes.length >= 4 ? ((bytes[3] & 0xff) + 1) : 0;
@@ -20950,7 +20962,7 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
     var dpcdEntry = cls.isNative ? wfgLaDpAuxDpcdEntry(addr) : null;
     var dpcdName = dpcdEntry ? ' / ' + dpcdEntry.n : '';
     var value = 'ADDR 0x' + addr.toString(16).toUpperCase().padStart(5, '0') + ' / LEN ' + len + (data ? ' / DATA ' + data : '');
-    rows.push({
+    rows.push(applyTiming({
       time: firstTime,
       endTime: endTime,
       packet: packet,
@@ -20965,7 +20977,7 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
       dpcdTip: cls.isNative ? wfgLaDpcdTooltipText(addr, dataBytes.length ? wfgLaHexByte(dataBytes[0]).slice(2) : '') : '',
       dpcdWarn: cls.isNative && dataBytes.length ? dataBytes.some(function(b, idx) { return wfgLaIsAbnormalDpcdValue(addr + idx, b); }) : false,
       label: cmdName.replace(/^Native AUX /, '').replace(/^I2C /, 'I2C ') + ' 0x' + addr.toString(16).toUpperCase().padStart(5, '0') + dpcdName
-    });
+    }));
     return { rows: rows, request: { isNative: cls.isNative, cmd: cls.cmd, addr: addr, len: len, time: firstTime, isRead: wfgLaDpAuxIsReadCmd(cls.cmd), isWrite: wfgLaDpAuxIsWriteCmd(cls.cmd) } };
   }
   if (cls.kind === 'reply') {
@@ -20975,7 +20987,7 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
     var repEntry = repAddr != null ? wfgLaDpAuxDpcdEntry(repAddr) : null;
     var repValue = repData || '--';
     if (repEntry) repValue += ' / ' + repEntry.n;
-    rows.push({
+    rows.push(applyTiming({
       time: firstTime,
       endTime: endTime,
       packet: packet,
@@ -20990,10 +21002,10 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
       dpcdTip: repAddr != null ? wfgLaDpcdTooltipText(repAddr, repData ? wfgLaHexByte(bytes[1]).slice(2) : '') : '',
       dpcdWarn: repAddr != null && bytes.length > 1 ? bytes.slice(1).some(function(b, idx) { return wfgLaIsAbnormalDpcdValue(repAddr + idx, b); }) : false,
       label: statusName + (repData ? ' ' + repData : '')
-    });
+    }));
     return { rows: rows, request: null };
   }
-  rows.push({
+  rows.push(applyTiming({
     time: firstTime,
     endTime: endTime,
     packet: packet,
@@ -21004,7 +21016,7 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
     raw: bytes.slice(),
     channel: frame.channel,
     label: bytes.length ? wfgLaHexBytes(bytes) : 'AUX frame'
-  });
+  }));
   return { rows: rows, request: previousRequest };
 }
 
@@ -21083,6 +21095,59 @@ function wfgLaMarkDpAuxCommunicationWarnings(rows) {
     if (!next || next.type !== 'REPLY') row.auxNoReply = true;
   }
   return rows;
+}
+
+function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
+  var merged = (sourceRows || []).slice();
+  function rowTime(row) { return Number(row && row.time) || 0; }
+  function rawKey(row) { return (row && row.raw ? row.raw : []).map(function(b) { return (b & 0xff).toString(16).padStart(2, '0'); }).join(' '); }
+  function requestAddr(row) {
+    if (!row || row.type !== 'REQ' || row.dpcdAddr == null) return null;
+    return Number(row.dpcdAddr);
+  }
+  function nearestBefore(time) {
+    var best = null;
+    for (var i = 0; i < merged.length; i++) {
+      var row = merged[i];
+      var addr = requestAddr(row);
+      if (addr == null || rowTime(row) >= time) continue;
+      if (!best || rowTime(row) > rowTime(best)) best = row;
+    }
+    return best;
+  }
+  function nearestAfter(time) {
+    var best = null;
+    for (var i = 0; i < merged.length; i++) {
+      var row = merged[i];
+      var addr = requestAddr(row);
+      if (addr == null || rowTime(row) <= time) continue;
+      if (!best || rowTime(row) < rowTime(best)) best = row;
+    }
+    return best;
+  }
+  (candidateRows || []).forEach(function(row) {
+    if (!row || row.type !== 'REQ' || row.dpcdAddr == null || !(row.raw || []).length) return;
+    var time = rowTime(row);
+    var key = rawKey(row);
+    if (merged.some(function(existing) { return rawKey(existing) === key && Math.abs(rowTime(existing) - time) < 60e-6; })) return;
+    var prev = nearestBefore(time);
+    var next = nearestAfter(time);
+    if (!prev || !next) return;
+    if (time - rowTime(prev) > 450e-6 || rowTime(next) - time > 450e-6) return;
+    var addr = requestAddr(row);
+    var prevAddr = requestAddr(prev);
+    var nextAddr = requestAddr(next);
+    if (!(addr > prevAddr && addr < nextAddr)) return;
+    row.rw = wfgLaDpAuxSourceSystemText(row.raw || []);
+    row.value = '0x ' + wfgLaHexBytes(row.raw || []);
+    row.label = row.rw;
+    merged.push(row);
+    merged.sort(function(a, b) { return rowTime(a) - rowTime(b); });
+  });
+  merged.forEach(function(row, idx) {
+    if (row && row.packet !== '!') row.packet = idx + 1;
+  });
+  return merged;
 }
 
 function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
@@ -21416,7 +21481,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     }
     if (bytes.length) {
       var auxBitT = (2 * tHalf) / sampleRate;
-      var startRegionStart = Math.max(0, (startRegionSample || (startSample - 4 * tHalf)) / sampleRate);
+      var startRegionStart = Math.max(0, ((startRegionSample || (startSample - 4 * tHalf)) + tHalf) / sampleRate);
       var payloadStartTime = bitTimes.length ? Math.max(0, bitTimes[0] - auxBitT / 2) : startSample / sampleRate;
       var startRegionEnd = payloadStartTime;
       var payloadEndTime = bitTimes.length ? (bitTimes[bitTimes.length - 1] + auxBitT / 2) : (payloadStartTime + bytes.length * 8 * auxBitT);
@@ -21424,7 +21489,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       var stopRegionEnd = stopRegionStart + 4 * auxBitT;
       var syncCountBits = Math.max(0, Math.round(syncCount / 2));
       var syncEndTime = startRegionStart;
-      var syncStartTime = syncFirstEdge ? Math.max(0, (syncFirstEdge - tHalf) / sampleRate) : Math.max(0, syncEndTime - syncCountBits * auxBitT);
+      var syncStartTime = syncFirstEdge ? Math.max(0, syncFirstEdge / sampleRate) : Math.max(0, syncEndTime - syncCountBits * auxBitT);
       frames.push({
         packet: packet,
         channel: ch,
@@ -21476,7 +21541,6 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   var edges = decoded.edgesByChannel[ch] || [];
   if (!edges.length) return [{ time: 0, packet: '-', type: 'ERR', rw: '', value: 'No edges on CH' + ch, ack: 'ERR', channel: ch }];
   var sourceRows = wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch);
-  if (sourceRows.length) return sourceRows;
   var bitRate = Math.max(1, Number(cfg.bitRate) || 1000000);
   var nominalBitT = 1 / bitRate;
   var tol = Math.max(0.05, Math.min(0.25, (Number(cfg.tolerance) || 25) / 100));
@@ -21697,6 +21761,7 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   if (!rows.length) {
     rows.push({ time: 0, packet: '-', type: 'ERR', rw: '', value: 'No AUX frame found on CH' + ch, ack: 'ERR', channel: ch });
   }
+  if (sourceRows.length) rows = wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, rows);
   return wfgLaMarkDpAuxCommunicationWarnings(rows);
 }
 
@@ -22031,6 +22096,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var pst = preambleStatus(row.syncCount);
           if (!pst.ok) drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
           regionMarker(syncStart, syncEnd, y, h, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
+          drawRawBits(syncStart, Array(Math.min(256, Number(row.syncCount) || 0)).fill(0), centerY);
         }
         regionMarker(startStart, startEnd, y, h, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
         regionMarker(stopStart, stopEnd, y, h, 'STOP', 'rgba(126,34,206,0.9)', '#d8b4fe');
