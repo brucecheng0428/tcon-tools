@@ -20,6 +20,14 @@
   if (p && /^(isp|rxtx|calc|aux|wfg)$/.test(p)) {
     document.write('<style id="ss-page-hint">#page-home{display:none!important}#page-'+p+'{display:block!important}</style>');
   }
+  if (p === 'wfg') {
+    var wfgHash = location.hash.replace('#','');
+    if (wfgHash === 'wfg-la') {
+      document.write('<style id="ss-wfg-mode-hint">#wfg-tcon-content,#wfg-siggen-content{display:none!important}#wfg-la-content{display:block!important}#wfg-mode-tabs .wfg-mode-tab[data-mode="la"]{background:var(--primary)!important;color:white!important}</style>');
+    } else if (wfgHash === 'wfg-siggen') {
+      document.write('<style id="ss-wfg-mode-hint">#wfg-tcon-content,#wfg-la-content{display:none!important}#wfg-siggen-content{display:block!important}#wfg-mode-tabs .wfg-mode-tab[data-mode="siggen"]{background:var(--primary)!important;color:white!important}</style>');
+    }
+  }
   // 子頁內部 tab 防閃爍（tab content 預設均 display:none；按鈕預設無 active class；此處決定顯示哪一個）
   try {
     var auxParams = new URLSearchParams(location.search);
@@ -2033,7 +2041,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.141</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.142</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3070,7 +3078,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.141</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.142</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -15115,6 +15123,9 @@ function wfgGetOaxTransitions(gpioIdx, baseTransitions, allGpioTransitions, effH
 let wfgDragStartX = 0;
 let wfgDragStartView = 0;
 let wfgCurrentMode = 'tcon'; // 'tcon', 'siggen', or 'la'
+let wfgTconEntryReady = false;
+let wfgTconPromptBusy = false;
+let wfgSuppressTconPrompt = false;
 // ─── TCON Internal Mode State ───
 let wfgTconInternalMode = false;
 let wfgLineBuffer = 6;
@@ -15327,7 +15338,61 @@ window.wfgAssignChannelGpio = function(chIdx, gpioIdx) {
 };
 
 // ─── Mode Switch ───
-function wfgSwitchMode(mode) {
+function wfgRequestedModeFromUrl() {
+  var hash = (location.hash || '').replace('#', '');
+  if (hash === 'wfg-la') return 'la';
+  if (hash === 'wfg-siggen') return 'siggen';
+  try {
+    var qp = new URLSearchParams(location.search);
+    var mode = qp.get('wfgMode') || qp.get('mode');
+    if (mode === 'la' || mode === 'siggen' || mode === 'tcon') return mode;
+  } catch(e) {}
+  return '';
+}
+
+function wfgHasAutoSavedTconState() {
+  try {
+    var raw = localStorage.getItem(_wfgAutoSaveKey);
+    if (!raw) return false;
+    var wrapper = JSON.parse(raw);
+    return !!(wrapper && wrapper.config);
+  } catch(e) {
+    return false;
+  }
+}
+
+function wfgPrepareTconTimingEntry() {
+  if (wfgTconEntryReady || wfgTconPromptBusy) return;
+  wfgTconPromptBusy = true;
+  try {
+    var keep = false;
+    if (wfgHasAutoSavedTconState()) {
+      keep = confirm('是否要保留之前的 TCON Timing 調整紀錄？\n\n選「確定」會依照原本流程載入上次調整，可能需要較久時間。\n選「取消」會載入預設空白狀態，不產生波形，速度較快。');
+    }
+    if (keep) {
+      wfgSuppressTconPrompt = true;
+      wfgAutoRestore();
+      wfgSuppressTconPrompt = false;
+    } else {
+      wfgResetToDefault();
+    }
+    wfgTconEntryReady = true;
+  } finally {
+    wfgSuppressTconPrompt = false;
+    wfgTconPromptBusy = false;
+  }
+}
+
+function wfgSwitchMode(mode, options) {
+  options = options || {};
+  if (mode !== 'tcon' && mode !== 'siggen' && mode !== 'la') mode = 'tcon';
+  var modeHint = document.getElementById('ss-wfg-mode-hint');
+  if (modeHint) modeHint.remove();
+  var prevMode = wfgCurrentMode;
+  if (mode === 'tcon' && prevMode !== 'tcon' && !options.skipTconPrompt && !wfgSuppressTconPrompt) {
+    wfgPrepareTconTimingEntry();
+  }
+  if (mode !== 'tcon') wfgTconEntryReady = false;
   wfgCurrentMode = mode;
   var wfgPage = document.getElementById('page-wfg');
   if (wfgPage) wfgPage.classList.toggle('wfg-la-active', mode === 'la');
@@ -15347,6 +15412,9 @@ function wfgSwitchMode(mode) {
         wfgLaRenderScope();
       });
     });
+  }
+  if (mode === 'siggen' && typeof window.wfgResizeCanvas === 'function') {
+    requestAnimationFrame(function() { requestAnimationFrame(function() { window.wfgResizeCanvas(); }); });
   }
   wfgUpdateTconInternalVisibility();
 }
@@ -29771,25 +29839,23 @@ function wfgInit() {
   wfgUpdateDclkLabel();
   wfgUpdateTconInternalVisibility();
 
-  // Try to restore saved state from localStorage
-  var restored = wfgAutoRestore();
+  var requestedMode = wfgRequestedModeFromUrl();
+  if (requestedMode) wfgSwitchMode(requestedMode, { skipTconPrompt: true });
 
-  if (!restored) {
-    // Collapse all cards except Frame card by default (only when no saved state)
-    ['wfg-frmno-card', 'wfg-gpio-card', 'wfg-analog-card', 'wfg-channel-card'].forEach(function(cardId) {
-      var card = document.getElementById(cardId);
-      if (!card) return;
-      var head = card.querySelector('.wfg-card-head');
-      var body = card.querySelector('.wfg-card-body');
-      if (head) head.classList.add('collapsed');
-      if (body) body.classList.add('collapsed');
-    });
-  }
+  // Collapse all cards except Frame card by default. TCON Timing autosave restore is
+  // intentionally deferred until the user actually enters that sub-tab.
+  ['wfg-frmno-card', 'wfg-gpio-card', 'wfg-analog-card', 'wfg-channel-card'].forEach(function(cardId) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    var head = card.querySelector('.wfg-card-head');
+    var body = card.querySelector('.wfg-card-body');
+    if (head) head.classList.add('collapsed');
+    if (body) body.classList.add('collapsed');
+  });
 
   // Force-sync checkbox UI with wfgTconInternalMode after visibility update
   var cb = document.getElementById('wfg-tcon-internal-cb');
   if (cb) cb.checked = wfgTconInternalMode;
-  if (!restored) wfgResizeAndRender();
   // Poll to re-sync in case browser autocomplete resets the checkbox after load
   var _cbPollN = 0;
   var _cbPoll = setInterval(function() {
@@ -29797,14 +29863,11 @@ function wfgInit() {
     var cb2 = document.getElementById('wfg-tcon-internal-cb');
     if (cb2 && cb2.checked !== wfgTconInternalMode) {
       cb2.checked = wfgTconInternalMode;
-      wfgResizeAndRender();
+      if (wfgCurrentMode === 'tcon' && wfgTconEntryReady) wfgResizeAndRender();
       clearInterval(_cbPoll);
     }
     if (_cbPollN >= 20) clearInterval(_cbPoll); // stop after 1 second
   }, 50);
-  if (location.hash === '#wfg-la') {
-    setTimeout(function() { wfgSwitchMode('la'); }, 0);
-  }
 }
 
 // ─── Left panel height sync via ResizeObserver ───
@@ -29859,6 +29922,21 @@ var _wfgEnterPageSeq = 0;
 var _wfgEnterPageReady = false;
 window.wfgEnterPage = async function() {
   var seq = ++_wfgEnterPageSeq;
+  var requestedMode = wfgRequestedModeFromUrl();
+  if (requestedMode && requestedMode !== wfgCurrentMode) wfgSwitchMode(requestedMode, { skipTconPrompt: requestedMode !== 'tcon' });
+  if (wfgCurrentMode === 'la') {
+    wfgLaInit();
+    requestAnimationFrame(function() { requestAnimationFrame(function() { wfgLaRenderScope(); }); });
+    _wfgEnterPageReady = true;
+    return;
+  }
+  if (wfgCurrentMode === 'siggen') {
+    if (typeof window.wfgResizeCanvas === 'function') requestAnimationFrame(function() { requestAnimationFrame(function() { window.wfgResizeCanvas(); }); });
+    _wfgEnterPageReady = true;
+    return;
+  }
+  wfgPrepareTconTimingEntry();
+  if (seq !== _wfgEnterPageSeq) return;
   var firstLoad = !_wfgEnterPageReady;
   wfgShowProgress(firstLoad ? 8 : 18, firstLoad ? '載入 WFG…' : '更新 WFG 畫面…');
   await wfgYield();
@@ -32122,8 +32200,12 @@ window.wfgImportClipboard = async function() {
     if (savedPage && document.getElementById('page-' + savedPage)) {
       showPage(savedPage);
     }
-    if (hash === 'wfg-la' && typeof wfgSwitchMode === 'function') {
-      setTimeout(function() { wfgSwitchMode('la'); }, 0);
+    if (typeof wfgSwitchMode === 'function') {
+      if (hash === 'wfg-la') {
+        setTimeout(function() { wfgSwitchMode('la', { skipTconPrompt: true }); }, 0);
+      } else if (hash === 'wfg-siggen') {
+        setTimeout(function() { wfgSwitchMode('siggen', { skipTconPrompt: true }); }, 0);
+      }
     }
 
     // 4. 如果有恢復表單，觸發各工具的 re-render
