@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.164</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.165</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.164</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.165</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21105,6 +21105,19 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
     if (!row || row.type !== 'REQ' || row.dpcdAddr == null) return null;
     return Number(row.dpcdAddr);
   }
+  function anomalySegment(row) {
+    return {
+      raw: row && row.raw ? row.raw.slice() : [],
+      auxBitT: row ? row.auxBitT : 0,
+      startRegionStart: row ? row.startRegionStart : null,
+      startRegionEnd: row ? row.startRegionEnd : null,
+      payloadStartTime: row ? row.payloadStartTime : null,
+      payloadEndTime: row ? row.payloadEndTime : null,
+      stopRegionStart: row ? row.stopRegionStart : null,
+      stopRegionEnd: row ? row.stopRegionEnd : null,
+      bitTimes: row && row.bitTimes ? row.bitTimes.slice() : []
+    };
+  }
   function nearestBefore(time) {
     var best = null;
     for (var i = 0; i < merged.length; i++) {
@@ -21147,6 +21160,7 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
       existingGap.value += ' / 0x ' + wfgLaHexBytes(row.raw || []);
       existingGap.raw = (existingGap.raw || []).concat(row.raw || []);
       existingGap.bitTimes = (existingGap.bitTimes || []).concat(row.bitTimes || []);
+      existingGap.auxSegments = (existingGap.auxSegments || []).concat([anomalySegment(row)]);
       return;
     }
     merged.push({
@@ -21170,7 +21184,8 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
       startRegionEnd: row.startRegionEnd,
       stopRegionStart: row.stopRegionStart,
       stopRegionEnd: row.stopRegionEnd,
-      bitTimes: row.bitTimes ? row.bitTimes.slice() : []
+      bitTimes: row.bitTimes ? row.bitTimes.slice() : [],
+      auxSegments: [anomalySegment(row)]
     });
     merged.sort(function(a, b) { return rowTime(a) - rowTime(b); });
   });
@@ -22096,27 +22111,30 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.strokeRect(Math.round(gx + 2) + 0.5, Math.round(gy + 2) + 0.5, Math.max(1, Math.round(gw - 4)), Math.max(1, Math.round(gh - 4)));
           ctx.lineWidth = 1;
         }
-        function drawRawBits(t0, bits, yText) {
-          if (!bitT || bitT <= 0) return;
-          if (xOf(t0 + bitT) - xOf(t0) < 7) return;
+        function drawRawBits(t0, bits, yText, baseBitT) {
+          var drawBitT = Number(baseBitT) || bitT;
+          if (!drawBitT || drawBitT <= 0) return;
+          if (xOf(t0 + drawBitT) - xOf(t0) < 7) return;
           ctx.font = 'bold 9px monospace';
           ctx.fillStyle = '#e5e7eb';
           ctx.strokeStyle = 'rgba(15,23,42,0.95)';
           ctx.lineWidth = 2;
           for (var dbi = 0; dbi < bits.length; dbi++) {
-            var dbx = xOf(t0 + (dbi + 0.5) * bitT);
+            var dbx = xOf(t0 + (dbi + 0.5) * drawBitT);
             if (dbx < g.drawX0 || dbx > g.cssW) continue;
             ctx.strokeText(String(bits[dbi]), dbx, yText);
             ctx.fillText(String(bits[dbi]), dbx, yText);
           }
           ctx.lineWidth = 1;
         }
-        function drawByteBits(rawBytes, times, yText) {
+        function drawByteBits(rawBytes, times, yText, basePayloadStart, baseBitT) {
           rawBytes = rawBytes || [];
           times = times || [];
           var bitTotal = rawBytes.length * 8;
           if (!bitTotal || bitTotal > 512) return;
-          var bitW = bitT ? (xOf(payloadStart + bitT) - xOf(payloadStart)) : 0;
+          var drawBitT = Number(baseBitT) || bitT;
+          var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
+          var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
           if (bitW < 7) return;
           ctx.font = 'bold 9px monospace';
           ctx.fillStyle = '#e5e7eb';
@@ -22127,7 +22145,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
               var bitIdx = rb * 8 + (7 - bi);
               var bitVal = (rawBytes[rb] >> bi) & 1;
               var bitTime = times[bitIdx];
-              if (bitTime == null) bitTime = payloadStart + (bitIdx + 0.5) * bitT;
+              if (bitTime == null) bitTime = drawPayloadStart + (bitIdx + 0.5) * drawBitT;
               var bx = xOf(bitTime);
               if (bx < g.drawX0 || bx > g.cssW) continue;
               ctx.strokeText(String(bitVal), bx, yText);
@@ -22139,15 +22157,40 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         if (row.auxAnomaly) {
           drawGlassRegion(rowStart, rowEnd, 'rgba(220,38,38,0.22)', 'rgba(248,113,113,0.96)');
           regionMarker(rowStart, rowEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.94)', '#fecaca');
-          if (isFinite(startStart) && isFinite(startEnd) && startEnd > startStart) {
-            regionMarker(startStart, startEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
-            drawRawBits(startStart, ['H', 'H', 'L', 'L'], centerY);
+          var anomalySegments = row.auxSegments && row.auxSegments.length ? row.auxSegments : [{
+            raw: row.raw || [],
+            auxBitT: bitT,
+            startRegionStart: startStart,
+            startRegionEnd: startEnd,
+            payloadStartTime: payloadStart,
+            payloadEndTime: payloadEnd,
+            stopRegionStart: stopStart,
+            stopRegionEnd: stopEnd,
+            bitTimes: bitTimes
+          }];
+          for (var segIdx = 0; segIdx < anomalySegments.length; segIdx++) {
+            var seg = anomalySegments[segIdx] || {};
+            var segBitT = Number(seg.auxBitT) || bitT;
+            var segStartStart = finiteRowTime(seg.startRegionStart);
+            var segStartEnd = finiteRowTime(seg.startRegionEnd);
+            var segPayloadStart = finiteRowTime(seg.payloadStartTime);
+            var segPayloadEnd = finiteRowTime(seg.payloadEndTime);
+            var segStopStart = finiteRowTime(seg.stopRegionStart);
+            var segStopEnd = finiteRowTime(seg.stopRegionEnd);
+            if (!isFinite(segStartStart)) segStartStart = isFinite(segPayloadStart) ? segPayloadStart - 4 * segBitT : startStart;
+            if (!isFinite(segStartEnd)) segStartEnd = isFinite(segPayloadStart) ? segPayloadStart : startEnd;
+            if (!isFinite(segStopStart)) segStopStart = isFinite(segPayloadEnd) ? segPayloadEnd : stopStart;
+            if (!isFinite(segStopEnd)) segStopEnd = isFinite(segStopStart) ? segStopStart + 4 * segBitT : stopEnd;
+            if (isFinite(segStartStart) && isFinite(segStartEnd) && segStartEnd > segStartStart) {
+              regionMarker(segStartStart, segStartEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
+              drawRawBits(segStartStart, ['H', 'H', 'L', 'L'], centerY, segBitT);
+            }
+            if (isFinite(segStopStart) && isFinite(segStopEnd) && segStopEnd > segStopStart) {
+              regionMarker(segStopStart, segStopEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
+              drawRawBits(segStopStart, ['H', 'H', 'L', 'L'], centerY, segBitT);
+            }
+            drawByteBits(seg.raw || [], seg.bitTimes || [], centerY, segPayloadStart, segBitT);
           }
-          if (isFinite(stopStart) && isFinite(stopEnd) && stopEnd > stopStart) {
-            regionMarker(stopStart, stopEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
-            drawRawBits(stopStart, ['H', 'H', 'L', 'L'], centerY);
-          }
-          drawByteBits(row.raw || [], bitTimes, centerY);
           ctx.restore();
           drawn++;
           if (drawn > 160) {
