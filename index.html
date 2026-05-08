@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.165</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.166</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.165</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.166</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -18621,6 +18621,60 @@ function wfgLaFitAll() {
 }
 window.wfgLaFitAll = wfgLaFitAll;
 
+if (new URLSearchParams(location.search).has('debug_la')) {
+  window.wfgLaDebugView = function(start, end) {
+    if (isFinite(Number(start)) && isFinite(Number(end)) && Number(end) > Number(start)) {
+      wfgLaSetViewRange(Number(start), Number(end));
+      wfgLaRenderScope();
+    }
+    return {
+      start: wfgLaViewStart,
+      end: wfgLaViewEnd,
+      duration: wfgLaCaptureDuration(),
+      selectedKey: wfgLaDecodeSelectedKey,
+      rows: (wfgLaDecodeResults || []).map(function(group, gi) {
+        return {
+          group: gi,
+          type: group && group.analyzer ? group.analyzer.type : '',
+          rows: (group.rows || []).map(function(row, ri) {
+            return {
+              key: wfgLaDecodeRowKey(group, row),
+              index: ri,
+              time: row.time,
+              endTime: row.endTime,
+              packet: row.packet,
+              type: row.type,
+              rw: row.rw,
+              ack: row.ack,
+              label: row.label,
+              auxAnomaly: !!row.auxAnomaly,
+              auxNoReply: !!row.auxNoReply,
+              protocolError: !!row.protocolError,
+              syncCount: row.syncCount,
+              raw: row.raw ? row.raw.slice() : [],
+              bits: row.bits ? row.bits.slice() : [],
+              bitTimes: row.bitTimes ? row.bitTimes.slice() : [],
+              auxSegments: (row.auxSegments || []).map(function(seg) {
+                return {
+                  startRegionStart: seg.startRegionStart,
+                  startRegionEnd: seg.startRegionEnd,
+                  payloadStartTime: seg.payloadStartTime,
+                  payloadEndTime: seg.payloadEndTime,
+                  stopRegionStart: seg.stopRegionStart,
+                  stopRegionEnd: seg.stopRegionEnd,
+                  bits: seg.bits ? seg.bits.slice() : [],
+                  bitTimes: seg.bitTimes ? seg.bitTimes.slice() : [],
+                  raw: seg.raw ? seg.raw.slice() : []
+                };
+              })
+            };
+          })
+        };
+      })
+    };
+  };
+}
+
 function wfgLaCenterTrigger() {
   var cfg = wfgLaBuildConfig();
   var duration = wfgLaCaptureDuration();
@@ -21108,6 +21162,7 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
   function anomalySegment(row) {
     return {
       raw: row && row.raw ? row.raw.slice() : [],
+      bits: row && row.bits ? row.bits.slice() : [],
       auxBitT: row ? row.auxBitT : 0,
       startRegionStart: row ? row.startRegionStart : null,
       startRegionEnd: row ? row.startRegionEnd : null,
@@ -21229,7 +21284,18 @@ function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
       channel: ch,
       label: 'AUX FORMAT ERR',
       auxAnomaly: true,
-      protocolError: true
+      protocolError: true,
+      auxBitT: a.auxBitT || bitT,
+      startRegionStart: a.startRegionStart != null ? a.startRegionStart : null,
+      startRegionEnd: a.startRegionEnd != null ? a.startRegionEnd : null,
+      payloadStartTime: a.payloadStartTime != null ? a.payloadStartTime : null,
+      payloadEndTime: a.payloadEndTime != null ? a.payloadEndTime : null,
+      stopRegionStart: a.stopRegionStart != null ? a.stopRegionStart : null,
+      stopRegionEnd: a.stopRegionEnd != null ? a.stopRegionEnd : null,
+      raw: a.raw ? a.raw.slice() : [],
+      bits: a.bits ? a.bits.slice() : [],
+      bitTimes: a.bitTimes ? a.bitTimes.slice() : [],
+      auxSegments: a.auxSegment ? [a.auxSegment] : []
     });
   });
   return rows;
@@ -21303,6 +21369,74 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     if (!bytes.length) return false;
     var cmd = (bytes[0] >> 4) & 0xf;
     return cmd === 0x0 || cmd === 0x1 || cmd === 0x4 || cmd === 0x5 || cmd === 0x8 || cmd === 0x9;
+  }
+  function levelAtSourceTime(t) {
+    var idx = wfgLaLowerBound(edgesSec, Math.max(0, Number(t) || 0));
+    return (initial + idx) & 1;
+  }
+  function decodeManchesterBitsInRange(startTime, endTime, bitT) {
+    var bits = [];
+    var bitTimes = [];
+    if (!isFinite(startTime) || !isFinite(endTime) || !isFinite(bitT) || bitT <= 0 || endTime <= startTime) {
+      return { bits: bits, bitTimes: bitTimes, raw: [] };
+    }
+    var maxBits = Math.min(768, Math.max(0, Math.floor((endTime - startTime) / bitT)));
+    for (var mbi = 0; mbi < maxBits; mbi++) {
+      var t0 = startTime + mbi * bitT;
+      var a = levelAtSourceTime(t0 + bitT * 0.25);
+      var b = levelAtSourceTime(t0 + bitT * 0.75);
+      if (a === 1 && b === 0) {
+        bits.push(1);
+        bitTimes.push(t0 + bitT * 0.5);
+      } else if (a === 0 && b === 1) {
+        bits.push(0);
+        bitTimes.push(t0 + bitT * 0.5);
+      } else {
+        bits.push(null);
+        bitTimes.push(t0 + bitT * 0.5);
+      }
+    }
+    var raw = [];
+    for (var bo = 0; bo + 7 < bits.length; bo += 8) {
+      var byte = 0;
+      var ok = true;
+      for (var bk = 0; bk < 8; bk++) {
+        if (bits[bo + bk] == null) {
+          ok = false;
+          break;
+        }
+        byte = (byte << 1) | bits[bo + bk];
+      }
+      if (!ok) break;
+      raw.push(byte & 0xff);
+    }
+    return { bits: bits, bitTimes: bitTimes, raw: raw };
+  }
+  function makeAnomalySegment(startSample, endSample, syncCountBits) {
+    var bitT = (2 * tHalf) / sampleRate;
+    var rowStart = Math.max(0, startSample / sampleRate);
+    var rowEnd = Math.max(rowStart, endSample / sampleRate);
+    var syncStart = rowStart;
+    var syncEnd = Math.min(rowEnd, syncStart + Math.max(0, syncCountBits || 0) * bitT);
+    var startRegionStart = Math.min(rowEnd, syncEnd);
+    var startRegionEnd = Math.min(rowEnd, startRegionStart + 4 * bitT);
+    var stopRegionEnd = rowEnd;
+    var stopRegionStart = Math.max(startRegionEnd, stopRegionEnd - 4 * bitT);
+    var payloadStart = Math.min(rowEnd, startRegionEnd);
+    var payloadEnd = Math.max(payloadStart, stopRegionStart);
+    var decodedBits = decodeManchesterBitsInRange(payloadStart, payloadEnd, bitT);
+    return {
+      raw: decodedBits.raw,
+      bits: decodedBits.bits,
+      auxBitT: bitT,
+      startRegionStart: startRegionStart,
+      startRegionEnd: startRegionEnd,
+      payloadStartTime: payloadStart,
+      payloadEndTime: payloadEnd,
+      stopRegionStart: stopRegionStart,
+      stopRegionEnd: stopRegionEnd,
+      bitTimes: decodedBits.bitTimes
+    };
   }
   function shortReplyRequestInfo(frame) {
     var bytes = frame && frame.bytes ? frame.bytes : [];
@@ -21400,7 +21534,9 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       startTime: Math.max(0, startSample / sampleRate),
       endTime: Math.max(0, endSample / sampleRate),
       reason: reason,
-      syncCount: syncCountBits
+      syncCount: syncCountBits,
+      auxBitT: (2 * tHalf) / sampleRate,
+      auxSegment: makeAnomalySegment(startSample, endSample, syncCountBits)
     });
   }
   var i = 0;
@@ -22068,7 +22204,6 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         function preambleStatus(count) {
           count = Number(count) || 0;
           if (count < 18) return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(185,28,28,0.92)', textStroke: '#fecaca' };
-          if (count < 26) return { fill: 'rgba(234,179,8,0.16)', stroke: 'rgba(250,204,21,0.95)', textFill: 'rgba(161,98,7,0.92)', textStroke: '#fde68a' };
           return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(124,58,237,0.82)', textStroke: '#c4b5fd', ok: true };
         }
         function visibleRangeX(t0, t1) {
@@ -22089,7 +22224,10 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.beginPath();
           ctx.rect(vr[0] + 2, labelY + 1, Math.max(1, rw - 4), Math.max(1, labelH - 2));
           ctx.clip();
-          if (rw >= ctx.measureText(text).width + 8) {
+          var textW = ctx.measureText(text).width;
+          var compactAuxTag = text === 'HHLL' && rw >= 10;
+          if (compactAuxTag) ctx.font = 'bold 8px monospace';
+          if (rw >= textW + 8 || compactAuxTag) {
             ctx.fillStyle = '#f8fafc';
             ctx.fillText(text, (vr[0] + vr[1]) / 2, labelY + labelH / 2 + 0.5);
           }
@@ -22114,7 +22252,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         function drawRawBits(t0, bits, yText, baseBitT) {
           var drawBitT = Number(baseBitT) || bitT;
           if (!drawBitT || drawBitT <= 0) return;
-          if (xOf(t0 + drawBitT) - xOf(t0) < 7) return;
+          if (xOf(t0 + drawBitT) - xOf(t0) < 5) return;
           ctx.font = 'bold 9px monospace';
           ctx.fillStyle = '#e5e7eb';
           ctx.strokeStyle = 'rgba(15,23,42,0.95)';
@@ -22135,7 +22273,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var drawBitT = Number(baseBitT) || bitT;
           var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
           var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
-          if (bitW < 7) return;
+          if (bitW < 5) return;
           ctx.font = 'bold 9px monospace';
           ctx.fillStyle = '#e5e7eb';
           ctx.strokeStyle = 'rgba(15,23,42,0.95)';
@@ -22151,6 +22289,29 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
               ctx.strokeText(String(bitVal), bx, yText);
               ctx.fillText(String(bitVal), bx, yText);
             }
+          }
+          ctx.lineWidth = 1;
+        }
+        function drawBitValues(bits, times, yText, basePayloadStart, baseBitT) {
+          bits = bits || [];
+          times = times || [];
+          if (!bits.length || bits.length > 768) return;
+          var drawBitT = Number(baseBitT) || bitT;
+          var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
+          var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
+          if (bitW < 5) return;
+          ctx.font = 'bold 9px monospace';
+          ctx.fillStyle = '#e5e7eb';
+          ctx.strokeStyle = 'rgba(15,23,42,0.95)';
+          ctx.lineWidth = 2;
+          for (var bvi = 0; bvi < bits.length; bvi++) {
+            if (bits[bvi] == null) continue;
+            var bitTime = times[bvi];
+            if (bitTime == null) bitTime = drawPayloadStart + (bvi + 0.5) * drawBitT;
+            var bx = xOf(bitTime);
+            if (bx < g.drawX0 || bx > g.cssW) continue;
+            ctx.strokeText(String(bits[bvi]), bx, yText);
+            ctx.fillText(String(bits[bvi]), bx, yText);
           }
           ctx.lineWidth = 1;
         }
@@ -22189,7 +22350,8 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
               regionMarker(segStopStart, segStopEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
               drawRawBits(segStopStart, ['H', 'H', 'L', 'L'], centerY, segBitT);
             }
-            drawByteBits(seg.raw || [], seg.bitTimes || [], centerY, segPayloadStart, segBitT);
+            if (seg.bits && seg.bits.length) drawBitValues(seg.bits, seg.bitTimes || [], centerY, segPayloadStart, segBitT);
+            else drawByteBits(seg.raw || [], seg.bitTimes || [], centerY, segPayloadStart, segBitT);
           }
           ctx.restore();
           drawn++;
