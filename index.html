@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.154</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.155</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.154</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.155</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21074,9 +21074,54 @@ function wfgLaMarkDpAuxCommunicationWarnings(rows) {
     if (!row) continue;
     row.auxNoReply = false;
     if (row.type !== 'REQ') continue;
-    var next = rows[i + 1];
+    var next = null;
+    for (var ni = i + 1; ni < rows.length; ni++) {
+      if (rows[ni] && rows[ni].auxAnomaly) continue;
+      next = rows[ni];
+      break;
+    }
     if (!next || next.type !== 'REPLY') row.auxNoReply = true;
   }
+  return rows;
+}
+
+function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
+  var rows = [];
+  var covered = (frames || []).map(function(frame) {
+    var start = frame && isFinite(Number(frame.syncStartTime)) ? Number(frame.syncStartTime) : Number(frame && frame.time);
+    var end = frame && isFinite(Number(frame.endTime)) ? Number(frame.endTime) : Number(frame && frame.time);
+    return { start: start, end: end };
+  }).filter(function(r) { return isFinite(r.start) && isFinite(r.end) && r.end > r.start; });
+  (anomalies || []).forEach(function(a) {
+    var start = Number(a.startTime);
+    var end = Number(a.endTime);
+    if (!isFinite(start) || !isFinite(end) || end <= start) return;
+    var span = end - start;
+    if (span < Math.max(bitT * 12, 1e-6)) return;
+    for (var ci = 0; ci < covered.length; ci++) {
+      var ov = Math.min(end, covered[ci].end) - Math.max(start, covered[ci].start);
+      if (ov > span * 0.55) return;
+    }
+    var last = rows[rows.length - 1];
+    if (last && start - last.endTime <= Math.max(bitT * 4, 2e-6)) {
+      last.endTime = Math.max(last.endTime, end);
+      last.value = last.value + ' / ' + (a.reason || 'invalid');
+      return;
+    }
+    rows.push({
+      time: start,
+      endTime: end,
+      packet: '!',
+      type: 'ERR',
+      rw: 'AUX FORMAT ERR',
+      value: (a.reason || 'Invalid AUX timing') + (a.syncCount ? (' / ' + a.syncCount + ' SYNCs') : ''),
+      ack: 'ERR',
+      channel: ch,
+      label: 'AUX FORMAT ERR',
+      auxAnomaly: true,
+      protocolError: true
+    });
+  });
   return rows;
 }
 
@@ -21142,6 +21187,18 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
   function inRange(v, target) { return v > (target - tError) && v < (target + tError); }
   function bitStateAfterEdge(edgeIndex) { return (initial + edgeIndex + 1) & 1; }
   var frames = [];
+  var anomalies = [];
+  function addAnomaly(startSample, endSample, reason, syncCount) {
+    if (!isFinite(startSample) || !isFinite(endSample) || endSample <= startSample) return;
+    var syncCountBits = Math.max(0, Math.round((Number(syncCount) || 0) / 2));
+    if (syncCountBits < Math.max(18, syncBits)) return;
+    anomalies.push({
+      startTime: Math.max(0, startSample / sampleRate),
+      endTime: Math.max(0, endSample / sampleRate),
+      reason: reason,
+      syncCount: syncCountBits
+    });
+  }
   var i = 0;
   var packet = 0;
   while (i < edges.length - 1 && frames.length < 2000) {
@@ -21193,12 +21250,14 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
             dist = next - edge;
             if (!inRange(dist, tHalf)) synchronized = false;
           } else {
+            addAnomaly(syncFirstEdge - tHalf, next + tHalf, 'Invalid START timing', syncCount);
             syncCount = 0;
             syncFirstEdge = 0;
             syncFirstIndex = -1;
             startRegionSample = 0;
           }
         } else {
+          addAnomaly(syncFirstEdge - tHalf, next + tHalf, 'Invalid START level', syncCount);
           syncCount = 0;
           syncFirstEdge = 0;
           syncFirstIndex = -1;
@@ -21310,6 +21369,8 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       previousRequest = null;
     }
   });
+  rows = rows.concat(wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, (2 * tHalf) / sampleRate));
+  rows.sort(function(a, b) { return (Number(a.time) || 0) - (Number(b.time) || 0); });
   return wfgLaMarkDpAuxCommunicationWarnings(rows);
 }
 
@@ -21634,7 +21695,7 @@ function wfgLaRenderDecodeResults() {
     else if (a.type === 'dp_aux') {
       html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>#</th><th>Frame</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead><tbody>';
       rows.slice(0, 1000).forEach(function(r) {
-        var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR' || r.auxNoReply;
+        var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR' || r.auxNoReply || r.protocolError;
         var cls = isProtocolError ? ' err' : '';
         var key = wfgLaDecodeRowKey(group, r);
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '') + (r.auxNoReply ? ' aux-no-reply' : '');
@@ -21856,6 +21917,17 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             ctx.fillText(String(bits[dbi]), dbx, yText);
           }
           ctx.lineWidth = 1;
+        }
+        if (row.auxAnomaly) {
+          drawGlassRegion(rowStart, rowEnd, 'rgba(220,38,38,0.22)', 'rgba(248,113,113,0.96)');
+          regionMarker(rowStart, rowEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.94)', '#fecaca');
+          ctx.restore();
+          drawn++;
+          if (drawn > 160) {
+            ctx.restore();
+            return;
+          }
+          continue;
         }
         if (row.syncCount) {
           var pst = preambleStatus(row.syncCount);
