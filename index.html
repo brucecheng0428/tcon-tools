@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.163</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.164</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.163</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.164</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21138,9 +21138,20 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
     var prevAddr = requestAddr(prev);
     var nextAddr = requestAddr(next);
     if (!(addr > prevAddr && addr < nextAddr)) return;
+    var gapStart = Math.min(Math.max(Number(prev.endTime) || rowTime(prev), rowTime(prev)), rowTime(row));
+    var gapEnd = Math.max(Number(next.time) || rowTime(row), Number(row.endTime) || rowTime(row));
+    var gapKey = rowTime(prev).toFixed(9) + ':' + rowTime(next).toFixed(9);
+    var existingGap = merged.find(function(existing) { return existing && existing.auxInvalidGapKey === gapKey; });
+    if (existingGap) {
+      existingGap.endTime = Math.max(existingGap.endTime || existingGap.time, gapEnd);
+      existingGap.value += ' / 0x ' + wfgLaHexBytes(row.raw || []);
+      existingGap.raw = (existingGap.raw || []).concat(row.raw || []);
+      existingGap.bitTimes = (existingGap.bitTimes || []).concat(row.bitTimes || []);
+      return;
+    }
     merged.push({
-      time: row.time,
-      endTime: row.endTime || row.time,
+      time: gapStart,
+      endTime: gapEnd,
       packet: '!',
       type: 'ERR',
       rw: 'AUX FORMAT ERR',
@@ -21150,6 +21161,7 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
       channel: row.channel,
       label: 'AUX FORMAT ERR',
       auxAnomaly: true,
+      auxInvalidGapKey: gapKey,
       protocolError: true,
       auxBitT: row.auxBitT || 0,
       payloadStartTime: row.payloadStartTime,
@@ -22099,6 +22111,31 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           }
           ctx.lineWidth = 1;
         }
+        function drawByteBits(rawBytes, times, yText) {
+          rawBytes = rawBytes || [];
+          times = times || [];
+          var bitTotal = rawBytes.length * 8;
+          if (!bitTotal || bitTotal > 512) return;
+          var bitW = bitT ? (xOf(payloadStart + bitT) - xOf(payloadStart)) : 0;
+          if (bitW < 7) return;
+          ctx.font = 'bold 9px monospace';
+          ctx.fillStyle = '#e5e7eb';
+          ctx.strokeStyle = 'rgba(15,23,42,0.95)';
+          ctx.lineWidth = 2;
+          for (var rb = 0; rb < rawBytes.length; rb++) {
+            for (var bi = 7; bi >= 0; bi--) {
+              var bitIdx = rb * 8 + (7 - bi);
+              var bitVal = (rawBytes[rb] >> bi) & 1;
+              var bitTime = times[bitIdx];
+              if (bitTime == null) bitTime = payloadStart + (bitIdx + 0.5) * bitT;
+              var bx = xOf(bitTime);
+              if (bx < g.drawX0 || bx > g.cssW) continue;
+              ctx.strokeText(String(bitVal), bx, yText);
+              ctx.fillText(String(bitVal), bx, yText);
+            }
+          }
+          ctx.lineWidth = 1;
+        }
         if (row.auxAnomaly) {
           drawGlassRegion(rowStart, rowEnd, 'rgba(220,38,38,0.22)', 'rgba(248,113,113,0.96)');
           regionMarker(rowStart, rowEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.94)', '#fecaca');
@@ -22110,6 +22147,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             regionMarker(stopStart, stopEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
             drawRawBits(stopStart, ['H', 'H', 'L', 'L'], centerY);
           }
+          drawByteBits(row.raw || [], bitTimes, centerY);
           ctx.restore();
           drawn++;
           if (drawn > 160) {
@@ -22127,24 +22165,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         regionMarker(startStart, startEnd, y, h, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
         regionMarker(stopStart, stopEnd, y, h, 'STOP', 'rgba(126,34,206,0.9)', '#d8b4fe');
         var raw = row.raw || [];
-        var bitTotal = raw.length * 8;
-        var bitW = bitT ? (xOf(payloadStart + bitT) - xOf(payloadStart)) : 0;
-        if (bitW >= 7 && bitTotal <= 256) {
-          ctx.font = 'bold 9px monospace';
-          ctx.fillStyle = '#e5e7eb';
-          ctx.strokeStyle = 'rgba(15,23,42,0.95)';
-          ctx.lineWidth = 2;
-          for (var rb = 0; rb < raw.length; rb++) {
-            for (var bi = 7; bi >= 0; bi--) {
-              var bitIdx = rb * 8 + (7 - bi);
-              var bitVal = (raw[rb] >> bi) & 1;
-              var bx = xOf(bitTimes[bitIdx] != null ? bitTimes[bitIdx] : (payloadStart + (bitIdx + 0.5) * bitT));
-              if (bx < g.drawX0 || bx > g.cssW) continue;
-              ctx.strokeText(String(bitVal), bx, centerY);
-              ctx.fillText(String(bitVal), bx, centerY);
-            }
-          }
-        }
+        drawByteBits(raw, bitTimes, centerY);
         ctx.restore();
       }
       drawn++;
