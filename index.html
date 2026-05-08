@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.151</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.152</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.151</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.152</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21147,6 +21147,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
   while (i < edges.length - 1 && frames.length < 2000) {
     var syncCount = 0;
     var syncFirstEdge = 0;
+    var syncFirstIndex = -1;
     var synchronized = false;
     var startSample = 0;
     var startRegionSample = 0;
@@ -21156,9 +21157,20 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       var next = edges[i];
       var dist = next - edge;
       if (inRange(dist, tHalf)) {
-        if (!syncCount) syncFirstEdge = edge;
+        if (!syncCount) {
+          syncFirstEdge = edge;
+          syncFirstIndex = i - 1;
+        }
         syncCount++;
       } else if (inRange(dist, 5 * tHalf) && syncCount >= 2 * syncBits) {
+        var preGap = syncFirstIndex > 0 ? (edges[syncFirstIndex] - edges[syncFirstIndex - 1]) : Infinity;
+        if (preGap < 3 * tHalf) {
+          syncCount = 0;
+          syncFirstEdge = 0;
+          syncFirstIndex = -1;
+          startRegionSample = 0;
+          continue;
+        }
         startRegionSample = edge;
         if (bitStateAfterEdge(i) === 0) {
           edge = edges[i];
@@ -21183,16 +21195,19 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
           } else {
             syncCount = 0;
             syncFirstEdge = 0;
+            syncFirstIndex = -1;
             startRegionSample = 0;
           }
         } else {
           syncCount = 0;
           syncFirstEdge = 0;
+          syncFirstIndex = -1;
           startRegionSample = 0;
         }
       } else {
         syncCount = 0;
         syncFirstEdge = 0;
+        syncFirstIndex = -1;
         startRegionSample = 0;
       }
     }
@@ -21595,6 +21610,9 @@ window.wfgLaSelectDecodeRow = wfgLaSelectDecodeRow;
 function wfgLaRenderDecodeResults() {
   var el = document.getElementById('wfg-la-decoder-results');
   if (!el) return;
+  var previousScrollTop = 0;
+  var previousWrap = el.querySelector('.wfg-la-decode-table-wrap');
+  if (previousWrap) previousScrollTop = previousWrap.scrollTop || 0;
   wfgLaApplyDecodeExpandedState();
   var searchInput = document.getElementById('wfg-la-decode-search');
   if (searchInput && searchInput.value !== wfgLaDecodeSearch) searchInput.value = wfgLaDecodeSearch;
@@ -21644,6 +21662,10 @@ function wfgLaRenderDecodeResults() {
     }
   });
   el.innerHTML = html;
+  if (previousWrap) {
+    var nextWrap = el.querySelector('.wfg-la-decode-table-wrap');
+    if (nextWrap) nextWrap.scrollTop = previousScrollTop;
+  }
 }
 
 function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
@@ -21777,8 +21799,8 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         function preambleStatus(count) {
           count = Number(count) || 0;
           if (count < 18) return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(185,28,28,0.92)', textStroke: '#fecaca' };
-          if (count < 26) return { fill: 'rgba(234,179,8,0.16)', stroke: 'rgba(250,204,21,0.95)', textFill: 'rgba(161,98,7,0.92)', textStroke: '#fde68a' };
-          return { fill: 'rgba(124,58,237,0.10)', stroke: 'rgba(196,181,253,0.72)', textFill: 'rgba(124,58,237,0.82)', textStroke: '#c4b5fd' };
+          if (count > 32) return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(185,28,28,0.92)', textStroke: '#fecaca' };
+          return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(124,58,237,0.82)', textStroke: '#c4b5fd', ok: true };
         }
         function visibleRangeX(t0, t1) {
           var ax = xOf(t0);
@@ -21837,7 +21859,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         }
         if (row.syncCount) {
           var pst = preambleStatus(row.syncCount);
-          drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
+          if (!pst.ok || row.auxNoReply) drawGlassRegion(row.auxNoReply ? rowStart : syncStart, row.auxNoReply ? rowEnd : syncEnd, pst.fill, pst.stroke);
           regionMarker(syncStart, syncEnd, y, h, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
         }
         regionMarker(startStart, startEnd, y, h, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
