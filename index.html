@@ -1781,6 +1781,8 @@
   .wfg-la-decode-table tr.protocol-error:hover td { background: rgba(127,29,29,0.36); }
   .wfg-la-decode-table tr.aux-no-reply td { color: #fecaca; background: rgba(127,29,29,0.28); }
   .wfg-la-decode-table tr.aux-no-reply:hover td { background: rgba(127,29,29,0.40); }
+  .wfg-la-decode-table tr.aux-sync-warn td { color: #fde68a; background: rgba(120,83,0,0.28); }
+  .wfg-la-decode-table tr.aux-sync-warn:hover td { background: rgba(120,83,0,0.42); }
   .wfg-la-decode-badge { display: inline-block; min-width: 34px; text-align: center; border-radius: 3px; padding: 1px 4px; background: #374151; color: #e5e7eb; font-weight: 800; }
   .wfg-la-decode-badge.read { background: #075985; color: #bae6fd; }
   .wfg-la-decode-badge.write { background: #14532d; color: #bbf7d0; }
@@ -2056,7 +2058,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.218</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.219</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3095,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.218</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.219</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -18800,6 +18802,9 @@ if (new URLSearchParams(location.search).has('debug_la')) {
               channel: row.channel,
               auxAnomaly: !!row.auxAnomaly,
               shortFormatError: !!row.shortFormatError,
+              auxPreambleWarn: !!row.auxPreambleWarn,
+              auxPreambleError: !!row.auxPreambleError,
+              auxPreambleWarnText: row.auxPreambleWarnText || '',
               auxNoReply: !!row.auxNoReply,
               protocolError: !!row.protocolError,
               syncCount: row.syncCount,
@@ -21387,6 +21392,35 @@ function wfgLaMarkDpAuxCommunicationWarnings(rows) {
   return rows;
 }
 
+function wfgLaMarkDpAuxPreambleWarnings(rows) {
+  rows = rows || [];
+  rows.forEach(function(row) {
+    if (!row || row.auxAnomaly || row.type === 'ERR') return;
+    var syncCount = Math.max(0, Number(row.syncCount) || 0);
+    row.auxPreambleWarn = syncCount >= 18 && syncCount < 26;
+    row.auxPreambleError = syncCount > 0 && syncCount < 18;
+    if (row.auxPreambleWarn) row.auxPreambleWarnText = 'SYNC WARN 18~25';
+    else if (row.auxPreambleError) row.auxPreambleWarnText = 'SYNC ERR <18';
+    else row.auxPreambleWarnText = '';
+  });
+  return rows;
+}
+
+function wfgLaNumberDpAuxRows(rows) {
+  rows = (rows || []).filter(Boolean);
+  rows.sort(function(a, b) {
+    var at = Number(a && a.time) || 0;
+    var bt = Number(b && b.time) || 0;
+    if (at !== bt) return at - bt;
+    return (Number(a && a.endTime) || at) - (Number(b && b.endTime) || bt);
+  });
+  rows.forEach(function(row, idx) {
+    row.packet = idx + 1;
+    if (row.auxAnomaly || row.type === 'ERR') row.errIndex = idx + 1;
+  });
+  return rows;
+}
+
 function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
   var merged = (sourceRows || []).slice();
   function rowTime(row) { return Number(row && row.time) || 0; }
@@ -22851,7 +22885,9 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   rows = wfgLaDpAuxSplitLeadingShortFormatErrorRows(rows, edges, ch, nominalBitT, cfg.tolerance);
   rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
   traceRows('final-normalize', rows);
-  return wfgLaMarkDpAuxCommunicationWarnings(rows);
+  rows = wfgLaMarkDpAuxCommunicationWarnings(rows);
+  rows = wfgLaMarkDpAuxPreambleWarnings(rows);
+  return wfgLaNumberDpAuxRows(rows);
 }
 
 function wfgLaRunAnalyzers() {
@@ -22917,7 +22953,11 @@ function wfgLaSelectDecodeRow(key) {
   wfgLaDecodeSelectedKey = key;
   var duration = wfgLaCaptureDuration();
   var currentRange = Math.min(duration || Infinity, Math.max(wfgLaViewEnd - wfgLaViewStart, 10e-6));
-  wfgLaSetAnchoredView(Number(target.time) || 0, currentRange, 0.5);
+  var targetStart = Number(target.time) || 0;
+  var targetEnd = Math.max(targetStart, Number(target.endTime) || targetStart);
+  var targetSpan = Math.max(0, targetEnd - targetStart);
+  var nextRange = targetSpan > currentRange * 0.9 ? Math.min(duration || targetSpan, Math.max(currentRange, targetSpan * 1.2)) : currentRange;
+  wfgLaSetAnchoredView(targetStart + targetSpan / 2, nextRange, 0.5);
   wfgLaRenderDecodeResults();
   restoreDecodeScroll();
   wfgLaRenderScope();
@@ -22956,10 +22996,12 @@ function wfgLaRenderDecodeResults() {
       html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>#</th><th>Frame</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead><tbody>';
       rows.slice(0, 1000).forEach(function(r) {
         var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR' || r.auxNoReply || r.protocolError;
+        if (r.auxPreambleError) isProtocolError = true;
         var cls = isProtocolError ? ' err' : '';
         var key = wfgLaDecodeRowKey(group, r);
-        var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '') + (r.auxNoReply ? ' aux-no-reply' : '');
+        var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '') + (r.auxNoReply ? ' aux-no-reply' : '') + (r.auxPreambleWarn ? ' aux-sync-warn' : '');
         var statusText = r.auxNoReply ? 'NO REPLY' : (r.dpcdWarn ? 'DPCD WARN' : r.ack);
+        if (r.auxPreambleWarnText) statusText = statusText ? (statusText + ' / ' + r.auxPreambleWarnText) : r.auxPreambleWarnText;
         html += '<tr class="' + trCls.trim() + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
       });
       html += '</tbody></table></div>';
@@ -23088,6 +23130,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
       if (slot < 0) continue;
       var label = row.label;
       var isDpAux = analyzer.type === 'dp_aux';
+      if (isDpAux && row.auxAnomaly) label = '#' + (row.packet || row.errIndex || '') + ' ' + (row.label || 'AUX FORMAT ERR');
       var labelStart = rowStart;
       var labelEnd = rowEnd;
       if (isDpAux) {
@@ -23163,6 +23206,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         function preambleStatus(count) {
           count = Number(count) || 0;
           if (count < 18) return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(185,28,28,0.92)', textStroke: '#fecaca' };
+          if (count < 26) return { fill: 'rgba(234,179,8,0.18)', stroke: 'rgba(250,204,21,0.95)', textFill: 'rgba(202,138,4,0.92)', textStroke: '#fde68a', warning: true, ok: true };
           return { fill: 'rgba(220,38,38,0.18)', stroke: 'rgba(248,113,113,0.95)', textFill: 'rgba(124,58,237,0.82)', textStroke: '#c4b5fd', ok: true };
         }
         function visibleRangeX(t0, t1) {
@@ -23185,9 +23229,18 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.clip();
           var markerText = text;
           var textW = ctx.measureText(markerText).width;
-          if (markerText === 'AUX FORMAT ERR' && rw < textW + 8) {
-            markerText = 'ERR';
+          if (markerText.indexOf('AUX FORMAT ERR') >= 0 && rw < textW + 8) {
+            markerText = markerText.replace('AUX FORMAT ERR', 'ERR');
             textW = ctx.measureText(markerText).width;
+            if (rw < textW + 8) {
+              var hashMatch = markerText.match(/^#\d+/);
+              markerText = hashMatch ? (hashMatch[0] + ' ERR') : 'ERR';
+              textW = ctx.measureText(markerText).width;
+            }
+            if (rw < textW + 8) {
+              markerText = 'ERR';
+              textW = ctx.measureText(markerText).width;
+            }
           }
           var compactAuxTag = text === 'HHLL' && rw >= 10;
           if (compactAuxTag) ctx.font = 'bold 8px "SF Mono", Consolas, monospace';
@@ -23340,8 +23393,9 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
 	            if (segStarts.length) anomalyOverlayStart = Math.min(anomalyOverlayStart, Math.min.apply(Math, segStarts));
 	            if (segEnds.length) anomalyOverlayEnd = Math.max(anomalyOverlayEnd, Math.max.apply(Math, segEnds));
 	          }
-	          drawGlassRegion(anomalyOverlayStart, anomalyOverlayEnd, 'rgba(220,38,38,0.32)', 'rgba(248,113,113,0.98)', true);
-	          regionMarker(anomalyOverlayStart, anomalyOverlayEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.72)', '#fecaca');
+	          var errLabel = '#' + (row.packet || row.errIndex || '') + ' ' + (row.label || 'AUX FORMAT ERR');
+	          drawGlassRegion(anomalyOverlayStart, anomalyOverlayEnd, 'rgba(220,38,38,0.18)', 'rgba(248,113,113,0.95)');
+	          regionMarker(anomalyOverlayStart, anomalyOverlayEnd, y, h, errLabel, 'rgba(185,28,28,0.72)', '#fecaca');
           ctx.restore();
           drawn++;
           if (drawn > 160) {
@@ -23352,7 +23406,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         }
         if (row.syncCount) {
           var pst = preambleStatus(row.syncCount);
-          if (!pst.ok) drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
+          if (!pst.ok || pst.warning) drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
           regionMarker(syncStart, syncEnd, y, h, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
           drawRawBits(syncStart, Array(Math.min(256, Number(row.syncCount) || 0)).fill(0), centerY, bitT, auxAnomalyRanges);
         }
