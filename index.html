@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.215</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.216</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.215</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.216</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -18797,8 +18797,9 @@ if (new URLSearchParams(location.search).has('debug_la')) {
               rw: row.rw,
               ack: row.ack,
 	              label: row.label,
-	              channel: row.channel,
+              channel: row.channel,
               auxAnomaly: !!row.auxAnomaly,
+              shortFormatError: !!row.shortFormatError,
               auxNoReply: !!row.auxNoReply,
               protocolError: !!row.protocolError,
               syncCount: row.syncCount,
@@ -20762,7 +20763,7 @@ function wfgLaAnalyzerChannelOptions(selected) {
 function wfgLaDefaultAnalyzerConfig(type) {
   if (type === 'i2c') return { sda: 0, scl: 1, addressDisplay: '8rw' };
   if (type === 'i2c_eeprom') return { sda: 0, scl: 1, addressDisplay: '8rw', memoryAddress: 'lowbits' };
-  return { channel: 0, bitRate: 1000000, polarity: 'normal', tolerance: 25 };
+  return { channel: 0, bitRate: 1000000, polarity: 'normal', tolerance: 25, syncBits: 16 };
 }
 
 function wfgLaOpenAnalyzerDialog(id) {
@@ -20818,6 +20819,7 @@ function wfgLaRefreshAnalyzerDialogFields(existingCfg) {
       '<label>Bit Rate<select id="wfg-la-analyzer-bitrate"><option value="1000000"' + (Number(cfg.bitRate) === 1000000 ? ' selected' : '') + '>1 Mbps</option><option value="500000"' + (Number(cfg.bitRate) === 500000 ? ' selected' : '') + '>500 kbps</option></select></label>',
       '<label>Polarity<select id="wfg-la-analyzer-polarity"><option value="normal"' + (cfg.polarity !== 'invert' ? ' selected' : '') + '>Normal</option><option value="invert"' + (cfg.polarity === 'invert' ? ' selected' : '') + '>Invert</option></select></label>',
       '<label>Tolerance<select id="wfg-la-analyzer-tolerance"><option value="5"' + (Number(cfg.tolerance) === 5 ? ' selected' : '') + '>±5%</option><option value="10"' + (Number(cfg.tolerance) === 10 ? ' selected' : '') + '>±10%</option><option value="15"' + (Number(cfg.tolerance) === 15 ? ' selected' : '') + '>±15%</option><option value="20"' + (Number(cfg.tolerance) === 20 ? ' selected' : '') + '>±20%</option><option value="25"' + (Number(cfg.tolerance || 25) === 25 ? ' selected' : '') + '>±25%</option></select></label>',
+      '<label>Min SYNC bits<input id="wfg-la-analyzer-syncbits" type="number" min="1" max="256" step="1" value="' + wfgLaEscapeHtml(Math.max(1, Math.min(256, Math.round(Number(cfg.syncBits) || 16)))) + '"></label>',
       '<div style="font-size:12px;color:#6b7280;line-height:1.5">以網頁原生 JS 解碼 DisplayPort AUX Manchester II：bit 1 = H→L、bit 0 = L→H，START/STOP = HHLL。</div>'
     ].join('');
     return;
@@ -20843,6 +20845,7 @@ function wfgLaConfirmAnalyzerDialog(id) {
     cfg.bitRate = Number(document.getElementById('wfg-la-analyzer-bitrate')?.value || 1000000);
     cfg.polarity = document.getElementById('wfg-la-analyzer-polarity')?.value || 'normal';
     cfg.tolerance = Math.max(5, Math.min(25, Number(document.getElementById('wfg-la-analyzer-tolerance')?.value || 25)));
+    cfg.syncBits = Math.max(1, Math.min(256, Math.round(Number(document.getElementById('wfg-la-analyzer-syncbits')?.value || 16))));
   } else {
     cfg.sda = Number(document.getElementById('wfg-la-analyzer-sda')?.value || 0);
     cfg.scl = Number(document.getElementById('wfg-la-analyzer-scl')?.value || 1);
@@ -20886,7 +20889,7 @@ function wfgLaRenderAnalyzers() {
   }
   el.innerHTML = wfgLaAnalyzers.map(function(a) {
     var cfg = a.config || {};
-    var sub = a.type === 'dp_aux' ? ('CH' + cfg.channel + ' / ' + ((Number(cfg.bitRate) || 1000000) / 1000000).toFixed(1).replace(/\.0$/, '') + ' Mbps') : ('SDA CH' + cfg.sda + ' / SCL CH' + cfg.scl);
+    var sub = a.type === 'dp_aux' ? ('CH' + cfg.channel + ' / ' + ((Number(cfg.bitRate) || 1000000) / 1000000).toFixed(1).replace(/\.0$/, '') + ' Mbps / SYNC≥' + (Math.max(1, Math.round(Number(cfg.syncBits) || 16)))) : ('SDA CH' + cfg.sda + ' / SCL CH' + cfg.scl);
     return '<div class="wfg-la-analyzer-row"><span class="wfg-la-analyzer-name">' + wfgLaEscapeHtml(wfgLaAnalyzerTypeLabel(a.type)) + '<br><span style="color:#9ca3af;font-size:10px">' + wfgLaEscapeHtml(sub) + '</span></span><span class="wfg-la-analyzer-actions"><button type="button" onclick="wfgLaOpenAnalyzerDialog(' + a.id + ')">⚙</button><button type="button" onclick="wfgLaRemoveAnalyzer(' + a.id + ')">×</button></span></div>';
   }).join('');
 }
@@ -21540,13 +21543,13 @@ function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
     var end = Number(a.endTime);
     if (!isFinite(start) || !isFinite(end) || end <= start) return;
     var span = end - start;
-    if (span < Math.max(bitT * 12, 1e-6)) return;
+    if (!a.shortFormatError && span < Math.max(bitT * 12, 1e-6)) return;
     for (var ci = 0; ci < covered.length; ci++) {
       var ov = Math.min(end, covered[ci].end) - Math.max(start, covered[ci].start);
       if (ov > span * 0.55) return;
     }
     var last = rows[rows.length - 1];
-    if (last && start - last.endTime <= Math.max(bitT * 4, 2e-6)) {
+    if (last && !last.shortFormatError && !a.shortFormatError && start - last.endTime <= Math.max(bitT * 4, 2e-6)) {
       last.endTime = Math.max(last.endTime, end);
       last.value = last.value + ' / ' + (a.reason || 'invalid');
       if (a.auxSegment) {
@@ -21573,6 +21576,7 @@ function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
       label: 'AUX FORMAT ERR',
       auxAnomaly: true,
       protocolError: true,
+      shortFormatError: !!a.shortFormatError,
       auxBitT: a.auxBitT || bitT,
       startRegionStart: a.startRegionStart != null ? a.startRegionStart : null,
       startRegionEnd: a.startRegionEnd != null ? a.startRegionEnd : null,
@@ -21580,14 +21584,14 @@ function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
       payloadEndTime: a.payloadEndTime != null ? a.payloadEndTime : null,
       stopRegionStart: a.stopRegionStart != null ? a.stopRegionStart : null,
       stopRegionEnd: a.stopRegionEnd != null ? a.stopRegionEnd : null,
-	      raw: [],
-	      bits: [],
-	      bitTimes: [],
+      raw: [],
+      bits: [],
+      bitTimes: [],
       auxSegments: auxSegment ? [auxSegment] : []
     });
   });
-	  return rows;
-	}
+  return rows;
+}
 
 	function wfgLaDpAuxAddUncoveredActivityRows(rows, edgesSec, ch, bitT, options) {
 	  rows = rows || [];
@@ -21764,10 +21768,13 @@ function wfgLaNormalizeDpAuxAnomalyRows(rows) {
 	  var mergedAnomalies = [];
 	  anomalyPieces.forEach(function(piece) {
 	    if (!piece) return;
-	    var last = mergedAnomalies[mergedAnomalies.length - 1];
-	    var pieceStart = finite(piece.time);
-	    var pieceEnd = finite(piece.endTime);
-	    if (last && isFinite(pieceStart) && isFinite(pieceEnd) && pieceStart <= finite(last.endTime) + 1e-9) {
+    var last = mergedAnomalies[mergedAnomalies.length - 1];
+    var pieceStart = finite(piece.time);
+    var pieceEnd = finite(piece.endTime);
+    if (last && last.shortFormatError && piece.shortFormatError && isFinite(pieceStart) && isFinite(pieceEnd) && Math.abs(pieceStart - finite(last.time)) <= 1e-12 && Math.abs(pieceEnd - finite(last.endTime)) <= 1e-12) {
+      return;
+    }
+    if (last && !last.shortFormatError && !piece.shortFormatError && isFinite(pieceStart) && isFinite(pieceEnd) && pieceStart <= finite(last.endTime) + 1e-9) {
 	      last.endTime = Math.max(finite(last.endTime), pieceEnd);
 	      last.auxSegments = (last.auxSegments || []).concat(piece.auxSegments || []);
 	      last.value = last.value || piece.value;
@@ -21777,8 +21784,143 @@ function wfgLaNormalizeDpAuxAnomalyRows(rows) {
 	  });
 	  var out = normalRows.concat(mergedAnomalies);
 	  out.sort(function(a, b) { return (Number(a && a.time) || 0) - (Number(b && b.time) || 0); });
-	  return out;
-	}
+  return out;
+}
+
+function wfgLaDpAuxMakeFormatErrorRow(ch, bitT, start, end, reason, options) {
+  options = options || {};
+  return {
+    time: start,
+    endTime: end,
+    packet: '!',
+    type: 'ERR',
+    rw: 'AUX FORMAT ERR',
+    value: reason || 'AUX format error',
+    ack: 'ERR',
+    raw: [],
+    channel: ch,
+    label: 'AUX FORMAT ERR',
+    auxAnomaly: true,
+    shortFormatError: !!options.shortFormatError,
+    protocolError: true,
+    auxBitT: bitT,
+    bits: [],
+    bitTimes: [],
+    auxSegments: [{
+      raw: [],
+      bits: [],
+      auxBitT: bitT,
+      startRegionStart: null,
+      startRegionEnd: null,
+      payloadStartTime: start,
+      payloadEndTime: end,
+      stopRegionStart: null,
+      stopRegionEnd: null,
+      overlayStartTime: start,
+      overlayEndTime: end,
+      bitTimes: []
+    }]
+  };
+}
+
+function wfgLaDpAuxClampAnomalyRowStart(row, newStart) {
+  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+  newStart = finite(newStart);
+  if (!row || !isFinite(newStart)) return row;
+  var rowEnd = finite(row.endTime);
+  if (!isFinite(rowEnd) || rowEnd <= newStart) return null;
+  var clone = Object.assign({}, row);
+  clone.time = Math.max(finite(row.time), newStart);
+  ['syncStartTime', 'syncEndTime', 'startRegionStart', 'startRegionEnd', 'payloadStartTime', 'payloadEndTime', 'stopRegionStart', 'stopRegionEnd'].forEach(function(prop) {
+    var v = finite(clone[prop]);
+    if (isFinite(v) && v < newStart) clone[prop] = newStart;
+  });
+  clone.auxSegments = (row.auxSegments || []).map(function(seg) {
+    var out = Object.assign({}, seg || {});
+    ['overlayStartTime', 'startRegionStart', 'startRegionEnd', 'payloadStartTime', 'payloadEndTime', 'stopRegionStart', 'stopRegionEnd'].forEach(function(prop) {
+      var v = finite(out[prop]);
+      if (isFinite(v) && v < newStart) out[prop] = newStart;
+    });
+    return out;
+  }).filter(function(seg) {
+    var end = Math.max.apply(Math, [seg.overlayEndTime, seg.stopRegionEnd, seg.payloadEndTime, seg.startRegionEnd].map(finite).filter(isFinite));
+    return isFinite(end) && end > newStart;
+  });
+  return clone;
+}
+
+function wfgLaDpAuxSplitLeadingShortFormatErrorRows(rows, edgesSec, ch, bitT, tolPct) {
+  rows = rows || [];
+  edgesSec = edgesSec || [];
+  bitT = Math.max(1e-9, Number(bitT) || 1e-6);
+  tolPct = Math.max(0.05, Math.min(0.35, (Number(tolPct) || 25) / 100));
+  if (!rows.length || edgesSec.length < 3) return rows;
+  var half = bitT / 2;
+  var glitchMax = half * 0.5;
+  var quietMin = half * 3;
+  var minHalf = half * (1 - tolPct);
+  var maxHalf = half * (1 + tolPct);
+  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+  function gapInHalfRange(v) { return isFinite(v) && v >= minHalf && v <= maxHalf; }
+  function hasShortRow(out, start, end) {
+    return out.some(function(row) {
+      if (!row || !row.shortFormatError) return false;
+      var s = finite(row.time);
+      var e = finite(row.endTime);
+      return isFinite(s) && isFinite(e) && Math.abs(s - start) <= bitT * 0.05 && Math.abs(e - end) <= bitT * 0.05;
+    });
+  }
+  var out = [];
+  rows.forEach(function(row) {
+    if (!row || !row.auxAnomaly || row.shortFormatError || row.type !== 'ERR') {
+      out.push(row);
+      return;
+    }
+    var rowStart = finite(row.time);
+    var rowEnd = finite(row.endTime);
+    if (!isFinite(rowStart) || !isFinite(rowEnd) || rowEnd <= rowStart) {
+      out.push(row);
+      return;
+    }
+    if (rowEnd - rowStart <= glitchMax * 1.1) {
+      if (!hasShortRow(out, rowStart, rowEnd)) {
+        var shortClone = Object.assign({}, row);
+        shortClone.shortFormatError = true;
+        shortClone.value = shortClone.value || 'Narrow AUX format glitch';
+        out.push(shortClone);
+      }
+      return;
+    }
+    var firstIdx = wfgLaLowerBound(edgesSec, rowStart);
+    if (firstIdx < 0 || firstIdx + 2 >= edgesSec.length) {
+      out.push(row);
+      return;
+    }
+    var e0 = edgesSec[firstIdx];
+    var e1 = edgesSec[firstIdx + 1];
+    var e2 = edgesSec[firstIdx + 2];
+    var leadGap = e0 - rowStart;
+    var narrowGap = e1 - e0;
+    var trainGap = e2 - e1;
+    var previousQuiet = firstIdx <= 0 || (e0 - edgesSec[firstIdx - 1]) >= quietMin;
+    var looksLikeLeadingGlitch = leadGap >= -bitT * 0.05
+      && leadGap <= bitT * 1.25
+      && e1 < rowEnd
+      && narrowGap > 0
+      && narrowGap <= glitchMax
+      && previousQuiet
+      && gapInHalfRange(trainGap);
+    if (!looksLikeLeadingGlitch) {
+      out.push(row);
+      return;
+    }
+    if (!hasShortRow(out, e0, e1)) out.push(wfgLaDpAuxMakeFormatErrorRow(ch, bitT, e0, e1, 'Narrow AUX format glitch', { shortFormatError: true }));
+    var clamped = wfgLaDpAuxClampAnomalyRowStart(row, e1);
+    if (clamped) out.push(clamped);
+  });
+  out.sort(function(a, b) { return (Number(a && a.time) || 0) - (Number(b && b.time) || 0); });
+  return out;
+}
 
 function wfgLaDpAuxTrimIdleHighAnomalyRows(rows, edgesSec, initialLevel, bitT) {
   rows = rows || [];
@@ -22155,6 +22297,14 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     if (beforeLevel === 1 && afterLevel === 0) return 1;
     return null;
   }
+  function wfgLaDpAuxBytesToBits(srcBytes) {
+    var out = [];
+    (srcBytes || []).forEach(function(byte) {
+      var v = Number(byte) & 0xff;
+      for (var bi = 7; bi >= 0; bi--) out.push((v >> bi) & 1);
+    });
+    return out;
+  }
   function measuredBitTFromSync(syncStartSample, syncEndSample, syncCountBits) {
     syncStartSample = Number(syncStartSample);
     syncEndSample = Number(syncEndSample);
@@ -22254,10 +22404,24 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
 	      bitTimes: []
 	    };
 	  }
+	  function addShortFormatError(startSample, endSample, reason) {
+	    if (!isFinite(startSample) || !isFinite(endSample) || endSample <= startSample) return;
+	    var startTime = Math.max(0, startSample / sampleRate);
+	    var endTime = Math.max(startTime, endSample / sampleRate);
+	    anomalies.push({
+	      startTime: startTime,
+	      endTime: endTime,
+	      reason: reason || 'AUX format error',
+	      syncCount: 0,
+	      auxBitT: (2 * tHalf) / sampleRate,
+	      shortFormatError: true,
+	      auxSegment: makeActivityAnomalySegment(startTime, endTime)
+	    });
+	  }
 	  function addAnomaly(startSample, endSample, reason, syncCount, syncEndSample) {
 	    if (!isFinite(startSample) || !isFinite(endSample) || endSample <= startSample) return;
 	    var syncCountBits = Math.max(0, Math.round((Number(syncCount) || 0) / 2));
-	    if (syncCountBits < Math.max(18, syncBits)) return;
+	    if (syncCountBits < syncBits) return;
     var auxBitT = measuredBitTFromSync(startSample, syncEndSample, syncCountBits);
     anomalies.push({
       startTime: Math.max(0, startSample / sampleRate),
@@ -22367,11 +22531,17 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       } else if (inRange(dist, 5 * tHalf) && syncCount >= 2 * syncBits) {
         var preGap = syncFirstIndex > 0 ? (edges[syncFirstIndex] - edges[syncFirstIndex - 1]) : Infinity;
         if (preGap < 3 * tHalf) {
-          syncCount = 0;
-          syncFirstEdge = 0;
-          syncFirstIndex = -1;
-          startRegionSample = 0;
-          continue;
+          var glitchMax = Math.max(1, Math.round(tHalf * 0.5));
+          var previousQuiet = syncFirstIndex <= 1 || (edges[syncFirstIndex - 1] - edges[syncFirstIndex - 2]) >= 3 * tHalf;
+          if (preGap <= glitchMax && previousQuiet) {
+            addShortFormatError(edges[syncFirstIndex - 1], edges[syncFirstIndex], 'Narrow AUX format glitch');
+          } else {
+            syncCount = 0;
+            syncFirstEdge = 0;
+            syncFirstIndex = -1;
+            startRegionSample = 0;
+            continue;
+          }
         }
         startRegionSample = edge;
         if (bitStateAfterEdge(i) === 0) {
@@ -22485,6 +22655,16 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       var completePayload = sampledPayload.raw.length >= bytes.length
         && sampledBits.length >= expectedBits
         && !sampledBits.some(function(b) { return b == null; });
+      var edgeParsedPayload = bytes.length > 0 && bitTimes.length >= expectedBits;
+      if (!completePayload && edgeParsedPayload) {
+        sampledPayload = {
+          raw: bytes.slice(),
+          bitTimes: bitTimes.slice(0, expectedBits),
+          bits: wfgLaDpAuxBytesToBits(bytes)
+        };
+        sampledBits = sampledPayload.bits.slice(0, expectedBits);
+        completePayload = true;
+      }
       if (!completePayload) {
         anomalies.push({
           startTime: syncStartTime,
@@ -22568,13 +22748,15 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   if (traceEnabled) window.__wfgLaDpAuxPipelineTrace = [];
   function traceRows(stage, list) {
     if (!traceEnabled) return;
+    var focusStart = wfgLaLastAxisInfo ? Number(wfgLaLastAxisInfo.tStart) : NaN;
+    var focusEnd = wfgLaLastAxisInfo ? Number(wfgLaLastAxisInfo.tEnd) : NaN;
     window.__wfgLaDpAuxPipelineTrace.push({
       stage: stage,
       count: (list || []).length,
       focus: (list || []).filter(function(row) {
         var s = Number(row && row.time) || 0;
         var e = Number(row && row.endTime) || s;
-        return s < 8.27458 && e > 8.2742;
+        return isFinite(focusStart) && isFinite(focusEnd) && s < focusEnd && e > focusStart;
       }).map(function(row) {
         return {
           time: row.time,
@@ -22620,6 +22802,8 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
   rows = wfgLaDpAuxAddActivityGapErrorRows(rows, edges, ch, nominalBitT);
   traceRows('activity-gap', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  rows = wfgLaDpAuxSplitLeadingShortFormatErrorRows(rows, edges, ch, nominalBitT, cfg.tolerance);
   rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
   traceRows('final-normalize', rows);
   return wfgLaMarkDpAuxCommunicationWarnings(rows);
@@ -22954,12 +23138,17 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.beginPath();
           ctx.rect(vr[0] + 2, labelY + 1, Math.max(1, rw - 4), Math.max(1, labelH - 2));
           ctx.clip();
-          var textW = ctx.measureText(text).width;
+          var markerText = text;
+          var textW = ctx.measureText(markerText).width;
+          if (markerText === 'AUX FORMAT ERR' && rw < textW + 8) {
+            markerText = 'ERR';
+            textW = ctx.measureText(markerText).width;
+          }
           var compactAuxTag = text === 'HHLL' && rw >= 10;
           if (compactAuxTag) ctx.font = 'bold 8px "SF Mono", Consolas, monospace';
           if (rw >= textW + 8 || compactAuxTag) {
             ctx.fillStyle = '#f8fafc';
-            ctx.fillText(text, (vr[0] + vr[1]) / 2, labelY + labelH / 2 + 0.5);
+            ctx.fillText(markerText, (vr[0] + vr[1]) / 2, labelY + labelH / 2 + 0.5);
           }
           ctx.restore();
         }
@@ -23087,27 +23276,27 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             stopRegionEnd: stopEnd,
             bitTimes: bitTimes
           }];
-          var anomalyOverlayStart = rowStart;
-          var anomalyOverlayEnd = rowEnd;
-          for (var segIdx = 0; segIdx < anomalySegments.length; segIdx++) {
-            var seg = anomalySegments[segIdx] || {};
-            var segStarts = [
-              finiteRowTime(seg.overlayStartTime),
-              finiteRowTime(seg.startRegionStart),
-              finiteRowTime(seg.payloadStartTime),
-              finiteRowTime(seg.stopRegionStart)
-            ].filter(isFinite);
-            var segEnds = [
-              finiteRowTime(seg.overlayEndTime),
-              finiteRowTime(seg.stopRegionEnd),
-              finiteRowTime(seg.payloadEndTime),
-              finiteRowTime(seg.startRegionEnd)
-            ].filter(isFinite);
-            if (segStarts.length) anomalyOverlayStart = Math.min(anomalyOverlayStart, Math.min.apply(Math, segStarts));
-            if (segEnds.length) anomalyOverlayEnd = Math.max(anomalyOverlayEnd, Math.max.apply(Math, segEnds));
-          }
-          drawGlassRegion(anomalyOverlayStart, anomalyOverlayEnd, 'rgba(220,38,38,0.32)', 'rgba(248,113,113,0.98)', true);
-          regionMarker(anomalyOverlayStart, anomalyOverlayEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.72)', '#fecaca');
+	          var anomalyOverlayStart = rowStart;
+	          var anomalyOverlayEnd = rowEnd;
+	          for (var segIdx = 0; segIdx < anomalySegments.length; segIdx++) {
+	            var seg = anomalySegments[segIdx] || {};
+	            var segStarts = [
+	              finiteRowTime(seg.overlayStartTime),
+	              finiteRowTime(seg.startRegionStart),
+	              finiteRowTime(seg.payloadStartTime),
+	              finiteRowTime(seg.stopRegionStart)
+	            ].filter(isFinite);
+	            var segEnds = [
+	              finiteRowTime(seg.overlayEndTime),
+	              finiteRowTime(seg.stopRegionEnd),
+	              finiteRowTime(seg.payloadEndTime),
+	              finiteRowTime(seg.startRegionEnd)
+	            ].filter(isFinite);
+	            if (segStarts.length) anomalyOverlayStart = Math.min(anomalyOverlayStart, Math.min.apply(Math, segStarts));
+	            if (segEnds.length) anomalyOverlayEnd = Math.max(anomalyOverlayEnd, Math.max.apply(Math, segEnds));
+	          }
+	          drawGlassRegion(anomalyOverlayStart, anomalyOverlayEnd, 'rgba(220,38,38,0.32)', 'rgba(248,113,113,0.98)', true);
+	          regionMarker(anomalyOverlayStart, anomalyOverlayEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.72)', '#fecaca');
           ctx.restore();
           drawn++;
           if (drawn > 160) {
@@ -32396,21 +32585,23 @@ function kvdatReadAnalyzersFromXml(xmlDoc) {
       var dp = parameters.split(',');
       var channel = Math.max(0, Math.min(15, Number(dp[2]) || Number(dp[1]) || 0));
       var bitRate = Math.max(1, Number(dp[4]) || 1000000);
-      var polarity = Number(dp[5]) === 1 ? 'invert' : 'normal';
-      var bitsPerFrame = Math.max(1, Number(dp[6]) || 8);
-      var significantBit = Number(dp[8]);
-      analyzers.push({
-        type: 'dp_aux',
-        config: {
-          channel: channel,
-          bitRate: bitRate,
-          polarity: polarity,
-          tolerance: 25,
-          bitsPerFrame: bitsPerFrame,
-          significantBit: isFinite(significantBit) ? significantBit : 4,
-          kvParams: parameters
-        }
-      });
+	      var polarity = Number(dp[5]) === 1 ? 'invert' : 'normal';
+	      var bitsPerFrame = Math.max(1, Number(dp[6]) || 8);
+	      var significantBit = Number(dp[8]);
+	      var syncBits = Math.max(1, Math.min(256, Math.round(isFinite(significantBit) ? significantBit : 16)));
+	      analyzers.push({
+	        type: 'dp_aux',
+	        config: {
+	          channel: channel,
+	          bitRate: bitRate,
+	          polarity: polarity,
+	          tolerance: 25,
+	          bitsPerFrame: bitsPerFrame,
+	          significantBit: syncBits,
+	          syncBits: syncBits,
+	          kvParams: parameters
+	        }
+	      });
       return;
     }
     if (!/I2C/i.test(fileName + ' ' + parameters)) return;
@@ -32807,11 +32998,12 @@ window.wfgLaExportKvdat = function() {
         });
       } else if (a && a.type === 'dp_aux') {
         var dpCh = Math.max(0, Math.min(15, Number(acfg.channel) || 0));
-        var dpRate = Math.max(1, Math.round(Number(acfg.bitRate) || 1000000));
-        var dpPolarity = acfg.polarity === 'invert' ? 1 : 0;
-        var dpBits = Math.max(1, Math.round(Number(acfg.bitsPerFrame) || 8));
-        var dpSig = Math.round(Number(acfg.significantBit));
-        if (!isFinite(dpSig)) dpSig = 4;
+	        var dpRate = Math.max(1, Math.round(Number(acfg.bitRate) || 1000000));
+	        var dpPolarity = acfg.polarity === 'invert' ? 1 : 0;
+	        var dpBits = Math.max(1, Math.round(Number(acfg.bitsPerFrame) || 8));
+	        var dpSig = Math.round(Number(acfg.syncBits) || Number(acfg.significantBit) || 16);
+	        if (!isFinite(dpSig)) dpSig = 16;
+	        dpSig = Math.max(1, Math.min(256, dpSig));
         analyzerLines.push({
           fileName: 'DisplayPortAuxAnalyzer.dll',
           parameters: 'DisplayPortAUXAnalyzer,0,' + dpCh + ',0,' + dpRate + ',' + dpPolarity + ',' + dpBits + ',0,' + dpSig + ',0,',
