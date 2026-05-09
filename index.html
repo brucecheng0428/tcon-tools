@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.216</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.218</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.216</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.218</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -22291,6 +22291,21 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
 	  var tError = Math.max(3, Math.round(tHalf * tolPct));
   var syncBits = Math.max(1, Number(cfg.syncBits) || 16);
   function inRange(v, target) { return v > (target - tError) && v < (target + tError); }
+  function isHalfRange(v) { return v > (tHalf - tError) && v < (tHalf + tError); }
+  function precedingHalfRunGapCount(edgeIndex) {
+    var count = 0;
+    for (var pi = edgeIndex; pi > 0; pi--) {
+      if (!isHalfRange(edges[pi] - edges[pi - 1])) break;
+      count++;
+    }
+    return count;
+  }
+  function precedingActivityStartSample(edgeIndex) {
+    var j = Math.max(0, Math.min(edges.length - 1, Number(edgeIndex) || 0));
+    var activityGap = Math.max(3 * tHalf, Math.round(sampleRate * 4e-6));
+    while (j > 0 && edges[j] - edges[j - 1] <= activityGap) j--;
+    return edges[j];
+  }
   function bitStateAfterEdge(edgeIndex) { return (initial + edgeIndex + 1) & 1; }
   function manchesterBitFromTransition(beforeLevel, afterLevel) {
     if (beforeLevel === 0 && afterLevel === 1) return 0;
@@ -22510,6 +22525,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
 	  }
 	  var i = 0;
 	  var packet = 0;
+  var lastFrameStopEndSample = -Infinity;
   while (i < edges.length - 1 && frames.length < 2000) {
     var syncCount = 0;
     var syncFirstEdge = 0;
@@ -22517,6 +22533,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     var synchronized = false;
     var startSample = 0;
     var startRegionSample = 0;
+    var pendingPrefixFormatError = null;
     while (!synchronized && i < edges.length - 1) {
       var edge = edges[i];
       i++;
@@ -22533,13 +22550,29 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
         if (preGap < 3 * tHalf) {
           var glitchMax = Math.max(1, Math.round(tHalf * 0.5));
           var previousQuiet = syncFirstIndex <= 1 || (edges[syncFirstIndex - 1] - edges[syncFirstIndex - 2]) >= 3 * tHalf;
-          if (preGap <= glitchMax && previousQuiet) {
-            addShortFormatError(edges[syncFirstIndex - 1], edges[syncFirstIndex], 'Narrow AUX format glitch');
+          var followsPreviousStop = isFinite(lastFrameStopEndSample)
+            && edges[syncFirstIndex - 1] <= lastFrameStopEndSample + tError
+            && edges[syncFirstIndex] >= lastFrameStopEndSample - tError;
+          if (followsPreviousStop) {
+            pendingPrefixFormatError = null;
+          } else if (preGap <= glitchMax && previousQuiet) {
+            pendingPrefixFormatError = {
+              startSample: edges[syncFirstIndex - 1],
+              endSample: edges[syncFirstIndex],
+              reason: 'Narrow AUX format glitch'
+            };
+          } else if (preGap > glitchMax && !isHalfRange(preGap) && (previousQuiet || precedingHalfRunGapCount(syncFirstIndex - 1) < 2 * syncBits)) {
+            pendingPrefixFormatError = {
+              startSample: precedingActivityStartSample(syncFirstIndex - 1),
+              endSample: edges[syncFirstIndex],
+              reason: 'AUX preamble gap format error'
+            };
           } else {
             syncCount = 0;
             syncFirstEdge = 0;
             syncFirstIndex = -1;
             startRegionSample = 0;
+            pendingPrefixFormatError = null;
             continue;
           }
         }
@@ -22577,12 +22610,14 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
           syncFirstEdge = 0;
           syncFirstIndex = -1;
           startRegionSample = 0;
+          pendingPrefixFormatError = null;
         }
       } else {
         syncCount = 0;
         syncFirstEdge = 0;
         syncFirstIndex = -1;
         startRegionSample = 0;
+        pendingPrefixFormatError = null;
       }
     }
     if (!synchronized) continue;
@@ -22685,6 +22720,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
             bitTimes: []
           }
         });
+        pendingPrefixFormatError = null;
         continue;
       }
       bytes = sampledPayload.raw.slice(0, bytes.length);
@@ -22708,6 +22744,15 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
         bits: sampledPayload.bits ? sampledPayload.bits.slice(0, bytes.length * 8) : [],
         bytes: bytes
 	      });
+      lastFrameStopEndSample = Math.round(stopRegionEnd * sampleRate);
+      if (pendingPrefixFormatError && pendingPrefixFormatError.endSample > pendingPrefixFormatError.startSample) {
+        addShortFormatError(
+          pendingPrefixFormatError.startSample,
+          pendingPrefixFormatError.endSample,
+          pendingPrefixFormatError.reason
+        );
+      }
+      pendingPrefixFormatError = null;
 	    }
 	  }
 	  addUnparsedActivityAnomalies();
