@@ -2062,7 +2062,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.223</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.224</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3099,7 +3099,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.223</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.224</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16931,7 +16931,8 @@ var WFG_LA_QUICK_PRESETS = [
     fileName: '2026-03-06_14-02-44-G156ED11-NG.kvdat',
     thresholdV: 0.90,
     decodeExpanded: true,
-    displayView: { start: 7.77710, end: 7.77736 }
+    displayView: { start: 7.77710, end: 7.77736 },
+    focusDisplayTime: 7.77723
   }
 ];
 var WFG_LA_PACKAGE_URL = 'https://218.161.24.173:5001/d/s/188EhAhjqJZwkZgaxNjMy89pxroSous8/DYvcvXiNKZb-WiD_oY2_qLtpr8fcUiTr-57iA8IjtLA0';
@@ -23898,6 +23899,39 @@ function wfgLaSelectDecodeRow(key) {
   wfgLaRenderScope();
 }
 window.wfgLaSelectDecodeRow = wfgLaSelectDecodeRow;
+
+function wfgLaScrollDecodeKeyIntoView(key) {
+  if (!key) return;
+  var wrap = document.querySelector('#wfg-la-decoder-results .wfg-la-decode-table-wrap');
+  if (!wrap) return;
+  var tr = wrap.querySelector('tbody tr[data-decode-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+  if (!tr) return;
+  var top = tr.offsetTop;
+  var bottom = top + tr.offsetHeight;
+  var pad = 28;
+  if (top < wrap.scrollTop + pad || bottom > wrap.scrollTop + wrap.clientHeight - pad) {
+    wrap.scrollTop = Math.max(0, top - pad);
+  }
+}
+
+function wfgLaFocusDecodeRowNearTime(timeSec) {
+  var t0 = Number(timeSec);
+  if (!isFinite(t0) || !wfgLaDecodeResults.length) return;
+  var best = null;
+  (wfgLaDecodeResults || []).forEach(function(group) {
+    (group.rows || []).forEach(function(row) {
+      var start = Number(row && row.time) || 0;
+      var end = Math.max(start, Number(row && row.endTime) || start);
+      var center = (start + end) / 2;
+      var score = (start <= t0 && end >= t0) ? 0 : Math.abs(center - t0);
+      if (!best || score < best.score) best = { group: group, row: row, score: score };
+    });
+  });
+  if (!best) return;
+  wfgLaDecodeSelectedKey = wfgLaDecodeRowKey(best.group, best.row);
+  wfgLaRenderDecodeResults();
+  wfgLaScrollDecodeKeyIntoView(wfgLaDecodeSelectedKey);
+}
 
 function wfgLaRenderDecodeResults() {
   var el = document.getElementById('wfg-la-decoder-results');
@@ -33732,7 +33766,8 @@ function wfgLaApplyQuickPreset(id) {
         thresholdV: preset.thresholdV,
         decodeExpanded: !!preset.decodeExpanded,
         view: preset.view,
-        displayView: preset.displayView
+        displayView: preset.displayView,
+        focusDisplayTime: preset.focusDisplayTime
       });
       wfgLaSetAcqProgress(100, t('wfg.laQuickPresetApplied', { name: preset.name }), 'done');
     } else {
@@ -33967,6 +34002,12 @@ function wfgLaApplyParsedKvdatCapture(parsed, fileName, options) {
   }
   wfgLaRunAnalyzers();
   wfgLaRenderDecodeResults();
+  if (options.focusDisplayTime != null) {
+    var focusTriggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
+    wfgLaFocusDecodeRowNearTime(Number(options.focusDisplayTime) + focusTriggerZero);
+  } else if (view) {
+    wfgLaFocusDecodeRowNearTime((Number(view.start) + Number(view.end)) / 2);
+  }
   return decoded;
 }
 
