@@ -1669,7 +1669,7 @@
   .wfg-la-b-count { height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; background: #2f3336; border: 1px solid #191919; border-radius: 3px; color: #bae6fd; font: 10px/1 monospace; box-sizing: border-box; }
   .wfg-la-b-count input { width: 58px; height: 20px; min-width: 0; padding: 0 3px; border: 1px solid #111; border-radius: 2px; background: #111827; color: #e0f2fe; font: 11px/1 monospace; box-sizing: border-box; }
   .wfg-la-cursor-cluster { height: 28px; display: inline-flex; align-items: center; gap: 4px; max-width: 32px; overflow: hidden; transition: max-width 160ms ease; flex-shrink: 0; }
-  .wfg-la-cursor-cluster:hover, .wfg-la-cursor-cluster:focus-within, .wfg-la-cursor-cluster.open { max-width: 360px; overflow: visible; }
+  .wfg-la-cursor-cluster:focus-within, .wfg-la-cursor-cluster.open { max-width: 360px; overflow: visible; }
   .wfg-la-cursor-fold { width: 30px; min-width: 30px !important; padding: 0 !important; color: #facc15 !important; }
   .wfg-la-run-btn { width: 52px; min-width: 52px; font-size: 18px !important; line-height: 1; }
   .wfg-la-run-btn.play, .wfg-la-run-btn.loop { color: #facc15 !important; }
@@ -2056,7 +2056,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.166</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.213</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3093,7 +3093,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.166</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.213</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16238,6 +16238,7 @@ var wfgLaCursorMouseTime = null;
 var wfgLaCursorMouseAnchor = null;
 var wfgLaCursorLabels = [];
 var wfgLaCursorAnimRaf = 0;
+var wfgLaCursorClusterCloseTimer = 0;
 var wfgLaPulseItems = [];
 var wfgLaPulseNextId = 1;
 var wfgLaSuppressNextClick = false;
@@ -16246,6 +16247,8 @@ var wfgLaPanning = null;
 var wfgLaHover = null;
 var wfgLaTriggerFocusActive = false;
 var wfgLaGeom = null;
+var wfgLaLastAxisInfo = null;
+var wfgLaHoverRenderRaf = 0;
 var wfgLaChannelDrag = null;
 var wfgLaDemoEdges = {};
 var wfgLaCapturedWaveform = null;
@@ -17425,6 +17428,47 @@ function wfgLaSignedTimeLabel(sec) {
   return (sec < 0 ? '-' : '') + wfgLaTimeLabel(Math.abs(sec));
 }
 
+function wfgLaAxisDecimalsForStep(stepSec) {
+  stepSec = Math.max(Math.abs(Number(stepSec) || 0), 1e-15);
+  var decimals = Math.ceil(-Math.log10(stepSec));
+  return Math.max(0, Math.min(9, decimals));
+}
+
+function wfgLaAxisMajorTimeLabel(sec, stepSec) {
+  sec = Number(sec) || 0;
+  if (Math.abs(sec) < 0.5e-12) return '0s';
+  var decimals = wfgLaAxisDecimalsForStep(stepSec);
+  var sign = sec < 0 ? '-' : '';
+  return sign + Math.abs(sec).toFixed(decimals) + 's';
+}
+
+function wfgLaHoverTimeLabel(sec, stepSec) {
+  sec = Number(sec) || 0;
+  var decimals = Math.max(3, Math.min(9, wfgLaAxisDecimalsForStep(stepSec) + 1));
+  var sign = sec < 0 ? '-' : '';
+  return sign + Math.abs(sec).toFixed(decimals) + 's';
+}
+
+function wfgLaAxisOffsetLabel(sec, stepSec) {
+  sec = Number(sec) || 0;
+  if (Math.abs(sec) < 0.5e-12) return '0';
+  var sign = sec < 0 ? '-' : '+';
+  var absSec = Math.abs(sec);
+  var absStep = Math.max(Math.abs(Number(stepSec) || 0), 1e-15);
+  var scale = 1e9;
+  var unit = 'ns';
+  if (absSec >= 0.999999e-3 || absStep >= 0.999999e-3) {
+    scale = 1e3;
+    unit = 'ms';
+  } else if (absSec >= 0.999999e-6 || absStep >= 0.999999e-6) {
+    scale = 1e6;
+    unit = 'us';
+  }
+  var scaledStep = absStep * scale;
+  var decimals = scaledStep >= 10 ? 0 : (scaledStep >= 1 ? 1 : 2);
+  return sign + (absSec * scale).toFixed(decimals).replace(/\.0+$|(\.\d*[1-9])0+$/, '$1') + unit;
+}
+
 function wfgLaTriggerZeroTime(cfg, duration) {
   duration = Math.max(Number(duration) || wfgLaCaptureDuration(), 1e-9);
   if (wfgLaCapturedWaveform && isFinite(wfgLaCapturedWaveform.displayTriggerTimeSec)) {
@@ -17492,6 +17536,14 @@ function wfgLaRefreshHoverTimeFromAxis() {
   wfgLaHover.time = g.tStart + frac * (g.tEnd - g.tStart);
   wfgLaHover.slot = Math.floor((wfgLaHover.y - g.axisH) / g.rowStep);
   wfgLaHover.channel = wfgLaHover.slot >= 0 && wfgLaHover.slot < g.channels.length ? g.channels[wfgLaHover.slot] : -1;
+}
+
+function wfgLaRequestHoverRender() {
+  if (wfgLaHoverRenderRaf) return;
+  wfgLaHoverRenderRaf = requestAnimationFrame(function() {
+    wfgLaHoverRenderRaf = 0;
+    wfgLaRenderScope();
+  });
 }
 
 function wfgLaBindScopeEvents() {
@@ -17578,14 +17630,14 @@ function wfgLaBindScopeEvents() {
       if (Math.abs(dx) > 1) wfgLaMarkManualViewChange();
       wfgLaSetViewRange(wfgLaPanning.start + dt, wfgLaPanning.end + dt);
     }
-    wfgLaRenderScope();
+    wfgLaRequestHoverRender();
   });
   surface.addEventListener('mouseleave', function() {
     wfgLaHover = null;
     wfgLaMeasArrow = null;
     wfgLaPanning = null;
     surface.classList.remove('panning');
-    wfgLaRenderScope();
+    wfgLaRequestHoverRender();
   });
   surface.addEventListener('mousedown', function(e) {
     if (e.button !== 0) return;
@@ -17661,13 +17713,16 @@ function wfgLaBindScopeEvents() {
     wfgLaUpdateCursorButtons();
     wfgLaRenderScope();
   });
-  document.addEventListener('keydown', function(e) {
-    if (wfgCurrentMode !== 'la') return;
-    if (wfgIsTextEntryEvent(e)) return;
-    if (wfgLaCursorKeys[e.key] == null) return;
-    e.preventDefault();
-    wfgLaToggleCursor(wfgLaCursorKeys[e.key]);
-  });
+  if (!window._wfgLaCursorKeyBound) {
+    window._wfgLaCursorKeyBound = true;
+    window.addEventListener('keydown', function(e) {
+      if (wfgCurrentMode !== 'la') return;
+      if (wfgIsTextEntryEvent(e)) return;
+      if (wfgLaCursorKeys[e.key] == null) return;
+      e.preventDefault();
+      wfgLaToggleCursor(wfgLaCursorKeys[e.key]);
+    }, true);
+  }
 }
 
 function wfgLaCaptureDuration() {
@@ -18029,8 +18084,10 @@ function wfgLaRenderScope() {
   var cssH = rowLayout.cssH;
   var dpr = window.devicePixelRatio || 1;
   canvas.style.height = cssH + 'px';
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
+  var backingW = Math.round(cssW * dpr);
+  var backingH = Math.round(cssH * dpr);
+  if (canvas.width !== backingW) canvas.width = backingW;
+  if (canvas.height !== backingH) canvas.height = backingH;
   canvas.style.width = cssW + 'px';
   var ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -18069,12 +18126,23 @@ function wfgLaRenderScope() {
   var minorStep = step / 10;
   var minorPx = majorPx / 10;
   if (minorPx < 25) { minorStep = step / 5; minorPx = majorPx / 5; }
-  var showMinorLabels = minorPx >= 20;
+  if (minorPx < 34) { minorStep = step / 2; minorPx = majorPx / 2; }
+  var majorLabelStep = step;
+  var showMinorLabels = minorPx >= 34;
   var firstRel = Math.ceil(relStart / step) * step;
   var minorFirstRel = Math.ceil(relStart / minorStep) * minorStep;
-  var minorUnit = 'ns', minorScale = 1e9;
-  if (minorStep >= 0.5e-3) { minorUnit = 'ms'; minorScale = 1e3; }
-  else if (minorStep >= 0.5e-6) { minorUnit = 'us'; minorScale = 1e6; }
+  wfgLaLastAxisInfo = {
+    tStart: tStart,
+    tEnd: tEnd,
+    relStart: relStart,
+    relEnd: relEnd,
+    triggerZero: triggerZero,
+    majorStep: step,
+    minorStep: minorStep,
+    majorLabelStep: majorLabelStep,
+    majorLabelDecimals: wfgLaAxisDecimalsForStep(majorLabelStep),
+    showMinorLabels: showMinorLabels
+  };
   ctx.textAlign = 'center';
   ctx.strokeStyle = 'rgba(148,163,184,0.28)';
   ctx.lineWidth = 1;
@@ -18098,12 +18166,12 @@ function wfgLaRenderScope() {
       var nx = xOfRel(relNt);
       if (nx < drawX0 + 14 || nx > cssW - 14) continue;
       if (crossesTriggerZero) {
-        ctx.fillText(wfgLaSignedTimeLabel(relNt), nx, axisH - 14);
+        ctx.fillText(wfgLaAxisMajorTimeLabel(relNt, minorStep), nx, axisH - 14);
       } else {
         var prevMajor = Math.floor(relNt / step + 0.0001) * step;
-        var offsetVal = Math.round((relNt - prevMajor) * minorScale);
-        if (offsetVal <= 0) continue;
-        ctx.fillText('+' + offsetVal + minorUnit, nx, axisH - 14);
+        var offsetSec = relNt - prevMajor;
+        if (offsetSec <= step * 1e-6) continue;
+        ctx.fillText(wfgLaAxisOffsetLabel(offsetSec, minorStep), nx, axisH - 14);
       }
     }
   }
@@ -18116,7 +18184,7 @@ function wfgLaRenderScope() {
     ctx.moveTo(x, 0);
     ctx.lineTo(x, cssH);
     ctx.stroke();
-    if (x > drawX0 + 28 && x < cssW - 28) ctx.fillText(wfgLaSignedTimeLabel(tRel), x, 14);
+    if (x > drawX0 + 28 && x < cssW - 28) ctx.fillText(wfgLaAxisMajorTimeLabel(tRel, majorLabelStep), x, 14);
   }
   if (cfg.trigger.enabled) {
     var tx = xOfRel(0);
@@ -18251,6 +18319,20 @@ function wfgLaRenderScope() {
     var hy = axisH + wfgLaHover.slot * rowStep;
     ctx.fillStyle = 'rgba(56,189,248,0.08)';
     ctx.fillRect(drawX0, hy, drawW, rowStep - 4);
+    var hoverRelTime = wfgLaHover.time - triggerZero;
+    var hoverLabel = wfgLaHoverTimeLabel(hoverRelTime, minorStep);
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    var hoverW = Math.max(66, ctx.measureText(hoverLabel).width + 12);
+    var hoverX = Math.max(drawX0 + hoverW / 2 + 2, Math.min(cssW - hoverW / 2 - 2, wfgLaHover.x));
+    var hoverY = Math.max(10, axisH - 27);
+    ctx.fillStyle = 'rgba(2,6,23,0.88)';
+    ctx.strokeStyle = 'rgba(226,232,240,0.75)';
+    ctx.fillRect(hoverX - hoverW / 2, hoverY - 8, hoverW, 16);
+    ctx.strokeRect(Math.round(hoverX - hoverW / 2) + 0.5, Math.round(hoverY - 8) + 0.5, Math.round(hoverW), 16);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText(hoverLabel, hoverX, hoverY + 0.5);
   }
 
   wfgLaUpdateMeasure(cfg, triggerVisibleEdges);
@@ -18339,12 +18421,16 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
   var wave = wfgLaGetWaveform(cfg, ch);
   var edges = wave.edges || [];
   var tProbe = wfgLaHover ? wfgLaHover.time : wfgLaViewStart;
-  var startIdx = 0;
-  while (startIdx < edges.length && edges[startIdx] < tProbe) startIdx++;
-  startIdx = Math.max(0, Math.min(startIdx, Math.max(0, edges.length - 3)));
-  if (startIdx % 2 === 1) startIdx = Math.max(0, startIdx - 1);
-  var period = edges.length > startIdx + 2 ? edges[startIdx + 2] - edges[startIdx] : (edges.length > 2 ? edges[2] - edges[0] : 0);
-  var pulse = edges.length > startIdx + 1 ? edges[startIdx + 1] - edges[startIdx] : (edges.length > 1 ? edges[1] - edges[0] : 0);
+  var edgeIdx = wfgLaLowerBound(edges, tProbe);
+  var segLeft = edgeIdx > 0 ? edges[edgeIdx - 1] : 0;
+  var segRight = edgeIdx < edges.length ? edges[edgeIdx] : Math.max(wave.durationSec || cfg.durationSec || wfgLaViewEnd, wfgLaViewEnd);
+  var pulse = segRight > segLeft ? segRight - segLeft : 0;
+  var prevSameEdge = edgeIdx >= 2 ? edges[edgeIdx - 2] : null;
+  var nextSameEdge = edgeIdx + 1 < edges.length ? edges[edgeIdx + 1] : null;
+  var period = 0;
+  if (prevSameEdge != null && segRight > prevSameEdge) period = segRight - prevSameEdge;
+  else if (nextSameEdge != null && nextSameEdge > segLeft) period = nextSameEdge - segLeft;
+  else if (edges.length > 2) period = edges[2] - edges[0];
   var duty = period > 0 ? pulse / period * 100 : 0;
   var setText = function(id, txt) {
     var el = document.getElementById(id);
@@ -18362,12 +18448,12 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
   }
   wfgLaMeasArrow = null;
   if (wfgLaHover && wfgLaHover.channel >= 0 && wfgLaGeom) {
-    var edgeIdx = wfgLaLowerBound(edges, tProbe);
-    var left = edgeIdx > 0 ? edges[edgeIdx - 1] : 0;
-    var right = edgeIdx < edges.length ? edges[edgeIdx] : Math.max(wave.durationSec || cfg.durationSec || wfgLaViewEnd, wfgLaViewEnd);
+    var left = segLeft;
+    var right = segRight;
     var right2 = edgeIdx + 1 < edges.length ? edges[edgeIdx + 1] : null;
     var rowY = wfgLaGeom.axisH + wfgLaHover.slot * wfgLaGeom.rowStep;
-    var y = rowY + 22;
+    var rowMetrics = wfgLaWaveRowMetrics(rowY, wfgLaGeom.rowStep, wfgLaHover.channel);
+    var y = rowMetrics.rowCenterY;
     var range = Math.max(wfgLaGeom.tEnd - wfgLaGeom.tStart, 1e-12);
     var x1 = wfgLaGeom.drawX0 + ((left - wfgLaGeom.tStart) / range) * wfgLaGeom.drawW;
     var x2 = wfgLaGeom.drawX0 + ((right - wfgLaGeom.tStart) / range) * wfgLaGeom.drawW;
@@ -18622,7 +18708,7 @@ function wfgLaFitAll() {
 window.wfgLaFitAll = wfgLaFitAll;
 
 if (new URLSearchParams(location.search).has('debug_la')) {
-  window.wfgLaDebugView = function(start, end) {
+	  window.wfgLaDebugView = function(start, end) {
     if (isFinite(Number(start)) && isFinite(Number(end)) && Number(end) > Number(start)) {
       wfgLaSetViewRange(Number(start), Number(end));
       wfgLaRenderScope();
@@ -18631,6 +18717,35 @@ if (new URLSearchParams(location.search).has('debug_la')) {
       start: wfgLaViewStart,
       end: wfgLaViewEnd,
       duration: wfgLaCaptureDuration(),
+      axis: wfgLaLastAxisInfo ? {
+        tStart: wfgLaLastAxisInfo.tStart,
+        tEnd: wfgLaLastAxisInfo.tEnd,
+        relStart: wfgLaLastAxisInfo.relStart,
+        relEnd: wfgLaLastAxisInfo.relEnd,
+        triggerZero: wfgLaLastAxisInfo.triggerZero,
+        majorStep: wfgLaLastAxisInfo.majorStep,
+        minorStep: wfgLaLastAxisInfo.minorStep,
+        majorLabelDecimals: wfgLaLastAxisInfo.majorLabelDecimals,
+        showMinorLabels: wfgLaLastAxisInfo.showMinorLabels
+      } : null,
+      geom: wfgLaGeom ? {
+        drawX0: wfgLaGeom.drawX0,
+        drawW: wfgLaGeom.drawW,
+        tStart: wfgLaGeom.tStart,
+        tEnd: wfgLaGeom.tEnd,
+        axisH: wfgLaGeom.axisH,
+        rowStep: wfgLaGeom.rowStep,
+        cssW: wfgLaGeom.cssW,
+        cssH: wfgLaGeom.cssH,
+        channels: wfgLaGeom.channels ? wfgLaGeom.channels.slice() : []
+      } : null,
+      measureArrow: wfgLaMeasArrow ? JSON.parse(JSON.stringify(wfgLaMeasArrow)) : null,
+      cursors: {
+        active: wfgLaCursorActive.slice(),
+        moving: wfgLaCursorMoving.slice(),
+        selected: wfgLaCursorSelected,
+        pos: wfgLaCursorPos.slice()
+      },
       selectedKey: wfgLaDecodeSelectedKey,
       rows: (wfgLaDecodeResults || []).map(function(group, gi) {
         return {
@@ -18646,16 +18761,27 @@ if (new URLSearchParams(location.search).has('debug_la')) {
               type: row.type,
               rw: row.rw,
               ack: row.ack,
-              label: row.label,
+	              label: row.label,
+	              channel: row.channel,
               auxAnomaly: !!row.auxAnomaly,
               auxNoReply: !!row.auxNoReply,
               protocolError: !!row.protocolError,
               syncCount: row.syncCount,
+              syncStartTime: row.syncStartTime,
+              syncEndTime: row.syncEndTime,
+              startRegionStart: row.startRegionStart,
+              startRegionEnd: row.startRegionEnd,
+              payloadStartTime: row.payloadStartTime,
+              payloadEndTime: row.payloadEndTime,
+              stopRegionStart: row.stopRegionStart,
+              stopRegionEnd: row.stopRegionEnd,
               raw: row.raw ? row.raw.slice() : [],
               bits: row.bits ? row.bits.slice() : [],
               bitTimes: row.bitTimes ? row.bitTimes.slice() : [],
               auxSegments: (row.auxSegments || []).map(function(seg) {
                 return {
+                  overlayStartTime: seg.overlayStartTime,
+                  overlayEndTime: seg.overlayEndTime,
                   startRegionStart: seg.startRegionStart,
                   startRegionEnd: seg.startRegionEnd,
                   payloadStartTime: seg.payloadStartTime,
@@ -18670,10 +18796,71 @@ if (new URLSearchParams(location.search).has('debug_la')) {
             };
           })
         };
-      })
-    };
-  };
-}
+	      })
+	    };
+	  };
+	  window.wfgLaDebugEdges = function(start, end, ch) {
+	    var wf = wfgLaCapturedWaveform;
+	    ch = Math.max(0, Math.min(15, Number(ch) || 0));
+	    var edges = wf && wf.edgesByChannel ? (wf.edgesByChannel[ch] || []) : [];
+	    var s = Math.max(0, Number(start) || 0);
+	    var e = Math.max(s, Number(end) || s);
+	    var idx = wfgLaLowerBound(edges, s);
+	    var out = [];
+	    for (var i = idx; i < edges.length && edges[i] <= e; i++) out.push(edges[i]);
+	    return {
+	      channel: ch,
+	      start: s,
+	      end: e,
+	      count: out.length,
+	      first: out.length ? out[0] : null,
+	      last: out.length ? out[out.length - 1] : null,
+	      edges: out.slice(0, 512),
+	      axis: wfgLaLastAxisInfo ? {
+	        tStart: wfgLaLastAxisInfo.tStart,
+	        tEnd: wfgLaLastAxisInfo.tEnd,
+	        relStart: wfgLaLastAxisInfo.relStart,
+	        relEnd: wfgLaLastAxisInfo.relEnd,
+	        triggerZero: wfgLaLastAxisInfo.triggerZero
+	      } : null
+	    };
+	  };
+	  window.wfgLaDebugDpAuxCoveragePass = function() {
+	    var wf = wfgLaCapturedWaveform;
+	    if (!wf || !wf.edgesByChannel || !wfgLaDecodeResults.length) return null;
+	    var group = (wfgLaDecodeResults || []).find(function(g) { return g && g.analyzer && g.analyzer.type === 'dp_aux'; });
+	    if (!group) return null;
+	    var baseRows = (group.rows || []).map(function(row) {
+	      return Object.assign({}, row, {
+	        raw: row.raw ? row.raw.slice() : [],
+	        bits: row.bits ? row.bits.slice() : [],
+	        bitTimes: row.bitTimes ? row.bitTimes.slice() : [],
+	        auxSegments: (row.auxSegments || []).map(function(seg) { return Object.assign({}, seg); })
+	      });
+	    });
+	    var cfg = Object.assign(wfgLaDefaultAnalyzerConfig('dp_aux'), group.analyzer.config || {});
+	    var rowChannel = baseRows.find(function(row) { return row && isFinite(Number(row.channel)); });
+	    var ch = Math.max(0, Math.min(15, rowChannel ? Number(rowChannel.channel) : (Number(cfg.channel) || 0)));
+	    var bitT = 1 / Math.max(1, Number(cfg.bitRate) || 1000000);
+	    var edges = wf.edgesByChannel[ch] || [];
+	    var out = wfgLaDpAuxAddActivityGapErrorRows(baseRows.slice(), edges, ch, bitT);
+	    return {
+	      hasFinalGapPass: /wfgLaDpAuxAddActivityGapErrorRows/.test(String(wfgLaDecodeDpAuxFrames)),
+	      before: baseRows.length,
+	      after: out.length,
+	      added: out.slice(baseRows.length).map(function(row) {
+	        return {
+	          time: row.time,
+	          endTime: row.endTime,
+	          type: row.type,
+	          rw: row.rw,
+	          auxAnomaly: !!row.auxAnomaly,
+	          edgeCount: wfgLaLowerBound(edges, row.endTime) - wfgLaLowerBound(edges, row.time)
+	        };
+	      })
+	    };
+	  };
+	}
 
 function wfgLaCenterTrigger() {
   var cfg = wfgLaBuildConfig();
@@ -18706,6 +18893,7 @@ function wfgLaCloseCursorGroup(group) {
 window.wfgLaCloseCursorGroup = wfgLaCloseCursorGroup;
 
 function wfgLaToggleCursor(idx) {
+  wfgLaToggleCursorCluster(true);
   if (!wfgLaCursorActive[idx]) {
     for (var i = 0; i < wfgLaCursorMoving.length; i++) wfgLaCursorMoving[i] = false;
     wfgLaCursorActive[idx] = true;
@@ -18730,6 +18918,10 @@ window.wfgLaToggleCursor = wfgLaToggleCursor;
 function wfgLaToggleCursorCluster(forceOpen) {
   var el = document.getElementById('wfg-la-cursor-cluster');
   if (!el) return;
+  if (wfgLaCursorClusterCloseTimer) {
+    clearTimeout(wfgLaCursorClusterCloseTimer);
+    wfgLaCursorClusterCloseTimer = 0;
+  }
   var open = forceOpen == null ? !el.classList.contains('open') : !!forceOpen;
   el.classList.toggle('open', open);
 }
@@ -21005,6 +21197,7 @@ function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
     row.stopRegionStart = row.payloadEndTime;
     row.stopRegionEnd = frame.stopTime != null ? frame.stopTime : row.payloadEndTime;
     row.bitTimes = frame.bitTimes && bitT ? frame.bitTimes.slice(0, bytes.length * 8).map(function(t) { return t + bitT / 2; }) : [];
+    row.bits = frame.bits ? frame.bits.slice(0, bytes.length * 8) : [];
     return row;
   }
   if (cls.kind === 'request') {
@@ -21159,17 +21352,51 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
     if (!row || row.type !== 'REQ' || row.dpcdAddr == null) return null;
     return Number(row.dpcdAddr);
   }
-  function anomalySegment(row) {
+  function segmentTimeMin(seg) {
+    var values = [
+      seg && seg.overlayStartTime,
+      seg && seg.startRegionStart,
+      seg && seg.payloadStartTime,
+      seg && seg.stopRegionStart
+    ].map(Number).filter(isFinite);
+    return values.length ? Math.min.apply(Math, values) : NaN;
+  }
+  function segmentTimeMax(seg) {
+    var values = [
+      seg && seg.overlayEndTime,
+      seg && seg.stopRegionEnd,
+      seg && seg.payloadEndTime,
+      seg && seg.startRegionEnd
+    ].map(Number).filter(isFinite);
+    return values.length ? Math.max.apply(Math, values) : NaN;
+  }
+  function refreshAnomalyBounds(row) {
+    if (!row || !row.auxAnomaly || !(row.auxSegments || []).length) return;
+    var starts = row.auxSegments.map(segmentTimeMin).filter(isFinite);
+    var ends = row.auxSegments.map(segmentTimeMax).filter(isFinite);
+    if (starts.length) row.time = Math.min.apply(Math, starts);
+    if (ends.length) row.endTime = Math.max.apply(Math, ends);
+  }
+  function anomalySegment(row, overlayStart, overlayEnd) {
+    var bitT = Number(row && row.auxBitT) || 0;
+    var stopStart = row ? row.stopRegionStart : null;
+    var stopEnd = row ? row.stopRegionEnd : null;
+    if (bitT > 0 && (!isFinite(Number(stopEnd)) || Number(stopEnd) <= Number(stopStart))) {
+      stopStart = isFinite(Number(row && row.payloadEndTime)) ? Number(row.payloadEndTime) : null;
+      stopEnd = isFinite(Number(stopStart)) ? Number(stopStart) + 4 * bitT : stopEnd;
+    }
     return {
       raw: row && row.raw ? row.raw.slice() : [],
       bits: row && row.bits ? row.bits.slice() : [],
-      auxBitT: row ? row.auxBitT : 0,
+      auxBitT: bitT,
       startRegionStart: row ? row.startRegionStart : null,
       startRegionEnd: row ? row.startRegionEnd : null,
       payloadStartTime: row ? row.payloadStartTime : null,
       payloadEndTime: row ? row.payloadEndTime : null,
-      stopRegionStart: row ? row.stopRegionStart : null,
-      stopRegionEnd: row ? row.stopRegionEnd : null,
+      stopRegionStart: stopStart,
+      stopRegionEnd: stopEnd,
+      overlayStartTime: isFinite(Number(overlayStart)) ? Number(overlayStart) : null,
+      overlayEndTime: isFinite(Number(overlayEnd)) ? Number(overlayEnd) : null,
       bitTimes: row && row.bitTimes ? row.bitTimes.slice() : []
     };
   }
@@ -21207,20 +21434,31 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
     var nextAddr = requestAddr(next);
     if (!(addr > prevAddr && addr < nextAddr)) return;
     var gapStart = Math.min(Math.max(Number(prev.endTime) || rowTime(prev), rowTime(prev)), rowTime(row));
-    var gapEnd = Math.max(Number(next.time) || rowTime(row), Number(row.endTime) || rowTime(row));
+    var nextFrameStart = isFinite(Number(next.syncStartTime)) ? Number(next.syncStartTime) : (Number(next.time) || rowTime(row));
+    var gapEnd = Math.min(nextFrameStart, Math.max(Number(next.time) || rowTime(row), Number(row.endTime) || rowTime(row)));
+    var rowStart = isFinite(Number(row.syncStartTime)) ? Number(row.syncStartTime) : (Number(row.time) || time);
+    var rowEnd = isFinite(Number(row.endTime)) ? Number(row.endTime) : rowStart;
+    if (isFinite(Number(row.stopRegionEnd))) rowEnd = Math.max(rowEnd, Number(row.stopRegionEnd));
+    var overlayStart = gapStart;
+    var overlayEnd = Math.min(gapEnd, rowEnd);
+    if (!(overlayEnd > overlayStart)) {
+      overlayStart = rowStart;
+      overlayEnd = rowEnd;
+    }
     var gapKey = rowTime(prev).toFixed(9) + ':' + rowTime(next).toFixed(9);
     var existingGap = merged.find(function(existing) { return existing && existing.auxInvalidGapKey === gapKey; });
     if (existingGap) {
-      existingGap.endTime = Math.max(existingGap.endTime || existingGap.time, gapEnd);
       existingGap.value += ' / 0x ' + wfgLaHexBytes(row.raw || []);
       existingGap.raw = (existingGap.raw || []).concat(row.raw || []);
       existingGap.bitTimes = (existingGap.bitTimes || []).concat(row.bitTimes || []);
-      existingGap.auxSegments = (existingGap.auxSegments || []).concat([anomalySegment(row)]);
+      var nextSegment = anomalySegment(row, overlayStart, overlayEnd);
+      existingGap.auxSegments = (existingGap.auxSegments || []).concat([nextSegment]);
+      refreshAnomalyBounds(existingGap);
       return;
     }
     merged.push({
-      time: gapStart,
-      endTime: gapEnd,
+      time: overlayStart,
+      endTime: overlayEnd,
       packet: '!',
       type: 'ERR',
       rw: 'AUX FORMAT ERR',
@@ -21240,7 +21478,7 @@ function wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, candidateRows) {
       stopRegionStart: row.stopRegionStart,
       stopRegionEnd: row.stopRegionEnd,
       bitTimes: row.bitTimes ? row.bitTimes.slice() : [],
-      auxSegments: [anomalySegment(row)]
+      auxSegments: [anomalySegment(row, overlayStart, overlayEnd)]
     });
     merged.sort(function(a, b) { return rowTime(a) - rowTime(b); });
   });
@@ -21271,7 +21509,17 @@ function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
     if (last && start - last.endTime <= Math.max(bitT * 4, 2e-6)) {
       last.endTime = Math.max(last.endTime, end);
       last.value = last.value + ' / ' + (a.reason || 'invalid');
+      if (a.auxSegment) {
+        a.auxSegment.overlayStartTime = isFinite(Number(a.auxSegment.overlayStartTime)) ? a.auxSegment.overlayStartTime : start;
+        a.auxSegment.overlayEndTime = isFinite(Number(a.auxSegment.overlayEndTime)) ? a.auxSegment.overlayEndTime : end;
+        last.auxSegments = (last.auxSegments || []).concat([a.auxSegment]);
+      }
       return;
+    }
+    var auxSegment = a.auxSegment || null;
+    if (auxSegment) {
+      auxSegment.overlayStartTime = isFinite(Number(auxSegment.overlayStartTime)) ? auxSegment.overlayStartTime : start;
+      auxSegment.overlayEndTime = isFinite(Number(auxSegment.overlayEndTime)) ? auxSegment.overlayEndTime : end;
     }
     rows.push({
       time: start,
@@ -21292,16 +21540,515 @@ function wfgLaDpAuxSourceBuildAnomalyRows(anomalies, frames, ch, bitT) {
       payloadEndTime: a.payloadEndTime != null ? a.payloadEndTime : null,
       stopRegionStart: a.stopRegionStart != null ? a.stopRegionStart : null,
       stopRegionEnd: a.stopRegionEnd != null ? a.stopRegionEnd : null,
-      raw: a.raw ? a.raw.slice() : [],
-      bits: a.bits ? a.bits.slice() : [],
-      bitTimes: a.bitTimes ? a.bitTimes.slice() : [],
-      auxSegments: a.auxSegment ? [a.auxSegment] : []
+	      raw: [],
+	      bits: [],
+	      bitTimes: [],
+      auxSegments: auxSegment ? [auxSegment] : []
     });
   });
-  return rows;
+	  return rows;
+	}
+
+	function wfgLaDpAuxAddUncoveredActivityRows(rows, edgesSec, ch, bitT, options) {
+	  rows = rows || [];
+	  edgesSec = edgesSec || [];
+	  options = options || {};
+	  bitT = Math.max(1e-9, Number(bitT) || 1e-6);
+	  if (!edgesSec.length) return rows;
+	  var coverAnomalies = options.coverAnomalies !== false;
+	  var activityGap = Math.max(bitT * 4, 4e-6);
+	  var pad = bitT;
+	  var minEdges = 12;
+	  var minSpan = Math.max(bitT * 12, 8e-6);
+	  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+	  function addCovered(out, start, end) {
+	    start = finite(start);
+	    end = finite(end);
+	    if (!isFinite(start) || !isFinite(end) || end <= start) return;
+	    out.push({ start: start, end: end });
+	  }
+	  var covered = [];
+	  rows.forEach(function(row) {
+	    if (!row) return;
+	    if (row.auxAnomaly && !coverAnomalies) return;
+	    var start = finite(row.syncStartTime);
+	    if (!isFinite(start)) start = finite(row.time);
+	    var end = finite(row.endTime);
+	    if (isFinite(Number(row.stopRegionEnd))) end = Math.max(end, Number(row.stopRegionEnd));
+	    (row.auxSegments || []).forEach(function(seg) {
+	      addCovered(covered, seg.overlayStartTime, seg.overlayEndTime);
+	    });
+	    addCovered(covered, start, end);
+	  });
+	  covered.sort(function(a, b) { return a.start - b.start; });
+	  function subtractCovered(start, end) {
+	    var pieces = [{ start: start, end: end }];
+	    covered.forEach(function(cov) {
+	      var next = [];
+	      pieces.forEach(function(piece) {
+	        if (cov.end <= piece.start || cov.start >= piece.end) {
+	          next.push(piece);
+	          return;
+	        }
+	        if (cov.start > piece.start) next.push({ start: piece.start, end: Math.min(cov.start, piece.end) });
+	        if (cov.end < piece.end) next.push({ start: Math.max(cov.end, piece.start), end: piece.end });
+	      });
+	      pieces = next;
+	    });
+	    return pieces;
+	  }
+	  function edgeCountIn(start, end) {
+	    var a = wfgLaLowerBound(edgesSec, start);
+	    var b = wfgLaLowerBound(edgesSec, end);
+	    return Math.max(0, b - a);
+	  }
+	  var additions = [];
+	  var spanStart = 0;
+	  for (var i = 1; i <= edgesSec.length; i++) {
+	    var split = i >= edgesSec.length || edgesSec[i] - edgesSec[i - 1] > activityGap;
+	    if (!split) continue;
+	    var spanEnd = i - 1;
+	    var spanEdges = spanEnd - spanStart + 1;
+	    if (spanEdges >= minEdges) {
+	      var startTime = Math.max(0, edgesSec[spanStart] - pad);
+	      var endTime = edgesSec[spanEnd];
+	      if (endTime - startTime >= minSpan) {
+	        subtractCovered(startTime, endTime).forEach(function(piece) {
+	          if (piece.end - piece.start < minSpan) return;
+	          if (edgeCountIn(piece.start, piece.end) < minEdges) return;
+	          additions.push({
+	            time: piece.start,
+	            endTime: piece.end,
+	            packet: '!',
+	            type: 'ERR',
+	            rw: 'AUX FORMAT ERR',
+	            value: 'Unparsed AUX activity',
+	            ack: 'ERR',
+	            raw: [],
+	            channel: ch,
+	            label: 'AUX FORMAT ERR',
+	            auxAnomaly: true,
+	            protocolError: true,
+	            auxBitT: bitT,
+	            bits: [],
+	            bitTimes: [],
+	            auxSegments: [{
+	              raw: [],
+	              bits: [],
+	              auxBitT: bitT,
+	              startRegionStart: null,
+	              startRegionEnd: null,
+	              payloadStartTime: piece.start,
+	              payloadEndTime: piece.end,
+	              stopRegionStart: null,
+	              stopRegionEnd: null,
+	              overlayStartTime: piece.start,
+	              overlayEndTime: piece.end,
+	              bitTimes: []
+	            }]
+	          });
+	        });
+	      }
+	    }
+	    spanStart = i;
+	  }
+	  if (!additions.length) return rows;
+	  rows = rows.concat(additions);
+	  rows.sort(function(a, b) { return (Number(a.time) || 0) - (Number(b.time) || 0); });
+	  return rows;
+	}
+
+function wfgLaNormalizeDpAuxAnomalyRows(rows) {
+	  rows = rows || [];
+	  var normalRows = [];
+	  var anomalyPieces = [];
+	  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+	  function segmentStart(seg, fallback) {
+	    var values = [seg && seg.overlayStartTime, seg && seg.startRegionStart, seg && seg.payloadStartTime]
+	      .map(finite).filter(isFinite);
+	    return values.length ? Math.min.apply(Math, values) : finite(fallback);
+	  }
+	  function segmentEnd(seg, fallback) {
+	    var values = [seg && seg.overlayEndTime, seg && seg.stopRegionEnd, seg && seg.payloadEndTime]
+	      .map(finite).filter(isFinite);
+	    return values.length ? Math.max.apply(Math, values) : finite(fallback);
+	  }
+	  function pushPiece(row, seg) {
+	    var hasSegmentTiming = [seg && seg.overlayStartTime, seg && seg.startRegionStart, seg && seg.payloadStartTime, seg && seg.overlayEndTime, seg && seg.stopRegionEnd, seg && seg.payloadEndTime]
+	      .map(finite).some(isFinite);
+	    if (!hasSegmentTiming) {
+	      var rowStart = finite(row && row.time);
+	      var rowEnd = finite(row && row.endTime);
+	      if (!isFinite(rowStart) || !isFinite(rowEnd) || rowEnd - rowStart > 1e-3) return;
+	    }
+	    var start = segmentStart(seg, row.time);
+	    var end = segmentEnd(seg, row.endTime);
+	    if (!isFinite(start) || !isFinite(end) || end <= start) return;
+	    if (start <= 1e-9 && end - start > 1e-3) return;
+	    var clone = Object.assign({}, row);
+	    var fixedSeg = Object.assign({}, seg || {});
+	    fixedSeg.overlayStartTime = isFinite(Number(fixedSeg.overlayStartTime)) ? Number(fixedSeg.overlayStartTime) : start;
+	    fixedSeg.overlayEndTime = isFinite(Number(fixedSeg.overlayEndTime)) ? Number(fixedSeg.overlayEndTime) : end;
+	    clone.time = start;
+	    clone.endTime = end;
+	    clone.auxSegments = [fixedSeg];
+	    clone.raw = fixedSeg.raw ? fixedSeg.raw.slice() : [];
+	    clone.bits = [];
+	    clone.bitTimes = [];
+	    anomalyPieces.push(clone);
+	  }
+	  rows.forEach(function(row) {
+	    if (!row || !row.auxAnomaly) {
+	      normalRows.push(row);
+	      return;
+	    }
+	    var segs = (row.auxSegments || []).filter(Boolean);
+	    if (!segs.length) {
+	      var fallbackStart = finite(row.time);
+	      var fallbackEnd = finite(row.endTime);
+	      if (!isFinite(fallbackStart) || !isFinite(fallbackEnd) || fallbackEnd - fallbackStart > 1e-3) return;
+	      pushPiece(row, {
+	        overlayStartTime: fallbackStart,
+	        overlayEndTime: fallbackEnd,
+	        payloadStartTime: fallbackStart,
+	        payloadEndTime: fallbackEnd,
+	        raw: [],
+	        bits: [],
+	        bitTimes: []
+	      });
+	      return;
+	    }
+	    segs.forEach(function(seg) { pushPiece(row, seg); });
+	  });
+	  anomalyPieces.sort(function(a, b) { return (Number(a.time) || 0) - (Number(b.time) || 0); });
+	  var mergedAnomalies = [];
+	  anomalyPieces.forEach(function(piece) {
+	    if (!piece) return;
+	    var last = mergedAnomalies[mergedAnomalies.length - 1];
+	    var pieceStart = finite(piece.time);
+	    var pieceEnd = finite(piece.endTime);
+	    if (last && isFinite(pieceStart) && isFinite(pieceEnd) && pieceStart <= finite(last.endTime) + 1e-9) {
+	      last.endTime = Math.max(finite(last.endTime), pieceEnd);
+	      last.auxSegments = (last.auxSegments || []).concat(piece.auxSegments || []);
+	      last.value = last.value || piece.value;
+	      return;
+	    }
+	    mergedAnomalies.push(piece);
+	  });
+	  var out = normalRows.concat(mergedAnomalies);
+	  out.sort(function(a, b) { return (Number(a && a.time) || 0) - (Number(b && b.time) || 0); });
+	  return out;
+	}
+
+function wfgLaDpAuxTrimIdleHighAnomalyRows(rows, edgesSec, initialLevel, bitT) {
+  rows = rows || [];
+  edgesSec = edgesSec || [];
+  initialLevel = Number(initialLevel) ? 1 : 0;
+  bitT = Math.max(1e-9, Number(bitT) || 1e-6);
+  if (!edgesSec.length) return rows;
+  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+  function segmentStart(seg, fallback) {
+    var values = [seg && seg.overlayStartTime, seg && seg.startRegionStart, seg && seg.payloadStartTime, fallback]
+      .map(finite).filter(isFinite);
+    return values.length ? Math.min.apply(Math, values) : NaN;
+  }
+  function segmentEnd(seg, fallback) {
+    var values = [seg && seg.overlayEndTime, seg && seg.stopRegionEnd, seg && seg.payloadEndTime, seg && seg.startRegionEnd, fallback]
+      .map(finite).filter(isFinite);
+    return values.length ? Math.max.apply(Math, values) : NaN;
+  }
+  function levelAfterEdge(edgeIndex) {
+    return (initialLevel + edgeIndex + 1) & 1;
+  }
+  function trimEndToActivity(start, end) {
+    start = finite(start);
+    end = finite(end);
+    if (!isFinite(start) || !isFinite(end) || end <= start) return end;
+    var lastEdgeIndex = wfgLaLowerBound(edgesSec, end - bitT * 1e-6) - 1;
+    while (lastEdgeIndex >= 0 && edgesSec[lastEdgeIndex] <= start + bitT * 0.05) lastEdgeIndex--;
+    if (lastEdgeIndex < 0) return end;
+    var lastEdgeTime = edgesSec[lastEdgeIndex];
+    if (end - lastEdgeTime < bitT * 0.45) return end;
+    if (lastEdgeTime - start < Math.max(bitT * 8, (end - start) * 0.25)) return end;
+    if (levelAfterEdge(lastEdgeIndex) !== 1) return end;
+    return Math.max(start, lastEdgeTime);
+  }
+  function clampEndProp(out, prop, newEnd) {
+    var v = finite(out[prop]);
+    if (isFinite(v) && v > newEnd) out[prop] = newEnd;
+  }
+  function trimSegment(seg, fallbackStart, fallbackEnd) {
+    var start = segmentStart(seg, fallbackStart);
+    var end = segmentEnd(seg, fallbackEnd);
+    if (!isFinite(start) || !isFinite(end) || end <= start) return null;
+    var trimmedEnd = trimEndToActivity(start, end);
+    if (!isFinite(trimmedEnd) || trimmedEnd <= start + bitT * 0.2) return null;
+    var out = Object.assign({}, seg || {});
+    out.overlayStartTime = isFinite(finite(out.overlayStartTime)) ? finite(out.overlayStartTime) : start;
+    out.overlayEndTime = Math.min(trimmedEnd, isFinite(finite(out.overlayEndTime)) ? finite(out.overlayEndTime) : trimmedEnd);
+    clampEndProp(out, 'payloadEndTime', trimmedEnd);
+    clampEndProp(out, 'stopRegionEnd', trimmedEnd);
+    clampEndProp(out, 'startRegionEnd', trimmedEnd);
+    out.raw = [];
+    out.bits = [];
+    out.bitTimes = [];
+    return out;
+  }
+  function cloneUntrimmedSegment(seg, fallbackStart, fallbackEnd) {
+    var start = segmentStart(seg, fallbackStart);
+    var end = segmentEnd(seg, fallbackEnd);
+    if (!isFinite(start) || !isFinite(end) || end <= start) return null;
+    var out = Object.assign({}, seg || {});
+    out.overlayStartTime = isFinite(finite(out.overlayStartTime)) ? finite(out.overlayStartTime) : start;
+    out.overlayEndTime = isFinite(finite(out.overlayEndTime)) ? finite(out.overlayEndTime) : end;
+    out.raw = [];
+    out.bits = [];
+    out.bitTimes = [];
+    return out;
+  }
+  return rows.map(function(row) {
+    if (!row || !row.auxAnomaly) return row;
+    var rowStart = finite(row.time);
+    var rowEnd = finite(row.endTime);
+    if (!isFinite(rowStart) || !isFinite(rowEnd) || rowEnd <= rowStart) return row;
+    var segs = (row.auxSegments && row.auxSegments.length ? row.auxSegments : [{
+      overlayStartTime: rowStart,
+      overlayEndTime: rowEnd,
+      payloadStartTime: rowStart,
+      payloadEndTime: rowEnd
+    }]).map(function(seg) {
+      return trimSegment(seg, rowStart, rowEnd) || cloneUntrimmedSegment(seg, rowStart, rowEnd);
+    }).filter(Boolean);
+    if (!segs.length) return row;
+    var starts = segs.map(function(seg) { return segmentStart(seg, rowStart); }).filter(isFinite);
+    var ends = segs.map(function(seg) { return segmentEnd(seg, rowEnd); }).filter(isFinite);
+    if (!starts.length || !ends.length) return row;
+    var clone = Object.assign({}, row);
+    clone.time = Math.min.apply(Math, starts);
+    clone.endTime = Math.max.apply(Math, ends);
+    clone.auxSegments = segs;
+    clone.raw = [];
+    clone.bits = [];
+    clone.bitTimes = [];
+    return clone;
+  }).filter(Boolean);
 }
 
-function wfgLaDpAuxSourceBuildRow(frame, packet, previousRequest, forceTcon) {
+function wfgLaDpAuxValidatePreambleRows(rows, edgesSec, ch, nominalBitT, tolPct) {
+  rows = rows || [];
+  edgesSec = edgesSec || [];
+  nominalBitT = Math.max(1e-9, Number(nominalBitT) || 1e-6);
+  tolPct = Math.max(0.005, Math.min(0.25, Number(tolPct) || 0.25));
+  if (!edgesSec.length) return rows;
+  var halfNominal = nominalBitT / 2;
+  var minHalf = halfNominal * (1 - tolPct);
+  var maxHalf = halfNominal * (1 + tolPct);
+  var minBit = nominalBitT * (1 - tolPct);
+  var maxBit = nominalBitT * (1 + tolPct);
+  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+  function edgeCountIn(start, end) {
+    var a = wfgLaLowerBound(edgesSec, start);
+    var b = wfgLaLowerBound(edgesSec, end);
+    return Math.max(0, b - a);
+  }
+  function invalidReason(row) {
+    if (!row || row.auxAnomaly || row.type === 'ERR') return '';
+    if (isFinite(Number(row.channel)) && Number(row.channel) !== Number(ch)) return '';
+    var syncCount = Math.max(0, Number(row.syncCount) || 0);
+    if (!syncCount) return '';
+    var syncStart = finite(row.syncStartTime);
+    var syncEnd = finite(row.syncEndTime);
+    if (!isFinite(syncStart) || !isFinite(syncEnd) || syncEnd <= syncStart) return 'Invalid preamble timing';
+    var measuredBitT = (syncEnd - syncStart) / syncCount;
+    if (!isFinite(measuredBitT) || measuredBitT < minBit || measuredBitT > maxBit) return 'Invalid preamble frequency';
+    var a = wfgLaLowerBound(edgesSec, syncStart - halfNominal * tolPct);
+    var b = wfgLaLowerBound(edgesSec, syncEnd + halfNominal * tolPct);
+    var gaps = 0;
+    for (var i = Math.max(a + 1, 1); i < b; i++) {
+      var left = edgesSec[i - 1];
+      var right = edgesSec[i];
+      if (left < syncStart - halfNominal * tolPct || right > syncEnd + halfNominal * tolPct) continue;
+      var gap = right - left;
+      gaps++;
+      if (gap < minHalf || gap > maxHalf) return 'Invalid preamble duty/frequency';
+    }
+    if (syncCount >= 18 && gaps < Math.max(8, syncCount - 2)) return 'Invalid preamble edge count';
+    var startStart = finite(row.startRegionStart);
+    var startEnd = finite(row.startRegionEnd);
+    if (isFinite(startStart) && isFinite(startEnd) && startEnd > startStart) {
+      var startSpan = startEnd - startStart;
+      var bitT = Math.max(1e-9, Number(row.auxBitT) || measuredBitT || nominalBitT);
+      if (startSpan < bitT * 2.7 || startSpan > bitT * 5.3) return 'Invalid START timing';
+      if (edgeCountIn(startStart, startEnd) < 1) return 'Invalid START framing';
+    }
+    return '';
+  }
+  function anomalyFromRow(row, reason) {
+    var rowStart = finite(row.syncStartTime);
+    if (!isFinite(rowStart)) rowStart = finite(row.time);
+    var rowEnd = finite(row.endTime);
+    if (isFinite(Number(row.stopRegionEnd))) rowEnd = Math.max(rowEnd, Number(row.stopRegionEnd));
+    if (!isFinite(rowEnd) || rowEnd <= rowStart) rowEnd = rowStart + nominalBitT * Math.max(12, (Number(row.syncCount) || 0));
+    return {
+      time: rowStart,
+      endTime: rowEnd,
+      packet: row.packet || '!',
+      type: 'ERR',
+      rw: 'AUX FORMAT ERR',
+      value: reason || 'Invalid AUX format',
+      ack: 'ERR',
+      raw: [],
+      channel: ch,
+      label: 'AUX FORMAT ERR',
+      auxAnomaly: true,
+      protocolError: true,
+      auxBitT: Number(row.auxBitT) || nominalBitT,
+      bits: [],
+      bitTimes: [],
+      auxSegments: [{
+        raw: [],
+        bits: [],
+        auxBitT: Number(row.auxBitT) || nominalBitT,
+        startRegionStart: null,
+        startRegionEnd: null,
+        payloadStartTime: rowStart,
+        payloadEndTime: rowEnd,
+        stopRegionStart: null,
+        stopRegionEnd: null,
+        overlayStartTime: rowStart,
+        overlayEndTime: rowEnd,
+        bitTimes: []
+      }]
+    };
+  }
+  var out = rows.map(function(row) {
+    var reason = invalidReason(row);
+    return reason ? anomalyFromRow(row, reason) : row;
+  });
+  out.sort(function(a, b) { return (Number(a && a.time) || 0) - (Number(b && b.time) || 0); });
+  return out;
+}
+
+		function wfgLaDpAuxAddActivityGapErrorRows(rows, edgesSec, ch, bitT) {
+	  rows = rows || [];
+	  edgesSec = edgesSec || [];
+	  bitT = Math.max(1e-9, Number(bitT) || 1e-6);
+	  if (!edgesSec.length) return rows;
+	  var debug = null;
+	  if (typeof window !== 'undefined' && new URLSearchParams(location.search).has('debug_la')) {
+	    debug = { ch: ch, before: rows.length, edgeCount: edgesSec.length, spans: [], added: [] };
+	    window.__wfgLaAuxGapDebug = window.__wfgLaAuxGapDebug || [];
+	    window.__wfgLaAuxGapDebug.push(debug);
+	  }
+	  var activityGap = Math.max(bitT * 4, 4e-6);
+	  var pad = bitT;
+	  var minEdges = 12;
+	  var minSpan = Math.max(bitT * 12, 8e-6);
+	  function finite(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+	  function rowStart(row) {
+	    var values = [row && row.syncStartTime, row && row.time].map(finite).filter(isFinite);
+	    return values.length ? Math.min.apply(Math, values) : NaN;
+	  }
+	  function rowEnd(row) {
+	    var values = [row && row.endTime].map(finite).filter(isFinite);
+	    return values.length ? Math.max.apply(Math, values) : NaN;
+	  }
+	  function edgeCountIn(start, end) {
+	    var a = wfgLaLowerBound(edgesSec, start);
+	    var b = wfgLaLowerBound(edgesSec, end);
+	    return Math.max(0, b - a);
+	  }
+	  function makeErr(start, end) {
+	    return {
+	      time: start,
+	      endTime: end,
+	      packet: '!',
+	      type: 'ERR',
+	      rw: 'AUX FORMAT ERR',
+	      value: 'Unparsed AUX activity',
+	      ack: 'ERR',
+	      raw: [],
+	      channel: ch,
+	      label: 'AUX FORMAT ERR',
+	      auxAnomaly: true,
+	      protocolError: true,
+	      auxBitT: bitT,
+	      bits: [],
+	      bitTimes: [],
+	      auxSegments: [{
+	        raw: [],
+	        bits: [],
+	        auxBitT: bitT,
+	        startRegionStart: null,
+	        startRegionEnd: null,
+	        payloadStartTime: start,
+	        payloadEndTime: end,
+	        stopRegionStart: null,
+	        stopRegionEnd: null,
+	        overlayStartTime: start,
+	        overlayEndTime: end,
+	        bitTimes: []
+	      }]
+	    };
+	  }
+	  function maybeAdd(out, start, end) {
+	    start = Math.max(0, finite(start));
+	    end = finite(end);
+	    if (!isFinite(start) || !isFinite(end) || end <= start) return;
+	    if (end - start < minSpan) return;
+	    if (edgeCountIn(start, end) < minEdges) return;
+	    var row = makeErr(start, end);
+	    out.push(row);
+	    if (debug) debug.added.push({ start: start, end: end, edges: edgeCountIn(start, end) });
+	  }
+	  var additions = [];
+	  var spanStart = 0;
+	  for (var i = 1; i <= edgesSec.length; i++) {
+	    var split = i >= edgesSec.length || edgesSec[i] - edgesSec[i - 1] > activityGap;
+	    if (!split) continue;
+	    var spanEnd = i - 1;
+	    var spanEdges = spanEnd - spanStart + 1;
+	    if (spanEdges >= minEdges) {
+	      var startTime = Math.max(0, edgesSec[spanStart] - pad);
+	      var endTime = edgesSec[spanEnd];
+	      if (endTime - startTime >= minSpan) {
+	        var spanRows = rows.filter(function(row) {
+	          var s = rowStart(row);
+	          var e = rowEnd(row);
+	          return isFinite(s) && isFinite(e) && e > startTime && s < endTime;
+	        }).sort(function(a, b) { return rowStart(a) - rowStart(b); });
+	        if (debug) {
+	          debug.spans.push({
+	            start: startTime,
+	            end: endTime,
+	            edgeCount: spanEdges,
+	            rowCount: spanRows.length,
+	            rows: spanRows.map(function(row) {
+	              return { start: rowStart(row), end: rowEnd(row), type: row.type, rw: row.rw, auxAnomaly: !!row.auxAnomaly };
+	            })
+	          });
+	        }
+	        var cursor = startTime;
+	        spanRows.forEach(function(row) {
+	          var s = Math.max(startTime, rowStart(row));
+	          var e = Math.min(endTime, rowEnd(row));
+	          if (!isFinite(s) || !isFinite(e) || e <= s) return;
+	          if (s > cursor) maybeAdd(additions, cursor, s);
+	          cursor = Math.max(cursor, e);
+	        });
+	        maybeAdd(additions, cursor, endTime);
+	      }
+	    }
+	    spanStart = i;
+	  }
+	  if (!additions.length) return rows;
+	  rows = rows.concat(additions);
+	  rows.sort(function(a, b) { return (Number(a.time) || 0) - (Number(b.time) || 0); });
+	  if (debug) debug.after = rows.length;
+	  return rows;
+	}
+
+	function wfgLaDpAuxSourceBuildRow(frame, packet, previousRequest, forceTcon) {
   var bytes = frame.bytes || [];
   var firstNibble = bytes.length ? ((bytes[0] >> 4) & 0xf).toString(16).toUpperCase() : '';
   var isTcon = !!forceTcon;
@@ -21329,6 +22076,7 @@ function wfgLaDpAuxSourceBuildRow(frame, packet, previousRequest, forceTcon) {
   row.stopRegionStart = frame.stopRegionStart != null ? frame.stopRegionStart : null;
   row.stopRegionEnd = frame.stopRegionEnd != null ? frame.stopRegionEnd : null;
   row.bitTimes = frame.bitTimes ? frame.bitTimes.slice() : [];
+  row.bits = frame.bits ? frame.bits.slice() : [];
   if (!isTcon && (firstNibble === '8' || firstNibble === '9')) {
     var addr = wfgLaDpAuxAddressFromBytes(bytes);
     var len = bytes.length > 3 ? ((bytes[3] & 0xff) + 1) : 0;
@@ -21355,21 +22103,34 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
   var sampleRate = Math.max(1, Math.round(Number(decoded.effectiveRate) || Number(cfg.sampleRateHz) || 200000000));
   var edges = edgesSec.map(function(t) { return Math.max(0, Math.round((Number(t) || 0) * sampleRate)); });
   var initial = ((decoded.initialSample >>> ch) & 1) ^ (cfg.polarity === 'invert' ? 1 : 0);
-  var bitRate = Math.max(1, Number(cfg.bitRate) || 1000000);
-  var tHalf = Math.max(1, Math.round(sampleRate / (bitRate * 2)));
-  var tolPct = Math.max(0.005, Math.min(0.25, (Number(cfg.tolerance) || 25) / 100));
-  var tError = Math.max(3, Math.round(tHalf * (tolPct === 0.25 ? 0.5 : tolPct * 2)));
+	  var bitRate = Math.max(1, Number(cfg.bitRate) || 1000000);
+	  var tHalf = Math.max(1, Math.round(sampleRate / (bitRate * 2)));
+	  var tolPct = Math.max(0.005, Math.min(0.25, (Number(cfg.tolerance) || 25) / 100));
+	  var tError = Math.max(3, Math.round(tHalf * tolPct));
   var syncBits = Math.max(1, Number(cfg.syncBits) || 16);
   function inRange(v, target) { return v > (target - tError) && v < (target + tError); }
   function bitStateAfterEdge(edgeIndex) { return (initial + edgeIndex + 1) & 1; }
+  function manchesterBitFromTransition(beforeLevel, afterLevel) {
+    if (beforeLevel === 0 && afterLevel === 1) return 0;
+    if (beforeLevel === 1 && afterLevel === 0) return 1;
+    return null;
+  }
+  function measuredBitTFromSync(syncStartSample, syncEndSample, syncCountBits) {
+    syncStartSample = Number(syncStartSample);
+    syncEndSample = Number(syncEndSample);
+    syncCountBits = Math.max(0, Number(syncCountBits) || 0);
+    if (!isFinite(syncStartSample) || !isFinite(syncEndSample) || syncEndSample <= syncStartSample || syncCountBits <= 0) {
+      return (2 * tHalf) / sampleRate;
+    }
+    var measured = (syncEndSample - syncStartSample) / sampleRate / syncCountBits;
+    var nominal = 1 / bitRate;
+    if (!isFinite(measured) || measured <= 0 || Math.abs(measured - nominal) > nominal * Math.max(0.25, tolPct)) {
+      return (2 * tHalf) / sampleRate;
+    }
+    return measured;
+  }
   var frames = [];
   var anomalies = [];
-  function isSystemRequestFrame(frame) {
-    var bytes = frame && frame.bytes ? frame.bytes : [];
-    if (!bytes.length) return false;
-    var cmd = (bytes[0] >> 4) & 0xf;
-    return cmd === 0x0 || cmd === 0x1 || cmd === 0x4 || cmd === 0x5 || cmd === 0x8 || cmd === 0x9;
-  }
   function levelAtSourceTime(t) {
     var idx = wfgLaLowerBound(edgesSec, Math.max(0, Number(t) || 0));
     return (initial + idx) & 1;
@@ -21380,16 +22141,14 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     if (!isFinite(startTime) || !isFinite(endTime) || !isFinite(bitT) || bitT <= 0 || endTime <= startTime) {
       return { bits: bits, bitTimes: bitTimes, raw: [] };
     }
-    var maxBits = Math.min(768, Math.max(0, Math.floor((endTime - startTime) / bitT)));
+    var maxBits = Math.min(768, Math.max(0, Math.round((endTime - startTime) / bitT)));
     for (var mbi = 0; mbi < maxBits; mbi++) {
       var t0 = startTime + mbi * bitT;
       var a = levelAtSourceTime(t0 + bitT * 0.25);
       var b = levelAtSourceTime(t0 + bitT * 0.75);
-      if (a === 1 && b === 0) {
-        bits.push(1);
-        bitTimes.push(t0 + bitT * 0.5);
-      } else if (a === 0 && b === 1) {
-        bits.push(0);
+      var decodedBit = manchesterBitFromTransition(a, b);
+      if (decodedBit != null) {
+        bits.push(decodedBit);
         bitTimes.push(t0 + bitT * 0.5);
       } else {
         bits.push(null);
@@ -21412,135 +22171,141 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     }
     return { bits: bits, bitTimes: bitTimes, raw: raw };
   }
-  function makeAnomalySegment(startSample, endSample, syncCountBits) {
-    var bitT = (2 * tHalf) / sampleRate;
-    var rowStart = Math.max(0, startSample / sampleRate);
-    var rowEnd = Math.max(rowStart, endSample / sampleRate);
+	  function makeAnomalySegment(startSample, endSample, syncCountBits, syncEndSample) {
+	    var bitT = measuredBitTFromSync(startSample, syncEndSample, syncCountBits);
+	    var rowStart = Math.max(0, startSample / sampleRate);
+	    var rowEnd = Math.max(rowStart, endSample / sampleRate);
     var syncStart = rowStart;
     var syncEnd = Math.min(rowEnd, syncStart + Math.max(0, syncCountBits || 0) * bitT);
-    var startRegionStart = Math.min(rowEnd, syncEnd);
-    var startRegionEnd = Math.min(rowEnd, startRegionStart + 4 * bitT);
-    var stopRegionEnd = rowEnd;
+    var startRegionStart = syncEnd;
+    var startRegionEnd = startRegionStart + 4 * bitT;
+    var stopRegionEnd = Math.max(rowEnd, startRegionEnd);
     var stopRegionStart = Math.max(startRegionEnd, stopRegionEnd - 4 * bitT);
     var payloadStart = Math.min(rowEnd, startRegionEnd);
     var payloadEnd = Math.max(payloadStart, stopRegionStart);
-    var decodedBits = decodeManchesterBitsInRange(payloadStart, payloadEnd, bitT);
-    return {
-      raw: decodedBits.raw,
-      bits: decodedBits.bits,
-      auxBitT: bitT,
+	    return {
+	      raw: [],
+	      bits: [],
+	      auxBitT: bitT,
       startRegionStart: startRegionStart,
       startRegionEnd: startRegionEnd,
       payloadStartTime: payloadStart,
       payloadEndTime: payloadEnd,
       stopRegionStart: stopRegionStart,
       stopRegionEnd: stopRegionEnd,
-      bitTimes: decodedBits.bitTimes
-    };
-  }
-  function shortReplyRequestInfo(frame) {
-    var bytes = frame && frame.bytes ? frame.bytes : [];
-    if (bytes.length < 4) return null;
-    var cmd = (bytes[0] >> 4) & 0xf;
-    var isRead = cmd === 0x1 || cmd === 0x5 || cmd === 0x9;
-    if (!isRead) return null;
-    var len = (bytes[3] & 0xff) + 1;
-    if (len <= 0 || len > 16) return null;
-    return { len: len, expectedBytes: 1 + len };
-  }
-  function makeShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits, packetValue) {
-    var info = shortReplyRequestInfo(lastFrame);
-    if (!info) return null;
-    var bitT = (2 * tHalf) / sampleRate;
-    var expectedBits = info.expectedBytes * 8;
-    if (Math.abs(syncCountBits - expectedBits) > Math.max(8, Math.round(expectedBits * 0.15))) return null;
-    var startTime = Math.max(0, startSample / sampleRate);
-    var payloadEnd = startTime + expectedBits * bitT;
-    var bytes = [0x00];
-    for (var bi = 0; bi < info.len; bi++) bytes.push(0x00);
-    var bitTimes = [];
-    for (var ti = 0; ti < expectedBits; ti++) bitTimes.push(startTime + (ti + 0.5) * bitT);
-    return {
-      packet: packetValue,
-      channel: ch,
-      time: startTime,
-      endTime: payloadEnd,
-      syncCount: 0,
-      bitT: bitT,
-      syncStartTime: null,
-      syncEndTime: null,
-      startRegionStart: startTime,
-      startRegionEnd: startTime,
-      payloadStartTime: startTime,
-      payloadEndTime: payloadEnd,
-      stopRegionStart: payloadEnd,
-      stopRegionEnd: payloadEnd,
-      bitTimes: bitTimes,
-      bytes: bytes,
-      syntheticReply: true
-    };
-  }
-  function addShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits) {
-    var frame = makeShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits, packet + 1);
-    if (!frame) return false;
-    packet = frame.packet;
-    frames.push(frame);
-    return true;
-  }
-  function isShortTurnaroundReplyCandidate(frame, lastFrame) {
-    var info = shortReplyRequestInfo(lastFrame);
-    if (!info || !frame) return false;
-    var expectedBits = info.expectedBytes * 8;
-    var syncCountBits = Math.max(0, Number(frame.syncCount) || 0);
-    if (Math.abs(syncCountBits - expectedBits) > Math.max(8, Math.round(expectedBits * 0.15))) return false;
-    var start = Number(frame.syncStartTime);
-    var lastEnd = Number(lastFrame.endTime);
-    if (!isFinite(start) || !isFinite(lastEnd)) return false;
-    var turnAround = start - lastEnd;
-    return turnAround >= -80e-6 && turnAround <= 300e-6;
-  }
-  function normalizeShortTurnaroundReplies(inputFrames) {
-    var out = [];
-    (inputFrames || []).forEach(function(frame) {
-      var lastFrame = out.length ? out[out.length - 1] : null;
-      if (isShortTurnaroundReplyCandidate(frame, lastFrame)) {
-        var lastEnd = Math.max(0, Number(lastFrame.endTime) || 0);
-        var startTime = Math.max(lastEnd, Number(frame.syncStartTime) || lastEnd);
-        var start = Math.max(0, Math.round(startTime * sampleRate));
-        var reply = makeShortTurnaroundReplyFrame(lastFrame, start, Number(frame.syncCount) || 0, frame.packet);
-        if (reply) {
-          out.push(reply);
-          return;
-        }
-      }
-      out.push(frame);
-    });
-    return out;
-  }
-  function addAnomaly(startSample, endSample, reason, syncCount) {
-    if (!isFinite(startSample) || !isFinite(endSample) || endSample <= startSample) return;
-    var syncCountBits = Math.max(0, Math.round((Number(syncCount) || 0) / 2));
-    if (syncCountBits < Math.max(18, syncBits)) return;
-    var lastFrame = frames.length ? frames[frames.length - 1] : null;
-    if (reason === 'Invalid START timing' && isSystemRequestFrame(lastFrame)) {
-      var lastEndSample = Math.round((Number(lastFrame.endTime) || 0) * sampleRate);
-      var turnAround = startSample - lastEndSample;
-      if (turnAround >= 0 && turnAround <= Math.round(sampleRate * 300e-6)) {
-        if (addShortTurnaroundReplyFrame(lastFrame, startSample, syncCountBits)) return;
-        return;
-      }
-    }
+		      bitTimes: []
+		    };
+	  }
+	  function makeActivityAnomalySegment(startTime, endTime) {
+	    startTime = Math.max(0, Number(startTime) || 0);
+	    endTime = Math.max(startTime, Number(endTime) || startTime);
+	    return {
+	      raw: [],
+	      bits: [],
+	      auxBitT: (2 * tHalf) / sampleRate,
+	      startRegionStart: null,
+	      startRegionEnd: null,
+	      payloadStartTime: startTime,
+	      payloadEndTime: endTime,
+	      stopRegionStart: null,
+	      stopRegionEnd: null,
+	      overlayStartTime: startTime,
+	      overlayEndTime: endTime,
+	      bitTimes: []
+	    };
+	  }
+	  function addAnomaly(startSample, endSample, reason, syncCount, syncEndSample) {
+	    if (!isFinite(startSample) || !isFinite(endSample) || endSample <= startSample) return;
+	    var syncCountBits = Math.max(0, Math.round((Number(syncCount) || 0) / 2));
+	    if (syncCountBits < Math.max(18, syncBits)) return;
+    var auxBitT = measuredBitTFromSync(startSample, syncEndSample, syncCountBits);
     anomalies.push({
       startTime: Math.max(0, startSample / sampleRate),
       endTime: Math.max(0, endSample / sampleRate),
       reason: reason,
       syncCount: syncCountBits,
-      auxBitT: (2 * tHalf) / sampleRate,
-      auxSegment: makeAnomalySegment(startSample, endSample, syncCountBits)
-    });
-  }
-  var i = 0;
-  var packet = 0;
+      auxBitT: auxBitT,
+	      auxSegment: makeAnomalySegment(startSample, endSample, syncCountBits, syncEndSample)
+	    });
+	  }
+	  function addUnparsedActivityAnomalies() {
+	    if (!edges.length) return;
+	    var bitT = (2 * tHalf) / sampleRate;
+	    var activityGap = Math.max(8 * tHalf, Math.round(sampleRate * bitT * 4));
+	    var pad = Math.max(2 * tHalf, Math.round(sampleRate * bitT));
+	    var minEdges = 12;
+	    var minSpan = Math.max(bitT * 12, 8e-6);
+	    function validNumber(v) { return v == null || v === '' ? NaN : (isFinite(Number(v)) ? Number(v) : NaN); }
+	    function pushCovered(list, start, end) {
+	      start = validNumber(start);
+	      end = validNumber(end);
+	      if (!isFinite(start) || !isFinite(end) || end <= start) return;
+	      list.push({ start: start, end: end });
+	    }
+	    var covered = [];
+	    frames.forEach(function(frame) {
+	      var start = validNumber(frame.syncStartTime);
+	      var end = validNumber(frame.endTime);
+	      if (isFinite(Number(frame.stopRegionEnd))) end = Math.max(end, Number(frame.stopRegionEnd));
+	      pushCovered(covered, isFinite(start) ? start : frame.time, end);
+	    });
+	    anomalies.forEach(function(a) {
+	      pushCovered(covered, a.startTime, a.endTime);
+	    });
+	    covered.sort(function(a, b) { return a.start - b.start; });
+	    function uncoveredPieces(start, end) {
+	      var pieces = [{ start: start, end: end }];
+	      covered.forEach(function(cov) {
+	        var next = [];
+	        pieces.forEach(function(piece) {
+	          if (cov.end <= piece.start || cov.start >= piece.end) {
+	            next.push(piece);
+	            return;
+	          }
+	          if (cov.start > piece.start) next.push({ start: piece.start, end: Math.min(cov.start, piece.end) });
+	          if (cov.end < piece.end) next.push({ start: Math.max(cov.end, piece.start), end: piece.end });
+	        });
+	        pieces = next;
+	      });
+	      return pieces;
+	    }
+	    var spans = [];
+	    var spanStartIdx = 0;
+	    for (var ei = 1; ei <= edges.length; ei++) {
+	      var split = ei >= edges.length || edges[ei] - edges[ei - 1] > activityGap;
+	      if (!split) continue;
+	      var spanEndIdx = ei - 1;
+	      if (spanEndIdx >= spanStartIdx) {
+	        var edgeCount = spanEndIdx - spanStartIdx + 1;
+	        var startSample = Math.max(0, edges[spanStartIdx] - pad);
+	        var endSample = edges[spanEndIdx];
+	        var startTime = startSample / sampleRate;
+	        var endTime = endSample / sampleRate;
+	        if (edgeCount >= minEdges && endTime - startTime >= minSpan) {
+	          spans.push({ start: startTime, end: endTime, edgeCount: edgeCount });
+	        }
+	      }
+	      spanStartIdx = ei;
+	    }
+	    spans.forEach(function(span) {
+	      uncoveredPieces(span.start, span.end).forEach(function(piece) {
+	        if (piece.end - piece.start < minSpan) return;
+	        var firstEdge = wfgLaLowerBound(edgesSec, piece.start);
+	        var lastEdge = wfgLaLowerBound(edgesSec, piece.end);
+	        if (lastEdge - firstEdge < minEdges) return;
+	        anomalies.push({
+	          startTime: piece.start,
+	          endTime: piece.end,
+	          reason: 'Unparsed AUX activity',
+	          syncCount: 0,
+	          auxBitT: bitT,
+	          auxSegment: makeActivityAnomalySegment(piece.start, piece.end)
+	        });
+	      });
+	    });
+	  }
+	  var i = 0;
+	  var packet = 0;
   while (i < edges.length - 1 && frames.length < 2000) {
     var syncCount = 0;
     var syncFirstEdge = 0;
@@ -21590,14 +22355,14 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
             dist = next - edge;
             if (!inRange(dist, tHalf)) synchronized = false;
           } else {
-            addAnomaly(syncFirstEdge - tHalf, next + tHalf, 'Invalid START timing', syncCount);
+            addAnomaly(syncFirstEdge, next + tHalf, 'Invalid START timing', syncCount, edge);
             syncCount = 0;
             syncFirstEdge = 0;
             syncFirstIndex = -1;
             startRegionSample = 0;
           }
         } else {
-          addAnomaly(syncFirstEdge - tHalf, next + tHalf, 'Invalid START level', syncCount);
+          addAnomaly(syncFirstEdge, next + tHalf, 'Invalid START level', syncCount, edge);
           syncCount = 0;
           syncFirstEdge = 0;
           syncFirstIndex = -1;
@@ -21619,10 +22384,13 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       var lastEdge = edges[i];
       var byteBitTimes = [];
       for (var bit = 0; bit < 8; bit++) {
-        var bitState = bitStateAfterEdge(i);
+        var beforeState = (initial + i) & 1;
+        var afterState = bitStateAfterEdge(i);
+        var edgeBit = manchesterBitFromTransition(beforeState, afterState);
         lastEdge = edges[i];
         byteBitTimes.push(lastEdge / sampleRate);
-        value = (value << 1) | (bitState === 0 ? 1 : 0);
+        if (edgeBit == null) { synchronized = false; break; }
+        value = (value << 1) | edgeBit;
         if (bit < 7) {
           i++;
           if (i >= edges.length) { synchronized = false; break; }
@@ -21661,16 +22429,46 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
       }
     }
     if (bytes.length) {
-      var auxBitT = (2 * tHalf) / sampleRate;
+      var syncCountBits = Math.max(0, Math.round(syncCount / 2));
       var startRegionStart = Math.max(0, ((startRegionSample || (startSample - 4 * tHalf)) + tHalf) / sampleRate);
+      var auxBitT = measuredBitTFromSync(syncFirstEdge, startRegionStart * sampleRate, syncCountBits);
       var payloadStartTime = bitTimes.length ? Math.max(0, bitTimes[0] - auxBitT / 2) : startSample / sampleRate;
       var startRegionEnd = payloadStartTime;
       var payloadEndTime = bitTimes.length ? (bitTimes[bitTimes.length - 1] + auxBitT / 2) : (payloadStartTime + bytes.length * 8 * auxBitT);
       var stopRegionStart = payloadEndTime;
       var stopRegionEnd = stopRegionStart + 4 * auxBitT;
-      var syncCountBits = Math.max(0, Math.round(syncCount / 2));
+      var sampledPayload = decodeManchesterBitsInRange(payloadStartTime, payloadEndTime, auxBitT);
       var syncEndTime = startRegionStart;
       var syncStartTime = syncFirstEdge ? Math.max(0, syncFirstEdge / sampleRate) : Math.max(0, syncEndTime - syncCountBits * auxBitT);
+      var expectedBits = bytes.length * 8;
+      var sampledBits = sampledPayload.bits ? sampledPayload.bits.slice(0, expectedBits) : [];
+      var completePayload = sampledPayload.raw.length >= bytes.length
+        && sampledBits.length >= expectedBits
+        && !sampledBits.some(function(b) { return b == null; });
+      if (!completePayload) {
+        anomalies.push({
+          startTime: syncStartTime,
+          endTime: Math.max(stopRegionEnd, Math.max(0, frameEnd / sampleRate)),
+          reason: 'Incomplete AUX payload',
+          syncCount: syncCountBits,
+          auxBitT: auxBitT,
+          auxSegment: {
+            raw: [],
+            bits: [],
+            auxBitT: auxBitT,
+            startRegionStart: startRegionStart,
+            startRegionEnd: startRegionEnd,
+            payloadStartTime: payloadStartTime,
+            payloadEndTime: payloadEndTime,
+            stopRegionStart: stopRegionStart,
+            stopRegionEnd: stopRegionEnd,
+            bitTimes: []
+          }
+        });
+        continue;
+      }
+      bytes = sampledPayload.raw.slice(0, bytes.length);
+      bitTimes = sampledPayload.bitTimes.slice(0, expectedBits);
       frames.push({
         packet: packet,
         channel: ch,
@@ -21687,12 +22485,13 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
         stopRegionStart: stopRegionStart,
         stopRegionEnd: stopRegionEnd,
         bitTimes: bitTimes,
+        bits: sampledPayload.bits ? sampledPayload.bits.slice(0, bytes.length * 8) : [],
         bytes: bytes
-      });
-    }
-  }
-  frames = normalizeShortTurnaroundReplies(frames);
-  var rows = [];
+	      });
+	    }
+	  }
+	  addUnparsedActivityAnomalies();
+	  var rows = [];
   var previousRequest = null;
   frames.forEach(function(frame) {
     var isTcon = wfgLaDpAuxIsTconReplyBytes(frame.bytes || [], previousRequest);
@@ -21721,228 +22520,68 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   var ch = Math.max(0, Math.min(15, Number(cfg.channel) || 0));
   var edges = decoded.edgesByChannel[ch] || [];
   if (!edges.length) return [{ time: 0, packet: '-', type: 'ERR', rw: '', value: 'No edges on CH' + ch, ack: 'ERR', channel: ch }];
-  var sourceRows = wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch);
   var bitRate = Math.max(1, Number(cfg.bitRate) || 1000000);
   var nominalBitT = 1 / bitRate;
   var tol = Math.max(0.05, Math.min(0.25, (Number(cfg.tolerance) || 25) / 100));
-  var initialBase = ((decoded.initialSample >>> ch) & 1) ^ (cfg.polarity === 'invert' ? 1 : 0);
-  var decodeInitial = initialBase;
-  function levelAt(t) {
-    var idx = wfgLaLowerBound(edges, Math.max(0, Number(t) || 0));
-    return (decodeInitial + idx) & 1;
-  }
-  function median(values) {
-    if (!values || !values.length) return 0;
-    var sorted = values.slice().sort(function(a, b) { return a - b; });
-    var mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-  function localBitPeriod(syncFallIdx) {
-    var gaps = [];
-    var minHalf = nominalBitT * (0.50 - tol);
-    var maxHalf = nominalBitT * (0.50 + tol);
-    for (var gi = Math.max(1, syncFallIdx - 18); gi < Math.min(edges.length, syncFallIdx + 96); gi++) {
-      var gap = edges[gi] - edges[gi - 1];
-      if (gap >= minHalf && gap <= maxHalf) gaps.push(gap);
-    }
-    var half = median(gaps);
-    return half > 0 ? half * 2 : nominalBitT;
-  }
-  function makeBitPeriodCandidates(syncFallIdx) {
-    var base = localBitPeriod(syncFallIdx) || nominalBitT;
-    var out = [];
-    [base, nominalBitT, base * 0.92, base * 0.94, base * 0.96, base * 0.98, base * 1.02, base * 1.04, base * 1.06, base * 1.08].forEach(function(v) {
-      if (!isFinite(v) || v <= 0) return;
-      if (Math.abs(v - nominalBitT) > nominalBitT * 0.35) return;
-      if (!out.some(function(x) { return Math.abs(x - v) < nominalBitT * 0.005; })) out.push(v);
+  var initial = ((decoded.initialSample >>> ch) & 1) ^ (cfg.polarity === 'invert' ? 1 : 0);
+  var traceEnabled = typeof window !== 'undefined' && new URLSearchParams(location.search).has('debug_la');
+  if (traceEnabled) window.__wfgLaDpAuxPipelineTrace = [];
+  function traceRows(stage, list) {
+    if (!traceEnabled) return;
+    window.__wfgLaDpAuxPipelineTrace.push({
+      stage: stage,
+      count: (list || []).length,
+      focus: (list || []).filter(function(row) {
+        var s = Number(row && row.time) || 0;
+        var e = Number(row && row.endTime) || s;
+        return s < 8.27458 && e > 8.2742;
+      }).map(function(row) {
+        return {
+          time: row.time,
+          endTime: row.endTime,
+          type: row.type,
+          rw: row.rw,
+          auxAnomaly: !!row.auxAnomaly,
+          segments: (row.auxSegments || []).map(function(seg) {
+            return {
+              overlayStartTime: seg.overlayStartTime,
+              overlayEndTime: seg.overlayEndTime,
+              payloadStartTime: seg.payloadStartTime,
+              payloadEndTime: seg.payloadEndTime
+            };
+          })
+        };
+      })
     });
-    return out;
   }
-  function decodeFrom(syncFallIdx, bitT, sampleA, sampleB) {
-    sampleA = sampleA == null ? 0.25 : sampleA;
-    sampleB = sampleB == null ? 0.75 : sampleB;
-    var syncFall = edges[syncFallIdx];
-    var payloadStart = syncFall + 2 * bitT;
-    var bits = [];
-    var bitTimes = [];
-    var invalidRun = 0;
-    var maxBits = 512;
-    for (var bi = 0; bi < maxBits; bi++) {
-      var t0 = payloadStart + bi * bitT;
-      if (decoded.durationSec && t0 > decoded.durationSec + bitT) break;
-      var a = levelAt(t0 + bitT * sampleA);
-      var b = levelAt(t0 + bitT * sampleB);
-      if (a === 1 && b === 0) {
-        bits.push(1);
-        bitTimes.push(t0);
-        invalidRun = 0;
-      } else if (a === 0 && b === 1) {
-        bits.push(0);
-        bitTimes.push(t0);
-        invalidRun = 0;
-      } else {
-        invalidRun++;
-        if (invalidRun >= 1) break;
-      }
-    }
-    var usableBits = bits.length - (bits.length % 8);
-    var bytes = [];
-    for (var off = 0; off + 7 < usableBits; off += 8) {
-      var byte = 0;
-      for (var k = 0; k < 8; k++) byte = (byte << 1) | bits[off + k];
-      bytes.push(byte);
-    }
-    return {
-      channel: ch,
-      startTime: Math.max(0, syncFall - 2 * bitT),
-      syncFallTime: syncFall,
-      bitT: bitT,
-      sampleA: sampleA,
-      sampleB: sampleB,
-      payloadStart: payloadStart,
-      stopTime: payloadStart + bits.length * bitT,
-      endTime: payloadStart + Math.max(bits.length, 1) * bitT,
-      bits: bits,
-      bitTimes: bitTimes,
-      bytes: bytes
-    };
-  }
-  function expectedRequestBytes(bytes) {
-    if (!bytes || bytes.length < 3) return 0;
-    var cmd = (bytes[0] >> 4) & 0xf;
-    var info = wfgLaDpAuxCmdInfo(cmd);
-    if (!info) return 0;
-    var addr = wfgLaDpAuxAddressFromBytes(bytes);
-    if (!info.isNative && !wfgLaDpAuxIsPlausibleI2cAuxAddress(addr)) return 0;
-    if (bytes.length === 3) return info.isNative ? 0 : 3;
-    var len = (bytes[3] & 0xff) + 1;
-    return 4 + (wfgLaDpAuxIsWriteCmd(cmd) ? len : 0);
-  }
-  function chooseCandidate(cands, previousRequest) {
-    var best = null;
-    for (var ci = 0; ci < cands.length; ci++) {
-      var f = cands[ci];
-      var bytes = f.bytes || [];
-      var score = -1;
-      var trimTo = 0;
-      if (previousRequest) {
-        var expectedReplyBytes = 1 + ((previousRequest.isRead && previousRequest.len) ? previousRequest.len : 0);
-        if (bytes.length >= expectedReplyBytes) {
-          var status = bytes[0] & 0xf0;
-          var validStatus = status === 0x00 || status === 0x10 || status === 0x20 || status === 0x40 || status === 0x80;
-          if (validStatus) {
-            score = 300 + expectedReplyBytes * 4 - Math.abs(bytes.length - expectedReplyBytes);
-            trimTo = expectedReplyBytes;
-          }
-        }
-      }
-      var expectedReqBytes = expectedRequestBytes(bytes);
-      if (expectedReqBytes && bytes.length >= expectedReqBytes) {
-        var reqScore = 200 + expectedReqBytes * 4 - Math.abs(bytes.length - expectedReqBytes);
-        if (reqScore > score) {
-          score = reqScore;
-          trimTo = expectedReqBytes;
-        }
-      }
-      if (score >= 0) {
-        f = Object.assign({}, f);
-        if (trimTo > 0) {
-          f.bytes = bytes.slice(0, trimTo);
-          if (f.payloadStart != null && f.bitT) {
-            f.stopTime = f.payloadStart + trimTo * 8 * f.bitT;
-            f.endTime = f.stopTime;
-          }
-        }
-        f.score = score;
-        if (!best || f.score > best.score || (f.score === best.score && f.bytes.length > best.bytes.length)) best = f;
-      }
-    }
-    return best;
-  }
-  function scoreReplyRow(row, previousRequest) {
-    if (!row || row.type !== 'REPLY') return -1;
-    var raw = row.raw || [];
-    var expected = 1 + ((previousRequest && previousRequest.isRead && previousRequest.len) ? previousRequest.len : 0);
-    var score = 1000;
-    score -= Math.abs(raw.length - expected) * 50;
-    if (raw.length === expected) score += 200;
-    if ((raw[0] & 0x0f) === 0) score += 100;
-    else score -= 120;
-    if (row.dpcdWarn) score -= 120;
-    if (row.ack === 'OK') score += 40;
-    return score;
-  }
-  function decodeRowsForInitial(initialValue) {
-    decodeInitial = initialValue ? 1 : 0;
-    var candidates = [];
-    for (var ei = 0; ei < edges.length && candidates.length < 500; ei++) {
-      var prevGap = ei > 0 ? edges[ei] - edges[ei - 1] : 0;
-      var nextGap = ei + 1 < edges.length ? edges[ei + 1] - edges[ei] : 0;
-      var localT = localBitPeriod(ei);
-      var looksSync = prevGap > 1.45 * localT || nextGap > 1.45 * localT;
-      if (!looksSync) continue;
-      var variants = [];
-      makeBitPeriodCandidates(ei).forEach(function(bt) {
-        [[0.25, 0.75], [0.20, 0.80], [0.30, 0.70], [0.15, 0.85], [0.35, 0.65], [0.10, 0.90], [0.40, 0.60]].forEach(function(sp) {
-          var frame = decodeFrom(ei, bt, sp[0], sp[1]);
-          if (frame.bytes.length) {
-            variants.push(frame);
-            variants.push(Object.assign({}, frame, {
-              bytes: frame.bytes.map(function(b) { return (~b) & 0xff; }),
-              bits: frame.bits ? frame.bits.map(function(b) { return b ? 0 : 1; }) : frame.bits
-            }));
-          }
-        });
-      });
-      if (variants.length) candidates.push({ startTime: edges[ei], variants: variants });
-    }
-    var out = [];
-    var previousRequest = null;
-    var lastEnd = -Infinity;
-    var packet = 1;
-  for (var fi = 0; fi < candidates.length && out.length < 2000; fi++) {
-    var cand = candidates[fi];
-    if (cand.startTime < lastEnd - nominalBitT) continue;
-    if (previousRequest) {
-      var replyPick = null;
-      var horizon = Math.max(250e-6, nominalBitT * 260);
-      for (var rj = fi; rj < candidates.length && candidates[rj].startTime <= lastEnd + horizon; rj++) {
-        var minReplyDelay = previousRequest.isRead && previousRequest.len > 1 ? 110e-6 : 90e-6;
-        if (previousRequest.time != null && candidates[rj].startTime < previousRequest.time + minReplyDelay) continue;
-        var rf = chooseCandidate(candidates[rj].variants, previousRequest);
-        if (!rf) continue;
-        var rb = wfgLaDpAuxBuildFrameRows(rf, packet, previousRequest);
-        if (!rb.rows.length || rb.rows[0].type !== 'REPLY') continue;
-        var rs = scoreReplyRow(rb.rows[0], previousRequest);
-        if (!replyPick || rs > replyPick.score) replyPick = { index: rj, frame: rf, built: rb, score: rs };
-      }
-      if (replyPick) {
-        out = out.concat(replyPick.built.rows);
-        previousRequest = replyPick.built.request;
-        lastEnd = replyPick.frame.endTime || replyPick.frame.stopTime || replyPick.frame.startTime;
-        packet++;
-        fi = replyPick.index;
-        continue;
-      }
-    }
-    var frame = chooseCandidate(cand.variants, previousRequest);
-      if (!frame) continue;
-      if (frame.startTime < lastEnd - nominalBitT) continue;
-      var built = wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest);
-      if (!built.rows.length || built.rows[0].type === 'AUX') continue;
-      out = out.concat(built.rows);
-      previousRequest = built.request;
-      lastEnd = frame.endTime || frame.stopTime || frame.startTime;
-      packet++;
-    }
-    return out;
-  }
-  var rows = decodeRowsForInitial(initialBase);
-  if (!rows.length) rows = decodeRowsForInitial(initialBase ^ 1);
+  var rows = wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch);
+  traceRows('source', rows);
   if (!rows.length) {
     rows.push({ time: 0, packet: '-', type: 'ERR', rw: '', value: 'No AUX frame found on CH' + ch, ack: 'ERR', channel: ch });
   }
-  if (sourceRows.length) rows = wfgLaMergeDpAuxSourceAndCandidateRows(sourceRows, rows);
+  rows = wfgLaDpAuxValidatePreambleRows(rows, edges, ch, nominalBitT, tol);
+  traceRows('validate', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  traceRows('normalize-1', rows);
+  rows = wfgLaDpAuxTrimIdleHighAnomalyRows(rows, edges, initial, nominalBitT);
+  traceRows('trim-1', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  rows = wfgLaDpAuxAddUncoveredActivityRows(rows, edges, ch, nominalBitT);
+  traceRows('uncovered-1', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  rows = wfgLaDpAuxTrimIdleHighAnomalyRows(rows, edges, initial, nominalBitT);
+  traceRows('trim-2', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  rows = wfgLaDpAuxAddUncoveredActivityRows(rows, edges, ch, nominalBitT, { coverAnomalies: false });
+  traceRows('uncovered-2', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  rows = wfgLaDpAuxTrimIdleHighAnomalyRows(rows, edges, initial, nominalBitT);
+  traceRows('trim-3', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  rows = wfgLaDpAuxAddActivityGapErrorRows(rows, edges, ch, nominalBitT);
+  traceRows('activity-gap', rows);
+  rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
+  traceRows('final-normalize', rows);
   return wfgLaMarkDpAuxCommunicationWarnings(rows);
 }
 
@@ -21988,6 +22627,12 @@ function wfgLaToggleDecodeExpanded() {
 window.wfgLaToggleDecodeExpanded = wfgLaToggleDecodeExpanded;
 
 function wfgLaSelectDecodeRow(key) {
+  var scrollWrap = document.querySelector('#wfg-la-decoder-results .wfg-la-decode-table-wrap');
+  var keepScrollTop = scrollWrap ? scrollWrap.scrollTop || 0 : 0;
+  function restoreDecodeScroll() {
+    var nextWrap = document.querySelector('#wfg-la-decoder-results .wfg-la-decode-table-wrap');
+    if (nextWrap) nextWrap.scrollTop = keepScrollTop;
+  }
   var target = null;
   for (var gi = 0; gi < wfgLaDecodeResults.length; gi++) {
     var group = wfgLaDecodeResults[gi];
@@ -22005,7 +22650,12 @@ function wfgLaSelectDecodeRow(key) {
   var currentRange = Math.min(duration || Infinity, Math.max(wfgLaViewEnd - wfgLaViewStart, 10e-6));
   wfgLaSetAnchoredView(Number(target.time) || 0, currentRange, 0.5);
   wfgLaRenderDecodeResults();
+  restoreDecodeScroll();
   wfgLaRenderScope();
+  restoreDecodeScroll();
+  requestAnimationFrame(restoreDecodeScroll);
+  setTimeout(restoreDecodeScroll, 0);
+  setTimeout(restoreDecodeScroll, 80);
 }
 window.wfgLaSelectDecodeRow = wfgLaSelectDecodeRow;
 
@@ -22116,6 +22766,45 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
     var group = wfgLaDecodeResults[gi];
     if (group.note) continue;
     var analyzer = group.analyzer || {};
+    var auxAnomalyRanges = [];
+    if (analyzer.type === 'dp_aux') {
+      for (var arIdx = 0; arIdx < group.rows.length; arIdx++) {
+        var ar = group.rows[arIdx];
+        if (!ar || !ar.auxAnomaly) continue;
+        var arStart = Infinity;
+        var arEnd = -Infinity;
+        function includeAnomalyTime(v) {
+          if (v == null) return;
+          v = Number(v);
+          if (isFinite(v)) {
+            arStart = Math.min(arStart, v);
+            arEnd = Math.max(arEnd, v);
+          }
+        }
+        [ar.time, ar.endTime].forEach(function(v) {
+          includeAnomalyTime(v);
+        });
+        (ar.auxSegments || []).forEach(function(seg) {
+          [
+            seg && seg.overlayStartTime,
+            seg && seg.startRegionStart,
+            seg && seg.payloadStartTime,
+            seg && seg.stopRegionStart
+          ].forEach(function(v) {
+            includeAnomalyTime(v);
+          });
+          [
+            seg && seg.overlayEndTime,
+            seg && seg.stopRegionEnd,
+            seg && seg.payloadEndTime,
+            seg && seg.startRegionEnd
+          ].forEach(function(v) {
+            includeAnomalyTime(v);
+          });
+        });
+        if (isFinite(arStart) && isFinite(arEnd) && arEnd > arStart) auxAnomalyRanges.push([arStart, arEnd]);
+      }
+    }
     for (var ri = 0; ri < group.rows.length; ri++) {
       var row = group.rows[ri];
       if (!row || !row.label || row.type === 'START' || row.type === 'STOP') continue;
@@ -22174,7 +22863,8 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
       }
       ctx.restore();
       if (isDpAux) {
-        var centerY = yBase + g.rowStep * 0.5;
+        var decodeWaveMetrics = wfgLaWaveRowMetrics(yBase, g.rowStep, ch);
+        var centerY = (decodeWaveMetrics.yHigh + decodeWaveMetrics.yLow) * 0.5;
         function finiteRowTime(value) {
           return value == null ? NaN : Number(value);
         }
@@ -22233,13 +22923,13 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           }
           ctx.restore();
         }
-        function drawGlassRegion(t0, t1, fill, stroke) {
+        function drawGlassRegion(t0, t1, fill, stroke, aboveWaveform) {
           var vr = visibleRangeX(t0, t1);
           if (!vr) return;
           var gx = vr[0];
           var gw = Math.max(1, vr[1] - vr[0]);
-          var gy = Math.max(g.axisH + 3, y + h + 1);
-          var gh = Math.max(22, Math.min(yBase + g.rowStep - gy - 4, g.rowStep - 8));
+          var gy = aboveWaveform ? y : Math.max(g.axisH + 3, y + h + 1);
+          var gh = aboveWaveform ? h : Math.max(22, Math.min(yBase + g.rowStep - gy - 4, g.rowStep - 8));
           ctx.fillStyle = fill;
           ctx.strokeStyle = stroke;
           ctx.lineWidth = 1.3;
@@ -22247,25 +22937,51 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.strokeRect(Math.round(gx) + 0.5, Math.round(gy) + 0.5, Math.round(gw), Math.round(gh));
           ctx.strokeStyle = 'rgba(255,255,255,0.16)';
           ctx.strokeRect(Math.round(gx + 2) + 0.5, Math.round(gy + 2) + 0.5, Math.max(1, Math.round(gw - 4)), Math.max(1, Math.round(gh - 4)));
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(gx, gy, gw, gh);
+          ctx.clip();
+          ctx.strokeStyle = 'rgba(255,255,255,0.26)';
+          for (var glassX = Math.floor(gx) - gh; glassX < gx + gw; glassX += 8) {
+            ctx.beginPath();
+            ctx.moveTo(glassX, gy + gh);
+            ctx.lineTo(glassX + gh, gy);
+            ctx.stroke();
+          }
+          ctx.restore();
           ctx.lineWidth = 1;
         }
-        function drawRawBits(t0, bits, yText, baseBitT) {
+        function drawRawBits(t0, bits, yText, baseBitT, skipRanges) {
           var drawBitT = Number(baseBitT) || bitT;
           if (!drawBitT || drawBitT <= 0) return;
-          if (xOf(t0 + drawBitT) - xOf(t0) < 5) return;
-          ctx.font = 'bold 9px monospace';
-          ctx.fillStyle = '#e5e7eb';
-          ctx.strokeStyle = 'rgba(15,23,42,0.95)';
-          ctx.lineWidth = 2;
+          if (xOf(t0 + drawBitT) - xOf(t0) < 3.5) return;
+          ctx.font = 'bold 11px monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = 'rgba(2,6,23,0.98)';
+          ctx.lineWidth = 2.5;
           for (var dbi = 0; dbi < bits.length; dbi++) {
-            var dbx = xOf(t0 + (dbi + 0.5) * drawBitT);
+            var rawBitTime = t0 + (dbi + 0.5) * drawBitT;
+            if (bitTimeInRanges(rawBitTime, drawBitT, skipRanges)) continue;
+            var dbx = xOf(rawBitTime);
             if (dbx < g.drawX0 || dbx > g.cssW) continue;
             ctx.strokeText(String(bits[dbi]), dbx, yText);
             ctx.fillText(String(bits[dbi]), dbx, yText);
           }
           ctx.lineWidth = 1;
         }
-        function drawByteBits(rawBytes, times, yText, basePayloadStart, baseBitT) {
+        function bitTimeInRanges(bitTime, drawBitT, ranges) {
+          if (!ranges || !ranges.length || bitTime == null || !isFinite(Number(bitTime))) return false;
+          var guard = Math.max(0, (Number(drawBitT) || 0) * 0.45);
+          for (var sri = 0; sri < ranges.length; sri++) {
+            var range = ranges[sri] || [];
+            var a = Number(range[0]);
+            var b = Number(range[1]);
+            if (!isFinite(a) || !isFinite(b) || b <= a) continue;
+            if (bitTime >= a - guard && bitTime <= b + guard) return true;
+          }
+          return false;
+        }
+        function drawByteBits(rawBytes, times, yText, basePayloadStart, baseBitT, skipRanges) {
           rawBytes = rawBytes || [];
           times = times || [];
           var bitTotal = rawBytes.length * 8;
@@ -22273,17 +22989,18 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var drawBitT = Number(baseBitT) || bitT;
           var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
           var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
-          if (bitW < 5) return;
-          ctx.font = 'bold 9px monospace';
-          ctx.fillStyle = '#e5e7eb';
-          ctx.strokeStyle = 'rgba(15,23,42,0.95)';
-          ctx.lineWidth = 2;
+          if (bitW < 3.5) return;
+          ctx.font = 'bold 11px monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = 'rgba(2,6,23,0.98)';
+          ctx.lineWidth = 2.5;
           for (var rb = 0; rb < rawBytes.length; rb++) {
             for (var bi = 7; bi >= 0; bi--) {
               var bitIdx = rb * 8 + (7 - bi);
               var bitVal = (rawBytes[rb] >> bi) & 1;
               var bitTime = times[bitIdx];
               if (bitTime == null) bitTime = drawPayloadStart + (bitIdx + 0.5) * drawBitT;
+              if (bitTimeInRanges(bitTime, drawBitT, skipRanges)) continue;
               var bx = xOf(bitTime);
               if (bx < g.drawX0 || bx > g.cssW) continue;
               ctx.strokeText(String(bitVal), bx, yText);
@@ -22292,22 +23009,23 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           }
           ctx.lineWidth = 1;
         }
-        function drawBitValues(bits, times, yText, basePayloadStart, baseBitT) {
+        function drawBitValues(bits, times, yText, basePayloadStart, baseBitT, skipRanges) {
           bits = bits || [];
           times = times || [];
           if (!bits.length || bits.length > 768) return;
           var drawBitT = Number(baseBitT) || bitT;
           var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
           var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
-          if (bitW < 5) return;
-          ctx.font = 'bold 9px monospace';
-          ctx.fillStyle = '#e5e7eb';
-          ctx.strokeStyle = 'rgba(15,23,42,0.95)';
-          ctx.lineWidth = 2;
+          if (bitW < 3.5) return;
+          ctx.font = 'bold 11px monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = 'rgba(2,6,23,0.98)';
+          ctx.lineWidth = 2.5;
           for (var bvi = 0; bvi < bits.length; bvi++) {
             if (bits[bvi] == null) continue;
             var bitTime = times[bvi];
             if (bitTime == null) bitTime = drawPayloadStart + (bvi + 0.5) * drawBitT;
+            if (bitTimeInRanges(bitTime, drawBitT, skipRanges)) continue;
             var bx = xOf(bitTime);
             if (bx < g.drawX0 || bx > g.cssW) continue;
             ctx.strokeText(String(bits[bvi]), bx, yText);
@@ -22316,11 +23034,11 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.lineWidth = 1;
         }
         if (row.auxAnomaly) {
-          drawGlassRegion(rowStart, rowEnd, 'rgba(220,38,38,0.22)', 'rgba(248,113,113,0.96)');
-          regionMarker(rowStart, rowEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.94)', '#fecaca');
           var anomalySegments = row.auxSegments && row.auxSegments.length ? row.auxSegments : [{
             raw: row.raw || [],
             auxBitT: bitT,
+            overlayStartTime: rowStart,
+            overlayEndTime: rowEnd,
             startRegionStart: startStart,
             startRegionEnd: startEnd,
             payloadStartTime: payloadStart,
@@ -22329,30 +23047,27 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             stopRegionEnd: stopEnd,
             bitTimes: bitTimes
           }];
+          var anomalyOverlayStart = rowStart;
+          var anomalyOverlayEnd = rowEnd;
           for (var segIdx = 0; segIdx < anomalySegments.length; segIdx++) {
             var seg = anomalySegments[segIdx] || {};
-            var segBitT = Number(seg.auxBitT) || bitT;
-            var segStartStart = finiteRowTime(seg.startRegionStart);
-            var segStartEnd = finiteRowTime(seg.startRegionEnd);
-            var segPayloadStart = finiteRowTime(seg.payloadStartTime);
-            var segPayloadEnd = finiteRowTime(seg.payloadEndTime);
-            var segStopStart = finiteRowTime(seg.stopRegionStart);
-            var segStopEnd = finiteRowTime(seg.stopRegionEnd);
-            if (!isFinite(segStartStart)) segStartStart = isFinite(segPayloadStart) ? segPayloadStart - 4 * segBitT : startStart;
-            if (!isFinite(segStartEnd)) segStartEnd = isFinite(segPayloadStart) ? segPayloadStart : startEnd;
-            if (!isFinite(segStopStart)) segStopStart = isFinite(segPayloadEnd) ? segPayloadEnd : stopStart;
-            if (!isFinite(segStopEnd)) segStopEnd = isFinite(segStopStart) ? segStopStart + 4 * segBitT : stopEnd;
-            if (isFinite(segStartStart) && isFinite(segStartEnd) && segStartEnd > segStartStart) {
-              regionMarker(segStartStart, segStartEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
-              drawRawBits(segStartStart, ['H', 'H', 'L', 'L'], centerY, segBitT);
-            }
-            if (isFinite(segStopStart) && isFinite(segStopEnd) && segStopEnd > segStopStart) {
-              regionMarker(segStopStart, segStopEnd, y, h, 'HHLL', 'rgba(185,28,28,0.94)', '#fecaca');
-              drawRawBits(segStopStart, ['H', 'H', 'L', 'L'], centerY, segBitT);
-            }
-            if (seg.bits && seg.bits.length) drawBitValues(seg.bits, seg.bitTimes || [], centerY, segPayloadStart, segBitT);
-            else drawByteBits(seg.raw || [], seg.bitTimes || [], centerY, segPayloadStart, segBitT);
+            var segStarts = [
+              finiteRowTime(seg.overlayStartTime),
+              finiteRowTime(seg.startRegionStart),
+              finiteRowTime(seg.payloadStartTime),
+              finiteRowTime(seg.stopRegionStart)
+            ].filter(isFinite);
+            var segEnds = [
+              finiteRowTime(seg.overlayEndTime),
+              finiteRowTime(seg.stopRegionEnd),
+              finiteRowTime(seg.payloadEndTime),
+              finiteRowTime(seg.startRegionEnd)
+            ].filter(isFinite);
+            if (segStarts.length) anomalyOverlayStart = Math.min(anomalyOverlayStart, Math.min.apply(Math, segStarts));
+            if (segEnds.length) anomalyOverlayEnd = Math.max(anomalyOverlayEnd, Math.max.apply(Math, segEnds));
           }
+          drawGlassRegion(anomalyOverlayStart, anomalyOverlayEnd, 'rgba(220,38,38,0.32)', 'rgba(248,113,113,0.98)', true);
+          regionMarker(anomalyOverlayStart, anomalyOverlayEnd, y, h, row.label || 'AUX FORMAT ERR', 'rgba(185,28,28,0.72)', '#fecaca');
           ctx.restore();
           drawn++;
           if (drawn > 160) {
@@ -22365,12 +23080,17 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var pst = preambleStatus(row.syncCount);
           if (!pst.ok) drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
           regionMarker(syncStart, syncEnd, y, h, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
-          drawRawBits(syncStart, Array(Math.min(256, Number(row.syncCount) || 0)).fill(0), centerY);
+          drawRawBits(syncStart, Array(Math.min(256, Number(row.syncCount) || 0)).fill(0), centerY, bitT, auxAnomalyRanges);
         }
         regionMarker(startStart, startEnd, y, h, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
         regionMarker(stopStart, stopEnd, y, h, 'STOP', 'rgba(126,34,206,0.9)', '#d8b4fe');
         var raw = row.raw || [];
-        drawByteBits(raw, bitTimes, centerY);
+        var hhllSkipRanges = [[startStart, startEnd], [stopStart, stopEnd]].concat(auxAnomalyRanges);
+        if (row.bits && row.bits.length) {
+          var bitsToDraw = raw.length ? row.bits.slice(0, raw.length * 8) : row.bits;
+          drawBitValues(bitsToDraw, bitTimes, centerY, payloadStart, bitT, hhllSkipRanges);
+        }
+        else if (analyzer.type !== 'dp_aux') drawByteBits(raw, bitTimes, centerY, payloadStart, bitT, hhllSkipRanges);
         ctx.restore();
       }
       drawn++;
