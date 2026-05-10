@@ -2062,7 +2062,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.228</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.229</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3099,7 +3099,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.228</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.229</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -21337,9 +21337,60 @@ function wfgLaAnalyzerChannelOptions(selected) {
 }
 
 function wfgLaDefaultAnalyzerConfig(type) {
-  if (type === 'i2c') return { sda: 0, scl: 1, addressDisplay: '8rw' };
-  if (type === 'i2c_eeprom') return { sda: 0, scl: 1, addressDisplay: '8rw', memoryAddress: 'lowbits' };
+  if (type === 'i2c') return { sda: 0, scl: 1, addressDisplay: '8rw', exportLevel: 'packets' };
+  if (type === 'i2c_eeprom') return { sda: 0, scl: 1, addressDisplay: '8rw', memoryAddress: 'lowbits', exportLevel: 'packets' };
   return { channel: 0, bitRate: 1000000, polarity: 'normal', tolerance: 25, syncBits: 16 };
+}
+
+function wfgLaI2cAddressDisplayFromKvParam(value) {
+  var v = Math.round(Number(value));
+  if (v === 0) return '7bit';
+  if (v === 1) return '8zero';
+  return '8rw';
+}
+
+function wfgLaI2cAddressDisplayToKvParam(value) {
+  if (value === '7bit') return 0;
+  if (value === '8zero') return 1;
+  return 2;
+}
+
+function wfgLaI2cExportLevelFromKvParam(value) {
+  return Math.round(Number(value)) === 1 ? 'bytes' : 'packets';
+}
+
+function wfgLaI2cExportLevelToKvParam(value) {
+  return value === 'bytes' ? 1 : 0;
+}
+
+function wfgLaParseKingstI2cParameters(parameters) {
+  var parts = String(parameters || '').split(',');
+  while (parts.length < 8) parts.push('');
+  if (!parts[0]) parts[0] = 'I2CAnalyzer';
+  return {
+    parts: parts,
+    sda: Math.max(0, Math.min(15, Number(parts[1]) || 0)),
+    sdaMeta: parts[2] || '0',
+    scl: Math.max(0, Math.min(15, Number(parts[3]) || 1)),
+    sclMeta: parts[4] || '0',
+    addressDisplay: wfgLaI2cAddressDisplayFromKvParam(parts[5]),
+    exportLevel: wfgLaI2cExportLevelFromKvParam(parts[6])
+  };
+}
+
+function wfgLaBuildKingstI2cParameters(original, cfg) {
+  var parsed = wfgLaParseKingstI2cParameters(original || 'I2CAnalyzer,0,0,1,0,2,0,');
+  var parts = parsed.parts.slice();
+  while (parts.length < 8) parts.push('');
+  parts[0] = parts[0] || 'I2CAnalyzer';
+  parts[1] = String(Math.max(0, Math.min(15, Number(cfg.sda) || 0)));
+  parts[2] = parts[2] || parsed.sdaMeta || '0';
+  parts[3] = String(Math.max(0, Math.min(15, Number(cfg.scl) || 1)));
+  parts[4] = parts[4] || parsed.sclMeta || '0';
+  parts[5] = String(wfgLaI2cAddressDisplayToKvParam(cfg.addressDisplay));
+  parts[6] = String(wfgLaI2cExportLevelToKvParam(cfg.exportLevel));
+  if (parts[parts.length - 1] !== '') parts.push('');
+  return parts.join(',');
 }
 
 function wfgLaDpAuxToleranceFromKvParam(value) {
@@ -21422,6 +21473,10 @@ function wfgLaRefreshAnalyzerDialogFields(existingCfg) {
       '<option value="8zero"' + (cfg.addressDisplay === '8zero' ? ' selected' : '') + '>8-bit, read/write bit set as 0</option>',
       '<option value="7bit"' + (cfg.addressDisplay === '7bit' ? ' selected' : '') + '>7-bit, address bits only</option>',
     '</select></label>',
+    '<label>Data Export Level<select id="wfg-la-analyzer-export-level">',
+      '<option value="packets"' + (cfg.exportLevel !== 'bytes' ? ' selected' : '') + '>Packets</option>',
+      '<option value="bytes"' + (cfg.exportLevel === 'bytes' ? ' selected' : '') + '>Bytes</option>',
+    '</select></label>',
     type === 'i2c_eeprom' ? '<label>Memory Address<select id="wfg-la-analyzer-memory"><option value="lowbits"' + (cfg.memoryAddress === 'lowbits' ? ' selected' : '') + '>Low bits of Device Address included</option><option value="plain"' + (cfg.memoryAddress === 'plain' ? ' selected' : '') + '>Low bits of Device Address not included</option></select></label>' : ''
   ].join('');
 }
@@ -21429,7 +21484,9 @@ window.wfgLaRefreshAnalyzerDialogFields = wfgLaRefreshAnalyzerDialogFields;
 
 function wfgLaConfirmAnalyzerDialog(id) {
   var type = document.getElementById('wfg-la-analyzer-type')?.value || 'i2c';
-  var cfg = wfgLaDefaultAnalyzerConfig(type);
+  var existing = null;
+  for (var ei = 0; ei < wfgLaAnalyzers.length; ei++) if (wfgLaAnalyzers[ei].id === id) existing = wfgLaAnalyzers[ei];
+  var cfg = Object.assign(wfgLaDefaultAnalyzerConfig(type), existing && existing.type === type ? (existing.config || {}) : {});
   if (type === 'dp_aux') {
     cfg.channel = Number(document.getElementById('wfg-la-analyzer-channel')?.value || 0);
     cfg.bitRate = Math.max(1, Math.min(100000000, Math.round(Number(document.getElementById('wfg-la-analyzer-bitrate')?.value || 1000000))));
@@ -21440,6 +21497,7 @@ function wfgLaConfirmAnalyzerDialog(id) {
     cfg.sda = Number(document.getElementById('wfg-la-analyzer-sda')?.value || 0);
     cfg.scl = Number(document.getElementById('wfg-la-analyzer-scl')?.value || 1);
     cfg.addressDisplay = document.getElementById('wfg-la-analyzer-address')?.value || '8rw';
+    cfg.exportLevel = document.getElementById('wfg-la-analyzer-export-level')?.value || 'packets';
     if (type === 'i2c_eeprom') cfg.memoryAddress = document.getElementById('wfg-la-analyzer-memory')?.value || 'lowbits';
     if (cfg.sda === cfg.scl) {
       alert('SDA and SCL cannot use the same channel.');
@@ -21479,7 +21537,9 @@ function wfgLaRenderAnalyzers() {
   }
   el.innerHTML = wfgLaAnalyzers.map(function(a) {
     var cfg = a.config || {};
-    var sub = a.type === 'dp_aux' ? ('CH' + cfg.channel + ' / ' + ((Number(cfg.bitRate) || 1000000) / 1000000).toFixed(1).replace(/\.0$/, '') + ' Mbps / SYNC≥' + (Math.max(1, Math.round(Number(cfg.syncBits) || 16)))) : ('SDA CH' + cfg.sda + ' / SCL CH' + cfg.scl);
+    var sub = a.type === 'dp_aux'
+      ? ('CH' + cfg.channel + ' / ' + ((Number(cfg.bitRate) || 1000000) / 1000000).toFixed(1).replace(/\.0$/, '') + ' Mbps / SYNC≥' + (Math.max(1, Math.round(Number(cfg.syncBits) || 16))))
+      : ('SDA CH' + cfg.sda + ' / SCL CH' + cfg.scl + ' / ' + wfgLaI2cAddressDisplayLabel(cfg.addressDisplay) + ' / ' + (cfg.exportLevel === 'bytes' ? 'Bytes' : 'Packets'));
     return '<div class="wfg-la-analyzer-row"><span class="wfg-la-analyzer-name">' + wfgLaEscapeHtml(wfgLaAnalyzerTypeLabel(a.type)) + '<br><span style="color:#9ca3af;font-size:10px">' + wfgLaEscapeHtml(sub) + '</span></span><span class="wfg-la-analyzer-actions"><button type="button" onclick="wfgLaOpenAnalyzerDialog(' + a.id + ')">⚙</button><button type="button" onclick="wfgLaRemoveAnalyzer(' + a.id + ')">×</button></span></div>';
   }).join('');
 }
@@ -21489,6 +21549,12 @@ function wfgLaI2cFormatAddress(addr7, rw, mode) {
   if (mode === '7bit') return '0x' + addr7.toString(16).toUpperCase().padStart(2, '0');
   var v = (addr7 << 1) | (mode === '8zero' ? 0 : (rw ? 1 : 0));
   return '0x' + v.toString(16).toUpperCase().padStart(2, '0');
+}
+
+function wfgLaI2cAddressDisplayLabel(mode) {
+  if (mode === '7bit') return '7-bit';
+  if (mode === '8zero') return '8-bit R/W=0';
+  return '8-bit R/W';
 }
 
 function wfgLaI2cRowLabel(row) {
@@ -21597,12 +21663,14 @@ function wfgLaDecodeI2cRows(decoded, cfg) {
   var bitBuf = [];
   var byteStartTime = 0;
   var byteIndex = 0;
+  var currentRw = '';
   var rows = [];
   function pushStart(t) {
     packet++;
     inPacket = true;
     bitBuf = [];
     byteIndex = 0;
+    currentRw = '';
     rows.push({ time: t, packet: packet, type: 'START', rw: '', value: 'START', ack: '' });
   }
   function pushStop(t) {
@@ -21633,11 +21701,12 @@ function wfgLaDecodeI2cRows(decoded, cfg) {
     var ackEndTime = wfgLaNextEdgeAfter(sclEdges, ev.t);
     if (byteIndex === 0) {
       var rw = byte & 1;
+      currentRw = rw ? 'R' : 'W';
       var addrRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'ADDR', rw: rw ? 'R' : 'W', value: wfgLaI2cFormatAddress(byte >> 1, rw, cfg.addressDisplay), raw: byte, ack: ack, channel: sdaCh };
       addrRow.label = wfgLaI2cRowLabel(addrRow);
       rows.push(addrRow);
     } else {
-      var dataRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'DATA', rw: '', value: '0x' + byte.toString(16).toUpperCase().padStart(2, '0'), raw: byte, ack: ack, channel: sdaCh };
+      var dataRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'DATA', rw: '', value: '0x' + byte.toString(16).toUpperCase().padStart(2, '0'), raw: byte, ack: ack, normalNack: currentRw === 'R' && ack === 'NACK', channel: sdaCh };
       dataRow.label = wfgLaI2cRowLabel(dataRow);
       rows.push(dataRow);
     }
@@ -22099,18 +22168,139 @@ function wfgLaBuildDecodeExcelXml(group) {
   return xml.join('');
 }
 
+function wfgLaI2cExportTimeLabel(timeSec) {
+  var triggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
+  var rel = (Number(timeSec) || 0) - triggerZero;
+  return rel.toFixed(10);
+}
+
+function wfgLaI2cBuildPacketRows(rows) {
+  var packets = [];
+  var current = null;
+  (rows || []).forEach(function(row) {
+    if (!row) return;
+    if (row.type === 'START') {
+      if (current) packets.push(current);
+      current = { time: row.time, endTime: row.endTime || row.time, packet: row.packet, address: '', rw: '', data: [], status: '', error: false };
+      return;
+    }
+    if (!current) current = { time: row.time, endTime: row.endTime || row.time, packet: row.packet, address: '', rw: '', data: [], status: '', error: false };
+    current.endTime = Math.max(Number(current.endTime) || 0, Number(row.endTime) || Number(row.time) || 0);
+    if (row.type === 'ADDR') {
+      current.address = row.value || '';
+      current.rw = row.rw || '';
+      current.time = row.time;
+      if (row.ack === 'NACK' || row.ack === 'ERR') current.error = true;
+      current.status = row.ack || current.status;
+    } else if (row.type === 'DATA') {
+      current.data.push(row.value || '');
+      if ((row.ack === 'NACK' && !row.normalNack) || row.ack === 'ERR') current.error = true;
+      if (row.ack === 'NACK' || !current.status) current.status = row.ack || current.status;
+    } else if (row.type === 'STOP') {
+      current.stop = true;
+      packets.push(current);
+      current = null;
+    } else if (row.type === 'ERR') {
+      current.error = true;
+      current.status = row.ack || 'ERR';
+      current.data.push(row.value || 'ERR');
+    }
+  });
+  if (current) {
+    current.error = true;
+    current.status = current.status ? (current.status + ' / Missing STOP') : 'Missing STOP';
+    packets.push(current);
+  }
+  return packets;
+}
+
+function wfgLaI2cByteRows(rows) {
+  var currentRw = '';
+  return (rows || []).filter(function(row) { return row && (row.type === 'ADDR' || row.type === 'DATA'); }).map(function(row) {
+    if (row.type === 'ADDR') currentRw = row.rw || currentRw;
+    var normalNack = row.normalNack || (row.type === 'DATA' && currentRw === 'R' && row.ack === 'NACK');
+    return {
+      time: row.time,
+      endTime: row.endTime || row.time,
+      packet: row.packet,
+      byte: row.type === 'ADDR' ? ('0x' + (Number(row.raw) & 0xff).toString(16).toUpperCase().padStart(2, '0')) : (row.value || ''),
+      rw: row.rw || '',
+      ack: row.ack || '',
+      kind: row.type === 'ADDR' ? 'Address' : 'Data',
+      error: (row.ack === 'NACK' && !normalNack) || row.ack === 'ERR'
+    };
+  });
+}
+
+function wfgLaBuildI2cDecodeExcelXml(group) {
+  var a = group && group.analyzer ? group.analyzer : {};
+  var cfg = a.config || {};
+  var byteMode = cfg.exportLevel === 'bytes';
+  var sheet = byteMode ? 'I2C Bytes' : 'I2C Packets';
+  var xml = [];
+  xml.push('<?xml version="1.0"?>');
+  xml.push('<?mso-application progid="Excel.Sheet"?>');
+  xml.push('<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">');
+  xml.push('<Styles>');
+  xml.push('<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Top" ss:WrapText="1"/><Font ss:FontName="Arial" ss:Size="10"/></Style>');
+  xml.push('<Style ss:ID="Title"><Font ss:Bold="1" ss:Size="14" ss:Color="#FFFFFF"/><Interior ss:Color="#1F2937" ss:Pattern="Solid"/></Style>');
+  xml.push('<Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#E5E7EB"/><Interior ss:Color="#303030" ss:Pattern="Solid"/></Style>');
+  xml.push('<Style ss:ID="Err"><Font ss:Color="#FECACA"/><Interior ss:Color="#7F1D1D" ss:Pattern="Solid"/></Style>');
+  xml.push('<Style ss:ID="Read"><Font ss:Bold="1" ss:Color="#BAE6FD"/><Interior ss:Color="#075985" ss:Pattern="Solid"/></Style>');
+  xml.push('<Style ss:ID="Write"><Font ss:Bold="1" ss:Color="#BBF7D0"/><Interior ss:Color="#14532D" ss:Pattern="Solid"/></Style>');
+  xml.push('</Styles>');
+  xml.push('<Worksheet ss:Name="' + wfgLaExcelXmlEscape(wfgLaExcelSheetName(sheet)) + '"><Table>');
+  if (byteMode) {
+    xml.push('<Column ss:Width="112"/><Column ss:Width="72"/><Column ss:Width="72"/><Column ss:Width="80"/><Column ss:Width="80"/><Column ss:Width="110"/>');
+    xml.push('<Row>' + wfgLaExcelCell('I2C Byte Export', 'Title') + '</Row>');
+    xml.push('<Row>' + ['Time [s]', 'Packet ID', 'Byte', 'Read/Write', 'ACK/NAK', 'Address/Data'].map(function(h) { return wfgLaExcelCell(h, 'Header'); }).join('') + '</Row>');
+    wfgLaI2cByteRows(group.rows).forEach(function(row) {
+      var style = row.error ? 'Err' : '';
+      xml.push('<Row>' +
+        wfgLaExcelCell(wfgLaI2cExportTimeLabel(row.time), style) +
+        wfgLaExcelCell(row.packet, style, '', 'Number') +
+        wfgLaExcelCell(row.byte, style) +
+        wfgLaExcelCell(row.rw, style) +
+        wfgLaExcelCell(row.ack, style) +
+        wfgLaExcelCell(row.kind, style) +
+      '</Row>');
+    });
+  } else {
+    xml.push('<Column ss:Width="112"/><Column ss:Width="72"/><Column ss:Width="82"/><Column ss:Width="82"/><Column ss:Width="420"/><Column ss:Width="150"/>');
+    xml.push('<Row>' + wfgLaExcelCell('I2C Packet Export', 'Title') + '</Row>');
+    xml.push('<Row>' + ['Time[s]', 'Packet ID', 'Address', 'Read/Write', 'Data', 'Status'].map(function(h) { return wfgLaExcelCell(h, 'Header'); }).join('') + '</Row>');
+    wfgLaI2cBuildPacketRows(group.rows).forEach(function(row) {
+      var style = row.error ? 'Err' : (row.rw === 'R' ? 'Read' : (row.rw === 'W' ? 'Write' : ''));
+      xml.push('<Row>' +
+        wfgLaExcelCell(wfgLaI2cExportTimeLabel(row.time), style) +
+        wfgLaExcelCell(row.packet, style, '', 'Number') +
+        wfgLaExcelCell(row.address, style) +
+        wfgLaExcelCell(row.rw, style) +
+        wfgLaExcelCell(row.data.join(' '), style) +
+        wfgLaExcelCell(row.error ? (row.status || 'ERR') : (row.status || 'OK'), style) +
+      '</Row>');
+    });
+  }
+  xml.push('</Table></Worksheet>');
+  xml.push('</Workbook>');
+  return xml.join('');
+}
+
 function wfgLaExportDecodeExcel() {
   var L = wfgLaExcelLabels();
-  var group = (wfgLaDecodeResults || []).find(function(g) { return g && g.analyzer && g.analyzer.type === 'dp_aux' && g.rows && g.rows.length; });
+  var group = (wfgLaDecodeResults || []).find(function(g) {
+    return g && g.analyzer && g.rows && g.rows.length && (g.analyzer.type === 'dp_aux' || g.analyzer.type === 'i2c' || g.analyzer.type === 'i2c_eeprom');
+  });
   if (!group) {
-    alert(L.noAux);
+    alert(L.noAux.replace('DisplayPort AUX', 'LA'));
     return;
   }
-  var xml = wfgLaBuildDecodeExcelXml(group);
+  var isI2c = group.analyzer && (group.analyzer.type === 'i2c' || group.analyzer.type === 'i2c_eeprom');
+  var xml = isI2c ? wfgLaBuildI2cDecodeExcelXml(group) : wfgLaBuildDecodeExcelXml(group);
   var a = document.createElement('a');
-  var base = wfgLaCapturedWaveform && wfgLaCapturedWaveform.fileName ? wfgLaCapturedWaveform.fileName.replace(/\.[^.]+$/, '') : 'la_aux_decode';
+  var base = wfgLaCapturedWaveform && wfgLaCapturedWaveform.fileName ? wfgLaCapturedWaveform.fileName.replace(/\.[^.]+$/, '') : (isI2c ? 'la_i2c_decode' : 'la_aux_decode');
   a.href = URL.createObjectURL(new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' }));
-  a.download = base + '_dp_aux_report.xls';
+  a.download = base + (isI2c ? '_i2c_report.xls' : '_dp_aux_report.xls');
   document.body.appendChild(a);
   a.click();
   setTimeout(function() {
@@ -23999,7 +24189,7 @@ function wfgLaRenderDecodeResults() {
     } else {
       html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>Packet</th><th>Type</th><th>R/W</th><th>Value</th><th>ACK</th></tr></thead><tbody>';
       rows.slice(0, 1000).forEach(function(r) {
-        var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR';
+        var isProtocolError = (r.ack === 'NACK' && !r.normalNack) || r.ack === 'ERR';
         var cls = isProtocolError ? ' err' : '';
         var key = wfgLaDecodeRowKey(group, r);
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
@@ -33694,16 +33884,19 @@ function kvdatReadAnalyzersFromXml(xmlDoc) {
       return;
     }
     if (!/I2C/i.test(fileName + ' ' + parameters)) return;
-    var parts = parameters.split(',');
-    var sda = Math.max(0, Math.min(15, Number(parts[2]) || 0));
-    var scl = Math.max(0, Math.min(15, Number(parts[3]) || 1));
+    var parsedI2c = wfgLaParseKingstI2cParameters(parameters);
+    var sda = parsedI2c.sda;
+    var scl = parsedI2c.scl;
     if (sda === scl) return;
+    var isEeprom = /I2C-?EEPROM|E2PROM/i.test(fileName + ' ' + parameters);
     analyzers.push({
-      type: 'i2c',
+      type: isEeprom ? 'i2c_eeprom' : 'i2c',
       config: {
         sda: sda,
         scl: scl,
-        addressDisplay: '8rw',
+        addressDisplay: parsedI2c.addressDisplay,
+        exportLevel: parsedI2c.exportLevel,
+        memoryAddress: 'lowbits',
         kvFileName: fileName,
         kvFormat: kvdatTagText(item, 'format') || '2',
         kvParams: parameters
@@ -34157,9 +34350,15 @@ window.wfgLaExportKvdat = function() {
       if (a && (a.type === 'i2c' || a.type === 'i2c_eeprom')) {
         var i2cSda = Math.max(0, Math.min(15, Number(acfg.sda) || 0));
         var i2cScl = Math.max(0, Math.min(15, Number(acfg.scl) || 1));
+        var i2cParams = wfgLaBuildKingstI2cParameters(acfg.kvParams, {
+          sda: i2cSda,
+          scl: i2cScl,
+          addressDisplay: acfg.addressDisplay || '8rw',
+          exportLevel: acfg.exportLevel || 'packets'
+        });
         analyzerLines.push({
-          fileName: acfg.kvFileName || 'libI2C.dylib',
-          parameters: kvdatMergeAnalyzerParameters(acfg.kvParams, ['I2CAnalyzer', '0', i2cSda, i2cScl, '0', '0', '0', ''], { 2: i2cSda, 3: i2cScl }),
+          fileName: acfg.kvFileName || (a.type === 'i2c_eeprom' ? 'I2C-EEPROM.dll' : 'I2C.dll'),
+          parameters: i2cParams,
           format: acfg.kvFormat || '2'
         });
       } else if (a && a.type === 'dp_aux') {
