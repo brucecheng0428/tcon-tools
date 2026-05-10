@@ -2076,7 +2076,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.233</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.234</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3113,7 +3113,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.233</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.234</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -24386,6 +24386,36 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
     ctx.restore();
     return true;
   }
+  function drawI2cProblemGlass(ctx, t0, t1, yTop, yBottom, text) {
+    var vr = visibleRangeX(t0, t1);
+    if (!vr) return false;
+    var rw = Math.max(1, vr[1] - vr[0]);
+    var labelH = 12;
+    var glassY = yTop + labelH + 1;
+    var gh = Math.max(10, yBottom - glassY);
+    ctx.save();
+    ctx.fillStyle = 'rgba(185,28,28,0.72)';
+    ctx.strokeStyle = '#fecaca';
+    ctx.lineWidth = 1;
+    ctx.fillRect(vr[0], yTop, rw, labelH);
+    ctx.strokeRect(Math.round(vr[0]) + 0.5, Math.round(yTop) + 0.5, Math.round(rw), Math.round(labelH));
+    if (text && rw >= 18) {
+      ctx.font = 'bold 8px "SF Mono", Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText(text, (vr[0] + vr[1]) / 2, yTop + labelH / 2 + 0.5);
+    }
+    ctx.fillStyle = 'rgba(220,38,38,0.16)';
+    ctx.strokeStyle = 'rgba(248,113,113,0.96)';
+    ctx.lineWidth = 1.3;
+    ctx.fillRect(vr[0], glassY, rw, gh);
+    ctx.strokeRect(Math.round(vr[0]) + 0.5, Math.round(glassY) + 0.5, Math.round(rw), Math.round(gh));
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.strokeRect(Math.round(vr[0] + 2) + 0.5, Math.round(glassY + 2) + 0.5, Math.max(1, Math.round(rw - 4)), Math.max(1, Math.round(gh - 4)));
+    ctx.restore();
+    return true;
+  }
   ctx.save();
   ctx.font = 'bold 10px "SF Mono", Consolas, monospace';
   ctx.textBaseline = 'middle';
@@ -24478,6 +24508,13 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           if (mode === '7bit') return ['M: Setup ' + rwWord + ' to [' + wfgLaI2cFormatAddress((Number(row.raw) || 0) >> 1, row.rw === 'R', '7bit') + '](7bit)', row.rw === 'R' ? 'MR' : 'MW'];
           return ['M: Setup ' + rwWord + ' to [' + i2cRawByteLabel(row.raw) + '](8bit)', row.rw === 'R' ? 'MR' : 'MW'];
         }
+        function i2cClockBitLabel(bitInfo, bitIndex) {
+          if (!bitInfo) return '';
+          if (bitInfo.bit === 'ACK') return 'A';
+          var mode = analyzer.config && analyzer.config.addressDisplay || '8rw';
+          if (row.type === 'ADDR' && mode === '7bit') return bitIndex < 7 ? String(6 - bitIndex) : (row.rw === 'R' ? 'R' : 'W');
+          return String(7 - bitIndex);
+        }
         if (row.type === 'START' || row.type === 'STOP') {
           var markerFill = row.type === 'START' ? 'rgba(14,116,144,0.88)' : 'rgba(126,34,206,0.88)';
           var markerStroke = row.type === 'START' ? '#67e8f9' : '#d8b4fe';
@@ -24490,7 +24527,10 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         var ackBit = bits[8] || null;
         var dataStart = dataBits.length ? Number(dataBits[0].startTime) : rowStart;
         var dataEnd = dataBits.length ? Number(dataBits[dataBits.length - 1].endTime) : rowEnd;
-        if (isI2cProblem) drawI2cGlass(ctx, rowStart, rowEnd, overlayY, Math.min(24, Math.max(overlayH + 4, g.rowStep - 10)), '');
+        if (isI2cProblem) {
+          var problemBottom = Math.min(i2cYBase + g.rowStep - 5, i2cMetrics.yLow + 7);
+          drawI2cProblemGlass(ctx, rowStart, rowEnd, overlayY, problemBottom, row.ack === 'NACK' && !row.normalNack ? 'NACK' : 'ERR');
+        }
         var dataOwner = row.type === 'ADDR' ? 'master' : (dataBits[0] && dataBits[0].sdaOwner || 'master');
         var dataColor = selectedI2c ? { fill: 'rgba(14,165,233,0.30)', stroke: '#38bdf8' } : i2cOwnerColor(dataOwner, false);
         var dataLabels = row.type === 'ADDR'
@@ -24507,6 +24547,13 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         for (var ibi = 0; ibi < bits.length; ibi++) {
           var ib = bits[ibi] || {};
           if (isFinite(Number(ib.time))) drawI2cSmallLabel(ctx, xOf(Number(ib.time)), i2cCenterY, ib.bit === 'ACK' ? (ib.value ? '1' : '0') : String(ib.value ? 1 : 0), '#ffffff');
+          var sclChForBit = Number(row.sclChannel != null ? row.sclChannel : (analyzer.config && analyzer.config.scl));
+          var sclSlot = visibleChannels.indexOf(sclChForBit);
+          if (sclSlot >= 0 && isFinite(Number(ib.time))) {
+            var sclBase = g.axisH + sclSlot * g.rowStep;
+            var sclMetrics = wfgLaWaveRowMetrics(sclBase, g.rowStep, sclChForBit);
+            drawI2cSmallLabel(ctx, xOf(Number(ib.time)), (sclMetrics.yHigh + sclMetrics.yLow) * 0.5, i2cClockBitLabel(ib, ibi), ib.clockStretch ? '#fecaca' : '#fde68a');
+          }
         }
         drawn++;
         if (drawn > 240) {
