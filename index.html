@@ -2076,7 +2076,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.231</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.232</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3113,7 +3113,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.231</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.232</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -19401,9 +19401,10 @@ if (new URLSearchParams(location.search).has('debug_la')) {
               payloadEndTime: row.payloadEndTime,
               stopRegionStart: row.stopRegionStart,
               stopRegionEnd: row.stopRegionEnd,
-              raw: row.raw ? row.raw.slice() : [],
+              raw: Array.isArray(row.raw) ? row.raw.slice() : (row.raw != null ? [row.raw] : []),
               bits: row.bits ? row.bits.slice() : [],
               bitTimes: row.bitTimes ? row.bitTimes.slice() : [],
+              i2cBits: row.i2cBits ? row.i2cBits.map(function(bit) { return Object.assign({}, bit); }) : [],
               auxSegments: (row.auxSegments || []).map(function(seg) {
                 return {
                   overlayStartTime: seg.overlayStartTime,
@@ -21659,6 +21660,12 @@ function wfgLaNextEdgeAfter(edges, timeSec) {
   return idx < edges.length ? edges[idx] : timeSec;
 }
 
+function wfgLaPrevEdgeBefore(edges, timeSec) {
+  if (!edges || !edges.length) return timeSec;
+  var idx = wfgLaLowerBound(edges, (Number(timeSec) || 0) - 1e-15) - 1;
+  return idx >= 0 ? edges[idx] : timeSec;
+}
+
 function wfgLaDecodeI2cRows(decoded, cfg) {
   if (!decoded || !decoded.edgesByChannel) return [];
   var sdaCh = Number(cfg.sda) || 0;
@@ -21667,8 +21674,8 @@ function wfgLaDecodeI2cRows(decoded, cfg) {
   var sdaEdges = decoded.edgesByChannel[sdaCh] || [];
   var sclEdges = decoded.edgesByChannel[sclCh] || [];
   var events = [];
-  for (var i = 0; i < sdaEdges.length; i++) events.push({ t: sdaEdges[i], ch: 'sda' });
-  for (var j = 0; j < sclEdges.length; j++) events.push({ t: sclEdges[j], ch: 'scl' });
+  for (var i = 0; i < sdaEdges.length; i++) events.push({ t: sdaEdges[i], ch: 'sda', idx: i });
+  for (var j = 0; j < sclEdges.length; j++) events.push({ t: sclEdges[j], ch: 'scl', idx: j });
   events.sort(function(a, b) { return a.t === b.t ? (a.ch === 'sda' ? -1 : 1) : a.t - b.t; });
   var sda = (decoded.initialSample >>> sdaCh) & 1;
   var scl = (decoded.initialSample >>> sclCh) & 1;
@@ -21679,16 +21686,44 @@ function wfgLaDecodeI2cRows(decoded, cfg) {
   var byteIndex = 0;
   var currentRw = '';
   var rows = [];
+  var lastSclRisingTime = null;
+  var lowDurations = [];
+  for (var lj = 0; lj < sclEdges.length; lj++) {
+    var edgeKind = wfgLaEdgeTypeForIndex((decoded.initialSample >>> sclCh) & 1, lj);
+    if (edgeKind !== 'rising') continue;
+    var lowStart = lj > 0 ? sclEdges[lj - 1] : NaN;
+    if (isFinite(lowStart) && sclEdges[lj] > lowStart) lowDurations.push(sclEdges[lj] - lowStart);
+  }
+  lowDurations.sort(function(a, b) { return a - b; });
+  var nominalLow = lowDurations.length ? lowDurations[Math.floor(lowDurations.length / 2)] : 0;
+  function sclCellForRise(edgeIdx, t) {
+    var start = edgeIdx > 0 ? sclEdges[edgeIdx - 1] : t;
+    var end = edgeIdx + 1 < sclEdges.length ? sclEdges[edgeIdx + 1] : wfgLaNextEdgeAfter(sclEdges, t);
+    if (!isFinite(start) || start >= t) start = t;
+    if (!isFinite(end) || end <= t) end = t;
+    var lowStart = edgeIdx > 0 ? sclEdges[edgeIdx - 1] : NaN;
+    var lowDuration = isFinite(lowStart) ? Math.max(0, t - lowStart) : 0;
+    var stretched = nominalLow > 0 && lowDuration > nominalLow * 1.8 && lowDuration - nominalLow > Math.max(nominalLow * 0.35, 100e-9);
+    return { start: start, end: end, lowStart: lowStart, lowEnd: t, lowDuration: lowDuration, stretched: stretched };
+  }
+  function ownerForByteBit(bitIndex, rw) {
+    if (bitIndex < 8) return (rw === 'R') ? 'slave' : 'master';
+    return (rw === 'R') ? 'master' : 'slave';
+  }
   function pushStart(t) {
     packet++;
     inPacket = true;
     bitBuf = [];
     byteIndex = 0;
     currentRw = '';
-    rows.push({ time: t, packet: packet, type: 'START', rw: '', value: 'START', ack: '' });
+    var startEnd = wfgLaNextEdgeAfter(sclEdges, t);
+    rows.push({ time: t, endTime: startEnd > t ? startEnd : t, packet: packet, type: 'START', rw: '', value: 'START', ack: '', channel: sdaCh, sclChannel: sclCh, i2cMarker: true, i2cOwner: 'master' });
   }
   function pushStop(t) {
-    if (inPacket) rows.push({ time: t, packet: packet, type: 'STOP', rw: '', value: 'STOP', ack: '' });
+    if (inPacket) {
+      var stopStart = lastSclRisingTime != null ? lastSclRisingTime : wfgLaPrevEdgeBefore(sclEdges, t);
+      rows.push({ time: Math.min(stopStart, t), endTime: t, packet: packet, type: 'STOP', rw: '', value: 'STOP', ack: '', channel: sdaCh, sclChannel: sclCh, i2cMarker: true, i2cOwner: 'master' });
+    }
     inPacket = false;
     bitBuf = [];
   }
@@ -21705,22 +21740,41 @@ function wfgLaDecodeI2cRows(decoded, cfg) {
     }
     var oldScl = scl;
     scl = oldScl ? 0 : 1;
+    if (oldScl === 0 && scl === 1) lastSclRisingTime = ev.t;
     if (!inPacket || !(oldScl === 0 && scl === 1)) continue;
     if (bitBuf.length === 0) byteStartTime = ev.t;
-    bitBuf.push(sda ? 1 : 0);
+    var cell = sclCellForRise(ev.idx, ev.t);
+    bitBuf.push({ value: sda ? 1 : 0, sampleTime: ev.t, bitIndex: bitBuf.length, sclStartTime: cell.start, sclEndTime: cell.end, sclLowStartTime: cell.lowStart, sclLowEndTime: cell.lowEnd, sclLowDuration: cell.lowDuration, clockStretch: cell.stretched });
     if (bitBuf.length < 9) continue;
     var byte = 0;
-    for (var bi = 0; bi < 8; bi++) byte = (byte << 1) | bitBuf[bi];
-    var ack = bitBuf[8] ? 'NACK' : 'ACK';
+    for (var bi = 0; bi < 8; bi++) byte = (byte << 1) | bitBuf[bi].value;
+    var ack = bitBuf[8].value ? 'NACK' : 'ACK';
     var ackEndTime = wfgLaNextEdgeAfter(sclEdges, ev.t);
+    var rowRw = byteIndex === 0 ? ((byte & 1) ? 'R' : 'W') : currentRw;
+    var bitInfos = bitBuf.map(function(info, idx) {
+      var owner = ownerForByteBit(idx, rowRw);
+      return {
+        bit: idx < 8 ? idx : 'ACK',
+        value: info.value,
+        time: info.sampleTime,
+        startTime: info.sclStartTime,
+        endTime: info.sclEndTime,
+        sdaOwner: owner,
+        sclOwner: info.clockStretch ? 'slave' : 'master',
+        clockStretch: !!info.clockStretch,
+        stretchStartTime: info.sclLowStartTime,
+        stretchEndTime: info.sclLowEndTime
+      };
+    });
+    var hasClockStretch = bitInfos.some(function(info) { return info.clockStretch; });
     if (byteIndex === 0) {
       var rw = byte & 1;
       currentRw = rw ? 'R' : 'W';
-      var addrRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'ADDR', rw: rw ? 'R' : 'W', value: wfgLaI2cFormatAddress(byte >> 1, rw, cfg.addressDisplay), raw: byte, ack: ack, channel: sdaCh };
+      var addrRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'ADDR', rw: rw ? 'R' : 'W', value: wfgLaI2cFormatAddress(byte >> 1, rw, cfg.addressDisplay), raw: byte, ack: ack, channel: sdaCh, sclChannel: sclCh, i2cBits: bitInfos, i2cByteBits: bitInfos.slice(0, 8).map(function(info) { return info.value; }), i2cHasClockStretch: hasClockStretch };
       addrRow.label = wfgLaI2cRowLabel(addrRow);
       rows.push(addrRow);
     } else {
-      var dataRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'DATA', rw: '', value: '0x' + byte.toString(16).toUpperCase().padStart(2, '0'), raw: byte, ack: ack, normalNack: currentRw === 'R' && ack === 'NACK', channel: sdaCh };
+      var dataRow = { time: byteStartTime, endTime: ackEndTime, packet: packet, type: 'DATA', rw: '', value: '0x' + byte.toString(16).toUpperCase().padStart(2, '0'), raw: byte, ack: ack, normalNack: currentRw === 'R' && ack === 'NACK', channel: sdaCh, sclChannel: sclCh, i2cBits: bitInfos, i2cByteBits: bitInfos.slice(0, 8).map(function(info) { return info.value; }), i2cHasClockStretch: hasClockStretch };
       dataRow.label = wfgLaI2cRowLabel(dataRow);
       rows.push(dataRow);
     }
@@ -24250,40 +24304,87 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
   function xOf(t) {
     return g.drawX0 + ((t - g.tStart) / range) * g.drawW;
   }
+  function visibleRangeX(t0, t1) {
+    var a = Number(t0);
+    var b = Number(t1);
+    if (!isFinite(a) || !isFinite(b) || b <= a) return null;
+    var ax = xOf(a);
+    var bx = xOf(b);
+    if (bx < g.drawX0 || ax > g.cssW || bx <= ax) return null;
+    return [Math.max(g.drawX0 + 1, ax), Math.min(g.cssW - 1, bx)];
+  }
+  function i2cOwnerShort(owner) {
+    return owner === 'slave' ? 'SLV' : 'MST';
+  }
+  function drawI2cSmallLabel(ctx, x, y, text, fill, stroke) {
+    ctx.save();
+    ctx.font = 'bold 9px "SF Mono", Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = stroke || 'rgba(2,6,23,0.95)';
+    ctx.fillStyle = fill || '#f8fafc';
+    ctx.strokeText(String(text), x, y);
+    ctx.fillText(String(text), x, y);
+    ctx.restore();
+  }
+  function drawI2cRegion(ctx, t0, t1, y, h, text, fill, stroke, minTextWidth) {
+    var vr = visibleRangeX(t0, t1);
+    if (!vr) return false;
+    var rw = Math.max(1, vr[1] - vr[0]);
+    ctx.save();
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1;
+    ctx.fillRect(vr[0], y, rw, h);
+    ctx.strokeRect(Math.round(vr[0]) + 0.5, Math.round(y) + 0.5, Math.round(rw), Math.round(h));
+    if (text) {
+      ctx.beginPath();
+      ctx.rect(vr[0] + 1, y, Math.max(1, rw - 2), h);
+      ctx.clip();
+      ctx.font = 'bold 8px "SF Mono", Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      var label = String(text);
+      if (rw >= (minTextWidth || ctx.measureText(label).width + 5)) {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillText(label, (vr[0] + vr[1]) / 2, y + h / 2 + 0.5);
+      }
+    }
+    ctx.restore();
+    return true;
+  }
+  function drawI2cGlass(ctx, t0, t1, y, h, text) {
+    var vr = visibleRangeX(t0, t1);
+    if (!vr) return false;
+    var rw = Math.max(1, vr[1] - vr[0]);
+    ctx.save();
+    ctx.fillStyle = 'rgba(220,38,38,0.20)';
+    ctx.strokeStyle = 'rgba(248,113,113,0.95)';
+    ctx.lineWidth = 1.3;
+    ctx.fillRect(vr[0], y, rw, h);
+    ctx.strokeRect(Math.round(vr[0]) + 0.5, Math.round(y) + 0.5, Math.round(rw), Math.round(h));
+    ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+    for (var gx = Math.floor(vr[0]) - h; gx < vr[1]; gx += 8) {
+      ctx.beginPath();
+      ctx.moveTo(gx, y + h);
+      ctx.lineTo(gx + h, y);
+      ctx.stroke();
+    }
+    if (text && rw >= 18) {
+      ctx.font = 'bold 8px "SF Mono", Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fecaca';
+      ctx.fillText(text, (vr[0] + vr[1]) / 2, y + h / 2 + 0.5);
+    }
+    ctx.restore();
+    return true;
+  }
   ctx.save();
   ctx.font = 'bold 10px "SF Mono", Consolas, monospace';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 1;
-  for (var ai = 0; ai < wfgLaAnalyzers.length; ai++) {
-    var spec = wfgLaAnalyzers[ai];
-    if (!spec || (spec.type !== 'i2c' && spec.type !== 'i2c_eeprom')) continue;
-    var acfg = spec.config || {};
-    var sdaCh = Number(acfg.sda) || 0;
-    var sclCh = Number(acfg.scl) || 1;
-    var sdaSlot = visibleChannels.indexOf(sdaCh);
-    if (sdaSlot < 0 || !wfgLaCapturedWaveform || !wfgLaCapturedWaveform.edgesByChannel) continue;
-    var sclEdges = wfgLaCapturedWaveform.edgesByChannel[sclCh] || [];
-    var sclInitial = (wfgLaCapturedWaveform.initialSample >>> sclCh) & 1;
-    var yBase = g.axisH + sdaSlot * g.rowStep;
-    var centerY = yBase + g.rowStep * 0.5;
-    ctx.save();
-    ctx.fillStyle = '#f8fafc';
-    ctx.strokeStyle = 'rgba(15,23,42,0.9)';
-    ctx.lineWidth = 1;
-    var firstIdx = Math.max(0, wfgLaLowerBound(sclEdges, g.tStart) - 1);
-    for (var si = firstIdx; si < sclEdges.length && sclEdges[si] <= g.tEnd; si++) {
-      if (wfgLaEdgeTypeForIndex(sclInitial, si) !== 'rising') continue;
-      var st = sclEdges[si];
-      if (st < g.tStart || st > g.tEnd) continue;
-      var sx = xOf(st);
-      var sy = centerY;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
   for (var gi = 0; gi < wfgLaDecodeResults.length; gi++) {
     var group = wfgLaDecodeResults[gi];
     if (group.note) continue;
@@ -24329,7 +24430,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
     }
     for (var ri = 0; ri < group.rows.length; ri++) {
       var row = group.rows[ri];
-      if (!row || !row.label || row.type === 'START' || row.type === 'STOP') continue;
+      if (!row || !row.label) continue;
       var rowStart = Number(row.time) || 0;
       var rowEnd = Math.max(rowStart, Number(row.endTime) || rowStart);
       var rowOverlayStart = Math.min(rowStart, isFinite(Number(row.syncStartTime)) ? Number(row.syncStartTime) : rowStart);
@@ -24341,6 +24442,64 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
       if (slot < 0) continue;
       var label = row.label;
       var isDpAux = analyzer.type === 'dp_aux';
+      var isI2cLike = analyzer.type === 'i2c' || analyzer.type === 'i2c_eeprom';
+      if (isI2cLike) {
+        var i2cYBase = g.axisH + slot * g.rowStep;
+        var i2cMetrics = wfgLaWaveRowMetrics(i2cYBase, g.rowStep, ch);
+        var i2cCenterY = (i2cMetrics.yHigh + i2cMetrics.yLow) * 0.5;
+        var overlayH = 10;
+        var overlayY = Math.max(g.axisH + 3, i2cYBase + 3);
+        var keyI2c = wfgLaDecodeRowKey(group, row);
+        var selectedI2c = keyI2c === wfgLaDecodeSelectedKey;
+        var isI2cProblem = (row.ack === 'NACK' && !row.normalNack) || row.ack === 'ERR';
+        var ownerFill = row.rw === 'R' ? 'rgba(20,184,166,0.48)' : 'rgba(37,99,235,0.46)';
+        var ownerStroke = row.rw === 'R' ? 'rgba(94,234,212,0.92)' : 'rgba(147,197,253,0.92)';
+        if (row.type === 'START' || row.type === 'STOP') {
+          var markerFill = row.type === 'START' ? 'rgba(14,116,144,0.88)' : 'rgba(126,34,206,0.88)';
+          var markerStroke = row.type === 'START' ? '#67e8f9' : '#d8b4fe';
+          drawI2cRegion(ctx, row.time, row.endTime || row.time, overlayY, overlayH, row.type, markerFill, markerStroke, 18);
+          drawn++;
+          continue;
+        }
+        drawI2cRegion(ctx, rowStart, rowEnd, overlayY, overlayH, selectedI2c ? label : '', selectedI2c ? 'rgba(14,165,233,0.30)' : ownerFill, selectedI2c ? '#38bdf8' : ownerStroke);
+        var bits = row.i2cBits || [];
+        for (var ibi = 0; ibi < bits.length; ibi++) {
+          var ib = bits[ibi] || {};
+          var bitStart = Number(ib.startTime);
+          var bitEnd = Number(ib.endTime);
+          var bitText = ib.bit === 'ACK' ? (ib.value ? 'NACK' : 'ACK') : String(ib.value ? 1 : 0);
+          var bitOwner = i2cOwnerShort(ib.sdaOwner);
+          var bitFill = ib.sdaOwner === 'slave' ? 'rgba(20,184,166,0.55)' : 'rgba(37,99,235,0.56)';
+          var bitStroke = ib.sdaOwner === 'slave' ? 'rgba(94,234,212,0.96)' : 'rgba(147,197,253,0.96)';
+          if (ib.bit === 'ACK') {
+            bitFill = ib.value ? 'rgba(220,38,38,0.56)' : 'rgba(22,163,74,0.52)';
+            bitStroke = ib.value ? 'rgba(248,113,113,0.98)' : 'rgba(134,239,172,0.94)';
+          }
+          drawI2cRegion(ctx, bitStart, bitEnd, overlayY + overlayH + 1, overlayH, (ib.bit === 'ACK' ? bitText : bitOwner), bitFill, bitStroke, 17);
+          if (isFinite(Number(ib.time))) drawI2cSmallLabel(ctx, xOf(Number(ib.time)), i2cCenterY, ib.bit === 'ACK' ? (ib.value ? '1' : '0') : String(ib.value ? 1 : 0), '#ffffff');
+          if (ib.bit === 'ACK' && ib.value && !row.normalNack) drawI2cGlass(ctx, bitStart, bitEnd, overlayY + overlayH + 1, overlayH, 'NACK');
+          var sclChForBit = Number(row.sclChannel != null ? row.sclChannel : (analyzer.config && analyzer.config.scl));
+          var sclSlot = visibleChannels.indexOf(sclChForBit);
+          if (sclSlot >= 0) {
+            var sclBase = g.axisH + sclSlot * g.rowStep;
+            var sclMetrics = wfgLaWaveRowMetrics(sclBase, g.rowStep, sclChForBit);
+            var sclOverlayY = Math.max(g.axisH + 3, sclBase + 3);
+            var clockLabel = (ib.clockStretch ? 'S ' : 'M ') + (ib.bit === 'ACK' ? 'ACK' : ('b' + ib.bit));
+            var clockFill = ib.clockStretch ? 'rgba(249,115,22,0.42)' : 'rgba(234,179,8,0.34)';
+            var clockStroke = ib.clockStretch ? 'rgba(251,146,60,0.96)' : 'rgba(250,204,21,0.90)';
+            drawI2cRegion(ctx, bitStart, bitEnd, sclOverlayY, overlayH, clockLabel, clockFill, clockStroke, 18);
+            if (isFinite(Number(ib.time))) drawI2cSmallLabel(ctx, xOf(Number(ib.time)), (sclMetrics.yHigh + sclMetrics.yLow) * 0.5, ib.bit === 'ACK' ? 'A' : String(ib.bit), ib.clockStretch ? '#fecaca' : '#fde68a');
+            if (ib.clockStretch) drawI2cRegion(ctx, ib.stretchStartTime, ib.stretchEndTime, sclOverlayY + overlayH + 1, overlayH, 'SLV STR', 'rgba(249,115,22,0.45)', 'rgba(251,146,60,0.96)', 24);
+          }
+        }
+        if (isI2cProblem) drawI2cGlass(ctx, rowStart, rowEnd, overlayY, Math.min(26, Math.max(overlayH + 2, g.rowStep - 10)), row.ack === 'NACK' && !row.normalNack ? 'NACK' : 'ERR');
+        drawn++;
+        if (drawn > 240) {
+          ctx.restore();
+          return;
+        }
+        continue;
+      }
       if (isDpAux && row.auxAnomaly) label = '#' + (row.packet || row.errIndex || '') + ' ' + (row.label || 'AUX FORMAT ERR');
       var labelStart = rowStart;
       var labelEnd = rowEnd;
