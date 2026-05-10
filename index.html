@@ -2062,7 +2062,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.224</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.225</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3099,7 +3099,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.224</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.225</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -33669,6 +33669,8 @@ function kvdatReadAnalyzersFromXml(xmlDoc) {
 	          bitsPerFrame: bitsPerFrame,
 	          significantBit: syncBits,
 	          syncBits: syncBits,
+            kvFileName: fileName,
+            kvFormat: kvdatTagText(item, 'format') || '2',
 	          kvParams: parameters
 	        }
 	      });
@@ -33679,7 +33681,17 @@ function kvdatReadAnalyzersFromXml(xmlDoc) {
     var sda = Math.max(0, Math.min(15, Number(parts[2]) || 0));
     var scl = Math.max(0, Math.min(15, Number(parts[3]) || 1));
     if (sda === scl) return;
-    analyzers.push({ type: 'i2c', config: { sda: sda, scl: scl, addressDisplay: '8rw' } });
+    analyzers.push({
+      type: 'i2c',
+      config: {
+        sda: sda,
+        scl: scl,
+        addressDisplay: '8rw',
+        kvFileName: fileName,
+        kvFormat: kvdatTagText(item, 'format') || '2',
+        kvParams: parameters
+      }
+    });
   });
   return analyzers;
 }
@@ -34026,75 +34038,7 @@ window.wfgLaImportKvdat = async function(input) {
     var parsed = wfgParseKvdatBytes(await file.arrayBuffer());
     wfgShowProgress(65, t('wfg.progressRender'));
     await wfgYield();
-    var edgesByChannel = [], edgeCounts = [];
-    for (var ch = 0; ch < 16; ch++) {
-      edgesByChannel[ch] = [];
-      edgeCounts[ch] = 0;
-    }
-    var activeChannels = [];
-    var maxT = 0;
-    parsed.channels.forEach(function(chInfo) {
-      var chIdx = Math.max(0, Math.min(15, Number(chInfo.index) || 0));
-      edgesByChannel[chIdx] = Array.prototype.slice.call(chInfo.edgesSec || []);
-      edgeCounts[chIdx] = chInfo.edgeCount || edgesByChannel[chIdx].length;
-      if (edgeCounts[chIdx] > 0) maxT = Math.max(maxT, edgesByChannel[chIdx][edgeCounts[chIdx] - 1] || 0);
-      activeChannels.push(chIdx);
-      wfgLaStoreChannelName(chIdx, chInfo.name || '');
-    });
-    var sampleRate = Math.max(1, Number(parsed.sampleRateHz) || 200000000);
-    var totalSamples = Math.max(1, Math.round(Number(parsed.totalSamples) || maxT * sampleRate));
-    var durationSec = Math.max(maxT, totalSamples / sampleRate, 1 / sampleRate);
-    var initialSample = wfgLaInferKvdatInitialSample(parsed, edgesByChannel);
-    var decoded = {
-      preview: [],
-      totalSamples: totalSamples,
-      transfers: 0,
-      initialSample: initialSample,
-      finalSample: 0,
-      edgesByChannel: edgesByChannel,
-      edgeCounts: edgeCounts,
-      durationSec: durationSec,
-      effectiveRate: sampleRate,
-      triggerTimeSec: parsed.triggerSample > 0 ? parsed.triggerSample / sampleRate : 0,
-      configuredTriggerTimeSec: parsed.triggerSample > 0 ? parsed.triggerSample / sampleRate : 0,
-      source: 'kvdat',
-      fileName: file.name
-    };
-    var rateToolbar = document.getElementById('wfg-la-rate-toolbar');
-    var rateHidden = document.getElementById('wfg-la-sample-rate');
-    if (rateToolbar && Array.prototype.some.call(rateToolbar.options, function(o) { return o.value === String(sampleRate); })) {
-      rateToolbar.value = String(sampleRate);
-      if (rateHidden) rateHidden.value = String(sampleRate);
-    }
-    if (parsed.settings && parsed.settings.thresholdV > 0) {
-      wfgLaCustomThresholdV = parsed.settings.thresholdV;
-      ['wfg-la-threshold-main', 'wfg-la-threshold-visible'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.value = wfgLaThresholdSelectValue(parsed.settings.thresholdV);
-      });
-      var custom = document.getElementById('wfg-la-threshold-custom');
-      if (custom) custom.value = String(parsed.settings.thresholdV * 2);
-    }
-    if (parsed.settings && parsed.settings.trigger && parsed.settings.trigger.enabled) {
-      wfgLaTriggerEnabled = true;
-      var chSel = document.getElementById('wfg-la-trigger-channel');
-      var edgeSel = document.getElementById('wfg-la-trigger-edge');
-      var posInput = document.getElementById('wfg-la-trigger-position');
-      if (chSel) chSel.value = String(parsed.settings.trigger.channel);
-      if (edgeSel) edgeSel.value = parsed.settings.trigger.edge;
-      if (posInput) posInput.value = String(parsed.settings.trigger.positionPercent);
-    } else {
-      wfgLaTriggerEnabled = false;
-    }
-    if (parsed.analyzers && parsed.analyzers.length) {
-      wfgLaAnalyzers = parsed.analyzers.map(function(a) {
-        return { id: wfgLaAnalyzerNextId++, type: a.type, config: Object.assign({}, a.config || {}) };
-      });
-    }
-    wfgLaRenderAnalyzers();
-    wfgLaSetChannelsList(activeChannels.length ? activeChannels : [0], true);
-    wfgLaApplyVisibleChannelOrder(activeChannels.concat(wfgLaChannelOrder));
-    wfgLaApplyCapturedWaveform(decoded);
+    wfgLaApplyParsedKvdatCapture(parsed, file.name);
     wfgLaSetAcqProgress(100, t('wfg.laImportedKvdat', { name: file.name }), 'active');
     wfgShowProgress(100, t('wfg.progressDone'));
     await wfgYield();
@@ -34106,6 +34050,19 @@ window.wfgLaImportKvdat = async function(input) {
   }
   input.value = '';
 };
+
+function kvdatMergeAnalyzerParameters(original, fallbackParts, updates) {
+  var parts = original ? String(original).split(',') : (fallbackParts || []).slice();
+  if (!parts.length) parts = (fallbackParts || []).slice();
+  Object.keys(updates || {}).forEach(function(key) {
+    var idx = Number(key);
+    if (!isFinite(idx) || idx < 0) return;
+    while (parts.length <= idx) parts.push('');
+    parts[idx] = String(updates[key]);
+  });
+  if (parts[parts.length - 1] !== '') parts.push('');
+  return parts.join(',');
+}
 
 window.wfgLaExportKvdat = function() {
   var cfg = wfgLaBuildConfig();
@@ -34181,10 +34138,12 @@ window.wfgLaExportKvdat = function() {
     wfgLaAnalyzers.forEach(function(a) {
       var acfg = a && a.config ? a.config : {};
       if (a && (a.type === 'i2c' || a.type === 'i2c_eeprom')) {
+        var i2cSda = Math.max(0, Math.min(15, Number(acfg.sda) || 0));
+        var i2cScl = Math.max(0, Math.min(15, Number(acfg.scl) || 1));
         analyzerLines.push({
-          fileName: 'libI2C.dylib',
-          parameters: 'I2CAnalyzer,0,' + (Math.max(0, Math.min(15, Number(acfg.sda) || 0))) + ',' + (Math.max(0, Math.min(15, Number(acfg.scl) || 1))) + ',0,0,0,',
-          format: '2'
+          fileName: acfg.kvFileName || 'libI2C.dylib',
+          parameters: kvdatMergeAnalyzerParameters(acfg.kvParams, ['I2CAnalyzer', '0', i2cSda, i2cScl, '0', '0', '0', ''], { 2: i2cSda, 3: i2cScl }),
+          format: acfg.kvFormat || '2'
         });
       } else if (a && a.type === 'dp_aux') {
         var dpCh = Math.max(0, Math.min(15, Number(acfg.channel) || 0));
@@ -34195,9 +34154,9 @@ window.wfgLaExportKvdat = function() {
 	        if (!isFinite(dpSig)) dpSig = 16;
 	        dpSig = Math.max(1, Math.min(256, dpSig));
         analyzerLines.push({
-          fileName: 'DisplayPortAuxAnalyzer.dll',
-          parameters: 'DisplayPortAUXAnalyzer,0,' + dpCh + ',0,' + dpRate + ',' + dpPolarity + ',' + dpBits + ',0,' + dpSig + ',0,',
-          format: '2'
+          fileName: acfg.kvFileName || 'DisplayPortAuxAnalyzer.dll',
+          parameters: kvdatMergeAnalyzerParameters(acfg.kvParams, ['DisplayPortAUXAnalyzer', '0', dpCh, '0', dpRate, dpPolarity, dpBits, '0', dpSig, '0', ''], { 2: dpCh, 4: dpRate, 5: dpPolarity, 6: dpBits, 8: dpSig }),
+          format: acfg.kvFormat || '2'
         });
       }
     });
