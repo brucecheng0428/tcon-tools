@@ -2095,7 +2095,7 @@
       <div class="tool-card" onclick="showPage('rxtx')">
         <div class="tool-card-icon"><svg width="28" height="22" viewBox="0 0 28 22" fill="none" style="display:block"><path d="M1 11 Q4 2 7 11 Q10 20 13 11 Q16 2 19 11 Q22 20 25 11" stroke="#38bdf8" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.rxtxTitle">Rx/Tx 頻率計算工具</span> <span style="display:inline-block;background:#0ea5e9;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.9.0</span></div>
+          <div class="tool-card-title"><span data-i18n="home.rxtxTitle">Rx/Tx 頻率計算工具</span> <span style="display:inline-block;background:#0ea5e9;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.10.0</span></div>
           <div class="tool-card-desc" data-i18n="home.rxtxDesc">LVDS / eDP Rx &amp; mLVDS / P2P Tx 頻率與 Bit Rate 計算</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -2464,7 +2464,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1><svg width="20" height="16" viewBox="0 0 28 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M1 11 Q4 2 7 11 Q10 20 13 11 Q16 2 19 11 Q22 20 25 11" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rxtx.title">Rx/Tx 頻率計算工具</span> <span style="display:inline-block;background:#0ea5e9;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.9.0</span></h1>
+    <h1><svg width="20" height="16" viewBox="0 0 28 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M1 11 Q4 2 7 11 Q10 20 13 11 Q16 2 19 11 Q22 20 25 11" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rxtx.title">Rx/Tx 頻率計算工具</span> <span style="display:inline-block;background:#0ea5e9;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.10.0</span></h1>
     <p data-i18n="rxtx.subtitle">TCON Rx/Tx 頻率、Pixel Rate、eDP/P2P Bit Rate 計算</p>
   </div>
   <div class="container">
@@ -2577,9 +2577,19 @@
               <span class="rxtx-result-val" id="rt-lvds-r-tcon">—</span>
               <span class="dclk-boost-max" id="rt-dclk-boost-max"></span>
             </div>
-            <div class="rxtx-result-item" style="grid-column:1/-1">
+            <div class="rxtx-result-item">
               <span class="rxtx-result-label">LVDS per Port</span>
               <span class="rxtx-result-val" id="rt-lvds-r-port">—</span>
+            </div>
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">1 UI [ps]</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-1ui">—</span>
+              <span class="dclk-boost-max" id="rt-lvds-r-1ui-boost"></span>
+            </div>
+            <div class="rxtx-result-item">
+              <span class="rxtx-result-label">1/16 UI [ps]</span>
+              <span class="rxtx-result-val" id="rt-lvds-r-116ui">—</span>
+              <span class="dclk-boost-max" id="rt-lvds-r-116ui-boost"></span>
             </div>
           </div>
         </div>
@@ -5065,6 +5075,29 @@ function rtCalcAll(source) {
   rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,     'MHz'));
   rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,     'MHz'));
   rtSetText('rt-lvds-r-port', f3(lvds_per_port, 'MHz'));
+  // LVDS 1UI / 1/16UI：bit clock = 7 × LVDS per Port (7:1 serialization)
+  if (lvds_per_port > 0 && isFinite(lvds_per_port)) {
+    const lvds_1ui   = 1e6 / (7 * lvds_per_port);
+    const lvds_116ui = lvds_1ui / 16;
+    rtSetText('rt-lvds-r-1ui',   lvds_1ui.toFixed(2) + ' ps');
+    rtSetText('rt-lvds-r-116ui', lvds_116ui.toFixed(2) + ' ps');
+    const { multiplier: boostMulLvds, anyChecked: boostOnLvds } = rtGetBoostMultiplier();
+    if (boostOnLvds) {
+      const bPort = lvds_per_port * boostMulLvds;
+      const b1ui  = 1e6 / (7 * bPort);
+      const b116  = b1ui / 16;
+      rtSetBoostText('rt-lvds-r-1ui-boost',   '(' + b1ui.toFixed(2) + ' ps)');
+      rtSetBoostText('rt-lvds-r-116ui-boost', '(' + b116.toFixed(2) + ' ps)');
+    } else {
+      rtSetBoostText('rt-lvds-r-1ui-boost', '');
+      rtSetBoostText('rt-lvds-r-116ui-boost', '');
+    }
+  } else {
+    rtSetText('rt-lvds-r-1ui', '—');
+    rtSetText('rt-lvds-r-116ui', '—');
+    rtSetBoostText('rt-lvds-r-1ui-boost', '');
+    rtSetBoostText('rt-lvds-r-116ui-boost', '');
+  }
   rtUpdateDclkBoost(tcon_dclk);
 
   // ── 同步所有模式的輸入值，避免切換模式時看到空值 ──────────────────────
@@ -5107,6 +5140,27 @@ function rtCalcAll(source) {
       rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,     'MHz'));
       rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,     'MHz'));
       rtSetText('rt-lvds-r-port', f3(lvds_per_port, 'MHz'));
+      // LVDS 1UI / 1/16UI (eDP sync path)
+      if (lvds_per_port > 0 && isFinite(lvds_per_port)) {
+        const lvds_1ui_s   = 1e6 / (7 * lvds_per_port);
+        const lvds_116ui_s = lvds_1ui_s / 16;
+        rtSetText('rt-lvds-r-1ui',   lvds_1ui_s.toFixed(2) + ' ps');
+        rtSetText('rt-lvds-r-116ui', lvds_116ui_s.toFixed(2) + ' ps');
+        const { multiplier: bMulS, anyChecked: bOnS } = rtGetBoostMultiplier();
+        if (bOnS) {
+          const bP = lvds_per_port * bMulS;
+          rtSetBoostText('rt-lvds-r-1ui-boost',   '(' + (1e6 / (7 * bP)).toFixed(2) + ' ps)');
+          rtSetBoostText('rt-lvds-r-116ui-boost', '(' + (1e6 / (7 * bP) / 16).toFixed(2) + ' ps)');
+        } else {
+          rtSetBoostText('rt-lvds-r-1ui-boost', '');
+          rtSetBoostText('rt-lvds-r-116ui-boost', '');
+        }
+      } else {
+        rtSetText('rt-lvds-r-1ui', '—');
+        rtSetText('rt-lvds-r-116ui', '—');
+        rtSetBoostText('rt-lvds-r-1ui-boost', '');
+        rtSetBoostText('rt-lvds-r-116ui-boost', '');
+      }
       rtUpdateDclkBoost(tcon_dclk);
       // eDP 反向同步後，也更新 Mode A/B 的 DCLK 輸入值
       if (fpga_dclk > 0 && isFinite(fpga_dclk)) document.getElementById('rt-fpga-dclk').value = parseFloat(fpga_dclk.toFixed(6));
