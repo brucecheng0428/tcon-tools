@@ -70,7 +70,7 @@
     color: var(--text);
     min-height: 100vh;
     padding-bottom: 40px;
-    /* v2.97.252: 移除 viewport-fit=cover，不再需要 safe-area padding */
+    /* v2.97.253: 移除 viewport-fit=cover，不再需要 safe-area padding */
   }
   /* ─── HEADER ─────────────────────────────────── */
   .header {
@@ -2127,7 +2127,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.252</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.253</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3182,7 +3182,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.252</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.253</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -17452,14 +17452,31 @@ function wfgLaBindChannelRows() {
     if (!row || wfgLaIsChannelEditTarget(e.target) || (e.target.closest && (e.target.closest('.wfg-la-ch-trigger') || e.target.closest('.wfg-la-ch-enable')))) return;
     wfgLaStartChannelDrag(Number(row.getAttribute('data-ch')), e.clientX, e.clientY, '#wfg-la-channel-grid .wfg-la-ch-row');
   });
+  /* v2.97.253: channel grid 也採用 deferred-drag，避免與 contenteditable 衝突 */
+  var laPendingGridTouch = null;
   grid.addEventListener('touchstart', function(e) {
     if (e.touches.length !== 1) return;
-    var t = e.touches[0];
     var row = e.target && e.target.closest ? e.target.closest('.wfg-la-ch-row') : null;
     if (!row || wfgLaIsChannelEditTarget(e.target) || (e.target.closest && (e.target.closest('.wfg-la-ch-trigger') || e.target.closest('.wfg-la-ch-enable')))) return;
-    e.preventDefault();
-    wfgLaStartChannelDrag(Number(row.getAttribute('data-ch')), t.clientX, t.clientY, '#wfg-la-channel-grid .wfg-la-ch-row');
+    var t = e.touches[0];
+    laPendingGridTouch = { ch: Number(row.getAttribute('data-ch')), x0: t.clientX, y0: t.clientY, started: false };
+  }, { passive: true });
+  grid.addEventListener('touchmove', function(e) {
+    if (!laPendingGridTouch || e.touches.length !== 1) return;
+    var t = e.touches[0];
+    var dx = t.clientX - laPendingGridTouch.x0;
+    var dy = t.clientY - laPendingGridTouch.y0;
+    if (!laPendingGridTouch.started && (Math.abs(dx) + Math.abs(dy)) >= 8) {
+      laPendingGridTouch.started = true;
+      if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
+      wfgLaStartChannelDrag(laPendingGridTouch.ch, laPendingGridTouch.x0, laPendingGridTouch.y0, '#wfg-la-channel-grid .wfg-la-ch-row');
+      e.preventDefault();
+    } else if (laPendingGridTouch.started) {
+      e.preventDefault();
+    }
   }, { passive: false });
+  grid.addEventListener('touchend', function() { laPendingGridTouch = null; });
+  grid.addEventListener('touchcancel', function() { laPendingGridTouch = null; });
 }
 
 function wfgLaIsChannelEditTarget(target) {
@@ -18400,18 +18417,42 @@ function wfgLaBindScopeEvents() {
         wfgLaStartChannelDrag(Number(row.getAttribute('data-ch')), e.clientX, e.clientY, '#wfg-la-labels .wfg-la-label-item');
       }
     });
+    /* v2.97.253: 延遲啟動觸控拖曳 — 手指移動超過閾值才算拖曳，避免與 contenteditable 編輯衝突 */
+    var laPendingLabelTouch = null;
+    var LA_TOUCH_DRAG_THRESHOLD = 8; /* px */
     labels.addEventListener('touchstart', function(e) {
       if (e.touches.length !== 1) return;
-      if (e.target && e.target.isContentEditable) return;
-      if (e.target && e.target.closest && (e.target.closest('.wfg-la-label-trig') || e.target.closest('.wfg-la-label-io') || e.target.closest('[contenteditable]'))) return;
+      if (e.target && e.target.closest && (e.target.closest('.wfg-la-label-trig') || e.target.closest('.wfg-la-label-io'))) return;
       var row = e.target && e.target.closest ? e.target.closest('.wfg-la-label-item') : null;
       if (row) {
+        var t = e.touches[0];
+        laPendingLabelTouch = { ch: Number(row.getAttribute('data-ch')), x0: t.clientX, y0: t.clientY, started: false };
+        /* 不 preventDefault — 讓瀏覽器保留 contenteditable 聚焦的可能 */
+      }
+    }, { passive: true });
+    labels.addEventListener('touchmove', function(e) {
+      if (!laPendingLabelTouch || e.touches.length !== 1) return;
+      var t = e.touches[0];
+      var dx = t.clientX - laPendingLabelTouch.x0;
+      var dy = t.clientY - laPendingLabelTouch.y0;
+      if (!laPendingLabelTouch.started && (Math.abs(dx) + Math.abs(dy)) >= LA_TOUCH_DRAG_THRESHOLD) {
+        /* 確認為拖曳意圖 — 啟動通道拖曳並 blur 編輯中的 contenteditable */
+        laPendingLabelTouch.started = true;
+        if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
+        wfgLaStartChannelDrag(laPendingLabelTouch.ch, laPendingLabelTouch.x0, laPendingLabelTouch.y0, '#wfg-la-labels .wfg-la-label-item');
         e.preventDefault();
         e.stopPropagation();
-        var t = e.touches[0];
-        wfgLaStartChannelDrag(Number(row.getAttribute('data-ch')), t.clientX, t.clientY, '#wfg-la-labels .wfg-la-label-item');
+      } else if (laPendingLabelTouch.started) {
+        e.preventDefault();
+        e.stopPropagation();
       }
     }, { passive: false });
+    labels.addEventListener('touchend', function() {
+      laPendingLabelTouch = null;
+    });
+    labels.addEventListener('touchcancel', function() {
+      laPendingLabelTouch = null;
+    });
     labels.addEventListener('mousemove', function(e) {
       if (e.target && e.target.isContentEditable) e.stopPropagation();
     });
@@ -18529,7 +18570,7 @@ function wfgLaBindScopeEvents() {
     e.preventDefault();
     wfgLaMoveChannelNearPointer(e.clientX, e.clientY);
   });
-  /* v2.97.252: 通道拖曳觸控支援 — touchmove/touchend/touchcancel */
+  /* v2.97.253: 通道拖曳觸控支援 — touchmove/touchend/touchcancel */
   window.addEventListener('touchmove', function(e) {
     if (!wfgLaChannelDrag) return;
     if (e.touches.length === 1) {
@@ -18588,19 +18629,9 @@ function wfgLaBindScopeEvents() {
   var laTouchState = { startTouches: null, panning: null, pinchDist0: null, pinchCenter0: null, pinchRange0: null, pinchStart0: null };
   var laTouchRafPending = false;
   surface.addEventListener('touchstart', function(e) {
-    /* v2.97.252: 若觸控目標在 labels 裡，先判斷是否為互動元素或通道拖曳 */
+    /* v2.97.253: labels 區域的觸控由 labels 自身的 deferred-drag handler 處理，surface 不再介入 */
     if (e.target && e.target.closest && e.target.closest('.wfg-la-labels')) {
-      var tag = e.target.tagName;
-      if (tag === 'BUTTON' || tag === 'SELECT' || tag === 'INPUT' || tag === 'OPTION' || e.target.isContentEditable ||
-          (e.target.closest('.wfg-la-trig-btn') || e.target.closest('.wfg-la-label-io') || e.target.closest('[contenteditable]'))) return;
-      /* v2.97.252: labels 區域的通道標籤行 — 啟動通道拖曳，不走平移 */
-      var labelRow = e.target.closest('.wfg-la-label-item');
-      if (labelRow && e.touches.length === 1) {
-        e.preventDefault();
-        var t0 = e.touches[0];
-        wfgLaStartChannelDrag(Number(labelRow.getAttribute('data-ch')), t0.clientX, t0.clientY, '#wfg-la-labels .wfg-la-label-item');
-        return;
-      }
+      return; /* 交給 labels 的 touchstart/touchmove 處理拖曳 vs 編輯 */
     }
     laTouchRafPending = false;
     if (e.touches.length === 1) {
@@ -20285,8 +20316,8 @@ function wfgLaBindBackdropClose(modal, closeFn) {
   });
 }
 
-/* === v2.97.252: backdrop 改用 CSS inset:0 覆蓋全視口 === */
-/* v2.97.252: 移除 viewport-fit=cover 後 JS 高度同步不再需要，保留 no-op 避免呼叫錯誤 */
+/* === v2.97.253: backdrop 改用 CSS inset:0 覆蓋全視口 === */
+/* v2.97.253: 移除 viewport-fit=cover 後 JS 高度同步不再需要，保留 no-op 避免呼叫錯誤 */
 /* safe-area padding 已從 body 移至 .header/.container，backdrop 不受 body padding 影響 */
 function wfgLaSyncBackdropHeight(modal) { /* no-op: inset:0 handles sizing */ }
 function wfgLaClearBackdropSize(modal) { /* no-op */ }
