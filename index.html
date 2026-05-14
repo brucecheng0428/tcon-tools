@@ -2186,7 +2186,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.271</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.272</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3241,7 +3241,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.271</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.272</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -34838,9 +34838,29 @@ function wfgLaApplyParsedSettings(parsed, options) {
     wfgLaApplyVisibleChannelOrder(settings.enabledChannels.concat(wfgLaChannelOrder));
     wfgLaSetChannelsList(settings.enabledChannels, true);
   }
+  /* 從 XML 讀取通道名稱 chnShowName0~15 */
+  if (parsed.xmlDoc) {
+    for (var ni = 0; ni < 16; ni++) {
+      var nameEl = parsed.xmlDoc.querySelector('chnShowName' + ni);
+      var nameText = nameEl && nameEl.textContent ? nameEl.textContent.trim() : '';
+      if (nameText) wfgLaStoreChannelName(ni, nameText);
+    }
+  }
   if (parsed.analyzers) {
     wfgLaAnalyzers = parsed.analyzers.map(function(a) {
       return { id: wfgLaAnalyzerNextId++, type: a.type, config: Object.assign({}, a.config || {}) };
+    });
+    /* 分析器自動命名：I2C → SDA/SCL, DP AUX → AUX-O/HPD */
+    parsed.analyzers.forEach(function(a) {
+      if ((a.type === 'i2c' || a.type === 'i2c_eeprom') && a.config) {
+        var sda = Number(a.config.sda);
+        var scl = Number(a.config.scl);
+        if (sda >= 0 && sda < 16 && !wfgLaChannelNames[sda]) wfgLaChannelNames[sda] = 'SDA';
+        if (scl >= 0 && scl < 16 && !wfgLaChannelNames[scl]) wfgLaChannelNames[scl] = 'SCL';
+      } else if (a.type === 'dp_aux' && a.config) {
+        var dpCh = Number(a.config.channel);
+        if (dpCh >= 0 && dpCh < 16 && !wfgLaChannelNames[dpCh]) wfgLaChannelNames[dpCh] = 'AUX-O';
+      }
     });
   }
   if (!wfgLaCapturedWaveform || wfgLaCapturedWaveform.demo) wfgLaLoadDemoCapture({ preserveView: true });
@@ -34879,6 +34899,8 @@ function wfgLaApplyQuickPreset(id) {
     wfgLaRenderScope();
     return;
   }
+  /* 切換預設前先清空所有通道名稱/描述，避免前一個預設殘留 */
+  for (var ci = 0; ci < 16; ci++) { wfgLaChannelNames[ci] = ''; wfgLaChannelDescriptions[ci] = ''; }
   try {
     if (preset.kvdatBase64) {
       var parsedKvdat = wfgParseKvdatBytes(wfgLaBase64ToArrayBuffer(preset.kvdatBase64));
@@ -35099,6 +35121,18 @@ function wfgLaApplyParsedKvdatCapture(parsed, fileName, options) {
   if (parsed.analyzers && parsed.analyzers.length) {
     wfgLaAnalyzers = parsed.analyzers.map(function(a) {
       return { id: wfgLaAnalyzerNextId++, type: a.type, config: Object.assign({}, a.config || {}) };
+    });
+    /* 分析器自動命名（kvdat 路徑）：I2C → SDA/SCL, DP AUX → AUX-O */
+    parsed.analyzers.forEach(function(a) {
+      if ((a.type === 'i2c' || a.type === 'i2c_eeprom') && a.config) {
+        var sda = Number(a.config.sda);
+        var scl = Number(a.config.scl);
+        if (sda >= 0 && sda < 16 && !wfgLaChannelNames[sda]) wfgLaChannelNames[sda] = 'SDA';
+        if (scl >= 0 && scl < 16 && !wfgLaChannelNames[scl]) wfgLaChannelNames[scl] = 'SCL';
+      } else if (a.type === 'dp_aux' && a.config) {
+        var dpCh = Number(a.config.channel);
+        if (dpCh >= 0 && dpCh < 16 && !wfgLaChannelNames[dpCh]) wfgLaChannelNames[dpCh] = 'AUX-O';
+      }
     });
   }
   wfgLaRenderAnalyzers();
