@@ -2189,7 +2189,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.287</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.288</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3244,7 +3244,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.287</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.288</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -17259,39 +17259,34 @@ function wfgLaInit() {
       var savedPreset = localStorage.getItem('wfg-la-quick-preset');
       if (savedPreset) setTimeout(function() { wfgLaApplyQuickPreset(savedPreset); }, 0);
     } catch(e) { /* localStorage 不可用時忽略 */ }
+    /* v2.97.288: cursor 按鈕 touch/click event delegation（取代 inline onclick）
+       必須放在 if(!wfgLaInitialized) 內，只註冊一次。
+       v2.97.286 問題：touchend + inline onclick 雙觸發導致 double toggle。
+       v2.97.288 問題：delegation 在 init 外面，wfgLaInit() 每次呼叫重複註冊 N 個 handler。
+       修復：移入 init 內只註冊一次，touchend + click delegation 搭配 flag 防 double toggle。 */
+    (function() {
+      var cl = document.getElementById('wfg-la-cursor-cluster');
+      if (!cl) return;
+      var _touchHandled = false;
+      cl.addEventListener('touchend', function(e) {
+        var btn = e.target.closest ? e.target.closest('.wfg-la-cursor-btn') : null;
+        if (!btn) return;
+        var idx = Number(btn.getAttribute('data-la-cursor'));
+        if (idx >= 0 && idx < 10) {
+          _touchHandled = true;
+          wfgLaToggleCursor(idx);
+          setTimeout(function() { _touchHandled = false; }, 500);
+        }
+      });
+      cl.addEventListener('click', function(e) {
+        if (_touchHandled) return; /* touch 已處理，跳過 click 防 double toggle */
+        var btn = e.target.closest ? e.target.closest('.wfg-la-cursor-btn') : null;
+        if (!btn) return;
+        var idx = Number(btn.getAttribute('data-la-cursor'));
+        if (idx >= 0 && idx < 10) wfgLaToggleCursor(idx);
+      });
+    })();
   }
-  wfgLaBindScopeEvents();
-  wfgLaInstallUsbWatchers();
-  wfgLaUpdateCursorButtons();
-  /* v2.97.287: cursor 按鈕 touch/click event delegation（取代 inline onclick）
-     v2.97.287 的 touchend + onclick 雙軌制會造成 double toggle（開了又關看起來沒反應），
-     因為 touchend 的 preventDefault 在手機上不保證阻止 click。
-     修復：移除所有 inline onclick，改用 cluster 層級 event delegation：
-     - touchend 先觸發 → 設 flag → 呼叫 toggle
-     - click 後觸發 → 檢查 flag → 有 flag 就跳過（防 double toggle）
-     桌面無 touch 事件，click 正常觸發。 */
-  (function() {
-    var cl = document.getElementById('wfg-la-cursor-cluster');
-    if (!cl) return;
-    var _touchHandled = false;
-    cl.addEventListener('touchend', function(e) {
-      var btn = e.target.closest ? e.target.closest('.wfg-la-cursor-btn') : null;
-      if (!btn) return;
-      var idx = Number(btn.getAttribute('data-la-cursor'));
-      if (idx >= 0 && idx < 10) {
-        _touchHandled = true;
-        wfgLaToggleCursor(idx);
-        setTimeout(function() { _touchHandled = false; }, 500);
-      }
-    });
-    cl.addEventListener('click', function(e) {
-      if (_touchHandled) return; /* touch 已處理，跳過 click 防 double toggle */
-      var btn = e.target.closest ? e.target.closest('.wfg-la-cursor-btn') : null;
-      if (!btn) return;
-      var idx = Number(btn.getAttribute('data-la-cursor'));
-      if (idx >= 0 && idx < 10) wfgLaToggleCursor(idx);
-    });
-  })();
   /* 同步 cursor fold button 的 active class 與 cluster open 狀態 */
   (function() {
     var cl = document.getElementById('wfg-la-cursor-cluster');
