@@ -1847,6 +1847,7 @@
   .wfg-la-decode-table tr.protocol-error td:nth-child(n+4) { color: #fecaca; background: rgba(127,29,29,0.28); }
   .wfg-la-decode-table tr.protocol-error:hover td:nth-child(n+4) { background: rgba(127,29,29,0.40); }
   .wfg-la-decode-scope-frame { position: absolute; left: 2px; right: 2px; border: 2px solid rgba(56,189,248,0.98); border-radius: 4px; box-shadow: 0 0 0 1px rgba(15,23,42,0.75), 0 0 0 3px rgba(56,189,248,0.16); pointer-events: none; z-index: 2; }
+  .wfg-la-decode-table tr.vscroll-spacer td { padding: 0; border: none; }
   .wfg-la-decode-badge { display: inline-block; min-width: 34px; text-align: center; border-radius: 3px; padding: 1px 4px; background: #374151; color: #e5e7eb; font-weight: 800; }
   .wfg-la-decode-badge.read { background: #075985; color: #bae6fd; }
   .wfg-la-decode-badge.write { background: #14532d; color: #bbf7d0; }
@@ -2189,7 +2190,7 @@
       <div class="tool-card" onclick="showPage('wfg')">
         <div class="tool-card-icon"><svg width="30" height="22" viewBox="0 0 30 22" fill="none" style="display:block"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg></div>
         <div class="tool-card-body">
-          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.297</span></div>
+          <div class="tool-card-title"><span data-i18n="home.wfgTitle">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.298</span></div>
           <div class="tool-card-desc" data-i18n="home.wfgDesc">Phase Counter 引擎驅動 TCON Timing 信號波形模擬</div>
         </div>
         <div class="tool-card-arrow">›</div>
@@ -3244,7 +3245,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="showPage('home')" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.297</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.298</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -16622,6 +16623,10 @@ var wfgLaDecodeResults = [];
 var wfgLaDecodeSearch = '';
 var wfgLaDecodeSelectedKey = '';
 var wfgLaDecodeExpanded = false;
+var wfgLaDecodeVGroups = [];
+var wfgLaDecodeRowH = 23;
+var _wfgLaDecodeScrollRaf = {};
+var _wfgLaScopeFocusRaf = 0;
 var WFG_LA_I2C_MEASURE_KVDAT_B64 = [
   'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjxzZXR0aW5ncz4NCiAgICA8Z2xvYmFsPg0KICAgICAgICA8',
   'dmVyc2lvbj4zLjYuNDwvdmVyc2lvbj4NCiAgICAgICAgPGRldk1vZGVsPjc8L2Rldk1vZGVsPg0KICAgICAgICA8b3NjQ3Vyc29y',
@@ -17285,10 +17290,10 @@ function wfgLaInit() {
       var savedPreset = localStorage.getItem('wfg-la-quick-preset');
       if (savedPreset) setTimeout(function() { wfgLaApplyQuickPreset(savedPreset); }, 0);
     } catch(e) { /* localStorage 不可用時忽略 */ }
-    /* v2.97.297: cursor 按鈕 touch/click event delegation（取代 inline onclick）
+    /* v2.97.298: cursor 按鈕 touch/click event delegation（取代 inline onclick）
        必須放在 if(!wfgLaInitialized) 內，只註冊一次。
        v2.97.286 問題：touchend + inline onclick 雙觸發導致 double toggle。
-       v2.97.297 問題：delegation 在 init 外面，wfgLaInit() 每次呼叫重複註冊 N 個 handler。
+       v2.97.298 問題：delegation 在 init 外面，wfgLaInit() 每次呼叫重複註冊 N 個 handler。
        修復：移入 init 內只註冊一次，touchend + click delegation 搭配 flag 防 double toggle。 */
     (function() {
       var cl = document.getElementById('wfg-la-cursor-cluster');
@@ -17313,7 +17318,7 @@ function wfgLaInit() {
       });
     })();
   }
-  /* v2.97.297: 以下三行必須在 if 外面，每次 wfgLaInit() 呼叫都要執行 */
+  /* v2.97.298: 以下三行必須在 if 外面，每次 wfgLaInit() 呼叫都要執行 */
   wfgLaBindScopeEvents();
   wfgLaInstallUsbWatchers();
   wfgLaUpdateCursorButtons();
@@ -19692,7 +19697,12 @@ function wfgLaRenderMinimap(cfg, channels) {
     vp.style.left = leftPct + '%';
     vp.style.width = Math.max(0.2, rightPct - leftPct) + '%';
   }
-  wfgLaApplyDecodeScopeFocus();
+  if (!_wfgLaScopeFocusRaf) {
+    _wfgLaScopeFocusRaf = requestAnimationFrame(function() {
+      _wfgLaScopeFocusRaf = 0;
+      wfgLaApplyDecodeScopeFocus();
+    });
+  }
 }
 
 function wfgLaUpdateMeasure(cfg, visibleEdges) {
@@ -22300,72 +22310,76 @@ function wfgLaDecodeSearchText(group, row) {
 }
 
 function wfgLaApplyDecodeScopeFocus() {
-  var el = document.getElementById('wfg-la-decoder-results');
-  if (!el) return;
-  /* 移除所有舊藍框 */
-  el.querySelectorAll('.wfg-la-decode-scope-frame').forEach(function(f) { f.remove(); });
-  var rowMap = {};
-  (wfgLaDecodeResults || []).forEach(function(group) {
-    (group.rows || []).forEach(function(row) {
-      rowMap[wfgLaDecodeRowKey(group, row)] = row;
-    });
-  });
-  /* 收集所有 wrap 的 items 資料 */
-  var wraps = el.querySelectorAll('.wfg-la-decode-table-wrap');
-  var wrapData = [];
-  wraps.forEach(function(wrap) {
-    var table = wrap.querySelector('.wfg-la-decode-table');
-    if (!table) return;
-    var items = [];
-    table.querySelectorAll('tbody tr[data-decode-key]').forEach(function(tr) {
-      var row = rowMap[tr.getAttribute('data-decode-key') || ''];
-      if (!row) return;
+  /* 用 wfgLaDecodeVGroups 資料計算藍框位置，不查 DOM rows */
+  var rowH = wfgLaDecodeRowH;
+  var firstScrollTarget = null;
+  var anyInView = false;
+  /* 先判斷是否有任何 group 有 in-view 資料 */
+  for (var gi = 0; gi < wfgLaDecodeVGroups.length; gi++) {
+    var vg = wfgLaDecodeVGroups[gi];
+    if (!vg || !vg.rows || !vg.rows.length) continue;
+    for (var ri = 0; ri < vg.rows.length; ri++) {
+      var row = vg.rows[ri];
       var start = Number(row.time) || 0;
       var end = Math.max(start, Number(row.endTime) || start);
-      items.push({ tr: tr, row: row, start: start, end: end });
-    });
-    if (!items.length) return;
-    var focused = items.filter(function(item) {
-      return item.end >= wfgLaViewStart && item.start <= wfgLaViewEnd;
-    });
-    wrapData.push({ wrap: wrap, items: items, focused: focused });
-  });
-  /* 判斷是否有任何 wrap 有 in-view 資料 */
-  var anyInView = wrapData.some(function(d) { return d.focused.length > 0; });
-  var firstScrollTarget = null;
-  wrapData.forEach(function(d) {
-    var display;
-    if (anyInView) {
-      /* 有 in-view 資料時：只在有 focused 的 wrap 顯示藍框 */
-      if (!d.focused.length) return;
-      display = d.focused;
-    } else {
-      /* 全部 wrap 都沒有 in-view 資料時：fallback 到最近的 rows */
-      var before = null;
-      var after = null;
-      d.items.forEach(function(item) {
-        if (item.end < wfgLaViewStart && (!before || item.end > before.end)) before = item;
-        if (item.start > wfgLaViewEnd && (!after || item.start < after.start)) after = item;
-      });
-      display = [];
-      if (before) display.push(before);
-      if (after && after !== before) display.push(after);
-      if (!display.length) display.push(d.items[0]);
+      if (end >= wfgLaViewStart && start <= wfgLaViewEnd) { anyInView = true; break; }
     }
-    var top = Infinity;
-    var bottom = -Infinity;
-    display.forEach(function(item) {
-      top = Math.min(top, item.tr.offsetTop);
-      bottom = Math.max(bottom, item.tr.offsetTop + item.tr.offsetHeight);
-    });
-    if (!isFinite(top) || !isFinite(bottom) || bottom <= top) return;
-    var frame = document.createElement('div');
-    frame.className = 'wfg-la-decode-scope-frame';
+    if (anyInView) break;
+  }
+  for (var gi2 = 0; gi2 < wfgLaDecodeVGroups.length; gi2++) {
+    var vg2 = wfgLaDecodeVGroups[gi2];
+    if (!vg2 || !vg2.rows || !vg2.rows.length || !vg2.el) continue;
+    var wrap = vg2.el;
+    var frame = wrap.querySelector('.wfg-la-decode-scope-frame');
+    var rows = vg2.rows;
+    var displayFirst = -1, displayLast = -1;
+    if (anyInView) {
+      /* 找 in-view rows 的 index 範圍 */
+      for (var i = 0; i < rows.length; i++) {
+        var s = Number(rows[i].time) || 0;
+        var e = Math.max(s, Number(rows[i].endTime) || s);
+        if (e >= wfgLaViewStart && s <= wfgLaViewEnd) {
+          if (displayFirst < 0) displayFirst = i;
+          displayLast = i;
+        }
+      }
+      if (displayFirst < 0) {
+        /* 此 group 沒有 in-view，隱藏藍框 */
+        if (frame) frame.style.display = 'none';
+        continue;
+      }
+    } else {
+      /* fallback：找最近的 rows */
+      var beforeIdx = -1, afterIdx = -1;
+      for (var j = 0; j < rows.length; j++) {
+        var js = Number(rows[j].time) || 0;
+        var je = Math.max(js, Number(rows[j].endTime) || js);
+        if (je < wfgLaViewStart) {
+          if (beforeIdx < 0 || je > (Number(rows[beforeIdx].endTime) || Number(rows[beforeIdx].time) || 0)) beforeIdx = j;
+        }
+        if (js > wfgLaViewEnd) {
+          if (afterIdx < 0 || js < (Number(rows[afterIdx].time) || 0)) afterIdx = j;
+        }
+      }
+      if (beforeIdx >= 0) { displayFirst = beforeIdx; displayLast = beforeIdx; }
+      if (afterIdx >= 0) {
+        if (displayFirst < 0) displayFirst = afterIdx;
+        displayLast = afterIdx;
+      }
+      if (displayFirst < 0) { displayFirst = 0; displayLast = 0; }
+    }
+    var top = displayFirst * rowH;
+    var bottom = (displayLast + 1) * rowH;
+    if (!frame) {
+      frame = document.createElement('div');
+      frame.className = 'wfg-la-decode-scope-frame';
+      wrap.appendChild(frame);
+    }
+    frame.style.display = '';
     frame.style.top = (top - 1) + 'px';
     frame.style.height = Math.max(4, bottom - top + 2) + 'px';
-    d.wrap.appendChild(frame);
-    if (!firstScrollTarget) firstScrollTarget = { wrap: d.wrap, top: top, bottom: bottom };
-  });
+    if (!firstScrollTarget) firstScrollTarget = { wrap: wrap, top: top, bottom: bottom };
+  }
   /* 只捲動第一個有藍框的 wrap（避免多個同時跳） */
   if (firstScrollTarget) {
     var sw = firstScrollTarget.wrap;
@@ -24893,12 +24907,6 @@ function wfgLaToggleDecodeExpanded() {
 window.wfgLaToggleDecodeExpanded = wfgLaToggleDecodeExpanded;
 
 function wfgLaSelectDecodeRow(key) {
-  var scrollWrap = document.querySelector('#wfg-la-decoder-results .wfg-la-decode-table-wrap');
-  var keepScrollTop = scrollWrap ? scrollWrap.scrollTop || 0 : 0;
-  function restoreDecodeScroll() {
-    var nextWrap = document.querySelector('#wfg-la-decoder-results .wfg-la-decode-table-wrap');
-    if (nextWrap) nextWrap.scrollTop = keepScrollTop;
-  }
   var target = null;
   for (var gi = 0; gi < wfgLaDecodeResults.length; gi++) {
     var group = wfgLaDecodeResults[gi];
@@ -24911,7 +24919,16 @@ function wfgLaSelectDecodeRow(key) {
     if (target) break;
   }
   if (!target) return;
+  var oldKey = wfgLaDecodeSelectedKey;
   wfgLaDecodeSelectedKey = key;
+  /* 更新 DOM 中的 selected class（不重建整個表格） */
+  var el = document.getElementById('wfg-la-decoder-results');
+  if (el) {
+    var oldSel = el.querySelectorAll('tbody tr.selected');
+    oldSel.forEach(function(tr) { tr.classList.remove('selected'); });
+    var newSel = el.querySelector('tbody tr[data-decode-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+    if (newSel) newSel.classList.add('selected');
+  }
   var duration = wfgLaCaptureDuration();
   var currentRange = Math.min(duration || Infinity, Math.max(wfgLaViewEnd - wfgLaViewStart, 10e-6));
   var targetStart = Number(target.time) || 0;
@@ -24919,23 +24936,30 @@ function wfgLaSelectDecodeRow(key) {
   var targetSpan = Math.max(0, targetEnd - targetStart);
   var nextRange = targetSpan > currentRange * 0.9 ? Math.min(duration || targetSpan, Math.max(currentRange, targetSpan * 1.2)) : currentRange;
   wfgLaSetAnchoredView(targetStart + targetSpan / 2, nextRange, 0.5);
-  wfgLaRenderDecodeResults();
-  restoreDecodeScroll();
   wfgLaRenderScope();
 }
 window.wfgLaSelectDecodeRow = wfgLaSelectDecodeRow;
 
 function wfgLaScrollDecodeKeyIntoView(key) {
   if (!key) return;
-  var wrap = document.querySelector('#wfg-la-decoder-results .wfg-la-decode-table-wrap');
-  if (!wrap) return;
-  var tr = wrap.querySelector('tbody tr[data-decode-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
-  if (!tr) return;
-  var top = tr.offsetTop;
-  var bottom = top + tr.offsetHeight;
-  var pad = 28;
-  if (top < wrap.scrollTop + pad || bottom > wrap.scrollTop + wrap.clientHeight - pad) {
-    wrap.scrollTop = Math.max(0, top - pad);
+  var rowH = wfgLaDecodeRowH;
+  for (var gi = 0; gi < wfgLaDecodeVGroups.length; gi++) {
+    var vg = wfgLaDecodeVGroups[gi];
+    if (!vg || !vg.el) continue;
+    for (var ri = 0; ri < vg.rows.length; ri++) {
+      if (wfgLaDecodeRowKey(vg.group, vg.rows[ri]) === key) {
+        var top = ri * rowH;
+        var bottom = top + rowH;
+        var wrap = vg.el;
+        var pad = 28;
+        if (top < wrap.scrollTop + pad || bottom > wrap.scrollTop + wrap.clientHeight - pad) {
+          wrap.scrollTop = Math.max(0, top - pad);
+        }
+        /* 觸發虛擬行重繪以確保 selected 行可見 */
+        wfgLaRenderDecodeVRows(gi);
+        return;
+      }
+    }
   }
 }
 
@@ -24953,17 +24977,56 @@ function wfgLaFocusDecodeRowNearTime(timeSec) {
     });
   });
   if (!best) return;
+  var oldKey = wfgLaDecodeSelectedKey;
   wfgLaDecodeSelectedKey = wfgLaDecodeRowKey(best.group, best.row);
-  wfgLaRenderDecodeResults();
+  /* 更新 selected class 而不重建整個表格 */
+  var el = document.getElementById('wfg-la-decoder-results');
+  if (el) {
+    var oldSel = el.querySelectorAll('tbody tr.selected');
+    oldSel.forEach(function(tr) { tr.classList.remove('selected'); });
+  }
   wfgLaScrollDecodeKeyIntoView(wfgLaDecodeSelectedKey);
+  /* 重繪虛擬行後標記 selected */
+  if (el) {
+    var newSel = el.querySelector('tbody tr[data-decode-key="' + String(wfgLaDecodeSelectedKey).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+    if (newSel) newSel.classList.add('selected');
+  }
+}
+
+function wfgLaRenderDecodeVRows(groupIdx) {
+  var vg = wfgLaDecodeVGroups[groupIdx];
+  if (!vg || !vg.el) return;
+  var wrap = vg.el;
+  var tbody = wrap.querySelector('tbody');
+  if (!tbody) return;
+  var scrollTop = wrap.scrollTop;
+  var viewH = wrap.clientHeight;
+  var rowH = wfgLaDecodeRowH;
+  var totalRows = vg.rows.length;
+  var startIdx = Math.max(0, Math.floor(scrollTop / rowH) - 5);
+  var endIdx = Math.min(totalRows, Math.ceil((scrollTop + viewH) / rowH) + 5);
+  if (vg.renderedStart === startIdx && vg.renderedEnd === endIdx) return;
+  vg.renderedStart = startIdx;
+  vg.renderedEnd = endIdx;
+  var html = '';
+  if (startIdx > 0) html += '<tr class="vscroll-spacer" style="height:' + (startIdx * rowH) + 'px"><td colspan="6"></td></tr>';
+  for (var i = startIdx; i < endIdx; i++) {
+    html += vg.renderRow(vg.rows[i], vg.group);
+  }
+  if (endIdx < totalRows) html += '<tr class="vscroll-spacer" style="height:' + ((totalRows - endIdx) * rowH) + 'px"><td colspan="6"></td></tr>';
+  tbody.innerHTML = html;
 }
 
 function wfgLaRenderDecodeResults() {
   var el = document.getElementById('wfg-la-decoder-results');
   if (!el) return;
-  var previousScrollTop = 0;
-  var previousWrap = el.querySelector('.wfg-la-decode-table-wrap');
-  if (previousWrap) previousScrollTop = previousWrap.scrollTop || 0;
+  /* 記住每個 group 的 scrollTop */
+  var previousScrollTops = [];
+  wfgLaDecodeVGroups.forEach(function(vg) {
+    previousScrollTops.push(vg && vg.el ? vg.el.scrollTop || 0 : 0);
+  });
+  wfgLaDecodeVGroups = [];
+  _wfgLaDecodeScrollRaf = {};
   wfgLaApplyDecodeExpandedState();
   var searchInput = document.getElementById('wfg-la-decode-search');
   if (searchInput && searchInput.value !== wfgLaDecodeSearch) searchInput.value = wfgLaDecodeSearch;
@@ -24972,6 +25035,7 @@ function wfgLaRenderDecodeResults() {
     return;
   }
   var html = '';
+  var groupIdx = 0;
   wfgLaDecodeResults.forEach(function(group) {
     var a = group.analyzer;
     html += '<div style="font-weight:800;color:#f5f5f5;margin:4px 0 6px">' + wfgLaEscapeHtml(wfgLaAnalyzerTypeLabel(a.type)) + '</div>';
@@ -24979,15 +25043,18 @@ function wfgLaRenderDecodeResults() {
       if (!wfgLaDecodeSearch) return true;
       return wfgLaDecodeSearchText(group, row).indexOf(wfgLaDecodeSearch) >= 0;
     });
-    if (group.note) html += '<div class="wfg-la-decoder-empty">' + wfgLaEscapeHtml(group.note) + '</div>';
-    else if (!group.rows.length) html += '<div class="wfg-la-decoder-empty">No decoded packets</div>';
-    else if (!rows.length) html += '<div class="wfg-la-decoder-empty">No search results</div>';
-    else if (a.type === 'dp_aux') {
-      html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>#</th><th>Frame</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead><tbody>';
-      rows.slice(0, 1000).forEach(function(r) {
+    if (group.note) { html += '<div class="wfg-la-decoder-empty">' + wfgLaEscapeHtml(group.note) + '</div>'; return; }
+    else if (!group.rows.length) { html += '<div class="wfg-la-decoder-empty">No decoded packets</div>'; return; }
+    else if (!rows.length) { html += '<div class="wfg-la-decoder-empty">No search results</div>'; return; }
+    rows = rows.slice(0, 1000);
+    var renderRow;
+    var theadHtml;
+    if (a.type === 'dp_aux') {
+      theadHtml = '<thead><tr><th>Time</th><th>#</th><th>Frame</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead>';
+      renderRow = function(r, grp) {
         var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR' || r.auxNoReply || r.protocolError;
         if (r.auxPreambleError) isProtocolError = true;
-        var key = wfgLaDecodeRowKey(group, r);
+        var key = wfgLaDecodeRowKey(grp, r);
         var badgeCls = r.auxPreambleWarn ? ' warn' : (isProtocolError ? ' err' : '');
         var badgeTitle = '';
         if (r.auxAnomaly || r.ack === 'ERR' || r.protocolError) badgeTitle = r.value || r.rw || 'AUX format error';
@@ -24997,33 +25064,46 @@ function wfgLaRenderDecodeResults() {
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
         var statusText = r.auxNoReply ? 'NO REPLY' : (r.dpcdWarn ? 'DPCD WARN' : r.ack);
         if (r.auxPreambleWarnText) statusText = statusText ? (statusText + ' / ' + r.auxPreambleWarnText) : r.auxPreambleWarnText;
-        html += '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
+      };
     } else if (a.type === 'i2c_eeprom') {
-      html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>Packet</th><th>Device</th><th>Memory</th><th>R/W</th><th>Data</th></tr></thead><tbody>';
-      rows.slice(0, 1000).forEach(function(r) {
-        var key = wfgLaDecodeRowKey(group, r);
-        html += '<tr class="' + (key === wfgLaDecodeSelectedKey ? 'selected' : '') + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td>' + wfgLaEscapeHtml(r.device) + '</td><td>' + wfgLaEscapeHtml(r.memory) + '</td><td><span class="wfg-la-decode-badge ' + (r.rw === 'Read' ? 'read' : r.rw === 'Write' ? 'write' : '') + '">' + wfgLaEscapeHtml(r.rw) + '</span></td><td>' + wfgLaEscapeHtml(r.data) + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
+      theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Device</th><th>Memory</th><th>R/W</th><th>Data</th></tr></thead>';
+      renderRow = function(r, grp) {
+        var key = wfgLaDecodeRowKey(grp, r);
+        return '<tr class="' + (key === wfgLaDecodeSelectedKey ? 'selected' : '') + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td>' + wfgLaEscapeHtml(r.device) + '</td><td>' + wfgLaEscapeHtml(r.memory) + '</td><td><span class="wfg-la-decode-badge ' + (r.rw === 'Read' ? 'read' : r.rw === 'Write' ? 'write' : '') + '">' + wfgLaEscapeHtml(r.rw) + '</span></td><td>' + wfgLaEscapeHtml(r.data) + '</td></tr>';
+      };
     } else {
-      html += '<div class="wfg-la-decode-table-wrap"><table class="wfg-la-decode-table"><thead><tr><th>Time</th><th>Packet</th><th>Type</th><th>R/W</th><th>Value</th><th>ACK</th></tr></thead><tbody>';
-      rows.slice(0, 1000).forEach(function(r) {
+      theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Type</th><th>R/W</th><th>Value</th><th>ACK</th></tr></thead>';
+      renderRow = function(r, grp) {
         var isProtocolError = (r.ack === 'NACK' && !r.normalNack) || r.ack === 'ERR';
         var cls = isProtocolError ? ' err' : '';
-        var key = wfgLaDecodeRowKey(group, r);
+        var key = wfgLaDecodeRowKey(grp, r);
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
-        html += '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
+      };
     }
+    var idx = groupIdx++;
+    wfgLaDecodeVGroups.push({ group: group, rows: rows, type: a.type, renderRow: renderRow, el: null, renderedStart: -1, renderedEnd: -1 });
+    html += '<div class="wfg-la-decode-table-wrap" data-vgroup-idx="' + idx + '"><table class="wfg-la-decode-table">' + theadHtml + '<tbody></tbody></table></div>';
   });
   el.innerHTML = html;
-  if (previousWrap) {
-    var nextWrap = el.querySelector('.wfg-la-decode-table-wrap');
-    if (nextWrap) nextWrap.scrollTop = previousScrollTop;
-  }
+  /* 綁定 scroll 事件並初次填充可見行 */
+  wfgLaDecodeVGroups.forEach(function(vg, i) {
+    var wrap = el.querySelector('.wfg-la-decode-table-wrap[data-vgroup-idx="' + i + '"]');
+    if (!wrap) return;
+    vg.el = wrap;
+    /* 恢復之前的 scrollTop */
+    if (previousScrollTops[i]) wrap.scrollTop = previousScrollTops[i];
+    var gIdx = i;
+    wrap.addEventListener('scroll', function() {
+      if (_wfgLaDecodeScrollRaf[gIdx]) return;
+      _wfgLaDecodeScrollRaf[gIdx] = requestAnimationFrame(function() {
+        _wfgLaDecodeScrollRaf[gIdx] = 0;
+        wfgLaRenderDecodeVRows(gIdx);
+      });
+    }, { passive: true });
+    wfgLaRenderDecodeVRows(i);
+  });
   wfgLaApplyDecodeScopeFocus();
 }
 
