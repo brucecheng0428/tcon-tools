@@ -1,0 +1,3911 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="eDP AUX Transaction 解碼、DPCD 暫存器查詢、Manchester II 波形模擬">
+<meta property="og:title" content="eDP AUX / DPCD 查詢工具 — TCON FAE專用工具箱">
+<meta property="og:description" content="AUX 解碼 & DPCD 暫存器查詢 · Manchester II 波形">
+<meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/aux.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<title>eDP AUX / DPCD 查詢工具 — TCON FAE專用工具箱</title>
+<link rel="stylesheet" href="common/common.css">
+<script>
+// Anti-flash: 根據 sessionStorage 預先顯示正確的 tab
+(function(){
+  try {
+    var auxParams = new URLSearchParams(location.search);
+    var auxTab = auxParams.get('auxTab') || sessionStorage.getItem('aux_active_tab');
+    if (auxTab === 'dpcd') {
+      document.write('<style id="ss-tab-hint-aux">#aux-tab-dpcd{display:block!important}.aux-tab[data-tab="dpcd"]{background:var(--primary)!important;color:white!important}</style>');
+    } else {
+      document.write('<style id="ss-tab-hint-aux">#aux-tab-decode{display:block!important}.aux-tab[data-tab="decode"]{background:var(--primary)!important;color:white!important}</style>');
+    }
+  } catch(e) {
+    document.write('<style id="ss-tab-hint-aux">#aux-tab-decode{display:block!important}.aux-tab[data-tab="decode"]{background:var(--primary)!important;color:white!important}</style>');
+  }
+})();
+</script>
+<style>
+  .aux-tab-bar {
+    display: flex; gap: 0; margin-bottom: 12px; border-radius: 10px; overflow: hidden;
+    border: 1.5px solid var(--border); background: #0f172a;
+  }
+  .aux-tab {
+    flex: 1; padding: 11px 8px; border: none; background: transparent;
+    color: var(--text-sub); font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: background 0.15s, color 0.15s; text-align: center;
+  }
+  .aux-tab.active { background: var(--primary); color: white; }
+  .aux-tab:not(.active):active { background: rgba(255,255,255,0.05); }
+  .aux-result-row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 8px 0; border-bottom: 1px solid var(--border); gap: 8px;
+  }
+  .aux-result-row:last-child { border-bottom: none; }
+  .aux-result-label { font-size: 12px; color: var(--text-sub); font-weight: 600; min-width: 80px; flex-shrink: 0; }
+  .aux-result-value { font-size: 13px; color: var(--text); font-family: monospace; word-break: break-all; text-align: right; }
+  .aux-bit-table { min-width: 520px; width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  .aux-bit-table th {
+    background: var(--primary); color: white; padding: 7px 8px; text-align: left;
+    font-weight: 600; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.15);
+  }
+  .aux-bit-table td {
+    padding: 7px 8px; border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: top;
+  }
+  .aux-bit-table tr:nth-child(even) { background: #182133; }
+  .aux-bit-table tr:nth-child(odd) { background: var(--card); }
+  .aux-bit-range { color: var(--accent); font-family: monospace; font-weight: 600; white-space: nowrap; }
+  .aux-bit-name { color: var(--text); font-weight: 600; }
+  .aux-bit-val { font-family: monospace; font-weight: 700; }
+  .aux-bit-val.bit-active { color: #4ade80; background: rgba(34,197,94,0.12); border-radius: 4px; padding: 1px 4px; }
+  .aux-bit-val.bit-zero { color: #555; opacity: 0.7; }
+  .aux-bit-desc { color: var(--text-sub); font-size: 11px; margin-top: 2px; }
+  .aux-rw-badge {
+    display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px;
+    border-radius: 4px; vertical-align: middle; margin-left: 6px;
+  }
+  .aux-rw-ro { background: #374151; color: #9ca3af; }
+  .aux-rw-rw { background: #065f46; color: #6ee7b7; }
+  .aux-rw-wo { background: #7c2d12; color: #fdba74; }
+  .aux-rw-w1c { background: #4c1d95; color: #c4b5fd; }
+  .aux-desc-block {
+    background: #0f172a; border-radius: 8px; padding: 10px 12px; margin: 8px 0;
+    font-size: 13px; line-height: 1.6; color: var(--text); border: 1px solid var(--border);
+  }
+  .aux-desc-title {
+    font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .aux-link-btn {
+    color: var(--accent); background: none; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 600; text-decoration: underline; padding: 0;
+  }
+  .aux-link-btn:active { opacity: 0.7; }
+  .aux-not-found { text-align: center; padding: 16px; color: var(--text-sub); font-size: 13px; }
+  .aux-val-warn {
+    background: rgba(239,68,68,0.10); border: 1.5px solid #ef4444; border-radius: 8px;
+    padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #ef4444; font-weight: 600;
+  }
+  .aux-anomaly { color: #ef4444; font-weight: 600; }
+  .aux-combo-back {
+    display: inline-block; margin-left: 6px; padding: 6px 10px; border: 1.5px solid var(--border);
+    border-radius: 8px; background: transparent; color: var(--accent); font-size: 12px;
+    font-weight: 600; cursor: pointer; vertical-align: middle; white-space: nowrap;
+  }
+  .aux-combo-back:active { opacity: 0.7; }
+  .aux-reply-hint {
+    border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px; font-weight: 600; line-height: 1.6;
+  }
+  .aux-reply-hint.hint-red {
+    background: rgba(239,68,68,0.10); border: 1.5px solid #ef4444; color: #ef4444;
+  }
+  .aux-reply-hint.hint-orange {
+    background: rgba(251,146,60,0.10); border: 1.5px solid #fb923c; color: #fb923c;
+  }
+  .aux-reply-hint.hint-info {
+    background: rgba(56,189,248,0.08); border: 1.5px solid #38bdf8; color: #7dd3fc;
+  }
+  .aux-summary-block {
+    background: linear-gradient(135deg, #0c2d1f 0%, #0f1f2e 100%);
+    border: 1.5px solid #065f46; border-radius: 10px; padding: 12px 14px; margin-top: 12px;
+  }
+  .aux-summary-title {
+    font-size: 11px; font-weight: 700; color: #34d399; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .aux-summary-text { font-size: 13px; line-height: 1.7; color: var(--text); }
+  .aux-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+  /* ─── DPCD 反向搜尋 ─── */
+  .aux-dpcd-search-input {
+    width: 100%; box-sizing: border-box; padding: 10px 12px;
+    border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px;
+    color: var(--text); background: #0f172a; outline: none;
+  }
+  .aux-dpcd-search-input:focus { border-color: var(--primary); }
+  .aux-dpcd-search-results { margin-top: 8px; }
+  .aux-dpcd-search-item {
+    padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: #0f172a; margin-bottom: 6px;
+  }
+  .aux-dpcd-search-item:last-child { margin-bottom: 0; }
+  .aux-search-addr {
+    color: var(--primary); text-decoration: underline; cursor: pointer;
+    font-weight: 700; font-size: 13px; font-family: monospace;
+  }
+  .aux-search-match { font-size: 11px; color: var(--text-sub); margin-top: 3px; }
+  .aux-search-highlight { background: rgba(37,99,235,0.28); color: #e2e8f0; border-radius: 2px; padding: 0 1px; }
+  .aux-search-more { font-size: 12px; color: var(--text-sub); text-align: center; padding: 6px 0; border-top: 1px solid var(--border); margin-top: 6px; }
+  .aux-search-pagination { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 0 2px; border-top: 1px solid var(--border); margin-top: 6px; }
+  .aux-search-pg-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 3px 9px; font-size: 14px; cursor: pointer; transition: background 0.15s, color 0.15s; min-width: 30px; text-align: center; line-height: 1.4; }
+  .aux-search-pg-btn:hover:not([disabled]) { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .aux-search-pg-btn[disabled] { opacity: 0.3; cursor: default; }
+  .aux-search-pg-info { font-size: 13px; color: var(--text); padding: 0 8px; min-width: 54px; text-align: center; font-variant-numeric: tabular-nums; }
+  /* ─── AUX Decode structural input ─── */
+  .aux-struct-section {
+    font-size: 14px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .aux-struct-grid {
+    display: grid; grid-template-columns: 100px 1fr; gap: 8px 10px; align-items: center;
+    margin-bottom: 12px;
+  }
+  .aux-struct-label {
+    font-size: 12px; font-weight: 600; color: var(--text-sub); text-align: right; white-space: nowrap;
+  }
+  .aux-struct-select {
+    width: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 13px; color: var(--text); background: #0f172a; font-family: monospace;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+  }
+  .aux-struct-input {
+    width: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 14px; color: var(--text); background: #0f172a; font-family: monospace;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .aux-struct-input::placeholder { text-transform: none; letter-spacing: normal; }
+  .aux-hex-box-wrap {
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  }
+  .aux-hex-box {
+    width: 38px; padding: 7px 4px; border: 1.5px solid var(--border); border-radius: 6px;
+    font-size: 14px; color: var(--text); background: #0f172a; font-family: monospace;
+    text-align: center; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .aux-hex-box:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px rgba(56,189,248,0.2); }
+  .aux-hex-box-label {
+    font-size: 9px; color: var(--text-sub); text-align: center; margin-top: 1px;
+    font-family: monospace;
+  }
+  .aux-hex-box-group { display: flex; flex-direction: column; align-items: center; }
+  .aux-raw-preview {
+    font-family: monospace; font-size: 14px; font-weight: 700; letter-spacing: 2px;
+    padding: 8px 12px; background: #0f172a; border: 1.5px dashed var(--border);
+    border-radius: 8px; word-break: break-all; min-height: 20px;
+  }
+  .aux-struct-hint {
+    font-size: 11px; color: var(--text-sub); margin-top: 2px; grid-column: 2;
+  }
+  .aux-len-display {
+    display: inline-block; font-size: 11px; color: #10b981; font-weight: 600;
+    margin-left: 8px; vertical-align: middle;
+  }
+  @media (max-width: 480px) {
+    .aux-struct-grid { grid-template-columns: 80px 1fr; gap: 6px 8px; }
+    .aux-struct-label { font-size: 11px; }
+    .aux-hex-box { width: 34px; padding: 6px 3px; font-size: 13px; }
+    .aux-struct-select, .aux-struct-input { font-size: 12px; padding: 7px 8px; }
+  }
+  @media (max-width: 480px) {
+    .aux-bit-table { font-size: 11px; }
+    .aux-bit-table th, .aux-bit-table td { padding: 5px 4px; }
+    .aux-bit-desc { font-size: 10px; }
+  }
+  /* ─── Shared waveform styles (from iSP, used by AUX Manchester wave) ─── */
+  .isp-slider-row { display: flex; align-items: center; gap: 6px; }
+  .isp-slider-btn {
+    flex: 0 0 32px; width: 32px; height: 32px;
+    border: 1.5px solid var(--border); border-radius: 6px;
+    background: #1e293b; color: #a78bfa;
+    font-size: 18px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+    transition: background 0.1s;
+  }
+  .isp-slider-btn:active { background: #334155; }
+  @media (hover:hover) { .isp-slider-btn:hover { background: #334155; } }
+  .isp-slider-row input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 28px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+  }
+  .isp-slider-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 5px;
+    background: #334155;
+    border-radius: 3px;
+  }
+  .isp-slider-row input[type="range"]::-moz-range-track {
+    height: 5px;
+    background: #334155;
+    border-radius: 3px;
+  }
+  .isp-slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #a78bfa;
+    border: 2px solid #1e1b4b;
+    margin-top: -7px;
+    cursor: pointer;
+  }
+  .isp-slider-row input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #a78bfa;
+    border: 2px solid #1e1b4b;
+    cursor: pointer;
+  }
+  .isp-slider-row .isp-num {
+    flex: 0 0 80px;
+    width: 80px;
+    padding: 6px 8px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    background: #0f172a;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    -moz-appearance: textfield;
+  }
+  .isp-slider-row .isp-num::-webkit-outer-spin-button,
+  .isp-slider-row .isp-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .isp-wave-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .isp-wave-ctrl label {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin: 0;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .isp-btn-sm {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #0f172a;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .isp-btn-sm:active { background: #1e293b; }
+  .isp-btn-sm.is-primary {
+    background: #4c1d95;
+    border-color: #7c3aed;
+    color: #ddd6fe;
+  }
+  /* Waveform 容器（橫向 scroll + 雙指縮放） */
+  .isp-wave-box {
+    background: #000000;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* 所有觸控手勢由 JS 處理（單指 pan + 雙指 pinch + 慣性） */
+    touch-action: none;
+    position: relative;
+    contain: layout style;
+    will-change: scroll-position;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .isp-wave-svg {
+    display: block;
+    height: 160px;
+    min-width: 100%;
+    will-change: transform;
+    transform: translateZ(0);
+  }
+  .isp-wave-hint {
+    font-size: 10px;
+    color: #64748b;
+    text-align: center;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  /* Overview / Minimap 縮圖視窗 */
+  .isp-minimap-wrap {
+    margin-top: 6px;
+  }
+  .isp-minimap-label {
+    font-size: 9px;
+    color: #64748b;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+  }
+  .isp-minimap-box {
+    position: relative;
+    width: 100%;
+    height: 44px;
+    background: #000;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .isp-minimap-box svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .isp-minimap-viewport {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border: 2px solid #a78bfa;
+    background: rgba(167, 139, 250, 0.18);
+    pointer-events: none;
+    box-sizing: border-box;
+    min-width: 6px;
+  }
+  /* 全螢幕內部 SVG（H-only 縮放，V 高度由 JS 動態設定） */
+  .isp-fs-svg {
+    display: block;
+    flex: 0 0 auto;
+  }
+  /* 2-pair dual waveform */
+  .isp-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 10px;
+    color: var(--text-sub);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .isp-legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 3px;
+    vertical-align: middle;
+  }
+
+  /* ─── Hex Drum Picker (iOS-style scroll wheel) ─── */
+  .hex-picker-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  /* 圓角統一在外層 wrapper 處理，避免個別 drum overflow:hidden + border-radius 的 iOS Safari GPU bug */
+  .hex-drum-wrapper {
+    display: flex;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .hex-picker-group .hex-prefix {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 16px;
+    color: #94a3b8;
+    margin-right: 6px;
+    font-weight: 700;
+  }
+  .hex-drum {
+    position: relative;
+    width: 38px;
+    height: 140px;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    overscroll-behavior: none;
+    border: 1.5px solid var(--border);
+    background: #0f172a;
+    /* 圓角已移到外層 .hex-drum-wrapper，個別 drum 不設 border-radius，
+       避免 iOS Safari overflow:hidden + border-radius + GPU compositing 的已知 bug */
+  }
+  .hex-drum:not(:last-of-type) { border-right: none; }
+  .hex-drum:active { cursor: grabbing; }
+  .hex-drum-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 1;
+    will-change: transform;
+  }
+  .hex-drum-track.snapping {
+    transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .hex-drum-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-sub);
+    pointer-events: none;
+  }
+  /* 固定位置高亮框：絕對定位在滾筒垂直中間，不隨 track 滾動 */
+  .hex-drum-highlight {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 28px;
+    top: 50%;
+    margin-top: -14px; /* -CELL_H/2，避免使用 transform 以防 iOS Safari GPU bug */
+    border: 2px solid var(--accent);
+    border-radius: 5px;
+    background: rgba(56, 189, 248, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.3);
+    pointer-events: none;
+    z-index: 2;
+  }
+  /* 上下漸層遮罩 */
+  .hex-drum-fade-top,
+  .hex-drum-fade-bottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 42px;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .hex-drum-fade-top {
+    top: 0;
+    background: linear-gradient(to bottom, #0f172a 0%, rgba(15,23,42,0) 100%);
+  }
+  .hex-drum-fade-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, #0f172a 0%, rgba(15,23,42,0) 100%);
+  }
+</style>
+</head>
+<body>
+
+<div id="page-aux">
+  <div class="header">
+    <div class="back-row">
+      <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
+    </div>
+    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.5.0</span></h1>
+    <p data-i18n="aux.subtitle">AUX 解碼 &amp; DPCD 暫存器查詢</p>
+    <div class="lang-switcher">
+      <select id="lang-select" class="lang-select" aria-label="Language">
+        <option value="zh-TW">繁體中文</option>
+        <option value="zh-CN">简体中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+  </div>
+  <div class="container">
+    <!-- Tab 切換 -->
+    <div class="aux-tab-bar">
+      <button class="aux-tab" data-tab="decode" onclick="auxSwitchTab('decode')" data-i18n="aux.tabDecode">AUX 解碼</button>
+      <button class="aux-tab" data-tab="dpcd" onclick="auxSwitchTab('dpcd')" data-i18n="aux.tabDpcd">DPCD 查詢</button>
+    </div>
+
+    <!-- ─── Tab 1: AUX 解碼 ─── -->
+    <div id="aux-tab-decode" class="aux-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="icon">📡</span> <span data-i18n="aux.decodeInputTitle">AUX Transaction 解碼</span></div>
+        <div class="card-body">
+          <!-- ── AUX Request 結構化輸入 ── -->
+          <div class="aux-struct-section" style="color:var(--accent)">📤 AUX Request</div>
+          <div class="aux-struct-grid">
+            <span class="aux-struct-label">Command</span>
+            <select id="aux-req-cmd" class="aux-struct-select" onchange="auxOnReqChange()">
+              <option value="9" data-i18n="aux.cmd9">9 — DPCD 讀取 (Native Read)</option>
+              <option value="8" data-i18n="aux.cmd8">8 — DPCD 寫入 (Native Write)</option>
+              <option value="0">0 — I2C Write (MOT=0)</option>
+              <option value="1">1 — I2C Read (MOT=0)</option>
+              <option value="4">4 — I2C Write (MOT=1)</option>
+              <option value="5">5 — I2C Read (MOT=1)</option>
+              <option value="2">2 — I2C Write Status (MOT=0)</option>
+              <option value="6">6 — I2C Write Status (MOT=1)</option>
+            </select>
+
+            <span class="aux-struct-label">Address</span>
+            <div>
+              <div id="aux-decode-addr-wheels" class="hex-picker-group">
+                <span class="hex-prefix" style="font-size:14px;">0x</span>
+                <div class="hex-drum-wrapper">
+                <div class="hex-drum" data-drum-id="aux-decode-addr-d4"></div>
+                <div class="hex-drum" data-drum-id="aux-decode-addr-d3"></div>
+                <div class="hex-drum" data-drum-id="aux-decode-addr-d2"></div>
+                <div class="hex-drum" data-drum-id="aux-decode-addr-d1"></div>
+                <div class="hex-drum" data-drum-id="aux-decode-addr-d0"></div>
+                </div>
+                <input type="hidden" id="aux-decode-addr-d4" value="0">
+                <input type="hidden" id="aux-decode-addr-d3" value="0">
+                <input type="hidden" id="aux-decode-addr-d2" value="0">
+                <input type="hidden" id="aux-decode-addr-d1" value="0">
+                <input type="hidden" id="aux-decode-addr-d0" value="0">
+              </div>
+              <div class="aux-struct-hint" data-i18n="aux.addrHint">20-bit 位址（5 位 hex），轉動滾輪選擇</div>
+            </div>
+
+            <span class="aux-struct-label">Length</span>
+            <div>
+              <select id="aux-req-len" class="aux-struct-select" onchange="auxOnReqChange()" style="max-width:200px"></select>
+              <div class="aux-struct-hint" data-i18n="aux.lenHint">資料長度欄位（實際 byte 數 = Length + 1）</div>
+            </div>
+
+            <span class="aux-struct-label" id="aux-req-data-label" style="display:none">Data</span>
+            <div id="aux-req-data-wrap" style="display:none">
+              <div id="aux-req-data-fields" class="aux-hex-box-wrap"></div>
+              <div class="aux-struct-hint" data-i18n="aux.writeDataHint">Write 資料（hex），每格 1 byte</div>
+            </div>
+          </div>
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-sub);margin-bottom:4px" data-i18n="aux.reqPreview">組合封包預覽</div>
+            <div id="aux-req-raw" class="aux-raw-preview" style="color:var(--accent)">--</div>
+          </div>
+
+          <div style="border-top:1.5px solid var(--border);margin:16px 0"></div>
+
+          <!-- ── AUX Reply 結構化輸入 ── -->
+          <div class="aux-struct-section" style="color:#10b981" data-i18n="aux.repSection">📥 AUX Reply（選填）</div>
+          <div class="aux-struct-grid">
+            <span class="aux-struct-label">Reply Status</span>
+            <div>
+              <select id="aux-rep-status-select" class="aux-struct-select" onchange="auxOnRepStatusSelect()"></select>
+              <span id="aux-rep-status-custom-wrap" style="display:none"><input type="text" id="aux-rep-status-input" class="aux-struct-input" maxlength="2" placeholder="hex" autocomplete="off" spellcheck="false" style="max-width:100px;vertical-align:middle" oninput="auxOnRepChange()"><button class="aux-combo-back" onclick="auxRepStatusBackToSelect()" data-i18n="aux.backToList">↩ 選單</button></span>
+              <div class="aux-struct-hint" data-i18n="aux.repStatusHint">選擇已知回覆狀態，或自訂輸入任意 hex byte</div>
+            </div>
+
+            <span class="aux-struct-label" id="aux-rep-data-label" style="display:none">Reply Data</span>
+            <div id="aux-rep-data-wrap" style="display:none">
+              <div id="aux-rep-data-fields" class="aux-hex-box-wrap"></div>
+              <div class="aux-struct-hint" data-i18n="aux.readDataHint">Read 回傳資料（hex），每格 1 byte</div>
+            </div>
+          </div>
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-sub);margin-bottom:4px" data-i18n="aux.repPreview">Reply 封包預覽</div>
+            <div id="aux-rep-raw" class="aux-raw-preview" style="color:#10b981">--</div>
+          </div>
+
+          <!-- ── Preamble 設定 ── -->
+          <div style="border-top:1.5px solid var(--border);margin:12px 0"></div>
+          <div class="aux-struct-section" style="color:#a78bfa" data-i18n="aux.preambleSection">⚙️ Preamble 設定</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:12px;">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:4px;" data-i18n="aux.sysPreamble">系統 Preamble</div>
+              <div class="aux-slider-row isp-slider-row" data-aux-preamble="sys">
+                <input type="range" id="aux-sys-preamble-slider" min="0" max="64" value="32" step="1">
+                <input type="number" id="aux-sys-preamble" class="isp-num" min="0" max="64" value="32">
+                <span style="font-size:12px;color:#94a3b8;white-space:nowrap">zeros</span>
+              </div>
+              <div class="aux-struct-hint" data-i18n="aux.sysPreambleHint">系統（Source）發送的 Preamble pulse 總數</div>
+              <div id="aux-sys-compliance" style="margin-top:6px;font-size:12px;line-height:1.8;word-break:break-word;overflow-wrap:break-word;min-width:0"></div>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:4px;" data-i18n="aux.sinkPreamble">TCON Reply</div>
+              <div class="aux-slider-row isp-slider-row" data-aux-preamble="rep">
+                <input type="range" id="aux-rep-preamble-slider" min="0" max="64" value="32" step="1">
+                <input type="number" id="aux-rep-preamble" class="isp-num" min="0" max="64" value="32">
+                <span style="font-size:12px;color:#94a3b8;white-space:nowrap">zeros</span>
+              </div>
+              <div class="aux-struct-hint" data-i18n="aux.sinkPreambleHint">TCON（Sink）回覆的 Preamble pulse 總數</div>
+              <div id="aux-rep-compliance" style="margin-top:6px;font-size:12px;line-height:1.8;word-break:break-word;overflow-wrap:break-word;min-width:0"></div>
+            </div>
+          </div>
+          <div class="calc-btn-wrap">
+            <button class="calc-btn" onclick="auxDecodeAll()" data-i18n="aux.decodeBtn">▶ 解碼</button>
+          </div>
+        </div>
+      </div>
+      <div id="aux-decode-result" class="card">
+        <div class="card-header" id="aux-decode-result-header" style="background:#065f46;opacity:0.55"><span class="icon">📊</span> <span data-i18n="aux.decodeResultTitle">解碼結果</span><span id="aux-decode-result-hint" style="font-size:10px;font-weight:400;opacity:0.8;margin-left:8px">（解碼後顯示）</span></div>
+        <div class="card-body" id="aux-decode-result-body" style="display:none"></div>
+      </div>
+
+      <!-- ── AUX 波形卡片 ── -->
+      <div id="aux-wave-card" class="card">
+        <div class="card-header" id="aux-wave-card-header" style="background:#4c1d95;opacity:0.55"><span class="icon">📟</span> <span data-i18n="aux.waveTitle">AUX 波形（Manchester II）</span><span id="aux-wave-card-hint" style="font-size:10px;font-weight:400;opacity:0.8;margin-left:8px">（解碼後顯示）</span></div>
+        <div class="card-body" id="aux-wave-body" style="display:none">
+          <div class="isp-wave-info" id="aux-wave-info" style="margin-bottom:6px;font-size:11px;color:#94a3b8;"></div>
+          <div id="aux-wave-preamble-warn" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;line-height:1.6"></div>
+
+          <div class="isp-wave-ctrl">
+            <label>H-Zoom</label>
+            <button class="isp-btn-sm" onclick="auxWaveZoomH(-1)">−</button>
+            <span id="aux-wave-zoom-val" style="font-size:11px;color:#a78bfa;min-width:36px;text-align:center;">1.0×</span>
+            <button class="isp-btn-sm" onclick="auxWaveZoomH(1)">+</button>
+            <button class="isp-btn-sm" onclick="auxWaveZoomReset()">Fit</button>
+            <button class="isp-btn-sm is-primary" onclick="auxWaveOpenLightbox()" data-i18n="aux.fullscreen">全螢幕</button>
+          </div>
+
+          <div id="aux-wave-container">
+            <div class="isp-wave-box" id="aux-wave-box">
+              <svg class="isp-wave-svg" id="aux-wave-svg" xmlns="http://www.w3.org/2000/svg" style="height:120px;"></svg>
+            </div>
+          </div>
+
+          <div class="isp-minimap-wrap">
+            <div class="isp-minimap-label" data-i18n="aux.overviewClick">Overview · 點擊跳轉</div>
+            <div class="isp-minimap-box" id="aux-wave-minimap-box">
+              <svg id="aux-wave-minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+              <div class="isp-minimap-viewport" id="aux-wave-minimap-vp"></div>
+            </div>
+          </div>
+
+          <div class="isp-wave-hint" data-i18n="aux.waveHint">Manchester II 編碼：bit 1 = H→L 跳變（中間點），bit 0 = L→H 跳變（中間點）· 1 bit = 1μs · Preamble = Pre-charge + SYNC zeros（規範值依 eDP 版本不同）</div>
+
+          <div class="isp-legend" id="aux-wave-legend">
+            <span><span class="isp-legend-dot" style="background:#7c3aed"></span>Pre-charge</span>
+            <span><span class="isp-legend-dot" style="background:#8b5cf6"></span>SYNC</span>
+            <span><span class="isp-legend-dot" style="background:#3b82f6"></span>Start</span>
+            <span><span class="isp-legend-dot" style="background:#f97316"></span>Command</span>
+            <span><span class="isp-legend-dot" style="background:#10b981"></span>Address</span>
+            <span><span class="isp-legend-dot" style="background:#eab308"></span>Length</span>
+            <span><span class="isp-legend-dot" style="background:#06b6d4"></span>Data</span>
+            <span><span class="isp-legend-dot" style="background:#3b82f6"></span>Stop</span>
+            <span><span class="isp-legend-dot" style="background:#374151"></span>Idle</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Tab 2: DPCD 查詢 ─── -->
+    <div id="aux-tab-dpcd" class="aux-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="icon">📋</span> <span data-i18n="aux.dpcdInputTitle">DPCD 地址查詢</span></div>
+        <div class="card-body">
+          <div class="field">
+            <label data-i18n="aux.dpcdAddrLabel">DPCD 地址 (HEX)<span class="required">*</span></label>
+            <div id="aux-dpcd-addr-wheels" class="hex-picker-group">
+              <span class="hex-prefix">0x</span>
+              <div class="hex-drum-wrapper">
+              <div class="hex-drum" data-drum-id="aux-addr-d4"></div>
+              <div class="hex-drum" data-drum-id="aux-addr-d3"></div>
+              <div class="hex-drum" data-drum-id="aux-addr-d2"></div>
+              <div class="hex-drum" data-drum-id="aux-addr-d1"></div>
+              <div class="hex-drum" data-drum-id="aux-addr-d0"></div>
+              </div>
+              <input type="hidden" id="aux-addr-d4" value="0">
+              <input type="hidden" id="aux-addr-d3" value="0">
+              <input type="hidden" id="aux-addr-d2" value="0">
+              <input type="hidden" id="aux-addr-d1" value="0">
+              <input type="hidden" id="aux-addr-d0" value="0">
+            </div>
+            <div class="field-hint" data-i18n="aux.dpcdAddrHint">轉動滾輪選擇 5 位 hex 地址，停下 1 秒自動查詢</div>
+          </div>
+          <div class="field">
+            <label data-i18n="aux.dpcdValLabel">暫存器值 (HEX)（選填）</label>
+            <div id="aux-val-combo">
+              <select id="aux-dpcd-val-select" style="display:none;width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;color:var(--text);background:#0f172a;appearance:none;-webkit-appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;"></select>
+              <span id="aux-dpcd-val-custom-wrap" style="display:none"><input type="text" id="aux-dpcd-val" data-i18n-ph="aux.dpcdValPh" placeholder="輸入 hex 值" maxlength="2" autocomplete="off" spellcheck="false" style="width:calc(100% - 90px);padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;color:var(--text);background:#0f172a;font-family:monospace;vertical-align:middle"><button class="aux-combo-back" onclick="auxDpcdValBackToSelect()" data-i18n="aux.backToList">↩ 選單</button></span>
+            </div>
+            <div class="field-hint" data-i18n="aux.dpcdValHint">有合法值清單的地址會顯示下拉選單，也可選「自訂輸入」手動填寫</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="icon">🔍</span> <span data-i18n="aux.dpcdSearchTitle">DPCD 反向搜尋</span></div>
+        <div class="card-body">
+          <input type="text" id="aux-dpcd-search-input" class="aux-dpcd-search-input" data-i18n-ph="aux.dpcdSearchPh" placeholder="搜尋 DPCD（如 LANE_COUNT、頻寬、HBR...）" autocomplete="off" spellcheck="false">
+          <div class="field-hint" data-i18n="aux.dpcdSearchHint">搜尋暫存器名稱、說明或值標籤，點擊結果地址自動查詢</div>
+          <div id="aux-dpcd-search-results" class="aux-dpcd-search-results" style="display:none"></div>
+        </div>
+      </div>
+      <div id="aux-dpcd-result" class="card" style="display:none">
+        <div class="card-header" style="background:#065f46"><span class="icon">📖</span> <span id="aux-dpcd-result-title">查詢結果</span></div>
+        <div class="card-body" id="aux-dpcd-result-body"></div>
+      </div>
+    </div>
+    <div style="height:16px"></div>
+    <div class="footer-nav">
+      <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
+    </div>
+  </div>
+</div><!-- /page-aux -->
+
+<script src="common/i18n.js"></script>
+<script src="common/common.js"></script>
+<script src="data/dpcd-db.js"></script>
+<script>
+// ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
+(function(){
+// ─── AUX Command 定義 ───
+const AUX_REQ_CMD = {
+  0x8: { name: "Native AUX Write", nameZh: "DPCD 寫入", isNative: true },
+  0x9: { name: "Native AUX Read", nameZh: "DPCD 讀取", isNative: true },
+  0x4: { name: "I2C Write (MOT=1)", nameZh: "I2C 寫入（MOT=1，交易繼續）", isNative: false },
+  0x0: { name: "I2C Write (MOT=0)", nameZh: "I2C 寫入（MOT=0，交易結束）", isNative: false },
+  0x5: { name: "I2C Read (MOT=1)", nameZh: "I2C 讀取（MOT=1，交易繼續）", isNative: false },
+  0x1: { name: "I2C Read (MOT=0)", nameZh: "I2C 讀取（MOT=0，交易結束）", isNative: false },
+  0x6: { name: "I2C Write Status (MOT=1)", nameZh: "I2C 寫入狀態查詢（MOT=1）", isNative: false },
+  0x2: { name: "I2C Write Status (MOT=0)", nameZh: "I2C 寫入狀態查詢（MOT=0）", isNative: false }
+};
+const AUX_REP_NATIVE = { 0:"AUX ACK", 1:"AUX NACK", 2:"AUX DEFER" };
+const AUX_REP_I2C = { 0:"I2C ACK", 1:"I2C NACK", 2:"I2C DEFER" };
+const I2C_KNOWN_ADDR = {
+  0x50: "EDID (DDC)", 0x52: "eDP DPCD via I2C", 0x37: "DDC/CI", 0x30: "E-DDC Segment Pointer"
+};
+
+// ─── Tab 切換 ───
+window.auxSwitchTab = function(tab) {
+  var tabHint = document.getElementById('ss-tab-hint-aux');
+  if (tabHint) tabHint.remove();
+  document.querySelectorAll('#page-aux .aux-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('aux-tab-dpcd').style.display = tab === 'dpcd' ? 'block' : 'none';
+  document.getElementById('aux-tab-decode').style.display = tab === 'decode' ? 'block' : 'none';
+  // 記住目前 tab，重整後還原
+  try { sessionStorage.setItem('aux_active_tab', tab); } catch(e) {}
+};
+
+// ─── 繁→簡字元轉換（DPCD DB 內容用）───
+function toSimplified(s) {
+  if (!s) return s;
+  var m = {
+    '電':'电','頻':'频','帶':'带','寬':'宽','號':'号','個':'个','層':'层',
+    '圖':'图','點':'点','對':'对','為':'为','與':'与','關':'关','開':'开',
+    '數':'数','據':'据','讀':'读','寫':'写','選':'选','擇':'择','設':'设',
+    '顯':'显','響':'响','調':'调','測':'测','試':'试','標':'标','識':'识',
+    '監':'监','編':'编','碼':'码','組':'组','類':'类','轉':'转','認':'认',
+    '訓':'训','練':'练','預':'预','觸':'触','發':'发','現':'现','復':'复',
+    '補':'补','斷':'断','變':'变','統':'统','構':'构','機':'机','際':'际',
+    '強':'强','壓':'压','縮':'缩','驗':'验','證':'证','報':'报','詢':'询',
+    '資':'资','訊':'讯','態':'态','載':'载','級':'级','優':'优','製':'制',
+    '錄':'录','備':'备','應':'应','實':'实','過':'过','動':'动','說':'说',
+    '時':'时','項':'项','啟':'启','後':'后','總':'总','錯':'错','誤':'误',
+    '務':'务','參':'参','終':'终','約':'约','廣':'广','來':'来','負':'负',
+    '雙':'双','邊':'边','暫':'暂','範':'范','圍':'围','視':'视','間':'间',
+    '場':'场','減':'减','傳':'传','輸':'输','連':'连','結':'结','節':'节',
+    '線':'线','鏈':'链','鍵':'键','頁':'页','問':'问','達':'达','長':'长',
+    '觀':'观','聽':'听','聲':'声','業':'业','樣':'样','狀':'状','費':'费',
+    '運':'运','產':'产','處':'处','稱':'称','論':'论','閾':'阈','進':'进',
+    '遠':'远','題':'题','條':'条','舊':'旧','講':'讲','話':'话','請':'请',
+    '聯':'联','遞':'递','義':'义','隊':'队','換':'换','鎖':'锁','頂':'顶',
+    '記':'记','亂':'乱','確':'确','擁':'拥','廠':'厂','國':'国','體':'体',
+    '語':'语','閒':'闲','勞':'劳','兩':'两','許':'许','豐':'丰','準':'准',
+    '雜':'杂','橋':'桥','單':'单','網':'网','給':'给','頭':'头','從':'从',
+    '熱':'热','邏':'逻','輯':'辑','協':'协','議':'议','齊':'齐','況':'况',
+    '複':'复','無':'无','鬆':'松','縫':'缝','簡':'简','隨':'随','衝':'冲',
+    '棄':'弃','獲':'获','繼':'继','續':'续','舉':'举','閃':'闪','閉':'闭',
+    '億':'亿','萬':'万','稱':'称','鎖':'锁','幀':'帧','製':'制','優':'优',
+  };
+  return s.split('').map(function(c){ return m[c] || c; }).join('');
+}
+// 依語言取 DB 的中文名稱欄（en 模式隱藏，zh-CN 轉簡體）
+function _dbC(s) {
+  if (!s) return '';
+  var lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
+  if (lang === 'en') return '';
+  if (lang === 'zh-CN') return toSimplified(s);
+  return s;
+}
+// 依語言取 DB 的中文說明欄（zh-CN 轉簡體，en 保留原文）
+function _dbD(s) {
+  if (!s) return '';
+  var lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
+  if (lang === 'zh-CN') return toSimplified(s);
+  return s;
+}
+function dpcdIsMostlyEnglish(s) {
+  s = String(s || '');
+  var letters = (s.match(/[A-Za-z]/g) || []).length;
+  var zh = (s.match(/[\u4e00-\u9fff]/g) || []).length;
+  return letters > 24 && letters > zh * 3;
+}
+function dpcdAutoZhText(s) {
+  if (!s) return '';
+  var out = String(s)
+    .replace(/\r/g, '\n')
+    .replace(/Supplemental DPCD definition imported from Excel reference tables\./g, '此 DPCD 位址由 Excel 參考表補入。')
+    .replace(/Excel source:[^\n]*/g, '')
+    .replace(/Remark:/g, '備註：')
+    .replace(/New to /g, '新增於 ')
+    .replace(/Not supported/g, '不支援')
+    .replace(/not supported/g, '不支援')
+    .replace(/Supported/g, '支援')
+    .replace(/supported/g, '支援')
+    .replace(/Default/g, '預設')
+    .replace(/Reserved/g, '保留')
+    .replace(/Read all 0s/g, '讀值皆為 0')
+    .replace(/This definition comes from the Excel DPCD reference and replaces the old placeholder reserved entry\./g, '此定義來自 Excel DPCD 參考表，已取代原本的保留占位項。')
+    .replace(/Reports whether the receiver supports Advanced Link Power Management \(ALPM\)\./g, '回報 receiver 是否支援 Advanced Link Power Management (ALPM)。')
+    .replace(/Reports whether AUX_FRAME_SYNC is supported\./g, '回報是否支援 AUX_FRAME_SYNC。')
+    .replace(/Maximum reduction in vertical blanking \(in units of number of lines\)/g, 'vertical blanking 可減少的最大值，單位為 lines。')
+    .replace(/Sets the grid pattern granularity in the X direction\./g, '設定 X 方向 grid pattern granularity。')
+    .replace(/Sets the grid pattern granularity in the Y direction\./g, '設定 Y 方向 grid pattern granularity。')
+    .replace(/One-line address and height granularity/g, 'address 與 height 以 1 line 為 granularity')
+    .replace(/Two-line address and height granularity/g, 'address 與 height 以 2 lines 為 granularity')
+    .replace(/Four-line address and height granularity/g, 'address 與 height 以 4 lines 為 granularity')
+    .replace(/Eight-line address and height granularity/g, 'address 與 height 以 8 lines 為 granularity')
+    .replace(/16-line address and height granularity/g, 'address 與 height 以 16 lines 為 granularity')
+    .replace(/This 16-byte area contains eight 16-bit supported per-lane link-rate entries\./g, '這個 16-byte 區域包含八組 16-bit per-lane link-rate entries。')
+    .replace(/Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address\./g, '每組 entry 以 little-endian 儲存：low byte 在較低 DPCD 位址，high byte 在下一個位址。')
+    .replace(/The link rate is entry_value x 200 kHz\./g, 'link rate = entry_value x 200 kHz。')
+    .replace(/Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero\./g, '有效 entries 必須唯一，並依位址由低到高排序，第一組 entry 不可為 0。')
+    .replace(/0000h means this entry and higher entries are invalid\./g, '0000h 表示此 entry 與後續更高 entries 無效。')
+    .replace(/Standard examples:/g, '標準範例：')
+    .replace(/Entry (\d+) low byte\./g, 'Entry $1 low byte。')
+    .replace(/Entry (\d+) high byte\./g, 'Entry $1 high byte。')
+    .replace(/Combine with DPCD ([0-9A-F]{5})h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate\./g, '與 DPCD $1h 組成 little-endian 16-bit value，再乘以 200 kHz 得到支援的 per-lane link rate。')
+    .replace(/Combine with ([0-9A-F]{5})h as little-endian 16-bit value; link rate = value x 200 kHz\./g, '與 $1h 組成 little-endian 16-bit value；link rate = value x 200 kHz。')
+    .replace(/0000h marks this and higher entries invalid\./g, '0000h 表示此 entry 與後續更高 entries 無效。')
+    .replace(/value/g, 'value')
+    .replace(/byte/g, 'byte')
+    .replace(/bytes/g, 'bytes')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return out || s;
+}
+function dpcdLocalizedText(owner, primary, english) {
+  if (!owner) return '';
+  var lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
+  if (lang === 'en') return english || owner.e || owner.de || primary || '';
+  var zh = owner.zh || owner.tw || primary || '';
+  if (!zh && english) zh = dpcdAutoZhText(english);
+  else if (dpcdIsMostlyEnglish(zh)) zh = dpcdAutoZhText(zh);
+  if (lang === 'zh-CN') return owner.ds || owner.cn || toSimplified(zh);
+  return zh;
+}
+// 依語言取 entry 的描述（en 優先 entry.e，zh-CN 轉簡體）
+function _dbDesc(entry) {
+  if (!entry) return '';
+  return dpcdLocalizedText(entry, entry.d || '', entry.e || entry.d || '');
+}
+// 依語言取 bit field 的描述（en 優先 b.de，zh-CN 轉簡體）
+function _dbBitDesc(b) {
+  if (!b) return '';
+  var desc = b.d || b.desc || '';
+  return dpcdLocalizedText(b, desc, b.de || desc);
+}
+
+// ─── AUX/DPCD UI 字串翻譯 helper ───
+function _tAux(key, vars) {
+  var lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
+  var d = {
+    'queryResult':     { 'zh-TW': '查詢結果',          'zh-CN': '查询结果',          'en': 'Query Result' },
+    'addr':            { 'zh-TW': '位址',              'zh-CN': '地址',              'en': 'Address' },
+    'name':            { 'zh-TW': '名稱',              'zh-CN': '名称',              'en': 'Name' },
+    'descTitle':       { 'zh-TW': '📝 說明',           'zh-CN': '📝 说明',           'en': '📝 Description' },
+    'inputVal':        { 'zh-TW': '輸入值',             'zh-CN': '输入值',            'en': 'Input Value' },
+    'summaryTitle':    { 'zh-TW': '📊 總結',            'zh-CN': '📊 总结',           'en': '📊 Summary' },
+    'bitName':         { 'zh-TW': '英文名稱',            'zh-CN': '英文名称',          'en': 'Name' },
+    'bitCname':        { 'zh-TW': '中文名稱',            'zh-CN': '中文名称',          'en': 'Chinese Name' },
+    'value':           { 'zh-TW': '值',               'zh-CN': '值',               'en': 'Value' },
+    'desc':            { 'zh-TW': '說明',              'zh-CN': '说明',              'en': 'Description' },
+    'uncollected':     { 'zh-TW': '未收錄',             'zh-CN': '未收录',            'en': 'Not in DB' },
+    'defaultVal':      { 'zh-TW': '（預設 / 未設定）',  'zh-CN': '（默认 / 未设定）', 'en': '(Default / Unset)' },
+    'notInList':       { 'zh-TW': '⚠ 不在合法值清單中', 'zh-CN': '⚠ 不在合法值列表中','en': '⚠ Not in valid list' },
+    'dpcdRangeHdr':    { 'zh-TW': '📋 DPCD 地址對照',   'zh-CN': '📋 DPCD 地址对照',  'en': '📋 DPCD Address Reference' },
+    'dpcdRangeTotal':  { 'zh-TW': '共',               'zh-CN': '共',               'en': 'total' },
+    'notFoundMsg':     { 'zh-TW': '此位址 (0x{addr}) 尚未收錄於精簡資料庫中。<br>目前收錄約 {count} 個常用地址。',
+                         'zh-CN': '此地址 (0x{addr}) 尚未收录于精简数据库中。<br>目前收录约 {count} 个常用地址。',
+                         'en':    'Address 0x{addr} is not in the database.<br>~{count} common addresses are currently indexed.' },
+    'warnValInvalid':  { 'zh-TW': '⚠ 輸入值異常 — 0x{v} 不在此暫存器的常見合法值清單中。可能是錯誤讀取或保留值。合法值：{vals}',
+                         'zh-CN': '⚠ 输入值异常 — 0x{v} 不在此寄存器的常见合法值列表中。可能是错误读取或保留值。合法值：{vals}',
+                         'en':    '⚠ Invalid value — 0x{v} is not in the valid value list for this register. May be an erroneous read or reserved. Valid values: {vals}' },
+    'cmd':             { 'zh-TW': '指令',              'zh-CN': '指令',              'en': 'Command' },
+    'targetAddr':      { 'zh-TW': '目標地址',           'zh-CN': '目标地址',          'en': 'Target Address' },
+    'jumpDpcd':        { 'zh-TW': '跳至 DPCD 查詢',    'zh-CN': '跳至 DPCD 查询',   'en': 'Jump to DPCD Query' },
+    'dataLen':         { 'zh-TW': '數據長度',           'zh-CN': '数据长度',          'en': 'Data Length' },
+    'addrRange':       { 'zh-TW': '地址範圍',           'zh-CN': '地址范围',          'en': 'Address Range' },
+    'data':            { 'zh-TW': '數據',              'zh-CN': '数据',              'en': 'Data' },
+    'rawBytes':        { 'zh-TW': '原始 Bytes',         'zh-CN': '原始 Bytes',        'en': 'Raw Bytes' },
+    'auxLayer':        { 'zh-TW': 'AUX 層',            'zh-CN': 'AUX 层',            'en': 'AUX Layer' },
+    'i2cLayer':        { 'zh-TW': 'I2C 層',            'zh-CN': 'I2C 层',            'en': 'I2C Layer' },
+    'nackDevRej':      { 'zh-TW': '（裝置拒絕）',       'zh-CN': '（设备拒绝）',      'en': ' (Device Rejected)' },
+    'deferBusy':       { 'zh-TW': '（裝置忙碌）',       'zh-CN': '（设备忙碌）',      'en': ' (Device Busy)' },
+    'i2cNackNoResp':   { 'zh-TW': '（I2C 端無回應）',   'zh-CN': '（I2C 端无回应）',  'en': ' (I2C No Response)' },
+    'i2cDeferBusy':    { 'zh-TW': '（I2C 端忙碌）',    'zh-CN': '（I2C 端忙碌）',    'en': ' (I2C Busy)' },
+    'unknownReply':    { 'zh-TW': '未定義的 Reply Code (0x{code})',
+                         'zh-CN': '未定义的 Reply Code (0x{code})',
+                         'en':    'Undefined Reply Code (0x{code})' },
+    'hintNativeI2C':   { 'zh-TW': '⚠ Native DPCD 交易不應出現 I2C NACK/DEFER（Reply={hex}），可能是 TCON 韌體異常或 AUX 通訊資料錯誤。',
+                         'zh-CN': '⚠ Native DPCD 交易不应出现 I2C NACK/DEFER（Reply={hex}），可能是 TCON 固件异常或 AUX 通信数据错误。',
+                         'en':    '⚠ Native DPCD transactions should not receive I2C NACK/DEFER (Reply={hex}). Possible TCON firmware issue or AUX communication error.' },
+    'hintI2CNack':     { 'zh-TW': '⚠ I2C NACK：AUX 通道正常，但 I2C slave 無回應。常見原因：EDID ROM 未接、I2C 地址錯誤、TCON I2C bridge 異常。',
+                         'zh-CN': '⚠ I2C NACK：AUX 通道正常，但 I2C slave 无回应。常见原因：EDID ROM 未接、I2C 地址错误、TCON I2C bridge 异常。',
+                         'en':    '⚠ I2C NACK: AUX channel OK but I2C slave not responding. Common causes: EDID ROM disconnected, wrong I2C address, TCON I2C bridge fault.' },
+    'hintI2CDefer':    { 'zh-TW': '⚠ I2C DEFER：I2C slave 忙碌，Source 應重試。常見原因：EDID ROM 忙碌、TCON 內部 I2C bus 衝突。',
+                         'zh-CN': '⚠ I2C DEFER：I2C slave 忙碌，Source 应重试。常见原因：EDID ROM 忙碌、TCON 内部 I2C bus 冲突。',
+                         'en':    '⚠ I2C DEFER: I2C slave busy, Source should retry. Common causes: EDID ROM busy, TCON internal I2C bus conflict.' },
+    'hintAuxNack':     { 'zh-TW': '⚠ AUX NACK：目標裝置拒絕此請求。常見原因：不支援的 DPCD 地址、裝置未就緒、HPD 未觸發。',
+                         'zh-CN': '⚠ AUX NACK：目标设备拒绝此请求。常见原因：不支持的 DPCD 地址、设备未就绪、HPD 未触发。',
+                         'en':    '⚠ AUX NACK: Target device rejected the request. Common causes: unsupported DPCD address, device not ready, HPD not triggered.' },
+    'hintAuxDefer':    { 'zh-TW': 'ℹ AUX DEFER：裝置忙碌，Source 應稍後重試。這在 Link Training 期間或 TCON 開機初期是正常的。',
+                         'zh-CN': 'ℹ AUX DEFER：设备忙碌，Source 应稍后重试。这在 Link Training 期间或 TCON 开机初期是正常的。',
+                         'en':    'ℹ AUX DEFER: Device busy, Source should retry later. This is normal during Link Training or TCON startup.' },
+    'hintUnknownCode': { 'zh-TW': '⚠ 未定義的 Reply Status（{hex}），此值不在 DP 規格定義的合法回覆中。可能是 AUX 通訊異常、Sink 韌體 bug、或讀取資料損壞。',
+                         'zh-CN': '⚠ 未定义的 Reply Status（{hex}），此值不在 DP 规格定义的合法回复中。可能是 AUX 通信异常、Sink 固件 bug、或读取数据损坏。',
+                         'en':    '⚠ Undefined Reply Status ({hex}). Not a valid DP spec reply code. May be AUX communication error, Sink firmware bug, or corrupted data.' },
+    'hintLowNibble':   { 'zh-TW': '⚠ Reply byte 的低 4 bits 不為 0（完整 byte = 0x{byte}）。DP 規格定義 Reply byte 低半 nibble 應為 0，此值異常。',
+                         'zh-CN': '⚠ Reply byte 的低 4 bits 不为 0（完整 byte = 0x{byte}）。DP 规格定义 Reply byte 低半 nibble 应为 0，此值异常。',
+                         'en':    '⚠ Reply byte lower nibble is non-zero (full byte = 0x{byte}). DP spec requires the lower nibble to be 0.' },
+    'searchNoResult':  { 'zh-TW': '找不到符合的 DPCD 暫存器', 'zh-CN': '找不到符合的 DPCD 寄存器', 'en': 'No matching DPCD registers found' },
+    'searchMore':      { 'zh-TW': '還有 {n} 筆，請縮小搜尋範圍', 'zh-CN': '还有 {n} 条，请缩小搜索范围', 'en': '{n} more results, please narrow your search' },
+    'searchPageOf':    { 'zh-TW': '{p} / {t}', 'zh-CN': '{p} / {t}', 'en': '{p} / {t}' },
+    'pgFirst':         { 'zh-TW': '第一頁', 'zh-CN': '第一页', 'en': 'First page' },
+    'pgPrev':          { 'zh-TW': '上一頁', 'zh-CN': '上一页', 'en': 'Previous page' },
+    'pgNext':          { 'zh-TW': '下一頁', 'zh-CN': '下一页', 'en': 'Next page' },
+    'pgLast':          { 'zh-TW': '最後一頁', 'zh-CN': '最后一页', 'en': 'Last page' },
+    'selectVal':       { 'zh-TW': '— 選擇合法值 —',                'zh-CN': '— 选择合法值 —',                'en': '— Select a value —' },
+    'customInput':     { 'zh-TW': '✏️ 自訂輸入…',                  'zh-CN': '✏️ 自定义输入…',                'en': '✏️ Custom input…' },
+    'repSkip':         { 'zh-TW': '-- 不填（略過 Reply）',          'zh-CN': '-- 不填（跳过 Reply）',         'en': '-- Skip (no Reply)' },
+    'repAuxAck':       { 'zh-TW': '00h — AUX ACK（正常回應）',      'zh-CN': '00h — AUX ACK（正常响应）',     'en': '00h — AUX ACK (OK)' },
+    'repAuxNack':      { 'zh-TW': '10h — AUX NACK（裝置拒絕）',     'zh-CN': '10h — AUX NACK（设备拒绝）',    'en': '10h — AUX NACK (Rejected)' },
+    'repAuxDefer':     { 'zh-TW': '20h — AUX DEFER（裝置忙碌）',    'zh-CN': '20h — AUX DEFER（设备忙碌）',   'en': '20h — AUX DEFER (Busy)' },
+    'repI2cNack':      { 'zh-TW': '40h — I2C NACK（I2C 端無回應）', 'zh-CN': '40h — I2C NACK（I2C 端无回应）','en': '40h — I2C NACK (No Response)' },
+    'repI2cDefer':     { 'zh-TW': '80h — I2C DEFER（I2C 端忙碌）',  'zh-CN': '80h — I2C DEFER（I2C 端忙碌）', 'en': '80h — I2C DEFER (Busy)' },
+  };
+  var entry = d[key];
+  var s = (entry && (entry[lang] || entry['zh-TW'])) || key;
+  if (vars) { for (var k in vars) s = s.split('{' + k + '}').join(String(vars[k])); }
+  return s;
+}
+
+// ─── DPCD RO/RW 標籤（依語言）───
+function auxRwLabel(rw) {
+  var lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
+  var map = {
+    'zh-TW': { 0: '唯讀', 1: '讀/寫', 2: 'W1C' },
+    'zh-CN': { 0: '只读', 1: '读/写', 2: 'W1C' },
+    'en':    { 0: 'Read Only', 1: 'Read/Write', 2: 'W1C' }
+  };
+  return (map[lang] || map['zh-TW'])[rw] !== undefined ? (map[lang] || map['zh-TW'])[rw] : 'RW';
+}
+
+// ─── DPCD 查詢邏輯 ───
+function auxLookupDPCD(addrStr, valStr) {
+  const resultCard = document.getElementById('aux-dpcd-result');
+  const resultBody = document.getElementById('aux-dpcd-result-body');
+  const resultTitle = document.getElementById('aux-dpcd-result-title');
+  if (!addrStr || addrStr.length === 0) { resultCard.style.display = 'none'; return; }
+  // 補齊到 5 位
+  const addr = addrStr.toUpperCase().replace(/^0X/i,'').padStart(5,'0');
+  const entry = DPCD_DB[addr];
+  if (!entry) {
+    resultCard.style.display = 'block';
+    resultTitle.textContent = _tAux('queryResult');
+    resultBody.innerHTML = '<div class="aux-not-found">' + _tAux('notFoundMsg', {addr: addr, count: Object.keys(DPCD_DB).length}) + '</div>';
+    return;
+  }
+  resultCard.style.display = 'block';
+  const rwText = auxRwLabel(entry.rw);
+  const rwClass = entry.rw === 0 ? 'aux-rw-ro' : entry.rw === 2 ? 'aux-rw-w1c' : 'aux-rw-rw';
+  resultTitle.innerHTML = entry.n + ' <span class="aux-rw-badge ' + rwClass + '">' + rwText + '</span>';
+
+  let html = '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('addr') + '</span><span class="aux-result-value">0x' + addr + 'h</span></div>';
+  var _ec = _dbC(entry.c);
+  html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('name') + '</span><span class="aux-result-value">' + entry.n + (_ec ? '（' + _ec + '）' : '') + '</span></div>';
+  html += '<div class="aux-desc-block"><div class="aux-desc-title">' + _tAux('descTitle') + '</div>' + _dbDesc(entry) + '</div>';
+
+  // 有值的話做 bit 解析
+  const hasVal = valStr && /^[0-9a-fA-F]{1,2}$/.test(valStr);
+  const val = hasVal ? parseInt(valStr, 16) : null;
+  if (hasVal) {
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('inputVal') + '</span><span class="aux-result-value">0x' + val.toString(16).toUpperCase().padStart(2,'0') + ' (' + val.toString(2).padStart(8,'0') + 'b)</span></div>';
+    // 合法值檢查
+    if (entry.vv && entry.vv.length > 0) {
+      var isValid = entry.vv.some(function(item) { return item.v === val; });
+      if (!isValid) {
+        var _sep = (typeof currentLang !== 'undefined' && currentLang === 'en') ? ', ' : '、';
+        html += '<div class="aux-val-warn">' + _tAux('warnValInvalid', {v: val.toString(16).toUpperCase().padStart(2,'0'), vals: entry.vv.map(function(item){return normVvLabel(item.l)}).join(_sep)}) + '</div>';
+      }
+    }
+  }
+
+  // Bit field 表格（支援 compact 格式：b.r/b.n/b.c/b.v，以及 mask 格式：b.m/b.s/b.n/b.d）
+  const bitsArr = entry.b || entry.bits || [];
+  if (bitsArr.length > 0) {
+    var _showCName = (typeof currentLang === 'undefined' || currentLang !== 'en');
+    html += '<div class="aux-table-wrap"><table class="aux-bit-table"><thead><tr><th>Bit</th><th>' + _tAux('bitName') + '</th>';
+    if (_showCName) html += '<th>' + _tAux('bitCname') + '</th>';
+    if (hasVal) html += '<th>' + _tAux('value') + '</th>';
+    html += '<th>' + _tAux('desc') + '</th></tr></thead><tbody>';
+    bitsArr.forEach(function(b) {
+      // 支援 range-based (r) 或 mask-based (m/s)
+      var rng = b.r || b.range || '';
+      var bName = b.n || b.name || '';
+      var bChinese = _dbC(b.c || '');
+      var bDesc = _dbBitDesc(b);
+      var bValues = b.v || b.values || null;
+      if (!rng && typeof b.m !== 'undefined') {
+        // mask-based: 計算 bit range from mask
+        var mask = b.m, shift = b.s || 0;
+        var hi = shift, lo = shift;
+        var m = mask >> shift;
+        while (m > 1) { hi++; m >>= 1; }
+        rng = (hi > lo) ? hi + ':' + lo : String(lo);
+      }
+      html += '<tr><td class="aux-bit-range">[' + rng + ']</td>';
+      html += '<td class="aux-bit-name">' + bName + '</td>';
+      if (_showCName) html += '<td class="aux-bit-name" style="color:var(--text-sub)">' + bChinese + '</td>';
+      if (hasVal) {
+        var bv;
+        if (typeof b.m !== 'undefined') {
+          bv = (val & b.m) >>> (b.s || 0);
+        } else {
+          bv = auxExtractBits(val, rng);
+        }
+        const bvHex = bv.toString(16).toUpperCase();
+        const bvHexPad = bvHex.padStart(2,'0');
+        let decoded = '';
+        if (bValues) {
+          // 嘗試多種 key 格式：純 hex、0x 前綴、0b 二進位、十進位
+          var dk = bValues[bvHex] || bValues[bvHexPad] || bValues[bvHex.toLowerCase()] || bValues[bvHexPad.toLowerCase()]
+            || bValues['0x' + bvHexPad] || bValues['0x' + bvHexPad.toLowerCase()] || bValues['0x' + bvHex] || bValues['0x' + bvHex.toLowerCase()]
+            || bValues[String(bv)];
+          // 嘗試 0b 二進位格式
+          if (!dk) {
+            var bits3 = '0b' + bv.toString(2).padStart(3,'0');
+            var bits2 = '0b' + bv.toString(2).padStart(2,'0');
+            dk = bValues[bits3] || bValues[bits2];
+          }
+          if (dk) decoded = ' → ' + dk;
+        }
+        var valClass = bv > 0 ? 'aux-bit-val bit-active' : 'aux-bit-val bit-zero';
+        html += '<td class="' + valClass + '">0x' + bvHexPad + decoded + '</td>';
+      }
+      html += '<td><div class="aux-bit-desc">' + bDesc + '</div></td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // ─── 總結區塊 ───
+  if (hasVal && DPCD_SUMMARIZE[addr]) {
+    var summary = DPCD_SUMMARIZE[addr](val);
+    if (summary) {
+      html += '<div class="aux-summary-block"><div class="aux-summary-title">' + _tAux('summaryTitle') + '</div><div class="aux-summary-text">' + summary + '</div></div>';
+    }
+  }
+
+  resultBody.innerHTML = html;
+}
+
+// ─── DPCD 地址總結函數 ───
+function W(msg) { return '<span class="aux-anomaly">⚠ 此值異常 — ' + msg + '</span>'; }
+var DPCD_SUMMARIZE = {
+  "00000": function(v) {
+    var major = (v >> 4) & 0xF, minor = v & 0xF;
+    if (v === 0) return W("版本 0.0 在實際產品中不應出現，可能是 AUX 通訊異常、Sink 未上電、或 TCON 未正確回應。");
+    if (v === 0xFF) return W("0xFF 通常表示 AUX 通道無回應（全 1），請檢查 AUX 線路連接。");
+    if (major !== 1) return W("主版本號不是 1（讀到 " + major + "），目前所有 DP/eDP 版本主版本都是 1，可能是讀取錯誤。");
+    if (minor > 4) return W("次版本號 " + minor + " 超出已知範圍（最高 4 = DP 1.4），可能是新版本或讀取錯誤。");
+    var verMap = {0:"1.0",1:"1.1",2:"1.2",3:"1.3",4:"1.4"};
+    return "此 Sink 支援 DPCD Rev " + verMap[minor] + "。" +
+      (minor >= 4 ? " 支援 DP 1.4 所有功能（DSC、FEC、HBR3 等）。" :
+       minor >= 2 ? " 支援 DP 1.2 功能（MST、HBR2 等）。" : " 基礎 DP 功能。");
+  },
+  "00001": function(v) {
+    var rateMap = {0x06:"1.62 Gbps（RBR）", 0x0A:"2.7 Gbps（HBR）", 0x14:"5.4 Gbps（HBR2）", 0x1E:"8.1 Gbps（HBR3）", 0x01:"10 Gbps（UHBR10）", 0x02:"13.5 Gbps（UHBR13.5）", 0x04:"20 Gbps（UHBR20）"};
+    if (v === 0) return W("速率值為 0，Sink 未回報有效速率，可能是 AUX 通訊異常或裝置未初始化。");
+    if (v === 0xFF) return W("0xFF 通常表示 AUX 無回應（全 1），請檢查連接。");
+    if (!rateMap[v]) return W("0x" + v.toString(16).toUpperCase() + " 不是已定義的速率值，不應出現。可能是 DPCD 讀取錯誤。");
+    return "最大連結速率：" + rateMap[v] + "。" +
+      (v >= 0x1E ? " 可支援 4K@120Hz 或 8K@30Hz（配合 DSC）。" :
+       v >= 0x14 ? " 可支援 4K@60Hz，eDP/DP 1.2 常見。" :
+       v >= 0x0A ? " 可支援 2K@60Hz。" : " 最低速率。");
+  },
+  "00002": function(v) {
+    var lanes = v & 0x1F;
+    if (v === 0) return W("所有 bit 為 0，Sink 未回報有效 Lane 數，可能是 AUX 異常。");
+    if (v === 0xFF) return W("0xFF 通常表示 AUX 無回應。");
+    if (lanes !== 1 && lanes !== 2 && lanes !== 4) return W("Lane 數 = " + lanes + " 不是合法值（只能是 1/2/4），可能讀取錯誤。");
+    var enhanced = (v >> 7) & 1;
+    var tps3 = (v >> 6) & 1;
+    var parts = ["最大 " + lanes + " Lane" + (lanes > 1 ? "s" : "")];
+    if (enhanced) parts.push("支援 Enhanced Framing");
+    if (tps3) parts.push("支援 TPS3");
+    return parts.join("，") + "。";
+  },
+  "00003": function(v) {
+    if (v === 0xFF) return W("0xFF 通常表示 AUX 無回應。");
+    var ssc = v & 1, noAux = (v >> 6) & 1, tps4 = (v >> 7) & 1;
+    var parts = [];
+    parts.push(ssc ? "支援 0.5% 展頻（SSC）" : "不支援展頻");
+    if (noAux) parts.push("支援免 AUX 握手訓練");
+    if (tps4) parts.push("支援 TPS4（HBR3 用）");
+    return parts.join("，") + "。" + (ssc ? " eDP 面板通常都開 SSC 以降低 EMI。" : "");
+  },
+  "00004": function(v) {
+    if (v === 0xFF) return W("0xFF 通常表示 AUX 無回應。");
+    return "接收端口數：" + ((v & 1) + 1) + " 個。";
+  },
+  "00005": function(v) {
+    var present = v & 1;
+    if (!present) return "此裝置沒有下游 Port，是一般 Sink（螢幕/面板）。";
+    var typeMap = {0:"DisplayPort",1:"類比 VGA",2:"TMDS (HDMI/DVI)",3:"其他"};
+    return "有下游 Port（Branch Device），類型：" + typeMap[(v >> 1) & 3] + "。";
+  },
+  "00006": function(v) {
+    var b8b10b = v & 1, b128 = (v >> 1) & 1;
+    if (!b8b10b && !b128) return W("兩種編碼都不支援（值=0），不應出現，可能是讀取錯誤。");
+    if (b128 && b8b10b) return "支援 8B/10B 和 128B/132B 雙編碼。";
+    return b8b10b ? "支援 8B/10B 編碼（DP 1.x 標準）。" : "僅支援 128B/132B（DP 2.0 UHBR）。";
+  },
+  "00007": function(v) {
+    var count = v & 0xF, oui = (v >> 7) & 1;
+    return "下游 Port 數：" + count + (oui ? "，支援 OUI" : "") + "。";
+  },
+  "00008": function(v) {
+    return ((v >> 1) & 1) ? "有本地 EDID（I2C 0x50 可讀取）。" : "無本地 EDID。";
+  },
+  "00009": function(v) {
+    return "接收 Buffer：" + ((v + 1) * 32) + " bytes。";
+  },
+  "0000E": function(v) {
+    var interval = v & 0x7F, ext = (v >> 7) & 1;
+    var intMap = {0:"400μs",1:"4ms",2:"8ms",3:"12ms",4:"16ms"};
+    if (interval > 4 && interval !== 0) return W("訓練間隔值 " + interval + " 超出已知範圍（0~4），可能讀取錯誤。");
+    return "LT 讀取間隔：" + (intMap[interval] || interval) + "。" + (ext ? " 有 Extended Capability（應讀 02200h）。" : "");
+  },
+  "00100": function(v) {
+    var rateMap = {0x06:"RBR 1.62G", 0x0A:"HBR 2.7G", 0x14:"HBR2 5.4G", 0x1E:"HBR3 8.1G"};
+    if (v === 0) return W("速率設定為 0，Link Training 尚未開始或設定被清除。");
+    if (!rateMap[v]) return W("0x" + v.toString(16).toUpperCase() + " 不是合法速率值，Source 設定異常。");
+    return "Source 設定連結速率：" + rateMap[v] + "。";
+  },
+  "00101": function(v) {
+    var lanes = v & 0x1F, enhanced = (v >> 7) & 1;
+    if (lanes === 0) return W("Lane 數設為 0，Link Training 尚未開始或設定異常。");
+    if (lanes !== 1 && lanes !== 2 && lanes !== 4) return W("Lane 數 = " + lanes + " 不合法（只能 1/2/4），設定異常。");
+    return "Source 設定 " + lanes + " Lane" + (lanes > 1 ? "s" : "") + (enhanced ? "，Enhanced Framing ON" : "") + "。";
+  },
+  "00102": function(v) {
+    var tp = v & 3, scram = (v >> 5) & 1;
+    var tpMap = {0:"無（正常傳輸）",1:"TPS1（Clock Recovery）",2:"TPS2（EQ，HBR以下）",3:"TPS3（EQ，HBR2+）"};
+    return "Training Pattern：" + tpMap[tp] + "。Scrambling " + (scram ? "停用（訓練中）" : "啟用") + "。";
+  },
+  "00103": function(v) { return auxSummarizeLaneSet(v, 0); },
+  "00104": function(v) { return auxSummarizeLaneSet(v, 1); },
+  "00105": function(v) { return auxSummarizeLaneSet(v, 2); },
+  "00106": function(v) { return auxSummarizeLaneSet(v, 3); },
+  "00107": function(v) {
+    var ssc = v & 1;
+    return (ssc ? "展頻 SSC 已開啟。" : "展頻 SSC 未開啟。") + ((v >> 4) & 1 ? " MSA timing 被忽略。" : "");
+  },
+  "0010A": function(v) {
+    var alt = v & 1, framing = (v >> 1) & 1, edid = (v >> 2) & 1;
+    var parts = [];
+    if (alt) parts.push("替代 Scrambler Reset（eDP 模式）");
+    if (framing) parts.push("Framing Change");
+    if (edid) parts.push("EDID 暫存器模式");
+    return parts.length ? parts.join(" + ") + " 已啟用。" : "所有 eDP 功能未啟用。";
+  },
+  "00200": function(v) {
+    var count = v & 0x3F;
+    if (count === 0) return W("Sink Count = 0，可能 Sink 未連接或 HPD 未觸發。");
+    return "已連接 Sink：" + count + " 個。" + ((v >> 6) & 1 ? " HDCP 就緒。" : "");
+  },
+  "00201": function(v) {
+    if (v === 0) return "無中斷被觸發（IRQ Vector = 0），正常狀態。";
+    var irqs = [];
+    if (v & 1) irqs.push("遠端控制");
+    if (v & 2) irqs.push("自動測試（CTS）");
+    if (v & 4) irqs.push("HDCP");
+    if (v & 8) irqs.push("MCCS");
+    if (v & 16) irqs.push("MST 下游回覆");
+    if (v & 32) irqs.push("MST 上游請求");
+    if (v & 64) irqs.push("Sink 專用");
+    return "中斷來源：" + irqs.join("、") + "。";
+  },
+  "00202": function(v) {
+    var l0cr = v & 1, l0eq = (v>>1)&1, l0sym = (v>>2)&1;
+    var l1cr = (v>>4)&1, l1eq = (v>>5)&1, l1sym = (v>>6)&1;
+    var l0ok = l0cr && l0eq && l0sym, l1ok = l1cr && l1eq && l1sym;
+    if (v === 0) return W("Lane 0/1 所有狀態位元為 0，Link Training 失敗或尚未開始。請檢查 Link BW/Lane Count 設定及 Training Pattern。");
+    return "Lane 0：" + (l0ok ? "✅ OK" : "❌ 失敗（" + (!l0cr?"CR ":"") + (!l0eq?"EQ ":"") + (!l0sym?"Lock ":"") + "）") +
+      "。Lane 1：" + (l1ok ? "✅ OK" : "❌ 失敗（" + (!l1cr?"CR ":"") + (!l1eq?"EQ ":"") + (!l1sym?"Lock ":"") + "）") + "。";
+  },
+  "00203": function(v) {
+    var l2cr = v & 1, l2eq = (v>>1)&1, l2sym = (v>>2)&1;
+    var l3cr = (v>>4)&1, l3eq = (v>>5)&1, l3sym = (v>>6)&1;
+    var l2ok = l2cr && l2eq && l2sym, l3ok = l3cr && l3eq && l3sym;
+    if (v === 0) return W("Lane 2/3 所有狀態位元為 0，若使用 4 Lane 則 Link Training 失敗。若只用 1-2 Lane 則此暫存器可忽略。");
+    return "Lane 2：" + (l2ok ? "✅ OK" : "❌ 失敗") + "。Lane 3：" + (l3ok ? "✅ OK" : "❌ 失敗") + "。";
+  },
+  "00204": function(v) {
+    var align = v & 1;
+    if (v === 0) return W("Interlane Align 未完成，多 Lane 時這代表 Link Training 未成功。");
+    var parts = [align ? "多 Lane 對齊完成" : "對齊未完成"];
+    if ((v >> 7) & 1) parts.push("Link Status 已更新");
+    return parts.join("。") + "。";
+  },
+  "00205": function(v) {
+    var p0 = v & 1;
+    if (!p0) return W("接收埠 0 未同步，螢幕可能無畫面。請確認 Link Training 狀態和 Video 輸出。");
+    return "接收埠 0：已同步（正常接收畫面）。";
+  },
+  "00206": function(v) {
+    var vs0 = v & 3, pe0 = (v >> 3) & 3;
+    var warn = (vs0 >= 3 || pe0 >= 3) ? " ⚠️ 已達最大值，訊號可能不佳。" : "";
+    return "Lane 0 要求：VS=" + vs0 + " PE=" + pe0 + "。Lane 1 要求：VS=" + ((v >> 6) & 3) + "。" + warn;
+  },
+  "00207": function(v) {
+    var vs2 = v & 3, pe2 = (v >> 3) & 3;
+    var warn = (vs2 >= 3 || pe2 >= 3) ? " ⚠️ 已達最大值。" : "";
+    return "Lane 2 要求：VS=" + vs2 + " PE=" + pe2 + "。Lane 3 要求：VS=" + ((v >> 6) & 3) + "。" + warn;
+  },
+  "00060": function(v) {
+    return ((v & 1) ? "支援 DSC 壓縮。搭配 FEC 可實現更高解析度。" : "不支援 DSC。");
+  },
+  "00070": function(v) {
+    return ((v & 1) ? "支援 PSR 省電。" : "不支援 PSR。") + ((v >> 1) & 1 ? " 支援 PSR2 局部更新。" : "");
+  },
+  "00071": function(v) {
+    return ((v & 1) ? "支援 Y 座標局部更新。" : "不支援。") + (((v >> 1) & 1) ? " 支援 SU granularity。" : "");
+  },
+  "00090": function(v) {
+    return ((v & 1) ? "支援 FEC。DP 1.4 + DSC 必須開 FEC。" : "不支援 FEC，無法使用 DSC。");
+  },
+  "00160": function(v) { return ((v & 1) ? "DSC 已啟用。" : "DSC 未啟用。"); },
+  "00170": function(v) { return ((v & 1) ? "PSR 已啟用。" : "PSR 未啟用。") + (((v >> 1) & 1) ? " PSR2 局部更新 ON。" : ""); },
+  "00600": function(v) {
+    var state = v & 7;
+    if (state === 0) return W("電源狀態 = 0，未定義值，可能是 AUX 異常或 Sink 未回應。");
+    if (state !== 1 && state !== 2 && state !== 5) return W("電源狀態 = " + state + "，不是已定義的值（1=D0, 2=D3, 5=D3+AUX off），可能異常。");
+    var stateMap = {1:"D0 正常運作",2:"D3 省電（Link off）",5:"D3（AUX 也關閉）"};
+    return "電源：" + stateMap[state] + "。" + (state === 2 ? " 螢幕可能黑屏。" : "");
+  },
+  "02200": function(v) {
+    var major = (v >> 4) & 0xF, minor = v & 0xF;
+    if (v === 0) return W("Extended DPCD 版本為 0，可能此 Sink 不支援 Extended Capability 或讀取異常。");
+    var verMap = {0:"1.0",1:"1.1",2:"1.2",3:"1.3",4:"1.4"};
+    return "Extended DPCD 版本：Rev " + (verMap[minor] || major + "." + minor) + "。如果與 00000h 不同，以此為準。";
+  },
+  "02201": function(v) {
+    var rateMap = {0x06:"RBR 1.62G", 0x0A:"HBR 2.7G", 0x14:"HBR2 5.4G", 0x1E:"HBR3 8.1G"};
+    if (v === 0) return W("Extended 速率為 0，可能不支援 Extended Capability 或讀取異常。");
+    if (!rateMap[v]) return W("0x" + v.toString(16).toUpperCase() + " 不是已知速率值。");
+    return "Extended 最大速率：" + rateMap[v] + "。如果與 00001h 不同，以此為準。";
+  }
+};
+
+function auxSummarizeLaneSet(v, lane) {
+  var vs = v & 3, maxVs = (v >> 2) & 1, pe = (v >> 3) & 3, maxPe = (v >> 5) & 1;
+  if (v === 0) return "Lane " + lane + "：VS=0 PE=0（最低設定，正常起始值）。";
+  var warn = (vs >= 3 || pe >= 3) ? " ⚠️ 參數偏高，訊號品質可能不佳。" : "";
+  return "Lane " + lane + "：VS=" + vs + (maxVs ? "（MAX）" : "") + " PE=" + pe + (maxPe ? "（MAX）" : "") + "。" + warn;
+}
+
+function auxExtractBits(val, range) {
+  // range: "7:4", "0", "4:3" etc.
+  if (range.indexOf(':') >= 0) {
+    const parts = range.split(':');
+    const hi = parseInt(parts[0]), lo = parseInt(parts[1]);
+    const mask = ((1 << (hi - lo + 1)) - 1) << lo;
+    return (val & mask) >>> lo;
+  } else {
+    const bit = parseInt(range);
+    return (val >>> bit) & 1;
+  }
+}
+
+// ─── AUX 解碼：結構化輸入邏輯 ───
+
+// 判斷是否為 Write 類指令（需要 Data 欄位）
+function auxIsWriteCmd(cmd) {
+  cmd = parseInt(cmd);
+  return cmd === 0 || cmd === 4 || cmd === 8; // I2C Write(MOT=0/1), Native Write
+}
+// 判斷是否為 Read 類指令（Reply 需要 Data 欄位）
+function auxIsReadCmd(cmd) {
+  cmd = parseInt(cmd);
+  return cmd === 1 || cmd === 5 || cmd === 9; // I2C Read(MOT=0/1), Native Read
+}
+// 判斷是否為 Native 指令
+function auxIsNativeCmd(cmd) {
+  cmd = parseInt(cmd);
+  return cmd >= 8;
+}
+
+// 初始化 Length 下拉選單
+function auxInitLenSelect() {
+  var sel = document.getElementById('aux-req-len');
+  if (!sel) return;
+  sel.innerHTML = '';
+  for (var i = 0; i <= 15; i++) {
+    var hex = i.toString(16).toUpperCase().padStart(2, '0');
+    var opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = hex + ' → ' + (i + 1) + ' byte' + (i > 0 ? 's' : '');
+    sel.appendChild(opt);
+  }
+}
+
+// 產生 hex 輸入格
+function auxGenHexBoxes(containerId, count, prefix) {
+  var wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  // 保留既有值
+  var oldValues = [];
+  var oldBoxes = wrap.querySelectorAll('.aux-hex-box');
+  for (var i = 0; i < oldBoxes.length; i++) oldValues.push(oldBoxes[i].value);
+  wrap.innerHTML = '';
+  for (var i = 0; i < count; i++) {
+    var grp = document.createElement('div');
+    grp.className = 'aux-hex-box-group';
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'aux-hex-box';
+    inp.maxLength = 2;
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
+    inp.placeholder = '00';
+    inp.dataset.idx = i;
+    inp.dataset.prefix = prefix;
+    if (i < oldValues.length && oldValues[i]) inp.value = oldValues[i];
+    // 自動跳下一格 + 即時更新預覽
+    inp.addEventListener('input', function(e) {
+      var v = e.target.value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+      e.target.value = v;
+      if (v.length === 2) {
+        var next = e.target.parentElement.nextElementSibling;
+        if (next) { var ni = next.querySelector('.aux-hex-box'); if (ni) ni.focus(); }
+      }
+      if (prefix === 'req') auxUpdateReqRaw();
+      else auxUpdateRepRaw();
+    });
+    grp.appendChild(inp);
+    var lbl = document.createElement('div');
+    lbl.className = 'aux-hex-box-label';
+    lbl.textContent = '[' + i + ']';
+    grp.appendChild(lbl);
+    wrap.appendChild(grp);
+  }
+}
+
+// 讀取 hex boxes 的值（回傳 byte 陣列）
+function auxReadHexBoxes(containerId) {
+  var boxes = document.getElementById(containerId);
+  if (!boxes) return [];
+  var inputs = boxes.querySelectorAll('.aux-hex-box');
+  var bytes = [];
+  for (var i = 0; i < inputs.length; i++) {
+    var v = parseInt(inputs[i].value, 16);
+    bytes.push(isNaN(v) ? 0 : (v & 0xFF));
+  }
+  return bytes;
+}
+
+// Request 欄位改動 → 更新 Data 欄位、Reply 選項、封包預覽
+window.auxOnReqChange = function() {
+  var cmd = parseInt(document.getElementById('aux-req-cmd').value);
+  var len = parseInt(document.getElementById('aux-req-len').value);
+  var dataCount = len + 1;
+  var isWrite = auxIsWriteCmd(cmd);
+
+  // Data 欄位顯隱
+  var dataLabel = document.getElementById('aux-req-data-label');
+  var dataWrap = document.getElementById('aux-req-data-wrap');
+  if (isWrite) {
+    dataLabel.style.display = '';
+    dataWrap.style.display = '';
+    auxGenHexBoxes('aux-req-data-fields', dataCount, 'req');
+  } else {
+    dataLabel.style.display = 'none';
+    dataWrap.style.display = 'none';
+  }
+
+  // 更新 Reply 下拉選項
+  auxUpdateRepOptions();
+  // 更新 Reply Data 欄位
+  auxOnRepChange();
+  // 更新封包預覽
+  auxUpdateReqRaw();
+};
+
+// 更新 Reply 狀態下拉選項
+function auxUpdateRepOptions() {
+  var sel = document.getElementById('aux-rep-status-select');
+  var wrap = document.getElementById('aux-rep-status-custom-wrap');
+  var oldVal = auxGetRepStatusVal();
+  sel.innerHTML = '';
+  sel.innerHTML += '<option value="__skip__" style="color:#94a3b8">' + _tAux('repSkip') + '</option>';
+  sel.innerHTML += '<option value="0">' + _tAux('repAuxAck') + '</option>';
+  sel.innerHTML += '<option value="1">' + _tAux('repAuxNack') + '</option>';
+  sel.innerHTML += '<option value="2">' + _tAux('repAuxDefer') + '</option>';
+  sel.innerHTML += '<option value="4">' + _tAux('repI2cNack') + '</option>';
+  sel.innerHTML += '<option value="8">' + _tAux('repI2cDefer') + '</option>';
+  sel.innerHTML += '<option value="__custom__" style="color:#fbbf24">' + _tAux('customInput') + '</option>';
+  // 恢復選擇
+  if (oldVal === '__skip__' || !oldVal) {
+    sel.value = '__skip__';
+    sel.style.display = '';
+    wrap.style.display = 'none';
+  } else if (oldVal.indexOf('__hex__') === 0) {
+    sel.style.display = 'none';
+    wrap.style.display = 'inline';
+  } else {
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === oldVal) { sel.value = oldVal; found = true; break; }
+    }
+    sel.style.display = '';
+    wrap.style.display = 'none';
+  }
+}
+
+// select 選擇改動
+window.auxOnRepStatusSelect = function() {
+  var sel = document.getElementById('aux-rep-status-select');
+  var wrap = document.getElementById('aux-rep-status-custom-wrap');
+  var inp = document.getElementById('aux-rep-status-input');
+  if (sel.value === '__custom__') {
+    sel.style.display = 'none';
+    wrap.style.display = 'inline';
+    inp.value = '';
+    inp.focus();
+  } else {
+    sel.style.display = '';
+    wrap.style.display = 'none';
+  }
+  auxOnRepChange();
+};
+
+// Reply Status combo：返回選單
+window.auxRepStatusBackToSelect = function() {
+  var sel = document.getElementById('aux-rep-status-select');
+  var wrap = document.getElementById('aux-rep-status-custom-wrap');
+  sel.style.display = '';
+  wrap.style.display = 'none';
+  sel.value = '__skip__';
+  auxOnRepChange();
+};
+
+// 取得目前 Reply Status 值（回傳 '__skip__' 或 nibble code 數字字串或自訂 hex）
+function auxGetRepStatusVal() {
+  var sel = document.getElementById('aux-rep-status-select');
+  var inp = document.getElementById('aux-rep-status-input');
+  var wrap = document.getElementById('aux-rep-status-custom-wrap');
+  if (wrap && wrap.style.display !== 'none') {
+    // 自訂輸入模式
+    var v = inp.value.replace(/[^0-9a-fA-F]/g, '');
+    return v ? '__hex__' + v : '__skip__';
+  }
+  return sel ? sel.value : '__skip__';
+}
+
+// 從 auxGetRepStatusVal 解析出 reply byte（上半 nibble）
+function auxGetRepByte() {
+  var val = auxGetRepStatusVal();
+  if (val === '__skip__') return -1;
+  if (val.indexOf('__hex__') === 0) {
+    // 自訂 hex：使用者輸入的是整個 byte 值（如 30、A0）
+    var hexStr = val.substring(7);
+    var parsed = parseInt(hexStr, 16);
+    return isNaN(parsed) ? -1 : (parsed & 0xFF);
+  }
+  // 已知選項：value 是 nibble code（0/1/2/4/8），shift 成 byte
+  var code = parseInt(val);
+  return isNaN(code) ? -1 : ((code & 0xF) << 4);
+}
+
+// Reply 欄位改動 → 更新 Reply Data 欄位和封包預覽
+window.auxOnRepChange = function() {
+  var repVal = auxGetRepStatusVal();
+  var cmd = parseInt(document.getElementById('aux-req-cmd').value);
+  var len = parseInt(document.getElementById('aux-req-len').value);
+  var dataCount = len + 1;
+  var isRead = auxIsReadCmd(cmd);
+  var repByte = auxGetRepByte();
+
+  var dataLabel = document.getElementById('aux-rep-data-label');
+  var dataWrap = document.getElementById('aux-rep-data-wrap');
+
+  // DP spec: Reply data only exists for ACK + Read. NACK/DEFER have no data bytes.
+  if (repVal === '__skip__') {
+    dataLabel.style.display = 'none';
+    dataWrap.style.display = 'none';
+  } else if (isRead && repByte === 0x00) {
+    dataLabel.style.display = '';
+    dataWrap.style.display = '';
+    auxGenHexBoxes('aux-rep-data-fields', dataCount, 'rep');
+  } else {
+    dataLabel.style.display = 'none';
+    dataWrap.style.display = 'none';
+  }
+  auxUpdateRepRaw();
+};
+
+// 組合 Request 原始 hex 封包
+function auxBuildReqBytes() {
+  var cmd = parseInt(document.getElementById('aux-req-cmd').value);
+  var addrStr = auxGetDecodeAddrFromWheels();
+  var addr = parseInt(addrStr, 16) & 0xFFFFF; // 20-bit
+  var len = parseInt(document.getElementById('aux-req-len').value) & 0xF;
+
+  // Byte 0: CMD[3:0] << 4 | ADDR[19:16]
+  var byte0 = ((cmd & 0xF) << 4) | ((addr >> 16) & 0xF);
+  // Byte 1: ADDR[15:8]
+  var byte1 = (addr >> 8) & 0xFF;
+  // Byte 2: ADDR[7:0]
+  var byte2 = addr & 0xFF;
+  // Byte 3: LEN
+  var byte3 = len & 0xFF;
+
+  var bytes = [byte0, byte1, byte2, byte3];
+
+  // Write 指令加 Data
+  if (auxIsWriteCmd(cmd)) {
+    var dataBytes = auxReadHexBoxes('aux-req-data-fields');
+    for (var i = 0; i < dataBytes.length; i++) bytes.push(dataBytes[i]);
+  }
+  return bytes;
+}
+
+// 組合 Reply 原始 hex 封包
+function auxBuildRepBytes() {
+  var byte0 = auxGetRepByte();
+  if (byte0 < 0) return null;
+  var bytes = [byte0];
+
+  var cmd = parseInt(document.getElementById('aux-req-cmd').value);
+  // DP spec: Reply data only exists for ACK (0x00) + Read. NACK/DEFER have no data bytes.
+  if (auxIsReadCmd(cmd) && byte0 === 0x00) {
+    var dataBytes = auxReadHexBoxes('aux-rep-data-fields');
+    for (var i = 0; i < dataBytes.length; i++) bytes.push(dataBytes[i]);
+  }
+  return bytes;
+}
+
+// 更新 Request 封包預覽
+function auxUpdateReqRaw() {
+  var bytes = auxBuildReqBytes();
+  var el = document.getElementById('aux-req-raw');
+  el.textContent = bytes.map(function(b) { return b.toString(16).toUpperCase().padStart(2, '0'); }).join(' ');
+}
+
+// 更新 Reply 封包預覽
+function auxUpdateRepRaw() {
+  var bytes = auxBuildRepBytes();
+  var el = document.getElementById('aux-rep-raw');
+  if (!bytes) { el.textContent = '--'; return; }
+  el.textContent = bytes.map(function(b) { return b.toString(16).toUpperCase().padStart(2, '0'); }).join(' ');
+}
+
+// ─── DPCD 地址對照表（多 byte 讀寫時逐地址解析）───
+// Normalize vv label from "0Ah — desc" or "0Ah" style to "0x0A — desc" / "0x0A"
+function normVvLabel(l) {
+  return l.replace(/^([0-9A-Fa-f]{1,2})h/, function(m, hex) {
+    return '0x' + hex.toUpperCase().padStart(2, '0');
+  });
+}
+
+function auxRenderDpcdTable(startAddr, dataBytes) {
+  if (!dataBytes || dataBytes.length === 0) return '';
+  var _lo = startAddr.toString(16).toUpperCase().padStart(5,'0');
+  var _hi = (startAddr + dataBytes.length - 1).toString(16).toUpperCase().padStart(5,'0');
+  var _isEn = (typeof currentLang !== 'undefined' && currentLang === 'en');
+  var _cnt = _isEn ? dataBytes.length + ' bytes' : _tAux('dpcdRangeTotal') + ' ' + dataBytes.length + ' bytes';
+  var html = '<div style="font-size:12px;font-weight:700;color:var(--accent);margin:10px 0 6px;text-transform:uppercase;letter-spacing:0.4px">';
+  html += _tAux('dpcdRangeHdr') + '（' + _lo + 'h ~ ' + _hi + 'h，' + _cnt + '）</div>';
+  html += '<div class="aux-table-wrap"><table class="aux-bit-table">';
+  html += '<tr><th style="width:70px">' + _tAux('addr') + '</th><th>' + _tAux('name') + '</th><th style="width:40px">' + _tAux('value') + '</th><th>' + _tAux('desc') + '</th></tr>';
+  for (var i = 0; i < dataBytes.length; i++) {
+    var addr = startAddr + i;
+    var addrHex = addr.toString(16).toUpperCase().padStart(5, '0');
+    var val = dataBytes[i];
+    var valHex = val.toString(16).toUpperCase().padStart(2, '0');
+    var entry = DPCD_DB[addrHex];
+
+    // 名稱
+    var nameHtml = '';
+    if (entry) {
+      nameHtml = '<span class="aux-bit-name">' + entry.n + '</span>';
+      var _nc = _dbC(entry.c);
+      if (_nc) nameHtml += '<br><span style="font-size:10px;color:var(--text-sub)">' + _nc + '</span>';
+    } else {
+      nameHtml = '<span style="color:var(--text-sub);font-style:italic">' + _tAux('uncollected') + '</span>';
+    }
+
+    // 說明（優先用 summarize，其次 validValues，最後顯示 hex）
+    var desc = '';
+    if (entry) {
+      var sumFn = DPCD_SUMMARIZE[addrHex];
+      if (sumFn) {
+        try { desc = sumFn(val); } catch(e) { desc = '0x' + valHex; }
+      } else if (entry.vv && entry.vv.length > 0) {
+        var matched = false;
+        for (var j = 0; j < entry.vv.length; j++) {
+          if (entry.vv[j].v === val) { desc = normVvLabel(entry.vv[j].l); matched = true; break; }
+        }
+        if (!matched && val === 0) desc = '0x00' + _tAux('defaultVal');
+        else if (!matched) desc = '<span class="aux-anomaly">0x' + valHex + ' ' + _tAux('notInList') + '</span>';
+      } else {
+        desc = '0x' + valHex;
+      }
+    } else {
+      desc = '0x' + valHex;
+    }
+
+    // 值顏色：非 0 綠色高亮，0 灰色
+    var valClass = val !== 0 ? 'bit-active' : 'bit-zero';
+
+    // 地址可點擊跳到 DPCD 查詢
+    var addrClick = entry
+      ? ' onclick="auxJumpToDpcd(\'' + addrHex + '\',\'' + valHex + '\')" style="cursor:pointer;color:var(--accent);text-decoration:underline"'
+      : '';
+
+    html += '<tr>';
+    html += '<td class="aux-bit-range"' + addrClick + '>' + addrHex + 'h</td>';
+    html += '<td>' + nameHtml + '</td>';
+    html += '<td class="aux-bit-val ' + valClass + '">0x' + valHex + '</td>';
+    html += '<td style="font-size:11px;color:var(--text-sub);max-width:220px">' + desc + '</td>';
+    html += '</tr>';
+  }
+  html += '</table></div>';
+  return html;
+}
+
+// 解碼主函式（從結構化輸入組合 bytes 後解碼）
+window.auxDecodeAll = function() {
+  var reqBytes = auxBuildReqBytes();
+  var repBytes = auxBuildRepBytes();
+  var resultCard = document.getElementById('aux-decode-result');
+  var resultBody = document.getElementById('aux-decode-result-body');
+
+  var html = '';
+  html += auxDecodeRequest(reqBytes);
+
+  if (repBytes) {
+    html += '<div style="border-top:1px solid var(--border);margin:12px 0"></div>';
+    html += auxDecodeReply(repBytes, reqBytes);
+  }
+
+  resultBody.innerHTML = html;
+  resultBody.style.display = '';
+  var _drHdr = document.getElementById('aux-decode-result-header');
+  var _drHint = document.getElementById('aux-decode-result-hint');
+  if (_drHdr) _drHdr.style.opacity = '';
+  if (_drHint) _drHint.style.display = 'none';
+};
+
+function auxParseHexBytes(str) {
+  var cleaned = str.replace(/[,\s]+/g,' ').trim();
+  var tokens;
+  if (cleaned.indexOf(' ') >= 0) {
+    tokens = cleaned.split(' ');
+  } else if (cleaned.length >= 2 && cleaned.length % 2 === 0) {
+    tokens = cleaned.match(/.{2}/g);
+  } else {
+    tokens = [cleaned];
+  }
+  var bytes = [];
+  for (var i = 0; i < tokens.length; i++) {
+    var v = parseInt(tokens[i], 16);
+    if (isNaN(v)) return null;
+    bytes.push(v & 0xFF);
+  }
+  return bytes;
+}
+
+function auxDecodeRequest(bytes) {
+  var cmd = (bytes[0] >> 4) & 0xF;
+  var addrHi = bytes[0] & 0xF;
+  var addr = (addrHi << 16) | (bytes[1] << 8) | bytes[2];
+  var addrHex = addr.toString(16).toUpperCase().padStart(5, '0');
+
+  var cmdInfo = AUX_REQ_CMD[cmd] || { name: "Unknown (0x" + cmd.toString(16) + ")", nameZh: "未知指令", isNative: cmd >= 8 };
+
+  var html = '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:8px">📤 AUX Request</div>';
+  var _cmdPrimary = (typeof currentLang !== 'undefined' && currentLang === 'en') ? cmdInfo.name : cmdInfo.nameZh;
+  var _cmdSub = (typeof currentLang !== 'undefined' && currentLang === 'en') ? '' : ('<br><span style="color:var(--text-sub);font-size:11px">' + cmdInfo.name + '</span>');
+  html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('cmd') + '</span><span class="aux-result-value">' + _cmdPrimary + _cmdSub + '</span></div>';
+  if (cmdInfo.isNative) {
+    var addrLink = '<span onclick="auxJumpToDpcd(\'' + addrHex + '\', \'\')" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="' + _tAux('jumpDpcd') + '">0x' + addrHex + '</span>';
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('targetAddr') + '</span><span class="aux-result-value">' + addrLink;
+    var dpcdEntry = DPCD_DB[addrHex];
+    if (dpcdEntry) {
+      html += '<br><span style="color:#10b981;font-size:11px">' + dpcdEntry.n + '</span>';
+    }
+    html += '</span></div>';
+  } else {
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('targetAddr') + '</span><span class="aux-result-value">0x' + addrHex;
+    var i2cAddr = (addr >> 1) & 0x7F;
+    var known = I2C_KNOWN_ADDR[i2cAddr] || I2C_KNOWN_ADDR[addr & 0xFF];
+    if (known) html += '<br><span style="color:#fbbf24;font-size:11px">' + known + '</span>';
+    html += '</span></div>';
+  }
+
+  // 數據長度
+  if (bytes.length > 3) {
+    var dataLen = (bytes[3] & 0xFF) + 1;
+    var _rangeStr = (typeof currentLang !== 'undefined' && currentLang === 'en')
+      ? ' (' + _tAux('addrRange') + ': ' + addrHex + 'h\u2013' + (addr + dataLen - 1).toString(16).toUpperCase().padStart(5,'0') + 'h)'
+      : '（' + _tAux('addrRange') + ' ' + addrHex + 'h ~ ' + (addr + dataLen - 1).toString(16).toUpperCase().padStart(5,'0') + 'h）';
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('dataLen') + '</span><span class="aux-result-value">' + dataLen + ' byte' + (dataLen > 1 ? 's' : '') + _rangeStr + '</span></div>';
+
+    // Native Write：顯示寫入數據 + DPCD 地址對照表
+    if (bytes.length > 4) {
+      var dataBytes = bytes.slice(4);
+      html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('data') + '</span><span class="aux-result-value">' + dataBytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
+      // Native Write 的 DPCD 對照表
+      if (cmdInfo.isNative) {
+        html += auxRenderDpcdTable(addr, dataBytes);
+      }
+    }
+  }
+
+  html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('rawBytes') + '</span><span class="aux-result-value" style="color:var(--text-sub)">' + bytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
+
+  return html;
+}
+
+function auxDecodeReply(bytes, reqBytes) {
+  var replyCode = (bytes[0] >> 4) & 0xF;
+  var nativeReply = replyCode & 0x3;  // bits [1:0] of upper nibble
+  var i2cReply = (replyCode >> 2) & 0x3; // bits [3:2] of upper nibble
+  var replyByte = bytes[0] & 0xF0; // 實際 reply byte（上半 nibble）
+
+  var reqCmd = reqBytes ? ((reqBytes[0] >> 4) & 0xF) : 0;
+  var isNative = reqCmd >= 8;
+
+  // 從 Request 取出起始地址
+  var reqAddr = 0;
+  if (reqBytes && reqBytes.length >= 3) {
+    reqAddr = ((reqBytes[0] & 0xF) << 16) | (reqBytes[1] << 8) | reqBytes[2];
+  }
+
+  var html = '<div style="font-size:14px;font-weight:700;color:#10b981;margin-bottom:8px">📥 AUX Reply</div>';
+
+  // ─── 狀態顯示 ───
+  // 統一顯示完整狀態，不分 Native/I2C 模式
+  var replyHex = replyByte.toString(16).toUpperCase().padStart(2, '0') + 'h';
+  var statusLabel = '';
+  var statusColor = '#10b981';
+
+  if (nativeReply === 0 && i2cReply === 0) {
+    statusLabel = 'AUX ACK' + (isNative ? '' : ' + I2C ACK');
+    statusColor = '#10b981'; // 綠
+  } else if (nativeReply === 1) {
+    statusLabel = 'AUX NACK' + _tAux('nackDevRej');
+    statusColor = '#f87171'; // 紅
+  } else if (nativeReply === 2) {
+    statusLabel = 'AUX DEFER' + _tAux('deferBusy');
+    statusColor = '#fbbf24'; // 黃
+  } else if (nativeReply === 0 && i2cReply === 1) {
+    statusLabel = 'AUX ACK + I2C NACK' + _tAux('i2cNackNoResp');
+    statusColor = '#fb923c'; // 橘
+  } else if (nativeReply === 0 && i2cReply === 2) {
+    statusLabel = 'AUX ACK + I2C DEFER' + _tAux('i2cDeferBusy');
+    statusColor = '#fb923c'; // 橘
+  } else {
+    statusLabel = _tAux('unknownReply', {code: replyCode.toString(16).toUpperCase()});
+    statusColor = '#f87171';
+  }
+
+  // 檢查是否為已知 reply code（上半 nibble）
+  var knownCodes = {0:1, 1:1, 2:1, 4:1, 8:1};
+  var isKnownCode = !!knownCodes[replyCode];
+
+  html += '<div class="aux-result-row"><span class="aux-result-label">Reply Status</span><span class="aux-result-value" style="color:' + statusColor + '">' + replyHex + ' — ' + statusLabel + '</span></div>';
+
+  // 如果有 I2C 部分且非 Native，分別顯示
+  if (!isNative && (i2cReply !== 0 || nativeReply !== 0)) {
+    var auxStatusText = AUX_REP_NATIVE[nativeReply] || 'Unknown';
+    var i2cStatusText = AUX_REP_I2C[i2cReply] || 'Unknown';
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('auxLayer') + '</span><span class="aux-result-value">' + auxStatusText + '</span></div>';
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('i2cLayer') + '</span><span class="aux-result-value">' + i2cStatusText + '</span></div>';
+  }
+
+  // ─── 異常判斷 / 情境提示 ───
+  if (isNative && (i2cReply === 1 || i2cReply === 2)) {
+    // Native 收到 I2C NACK/DEFER → 紅色警告
+    html += '<div class="aux-reply-hint hint-red">' + _tAux('hintNativeI2C', {hex: replyHex}) + '</div>';
+  } else if (!isNative && nativeReply === 0 && i2cReply === 1) {
+    // I2C 收到 40h → 橘色
+    html += '<div class="aux-reply-hint hint-orange">' + _tAux('hintI2CNack') + '</div>';
+  } else if (!isNative && nativeReply === 0 && i2cReply === 2) {
+    // I2C 收到 80h → 橘色
+    html += '<div class="aux-reply-hint hint-orange">' + _tAux('hintI2CDefer') + '</div>';
+  }
+  // NACK（不分 Native/I2C）
+  if (nativeReply === 1) {
+    html += '<div class="aux-reply-hint hint-orange">' + _tAux('hintAuxNack') + '</div>';
+  }
+  // DEFER（不分 Native/I2C）
+  if (nativeReply === 2) {
+    html += '<div class="aux-reply-hint hint-info">' + _tAux('hintAuxDefer') + '</div>';
+  }
+  // 未定義的 Reply Code
+  if (!isKnownCode) {
+    html += '<div class="aux-reply-hint hint-red">' + _tAux('hintUnknownCode', {hex: replyHex}) + '</div>';
+  }
+  // 下半 nibble 非 0 警告（DP 規格要求 Reply byte 下半 nibble 應為 0）
+  if ((bytes[0] & 0x0F) !== 0) {
+    html += '<div class="aux-reply-hint hint-orange">' + _tAux('hintLowNibble', {byte: bytes[0].toString(16).toUpperCase().padStart(2,'0')}) + '</div>';
+  }
+
+  // ─── 數據 ───
+  if (bytes.length > 1) {
+    var dataBytes = bytes.slice(1);
+    html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('data') + '</span><span class="aux-result-value">' + dataBytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
+
+    // Native Read Reply：顯示 DPCD 地址對照表
+    if (isNative && reqAddr >= 0) {
+      html += auxRenderDpcdTable(reqAddr, dataBytes);
+    }
+  }
+
+  html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('rawBytes') + '</span><span class="aux-result-value" style="color:var(--text-sub)">' + bytes.map(function(b){return b.toString(16).toUpperCase().padStart(2,'0')}).join(' ') + '</span></div>';
+
+  return html;
+}
+
+// 初始化結構化輸入（頁面載入時呼叫）
+function auxInitDecodeStructural() {
+  auxInitLenSelect();
+  auxUpdateRepOptions();
+  auxUpdateReqRaw();
+  auxUpdateRepRaw();
+
+  // ── 事件委派：確保所有 Request/Reply 欄位變更都觸發預覽更新 ──
+  // 涵蓋動態生成的 hex box、select、input 等所有元素
+  var reqCmd = document.getElementById('aux-req-cmd');
+  var reqLen = document.getElementById('aux-req-len');
+  var reqDataFields = document.getElementById('aux-req-data-fields');
+  var repDataFields = document.getElementById('aux-rep-data-fields');
+  var repStatusSel = document.getElementById('aux-rep-status-select');
+  var repStatusInp = document.getElementById('aux-rep-status-input');
+
+  // Request 欄位：用 addEventListener 補強 inline handler
+  if (reqCmd) reqCmd.addEventListener('change', function() { auxOnReqChange(); });
+  // Address 滾輪：drum picker 的 onChange 已在 initAllHexDrums 中綁定
+  // （保留此段註解以說明原始 select change listener 已移除）
+  if (reqLen) reqLen.addEventListener('change', function() { auxOnReqChange(); });
+
+  // Request Data hex boxes 容器：事件委派（捕捉動態生成的 input）
+  if (reqDataFields) {
+    reqDataFields.addEventListener('input', function(e) {
+      if (e.target.classList.contains('aux-hex-box')) { auxUpdateReqRaw(); if (typeof auxWaveRender === 'function') auxWaveRender(); }
+    });
+  }
+
+  // Reply Data hex boxes 容器：事件委派
+  if (repDataFields) {
+    repDataFields.addEventListener('input', function(e) {
+      if (e.target.classList.contains('aux-hex-box')) { auxUpdateRepRaw(); if (typeof auxWaveRender === 'function') auxWaveRender(); }
+    });
+  }
+
+  // Reply Status：補強事件綁定
+  if (repStatusSel) repStatusSel.addEventListener('change', function() { auxOnRepStatusSelect(); });
+  if (repStatusInp) repStatusInp.addEventListener('input', function() { auxOnRepChange(); });
+}
+
+// ─── 連動：從 AUX 解碼跳到 DPCD 查詢 ───
+window.auxJumpToDpcd = function(addr, val) {
+  auxSwitchTab('dpcd');
+  auxSetAddrWheels(addr);
+  auxUpdateValCombo(addr);
+  if (val) {
+    var sel = document.getElementById('aux-dpcd-val-select');
+    var inp = document.getElementById('aux-dpcd-val');
+    // 嘗試在 select 中選中
+    if (sel && sel.style.display !== 'none') {
+      var found = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value.toUpperCase() === val.toUpperCase()) { sel.value = sel.options[i].value; found = true; break; }
+      }
+      if (!found) { var w = document.getElementById('aux-dpcd-val-custom-wrap'); sel.style.display = 'none'; w.style.display = 'block'; inp.value = val; }
+    } else {
+      var w2 = document.getElementById('aux-dpcd-val-custom-wrap'); w2.style.display = 'block'; inp.value = val;
+    }
+  }
+  auxLookupDPCD(addr, val || '');
+  document.getElementById('aux-dpcd-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+window.auxApplyUrlParams = function() {
+  var params = new URLSearchParams(location.search);
+  var tab = params.get('auxTab');
+  if (tab === 'dpcd' && typeof auxSwitchTab === 'function') auxSwitchTab('dpcd');
+  var addr = params.get('dpcd');
+  if (addr && /^[0-9a-fA-FxX]{1,7}$/.test(addr)) {
+    var val = params.get('val') || '';
+    window.auxJumpToDpcd(addr, val);
+  }
+};
+
+// ─── Hex Drum Picker Factory ───
+// Registry: drumId → { getValue, setValue, destroy }
+var _hexDrumRegistry = {};
+
+function createHexPicker(drumEl, onChange) {
+  var HEX = ['0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'];
+  var CELL_H = 28;        // px per cell
+  var VISIBLE = 5;        // visible rows
+  var DRUM_H = CELL_H * VISIBLE; // 140px
+  var COPIES = 5;         // repeat HEX array N times for seamless looping
+  var TOTAL = HEX.length * COPIES; // 80 cells
+  var CENTER_COPY = Math.floor(COPIES / 2); // index of the "home" copy
+
+  var drumId = drumEl.getAttribute('data-drum-id');
+  var hiddenInput = document.getElementById(drumId);
+
+  // Build internal DOM
+  var track = document.createElement('div');
+  track.className = 'hex-drum-track';
+  for (var c = 0; c < COPIES; c++) {
+    for (var h = 0; h < HEX.length; h++) {
+      var cell = document.createElement('div');
+      cell.className = 'hex-drum-cell';
+      cell.textContent = HEX[h];
+      track.appendChild(cell);
+    }
+  }
+  drumEl.appendChild(track);
+
+  // Highlight bar: 獨立 DOM div，避免 iOS Safari GPU compositing 吃掉 pseudo-element
+  var hl = document.createElement('div');
+  hl.className = 'hex-drum-highlight';
+  drumEl.appendChild(hl);
+
+  // Fade masks
+  var ft = document.createElement('div');
+  ft.className = 'hex-drum-fade-top';
+  drumEl.appendChild(ft);
+  var fb = document.createElement('div');
+  fb.className = 'hex-drum-fade-bottom';
+  drumEl.appendChild(fb);
+
+  // State
+  var selectedIndex = 0; // 0..15 (index in HEX)
+  var currentY = 0;
+  var dragging = false;
+  var startY = 0;
+  var startOffset = 0;
+  var velocity = 0;
+  // 速度採樣環形緩衝區（追蹤最近 ~100ms 的 move 事件）
+  var moveSamples = [];  // [{ y, t }, ...]
+  var MAX_SAMPLE_AGE = 100; // ms
+
+  function indexToY(idx) {
+    // Position so that HEX[idx] in the center copy sits at the highlight bar
+    var cellIdx = CENTER_COPY * 16 + idx;
+    var centerOffset = (VISIBLE - 1) / 2; // 2
+    return -(cellIdx - centerOffset) * CELL_H;
+  }
+
+  function yToNearestIndex(y) {
+    // indexToY: y = -(cellIdx - centerOffset) * CELL_H
+    // reverse:  cellIdx = -y / CELL_H + centerOffset
+    var centerOffset = (VISIBLE - 1) / 2;
+    var cellIdx = Math.round(-y / CELL_H + centerOffset);
+    // Wrap to 0..15
+    return ((cellIdx % 16) + 16) % 16;
+  }
+
+  function setTrackY(y, animate) {
+    if (animate) {
+      track.classList.add('snapping');
+    } else {
+      track.classList.remove('snapping');
+    }
+    track.style.transform = 'translateY(' + y + 'px)';
+    currentY = y;
+  }
+
+  // Recentre track to avoid drifting too far from center copy
+  function recentre() {
+    var centerOffset = (VISIBLE - 1) / 2;
+    var cellIdx = Math.round(-currentY / CELL_H + centerOffset);
+    // Bring cellIdx into center copy range
+    var homeIdx = CENTER_COPY * 16 + selectedIndex;
+    if (Math.abs(cellIdx - homeIdx) >= 16) {
+      // Jump without animation — >=16 確保相鄰 copy 也能回歸 center
+      setTrackY(indexToY(selectedIndex), false);
+    }
+  }
+
+  function snapTo(idx, animate) {
+    selectedIndex = ((idx % 16) + 16) % 16;
+    var prevVal = hiddenInput.value;
+    hiddenInput.value = HEX[selectedIndex];
+    setTrackY(indexToY(selectedIndex), animate);
+    updateCellColors();
+    if (animate) recentreAfterSnap();
+    if (hiddenInput.value !== prevVal) {
+      // Bubble a change event so document-level saveFormState listener fires
+      try { hiddenInput.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
+      if (onChange) onChange(HEX[selectedIndex]);
+    }
+  }
+
+  var _recentreTimer = 0;
+  function recentreAfterSnap() {
+    // After snap animation ends, silently recentre
+    clearTimeout(_recentreTimer);
+    _recentreTimer = setTimeout(function() { _recentreTimer = 0; recentre(); }, 280);
+  }
+  function cancelRecentreTimer() {
+    if (_recentreTimer) { clearTimeout(_recentreTimer); _recentreTimer = 0; }
+  }
+
+  function updateCellColors() {
+    var cells = track.children;
+    var centerOffset = (VISIBLE - 1) / 2;
+    var activeCellIdx = CENTER_COPY * 16 + selectedIndex;
+    for (var i = 0; i < cells.length; i++) {
+      var dist = Math.abs(i - activeCellIdx);
+      if (dist === 0) {
+        cells[i].style.color = '#e2e8f0';
+        cells[i].style.fontWeight = '700';
+      } else if (dist === 1) {
+        cells[i].style.color = '#94a3b8';
+        cells[i].style.fontWeight = '600';
+      } else {
+        cells[i].style.color = '#475569';
+        cells[i].style.fontWeight = '400';
+      }
+    }
+  }
+
+  // ── Pointer (mouse + touch) handling ──
+  function onPointerStart(y) {
+    cancelMomentum();
+    cancelRecentreTimer();
+    dragging = true;
+    startY = y;
+    startOffset = currentY;
+    velocity = 0;
+    moveSamples = [{ y: y, t: Date.now() }];
+    track.classList.remove('snapping');
+  }
+
+  function onPointerMove(y) {
+    if (!dragging) return;
+    var dy = y - startY;
+    setTrackY(startOffset + dy, false);
+    // 記錄採樣點，淘汰過期的
+    var now = Date.now();
+    moveSamples.push({ y: y, t: now });
+    var cutoff = now - MAX_SAMPLE_AGE;
+    while (moveSamples.length > 1 && moveSamples[0].t < cutoff) {
+      moveSamples.shift();
+    }
+  }
+
+  function computeReleaseVelocity() {
+    // 從最近 100ms 的採樣計算平均速度 (px/ms)
+    if (moveSamples.length < 2) return 0;
+    var first = moveSamples[0];
+    var last = moveSamples[moveSamples.length - 1];
+    var dt = last.t - first.t;
+    if (dt <= 0) return 0;
+    return (last.y - first.y) / dt;
+  }
+
+  function onPointerEnd() {
+    if (!dragging) return;
+    dragging = false;
+    velocity = computeReleaseVelocity();
+    if (Math.abs(velocity) > 0.08) {
+      startMomentum();
+    } else {
+      var idx = yToNearestIndex(currentY);
+      snapTo(idx, true);
+    }
+  }
+
+  // ── rAF 慣性減速 + 末段 lerp 引導到 snap ──
+  var momentumRaf = 0;
+  var MOMENTUM_FRICTION = 0.975;  // 每 16ms 保留 97.5% 速度
+  var MOMENTUM_BOOST = 1.3;       // 初速度放大係數
+  var GUIDE_THRESHOLD = 1.5;      // 剩餘距離 < 1.5 cell 時切換引導模式
+  var LERP_FACTOR = 0.15;         // 引導模式每幀靠近 15%
+  var LERP_FINISH = 0.5;          // 距目標 < 0.5px 視為到達
+
+  function startMomentum() {
+    var v = velocity * 16 * MOMENTUM_BOOST; // px/frame
+    var lastTime = performance.now();
+    var guiding = false;
+    var guideTargetY = 0;
+    var guideTargetIdx = 0;
+
+    function tick(now) {
+      var dt = now - lastTime;
+      if (dt <= 0) { momentumRaf = requestAnimationFrame(tick); return; }
+      lastTime = now;
+
+      if (!guiding) {
+        // ── 慣性階段 ──
+        var decay = Math.pow(MOMENTUM_FRICTION, dt / 16);
+        v *= decay;
+
+        // 估算剩餘慣性距離：geometric sum = v / (1 - friction_per_frame)
+        // friction_per_frame 在 16ms 基準下就是 MOMENTUM_FRICTION
+        var remaining = Math.abs(v / (1 - MOMENTUM_FRICTION));
+
+        setTrackY(currentY + v, false);
+        wrapTrackIfNeeded();
+
+        // 剩餘距離夠小 → 計算 snap 目標，切換引導模式
+        if (remaining < GUIDE_THRESHOLD * CELL_H) {
+          var projectedY = currentY + v / (1 - MOMENTUM_FRICTION);
+          guideTargetIdx = yToNearestIndex(projectedY);
+          guideTargetY = nearestCopyY(guideTargetIdx, currentY);
+          guiding = true;
+        }
+
+        momentumRaf = requestAnimationFrame(tick);
+      } else {
+        // ── 引導階段：lerp 平滑收斂到 snap 目標 ──
+        var diff = guideTargetY - currentY;
+
+        if (Math.abs(diff) < LERP_FINISH) {
+          // 到達：精確設定位置，結束動畫
+          momentumRaf = 0;
+          selectedIndex = ((guideTargetIdx % 16) + 16) % 16;
+          var prevVal = hiddenInput.value;
+          hiddenInput.value = HEX[selectedIndex];
+          setTrackY(guideTargetY, false);
+          updateCellColors();
+          recentre();
+          if (hiddenInput.value !== prevVal && onChange) onChange(HEX[selectedIndex]);
+          return;
+        }
+
+        // 每幀靠近目標 — frame-rate independent lerp
+        var frames = dt / 16;
+        var step = 1 - Math.pow(1 - LERP_FACTOR, frames);
+        setTrackY(currentY + diff * step, false);
+        momentumRaf = requestAnimationFrame(tick);
+      }
+    }
+    momentumRaf = requestAnimationFrame(tick);
+  }
+
+  // 如果 track 滾出 copies 範圍，瞬間跳回 center copy（視覺不中斷因為內容重複）
+  function wrapTrackIfNeeded() {
+    var centerOffset = (VISIBLE - 1) / 2;
+    var minY = -((COPIES * 16 - 1) - centerOffset) * CELL_H;
+    var maxY = centerOffset * CELL_H;
+    if (currentY < minY || currentY > maxY) {
+      // 算出等效的 center copy 位置
+      var idx = yToNearestIndex(currentY);
+      var homeY = indexToY(idx);
+      var remainder = currentY - nearestCopyY(idx, currentY);
+      currentY = homeY + remainder;
+      track.style.transform = 'translateY(' + currentY + 'px)';
+    }
+  }
+
+  // 給定 hex index (0-15)，找離 refY 最近的那份 copy 的 Y 位置
+  function nearestCopyY(idx, refY) {
+    var best = indexToY(idx);
+    var bestDist = Math.abs(best - refY);
+    for (var c = 0; c < COPIES; c++) {
+      var cellIdx = c * 16 + idx;
+      var centerOffset = (VISIBLE - 1) / 2;
+      var candY = -(cellIdx - centerOffset) * CELL_H;
+      if (Math.abs(candY - refY) < bestDist) {
+        best = candY;
+        bestDist = Math.abs(candY - refY);
+      }
+    }
+    return best;
+  }
+
+  function cancelMomentum() {
+    if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0; }
+    // 讀取當前實際 translateY（CSS transition snap 可能進行到一半）
+    var cs = getComputedStyle(track);
+    var mat = cs.transform;
+    if (mat && mat !== 'none') {
+      var parts = mat.match(/matrix.*\((.+)\)/);
+      if (parts) {
+        var vals = parts[1].split(',');
+        currentY = parseFloat(vals[vals.length - 1]) || currentY;
+      }
+    }
+    track.classList.remove('snapping');
+    track.style.transform = 'translateY(' + currentY + 'px)';
+  }
+
+  // Mouse events
+  drumEl.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    onPointerStart(e.clientY);
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (dragging) { e.preventDefault(); onPointerMove(e.clientY); }
+  });
+  document.addEventListener('mouseup', function() { onPointerEnd(); });
+
+  // Touch events — preventDefault + stopPropagation 阻止瀏覽器 scroll / pull-to-refresh
+  drumEl.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.touches.length === 1) {
+      onPointerStart(e.touches[0].clientY);
+    }
+  }, { passive: false });
+  drumEl.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragging && e.touches.length === 1) {
+      onPointerMove(e.touches[0].clientY);
+    }
+  }, { passive: false });
+  drumEl.addEventListener('touchend', function(e) { e.stopPropagation(); onPointerEnd(); });
+  drumEl.addEventListener('touchcancel', function(e) { e.stopPropagation(); onPointerEnd(); });
+
+  // Wheel event
+  drumEl.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    cancelMomentum();
+    var dir = e.deltaY > 0 ? 1 : -1;
+    var next = ((selectedIndex + dir) % 16 + 16) % 16;
+    snapTo(next, true);
+  }, { passive: false });
+
+  // ── Public API ──
+  function getValue() { return HEX[selectedIndex]; }
+
+  function setValue(hexChar) {
+    var upper = (hexChar || '0').toUpperCase();
+    var idx = HEX.indexOf(upper);
+    if (idx < 0) idx = 0;
+    selectedIndex = idx;
+    hiddenInput.value = HEX[idx];
+    setTrackY(indexToY(idx), false);
+    updateCellColors();
+  }
+
+  // Init
+  var initVal = hiddenInput.value || '0';
+  setValue(initVal);
+
+  var api = { getValue: getValue, setValue: setValue };
+  _hexDrumRegistry[drumId] = api;
+  return api;
+}
+
+// ─── 在 picker group 容器上攔截 touch，防止冒泡觸發 pull-to-refresh ───
+function blockContainerTouch(container) {
+  if (!container) return;
+  container.addEventListener('touchstart', function(e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+  container.addEventListener('touchmove', function(e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+}
+
+// ─── DPCD 地址滾筒 onChange：立即查詢（滾筒 snap 後值已確定，不需 debounce）───
+function _dpcdAddrOnChange() {
+  var addr = auxGetAddrFromWheels();
+  auxUpdateValCombo(addr);
+  auxLookupDPCD(addr, auxGetCurrentVal());
+}
+
+// ─── 初始化所有 drum picker ───
+function initAllHexDrums() {
+  // DPCD 查詢地址 drums
+  var dpcdContainer = document.getElementById('aux-dpcd-addr-wheels');
+  if (dpcdContainer) {
+    blockContainerTouch(dpcdContainer);
+    var dpcdDrums = dpcdContainer.querySelectorAll('.hex-drum');
+    dpcdDrums.forEach(function(drum) {
+      createHexPicker(drum, _dpcdAddrOnChange);
+    });
+  }
+  // AUX 解碼地址 drums
+  var decodeContainer = document.getElementById('aux-decode-addr-wheels');
+  if (decodeContainer) {
+    blockContainerTouch(decodeContainer);
+    var decodeDrums = decodeContainer.querySelectorAll('.hex-drum');
+    decodeDrums.forEach(function(drum) {
+      createHexPicker(drum, function() {
+        auxOnReqChange();
+      });
+    });
+  }
+}
+
+// ─── 地址滾輪輔助函式 ───
+function auxGetAddrFromWheels() {
+  var ids = ['aux-addr-d4','aux-addr-d3','aux-addr-d2','aux-addr-d1','aux-addr-d0'];
+  var result = '';
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    result += el ? el.value : '0';
+  }
+  return result.toUpperCase();
+}
+
+function auxSetAddrWheels(addrStr) {
+  var s = (addrStr || '').toUpperCase().replace(/^0X/i, '').replace(/[^0-9A-F]/g, '');
+  s = s.padStart(5, '0').slice(-5);
+  var ids = ['aux-addr-d4','aux-addr-d3','aux-addr-d2','aux-addr-d1','aux-addr-d0'];
+  for (var i = 0; i < 5; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.value = s.charAt(i);
+    if (_hexDrumRegistry[ids[i]]) _hexDrumRegistry[ids[i]].setValue(s.charAt(i));
+  }
+}
+
+window.auxGetAddrFromWheels = auxGetAddrFromWheels;
+window.auxSetAddrWheels = auxSetAddrWheels;
+
+// ─── AUX 解碼分頁地址滾輪輔助函式 ───
+function auxGetDecodeAddrFromWheels() {
+  var ids = ['aux-decode-addr-d4','aux-decode-addr-d3','aux-decode-addr-d2','aux-decode-addr-d1','aux-decode-addr-d0'];
+  var result = '';
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    result += el ? el.value : '0';
+  }
+  return result.toUpperCase();
+}
+
+function auxSetDecodeAddrWheels(addrStr) {
+  var s = (addrStr || '').toUpperCase().replace(/^0X/i, '').replace(/[^0-9A-F]/g, '');
+  s = s.padStart(5, '0').slice(-5);
+  var ids = ['aux-decode-addr-d4','aux-decode-addr-d3','aux-decode-addr-d2','aux-decode-addr-d1','aux-decode-addr-d0'];
+  for (var i = 0; i < 5; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.value = s.charAt(i);
+    if (_hexDrumRegistry[ids[i]]) _hexDrumRegistry[ids[i]].setValue(s.charAt(i));
+  }
+}
+
+window.auxGetDecodeAddrFromWheels = auxGetDecodeAddrFromWheels;
+window.auxSetDecodeAddrWheels = auxSetDecodeAddrWheels;
+
+// ─── 值 combo box 管理 ───
+function auxUpdateValCombo(addrStr) {
+  var sel = document.getElementById('aux-dpcd-val-select');
+  var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
+  if (!sel || !wrap) return;
+  var backBtn = wrap.querySelector('.aux-combo-back');
+  var addr = addrStr ? addrStr.toUpperCase().replace(/^0X/i,'').padStart(5,'0') : '';
+  var entry = addr ? DPCD_DB[addr] : null;
+  var hasVV = entry && entry.vv && entry.vv.length > 0;
+  if (!hasVV) {
+    // 無合法值清單：隱藏 select，顯示自訂輸入，隱藏「↩ 選單」按鈕（無選單可返回）
+    sel.style.display = 'none';
+    sel.innerHTML = '';
+    sel.value = '';
+    wrap.style.display = 'block';
+    if (backBtn) backBtn.style.display = 'none';
+    return;
+  }
+  // 有合法值：顯示 select，隱藏自訂輸入，確保「↩ 選單」按鈕恢復
+  sel.innerHTML = '<option value="" style="color:#94a3b8">' + _tAux('selectVal') + '</option>';
+  entry.vv.forEach(function(item) {
+    var hex = item.v.toString(16).toUpperCase().padStart(2,'0');
+    sel.innerHTML += '<option value="' + hex + '">' + item.l + '</option>';
+  });
+  sel.innerHTML += '<option value="__custom__" style="color:#fbbf24">' + _tAux('customInput') + '</option>';
+  sel.style.display = 'block';
+  wrap.style.display = 'none';
+  if (backBtn) backBtn.style.display = '';
+  sel.value = '';
+}
+
+// DPCD 值 combo：返回選單（安全版：若當前地址無 vv 則不切換）
+window.auxDpcdValBackToSelect = function() {
+  var addr = auxGetAddrFromWheels();
+  var addrNorm = addr ? addr.toUpperCase().replace(/^0X/i,'').padStart(5,'0') : '';
+  var entry = addrNorm ? DPCD_DB[addrNorm] : null;
+  if (!entry || !entry.vv || entry.vv.length === 0) {
+    // 當前地址沒有合法值選單，不做切換
+    return;
+  }
+  var sel = document.getElementById('aux-dpcd-val-select');
+  var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
+  sel.style.display = 'block';
+  wrap.style.display = 'none';
+  sel.value = '';
+  // 觸發查詢更新
+  auxLookupDPCD(addr, '');
+};
+
+function auxGetCurrentVal() {
+  var sel = document.getElementById('aux-dpcd-val-select');
+  var inp = document.getElementById('aux-dpcd-val');
+  var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
+  if (sel && sel.style.display !== 'none' && sel.value && sel.value !== '__custom__') return sel.value;
+  if (wrap && wrap.style.display !== 'none' && inp) return inp.value.trim();
+  return '';
+}
+
+// ─── 即時查詢綁定 ───
+function auxInitListeners() {
+  var valInput = document.getElementById('aux-dpcd-val');
+  var valSelect = document.getElementById('aux-dpcd-val-select');
+  // DPCD 地址滾輪的 debounce 觸發已在 initAllHexDrums 中處理
+  // （保留此段註解以說明原始 select change listener 已移除）
+  var firstWheel = document.getElementById('aux-addr-d4');
+  if (!firstWheel) return;
+
+  var valDebounce;
+  function triggerValLookup() {
+    clearTimeout(valDebounce);
+    valDebounce = setTimeout(function() {
+      auxLookupDPCD(auxGetAddrFromWheels(), auxGetCurrentVal());
+    }, 200);
+  }
+  if (valInput) valInput.addEventListener('input', triggerValLookup);
+  if (valSelect) {
+    valSelect.addEventListener('change', function() {
+      if (valSelect.value === '__custom__') {
+        var wrap = document.getElementById('aux-dpcd-val-custom-wrap');
+        valSelect.style.display = 'none';
+        wrap.style.display = 'block';
+        valInput.value = '';
+        valInput.focus();
+      } else {
+        triggerValLookup();
+      }
+    });
+  }
+}
+
+// 暴露到 window 供 Session Persistence 還原後呼叫
+window.auxLookupDPCD = auxLookupDPCD;
+window.auxUpdateValCombo = auxUpdateValCombo;
+window.auxGetCurrentVal = auxGetCurrentVal;
+
+// ─── DPCD 反向搜尋（含分頁）───
+(function() {
+  var searchTimer = null;
+  var PAGE_SIZE = 20;
+  var _results = [];   // 完整搜尋結果
+  var _query   = '';   // 目前查詢字串
+  var _page    = 0;    // 目前頁（0-indexed）
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function escRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  }
+  function hlText(text, query) {
+    if (!text) return '';
+    var safe = escHtml(String(text));
+    if (!query) return safe;
+    var re = new RegExp('(' + escRe(escHtml(query)) + ')', 'gi');
+    return safe.replace(re, '<span class="aux-search-highlight">$1</span>');
+  }
+
+  function buildResults(query) {
+    var q = query.toLowerCase();
+    var _isEn = (typeof currentLang !== 'undefined' && currentLang === 'en');
+    var out = [];
+    if (typeof DPCD_DB === 'undefined') return out;
+    var addrs = Object.keys(DPCD_DB);
+    for (var i = 0; i < addrs.length; i++) {
+      var addr = addrs[i];
+      var e = DPCD_DB[addr];
+      var matchText = null;
+      if (e.n && e.n.toLowerCase().indexOf(q) >= 0) { matchText = e.n; }
+      else if (!_isEn && e.c && e.c.toLowerCase().indexOf(q) >= 0) { matchText = e.c; }
+      else if (_isEn && e.e && e.e.toLowerCase().indexOf(q) >= 0) { matchText = e.e; }
+      else if (!_isEn && e.d && e.d.toLowerCase().indexOf(q) >= 0) { matchText = e.d; }
+      else if (e.vv) {
+        for (var vi = 0; vi < e.vv.length && !matchText; vi++) {
+          if (e.vv[vi].l && e.vv[vi].l.toLowerCase().indexOf(q) >= 0) matchText = e.vv[vi].l;
+        }
+      }
+      else if (e.b) {
+        for (var bi = 0; bi < e.b.length && !matchText; bi++) {
+          if (e.b[bi].n && e.b[bi].n.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].n;
+          else if (_isEn && e.b[bi].de && e.b[bi].de.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].de;
+          else if (!_isEn && e.b[bi].d && e.b[bi].d.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].d;
+        }
+      }
+      if (matchText !== null) out.push({ addr: addr, n: e.n || '', c: e.c || '', matchText: matchText });
+    }
+    return out;
+  }
+
+  function renderPage(page) {
+    var container = document.getElementById('aux-dpcd-search-results');
+    if (!container) return;
+    if (_results.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:var(--text-sub);padding:6px 0">' + _tAux('searchNoResult') + '</div>';
+      container.style.display = 'block';
+      return;
+    }
+    var totalPages = Math.ceil(_results.length / PAGE_SIZE);
+    page = Math.max(0, Math.min(page, totalPages - 1));
+    _page = page;
+
+    var _isEn = (typeof currentLang !== 'undefined' && currentLang === 'en');
+    var q = _query.toLowerCase();
+    var start = page * PAGE_SIZE;
+    var end = Math.min(start + PAGE_SIZE, _results.length);
+    var html = '';
+    for (var r = start; r < end; r++) {
+      var res = _results[r];
+      var isNameMatch = res.n && res.n.toLowerCase().indexOf(q) >= 0;
+      var isCMatch = !_isEn && res.c && res.c.toLowerCase().indexOf(q) >= 0;
+      var _rc = _dbC(res.c);
+      html += '<div class="aux-dpcd-search-item">';
+      html += '<span class="aux-search-addr" onclick="auxJumpToDpcd(\'' + res.addr + '\',\'\')" title="' + _tAux('jumpDpcd') + '">0x' + res.addr + '</span>';
+      if (res.n) html += '<span style="font-size:13px;color:var(--text);margin-left:8px">' + hlText(res.n, isNameMatch ? _query : '') + '</span>';
+      if (_rc) html += '<span style="font-size:12px;color:var(--text-sub);margin-left:6px">' + hlText(_rc, isCMatch ? _query : '') + '</span>';
+      if (!isNameMatch && !isCMatch) {
+        var _matchDisplay = _isEn ? res.matchText : _dbD(res.matchText);
+        if (_matchDisplay) html += '<div class="aux-search-match">' + hlText(_matchDisplay, _query) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    // 分頁列（超過一頁才顯示）
+    if (totalPages > 1) {
+      var isFirst = (page === 0);
+      var isLast  = (page === totalPages - 1);
+      var pageInfo = _tAux('searchPageOf', { p: page + 1, t: totalPages });
+      html += '<div class="aux-search-pagination">';
+      html += '<button class="aux-search-pg-btn" onclick="auxDpcdGoPage(0)" title="' + _tAux('pgFirst') + '"' + (isFirst ? ' disabled' : '') + '>⏮</button>';
+      html += '<button class="aux-search-pg-btn" onclick="auxDpcdGoPage(' + (page - 1) + ')" title="' + _tAux('pgPrev') + '"' + (isFirst ? ' disabled' : '') + '>◀</button>';
+      html += '<span class="aux-search-pg-info">' + pageInfo + '</span>';
+      html += '<button class="aux-search-pg-btn" onclick="auxDpcdGoPage(' + (page + 1) + ')" title="' + _tAux('pgNext') + '"' + (isLast ? ' disabled' : '') + '>▶</button>';
+      html += '<button class="aux-search-pg-btn" onclick="auxDpcdGoPage(' + (totalPages - 1) + ')" title="' + _tAux('pgLast') + '"' + (isLast ? ' disabled' : '') + '>⏭</button>';
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+    container.style.display = 'block';
+  }
+
+  function auxDpcdSearch(query) {
+    var container = document.getElementById('aux-dpcd-search-results');
+    if (!container) return;
+    query = (query || '').trim();
+    if (query.length < 2) {
+      container.style.display = 'none';
+      container.innerHTML = '';
+      _results = [];
+      _query = '';
+      _page = 0;
+      return;
+    }
+    _query = query;
+    _results = buildResults(query);
+    _page = 0;
+    renderPage(0);
+  }
+
+  function auxDpcdGoPage(page) {
+    renderPage(page);
+    // 捲回搜尋輸入框頂部，讓使用者看到新結果
+    var inp = document.getElementById('aux-dpcd-search-input');
+    if (inp) inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  window.auxDpcdSearch = auxDpcdSearch;
+  window.auxDpcdGoPage  = auxDpcdGoPage;
+
+  function initDpcdSearch() {
+    var inp = document.getElementById('aux-dpcd-search-input');
+    if (!inp) return;
+    inp.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() { auxDpcdSearch(inp.value); }, 300);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDpcdSearch);
+  } else {
+    initDpcdSearch();
+  }
+})();
+
+// ═══════════ AUX 波形（Manchester II）═══════════
+
+// Segment colors
+var AUXW_COLOR = {
+  preamble: '#8b5cf6',
+  start:    '#3b82f6',
+  command:  '#f97316',
+  address:  '#10b981',
+  length:   '#eab308',
+  data:     '#06b6d4',
+  stop:     '#3b82f6',
+  idle:     '#374151'
+};
+
+var auxWaveZoomHVal = 1.0;
+var auxWaveLastAllSegs = null;  // combined segs for minimap/FS
+var auxWaveLastTotalBits = 0;
+
+// AUX 波形 fullscreen state
+var auxWaveFs = null;
+var auxWaveFsZoomH = 1.0;
+var _auxWaveUnlocked = false; // only show wave body after decode button is pressed
+
+// Check if a DPCD byte value at a given address is flagged as abnormal
+function auxIsAbnormalDpcdByte(addrNum, byteVal) {
+  var addrHex = addrNum.toString(16).toUpperCase().padStart(5, '0');
+  if (typeof DPCD_SUMMARIZE !== 'undefined' && DPCD_SUMMARIZE[addrHex]) {
+    var res = DPCD_SUMMARIZE[addrHex](byteVal);
+    if (res && res.indexOf('aux-anomaly') >= 0) return true;
+  }
+  if (typeof DPCD_DB !== 'undefined' && DPCD_DB[addrHex]) {
+    var entry = DPCD_DB[addrHex];
+    if (entry.vv && entry.vv.length > 0) {
+      for (var vi = 0; vi < entry.vv.length; vi++) {
+        if (entry.vv[vi].v === byteVal) return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+window.auxDpcdDb = DPCD_DB;
+window.auxDpcdDbName = _dbC;
+window.auxDpcdDbDesc = _dbDesc;
+window.auxDpcdBitDesc = _dbBitDesc;
+window.auxDpcdValueLabel = normVvLabel;
+window.auxIsAbnormalDpcdByte = auxIsAbnormalDpcdByte;
+
+// Convert a byte to an array of bits (MSB-first)
+function auxWaveByteToBits(byte, count) {
+  var bits = [];
+  for (var i = count - 1; i >= 0; i--) {
+    bits.push((byte >> i) & 1);
+  }
+  return bits;
+}
+
+// Build frame segments from raw bytes (Request format: cmd+addr+len+data)
+function auxWaveBuildReqFrame(bytes) {
+  if (!bytes || bytes.length < 4) return null;
+  var segs = [];
+
+  // 1. Preamble: total zeros (Pre-charge + SYNC combined, not split — indistinguishable on waveform)
+  var sysPreamble = parseInt(document.getElementById('aux-sys-preamble').value) || 32;
+  var preambleBits = [];
+  for (var i = 0; i < sysPreamble; i++) preambleBits.push(0);
+  // Only below-min is a hard violation triggering overlay; above-max is informational only
+  var sysViolations = [];
+  if (sysPreamble < 26) sysViolations.push('\u2718 DP/eDP1.2~1.3');
+  if (sysPreamble < 18) sysViolations.push('\u2718 eDP1.4+');
+  var sysLabel = 'Preamble\n(' + sysPreamble + ')';
+  if (sysViolations.length > 0) sysLabel += '\n' + sysViolations.join(', ');
+  var sysSeg = { label: sysLabel, bits: preambleBits, color: AUXW_COLOR.preamble, kind: 'preamble' };
+  if (sysViolations.length > 0) {
+    sysSeg.abnormal = true;
+    sysSeg.abnormalLevel = sysViolations.length >= 2 ? 'full' : 'partial';
+  }
+  if (sysPreamble > 0) segs.push(sysSeg);
+
+  // 2. Start (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods (illegal in Manchester-II)
+  segs.push({ label: 'Start', bits: [1, 1, 0, 0], color: AUXW_COLOR.start, kind: 'start' });
+
+  // 3. Command 4 bits: upper nibble of byte0
+  var cmd = (bytes[0] >> 4) & 0xF;
+  segs.push({ label: 'CMD=' + cmd.toString(16).toUpperCase(), bits: auxWaveByteToBits(cmd, 4), color: AUXW_COLOR.command, kind: 'command' });
+
+  // 4. Address 20 bits: lower nibble of byte0 + byte1 + byte2
+  var addrHi = bytes[0] & 0xF;
+  var addr = (addrHi << 16) | (bytes[1] << 8) | bytes[2];
+  var addrBits = auxWaveByteToBits(addr, 20);
+  segs.push({ label: 'ADDR=0x' + addr.toString(16).toUpperCase().padStart(5, '0'), bits: addrBits, color: AUXW_COLOR.address, kind: 'address' });
+
+  // 5. Length 8 bits: byte3
+  var len = bytes[3] & 0xFF;
+  var byteCount = len + 1;
+  segs.push({ label: 'LEN=0x' + len.toString(16).toUpperCase().padStart(2, '0') + '\n(' + byteCount + (byteCount > 1 ? ' bytes)' : ' byte)'), bits: auxWaveByteToBits(len, 8), color: AUXW_COLOR.length, kind: 'length' });
+
+  // 6. Data (variable): bytes 4+, one segment per byte
+  for (var d = 4; d < bytes.length; d++) {
+    var dbLabel = '0x' + bytes[d].toString(16).toUpperCase().padStart(2, '0');
+    segs.push({ label: dbLabel, bits: auxWaveByteToBits(bytes[d], 8), color: AUXW_COLOR.data, kind: 'data' });
+  }
+
+  // 7. Stop (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods
+  segs.push({ label: 'Stop', bits: [1, 1, 0, 0], color: AUXW_COLOR.stop, kind: 'stop' });
+
+  return segs;
+}
+
+// Build frame segments from Reply bytes
+function auxWaveBuildRepFrame(bytes) {
+  if (!bytes || bytes.length < 1) return null;
+  var segs = [];
+
+  // 1. Preamble: total zeros (Pre-charge + SYNC combined, not split — indistinguishable on waveform)
+  var repPreamble = parseInt(document.getElementById('aux-rep-preamble').value) || 32;
+  var preambleBits = [];
+  for (var i = 0; i < repPreamble; i++) preambleBits.push(0);
+  // Only below-min is a hard violation triggering overlay; above-max is informational only
+  var repViolations = [];
+  if (repPreamble < 26) repViolations.push('\u2718 DP/eDP1.2~1.3');
+  if (repPreamble < 18) repViolations.push('\u2718 eDP1.4+');
+  var repLabel = 'Preamble\n(' + repPreamble + ')';
+  if (repViolations.length > 0) repLabel += '\n' + repViolations.join(', ');
+  var repSeg = { label: repLabel, bits: preambleBits, color: AUXW_COLOR.preamble, kind: 'preamble' };
+  if (repViolations.length > 0) {
+    repSeg.abnormal = true;
+    repSeg.abnormalLevel = repViolations.length >= 2 ? 'full' : 'partial';
+  }
+  if (repPreamble > 0) segs.push(repSeg);
+
+  // 2. Start (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods
+  segs.push({ label: 'Start', bits: [1, 1, 0, 0], color: AUXW_COLOR.start, kind: 'start' });
+
+  // 3. Command/Status 8 bits: byte0
+  var status = bytes[0] & 0xFF;
+  var validStatus = {0x00:'AUX ACK',0x10:'AUX NACK',0x20:'AUX DEFER',0x40:'I2C NACK',0x80:'I2C DEFER'};
+  var rName = validStatus[status] !== undefined ? validStatus[status] : 'Unknown';
+  segs.push({ label: rName + '\n0x' + status.toString(16).toUpperCase().padStart(2, '0'), bits: auxWaveByteToBits(status, 8), color: AUXW_COLOR.command, kind: 'command' });
+
+  // 4. Data (variable): bytes 1+, one segment per byte
+  for (var d = 1; d < bytes.length; d++) {
+    var rdLabel = '0x' + bytes[d].toString(16).toUpperCase().padStart(2, '0');
+    segs.push({ label: rdLabel, bits: auxWaveByteToBits(bytes[d], 8), color: AUXW_COLOR.data, kind: 'data' });
+  }
+
+  // 5. Stop (SYNC End): raw HHLL — H for 2 bit-periods + L for 2 bit-periods
+  segs.push({ label: 'Stop', bits: [1, 1, 0, 0], color: AUXW_COLOR.stop, kind: 'stop' });
+
+  return segs;
+}
+
+// Preamble settings change handler — auto-check ALL eDP versions simultaneously
+window.auxOnPreambleChange = function() {
+  var specs = [
+    { name: 'DP / eDP 1.2~1.3', totalMin: 26, totalMax: 32 },
+    { name: 'eDP 1.4+',         totalMin: 18, totalMax: 24 }
+  ];
+
+  function checkCompliance(total, targetEl) {
+    var html = '';
+    specs.forEach(function(sp) {
+      if (total >= sp.totalMin && total <= sp.totalMax) {
+        html += '<div style="padding:4px 8px;margin:2px 0;border-radius:4px;background:rgba(16,185,129,0.12);color:#6ee7b7;word-break:break-word;overflow-wrap:break-word">✅ 符合 <b>' + sp.name + '</b>（規範：' + sp.totalMin + '~' + sp.totalMax + '）</div>';
+      } else if (total < sp.totalMin) {
+        html += '<div style="padding:4px 8px;margin:2px 0;border-radius:4px;background:rgba(220,38,38,0.12);color:#fca5a5;word-break:break-word;overflow-wrap:break-word">\ud83d\udea8 不符合 <b>' + sp.name + '</b>：總計 ' + total + ' < 最小值 ' + sp.totalMin + '</div>';
+      } else {
+        html += '<div style="padding:4px 8px;margin:2px 0;border-radius:4px;background:rgba(100,116,139,0.12);color:#94a3b8;word-break:break-word;overflow-wrap:break-word">\u2139\ufe0f <b>' + sp.name + '</b> 建議範圍 ' + sp.totalMin + '~' + sp.totalMax + '，目前 ' + total + ' 超出建議最大值（功能上仍相容）</div>';
+      }
+    });
+    targetEl.innerHTML = html;
+  }
+
+  // --- System preamble ---
+  var sysTotal = parseInt(document.getElementById('aux-sys-preamble').value) || 0;
+  checkCompliance(sysTotal, document.getElementById('aux-sys-compliance'));
+
+  // --- TCON reply preamble ---
+  var repTotal = parseInt(document.getElementById('aux-rep-preamble').value) || 0;
+  checkCompliance(repTotal, document.getElementById('aux-rep-compliance'));
+
+  // Re-render waveform to reflect preamble changes + abnormal marking
+  if (typeof auxWaveRender === 'function') auxWaveRender();
+};
+
+// --- AUX Preamble slider init: sync slider↔number, add +/- buttons ---
+(function auxPreambleSliderInit() {
+  function setup(sliderId, numId) {
+    var slider = document.getElementById(sliderId);
+    var num = document.getElementById(numId);
+    if (!slider || !num) return;
+    // Sync slider → number → trigger validation
+    slider.addEventListener('input', function() {
+      num.value = slider.value;
+      if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+    });
+    num.addEventListener('input', function() {
+      var v = Math.max(parseInt(num.min)||0, Math.min(parseInt(num.max)||64, parseInt(num.value)||0));
+      slider.value = v;
+      if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+    });
+    // Add +/- buttons (same style as iSP)
+    var step = parseFloat(slider.step) || 1;
+    var minusBtn = document.createElement('button');
+    minusBtn.type = 'button';
+    minusBtn.className = 'isp-slider-btn';
+    minusBtn.textContent = '\u2212'; // minus sign
+    minusBtn.setAttribute('aria-label', 'decrease');
+    var plusBtn = document.createElement('button');
+    plusBtn.type = 'button';
+    plusBtn.className = 'isp-slider-btn';
+    plusBtn.textContent = '+';
+    plusBtn.setAttribute('aria-label', 'increase');
+    slider.parentNode.insertBefore(minusBtn, slider);
+    slider.parentNode.insertBefore(plusBtn, slider.nextSibling);
+    function nudge(delta) {
+      var min = parseFloat(slider.min) || 0;
+      var max = parseFloat(slider.max) || 64;
+      var cur = parseFloat(slider.value) || 0;
+      var nv = Math.max(min, Math.min(max, cur + delta));
+      slider.value = nv;
+      num.value = nv;
+      if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+    }
+    minusBtn.addEventListener('click', function() { nudge(-step); });
+    plusBtn.addEventListener('click', function() { nudge(step); });
+  }
+  setup('aux-sys-preamble-slider', 'aux-sys-preamble');
+  setup('aux-rep-preamble-slider', 'aux-rep-preamble');
+  // Trigger initial compliance check
+  if (typeof auxOnPreambleChange === 'function') auxOnPreambleChange();
+})();
+
+// Build SVG inner HTML for Manchester II encoded waveform
+// Manchester II (G.E. Thomas): bit 1 = H→L at mid-bit, bit 0 = L→H at mid-bit
+// START/STOP are raw HHLL (not Manchester II). Idle = LOW.
+function auxWaveBuildSvgInner(segs, totalBits, zoomH, opts) {
+  var basePerBit = 12;
+  var bitW = basePerBit * zoomH;
+  var pad = 6;
+  var labelH = 22;
+  var waveH = 72;
+  var axisH = 22;
+  var fontScale = 1;
+  if (opts && opts.overrideH && opts.overrideH > 0) {
+    var oh = opts.overrideH;
+    var baseTotal = 116;
+    fontScale = Math.min(3, oh / baseTotal);
+    labelH = Math.max(18, Math.min(60, Math.round(22 * fontScale)));
+    axisH  = Math.max(16, Math.min(50, Math.round(22 * fontScale)));
+    waveH  = Math.max(40, oh - labelH - axisH);
+  }
+  var totalW = Math.max(200, Math.round(totalBits * bitW + pad * 2));
+  var totalH = labelH + waveH + axisH;
+
+  var signalY0 = labelH + waveH - 4;   // 0 level (low)
+  var signalY1 = labelH + 4;            // 1 level (high)
+
+  var parts = [];
+
+  // Background reference lines (dashed)
+  parts.push('<line x1="' + pad + '" y1="' + signalY1 + '" x2="' + (totalW - pad) + '" y2="' + signalY1 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
+  parts.push('<line x1="' + pad + '" y1="' + signalY0 + '" x2="' + (totalW - pad) + '" y2="' + signalY0 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
+  // Level labels
+  parts.push('<text x="' + (pad - 2) + '" y="' + (signalY1 + 4) + '" text-anchor="end" fill="#64748b" font-size="9">1</text>');
+  parts.push('<text x="' + (pad - 2) + '" y="' + (signalY0 + 4) + '" text-anchor="end" fill="#64748b" font-size="9">0</text>');
+
+  var d = '';
+  var prevEndLevel = -1; // -1 = unset
+  var cursorX = pad;
+  var abnRanges = []; // [{x0,x1}] — each contiguous run of abnormal segments
+  var lastWasAbnormal = false;
+
+  for (var si = 0; si < segs.length; si++) {
+    var seg = segs[si];
+    var segW = seg.bits.length * bitW;
+    var isIdle = (seg.kind === 'idle');
+    var isStartStop = (seg.kind === 'start' || seg.kind === 'stop');
+
+    // Background color block
+    parts.push('<rect x="' + cursorX + '" y="' + labelH + '" width="' + segW + '" height="' + waveH + '" fill="' + seg.color + '" fill-opacity="0.10"/>');
+    // Track abnormal regions (group contiguous abnormal segments)
+    if (seg.abnormal) {
+      var segLevel = seg.abnormalLevel || 'full';
+      if (lastWasAbnormal) {
+        var r = abnRanges[abnRanges.length - 1];
+        r.x1 = cursorX + segW;
+        if (segLevel === 'full') r.level = 'full';
+      } else {
+        abnRanges.push({ x0: cursorX, x1: cursorX + segW, level: segLevel });
+      }
+      lastWasAbnormal = true;
+    } else {
+      lastWasAbnormal = false;
+    }
+
+    // Label bar at top
+    if (segW > 1.5) {
+      parts.push('<rect x="' + (cursorX + 0.5) + '" y="1" width="' + Math.max(0.5, segW - 1) + '" height="' + (labelH - 3) + '" fill="' + seg.color + '" rx="2"/>');
+    } else {
+      parts.push('<rect x="' + cursorX + '" y="1" width="' + segW + '" height="' + (labelH - 3) + '" fill="' + seg.color + '"/>');
+    }
+    if (segW > 14 && seg.label) {
+      var labelLines = seg.label.split('\n');
+      var maxLLen = labelLines.reduce(function(m, l) { return Math.max(m, l.length || 1); }, 1);
+      var cx = cursorX + segW / 2;
+      if (labelLines.length >= 2) {
+        var fs2 = Math.min(9, Math.max(6, segW / maxLLen * 0.85));
+        var ly1 = Math.round(labelH * 0.38);
+        var ly2 = Math.round(labelH * 0.76);
+        parts.push('<text text-anchor="middle" fill="white" font-size="' + fs2 + '" font-weight="700">' +
+          '<tspan x="' + cx + '" y="' + ly1 + '">' + labelLines[0] + '</tspan>' +
+          '<tspan x="' + cx + '" y="' + ly2 + '">' + labelLines[1] + '</tspan>' +
+          '</text>');
+      } else {
+        var fs1 = Math.min(10, Math.max(7, segW / maxLLen * 0.9));
+        parts.push('<text x="' + cx + '" y="' + (labelH - 6) + '" text-anchor="middle" fill="white" font-size="' + fs1 + '" font-weight="700">' + labelLines[0] + '</text>');
+      }
+    }
+
+    // Segment divider
+    parts.push('<line x1="' + cursorX + '" y1="' + labelH + '" x2="' + cursorX + '" y2="' + (labelH + waveH) + '" stroke="#475569" stroke-width="1"/>');
+
+    // Inter-bit dividers
+    if (bitW > 1.2) {
+      for (var b2 = 1; b2 < seg.bits.length; b2++) {
+        var bx2 = cursorX + b2 * bitW;
+        parts.push('<line x1="' + bx2 + '" y1="' + labelH + '" x2="' + bx2 + '" y2="' + (labelH + waveH) + '" stroke="#1e293b" stroke-width="0.5"/>');
+      }
+    }
+
+
+
+    // Bit value labels (axis area); START/STOP show H/L instead of 1/0
+    if (bitW > 5) {
+      for (var bl = 0; bl < seg.bits.length; bl++) {
+        var blx = cursorX + bl * bitW + bitW / 2;
+        var blLabel = isStartStop ? (seg.bits[bl] ? 'H' : 'L') : seg.bits[bl];
+        parts.push('<text x="' + blx + '" y="' + (labelH + waveH + 13) + '" text-anchor="middle" fill="#64748b" font-size="9">' + blLabel + '</text>');
+      }
+    }
+
+    // Waveform path
+    if (isIdle) {
+      // Idle = common mode (differential mid-level, midpoint between H and L)
+      var idleY = (signalY1 + signalY0) / 2;
+      var idleX1 = cursorX + seg.bits.length * bitW;
+      if (d === '') {
+        d = 'M ' + cursorX + ' ' + idleY;
+      } else if (prevEndLevel !== idleY) {
+        d += ' L ' + cursorX + ' ' + idleY;
+      }
+      d += ' L ' + idleX1 + ' ' + idleY;
+      prevEndLevel = idleY;
+
+    } else if (isStartStop) {
+      // START/STOP: raw HHLL voltage — H for 2 bit-periods, L for 2 bit-periods
+      // NOT Manchester II encoded (DP spec: "illegal in Manchester-II code")
+      // bits = [1,1,0,0]: each element is 1 bit-period at that raw level
+      for (var bw = 0; bw < seg.bits.length; bw++) {
+        var rawBit = seg.bits[bw];
+        var bwx0 = cursorX + bw * bitW;
+        var bwx1 = bwx0 + bitW;
+        var rawY = rawBit ? signalY1 : signalY0;
+        if (d === '') {
+          d = 'M ' + bwx0 + ' ' + rawY;
+        } else if (prevEndLevel !== rawY) {
+          d += ' L ' + bwx0 + ' ' + rawY;
+        }
+        d += ' L ' + bwx1 + ' ' + rawY;
+        prevEndLevel = rawY;
+      }
+
+    } else {
+      // Manchester II encoding (G.E. Thomas convention, DP AUX standard)
+      // Bit 1: first-half HIGH → mid-bit H→L → second-half LOW  (H to L = 1)
+      // Bit 0: first-half LOW  → mid-bit L→H → second-half HIGH (L to H = 0)
+      // Bit boundary: vertical transition only when prev end-level ≠ current start-level
+      for (var bw = 0; bw < seg.bits.length; bw++) {
+        var bit = seg.bits[bw];
+        var bwx0   = cursorX + bw * bitW;
+        var bwxMid = bwx0 + bitW / 2;
+        var bwx1   = bwx0 + bitW;
+        var startY = bit ? signalY1 : signalY0;  // 1→H, 0→L
+        var endY   = bit ? signalY0 : signalY1;  // 1→L, 0→H
+
+        if (d === '') {
+          d = 'M ' + bwx0 + ' ' + startY;
+        } else if (prevEndLevel !== startY) {
+          // Bit boundary transition: vertical edge at bwx0
+          d += ' L ' + bwx0 + ' ' + startY;
+        }
+        d += ' L ' + bwxMid + ' ' + startY;   // first half
+        d += ' L ' + bwxMid + ' ' + endY;     // mid-bit transition
+        d += ' L ' + bwx1   + ' ' + endY;     // second half
+        prevEndLevel = endY;
+      }
+    }
+
+    cursorX += segW;
+  }
+
+  // End divider
+  parts.push('<line x1="' + cursorX + '" y1="' + labelH + '" x2="' + cursorX + '" y2="' + (labelH + waveH) + '" stroke="#475569" stroke-width="1"/>');
+
+  // Waveform stroke
+  var strokeW = zoomH < 0.1 ? 0.8 : 1.8;
+  parts.push('<path d="' + d + '" stroke="#22c55e" stroke-width="' + strokeW + '" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>');
+  // Frosted-glass overlay: red=full (both specs violated), yellow=partial (one spec violated)
+  for (var ai = 0; ai < abnRanges.length; ai++) {
+    var ax0 = abnRanges[ai].x0, ax1 = abnRanges[ai].x1, aw = ax1 - ax0;
+    var aColor = abnRanges[ai].level === 'partial' ? '#eab308' : '#ef4444';
+    parts.push('<rect x="' + ax0 + '" y="0" width="' + aw + '" height="' + (labelH + waveH) + '" fill="' + aColor + '" fill-opacity="0.50"/>');
+    parts.push('<line x1="' + ax0 + '" y1="0" x2="' + ax0 + '" y2="' + (labelH + waveH) + '" stroke="' + aColor + '" stroke-width="1.5" stroke-opacity="0.55"/>');
+    parts.push('<line x1="' + ax1 + '" y1="0" x2="' + ax1 + '" y2="' + (labelH + waveH) + '" stroke="' + aColor + '" stroke-width="1.5" stroke-opacity="0.55"/>');
+  }
+
+  return { html: parts.join(''), totalW: totalW, totalH: totalH, bitW: bitW };
+}
+
+// Main render function
+function auxWaveRender() {
+  var svg = document.getElementById('aux-wave-svg');
+  var card = document.getElementById('aux-wave-card');
+  var waveBody = document.getElementById('aux-wave-body');
+  if (!svg || !card) return;
+
+  var reqBytes = auxBuildReqBytes();
+  var repBytes = auxBuildRepBytes();
+
+  if (!reqBytes || reqBytes.length < 4) {
+    if (waveBody) waveBody.style.display = 'none';
+    return;
+  }
+
+  // Build request frame
+  var reqSegs = auxWaveBuildReqFrame(reqBytes);
+  if (!reqSegs) { if (waveBody) waveBody.style.display = 'none'; return; }
+
+  // Mark abnormal request data bytes via DPCD lookup
+  // reqSegs layout: [0]=Preamble [1]=Start [2]=CMD [3]=ADDR [4]=LEN [5+]=Data bytes
+  var dpcdBaseAddr = ((reqBytes[0] & 0xF) << 16) | (reqBytes[1] << 8) | reqBytes[2];
+  for (var di = 0; di < reqBytes.length - 4; di++) {
+    if (auxIsAbnormalDpcdByte(dpcdBaseAddr + di, reqBytes[4 + di])) {
+      if (reqSegs[5 + di]) reqSegs[5 + di].abnormal = true;
+    }
+  }
+
+  // Combine all segments — Idle(common) → Req → Idle(common 100μs) → Rep → Idle(common)
+  var allSegs = [];
+
+  // Leading idle at common mode (shows AUX line before transmission)
+  var leadBits = [];
+  for (var li = 0; li < 8; li++) leadBits.push(0);
+  allSegs.push({ label: 'Idle', bits: leadBits, color: AUXW_COLOR.idle, kind: 'idle' });
+
+  for (var rsi = 0; rsi < reqSegs.length; rsi++) allSegs.push(reqSegs[rsi]);
+
+  // If reply is available, add idle gap (common mode) + reply frame
+  var repSegs = null;
+  if (repBytes && repBytes.length >= 1) {
+    repSegs = auxWaveBuildRepFrame(repBytes);
+    if (repSegs) {
+      var repStatus = repBytes[0] & 0xFF;
+      var repIsAbnormal = (repStatus !== 0x00); // anything non-ACK is an error
+      if (repIsAbnormal) {
+        // Only highlight the Command/Status segment (repSegs[2]), not the whole frame
+        if (repSegs[2]) repSegs[2].abnormal = true;
+      } else {
+        // ACK reply: mark individual data bytes that fail DPCD validation
+        // repSegs layout: [0]=Preamble [1]=Start [2]=Status [3+]=Data bytes
+        for (var rdi = 0; rdi < repBytes.length - 1; rdi++) {
+          if (auxIsAbnormalDpcdByte(dpcdBaseAddr + rdi, repBytes[1 + rdi])) {
+            if (repSegs[3 + rdi]) repSegs[3 + rdi].abnormal = true;
+          }
+        }
+      }
+      // 100μs idle gap at common mode (differential mid-level between H and L)
+      var idleBits = [];
+      for (var ig = 0; ig < 100; ig++) idleBits.push(0);
+      allSegs.push({ label: 'Idle 100μs', bits: idleBits, color: AUXW_COLOR.idle, kind: 'idle' });
+      for (var rs = 0; rs < repSegs.length; rs++) allSegs.push(repSegs[rs]);
+    }
+  }
+
+  // Trailing idle at common mode (shows AUX line after transmission)
+  var trailBits = [];
+  for (var ti = 0; ti < 8; ti++) trailBits.push(0);
+  allSegs.push({ label: 'Idle', bits: trailBits, color: AUXW_COLOR.idle, kind: 'idle' });
+
+  var totalBits = 0;
+  for (var s = 0; s < allSegs.length; s++) totalBits += allSegs[s].bits.length;
+
+  auxWaveLastAllSegs = allSegs;
+  auxWaveLastTotalBits = totalBits;
+
+  // Build SVG
+  var r = auxWaveBuildSvgInner(allSegs, totalBits, auxWaveZoomHVal);
+  svg.setAttribute('viewBox', '0 0 ' + r.totalW + ' ' + r.totalH);
+  svg.setAttribute('width', r.totalW);
+  svg.setAttribute('height', r.totalH);
+  svg.innerHTML = r.html;
+  svg.style.transform = '';
+  svg.style.transformOrigin = '';
+
+  // Show wave body only after decode button has been pressed
+  if (_auxWaveUnlocked && waveBody) waveBody.style.display = '';
+
+  // Info line
+  var infoEl = document.getElementById('aux-wave-info');
+  if (infoEl) {
+    var reqBitCount = 0;
+    for (var ri = 0; ri < reqSegs.length; ri++) reqBitCount += reqSegs[ri].bits.length;
+    var info = 'Request: ' + reqBitCount + ' bits (' + reqBitCount + 'μs)';
+    if (repSegs) {
+      var repBitCount = 0;
+      for (var rpi = 0; rpi < repSegs.length; rpi++) repBitCount += repSegs[rpi].bits.length;
+      info += ' + 100μs idle + Reply: ' + repBitCount + ' bits (' + repBitCount + 'μs)';
+    }
+    info += ' | Total: ' + totalBits + ' bits';
+    infoEl.textContent = info;
+  }
+
+  // --- Preamble compliance warning banner inside wave card ---
+  var warnEl = document.getElementById('aux-wave-preamble-warn');
+  if (warnEl) {
+    var pSpecs = [
+      { name: 'DP / eDP 1.2~1.3', totalMin: 26, totalMax: 32 },
+      { name: 'eDP 1.4+',         totalMin: 18, totalMax: 24 }
+    ];
+    var sysP = parseInt(document.getElementById('aux-sys-preamble').value) || 0;
+    var repP = parseInt(document.getElementById('aux-rep-preamble').value) || 0;
+    var pWarns = [];
+    function pChk(label, val) {
+      var issues = [];
+      pSpecs.forEach(function(sp) {
+        if (val < sp.totalMin) issues.push('\u2718 ' + sp.name + '(' + val + ' < ' + sp.totalMin + ')');
+      });
+      if (issues.length > 0) pWarns.push('<b>' + label + ' Preamble = ' + val + '</b>: ' + issues.join(', '));
+    }
+    pChk('System', sysP);
+    if (repSegs) pChk('TCON Reply', repP);
+    if (pWarns.length > 0) {
+      function _countViol(v) { var n = 0; if (v < 26) n++; if (v < 18) n++; return n; }
+      var maxViolCount = Math.max(_countViol(sysP), repSegs ? _countViol(repP) : 0);
+      var hasCritical = (maxViolCount >= 2);
+      warnEl.style.display = 'block';
+      warnEl.style.background = hasCritical ? 'rgba(220,38,38,0.15)' : 'rgba(234,179,8,0.15)';
+      warnEl.style.color = hasCritical ? '#fca5a5' : '#fde047';
+      warnEl.innerHTML = (hasCritical ? '\ud83d\udea8 ' : '\u26a0\ufe0f ') + 'Preamble \u898f\u7bc4\u8b66\u544a:<br>' + pWarns.join('<br>');
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
+  // Minimap + viewport
+  auxWaveRenderMinimap(allSegs, totalBits);
+  auxWaveUpdateMinimapVp();
+  requestAnimationFrame(function() {
+    auxWaveRenderMinimap(allSegs, totalBits);
+    auxWaveUpdateMinimapVp();
+  });
+
+  // Update fullscreen if open
+  if (auxWaveFs && auxWaveFs.open) auxWaveFsRender();
+}
+
+// Minimap rendering
+function auxWaveRenderMinimap(segs, totalBits) {
+  var mini = document.getElementById('aux-wave-minimap-box');
+  var svg  = document.getElementById('aux-wave-minimap-svg');
+  if (!mini || !svg || !segs || totalBits <= 0) return;
+  var boxW = mini.clientWidth || 300;
+  var boxH = 44;
+  var mmLabelH = 7;
+  var waveTop = mmLabelH + 2;
+  var mmWaveH = boxH - waveTop - 2;
+  var bitW = boxW / totalBits;
+
+  var parts = [];
+  var cx = 0;
+  for (var s = 0; s < segs.length; s++) {
+    var seg = segs[s];
+    var w = seg.bits.length * bitW;
+    parts.push('<rect x="' + cx + '" y="0" width="' + w + '" height="' + mmLabelH + '" fill="' + seg.color + '"/>');
+    cx += w;
+  }
+
+  // Manchester II minimap waveform
+  var md = '';
+  var lastY2 = -1;
+  var prevEnd = -1;
+  var cX2 = 0;
+  var my1 = waveTop + 1;
+  var my0 = waveTop + mmWaveH - 1;
+  for (var ms = 0; ms < segs.length; ms++) {
+    var mseg = segs[ms];
+    var isIdle = (mseg.kind === 'idle');
+    var isSS = (mseg.kind === 'start' || mseg.kind === 'stop');
+    for (var mb = 0; mb < mseg.bits.length; mb++) {
+      var mbit = mseg.bits[mb];
+      var mbx0 = cX2;
+      var mbxMid = mbx0 + bitW / 2;
+      var mbx1 = mbx0 + bitW;
+
+      if (isIdle) {
+        var idleYm = (my1 + my0) / 2; // idle = common mode (mid-level)
+        if (md === '') { md = 'M ' + mbx0 + ' ' + idleYm; prevEnd = idleYm; }
+        else if (prevEnd !== idleYm) { md += ' L ' + mbx0 + ' ' + idleYm; }
+        md += ' L ' + mbx1 + ' ' + idleYm;
+        prevEnd = idleYm;
+      } else if (isSS) {
+        // START/STOP: raw voltage (H or L for full bit period)
+        var ssY = mbit ? my1 : my0;
+        if (md === '') { md = 'M ' + mbx0 + ' ' + ssY; }
+        else if (prevEnd !== ssY) { md += ' L ' + mbx0 + ' ' + ssY; }
+        md += ' L ' + mbx1 + ' ' + ssY;
+        prevEnd = ssY;
+      } else {
+        var msY = mbit ? my1 : my0;
+        var meY = mbit ? my0 : my1;
+        if (md === '') { md = 'M ' + mbx0 + ' ' + msY; prevEnd = msY; }
+        else if (prevEnd !== msY) { md += ' L ' + mbx0 + ' ' + msY; }
+        md += ' L ' + mbxMid + ' ' + msY + ' L ' + mbxMid + ' ' + meY + ' L ' + mbx1 + ' ' + meY;
+        prevEnd = meY;
+      }
+      cX2 += bitW;
+    }
+  }
+  parts.push('<path d="' + md + '" stroke="#22c55e" stroke-width="1" fill="none"/>');
+
+  // Abnormal segment overlays: red=full (both specs), yellow=partial (one spec)
+  var mmAcx = 0, mmAbnRanges = [], mmLastAbn = false;
+  for (var mmas = 0; mmas < segs.length; mmas++) {
+    var mmw = segs[mmas].bits.length * bitW;
+    if (segs[mmas].abnormal) {
+      var mmSegLevel = segs[mmas].abnormalLevel || 'full';
+      if (mmLastAbn) {
+        var mmr = mmAbnRanges[mmAbnRanges.length-1];
+        mmr.x1 = mmAcx + mmw;
+        if (mmSegLevel === 'full') mmr.level = 'full';
+      } else {
+        mmAbnRanges.push({x0: mmAcx, x1: mmAcx + mmw, level: mmSegLevel});
+      }
+      mmLastAbn = true;
+    } else { mmLastAbn = false; }
+    mmAcx += mmw;
+  }
+  for (var mmai = 0; mmai < mmAbnRanges.length; mmai++) {
+    var mmax0 = mmAbnRanges[mmai].x0, mmax1 = mmAbnRanges[mmai].x1;
+    var mmColor = mmAbnRanges[mmai].level === 'partial' ? '#eab308' : '#ef4444';
+    parts.push('<rect x="' + mmax0 + '" y="0" width="' + (mmax1-mmax0) + '" height="' + boxH + '" fill="' + mmColor + '" fill-opacity="0.50"/>');
+    parts.push('<line x1="' + mmax0 + '" y1="0" x2="' + mmax0 + '" y2="' + boxH + '" stroke="' + mmColor + '" stroke-width="1" stroke-opacity="0.7"/>');
+    parts.push('<line x1="' + mmax1 + '" y1="0" x2="' + mmax1 + '" y2="' + boxH + '" stroke="' + mmColor + '" stroke-width="1" stroke-opacity="0.7"/>');
+  }
+
+  svg.setAttribute('viewBox', '0 0 ' + boxW + ' ' + boxH);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.innerHTML = parts.join('');
+}
+
+// Minimap viewport update
+var _awMmWaveBox = null, _awMmWave = null, _awMmVp = null, _awMmMini = null;
+function _awMmCache() {
+  _awMmWaveBox = document.getElementById('aux-wave-box');
+  _awMmWave = document.getElementById('aux-wave-svg');
+  _awMmVp = document.getElementById('aux-wave-minimap-vp');
+  _awMmMini = document.getElementById('aux-wave-minimap-box');
+}
+function auxWaveUpdateMinimapVp() {
+  if (!_awMmWaveBox || !_awMmVp) _awMmCache();
+  if (!_awMmWaveBox || !_awMmWave || !_awMmVp || !_awMmMini) return;
+  var svgW = parseFloat(_awMmWave.getAttribute('width')) || 0;
+  var visibleW = _awMmWaveBox.clientWidth;
+  var scrollLeft = _awMmWaveBox.scrollLeft;
+  var miniW = _awMmMini.clientWidth;
+  if (svgW <= visibleW + 1) {
+    _awMmVp.style.left = '0px';
+    _awMmVp.style.width = miniW + 'px';
+  } else {
+    var ratio = miniW / svgW;
+    var left = scrollLeft * ratio;
+    var width = visibleW * ratio;
+    _awMmVp.style.left = Math.max(0, left) + 'px';
+    _awMmVp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
+  }
+}
+var _awMmRafPending = false;
+function auxWaveUpdateMinimapVpThrottled() {
+  if (_awMmRafPending) return;
+  _awMmRafPending = true;
+  requestAnimationFrame(function() { _awMmRafPending = false; auxWaveUpdateMinimapVp(); });
+}
+
+// Zoom controls
+window.auxWaveZoomH = function(dir) {
+  if (dir > 0) auxWaveZoomHVal *= 1.4;
+  else auxWaveZoomHVal /= 1.4;
+  auxWaveZoomHVal = Math.max(0.001, Math.min(12, auxWaveZoomHVal));
+  var el = document.getElementById('aux-wave-zoom-val');
+  if (el) el.textContent = auxWaveFormatZoom(auxWaveZoomHVal);
+  auxWaveRender();
+};
+window.auxWaveZoomReset = function() {
+  auxWaveZoomHVal = 1.0;
+  var el = document.getElementById('aux-wave-zoom-val');
+  if (el) el.textContent = '1.0×';
+  auxWaveRender();
+};
+function auxWaveFormatZoom(v) {
+  if (v >= 0.1) return v.toFixed(2) + '×';
+  if (v >= 0.01) return v.toFixed(3) + '×';
+  return v.toFixed(4) + '×';
+}
+
+// ── Fullscreen Lightbox ──
+function auxWaveFsRender() {
+  if (!auxWaveFs || !auxWaveFs.svg || !auxWaveLastAllSegs) return;
+  var toolbarH = 47;
+  var minimapH = 56;
+  var padExtra = 4;
+  var screenH = window.innerHeight;
+  var pairH = Math.max(100, screenH - toolbarH - minimapH - padExtra);
+  var fsOpts = { overrideH: pairH };
+  var r = auxWaveBuildSvgInner(auxWaveLastAllSegs, auxWaveLastTotalBits, auxWaveFsZoomH, fsOpts);
+  auxWaveFs.svg.setAttribute('viewBox', '0 0 ' + r.totalW + ' ' + r.totalH);
+  auxWaveFs.svg.setAttribute('width', r.totalW);
+  auxWaveFs.svg.setAttribute('height', r.totalH);
+  auxWaveFs.svg.innerHTML = r.html;
+  auxWaveFs.svg.style.height = '';
+  auxWaveFs.svg.style.transform = '';
+  auxWaveFs.svg.style.transformOrigin = '';
+  auxWaveFsRenderMinimap();
+  auxWaveFsUpdateMinimapVp();
+}
+
+function auxWaveFsRenderMinimap() {
+  if (!auxWaveFs || !auxWaveFs.miniSvg || !auxWaveFs.miniBox) return;
+  var boxW = auxWaveFs.miniBox.clientWidth || 300;
+  var boxH = 44;
+  auxWaveFs.miniBox.style.height = boxH + 'px';
+  var lH = 7, wTop = lH + 2, wH2 = boxH - wTop - 2;
+  var bW = boxW / auxWaveLastTotalBits;
+  var parts = [];
+  var cx2 = 0;
+  for (var s2 = 0; s2 < auxWaveLastAllSegs.length; s2++) {
+    var seg2 = auxWaveLastAllSegs[s2];
+    var w2 = seg2.bits.length * bW;
+    parts.push('<rect x="' + cx2 + '" y="0" width="' + w2 + '" height="' + lH + '" fill="' + seg2.color + '"/>');
+    cx2 += w2;
+  }
+  var md2 = '', pe2 = -1;
+  cx2 = 0;
+  var y1m = wTop + 1, y0m = wTop + wH2 - 1;
+  for (var ms2 = 0; ms2 < auxWaveLastAllSegs.length; ms2++) {
+    var mseg2 = auxWaveLastAllSegs[ms2];
+    var isIdle2 = (mseg2.kind === 'idle');
+    var isSS2 = (mseg2.kind === 'start' || mseg2.kind === 'stop');
+    for (var mb2 = 0; mb2 < mseg2.bits.length; mb2++) {
+      var bit2 = mseg2.bits[mb2];
+      var bx0m = cx2, bxMidm = bx0m + bW / 2, bx1m = bx0m + bW;
+      if (isIdle2) {
+        var idYm2 = (y1m + y0m) / 2; // common mode
+        if (md2 === '') { md2 = 'M ' + bx0m + ' ' + idYm2; pe2 = idYm2; }
+        else if (pe2 !== idYm2) { md2 += ' L ' + bx0m + ' ' + idYm2; }
+        md2 += ' L ' + bx1m + ' ' + idYm2;
+        pe2 = idYm2;
+      } else if (isSS2) {
+        var ssY2 = bit2 ? y1m : y0m;
+        if (md2 === '') { md2 = 'M ' + bx0m + ' ' + ssY2; }
+        else if (pe2 !== ssY2) { md2 += ' L ' + bx0m + ' ' + ssY2; }
+        md2 += ' L ' + bx1m + ' ' + ssY2;
+        pe2 = ssY2;
+      } else {
+        var sy = bit2 ? y1m : y0m;
+        var ey = bit2 ? y0m : y1m;
+        if (md2 === '') { md2 = 'M ' + bx0m + ' ' + sy; pe2 = sy; }
+        else if (pe2 !== sy) { md2 += ' L ' + bx0m + ' ' + sy; }
+        md2 += ' L ' + bxMidm + ' ' + sy + ' L ' + bxMidm + ' ' + ey + ' L ' + bx1m + ' ' + ey;
+        pe2 = ey;
+      }
+      cx2 += bW;
+    }
+  }
+  parts.push('<path d="' + md2 + '" stroke="#22c55e" stroke-width="1" fill="none"/>');
+
+  // Abnormal segment overlays: red=full (both specs), yellow=partial (one spec)
+  var fsAcx = 0, fsAbnRanges = [], fsLastAbn = false;
+  for (var fsas = 0; fsas < auxWaveLastAllSegs.length; fsas++) {
+    var fsw = auxWaveLastAllSegs[fsas].bits.length * bW;
+    if (auxWaveLastAllSegs[fsas].abnormal) {
+      var fsSegLevel = auxWaveLastAllSegs[fsas].abnormalLevel || 'full';
+      if (fsLastAbn) {
+        var fsr = fsAbnRanges[fsAbnRanges.length-1];
+        fsr.x1 = fsAcx + fsw;
+        if (fsSegLevel === 'full') fsr.level = 'full';
+      } else {
+        fsAbnRanges.push({x0: fsAcx, x1: fsAcx + fsw, level: fsSegLevel});
+      }
+      fsLastAbn = true;
+    } else { fsLastAbn = false; }
+    fsAcx += fsw;
+  }
+  for (var fsai = 0; fsai < fsAbnRanges.length; fsai++) {
+    var fsax0 = fsAbnRanges[fsai].x0, fsax1 = fsAbnRanges[fsai].x1;
+    var fsColor = fsAbnRanges[fsai].level === 'partial' ? '#eab308' : '#ef4444';
+    parts.push('<rect x="' + fsax0 + '" y="0" width="' + (fsax1-fsax0) + '" height="' + boxH + '" fill="' + fsColor + '" fill-opacity="0.50"/>');
+    parts.push('<line x1="' + fsax0 + '" y1="0" x2="' + fsax0 + '" y2="' + boxH + '" stroke="' + fsColor + '" stroke-width="1" stroke-opacity="0.7"/>');
+    parts.push('<line x1="' + fsax1 + '" y1="0" x2="' + fsax1 + '" y2="' + boxH + '" stroke="' + fsColor + '" stroke-width="1" stroke-opacity="0.7"/>');
+  }
+
+  auxWaveFs.miniSvg.setAttribute('viewBox', '0 0 ' + boxW + ' ' + boxH);
+  auxWaveFs.miniSvg.innerHTML = parts.join('');
+}
+
+function auxWaveFsUpdateMinimapVp() {
+  if (!auxWaveFs || !auxWaveFs.miniVp || !auxWaveFs.miniBox || !auxWaveFs.stage || !auxWaveFs.svg) return;
+  var svgW = parseFloat(auxWaveFs.svg.getAttribute('width')) || 0;
+  var visibleW = auxWaveFs.stage.clientWidth;
+  var scrollLeft = auxWaveFs.stage.scrollLeft;
+  var miniW = auxWaveFs.miniBox.clientWidth;
+  if (svgW <= visibleW + 1) {
+    auxWaveFs.miniVp.style.left = '0px';
+    auxWaveFs.miniVp.style.width = miniW + 'px';
+  } else {
+    var ratio = miniW / svgW;
+    var left = scrollLeft * ratio;
+    var width = visibleW * ratio;
+    auxWaveFs.miniVp.style.left = Math.max(0, left) + 'px';
+    auxWaveFs.miniVp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
+  }
+}
+
+function auxWaveFsFit() {
+  if (!auxWaveFs || !auxWaveFs.stage || auxWaveLastTotalBits <= 0) return;
+  var stageW = auxWaveFs.stage.clientWidth || window.innerWidth;
+  var basePerBit = 12;
+  var fitZoom = stageW / (auxWaveLastTotalBits * basePerBit + 12);
+  auxWaveFsZoomH = Math.max(0.001, Math.min(12, fitZoom));
+  auxWaveFsRender();
+}
+
+function auxWaveFsBindGestures() {
+  if (!auxWaveFs) return;
+  var stage = auxWaveFs.stage;
+  var lastTap = 0;
+
+  // Scroll → minimap viewport
+  var _fsMmRaf2 = false;
+  stage.addEventListener('scroll', function() {
+    if (_fsMmRaf2) return;
+    _fsMmRaf2 = true;
+    requestAnimationFrame(function() { _fsMmRaf2 = false; auxWaveFsUpdateMinimapVp(); });
+  });
+
+  // Minimap click-to-jump
+  if (auxWaveFs.miniBox) {
+    auxWaveFs.miniBox.style.cursor = 'pointer';
+    auxWaveFs.miniBox.addEventListener('click', function(e) {
+      var rect = auxWaveFs.miniBox.getBoundingClientRect();
+      var clickX = e.clientX - rect.left;
+      var miniW = auxWaveFs.miniBox.clientWidth;
+      var svgW = parseFloat(auxWaveFs.svg.getAttribute('width')) || 0;
+      if (svgW <= 0 || miniW <= 0) return;
+      var targetScroll = (clickX / miniW) * svgW - stage.clientWidth / 2;
+      stage.scrollLeft = Math.max(0, targetScroll);
+    });
+  }
+
+  // Touch: pinch zoom + double-tap fit
+  stage.addEventListener('touchstart', function(e) {
+    if (e.target && e.target.closest('button')) return;
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      var t1 = e.touches[0], t2 = e.touches[1];
+      var dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+      var d0 = Math.hypot(dx, dy);
+      var stageRect = stage.getBoundingClientRect();
+      var cxViewport = (t1.clientX + t2.clientX) / 2;
+      var cxInStage = cxViewport - stageRect.left;
+      var cxInSvg = stage.scrollLeft + cxInStage;
+      auxWaveFs.pinch = { d0: d0, zoom0: auxWaveFsZoomH, cxInSvg: cxInSvg, cxInStage: cxInStage };
+      if (auxWaveFs.svg) auxWaveFs.svg.style.transformOrigin = cxInSvg + 'px 0';
+    } else if (e.touches.length === 1) {
+      var now = Date.now();
+      if (now - lastTap < 300) { auxWaveFsFit(); lastTap = 0; }
+      else { lastTap = now; }
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchmove', function(e) {
+    if (auxWaveFs.pinch && e.touches.length === 2) {
+      e.preventDefault();
+      var t1 = e.touches[0], t2 = e.touches[1];
+      var dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+      var dist = Math.hypot(dx, dy);
+      var ratio = dist / auxWaveFs.pinch.d0;
+      var newZoom = Math.max(0.01, Math.min(16, auxWaveFs.pinch.zoom0 * ratio));
+      var visualRatio = newZoom / auxWaveFs.pinch.zoom0;
+      if (auxWaveFs.svg) auxWaveFs.svg.style.transform = 'scaleX(' + visualRatio + ')';
+      auxWaveFsZoomH = newZoom;
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchend', function(e) {
+    if (auxWaveFs.pinch && e.touches.length < 2) {
+      var p = auxWaveFs.pinch;
+      var ratio = auxWaveFsZoomH / p.zoom0;
+      var newCxInSvg = p.cxInSvg * ratio;
+      auxWaveFsRender();
+      stage.scrollLeft = Math.max(0, newCxInSvg - p.cxInStage);
+      auxWaveFs.pinch = null;
+    }
+  });
+  stage.addEventListener('touchcancel', function() {
+    if (auxWaveFs.pinch) { auxWaveFsRender(); auxWaveFs.pinch = null; }
+  });
+
+  // Mouse wheel zoom
+  stage.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    var newZoom = Math.max(0.01, Math.min(16, auxWaveFsZoomH * factor));
+    var stageRect = stage.getBoundingClientRect();
+    var cxInStage = e.clientX - stageRect.left;
+    var cxInSvg = stage.scrollLeft + cxInStage;
+    var zoom0 = auxWaveFsZoomH;
+    auxWaveFsZoomH = newZoom;
+    auxWaveFsRender();
+    stage.scrollLeft = Math.max(0, cxInSvg * (newZoom / zoom0) - cxInStage);
+  }, { passive: false });
+
+  // ESC close
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var lb = document.getElementById('aux-wave-fullscreen');
+      if (lb) window.auxWaveCloseLightbox();
+    }
+  });
+
+  // Resize handler
+  var awFsResize = function() { if (auxWaveFs && auxWaveFs.open) auxWaveFsRender(); };
+  window.addEventListener('orientationchange', function() { setTimeout(awFsResize, 200); });
+  window.addEventListener('resize', function() {
+    if (auxWaveFs && auxWaveFs.open) requestAnimationFrame(awFsResize);
+  });
+}
+
+window.auxWaveOpenLightbox = function() {
+  var lb = document.getElementById('aux-wave-fullscreen');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = 'aux-wave-fullscreen';
+    lb.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;';
+    lb.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#1e1b4b;border-bottom:1px solid #4c1d95;flex:0 0 auto;">' +
+        '<span style="color:#c4b5fd;font-size:12px;font-weight:600;" data-i18n="isp.fsHint">' + t('isp.fsHint') + '</span>' +
+        '<button type="button" style="background:#4c1d95;border:1px solid #7c3aed;color:#ddd6fe;border-radius:6px;padding:5px 12px;font-weight:600;cursor:pointer;" onclick="auxWaveCloseLightbox()">×</button>' +
+      '</div>' +
+      '<div id="aux-wave-fs-stage" style="flex:1 1 auto;overflow-x:auto;overflow-y:hidden;background:#000;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;">' +
+        '<svg id="aux-wave-fs-svg" class="isp-fs-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
+      '</div>' +
+      '<div id="aux-wave-fs-minimap-wrap" style="flex:0 0 auto;padding:4px 8px 6px;background:#0f172a;border-top:1px solid #334155;">' +
+        '<div style="position:relative;width:100%;height:44px;background:#000;border:1px solid #334155;border-radius:4px;overflow:hidden;" id="aux-wave-fs-minimap-box">' +
+          '<svg id="aux-wave-fs-minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" style="display:block;width:100%;height:100%;"></svg>' +
+          '<div id="aux-wave-fs-minimap-vp" style="position:absolute;top:0;height:100%;border:2px solid #a78bfa;background:rgba(167,139,250,0.18);pointer-events:none;box-sizing:border-box;min-width:6px;"></div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(lb);
+    auxWaveFs = {
+      lb: lb,
+      stage: lb.querySelector('#aux-wave-fs-stage'),
+      svg: lb.querySelector('#aux-wave-fs-svg'),
+      miniBox: lb.querySelector('#aux-wave-fs-minimap-box'),
+      miniSvg: lb.querySelector('#aux-wave-fs-minimap-svg'),
+      miniVp: lb.querySelector('#aux-wave-fs-minimap-vp'),
+      open: true,
+      pinch: null
+    };
+    auxWaveFsBindGestures();
+  } else {
+    auxWaveFs.stage = lb.querySelector('#aux-wave-fs-stage');
+    auxWaveFs.svg = lb.querySelector('#aux-wave-fs-svg');
+    auxWaveFs.miniBox = lb.querySelector('#aux-wave-fs-minimap-box');
+    auxWaveFs.miniSvg = lb.querySelector('#aux-wave-fs-minimap-svg');
+    auxWaveFs.miniVp = lb.querySelector('#aux-wave-fs-minimap-vp');
+    auxWaveFs.open = true;
+  }
+  auxWaveFsZoomH = auxWaveZoomHVal;
+  auxWaveFsRender();
+  requestAnimationFrame(function() {
+    if (auxWaveFs && auxWaveFs.svg) {
+      var svgW = parseFloat(auxWaveFs.svg.getAttribute('width')) || 0;
+      var stageW = auxWaveFs.stage.clientWidth || window.innerWidth;
+      if (svgW > stageW) auxWaveFsFit();
+    }
+  });
+};
+
+window.auxWaveCloseLightbox = function() {
+  var lb = document.getElementById('aux-wave-fullscreen');
+  if (lb) lb.remove();
+  auxWaveFs = null;
+};
+
+// ── Init AUX waveform bindings ──
+function auxWaveInit() {
+  // Scroll → minimap viewport
+  var waveBox = document.getElementById('aux-wave-box');
+  if (waveBox) {
+    waveBox.addEventListener('scroll', function() {
+      auxWaveUpdateMinimapVpThrottled();
+    }, { passive: true });
+
+    // Pinch zoom on wave box
+    var waveSvg = document.getElementById('aux-wave-svg');
+    if (waveSvg) {
+      var boxPinch = null;
+      waveBox.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          auxTouchActive = false; // 停用 pan，避免 pinch 結束後用舊 state 跳動
+          auxStopTouchInertia();
+          auxStopMouseInertia();
+          var t1 = e.touches[0], t2 = e.touches[1];
+          var dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+          var d0 = Math.hypot(dx, dy);
+          var rect = waveBox.getBoundingClientRect();
+          var cxViewport = (t1.clientX + t2.clientX) / 2;
+          var cxInBox = cxViewport - rect.left;
+          var cxInSvg = waveBox.scrollLeft + cxInBox;
+          boxPinch = { d0: d0, zoom0: auxWaveZoomHVal, cxInSvg: cxInSvg, cxInBox: cxInBox };
+          waveSvg.style.transformOrigin = cxInSvg + 'px 0';
+          waveSvg.style.willChange = 'transform';
+        }
+      }, { passive: false });
+      var _awPinchRaf = false;
+      waveBox.addEventListener('touchmove', function(e) {
+        if (boxPinch && e.touches.length === 2) {
+          e.preventDefault();
+          var t1 = e.touches[0], t2 = e.touches[1];
+          var dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+          var dist = Math.hypot(dx, dy);
+          var ratio = dist / boxPinch.d0;
+          var newZoom = Math.max(0.001, Math.min(12, boxPinch.zoom0 * ratio));
+          auxWaveZoomHVal = newZoom;
+          if (!_awPinchRaf) {
+            _awPinchRaf = true;
+            requestAnimationFrame(function() {
+              _awPinchRaf = false;
+              var visualRatio = auxWaveZoomHVal / boxPinch.zoom0;
+              waveSvg.style.transform = 'scaleX(' + visualRatio + ')';
+              var el = document.getElementById('aux-wave-zoom-val');
+              if (el) el.textContent = auxWaveFormatZoom(auxWaveZoomHVal);
+            });
+          }
+        }
+      }, { passive: false });
+      var commitAwPinch = function() {
+        if (!boxPinch) return;
+        var p = boxPinch;
+        var ratio = auxWaveZoomHVal / p.zoom0;
+        var newCx = p.cxInSvg * ratio;
+        auxWaveRender();
+        waveBox.scrollLeft = Math.max(0, newCx - p.cxInBox);
+        waveSvg.style.willChange = '';
+        auxWaveUpdateMinimapVp();
+        boxPinch = null;
+      };
+      waveBox.addEventListener('touchend', function(e) {
+        if (boxPinch && e.touches.length < 2) {
+          commitAwPinch();
+          // pinch 結束後若仍有手指，重新初始化 pan state 避免用舊值跳動
+          if (e.touches.length === 1) {
+            auxTouchActive = true;
+            auxTouchStartX = e.touches[0].clientX;
+            auxTouchStartScroll = waveBox.scrollLeft;
+            auxTouchLastX = e.touches[0].clientX;
+            auxTouchLastTime = performance.now();
+            auxTouchVelocity = 0;
+          }
+        }
+      });
+      waveBox.addEventListener('touchcancel', function() { commitAwPinch(); });
+
+      // --- Mouse wheel zoom at cursor position ---
+      waveBox.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var rect = waveBox.getBoundingClientRect();
+        var cursorXInBox = e.clientX - rect.left;
+        var cursorXInSvg = waveBox.scrollLeft + cursorXInBox;
+        var factor = e.deltaY > 0 ? (1 / 1.2) : 1.2;
+        var newZoom = Math.max(0.001, Math.min(12, auxWaveZoomHVal * factor));
+        var ratio = newZoom / auxWaveZoomHVal;
+        auxWaveZoomHVal = newZoom;
+        var el = document.getElementById('aux-wave-zoom-val');
+        if (el) el.textContent = auxWaveFormatZoom(auxWaveZoomHVal);
+        auxWaveRender();
+        var newCursorXInSvg = cursorXInSvg * ratio;
+        waveBox.scrollLeft = Math.max(0, newCursorXInSvg - cursorXInBox);
+        auxWaveUpdateMinimapVp();
+      }, { passive: false });
+
+      // --- Mouse drag pan with inertia ---
+      var auxMouseDragging = false;
+      var auxMouseStartX = 0, auxMouseStartScroll = 0;
+      var auxMouseVelocity = 0, auxMouseLastX = 0, auxMouseLastTime = 0;
+      var auxMouseInertiaRaf = 0;
+      var AUX_INERTIA_DECAY = 0.95;
+      var AUX_INERTIA_MIN = 0.3;
+
+      function auxStopMouseInertia() {
+        if (auxMouseInertiaRaf) { cancelAnimationFrame(auxMouseInertiaRaf); auxMouseInertiaRaf = 0; }
+        auxMouseVelocity = 0;
+      }
+      function auxStartMouseInertia() {
+        if (Math.abs(auxMouseVelocity) < AUX_INERTIA_MIN) return;
+        function step() {
+          auxMouseVelocity *= AUX_INERTIA_DECAY;
+          if (Math.abs(auxMouseVelocity) < AUX_INERTIA_MIN) { auxMouseVelocity = 0; return; }
+          waveBox.scrollLeft -= auxMouseVelocity;
+          auxWaveUpdateMinimapVpThrottled();
+          auxMouseInertiaRaf = requestAnimationFrame(step);
+        }
+        auxMouseInertiaRaf = requestAnimationFrame(step);
+      }
+
+      waveBox.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        auxStopMouseInertia();
+        auxMouseDragging = true;
+        auxMouseStartX = e.clientX;
+        auxMouseStartScroll = waveBox.scrollLeft;
+        auxMouseLastX = e.clientX;
+        auxMouseLastTime = performance.now();
+        auxMouseVelocity = 0;
+        waveBox.style.cursor = 'grabbing';
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', function(e) {
+        if (!auxMouseDragging) return;
+        var now = performance.now();
+        var dtMs = now - auxMouseLastTime;
+        if (dtMs > 0) auxMouseVelocity = (e.clientX - auxMouseLastX) / Math.max(1, dtMs) * 16;
+        auxMouseLastX = e.clientX;
+        auxMouseLastTime = now;
+        var dx = e.clientX - auxMouseStartX;
+        waveBox.scrollLeft = auxMouseStartScroll - dx;
+        auxWaveUpdateMinimapVpThrottled();
+      });
+      window.addEventListener('mouseup', function() {
+        if (auxMouseDragging) {
+          auxMouseDragging = false;
+          waveBox.style.cursor = '';
+          if (performance.now() - auxMouseLastTime < 50) auxStartMouseInertia();
+          else auxMouseVelocity = 0;
+        }
+      });
+
+      // --- Touch single-finger pan with inertia ---
+      var auxTouchStartX = 0, auxTouchStartScroll = 0;
+      var auxTouchLastX = 0, auxTouchLastTime = 0;
+      var auxTouchVelocity = 0;
+      var auxTouchInertiaRaf = 0;
+      var auxTouchActive = false;
+
+      function auxStopTouchInertia() {
+        if (auxTouchInertiaRaf) { cancelAnimationFrame(auxTouchInertiaRaf); auxTouchInertiaRaf = 0; }
+        auxTouchVelocity = 0;
+      }
+      function auxStartTouchInertia() {
+        if (Math.abs(auxTouchVelocity) < AUX_INERTIA_MIN) return;
+        function step() {
+          auxTouchVelocity *= AUX_INERTIA_DECAY;
+          if (Math.abs(auxTouchVelocity) < AUX_INERTIA_MIN) { auxTouchVelocity = 0; return; }
+          waveBox.scrollLeft -= auxTouchVelocity;
+          auxWaveUpdateMinimapVpThrottled();
+          auxTouchInertiaRaf = requestAnimationFrame(step);
+        }
+        auxTouchInertiaRaf = requestAnimationFrame(step);
+      }
+
+      waveBox.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 1) {
+          auxStopMouseInertia();
+          auxStopTouchInertia();
+          auxTouchActive = true;
+          auxTouchStartX = e.touches[0].clientX;
+          auxTouchStartScroll = waveBox.scrollLeft;
+          auxTouchLastX = e.touches[0].clientX;
+          auxTouchLastTime = performance.now();
+          auxTouchVelocity = 0;
+        }
+      }, { passive: true });
+      waveBox.addEventListener('touchmove', function(e) {
+        if (auxTouchActive && e.touches.length === 1 && !boxPinch) {
+          e.preventDefault();
+          var now = performance.now();
+          var dtMs = now - auxTouchLastTime;
+          if (dtMs > 0) auxTouchVelocity = (e.touches[0].clientX - auxTouchLastX) / Math.max(1, dtMs) * 16;
+          auxTouchLastX = e.touches[0].clientX;
+          auxTouchLastTime = now;
+          var dx = e.touches[0].clientX - auxTouchStartX;
+          waveBox.scrollLeft = auxTouchStartScroll - dx;
+          auxWaveUpdateMinimapVpThrottled();
+        }
+      }, { passive: false });
+      waveBox.addEventListener('touchend', function(e) {
+        if (auxTouchActive && e.touches.length === 0 && !boxPinch) {
+          auxTouchActive = false;
+          if (performance.now() - auxTouchLastTime < 50) auxStartTouchInertia();
+          else auxTouchVelocity = 0;
+        }
+      });
+    }
+  }
+
+  // Minimap click-to-jump
+  var minimap = document.getElementById('aux-wave-minimap-box');
+  if (minimap) {
+    var jumpTo = function(clientX) {
+      var wb = document.getElementById('aux-wave-box');
+      var ws = document.getElementById('aux-wave-svg');
+      if (!wb || !ws) return;
+      var miniRect = minimap.getBoundingClientRect();
+      var x = clientX - miniRect.left;
+      var miniW = minimap.clientWidth || 1;
+      var svgW = parseFloat(ws.getAttribute('width')) || ws.getBoundingClientRect().width;
+      var visibleW = wb.clientWidth;
+      var targetCenter = (x / miniW) * svgW;
+      wb.scrollLeft = Math.max(0, targetCenter - visibleW / 2);
+    };
+    minimap.addEventListener('click', function(e) { jumpTo(e.clientX); });
+    var miniTouching = false;
+    minimap.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) { miniTouching = true; jumpTo(e.touches[0].clientX); e.preventDefault(); }
+    }, { passive: false });
+    minimap.addEventListener('touchmove', function(e) {
+      if (miniTouching && e.touches.length === 1) { jumpTo(e.touches[0].clientX); e.preventDefault(); }
+    }, { passive: false });
+    minimap.addEventListener('touchend', function() { miniTouching = false; });
+    minimap.addEventListener('touchcancel', function() { miniTouching = false; });
+  }
+}
+
+// Hook into existing AUX decode flow: render waveform on any input change
+// Override auxOnReqChange and auxOnRepChange to also trigger waveform render
+var _origAuxOnReqChange = window.auxOnReqChange;
+window.auxOnReqChange = function() {
+  if (_origAuxOnReqChange) _origAuxOnReqChange();
+  auxWaveRender();
+};
+var _origAuxOnRepChange = window.auxOnRepChange;
+window.auxOnRepChange = function() {
+  if (_origAuxOnRepChange) _origAuxOnRepChange();
+  auxWaveRender();
+};
+// Also hook into auxDecodeAll
+var _origAuxDecodeAll = window.auxDecodeAll;
+window.auxDecodeAll = function() {
+  _auxWaveUnlocked = true;
+  if (_origAuxDecodeAll) _origAuxDecodeAll();
+  auxWaveRender();
+  var _wvHdr = document.getElementById('aux-wave-card-header');
+  var _wvHint = document.getElementById('aux-wave-card-hint');
+  if (_wvHdr) _wvHdr.style.opacity = '';
+  if (_wvHint) _wvHint.style.display = 'none';
+};
+
+function auxInitAll() {
+  initAllHexDrums();
+  auxInitListeners();
+  auxInitDecodeStructural();
+  auxWaveInit();
+  // Initial waveform render
+  auxWaveRender();
+  // 初始化 val combo box 狀態（drum init 不觸發 onChange，需手動設定初始地址的 combo 狀態）
+  auxUpdateValCombo(auxGetAddrFromWheels());
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', auxInitAll);
+} else {
+  auxInitAll();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", auxInitAll);
+} else {
+  auxInitAll();
+}
+
+})();
+</script>
+</body>
+</html>
