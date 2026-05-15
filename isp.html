@@ -1,0 +1,2976 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="iSP 8B9B 編碼差動訊號波形模擬與反推">
+<meta property="og:title" content="iSP 波形產生器 — TCON FAE專用工具箱">
+<meta property="og:description" content="iSP 8B9B 編碼差動訊號波形模擬 · DLL/PLL · 6-bit/8-bit · Scrambler · 波形反推">
+<meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/isp.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<title>iSP 波形產生器 — TCON FAE專用工具箱</title>
+<link rel="stylesheet" href="common/common.css">
+<style>
+  /* ─── iSP 波形產生器 ──────────────────────────── */
+  .isp-page .card-header {
+    background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
+  }
+  .isp-mode-hint {
+    background: #1e1b4b;
+    border: 1px solid #4c1d95;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #c4b5fd;
+    margin-top: 10px;
+    line-height: 1.5;
+  }
+  .isp-mode-hint strong { color: #a78bfa; }
+  .radio-opt.is-disabled label {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: #0a0f1e;
+  }
+  .radio-opt.is-disabled input:checked + label {
+    border-color: #475569;
+    background: #1a2033;
+    color: #64748b;
+  }
+  /* Slider + number 雙向 */
+  .isp-slider-row { display: flex; align-items: center; gap: 6px; }
+  .isp-slider-btn {
+    flex: 0 0 32px; width: 32px; height: 32px;
+    border: 1.5px solid var(--border); border-radius: 6px;
+    background: #1e293b; color: #a78bfa;
+    font-size: 18px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+    transition: background 0.1s;
+  }
+  .isp-slider-btn:active { background: #334155; }
+  @media (hover:hover) { .isp-slider-btn:hover { background: #334155; } }
+  .isp-slider-row input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 28px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+  }
+  .isp-slider-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 5px;
+    background: #334155;
+    border-radius: 3px;
+  }
+  .isp-slider-row input[type="range"]::-moz-range-track {
+    height: 5px;
+    background: #334155;
+    border-radius: 3px;
+  }
+  .isp-slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #a78bfa;
+    border: 2px solid #1e1b4b;
+    margin-top: -7px;
+    cursor: pointer;
+  }
+  .isp-slider-row input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #a78bfa;
+    border: 2px solid #1e1b4b;
+    cursor: pointer;
+  }
+  .isp-slider-row .isp-num {
+    flex: 0 0 80px;
+    width: 80px;
+    padding: 6px 8px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    background: #0f172a;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    -moz-appearance: textfield;
+  }
+  .isp-slider-row .isp-num::-webkit-outer-spin-button,
+  .isp-slider-row .isp-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  /* 灰階色塊 */
+  .isp-gray-chip {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid #475569;
+    flex: 0 0 auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  /* Summary info */
+  .isp-info-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 4px 10px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    font-size: 11px;
+    color: var(--text-sub);
+    line-height: 1.5;
+    overflow: hidden;
+  }
+  .isp-info-row strong {
+    color: #c4b5fd;
+    font-weight: 700;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .isp-info-row span {
+    white-space: normal;
+    min-width: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .isp-info-row .isp-info-frame {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .isp-info-row .isp-info-bits {
+    flex: 0 0 auto;
+  }
+  /* Waveform 控制列 */
+  .isp-wave-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .isp-wave-ctrl label {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin: 0;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .isp-btn-sm {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #0f172a;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .isp-btn-sm:active { background: #1e293b; }
+  .isp-btn-sm.is-primary {
+    background: #4c1d95;
+    border-color: #7c3aed;
+    color: #ddd6fe;
+  }
+  /* Waveform 容器（橫向 scroll + 雙指縮放） */
+  .isp-wave-box {
+    background: #000000;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* 所有觸控手勢由 JS 處理（單指 pan + 雙指 pinch + 慣性） */
+    touch-action: none;
+    position: relative;
+    contain: layout style;
+    will-change: scroll-position;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .isp-wave-svg {
+    display: block;
+    height: 160px;
+    min-width: 100%;
+    will-change: transform;
+    transform: translateZ(0);
+  }
+  .isp-wave-hint {
+    font-size: 10px;
+    color: #64748b;
+    text-align: center;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  /* Overview / Minimap 縮圖視窗 */
+  .isp-minimap-wrap {
+    margin-top: 6px;
+  }
+  .isp-minimap-label {
+    font-size: 9px;
+    color: #64748b;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+  }
+  .isp-minimap-box {
+    position: relative;
+    width: 100%;
+    height: 44px;
+    background: #000;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .isp-minimap-box svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .isp-minimap-viewport {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border: 2px solid #a78bfa;
+    background: rgba(167, 139, 250, 0.18);
+    pointer-events: none;
+    box-sizing: border-box;
+    min-width: 6px;
+  }
+  /* 全螢幕內部 SVG（H-only 縮放，V 高度由 JS 動態設定） */
+  .isp-fs-svg {
+    display: block;
+    flex: 0 0 auto;
+  }
+  /* 2-pair dual waveform */
+  .isp-pair-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #a78bfa;
+    margin-bottom: 2px;
+    margin-top: 4px;
+    padding-left: 4px;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  .isp-pair-label:first-child { margin-top: 0; }
+  .isp-wave-svg.is-dual {
+    height: 130px;
+  }
+  /* is-dual 高度由 JS 在 ispFsRender 動態設定 */
+  .isp-minimap-box.is-dual {
+    height: 72px;
+  }
+  /* REG grid */
+  .isp-reg-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px 8px;
+    margin-top: 4px;
+  }
+  .isp-reg-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 2px 2px;
+    gap: 4px;
+  }
+  .isp-reg-cell label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #e879f9;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.1;
+  }
+  .isp-reg-copy-btn {
+    background: #4c1d95;
+    color: #ddd6fe;
+    border: 1px solid #7c3aed;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 9px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.25;
+    white-space: nowrap;
+    -webkit-appearance: none;
+  }
+  .isp-reg-copy-btn:active { background: #6d28d9; }
+  /* 0x 前綴 + input 的外層 wrap（#2：視覺提示在外側） */
+  .isp-reg-hex-wrap {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+  }
+  .isp-reg-hex-prefix {
+    position: absolute;
+    left: 7px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+    letter-spacing: 0;
+    z-index: 1;
+  }
+  .isp-reg-hex {
+    width: 100%;
+    padding: 6px 6px 6px 24px;  /* 左邊留 0x 的空間 */
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    background: #0f172a;
+    color: var(--text);
+    font-size: 13px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-weight: 600;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+  }
+  .isp-reg-hex:focus {
+    outline: none;
+    border-color: #e879f9;
+    box-shadow: 0 0 0 3px rgba(232,121,249,0.18);
+  }
+  .isp-reg-hex.is-invalid {
+    border-color: var(--error);
+    background: #2d1414;
+  }
+  @media (max-width: 360px) {
+    .isp-reg-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  /* Collapsible card */
+  .isp-card-collapsible .card-header { cursor: pointer; user-select: none; }
+  .isp-card-collapsible .card-header .collapse-icon { float: right; transition: transform 0.2s; font-size: 14px; color: #94a3b8; }
+  .isp-card-collapsible.is-collapsed .card-body { display: none; }
+  .isp-card-collapsible.is-collapsed .collapse-icon { transform: rotate(-90deg); }
+  /* Pixel mode panels */
+  .isp-pxmode-panel { display: none; }
+  .isp-pxmode-panel.is-active { display: block; }
+  /* Part 圖例 */
+  .isp-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 10px;
+    color: var(--text-sub);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .isp-legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 3px;
+    vertical-align: middle;
+  }
+
+  /* ─── iSP REVERSE LOOKUP ────────────────────── */
+  .isp-rev-card { margin-top: 16px; }
+  .isp-rev-card .card-header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+  }
+  .isp-rev-wave-wrap {
+    background: #000000; border: 1px solid #334155; border-radius: 8px;
+    margin: 12px 0 6px; padding: 0; overflow: hidden;
+  }
+  .isp-rev-wave-wrap svg { display: block; width: 100%; cursor: pointer; }
+  .isp-rev-cb-row {
+    display: flex; justify-content: space-around; padding: 4px 6px 6px;
+  }
+  .isp-rev-cb-col {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    flex: 1;
+  }
+  .isp-rev-cb-col label {
+    font-size: 9px; color: var(--text-sub); font-weight: 600; cursor: pointer;
+  }
+  .isp-rev-cb-col input[type="checkbox"] {
+    width: 16px; height: 16px; accent-color: #22c55e; cursor: pointer;
+  }
+  .isp-rev-9b-val {
+    text-align: center; font-family: 'SF Mono', monospace; font-size: 13px;
+    color: #93c5fd; margin: 4px 0 12px; font-weight: 600;
+  }
+  .isp-rev-results { display: flex; flex-direction: column; gap: 10px; }
+  .isp-rev-result-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 6px; background: #1e293b;
+    border: 1px solid #334155;
+  }
+  .isp-rev-result-label {
+    font-size: 11px; font-weight: 700; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: .3px; min-width: 82px; flex-shrink: 0;
+  }
+  .isp-rev-result-val {
+    font-family: 'SF Mono', monospace; font-size: 14px;
+    color: #4ade80; font-weight: 600;
+  }
+  .isp-rev-result-val.no-match { color: #f87171; }
+  .isp-rev-note {
+    font-size: 11px; color: var(--text-sub); margin-top: 8px;
+    line-height: 1.5; padding: 6px 8px; background: rgba(59,130,246,0.08);
+    border-radius: 4px; border-left: 3px solid #3b82f6;
+  }
+</style>
+</head>
+<body>
+<div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text" data-i18n="ptr.pull">下拉刷新</span></div>
+
+<div id="page-isp" class="isp-page">
+  <div class="header">
+    <div class="back-row">
+      <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
+    </div>
+    <h1><svg width="24" height="18" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M1 17 L4 17 L4 5 L7 5 L7 17 L10 17 L10 5 L13 5 L13 17 L16 17 L16 5 L19 5 L19 17 L22 17 L22 5 L25 5 L25 17 L29 17" stroke="white" stroke-width="1.8" fill="none" stroke-linejoin="miter"/></svg><span data-i18n="isp.title">iSP 波形產生器</span> <span style="display:inline-block;background:#a78bfa;color:#1e1b4b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.16.0</span></h1>
+    <p data-i18n="isp.subtitle">iSP 8B9B 編碼差動訊號波形模擬</p>
+    <div class="lang-switcher">
+      <select id="lang-select" class="lang-select" aria-label="Language">
+        <option value="zh-TW">繁體中文</option>
+        <option value="zh-CN">简体中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+  </div>
+  <div class="container">
+
+    <!-- 模式設定 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">⚙️</span><span data-i18n="isp.modeHeader">模式設定</span>
+      </div>
+      <div class="card-body">
+
+        <div class="field">
+          <label data-i18n="isp.driverBits">Source Driver Bits</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-bits" id="isp-bits-6" value="6"><label for="isp-bits-6">6 bits</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-bits" id="isp-bits-8" value="8" checked><label for="isp-bits-8">8 bits</label></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="isp.pairs">Pair 數</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-pair" id="isp-pair-1" value="1" checked><label for="isp-pair-1">1 pair</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-pair" id="isp-pair-2" value="2"><label for="isp-pair-2">2 pair</label></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="isp.encDataZone">Data Zone 編碼</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-enc-data" id="isp-enc-data-dll" value="DLL" checked><label for="isp-enc-data-dll">DLL-based</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-enc-data" id="isp-enc-data-pll" value="PLL"><label for="isp-enc-data-pll">PLL-based</label></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="isp.encBkZone">BK Zone 編碼</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-enc-bk" id="isp-enc-bk-dll" value="DLL" checked><label for="isp-enc-bk-dll">DLL-based</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-enc-bk" id="isp-enc-bk-pll" value="PLL"><label for="isp-enc-bk-pll">PLL-based</label></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="isp.scramble">Scrambler</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-scr" id="isp-scr-off" value="off" checked><label for="isp-scr-off" data-i18n="isp.scrOff">Off</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-scr" id="isp-scr-on" value="on"><label for="isp-scr-on" data-i18n="isp.scrOnPixel">On</label></div>
+          </div>
+        </div>
+        <div class="field" id="isp-scr-key-field" style="display:none;">
+          <label data-i18n="isp.scrKey">初始 Key (16-bit hex)</label>
+          <input type="text" id="isp-scr-key" class="isp-num-input" value="FFFF" maxlength="4" style="width:80px;text-transform:uppercase;font-family:monospace;" placeholder="FFFF">
+        </div>
+
+        <div class="isp-mode-hint" data-i18n-html="isp.modeHint">
+          <strong>目前支援：</strong>1-pair & 2-pair / 6-bit & 8-bit / DLL & PLL / Scrambler On/Off。
+        </div>
+      </div>
+    </div>
+
+    <!-- 像素設定 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">🎨</span><span data-i18n="isp.pixelHeader">像素設定</span>
+      </div>
+      <div class="card-body">
+
+        <!-- Pixel mode selector -->
+        <div class="field">
+          <label data-i18n="isp.pxMode">像素模式</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-px-mode" id="isp-pxmode-a-radio" value="A" checked><label for="isp-pxmode-a-radio" data-i18n="isp.pxModeA">純色畫面</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-px-mode" id="isp-pxmode-b-radio" value="B"><label for="isp-pxmode-b-radio" data-i18n="isp.pxModeB">遞增</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-px-mode" id="isp-pxmode-c-radio" value="C"><label for="isp-pxmode-c-radio" data-i18n="isp.pxModeC">遞減</label></div>
+          </div>
+        </div>
+
+        <!-- Mode A: 灰階 (uniform R/G/B) -->
+        <div id="isp-pxmode-a" class="isp-pxmode-panel is-active">
+          <div class="field">
+            <label><span style="color:#ef4444;" data-i18n="isp.grayR">R Gray Level</span></label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-gray-r-slider" min="0" max="255" value="255" step="1">
+              <input type="number" id="isp-gray-r-num" class="isp-num" min="0" max="255" value="255">
+              <span class="isp-gray-chip" id="isp-gray-r-chip" style="background:#ff0000"></span>
+            </div>
+          </div>
+          <div class="field">
+            <label><span style="color:#22c55e;" data-i18n="isp.grayG">G Gray Level</span></label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-gray-g-slider" min="0" max="255" value="128" step="1">
+              <input type="number" id="isp-gray-g-num" class="isp-num" min="0" max="255" value="128">
+              <span class="isp-gray-chip" id="isp-gray-g-chip" style="background:#008000"></span>
+            </div>
+          </div>
+          <div class="field">
+            <label><span style="color:#3b82f6;" data-i18n="isp.grayB">B Gray Level</span></label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-gray-b-slider" min="0" max="255" value="0" step="1">
+              <input type="number" id="isp-gray-b-num" class="isp-num" min="0" max="255" value="0">
+              <span class="isp-gray-chip" id="isp-gray-b-chip" style="background:#000000"></span>
+            </div>
+            <div class="field-hint" data-i18n="isp.grayHint">每個 pixel 的 R / G / B 各自獨立設定（0 ~ 255, 8-bit）</div>
+          </div>
+        </div>
+
+        <!-- Mode B: 遞增 -->
+        <div id="isp-pxmode-b" class="isp-pxmode-panel">
+          <div class="field">
+            <label data-i18n="isp.startGray">起始灰階</label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-inc-start-slider" min="0" max="255" value="0" step="1">
+              <input type="number" id="isp-inc-start-num" class="isp-num" min="0" max="255" value="0">
+            </div>
+          </div>
+          <div class="field">
+            <label data-i18n="isp.stepGray">Step（每次變化量）</label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-inc-step-slider" min="1" max="64" value="4" step="1">
+              <input type="number" id="isp-inc-step-num" class="isp-num" min="1" max="255" value="4">
+            </div>
+          </div>
+          <div class="field">
+            <label data-i18n="isp.repeatSubPx">重複 sub-pixel 數</label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-inc-repeat-slider" min="1" max="48" value="3" step="1">
+              <input type="number" id="isp-inc-repeat-num" class="isp-num" min="1" max="255" value="3">
+            </div>
+            <div class="field-hint" data-i18n="isp.incHint">重複=3：R=G=B，每個 pixel 灰階遞增一次，達最大值後保持不變。</div>
+          </div>
+        </div>
+
+        <!-- Mode C: 遞減 -->
+        <div id="isp-pxmode-c" class="isp-pxmode-panel">
+          <div class="field">
+            <label data-i18n="isp.startGray">起始灰階</label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-dec-start-slider" min="0" max="255" value="255" step="1">
+              <input type="number" id="isp-dec-start-num" class="isp-num" min="0" max="255" value="255">
+            </div>
+          </div>
+          <div class="field">
+            <label data-i18n="isp.stepGray">Step（每次變化量）</label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-dec-step-slider" min="1" max="64" value="4" step="1">
+              <input type="number" id="isp-dec-step-num" class="isp-num" min="1" max="255" value="4">
+            </div>
+          </div>
+          <div class="field">
+            <label data-i18n="isp.repeatSubPx">重複 sub-pixel 數</label>
+            <div class="isp-slider-row">
+              <input type="range" id="isp-dec-repeat-slider" min="1" max="48" value="3" step="1">
+              <input type="number" id="isp-dec-repeat-num" class="isp-num" min="1" max="255" value="3">
+            </div>
+            <div class="field-hint" data-i18n="isp.decHint">重複=3：R=G=B，每個 pixel 灰階遞減一次，達 0 後保持不變。</div>
+          </div>
+        </div>
+
+        <!-- Pixel count (shared across all modes) -->
+        <div class="field">
+          <label data-i18n="isp.pixelCount">Pixel 數量</label>
+          <div class="isp-slider-row">
+            <input type="range" id="isp-pixels-slider" min="1" max="255" value="4" step="1">
+            <input type="number" id="isp-pixels-num" class="isp-num" min="1" max="255" value="4">
+          </div>
+          <div class="field-hint" data-i18n="isp.pixelHint">1 ~ 255</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Frame 結構 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">🧱</span><span data-i18n="isp.frameHeader">Frame 結構</span>
+      </div>
+      <div class="card-body">
+
+        <div class="field">
+          <label data-i18n="isp.bkBeforeBac">BAC 前 BK 數量</label>
+          <div class="isp-slider-row">
+            <input type="range" id="isp-bk-before-slider" min="0" max="20" value="2" step="1">
+            <input type="number" id="isp-bk-before-num" class="isp-num" min="0" max="50" value="2">
+          </div>
+          <div class="field-hint" data-i18n="isp.bkBeforeHint">BAC 前插入的 BK 控制碼數量（0 ~ 20）</div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="isp.bkAfterEol">EOL 後 BK 數量</label>
+          <div class="isp-slider-row">
+            <input type="range" id="isp-bk-after-slider" min="0" max="20" value="2" step="1">
+            <input type="number" id="isp-bk-after-num" class="isp-num" min="0" max="50" value="2">
+          </div>
+          <div class="field-hint" data-i18n="isp.bkAfterHint">EOL 後插入的 BK 控制碼數量（0 ~ 20）</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- iSP REG Setting 段 (collapsible) -->
+    <div class="card isp-card-collapsible" id="isp-reg-card">
+      <div class="card-header" onclick="ispToggleRegCard()">
+        <span class="icon">🔧</span><span data-i18n="isp.regHeader">iSP REG Setting</span>
+        <span class="collapse-icon">▾</span>
+      </div>
+      <div class="card-body">
+
+        <div class="field">
+          <label data-i18n="isp.regEnable">加入 Setting line</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-reg-en" id="isp-reg-off" value="off" checked><label for="isp-reg-off" data-i18n="isp.regNo">不加入</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-reg-en" id="isp-reg-on" value="on"><label for="isp-reg-on" data-i18n="isp.regYes">加入</label></div>
+          </div>
+          <div class="field-hint" data-i18n="isp.regEnableHint">啟用後在 Data line 後接一條獨立 Setting line：BK · BAC · Setting · REG0 ~ REGn · EOL（依 datasheet 格式）</div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="isp.regCount">REG 數量</label>
+          <div class="isp-slider-row">
+            <input type="range" id="isp-reg-count-slider" min="8" max="56" value="8" step="8">
+            <input type="number" id="isp-reg-count-num" class="isp-num" min="8" max="56" value="8" step="1">
+          </div>
+          <div class="field-hint" data-i18n="isp.regCountHint">REG 數量（8 ~ 56）</div>
+        </div>
+
+        <div class="isp-reg-grid" id="isp-reg-grid">
+          <!-- Dynamically populated by JS -->
+        </div>
+        <div class="field-hint" data-i18n="isp.regHexHint" style="margin-top:8px;">格式：2 位 16 進位（00 ~ FF，不需輸入 0x，可大小寫）</div>
+
+      </div>
+    </div>
+
+    <!-- 波形輸出 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">📈</span><span data-i18n="isp.waveHeader">差動訊號波形</span>
+      </div>
+      <div class="card-body">
+
+        <div class="isp-info-row">
+          <span class="isp-info-frame"><span data-i18n="isp.infoFrame">Frame:</span> <strong id="isp-info-frame">BK BAC POL+ ...</strong></span>
+          <span class="isp-info-bits"><span data-i18n="isp.infoBits">Bits:</span> <strong id="isp-info-bits">0</strong></span>
+        </div>
+
+        <div class="isp-wave-ctrl">
+          <label data-i18n="isp.zoomH">H-Zoom</label>
+          <button class="isp-btn-sm" onclick="ispZoomH(-1)">−</button>
+          <span id="isp-zoom-h-val" style="font-size:11px;color:#a78bfa;min-width:36px;text-align:center;">1.0×</span>
+          <button class="isp-btn-sm" onclick="ispZoomH(1)">+</button>
+          <button class="isp-btn-sm" onclick="ispZoomReset()" data-i18n="isp.btnFit">Fit</button>
+          <button class="isp-btn-sm is-primary" onclick="ispOpenLightbox()" data-i18n="isp.btnFullscreen">全螢幕</button>
+        </div>
+
+        <div id="isp-wave-container">
+          <div class="isp-wave-box" id="isp-wave-box">
+            <div class="isp-pair-label" id="isp-pair0-label" style="display:none">Pair 0</div>
+            <svg class="isp-wave-svg" id="isp-wave-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div class="isp-pair-label" id="isp-pair1-label" style="display:none">Pair 1</div>
+            <svg class="isp-wave-svg" id="isp-wave-svg-1" style="display:none" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
+
+        <div class="isp-minimap-wrap">
+          <div class="isp-minimap-label" data-i18n="isp.overview">Overview · 點擊跳轉</div>
+          <div class="isp-minimap-box" id="isp-minimap-box">
+            <svg id="isp-minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+            <div class="isp-minimap-viewport" id="isp-minimap-viewport"></div>
+          </div>
+        </div>
+
+        <div class="isp-wave-hint" data-i18n="isp.waveHint">黑底 0 / 綠線 1（D+ 高電位）· 控制碼段以不同顏色區塊標示 · 資料段以 RGB 原色標示</div>
+
+        <div class="isp-legend">
+          <span><span class="isp-legend-dot" style="background:#f97316"></span><span data-i18n="isp.legBK">BK</span></span>
+          <span><span class="isp-legend-dot" style="background:#eab308"></span><span data-i18n="isp.legBAC">BAC</span></span>
+          <span><span class="isp-legend-dot" style="background:#06b6d4"></span><span data-i18n="isp.legPOL">POL+</span></span>
+          <span><span class="isp-legend-dot" style="background:#ef4444"></span>R</span>
+          <span><span class="isp-legend-dot" style="background:#22c55e"></span>G</span>
+          <span><span class="isp-legend-dot" style="background:#3b82f6"></span>B</span>
+          <span><span class="isp-legend-dot" style="background:#a855f7"></span><span data-i18n="isp.legEOL">EOL</span></span>
+          <span><span class="isp-legend-dot" style="background:#d946ef"></span><span data-i18n="isp.legSET">Setting</span></span>
+          <span><span class="isp-legend-dot" style="background:#e879f9"></span>REG</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 波形反推（8-bit only） ─── -->
+    <div class="card isp-rev-card" id="isp-rev-card">
+      <div class="card-header">
+        <span data-i18n="isp.revHeader">波形反推（8-bit）</span>
+      </div>
+      <div class="card-body">
+        <div class="hint" data-i18n="isp.revHint">輸入示波器上看到的 9-bit 波形，即時反推可能的 Command 或 Data Level</div>
+        <!-- 9-bit waveform display (matches main waveform style) -->
+        <div class="isp-rev-wave-wrap" id="isp-rev-wave-wrap">
+          <svg id="isp-rev-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <!-- Checkboxes row below waveform -->
+        <div class="isp-rev-cb-row" id="isp-rev-cb-row"></div>
+        <!-- 9-bit hex value display -->
+        <div class="isp-rev-9b-val" id="isp-rev-9b-val">0x000 (000000000)</div>
+        <!-- Results -->
+        <div class="isp-rev-results" id="isp-rev-results">
+          <div class="isp-rev-result-row">
+            <span class="isp-rev-result-label">Command</span>
+            <span class="isp-rev-result-val" id="isp-rev-cmd">—</span>
+          </div>
+          <div class="isp-rev-result-row">
+            <span class="isp-rev-result-label">DLL Data</span>
+            <span class="isp-rev-result-val" id="isp-rev-dll">—</span>
+          </div>
+          <div class="isp-rev-result-row">
+            <span class="isp-rev-result-label">PLL Data</span>
+            <span class="isp-rev-result-val" id="isp-rev-pll">—</span>
+          </div>
+        </div>
+        <div class="isp-rev-note" data-i18n="isp.revNote">Bit 順序為 LSB-first（b0 在最左，b8 在最右），與示波器上實際傳輸順序一致。Command 同時比對 DLL-BK 與 PLL-BK。</div>
+      </div>
+    </div>
+
+    <div class="footer-back">
+      <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
+    </div>
+  </div>
+</div><!-- /page-isp -->
+
+<!-- 共用 JS（i18n 必須先於 common.js 載入） -->
+<script src="common/i18n.js"></script>
+<script src="common/common.js"></script>
+<script>
+// ═══════════ iSP 波形產生器（DLL+PLL / 8-bit+6-bit / 1-pair+2-pair / Scrambler On/Off） ═══════════
+(function(){
+  // ── Control Codes（9-bit LSB-first）──
+  // 對應 datasheet（RM97T91_A p.14 / RM96K80 §6.2）
+  // PLL 與 DLL 的差異：只有 BK 不同（§6.2）
+  const ISP_CTRL = {
+    BK:      [1,0,0,0,0,1,1,1,1],   // DLL BK
+    BAC:     [0,1,1,1,1,0,0,0,0],
+    'POL+':  [0,1,1,0,0,1,1,1,1],
+    'POL-':  [1,0,0,1,1,0,0,0,0],
+    SET:     [1,0,0,0,0,0,0,1,1],
+    EOL:     [0,1,1,1,1,1,1,0,0],
+    'BKPOL+':[0,1,1,1,0,1,1,1,1],
+    'BKPOL-':[1,0,0,0,1,0,0,0,0],
+  };
+  const ISP_BK_PLL = [0,0,1,0,1,0,1,0,1]; // PLL BK（clock-like pattern for PLL lock）
+
+  // ── 8B9B Data LUTs（auto-generated from RM96K80 §6.8, packed 9-bit LSB-first）──
+  // Verified 256/256 against datasheet. See NOTES/pll-verification.md
+  const ISP_DLL_LUT = [
+    0x001,0x002,0x005,0x006,0x009,0x00A,0x00D,0x00E,0x011,0x012,0x015,0x016,0x019,0x01A,0x01D,0x01E,
+    0x021,0x022,0x025,0x026,0x029,0x02A,0x02D,0x02E,0x031,0x032,0x035,0x036,0x039,0x03A,0x03D,0x03E,
+    0x041,0x042,0x045,0x046,0x049,0x04A,0x04D,0x04E,0x051,0x052,0x055,0x056,0x059,0x05A,0x05D,0x05E,
+    0x061,0x062,0x065,0x066,0x069,0x06A,0x06D,0x06E,0x071,0x072,0x075,0x076,0x079,0x07A,0x07D,0x07E,
+    0x081,0x082,0x085,0x086,0x089,0x08A,0x08D,0x08E,0x091,0x092,0x095,0x096,0x099,0x09A,0x09D,0x09E,
+    0x0A1,0x0A2,0x0A5,0x0A6,0x0A9,0x0AA,0x0AD,0x0AE,0x0B1,0x0B2,0x0B5,0x0B6,0x0B9,0x0BA,0x0BD,0x0BE,
+    0x0C1,0x0C2,0x0C5,0x0C6,0x0C9,0x0CA,0x0CD,0x0CE,0x0D1,0x0D2,0x0D5,0x0D6,0x0D9,0x0DA,0x0DD,0x0DE,
+    0x0E1,0x0E2,0x0E5,0x0E6,0x0E9,0x0EA,0x0ED,0x0EE,0x0F1,0x0F2,0x0F5,0x0F6,0x0F9,0x0FA,0x0FD,0x0FE,
+    0x101,0x102,0x105,0x106,0x109,0x10A,0x10D,0x10E,0x111,0x112,0x115,0x116,0x119,0x11A,0x11D,0x11E,
+    0x121,0x122,0x125,0x126,0x129,0x12A,0x12D,0x12E,0x131,0x132,0x135,0x136,0x139,0x13A,0x13D,0x13E,
+    0x141,0x142,0x145,0x146,0x149,0x14A,0x14D,0x14E,0x151,0x152,0x155,0x156,0x159,0x15A,0x15D,0x15E,
+    0x161,0x162,0x165,0x166,0x169,0x16A,0x16D,0x16E,0x171,0x172,0x175,0x176,0x179,0x17A,0x17D,0x17E,
+    0x181,0x182,0x185,0x186,0x189,0x18A,0x18D,0x18E,0x191,0x192,0x195,0x196,0x199,0x19A,0x19D,0x19E,
+    0x1A1,0x1A2,0x1A5,0x1A6,0x1A9,0x1AA,0x1AD,0x1AE,0x1B1,0x1B2,0x1B5,0x1B6,0x1B9,0x1BA,0x1BD,0x1BE,
+    0x1C1,0x1C2,0x1C5,0x1C6,0x1C9,0x1CA,0x1CD,0x1CE,0x1D1,0x1D2,0x1D5,0x1D6,0x1D9,0x1DA,0x1DD,0x1DE,
+    0x1E1,0x1E2,0x1E5,0x1E6,0x1E9,0x1EA,0x1ED,0x1EE,0x1F1,0x1F2,0x1F5,0x1F6,0x1F9,0x1FA,0x1FD,0x1FE,
+  ];
+  const ISP_PLL_LUT = [
+    0x0D3,0x163,0x164,0x0D4,0x0DB,0x16B,0x16C,0x0DC,0x0C3,0x173,0x174,0x0C4,0x0CB,0x17B,0x17C,0x0CC,
+    0x021,0x022,0x025,0x026,0x029,0x02A,0x02D,0x02E,0x031,0x032,0x035,0x036,0x039,0x03A,0x03D,0x0EC,
+    0x041,0x042,0x045,0x046,0x049,0x04A,0x04D,0x04E,0x051,0x052,0x055,0x056,0x059,0x05A,0x05D,0x05E,
+    0x061,0x062,0x065,0x066,0x069,0x06A,0x06D,0x06E,0x071,0x072,0x075,0x076,0x079,0x07A,0x07D,0x0AC,
+    0x053,0x082,0x085,0x086,0x089,0x08A,0x08D,0x08E,0x091,0x092,0x095,0x096,0x099,0x09A,0x09D,0x09E,
+    0x0A1,0x0A2,0x0A5,0x0A6,0x0A9,0x0AA,0x0AD,0x0AE,0x0B1,0x0B2,0x0B5,0x0B6,0x0B9,0x0BA,0x0BD,0x0BE,
+    0x0C1,0x0C2,0x0C5,0x0C6,0x0C9,0x0CA,0x0CD,0x0CE,0x0D1,0x0D2,0x0D5,0x0D6,0x0D9,0x0DA,0x0DD,0x0DE,
+    0x0E1,0x0E2,0x0E5,0x0E6,0x0E9,0x0EA,0x0ED,0x0EE,0x0F1,0x0F2,0x0F5,0x0F6,0x0F9,0x0FA,0x19C,0x02C,
+    0x1D3,0x063,0x105,0x106,0x109,0x10A,0x10D,0x10E,0x111,0x112,0x115,0x116,0x119,0x11A,0x11D,0x11E,
+    0x121,0x122,0x125,0x126,0x129,0x12A,0x12D,0x12E,0x131,0x132,0x135,0x136,0x139,0x13A,0x13D,0x13E,
+    0x141,0x142,0x145,0x146,0x149,0x14A,0x14D,0x14E,0x151,0x152,0x155,0x156,0x159,0x15A,0x15D,0x15E,
+    0x161,0x162,0x165,0x166,0x169,0x16A,0x16D,0x16E,0x171,0x172,0x175,0x176,0x179,0x17A,0x17D,0x1AC,
+    0x153,0x182,0x185,0x186,0x189,0x18A,0x18D,0x18E,0x191,0x192,0x195,0x196,0x199,0x19A,0x19D,0x19E,
+    0x1A1,0x1A2,0x1A5,0x1A6,0x1A9,0x1AA,0x1AD,0x1AE,0x1B1,0x1B2,0x1B5,0x1B6,0x1B9,0x1BA,0x1BD,0x1BE,
+    0x113,0x1C2,0x1C5,0x1C6,0x1C9,0x1CA,0x1CD,0x1CE,0x1D1,0x1D2,0x1D5,0x1D6,0x1D9,0x1DA,0x1DD,0x1DE,
+    0x133,0x083,0x084,0x134,0x13B,0x08B,0x08C,0x13C,0x123,0x093,0x094,0x124,0x12B,0x09B,0x09C,0x12C,
+  ];
+
+  // ── 配色 ──
+  const COLOR = {
+    BK:   '#f97316',   // 橘
+    BAC:  '#eab308',   // 黃
+    POL:  '#06b6d4',   // 青
+    R:    '#ef4444',   // 紅
+    G:    '#22c55e',   // 綠
+    B:    '#3b82f6',   // 藍
+    EOL:  '#a855f7',   // 紫
+    SET:  '#d946ef',   // 粉紫（Setting 特殊碼）
+    REG:  '#e879f9',   // 淺粉紫（REG 資料）
+    PACKED: '#8b5cf6', // 深紫（6-bit 打包後的 byte）
+  };
+
+  // ── 模式狀態 ──
+  let ispCurrentBits = 8;
+  let ispEncData = 'DLL';   // Data Zone encoding（'DLL' | 'PLL'）
+  let ispEncBk   = 'DLL';   // BK Zone encoding（'DLL' | 'PLL'）
+  let ispPairCount = 1;  // 1 or 2
+
+  // ── 8B9B encode: byte → 9-bit array（LSB-first）──
+  function ispEncode8bDLL(byte) {
+    const v = ISP_DLL_LUT[byte & 0xFF];
+    const bits = new Array(9);
+    for (let i = 0; i < 9; i++) bits[i] = (v >> i) & 1;
+    return bits;
+  }
+  function ispEncode8bPLL(byte) {
+    const v = ISP_PLL_LUT[byte & 0xFF];
+    const bits = new Array(9);
+    for (let i = 0; i < 9; i++) bits[i] = (v >> i) & 1;
+    return bits;
+  }
+  // 依目前 Data Zone encoding 設定選用 DLL 或 PLL LUT
+  function ispEncodeByte(byte) {
+    return ispEncData === 'PLL' ? ispEncode8bPLL(byte) : ispEncode8bDLL(byte);
+  }
+  // 依目前 BK Zone encoding 設定取得 BK control code
+  function ispGetBk() {
+    return ispEncBk === 'PLL' ? ISP_BK_PLL : ISP_CTRL.BK;
+  }
+
+  // ── Scrambler: 16-bit LFSR (Galois form, polynomial x^16+x^5+x^4+x^3+1) ──
+  let ispScrEnabled = false;
+  let ispScrInitKey = 0xFFFF;
+
+  function ispLfsrStep(key) {
+    const fb = (key >> 15) & 1;
+    key = ((key << 1) | fb) & 0xFFFF;
+    if (fb) key ^= 0x0038; // taps at bits 3,4,5
+    return key;
+  }
+  function ispScrambleByte(dataByte, key) {
+    let scrambled = 0;
+    for (let i = 0; i < 8; i++) {
+      const dataBit = (dataByte >> i) & 1;
+      const keyBit = (key >> (12 - i)) & 1;
+      scrambled |= ((dataBit ^ keyBit) << i);
+    }
+    return scrambled;
+  }
+
+  // 6-bit mode 下 byte label：bit 絕對位置 → (pixelIdx, component)
+  // 每個 pixel 18 bits = R[0..5] G[0..5] B[0..5]（LSB first），串接後每 8 bits 切一個 byte。
+  // 例如 byte0 = R1[0..5] + G1[0..1] → label 'R1+G1'；byte2 = B1[4..5] + R2[0..5] → 'B1+R2'
+  function ispBuild6bByteLabel(bitStart, bitEnd, pixelCount) {
+    const labels = [];
+    let lastKey = '';
+    for (let bit = bitStart; bit <= bitEnd; bit++) {
+      const p = Math.floor(bit / 18) + 1;
+      if (p > pixelCount) break; // 超出最後一顆 pixel → 後面是 0 padding
+      const within = bit % 18;
+      const compIdx = Math.floor(within / 6); // 0=R, 1=G, 2=B
+      const comp = ['R', 'G', 'B'][compIdx];
+      const key = comp + p;
+      if (key !== lastKey) {
+        labels.push(key);
+        lastKey = key;
+      }
+    }
+    return labels.length ? labels.join('+') : 'Pad';
+  }
+
+  // 6-bit mode 下 Data 區的 byte segments：LSB-first 串流切 byte，每 byte 過 8B9B 編碼。
+  // 回傳 segs 陣列，每個 seg 對應一個 8B9B packet（9 bits）。
+  // 每個 seg 另帶 componentStripe（9 entry）：index 0 為 encoding control bit（null），
+  // index 1..8 對應原始 byte 的 bit0..bit7，每 entry 標註其所屬的 R/G/B 與 pixel 編號。
+  function ispBuild6bDataSegs(rGray, gGray, bGray, pixelCount, pixelData, scrKeyIn) {
+    const segs = [];
+    const stream = [];
+    const compStream = []; // 與 stream 等長：每個 raw bit 對應 {c:'R'|'G'|'B', p: pixel#} 或 null（padding）
+    // Build LSB-first bit stream: R[0..5] G[0..5] B[0..5] per pixel
+    for (let p = 1; p <= pixelCount; p++) {
+      const pr = pixelData ? pixelData[p - 1].r : rGray;
+      const pg = pixelData ? pixelData[p - 1].g : gGray;
+      const pb = pixelData ? pixelData[p - 1].b : bGray;
+      for (let i = 0; i < 6; i++) { stream.push((pr >> i) & 1); compStream.push({c:'R', p}); }
+      for (let i = 0; i < 6; i++) { stream.push((pg >> i) & 1); compStream.push({c:'G', p}); }
+      for (let i = 0; i < 6; i++) { stream.push((pb >> i) & 1); compStream.push({c:'B', p}); }
+    }
+    // Pad 到 8 的倍數（末端補 0）
+    while (stream.length % 8 !== 0) { stream.push(0); compStream.push(null); }
+    const totalBytes = stream.length / 8;
+    for (let k = 0; k < totalBytes; k++) {
+      const bitStart = k * 8;
+      const bitEnd   = bitStart + 7;
+      let byte = 0;
+      for (let j = 0; j < 8; j++) byte |= (stream[bitStart + j] << j);
+      if (ispScrEnabled && scrKeyIn !== undefined) {
+        byte = ispScrambleByte(byte, scrKeyIn.key);
+        scrKeyIn.count++;
+        if (scrKeyIn.count % 3 === 0) scrKeyIn.key = ispLfsrStep(scrKeyIn.key);
+      }
+      const label = ispBuild6bByteLabel(bitStart, bitEnd, pixelCount);
+      const encoded = ispEncodeByte(byte);
+      // componentStripe 對齊 encoded 的 9 bits：[null(ctrl), bit0, bit1, ..., bit7]
+      const componentStripe = [null];
+      for (let j = 0; j < 8; j++) componentStripe.push(compStream[bitStart + j] || null);
+      segs.push({ label, color: COLOR.PACKED, bits: encoded, componentStripe, scrambled: ispScrEnabled });
+    }
+    return segs;
+  }
+
+  // 組成一個 frame segment 列表
+  // 依 datasheet（RM96K80 / RM97T91_A §6.2）:
+  //   Data line:    BK×bkBefore + BAC + POL± + (R,G,B)×pixelCount + EOL + BK×bkAfter
+  //   Setting line: BK×bkBefore + BAC + Setting + REG0..REG7 + EOL + BK×bkAfter（blanking 期間的獨立一條 line）
+  // regEnable=true 時，於 Data line 後再接一條完整的 Setting line（不是把 REG 黏在 EOL 後）
+  // BK 用 ispGetBk()（依 BK Zone encoding），Data/REG 用 ispEncodeByte()（依 Data Zone encoding）
+  function ispBuildFrame(params) {
+    const {rGray, gGray, bGray, pixelCount, bkBefore, bkAfter, regEnable, regBytes, polSign, pixelData} = params;
+    const bits = (params.bits === 6) ? 6 : 8;
+    const segs = [];
+    const polLabel = (polSign === '-') ? 'POL-' : 'POL+';
+    const bk = ispGetBk();
+    // ── Data line ──
+    for (let i = 0; i < bkBefore; i++) {
+      segs.push({label:'BK', color: COLOR.BK, bits: bk});
+    }
+    segs.push({label:'BAC',    color: COLOR.BAC, bits: ISP_CTRL.BAC});
+    segs.push({label:polLabel, color: COLOR.POL, bits: ISP_CTRL[polLabel], kind:'pol'});
+    if (bits === 6) {
+      // 6-bit mode：Data 區為打包後的 byte 序列（每 byte 過 8B9B 編碼）
+      const scrState = ispScrEnabled ? { key: ispScrInitKey, count: 0 } : undefined;
+      const packedSegs = ispBuild6bDataSegs(rGray, gGray, bGray, pixelCount, pixelData || null, scrState);
+      for (const s of packedSegs) segs.push(s);
+    } else {
+      // 8-bit mode：每個 pixel 直接輸出 R·G·B 三個 byte（各自過 8B9B）
+      if (ispScrEnabled) {
+        let scrKey = ispScrInitKey;
+        for (let p = 1; p <= pixelCount; p++) {
+          const pr = pixelData ? pixelData[p - 1].r : rGray;
+          const pg = pixelData ? pixelData[p - 1].g : gGray;
+          const pb = pixelData ? pixelData[p - 1].b : bGray;
+          const srR = ispScrambleByte(pr, scrKey);
+          const srG = ispScrambleByte(pg, scrKey);
+          const srB = ispScrambleByte(pb, scrKey);
+          segs.push({label:'R'+p, color: COLOR.R, bits: ispEncodeByte(srR), scrambled: true});
+          segs.push({label:'G'+p, color: COLOR.G, bits: ispEncodeByte(srG), scrambled: true});
+          segs.push({label:'B'+p, color: COLOR.B, bits: ispEncodeByte(srB), scrambled: true});
+          scrKey = ispLfsrStep(scrKey);
+        }
+      } else {
+        for (let p = 1; p <= pixelCount; p++) {
+          const pr = pixelData ? pixelData[p - 1].r : rGray;
+          const pg = pixelData ? pixelData[p - 1].g : gGray;
+          const pb = pixelData ? pixelData[p - 1].b : bGray;
+          segs.push({label:'R'+p, color: COLOR.R, bits: ispEncodeByte(pr)});
+          segs.push({label:'G'+p, color: COLOR.G, bits: ispEncodeByte(pg)});
+          segs.push({label:'B'+p, color: COLOR.B, bits: ispEncodeByte(pb)});
+        }
+      }
+    }
+    segs.push({label:'EOL', color: COLOR.EOL, bits: ISP_CTRL.EOL});
+    for (let i = 0; i < bkAfter; i++) {
+      segs.push({label:'BK', color: COLOR.BK, bits: bk});
+    }
+    // ── Setting line（可選，blanking 期間的獨立 line） ──
+    if (regEnable) {
+      for (let i = 0; i < bkBefore; i++) {
+        segs.push({label:'BK', color: COLOR.BK, bits: bk});
+      }
+      segs.push({label:'BAC', color: COLOR.BAC, bits: ISP_CTRL.BAC});
+      segs.push({label:'SET', color: COLOR.SET, bits: ISP_CTRL.SET});
+      for (let r = 0; r < regBytes.length; r++) {
+        segs.push({label:'REG'+r, color: COLOR.REG, bits: ispEncodeByte(regBytes[r] || 0)});
+      }
+      segs.push({label:'EOL', color: COLOR.EOL, bits: ISP_CTRL.EOL});
+      for (let i = 0; i < bkAfter; i++) {
+        segs.push({label:'BK', color: COLOR.BK, bits: bk});
+      }
+    }
+    return segs;
+  }
+
+  // 2-pair mode: split pixel data across pair 0 / pair 1
+  // 3-slot cycle per 2 pixels (§6.5 / §6.6):
+  //   slot 3k+1: P0=R(2k+1) P1=G(2k+1)
+  //   slot 3k+2: P0=B(2k+1) P1=R(2k+2)
+  //   slot 3k+3: P0=G(2k+2) P1=B(2k+2)
+  function ispBuild2PairFrames(params) {
+    const {rGray, gGray, bGray, pixelCount, bkBefore, bkAfter, regEnable, regBytes, polSign, pixelData} = params;
+    const bits = (params.bits === 6) ? 6 : 8;
+    const polLabel = (polSign === '-') ? 'POL-' : 'POL+';
+    const bk = ispGetBk();
+
+    // Helper to get per-pixel R/G/B values
+    function pxR(p) { return pixelData ? pixelData[p - 1].r : rGray; }
+    function pxG(p) { return pixelData ? pixelData[p - 1].g : gGray; }
+    function pxB(p) { return pixelData ? pixelData[p - 1].b : bGray; }
+
+    function makeCtrlSegs() {
+      const s = [];
+      for (let i = 0; i < bkBefore; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
+      s.push({label:'BAC', color: COLOR.BAC, bits: ISP_CTRL.BAC});
+      s.push({label:polLabel, color: COLOR.POL, bits: ISP_CTRL[polLabel], kind:'pol'});
+      return s;
+    }
+    function makeEndSegs() {
+      const s = [];
+      s.push({label:'EOL', color: COLOR.EOL, bits: ISP_CTRL.EOL});
+      for (let i = 0; i < bkAfter; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
+      return s;
+    }
+    function makeSettingLine() {
+      if (!regEnable) return [];
+      const s = [];
+      for (let i = 0; i < bkBefore; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
+      s.push({label:'BAC', color: COLOR.BAC, bits: ISP_CTRL.BAC});
+      s.push({label:'SET', color: COLOR.SET, bits: ISP_CTRL.SET});
+      for (let r = 0; r < regBytes.length; r++) s.push({label:'REG'+r, color: COLOR.REG, bits: ispEncodeByte(regBytes[r] || 0)});
+      s.push({label:'EOL', color: COLOR.EOL, bits: ISP_CTRL.EOL});
+      for (let i = 0; i < bkAfter; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
+      return s;
+    }
+
+    // Build per-pair data segments
+    // Pair ordering: 2 pixels → 3 slots, each slot = one component per pair
+    const pair0Data = [];
+    const pair1Data = [];
+
+    if (bits === 8) {
+      // 8-bit: direct RGB bytes, 3 slots per 2 pixels
+      const totalPairs = Math.ceil(pixelCount / 2);
+      let scr0Key = ispScrEnabled ? ispScrInitKey : 0;
+      let scr1Key = ispScrEnabled ? ispScrInitKey : 0;
+      let scr0Count = 0, scr1Count = 0;
+      function encScr(val, pairIdx) {
+        if (!ispScrEnabled) return { bits: ispEncodeByte(val), scrambled: false };
+        if (pairIdx === 0) {
+          const sv = ispScrambleByte(val, scr0Key);
+          scr0Count++;
+          if (scr0Count % 3 === 0) scr0Key = ispLfsrStep(scr0Key);
+          return { bits: ispEncodeByte(sv), scrambled: true };
+        } else {
+          const sv = ispScrambleByte(val, scr1Key);
+          scr1Count++;
+          if (scr1Count % 3 === 0) scr1Key = ispLfsrStep(scr1Key);
+          return { bits: ispEncodeByte(sv), scrambled: true };
+        }
+      }
+      for (let k = 0; k < totalPairs; k++) {
+        const p1 = 2*k + 1;  // 1-indexed pixel
+        const p2 = 2*k + 2;
+        const hasP2 = (p2 <= pixelCount);
+        const r1v = pxR(p1), g1v = pxG(p1), b1v = pxB(p1);
+        const r2v = hasP2 ? pxR(p2) : 0;
+        const g2v = hasP2 ? pxG(p2) : 0;
+        const b2v = hasP2 ? pxB(p2) : 0;
+        // slot 1: P0=R(p1), P1=G(p1)
+        const e_r1 = encScr(r1v, 0), e_g1 = encScr(g1v, 1);
+        pair0Data.push({label:'R'+p1, color: COLOR.R, bits: e_r1.bits, scrambled: e_r1.scrambled});
+        pair1Data.push({label:'G'+p1, color: COLOR.G, bits: e_g1.bits, scrambled: e_g1.scrambled});
+        // slot 2: P0=B(p1), P1=R(p2)
+        const e_b1 = encScr(b1v, 0), e_r2 = encScr(r2v, 1);
+        pair0Data.push({label:'B'+p1, color: COLOR.B, bits: e_b1.bits, scrambled: e_b1.scrambled});
+        pair1Data.push({label: hasP2 ? 'R'+p2 : 'Pad', color: hasP2 ? COLOR.R : COLOR.PACKED, bits: e_r2.bits, scrambled: e_r2.scrambled});
+        // slot 3: P0=G(p2), P1=B(p2)
+        const e_g2 = encScr(g2v, 0), e_b2 = encScr(b2v, 1);
+        pair0Data.push({label: hasP2 ? 'G'+p2 : 'Pad', color: hasP2 ? COLOR.G : COLOR.PACKED, bits: e_g2.bits, scrambled: e_g2.scrambled});
+        pair1Data.push({label: hasP2 ? 'B'+p2 : 'Pad', color: hasP2 ? COLOR.B : COLOR.PACKED, bits: e_b2.bits, scrambled: e_b2.scrambled});
+      }
+    } else {
+      // 6-bit: build separate LSB-first bitstreams for each pair, then pack into bytes
+      // pair0 stream: R1,B1,G2,R3,B3,G4,...  pair1 stream: G1,R2,B2,G3,R4,B4,...
+      const p0Stream = [];
+      const p0Comp = [];
+      const p1Stream = [];
+      const p1Comp = [];
+
+      function pushComp(stream, comp, val, pIdx, compName) {
+        for (let i = 0; i < 6; i++) {
+          stream.push((val >> i) & 1);
+          comp.push({c: compName, p: pIdx});
+        }
+      }
+
+      const totalPairs = Math.ceil(pixelCount / 2);
+      for (let k = 0; k < totalPairs; k++) {
+        const p1 = 2*k + 1;
+        const p2 = 2*k + 2;
+        const hasP2 = (p2 <= pixelCount);
+        const r1v = pxR(p1), g1v = pxG(p1), b1v = pxB(p1);
+        const r2v = hasP2 ? pxR(p2) : 0;
+        const g2v = hasP2 ? pxG(p2) : 0;
+        const b2v = hasP2 ? pxB(p2) : 0;
+        // slot 1: P0=R(p1), P1=G(p1)
+        pushComp(p0Stream, p0Comp, r1v, p1, 'R');
+        pushComp(p1Stream, p1Comp, g1v, p1, 'G');
+        // slot 2: P0=B(p1), P1=R(p2)
+        pushComp(p0Stream, p0Comp, b1v, p1, 'B');
+        pushComp(p1Stream, p1Comp, r2v, p2, 'R');
+        // slot 3: P0=G(p2), P1=B(p2)
+        pushComp(p0Stream, p0Comp, g2v, p2, 'G');
+        pushComp(p1Stream, p1Comp, b2v, p2, 'B');
+      }
+
+      function packStream(stream, comp, scrState) {
+        while (stream.length % 8 !== 0) { stream.push(0); comp.push(null); }
+        const segs = [];
+        const totalBytes = stream.length / 8;
+        for (let k = 0; k < totalBytes; k++) {
+          const bitStart = k * 8;
+          let byte = 0;
+          for (let j = 0; j < 8; j++) byte |= (stream[bitStart + j] << j);
+          if (ispScrEnabled && scrState) {
+            byte = ispScrambleByte(byte, scrState.key);
+            scrState.count++;
+            if (scrState.count % 3 === 0) scrState.key = ispLfsrStep(scrState.key);
+          }
+          // Build label from comp entries
+          const labels = [];
+          let lastKey = '';
+          for (let j = 0; j < 8; j++) {
+            const entry = comp[bitStart + j];
+            if (!entry) continue;
+            const key = entry.c + entry.p;
+            if (key !== lastKey) { labels.push(key); lastKey = key; }
+          }
+          const label = labels.length ? labels.join('+') : 'Pad';
+          const encoded = ispEncodeByte(byte);
+          const componentStripe = [null];
+          for (let j = 0; j < 8; j++) componentStripe.push(comp[bitStart + j] || null);
+          segs.push({ label, color: COLOR.PACKED, bits: encoded, componentStripe, scrambled: ispScrEnabled });
+        }
+        return segs;
+      }
+
+      const scrState0 = ispScrEnabled ? { key: ispScrInitKey, count: 0 } : undefined;
+      const scrState1 = ispScrEnabled ? { key: ispScrInitKey, count: 0 } : undefined;
+      const p0Segs = packStream(p0Stream, p0Comp, scrState0);
+      const p1Segs = packStream(p1Stream, p1Comp, scrState1);
+      for (const s of p0Segs) pair0Data.push(s);
+      for (const s of p1Segs) pair1Data.push(s);
+    }
+
+    const ctrl = makeCtrlSegs();
+    const end = makeEndSegs();
+    const setting = makeSettingLine();
+
+    return {
+      pair0: [...ctrl, ...pair0Data, ...end, ...setting],
+      pair1: [...ctrl.map(s => ({...s})), ...pair1Data, ...end.map(s => ({...s})), ...setting.map(s => ({...s}))]
+    };
+  }
+
+  let ispZoomHVal = 1.0;
+  let ispPolSign = '+';   // '+' 或 '-'，POL 極性
+
+  // Hex 字串解析（"0xFF"、"FF"、"ff"、"0Xa3" 皆可），回傳 0~255 或 null
+  function parseHexByte(s) {
+    if (s == null) return null;
+    let str = String(s).trim().toLowerCase().replace(/^0x/, '');
+    if (!/^[0-9a-f]{1,2}$/.test(str)) return null;
+    const v = parseInt(str, 16);
+    return (isNaN(v) || v < 0 || v > 255) ? null : v;
+  }
+
+  let ispRegCount = 8; // default REG count, configurable 8~56
+
+  function getRegBytes() {
+    const arr = [];
+    for (let i = 0; i < ispRegCount; i++) {
+      const el = document.getElementById('isp-reg-' + i);
+      const v = el ? parseHexByte(el.value) : 0;
+      arr.push(v == null ? 0 : v);
+    }
+    return arr;
+  }
+
+  // 純函式：給定 segs + totalBits + zoomH，回傳 SVG inner HTML 與尺寸
+  // opts.overrideH: 若提供，用此高度作為 totalH，依比例放大 labelH/waveH/axisH
+  function ispBuildSvgInner(segs, totalBits, zoomH, opts) {
+    const basePerBit = 12;
+    const bitW = basePerBit * zoomH;
+    const pad = 6;
+    let labelH = 22;
+    let waveH = 72;
+    let axisH = 22;
+    let fontScale = 1;
+    if (opts && opts.overrideH && opts.overrideH > 0) {
+      const oh = opts.overrideH;
+      // 按比例分配，但 labelH 和 axisH 上限避免佔太多
+      const baseTotal = 116;
+      fontScale = Math.min(3, oh / baseTotal);
+      labelH = Math.max(18, Math.min(60, Math.round(22 * fontScale)));
+      axisH  = Math.max(16, Math.min(50, Math.round(22 * fontScale)));
+      waveH  = Math.max(40, oh - labelH - axisH);
+    }
+    const totalW = Math.max(200, Math.round(totalBits * bitW + pad * 2));
+    const totalH = labelH + waveH + axisH;
+
+    const signalY0 = labelH + waveH - 4;   // 0 位準
+    const signalY1 = labelH + 4;            // 1 位準
+
+    const parts = [];
+    parts.push(`<defs><pattern id="ispScrHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#fbbf24" stroke-width="0.8" stroke-opacity="0.3"/></pattern></defs>`);
+
+    // 背景基準線（dashed）
+    parts.push(`<line x1="${pad}" y1="${signalY1}" x2="${totalW - pad}" y2="${signalY1}" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>`);
+    parts.push(`<line x1="${pad}" y1="${signalY0}" x2="${totalW - pad}" y2="${signalY0}" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>`);
+    // 左側位準文字
+    parts.push(`<text x="${pad - 2}" y="${signalY1 + 4}" text-anchor="end" fill="#64748b" font-size="9">1</text>`);
+    parts.push(`<text x="${pad - 2}" y="${signalY0 + 4}" text-anchor="end" fill="#64748b" font-size="9">0</text>`);
+
+    let d = '';
+    let lastY = -1;
+    let cursorX = pad;
+
+    segs.forEach((seg) => {
+      const segW = seg.bits.length * bitW;
+      const isPol = (seg.kind === 'pol');
+      const polAttrs = isPol ? ' onclick="ispTogglePol()" style="cursor:pointer;"' : '';
+      // 背景淡色（6-bit mode 下另外疊 R/G/B 淡色條紋在資料 bit 上，呈現 byte 內的 component 分佈）
+      parts.push(`<rect x="${cursorX}" y="${labelH}" width="${segW}" height="${waveH}" fill="${seg.color}" fill-opacity="0.10"${polAttrs}/>`);
+      if (seg.scrambled) {
+        parts.push(`<rect x="${cursorX}" y="${labelH}" width="${segW}" height="${waveH}" fill="url(#ispScrHatch)"/>`);
+      }
+      // Component stripe backgrounds: skip when segment count > 100 (perf)
+      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length && segs.length <= 100) {
+        for (let j = 0; j < seg.componentStripe.length; j++) {
+          const entry = seg.componentStripe[j];
+          if (!entry) continue;
+          const compColor = entry.c === 'R' ? COLOR.R : (entry.c === 'G' ? COLOR.G : COLOR.B);
+          const bx = cursorX + j * bitW;
+          parts.push(`<rect x="${bx}" y="${labelH}" width="${bitW}" height="${waveH}" fill="${compColor}" fill-opacity="0.10"/>`);
+        }
+      }
+      // Label 色塊
+      if (segW > 1.5) {
+        parts.push(`<rect x="${cursorX + 0.5}" y="1" width="${Math.max(0.5, segW - 1)}" height="${labelH - 3}" fill="${seg.color}" rx="2"${polAttrs}/>`);
+      } else {
+        parts.push(`<rect x="${cursorX}" y="1" width="${segW}" height="${labelH - 3}" fill="${seg.color}"${polAttrs}/>`);
+      }
+      if (segW > 14) {
+        parts.push(`<text x="${cursorX + segW/2}" y="${labelH - 6}" text-anchor="middle" fill="white" font-size="10" font-weight="700"${polAttrs}>${seg.label}</text>`);
+      }
+      // 6-bit mode component stripe：label 底部 R/G/B 條紋（segment 太多時跳過以提升效能）
+      if (seg.componentStripe && seg.componentStripe.length === seg.bits.length && segs.length <= 100) {
+        const stripeH = 3.5;
+        const stripeY = labelH - 3 - stripeH - 0.5;
+        for (let j = 0; j < seg.componentStripe.length; j++) {
+          const entry = seg.componentStripe[j];
+          if (!entry) continue;
+          const compColor = entry.c === 'R' ? COLOR.R : (entry.c === 'G' ? COLOR.G : COLOR.B);
+          const bx = cursorX + j * bitW;
+          parts.push(`<rect x="${bx + 0.2}" y="${stripeY}" width="${Math.max(0.4, bitW - 0.4)}" height="${stripeH}" fill="${compColor}"/>`);
+        }
+      }
+      parts.push(`<line x1="${cursorX}" y1="${labelH}" x2="${cursorX}" y2="${labelH + waveH}" stroke="#475569" stroke-width="1"/>`);
+
+      // Inter-bit dividers (always render)
+      if (bitW > 1.2) {
+        for (let b = 1; b < seg.bits.length; b++) {
+          const bx = cursorX + b * bitW;
+          parts.push(`<line x1="${bx}" y1="${labelH}" x2="${bx}" y2="${labelH + waveH}" stroke="#1e293b" stroke-width="0.5"/>`);
+        }
+      }
+      // Bit value labels (0/1) — always render when bitW is large enough to read
+      if (bitW > 5) {
+        for (let b = 0; b < seg.bits.length; b++) {
+          const bx = cursorX + b * bitW + bitW/2;
+          parts.push(`<text x="${bx}" y="${labelH + waveH + 13}" text-anchor="middle" fill="#64748b" font-size="9">${seg.bits[b]}</text>`);
+        }
+      }
+
+      // 波形 step path
+      for (let b = 0; b < seg.bits.length; b++) {
+        const bit = seg.bits[b];
+        const bx0 = cursorX + b * bitW;
+        const bx1 = bx0 + bitW;
+        const y = bit ? signalY1 : signalY0;
+        if (d === '') {
+          d = `M ${bx0} ${y}`;
+          lastY = y;
+        } else if (y !== lastY) {
+          d += ` L ${bx0} ${lastY} L ${bx0} ${y}`;
+          lastY = y;
+        }
+        d += ` L ${bx1} ${y}`;
+        lastY = y;
+      }
+      cursorX += segW;
+    });
+
+    parts.push(`<line x1="${cursorX}" y1="${labelH}" x2="${cursorX}" y2="${labelH + waveH}" stroke="#475569" stroke-width="1"/>`);
+
+    const strokeW = zoomH < 0.1 ? 0.8 : 1.8;
+    parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="${strokeW}" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>`);
+
+    return { html: parts.join(''), totalW, totalH, bitW };
+  }
+
+  // 共享 state：最近一次 ispRender 產出的 segs/totalBits（供 FS/minimap 同步使用）
+  let ispLastSegs = null;
+  let ispLastTotalBits = 0;
+
+  // 2-pair 額外 state
+  let ispLastPair1Segs = null;
+  let ispLastPair1TotalBits = 0;
+
+  // rAF-throttled render：slider 拖動期間每 frame 最多跑一次 ispRender
+  let _ispRafId = 0;
+  function ispRenderThrottled() {
+    if (!_ispRafId) {
+      _ispRafId = requestAnimationFrame(() => { _ispRafId = 0; ispRender(); });
+    }
+  }
+
+  function ispRender() {
+    const svg = document.getElementById('isp-wave-svg');
+    if (!svg) return;
+
+    // 讀取 Driver bits（6 或 8）
+    const bits6El = document.getElementById('isp-bits-6');
+    const bits = (bits6El && bits6El.checked) ? 6 : 8;
+    ispCurrentBits = bits;
+    const maxGray = (bits === 6) ? 63 : 255;
+
+    // 讀取 encoding 模式
+    const encDataEl = document.getElementById('isp-enc-data-pll');
+    ispEncData = (encDataEl && encDataEl.checked) ? 'PLL' : 'DLL';
+    const encBkEl = document.getElementById('isp-enc-bk-pll');
+    ispEncBk = (encBkEl && encBkEl.checked) ? 'PLL' : 'DLL';
+
+    // 讀取 Scrambler 狀態
+    const scrOnEl = document.getElementById('isp-scr-on');
+    ispScrEnabled = !!(scrOnEl && scrOnEl.checked);
+    const scrKeyField = document.getElementById('isp-scr-key-field');
+    if (scrKeyField) scrKeyField.style.display = ispScrEnabled ? '' : 'none';
+    if (ispScrEnabled) {
+      const keyStr = (document.getElementById('isp-scr-key') || {}).value || 'FFFF';
+      ispScrInitKey = parseInt(keyStr, 16) || 0xFFFF;
+      if (ispScrInitKey < 0 || ispScrInitKey > 0xFFFF) ispScrInitKey = 0xFFFF;
+    }
+
+    // 讀取 pair count
+    const pair2El = document.getElementById('isp-pair-2');
+    ispPairCount = (pair2El && pair2El.checked) ? 2 : 1;
+
+    // 讀取像素模式 (A/B/C)
+    const pxModeEl = document.querySelector('#page-isp input[name="isp-px-mode"]:checked');
+    const pxMode = pxModeEl ? pxModeEl.value : 'A';
+
+    // 取得所有 input 值
+    const rGray  = Math.max(0, Math.min(maxGray, parseInt((document.getElementById('isp-gray-r-num')||{}).value, 10) || 0));
+    const gGray  = Math.max(0, Math.min(maxGray, parseInt((document.getElementById('isp-gray-g-num')||{}).value, 10) || 0));
+    const bGray  = Math.max(0, Math.min(maxGray, parseInt((document.getElementById('isp-gray-b-num')||{}).value, 10) || 0));
+    const pixels = Math.max(1, Math.min(255, parseInt((document.getElementById('isp-pixels-num')||{}).value, 10) || 1));
+    const bkBefore = Math.max(0, Math.min(50, parseInt((document.getElementById('isp-bk-before-num')||{}).value, 10) || 0));
+    const bkAfter  = Math.max(0, Math.min(50, parseInt((document.getElementById('isp-bk-after-num')||{}).value, 10) || 0));
+    const regOnEl  = document.getElementById('isp-reg-on');
+    const regEnable = !!(regOnEl && regOnEl.checked);
+    const regBytes  = getRegBytes();
+
+    // 產生 per-pixel data（Mode B/C）
+    let pixelData = null;
+    if (pxMode === 'B' || pxMode === 'C') {
+      const prefix = pxMode === 'B' ? 'inc' : 'dec';
+      const startGray = Math.max(0, Math.min(maxGray, parseInt((document.getElementById('isp-' + prefix + '-start-num')||{}).value, 10) || 0));
+      const step = Math.max(1, parseInt((document.getElementById('isp-' + prefix + '-step-num')||{}).value, 10) || 1);
+      const repeat = Math.max(1, parseInt((document.getElementById('isp-' + prefix + '-repeat-num')||{}).value, 10) || 1);
+      pixelData = [];
+      let gray = startGray;
+      let subPixelIndex = 0;
+      for (let p = 0; p < pixels; p++) {
+        const pd = {r: 0, g: 0, b: 0};
+        const comps = ['r', 'g', 'b'];
+        for (let c = 0; c < 3; c++) {
+          pd[comps[c]] = gray;
+          subPixelIndex++;
+          if (subPixelIndex % repeat === 0) {
+            if (pxMode === 'B') {
+              gray = Math.min(maxGray, gray + step);
+            } else {
+              gray = Math.max(0, gray - step);
+            }
+          }
+        }
+        pixelData.push(pd);
+      }
+    }
+
+    const buildParams = {bits, rGray, gGray, bGray, pixelCount: pixels, bkBefore, bkAfter, regEnable, regBytes, polSign: ispPolSign, pixelData};
+
+    // UI elements for dual mode (both SVGs are in the same scroll container now)
+    const p0Label = document.getElementById('isp-pair0-label');
+    const p1Label = document.getElementById('isp-pair1-label');
+    const svg1 = document.getElementById('isp-wave-svg-1');
+    const waveBox = document.getElementById('isp-wave-box');
+    const miniBox = document.getElementById('isp-minimap-box');
+
+    if (ispPairCount === 2) {
+      // ── 2-pair mode (single scroll container) ──
+      const frames = ispBuild2PairFrames(buildParams);
+      const segs0 = frames.pair0;
+      const segs1 = frames.pair1;
+      const totalBits0 = segs0.reduce((s, seg) => s + seg.bits.length, 0);
+      const totalBits1 = segs1.reduce((s, seg) => s + seg.bits.length, 0);
+      ispLastSegs = segs0;
+      ispLastTotalBits = totalBits0;
+      ispLastPair1Segs = segs1;
+      ispLastPair1TotalBits = totalBits1;
+
+      // Show dual UI — both SVGs inside the same isp-wave-box
+      if (p0Label) p0Label.style.display = '';
+      if (p1Label) p1Label.style.display = '';
+      if (svg1) svg1.style.display = '';
+      svg.classList.add('is-dual');
+      if (svg1) svg1.classList.add('is-dual');
+      if (miniBox) miniBox.classList.add('is-dual');
+
+      // Render pair 0
+      const r0 = ispBuildSvgInner(segs0, totalBits0, ispZoomHVal);
+      svg.setAttribute('viewBox', `0 0 ${r0.totalW} ${r0.totalH}`);
+      svg.setAttribute('width', r0.totalW);
+      svg.setAttribute('height', r0.totalH);
+      svg.innerHTML = r0.html;
+      svg.style.transform = '';
+      svg.style.transformOrigin = '';
+
+      // Render pair 1 (same container, naturally scrolls together)
+      if (svg1) {
+        const r1 = ispBuildSvgInner(segs1, totalBits1, ispZoomHVal);
+        svg1.setAttribute('viewBox', `0 0 ${r1.totalW} ${r1.totalH}`);
+        svg1.setAttribute('width', r1.totalW);
+        svg1.setAttribute('height', r1.totalH);
+        svg1.innerHTML = r1.html;
+        svg1.style.transform = '';
+        svg1.style.transformOrigin = '';
+      }
+
+      // Info
+      const encTag = (ispEncData === ispEncBk) ? ispEncData : `Data:${ispEncData} BK:${ispEncBk}`;
+      const polTxt = ispPolSign === '-' ? 'POL−' : 'POL+';
+      let dataBody;
+      if (bits === 6) {
+        const slotsPerPair = Math.ceil(pixels / 2) * 3; // 3 components per 2 pixels
+        const bitsPerPair = slotsPerPair * 6;
+        const bytesPerPair = Math.ceil(bitsPerPair / 8);
+        dataBody = `${pixels}px → ${bytesPerPair} bytes/pair`;
+      } else {
+        const slotsPerPair = Math.ceil(pixels / 2) * 3;
+        dataBody = `${pixels}px → ${slotsPerPair} slots/pair`;
+      }
+      const infoFrame = document.getElementById('isp-info-frame');
+      const infoBits = document.getElementById('isp-info-bits');
+      if (infoBits) infoBits.textContent = `${totalBits0} × 2`;
+      if (infoFrame) {
+        const dataLine = `[${encTag}] [2-pair] BK×${bkBefore} · BAC · ${polTxt} · ${dataBody} · EOL · BK×${bkAfter}`;
+        const setLine = regEnable ? `  +  Setting line` : '';
+        infoFrame.textContent = dataLine + setLine;
+      }
+
+      // Minimap (pair 0 top half, pair 1 bottom half)
+      ispRenderMinimap2Pair(segs0, totalBits0, segs1, totalBits1);
+      ispUpdateMinimapViewport();
+      requestAnimationFrame(() => {
+        ispRenderMinimap2Pair(segs0, totalBits0, segs1, totalBits1);
+        ispUpdateMinimapViewport();
+      });
+    } else {
+      // ── 1-pair mode (existing logic) ──
+      ispLastPair1Segs = null;
+      ispLastPair1TotalBits = 0;
+
+      // Hide dual UI
+      if (p0Label) p0Label.style.display = 'none';
+      if (p1Label) p1Label.style.display = 'none';
+      if (svg1) svg1.style.display = 'none';
+      svg.classList.remove('is-dual');
+      if (svg1) svg1.classList.remove('is-dual');
+      if (miniBox) miniBox.classList.remove('is-dual');
+
+      const segs = ispBuildFrame(buildParams);
+      const totalBits = segs.reduce((s, seg) => s + seg.bits.length, 0);
+      ispLastSegs = segs;
+      ispLastTotalBits = totalBits;
+
+      const r = ispBuildSvgInner(segs, totalBits, ispZoomHVal);
+      svg.setAttribute('viewBox', `0 0 ${r.totalW} ${r.totalH}`);
+      svg.setAttribute('width', r.totalW);
+      svg.setAttribute('height', r.totalH);
+      svg.innerHTML = r.html;
+      svg.style.transform = '';
+      svg.style.transformOrigin = '';
+
+      // Info
+      const infoBits = document.getElementById('isp-info-bits');
+      const infoFrame = document.getElementById('isp-info-frame');
+      if (infoBits) infoBits.textContent = totalBits;
+      if (infoFrame) {
+        const polTxt = ispPolSign === '-' ? 'POL−' : 'POL+';
+        let dataBody;
+        if (bits === 6) {
+          const totalDataBits = pixels * 18;
+          const byteCount = Math.ceil(totalDataBits / 8);
+          dataBody = `${pixels}px×18bit=${totalDataBits}bit → ${byteCount} bytes`;
+        } else {
+          dataBody = `${pixels}×(R·G·B)`;
+        }
+        const encTag = (ispEncData === ispEncBk) ? ispEncData : `Data:${ispEncData} BK:${ispEncBk}`;
+        const dataLine = `[${encTag}] BK×${bkBefore} · BAC · ${polTxt} · ${dataBody} · EOL · BK×${bkAfter}`;
+        const setLine = regEnable ? `  +  BK×${bkBefore} · BAC · Setting · REG0..${regBytes.length - 1} · EOL · BK×${bkAfter}` : '';
+        infoFrame.textContent = dataLine + setLine;
+      }
+
+      ispRenderMinimap(segs, totalBits);
+      ispUpdateMinimapViewport();
+      requestAnimationFrame(() => {
+        ispRenderMinimap(segs, totalBits);
+        ispUpdateMinimapViewport();
+      });
+    }
+
+    if (ispFs && ispFs.open) ispFsRender();
+  }
+
+  // ── Minimap / Overview ──
+  function ispRenderMinimap(segs, totalBits) {
+    const mini = document.getElementById('isp-minimap-box');
+    const svg  = document.getElementById('isp-minimap-svg');
+    if (!mini || !svg || !segs || totalBits <= 0) return;
+    const boxW = mini.clientWidth || 300;
+    const boxH = 44;
+    const labelH = 7;
+    const waveTop = labelH + 2;
+    const waveH = boxH - waveTop - 2;
+    const bitW = boxW / totalBits;
+
+    const parts = [];
+    let cursorX = 0;
+    segs.forEach(seg => {
+      const w = seg.bits.length * bitW;
+      parts.push(`<rect x="${cursorX}" y="0" width="${w}" height="${labelH}" fill="${seg.color}"/>`);
+      cursorX += w;
+    });
+
+    let d = '';
+    let lastY = -1;
+    let cX = 0;
+    const y1 = waveTop + 1;
+    const y0 = waveTop + waveH - 1;
+    segs.forEach(seg => {
+      for (let b = 0; b < seg.bits.length; b++) {
+        const bit = seg.bits[b];
+        const bx0 = cX;
+        const bx1 = bx0 + bitW;
+        const y = bit ? y1 : y0;
+        if (d === '') { d = `M ${bx0} ${y}`; lastY = y; }
+        else if (y !== lastY) { d += ` L ${bx0} ${lastY} L ${bx0} ${y}`; lastY = y; }
+        d += ` L ${bx1} ${y}`;
+        lastY = y;
+        cX += bitW;
+      }
+    });
+    parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="1" fill="none"/>`);
+
+    svg.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.innerHTML = parts.join('');
+  }
+
+  // 2-pair minimap: pair 0 top half, pair 1 bottom half
+  function ispRenderMinimap2Pair(segs0, totalBits0, segs1, totalBits1) {
+    const mini = document.getElementById('isp-minimap-box');
+    const svg  = document.getElementById('isp-minimap-svg');
+    if (!mini || !svg || !segs0 || totalBits0 <= 0) return;
+    const boxW = mini.clientWidth || 300;
+    const boxH = 72;
+    const halfH = boxH / 2;
+    const gap = 1;
+
+    const parts = [];
+
+    // Separator line
+    parts.push(`<line x1="0" y1="${halfH}" x2="${boxW}" y2="${halfH}" stroke="#475569" stroke-width="0.5"/>`);
+
+    // Draw one pair's minimap within a vertical region
+    function drawHalf(segs, totalBits, yOffset, h) {
+      const labelH = 5;
+      const waveTop = yOffset + labelH + 1;
+      const waveH = h - labelH - 2;
+      const bitW = boxW / totalBits;
+
+      let cursorX = 0;
+      segs.forEach(seg => {
+        const w = seg.bits.length * bitW;
+        parts.push(`<rect x="${cursorX}" y="${yOffset}" width="${w}" height="${labelH}" fill="${seg.color}"/>`);
+        cursorX += w;
+      });
+
+      let d = '';
+      let lastY = -1;
+      let cX = 0;
+      const y1 = waveTop + 1;
+      const y0 = waveTop + waveH - 1;
+      segs.forEach(seg => {
+        for (let b = 0; b < seg.bits.length; b++) {
+          const bit = seg.bits[b];
+          const bx0 = cX;
+          const bx1 = bx0 + bitW;
+          const y = bit ? y1 : y0;
+          if (d === '') { d = `M ${bx0} ${y}`; lastY = y; }
+          else if (y !== lastY) { d += ` L ${bx0} ${lastY} L ${bx0} ${y}`; lastY = y; }
+          d += ` L ${bx1} ${y}`;
+          lastY = y;
+          cX += bitW;
+        }
+      });
+      parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="1" fill="none"/>`);
+    }
+
+    drawHalf(segs0, totalBits0, 0, halfH - gap);
+    if (segs1 && totalBits1 > 0) {
+      drawHalf(segs1, totalBits1, halfH + gap, halfH - gap);
+    }
+
+    // Pair labels
+    parts.push(`<text x="3" y="10" fill="#a78bfa" font-size="8" font-weight="700">P0</text>`);
+    if (segs1) parts.push(`<text x="3" y="${halfH + 10}" fill="#a78bfa" font-size="8" font-weight="700">P1</text>`);
+
+    svg.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.innerHTML = parts.join('');
+  }
+
+  // 快取 minimap DOM 參照，避免每次 scroll 都 getElementById
+  let _mmWaveBox = null, _mmWave = null, _mmVp = null, _mmMini = null;
+  function _mmCache() {
+    _mmWaveBox = document.getElementById('isp-wave-box');
+    _mmWave = document.getElementById('isp-wave-svg');
+    _mmVp = document.getElementById('isp-minimap-viewport');
+    _mmMini = document.getElementById('isp-minimap-box');
+  }
+  function ispUpdateMinimapViewport() {
+    if (!_mmWaveBox || !_mmVp) _mmCache();
+    if (!_mmWaveBox || !_mmWave || !_mmVp || !_mmMini) return;
+    const svgW = parseFloat(_mmWave.getAttribute('width')) || 0;
+    const visibleW = _mmWaveBox.clientWidth;
+    const scrollLeft = _mmWaveBox.scrollLeft;
+    const miniW = _mmMini.clientWidth;
+    if (svgW <= visibleW + 1) {
+      _mmVp.style.left = '0px';
+      _mmVp.style.width = miniW + 'px';
+    } else {
+      const ratio = miniW / svgW;
+      const left = scrollLeft * ratio;
+      const width = visibleW * ratio;
+      _mmVp.style.left = Math.max(0, left) + 'px';
+      _mmVp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
+    }
+  }
+  // rAF-throttled 版本：scroll 高頻事件只用這個
+  let _mmRafPending = false;
+  function ispUpdateMinimapViewportThrottled() {
+    if (_mmRafPending) return;
+    _mmRafPending = true;
+    requestAnimationFrame(() => {
+      _mmRafPending = false;
+      ispUpdateMinimapViewport();
+    });
+  }
+
+  window.ispZoomH = function(dir) {
+    if (dir > 0) ispZoomHVal *= 1.4;
+    else ispZoomHVal /= 1.4;
+    ispZoomHVal = Math.max(0.001, Math.min(12, ispZoomHVal));
+    const el = document.getElementById('isp-zoom-h-val');
+    if (el) el.textContent = ispFormatZoom(ispZoomHVal);
+    ispRender();
+  };
+  window.ispZoomReset = function() {
+    ispZoomHVal = 1.0;
+    const el = document.getElementById('isp-zoom-h-val');
+    if (el) el.textContent = '1.00×';
+    ispRender();
+  };
+  function ispUpdateZoomDisplay() {
+    const el = document.getElementById('isp-zoom-h-val');
+    if (el) el.textContent = ispFormatZoom(ispZoomHVal);
+  }
+
+  function ispFormatZoom(v) {
+    if (v >= 1) return v.toFixed(2) + '×';
+    if (v >= 0.1) return v.toFixed(2) + '×';
+    if (v >= 0.01) return v.toFixed(3) + '×';
+    return v.toFixed(4) + '×';
+  }
+
+  // #3 POL 極性切換（ispRender 內部已同步 FS/minimap）
+  window.ispTogglePol = function() {
+    ispPolSign = ispPolSign === '+' ? '-' : '+';
+    ispRender();
+  };
+
+  // #1 Copy REG0 to REG1..REG(n-1)
+  window.ispCopyReg0ToAll = function() {
+    const src = document.getElementById('isp-reg-0');
+    if (!src) return;
+    const v = parseHexByte(src.value);
+    if (v === null) {
+      src.classList.add('is-invalid');
+      return;
+    }
+    const formatted = v.toString(16).padStart(2, '0').toUpperCase();
+    src.value = formatted;
+    src.classList.remove('is-invalid');
+    for (let i = 1; i < ispRegCount; i++) {
+      const el = document.getElementById('isp-reg-' + i);
+      if (el) {
+        el.value = formatted;
+        el.classList.remove('is-invalid');
+      }
+    }
+    ispRender();
+  };
+
+  // REG card collapse toggle
+  window.ispToggleRegCard = function() {
+    const card = document.getElementById('isp-reg-card');
+    if (card) card.classList.toggle('is-collapsed');
+  };
+
+  // Build REG grid dynamically
+  function ispBuildRegGrid(count) {
+    ispRegCount = count;
+    const grid = document.getElementById('isp-reg-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'isp-reg-cell';
+      const labelRow = document.createElement('div');
+      labelRow.className = 'isp-reg-label-row';
+      const lbl = document.createElement('label');
+      lbl.textContent = 'REG' + i;
+      labelRow.appendChild(lbl);
+      if (i === 0) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'isp-reg-copy-btn';
+        btn.setAttribute('data-i18n', 'isp.copyAll');
+        btn.textContent = t('isp.copyAll');
+        btn.onclick = function() { ispCopyReg0ToAll(); };
+        labelRow.appendChild(btn);
+      }
+      cell.appendChild(labelRow);
+      const wrap = document.createElement('div');
+      wrap.className = 'isp-reg-hex-wrap';
+      const prefix = document.createElement('span');
+      prefix.className = 'isp-reg-hex-prefix';
+      prefix.textContent = '0x';
+      wrap.appendChild(prefix);
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.id = 'isp-reg-' + i;
+      inp.className = 'isp-reg-hex';
+      inp.maxLength = 2;
+      inp.value = '00';
+      inp.dataset.idx = i;
+      wrap.appendChild(inp);
+      cell.appendChild(wrap);
+      grid.appendChild(cell);
+      // Bind validation
+      inp.addEventListener('input', function() {
+        const v = parseHexByte(inp.value);
+        if (v === null) inp.classList.add('is-invalid');
+        else inp.classList.remove('is-invalid');
+        ispRender();
+      });
+      inp.addEventListener('blur', function() {
+        const v = parseHexByte(inp.value);
+        if (v !== null) inp.value = v.toString(16).padStart(2, '0').toUpperCase();
+        if (v === null) inp.classList.add('is-invalid');
+        else inp.classList.remove('is-invalid');
+        ispRender();
+      });
+    }
+  }
+
+  // ── #1 全螢幕：只 H 縮放、V 固定高度（用 SVG width 取代 transform scale） ──
+  // 結構：lb > header + stage(overflow-x:auto, flex align center) > svg(動態 width, 固定 height)
+  //       pinch 兩指 → CSS scaleX preview + touchend commit（rebuild SVG width）
+  let ispFs = null;           // { lb, stage, svg, open, pinch }
+  let ispFsZoomH = 1.0;       // 全螢幕獨立 H-zoom
+
+  function ispFsRender() {
+    if (!ispFs || !ispFs.svg || !ispLastSegs) return;
+
+    // ── Step 1: 計算每條波形可用高度（先算高度，再傳給 ispBuildSvgInner） ──
+    const toolbarH = 47;  // 提示列
+    const minimapH = 56;  // minimap wrap (44px box + 12px padding)
+    const pairLabelH = 22; // pair label
+    const padExtra = 4;
+    const screenH = window.innerHeight;
+
+    let pairH;
+    if (ispPairCount === 2) {
+      const availH = screenH - toolbarH - minimapH - pairLabelH * 2 - padExtra;
+      pairH = Math.max(100, Math.floor(availH / 2));
+    } else {
+      const availH = screenH - toolbarH - minimapH - padExtra;
+      pairH = Math.max(100, availH);
+    }
+
+    // ── Step 2: 用 overrideH 建立波形（viewBox 高度 = pairH，內部座標填滿） ──
+    const fsOpts = { overrideH: pairH };
+    const r0 = ispBuildSvgInner(ispLastSegs, ispLastTotalBits, ispFsZoomH, fsOpts);
+    ispFs.svg.setAttribute('viewBox', `0 0 ${r0.totalW} ${r0.totalH}`);
+    ispFs.svg.setAttribute('width', r0.totalW);
+    ispFs.svg.setAttribute('height', r0.totalH);
+    ispFs.svg.innerHTML = r0.html;
+    ispFs.svg.style.height = '';  // 清除舊的 style.height，用 SVG 自身 height attr
+    ispFs.svg.style.transform = '';
+    ispFs.svg.style.transformOrigin = '';
+
+    // 2-pair: render pair 1
+    if (ispPairCount === 2 && ispFs.svg1 && ispLastPair1Segs) {
+      const r1 = ispBuildSvgInner(ispLastPair1Segs, ispLastPair1TotalBits, ispFsZoomH, fsOpts);
+      ispFs.svg1.setAttribute('viewBox', `0 0 ${r1.totalW} ${r1.totalH}`);
+      ispFs.svg1.setAttribute('width', r1.totalW);
+      ispFs.svg1.setAttribute('height', r1.totalH);
+      ispFs.svg1.innerHTML = r1.html;
+      ispFs.svg1.style.height = '';
+      ispFs.svg1.style.transform = '';
+      ispFs.svg1.style.transformOrigin = '';
+    }
+
+    // Show/hide pair 1 elements
+    if (ispFs.p0Label) ispFs.p0Label.style.display = (ispPairCount === 2) ? '' : 'none';
+    if (ispFs.p1Label) ispFs.p1Label.style.display = (ispPairCount === 2) ? '' : 'none';
+    if (ispFs.svg1) ispFs.svg1.style.display = (ispPairCount === 2) ? '' : 'none';
+
+    // ── Fullscreen minimap ──
+    ispFsRenderMinimap();
+    ispFsUpdateMinimapVp();
+  }
+
+  // Fullscreen minimap rendering (reuse logic from normal minimap)
+  function ispFsRenderMinimap() {
+    if (!ispFs || !ispFs.miniSvg || !ispFs.miniBox) return;
+    const boxW = ispFs.miniBox.clientWidth || 300;
+    const isDual = (ispPairCount === 2 && ispLastPair1Segs && ispLastPair1TotalBits > 0);
+    const boxH = isDual ? 58 : 44;
+    ispFs.miniBox.style.height = boxH + 'px';
+
+    if (isDual) {
+      // 2-pair minimap: top half = pair 0, bottom half = pair 1
+      const halfH = boxH / 2;
+      const gap = 1;
+      const parts = [];
+      parts.push(`<line x1="0" y1="${halfH}" x2="${boxW}" y2="${halfH}" stroke="#475569" stroke-width="0.5"/>`);
+
+      function drawHalf(segs, totalBits, yOff, h) {
+        const lH = 5, wTop = yOff + lH + 1, wH = h - lH - 2;
+        const bW = boxW / totalBits;
+        let cx = 0;
+        segs.forEach(seg => { const w = seg.bits.length * bW; parts.push(`<rect x="${cx}" y="${yOff}" width="${w}" height="${lH}" fill="${seg.color}"/>`); cx += w; });
+        let d = '', ly = -1; cx = 0;
+        const y1 = wTop + 1, y0 = wTop + wH - 1;
+        segs.forEach(seg => { for (let b = 0; b < seg.bits.length; b++) { const bx0 = cx, bx1 = bx0 + bW, y = seg.bits[b] ? y1 : y0; if (d === '') { d = `M ${bx0} ${y}`; ly = y; } else if (y !== ly) { d += ` L ${bx0} ${ly} L ${bx0} ${y}`; ly = y; } d += ` L ${bx1} ${y}`; ly = y; cx += bW; }});
+        parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="1" fill="none"/>`);
+      }
+      drawHalf(ispLastSegs, ispLastTotalBits, 0, halfH - gap);
+      drawHalf(ispLastPair1Segs, ispLastPair1TotalBits, halfH + gap, halfH - gap);
+      parts.push(`<text x="3" y="10" fill="#a78bfa" font-size="8" font-weight="700">P0</text>`);
+      parts.push(`<text x="3" y="${halfH + 10}" fill="#a78bfa" font-size="8" font-weight="700">P1</text>`);
+      ispFs.miniSvg.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`);
+      ispFs.miniSvg.innerHTML = parts.join('');
+    } else {
+      // 1-pair minimap
+      const lH = 7, wTop = lH + 2, wH = boxH - wTop - 2;
+      const bW = boxW / ispLastTotalBits;
+      const parts = [];
+      let cx = 0;
+      ispLastSegs.forEach(seg => { const w = seg.bits.length * bW; parts.push(`<rect x="${cx}" y="0" width="${w}" height="${lH}" fill="${seg.color}"/>`); cx += w; });
+      let d = '', ly = -1; cx = 0;
+      const y1 = wTop + 1, y0 = wTop + wH - 1;
+      ispLastSegs.forEach(seg => { for (let b = 0; b < seg.bits.length; b++) { const bx0 = cx, bx1 = bx0 + bW, y = seg.bits[b] ? y1 : y0; if (d === '') { d = `M ${bx0} ${y}`; ly = y; } else if (y !== ly) { d += ` L ${bx0} ${ly} L ${bx0} ${y}`; ly = y; } d += ` L ${bx1} ${y}`; ly = y; cx += bW; }});
+      parts.push(`<path d="${d}" stroke="#22c55e" stroke-width="1" fill="none"/>`);
+      ispFs.miniSvg.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`);
+      ispFs.miniSvg.innerHTML = parts.join('');
+    }
+  }
+
+  // Fullscreen minimap viewport indicator
+  function ispFsUpdateMinimapVp() {
+    if (!ispFs || !ispFs.miniVp || !ispFs.miniBox || !ispFs.stage || !ispFs.svg) return;
+    const svgW = parseFloat(ispFs.svg.getAttribute('width')) || 0;
+    const visibleW = ispFs.stage.clientWidth;
+    const scrollLeft = ispFs.stage.scrollLeft;
+    const miniW = ispFs.miniBox.clientWidth;
+    if (svgW <= visibleW + 1) {
+      ispFs.miniVp.style.left = '0px';
+      ispFs.miniVp.style.width = miniW + 'px';
+    } else {
+      const ratio = miniW / svgW;
+      const left = scrollLeft * ratio;
+      const width = visibleW * ratio;
+      ispFs.miniVp.style.left = Math.max(0, left) + 'px';
+      ispFs.miniVp.style.width = Math.max(6, Math.min(miniW - left, width)) + 'px';
+    }
+  }
+
+  function ispFsFit() {
+    // 初始 zoomH：讓全部波形剛好 fit 到 stage 寬度（V 高度動態計算）
+    if (!ispFs || !ispFs.stage || ispLastTotalBits <= 0) return;
+    const stageW = ispFs.stage.clientWidth || window.innerWidth;
+    const basePerBit = 12;
+    const padX = 12;
+    const fit = (stageW - padX) / (ispLastTotalBits * basePerBit);
+    ispFsZoomH = Math.max(0.01, Math.min(16, fit));
+    ispFsRender();
+    ispFs.stage.scrollLeft = 0;
+  }
+
+  // 繫結全螢幕手勢：pinch（只改 H zoom）+ 單指 pan 交給原生 scroll
+  function ispFsBindGestures() {
+    if (!ispFs) return;
+    const stage = ispFs.stage;
+    let lastTap = 0;
+
+    // Minimap viewport tracking on scroll
+    let _fsMmRaf = false;
+    stage.addEventListener('scroll', () => {
+      if (_fsMmRaf) return;
+      _fsMmRaf = true;
+      requestAnimationFrame(() => { _fsMmRaf = false; ispFsUpdateMinimapVp(); });
+    });
+
+    // Minimap click-to-jump
+    if (ispFs.miniBox) {
+      ispFs.miniBox.style.cursor = 'pointer';
+      ispFs.miniBox.addEventListener('click', (e) => {
+        const rect = ispFs.miniBox.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const miniW = ispFs.miniBox.clientWidth;
+        const svgW = parseFloat(ispFs.svg.getAttribute('width')) || 0;
+        if (svgW <= 0 || miniW <= 0) return;
+        const targetScroll = (clickX / miniW) * svgW - stage.clientWidth / 2;
+        stage.scrollLeft = Math.max(0, targetScroll);
+      });
+    }
+
+    stage.addEventListener('touchstart', (e) => {
+      if (e.target && e.target.closest('button')) return;
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+        const d0 = Math.hypot(dx, dy);
+        const stageRect = stage.getBoundingClientRect();
+        const cxViewport = (t1.clientX + t2.clientX) / 2;
+        const cxInStage = cxViewport - stageRect.left;
+        const cxInSvg = stage.scrollLeft + cxInStage;
+        ispFs.pinch = { d0, zoom0: ispFsZoomH, cxInSvg, cxInStage };
+        // Preview 用 CSS scaleX，錨點為 pinch 中心
+        if (ispFs.svg) {
+          ispFs.svg.style.transformOrigin = `${cxInSvg}px 0`;
+        }
+      } else if (e.touches.length === 1) {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          // 雙擊還原 fit
+          ispFsFit();
+          lastTap = 0;
+        } else {
+          lastTap = now;
+        }
+        // 單指 pan 交給 native scroll，不處理
+      }
+    }, { passive: false });
+
+    stage.addEventListener('touchmove', (e) => {
+      if (ispFs.pinch && e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+        const d = Math.hypot(dx, dy);
+        const ratio = d / ispFs.pinch.d0;
+        const newZoom = Math.max(0.01, Math.min(16, ispFs.pinch.zoom0 * ratio));
+        // Preview：CSS scaleX 相對當前 SVG
+        const visualRatio = newZoom / ispFs.pinch.zoom0;
+        if (ispFs.svg) {
+          ispFs.svg.style.transform = `scaleX(${visualRatio})`;
+        }
+        ispFsZoomH = newZoom;
+      }
+    }, { passive: false });
+
+    stage.addEventListener('touchend', (e) => {
+      if (ispFs.pinch && e.touches.length < 2) {
+        // Commit：rebuild SVG + 調整 scrollLeft 保留 pinch 中心錨點
+        const p = ispFs.pinch;
+        const ratio = ispFsZoomH / p.zoom0;
+        const newCxInSvg = p.cxInSvg * ratio;
+        ispFsRender();
+        stage.scrollLeft = Math.max(0, newCxInSvg - p.cxInStage);
+        ispFs.pinch = null;
+      }
+    });
+    stage.addEventListener('touchcancel', () => {
+      if (ispFs.pinch) {
+        ispFsRender();
+        ispFs.pinch = null;
+      }
+    });
+
+    // 滑鼠滾輪縮放（H-only）
+    stage.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+      const newZoom = Math.max(0.01, Math.min(16, ispFsZoomH * factor));
+      const stageRect = stage.getBoundingClientRect();
+      const cxInStage = e.clientX - stageRect.left;
+      const cxInSvg = stage.scrollLeft + cxInStage;
+      const zoom0 = ispFsZoomH;
+      ispFsZoomH = newZoom;
+      ispFsRender();
+      stage.scrollLeft = Math.max(0, cxInSvg * (newZoom / zoom0) - cxInStage);
+    }, { passive: false });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const lb = document.getElementById('isp-fullscreen');
+        if (lb) window.ispCloseLightbox();
+      }
+    });
+
+    // Orientation / resize → re-render fullscreen (dynamic height recalc)
+    const fsResizeHandler = () => {
+      if (ispFs && ispFs.open) ispFsRender();
+    };
+    window.addEventListener('orientationchange', () => setTimeout(fsResizeHandler, 200));
+    window.addEventListener('resize', () => {
+      if (ispFs && ispFs.open) requestAnimationFrame(fsResizeHandler);
+    });
+  }
+
+  window.ispOpenLightbox = function() {
+    let lb = document.getElementById('isp-fullscreen');
+    if (!lb) {
+      lb = document.createElement('div');
+      lb.id = 'isp-fullscreen';
+      lb.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;';
+      lb.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#1e1b4b;border-bottom:1px solid #4c1d95;flex:0 0 auto;">' +
+          '<span style="color:#c4b5fd;font-size:12px;font-weight:600;" data-i18n="isp.fsHint">兩指橫向縮放（V 固定） / 左右滑動捲動 / 雙擊還原 / 右上關閉</span>' +
+          '<button type="button" style="background:#4c1d95;border:1px solid #7c3aed;color:#ddd6fe;border-radius:6px;padding:5px 12px;font-weight:600;cursor:pointer;" onclick="ispCloseLightbox()">×</button>' +
+        '</div>' +
+        '<div id="isp-fs-stage" style="flex:1 1 auto;overflow-x:auto;overflow-y:hidden;background:#000;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;">' +
+          '<div id="isp-fs-p0-label" class="isp-pair-label" style="display:none;padding-left:12px;margin-top:4px;">Pair 0</div>' +
+          '<svg id="isp-fs-svg" class="isp-fs-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
+          '<div id="isp-fs-p1-label" class="isp-pair-label" style="display:none;padding-left:12px;">Pair 1</div>' +
+          '<svg id="isp-fs-svg-1" class="isp-fs-svg" xmlns="http://www.w3.org/2000/svg" style="display:none;"></svg>' +
+        '</div>' +
+        '<div id="isp-fs-minimap-wrap" style="flex:0 0 auto;padding:4px 8px 6px;background:#0f172a;border-top:1px solid #334155;">' +
+          '<div style="position:relative;width:100%;height:44px;background:#000;border:1px solid #334155;border-radius:4px;overflow:hidden;" id="isp-fs-minimap-box">' +
+            '<svg id="isp-fs-minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" style="display:block;width:100%;height:100%;"></svg>' +
+            '<div id="isp-fs-minimap-vp" style="position:absolute;top:0;height:100%;border:2px solid #a78bfa;background:rgba(167,139,250,0.18);pointer-events:none;box-sizing:border-box;min-width:6px;"></div>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(lb);
+      ispFs = {
+        lb: lb,
+        stage: lb.querySelector('#isp-fs-stage'),
+        svg: lb.querySelector('#isp-fs-svg'),
+        svg1: lb.querySelector('#isp-fs-svg-1'),
+        p0Label: lb.querySelector('#isp-fs-p0-label'),
+        p1Label: lb.querySelector('#isp-fs-p1-label'),
+        miniBox: lb.querySelector('#isp-fs-minimap-box'),
+        miniSvg: lb.querySelector('#isp-fs-minimap-svg'),
+        miniVp: lb.querySelector('#isp-fs-minimap-vp'),
+        miniWrap: lb.querySelector('#isp-fs-minimap-wrap'),
+        open: true,
+        pinch: null
+      };
+      ispFsBindGestures();
+    } else {
+      ispFs.stage = lb.querySelector('#isp-fs-stage');
+      ispFs.svg = lb.querySelector('#isp-fs-svg');
+      ispFs.svg1 = lb.querySelector('#isp-fs-svg-1');
+      ispFs.p0Label = lb.querySelector('#isp-fs-p0-label');
+      ispFs.p1Label = lb.querySelector('#isp-fs-p1-label');
+      ispFs.miniBox = lb.querySelector('#isp-fs-minimap-box');
+      ispFs.miniSvg = lb.querySelector('#isp-fs-minimap-svg');
+      ispFs.miniVp = lb.querySelector('#isp-fs-minimap-vp');
+      ispFs.miniWrap = lb.querySelector('#isp-fs-minimap-wrap');
+      ispFs.open = true;
+    }
+    // 用主頁當前 segs 做初始 render（V 高度動態計算）
+    ispFsZoomH = ispZoomHVal;
+    ispFsRender();
+    // 下一幀 layout 完成後再 fit 一次（若太寬自動縮到 fit-screen）
+    requestAnimationFrame(() => {
+      if (ispFs && ispFs.svg) {
+        const svgW = parseFloat(ispFs.svg.getAttribute('width')) || 0;
+        const stageW = ispFs.stage.clientWidth || window.innerWidth;
+        if (svgW > stageW) ispFsFit();
+      }
+    });
+    if (typeof applyLang === 'function') applyLang(currentLang);
+  };
+  window.ispCloseLightbox = function() {
+    const lb = document.getElementById('isp-fullscreen');
+    if (lb) lb.remove();
+    ispFs = null;
+  };
+
+  // ═══════════ 波形反推（Reverse Lookup）═══════════
+  // 9-bit checkbox → reverse lookup against ISP_CTRL + ISP_BK_PLL + DLL/PLL LUT
+  const _revBits = [0,0,0,0,0,0,0,0,0]; // b0..b8 (LSB-first)
+  const _revCBs = []; // checkbox references
+
+  function ispRevBuildUI() {
+    // Build checkbox row
+    const cbRow = document.getElementById('isp-rev-cb-row');
+    if (!cbRow) return;
+    cbRow.innerHTML = '';
+    _revCBs.length = 0;
+    for (let i = 0; i < 9; i++) {
+      const col = document.createElement('div');
+      col.className = 'isp-rev-cb-col';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = 'isp-rev-cb-' + i;
+      const idx = i;
+      cb.addEventListener('change', () => {
+        _revBits[idx] = cb.checked ? 1 : 0;
+        ispRevRenderWave();
+        ispRevUpdate();
+      });
+      const lbl = document.createElement('label');
+      lbl.htmlFor = cb.id;
+      lbl.textContent = 'b' + i;
+      col.appendChild(lbl);
+      col.appendChild(cb);
+      cbRow.appendChild(col);
+      _revCBs.push(cb);
+    }
+    // Click on SVG waveform to toggle bits
+    const svg = document.getElementById('isp-rev-svg');
+    if (svg) {
+      svg.addEventListener('click', (e) => {
+        const rect = svg.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const svgW = rect.width;
+        const pad = svgW * 6 / _revSvgTotalW();
+        const bitAreaW = svgW - 2 * pad;
+        const bitIdx = Math.floor((x - pad) / (bitAreaW / 9));
+        if (bitIdx >= 0 && bitIdx < 9) {
+          _revBits[bitIdx] = _revBits[bitIdx] ? 0 : 1;
+          if (_revCBs[bitIdx]) _revCBs[bitIdx].checked = !!_revBits[bitIdx];
+          ispRevRenderWave();
+          ispRevUpdate();
+        }
+      });
+    }
+    ispRevRenderWave();
+  }
+
+  function _revSvgTotalW() {
+    // Match main waveform proportions: 9 bits × 12px base + 2×6 pad
+    return 9 * 12 + 12;
+  }
+
+  function ispRevRenderWave() {
+    const svg = document.getElementById('isp-rev-svg');
+    if (!svg) return;
+    // Use exact same dimensions/proportions as ispBuildSvgInner
+    const bitW = 12; // base per bit (zoom = 1)
+    const pad = 6;
+    const labelH = 22;
+    const waveH = 72;
+    const axisH = 22;
+    const totalW = 9 * bitW + pad * 2;
+    const totalH = labelH + waveH + axisH;
+    const signalY0 = labelH + waveH - 4;
+    const signalY1 = labelH + 4;
+
+    const parts = [];
+    // Background reference lines (dashed)
+    parts.push('<line x1="' + pad + '" y1="' + signalY1 + '" x2="' + (totalW - pad) + '" y2="' + signalY1 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
+    parts.push('<line x1="' + pad + '" y1="' + signalY0 + '" x2="' + (totalW - pad) + '" y2="' + signalY0 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
+    // Level labels
+    parts.push('<text x="' + (pad - 2) + '" y="' + (signalY1 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">1</text>');
+    parts.push('<text x="' + (pad - 2) + '" y="' + (signalY0 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">0</text>');
+
+    // Bit dividers + bit labels
+    for (let b = 0; b <= 9; b++) {
+      const bx = pad + b * bitW;
+      parts.push('<line x1="' + bx + '" y1="' + labelH + '" x2="' + bx + '" y2="' + (labelH + waveH) + '" stroke="' + (b === 0 || b === 9 ? '#475569' : '#1e293b') + '" stroke-width="' + (b === 0 || b === 9 ? '1' : '0.5') + '"/>');
+    }
+    for (let b = 0; b < 9; b++) {
+      const bx = pad + b * bitW + bitW / 2;
+      parts.push('<text x="' + bx + '" y="' + (labelH + waveH + 13) + '" text-anchor="middle" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">' + _revBits[b] + '</text>');
+      // Label bar at top (b0..b8)
+      parts.push('<text x="' + bx + '" y="' + (labelH - 6) + '" text-anchor="middle" fill="#94a3b8" font-size="9" font-weight="600" font-family="-apple-system,system-ui,sans-serif">b' + b + '</text>');
+    }
+
+    // Waveform path (step wave, identical to main)
+    let d = '';
+    let lastY = -1;
+    for (let b = 0; b < 9; b++) {
+      const bx0 = pad + b * bitW;
+      const bx1 = bx0 + bitW;
+      const y = _revBits[b] ? signalY1 : signalY0;
+      if (d === '') {
+        d = 'M ' + bx0 + ' ' + y;
+        lastY = y;
+      } else if (y !== lastY) {
+        d += ' L ' + bx0 + ' ' + lastY + ' L ' + bx0 + ' ' + y;
+        lastY = y;
+      }
+      d += ' L ' + bx1 + ' ' + y;
+      lastY = y;
+    }
+    parts.push('<path d="' + d + '" stroke="#22c55e" stroke-width="1.8" fill="none" stroke-linejoin="miter" stroke-linecap="square"/>');
+
+    svg.setAttribute('viewBox', '0 0 ' + totalW + ' ' + totalH);
+    svg.innerHTML = parts.join('');
+  }
+
+  function ispRevUpdate() {
+    // Compute 9-bit value (LSB-first: b0 is bit0)
+    let val9 = 0;
+    for (let i = 0; i < 9; i++) val9 |= (_revBits[i] << i);
+
+    // Display hex + binary
+    const hexStr = '0x' + val9.toString(16).toUpperCase().padStart(3, '0');
+    const binStr = val9.toString(2).padStart(9, '0').split('').reverse().join(''); // LSB-first display
+    const valEl = document.getElementById('isp-rev-9b-val');
+    if (valEl) valEl.textContent = hexStr + ' (' + binStr + ')';
+
+    // 1) Command match
+    const cmdEl = document.getElementById('isp-rev-cmd');
+    const cmdMatches = [];
+    // Check all ISP_CTRL entries
+    for (const [name, bits] of Object.entries(ISP_CTRL)) {
+      let v = 0;
+      for (let i = 0; i < 9; i++) v |= (bits[i] << i);
+      if (v === val9) cmdMatches.push(name + ' (DLL-BK)');
+    }
+    // Check PLL BK
+    let pllBkVal = 0;
+    for (let i = 0; i < 9; i++) pllBkVal |= (ISP_BK_PLL[i] << i);
+    if (pllBkVal === val9) cmdMatches.push('BK (PLL-BK)');
+
+    if (cmdEl) {
+      if (cmdMatches.length > 0) {
+        cmdEl.textContent = cmdMatches.join(' / ');
+        cmdEl.classList.remove('no-match');
+      } else {
+        cmdEl.textContent = '—';
+        cmdEl.classList.add('no-match');
+      }
+    }
+
+    // 2) DLL Data reverse lookup
+    const dllEl = document.getElementById('isp-rev-dll');
+    const dllMatches = [];
+    for (let byte = 0; byte < 256; byte++) {
+      if (ISP_DLL_LUT[byte] === val9) dllMatches.push(byte);
+    }
+    if (dllEl) {
+      if (dllMatches.length > 0) {
+        dllEl.textContent = dllMatches.map(b => 'L' + b + ' (0x' + b.toString(16).toUpperCase().padStart(2, '0') + ')').join(' / ');
+        dllEl.classList.remove('no-match');
+      } else {
+        dllEl.textContent = '—';
+        dllEl.classList.add('no-match');
+      }
+    }
+
+    // 3) PLL Data reverse lookup
+    const pllEl = document.getElementById('isp-rev-pll');
+    const pllMatches = [];
+    for (let byte = 0; byte < 256; byte++) {
+      if (ISP_PLL_LUT[byte] === val9) pllMatches.push(byte);
+    }
+    if (pllEl) {
+      if (pllMatches.length > 0) {
+        pllEl.textContent = pllMatches.map(b => 'L' + b + ' (0x' + b.toString(16).toUpperCase().padStart(2, '0') + ')').join(' / ');
+        pllEl.classList.remove('no-match');
+      } else {
+        pllEl.textContent = '—';
+        pllEl.classList.add('no-match');
+      }
+    }
+  }
+
+  // 初始化：綁定 slider/number 雙向
+  function ispInit() {
+    const page = document.getElementById('page-isp');
+    if (!page) return;
+
+    // --- RGB 三通道 slider/number/chip ---
+    function bindChannel(ch, defVal) {
+      const slider = document.getElementById('isp-gray-' + ch + '-slider');
+      const num    = document.getElementById('isp-gray-' + ch + '-num');
+      const chip   = document.getElementById('isp-gray-' + ch + '-chip');
+      if (!slider || !num) return null;
+      function setVal(v, throttle) {
+        const maxGray = (ispCurrentBits === 6) ? 63 : 255;
+        v = Math.max(0, Math.min(maxGray, (v | 0)));
+        slider.value = v;
+        num.value = v;
+        if (chip) {
+          // 6-bit (0~63) 時把值線性擴展到 0~255 作為色塊顯示（視覺等效）
+          const display = (ispCurrentBits === 6) ? Math.round(v * 255 / 63) : v;
+          const h = display.toString(16).padStart(2, '0');
+          // R=#RR0000, G=#00GG00, B=#0000BB
+          if (ch === 'r') chip.style.background = '#' + h + '0000';
+          else if (ch === 'g') chip.style.background = '#00' + h + '00';
+          else chip.style.background = '#0000' + h;
+        }
+        throttle ? ispRenderThrottled() : ispRender();
+      }
+      slider.addEventListener('input', () => setVal(parseInt(slider.value, 10), true));
+      slider.addEventListener('change', () => ispRender());
+      num.addEventListener('input', () => setVal(parseInt(num.value, 10) || 0));
+      num.addEventListener('blur', () => setVal(parseInt(num.value, 10) || 0));
+      setVal(defVal);
+      return setVal;
+    }
+    const setR = bindChannel('r', 255);
+    const setG = bindChannel('g', 128);
+    const setB = bindChannel('b', 0);
+
+    // 切換 6-bit / 8-bit 模式：調整 slider/number max、clamp 現值、更新 hint。
+    function ispApplyBitsMode(bits) {
+      bits = (bits === 6) ? 6 : 8;
+      ispCurrentBits = bits;
+      const maxGray = (bits === 6) ? 63 : 255;
+      ['r', 'g', 'b'].forEach(ch => {
+        const slider = document.getElementById('isp-gray-' + ch + '-slider');
+        const num    = document.getElementById('isp-gray-' + ch + '-num');
+        if (slider) {
+          slider.max = maxGray;
+          if ((slider.value | 0) > maxGray) slider.value = maxGray;
+        }
+        if (num) {
+          num.max = maxGray;
+          if ((num.value | 0) > maxGray) num.value = maxGray;
+        }
+      });
+      // Also clamp mode B/C start gray sliders
+      ['inc', 'dec'].forEach(prefix => {
+        const ss = document.getElementById('isp-' + prefix + '-start-slider');
+        const sn = document.getElementById('isp-' + prefix + '-start-num');
+        if (ss) { ss.max = maxGray; if ((ss.value | 0) > maxGray) ss.value = maxGray; }
+        if (sn) { sn.max = maxGray; if ((sn.value | 0) > maxGray) sn.value = maxGray; }
+      });
+      // 同步 grayHint 的 i18n key（讓 applyLang 依當前語言重繪）
+      const hintEl = document.querySelector('#page-isp [data-i18n="isp.grayHint"], #page-isp [data-i18n="isp.grayHint6"], #page-isp [data-i18n="isp.grayHint8"]');
+      if (hintEl) {
+        hintEl.setAttribute('data-i18n', bits === 6 ? 'isp.grayHint6' : 'isp.grayHint8');
+        if (typeof applyLang === 'function') applyLang(currentLang);
+      }
+      // 重新 clamp 現值並重繪（透過 setR/G/B 會觸發 ispRender 與 chip 更新）
+      if (setR) setR(parseInt(document.getElementById('isp-gray-r-num').value, 10) || 0);
+      if (setG) setG(parseInt(document.getElementById('isp-gray-g-num').value, 10) || 0);
+      if (setB) setB(parseInt(document.getElementById('isp-gray-b-num').value, 10) || 0);
+      // 波形反推卡片：僅 8-bit 顯示
+      const revCard = document.getElementById('isp-rev-card');
+      // 反推卡片永遠顯示（獨立工具，不隨 bits 模式切換）
+    }
+    // 對外曝露（讓 radio change handler 與 session restore 呼叫）
+    page._ispApplyBitsMode = ispApplyBitsMode;
+    window._ispApplyBitsMode = ispApplyBitsMode;
+
+    // --- Pixels slider + number ---
+    const pxSlider = document.getElementById('isp-pixels-slider');
+    const pxNum    = document.getElementById('isp-pixels-num');
+    if (pxSlider && pxNum) {
+      function setPixels(v, throttle) {
+        v = Math.max(1, Math.min(255, v | 0));
+        pxSlider.value = Math.min(parseInt(pxSlider.max, 10) || 255, v);
+        pxNum.value = v;
+        throttle ? ispRenderThrottled() : ispRender();
+      }
+      pxSlider.addEventListener('input', () => setPixels(parseInt(pxSlider.value, 10), true));
+      pxSlider.addEventListener('change', () => ispRender());
+      pxNum.addEventListener('input', () => setPixels(parseInt(pxNum.value, 10) || 1));
+      pxNum.addEventListener('blur', () => setPixels(parseInt(pxNum.value, 10) || 1));
+      setPixels(4);
+    }
+
+    // --- BK before/after sliders ---
+    function bindBk(which, defVal) {
+      const slider = document.getElementById('isp-bk-' + which + '-slider');
+      const num    = document.getElementById('isp-bk-' + which + '-num');
+      if (!slider || !num) return;
+      function setBk(v, throttle) {
+        v = Math.max(0, Math.min(50, v | 0));
+        slider.value = Math.min(parseInt(slider.max, 10) || 20, v);
+        num.value = v;
+        throttle ? ispRenderThrottled() : ispRender();
+      }
+      slider.addEventListener('input', () => setBk(parseInt(slider.value, 10), true));
+      slider.addEventListener('change', () => ispRender());
+      num.addEventListener('input', () => setBk(parseInt(num.value, 10) || 0));
+      num.addEventListener('blur', () => setBk(parseInt(num.value, 10) || 0));
+      setBk(defVal);
+    }
+    bindBk('before', 2);
+    bindBk('after', 2);
+
+    // --- REG 開關 radio & Driver bits radio ---
+    document.querySelectorAll('#page-isp input[type="radio"]').forEach(r => {
+      r.addEventListener('change', () => {
+        // Driver bits radio（isp-bits-6/8）切換時要先調整 slider/number 範圍再重繪
+        if (r.name === 'isp-bits' && typeof page._ispApplyBitsMode === 'function') {
+          page._ispApplyBitsMode(parseInt(r.value, 10) || 8);
+        } else {
+          ispRender();
+        }
+      });
+    });
+
+    // --- Scrambler key input ---
+    const scrKeyInput = document.getElementById('isp-scr-key');
+    if (scrKeyInput) {
+      scrKeyInput.addEventListener('input', () => ispRender());
+      scrKeyInput.addEventListener('blur', () => ispRender());
+    }
+
+    // 頁面載入時依當前 checked 的 bits radio 做一次初始化（確保 slider/number 範圍正確）
+    const initBitsEl = document.querySelector('#page-isp input[name="isp-bits"]:checked');
+    if (initBitsEl && typeof ispApplyBitsMode === 'function') {
+      ispApplyBitsMode(parseInt(initBitsEl.value, 10) || 8);
+    }
+
+    // --- REG grid: dynamically build & bind ---
+    ispBuildRegGrid(8);
+
+    // --- REG count slider/number ---
+    const regCountSlider = document.getElementById('isp-reg-count-slider');
+    const regCountNum    = document.getElementById('isp-reg-count-num');
+    if (regCountSlider && regCountNum) {
+      function setRegCount(v, throttle) {
+        v = Math.max(8, Math.min(56, v | 0));
+        regCountSlider.value = v;
+        regCountNum.value = v;
+        ispBuildRegGrid(v);
+        throttle ? ispRenderThrottled() : ispRender();
+      }
+      regCountSlider.addEventListener('input', () => setRegCount(parseInt(regCountSlider.value, 10), true));
+      regCountSlider.addEventListener('change', () => ispRender());
+      regCountNum.addEventListener('input', () => setRegCount(parseInt(regCountNum.value, 10) || 8));
+      regCountNum.addEventListener('blur', () => setRegCount(parseInt(regCountNum.value, 10) || 8));
+    }
+
+    // --- Pixel mode radio switching ---
+    document.querySelectorAll('#page-isp input[name="isp-px-mode"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const mode = r.value;
+        document.querySelectorAll('.isp-pxmode-panel').forEach(p => p.classList.remove('is-active'));
+        const panel = document.getElementById('isp-pxmode-' + mode.toLowerCase());
+        if (panel) panel.classList.add('is-active');
+        ispRender();
+      });
+    });
+
+    // --- #1 遞增/遞減模式動態說明文字 ---
+    function ispUpdateModeBCHint(prefix, repVal) {
+      const hintKey = prefix === 'inc' ? 'isp.incHint' : 'isp.decHint';
+      const hintEl = document.querySelector('[data-i18n="' + hintKey + '"]');
+      if (!hintEl) return;
+      const lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
+      const direction = prefix === 'inc';
+      let text;
+      if (repVal === 3) {
+        // 重複=3 → R=G=B，每 pixel 變化一次
+        if (lang === 'en') {
+          text = direction
+            ? 'Repeat=3: R=G=B, gray increments once per pixel from start. Stays at max once reached.'
+            : 'Repeat=3: R=G=B, gray decrements once per pixel from start. Stays at 0 once reached.';
+        } else if (lang === 'zh-CN') {
+          text = direction
+            ? '重复=3：R=G=B，每个 pixel 灰阶递增一次，达最大值后保持不变。'
+            : '重复=3：R=G=B，每个 pixel 灰阶递减一次，达 0 后保持不变。';
+        } else {
+          text = direction
+            ? '重複=3：R=G=B，每個 pixel 灰階遞增一次，達最大值後保持不變。'
+            : '重複=3：R=G=B，每個 pixel 灰階遞減一次，達 0 後保持不變。';
+        }
+      } else if (repVal === 1) {
+        // 重複=1 → 每 sub-pixel 變化一次，R≠G≠B
+        if (lang === 'en') {
+          text = direction
+            ? 'Repeat=1: gray increments every sub-pixel (R≠G≠B). Stays at max once reached.'
+            : 'Repeat=1: gray decrements every sub-pixel (R≠G≠B). Stays at 0 once reached.';
+        } else if (lang === 'zh-CN') {
+          text = direction
+            ? '重复=1：每个 sub-pixel 灰阶递增一次（R≠G≠B）。达最大值后保持不变。'
+            : '重复=1：每个 sub-pixel 灰阶递减一次（R≠G≠B）。达 0 后保持不变。';
+        } else {
+          text = direction
+            ? '重複=1：每個 sub-pixel 灰階遞增一次（R≠G≠B）。達最大值後保持不變。'
+            : '重複=1：每個 sub-pixel 灰階遞減一次（R≠G≠B）。達 0 後保持不變。';
+        }
+      } else {
+        // 其他值 → 每 N 個 sub-pixel 變化一次
+        const pxCount = repVal % 3 === 0 ? (repVal / 3) : null;
+        if (lang === 'en') {
+          const unit = pxCount ? (pxCount + ' pixel' + (pxCount > 1 ? 's' : '')) : (repVal + ' sub-pixels');
+          text = direction
+            ? 'Repeat=' + repVal + ': gray increments once every ' + unit + '. Stays at max once reached.'
+            : 'Repeat=' + repVal + ': gray decrements once every ' + unit + '. Stays at 0 once reached.';
+        } else if (lang === 'zh-CN') {
+          const unit = pxCount ? (pxCount + ' 个 pixel') : (repVal + ' 个 sub-pixel');
+          text = direction
+            ? '重复=' + repVal + '：每 ' + unit + ' 灰阶递增一次。达最大值后保持不变。'
+            : '重复=' + repVal + '：每 ' + unit + ' 灰阶递减一次。达 0 后保持不变。';
+        } else {
+          const unit = pxCount ? (pxCount + ' 個 pixel') : (repVal + ' 個 sub-pixel');
+          text = direction
+            ? '重複=' + repVal + '：每 ' + unit + ' 灰階遞增一次。達最大值後保持不變。'
+            : '重複=' + repVal + '：每 ' + unit + ' 灰階遞減一次。達 0 後保持不變。';
+        }
+      }
+      hintEl.textContent = text;
+    }
+
+    // --- Mode B/C slider/number bindings ---
+    function bindModeBC(prefix) {
+      // start gray
+      const startSlider = document.getElementById('isp-' + prefix + '-start-slider');
+      const startNum    = document.getElementById('isp-' + prefix + '-start-num');
+      if (startSlider && startNum) {
+        function setStart(v, throttle) {
+          const maxGray = (ispCurrentBits === 6) ? 63 : 255;
+          v = Math.max(0, Math.min(maxGray, v | 0));
+          startSlider.value = v;
+          startNum.value = v;
+          throttle ? ispRenderThrottled() : ispRender();
+        }
+        startSlider.addEventListener('input', () => setStart(parseInt(startSlider.value, 10), true));
+        startSlider.addEventListener('change', () => ispRender());
+        startNum.addEventListener('input', () => setStart(parseInt(startNum.value, 10) || 0));
+        startNum.addEventListener('blur', () => setStart(parseInt(startNum.value, 10) || 0));
+      }
+      // step
+      const stepSlider = document.getElementById('isp-' + prefix + '-step-slider');
+      const stepNum    = document.getElementById('isp-' + prefix + '-step-num');
+      if (stepSlider && stepNum) {
+        function setStep(v, throttle) {
+          v = Math.max(1, Math.min(255, v | 0));
+          stepSlider.value = Math.min(parseInt(stepSlider.max, 10) || 64, v);
+          stepNum.value = v;
+          throttle ? ispRenderThrottled() : ispRender();
+        }
+        stepSlider.addEventListener('input', () => setStep(parseInt(stepSlider.value, 10), true));
+        stepSlider.addEventListener('change', () => ispRender());
+        stepNum.addEventListener('input', () => setStep(parseInt(stepNum.value, 10) || 1));
+        stepNum.addEventListener('blur', () => setStep(parseInt(stepNum.value, 10) || 1));
+      }
+      // repeat — 修改重複數時也要更新遞增/遞減的動態說明文字
+      const repSlider = document.getElementById('isp-' + prefix + '-repeat-slider');
+      const repNum    = document.getElementById('isp-' + prefix + '-repeat-num');
+      if (repSlider && repNum) {
+        function setRep(v, throttle) {
+          v = Math.max(1, Math.min(255, v | 0));
+          repSlider.value = Math.min(parseInt(repSlider.max, 10) || 48, v);
+          repNum.value = v;
+          ispUpdateModeBCHint(prefix, v);
+          throttle ? ispRenderThrottled() : ispRender();
+        }
+        repSlider.addEventListener('input', () => setRep(parseInt(repSlider.value, 10), true));
+        repSlider.addEventListener('change', () => ispRender());
+        repNum.addEventListener('input', () => setRep(parseInt(repNum.value, 10) || 1));
+        repNum.addEventListener('blur', () => setRep(parseInt(repNum.value, 10) || 1));
+      }
+    }
+    bindModeBC('inc');
+    bindModeBC('dec');
+
+    // --- #2 嵌入波形雙指縮放（連續流暢 preview + touchend commit） ---
+    const waveBox = document.getElementById('isp-wave-box');
+    const waveSvg = document.getElementById('isp-wave-svg');
+    if (waveBox && waveSvg) {
+      let boxPinch = null;
+      waveBox.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          ispTouchActive = false; // 停用 pan，避免 pinch 結束後用舊 state 跳動
+          const t1 = e.touches[0], t2 = e.touches[1];
+          const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+          const d0 = Math.hypot(dx, dy);
+          const rect = waveBox.getBoundingClientRect();
+          const cxViewport = (t1.clientX + t2.clientX) / 2;
+          const cxInBox = cxViewport - rect.left;
+          const cxInSvg = waveBox.scrollLeft + cxInBox;
+          boxPinch = { d0, zoom0: ispZoomHVal, cxInSvg, cxInBox };
+          // Preview：scale 以 pinch 中心為錨（transformOrigin 相對 svg 左上）
+          waveSvg.style.transformOrigin = `${cxInSvg}px 0`;
+          waveSvg.style.willChange = 'transform';
+        }
+      }, { passive: false });
+      let _pinchRafPending = false;
+      waveBox.addEventListener('touchmove', (e) => {
+        if (boxPinch && e.touches.length === 2) {
+          e.preventDefault();
+          const t1 = e.touches[0], t2 = e.touches[1];
+          const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+          const d = Math.hypot(dx, dy);
+          const ratio = d / boxPinch.d0;
+          const newZoom = Math.max(0.001, Math.min(12, boxPinch.zoom0 * ratio));
+          ispZoomHVal = newZoom;
+          if (!_pinchRafPending) {
+            _pinchRafPending = true;
+            requestAnimationFrame(() => {
+              _pinchRafPending = false;
+              const visualRatio = ispZoomHVal / boxPinch.zoom0;
+              waveSvg.style.transform = `scaleX(${visualRatio})`;
+              ispUpdateZoomDisplay();
+            });
+          }
+        }
+      }, { passive: false });
+      const commitPinch = () => {
+        if (!boxPinch) return;
+        const p = boxPinch;
+        const ratio = ispZoomHVal / p.zoom0;
+        const newCxInSvg = p.cxInSvg * ratio;
+        // 完全 rebuild SVG（內部會清除 transform）
+        ispRender();
+        // 保留 pinch 中心在螢幕上的視覺位置
+        waveBox.scrollLeft = Math.max(0, newCxInSvg - p.cxInBox);
+        waveSvg.style.willChange = '';
+        ispUpdateMinimapViewport();
+        boxPinch = null;
+      };
+      waveBox.addEventListener('touchend', (e) => {
+        if (boxPinch && e.touches.length < 2) {
+          commitPinch();
+          // pinch 結束後若仍有手指，重新初始化 pan state 避免用舊值跳動
+          if (e.touches.length === 1) {
+            ispTouchActive = true;
+            ispTouchStartX = e.touches[0].clientX;
+            ispTouchStartScroll = waveBox.scrollLeft;
+            ispTouchLastX = e.touches[0].clientX;
+            ispTouchLastTime = performance.now();
+            ispTouchVelocity = 0;
+          }
+        }
+      });
+      waveBox.addEventListener('touchcancel', () => commitPinch());
+
+      // scroll → update minimap viewport（rAF-throttled）
+      waveBox.addEventListener('scroll', () => {
+        ispUpdateMinimapViewportThrottled();
+      }, { passive: true });
+
+      // --- Mouse wheel zoom at cursor position ---
+      waveBox.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = waveBox.getBoundingClientRect();
+        const cursorXInBox = e.clientX - rect.left;
+        const cursorXInSvg = waveBox.scrollLeft + cursorXInBox;
+        const svgW0 = parseFloat(waveSvg.getAttribute('width')) || waveBox.clientWidth;
+        // Zoom factor
+        const factor = e.deltaY > 0 ? (1 / 1.2) : 1.2;
+        const newZoom = Math.max(0.001, Math.min(12, ispZoomHVal * factor));
+        const ratio = newZoom / ispZoomHVal;
+        ispZoomHVal = newZoom;
+        ispUpdateZoomDisplay();
+        ispRender();
+        // Adjust scroll to keep cursor position anchored
+        const newCursorXInSvg = cursorXInSvg * ratio;
+        waveBox.scrollLeft = Math.max(0, newCursorXInSvg - cursorXInBox);
+        ispUpdateMinimapViewport();
+      }, { passive: false });
+
+      // --- Mouse drag pan with inertia ---
+      let ispMouseDragging = false;
+      let ispMouseStartX = 0, ispMouseStartScroll = 0;
+      let ispMouseVelocity = 0, ispMouseLastX = 0, ispMouseLastTime = 0;
+      let ispInertiaRaf = 0;
+      const ISP_INERTIA_DECAY = 0.95;
+      const ISP_INERTIA_MIN = 0.3;
+
+      function ispStopInertia() {
+        if (ispInertiaRaf) { cancelAnimationFrame(ispInertiaRaf); ispInertiaRaf = 0; }
+        ispMouseVelocity = 0;
+      }
+      function ispStartInertia() {
+        if (Math.abs(ispMouseVelocity) < ISP_INERTIA_MIN) return;
+        function step() {
+          ispMouseVelocity *= ISP_INERTIA_DECAY;
+          if (Math.abs(ispMouseVelocity) < ISP_INERTIA_MIN) { ispMouseVelocity = 0; return; }
+          waveBox.scrollLeft -= ispMouseVelocity;
+          ispUpdateMinimapViewportThrottled();
+          ispInertiaRaf = requestAnimationFrame(step);
+        }
+        ispInertiaRaf = requestAnimationFrame(step);
+      }
+
+      waveBox.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        ispStopInertia();
+        ispMouseDragging = true;
+        ispMouseStartX = e.clientX;
+        ispMouseStartScroll = waveBox.scrollLeft;
+        ispMouseLastX = e.clientX;
+        ispMouseLastTime = performance.now();
+        ispMouseVelocity = 0;
+        waveBox.style.cursor = 'grabbing';
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!ispMouseDragging) return;
+        const now = performance.now();
+        const dtMs = now - ispMouseLastTime;
+        if (dtMs > 0) ispMouseVelocity = (e.clientX - ispMouseLastX) / Math.max(1, dtMs) * 16;
+        ispMouseLastX = e.clientX;
+        ispMouseLastTime = now;
+        const dx = e.clientX - ispMouseStartX;
+        waveBox.scrollLeft = ispMouseStartScroll - dx;
+        ispUpdateMinimapViewportThrottled();
+      });
+      window.addEventListener('mouseup', () => {
+        if (ispMouseDragging) {
+          ispMouseDragging = false;
+          waveBox.style.cursor = '';
+          if (performance.now() - ispMouseLastTime < 50) ispStartInertia();
+          else ispMouseVelocity = 0;
+        }
+      });
+
+      // --- Touch single-finger pan with inertia (override native scroll) ---
+      let ispTouchStartX = 0, ispTouchStartScroll = 0;
+      let ispTouchLastX = 0, ispTouchLastTime = 0;
+      let ispTouchVelocity = 0;
+      let ispTouchInertiaRaf = 0;
+      let ispTouchActive = false;
+
+      function ispStopTouchInertia() {
+        if (ispTouchInertiaRaf) { cancelAnimationFrame(ispTouchInertiaRaf); ispTouchInertiaRaf = 0; }
+        ispTouchVelocity = 0;
+      }
+      function ispStartTouchInertia() {
+        if (Math.abs(ispTouchVelocity) < ISP_INERTIA_MIN) return;
+        function step() {
+          ispTouchVelocity *= ISP_INERTIA_DECAY;
+          if (Math.abs(ispTouchVelocity) < ISP_INERTIA_MIN) { ispTouchVelocity = 0; return; }
+          waveBox.scrollLeft -= ispTouchVelocity;
+          ispUpdateMinimapViewportThrottled();
+          ispTouchInertiaRaf = requestAnimationFrame(step);
+        }
+        ispTouchInertiaRaf = requestAnimationFrame(step);
+      }
+
+      waveBox.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          ispStopInertia();
+          ispStopTouchInertia();
+          ispTouchActive = true;
+          ispTouchStartX = e.touches[0].clientX;
+          ispTouchStartScroll = waveBox.scrollLeft;
+          ispTouchLastX = e.touches[0].clientX;
+          ispTouchLastTime = performance.now();
+          ispTouchVelocity = 0;
+        }
+      }, { passive: true });
+      waveBox.addEventListener('touchmove', (e) => {
+        if (ispTouchActive && e.touches.length === 1 && !boxPinch) {
+          e.preventDefault();
+          const now = performance.now();
+          const dtMs = now - ispTouchLastTime;
+          if (dtMs > 0) ispTouchVelocity = (e.touches[0].clientX - ispTouchLastX) / Math.max(1, dtMs) * 16;
+          ispTouchLastX = e.touches[0].clientX;
+          ispTouchLastTime = now;
+          const dx = e.touches[0].clientX - ispTouchStartX;
+          waveBox.scrollLeft = ispTouchStartScroll - dx;
+          ispUpdateMinimapViewportThrottled();
+        }
+      }, { passive: false });
+      waveBox.addEventListener('touchend', (e) => {
+        if (ispTouchActive && e.touches.length === 0 && !boxPinch) {
+          ispTouchActive = false;
+          if (performance.now() - ispTouchLastTime < 50) ispStartTouchInertia();
+          else ispTouchVelocity = 0;
+        }
+      });
+    }
+
+    // --- #3 Minimap 點擊跳轉 ---
+    const minimap = document.getElementById('isp-minimap-box');
+    if (minimap) {
+      const jumpTo = (clientX) => {
+        const waveBox2 = document.getElementById('isp-wave-box');
+        const wave2    = document.getElementById('isp-wave-svg');
+        if (!waveBox2 || !wave2) return;
+        const miniRect = minimap.getBoundingClientRect();
+        const x = clientX - miniRect.left;
+        const miniW = minimap.clientWidth || 1;
+        const svgW = parseFloat(wave2.getAttribute('width')) || wave2.getBoundingClientRect().width;
+        const visibleW = waveBox2.clientWidth;
+        const targetCenter = (x / miniW) * svgW;
+        waveBox2.scrollLeft = Math.max(0, targetCenter - visibleW / 2);
+      };
+      minimap.addEventListener('click', (e) => jumpTo(e.clientX));
+      // touch：支援點擊 + 拖曳
+      let miniTouching = false;
+      minimap.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          miniTouching = true;
+          jumpTo(e.touches[0].clientX);
+          e.preventDefault();
+        }
+      }, { passive: false });
+      minimap.addEventListener('touchmove', (e) => {
+        if (miniTouching && e.touches.length === 1) {
+          jumpTo(e.touches[0].clientX);
+          e.preventDefault();
+        }
+      }, { passive: false });
+      minimap.addEventListener('touchend', () => { miniTouching = false; });
+      minimap.addEventListener('touchcancel', () => { miniTouching = false; });
+    }
+
+    // 視窗大小改變 → 重新 render（讓 minimap 寬度重新計算）
+    window.addEventListener('resize', () => {
+      if (document.getElementById('page-isp') && document.getElementById('page-isp').style.display !== 'none') {
+        ispRender();
+      }
+    });
+
+    // ResizeObserver + MutationObserver：minimap 尺寸變化或 iSP 頁切入時即時重算
+    const refreshMinimap = () => {
+      if (ispLastSegs && ispLastTotalBits > 0 && minimap && minimap.clientWidth > 0) {
+        if (ispPairCount === 2 && ispLastPair1Segs) {
+          ispRenderMinimap2Pair(ispLastSegs, ispLastTotalBits, ispLastPair1Segs, ispLastPair1TotalBits);
+        } else {
+          ispRenderMinimap(ispLastSegs, ispLastTotalBits);
+        }
+        ispUpdateMinimapViewport();
+      }
+    };
+    // Expose for showPage() and session persistence
+    window.ispRefreshMinimap = refreshMinimap;
+    window.ispRender = ispRender;
+    window.ispRenderThrottled = ispRenderThrottled;
+    if (typeof ResizeObserver !== 'undefined' && minimap) {
+      const ro = new ResizeObserver(refreshMinimap);
+      ro.observe(minimap);
+    }
+    // MutationObserver 監聽 page-isp 的 display 變化（home/rxtx/calc → isp 切換）
+    if (typeof MutationObserver !== 'undefined') {
+      const pageIsp = document.getElementById('page-isp');
+      if (pageIsp) {
+        const mo = new MutationObserver(() => {
+          if (pageIsp.style.display !== 'none') {
+            // layout 完成後再 refresh（分多個時機避免偶發失敗）
+            requestAnimationFrame(() => requestAnimationFrame(refreshMinimap));
+            setTimeout(refreshMinimap, 50);
+            setTimeout(refreshMinimap, 200);
+          }
+        });
+        mo.observe(pageIsp, { attributes: true, attributeFilter: ['style'] });
+      }
+    }
+
+    // 波形反推 UI 初始化
+    ispRevBuildUI();
+    // 初始顯示（8-bit 時顯示）
+    const revCard = document.getElementById('isp-rev-card');
+    // 反推卡片永遠顯示（獨立工具）
+
+    // --- #3 所有 slider 左右加 +/- 按鈕 ---
+    document.querySelectorAll('.isp-slider-row:not(.aux-slider-row) input[type="range"]').forEach(slider => {
+      const step = parseFloat(slider.step) || 1;
+      const minusBtn = document.createElement('button');
+      minusBtn.type = 'button';
+      minusBtn.className = 'isp-slider-btn';
+      minusBtn.textContent = '−';
+      minusBtn.setAttribute('aria-label', 'decrease');
+      const plusBtn = document.createElement('button');
+      plusBtn.type = 'button';
+      plusBtn.className = 'isp-slider-btn';
+      plusBtn.textContent = '+';
+      plusBtn.setAttribute('aria-label', 'increase');
+      // 插入到 slider 前後
+      slider.parentNode.insertBefore(minusBtn, slider);
+      slider.parentNode.insertBefore(plusBtn, slider.nextSibling);
+      function nudge(delta) {
+        const min = parseFloat(slider.min) || 0;
+        const max = parseFloat(slider.max) || 255;
+        const cur = parseFloat(slider.value) || 0;
+        const nv = Math.max(min, Math.min(max, cur + delta));
+        slider.value = nv;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      minusBtn.addEventListener('click', () => nudge(-step));
+      plusBtn.addEventListener('click', () => nudge(step));
+    });
+
+    // 初始渲染
+    ispRender();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ispInit);
+  } else {
+    ispInit();
+  }
+})();
+</script>
+</body>
+</html>
