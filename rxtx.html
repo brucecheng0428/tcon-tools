@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="TCON Rx/Tx 頻率、Pixel Rate、eDP/P2P Bit Rate 計算">
+<meta property="og:title" content="Rx/Tx 頻率計算工具 — TCON FAE專用工具箱">
+<meta property="og:description" content="LVDS / eDP Rx & mLVDS / P2P Tx 頻率與 Bit Rate 計算">
+<meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/rxtx.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<title>Rx/Tx 頻率計算工具 — TCON FAE專用工具箱</title>
+<link rel="stylesheet" href="common/common.css">
+<style>
+  /* ─── RxTx PAGE 專屬 CSS ─────────────────────── */
+  .rxtx-rx .card-header { background: #0e7490; }
+  .rxtx-tx .card-header { background: #92400e; }
+  .rxtx-section-sep {
+    display: flex; align-items: center; gap: 10px; margin: 4px 0 8px;
+    font-size: 11px; font-weight: 700; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .rxtx-section-sep::before, .rxtx-section-sep::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .rxtx-result-box {
+    background: #0a1628; border: 1.5px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; margin-top: 10px;
+  }
+  .rxtx-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+  .rxtx-result-item { display: flex; flex-direction: column; }
+  .rxtx-result-label {
+    font-size: 10px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px;
+  }
+  .rxtx-result-val { font-size: 15px; font-weight: 700; color: var(--accent); }
+  .rxtx-result-val.ok  { color: var(--success); }
+  .rxtx-result-val.err { color: var(--error); }
+  .dclk-boost-section {
+    margin-top: 10px; padding: 8px 10px; background: #0c1a2e;
+    border: 1px solid #334155; border-radius: 8px;
+  }
+  .dclk-boost-title {
+    font-size: 11px; color: #94a3b8; font-weight: 600;
+    margin-bottom: 6px; letter-spacing: 0.3px;
+  }
+  .dclk-boost-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
+  }
+  .dclk-boost-result {
+    margin-top: 8px; padding: 6px 8px; background: rgba(239,68,68,0.08);
+    border-radius: 6px; display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #94a3b8;
+  }
+  .dclk-boost-result-val {
+    color: #ef4444; font-weight: 700; font-size: 13px;
+  }
+  .dclk-boost-row:last-child { margin-bottom: 0; }
+  .dclk-boost-label {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; color: #cbd5e1; cursor: pointer; flex: 1;
+  }
+  .dclk-boost-label input[type="checkbox"] {
+    width: 15px; height: 15px; accent-color: #0ea5e9; cursor: pointer;
+  }
+  .dclk-boost-sel {
+    width: 72px; padding: 2px 4px; font-size: 11px;
+    background: #1e293b; color: #e2e8f0; border: 1px solid #475569;
+    border-radius: 4px; cursor: pointer;
+  }
+  .dclk-boost-max {
+    color: #ef4444; font-weight: 700; font-size: 14px; display: block;
+  }
+  .rt-fps-sync-box {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #0c1a2e; border: 1.5px dashed #334155;
+    border-radius: 8px; padding: 8px 12px; margin-top: 8px;
+  }
+  .rt-fps-sync-label { font-size: 11px; color: #94a3b8; }
+  .rt-fps-sync-val { font-size: 14px; font-weight: 700; color: #38bdf8; }
+  .rxtx-htv-row { display: flex; gap: 10px; margin-top: 10px; }
+  .rxtx-htv-item {
+    flex: 1; background: #042f2a; border: 1.5px solid #0d9488;
+    border-radius: 8px; padding: 8px 10px; text-align: center;
+  }
+  .rxtx-htv-label { font-size: 10px; color: #5eead4; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+  .rxtx-htv-val { font-size: 20px; font-weight: 700; color: #2dd4bf; margin-top: 2px; }
+  .rxtx-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  input.enc-locked {
+    background: #1e1b4b !important; border-color: #6366f1 !important;
+    color: #a5b4fc !important; cursor: not-allowed;
+  }
+  .if-header-wrap { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+  .if-select {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35);
+    color: white; border-radius: 5px; padding: 3px 22px 3px 8px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 6px center;
+  }
+  .if-select:focus { outline: none; }
+  .if-select option { background: #1e293b; color: #e2e8f0; }
+  /* ─── PORT SELECT ────────────────────────────── */
+  .port-select {
+    width: 100%;
+    padding: 10px 32px 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 16px;
+    color: var(--text);
+    background: #0f172a;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    cursor: pointer;
+  }
+  .port-select:focus { outline: none; border-color: var(--accent); }
+  .port-select option { background: #1e293b; color: #e2e8f0; }
+  /* ─── FOOTER BACK ────────────────────────────── */
+  .footer-back { padding: 8px 0 20px; display: flex; justify-content: center; }
+  .back-btn-footer {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    color: var(--text-sub);
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+  }
+  .back-btn-footer:active { background: #253650; color: var(--text); }
+
+  /* ─── LANDSCAPE（中等橫屏） ─────────────────── */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .container { max-width: 720px; }
+    .header {
+      position: static;
+      padding: 6px 16px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+    }
+    .header .back-row { margin-bottom: 0; flex-shrink: 0; }
+    .header h1 { font-size: 14px; flex: 1; }
+    .header p { display: none; }
+    .rxtx-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+    .rxtx-cards-row > .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body > .rxtx-result-box { margin-top: auto; }
+    .card-body { padding: 10px 12px 8px; }
+    .field { margin-bottom: 8px; }
+    .card { margin-bottom: 8px; }
+  }
+
+  /* ─── LANDSCAPE（較寬橫屏） ─────────────────── */
+  @media (orientation: landscape) and (min-width: 768px) and (max-height: 600px) {
+    .container { max-width: 860px; }
+    .header {
+      position: static;
+      padding: 6px 16px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+    }
+    .header .back-row { margin-bottom: 0; flex-shrink: 0; }
+    .header h1 { font-size: 15px; flex: 1; }
+    .header p { display: none; }
+    .rxtx-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+    .rxtx-cards-row > .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body > .rxtx-result-box { margin-top: auto; }
+    .card-body { padding: 10px 12px 8px; }
+    .field { margin-bottom: 8px; }
+    .card { margin-bottom: 8px; }
+  }
+
+  /* ─── TABLET / WIDE (min 768px) ──────────────── */
+  @media (min-width: 768px) {
+    .container { max-width: 860px; padding: 16px 20px 0; }
+    .rxtx-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+    .rxtx-cards-row > .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+  }
+
+  /* ─── DESKTOP (min 1024px) ───────────────────── */
+  @media (min-width: 1024px) {
+    .container { max-width: 1200px; padding: 20px 32px 0; }
+  }
+</style>
+</head>
+<body>
+<div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text" data-i18n="ptr.pull">下拉刷新</span></div>
+
+<div class="header">
+  <div class="back-row">
+    <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
+  </div>
+  <h1><svg width="20" height="16" viewBox="0 0 28 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M1 11 Q4 2 7 11 Q10 20 13 11 Q16 2 19 11 Q22 20 25 11" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rxtx.title">Rx/Tx 頻率計算工具</span> <span style="display:inline-block;background:#0ea5e9;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.12.0</span></h1>
+  <p data-i18n="rxtx.subtitle">TCON Rx/Tx 頻率、Pixel Rate、eDP/P2P Bit Rate 計算</p>
+  <div class="lang-switcher">
+    <select id="lang-select" class="lang-select" aria-label="Language">
+      <option value="zh-TW">繁體中文</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- 基本參數 -->
+  <div class="card">
+    <div class="card-header">
+      <div class="if-header-wrap">
+        <span><span class="icon">📐</span><span data-i18n="rxtx.basicParamsShared">基本參數（所有計算共用）</span></span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400">
+          Res.
+          <select id="rt-res-preset" class="if-select">
+            <option value="r1" selected>1920x1080</option>
+            <option value="r2">1920x1080'</option>
+            <option value="r3">2560x1440</option>
+            <option value="r4">3440x1440</option>
+            <option value="r5">3440x1440'</option>
+            <option value="r6">3840x2160</option>
+          </select>
+        </span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="rxtx-2col">
+        <div class="field">
+          <label>Hactive<span class="required">*</span></label>
+          <input type="number" id="rt-hactive" value="1920" min="1" step="1">
+        </div>
+        <div class="field">
+          <label>Hblank<span class="required">*</span></label>
+          <input type="number" id="rt-hblank" value="164" min="1" step="1">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Vactive<span class="required">*</span></label>
+          <input type="number" id="rt-vactive" value="1080" min="1" step="1">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Vblank<span class="required">*</span></label>
+          <input type="number" id="rt-vblank" value="45" min="1" step="1">
+        </div>
+      </div>
+      <div class="rxtx-htv-row">
+        <div class="rxtx-htv-item">
+          <div class="rxtx-htv-label">Htotal</div>
+          <div class="rxtx-htv-val" id="rt-htotal">2084</div>
+        </div>
+        <div class="rxtx-htv-item">
+          <div class="rxtx-htv-label">Vtotal</div>
+          <div class="rxtx-htv-val" id="rt-vtotal">1125</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TCON Rx ── -->
+  <div class="rxtx-section-sep">TCON Rx</div>
+
+  <div class="rxtx-cards-row">
+  <!-- Rx LVDS -->
+  <div class="card rxtx-rx">
+    <div class="card-header"><span class="icon">🔵</span><span data-i18n="rxtx.lvdsTitle">LVDS Rx 頻率計算</span></div>
+    <div class="card-body">
+      <div class="field">
+        <label>TCON Rx Port</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-1" value="1"><label for="rt-rx-port-1">1</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-2" value="2"><label for="rt-rx-port-2">2</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-4" value="4" checked><label for="rt-rx-port-4">4</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-rx-port" id="rt-rx-port-8" value="8"><label for="rt-rx-port-8">8</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label data-i18n="rxtx.calcMode">計算模式</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-a" value="a" checked><label for="rt-lvds-mode-a" data-i18n-html="rxtx.modeA">給定<br>FPGA DCLK</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-d" value="d"><label for="rt-lvds-mode-d" data-i18n-html="rxtx.modeD">給定<br>LVDS CLK</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-b" value="b"><label for="rt-lvds-mode-b" data-i18n-html="rxtx.modeB">給定<br>TCON DCLK</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-lvds-mode" id="rt-lvds-mode-c" value="c"><label for="rt-lvds-mode-c" data-i18n-html="rxtx.modeC">給定<br>Frame Rate</label></div>
+        </div>
+      </div>
+      <div class="field" id="rt-lvds-input-a">
+        <label>FPGA UI DCLK [MHz]<span class="required">*</span></label>
+        <input type="number" id="rt-fpga-dclk" value="210" min="0.001" step="any">
+        <div class="field-hint">LVDS per port = FPGA UI DCLK</div>
+      </div>
+      <div class="field" id="rt-lvds-input-d" style="display:none">
+        <label>LVDS PER PORT [MHz]<span class="required">*</span></label>
+        <input type="number" id="rt-lvds-clk-in" value="210" min="0.001" step="any">
+        <div class="field-hint">FPGA UI DCLK = LVDS per port</div>
+      </div>
+      <div class="field" id="rt-lvds-input-b" style="display:none">
+        <label>TCON UI DCLK [MHz]<span class="required">*</span></label>
+        <input type="number" id="rt-tcon-dclk-in" value="420" min="0.001" step="any">
+        <div class="field-hint">FPGA UI DCLK = TCON UI DCLK ÷ 2</div>
+      </div>
+      <div class="field" id="rt-lvds-input-c" style="display:none">
+        <label>Frame Rate [Hz]<span class="required">*</span></label>
+        <input type="number" id="rt-lvds-fps-in" value="144" min="1" step="any">
+      </div>
+      <div class="rxtx-result-box">
+        <div class="rxtx-result-grid">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Frame Rate</span>
+            <span class="rxtx-result-val" id="rt-lvds-r-fps">—</span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Pixel Rate</span>
+            <span class="rxtx-result-val" id="rt-lvds-r-px">—</span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">FPGA UI DCLK</span>
+            <span class="rxtx-result-val" id="rt-lvds-r-fpga">—</span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">TCON UI DCLK</span>
+            <span class="rxtx-result-val" id="rt-lvds-r-tcon">—</span>
+            <span class="dclk-boost-max" id="rt-dclk-boost-max"></span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">LVDS per Port</span>
+            <span class="rxtx-result-val" id="rt-lvds-r-port">—</span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">1 UI [ps]</span>
+            <span class="rxtx-result-val" id="rt-lvds-r-1ui">—</span>
+            <span class="dclk-boost-max" id="rt-lvds-r-1ui-boost"></span>
+          </div>
+        </div>
+      </div>
+      <!-- DCLK 頻率加乘 -->
+      <div class="dclk-boost-section">
+        <div class="dclk-boost-title" data-i18n="rxtx.dclkBoostTitle">DCLK 頻率加乘（最大值估算）</div>
+        <div class="dclk-boost-row">
+          <label class="dclk-boost-label"><input type="checkbox" id="rt-boost-rxssc"> <span data-i18n="rxtx.boostRxSSC">RX SSC 展頻</span></label>
+          <select id="rt-boost-rxssc-pct" class="dclk-boost-sel">
+            <option value="0.5">±0.5%</option><option value="1.0">±1.0%</option><option value="1.5">±1.5%</option><option value="2.0">±2.0%</option><option value="2.5">±2.5%</option><option value="3.0" selected>±3.0%</option>
+          </select>
+        </div>
+        <div class="dclk-boost-row">
+          <label class="dclk-boost-label"><input type="checkbox" id="rt-boost-osc"> <span data-i18n="rxtx.boostOSC">OSC 頻率製程偏移</span></label>
+          <select id="rt-boost-osc-pct" class="dclk-boost-sel">
+            <option value="0.5">±0.5%</option><option value="1.0">±1.0%</option><option value="1.5">±1.5%</option><option value="2.0" selected>±2.0%</option><option value="2.5">±2.5%</option><option value="3.0">±3.0%</option>
+          </select>
+        </div>
+        <div class="dclk-boost-row">
+          <label class="dclk-boost-label"><input type="checkbox" id="rt-boost-txssc"> <span data-i18n="rxtx.boostTxSSC">TX SSC 展頻</span></label>
+          <select id="rt-boost-txssc-pct" class="dclk-boost-sel">
+            <option value="0.5">±0.5%</option><option value="1.0">±1.0%</option><option value="1.5">±1.5%</option><option value="2.0">±2.0%</option><option value="2.5">±2.5%</option><option value="3.0" selected>±3.0%</option>
+          </select>
+        </div>
+        <div class="dclk-boost-result" id="rt-dclk-boost-result" style="display:none">
+          <span data-i18n="rxtx.boostMaxLabel">加乘後最大 DCLK：</span><span class="dclk-boost-result-val" id="rt-dclk-boost-result-val">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rx P2P -->
+  <div class="card rxtx-rx">
+    <div class="card-header">
+      <div class="if-header-wrap">
+        <span><span class="icon">🟣</span><span data-i18n="rxtx.p2pRxTitle">P2P Rx Bit Rate 計算</span></span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400">
+          I/F
+          <select id="rt-edp-if" class="if-select">
+            <option value="edp">eDP</option>
+            <option value="other" data-i18n="rxtx.ifOther">其他</option>
+          </select>
+        </span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="field">
+        <label>Color Depth [bits/channel]</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d6" value="6"><label for="rt-edp-d6">6</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d8" value="8" checked><label for="rt-edp-d8">8</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d10" value="10"><label for="rt-edp-d10">10</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-edp-depth" id="rt-edp-d12" value="12"><label for="rt-edp-d12">12</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>TCON Rx Lane</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-edp-lane" id="rt-edp-l1" value="1"><label for="rt-edp-l1">1</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-edp-lane" id="rt-edp-l2" value="2" checked><label for="rt-edp-l2">2</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-edp-lane" id="rt-edp-l4" value="4"><label for="rt-edp-l4">4</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Frame Rate [Hz]<span class="required">*</span></label>
+        <input type="number" id="rt-edp-fps" value="144" min="1" step="any">
+      </div>
+      <div class="rxtx-2col">
+        <div class="field" style="margin-bottom:0">
+          <label>Encoding In [bits]</label>
+          <input type="number" id="rt-edp-enc-in" value="8" min="1" step="1" class="enc-locked" readonly>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Encoding Out [bits]</label>
+          <input type="number" id="rt-edp-enc-out" value="10" min="1" step="1" class="enc-locked" readonly>
+        </div>
+      </div>
+      <div class="rxtx-result-box">
+        <div class="rxtx-result-grid">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Rx Bit Rate / Lane</span>
+            <span class="rxtx-result-val" id="rt-edp-r-rate">—</span>
+          </div>
+          <div class="rxtx-result-item" id="rt-edp-std-row">
+            <span class="rxtx-result-label" data-i18n="rxtx.edpSpec">需最低 eDP 規格</span>
+            <span class="rxtx-result-val" id="rt-edp-r-std">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div><!-- /rxtx-cards-row Rx -->
+
+  <!-- ── TCON Tx ── -->
+  <div class="rxtx-section-sep">TCON Tx</div>
+
+  <div class="rxtx-cards-row">
+  <!-- Tx mLVDS -->
+  <div class="card rxtx-tx">
+    <div class="card-header"><span class="icon">🟠</span><span data-i18n="rxtx.mlvdsTitle">mLVDS Tx 頻率計算</span></div>
+    <div class="card-body">
+      <div class="field">
+        <label>Driver bits</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-mls-bits" id="rt-mls-b6" value="6"><label for="rt-mls-b6">6 bits</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-mls-bits" id="rt-mls-b8" value="8" checked><label for="rt-mls-b8">8 bits</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-mls-bits" id="rt-mls-b10" value="10"><label for="rt-mls-b10">10 bits</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>TCON Tx Port</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-mls-port" id="rt-mls-p1" value="1"><label for="rt-mls-p1">1</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-mls-port" id="rt-mls-p2" value="2"><label for="rt-mls-p2">2</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-mls-port" id="rt-mls-p4" value="4" checked><label for="rt-mls-p4">4</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Driver pairs / Port</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-mls-pairs" id="rt-mls-pr3" value="3" checked><label for="rt-mls-pr3">3</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-mls-pairs" id="rt-mls-pr6" value="6"><label for="rt-mls-pr6">6</label></div>
+        </div>
+      </div>
+      <div class="rxtx-result-box">
+        <div class="rxtx-result-grid" style="grid-template-columns:1fr 1fr 1fr;">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Tx Freq. [MHz]</span>
+            <span class="rxtx-result-val" id="rt-mls-r">—</span>
+            <span class="dclk-boost-max" id="rt-mls-r-boost"></span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">1 UI [ps]</span>
+            <span class="rxtx-result-val" id="rt-mls-r-1ui">—</span>
+            <span class="dclk-boost-max" id="rt-mls-r-1ui-boost"></span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">1/16 UI [ps]</span>
+            <span class="rxtx-result-val" id="rt-mls-r-116ui">—</span>
+            <span class="dclk-boost-max" id="rt-mls-r-116ui-boost"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tx P2P -->
+  <div class="card rxtx-tx">
+    <div class="card-header">
+      <div class="if-header-wrap">
+        <span><span class="icon">🟢</span><span data-i18n="rxtx.p2pTxTitle">P2P Tx Bit Rate 計算</span></span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400">
+          I/F
+          <select id="rt-p2p-if" class="if-select">
+            <option value="isp">iSP</option>
+            <option value="phi">PHI</option>
+            <option value="other" data-i18n="rxtx.ifOther">其他</option>
+          </select>
+        </span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="field">
+        <label>Driver bits</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-p2p-bits" id="rt-p2p-b6" value="6"><label for="rt-p2p-b6">6 bits</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-p2p-bits" id="rt-p2p-b8" value="8" checked><label for="rt-p2p-b8">8 bits</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-p2p-bits" id="rt-p2p-b10" value="10"><label for="rt-p2p-b10">10 bits</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>TCON Tx Port</label>
+        <select id="rt-p2p-port-num" class="port-select">
+          <option value="1">1 Port</option>
+          <option value="2">2 Port</option>
+          <option value="3">3 Port</option>
+          <option value="4" selected>4 Port</option>
+          <option value="5">5 Port</option>
+          <option value="6">6 Port</option>
+          <option value="7">7 Port</option>
+          <option value="8">8 Port</option>
+          <option value="9">9 Port</option>
+          <option value="10">10 Port</option>
+          <option value="11">11 Port</option>
+          <option value="12">12 Port</option>
+          <option value="13">13 Port</option>
+          <option value="14">14 Port</option>
+          <option value="15">15 Port</option>
+          <option value="16">16 Port</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Driver pairs / Port</label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr1" value="1"><label for="rt-p2p-pr1">1</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr2" value="2" checked><label for="rt-p2p-pr2">2</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr3" value="3"><label for="rt-p2p-pr3">3</label></div>
+          <div class="radio-opt"><input type="radio" name="rt-p2p-pairs" id="rt-p2p-pr4" value="4"><label for="rt-p2p-pr4">4</label></div>
+        </div>
+      </div>
+      <div class="rxtx-2col">
+        <div class="field" style="margin-bottom:0">
+          <label>Encoding In [bits]</label>
+          <input type="number" id="rt-p2p-enc-in" value="8" min="1" step="1" class="enc-locked" readonly>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Encoding Out [bits]</label>
+          <input type="number" id="rt-p2p-enc-out" value="9" min="1" step="1" class="enc-locked" readonly>
+        </div>
+      </div>
+      <div class="rxtx-result-box">
+        <div id="rt-p2p-bkfreq-row" style="display:none">
+          <div class="rxtx-result-item" style="margin-bottom:8px">
+            <span class="rxtx-result-label">BK Freq. [MHz]</span>
+            <span class="rxtx-result-val" id="rt-p2p-r-bkfreq">—</span>
+            <span class="dclk-boost-max" id="rt-p2p-r-bkfreq-boost"></span>
+          </div>
+        </div>
+        <div class="rxtx-result-grid" id="rt-p2p-result-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">Tx Rate [Mbps]</span>
+            <span class="rxtx-result-val" id="rt-p2p-r">—</span>
+            <span class="dclk-boost-max" id="rt-p2p-r-boost"></span>
+          </div>
+          <div class="rxtx-result-item"></div>
+        </div>
+        <div class="rxtx-result-grid" style="grid-template-columns:1fr 1fr;margin-top:8px;">
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">1 UI [ps]</span>
+            <span class="rxtx-result-val" id="rt-p2p-r-1ui">—</span>
+            <span class="dclk-boost-max" id="rt-p2p-r-1ui-boost"></span>
+          </div>
+          <div class="rxtx-result-item">
+            <span class="rxtx-result-label">1/16 UI [ps]</span>
+            <span class="rxtx-result-val" id="rt-p2p-r-116ui">—</span>
+            <span class="dclk-boost-max" id="rt-p2p-r-116ui-boost"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /rxtx-cards-row Tx -->
+
+  <div class="footer-back">
+    <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
+  </div>
+</div>
+
+<!-- 共用 JS（i18n 必須先於 common.js 載入） -->
+<script src="common/i18n.js"></script>
+<script src="common/common.js"></script>
+<script>
+// ─── Rx/Tx 頻率計算 ───────────────────────────────────────────────────
+const EDP_LINK_RATES = [1.62, 2.7, 5.4, 8.1, 10.0];
+const EDP_LINK_NAMES = ['RBR (1.62G)', 'HBR (2.7G)', 'HBR2 (5.4G)', 'HBR3 (8.1G)', 'HBR3+ (10.0G)'];
+// Shared Frame Rate state — Rx→Tx sync
+let _rtSharedFps = 0;
+let _rtFpsSyncing = false;
+let _rtFpsSource = 'lvds';
+
+function rtNum(id) {
+  const el = document.getElementById(id);
+  return el ? (parseFloat(el.value) || 0) : 0;
+}
+function rtRadio(name) {
+  const r = document.querySelector(`input[name="${name}"]:checked`);
+  return r ? parseFloat(r.value) : null;
+}
+function rtRadioStr(name) {
+  const r = document.querySelector(`input[name="${name}"]:checked`);
+  return r ? r.value : null;
+}
+function rtSetText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function rtGetBoostMultiplier() {
+  const ids = [
+    { cb: 'rt-boost-rxssc',  sel: 'rt-boost-rxssc-pct' },
+    { cb: 'rt-boost-osc',    sel: 'rt-boost-osc-pct' },
+    { cb: 'rt-boost-txssc',  sel: 'rt-boost-txssc-pct' }
+  ];
+  let multiplier = 1;
+  let anyChecked = false;
+  ids.forEach(item => {
+    const cb = document.getElementById(item.cb);
+    const sel = document.getElementById(item.sel);
+    if (cb && cb.checked && sel) {
+      anyChecked = true;
+      multiplier *= (1 + parseFloat(sel.value) / 100);
+    }
+  });
+  return { multiplier, anyChecked };
+}
+
+function rtSetBoostText(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (text) { el.textContent = text; el.style.display = ''; }
+  else      { el.textContent = '';   el.style.display = 'none'; }
+}
+
+function rtUpdateDclkBoost(tcon_dclk) {
+  const { multiplier, anyChecked } = rtGetBoostMultiplier();
+  const el = document.getElementById('rt-dclk-boost-max');
+  if (!el) return;
+  const resWrap = document.getElementById('rt-dclk-boost-result');
+  const resVal  = document.getElementById('rt-dclk-boost-result-val');
+  if (anyChecked && tcon_dclk > 0 && isFinite(tcon_dclk)) {
+    const maxVal = tcon_dclk * multiplier;
+    el.textContent = '(' + maxVal.toFixed(3) + ' MHz)';
+    el.style.display = '';
+    if (resWrap && resVal) {
+      resVal.textContent = maxVal.toFixed(3) + ' MHz';
+      resWrap.style.display = '';
+    }
+  } else {
+    el.textContent = '';
+    el.style.display = 'none';
+    if (resWrap) resWrap.style.display = 'none';
+  }
+}
+
+function rtCalcAll(source) {
+  const ha = rtNum('rt-hactive'), hb = rtNum('rt-hblank');
+  const va = rtNum('rt-vactive'), vb = rtNum('rt-vblank');
+  const Ht = ha + hb, Vt = va + vb;
+  rtSetText('rt-htotal', (Ht > 0) ? Ht : '—');
+  rtSetText('rt-vtotal', (Vt > 0) ? Vt : '—');
+  if (!Ht || !Vt) return;
+
+  const f3 = (v, u) => (v > 0 && isFinite(v)) ? v.toFixed(3) + ' ' + u : '—';
+  const fpsDisplay = (v) => (v > 0 && isFinite(v)) ? v.toFixed(3) + ' Hz' : '—';
+
+  // ── Rx LVDS ──────────────────────────────────────────────────────────
+  const rxPort = rtRadio('rt-rx-port') || 4;
+  const mode   = rtRadioStr('rt-lvds-mode') || 'a';
+  let fps_lvds, fpga_dclk, tcon_dclk, pixel_rate, lvds_per_port;
+
+  if (mode === 'a') {
+    fpga_dclk     = rtNum('rt-fpga-dclk');
+    lvds_per_port = fpga_dclk;
+    pixel_rate    = fpga_dclk * rxPort;
+    tcon_dclk     = fpga_dclk * 2;
+    fps_lvds      = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+  } else if (mode === 'd') {
+    lvds_per_port = rtNum('rt-lvds-clk-in');
+    fpga_dclk     = lvds_per_port;
+    pixel_rate    = fpga_dclk * rxPort;
+    tcon_dclk     = fpga_dclk * 2;
+    fps_lvds      = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+  } else if (mode === 'b') {
+    tcon_dclk     = rtNum('rt-tcon-dclk-in');
+    fpga_dclk     = tcon_dclk / 2;
+    lvds_per_port = fpga_dclk;
+    pixel_rate    = fpga_dclk * rxPort;
+    fps_lvds      = fpga_dclk ? pixel_rate * 1e6 / (Ht * Vt) : 0;
+  } else {
+    fps_lvds      = rtNum('rt-lvds-fps-in');
+    pixel_rate    = Ht * Vt * fps_lvds / 1e6;
+    lvds_per_port = rxPort ? pixel_rate / rxPort : 0;
+    fpga_dclk     = lvds_per_port;
+    tcon_dclk     = lvds_per_port * 2;
+  }
+
+  rtSetText('rt-lvds-r-fps',  f3(fps_lvds,      'Hz'));
+  rtSetText('rt-lvds-r-px',   f3(pixel_rate,    'MHz'));
+  rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,     'MHz'));
+  rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,     'MHz'));
+  rtSetText('rt-lvds-r-port', f3(lvds_per_port, 'MHz'));
+  // LVDS 1UI / 1/7UI：bit clock = 7 × LVDS per Port (7:1 serialization)
+  if (lvds_per_port > 0 && isFinite(lvds_per_port)) {
+    const lvds_1ui  = 1e6 / (7 * lvds_per_port);
+    rtSetText('rt-lvds-r-1ui',  lvds_1ui.toFixed(2) + ' ps');
+    const rxSscCbL = document.getElementById('rt-boost-rxssc');
+    const rxSscSelL = document.getElementById('rt-boost-rxssc-pct');
+    const rxSscOnL = rxSscCbL && rxSscCbL.checked;
+    if (rxSscOnL && rxSscSelL) {
+      const rxSscMulL = 1 + parseFloat(rxSscSelL.value) / 100;
+      const bPort = lvds_per_port * rxSscMulL;
+      const b1ui  = 1e6 / (7 * bPort);
+      rtSetBoostText('rt-lvds-r-1ui-boost',  '(' + b1ui.toFixed(2) + ' ps)');
+    } else {
+      rtSetBoostText('rt-lvds-r-1ui-boost', '');
+    }
+  } else {
+    rtSetText('rt-lvds-r-1ui', '—');
+    rtSetBoostText('rt-lvds-r-1ui-boost', '');
+  }
+  rtUpdateDclkBoost(tcon_dclk);
+
+  // ── 同步所有模式的輸入值 ──────────────────────
+  var fpgaEl = document.getElementById('rt-fpga-dclk');
+  var tconEl = document.getElementById('rt-tcon-dclk-in');
+  var fpsEl  = document.getElementById('rt-lvds-fps-in');
+  var lvdsClkEl = document.getElementById('rt-lvds-clk-in');
+  if (mode !== 'a' && fpga_dclk > 0 && isFinite(fpga_dclk)) fpgaEl.value = parseFloat(fpga_dclk.toFixed(6));
+  if (mode !== 'd' && lvds_per_port > 0 && isFinite(lvds_per_port)) lvdsClkEl.value = parseFloat(lvds_per_port.toFixed(6));
+  if (mode !== 'b' && tcon_dclk > 0 && isFinite(tcon_dclk)) tconEl.value = parseFloat(tcon_dclk.toFixed(6));
+  if (mode !== 'c' && fps_lvds > 0 && isFinite(fps_lvds)) fpsEl.value = parseFloat(fps_lvds.toFixed(6));
+
+  // ── FPS 雙向同步邏輯 ────────────────────────────────────────────────
+  if (source === 'edp' && !_rtFpsSyncing) {
+    const edpFps = rtNum('rt-edp-fps');
+    if (edpFps > 0) {
+      _rtSharedFps = edpFps;
+      _rtFpsSource = 'edp';
+      _rtFpsSyncing = true;
+      const modeC = document.getElementById('rt-lvds-mode-c');
+      if (modeC && !modeC.checked) {
+        modeC.checked = true;
+        ['a','b','c','d'].forEach(m => {
+          const el = document.getElementById('rt-lvds-input-' + m);
+          if (el) el.style.display = (m === 'c') ? 'block' : 'none';
+        });
+      }
+      const lvdsFpsIn = document.getElementById('rt-lvds-fps-in');
+      if (lvdsFpsIn) lvdsFpsIn.value = edpFps;
+      fps_lvds      = edpFps;
+      pixel_rate    = Ht * Vt * fps_lvds / 1e6;
+      lvds_per_port = rxPort ? pixel_rate / rxPort : 0;
+      fpga_dclk     = lvds_per_port;
+      tcon_dclk     = lvds_per_port * 2;
+      rtSetText('rt-lvds-r-fps',  f3(fps_lvds,      'Hz'));
+      rtSetText('rt-lvds-r-px',   f3(pixel_rate,    'MHz'));
+      rtSetText('rt-lvds-r-fpga', f3(fpga_dclk,     'MHz'));
+      rtSetText('rt-lvds-r-tcon', f3(tcon_dclk,     'MHz'));
+      rtSetText('rt-lvds-r-port', f3(lvds_per_port, 'MHz'));
+      if (lvds_per_port > 0 && isFinite(lvds_per_port)) {
+        const lvds_1ui_s  = 1e6 / (7 * lvds_per_port);
+        rtSetText('rt-lvds-r-1ui',  lvds_1ui_s.toFixed(2) + ' ps');
+        const rxSscCbS = document.getElementById('rt-boost-rxssc');
+        const rxSscSelS = document.getElementById('rt-boost-rxssc-pct');
+        const rxSscOnS = rxSscCbS && rxSscCbS.checked;
+        if (rxSscOnS && rxSscSelS) {
+          const rxSscMulS = 1 + parseFloat(rxSscSelS.value) / 100;
+          const bP = lvds_per_port * rxSscMulS;
+          rtSetBoostText('rt-lvds-r-1ui-boost',  '(' + (1e6 / (7 * bP)).toFixed(2) + ' ps)');
+        } else {
+          rtSetBoostText('rt-lvds-r-1ui-boost', '');
+        }
+      } else {
+        rtSetText('rt-lvds-r-1ui', '—');
+        rtSetBoostText('rt-lvds-r-1ui-boost', '');
+      }
+      rtUpdateDclkBoost(tcon_dclk);
+      if (fpga_dclk > 0 && isFinite(fpga_dclk)) document.getElementById('rt-fpga-dclk').value = parseFloat(fpga_dclk.toFixed(6));
+      if (tcon_dclk > 0 && isFinite(tcon_dclk)) document.getElementById('rt-tcon-dclk-in').value = parseFloat(tcon_dclk.toFixed(6));
+      _rtFpsSyncing = false;
+    }
+  } else if (source !== 'edp' && !_rtFpsSyncing) {
+    if (fps_lvds > 0 && isFinite(fps_lvds)) {
+      _rtSharedFps = fps_lvds;
+      _rtFpsSource = 'lvds';
+      _rtFpsSyncing = true;
+      const edpFpsEl = document.getElementById('rt-edp-fps');
+      if (edpFpsEl) edpFpsEl.value = parseFloat(fps_lvds.toFixed(6));
+      _rtFpsSyncing = false;
+    }
+  }
+
+  // ── Rx eDP ───────────────────────────────────────────────────────────
+  const depth   = rtRadio('rt-edp-depth') || 8;
+  const lane    = rtRadio('rt-edp-lane') || 2;
+  const fps_edp = rtNum('rt-edp-fps');
+  const enc_in  = rtNum('rt-edp-enc-in') || 8;
+  const enc_out = rtNum('rt-edp-enc-out') || 10;
+
+  if (fps_edp > 0 && enc_in > 0 && lane > 0) {
+    const bit_rate = Ht * Vt * fps_edp * depth * 3 * (enc_out / enc_in) / (lane * 1e9);
+    const rateEl = document.getElementById('rt-edp-r-rate');
+    const stdEl  = document.getElementById('rt-edp-r-std');
+    if (rateEl) rateEl.textContent = bit_rate.toFixed(4) + ' Gbps';
+    const idx = EDP_LINK_RATES.findIndex(r => r >= bit_rate);
+    if (stdEl) {
+      if (idx >= 0) {
+        stdEl.textContent = EDP_LINK_NAMES[idx];
+        stdEl.className = 'rxtx-result-val ok';
+      } else {
+        stdEl.textContent = t('rxtx.edpOutOfSpec');
+        stdEl.className = 'rxtx-result-val err';
+      }
+    }
+  }
+
+  _rtSharedFps = fps_edp > 0 ? fps_edp : (fps_lvds > 0 ? fps_lvds : 0);
+
+  // ── Tx mLVDS ─────────────────────────────────────────────────────────
+  const mls_bits  = rtRadio('rt-mls-bits') || 8;
+  const mls_port  = rtRadio('rt-mls-port') || 4;
+  const mls_pairs = rtRadio('rt-mls-pairs') || 3;
+  const mls_fps   = _rtSharedFps;
+
+  const { multiplier: boostMul, anyChecked: boostOn } = rtGetBoostMultiplier();
+
+  if (mls_fps > 0 && mls_port > 0 && mls_pairs > 0) {
+    const mls_freq = Ht * Vt * mls_fps * (mls_bits / 2) / (mls_port * (mls_pairs / 3) * 1e6);
+    rtSetText('rt-mls-r', mls_freq.toFixed(4) + ' MHz');
+    if (mls_freq > 0) {
+      const mls_1ui   = 1e6 / (2 * mls_freq);
+      const mls_116ui = mls_1ui / 16;
+      rtSetText('rt-mls-r-1ui',   mls_1ui.toFixed(2) + ' ps');
+      rtSetText('rt-mls-r-116ui', mls_116ui.toFixed(2) + ' ps');
+      if (boostOn) {
+        const bFreq = mls_freq * boostMul;
+        const b1ui  = 1e6 / (2 * bFreq);
+        const b116  = b1ui / 16;
+        rtSetBoostText('rt-mls-r-boost',       '(' + bFreq.toFixed(4) + ' MHz)');
+        rtSetBoostText('rt-mls-r-1ui-boost',   '(' + b1ui.toFixed(2) + ' ps)');
+        rtSetBoostText('rt-mls-r-116ui-boost', '(' + b116.toFixed(2) + ' ps)');
+      } else {
+        rtSetBoostText('rt-mls-r-boost', '');
+        rtSetBoostText('rt-mls-r-1ui-boost', '');
+        rtSetBoostText('rt-mls-r-116ui-boost', '');
+      }
+    }
+  } else {
+    rtSetText('rt-mls-r', '—');
+    rtSetText('rt-mls-r-1ui', '—');
+    rtSetText('rt-mls-r-116ui', '—');
+    rtSetBoostText('rt-mls-r-boost', '');
+    rtSetBoostText('rt-mls-r-1ui-boost', '');
+    rtSetBoostText('rt-mls-r-116ui-boost', '');
+  }
+
+  // ── Tx P2P ───────────────────────────────────────────────────────────
+  const p2p_bits    = rtRadio('rt-p2p-bits') || 8;
+  const p2p_port_el = document.getElementById('rt-p2p-port-num');
+  const p2p_port    = p2p_port_el ? (parseFloat(p2p_port_el.value) || 4) : 4;
+  const p2p_pairs   = rtRadio('rt-p2p-pairs') || 2;
+  const p2p_fps     = _rtSharedFps;
+  const p2p_enc_in  = rtNum('rt-p2p-enc-in') || 8;
+  const p2p_enc_out = rtNum('rt-p2p-enc-out') || 9;
+
+  if (p2p_fps > 0 && p2p_port > 0 && p2p_pairs > 0 && p2p_enc_in > 0) {
+    const p2p_rate = Ht * Vt * p2p_fps * p2p_bits * 3 * (p2p_enc_out / p2p_enc_in) / (p2p_port * p2p_pairs * 1e6);
+    rtSetText('rt-p2p-r', p2p_rate.toFixed(4) + ' Mbps');
+    const p2pIfVal = document.getElementById('rt-p2p-if')?.value || 'isp';
+    const bkRow = document.getElementById('rt-p2p-bkfreq-row');
+    if (p2pIfVal === 'isp' && bkRow) {
+      bkRow.style.display = '';
+      rtSetText('rt-p2p-r-bkfreq', (p2p_rate / 9).toFixed(4) + ' MHz');
+      if (boostOn) {
+        rtSetBoostText('rt-p2p-r-bkfreq-boost', '(' + (p2p_rate * boostMul / 9).toFixed(4) + ' MHz)');
+      } else {
+        rtSetBoostText('rt-p2p-r-bkfreq-boost', '');
+      }
+    } else if (bkRow) {
+      bkRow.style.display = 'none';
+    }
+    if (p2p_rate > 0) {
+      const p2p_1ui   = 1e6 / p2p_rate;
+      const p2p_116ui = p2p_1ui / 16;
+      rtSetText('rt-p2p-r-1ui',   p2p_1ui.toFixed(2) + ' ps');
+      rtSetText('rt-p2p-r-116ui', p2p_116ui.toFixed(2) + ' ps');
+      if (boostOn) {
+        const bRate = p2p_rate * boostMul;
+        const b1ui  = 1e6 / bRate;
+        const b116  = b1ui / 16;
+        rtSetBoostText('rt-p2p-r-boost',       '(' + bRate.toFixed(4) + ' Mbps)');
+        rtSetBoostText('rt-p2p-r-1ui-boost',   '(' + b1ui.toFixed(2) + ' ps)');
+        rtSetBoostText('rt-p2p-r-116ui-boost', '(' + b116.toFixed(2) + ' ps)');
+      } else {
+        rtSetBoostText('rt-p2p-r-boost', '');
+        rtSetBoostText('rt-p2p-r-1ui-boost', '');
+        rtSetBoostText('rt-p2p-r-116ui-boost', '');
+      }
+    }
+  } else {
+    rtSetText('rt-p2p-r', '—');
+    rtSetText('rt-p2p-r-1ui', '—');
+    rtSetText('rt-p2p-r-116ui', '—');
+    rtSetBoostText('rt-p2p-r-boost', '');
+    rtSetBoostText('rt-p2p-r-1ui-boost', '');
+    rtSetBoostText('rt-p2p-r-116ui-boost', '');
+    const bkRow = document.getElementById('rt-p2p-bkfreq-row');
+    if (bkRow) bkRow.style.display = 'none';
+  }
+}
+
+// ── I/F selector: P2P Rx (eDP) ───────────────────────────────────────
+function rtApplyEdpIF() {
+  const sel   = document.getElementById('rt-edp-if');
+  const ifVal = sel ? sel.value : 'edp';
+  const encIn  = document.getElementById('rt-edp-enc-in');
+  const encOut = document.getElementById('rt-edp-enc-out');
+  const stdRow = document.getElementById('rt-edp-std-row');
+  if (ifVal === 'edp') {
+    if (encIn)  { encIn.value = 8;   encIn.classList.add('enc-locked');  encIn.readOnly = true; }
+    if (encOut) { encOut.value = 10; encOut.classList.add('enc-locked'); encOut.readOnly = true; }
+    if (stdRow) stdRow.style.display = '';
+  } else {
+    if (encIn)  { encIn.classList.remove('enc-locked');  encIn.readOnly = false; }
+    if (encOut) { encOut.classList.remove('enc-locked'); encOut.readOnly = false; }
+    if (stdRow) stdRow.style.display = 'none';
+  }
+  rtCalcAll('lvds');
+}
+
+// ── I/F selector: P2P Tx ─────────────────────────────────────────────
+function rtApplyP2pIF() {
+  const sel   = document.getElementById('rt-p2p-if');
+  const ifVal = sel ? sel.value : 'isp';
+  const encIn  = document.getElementById('rt-p2p-enc-in');
+  const encOut = document.getElementById('rt-p2p-enc-out');
+  const presets = { isp: [8, 9], phi: [10, 12] };
+  if (ifVal in presets) {
+    const [inn, out] = presets[ifVal];
+    if (encIn)  { encIn.value = inn;  encIn.classList.add('enc-locked');  encIn.readOnly = true; }
+    if (encOut) { encOut.value = out; encOut.classList.add('enc-locked'); encOut.readOnly = true; }
+  } else {
+    if (encIn)  { encIn.classList.remove('enc-locked');  encIn.readOnly = false; }
+    if (encOut) { encOut.classList.remove('enc-locked'); encOut.readOnly = false; }
+  }
+  rtCalcAll('lvds');
+}
+
+// ── Resolution preset ─────────────
+const RT_RES_PRESETS = {
+  r1: { ha: 1920, va: 1080, hb: 164, vb: 45 },
+  r2: { ha: 1920, va: 1080, hb: 160, vb: 30 },
+  r3: { ha: 2560, va: 1440, hb: 160, vb: 60 },
+  r4: { ha: 3440, va: 1440, hb: 200, vb: 60 },
+  r5: { ha: 3440, va: 1440, hb: 200, vb: 30 },
+  r6: { ha: 3840, va: 2160, hb: 720, vb: 40 },
+};
+function rtApplyResPreset() {
+  const sel = document.getElementById('rt-res-preset');
+  if (!sel) return;
+  const p = RT_RES_PRESETS[sel.value];
+  if (!p) return;
+  document.getElementById('rt-hactive').value = p.ha;
+  document.getElementById('rt-vactive').value = p.va;
+  document.getElementById('rt-hblank').value  = p.hb;
+  document.getElementById('rt-vblank').value  = p.vb;
+  rtCalcAll('lvds');
+}
+
+// ─── Event listeners ─────────────────────────────────────────────────
+
+// LVDS mode input switcher
+document.querySelectorAll('input[name="rt-lvds-mode"]').forEach(r => {
+  r.addEventListener('change', function() {
+    ['a','b','c','d'].forEach(m => {
+      const el = document.getElementById('rt-lvds-input-' + m);
+      if (el) el.style.display = (m === this.value) ? 'block' : 'none';
+    });
+    rtCalcAll('lvds');
+  });
+});
+
+// I/F dropdown listeners
+const edpIfSel = document.getElementById('rt-edp-if');
+if (edpIfSel) edpIfSel.addEventListener('change', rtApplyEdpIF);
+const p2pIfSel = document.getElementById('rt-p2p-if');
+if (p2pIfSel) p2pIfSel.addEventListener('change', rtApplyP2pIF);
+
+// Res. preset dropdown
+const resPresetSel = document.getElementById('rt-res-preset');
+if (resPresetSel) resPresetSel.addEventListener('change', rtApplyResPreset);
+
+// Number inputs
+['rt-hactive','rt-hblank','rt-vactive','rt-vblank',
+ 'rt-fpga-dclk','rt-lvds-clk-in','rt-tcon-dclk-in','rt-lvds-fps-in'
+].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => rtCalcAll('lvds'));
+});
+// eDP FPS input
+const _rtEdpFpsEl = document.getElementById('rt-edp-fps');
+if (_rtEdpFpsEl) _rtEdpFpsEl.addEventListener('input', () => {
+  if (!_rtFpsSyncing) rtCalcAll('edp');
+});
+// Port select
+const portSelEl = document.getElementById('rt-p2p-port-num');
+if (portSelEl) portSelEl.addEventListener('change', () => rtCalcAll('lvds'));
+
+// Radio groups
+['rt-rx-port','rt-edp-depth','rt-edp-lane',
+ 'rt-mls-bits','rt-mls-port','rt-mls-pairs',
+ 'rt-p2p-bits','rt-p2p-pairs'
+].forEach(name => {
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+    r.addEventListener('change', () => rtCalcAll('lvds'));
+  });
+});
+
+// Encoding-in/out
+['rt-edp-enc-in','rt-edp-enc-out','rt-p2p-enc-in','rt-p2p-enc-out'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => rtCalcAll('lvds'));
+});
+
+// DCLK boost checkbox / select
+['rt-boost-rxssc','rt-boost-osc','rt-boost-txssc'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => rtCalcAll('lvds'));
+});
+['rt-boost-rxssc-pct','rt-boost-osc-pct','rt-boost-txssc-pct'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => rtCalcAll('lvds'));
+});
+
+// ─── 初始計算 ──────────────────────────────────────────────────────────
+rtCalcAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="mLVDS 分顆(分時) Skew 計算 — 示波器設定 & UI cof_cnt 分界值">
+<meta property="og:title" content="mLVDS Skew 計算工具 — TCON FAE專用工具箱">
+<meta property="og:description" content="示波器設定 & UI cof_cnt 分界值計算">
+<meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/calc.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<title>mLVDS Skew 計算工具 — TCON FAE專用工具箱</title>
+<link rel="stylesheet" href="common/common.css">
+<style>
+  /* ─── CALC PAGE 專屬 CSS ─────────────────────── */
+
+  /* ─── CHIPS SELECTOR ─────────────────────────── */
+  .chips-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+  .chip-btn {
+    padding: 9px 4px;
+    border: 1.5px solid var(--border);
+    border-radius: 7px;
+    background: #0f172a;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-sub);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+  }
+  .chip-btn.active { border-color: var(--accent); background: #1e3a5f; color: var(--accent); }
+  /* ─── XI CHANNELS ────────────────────────────── */
+  #xi-section { display: none; }
+  .x1-input-row { display: flex; gap: 8px; align-items: stretch; }
+  .x1-input-row input[type="number"] { flex: 1 1 0; min-width: 0; }
+  .copy-btn {
+    flex: 0 0 auto;
+    min-width: 88px;
+    padding: 10px 10px;
+    border: 1.5px solid var(--accent);
+    border-radius: 8px;
+    background: #1e3a5f;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .copy-btn:active { opacity: 0.8; }
+  .xi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* ─── CALCULATE BUTTON ───────────────────────── */
+  .calc-btn-wrap { margin-bottom: 12px; }
+  .calc-btn {
+    display: block;
+    width: 100%;
+    padding: 17px 14px;
+    background: linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 800;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 14px rgba(14,165,233,0.35);
+    transition: transform 0.1s, box-shadow 0.1s, opacity 0.15s;
+    text-align: center;
+  }
+  .calc-btn:active { transform: scale(0.98); opacity: 0.9; box-shadow: 0 2px 6px rgba(14,165,233,0.2); }
+  /* ─── RESULTS ────────────────────────────────── */
+  #results { display: none; }
+  .result-table-wrap { overflow-x: auto; border-radius: 8px; border: 1.5px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table thead tr { background: var(--primary); color: white; }
+  table thead th {
+    padding: 9px 12px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    border-right: 1px solid rgba(255,255,255,0.15);
+  }
+  table thead th:last-child { border-right: none; }
+  table tbody tr:nth-child(even) { background: #182133; }
+  table tbody tr:nth-child(odd)  { background: #1e293b; }
+  table tbody td {
+    padding: 9px 12px;
+    text-align: center;
+    border-bottom: 1px solid #2d3f55;
+    border-right: 1px solid #2d3f55;
+    font-size: 13px;
+  }
+  table tbody td:last-child { border-right: none; }
+  table tbody tr:last-child td { border-bottom: none; }
+  table tbody td:first-child { font-weight: 600; color: var(--accent); }
+  .val-highlight {
+    background: var(--primary);
+    color: white;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 13px;
+    display: inline-block;
+  }
+  /* ─── COF TABLE ──────────────────────────────── */
+  .cof-table thead tr { background: #065f46; }
+  .cof-table thead th { border-right: 1px solid rgba(255,255,255,0.12); }
+  .em-label { font-size: 11px; color: rgba(255,255,255,0.6); margin-right: 4px; font-weight: 400; }
+  .em-select {
+    padding: 4px 22px 4px 8px;
+    border: 1px solid rgba(255,255,255,0.5);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.1);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    cursor: pointer;
+  }
+  .em-select:focus { outline: none; }
+  .cof-item-select {
+    width: 100%;
+    padding: 5px 22px 5px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text);
+    background: #0f172a;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 4px center;
+    cursor: pointer;
+  }
+  /* ─── I/F HEADER SELECT（共用於基本參數 Hres.） ─── */
+  .if-header-wrap { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+  .if-select {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35);
+    color: white; border-radius: 5px; padding: 3px 22px 3px 8px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 6px center;
+  }
+  .if-select:focus { outline: none; }
+  .if-select option { background: #1e293b; color: #e2e8f0; }
+  /* ─── 示波器示意圖 ─────────────────────────── */
+  .osc-diagram-wrap {
+    margin-top: 10px;
+    padding: 6px;
+    background: #000;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    cursor: zoom-in;
+    position: relative;
+  }
+  .osc-zoom-hint {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 10px;
+    color: #94a3b8;
+    background: rgba(2,6,23,0.7);
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+  .osc-diagram {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
+  .osc-diagram-caption {
+    font-size: 11px;
+    color: #94a3b8;
+    text-align: center;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  /* Lightbox：點擊後全螢幕+雙指縮放 */
+  .osc-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.92);
+    touch-action: none;
+    overflow: hidden;
+  }
+  .osc-lightbox.active { display: block; }
+  .osc-lightbox-stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .osc-lightbox-svg {
+    width: 96vw;
+    max-width: 1400px;
+    height: auto;
+    transform-origin: 0 0;
+    will-change: transform;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+  }
+  .osc-lightbox-close {
+    position: fixed;
+    top: 12px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(30,41,59,0.9);
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    font-size: 22px;
+    line-height: 36px;
+    text-align: center;
+    cursor: pointer;
+    z-index: 10000;
+  }
+  .osc-lightbox-hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #94a3b8;
+    background: rgba(30,41,59,0.85);
+    padding: 6px 12px;
+    border-radius: 14px;
+    z-index: 10000;
+    white-space: nowrap;
+  }
+
+  /* ─── SKEW SECTION ───────────────────────────── */
+  .skew-section .card-header {
+    background: linear-gradient(135deg, #6b1d1d 0%, #8b2020 100%);
+  }
+  .skew-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .skew-group {
+    border: 1.5px solid #2d3f55;
+    border-radius: 8px;
+    padding: 9px 9px 7px;
+  }
+  .skew-group-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #93c5fd;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #2d3f55;
+  }
+  .skew-sub-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-sub);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    padding-left: 2px;
+  }
+  .skew-ref-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    border: 1.5px solid #2d3f55;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .skew-ref-table thead tr { background: #3f1010; color: white; }
+  .skew-ref-table thead th {
+    padding: 7px 8px;
+    font-size: 11px;
+    text-align: center;
+    border-right: 1px solid rgba(255,255,255,0.12);
+  }
+  .skew-ref-table thead th:last-child { border-right: none; }
+  .skew-ref-table tbody tr:nth-child(even) { background: #182133; }
+  .skew-ref-table tbody tr:nth-child(odd)  { background: #1e293b; }
+  .skew-ref-table tbody td {
+    padding: 7px 8px;
+    text-align: center;
+    border-bottom: 1px solid #2d3f55;
+    border-right: 1px solid #2d3f55;
+    font-size: 12px;
+  }
+  .skew-ref-table tbody td:last-child { border-right: none; }
+  .skew-ref-table tbody tr:last-child td { border-bottom: none; }
+  .skew-ref-table tbody td:first-child { font-weight: 700; color: #93c5fd; }
+  .skew-ref-table .special-row td { background: #2d2008 !important; font-weight: 700; color: var(--warn); }
+  .skew-ref-table .zero-row td  { background: #0a2a1f !important; font-weight: 700; color: var(--success); }
+  .skew-ref-table .default-row td { background: #1e2a3f !important; font-weight: 700; color: var(--accent); }
+  .default-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #0f172a;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+    letter-spacing: 0;
+    line-height: 1.6;
+  }
+  .lane-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    border: 1.5px solid #2d3f55;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .lane-table th { background: #3f1010; color: white; padding: 7px 10px; font-size: 11px; border-right: 1px solid rgba(255,255,255,0.12); }
+  .lane-table th:last-child { border-right: none; }
+  .lane-table td { padding: 8px 10px; border-bottom: 1px solid #2d3f55; border-right: 1px solid #2d3f55; font-size: 12px; }
+  .lane-table td:last-child { border-right: none; }
+  .lane-table tbody tr:last-child td { border-bottom: none; }
+  .lane-table tr:nth-child(even) td { background: #182133; }
+  .lane-table td:first-child { font-weight: 700; color: #93c5fd; font-family: monospace; }
+  .lane-code { font-family: monospace; font-size: 11px; color: #9ca3af; }
+  .divider { height: 1px; background: var(--border); margin: 10px 0; }
+  /* ─── SUMMARY BADGE ─── */
+  .calc-summary {
+    background: #fefce8;
+    color: #78350f;
+    border: 1.5px solid #fbbf24;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .calc-summary .icon { font-size: 18px; }
+  /* ─── FOOTER BACK ────────────────────────────── */
+  .footer-back { padding: 8px 0 20px; display: flex; justify-content: center; }
+  .back-btn-footer {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    color: var(--text-sub);
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+  }
+  .back-btn-footer:active { background: #253650; color: var(--text); }
+  /* ─── Results 卡片兩欄 ─────────────────────── */
+  .rxtx-cards-row { display: flex; flex-direction: column; gap: 10px; }
+
+  /* ─── LANDSCAPE（中等橫屏） ─────────────────── */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .container { max-width: 720px; }
+    .header {
+      position: static;
+      padding: 6px 16px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+    }
+    .header .back-row { margin-bottom: 0; flex-shrink: 0; }
+    .header h1 { font-size: 14px; flex: 1; }
+    .header p { display: none; }
+    .xi-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
+    .rxtx-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+    .rxtx-cards-row > .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+    .card-body { padding: 10px 12px 8px; }
+    .field { margin-bottom: 8px; }
+    .card { margin-bottom: 8px; }
+  }
+
+  /* ─── LANDSCAPE（較寬橫屏） ─────────────────── */
+  @media (orientation: landscape) and (min-width: 768px) and (max-height: 600px) {
+    .container { max-width: 860px; }
+    .header {
+      position: static;
+      padding: 6px 16px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+    }
+    .header .back-row { margin-bottom: 0; flex-shrink: 0; }
+    .header h1 { font-size: 15px; flex: 1; }
+    .header p { display: none; }
+    .xi-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
+    .rxtx-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+    .rxtx-cards-row > .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+    .card-body { padding: 10px 12px 8px; }
+    .field { margin-bottom: 8px; }
+    .card { margin-bottom: 8px; }
+  }
+
+  /* ─── TABLET / WIDE (min 768px) ──────────────── */
+  @media (min-width: 768px) {
+    .container { max-width: 860px; padding: 16px 20px 0; }
+    .rxtx-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+    .rxtx-cards-row > .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    .rxtx-cards-row > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+  }
+
+  /* ─── DESKTOP (min 1024px) ───────────────────── */
+  @media (min-width: 1024px) {
+    .container { max-width: 1200px; padding: 20px 32px 0; }
+  }
+</style>
+</head>
+<body>
+<div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text" data-i18n="ptr.pull">下拉刷新</span></div>
+
+<div class="header">
+  <div class="back-row">
+    <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
+  </div>
+  <h1><svg width="22" height="18" viewBox="0 0 30 24" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M1 5 L8 5 L15 12 L22 5 L29 5" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 19 L8 19 L15 12 L22 19 L29 19" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="15" cy="12" rx="2.5" ry="3" stroke="white" stroke-width="1.5"/></svg><span data-i18n="calc.title">mLVDS 分顆(分時) Skew 計算工具</span> <span style="display:inline-block;background:#fbbf24;color:#0f172a;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.5.0</span></h1>
+  <p data-i18n="calc.subtitle">示波器設定 &amp; UI cof_cnt 分界值計算</p>
+  <div class="lang-switcher">
+    <select id="lang-select" class="lang-select" aria-label="Language">
+      <option value="zh-TW">繁體中文</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- 基本參數 -->
+  <div class="card">
+    <div class="card-header">
+      <div class="if-header-wrap">
+        <span><span class="icon">📐</span><span data-i18n="calc.basicParams">基本參數</span></span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400">
+          Hres.
+          <select id="calc-hres-preset" class="if-select">
+            <option value="1920" selected>1920</option>
+            <option value="2560">2560</option>
+            <option value="3440">3440</option>
+            <option value="3840">3840</option>
+          </select>
+        </span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="field" id="f-hactive">
+        <label>Hactive<span class="required">*</span></label>
+        <input type="number" id="hactive" data-i18n-ph="calc.egValue3440" placeholder="例：3440" value="1920" min="1" step="1">
+        <div class="error-msg" data-i18n="common.errorPosInt">請輸入正整數</div>
+      </div>
+      <div class="field" id="f-bits">
+        <label>Driver bits<span class="required">*</span></label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="bits" id="bits6" value="6"><label for="bits6">6 bits</label></div>
+          <div class="radio-opt"><input type="radio" name="bits" id="bits8" value="8" checked><label for="bits8">8 bits</label></div>
+        </div>
+      </div>
+      <div class="field" id="f-pairs">
+        <label>Driver pairs<span class="required">*</span></label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="pairs" id="pairs3" value="3" checked><label for="pairs3">3 pairs</label></div>
+          <div class="radio-opt"><input type="radio" name="pairs" id="pairs6" value="6"><label for="pairs6">6 pairs</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Single / Dual Gate<span class="required">*</span></label>
+        <div class="radio-group">
+          <div class="radio-opt"><input type="radio" name="gate" id="gate1" value="1" checked><label for="gate1">Single (1)</label></div>
+          <div class="radio-opt"><input type="radio" name="gate" id="gate2" value="2"><label for="gate2">Dual (2)</label></div>
+        </div>
+      </div>
+      <div class="field">
+        <label><span data-i18n="calc.drvChips">單 Port Driver 顆數</span><span class="required">*</span>（1–8）</label>
+        <div class="chips-row" id="chips-row">
+          <button class="chip-btn" onclick="selectChips(1)">1</button>
+          <button class="chip-btn" onclick="selectChips(2)">2</button>
+          <button class="chip-btn" onclick="selectChips(3)">3</button>
+          <button class="chip-btn" onclick="selectChips(4)">4</button>
+          <button class="chip-btn" onclick="selectChips(5)">5</button>
+          <button class="chip-btn" onclick="selectChips(6)">6</button>
+          <button class="chip-btn" onclick="selectChips(7)">7</button>
+          <button class="chip-btn" onclick="selectChips(8)">8</button>
+        </div>
+        <div class="field-hint" data-i18n="calc.drvChipsHint">點選顆數後出現各 channel 輸入欄</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 示波器觸發設定 -->
+  <div class="card">
+    <div class="card-header"><span class="icon">📺</span><span data-i18n="calc.oscSetup">示波器觸發設定</span></div>
+    <div class="card-body">
+      <div class="field" id="f-rst">
+        <label><span data-i18n="calc.oscEventLabel">XSTB(TP) rising→mLVDS RST falling 之 CLK EVENT 數</span><span class="required">*</span></label>
+        <input type="number" id="rst" data-i18n-ph="calc.egValue510" placeholder="例：510" value="510" min="0" step="1">
+        <div class="field-hint" style="color:#f87171;font-weight:700;" data-i18n="calc.oscEventHint">(Trig=A event B，A=XSTB(TP)正緣，B=mLVDS CLK正負緣)</div>
+        <div class="error-msg" data-i18n="common.errorNonNeg">請輸入正整數（或 0）</div>
+      </div>
+      <div class="osc-diagram-wrap" id="osc-diagram-wrap" onclick="oscOpenLightbox()">
+        <span class="osc-zoom-hint" data-i18n="calc.oscClickZoom">🔍 點擊放大</span>
+        <svg viewBox="0 0 800 340" class="osc-diagram" id="osc-diagram-src" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="oscSubGrid" x="0" y="0" width="16" height="17" patternUnits="userSpaceOnUse">
+              <path d="M 16 0 L 0 0 0 17" stroke="#0a1220" stroke-width="0.5" fill="none"/>
+            </pattern>
+            <pattern id="oscMainGrid" x="0" y="0" width="80" height="34" patternUnits="userSpaceOnUse">
+              <path d="M 80 0 L 0 0 0 34" stroke="#162032" stroke-width="0.8" fill="none"/>
+            </pattern>
+            <pattern id="clkWave" x="0" y="244" width="22" height="46" patternUnits="userSpaceOnUse">
+              <path d="M 0 40 L 5.5 40 L 5.5 6 L 16.5 6 L 16.5 40 L 22 40"
+                    stroke="#f472b6" stroke-width="2" fill="none" stroke-linejoin="miter"/>
+            </pattern>
+            <pattern id="dataHatch" x="0" y="158" width="8" height="20" patternUnits="userSpaceOnUse">
+              <path d="M -2 20 L 10 -2" stroke="#22d3ee" stroke-width="1.2" opacity="0.6"/>
+            </pattern>
+          </defs>
+          <rect x="0" y="0" width="800" height="340" fill="#020617"/>
+          <rect x="0" y="0" width="800" height="340" fill="url(#oscSubGrid)"/>
+          <rect x="0" y="0" width="800" height="340" fill="url(#oscMainGrid)"/>
+          <line x1="400" y1="0" x2="400" y2="340" stroke="#1e293b" stroke-width="0.6" stroke-dasharray="3 4"/>
+          <line x1="0" y1="170" x2="800" y2="170" stroke="#1e293b" stroke-width="0.6" stroke-dasharray="3 4"/>
+          <line x1="200" y1="24" x2="200" y2="316" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <rect x="188" y="6" width="24" height="16" fill="#fbbf24" rx="2"/>
+          <text x="200" y="18" fill="#020617" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">A</text>
+          <line x1="560" y1="24" x2="560" y2="316" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <rect x="548" y="6" width="24" height="16" fill="#fbbf24" rx="2"/>
+          <text x="560" y="18" fill="#020617" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">B</text>
+          <g>
+            <rect x="8" y="52" width="64" height="18" fill="#0f172a" stroke="#a3e635" stroke-width="1" rx="3"/>
+            <text x="40" y="65" fill="#a3e635" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">XSTB(TP)</text>
+            <path d="M 0 108 L 200 108 L 200 70 L 800 70" stroke="#a3e635" stroke-width="2.2" fill="none" stroke-linejoin="miter"/>
+          </g>
+          <g>
+            <path d="M 0 178 L 552 178 L 552 158 L 560 158 L 560 178 L 568 178"
+                  stroke="#22d3ee" stroke-width="2.2" fill="none" stroke-linejoin="miter"/>
+            <rect x="568" y="158" width="232" height="20" fill="url(#dataHatch)"/>
+            <line x1="568" y1="158" x2="800" y2="158" stroke="#22d3ee" stroke-width="2.2"/>
+            <line x1="568" y1="178" x2="800" y2="178" stroke="#22d3ee" stroke-width="2.2"/>
+            <rect x="8" y="150" width="76" height="18" fill="#0f172a" stroke="#22d3ee" stroke-width="1" rx="3"/>
+            <text x="46" y="163" fill="#22d3ee" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">mLVDS Data</text>
+          </g>
+          <g>
+            <rect x="0" y="250" width="800" height="40" fill="url(#clkWave)"/>
+            <rect x="8" y="258" width="76" height="18" fill="#0f172a" stroke="#f472b6" stroke-width="1" rx="3"/>
+            <text x="46" y="271" fill="#f472b6" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">mLVDS CLK</text>
+          </g>
+          <g>
+            <line x1="206" y1="320" x2="554" y2="320" stroke="#f8fafc" stroke-width="1.5"/>
+            <polygon points="200,320 212,315 212,325" fill="#f8fafc"/>
+            <polygon points="560,320 548,315 548,325" fill="#f8fafc"/>
+            <rect x="338" y="310" width="84" height="20" fill="#020617" stroke="#f8fafc" stroke-width="1" rx="3"/>
+            <text x="380" y="324" fill="#f8fafc" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle" data-i18n="calc.oscEventNum">Event 數</text>
+          </g>
+        </svg>
+        <div class="osc-diagram-caption" data-i18n="calc.oscCaption">
+          A Trigger：XSTB(TP) 正緣　·　B Trigger：mLVDS CLK 正負緣　·　計數 A→B 之間的 CLK Events
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Xn Channel -->
+  <div class="card" id="xi-section">
+    <div class="card-header"><span class="icon">🟫</span><span data-i18n="calc.xiChannelTitle">Xn Channel（X1 最靠近 TCON）</span></div>
+    <div class="card-body">
+      <div id="x1-container"></div>
+      <div class="xi-grid" id="xi-grid"></div>
+    </div>
+  </div>
+
+  <!-- 開始計算 -->
+  <div class="calc-btn-wrap">
+    <button class="calc-btn" onclick="calculate()" data-i18n="common.calculate">▶ 開始計算</button>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="calc-summary">
+      <span class="icon">✅</span>
+      <span id="calc-summary-text" data-i18n="calc.summaryDone">計算完成</span>
+    </div>
+
+    <div class="rxtx-cards-row">
+    <!-- 示波器 A Event B -->
+    <div class="card">
+      <div class="card-header"><span class="icon">📺</span><span data-i18n="calc.oscResultTitle">示波器 A Event B 設定</span></div>
+      <div class="card-body">
+        <div class="result-table-wrap">
+          <table>
+            <thead><tr><th>COF</th><th data-i18n="calc.oscResultBEvent">B event 值</th></tr></thead>
+            <tbody id="osc-tbody"></tbody>
+          </table>
+        </div>
+        <div style="font-size:11px; color:#f87171; font-weight:700; margin-top:8px;" data-i18n="calc.oscResultFoot">
+          A Trigger: TP（正緣） ／ B Trigger: mLVDS CLK（正負緣）
+        </div>
+      </div>
+    </div>
+
+    <!-- UI cof_cnt 分界值設定 -->
+    <div class="card">
+      <div class="card-header" style="background:var(--success); justify-content:space-between;">
+        <span style="display:flex; align-items:center; gap:7px;">
+          <span class="icon">🔢</span><span data-i18n="calc.cofSetupTitle">UI cof_cnt 分界值設定</span>
+        </span>
+        <span style="display:flex; align-items:center; gap:6px;">
+          <span class="em-label">TCON</span>
+          <select id="em-select" class="em-select">
+            <option value="EM01">EM01</option>
+            <option value="EM02">EM02</option>
+          </select>
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="result-table-wrap">
+          <table class="cof-table">
+            <thead>
+              <tr>
+                <th data-i18n="calc.cofTblItem">cof_cnt 項目</th>
+                <th data-i18n="calc.cofTblPos">交界位置</th>
+                <th data-i18n="calc.cofTblVal">cof_cnt 分界值</th>
+              </tr>
+            </thead>
+            <tbody id="cof-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div><!-- /rxtx-cards-row results -->
+  </div><!-- /results -->
+
+  <!-- Skew 檔位參照表 -->
+  <div class="card skew-section">
+    <div class="card-header"><span class="icon">📋</span><span data-i18n="calc.skewRefTitle">Skew 檔位參照表</span></div>
+    <div class="card-body">
+      <div class="skew-grid">
+        <div class="skew-group">
+          <div class="skew-group-title" data-i18n="calc.skewCksk">非分顆(時間)調整，只移動CLK</div>
+          <div class="skew-sub-label" data-i18n="calc.skewCkskSub">cksk lane 對應</div>
+          <table class="lane-table">
+            <thead><tr><th data-i18n="calc.skewLaneCode">代號</th><th data-i18n="calc.skewLaneMap">對應 lane</th></tr></thead>
+            <tbody>
+              <tr><td>la</td><td class="lane-code">lane 0–3</td></tr>
+              <tr><td>lb</td><td class="lane-code">lane 8–11</td></tr>
+              <tr><td>ra</td><td class="lane-code">lane 4–7</td></tr>
+              <tr><td>rb</td><td class="lane-code">lane 12–15</td></tr>
+            </tbody>
+          </table>
+          <div class="divider"></div>
+          <div class="skew-sub-label" data-i18n="calc.skewRough">粗調（cksk）</div>
+          <table class="skew-ref-table">
+            <thead><tr><th data-i18n="calc.skewStepLevel">檔位</th><th>Setup Time</th></tr></thead>
+            <tbody>
+              <tr class="special-row"><td>0</td><td>8/16 UI</td></tr>
+              <tr><td>1</td><td>1/16 UI</td></tr>
+              <tr><td>2</td><td>2/16 UI</td></tr>
+              <tr><td>3</td><td>3/16 UI</td></tr>
+              <tr><td>4</td><td>4/16 UI</td></tr>
+              <tr><td>5</td><td>5/16 UI</td></tr>
+              <tr><td>6</td><td>6/16 UI</td></tr>
+              <tr><td>7</td><td>7/16 UI</td></tr>
+              <tr class="default-row"><td>8</td><td>8/16 UI <span class="default-badge" data-i18n="common.default">預設</span></td></tr>
+              <tr><td>9</td><td>9/16 UI</td></tr>
+              <tr><td>10</td><td>10/16 UI</td></tr>
+              <tr><td>11</td><td>11/16 UI</td></tr>
+              <tr><td>12</td><td>12/16 UI</td></tr>
+              <tr><td>13</td><td>13/16 UI</td></tr>
+              <tr><td>14</td><td>14/16 UI</td></tr>
+              <tr><td>15</td><td>15/16 UI</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="skew-group">
+          <div class="skew-group-title" data-i18n="calc.skewFine">分顆(時間)調整</div>
+          <div class="skew-sub-label" data-i18n="calc.skewFineSub">微調（fine）</div>
+          <table class="skew-ref-table">
+            <thead><tr><th data-i18n="calc.skewStepLevel">檔位</th><th data-i18n="calc.skewOffset">位移量</th></tr></thead>
+            <tbody>
+              <tr class="special-row"><td>0</td><td>P2S</td></tr>
+              <tr><td>1</td><td>−52 ps</td></tr>
+              <tr><td>2</td><td>−31 ps</td></tr>
+              <tr><td>3</td><td>−14 ps</td></tr>
+              <tr class="zero-row"><td>4</td><td>0 ps <span class="default-badge" data-i18n="common.default">預設</span></td></tr>
+              <tr><td>5</td><td>+11 ps</td></tr>
+              <tr><td>6</td><td>+36 ps</td></tr>
+              <tr><td>7</td><td>+59 ps</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部返回首頁 -->
+  <div class="footer-back">
+    <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
+  </div>
+
+</div><!-- /container -->
+
+<!-- 共用 JS（i18n 必須先於 common.js 載入） -->
+<script src="common/i18n.js"></script>
+<script src="common/common.js"></script>
+<script>
+// ─── State ────────────────────────────────────────────────────────────
+let selectedChips = 0;
+let lastCofs = [];
+let manualEdited = new Set();
+const EM_OPTS = {
+  'EM01': ['-', 'cof1', 'cof2', 'cof3'],
+  'EM02': ['-', 'cof1', 'cof2', 'cof3', 'cof4', 'cof5', 'cof6', 'cof7']
+};
+
+// ─── Chips selector ───────────────────────────────────────────────────
+function selectChips(n) {
+  selectedChips = n;
+  document.querySelectorAll('.chip-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i + 1 === n);
+  });
+  buildXiInputs(n);
+}
+
+function buildXiInputs(n) {
+  const sec          = document.getElementById('xi-section');
+  const x1Container  = document.getElementById('x1-container');
+  const grid         = document.getElementById('xi-grid');
+
+  x1Container.innerHTML = '';
+  grid.innerHTML = '';
+  manualEdited.clear();
+
+  const x1Field = document.createElement('div');
+  x1Field.className = 'field';
+  x1Field.id = 'f-x1';
+  x1Field.innerHTML = `
+    <label>X1 Channel<span class="required">*</span></label>
+    <div class="x1-input-row">
+      <input type="number" id="x1" value="864" min="1" step="1">
+      <button class="copy-btn" onclick="copyX1ToAll()">Copy to All</button>
+    </div>
+    <div class="error-msg">${t('common.errorPosInt')}</div>
+  `;
+  x1Container.appendChild(x1Field);
+  const x1Inp = x1Field.querySelector('input');
+  attachClearError(x1Inp, false);
+
+  x1Inp.addEventListener('input', function() {
+    const val = this.value;
+    for (let j = 2; j <= selectedChips; j++) {
+      if (!manualEdited.has(j)) {
+        const inp = document.getElementById(`x${j}`);
+        if (inp) {
+          inp.value = val;
+          const field = inp.closest('.field');
+          if (field) { field.classList.remove('has-error'); inp.classList.remove('error'); }
+        }
+      }
+    }
+  });
+
+  for (let i = 2; i <= n; i++) {
+    const div = document.createElement('div');
+    div.className = 'field';
+    div.id = `f-x${i}`;
+    div.innerHTML = `
+      <label>X${i} Channel<span class="required">*</span></label>
+      <input type="number" id="x${i}" value="864" min="1" step="1">
+      <div class="error-msg">${t('common.errorPosInt')}</div>
+    `;
+    grid.appendChild(div);
+    const inp = div.querySelector('input');
+    inp.addEventListener('input', () => { manualEdited.add(i); });
+    attachClearError(inp, false);
+  }
+
+  sec.style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+}
+
+// ─── Copy X1 to all Xn ───────────────────────────────────────────────
+function copyX1ToAll() {
+  const x1Val = document.getElementById('x1').value;
+  if (!x1Val) { alert(t('alert.enterX1First')); return; }
+  for (let i = 2; i <= selectedChips; i++) {
+    manualEdited.delete(i);
+    const inp = document.getElementById(`x${i}`);
+    inp.value = x1Val;
+    const field = inp.closest('.field');
+    if (field) {
+      field.classList.remove('has-error');
+      inp.classList.remove('error');
+    }
+  }
+}
+
+// ─── Real-time error clearing ─────────────────────────────────────────
+function attachClearError(input, allowZero) {
+  input.addEventListener('input', function() {
+    const field = this.closest('.field');
+    if (!field || !field.classList.contains('has-error')) return;
+    const ok = allowZero ? nonNegInt(this.value) : posInt(this.value);
+    if (ok) {
+      field.classList.remove('has-error');
+      this.classList.remove('error');
+    }
+  });
+}
+
+// ─── Validation helpers ───────────────────────────────────────────────
+function posInt(val) {
+  const n = Number(val);
+  return val !== '' && Number.isInteger(n) && n > 0;
+}
+function nonNegInt(val) {
+  if (val === '' || val === undefined || val === null) return false;
+  const n = Number(val);
+  return Number.isInteger(n) && n >= 0;
+}
+function setError(fieldId, hasError) {
+  const f = document.getElementById(fieldId);
+  if (!f) return;
+  const inp = f.querySelector('input, select');
+  f.classList.toggle('has-error', hasError);
+  if (inp) inp.classList.toggle('error', hasError);
+}
+
+// ─── COF table render ─────────────────────────────────────────────────
+function renderCofTable(cofs, chips) {
+  const cofTbody   = document.getElementById('cof-tbody');
+  const selectedEM = document.getElementById('em-select').value;
+  const emOpts     = EM_OPTS[selectedEM];
+  const maxCof     = emOpts.length - 1;
+  const N          = chips;
+  const rowCount   = Math.max(N, maxCof);
+
+  cofTbody.innerHTML = '';
+
+  for (let i = 0; i < rowCount; i++) {
+    const tr = document.createElement('tr');
+    const cofName = (i < maxCof) ? emOpts[i + 1] : '-';
+    const value   = (i < N - 1 && cofs[i] !== undefined) ? cofs[i] : 2047;
+
+    let posText;
+    if (i < N - 1)      posText = `X${i+1}, X${i+2}`;
+    else if (i === N-1) posText = `X${N}, End`;
+    else                posText = '-';
+
+    const optionsHtml = ['-', ...emOpts.slice(1)].map(opt =>
+      `<option value="${opt}"${opt === cofName ? ' selected' : ''}>${opt}</option>`
+    ).join('');
+
+    tr.innerHTML = `
+      <td><select class="cof-item-select" onchange="enforceCofOrder(this)">${optionsHtml}</select></td>
+      <td>${posText}</td>
+      <td><span class="val-highlight" style="background:var(--success)">${value}</span></td>
+    `;
+    cofTbody.appendChild(tr);
+  }
+}
+
+// ─── COF cascade enforcement ──────────────────────────────────────────
+function enforceCofOrder(changedSelect) {
+  const tbody      = document.getElementById('cof-tbody');
+  const selects    = [...tbody.querySelectorAll('.cof-item-select')];
+  const newVal     = changedSelect.value;
+  if (newVal === '-') return;
+
+  const changedIdx  = selects.indexOf(changedSelect);
+  const selectedEM  = document.getElementById('em-select').value;
+  const emOpts      = EM_OPTS[selectedEM];
+  const cofSeqIdx   = emOpts.indexOf(newVal);
+
+  selects.forEach((sel, i) => {
+    if (i !== changedIdx && sel.value === newVal) sel.value = '-';
+  });
+
+  for (let k = 1; cofSeqIdx + k < emOpts.length && changedIdx + k < selects.length; k++) {
+    const nextCofName = emOpts[cofSeqIdx + k];
+    const targetPos   = changedIdx + k;
+    selects.forEach((sel, i) => {
+      if (i !== targetPos && sel.value === nextCofName) sel.value = '-';
+    });
+    selects[targetPos].value = nextCofName;
+  }
+}
+
+// ─── Calculate ────────────────────────────────────────────────────────
+function calculate() {
+  let valid = true;
+
+  const hactive = document.getElementById('hactive').value;
+  const bits    = parseInt(document.querySelector('input[name="bits"]:checked').value);
+  const pairs   = parseInt(document.querySelector('input[name="pairs"]:checked').value);
+  const rst     = document.getElementById('rst').value;
+  const gate    = parseInt(document.querySelector('input[name="gate"]:checked').value);
+
+  const errH = !posInt(hactive);  setError('f-hactive', errH); if (errH) valid = false;
+  const errR = !nonNegInt(rst);   setError('f-rst', errR);     if (errR) valid = false;
+
+  if (selectedChips === 0) {
+    alert(t('alert.selectChips'));
+    valid = false;
+  }
+
+  const xiVals = [];
+  for (let i = 1; i <= selectedChips; i++) {
+    const v   = document.getElementById(`x${i}`).value;
+    const err = !posInt(v);
+    setError(`f-x${i}`, err);
+    if (err) valid = false;
+    else xiVals.push(parseInt(v));
+  }
+
+  if (!valid) {
+    const firstError = document.querySelector('.field.has-error');
+    if (firstError) firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  const H  = parseInt(hactive);
+  const B  = bits;
+  const Pa = pairs;
+  const R  = parseInt(rst);
+  const N  = selectedChips;
+
+  const events = [];
+  for (let i = 0; i < N; i++) {
+    let ev;
+    if (i === 0) ev = Math.floor(Math.floor(xiVals[0] * B / Pa / gate) / 2) + R;
+    else         ev = Math.floor(xiVals[i] * B / Pa / gate) + events[i - 1];
+    events.push(ev);
+  }
+
+  const cofs = [];
+  for (let i = 1; i < N; i++) {
+    cofs.push(Math.floor(H / 2 / N / gate * i - 1));
+  }
+  lastCofs = cofs;
+
+  const oscTbody = document.getElementById('osc-tbody');
+  oscTbody.innerHTML = '';
+  events.forEach((ev, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>X${i + 1}</td><td><span class="val-highlight">${ev}</span></td>`;
+    oscTbody.appendChild(tr);
+  });
+
+  renderCofTable(cofs, N);
+
+  const safeH    = (!isNaN(H) && H > 0) ? H : '—';
+  const safeGate = (!isNaN(gate) && gate > 0) ? gate : '—';
+  const sumEl = document.getElementById('calc-summary-text');
+  sumEl.dataset.lastSummary = JSON.stringify({ N: N, g: safeGate, h: safeH });
+  sumEl.textContent = t('calc.summaryFmt', { N: N, g: safeGate, h: safeH });
+
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── Clear results on input / change ─────────────────────────────────
+document.addEventListener('input', (e) => {
+  const inp = e.target;
+  if (inp.tagName === 'INPUT' && inp.type === 'number') {
+    const field = inp.closest('.field');
+    if (field && field.classList.contains('has-error')) {
+      const allowZero = inp.id === 'rst';
+      const ok = allowZero ? nonNegInt(inp.value) : posInt(inp.value);
+      if (ok) {
+        field.classList.remove('has-error');
+        inp.classList.remove('error');
+      }
+    }
+  }
+  if (!e.target.closest('#results')) {
+    lastCofs = [];
+    document.getElementById('results').style.display = 'none';
+  }
+});
+document.addEventListener('change', (e) => {
+  if (!e.target.closest('#results') && !e.target.classList.contains('cof-item-select')) {
+    lastCofs = [];
+    document.getElementById('results').style.display = 'none';
+  }
+});
+
+// ─── EM selector → re-render cof table ───────────────────────────────
+const emSelect = document.getElementById('em-select');
+if (emSelect) {
+  emSelect.addEventListener('change', () => {
+    if (selectedChips > 0) {
+      renderCofTable(lastCofs, selectedChips);
+    }
+  });
+}
+
+// mLVDS 卡片 Hres. 下拉 → 填入 Hactive
+const calcHresSel = document.getElementById('calc-hres-preset');
+if (calcHresSel) {
+  calcHresSel.addEventListener('change', () => {
+    const hactiveEl = document.getElementById('hactive');
+    if (hactiveEl) hactiveEl.value = calcHresSel.value;
+  });
+}
+
+// ─── 語言切換回呼（重新渲染 summary 文字） ──────────────────────────────
+window._onLangChange = function(lang) {
+  const sumEl = document.getElementById('calc-summary-text');
+  if (sumEl && sumEl.dataset.lastSummary) {
+    try {
+      const d = JSON.parse(sumEl.dataset.lastSummary);
+      sumEl.textContent = t('calc.summaryFmt', d);
+    } catch(e) {}
+  }
+};
+
+// ─── 示波器 Lightbox（雙指縮放 / 平移） ─────────────────────────────────
+(function(){
+  let state = { scale: 1, tx: 0, ty: 0, baseScale: 1 };
+  let pinch = null;
+  let pan = null;
+  let svgEl, stageEl, lightbox;
+
+  function applyTransform(){
+    if (!svgEl) return;
+    svgEl.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+  }
+  function resetTransform(){
+    const sRect = svgEl.getBoundingClientRect();
+    const pRect = stageEl.getBoundingClientRect();
+    state.scale = 1;
+    state.tx = (pRect.width - sRect.width) / 2;
+    state.ty = (pRect.height - sRect.height) / 2;
+    applyTransform();
+  }
+  function dist(t1, t2){
+    const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  }
+  function mid(t1, t2){
+    return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+  }
+
+  window.oscOpenLightbox = function(){
+    if (!lightbox) {
+      lightbox = document.createElement('div');
+      lightbox.className = 'osc-lightbox';
+      lightbox.innerHTML = `
+        <div class="osc-lightbox-stage" id="osc-lb-stage"></div>
+        <button class="osc-lightbox-close" id="osc-lb-close" aria-label="${t('osc.lbClose')}">×</button>
+        <div class="osc-lightbox-hint">${t('osc.lbHint')}</div>
+      `;
+      document.body.appendChild(lightbox);
+      stageEl = lightbox.querySelector('#osc-lb-stage');
+      lightbox.querySelector('#osc-lb-close').addEventListener('click', oscCloseLightbox);
+      lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) oscCloseLightbox();
+      });
+      bindGestures();
+    }
+    stageEl.innerHTML = '';
+    const src = document.getElementById('osc-diagram-src');
+    const clone = src.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.classList.remove('osc-diagram');
+    clone.classList.add('osc-lightbox-svg');
+    stageEl.appendChild(clone);
+    svgEl = clone;
+    lightbox.classList.add('active');
+    requestAnimationFrame(resetTransform);
+  };
+  window.oscCloseLightbox = function(){
+    if (lightbox) lightbox.classList.remove('active');
+  };
+
+  function bindGestures(){
+    const target = lightbox;
+    let lastTap = 0;
+
+    target.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const m = mid(t1, t2);
+        pinch = {
+          d0: dist(t1, t2),
+          cx: m.x, cy: m.y,
+          scale0: state.scale,
+          tx0: state.tx, ty0: state.ty
+        };
+        pan = null;
+      } else if (e.touches.length === 1) {
+        pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx0: state.tx, ty0: state.ty };
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          resetTransform();
+          lastTap = 0;
+        } else {
+          lastTap = now;
+        }
+      }
+    }, { passive: false });
+
+    target.addEventListener('touchmove', (e) => {
+      if (pinch && e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const d = dist(t1, t2);
+        const ratio = d / pinch.d0;
+        const newScale = Math.max(0.5, Math.min(8, pinch.scale0 * ratio));
+        const px = (pinch.cx - pinch.tx0) / pinch.scale0;
+        const py = (pinch.cy - pinch.ty0) / pinch.scale0;
+        state.scale = newScale;
+        state.tx = pinch.cx - px * newScale;
+        state.ty = pinch.cy - py * newScale;
+        applyTransform();
+      } else if (pan && e.touches.length === 1) {
+        e.preventDefault();
+        state.tx = pan.tx0 + (e.touches[0].clientX - pan.x);
+        state.ty = pan.ty0 + (e.touches[0].clientY - pan.y);
+        applyTransform();
+      }
+    }, { passive: false });
+
+    target.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) pinch = null;
+      if (e.touches.length === 0) pan = null;
+    });
+
+    target.addEventListener('wheel', (e) => {
+      if (!lightbox.classList.contains('active')) return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 1/1.1;
+      const newScale = Math.max(0.5, Math.min(8, state.scale * factor));
+      const px = (e.clientX - state.tx) / state.scale;
+      const py = (e.clientY - state.ty) / state.scale;
+      state.scale = newScale;
+      state.tx = e.clientX - px * newScale;
+      state.ty = e.clientY - py * newScale;
+      applyTransform();
+    }, { passive: false });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightbox.classList.contains('active')) oscCloseLightbox();
+    });
+
+    let mouseDown = null;
+    target.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.osc-lightbox-close')) return;
+      mouseDown = { x: e.clientX, y: e.clientY, tx0: state.tx, ty0: state.ty };
+    });
+    target.addEventListener('mousemove', (e) => {
+      if (!mouseDown) return;
+      state.tx = mouseDown.tx0 + (e.clientX - mouseDown.x);
+      state.ty = mouseDown.ty0 + (e.clientY - mouseDown.y);
+      applyTransform();
+    });
+    target.addEventListener('mouseup', () => mouseDown = null);
+  }
+})();
+
+// ─── 初始化 ──────────────────────────────────────────────────────────
+selectChips(3);
+</script>
+</body>
+</html>
