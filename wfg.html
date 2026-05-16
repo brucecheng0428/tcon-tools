@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.307</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.308</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3409,7 +3409,7 @@ var wfgLaDecodeVGroups = [];
 var wfgLaDecodeRowH = 23;
 var _wfgLaDecodeScrollRaf = {};
 var _wfgLaScopeFocusScrolling = false;
-/* v2.97.307: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
+/* v2.97.308: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
 var _wfgLaLastFocusViewStart = NaN;
 var _wfgLaLastFocusViewEnd = NaN;
 var _wfgLaLastFocusVgroupCount = -1;
@@ -9091,7 +9091,7 @@ function wfgLaDecodeSearchText(group, row) {
 }
 
 function wfgLaApplyDecodeScopeFocus() {
-  /* v2.97.307: dirty tracking — view range 與 group 數量都未變化則 skip。
+  /* v2.97.308: dirty tracking — view range 與 group 數量都未變化則 skip。
      mousemove 透過 rAF 高頻呼叫 wfgLaRenderScope→wfgLaRenderMinimap→wfgLaApplyDecodeScopeFocus，
      雖然位置字串比較會 short-circuit DOM 寫入，但 thead.offsetHeight / wrap.scrollTop / wrap.clientHeight
      的 read 仍會 force layout sync，在波形 canvas 上 hover 時造成藍框可見抖動。 */
@@ -9137,10 +9137,10 @@ function wfgLaApplyDecodeScopeFocus() {
         if (afterIdx < 0 && js > wfgLaViewEnd) afterIdx = j; /* 取第一個 */
       }
       if (beforeIdx >= 0 && afterIdx < 0) {
-        /* v2.97.307 fix: view 完全在資料右側 → 框到 rows.length 位置（空白區），
-           表示「目前視窗已超過所有解碼資料」，而非停留在最後一筆資料 row */
-        displayFirst = rows.length;
-        displayLast = rows.length;
+        /* v2.97.308: view 完全在資料右側 → clamp 到最後一筆實際資料行
+           藍框只能在實際資料行上，絕不能出現在表格外空白區域 */
+        displayFirst = rows.length - 1;
+        displayLast = rows.length - 1;
       } else if (afterIdx >= 0 && beforeIdx < 0) {
         /* view 完全在資料左側 → 直接框第一筆 */
         displayFirst = 0;
@@ -9163,55 +9163,34 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
-    /* v2.97.307: 行高不固定（長文字換行），不能用 rows.length * rowH 估算。
-       frameAtEnd 時從 DOM 找最後渲染行的實際底部位置 + 間距 */
-    var frameAtEnd = (displayFirst >= rows.length);
+    /* v2.97.308: 統一定位邏輯 — 移除 frameAtEnd 概念，藍框只停在實際資料行上 */
     var estTop = theadH + displayFirst * rowH;
     var estBottom = theadH + (displayLast + 1) * rowH;
-    /* view range 變化時主動捲動到對應位置 */
+    /* view range 變化時統一用 center-in-view 算法捲動 */
     if (viewChanged) {
-      if (frameAtEnd) {
-        /* frameAtEnd: 先捲到最底，讓最後幾行渲染出來以便 DOM 量測 */
+      var center = (estTop + estBottom) / 2;
+      var halfH = wrap.clientHeight / 2;
+      var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+      var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
+      if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
         _wfgLaScopeFocusScrolling = true;
-        wrap.scrollTop = wrap.scrollHeight;
+        wrap.scrollTop = desiredScroll;
         if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
         wfgLaRenderDecodeVRows(gi2);
         _wfgLaScopeFocusScrolling = false;
-      } else {
-        var center = (estTop + estBottom) / 2;
-        var halfH = wrap.clientHeight / 2;
-        var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-        var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
-        if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
-          _wfgLaScopeFocusScrolling = true;
-          wrap.scrollTop = desiredScroll;
-          if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
-          wfgLaRenderDecodeVRows(gi2);
-          _wfgLaScopeFocusScrolling = false;
-        }
       }
     }
-    /* 從 DOM 量測精確位置 */
+    /* 從 DOM 量測精確位置（虛擬捲動可能未渲染目標行，fallback 到估算值） */
     var tbody2 = wrap.querySelector('tbody');
+    var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
+    var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
     var top, bottom;
-    if (frameAtEnd) {
-      /* v2.97.307 fix: virtual scroll 只渲染可視區附近的 rows，scrollTop 到底後
-         最後渲染的 row 可能不是真正的 last row（例如 1000 rows 只渲染到 ~853）。
-         改用 table 完整高度（含 spacer rows）作為資料結束位置，不依賴 DOM 量測 */
-      var table2 = wrap.querySelector('table');
-      var tableH = table2 ? table2.offsetHeight : wrap.scrollHeight;
-      top = tableH + 2 * rowH;
-      bottom = top + rowH;
+    if (firstRow && lastRow) {
+      top = firstRow.offsetTop;
+      bottom = lastRow.offsetTop + lastRow.offsetHeight;
     } else {
-      var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
-      var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
-      if (firstRow && lastRow) {
-        top = firstRow.offsetTop;
-        bottom = lastRow.offsetTop + lastRow.offsetHeight;
-      } else {
-        top = estTop;
-        bottom = estBottom;
-      }
+      top = estTop;
+      bottom = estBottom;
     }
     /* Math.round 消除亞像素抖動，stability check 跳過無變化的 DOM 寫入 */
     var newTop = Math.round(top - 1) + 'px';
@@ -9221,19 +9200,6 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.style.display = '';
       frame.style.top = newTop;
       frame.style.height = newHeight;
-    }
-    /* v2.97.307 fix: 位置更新後再做一次捲動檢查，確保 frame 可見
-       （修復 AUX 區因 frame 在 rows.length 位置超出原 scrollHeight 而未正確捲動的 bug） */
-    if (viewChanged && !posUnchanged2) {
-      var fTop2 = parseFloat(frame.style.top) || 0;
-      var fBot2 = fTop2 + (parseFloat(frame.style.height) || 4);
-      if (fBot2 > wrap.scrollTop + wrap.clientHeight || fTop2 < wrap.scrollTop) {
-        _wfgLaScopeFocusScrolling = true;
-        wrap.scrollTop = Math.max(0, fTop2 - 28);
-        if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
-        wfgLaRenderDecodeVRows(gi2);
-        _wfgLaScopeFocusScrolling = false;
-      }
     }
   }
 }
@@ -11960,7 +11926,7 @@ function wfgLaRenderDecodeResults() {
     }, { passive: true });
     wfgLaRenderDecodeVRows(i);
   });
-  /* v2.97.307: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
+  /* v2.97.308: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
   _wfgLaLastFocusViewStart = NaN;
   _wfgLaLastFocusViewEnd = NaN;
   _wfgLaLastFocusVgroupCount = -1;
