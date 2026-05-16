@@ -17,7 +17,11 @@
 (function(){
   try {
     var wfgParams = new URLSearchParams(location.search);
-    var wfgMode = wfgParams.get('wfgMode') || sessionStorage.getItem('wfg_mode');
+    var wfgHash = (location.hash || '').replace('#', '');
+    var wfgMode = wfgParams.get('wfgMode') || wfgParams.get('mode') || '';
+    if (!wfgMode && (wfgHash === 'la' || wfgHash === 'wfg-la')) wfgMode = 'la';
+    if (!wfgMode && (wfgHash === 'siggen' || wfgHash === 'wfg-siggen')) wfgMode = 'siggen';
+    if (!wfgMode) wfgMode = sessionStorage.getItem('wfg_active_mode') || sessionStorage.getItem('wfg_mode');
     if (wfgMode === 'la') {
       document.write('<style id="ss-wfg-mode-hint">#wfg-tcon-content,#wfg-siggen-content{display:none!important}#wfg-la-content{display:block!important}#wfg-mode-tabs [data-mode=la]{background:#0f172a!important;color:white!important}</style>');
     } else if (wfgMode === 'siggen') {
@@ -342,7 +346,6 @@
   .wfg-la-decode-table tr.protocol-error td:nth-child(n+4) { color: #fecaca; background: rgba(127,29,29,0.28); }
   .wfg-la-decode-table tr.protocol-error:hover td:nth-child(n+4) { background: rgba(127,29,29,0.40); }
   .wfg-la-decode-scope-frame { position: absolute; left: 2px; right: 2px; border: 2px solid rgba(56,189,248,0.98); border-radius: 4px; box-shadow: 0 0 0 1px rgba(15,23,42,0.75), 0 0 0 3px rgba(56,189,248,0.16); pointer-events: none; z-index: 2; }
-  .wfg-la-decode-table tr.vscroll-spacer td { padding: 0; border: none; }
   .wfg-la-decode-badge { display: inline-block; min-width: 34px; text-align: center; border-radius: 3px; padding: 1px 4px; background: #374151; color: #e5e7eb; font-weight: 800; }
   .wfg-la-decode-badge.read { background: #075985; color: #bae6fd; }
   .wfg-la-decode-badge.write { background: #14532d; color: #bbf7d0; }
@@ -638,7 +641,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.309</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.310</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -1186,9 +1189,6 @@
   <div class="wfg-progress-bar-wrap"><div class="wfg-progress-bar" id="wfg-progress-bar"></div></div>
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
-
-</body>
-</html>
 
 <script src="common/i18n.js"></script>
 <script src="common/common.js"></script>
@@ -3227,8 +3227,9 @@ window.wfgAssignChannelGpio = function(chIdx, gpioIdx) {
 // ─── Mode Switch ───
 function wfgRequestedModeFromUrl() {
   var hash = (location.hash || '').replace('#', '');
-  if (hash === 'wfg-la') return 'la';
-  if (hash === 'wfg-siggen') return 'siggen';
+  if (hash === 'la' || hash === 'wfg-la') return 'la';
+  if (hash === 'siggen' || hash === 'wfg-siggen') return 'siggen';
+  if (hash === 'tcon' || hash === 'wfg') return 'tcon';
   try {
     var qp = new URLSearchParams(location.search);
     var mode = qp.get('wfgMode') || qp.get('mode');
@@ -3406,10 +3407,7 @@ var wfgLaDecodeSearch = '';
 var wfgLaDecodeSelectedKey = '';
 var wfgLaDecodeExpanded = false;
 var wfgLaDecodeVGroups = [];
-var wfgLaDecodeRowH = 23;
-var _wfgLaDecodeScrollRaf = {};
-var _wfgLaScopeFocusScrolling = false;
-/* v2.97.309: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
+/* v2.97.310: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
 var _wfgLaLastFocusViewStart = NaN;
 var _wfgLaLastFocusViewEnd = NaN;
 var _wfgLaLastFocusVgroupCount = -1;
@@ -9090,11 +9088,20 @@ function wfgLaDecodeSearchText(group, row) {
   ].filter(function(v) { return v != null && v !== ''; }).join(' ').toLowerCase();
 }
 
+function wfgLaRowContentBounds(wrap, row) {
+  if (!wrap || !row) return null;
+  var wr = wrap.getBoundingClientRect();
+  var rr = row.getBoundingClientRect();
+  return {
+    top: rr.top - wr.top + wrap.scrollTop,
+    bottom: rr.bottom - wr.top + wrap.scrollTop
+  };
+}
+
 function wfgLaApplyDecodeScopeFocus() {
-  /* v2.97.309: 徹底修復藍框定位 — 放棄 rowH 估算，改用「強制渲染目標行→DOM量測→clamp」策略。
-     rowH=23 是名義行高，實際行因文字換行可達 28-44px；虛擬捲動 spacer 也用 rowH，
-     導致 tr.offsetTop 與估算值差距大。新策略：先粗估捲動位置讓目標行進入渲染範圍，
-     重繪後從 DOM 精確量測，最後 clamp 確保 frame 永不超出表格 tbody 實際範圍。 */
+  /* v2.97.310: 藍框系統改成資料列驅動。
+     Decode results 已限制每組最多 1000 rows，直接渲染可避免 virtual spacer 與換行 row 高度失準。
+     藍框只從實際 DOM row 的 getBoundingClientRect() 取得位置，不再用 rowH 推算可視框位置。 */
   if (
     _wfgLaLastFocusViewStart === wfgLaViewStart &&
     _wfgLaLastFocusViewEnd === wfgLaViewEnd &&
@@ -9104,17 +9111,13 @@ function wfgLaApplyDecodeScopeFocus() {
   _wfgLaLastFocusViewStart = wfgLaViewStart;
   _wfgLaLastFocusViewEnd = wfgLaViewEnd;
   _wfgLaLastFocusVgroupCount = wfgLaDecodeVGroups.length;
-  var rowH = wfgLaDecodeRowH;
   for (var gi2 = 0; gi2 < wfgLaDecodeVGroups.length; gi2++) {
     var vg2 = wfgLaDecodeVGroups[gi2];
     if (!vg2 || !vg2.rows || !vg2.rows.length || !vg2.el) continue;
     var wrap = vg2.el;
     var frame = wrap.querySelector('.wfg-la-decode-scope-frame');
     var rows = vg2.rows;
-    var thead = wrap.querySelector('thead');
-    var theadH = thead ? thead.offsetHeight : 23;
     var displayFirst = -1, displayLast = -1;
-    /* 找此 group 的 in-view rows */
     for (var i = 0; i < rows.length; i++) {
       var s = Number(rows[i].time) || 0;
       var e = Math.max(s, Number(rows[i].endTime) || s);
@@ -9124,7 +9127,6 @@ function wfgLaApplyDecodeScopeFocus() {
       }
     }
     if (displayFirst < 0) {
-      /* 沒有 in-view rows → 判斷 view 位於資料的哪一側 */
       var beforeIdx = -1, afterIdx = -1;
       for (var j = 0; j < rows.length; j++) {
         var js = Number(rows[j].time) || 0;
@@ -9155,62 +9157,30 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
-    /* v2.97.309: 強制讓目標行進入虛擬捲動渲染範圍，以便 DOM 量測 */
-    var targetScrollEst = displayFirst * rowH; /* 粗估：讓 displayFirst 出現在 viewport 頂部附近 */
-    /* view range 變化時捲動到目標行附近 */
+    var firstRow = wrap.querySelector('tr[data-vrow-idx="' + displayFirst + '"]');
+    var lastRow = wrap.querySelector('tr[data-vrow-idx="' + displayLast + '"]');
+    if (!firstRow || !lastRow) {
+      frame.style.display = 'none';
+      continue;
+    }
+    var firstBounds = wfgLaRowContentBounds(wrap, firstRow);
+    var lastBounds = wfgLaRowContentBounds(wrap, lastRow);
+    if (!firstBounds || !lastBounds) {
+      frame.style.display = 'none';
+      continue;
+    }
+    var top = firstBounds.top;
+    var bottom = lastBounds.bottom;
+    if (bottom <= top) bottom = top + Math.max(4, firstRow.getBoundingClientRect().height || 4);
     if (viewChanged) {
-      var centerEst = (displayFirst + displayLast + 1) * rowH / 2;
+      var center = (top + bottom) / 2;
       var halfH = wrap.clientHeight / 2;
       var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-      var desiredScroll = Math.max(0, Math.min(maxScroll, centerEst - halfH));
+      var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
       if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
-        _wfgLaScopeFocusScrolling = true;
         wrap.scrollTop = desiredScroll;
-        if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
-        wfgLaRenderDecodeVRows(gi2);
-        _wfgLaScopeFocusScrolling = false;
       }
     }
-    /* 確保目標行在渲染範圍：如果 DOM 找不到，強制捲動+重繪一次 */
-    var tbody2 = wrap.querySelector('tbody');
-    var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
-    if (!firstRow) {
-      /* 目標行不在 DOM → 強制捲動到目標位置並重繪 */
-      _wfgLaScopeFocusScrolling = true;
-      wrap.scrollTop = Math.max(0, targetScrollEst - 50);
-      if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
-      wfgLaRenderDecodeVRows(gi2);
-      _wfgLaScopeFocusScrolling = false;
-      firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
-    }
-    var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
-    /* 如果 lastRow 也不在渲染範圍（跨很多行），嘗試用 firstRow 位置加上跨行估算 */
-    var top, bottom;
-    if (firstRow && lastRow) {
-      /* 精確 DOM 量測 */
-      top = firstRow.offsetTop;
-      bottom = lastRow.offsetTop + lastRow.offsetHeight;
-    } else if (firstRow) {
-      /* 只有 firstRow 在 DOM，lastRow 超出渲染範圍 → 用 firstRow 起始 + 跨行數*rowH 估算底部 */
-      top = firstRow.offsetTop;
-      bottom = top + (displayLast - displayFirst + 1) * rowH;
-    } else {
-      /* 完全找不到行（極端 case）→ 用 spacer-aware 估算 */
-      top = theadH + displayFirst * rowH;
-      bottom = theadH + (displayLast + 1) * rowH;
-    }
-    /* v2.97.309 核心安全措施：clamp frame 在 thead 下方且不超過 table 實際資料區底部 */
-    var table = wrap.querySelector('table');
-    var tableH = table ? table.offsetHeight : (theadH + rows.length * rowH);
-    /* frame.top 最小 = theadH（不能覆蓋 thead） */
-    if (top < theadH) top = theadH;
-    /* frame.bottom 最大 = 表格最後一個資料行的底部 */
-    /* 用 rows.length * rowH + theadH 作為資料區底部上限，但如果 table 實際更小就用 table */
-    var dataBottomLimit = Math.min(tableH, theadH + rows.length * rowH);
-    if (bottom > dataBottomLimit) bottom = dataBottomLimit;
-    /* 確保 bottom > top 且高度至少 4px */
-    if (bottom <= top) bottom = top + Math.min(rowH, 4);
-    /* Math.round 消除亞像素抖動 */
     var newTop = Math.round(top - 1) + 'px';
     var newHeight = Math.max(4, Math.round(bottom - top + 2)) + 'px';
     var posUnchanged2 = (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '');
@@ -11774,24 +11744,25 @@ window.wfgLaSelectDecodeRow = wfgLaSelectDecodeRow;
 
 function wfgLaScrollDecodeKeyIntoView(key) {
   if (!key) return;
-  var rowH = wfgLaDecodeRowH;
   for (var gi = 0; gi < wfgLaDecodeVGroups.length; gi++) {
     var vg = wfgLaDecodeVGroups[gi];
     if (!vg || !vg.el) continue;
     for (var ri = 0; ri < vg.rows.length; ri++) {
       if (wfgLaDecodeRowKey(vg.group, vg.rows[ri]) === key) {
-        var thead = vg.el.querySelector('thead');
-        var theadH = thead ? thead.offsetHeight : 23;
-        var top = theadH + ri * rowH;
-        var bottom = top + rowH;
         var wrap = vg.el;
+        var row = wrap.querySelector('tr[data-vrow-idx="' + ri + '"]');
+        if (!row) return;
+        var bounds = wfgLaRowContentBounds(wrap, row);
+        if (!bounds) return;
+        var top = bounds.top;
+        var bottom = bounds.bottom;
         var pad = 28;
         if (top < wrap.scrollTop + pad || bottom > wrap.scrollTop + wrap.clientHeight - pad) {
-          wrap.scrollTop = Math.max(0, top - pad);
+          var target = bottom > wrap.scrollTop + wrap.clientHeight - pad
+            ? bottom - wrap.clientHeight + pad
+            : top - pad;
+          wrap.scrollTop = Math.max(0, Math.min(Math.max(0, wrap.scrollHeight - wrap.clientHeight), target));
         }
-        /* 觸發虛擬行重繪以確保 selected 行可見 */
-        if (_wfgLaDecodeScrollRaf[gi]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi]); _wfgLaDecodeScrollRaf[gi] = 0; }
-        wfgLaRenderDecodeVRows(gi);
         return;
       }
     }
@@ -11821,7 +11792,6 @@ function wfgLaFocusDecodeRowNearTime(timeSec) {
     oldSel.forEach(function(tr) { tr.classList.remove('selected'); });
   }
   wfgLaScrollDecodeKeyIntoView(wfgLaDecodeSelectedKey);
-  /* 重繪虛擬行後標記 selected */
   if (el) {
     var newSel = el.querySelector('tbody tr[data-decode-key="' + String(wfgLaDecodeSelectedKey).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
     if (newSel) newSel.classList.add('selected');
@@ -11834,24 +11804,14 @@ function wfgLaRenderDecodeVRows(groupIdx) {
   var wrap = vg.el;
   var tbody = wrap.querySelector('tbody');
   if (!tbody) return;
-  var scrollTop = wrap.scrollTop;
-  var viewH = wrap.clientHeight;
-  var rowH = wfgLaDecodeRowH;
-  var totalRows = vg.rows.length;
-  var startIdx = Math.max(0, Math.floor(scrollTop / rowH) - 5);
-  var endIdx = Math.min(totalRows, Math.ceil((scrollTop + viewH) / rowH) + 5);
-  if (vg.renderedStart === startIdx && vg.renderedEnd === endIdx) return;
-  vg.renderedStart = startIdx;
-  vg.renderedEnd = endIdx;
+  if (vg.rendered) return;
+  vg.rendered = true;
   var html = '';
-  if (startIdx > 0) html += '<tr class="vscroll-spacer" style="height:' + (startIdx * rowH) + 'px"><td colspan="6"></td></tr>';
-  for (var i = startIdx; i < endIdx; i++) {
+  for (var i = 0; i < vg.rows.length; i++) {
     var rowHtml = vg.renderRow(vg.rows[i], vg.group);
-    /* 注入 data-vrow-idx 以供 scope frame 從 DOM 精準量測 row 位置 */
     rowHtml = rowHtml.replace('<tr ', '<tr data-vrow-idx="' + i + '" ');
     html += rowHtml;
   }
-  if (endIdx < totalRows) html += '<tr class="vscroll-spacer" style="height:' + ((totalRows - endIdx) * rowH) + 'px"><td colspan="6"></td></tr>';
   tbody.innerHTML = html;
 }
 
@@ -11864,7 +11824,6 @@ function wfgLaRenderDecodeResults() {
     previousScrollTops.push(vg && vg.el ? vg.el.scrollTop || 0 : 0);
   });
   wfgLaDecodeVGroups = [];
-  _wfgLaDecodeScrollRaf = {};
   wfgLaApplyDecodeExpandedState();
   var searchInput = document.getElementById('wfg-la-decode-search');
   if (searchInput && searchInput.value !== wfgLaDecodeSearch) searchInput.value = wfgLaDecodeSearch;
@@ -11921,30 +11880,21 @@ function wfgLaRenderDecodeResults() {
       };
     }
     var idx = groupIdx++;
-    wfgLaDecodeVGroups.push({ group: group, rows: rows, type: a.type, renderRow: renderRow, el: null, renderedStart: -1, renderedEnd: -1 });
+    wfgLaDecodeVGroups.push({ group: group, rows: rows, type: a.type, renderRow: renderRow, el: null, rendered: false });
     html += '<div class="wfg-la-decode-table-wrap" data-vgroup-idx="' + idx + '"><table class="wfg-la-decode-table">' + theadHtml + '<tbody></tbody></table></div>';
   });
   el.innerHTML = html;
-  /* 綁定 scroll 事件並初次填充可見行 */
+  /* Decode results are capped at 1000 rows per group, so render all rows directly.
+     This keeps scope-frame positioning tied to real row geometry instead of virtual spacer estimates. */
   wfgLaDecodeVGroups.forEach(function(vg, i) {
     var wrap = el.querySelector('.wfg-la-decode-table-wrap[data-vgroup-idx="' + i + '"]');
     if (!wrap) return;
     vg.el = wrap;
     /* 恢復之前的 scrollTop */
     if (previousScrollTops[i]) wrap.scrollTop = previousScrollTops[i];
-    var gIdx = i;
-    wrap.addEventListener('scroll', function() {
-      /* 如果是 scope focus auto-scroll 觸發的，跳過（已在 scope focus 中同步處理） */
-      if (_wfgLaScopeFocusScrolling) return;
-      if (_wfgLaDecodeScrollRaf[gIdx]) return;
-      _wfgLaDecodeScrollRaf[gIdx] = requestAnimationFrame(function() {
-        _wfgLaDecodeScrollRaf[gIdx] = 0;
-        wfgLaRenderDecodeVRows(gIdx);
-      });
-    }, { passive: true });
     wfgLaRenderDecodeVRows(i);
   });
-  /* v2.97.308: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
+  /* v2.97.310: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
   _wfgLaLastFocusViewStart = NaN;
   _wfgLaLastFocusViewEnd = NaN;
   _wfgLaLastFocusVgroupCount = -1;
