@@ -641,7 +641,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.310</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.311</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12021,10 +12021,161 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
     ctx.restore();
     return true;
   }
+  function finiteOverlayTime(value) {
+    value = Number(value);
+    return isFinite(value) ? value : NaN;
+  }
+  function rowOverlayRange(row) {
+    var start = finiteOverlayTime(row && row.time);
+    var end = finiteOverlayTime(row && row.endTime);
+    if (!isFinite(start)) start = 0;
+    if (!isFinite(end)) end = start;
+    [
+      row && row.syncStartTime,
+      row && row.startRegionStart,
+      row && row.payloadStartTime,
+      row && row.stopRegionStart
+    ].forEach(function(v) {
+      v = finiteOverlayTime(v);
+      if (isFinite(v)) start = Math.min(start, v);
+    });
+    [
+      row && row.syncEndTime,
+      row && row.startRegionEnd,
+      row && row.payloadEndTime,
+      row && row.stopRegionEnd
+    ].forEach(function(v) {
+      v = finiteOverlayTime(v);
+      if (isFinite(v)) end = Math.max(end, v);
+    });
+    (row && row.auxSegments || []).forEach(function(seg) {
+      [
+        seg && seg.overlayStartTime,
+        seg && seg.startRegionStart,
+        seg && seg.payloadStartTime,
+        seg && seg.stopRegionStart
+      ].forEach(function(v) {
+        v = finiteOverlayTime(v);
+        if (isFinite(v)) start = Math.min(start, v);
+      });
+      [
+        seg && seg.overlayEndTime,
+        seg && seg.stopRegionEnd,
+        seg && seg.payloadEndTime,
+        seg && seg.startRegionEnd
+      ].forEach(function(v) {
+        v = finiteOverlayTime(v);
+        if (isFinite(v)) end = Math.max(end, v);
+      });
+    });
+    if (!(end > start)) {
+      var minTimeW = Math.max(range / Math.max(320, g.drawW * 2), 1e-9);
+      start -= minTimeW * 0.5;
+      end += minTimeW * 0.5;
+    }
+    return { start: start, end: end };
+  }
+  function coarseStyle(group, row, analyzerType) {
+    if (analyzerType === 'dp_aux') {
+      if (row && (row.auxAnomaly || row.protocolError || row.ack === 'ERR')) return {
+        key: 'aux-error',
+        fill: 'rgba(248,113,113,0.30)',
+        stroke: 'rgba(254,202,202,0.88)'
+      };
+      if (row && (row.auxPreambleWarn || row.auxPreambleError || row.auxNoReply)) return {
+        key: 'aux-warn',
+        fill: 'rgba(250,204,21,0.26)',
+        stroke: 'rgba(253,224,71,0.86)'
+      };
+      return {
+        key: 'aux-normal',
+        fill: 'rgba(217,70,239,0.26)',
+        stroke: 'rgba(240,171,252,0.82)'
+      };
+    }
+    var badI2c = row && ((row.ack === 'NACK' && !row.normalNack) || row.ack === 'ERR');
+    return badI2c ? {
+      key: 'i2c-error',
+      fill: 'rgba(248,113,113,0.24)',
+      stroke: 'rgba(254,202,202,0.82)'
+    } : {
+      key: 'i2c-normal',
+      fill: 'rgba(56,189,248,0.18)',
+      stroke: 'rgba(125,211,252,0.64)'
+    };
+  }
+  function drawCoarseDecodeCoverage() {
+    var buckets = {};
+    function addBucket(ch, t0, t1, style) {
+      ch = Number(ch);
+      if (visibleChannels.indexOf(ch) < 0) return;
+      var vr = visibleRangeX(t0, t1);
+      if (!vr) return;
+      var minPx = style.key.indexOf('error') >= 0 ? 3 : 2;
+      var mid = (vr[0] + vr[1]) / 2;
+      var x0 = Math.max(g.drawX0 + 1, Math.min(g.cssW - 1, Math.min(vr[0], mid - minPx / 2)));
+      var x1 = Math.max(g.drawX0 + 1, Math.min(g.cssW - 1, Math.max(vr[1], mid + minPx / 2)));
+      var key = ch + '|' + style.key;
+      if (!buckets[key]) buckets[key] = { ch: ch, style: style, ranges: [] };
+      buckets[key].ranges.push([x0, x1]);
+    }
+    for (var cgi = 0; cgi < wfgLaDecodeResults.length; cgi++) {
+      var cg = wfgLaDecodeResults[cgi];
+      if (!cg || cg.note) continue;
+      var ca = cg.analyzer || {};
+      var ctype = ca.type;
+      if (ctype !== 'dp_aux' && ctype !== 'i2c' && ctype !== 'i2c_eeprom') continue;
+      for (var cri = 0; cri < cg.rows.length; cri++) {
+        var cr = cg.rows[cri];
+        if (!cr) continue;
+        var rr = rowOverlayRange(cr);
+        if (rr.end < g.tStart || rr.start > g.tEnd) continue;
+        var style = coarseStyle(cg, cr, ctype);
+        if (ctype === 'dp_aux') {
+          var auxCh = cr.channel != null ? cr.channel : (ca.config && ca.config.channel);
+          addBucket(auxCh, rr.start, rr.end, style);
+        } else {
+          var sdaCh = cr.channel != null ? cr.channel : (ca.config && ca.config.sda);
+          var sclCh = cr.sclChannel != null ? cr.sclChannel : (ca.config && ca.config.scl);
+          addBucket(sdaCh, rr.start, rr.end, style);
+          addBucket(sclCh, rr.start, rr.end, style);
+        }
+      }
+    }
+    Object.keys(buckets).forEach(function(key) {
+      var b = buckets[key];
+      var slot = visibleChannels.indexOf(b.ch);
+      if (slot < 0 || !b.ranges.length) return;
+      b.ranges.sort(function(a, c) { return a[0] - c[0]; });
+      var merged = [];
+      b.ranges.forEach(function(r) {
+        var last = merged[merged.length - 1];
+        if (last && r[0] <= last[1] + 1.5) last[1] = Math.max(last[1], r[1]);
+        else merged.push(r.slice());
+      });
+      var yBase = g.axisH + slot * g.rowStep;
+      var metrics = wfgLaWaveRowMetrics(yBase, g.rowStep, b.ch);
+      var padY = Math.max(2, Math.min(5, g.rowStep * 0.07));
+      var y0 = Math.max(g.axisH + 2, metrics.yHigh - padY);
+      var y1 = Math.min(yBase + g.rowStep - 5, metrics.yLow + padY);
+      var h = Math.max(4, y1 - y0);
+      ctx.save();
+      ctx.fillStyle = b.style.fill;
+      ctx.strokeStyle = b.style.stroke;
+      ctx.lineWidth = 1;
+      merged.forEach(function(r) {
+        var w = Math.max(1, r[1] - r[0]);
+        ctx.fillRect(r[0], y0, w, h);
+        if (w >= 2) ctx.strokeRect(Math.round(r[0]) + 0.5, Math.round(y0) + 0.5, Math.max(1, Math.round(w)), Math.round(h));
+      });
+      ctx.restore();
+    });
+  }
   ctx.save();
   ctx.font = 'bold 10px "SF Mono", Consolas, monospace';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 1;
+  drawCoarseDecodeCoverage();
   for (var gi = 0; gi < wfgLaDecodeResults.length; gi++) {
     var group = wfgLaDecodeResults[gi];
     if (group.note) continue;
