@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.305</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.306</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3409,7 +3409,7 @@ var wfgLaDecodeVGroups = [];
 var wfgLaDecodeRowH = 23;
 var _wfgLaDecodeScrollRaf = {};
 var _wfgLaScopeFocusScrolling = false;
-/* v2.97.305: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
+/* v2.97.306: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
 var _wfgLaLastFocusViewStart = NaN;
 var _wfgLaLastFocusViewEnd = NaN;
 var _wfgLaLastFocusVgroupCount = -1;
@@ -9091,7 +9091,7 @@ function wfgLaDecodeSearchText(group, row) {
 }
 
 function wfgLaApplyDecodeScopeFocus() {
-  /* v2.97.305: dirty tracking — view range 與 group 數量都未變化則 skip。
+  /* v2.97.306: dirty tracking — view range 與 group 數量都未變化則 skip。
      mousemove 透過 rAF 高頻呼叫 wfgLaRenderScope→wfgLaRenderMinimap→wfgLaApplyDecodeScopeFocus，
      雖然位置字串比較會 short-circuit DOM 寫入，但 thead.offsetHeight / wrap.scrollTop / wrap.clientHeight
      的 read 仍會 force layout sync，在波形 canvas 上 hover 時造成藍框可見抖動。 */
@@ -9137,7 +9137,7 @@ function wfgLaApplyDecodeScopeFocus() {
         if (afterIdx < 0 && js > wfgLaViewEnd) afterIdx = j; /* 取第一個 */
       }
       if (beforeIdx >= 0 && afterIdx < 0) {
-        /* v2.97.305 fix: view 完全在資料右側 → 框到 rows.length 位置（空白區），
+        /* v2.97.306 fix: view 完全在資料右側 → 框到 rows.length 位置（空白區），
            表示「目前視窗已超過所有解碼資料」，而非停留在最後一筆資料 row */
         displayFirst = rows.length;
         displayLast = rows.length;
@@ -9163,41 +9163,62 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
-    /* 先用 rowH 估算位置；view range 變化時據此 scroll；scroll 後再從 DOM 量測精確 row 位置 */
-    /* v2.97.305 fix: 當 frame 應在所有資料下方（displayFirst >= rows.length），
-       加入 3 rowH 的間距，讓 frame 與最後一筆資料有明顯視覺分隔（空白區）。
-       position:absolute 的 frame 會自動 extend scrollHeight，創造可捲動的空白區 */
+    /* v2.97.306: 行高不固定（長文字換行），不能用 rows.length * rowH 估算。
+       frameAtEnd 時從 DOM 找最後渲染行的實際底部位置 + 間距 */
     var frameAtEnd = (displayFirst >= rows.length);
-    var frameGap = frameAtEnd ? 3 * rowH : 0;
-    var estTop = theadH + displayFirst * rowH + frameGap;
-    var estBottom = theadH + (displayLast + 1) * rowH + frameGap;
-    /* v2.97.305: view range 變化（zoom/pan）時主動把藍框中心對齊 wrap 視野中央，
-       讓對應的解碼 row 隨波形同步進入可見區。view 未變則尊重使用者手動捲動。 */
+    var estTop = theadH + displayFirst * rowH;
+    var estBottom = theadH + (displayLast + 1) * rowH;
+    /* view range 變化時主動捲動到對應位置 */
     if (viewChanged) {
-      var center = (estTop + estBottom) / 2;
-      var halfH = wrap.clientHeight / 2;
-      var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-      var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
-      if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
+      if (frameAtEnd) {
+        /* frameAtEnd: 先捲到最底，讓最後幾行渲染出來以便 DOM 量測 */
         _wfgLaScopeFocusScrolling = true;
-        wrap.scrollTop = desiredScroll;
+        wrap.scrollTop = wrap.scrollHeight;
         if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
         wfgLaRenderDecodeVRows(gi2);
         _wfgLaScopeFocusScrolling = false;
+      } else {
+        var center = (estTop + estBottom) / 2;
+        var halfH = wrap.clientHeight / 2;
+        var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+        var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
+        if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
+          _wfgLaScopeFocusScrolling = true;
+          wrap.scrollTop = desiredScroll;
+          if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
+          wfgLaRenderDecodeVRows(gi2);
+          _wfgLaScopeFocusScrolling = false;
+        }
       }
     }
-    /* 從 DOM 量測精確位置：避免 row 實際高度 ≠ rowH 時藍框與 row 對不齊（半列偏移）
-       若目標 row 不在 DOM（被虛擬化掉了），fallback 用估算式 */
+    /* 從 DOM 量測精確位置 */
     var tbody2 = wrap.querySelector('tbody');
-    var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
-    var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
     var top, bottom;
-    if (firstRow && lastRow) {
-      top = firstRow.offsetTop;
-      bottom = lastRow.offsetTop + lastRow.offsetHeight;
+    if (frameAtEnd) {
+      /* v2.97.306: 找 DOM 中最後一個渲染的 tr[data-vrow-idx]，frame 放在其下方 + 3rowH 間距 */
+      var allVRows = tbody2 ? tbody2.querySelectorAll('tr[data-vrow-idx]') : [];
+      var lastRendered = allVRows.length ? allVRows[allVRows.length - 1] : null;
+      if (lastRendered) {
+        var lastBottom = lastRendered.offsetTop + lastRendered.offsetHeight;
+        top = lastBottom + 3 * rowH;
+        bottom = top + rowH;
+      } else {
+        /* fallback: 用 wrap.scrollHeight 作為基準（table 實際高度） */
+        var table2 = wrap.querySelector('table');
+        var tableH = table2 ? table2.offsetHeight : wrap.scrollHeight;
+        top = tableH + 2 * rowH;
+        bottom = top + rowH;
+      }
     } else {
-      top = estTop;
-      bottom = estBottom;
+      var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
+      var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
+      if (firstRow && lastRow) {
+        top = firstRow.offsetTop;
+        bottom = lastRow.offsetTop + lastRow.offsetHeight;
+      } else {
+        top = estTop;
+        bottom = estBottom;
+      }
     }
     /* Math.round 消除亞像素抖動，stability check 跳過無變化的 DOM 寫入 */
     var newTop = Math.round(top - 1) + 'px';
@@ -9208,7 +9229,7 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.style.top = newTop;
       frame.style.height = newHeight;
     }
-    /* v2.97.305 fix: 位置更新後再做一次捲動檢查，確保 frame 可見
+    /* v2.97.306 fix: 位置更新後再做一次捲動檢查，確保 frame 可見
        （修復 AUX 區因 frame 在 rows.length 位置超出原 scrollHeight 而未正確捲動的 bug） */
     if (viewChanged && !posUnchanged2) {
       var fTop2 = parseFloat(frame.style.top) || 0;
@@ -11946,7 +11967,7 @@ function wfgLaRenderDecodeResults() {
     }, { passive: true });
     wfgLaRenderDecodeVRows(i);
   });
-  /* v2.97.305: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
+  /* v2.97.306: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
   _wfgLaLastFocusViewStart = NaN;
   _wfgLaLastFocusViewEnd = NaN;
   _wfgLaLastFocusVgroupCount = -1;
