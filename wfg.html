@@ -651,7 +651,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.324</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.325</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -8169,7 +8169,8 @@ function wfgLaAssignTriggerZero(decoded, cfg, actualTriggerTimeSec) {
   return decoded;
 }
 
-function wfgLaApplyCapturedWaveform(decoded) {
+function wfgLaApplyCapturedWaveform(decoded, options) {
+  options = options || {};
   var oldDuration = wfgLaCaptureDuration();
   var oldStart = wfgLaViewStart;
   var oldEnd = wfgLaViewEnd;
@@ -8232,8 +8233,8 @@ function wfgLaApplyCapturedWaveform(decoded) {
       wfgLaCursorPos[ci] = Math.max(0, Math.min(newDuration, cursorTriggerTime + oldCursorRel[ci]));
     }
   }
-  wfgLaRunAnalyzers();
-  wfgLaRenderScope();
+  if (!options.skipAnalyzers) wfgLaRunAnalyzers();
+  if (!options.skipRender) wfgLaRenderScope();
   return activeChannels;
 }
 
@@ -11071,6 +11072,36 @@ function wfgLaRunAnalyzers() {
   wfgLaDecodeResults = results;
   wfgLaRenderDecodeResults();
 }
+
+function wfgLaApplyPresetDecodeResults(groups) {
+  if (!groups || !groups.length) return false;
+  wfgLaDecodeResults = groups.map(function(group, idx) {
+    var analyzer = wfgLaAnalyzers[idx] || { id: wfgLaAnalyzerNextId++, type: group.analyzerType || '', config: {} };
+    var rows = (group.rows || []).map(function(row, ri) {
+      var copy = Object.assign({}, row);
+      copy._idx = ri;
+      if (!copy.label) copy.label = wfgLaI2cRowLabel(copy) || copy.data || copy.value || '';
+      return copy;
+    });
+    return { analyzer: analyzer, rows: rows, note: group.note || '' };
+  });
+  wfgLaRenderDecodeResults();
+  return true;
+}
+
+window.wfgLaExportCurrentDecodeSnapshot = function() {
+  return (wfgLaDecodeResults || []).map(function(group) {
+    return {
+      analyzerType: group && group.analyzer ? group.analyzer.type : '',
+      note: group && group.note ? group.note : '',
+      rows: (group && group.rows ? group.rows : []).map(function(row) {
+        var copy = Object.assign({}, row);
+        delete copy._idx;
+        return copy;
+      })
+    };
+  });
+};
 
 function wfgLaSetDecodeSearch(value) {
   wfgLaDecodeSearch = String(value || '').trim().toLowerCase();
@@ -21112,6 +21143,12 @@ function wfgHideProgress() {
   document.body.classList.remove('wfg-progress-blocking');
 }
 function wfgYield() { return new Promise(function(r) { setTimeout(r, 0); }); }
+function wfgPaint() {
+  return new Promise(function(resolve) {
+    requestAnimationFrame(function() { requestAnimationFrame(resolve); });
+  });
+}
+function wfgDelay(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
 
 var _wfgEnterPageSeq = 0;
 var _wfgEnterPageReady = false;
@@ -21468,25 +21505,35 @@ async function wfgLaApplyQuickPreset(id) {
     if (preset.snapshotUrl) {
       wfgShowProgress(8, '載入快捷範例…');
       wfgLaSetAcqProgress(8, '載入快捷範例', 'active');
-      await wfgYield();
+      await wfgPaint();
       var snapshot = await wfgLaLoadPresetSnapshot(preset);
       if (seq !== _wfgLaQuickPresetSeq) return;
-      wfgShowProgress(35, '解析快捷範例…');
-      await wfgYield();
+      wfgShowProgress(30, '解析快捷範例…');
+      wfgLaSetAcqProgress(30, '解析快捷範例', 'active');
+      await wfgPaint();
       var parsedKvdat = wfgLaSnapshotToParsedKvdat(snapshot);
       if (seq !== _wfgLaQuickPresetSeq) return;
-      wfgShowProgress(72, t('wfg.progressRender'));
-      await wfgYield();
+      wfgShowProgress(55, '套用快捷設定…');
+      wfgLaSetAcqProgress(55, '套用快捷設定', 'active');
+      await wfgPaint();
+      wfgShowProgress(70, '分析並渲染波形…');
+      wfgLaSetAcqProgress(70, '分析並渲染波形', 'active');
+      await wfgPaint();
       wfgLaApplyParsedKvdatCapture(parsedKvdat, preset.fileName, {
         thresholdV: preset.thresholdV,
         decodeExpanded: !!preset.decodeExpanded,
         view: preset.view,
         displayView: preset.displayView,
-        focusDisplayTime: preset.focusDisplayTime
+        focusDisplayTime: preset.focusDisplayTime,
+        decodeResults: snapshot.decodeResults
       });
+      wfgShowProgress(95, t('wfg.progressRender'));
+      wfgLaSetAcqProgress(95, t('wfg.progressRender'), 'active');
+      await wfgPaint();
       wfgLaSetAcqProgress(100, t('wfg.laQuickPresetApplied', { name: t(preset.nameKey) }), 'done');
       wfgShowProgress(100, t('wfg.progressDone'));
-      await wfgYield();
+      await wfgPaint();
+      await wfgDelay(420);
     } else {
       var parsed = wfgLaParseSettingsXml(preset.xml);
       wfgLaApplyParsedSettings(parsed, {
@@ -21640,18 +21687,6 @@ function wfgLaBase64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
-function wfgLaDecodeUvarint(bytes, state) {
-  var shift = 0;
-  var value = 0;
-  while (state.pos < bytes.length) {
-    var b = bytes[state.pos++];
-    value += (b & 0x7f) * Math.pow(2, shift);
-    if (!(b & 0x80)) return value;
-    shift += 7;
-  }
-  return value;
-}
-
 function wfgLaSnapshotToParsedKvdat(snapshot) {
   var parsed = {
     xml: '',
@@ -21665,23 +21700,52 @@ function wfgLaSnapshotToParsedKvdat(snapshot) {
     channels: []
   };
   (snapshot && snapshot.channels ? snapshot.channels : []).forEach(function(info) {
-    var deltaBytes = new Uint8Array(wfgLaBase64ToArrayBuffer(info.edgeDeltasB64 || ''));
     var count = Math.max(0, Number(info.edgeCount) || 0);
-    var edgesRaw = new Float64Array(count);
     var edgesSec = new Float64Array(count);
-    var state = { pos: 0 };
-    var raw = 0;
-    for (var i = 0; i < count; i++) {
-      raw += wfgLaDecodeUvarint(deltaBytes, state);
-      edgesRaw[i] = raw;
-      edgesSec[i] = raw / parsed.sampleRateHz;
+    if (info.edgeBlocksB64) {
+      var blockBytes = new Uint8Array(wfgLaBase64ToArrayBuffer(info.edgeBlocksB64));
+      var pos = 0;
+      var out = 0;
+      var invRate = 1 / parsed.sampleRateHz;
+      while (pos < blockBytes.length && out < count) {
+        var blockCount = blockBytes[pos++] || 0;
+        var width = blockBytes[pos++] || 1;
+        var base = blockBytes[pos] + blockBytes[pos + 1] * 256 + blockBytes[pos + 2] * 65536 + blockBytes[pos + 3] * 16777216 + blockBytes[pos + 4] * 4294967296;
+        pos += 5;
+        edgesSec[out++] = base * invRate;
+        for (var bi = 1; bi < blockCount && out < count; bi++) {
+          var offset = 0;
+          var mul = 1;
+          for (var wi = 0; wi < width; wi++) {
+            offset += blockBytes[pos++] * mul;
+            mul *= 256;
+          }
+          edgesSec[out++] = (base + offset) * invRate;
+        }
+      }
+    } else {
+      var deltaBytes = new Uint8Array(wfgLaBase64ToArrayBuffer(info.edgeDeltasB64 || ''));
+      var p = 0;
+      var raw = 0;
+      for (var i = 0; i < count; i++) {
+        var value = 0;
+        var mult = 1;
+        while (p < deltaBytes.length) {
+          var b = deltaBytes[p++];
+          value += (b & 0x7f) * mult;
+          if (!(b & 0x80)) break;
+          mult *= 128;
+        }
+        raw += value;
+        edgesSec[i] = raw / parsed.sampleRateHz;
+      }
     }
     var idx = Math.max(0, Math.min(15, Number(info.index) || 0));
     parsed.channels.push({
       index: idx,
       name: info.name || (snapshot.channelNames && snapshot.channelNames[idx]) || ('CH' + idx),
       color: info.color || (snapshot.channelColors && snapshot.channelColors[idx]) || WFG_CH_COLORS[idx % WFG_CH_COLORS.length],
-      edges: edgesRaw,
+      edges: null,
       edgesSec: edgesSec,
       edgeCount: count,
       rawEdgeCount: count,
@@ -21703,7 +21767,7 @@ function wfgLaLoadPresetSnapshot(preset) {
   WFG_LA_PRESET_SNAPSHOT_PROMISES[preset.id] = new Promise(function(resolve, reject) {
     var script = document.createElement('script');
     script.async = true;
-    script.src = preset.snapshotUrl + '?v=2.97.324';
+    script.src = preset.snapshotUrl + '?v=2.97.325';
     script.onload = function() {
       var snapshot = window.WFG_LA_PRESET_SNAPSHOTS && window.WFG_LA_PRESET_SNAPSHOTS[preset.id];
       if (!snapshot) {
@@ -21797,14 +21861,14 @@ function wfgLaApplyParsedKvdatCapture(parsed, fileName, options) {
       }
     });
   }
-  wfgLaRenderAnalyzers();
-  wfgLaSetChannelsList(activeChannels.length ? activeChannels : [0], true);
-  wfgLaApplyVisibleChannelOrder(activeChannels.concat(wfgLaChannelOrder));
-  wfgLaApplyCapturedWaveform(decoded);
   if (options.decodeExpanded) {
     wfgLaDecodeExpanded = true;
     wfgLaApplyDecodeExpandedState();
   }
+  wfgLaRenderAnalyzers();
+  wfgLaSetChannelsList(activeChannels.length ? activeChannels : [0], true);
+  wfgLaApplyVisibleChannelOrder(activeChannels.concat(wfgLaChannelOrder));
+  wfgLaApplyCapturedWaveform(decoded, { skipAnalyzers: true, skipRender: true });
   var view = options.view || null;
   if (options.displayView) {
     var triggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
@@ -21815,17 +21879,16 @@ function wfgLaApplyParsedKvdatCapture(parsed, fileName, options) {
   }
   if (view && isFinite(Number(view.start)) && isFinite(Number(view.end)) && Number(view.end) > Number(view.start)) {
     wfgLaSetViewRange(Number(view.start), Number(view.end));
-    wfgLaRenderScope();
   }
   wfgLaIoSelectLockUntil = 0; /* 確保 scope labels 能重建 */
-  wfgLaRunAnalyzers();
-  wfgLaRenderDecodeResults();
+  if (!wfgLaApplyPresetDecodeResults(options.decodeResults)) wfgLaRunAnalyzers();
   if (options.focusDisplayTime != null) {
     var focusTriggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
     wfgLaFocusDecodeRowNearTime(Number(options.focusDisplayTime) + focusTriggerZero);
   } else if (view) {
     wfgLaFocusDecodeRowNearTime((Number(view.start) + Number(view.end)) / 2);
   }
+  wfgLaRenderScope();
   return decoded;
 }
 
