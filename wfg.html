@@ -651,7 +651,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.327</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.328</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -11973,18 +11973,32 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
           if (bitW < 3.5) return;
           var dpAuxSnapEdges = null;
-          function snapDpAuxBitTime(t) {
+          function snapDpAuxBitTime(t, bitVal) {
             if (analyzer.type !== 'dp_aux' || !drawBitT || times.length) return t;
             if (!dpAuxSnapEdges) {
               var auxWave = wfgLaGetWaveform(cfg, ch);
               dpAuxSnapEdges = auxWave && auxWave.edges ? auxWave.edges : [];
             }
-            if (!dpAuxSnapEdges.length) return t;
+            if (!dpAuxSnapEdges.length) return NaN;
             var edgeIdx = wfgLaLowerBound(dpAuxSnapEdges, t);
+            var auxWave2 = wfgLaGetWaveform(cfg, ch);
+            var init = ((auxWave2 && auxWave2.initialLevel ? 1 : 0) ^ ((analyzer.config && analyzer.config.polarity) === 'invert' ? 1 : 0));
+            var desired = Number(bitVal) ? 'falling' : 'rising';
             var best = null;
-            if (edgeIdx < dpAuxSnapEdges.length) best = dpAuxSnapEdges[edgeIdx];
-            if (edgeIdx > 0 && (best == null || Math.abs(dpAuxSnapEdges[edgeIdx - 1] - t) < Math.abs(best - t))) best = dpAuxSnapEdges[edgeIdx - 1];
-            return best != null && Math.abs(best - t) <= drawBitT * 0.45 ? best : t;
+            var bestDist = Infinity;
+            for (var off = -3; off <= 3; off++) {
+              var candIdx = edgeIdx + off;
+              if (candIdx < 0 || candIdx >= dpAuxSnapEdges.length) continue;
+              var before = (init + (candIdx & 1)) & 1;
+              var edgeType = before ? 'falling' : 'rising';
+              if (edgeType !== desired) continue;
+              var dist = Math.abs(dpAuxSnapEdges[candIdx] - t);
+              if (dist < bestDist) {
+                best = dpAuxSnapEdges[candIdx];
+                bestDist = dist;
+              }
+            }
+            return best != null && bestDist <= drawBitT * 0.70 ? best : NaN;
           }
           ctx.font = 'bold 11px "SF Mono", Consolas, monospace';
           ctx.fillStyle = '#ffffff';
@@ -11996,7 +12010,8 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
               var bitVal = (rawBytes[rb] >> bi) & 1;
               var bitTime = times[bitIdx];
               if (bitTime == null) bitTime = drawPayloadStart + (bitIdx + 0.5) * drawBitT;
-              bitTime = snapDpAuxBitTime(bitTime);
+              bitTime = snapDpAuxBitTime(bitTime, bitVal);
+              if (!isFinite(bitTime)) continue;
               if (bitTimeInRanges(bitTime, drawBitT, skipRanges)) continue;
               var bx = xOf(bitTime);
               if (bx < g.drawX0 || bx > g.cssW) continue;
@@ -21782,7 +21797,7 @@ function wfgLaLoadPresetSnapshot(preset) {
   WFG_LA_PRESET_SNAPSHOT_PROMISES[preset.id] = new Promise(function(resolve, reject) {
     var script = document.createElement('script');
     script.async = true;
-    script.src = preset.snapshotUrl + '?v=2.97.327';
+    script.src = preset.snapshotUrl + '?v=2.97.328';
     script.onload = function() {
       var snapshot = window.WFG_LA_PRESET_SNAPSHOTS && window.WFG_LA_PRESET_SNAPSHOTS[preset.id];
       if (!snapshot) {
