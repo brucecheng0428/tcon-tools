@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.302</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.303</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3409,6 +3409,10 @@ var wfgLaDecodeVGroups = [];
 var wfgLaDecodeRowH = 23;
 var _wfgLaDecodeScrollRaf = {};
 var _wfgLaScopeFocusScrolling = false;
+/* v2.97.303: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
+var _wfgLaLastFocusViewStart = NaN;
+var _wfgLaLastFocusViewEnd = NaN;
+var _wfgLaLastFocusVgroupCount = -1;
 var WFG_LA_I2C_MEASURE_KVDAT_B64 = [
   'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjxzZXR0aW5ncz4NCiAgICA8Z2xvYmFsPg0KICAgICAgICA8',
   'dmVyc2lvbj4zLjYuNDwvdmVyc2lvbj4NCiAgICAgICAgPGRldk1vZGVsPjc8L2Rldk1vZGVsPg0KICAgICAgICA8b3NjQ3Vyc29y',
@@ -9087,6 +9091,19 @@ function wfgLaDecodeSearchText(group, row) {
 }
 
 function wfgLaApplyDecodeScopeFocus() {
+  /* v2.97.303: dirty tracking — view range 與 group 數量都未變化則 skip。
+     mousemove 透過 rAF 高頻呼叫 wfgLaRenderScope→wfgLaRenderMinimap→wfgLaApplyDecodeScopeFocus，
+     雖然位置字串比較會 short-circuit DOM 寫入，但 thead.offsetHeight / wrap.scrollTop / wrap.clientHeight
+     的 read 仍會 force layout sync，在波形 canvas 上 hover 時造成藍框可見抖動。 */
+  if (
+    _wfgLaLastFocusViewStart === wfgLaViewStart &&
+    _wfgLaLastFocusViewEnd === wfgLaViewEnd &&
+    _wfgLaLastFocusVgroupCount === wfgLaDecodeVGroups.length
+  ) return;
+  var viewChanged = (_wfgLaLastFocusViewStart !== wfgLaViewStart || _wfgLaLastFocusViewEnd !== wfgLaViewEnd);
+  _wfgLaLastFocusViewStart = wfgLaViewStart;
+  _wfgLaLastFocusViewEnd = wfgLaViewEnd;
+  _wfgLaLastFocusVgroupCount = wfgLaDecodeVGroups.length;
   /* 用 wfgLaDecodeVGroups 資料計算藍框位置，不查 DOM rows */
   var rowH = wfgLaDecodeRowH;
   /* 每個 group 獨立判斷 in-view，不再用全域 anyInView 避免邊界閃動 */
@@ -9145,16 +9162,23 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
-    /* 先用 rowH 估算位置，判斷是否需要 scroll；scroll 完成後再從 DOM 量測精確 row 位置 */
+    /* 先用 rowH 估算位置；view range 變化時據此 scroll；scroll 後再從 DOM 量測精確 row 位置 */
     var estTop = theadH + displayFirst * rowH;
     var estBottom = theadH + (displayLast + 1) * rowH;
-    var pad = 28;
-    if (estTop < wrap.scrollTop + pad || estBottom > wrap.scrollTop + wrap.clientHeight - pad) {
-      _wfgLaScopeFocusScrolling = true;
-      wrap.scrollTop = Math.max(0, estTop - pad);
-      if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
-      wfgLaRenderDecodeVRows(gi2);
-      _wfgLaScopeFocusScrolling = false;
+    /* v2.97.303: view range 變化（zoom/pan）時主動把藍框中心對齊 wrap 視野中央，
+       讓對應的解碼 row 隨波形同步進入可見區。view 未變則尊重使用者手動捲動。 */
+    if (viewChanged) {
+      var center = (estTop + estBottom) / 2;
+      var halfH = wrap.clientHeight / 2;
+      var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+      var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
+      if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
+        _wfgLaScopeFocusScrolling = true;
+        wrap.scrollTop = desiredScroll;
+        if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
+        wfgLaRenderDecodeVRows(gi2);
+        _wfgLaScopeFocusScrolling = false;
+      }
     }
     /* 從 DOM 量測精確位置：避免 row 實際高度 ≠ rowH 時藍框與 row 對不齊（半列偏移）
        若目標 row 不在 DOM（被虛擬化掉了），fallback 用估算式 */
@@ -11901,6 +11925,10 @@ function wfgLaRenderDecodeResults() {
     }, { passive: true });
     wfgLaRenderDecodeVRows(i);
   });
+  /* v2.97.303: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
+  _wfgLaLastFocusViewStart = NaN;
+  _wfgLaLastFocusViewEnd = NaN;
+  _wfgLaLastFocusVgroupCount = -1;
   wfgLaApplyDecodeScopeFocus();
 }
 
