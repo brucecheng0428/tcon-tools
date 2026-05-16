@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.300</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.301</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -4072,10 +4072,10 @@ function wfgLaInit() {
       var savedPreset = localStorage.getItem('wfg-la-quick-preset');
       if (savedPreset) setTimeout(function() { wfgLaApplyQuickPreset(savedPreset); }, 0);
     } catch(e) { /* localStorage 不可用時忽略 */ }
-    /* v2.97.300: cursor 按鈕 touch/click event delegation（取代 inline onclick）
+    /* v2.97.301: cursor 按鈕 touch/click event delegation（取代 inline onclick）
        必須放在 if(!wfgLaInitialized) 內，只註冊一次。
        v2.97.286 問題：touchend + inline onclick 雙觸發導致 double toggle。
-       v2.97.300 問題：delegation 在 init 外面，wfgLaInit() 每次呼叫重複註冊 N 個 handler。
+       v2.97.301 問題：delegation 在 init 外面，wfgLaInit() 每次呼叫重複註冊 N 個 handler。
        修復：移入 init 內只註冊一次，touchend + click delegation 搭配 flag 防 double toggle。 */
     (function() {
       var cl = document.getElementById('wfg-la-cursor-cluster');
@@ -4100,7 +4100,7 @@ function wfgLaInit() {
       });
     })();
   }
-  /* v2.97.300: 以下三行必須在 if 外面，每次 wfgLaInit() 呼叫都要執行 */
+  /* v2.97.301: 以下三行必須在 if 外面，每次 wfgLaInit() 呼叫都要執行 */
   wfgLaBindScopeEvents();
   wfgLaInstallUsbWatchers();
   wfgLaUpdateCursorButtons();
@@ -9110,7 +9110,7 @@ function wfgLaApplyDecodeScopeFocus() {
       }
     }
     if (displayFirst < 0) {
-      /* 沒有 in-view rows → fallback 找最近的 */
+      /* 沒有 in-view rows → fallback 固定在最近的單一筆 row（不跨行框兩筆，避免高倍率下藍框抖動） */
       var beforeIdx = -1, afterIdx = -1;
       for (var j = 0; j < rows.length; j++) {
         var js = Number(rows[j].time) || 0;
@@ -9122,11 +9122,18 @@ function wfgLaApplyDecodeScopeFocus() {
           if (afterIdx < 0 || js < (Number(rows[afterIdx].time) || 0)) afterIdx = j;
         }
       }
-      if (beforeIdx >= 0) { displayFirst = beforeIdx; displayLast = beforeIdx; }
-      if (afterIdx >= 0) {
-        if (displayFirst < 0) displayFirst = afterIdx;
-        displayLast = afterIdx;
+      /* 取距離 viewport 較近的那一筆，只框單行 */
+      var nearest = -1;
+      if (beforeIdx >= 0 && afterIdx >= 0) {
+        var distBefore = wfgLaViewStart - (Number(rows[beforeIdx].endTime) || Number(rows[beforeIdx].time) || 0);
+        var distAfter = (Number(rows[afterIdx].time) || 0) - wfgLaViewEnd;
+        nearest = distBefore <= distAfter ? beforeIdx : afterIdx;
+      } else if (beforeIdx >= 0) {
+        nearest = beforeIdx;
+      } else if (afterIdx >= 0) {
+        nearest = afterIdx;
       }
+      if (nearest >= 0) { displayFirst = nearest; displayLast = nearest; }
       if (displayFirst < 0) { displayFirst = 0; displayLast = 0; }
     }
     var top = theadH + displayFirst * rowH;
@@ -9136,9 +9143,13 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
+    /* 穩定性檢查：若位置未變則跳過 DOM 更新，避免無謂 reflow 引起抖動 */
+    var newTop = (top - 1) + 'px';
+    var newHeight = Math.max(4, bottom - top + 2) + 'px';
+    if (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '') continue;
     frame.style.display = '';
-    frame.style.top = (top - 1) + 'px';
-    frame.style.height = Math.max(4, bottom - top + 2) + 'px';
+    frame.style.top = newTop;
+    frame.style.height = newHeight;
     /* 自動捲動此 wrap 到藍框可見位置 */
     var pad = 28;
     if (top < wrap.scrollTop + pad || bottom > wrap.scrollTop + wrap.clientHeight - pad) {
