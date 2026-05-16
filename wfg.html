@@ -641,7 +641,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.314</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.315</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3360,6 +3360,7 @@ var wfgLaTriggerFocusActive = false;
 var wfgLaGeom = null;
 var wfgLaLastAxisInfo = null;
 var wfgLaHoverRenderRaf = 0;
+var wfgLaScopeRenderRaf = 0;
 var wfgLaChannelDrag = null;
 var wfgLaDemoEdges = {};
 var wfgLaCapturedWaveform = null;
@@ -5338,6 +5339,14 @@ function wfgLaRequestHoverRender() {
   });
 }
 
+function wfgLaRequestScopeRender() {
+  if (wfgLaScopeRenderRaf) return;
+  wfgLaScopeRenderRaf = requestAnimationFrame(function() {
+    wfgLaScopeRenderRaf = 0;
+    wfgLaRenderScope();
+  });
+}
+
 function wfgLaBindScopeEvents() {
   var canvas = document.getElementById('wfg-la-canvas');
   var surface = document.getElementById('wfg-la-canvas-area') || canvas;
@@ -5523,11 +5532,12 @@ function wfgLaBindScopeEvents() {
       var dt = (e.deltaY || e.deltaX) / 900 * range;
       if (Math.abs(dt) > 0) wfgLaMarkManualViewChange();
       wfgLaSetViewRange(wfgLaViewStart + dt, wfgLaViewEnd + dt);
-      wfgLaRenderScope();
+      wfgLaRequestScopeRender();
     } else {
       var factor = e.deltaY < 0 ? 0.8 : 1.25;
       wfgLaMarkManualViewChange();
-      wfgLaZoomAt(info.time, factor);
+      wfgLaZoomAt(info.time, factor, { skipRender: true });
+      wfgLaRequestScopeRender();
     }
   }, { passive: false });
   surface.addEventListener('click', function(e) {
@@ -5812,7 +5822,8 @@ function wfgLaTriggerAnchorFraction(cfg) {
   return Math.max(0, Math.min(1, Number(cfg.trigger && cfg.trigger.positionPercent) / 100 || 0));
 }
 
-function wfgLaZoomAt(anchorTime, factor) {
+function wfgLaZoomAt(anchorTime, factor, options) {
+  options = options || {};
   var duration = wfgLaCaptureDuration();
   var start = wfgLaViewStart;
   var end = wfgLaViewEnd;
@@ -5823,7 +5834,7 @@ function wfgLaZoomAt(anchorTime, factor) {
   anchorFrac = Math.max(0, Math.min(1, anchorFrac));
   var newStart = anchorTime - range * anchorFrac;
   wfgLaSetViewRange(newStart, newStart + range);
-  wfgLaRenderScope();
+  if (!options.skipRender) wfgLaRenderScope();
 }
 
 function wfgLaManualStopDisplayDuration() {
@@ -6133,6 +6144,7 @@ function wfgLaComputeRowLayout(channelCount, areaHeight) {
 }
 
 function wfgLaRenderScope() {
+  wfgLaScopeRenderRaf = 0;
   var canvas = document.getElementById('wfg-la-canvas');
   if (!canvas) return;
   var cfg = wfgLaBuildConfig();
@@ -6308,8 +6320,13 @@ function wfgLaRenderScope() {
     while (visibleEnd < edges.length && edges[visibleEnd] <= tEnd) visibleEnd++;
     var visibleCount = visibleEnd - edgesBeforeView;
     var level = ((wave.initialLevel ? 1 : 0) + edgesBeforeView) % 2;
-    ctx.fillStyle = ci % 2 ? 'rgba(15,23,42,0.28)' : 'rgba(2,6,23,0.22)';
-    ctx.fillRect(labelW, y0, drawW, rowStep - 4);
+    var hasDecodeLane = wfgLaChannelHasDecodeLane(ch);
+    var rowFillY = hasDecodeLane ? Math.max(y0, yHigh - 2) : y0;
+    var rowFillH = Math.max(0, y0 + rowStep - 4 - rowFillY);
+    if (rowFillH > 0) {
+      ctx.fillStyle = ci % 2 ? 'rgba(15,23,42,0.28)' : 'rgba(2,6,23,0.22)';
+      ctx.fillRect(labelW, rowFillY, drawW, rowFillH);
+    }
     ctx.strokeStyle = '#263241';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -12101,8 +12118,9 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
       stroke: 'rgba(254,202,202,0.82)'
     } : {
       key: 'i2c-normal',
-      fill: 'rgba(56,189,248,0.18)',
-      stroke: 'rgba(125,211,252,0.64)'
+      fill: 'rgba(56,189,248,0.78)',
+      stroke: 'rgba(125,211,252,0.82)',
+      stripe: true
     };
   }
   function drawCoarseDecodeCoverage() {
@@ -12250,11 +12268,14 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         var keyI2c = wfgLaDecodeRowKey(group, row);
         var selectedI2c = keyI2c === wfgLaDecodeSelectedKey;
         var isI2cProblem = (row.ack === 'NACK' && !row.normalNack) || row.ack === 'ERR';
+        var rowPx = Math.abs(xOf(rowEnd) - xOf(rowStart));
+        var drawI2cByteRegions = selectedI2c || isI2cProblem || rowPx >= 3.5;
+        var drawI2cByteText = rowPx >= 18;
         function i2cOwnerColor(owner, isAckProblem) {
           if (isAckProblem) return { fill: 'rgba(220,38,38,0.62)', stroke: 'rgba(248,113,113,0.98)' };
           return owner === 'slave'
-            ? { fill: 'rgba(20,184,166,0.52)', stroke: 'rgba(94,234,212,0.96)' }
-            : { fill: 'rgba(37,99,235,0.52)', stroke: 'rgba(147,197,253,0.96)' };
+            ? { fill: 'rgba(20,184,166,0)', stroke: 'rgba(94,234,212,0.96)' }
+            : { fill: 'rgba(37,99,235,0)', stroke: 'rgba(147,197,253,0.96)' };
         }
         function i2cOwnerPrefix(owner) {
           return owner === 'slave' ? 'S' : 'M';
@@ -12279,9 +12300,11 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           return String(7 - bitIndex);
         }
         if (row.type === 'START' || row.type === 'STOP') {
-          var markerFill = row.type === 'START' ? 'rgba(14,116,144,0.88)' : 'rgba(126,34,206,0.88)';
-          var markerStroke = row.type === 'START' ? '#67e8f9' : '#d8b4fe';
-          drawI2cRegion(ctx, row.time, row.endTime || row.time, overlayY, overlayH, row.type, markerFill, markerStroke, 18);
+          if (drawI2cByteRegions) {
+            var markerFill = row.type === 'START' ? 'rgba(14,116,144,0.88)' : 'rgba(126,34,206,0.88)';
+            var markerStroke = row.type === 'START' ? '#67e8f9' : '#d8b4fe';
+            drawI2cRegion(ctx, row.time, row.endTime || row.time, overlayY, overlayH, drawI2cByteText ? row.type : null, markerFill, markerStroke, 18);
+          }
           continue;
         }
         var bits = row.i2cBits || [];
@@ -12289,6 +12312,9 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         var ackBit = bits[8] || null;
         var dataStart = dataBits.length ? Number(dataBits[0].startTime) : rowStart;
         var dataEnd = dataBits.length ? Number(dataBits[dataBits.length - 1].endTime) : rowEnd;
+        var dataPx = Math.abs(xOf(dataEnd) - xOf(dataStart));
+        var bitPx = dataBits.length ? dataPx / dataBits.length : rowPx / 9;
+        var drawI2cBitLabels = bitPx >= 5.5 && rowPx >= 24;
         if (isI2cProblem) {
           var problemBottom = Math.min(i2cYBase + g.rowStep - 5, i2cMetrics.yLow + 7);
           drawI2cProblemGlass(ctx, rowStart, rowEnd, overlayY, problemBottom, row.ack === 'NACK' && !row.normalNack ? 'NACK' : 'ERR');
@@ -12298,23 +12324,25 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         var dataLabels = row.type === 'ADDR'
           ? i2cAddressOverlayLabels()
           : [i2cOwnerPrefix(dataOwner) + ': ' + i2cRawByteLabel(row.raw), i2cOwnerPrefix(dataOwner)];
-        drawI2cRegion(ctx, dataStart, dataEnd, overlayY, overlayH, dataLabels, dataColor.fill, dataColor.stroke, 14);
+        if (drawI2cByteRegions) drawI2cRegion(ctx, dataStart, dataEnd, overlayY, overlayH, drawI2cByteText ? dataLabels : null, dataColor.fill, dataColor.stroke, 14);
         if (ackBit) {
           var ackOwner = ackBit.sdaOwner || (row.rw === 'R' ? 'master' : 'slave');
           var ackProblem = !!(ackBit.value && !row.normalNack);
           var ackColor = i2cOwnerColor(ackOwner, ackProblem);
           var ackText = ackBit.value ? 'NACK' : 'ACK';
-          drawI2cRegion(ctx, ackBit.startTime, ackBit.endTime, overlayY, overlayH, [i2cOwnerPrefix(ackOwner) + ': ' + ackText, ackText], ackColor.fill, ackColor.stroke, 14);
+          if (drawI2cByteRegions) drawI2cRegion(ctx, ackBit.startTime, ackBit.endTime, overlayY, overlayH, drawI2cByteText ? [i2cOwnerPrefix(ackOwner) + ': ' + ackText, ackText] : null, ackColor.fill, ackColor.stroke, 14);
         }
-        for (var ibi = 0; ibi < bits.length; ibi++) {
-          var ib = bits[ibi] || {};
-          if (isFinite(Number(ib.time))) drawI2cSmallLabel(ctx, xOf(Number(ib.time)), i2cCenterY, ib.bit === 'ACK' ? (ib.value ? '1' : '0') : String(ib.value ? 1 : 0), '#ffffff');
-          var sclChForBit = Number(row.sclChannel != null ? row.sclChannel : (analyzer.config && analyzer.config.scl));
-          var sclSlot = visibleChannels.indexOf(sclChForBit);
-          if (sclSlot >= 0 && isFinite(Number(ib.time))) {
-            var sclBase = g.axisH + sclSlot * g.rowStep;
-            var sclMetrics = wfgLaWaveRowMetrics(sclBase, g.rowStep, sclChForBit);
-            drawI2cSmallLabel(ctx, xOf(Number(ib.time)), (sclMetrics.yHigh + sclMetrics.yLow) * 0.5, i2cClockBitLabel(ib, ibi), ib.clockStretch ? '#fecaca' : '#fde68a');
+        if (drawI2cBitLabels) {
+          for (var ibi = 0; ibi < bits.length; ibi++) {
+            var ib = bits[ibi] || {};
+            if (isFinite(Number(ib.time))) drawI2cSmallLabel(ctx, xOf(Number(ib.time)), i2cCenterY, ib.bit === 'ACK' ? (ib.value ? '1' : '0') : String(ib.value ? 1 : 0), '#ffffff');
+            var sclChForBit = Number(row.sclChannel != null ? row.sclChannel : (analyzer.config && analyzer.config.scl));
+            var sclSlot = visibleChannels.indexOf(sclChForBit);
+            if (sclSlot >= 0 && isFinite(Number(ib.time))) {
+              var sclBase = g.axisH + sclSlot * g.rowStep;
+              var sclMetrics = wfgLaWaveRowMetrics(sclBase, g.rowStep, sclChForBit);
+              drawI2cSmallLabel(ctx, xOf(Number(ib.time)), (sclMetrics.yHigh + sclMetrics.yLow) * 0.5, i2cClockBitLabel(ib, ibi), ib.clockStretch ? '#fecaca' : '#fde68a');
+            }
           }
         }
         continue;
