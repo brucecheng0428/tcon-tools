@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.301</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.302</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -9110,57 +9110,72 @@ function wfgLaApplyDecodeScopeFocus() {
       }
     }
     if (displayFirst < 0) {
-      /* 沒有 in-view rows → fallback 固定在最近的單一筆 row（不跨行框兩筆，避免高倍率下藍框抖動） */
+      /* 沒有 in-view rows → 用索引（rows 已時間排序）判斷 view 位於資料的哪一側
+         以索引而非 endTime 排序，避免 STOP row endTime 較早等 non-monotonic 情況選錯 */
       var beforeIdx = -1, afterIdx = -1;
       for (var j = 0; j < rows.length; j++) {
         var js = Number(rows[j].time) || 0;
         var je = Math.max(js, Number(rows[j].endTime) || js);
-        if (je < wfgLaViewStart) {
-          if (beforeIdx < 0 || je > (Number(rows[beforeIdx].endTime) || Number(rows[beforeIdx].time) || 0)) beforeIdx = j;
-        }
-        if (js > wfgLaViewEnd) {
-          if (afterIdx < 0 || js < (Number(rows[afterIdx].time) || 0)) afterIdx = j;
-        }
+        if (je < wfgLaViewStart) beforeIdx = j; /* 取最後一個（rows 已按時間排序） */
+        if (afterIdx < 0 && js > wfgLaViewEnd) afterIdx = j; /* 取第一個 */
       }
-      /* 取距離 viewport 較近的那一筆，只框單行 */
-      var nearest = -1;
-      if (beforeIdx >= 0 && afterIdx >= 0) {
-        var distBefore = wfgLaViewStart - (Number(rows[beforeIdx].endTime) || Number(rows[beforeIdx].time) || 0);
+      if (beforeIdx >= 0 && afterIdx < 0) {
+        /* view 完全在資料右側 → 直接框最後一筆 row（rows.length - 1），而非最大 endTime */
+        displayFirst = rows.length - 1;
+        displayLast = rows.length - 1;
+      } else if (afterIdx >= 0 && beforeIdx < 0) {
+        /* view 完全在資料左側 → 直接框第一筆 */
+        displayFirst = 0;
+        displayLast = 0;
+      } else if (beforeIdx >= 0 && afterIdx >= 0) {
+        /* view 落在中間的 gap，選距離較近的單一 row */
+        var bEnd = Math.max(Number(rows[beforeIdx].time) || 0, Number(rows[beforeIdx].endTime) || 0);
+        var distBefore = wfgLaViewStart - bEnd;
         var distAfter = (Number(rows[afterIdx].time) || 0) - wfgLaViewEnd;
-        nearest = distBefore <= distAfter ? beforeIdx : afterIdx;
-      } else if (beforeIdx >= 0) {
-        nearest = beforeIdx;
-      } else if (afterIdx >= 0) {
-        nearest = afterIdx;
+        var nearest = distBefore <= distAfter ? beforeIdx : afterIdx;
+        displayFirst = nearest;
+        displayLast = nearest;
+      } else {
+        displayFirst = 0;
+        displayLast = 0;
       }
-      if (nearest >= 0) { displayFirst = nearest; displayLast = nearest; }
-      if (displayFirst < 0) { displayFirst = 0; displayLast = 0; }
     }
-    var top = theadH + displayFirst * rowH;
-    var bottom = theadH + (displayLast + 1) * rowH;
     if (!frame) {
       frame = document.createElement('div');
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
-    /* 穩定性檢查：若位置未變則跳過 DOM 更新，避免無謂 reflow 引起抖動 */
-    var newTop = (top - 1) + 'px';
-    var newHeight = Math.max(4, bottom - top + 2) + 'px';
-    if (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '') continue;
-    frame.style.display = '';
-    frame.style.top = newTop;
-    frame.style.height = newHeight;
-    /* 自動捲動此 wrap 到藍框可見位置 */
+    /* 先用 rowH 估算位置，判斷是否需要 scroll；scroll 完成後再從 DOM 量測精確 row 位置 */
+    var estTop = theadH + displayFirst * rowH;
+    var estBottom = theadH + (displayLast + 1) * rowH;
     var pad = 28;
-    if (top < wrap.scrollTop + pad || bottom > wrap.scrollTop + wrap.clientHeight - pad) {
-      /* 設定 guard flag 防止 scroll event 觸發多餘的 rAF re-render */
+    if (estTop < wrap.scrollTop + pad || estBottom > wrap.scrollTop + wrap.clientHeight - pad) {
       _wfgLaScopeFocusScrolling = true;
-      wrap.scrollTop = Math.max(0, top - pad);
-      /* 取消 pending rAF 並立即同步重繪 */
+      wrap.scrollTop = Math.max(0, estTop - pad);
       if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
       wfgLaRenderDecodeVRows(gi2);
       _wfgLaScopeFocusScrolling = false;
     }
+    /* 從 DOM 量測精確位置：避免 row 實際高度 ≠ rowH 時藍框與 row 對不齊（半列偏移）
+       若目標 row 不在 DOM（被虛擬化掉了），fallback 用估算式 */
+    var tbody2 = wrap.querySelector('tbody');
+    var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
+    var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
+    var top, bottom;
+    if (firstRow && lastRow) {
+      top = firstRow.offsetTop;
+      bottom = lastRow.offsetTop + lastRow.offsetHeight;
+    } else {
+      top = estTop;
+      bottom = estBottom;
+    }
+    /* Math.round 消除亞像素抖動，stability check 跳過無變化的 DOM 寫入 */
+    var newTop = Math.round(top - 1) + 'px';
+    var newHeight = Math.max(4, Math.round(bottom - top + 2)) + 'px';
+    if (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '') continue;
+    frame.style.display = '';
+    frame.style.top = newTop;
+    frame.style.height = newHeight;
   }
 }
 
@@ -11788,7 +11803,10 @@ function wfgLaRenderDecodeVRows(groupIdx) {
   var html = '';
   if (startIdx > 0) html += '<tr class="vscroll-spacer" style="height:' + (startIdx * rowH) + 'px"><td colspan="6"></td></tr>';
   for (var i = startIdx; i < endIdx; i++) {
-    html += vg.renderRow(vg.rows[i], vg.group);
+    var rowHtml = vg.renderRow(vg.rows[i], vg.group);
+    /* 注入 data-vrow-idx 以供 scope frame 從 DOM 精準量測 row 位置 */
+    rowHtml = rowHtml.replace('<tr ', '<tr data-vrow-idx="' + i + '" ');
+    html += rowHtml;
   }
   if (endIdx < totalRows) html += '<tr class="vscroll-spacer" style="height:' + ((totalRows - endIdx) * rowH) + 'px"><td colspan="6"></td></tr>';
   tbody.innerHTML = html;
