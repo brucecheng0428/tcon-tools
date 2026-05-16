@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.303</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.304</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3409,7 +3409,7 @@ var wfgLaDecodeVGroups = [];
 var wfgLaDecodeRowH = 23;
 var _wfgLaDecodeScrollRaf = {};
 var _wfgLaScopeFocusScrolling = false;
-/* v2.97.303: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
+/* v2.97.304: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
 var _wfgLaLastFocusViewStart = NaN;
 var _wfgLaLastFocusViewEnd = NaN;
 var _wfgLaLastFocusVgroupCount = -1;
@@ -9091,7 +9091,7 @@ function wfgLaDecodeSearchText(group, row) {
 }
 
 function wfgLaApplyDecodeScopeFocus() {
-  /* v2.97.303: dirty tracking — view range 與 group 數量都未變化則 skip。
+  /* v2.97.304: dirty tracking — view range 與 group 數量都未變化則 skip。
      mousemove 透過 rAF 高頻呼叫 wfgLaRenderScope→wfgLaRenderMinimap→wfgLaApplyDecodeScopeFocus，
      雖然位置字串比較會 short-circuit DOM 寫入，但 thead.offsetHeight / wrap.scrollTop / wrap.clientHeight
      的 read 仍會 force layout sync，在波形 canvas 上 hover 時造成藍框可見抖動。 */
@@ -9137,9 +9137,10 @@ function wfgLaApplyDecodeScopeFocus() {
         if (afterIdx < 0 && js > wfgLaViewEnd) afterIdx = j; /* 取第一個 */
       }
       if (beforeIdx >= 0 && afterIdx < 0) {
-        /* view 完全在資料右側 → 直接框最後一筆 row（rows.length - 1），而非最大 endTime */
-        displayFirst = rows.length - 1;
-        displayLast = rows.length - 1;
+        /* v2.97.304 fix: view 完全在資料右側 → 框到 rows.length 位置（空白區），
+           表示「目前視窗已超過所有解碼資料」，而非停留在最後一筆資料 row */
+        displayFirst = rows.length;
+        displayLast = rows.length;
       } else if (afterIdx >= 0 && beforeIdx < 0) {
         /* view 完全在資料左側 → 直接框第一筆 */
         displayFirst = 0;
@@ -9165,7 +9166,7 @@ function wfgLaApplyDecodeScopeFocus() {
     /* 先用 rowH 估算位置；view range 變化時據此 scroll；scroll 後再從 DOM 量測精確 row 位置 */
     var estTop = theadH + displayFirst * rowH;
     var estBottom = theadH + (displayLast + 1) * rowH;
-    /* v2.97.303: view range 變化（zoom/pan）時主動把藍框中心對齊 wrap 視野中央，
+    /* v2.97.304: view range 變化（zoom/pan）時主動把藍框中心對齊 wrap 視野中央，
        讓對應的解碼 row 隨波形同步進入可見區。view 未變則尊重使用者手動捲動。 */
     if (viewChanged) {
       var center = (estTop + estBottom) / 2;
@@ -9196,10 +9197,25 @@ function wfgLaApplyDecodeScopeFocus() {
     /* Math.round 消除亞像素抖動，stability check 跳過無變化的 DOM 寫入 */
     var newTop = Math.round(top - 1) + 'px';
     var newHeight = Math.max(4, Math.round(bottom - top + 2)) + 'px';
-    if (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '') continue;
-    frame.style.display = '';
-    frame.style.top = newTop;
-    frame.style.height = newHeight;
+    var posUnchanged2 = (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '');
+    if (!posUnchanged2) {
+      frame.style.display = '';
+      frame.style.top = newTop;
+      frame.style.height = newHeight;
+    }
+    /* v2.97.304 fix: 位置更新後再做一次捲動檢查，確保 frame 可見
+       （修復 AUX 區因 frame 在 rows.length 位置超出原 scrollHeight 而未正確捲動的 bug） */
+    if (viewChanged && !posUnchanged2) {
+      var fTop2 = parseFloat(frame.style.top) || 0;
+      var fBot2 = fTop2 + (parseFloat(frame.style.height) || 4);
+      if (fBot2 > wrap.scrollTop + wrap.clientHeight || fTop2 < wrap.scrollTop) {
+        _wfgLaScopeFocusScrolling = true;
+        wrap.scrollTop = Math.max(0, fTop2 - 28);
+        if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
+        wfgLaRenderDecodeVRows(gi2);
+        _wfgLaScopeFocusScrolling = false;
+      }
+    }
   }
 }
 
@@ -11925,7 +11941,7 @@ function wfgLaRenderDecodeResults() {
     }, { passive: true });
     wfgLaRenderDecodeVRows(i);
   });
-  /* v2.97.303: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
+  /* v2.97.304: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
   _wfgLaLastFocusViewStart = NaN;
   _wfgLaLastFocusViewEnd = NaN;
   _wfgLaLastFocusVgroupCount = -1;
