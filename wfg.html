@@ -638,7 +638,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.308</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.309</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -3409,7 +3409,7 @@ var wfgLaDecodeVGroups = [];
 var wfgLaDecodeRowH = 23;
 var _wfgLaDecodeScrollRaf = {};
 var _wfgLaScopeFocusScrolling = false;
-/* v2.97.308: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
+/* v2.97.309: scope focus dirty tracking — view range 與 group 數量未變則 skip，避免 mousemove rAF 高頻呼叫造成藍框抖動 */
 var _wfgLaLastFocusViewStart = NaN;
 var _wfgLaLastFocusViewEnd = NaN;
 var _wfgLaLastFocusVgroupCount = -1;
@@ -9091,10 +9091,10 @@ function wfgLaDecodeSearchText(group, row) {
 }
 
 function wfgLaApplyDecodeScopeFocus() {
-  /* v2.97.308: dirty tracking — view range 與 group 數量都未變化則 skip。
-     mousemove 透過 rAF 高頻呼叫 wfgLaRenderScope→wfgLaRenderMinimap→wfgLaApplyDecodeScopeFocus，
-     雖然位置字串比較會 short-circuit DOM 寫入，但 thead.offsetHeight / wrap.scrollTop / wrap.clientHeight
-     的 read 仍會 force layout sync，在波形 canvas 上 hover 時造成藍框可見抖動。 */
+  /* v2.97.309: 徹底修復藍框定位 — 放棄 rowH 估算，改用「強制渲染目標行→DOM量測→clamp」策略。
+     rowH=23 是名義行高，實際行因文字換行可達 28-44px；虛擬捲動 spacer 也用 rowH，
+     導致 tr.offsetTop 與估算值差距大。新策略：先粗估捲動位置讓目標行進入渲染範圍，
+     重繪後從 DOM 精確量測，最後 clamp 確保 frame 永不超出表格 tbody 實際範圍。 */
   if (
     _wfgLaLastFocusViewStart === wfgLaViewStart &&
     _wfgLaLastFocusViewEnd === wfgLaViewEnd &&
@@ -9104,16 +9104,13 @@ function wfgLaApplyDecodeScopeFocus() {
   _wfgLaLastFocusViewStart = wfgLaViewStart;
   _wfgLaLastFocusViewEnd = wfgLaViewEnd;
   _wfgLaLastFocusVgroupCount = wfgLaDecodeVGroups.length;
-  /* 用 wfgLaDecodeVGroups 資料計算藍框位置，不查 DOM rows */
   var rowH = wfgLaDecodeRowH;
-  /* 每個 group 獨立判斷 in-view，不再用全域 anyInView 避免邊界閃動 */
   for (var gi2 = 0; gi2 < wfgLaDecodeVGroups.length; gi2++) {
     var vg2 = wfgLaDecodeVGroups[gi2];
     if (!vg2 || !vg2.rows || !vg2.rows.length || !vg2.el) continue;
     var wrap = vg2.el;
     var frame = wrap.querySelector('.wfg-la-decode-scope-frame');
     var rows = vg2.rows;
-    /* 取得 thead 實際高度作為偏移 */
     var thead = wrap.querySelector('thead');
     var theadH = thead ? thead.offsetHeight : 23;
     var displayFirst = -1, displayLast = -1;
@@ -9127,26 +9124,21 @@ function wfgLaApplyDecodeScopeFocus() {
       }
     }
     if (displayFirst < 0) {
-      /* 沒有 in-view rows → 用索引（rows 已時間排序）判斷 view 位於資料的哪一側
-         以索引而非 endTime 排序，避免 STOP row endTime 較早等 non-monotonic 情況選錯 */
+      /* 沒有 in-view rows → 判斷 view 位於資料的哪一側 */
       var beforeIdx = -1, afterIdx = -1;
       for (var j = 0; j < rows.length; j++) {
         var js = Number(rows[j].time) || 0;
         var je = Math.max(js, Number(rows[j].endTime) || js);
-        if (je < wfgLaViewStart) beforeIdx = j; /* 取最後一個（rows 已按時間排序） */
-        if (afterIdx < 0 && js > wfgLaViewEnd) afterIdx = j; /* 取第一個 */
+        if (je < wfgLaViewStart) beforeIdx = j;
+        if (afterIdx < 0 && js > wfgLaViewEnd) afterIdx = j;
       }
       if (beforeIdx >= 0 && afterIdx < 0) {
-        /* v2.97.308: view 完全在資料右側 → clamp 到最後一筆實際資料行
-           藍框只能在實際資料行上，絕不能出現在表格外空白區域 */
         displayFirst = rows.length - 1;
         displayLast = rows.length - 1;
       } else if (afterIdx >= 0 && beforeIdx < 0) {
-        /* view 完全在資料左側 → 直接框第一筆 */
         displayFirst = 0;
         displayLast = 0;
       } else if (beforeIdx >= 0 && afterIdx >= 0) {
-        /* view 落在中間的 gap，選距離較近的單一 row */
         var bEnd = Math.max(Number(rows[beforeIdx].time) || 0, Number(rows[beforeIdx].endTime) || 0);
         var distBefore = wfgLaViewStart - bEnd;
         var distAfter = (Number(rows[afterIdx].time) || 0) - wfgLaViewEnd;
@@ -9163,15 +9155,14 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.className = 'wfg-la-decode-scope-frame';
       wrap.appendChild(frame);
     }
-    /* v2.97.308: 統一定位邏輯 — 移除 frameAtEnd 概念，藍框只停在實際資料行上 */
-    var estTop = theadH + displayFirst * rowH;
-    var estBottom = theadH + (displayLast + 1) * rowH;
-    /* view range 變化時統一用 center-in-view 算法捲動 */
+    /* v2.97.309: 強制讓目標行進入虛擬捲動渲染範圍，以便 DOM 量測 */
+    var targetScrollEst = displayFirst * rowH; /* 粗估：讓 displayFirst 出現在 viewport 頂部附近 */
+    /* view range 變化時捲動到目標行附近 */
     if (viewChanged) {
-      var center = (estTop + estBottom) / 2;
+      var centerEst = (displayFirst + displayLast + 1) * rowH / 2;
       var halfH = wrap.clientHeight / 2;
       var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-      var desiredScroll = Math.max(0, Math.min(maxScroll, center - halfH));
+      var desiredScroll = Math.max(0, Math.min(maxScroll, centerEst - halfH));
       if (Math.abs(desiredScroll - wrap.scrollTop) > 1) {
         _wfgLaScopeFocusScrolling = true;
         wrap.scrollTop = desiredScroll;
@@ -9180,19 +9171,46 @@ function wfgLaApplyDecodeScopeFocus() {
         _wfgLaScopeFocusScrolling = false;
       }
     }
-    /* 從 DOM 量測精確位置（虛擬捲動可能未渲染目標行，fallback 到估算值） */
+    /* 確保目標行在渲染範圍：如果 DOM 找不到，強制捲動+重繪一次 */
     var tbody2 = wrap.querySelector('tbody');
     var firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
+    if (!firstRow) {
+      /* 目標行不在 DOM → 強制捲動到目標位置並重繪 */
+      _wfgLaScopeFocusScrolling = true;
+      wrap.scrollTop = Math.max(0, targetScrollEst - 50);
+      if (_wfgLaDecodeScrollRaf[gi2]) { cancelAnimationFrame(_wfgLaDecodeScrollRaf[gi2]); _wfgLaDecodeScrollRaf[gi2] = 0; }
+      wfgLaRenderDecodeVRows(gi2);
+      _wfgLaScopeFocusScrolling = false;
+      firstRow = tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayFirst + '"]') : null;
+    }
     var lastRow = (displayLast === displayFirst) ? firstRow : (tbody2 ? tbody2.querySelector('tr[data-vrow-idx="' + displayLast + '"]') : null);
+    /* 如果 lastRow 也不在渲染範圍（跨很多行），嘗試用 firstRow 位置加上跨行估算 */
     var top, bottom;
     if (firstRow && lastRow) {
+      /* 精確 DOM 量測 */
       top = firstRow.offsetTop;
       bottom = lastRow.offsetTop + lastRow.offsetHeight;
+    } else if (firstRow) {
+      /* 只有 firstRow 在 DOM，lastRow 超出渲染範圍 → 用 firstRow 起始 + 跨行數*rowH 估算底部 */
+      top = firstRow.offsetTop;
+      bottom = top + (displayLast - displayFirst + 1) * rowH;
     } else {
-      top = estTop;
-      bottom = estBottom;
+      /* 完全找不到行（極端 case）→ 用 spacer-aware 估算 */
+      top = theadH + displayFirst * rowH;
+      bottom = theadH + (displayLast + 1) * rowH;
     }
-    /* Math.round 消除亞像素抖動，stability check 跳過無變化的 DOM 寫入 */
+    /* v2.97.309 核心安全措施：clamp frame 在 thead 下方且不超過 table 實際資料區底部 */
+    var table = wrap.querySelector('table');
+    var tableH = table ? table.offsetHeight : (theadH + rows.length * rowH);
+    /* frame.top 最小 = theadH（不能覆蓋 thead） */
+    if (top < theadH) top = theadH;
+    /* frame.bottom 最大 = 表格最後一個資料行的底部 */
+    /* 用 rows.length * rowH + theadH 作為資料區底部上限，但如果 table 實際更小就用 table */
+    var dataBottomLimit = Math.min(tableH, theadH + rows.length * rowH);
+    if (bottom > dataBottomLimit) bottom = dataBottomLimit;
+    /* 確保 bottom > top 且高度至少 4px */
+    if (bottom <= top) bottom = top + Math.min(rowH, 4);
+    /* Math.round 消除亞像素抖動 */
     var newTop = Math.round(top - 1) + 'px';
     var newHeight = Math.max(4, Math.round(bottom - top + 2)) + 'px';
     var posUnchanged2 = (frame.style.top === newTop && frame.style.height === newHeight && frame.style.display === '');
