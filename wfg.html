@@ -641,7 +641,7 @@
     <div class="back-row">
       <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     </div>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.318</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.319</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12112,12 +12112,13 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
     var badI2c = row && ((row.ack === 'NACK' && !row.normalNack) || row.ack === 'ERR');
     return badI2c ? {
       key: 'i2c-error',
-      fill: 'rgba(248,113,113,0.24)',
-      stroke: 'rgba(254,202,202,0.82)'
+      fill: 'rgba(248,113,113,0.78)',
+      stroke: 'rgba(254,202,202,0.95)',
+      stripe: true
     } : {
       key: 'i2c-normal',
-      fill: 'rgba(56,189,248,0.78)',
-      stroke: 'rgba(125,211,252,0.82)',
+      fill: 'rgba(45,212,191,0.78)',
+      stroke: 'rgba(153,246,228,0.92)',
       stripe: true
     };
   }
@@ -12142,7 +12143,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
       var ca = cg.analyzer || {};
       var ctype = ca.type;
       if (ctype !== 'dp_aux' && ctype !== 'i2c' && ctype !== 'i2c_eeprom') continue;
-      if (ctype === 'dp_aux' || ctype === 'i2c' || ctype === 'i2c_eeprom') continue;
+      if (ctype === 'dp_aux') continue;
       for (var cri = 0; cri < cg.rows.length; cri++) {
         var cr = cg.rows[cri];
         if (!cr) continue;
@@ -12154,9 +12155,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           addBucket(auxCh, rr.start, rr.end, style);
         } else {
           var sdaCh = cr.channel != null ? cr.channel : (ca.config && ca.config.sda);
-          var sclCh = cr.sclChannel != null ? cr.sclChannel : (ca.config && ca.config.scl);
           addBucket(sdaCh, rr.start, rr.end, style);
-          addBucket(sclCh, rr.start, rr.end, style);
         }
       }
     }
@@ -12276,6 +12275,12 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             ? { fill: 'rgba(20,184,166,0.06)', stroke: 'rgba(45,212,191,0.98)' }
             : { fill: 'rgba(37,99,235,0.06)', stroke: 'rgba(96,165,250,0.98)' };
         }
+        function i2cAckColor(owner, isAckProblem) {
+          if (isAckProblem) return { fill: 'rgba(220,38,38,0.82)', stroke: 'rgba(254,202,202,1)' };
+          return owner === 'slave'
+            ? { fill: 'rgba(20,184,166,0.74)', stroke: 'rgba(153,246,228,1)' }
+            : { fill: 'rgba(37,99,235,0.74)', stroke: 'rgba(191,219,254,1)' };
+        }
         function i2cOwnerPrefix(owner) {
           return owner === 'slave' ? 'S' : 'M';
         }
@@ -12327,9 +12332,16 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         if (ackBit) {
           var ackOwner = ackBit.sdaOwner || (row.rw === 'R' ? 'master' : 'slave');
           var ackProblem = !!(ackBit.value && !row.normalNack);
-          var ackColor = i2cOwnerColor(ackOwner, ackProblem);
+          var ackColor = i2cAckColor(ackOwner, ackProblem);
           var ackText = ackBit.value ? 'NACK' : 'ACK';
-          if (drawI2cByteRegions) drawI2cRegion(ctx, ackBit.startTime, ackBit.endTime, overlayY, overlayH, drawI2cByteText ? [i2cOwnerPrefix(ackOwner) + ': ' + ackText, ackText] : null, ackColor.fill, ackColor.stroke, 14);
+          if (drawI2cByteRegions) {
+            drawI2cRegion(ctx, ackBit.startTime, ackBit.endTime, overlayY, overlayH, drawI2cByteText ? [i2cOwnerPrefix(ackOwner) + ': ' + ackText, ackText] : null, ackColor.fill, ackColor.stroke, 14);
+            if (Math.abs(xOf(ackBit.endTime) - xOf(ackBit.startTime)) < 4) {
+              var ackMidT = (Number(ackBit.startTime) + Number(ackBit.endTime)) / 2;
+              var ackPadT = Math.max((Number(ackBit.endTime) - Number(ackBit.startTime)) * 0.45, range / Math.max(640, g.drawW * 2));
+              drawI2cRegion(ctx, ackMidT - ackPadT, ackMidT + ackPadT, overlayY, overlayH, null, ackColor.fill, ackColor.stroke, 14);
+            }
+          }
         }
         if (drawI2cBitLabels) {
           for (var ibi = 0; ibi < bits.length; ibi++) {
