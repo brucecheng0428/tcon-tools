@@ -494,7 +494,7 @@
     <div class="back-row">
       <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
     </div>
-    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.6.0</span></h1>
+    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.7.0</span></h1>
     <p data-i18n="aux.subtitle">AUX 解碼 &amp; DPCD 暫存器查詢</p>
     <div class="lang-switcher">
       <select id="lang-select" class="lang-select" aria-label="Language">
@@ -2500,20 +2500,27 @@ window.auxGetCurrentVal = auxGetCurrentVal;
       var addr = addrs[i];
       var e = DPCD_DB[addr];
       var src = null;
+      // 1. 暫存器英文名稱（所有語言都搜）
       if (e.n && e.n.toLowerCase().indexOf(q) >= 0) { src = { t: 'n' }; }
+      // 2. 中文名稱（非英文模式）
       else if (!_isEn && e.c && e.c.toLowerCase().indexOf(q) >= 0) { src = { t: 'c' }; }
+      // 3. 說明：優先搜當前語言，再搜另一語言
       else if (_isEn && e.e && e.e.toLowerCase().indexOf(q) >= 0) { src = { t: 'desc' }; }
       else if (!_isEn && e.d && e.d.toLowerCase().indexOf(q) >= 0) { src = { t: 'desc' }; }
-      else if (e.vv) {
+      else if (!_isEn && e.e && e.e.toLowerCase().indexOf(q) >= 0) { src = { t: 'desc' }; }
+      else if (_isEn && e.d && e.d.toLowerCase().indexOf(q) >= 0) { src = { t: 'desc' }; }
+      // 4. 合法值標籤（獨立判斷，不用 else if 避免與 bit field 互斥）
+      if (!src && e.vv) {
         for (var vi = 0; vi < e.vv.length && !src; vi++) {
           if (e.vv[vi].l && e.vv[vi].l.toLowerCase().indexOf(q) >= 0) src = { t: 'vv', i: vi };
         }
       }
-      else if (e.b) {
+      // 5. Bit field：名稱 + 中英文說明都搜
+      if (!src && e.b) {
         for (var bi = 0; bi < e.b.length && !src; bi++) {
           if (e.b[bi].n && e.b[bi].n.toLowerCase().indexOf(q) >= 0) src = { t: 'bn', i: bi };
-          else if (_isEn && e.b[bi].de && e.b[bi].de.toLowerCase().indexOf(q) >= 0) src = { t: 'bd', i: bi };
-          else if (!_isEn && e.b[bi].d && e.b[bi].d.toLowerCase().indexOf(q) >= 0) src = { t: 'bd', i: bi };
+          else if (e.b[bi].de && e.b[bi].de.toLowerCase().indexOf(q) >= 0) src = { t: 'bd', i: bi };
+          else if (e.b[bi].d && e.b[bi].d.toLowerCase().indexOf(q) >= 0) src = { t: 'bd', i: bi };
         }
       }
       if (src !== null) out.push({ addr: addr, n: e.n || '', c: e.c || '', src: src });
@@ -2529,7 +2536,12 @@ window.auxGetCurrentVal = auxGetCurrentVal;
     switch (res.src.t) {
       case 'desc': return _dbDesc(entry);
       case 'vv':   return entry.vv && entry.vv[res.src.i] ? (entry.vv[res.src.i].l || '') : '';
-      case 'bn':   return entry.b && entry.b[res.src.i] ? (entry.b[res.src.i].n || '') : '';
+      case 'bn': {
+        var b = entry.b && entry.b[res.src.i];
+        if (!b) return '';
+        var desc = _dbBitDesc(b);
+        return b.n + (desc ? ' — ' + desc : '');
+      }
       case 'bd':   return entry.b && entry.b[res.src.i] ? _dbBitDesc(entry.b[res.src.i]) : '';
       default:     return '';
     }
