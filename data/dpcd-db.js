@@ -3137,6 +3137,9 @@ var DPCD_DB = Object.assign({},
     "00092": { e: "Reserved address. Not defined by DP specification." },
     "000B0": { e: "Panel Replay capability. eDP 1.5 successor to PSR with lower exit latency. Unlike PSR, Panel Replay is primarily managed by the Sink side. Supports Selective Update for region-based refresh with maximum power savings." },
     "000B1": { e: "Reserved address (000B1h–000FFh). Reserved for future DPCD versions. Some addresses may be defined in DP 2.0 or later specifications." },
+    "000B2": { e: "Selective Update horizontal granularity low byte. 0000h = no additional X granularity requirement, subject only to standard constraints (start X divisible by 16, rectangle width divisible by 4). Added in eDP v1.5." },
+    "000B3": { e: "Selective Update horizontal granularity high byte. Combined with 000B2h to form a 16-bit value. Added in eDP v1.5." },
+    "000B4": { e: "Selective Update vertical granularity. 00h/01h = 1 line, 02h = 2 lines, 04h = 4 lines, 08h = 8 lines, 10h = 16 lines. Added in eDP v1.5." },
     "00100": { e: "Set the per-lane Main Link data rate. Must be written before Link Training. Read back to confirm the negotiated rate. 0x00 = not configured or cleared." },
     "00101": { e: "Configure the number of active lanes and enable Enhanced Framing. Lane count × per-lane rate = total bandwidth. A mismatch between Source and Sink lane counts will always cause Link Training failure." },
     "00102": { e: "Core Link Training control register. Source sequences TPS1→TPS2 (or TPS3/TPS4) to complete Clock Recovery and Channel EQ. TPS1 failure = CR problem (insufficient drive voltage); TPS2/3 failure = EQ problem (poor signal quality or trace impedance)." },
@@ -3157,6 +3160,15 @@ var DPCD_DB = Object.assign({},
     "00111": { e: "MST (Multi-Stream Transport) mode control. Enable for daisy-chain or hub multi-display configurations. eDP panels always keep this in SST mode (disabled)." },
     "00115": { e: "eDP 1.3+ Link Rate Table index. Alternative to LINK_BW_SET (00100h) for non-standard link rates (e.g. 2.16 Gbps, 3.24 Gbps) provided by the Sink in a custom rate table at 00010h–0001Fh." },
     "00116": { e: "ALPM (Active Link Power Management) configuration. eDP power-saving during blanking periods by putting the link into low-power state. Panel flickering or excessive wake latency may be related to ALPM settings." },
+    "00120": { e: "Forward Error Correction (FEC) configuration register. Added in DP v1.4. Controls FEC enable, error count selection, lane selection, etc. FEC must be enabled when DSC compression is active.",
+      b: [
+        { de: "0 = Pre-coding enabled (default). 1 = Pre-coding disabled. Added in DP v1.4." },
+        { de: "0 = Not enabled; LANE_DEC_SELECT field (bits 5:4) specifies the lane to report. 1 = Enabled; FEC_ERROR_COUNT register (DPCD 00281h/00282h) reports the error type selected by FEC_ERROR_COUNT_SEL (bits 3:1), aggregated across all enabled lanes." },
+        { de: "00 = Lane 0. 01 = Lane 1. 10 = Lane 2. 11 = Lane 3. Added in DP v1.4." },
+        { de: "000 = FEC_ERROR_COUNT_DIS (disabled). 001 = Uncorrected block error count. 010 = Corrected block error count. 011 = Bit error count. Added in DP v1.4." },
+        { de: "0 = Not ready. Source must set this bit to 1 and initiate Link Training before FEC encoding can begin. 1 = Ready. Source can start FEC encoding without re-running Link Training. Added in DP v1.4." }
+      ]
+    },
     "00160": { e: "Enable/disable DSC (Display Stream Compression) decompression in the Sink. When enabled, Source transmits DSC-compressed data and the Sink's internal decoder reconstructs the original image." },
     "00170": { e: "PSR enable and mode configuration. PSR1 = full-frame refresh from Sink frame buffer when image is static. PSR2 = Selective Update (only changed regions). Common issues: ghosting, stuck frames, or flickering when entering/exiting PSR." },
     "001B0": { e: "Panel Replay enable and mode configuration. eDP 1.5+ successor to PSR, primarily managed by the Sink for lower exit latency. Selective Update mode refreshes only changed regions for maximum power savings." },
@@ -3181,6 +3193,13 @@ var DPCD_DB = Object.assign({},
     "00220": { e: "Lane count for automated testing. Valid when TEST_REQUEST bit0=1. Source must use this lane count during the compliance test." },
     "00260": { e: "Source's response to the automated test request. Write TEST_ACK=1 to confirm the request was handled. Write TEST_NACK=1 if the test type is not supported. Writing this register also clears the AUTOMATED_TEST_REQUEST interrupt flag in 00201h." },
     "00270": { e: "Sink-side test control. TEST_SINK_START=1 activates CRC calculation on received pixel data. Used in Compliance Testing to verify image data integrity end-to-end." },
+    "00280": { e: "Forward Error Correction status register. Added in DP v1.4. Reports whether FEC is running and whether FEC decode enable/disable events have been detected.",
+      b: [
+        { de: "0 = FEC not running. 1 = FEC is running. Added in DP v1.4." },
+        { de: "0 = FEC decode disable not detected. 1 = FEC decode disable event detected. Added in DP v1.4." },
+        { de: "0 = FEC decode enable not detected. 1 = FEC decode enable event detected. Added in DP v1.4." }
+      ]
+    },
     "002C0": { e: "MST Payload Table update handshake. Source writes PAYLOAD_TABLE_UPDATED=1 to notify the Sink to apply a new bandwidth allocation. Sink sets PAYLOAD_ACT_HANDLED=1 when the update is processed. Check this register if MST Payload allocation stalls." },
     "00300": { e: "Source device IEEE OUI (Organizationally Unique Identifier) byte 0 (LSB). Three bytes 00300h–00302h form the 24-bit OUI identifying the Source manufacturer (e.g. Intel: 00-1B-21, NVIDIA: 00-04-4B)." },
     "00301": { e: "Source device IEEE OUI byte 1 (middle byte). Combined with 00300h and 00302h for the full 24-bit OUI." },
@@ -3194,6 +3213,109 @@ var DPCD_DB = Object.assign({},
     "00309": { e: "Source device hardware revision. 8-bit manufacturer-defined value (e.g. PCB revision)." },
     "0030A": { e: "Source firmware major version. Combined with 0030Bh for the full version string (e.g. Major=01h, Minor=05h = firmware v1.5). Confirming firmware version is critical when debugging link behavior differences." },
     "0030B": { e: "Source firmware minor version. Combined with 0030Ah for the complete firmware version." },
+    "00310": { e: "Intel Adaptive Sync maximum VBlank reduction (in lines), least significant byte. Combined with 00311h-00313h to form a 32-bit value. Adaptive Sync allows the panel to dynamically adjust refresh rate to match content frame rate, reducing tearing and stutter." },
+    "00311": { e: "Intel Adaptive Sync maximum VBlank reduction, byte 1." },
+    "00312": { e: "Intel Adaptive Sync maximum VBlank reduction, byte 2." },
+    "00313": { e: "Intel Adaptive Sync maximum VBlank reduction, most significant byte." },
+    "00314": { e: "Intel custom DPCD register reporting PSR VTotal control, Low Refresh Rate switching (LRR), UBRR, and other advanced power-saving feature support.",
+      b: [
+        { de: "0 = Not supported. 1 = Intel ALRR (Autonomous Low Refresh Rate) supported." },
+        { de: "1 = UBRR-LR supported. 0 = Not supported." },
+        { de: "1 = UBRR-ZR supported. 0 = Not supported." },
+        { de: "0 = VTotal change on PSR entry/exit not supported. 1 = Supported." },
+        { de: "0 = Panel internal low refresh rate switching not supported. 1 = Low refresh rate switching during PSR idle supported." },
+        { de: "0 = Pixel clock based refresh rate change not supported. 1 = Supported." }
+      ]
+    },
+    "00316": { e: "Intel custom DPCD register controlling Intel LRR (Low Refresh Rate) feature enable state." },
+    "00317": { e: "eDP Sink device backlight and display capability register. Declares backlight adjustment method (PWM/AUX), gradual ramping, DisplayHDR, OLED, DSC passthrough, and miniLED support.",
+      b: [
+        { de: "SDR mode backlight adjustment method: 0=PWM, 1=AUX." },
+        { de: "HDR mode backlight adjustment method: 0=PWM, 1=AUX." },
+        { de: "Gradual backlight ramping support: 0=not supported, 1=supported." },
+        { de: "DisplayHDR and tunnel test pattern auto-dimming: 0=not supported, 1=supported." },
+        { de: "OLED display technology: 0=not OLED, 1=OLED." },
+        { de: "DSC passthrough for PSR/PSR-SU: 0=not supported, 1=supported and enabled." },
+        { de: "miniLED display technology: 0=not miniLED, 1=miniLED." },
+        { de: "Reserved bit." }
+      ]
+    },
+    "00320": { e: "Custom DPCD register for MBO (Multi Beam Operation) applications." },
+    "00330": { e: "ALPM (Advanced Link Power Management) Sink device power management state register. Reports the current power state: 0=unknown, 1=ACTIVE, 2=ACTIVE_NOSTREAM, 3=ALPM_STANDBY, etc." },
+    "00340": { e: "Intel HDR capability register (group 0), reserved for future expansion." },
+    "00341": { e: "Intel custom DPCD register reporting TCON HDR capabilities: PQ 2084 decode, BT.2020 gamut, panel tone mapping, segmented backlight, nits brightness control, brightness optimization, colorimetry/metadata SDP, sRGB-to-panel gamut conversion.",
+      b: [
+        { de: "PQ (SMPTE 2084) decode support: 0=not supported, 1=supported." },
+        { de: "BT.2020 gamut support: 0=not supported, 1=supported." },
+        { de: "Panel tone mapping support: 0=not supported, 1=supported." },
+        { de: "Segmented backlight capability (N/A for OLED): 0=not supported, 1=supported." },
+        { de: "Nits-level brightness control via AUX: 0=not supported, 1=supported." },
+        { de: "Brightness optimization support: 0=not supported, 1=supported." },
+        { de: "SDP for colorimetry/metadata support: 0=not supported, 1=supported." },
+        { de: "sRGB to panel gamut mapping (for wide gamut panels with SDR desktop): 0=not supported, 1=supported." }
+      ]
+    },
+    "00342": { e: "TCON capability register. Bit 0 indicates whether TCON accepts AUX-based brightness control in both SDR and HDR modes.",
+      b: [
+        { de: "TCON accepts AUX for brightness control in both SDR and HDR mode: 0=no, 1=yes." },
+        { de: "Reserved, read all 0s." }
+      ]
+    },
+    "00343": { e: "Intel HDR capability register (group 3), reserved for future expansion." },
+    "00344": { e: "Intel custom supplemental DPCD definition with HDR 2084/2020, segmented backlight control, nits brightness control, panel tone mapping, colorimetry SDP, and sRGB gamut mapping control bits.",
+      b: [
+        { de: "HDR PQ 2084 control bit, corresponds to 341h[0]." },
+        { de: "BT.2020 gamut control bit, corresponds to 341h[1]." },
+        { de: "Panel tone mapping control bit, corresponds to 341h[2]." },
+        { de: "Segmented backlight control bit, toggles regional backlight on/off." },
+        { de: "Nits brightness control bit; actual brightness value written to 354-356h (cd/m²)." },
+        { de: "sRGB to panel gamut mapping control bit, corresponds to 341h[7]." },
+        { de: "Colorimetry/metadata SDP control bit, corresponds to 341h[6]." }
+      ]
+    },
+    "00346": { e: "Content luminance value (Intel custom), 346-349h total 4 bytes." },
+    "00347": { e: "Content luminance value. Intel custom DPCD mapping from Intel HDR/backlight reference. Addresses 346h-349h combine into 4-byte content luminance information for HDR backlight control." },
+    "00348": { e: "Content luminance value (Intel custom), byte 2 of 346h-349h." },
+    "00349": { e: "Content luminance value (Intel custom), byte 3 of 346h-349h." },
+    "0034A": { e: "Panel EDID luminance override value. Intel custom DPCD mapping, addresses 34Ah-351h total 8 bytes. Allows the Source to override panel EDID luminance parameters." },
+    "0034B": { e: "Panel EDID luminance override value (byte 1). Intel custom DPCD mapping, 34Ah-351h." },
+    "0034C": { e: "Panel EDID luminance override value (byte 2). Intel custom DPCD mapping, 34Ah-351h." },
+    "0034D": { e: "Panel EDID luminance override value (byte 3). Intel custom DPCD mapping, 34Ah-351h." },
+    "0034E": { e: "Panel EDID luminance override value (byte 4). Intel custom DPCD mapping, 34Ah-351h." },
+    "0034F": { e: "Panel EDID luminance override value (byte 5). Intel custom DPCD mapping, 34Ah-351h." },
+    "00350": { e: "Panel EDID luminance override value (byte 6). Intel custom DPCD mapping, 34Ah-351h." },
+    "00351": { e: "Panel EDID luminance override value (byte 7). Intel custom DPCD mapping, 34Ah-351h." },
+    "00352": { e: "SDR luminance level value. Intel custom DPCD mapping, addresses 352h-353h total 2 bytes. Defines the luminance level for SDR content." },
+    "00353": { e: "SDR luminance level value (high byte). Intel custom DPCD mapping, 352h-353h." },
+    "00354": { e: "Nits brightness control value. Intel custom DPCD mapping, addresses 354h-356h total 3 bytes, unit: cd/m²." },
+    "00355": { e: "Nits brightness control value (byte 1). Intel custom DPCD mapping." },
+    "00356": { e: "Smooth brightness control. Intel custom DPCD mapping; 356h = frame count, 357h = per-frame step value." },
+    "00357": { e: "Smooth brightness control. Intel custom DPCD mapping; 356h = frame count, 357h = per-frame step value. Used for gradual brightness transition effects." },
+    "00358": { e: "Brightness optimization control register. Intel custom DPCD mapping, controls brightness optimization mode and system usage state.",
+      b: [
+        { de: "Brightness optimization control. Intel custom DPCD mapping 358[7:5]." },
+        { de: "Brightness optimization system usage state. Intel custom DPCD mapping 358[3:0]." },
+        { de: "Brightness optimization AC/DC state. Intel custom DPCD mapping 358[4]." }
+      ]
+    },
+    "00370": { e: "AMD custom DPCD register reporting whether the Sink supports VTotal control during PSR active state.",
+      b: [
+        { de: "0 = Sink does not support VTotal control during PSR active state. 1 = Supported." }
+      ]
+    },
+    "00373": { e: "Sink reports a 2-byte VTotal value indicating the VTotal (vertical total lines) currently used for the output frame." },
+    "00374": { e: "High byte. Combined with 00373h to form a 16-bit value." },
+    "00378": { e: "PSR supplemental DPCD register.",
+      b: [
+        { de: "00 = Sink device frame-locked to Source. 01 = Maintaining coasting VTotal. 10 = Using low refresh rate. 11 = Reserved." },
+        { de: "000 = Live mode. 001 = Live + Capture. 010 = Replay mode. 011 = Replay + Capture. 100 = Reserved." },
+        { de: "0 = Timing desync error not detected. 1 = Detected." }
+      ]
+    },
+    "00379": { e: "Sink reports the maximum pixel deviation per line during the maximum link off time." },
+    "0037A": { e: "Sink reports the maximum number of deviation lines that can maintain display quality during Replay." },
+    "0037B": { e: "Supplemental DPCD register." },
+    "003F0": { e: "PSR2 Early Scanline SDP support register. 0=PSR2 Early Scanline not supported, 1=supported." },
     "00400": { e: "Sink device IEEE OUI byte 0 (LSB). Three bytes 00400h–00402h identify the Sink (TCON) manufacturer. The fastest way to confirm which TCON vendor is on the panel side." },
     "00401": { e: "Sink device IEEE OUI byte 1 (middle byte)." },
     "00402": { e: "Sink device IEEE OUI byte 2 (MSB). Combined [00402h:00401h:00400h] = complete 24-bit OUI. Look up on IEEE registry to identify the manufacturer." },
@@ -3206,6 +3328,15 @@ var DPCD_DB = Object.assign({},
     "00409": { e: "Sink device hardware revision. 8-bit TCON-defined value reflecting die or board revision." },
     "0040A": { e: "Sink firmware major version. First step in field debugging is confirming the Sink firmware version to ensure the correct firmware is running." },
     "0040B": { e: "Sink firmware minor version. Combined with 0040Ah (e.g. 02h:0Ah = firmware v2.10)." },
+    "0040F": { e: "AMD-specific TCON setting register. Used for AMD platform-specific TCON configuration." },
+    "00410": { e: "AMD AUPI (Advanced Unified Panel Interface) panel manufacturer ID, low byte." },
+    "00411": { e: "AMD AUPI panel manufacturer ID, high byte." },
+    "00412": { e: "AMD AUPI panel product ID, low byte." },
+    "00413": { e: "AMD AUPI panel product ID, high byte." },
+    "00414": { e: "AMD AUPI TCON firmware checksum, low byte." },
+    "00415": { e: "AMD AUPI TCON firmware checksum, high byte." },
+    "00416": { e: "AMD AUPI TCON firmware device ID, low byte." },
+    "00417": { e: "AMD AUPI TCON firmware device ID, high byte." },
     "00500": { e: "Branch device IEEE OUI byte 0 (LSB). Three bytes 00500h–00502h identify the Branch device (hub, adapter) manufacturer." },
     "00501": { e: "Branch device IEEE OUI byte 1 (middle byte)." },
     "00502": { e: "Branch device IEEE OUI byte 2 (MSB). Combined [00502h:00501h:00500h] = complete OUI." },
@@ -3257,6 +3388,13 @@ var DPCD_DB = Object.assign({},
         { de: "1=Adaptive Sync (variable refresh rate) supported — eDP equivalent of VRR/FreeSync." }
       ]
     },
+    "00704": { e: "eDP backlight region control capability register. Defines the number of independently controllable 1D backlight regions supported by the panel.",
+      b: [
+        { de: "Number of controllable 1D backlight regions in the vertical direction." },
+        { de: "Number of controllable 1D backlight regions in the horizontal direction." }
+      ]
+    },
+    "00705": { e: "Segmented backlight capability register. VESA DPCD mapping." },
     "00720": { e: "eDP display control register for real-time backlight and display mode control. BACKLIGHT_ENABLE must be set to 1 after Link Training for the screen to be visible. If Link Training succeeds but screen is black, check this register first.",
       b: [
         { de: "Backlight enable switch. 1=backlight ON; 0=backlight OFF. Must be written to 1 after Link Training succeeds and video transmission begins. If Link Training is OK but screen is black, check this bit first." },
@@ -3277,6 +3415,39 @@ var DPCD_DB = Object.assign({},
     },
     "00722": { e: "eDP backlight brightness low byte (LSB). Combined with 00723h for the full brightness value. In 2-byte mode: 0x0000=minimum brightness, 0xFFFF=maximum brightness. Write to this register to test AUX backlight control functionality." },
     "00723": { e: "eDP backlight brightness high byte (MSB). Combined with 00722h for the full 16-bit value. E.g. 50% brightness: write 00722h=0x00, 00723h=0x80. Ensure backlight control mode (00721h) is set to AUX before writing." },
+    "00724": { e: "Number of effective bits used by the Source for backlight brightness control in DPCD 00722h/00723h." },
+    "00725": { e: "Minimum PWM bit count set by the Sink." },
+    "00726": { e: "Maximum PWM bit count set by the Sink." },
+    "00727": { e: "eDP backlight control status register.",
+      b: [
+        { de: "0 = Normal operation. 1 = Backlight fault." },
+        { de: "Smooth brightness control status." }
+      ]
+    },
+    "00728": { e: "Display backlight PWM frequency control value." },
+    "0072A": { e: "eDP backlight PWM minimum frequency, high byte (bits 17:10). Combined with 0072Bh and 0072Ch to form an 18-bit value." },
+    "0072B": { e: "eDP backlight PWM minimum frequency, middle byte (bits 9:2)." },
+    "0072C": { e: "eDP backlight PWM minimum frequency, low 2 bits." },
+    "0072D": { e: "eDP backlight PWM maximum frequency, high byte (bits 17:10)." },
+    "0072E": { e: "eDP backlight PWM maximum frequency, middle byte (bits 9:2)." },
+    "0072F": { e: "eDP backlight PWM maximum frequency, low 2 bits." },
+    "00730": { e: "Brightness optimization control and smooth brightness control register. VESA DPCD mapping.",
+      b: [
+        { de: "Brightness optimization control." },
+        { de: "Smooth brightness control enable." }
+      ]
+    },
+    "00731": { e: "Segmented backlight control register. VESA DPCD mapping." },
+    "00734": { e: "Nits brightness control value (VESA), byte 0 of 734h-736h, unit: cd/m²." },
+    "00735": { e: "Nits brightness control value (VESA), byte 1 of 734h-736h, unit: cd/m²." },
+    "00736": { e: "Nits brightness control value (VESA), byte 2 of 734h-736h, unit: cd/m²." },
+    "00737": { e: "Smooth brightness control (VESA), transition time in milliseconds. Used with 730[0] enable, 739h-73Bh real-time value, and 727[2] status." },
+    "00738": { e: "Smooth brightness control (VESA), transition time high byte in milliseconds." },
+    "00739": { e: "Smooth brightness control real-time value (VESA), byte 0 of 739h-73Bh." },
+    "0073A": { e: "Smooth brightness control real-time value (VESA), byte 1 of 739h-73Bh." },
+    "0073B": { e: "Smooth brightness control real-time value (VESA), byte 2 of 739h-73Bh." },
+    "00DEF": { e: "HDR PQ (SMPTE ST 2084) and BT.2020 gamut capability register. VESA DPCD mapping." },
+    "00FEA": { e: "HDR PQ (SMPTE ST 2084) and BT.2020 gamut capability register. VESA DPCD mapping (alternate address)." },
     "02002": { e: "Sink count in ESI (Event Status Indicator) area. Mirrors 00200h but supports auto-clear-on-read. DP 1.2+ recommends using ESI registers for status polling.",
       b: [
         { de: "Current number of connected Sink devices (0–63). SST mode = 1; MST mode may be >1; 0 = no Sink connected." },
@@ -3327,6 +3498,12 @@ var DPCD_DB = Object.assign({},
         { de: "1=Sink is currently capturing the current frame to its frame buffer." }
       ]
     },
+    "02009": { e: "PSR exit synchronization latency status register. Added in eDP v1.4b.",
+      b: [
+        { de: "0h = Sync completed on 1st frame after PSR exit. 1h = 2nd frame. ... 7h = 8th frame. 8h = More than 8 frames." },
+        { de: "Minimum frame count for PSR re-entry. Same encoding as bits [3:0]." }
+      ]
+    },
     "0200C": { e: "Lane 0/1 link status in ESI area. Mirrors 00202h. Use this for CR/EQ/Symbol-lock checking in DP 1.2+ designs.",
       b: [
         { de: "Lane 0 Clock Recovery complete. 1=Lane 0 clock locked. This is the goal of Link Training Phase 1 (CR phase)." },
@@ -3367,6 +3544,67 @@ var DPCD_DB = Object.assign({},
     },
     "02200": { e: "Extended receiver capability area DPCD revision — the authoritative version register for DP 1.4+ devices. Some Sinks report a lower version in 00000h for backward compatibility with older Sources, but report the true version here. Always check both registers when debugging DP 1.4 devices." },
     "02201": { e: "Extended receiver capability area max link rate — authoritative for DP 1.4+ devices. A Sink may conservatively report a lower rate in 00001h but its true maximum rate here. Critical to check when debugging high-speed link failures." },
+    "02202": { e: "Extended receiver capability field: maximum lane count register. Same structure as 00002h.",
+      b: [
+        { de: "0 = Enhanced Framing not supported. 1 = Supported." },
+        { de: "0 = TPS3 not supported. 1 = Supported." },
+        { de: "0 = Post Link Training adjustment not supported. 1 = Supported." }
+      ]
+    },
+    "02203": { e: "Extended receiver capability field: spread spectrum and training mode register. Same structure as 00003h.",
+      b: [
+        { de: "0 = TPS4 not supported. 1 = Supported." },
+        { de: "0 = AUX handshake required. 1 = AUX handshake not required for known link configuration." },
+        { de: "0 = Not supported. 1 = Supported. DP v2.0 feature." },
+        { de: "0 = No downspread. 1 = Up to 0.5% downspread." }
+      ]
+    },
+    "02207": { e: "Extended receiver capability field: downstream port count and OUI/MSA support register.",
+      b: [
+        { de: "0 = OUI not supported. 1 = Supported." },
+        { de: "0 = Sink requires MSA timing parameters. 1 = Sink does not require MSA timing parameters." },
+        { de: "Downstream port count. 0h = None." }
+      ]
+    },
+    "02208": { e: "Extended receiver capability field: Receiver Port 0 base capability register.",
+      b: [
+        { de: "0 = Buffer size per lane. 1 = Buffer size per port." },
+        { de: "0 = Unit is pixel count. 1 = Unit is byte count." },
+        { de: "0 = HBlank expansion not supported. 1 = Supported." },
+        { de: "0 = Primary sync stream. 1 = Secondary sync stream associated to preceding port." },
+        { de: "0 = No local EDID. 1 = Local EDID present." }
+      ]
+    },
+    "02209": { e: "Receiver Port 0 buffer size = (value + 1) x 32 bytes/lane." },
+    "0220A": { e: "Extended receiver capability field: Receiver Port 1 base capability register.",
+      b: [
+        { de: "0 = Buffer size per lane. 1 = Buffer size per port." },
+        { de: "0 = Unit is pixel count. 1 = Unit is byte count." },
+        { de: "0 = HBlank expansion not supported. 1 = Supported." },
+        { de: "0 = Primary sync stream. 1 = Secondary sync stream." },
+        { de: "0 = No local EDID. 1 = Local EDID present." }
+      ]
+    },
+    "0220B": { e: "Receiver Port 1 buffer size = (value + 1) x 32 bytes/lane." },
+    "0220D": { e: "Extended receiver capability field: eDP-specific capability register.",
+      b: [
+        { de: "1 = Display Control registers (00700h-007FFh) are enabled." },
+        { de: "eDP FRAMING_CHANGE option is deprecated." },
+        { de: "1 = This eDP device supports Alternate Scrambler Seed Reset (ASSR) value FFFEh." }
+      ]
+    },
+    "0220E": { e: "Extended receiver capability field: training interval register.",
+      b: [
+        { de: "0 = Not present. 1 = Extended capability field present at DPCD 02200h-022FFh." },
+        { de: "00h = CR phase 100us / EQ phase 400us. 01h = 4ms. 02h = 8ms. 03h = 12ms. 04h = 16ms." }
+      ]
+    },
+    "0220F": { e: "Extended receiver capability field: adapter capability register.",
+      b: [
+        { de: "0 = Alternate I2C pattern not supported. 1 = Supported." },
+        { de: "0 = VGA force load sense not supported. 1 = Supported." }
+      ]
+    },
     "02210": { e: "DPRX feature enumeration list. DP 1.4+ register listing advanced Sink capabilities. VSC_SDP_EXT_FOR_COLORIMETRY_SUPPORTED is key for HDR: if 0, Sink cannot receive HDR Metadata/BT.2020 colorimetry via VSC SDP.",
       b: [
         { de: "1=Global Time Code (GTC) supported. Provides a common time reference for audio/video synchronization across devices." },
@@ -3379,6 +3617,7 @@ var DPCD_DB = Object.assign({},
         { de: "1=CEA VSC Extended SDP chaining supported." }
       ]
     },
+    "02214": { e: "Adaptive Sync SDP (Secondary Data Packet) support register. Added in eDP v1.5." },
     "F0000": { e: "Start of vendor-specific DPCD address space (F0000h–FFFFFh). Used by chip vendors (e.g. Raydium) for proprietary internal register access via AUX. Contents are entirely vendor-defined and require the vendor's datasheet. Not covered by VESA DP specification." }
   };
   Object.keys(EN).forEach(function(addr) {
