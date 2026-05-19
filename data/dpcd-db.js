@@ -3061,22 +3061,86 @@ var DPCD_DB = Object.assign({},
     "0000D": { e: "eDP-specific register reporting ASSR (Alternate Scrambler Seed Reset) and Enhanced Framing Change capabilities. ASSR is mandatory for virtually all eDP panels — incorrect ASSR setting causes garbled display even after successful Link Training." },
     "0000E": { e: "Specifies the polling interval between sending a Training Pattern and reading Sink status during Link Training. Bit 7 (EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT) is critical: if set, Source must read capabilities from 02200h rather than 00000h." },
     "0000F": { e: "Adapter capability register, only meaningful for Branch Devices (hubs, adapters). Pure panels return 0." },
-    "00010": { e: "SUPPORTED_LINK_RATES entry 0 low byte. Combine with 00011h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "00011": { e: "SUPPORTED_LINK_RATES entry 0 high byte. Combine with 00010h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "00012": { e: "SUPPORTED_LINK_RATES entry 1 low byte. Combine with 00013h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "00013": { e: "SUPPORTED_LINK_RATES entry 1 high byte. Combine with 00012h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "00014": { e: "SUPPORTED_LINK_RATES entry 2 low byte. Combine with 00015h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "00015": { e: "SUPPORTED_LINK_RATES entry 2 high byte. Combine with 00014h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "00016": { e: "SUPPORTED_LINK_RATES entry 3 low byte. Combine with 00017h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "00017": { e: "SUPPORTED_LINK_RATES entry 3 high byte. Combine with 00016h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "00018": { e: "SUPPORTED_LINK_RATES entry 4 low byte. Combine with 00019h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "00019": { e: "SUPPORTED_LINK_RATES entry 4 high byte. Combine with 00018h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "0001A": { e: "SUPPORTED_LINK_RATES entry 5 low byte. Combine with 0001Bh as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "0001B": { e: "SUPPORTED_LINK_RATES entry 5 high byte. Combine with 0001Ah as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "0001C": { e: "SUPPORTED_LINK_RATES entry 6 low byte. Combine with 0001Dh as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "0001D": { e: "SUPPORTED_LINK_RATES entry 6 high byte. Combine with 0001Ch as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
-    "0001E": { e: "SUPPORTED_LINK_RATES entry 7 low byte. Combine with 0001Fh as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h." },
-    "0001F": { e: "SUPPORTED_LINK_RATES entry 7 high byte. Combine with 0001Eh as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid." },
+    "00010": { e: "SUPPORTED_LINK_RATES entry 0 low byte. Combine with 00011h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 0 low byte. Combined with DPCD 00011h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00011": { e: "SUPPORTED_LINK_RATES entry 0 high byte. Combine with 00010h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 0 high byte. Combined with DPCD 00010h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00012": { e: "SUPPORTED_LINK_RATES entry 1 low byte. Combine with 00013h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 1 low byte. Combined with DPCD 00013h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00013": { e: "SUPPORTED_LINK_RATES entry 1 high byte. Combine with 00012h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 1 high byte. Combined with DPCD 00012h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00014": { e: "SUPPORTED_LINK_RATES entry 2 low byte. Combine with 00015h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 2 low byte. Combined with DPCD 00015h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00015": { e: "SUPPORTED_LINK_RATES entry 2 high byte. Combine with 00014h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 2 high byte. Combined with DPCD 00014h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00016": { e: "SUPPORTED_LINK_RATES entry 3 low byte. Combine with 00017h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 3 low byte. Combined with DPCD 00017h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00017": { e: "SUPPORTED_LINK_RATES entry 3 high byte. Combine with 00016h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 3 high byte. Combined with DPCD 00016h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00018": { e: "SUPPORTED_LINK_RATES entry 4 low byte. Combine with 00019h as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 4 low byte. Combined with DPCD 00019h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "00019": { e: "SUPPORTED_LINK_RATES entry 4 high byte. Combine with 00018h as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 4 high byte. Combined with DPCD 00018h as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "0001A": { e: "SUPPORTED_LINK_RATES entry 5 low byte. Combine with 0001Bh as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 5 low byte. Combined with DPCD 0001Bh as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "0001B": { e: "SUPPORTED_LINK_RATES entry 5 high byte. Combine with 0001Ah as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 5 high byte. Combined with DPCD 0001Ah as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "0001C": { e: "SUPPORTED_LINK_RATES entry 6 low byte. Combine with 0001Dh as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 6 low byte. Combined with DPCD 0001Dh as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "0001D": { e: "SUPPORTED_LINK_RATES entry 6 high byte. Combine with 0001Ch as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 6 high byte. Combined with DPCD 0001Ch as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "0001E": { e: "SUPPORTED_LINK_RATES entry 7 low byte. Combine with 0001Fh as little-endian 16-bit value; link rate = value x 200 kHz. Standard values include RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.",
+      b: [
+        { de: "Entry 7 low byte. Combined with DPCD 0001Fh as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
+    "0001F": { e: "SUPPORTED_LINK_RATES entry 7 high byte. Combine with 0001Eh as little-endian 16-bit value; link rate = value x 200 kHz. 0000h marks this and higher entries invalid.",
+      b: [
+        { de: "Entry 7 high byte. Combined with DPCD 0001Eh as little-endian 16-bit value; multiply by 200 kHz to get per-lane link rate." }
+      ]
+    },
     "00020": { e: "Fast AUX (FAUX) capability. FAUX uses main link side-channels for high-speed (720 Mbps) bidirectional communication. Very rarely supported in practice; most panels read 0x00 here." },
     "00021": { e: "Multi-Stream Transport (MST) capability. MST enables daisy-chaining or hub-splitting multiple independent displays over one DP cable. eDP panels typically do not support MST." },
     "00022": { e: "Number of audio output endpoints on the Sink. 0 = no audio (common for eDP); 1 = built-in speakers; 2+ = speakers + headphone jack, etc." },
@@ -3091,8 +3155,16 @@ var DPCD_DB = Object.assign({},
     "0002B": { e: "Reserved address. Not defined by DP specification." },
     "0002C": { e: "Reserved address. Not defined by DP specification." },
     "0002D": { e: "Reserved address. Not defined by DP specification." },
-    "0002E": { e: "Receiver Advanced Link Power Management capability. Bit0 ALPM_CAP indicates whether the receiver supports ALPM." },
-    "0002F": { e: "AUX Frame Sync capability. Bit0 AUX_FRAME_SYNC_CAP indicates whether AUX_FRAME_SYNC is supported." },
+    "0002E": { e: "Receiver Advanced Link Power Management capability. Bit0 ALPM_CAP indicates whether the receiver supports ALPM.",
+      b: [
+        { de: "0 = ALPM not supported. 1 = ALPM supported." }
+      ]
+    },
+    "0002F": { e: "AUX Frame Sync capability. Bit0 AUX_FRAME_SYNC_CAP indicates whether AUX_FRAME_SYNC is supported.",
+      b: [
+        { de: "0 = AUX Frame Sync not supported. 1 = AUX Frame Sync supported." }
+      ]
+    },
     "00030": { e: "Reserved address range (00030h–0005Fh). Not defined by DP specification. Some vendors may use this range for proprietary features, but it is non-standard." },
     "00060": { e: "DSC (Display Stream Compression) support. VESA visually-lossless compression standard added in DP 1.4. Enables high-resolution modes (e.g. 4K@120Hz HDR) on links without sufficient raw bandwidth. Required when peak bandwidth exceeds link capacity." },
     "00061": { e: "DSC compression algorithm revision. DSC 1.2 adds YCbCr 4:2:0/4:2:2 Native support for higher-resolution video. Source and Sink must use compatible DSC versions." },
@@ -3227,7 +3299,11 @@ var DPCD_DB = Object.assign({},
         { de: "0 = Pixel clock based refresh rate change not supported. 1 = Supported." }
       ]
     },
-    "00316": { e: "Intel custom DPCD register controlling Intel LRR (Low Refresh Rate) feature enable state." },
+    "00316": { e: "Intel custom DPCD register controlling Intel LRR (Low Refresh Rate) feature enable state.",
+      b: [
+        { de: "0 = Intel LRR not enabled. 1 = Intel LRR enabled." }
+      ]
+    },
     "00317": { e: "eDP Sink device backlight and display capability register. Declares backlight adjustment method (PWM/AUX), gradual ramping, DisplayHDR, OLED, DSC passthrough, and miniLED support.",
       b: [
         { de: "SDR mode backlight adjustment method: 0=PWM, 1=AUX." },
@@ -3394,7 +3470,11 @@ var DPCD_DB = Object.assign({},
         { de: "Number of controllable 1D backlight regions in the horizontal direction." }
       ]
     },
-    "00705": { e: "Segmented backlight capability register. VESA DPCD mapping." },
+    "00705": { e: "Segmented backlight capability register. VESA DPCD mapping.",
+      b: [
+        { de: "Segmented backlight capability. VESA DPCD mapping." }
+      ]
+    },
     "00720": { e: "eDP display control register for real-time backlight and display mode control. BACKLIGHT_ENABLE must be set to 1 after Link Training for the screen to be visible. If Link Training succeeds but screen is black, check this register first.",
       b: [
         { de: "Backlight enable switch. 1=backlight ON; 0=backlight OFF. Must be written to 1 after Link Training succeeds and video transmission begins. If Link Training is OK but screen is black, check this bit first." },
@@ -3415,9 +3495,21 @@ var DPCD_DB = Object.assign({},
     },
     "00722": { e: "eDP backlight brightness low byte (LSB). Combined with 00723h for the full brightness value. In 2-byte mode: 0x0000=minimum brightness, 0xFFFF=maximum brightness. Write to this register to test AUX backlight control functionality." },
     "00723": { e: "eDP backlight brightness high byte (MSB). Combined with 00722h for the full 16-bit value. E.g. 50% brightness: write 00722h=0x00, 00723h=0x80. Ensure backlight control mode (00721h) is set to AUX before writing." },
-    "00724": { e: "Number of effective bits used by the Source for backlight brightness control in DPCD 00722h/00723h." },
-    "00725": { e: "Minimum PWM bit count set by the Sink." },
-    "00726": { e: "Maximum PWM bit count set by the Sink." },
+    "00724": { e: "Number of effective bits used by the Source for backlight brightness control in DPCD 00722h/00723h.",
+      b: [
+        { de: "Number of effective control bits used by the Source for DPCD 00722h and 00723h." }
+      ]
+    },
+    "00725": { e: "Minimum PWM bit count set by the Sink.",
+      b: [
+        { de: "Minimum PWM bit count set by the Sink; must be >= 1." }
+      ]
+    },
+    "00726": { e: "Maximum PWM bit count set by the Sink.",
+      b: [
+        { de: "Maximum PWM bit count set by the Sink; must be >= DPCD 00725h value." }
+      ]
+    },
     "00727": { e: "eDP backlight control status register.",
       b: [
         { de: "0 = Normal operation. 1 = Backlight fault." },
@@ -3427,17 +3519,29 @@ var DPCD_DB = Object.assign({},
     "00728": { e: "Display backlight PWM frequency control value." },
     "0072A": { e: "eDP backlight PWM minimum frequency, high byte (bits 17:10). Combined with 0072Bh and 0072Ch to form an 18-bit value." },
     "0072B": { e: "eDP backlight PWM minimum frequency, middle byte (bits 9:2)." },
-    "0072C": { e: "eDP backlight PWM minimum frequency, low 2 bits." },
+    "0072C": { e: "eDP backlight PWM minimum frequency, low 2 bits.",
+      b: [
+        { de: "eDP backlight PWM minimum frequency, low 2 bits." }
+      ]
+    },
     "0072D": { e: "eDP backlight PWM maximum frequency, high byte (bits 17:10)." },
     "0072E": { e: "eDP backlight PWM maximum frequency, middle byte (bits 9:2)." },
-    "0072F": { e: "eDP backlight PWM maximum frequency, low 2 bits." },
+    "0072F": { e: "eDP backlight PWM maximum frequency, low 2 bits.",
+      b: [
+        { de: "eDP backlight PWM maximum frequency, low 2 bits." }
+      ]
+    },
     "00730": { e: "Brightness optimization control and smooth brightness control register. VESA DPCD mapping.",
       b: [
         { de: "Brightness optimization control." },
         { de: "Smooth brightness control enable." }
       ]
     },
-    "00731": { e: "Segmented backlight control register. VESA DPCD mapping." },
+    "00731": { e: "Segmented backlight control register. VESA DPCD mapping.",
+      b: [
+        { de: "Segmented backlight control. VESA DPCD mapping; 720[6] must be 1 for this to be effective." }
+      ]
+    },
     "00734": { e: "Nits brightness control value (VESA), byte 0 of 734h-736h, unit: cd/m²." },
     "00735": { e: "Nits brightness control value (VESA), byte 1 of 734h-736h, unit: cd/m²." },
     "00736": { e: "Nits brightness control value (VESA), byte 2 of 734h-736h, unit: cd/m²." },
@@ -3617,7 +3721,11 @@ var DPCD_DB = Object.assign({},
         { de: "1=CEA VSC Extended SDP chaining supported." }
       ]
     },
-    "02214": { e: "Adaptive Sync SDP (Secondary Data Packet) support register. Added in eDP v1.5." },
+    "02214": { e: "Adaptive Sync SDP (Secondary Data Packet) support register. Added in eDP v1.5.",
+      b: [
+        { de: "0 = Not supported. 1 = Adaptive Sync SDP supported. Added in eDP v1.5." }
+      ]
+    },
     "F0000": { e: "Start of vendor-specific DPCD address space (F0000h–FFFFFh). Used by chip vendors (e.g. Raydium) for proprietary internal register access via AUX. Contents are entirely vendor-defined and require the vendor's datasheet. Not covered by VESA DP specification." }
   };
   Object.keys(EN).forEach(function(addr) {
