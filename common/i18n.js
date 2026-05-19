@@ -236,6 +236,7 @@ var I18N = {
   'wfg.laAnalyzerCancel': { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
   'wfg.laAnalyzerConfirm': { 'zh-TW': '確定', 'en': 'OK', 'zh-CN': '确定' },
   'wfg.laAnalyzerDpAuxHint': { 'zh-TW': '以網頁原生 JS 解碼 DisplayPort AUX Manchester II：bit 1 = H→L、bit 0 = L→H，START/STOP = HHLL。', 'en': 'Decodes DisplayPort AUX Manchester II in browser JS: bit 1 = H→L, bit 0 = L→H, START/STOP = HHLL.', 'zh-CN': '以网页原生 JS 解码 DisplayPort AUX Manchester II：bit 1 = H→L、bit 0 = L→H，START/STOP = HHLL。' },
+  'wfg.presetTitle':    { 'zh-TW': '📋 載入預設', 'en': '📋 Load Preset', 'zh-CN': '📋 载入预设' },
   'wfg.frameParams':    { 'zh-TW': '📐 Frame 參數', 'en': '📐 Frame Parameters', 'zh-CN': '📐 Frame 参数' },
   'wfg.frameCount':     { 'zh-TW': 'Frame 重複數', 'en': 'Frame Repeat Count', 'zh-CN': 'Frame 重复数' },
   'wfg.gateType':       { 'zh-TW': 'Gate Type', 'en': 'Gate Type', 'zh-CN': 'Gate Type' },
