@@ -494,7 +494,7 @@
     <div class="back-row">
       <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
     </div>
-    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.5.0</span></h1>
+    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.6.0</span></h1>
     <p data-i18n="aux.subtitle">AUX 解碼 &amp; DPCD 暫存器查詢</p>
     <div class="lang-switcher">
       <select id="lang-select" class="lang-select" aria-label="Language">
@@ -2499,26 +2499,40 @@ window.auxGetCurrentVal = auxGetCurrentVal;
     for (var i = 0; i < addrs.length; i++) {
       var addr = addrs[i];
       var e = DPCD_DB[addr];
-      var matchText = null;
-      if (e.n && e.n.toLowerCase().indexOf(q) >= 0) { matchText = e.n; }
-      else if (!_isEn && e.c && e.c.toLowerCase().indexOf(q) >= 0) { matchText = e.c; }
-      else if (_isEn && e.e && e.e.toLowerCase().indexOf(q) >= 0) { matchText = e.e; }
-      else if (!_isEn && e.d && e.d.toLowerCase().indexOf(q) >= 0) { matchText = e.d; }
+      var src = null;
+      if (e.n && e.n.toLowerCase().indexOf(q) >= 0) { src = { t: 'n' }; }
+      else if (!_isEn && e.c && e.c.toLowerCase().indexOf(q) >= 0) { src = { t: 'c' }; }
+      else if (_isEn && e.e && e.e.toLowerCase().indexOf(q) >= 0) { src = { t: 'desc' }; }
+      else if (!_isEn && e.d && e.d.toLowerCase().indexOf(q) >= 0) { src = { t: 'desc' }; }
       else if (e.vv) {
-        for (var vi = 0; vi < e.vv.length && !matchText; vi++) {
-          if (e.vv[vi].l && e.vv[vi].l.toLowerCase().indexOf(q) >= 0) matchText = e.vv[vi].l;
+        for (var vi = 0; vi < e.vv.length && !src; vi++) {
+          if (e.vv[vi].l && e.vv[vi].l.toLowerCase().indexOf(q) >= 0) src = { t: 'vv', i: vi };
         }
       }
       else if (e.b) {
-        for (var bi = 0; bi < e.b.length && !matchText; bi++) {
-          if (e.b[bi].n && e.b[bi].n.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].n;
-          else if (_isEn && e.b[bi].de && e.b[bi].de.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].de;
-          else if (!_isEn && e.b[bi].d && e.b[bi].d.toLowerCase().indexOf(q) >= 0) matchText = e.b[bi].d;
+        for (var bi = 0; bi < e.b.length && !src; bi++) {
+          if (e.b[bi].n && e.b[bi].n.toLowerCase().indexOf(q) >= 0) src = { t: 'bn', i: bi };
+          else if (_isEn && e.b[bi].de && e.b[bi].de.toLowerCase().indexOf(q) >= 0) src = { t: 'bd', i: bi };
+          else if (!_isEn && e.b[bi].d && e.b[bi].d.toLowerCase().indexOf(q) >= 0) src = { t: 'bd', i: bi };
         }
       }
-      if (matchText !== null) out.push({ addr: addr, n: e.n || '', c: e.c || '', matchText: matchText });
+      if (src !== null) out.push({ addr: addr, n: e.n || '', c: e.c || '', src: src });
     }
     return out;
+  }
+
+  // 依當前語言從 DPCD_DB 取得對應的匹配文字
+  function getLocalizedMatch(res) {
+    if (!res.src) return '';
+    var entry = (typeof DPCD_DB !== 'undefined') ? DPCD_DB[res.addr] : null;
+    if (!entry) return '';
+    switch (res.src.t) {
+      case 'desc': return _dbDesc(entry);
+      case 'vv':   return entry.vv && entry.vv[res.src.i] ? (entry.vv[res.src.i].l || '') : '';
+      case 'bn':   return entry.b && entry.b[res.src.i] ? (entry.b[res.src.i].n || '') : '';
+      case 'bd':   return entry.b && entry.b[res.src.i] ? _dbBitDesc(entry.b[res.src.i]) : '';
+      default:     return '';
+    }
   }
 
   function renderPage(page) {
@@ -2533,22 +2547,22 @@ window.auxGetCurrentVal = auxGetCurrentVal;
     page = Math.max(0, Math.min(page, totalPages - 1));
     _page = page;
 
-    var _isEn = (typeof currentLang !== 'undefined' && currentLang === 'en');
     var q = _query.toLowerCase();
     var start = page * PAGE_SIZE;
     var end = Math.min(start + PAGE_SIZE, _results.length);
     var html = '';
     for (var r = start; r < end; r++) {
       var res = _results[r];
-      var isNameMatch = res.n && res.n.toLowerCase().indexOf(q) >= 0;
-      var isCMatch = !_isEn && res.c && res.c.toLowerCase().indexOf(q) >= 0;
-      var _rc = _dbC(res.c);
+      var isNameMatch = res.src && res.src.t === 'n';
+      var isCMatch = res.src && res.src.t === 'c';
+      var entry = (typeof DPCD_DB !== 'undefined') ? DPCD_DB[res.addr] : null;
+      var _rc = _dbC(entry ? entry.c : res.c);
       html += '<div class="aux-dpcd-search-item">';
       html += '<span class="aux-search-addr" onclick="auxJumpToDpcd(\'' + res.addr + '\',\'\')" title="' + _tAux('jumpDpcd') + '">0x' + res.addr + '</span>';
       if (res.n) html += '<span style="font-size:13px;color:var(--text);margin-left:8px">' + hlText(res.n, isNameMatch ? _query : '') + '</span>';
       if (_rc) html += '<span style="font-size:12px;color:var(--text-sub);margin-left:6px">' + hlText(_rc, isCMatch ? _query : '') + '</span>';
       if (!isNameMatch && !isCMatch) {
-        var _matchDisplay = _isEn ? res.matchText : _dbD(res.matchText);
+        var _matchDisplay = getLocalizedMatch(res);
         if (_matchDisplay) html += '<div class="aux-search-match">' + hlText(_matchDisplay, _query) + '</div>';
       }
       html += '</div>';
@@ -2597,8 +2611,14 @@ window.auxGetCurrentVal = auxGetCurrentVal;
     if (inp) inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  // 重新渲染當前頁（語言切換用）
+  function auxDpcdSearchRerender() {
+    if (_results.length > 0) renderPage(_page);
+  }
+
   window.auxDpcdSearch = auxDpcdSearch;
   window.auxDpcdGoPage  = auxDpcdGoPage;
+  window.auxDpcdSearchRerender = auxDpcdSearchRerender;
 
   function initDpcdSearch() {
     var inp = document.getElementById('aux-dpcd-search-input');
@@ -2614,6 +2634,19 @@ window.auxGetCurrentVal = auxGetCurrentVal;
     initDpcdSearch();
   }
 })();
+
+// ─── 語言切換回呼：重新渲染搜尋結果 + 查詢結果 ───
+window._onLangChange = function(lang) {
+  // 1) 反向搜尋結果
+  if (typeof auxDpcdSearchRerender === 'function') auxDpcdSearchRerender();
+  // 2) DPCD 查詢結果卡片
+  var resultCard = document.getElementById('aux-dpcd-result');
+  if (resultCard && resultCard.style.display !== 'none') {
+    var addr = (typeof auxGetAddrFromWheels === 'function') ? auxGetAddrFromWheels() : '';
+    var val  = (typeof auxGetCurrentVal === 'function') ? auxGetCurrentVal() : '';
+    if (addr) auxLookupDPCD(addr, val);
+  }
+};
 
 // ═══════════ AUX 波形（Manchester II）═══════════
 
