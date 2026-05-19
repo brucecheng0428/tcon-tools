@@ -309,22 +309,22 @@ var DPCD_DB = Object.assign({},
 
   // ===== eDP Link Rate Table (00010h–0001Fh) =====
 
-  "00010": { n: "SUPPORTED_LINK_RATES0[7:0]", c: "支援 Link Rate 表 Entry 0 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES0[7:0]", d: "Entry 0 low byte. Combine with DPCD 00011h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00011": { n: "SUPPORTED_LINK_RATES0[15:8]", c: "支援 Link Rate 表 Entry 0 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES0[15:8]", d: "Entry 0 high byte. Combine with DPCD 00010h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00012": { n: "SUPPORTED_LINK_RATES1[7:0]", c: "支援 Link Rate 表 Entry 1 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES1[7:0]", d: "Entry 1 low byte. Combine with DPCD 00013h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00013": { n: "SUPPORTED_LINK_RATES1[15:8]", c: "支援 Link Rate 表 Entry 1 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES1[15:8]", d: "Entry 1 high byte. Combine with DPCD 00012h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00014": { n: "SUPPORTED_LINK_RATES2[7:0]", c: "支援 Link Rate 表 Entry 2 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES2[7:0]", d: "Entry 2 low byte. Combine with DPCD 00015h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00015": { n: "SUPPORTED_LINK_RATES2[15:8]", c: "支援 Link Rate 表 Entry 2 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES2[15:8]", d: "Entry 2 high byte. Combine with DPCD 00014h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00016": { n: "SUPPORTED_LINK_RATES3[7:0]", c: "支援 Link Rate 表 Entry 3 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES3[7:0]", d: "Entry 3 low byte. Combine with DPCD 00017h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00017": { n: "SUPPORTED_LINK_RATES3[15:8]", c: "支援 Link Rate 表 Entry 3 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES3[15:8]", d: "Entry 3 high byte. Combine with DPCD 00016h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00018": { n: "SUPPORTED_LINK_RATES4[7:0]", c: "支援 Link Rate 表 Entry 4 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES4[7:0]", d: "Entry 4 low byte. Combine with DPCD 00019h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "00019": { n: "SUPPORTED_LINK_RATES4[15:8]", c: "支援 Link Rate 表 Entry 4 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES4[15:8]", d: "Entry 4 high byte. Combine with DPCD 00018h as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "0001A": { n: "SUPPORTED_LINK_RATES5[7:0]", c: "支援 Link Rate 表 Entry 5 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES5[7:0]", d: "Entry 5 low byte. Combine with DPCD 0001Bh as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "0001B": { n: "SUPPORTED_LINK_RATES5[15:8]", c: "支援 Link Rate 表 Entry 5 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES5[15:8]", d: "Entry 5 high byte. Combine with DPCD 0001Ah as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "0001C": { n: "SUPPORTED_LINK_RATES6[7:0]", c: "支援 Link Rate 表 Entry 6 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES6[7:0]", d: "Entry 6 low byte. Combine with DPCD 0001Dh as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "0001D": { n: "SUPPORTED_LINK_RATES6[15:8]", c: "支援 Link Rate 表 Entry 6 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES6[15:8]", d: "Entry 6 high byte. Combine with DPCD 0001Ch as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "0001E": { n: "SUPPORTED_LINK_RATES7[7:0]", c: "支援 Link Rate 表 Entry 7 低位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES7[7:0]", d: "Entry 7 low byte. Combine with DPCD 0001Fh as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
-  "0001F": { n: "SUPPORTED_LINK_RATES7[15:8]", c: "支援 Link Rate 表 Entry 7 高位元組", rw: 0, d: "eDP v1.4+ SUPPORTED_LINK_RATES table. This 16-byte area contains eight 16-bit supported per-lane link-rate entries. Each entry is stored little-endian: low byte at the lower DPCD address, high byte at the next address. The link rate is entry_value x 200 kHz. Valid entries must be unique, ordered from low to high address, and the first entry must be non-zero. 0000h means this entry and higher entries are invalid. Standard examples: RBR=1FA4h, HBR=34BCh, HBR2=6978h, HBR3=9E34h.", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES7[15:8]", d: "Entry 7 high byte. Combine with DPCD 0001Eh as a little-endian 16-bit value, then multiply by 200 kHz to get the supported per-lane link rate." }] },
+  "00010": { n: "SUPPORTED_LINK_RATES0[7:0]", c: "支援 Link Rate 表 Entry 0 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES0[7:0]", d: "Entry 0 低位元組。與 DPCD 00011h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00011": { n: "SUPPORTED_LINK_RATES0[15:8]", c: "支援 Link Rate 表 Entry 0 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES0[15:8]", d: "Entry 0 高位元組。與 DPCD 00010h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00012": { n: "SUPPORTED_LINK_RATES1[7:0]", c: "支援 Link Rate 表 Entry 1 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES1[7:0]", d: "Entry 1 低位元組。與 DPCD 00013h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00013": { n: "SUPPORTED_LINK_RATES1[15:8]", c: "支援 Link Rate 表 Entry 1 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES1[15:8]", d: "Entry 1 高位元組。與 DPCD 00012h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00014": { n: "SUPPORTED_LINK_RATES2[7:0]", c: "支援 Link Rate 表 Entry 2 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES2[7:0]", d: "Entry 2 低位元組。與 DPCD 00015h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00015": { n: "SUPPORTED_LINK_RATES2[15:8]", c: "支援 Link Rate 表 Entry 2 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES2[15:8]", d: "Entry 2 高位元組。與 DPCD 00014h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00016": { n: "SUPPORTED_LINK_RATES3[7:0]", c: "支援 Link Rate 表 Entry 3 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES3[7:0]", d: "Entry 3 低位元組。與 DPCD 00017h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00017": { n: "SUPPORTED_LINK_RATES3[15:8]", c: "支援 Link Rate 表 Entry 3 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES3[15:8]", d: "Entry 3 高位元組。與 DPCD 00016h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00018": { n: "SUPPORTED_LINK_RATES4[7:0]", c: "支援 Link Rate 表 Entry 4 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES4[7:0]", d: "Entry 4 低位元組。與 DPCD 00019h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "00019": { n: "SUPPORTED_LINK_RATES4[15:8]", c: "支援 Link Rate 表 Entry 4 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES4[15:8]", d: "Entry 4 高位元組。與 DPCD 00018h 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "0001A": { n: "SUPPORTED_LINK_RATES5[7:0]", c: "支援 Link Rate 表 Entry 5 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES5[7:0]", d: "Entry 5 低位元組。與 DPCD 0001Bh 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "0001B": { n: "SUPPORTED_LINK_RATES5[15:8]", c: "支援 Link Rate 表 Entry 5 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES5[15:8]", d: "Entry 5 高位元組。與 DPCD 0001Ah 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "0001C": { n: "SUPPORTED_LINK_RATES6[7:0]", c: "支援 Link Rate 表 Entry 6 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES6[7:0]", d: "Entry 6 低位元組。與 DPCD 0001Dh 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "0001D": { n: "SUPPORTED_LINK_RATES6[15:8]", c: "支援 Link Rate 表 Entry 6 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES6[15:8]", d: "Entry 6 高位元組。與 DPCD 0001Ch 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "0001E": { n: "SUPPORTED_LINK_RATES7[7:0]", c: "支援 Link Rate 表 Entry 7 低位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES7[7:0]", d: "Entry 7 低位元組。與 DPCD 0001Fh 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
+  "0001F": { n: "SUPPORTED_LINK_RATES7[15:8]", c: "支援 Link Rate 表 Entry 7 高位元組", rw: 0, d: "eDP v1.4+ 支援 Link Rate 表。此 16-byte 區域包含 8 組 16-bit 的每 Lane 連結速率條目。每組以 little-endian 儲存：低位元組在低地址，高位元組在高地址。速率 = 條目值 × 200 kHz。有效條目必須唯一且由低到高排列，第一個條目必須非零。0000h 表示此條目及以上無效。標準值範例：RBR=1FA4h、HBR=34BCh、HBR2=6978h、HBR3=9E34h。", b: [{ r: "7:0", n: "SUPPORTED_LINK_RATES7[15:8]", d: "Entry 7 高位元組。與 DPCD 0001Eh 組合為 little-endian 16-bit 值，乘以 200 kHz 即得每 Lane 連結速率。" }] },
 
   // ===== FAUX / MST / Audio (00020h–00022h) =====
 
@@ -390,18 +390,18 @@ var DPCD_DB = Object.assign({},
     n: "RECEIVER_ADVANCED_LINK_POWER_MANAGEMENT_CAPABILITIES",
     c: "接收端進階低功耗管理能力",
     rw: 0,
-    d: "Reports whether the receiver supports Advanced Link Power Management (ALPM). This definition comes from the Excel DPCD reference and replaces the old placeholder reserved entry.",
+    d: "此暫存器報告 Sink 是否支援 ALPM（Advanced Link Power Management，進階連結電源管理）。ALPM 可在靜態畫面時降低主連結功耗，是 eDP 面板省電的關鍵功能之一。",
     b: [
-      { r: "0", n: "ALPM_CAP", d: "0 = ALPM is not supported. 1 = ALPM is supported." }
+      { r: "0", n: "ALPM_CAP", d: "0 = 不支援 ALPM。1 = 支援 ALPM。" }
     ]
   },
   "0002F": {
     n: "AUX_FRAME_SYNC",
     c: "AUX Frame Sync 能力",
     rw: 0,
-    d: "Reports whether AUX_FRAME_SYNC is supported. This definition comes from the Excel DPCD reference and replaces the old placeholder reserved entry.",
+    d: "此暫存器報告 Sink 是否支援 AUX Frame Sync。AUX Frame Sync 允許 Source 透過 AUX 通道同步 Sink 端的更新時序。",
     b: [
-      { r: "0", n: "AUX_FRAME_SYNC_CAP", d: "0 = AUX_FRAME_SYNC is not supported. 1 = AUX_FRAME_SYNC is supported." }
+      { r: "0", n: "AUX_FRAME_SYNC_CAP", d: "0 = 不支援 AUX Frame Sync。1 = 支援 AUX Frame Sync。" }
     ]
   },
   "00030": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址 00030h~0005Fh，規格未定義。部分廠商可能在此放私有功能，但非標準。", b: [] },
@@ -2251,87 +2251,98 @@ var DPCD_DB = Object.assign({},
 
   "000B2": {
     n: "SU_X_GRANULARITY[7:0]",
+    c: "SU X 粒度低位元組",
     rw: 1,
-    d: "Sets the grid pattern granularity in the X direction. 0000h = No X-coordinate granularity requirement exists other than the standard restrictions, wherein the: - Starting X-coordinate shall be evenly divisible by 16 - Rectangle width shall be evenly divisible by 4\nRemark: New to eDP v1.5\nExcel source: xlsx:Sheet",
+    d: "設定 Selective Update 網格在水平方向的粒度（低 8-bit）。0000h = 無額外 X 粒度要求，僅受標準限制（起始 X 需能被 16 整除、矩形寬度需能被 4 整除）。eDP v1.5 新增。",
     b: []
   },
   "000B3": {
     n: "SU_X_GRANULARITY[15:8]",
+    c: "SU X 粒度高位元組",
     rw: 1,
-    d: "Sets the grid pattern granularity in the X direction. 0000h = No X-coordinate granularity requirement exists other than the standard restrictions, wherein the: - Starting X-coordinate shall be evenly divisible by 16 - Rectangle width shall be evenly divisible by 4\nRemark: New to eDP v1.5\nExcel source: xlsx:Sheet",
+    d: "設定 Selective Update 網格在水平方向的粒度（高 8-bit），與 000B2h 組合為 16-bit 值。eDP v1.5 新增。",
     b: []
   },
   "000B4": {
     n: "SU_Y_GRANULARITY",
+    c: "SU Y 粒度",
     rw: 1,
-    d: "00h = One-line address and height granularity.\n01h = One-line address and height granularity.\n02h = Two-line address and height granularity.\n04h = Four-line address and height granularity.\n08h = Eight-line address and height granularity.\n10h = 16-line address and height granularity.\nRemark: New to eDP v1.5\nExcel source: xlsx:Sheet",
+    d: "設定 Selective Update 網格在垂直方向的粒度。00h/01h = 1 行、02h = 2 行、04h = 4 行、08h = 8 行、10h = 16 行。eDP v1.5 新增。",
     b: []
   },
   "00120": {
     n: "DPCD_00120",
+    c: "FEC 配置暫存器",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Forward Error Correction（前向糾錯）配置暫存器。DP v1.4 新增。控制 FEC 的啟用、錯誤計數選擇、Lane 選擇等。FEC 在啟用 DSC 壓縮時必須開啟。",
     b: [
-      {r:"7", n:"PRECODING_DISABLE", d:"0 = Pre-coding is enabled (default).\n1 = Pre-coding is disabled.\nRemark: New to DP v1.4.", v:{"00":"Pre-coding is enabled (default)", "01":"Pre-coding is disabled"}},
-      {r:"6", n:"AGGREGATED_ENABLED_LANES_ERRORS", d:"0 = Not enabled. LANE_DEC_SELECT field (bits 5:4) indicates the reported lane.\n1 = Enabled. Errors reported in the FEC_ERROR_COUNT register (DPCD Addresses 00281h and 00282h) are of the type selected by the FEC_ERROR_COUNT_SEL field (bits 3:1). The reported value is aggregated across all enabled lanes. The LANE_DEC_SELECT field is ignored.\nRemark: New to DP v1.4.", v:{"00":"Not enabled. LANE_DEC_SELECT field (bits 5:4) indicates the reported lane", "01":"Enabled. Errors reported in the FEC_ERROR_COUNT register (DPCD Addresses 00281h and 00282h) are of the type selected by the FEC_ERROR_COUNT_SEL field (bits 3:1). The reported value is aggregated across all enabled lanes. The LANE_DEC_SELECT field is ignored"}},
-      {r:"5:4", n:"FEC_ERROR_LANE_SEL", d:"00 = Lane 0.\n01 = Lane 1.\n10 = Lane 2.\n11 = Lane 3.\nRemark: New to DP v1.4.", v:{"00":"Lane 0", "01":"Lane 1", "10":"Lane 2", "11":"Lane 3"}},
-      {r:"3:1", n:"FEC_ERROR_COUNT_SEL", d:"000 = FEC_ERROR_COUNT_DIS.\n001 = UNCORRECTED_BLOCK_ERROR_COUNT.\n010 = CORRECTED_BLOCK_ERROR_COUNT.\n011 = BIT_ERROR_COUNT.\nRemark: New to DP v1.4."},
-      {r:"0", n:"FEC_READY", d:"0 = Not ready. A DP Source device shall set this bit to 1 and initiate Link training before start FEC encoding.\n1 = Ready. A DP Source may start FEC encoding without having to re-initiate Link Training.\nRemark: New to DP v1.4.", v:{"00":"Not ready. A DP Source device shall set this bit to 1 and initiate Link training before start FEC encoding", "01":"Ready. A DP Source may start FEC encoding without having to re-initiate Link Training"}}
+      {r:"7", n:"PRECODING_DISABLE", d:"0 = Pre-coding 已啟用（預設）。1 = Pre-coding 已停用。DP v1.4 新增。", v:{"00":"Pre-coding 已啟用（預設）", "01":"Pre-coding 已停用"}},
+      {r:"6", n:"AGGREGATED_ENABLED_LANES_ERRORS", d:"0 = 未啟用。LANE_DEC_SELECT 欄位（bit 5:4）指定回報的 Lane。1 = 已啟用。FEC_ERROR_COUNT 暫存器（DPCD 00281h/00282h）回報的錯誤類型由 FEC_ERROR_COUNT_SEL 欄位（bit 3:1）選定，數值為所有啟用 Lane 的總和。LANE_DEC_SELECT 欄位被忽略。DP v1.4 新增。", v:{"00":"未啟用，LANE_DEC_SELECT 指定回報 Lane", "01":"已啟用，錯誤數為所有啟用 Lane 總和"}},
+      {r:"5:4", n:"FEC_ERROR_LANE_SEL", d:"00 = Lane 0。01 = Lane 1。10 = Lane 2。11 = Lane 3。DP v1.4 新增。", v:{"00":"Lane 0", "01":"Lane 1", "10":"Lane 2", "11":"Lane 3"}},
+      {r:"3:1", n:"FEC_ERROR_COUNT_SEL", d:"000 = FEC_ERROR_COUNT_DIS（停用）。001 = 未校正區塊錯誤計數。010 = 已校正區塊錯誤計數。011 = 位元錯誤計數。DP v1.4 新增。"},
+      {r:"0", n:"FEC_READY", d:"0 = 未就緒。Source 須先設定此 bit 為 1 並啟動 Link Training 後才能開始 FEC 編碼。1 = 已就緒。Source 可直接開始 FEC 編碼而無需重新 Link Training。DP v1.4 新增。", v:{"00":"未就緒，須先啟動 Link Training", "01":"已就緒，可直接開始 FEC 編碼"}}
     ]
   },
   "00280": {
     n: "DPCD_00280",
+    c: "FEC 狀態暫存器",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Forward Error Correction 狀態暫存器。DP v1.4 新增。回報 FEC 是否正在運行，以及是否偵測到 FEC 解碼啟用/停用。",
     b: [
-      {r:"2", n:"FEC_RUNNING_INDICATOR", d:"0 = FEC is not running.\n1 = FEC is running.\nRemark: New to DP v1.4.", v:{"00":"FEC is not running", "01":"FEC is running"}},
-      {r:"1", n:"FEC_DECODE_DIS_DETECTED", d:"0 = Not detected.\n1 = Detected\nRemark: New to DP v1.4.", v:{"00":"Not detected", "01":"Detected"}},
-      {r:"0", n:"FEC_DECODE_EN_DETECTED", d:"0 = Not detected.\n1 = Detected.\nRemark: New to DP v1.4.", v:{"00":"Not detected", "01":"Detected"}}
+      {r:"2", n:"FEC_RUNNING_INDICATOR", d:"0 = FEC 未運行。1 = FEC 正在運行。DP v1.4 新增。", v:{"00":"FEC 未運行", "01":"FEC 正在運行"}},
+      {r:"1", n:"FEC_DECODE_DIS_DETECTED", d:"0 = 未偵測到 FEC 解碼停用。1 = 已偵測到 FEC 解碼停用事件。DP v1.4 新增。", v:{"00":"未偵測到 FEC 解碼停用", "01":"已偵測到 FEC 解碼停用"}},
+      {r:"0", n:"FEC_DECODE_EN_DETECTED", d:"0 = 未偵測到 FEC 解碼啟用。1 = 已偵測到 FEC 解碼啟用事件。DP v1.4 新增。", v:{"00":"未偵測到 FEC 解碼啟用", "01":"已偵測到 FEC 解碼啟用"}}
     ]
   },
   "00310": {
     n: "intel_adaptive_sync[7:0]",
+    c: "Intel Adaptive Sync 最大 VBlank 縮減（byte 0）",
     rw: 1,
-    d: "Maximum reduction in vertical blanking (in units of number of lines)\nExcel source: xlsx:Sheet",
+    d: "Intel Adaptive Sync 垂直消隱（VBlank）最大縮減量（以行數為單位）的最低位元組。與 00311h-00313h 組合為 32-bit 值。Adaptive Sync 允許面板動態調整更新率以配合內容幀率，減少撕裂和卡頓。",
     b: []
   },
   "00311": {
     n: "intel_adaptive_sync[15:8]",
+    c: "Intel Adaptive Sync 最大 VBlank 縮減（byte 1）",
     rw: 1,
-    d: "Maximum reduction in vertical blanking (in units of number of lines)\nExcel source: xlsx:Sheet",
+    d: "Intel Adaptive Sync 最大 VBlank 縮減量的第 2 位元組。",
     b: []
   },
   "00312": {
     n: "intel_adaptive_sync[23:16]",
+    c: "Intel Adaptive Sync 最大 VBlank 縮減（byte 2）",
     rw: 1,
-    d: "Maximum reduction in vertical blanking (in units of number of lines)\nExcel source: xlsx:Sheet",
+    d: "Intel Adaptive Sync 最大 VBlank 縮減量的第 3 位元組。",
     b: []
   },
   "00313": {
     n: "intel_adaptive_sync[31:24]",
+    c: "Intel Adaptive Sync 最大 VBlank 縮減（byte 3）",
     rw: 1,
-    d: "Maximum reduction in vertical blanking (in units of number of lines)\nExcel source: xlsx:Sheet",
+    d: "Intel Adaptive Sync 最大 VBlank 縮減量的最高位元組。",
     b: []
   },
   "00314": {
     n: "DPCD_00314",
+    c: "Intel PSR/LRR 能力暫存器",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Intel 自定義 DPCD 暫存器，回報 PSR VTotal 控制、低更新率切換（LRR）、UBRR 等進階省電功能的支援狀態。具體設定需依面板型號調整。",
     b: [
-      {r:"5", n:"ALRR_SUPPORTED", d:"0 = not supported.\n1 = supported.\nRemark: DPCD_314h for Intel, 後續視model需要修改設定", v:{"00":"not supported", "01":"supported"}},
-      {r:"4", n:"UBRR-LR support", d:"1 = UBRR-LR supported; 0 = UBRR-LR not supported\nRemark: DPCD_314h for Intel, 後續視model需要修改設定", v:{"01":"UBRR-LR supported; 0 = UBRR-LR not supported"}},
-      {r:"3", n:"UBRR-ZR support", d:"1 = UBRR-ZR supported; 0 = UBRR-ZR not supported\nRemark: DPCD_314h for Intel, 後續視model需要修改設定", v:{"01":"UBRR-ZR supported; 0 = UBRR-ZR not supported"}},
-      {r:"2", n:"VTOTAL_CHANGED", d:"0 = don’t supports TOTAL change between PSR entry/exit\n1 = supports TOTAL change between PSR entry/exit\nRemark: DPCD_314h for Intel, 後續視model需要修改設定", v:{"00":"don’t supports TOTAL change between PSR entry/exit", "01":"supports TOTAL change between PSR entry/exit"}},
-      {r:"1", n:"LOW_RR_SWITCHING", d:"0 = don’t supports low RR switching within panel for PSR idle senarios\n1 = supports low RR switching within panel for PSR idle senarios\nRemark: DPCD_314h for Intel, 後續視model需要修改設定", v:{"00":"don’t supports low RR switching within panel for PSR idle senarios", "01":"supports low RR switching within panel for PSR idle senarios"}},
-      {r:"0", n:"PIXEL_CLK_BASED_RR_CHANGED", d:"0 = don’t supports pixel clock based RR changed\n1 = supports pixel clock based RR changed\nRemark: DPCD_314h for Intel, 後續視model需要修改設定", v:{"00":"don’t supports pixel clock based RR changed", "01":"supports pixel clock based RR changed"}}
+      {r:"5", n:"ALRR_SUPPORTED", d:"0 = 不支援。1 = 支援 Intel ALRR（Autonomous Low Refresh Rate）。", v:{"00":"不支援", "01":"支援 ALRR"}},
+      {r:"4", n:"UBRR-LR support", d:"1 = 支援 UBRR-LR。0 = 不支援。", v:{"00":"不支援 UBRR-LR", "01":"支援 UBRR-LR"}},
+      {r:"3", n:"UBRR-ZR support", d:"1 = 支援 UBRR-ZR。0 = 不支援。", v:{"00":"不支援 UBRR-ZR", "01":"支援 UBRR-ZR"}},
+      {r:"2", n:"VTOTAL_CHANGED", d:"0 = 不支援 PSR 進入/離開時 VTotal 變更。1 = 支援。", v:{"00":"不支援 VTotal 變更", "01":"支援 VTotal 變更"}},
+      {r:"1", n:"LOW_RR_SWITCHING", d:"0 = 不支援面板內部低更新率切換。1 = 支援 PSR 閒置時低更新率切換。", v:{"00":"不支援低更新率切換", "01":"支援低更新率切換"}},
+      {r:"0", n:"PIXEL_CLK_BASED_RR_CHANGED", d:"0 = 不支援基於 pixel clock 的更新率變更。1 = 支援。", v:{"00":"不支援", "01":"支援"}}
     ]
   },
   "00316": {
     n: "DPCD_00316",
+    c: "Intel LRR 啟用控制",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Intel 自定義 DPCD 暫存器，控制 Intel LRR（Low Refresh Rate）功能的啟用狀態。",
     b: [
-      {r:"2", n:"Enable Intel ALRR", d:"0 = Intel LRR not enabled\n1 = Intel LRR enabled", v:{"00":"Intel LRR not enabled", "01":"Intel LRR enabled"}}
+      {r:"2", n:"Enable Intel ALRR", d:"0 = Intel LRR 未啟用。1 = Intel LRR 已啟用。", v:{"00":"Intel LRR 未啟用", "01":"Intel LRR 已啟用"}}
     ]
   },
   "00317": {
@@ -2353,14 +2364,16 @@ var DPCD_DB = Object.assign({},
   },
   "00320": {
     n: "dp_dpcd_00320",
+    c: "MBO 應用暫存器",
     rw: 1,
-    d: "for MBO application\nExcel source: xlsx:Sheet",
+    d: "用於 MBO（Multi Beam Operation）應用的自定義 DPCD 暫存器。",
     b: []
   },
   "00330": {
     n: "ALPM Sink Device Power Management State",
+    c: "ALPM Sink 電源管理狀態",
     rw: 1,
-    d: "0 = Unknown – UNKNOWN\n1= PM_State1 – ACTIVE\n2 = PM_State1a – ACTIVE_NOSTREAM\n3 = PM_State2 – STANDBY\n4 = PM_State2a – FW_STANDBY\n5 = PM_State3 – SLEEP\n6 = PM_State3a – FW_SLEEP\n7 = PM_State4 – OFF\nExcel source: xlsx:Sheet",
+    d: "ALPM（Advanced Link Power Management）Sink 端裝置電源管理狀態暫存器。回報 Sink 目前所處的電源狀態：0=未知、1=ACTIVE（正常運作）、2=ACTIVE_NOSTREAM（無串流但仍活躍）、3=STANDBY（待機）、4=FW_STANDBY（韌體待機）、5=SLEEP（睡眠）、6=FW_SLEEP（韌體睡眠）、7=OFF（關閉）。除錯 PSR/ALPM 省電問題時可讀取此暫存器確認面板電源狀態。",
     b: []
   },
   "00340": {
@@ -2433,162 +2446,187 @@ var DPCD_DB = Object.assign({},
   },
   "00347": {
     n: "CONTENT_LUMINANCE",
+    c: "內容亮度（Intel 自定義, byte 1）",
     rw: 1,
-    d: "Content luminance. Intel custom DPCD mapping from Intel HDR/backlight reference: 346-349h\nExcel source: xlsx:Intel",
+    d: "內容亮度值。Intel 自定義 DPCD 映射，出自 Intel HDR/backlight 參考文件。地址 346h-349h 共 4 bytes 組合為內容亮度資訊，供 HDR 背光控制使用。",
     b: []
   },
   "00348": {
     n: "CONTENT_LUMINANCE",
+    c: "內容亮度（Intel 自定義, byte 2）",
     rw: 1,
-    d: "Content luminance. Intel custom DPCD mapping from Intel HDR/backlight reference: 346-349h\nExcel source: xlsx:Intel",
+    d: "內容亮度值。Intel 自定義 DPCD 映射，出自 Intel HDR/backlight 參考文件。地址 346h-349h 共 4 bytes 組合為內容亮度資訊，供 HDR 背光控制使用。",
     b: []
   },
   "00349": {
     n: "CONTENT_LUMINANCE",
+    c: "內容亮度（Intel 自定義, byte 3）",
     rw: 1,
-    d: "Content luminance. Intel custom DPCD mapping from Intel HDR/backlight reference: 346-349h\nExcel source: xlsx:Intel",
+    d: "內容亮度值。Intel 自定義 DPCD 映射，出自 Intel HDR/backlight 參考文件。地址 346h-349h 共 4 bytes 組合為內容亮度資訊，供 HDR 背光控制使用。",
     b: []
   },
   "0034A": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 0）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值。Intel 自定義 DPCD 映射，地址 34Ah-351h 共 8 bytes。允許 Source 端覆寫面板 EDID 中的亮度參數，用於 HDR 背光控制場景。",
     b: []
   },
   "0034B": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 1）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 2 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "0034C": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 2）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 3 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "0034D": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 3）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 4 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "0034E": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 4）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 5 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "0034F": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 5）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 6 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "00350": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 6）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 7 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "00351": {
     n: "PANEL_EDID_LUMINANCE_OVERRIDE",
+    c: "面板 EDID 亮度覆寫（Intel, byte 7）",
     rw: 1,
-    d: "Panel EDID luminance override. Intel custom DPCD mapping from Intel HDR/backlight reference: 34A-351h\nExcel source: xlsx:Intel",
+    d: "面板 EDID 亮度覆寫值（第 8 位元組）。Intel 自定義 DPCD 映射，地址 34Ah-351h。",
     b: []
   },
   "00352": {
     n: "SDR_LUMINANCE_LEVEL",
+    c: "SDR 亮度等級（Intel, 低位元組）",
     rw: 1,
-    d: "SDR luminance level. Intel custom DPCD mapping from Intel HDR/backlight reference: 352-353h\nExcel source: xlsx:Intel",
+    d: "SDR 亮度等級值。Intel 自定義 DPCD 映射，地址 352h-353h 共 2 bytes。定義 SDR 內容的亮度等級。",
     b: []
   },
   "00353": {
     n: "SDR_LUMINANCE_LEVEL",
+    c: "SDR 亮度等級（Intel, 高位元組）",
     rw: 1,
-    d: "SDR luminance level. Intel custom DPCD mapping from Intel HDR/backlight reference: 352-353h\nExcel source: xlsx:Intel",
+    d: "SDR 亮度等級值（高位元組）。Intel 自定義 DPCD 映射，地址 352h-353h。",
     b: []
   },
   "00354": {
     n: "NITS_BRIGHTNESS_CONTROL",
+    c: "Nits 亮度控制（Intel, byte 0）",
     rw: 1,
-    d: "Nits brightness control. Intel custom DPCD mapping from Intel HDR/backlight reference: 344[4], 354-356h (cd/m2)\nExcel source: xlsx:Intel",
+    d: "Nits 亮度控制值。Intel 自定義 DPCD 映射，地址 354h-356h 共 3 bytes，單位 cd/m²。配合 344h[4] 使用。",
     b: []
   },
   "00355": {
     n: "NITS_BRIGHTNESS_CONTROL",
+    c: "Nits 亮度控制（Intel, byte 1）",
     rw: 1,
-    d: "Nits brightness control. Intel custom DPCD mapping from Intel HDR/backlight reference: 344[4], 354-356h (cd/m2)\nExcel source: xlsx:Intel",
+    d: "Nits 亮度控制值（第 2 位元組）。Intel 自定義 DPCD 映射。",
     b: []
   },
   "00356": {
     n: "NITS_BRIGHTNESS_CONTROL",
+    c: "Nits 亮度控制（Intel, byte 2）",
     rw: 1,
-    d: "Smooth brightness control. Intel custom DPCD mapping from Intel HDR/backlight reference: 356h (#frames), 357h (per frame steps)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制。Intel 自定義 DPCD 映射，356h 為幀數、357h 為每幀步進值。",
     b: []
   },
   "00357": {
     n: "SMOOTH_BRIGHTNESS_CONTROL",
+    c: "平滑亮度控制（Intel）",
     rw: 1,
-    d: "Smooth brightness control. Intel custom DPCD mapping from Intel HDR/backlight reference: 356h (#frames), 357h (per frame steps)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制。Intel 自定義 DPCD 映射，356h 為幀數、357h 為每幀步進值。用於亮度漸變過渡效果。",
     b: []
   },
   "00358": {
     n: "DPCD_00358",
+    c: "亮度優化控制（Intel）",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Intel",
+    d: "亮度優化控制暫存器。Intel 自定義 DPCD 映射，控制亮度優化模式和系統使用狀態。",
     b: [
-      {r:"7:5", n:"BRIGHTNESS_OPTIMIZATION_CONTROL", d:"Brightness optimization control. Intel custom DPCD mapping from Intel HDR/backlight reference: 358[7:5]"},
-      {r:"3:0", n:"BRIGHTNESS_OPTIMIZATION_SYSTEM_USAGE", d:"Brightness optimization system usage. Intel custom DPCD mapping from Intel HDR/backlight reference: 358[3:0]"},
-      {r:"4", n:"BRIGHTNESS_OPTIMIZATION_AC/DC_STATE", d:"Brightness optimization AC/DC state. Intel custom DPCD mapping from Intel HDR/backlight reference: 358[4]"}
+      {r:"7:5", n:"BRIGHTNESS_OPTIMIZATION_CONTROL", d:"亮度優化控制。Intel 自定義 DPCD 映射，出自 Intel HDR/backlight 參考文件 358[7:5]。"},
+      {r:"3:0", n:"BRIGHTNESS_OPTIMIZATION_SYSTEM_USAGE", d:"亮度優化系統使用狀態。Intel 自定義 DPCD 映射，出自 Intel HDR/backlight 參考文件 358[3:0]。"},
+      {r:"4", n:"BRIGHTNESS_OPTIMIZATION_AC/DC_STATE", d:"亮度優化 AC/DC 狀態。Intel 自定義 DPCD 映射，出自 Intel HDR/backlight 參考文件 358[4]。"}
     ]
   },
   "00370": {
     n: "DPCD_00370",
+    c: "AMD PSR-SU 速率控制能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "AMD 自定義 DPCD 暫存器，回報 Sink 是否支援 PSR 活躍期間的 VTotal 控制（用於動態更新率調整）。",
     b: [
-      {r:"0", n:"AMD PSR-SU Rate Control Capability", d:"0 = Sink does not support VTOTAL Control during PSR active\n1 = Sink supports VTOTAL Control during PSR active", v:{"00":"Sink does not support VTOTAL Control during PSR active", "01":"Sink supports VTOTAL Control during PSR active"}}
+      {r:"0", n:"AMD PSR-SU Rate Control Capability", d:"0 = Sink 不支援 PSR 活躍期間的 VTotal 控制。1 = Sink 支援 PSR 活躍期間的 VTotal 控制。", v:{"00":"不支援", "01":"支援"}}
     ]
   },
   "00373": {
     n: "SinkPsrActiveVTotalInUse[7:0]",
+    c: "Sink PSR 活躍 VTotal 使用中（低位元組）",
     rw: 1,
-    d: "This DPCD register is read by Source. When read, Sink shall return a two byte value indicating the VTOTAL used in the current frame being output by the Sink.\nExcel source: xlsx:Sheet",
+    d: "此暫存器由 Source 讀取。Sink 回傳 2-byte 值，指示目前輸出畫面使用的 VTotal（垂直總行數）。用於 PSR 期間監控面板實際更新率。",
     b: []
   },
   "00374": {
     n: "SinkPsrActiveVTotalInUse[15:8]",
+    c: "Sink PSR 活躍 VTotal 使用中（高位元組）",
     rw: 1,
-    d: "This DPCD register is read by Source. When read, Sink shall return a two byte value indicating the VTOTAL used in the current frame being output by the Sink.\nExcel source: xlsx:Sheet",
+    d: "Sink PSR 活躍 VTotal 的高位元組。與 00373h 組合為 16-bit 值。",
     b: []
   },
   "00378": {
     n: "DPCD_00378",
+    c: "PSR 相關補充暫存器",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "PSR 相關補充 DPCD 暫存器。",
     b: [
-      {r:"6:5", n:"Sink Frame Locked", d:"00 = Sink device frame is locked to the Source device\n01 = Sink device maintains coasting vtotal\n10 = Sink device in the process of re-locking Souce timing", v:{"00":"Sink device frame is locked to the Source device", "01":"Sink device maintains coasting vtotal", "10":"Sink device in the process of re-locking Souce timing"}},
-      {r:"4:2", n:"Sink Device Replay Status", d:"000 = Sink device is in Live mode.\n001 = Sink device is in Live + Capture mode\n010 = Sink device is in Replay mode\n011 = Sink device is in Replay+Resync mode\n111 = Sink device internal error"},
-      {r:"1", n:"Timing Desync Error Status", d:"0 = No Timing desync error is detected\n1 =Timing desync error is detected", v:{"00":"No Timing desync error is detected", "01":"Timing desync error is detected"}}
+      {r:"6:5", n:"Sink Frame Locked", d:"00 = Sink 裝置幀已鎖定至 Source 裝置。01 = Sink 裝置維持 coasting VTotal。10 = Sink 裝置使用低更新率。11 = 保留。", v:{"00":"幀已鎖定至 Source", "01":"維持 coasting VTotal", "10":"使用低更新率", "11":"保留"}},
+      {r:"4:2", n:"Sink Device Replay Status", d:"000 = Sink 裝置在 Live 模式。001 = Live + Capture 模式。010 = Sink 在 Replay 模式。011 = Replay + Capture 模式。100 = 保留。", v:{"000":"Live 模式", "001":"Live + Capture", "010":"Replay 模式", "011":"Replay + Capture"}},
+      {r:"1", n:"Timing Desync Error Status", d:"0 = 未偵測到時序不同步錯誤。1 = 已偵測到時序不同步錯誤。", v:{"00":"未偵測到", "01":"已偵測到"}}
     ]
   },
   "00379": {
     n: "Pixel Deviation Per Line",
+    c: "每行像素偏差量",
     rw: 1,
-    d: "If Sink support Replay, Sink must report the max link off time during Replay normal sleep mode by populating DPCD 379h - 37ah. Pixel deviation per line indicate the maximum pixel deviation per line compare to Source timing when Sink maintains coasting vtotal during the Replay normal sleep mode. It can be calculated from line deviation of a frame. The value of pixel deviation is based on the base timing and base refresh rate\nExcel source: xlsx:Sheet",
+    d: "若 Sink 支援 Replay 功能，Sink 必須回報最大 link off time 期間每行的像素偏差量。用於確保 Replay 模式下畫面品質。",
     b: []
   },
   "0037A": {
     n: "Max Number Of Deviation Line",
+    c: "最大偏差行數",
     rw: 1,
-    d: "Sink writes the max number of deviation line that can keep the timing synchronized between the Source and Sink during Replay normal sleep mode.\nExcel source: xlsx:Sheet",
+    d: "Sink 回報在 Replay 期間可維持顯示品質的最大偏差行數。",
     b: []
   },
   "0037B": {
     n: "DPCD_0037B",
+    c: "補充 DPCD 暫存器",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "補充 DPCD 暫存器。",
     b: [
       {r:"2", n:"Replay State Transition error detection", d:"0 = Sink device disables Replay state Transition error detection. Sink shall disable Replay state Transition error detection.\n1 = Sink device performs Replay state Transition error detection. Sink shall set the Replay State Transition error status bit and inform Source with a HPD irq when Replay State Transition error r occurs", v:{"00":"Sink device disables Replay state Transition error detection. Sink shall disable Replay state Transition error detection", "01":"Sink device performs Replay state Transition error detection. Sink shall set the Replay State Transition error status bit and inform Source with a HPD irq when Replay State Transition error r occurs"}},
       {r:"1", n:"Timing desync error verification", d:"0 = Sink device disables Timing desync error verification. Sink shall disable Timing desync error detection\n1 = Sink device performs Timing desync error verification Sink shall set the RFB Timing desynbc error status bit and inform Source with a HPD irq when Timing desync error occurs.", v:{"00":"Sink device disables Timing desync error verification. Sink shall disable Timing desync error detection", "01":"Sink device performs Timing desync error verification Sink shall set the RFB Timing desynbc error status bit and inform Source with a HPD irq when Timing desync error occurs"}},
@@ -2597,348 +2635,395 @@ var DPCD_DB = Object.assign({},
   },
   "003F0": {
     n: "Early Scanline SDP for PSR2",
+    c: "PSR2 Early Scanline SDP 支援",
     rw: 1,
-    d: "0 = Default. PSR2 Early scanline feature not supported. PSR2 disable and enable PSR 1 if Hblank<100ns\n1 = PSR2 early scanline SDP feature supported. Enable PSR2 with early scanline SDP if Hblank<100ns\n2 = PSR2 early scanline SDP feature not supported but VSC SDP setup time requirement is less than 100ns. Enable PSR2 without early scanline SDP feature if Hblank<100ns\nExcel source: xlsx:Sheet",
+    d: "PSR2 早期掃描線 SDP 功能支援暫存器。0 = 預設，不支援 PSR2 Early Scanline，若 Hblank < 100ns 則停用 PSR2 改用 PSR1。1 = 支援 PSR2 Early Scanline SDP，若 Hblank < 100ns 則啟用 PSR2 搭配 Early Scanline SDP。2 = 不支援 Early Scanline SDP 但 VSC SDP 設定時間要求小於 100ns，若 Hblank < 100ns 則不使用 Early Scanline 功能直接啟用 PSR2。",
     b: []
   },
   "0040F": {
     n: "Specific Tcon setting for AMD",
+    c: "AMD 專用 TCON 設定",
     rw: 1,
-    d: "Specific Tcon setting for AMD\nExcel source: xlsx:Sheet",
+    d: "AMD 專用的 TCON 設定暫存器。用於 AMD 平台特定的 TCON 配置。",
     b: []
   },
   "00410": {
     n: "AMD AUPI-LSB: panel Manufacture ID",
+    c: "AMD AUPI 面板製造商 ID（低位元組）",
     rw: 1,
-    d: "AMD AUPI-LSB: panel Manufacture ID\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI（Advanced Unified Panel Interface）面板製造商識別碼的低位元組。",
     b: []
   },
   "00411": {
     n: "AMD AUPI-MSB: panel Manufacture ID",
+    c: "AMD AUPI 面板製造商 ID（高位元組）",
     rw: 1,
-    d: "AMD AUPI-MSB: panel Manufacture ID\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI 面板製造商識別碼的高位元組。",
     b: []
   },
   "00412": {
     n: "AMD AUPI-LSB: Panel ID",
+    c: "AMD AUPI 面板 ID（低位元組）",
     rw: 1,
-    d: "AMD AUPI-LSB: Panel ID\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI 面板產品識別碼的低位元組。",
     b: []
   },
   "00413": {
     n: "AMD AUPI-MSB: Panel ID",
+    c: "AMD AUPI 面板 ID（高位元組）",
     rw: 1,
-    d: "AMD AUPI-MSB: Panel ID\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI 面板產品識別碼的高位元組。",
     b: []
   },
   "00414": {
     n: "AMD AUPI-LSB: Tcon FW checksum",
+    c: "AMD AUPI TCON 韌體校驗和（低位元組）",
     rw: 1,
-    d: "AMD AUPI-LSB: Tcon FW checksum\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI TCON 韌體校驗和（checksum）的低位元組。用於驗證 TCON 韌體完整性。",
     b: []
   },
   "00415": {
     n: "AMD AUPI-MSB: Tcon FW checksum",
+    c: "AMD AUPI TCON 韌體校驗和（高位元組）",
     rw: 1,
-    d: "AMD AUPI-MSB: Tcon FW checksum\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI TCON 韌體校驗和的高位元組。",
     b: []
   },
   "00416": {
     n: "AMD AUPI-LSB: Tcon FW Device ID",
+    c: "AMD AUPI TCON 韌體裝置 ID（低位元組）",
     rw: 1,
-    d: "AMD AUPI-LSB: Tcon FW Device ID\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI TCON 韌體裝置識別碼的低位元組。用於識別 TCON 韌體版本。",
     b: []
   },
   "00417": {
     n: "AMD AUPI-MSB: Tcon FW Device ID",
+    c: "AMD AUPI TCON 韌體裝置 ID（高位元組）",
     rw: 1,
-    d: "AMD AUPI-MSB: Tcon FW Device ID\nExcel source: xlsx:Sheet",
+    d: "AMD AUPI TCON 韌體裝置識別碼的高位元組。",
     b: []
   },
   "00704": {
     n: "DPCD_00704",
+    c: "eDP 背光區域能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "eDP 背光區域控制能力暫存器。定義面板支援的獨立可控 1D 背光區域數量（水平和垂直方向）。用於區域調光（Local Dimming）功能。",
     b: [
-      {r:"7:4", n:"Y_REGION_CAP", d:"Defines the number of independently controllable 1D backlight regions that the panel supports, in the vertical direction."},
-      {r:"3:0", n:"X_REGION_CAP", d:"Defines the number of independently controllable 1D backlight regions that the panel supports, in the horizontal direction."}
+      {r:"7:4", n:"Y_REGION_CAP", d:"定義面板在垂直方向支援的獨立可控 1D 背光區域數量。"},
+      {r:"3:0", n:"X_REGION_CAP", d:"定義面板在水平方向支援的獨立可控 1D 背光區域數量。"}
     ]
   },
   "00705": {
     n: "DPCD_00705",
+    c: "分段背光能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Intel",
+    d: "分段背光（Segmented Backlight）能力暫存器。VESA DPCD 映射，出自 Intel HDR/backlight 參考文件。",
     b: [
-      {r:"0", n:"SEGMENTED_BKLT_CAPABILITY", d:"Segmented BKLT capability. VESA DPCD mapping from Intel HDR/backlight reference: 705[0]"}
+      {r:"0", n:"SEGMENTED_BKLT_CAPABILITY", d:"分段背光能力。VESA DPCD 映射，出自 Intel HDR/backlight 參考文件 705[0]。"}
     ]
   },
   "00724": {
     n: "DPCD_00724",
+    c: "eDP PWM 位元數設定",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Source 用於設定 DPCD 00722h/00723h 背光亮度控制的有效位元數。",
     b: [
-      {r:"4:0", n:"EDP_PWMGEN_BIT_COUNT", d:"Source used to program the number of active control bits for DPCD 0x00722 & 723."}
+      {r:"7:0", n:"EDP_BACKLIGHT_BRIGHTNESS_BIT_COUNT", d:"Source 用於設定 DPCD 0x00722 及 0x00723 的有效控制位元數。"}
     ]
   },
   "00725": {
     n: "DPCD_00725",
+    c: "eDP PWM 位元數下限",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Sink 設定的 PWM 位元數最小值，必須大於等於 1。",
     b: [
-      {r:"4:0", n:"EDP_PWMGEN_BIT_COUNT_CAP_MIN", d:"This value is set by the Sink and must have a value of 1 or greater."}
+      {r:"7:0", n:"MIN_EDP_BACKLIGHT_BRIGHTNESS_BIT_COUNT", d:"此值由 Sink 設定，必須大於等於 1。"}
     ]
   },
   "00726": {
     n: "DPCD_00726",
+    c: "eDP PWM 位元數上限",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Sink 設定的 PWM 位元數最大值，必須大於等於 DPCD 00725h 的值。",
     b: [
-      {r:"4:0", n:"EDP_PWMGEN_BIT_COUNT_CAP_MAX", d:"This value is set by the Sink and must have a value greater than or equal to DPCD 0x00725."}
+      {r:"7:0", n:"MAX_EDP_BACKLIGHT_BRIGHTNESS_BIT_COUNT", d:"此值由 Sink 設定，必須大於等於 DPCD 0x00725 的值。"}
     ]
   },
   "00727": {
     n: "DPCD_00727",
+    c: "eDP 背光控制狀態",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Intel, xlsx:Sheet",
+    d: "eDP 背光控制狀態暫存器。回報背光運作狀態和平滑亮度控制狀態。",
     b: [
-      {r:"0", n:"EDP_BACKLIGHT_CONTROL_STATUS", d:"0 = Indicates normal operation.\n1 = Indicates a backlight fault condition that prevents proper operation of the backlight.", v:{"00":"Indicates normal operation", "01":"Indicates a backlight fault condition that prevents proper operation of the backlight"}},
-      {r:"2", n:"SMOOTH_BRIGHTNESS_CONTROL", d:"Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)"}
+      {r:"1", n:"EDP_BACKLIGHT_CONTROL_STATUS", d:"0 = 正常運作。1 = 背光故障，無法正常運作。", v:{"00":"正常運作", "01":"背光故障"}},
+      {r:"2", n:"SMOOTH_BRIGHTNESS_CONTROL", d:"平滑亮度控制狀態。VESA DPCD 映射，搭配 730[0]、737h/738h（毫秒）、739h-73Bh（目前即時值）使用。"}
     ]
   },
   "00728": {
     n: "EDP_BACKLIGHT_FREQ_SET",
+    c: "eDP 背光 PWM 頻率設定",
     rw: 1,
-    d: "Display backlight PWM frequency control value.\nExcel source: xlsx:Sheet",
+    d: "顯示器背光 PWM 頻率控制值。Source 寫入此暫存器來設定背光 PWM 的驅動頻率。",
     b: []
   },
   "0072A": {
     n: "EDP_BACKLIGHT_FREQ_CAP_MIN[17:10]",
+    c: "eDP 背光頻率下限（高位元組）",
     rw: 1,
-    d: "EDP_BACKLIGHT_FREQ_CAP_MIN_MSB\nExcel source: xlsx:Sheet",
+    d: "eDP 背光 PWM 頻率最小值的高位元組（bit 17:10）。與 0072Bh、0072Ch 組合為 18-bit 值。",
     b: []
   },
   "0072B": {
     n: "EDP_BACKLIGHT_FREQ_CAP_MIN[9:2]",
+    c: "eDP 背光頻率下限（中位元組）",
     rw: 1,
-    d: "EDP_BACKLIGHT_FREQ_CAP_MIN_MID\nExcel source: xlsx:Sheet",
+    d: "eDP 背光 PWM 頻率最小值的中間位元組（bit 9:2）。",
     b: []
   },
   "0072C": {
     n: "DPCD_0072C",
+    c: "eDP 背光頻率下限（低 2-bit）",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "eDP 背光 PWM 頻率最小值的最低 2 bit。",
     b: [
-      {r:"1:0", n:"EDP_BACKLIGHT_FREQ_CAP_MIN[1:0]", d:"EDP_BACKLIGHT_FREQ_CAP_MIN_LSB"}
+      {r:"7:6", n:"EDP_BACKLIGHT_FREQ_MIN_LOW_2BIT", d:"eDP 背光 PWM 頻率最小值的最低 2 bit。"}
     ]
   },
   "0072D": {
     n: "EDP_BACKLIGHT_FREQ_CAP_MAX[17:10]",
+    c: "eDP 背光頻率上限（高位元組）",
     rw: 1,
-    d: "EDP_BACKLIGHT_FREQ_CAP_MAX_MSB\nExcel source: xlsx:Sheet",
+    d: "eDP 背光 PWM 頻率最大值的高位元組（bit 17:10）。",
     b: []
   },
   "0072E": {
     n: "EDP_BACKLIGHT_FREQ_CAP_MAX[9:2]",
+    c: "eDP 背光頻率上限（中位元組）",
     rw: 1,
-    d: "EDP_BACKLIGHT_FREQ_CAP_MAX_MID\nExcel source: xlsx:Sheet",
+    d: "eDP 背光 PWM 頻率最大值的中間位元組（bit 9:2）。",
     b: []
   },
   "0072F": {
     n: "DPCD_0072F",
+    c: "eDP 背光頻率上限（低 2-bit）",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "eDP 背光 PWM 頻率最大值的最低 2 bit。",
     b: [
-      {r:"1:0", n:"EDP_BACKLIGHT_FREQ_CAP_MAX[1:0]", d:"EDP_BACKLIGHT_FREQ_CAP_MAX_LSB"}
+      {r:"7:6", n:"EDP_BACKLIGHT_FREQ_MAX_LOW_2BIT", d:"eDP 背光 PWM 頻率最大值的最低 2 bit。"}
     ]
   },
   "00730": {
     n: "DPCD_00730",
+    c: "亮度優化與平滑控制（VESA）",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Intel",
+    d: "亮度優化控制與平滑亮度控制暫存器。VESA DPCD 映射，出自 Intel HDR/backlight 參考文件。",
     b: [
-      {r:"2:1", n:"BRIGHTNESS_OPTIMIZATION_CONTROL", d:"Brightness optimization control. VESA DPCD mapping from Intel HDR/backlight reference: 730[2:1]"},
-      {r:"0", n:"SMOOTH_BRIGHTNESS_CONTROL", d:"Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)"}
+      {r:"2:1", n:"BRIGHTNESS_OPTIMIZATION_CONTROL", d:"亮度優化控制。VESA DPCD 映射 730[2:1]。"},
+      {r:"0", n:"SMOOTH_BRIGHTNESS_CONTROL", d:"平滑亮度控制啟用。VESA DPCD 映射，搭配 737h/738h（毫秒）、739h-73Bh（即時值）、727[2]（狀態）使用。"}
     ]
   },
   "00731": {
     n: "DPCD_00731",
+    c: "分段背光控制（VESA）",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Intel",
+    d: "分段背光控制暫存器。VESA DPCD 映射，720[6] 必須為 1 才有效。",
     b: [
-      {r:"0", n:"SEGMENTED_BKLT_CONTROL", d:"Segmented BKLT control. VESA DPCD mapping from Intel HDR/backlight reference: 731[0] (720[6] must be 1 for this to be effective)"}
+      {r:"0", n:"SEGMENTED_BACKLIGHT_CONTROL", d:"分段背光控制。VESA DPCD 映射，720[6] 必須為 1 才有效。"}
     ]
   },
   "00734": {
     n: "NITS_BRIGHTNESS_CONTROL",
+    c: "Nits 亮度控制（VESA, byte 0）",
     rw: 1,
-    d: "Nits brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 721[7], 734h-736h (cd/m2)\nExcel source: xlsx:Intel",
+    d: "Nits 亮度控制值。VESA DPCD 映射，搭配 721[7] 使用，地址 734h-736h 共 3 bytes，單位 cd/m²。",
     b: []
   },
   "00735": {
     n: "NITS_BRIGHTNESS_CONTROL",
+    c: "Nits 亮度控制（VESA, byte 1）",
     rw: 1,
-    d: "Nits brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 721[7], 734h-736h (cd/m2)\nExcel source: xlsx:Intel",
+    d: "Nits 亮度控制值。VESA DPCD 映射，搭配 721[7] 使用，地址 734h-736h 共 3 bytes，單位 cd/m²。",
     b: []
   },
   "00736": {
     n: "NITS_BRIGHTNESS_CONTROL",
+    c: "Nits 亮度控制（VESA, byte 2）",
     rw: 1,
-    d: "Nits brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 721[7], 734h-736h (cd/m2)\nExcel source: xlsx:Intel",
+    d: "Nits 亮度控制值。VESA DPCD 映射，搭配 721[7] 使用，地址 734h-736h 共 3 bytes，單位 cd/m²。",
     b: []
   },
   "00737": {
     n: "SMOOTH_BRIGHTNESS_CONTROL",
+    c: "平滑亮度控制（VESA, byte 0）",
     rw: 1,
-    d: "Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制。VESA DPCD 映射，搭配 730[0] 啟用、737h/738h 設定過渡時間（毫秒）、739h-73Bh 回報即時值、727[2] 回報狀態。",
     b: []
   },
   "00738": {
     n: "SMOOTH_BRIGHTNESS_CONTROL",
+    c: "平滑亮度控制（VESA, byte 1）",
     rw: 1,
-    d: "Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制。VESA DPCD 映射，搭配 730[0] 啟用、737h/738h 設定過渡時間（毫秒）、739h-73Bh 回報即時值、727[2] 回報狀態。",
     b: []
   },
   "00739": {
     n: "SMOOTH_BRIGHTNESS_CONTROL",
+    c: "平滑亮度控制即時值（VESA, byte 0）",
     rw: 1,
-    d: "Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制目前即時值。VESA DPCD 映射 739h-73Bh。",
     b: []
   },
   "0073A": {
     n: "SMOOTH_BRIGHTNESS_CONTROL",
+    c: "平滑亮度控制即時值（VESA, byte 1）",
     rw: 1,
-    d: "Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制目前即時值。VESA DPCD 映射 739h-73Bh。",
     b: []
   },
   "0073B": {
     n: "SMOOTH_BRIGHTNESS_CONTROL",
+    c: "平滑亮度控制即時值（VESA, byte 2）",
     rw: 1,
-    d: "Smooth brightness control. VESA DPCD mapping from Intel HDR/backlight reference: 730[0], 737h & 738h (in ms), 739h-73Bh (current live value), 727[2] (status)\nExcel source: xlsx:Intel",
+    d: "平滑亮度控制目前即時值。VESA DPCD 映射 739h-73Bh。",
     b: []
   },
   "00DEF": {
     n: "HDR_2084/2020_CAPABILITY",
+    c: "HDR 2084/2020 能力（VESA）",
     rw: 1,
-    d: "HDR 2084/2020 capability. VESA DPCD mapping from Intel HDR/backlight reference: TCon/Panels should use EDID/DisplayID to define the capability. DID 2.x Display Parameters block for colorimetry and a DID 2.x Display Features block for EOTF support.\nExcel source: xlsx:Intel",
+    d: "HDR PQ（SMPTE ST 2084）和 BT.2020 色域能力暫存器。VESA DPCD 映射。TCON/面板應透過 EDID/DisplayID 定義此能力：DID 2.x Display Parameters 區塊用於色域、DID 2.x Display Features 區塊用於 EOTF 支援。",
     b: []
   },
   "00FEA": {
     n: "HDR_2084/2020_CAPABILITY",
+    c: "HDR 2084/2020 能力（VESA, 備用地址）",
     rw: 1,
-    d: "HDR 2084/2020 capability. VESA DPCD mapping from Intel HDR/backlight reference: TCon/Panels should use EDID/DisplayID to define the capability. DID 2.x Display Parameters block for colorimetry and a DID 2.x Display Features block for EOTF support.\nExcel source: xlsx:Intel",
+    d: "HDR PQ（SMPTE ST 2084）和 BT.2020 色域能力暫存器。VESA DPCD 映射。TCON/面板應透過 EDID/DisplayID 定義此能力：DID 2.x Display Parameters 區塊用於色域、DID 2.x Display Features 區塊用於 EOTF 支援。",
     b: []
   },
   "02009": {
     n: "DPCD_02009",
+    c: "PSR 同步延遲狀態",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "PSR 退出後的同步延遲狀態暫存器。eDP v1.4b 新增。回報 Sink 上次 PSR 退出後需要幾個 frame 才能完成同步，以及重新進入 PSR 的最小 frame 數。",
     b: [
-      {r:"7:4", n:"LAST_ACTUAL_SYNCHRONIZATION_LATENCY_IN_SINK", d:"0h = Sink will synchronize by the first frame received after PSR exit.\n1h = Sink will synchronize by the second frame received after PSR exit.\n2h = Sink will synchronize by the third frame received after PSR exit.\n3h = Sink will synchronize by the fourth frame received after PSR exit.\n7h = Sink will synchronize by the eighth frame received after PSR exit.\n8h = Maximum number of frames for Sink to synchronize is more than 8 frames.\nRemark: New to eDP v1.4b", v:{"00":"Sink will synchronize by the first frame received after PSR exit", "01":"Sink will synchronize by the second frame received after PSR exit", "02":"Sink will synchronize by the third frame received after PSR exit", "03":"Sink will synchronize by the fourth frame received after PSR exit", "07":"Sink will synchronize by the eighth frame received after PSR exit", "08":"Maximum number of frames for Sink to synchronize is more than 8 frames"}},
-      {r:"3:0", n:"Minimum Frame Count for PSR Reentry", d:"0h = Sink has synchronized to the first frame received after PSR exit.\n1h = Sink has synchronized to the second frame received after PSR exit.\n2h = Sink has synchronized to the third frame received after PSR exit.\n3h = Sink has synchronized to the fourth frame received after PSR exit.\n7h = Sink has synchronized to the eighth frame received after PSR exit.\n8h = Sink took more than 8 frames to synchronize.\nRemark: New to eDP v1.4b", v:{"00":"Sink has synchronized to the first frame received after PSR exit", "01":"Sink has synchronized to the second frame received after PSR exit", "02":"Sink has synchronized to the third frame received after PSR exit", "03":"Sink has synchronized to the fourth frame received after PSR exit", "07":"Sink has synchronized to the eighth frame received after PSR exit", "08":"Sink took more than 8 frames to synchronize"}}
+      {r:"3:0", n:"LAST_ACTUAL_SYNCHRONIZATION_LATENCY_IN_SINK", d:"0h = PSR 退出後第 1 個 frame 即完成同步。1h = 第 2 個 frame。2h = 第 3 個。3h = 第 4 個。7h = 第 8 個。8h = 超過 8 個 frame。eDP v1.4b 新增。"},
+      {r:"7:4", n:"Minimum Frame Count for PSR Reentry", d:"0h = 已在第 1 個 frame 完成同步。1h = 第 2 個。2h = 第 3 個。3h = 第 4 個。7h = 第 8 個。8h = 超過 8 個 frame。eDP v1.4b 新增。"}
     ]
   },
   "02202": {
     n: "DPCD_02202",
+    c: "延伸接收端最大 Lane 數與功能旗標",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位（02200h+）中的最大 Lane 數暫存器。結構同 00002h，但當 0000Eh[7]=1 時，Source 應讀取此處而非 00002h。",
     b: [
-      {r:"7", n:"ENHANCED_FRAME_CAP", d:"0 = Enhanced Framing symbol sequence for BS and SR is not supported.\n1 = Enhanced Framing symbol sequence for BS and SR is supported", v:{"00":"Enhanced Framing symbol sequence for BS and SR is not supported", "01":"Enhanced Framing symbol sequence for BS and SR is supported"}},
-      {r:"6", n:"TPS3_SUPPORTED", d:"0 = TPS3 is not supported.\n1 = TPS3 is supported", v:{"00":"TPS3 is not supported", "01":"TPS3 is supported"}},
-      {r:"5", n:"POST_LT_ADJ_REQ_SUPPORTED", d:"0 = Post-Link Training Adjust Request is not supported.\n1 = Post-Link Training Adjust Request is supported", v:{"00":"Post-Link Training Adjust Request is not supported", "01":"Post-Link Training Adjust Request is supported"}},
-      {r:"4:0", n:"MAX_LANE_COUNT", d:"01h = 1 Lane\n02h = 2 Lane\n04h = 4 Lane", v:{"01":"1 Lane", "02":"2 Lane", "04":"4 Lane"}}
+      {r:"7", n:"ENHANCED_FRAME_CAP", d:"0 = 不支援 Enhanced Framing。1 = 支援 Enhanced Framing。", v:{"00":"不支援", "01":"支援"}},
+      {r:"6", n:"TPS3_SUPPORTED", d:"0 = 不支援 TPS3。1 = 支援 TPS3。", v:{"00":"不支援", "01":"支援"}},
+      {r:"5", n:"POST_LT_ADJ_REQ_SUPPORTED", d:"0 = 不支援訓練後調整。1 = 支援 Post Link Training 調整請求。", v:{"00":"不支援", "01":"支援"}},
+      {r:"4:0", n:"MAX_LANE_COUNT", d:"01h = 1 Lane。02h = 2 Lane。04h = 4 Lane。", v:{"01":"1 Lane", "02":"2 Lane", "04":"4 Lane"}}
     ]
   },
   "02203": {
     n: "DPCD_02203",
+    c: "延伸展頻與訓練模式能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的展頻和訓練模式暫存器。結構同 00003h。",
     b: [
-      {r:"7", n:"TPS4_SUPPORTED", d:"0 = Link Training Pattern Sequence 4 (TPS4) is not supported.\n1 = Link Training Pattern Sequence 4 (TPS4) is supported", v:{"00":"Link Training Pattern Sequence 4 (TPS4) is not supported", "01":"Link Training Pattern Sequence 4 (TPS4) is supported"}},
-      {r:"6", n:"NO_AUX_HANDSHAKE_LINK_TRAINING", d:"0 = Requires AUX transactions to synchronize to a DPTX.\n1 = Does not require AUX transactions when the link configuration is already known.", v:{"00":"Requires AUX transactions to synchronize to a DPTX", "01":"Does not require AUX transactions when the link configuration is already known"}},
-      {r:"1", n:"STREAM_REGENERATION_STATUS_CAPABILITY\n(DP V2.0 Feature)", d:"0 = Not supported.\n1 = Supported.", v:{"00":"Not supported", "01":"Supported"}},
-      {r:"0", n:"MAX_DOWNSPREAD", d:"0 = No down spread.\n1 = Up to 0.5% down-spread.", v:{"00":"No down spread", "01":"Up to 0.5% down-spread"}}
+      {r:"6", n:"TPS4_SUPPORTED", d:"0 = 不支援 TPS4。1 = 支援 TPS4。", v:{"00":"不支援", "01":"支援"}},
+      {r:"5", n:"NO_AUX_HANDSHAKE_LINK_TRAINING", d:"0 = 需要 AUX 交互同步。1 = 已知連結配置時不需要 AUX 交互。", v:{"00":"需要 AUX 交互", "01":"不需要 AUX 交互"}},
+      {r:"4", n:"STREAM_REGENERATION_STATUS_CAPABILITY", d:"0 = 不支援。1 = 支援。DP v2.0 功能。", v:{"00":"不支援", "01":"支援"}},
+      {r:"0", n:"MAX_DOWNSPREAD", d:"0 = 無展頻。1 = 最多 0.5% 向下展頻。", v:{"00":"無展頻", "01":"最多 0.5% 向下展頻"}}
     ]
   },
   "02207": {
     n: "DPCD_02207",
+    c: "延伸下游端口資訊",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的下游端口數量和 OUI/MSA 支援暫存器。結構同 00007h。",
     b: [
-      {r:"7", n:"OUI_support", d:"0 = OUI is not supported.\n1 = OUI is supported\nRemark: New to eDP v1.5", v:{"00":"OUI is not supported", "01":"OUI is supported"}},
-      {r:"6", n:"MSA_TIMING_PAR_IGNORED", d:"0 = Sink device requires the MSA timing parameters \n1 = Sink device is capable of rendering the incoming video stream without the above-mentioned MSA timing parameters\nRemark: New to eDP v1.5", v:{"00":"Sink device requires the MSA timing parameters", "01":"Sink device is capable of rendering the incoming video stream without the above-mentioned MSA timing parameters"}},
-      {r:"3:0", n:"DWN_STRM_PORT_COUNT", d:"Value = Number of DFPs / 0h = No DFPs."}
+      {r:"7", n:"OUI_support", d:"0 = 不支援 OUI。1 = 支援 OUI。eDP v1.5 新增。", v:{"00":"不支援", "01":"支援"}},
+      {r:"6", n:"MSA_TIMING_PAR_IGNORED", d:"0 = Sink 需要 MSA 時序參數。1 = Sink 可不靠 MSA 時序參數渲染影像。eDP v1.5 新增。", v:{"00":"需要 MSA", "01":"可忽略 MSA"}},
+      {r:"3:0", n:"DWN_STRM_PORT_COUNT", d:"下游端口數量。0h = 無下游端口。"}
     ]
   },
   "02208": {
     n: "DPCD_02208",
+    c: "延伸接收端口 0 能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的接收端口 0 基本能力暫存器。結構同 00008h。",
     b: [
-      {r:"5", n:"BUFFER_SIZE_PER_PORT_0", d:"0 = Buffer size is per-lane.\n1 = Buffer size is per-port and independent of the lane count.\nRemark: Note updated in DP v1.4.", v:{"00":"Buffer size is per-lane", "01":"Buffer size is per-port and independent of the lane count"}},
-      {r:"4", n:"BUFFER_SIZE_UNIT_0", d:"0 = Units are in pixel counts.\n1 = Units are in byte counts.\nRemark: Note updated in DP v1.4.", v:{"00":"Units are in pixel counts", "01":"Units are in byte counts"}},
-      {r:"3", n:"HBLANK_EXPANSION_CAPABLE_0", d:"0 = DPRX is not capable of Horizontal Blanking Expansion operation.\n1 = DPRX is capable of Horizontal Blanking Expansion operation.", v:{"00":"DPRX is not capable of Horizontal Blanking Expansion operation", "01":"DPRX is capable of Horizontal Blanking Expansion operation"}},
-      {r:"2", n:"ASSOCIATED_TO_PRECEDING_PORT_0", d:"0 = This port is used for the main isochronous stream. This bit must always be cleared to 0 for Receiver Port 0.\n1 = This port is used for the secondary isochronous stream of the main stream received in the preceding port.", v:{"00":"This port is used for the main isochronous stream. This bit must always be cleared to 0 for Receiver Port 0", "01":"This port is used for the secondary isochronous stream of the main stream received in the preceding port"}},
-      {r:"1", n:"LOCAL_EDID_PRESENT_0", d:"0 = This receiver port does not have a local EDID.\n1 = This receiver port has a local EDID.", v:{"00":"This receiver port does not have a local EDID", "01":"This receiver port has a local EDID"}}
+      {r:"5", n:"BUFFER_SIZE_PER_PORT_0", d:"0 = 緩衝區大小為每 Lane。1 = 緩衝區大小為每 Port，與 Lane 數無關。DP v1.4 更新。", v:{"00":"每 Lane", "01":"每 Port"}},
+      {r:"4", n:"BUFFER_SIZE_UNIT_0", d:"0 = 單位為像素數。1 = 單位為位元組數。DP v1.4 更新。", v:{"00":"像素數", "01":"位元組數"}},
+      {r:"3", n:"HBLANK_EXPANSION_CAPABLE_0", d:"0 = 不支援水平消隱擴展。1 = 支援水平消隱擴展。", v:{"00":"不支援", "01":"支援"}},
+      {r:"2", n:"ASSOCIATED_TO_PRECEDING_PORT_0", d:"0 = 此端口用於主同步串流（Port 0 必須為 0）。1 = 此端口用於前一端口主串流的次要同步串流。", v:{"00":"主同步串流", "01":"次要同步串流"}},
+      {r:"1", n:"LOCAL_EDID_PRESENT_0", d:"0 = 此接收端口無本地 EDID。1 = 此接收端口有本地 EDID。", v:{"00":"無 EDID", "01":"有 EDID"}}
     ]
   },
   "02209": {
     n: "BUFFER_SIZE_0",
+    c: "延伸接收端口 0 緩衝區大小",
     rw: 1,
-    d: "Buffer size = (Value+1) * 32 bytes per lane. The maximum is 8 Kbytes per lane.\nExcel source: xlsx:Sheet",
+    d: "接收端口 0 緩衝區大小 = (值+1) × 32 bytes/Lane，最大 8 KB/Lane。",
     b: []
   },
   "0220A": {
     n: "DPCD_0220A",
+    c: "延伸接收端口 1 能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的接收端口 1 基本能力暫存器。結構同 0000Ah。",
     b: [
-      {r:"5", n:"BUFFER_SIZE_PER_PORT_1", d:"0 = Buffer size is per-lane.\n1 = Buffer size is per-port and independent of the lane count.", v:{"00":"Buffer size is per-lane", "01":"Buffer size is per-port and independent of the lane count"}},
-      {r:"4", n:"BUFFER_SIZE_UNIT_1", d:"0 = Units are in pixel counts.\n1 = Units are in byte counts.", v:{"00":"Units are in pixel counts", "01":"Units are in byte counts"}},
-      {r:"3", n:"HBLANK_EXPANSION_CAPABLE_1", d:"0 = DPRX is not capable of Horizontal Blanking Expansion operation.\n1 = DPRX is capable of Horizontal Blanking Expansion operation.", v:{"00":"DPRX is not capable of Horizontal Blanking Expansion operation", "01":"DPRX is capable of Horizontal Blanking Expansion operation"}},
-      {r:"2", n:"ASSOCIATED_TO_PRECEDING_PORT_1", d:"0 = This port is used for the main isochronous stream. This bit must always be cleared to 0 for Receiver Port 1.\n1 = This port is used for the secondary isochronous stream of the main stream received in the preceding port.", v:{"00":"This port is used for the main isochronous stream. This bit must always be cleared to 0 for Receiver Port 1", "01":"This port is used for the secondary isochronous stream of the main stream received in the preceding port"}},
-      {r:"1", n:"LOCAL_EDID_PRESENT_1", d:"0 = This receiver port does not have a local EDID.\n1 = This receiver port has a local EDID.", v:{"00":"This receiver port does not have a local EDID", "01":"This receiver port has a local EDID"}}
+      {r:"5", n:"BUFFER_SIZE_PER_PORT_1", d:"0 = 緩衝區大小為每 Lane。1 = 緩衝區大小為每 Port。DP v1.4 更新。", v:{"00":"每 Lane", "01":"每 Port"}},
+      {r:"4", n:"BUFFER_SIZE_UNIT_1", d:"0 = 單位為像素數。1 = 單位為位元組數。DP v1.4 更新。", v:{"00":"像素數", "01":"位元組數"}},
+      {r:"3", n:"HBLANK_EXPANSION_CAPABLE_1", d:"0 = 不支援水平消隱擴展。1 = 支援水平消隱擴展。", v:{"00":"不支援", "01":"支援"}},
+      {r:"2", n:"ASSOCIATED_TO_PRECEDING_PORT_1", d:"0 = 主同步串流。1 = 次要同步串流。", v:{"00":"主同步串流", "01":"次要同步串流"}},
+      {r:"1", n:"LOCAL_EDID_PRESENT_1", d:"0 = 無本地 EDID。1 = 有本地 EDID。", v:{"00":"無 EDID", "01":"有 EDID"}}
     ]
   },
   "0220B": {
     n: "BUFFER_SIZE_1",
+    c: "延伸接收端口 1 緩衝區大小",
     rw: 1,
-    d: "Buffer size = (Value+1) * 32 bytes per lane. The maximum is 8 Kbytes per lane.\nExcel source: xlsx:Sheet",
+    d: "接收端口 1 緩衝區大小 = (值+1) × 32 bytes/Lane，最大 8 KB/Lane。",
     b: []
   },
   "0220D": {
     n: "DPCD_0220D",
+    c: "延伸 eDP 能力暫存器",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的 eDP 特殊能力暫存器。結構同 0000Dh。回報 ASSR 和 Display Control 支援狀態。",
     b: [
-      {r:"3", n:"DPCD_DISPLAY_CONTROL_CAPABLE", d:"1 = Indicates that the Display Control registers located at DPCD Addresses 00700h through 007FFh are enabled.", v:{"01":"Indicates that the Display Control registers located at DPCD Addresses 00700h through 007FFh are enabled"}},
-      {r:"1", n:"FRAMING_CHANGE_CAPABLE", d:"The FRAMING_CHANGE option for eDP has been deprecated. (reserved after DP 2.0/edp 1.5)"},
-      {r:"0", n:"ALTERNATE_SCRAMBLER_RESET_CAPABLE", d:"1 = Indicates that this is an eDP device that can use the eDP alternate scrambler reset value of FFFEh.", v:{"01":"Indicates that this is an eDP device that can use the eDP alternate scrambler reset value of FFFEh"}}
+      {r:"3", n:"DPCD_DISPLAY_CONTROL_CAPABLE", d:"1 = DPCD 00700h-007FFh 的 Display Control 暫存器已啟用。", v:{"00":"未啟用", "01":"已啟用"}},
+      {r:"1", n:"FRAMING_CHANGE_CAPABLE", d:"eDP 的 FRAMING_CHANGE 選項已棄用。DP 2.0/eDP v1.5 後保留。", v:{"00":"不支援", "01":"支援（已棄用）"}},
+      {r:"0", n:"ALTERNATE_SCRAMBLER_RESET_CAPABLE", d:"1 = 此 eDP 裝置可使用 eDP 替代 scrambler 重置值 FFFEh（ASSR）。", v:{"00":"不支援 ASSR", "01":"支援 ASSR"}}
     ]
   },
   "0220E": {
     n: "DPCD_0220E",
+    c: "延伸訓練間隔與延伸能力旗標",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的訓練間隔暫存器。結構同 0000Eh。bit 7 的 EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT 非常重要。",
     b: [
-      {r:"7", n:"EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT", d:"0 = Not present.\n1 = Present at DPCD Addresses 02200h through 022FFh.\nRemark: Note updated in DP v1.4.", v:{"00":"Not present", "01":"Present at DPCD Addresses 02200h through 022FFh"}},
-      {r:"6:0", n:"TRAINING_AUX_RD_INTERVAL\n(Link Status/Adjust Request read interval during Main-Link Training)", d:"00h = 100us for the Main-Link Clock Recovery phase and 400us for the Main-Link Channel Equalization phase.\n01h = 4ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase.\n02h = 8ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase.\n03h = 12ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase.\n04h = 16ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase.\nRemark: Note updated in DP v1.4.", v:{"00":"100us for the Main-Link Clock Recovery phase and 400us for the Main-Link Channel Equalization phase", "01":"4ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase", "02":"8ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase", "03":"12ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase", "04":"16ms for both the Main-Link Clock Recovery phase and for the Main-Link Channel Equalization phase"}}
+      {r:"7", n:"EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT", d:"0 = 不存在。1 = 延伸能力欄位存在於 DPCD 02200h-022FFh。DP v1.4 更新。", v:{"00":"不存在", "01":"存在"}},
+      {r:"6:0", n:"TRAINING_AUX_RD_INTERVAL", d:"00h = CR 階段 100us / EQ 階段 400us。01h = 兩階段皆 4ms。02h = 8ms。03h = 12ms。04h = 16ms。DP v1.4 更新。"}
     ]
   },
   "0220F": {
     n: "DPCD_0220F",
+    c: "延伸轉接器能力",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "延伸接收端能力欄位中的轉接器能力暫存器。結構同 0000Fh。",
     b: [
-      {r:"1", n:"ALTERNATE_I2C_PATTERN_CAP", d:"0 = Does not support alternate I2C patterns.\n1 = Supports alternate I2C patterns.", v:{"00":"Does not support alternate I2C patterns", "01":"Supports alternate I2C patterns"}},
-      {r:"0", n:"FORCE_LOAD_SENSE_CAP", d:"0 = Does not support VGA force load adaptor sense mechanism.\n1 = Supports VGA force load adaptor sense mechanism.", v:{"00":"Does not support VGA force load adaptor sense mechanism", "01":"Supports VGA force load adaptor sense mechanism"}}
+      {r:"1", n:"ALTERNATE_I2C_PATTERN_CAP", d:"0 = 不支援替代 I2C pattern。1 = 支援。", v:{"00":"不支援", "01":"支援"}},
+      {r:"5", n:"FORCE_LOAD_SENSE_CAP", d:"0 = 不支援 VGA 強制負載偵測。1 = 支援。", v:{"00":"不支援", "01":"支援"}}
     ]
   },
   "02214": {
     n: "DPCD_02214",
+    c: "Adaptive Sync SDP 支援",
     rw: 1,
-    d: "Supplemental DPCD definition imported from Excel reference tables.\nExcel source: xlsx:Sheet",
+    d: "Adaptive Sync SDP（Secondary Data Packet）支援暫存器。eDP v1.5 新增。回報 Sink 是否支援 Adaptive Sync SDP。",
     b: [
-      {r:"0", n:"ADAPTIVE_SYNC_SDP_SUPPORTED", d:"0 = Not supported.\n1 = Supported.\nRemark: New to eDP v1.5", v:{"00":"Not supported", "01":"Supported"}}
+      {r:"0", n:"ADAPTIVE_SYNC_SDP_SUPPORTED", d:"0 = 不支援。1 = 支援 Adaptive Sync SDP。eDP v1.5 新增。", v:{"00":"不支援", "01":"支援"}}
     ]
   },
 
