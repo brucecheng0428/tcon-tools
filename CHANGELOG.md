@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.97.354 — 2026-05-21
+
+### 移除渲染端 edge-walk 補償邏輯
+
+- v2.97.353 已從 decoder 源頭修好 bitTimes 覆蓋問題，渲染端的 edge-walk 已多餘
+- 移除 drawByteBits 中的 `buildDpAuxFallbackTimes` / `fallbackBitTime`（v2.97.352 加入）
+- 移除 drawBitValues 中的 `auxEdgeTimes` edge-walk 區塊（v2.97.353 加入）
+- 兩個函式恢復為直接使用傳入的 times 參數定位 bit 數字
+
 ## v2.97.353 — 2026-05-21
 
 ### 修復 AUX bitTimes 覆蓋問題：從 decoder 源頭保留邊緣解析器精確時間
