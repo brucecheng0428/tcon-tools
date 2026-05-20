@@ -659,7 +659,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.350</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.351</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12013,7 +12013,8 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var bitTotal = rawBytes.length * 8;
           if (!bitTotal || bitTotal > 512) return;
           var drawBitT = Number(baseBitT) || bitT;
-          if (analyzer.type === 'dp_aux' && !times.length) {
+          /* Only override drawBitT with configured bit rate when measured baseBitT is unavailable */
+          if (analyzer.type === 'dp_aux' && !times.length && !Number(baseBitT)) {
             var configuredBitRate = Number(analyzer.config && analyzer.config.bitRate) || 0;
             if (configuredBitRate > 0) drawBitT = 1 / configuredBitRate;
           }
@@ -12032,29 +12033,23 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             if (!edges.length) return null;
             var init = ((auxWave && auxWave.initialLevel ? 1 : 0) ^ ((analyzer.config && analyzer.config.polarity) === 'invert' ? 1 : 0));
             var out = new Array(bitTotal);
-            var tolRatio = Math.max(0.005, Math.min(0.35, (Number(analyzer.config && analyzer.config.tolerance) || 25) / 100));
-            var searchPad = Math.max(drawBitT * tolRatio, drawBitT * 0.12);
-            var searchStart = Math.max(0, drawPayloadStart - searchPad);
-            var lastEdgeIdx = Math.max(-1, wfgLaLowerBound(edges, searchStart) - 1);
-            for (var ai = 0; ai < bitTotal; ai++) {
+            /* Edge-walk Manchester decoding: directly bind each digit to its
+               mid-cell transition edge, eliminating cumulative drift from bitT
+               arithmetic. Manchester: bit 0 = rising, bit 1 = falling.
+               Between consecutive same-value bits a boundary transition exists;
+               we skip it and only record the mid-cell edge time. */
+            var ei = wfgLaLowerBound(edges, drawPayloadStart - drawBitT * 0.4);
+            for (var ai = 0; ai < bitTotal && ei < edges.length; ai++) {
               var bitVal = rawBitValue(ai);
               var desired = bitVal ? 'falling' : 'rising';
-              var expected = drawPayloadStart + (ai + 0.5) * drawBitT;
-              var earliest = expected - searchPad;
-              var latest = expected + searchPad;
-              var startIdx = Math.max(lastEdgeIdx + 1, wfgLaLowerBound(edges, earliest) - 1);
-              for (var ei = startIdx; ei < edges.length; ei++) {
-                if (ei <= lastEdgeIdx) continue;
-                var edgeTime = edges[ei];
-                if (edgeTime < earliest) continue;
-                if (edgeTime > latest) break;
-                var before = (init + (ei & 1)) & 1;
-                var edgeType = before ? 'falling' : 'rising';
-                if (edgeType !== desired) continue;
-                out[ai] = edgeTime;
-                lastEdgeIdx = ei;
-                break;
+              var before = (init + (ei & 1)) & 1;
+              var edgeType = before ? 'falling' : 'rising';
+              if (edgeType !== desired) {
+                ei++; /* skip boundary transition */
+                if (ei >= edges.length) break;
               }
+              out[ai] = edges[ei]; /* actual edge time = digit x position */
+              ei++;
             }
             return out;
           }
