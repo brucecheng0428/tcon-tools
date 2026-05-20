@@ -659,7 +659,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.342</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.343</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -11100,6 +11100,12 @@ function wfgLaRunAnalyzers() {
 
 function wfgLaApplyPresetDecodeResults(groups) {
   if (!groups || !groups.length) return false;
+  /* v2.97.343 fix: snapshot 若缺少 i2cBits，回退到 wfgLaRunAnalyzers() 重新分析 */
+  var needsI2cBits = groups.some(function(g) {
+    return (g.analyzerType === 'i2c' || g.analyzerType === 'i2c_eeprom') &&
+      (g.rows || []).some(function(r) { return (r.type === 'ADDR' || r.type === 'DATA') && !r.i2cBits; });
+  });
+  if (needsI2cBits) return false;
   wfgLaDecodeResults = groups.map(function(group, idx) {
     var analyzer = wfgLaAnalyzers[idx] || { id: wfgLaAnalyzerNextId++, type: group.analyzerType || '', config: {} };
     var rows = (group.rows || []).map(function(row, ri) {
@@ -11793,8 +11799,6 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
             }
           }
         }
-        if (typeof window.__i2cDbg === 'undefined') window.__i2cDbg = [];
-        window.__i2cDbg.push({type: row.type, bitLabels: drawI2cBitLabels, bitPx: +bitPx.toFixed(1), rowPx: +rowPx.toFixed(1), bitsLen: bits.length, dataBitsLen: dataBits.length, sclCh: Number(row.sclChannel != null ? row.sclChannel : (analyzer.config && analyzer.config.scl)), visCh: visibleChannels.slice()});
         if (drawI2cBitLabels) {
           for (var ibi = 0; ibi < bits.length; ibi++) {
             var ib = bits[ibi] || {};
