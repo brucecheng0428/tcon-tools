@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.348 — 2026-05-20
+
+### LA overlay 文字放大統一至 11px
+
+- I2C overlay：drawI2cSmallLabel (11px→11px 不變)、drawI2cRegion (8px→11px)、drawI2cGlass (8px→11px)、drawI2cProblemGlass (8px→11px，labelH 12→14)
+- AUX overlay：外層迴圈預設 (10px→11px)、regionMarker (9px→11px)、HHLL 緊湊標記 (8px→11px)、drawRawBits/drawByteBits/drawBitValues (11px 不變)
+- 目標：所有 canvas overlay 文字大小統一，接近解碼結果列表 Time 欄位的 CSS 10px
+
 ## v2.97.341 — 2026-05-20
 
 ### 修復 LA 波形區 Chrome 縮放 150% 捲軸晃動
