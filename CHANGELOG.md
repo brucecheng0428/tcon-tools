@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.341 — 2026-05-20
+
+### 修復 LA 波形區 Chrome 縮放 150% 捲軸晃動
+
+- 根因：`.wfg-la-canvas-area` 設 `overflow: auto` + `#wfg-la-canvas` 設 `min-width: 720px`，在 Chrome 150% 縮放時容器有效寬度小於 720px，canvas 溢出產生捲軸
+- mousemove → 重繪讀 `clientWidth`（含/不含捲軸寬度交替變化）→ 設 canvas 寬度 → 捲軸出現/消失循環 → 波形劇烈左右晃動
+- 修復：容器 `overflow: auto` → `overflow: hidden`；移除 canvas `min-width: 720px`；JS 中 `Math.max(720, clientWidth)` 下限降至 300
+
 ## v2.97.340 — 2026-05-20
 
 ### 修復 LA 解碼結果展開模式下視窗凍住不跟隨波形
