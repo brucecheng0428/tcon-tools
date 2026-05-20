@@ -659,7 +659,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.351</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.352</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -12089,6 +12089,39 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
           var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
           if (bitW < 3.5) return;
+          /* v2.97.352: Edge-walk for AUX — bind each digit directly to its
+             mid-cell transition edge to eliminate cumulative drift from bitT
+             arithmetic. Manchester: 0 = rising, 1 = falling. */
+          var auxEdgeTimes = null;
+          if (analyzer.type === 'dp_aux' && drawBitT > 0) {
+            var auxWave = wfgLaGetWaveform(cfg, ch);
+            var awEdges = auxWave && auxWave.edges ? auxWave.edges : [];
+            if (awEdges.length) {
+              var awInit = ((auxWave && auxWave.initialLevel ? 1 : 0) ^ ((analyzer.config && analyzer.config.polarity) === 'invert' ? 1 : 0));
+              auxEdgeTimes = new Array(bits.length);
+              var aei = wfgLaLowerBound(awEdges, drawPayloadStart - drawBitT * 0.4);
+              var lastFoundTime = drawPayloadStart;
+              for (var abi = 0; abi < bits.length && aei < awEdges.length; abi++) {
+                var abv = bits[abi];
+                if (abv == null) {
+                  var skipTarget = lastFoundTime + drawBitT;
+                  while (aei < awEdges.length && awEdges[aei] < skipTarget) aei++;
+                  lastFoundTime = skipTarget;
+                  continue;
+                }
+                var aDesired = abv ? 'falling' : 'rising';
+                var aBefore = (awInit + (aei & 1)) & 1;
+                var aEdgeType = aBefore ? 'falling' : 'rising';
+                if (aEdgeType !== aDesired) {
+                  aei++; /* skip boundary transition */
+                  if (aei >= awEdges.length) break;
+                }
+                auxEdgeTimes[abi] = awEdges[aei]; /* actual edge time */
+                lastFoundTime = awEdges[aei];
+                aei++;
+              }
+            }
+          }
           ctx.font = 'bold 12px "SF Mono", Consolas, monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -12097,7 +12130,7 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.lineWidth = 2.5;
           for (var bvi = 0; bvi < bits.length; bvi++) {
             if (bits[bvi] == null) continue;
-            var bitTime = times[bvi];
+            var bitTime = auxEdgeTimes && auxEdgeTimes[bvi] != null ? auxEdgeTimes[bvi] : times[bvi];
             if (bitTime == null) bitTime = drawPayloadStart + (bvi + 0.5) * drawBitT;
             if (bitTimeInRanges(bitTime, drawBitT, skipRanges)) continue;
             var bx = xOf(bitTime);
