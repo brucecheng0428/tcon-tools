@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.340 — 2026-05-20
+
+### 修復 LA 解碼結果展開模式下視窗凍住不跟隨波形
+
+- 根因：CSS 選擇器 `#wfg-la-right-panel .wfg-la-meas-body` 的 ID 優先級高於 `.wfg-la-decode-card .wfg-la-meas-body`，導致 decode card 的 meas-body 被強制 `flex: 0 0 auto`
+- 在 expanded 模式下，meas-body 不縮放 → table-wrap 無高度約束 → 無內部滾動 → `wfgLaApplyDecodeScopeFocus()` 的 `scrollTop` 無效 → 藍框移動但列表不跟
+- 修復方式：在 `decode-expanded` 規則中加入 `#wfg-la-right-panel` 提升優先級，覆蓋原始 flex 值
+
 ## v2.97.339 — 2026-05-20
 
 ### LA cursor 總按鈕邏輯修正
