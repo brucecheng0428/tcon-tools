@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.353 — 2026-05-21
+
+### 修復 AUX bitTimes 覆蓋問題：從 decoder 源頭保留邊緣解析器精確時間
+
+- 根因：commit 4aa8298 加的 `bitTimes = sampledPayload.bitTimes.slice(0, expectedBits)` 無條件把邊緣解析器產生的精確 bitTimes（基於實際波形 edge）覆蓋成 Manchester 驗證器的算術 bitTimes（`startTime + n * bitT`）
+- 修復：改為條件判斷，`edgeParsedPayload` 為 true 時保留邊緣解析器的 bitTimes，僅在邊緣資料不足時才回退到 sampledPayload 的算術時間
+- 保留 drawBitValues 的 edge-walk 補償（v2.97.352）作為 defense in depth
+
 ## v2.97.348 — 2026-05-20
 
 ### LA overlay 文字放大統一至 11px
