@@ -276,6 +276,12 @@ var I18N = {
   'wfg.pasteTitle':     { 'zh-TW': '從剪貼簿貼上波形設定', 'en': 'Paste waveform config from clipboard', 'zh-CN': '从剪贴板粘贴波形设定' },
   'wfg.screenshot':     { 'zh-TW': '📷 截圖', 'en': '📷 Screenshot', 'zh-CN': '📷 截图' },
   'wfg.screenshotTitle':{ 'zh-TW': '截圖分享', 'en': 'Screenshot & Share', 'zh-CN': '截图分享' },
+  // v2.97.360: plain text (no emoji) for toolbar buttons with SVG icons
+  'wfg.exportPlain':    { 'zh-TW': '匯出', 'en': 'Export', 'zh-CN': '导出' },
+  'wfg.importPlain':    { 'zh-TW': '匯入', 'en': 'Import', 'zh-CN': '导入' },
+  'wfg.copyPlain':      { 'zh-TW': '複製', 'en': 'Copy', 'zh-CN': '复制' },
+  'wfg.pastePlain':     { 'zh-TW': '貼上', 'en': 'Paste', 'zh-CN': '粘贴' },
+  'wfg.screenshotPlain':{ 'zh-TW': '截圖', 'en': 'Screenshot', 'zh-CN': '截图' },
   // ─── WFG: Cursor panel ───
   'wfg.cursorTitle':    { 'zh-TW': '📏 時基標尺', 'en': '📏 Time Base Cursors', 'zh-CN': '📏 时基标尺' },
   'wfg.cursorMoving':   { 'zh-TW': '移動中', 'en': 'moving', 'zh-CN': '移动中' },
