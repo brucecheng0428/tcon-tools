@@ -291,6 +291,7 @@
   .wfg-la-label-item.has-signal .wfg-la-label-live { background: #34d84a; box-shadow: inset 0 1px 2px rgba(255,255,255,0.35), 0 0 7px rgba(52,216,74,0.85); }
   .wfg-la-label-live.static-high { color: #38bdf8; text-shadow: 0 0 5px rgba(56,189,248,0.9); }
   #wfg-la-canvas { display: block; width: 100%; height: 430px; cursor: crosshair; touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-select: none; }
+  #wfg-la-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
   .wfg-la-minimap { padding: 4px 6px 6px; background: #303030; border-top: 1px solid #111; }
   .wfg-la-minimap-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
   .wfg-la-minimap-label { font-size: 10px; color: #94a3b8; margin-left: auto; text-align: right; }
@@ -689,7 +690,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.364</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.365</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -1185,6 +1186,7 @@
               <div class="wfg-la-canvas-area" id="wfg-la-canvas-area" tabindex="0" aria-label="Logic analyzer waveform">
                 <div class="wfg-la-labels" id="wfg-la-labels"></div>
                 <canvas id="wfg-la-canvas"></canvas>
+                <canvas id="wfg-la-overlay"></canvas>
               </div>
               <div class="wfg-la-minimap">
                 <div class="wfg-la-minimap-head">
@@ -1614,7 +1616,7 @@ var _wfgCursorMouseTime = null;
 var _wfgCursorAnimRaf = 0;
 // Cache for time cursor (V cursor) labels — populated each render for hit-testing
 var _wfgTimeCursorLabels = []; // [{ci, lx, ly, lw, lh}]
-// ─── v2.97.364: TCON hover crosshair state ───
+// ─── v2.97.365: TCON hover crosshair state ───
 var _wfgTconHover = null; // {x, time} or null — tracks mouse position on TCON canvas
 // Cache: per-channel transitions from last render (for measurement)
 var _wfgLastVisibleChs = [];
@@ -3431,6 +3433,8 @@ var wfgLaGeom = null;
 var wfgLaLastAxisInfo = null;
 var wfgLaHoverRenderRaf = 0;
 var wfgLaScopeRenderRaf = 0;
+var wfgLaOverlayRaf = 0;
+var wfgLaMinimapDeferred = false;
 var wfgLaChannelDrag = null;
 var wfgLaDemoEdges = {};
 var wfgLaCapturedWaveform = null;
@@ -4789,10 +4793,10 @@ function wfgLaRefreshHoverTimeFromAxis() {
 }
 
 function wfgLaRequestHoverRender() {
-  if (wfgLaHoverRenderRaf) return;
-  wfgLaHoverRenderRaf = requestAnimationFrame(function() {
-    wfgLaHoverRenderRaf = 0;
-    wfgLaRenderScope();
+  if (wfgLaOverlayRaf) return;
+  wfgLaOverlayRaf = requestAnimationFrame(function() {
+    wfgLaOverlayRaf = 0;
+    wfgLaRenderOverlay();
   });
 }
 
@@ -4800,7 +4804,7 @@ function wfgLaRequestScopeRender() {
   if (wfgLaScopeRenderRaf) return;
   wfgLaScopeRenderRaf = requestAnimationFrame(function() {
     wfgLaScopeRenderRaf = 0;
-    wfgLaRenderScope();
+    wfgLaRenderScope({ skipLabels: true });
   });
 }
 
@@ -4909,6 +4913,11 @@ function wfgLaBindScopeEvents() {
     wfgLaMeasArrow = null;
     wfgLaPanning = null;
     surface.classList.remove('panning');
+    // v2.97.365: flush deferred minimap on leave
+    if (wfgLaMinimapDeferred) {
+      wfgLaMinimapDeferred = false;
+      wfgLaRenderScope();
+    }
     wfgLaRequestHoverRender();
   });
   surface.addEventListener('mousedown', function(e) {
@@ -4954,6 +4963,11 @@ function wfgLaBindScopeEvents() {
     }
     wfgLaPanning = null;
     surface.classList.remove('panning');
+    // v2.97.365: flush deferred minimap after pan/inertia ends
+    if (wfgLaMinimapDeferred) {
+      wfgLaMinimapDeferred = false;
+      wfgLaRenderScope();
+    }
   });
   window.addEventListener('mousemove', function(e) {
     if (!wfgLaChannelDrag) return;
@@ -5252,11 +5266,16 @@ function wfgLaInertiaStart(range) {
     if (Math.abs(wfgLaInertia.velocity) < stopThreshold) {
       wfgLaInertia.rafId = 0;
       wfgLaInertia.velocity = 0;
+      // v2.97.365: flush deferred minimap when inertia stops
+      if (wfgLaMinimapDeferred) {
+        wfgLaMinimapDeferred = false;
+        wfgLaRenderScope();
+      }
       return;
     }
     var v = wfgLaInertia.velocity;
     wfgLaSetViewRange(wfgLaViewStart + v, wfgLaViewEnd + v);
-    wfgLaRenderScope();
+    wfgLaRenderScope({ skipLabels: true });
     wfgLaInertia.rafId = requestAnimationFrame(animate);
   }
   wfgLaMarkManualViewChange();
@@ -5600,8 +5619,9 @@ function wfgLaComputeRowLayout(channelCount, areaHeight) {
   return { axisH: axisH, rowStep: rowStep, cssH: cssH, allSelected: allSelected };
 }
 
-function wfgLaRenderScope() {
+function wfgLaRenderScope(options) {
   wfgLaScopeRenderRaf = 0;
+  var skipLabels = options && options.skipLabels;
   var canvas = document.getElementById('wfg-la-canvas');
   if (!canvas) return;
   var cfg = wfgLaBuildConfig();
@@ -5626,6 +5646,13 @@ function wfgLaRenderScope() {
   if (canvas.width !== backingW) canvas.width = backingW;
   if (canvas.height !== backingH) canvas.height = backingH;
   canvas.style.width = cssW + 'px';
+  var overlay = document.getElementById('wfg-la-overlay');
+  if (overlay) {
+    if (overlay.width !== backingW) overlay.width = backingW;
+    if (overlay.height !== backingH) overlay.height = backingH;
+    overlay.style.width = cssW + 'px';
+    overlay.style.height = cssH + 'px';
+  }
   var ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   var labelW = 180;
@@ -5739,7 +5766,8 @@ function wfgLaRenderScope() {
     var ioEditActive = labels.contains(document.activeElement) && document.activeElement && (document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'INPUT');
     var thresholdIsCustom = wfgLaThresholdSelectValue(cfg.thresholdV) === 'custom';
     /* v2.97.257: 拖曳進行中不重建 labels DOM，避免銷毀 touch target 導致後續 touchmove 不再冒泡 */
-    if (!ioEditActive && Date.now() >= wfgLaIoSelectLockUntil && !(wfgLaChannelDrag && wfgLaChannelDrag.active)) labels.innerHTML = '<div class="wfg-la-label-io"><div class="wfg-la-label-io-title">' + escapeHtml(t('wfg.laIoStandard')) + '</div><div class="wfg-la-label-io-row' + (thresholdIsCustom ? ' custom' : '') + '"><select onpointerdown="wfgLaHoldIoSelect()" onfocus="wfgLaHoldIoSelect()" onchange="wfgLaSetThresholdFromVisibleSelect(this.value)">' + wfgLaThresholdOptionsHtml(String(cfg.thresholdV)) + '</select><input type="number" min="0" max="5" step="0.01" value="' + cfg.thresholdV.toFixed(2) + '" style="' + (thresholdIsCustom ? '' : 'display:none') + '" onpointerdown="wfgLaHoldIoSelect()" onfocus="wfgLaHoldIoSelect()" oninput="wfgLaSetCustomThreshold(this.value, false)" onchange="wfgLaSetCustomThreshold(this.value, true)"></div></div>' + channels.map(function(ch) {
+    /* v2.97.365: skipLabels — pan/zoom 不重建 labels DOM（效能優化） */
+    if (!skipLabels && !ioEditActive && Date.now() >= wfgLaIoSelectLockUntil && !(wfgLaChannelDrag && wfgLaChannelDrag.active)) labels.innerHTML = '<div class="wfg-la-label-io"><div class="wfg-la-label-io-title">' + escapeHtml(t('wfg.laIoStandard')) + '</div><div class="wfg-la-label-io-row' + (thresholdIsCustom ? ' custom' : '') + '"><select onpointerdown="wfgLaHoldIoSelect()" onfocus="wfgLaHoldIoSelect()" onchange="wfgLaSetThresholdFromVisibleSelect(this.value)">' + wfgLaThresholdOptionsHtml(String(cfg.thresholdV)) + '</select><input type="number" min="0" max="5" step="0.01" value="' + cfg.thresholdV.toFixed(2) + '" style="' + (thresholdIsCustom ? '' : 'display:none') + '" onpointerdown="wfgLaHoldIoSelect()" onfocus="wfgLaHoldIoSelect()" oninput="wfgLaSetCustomThreshold(this.value, false)" onchange="wfgLaSetCustomThreshold(this.value, true)"></div></div>' + channels.map(function(ch) {
       var color = WFG_CH_COLORS[ch % WFG_CH_COLORS.length];
       var hasSignal = wfgLaChannelEdgeCount(cfg, ch) > 0;
       var staticLevel = hasSignal ? null : wfgLaStaticChannelLevel(cfg, ch);
@@ -5849,17 +5877,57 @@ function wfgLaRenderScope() {
 
   wfgLaDrawAnalyzerOverlays(ctx, cfg, channels);
 
-  // v2.97.364: LA crosshair — uses shared drawing functions
+  // v2.97.365: crosshair, cursors, measure arrow moved to overlay canvas
+  wfgLaUpdateMeasure(cfg, triggerVisibleEdges);
+  wfgLaRenderOverlay();
+
+  // v2.97.365: defer minimap during pan for performance
+  if (!wfgLaPanning && !wfgLaMinimapDeferred) {
+    wfgLaRenderMinimap(cfg, channels);
+  } else {
+    wfgLaMinimapDeferred = true;
+  }
+}
+
+// v2.97.365: lightweight overlay — crosshair, cursors, measure arrow only
+function wfgLaRenderOverlay() {
+  var overlay = document.getElementById('wfg-la-overlay');
+  var main = document.getElementById('wfg-la-canvas');
+  if (!overlay || !main) return;
+  var g = wfgLaGeom;
+  if (!g) return;
+  var dpr = window.devicePixelRatio || 1;
+  var cssW = g.cssW, cssH = g.cssH;
+  var backingW = Math.round(cssW * dpr);
+  var backingH = Math.round(cssH * dpr);
+  if (overlay.width !== backingW) overlay.width = backingW;
+  if (overlay.height !== backingH) overlay.height = backingH;
+  overlay.style.width = cssW + 'px';
+  overlay.style.height = cssH + 'px';
+  var ctx = overlay.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  var tStart = g.tStart, tEnd = g.tEnd;
+  var tRange = Math.max(tEnd - tStart, 1e-12);
+  var drawX0 = g.drawX0, drawW = g.drawW;
+  var triggerZero = g.triggerZero;
+  var axisH = g.axisH;
+  function xOf(t) { return drawX0 + ((t - triggerZero - (tStart - triggerZero)) / tRange) * drawW; }
+
+  // Crosshair
   if (wfgLaHover && wfgLaHover.channel >= 0) {
     wfgDrawCrosshairLine(ctx, wfgLaHover.x, cssH);
+    var minorStep = (wfgLaLastAxisInfo && wfgLaLastAxisInfo.minorStep) || 1e-9;
     var hoverRelTime = wfgLaHover.time - triggerZero;
     var hoverLabel = wfgLaHoverTimeLabel(hoverRelTime, minorStep);
     wfgDrawCrosshairTimeLabel(ctx, wfgLaHover.x, hoverLabel, axisH - 27, cssW, drawX0);
   }
 
-  wfgLaUpdateMeasure(cfg, triggerVisibleEdges);
+  // Measure arrow
   wfgLaDrawMeasureArrow(ctx);
 
+  // Cursors
   wfgLaCursorLabels = [];
   for (var ci2 = 0; ci2 < wfgLaCursorActive.length; ci2++) {
     if (!wfgLaCursorActive[ci2] || wfgLaCursorPos[ci2] == null) continue;
@@ -5890,8 +5958,6 @@ function wfgLaRenderScope() {
     ctx.textBaseline = 'alphabetic';
     wfgLaCursorLabels.push({ ci: ci2, lx: labelX, ly: labelY, lw: labelW2, lh: labelH2 });
   }
-
-  wfgLaRenderMinimap(cfg, channels);
 }
 
 function wfgLaRenderMinimap(cfg, channels) {
@@ -16645,7 +16711,7 @@ function wfgRender() {
   wfgMeasDrawArrow(ctx);
   wfgDrawVoltCursors(ctx);
   wfgDrawCursors(ctx);
-  // v2.97.364: TCON crosshair overlay (shared drawing functions)
+  // v2.97.365: TCON crosshair overlay (shared drawing functions)
   if (_wfgTconHover && !wfgDragging) {
     wfgDrawCrosshairLine(ctx, _wfgTconHover.x, h);
     var _hoverLabel = wfgFormatCrosshairTime(_wfgTconHover.time);
@@ -19428,7 +19494,7 @@ function wfgInitCanvas() {
     wfgDragging = true;
     // Hide measurement arrows and crosshair immediately when drag starts
     _wfgMeasArrow = null;
-    _wfgTconHover = null; // v2.97.364: hide crosshair during drag
+    _wfgTconHover = null; // v2.97.365: hide crosshair during drag
     wfgMeasClear();
     wfgDragStartX = e.clientX;
     wfgDragStartView = wfgViewStart;
@@ -19436,7 +19502,7 @@ function wfgInitCanvas() {
     wfgLastMoveX = e.clientX;
     wfgLastMoveTime = performance.now();
     wfgVelocity = 0;
-    canvas.style.cursor = 'grabbing'; // v2.97.364: grabbing during drag
+    canvas.style.cursor = 'grabbing'; // v2.97.365: grabbing during drag
   });
   // Voltage cursor drag (window-level so drag continues outside canvas)
   window.addEventListener('mousemove', function(e) {
@@ -19462,7 +19528,7 @@ function wfgInitCanvas() {
     if (_wfgVoltCursorDrag) {
       _wfgVoltCursorDrag = null;
       var canvas = document.getElementById('wfg-canvas');
-      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.364
+      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.365
     }
   });
 
@@ -19511,7 +19577,7 @@ function wfgInitCanvas() {
     if (wfgDragging) {
       wfgDragging = false;
       var canvas = document.getElementById('wfg-canvas');
-      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.364
+      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.365
       if (performance.now() - wfgLastMoveTime < 50) wfgStartInertia();
       else {
         wfgVelocity = 0;
@@ -19526,7 +19592,7 @@ function wfgInitCanvas() {
       _wfgCheckDirtyPan(); // v2.97.19: pan triggers SD recompute if dirty
     }
   });
-  canvas.style.cursor = 'crosshair'; // v2.97.364
+  canvas.style.cursor = 'crosshair'; // v2.97.365
 
   // Measurement mousemove (throttled via rAF) + cursor tracking + crosshair hover
   canvas.addEventListener('mousemove', function(e) {
@@ -19538,7 +19604,7 @@ function wfgInitCanvas() {
       var _scX = (canvas.width / _dpr) / _rect.width;
       var _cx = (e.clientX - _rect.left) * _scX;
       _wfgCursorMouseTime = wfgCursorXToTime(_cx, _ctp);
-      // v2.97.364: Update TCON hover crosshair position
+      // v2.97.365: Update TCON hover crosshair position
       if (_cx >= _ctp.drawX0 && _cx <= _ctp.w) {
         _wfgTconHover = { x: _cx, time: _wfgCursorMouseTime };
       } else {
@@ -19564,7 +19630,7 @@ function wfgInitCanvas() {
   canvas.addEventListener('mouseleave', function() {
     if (_wfgMeasRaf) { cancelAnimationFrame(_wfgMeasRaf); _wfgMeasRaf = null; }
     _wfgMeasArrow = null;
-    _wfgTconHover = null; // v2.97.364: clear crosshair on leave
+    _wfgTconHover = null; // v2.97.365: clear crosshair on leave
     wfgMeasClear();
     wfgRender();
   });
@@ -20869,7 +20935,7 @@ function wfgCursorTrackTouch(clientX) {
   wfgRender();
 }
 
-// ─── v2.97.364: Shared crosshair drawing functions (used by both TCON and LA) ───
+// ─── v2.97.365: Shared crosshair drawing functions (used by both TCON and LA) ───
 // Draw a vertical dashed crosshair line spanning the full canvas height
 function wfgDrawCrosshairLine(ctx, x, cssH) {
   ctx.save();
@@ -22563,7 +22629,7 @@ function wfgRenderKvdat() {
 
   wfgMeasDrawArrow(ctx);
   wfgDrawCursors(ctx);
-  // v2.97.364: kvdat crosshair overlay (shared drawing functions)
+  // v2.97.365: kvdat crosshair overlay (shared drawing functions)
   if (_wfgTconHover && !wfgDragging) {
     wfgDrawCrosshairLine(ctx, _wfgTconHover.x, h);
     var _kvHoverLabel = wfgFormatCrosshairTime(_wfgTconHover.time);

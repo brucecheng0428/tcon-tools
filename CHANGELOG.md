@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.97.365 — 2026-05-21
+
+### LA tab 波形操作效能優化（分層 canvas + 分級渲染）
+
+- **Overlay canvas 分層**：新增 `#wfg-la-overlay` 透明 canvas 疊在主波形 canvas 上，crosshair / cursor / measure arrow 繪製在 overlay 層
+- **mousemove 輕量渲染**：滑鼠移動（crosshair 跟蹤）不再觸發完整 `wfgLaRenderScope()`，改為只清除/重繪 overlay canvas（極輕量），大幅提升十字游標跟蹤流暢度
+- **pan/zoom 跳過 labels DOM**：拖曳平移和滾輪縮放時跳過 `labels.innerHTML` 重建（大量 DOM 操作），透過 `skipLabels` 參數控制
+- **Minimap 延遲渲染**：平移/慣性滑動期間延遲 minimap 重繪，待動作結束（mouseup / mouseleave / 慣性停止）後一次性更新
+- **慣性動畫優化**：慣性滑動每幀也使用 `skipLabels` 模式，減少不必要的 DOM 操作
+
 ## v2.97.364 — 2026-05-21
 
 ### TCON frame 起始虛線縮放漸變透明
