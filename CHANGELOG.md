@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.97.366 — 2026-05-21
+
+### LA tab 工具列 sticky 固定（桌面版）
+
+- **工具列置頂**：桌面版（>900px）LA toolbar 使用 `position: sticky` 固定在 header 下方，捲動頁面時工具列不會消失
+- **HTML 結構調整**：將 `.wfg-la-toolbar` 從 `.wfg-la-workbench` grid 內移出至 `.wfg-la-main` flex column 內，解決 CSS Grid 內 sticky 無法跨 row 生效的問題
+- **動態 header 高度**：透過 JS 計算 header 實際高度並設為 CSS 變數 `--header-h`，確保 sticky top 值精確
+- **不影響手機版**：sticky 僅在 `min-width: 901px` 時啟用，手機版佈局不受影響
+- **不影響 TCON tab**：TCON toolbar 仍在 `.wfg-canvas-wrap` 內，結構和行為不受影響
+
 ## v2.97.365 — 2026-05-21
 
 ### LA tab 波形操作效能優化（分層 canvas + 分級渲染）
