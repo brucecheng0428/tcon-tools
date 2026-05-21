@@ -246,7 +246,7 @@ var I18N = {
   'wfg.loadPreset':     { 'zh-TW': '載入預設…', 'en': 'Load Preset…', 'zh-CN': '载入预设…' },
   'wfg.fitAll':         { 'zh-TW': '📏 全覽', 'en': '📏 Fit All', 'zh-CN': '📏 全览' },
   'wfg.fitAllPlain':    { 'zh-TW': '全覽', 'en': 'Fit All', 'zh-CN': '全览' },
-  'wfg.reset':          { 'zh-TW': '↺ 重置', 'en': '↺ Reset', 'zh-CN': '↺ 重置' },
+  'wfg.reset':          { 'zh-TW': '重置', 'en': 'Reset', 'zh-CN': '重置' },
   'wfg.emptyHint':      { 'zh-TW': '請載入預設或新增信號以開始', 'en': 'Load a preset or add signals to begin', 'zh-CN': '请载入预设或新增信号以开始' },
   'wfg.delete':         { 'zh-TW': '刪除', 'en': 'Delete', 'zh-CN': '删除' },
   'wfg.measTitle':      { 'zh-TW': '即時測量', 'en': 'Live Measure', 'zh-CN': '即时测量' },

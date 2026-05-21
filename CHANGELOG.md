@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.361 — 2026-05-21
+
+### TCON tab 工具列 icon 三項修正
+
+- **匯出/匯入箭頭互換**：匯出改為朝上箭頭（資料從系統出去）、匯入改為朝下箭頭（資料進來系統）
+- **重置按鈕多餘 icon 移除**：i18n 字典 `wfg.reset` 值含有多餘 `↺` Unicode 字元，導致 SVG icon 旁出現第二個小圖示，已移除
+- **檢視 group icon 放大**：檢視 group SVG 內容僅佔 viewBox 67%（檔案 group 佔 78%），新增 CSS 將檢視 group icon 從 15px 放大至 17px，視覺尺寸與檔案 group 一致
+
 ## v2.97.360 — 2026-05-21
 
 ### TCON tab 工具列一致化（參照 LA tab）
