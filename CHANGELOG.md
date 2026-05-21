@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.357 — 2026-05-21
+
+### LA 設定面板速度優化 + 排版修正
+
+- **速度修正**：移除 `wfgLaRenderSettingsBody()` 中的 `wfgLaInit()` 呼叫，避免每次開啟設定面板都重跑 I2C/AUX 解碼 + canvas 重繪 + 解碼表格重建（約 3 秒 → 瞬開）
+- **排版修正**：觸發窗口提示文字（0%=全部在觸發後…）從三欄並排改為獨立一行，避免與觸發位置、Event B Count 文字重疊
+- **無副作用**：channel checkbox 變更已在 `wfgLaSetChannelEnabled()` 中即時呼叫 `wfgLaRenderScope()`，關閉設定面板不需額外觸發更新
+
 ## v2.97.356 — 2026-05-21
 
 ### LA 設定選單改為內嵌面板（取代 dialog/modal）
