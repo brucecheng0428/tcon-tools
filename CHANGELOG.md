@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.97.372 — 2026-05-21
+
+### LA tab 右側卡片收折 icon 統一為 TCON 風格
+
+- **移除舊按鈕**：移除 LA tab 右側卡片原有的左側收折按鈕（`wfg-la-card-title-toggle` + `wfg-la-collapse-mark`）
+- **TCON 風格 chevron**：替換為 `<span class="wfg-chevron">▼</span>` 放在卡片標題右側，與 TCON tab 一致
+- **整個標題可點擊**：點擊整個標題區域（`wfg-meas-head` / `wfg-pulse-head` / `wfg-la-meas-head`）可收折/展開
+- **＋ 按鈕不衝突**：脈衝計數、分析器、解碼結果的功能按鈕使用 `stopPropagation()` 避免觸發收折
+- **CSS 旋轉動畫**：收折時 chevron 旋轉 -90°，展開時恢復，帶 0.2s transition
+- **精簡 JS**：`wfgLaTogglePanelCard()` 只需 toggle `is-collapsed` class，不再手動更換文字
+
 ## v2.97.371 — 2026-05-21
 
 ### TCON tab 右側卡片展開/收折功能
