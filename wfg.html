@@ -173,9 +173,9 @@
   /* 桌面版 LA toolbar sticky（>900px 才啟用） */
   @media (min-width: 901px) {
     #wfg-la-toolbar-sticky { position: sticky; top: var(--header-h, 42px); z-index: 15; }
-    /* v2.97.367: 時間軸 sticky — 捲動時固定在 toolbar 下方，寬度/位置由 JS 設定對齊波形區 */
-    #wfg-la-time-axis-sticky { position: sticky; top: calc(var(--header-h, 42px) + var(--la-toolbar-h, 38px)); z-index: 14; height: 0; pointer-events: none; }
-    #wfg-la-time-axis-sticky canvas { display: block; }
+    /* v2.97.367: 時間軸 fixed overlay — 僅在時間軸被 toolbar 遮住時才顯示 */
+    #wfg-la-fixed-time-axis { position: fixed; z-index: 14; pointer-events: none; display: none; overflow: hidden; }
+    #wfg-la-fixed-time-axis canvas { display: block; }
   }
   /* v2.97.361: TCON toolbar — 無 brand/settings 欄位，單欄 controls */
   .wfg-tcon-toolbar { grid-column: unset; grid-template-columns: minmax(0, 1fr); padding: 6px 10px; }
@@ -1188,8 +1188,8 @@
                   <button type="button" class="wfg-la-icon-only" onclick="wfgLaToggleSettingsPanel()" title="設定" data-i18n-title="wfg.laSettingsTitle" aria-label="設定"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10"></path><path d="M3 8h10"></path><path d="M3 12h10"></path><circle cx="6" cy="4" r="1.2"></circle><circle cx="10" cy="8" r="1.2"></circle><circle cx="7.5" cy="12" r="1.2"></circle></svg></button>
                 </div>
               </div>
-          <!-- v2.97.367: sticky 時間軸（桌面版捲動時固定在 toolbar 下方，寬度由 JS 控制） -->
-          <div id="wfg-la-time-axis-sticky">
+          <!-- v2.97.367: fixed 時間軸 overlay（僅在時間軸被 toolbar 遮住時才顯示） -->
+          <div id="wfg-la-fixed-time-axis">
             <canvas id="wfg-la-time-axis-canvas"></canvas>
           </div>
           <div class="wfg-la-workbench" id="wfg-la-workbench">
@@ -5771,19 +5771,6 @@ function wfgLaRenderScope(options) {
     }
   }
 
-  // v2.97.367: 複製時間軸到 sticky canvas（在波形繪製前、時間軸完整繪製後）
-  wfgLaCopyStickyTimeAxis(canvas, axisH, cssW, dpr, labelW, drawW);
-  // 清除主 canvas 時間軸文字/刻度，避免與 sticky canvas 形成雙層
-  ctx.fillStyle = '#161b22';
-  ctx.fillRect(labelW, 0, drawW, axisH);
-  // 重畫主要垂直格線（清除時一起被覆蓋了）
-  ctx.strokeStyle = 'rgba(88,166,255,0.16)';
-  ctx.lineWidth = 1;
-  for (var tRel2 = firstRel; tRel2 <= relEnd + step * 0.001; tRel2 += step) {
-    var x2 = xOfRel(tRel2);
-    ctx.beginPath(); ctx.moveTo(x2, 0); ctx.lineTo(x2, cssH); ctx.stroke();
-  }
-
   var labels = document.getElementById('wfg-la-labels');
   if (labels) {
     labels.style.width = labelW + 'px';
@@ -5913,31 +5900,58 @@ function wfgLaRenderScope(options) {
     wfgLaMinimapDeferred = true;
   }
 
+  // v2.97.367: 更新 fixed 時間軸 overlay
+  wfgLaCopyFixedTimeAxis();
+  wfgLaUpdateFixedTimeAxis();
 }
 
-/* v2.97.367: 將主 canvas 時間軸的波形區域複製到 sticky canvas，精確對齊 scope */
-function wfgLaCopyStickyTimeAxis(srcCanvas, axisH, cssW, dpr, labelW, drawW) {
+/* v2.97.367: fixed 時間軸 overlay — 複製主 canvas 時間軸到 fixed canvas */
+function wfgLaCopyFixedTimeAxis() {
   var sc = document.getElementById('wfg-la-time-axis-canvas');
-  if (!sc) return;
-  // 計算 scope 左邊界 + labelW = 波形繪圖區起點
-  var scope = document.querySelector('.wfg-la-scope');
-  var wrap = sc.parentElement;
-  if (scope && wrap) {
-    var scopeRect = scope.getBoundingClientRect();
-    var parentRect = wrap.parentElement.getBoundingClientRect();
-    sc.style.marginLeft = (scopeRect.left - parentRect.left + labelW) + 'px';
-  }
-  var srcX = Math.round(labelW * dpr);
-  var bw = Math.round(drawW * dpr);
-  var bh = Math.round(axisH * dpr);
+  var srcCanvas = document.getElementById('wfg-la-canvas');
+  var g = wfgLaGeom;
+  if (!sc || !srcCanvas || !g) return;
+  var dpr = window.devicePixelRatio || 1;
+  var srcX = Math.round(g.labelW * dpr);
+  var bw = Math.round(g.drawW * dpr);
+  var bh = Math.round(g.axisH * dpr);
   if (sc.width !== bw) sc.width = bw;
   if (sc.height !== bh) sc.height = bh;
-  sc.style.width = drawW + 'px';
-  sc.style.height = axisH + 'px';
+  sc.style.width = g.drawW + 'px';
+  sc.style.height = g.axisH + 'px';
   var sctx = sc.getContext('2d');
   sctx.clearRect(0, 0, bw, bh);
   sctx.drawImage(srcCanvas, srcX, 0, bw, bh, 0, 0, bw, bh);
 }
+
+/* v2.97.367: scroll 時判斷時間軸是否被 toolbar 遮住，決定顯示/隱藏 fixed overlay */
+function wfgLaUpdateFixedTimeAxis() {
+  var fc = document.getElementById('wfg-la-fixed-time-axis');
+  if (!fc) return;
+  var g = wfgLaGeom;
+  if (!g) return;
+  var canvas = document.getElementById('wfg-la-canvas');
+  if (!canvas) return;
+  // 只在桌面版啟用
+  if (window.innerWidth <= 900) { fc.style.display = 'none'; return; }
+  var headerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 42;
+  var toolbarH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--la-toolbar-h')) || 38;
+  var fixedTop = headerH + toolbarH;
+  var canvasRect = canvas.getBoundingClientRect();
+  var timeAxisBottom = canvasRect.top + g.axisH;
+  // 時間軸被 toolbar 遮住 且 canvas 還部分可見
+  if (timeAxisBottom < fixedTop && canvasRect.bottom > fixedTop + g.axisH) {
+    fc.style.display = 'block';
+    fc.style.top = fixedTop + 'px';
+    fc.style.left = (canvasRect.left + g.labelW) + 'px';
+    fc.style.width = g.drawW + 'px';
+    fc.style.height = g.axisH + 'px';
+  } else {
+    fc.style.display = 'none';
+  }
+}
+window.addEventListener('scroll', wfgLaUpdateFixedTimeAxis, { passive: true });
+window.addEventListener('resize', function() { wfgLaCopyFixedTimeAxis(); wfgLaUpdateFixedTimeAxis(); });
 
 // v2.97.365: lightweight overlay — crosshair, cursors, measure arrow only
 function wfgLaRenderOverlay() {
