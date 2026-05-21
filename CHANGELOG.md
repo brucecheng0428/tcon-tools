@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.97.367 — 2026-05-21
+
+### LA tab 時間軸 sticky 固定（桌面版）
+
+- **時間軸置頂**：桌面版（>900px）LA 時間軸使用 `position: sticky` 固定在 toolbar 下方，捲動檢視解碼表格時時間軸保持可見
+- **實作方式**：在 toolbar 與 workbench 之間插入獨立的 sticky canvas 容器（含 time-axis-canvas + time-axis-overlay），每次渲染後用 `drawImage` 複製主 canvas 和 overlay 的時間軸區域（頂部 32px）
+- **零佈局影響**：sticky 容器使用 `margin-bottom: -32px` 負邊距，不佔額外空間，與主 canvas 時間軸完美重疊
+- **cursor/crosshair 標籤同步**：overlay canvas 的游標標籤和十字游標時間標籤也會同步複製到 sticky overlay
+- **動態 toolbar 高度**：新增 CSS 變數 `--la-toolbar-h`，由 JS 動態測量 toolbar 高度並設定
+- **不影響手機版與 TCON tab**
+
 ## v2.97.366 — 2026-05-21
 
 ### LA tab 工具列 sticky 固定（桌面版）

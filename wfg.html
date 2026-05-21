@@ -173,6 +173,9 @@
   /* 桌面版 LA toolbar sticky（>900px 才啟用） */
   @media (min-width: 901px) {
     #wfg-la-toolbar-sticky { position: sticky; top: var(--header-h, 42px); z-index: 15; }
+    /* v2.97.367: 時間軸 sticky — 捲動時固定在 toolbar 下方 */
+    #wfg-la-time-axis-sticky { position: sticky; top: calc(var(--header-h, 42px) + var(--la-toolbar-h, 38px)); z-index: 14; height: 32px; margin-bottom: -32px; pointer-events: none; overflow: hidden; background: #161b22; }
+    #wfg-la-time-axis-sticky canvas { display: block; position: absolute; top: 0; left: 0; }
   }
   /* v2.97.361: TCON toolbar — 無 brand/settings 欄位，單欄 controls */
   .wfg-tcon-toolbar { grid-column: unset; grid-template-columns: minmax(0, 1fr); padding: 6px 10px; }
@@ -694,7 +697,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.366</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.367</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -1185,6 +1188,11 @@
                   <button type="button" class="wfg-la-icon-only" onclick="wfgLaToggleSettingsPanel()" title="設定" data-i18n-title="wfg.laSettingsTitle" aria-label="設定"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10"></path><path d="M3 8h10"></path><path d="M3 12h10"></path><circle cx="6" cy="4" r="1.2"></circle><circle cx="10" cy="8" r="1.2"></circle><circle cx="7.5" cy="12" r="1.2"></circle></svg></button>
                 </div>
               </div>
+          <!-- v2.97.367: sticky 時間軸（桌面版捲動時固定在 toolbar 下方） -->
+          <div id="wfg-la-time-axis-sticky">
+            <canvas id="wfg-la-time-axis-canvas"></canvas>
+            <canvas id="wfg-la-time-axis-overlay"></canvas>
+          </div>
           <div class="wfg-la-workbench" id="wfg-la-workbench">
             <div class="wfg-la-scope">
               <div class="wfg-la-canvas-area" id="wfg-la-canvas-area" tabindex="0" aria-label="Logic analyzer waveform">
@@ -5891,6 +5899,24 @@ function wfgLaRenderScope(options) {
   } else {
     wfgLaMinimapDeferred = true;
   }
+
+  // v2.97.367: 複製時間軸到 sticky canvas
+  wfgLaCopyStickyTimeAxis(canvas, axisH, cssW, dpr);
+}
+
+/* v2.97.367: 將主 canvas 時間軸區域複製到 sticky canvas */
+function wfgLaCopyStickyTimeAxis(srcCanvas, axisH, cssW, dpr) {
+  var sc = document.getElementById('wfg-la-time-axis-canvas');
+  if (!sc) return;
+  var bw = Math.round(cssW * dpr);
+  var bh = Math.round(axisH * dpr);
+  if (sc.width !== bw) sc.width = bw;
+  if (sc.height !== bh) sc.height = bh;
+  sc.style.width = cssW + 'px';
+  sc.style.height = axisH + 'px';
+  var sctx = sc.getContext('2d');
+  sctx.clearRect(0, 0, bw, bh);
+  sctx.drawImage(srcCanvas, 0, 0, bw, bh, 0, 0, bw, bh);
 }
 
 // v2.97.365: lightweight overlay — crosshair, cursors, measure arrow only
@@ -5961,6 +5987,20 @@ function wfgLaRenderOverlay() {
     ctx.fillText(label, labelX + labelW2 / 2, labelY + labelH2 / 2);
     ctx.textBaseline = 'alphabetic';
     wfgLaCursorLabels.push({ ci: ci2, lx: labelX, ly: labelY, lw: labelW2, lh: labelH2 });
+  }
+
+  // v2.97.367: 複製 overlay 時間軸區域到 sticky overlay
+  var sov = document.getElementById('wfg-la-time-axis-overlay');
+  if (sov) {
+    var bw = Math.round(cssW * dpr);
+    var bh = Math.round(axisH * dpr);
+    if (sov.width !== bw) sov.width = bw;
+    if (sov.height !== bh) sov.height = bh;
+    sov.style.width = cssW + 'px';
+    sov.style.height = axisH + 'px';
+    var sctx = sov.getContext('2d');
+    sctx.clearRect(0, 0, bw, bh);
+    sctx.drawImage(overlay, 0, 0, bw, bh, 0, 0, bw, bh);
   }
 }
 
@@ -23277,10 +23317,12 @@ function wfgPulseRenderAll() {
   body.insertAdjacentHTML('beforeend', html);
 }
 
-// ─── Sticky toolbar: 動態計算 header 高度 → CSS 變數 ───
+// ─── Sticky toolbar: 動態計算 header / toolbar 高度 → CSS 變數 ───
 function wfgUpdateHeaderHeight() {
   var hdr = document.querySelector('#page-wfg > .header');
   if (hdr) document.documentElement.style.setProperty('--header-h', hdr.offsetHeight + 'px');
+  var tb = document.getElementById('wfg-la-toolbar-sticky');
+  if (tb) document.documentElement.style.setProperty('--la-toolbar-h', tb.offsetHeight + 'px');
 }
 
 if (document.readyState === 'loading') {
