@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.97.360 — 2026-05-21
+
+### TCON tab 工具列一致化（參照 LA tab）
+
+- **工具列重構**：TCON toolbar 從平坦 flex 排列改為 LA 風格的 tool-group 分組佈局（檢視/TCON設定/檔案/游標四個 group），每組帶金色 group label
+- **檢視 group**：縮放/全覽/重置按鈕改用 SVG icon（與 LA 相同風格），取代原本的 emoji
+- **TCON 設定 group**：TCON 內部運算 checkbox + Line Buffer 獨立為「TCON」group，TCON 模式下自動顯示/隱藏
+- **檔案 group**：匯出/匯入/複製/貼上/截圖按鈕改用 SVG icon + LA tool-group 樣式，功能行為保持 TCON 原有邏輯不變
+- **游標 group**：完全移植 LA 的 cursor cluster fold/expand 機制（摺疊按鈕 + A1~E2 展開），點擊 cursor 或快捷鍵自動展開，fold 按鈕顏色隨 cursor 啟用狀態變化
+- **RWD**：手機版自動適應 LA 的 mobile 壓縮規則
+
 ## v2.97.359 — 2026-05-21
 
 ### LA tab 多項修正：PWM 按鈕狀態 + 語言切換即時更新
