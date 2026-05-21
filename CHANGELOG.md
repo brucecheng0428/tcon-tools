@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.97.362 — 2026-05-21
+
+### LA tab 工具列 icon 對齊 TCON tab 風格
+
+- **檔案 group 匯出/匯入 icon**：將 emoji（📥📤）替換為 TCON tab 使用的 SVG icon（匯出=箭頭朝上、匯入=箭頭朝下）
+- **解碼結果匯出 icon**：解碼結果區域的匯出按鈕同步替換為 SVG 箭頭朝上 icon
+- **所有 icon 尺寸對齊**：LA toolbar 基礎 SVG 尺寸從 15px 提升至 17px，與 TCON tab 一致
+- **游標 A1~E2 加顏色**：新增 `.wfg-la-cursor-btn` CSS，為 LA 游標按鈕加上彩色邊框與文字（對齊 TCON 的 `.wfg-cursor-btn` 風格）
+
 ## v2.97.361 — 2026-05-21
 
 ### TCON tab 工具列 icon 三項修正
