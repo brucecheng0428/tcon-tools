@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.97.379 — 2026-05-22
+
+### LA tab 左面板恢復 + 工具列/右側卡片對齊
+
+- **問題 1**：LA tab 左側「IO 電平標準」設定面板消失（`.wfg-la-layout > .wfg-panel` 被 `display: none !important` 永久隱藏）
+- **修復 1**：在 `@media (min-width: 901px)` 中用 `display: flex !important` 覆蓋，恢復左側面板（含取樣設定、Trigger 設定、IO 電平標準）
+- **問題 2**：LA 工具列橫跨全寬（含右側卡片上方），導致右側卡片被擠到工具列下方
+- **修復 2**：`.wfg-la-main` 改為 CSS Grid，`.wfg-la-workbench` 用 `display: contents` 扁平化。工具列只佔 scope 欄（column 1），右側卡片佔 column 2 並從 row 1 開始（`grid-row: 1 / -1`），與工具列頂部對齊
+- **佈局**：`.wfg-la-layout` 增加左面板欄位（`clamp(260px, 20vw, 292px) + 1fr`），高度填滿 viewport
+
 ## v2.97.378 — 2026-05-22
 
 ### 修復右側面板頂部對齊（比左側低 60px）
