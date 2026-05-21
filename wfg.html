@@ -174,10 +174,17 @@
   #wfg-la-sticky-time-axis { pointer-events: none; position: relative; }
   #wfg-la-sticky-time-axis canvas { display: block; }
   #wfg-la-time-axis-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
+  /* v2.97.370: TCON sticky 時間軸 canvas + overlay */
+  #wfg-tcon-sticky-time-axis { pointer-events: none; position: relative; }
+  #wfg-tcon-sticky-time-axis canvas { display: block; }
+  #wfg-tcon-time-axis-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
   /* 桌面版 LA toolbar + 時間軸 sticky（>900px 才啟用） */
   @media (min-width: 901px) {
     #wfg-la-toolbar-sticky { position: sticky; top: var(--header-h, 42px); z-index: 15; }
     #wfg-la-sticky-time-axis { position: sticky; top: calc(var(--header-h, 42px) + var(--la-toolbar-h, 38px)); z-index: 4; margin-bottom: -32px; }
+    /* v2.97.370: TCON sticky toolbar + 時間軸 */
+    #wfg-tcon-toolbar-sticky { position: sticky; top: var(--header-h, 42px); z-index: 15; }
+    #wfg-tcon-sticky-time-axis { position: sticky; top: calc(var(--header-h, 42px) + var(--tcon-toolbar-h, 38px)); z-index: 4; margin-bottom: -32px; }
   }
   /* v2.97.361: TCON toolbar — 無 brand/settings 欄位，單欄 controls */
   .wfg-tcon-toolbar { grid-column: unset; grid-template-columns: minmax(0, 1fr); padding: 6px 10px; }
@@ -699,7 +706,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.369</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.370</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -842,7 +849,7 @@
 
       <!-- ─── 右側 Canvas ─── -->
       <div class="wfg-canvas-wrap">
-        <div class="wfg-la-toolbar wfg-tcon-toolbar">
+        <div class="wfg-la-toolbar wfg-tcon-toolbar" id="wfg-tcon-toolbar-sticky">
           <div class="wfg-la-toolbar-controls">
             <!-- ── 檢視 group ── -->
             <div class="wfg-la-tool-group">
@@ -891,6 +898,11 @@
               </span>
             </div>
           </div>
+        </div>
+        <!-- v2.97.370: TCON sticky 時間軸（從主 canvas 分離） -->
+        <div id="wfg-tcon-sticky-time-axis">
+          <canvas id="wfg-tcon-time-axis-canvas"></canvas>
+          <canvas id="wfg-tcon-time-axis-overlay"></canvas>
         </div>
         <div class="wfg-canvas-area">
           <div class="wfg-labels" id="wfg-labels"></div>
@@ -3405,6 +3417,11 @@ function wfgSwitchMode(mode, options) {
       requestAnimationFrame(function() {
         wfgLaRenderScope();
       });
+    });
+  }
+  if (mode === 'tcon') {
+    requestAnimationFrame(function() {
+      wfgUpdateHeaderHeight(); // v2.97.370: 切到 TCON tab 後重算 toolbar 高度
     });
   }
   if (mode === 'siggen' && typeof window.wfgResizeCanvas === 'function') {
@@ -16083,6 +16100,85 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   ctx.restore();
 }
 
+// v2.97.370: TCON sticky 時間軸 — 複製主 canvas 頂部 30px
+function _wfgTconRenderStickyTimeAxis() {
+  var sCanvas = document.getElementById('wfg-tcon-time-axis-canvas');
+  var mainCanvas = document.getElementById('wfg-canvas');
+  if (!sCanvas || !mainCanvas) return;
+  var dpr = window.devicePixelRatio || 1;
+  var cssW = Math.round(mainCanvas.width / dpr);
+  var axisH = WFG_TIME_H; // 30
+  var bw = Math.round(cssW * dpr);
+  var bh = Math.round(axisH * dpr);
+  if (sCanvas.width !== bw) sCanvas.width = bw;
+  if (sCanvas.height !== bh) sCanvas.height = bh;
+  sCanvas.style.width = cssW + 'px';
+  sCanvas.style.height = axisH + 'px';
+  var ctx = sCanvas.getContext('2d');
+  ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, bh, 0, 0, bw, bh);
+}
+
+// v2.97.370: TCON sticky 時間軸 overlay — crosshair 時間標籤 + cursor 線段/標籤
+function _wfgTconRenderStickyOverlay() {
+  var sOvr = document.getElementById('wfg-tcon-time-axis-overlay');
+  var mainCanvas = document.getElementById('wfg-canvas');
+  if (!sOvr || !mainCanvas) return;
+  var dpr = window.devicePixelRatio || 1;
+  var cssW = Math.round(mainCanvas.width / dpr);
+  var axisH = WFG_TIME_H; // 30
+  var bw = Math.round(cssW * dpr);
+  var bh = Math.round(axisH * dpr);
+  if (sOvr.width !== bw) sOvr.width = bw;
+  if (sOvr.height !== bh) sOvr.height = bh;
+  sOvr.style.width = cssW + 'px';
+  sOvr.style.height = axisH + 'px';
+  var ctx = sOvr.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, axisH);
+
+  var drawX0 = WFG_LABEL_W; // 110
+
+  // Crosshair
+  if (_wfgTconHover && !wfgDragging) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(226,232,240,0.75)';
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(_wfgTconHover.x + 0.5, 0);
+    ctx.lineTo(_wfgTconHover.x + 0.5, axisH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    var _hoverLabel = wfgFormatCrosshairTime(_wfgTconHover.time);
+    wfgDrawCrosshairTimeLabel(ctx, _wfgTconHover.x, _hoverLabel, axisH - 27, cssW, drawX0);
+  }
+
+  // Cursors
+  var p = wfgCursorGetTimeParams();
+  if (p) {
+    for (var ci = 0; ci < wfgCursors.length; ci++) {
+      var cur = wfgCursors[ci];
+      if (!cur.active || cur.time === null) continue;
+      var cx = wfgCursorTimeToX(cur.time, p);
+      if (cx < drawX0 || cx > cssW) continue;
+      var cColor = WFG_CURSOR_COLORS[cur.group] || '#facc15';
+      ctx.save();
+      ctx.strokeStyle = cColor;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(cx + 0.5, 0);
+      ctx.lineTo(cx + 0.5, axisH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+}
+
 // ─── Canvas Renderer ───
 function wfgRender() {
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
@@ -16906,6 +17002,9 @@ function wfgRender() {
   }
   if (!_wfgLabelDrag && !_wfgIrDrag && !wfgDragging && !_wfgContinuousMotion) wfgRenderLabels();
   if (typeof wfgPulseRefresh === 'function' && !wfgDragging && !_wfgContinuousMotion) wfgPulseRefresh();
+  // v2.97.370: TCON sticky 時間軸
+  _wfgTconRenderStickyTimeAxis();
+  _wfgTconRenderStickyOverlay();
   if (_wfgPerfEnabled) {
     _wfgPerfLast.total = performance.now() - _pT0;
     console.log('[WFG perf] render: ' + JSON.stringify(_wfgPerfLast) + ' ms');
@@ -22824,6 +22923,9 @@ function wfgRenderKvdat() {
   }
   if (!_wfgLabelDrag) wfgRenderKvdatLabels();
   if (typeof wfgPulseRefresh === 'function') wfgPulseRefresh();
+  // v2.97.370: TCON sticky 時間軸（kvdat 模式也需要）
+  _wfgTconRenderStickyTimeAxis();
+  _wfgTconRenderStickyOverlay();
 }
 
 function wfgRenderKvdatLabels() {
@@ -23462,7 +23564,7 @@ function wfgPulseRenderAll() {
 
 // ─── Sticky toolbar: 動態計算 header / toolbar 高度 → CSS 變數 ───
 // v2.97.369: Math.round + 只在值改變時更新，避免 sub-pixel 抖動
-var _wfgLastHeaderH = 0, _wfgLastToolbarH = 0;
+var _wfgLastHeaderH = 0, _wfgLastToolbarH = 0, _wfgLastTconToolbarH = 0;
 function wfgUpdateHeaderHeight() {
   var hdr = document.querySelector('#page-wfg > .header');
   if (hdr) {
@@ -23478,6 +23580,15 @@ function wfgUpdateHeaderHeight() {
     if (t !== _wfgLastToolbarH) {
       _wfgLastToolbarH = t;
       document.documentElement.style.setProperty('--la-toolbar-h', t + 'px');
+    }
+  }
+  // v2.97.370: TCON toolbar 高度
+  var tconTb = document.getElementById('wfg-tcon-toolbar-sticky');
+  if (tconTb) {
+    var tt = Math.round(tconTb.getBoundingClientRect().height);
+    if (tt !== _wfgLastTconToolbarH) {
+      _wfgLastTconToolbarH = tt;
+      document.documentElement.style.setProperty('--tcon-toolbar-h', tt + 'px');
     }
   }
 }

@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.97.370 — 2026-05-21
+
+### TCON tab 工具列 + 時間軸 sticky 固定（桌面版）
+
+- **工具列置頂**：桌面版（>900px）TCON toolbar 使用 `position: sticky` 固定在 header 下方，捲動波形時工具列保持可見
+- **時間軸置頂**：在 toolbar 與 canvas-area 之間插入獨立 sticky canvas 容器（含 time-axis-canvas + time-axis-overlay），複製主 canvas 頂部 30px 時間軸
+- **零佈局影響**：sticky 容器使用 `margin-bottom: -32px` 負邊距，不佔額外空間
+- **cursor/crosshair 同步**：overlay canvas 繪製十字游標時間標籤 + 所有 cursor 垂直線
+- **動態 toolbar 高度**：新增 CSS 變數 `--tcon-toolbar-h`，由 JS 動態測量並設定
+- **模式切換重算**：切換到 TCON tab 時自動呼叫 `wfgUpdateHeaderHeight()` 更新 sticky 位置
+
 ## v2.97.367 — 2026-05-21
 
 ### LA tab 時間軸 sticky 固定（桌面版）
