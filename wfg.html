@@ -689,7 +689,7 @@
 <div id="page-wfg" class="wfg-page">
   <div class="header subpage-header">
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
-    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.363</span></h1>
+    <h1>📟 <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.97.364</span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
@@ -1614,7 +1614,7 @@ var _wfgCursorMouseTime = null;
 var _wfgCursorAnimRaf = 0;
 // Cache for time cursor (V cursor) labels — populated each render for hit-testing
 var _wfgTimeCursorLabels = []; // [{ci, lx, ly, lw, lh}]
-// ─── v2.97.363: TCON hover crosshair state ───
+// ─── v2.97.364: TCON hover crosshair state ───
 var _wfgTconHover = null; // {x, time} or null — tracks mouse position on TCON canvas
 // Cache: per-channel transitions from last render (for measurement)
 var _wfgLastVisibleChs = [];
@@ -5849,7 +5849,7 @@ function wfgLaRenderScope() {
 
   wfgLaDrawAnalyzerOverlays(ctx, cfg, channels);
 
-  // v2.97.363: LA crosshair — uses shared drawing functions
+  // v2.97.364: LA crosshair — uses shared drawing functions
   if (wfgLaHover && wfgLaHover.channel >= 0) {
     wfgDrawCrosshairLine(ctx, wfgLaHover.x, cssH);
     var hoverRelTime = wfgLaHover.time - triggerZero;
@@ -16131,23 +16131,34 @@ function wfgRender() {
   ctx.lineTo(w, WFG_AXIS_H - 1);
   ctx.stroke();
 
-  // Draw frame boundaries (viewport-culled)
+  // Draw frame boundaries (viewport-culled, fade out when zoomed out)
   if (wfgFrame.frameCount > 1) {
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    var fbFirst = Math.max(1, Math.ceil(wfgViewStart / vtotalView));
-    var fbLast = Math.min(wfgFrame.frameCount - 1, Math.floor(wfgViewEnd / vtotalView));
-    for (var fi = fbFirst; fi <= fbLast; fi++) {
-      var fx = lineToX(fi * vtotalView);
-      if (fx > drawX0 && fx < w) {
-        ctx.beginPath();
-        ctx.moveTo(fx, WFG_AXIS_H);
-        ctx.lineTo(fx, h);
-        ctx.stroke();
+    var framePxWidth = (vtotalView / viewRange) * drawW; // 每個 frame 佔的像素寬度
+    var fbFadeMax = 50; // 高於此像素寬度：完全不透明
+    var fbFadeMin = 12; // 低於此像素寬度：完全透明（不繪製）
+    var fbAlpha = framePxWidth >= fbFadeMax ? 1.0
+                : framePxWidth <= fbFadeMin ? 0.0
+                : (framePxWidth - fbFadeMin) / (fbFadeMax - fbFadeMin);
+    if (fbAlpha > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = fbAlpha;
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      var fbFirst = Math.max(1, Math.ceil(wfgViewStart / vtotalView));
+      var fbLast = Math.min(wfgFrame.frameCount - 1, Math.floor(wfgViewEnd / vtotalView));
+      for (var fi = fbFirst; fi <= fbLast; fi++) {
+        var fx = lineToX(fi * vtotalView);
+        if (fx > drawX0 && fx < w) {
+          ctx.beginPath();
+          ctx.moveTo(fx, WFG_AXIS_H);
+          ctx.lineTo(fx, h);
+          ctx.stroke();
+        }
       }
+      ctx.setLineDash([]);
+      ctx.restore();
     }
-    ctx.setLineDash([]);
   }
 
   if (_wfgPerfEnabled) _wfgPerfLast.axis = performance.now() - _pTaxis0;
@@ -16634,7 +16645,7 @@ function wfgRender() {
   wfgMeasDrawArrow(ctx);
   wfgDrawVoltCursors(ctx);
   wfgDrawCursors(ctx);
-  // v2.97.363: TCON crosshair overlay (shared drawing functions)
+  // v2.97.364: TCON crosshair overlay (shared drawing functions)
   if (_wfgTconHover && !wfgDragging) {
     wfgDrawCrosshairLine(ctx, _wfgTconHover.x, h);
     var _hoverLabel = wfgFormatCrosshairTime(_wfgTconHover.time);
@@ -19417,7 +19428,7 @@ function wfgInitCanvas() {
     wfgDragging = true;
     // Hide measurement arrows and crosshair immediately when drag starts
     _wfgMeasArrow = null;
-    _wfgTconHover = null; // v2.97.363: hide crosshair during drag
+    _wfgTconHover = null; // v2.97.364: hide crosshair during drag
     wfgMeasClear();
     wfgDragStartX = e.clientX;
     wfgDragStartView = wfgViewStart;
@@ -19425,7 +19436,7 @@ function wfgInitCanvas() {
     wfgLastMoveX = e.clientX;
     wfgLastMoveTime = performance.now();
     wfgVelocity = 0;
-    canvas.style.cursor = 'grabbing'; // v2.97.363: grabbing during drag
+    canvas.style.cursor = 'grabbing'; // v2.97.364: grabbing during drag
   });
   // Voltage cursor drag (window-level so drag continues outside canvas)
   window.addEventListener('mousemove', function(e) {
@@ -19451,7 +19462,7 @@ function wfgInitCanvas() {
     if (_wfgVoltCursorDrag) {
       _wfgVoltCursorDrag = null;
       var canvas = document.getElementById('wfg-canvas');
-      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.363
+      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.364
     }
   });
 
@@ -19500,7 +19511,7 @@ function wfgInitCanvas() {
     if (wfgDragging) {
       wfgDragging = false;
       var canvas = document.getElementById('wfg-canvas');
-      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.363
+      if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.364
       if (performance.now() - wfgLastMoveTime < 50) wfgStartInertia();
       else {
         wfgVelocity = 0;
@@ -19515,7 +19526,7 @@ function wfgInitCanvas() {
       _wfgCheckDirtyPan(); // v2.97.19: pan triggers SD recompute if dirty
     }
   });
-  canvas.style.cursor = 'crosshair'; // v2.97.363
+  canvas.style.cursor = 'crosshair'; // v2.97.364
 
   // Measurement mousemove (throttled via rAF) + cursor tracking + crosshair hover
   canvas.addEventListener('mousemove', function(e) {
@@ -19527,7 +19538,7 @@ function wfgInitCanvas() {
       var _scX = (canvas.width / _dpr) / _rect.width;
       var _cx = (e.clientX - _rect.left) * _scX;
       _wfgCursorMouseTime = wfgCursorXToTime(_cx, _ctp);
-      // v2.97.363: Update TCON hover crosshair position
+      // v2.97.364: Update TCON hover crosshair position
       if (_cx >= _ctp.drawX0 && _cx <= _ctp.w) {
         _wfgTconHover = { x: _cx, time: _wfgCursorMouseTime };
       } else {
@@ -19553,7 +19564,7 @@ function wfgInitCanvas() {
   canvas.addEventListener('mouseleave', function() {
     if (_wfgMeasRaf) { cancelAnimationFrame(_wfgMeasRaf); _wfgMeasRaf = null; }
     _wfgMeasArrow = null;
-    _wfgTconHover = null; // v2.97.363: clear crosshair on leave
+    _wfgTconHover = null; // v2.97.364: clear crosshair on leave
     wfgMeasClear();
     wfgRender();
   });
@@ -20858,7 +20869,7 @@ function wfgCursorTrackTouch(clientX) {
   wfgRender();
 }
 
-// ─── v2.97.363: Shared crosshair drawing functions (used by both TCON and LA) ───
+// ─── v2.97.364: Shared crosshair drawing functions (used by both TCON and LA) ───
 // Draw a vertical dashed crosshair line spanning the full canvas height
 function wfgDrawCrosshairLine(ctx, x, cssH) {
   ctx.save();
@@ -22552,7 +22563,7 @@ function wfgRenderKvdat() {
 
   wfgMeasDrawArrow(ctx);
   wfgDrawCursors(ctx);
-  // v2.97.363: kvdat crosshair overlay (shared drawing functions)
+  // v2.97.364: kvdat crosshair overlay (shared drawing functions)
   if (_wfgTconHover && !wfgDragging) {
     wfgDrawCrosshairLine(ctx, _wfgTconHover.x, h);
     var _kvHoverLabel = wfgFormatCrosshairTime(_wfgTconHover.time);
