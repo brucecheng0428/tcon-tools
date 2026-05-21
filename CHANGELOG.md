@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.97.356 — 2026-05-21
+
+### LA 設定選單改為內嵌面板（取代 dialog/modal）
+
+- **設計改版**：設定選單不再用 dialog 彈出，改為直接取代右側面板的所有卡片（同解碼結果放大按鈕的設計模式）
+- **CSS 類別**：新增 `settings-expanded` 類別於 `.wfg-la-workbench`，控制設定面板顯示/隱藏
+- **互斥處理**：開啟設定面板時自動關閉解碼結果放大狀態
+- **瞬間切換**：不再每次動態建立 DOM，面板 div 常駐於右側面板內，切換只靠 CSS class toggle
+- **功能保留**：觸發位置、B Event、觸發窗口、CH0-3/CH0-7/CH0-15 快捷按鈕、Ch0~Ch15 checkbox grid 全部保留
+
 ## v2.97.355 — 2026-05-21
 
 ### LA 設定選單優化：極簡 Channel checkbox + 開啟速度提升
