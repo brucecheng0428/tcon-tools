@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.97.376 — 2026-05-22
+
+### TCON 左側面板捲動抖動修復
+
+- **根因**：左右面板皆用 `position: sticky`，但左側因 `overflow-y: auto` + `max-height` 組合，在頁面捲動時產生 subpixel reflow 抖動
+- **修復方式**：將 `.wfg-layout` 改為 viewport-filling flex 佈局（`height: calc(100vh - header - 20px); overflow: hidden`），三欄各自管理 overflow，頁面不再有整頁捲動
+  - `.wfg-panel`（左）：移除 `position: sticky / top / align-self / max-height`，保留 `overflow-y: auto`
+  - `.wfg-canvas-wrap`（中）：新增 `overflow-x: hidden; overflow-y: auto`，成為 TCON toolbar/時間軸的 scroll container
+  - `.wfg-right-panel`（右）：移除 `position: sticky / top / align-self`，新增 `overflow-y: auto`
+- **TCON sticky toolbar/時間軸**：`top` 值從 `var(--header-h)` 改為 `0`（因 scroll container 從 body 變為 canvas-wrap）
+
 ## v2.97.375 — 2026-05-22
 
 ### TCON tab 左側面板固定 + 卡片 icon 移除
