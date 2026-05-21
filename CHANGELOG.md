@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.97.363 — 2026-05-21
+
+### TCON tab 即時十字鼠標系統（共用 LA 繪製模組）
+
+- **共用十字鼠標繪製函式**：抽出 `wfgDrawCrosshairLine()` / `wfgDrawCrosshairTimeLabel()` / `wfgFormatCrosshairTime()` 三個通用函式，LA tab 和 TCON tab 共用同一套繪製邏輯
+- **TCON 十字鼠標**：滑鼠在 TCON 波形區移動時顯示垂直虛線十字游標 + 時間軸上方即時時間標籤（pill 樣式），拖曳/離開時自動隱藏
+- **LA 改用共用模組**：LA tab 原有的 inline crosshair 繪製程式碼改為呼叫共用函式，行為完全不變
+- **游標樣式改進**：TCON canvas 預設游標從 `default` 改為 `crosshair`（與 LA 一致），拖曳時顯示 `grabbing`
+- **kvdat 模式支援**：kvdat 匯入模式同樣顯示十字鼠標與即時時間標籤
+
 ## v2.97.362 — 2026-05-21
 
 ### LA tab 工具列 icon 對齊 TCON tab 風格
