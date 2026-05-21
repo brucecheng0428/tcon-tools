@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.97.359 — 2026-05-21
+
+### LA tab 多項修正：PWM 按鈕狀態 + 語言切換即時更新
+
+- **PWM 按鈕狀態修正**：PWM1/PWM2 按鈕在 LA 未連接時不再顯示綠色（active），需 `wfgLaHardwareReady` 為 true 才亮綠；移除 HTML 中 PWM1 的硬編碼 `active` class
+- **語言切換即時更新（regression fix）**：定義 `window._onLangChange` 回呼，語言切換時自動重繪 LA toolbar state（理論取樣時間等）、scope labels（I/O 電平標註）、設定面板（若開啟中）
+- **I/O 電平標註 i18n**：切換語言後波形區的 I/O 電平標準文字立即更新，不再需要 mouseover 觸發
+- **取樣 group 文字 i18n**：「理論取樣時間」等 toolbar 動態文字在語言切換時同步更新
+
 ## v2.97.358 — 2026-05-21
 
 ### LA 設定面板 Channel checkbox 兩欄排列
