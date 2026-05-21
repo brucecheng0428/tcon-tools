@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.375 — 2026-05-22
+
+### TCON tab 左側面板固定 + 卡片 icon 移除
+
+- **左側面板固定**：TCON tab 左側面板（通道卡片等）新增 `position: sticky; top: 60px`，與右側面板一致，捲動頁面時左側面板固定不動，面板本身可內部捲動（`max-height: calc(100vh - 68px); overflow-y: auto`）
+- **移除左側卡片 icon**：移除 Frame 參數（📐）、Toggle FRM_NO（🔄）、數位信號（📊）、類比信號（📈）、輸出通道（📺）五個卡片標題的 emoji icon
+- **i18n 同步**：`common/i18n.js` 中對應的 zh-TW/en/zh-CN 翻譯也一併移除 emoji
+
 ## v2.97.374 — 2026-05-22
 
 ### 時基標尺卡片常顯 + 📏 emoji 清理
