@@ -1,8 +1,20 @@
 # CHANGELOG
 
+## v2.97.377 — 2026-05-22
+
+### 修復 v2.97.376 右側面板 regression + 左側面板完全固定
+
+- **問題**：v2.97.376 viewport-filling 佈局改壞了右側面板（移除了 sticky 定位），且 `.wfg-container` padding-bottom: 80px 導致頁面仍可捲動 ~70px
+- **修復**：
+  - `.wfg-page`（桌面）：新增 `height: 100vh; overflow: hidden` — 頁面完全不可捲動
+  - `.wfg-container`（桌面）：padding-bottom 從 80px 改為 10px
+  - `.wfg-right-panel` / `.wfg-measure-card`：完整恢復 v2.97.375 原始 CSS（`position: sticky; top: 60px; align-self: flex-start`）
+  - 左側面板：透過 viewport-filling flex + page overflow:hidden 自然固定，`overflow-y: auto` 支援內部捲動
+  - TCON sticky toolbar/時間軸：維持 v2.97.376 的 `top: 0` / `top: var(--tcon-toolbar-h)` （scroll container 為 canvas-wrap）
+
 ## v2.97.376 — 2026-05-22
 
-### TCON 左側面板捲動抖動修復
+### TCON 左側面板捲動抖動修復（有 regression）
 
 - **根因**：左右面板皆用 `position: sticky`，但左側因 `overflow-y: auto` + `max-height` 組合，在頁面捲動時產生 subpixel reflow 抖動
 - **修復方式**：將 `.wfg-layout` 改為 viewport-filling flex 佈局（`height: calc(100vh - header - 20px); overflow: hidden`），三欄各自管理 overflow，頁面不再有整頁捲動
@@ -10,6 +22,7 @@
   - `.wfg-canvas-wrap`（中）：新增 `overflow-x: hidden; overflow-y: auto`，成為 TCON toolbar/時間軸的 scroll container
   - `.wfg-right-panel`（右）：移除 `position: sticky / top / align-self`，新增 `overflow-y: auto`
 - **TCON sticky toolbar/時間軸**：`top` 值從 `var(--header-h)` 改為 `0`（因 scroll container 從 body 變為 canvas-wrap）
+- **⚠️ regression**：移除右側 sticky 且 container padding 未修正，導致右側面板隨頁面捲動
 
 ## v2.97.375 — 2026-05-22
 
