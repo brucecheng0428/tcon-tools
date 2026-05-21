@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.378 — 2026-05-22
+
+### 修復右側面板頂部對齊（比左側低 60px）
+
+- **問題**：右側面板（即時測量、時基標尺、脈衝計數）頂部比左側面板（Frame 參數）低 60px
+- **根因**：`.wfg-right-panel` 保留了 v2.97.377 恢復的 `position: sticky; top: 60px`，在 viewport-filling 佈局（`overflow: hidden`）下 sticky `top` 值造成 60px 向下偏移
+- **修復**：移除 `position: sticky; top: 60px; align-self: flex-start`，改為 `overflow-y: auto`（與左側面板一致），讓 flex stretch 自然對齊頂部
+
 ## v2.97.377 — 2026-05-22
 
 ### 修復 v2.97.376 右側面板 regression + 左側面板完全固定
