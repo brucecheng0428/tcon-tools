@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.97.355 — 2026-05-21
+
+### LA 設定選單優化：極簡 Channel checkbox + 開啟速度提升
+
+- **速度優化**：移除每次開啟時的複雜 DOM 建構（拖曳手柄、contenteditable、觸發按鈕），DOM 量減少約 80%
+- **Channel 極簡化**：移除拖曳排序、自訂通道名稱、觸發 A/B 按鈕；改為固定 Ch0~Ch15 的 4×4 checkbox grid
+- **保留上方功能**：Trigger Position、B Event Count、Trigger Window 及 CH0-3/CH0-7/CH0-15 快捷按鈕均保留
+- **多語言支援**：觸發位置、觸發 windows 等文字均透過 i18n `t()` 函式渲染
+
 ## v2.97.354 — 2026-05-21
 
 ### 移除渲染端 edge-walk 補償邏輯
