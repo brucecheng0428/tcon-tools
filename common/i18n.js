@@ -283,7 +283,7 @@ var I18N = {
   'wfg.pastePlain':     { 'zh-TW': '貼上', 'en': 'Paste', 'zh-CN': '粘贴' },
   'wfg.screenshotPlain':{ 'zh-TW': '截圖', 'en': 'Screenshot', 'zh-CN': '截图' },
   // ─── WFG: Cursor panel ───
-  'wfg.cursorTitle':    { 'zh-TW': '📏 時基標尺', 'en': '📏 Time Base Cursors', 'zh-CN': '📏 时基标尺' },
+  'wfg.cursorTitle':    { 'zh-TW': '時基標尺', 'en': 'Time Base Cursors', 'zh-CN': '时基标尺' },
   'wfg.cursorMoving':   { 'zh-TW': '移動中', 'en': 'moving', 'zh-CN': '移动中' },
   'wfg.cursorClose':    { 'zh-TW': '關閉', 'en': 'Close', 'zh-CN': '关闭' },
   'wfg.cursorShortcut': { 'zh-TW': '快捷鍵', 'en': 'Shortcut', 'zh-CN': '快捷键' },

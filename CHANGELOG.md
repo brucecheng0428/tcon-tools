@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.97.373 — 2026-05-22
+
+### LA tab 右側卡片按鈕靠右 + 時基標尺收折
+
+- **按鈕靠右**：將 chevron 移入 `wfg-la-panel-actions` 內部，＋/⛶ 等按鈕與 chevron 組成一組靠右對齊，消除標題與按鈕之間的不自然空隙
+- **LA 時基標尺可收折**：LA tab 時基標尺卡片新增 `wfgToggleCard` + chevron，與 TCON tab 行為一致（TCON 已有此功能）
+- **移除時基標尺 icon**：TCON/LA 兩個 tab 的時基標尺標題移除 📏 emoji（HTML + i18n）
+
 ## v2.97.372 — 2026-05-21
 
 ### LA tab 右側卡片收折 icon 統一為 TCON 風格
