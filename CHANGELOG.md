@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v2.97.358 — 2026-05-21
+
+### LA 設定面板 Channel checkbox 兩欄排列
+
+- **排列改版**：CH0~CH15 checkbox 從 4×4 grid 改為兩欄排列（左欄 Ch0~Ch7、右欄 Ch8~Ch15），使用 `grid-auto-flow: column` 先填左欄再填右欄
+
 ## v2.97.357 — 2026-05-21
 
 ### LA 設定面板速度優化 + 排版修正
