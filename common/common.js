@@ -3,6 +3,16 @@
    依賴：common/i18n.js（必須先於本檔載入）
    ═══════════════════════════════════════════════════════════════ */
 
+// ─── 版本 badge 自動注入 ────────────────────────────────────────────────
+// 找到所有 data-tool-version="xxx" 的 span，從 TOOL_VERSIONS 注入版本文字
+(function() {
+  if (typeof TOOL_VERSIONS === 'undefined') return;
+  document.querySelectorAll('[data-tool-version]').forEach(function(el) {
+    var key = el.getAttribute('data-tool-version');
+    if (TOOL_VERSIONS[key]) el.textContent = TOOL_VERSIONS[key];
+  });
+})();
+
 // ─── 語言狀態 ───────────────────────────────────────────────────────────
 var currentLang = 'zh-TW';
 

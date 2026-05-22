@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## App v1.87.1 — 2026-05-23
+
+### 版本號單一來源（根治主頁/子頁版號不同步問題）
+
+- 新增 `common/version.js`：所有工具版本號統一定義在 `TOOL_VERSIONS` 物件，改版只需改這一個檔案
+- 所有頁面（index/rxtx/calc/isp/aux/wfg）的版本 badge 改用 `data-tool-version` 屬性，由 JS 動態注入
+- `common/common.js` 新增自動注入邏輯：頁面載入時讀取 `TOOL_VERSIONS` 填入所有 badge
+- 修正首頁 AUX 版號（v2.1.1 → v2.2.1），與 aux.html 實際版本同步
+
 ## AUX/DPCD 工具 v2.2.1 — 2026-05-23
 
 ### DPCD 版本差異 tab 多語言支援
