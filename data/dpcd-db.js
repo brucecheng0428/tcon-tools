@@ -96,16 +96,25 @@ var DPCD_DB = Object.assign({},
     n: "NORP",
     c: "接收端口數與供電能力",
     rw: 0,
-    d: "NORP = Number Of Receiver Ports。告訴你 Sink 有幾個接收端口（通常是 1）。也包含 DP_PWR 腳位的供電能力資訊，對 USB-C/DP 轉接器除錯有幫助。",
+    d: "NORP = Number Of Receiver Ports。告訴你 Sink 有幾個接收端口（通常是 1）。也包含 DP_PWR 腳位的供電能力資訊。來源：DP v1.4a Table 2-161。",
     b: [
-      { r: "7:5", n: "RESERVED", c: "保留位元", v: {} },
-      { r: "4:2", n: "DP_PWR_VOLTAGE_CAP", c: "DP_PWR 電壓能力", v: {
-        "0b000": "不支援 DP_PWR",
-        "0b001": "支援 5V",
-        "0b010": "支援 12V",
-        "0b011": "支援 18V"
+      { r: "7", n: "18V_DP_PWR_CAP", c: "18V 供電能力", v: {
+        "0": "不支援 18V DP_PWR",
+        "1": "支援在 DP 連接器 DP_PWR pin 產生 +18V ±10%"
       }},
-      { r: "1", n: "RESERVED", c: "保留", v: {} },
+      { r: "6", n: "12V_DP_PWR_CAP", c: "12V 供電能力", v: {
+        "0": "不支援 12V DP_PWR",
+        "1": "支援在 DP 連接器 DP_PWR pin 產生 +12V ±10%"
+      }},
+      { r: "5", n: "5V_DP_PWR_CAP", c: "5V 供電能力", v: {
+        "0": "不支援 5V DP_PWR",
+        "1": "支援在 DP 連接器 DP_PWR pin 產生 +4.9~5.5V"
+      }},
+      { r: "4:2", n: "RESERVED", c: "保留位元", v: {} },
+      { r: "1", n: "CRC_3D_OPTIONS_SUPPORTED", c: "3D CRC 選項", v: {
+        "0": "不支援",
+        "1": "支援 3D CRC 選項"
+      }},
       { r: "0", n: "NORP", c: "接收端口數", v: {
         "0": "1 個接收端口",
         "1": "2 個接收端口"
@@ -114,23 +123,27 @@ var DPCD_DB = Object.assign({},
   },
 
   "00005": {
-    n: "DOWNSTREAMPORT_PRESENT",
+    n: "DOWN_STREAM_PORT_PRESENT",
     c: "下游端口資訊",
     rw: 0,
-    d: "告訴你 Sink 是否有下游端口（例如 DP→HDMI 轉接器就有下游 HDMI 端口）。對於單純的面板（Monitor/eDP Panel），通常沒有下游端口。這在 MST Hub 或 DP→VGA/HDMI 轉接器的除錯中很重要。",
+    d: "告訴你 Sink 是否有下游端口（例如 DP→HDMI 轉接器就有下游 HDMI 端口）。對於單純的面板（Monitor/eDP Panel），通常沒有下游端口。來源：DP v1.4a Table 2-161。",
     b: [
-      { r: "7:4", n: "RESERVED", c: "保留位元", v: {} },
-      { r: "3", n: "DETAILED_CAP_INFO_AVAILABLE", c: "詳細能力資訊", v: {
+      { r: "7:5", n: "RESERVED", c: "保留位元", v: {} },
+      { r: "4", n: "DETAILED_CAP_INFO_AVAILABLE", c: "詳細能力資訊", v: {
         "0": "無詳細下游端口能力資訊",
         "1": "地址 00080h 有詳細的下游端口能力描述"
       }},
-      { r: "2:1", n: "DWN_STRM_PORT_TYPE", c: "下游端口類型", v: {
+      { r: "3", n: "FORMAT_CONVERSION", c: "格式轉換", v: {
+        "0": "下游端口不做格式轉換",
+        "1": "下游端口會做格式轉換（如 DP→HDMI 色彩空間轉換）"
+      }},
+      { r: "2:1", n: "DFP_TYPE", c: "下游端口類型", v: {
         "0b00": "DisplayPort（直接穿透）",
         "0b01": "VGA 或 analog（DP→VGA 轉接器）",
         "0b10": "DVI / HDMI / DP++（DP→HDMI 轉接器常見）",
         "0b11": "其他（非 DP 端口）"
       }},
-      { r: "0", n: "DWN_STRM_PORT_PRESENT", c: "有無下游端口", v: {
+      { r: "0", n: "DFP_PRESENT", c: "有無下游端口", v: {
         "0": "無下游端口（純面板/Monitor）",
         "1": "有下游端口（轉接器/Hub/Repeater）"
       }}
@@ -375,17 +388,30 @@ var DPCD_DB = Object.assign({},
 
   // ===== 保留區域 00023h–0005Fh =====
 
-  "00023": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址 00023h~0002Fh，規格未定義。", b: [] },
-  "00024": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "00025": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "00026": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "00027": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "00028": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "00029": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "0002A": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "0002B": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "0002C": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
-  "0002D": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址。", b: [] },
+  "00023": {
+    n: "AV_SYNC_DATA_BLOCK_AV_GRANULARITY",
+    c: "AV 同步粒度因子",
+    rw: 0,
+    d: "AV 同步資料區塊：音訊/視訊粒度因子。定義後續延遲暫存器的時間單位。來源：DP v1.4a Table 2-161。",
+    b: [
+      { r: "3:0", n: "AG_FACTOR", c: "音訊粒度因子", v: {
+        "0": "3ms", "1": "2ms（預設）", "2": "1ms", "3": "500μs", "4": "200μs", "5": "100μs", "6": "10μs", "7": "1μs"
+      }},
+      { r: "7:4", n: "VG_FACTOR", c: "視訊粒度因子", v: {
+        "0": "3ms", "1": "2ms（預設）", "2": "1ms", "3": "500μs", "4": "200μs", "5": "100μs"
+      }}
+    ]
+  },
+  "00024": { n: "AUD_DEC_LAT_7_0", c: "音訊解碼延遲 [7:0]", rw: 0, d: "最差情況音訊解碼延遲低位元組（以 AG_FACTOR 為單位）。來源：DP v1.4a。", b: [{ r: "7:0", n: "AUD_DEC_LAT_7_0", c: "音訊解碼延遲 [7:0]", v: {} }] },
+  "00025": { n: "AUD_DEC_LAT_15_8", c: "音訊解碼延遲 [15:8]", rw: 0, d: "最差情況音訊解碼延遲高位元組。", b: [{ r: "7:0", n: "AUD_DEC_LAT_15_8", c: "音訊解碼延遲 [15:8]", v: {} }] },
+  "00026": { n: "AUD_PP_LAT_7_0", c: "音訊後處理延遲 [7:0]", rw: 0, d: "最差情況音訊後處理延遲低位元組（以 AG_FACTOR 為單位）。", b: [{ r: "7:0", n: "AUD_PP_LAT_7_0", c: "音訊後處理延遲 [7:0]", v: {} }] },
+  "00027": { n: "AUD_PP_LAT_15_8", c: "音訊後處理延遲 [15:8]", rw: 0, d: "最差情況音訊後處理延遲高位元組。", b: [{ r: "7:0", n: "AUD_PP_LAT_15_8", c: "音訊後處理延遲 [15:8]", v: {} }] },
+  "00028": { n: "VID_INTER_LAT", c: "視訊交錯延遲", rw: 0, d: "最差情況交錯模式視訊延遲（以 VG_FACTOR 為單位）。", b: [{ r: "7:0", n: "VID_INTER_LAT", c: "交錯視訊延遲", v: {} }] },
+  "00029": { n: "VID_PROG_LAT", c: "視訊漸進延遲", rw: 0, d: "最差情況漸進掃描模式視訊延遲（以 VG_FACTOR 為單位）。", b: [{ r: "7:0", n: "VID_PROG_LAT", c: "漸進視訊延遲", v: {} }] },
+  "0002A": { n: "REP_LAT", c: "Repeater 延遲", rw: 0, d: "Repeater/Branch 裝置接收並轉發 DP 串流至下游的延遲，以 10μs 為單位。", b: [{ r: "7:0", n: "REP_LAT", c: "轉發延遲", v: {} }] },
+  "0002B": { n: "AUD_DEL_INS_7_0", c: "音訊延遲插入 [7:0]", rw: 0, d: "Sink 可在音訊路徑中插入的最大額外延遲（1μs 單位）低位元組。最低需支援 5ms。", b: [{ r: "7:0", n: "AUD_DEL_INS_7_0", c: "延遲插入 [7:0]", v: {} }] },
+  "0002C": { n: "AUD_DEL_INS_15_8", c: "音訊延遲插入 [15:8]", rw: 0, d: "音訊延遲插入 bits 15:8。", b: [{ r: "7:0", n: "AUD_DEL_INS_15_8", c: "延遲插入 [15:8]", v: {} }] },
+  "0002D": { n: "AUD_DEL_INS_23_16", c: "音訊延遲插入 [23:16]", rw: 0, d: "音訊延遲插入 bits 23:16。", b: [{ r: "7:0", n: "AUD_DEL_INS_23_16", c: "延遲插入 [23:16]", v: {} }] },
   "0002E": {
     n: "RECEIVER_ADVANCED_LINK_POWER_MANAGEMENT_CAPABILITIES",
     c: "接收端進階低功耗管理能力",
@@ -430,14 +456,14 @@ var DPCD_DB = Object.assign({},
     n: "DSC_ALGORITHM_REVISION",
     c: "DSC 演算法版本",
     rw: 0,
-    d: "DSC 壓縮演算法的版本號。目前主流是 DSC 1.1 和 1.2。版本越高支援的色彩格式和壓縮效率越好。Source 和 Sink 必須使用相容的 DSC 版本。",
+    d: "DSC 壓縮演算法的版本號。目前主流是 DSC 1.1 和 1.2。版本越高支援的色彩格式和壓縮效率越好。Source 和 Sink 必須使用相容的 DSC 版本。注意：Major=1h + Minor=2h 同時代表 DSC v1.2 和 DSC v1.2a。",
     b: [
-      { r: "7:4", n: "DSC_MAJOR_REV", c: "DSC 主版號", v: {
+      { r: "3:0", n: "DSC_VERSION_MAJOR", c: "DSC 主版號", v: {
         "1": "DSC 1.x"
       }},
-      { r: "3:0", n: "DSC_MINOR_REV", c: "DSC 次版號", v: {
-        "1": "DSC 1.1（基礎版本）",
-        "2": "DSC 1.2（加入 YCbCr Native 420/422 支援）"
+      { r: "7:4", n: "DSC_VERSION_MINOR", c: "DSC 次版號", v: {
+        "1": "DSC x.1（基礎版本）",
+        "2": "DSC x.2（加入 YCbCr Native 420/422 支援）"
       }}
     ]
   },
@@ -475,14 +501,14 @@ var DPCD_DB = Object.assign({},
     n: "DSC_SLICE_CAPABILITIES_1",
     c: "DSC Slice 能力（第 1 組）",
     rw: 0,
-    d: "DSC 壓縮時，畫面會被切成多個水平 Slice 分別壓縮。此暫存器告訴你面板支援多少 Slice。Slice 數越多，壓縮延遲越低，但面板硬體複雜度越高。4K 面板常見 8~12 Slice，8K 需要更多。",
+    d: "DSC 壓縮時，畫面會被切成多個水平 Slice 分別壓縮。此暫存器告訴你面板支援多少 Slice。Slice 數越多，壓縮延遲越低，但面板硬體複雜度越高。4K 面板常見 8~12 Slice，8K 需要更多。來源：DP v1.4a Table 2-163。",
     b: [
-      { r: "7", n: "RESERVED", c: "保留", v: {} },
-      { r: "6", n: "12_SLICES_PER_SINK", c: "12 Slice", v: { "0": "不支援", "1": "支援每畫面 12 Slice" } },
-      { r: "5", n: "10_SLICES_PER_SINK", c: "10 Slice", v: { "0": "不支援", "1": "支援每畫面 10 Slice" } },
-      { r: "4", n: "8_SLICES_PER_SINK", c: "8 Slice", v: { "0": "不支援", "1": "支援每畫面 8 Slice" } },
-      { r: "3", n: "6_SLICES_PER_SINK", c: "6 Slice", v: { "0": "不支援", "1": "支援每畫面 6 Slice" } },
-      { r: "2", n: "4_SLICES_PER_SINK", c: "4 Slice", v: { "0": "不支援", "1": "支援每畫面 4 Slice" } },
+      { r: "7", n: "12_SLICES_PER_SINK", c: "12 Slice", v: { "0": "不支援", "1": "支援每畫面 12 Slice" } },
+      { r: "6", n: "10_SLICES_PER_SINK", c: "10 Slice", v: { "0": "不支援", "1": "支援每畫面 10 Slice" } },
+      { r: "5", n: "8_SLICES_PER_SINK", c: "8 Slice", v: { "0": "不支援", "1": "支援每畫面 8 Slice" } },
+      { r: "4", n: "6_SLICES_PER_SINK", c: "6 Slice", v: { "0": "不支援", "1": "支援每畫面 6 Slice" } },
+      { r: "3", n: "4_SLICES_PER_SINK", c: "4 Slice", v: { "0": "不支援", "1": "支援每畫面 4 Slice" } },
+      { r: "2", n: "RESERVED", c: "保留", v: {} },
       { r: "1", n: "2_SLICES_PER_SINK", c: "2 Slice", v: { "0": "不支援", "1": "支援每畫面 2 Slice" } },
       { r: "0", n: "1_SLICE_PER_SINK", c: "1 Slice", v: { "0": "不支援", "1": "支援每畫面 1 Slice" } }
     ]
@@ -523,19 +549,40 @@ var DPCD_DB = Object.assign({},
     ]
   },
 
-  "00067": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址 00067h。", b: [] },
-  "00068": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址 00068h。", b: [] },
+  "00067": {
+    n: "DSC_MAX_BITS_PER_PIXEL_LOW",
+    c: "DSC 最大 BPP（低位元組）",
+    rw: 0,
+    d: "DSC 解壓器支援的最大 bits_per_pixel 值低 8 位元（U6.4 格式）。DP 標準中此暫存器為 RESERVED（讀 0），eDP v1.4a 及更高版本定義此欄位。與 00068h 組合為 10-bit 值。來源：DP v1.4a Table 2-163。",
+    b: [
+      { r: "7:0", n: "MAX_BITS_PER_PIXEL_7:0", c: "最大 BPP [7:0]", v: {} }
+    ]
+  },
+  "00068": {
+    n: "DSC_MAX_BITS_PER_PIXEL_HIGH",
+    c: "DSC 最大 BPP（高位元組）",
+    rw: 0,
+    d: "DSC 解壓器支援的最大 bits_per_pixel 值高 2 位元。與 00067h 組合為 10-bit U6.4 格式值。來源：DP v1.4a Table 2-163。",
+    b: [
+      { r: "7:2", n: "RESERVED", c: "保留位元", v: {} },
+      { r: "1:0", n: "MAX_BITS_PER_PIXEL_9:8", c: "最大 BPP [9:8]", v: {} }
+    ]
+  },
 
   "00069": {
-    n: "DSC_COLOR_FORMAT_CAPABILITIES",
+    n: "DSC_DECODER_COLOR_FORMAT_CAPABILITIES",
     c: "DSC 色彩格式能力",
     rw: 0,
-    d: "告訴你 DSC 解碼器支援哪些色彩格式。RGB 是最基本的，YCbCr 4:4:4 和 4:2:2 用於視頻優化（色度取樣減少頻寬），Simple 4:2:2 是簡化版本。除錯 DSC 時，若指定的色彩格式面板不支援，會導致畫面異常。",
+    d: "告訴你 DSC 解碼器支援哪些色彩格式。RGB 是最基本的，YCbCr 4:4:4 和 4:2:2 用於視頻優化（色度取樣減少頻寬），Simple 4:2:2 是簡化版本。Native 4:2:2 需 DSC v1.2+，Native 4:2:0 需 DSC v1.2a+。除錯 DSC 時，若指定的色彩格式面板不支援，會導致畫面異常。來源：DP v1.4a Table 2-163。",
     b: [
-      { r: "7:4", n: "RESERVED", c: "保留位元", v: {} },
-      { r: "3", n: "DSC_NATIVE_420_SUPPORT", c: "原生 4:2:0 支援", v: {
+      { r: "7:5", n: "RESERVED", c: "保留位元", v: {} },
+      { r: "4", n: "DSC_NATIVE_420_SUPPORT", c: "原生 4:2:0 支援", v: {
         "0": "不支援 DSC Native YCbCr 4:2:0",
-        "1": "支援（DSC 1.2 新增，適合超高解析度視訊）"
+        "1": "支援（DSC 1.2a 新增，適合超高解析度視訊）"
+      }},
+      { r: "3", n: "DSC_NATIVE_422_SUPPORT", c: "原生 4:2:2 支援", v: {
+        "0": "不支援 DSC Native YCbCr 4:2:2",
+        "1": "支援（DSC 1.2 新增）"
       }},
       { r: "2", n: "DSC_SIMPLE_422_SUPPORT", c: "簡易 4:2:2 支援", v: {
         "0": "不支援 DSC Simple YCbCr 4:2:2",
@@ -547,22 +594,22 @@ var DPCD_DB = Object.assign({},
       }},
       { r: "0", n: "DSC_RGB_SUPPORT", c: "RGB 支援", v: {
         "0": "不支援 DSC RGB（幾乎不可能）",
-        "1": "支援 DSC RGB（所有 DSC 面板都支援）"
+        "1": "支援 DSC RGB（所有 DSC Sink 都須支援）"
       }}
     ]
   },
 
   "0006A": {
-    n: "DSC_COLOR_DEPTH_CAPABILITIES",
+    n: "DSC_DECODER_COLOR_DEPTH_CAPABILITIES",
     c: "DSC 色彩深度能力",
     rw: 0,
-    d: "DSC 解碼器支援的輸入色彩深度。bpc = bits per component（每色彩分量位元數）。8bpc 是 SDR 標準，10bpc 是 HDR 常用，12bpc 是專業級。面板支援的最大 bpc 決定了 DSC 能處理的最大色深。",
+    d: "DSC 解碼器支援的輸入色彩深度。bpc = bits per component（每色彩分量位元數）。8bpc 是 SDR 標準，10bpc 是 HDR 常用，12bpc 是專業級。DP DSC Sink 必須支援 8bpc。來源：DP v1.4a Table 2-163。",
     b: [
       { r: "7:4", n: "RESERVED", c: "保留位元", v: {} },
-      { r: "3", n: "DSC_16BPC_SUPPORT", c: "16bpc 支援", v: { "0": "不支援", "1": "支援 16bpc（極少見）" } },
-      { r: "2", n: "DSC_12BPC_SUPPORT", c: "12bpc 支援", v: { "0": "不支援", "1": "支援 12bpc（專業面板）" } },
-      { r: "1", n: "DSC_10BPC_SUPPORT", c: "10bpc 支援", v: { "0": "不支援", "1": "支援 10bpc（HDR 標配）" } },
-      { r: "0", n: "DSC_8BPC_SUPPORT", c: "8bpc 支援", v: { "0": "不支援", "1": "支援 8bpc（SDR 標配）" } }
+      { r: "3", n: "DSC_12BPC_SUPPORT", c: "12bpc 支援", v: { "0": "不支援", "1": "支援 12bpc（專業面板）" } },
+      { r: "2", n: "DSC_10BPC_SUPPORT", c: "10bpc 支援", v: { "0": "不支援", "1": "支援 10bpc（HDR 標配）" } },
+      { r: "1", n: "DSC_8BPC_SUPPORT", c: "8bpc 支援", v: { "0": "不支援", "1": "支援 8bpc（SDR 標配，DP DSC Sink 必須支援）" } },
+      { r: "0", n: "RESERVED", c: "保留", v: {} }
     ]
   },
 
@@ -791,7 +838,11 @@ var DPCD_DB = Object.assign({},
     rw: 0,
     d: "Panel Replay 是 eDP 1.5 新增的省電技術，可視為 PSR 的進化版。與 PSR 不同，Panel Replay 在 Link 層面保持活躍，只是停止傳送影像幀。退出延遲更低、與 PSR2 Selective Update 相容性更好。適合需要極低延遲恢復的應用（如觸控筆、遊戲筆電）。",
     b: [
-      { r: "7:2", n: "RESERVED", c: "保留位元", v: {} },
+      { r: "7:3", n: "RESERVED", c: "保留位元", v: {} },
+      { r: "2", n: "EARLY_TRANSPORT_SUPPORT", c: "Early Transport 支援（eDP 1.5+）", v: {
+        "0": "不支援 Early Transport",
+        "1": "支援 Early Transport（PR 進場時可提前傳輸）"
+      }},
       { r: "1", n: "PANEL_REPLAY_SU_SUPPORT", c: "Selective Update 支援", v: {
         "0": "Panel Replay 不支援局部更新",
         "1": "Panel Replay 支援 Selective Update（最佳省電模式）"
@@ -805,7 +856,20 @@ var DPCD_DB = Object.assign({},
 
   // ===== 保留區域 000B1h–000FFh =====
 
-  "000B1": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址 000B1h~000FFh，為未來 DPCD 版本擴充預留。部分位址在 DP 2.0 或更新規格中可能已有定義。", b: [] }
+  "000B1": {
+    n: "PANEL_REPLAY_CAPABILITY_2",
+    c: "Panel Replay 能力 2（eDP 1.5+）",
+    rw: 0,
+    d: "Panel Replay 進階能力暫存器，eDP v1.5 新增。報告 SU Y 方向粒度延伸能力等進階功能。",
+    b: [
+      { r: "7", n: "RESERVED", c: "保留", v: {} },
+      { r: "6", n: "SU_Y_GRANULARITY_EXTENDED_CAP_SUPPORTED", c: "SU Y 粒度延伸能力支援", v: {
+        "0": "不支援 SU Y Granularity Extended",
+        "1": "支援 SU Y Granularity Extended（000B5h-000B6h）"
+      }},
+      { r: "5:0", n: "RESERVED", c: "保留", v: {} }
+    ]
+  }
 },
 {
 // ===== Link Configuration & Status (00100h–002FFh) =====
@@ -839,9 +903,10 @@ var DPCD_DB = Object.assign({},
       "0":"停用（僅 DP 1.0 裝置可能如此）",
       "1":"啟用 Enhanced Framing（DP 1.1+ 必須啟用，改善 Blanking Start/End 偵測）"
     }},
-    { r:"6", n:"POST_LT_ADJ_REQ_GRANTED", c:"訓練後微調授權（DP 1.3+）", v:{
+    { r:"6", n:"RESERVED", c:"保留", v:{}},
+    { r:"5", n:"POST_LT_ADJ_REQ_GRANTED", c:"訓練後微調授權（DP 1.3+）", v:{
       "0":"不允許 Link Training 完成後再微調",
-      "1":"允許 Sink 在 Training 完成後持續要求調整 VS/PE"
+      "1":"允許 Sink 在 Training 完成後持續要求調整 VS/PE（DPRX 不支援 TPS4 時使用）"
     }},
     { r:"4:0", n:"LANE_COUNT_SET", c:"Lane 數量", v:{
       "0x01":"1 Lane",
@@ -857,17 +922,12 @@ var DPCD_DB = Object.assign({},
   rw: 1,
   d: "Link Training 的核心控制暫存器。Source 依序寫入 TPS1→TPS2（或 TPS3/TPS4）來完成 Clock Recovery 與 Channel EQ。Scrambling 控制也在這裡。除錯時最常看：Training 卡在 TPS1 表示 CR 失敗（電壓不夠），卡在 TPS2/3 表示 EQ 失敗（訊號品質差）。",
   b: [
-    { r:"1:0", n:"TRAINING_PATTERN_SELECT", c:"訓練模式選擇", v:{
+    { r:"3:0", n:"TRAINING_PATTERN_SELECT", c:"訓練模式選擇（DP v1.4a: 4-bit field）", v:{
       "0x0":"Training 關閉（正常傳輸模式）",
       "0x1":"TPS1（Training Pattern Sequence 1）— 用於 Clock Recovery",
       "0x2":"TPS2 — 用於 Channel Equalization（DP 1.1）",
-      "0x3":"TPS3 — 用於 HBR2 的 Channel EQ（DP 1.2+，比 TPS2 更長的序列）"
-    }},
-    { r:"3:2", n:"LINK_QUAL_PATTERN_EN", c:"Link Quality 測試模式", v:{
-      "0x0":"未啟用",
-      "0x1":"D10.2 測試模式",
-      "0x2":"Symbol Error Rate 測量模式",
-      "0x3":"PRBS7 測試模式"
+      "0x3":"TPS3 — 用於 HBR2 的 Channel EQ（DP 1.2+）",
+      "0x7":"TPS4 — 用於 HBR3 的 Channel EQ（DP 1.4，需 DPRX 支援 TPS4）"
     }},
     { r:"4", n:"RECOVERED_CLOCK_OUT_EN", c:"恢復時脈輸出", v:{
       "0":"停用",
@@ -982,16 +1042,20 @@ var DPCD_DB = Object.assign({},
   rw: 1,
   d: "控制 SSC（Spread Spectrum Clocking）展頻功能與 MSA Timing 忽略。SSC 是 EMI 降低技術，eDP 面板幾乎都會用到。MSA_TIMING_PAR_IGNORE 在 eDP 面板自帶 timing 時很有用，讓 Source 不需要精確匹配 MSA 參數。",
   b: [
-    { r:"3:0", n:"SPREAD_AMP", c:"展頻控制", v:{
-      "0x0":"無展頻（SSC 停用）",
-      "0x1":"啟用最高 0.5% 下展頻（SSC on）"
+    { r:"3:0", n:"RESERVED", c:"保留", v:{}},
+    { r:"4", n:"SPREAD_AMP", c:"展頻控制", v:{
+      "0":"無展頻（SSC 停用）",
+      "1":"啟用最高 0.5% 下展頻（SSC on，調變頻率 30-33kHz）"
     }},
-    { r:"4", n:"RESERVED", c:"保留", v:{}},
-    { r:"5", n:"MSA_TIMING_PAR_IGNORE_EN", c:"忽略 MSA Timing 參數", v:{
+    { r:"5", n:"RESERVED", c:"保留", v:{}},
+    { r:"6", n:"ADAPTIVE_SYNC_SDP_EN", c:"Adaptive-Sync SDP 啟用（eDP 1.5+）", v:{
+      "0":"未啟用 Adaptive-Sync（預設）",
+      "1":"Source 啟用 Adaptive-Sync SDP"
+    }},
+    { r:"7", n:"MSA_TIMING_PAR_IGNORE_EN", c:"忽略 MSA Timing 參數", v:{
       "0":"Source 端 MSA timing 參數有效，Sink 須照做",
-      "1":"Sink 可忽略 MSA timing（常用於 eDP，面板用自己的內部 timing）"
-    }},
-    { r:"7:6", n:"RESERVED", c:"保留", v:{}}
+      "1":"Sink 可忽略 MSA timing（須 00007h bit 6 = 1 才可設此位）"
+    }}
   ]
 },
 
@@ -1003,13 +1067,9 @@ var DPCD_DB = Object.assign({},
   b: [
     { r:"0", n:"SET_ANSI_8B10B", c:"ANSI 8B/10B 編碼", v:{
       "0":"不使用 8b/10b",
-      "1":"使用 ANSI 8B/10B 編碼（DP 1.x 標準編碼方式）"
+      "1":"使用 ANSI 8B/10B 編碼（DP 1.x 標準編碼方式，上電或斷開時預設為 01h）"
     }},
-    { r:"1", n:"SET_128B132B", c:"128b/132b 編碼（DP 2.0+）", v:{
-      "0":"不使用 128b/132b",
-      "1":"使用 128b/132b 編碼（UHBR 速率專用）"
-    }},
-    { r:"7:2", n:"RESERVED", c:"保留", v:{}}
+    { r:"7:1", n:"RESERVED", c:"保留", v:{}}
   ]
 },
 
@@ -1041,16 +1101,12 @@ var DPCD_DB = Object.assign({},
       "0":"使用標準 DP Scrambler Reset（FFFFh）— 外接 DP 用這個",
       "1":"使用 eDP 替代 Scrambler Reset（FFFEh）— eDP 面板必須設 1"
     }},
-    { r:"1", n:"FRAMING_CHANGE_ENABLE", c:"Framing 變更啟用", v:{
-      "0":"依照 00101h bit 7 的 Enhanced Frame 設定",
-      "1":"強制使用 Enhanced Framing（eDP 裝置常用，不管 Source 怎麼設都用 Enhanced Frame）"
-    }},
-    { r:"2", n:"RESERVED", c:"保留", v:{}},
-    { r:"3", n:"PANEL_SELF_TEST_ENABLE", c:"面板自測模式", v:{
+    { r:"1", n:"RESERVED", c:"保留（已棄用的 FRAMING_CHANGE）", v:{}},
+    { r:"6:2", n:"RESERVED", c:"保留", v:{}},
+    { r:"7", n:"PANEL_SELF_TEST_ENABLE", c:"面板自測模式", v:{
       "0":"正常模式",
-      "1":"啟用面板自測（PST）— 面板自行產生測試圖形，不需要 Source 輸入"
-    }},
-    { r:"7:4", n:"RESERVED", c:"保留", v:{}}
+      "1":"啟用面板自測（PST）— 面板自行產生測試圖形，不需要 Source 輸入。上電預設=0，運作中切換可能不可預測。"
+    }}
   ]
 },
 
@@ -1217,11 +1273,15 @@ var DPCD_DB = Object.assign({},
       "0":"ALPM 鎖定錯誤不產生 HPD 中斷",
       "1":"ALPM 鎖定錯誤時產生 HPD 中斷（方便 Source 偵測問題）"
     }},
-    { r:"2", n:"AUX_LESS_ALPM_ENABLE", c:"無 AUX 的 ALPM（eDP 1.5+）", v:{
-      "0":"ALPM 需要 AUX 通道參與喚醒",
-      "1":"ALPM 不透過 AUX 喚醒（更省電，更快速）"
+    { r:"2", n:"ALPM_MODE_SELECTED", c:"ALPM 模式選擇（eDP 1.5+）", v:{
+      "0":"AUX-wake ALPM（預設，需 AUX 通道喚醒）",
+      "1":"AUX-less ALPM（無 AUX 喚醒，更省電更快速）"
     }},
-    { r:"7:3", n:"RESERVED", c:"保留", v:{}}
+    { r:"3", n:"PERIOD_OF_CDS_PHASE", c:"CDS 相位週期（eDP 1.5+）", v:{
+      "0":"2 × t2",
+      "1":"t2"
+    }},
+    { r:"7:4", n:"RESERVED", c:"保留", v:{}}
   ]
 },
 
@@ -1412,7 +1472,11 @@ var DPCD_DB = Object.assign({},
       "0":"Lane 之間的延遲補償/對齊未完成",
       "1":"對齊完成（所有 Lane 的資料已同步，Link Training 真正成功）"
     }},
-    { r:"5:1", n:"RESERVED", c:"保留", v:{}},
+    { r:"1", n:"POST_LT_ADJ_REQ_IN_PROGRESS", c:"訓練後微調進行中", v:{
+      "0":"無微調進行",
+      "1":"POST_LT_ADJ_REQ 序列進行中（Link Training 完成後的參數微調）"
+    }},
+    { r:"5:2", n:"RESERVED", c:"保留", v:{}},
     { r:"6", n:"DOWNSTREAM_PORT_STATUS_CHANGED", c:"下游埠狀態變更", v:{
       "0":"無變更",
       "1":"下游埠（如 Branch 接的螢幕）有狀態變化（例如拔插螢幕）"
@@ -1994,84 +2058,85 @@ var DPCD_DB = Object.assign({},
     n: "EDP_GENERAL_CAPABILITY_1",
     c: "eDP 通用能力 1",
     rw: 1,
-    d: "eDP 面板的通用功能宣告暫存器（第一組）。每個 bit 代表面板是否支援某項 eDP 功能。這是了解面板能力的關鍵暫存器。",
+    d: "eDP 面板的通用功能宣告暫存器（第一組）。每個 bit 代表面板是否支援某項 eDP 功能。這是了解面板能力的關鍵暫存器。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x01, s: 0, n: "TCON_BACKLIGHT_ADJUSTMENT_CAP", d: "1 = TCON 支援透過 AUX 調整背光亮度。如果此 bit 為 0，表示背光只能透過 PWM 硬體線控制，無法用 DPCD 軟體控制。" },
-      { m: 0x02, s: 1, n: "BACKLIGHT_AUX_ENABLE_CAP", d: "1 = 支援透過 AUX 通道啟用/關閉背光。配合 00720h bit 0 使用。" },
-      { m: 0x04, s: 2, n: "PANEL_LUMINANCE_CONTROL_CAP", d: "1 = 支援面板亮度控制功能（eDP 1.4+）。" },
-      { m: 0x08, s: 3, n: "PANEL_SELF_TEST_CAP", d: "1 = 支援面板自我測試功能。面板可產生內部測試圖案（如灰階條、彩條），不需要 Source 送影像。工廠產線測試時很有用。" },
-      { m: 0x10, s: 4, n: "DYNAMIC_BACKLIGHT_CONTROL_CAP", d: "1 = 支援動態背光控制（Regional Backlight Control），即局部調光（Local Dimming）。高階 HDR 面板會用到。" },
-      { m: 0x20, s: 5, n: "EDP_OVERDRIVE_ENGINE_ENABLED", d: "1 = eDP Overdrive Engine 可透過 AUX 控制。Overdrive 是面板加速液晶響應速度的技術。" },
-      { m: 0x40, s: 6, n: "PANEL_IDLE_ACTIVE_FRAME_LOCK_CAP", d: "1 = 支援面板閒置時的 Active Frame Lock 功能（eDP 1.5+）。用於省電場景下鎖定更新頻率。" }
+      { m: 0x01, s: 0, n: "TCON_BACKLIGHT_ADJUSTMENT_CAPABLE", d: "0 = BL_PWM_DIM pin 直接控制背光（TCON 被旁路）。1 = TCON 具有背光亮度和/或 PWM 頻率控制能力。詳見 00702h。" },
+      { m: 0x02, s: 1, n: "BACKLIGHT_PIN_ENABLE_CAPABLE", d: "1 = 支援透過 BL_ENABLE eDP 連接器 pin 啟用背光。若 bit 2 為 0，此 bit 必須為 1。" },
+      { m: 0x04, s: 2, n: "BACKLIGHT_AUX_ENABLE_CAPABLE", d: "1 = 支援透過 AUX 通道啟用背光（00720h bit 0 BACKLIGHT_ENABLE）。若 bit 1 為 0，此 bit 必須為 1。" },
+      { m: 0x08, s: 3, n: "PANEL_SELF_TEST_PIN_ENABLE_CAPABLE", d: "1 = 支援 LCD_Self_Test eDP 連接器 pin 啟用面板自測。" },
+      { m: 0x10, s: 4, n: "PANEL_SELF_TEST_AUX_ENABLE_CAPABLE", d: "1 = 支援透過 AUX 啟用面板自測（0010Ah bit 7 PANEL_SELF_TEST_ENABLE）。" },
+      { m: 0x20, s: 5, n: "FRC_ENABLE_CAPABLE", d: "1 = 支援 FRC（Frame Rate Control），透過 00720h bit 2 控制。" },
+      { m: 0x40, s: 6, n: "COLOR_ENGINE_CAPABLE", d: "1 = Sink 具有色彩引擎能力，透過 00720h bit 3 COLOR_ENGINE_ENABLE 控制。" },
+      { m: 0x80, s: 7, n: "SET_POWER_CAPABLE", d: "0 = SET_POWER_STATE（00600h bits 2:0）對面板無效。1 = 可透過 SET_POWER_STATE 控制面板電源。若支援 PSR 則此 bit 必須為 1。" }
     ]
   },
   "00702": {
-    n: "EDP_BACKLIGHT_ADJUSTMENT_CAP",
+    n: "EDP_BACKLIGHT_ADJUSTMENT_CAPABILITIES",
     c: "eDP 背光調整能力",
     rw: 1,
-    d: "詳細描述 eDP 面板的背光控制能力。只有當 00701h bit 0 為 1 時，此暫存器才有意義。",
+    d: "詳細描述 eDP 面板的背光控制能力。只有當 00701h bit 0 (TCON_BACKLIGHT_ADJUSTMENT_CAPABLE) 為 1 時，此暫存器各 bit 才有意義。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x03, s: 0, n: "BACKLIGHT_BRIGHTNESS_BYTE_COUNT", d: "背光亮度資料的位元組數。00 = 1 byte（8-bit 解析度，256 階）；01 = 2 bytes（16-bit 解析度，65536 階）；10 = 3 bytes（24-bit）。大多數面板用 2 bytes，提供更細緻的亮度控制。" },
-      { m: 0x04, s: 2, n: "AUX_BACKLIGHT_BRIGHTNESS_CAP", d: "1 = 支援透過 AUX 通道設定背光亮度值。這是 DPCD 軟體控背光的核心能力。" },
-      { m: 0x08, s: 3, n: "BACKLIGHT_PWM_FREQ_AUX_SET_CAP", d: "1 = 支援透過 AUX 設定背光 PWM 頻率。可用於調整 PWM 頻率以減少閃爍（Anti-Flicker）。" },
-      { m: 0x10, s: 4, n: "BACKLIGHT_ENABLE_CAP", d: "1 = 支援透過 AUX 啟用/關閉背光。" },
-      { m: 0x20, s: 5, n: "BACKLIGHT_DISABLE_CAP", d: "1 = 支援透過 AUX 關閉背光。配合 bit 4 使用。" },
-      { m: 0x40, s: 6, n: "DYNAMIC_BACKLIGHT_LEVEL_CAP", d: "1 = 支援動態背光等級控制（配合 Regional Backlight Control）。" },
-      { m: 0x80, s: 7, n: "REGIONAL_BACKLIGHT_CONTROL_CAP", d: "1 = 支援區域背光控制（Local Dimming）。高階面板的分區背光功能。" }
+      { m: 0x01, s: 0, n: "BACKLIGHT_BRIGHTNESS_PWM_PIN_CAPABLE", d: "1 = 支援透過 BL_PWM_DIM eDP 連接器 pin 調整背光亮度。若 bit 1 為 0，此 bit 必須為 1。" },
+      { m: 0x02, s: 1, n: "BACKLIGHT_BRIGHTNESS_AUX_SET_CAPABLE", d: "1 = 支援透過 AUX 設定背光亮度（DPCD 00722h/00723h）。若 bit 0 為 0，此 bit 必須為 1。" },
+      { m: 0x04, s: 2, n: "BACKLIGHT_BRIGHTNESS_BYTE_COUNT", d: "0 = 1-byte 亮度設定（僅用 00722h MSB）。1 = 2-byte 亮度設定（00722h MSB + 00723h LSB）。僅當 bit 1 為 1 時有效。" },
+      { m: 0x08, s: 3, n: "BACKLIGHT_AUX_PWM_PRODUCT_CAPABLE", d: "1 = 支�� AUX × PWM 乘積模式（00721h bits 1:0 = 11）。若 bit 0 或 bit 1 為 0，此 bit 必須為 0。" },
+      { m: 0x10, s: 4, n: "BACKLIGHT_FREQ_PWM_PIN_PASSTHRU_CAPABLE", d: "1 = 支援將 BL_PWM_DIM pin 的 PWM 頻率直接傳遞���背光電流源。透過 00721h bit 2 啟用。若 bit 0 為 0，此 bit 必須為 0。" },
+      { m: 0x20, s: 5, n: "BACKLIGHT_FREQ_AUX_SET_CAPABLE", d: "1 = 支援透過 AUX 設定背光 PWM 頻率（EDP_BACKLIGHT_FREQ_SET 暫存器 00728h）。" },
+      { m: 0x40, s: 6, n: "DYNAMIC_BACKLIGHT_CAPABLE", d: "1 = 支援動態背光控制，透過 00721h bit 4 DYNAMIC_BACKLIGHT_ENABLE 啟用。亮度範圍由 00732h/00733h 設定。" },
+      { m: 0x80, s: 7, n: "VBLANK_BACKLIGHT_UPDATE_CAPABLE", d: "0 = 面板僅能即時套用新設定。1 = 支援在下一個 VBLANK 期間套用所有背光新設定，透過 00720h bit 7 控制。" }
     ]
   },
   "00703": {
     n: "EDP_GENERAL_CAPABILITY_2",
     c: "eDP 通用能力 2",
     rw: 1,
-    d: "eDP 面板的通用功能宣告暫存器（第二組）。提供更多 eDP 進階功能的支援資訊。",
+    d: "eDP 面板的通用功能宣告暫存器（第二組）。來源：eDP v1.4b Table 10-4。注意：eDP v1.4b 此暫存器只定義 bit 0，其餘 RESERVED。",
     b: [
-      { m: 0x01, s: 0, n: "PANEL_LUMINANCE_CONTROL_GRANULARITY", d: "面板亮度控制的精細度。0 = 粗調；1 = 細調。" },
-      { m: 0x02, s: 1, n: "PANEL_BACKLIGHT_FREQUENCY_CONTROL_MODE", d: "背光頻率控制模式。0 = 固定頻率；1 = 可變頻率。" },
-      { m: 0x04, s: 2, n: "DYNAMIC_BACKLIGHT_MIN_SET_CAP", d: "1 = 支援設定動態背光的最低亮度閾值。" },
-      { m: 0x08, s: 3, n: "EDP_REGIONAL_BACKLIGHT_CONTROL_VER", d: "區域背光控制版本。0 = v1；1 = v2（更精細的分區控制）。" },
-      { m: 0x10, s: 4, n: "PANEL_SELF_REFRESH_CAP_2", d: "PSR2 能力擴充（eDP 1.4+）。1 = 支援 PSR2 Selective Update。" },
-      { m: 0x20, s: 5, n: "SINK_ADAPTIVE_SYNC_CAP", d: "1 = 支援 Adaptive Sync（可變更新率）。eDP 版的 VRR/FreeSync。" }
+      { m: 0x01, s: 0, n: "OVERDRIVE_ENGINE_ENABLED", d: "1 = Sink 具有 LCD Overdrive 功能（加速液晶響應速度，減少拖影）。" },
+      { m: 0xFE, s: 1, n: "RESERVED", d: "保留位元，讀回 0。" }
     ]
   },
   "00720": {
     n: "EDP_DISPLAY_CONTROL",
-    c: "eDP 顯示控制（背光啟用 + 黑畫面）",
+    c: "eDP 顯示控制",
     rw: 2,
-    d: "eDP 面板的即時顯示控制暫存器。Source 透過寫入此暫存器來控制背光開關和畫面顯示。這是 eDP 除錯的關鍵暫存器——如果面板有收到影像但背光沒開，畫面就是全黑的。",
+    d: "eDP 面板的即時顯示控制暫存器。Source 透過寫入此暫存器來控制背光開關和畫面顯示。這是 eDP 除錯的關鍵暫存器——如果面板有收到影像但背光沒開，畫面就是全黑的。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x01, s: 0, n: "BACKLIGHT_ENABLE", d: "背光啟用開關。1 = 開啟背光；0 = 關閉背光。Source 在 Link Training 成功並開始送影像後，必須設此 bit 為 1 才能看到畫面。如果 Link Training OK 但畫面全黑，先檢查這個 bit。" },
-      { m: 0x02, s: 1, n: "BLACK_FRAME_INSERT", d: "黑畫面插入。1 = 插入黑畫面（畫面消隱但背光可保持）；0 = 正常顯示。用於閃爍減少（BFI）技術或模式切換時的暫時消隱。" },
-      { m: 0x04, s: 2, n: "PANEL_SELF_TEST_ENABLE", d: "面板自我測試啟用。1 = 啟用面板內部測試圖案；0 = 正常顯示 Source 送來的影像。除錯時可開啟此功能確認面板本身是否正常。" },
-      { m: 0x08, s: 3, n: "OVERDRIVE_ENABLE", d: "Overdrive 加速啟用。1 = 啟用液晶 Overdrive 加速；0 = 關閉。Overdrive 可減少液晶響應時間造成的拖影。" },
-      { m: 0x10, s: 4, n: "DYNAMIC_BACKLIGHT_ENABLE", d: "動態背光啟用。1 = 啟用動態背光（Local Dimming）；0 = 使用靜態背光。" }
+      { m: 0x01, s: 0, n: "BACKLIGHT_ENABLE", d: "背光啟用開關。1 = 開啟背光；0 = 關閉背光。寫入被忽略若 00701h bit 2 (BACKLIGHT_AUX_ENABLE_CAPABLE) 為 0。Power-on 預設 = 0。如果 Link Training OK 但畫面全黑，先檢查這個 bit。" },
+      { m: 0x02, s: 1, n: "BLACK_VIDEO_ENABLE", d: "1 = 啟用黑畫面（覆蓋輸入影像資料）；0 = 正常顯示。Power-on 預設 = 0。" },
+      { m: 0x04, s: 2, n: "FRC_ENABLE", d: "1 = 啟用 2-bit FRC（Frame Rate Control）從 TCON 輸出到 Column Driver。寫入被忽略若 00701h bit 5 (FRC_ENABLE_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x08, s: 3, n: "COLOR_ENGINE_ENABLE", d: "1 = 啟用 Sink 裝置的色彩引擎功能。寫入被忽略若 00701h bit 6 (COLOR_ENGINE_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x70, s: 4, n: "RESERVED", d: "保留位元（bits 6:4），讀回 0。" },
+      { m: 0x80, s: 7, n: "VBLANK_BACKLIGHT_UPDATE_ENABLE", d: "1 = 面板在下一個 VBLANK 開始時套用所有背光新設定。寫入被忽略若 00702h bit 7 (VBLANK_BACKLIGHT_UPDATE_CAPABLE) 為 0。Power-on 預設 = 0（即時更新）。" }
     ]
   },
   "00721": {
     n: "EDP_BACKLIGHT_MODE_SET",
     c: "eDP 背光模式設定",
     rw: 2,
-    d: "設定 eDP 背光控制的工作模式。決定背光亮度的控制來源和行為。",
+    d: "設定 eDP 背光控制的工作模式。決定背光亮度的控制來源和行為。只有當 00701h bit 0 (TCON_BACKLIGHT_ADJUSTMENT_CAPABLE) 為 1 時寫入才有效。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x03, s: 0, n: "BACKLIGHT_CONTROL_MODE", d: "背光控制模式選擇。00 = 由面板韌體自行控制亮度；01 = 由 AUX 通道設定（DPCD 軟體控制）；10 = 由外部 PWM 訊號控制；11 = 保留。大多數筆電設計使用模式 01（AUX 控制），方便 OS 層級的亮度調整。" },
-      { m: 0x04, s: 2, n: "AMBIENT_LIGHT_SENSOR_ENABLE", d: "環境光感測器啟用。1 = 面板內建的環境光感測器啟用，可自動調整亮度；0 = 關閉。" },
-      { m: 0x08, s: 3, n: "BACKLIGHT_PWM_FREQ_PRESET_SELECT", d: "背光 PWM 頻率預設選擇。配合 00702h bit 3 使用。" },
-      { m: 0x30, s: 4, n: "DYNAMIC_BACKLIGHT_FINER_CONTROL", d: "動態背光精細控制模式。" },
-      { m: 0x40, s: 6, n: "REGIONAL_BACKLIGHT_ENABLE", d: "區域背光啟用。1 = 啟用分區背光控制。" }
+      { m: 0x03, s: 0, n: "BACKLIGHT_BRIGHTNESS_CONTROL_MODE", d: "背光亮度控制模式。00 = 由 BL_PWM_DIM pin 控制；01 = 面板預設亮度等級；10 = 由 AUX 暫存器控制（00722h/00723h）；11 = PWM × AUX 乘積模式。Power-on 預設：若 00702h bit 0 為 1 則 00，否則 01。" },
+      { m: 0x04, s: 2, n: "BACKLIGHT_FREQ_PWM_PIN_PASSTHRU_ENABLE", d: "1 = 啟用 BL_PWM_DIM pin 頻率直通到背光電流源。僅當 bits 1:0 = 00 時適用。寫入被忽略若 00702h bit 4 為 0 或 bit 3 為 1。Power-on 預設 = 0。" },
+      { m: 0x08, s: 3, n: "BACKLIGHT_FREQ_AUX_SET_ENABLE", d: "1 = 透過 EDP_BACKLIGHT_FREQ_SET（00728h）控制背光頻率。覆蓋 bit 2 設定。寫入被忽略若 00702h bit 5 (BACKLIGHT_FREQ_AUX_SET_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x10, s: 4, n: "DYNAMIC_BACKLIGHT_ENABLE", d: "1 = 啟用動態背光功能。亮度範圍由 00732h/00733h 設定。寫入被忽略若 00702h bit 6 (DYNAMIC_BACKLIGHT_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x20, s: 5, n: "REGIONAL_BACKLIGHT_ENABLE", d: "1 = 啟用區域背光功能（eDP v1.4 新增）。清為 0 時區域背光暫存器���影響亮度。Power-on 預設 = 0。若 00704h 報告無區域背光支援則此 bit 被忽略。" },
+      { m: 0x40, s: 6, n: "UPDATE_REGION_BRIGHTNESS", d: "0 = 區域亮度值可更改但 Sink 不使用新值。1 = 所有更新立即生效（或依 00720h bit 7 在 VBLANK 生效）。Sink 完成更新後清為 0。" },
+      { m: 0x80, s: 7, n: "RESERVED", d: "保留，讀回 0。" }
     ]
   },
   "00722": {
-    n: "EDP_BACKLIGHT_BRIGHTNESS_LSB",
-    c: "eDP 背光亮度值（低位元組）",
-    rw: 2,
-    d: "eDP 背光亮度的低位元組（LSB）。與 00723h 合併為完整的背光亮度值。亮度值的有效位數由 00702h bits[1:0] 決定。例如 2-byte 模式下，00722h 為 LSB、00723h 為 MSB，合併為 16-bit 亮度值（0x0000 = 最暗，0xFFFF = 最亮）。FAE 除錯背光問題時，可直接寫入此暫存器測試亮度控制是否正常。",
-    b: []
-  },
-  "00723": {
     n: "EDP_BACKLIGHT_BRIGHTNESS_MSB",
     c: "eDP 背光亮度值（高位元組）",
     rw: 2,
-    d: "eDP 背光亮度的高位元組（MSB）。與 00722h 合併為完整的 16-bit 背光亮度值。例如要設定 50% 亮度，寫入 00722h=00h、00723h=80h（即 0x8000 ≈ 50%）。注意必須先確認背光控制模式（00721h）設為 AUX 控制模式，寫入才會生效。",
+    d: "背光亮度的最高有效位元組（MSB）。當 00721h bits 1:0 = 10 或 11 時生效。有效 bit 數由 00724h (EDP_PWMGEN_BIT_COUNT) 決定。若 00702h bit 2 = 1 則為 16-bit 中的高 8 bit，否則為單一 byte。寫入被忽略若 00702h bit 1 為 0、00720h bit 0 為 0、或 00701h bit 0 為 0。來源：eDP v1.4b Table 10-4。",
+    b: []
+  },
+  "00723": {
+    n: "EDP_BACKLIGHT_BRIGHTNESS_LSB",
+    c: "eDP 背光亮度值（低位元組）",
+    rw: 2,
+    d: "背光亮度的最低有效位元組（LSB）。僅當 00702h bit 2 (BACKLIGHT_BRIGHTNESS_BYTE_COUNT) = 1 時有效（2-byte 模式）。與 00722h MSB 合併為 16-bit 亮度值。寫入被忽略若 BYTE_COUNT 為 0。來源：eDP v1.4b Table 10-4。",
     b: []
   },
 
@@ -2704,59 +2769,52 @@ var DPCD_DB = Object.assign({},
     b: []
   },
   "00704": {
-    n: "DPCD_00704",
-    c: "eDP 背光區域能力",
+    n: "EDP_GENERAL_CAPABILITY_3",
+    c: "eDP 通用能力 3（區域背光）",
     rw: 1,
-    d: "eDP 背光區域控制能力暫存器。定義面板支援的獨立可控 1D 背光區域數量（水平和垂直方向）。用於區域調光（Local Dimming）功能。",
+    d: "eDP v1.4 新增。定義面板支援的獨立可控 1D 背光區域數量。值 = 區域數 - 1，0 代表該方向不支援區域背光。兩方向都非零時支援 2D 區域背光。來源：eDP v1.4b Table 10-4。",
     b: [
-      {r:"7:4", n:"Y_REGION_CAP", d:"定義面板在垂直方向支援的獨立可控 1D 背光區域數量。"},
-      {r:"3:0", n:"X_REGION_CAP", d:"定義面板在水平方向支援的獨立可控 1D 背光區域數量。"}
-    ]
-  },
-  "00705": {
-    n: "DPCD_00705",
-    c: "分段背光能力",
-    rw: 1,
-    d: "分段背光（Segmented Backlight）能力暫存器。VESA DPCD 映射，出自 Intel HDR/backlight 參考文件。",
-    b: [
-      {r:"0", n:"SEGMENTED_BKLT_CAPABILITY", d:"分段背光能力。VESA DPCD 映射，出自 Intel HDR/backlight 參考文件 705[0]。"}
+      { m: 0x0F, s: 0, n: "X_REGION_CAP", d: "水平方向可獨立控制的背光區域數 - 1。0 = 不支援水平區域背光。區域由左至右編號。" },
+      { m: 0xF0, s: 4, n: "Y_REGION_CAP", d: "垂直方向可獨立控制的背光區域數 - 1。0 = 不支援垂直區域背光。區域由上至下編號。兩方向都非零時，總區域數 = (X+1)×(Y+1)。" }
     ]
   },
   "00724": {
-    n: "DPCD_00724",
+    n: "EDP_PWMGEN_BIT_COUNT",
     c: "eDP PWM 位元數設定",
-    rw: 1,
-    d: "Source 用於設定 DPCD 00722h/00723h 背光亮度控制的有效位元數。",
+    rw: 2,
+    d: "設定 00722h/00723h 背光亮度暫存器的有效控制位元數。若值小於 00725h 則用 00725h 的值；若大於 00726h 則用 00726h 的值。來源：eDP v1.4b Table 10-4。",
     b: [
-      {r:"7:0", n:"EDP_BACKLIGHT_BRIGHTNESS_BIT_COUNT", d:"Source 用於設定 DPCD 0x00722 及 0x00723 的有效控制位元數。"}
+      { m: 0x1F, s: 0, n: "PWMGEN_BIT_COUNT", d: "背光亮度的有效位元數（分配到 MSB/LSB 暫存器的最高有效位）。" },
+      { m: 0xE0, s: 5, n: "RESERVED", d: "保留，讀回 0。" }
     ]
   },
   "00725": {
-    n: "DPCD_00725",
+    n: "EDP_PWMGEN_BIT_COUNT_CAP_MIN",
     c: "eDP PWM 位元數下限",
     rw: 1,
-    d: "Sink 設定的 PWM 位元數最小值，必須大於等於 1。",
+    d: "Sink 設定的 PWMGEN_BIT_COUNT 允許最小值，必須 ≥ 1。來源：eDP v1.4b Table 10-4。",
     b: [
-      {r:"7:0", n:"MIN_EDP_BACKLIGHT_BRIGHTNESS_BIT_COUNT", d:"此值由 Sink 設定，必須大於等於 1。"}
+      { m: 0x1F, s: 0, n: "PWMGEN_BIT_COUNT_CAP_MIN", d: "EDP_PWMGEN_BIT_COUNT（00724h）允許的最小值。由 Sink 設定，必須 ≥ 1。" },
+      { m: 0xE0, s: 5, n: "RESERVED", d: "保留，讀回 0。" }
     ]
   },
   "00726": {
-    n: "DPCD_00726",
+    n: "EDP_PWMGEN_BIT_COUNT_CAP_MAX",
     c: "eDP PWM 位元數上限",
     rw: 1,
-    d: "Sink 設定的 PWM 位元數最大值，必須大於等於 DPCD 00725h 的值。",
+    d: "Sink 設定的 PWMGEN_BIT_COUNT 允許最大值，必須 ≥ 00725h 的值。來源：eDP v1.4b Table 10-4。",
     b: [
-      {r:"7:0", n:"MAX_EDP_BACKLIGHT_BRIGHTNESS_BIT_COUNT", d:"此值由 Sink 設定，必須大於等於 DPCD 0x00725 的值。"}
+      { m: 0x1F, s: 0, n: "PWMGEN_BIT_COUNT_CAP_MAX", d: "EDP_PWMGEN_BIT_COUNT（00724h）允許的最大值。由 Sink 設定，必須 ≥ CAP_MIN。" },
+      { m: 0xE0, s: 5, n: "RESERVED", d: "保留，讀回 0。" }
     ]
   },
   "00727": {
-    n: "DPCD_00727",
+    n: "EDP_BACKLIGHT_CONTROL_STATUS",
     c: "eDP 背光控制狀態",
     rw: 1,
-    d: "eDP 背光控制狀態暫存器。回報背光運作狀態和平滑亮度控制狀態。",
+    d: "eDP 背光控制狀態暫存器。回報背光運作狀態。來源：eDP v1.4b Table 10-4。",
     b: [
-      {r:"1", n:"EDP_BACKLIGHT_CONTROL_STATUS", d:"0 = 正常運作。1 = 背光故障，無法正常運作。", v:{"00":"正常運作", "01":"背光故障"}},
-      {r:"2", n:"SMOOTH_BRIGHTNESS_CONTROL", d:"平滑亮度控制狀態。VESA DPCD 映射，搭配 730[0]、737h/738h（毫秒）、739h-73Bh（目前即時值）使用。"}
+      { m: 0x01, s: 0, n: "FAULT_CONDITION", d: "0 = 正常運作。1 = 背光故障，無法正常運作。故障狀態持續直到面板斷電再重上電（移除並重新施加 LCD_VCC 和 BL_PWR）。背光故障不會產生 IRQ_HPD。" }
     ]
   },
   "00728": {
@@ -2812,9 +2870,30 @@ var DPCD_DB = Object.assign({},
       {r:"7:6", n:"EDP_BACKLIGHT_FREQ_MAX_LOW_2BIT", d:"eDP 背光 PWM 頻率最大值的最低 2 bit。"}
     ]
   },
+  "00732": {
+    n: "EDP_DBC_MINIMUM_BRIGHTNESS_SET",
+    c: "eDP DBC 最小亮度設定",
+    rw: 1,
+    d: "Dynamic Backlight Control 的最小亮度設定值。bits 4:0 定義 DBC 可降低的最低亮度等級。0 = 最暗，31 = 最亮上限。來源：eDP v1.4b Table 10-4。",
+    b: [
+      { r: "4:0", n: "DBC_MINIMUM_BRIGHTNESS", c: "DBC 最小亮度", v: {} },
+      { r: "7:5", n: "RESERVED", c: "保留", v: {} }
+    ]
+  },
+  "00733": {
+    n: "EDP_DBC_MAXIMUM_BRIGHTNESS_SET",
+    c: "eDP DBC 最大亮度設定",
+    rw: 1,
+    d: "Dynamic Backlight Control 的最大亮度設定值。bits 4:0 定義 DBC 可提升的最高亮度等級。來源：eDP v1.4b Table 10-4。",
+    b: [
+      { r: "4:0", n: "DBC_MAXIMUM_BRIGHTNESS", c: "DBC 最大亮度", v: {} },
+      { r: "7:5", n: "RESERVED", c: "保留", v: {} }
+    ]
+  },
+
   "00730": {
     n: "DPCD_00730",
-    c: "亮度優化與平滑控制（VESA）",
+    c: "亮度優化與平滑控制（VESA 擴展）",
     rw: 1,
     d: "亮度優化控制與平滑亮度控制暫存器。VESA DPCD 映射，出自 Intel HDR/backlight 參考文件。",
     b: [
@@ -3144,17 +3223,17 @@ var DPCD_DB = Object.assign({},
     "00020": { e: "Fast AUX (FAUX) capability. FAUX uses main link side-channels for high-speed (720 Mbps) bidirectional communication. Very rarely supported in practice; most panels read 0x00 here." },
     "00021": { e: "Multi-Stream Transport (MST) capability. MST enables daisy-chaining or hub-splitting multiple independent displays over one DP cable. eDP panels typically do not support MST." },
     "00022": { e: "Number of audio output endpoints on the Sink. 0 = no audio (common for eDP); 1 = built-in speakers; 2+ = speakers + headphone jack, etc." },
-    "00023": { e: "Reserved address (00023h–0002Fh). Not defined by DP specification." },
-    "00024": { e: "Reserved address. Not defined by DP specification." },
-    "00025": { e: "Reserved address. Not defined by DP specification." },
-    "00026": { e: "Reserved address. Not defined by DP specification." },
-    "00027": { e: "Reserved address. Not defined by DP specification." },
-    "00028": { e: "Reserved address. Not defined by DP specification." },
-    "00029": { e: "Reserved address. Not defined by DP specification." },
-    "0002A": { e: "Reserved address. Not defined by DP specification." },
-    "0002B": { e: "Reserved address. Not defined by DP specification." },
-    "0002C": { e: "Reserved address. Not defined by DP specification." },
-    "0002D": { e: "Reserved address. Not defined by DP specification." },
+    "00023": { e: "AV Sync Data Block: Audio/Video Granularity factor. Defines time unit for subsequent latency registers. AG_FACTOR (bits 3:0) for audio, VG_FACTOR (bits 7:4) for video." },
+    "00024": { e: "Worst-case audio decode latency low byte (in AG_FACTOR units)." },
+    "00025": { e: "Worst-case audio decode latency high byte." },
+    "00026": { e: "Worst-case audio post-processing latency low byte (in AG_FACTOR units)." },
+    "00027": { e: "Worst-case audio post-processing latency high byte." },
+    "00028": { e: "Worst-case interlaced video latency (in VG_FACTOR units)." },
+    "00029": { e: "Worst-case progressive video latency (in VG_FACTOR units)." },
+    "0002A": { e: "Repeater/Branch device forwarding delay in 10μs granularity." },
+    "0002B": { e: "Maximum additional audio delay insertion low byte (1μs granularity). Minimum 5ms support required." },
+    "0002C": { e: "Audio delay insertion bits 15:8." },
+    "0002D": { e: "Audio delay insertion bits 23:16." },
     "0002E": { e: "Receiver Advanced Link Power Management capability. Bit0 ALPM_CAP indicates whether the receiver supports ALPM.",
       b: [
         { de: "0 = ALPM not supported. 1 = ALPM supported." }
@@ -3167,14 +3246,14 @@ var DPCD_DB = Object.assign({},
     },
     "00030": { e: "Reserved address range (00030h–0005Fh). Not defined by DP specification. Some vendors may use this range for proprietary features, but it is non-standard." },
     "00060": { e: "DSC (Display Stream Compression) support. VESA visually-lossless compression standard added in DP 1.4. Enables high-resolution modes (e.g. 4K@120Hz HDR) on links without sufficient raw bandwidth. Required when peak bandwidth exceeds link capacity." },
-    "00061": { e: "DSC compression algorithm revision. DSC 1.2 adds YCbCr 4:2:0/4:2:2 Native support for higher-resolution video. Source and Sink must use compatible DSC versions." },
+    "00061": { e: "DSC compression algorithm revision. Bits 3:0=Major, Bits 7:4=Minor. DSC 1.2 adds YCbCr 4:2:0/4:2:2 Native support. Major=1h + Minor=2h applies to both DSC v1.2 and v1.2a." },
     "00062": { e: "DSC Rate Control Buffer block size. Determines the base unit for RC buffer capacity calculations." },
     "00063": { e: "DSC RC Buffer total size = (value+1) × block size. Larger RC buffer improves compression stability and quality." },
     "00064": { e: "Supported number of horizontal DSC slices per frame. More slices = lower decode latency but higher panel hardware complexity. 4K panels commonly use 8–12 slices." },
     "00065": { e: "DSC decoder internal line buffer bit depth. Higher depth supports finer color precision (HDR 10-bit/12-bit) but requires more panel memory." },
     "00066": { e: "DSC Block Prediction support. Exploits inter-block correlation to improve compression efficiency at the same quality level. Enable whenever the Sink supports it." },
-    "00067": { e: "Reserved address (00067h). Not defined by DP specification." },
-    "00068": { e: "Reserved address (00068h). Not defined by DP specification." },
+    "00067": { e: "Maximum bits_per_pixel supported by DSC decompressor, low byte (U6.4 format). RESERVED in standard DP; defined for eDP v1.4a+." },
+    "00068": { e: "Maximum bits_per_pixel supported by DSC decompressor, high 2 bits. Combined with 00067h as 10-bit U6.4 value." },
     "00069": { e: "DSC-supported color formats. Ensure the configured color format is supported by the Sink; a mismatch causes display corruption. RGB is the baseline; YCbCr formats reduce chroma bandwidth for video content." },
     "0006A": { e: "DSC-supported input color depths (bits-per-component). 8bpc = SDR standard, 10bpc = common for HDR, 12bpc = professional/high-end panels." },
     "0006B": { e: "Peak DSC decoder throughput in megapixels/second (Mode 0 and Mode 1). The target pixel clock for the desired resolution × frame rate must not exceed this limit when DSC is active." },
@@ -3208,7 +3287,7 @@ var DPCD_DB = Object.assign({},
     "00091": { e: "Reserved address (00091h–000AFh). Not defined by DP specification." },
     "00092": { e: "Reserved address. Not defined by DP specification." },
     "000B0": { e: "Panel Replay capability. eDP 1.5 successor to PSR with lower exit latency. Unlike PSR, Panel Replay is primarily managed by the Sink side. Supports Selective Update for region-based refresh with maximum power savings." },
-    "000B1": { e: "Reserved address (000B1h–000FFh). Reserved for future DPCD versions. Some addresses may be defined in DP 2.0 or later specifications." },
+    "000B1": { e: "Panel Replay Capability 2 (eDP v1.5+). Reports advanced PR features including SU Y Granularity Extended Capability support." },
     "000B2": { e: "Selective Update horizontal granularity low byte. 0000h = no additional X granularity requirement, subject only to standard constraints (start X divisible by 16, rectangle width divisible by 4). Added in eDP v1.5." },
     "000B3": { e: "Selective Update horizontal granularity high byte. Combined with 000B2h to form a 16-bit value. Added in eDP v1.5." },
     "000B4": { e: "Selective Update vertical granularity. 00h/01h = 1 line, 02h = 2 lines, 04h = 4 lines, 08h = 8 lines, 10h = 16 lines. Added in eDP v1.5." },
@@ -3432,26 +3511,28 @@ var DPCD_DB = Object.assign({},
       ]
     },
     "00700": { e: "eDP-specific DPCD revision. Only meaningful for eDP panels (external DP monitors return 0x00). Versions: 01h=eDP1.1, 02h=eDP1.2, 03h=eDP1.3, 04h=eDP1.4, 05h=eDP1.4b, 06h=eDP1.5. Always read this first when debugging eDP panels to confirm feature availability." },
-    "00701": { e: "eDP general capability register 1. Each bit declares whether a specific eDP feature is supported: TCON backlight via AUX, Panel Self-Test, Dynamic/Regional Backlight (local dimming), Overdrive, etc.",
+    "00701": { e: "eDP general capability register 1 (per eDP v1.4b Table 10-4). Each bit declares panel support: bit0=TCON backlight adjust, bit1=BL_ENABLE pin, bit2=AUX backlight enable, bit3=Self-Test pin, bit4=Self-Test AUX, bit5=FRC, bit6=Color Engine, bit7=SET_POWER.",
       b: [
-        { de: "1=TCON supports AUX-based backlight brightness adjustment. 0=backlight requires hardware PWM only, not controllable via DPCD." },
-        { de: "1=backlight on/off controllable via AUX channel. Used together with 00720h bit0 (BACKLIGHT_ENABLE)." },
-        { de: "1=panel luminance control supported (eDP 1.4+)." },
-        { de: "1=Panel Self-Test (PST) supported — panel can generate internal test patterns (gray scale, color bars) without Source input. Useful for factory testing." },
-        { de: "1=Dynamic/Regional backlight control (local dimming) supported. Required capability for HDR panels with zone dimming." },
-        { de: "1=eDP Overdrive Engine controllable via AUX to accelerate LCD response time and reduce motion blur." },
-        { de: "1=Active Frame Lock during panel idle state supported (eDP 1.5+) for controlled refresh rate in power-saving scenarios." }
+        { de: "0=BL_PWM_DIM pin directly controls backlight (TCON bypassed). 1=TCON has brightness/PWM frequency control capability. See 00702h for details." },
+        { de: "1=Backlight on/off controllable via BL_ENABLE eDP connector pin. If bit2=0, this bit must be 1." },
+        { de: "1=Backlight on/off controllable via AUX channel (00720h bit0 BACKLIGHT_ENABLE). If bit1=0, this bit must be 1." },
+        { de: "1=Panel Self-Test via LCD_Self_Test eDP connector pin supported." },
+        { de: "1=Panel Self-Test via AUX (0010Ah bit7 PANEL_SELF_TEST_ENABLE) supported." },
+        { de: "1=FRC (Frame Rate Control) supported, controlled via 00720h bit2." },
+        { de: "1=Color Engine supported, controlled via 00720h bit3 COLOR_ENGINE_ENABLE." },
+        { de: "0=SET_POWER_STATE (00600h bits 2:0) has no effect on panel. 1=Panel power controllable via SET_POWER. Must be 1 if PSR supported." }
       ]
     },
-    "00702": { e: "eDP backlight adjustment capability details. Only valid when 00701h bit0=1. Covers brightness byte count, AUX brightness control, PWM frequency adjustment, and enable/disable capability.",
+    "00702": { e: "eDP backlight adjustment capabilities (per eDP v1.4b Table 10-4). Only valid when 00701h bit0=1. Declares brightness control methods and PWM frequency control capabilities.",
       b: [
-        { de: "Backlight brightness data byte count: 0b00=1 byte (8-bit, 256 levels); 0b01=2 bytes (16-bit, 65536 levels); 0b10=3 bytes (24-bit). Most panels use 2 bytes for finer brightness control." },
-        { de: "1=AUX channel backlight brightness value setting supported. This is the core capability for DPCD software backlight control." },
-        { de: "1=PWM frequency settable via AUX. Allows anti-flicker frequency adjustment to eliminate display flicker at certain brightness levels." },
-        { de: "1=backlight enable controllable via AUX." },
-        { de: "1=backlight disable controllable via AUX." },
-        { de: "1=dynamic backlight level control supported (for regional/local dimming)." },
-        { de: "1=regional backlight control (local dimming) supported — zone-based independent backlight management." }
+        { de: "1=Backlight brightness adjustable via BL_PWM_DIM pin PWM duty cycle." },
+        { de: "1=Backlight brightness settable via AUX (DPCD 00722h-00723h). Core capability for software brightness control." },
+        { de: "Brightness byte count: 0=1 byte (256 levels), 1=2 bytes (65536 levels)." },
+        { de: "1=AUX×PWM product mode supported — AUX value multiplied with external PWM signal." },
+        { de: "1=PWM frequency pass-through mode supported — external PWM frequency used directly." },
+        { de: "1=PWM frequency settable via AUX (DPCD 00728h-0072Bh)." },
+        { de: "1=Dynamic backlight control supported (luminance levels variable by content)." },
+        { de: "1=Backlight update synchronized to VBLANK supported — prevents flicker during brightness transitions." }
       ]
     },
     "00703": { e: "eDP general capability register 2. Additional advanced eDP feature support: backlight frequency mode, regional backlight version, PSR2 extension, Adaptive Sync (VRR).",

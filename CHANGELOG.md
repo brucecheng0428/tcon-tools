@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## AUX/DPCD 工具 v2.0.0 — 2026-05-22
+
+### DPCD 資料庫全面校正 + 版本選單
+
+- **DPCD 資料庫全面校正**：全部 289 筆暫存器逐一比對 DP v1.4a、eDP v1.4b、eDP v1.5 規格書 PDF 原文，修正 20+ 個 bit 位置/名稱/說明錯誤
+  - 00107h DOWNSPREAD_CTRL：4 個 bit 位置全部修正（SPREAD_AMP 移到 bit 4，MSA_TIMING_PAR_IGNORE_EN 移到 bit 7）
+  - 00064h DSC_SLICE_CAPABILITIES：8 個 bit 中 6 個修正
+  - 0006Ah DSC_DECODER_COLOR_DEPTH：移除不存在的 16bpc，修正全部位移
+  - 00069h DSC_DECODER_COLOR_FORMAT：新增遺漏的 bit 4 DSC_NATIVE_420_SUPPORT
+  - 00061h DSC_REV：Major/Minor 位置對調修正
+  - 00101h LANE_COUNT_SET：POST_LT_ADJ_REQ_GRANTED 從 bit 6 移到 bit 5
+  - 0010Ah eDP_CONFIGURATION_SET：PANEL_SELF_TEST_ENABLE 從 bit 3 移到 bit 7
+  - 00023h-0002Dh：從 RESERVED 修正為 AV_SYNC_DATA_BLOCK 完整定義
+  - 00067h-00068h：從 RESERVED 修正為 DSC_MAX_BITS_PER_PIXEL
+- **eDP v1.5 更新**：
+  - 00107h bit 6 新增 ADAPTIVE_SYNC_SDP_EN
+  - 00116h bit 2 修正為 ALPM_MODE_SELECTED、bit 3 新增 PERIOD_OF_CDS_PHASE
+  - 000B0h bit 2 新增 EARLY_TRANSPORT_SUPPORT
+  - 000B1h 從 RESERVED 擴展為 PANEL_REPLAY_CAPABILITY_2
+- **版本選單 UI**：DPCD 查詢分頁新增「規格版本篩選」下拉選單，支援 eDP v1.2/v1.3/v1.4b/v1.5、DP v1.2/v1.3/v1.4a/v2.0，選擇版本後查詢結果自動標示版本相容性徽章，不相容的 bit 會降低透明度提示
+
 ## v2.97.384 — 2026-05-22
 
 ### LA tab 滑鼠拖移即時跟手 + cursor 修正

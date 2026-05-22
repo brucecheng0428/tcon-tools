@@ -85,6 +85,17 @@
   }
   .aux-link-btn:active { opacity: 0.7; }
   .aux-not-found { text-align: center; padding: 16px; color: var(--text-sub); font-size: 13px; }
+  .aux-ver-badge {
+    display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px;
+    border-radius: 4px; vertical-align: middle; margin-left: 6px; letter-spacing: 0;
+  }
+  .aux-ver-badge-ok { background: #065f46; color: #34d399; }
+  .aux-ver-badge-na { background: rgba(239,68,68,0.15); color: #ef4444; }
+  .aux-ver-info {
+    background: rgba(59,130,246,0.08); border: 1.5px solid rgba(59,130,246,0.3);
+    border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #93c5fd;
+  }
+  .aux-ver-na-row { opacity: 0.45; }
   .aux-val-warn {
     background: rgba(239,68,68,0.10); border: 1.5px solid #ef4444; border-radius: 8px;
     padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #ef4444; font-weight: 600;
@@ -492,7 +503,7 @@
 <div id="page-aux">
   <div class="header subpage-header">
     <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
-    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v1.9.3</span></h1>
+    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.0.0</span></h1>
     <p data-i18n="aux.subtitle">AUX 解碼 &amp; DPCD 暫存器查詢</p>
     <div class="lang-switcher">
       <select id="lang-select" class="lang-select" aria-label="Language">
@@ -677,6 +688,25 @@
         <div class="card-header"><span class="icon">📋</span> <span data-i18n="aux.dpcdInputTitle">DPCD 地址查詢</span></div>
         <div class="card-body">
           <div class="field">
+            <label>規格版本篩選</label>
+            <select id="aux-dpcd-ver-select" onchange="auxDpcdVerChanged()" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;color:var(--text);background:#0f172a;appearance:none;-webkit-appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;">
+              <option value="all">全部版本（不篩選）</option>
+              <optgroup label="── eDP ──">
+                <option value="edp12">eDP v1.2</option>
+                <option value="edp13">eDP v1.3</option>
+                <option value="edp14b">eDP v1.4b</option>
+                <option value="edp15">eDP v1.5</option>
+              </optgroup>
+              <optgroup label="── DisplayPort ──">
+                <option value="dp12">DP v1.2</option>
+                <option value="dp13">DP v1.3</option>
+                <option value="dp14a">DP v1.4a</option>
+                <option value="dp20">DP v2.0</option>
+              </optgroup>
+            </select>
+            <div class="field-hint">選擇規格版本後，查詢結果將標示該版本的支援狀態</div>
+          </div>
+          <div class="field">
             <label data-i18n="aux.dpcdAddrLabel">DPCD 地址 (HEX)<span class="required">*</span></label>
             <div id="aux-dpcd-addr-wheels" class="hex-picker-group">
               <span class="hex-prefix">0x</span>
@@ -727,7 +757,7 @@
 
 <script src="common/i18n.js?v=20260519"></script>
 <script src="common/common.js?v=20260519"></script>
-<script src="data/dpcd-db.js?v=192"></script>
+<script src="data/dpcd-db.js?v=200"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -747,6 +777,129 @@ const AUX_REP_I2C = { 0:"I2C ACK", 1:"I2C NACK", 2:"I2C DEFER" };
 const I2C_KNOWN_ADDR = {
   0x50: "EDID (DDC)", 0x52: "eDP DPCD via I2C", 0x37: "DDC/CI", 0x30: "E-DDC Segment Pointer"
 };
+
+// ─── DPCD 版本元資料 ───
+// 記錄各暫存器/bit 最早出現在哪個版本，用於版本篩選標注
+// 版本排序值：dp12=1, dp13=2, edp12=3, edp13=4, dp14a=5, edp14b=6, edp15=7, dp20=8
+var DPCD_VER_ORDER = {dp12:1, dp13:2, edp12:3, edp13:4, dp14a:5, edp14b:6, edp15:7, dp20:8};
+// 每個地址的最早版本。未列出的表示 DP 1.2 基礎版即有
+var DPCD_VER_META = {
+  // DP 1.3 新增
+  "00004":{v:"dp13",l:"DP 1.3+"}, "00005":{v:"dp13",l:"DP 1.3+"},
+  // DP 1.4 / eDP 1.4 新增
+  "00007":{bits:{"6":{v:"edp12",l:"eDP 1.2+"},"7":{v:"edp12",l:"eDP 1.2+"}}},
+  "0000D":{v:"edp12",l:"eDP 1.2+"},
+  "00010":{v:"edp13",l:"eDP 1.3+"}, "00011":{v:"edp13",l:"eDP 1.3+"}, "00012":{v:"edp13",l:"eDP 1.3+"},
+  "00013":{v:"edp13",l:"eDP 1.3+"}, "00014":{v:"edp13",l:"eDP 1.3+"}, "00015":{v:"edp13",l:"eDP 1.3+"},
+  "00016":{v:"edp13",l:"eDP 1.3+"}, "00017":{v:"edp13",l:"eDP 1.3+"}, "00018":{v:"edp13",l:"eDP 1.3+"},
+  "00019":{v:"edp13",l:"eDP 1.3+"}, "0001A":{v:"edp13",l:"eDP 1.3+"}, "0001B":{v:"edp13",l:"eDP 1.3+"},
+  "0001C":{v:"edp13",l:"eDP 1.3+"}, "0001D":{v:"edp13",l:"eDP 1.3+"}, "0001E":{v:"edp13",l:"eDP 1.3+"},
+  "0001F":{v:"edp13",l:"eDP 1.3+"},
+  "00023":{v:"dp13",l:"DP 1.3+"}, "00024":{v:"dp13",l:"DP 1.3+"},
+  "00025":{v:"dp13",l:"DP 1.3+"}, "00026":{v:"dp13",l:"DP 1.3+"},
+  "00027":{v:"dp13",l:"DP 1.3+"}, "00028":{v:"dp13",l:"DP 1.3+"},
+  "00029":{v:"dp13",l:"DP 1.3+"}, "0002A":{v:"dp13",l:"DP 1.3+"},
+  "0002B":{v:"dp13",l:"DP 1.3+"}, "0002C":{v:"dp13",l:"DP 1.3+"},
+  "0002D":{v:"dp13",l:"DP 1.3+"},
+  "0002E":{v:"edp13",l:"eDP 1.3+"},
+  "0002F":{v:"edp13",l:"eDP 1.3+"},
+  // DSC 區 (DP 1.4+)
+  "00060":{v:"dp14a",l:"DP 1.4+"}, "00061":{v:"dp14a",l:"DP 1.4+"},
+  "00062":{v:"dp14a",l:"DP 1.4+"}, "00063":{v:"dp14a",l:"DP 1.4+"},
+  "00064":{v:"dp14a",l:"DP 1.4+"}, "00065":{v:"dp14a",l:"DP 1.4+"},
+  "00066":{v:"dp14a",l:"DP 1.4+"}, "00067":{v:"dp14a",l:"DP 1.4+"},
+  "00068":{v:"dp14a",l:"DP 1.4+"}, "00069":{v:"dp14a",l:"DP 1.4+"},
+  "0006A":{v:"dp14a",l:"DP 1.4+"}, "0006B":{v:"dp14a",l:"DP 1.4+"},
+  "0006C":{v:"dp14a",l:"DP 1.4+"},
+  // PSR (eDP 1.3+)
+  "00070":{v:"edp13",l:"eDP 1.3+"}, "00071":{v:"edp13",l:"eDP 1.3+"},
+  "00072":{v:"edp14b",l:"eDP 1.4b+"}, "00073":{v:"edp14b",l:"eDP 1.4b+"},
+  "00074":{v:"edp14b",l:"eDP 1.4b+"},
+  // Panel Replay (eDP 1.5+)
+  "000B0":{v:"edp15",l:"eDP 1.5+",bits:{"2":{v:"edp15",l:"eDP 1.5+"}}},
+  "000B1":{v:"edp15",l:"eDP 1.5+"},
+  "000B2":{v:"edp15",l:"eDP 1.5+"}, "000B3":{v:"edp15",l:"eDP 1.5+"},
+  "000B4":{v:"edp15",l:"eDP 1.5+"}, "000B5":{v:"edp15",l:"eDP 1.5+"},
+  "000B6":{v:"edp15",l:"eDP 1.5+"}, "000B8":{v:"edp15",l:"eDP 1.5+"},
+  // Link Configuration eDP-specific
+  "0010A":{v:"edp12",l:"eDP 1.2+"},
+  "00107":{bits:{"6":{v:"edp15",l:"eDP 1.5+"}}},
+  "00115":{v:"edp13",l:"eDP 1.3+",bits:{"2:0":{v:"edp13",l:"eDP 1.3+"}}},
+  "00116":{v:"edp13",l:"eDP 1.3+",bits:{"2":{v:"edp15",l:"eDP 1.5+"},"3":{v:"edp15",l:"eDP 1.5+"}}},
+  "00117":{v:"edp13",l:"eDP 1.3+"},
+  "00120":{v:"dp14a",l:"DP 1.4+"},
+  "00160":{v:"dp14a",l:"DP 1.4+"},
+  // FEC (DP 1.4+)
+  "00280":{v:"dp14a",l:"DP 1.4+"}, "00281":{v:"dp14a",l:"DP 1.4+"},
+  "00282":{v:"dp14a",l:"DP 1.4+"},
+  // eDP 700h display control (eDP 1.2+)
+  "00700":{v:"edp12",l:"eDP 1.2+"}, "00701":{v:"edp12",l:"eDP 1.2+"},
+  "00702":{v:"edp12",l:"eDP 1.2+"}, "00703":{v:"edp12",l:"eDP 1.2+"},
+  "00704":{v:"edp12",l:"eDP 1.2+"}, "00720":{v:"edp12",l:"eDP 1.2+"},
+  "00721":{v:"edp12",l:"eDP 1.2+"}, "00722":{v:"edp12",l:"eDP 1.2+"},
+  "00723":{v:"edp12",l:"eDP 1.2+"}, "00724":{v:"edp12",l:"eDP 1.2+"},
+  "00725":{v:"edp12",l:"eDP 1.2+"}, "00726":{v:"edp12",l:"eDP 1.2+"},
+  "00727":{v:"edp12",l:"eDP 1.2+"}, "00728":{v:"edp12",l:"eDP 1.2+"},
+  "0072A":{v:"edp12",l:"eDP 1.2+"}, "0072B":{v:"edp12",l:"eDP 1.2+"},
+  "0072C":{v:"edp12",l:"eDP 1.2+"}, "0072D":{v:"edp12",l:"eDP 1.2+"},
+  "0072E":{v:"edp12",l:"eDP 1.2+"}, "0072F":{v:"edp12",l:"eDP 1.2+"},
+  "00732":{v:"edp14b",l:"eDP 1.4b+"}, "00733":{v:"edp14b",l:"eDP 1.4b+"},
+  "00740":{v:"edp12",l:"eDP 1.2+"},
+  "00741":{v:"edp12",l:"eDP 1.2+"}, "00742":{v:"edp12",l:"eDP 1.2+"},
+  "00743":{v:"edp12",l:"eDP 1.2+"}, "00744":{v:"edp12",l:"eDP 1.2+"},
+  "00745":{v:"edp12",l:"eDP 1.2+"}, "00746":{v:"edp12",l:"eDP 1.2+"},
+  "00747":{v:"edp12",l:"eDP 1.2+"}, "00748":{v:"edp12",l:"eDP 1.2+"},
+  "00749":{v:"edp12",l:"eDP 1.2+"}, "0074A":{v:"edp12",l:"eDP 1.2+"},
+  "0074B":{v:"edp12",l:"eDP 1.2+"}, "0074C":{v:"edp12",l:"eDP 1.2+"},
+  "0074D":{v:"edp12",l:"eDP 1.2+"}, "0074E":{v:"edp12",l:"eDP 1.2+"},
+  "0074F":{v:"edp12",l:"eDP 1.2+"},
+  "00750":{v:"edp14b",l:"eDP 1.4b+"}, "00751":{v:"edp14b",l:"eDP 1.4b+"},
+  "007A4":{v:"edp14b",l:"eDP 1.4b+"},
+  // MSO CRC registers (eDP 1.4b+/1.5)
+  "007A5":{v:"edp14b",l:"eDP 1.4b+"}, "007A6":{v:"edp14b",l:"eDP 1.4b+"},
+  "007A7":{v:"edp14b",l:"eDP 1.4b+"}, "007A8":{v:"edp14b",l:"eDP 1.4b+"},
+  "007A9":{v:"edp14b",l:"eDP 1.4b+"}, "007AA":{v:"edp14b",l:"eDP 1.4b+"},
+  "007AB":{v:"edp14b",l:"eDP 1.4b+"},
+  // ESI (DP 1.2+)
+  "02002":{v:"dp12",l:"DP 1.2+"}, "02003":{v:"dp12",l:"DP 1.2+"},
+  "02005":{v:"dp12",l:"DP 1.2+"},
+  // PSR status (eDP 1.3+)
+  "02006":{v:"edp13",l:"eDP 1.3+"}, "02007":{v:"edp13",l:"eDP 1.3+"},
+  "02008":{v:"edp14b",l:"eDP 1.4b+"},
+  "0200B":{v:"edp13",l:"eDP 1.3+"},
+  // Extended Receiver Cap (DP 1.3+)
+  "02200":{v:"dp13",l:"DP 1.3+"}, "02201":{v:"dp13",l:"DP 1.3+"},
+  "02202":{v:"dp13",l:"DP 1.3+"}, "0220D":{v:"edp15",l:"eDP 1.5+"},
+  "02210":{v:"dp14a",l:"DP 1.4+"}
+};
+
+// 版本相容性判斷：sel = 使用者選的版本, req = 暫存器要求的版本
+function auxVerCompat(sel, req) {
+  if (sel === 'all' || !req) return 'ok'; // 不篩選 or 基礎版
+  var so = DPCD_VER_ORDER[sel] || 0;
+  var ro = DPCD_VER_ORDER[req] || 0;
+  // eDP 與 DP 是不同系列，eDP 包含 DP 同等級以下的功能
+  // 簡化邏輯：比較排序值
+  if (so >= ro) return 'ok';
+  return 'na'; // 版本不足
+}
+function auxGetSelectedVer() {
+  var el = document.getElementById('aux-dpcd-ver-select');
+  return el ? el.value : 'all';
+}
+function auxDpcdVerChanged() {
+  // 重新觸發當前查詢
+  auxTriggerDpcdLookup();
+}
+function auxTriggerDpcdLookup() {
+  var addr = (typeof auxGetAddrFromWheels === 'function') ? auxGetAddrFromWheels() : '';
+  var val = (typeof auxGetCurrentVal === 'function') ? auxGetCurrentVal() : '';
+  if (addr) auxLookupDPCD(addr, val);
+}
+function auxVerBadge(label, type) {
+  var cls = type === 'na' ? 'aux-ver-badge-na' : 'aux-ver-badge-ok';
+  return '<span class="aux-ver-badge ' + cls + '">' + label + '</span>';
+}
 
 // ─── Tab 切換 ───
 window.auxSwitchTab = function(tab) {
@@ -992,9 +1145,27 @@ function auxLookupDPCD(addrStr, valStr) {
   resultCard.style.display = 'block';
   const rwText = auxRwLabel(entry.rw);
   const rwClass = entry.rw === 0 ? 'aux-rw-ro' : entry.rw === 2 ? 'aux-rw-w1c' : 'aux-rw-rw';
-  resultTitle.innerHTML = entry.n + ' <span class="aux-rw-badge ' + rwClass + '">' + rwText + '</span>';
+  // 版本標注
+  var _selVer = auxGetSelectedVer();
+  var _verMeta = DPCD_VER_META[addr];
+  var _verLabel = '';
+  if (_verMeta && _verMeta.v) {
+    var _compat = auxVerCompat(_selVer, _verMeta.v);
+    _verLabel = auxVerBadge(_verMeta.l, _compat);
+  }
+  resultTitle.innerHTML = entry.n + ' <span class="aux-rw-badge ' + rwClass + '">' + rwText + '</span>' + _verLabel;
 
-  let html = '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('addr') + '</span><span class="aux-result-value">0x' + addr + 'h</span></div>';
+  let html = '';
+  // 版本不相容提示
+  if (_verMeta && _verMeta.v && _selVer !== 'all') {
+    var _compat2 = auxVerCompat(_selVer, _verMeta.v);
+    if (_compat2 === 'na') {
+      var verNames = {dp12:"DP v1.2",dp13:"DP v1.3",dp14a:"DP v1.4a",dp20:"DP v2.0",edp12:"eDP v1.2",edp13:"eDP v1.3",edp14b:"eDP v1.4b",edp15:"eDP v1.5"};
+      html += '<div class="aux-ver-info">⚠ 此暫存器需要 ' + _verMeta.l + '，在您選擇的 ' + (verNames[_selVer]||_selVer) + ' 中可能不存在或為 RESERVED。</div>';
+    }
+  }
+
+  html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('addr') + '</span><span class="aux-result-value">0x' + addr + 'h</span></div>';
   var _ec = _dbC(entry.c);
   html += '<div class="aux-result-row"><span class="aux-result-label">' + _tAux('name') + '</span><span class="aux-result-value">' + entry.n + (_ec ? '（' + _ec + '）' : '') + '</span></div>';
   html += '<div class="aux-desc-block"><div class="aux-desc-title">' + _tAux('descTitle') + '</div>' + _dbDesc(entry) + '</div>';
@@ -1037,8 +1208,17 @@ function auxLookupDPCD(addrStr, valStr) {
         while (m > 1) { hi++; m >>= 1; }
         rng = (hi > lo) ? hi + ':' + lo : String(lo);
       }
-      html += '<tr><td class="aux-bit-range">[' + rng + ']</td>';
-      html += '<td class="aux-bit-name">' + bName + '</td>';
+      // 版本標注（bit 層級）
+      var _bitVerBadge = '';
+      var _bitNaClass = '';
+      if (_verMeta && _verMeta.bits && _verMeta.bits[rng]) {
+        var _bvm = _verMeta.bits[rng];
+        var _bvc = auxVerCompat(_selVer, _bvm.v);
+        _bitVerBadge = ' ' + auxVerBadge(_bvm.l, _bvc);
+        if (_bvc === 'na') _bitNaClass = ' class="aux-ver-na-row"';
+      }
+      html += '<tr' + _bitNaClass + '><td class="aux-bit-range">[' + rng + ']</td>';
+      html += '<td class="aux-bit-name">' + bName + _bitVerBadge + '</td>';
       if (_showCName) html += '<td class="aux-bit-name" style="color:var(--text-sub)">' + bChinese + '</td>';
       if (hasVal) {
         var bv;
