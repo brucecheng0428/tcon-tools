@@ -20,6 +20,8 @@
     var auxTab = auxParams.get('auxTab') || sessionStorage.getItem('aux_active_tab');
     if (auxTab === 'dpcd') {
       document.write('<style id="ss-tab-hint-aux">#aux-tab-dpcd{display:block!important}.aux-tab[data-tab="dpcd"]{background:var(--primary)!important;color:white!important}</style>');
+    } else if (auxTab === 'verdiff') {
+      document.write('<style id="ss-tab-hint-aux">#aux-tab-verdiff{display:block!important}.aux-tab[data-tab="verdiff"]{background:var(--primary)!important;color:white!important}</style>');
     } else {
       document.write('<style id="ss-tab-hint-aux">#aux-tab-decode{display:block!important}.aux-tab[data-tab="decode"]{background:var(--primary)!important;color:white!important}</style>');
     }
@@ -503,7 +505,7 @@
 <div id="page-aux">
   <div class="header subpage-header">
     <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
-    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.1.1</span></h1>
+    <h1>🔍 <span data-i18n="aux.title">eDP AUX / DPCD 查詢工具</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;">v2.2.0</span></h1>
     <p data-i18n="aux.subtitle">AUX 解碼 &amp; DPCD 暫存器查詢</p>
     <div class="lang-switcher">
       <select id="lang-select" class="lang-select" aria-label="Language">
@@ -518,6 +520,7 @@
     <div class="aux-tab-bar">
       <button class="aux-tab" data-tab="decode" onclick="auxSwitchTab('decode')" data-i18n="aux.tabDecode">AUX 解碼</button>
       <button class="aux-tab" data-tab="dpcd" onclick="auxSwitchTab('dpcd')" data-i18n="aux.tabDpcd">DPCD 查詢</button>
+      <button class="aux-tab" data-tab="verdiff" onclick="auxSwitchTab('verdiff')">版本差異</button>
     </div>
 
     <!-- ─── Tab 1: AUX 解碼 ─── -->
@@ -694,6 +697,8 @@
               <optgroup label="── eDP ──">
                 <option value="edp12">eDP v1.2</option>
                 <option value="edp13">eDP v1.3</option>
+                <option value="edp14">eDP v1.4</option>
+                <option value="edp14a">eDP v1.4a</option>
                 <option value="edp14b">eDP v1.4b</option>
                 <option value="edp15">eDP v1.5</option>
               </optgroup>
@@ -748,6 +753,20 @@
         <div class="card-body" id="aux-dpcd-result-body"></div>
       </div>
     </div>
+
+    <!-- ─── Tab 3: DPCD 版本差異 ─── -->
+    <div id="aux-tab-verdiff" class="aux-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="icon">📊</span> DPCD 暫存器版本差異總覽</div>
+        <div class="card-body" style="padding:8px">
+          <div style="font-size:12px;color:var(--text-sub);margin-bottom:10px;line-height:1.5">
+            列出所有跨版本有差異的 DPCD 暫存器與 bit-level 變更。資料來源：DP v1.2/v1.3/v1.4a、eDP v1.2/v1.3/v1.4b/v1.5 規格書。
+          </div>
+          <div id="aux-verdiff-table-wrap" class="aux-table-wrap"></div>
+        </div>
+      </div>
+    </div>
+
     <div style="height:16px"></div>
     <div class="footer-nav">
       <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
@@ -780,97 +799,159 @@ const I2C_KNOWN_ADDR = {
 
 // ─── DPCD 版本元資料 ───
 // 記錄各暫存器/bit 最早出現在哪個版本，用於版本篩選標注
-// 版本排序值：dp12=1, dp13=2, edp12=3, edp13=4, dp14a=5, edp14b=6, edp15=7, dp20=8
-var DPCD_VER_ORDER = {dp12:1, dp13:2, edp12:3, edp13:4, dp14a:5, edp14b:6, edp15:7, dp20:8};
+// 版本排序值：dp12=1, dp13=2, edp12=3, edp13=4, edp14=5, edp14a=6, dp14a=7, edp14b=8, edp15=9, dp20=10
+var DPCD_VER_ORDER = {dp12:1, dp13:2, edp12:3, edp13:4, edp14:5, edp14a:6, dp14a:7, edp14b:8, edp15:9, dp20:10};
 // 每個地址的最早版本。未列出的表示 DP 1.2 基礎版即有
 var DPCD_VER_META = {
-  // DP 1.3 新增
+  // ── DP 1.3 新增 ──
+  "00003":{bits:{"7":{v:"dp13",l:"DP 1.3+"}}},
   "00004":{v:"dp13",l:"DP 1.3+"}, "00005":{v:"dp13",l:"DP 1.3+"},
-  // DP 1.4 / eDP 1.4 新增
-  "00007":{bits:{"6":{v:"edp12",l:"eDP 1.2+"},"7":{v:"edp12",l:"eDP 1.2+"}}},
-  "0000D":{v:"edp12",l:"eDP 1.2+"},
-  "00010":{v:"edp13",l:"eDP 1.3+"}, "00011":{v:"edp13",l:"eDP 1.3+"}, "00012":{v:"edp13",l:"eDP 1.3+"},
-  "00013":{v:"edp13",l:"eDP 1.3+"}, "00014":{v:"edp13",l:"eDP 1.3+"}, "00015":{v:"edp13",l:"eDP 1.3+"},
-  "00016":{v:"edp13",l:"eDP 1.3+"}, "00017":{v:"edp13",l:"eDP 1.3+"}, "00018":{v:"edp13",l:"eDP 1.3+"},
-  "00019":{v:"edp13",l:"eDP 1.3+"}, "0001A":{v:"edp13",l:"eDP 1.3+"}, "0001B":{v:"edp13",l:"eDP 1.3+"},
-  "0001C":{v:"edp13",l:"eDP 1.3+"}, "0001D":{v:"edp13",l:"eDP 1.3+"}, "0001E":{v:"edp13",l:"eDP 1.3+"},
-  "0001F":{v:"edp13",l:"eDP 1.3+"},
+  // ── eDP 1.2 / DP 基礎 bit-level ──
+  "00007":{bits:{"6":{v:"edp12",l:"eDP 1.2+"},"7":{v:"edp15",l:"eDP 1.5+"}}},
+  "0000D":{v:"edp12",l:"eDP 1.2+",bits:{"0":{v:"edp12",l:"eDP 1.2+"},"3":{v:"edp12",l:"eDP 1.2+"}}},
+  "0000E":{bits:{"7":{v:"dp13",l:"DP 1.3+"}}},
+  // ── eDP 1.4 新增（原標 eDP 1.3，已修正）──
+  "00010":{v:"edp14",l:"eDP 1.4+"}, "00011":{v:"edp14",l:"eDP 1.4+"}, "00012":{v:"edp14",l:"eDP 1.4+"},
+  "00013":{v:"edp14",l:"eDP 1.4+"}, "00014":{v:"edp14",l:"eDP 1.4+"}, "00015":{v:"edp14",l:"eDP 1.4+"},
+  "00016":{v:"edp14",l:"eDP 1.4+"}, "00017":{v:"edp14",l:"eDP 1.4+"}, "00018":{v:"edp14",l:"eDP 1.4+"},
+  "00019":{v:"edp14",l:"eDP 1.4+"}, "0001A":{v:"edp14",l:"eDP 1.4+"}, "0001B":{v:"edp14",l:"eDP 1.4+"},
+  "0001C":{v:"edp14",l:"eDP 1.4+"}, "0001D":{v:"edp14",l:"eDP 1.4+"}, "0001E":{v:"edp14",l:"eDP 1.4+"},
+  "0001F":{v:"edp14",l:"eDP 1.4+"},
+  // ── DP 1.3 ──
   "00023":{v:"dp13",l:"DP 1.3+"}, "00024":{v:"dp13",l:"DP 1.3+"},
   "00025":{v:"dp13",l:"DP 1.3+"}, "00026":{v:"dp13",l:"DP 1.3+"},
   "00027":{v:"dp13",l:"DP 1.3+"}, "00028":{v:"dp13",l:"DP 1.3+"},
   "00029":{v:"dp13",l:"DP 1.3+"}, "0002A":{v:"dp13",l:"DP 1.3+"},
   "0002B":{v:"dp13",l:"DP 1.3+"}, "0002C":{v:"dp13",l:"DP 1.3+"},
   "0002D":{v:"dp13",l:"DP 1.3+"},
-  "0002E":{v:"edp13",l:"eDP 1.3+"},
-  "0002F":{v:"edp13",l:"eDP 1.3+"},
-  // DSC 區 (DP 1.4+)
-  "00060":{v:"dp14a",l:"DP 1.4+"}, "00061":{v:"dp14a",l:"DP 1.4+"},
-  "00062":{v:"dp14a",l:"DP 1.4+"}, "00063":{v:"dp14a",l:"DP 1.4+"},
-  "00064":{v:"dp14a",l:"DP 1.4+"}, "00065":{v:"dp14a",l:"DP 1.4+"},
-  "00066":{v:"dp14a",l:"DP 1.4+"}, "00067":{v:"dp14a",l:"DP 1.4+"},
-  "00068":{v:"dp14a",l:"DP 1.4+"}, "00069":{v:"dp14a",l:"DP 1.4+"},
-  "0006A":{v:"dp14a",l:"DP 1.4+"}, "0006B":{v:"dp14a",l:"DP 1.4+"},
-  "0006C":{v:"dp14a",l:"DP 1.4+"},
-  // PSR (eDP 1.3+)
-  "00070":{v:"edp13",l:"eDP 1.3+"}, "00071":{v:"edp13",l:"eDP 1.3+"},
+  // ── eDP 1.4 新增（原標 eDP 1.3，已修正）+ bit-level ──
+  "0002E":{v:"edp14",l:"eDP 1.4+",bits:{"0":{v:"edp14",l:"eDP 1.4+"},"1":{v:"edp14a",l:"eDP 1.4a+"},"2":{v:"edp15",l:"eDP 1.5+"}}},
+  "0002F":{v:"edp14",l:"eDP 1.4+"},
+  // ── DSC 區 (DP 1.4a+) ──
+  "00060":{v:"dp14a",l:"DP 1.4a+"}, "00061":{v:"dp14a",l:"DP 1.4a+"},
+  "00062":{v:"dp14a",l:"DP 1.4a+"}, "00063":{v:"dp14a",l:"DP 1.4a+"},
+  "00064":{v:"dp14a",l:"DP 1.4a+"}, "00065":{v:"dp14a",l:"DP 1.4a+",bits:{"2:0_v010":{v:"edp14b",l:"eDP 1.4b+"},"2:0_v011":{v:"edp14b",l:"eDP 1.4b+"},"2:0_v100":{v:"edp14b",l:"eDP 1.4b+"}}},
+  "00066":{v:"dp14a",l:"DP 1.4a+"}, "00067":{v:"dp14a",l:"DP 1.4a+"},
+  "00068":{v:"dp14a",l:"DP 1.4a+",bits:{"6:5":{v:"edp15",l:"eDP 1.5+"},"7":{v:"edp15",l:"eDP 1.5+"}}},
+  "00069":{v:"dp14a",l:"DP 1.4a+"},
+  "0006A":{v:"dp14a",l:"DP 1.4a+"}, "0006B":{v:"dp14a",l:"DP 1.4a+"},
+  "0006C":{v:"dp14a",l:"DP 1.4a+"},
+  // ── PSR (eDP 1.3+) + bit/value-level ──
+  "00070":{v:"edp13",l:"eDP 1.3+",bits:{"7:0_v01":{v:"edp13",l:"eDP 1.3+"},"7:0_v02":{v:"edp14",l:"eDP 1.4+"},"7:0_v03":{v:"edp14a",l:"eDP 1.4a+"},"7:0_v04":{v:"edp15",l:"eDP 1.5+"}}},
+  "00071":{v:"edp13",l:"eDP 1.3+",bits:{"4":{v:"edp14a",l:"eDP 1.4a+"},"5":{v:"edp14b",l:"eDP 1.4b+"},"6":{v:"edp15",l:"eDP 1.5+"}}},
   "00072":{v:"edp14b",l:"eDP 1.4b+"}, "00073":{v:"edp14b",l:"eDP 1.4b+"},
   "00074":{v:"edp14b",l:"eDP 1.4b+"},
-  // Panel Replay (eDP 1.5+)
+  // ── FEC (DP 1.4a+) ──
+  "00090":{v:"dp14a",l:"DP 1.4a+"},
+  // ── Panel Replay (eDP 1.5+) ──
   "000B0":{v:"edp15",l:"eDP 1.5+",bits:{"2":{v:"edp15",l:"eDP 1.5+"}}},
-  "000B1":{v:"edp15",l:"eDP 1.5+"},
+  "000B1":{v:"edp15",l:"eDP 1.5+",bits:{"6":{v:"edp15",l:"eDP 1.5+"}}},
   "000B2":{v:"edp15",l:"eDP 1.5+"}, "000B3":{v:"edp15",l:"eDP 1.5+"},
-  "000B4":{v:"edp15",l:"eDP 1.5+"}, "000B5":{v:"edp15",l:"eDP 1.5+"},
-  "000B6":{v:"edp15",l:"eDP 1.5+"}, "000B8":{v:"edp15",l:"eDP 1.5+"},
-  // Link Configuration eDP-specific
+  "000B4":{v:"edp15",l:"eDP 1.5+"},
+  "000B5":{v:"edp15",l:"eDP 1.5+"}, "000B6":{v:"edp15",l:"eDP 1.5+"},
+  "000B8":{v:"edp15",l:"eDP 1.5+"},
+  // ── Link Configuration ──
   "0010A":{v:"edp12",l:"eDP 1.2+"},
   "00107":{bits:{"6":{v:"edp15",l:"eDP 1.5+"}}},
-  "00115":{v:"edp13",l:"eDP 1.3+",bits:{"2:0":{v:"edp13",l:"eDP 1.3+"}}},
-  "00116":{v:"edp13",l:"eDP 1.3+",bits:{"2":{v:"edp15",l:"eDP 1.5+"},"3":{v:"edp15",l:"eDP 1.5+"}}},
-  "00117":{v:"edp13",l:"eDP 1.3+"},
-  "00120":{v:"dp14a",l:"DP 1.4+"},
-  "00160":{v:"dp14a",l:"DP 1.4+"},
-  // FEC (DP 1.4+)
-  "00280":{v:"dp14a",l:"DP 1.4+"}, "00281":{v:"dp14a",l:"DP 1.4+"},
-  "00282":{v:"dp14a",l:"DP 1.4+"},
-  // eDP 700h display control (eDP 1.2+)
+  "0011A":{v:"edp15",l:"eDP 1.5+"},
+  "0011B":{v:"edp15",l:"eDP 1.5+"},
+  "00115":{v:"edp14",l:"eDP 1.4+",bits:{"2:0":{v:"edp14",l:"eDP 1.4+"},"3":{v:"edp14",l:"eDP 1.4+"}}},
+  "00116":{v:"edp14",l:"eDP 1.4+",bits:{"0":{v:"edp14",l:"eDP 1.4+"},"1":{v:"edp14",l:"eDP 1.4+"},"2":{v:"edp15",l:"eDP 1.5+"},"3":{v:"edp15",l:"eDP 1.5+"}}},
+  "00117":{v:"edp14",l:"eDP 1.4+"},
+  "00120":{v:"dp14a",l:"DP 1.4a+"},
+  // ── AUX Frame Sync (eDP 1.4+) ──
+  "0015C":{v:"edp14",l:"eDP 1.4+"}, "0015D":{v:"edp14",l:"eDP 1.4+"},
+  "0015E":{v:"edp14",l:"eDP 1.4+"}, "0015F":{v:"edp14",l:"eDP 1.4+"},
+  // ── DSC / PSR Config ──
+  "00160":{v:"dp14a",l:"DP 1.4a+",bits:{"0":{v:"edp14",l:"eDP 1.4+"},"1":{v:"edp15",l:"eDP 1.5+"}}},
+  "00170":{v:"edp13",l:"eDP 1.3+",bits:{"4":{v:"edp14",l:"eDP 1.4+"},"5":{v:"edp14",l:"eDP 1.4+"},"6":{v:"edp14a",l:"eDP 1.4a+"},"7":{v:"edp15",l:"eDP 1.5+"}}},
+  // ── Panel Replay Config (eDP 1.5+) ──
+  "001B0":{v:"edp15",l:"eDP 1.5+"}, "001B1":{v:"edp15",l:"eDP 1.5+"},
+  "001B8":{v:"edp15",l:"eDP 1.5+"},
+  "001B9":{v:"edp15",l:"eDP 1.5+"}, "001BA":{v:"edp15",l:"eDP 1.5+"},
+  // ── DSC Status ──
+  "0020C":{v:"edp15",l:"eDP 1.5+"},
+  "0020F":{v:"edp14",l:"eDP 1.4+"},
+  // ── FEC (DP 1.4a+) ──
+  "00280":{v:"dp14a",l:"DP 1.4a+"}, "00281":{v:"dp14a",l:"DP 1.4a+"},
+  "00282":{v:"dp14a",l:"DP 1.4a+"},
+  // ── eDP Display Control (eDP 1.2+) ──
   "00700":{v:"edp12",l:"eDP 1.2+"}, "00701":{v:"edp12",l:"eDP 1.2+"},
-  "00702":{v:"edp12",l:"eDP 1.2+"}, "00703":{v:"edp12",l:"eDP 1.2+"},
-  "00704":{v:"edp12",l:"eDP 1.2+"}, "00720":{v:"edp12",l:"eDP 1.2+"},
-  "00721":{v:"edp12",l:"eDP 1.2+"}, "00722":{v:"edp12",l:"eDP 1.2+"},
-  "00723":{v:"edp12",l:"eDP 1.2+"}, "00724":{v:"edp12",l:"eDP 1.2+"},
-  "00725":{v:"edp12",l:"eDP 1.2+"}, "00726":{v:"edp12",l:"eDP 1.2+"},
-  "00727":{v:"edp12",l:"eDP 1.2+"}, "00728":{v:"edp12",l:"eDP 1.2+"},
+  "00702":{v:"edp12",l:"eDP 1.2+"},
+  "00703":{v:"edp12",l:"eDP 1.2+",bits:{"0":{v:"edp12",l:"eDP 1.2+"},"2:1":{v:"edp15",l:"eDP 1.5+"}}},
+  "00704":{v:"edp14",l:"eDP 1.4+"},
+  "00720":{v:"edp12",l:"eDP 1.2+"},
+  "00721":{v:"edp12",l:"eDP 1.2+",bits:{"5":{v:"edp14",l:"eDP 1.4+"},"6":{v:"edp14",l:"eDP 1.4+"}}},
+  "00722":{v:"edp12",l:"eDP 1.2+"}, "00723":{v:"edp12",l:"eDP 1.2+"},
+  "00724":{v:"edp12",l:"eDP 1.2+"}, "00725":{v:"edp12",l:"eDP 1.2+"},
+  "00726":{v:"edp12",l:"eDP 1.2+"}, "00727":{v:"edp12",l:"eDP 1.2+"},
+  "00728":{v:"edp12",l:"eDP 1.2+"},
   "0072A":{v:"edp12",l:"eDP 1.2+"}, "0072B":{v:"edp12",l:"eDP 1.2+"},
   "0072C":{v:"edp12",l:"eDP 1.2+"}, "0072D":{v:"edp12",l:"eDP 1.2+"},
   "0072E":{v:"edp12",l:"eDP 1.2+"}, "0072F":{v:"edp12",l:"eDP 1.2+"},
   "00732":{v:"edp14b",l:"eDP 1.4b+"}, "00733":{v:"edp14b",l:"eDP 1.4b+"},
-  "00740":{v:"edp12",l:"eDP 1.2+"},
-  "00741":{v:"edp12",l:"eDP 1.2+"}, "00742":{v:"edp12",l:"eDP 1.2+"},
-  "00743":{v:"edp12",l:"eDP 1.2+"}, "00744":{v:"edp12",l:"eDP 1.2+"},
-  "00745":{v:"edp12",l:"eDP 1.2+"}, "00746":{v:"edp12",l:"eDP 1.2+"},
-  "00747":{v:"edp12",l:"eDP 1.2+"}, "00748":{v:"edp12",l:"eDP 1.2+"},
-  "00749":{v:"edp12",l:"eDP 1.2+"}, "0074A":{v:"edp12",l:"eDP 1.2+"},
-  "0074B":{v:"edp12",l:"eDP 1.2+"}, "0074C":{v:"edp12",l:"eDP 1.2+"},
-  "0074D":{v:"edp12",l:"eDP 1.2+"}, "0074E":{v:"edp12",l:"eDP 1.2+"},
-  "0074F":{v:"edp12",l:"eDP 1.2+"},
-  "00750":{v:"edp14b",l:"eDP 1.4b+"}, "00751":{v:"edp14b",l:"eDP 1.4b+"},
+  // ── Regional Backlight (eDP 1.4+, 原錯標 eDP 1.2+) ──
+  "00740":{v:"edp14",l:"eDP 1.4+"},
+  "00741":{v:"edp14",l:"eDP 1.4+"}, "00742":{v:"edp14",l:"eDP 1.4+"},
+  "00743":{v:"edp14",l:"eDP 1.4+"}, "00744":{v:"edp14",l:"eDP 1.4+"},
+  "00745":{v:"edp14",l:"eDP 1.4+"}, "00746":{v:"edp14",l:"eDP 1.4+"},
+  "00747":{v:"edp14",l:"eDP 1.4+"}, "00748":{v:"edp14",l:"eDP 1.4+"},
+  "00749":{v:"edp14",l:"eDP 1.4+"}, "0074A":{v:"edp14",l:"eDP 1.4+"},
+  "0074B":{v:"edp14",l:"eDP 1.4+"}, "0074C":{v:"edp14",l:"eDP 1.4+"},
+  "0074D":{v:"edp14",l:"eDP 1.4+"}, "0074E":{v:"edp14",l:"eDP 1.4+"},
+  "0074F":{v:"edp14",l:"eDP 1.4+"},
+  "00750":{v:"edp15",l:"eDP 1.5+"}, "00751":{v:"edp15",l:"eDP 1.5+"},
   "007A4":{v:"edp14b",l:"eDP 1.4b+"},
-  // MSO CRC registers (eDP 1.4b+/1.5)
+  // ── MSO CRC (eDP 1.4b+/1.5) ──
   "007A5":{v:"edp14b",l:"eDP 1.4b+"}, "007A6":{v:"edp14b",l:"eDP 1.4b+"},
   "007A7":{v:"edp14b",l:"eDP 1.4b+"}, "007A8":{v:"edp14b",l:"eDP 1.4b+"},
   "007A9":{v:"edp14b",l:"eDP 1.4b+"}, "007AA":{v:"edp14b",l:"eDP 1.4b+"},
   "007AB":{v:"edp14b",l:"eDP 1.4b+"},
-  // ESI (DP 1.2+)
+  "007AC":{v:"edp14b",l:"eDP 1.4b+"}, "007AD":{v:"edp14b",l:"eDP 1.4b+"},
+  "007AE":{v:"edp14b",l:"eDP 1.4b+"}, "007AF":{v:"edp14b",l:"eDP 1.4b+"},
+  "007B0":{v:"edp14b",l:"eDP 1.4b+"}, "007B1":{v:"edp14b",l:"eDP 1.4b+"},
+  "007B2":{v:"edp14b",l:"eDP 1.4b+"}, "007B3":{v:"edp14b",l:"eDP 1.4b+"},
+  "007B4":{v:"edp14b",l:"eDP 1.4b+"}, "007B5":{v:"edp14b",l:"eDP 1.4b+"},
+  "007B6":{v:"edp14b",l:"eDP 1.4b+"}, "007B7":{v:"edp14b",l:"eDP 1.4b+"},
+  "007B8":{v:"edp14b",l:"eDP 1.4b+"}, "007B9":{v:"edp14b",l:"eDP 1.4b+"},
+  // ── DSC CRC MSO 2/3/4 (eDP 1.5+) ──
+  "007C0":{v:"edp15",l:"eDP 1.5+"}, "007C1":{v:"edp15",l:"eDP 1.5+"},
+  "007C2":{v:"edp15",l:"eDP 1.5+"}, "007C3":{v:"edp15",l:"eDP 1.5+"},
+  "007C4":{v:"edp15",l:"eDP 1.5+"}, "007C5":{v:"edp15",l:"eDP 1.5+"},
+  "007C6":{v:"edp15",l:"eDP 1.5+"}, "007C7":{v:"edp15",l:"eDP 1.5+"},
+  "007C8":{v:"edp15",l:"eDP 1.5+"}, "007C9":{v:"edp15",l:"eDP 1.5+"},
+  "007CA":{v:"edp15",l:"eDP 1.5+"}, "007CB":{v:"edp15",l:"eDP 1.5+"},
+  "007CC":{v:"edp15",l:"eDP 1.5+"}, "007CD":{v:"edp15",l:"eDP 1.5+"},
+  "007CE":{v:"edp15",l:"eDP 1.5+"}, "007CF":{v:"edp15",l:"eDP 1.5+"},
+  "007D0":{v:"edp15",l:"eDP 1.5+"}, "007D1":{v:"edp15",l:"eDP 1.5+"},
+  // ── ESI (DP 1.2+) ──
   "02002":{v:"dp12",l:"DP 1.2+"}, "02003":{v:"dp12",l:"DP 1.2+"},
   "02005":{v:"dp12",l:"DP 1.2+"},
-  // PSR status (eDP 1.3+)
-  "02006":{v:"edp13",l:"eDP 1.3+"}, "02007":{v:"edp13",l:"eDP 1.3+"},
-  "02008":{v:"edp14b",l:"eDP 1.4b+"},
-  "0200B":{v:"edp13",l:"eDP 1.3+"},
-  // Extended Receiver Cap (DP 1.3+)
-  "02200":{v:"dp13",l:"DP 1.3+"}, "02201":{v:"dp13",l:"DP 1.3+"},
-  "02202":{v:"dp13",l:"DP 1.3+"}, "0220D":{v:"edp15",l:"eDP 1.5+"},
-  "02210":{v:"dp14a",l:"DP 1.4+"}
+  // ── PSR Status/Error (eDP 1.3+) ──
+  "02006":{v:"edp13",l:"eDP 1.3+",bits:{"2":{v:"edp14",l:"eDP 1.4+"}}},
+  "02007":{v:"edp13",l:"eDP 1.3+"},
+  "02008":{v:"edp13",l:"eDP 1.3+"},
+  "02009":{v:"edp13",l:"eDP 1.3+"},
+  "0200A":{v:"edp13",l:"eDP 1.3+",bits:{"3":{v:"edp14",l:"eDP 1.4+"},"4":{v:"edp14",l:"eDP 1.4+"},"5":{v:"edp14",l:"eDP 1.4+"},"6":{v:"edp14a",l:"eDP 1.4a+"}}},
+  "0200B":{v:"edp14",l:"eDP 1.4+",bits:{"0":{v:"edp14",l:"eDP 1.4+"},"1":{v:"edp15",l:"eDP 1.5+"},"2":{v:"edp15",l:"eDP 1.5+"}}},
+  // ── eDP 1.4b/1.4 ESI ──
+  "02010":{v:"edp14b",l:"eDP 1.4b+"},
+  "02011":{v:"edp14",l:"eDP 1.4+"},
+  "02012":{v:"edp14b",l:"eDP 1.4b+"},
+  // ── eDP 1.5 ESI ──
+  "02013":{v:"edp15",l:"eDP 1.5+"}, "02014":{v:"edp15",l:"eDP 1.5+"}, "02015":{v:"edp15",l:"eDP 1.5+"},
+  "02020":{v:"edp15",l:"eDP 1.5+"},
+  "02022":{v:"edp15",l:"eDP 1.5+"},
+  "02025":{v:"edp15",l:"eDP 1.5+"},
+  // ── Extended Receiver Cap (DP 1.3+) ──
+  "02200":{v:"dp13",l:"DP 1.3+"},
+  "02201":{v:"edp15",l:"eDP 1.5+"},
+  "02202":{v:"dp13",l:"DP 1.3+"},
+  "02207":{v:"edp15",l:"eDP 1.5+"},
+  "0220D":{v:"edp15",l:"eDP 1.5+"},
+  "02210":{v:"dp13",l:"DP 1.3+"},
+  "02214":{v:"edp15",l:"eDP 1.5+"},
+  "02218":{v:"edp15",l:"eDP 1.5+"}
 };
 
 // 版本相容性判斷：sel = 使用者選的版本, req = 暫存器要求的版本
@@ -910,6 +991,8 @@ window.auxSwitchTab = function(tab) {
   document.querySelectorAll('#page-aux .aux-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('aux-tab-dpcd').style.display = tab === 'dpcd' ? 'block' : 'none';
   document.getElementById('aux-tab-decode').style.display = tab === 'decode' ? 'block' : 'none';
+  document.getElementById('aux-tab-verdiff').style.display = tab === 'verdiff' ? 'block' : 'none';
+  if (tab === 'verdiff' && !window._verdiffRendered) { auxRenderVerdiffTable(); window._verdiffRendered = true; }
   // 記住目前 tab，重整後還原
   try { sessionStorage.setItem('aux_active_tab', tab); } catch(e) {}
 };
@@ -1162,7 +1245,7 @@ function auxLookupDPCD(addrStr, valStr) {
   if (_verMeta && _verMeta.v && _selVer !== 'all') {
     var _compat2 = auxVerCompat(_selVer, _verMeta.v);
     if (_compat2 === 'na') {
-      var verNames = {dp12:"DP v1.2",dp13:"DP v1.3",dp14a:"DP v1.4a",dp20:"DP v2.0",edp12:"eDP v1.2",edp13:"eDP v1.3",edp14b:"eDP v1.4b",edp15:"eDP v1.5"};
+      var verNames = {dp12:"DP v1.2",dp13:"DP v1.3",dp14a:"DP v1.4a",dp20:"DP v2.0",edp12:"eDP v1.2",edp13:"eDP v1.3",edp14:"eDP v1.4",edp14a:"eDP v1.4a",edp14b:"eDP v1.4b",edp15:"eDP v1.5"};
       html += '<div class="aux-ver-info">⚠ 此暫存器需要 ' + _verMeta.l + '，在您選擇的 ' + (verNames[_selVer]||_selVer) + ' 中可能不存在或為 RESERVED。</div>';
     }
   }
@@ -4107,6 +4190,178 @@ window.auxDecodeAll = function() {
   if (_wvHdr) _wvHdr.style.opacity = '';
   if (_wvHint) _wvHint.style.display = 'none';
 };
+
+// ─── DPCD 版本差異表格 ───
+function auxRenderVerdiffTable() {
+  var VER_COLORS = {
+    'dp12':'#6b7280','dp13':'#3b82f6','dp14a':'#8b5cf6','dp20':'#ec4899',
+    'edp12':'#10b981','edp13':'#14b8a6','edp14':'#f59e0b','edp14a':'#f97316','edp14b':'#ef4444','edp15':'#e879f9'
+  };
+  var VER_LABELS = {
+    'dp12':'DP 1.2+','dp13':'DP 1.3+','dp14a':'DP 1.4a+','dp20':'DP 2.0+',
+    'edp12':'eDP 1.2+','edp13':'eDP 1.3+','edp14':'eDP 1.4+','edp14a':'eDP 1.4a+','edp14b':'eDP 1.4b+','edp15':'eDP 1.5+'
+  };
+  function badge(ver) {
+    var c = VER_COLORS[ver] || '#6b7280';
+    var l = VER_LABELS[ver] || ver;
+    return '<span style="display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:'+c+'22;color:'+c+';border:1px solid '+c+'44">'+l+'</span>';
+  }
+  // 完整版本差異資料（依仲裁報告）
+  var DATA = [
+    // ── Receiver Capability (00000h-000FFh) ──
+    {sec:'Receiver Capability (00000h-000FFh)'},
+    {a:'00003h',b:'bit 7',n:'TPS4_SUPPORTED',v:'dp13'},
+    {a:'00004h',b:'—',n:'NORP 擴展 (DP_PWR_VOLTAGE_CAP)',v:'dp13'},
+    {a:'00005h',b:'—',n:'NORP 擴展 (DP_PWR_VOLTAGE_CAP)',v:'dp13'},
+    {a:'00007h',b:'bit 6',n:'MSA_TIMING_PAR_IGNORED',v:'edp12'},
+    {a:'00007h',b:'bit 7',n:'OUI_SUPPORT (eDP)',v:'edp15'},
+    {a:'0000Dh',b:'bit 0',n:'ASSR (ALTERNATE_SCRAMBLER_RESET)',v:'edp12'},
+    {a:'0000Dh',b:'bit 3',n:'DISPLAY_CONTROL_CAPABLE',v:'edp12'},
+    {a:'0000Eh',b:'bit 7',n:'EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT',v:'dp13'},
+    {a:'00010h-0001Fh',b:'—',n:'SUPPORTED_LINK_RATES (16 entries)',v:'edp14'},
+    {a:'00023h-0002Dh',b:'—',n:'AV_SYNC_DATA_BLOCK 更新',v:'dp13'},
+    {a:'0002Eh',b:'整體',n:'RECEIVER_ALPM_CAPABILITIES',v:'edp14'},
+    {a:'0002Eh',b:'bit 0',n:'AUX_WAKE_ALPM_CAP',v:'edp14'},
+    {a:'0002Eh',b:'bit 1',n:'PM_State_2a_Support',v:'edp14a'},
+    {a:'0002Eh',b:'bit 2',n:'AUX_LESS_ALPM_CAP',v:'edp15'},
+    {a:'0002Fh',b:'—',n:'AUX_FRAME_SYNC_CAP',v:'edp14'},
+    // ── DSC (00060h-0006Ch) ──
+    {sec:'DSC Capability (00060h-0006Ch)'},
+    {a:'00060h-0006Ch',b:'—',n:'DSC_SUPPORT / DSC_ALGORITHM 等',v:'dp14a'},
+    {a:'00065h',b:'值 010/011/100',n:'LINE_BUFFER_BIT_DEPTH (11/12/13-bit)',v:'edp14b'},
+    {a:'00067h-00068h',b:'bits [6:5]',n:'MAX_BPP_DELTA_VERSION',v:'edp15'},
+    {a:'00067h-00068h',b:'bit [7]',n:'MAX_BPP_DELTA_AVAILABILITY',v:'edp15'},
+    // ── PSR (00070h-00074h) ──
+    {sec:'PSR Capability (00070h-00074h)'},
+    {a:'00070h',b:'值 01h',n:'PSR Version 1',v:'edp13'},
+    {a:'00070h',b:'值 02h',n:'PSR Version 2 (no Y-coord)',v:'edp14'},
+    {a:'00070h',b:'值 03h',n:'PSR Version 2 + Y-coord',v:'edp14a'},
+    {a:'00070h',b:'值 04h',n:'PSR2 + SU Early Transport',v:'edp15'},
+    {a:'00071h',b:'bits 3:0',n:'PSR 基礎能力 (Link Training, IRQ)',v:'edp13'},
+    {a:'00071h',b:'bit 4',n:'Y-Coordinate Required for PSR2 SU',v:'edp14a'},
+    {a:'00071h',b:'bit 5',n:'PSR2 SU Granularity Required',v:'edp14b'},
+    {a:'00071h',b:'bit 6',n:'Frame Sync Not Needed for PSR',v:'edp15'},
+    {a:'00072h-00074h',b:'—',n:'PSR2 SU Region Y / X 座標',v:'edp14b'},
+    // ── FEC (00090h) ──
+    {sec:'FEC Capability (00090h)'},
+    {a:'00090h',b:'—',n:'FEC_CAPABILITY',v:'dp14a'},
+    // ── Panel Replay (000B0h-000B8h) ──
+    {sec:'Panel Replay Capability (000B0h-000B8h)'},
+    {a:'000B0h',b:'整體',n:'PANEL_REPLAY_CAPABILITY',v:'edp15'},
+    {a:'000B0h',b:'bit 2',n:'Early Transport Support',v:'edp15'},
+    {a:'000B1h',b:'整體',n:'PANEL_REPLAY_CAPABILITY (ext)',v:'edp15'},
+    {a:'000B1h',b:'bit 6',n:'SU Y Granularity Extended',v:'edp15'},
+    {a:'000B2h-000B3h',b:'—',n:'PR SU X Granularity',v:'edp15'},
+    {a:'000B4h',b:'—',n:'PR_SU_Y_GRANULARITY',v:'edp15'},
+    {a:'000B5h-000B6h',b:'—',n:'SU_Y_GRANULARITY_EXTENDED',v:'edp15'},
+    {a:'000B8h',b:'—',n:'PR Active Frame CRC Error',v:'edp15'},
+    // ── Link Configuration (00100h-00120h) ──
+    {sec:'Link Configuration (00100h-00120h)'},
+    {a:'00107h',b:'bit 6',n:'Panel Replay Enable',v:'edp15'},
+    {a:'0010Ah',b:'—',n:'eDP_LANE_COUNT_SET',v:'edp12'},
+    {a:'00115h',b:'整體',n:'LINK_RATE_SET',v:'edp14'},
+    {a:'00115h',b:'bits 2:0',n:'Link Rate Table Index',v:'edp14'},
+    {a:'00115h',b:'bit 3',n:'TX_GTC_CAP',v:'edp14'},
+    {a:'00116h',b:'整體',n:'RECEIVER_ALPM_CONFIGURATION',v:'edp14'},
+    {a:'00116h',b:'bit 0',n:'ALPM Enable',v:'edp14'},
+    {a:'00116h',b:'bit 1',n:'ALPM Lock Error IRQ Enable',v:'edp14'},
+    {a:'00116h',b:'bit 2',n:'ALPM Mode: AUX-less',v:'edp15'},
+    {a:'00116h',b:'bit 3',n:'CDS Phase Period',v:'edp15'},
+    {a:'00117h',b:'—',n:'AUX_FRAME_SYNC_CONFIGURATION',v:'edp14'},
+    {a:'0011Ah',b:'—',n:'PR_CONFIGURATION_3',v:'edp15'},
+    {a:'0011Bh',b:'—',n:'ADAPTIVE_SYNC_SDP_TIMING_CONFIG',v:'edp15'},
+    {a:'00120h',b:'—',n:'FEC_CONFIGURATION',v:'dp14a'},
+    // ── AUX Frame Sync / DSC / PSR Config (0015Ch-00170h) ──
+    {sec:'AUX Frame Sync / DSC / PSR Config (0015Ch-00170h)'},
+    {a:'0015Ch-0015Fh',b:'—',n:'AUX_FRAME_SYNC_VALUE',v:'edp14'},
+    {a:'00160h',b:'bit 0',n:'DSC Decompression Enable (eDP)',v:'edp14'},
+    {a:'00160h',b:'bit 0',n:'DSC Decompression Enable (DP)',v:'dp14a'},
+    {a:'00160h',b:'bit 1',n:'DSC_PASSTHROUGH_ENABLE',v:'edp15'},
+    {a:'00170h',b:'bits 0-3',n:'PSR1 Configuration (基礎)',v:'edp13'},
+    {a:'00170h',b:'bit 4',n:'SU Region Scan Line Capture',v:'edp14'},
+    {a:'00170h',b:'bit 5',n:'IRQ_HPD with CRC Error',v:'edp14'},
+    {a:'00170h',b:'bit 6',n:'Enable PSR2 Protocol',v:'edp14a'},
+    {a:'00170h',b:'bit 7',n:'SU Region Early Transport Enable',v:'edp15'},
+    // ── Panel Replay Config (001B0h-001BAh) ──
+    {sec:'Panel Replay Configuration (001B0h-001BAh)'},
+    {a:'001B0h',b:'—',n:'PANEL_REPLAY_CONFIGURATION_1',v:'edp15'},
+    {a:'001B1h',b:'—',n:'PANEL_REPLAY_CONFIGURATION_2',v:'edp15'},
+    {a:'001B8h',b:'—',n:'ARP_CONFIGURATION',v:'edp15'},
+    {a:'001B9h-001BAh',b:'—',n:'ARP_t2_MAX',v:'edp15'},
+    // ── DSC Status (0020Ch-0020Fh) ──
+    {sec:'DSC / Link Status (0020Ch-0020Fh)'},
+    {a:'0020Ch',b:'—',n:'LINK_CONFIGURATION_STATUS',v:'edp15'},
+    {a:'0020Fh',b:'—',n:'DSC_STATUS',v:'edp14'},
+    // ── FEC Status (00280h-00282h) ──
+    {sec:'FEC Status (00280h-00282h)'},
+    {a:'00280h',b:'—',n:'FEC_STATUS',v:'dp14a'},
+    {a:'00281h-00282h',b:'—',n:'FEC_ERROR_COUNT',v:'dp14a'},
+    // ── eDP Display Control (00700h-00751h) ──
+    {sec:'eDP Display Control (00700h-00751h)'},
+    {a:'00700h-00703h',b:'—',n:'EDP_GENERAL_CAPABILITY 1/2',v:'edp12'},
+    {a:'00703h',b:'bit 0',n:'OVERDRIVE_ENGINE_ENABLED',v:'edp12'},
+    {a:'00703h',b:'bits 2:1',n:'Backlight Brightness Alignment',v:'edp15'},
+    {a:'00704h',b:'—',n:'EDP_GENERAL_CAPABILITY_3',v:'edp14'},
+    {a:'00720h-0072Fh',b:'—',n:'EDP_BACKLIGHT 基礎暫存器',v:'edp12'},
+    {a:'00721h',b:'bit 5',n:'Regional Backlight Enable',v:'edp14'},
+    {a:'00721h',b:'bit 6',n:'Update Region Brightness',v:'edp14'},
+    {a:'00732h-00733h',b:'—',n:'Target Luminance / Ambient Light',v:'edp14b'},
+    {a:'00740h-0074Fh',b:'—',n:'REGIONAL_BACKLIGHT_BASE (16 regions)',v:'edp14'},
+    {a:'00750h-00751h',b:'—',n:'Video/Trailing Video Delay',v:'edp15'},
+    // ── MSO CRC (007A4h-007D1h) ──
+    {sec:'MSO CRC (007A4h-007D1h)'},
+    {a:'007A4h-007ABh',b:'—',n:'MSO CRC (MSO_1, MSO_2)',v:'edp14b'},
+    {a:'007ACh-007B9h',b:'—',n:'MSO CRC (MSO_3, MSO_4)',v:'edp14b'},
+    {a:'007C0h-007D1h',b:'—',n:'DSC CRC MSO 2/3/4',v:'edp15'},
+    // ── ESI / Status (02000h+) ──
+    {sec:'ESI / Interrupt Status (02000h+)'},
+    {a:'02002h-02003h',b:'—',n:'DEVICE_SERVICE_IRQ_VECTOR_ESI',v:'dp12'},
+    {a:'02005h',b:'—',n:'SINK_COUNT_ESI',v:'dp12'},
+    {a:'02006h',b:'bits 0-1',n:'PSR 基礎 Error Status',v:'edp13'},
+    {a:'02006h',b:'bit 2',n:'VSC SDP Uncorrectable Error',v:'edp14'},
+    {a:'02007h',b:'—',n:'PSR_EVENT_STATUS',v:'edp13'},
+    {a:'02008h',b:'—',n:'SINK_PSR_STATUS',v:'edp13'},
+    {a:'02009h',b:'—',n:'PSR_DEBUG_REGISTER_0',v:'edp13'},
+    {a:'0200Ah',b:'bits 0-2',n:'PSR1 Debug (基礎)',v:'edp13'},
+    {a:'0200Ah',b:'bits 3-5',n:'PSR2 SU Debug (Valid/First/Last)',v:'edp14'},
+    {a:'0200Ah',b:'bit 6',n:'Y-Coordinate Valid',v:'edp14a'},
+    {a:'0200Bh',b:'整體',n:'RECEIVER_ALPM_STATUS',v:'edp14'},
+    {a:'0200Bh',b:'bit 0',n:'ALPM Lock Timeout Error',v:'edp14'},
+    {a:'0200Bh',b:'bit 1',n:'ARP Screen Refresh IRQ',v:'edp15'},
+    {a:'0200Bh',b:'bit 2',n:'AUX-less ALPM Lock Error',v:'edp15'},
+    {a:'02010h',b:'—',n:'AUX_FRAME_SYNC_STATUS',v:'edp14b'},
+    {a:'02011h',b:'—',n:'DSC_STATUS (ESI Mirror)',v:'edp14'},
+    {a:'02012h',b:'—',n:'SINK_USER_IRQ_VECTOR',v:'edp14b'},
+    {a:'02013h-02015h',b:'—',n:'DSC_STATUS_MSO_2/3/4',v:'edp15'},
+    {a:'02020h',b:'—',n:'PANEL_REPLAY_ERROR_STATUS',v:'edp15'},
+    {a:'02022h',b:'—',n:'SINK_PR_AND_FRAME_LOCK_STATUS',v:'edp15'},
+    {a:'02025h',b:'—',n:'ARP_EXTENDED_REFRESH_DIV',v:'edp15'},
+    // ── Extended Receiver Cap (02200h+) ──
+    {sec:'Extended Receiver Capability (02200h+)'},
+    {a:'02200h',b:'—',n:'DPCD_REV (Extended)',v:'dp13'},
+    {a:'02201h',b:'—',n:'8b10b_MAX_LINK_RATE (Extended)',v:'edp15'},
+    {a:'02202h',b:'—',n:'DPCD_REV (Extended Copy)',v:'dp13'},
+    {a:'02207h',b:'—',n:'DOWN_STREAM_PORT_COUNT (Extended)',v:'edp15'},
+    {a:'0220Dh',b:'—',n:'eDP 1.5 Extended',v:'edp15'},
+    {a:'02210h',b:'—',n:'DPRX_FEATURE_ENUMERATION_LIST',v:'dp13'},
+    {a:'02214h',b:'—',n:'DPRX_FEATURE_ENUM_LIST_CONT_1',v:'edp15'},
+    {a:'02218h',b:'—',n:'DPRX_FEATURE_ENUM_LIST_CONT_2',v:'edp15'}
+  ];
+  var wrap = document.getElementById('aux-verdiff-table-wrap');
+  if (!wrap) return;
+  var html = '<table class="aux-bit-table" style="min-width:600px">';
+  html += '<thead><tr><th style="width:120px">位址</th><th style="width:100px">Bit / 值</th><th>名稱</th><th style="width:90px">首見版本</th></tr></thead><tbody>';
+  for (var i = 0; i < DATA.length; i++) {
+    var d = DATA[i];
+    if (d.sec) {
+      html += '<tr><td colspan="4" style="background:#1a2744;color:var(--accent);font-weight:700;font-size:12px;padding:10px 8px;border-bottom:2px solid var(--primary)">'+d.sec+'</td></tr>';
+    } else {
+      html += '<tr><td style="font-family:monospace;font-weight:600;color:var(--primary)">'+d.a+'</td><td style="font-family:monospace;font-size:11px">'+d.b+'</td><td>'+d.n+'</td><td>'+badge(d.v)+'</td></tr>';
+    }
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
 
 function auxInitAll() {
   initAllHexDrums();
