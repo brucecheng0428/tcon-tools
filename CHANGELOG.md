@@ -1,13 +1,12 @@
 # CHANGELOG
 
-## v2.97.383 — 2026-05-22
+## v2.97.384 — 2026-05-22
 
-### 波形區 cursor 改為 grab + 桌面版 LA 垂直拖移修正
+### LA tab 滑鼠拖移即時跟手 + cursor 修正
 
-- **cursor 統一**：TCON 和 LA 波形 canvas 的預設 cursor 從 `crosshair` 改為 `grab`（手張開），拖移中切換 `grabbing`（手抓住），放開恢復 `grab`
-- **LA panning cursor**：`.wfg-la-canvas-area.panning` 的 `cursor: grabbing` 延伸覆蓋子元素 `#wfg-la-canvas` 和 `#wfg-la-overlay`
-- **桌面版 LA 不捲動頁面**：修正 `_wfgFindScrollableParent()` 不再於 `overflow: hidden` 的 `<html>` 元素設定 `scrollTop`，避免桌面版拖移時整個頁面跟著滾動
-- **區分桌面/手機版**：桌面版拖移只動波形區內容（頁面固定）；手機版垂直滑動維持原生頁面捲動（v2.97.382 修正）
+- **LA 拖移即時跟手（核心修正）**：LA tab 的 mousemove panning 原先只更新 `wfgLaViewStart/End` 但未重繪 canvas，導致波形不跟手。新增 `wfgLaRequestScopeRender()` 呼叫，拖移時即時重繪波形（跟 TCON 一致）
+- **cursor 正確行為（TCON + LA 一致）**：預設 `crosshair`（十字指標），mousedown 切 `grabbing`（手抓住），mouseup/mouseleave 恢復 `crosshair`
+- **桌面版 LA 不捲動頁面**：修正 `_wfgFindScrollableParent()` 於 `overflow: hidden` 時回傳 `null`，避免桌面版拖移時整個頁面跟著滾動
 
 ## v2.97.382 — 2026-05-22
 
