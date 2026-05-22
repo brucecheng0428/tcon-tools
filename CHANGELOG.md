@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.97.382 — 2026-05-22
+
+### 修復 TCON 手機版垂直捲動失效
+
+- **問題**：v2.97.381 新增的垂直拖移慣性覆蓋了手機版 TCON tab 的原生垂直捲動（`touchmove` 一開頭就 `e.preventDefault()` + `touch-action: none` 雙重阻擋）
+- **修復**：仿照 LA tab 的方向鎖定機制 — touchmove 先判斷滑動方向，垂直時 `return` 讓瀏覽器處理原生捲動，水平時才 `preventDefault` + 手動平移
+- **CSS**：`#wfg-canvas` 的 `touch-action` 從 `none` 改為 `pan-y pinch-zoom`，與 LA canvas 一致
+- **觸控慣性**：只在方向鎖定為水平 (`'h'`) 時才觸發水平慣性動畫
+- **桌面版不受影響**：滑鼠拖移的水平+垂直慣性功能完整保留
+
 ## v2.97.381 — 2026-05-22
 
 ### 波形區垂直拖移慣性
