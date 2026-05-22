@@ -1371,7 +1371,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "報告目前連接的 Sink 裝置數量。在 SST 模式下通常為 1，MST 模式下可能有多個。CP_READY 旗標用於 HDCP 內容保護。除錯時若讀到 0，代表 Sink 未偵測到或 HPD 尚未觸發。",
   b: [
-    { r:"5:0", n:"SINK_COUNT", c:"Sink 數量", v:{
+    { r:"5:0", n:"SINK_COUNT[5:0]", c:"Sink 數量（低 6 位元）", v:{
       "0":"無 Sink 連接",
       "1":"1 個 Sink（SST 正常值）"
     }},
@@ -1379,7 +1379,7 @@ var DPCD_DB = Object.assign({},
       "0":"HDCP 尚未就緒或不支援",
       "1":"HDCP R0' 已可讀取，可進行認證"
     }},
-    { r:"7", n:"RESERVED", c:"保留", v:{}}
+    { r:"7", n:"SINK_COUNT[6]", c:"Sink 數量（MSB，bit 6）— 與 bit[5:0] 組成不連續 7-bit 欄位", v:{}}
   ]
 },
 
@@ -3535,20 +3535,15 @@ var DPCD_DB = Object.assign({},
         { de: "1=Backlight update synchronized to VBLANK supported — prevents flicker during brightness transitions." }
       ]
     },
-    "00703": { e: "eDP general capability register 2. Additional advanced eDP feature support: backlight frequency mode, regional backlight version, PSR2 extension, Adaptive Sync (VRR).",
+    "00703": { e: "eDP general capability register 2. Reports LCD Overdrive functionality support (eDP v1.4b). Only bit 0 is defined; bits 7:1 are reserved.",
       b: [
-        { de: "Panel luminance control granularity: 0=coarse; 1=fine." },
-        { de: "Backlight PWM frequency control mode: 0=fixed frequency; 1=variable (adjustable) frequency." },
-        { de: "1=minimum dynamic backlight threshold value is settable." },
-        { de: "Regional backlight control version: 0=v1; 1=v2 (finer zone control)." },
-        { de: "PSR2 capability extension (eDP 1.4+). 1=PSR2 Selective Update supported." },
-        { de: "1=Adaptive Sync (variable refresh rate) supported — eDP equivalent of VRR/FreeSync." }
+        { de: "1 = Sink device includes LCD Overdrive functionality (accelerates liquid crystal response to reduce motion blur)." }
       ]
     },
     "00704": { e: "eDP backlight region control capability register. Defines the number of independently controllable 1D backlight regions supported by the panel.",
       b: [
-        { de: "Number of controllable 1D backlight regions in the vertical direction." },
-        { de: "Number of controllable 1D backlight regions in the horizontal direction." }
+        { de: "Number of controllable 1D backlight regions in the horizontal direction (X_REGION_CAP)." },
+        { de: "Number of controllable 1D backlight regions in the vertical direction (Y_REGION_CAP)." }
       ]
     },
     "00705": { e: "Segmented backlight capability register. VESA DPCD mapping.",

@@ -148,3 +148,36 @@
 | bit 6:5 | RESERVED | （合併入 bit 7:4 RESERVED） |
 
 **PDF 出處**：DP v1.4a page 431 — "7:4 RESERVED (Bit 4 is a deprecated FAUX-related bit.) Read all 0s"
+
+---
+
+## v2.1.1 追加修正（3 項）— 2026-05-22
+
+### #13 — 0x00200 SINK_COUNT：bit 7 從 RESERVED 改為 SINK_COUNT MSB
+
+| 項目 | 舊值 | 新值 |
+|------|------|------|
+| bit 7 | RESERVED | SINK_COUNT[6]（MSB） |
+| bit 5:0 | SINK_COUNT | SINK_COUNT[5:0]（低 6 位元） |
+| 欄位結構 | 6-bit 連續 | 7-bit 不連續（bit[7] + bit[5:0]），bit 6 = CP_READY |
+
+**PDF 出處**：DP v1.4a page 425 — SINK_COUNT 為不連續 7-bit 欄位
+
+### #14 — 0x00703 EDP_GENERAL_CAPABILITY_2：英文描述層整段誤植
+
+| 項目 | 舊值 | 新值 |
+|------|------|------|
+| `e` 描述 | 提到 backlight frequency、regional backlight、PSR2、Adaptive Sync（全屬 00702h） | 正確描述 LCD Overdrive 功能 |
+| bit 0 `de` | "Panel luminance control granularity"（屬 00702h） | "LCD Overdrive functionality" |
+| bit 1~5 `de` | 5 個不該存在的英文 bit 描述（從 00702h 誤複製） | 已移除（主定義中 bit 7:1 為 RESERVED） |
+
+**根因**：EDP_DESC 區塊建構時，00703 的英文描述從 00702h 誤複製過來
+
+### #15 — 0x00704 EDP_GENERAL_CAPABILITY_3：英文 de X/Y 方向互換
+
+| 項目 | 舊值 | 新值 |
+|------|------|------|
+| bit 3:0 (X_REGION_CAP) `de` | "vertical direction" | "horizontal direction" |
+| bit 7:4 (Y_REGION_CAP) `de` | "horizontal direction" | "vertical direction" |
+
+**備註**：中文主定義（水平/垂直）原本就正確，僅英文 EDP_DESC 層寫反

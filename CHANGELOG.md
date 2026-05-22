@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## AUX/DPCD 工具 v2.1.1 — 2026-05-22
+
+### DPCD 資料庫 3 項修正
+
+- 00200h SINK_COUNT：bit 7 從 RESERVED 改為 SINK_COUNT[6]（MSB），正確反映 DP v1.4a 定義的不連續 7-bit 欄位（bit[7] + bit[5:0]）
+- 00703h EDP_GENERAL_CAPABILITY_2：英文描述層（EDP_DESC）整個誤植為 00702h 的內容，修正 `e` 描述和 bit 0 `de`，移除多餘的 bit 1~5 英文描述
+- 00704h EDP_GENERAL_CAPABILITY_3：英文 `de` 中 X_REGION_CAP 和 Y_REGION_CAP 的 horizontal/vertical 方向寫反，已互換修正
+
 ## AUX/DPCD 工具 v2.1.0 — 2026-05-22
 
 ### DPCD Skill 資料庫 12 項修正（兩次獨立審查確認）
