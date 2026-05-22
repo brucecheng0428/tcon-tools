@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## AUX/DPCD 工具 v2.2.1 — 2026-05-23
+
+### DPCD 版本差異 tab 多語言支援
+
+- 「版本差異」tab 加入 en / zh-CN 翻譯（tab 標題、卡片標題、描述文字、表頭）
+- 表格內含中文的 DATA 項目（整體、值 XXh、基礎、擴展、座標等）加入英文翻譯，zh-CN 自動繁簡轉換
+- 語言切換時自動重新渲染版本差異表格
+- i18n.js 新增 3 個鍵值（aux.tabVerdiff / aux.verdiffTitle / aux.verdiffDesc）
+- _tAux helper 新增 6 個表頭/欄位翻譯鍵值
+
 ## AUX/DPCD 工具 v2.1.1 — 2026-05-22
 
 ### DPCD 資料庫 3 項修正
