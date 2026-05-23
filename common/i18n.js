@@ -442,7 +442,7 @@ var I18N = {
   'aux.sinkPreambleHint': { 'zh-TW': 'TCON（Sink）回覆的 Preamble pulse 總數', 'en': 'Total Preamble pulses in the TCON (Sink) reply', 'zh-CN': 'TCON（Sink）回复的 Preamble pulse 总数' },
   'aux.tabVerdiff':      { 'zh-TW': '版本差異', 'en': 'Version Diff', 'zh-CN': '版本差异' },
   'aux.verdiffTitle':    { 'zh-TW': 'DPCD 暫存器版本差異總覽', 'en': 'DPCD Register Version Differences', 'zh-CN': 'DPCD 寄存器版本差异总览' },
-  'aux.verdiffDesc':     { 'zh-TW': '列出所有跨版本有差異的 DPCD 暫存器與 bit-level 變更。資料來源：DP v1.2/v1.3/v1.4a、eDP v1.2/v1.3/v1.4b/v1.5 規格書。', 'en': 'Lists all DPCD registers with cross-version differences and bit-level changes. Sources: DP v1.2/v1.3/v1.4a, eDP v1.2/v1.3/v1.4b/v1.5 specifications.', 'zh-CN': '列出所有跨版本有差异的 DPCD 寄存器与 bit-level 变更。数据来源：DP v1.2/v1.3/v1.4a、eDP v1.2/v1.3/v1.4b/v1.5 规格书。' },
+  'aux.verdiffDesc':     { 'zh-TW': '列出所有跨版本有差異的 DPCD 暫存器與 bit-level 變更。資料來源（版本發佈順序）：DP v1.2 / eDP v1.2 / eDP v1.3 / eDP v1.4 / DP v1.3 / eDP v1.4a / eDP v1.4b / DP v1.4a / DP v2.0 / eDP v1.5', 'en': 'Lists all DPCD registers with cross-version differences and bit-level changes. Data sources (version release order): DP v1.2 / eDP v1.2 / eDP v1.3 / eDP v1.4 / DP v1.3 / eDP v1.4a / eDP v1.4b / DP v1.4a / DP v2.0 / eDP v1.5', 'zh-CN': '列出所有跨版本有差异的 DPCD 寄存器与 bit-level 变更。数据来源（版本发布顺序）：DP v1.2 / eDP v1.2 / eDP v1.3 / eDP v1.4 / DP v1.3 / eDP v1.4a / eDP v1.4b / DP v1.4a / DP v2.0 / eDP v1.5' },
   'isp.title':          { 'zh-TW': 'iSP 波形產生器', 'en': 'iSP Waveform Generator', 'zh-CN': 'iSP 波形产生器' },
   'isp.subtitle':       { 'zh-TW': 'iSP 8B9B 編碼差動訊號波形模擬', 'en': 'iSP 8B9B encoded differential waveform simulator', 'zh-CN': 'iSP 8B9B 编码差动讯号波形模拟' },
   'isp.modeHeader':     { 'zh-TW': '模式設定', 'en': 'Mode Settings', 'zh-CN': '模式设定' },
