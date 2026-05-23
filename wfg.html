@@ -11348,8 +11348,6 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     }
     return true;
   });
-  /* （sandwich filter 已移至 wfgLaDecodeDpAuxFrames 外層管線末端，
-   *   因為 wfgLaDpAuxAddUncoveredActivityRows 會在外層重新生成 Unparsed ERR） */
 	  var rows = [];
   var previousRequest = null;
   frames.forEach(function(frame) {
@@ -11445,60 +11443,7 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
   rows = wfgLaDpAuxSplitLeadingShortFormatErrorRows(rows, edges, ch, nominalBitT, cfg.tolerance);
   rows = wfgLaNormalizeDpAuxAnomalyRows(rows);
   traceRows('final-normalize', rows);
-  /* ═══ v2.97.394: Pre-charge absorption ═══
-   * 取代 v2.97.393 的 sandwich filter（掩耳盜鈴：移除 ERR 但波形仍有無 overlay 的脈衝）。
-   * 新做法：將緊鄰 decoded frame SYNC 前的短暫 "Unparsed AUX activity" 吸收進
-   * 該 frame 的 overlay 範圍（擴展 syncStartTime），讓 overlay 覆蓋到 pre-charge 活動。
-   *
-   * 判定條件：
-   *   1. 為 auxAnomaly 且 value 含 "Unparsed AUX activity"
-   *   2. 持續時間 ≤ 200μs
-   *   3. 後方第一個非 ERR 行的 syncStartTime 在 ERR endTime 的 200μs 以內
-   *   4. 前方存在至少一筆正常 decoded frame（確認非 capture 開頭的孤立活動）
-   * 效果：ERR 行被移除 + 相鄰 frame 的 syncStartTime 向前延伸覆蓋該活動 */
-  (function preChargeAbsorption() {
-    var maxDur = Math.max(200e-6, nominalBitT * 100);
-    var maxGap = Math.max(200e-6, nominalBitT * 200);
-    var absorbed = {};
-    for (var idx = 0; idx < rows.length; idx++) {
-      var row = rows[idx];
-      if (!row.auxAnomaly) continue;
-      if ((row.value || '').indexOf('Unparsed AUX activity') < 0) continue;
-      var dur = (row.endTime || row.time) - row.time;
-      if (dur > maxDur) continue;
-      var errEnd = row.endTime || row.time;
-      var errStart = row.time;
-      /* 前方須存在正常 decoded frame（排除 capture 開頭的孤立活動） */
-      var hasPrev = false;
-      for (var pi = idx - 1; pi >= 0; pi--) {
-        if (rows[pi].type !== 'ERR') { hasPrev = true; break; }
-      }
-      if (!hasPrev) continue;
-      /* 找後方最近的 decoded frame，檢查 syncStartTime 是否在 maxGap 以內 */
-      for (var ni = idx + 1; ni < rows.length; ni++) {
-        if (rows[ni].auxAnomaly) continue;
-        var ns = Number(rows[ni].syncStartTime);
-        if (!isFinite(ns)) ns = Number(rows[ni].time);
-        var gap = ns - errEnd;
-        if (gap >= 0 && gap < maxGap) {
-          /* 吸收：擴展 frame 的 syncStartTime 向前覆蓋 pre-charge 活動 */
-          if (isFinite(errStart) && errStart < ns) {
-            rows[ni].syncStartTime = errStart;
-          }
-          /* 同步更新 auxSegments overlay 範圍（如果有） */
-          (rows[ni].auxSegments || []).forEach(function(seg) {
-            if (seg && isFinite(Number(seg.overlayStartTime)) && errStart < seg.overlayStartTime) {
-              seg.overlayStartTime = errStart;
-            }
-          });
-          absorbed[idx] = true;
-        }
-        break;
-      }
-    }
-    rows = rows.filter(function(row, idx) { return !absorbed[idx]; });
-  })();
-  traceRows('pre-charge-absorption', rows);
+  /* v2.97.396: pre-charge absorption (v2.97.394) 已移除 — v2.97.395 修正 START inRange 邊界後不再需要 */
   rows = wfgLaMarkDpAuxCommunicationWarnings(rows);
   rows = wfgLaMarkDpAuxPreambleWarnings(rows);
   return wfgLaNumberDpAuxRows(rows);
