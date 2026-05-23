@@ -1342,7 +1342,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260523c"></script>
+<script src="common/version.js?v=20260523d"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -11448,12 +11448,13 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
    * 判定條件：
    *   1. 為 auxAnomaly 且 value 含 "Unparsed AUX activity"
    *   2. 持續時間 ≤ 200μs（正常 AUX 交易約 60~90μs）
-   *   3. 前後最近的非 ERR 行都在 500μs 內（被正常通訊夾心）
-   * ⚠️ 僅移除被正常通訊包圍的短暫 Unparsed ERR，
+   *   3. 前方存在至少一筆正常 decoded frame（不限距離，確認非 capture 開頭）
+   *   4. 後方最近的非 ERR 行在 10ms 內（確認 ERR 後緊跟正常通訊）
+   * ⚠️ 僅移除正常通訊上下文中的短暫 Unparsed ERR，
    *     不影響真正的 format error 或孤立的 anomaly */
   (function sandwichFilterUnparsedErr() {
     var maxDur = Math.max(200e-6, nominalBitT * 100);
-    var gap = Math.max(500e-6, nominalBitT * 10);
+    var nextGap = Math.max(10e-3, nominalBitT * 10000);
     rows = rows.filter(function(row, idx) {
       if (!row.auxAnomaly) return true;
       if ((row.value || '').indexOf('Unparsed AUX activity') < 0) return true;
@@ -11461,15 +11462,12 @@ function wfgLaDecodeDpAuxFrames(decoded, cfg) {
       if (dur > maxDur) return true;
       var hasPrev = false, hasNext = false;
       for (var pi = idx - 1; pi >= 0; pi--) {
-        if (rows[pi].type !== 'ERR') {
-          if (row.time - (rows[pi].endTime || rows[pi].time) < gap) hasPrev = true;
-          break;
-        }
+        if (rows[pi].type !== 'ERR') { hasPrev = true; break; }
       }
       for (var ni = idx + 1; ni < rows.length; ni++) {
         if (rows[ni].type !== 'ERR') {
           var ns = rows[ni].syncStartTime || rows[ni].time;
-          if (ns - (row.endTime || row.time) < gap) hasNext = true;
+          if (ns - (row.endTime || row.time) < nextGap) hasNext = true;
           break;
         }
       }
