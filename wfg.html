@@ -9771,91 +9771,10 @@ function wfgLaDpAuxClassifyBytes(bytes, previousRequest) {
   return { kind: 'unknown' };
 }
 
-function wfgLaDpAuxBuildFrameRows(frame, packet, previousRequest) {
-  var rows = [];
-  var bytes = frame.bytes || [];
-  var cls = wfgLaDpAuxClassifyBytes(bytes, previousRequest);
-  var firstTime = frame.startTime || (frame.bitTimes && frame.bitTimes.length ? frame.bitTimes[0] : 0);
-  var endTime = frame.endTime || frame.stopTime || firstTime;
-  function applyTiming(row) {
-    var bitT = Number(frame.bitT) || 0;
-    row.auxBitT = bitT;
-    row.payloadStartTime = frame.payloadStart != null ? frame.payloadStart : null;
-    row.payloadEndTime = frame.payloadStart != null && bitT ? frame.payloadStart + (bytes.length * 8 * bitT) : null;
-    row.startRegionStart = frame.startTime != null ? frame.startTime : null;
-    row.startRegionEnd = frame.payloadStart != null ? frame.payloadStart : null;
-    row.stopRegionStart = row.payloadEndTime;
-    row.stopRegionEnd = frame.stopTime != null ? frame.stopTime : row.payloadEndTime;
-    row.bitTimes = frame.bitTimes && bitT ? frame.bitTimes.slice(0, bytes.length * 8).map(function(t) { return t + bitT / 2; }) : [];
-    row.bits = frame.bits ? frame.bits.slice(0, bytes.length * 8) : [];
-    return row;
-  }
-  if (cls.kind === 'request') {
-    var addr = wfgLaDpAuxAddressFromBytes(bytes);
-    var len = bytes.length >= 4 ? ((bytes[3] & 0xff) + 1) : 0;
-    var cmdName = wfgLaDpAuxCommandName(cls.cmd);
-    var dataBytes = bytes.length > 4 ? bytes.slice(4, 4 + len) : [];
-    var data = dataBytes.length ? wfgLaHexBytes(dataBytes) : '';
-    var dpcdEntry = cls.isNative ? wfgLaDpAuxDpcdEntry(addr) : null;
-    var dpcdName = dpcdEntry ? ' / ' + dpcdEntry.n : '';
-    var value = 'ADDR 0x' + addr.toString(16).toUpperCase().padStart(5, '0') + ' / LEN ' + len + (data ? ' / DATA ' + data : '');
-    rows.push(applyTiming({
-      time: firstTime,
-      endTime: endTime,
-      packet: packet,
-      type: 'REQ',
-      rw: cmdName,
-      value: value,
-      ack: cls.isNative ? 'Native' : 'I2C-over-AUX',
-      raw: bytes.slice(),
-      channel: frame.channel,
-      dpcdAddr: cls.isNative ? addr : null,
-      dpcdVal: (cls.isNative && dataBytes.length) ? wfgLaHexByte(dataBytes[0]).slice(2) : null,
-      dpcdTip: cls.isNative ? wfgLaDpcdTooltipText(addr, dataBytes.length ? wfgLaHexByte(dataBytes[0]).slice(2) : '') : '',
-      dpcdWarn: cls.isNative && dataBytes.length ? dataBytes.some(function(b, idx) { return wfgLaIsAbnormalDpcdValue(addr + idx, b); }) : false,
-      label: cmdName.replace(/^Native AUX /, '').replace(/^I2C /, 'I2C ') + ' 0x' + addr.toString(16).toUpperCase().padStart(5, '0') + dpcdName
-    }));
-    return { rows: rows, request: { isNative: cls.isNative, cmd: cls.cmd, addr: addr, len: len, time: firstTime, isRead: wfgLaDpAuxIsReadCmd(cls.cmd), isWrite: wfgLaDpAuxIsWriteCmd(cls.cmd) } };
-  }
-  if (cls.kind === 'reply') {
-    var statusName = wfgLaDpAuxReplyName(bytes[0], cls.isNative);
-    var repData = bytes.length > 1 ? wfgLaHexBytes(bytes.slice(1)) : '';
-    var repAddr = previousRequest && previousRequest.isNative && previousRequest.isRead ? previousRequest.addr : null;
-    var repEntry = repAddr != null ? wfgLaDpAuxDpcdEntry(repAddr) : null;
-    var repValue = repData || '--';
-    if (repEntry) repValue += ' / ' + repEntry.n;
-    rows.push(applyTiming({
-      time: firstTime,
-      endTime: endTime,
-      packet: packet,
-      type: 'REPLY',
-      rw: statusName,
-      value: repValue,
-      ack: ((bytes[0] & 0x0f) !== 0) ? 'WARN low nibble' : 'OK',
-      raw: bytes.slice(),
-      channel: frame.channel,
-      dpcdAddr: repAddr,
-      dpcdVal: repData ? wfgLaHexByte(bytes[1]).slice(2) : null,
-      dpcdTip: repAddr != null ? wfgLaDpcdTooltipText(repAddr, repData ? wfgLaHexByte(bytes[1]).slice(2) : '') : '',
-      dpcdWarn: repAddr != null && bytes.length > 1 ? bytes.slice(1).some(function(b, idx) { return wfgLaIsAbnormalDpcdValue(repAddr + idx, b); }) : false,
-      label: statusName + (repData ? ' ' + repData : '')
-    }));
-    return { rows: rows, request: null };
-  }
-  rows.push(applyTiming({
-    time: firstTime,
-    endTime: endTime,
-    packet: packet,
-    type: 'AUX',
-    rw: 'Unknown',
-    value: wfgLaHexBytes(bytes),
-    ack: bytes.length ? '' : 'No bytes',
-    raw: bytes.slice(),
-    channel: frame.channel,
-    label: bytes.length ? wfgLaHexBytes(bytes) : 'AUX frame'
-  }));
-  return { rows: rows, request: previousRequest };
-}
+/* ── wfgLaDpAuxBuildFrameRows 已刪除 ──
+ * 這是死碼（無任何呼叫端），且內含語義錯誤的 applyTiming (bitTimes + bitT/2)。
+ * 實際使用的是 wfgLaDpAuxSourceBuildRow (下方)。
+ * 刪除於 Manchester 對齊統一修復。 */
 
 function wfgLaDpAuxSourceSystemText(bytes) {
   bytes = bytes || [];
@@ -10825,6 +10744,7 @@ function wfgLaDpAuxValidatePreambleRows(rows, edgesSec, ch, nominalBitT, tolPct)
   };
   row.syncCount = frame.syncCount || 0;
   row.auxBitT = frame.bitT || 0;
+  row.syncBitTimes = frame.syncBitTimes ? frame.syncBitTimes.slice() : [];
   row.syncStartTime = frame.syncStartTime != null ? frame.syncStartTime : null;
   row.syncEndTime = frame.syncEndTime != null ? frame.syncEndTime : null;
   row.startRegionStart = frame.startRegionStart != null ? frame.startRegionStart : null;
@@ -10883,9 +10803,19 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     return edges[j];
   }
   function bitStateAfterEdge(edgeIndex) { return (initial + edgeIndex + 1) & 1; }
+  /* ⚠️ Manchester II 編碼核心規則 — 修改前必讀 ⚠️
+   * bit 0 = rising edge  (L→H, beforeLevel=0 → afterLevel=1)
+   * bit 1 = falling edge (H→L, beforeLevel=1 → afterLevel=0)
+   *
+   * 相關函式（改一個必須檢查所有）：
+   *   manchesterBitFromTransition — 定義 bit 值（本函式）
+   *   drawDigitsAtTimes — 統一繪製 bit 數字（渲染端）
+   *   buildSyncBitTimes — SYNC 區域 edge-walk（decoder 端，在 frames.push 前）
+   *   wfgLaDpAuxSourceBuildRow — 傳遞 bitTimes/syncBitTimes 到 row
+   */
   function manchesterBitFromTransition(beforeLevel, afterLevel) {
-    if (beforeLevel === 0 && afterLevel === 1) return 0;
-    if (beforeLevel === 1 && afterLevel === 0) return 1;
+    if (beforeLevel === 0 && afterLevel === 1) return 0;  // rising → 0
+    if (beforeLevel === 1 && afterLevel === 0) return 1;  // falling → 1
     return null;
   }
   function wfgLaDpAuxBytesToBits(srcBytes) {
@@ -11300,12 +11230,30 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
         continue;
       }
       bytes = sampledPayload.raw.slice(0, bytes.length);
-      // Edge-parsed bitTimes are based on actual waveform edges (more precise)
-      // Only fall back to sampledPayload arithmetic bitTimes when edge data unavailable
+      /* ── bitTimes 語義定義 ──
+       * bitTimes[i] = 第 i 個 bit 的 mid-cell transition 時間（秒）
+       * Manchester II: bit 0 = rising edge time, bit 1 = falling edge time
+       * 精確度：edge-parsed 來自實際波形 edge（精確），算術 fallback 有累積漂移風險
+       * 消費者：drawDigitsAtTimes (渲染), wfgLaDpAuxSourceBuildRow (row builder) */
       if (edgeParsedPayload) {
         bitTimes = bitTimes.slice(0, expectedBits);
       } else {
         bitTimes = sampledPayload.bitTimes.slice(0, expectedBits);
+      }
+      /* ── Build edge-based syncBitTimes ──
+       * SYNC bits are all 0 → mid-cell transition is rising edge (L→H).
+       * Walk edges in the SYNC region, pick rising edges as bit positions.
+       * This prevents arithmetic drift in SYNC digit rendering. */
+      var syncBitTimes = [];
+      if (syncCountBits > 0 && syncFirstIndex >= 0) {
+        var syncEndSample = Math.round(syncEndTime * sampleRate);
+        for (var sei = syncFirstIndex; sei < edges.length && syncBitTimes.length < syncCountBits; sei++) {
+          if (edges[sei] > syncEndSample + tError) break;
+          // rising edge = afterState is 1 → this is a mid-cell transition for bit 0
+          if (((initial + sei + 1) & 1) === 1) {
+            syncBitTimes.push(edges[sei] / sampleRate);
+          }
+        }
       }
       frames.push({
         packet: packet,
@@ -11323,6 +11271,7 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
         stopRegionStart: stopRegionStart,
         stopRegionEnd: stopRegionEnd,
         bitTimes: bitTimes,
+        syncBitTimes: syncBitTimes,
         bits: sampledPayload.bits ? sampledPayload.bits.slice(0, bytes.length * 8) : [],
         bytes: bytes
 	      });
@@ -12330,23 +12279,66 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           ctx.restore();
           ctx.lineWidth = 1;
         }
-        function drawRawBits(t0, bits, yText, baseBitT, skipRanges) {
-          var drawBitT = Number(baseBitT) || bitT;
+        /* ================================================================
+         *  drawDigitsAtTimes — 統一的 bit 數字繪製函式
+         * ================================================================
+         *  ⚠️  Manchester II 編碼對齊鐵律（修改前必讀）：
+         *
+         *  1. bit 0 = 正緣 (rising edge, L→H mid-cell transition)
+         *     bit 1 = 負緣 (falling edge, H→L mid-cell transition)
+         *
+         *  2. 每個 bit 數字的 x 座標必須對齊實際波形 edge 位置。
+         *     ★ 禁止使用純算術定位 (t0 + i * bitT) 作為主路徑 ★
+         *     算術定位只能作為完全沒有 edge 資料時的 fallback。
+         *
+         *  3. 所有區域（SYNC / START / PAYLOAD / STOP）的 bit 數字
+         *     都必須透過這個統一函式繪製，不得各自實作。
+         *
+         *  4. 相關函式清單（改一個必須檢查所有）：
+         *     - drawDigitsAtTimes (本函式) — 統一繪製
+         *     - wfgLaDecodeDpAuxSourceRows — decoder 產生 bitTimes/syncBitTimes
+         *     - wfgLaDpAuxSourceBuildRow — row builder 傳遞時間資料
+         *     - 渲染端呼叫處 (搜尋 "drawDigitsAtTimes" 即可找到)
+         *
+         *  歷史教訓：此問題在 v2.97.351~354 之間經歷 4 輪修復又退化，
+         *  根因是三條獨立繪製路徑各自算位置、修一漏二。
+         *  統一成此函式就是為了一勞永逸。
+         * ================================================================ */
+        function drawDigitsAtTimes(digits, times, yText, fallbackStart, fallbackBitT, skipRanges) {
+          if (!digits || !digits.length) return;
+          var drawBitT = Number(fallbackBitT) || bitT;
           if (!drawBitT || drawBitT <= 0) return;
-          if (xOf(t0 + drawBitT) - xOf(t0) < 3.5) return;
+          var refStart = isFinite(Number(fallbackStart)) ? Number(fallbackStart) : payloadStart;
+          if (xOf(refStart + drawBitT) - xOf(refStart) < 3.5) return;
+          /* Runtime drift guard: 如果 times[i] 和算術預期值偏差超過 0.4*bitT，
+           * 發出 console.warn。此機制用於偵測 bitTimes 語義錯誤或 edge-walk 故障。 */
+          if (times && times.length && drawBitT > 0 && isFinite(refStart)) {
+            for (var chki = 0; chki < Math.min(times.length, digits.length); chki++) {
+              if (times[chki] == null) continue;
+              var expected = refStart + (chki + 0.5) * drawBitT;
+              if (Math.abs(times[chki] - expected) > drawBitT * 0.4) {
+                console.warn('[Manchester drift guard] bit', chki, 'time', times[chki].toFixed(9),
+                  'vs expected', expected.toFixed(9), 'delta', ((times[chki] - expected) / drawBitT * 100).toFixed(1) + '% of bitT');
+                break;  // 只警告第一個漂移，避免 console 洪水
+              }
+            }
+          }
           ctx.font = 'bold 12px "SF Mono", Consolas, monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#ffffff';
           ctx.strokeStyle = 'rgba(2,6,23,0.98)';
           ctx.lineWidth = 2.5;
-          for (var dbi = 0; dbi < bits.length; dbi++) {
-            var rawBitTime = t0 + (dbi + 0.5) * drawBitT;
-            if (bitTimeInRanges(rawBitTime, drawBitT, skipRanges)) continue;
-            var dbx = xOf(rawBitTime);
-            if (dbx < g.drawX0 || dbx > g.cssW) continue;
-            ctx.strokeText(String(bits[dbi]), dbx, yText);
-            ctx.fillText(String(bits[dbi]), dbx, yText);
+          for (var ddi = 0; ddi < digits.length; ddi++) {
+            if (digits[ddi] == null) continue;
+            // 優先使用 edge-based times；fallback 到算術定位
+            var t = (times && times[ddi] != null) ? times[ddi] : (refStart + (ddi + 0.5) * drawBitT);
+            if (!isFinite(t)) continue;
+            if (bitTimeInRanges(t, drawBitT, skipRanges)) continue;
+            var dx = xOf(t);
+            if (dx < g.drawX0 || dx > g.cssW) continue;
+            ctx.strokeText(String(digits[ddi]), dx, yText);
+            ctx.fillText(String(digits[ddi]), dx, yText);
           }
           ctx.lineWidth = 1;
         }
@@ -12362,67 +12354,28 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           }
           return false;
         }
-        function drawByteBits(rawBytes, times, yText, basePayloadStart, baseBitT, skipRanges) {
+        /* drawByteBits / drawBitValues 已統一為 drawDigitsAtTimes (上方)。
+         * 以下 helper 將 rawBytes 展開成 digits+times 格式供 drawDigitsAtTimes 使用。 */
+        function bytesToDigitsAndTimes(rawBytes, times, basePayloadStart, baseBitT) {
           rawBytes = rawBytes || [];
           times = times || [];
-          var bitTotal = rawBytes.length * 8;
-          if (!bitTotal || bitTotal > 512) return;
+          var digits = [];
+          var outTimes = [];
           var drawBitT = Number(baseBitT) || bitT;
+          var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
           /* Only override drawBitT with configured bit rate when measured baseBitT is unavailable */
           if (analyzer.type === 'dp_aux' && !times.length && !Number(baseBitT)) {
             var configuredBitRate = Number(analyzer.config && analyzer.config.bitRate) || 0;
             if (configuredBitRate > 0) drawBitT = 1 / configuredBitRate;
           }
-          var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
-          var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
-          if (bitW < 3.5) return;
-          ctx.font = 'bold 12px "SF Mono", Consolas, monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = 'rgba(2,6,23,0.98)';
-          ctx.lineWidth = 2.5;
           for (var rb = 0; rb < rawBytes.length; rb++) {
             for (var bi = 7; bi >= 0; bi--) {
               var bitIdx = rb * 8 + (7 - bi);
-              var bitVal = (rawBytes[rb] >> bi) & 1;
-              var bitTime = times[bitIdx];
-              if (bitTime == null) bitTime = drawPayloadStart + (bitIdx + 0.5) * drawBitT;
-              if (!isFinite(bitTime)) continue;
-              if (bitTimeInRanges(bitTime, drawBitT, skipRanges)) continue;
-              var bx = xOf(bitTime);
-              if (bx < g.drawX0 || bx > g.cssW) continue;
-              ctx.strokeText(String(bitVal), bx, yText);
-              ctx.fillText(String(bitVal), bx, yText);
+              digits.push((rawBytes[rb] >> bi) & 1);
+              outTimes.push(times[bitIdx] != null ? times[bitIdx] : null);
             }
           }
-          ctx.lineWidth = 1;
-        }
-        function drawBitValues(bits, times, yText, basePayloadStart, baseBitT, skipRanges) {
-          bits = bits || [];
-          times = times || [];
-          if (!bits.length || bits.length > 768) return;
-          var drawBitT = Number(baseBitT) || bitT;
-          var drawPayloadStart = isFinite(Number(basePayloadStart)) ? Number(basePayloadStart) : payloadStart;
-          var bitW = drawBitT ? (xOf(drawPayloadStart + drawBitT) - xOf(drawPayloadStart)) : 0;
-          if (bitW < 3.5) return;
-          ctx.font = 'bold 12px "SF Mono", Consolas, monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = 'rgba(2,6,23,0.98)';
-          ctx.lineWidth = 2.5;
-          for (var bvi = 0; bvi < bits.length; bvi++) {
-            if (bits[bvi] == null) continue;
-            var bitTime = times[bvi];
-            if (bitTime == null) bitTime = drawPayloadStart + (bvi + 0.5) * drawBitT;
-            if (bitTimeInRanges(bitTime, drawBitT, skipRanges)) continue;
-            var bx = xOf(bitTime);
-            if (bx < g.drawX0 || bx > g.cssW) continue;
-            ctx.strokeText(String(bits[bvi]), bx, yText);
-            ctx.fillText(String(bits[bvi]), bx, yText);
-          }
-          ctx.lineWidth = 1;
+          return { digits: digits, times: outTimes, payloadStart: drawPayloadStart, bitT: drawBitT };
         }
         if (row.auxAnomaly) {
           var anomalySegments = row.auxSegments && row.auxSegments.length ? row.auxSegments : [{
@@ -12472,7 +12425,11 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
           var pst = preambleStatus(row.syncCount);
           if (!pst.ok || pst.warning) drawGlassRegion(syncStart, syncEnd, pst.fill, pst.stroke);
           regionMarker(syncStart, syncEnd, y, h, row.syncCount + ' SYNCs', pst.textFill, pst.textStroke);
-          drawRawBits(syncStart, Array(Math.min(256, Number(row.syncCount) || 0)).fill(0), centerY, bitT, auxAnomalyRanges);
+          drawDigitsAtTimes(
+            Array(Math.min(256, Number(row.syncCount) || 0)).fill(0),
+            row.syncBitTimes || null,  // edge-based SYNC times from decoder
+            centerY, syncStart, bitT, auxAnomalyRanges
+          );
         }
         regionMarker(startStart, startEnd, y, h, 'START #' + row.packet, 'rgba(14,116,144,0.9)', '#67e8f9');
         regionMarker(stopStart, stopEnd, y, h, 'STOP', 'rgba(126,34,206,0.9)', '#d8b4fe');
@@ -12480,9 +12437,11 @@ function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
         var hhllSkipRanges = [[startStart, startEnd], [stopStart, stopEnd]].concat(auxAnomalyRanges);
         if (row.bits && row.bits.length) {
           var bitsToDraw = raw.length ? row.bits.slice(0, raw.length * 8) : row.bits;
-          drawBitValues(bitsToDraw, bitTimes, centerY, payloadStart, bitT, hhllSkipRanges);
+          drawDigitsAtTimes(bitsToDraw, bitTimes, centerY, payloadStart, bitT, hhllSkipRanges);
+        } else if (raw.length) {
+          var byteInfo = bytesToDigitsAndTimes(raw, bitTimes, payloadStart, bitT);
+          drawDigitsAtTimes(byteInfo.digits, byteInfo.times, centerY, byteInfo.payloadStart, byteInfo.bitT, hhllSkipRanges);
         }
-        else drawByteBits(raw, bitTimes, centerY, payloadStart, bitT, hhllSkipRanges);
         ctx.restore();
       }
       drawn++;
