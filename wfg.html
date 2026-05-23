@@ -11090,6 +11090,16 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
               endSample: edges[syncFirstIndex],
               reason: 'AUX preamble gap format error'
             };
+          } else if (isHalfRange(preGap)) {
+            // ⚠️ preGap 是 tHalf 間距 → 這個 edge 是 SYNC preamble 的一部分，不丟棄
+            // 修復前：preGap 在 isHalfRange(37~63) 但 followsTurnAround 失敗時，
+            //   整個 SYNC 被丟棄（因為落入 else 分支）
+            // 根因：Type 1 ERR 破壞 lastFrameStopEndSample → followsTurnAround 失敗 → 連鎖誤殺
+            // 修復後：將此 edge 納入 SYNC 計數，擴展 SYNC 起始點
+            syncFirstIndex = syncFirstIndex - 1;
+            syncFirstEdge = edges[syncFirstIndex];
+            syncCount++;
+            pendingPrefixFormatError = null;
           } else {
             syncCount = 0;
             syncFirstEdge = 0;
@@ -11106,20 +11116,31 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
           if (i >= edges.length) break;
           next = edges[i];
           dist = next - edge;
-          if (inRange(dist, 5 * tHalf)) {
-            synchronized = true;
-            packet++;
-            startSample = next - tHalf;
-          } else if (inRange(dist, 4 * tHalf)) {
-            synchronized = true;
-            packet++;
-            startSample = next;
-            edge = edges[i];
-            i++;
-            if (i >= edges.length) break;
-            next = edges[i];
-            dist = next - edge;
-            if (!inRange(dist, tHalf)) synchronized = false;
+          // ⚠️ START 第二個 gap 驗證：用連續範圍取代兩個離散 inRange
+          // 修復前：inRange(dist, 5*tHalf) 和 inRange(dist, 4*tHalf) 之間有 dead zone
+          //   [4*tHalf-tError, 4*tHalf+tError] = [187,213] 和 [5*tHalf-tError, 5*tHalf+tError] = [237,263]
+          //   dead zone [214,236] 寬 23 samples，edge jitter 可讓合法 START gap 落入此區
+          // 修復後：合併為連續範圍 [4*tHalf-tError, 5*tHalf+tError]，用 4.5*tHalf 分界判定 first data bit
+          var startGapMin = 4 * tHalf - tError;
+          var startGapMax = 5 * tHalf + tError;
+          if (dist > startGapMin && dist < startGapMax) {
+            if (dist >= 4.5 * tHalf) {
+              // closer to 5*tHalf → first data bit = 0
+              synchronized = true;
+              packet++;
+              startSample = next - tHalf;
+            } else {
+              // closer to 4*tHalf → first data bit = 1
+              synchronized = true;
+              packet++;
+              startSample = next;
+              edge = edges[i];
+              i++;
+              if (i >= edges.length) break;
+              next = edges[i];
+              dist = next - edge;
+              if (!inRange(dist, tHalf)) synchronized = false;
+            }
           } else {
             addAnomaly(syncFirstEdge, next + tHalf, 'Invalid START timing', syncCount, edge);
             syncCount = 0;
