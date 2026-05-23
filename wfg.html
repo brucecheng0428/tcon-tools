@@ -11304,6 +11304,25 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
 	    }
 	  }
 	  addUnparsedActivityAnomalies();
+  /* ═══ 後處理：移除 pre-charge edge 被誤判為 Narrow glitch 的 anomaly ═══
+   * "Narrow AUX format glitch" 的 endTime 若緊鄰某個 decoded frame 的 syncStartTime
+   * 代表這個 "glitch" 其實是 turn-around pre-charge edge，不是真正的 format error
+   * 這個後處理修復了 followsTurnAround 無法涵蓋的情況：
+   * 當 lastFrameStopEndSample 離太遠（中間有未解碼的 AUX 交易）時 */
+  var frameSyncStarts = {};
+  frames.forEach(function(f) {
+    if (isFinite(f.syncStartTime)) {
+      frameSyncStarts[Math.round(f.syncStartTime * sampleRate)] = true;
+    }
+  });
+  anomalies = anomalies.filter(function(a) {
+    if (!a.shortFormatError || a.reason !== 'Narrow AUX format glitch') return true;
+    var endSample = Math.round(a.endTime * sampleRate);
+    for (var delta = -2; delta <= 2; delta++) {
+      if (frameSyncStarts[endSample + delta]) return false;
+    }
+    return true;
+  });
 	  var rows = [];
   var previousRequest = null;
   frames.forEach(function(frame) {
