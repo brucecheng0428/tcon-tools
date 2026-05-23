@@ -10786,6 +10786,14 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
 	  var tolPct = Math.max(0.005, Math.min(0.25, (Number(cfg.tolerance) || 25) / 100));
 	  var tError = Math.max(3, Math.round(tHalf * tolPct));
   var syncBits = Math.max(1, Number(cfg.syncBits) || 16);
+  /* ═══ DP AUX 協議 turn-around time 常數 ═══
+   * REQ→REPLY 或 REPLY→REQ 方向切換時，新 driver 會先產生 pre-charge edge
+   * 再開始 SYNC preamble。pre-charge edge 與前一個 frame STOP 之間的間隔
+   * 就是 turn-around time。DP 規格典型值 1~100μs，最大 400μs。
+   * 這個 edge 不是 glitch，不應標記為 ERR。
+   * ⚠️ 修改此常數前請確認不會影響真正的 format error 偵測 */
+  var AUX_TURN_AROUND_MAX_SEC = 400e-6;
+  var auxTurnAroundMaxSamples = Math.max(1, Math.round(sampleRate * AUX_TURN_AROUND_MAX_SEC));
   function inRange(v, target) { return v > (target - tError) && v < (target + tError); }
   function isHalfRange(v) { return v > (tHalf - tError) && v < (tHalf + tError); }
   function precedingHalfRunGapCount(edgeIndex) {
@@ -11059,7 +11067,16 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
           var followsPreviousStop = isFinite(lastFrameStopEndSample)
             && edges[syncFirstIndex - 1] <= lastFrameStopEndSample + tError
             && edges[syncFirstIndex] >= lastFrameStopEndSample - tError;
-          if (followsPreviousStop) {
+          /* ═══ followsTurnAround: 修復 AUX turn-around pre-charge 誤判 ═══
+           * REQ→REPLY 或 REPLY→REQ 方向切換時，driving side 產生 pre-charge edge
+           * 與前一個 frame STOP 之間間隔為 turn-around time（典型 1~100μs）
+           * 這個 edge 不是 glitch，是正常的 turn-around 行為
+           * ⚠️ 此條件修復了 "Narrow AUX format glitch" 誤判（832 筆）
+           *     和部分 "Unparsed AUX activity" 誤判（SYNC 被錯誤丟棄） */
+          var followsTurnAround = isFinite(lastFrameStopEndSample)
+            && edges[syncFirstIndex - 1] >= lastFrameStopEndSample - tError
+            && (edges[syncFirstIndex - 1] - lastFrameStopEndSample) <= auxTurnAroundMaxSamples;
+          if (followsPreviousStop || followsTurnAround) {
             pendingPrefixFormatError = null;
           } else if (preGap <= glitchMax && previousQuiet) {
             pendingPrefixFormatError = {
@@ -11416,6 +11433,17 @@ function wfgLaApplyPresetDecodeResults(groups) {
       (g.rows || []).some(function(r) { return (r.type === 'ADDR' || r.type === 'DATA') && !r.i2cBits; });
   });
   if (needsI2cBits) return false;
+  /* v2.97.388 fix: AUX decoder 已修正 turn-around pre-charge 誤判
+   * 偵測到舊版 snapshot 含 "Narrow AUX format glitch" ERR 時
+   * 回退到 wfgLaRunAnalyzers() 用修正後的 decoder 重新解碼 */
+  var hasStaleAuxGlitchErrors = groups.some(function(g) {
+    return g.analyzerType === 'dp_aux' &&
+      (g.rows || []).some(function(r) {
+        return r.type === 'ERR' && r.description &&
+          r.description.indexOf('Narrow AUX format glitch') >= 0;
+      });
+  });
+  if (hasStaleAuxGlitchErrors) return false;
   wfgLaDecodeResults = groups.map(function(group, idx) {
     var analyzer = wfgLaAnalyzers[idx] || { id: wfgLaAnalyzerNextId++, type: group.analyzerType || '', config: {} };
     var rows = (group.rows || []).map(function(row, ri) {
