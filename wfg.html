@@ -11344,6 +11344,45 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
     }
     return true;
   });
+  /* ═══ 後處理：移除被正常 frame 夾心的 Unparsed AUX activity 誤判 ═══
+   * DP AUX 解碼器在 START gap 邊界情況（dead zone、edge jitter）時
+   * 可能無法完成 byte reading，導致合法 AUX 交易被標記為 Unparsed。
+   * 判定條件：
+   *   1. 類型為 "Unparsed AUX activity"（非 Invalid START、非 format error）
+   *   2. 前後都有正常 decoded frame（前 frame endTime 在 ERR 前 500μs 內，
+   *      後 frame syncStartTime 在 ERR 後 500μs 內）
+   *   3. ERR 持續時間合理（< 200μs，正常 AUX 交易約 60~90μs）
+   * ⚠️ 此後處理僅移除被正常通訊包圍的 Unparsed ERR，
+   *     不影響真正的 format error 或孤立的 anomaly 偵測 */
+  if (frames.length > 0 && anomalies.length > 0) {
+    var framesByEnd = frames.slice().sort(function(a, b) { return a.endTime - b.endTime; });
+    var framesByStart = frames.slice().sort(function(a, b) {
+      return (a.syncStartTime || a.time) - (b.syncStartTime || b.time);
+    });
+    var sandwichGap = Math.max(500e-6, 10 * (2 * tHalf) / sampleRate);
+    var maxUnparsedDur = Math.max(200e-6, 100 * (2 * tHalf) / sampleRate);
+    anomalies = anomalies.filter(function(a) {
+      if (a.reason !== 'Unparsed AUX activity') return true;
+      var dur = a.endTime - a.startTime;
+      if (dur > maxUnparsedDur) return true;
+      var hasPrev = false, hasNext = false;
+      for (var fi = framesByEnd.length - 1; fi >= 0; fi--) {
+        if (framesByEnd[fi].endTime <= a.startTime + 1e-9) {
+          if (a.startTime - framesByEnd[fi].endTime < sandwichGap) hasPrev = true;
+          break;
+        }
+      }
+      for (var fj = 0; fj < framesByStart.length; fj++) {
+        var fStart = framesByStart[fj].syncStartTime || framesByStart[fj].time;
+        if (fStart >= a.endTime - 1e-9) {
+          if (fStart - a.endTime < sandwichGap) hasNext = true;
+          break;
+        }
+      }
+      if (hasPrev && hasNext) return false;
+      return true;
+    });
+  }
 	  var rows = [];
   var previousRequest = null;
   frames.forEach(function(frame) {
@@ -11462,8 +11501,6 @@ function wfgLaRunAnalyzers() {
     results.push({ analyzer: a, rows: rows, note: note });
   }
   wfgLaDecodeResults = results;
-  /* DEBUG: expose internal data for tracing */
-  window.__wfgDebug = { waveform: decoded, results: results, analyzers: wfgLaAnalyzers };
   wfgLaRenderDecodeResults();
 }
 
