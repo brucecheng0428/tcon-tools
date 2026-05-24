@@ -244,7 +244,6 @@ var I18N = {
   'wfg.analogSources':  { 'zh-TW': '類比信號', 'en': 'Analog Signals', 'zh-CN': '模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '輸出通道', 'en': 'Output Channels', 'zh-CN': '输出通道' },
   'wfg.loadPreset':     { 'zh-TW': '載入預設…', 'en': 'Load Preset…', 'zh-CN': '载入预设…' },
-  'wfg.quickPreset':    { 'zh-TW': '快捷設定', 'en': 'Quick Preset', 'zh-CN': '快捷设定' },
   'wfg.fitAll':         { 'zh-TW': '📏 全覽', 'en': '📏 Fit All', 'zh-CN': '📏 全览' },
   'wfg.fitAllPlain':    { 'zh-TW': '全覽', 'en': 'Fit All', 'zh-CN': '全览' },
   'wfg.reset':          { 'zh-TW': '重置', 'en': 'Reset', 'zh-CN': '重置' },
