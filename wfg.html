@@ -94,6 +94,15 @@
   .wfg-mode-tab { flex: 0 1 auto; padding: 8px 12px; font-size: 12px; font-weight: 600; color: #94a3b8; background: transparent; border: none; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
   .wfg-mode-tab.active { color: #f97316; background: #0f172a; }
   .wfg-mode-tab:hover:not(.active) { color: #e2e8f0; }
+  /* v2.97.406: 匯入檔名顯示 — 桌面填滿標題與 tab 間的中間空白並置中 */
+  .wfg-import-filename { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 3px 12px; margin: 0 6px; color: #93c5fd; font-size: 12px; font-weight: 600; background: rgba(59,130,246,0.10); border: 1px solid rgba(59,130,246,0.25); border-radius: 6px; overflow: hidden; }
+  .wfg-import-filename.hidden { display: none; }
+  .wfg-import-filename-icon { flex: 0 0 auto; font-size: 12px; opacity: 0.9; }
+  .wfg-import-filename-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 手機版：改放在標題下方獨立一列、置中、不擠壓 tab/語言列 */
+  @media (max-width: 480px) {
+    .wfg-page .header.subpage-header .wfg-import-filename { order: 0; flex: 0 0 100%; margin: 2px 0 0; justify-content: center; }
+  }
   #page-wfg.wfg-la-active .wfg-container { max-width: none; padding: 0 2px 2px; }
   #page-wfg.wfg-la-active .wfg-panel { display: flex; flex-direction: column; gap: 10px; }
   #page-wfg.wfg-la-active .wfg-la-channel-card { order: 1; }
@@ -761,6 +770,8 @@
     <button class="back-btn" onclick="window.location.href='index.html'" data-i18n="common.backToHome">‹ 返回主頁</button>
     <h1><svg width="22" height="16" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><rect x="1" y="1" width="28" height="20" rx="3" stroke="#f97316" stroke-width="1.5" fill="none"/><path d="M5 16 L5 11 L9 11 L9 6 L13 6 L13 11 L17 11 L17 6 L21 6 L21 11 L25 11 L25 16" stroke="#f97316" stroke-width="1.6" fill="none" stroke-linejoin="miter"/><line x1="3" y1="18" x2="27" y2="18" stroke="#f97316" stroke-width="1" opacity="0.4"/></svg> <span data-i18n="wfg.title">TCON 波形產生器</span> <span style="display:inline-block;background:#f97316;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="wfg"></span></h1>
     <p data-i18n="wfg.subtitle">Phase Counter Timing 信號波形模擬</p>
+    <!-- v2.97.406: 匯入檔名顯示（桌面置於標題與 tab 間的中間空白；手機置於標題下方一列） -->
+    <div class="wfg-import-filename hidden" id="wfg-import-filename" title=""><span class="wfg-import-filename-icon" aria-hidden="true">📄</span><span class="wfg-import-filename-text" id="wfg-import-filename-text"></span></div>
     <div class="wfg-mode-tabs" id="wfg-mode-tabs">
       <button class="wfg-mode-tab active" data-mode="tcon" onclick="wfgSwitchMode('tcon')" data-i18n-html="wfg.modeTcon">TCON Timing 調整練習</button>
       <button class="wfg-mode-tab" data-mode="siggen" onclick="wfgSwitchMode('siggen')" data-i18n="wfg.modeSiggen">訊號產生器</button>
@@ -1348,7 +1359,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260601a"></script>
+<script src="common/version.js?v=20260601b"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3439,6 +3450,32 @@ function wfgPrepareTconTimingEntry() {
   }
 }
 
+/* v2.97.406: 匯入檔名顯示。per-mode 記住 tcon / la 各自最後匯入的檔名，
+   依目前 wfgCurrentMode 顯示對應檔名；未匯入則隱藏；換檔自動更新。 */
+var _wfgImportedNames = { tcon: '', la: '' };
+function wfgSetImportedFileName(modeKey, name) {
+  if (modeKey !== 'tcon' && modeKey !== 'la') return;
+  _wfgImportedNames[modeKey] = name || '';
+  wfgUpdateImportedFileNameDisplay();
+}
+function wfgUpdateImportedFileNameDisplay() {
+  var el = document.getElementById('wfg-import-filename');
+  if (!el) return;
+  var txt = document.getElementById('wfg-import-filename-text');
+  var key = (wfgCurrentMode === 'la') ? 'la' : (wfgCurrentMode === 'tcon' ? 'tcon' : null);
+  var name = key ? _wfgImportedNames[key] : '';
+  if (name) {
+    if (txt) txt.textContent = name;
+    el.title = name;
+    el.classList.remove('hidden');
+  } else {
+    if (txt) txt.textContent = '';
+    el.title = '';
+    el.classList.add('hidden');
+  }
+}
+window.wfgSetImportedFileName = wfgSetImportedFileName;
+
 function wfgSwitchMode(mode, options) {
   options = options || {};
   if (mode !== 'tcon' && mode !== 'siggen' && mode !== 'la') mode = 'tcon';
@@ -3480,6 +3517,7 @@ function wfgSwitchMode(mode, options) {
     requestAnimationFrame(function() { requestAnimationFrame(function() { window.wfgResizeCanvas(); }); });
   }
   wfgUpdateTconInternalVisibility();
+  wfgUpdateImportedFileNameDisplay(); // v2.97.406: 切 tab 時顯示該 tab 對應的匯入檔名
 }
 window.wfgSwitchMode = wfgSwitchMode;
 
@@ -22649,6 +22687,7 @@ window.wfgLaImportKvdat = async function(input) {
     wfgShowProgress(65, t('wfg.progressRender'));
     await wfgYield();
     wfgLaApplyParsedKvdatCapture(parsed, file.name);
+    wfgSetImportedFileName('la', file.name); // v2.97.406: 匯入成功才顯示檔名
     wfgLaSetAcqProgress(100, t('wfg.laImportedKvdat', { name: file.name }), 'active');
     // 匯入後重置快捷設定選單（內容已與預設不同）
     var qpSel = document.getElementById('wfg-la-quick-preset');
@@ -24224,9 +24263,11 @@ window.wfgImportFile = function() {
   input.accept = '.txt,.json';
   input.onchange = function() {
     if (!input.files || !input.files[0]) return;
+    var _fname = input.files[0].name; // v2.97.406
     var reader = new FileReader();
     reader.onload = function(e) {
-      window.wfgImportConfig(e.target.result);
+      var ok = window.wfgImportConfig(e.target.result);
+      if (ok) wfgSetImportedFileName('tcon', _fname); // v2.97.406: 匯入成功才顯示檔名
     };
     reader.readAsText(input.files[0]);
   };

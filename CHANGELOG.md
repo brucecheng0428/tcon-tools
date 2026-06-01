@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## TCON 波形產生器 v2.97.406 — 2026-06-01
+
+### LA / Tcon tab 匯入檔案後顯示檔名
+
+- **新增匯入檔名顯示**：LA tab 匯入 `.kvdat`、Tcon tab（TCON Timing 調整練習）匯入 `.txt/.json` 設定檔後，於頂部 header 顯示該檔名。
+- **桌面版位置**：標題（TCON 波形產生器）與右側三個 tab 之間的中間空白區，置中顯示（藍底圓角膠囊 + 📄 圖示）。實作：在 header flex 列插入 `#wfg-import-filename`，`flex:1` 填滿中間空白並置中文字，長檔名 ellipsis 截斷不擠壓 tab。
+- **手機版位置（≤480px）**：header 改為多列 wrap，中間空白不存在，故將檔名改放在標題下方獨立一列置中（`order:0; flex:0 0 100%`），不遮擋 tab/語言列與任何操作。
+- **行為**：未匯入不顯示；per-mode 各自記憶（`_wfgImportedNames.tcon` / `.la`），切 tab 時 `wfgUpdateImportedFileNameDisplay()` 顯示該 tab 對應檔名；重新匯入即更新；匯入失敗（解析錯誤）不顯示。
+- 檔名來源：Tcon `wfgImportFile`（`input.files[0].name`，`wfgImportConfig` 回傳 true 才設）、LA `wfgLaImportKvdat`（`file.name`，套用成功後才設）。
+
 ## TCON 波形產生器 v2.97.405 — 2026-06-01
 
 ### LA tab 兩個滑鼠互動 bug 修正
