@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## TCON 波形產生器 v2.97.405 — 2026-06-01
+
+### LA tab 兩個滑鼠互動 bug 修正
+
+- **Bug1 垂直虛線時間游標越界**：滑鼠移到左側通道名稱欄（波形繪圖區之外）時，垂直虛線游標會跟著越界畫到名稱區。根因：crosshair 繪製條件只判斷 `wfgLaHover.channel >= 0`，未檢查 `wfgLaHover.x` 是否落在繪圖區 `[drawX0, drawX0+drawW]`（主 overlay 與 sticky 時間軸 overlay 兩處皆是）。修正：新增 `wfgLaHoverInPlot()`，兩處 crosshair 改用此判斷；滑鼠 x 在繪圖區外時不畫虛線。對齊 TCON tab 既有作法。
+- **Bug2 即時測量水平雙向箭頭不跟滑鼠**：滑鼠在波形區左右移動時，白色雙向箭頭定住不動，需滾輪縮放才更新。根因：`wfgLaMeasArrow` 僅在 `wfgLaUpdateMeasure`（由全量 `wfgLaRenderScope` 呼叫）重算，mousemove 觸發的 `wfgLaRenderOverlay` 只繪製不重算。修正：將讀數＋箭頭計算抽成 `wfgLaUpdateMeasureReadout()`，於 overlay 重繪（含 mousemove）開頭呼叫，箭頭即時跟著滑鼠；箭頭同樣加 in-plot 判斷，越界時隱藏。
+- **Tcon tab 經查無此二 bug**（各自獨立實作）：mousemove 設 `_wfgTconHover` 時已判斷 `_cx>=drawX0 && _cx<=w`（越界設 null，crosshair 才不越界）；且每次 mousemove 都 rAF 呼叫 `wfgMeasUpdate` 重算 `_wfgMeasArrow`（箭頭本就跟滑鼠）。故僅修 LA tab，未動 Tcon tab。
+
 ## App v1.87.1 — 2026-05-23
 
 ### 版本號單一來源（根治主頁/子頁版號不同步問題）

@@ -1348,7 +1348,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260524a"></script>
+<script src="common/version.js?v=20260601a"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4884,6 +4884,13 @@ function wfgLaRefreshHoverTimeFromAxis() {
   wfgLaHover.channel = wfgLaHover.slot >= 0 && wfgLaHover.slot < g.channels.length ? g.channels[wfgLaHover.slot] : -1;
 }
 
+/* v2.97.405: 垂直虛線時間游標只在波形繪圖區內顯示，避免越界到左側通道名稱欄（Bug1）。
+   對齊 TCON tab 既有作法（mousemove 設 _wfgTconHover 時即判斷 _cx>=drawX0 && _cx<=w）。 */
+function wfgLaHoverInPlot() {
+  if (!wfgLaHover || !wfgLaGeom || wfgLaHover.channel < 0) return false;
+  return wfgLaHover.x >= wfgLaGeom.drawX0 && wfgLaHover.x <= wfgLaGeom.drawX0 + wfgLaGeom.drawW;
+}
+
 function wfgLaRequestHoverRender() {
   if (wfgLaOverlayRaf) return;
   wfgLaOverlayRaf = requestAnimationFrame(function() {
@@ -6142,6 +6149,8 @@ function wfgLaRenderOverlay() {
   if (!overlay || !main) return;
   var g = wfgLaGeom;
   if (!g) return;
+  /* v2.97.405: overlay 每次重繪（含 mousemove 觸發）都重算即時測量箭頭，使其跟著滑鼠（Bug2） */
+  wfgLaUpdateMeasureReadout();
   var dpr = window.devicePixelRatio || 1;
   var cssW = g.cssW, cssH = g.cssH;
   var backingW = Math.round(cssW * dpr);
@@ -6162,7 +6171,7 @@ function wfgLaRenderOverlay() {
   function xOf(t) { return drawX0 + ((t - triggerZero - (tStart - triggerZero)) / tRange) * drawW; }
 
   // Crosshair
-  if (wfgLaHover && wfgLaHover.channel >= 0) {
+  if (wfgLaHoverInPlot()) {
     wfgDrawCrosshairLine(ctx, wfgLaHover.x, cssH);
     var minorStep = (wfgLaLastAxisInfo && wfgLaLastAxisInfo.minorStep) || 1e-9;
     var hoverRelTime = wfgLaHover.time - triggerZero;
@@ -6227,7 +6236,7 @@ function _wfgLaRenderStickyOverlay(dpr, cssW, axisH, drawX0, xOf) {
   ctx.clearRect(0, 0, cssW, axisH);
 
   // Crosshair 垂直線 + 時間標籤
-  if (wfgLaHover && wfgLaHover.channel >= 0) {
+  if (wfgLaHoverInPlot()) {
     ctx.save();
     ctx.strokeStyle = 'rgba(226,232,240,0.75)';
     ctx.setLineDash([3, 3]);
@@ -6322,7 +6331,8 @@ function wfgLaRenderMinimap(cfg, channels) {
   wfgLaApplyDecodeScopeFocus();
 }
 
-function wfgLaUpdateMeasure(cfg, visibleEdges) {
+function wfgLaUpdateMeasureReadout(cfg) {
+  cfg = cfg || wfgLaBuildConfig();
   var ch = (wfgLaHover && wfgLaHover.channel >= 0) ? wfgLaHover.channel : (cfg.trigger.enabled ? cfg.trigger.channel : (cfg.enabledChannels[0] || 0));
   var wave = wfgLaGetWaveform(cfg, ch);
   var edges = wave.edges || [];
@@ -6348,12 +6358,8 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
   setText('wfg-la-meas-per', period > 0 ? wfgLaTimeLabel(period) : '--');
   setText('wfg-la-meas-duty', duty > 0 ? duty.toFixed(1) + '%' : '--');
   setText('wfg-la-meas-freq', period > 0 ? wfgLaFreqLabel(1 / period) : '--');
-  var visibleForCh = 0;
-  for (var vi = 0; vi < edges.length; vi++) {
-    if (edges[vi] >= wfgLaViewStart && edges[vi] <= wfgLaViewEnd) visibleForCh++;
-  }
   wfgLaMeasArrow = null;
-  if (wfgLaHover && wfgLaHover.channel >= 0 && wfgLaGeom) {
+  if (wfgLaHoverInPlot()) {
     var left = segLeft;
     var right = segRight;
     var right2 = edgeIdx + 1 < edges.length ? edges[edgeIdx + 1] : null;
@@ -6373,6 +6379,14 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
     }
     wfgLaMeasArrow = arrow;
   }
+}
+
+/* v2.97.405: 即時測量讀數 + 水平雙向箭頭抽成 wfgLaUpdateMeasureReadout，
+   讓 mousemove（overlay 重繪）也能即時重算箭頭位置（Bug2），不必等 wheel/zoom 才更新。
+   對齊 TCON tab 既有作法（mousemove 每次都 wfgMeasUpdate 重算 _wfgMeasArrow）。 */
+function wfgLaUpdateMeasure(cfg, visibleEdges) {
+  cfg = cfg || wfgLaBuildConfig();
+  wfgLaUpdateMeasureReadout(cfg);
   var card = document.getElementById('wfg-la-cursor-card');
   var body = document.getElementById('wfg-la-cursor-body');
   if (card && body) {
