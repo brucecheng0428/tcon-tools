@@ -4576,22 +4576,12 @@ function wfgLaTheoreticalDurationLabel(cfg) {
 function wfgLaHardwareCaptureChannels(cfg) {
   cfg = cfg || wfgLaBuildConfig();
   var selected = (cfg.enabledChannels && cfg.enabledChannels.length ? cfg.enabledChannels : [cfg.trigger && cfg.trigger.channel != null ? cfg.trigger.channel : 0]).slice();
-  var selectedMap = {};
-  selected.forEach(function(ch) { selectedMap[ch] = true; });
-  if (selected.length <= 8 || Number(cfg.sampleDepth) <= 1000000000) return selected;
-  var picked = {};
-  function add(ch) {
-    ch = Number(ch);
-    if (isFinite(ch) && ch >= 0 && ch < 16 && selectedMap[ch]) picked[ch] = true;
-  }
-  if (cfg.trigger && cfg.trigger.enabled) add(cfg.trigger.channel);
-  for (var i = 0; i < wfgLaLastEdgeCounts.length; i++) {
-    if (wfgLaLastEdgeCounts[i] > 0) add(i);
-  }
-  add(selected[0]);
-  add(selected[1]);
-  var hardware = Object.keys(picked).map(Number).sort(function(a, b) { return a - b; });
-  return hardware.length ? hardware : selected;
+  /* v2.97.407: 永遠回傳使用者當前實際勾選的通道，不再用 wfgLaLastEdgeCounts 退化砍通道。
+     舊退化分支（>8ch 且 >1GSa 時改用過時的 wfgLaLastEdgeCounts 挑通道）會在「先選 I2C(2ch)
+     →切回 16ch→高深度單次觸發」時，拿 I2C 殘留的 CH0/CH1 去砍掉使用者實際有訊號的通道。
+     高深度時間被硬體壓縮率/記憶體限制壓縮屬正常，由 wfgLaHasCompressionDurationRisk 提示，
+     不以砍通道換取時間。 */
+  return selected;
 }
 
 function wfgLaChannelListLabel(channels) {
@@ -22267,6 +22257,7 @@ async function wfgLaApplyQuickPreset(id) {
     wfgLaDecodeExpanded = false;
     wfgLaApplyDecodeExpandedState();
     for (var ri = 0; ri < 16; ri++) { wfgLaChannelNames[ri] = ''; wfgLaChannelDescriptions[ri] = ''; }
+    wfgLaLastEdgeCounts = []; /* v2.97.407: 清前一個 preset(如 I2C 2ch) 殘留的 edge counts，避免影響 has-signal/硬體通道判斷 */
     wfgLaChannelOrder = Array.from({ length: 16 }, function(_, idx) { return idx; });
     wfgLaAnalyzers = [];
     wfgLaRenderAnalyzers();
@@ -22280,6 +22271,7 @@ async function wfgLaApplyQuickPreset(id) {
   if (select) { select.value = preset.id; }
   /* 切換預設前先清空所有通道名稱/描述，避免前一個預設殘留 */
   for (var ci = 0; ci < 16; ci++) { wfgLaChannelNames[ci] = ''; wfgLaChannelDescriptions[ci] = ''; }
+  wfgLaLastEdgeCounts = []; /* v2.97.407: 切換 preset 前清前一個 preset 殘留的 edge counts */
   try {
     if (preset.snapshotUrl) {
       wfgShowProgress(8, '載入快捷範例…');

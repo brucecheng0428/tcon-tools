@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## TCON 波形產生器 v2.97.407 — 2026-06-04
+
+### LA tab 快捷切換後高深度單次觸發遺失通道修正
+
+- **情境**：先選 I2C 快捷設定（2ch）→ 切回「快捷設定」（16ch）→ 高深度（≥2GSa）單次觸發 → 只錄到 2 個通道（I2C 殘留的 CH0/CH1），其他有訊號的通道被丟掉。
+- **根因 1（主因）**：`wfgLaHardwareCaptureChannels`（wfg.html ~L4576，commit a72417e 加入、無 changelog）的退化分支——當「>8 通道且 sampleDepth >1GSa」時，改用過時的全域變數 `wfgLaLastEdgeCounts` 來挑選硬體擷取通道。
+- **根因 2**：切回「快捷設定」分支（~L22262）只勾回 16 個 checkbox，未清掉 `wfgLaLastEdgeCounts`，殘留前一個 I2C preset 的 CH0/CH1 edge counts。
+- **結果**：高深度時退化分支拿 I2C 殘留（CH0/CH1）去砍通道，把使用者實際有訊號的通道（CH3/4/6/8…）全丟光。
+- **修法 1**：移除 `wfgLaHardwareCaptureChannels` 退化分支，永遠回傳使用者當前實際勾選的通道（`cfg.enabledChannels`）。16ch 即送全 16 通道、2ch 即送 2 通道，不再以 `wfgLaLastEdgeCounts` 砍通道。
+- **修法 2**：切回「快捷設定」與切換 preset 時重設 `wfgLaLastEdgeCounts = []`，避免任何殘留影響 has-signal 標示與通道判斷。
+- **保留**：高深度時間受硬體壓縮率/128MiB 記憶體限制而被壓縮屬正常行為，仍由 `wfgLaHasCompressionDurationRisk` 據實提示「實際長度依硬體壓縮率」，不以砍通道換取時間。
+
 ## TCON 波形產生器 v2.97.406 — 2026-06-01
 
 ### LA / Tcon tab 匯入檔案後顯示檔名
