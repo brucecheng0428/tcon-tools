@@ -3586,8 +3586,6 @@ var wfgLaReconnectUserCancelled = false;
 var wfgLaIoSelectLockUntil = 0;
 var wfgLaManualStopRequested = false;
 var wfgLaManualStopKeepLastComplete = false;
-/* v2.97.408: 上一個「被接受顯示」的擷取 totalSamples 指紋，用來偵測切換取樣深度後第一次 RUN 回吐殘留舊資料 */
-var wfgLaLastAcceptedTotalSamples = null;
 var wfgLaCaptureStartedAtMs = 0;
 var wfgLaCurrentCaptureStartedAtMs = 0;
 var wfgLaDisplayDurationOverrideSec = 0;
@@ -12605,8 +12603,7 @@ function wfgLaEdgeTimeSummary(decoded, channels) {
   return parts.join(' ');
 }
 
-async function wfgLaSafeCaptureProbe(dev, opts) {
-  opts = opts || {};
+async function wfgLaSafeCaptureProbe(dev) {
   var cfg = wfgLaBuildConfig();
   cfg.hardwareChannels = wfgLaHardwareCaptureChannels(cfg);
   var noTriggerProbe = false;
@@ -12810,28 +12807,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate, relativeTriggerPackets);
     var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
-    /* v2.97.408: 偵測「切換取樣深度後第一次 RUN 回吐上一輪殘留資料」。
-       殘留資料的 totalSamples 會等於上一個被接受顯示的擷取（指紋完全相同），
-       但解碼時長與本輪 expectedDuration 嚴重不符（>10%）。
-       排除 manualStop / partialDownload（合法的短/部分下載），triggerTimeout 在更早處已 return。
-       命中時設旗標讓呼叫端自動重抓一次（等同手動再按一次、已知第二次正確）。
-       注意：合法的短擷取（高深度 128MiB 截斷、真正提早結束）的 totalSamples 不會等於
-       上一個不同設定的擷取指紋，故不會誤判被拉長/丟棄。 */
-    var staleResidual = !wfgLaManualStopRequested
-      && !partialDownload
-      && wfgLaLastAcceptedTotalSamples != null
-      && decoded.totalSamples === wfgLaLastAcceptedTotalSamples
-      && Math.abs(decoded.durationSec - expectedDuration) > expectedDuration * 0.1;
-    if (staleResidual && !opts.isRetry) {
-      lines.staleResidualSuspected = true;
-      lines.push('Stale residual detected: decoded totalSamples=' + decoded.totalSamples + ' matches previous accepted capture and duration ' + wfgLaFormatDuration(decoded.durationSec) + ' disagrees with selected window ' + wfgLaFormatDuration(expectedDuration) + ' (>10%). Skipping display and requesting one auto re-capture.');
-      try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent (stale residual, awaiting re-capture).'); } catch (haltErr) { lines.push('RUNMODE_HALT after stale-residual detection failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
-      wfgLaSetAcqProgress(100, '偵測到殘留資料，自動重抓中', 'active');
-      return lines;
-    }
-    if (staleResidual && opts.isRetry) {
-      lines.push('Re-capture still matches previous accepted capture fingerprint; displaying best-effort result (no further retry).');
-    }
     if (wfgLaManualStopRequested && manualStopSec > 0) {
       decoded.manualStop = true;
       wfgLaTrimDecodedCapture(decoded, manualStopSec, Math.round(manualStopSec * Math.max(1, sampleCfg.effectiveRate)));
@@ -12869,8 +12844,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
       partialDownload: !!decoded.partialDownload,
       manualStop: !!decoded.manualStop
     };
-    /* v2.97.408: 記錄本次被接受顯示的擷取指紋，供下一次 RUN 偵測殘留資料 */
-    wfgLaLastAcceptedTotalSamples = decoded.totalSamples;
     lines.push('EP6 received bytes=' + (chunk.receivedBytes || chunk.length) + ' chunks=' + (chunk.transferChunks || 1) + ' decodedBytes=' + chunk.length + ' transfers=' + decoded.transfers + ' decodedSamples=' + decoded.totalSamples + ' duration=' + wfgLaFormatDuration(decoded.durationSec));
     lines.push('initialSample=0x' + decoded.initialSample.toString(16).padStart(4, '0') + ' finalSample=0x' + decoded.finalSample.toString(16).padStart(4, '0'));
     lines.push('edgeCounts CH0=' + decoded.edgeCounts[0] + ' CH1=' + decoded.edgeCounts[1] + ' all: ' + wfgLaEdgeSummary(decoded.edgeCounts));
@@ -13101,13 +13074,6 @@ async function wfgLaProbeWebUsb(tryClaim) {
         logLines.push('');
         var capLines = await wfgLaSafeCaptureProbe(dev);
         logLines = logLines.concat(capLines);
-        /* v2.97.408: 切換取樣深度後第一次 RUN 偵測到殘留舊資料 → 自動重抓一次（最多一次） */
-        if (capLines && capLines.staleResidualSuspected) {
-          logLines.push('');
-          logLines.push('=== Auto re-capture (previous attempt was stale residual from prior sample-depth) ===');
-          capLines = await wfgLaSafeCaptureProbe(dev, { isRetry: true });
-          logLines = logLines.concat(capLines);
-        }
         var capSummary = capLines.captureSummary || null;
         if (capSummary) {
           var sampleText = capSummary.samples >= 1000000 ? (capSummary.samples / 1000000).toFixed(1) + 'MSa' : Math.round(capSummary.samples) + 'Sa';

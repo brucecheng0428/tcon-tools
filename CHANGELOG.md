@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 v2.97.408 — 2026-06-16
+
+### LA tab 切換取樣深度後第一次 RUN 回吐殘留舊資料修正
+
+- **情境**：先用「100MSa + 200MHz + 重複觸發」（總長約 500ms）看波形確認 → 改「5GSa + 200MHz + 單次觸發」（應約 25s）→ **第一次擷取只記錄到 500ms（上一輪殘留），第二次才正確顯示 25s**。
+- **根因（小換大，可指證）**：`wfgLaSafeCaptureProbe`（wfg.html）擷取後時長防呆有缺口。解碼時長 `decoded.durationSec = totalSamples / effectiveRate`（`wfgLaDecodeCaptureWaveform` ~L8526）。切換深度後第一次 RUN 從 SDRAM 回吐的是上一輪的殘留 RLE，`totalSamples` 仍是舊深度（100M），除以同一 200MHz → 0.5s。原本三個校正分支只處理：manualStop、`partialDownload && decoded.durationSec < expectedDuration`、`decoded.durationSec > expectedDuration + 0.5sample`（裁切）。**缺口**：`decoded.durationSec < expectedDuration 但 partialDownload=false`（殘留短資料量小、未超過 192MB EP6 cap、不被標 partial）→ 兩個校正分支都不進 → 直接沿用殘留的 500ms。`partialDownload` 僅在 `packetBytes > readCapBytes`（>192MB）時為 true（~L12769–12776）。
+- **大換小對稱問題（同一根因、症狀更隱蔽）**：反向（5GSa→100MSa）第一次 RUN 若回吐上一輪的「長」殘留（約 25s），`decoded.durationSec > expectedDuration` → 進入裁切分支（~L12831 `wfgLaTrimDecodedCapture`）→ 時長被裁成新的小視窗（看起來正確），但**波形內容是舊長擷取的前緣切片＝錯誤內容**。即「第一次時長看似對、內容卻是殘留舊資料，第二次才對」的隱形錯誤，比小換大更危險（使用者不易察覺）。（殘留是否在反向也必然發生屬硬體行為，需實機確認；但軟體邏輯確實會把殘留長資料當「同視窗太長」靜默裁切。）
+- **修法（偵測殘留並自動重抓一次，非無條件改寫時長）**：
+  - 新增模組變數 `wfgLaLastAcceptedTotalSamples`，記錄「上一個被接受顯示的擷取」的 `totalSamples` 指紋（僅在非殘留、成功顯示時更新）。
+  - 解碼後、進入既有校正分支前判斷殘留：`!manualStop && !partialDownload && 上次指紋存在 && decoded.totalSamples 完全等於上次指紋 && |decoded.durationSec − expectedDuration| > expectedDuration×10%`。殘留資料就是上一輪的資料，`totalSamples` 必然與上次完全相同，是強而可靠、與壓縮率無關的判據。
+  - 命中時：送 RUNMODE_HALT、設 `lines.staleResidualSuspected`、**不顯示**該筆資料；呼叫端（`wfgLaProbeWebUsb` ~L13075）偵測旗標後**自動重抓一次**（傳 `{isRetry:true}`，等同 Bruce 手動再按一次、實機已知第二次正確）。重抓最多一次，第二次即使仍命中也只記 log、照常顯示，永不無限迴圈、不比現況差。
+- **為何不選「只要短於 expectedDuration 就一律拉成 expectedDuration」**：那會 (1) 掩蓋合法短擷取（高深度受 128MiB SDRAM 截斷而真的較短、真正提早結束），(2) 只改時長不改內容 → 仍顯示殘留錯誤波形。本修法用「指紋完全等於上一次」分辨殘留 vs 合法短/長/截斷擷取（合法擷取的 totalSamples 不會等於另一組設定的舊指紋），且重抓取得真正新資料 → 時長與內容皆正確。
+- **為何不選「進 probe 內以 writePos 基準重排」**：需新增硬體控制序列且無法在無裝置下驗證，回歸風險高；caller 重跑整個已驗證的擷取序列，重用實機已知正確的第二次行為，副作用最小。
+- **驗證**：模擬 `decoded` 輸入跑過判斷各案例（小換大殘留短、大換小殘留長、合法短截斷、合法同設定重抓、partial 短、manualStop、首次擷取無前次指紋）證明僅殘留命中、其餘不誤判、不回歸。瀏覽器（Chrome MCP）確認版號 v2.97.408、無 JS 錯誤、LA tab 可載入。
+- **🔴 待 Bruce 實機驗證**：換深度後第一次 RUN 的真實時長/內容（原始條件：100MSa/200MHz 重複 → 5GSa/200MHz 單次；以及反向 5GSa→100MSa）。本機無 LA2016 USB 裝置，硬體端「自動重抓後是否第一次就正確」需實機確認，未自稱已驗。
+
 ## TCON 波形產生器 v2.97.407 — 2026-06-04
 
 ### LA tab 快捷切換後高深度單次觸發遺失通道修正
