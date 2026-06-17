@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## TCON 波形產生器 v2.97.409 — 2026-06-17
+
+### LA tab 連續觸發（Auto restart）時無法修改通道名稱修正
+
+- **情境（Bruce 回報）**：LA tab 按「連續觸發 / Auto restart sampling」讓它持續刷新時，**無法更改通道名稱**（示波圖左側波形旁的通道名標籤 contenteditable，預設「通道 0/1…」）。點輸入框打字後，每輪擷取刷新就把正在編輯的內容/焦點洗掉。單次觸發或停止狀態下改名正常。
+- **根因（可指證，wfg.html ~L5945–5965 `wfgLaRenderScope`）**：連續觸發每輪 `wfgLaStartCapture` do-while → `wfgLaRunOneCaptureWithRecovery` → `wfgLaApplyCapturedWaveform`（L8673）→ `wfgLaRenderScope()`。RenderScope 在 L5953 以 `labels.innerHTML = …` **整段重建** `#wfg-la-labels` DOM（其中含通道名 contenteditable span `.wfg-la-label-name`[`data-la-label-ch`]，L5962）。重建條件原本只有 `ioEditActive` 例外保護（L5949），而 `ioEditActive` **只判斷 activeElement 是 SELECT 或 INPUT**（IO 門檻選單），**不包含 contenteditable span**。因此連續觸發每輪都會把正在編輯的通道名 contenteditable 重建銷毀 → 焦點丟失、未提交文字被洗掉。單次/停止無重複 renderScope 迴圈，故不受影響。
+  - 左側通道格（`#wfg-la-channel-grid` 的 `.wfg-la-ch-title`）連續觸發時**只切 has-signal class**（`wfgLaUpdateChannelSignalIndicators` L4258，不重建 DOM），故左側格改名本來就正常；本次受影響的是示波圖內的通道名標籤。
+- **修法（最小變更，wfg.html L5949 後新增）**：新增 `labelNameEditActive` 判斷——`labels.contains(document.activeElement) && activeElement.getAttribute('data-la-label-ch') != null`，並把 L5953 重建條件加上 `&& !labelNameEditActive`。即「正在編輯通道名 contenteditable 時不重建 labels DOM」，與既有 `ioEditActive` 對 SELECT/INPUT 的保護同一機制。波形畫布（canvas）仍照常每輪更新，只跳過 labels DOM 重建這一步；使用者 blur/Enter（`focusout` L4994、`keydown` L5003）後照常 `wfgLaRenderChannelGrid()` + `wfgLaRenderScope()` 還原並正規化名稱。
+- **為何不影響其他功能**：(1) 因 contenteditable 節點完全沒被替換，焦點與游標(caret)位置原地保留，符合「焦點/游標不亂跳」。(2) 守衛只在「正在編輯通道名」時生效，未編輯時 labels 仍每輪正常重建（has-signal / live level 照常更新）。(3) 不動左側通道格、不動拖移/游標/PWM/v2.97.408 深度切換殘留重抓邏輯。(4) 左側格改名路徑(`grid` input/focusout)與本守衛無交集（activeElement 在 grid 不在 labels，`labelNameEditActive=false`），無回歸。
+- **驗證**：見實機驗證章節（Chrome Cowork3 + LA2016）。
+
 ## TCON 波形產生器 v2.97.408 — 2026-06-16
 
 ### LA tab 切換取樣深度後第一次 RUN 回吐殘留舊資料修正
