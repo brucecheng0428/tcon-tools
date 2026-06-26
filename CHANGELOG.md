@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## mLVDS Skew 計算工具 (calc) v1.5.2 — 2026-06-27
+
+### UI cof_cnt 分界值設定：新增 EM02 = floor(EM01 / 2)
+
+- **需求（Bruce 回報）**：calc 子頁「UI cof_cnt 分界值設定」卡片，原分界值公式是給 EM01 用的。當 TCON 選 EM02 時，分界值 = EM01 公式算出的結果 ÷ 2，且無條件捨去取整（floor）。EM01 及其他既有行為維持不變。例：EM01 算出 25 → EM02 顯示 floor(25/2)=12；EM01 算出 24 → EM02=12。
+- **修法（可指證 diff，calc.html `renderCofTable` ~L863）**：EM01 分界值由 `calculate()`（L956–960 `cofs.push(Math.floor(H/2/N/gate*i - 1))`）算出並存入 `lastCofs`。`renderCofTable` 是唯一渲染路徑（calculate() 與 em-select 切換 L1011 都呼叫它）。原本 `const value = (i<N-1 && cofs[i]!==undefined) ? cofs[i] : 2047;`。改為：當 `selectedEM==='EM02'` 時 `value = Math.floor(cofs[i]/2)`，否則沿用 `cofs[i]`（EM01）。
+- **為何不破壞 / 不重複套用**：`lastCofs` 永遠只存 EM01 base 結果，EM02 的除二只在 render 當下從 base 推導出新值，不回寫 `lastCofs`。因此 EM02→EM01 切回時顯示原始 EM01 值、不會被連續除二；切換多次也穩定。
+- **2047 sentinel 不受影響**：末行 `End` 用的 2047 是「無分界」標記（非 EM01 公式結果），EM02 時不除二，維持 2047。
+- **進版**：version.js `calc: v1.5.1 → v1.5.2`；calc.html version.js 查詢字串 `?v=20260523 → ?v=20260627`（破瀏覽器快取讀新版號）。
+- **驗證**：見部署後 Chrome MCP 操作式驗證（奇數/偶數 X 各一例，確認 EM02=floor(X/2) 無條件捨去；EM01 與其他選項未受影響）。
+
 ## TCON 波形產生器 v2.97.409 — 2026-06-17
 
 ### LA tab 連續觸發（Auto restart）時無法修改通道名稱修正
