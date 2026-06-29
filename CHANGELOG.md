@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## mLVDS Skew 計算工具 (calc) v1.5.3 — 2026-06-29
+
+### UI cof_cnt 分界值設定：TCON 下拉（EM01/EM02）展開時選項反白看不清修正
+
+- **情境（Bruce 回報，原文驗證條件）**：calc 子頁「UI cof_cnt 分界值設定」卡片，TCON 下拉選單在 EM01 與 EM02 切換時，**沒被選到的那個選項會反白，文字完全看不清楚**。
+- **根因（可指證 diff，calc.html CSS）**：`.em-select`（~L111）在控制項本身設了 `color: white; background: rgba(255,255,255,0.1)`，但**沒有 `.em-select option` 規則**。原生 `<select>` 展開的下拉清單由作業系統繪製、預設淺色（白）背景，而 `<option>` 繼承 select 的 `color: white` → 未被高亮的選項變成「白字 + 系統淺底」幾乎不可見；被選中的那項因系統 highlight 藍底反而可讀，造成「切到 EM01 時 EM02 反白、切到 EM02 時 EM01 反白」的現象。對照同檔 `.if-select` 早已有 `.if-select option { background:#1e293b; color:#e2e8f0; }`（~L153）就沒這問題，`.em-select` 漏了這條。
+- **修法（最小變更）**：在 `.em-select:focus` 後新增 `.em-select option { background: #1e293b; color: #e2e8f0; }`，與既有 `.if-select option` 同一深底淺字模式。下拉展開時每個 option 皆深底淺字、足夠對比；EM01／EM02 選中與未選中皆清楚可讀。
+- **不破壞其他**：只新增一條 option 樣式，不動 `.em-select` 控制項外觀、不動 cof_cnt 計算邏輯（v1.5.2 的 EM02=floor(EM01/2) 不受影響）、不動其他卡片配色。
+- **進版**：version.js `calc: v1.5.2 → v1.5.3`；calc.html version.js 查詢字串 `?v=20260627 → ?v=20260629`（破瀏覽器快取讀新版號）。
+- **驗證**：見部署後 Chrome MCP 線上操作式驗證（選 EM01／選 EM02／展開下拉各截圖，確認未選中選項可讀；並回確認 EM02=floor(EM01/2) 計算未受影響）。
+
 ## mLVDS Skew 計算工具 (calc) v1.5.2 — 2026-06-27
 
 ### UI cof_cnt 分界值設定：新增 EM02 = floor(EM01 / 2)
