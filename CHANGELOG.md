@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.410 — 2026-07-01
+
+### LA 解碼結果卡 DPCD 位址點擊無法跳到 AUX 分頁 DPCD 查詢器修正
+
+- **情境（Bruce 回報，原文驗證條件）**：wfg 子頁「LA分析器」，使用 LA + 快捷選擇 AUX 相關範例（如「eDP AUX解碼(異常範例)」）後，解碼結果卡的 Address/Data 欄位若出現 DPCD 位址，**以前點它會開新分頁連到 AUX 分頁對應的 DPCD 暫存器說明；現在點了卻不是這個行為（連回 wfg.html 自己）＝壞了**。
+- **根因（可指證 diff，wfg.html `wfgLaDpcdLookupUrl` ~L9274）**：此函式沿用自 legacy 單檔 SPA（legacy-index.html L22606，實作一字不差）。舊版全站在同一個 index.html 內，DPCD 查詢器是 SPA 的 `#aux` 分頁，所以用 `new URL(location.href)` 取當前檔名 + `url.hash='#aux'` 切頁是對的。**網站後來拆成多個獨立 HTML（wfg.html / aux.html / calc.html…），DPCD 查詢器移到 aux.html，但此函式沒同步更新**——它仍以 `location.href`（在 wfg 子頁即 `wfg.html`）當 pathname，產出的 href 是 `wfg.html?auxTab=dpcd&dpcd=XXXX&val=XX#aux`。而 wfg.html 沒有 DPCD 查詢器（`auxApplyUrlParams`/`aux-dpcd-result`/`auxLookupDPCD` 命中數 0，全部只在 aux.html），且 index.html 的 legacy hash 相容表映射的是 `#page-aux` 不是 `#aux`，因此點擊只是把 wfg.html 帶垃圾參數重載，永遠到不了 DPCD 說明。
+  - **實機證據（部署站 v2.97.409）**：載入「eDP AUX解碼(異常範例)」快捷預設，解碼結果卡渲染出 122 個 `.wfg-la-dpcd-link`/`.wfg-la-dpcd-byte-link`，逐一檢查其 `href`——**全部 targetAux=false / targetWfg=true**（指向 `/tcon-tools/wfg.html`），且含 `auxTab=dpcd`＋legacy `#aux`。證實壞在連結目標檔名。
+- **修法（最小變更，只動 `wfgLaDpcdLookupUrl` 一個函式）**：把 `new URL(location.href)` 改為 `new URL('aux.html', location.href)`（相對當前目錄解析出同層的 aux.html），移除已無意義的 `url.hash='#aux'`（aux.html 用 search 參數 `auxTab` 切 tab、不看 hash），回傳 `url.pathname + url.search`。`auxTab=dpcd`／`dpcd=位址`／`val=值` 參數格式與 aux.html 的 `auxApplyUrlParams`（L2392）讀取邏輯完全對齊。
+- **為何不破壞其他 / 不誤傷非 DPCD**：(1) 只有帶 `row.dpcdAddr`／`row.dpcdItems` 的 value 欄位才會產生 DPCD 連結（`wfgLaRenderDecodeCellHtml` L9781/9786 的判斷未動），一般 Address/Data 文字不受影響。(2) 位址格式化 `wfgLaDpAuxFormatAddress`、tooltip、warn 樣式、`onclick` 開新分頁行為皆未改。(3) `new URL('aux.html', …)` 產生乾淨 URL，反而修掉舊寫法會把 wfg.html 現有查詢字串（如快取破除 `?v=`）一起繼承污染的隱患。
+- **目的地驗證**：導航到 `aux.html?auxTab=dpcd&dpcd=202&val=07` 確認 aux.html 正確切到 DPCD tab、定位 0x00202h（LANE0_1_STATUS）並逐 bit 解碼 0x07——證明修正後要指向的 URL 目的地本就可用。
+- **進版**：version.js `wfg: v2.97.409 → v2.97.410`（子頁獨立進版）；wfg.html version.js 查詢字串 `?v=20260617 → ?v=20260701`（破瀏覽器快取讀新版號）。
+- **驗證**：見部署後 Chrome MCP 線上操作式驗證（載入 eDP AUX 範例 → 檢查 DPCD 連結 href 已指向 aux.html → 實際點擊確認開新分頁定位到對應 DPCD；非 DPCD 欄位不受影響）。
+
 ## mLVDS Skew 計算工具 (calc) v1.5.3 — 2026-06-29
 
 ### UI cof_cnt 分界值設定：TCON 下拉（EM01/EM02）展開時選項反白看不清修正
