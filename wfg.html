@@ -313,6 +313,13 @@
   .wfg-la-canvas-area:focus { outline: 1px solid #4b5563; outline-offset: -1px; }
   .wfg-la-canvas-area.panning, .wfg-la-canvas-area.panning #wfg-la-canvas, .wfg-la-canvas-area.panning #wfg-la-overlay { cursor: grabbing; }
   .wfg-la-labels { position: absolute; left: 0; top: 0; bottom: 0; width: 180px; background: #0d1117; border-right: 1px solid #21262d; z-index: 2; pointer-events: auto; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
+  /* v2.97.411: 通道名欄寬可拖曳調整（僅 desktop）。預設隱藏，min-width:901px 才啟用，確保 mobile 完全不受影響 */
+  .wfg-la-label-resizer { display: none; }
+  @media (min-width: 901px) {
+    .wfg-la-label-resizer { display: block; position: absolute; top: 0; bottom: 0; left: 180px; width: 9px; margin-left: -4px; z-index: 4; cursor: col-resize; background: transparent; touch-action: none; -webkit-user-select: none; user-select: none; }
+    .wfg-la-label-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background 0.15s; }
+    .wfg-la-label-resizer:hover::after, .wfg-la-label-resizer.dragging::after { background: #58a6ff; }
+  }
   .wfg-la-drag-handle { display: flex; align-items: center; justify-content: center; width: 36px; min-height: 44px; color: #6b7280; font-size: 14px; cursor: grab; flex-shrink: 0; touch-action: none; -webkit-user-select: none; user-select: none; border-radius: 3px; -webkit-tap-highlight-color: transparent; }
   .wfg-la-drag-handle:hover { color: #9ca3af; background: rgba(255,255,255,0.06); }
   .wfg-la-drag-handle:active { cursor: grabbing; color: #d1d5db; }
@@ -1271,6 +1278,7 @@
               </div>
               <div class="wfg-la-canvas-area" id="wfg-la-canvas-area" tabindex="0" aria-label="Logic analyzer waveform">
                 <div class="wfg-la-labels" id="wfg-la-labels"></div>
+                <div class="wfg-la-label-resizer" id="wfg-la-label-resizer" title="拖曳調整通道名欄寬（雙擊還原）" aria-label="調整通道名欄寬"></div>
                 <canvas id="wfg-la-canvas"></canvas>
                 <canvas id="wfg-la-overlay"></canvas>
               </div>
@@ -1359,7 +1367,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260701"></script>
+<script src="common/version.js?v=20260702"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3556,6 +3564,22 @@ var wfgLaGeom = null;
 var wfgLaLastAxisInfo = null;
 var wfgLaHoverRenderRaf = 0;
 var wfgLaScopeRenderRaf = 0;
+/* v2.97.411: LA 通道名欄寬可拖曳（desktop）。min=180(現寬)、max=360(現寬×2)。mobile 恆為 180 不受影響 */
+var WFG_LA_LABEL_W_MIN = 180;
+var WFG_LA_LABEL_W_MAX = 360;
+var wfgLaLabelWUser = (function() {
+  try { var v = parseInt(localStorage.getItem('wfgLaLabelW'), 10);
+    if (v >= WFG_LA_LABEL_W_MIN && v <= WFG_LA_LABEL_W_MAX) return v; } catch (e) {}
+  return WFG_LA_LABEL_W_MIN;
+})();
+function wfgLaIsDesktop() { return !!(window.matchMedia && window.matchMedia('(min-width: 901px)').matches); }
+function wfgLaGetLabelW() {
+  if (!wfgLaIsDesktop()) return WFG_LA_LABEL_W_MIN; /* mobile 固定，維持原行為 */
+  var v = wfgLaLabelWUser;
+  if (!(v >= WFG_LA_LABEL_W_MIN)) v = WFG_LA_LABEL_W_MIN;
+  if (v > WFG_LA_LABEL_W_MAX) v = WFG_LA_LABEL_W_MAX;
+  return v;
+}
 var wfgLaOverlayRaf = 0;
 var wfgLaMinimapDeferred = false;
 var wfgLaChannelDrag = null;
@@ -4937,11 +4961,52 @@ function wfgLaRequestScopeRender() {
   });
 }
 
+/* v2.97.411: 綁定通道名欄寬拖曳分隔條（desktop-only；idempotent）。
+   拖曳即時改 wfgLaLabelWUser 並 rAF 重繪（skipLabels，靠 CSS 自動回流讓長名不再被 ... 截）。
+   放 canvas-area 內、labels 兄弟節點，故 labels.innerHTML 重建時不會被洗掉。 */
+function wfgLaBindLabelResizer() {
+  var rz = document.getElementById('wfg-la-label-resizer');
+  if (!rz || rz._wfgBound) return;
+  rz._wfgBound = true;
+  var startX = 0, startW = WFG_LA_LABEL_W_MIN;
+  function onMove(e) {
+    var w = startW + (e.clientX - startX);
+    if (w < WFG_LA_LABEL_W_MIN) w = WFG_LA_LABEL_W_MIN;
+    if (w > WFG_LA_LABEL_W_MAX) w = WFG_LA_LABEL_W_MAX;
+    wfgLaLabelWUser = w;
+    wfgLaRequestScopeRender();
+  }
+  function onUp() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    rz.classList.remove('dragging');
+    document.body.style.cursor = '';
+    try { localStorage.setItem('wfgLaLabelW', String(wfgLaLabelWUser)); } catch (e) {}
+  }
+  rz.addEventListener('pointerdown', function(e) {
+    if (!wfgLaIsDesktop()) return; /* mobile 不啟用 */
+    e.preventDefault(); e.stopPropagation();
+    startX = e.clientX; startW = wfgLaGetLabelW();
+    rz.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+  /* 雙擊還原預設(現寬) */
+  rz.addEventListener('dblclick', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    wfgLaLabelWUser = WFG_LA_LABEL_W_MIN;
+    try { localStorage.setItem('wfgLaLabelW', String(WFG_LA_LABEL_W_MIN)); } catch (err) {}
+    wfgLaRequestScopeRender();
+  });
+}
+
 function wfgLaBindScopeEvents() {
   var canvas = document.getElementById('wfg-la-canvas');
   var surface = document.getElementById('wfg-la-canvas-area') || canvas;
   if (!canvas || !surface || surface._wfgLaBound) return;
   surface._wfgLaBound = true;
+  wfgLaBindLabelResizer();
   var labels = document.getElementById('wfg-la-labels');
   if (labels && !labels._wfgLaBound) {
     labels._wfgLaBound = true;
@@ -5837,7 +5902,7 @@ function wfgLaRenderScope(options) {
   }
   var ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  var labelW = 180;
+  var labelW = wfgLaGetLabelW();
   var drawX0 = labelW;
   var drawW = cssW - labelW;
   var tStart = wfgLaViewStart;
@@ -5946,6 +6011,9 @@ function wfgLaRenderScope(options) {
   if (labels) {
     labels.style.width = labelW + 'px';
     labels.style.height = cssH + 'px';
+    /* v2.97.411: 拖曳分隔條跟隨欄寬定位 */
+    var laResizer = document.getElementById('wfg-la-label-resizer');
+    if (laResizer) { laResizer.style.left = labelW + 'px'; laResizer.style.height = cssH + 'px'; }
     var ioEditActive = labels.contains(document.activeElement) && document.activeElement && (document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'INPUT');
     /* v2.97.409: 正在編輯通道名（contenteditable label-name span，帶 data-la-label-ch）時不重建 labels DOM。
        否則連續觸發(repeat)每輪 wfgLaApplyCapturedWaveform → wfgLaRenderScope 都會 labels.innerHTML 重建，

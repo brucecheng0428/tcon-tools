@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.411 — 2026-07-02
+
+### LA 分析器：左側通道名欄寬可用滑鼠拖曳調整（僅 desktop）
+
+- **需求（Bruce）**：LA 子頁 desktop 版，左側「通道名區域」（通道名稱、觸發 trigger 選擇等）通道名太長時被 `...` 省略號截斷看不到全名。要能用滑鼠拖曳分隔條調整欄寬：**min = 現寬（180px，不可更窄）、max = 現寬×2（360px）**。只改 desktop，mobile 不可受影響。
+- **現況查證（先讀再做）**：
+  - `.wfg-la-labels`（wfg.html CSS L315）左欄固定 `width:180px`，`position:absolute` 疊在示波器 canvas 左緣。
+  - 繪圖左偏移在 `wfg-la-labels` renderScope 內以區域變數 `var labelW = 180`（L5840）決定 `drawX0/drawW`；時間軸 `wfgLaDrawTimeAxis` 讀 `wfgLaGeom.labelW`、labels div 寬由 L5947 `labels.style.width = labelW` 設定——三者靠 `labelW` 連動。（Tcon 分頁另用 `WFG_LABEL_W=110`，與此無關，未動。）
+  - 通道名截斷：`.wfg-la-label-name`（L327）`overflow:hidden; text-overflow:ellipsis`，容器變寬即自動回流顯示全名。
+  - Desktop/mobile 分野：`@media (min-width:901px)` 為 desktop（L204）；`@media (max-width:900px)` 時 `.wfg-la-brand{display:none}`（L490）。mobile 無 labels 寬度覆寫，仍走 180。
+- **實作（可指證 diff）**：
+  - JS 全域新增 `WFG_LA_LABEL_W_MIN=180`、`WFG_LA_LABEL_W_MAX=360`、`wfgLaLabelWUser`（從 localStorage `wfgLaLabelW` 載入、預設 180）、`wfgLaIsDesktop()`（matchMedia min-width:901px）、`wfgLaGetLabelW()`（**mobile 恆回 180**、desktop 回 clamp 後的使用者寬度）。
+  - `var labelW = 180` → `var labelW = wfgLaGetLabelW()`（L5840）。renderScope 內同步更新分隔條 `#wfg-la-label-resizer` 的 `left = labelW`。
+  - CSS `.wfg-la-label-resizer` **預設 `display:none`，僅 `@media(min-width:901px)` 才 `display:block`**（col-resize、hover/dragging 藍色高亮）——結構上保證 mobile 完全不出現、不啟用。
+  - HTML 於 `#wfg-la-labels` 後、canvas 前插入分隔條 div（放 canvas-area 內、labels **兄弟**節點，故 labels.innerHTML 每輪重建時不會被洗掉）。
+  - `wfgLaBindLabelResizer()`（idempotent，於 `wfgLaBindScopeEvents` 呼叫）：pointerdown 記 startX/startW → pointermove clamp 到 180..360 改 `wfgLaLabelWUser` 並 `wfgLaRequestScopeRender()`（rAF、skipLabels，靠 CSS 自動回流讓長名不再被 `...` 截）→ pointerup 寫回 localStorage。雙擊還原 180。pointerdown 內再判 `wfgLaIsDesktop()`，mobile 不啟用。
+- **為何不破壞其他 / 不誤傷 mobile**：labelW 改為函式取值，mobile 分支恆回 180＝與改前完全一致的繪圖幾何；分隔條 CSS 預設隱藏且拖曳 handler 二次守 desktop；分隔條為 labels 兄弟節點，不影響既有通道名 contenteditable、trigger 點擊、拖曳換序（那些仍綁在 `.wfg-la-drag-handle`）。
+- **進版**：version.js `wfg: v2.97.410 → v2.97.411`；wfg.html version.js 查詢字串 `?v=20260701 → ?v=20260702`（破快取讀新版號）。
+- **驗證**：見部署後 Chrome MCP desktop 操作式驗證（拖曳變寬看全名、min=180/max=360 邊界、mobile 視窗版面不跑、分隔條隱藏），截圖佐證。
+
 ## TCON 波形產生器 (wfg) v2.97.410 — 2026-07-01
 
 ### LA 解碼結果卡 DPCD 位址點擊無法跳到 AUX 分頁 DPCD 查詢器修正
