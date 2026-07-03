@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.417 — 2026-07-04
+
+### LA 分析器新增 .kvset（純設定）雙向支援；沿用 v416 深度/rate 對齊規則；kvdat 不退化
+
+- **需求**：除 `.kvdat`（設定+波形）外，支援原廠 KingstVIS 的 `.kvset`（純設定、無波形二進位）匯入/匯出。對齊基準＝原廠 `EM02_E512.kvset`（3246 bytes 純 XML）。
+- **匯入**：檔案選擇器 `accept=".kvdat,.kvset"`，新分派 `wfgLaImportKvFile` 依副檔名路由：
+  - `.kvset` → `wfgLaImportKvsetFile`：讀純文字 → 既有 `wfgLaParseSettingsXml` → `wfgLaApplyParsedSettings`（套用 model / 深度 / rate / 觸發 / 門檻 / 致能 / 通道名 chnShowName / analyzer），額外套用 `chnShowIndex` 顯示順序。無法對應欄位忽略不報錯。
+  - `.kvdat` → 沿用原 `wfgLaImportKvdat`（行為完全不變）。
+- **匯出**：工具列匯出鈕改「格式下拉」（`.kvdat` 完整資料 / `.kvset` 僅設定），`wfgLaExportFile` 分派。`wfgLaExportKvset` 從當前 UI 設定產出 settings XML（不含波形，尚無擷取資料也可匯出）。
+- **對齊規則單一來源（重點）**：抽出共用 `wfgLaBuildSettingsXml` + `wfgLaBuildAnalyzerLines`，kvdat header 與 kvset 共用同一份 XML 產生器；深度 `smpDepth/smpDepthIndex` 用 `kvdatDepthFields`、rate 用 `smpFrequ/kvdatSampleRateIndex`，完全沿用 v416 已對齊的板載規則（1G=1,000,000/idx11、2G/12、5G=5,000,000/idx13、10G 固定 5,539,071/idx8），未另立第二套。
+- **kvdat 不退化（鐵律 1，離線坐實）**：refactor 後 kvdat 的 XML header 與 v416 舊版**逐位元相同** — node 離線比對三情境（EM02-like 5G / 預設名稱+10G 串流 / 含 I2C+DP analyzer）皆 IDENTICAL；`##D` edge 二進位區塊、header totalSamples/freq/trigger 全部不動。
+- **進版**：version.js `wfg: v2.97.416 → v2.97.417`；cache-buster version.js `?v=20260703c → 20260704a`、i18n.js `?v=20260521b → 20260704a`。
+- **驗證**：node 語法檢查 + kvdat header 位元一致；線上 Chrome 匯入 `EM02_E512.kvset` 讀 DOM（深度 5G / rate 200MHz / 觸發 ch3 / 門檻 1.25V / 通道名）；網頁匯出 `.kvset` 以原廠 KingstVIS 實開比對；kvdat 匯出回歸。
+
 ## TCON 波形產生器 (wfg) v2.97.416 — 2026-07-03
 
 ### kvdat 深度欄位改「板載固定常數」規則，幹掉 v415 猜測的 idx=14（兩顆原廠 10G 坐實）

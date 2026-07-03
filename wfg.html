@@ -1231,8 +1231,12 @@
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpFile">檔案</span>
-                    <button class="wfg-la-icon-only" onclick="document.getElementById('wfg-la-kvdat-input').click()" title="匯入 .kvdat" data-i18n-title="wfg.laImportKvdatTitle" aria-label="匯入 .kvdat"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
-                    <button class="wfg-la-icon-only" onclick="wfgLaExportKvdat()" title="匯出 .kvdat" data-i18n-title="wfg.laExportKvdatTitle" aria-label="匯出 .kvdat"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
+                    <button class="wfg-la-icon-only" onclick="document.getElementById('wfg-la-kvdat-input').click()" title="匯入 .kvdat / .kvset" data-i18n-title="wfg.laImportKvFileTitle" aria-label="匯入 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
+                    <select class="wfg-la-toolbar-select" id="wfg-la-export-format" onchange="var _v=this.value;this.selectedIndex=0;if(_v)wfgLaExportFile(_v);" title="匯出 .kvdat / .kvset" data-i18n-title="wfg.laExportMenuTitle" aria-label="匯出">
+                      <option value="" data-i18n="wfg.laExportMenuLabel">⤓ 匯出</option>
+                      <option value="kvdat" data-i18n="wfg.laExportKvdatOpt">.kvdat（完整資料）</option>
+                      <option value="kvset" data-i18n="wfg.laExportKvsetOpt">.kvset（僅設定）</option>
+                    </select>
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpView">檢視</span>
@@ -1349,7 +1353,7 @@
             <input type="file" id="wfg-la-bitstream-input" accept=".bitstream,.bin" onchange="wfgLaImportFirmwareFile(this, 'fpga')">
             <input type="file" id="wfg-la-package-input" accept=".zip" onchange="wfgLaImportPackageZip(this)">
             <input type="file" id="wfg-la-folder-input" webkitdirectory directory multiple onchange="wfgLaImportKingstVisFolderFiles(this)">
-            <input type="file" id="wfg-la-kvdat-input" accept=".kvdat" onchange="wfgLaImportKvdat(this)">
+            <input type="file" id="wfg-la-kvdat-input" accept=".kvdat,.kvset" onchange="wfgLaImportKvFile(this)">
           </div>
         </div>
       </div>
@@ -1368,8 +1372,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260703c"></script>
-<script src="common/i18n.js?v=20260521b"></script>
+<script src="common/version.js?v=20260704a"></script>
+<script src="common/i18n.js?v=20260704a"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形產生器 ═══════════
@@ -22946,6 +22950,56 @@ window.wfgLaImportKvdat = async function(input) {
   input.value = '';
 };
 
+/* v2.97.417: 匯入純設定 .kvset（只有 settings XML、無 kvdat 二進位）。
+   走既有 settings 解析/套用路徑（通道名/深度/rate/觸發/門檻/致能/analyzer）；額外套用 chnShowIndex 顯示順序。 */
+async function wfgLaImportKvsetFile(file) {
+  wfgLaInit();
+  wfgShowProgress(5, t('wfg.progressRead'));
+  await wfgYield();
+  try {
+    var text = await file.text();
+    var parsed = wfgLaParseSettingsXml(text);
+    wfgLaApplyParsedSettings(parsed);
+    /* 套用 KingstVIS 顯示順序 chnShowIndex（僅影響通道上下排列，不動 name↔channel 對應）；非關鍵，失敗則忽略 */
+    try {
+      var idxEl = parsed.xmlDoc && parsed.xmlDoc.querySelector ? parsed.xmlDoc.querySelector('chnShowIndex') : null;
+      var order = idxEl && idxEl.textContent ? kvdatNumberList(idxEl.textContent) : [];
+      if (order.length >= 2) {
+        var enabled = (parsed.settings && parsed.settings.enabledChannels && parsed.settings.enabledChannels.length) ? parsed.settings.enabledChannels : order;
+        var visibleOrder = order.filter(function(ch) { return ch >= 0 && ch < 16 && enabled.indexOf(ch) >= 0; });
+        if (visibleOrder.length) {
+          wfgLaApplyVisibleChannelOrder(visibleOrder.concat(wfgLaChannelOrder));
+          wfgLaRenderScope();
+        }
+      }
+    } catch (eOrder) { /* 顯示順序非關鍵，忽略 */ }
+    wfgSetImportedFileName('la', file.name);
+    wfgLaSetAcqProgress(100, t('wfg.laImportedKvset', { name: file.name }), 'active');
+    var qpSel = document.getElementById('wfg-la-quick-preset');
+    if (qpSel) { qpSel.value = ''; qpSel.classList.add('preset-attention'); }
+    try { localStorage.removeItem('wfg-la-quick-preset'); } catch (e) {}
+    wfgShowProgress(100, t('wfg.progressDone'));
+    await wfgYield();
+    wfgHideProgress();
+  } catch (e) {
+    wfgHideProgress();
+    alert(t('wfg.kvsetFail') + e.message);
+    console.error(e);
+  }
+}
+
+/* v2.97.417: 檔案匯入分派 — 依副檔名選 .kvset（純設定）或 .kvdat（完整資料，沿用舊路徑）。 */
+window.wfgLaImportKvFile = async function(input) {
+  var file = input && input.files && input.files[0];
+  if (!file) return;
+  if (/\.kvset$/i.test(file.name)) {
+    await wfgLaImportKvsetFile(file);
+    input.value = '';
+    return;
+  }
+  return window.wfgLaImportKvdat(input);
+};
+
 function kvdatMergeAnalyzerParameters(original, fallbackParts, updates) {
   var parts = original ? String(original).split(',') : (fallbackParts || []).slice();
   if (!parts.length) parts = (fallbackParts || []).slice();
@@ -22958,6 +23012,151 @@ function kvdatMergeAnalyzerParameters(original, fallbackParts, updates) {
   if (parts[parts.length - 1] !== '') parts.push('');
   return parts.join(',');
 }
+
+/* v2.97.417: 由 wfgLaAnalyzers 產出 KingstVIS <analyzers> item 陣列（kvdat / kvset 共用）。 */
+function wfgLaBuildAnalyzerLines() {
+  var analyzerLines = [];
+  if (wfgLaAnalyzers && wfgLaAnalyzers.length) {
+    wfgLaAnalyzers.forEach(function(a) {
+      var acfg = a && a.config ? a.config : {};
+      if (a && (a.type === 'i2c' || a.type === 'i2c_eeprom')) {
+        var i2cSda = Math.max(0, Math.min(15, Number(acfg.sda) || 0));
+        var i2cScl = Math.max(0, Math.min(15, Number(acfg.scl) || 1));
+        var i2cParams = wfgLaBuildKingstI2cParameters(acfg.kvParams, {
+          sda: i2cSda,
+          scl: i2cScl,
+          addressDisplay: acfg.addressDisplay || '8rw',
+          exportLevel: acfg.exportLevel || 'packets'
+        });
+        analyzerLines.push({
+          fileName: acfg.kvFileName || (a.type === 'i2c_eeprom' ? 'I2C-EEPROM.dll' : 'I2C.dll'),
+          parameters: i2cParams,
+          format: acfg.kvFormat || '2'
+        });
+      } else if (a && a.type === 'dp_aux') {
+        var dpCh = Math.max(0, Math.min(15, Number(acfg.channel) || 0));
+        var dpRate = Math.max(1, Math.round(Number(acfg.bitRate) || 1000000));
+        var dpPolarity = acfg.polarity === 'invert' ? 1 : 0;
+        var dpBits = Math.max(1, Math.round(Number(acfg.bitsPerFrame) || 8));
+        var dpSig = Math.round(Number(acfg.syncBits) || Number(acfg.significantBit) || 16);
+        if (!isFinite(dpSig)) dpSig = 16;
+        dpSig = Math.max(2, Math.min(32, dpSig));
+        var dpTolerance = wfgLaDpAuxToleranceToKvParam(acfg.tolerance);
+        analyzerLines.push({
+          fileName: acfg.kvFileName || 'DisplayPortAuxAnalyzer.dll',
+          parameters: kvdatMergeAnalyzerParameters(acfg.kvParams, ['DisplayPortAUXAnalyzer', '0', dpCh, '0', dpRate, dpPolarity, dpBits, '0', dpSig, dpTolerance, ''], { 2: dpCh, 4: dpRate, 5: dpPolarity, 6: dpBits, 8: dpSig, 9: dpTolerance }),
+          format: acfg.kvFormat || '2'
+        });
+      }
+    });
+  }
+  return analyzerLines;
+}
+
+/* v2.97.417: 共用 KingstVIS settings XML 產生器 —
+   kvdat 匯出（header）與 kvset 匯出（純設定）共用；深度/rate 沿用 v416 已對齊規則（depthFields/kvdatSampleRateIndex）。
+   p: { triggerPosition, chTrig[16], chEnable[16], depthFields:{smpDepthKSa,smpDepthIndex}, rateKHz, thresholdV, analyzerLines[] }
+   注意：輸出字串與 v416 kvdat 舊版 header 逐位元相同，確保 kvdat 相容不退化。 */
+function wfgLaBuildSettingsXml(p) {
+  p = p || {};
+  var chTrig = p.chTrig || [];
+  var chEnable = p.chEnable || [];
+  var depthFields = p.depthFields || { smpDepthKSa: 0, smpDepthIndex: 0 };
+  var thresholdV = Number(p.thresholdV) || 0;
+  var xmlLines = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<settings>',
+    '    <global>',
+    '        <version>3.6.5</version>',
+    '        <devModel>7</devModel>',
+    '        <oscCursorEna/>',
+    '        <lgcMeasure/>',
+    '        <chnShowIndex/>',
+    '        <chnShowMultip/>'
+  ];
+  for (var ch = 0; ch < 16; ch++) {
+    var displayName = wfgLaDisplayChannelName(ch);
+    var defaultName = (displayName === ('通道 ' + ch) || displayName === ('CH' + ch)) ? '' : displayName;
+    xmlLines.push('        <chnShowName' + ch + (defaultName ? ('>' + kvdatXmlEscape(defaultName) + '</chnShowName' + ch + '>') : '/>'));
+  }
+  xmlLines.push(
+    '        <analyzerAlias>;</analyzerAlias>',
+    '    </global>',
+    '    <devices>',
+    '        <LA2016>',
+    '            <trgPosition>' + Math.round(Number(p.triggerPosition) || 0) + '</trgPosition>',
+    '            <chnTrig>' + chTrig.join(',') + '</chnTrig>',
+    '            <chnEnable>' + chEnable.join(',') + '</chnEnable>',
+    '            <smpMode/>',
+    '            <smpDepth>' + depthFields.smpDepthKSa + '</smpDepth>',
+    '            <smpDepthIndex>' + depthFields.smpDepthIndex + '</smpDepthIndex>',
+    '            <smpFrequ>' + p.rateKHz + '</smpFrequ>',
+    '            <smpFrequIndex>' + kvdatSampleRateIndex(p.rateKHz) + '</smpFrequIndex>',
+    '            <chnLevel>' + kvdatXmlEscape(wfgLaThresholdSelectValue(thresholdV) === 'custom' ? 'Custom' : ((thresholdV * 2).toFixed(thresholdV * 2 >= 2 ? 1 : 2) + 'V CMOS')) + '</chnLevel>',
+    '            <chnVth>' + thresholdV.toFixed(2).replace(/\.?0+$/, '') + '</chnVth>',
+    '        </LA2016>',
+    '    </devices>'
+  );
+  var analyzerLines = p.analyzerLines || [];
+  if (analyzerLines.length) {
+    xmlLines.push('    <analyzers>');
+    analyzerLines.forEach(function(item, idx) {
+      xmlLines.push('        <item' + idx + '>');
+      xmlLines.push('            <fileName>' + kvdatXmlEscape(item.fileName) + '</fileName>');
+      xmlLines.push('            <parameters>' + kvdatXmlEscape(item.parameters) + '</parameters>');
+      xmlLines.push('            <format>' + kvdatXmlEscape(item.format) + '</format>');
+      xmlLines.push('        </item' + idx + '>');
+    });
+    xmlLines.push('    </analyzers>');
+  } else {
+    xmlLines.push('    <analyzers/>');
+  }
+  xmlLines.push('</settings>');
+  return xmlLines.join('\n');
+}
+
+/* v2.97.417: 匯出純設定 .kvset（不含波形二進位，即使尚無擷取資料也可匯出）。 */
+window.wfgLaExportKvset = function() {
+  var cfg = wfgLaBuildConfig();
+  var sampleRate = Math.max(1, Math.round(Number(cfg.sampleRateHz) || 200000000));
+  var rateKHz = Math.round(sampleRate / 1000);
+  var selected = (cfg.enabledChannels && cfg.enabledChannels.length) ? cfg.enabledChannels.slice() : [];
+  selected = selected.filter(function(ch, idx, arr) { return ch >= 0 && ch < 16 && arr.indexOf(ch) === idx; });
+  var triggerPosition = cfg.trigger && cfg.trigger.enabled ? Math.max(0, Math.min(100, Number(cfg.trigger.positionPercent) || 0)) : 0;
+  var chEnable = [];
+  var chTrig = [];
+  for (var ce = 0; ce < 16; ce++) {
+    chEnable[ce] = selected.indexOf(ce) >= 0 ? 1 : 0;
+    chTrig[ce] = cfg.trigger && cfg.trigger.enabled && ce === Number(cfg.trigger.channel) ? kvdatTriggerCode(cfg.trigger.edge) : 0;
+  }
+  var selectedDepthSamples = Math.max(1, Math.round(Number(cfg.sampleDepth) || 1000000));
+  var depthFields = kvdatDepthFields(selectedDepthSamples);
+  var xmlStr = wfgLaBuildSettingsXml({
+    triggerPosition: triggerPosition,
+    chTrig: chTrig,
+    chEnable: chEnable,
+    depthFields: depthFields,
+    rateKHz: rateKHz,
+    thresholdV: cfg.thresholdV,
+    analyzerLines: wfgLaBuildAnalyzerLines()
+  });
+  var now = new Date();
+  var pad2 = function(n) { return String(n).padStart(2, '0'); };
+  var stamp = now.getFullYear() + pad2(now.getMonth() + 1) + pad2(now.getDate()) + '_' + pad2(now.getHours()) + pad2(now.getMinutes()) + pad2(now.getSeconds());
+  var name = 'Timing_LA_' + stamp + '.kvset';
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([xmlStr], { type: 'application/xml' }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+};
+
+/* v2.97.417: 匯出格式分派（工具列下拉：kvdat=完整資料 / kvset=僅設定）。 */
+window.wfgLaExportFile = function(fmt) {
+  if (fmt === 'kvset') return wfgLaExportKvset();
+  return wfgLaExportKvdat();
+};
 
 window.wfgLaExportKvdat = function() {
   var cfg = wfgLaBuildConfig();
@@ -22998,90 +23197,18 @@ window.wfgLaExportKvdat = function() {
     chEnable[ce] = selected.indexOf(ce) >= 0 ? 1 : 0;
     chTrig[ce] = cfg.trigger && cfg.trigger.enabled && ce === Number(cfg.trigger.channel) ? kvdatTriggerCode(cfg.trigger.edge) : 0;
   }
-  var xmlLines = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<settings>',
-    '    <global>',
-    '        <version>3.6.5</version>',
-    '        <devModel>7</devModel>',
-    '        <oscCursorEna/>',
-    '        <lgcMeasure/>',
-    '        <chnShowIndex/>',
-    '        <chnShowMultip/>'
-  ];
-  for (var ch = 0; ch < 16; ch++) {
-    var displayName = wfgLaDisplayChannelName(ch);
-    var defaultName = (displayName === ('通道 ' + ch) || displayName === ('CH' + ch)) ? '' : displayName;
-    xmlLines.push('        <chnShowName' + ch + (defaultName ? ('>' + kvdatXmlEscape(defaultName) + '</chnShowName' + ch + '>') : '/>'));
-  }
-  xmlLines.push(
-    '        <analyzerAlias>;</analyzerAlias>',
-    '    </global>',
-    '    <devices>',
-    '        <LA2016>',
-    '            <trgPosition>' + Math.round(triggerPosition) + '</trgPosition>',
-    '            <chnTrig>' + chTrig.join(',') + '</chnTrig>',
-    '            <chnEnable>' + chEnable.join(',') + '</chnEnable>',
-    '            <smpMode/>',
-    '            <smpDepth>' + depthFields.smpDepthKSa + '</smpDepth>',
-    '            <smpDepthIndex>' + depthFields.smpDepthIndex + '</smpDepthIndex>',
-    '            <smpFrequ>' + rateKHz + '</smpFrequ>',
-    '            <smpFrequIndex>' + kvdatSampleRateIndex(rateKHz) + '</smpFrequIndex>',
-    '            <chnLevel>' + kvdatXmlEscape(wfgLaThresholdSelectValue(cfg.thresholdV) === 'custom' ? 'Custom' : ((cfg.thresholdV * 2).toFixed(cfg.thresholdV * 2 >= 2 ? 1 : 2) + 'V CMOS')) + '</chnLevel>',
-    '            <chnVth>' + (Number(cfg.thresholdV) || 0).toFixed(2).replace(/\.?0+$/, '') + '</chnVth>',
-    '        </LA2016>',
-    '    </devices>'
-  );
-  var analyzerLines = [];
-  if (wfgLaAnalyzers && wfgLaAnalyzers.length) {
-    wfgLaAnalyzers.forEach(function(a) {
-      var acfg = a && a.config ? a.config : {};
-      if (a && (a.type === 'i2c' || a.type === 'i2c_eeprom')) {
-        var i2cSda = Math.max(0, Math.min(15, Number(acfg.sda) || 0));
-        var i2cScl = Math.max(0, Math.min(15, Number(acfg.scl) || 1));
-        var i2cParams = wfgLaBuildKingstI2cParameters(acfg.kvParams, {
-          sda: i2cSda,
-          scl: i2cScl,
-          addressDisplay: acfg.addressDisplay || '8rw',
-          exportLevel: acfg.exportLevel || 'packets'
-        });
-        analyzerLines.push({
-          fileName: acfg.kvFileName || (a.type === 'i2c_eeprom' ? 'I2C-EEPROM.dll' : 'I2C.dll'),
-          parameters: i2cParams,
-          format: acfg.kvFormat || '2'
-        });
-      } else if (a && a.type === 'dp_aux') {
-        var dpCh = Math.max(0, Math.min(15, Number(acfg.channel) || 0));
-	        var dpRate = Math.max(1, Math.round(Number(acfg.bitRate) || 1000000));
-	        var dpPolarity = acfg.polarity === 'invert' ? 1 : 0;
-	        var dpBits = Math.max(1, Math.round(Number(acfg.bitsPerFrame) || 8));
-	        var dpSig = Math.round(Number(acfg.syncBits) || Number(acfg.significantBit) || 16);
-	        if (!isFinite(dpSig)) dpSig = 16;
-	        dpSig = Math.max(2, Math.min(32, dpSig));
-        var dpTolerance = wfgLaDpAuxToleranceToKvParam(acfg.tolerance);
-        analyzerLines.push({
-          fileName: acfg.kvFileName || 'DisplayPortAuxAnalyzer.dll',
-          parameters: kvdatMergeAnalyzerParameters(acfg.kvParams, ['DisplayPortAUXAnalyzer', '0', dpCh, '0', dpRate, dpPolarity, dpBits, '0', dpSig, dpTolerance, ''], { 2: dpCh, 4: dpRate, 5: dpPolarity, 6: dpBits, 8: dpSig, 9: dpTolerance }),
-          format: acfg.kvFormat || '2'
-        });
-      }
-    });
-  }
-  if (analyzerLines.length) {
-    xmlLines.push('    <analyzers>');
-    analyzerLines.forEach(function(item, idx) {
-      xmlLines.push('        <item' + idx + '>');
-      xmlLines.push('            <fileName>' + kvdatXmlEscape(item.fileName) + '</fileName>');
-      xmlLines.push('            <parameters>' + kvdatXmlEscape(item.parameters) + '</parameters>');
-      xmlLines.push('            <format>' + kvdatXmlEscape(item.format) + '</format>');
-      xmlLines.push('        </item' + idx + '>');
-    });
-    xmlLines.push('    </analyzers>');
-  } else {
-    xmlLines.push('    <analyzers/>');
-  }
-  xmlLines.push('</settings>');
-  var xmlBytes = new TextEncoder().encode(xmlLines.join('\n'));
+  /* v2.97.417: XML header 改用共用 wfgLaBuildSettingsXml（與 kvset 匯出同一份，對齊規則單一來源）。
+     analyzerLines 用共用 wfgLaBuildAnalyzerLines。輸出字串與舊版逐位元相同（不影響 kvdat 相容）。 */
+  var xmlStr = wfgLaBuildSettingsXml({
+    triggerPosition: triggerPosition,
+    chTrig: chTrig,
+    chEnable: chEnable,
+    depthFields: depthFields,
+    rateKHz: rateKHz,
+    thresholdV: cfg.thresholdV,
+    analyzerLines: wfgLaBuildAnalyzerLines()
+  });
+  var xmlBytes = new TextEncoder().encode(xmlStr);
   var blocks = [];
   var totalBlockBytes = 0;
   selected.forEach(function(ch) {
