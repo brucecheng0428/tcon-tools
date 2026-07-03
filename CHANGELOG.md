@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.412 — 2026-07-03
+
+### LA 連續觸發機率性「最右緣躺平／掉尾端資料」修正
+
+- **情境（Bruce 回報）**：LA 分析器連續觸發（循環取樣）時，偶發某一幀波形在最右緣「躺平」——最後一段變成一條時間累加卻無 edge 的平線拉到繪圖區最右。深度愈小占比愈大（實測 100MSa≈2.7%、20MSa≈13.4%，對應固定 ~13.5ms 掉尾）。
+- **根因（可指證 diff，wfg.html `wfgLaSafeCaptureProbe`）**：連續觸發每輪 HALT 後，於「單次讀 capture info（0x20/0x10 取 nRepPackets/nBeforeTrig/writePos）」與「依 writePos 下載 EP6 尾端」之間，缺「等 DMA flush／輪詢 writePos 穩定」握手 → 尾端讀到未提交／上一輪殘留的固定量 bytes → decode 成「時間累加無 edge」平段 → 渲染 `lineTo` 到最右緣躺平。
+- **主修法（治本，可指證 diff）**：
+  - 新增 `wfgLaWaitCaptureInfoStable(dev, lines, opts)`（置於 `wfgLaCtrlOut` 後 LA helper 區）：連續讀 0x20/0x10，直到 `(writePos && nRepPackets)` 連續 M=3 次不變視為穩定；pollMs=2、上限 N=15（最壞 ~30-45ms），穩定後 settleMs≈4 才回傳供下載。writePos 早穩（單次/正常擷取）→ 前 3 次即退出、近零延遲，全模式啟用不拖慢單次。
+  - `wfgLaSafeCaptureProbe` 讀 capture info 那步改呼叫此 helper；逾時（N 次仍不穩）標 `lines.captureInfoUnstable=true`。**連續模式**不穩→跳過本幀顯示、保留上一張好幀不被殘留尾端覆寫（比照既有 keepLastComplete 語意，下載前 early-return）；**單次模式**照下載但標警，絕不把可疑幀當正常。
+- **第二道防線（防禦，不取代主修法，可指證 diff）**：
+  - 新增 `wfgLaTrimUncommittedTail(decoded, cfg, sampleCfg)`（置於 `wfgLaTrimDecodedCapture` 後）：偵測「最後真實 edge 之後、sample 恆定但 rep>0 持續累加」的尾段，把顯示終點收到「最後真實 edge + 小 margin（128 samples 或 5% duration 取大者）」，丟掉無效尾巴。
+  - 於解碼後、套用前呼叫，三重防誤殺守衛：`acquisitionMode==='repeat'` 且非 partialDownload/非 manualStop 且 `captureInfoUnstable` 三者同時成立才裁，避免誤殺「訊號尾端本來就靜止」的合法平段。
+  - 註：因主修法已在 repeat+unstable 於下載前 early-return，此第二道防線在現行路徑屬防禦性保險（下載路徑一律執行此呼叫、守衛不成立時 no-op），未來若放寬 early-return 即自動生效。
+- **相容性**：不動 v2.97.408 staleResidual 守衛、不碰單次觸發行為、partialDownload 維持排除裁切。僅動 wfg.html LA 邏輯 + version.js `wfg` 欄位（單一來源版號 badge，非共用邏輯）。
+- **進版**：version.js `wfg: v2.97.411 → v2.97.412`。
+- **驗證**：JS 語法檢查通過；線上 cache-buster 驗版號 + 兩特徵字串 `wfgLaWaitCaptureInfoStable`/`wfgLaTrimUncommittedTail`。**實機連續觸發驗證躺平消失由 Bruce 另做。**
+
 ## TCON 波形產生器 (wfg) v2.97.411 — 2026-07-02
 
 ### LA 分析器：左側通道名欄寬可用滑鼠拖曳調整（僅 desktop）

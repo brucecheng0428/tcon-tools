@@ -1367,7 +1367,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260702"></script>
+<script src="common/version.js?v=20260703"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -8066,6 +8066,47 @@ async function wfgLaCtrlOut(dev, request, value, index, bytes) {
   return res;
 }
 
+/* v2.97.412: LA 連續觸發（循環取樣）每輪 HALT 後，讀 capture info（0x20/0x10）與依 writePos
+   下載 EP6 尾端之間缺「等 DMA flush／writePos 穩定」握手，會讀到未提交/上一輪殘留的固定量 bytes，
+   decode 成「時間累加無 edge」平段 → 渲染 lineTo 到最右緣躺平。
+   此 helper 連續讀 0x20/0x10，直到 (writePos && nRepPackets) 連續 stableM(=3) 次不變視為穩定；
+   pollMs=2、上限 maxPolls=15（最壞 ~30-45ms）；穩定後再 settleMs(≈4) 才回傳供下載。
+   自我限流：單次/正常擷取 writePos 早穩→前 3 次即退出、近零延遲，故可全模式啟用不拖慢單次。
+   逾時（maxPolls 次仍不穩）→ 回傳 { info, stable:false }，呼叫端標 captureInfoUnstable。 */
+async function wfgLaWaitCaptureInfoStable(dev, lines, opts) {
+  opts = opts || {};
+  var pollMs = opts.pollMs != null ? opts.pollMs : 2;
+  var maxPolls = opts.maxPolls != null ? opts.maxPolls : 15;
+  var stableM = opts.stableM != null ? opts.stableM : 3;
+  var settleMs = opts.settleMs != null ? opts.settleMs : 4;
+  var lastInfo = null;
+  var lastKey = null;
+  var stableCount = 0;
+  var polls = 0;
+  for (var i = 0; i < maxPolls; i++) {
+    var info = await wfgLaCtrlIn(dev, 0x20, 0x10, 0, 12);
+    polls++;
+    var nRepPackets = wfgLaReadU32LE(info, 0);
+    var writePos = wfgLaReadU32LE(info, 8);
+    var key = writePos + ':' + nRepPackets;
+    if (writePos && nRepPackets && key === lastKey) {
+      stableCount++;
+    } else {
+      stableCount = (writePos && nRepPackets) ? 1 : 0;
+    }
+    lastInfo = info;
+    lastKey = key;
+    if (stableCount >= stableM) {
+      if (settleMs > 0) await wfgLaSleep(settleMs);
+      if (lines) lines.push('Capture info stable after ' + polls + ' poll(s) (writePos=0x' + writePos.toString(16) + ' nRepPackets=' + nRepPackets + '); settle=' + settleMs + 'ms then download.');
+      return { info: lastInfo, stable: true, polls: polls };
+    }
+    if (i < maxPolls - 1 && pollMs > 0) await wfgLaSleep(pollMs);
+  }
+  if (lines) lines.push('Capture info did NOT stabilize within ' + polls + ' polls (writePos/nRepPackets kept changing); flagging captureInfoUnstable.');
+  return { info: lastInfo, stable: false, polls: polls };
+}
+
 async function wfgLaFx2CpuReset(dev, reset) {
   await wfgLaCtrlOut(dev, 0xa0, 0xe600, 0x0000, [reset ? 1 : 0]);
 }
@@ -8543,6 +8584,38 @@ function wfgLaTrimDecodedCapture(decoded, durationSec, totalSamples) {
   decoded.durationSec = durationSec;
   if (totalSamples != null && isFinite(totalSamples)) decoded.totalSamples = Math.max(0, Math.floor(totalSamples));
   if (decoded.triggerPacketTimeSec != null) decoded.triggerPacketTimeSec = Math.max(0, Math.min(durationSec, decoded.triggerPacketTimeSec));
+  return decoded;
+}
+
+/* v2.97.412: 第二道防線（防禦，不取代握手主修法）。偵測「最後一個真實 edge 之後、
+   sample 恆定但 rep>0 持續累加」的未提交尾段，把顯示終點收到「最後真實 edge + 小 margin」，
+   丟掉無效尾巴（而非 lineTo 到最右緣躺平）。呼叫端已用三重守衛（repeat + 非 partial/manual +
+   captureInfoUnstable）避免誤殺「訊號尾端本來就靜止」的合法平段；本函式再自帶尾端長度門檻，
+   尾端空白不顯著時不動。 */
+function wfgLaTrimUncommittedTail(decoded, cfg, sampleCfg) {
+  if (!decoded || !decoded.edgesByChannel) return decoded;
+  var rate = Math.max(1, (sampleCfg && sampleCfg.effectiveRate) || decoded.effectiveRate || 1);
+  var lastEdge = -1;
+  for (var ch = 0; ch < decoded.edgesByChannel.length; ch++) {
+    var edges = decoded.edgesByChannel[ch] || [];
+    if (edges.length) {
+      var e = edges[edges.length - 1];
+      if (e > lastEdge) lastEdge = e;
+    }
+  }
+  /* 全無 edge：無從界定「最後真實 edge」，交由既有 stale/overrun 邏輯處理，不動以免誤殺 */
+  if (lastEdge < 0) return decoded;
+  var dur = Math.max(0, Number(decoded.durationSec) || 0);
+  var tailSec = dur - lastEdge;
+  /* margin 取 128 samples 或 5% duration 取大者；尾端空白 <= margin 視為合法靜止，不裁 */
+  var marginSec = Math.max(128 / rate, dur * 0.05);
+  if (tailSec <= marginSec) return decoded;
+  var newDur = lastEdge + marginSec;
+  var newSamples = Math.round(newDur * rate);
+  wfgLaTrimDecodedCapture(decoded, newDur, newSamples);
+  decoded.uncommittedTailTrimmed = true;
+  decoded.uncommittedTailTrimmedFromSec = dur;
+  decoded.uncommittedTailTrimmedToSec = newDur;
   return decoded;
 }
 
@@ -12834,12 +12907,41 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     wfgLaSetAcqProgress(97, '讀取波形資料', 'active');
   }
 
-  var info = await wfgLaCtrlIn(dev, 0x20, 0x10, 0, 12);
+  /* v2.97.412: 主修法 — 讀 capture info 前先等 writePos/nRepPackets 穩定（DMA flush 握手），
+     避免連續觸發每輪 HALT 後讀到未提交/上一輪殘留的固定量 bytes 而躺平。 */
+  var capInfoResult = await wfgLaWaitCaptureInfoStable(dev, lines, {});
+  var info = capInfoResult.info;
+  var captureInfoUnstable = !capInfoResult.stable;
+  lines.captureInfoUnstable = captureInfoUnstable;
   var nRepPackets = wfgLaReadU32LE(info, 0);
   var nBeforeTrig = wfgLaReadU32LE(info, 4);
   var writePos = wfgLaReadU32LE(info, 8);
   lines.push('Capture info raw=' + wfgLaHex(info));
-  lines.push('nRepPackets=' + nRepPackets + ' beforeTrigger=' + nBeforeTrig + ' writePos=0x' + writePos.toString(16));
+  lines.push('nRepPackets=' + nRepPackets + ' beforeTrigger=' + nBeforeTrig + ' writePos=0x' + writePos.toString(16) + (captureInfoUnstable ? ' [UNSTABLE: writePos handshake timed out]' : ''));
+
+  /* v2.97.412: 握手逾時（capture info 不可信）→ 連續模式跳過本幀顯示、保留上一張好幀，
+     絕不讓未提交尾端覆寫好幀（比照 12815 keepLastComplete 語意）。單次模式照下載但已標警。 */
+  if (captureInfoUnstable && cfg.acquisitionMode === 'repeat' && !wfgLaManualStopRequested) {
+    var unstablePreservedDuration = wfgLaCaptureDuration();
+    var unstablePreservedActive = [];
+    var unstablePreservedCounts = (wfgLaCapturedWaveform && wfgLaCapturedWaveform.edgeCounts) || [];
+    for (var upc = 0; upc < unstablePreservedCounts.length; upc++) {
+      if (unstablePreservedCounts[upc] > 0) unstablePreservedActive.push(upc);
+    }
+    lines.captureInfoUnstableSkipped = true;
+    lines.captureSummary = {
+      samples: Math.max(0, Math.round(unstablePreservedDuration * Math.max(1, sampleCfg.effectiveRate))),
+      durationSec: unstablePreservedDuration,
+      activeChannels: unstablePreservedActive.length ? unstablePreservedActive : cfg.enabledChannels.slice(),
+      hardwareChannels: cfg.hardwareChannels.slice(),
+      captureInfoUnstable: true,
+      keepLastComplete: true
+    };
+    lines.push('Capture info handshake did not stabilize in repeat mode; EP6 download skipped and last good frame preserved (not overwritten by possibly-uncommitted tail).');
+    try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent (capture-info unstable, repeat skip).'); } catch (haltErr) { lines.push('RUNMODE_HALT after unstable capture-info failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
+    wfgLaSetAcqProgress(100, '循環擷取：本幀擷取資訊不穩，保留上一張', 'done');
+    return lines;
+  }
 
   var totalPacketGroups = Math.max(0, Math.floor(nRepPackets / 5));
   var packetBytes = Math.max(16, totalPacketGroups * 16);
@@ -12906,6 +13008,16 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     if (staleResidual && opts.isRetry) {
       lines.push('Re-capture still matches previous accepted capture fingerprint; displaying best-effort result (no further retry).');
+    }
+    /* v2.97.412: 第二道防線 — 僅當 (1)repeat 模式 (2)非 partialDownload/非 manualStop
+       (3)握手已回報 captureInfoUnstable 三者齊備才裁尾端未提交平段，避免誤殺尾端靜止合法訊號。
+       註：主修法已在 repeat+unstable 於下載前 early-return，故此處為防禦性保險（下載路徑一律
+       執行、守衛不成立時為 no-op），不取代主修法。 */
+    if (cfg.acquisitionMode === 'repeat' && !partialDownload && !wfgLaManualStopRequested && lines.captureInfoUnstable) {
+      wfgLaTrimUncommittedTail(decoded, cfg, sampleCfg);
+      if (decoded.uncommittedTailTrimmed) {
+        lines.push('Uncommitted tail trimmed (2nd-line defense): from ' + wfgLaFormatDuration(decoded.uncommittedTailTrimmedFromSec) + ' to ' + wfgLaFormatDuration(decoded.uncommittedTailTrimmedToSec) + '.');
+      }
     }
     if (wfgLaManualStopRequested && manualStopSec > 0) {
       decoded.manualStop = true;
