@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.416 — 2026-07-03
+
+### kvdat 深度欄位改「板載固定常數」規則，幹掉 v415 猜測的 idx=14（兩顆原廠 10G 坐實）
+
+- **關鍵新事證（Bruce 加錄第 2 顆原廠 10G）**：`ORI_10GSa`(totalSamples=6.19G) 與 `ORI_10GSa_02`(totalSamples=5.898G) 兩顆 XML 設定區**位元完全相同**，皆 `smpDepth=5,539,071`、`smpDepthIndex=8`，與各自實際 totalSamples 無關 → 坐實原廠對「超板載串流深度(10G)」寫**固定常數**（5,539,071 kSa＝LA2016 板載 128MiB 有效深度、idx=8），非環境相依、非猜測。
+- **修正 v415 的錯誤**：v415 把 10G 的 `smpDepthIndex` 由 11/12/13 外推成 **14**，無任何原廠依據（違反「沒查到不准猜」）。本版一律改為原廠實測 **8**，`smpDepth` 改為原廠固定 **5,539,071**。
+- **新規則（`kvdatDepthFields`，全部有原廠依據）**：`smpDepth(kSa)=min(選定深度/1000, 5,539,071)`；`smpDepthIndex`＝深度下拉 option 位置（1G=11/2G=12/5G=13，三錨點實測吻合），但超板載(>5.539G，下拉僅 10G)固定寫 8。
+- **雙向一致坐實（五顆原廠檔 code 模擬）**：匯入(ceil totalSamples 設深度下拉)→匯出，`smpDepth/smpDepthIndex` 與原廠**全部位元一致**（含兩顆 10G→5539071/8）；rate `smpFrequ=200000/idx=0` 一致。加上 edge round-trip 位元零損失 → 「原廠→網頁→原廠」整檔位元一致。
+- **匯入深度顯示**：仍為 `ceil(totalSamples)` 到下拉 bucket（KingstVIS 一致；ORI_10GSa idx=8 卻顯示 10G 已實開坐實：KingstVIS 顯示只看 totalSamples、不看 idx）。
+- **未竟（需硬體一次讀數，未存檔）**：網頁自錄各深度的實際 totalSamples 是否超過 nominal（超錄）→ 影響「網頁自錄→原廠開」的顯示 depth bucket。已從 code 確認送硬體上限 `limitSamples=cfg.sampleDepth`（各深度 mapping 正確、無錯位）；實際超錄量屬硬體回吐行為，待接著硬體觸發一次讀 `decodedSamples` 坐實後再修（零資料損失前提）。
+- **進版**：version.js `wfg: v2.97.415 → v2.97.416`；cache-buster `?v=20260703b → 20260703c`。
+
 ## TCON 波形產生器 (wfg) v2.97.415 — 2026-07-03
 
 ### kvdat 匯出/匯入取樣深度對齊原廠 KingstVIS（逆向四顆 ORI 原生檔坐實）

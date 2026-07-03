@@ -1368,7 +1368,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260703b"></script>
+<script src="common/version.js?v=20260703c"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22234,14 +22234,8 @@ function kvdatXmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-/* v2.97.415: KingstVIS 深度階梯（1-2-5 per decade，單位=樣本數）。
-   錨點來自四顆 ORI 原廠原生檔逐位元實測：idx11=1G、idx12=2G、idx13=5G（smpDepth=1000000/2000000/5000000 kSa）。
-   據此回推完整 1-2-5 階梯，10G=idx14。接收「選定深度的樣本數」（nominal），非實際 totalSamples。
-   注意：原廠 10G 串流特例會寫 smpDepthIndex=8 + smpDepth=5539071（非 nominal），屬板載 RAM 串流另一套寫法；
-   本函式僅有 1 顆串流樣本無法定其規則，故串流情形改寫 nominal(idx14) — KingstVIS 深度顯示以 totalSamples ceil-to-bucket 為準、與此欄無關，顯示仍正確。 */
-/* v2.97.415: 取樣深度階梯 = LA 深度下拉 #wfg-la-depth 的 option value 順序（Chrome 實讀確認）。
-   關鍵：下拉位置 11=1G、12=2G、13=5G、14=10G，與四顆 ORI 原廠檔實測 smpDepthIndex(1G=11/2G=12/5G=13) 完全吻合，
-   證明 smpDepthIndex 即下拉 option 位置，故直接以此陣列 index 為準（非臆測的 1-2-5 推算）。 */
+/* v2.97.416: 取樣深度階梯 = LA 深度下拉 #wfg-la-depth 的 option value 順序（Chrome 實讀確認）。
+   下拉位置 11=1G、12=2G、13=5G、14=10G，與原廠檔實測 smpDepthIndex(1G=11/2G=12/5G=13) 吻合 → smpDepthIndex 即 option 位置（非串流時）。 */
 var WFG_KVDAT_DEPTH_OPTS = [20000, 200000, 1000000, 2000000, 5000000, 10000000, 20000000, 50000000, 100000000, 200000000, 500000000, 1000000000, 2000000000, 5000000000, 10000000000];
 function kvdatSampleDepthIndex(depthSamples) {
   depthSamples = Math.max(1, Math.round(Number(depthSamples) || 0));
@@ -22252,6 +22246,22 @@ function kvdatSampleDepthIndex(depthSamples) {
     if (WFG_KVDAT_DEPTH_OPTS[j] >= depthSamples) return j;     // 否則取 ≥ 的最小位置（ceil）
   }
   return WFG_KVDAT_DEPTH_OPTS.length - 1;
+}
+/* v2.97.416: 板載固定有效深度 = 5,539,071 kSa（5.539G samples）。
+   兩顆原廠 10G 原生檔（ORI_10GSa 6.19G / ORI_10GSa_02 5.898G）XML 設定區位元完全相同、皆寫 smpDepth=5539071 + smpDepthIndex=8，
+   與各自實際 totalSamples 無關 → 坐實：原廠對「超板載串流深度」寫固定常數(非 nominal、非 totalSamples)。此為 LA2016 板載 128MiB 上限。 */
+var WFG_KVDAT_BOARD_CAP_KSA = 5539071;
+var WFG_KVDAT_BOARD_CAP_SAMPLES = 5539071000;
+var WFG_KVDAT_STREAM_DEPTH_INDEX = 8;   // 原廠 10G 兩顆坐實的固定 smpDepthIndex（超板載串流）
+/* 依「選定深度樣本數」回傳原廠一致的 XML 深度欄位 {smpDepthKSa, smpDepthIndex}：
+   - 板載裝得下(≤5.539G，含 1G/2G/5G)：smpDepth=選定深度/1000(kSa)、idx=下拉 option 位置（1G/2G/5G=11/12/13 有原廠依據）。
+   - 超板載串流(>5.539G，LA2016 下拉僅 10G)：原廠固定 smpDepth=5539071、idx=8（兩顆原廠 10G 坐實，非猜測；絕不再寫外推的 14）。 */
+function kvdatDepthFields(selectedDepthSamples) {
+  selectedDepthSamples = Math.max(1, Math.round(Number(selectedDepthSamples) || 0));
+  if (selectedDepthSamples > WFG_KVDAT_BOARD_CAP_SAMPLES) {
+    return { smpDepthKSa: WFG_KVDAT_BOARD_CAP_KSA, smpDepthIndex: WFG_KVDAT_STREAM_DEPTH_INDEX };
+  }
+  return { smpDepthKSa: Math.max(1, Math.round(selectedDepthSamples / 1000)), smpDepthIndex: kvdatSampleDepthIndex(selectedDepthSamples) };
 }
 /* v2.97.415: 匯入深度顯示比照 KingstVIS — 取「≥ 實際 totalSamples 的最小下拉 bucket」（ceil-to-bucket）。
    四顆 ORI 實測：1G→1G、2G→2G、4,999,999,846→5G、6,189,497,588→10G，全部與 KingstVIS 一致。 */
@@ -22977,11 +22987,11 @@ window.wfgLaExportKvdat = function() {
     ? Math.max(0, Math.min(totalSamples, Math.round(totalSamples * triggerPosition / 100)))
     : 0;
   var rateKHz = Math.round(sampleRate / 1000);
-  /* v2.97.415: smpDepth/smpDepthIndex 用「選定深度 nominal」(cfg.sampleDepth)，比照原廠：
-     5G 檔 totalSamples 已截斷成 4,999,999,846 但 XML 仍寫 nominal smpDepth=5000000。
-     header totalSamples 維持實際值（下方不動）。 */
+  /* v2.97.416: smpDepth/smpDepthIndex 依選定深度用 kvdatDepthFields（板載規則）：
+     非串流(≤5.539G) = 選定深度/1000 kSa + 下拉位置 idx；10G 超板載串流 = 原廠固定 5539071/8（兩顆原廠坐實，非猜測）。
+     header totalSamples 維持實際擷取值（下方不動）。 */
   var selectedDepthSamples = Math.max(1, Math.round(Number(cfg.sampleDepth) || totalSamples));
-  var depthKSa = Math.max(1, Math.round(selectedDepthSamples / 1000));
+  var depthFields = kvdatDepthFields(selectedDepthSamples);
   var chEnable = [];
   var chTrig = [];
   for (var ce = 0; ce < 16; ce++) {
@@ -23013,8 +23023,8 @@ window.wfgLaExportKvdat = function() {
     '            <chnTrig>' + chTrig.join(',') + '</chnTrig>',
     '            <chnEnable>' + chEnable.join(',') + '</chnEnable>',
     '            <smpMode/>',
-    '            <smpDepth>' + depthKSa + '</smpDepth>',
-    '            <smpDepthIndex>' + kvdatSampleDepthIndex(selectedDepthSamples) + '</smpDepthIndex>',
+    '            <smpDepth>' + depthFields.smpDepthKSa + '</smpDepth>',
+    '            <smpDepthIndex>' + depthFields.smpDepthIndex + '</smpDepthIndex>',
     '            <smpFrequ>' + rateKHz + '</smpFrequ>',
     '            <smpFrequIndex>' + kvdatSampleRateIndex(rateKHz) + '</smpFrequIndex>',
     '            <chnLevel>' + kvdatXmlEscape(wfgLaThresholdSelectValue(cfg.thresholdV) === 'custom' ? 'Custom' : ((cfg.thresholdV * 2).toFixed(cfg.thresholdV * 2 >= 2 ? 1 : 2) + 'V CMOS')) + '</chnLevel>',
