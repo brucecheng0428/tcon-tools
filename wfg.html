@@ -1394,7 +1394,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260704b"></script>
+<script src="common/version.js?v=20260704c"></script>
 <script src="common/i18n.js?v=20260704b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22974,27 +22974,48 @@ window.wfgLaImportKvdat = async function(input) {
 
 /* v2.97.417: 匯入純設定 .kvset（只有 settings XML、無 kvdat 二進位）。
    走既有 settings 解析/套用路徑（通道名/深度/rate/觸發/門檻/致能/analyzer）；額外套用 chnShowIndex 顯示順序。 */
+/* v2.97.419: kvset 設定套用核心（.kvset 檔案匯入與 E512/EM02 快捷 preset 共用，不重複造輪子）：
+   解析 settings XML → 套用 model/深度/rate/觸發/門檻/致能/通道名/analyzer → 套用 chnShowIndex 顯示順序。 */
+function wfgLaApplyKvsetText(text, options) {
+  options = options || {};
+  var parsed = wfgLaParseSettingsXml(text);
+  wfgLaApplyParsedSettings(parsed, options.applyOptions);
+  /* v2.97.419: 套用 KingstVIS 顯示順序 chnShowIndex（僅影響通道上下排列，不動 name↔channel 對應）。
+     語意（原廠 KingstVIS 眼見坐實）：idxArr[通道編號] = 該通道由上到下的顯示位置（通道→位置）。
+     要得到「顯示順序（位置→通道）」須做反排列：displayOrder[pos] = 使 idxArr[ch]==pos 的 ch。
+     例 EM02 idxArr=[0,2,3,4,5,6,7,1,8,...] → displayOrder=[0,7,1,2,3,4,5,6,8,...]（ch7在第2位、ch1在第3位）。
+     v417/418 的舊實作把 idxArr 直接當「位置→通道」用（解讀反了）→ ch1 落在第8位，與原廠不符，本版修正。 */
+  try {
+    var idxEl = parsed.xmlDoc && parsed.xmlDoc.querySelector ? parsed.xmlDoc.querySelector('chnShowIndex') : null;
+    var idxArr = idxEl && idxEl.textContent ? kvdatNumberList(idxEl.textContent) : [];
+    if (idxArr.length >= 2) {
+      var displayOrder = [];
+      var usedCh = {};
+      for (var pos = 0; pos < 16; pos++) {
+        for (var ch = 0; ch < 16; ch++) {
+          if (!usedCh[ch] && Number(idxArr[ch]) === pos) { displayOrder.push(ch); usedCh[ch] = true; break; }
+        }
+      }
+      for (var c2 = 0; c2 < 16; c2++) { if (!usedCh[c2]) displayOrder.push(c2); } /* 補未被 idxArr 涵蓋的通道，維持遞增 */
+      var enabled = (parsed.settings && parsed.settings.enabledChannels && parsed.settings.enabledChannels.length) ? parsed.settings.enabledChannels : displayOrder;
+      var visibleOrder = displayOrder.filter(function(ch) { return ch >= 0 && ch < 16 && enabled.indexOf(ch) >= 0; });
+      if (visibleOrder.length) {
+        wfgLaApplyVisibleChannelOrder(visibleOrder.concat(wfgLaChannelOrder));
+        wfgLaRenderChannelGrid();
+        wfgLaRenderScope();
+      }
+    }
+  } catch (eOrder) { /* 顯示順序非關鍵，忽略 */ }
+  return parsed;
+}
+
 async function wfgLaImportKvsetFile(file) {
   wfgLaInit();
   wfgShowProgress(5, t('wfg.progressRead'));
   await wfgYield();
   try {
     var text = await file.text();
-    var parsed = wfgLaParseSettingsXml(text);
-    wfgLaApplyParsedSettings(parsed);
-    /* 套用 KingstVIS 顯示順序 chnShowIndex（僅影響通道上下排列，不動 name↔channel 對應）；非關鍵，失敗則忽略 */
-    try {
-      var idxEl = parsed.xmlDoc && parsed.xmlDoc.querySelector ? parsed.xmlDoc.querySelector('chnShowIndex') : null;
-      var order = idxEl && idxEl.textContent ? kvdatNumberList(idxEl.textContent) : [];
-      if (order.length >= 2) {
-        var enabled = (parsed.settings && parsed.settings.enabledChannels && parsed.settings.enabledChannels.length) ? parsed.settings.enabledChannels : order;
-        var visibleOrder = order.filter(function(ch) { return ch >= 0 && ch < 16 && enabled.indexOf(ch) >= 0; });
-        if (visibleOrder.length) {
-          wfgLaApplyVisibleChannelOrder(visibleOrder.concat(wfgLaChannelOrder));
-          wfgLaRenderScope();
-        }
-      }
-    } catch (eOrder) { /* 顯示順序非關鍵，忽略 */ }
+    wfgLaApplyKvsetText(text);
     wfgSetImportedFileName('la', file.name);
     wfgLaSetAcqProgress(100, t('wfg.laImportedKvset', { name: file.name }), 'active');
     var qpSel = document.getElementById('wfg-la-quick-preset');

@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.419 — 2026-07-04
+
+### 修正 kvset 匯入通道顯示順序 bug：chnShowIndex 解讀反了（ch1 跑到第8位）
+
+- **症狀（Bruce 回報）**：匯入 EM02_E512.kvset 後通道順序與原廠 KingstVIS 不一致，ch1 位置跑錯。
+- **三方交叉比對（實測，眼見為憑）**：
+  - 檔案 `chnShowIndex = 0,2,3,4,5,6,7,1,8,…`；`chnShowName{i}` 照通道編號編（name0=ch0、name7=ch7）。
+  - 原廠 KingstVIS 開 EM02_E512.kvset **實際畫面** = `0,7,1,2,3,4,5,6,8,…`（ch7 第2位、ch1 第3位）— 已自驅開檔截圖坐實。
+  - 網頁 v418 匯入 = `0,2,3,4,5,6,7,1,8,…`（ch1 第8位）— DOM 讀回坐實。
+- **根因**：`chnShowIndex` 語意是「**chnShowIndex[通道編號] = 該通道的顯示位置**」（通道→位置）。舊實作把值陣列**直接當成「位置→通道」的顯示順序**（解讀方向反了），導致排錯。名字 `chnShowName{i}→通道 i` 照通道編號對是正確的，不用動。
+- **修正**：對 chnShowIndex 做**反排列**得到顯示順序 `displayOrder[pos] = 使 idxArr[ch]==pos 的 ch`。EM02 → `0,7,1,2,3,4,5,6,8,…`（＝原廠）；空 chnShowIndex（本工具匯出的 kvdat/kvset）→ 不套、維持 0–15。並補上先前缺漏的 `wfgLaRenderChannelGrid()`（順序變更後同步重繪通道列表）。
+- **重構**：抽出 `wfgLaApplyKvsetText(text)` 共用核心（解析＋套設定＋chnShowIndex 反排列），`.kvset` 檔案匯入改呼叫它，消除重複邏輯（未來 E512/EM02 preset 也複用）。
+- **不變**：匯出（kvdat/kvset 產生器）、彈窗、icon、深度/rate 對齊規則皆未動。
+- **進版**：`v2.97.418 → v2.97.419`；cache-buster version.js `?v=20260704b → 20260704c`。
+- **驗證**：離線 node 驗反排列（EM02→0,7,1,2…；identity→0–15）；線上匯入 EM02 讀 DOM 順序＝原廠 `0,7,1,2,3,4,5,6,8,…`。
+
 ## TCON 波形產生器 (wfg) v2.97.418 — 2026-07-04
 
 ### 匯出改「彈窗選格式」，還原匯出 icon 按鈕外觀（Bruce 回饋）
