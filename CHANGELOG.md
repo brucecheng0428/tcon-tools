@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.414 — 2026-07-03
+
+### 修正 kvdat 匯出 header「通道數」寫死 16 的回歸 → 恢復 KingstVIS 相容
+
+- **情境（Bruce 回報）**：LA 匯出的 `.kvdat` 檔在 KingstVIS 打不開。經 git 考古＋Node 實測確認為回歸，資料本身無缺損（非截斷）。
+- **根因（可指證 diff，commit `9d37497` 2026-05-08「Improve LA kvdat compatibility」）**：該 commit 把 40-byte header offset 32 的「區塊/通道數」欄位由 `kvdatWriteU64LE(header, 32, selected.length)` 改成寫死 `kvdatWriteU64LE(header, 32, 16)`。但實際資料區塊仍只寫「啟用/勾選的 N 個通道」（`selected.forEach` 每通道一個 `##D` 區塊）。當選取通道數 N < 16 時，header 宣稱 16、實際只有 N 個區塊 → KingstVIS 依 header 讀第 N+1 個區塊時走過 EOF → 開檔失敗。
+- **修法（純還原回歸、波形區塊零改動，可指證 diff，wfg.html line 23089）**：`kvdatWriteU64LE(header, 32, 16)` → `kvdatWriteU64LE(header, 32, blocks.length)`。`blocks` 由 `selected.forEach` 每通道推一個區塊，故 `blocks.length` 即實際寫出的區塊數（等同回歸前的 `selected.length`，且直接對應實際寫出的位元組）。除此一行外，XML settings、`##D` 區塊建構、edge 編碼、totalSamples/sampleRate/triggerSample header 欄位全部不動。
+- **資料無損**：僅修 header 一個計數欄位，不影響任何波形/edge 資料。
+- **進版**：version.js `wfg: v2.97.413 → v2.97.414`（僅 wfg 欄，非共用邏輯）。
+- **驗證**：線上 cache-buster 驗版號 v2.97.414 + header 改動特徵字串 `header, 32, blocks.length`。
+
 ## TCON 波形產生器 (wfg) v2.97.413 — 2026-07-03
 
 ### LA 通道燈號「全 high」改低調淺藍底
