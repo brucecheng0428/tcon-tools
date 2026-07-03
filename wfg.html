@@ -1368,7 +1368,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260703"></script>
+<script src="common/version.js?v=20260703b"></script>
 <script src="common/i18n.js?v=20260521b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22234,18 +22234,31 @@ function kvdatXmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-function kvdatSampleDepthIndex(depthKSa) {
-  var presets = [1, 2, 5, 10, 20, 50, 100, 500, 100000];
-  var best = 0;
-  var bestDiff = Infinity;
-  for (var i = 0; i < presets.length; i++) {
-    var diff = Math.abs(presets[i] - depthKSa);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = i;
-    }
+/* v2.97.415: KingstVIS 深度階梯（1-2-5 per decade，單位=樣本數）。
+   錨點來自四顆 ORI 原廠原生檔逐位元實測：idx11=1G、idx12=2G、idx13=5G（smpDepth=1000000/2000000/5000000 kSa）。
+   據此回推完整 1-2-5 階梯，10G=idx14。接收「選定深度的樣本數」（nominal），非實際 totalSamples。
+   注意：原廠 10G 串流特例會寫 smpDepthIndex=8 + smpDepth=5539071（非 nominal），屬板載 RAM 串流另一套寫法；
+   本函式僅有 1 顆串流樣本無法定其規則，故串流情形改寫 nominal(idx14) — KingstVIS 深度顯示以 totalSamples ceil-to-bucket 為準、與此欄無關，顯示仍正確。 */
+/* v2.97.415: 取樣深度階梯 = LA 深度下拉 #wfg-la-depth 的 option value 順序（Chrome 實讀確認）。
+   關鍵：下拉位置 11=1G、12=2G、13=5G、14=10G，與四顆 ORI 原廠檔實測 smpDepthIndex(1G=11/2G=12/5G=13) 完全吻合，
+   證明 smpDepthIndex 即下拉 option 位置，故直接以此陣列 index 為準（非臆測的 1-2-5 推算）。 */
+var WFG_KVDAT_DEPTH_OPTS = [20000, 200000, 1000000, 2000000, 5000000, 10000000, 20000000, 50000000, 100000000, 200000000, 500000000, 1000000000, 2000000000, 5000000000, 10000000000];
+function kvdatSampleDepthIndex(depthSamples) {
+  depthSamples = Math.max(1, Math.round(Number(depthSamples) || 0));
+  for (var i = 0; i < WFG_KVDAT_DEPTH_OPTS.length; i++) {
+    if (WFG_KVDAT_DEPTH_OPTS[i] === depthSamples) return i;   // 精確命中 → option 位置
   }
-  return best;
+  for (var j = 0; j < WFG_KVDAT_DEPTH_OPTS.length; j++) {
+    if (WFG_KVDAT_DEPTH_OPTS[j] >= depthSamples) return j;     // 否則取 ≥ 的最小位置（ceil）
+  }
+  return WFG_KVDAT_DEPTH_OPTS.length - 1;
+}
+/* v2.97.415: 匯入深度顯示比照 KingstVIS — 取「≥ 實際 totalSamples 的最小下拉 bucket」（ceil-to-bucket）。
+   四顆 ORI 實測：1G→1G、2G→2G、4,999,999,846→5G、6,189,497,588→10G，全部與 KingstVIS 一致。 */
+function wfgLaDepthBucketForSamples(samples) {
+  samples = Math.max(0, Number(samples) || 0);
+  for (var i = 0; i < WFG_KVDAT_DEPTH_OPTS.length; i++) { if (WFG_KVDAT_DEPTH_OPTS[i] >= samples) return WFG_KVDAT_DEPTH_OPTS[i]; }
+  return WFG_KVDAT_DEPTH_OPTS[WFG_KVDAT_DEPTH_OPTS.length - 1];
 }
 
 function kvdatSampleRateIndex(rateKHz) {
@@ -22818,9 +22831,14 @@ function wfgLaApplyParsedKvdatCapture(parsed, fileName, options) {
     rateToolbar.value = String(sampleRate);
     if (rateHidden) rateHidden.value = String(sampleRate);
   }
-  if (parsed.settings && parsed.settings.sampleDepthSamples) {
-    wfgLaSetSelectValue('wfg-la-depth', parsed.settings.sampleDepthSamples);
-    wfgLaSetSelectValue('wfg-la-depth-toolbar', parsed.settings.sampleDepthSamples);
+  /* v2.97.415: 深度顯示比照 KingstVIS = ceil(實際 totalSamples) 到最小容納 bucket，
+     取代舊「smpDepth×1000 精確比對」（10G 原廠檔 smpDepth×1000=5,539,071,000 下拉無此值→比對失敗→停在預設）。
+     四顆 ORI 實測：1G→1G、2G→2G、4,999,999,846→5G、6,189,497,588→10G。 */
+  var depthBucket = wfgLaDepthBucketForSamples(totalSamples);
+  if (!(depthBucket > 0) && parsed.settings && parsed.settings.sampleDepthSamples) depthBucket = parsed.settings.sampleDepthSamples;
+  if (depthBucket > 0) {
+    wfgLaSetSelectValue('wfg-la-depth', depthBucket);
+    wfgLaSetSelectValue('wfg-la-depth-toolbar', depthBucket);
   }
   var thresholdV = options.thresholdV > 0 ? options.thresholdV : (parsed.settings && parsed.settings.thresholdV > 0 ? parsed.settings.thresholdV : 0);
   if (thresholdV > 0) {
@@ -22959,7 +22977,11 @@ window.wfgLaExportKvdat = function() {
     ? Math.max(0, Math.min(totalSamples, Math.round(totalSamples * triggerPosition / 100)))
     : 0;
   var rateKHz = Math.round(sampleRate / 1000);
-  var depthKSa = Math.max(1, Math.round(totalSamples / 1000));
+  /* v2.97.415: smpDepth/smpDepthIndex 用「選定深度 nominal」(cfg.sampleDepth)，比照原廠：
+     5G 檔 totalSamples 已截斷成 4,999,999,846 但 XML 仍寫 nominal smpDepth=5000000。
+     header totalSamples 維持實際值（下方不動）。 */
+  var selectedDepthSamples = Math.max(1, Math.round(Number(cfg.sampleDepth) || totalSamples));
+  var depthKSa = Math.max(1, Math.round(selectedDepthSamples / 1000));
   var chEnable = [];
   var chTrig = [];
   for (var ce = 0; ce < 16; ce++) {
@@ -22992,7 +23014,7 @@ window.wfgLaExportKvdat = function() {
     '            <chnEnable>' + chEnable.join(',') + '</chnEnable>',
     '            <smpMode/>',
     '            <smpDepth>' + depthKSa + '</smpDepth>',
-    '            <smpDepthIndex>' + kvdatSampleDepthIndex(depthKSa) + '</smpDepthIndex>',
+    '            <smpDepthIndex>' + kvdatSampleDepthIndex(selectedDepthSamples) + '</smpDepthIndex>',
     '            <smpFrequ>' + rateKHz + '</smpFrequ>',
     '            <smpFrequIndex>' + kvdatSampleRateIndex(rateKHz) + '</smpFrequIndex>',
     '            <chnLevel>' + kvdatXmlEscape(wfgLaThresholdSelectValue(cfg.thresholdV) === 'custom' ? 'Custom' : ((cfg.thresholdV * 2).toFixed(cfg.thresholdV * 2 >= 2 ? 1 : 2) + 'V CMOS')) + '</chnLevel>',

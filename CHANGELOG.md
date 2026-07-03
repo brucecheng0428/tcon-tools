@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.415 — 2026-07-03
+
+### kvdat 匯出/匯入取樣深度對齊原廠 KingstVIS（逆向四顆 ORI 原生檔坐實）
+
+- **逆向依據（四顆 ORI 原廠原生檔逐位元 dump，非推測）**：
+  - `smpDepth`(XML) 單位=kSa，寫「選定深度 nominal」非實際 totalSamples（5G 檔 totalSamples 已截斷成 4,999,999,846，XML 仍寫 nominal `smpDepth=5000000`）。
+  - `smpDepthIndex` = LA 深度下拉 `#wfg-la-depth` 的 option 位置（Chrome 實讀確認：位置 11=1G、12=2G、13=5G、14=10G，與原廠 1G/2G/5G 檔的 index 11/12/13 完全吻合）。
+  - KingstVIS 深度顯示 = 實際 `totalSamples` 無條件進位到最小容納 bucket，**與 smpDepthIndex 無關**（原廠 10G 串流檔 index=8 卻仍顯示 10G 為鐵證）。
+- **修正的兩個缺陷（可指證）**：
+  - 匯入（`wfgLaApplyParsedKvdatCapture`）：舊碼用 `smpDepth×1000` 對深度下拉精確比對，10G 原廠檔 `smpDepth×1000=5,539,071,000` 下拉無此值→比對失敗→深度停在預設。改為 `wfgLaDepthBucketForSamples(totalSamples)`（ceil-to-bucket，比照 KingstVIS）。
+  - 匯出（`wfgLaExportKvdat`）：舊 `kvdatSampleDepthIndex` 用錯誤 9 元素 preset 表，index 幾乎全錯；且 `smpDepth` 用實際 totalSamples/1000 非 nominal。改為以「選定深度 nominal」(`cfg.sampleDepth`) 寫 `smpDepth`，`smpDepthIndex` 取自下拉 option 位置陣列 `WFG_KVDAT_DEPTH_OPTS`。
+- **零資料損失（Bruce 鐵律，程式坐實）**：四顆 ORI round-trip（含 10G 的 6.19e9 大數）重建的 `##D` edge 區塊位元與原廠**完全相同**（numeric round-trip 精確、末筆=total、無失精）；本版只改 XML 深度兩欄與匯入深度顯示，`##D` 區塊建構、edge 編碼、header totalSamples/freq/trigger 全部不動。
+- **串流大深度(10G) XML 位元一致**：不追求（Dispatch 判斷採 A）。原廠 `smpDepth=5539071/idx8` 為擷取當下 PC RAM 相依、對顯示無影響；本版 10G 匯出寫 nominal `10000000/idx14`，KingstVIS 開啟仍顯示 10G。
+- **進版**：version.js `wfg: v2.97.414 → v2.97.415`；wfg.html version.js 查詢字串 `?v=20260703 → ?v=20260703b`（破快取讀新版號 badge）。
+- **驗證**：離線 round-trip 位元零損失（四顆）；Chrome 線上實測匯入四顆 ORI 讀 DOM 深度=1G/2G/5G/10G；KingstVIS 實開網頁匯出各深度檔截圖深度與原生一致。
+
 ## TCON 波形產生器 (wfg) v2.97.414 — 2026-07-03
 
 ### 修正 kvdat 匯出 header「通道數」寫死 16 的回歸 → 恢復 KingstVIS 相容
