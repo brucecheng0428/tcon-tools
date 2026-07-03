@@ -2,18 +2,16 @@
 
 ## TCON 波形產生器 (wfg) v2.97.420 — 2026-07-04
 
-### 新增「E512/EM02」快捷設定 preset（套 EM02 設定，但顯示順序強制 0~15）
+### 新增「E512/EM02」快捷設定 preset（走正確 .kvset 匯入路徑＋正規化檔，無順序特例）
 
-- **需求**：左上「快捷設定」下拉第一位新增「E512/EM02」，選它＝套用 EM02_E512.kvset 的通道名稱/深度5G/rate200MHz/觸發ch3/chnEnable/chnVth=1.25/chnLevel 等設定。
-- **與匯入的差異（Bruce 指定）**：通道顯示順序**強制 identity 0~15**（ch0,ch1,…,ch15 由上到下），**不套**原廠 chnShowIndex 的 0,7,1,2,3… 重排。
-- **實作（複用共用核心，不重複造輪子）**：
-  - `wfgLaApplyKvsetText(text, options)` 新增 `options.forceIdentityOrder`：為 true 時顯示順序設 0~15 並跳過 chnShowIndex 反排列；預設 false（.kvset 檔案匯入不受影響，維持 v419 對齊原廠 0,7,1,2…）。
-  - `WFG_LA_QUICK_PRESETS` 第一項加 `{ id:'e512-em02', nameKey:'wfg.laPresetE512', kvsetXml: <原廠 EM02_E512.kvset 全文>, forceIdentityOrder:true }`。
-  - `wfgLaApplyQuickPreset` 新增 `preset.kvsetXml` 分支，呼叫 `wfgLaApplyKvsetText(kvsetXml, {forceIdentityOrder:true,...})`。
+- **需求**：左上「快捷設定」下拉第一位新增「E512/EM02」，選它＝套用 EM02 設定（通道名稱/深度5G/rate200MHz/觸發ch3/chnEnable/chnVth=1.25/chnLevel），且通道顯示順序為 0~15 正常順序。
+- **做法（乾淨、無特例 code）**：preset 內容用「順序正規化檔」`E512_EM02_preset_norm.kvset`（與原廠 EM02_E512.kvset **只差 `chnShowIndex`**，改成 identity `0,1,…,15`，其餘完全相同）。經 v419 修好的正確匯入核心 `wfgLaApplyKvsetText`（chnShowIndex 反排列）處理後，identity 反排列即得 0~15 正常順序，**不需要任何順序覆寫特例**（原本用過的 `forceIdentityOrder` 已移除）。
+  - `WFG_LA_QUICK_PRESETS` 第一項加 `{ id:'e512-em02', nameKey:'wfg.laPresetE512', kvsetXml: <正規化檔全文> }`。
+  - `wfgLaApplyQuickPreset` 新增 `preset.kvsetXml` 分支，直接呼叫 `wfgLaApplyKvsetText(kvsetXml, {...})`（與 .kvset 檔案匯入同一路徑）。
   - 下拉第一位加 option、i18n `wfg.laPresetE512`。
-- **不變**：.kvset 匯入（維持原廠順序）、匯出、彈窗、icon 皆未動。
+- **不變**：.kvset 檔案匯入（維持對齊原廠 0,7,1,2…）、匯出、彈窗、icon 皆未動。
 - **進版**：`v2.97.419 → v2.97.420`；cache-buster version.js `?v=20260704c → 20260704d`、i18n.js `?v=20260704b → 20260704d`。
-- **驗證**：線上選「E512/EM02」→ 讀 DOM 確認通道由上到下＝ch0,ch1,…,ch15、名稱/深度5G/rate200MHz/觸發ch3＝EM02 值。
+- **驗證**：線上選「E512/EM02」→ 讀 DOM 確認通道由上到下＝ch0,ch1,…,ch15、名稱/深度5G/rate200MHz/觸發ch3＝檔案值。
 
 ## TCON 波形產生器 (wfg) v2.97.419 — 2026-07-04
 
