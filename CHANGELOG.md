@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.418 — 2026-07-04
+
+### 匯出改「彈窗選格式」，還原匯出 icon 按鈕外觀（Bruce 回饋）
+
+- **問題**：v417 把匯出按鈕改成工具列下拉框（`<select> ⤓ 匯出`），破壞了「檔案」群組原本兩個對稱 icon 按鈕（匯入下箭頭＋匯出上箭頭）的外觀 → Bruce 回報 icon 跑版/變形。
+- **修正 1（還原 icon）**：移除下拉框，匯出鈕還原為 v416 的 `wfg-la-icon-only` 上箭頭 SVG 按鈕（與匯入鈕對稱、markup 與 v416 相同），僅 `onclick` 改為 `wfgLaShowExportMenu()`、tooltip 改為「匯出 .kvdat / .kvset」。
+- **修正 2（彈窗選格式）**：新增置中 modal（`#wfg-la-export-modal`，深藍暗色卡片）。按匯出跳出，兩個選項按鈕「設定檔 (.kvset)：僅設定不含波形」「完整資料 (.kvdat)：設定＋波形」，加取消鈕；點遮罩或按 Esc 關閉。選定後呼叫既有 `wfgLaExportFile(fmt)`。
+- **新增**：`wfgLaShowExportMenu / wfgLaHideExportMenu / wfgLaExportChoose`；i18n `laExportChoose/laExportKvsetBtn/laExportKvsetDesc/laExportKvdatBtn/laExportKvdatDesc/laCancel`；CSS `.wfg-la-modal-*`。
+- **不變**：匯出邏輯（kvset/kvdat 產生器、深度/rate 對齊規則）完全沿用 v417，未動。
+- **進版**：version.js `v2.97.417 → v2.97.418`；cache-buster `?v=20260704a → 20260704b`。
+- **驗證**：線上截圖比對匯出 icon 與 v416 一致；實點匯出鈕→彈窗出現→選 .kvset/.kvdat 皆正確匯出。
+
 ## TCON 波形產生器 (wfg) v2.97.417 — 2026-07-04
 
 ### LA 分析器新增 .kvset（純設定）雙向支援；沿用 v416 深度/rate 對齊規則；kvdat 不退化

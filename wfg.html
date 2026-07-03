@@ -282,6 +282,17 @@
   .wfg-la-run-btn.stop.acq-active { color: #f87171 !important; background: rgba(248,113,113,0.12); }
   .wfg-la-toolbar-select { box-sizing: border-box; height: 26px; color: #c9d1d9; background: #0f172a; border: 1px solid #30363d; border-radius: 6px; font: 13px 'SF Mono','Consolas',monospace; }
   .wfg-la-toolbar-label { color: #94a3b8; font: 12px 'SF Mono','Consolas',monospace; }
+  /* v2.97.418: 匯出格式選擇彈窗 */
+  .wfg-la-modal-overlay { position: fixed; inset: 0; z-index: 100000; display: flex; align-items: center; justify-content: center; background: rgba(2,6,23,0.72); }
+  .wfg-la-modal-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; width: min(320px, 88vw); box-shadow: 0 12px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 12px; }
+  .wfg-la-modal-title { font-size: 15px; font-weight: 700; color: #e2e8f0; text-align: center; margin-bottom: 4px; }
+  .wfg-la-modal-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 12px 14px; background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; color: #e2e8f0; cursor: pointer; text-align: left; transition: background .15s, border-color .15s; }
+  .wfg-la-modal-opt:hover { background: #1d4ed8; border-color: #60a5fa; }
+  .wfg-la-modal-opt-main { font-size: 14px; font-weight: 700; }
+  .wfg-la-modal-opt-sub { font-size: 11px; color: #94a3b8; }
+  .wfg-la-modal-opt:hover .wfg-la-modal-opt-sub { color: #dbeafe; }
+  .wfg-la-modal-cancel { width: 100%; padding: 8px; background: transparent; border: 1px solid #475569; border-radius: 8px; color: #94a3b8; cursor: pointer; font-size: 13px; margin-top: 2px; }
+  .wfg-la-modal-cancel:hover { background: #334155; color: #e2e8f0; }
   .wfg-la-pwm-pill { display: inline-flex; background: rgba(255,255,255,0.04); border-radius: 6px; padding: 2px; gap: 0; }
   .wfg-la-pwm { box-sizing: border-box; height: 22px; display: inline-flex; align-items: center; gap: 0; padding: 0 8px; border: none; background: transparent; color: #6b7280; font-size: 11px; font-weight: 600; line-height: 1; cursor: pointer; border-radius: 4px; transition: background 0.15s, color 0.15s; }
   .wfg-la-pwm:hover { color: #c9d1d9; }
@@ -1232,11 +1243,7 @@
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpFile">檔案</span>
                     <button class="wfg-la-icon-only" onclick="document.getElementById('wfg-la-kvdat-input').click()" title="匯入 .kvdat / .kvset" data-i18n-title="wfg.laImportKvFileTitle" aria-label="匯入 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
-                    <select class="wfg-la-toolbar-select" id="wfg-la-export-format" onchange="var _v=this.value;this.selectedIndex=0;if(_v)wfgLaExportFile(_v);" title="匯出 .kvdat / .kvset" data-i18n-title="wfg.laExportMenuTitle" aria-label="匯出">
-                      <option value="" data-i18n="wfg.laExportMenuLabel">⤓ 匯出</option>
-                      <option value="kvdat" data-i18n="wfg.laExportKvdatOpt">.kvdat（完整資料）</option>
-                      <option value="kvset" data-i18n="wfg.laExportKvsetOpt">.kvset（僅設定）</option>
-                    </select>
+                    <button class="wfg-la-icon-only" onclick="wfgLaShowExportMenu()" title="匯出 .kvdat / .kvset" data-i18n-title="wfg.laExportMenuTitle" aria-label="匯出 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpView">檢視</span>
@@ -1355,6 +1362,21 @@
             <input type="file" id="wfg-la-folder-input" webkitdirectory directory multiple onchange="wfgLaImportKingstVisFolderFiles(this)">
             <input type="file" id="wfg-la-kvdat-input" accept=".kvdat,.kvset" onchange="wfgLaImportKvFile(this)">
           </div>
+          <!-- v2.97.418: 匯出格式選擇彈窗 -->
+          <div id="wfg-la-export-modal" class="wfg-la-modal-overlay" style="display:none;" onclick="if(event.target===this)wfgLaHideExportMenu()">
+            <div class="wfg-la-modal-card" role="dialog" aria-modal="true" aria-labelledby="wfg-la-export-modal-title">
+              <div class="wfg-la-modal-title" id="wfg-la-export-modal-title" data-i18n="wfg.laExportChoose">選擇匯出格式</div>
+              <button type="button" class="wfg-la-modal-opt" onclick="wfgLaExportChoose('kvset')">
+                <span class="wfg-la-modal-opt-main" data-i18n="wfg.laExportKvsetBtn">設定檔 (.kvset)</span>
+                <span class="wfg-la-modal-opt-sub" data-i18n="wfg.laExportKvsetDesc">僅設定，不含波形</span>
+              </button>
+              <button type="button" class="wfg-la-modal-opt" onclick="wfgLaExportChoose('kvdat')">
+                <span class="wfg-la-modal-opt-main" data-i18n="wfg.laExportKvdatBtn">完整資料 (.kvdat)</span>
+                <span class="wfg-la-modal-opt-sub" data-i18n="wfg.laExportKvdatDesc">設定＋波形資料</span>
+              </button>
+              <button type="button" class="wfg-la-modal-cancel" onclick="wfgLaHideExportMenu()" data-i18n="wfg.laCancel">取消</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1372,8 +1394,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260704a"></script>
-<script src="common/i18n.js?v=20260704a"></script>
+<script src="common/version.js?v=20260704b"></script>
+<script src="common/i18n.js?v=20260704b"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形產生器 ═══════════
@@ -23152,11 +23174,32 @@ window.wfgLaExportKvset = function() {
   setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 0);
 };
 
-/* v2.97.417: 匯出格式分派（工具列下拉：kvdat=完整資料 / kvset=僅設定）。 */
+/* v2.97.417: 匯出格式分派（kvdat=完整資料 / kvset=僅設定）。 */
 window.wfgLaExportFile = function(fmt) {
   if (fmt === 'kvset') return wfgLaExportKvset();
   return wfgLaExportKvdat();
 };
+
+/* v2.97.418: 匯出格式選擇彈窗（取代下拉，還原 icon 按鈕外觀）。 */
+window.wfgLaShowExportMenu = function() {
+  var m = document.getElementById('wfg-la-export-modal');
+  if (m) m.style.display = 'flex';
+};
+window.wfgLaHideExportMenu = function() {
+  var m = document.getElementById('wfg-la-export-modal');
+  if (m) m.style.display = 'none';
+};
+window.wfgLaExportChoose = function(fmt) {
+  wfgLaHideExportMenu();
+  wfgLaExportFile(fmt);
+};
+/* Esc 關閉匯出彈窗 */
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var m = document.getElementById('wfg-la-export-modal');
+    if (m && m.style.display !== 'none') wfgLaHideExportMenu();
+  }
+});
 
 window.wfgLaExportKvdat = function() {
   var cfg = wfgLaBuildConfig();
