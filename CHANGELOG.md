@@ -5,11 +5,12 @@
 ### LA 通道欄改為原廠 KingstVIS 樣式：跨列高彩色色塊＋內嵌原始通道號
 
 - **需求（Bruce）**：LA 通道卡左側原本是「≡ 拖曳把手 + 小色塊 + 可編輯通道名 + A/B 觸發鈕」，小色塊與通道號沒整合，使用者改了通道名後就看不出原本是第幾通道。改成與原廠 KingstVIS 一致——一整條、跨整列高的彩色色塊，把通道原始索引號(0~15)嵌在色塊左下角。
-- **做法（`wfg.html`）**：
-  - render（`wfgLaRenderChannelGrid`）：把 `.wfg-la-drag-handle`（≡）與 `.wfg-la-ch-num`（小色塊）兩個 span 合併成單一 `.wfg-la-ch-colorblock`，內含 `.wfg-la-ch-num` 顯示**原始通道索引 `i`**（來自 `wfgLaChannelOrder` 的原值，固定、不隨改名或拖曳重排改變其代表通道）。
-  - CSS：`.wfg-la-ch-colorblock` 用 `align-self: stretch` 跨整列高，`background` 沿用各通道既有代表色（與波形一致），`::after` 疊左亮右暗漸層做原廠直條光澤感；`.wfg-la-ch-colorblock .wfg-la-ch-num` 絕對定位左下角、深色字＋白色 halo 確保各色底皆可讀。`.wfg-la-ch-row` grid 由 5 欄(`22 22 1fr 24 18`)改 4 欄(`30 1fr 24 18`)。
-  - 拖曳：色塊本身即拖曳把手。channel grid 的 mousedown/touchstart 綁定 selector 由 `.wfg-la-drag-handle` 改為 `.wfg-la-ch-colorblock`（canvas 左側 label 清單的 `.wfg-la-drag-handle` 綁定不動）。
-- **不變**：通道名框、desc、A↑/A↓/B↑/B↓ 觸發鈕、⚙、啟用燈號(0/1/綠點)、settings 面板的 `.wfg-la-ch-num` 小chip（不在色塊內故不受影響）皆未動。
+- **做法（`wfg.html`）**：主體是波形圖左側「通道名欄」`.wfg-la-label-item`（`#wfg-la-labels`，即畫面實際看到、可改名的那一欄）。
+  - render（label map，第 ~6070 行）：把 `.wfg-la-drag-handle`（≡）＋ `.wfg-la-label-dot`（8px 小色點）兩個 span 合併成單一 `.wfg-la-label-colorblock`，內含 `.wfg-la-label-colornum` 顯示**原始通道號 `ch`**（loop 原值＝`data-ch`，固定、不隨改名或拖曳重排改變其代表通道）。
+  - CSS：`.wfg-la-label-colorblock` 用 `align-self: stretch` 跨整列高、`width:26px`（compact 22px），`background` 沿用各通道既有代表色（與波形一致），`::after` 疊左亮右暗漸層做原廠直條光澤感；`.wfg-la-label-colornum` 絕對定位左下角、深色字＋白色 halo 確保深/淺色底皆可讀。
+  - 拖曳：色塊本身即拖曳把手。`#wfg-la-labels` 的 mousedown/touchstart 綁定 selector 由 `.wfg-la-drag-handle` 改為 `.wfg-la-label-colorblock`。
+  - 一致性：另一個隱藏的通道卡 `#wfg-la-channel-grid`（`.wfg-la-ch-row`）也同步改為 `.wfg-la-ch-colorblock` 同款樣式，grid 由 5 欄改 4 欄，綁定同步更新。
+- **不變**：通道名框（contenteditable）、analyzer role、A↑/A↓/B↑/B↓ 觸發鈕、啟用燈號(0/1/綠點 `.wfg-la-label-live`)皆未動；settings 面板的 `.wfg-la-ch-num` 小 chip 不在色塊內，不受影響。
 - **進版**：`v2.97.420 → v2.97.421`；cache-buster version.js `?v=20260704d → 20260704e`。
 - **驗證**：線上開 wfg.html#wfg-la，截圖與原廠 IMG_3241 並排比對；確認拖曳仍可重排、色塊數字為原始索引、改名後數字不變。
 
