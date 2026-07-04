@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.422 — 2026-07-04
+
+### LA 通道色塊數字放大兩倍＋正中置中；隱藏的 .wfg-la-ch-row 還原回 v420
+
+- **需求（Bruce）**：(1) 可見通道欄 `.wfg-la-label-item` 色塊裡的通道號太小且偏左下 → 字級放大兩倍、水平＋垂直**完全置中**於色塊正中（Bruce 明確覆蓋原廠左下角排法）。(2) v421 先前改錯、加在隱藏卡 `#wfg-la-channel-grid`（`.wfg-la-ch-row`）的色塊/數字要**完整還原回 v420 原樣**、不留殘留。
+- **做法**：
+  - 置中放大：`.wfg-la-label-colorblock` 由 `display:block` 改 `display:flex; align-items:center; justify-content:center`，寬 26→30px（compact 22→26px，容雙位數不被切）；`.wfg-la-label-colornum` 由絕對定位左下改 `position:relative`（在 `::after` 漸層之上），字級 10→20px（compact 9→18px，正好×2），`letter-spacing:-1px`，加強白色 halo 描邊確保深色底可讀。
+  - 還原隱藏 grid：以 `git diff 5a0547d(v420)` 逐處反向 —— `.wfg-la-ch-row` grid 4 欄改回 5 欄(`22 22 1fr 24 18`)、刪除 v421 加的 `.wfg-la-ch-colorblock` CSS 區塊、render 還原成 `≡` 拖曳把手＋`.wfg-la-ch-num` 小色塊兩個 span、mousedown/touchstart 綁定 selector 改回 `.wfg-la-drag-handle`。驗證 `grep -c wfg-la-ch-colorblock = 0`，diff 對 v420 僅剩可見欄 `.wfg-la-label-*` 改動。
+- **不變**：可見欄拖曳排序、數字綁定原始通道（改名/重排不變號）、A/B 觸發鈕、燈號皆維持。
+- **進版**：`v2.97.421 → v2.97.422`；cache-buster version.js `?v=20260704e → 20260704f`。
+- **驗證**：線上截圖確認數字明顯放大且置中；git diff 對 v420 確認隱藏 grid 無殘留。
+
 ## TCON 波形產生器 (wfg) v2.97.421 — 2026-07-04
 
 ### LA 通道欄改為原廠 KingstVIS 樣式：跨列高彩色色塊＋內嵌原始通道號
