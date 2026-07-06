@@ -355,6 +355,11 @@
   .wfg-la-label-name[contenteditable] { cursor: text; outline: none; user-select: text; -webkit-user-select: text; }
   .wfg-la-label-name[contenteditable]:focus { background: #111827; color: #fff; box-shadow: inset 0 -1px #9ca3af; }
   .wfg-la-channel-dragging, .wfg-la-channel-dragging * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+  /* v2.97.423: 通道名稱獨立互換拖曳（電腦版滑鼠限定）。名稱區空白處 → grab；名稱文字仍 text、觸發鈕仍 pointer（各自的規則覆蓋此處） */
+  @media (min-width: 901px) { .wfg-la-label-text { cursor: grab; } }
+  body.wfg-la-name-dragging, body.wfg-la-name-dragging * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+  .wfg-la-label-item.wfg-la-name-drop-target { background: rgba(56,139,253,0.30); box-shadow: inset 0 0 0 2px #388bfd; }
+  .wfg-la-name-ghost { position: fixed; z-index: 9999; pointer-events: none; left: 0; top: 0; background: #111827; color: #fff; border: 1px solid #388bfd; border-radius: 4px; padding: 2px 8px; font: 700 12px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif; box-shadow: 0 4px 12px rgba(0,0,0,0.5); white-space: nowrap; opacity: 0.95; transform: translate(12px, 8px); }
   .wfg-la-label-io { height: 40px; padding: 3px 6px; box-sizing: border-box; border-bottom: 1px solid #21262d; color: #c9d1d9; font-size: 10px; display: grid; gap: 2px; }
   .wfg-la-label-io-title { color: #94a3b8; line-height: 1; }
   .wfg-la-label-io-row { display: grid; grid-template-columns: 1fr; gap: 3px; align-items: center; }
@@ -1403,7 +1408,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260704f"></script>
+<script src="common/version.js?v=20260707a"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4186,6 +4191,90 @@ function wfgLaEndChannelDrag() {
   wfgLaRenderScope();
 }
 
+/* ── v2.97.423: 通道名稱獨立互換拖曳（電腦版滑鼠限定） ──
+   在通道名欄「名稱＋觸發鈕區」(.wfg-la-label-text) 的空白處按住拖曳（排除 contenteditable 名稱與觸發按鈕），
+   只搬移「顯示名稱」文字；放到另一通道名稱位置放開 → 兩通道名稱互換。
+   波形資料、原始通道號、顏色、觸發設定、顯示順序皆不動；僅交換 wfgLaChannelNames 顯示名。 */
+var wfgLaNameDrag = null;
+
+function wfgLaNameDragEligibleTarget(target) {
+  if (!wfgLaIsDesktop()) return null;              // 手機/觸控停用（僅電腦版）
+  if (!target || !target.closest) return null;
+  var textEl = target.closest('.wfg-la-label-text');
+  if (!textEl) return null;                         // 只限名稱區
+  if (target.isContentEditable || target.closest('[contenteditable="true"]')) return null; // 排除名稱輸入
+  if (target.closest('.wfg-la-trig-btn')) return null; // 排除觸發按鈕
+  var item = textEl.closest('.wfg-la-label-item');
+  if (!item) return null;
+  var ch = Number(item.getAttribute('data-ch'));
+  if (!isFinite(ch)) return null;
+  return { item: item, ch: ch };
+}
+
+function wfgLaStartNameDrag(ch, x, y) {
+  if (!isFinite(ch)) return;
+  wfgLaNameDrag = { ch: ch, x0: x, y0: y, active: false, ghost: null, targetItem: null, name: wfgLaDisplayChannelName(ch) };
+}
+
+function wfgLaNameDragClearTarget() {
+  if (wfgLaNameDrag && wfgLaNameDrag.targetItem) {
+    wfgLaNameDrag.targetItem.classList.remove('wfg-la-name-drop-target');
+    wfgLaNameDrag.targetItem = null;
+  }
+}
+
+function wfgLaMoveNameDrag(x, y) {
+  if (!wfgLaNameDrag) return;
+  if (!wfgLaNameDrag.active) {
+    if (Math.abs(x - wfgLaNameDrag.x0) + Math.abs(y - wfgLaNameDrag.y0) < 4) return; // 抖動門檻
+    wfgLaNameDrag.active = true;
+    document.body.classList.add('wfg-la-name-dragging');
+    var ghost = document.createElement('div');
+    ghost.className = 'wfg-la-name-ghost';
+    ghost.textContent = wfgLaNameDrag.name;
+    document.body.appendChild(ghost);
+    wfgLaNameDrag.ghost = ghost;
+  }
+  if (wfgLaNameDrag.ghost) {
+    wfgLaNameDrag.ghost.style.left = x + 'px';
+    wfgLaNameDrag.ghost.style.top = y + 'px';
+  }
+  var el = document.elementFromPoint(x, y);      // ghost 為 pointer-events:none，不會擋
+  var item = el && el.closest ? el.closest('#wfg-la-labels .wfg-la-label-item') : null;
+  var newTarget = (item && Number(item.getAttribute('data-ch')) !== wfgLaNameDrag.ch) ? item : null;
+  if (newTarget !== wfgLaNameDrag.targetItem) {
+    wfgLaNameDragClearTarget();
+    if (newTarget) newTarget.classList.add('wfg-la-name-drop-target');
+    wfgLaNameDrag.targetItem = newTarget;
+  }
+}
+
+function wfgLaEndNameDrag() {
+  if (!wfgLaNameDrag) return;
+  var drag = wfgLaNameDrag;
+  var didSwap = false;
+  if (drag.active && drag.targetItem) {
+    var dstCh = Number(drag.targetItem.getAttribute('data-ch'));
+    if (isFinite(dstCh) && dstCh !== drag.ch) {
+      /* 互換「顯示名稱」：以 display 名寫回，讓兩通道名稱文字對調（含把預設名固化成對方文字，符合「互換」語意） */
+      var srcName = wfgLaDisplayChannelName(drag.ch);
+      var dstName = wfgLaDisplayChannelName(dstCh);
+      wfgLaStoreChannelName(drag.ch, dstName);
+      wfgLaStoreChannelName(dstCh, srcName);
+      didSwap = true;
+    }
+  }
+  wfgLaNameDragClearTarget();
+  if (drag.ghost && drag.ghost.parentNode) drag.ghost.parentNode.removeChild(drag.ghost);
+  document.body.classList.remove('wfg-la-name-dragging');
+  wfgLaNameDrag = null;
+  if (didSwap) {
+    wfgLaRenderChannelGrid();
+    wfgLaRenderScope();
+    if (typeof wfgLaUpdateSummary === 'function') wfgLaUpdateSummary();
+  }
+}
+
 function wfgLaApplyVisibleChannelOrder(visibleOrder) {
   var placed = {};
   var normalized = [];
@@ -5059,6 +5148,15 @@ function wfgLaBindScopeEvents() {
         e.stopPropagation();
         return;
       }
+      /* v2.97.423: 名稱區空白處(左鍵) → 啟動名稱互換拖曳（排除名稱輸入與觸發鈕、僅電腦版） */
+      if (e.button === 0) {
+        var nameHit = wfgLaNameDragEligibleTarget(e.target);
+        if (nameHit) {
+          e.preventDefault();
+          wfgLaStartNameDrag(nameHit.ch, e.clientX, e.clientY);
+          return;
+        }
+      }
       if (e.target && e.target.closest && e.target.closest('.wfg-la-label-trig')) e.stopPropagation();
       var handle = e.target && e.target.closest ? e.target.closest('.wfg-la-label-colorblock') : null;
       if (!handle) return;
@@ -5203,6 +5301,7 @@ function wfgLaBindScopeEvents() {
     }
   });
   window.addEventListener('mouseup', function() {
+    if (wfgLaNameDrag) wfgLaEndNameDrag();
     if (wfgLaChannelDrag) wfgLaEndChannelDrag();
     /* v2.97.266: 滑鼠放開時啟動慣性滑動 */
     if (wfgLaPanning) {
@@ -5221,6 +5320,7 @@ function wfgLaBindScopeEvents() {
     }
   });
   window.addEventListener('mousemove', function(e) {
+    if (wfgLaNameDrag) { e.preventDefault(); wfgLaMoveNameDrag(e.clientX, e.clientY); return; }
     if (!wfgLaChannelDrag) return;
     e.preventDefault();
     wfgLaMoveChannelNearPointer(e.clientX, e.clientY);

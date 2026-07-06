@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.423 — 2026-07-07
+
+### LA 通道名稱「獨立互換」拖曳（電腦版滑鼠限定）
+
+- **需求（Bruce）**：LA 分析器通道名欄新增一種拖曳。既有「色塊/數字」拖曳（滑到左側 0~15 彩色色塊 → grab → 連通道名＋波形一起重排順序）保留不動。新增：在「通道名稱＋觸發鈕那一區的空白處」滑鼠移上去也變手爪(grab)，按住拖曳**只搬移通道名稱文字**（不含波形、不含色塊/數字、不動順序）；拖到另一通道名稱位置放開 → 這**兩個通道的名稱互換**（是互換、不是重排、不是插入）。例：通道3 名稱拖到通道7 → 通道3 顯示原通道7 名稱、通道7 顯示原通道3 名稱，其餘全不變。只做電腦版/滑鼠，觸控手機停用。
+- **做法（`wfg.html`）**：
+  - 命中判定 `wfgLaNameDragEligibleTarget`：`wfgLaIsDesktop()`(min-width:901px) 為真、目標在 `.wfg-la-label-text` 內、**排除** contenteditable 名稱(`.wfg-la-label-name`)與觸發按鈕(`.wfg-la-trig-btn`) → 只有名稱區空白處(含 role 行與欄底空白)才啟動。
+  - 拖曳流程：獨立狀態 `wfgLaNameDrag`（與既有 `wfgLaChannelDrag` 重排並存互不干擾）。`labels` mousedown 左鍵命中 → `preventDefault` 起拖；window mousemove → 過 4px 門檻後建立浮動名稱 ghost 跟隨游標、`elementFromPoint` 標出 drop 目標列(`.wfg-la-name-drop-target` 藍框高亮)；window mouseup → 若目標為另一通道則以顯示名互換 `wfgLaStoreChannelName(srcCh, dstDisplay)` / `(dstCh, srcDisplay)`，再 `wfgLaRenderChannelGrid + wfgLaRenderScope + wfgLaUpdateSummary`。
+  - CSS：`@media(min-width:901px) .wfg-la-label-text{cursor:grab}`（名稱 contenteditable 仍 `cursor:text`、觸發鈕仍 `cursor:pointer`，各自規則覆蓋）；`body.wfg-la-name-dragging` 全域 grabbing；drop 目標藍框；`.wfg-la-name-ghost` 浮動名稱牌(pointer-events:none 不擋 hit-test)。
+- **互換語意**：只交換 `wfgLaChannelNames`（以原始通道號索引的顯示名稱）；波形資料、原始通道號、顏色、觸發設定、顯示順序一律不動。以「顯示名」寫回，預設名也會固化成對方文字，符合 Bruce 例子。
+- **不變**：色塊/數字「名稱＋波形一起重排」拖曳、通道名編輯、A↑/A↓/B↑/B↓ 觸發鈕點選、燈號皆維持；觸控/手機不綁此拖曳、不誤觸。
+- **進版**：`v2.97.422 → v2.97.423`；cache-buster version.js `?v=20260704f → 20260707a`。
+- **驗證**：線上 wfg.html#wfg-la 實測——名稱空白區 hover 變手爪、名稱文字仍可編輯、觸發鈕仍可點；拖 A 名稱到 B 只互換兩者名稱（波形/順序/顏色/數字不動）；色塊重排仍正常；行動版寬度不啟用。附截圖＋DOM 讀回。
+
 ## TCON 波形產生器 (wfg) v2.97.422 — 2026-07-04
 
 ### LA 通道色塊數字放大兩倍＋正中置中；隱藏的 .wfg-la-ch-row 還原回 v420
