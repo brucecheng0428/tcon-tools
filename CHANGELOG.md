@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.424 — 2026-07-07
+
+### LA 單次觸發進度條：百分比右邊加「已錄製秒數」括號
+
+- **需求（Bruce）**：LA 分析器 `wfg.html#wfg-la` 按「單次觸發」時，進度條百分比右邊加一個括號顯示「已錄製秒數」。**最重要**：這個秒數必須與該次錄完匯出/顯示的檔案時長（實際擷取時長）一致，且要用實際硬體 decode 結果推得（totalSamples ÷ 取樣率、同一來源），不可用另跑的假計時器或名目值硬湊。前置觸發停等時顯示已擷取的前置量、觸發後累加、100% 顯示最終實際秒數。
+- **秒數來源（同源保證）**：
+  - **進行中（估計）**：`liveSec = 進度% × cfg.durationSec（已選取樣窗＝depth/rate）`。前置停等時進度＝`triggerPercent`，故 `liveSec = triggerPercent × 窗 = 前置量`；觸發後隨進度累加至滿窗。此為進行中無法得知硬體結果時的即時估計，明確標示且會被最終值覆寫。
+  - **100% 完成（權威值）**：直接用 `wfgLaCaptureDuration()`。此時 `wfgLaCapturedWaveform` 已由 `wfgLaApplyCapturedWaveform` 設為 `decoded`，其 `durationSec = decoded.totalSamples / effectiveRate` —— **與匯出檔時長為同一個量**，因此進度條 100% 秒數＝匯出檔實際時長，由建構保證對得上（非硬寫數字）。
+  - 手動停止用 `manualStopSec`（亦即 `wfgLaCaptureDuration` 覆寫來源），一致。
+- **關於「22 vs 25」（Bruce 補充）**：由 code 分析，匯出檔＝整個擷取緩衝＝整個取樣窗（**含**前置觸發段），前置量是「窗內」的一部分而非額外相加。故 100% 的已錄秒數＝完整 decode 時長（不是「窗−前置」）。前置停等顯示前置量、100% 顯示完整時長，兩者不衝突。實際數字一律由硬體 decode 推得，程式未寫死任何秒數 —— 待硬體實測確認。
+- **做法（`wfg.html`）**：`wfgLaSetAcqProgress(percent, text, state, seconds)` 新增第 4 參數，於 `#wfg-la-acq-progress-pct` 百分比後附 ` (時長)`（沿用 `wfgLaFormatDuration`，與工具內波形/檔案時長同格式）。poll 迴圈即時傳 `liveSec`；下載完成後最終傳 `wfgLaCaptureDuration()`。CSS：左狀態文字 `text-overflow:ellipsis`、右側 `flex:0 0 auto` 確保秒數永遠可見不被擠出。log 加印 `liveSec` 與 `AcqProgress final seconds` 便於實測對帳。
+- **不變**：擷取/觸發/decode/匯出、進度百分比計算、前置/觸發/後置階段邏輯皆不動，只加顯示。
+- **進版**：`v2.97.423 → v2.97.424`；cache-buster version.js `?v=20260707a → 20260707b`。
+- **驗證**：待 LA2016 硬體實跑單次觸發——前置停等秒數＝前置量、觸發後遞增、100% 秒數；匯出該檔確認檔案時長＝進度條 100% 秒數一致（三者對帳）。附截圖＋log 實測數據。
+
 ## TCON 波形產生器 (wfg) v2.97.423 — 2026-07-07
 
 ### LA 通道名稱「獨立互換」拖曳（電腦版滑鼠限定）

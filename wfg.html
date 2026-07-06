@@ -158,7 +158,10 @@
   .wfg-la-acq-progress-fill { height: 100%; width: 0%; background: #9ca3af; transition: width 0.12s linear, background 0.15s; }
   .wfg-la-acq-progress.active .wfg-la-acq-progress-fill { background: #22c55e; }
   .wfg-la-acq-progress.done .wfg-la-acq-progress-fill { background: #84cc16; }
-  .wfg-la-acq-progress-label { margin-top: 3px; display: flex; justify-content: space-between; color: #d1d5db; font: 10px/1.2 'SF Mono','Consolas',monospace; }
+  .wfg-la-acq-progress-label { margin-top: 3px; display: flex; justify-content: space-between; gap: 6px; color: #d1d5db; font: 10px/1.2 'SF Mono','Consolas',monospace; }
+  /* v2.97.424: 左狀態文字過長時省略，確保右側「百分比 (秒數)」永遠可見不被擠出 */
+  #wfg-la-acq-progress-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  #wfg-la-acq-progress-pct { flex: 0 0 auto; white-space: nowrap; }
   .wfg-la-scope-progress { width: 180px; min-width: 180px; box-sizing: border-box; padding: 0; border: 0; background: transparent; }
   .wfg-la-log { min-height: 180px; max-height: 360px; overflow: auto; padding: 10px; background: #050914; border: 1px solid #1e293b; border-radius: 8px; color: #cbd5e1; font: 11px/1.55 'SF Mono','Consolas',monospace; white-space: pre-wrap; word-break: break-word; }
   .wfg-la-guide-backdrop { position: fixed; inset: 0; z-index: 100000; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(2, 6, 23, 0.68); box-sizing: border-box; }
@@ -1408,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260707a"></script>
+<script src="common/version.js?v=20260707b"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -7155,7 +7158,13 @@ function wfgLaSetStatus(id, state, text) {
   }
 }
 
-function wfgLaSetAcqProgress(percent, text, state) {
+/* v2.97.424: seconds（第 4 參數）＝該階段「已錄製秒數」。
+   顯示於百分比右邊括號，格式沿用 wfgLaFormatDuration（與工具內檔案/波形時長同一格式）。
+   秒數來源必須與最終匯出檔時長同源（見呼叫端）：
+   - 進行中：以已選取樣窗（cfg.durationSec）× 進度比推得的即時估計（前置停等＝triggerPercent×窗＝前置量）。
+   - 100% 完成：直接用 wfgLaCaptureDuration()（＝decoded.totalSamples/effectiveRate），
+     與匯出檔時長為同一個量，保證對得上。 */
+function wfgLaSetAcqProgress(percent, text, state, seconds) {
   var wrap = document.getElementById('wfg-la-acq-progress');
   var fill = document.getElementById('wfg-la-acq-progress-fill');
   var label = document.getElementById('wfg-la-acq-progress-text');
@@ -7167,7 +7176,13 @@ function wfgLaSetAcqProgress(percent, text, state) {
   }
   if (fill) fill.style.width = p.toFixed(1) + '%';
   if (label) label.textContent = text || t('wfg.laReady');
-  if (pct) pct.textContent = Math.round(p) + '%';
+  if (pct) {
+    var secTxt = '';
+    if (seconds != null && isFinite(seconds) && seconds > 0) {
+      secTxt = ' (' + wfgLaFormatDuration(seconds).replace(/\s+/g, '') + ')';
+    }
+    pct.textContent = Math.round(p) + '%' + secTxt;
+  }
 }
 
 function wfgLaCancelReconnectWatch() {
@@ -12962,7 +12977,7 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     wfgLaApplyManualStopDisplay(manualStopSec);
     wfgLaRenderScope();
-    wfgLaSetAcqProgress(100, '手動停止：' + wfgLaFormatDuration(manualStopSec), 'done');
+    wfgLaSetAcqProgress(100, '手動停止：' + wfgLaFormatDuration(manualStopSec), 'done', manualStopSec);
     lines.manualStop = true;
     lines.push('Manual stop requested; RUNMODE_HALT sent. displayedDuration=' + wfgLaFormatDuration(manualStopSec));
   };
@@ -12997,8 +13012,12 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
       progress = Math.min(99, Math.max(2, elapsedMs / targetMs * 100));
       progressText = (cfg.acquisitionMode === 'repeat' ? '循環擷取' : '單次擷取') + '：' + Math.round(progress) + '%';
     }
-    wfgLaSetAcqProgress(progress, progressText, 'active');
-    lines.push('  poll ' + i + ': 0x' + finalState.toString(16).padStart(4, '0') + ' ' + stateLabel + ' progress=' + progress.toFixed(1) + '%');
+    /* v2.97.424: 即時「已錄秒數」估計＝進度比 × 已選取樣窗。
+       前置停等(progress=triggerPercent)→ triggerPercent×窗＝前置量；觸發後隨進度累加。
+       此為進行中估計；最終 100% 由呼叫端改用實際 decode 時長覆寫（同匯出檔來源）。 */
+    var liveSec = Math.max(0, progress / 100 * (Number(cfg.durationSec) || 0));
+    wfgLaSetAcqProgress(progress, progressText, 'active', liveSec);
+    lines.push('  poll ' + i + ': 0x' + finalState.toString(16).padStart(4, '0') + ' ' + stateLabel + ' progress=' + progress.toFixed(1) + '% liveSec=' + liveSec.toFixed(3));
     if (finalState & 0x0001) break;
     if (!triggerInvolved && elapsedMs >= Math.max(250, (cfg.durationSec || 0) * 1000)) {
       await wfgLaSetRunMode(dev, 0x00);
@@ -13210,7 +13229,15 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   }
 
   try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent after download.'); } catch (haltErr) { lines.push('RUNMODE_HALT after download failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
-  wfgLaSetAcqProgress(100, wfgLaManualStopRequested ? ('手動停止：' + wfgLaFormatDuration(manualStopSec || wfgLaDisplayDurationOverrideSec)) : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'done');
+  /* v2.97.424: 100% 顯示的「已錄秒數」＝實際擷取時長。
+     手動停止用 manualStopSec，其餘用 wfgLaCaptureDuration()（此時 wfgLaCapturedWaveform 已被
+     wfgLaApplyCapturedWaveform 設為 decoded，durationSec = totalSamples/effectiveRate），
+     與匯出檔時長為同一來源，保證進度條 100% 秒數＝匯出檔實際時長。 */
+  var finalSec = wfgLaManualStopRequested
+    ? (manualStopSec || wfgLaDisplayDurationOverrideSec || wfgLaCaptureDuration())
+    : wfgLaCaptureDuration();
+  wfgLaSetAcqProgress(100, wfgLaManualStopRequested ? ('手動停止：' + wfgLaFormatDuration(manualStopSec || wfgLaDisplayDurationOverrideSec)) : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'done', finalSec);
+  lines.push('AcqProgress final seconds=' + wfgLaFormatDuration(finalSec) + ' (source=wfgLaCaptureDuration, same as export/file duration)');
   lines.push('Safe capture probe completed.');
   return lines;
 }
