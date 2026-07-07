@@ -1411,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708c"></script>
+<script src="common/version.js?v=20260708d"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -12920,6 +12920,10 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   var noTriggerProbe = false;
   var triggerInvolved = !noTriggerProbe && !!cfg.trigger.enabled;
   var probeMaxSamples = Math.max(1024, Number(cfg.sampleDepth) || 1000000);
+  /* v2.97.429: 在 decode+套用「當下」用區域變數捕捉「最後一個真實 edge 秒」，供 100% 顯示。
+     不在事後掃全域 wfgLaCapturedWaveform（真機可能因時序/partial 後續改動而讀不到 edge → v428 誤 fallback 名目 25.0）。
+     -1 = 尚未量到任何 edge。 */
+  var probeSignalEndSec = -1;
   var lines = [];
   wfgLaSetAcqProgress(0, (cfg.acquisitionMode === 'repeat' ? '循環擷取' : '單次擷取') + '準備中', 'active');
   lines.push('LA2016 capture');
@@ -13214,6 +13218,18 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     wfgLaAssignTriggerZero(decoded, cfg, decoded.triggerPacketTimeSec);
     var activeChannels = wfgLaApplyCapturedWaveform(decoded);
+    /* v2.97.429: 就地（此刻 decoded 是本次擷取最終狀態、edges 一定在）取「最後一個真實 edge 秒」。
+       edges 依時間遞增，取每通道最後一個即該通道最大；跨通道取最大＝整體最後 transition。
+       這就是 KingstVIS 開檔以實際 ##D transition 計時的那個終點（≈實際訊號長度，非含尾端靜止段的 totalSamples）。 */
+    if (decoded && decoded.edgesByChannel) {
+      for (var seCh = 0; seCh < decoded.edgesByChannel.length; seCh++) {
+        var seEdges = decoded.edgesByChannel[seCh] || [];
+        if (seEdges.length) {
+          var seLast = Number(seEdges[seEdges.length - 1]) || 0;
+          if (seLast > probeSignalEndSec) probeSignalEndSec = seLast;
+        }
+      }
+    }
     lines.captureSummary = {
       samples: decoded.partialDownload ? sampleCfg.limitSamples : decoded.totalSamples,
       downloadedSamples: decoded.partialDownload ? decoded.totalSamples : null,
@@ -13235,39 +13251,41 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   }
 
   try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent after download.'); } catch (haltErr) { lines.push('RUNMODE_HALT after download failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
-  /* v2.97.428: 100% 完成秒數 ＝ 實際擷取訊號「最後一個真實 edge + 1」÷ 取樣率。
-     根因（Bruce 真機實測定調）：single-trigger 不做尾端裁切（v2.97.412 的 wfgLaTrimUncommittedTail
-     僅連續觸發跑），decoded.totalSamples 是 RLE reps 總和，含「最後一個 transition 之後的靜止尾段」
-     （以一個大 rep 編碼）→ totalSamples/rate ＝名目全窗（5GSa@200MHz=25.0s），非實際訊號結束時間。
-     KingstVIS 開檔以實際 ##D transition 資料計時（≈23.7s）。改用最後真實 edge → 100% 顯示＝實際訊號長度＝KingstVIS。
-     外科手術：只改「進度條顯示的秒數」；decoded/波形/匯出/連續觸發/smpDepth 一律不動（見 changelog 回歸護欄）。 */
+  /* v2.97.429: 100% 完成秒數 ＝ 實際擷取訊號「最後一個真實 edge + 1 sample」÷ 取樣率。
+     根因（Bruce 真機定調）：single-trigger 不裁尾端（v2.97.412 尾端裁切僅連續觸發跑），decoded.totalSamples
+     是 RLE reps 總和、含「最後一個 transition 之後的靜止尾段」→ totalSamples/rate＝名目全窗（5GSa@200MHz=25.0s）。
+     KingstVIS 開檔以實際 ##D transition 計時（≈23.7s）。
+     v428 失敗原因：在此處事後掃「全域」wfgLaCapturedWaveform.edgesByChannel，真機因時序/partial 後續改動掃到 0
+     → 誤 fallback 到名目 totalSamples/rate=25.0。v429 改用上方「decode+套用當下」以區域變數 probeSignalEndSec 捕捉的
+     最後真實 edge（decode 真正產生的欄位、必有值），並把 fallback 從「totalSamples/rate 名目」改成「時間軸 durationSec」。
+     只改進度條顯示秒數；decoded/波形/匯出/連續觸發/smpDepth 一律不動。 */
   var acqEffRate = Math.max(1, Number(sampleCfg && sampleCfg.effectiveRate)
     || Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.effectiveRate) || 1);
-  var acqLastEdgeSample = 0;
-  if (wfgLaCapturedWaveform && wfgLaCapturedWaveform.edgesByChannel) {
-    var acqEb = wfgLaCapturedWaveform.edgesByChannel;
-    for (var acqCh = 0; acqCh < acqEb.length; acqCh++) {
-      var acqEdges = acqEb[acqCh] || [];
-      for (var acqI = 0; acqI < acqEdges.length; acqI++) {
-        var acqS = Math.round((Number(acqEdges[acqI]) || 0) * acqEffRate);
-        if (acqS > acqLastEdgeSample) acqLastEdgeSample = acqS;
-      }
-    }
-  }
   var acqTotalSamples = Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.totalSamples) || 0;
-  /* 實際訊號長度＝最後真實 edge+1（避開尾端靜止段被 RLE reps 灌成名目全窗）；無任何 edge 時退回 totalSamples/rate。 */
-  var acqActualSec = acqLastEdgeSample > 0
-    ? (acqLastEdgeSample + 1) / acqEffRate
-    : (acqTotalSamples > 0 ? acqTotalSamples / acqEffRate : wfgLaCaptureDuration());
+  var acqNominalSec = acqTotalSamples > 0 ? acqTotalSamples / acqEffRate : 0;      // 名目（含尾端靜止段）
+  var acqTimelineSec = wfgLaCaptureDuration();                                      // 時間軸 durationSec
+  var acqActualSec;
+  if (probeSignalEndSec >= 0) {
+    acqActualSec = probeSignalEndSec + 1 / acqEffRate;                             // 最後真實 edge + 1 sample = 實際訊號長度
+  } else {
+    acqActualSec = acqTimelineSec > 0 ? acqTimelineSec : acqNominalSec;            // 無 edge：退時間軸，不用名目 totalSamples
+  }
+  /* v2.97.429 防呆：若顯示秒數幾乎等於名目 totalSamples/rate（尾端靜止段沒被扣掉），且時間軸更短 → 用時間軸。
+     避免「edge 抓不到卻默默顯示名目 25.0」；此判斷永遠讓顯示 ≤ 名目、不放大。 */
+  if (acqNominalSec > 0 && Math.abs(acqActualSec - acqNominalSec) < 0.5 / acqEffRate
+      && acqTimelineSec > 0 && acqTimelineSec < acqNominalSec - 1 / acqEffRate) {
+    acqActualSec = acqTimelineSec;
+  }
   var finalSec = wfgLaManualStopRequested
     ? (manualStopSec || wfgLaDisplayDurationOverrideSec || acqActualSec)
     : acqActualSec;
   wfgLaSetAcqProgress(100, wfgLaManualStopRequested ? ('手動停止：' + wfgLaFormatDuration(manualStopSec || wfgLaDisplayDurationOverrideSec)) : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'done', finalSec);
-  lines.push('AcqProgress final: lastRealEdgeSample=' + acqLastEdgeSample + ' rawTotalSamples=' + acqTotalSamples + ' effRate=' + acqEffRate
-    + ' actualSec=' + wfgLaFormatDuration(acqActualSec)
-    + ' (nominal captureDuration=' + wfgLaFormatDuration(wfgLaCaptureDuration())
-    + ' partialDownload=' + partialDownload + ')'
-    + ' shown=' + wfgLaFormatDuration(finalSec) + ' [source=(lastRealEdge+1)/effRate = 實際訊號結束時間，非含尾端靜止段的 totalSamples]');
+  var acqLastEdgeSample = probeSignalEndSec >= 0 ? Math.round(probeSignalEndSec * acqEffRate) : -1;
+  lines.push('AcqProgress final: lastRealEdgeSec=' + (probeSignalEndSec >= 0 ? probeSignalEndSec.toFixed(6) : 'none')
+    + ' lastRealEdgeSample=' + acqLastEdgeSample + ' rawTotalSamples=' + acqTotalSamples
+    + ' nominalSec=' + wfgLaFormatDuration(acqNominalSec) + ' timelineSec=' + wfgLaFormatDuration(acqTimelineSec)
+    + ' effRate=' + acqEffRate + ' partialDownload=' + partialDownload
+    + ' ★shown=' + wfgLaFormatDuration(finalSec) + ' [source=lastRealEdge, 非名目 totalSamples/rate]');
   lines.push('Safe capture probe completed.');
   return lines;
 }

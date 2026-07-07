@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.429 — 2026-07-08
+
+### LA 100% 秒數：v428 真機仍 25.0 → 改用「decode 當下區域變數捕捉」最後真實 edge（修 v428 掃全域失敗）
+
+**Bruce 真機驗 v428 仍顯示 25.0s**，並精準指出：`acqLastEdgeSample` 在真機算出 0 → 走 fallback `totalSamples/rate=25.0`（名目）。即 v428 在 100% 完成處**事後掃「全域」`wfgLaCapturedWaveform.edgesByChannel`**，真機因時序/partial 後續改動掃到空 → 誤 fallback 名目。
+
+**修法（v429，針對 v428 失敗根因）**
+- **改用區域變數在「decode+套用當下」捕捉**：`wfgLaSafeCaptureProbe` 內 `wfgLaApplyCapturedWaveform(decoded)` 之後，就地掃**區域 `decoded`**（本次擷取最終物件、`edgesByChannel` 由 `wfgLaDecodeCaptureWaveform` 8811 行真正 push、必有值）取「最後一個真實 edge 秒」存區域 `probeSignalEndSec`。100% 完成直接用它，**不再事後掃全域**（避開時序/物件被換掉的坑）。
+- **fallback 改掉名目**：抓不到 edge 時退「時間軸 `wfgLaCaptureDuration()`（durationSec）」，**不再用 `totalSamples/rate` 名目**（Bruce #2 要求：fallback 不准默默回 25.0）。
+- **防呆（Bruce #3）**：若顯示秒數幾乎等於名目 `totalSamples/rate` 且時間軸更短 → 強制改用時間軸；此判斷只會讓顯示 ≤ 名目、永不放大。
+- **真機可複核的一行 log**（capture log，非 console；按「複製 log」可見）：`AcqProgress final: lastRealEdgeSec=… lastRealEdgeSample=… rawTotalSamples=… nominalSec=… timelineSec=… ★shown=…`。若真機顯示仍不對，這行會直接指出 `lastRealEdgeSec` 有沒有量到（none＝decoded 當下真的沒 edge，屬另一根因）。
+
+**欄位佐證（用實際解碼路徑，非手捏）**：`wfgLaDecodeCaptureWaveform`（wfg.html:8782）回傳物件的 `edgesByChannel[bit]` 在 8811 行 `push(edgeTime)`（單位＝秒＝`totalSamples/effectiveRate`），最後一個 transition 之後的靜止尾段不 push——這就是「最後真實 edge」的來源，與 v412 `wfgLaTrimUncommittedTail`(8759-8765) 取 lastEdge 用的是同一欄位同結構。v429 在 apply 當下、edges 一定在時取值，不受事後改動影響。
+
+**回歸護欄（自動比對通過）**：① 匯出函式 vs v425 baseline `diff`＝**0 差異**（header/smpDepth/位元對齊不動）；② `wfgLaTrimUncommittedTail`(v412 連續觸發尾端裁切) `diff`＝**0 差異**（未動一行）；③ 只新增區域變數 `probeSignalEndSec` 與其捕捉/使用，`decoded`/波形/匯出/smpDepth 值不變。
+
+**進版**：`v2.97.428 → v2.97.429`；cache-buster `?v=20260708c → 20260708d`。
+**待 Bruce 真機驗收**：v429 5GSa@200MHz 單次觸發，100% 應 ≈23.7s。**我無法自跑 LA2016、也無法讀真機 IIFE 私有物件**（`window.wfgLaDebugEdges` 在此頁未定義），故此項務必由 Dispatch 真機確認；若仍不對，請按「複製 log」把 `AcqProgress final` 那行貼我，`lastRealEdgeSec` 值即可定位。
+
 ## TCON 波形產生器 (wfg) v2.97.428 — 2026-07-08
 
 ### LA 100% 秒數：真正 un-pad（改用最後真實 edge）＋ 還原 v426/v427 無效改動
