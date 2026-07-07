@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.425 — 2026-07-07
+
+### LA 單次觸發進度條秒數：兩處修正（100% 名目值 → 匯出檔實際值；97~99% 秒數消失）
+
+- **Bruce 實測回報兩個 bug**（5GSa 深度 + 200MHz 取樣率）：
+  1. **100% 秒數顯示錯**：進度條 100% 顯示 **25s**（名目：5e9÷200e6），但匯出檔實際約 **23.7s**（硬體實際 decode 樣本約 4.74G÷200MHz）。
+  2. **97~99% 秒數消失**：擷取到 97~99% 這段秒數不見。
+- **問題1 根因（讀 code）**：匯出檔 `wfgLaExportKvdat` 的 header（第 23458 行）寫的是 `decoded.totalSamples ÷ effectiveRate`（實際解出樣本數；partialDownload 時為實際下載到的樣本），KingstVIS 開檔時長即以此計。而 v424 進度條 100% 誤用 `wfgLaCaptureDuration()` ＝ `decoded.durationSec`——該值在 partialDownload 分支（第 13176/13181 行）被覆寫成**名目** `expectedDuration`（= `limitSamples ÷ effRate`，5GSa@200MHz = 25s），與匯出檔用的 `totalSamples` **不同源** → 顯示 25s 名目、匯出 23.7s 實際。
+  - **修法**：100% 秒數改用 `decoded.totalSamples ÷ effectiveRate`（`wfgLaCapturedWaveform.totalSamples / sampleCfg.effectiveRate`），與 kvdat header 完全同一算式，保證進度條 100% 秒數＝匯出檔實際時長。**未寫死任何秒數**，一律由實際擷取結果推。log 加印 `totalSamples / effRate / actualSec / nominal captureDuration / partialDownload / shown`，供實機確認根因與對帳。
+- **問題2 根因（讀 code）**：讀取(EP6 下載)階段那個 `wfgLaSetAcqProgress(97, '讀取波形資料', ...)` 呼叫**沒帶第 4 參數 seconds**，seconds=undefined → 括號整段不顯示，直到 100% 才回來（no-trigger 完成的 100% active 那一刻同樣沒帶，會閃一下空白）。
+  - **修法**：讀取階段補帶延續估計 `0.97 × 已選窗`（此時 decode 未完成、實際樣本未知，延續進行中估計，100% 後立即被實際值覆寫）；no-trigger 完成的 100% active 也補帶 `cfg.durationSec` 估計。0%→100% 全程秒數不中斷。
+- **不變**：擷取/觸發/decode/匯出邏輯、進度百分比計算皆不動；進行中(0~96%)估計沿用 `進度% × 已選窗`（前置停等＝前置量），只有**最終 100% 換成匯出同源實際值**。
+- **進版**：`v2.97.424 → v2.97.425`；cache-buster version.js `?v=20260707b → 20260707c`。
+- **驗證**：待 5GSa@200MHz LA2016 硬體實跑單次觸發——(a) 97~99% 秒數不消失、(b) 100% 秒數 ≈ 23.7s（實際非名目 25s）、(c) 匯出該檔比對時長＝100% 顯示秒數。附截圖＋log（`AcqProgress final: totalSamples=… actualSec=…`）實測數據。
+
 ## TCON 波形產生器 (wfg) v2.97.424 — 2026-07-07
 
 ### LA 單次觸發進度條：百分比右邊加「已錄製秒數」括號

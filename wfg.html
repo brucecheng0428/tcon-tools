@@ -1411,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260707b"></script>
+<script src="common/version.js?v=20260707c"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -13021,7 +13021,7 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     if (finalState & 0x0001) break;
     if (!triggerInvolved && elapsedMs >= Math.max(250, (cfg.durationSec || 0) * 1000)) {
       await wfgLaSetRunMode(dev, 0x00);
-      wfgLaSetAcqProgress(100, (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'active');
+      wfgLaSetAcqProgress(100, (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'active', (Number(cfg.durationSec) || 0));
       finalState = 0x0001;
       lines.push('No-trigger duration reached; RUNMODE_HALT sent and proceeding to EP6 download.');
       break;
@@ -13065,7 +13065,10 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     return lines;
   }
   if (!wfgLaManualStopRequested) {
-    wfgLaSetAcqProgress(97, '讀取波形資料', 'active');
+    /* v2.97.425: 讀取(EP6 下載)階段仍帶「已錄秒數」估計，避免 97~99% 秒數消失。
+       此時 decode 未完成、實際 totalSamples 未知，延續進行中估計（0.97 × 已選窗），
+       100% 完成後立即由實際 totalSamples/effRate 覆寫為匯出檔真值。 */
+    wfgLaSetAcqProgress(97, '讀取波形資料', 'active', 0.97 * (Number(cfg.durationSec) || 0));
   }
 
   /* v2.97.412: 主修法 — 讀 capture info 前先等 writePos/nRepPackets 穩定（DMA flush 握手），
@@ -13229,15 +13232,26 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   }
 
   try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent after download.'); } catch (haltErr) { lines.push('RUNMODE_HALT after download failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
-  /* v2.97.424: 100% 顯示的「已錄秒數」＝實際擷取時長。
-     手動停止用 manualStopSec，其餘用 wfgLaCaptureDuration()（此時 wfgLaCapturedWaveform 已被
-     wfgLaApplyCapturedWaveform 設為 decoded，durationSec = totalSamples/effectiveRate），
-     與匯出檔時長為同一來源，保證進度條 100% 秒數＝匯出檔實際時長。 */
+  /* v2.97.425: 100% 顯示的「已錄秒數」＝匯出檔實際時長，同源保證。
+     匯出檔(wfgLaExportKvdat)header 寫的是 decoded.totalSamples ÷ effectiveRate（實際解出樣本數，
+     partialDownload 時為實際下載到的樣本），KingstVIS 開檔時長即以此計。
+     v2.97.424 誤用 wfgLaCaptureDuration()＝decoded.durationSec，該值在 partialDownload 分支
+     (13176/13181) 被覆寫成名目 expectedDuration(=limitSamples/effRate，如 5GSa@200MHz=25s)，
+     與匯出檔用的 totalSamples 不同源 → 顯示 25s 名目、匯出卻 23.7s 實際。
+     改為直接用 decoded.totalSamples ÷ effectiveRate，與 kvdat header 完全同一算式。 */
+  var acqEffRate = Math.max(1, Number(sampleCfg && sampleCfg.effectiveRate)
+    || Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.effectiveRate) || 1);
+  var acqTotalSamples = Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.totalSamples) || 0;
+  var acqActualSec = acqTotalSamples > 0 ? acqTotalSamples / acqEffRate : wfgLaCaptureDuration();
   var finalSec = wfgLaManualStopRequested
-    ? (manualStopSec || wfgLaDisplayDurationOverrideSec || wfgLaCaptureDuration())
-    : wfgLaCaptureDuration();
+    ? (manualStopSec || wfgLaDisplayDurationOverrideSec || acqActualSec)
+    : acqActualSec;
   wfgLaSetAcqProgress(100, wfgLaManualStopRequested ? ('手動停止：' + wfgLaFormatDuration(manualStopSec || wfgLaDisplayDurationOverrideSec)) : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'done', finalSec);
-  lines.push('AcqProgress final seconds=' + wfgLaFormatDuration(finalSec) + ' (source=wfgLaCaptureDuration, same as export/file duration)');
+  lines.push('AcqProgress final: totalSamples=' + acqTotalSamples + ' effRate=' + acqEffRate
+    + ' actualSec=' + wfgLaFormatDuration(acqActualSec)
+    + ' (nominal captureDuration=' + wfgLaFormatDuration(wfgLaCaptureDuration())
+    + ' partialDownload=' + partialDownload + ')'
+    + ' shown=' + wfgLaFormatDuration(finalSec) + ' [source=totalSamples/effRate, same as kvdat header]');
   lines.push('Safe capture probe completed.');
   return lines;
 }
