@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.430 — 2026-07-08【暫時診斷版】
+
+### LA 100% 進度條文字改印原始數值（供 Dispatch 真機截圖讀，拿到數字即回正式修法）
+
+v429 真機仍 25.0；且 Dispatch 端**讀不到任何 log**（不在 DOM/window，console reader 掛不進，capture buffer 抓不到）。唯一可靠管道＝螢幕截圖。故本版把 100% 完成的進度條文字暫時改成印原始數值：
+
+`100% shown=<顯示秒數> | edge=<lastRealEdgeSec或none> | rawTot=<rawTotalSamples> | tl=<timelineSec> | trig=<觸發位置%> | nom=<nominalSec>`
+
+- `edge` 抓不到印 `none`（不被 fallback 蓋掉，直接看出 decode 當下有沒有 edge）。
+- 特別加 `trig`（觸發位置%）：對照 Bruce 線索 25.0×(1−5%)=23.75≈23.7 —— 用真機數字分辨「實際時間 = 全窗×(1−trig)（扣前置觸發）」還是「= edge（硬體樣本上限 4.74e9/2e8）」。
+- 進度條文字元素臨時 `white-space:normal`+`word-break` 讓長字串完整顯示不被 ellipsis 截。
+
+**流程**：Dispatch 真機跑一次 → 截圖那行 → 依數字定位（edge 是 none 還是 23.x？23.7 = 全窗扣觸發 還是 硬體上限？）→ 出正式修法 v431 → 真機驗 100%≈23.7 才算過。本版為暫時診斷，數字到手即移除。
+
+**回歸護欄**：匯出函式 vs v425＝0 差異、`wfgLaTrimUncommittedTail`(v412)＝0 差異，均未動。
+**進版**：`v2.97.429 → v2.97.430`；cache-buster `?v=20260708d → 20260708e`。
+
 ## TCON 波形產生器 (wfg) v2.97.429 — 2026-07-08
 
 ### LA 100% 秒數：v428 真機仍 25.0 → 改用「decode 當下區域變數捕捉」最後真實 edge（修 v428 掃全域失敗）

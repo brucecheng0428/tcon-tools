@@ -1411,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708d"></script>
+<script src="common/version.js?v=20260708e"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -13279,13 +13279,32 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   var finalSec = wfgLaManualStopRequested
     ? (manualStopSec || wfgLaDisplayDurationOverrideSec || acqActualSec)
     : acqActualSec;
-  wfgLaSetAcqProgress(100, wfgLaManualStopRequested ? ('手動停止：' + wfgLaFormatDuration(manualStopSec || wfgLaDisplayDurationOverrideSec)) : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'done', finalSec);
+  /* v2.97.430【暫時診斷版】：把 100% 進度條文字直接改成印原始數值，供 Bruce 真機截圖讀
+     （log/console/window/IIFE 私有物件 Dispatch 端都抓不到，只有螢幕截圖可靠）。
+     每欄一定有值，edge 抓不到印 none（不被 fallback 蓋掉）。拿到數字後回正式修法 v431。 */
+  var acqTrigPct = (cfg.trigger && cfg.trigger.enabled) ? (Number(cfg.trigger.positionPercent) || 0) : 'off';
+  var diagText = '100% shown=' + wfgLaFormatDuration(finalSec)
+    + ' | edge=' + (probeSignalEndSec >= 0 ? probeSignalEndSec.toFixed(3) + 's' : 'none')
+    + ' | rawTot=' + acqTotalSamples
+    + ' | tl=' + wfgLaFormatDuration(acqTimelineSec)
+    + ' | trig=' + acqTrigPct + (acqTrigPct === 'off' ? '' : '%')
+    + ' | nom=' + wfgLaFormatDuration(acqNominalSec);
+  wfgLaSetAcqProgress(100, diagText, 'done', null);
+  /* 讓長診斷字串完整顯示不被 ellipsis 截掉（暫時，供截圖） */
+  try {
+    var diagEl = document.getElementById('wfg-la-acq-progress-text');
+    if (diagEl) {
+      diagEl.style.whiteSpace = 'normal';
+      diagEl.style.overflow = 'visible';
+      diagEl.style.textOverflow = 'clip';
+      diagEl.style.maxWidth = 'none';
+      diagEl.style.fontSize = '11px';
+      diagEl.style.lineHeight = '1.3';
+      diagEl.style.wordBreak = 'break-all';
+    }
+  } catch (e) {}
   var acqLastEdgeSample = probeSignalEndSec >= 0 ? Math.round(probeSignalEndSec * acqEffRate) : -1;
-  lines.push('AcqProgress final: lastRealEdgeSec=' + (probeSignalEndSec >= 0 ? probeSignalEndSec.toFixed(6) : 'none')
-    + ' lastRealEdgeSample=' + acqLastEdgeSample + ' rawTotalSamples=' + acqTotalSamples
-    + ' nominalSec=' + wfgLaFormatDuration(acqNominalSec) + ' timelineSec=' + wfgLaFormatDuration(acqTimelineSec)
-    + ' effRate=' + acqEffRate + ' partialDownload=' + partialDownload
-    + ' ★shown=' + wfgLaFormatDuration(finalSec) + ' [source=lastRealEdge, 非名目 totalSamples/rate]');
+  lines.push('AcqProgress final [v430 diag]: ' + diagText + ' | lastEdgeSample=' + acqLastEdgeSample + ' partialDownload=' + partialDownload);
   lines.push('Safe capture probe completed.');
   return lines;
 }
