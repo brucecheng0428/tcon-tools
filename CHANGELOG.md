@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.426 — 2026-07-08
+
+### LA 單次觸發進度條秒數：v425 兩個問題實測仍在 → 根因再定位並修正
+
+- **Bruce 實測 v425 仍有兩個問題**（附三張截圖，5GSa/500MSa @ 200MHz 單次觸發）：
+  1. **「讀取波形資料」階段沒有秒數**：截圖顯示 `讀取波形資料 77%`、右側百分比 `99%` 括號秒數不見。
+  2. **100% 秒數仍未扣前置觸發**：截圖 `單次擷取完成 100% (2.500s)` 顯示名目值，需＝匯出 kvdat 檔實際時間。
+- **問題1 真根因（讀 code，鐵律1：指出修的是哪段 diff）**：v425 只在 `wfgLaSafeCaptureProbe` 下載前的**佔位**呼叫（第 13074 行 `wfgLaSetAcqProgress(97, '讀取波形資料', ..., 0.97×窗)`）補了秒數，**但真正的 EP6 下載迴圈**在 `wfgLaReadEp6CaptureBytes`（第 8185 行）每個 chunk 都呼叫 `wfgLaSetAcqProgress(pct, '讀取波形資料 NN%', 'active')` **沒帶第 4 參數 seconds**，且此迴圈**反覆覆寫**佔位所帶的秒數 → 77%/99% 階段秒數整段消失。這正是 v425「宣稱修好卻沒驗證」的漏網之魚。
+  - **修法（diff：wfg.html 第 8185 行）**：下載迴圈的 `wfgLaSetAcqProgress` 補第 4 參數 `0.97 × (cfg.durationSec)`，與 13074 佔位同式（穩定不閃動）；100% 完成後由匯出檔真值覆寫。
+- **問題2 修法（讀 code + 建構保證，鐵律3：不確定就說不確定）**：抽出**匯出檔時長唯一真值函式** `wfgLaExportedDurationSec()`／`wfgLaExportSampleRate()`／`wfgLaExportTotalSamples()`，`wfgLaExportKvdat`（寫 kvdat header）與進度條 100% `finalSec` **共用同一份計算**（含 `maxRaw+1` 成長與 `round(effectiveRate)` 取整），由建構保證「100% 秒數 === 匯出檔在 KingstVIS 開檔顯示時間」逐位元一致。
+  - **誠實聲明（鐵律3）**：純讀 code 追蹤，v425 的 `totalSamples/effRate` 在我能靜態分析的每個分支其實已等於匯出值（partialDownload 也不例外），我**無法在程式碼層重現 100%≠匯出檔的分歧**；此版把兩者統一到同一函式以徹底消除任何殘餘分歧（例如 `maxRaw+1`／取整）並防止未來 drift。**若 5GSa@200MHz 硬體實跑仍有差**，請提供「100% 顯示秒數」與「該檔在 KingstVIS 的顯示時間」兩個實際數字，我才能定位真正的硬體側差異——因為我無法自己跑 LA2016。
+- **匯出不變**：`wfgLaExportKvdat` 改走 helper 後計算結果與舊版**逐位元相同**，不影響 kvdat/KingstVIS 相容（`durationSec` 區域變數為未使用的殘留，改動零影響）。
+- **進版**：`v2.97.425 → v2.97.426`；cache-buster version.js `?v=20260707c → 20260708a`。
+- **驗證**：(a) Chrome MCP no-store fetch 確認 live origin＝v2.97.426；(b) DOM 模擬呼叫下載迴圈 render path 確認「讀取波形資料」pct 帶秒數；(c) `wfgLaExportedDurationSec` 與匯出 header 同源（同一函式）。**硬體實跑（5GSa@200MHz 單次觸發看 100% vs 匯出檔）需 Bruce 實測**，我無法自跑 LA2016。
+
 ## TCON 波形產生器 (wfg) v2.97.425 — 2026-07-07
 
 ### LA 單次觸發進度條秒數：兩處修正（100% 名目值 → 匯出檔實際值；97~99% 秒數消失）
