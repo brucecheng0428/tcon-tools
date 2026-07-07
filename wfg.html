@@ -1411,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708b"></script>
+<script src="common/version.js?v=20260708c"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -13153,9 +13153,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
       relativeTriggerPackets = nBeforeTrig > firstPacketInDownload ? nBeforeTrig - firstPacketInDownload : 0;
     }
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate, relativeTriggerPackets);
-    /* v2.97.427: 診斷用 — 保存裁切前的原始 decode 值，供 100% 完成時對帳（找 100% 顯示 vs 匯出檔分岔）。 */
-    decoded.__rawTotalSamples = decoded.totalSamples;
-    decoded.__rawDurationSec = decoded.durationSec;
     var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
     /* v2.97.408: 偵測「切換取樣深度後第一次 RUN 回吐上一輪殘留資料」。
        殘留資料的 totalSamples 會等於上一個被接受顯示的擷取（指紋完全相同），
@@ -13238,50 +13235,39 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   }
 
   try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent after download.'); } catch (haltErr) { lines.push('RUNMODE_HALT after download failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
-  /* v2.97.426: 100% 顯示的「已錄秒數」直接走 wfgLaExportedDurationSec()，
-     與 wfgLaExportKvdat 寫入 kvdat header 的 totalSamples/sampleRate 完全同一份計算，
-     100% 秒數 === 匯出檔在 KingstVIS 開檔顯示的時間（逐位元一致，含 maxRaw+1、round(effRate)）。
-     v2.97.424 誤用 wfgLaCaptureDuration()＝decoded.durationSec（partialDownload 被覆寫成名目
-     expectedDuration，如 5GSa@200MHz=25s，與匯出檔 23.7s 實際不同源）；v2.97.425 已改 totalSamples/effRate，
-     v2.97.426 進一步統一到匯出端唯一真值函式，徹底消除任何殘餘分歧。 */
-  var acqEffRate = wfgLaExportSampleRate(wfgLaCapturedWaveform, cfg);
-  var acqTotalSamples = wfgLaCapturedWaveform ? wfgLaExportTotalSamples(wfgLaCapturedWaveform, cfg, acqEffRate) : 0;
-  var acqActualSec = wfgLaExportedDurationSec(wfgLaCapturedWaveform, cfg);
-  if (!(acqActualSec > 0)) acqActualSec = wfgLaCaptureDuration();
+  /* v2.97.428: 100% 完成秒數 ＝ 實際擷取訊號「最後一個真實 edge + 1」÷ 取樣率。
+     根因（Bruce 真機實測定調）：single-trigger 不做尾端裁切（v2.97.412 的 wfgLaTrimUncommittedTail
+     僅連續觸發跑），decoded.totalSamples 是 RLE reps 總和，含「最後一個 transition 之後的靜止尾段」
+     （以一個大 rep 編碼）→ totalSamples/rate ＝名目全窗（5GSa@200MHz=25.0s），非實際訊號結束時間。
+     KingstVIS 開檔以實際 ##D transition 資料計時（≈23.7s）。改用最後真實 edge → 100% 顯示＝實際訊號長度＝KingstVIS。
+     外科手術：只改「進度條顯示的秒數」；decoded/波形/匯出/連續觸發/smpDepth 一律不動（見 changelog 回歸護欄）。 */
+  var acqEffRate = Math.max(1, Number(sampleCfg && sampleCfg.effectiveRate)
+    || Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.effectiveRate) || 1);
+  var acqLastEdgeSample = 0;
+  if (wfgLaCapturedWaveform && wfgLaCapturedWaveform.edgesByChannel) {
+    var acqEb = wfgLaCapturedWaveform.edgesByChannel;
+    for (var acqCh = 0; acqCh < acqEb.length; acqCh++) {
+      var acqEdges = acqEb[acqCh] || [];
+      for (var acqI = 0; acqI < acqEdges.length; acqI++) {
+        var acqS = Math.round((Number(acqEdges[acqI]) || 0) * acqEffRate);
+        if (acqS > acqLastEdgeSample) acqLastEdgeSample = acqS;
+      }
+    }
+  }
+  var acqTotalSamples = Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.totalSamples) || 0;
+  /* 實際訊號長度＝最後真實 edge+1（避開尾端靜止段被 RLE reps 灌成名目全窗）；無任何 edge 時退回 totalSamples/rate。 */
+  var acqActualSec = acqLastEdgeSample > 0
+    ? (acqLastEdgeSample + 1) / acqEffRate
+    : (acqTotalSamples > 0 ? acqTotalSamples / acqEffRate : wfgLaCaptureDuration());
   var finalSec = wfgLaManualStopRequested
     ? (manualStopSec || wfgLaDisplayDurationOverrideSec || acqActualSec)
     : acqActualSec;
   wfgLaSetAcqProgress(100, wfgLaManualStopRequested ? ('手動停止：' + wfgLaFormatDuration(manualStopSec || wfgLaDisplayDurationOverrideSec)) : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'done', finalSec);
-  lines.push('AcqProgress final: totalSamples=' + acqTotalSamples + ' effRate=' + acqEffRate
+  lines.push('AcqProgress final: lastRealEdgeSample=' + acqLastEdgeSample + ' rawTotalSamples=' + acqTotalSamples + ' effRate=' + acqEffRate
     + ' actualSec=' + wfgLaFormatDuration(acqActualSec)
     + ' (nominal captureDuration=' + wfgLaFormatDuration(wfgLaCaptureDuration())
     + ' partialDownload=' + partialDownload + ')'
-    + ' shown=' + wfgLaFormatDuration(finalSec) + ' [source=totalSamples/effRate, same as kvdat header]');
-  /* v2.97.427: 診斷對帳 — 100% 顯示 vs 匯出檔可能分岔的所有候選值一次印出。
-     rawTotal＝裁切前 decode 原始樣本；trimmedTotal＝寫進 header 的值(=100%用的)；
-     lastEdge＝最後一個真實 transition 的樣本(KingstVIS 若以「最後訊號」計時會用這個)；
-     三者若不一致，即為 100% 秒數 與 KingstVIS 檔案時間差異的來源。 */
-  if (wfgLaCapturedWaveform) {
-    var dbgW = wfgLaCapturedWaveform;
-    var dbgRate = acqEffRate;
-    var dbgSel = wfgLaExportSelectedChannels(dbgW, cfg);
-    var dbgLastEdge = 0;
-    var dbgEb = dbgW.edgesByChannel || [];
-    dbgSel.forEach(function(ch) {
-      var e = dbgEb[ch] || [];
-      for (var i = 0; i < e.length; i++) { var s = Math.round((Number(e[i]) || 0) * dbgRate); if (s > dbgLastEdge) dbgLastEdge = s; }
-    });
-    var dbgRawTot = Number(dbgW.__rawTotalSamples);
-    lines.push('AcqProgress 100% breakdown (100%顯示 vs 匯出/KingstVIS 對帳)：'
-      + ' rawDecodedTotal=' + (isFinite(dbgRawTot) ? dbgRawTot : 'n/a')
-      + ' (' + (isFinite(dbgRawTot) ? wfgLaFormatDuration(dbgRawTot / dbgRate) : 'n/a') + ')'
-      + ' | trimmedTotal(header/100%)=' + acqTotalSamples + ' (' + wfgLaFormatDuration(acqTotalSamples / dbgRate) + ')'
-      + ' | lastRealEdge=' + dbgLastEdge + ' (' + wfgLaFormatDuration(dbgLastEdge / dbgRate) + ')'
-      + ' | decoded.durationSec=' + wfgLaFormatDuration(Number(dbgW.durationSec) || 0)
-      + ' | rate=' + dbgRate + ' partialDownload=' + partialDownload
-      + ' | ★100%顯示=' + wfgLaFormatDuration(finalSec)
-      + ' ；請比對此三個時間與 KingstVIS 開檔顯示時間，回報哪個相符。');
-  }
+    + ' shown=' + wfgLaFormatDuration(finalSec) + ' [source=(lastRealEdge+1)/effRate = 實際訊號結束時間，非含尾端靜止段的 totalSamples]');
   lines.push('Safe capture probe completed.');
   return lines;
 }
@@ -23415,40 +23401,6 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-/* v2.97.426: 匯出檔時長「單一真值」helper。
-   100% 完成秒數顯示 與 wfgLaExportKvdat 寫入 kvdat header 的 totalSamples/sampleRate
-   從此走同一份計算，保證進度條 100% 秒數與匯出檔在 KingstVIS 顯示的時間逐位元一致。
-   v2.97.424/425 的 finalSec 直接用 wfgLaCapturedWaveform.totalSamples/effRate，缺了匯出端的
-   maxRaw+1 成長與 round(effectiveRate) 取整，理論上有微小分歧；改共用 helper 徹底消除。 */
-function wfgLaExportSampleRate(decoded, cfg) {
-  return Math.max(1, Math.round(Number(decoded && decoded.effectiveRate) || Number(cfg && cfg.sampleRateHz) || 200000000));
-}
-function wfgLaExportSelectedChannels(decoded, cfg) {
-  var selected = cfg && cfg.enabledChannels && cfg.enabledChannels.length ? cfg.enabledChannels.slice() : [];
-  if (!selected.length && decoded && decoded.edgeCounts) {
-    for (var ch0 = 0; ch0 < decoded.edgeCounts.length; ch0++) if (decoded.edgeCounts[ch0] > 0) selected.push(ch0);
-  }
-  if (!selected.length) selected = [0];
-  return selected.filter(function(ch, idx, arr) { return ch >= 0 && ch < 16 && arr.indexOf(ch) === idx; });
-}
-function wfgLaExportTotalSamples(decoded, cfg, sampleRate, selected) {
-  sampleRate = sampleRate || wfgLaExportSampleRate(decoded, cfg);
-  selected = selected || wfgLaExportSelectedChannels(decoded, cfg);
-  var totalSamples = Math.max(1, Math.round(Number(decoded && decoded.totalSamples) || (Number(decoded && decoded.durationSec) || 0) * sampleRate || Number(cfg && cfg.sampleDepth) || 1));
-  var maxRaw = 0;
-  var edgesByChannel = (decoded && decoded.edgesByChannel) || [];
-  selected.forEach(function(ch) {
-    var sourceEdges = edgesByChannel[ch] || [];
-    for (var i = 0; i < sourceEdges.length; i++) maxRaw = Math.max(maxRaw, Math.round((Number(sourceEdges[i]) || 0) * sampleRate));
-  });
-  return Math.max(totalSamples, maxRaw + 1);
-}
-function wfgLaExportedDurationSec(decoded, cfg) {
-  if (!decoded || !decoded.edgesByChannel) return 0;
-  var sampleRate = wfgLaExportSampleRate(decoded, cfg);
-  return wfgLaExportTotalSamples(decoded, cfg, sampleRate) / sampleRate;
-}
-
 window.wfgLaExportKvdat = function() {
   var cfg = wfgLaBuildConfig();
   var decoded = wfgLaCapturedWaveform;
@@ -23456,13 +23408,22 @@ window.wfgLaExportKvdat = function() {
     alert(t('wfg.laExportNoData'));
     return;
   }
-  /* v2.97.426: sampleRate / selected / totalSamples 改走共用 helper（與 100% 秒數同源）；
-     計算結果與舊版逐位元相同，不影響 kvdat/KingstVIS 相容。 */
-  var sampleRate = wfgLaExportSampleRate(decoded, cfg);
-  var selected = wfgLaExportSelectedChannels(decoded, cfg);
+  var sampleRate = Math.max(1, Math.round(Number(decoded.effectiveRate) || Number(cfg.sampleRateHz) || 200000000));
+  var selected = cfg.enabledChannels && cfg.enabledChannels.length ? cfg.enabledChannels.slice() : [];
+  if (!selected.length && decoded.edgeCounts) {
+    for (var ch0 = 0; ch0 < decoded.edgeCounts.length; ch0++) if (decoded.edgeCounts[ch0] > 0) selected.push(ch0);
+  }
+  if (!selected.length) selected = [0];
+  selected = selected.filter(function(ch, idx, arr) { return ch >= 0 && ch < 16 && arr.indexOf(ch) === idx; });
   var initialSample = Number(decoded.initialSample) || 0;
-  var totalSamples = wfgLaExportTotalSamples(decoded, cfg, sampleRate, selected);
+  var totalSamples = Math.max(1, Math.round(Number(decoded.totalSamples) || (Number(decoded.durationSec) || 0) * sampleRate || Number(cfg.sampleDepth) || 1));
   var durationSec = Math.max(Number(decoded.durationSec) || (totalSamples / sampleRate), totalSamples / sampleRate, 1 / sampleRate);
+  var maxRaw = 0;
+  selected.forEach(function(ch) {
+    var sourceEdges = decoded.edgesByChannel[ch] || [];
+    for (var i = 0; i < sourceEdges.length; i++) maxRaw = Math.max(maxRaw, Math.round((Number(sourceEdges[i]) || 0) * sampleRate));
+  });
+  totalSamples = Math.max(totalSamples, maxRaw + 1);
   var triggerPosition = cfg.trigger && cfg.trigger.enabled ? Math.max(0, Math.min(100, Number(cfg.trigger.positionPercent) || 0)) : 0;
   var triggerSample = cfg.trigger && cfg.trigger.enabled
     ? Math.max(0, Math.min(totalSamples, Math.round(totalSamples * triggerPosition / 100)))

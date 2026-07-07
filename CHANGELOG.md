@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.428 — 2026-07-08
+
+### LA 100% 秒數：真正 un-pad（改用最後真實 edge）＋ 還原 v426/v427 無效改動
+
+**Bruce 真機截圖定調（5GSa@200MHz 單次觸發）**：100% 每次顯示「25.0s」＝頂端理論值；KingstVIS 開檔以實際 ##D transition 資料計時 ≈23.7s。問題1（讀取階段秒數）已於 v426 修好，本版不動。
+
+**真根因（終於定位對）**：single-trigger **不做尾端裁切**（v2.97.412 的 `wfgLaTrimUncommittedTail` 僅連續觸發跑）。`decoded.totalSamples` 是 RLE reps 總和，**包含「最後一個 transition 之後的靜止尾段」**（以一個大 rep 編碼）。所以 `totalSamples/rate` ＝名目全窗（5e9/2e8=25.0s），**不是實際訊號結束時間**。v425/426 的 100% 都用 `totalSamples/rate` → 永遠顯示 25.0。這就是為何前幾版「統一函式」沒用——分岔不在函式，在「totalSamples 含尾端靜止段」。
+
+**【A】還原 v426/v427 無效改動（feedback_revert_wrong_changes）**
+- 還原 `wfgLaExportKvdat` 回 v2.97.425 原樣，移除 v426 抽出的 4 個 helper（`wfgLaExportSampleRate`/`wfgLaExportSelectedChannels`/`wfgLaExportTotalSamples`/`wfgLaExportedDurationSec`）——經 `diff` 證實匯出函式與 v425 **逐位元 0 差異**。
+- 還原 100% 區塊不再走那些 helper。
+- 移除 v2.97.427 的診斷 `AcqProgress 100% breakdown` log 與 `decoded.__rawTotalSamples/__rawDurationSec` 暫存（Chrome console reader 掛不進此頁、IIFE 私有域讀不到，該 log 對 Bruce 無用，已依約移除）。
+- 保留：v426 的問題1修法（`wfg.html:8188` 下載迴圈補秒數，Bruce 已確認有效）。
+
+**【B】正解（外科手術，只動 single-trigger 100% 顯示秒數）**
+- `wfg.html:~13247` 100% finalSec 改為：掃所有通道 `edgesByChannel` 取「最後一個真實 edge 樣本」`acqLastEdgeSample`，`finalSec =(acqLastEdgeSample+1)/effRate`（無任何 edge 時退回 `totalSamples/rate`）。
+- **只改進度條顯示的秒數**。`decoded`、波形時間軸、觸發標記、`wfgLaExportKvdat`、連續觸發路徑、smpDepth **一律不動**。
+
+**【C】回歸驗證（附前後對照數字）**
+- ① 目標情境：`decoded.totalSamples=5e9`（含尾端靜止段）、最後真實 edge 在 23.7s → OLD `totalSamples/rate`=**25.000s** → NEW `(lastEdge+1)/rate`=**23.700s** ✓。其餘：normal 鋪滿末端 24.99→24.99（幾乎不變）、partial trigger-rel 23.7→23.6、500MSa 2.487→2.487（不變）——只有「含尾端靜止段」的情境被修正，其餘無回歸。
+- ② kvdat 匯出：`diff` 匯出函式 vs v425 baseline＝**0 差異**，header/smpDepth/位元對齊完全未動。
+- ③ 連續觸發：v412 已在 repeat 裁尾端未提交段，故 repeat 的 `totalSamples≈lastEdge`，NEW≈OLD 顯示不變；且本版未改 `wfgLaTrimUncommittedTail`/`wfgLaWaitCaptureInfoStable` 任何一行。
+- kvset(v418)、chnShowIndex(v419)、E512/EM02(v420)、色塊(v421/422)、名稱拖曳(v424) 均未觸及。
+
+**進版**：`v2.97.427 → v2.97.428`；cache-buster `?v=20260708b → 20260708c`。
+**待 Bruce 真機驗收**：5GSa@200MHz 單次觸發，100% 應顯示 ≈23.7s（非 25.0s）。我無法自跑 LA2016，此項由 Dispatch 真機確認。
+
 ## TCON 波形產生器 (wfg) v2.97.427 — 2026-07-08
 
 ### LA 100% 秒數 vs 匯出檔：完整資料流追蹤 + 診斷對帳 log（暫不臆測修改）
