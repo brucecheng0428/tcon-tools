@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.427 — 2026-07-08
+
+### LA 100% 秒數 vs 匯出檔：完整資料流追蹤 + 診斷對帳 log（暫不臆測修改）
+
+- **Bruce 實測 v426 第2點仍在**，並指出正確方向：問題不在函式，而在**呼叫時機的輸入值**（100% 可能拿名目/裁切前、匯出拿裁切後實際）。
+- **完整逐行追蹤結果（single-trigger，鐵律3：不確定就說不確定）**：
+  - `wfgLaSafeCaptureProbe` 內：`nRepPackets`（`wfgLaWaitCaptureInfoStable` 握手後的實際提交量）→ `packetBytes = floor(nRepPackets/5)×16` → EP6 下載 `packetBytes` → `wfgLaDecodeCaptureWaveform` 得 `decoded.totalSamples`（實際 reps 總和）。
+  - 裁切分支：manualStop / partialDownload(13194) / overrun(13210)。**唯一把名目值塞進 totalSamples 的是 overrun-trim（13212）** `wfgLaTrimDecodedCapture(decoded, expectedDuration, sampleCfg.limitSamples)` → `totalSamples = limitSamples`(名目)。
+  - `wfgLaApplyCapturedWaveform(decoded)`（13216）令 `wfgLaCapturedWaveform = decoded`（**同一物件**）。
+  - 100% finalSec（13246-13249）讀 `wfgLaExportTotalSamples(wfgLaCapturedWaveform, ...)`；匯出 `wfgLaExportKvdat` 也讀 `wfgLaCapturedWaveform`。**兩者讀同一個裁切後物件** → 靜態分析下 100% 顯示的 `totalSamples/rate` 與寫進 kvdat header 的完全相同。
+  - **結論**：v426 的 100% **已經**用裁切後、與 header 同源的值，Bruce 假設的「100% 用名目 / 匯出用實際」分岔**在現行 code 不存在**。我無法在程式層重現 100%≠匯出檔。
+- **剩餘兩個候選（需硬體 log 才能定案）**：(a) runtime 值分岔（擷取完成到按匯出之間 `wfgLaCapturedWaveform` 被改）；(b) KingstVIS「檔案時間」的定義＝header `totalSamples`（則 v426 已相符）還是**最後一個真實 transition**（則會比 header 短 → 100% 看起來偏長，需改成顯示 lastEdge）。
+- **本版做法（不臆測亂改，先取證）**：加**診斷對帳 log**。100% 完成時印出 `AcqProgress 100% breakdown`：`rawDecodedTotal`(裁切前) / `trimmedTotal`(=header=100%用) / `lastRealEdge`(最後真實 transition) 三個樣本數與各自時間、`decoded.durationSec`、`partialDownload`、`★100%顯示`。並存裁切前 `decoded.__rawTotalSamples`。
+- **請 Bruce 提供硬體數字（明講：我無法自跑 LA2016）**：跑一次單次觸發 → 按「複製 log」把 `AcqProgress 100% breakdown` 那行貼給我 → 再匯出該檔用 KingstVIS 開，記下顯示時間。比對 KingstVIS 時間＝三個候選(trimmedTotal / lastRealEdge / rawDecoded)哪一個，即可一刀定位並套正確修法（若＝lastRealEdge，就把 100% 與 header 都改用 lastEdge）。
+- **不變**：擷取/觸發/decode/匯出/裁切邏輯與 v426 完全相同，本版**只加 log 與暫存變數**，零行為改動。
+- **進版**：`v2.97.426 → v2.97.427`；cache-buster version.js `?v=20260708a → 20260708b`。
+- **驗證**：Chrome no-store fetch 確認 live origin＝v2.97.427 且含 breakdown log 程式碼；沙箱注入 live 函式確認 breakdown 三值計算正確。硬體實跑取數需 Bruce。
+
 ## TCON 波形產生器 (wfg) v2.97.426 — 2026-07-08
 
 ### LA 單次觸發進度條秒數：v425 兩個問題實測仍在 → 根因再定位並修正

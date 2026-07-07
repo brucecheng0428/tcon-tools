@@ -1411,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708a"></script>
+<script src="common/version.js?v=20260708b"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -13153,6 +13153,9 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
       relativeTriggerPackets = nBeforeTrig > firstPacketInDownload ? nBeforeTrig - firstPacketInDownload : 0;
     }
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate, relativeTriggerPackets);
+    /* v2.97.427: 診斷用 — 保存裁切前的原始 decode 值，供 100% 完成時對帳（找 100% 顯示 vs 匯出檔分岔）。 */
+    decoded.__rawTotalSamples = decoded.totalSamples;
+    decoded.__rawDurationSec = decoded.durationSec;
     var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
     /* v2.97.408: 偵測「切換取樣深度後第一次 RUN 回吐上一輪殘留資料」。
        殘留資料的 totalSamples 會等於上一個被接受顯示的擷取（指紋完全相同），
@@ -13254,6 +13257,31 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     + ' (nominal captureDuration=' + wfgLaFormatDuration(wfgLaCaptureDuration())
     + ' partialDownload=' + partialDownload + ')'
     + ' shown=' + wfgLaFormatDuration(finalSec) + ' [source=totalSamples/effRate, same as kvdat header]');
+  /* v2.97.427: 診斷對帳 — 100% 顯示 vs 匯出檔可能分岔的所有候選值一次印出。
+     rawTotal＝裁切前 decode 原始樣本；trimmedTotal＝寫進 header 的值(=100%用的)；
+     lastEdge＝最後一個真實 transition 的樣本(KingstVIS 若以「最後訊號」計時會用這個)；
+     三者若不一致，即為 100% 秒數 與 KingstVIS 檔案時間差異的來源。 */
+  if (wfgLaCapturedWaveform) {
+    var dbgW = wfgLaCapturedWaveform;
+    var dbgRate = acqEffRate;
+    var dbgSel = wfgLaExportSelectedChannels(dbgW, cfg);
+    var dbgLastEdge = 0;
+    var dbgEb = dbgW.edgesByChannel || [];
+    dbgSel.forEach(function(ch) {
+      var e = dbgEb[ch] || [];
+      for (var i = 0; i < e.length; i++) { var s = Math.round((Number(e[i]) || 0) * dbgRate); if (s > dbgLastEdge) dbgLastEdge = s; }
+    });
+    var dbgRawTot = Number(dbgW.__rawTotalSamples);
+    lines.push('AcqProgress 100% breakdown (100%顯示 vs 匯出/KingstVIS 對帳)：'
+      + ' rawDecodedTotal=' + (isFinite(dbgRawTot) ? dbgRawTot : 'n/a')
+      + ' (' + (isFinite(dbgRawTot) ? wfgLaFormatDuration(dbgRawTot / dbgRate) : 'n/a') + ')'
+      + ' | trimmedTotal(header/100%)=' + acqTotalSamples + ' (' + wfgLaFormatDuration(acqTotalSamples / dbgRate) + ')'
+      + ' | lastRealEdge=' + dbgLastEdge + ' (' + wfgLaFormatDuration(dbgLastEdge / dbgRate) + ')'
+      + ' | decoded.durationSec=' + wfgLaFormatDuration(Number(dbgW.durationSec) || 0)
+      + ' | rate=' + dbgRate + ' partialDownload=' + partialDownload
+      + ' | ★100%顯示=' + wfgLaFormatDuration(finalSec)
+      + ' ；請比對此三個時間與 KingstVIS 開檔顯示時間，回報哪個相符。');
+  }
   lines.push('Safe capture probe completed.');
   return lines;
 }
