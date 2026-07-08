@@ -1412,7 +1412,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708h"></script>
+<script src="common/version.js?v=20260709a"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22800,19 +22800,24 @@ async function wfgLaApplyQuickPreset(id) {
     /* 選回「快捷設定」時完整復原：通道名稱/描述/順序/分析器/可見通道/解碼展開狀態 */
     wfgLaDecodeExpanded = false;
     wfgLaApplyDecodeExpandedState();
-    /* v2.97.434 (Bug 2): 選回「快捷設定」空選項時「保留」使用者通道名稱，不再清空。
-       舊碼把 wfgLaChannelNames 全清為 '' → 隨後 wfgLaUpdateSummary() 觸發 wfgLaSaveUserSettings 把空名稱寫進
-       localStorage → 重整還原時通道名稱全部消失。名稱屬使用者資料，reset 只清描述/分析器/順序，名稱維持原本。 */
-    for (var ri = 0; ri < 16; ri++) { wfgLaChannelDescriptions[ri] = ''; }
+    /* v2.97.436: 選回「快捷設定」空選項時，通道名稱「重置回預設」（通道 0～通道 15）。
+       內部以 '' 表示預設名（wfgLaDisplayChannelName 會 fallback 成 wfgLaDefaultChannelName → 「通道 N」），
+       不寫死字串格式，直接沿用既有預設產生器。並用 wfgLaSaveUserSettingsNow() 立即把空名稱陣列寫進
+       localStorage(names)，讓 v435 的 wfgLaRestoreUserSettings 重整還原時看到的就是預設名。
+       註：這是 change 事件「當下」的一次性重置；之後使用者的任何手動改名仍走既有即時存檔路徑，不受影響。
+       v435 已修復 restore render-timing（清 wfgLaIoSelectLockUntil），故空名稱重整不會再出現名稱欄空白。 */
+    for (var ri = 0; ri < 16; ri++) { wfgLaChannelNames[ri] = ''; wfgLaChannelDescriptions[ri] = ''; }
     wfgLaLastEdgeCounts = []; /* v2.97.407: 清前一個 preset(如 I2C 2ch) 殘留的 edge counts，避免影響 has-signal/硬體通道判斷 */
     wfgLaChannelOrder = Array.from({ length: 16 }, function(_, idx) { return idx; });
     wfgLaAnalyzers = [];
+    wfgLaIoSelectLockUntil = 0; /* 比照 v435：清 IO select 鎖，確保下方同步 render 立即重建通道名稱欄，名稱立刻變回預設 */
     wfgLaRenderAnalyzers();
     wfgLaRenderChannelGrid();
     wfgLaSetChannels(16, true);
     wfgLaUpdateSummary();
     wfgLaRunAnalyzers();
     wfgLaRenderScope();
+    wfgLaSaveUserSettingsNow(); /* 立即持久化「重置為預設」的空名稱陣列，不依賴 debounce */
     return;
   }
   if (select) { select.value = preset.id; }

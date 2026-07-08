@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.436 — 2026-07-09
+
+### 新增「選回『快捷設定』空選項時，通道名稱重置回預設（通道 0～通道 15）並持久化」
+
+**需求（Bruce）**：LA 分頁的預設下拉（`wfg-la-quick-preset`）選 E512/E503 會套用該 preset 的通道名（保留不動）；但把下拉「選回『快捷設定』空選項」時，原本行為是名稱「維持 E512 那組」不變 → 要改成「所有通道名稱重置回預設『通道 0～通道 15』」，且必須同時寫進 localStorage（`WFG_LA_SETTINGS_KEY` 的 `names`），讓 v435 的持久化讀回時看到的就是預設名。
+
+**改的是哪段 code**：`wfgLaApplyQuickPreset(id)` 內「`!preset`（即選回空值『快捷設定』）」分支（原 v434 刻意「保留名稱」的區塊）。改動：
+- 把 16 個 `wfgLaChannelNames[ci] = ''`（內部以空字串表示預設名；`wfgLaDisplayChannelName` 會 fallback 成既有預設產生器 `wfgLaDefaultChannelName(ch)` → `t('wfg.channelPrefix') + ' ' + ch` =「通道 N」，**不寫死字串格式**）。
+- 比照 v435 主動 `wfgLaIoSelectLockUntil = 0;` 清鎖，確保空值分支下方的同步 render 立即重建通道名稱欄（名稱立刻變回預設）。
+- render 後呼叫 `wfgLaSaveUserSettingsNow()`，立即把「重置為預設」的空名稱陣列寫進 localStorage，不依賴 debounce。
+
+**不破壞 v435**：重置只發生在「選回快捷設定的那個 change 事件」當下；之後使用者任何手動改名仍走既有 `focusout → wfgLaStoreChannelName → wfgLaSaveUserSettings` 即時存檔路徑，重整照 v435 正常還原。v435 的 restore render-timing 清鎖修復未動，故空名稱重整不會再出現名稱欄空白。
+
+**驗證（Chrome 直連本機 http.server，忠實走 Bruce 精確條件 + 截圖）**：
+- 情境 A：套 E512（0–14 為 E512 名、15 為「通道 15」）→ 選回快捷設定 → 名稱「立即」全變回 通道 0～通道 15、`localStorage names` 全為 `''` → Cmd+R 真實重整 → 仍是 通道 0～通道 15（label 數 16、未拖曳即顯示）。
+- 情境 B：選回快捷設定後手動把通道 0 改成 `test0`（走真實委派 `input`+`focusout` 事件）→ `localStorage names[0]='test0'` 其餘 `''` → 真實重整 → 通道 0 = `test0`、其餘 = 通道 1～通道 15。
+- 情境 C（回歸，不破壞 v435）：選回快捷設定 → 重整 → 名稱欄「不需拖曳」立即顯示 16 個，無空白。
+
+**進版**：`v2.97.435 → v2.97.436`；wfg.html 內 version.js cache-buster `?v=20260708h → 20260709a`；common/version.js 徽章 `v2.97.435 → v2.97.436`。
+
+**改動範圍**：只動 `wfg.html`（空值分支）／`common/version.js`（徽章）／`CHANGELOG.md`（本條）三檔。
+
 ## TCON 波形產生器 (wfg) v2.97.435 — 2026-07-08
 
 ### 修復「E512 → 切回快捷設定 → 重整後左側通道名稱欄全空白」的 render-timing bug
