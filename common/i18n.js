@@ -190,6 +190,7 @@ var I18N = {
   'wfg.laQuickPresetDefault': { 'zh-TW': '快捷設定', 'en': 'Quick setup', 'zh-CN': '快捷设定' },
   'wfg.laQuickPresetApplied': { 'zh-TW': '已套用快捷設定：{name}', 'en': 'Applied quick setup: {name}', 'zh-CN': '已套用快捷设定：{name}' },
   'wfg.laPresetE512':    { 'zh-TW': 'E512/EM02(PC)', 'en': 'E512/EM02(PC)', 'zh-CN': 'E512/EM02(PC)' },
+  'wfg.laPresetE503':    { 'zh-TW': 'E503', 'en': 'E503', 'zh-CN': 'E503' },
   'wfg.laPresetI2c':     { 'zh-TW': 'I2C量測(異常範例)', 'en': 'I2C Measurement (Anomaly)', 'zh-CN': 'I2C测量(异常范例)' },
   'wfg.laPresetEdpAux':  { 'zh-TW': 'eDP AUX解碼(異常範例)', 'en': 'eDP AUX Decode (Anomaly)', 'zh-CN': 'eDP AUX解码(异常范例)' },
   'wfg.laPresetI2cAux':  { 'zh-TW': 'I2C+AUX(異常範例)', 'en': 'I2C+AUX (Anomaly)', 'zh-CN': 'I2C+AUX(异常范例)' },
