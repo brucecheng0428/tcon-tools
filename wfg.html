@@ -1412,7 +1412,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708g"></script>
+<script src="common/version.js?v=20260708h"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3950,6 +3950,13 @@ function wfgLaRestoreUserSettings() {
     if (Array.isArray(data.names)) {
       for (var ch = 0; ch < 16; ch++) wfgLaStoreChannelName(ch, data.names[ch] || '');
     }
+    /* v2.97.435 (render-timing bug 根因修復): 上方 wfgLaSetThresholdValue() 會把 wfgLaIoSelectLockUntil
+       設成 Date.now()+250（IO <select> 使用者互動保護鎖）。restore 是程式化還原、非使用者互動，但此鎖會讓
+       接下來 wfgLaUpdateSummary()→wfgLaRenderScope() 的 label 重建 gate（wfgLaRenderScope 內
+       "Date.now() >= wfgLaIoSelectLockUntil"）在 250ms 內為 false → 重整後第一次繪製不建立通道名稱欄，
+       直到之後某次 render（拖曳波形）在鎖過期後才補上（= Bruce 回報「拖一下就出現」的現象）。
+       此處主動清鎖，讓 restore 的同步 render 一定能建立 label 欄（與 22771/23206 既有清鎖同一意圖）。 */
+    wfgLaIoSelectLockUntil = 0;
     wfgLaRenderChannelGrid();
     wfgLaUpdateSummary();
   } catch (e) { /* 還原失敗不阻斷載入 */ }

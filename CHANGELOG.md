@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.435 — 2026-07-08
+
+### 修復「E512 → 切回快捷設定 → 重整後左側通道名稱欄全空白」的 render-timing bug
+
+**症狀（Bruce 精確步驟）**：預設下拉選 E512/EM02 → 再切回空的「快捷設定」→ Cmd+R 重整 → 左側整排通道名稱欄位全部消失（空白）；只要拖曳一下波形，名稱就立刻重新出現。單純「快捷設定→重整」不會觸發。
+
+**根因（渲染時序，非資料遺失）**：Bruce 補的關鍵線索坐實這是「重整後第一次繪製沒把名稱畫進 DOM」，資料其實還在 localStorage。實測（Chrome 直連線上 v434）：重整後 `#wfg-la-labels` 的 label item 數為 0，但 canvas 波形已畫、`wfgLaChannelNames` 資料完好；手動觸發一次完整 render（`wfgLaUpdateSummary()`→`wfgLaRenderScope()`）→ label 欄立刻補回 16 個正確名稱。演繹定位：`wfgLaRenderScope()` 內 label 重建被 gate `Date.now() >= wfgLaIoSelectLockUntil` 擋掉。而 `wfgLaRestoreUserSettings()` 還原門檻電壓時呼叫了 `wfgLaSetThresholdValue(tv,…,true)`，該函式無條件把 `wfgLaIoSelectLockUntil = Date.now()+250`（IO `<select>` 使用者互動保護鎖）。restore 是程式化還原、非使用者互動，但此鎖讓「restore 自己的 render」與「wfgSwitchMode 的雙 rAF render」都落在 250ms 鎖窗內 → gate 為 false → 首次繪製不建立通道名稱欄，直到之後某次 render（拖曳波形）在鎖過期後才補上。此為 rAF/setTimeout 時序競態，故 Bruce 端間歇但可複現。
+
+**修法**：在 `wfgLaRestoreUserSettings()` 設完門檻、寫回名稱後、呼叫 `wfgLaRenderChannelGrid()`/`wfgLaUpdateSummary()` 之前，主動 `wfgLaIoSelectLockUntil = 0;` 清鎖，讓 restore 的同步 render 一定能建立 label 欄，徹底消除競態（與既有 22771/23206 兩處「清鎖以確保 scope labels 能重建」同一意圖）。鎖本意是保護使用者操作 IO 下拉時不被重建打斷，程式化 restore 無此互動，清鎖安全。
+
+**回歸護欄**：只動 `wfgLaRestoreUserSettings` 一行（加清鎖）＋註解，未碰 v434 兩個持久化守衛、E512/E503 快捷、kvdat、連續觸發、通道拖曳。
+
+**驗證**：Chrome 開本機修正版，忠實走 Bruce 步驟（E512 → 切回快捷設定 → 重整）多次，重整後不需任何互動、`.wfg-la-ch-title` 與左側 label 欄立即顯示 16 個 E512 名稱。
+
+**進版**：`v2.97.434 → v2.97.435`；wfg.html 內 version.js cache-buster `?v=20260708g → 20260708h`；common/version.js 徽章 `v2.97.434 → v2.97.435`。
+
 ## TCON 波形產生器 (wfg) v2.97.434 — 2026-07-08
 
 ### 修復 v433「重整保留 LA 設定」的兩個持久化 bug
