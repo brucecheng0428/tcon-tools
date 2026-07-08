@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.432 — 2026-07-08
+
+### LA 單次觸發 100% 秒數：正式改為「視窗總長 × (1 − 觸發位置%)」，移除 v430/v431 診斷字串
+
+Bruce 真機定調唯一正解：進度條括號秒數＝「扣掉前置預觸發後的實際錄製秒數」，與 edge / totalSamples / writePos / 硬體回吐樣本數**全都無關**，純粹是視窗扣掉前置觸發比例。
+
+**公式（單一來源，函式上方統一計算）**
+- `acqWindowTotalSec = limitSamples ÷ effectiveRate`（理論取樣時間；5GSa@200MHz = 25.0s）。
+- `acqRecordSec = acqWindowTotalSec × (1 − 觸發位置% / 100)`。
+- 觸發位置% 讀實際觸發設定 `triggerPercent`（已 clamp 0~100，未啟用觸發＝0），**不寫死任何秒數常數**；深度/取樣率/觸發位置改變時自動跟著變。
+- 驗收例：觸發位置 5% → 25 × 0.95 = **23.75s ≈ 23.7s**；12% → 25 × 0.88 = 22s；無觸發 → 25s。
+
+**改動範圍（只動顯示秒數計算）**
+- 進行中 poll 迴圈 `liveSec`＝`progress/100 × acqRecordSec`（原本 × cfg.durationSec 全窗）→ 平順數到 acqRecordSec，不再衝到 25。
+- 無觸發完成、97%「讀取波形資料」階段秒數同樣沿用 acqRecordSec。
+- 100% 完成秒數＝acqRecordSec（手動停止仍優先用實際停止秒數）。
+- **移除** v430 診斷長字串（`100% shown=… | edge=… | rawTot=…`）＋臨時 CSS hack，恢復乾淨「單次擷取完成 (XX.Xs)」顯示。
+- **移除** v429 edge 推估整段（`probeSignalEndSec` 捕捉、`acqEffRate/acqNominalSec/acqTimelineSec/acqActualSec` 及防呆）與 v431 診斷變數（`diagRxBytes/diagRawTotPre/diagLastEdgePre`）。
+
+**回歸護欄**：只動進度條顯示秒數；未碰 kvdat 匯出位元對齊、連續觸發尾端裁切（v412 `wfgLaTrimUncommittedTail`）、通道/色塊/拖曳。node --check 語法通過；殘留舊變數引用 grep＝0。
+
+**進版**：`v2.97.430 → v2.97.432`；version.js cache-buster `?v=20260708e → 20260708f`。
+**待 Bruce 真機驗收**：5GSa@200MHz 單次觸發、觸發位置 5%，100% 應顯示 ≈23.7s；我不自行宣稱已驗（無 LA2016 硬體）。
+
 ## TCON 波形產生器 (wfg) v2.97.430 — 2026-07-08【暫時診斷版】
 
 ### LA 100% 進度條文字改印原始數值（供 Dispatch 真機截圖讀，拿到數字即回正式修法）

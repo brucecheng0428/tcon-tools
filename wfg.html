@@ -1411,7 +1411,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708e"></script>
+<script src="common/version.js?v=20260708f"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -12920,10 +12920,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   var noTriggerProbe = false;
   var triggerInvolved = !noTriggerProbe && !!cfg.trigger.enabled;
   var probeMaxSamples = Math.max(1024, Number(cfg.sampleDepth) || 1000000);
-  /* v2.97.429: 在 decode+套用「當下」用區域變數捕捉「最後一個真實 edge 秒」，供 100% 顯示。
-     不在事後掃全域 wfgLaCapturedWaveform（真機可能因時序/partial 後續改動而讀不到 edge → v428 誤 fallback 名目 25.0）。
-     -1 = 尚未量到任何 edge。 */
-  var probeSignalEndSec = -1;
   var lines = [];
   wfgLaSetAcqProgress(0, (cfg.acquisitionMode === 'repeat' ? '循環擷取' : '單次擷取') + '準備中', 'active');
   lines.push('LA2016 capture');
@@ -12971,6 +12967,12 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   var triggerPercent = triggerInvolved ? Math.max(0, Math.min(100, Number(cfg.trigger.positionPercent) || 0)) : 0;
   var preTargetMs = Math.max(1, (cfg.durationSec || 0) * 1000 * triggerPercent / 100);
   var postTargetMs = Math.max(1, (cfg.durationSec || 0) * 1000 * (100 - triggerPercent) / 100);
+  /* v2.97.432: 進度條括號秒數統一「視窗總長」＝ limitSamples ÷ effectiveRate（理論取樣時間，5GSa@200MHz=25.0s）。
+     顯示（已錄）秒數 ＝ 視窗總長 × (1 − 觸發位置%)：扣掉前置預觸發比例，與匯出 kvdat 在 KingstVIS 顯示時間對齊。
+     觸發位置% 讀實際觸發設定 triggerPercent（已 clamp 0~100，未啟用觸發＝0），不寫死任何秒數常數；
+     深度/取樣率/觸發位置變動時顯示自動跟著公式變。 */
+  var acqWindowTotalSec = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
+  var acqRecordSec = acqWindowTotalSec * (1 - Math.max(0, Math.min(1, triggerPercent / 100)));
   var postTriggerStartedAtMs = 0;
   var markManualStop = async function() {
     await wfgLaSetRunMode(dev, 0x00);
@@ -13019,16 +13021,15 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
       progress = Math.min(99, Math.max(2, elapsedMs / targetMs * 100));
       progressText = (cfg.acquisitionMode === 'repeat' ? '循環擷取' : '單次擷取') + '：' + Math.round(progress) + '%';
     }
-    /* v2.97.424: 即時「已錄秒數」估計＝進度比 × 已選取樣窗。
-       前置停等(progress=triggerPercent)→ triggerPercent×窗＝前置量；觸發後隨進度累加。
-       此為進行中估計；最終 100% 由呼叫端改用實際 decode 時長覆寫（同匯出檔來源）。 */
-    var liveSec = Math.max(0, progress / 100 * (Number(cfg.durationSec) || 0));
+    /* v2.97.432: 即時「已錄秒數」估計＝進度比 × acqRecordSec（視窗總長×(1−觸發位置%)）。
+       進行中平順數到最終最大值 acqRecordSec（非名目全窗 25），與 100% 完成值一致。 */
+    var liveSec = Math.max(0, progress / 100 * acqRecordSec);
     wfgLaSetAcqProgress(progress, progressText, 'active', liveSec);
     lines.push('  poll ' + i + ': 0x' + finalState.toString(16).padStart(4, '0') + ' ' + stateLabel + ' progress=' + progress.toFixed(1) + '% liveSec=' + liveSec.toFixed(3));
     if (finalState & 0x0001) break;
     if (!triggerInvolved && elapsedMs >= Math.max(250, (cfg.durationSec || 0) * 1000)) {
       await wfgLaSetRunMode(dev, 0x00);
-      wfgLaSetAcqProgress(100, (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'active', (Number(cfg.durationSec) || 0));
+      wfgLaSetAcqProgress(100, (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成'), 'active', acqRecordSec);
       finalState = 0x0001;
       lines.push('No-trigger duration reached; RUNMODE_HALT sent and proceeding to EP6 download.');
       break;
@@ -13072,10 +13073,9 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     return lines;
   }
   if (!wfgLaManualStopRequested) {
-    /* v2.97.425: 讀取(EP6 下載)階段仍帶「已錄秒數」估計，避免 97~99% 秒數消失。
-       此時 decode 未完成、實際 totalSamples 未知，延續進行中估計（0.97 × 已選窗），
-       100% 完成後立即由實際 totalSamples/effRate 覆寫為匯出檔真值。 */
-    wfgLaSetAcqProgress(97, '讀取波形資料', 'active', 0.97 * (Number(cfg.durationSec) || 0));
+    /* v2.97.432: 讀取(EP6 下載)階段仍帶「已錄秒數」估計，避免 97~99% 秒數消失。
+       沿用同一算式：0.97 × acqRecordSec（視窗總長×(1−觸發位置%)），與進行中/100% 一致。 */
+    wfgLaSetAcqProgress(97, '讀取波形資料', 'active', 0.97 * acqRecordSec);
   }
 
   /* v2.97.412: 主修法 — 讀 capture info 前先等 writePos/nRepPackets 穩定（DMA flush 握手），
@@ -13122,11 +13122,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   var partialDownload = false;
   var firstGroupInDownload = 0;
   var readableGroups = totalPacketGroups;
-  /* v2.97.431【診斷版】：外提「decode 原始快照」變數到函式主體層，供 100% 進度條文字加印。
-     這些值在 if(packetBytes>0) block 內產生（chunk/decoded 是 block 區域變數），必須外提才印得到。
-     rawTotPre/lastEdgePre 專門在任何 trim（manualStop/partial/overrun）覆寫「之前」抓，
-     用來判斷「殘留膨脹 vs 硬體真回吐 5e9」。 */
-  var diagRxBytes = -1, diagRawTotPre = -1, diagLastEdgePre = -1;
   lines.push('RLE bytes actual=' + packetBytes + ' estimatedMin=' + estimatedRleBytes + ' maxWebDownload=' + maxEp6DownloadBytes);
   if (packetBytes > readCapBytes) {
     partialDownload = true;
@@ -13163,21 +13158,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate, relativeTriggerPackets);
     var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
-    /* v2.97.431【診斷版】：此刻 decoded 剛出爐，尚未經任何 trim（manualStop@下方、partial、overrun@13214）
-       覆寫。抓「原始 totalSamples」與「最後一個真實 edge 秒」快照。edgesByChannel 存的是秒（與 v2.97.429
-       probeSignalEndSec 同一來源）。overrun 分支會把 totalSamples 覆寫成 sampleCfg.limitSamples(=5e9)，
-       比對 rawTotPre 即可判斷覆寫前是殘留膨脹(遠大於名目)或硬體真回吐(≈5e9)。 */
-    diagRxBytes = (chunk && (chunk.receivedBytes || chunk.length)) || -1;
-    diagRawTotPre = Number(decoded.totalSamples) || 0;
-    if (decoded.edgesByChannel) {
-      for (var dpc = 0; dpc < decoded.edgesByChannel.length; dpc++) {
-        var dpcEdges = decoded.edgesByChannel[dpc] || [];
-        if (dpcEdges.length) {
-          var dpcLast = Number(dpcEdges[dpcEdges.length - 1]) || 0;
-          if (dpcLast > diagLastEdgePre) diagLastEdgePre = dpcLast;
-        }
-      }
-    }
     /* v2.97.408: 偵測「切換取樣深度後第一次 RUN 回吐上一輪殘留資料」。
        殘留資料的 totalSamples 會等於上一個被接受顯示的擷取（指紋完全相同），
        但解碼時長與本輪 expectedDuration 嚴重不符（>10%）。
@@ -13238,18 +13218,6 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     wfgLaAssignTriggerZero(decoded, cfg, decoded.triggerPacketTimeSec);
     var activeChannels = wfgLaApplyCapturedWaveform(decoded);
-    /* v2.97.429: 就地（此刻 decoded 是本次擷取最終狀態、edges 一定在）取「最後一個真實 edge 秒」。
-       edges 依時間遞增，取每通道最後一個即該通道最大；跨通道取最大＝整體最後 transition。
-       這就是 KingstVIS 開檔以實際 ##D transition 計時的那個終點（≈實際訊號長度，非含尾端靜止段的 totalSamples）。 */
-    if (decoded && decoded.edgesByChannel) {
-      for (var seCh = 0; seCh < decoded.edgesByChannel.length; seCh++) {
-        var seEdges = decoded.edgesByChannel[seCh] || [];
-        if (seEdges.length) {
-          var seLast = Number(seEdges[seEdges.length - 1]) || 0;
-          if (seLast > probeSignalEndSec) probeSignalEndSec = seLast;
-        }
-      }
-    }
     lines.captureSummary = {
       samples: decoded.partialDownload ? sampleCfg.limitSamples : decoded.totalSamples,
       downloadedSamples: decoded.partialDownload ? decoded.totalSamples : null,
@@ -13271,66 +13239,19 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   }
 
   try { await wfgLaSetRunMode(dev, 0x00); lines.push('RUNMODE_HALT sent after download.'); } catch (haltErr) { lines.push('RUNMODE_HALT after download failed: ' + (haltErr && haltErr.message ? haltErr.message : haltErr)); }
-  /* v2.97.429: 100% 完成秒數 ＝ 實際擷取訊號「最後一個真實 edge + 1 sample」÷ 取樣率。
-     根因（Bruce 真機定調）：single-trigger 不裁尾端（v2.97.412 尾端裁切僅連續觸發跑），decoded.totalSamples
-     是 RLE reps 總和、含「最後一個 transition 之後的靜止尾段」→ totalSamples/rate＝名目全窗（5GSa@200MHz=25.0s）。
-     KingstVIS 開檔以實際 ##D transition 計時（≈23.7s）。
-     v428 失敗原因：在此處事後掃「全域」wfgLaCapturedWaveform.edgesByChannel，真機因時序/partial 後續改動掃到 0
-     → 誤 fallback 到名目 totalSamples/rate=25.0。v429 改用上方「decode+套用當下」以區域變數 probeSignalEndSec 捕捉的
-     最後真實 edge（decode 真正產生的欄位、必有值），並把 fallback 從「totalSamples/rate 名目」改成「時間軸 durationSec」。
-     只改進度條顯示秒數；decoded/波形/匯出/連續觸發/smpDepth 一律不動。 */
-  var acqEffRate = Math.max(1, Number(sampleCfg && sampleCfg.effectiveRate)
-    || Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.effectiveRate) || 1);
-  var acqTotalSamples = Number(wfgLaCapturedWaveform && wfgLaCapturedWaveform.totalSamples) || 0;
-  var acqNominalSec = acqTotalSamples > 0 ? acqTotalSamples / acqEffRate : 0;      // 名目（含尾端靜止段）
-  var acqTimelineSec = wfgLaCaptureDuration();                                      // 時間軸 durationSec
-  var acqActualSec;
-  if (probeSignalEndSec >= 0) {
-    acqActualSec = probeSignalEndSec + 1 / acqEffRate;                             // 最後真實 edge + 1 sample = 實際訊號長度
-  } else {
-    acqActualSec = acqTimelineSec > 0 ? acqTimelineSec : acqNominalSec;            // 無 edge：退時間軸，不用名目 totalSamples
-  }
-  /* v2.97.429 防呆：若顯示秒數幾乎等於名目 totalSamples/rate（尾端靜止段沒被扣掉），且時間軸更短 → 用時間軸。
-     避免「edge 抓不到卻默默顯示名目 25.0」；此判斷永遠讓顯示 ≤ 名目、不放大。 */
-  if (acqNominalSec > 0 && Math.abs(acqActualSec - acqNominalSec) < 0.5 / acqEffRate
-      && acqTimelineSec > 0 && acqTimelineSec < acqNominalSec - 1 / acqEffRate) {
-    acqActualSec = acqTimelineSec;
-  }
+  /* v2.97.432: 100% 完成秒數 ＝ 視窗總長 × (1 − 觸發位置%)（acqRecordSec，於函式上方統一計算）。
+     扣掉前置預觸發比例，與匯出 kvdat 在 KingstVIS 顯示的時間對齊；不依賴 edge / totalSamples / writePos。
+     手動停止仍優先用實際停止秒數。已移除 v430/v431 診斷字串與 v429 edge 推估，恢復乾淨「完成 (XX.Xs)」顯示。 */
   var finalSec = wfgLaManualStopRequested
-    ? (manualStopSec || wfgLaDisplayDurationOverrideSec || acqActualSec)
-    : acqActualSec;
-  /* v2.97.430【暫時診斷版】：把 100% 進度條文字直接改成印原始數值，供 Bruce 真機截圖讀
-     （log/console/window/IIFE 私有物件 Dispatch 端都抓不到，只有螢幕截圖可靠）。
-     每欄一定有值，edge 抓不到印 none（不被 fallback 蓋掉）。拿到數字後回正式修法 v431。 */
-  var acqTrigPct = (cfg.trigger && cfg.trigger.enabled) ? (Number(cfg.trigger.positionPercent) || 0) : 'off';
-  var diagText = '100% shown=' + wfgLaFormatDuration(finalSec)
-    + ' | edge=' + (probeSignalEndSec >= 0 ? probeSignalEndSec.toFixed(3) + 's' : 'none')
-    + ' | rawTot=' + acqTotalSamples
-    + ' | tl=' + wfgLaFormatDuration(acqTimelineSec)
-    + ' | trig=' + acqTrigPct + (acqTrigPct === 'off' ? '' : '%')
-    + ' | nom=' + wfgLaFormatDuration(acqNominalSec)
-    + ' | nRep=' + nRepPackets
-    + ' | wPos=0x' + (writePos >>> 0).toString(16)
-    + ' | rxB=' + diagRxBytes
-    + ' | lim=' + sampleCfg.limitSamples
-    + ' | rawTotPre=' + diagRawTotPre
-    + ' | lastEdgePre=' + (diagLastEdgePre >= 0 ? diagLastEdgePre.toFixed(3) + 's' : 'none');
-  wfgLaSetAcqProgress(100, diagText, 'done', null);
-  /* 讓長診斷字串完整顯示不被 ellipsis 截掉（暫時，供截圖） */
-  try {
-    var diagEl = document.getElementById('wfg-la-acq-progress-text');
-    if (diagEl) {
-      diagEl.style.whiteSpace = 'normal';
-      diagEl.style.overflow = 'visible';
-      diagEl.style.textOverflow = 'clip';
-      diagEl.style.maxWidth = 'none';
-      diagEl.style.fontSize = '11px';
-      diagEl.style.lineHeight = '1.3';
-      diagEl.style.wordBreak = 'break-all';
-    }
-  } catch (e) {}
-  var acqLastEdgeSample = probeSignalEndSec >= 0 ? Math.round(probeSignalEndSec * acqEffRate) : -1;
-  lines.push('AcqProgress final [v430 diag]: ' + diagText + ' | lastEdgeSample=' + acqLastEdgeSample + ' partialDownload=' + partialDownload);
+    ? (manualStopSec || wfgLaDisplayDurationOverrideSec || acqRecordSec)
+    : acqRecordSec;
+  var finalText = wfgLaManualStopRequested
+    ? ('手動停止：' + wfgLaFormatDuration(finalSec))
+    : (cfg.acquisitionMode === 'repeat' ? '循環擷取完成' : '單次擷取完成');
+  wfgLaSetAcqProgress(100, finalText, 'done', finalSec);
+  lines.push('AcqProgress final: seconds=' + wfgLaFormatDuration(finalSec)
+    + ' windowTotal=' + wfgLaFormatDuration(acqWindowTotalSec)
+    + ' trigPct=' + triggerPercent + ' partialDownload=' + partialDownload);
   lines.push('Safe capture probe completed.');
   return lines;
 }
