@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.437 — 2026-07-09
+
+本版涵蓋兩件事：(A) LA 通道/波形拖曳排序持久化；(B) LA「全 high」燈號改亮藍並確保數字對比。
+
+### (A) 新增「LA 通道/波形拖曳排序持久化（重整保留、僅快捷設定 change 才重載/重置預設排序）」
+
+**需求（Bruce）**：LA 分頁左側通道欄可拖曳改變「通道/波形的排序」（既有功能），但重整後排序沒被保留。要改成：(1) 使用者拖曳改過排序 → 寫進 localStorage（比照 v435 名稱持久化用同一個 `WFG_LA_SETTINGS_KEY = 'wfg-la-user-settings-v1'`，新增 `order` 欄位），重整後保留拖曳後排序；(2) 只有「操作快捷設定選單」的 change 事件才會重載/重置預設排序 —— 選 preset 載入該 preset 定義的排序、選回「快捷設定」空值回到最原始 0..15 自然順序並把預設排序寫回 localStorage；(3) 其餘任何拖曳都照持久化正常存回、重整還原，不被重置覆蓋。**邏輯與 v435/v436 名稱那套完全平行，且不動名稱既有行為。**
+
+**排序狀態**：`wfgLaChannelOrder`（陣列，`order[位置] = 通道號`，預設 identity 0..15）。拖曳落點在 `wfgLaMoveChannelDrag` 更新、`wfgLaEndChannelDrag` 收尾。
+
+**改的是哪幾段 code（與名稱平行）**：
+- `wfgLaSaveUserSettingsNow()`：`data` payload 新增 `order`（取當前 `wfgLaChannelOrder` 的 16 長度副本，否則 fallback identity）—— 比照既有 `names` 欄位。
+- `wfgLaRestoreUserSettings()`：在 `names` 還原區塊後新增 `data.order` 還原；**嚴格驗證**必須是 0..15 的完整排列（長度 16、值域 0~15、不重複），否則不套用（保留現有 order，避免壞資料破版）。set `wfgLaChannelOrder` 置於下方 `wfgLaRenderChannelGrid()`／`wfgLaUpdateSummary()`（內含 `wfgLaRenderScope()`）之前，讓重繪依還原後排序。
+- `wfgLaEndChannelDrag()`：新增一行 `wfgLaSaveUserSettings()` —— 比照名稱編輯 handler，拖曳結束即時（debounce）持久化。
+- 快捷設定「選回空值」分支（`wfgLaApplyQuickPreset` 的 `!preset`）：**原本 v436 已重置 `wfgLaChannelOrder = 0..15` 並呼叫 `wfgLaSaveUserSettingsNow()`**，因 payload 現含 `order`，此路徑自動把預設排序寫回 localStorage，無需另改。
+- 選 preset（非空）分支：照舊經 `wfgLaApplyVisibleChannelOrder` 載入 preset 排序（比照 names 由 `wfgLaStoreChannelName` 設定），不額外存 —— 與名稱行為一致。
+
+**不破壞 v435/v436 名稱**：名稱的 save/restore/重置三處程式碼一律未動；只在 payload「新增」`order` 欄位、restore「新增」order 還原、drag end「新增」save 呼叫，與名稱互不干擾（拖曳排序不碰 `wfgLaChannelNames`，改名不碰 `wfgLaChannelOrder`）。
+
+**進版**：`v2.97.436 → v2.97.437`；wfg.html 內 version.js cache-buster `?v=20260709a → 20260709b`；common/version.js 徽章 `v2.97.436 → v2.97.437`。
+
+### (B) LA「全 high」燈號由低調灰藍改回「亮藍」＋確保燈內數字「1」高對比可讀
+
+**需求（Bruce）**：LA 左側每個通道「訊號全為 high 的燈號」目前是低調灰藍（v413 從全亮改成的），要改成「明亮的藍色」；同時燈內數字「1」在亮藍底上不能變得看不清楚，需調整數字顏色/加深/描邊確保足夠對比。
+
+**改的是哪段 code / 顏色值怎麼配**：這顆燈號是 DOM+CSS（非 canvas），樣式規則 `.wfg-la-label-live.static-high`（由 `wfgLaRenderScope` 在通道全 high 時對 `.wfg-la-label-live` 加 `static-high` class 並填入 `staticLevel`＝「1」）。改動：
+- 底色 `background` 由低調灰藍 `#3f5a7a` → 明亮藍 `#2f83ff`，並新增 `box-shadow: inset 0 1px 2px rgba(255,255,255,0.35), 0 0 7px rgba(47,131,255,0.85)`（比照綠燈 `#34d84a` 的發光作法，讓它真的「亮」起來）。
+- 數字對比：字色由近白 `#e8f2ff` → 純白 `#ffffff`（`font-weight` 本就 800），並把原本會降低對比的「淺藍光暈」`text-shadow` 換成「深藍多向描邊」`0 0 3px rgba(0,18,54,0.95), 0 1px 1px rgba(0,10,40,0.85)`，讓白字邊緣被暗藍包覆 → 亮藍底上白「1」清楚可讀（仍有別於全 low 灰底 `#858585` 的近黑「0」與綠色活動燈）。
+
+**不影響排序**：本段只改一條 CSS 顏色/陰影，與排序 JS 完全獨立；改後仍實測 D/E 排序回歸通過。
+
+**驗證（Chrome 直連本機 http.server + 放大截圖）**：`getComputedStyle` 實測 static-high 底色 = `rgb(47,131,255)`＝`#2f83ff`、字色 = `rgb(255,255,255)`、text-shadow 為深藍描邊；放大截圖對比「亮藍燈＋白『1』」清楚可讀，與綠色活動燈、灰底「0」全 low 三態分明。
+
+**進版**：`v2.97.436 → v2.97.437`；wfg.html 內 version.js cache-buster `?v=20260709a → 20260709b`；common/version.js 徽章 `v2.97.436 → v2.97.437`。
+
+**改動範圍**：只動 `wfg.html`／`common/version.js`／`CHANGELOG.md` 三檔。
+
 ## TCON 波形產生器 (wfg) v2.97.436 — 2026-07-09
 
 ### 新增「選回『快捷設定』空選項時，通道名稱重置回預設（通道 0～通道 15）並持久化」

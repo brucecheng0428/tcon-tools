@@ -379,8 +379,10 @@
   .wfg-la-label-item.compact .wfg-la-label-live { width: 12px; height: 12px; font-size: 9px; }
   .wfg-la-label-live { width: 14px; height: 14px; border-radius: 50%; background: #858585; box-shadow: inset 0 1px 2px rgba(0,0,0,0.75); display: inline-flex; align-items: center; justify-content: center; color: #050505; font-size: 10px; font-weight: 800; line-height: 1; font-family: 'SF Mono','Consolas',monospace; flex-shrink: 0; }
   .wfg-la-label-item.has-signal .wfg-la-label-live { background: #34d84a; box-shadow: inset 0 1px 2px rgba(255,255,255,0.35), 0 0 7px rgba(52,216,74,0.85); }
-  /* v2.97.413: 全 high 燈號改低調淺藍底（有別於全 low 灰底、且比綠色活動低調）＋高對比近白「1」 */
-  .wfg-la-label-live.static-high { background: #3f5a7a; color: #e8f2ff; text-shadow: 0 0 4px rgba(147,197,253,0.55); }
+  /* v2.97.437: 全 high 燈號由 v413 的低調灰藍(#3f5a7a)改回「明亮藍」(#2f83ff)＋藍色發光(比照綠燈亮度)。
+     底色轉亮後為維持數字「1」對比：字色改純白(#ffffff, weight 800)並以深藍多向描邊(text-shadow)包覆白字邊緣，
+     取代原本會降低對比的淺藍光暈，確保亮藍底上白字清楚可讀（有別於全 low 灰底 #858585 的近黑「0」）。 */
+  .wfg-la-label-live.static-high { background: #2f83ff; color: #ffffff; box-shadow: inset 0 1px 2px rgba(255,255,255,0.35), 0 0 7px rgba(47,131,255,0.85); text-shadow: 0 0 3px rgba(0,18,54,0.95), 0 1px 1px rgba(0,10,40,0.85); }
   #wfg-la-canvas { display: block; width: 100%; height: 430px; cursor: crosshair; touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-select: none; }
   #wfg-la-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
   .wfg-la-minimap { padding: 4px 6px 6px; background: #303030; border-top: 1px solid #111; }
@@ -1412,7 +1414,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260709a"></script>
+<script src="common/version.js?v=20260709b"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3911,9 +3913,16 @@ function wfgLaSaveUserSettingsNow() {
     var posEl = document.getElementById('wfg-la-trigger-position');
     var edgeEl = document.getElementById('wfg-la-trigger-edge');
     var chEl = document.getElementById('wfg-la-trigger-channel');
+    /* v2.97.437: 通道/波形顯示排序持久化 — 與 names 平行。order[位置]=通道號，預設 identity 0..15。
+       只在此存「使用者當前看到的排序」，重整由 wfgLaRestoreUserSettings 讀回還原；
+       排序的重載/重置僅發生在快捷設定 change 事件（見 wfgLaApplyQuickPreset），此處不做任何重置判斷。 */
+    var order = (Array.isArray(wfgLaChannelOrder) && wfgLaChannelOrder.length === 16)
+      ? wfgLaChannelOrder.slice()
+      : Array.from({ length: 16 }, function(_, i) { return i; });
     var data = {
       v: 1,
       names: names,
+      order: order,
       rate: rateEl ? rateEl.value : null,
       depth: depthEl ? depthEl.value : null,
       thresholdV: wfgLaCurrentThresholdValue(),
@@ -3949,6 +3958,22 @@ function wfgLaRestoreUserSettings() {
     }
     if (Array.isArray(data.names)) {
       for (var ch = 0; ch < 16; ch++) wfgLaStoreChannelName(ch, data.names[ch] || '');
+    }
+    /* v2.97.437: 還原通道/波形顯示排序 — 與 names 平行。嚴格驗證 data.order 必須是 0..15 的完整排列
+       （長度 16、值域 0~15、不重複），否則不套用（保留現有 order，避免壞資料破版）。
+       set wfgLaChannelOrder 必須在下方 wfgLaRenderChannelGrid()/wfgLaUpdateSummary() 之前，
+       這兩者（及 updateSummary 內的 wfgLaRenderScope）會依 wfgLaChannelOrder 重繪順序。 */
+    if (Array.isArray(data.order) && data.order.length === 16) {
+      var _ordSeen = {};
+      var _ordOk = true;
+      var _ord = [];
+      for (var oi = 0; oi < 16; oi++) {
+        var _ov = Number(data.order[oi]);
+        if (!isFinite(_ov) || _ov < 0 || _ov > 15 || _ordSeen[_ov]) { _ordOk = false; break; }
+        _ordSeen[_ov] = true;
+        _ord.push(_ov);
+      }
+      if (_ordOk) wfgLaChannelOrder = _ord;
     }
     /* v2.97.435 (render-timing bug 根因修復): 上方 wfgLaSetThresholdValue() 會把 wfgLaIoSelectLockUntil
        設成 Date.now()+250（IO <select> 使用者互動保護鎖）。restore 是程式化還原、非使用者互動，但此鎖會讓
@@ -4306,6 +4331,9 @@ function wfgLaEndChannelDrag() {
   wfgLaClearChannelDragVisuals();
   wfgLaUpdateSummary();
   wfgLaRenderScope();
+  /* v2.97.437: 拖曳改變通道/波形排序後即時持久化（比照名稱編輯 handler 呼叫 wfgLaSaveUserSettings）。
+     debounce 存檔會把當前 wfgLaChannelOrder 寫進 localStorage(order)，重整由 restore 還原。 */
+  wfgLaSaveUserSettings();
 }
 
 /* ── v2.97.423: 通道名稱獨立互換拖曳（電腦版滑鼠限定） ──
