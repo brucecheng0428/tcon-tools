@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.434 — 2026-07-08
+
+### 修復 v433「重整保留 LA 設定」的兩個持久化 bug
+
+**Bug 1 — 選快捷 preset 後改通道名，重整被 preset 名蓋回**
+- 根因（時序）：套 preset（如 E512/EM02）尾端排了 `setTimeout(…wfgLaRenderChannelGrid()…, 120)` safety-net。使用者「馬上」改名時，這個（或其他）`wfgLaRenderChannelGrid()` 會在改名途中 `grid.innerHTML = html` 整段重建，銷毀正在編輯的 contenteditable → 焦點丟失、未提交文字被洗掉；隨後 preset 的 `wfgLaUpdateSummary()` 已排的 debounce 存檔讀回 `wfgLaChannelNames`＝preset 名並寫進 localStorage。重整還原時自然是 preset 名。label 區早在 v2.97.409 就用 `labelNameEditActive` 守住同類重建，grid 區卻一直沒有 → 不對稱正是病灶。
+- 修法：(a) `wfgLaRenderChannelGrid()` 開頭加守衛——當 grid 內 `data-field="name"` 的 contenteditable 正被編輯（`document.activeElement`）時，直接 return 不重建，與 label 守衛對稱；focusout 時 activeElement 已非該格，照常重建。(b) `wfgLaSaveUserSettingsNow()` 存檔前先把「當下聚焦的通道名 contenteditable」（grid 或 label）提交進 `wfgLaChannelNames`，保證持久化的一律是畫面上真實名稱，即使 debounce 在改名途中觸發。
+
+**Bug 2 — 選空的「快捷設定」佔位選項後重整，通道名稱欄位全消失**
+- 根因（程式碼）：`wfgLaApplyQuickPreset('')` 空選項分支把 `wfgLaChannelNames[ri]=''` 全清，緊接著 `wfgLaUpdateSummary()` → `wfgLaSaveUserSettings()` 把「空名稱」寫進 localStorage；重整還原時全為空 → 名稱消失。（jsdom 模擬坐實：`myname` → 存成 `""` → 重整顯示「通道 0」）
+- 修法：空選項分支「保留」使用者通道名稱（名稱屬使用者資料），reset 只清描述/分析器/順序。持久化因而存到真實名稱，重整維持原本名字。切換到「其他非空 preset」仍照舊清空並載入新 preset 名，不受影響。
+
+**回歸護欄**：只動持久化/重建守衛三處，未碰 v432 秒數、E503 快捷、kvdat 匯出、連續觸發裁切、通道拖曳。`node --check` 語法通過。Bug 2 已用 jsdom 忠實模擬複現＋驗證修法；Bug 1 的即時 DOM race 需真機/瀏覽器複驗（沙箱無法下載 Chromium），交 Dispatch push 後線上驗收。
+
+**進版**：`v2.97.433 → v2.97.434`；wfg.html 內 version.js cache-buster `?v=20260708f → 20260708g`；common/version.js 徽章 `v2.97.433 → v2.97.434`（v433 曾漏 version.js 導致徽章未更新，本版一起改）。
+
 ## TCON 波形產生器 (wfg) v2.97.432 — 2026-07-08
 
 ### LA 單次觸發 100% 秒數：正式改為「視窗總長 × (1 − 觸發位置%)」，移除 v430/v431 診斷字串

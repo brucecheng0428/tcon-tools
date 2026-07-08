@@ -1412,7 +1412,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260708f"></script>
+<script src="common/version.js?v=20260708g"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3815,6 +3815,12 @@ function wfgLaInit() {
 function wfgLaRenderChannelGrid() {
   var grid = document.getElementById('wfg-la-channel-grid');
   if (!grid) return;
+  /* v2.97.434 (Bug 1): 正在編輯通道名（grid 內 contenteditable，data-field="name"）時不重建 innerHTML。
+     否則套 preset 的 120ms safety-net 或其他呼叫者會在使用者改名途中銷毀該 contenteditable → 焦點丟失、
+     改名未提交被洗掉，隨後 debounce 存檔讀回 preset 名並持久化（重整就變回 preset 名）。
+     與 label 區 v2.97.409 的 labelNameEditActive 守衛對稱；focusout 時 activeElement 已非該格 → 照常重建。 */
+  var _aeG = document.activeElement;
+  if (_aeG && _aeG.getAttribute && _aeG.getAttribute('data-field') === 'name' && grid.contains(_aeG)) return;
   var html = '';
   var selectedBefore = {};
   grid.querySelectorAll('.wfg-la-channel-cb').forEach(function(cb) { if (cb.checked) selectedBefore[Number(cb.value)] = true; });
@@ -3886,6 +3892,18 @@ function wfgLaSaveUserSettings() {
 function wfgLaSaveUserSettingsNow() {
   wfgLaSettingsSaveTimer = null;
   try {
+    /* v2.97.434 (Bug 1): 存檔前先把「當下正在編輯的通道名 contenteditable」提交進 wfgLaChannelNames，
+       確保持久化的一律是畫面上使用者看到的真實名稱，即使 debounce 在改名途中觸發（grid 與 label 兩區皆涵蓋）。 */
+    var _ae = document.activeElement;
+    if (_ae && _ae.getAttribute) {
+      if (_ae.getAttribute('data-field') === 'name') {
+        var _gch = Number(_ae.getAttribute('data-ch'));
+        if (isFinite(_gch) && _gch >= 0 && _gch < 16) wfgLaStoreChannelName(_gch, _ae.textContent);
+      } else if (_ae.getAttribute('data-la-label-ch') != null) {
+        var _lch = Number(_ae.getAttribute('data-la-label-ch'));
+        if (isFinite(_lch) && _lch >= 0 && _lch < 16) wfgLaStoreChannelName(_lch, _ae.textContent);
+      }
+    }
     var names = [];
     for (var ch = 0; ch < 16; ch++) names[ch] = wfgLaChannelNames[ch] || '';
     var rateEl = document.getElementById('wfg-la-sample-rate');
@@ -22775,7 +22793,10 @@ async function wfgLaApplyQuickPreset(id) {
     /* 選回「快捷設定」時完整復原：通道名稱/描述/順序/分析器/可見通道/解碼展開狀態 */
     wfgLaDecodeExpanded = false;
     wfgLaApplyDecodeExpandedState();
-    for (var ri = 0; ri < 16; ri++) { wfgLaChannelNames[ri] = ''; wfgLaChannelDescriptions[ri] = ''; }
+    /* v2.97.434 (Bug 2): 選回「快捷設定」空選項時「保留」使用者通道名稱，不再清空。
+       舊碼把 wfgLaChannelNames 全清為 '' → 隨後 wfgLaUpdateSummary() 觸發 wfgLaSaveUserSettings 把空名稱寫進
+       localStorage → 重整還原時通道名稱全部消失。名稱屬使用者資料，reset 只清描述/分析器/順序，名稱維持原本。 */
+    for (var ri = 0; ri < 16; ri++) { wfgLaChannelDescriptions[ri] = ''; }
     wfgLaLastEdgeCounts = []; /* v2.97.407: 清前一個 preset(如 I2C 2ch) 殘留的 edge counts，避免影響 has-signal/硬體通道判斷 */
     wfgLaChannelOrder = Array.from({ length: 16 }, function(_, idx) { return idx; });
     wfgLaAnalyzers = [];
