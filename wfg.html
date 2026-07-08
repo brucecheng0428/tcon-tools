@@ -13122,6 +13122,11 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
   var partialDownload = false;
   var firstGroupInDownload = 0;
   var readableGroups = totalPacketGroups;
+  /* v2.97.431【診斷版】：外提「decode 原始快照」變數到函式主體層，供 100% 進度條文字加印。
+     這些值在 if(packetBytes>0) block 內產生（chunk/decoded 是 block 區域變數），必須外提才印得到。
+     rawTotPre/lastEdgePre 專門在任何 trim（manualStop/partial/overrun）覆寫「之前」抓，
+     用來判斷「殘留膨脹 vs 硬體真回吐 5e9」。 */
+  var diagRxBytes = -1, diagRawTotPre = -1, diagLastEdgePre = -1;
   lines.push('RLE bytes actual=' + packetBytes + ' estimatedMin=' + estimatedRleBytes + ' maxWebDownload=' + maxEp6DownloadBytes);
   if (packetBytes > readCapBytes) {
     partialDownload = true;
@@ -13158,6 +13163,21 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     }
     var decoded = wfgLaDecodeCaptureWaveform(chunk, sampleCfg.effectiveRate, relativeTriggerPackets);
     var expectedDuration = sampleCfg.limitSamples / Math.max(1, sampleCfg.effectiveRate);
+    /* v2.97.431【診斷版】：此刻 decoded 剛出爐，尚未經任何 trim（manualStop@下方、partial、overrun@13214）
+       覆寫。抓「原始 totalSamples」與「最後一個真實 edge 秒」快照。edgesByChannel 存的是秒（與 v2.97.429
+       probeSignalEndSec 同一來源）。overrun 分支會把 totalSamples 覆寫成 sampleCfg.limitSamples(=5e9)，
+       比對 rawTotPre 即可判斷覆寫前是殘留膨脹(遠大於名目)或硬體真回吐(≈5e9)。 */
+    diagRxBytes = (chunk && (chunk.receivedBytes || chunk.length)) || -1;
+    diagRawTotPre = Number(decoded.totalSamples) || 0;
+    if (decoded.edgesByChannel) {
+      for (var dpc = 0; dpc < decoded.edgesByChannel.length; dpc++) {
+        var dpcEdges = decoded.edgesByChannel[dpc] || [];
+        if (dpcEdges.length) {
+          var dpcLast = Number(dpcEdges[dpcEdges.length - 1]) || 0;
+          if (dpcLast > diagLastEdgePre) diagLastEdgePre = dpcLast;
+        }
+      }
+    }
     /* v2.97.408: 偵測「切換取樣深度後第一次 RUN 回吐上一輪殘留資料」。
        殘留資料的 totalSamples 會等於上一個被接受顯示的擷取（指紋完全相同），
        但解碼時長與本輪 expectedDuration 嚴重不符（>10%）。
@@ -13288,7 +13308,13 @@ async function wfgLaSafeCaptureProbe(dev, opts) {
     + ' | rawTot=' + acqTotalSamples
     + ' | tl=' + wfgLaFormatDuration(acqTimelineSec)
     + ' | trig=' + acqTrigPct + (acqTrigPct === 'off' ? '' : '%')
-    + ' | nom=' + wfgLaFormatDuration(acqNominalSec);
+    + ' | nom=' + wfgLaFormatDuration(acqNominalSec)
+    + ' | nRep=' + nRepPackets
+    + ' | wPos=0x' + (writePos >>> 0).toString(16)
+    + ' | rxB=' + diagRxBytes
+    + ' | lim=' + sampleCfg.limitSamples
+    + ' | rawTotPre=' + diagRawTotPre
+    + ' | lastEdgePre=' + (diagLastEdgePre >= 0 ? diagLastEdgePre.toFixed(3) + 's' : 'none');
   wfgLaSetAcqProgress(100, diagText, 'done', null);
   /* 讓長診斷字串完整顯示不被 ellipsis 截掉（暫時，供截圖） */
   try {
