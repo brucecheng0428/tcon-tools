@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 部署衛生：修 version.js 快取字串（cache-buster）— 2026-07-09
+
+**問題**：rxtx.html 已上線 v1.12.2、`common/version.js` 也已是 `rxtx: 'v1.12.2'`，但線上版本徽章仍顯示 v1.12.1。真因＝各頁 `<script src="common/version.js?v=XXXX">` 的快取破解字串過時，瀏覽器／CDN 一直吃舊的 `version.js`，徽章刷不到新版。對照 wfg.html 用的是今日新值 `?v=20260709b`，徽章正常。
+
+**修法**：只更新過時的 `version.js` cache-buster（version.js 內版號數字一律不動），讓既有版號能被瀏覽器抓到顯示，非進版。改動如下：
+
+- `rxtx.html`：`?v=20260523 → ?v=20260709rx1`
+- `index.html`：`?v=20260523 → ?v=20260709idx1`
+- `isp.html`：`?v=20260523 → ?v=20260709isp1`
+- `aux.html`：`?v=20260523 → ?v=20260709aux1`
+- `calc.html`：`?v=20260629 → ?v=20260709calc1`
+- `wfg.html`：已是今日值 `?v=20260709b`，不動。`la.html`／`legacy-index.html` 不引用 version.js，無涉。
+
 ## Rx/Tx 頻率計算工具 (rxtx) v1.12.2 — 2026-07-09
 
 **需求（Bruce）**：在「LVDS Rx 頻率計算」卡片的「DCLK 頻率加乘」區塊，原本只有「TCON UI DCLK」和「1 UI」兩項會在勾選加乘時顯示加乘後紅字。擴展讓「LVDS per Port」這項也顯示加乘後紅字，但 **LVDS per Port 只加乘「RX SSC 展頻」這一個因子**（不套用 OSC 頻率製程偏移 / TX SSC 展頻）。
