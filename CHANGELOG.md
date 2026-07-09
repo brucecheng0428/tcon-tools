@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.438 — 2026-07-09
+
+**需求（Bruce）**：LA 分頁右側那一欄的卡片（即時測量／時基標尺／脈衝計數／分析器／解碼結果…），當某張卡片內容變長（例如「脈衝計數」加 3 個以上通道量測）時，會把下方卡片頂出可視範圍看不到。要在「右側內容超過可視高度」時，給右側面板加**垂直捲軸**讓使用者往下捲看到下方卡片。**電腦版專用**——手機／窄螢幕版排版與行為不動。
+
+**根因（先讀再做的結論）**：桌面版走 `@media (min-width: 901px)`，其中 `#wfg-la-right-panel { … overflow: hidden }`（ID 選擇器，特異度 1,0,0）覆蓋掉了 line 396 那條原本想捲動的 class 規則 `.wfg-la-workbench .wfg-la-side.wfg-right-panel { max-height: calc(100vh-126px); overflow-y: auto }`（0,3,0）。桌面 grid 佈局（`.wfg-la-layout` 固定高 `calc(100vh - header - 20px)` + overflow:hidden，右側面板 `grid-row:1/-1` 撐滿）下，卡片總高超過面板高度即被 `overflow:hidden` 裁切／頂出，且無捲軸。
+
+**改的是哪幾段 code**：
+- `@media (min-width: 901px)` 內，line 223 `#wfg-la-right-panel` 之後新增一條高特異度規則：`.wfg-la-workbench:not(.decode-expanded):not(.settings-expanded) #wfg-la-right-panel { min-height: 0; overflow-y: auto; overflow-x: hidden; }`。特異度 (1,3,0) 勝過 line 223，故**非 expanded 模式**桌面右側面板改為溢出可捲；`min-height:0` 讓 grid item 可縮小於內容以觸發捲動。
+- **保留** expanded（decode-expanded／settings-expanded）模式的 `overflow:hidden`（line 223 仍生效），由內部卡片（decode 表格 wrap）自管捲動，避免回歸。
+- 新增 `#wfg-la-right-panel` 深色主題捲軸樣式（`scrollbar-width:thin`＋webkit thumb `#30363d`），與現有暗色一致。
+- 手機版（`@media max-width:900px`，line 524/577）本就把右側面板設為 `overflow-y:visible / max-height:none`，且新規則掛在 `min-width:901px` 內，故手機版完全不受影響。
+
+**版本同步**：`common/version.js` `wfg: v2.97.437 → v2.97.438`；`wfg.html` 的 `version.js?v=20260709b → 20260709c`（快取破解，否則徽章不跳版）。
+
 ## 部署衛生：修 version.js 快取字串（cache-buster）— 2026-07-09
 
 **問題**：rxtx.html 已上線 v1.12.2、`common/version.js` 也已是 `rxtx: 'v1.12.2'`，但線上版本徽章仍顯示 v1.12.1。真因＝各頁 `<script src="common/version.js?v=XXXX">` 的快取破解字串過時，瀏覽器／CDN 一直吃舊的 `version.js`，徽章刷不到新版。對照 wfg.html 用的是今日新值 `?v=20260709b`，徽章正常。
