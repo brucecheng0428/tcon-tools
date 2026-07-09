@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## Rx/Tx 頻率計算工具 (rxtx) v1.12.2 — 2026-07-09
+
+**需求（Bruce）**：在「LVDS Rx 頻率計算」卡片的「DCLK 頻率加乘」區塊，原本只有「TCON UI DCLK」和「1 UI」兩項會在勾選加乘時顯示加乘後紅字。擴展讓「LVDS per Port」這項也顯示加乘後紅字，但 **LVDS per Port 只加乘「RX SSC 展頻」這一個因子**（不套用 OSC 頻率製程偏移 / TX SSC 展頻）。
+
+**改的是哪幾段 code**：
+- HTML（`rt-lvds-r-port` 項）：新增紅字 span `id="rt-lvds-r-port-boost"`，沿用既有 `.dclk-boost-max`（`color:#ef4444; font-weight:700`）樣式，與其他兩項一致。
+- `rtCalcAll()` 主 render 路徑：在既有 RX SSC 判斷分支內，`bPort = lvds_per_port × (1 + rxSsc%)` 已算好，直接 `rtSetBoostText('rt-lvds-r-port-boost', '(' + bPort.toFixed(3) + ' MHz)')`；未勾 RX SSC 或無效值時清空。
+- `rtCalcAll()` 的 EDP-sync 路徑（`source === 'edp'`）：同上，用該路徑既有的 `bP` 值渲染，維持雙路徑一致。
+- 顯示條件僅綁 `rt-boost-rxssc` 勾選狀態，數值＝LVDS per Port 基準 × RX SSC 因子，精度 `toFixed(3) MHz` 比照基準值；OSC / TX SSC 勾選不影響此項。TCON UI DCLK / 1 UI 既有紅字行為不動（無回歸）。
+
 ## TCON 波形產生器 (wfg) v2.97.437 — 2026-07-09
 
 本版涵蓋兩件事：(A) LA 通道/波形拖曳排序持久化；(B) LA「全 high」燈號改亮藍並確保數字對比。
