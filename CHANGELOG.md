@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.440 — 2026-07-11
+
+**需求（Bruce）**：LA 分頁「檢視」group 內加兩個輸入框，**只電腦版顯示**（手機/窄螢幕不出現）：①「螢幕中心位置」——精度/格式沿用滑鼠 hover 在波形上時上方顯示的座標秒數那套；手動輸入一個時間後畫面平移，讓該時間跳到螢幕中心；平移/縮放時此框反映當下中心。②「螢幕放大倍率」——輸入倍率後縮放直接跳到該倍率；縮放時倍率框反映當下值。
+
+**先讀再做的結論（縮放/平移模型）**：LA 檢視狀態是 `wfgLaViewStart`/`wfgLaViewEnd`（秒）；可視 span＝`viewEnd−viewStart`，全覽 span＝`wfgLaCaptureDuration()`。既有平移 = `wfgLaSetViewRange(start,end)`（內含 clamp 到 `[0, duration]`、最小 span `min(duration,5e-9)`）；既有縮放 = `wfgLaZoomAt(anchorTime,factor)`（factor<1 放大、>1 縮小，以 anchor 為錨）。游標讀數 = `wfgLaHoverTimeLabel(hover.time − triggerZero, minorStep)`，精度 = `clamp(3..9, wfgLaAxisDecimalsForStep(minorStep)+1)`，minorStep 取自 `wfgLaLastAxisInfo.minorStep`。
+
+**對應關係（一句話）**：①中心輸入(相對 Trigger 0 秒數) → 絕對時間 = 輸入 + triggerZero，保持 span，`newStart = 絕對 − span/2`，呼叫既有 `wfgLaSetViewRange` 置中。②倍率輸入 → 倍率 = duration/span（1=全覽），clamp 到 `[1, duration/min(duration,5e-9)]`，`newSpan = duration/倍率`，以目前螢幕中心為錨呼叫既有 `wfgLaZoomAt(center, newSpan/oldSpan)`。
+
+**改的是哪幾段 code**：
+- HTML：`檢視` group（`wfgLaZoom`/`wfgLaFitAll` 那組）B# 之後新增兩個 `.wfg-la-view-io` span（`#wfg-la-view-center`、`#wfg-la-view-zoom`，Enter/change 觸發套用）。
+- CSS：`.wfg-la-view-io { display:none }` 預設隱藏，`@media (min-width:901px)` 內才 `inline-flex` 顯示（比照 v2.97.411 label resizer 的 desktop-only pattern，mobile 完全不受影響）。
+- JS：新增 `wfgLaApplyViewCenterInput`/`wfgLaApplyViewZoomInput`（重用既有平移/縮放，不自寫繪製）、`wfgLaUpdateViewInputs`（雙向回填，聚焦中的框不覆寫）＋格式 helper（中心值沿用游標那套精度）。`wfgLaRenderScope` 末端呼叫 `wfgLaUpdateViewInputs()`，故拖曳/滾輪/縮放/全覽/慣性任一路徑都會同步兩框。
+
+**回歸保護**：只在 檢視 group 加兩個元件與獨立函式，不動既有 `wfgLaZoom`/`wfgLaFitAll`/`wfgLaZoomAt`/`wfgLaSetViewRange`/游標讀數；desktop-only class 確保手機版排版與行為不變。
+
+**版本同步**：`common/version.js` `wfg: v2.97.439 → v2.97.440`；`wfg.html` 的 `version.js?v=20260710a → 20260711a`（快取破解，否則徽章不跳版）。
+
 ## TCON 波形產生器 (wfg) v2.97.439 — 2026-07-10
 
 **需求（Bruce）**：LA 分頁右側「即時測量」卡片，仿照「脈衝計數」卡片的「＋」加號，加一個可新增「選定通道量測區塊」的功能。點「＋」在卡片下方新增一個含通道下拉的量測區塊，最多 4 個（達上限後加號 disabled）；每個區塊即時顯示該通道的 5 個參數：①頻率 ②正脈寬 ③負脈寬 ④週期 ⑤佔空比。可移除已加的量測。
