@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.439 — 2026-07-10
+
+**需求（Bruce）**：LA 分頁右側「即時測量」卡片，仿照「脈衝計數」卡片的「＋」加號，加一個可新增「選定通道量測區塊」的功能。點「＋」在卡片下方新增一個含通道下拉的量測區塊，最多 4 個（達上限後加號 disabled）；每個區塊即時顯示該通道的 5 個參數：①頻率 ②正脈寬 ③負脈寬 ④週期 ⑤佔空比。可移除已加的量測。
+
+**改的是哪幾段 code**：
+- HTML：`#wfg-la-measure-card` 的 `.wfg-meas-head` 加入 `.wfg-la-panel-actions` + `.wfg-la-panel-add`（`#wfg-la-meas-add-btn`，onclick `wfgLaMeasAdd()`，比照脈衝計數卡片的加號樣式）；`.wfg-meas-body` 內既有讀數下方新增容器 `#wfg-la-meas-items`。
+- JS：新增狀態 `wfgLaMeasItems`（上限 `WFG_LA_MEAS_MAX=4`）＋ `wfgLaMeasAdd/Del/Change`。量測函式 `wfgLaMeasComputeChannel` **重用既有波形模型**：`wfgLaGetWaveform` 取 edges + initialLevel、`wfgLaEdgeTypeForIndex` 判 rising/falling，取第一個完整週期算：正脈寬＝下降緣−上升緣、週期＝下一上升緣−本上升緣、負脈寬＝週期−正脈寬、頻率＝1/週期、佔空比＝正脈寬/週期；格式化沿用 `wfgLaTimeLabel`/`wfgLaFreqLabel`（與既有量測風格一致）。`wfgLaMeasRenderAll` 建區塊（通道色點＋下拉＋移除鈕＋5 列數值），並於 `wfgLaUpdateMeasure`（主繪製流程）緊接脈衝 render 呼叫，隨波形/檢視更新；下拉操作中走就地更新數值不重建 DOM，達 4 個時停用加號。
+- CSS：新增 `.wfg-la-meas-item*` 區塊樣式與 `.wfg-la-panel-add:disabled` 停用外觀。
+
+**回歸保護**：只在既有讀數下方加容器與獨立函式，不動既有 `wfgLaUpdateMeasureReadout`（hover 讀數）、脈衝計數（`wfgLaPulse*`）與其他卡片邏輯。
+
+**版本同步**：`common/version.js` `wfg: v2.97.438 → v2.97.439`；`wfg.html` 的 `version.js?v=20260709c → 20260710a`（快取破解，否則徽章不跳版）。
+
 ## TCON 波形產生器 (wfg) v2.97.438 — 2026-07-09
 
 **需求（Bruce）**：LA 分頁右側那一欄的卡片（即時測量／時基標尺／脈衝計數／分析器／解碼結果…），當某張卡片內容變長（例如「脈衝計數」加 3 個以上通道量測）時，會把下方卡片頂出可視範圍看不到。要在「右側內容超過可視高度」時，給右側面板加**垂直捲軸**讓使用者往下捲看到下方卡片。**電腦版專用**——手機／窄螢幕版排版與行為不動。
