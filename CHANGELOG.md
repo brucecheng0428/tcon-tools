@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.441 — 2026-07-12
+
+**需求（Bruce）**：LA 分頁 AUX 解碼修正 write-NACK 誤判。載入 `AUX_ST_正常版_20260709.kvdat`，#19 `8F 00 03 00 55`（Native Write 寫 0x55 到 DPCD 0xF0003）被誤標 NO REPLY；#20 `10 00`（TCON 的 write-NACK：`0x10`=Native NACK、第二 byte `0x00`=M count=已寫 0 byte）被誤判成 I2C RD 請求 + NO REPLY。
+
+**根因（先讀再做的結論）**：分類函式 `wfgLaDpAuxIsTconReplyBytes`（wfg.html）多-byte 分支寫死 `if (status !== 0x00) return false;`，只認「0x00＝ACK+資料的讀回覆」，把「多-byte 的 NACK/DEFER 回覆（狀態碼 + M count / 資料）」全濾掉 → #20 被當成 REQ，連帶 #19、#20 都標 NO REPLY（`wfgLaMarkDpAuxCommunicationWarnings` 找不到後續 REPLY）。
+
+**規格依據**：VESA DP 1.1a §2.4.1.2/§2.4.4.1（Linux drm_dp_helper 佐證）——AUX reply 的 ACK/NACK/DEFER 只由第一 byte 的 reply command nibble 決定：Native ACK=0x0 / NACK=0x1 / DEFER=0x2；I2C ACK=0x0 / NACK=0x4 / DEFER=0x8。後續 byte（write-NACK 的 M count、read-ACK 的資料）都只是 payload，不影響狀態、也不限制長度。但「是 REQ 還是 REPLY」不能純看第一 byte（0x10 也是合法的 I2C RD MOT=0 請求 cmd），必須靠 context（是否正在等一筆回覆 `previousRequest`）。
+
+**改的是哪段 code**：`wfgLaDpAuxIsTconReplyBytes` 多-byte 分支拆成兩層判定——(1) 判 REPLY：`previousRequest` 存在且第一 byte 高 nibble ∈ {0x00,0x10,0x20,0x40,0x80} 即為 REPLY，**不看長度**（去掉舊 `status===0x00` 限制）；單-byte 分支維持原樣。(2) 判狀態：交由既有下游 `wfgLaDpAuxSourceTconText` 只讀第一 byte nibble → ACK/NACK/DEFER，後續 byte 當 payload（原本就已正確支援 NACK/DEFER，無需改）。
+
+**回歸保護＋操作式驗證**：本機 http server 載入該 kvdat，以修正前(git HEAD)／修正後兩版逐列比對 426 列解碼結果 → 僅 28 列變動：14 筆 write-REQ 由 NO REPLY 轉為正常（描述不變），14 筆 `10 00` 由 REQ→REPLY 顯示「TCON NACK + 0x00」；其餘 398 列（含 #16 單-byte ACK、#18 read ACK+資料、真正的 I2C 請求）完全不變。無 console error。Chrome 實機截圖確認 #19→REQ/Native、#20→REPLY/TCON NACK。
+
+**版本同步**：`common/version.js` `wfg: v2.97.440 → v2.97.441`；`wfg.html` 的 `version.js?v=20260711a → 20260712wfg441`（快取破解，否則徽章不跳版）。
+
 ## TCON 波形產生器 (wfg) v2.97.440 — 2026-07-11
 
 **需求（Bruce）**：LA 分頁「檢視」group 內加兩個輸入框，**只電腦版顯示**（手機/窄螢幕不出現）：①「螢幕中心位置」——精度/格式沿用滑鼠 hover 在波形上時上方顯示的座標秒數那套；手動輸入一個時間後畫面平移，讓該時間跳到螢幕中心；平移/縮放時此框反映當下中心。②「螢幕放大倍率」——輸入倍率後縮放直接跳到該倍率；縮放時倍率框反映當下值。

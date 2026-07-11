@@ -1451,7 +1451,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260711a"></script>
+<script src="common/version.js?v=20260712wfg441"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -10559,8 +10559,17 @@ function wfgLaDpAuxIsTconReplyBytes(bytes, previousRequest) {
   if (!bytes.length) return false;
   var status = bytes[0] & 0xff;
   if (bytes.length === 1) return status === 0x00 || status === 0x10 || status === 0x20 || status === 0x40 || status === 0x80;
-  if (status !== 0x00) return false;
-  if (previousRequest && previousRequest.isRead) return true;
+  /* v2.97.441: 多-byte 分支：REPLY 判定 = 「正在等一筆回覆(previousRequest 存在)」+「第一 byte 高 nibble 為合法 reply 狀態碼」。
+   * 依 VESA DP 1.1a §2.4.1.2/§2.4.4.1：AUX reply 的 ACK/NACK/DEFER 只由第一 byte 的 reply command
+   * nibble 決定 — Native ACK=0x0 / NACK=0x1 / DEFER=0x2；I2C ACK=0x0 / NACK=0x4 / DEFER=0x8。
+   * 後續 byte(write-NACK 的 M count、read-ACK 的資料)一律是 payload，不影響狀態判定，也不限制長度。
+   * 這修正了舊碼寫死 status===0x00 只認「ACK+資料的讀回覆」、把多-byte NACK/DEFER 回覆
+   * (如 write-NACK 的 [10 00])誤濾成 REQ 的 bug。
+   * 「是 REQ 還是 REPLY」不能純看第一 byte(0x10 也是合法 I2C RD 請求 cmd)，必須靠 previousRequest 這個 context；
+   * 沒有待回覆 REQ 時(previousRequest=null)出現的真正 I2C 請求不會被誤判為 REPLY。 */
+  var replyCmd = bytes[0] & 0xf0;
+  var isValidReplyStatus = replyCmd === 0x00 || replyCmd === 0x10 || replyCmd === 0x20 || replyCmd === 0x40 || replyCmd === 0x80;
+  if (previousRequest && isValidReplyStatus) return true;
   return false;
 }
 
