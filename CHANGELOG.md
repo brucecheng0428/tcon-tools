@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.444 — 2026-07-12
+
+**需求（Bruce）**：LA 分頁 AUX 解碼結果的 Excel 匯出欄名，要與畫面解碼表表頭「逐欄」一致。前幾版（v2.97.442/443）只改了畫面 DP AUX 表頭（Frame→Type、Command / Reply→Content），但 Excel 匯出欄名（`wfgLaExcelLabels`）沒跟著改，造成匯出檔欄名與畫面不一致。
+
+**改動內容**：以 DP AUX 為主，把 `wfgLaExcelLabels` 中 DP AUX 匯出用到的兩個欄名鍵對齊畫面表頭：`frame: 'Frame' → 'Type'`、`command: 'Command / Reply' → 'Content'`。三語系（zh-TW / zh-CN / en）同步更新（畫面表頭為固定英文 Type/Content，故三語系值一致）。對齊後 DP AUX 匯出表頭順序 = 畫面：`Time / # / Type / Content / Address / Data / Status`。i2c / i2c_eeprom 匯出表頭（欄位語意本就不同，非「畫面已改、匯出沒改」的不一致）未動；DPCD 查詢 sheet 欄名未動。匯出的資料內容、欄位對應、解碼邏輯、畫面表頭、欄寬、非 ACK 高亮均未動。
+
+**改的是哪段 code**：`wfg.html` — `wfgLaExcelLabels()` 內 `frame`、`command` 兩鍵的值（三處語系各一，共 2 鍵）。此二鍵僅用於 `wfgLaBuildDecodeExcelXml` 第 10283 行 DP AUX 匯出表頭列 `[L.time, L.packet, L.frame, L.command, L.data, L.status]`，無其他引用。畫面 `theadHtml`、`renderRow`、CSS 欄寬、高亮邏輯完全未動。
+
+**版本同步**：`common/version.js` `wfg: v2.97.443 → v2.97.444`；`wfg.html` 的 `version.js?v=20260712wfg443 → 20260712wfg444`。
+
 ## TCON 波形產生器 (wfg) v2.97.443 — 2026-07-12
 
 **需求（Bruce）**：LA 分頁 AUX「解碼結果」表格，把「Command / Reply」欄的表頭文字改成「Content」。只改表頭顯示文字，欄位的內容/邏輯/欄寬策略都不動。
