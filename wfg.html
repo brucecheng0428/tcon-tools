@@ -1473,7 +1473,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260712wfg444"></script>
+<script src="common/version.js?v=20260712wfg445"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -9634,8 +9634,10 @@ function wfgLaDecodeRowKey(group, row) {
 function wfgLaDecodeSearchText(group, row) {
   if (!row) return '';
   var analyzer = group && group.analyzer ? wfgLaAnalyzerTypeLabel(group.analyzer.type) : '';
+  /* v2.97.445: dp_aux 黃(nonack)/紅(err) 異常列的 type token 前補「!」，使搜尋框打「!」可一次撈出所有異常列（與畫面/匯出一致） */
+  var typeText = (group && group.analyzer && group.analyzer.type === 'dp_aux' && wfgLaDpAuxTypeIsAnomaly(row) ? '!' : '') + (row.type || '');
   return [
-    analyzer, row.label, row.type, row.rw, row.value, row.ack, row.dpcdWarn ? 'dpcd warn abnormal' : '',
+    analyzer, row.label, typeText, row.rw, row.value, row.ack, row.dpcdWarn ? 'dpcd warn abnormal' : '',
     row.device, row.memory, row.data, row.packet, wfgLaDisplayTimeLabel(row.time)
   ].filter(function(v) { return v != null && v !== ''; }).join(' ').toLowerCase();
 }
@@ -10306,7 +10308,8 @@ function wfgLaBuildDecodeExcelXml(group) {
     xml.push('<Row>' +
       wfgLaExcelCell(wfgLaExcelTimeLabel(row.time)) +
       wfgLaExcelCell(row.packet) +
-      wfgLaExcelCell(row.type || '', frameStyle) +
+      /* v2.97.445: 匯出 Type 欄與畫面一致 —— 黃(nonack)/紅(err) 異常列前補「!」，讓 Excel 也能用「!」篩異常；樣式(frameStyle)不動 */
+      wfgLaExcelCell((wfgLaDpAuxTypeIsAnomaly(row) ? '!' : '') + (row.type || ''), frameStyle) +
       wfgLaExcelCell(row.rw || '', rightStyle) +
       wfgLaExcelCell(dataText, dataStyle, dpcdHref) +
       wfgLaExcelCell(wfgLaDpAuxExportStatus(row), rightStyle) +
@@ -10585,6 +10588,22 @@ function wfgLaDpAuxIsNonAckReply(r) {
   if (!r || r.type !== 'REPLY' || !r.raw || !r.raw.length) return false;
   var cmd = (r.raw[0] >> 4) & 0xf;
   return cmd !== 0x0;
+}
+
+/* v2.97.445: 判定某 DP AUX 解碼列的 Type 欄是否為「異常上色」狀態 —— 亦即畫面上會顯示成
+ *   黃色(非 ACK 回覆高亮 nonack，NACK/DEFER) 或 紅色(ERR/協定錯誤 badge.err)。
+ * 用途：在 Type 顯示文字/搜尋文字/Excel 匯出值前一致地補上「!」前綴，讓使用者在搜尋框打
+ *   「!」就能一次撈出所有黃/紅異常列，且畫面與匯出保持一致。
+ * 判定完全沿用畫面 renderRow 既有依據，不重算狀態：
+ *   - 黃色：wfgLaDpAuxIsNonAckReply(r)（td.wfg-la-type-nonack，優先於 badge 顏色，故先判）
+ *   - 橘色 preamble warn：auxPreambleWarn 時 badge 走 ' warn'（非黃非紅），不加「!」
+ *   - 紅色：wfgLaDpAuxExportProtocolError(r)（= 畫面 isProtocolError 同一組條件）
+ * 正常 REQ、正常(ACK)REPLY → 全回 false，不加「!」。 */
+function wfgLaDpAuxTypeIsAnomaly(r) {
+  if (!r) return false;
+  if (wfgLaDpAuxIsNonAckReply(r)) return true;
+  if (r.auxPreambleWarn) return false;
+  return wfgLaDpAuxExportProtocolError(r);
 }
 
 function wfgLaDpAuxIsTconReplyBytes(bytes, previousRequest) {
@@ -12505,7 +12524,9 @@ function wfgLaRenderDecodeResults() {
         if (r.auxPreambleWarnText) statusText = statusText ? (statusText + ' / ' + r.auxPreambleWarnText) : r.auxPreambleWarnText;
         /* v2.97.442: 非 ACK 回覆（NACK/DEFER）→ Type 欄黃色高亮，讓異常回覆一眼可辨 */
         var typeTdCls = wfgLaDpAuxIsNonAckReply(r) ? ' class="wfg-la-type-nonack"' : '';
-        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
+        /* v2.97.445: 黃(nonack)/紅(err) 異常列的 Type 文字前補「!」（真的放進文字內容，搜尋框與匯出才撈得到），樣式/其他欄不動 */
+        var typeDisplayText = (wfgLaDpAuxTypeIsAnomaly(r) ? '!' : '') + (r.type || '');
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(typeDisplayText) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
       };
     } else if (a.type === 'i2c_eeprom') {
       theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Device</th><th>Memory</th><th>R/W</th><th>Data</th></tr></thead>';

@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.445 — 2026-07-12
+
+**需求（Bruce）**：LA 分頁 AUX「解碼結果」表格的 Type 欄，凡是文字為黃色（異常回覆高亮 NACK/DEFER）或紅色（ERR／協定錯誤）的列，就在該欄文字前加「!」（`!REPLY`、`!ERR`，紅色的 `!REQ`／no-reply 也算），讓使用者在搜尋框打「!」即可一次撈出所有黃/紅異常列；正常 REQ、正常(ACK) REPLY 不加。此「!」需畫面顯示、搜尋、Excel 匯出三處一致（Excel 也能用「!」篩異常）。
+
+**改動內容**：新增共用判定 `wfgLaDpAuxTypeIsAnomaly(r)`，回傳該列 Type 是否為「黃(nonack)或紅(err)」異常上色 —— 完全沿用畫面 renderRow 既有依據不重算：黃色 = `wfgLaDpAuxIsNonAckReply(r)`（優先，對應 td.wfg-la-type-nonack）；`auxPreambleWarn` 的橘色 warn 屬非黃非紅、不加「!」；紅色 = `wfgLaDpAuxExportProtocolError(r)`（與畫面 `isProtocolError` 同一組條件 NACK/ERR/auxNoReply/protocolError/auxPreambleError）。三處引用同一判定：①畫面 dp_aux `renderRow` badge 文字（`typeDisplayText`）②搜尋文字 `wfgLaDecodeSearchText` 的 type token ③Excel 匯出 `wfgLaBuildDecodeExcelXml` 的 Type cell。「!」真的放進文字內容（非 CSS ::before），故搜尋框與匯出都撈得到。
+
+**改的是哪段 code**：`wfg.html` — (1) 新增 `wfgLaDpAuxTypeIsAnomaly()`；(2) dp_aux `renderRow` badge 由 `wfgLaEscapeHtml(r.type)` → `wfgLaEscapeHtml(typeDisplayText)`；(3) `wfgLaDecodeSearchText` 陣列 type 欄改帶「!」前綴的 `typeText`；(4) `wfgLaBuildDecodeExcelXml` 第 3 欄 `wfgLaExcelCell(row.type||'', frameStyle)` → 帶「!」。黃色/紅色樣式本身、badgeCls/frameStyle、其他欄、解碼數值與判定、欄寬皆未動。
+
+**版本同步**：`common/version.js` `wfg: v2.97.444 → v2.97.445`；`wfg.html` 的 `version.js?v=20260712wfg444 → 20260712wfg445`。
+
 ## TCON 波形產生器 (wfg) v2.97.444 — 2026-07-12
 
 **需求（Bruce）**：LA 分頁 AUX 解碼結果的 Excel 匯出欄名，要與畫面解碼表表頭「逐欄」一致。前幾版（v2.97.442/443）只改了畫面 DP AUX 表頭（Frame→Type、Command / Reply→Content），但 Excel 匯出欄名（`wfgLaExcelLabels`）沒跟著改，造成匯出檔欄名與畫面不一致。
