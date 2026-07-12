@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.443 — 2026-07-12
+
+**需求（Bruce）**：LA 分頁 AUX「解碼結果」表格，把「Command / Reply」欄的表頭文字改成「Content」。只改表頭顯示文字，欄位的內容/邏輯/欄寬策略都不動。
+
+**改動內容**：dp_aux 解碼表頭第 4 欄 `<th>Command / Reply</th>` → `<th>Content</th>`。該欄依列型別顯示命令(REQ)/回覆(REPLY) 文字，「Content」為更精簡的中性欄名。i2c_eeprom 表（Device/Memory/R/W/Data）與其他解碼表（R/W/Value/ACK）不含此欄、語意不同，均未動。Excel 匯出欄名（`wfgLaExcelLabels` 的 `command: 'Command / Reply'`）屬另一交付管道、非畫面表頭，本次未動。
+
+**改的是哪段 code**：`wfg.html` — dp_aux `theadHtml` 的 `<th>Command / Reply</th>`→`<th>Content</th>`（單行）。renderRow、欄寬 CSS（`wfg-la-decode-table--dp_aux`、nth-child(4) 固定寬 240px + word-break）、非 ACK 黃色高亮邏輯完全未動。
+
+**版本同步**：`common/version.js` `wfg: v2.97.442 → v2.97.443`；`wfg.html` 的 `version.js?v=20260712wfg442 → 20260712wfg443`。
+
 ## TCON 波形產生器 (wfg) v2.97.442 — 2026-07-12
 
 **需求（Bruce）**：LA 分頁 AUX「解碼結果」表格 UI 調整（純呈現，不動解碼數值/判定）。
