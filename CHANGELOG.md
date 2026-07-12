@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.446 — 2026-07-12
+
+**需求（Bruce）**：延續 v2.97.445，LA 分頁 AUX「解碼結果」表 Type 欄加「!」的範圍，使用者原始要求是「解碼結果有**異常或警告**（黃色或紅色字樣）都加!」。v2.97.445 漏把 **preamble 警告（`auxPreambleWarn`，SYNC 18~25 的 `.warn` badge：底 #854d0e、字 #fde68a 淡黃、黃色外框，屬黃色系「警告」）** 納入，該分支被 `if (r.auxPreambleWarn) return false;` 排除掉、沒加「!」。本版把 preamble 警告也納入加「!」範圍。
+
+**改動內容**：僅改共用判定 `wfgLaDpAuxTypeIsAnomaly(r)` 一行 —— `if (r.auxPreambleWarn) return false;` → `if (r.auxPreambleWarn) return true;`，讓黃色系 preamble warn 列也回 true。判定順序仍為：黃色 nonack（`wfgLaDpAuxIsNonAckReply`）→ 黃色系 preamble warn（`auxPreambleWarn`）→ 紅色（`wfgLaDpAuxExportProtocolError`，含 `auxPreambleError`）。因畫面 badge、搜尋文字（`wfgLaDecodeSearchText`）、Excel 匯出（`wfgLaBuildDecodeExcelXml`）三處都共用此一判定，改這一處三處同步。顏色樣式（`badgeCls ' warn'`）、`auxPreambleError` 紅色分支、其他欄、解碼數值與判定皆未動。
+
+**改的是哪段 code**：`wfg.html` — `wfgLaDpAuxTypeIsAnomaly()` 內 `if (r.auxPreambleWarn) return false;` → `return true;`（單行，另更新該函式註解）。renderRow、`wfgLaDecodeSearchText`、`wfgLaBuildDecodeExcelXml` 均未改（自動沿用新判定）。
+
+**回歸**：v2.97.445 的黃色 nonack、紅色 ERR/協定錯誤加「!」不變；正常 REQ、正常(ACK) REPLY 仍不加「!」。`auxPreambleError`（SYNC <18）本就走紅色 protocolError 分支加「!」，本版未動。
+
+**版本同步**：`common/version.js` `wfg: v2.97.445 → v2.97.446`；`wfg.html` 的 `version.js?v=20260712wfg445 → 20260712wfg446`。
+
 ## TCON 波形產生器 (wfg) v2.97.445 — 2026-07-12
 
 **需求（Bruce）**：LA 分頁 AUX「解碼結果」表格的 Type 欄，凡是文字為黃色（異常回覆高亮 NACK/DEFER）或紅色（ERR／協定錯誤）的列，就在該欄文字前加「!」（`!REPLY`、`!ERR`，紅色的 `!REQ`／no-reply 也算），讓使用者在搜尋框打「!」即可一次撈出所有黃/紅異常列；正常 REQ、正常(ACK) REPLY 不加。此「!」需畫面顯示、搜尋、Excel 匯出三處一致（Excel 也能用「!」篩異常）。
