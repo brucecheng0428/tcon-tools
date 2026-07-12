@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.442 — 2026-07-12
+
+**需求（Bruce）**：LA 分頁 AUX「解碼結果」表格 UI 調整（純呈現，不動解碼數值/判定）。
+
+**改動內容**：
+1. **欄名 Frame → Type**：dp_aux 表頭第 3 欄（顯示 REQ/REPLY 徽章的封包分類欄）由 `Frame` 改為 `Type`，避免與畫面 frame 混淆。
+2. **非 ACK 回覆黃色高亮**：當一列為 REPLY 且回覆狀態非 ACK（NACK/DEFER）時，Type 欄的「REPLY」徽章改黃底深字高亮，異常回覆一眼可辨；ACK 的 REPLY 維持原樣。判定用新 helper `wfgLaDpAuxIsNonAckReply(r)`：只看 REPLY 列的 `r.raw[0]` cmd nibble（沿用 `wfgLaDpAuxSourceTconText` 同一依據，0x0=ACK，其餘=非 ACK），**不重算狀態**。高亮以 class `wfg-la-type-nonack` 掛在該 cell，CSS 統一控色，不 inline 硬寫。
+3. **欄寬策略**：dp_aux 表加 modifier class `wfg-la-decode-table--dp_aux`（i2c/其他解碼表不受影響）。`#`/`Time`/`Type`/`Status` 四欄 `white-space:nowrap; width:1%` 自適應內容寬不換行（Type 欄夠寬讓「Reply」不跨行）；`Command / Reply`、`Address / Data` 兩欄固定寬（240px/200px）+ `word-break` 換行，覆蓋通用 `nth-child(5)` 的 ellipsis 截斷，改為換行不撐爆表格。長 Data 只在自身欄內換行，不會撐爆 Time/# 欄。
+
+**Command / Reply 欄名**：該欄依列型別顯示「命令」(REQ) 或「回覆」(REPLY) 文字，現有表頭已是英文 `Command / Reply`（正確代表兩種內容），維持不變。
+
+**改的是哪段 code**：`wfg.html` — (a) dp_aux `theadHtml` 的 `<th>Frame</th>`→`<th>Type</th>`；(b) dp_aux `renderRow` 第 3 欄 `<td>` 依 `wfgLaDpAuxIsNonAckReply` 加 class；(c) 表格 `<table>` 加 `wfg-la-decode-table--' + a.type` modifier；(d) 新增 helper `wfgLaDpAuxIsNonAckReply`；(e) CSS 新增欄寬 + 黃色高亮規則。解碼/判定邏輯（含 v2.97.441 的 REQ/REPLY 判定）完全未動。
+
+**版本同步**：`common/version.js` `wfg: v2.97.441 → v2.97.442`；`wfg.html` 的 `version.js?v=20260712wfg441 → 20260712wfg442`。
+
 ## TCON 波形產生器 (wfg) v2.97.441 — 2026-07-12
 
 **需求（Bruce）**：LA 分頁 AUX 解碼修正 write-NACK 誤判。載入 `AUX_ST_正常版_20260709.kvdat`，#19 `8F 00 03 00 55`（Native Write 寫 0x55 到 DPCD 0xF0003）被誤標 NO REPLY；#20 `10 00`（TCON 的 write-NACK：`0x10`=Native NACK、第二 byte `0x00`=M count=已寫 0 byte）被誤判成 I2C RD 請求 + NO REPLY。

@@ -512,6 +512,28 @@
   .wfg-la-decode-badge.write { background: #14532d; color: #bbf7d0; }
   .wfg-la-decode-badge.err { background: #7f1d1d; color: #fecaca; }
   .wfg-la-decode-badge.warn { background: #854d0e; color: #fde68a; box-shadow: inset 0 0 0 1px rgba(250,204,21,0.75); }
+  /* ── v2.97.442: DP AUX 解碼表欄寬策略（僅作用於 dp_aux 表，i2c/其他表不受影響） ── */
+  /* 自適應內容寬 + 不換行：Time(1) / #(2) / Type(3) / Status(6) */
+  .wfg-la-decode-table--dp_aux { table-layout: auto; }
+  .wfg-la-decode-table--dp_aux th:nth-child(1), .wfg-la-decode-table--dp_aux td:nth-child(1),
+  .wfg-la-decode-table--dp_aux th:nth-child(2), .wfg-la-decode-table--dp_aux td:nth-child(2),
+  .wfg-la-decode-table--dp_aux th:nth-child(3), .wfg-la-decode-table--dp_aux td:nth-child(3),
+  .wfg-la-decode-table--dp_aux th:nth-child(6), .wfg-la-decode-table--dp_aux td:nth-child(6) {
+    white-space: nowrap; width: 1%; word-break: normal;
+  }
+  /* 固定寬 + 可換行：Command / Reply(4) */
+  .wfg-la-decode-table--dp_aux th:nth-child(4), .wfg-la-decode-table--dp_aux td:nth-child(4) {
+    white-space: normal; width: 240px; word-break: break-word;
+  }
+  /* 固定寬 + 可換行：Address / Data(5)（覆蓋通用 nth-child(5) 的 ellipsis 截斷，改成換行不撐爆） */
+  .wfg-la-decode-table--dp_aux th:nth-child(5), .wfg-la-decode-table--dp_aux td:nth-child(5) {
+    white-space: normal; width: 200px; max-width: 200px; word-break: break-all; overflow: visible; text-overflow: clip;
+  }
+  /* 非 ACK 回覆（NACK/DEFER）Type 欄「REPLY」黃色高亮（深色主題清楚不刺眼） */
+  .wfg-la-decode-table td.wfg-la-type-nonack .wfg-la-decode-badge {
+    background: #facc15; color: #1c1917;
+    box-shadow: inset 0 0 0 1px rgba(250,204,21,0.9), 0 0 6px rgba(250,204,21,0.35);
+  }
   .wfg-la-dpcd-link { display: inline-block; margin-left: 4px; padding: 1px 5px; border-radius: 3px; background: rgba(14,165,233,0.18); color: #38bdf8; font-weight: 800; text-decoration: none; }
   .wfg-la-dpcd-link:hover { background: rgba(14,165,233,0.32); color: #7dd3fc; }
   .wfg-la-dpcd-byte-list { display: flex; flex-wrap: wrap; gap: 3px 5px; margin-top: 4px; max-width: 100%; }
@@ -1451,7 +1473,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260712wfg441"></script>
+<script src="common/version.js?v=20260712wfg442"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -10554,6 +10576,16 @@ function wfgLaDpAuxSourceTconText(bytes) {
   return head + (data ? ' + 0x' + data : '');
 }
 
+/* v2.97.442: 判定某解碼列是否為「非 ACK 回覆」(NACK/DEFER 等異常回覆)。
+ * 只針對 REPLY 列；沿用 TCON reply 的第一 byte cmd nibble(與 wfgLaDpAuxSourceTconText 同一依據)：
+ *   0x0 = ACK；0x1/0x2/0x4/0x8 = Native/I2C NACK/DEFER；其餘 nibble 亦視為非 ACK 的異常回覆。
+ * 不重算狀態，只讀已解碼好的 r.raw[0]。REQ 列一律回 false。 */
+function wfgLaDpAuxIsNonAckReply(r) {
+  if (!r || r.type !== 'REPLY' || !r.raw || !r.raw.length) return false;
+  var cmd = (r.raw[0] >> 4) & 0xf;
+  return cmd !== 0x0;
+}
+
 function wfgLaDpAuxIsTconReplyBytes(bytes, previousRequest) {
   bytes = bytes || [];
   if (!bytes.length) return false;
@@ -12455,7 +12487,7 @@ function wfgLaRenderDecodeResults() {
     var renderRow;
     var theadHtml;
     if (a.type === 'dp_aux') {
-      theadHtml = '<thead><tr><th>Time</th><th>#</th><th>Frame</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead>';
+      theadHtml = '<thead><tr><th>Time</th><th>#</th><th>Type</th><th>Command / Reply</th><th>Address / Data</th><th>Status</th></tr></thead>';
       renderRow = function(r, grp) {
         var isProtocolError = r.ack === 'NACK' || r.ack === 'ERR' || r.auxNoReply || r.protocolError;
         if (r.auxPreambleError) isProtocolError = true;
@@ -12469,7 +12501,9 @@ function wfgLaRenderDecodeResults() {
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
         var statusText = r.auxNoReply ? 'NO REPLY' : (r.dpcdWarn ? 'DPCD WARN' : r.ack);
         if (r.auxPreambleWarnText) statusText = statusText ? (statusText + ' / ' + r.auxPreambleWarnText) : r.auxPreambleWarnText;
-        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
+        /* v2.97.442: 非 ACK 回覆（NACK/DEFER）→ Type 欄黃色高亮，讓異常回覆一眼可辨 */
+        var typeTdCls = wfgLaDpAuxIsNonAckReply(r) ? ' class="wfg-la-type-nonack"' : '';
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
       };
     } else if (a.type === 'i2c_eeprom') {
       theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Device</th><th>Memory</th><th>R/W</th><th>Data</th></tr></thead>';
@@ -12489,7 +12523,7 @@ function wfgLaRenderDecodeResults() {
     }
     var idx = groupIdx++;
     wfgLaDecodeVGroups.push({ group: group, rows: rows, type: a.type, renderRow: renderRow, el: null, rendered: false });
-    html += '<div class="wfg-la-decode-table-wrap" data-vgroup-idx="' + idx + '"><table class="wfg-la-decode-table">' + theadHtml + '<tbody></tbody></table></div>';
+    html += '<div class="wfg-la-decode-table-wrap" data-vgroup-idx="' + idx + '"><table class="wfg-la-decode-table wfg-la-decode-table--' + a.type + '">' + theadHtml + '<tbody></tbody></table></div>';
   });
   el.innerHTML = html;
   /* Decode results are rendered directly so scope-frame positioning stays tied to real row geometry. */
