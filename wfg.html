@@ -1473,7 +1473,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260712wfg446"></script>
+<script src="common/version.js?v=20260713wfg447"></script>
 <script src="common/i18n.js?v=20260704e"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5190,6 +5190,26 @@ function wfgLaTriggerZeroTime(cfg, duration) {
 
 function wfgLaDisplayTimeLabel(timeSec) {
   return wfgLaSignedTimeLabel((Number(timeSec) || 0) - wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration()));
+}
+
+/* v2.97.447 需求2：解碼結果 Time 欄要用「完整、精確、不失真」的時間。
+   舊 wfgLaDisplayTimeLabel → wfgLaTimeLabel 對「秒」只保留 toFixed(3)（＝ms 精度），
+   會把樣本位置捨進毫秒；但該函式被座標軸等處共用，不能全域改，故另建解碼專用函式。
+   位數隨實際取樣率自適應：比一個取樣週期再細一位，確保每個樣本時間都能精確定位而不被四捨五入抹掉。 */
+function wfgLaDecodeTimeDecimals() {
+  var rate = wfgLaCapturedWaveform && wfgLaCapturedWaveform.effectiveRate;
+  rate = Math.max(1, Number(rate) || 200000000);
+  var d = Math.ceil(Math.log10(rate)) + 1; /* 樣本週期 = 1/rate 秒 → 需 ceil(log10(rate)) 位；再 +1 位留餘裕 */
+  return Math.max(9, Math.min(12, d));      /* 下限 9（ns）、上限 12（sub-ps，遠細於任何實際取樣週期，float64 仍精確） */
+}
+
+/* 畫面用：相對觸發零點的完整秒數，去掉無意義的尾端 0（去 0 不是四捨五入，不損失精度）。 */
+function wfgLaDecodeRowTimeLabel(timeSec) {
+  var rel = (Number(timeSec) || 0) - wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
+  if (Math.abs(rel) < 0.5e-12) return '0 s';
+  var sign = rel < 0 ? '-' : '';
+  var body = Math.abs(rel).toFixed(wfgLaDecodeTimeDecimals()).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  return sign + body + ' s';
 }
 
 function wfgLaCursorNsValue(sec) {
@@ -9638,7 +9658,8 @@ function wfgLaDecodeSearchText(group, row) {
   var typeText = (group && group.analyzer && group.analyzer.type === 'dp_aux' && wfgLaDpAuxTypeIsAnomaly(row) ? '!' : '') + (row.type || '');
   return [
     analyzer, row.label, typeText, row.rw, row.value, row.ack, row.dpcdWarn ? 'dpcd warn abnormal' : '',
-    row.device, row.memory, row.data, row.packet, wfgLaDisplayTimeLabel(row.time)
+    row.device, row.memory, row.data, row.packet, wfgLaDisplayTimeLabel(row.time),
+    wfgLaDecodeRowTimeLabel(row.time) /* v2.97.447：一併收錄完整精度時間，讓搜尋框可用畫面顯示的完整時間比對 */
   ].filter(function(v) { return v != null && v !== ''; }).join(' ').toLowerCase();
 }
 
@@ -10249,7 +10270,9 @@ function wfgLaDpcdExcelBitDetails(addr, values) {
 function wfgLaExcelTimeLabel(timeSec) {
   var triggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
   var rel = (Number(timeSec) || 0) - triggerZero;
-  return rel.toFixed(9) + ' s';
+  /* v2.97.447 需求2：匯出 Time 必須精確、未被四捨五入截斷。
+     位數改為隨取樣率自適應（≥9）取代固定 toFixed(9)，確保高取樣率（週期 <1ns）時也不失真。 */
+  return rel.toFixed(wfgLaDecodeTimeDecimals()) + ' s';
 }
 
 function wfgLaBuildDecodeExcelXml(group) {
@@ -10345,7 +10368,8 @@ function wfgLaBuildDecodeExcelXml(group) {
 function wfgLaI2cExportTimeLabel(timeSec) {
   var triggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
   var rel = (Number(timeSec) || 0) - triggerZero;
-  return rel.toFixed(10);
+  /* v2.97.447 需求2：I2C 匯出 Time 同樣改為隨取樣率自適應位數（≥9），精確不截斷。 */
+  return rel.toFixed(wfgLaDecodeTimeDecimals());
 }
 
 function wfgLaI2cBuildPacketRows(rows) {
@@ -12529,13 +12553,13 @@ function wfgLaRenderDecodeResults() {
         var typeTdCls = wfgLaDpAuxIsNonAckReply(r) ? ' class="wfg-la-type-nonack"' : '';
         /* v2.97.445: 黃(nonack)/紅(err) 異常列的 Type 文字前補「!」（真的放進文字內容，搜尋框與匯出才撈得到），樣式/其他欄不動 */
         var typeDisplayText = (wfgLaDpAuxTypeIsAnomaly(r) ? '!' : '') + (r.type || '');
-        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(typeDisplayText) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(typeDisplayText) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
       };
     } else if (a.type === 'i2c_eeprom') {
       theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Device</th><th>Memory</th><th>R/W</th><th>Data</th></tr></thead>';
       renderRow = function(r, grp) {
         var key = wfgLaDecodeRowKey(grp, r);
-        return '<tr class="' + (key === wfgLaDecodeSelectedKey ? 'selected' : '') + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td>' + wfgLaEscapeHtml(r.device) + '</td><td>' + wfgLaEscapeHtml(r.memory) + '</td><td><span class="wfg-la-decode-badge ' + (r.rw === 'Read' ? 'read' : r.rw === 'Write' ? 'write' : '') + '">' + wfgLaEscapeHtml(r.rw) + '</span></td><td>' + wfgLaEscapeHtml(r.data) + '</td></tr>';
+        return '<tr class="' + (key === wfgLaDecodeSelectedKey ? 'selected' : '') + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td>' + wfgLaEscapeHtml(r.device) + '</td><td>' + wfgLaEscapeHtml(r.memory) + '</td><td><span class="wfg-la-decode-badge ' + (r.rw === 'Read' ? 'read' : r.rw === 'Write' ? 'write' : '') + '">' + wfgLaEscapeHtml(r.rw) + '</span></td><td>' + wfgLaEscapeHtml(r.data) + '</td></tr>';
       };
     } else {
       theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Type</th><th>R/W</th><th>Value</th><th>ACK</th></tr></thead>';
@@ -12544,7 +12568,7 @@ function wfgLaRenderDecodeResults() {
         var cls = isProtocolError ? ' err' : '';
         var key = wfgLaDecodeRowKey(grp, r);
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
-        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDisplayTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
       };
     }
     var idx = groupIdx++;
@@ -23548,7 +23572,14 @@ function wfgLaApplyParsedKvdatCapture(parsed, fileName, options) {
     wfgLaSetViewRange(Number(view.start), Number(view.end));
   }
   wfgLaIoSelectLockUntil = 0; /* 確保 scope labels 能重建 */
-  if (!wfgLaApplyPresetDecodeResults(options.decodeResults)) wfgLaRunAnalyzers();
+  /* v2.97.447 需求1：快捷 preset 只套用「波形 + 設定 + 分析器 config」，
+     解碼結果一律用現行分析器重跑，不再載入 snapshot 烘焙的 decodeResults。
+     原因：舊版 decoder 的解碼結果被烘焙進 snapshot，decoder 進化後直接載入會顯示過期誤報
+     （例：eDP AUX 異常範例中心 7.774s 那筆假 !ERR「AUX preamble gap format error」）。
+     分析器 config 已於本函式上方（parsed.analyzers → wfgLaAnalyzers / wfgLaRenderAnalyzers）套妥；
+     沒有分析器的 preset，wfgLaRunAnalyzers() 迴圈跑 0 次 → 只顯示波形、不解碼也不報錯。
+     註：wfgLaApplyPresetDecodeResults / hasStaleAuxGlitchErrors 自此不再被呼叫（保留為死碼，最小更動）。 */
+  wfgLaRunAnalyzers();
   if (options.focusDisplayTime != null) {
     var focusTriggerZero = wfgLaTriggerZeroTime(wfgLaBuildConfig(), wfgLaCaptureDuration());
     wfgLaFocusDecodeRowNearTime(Number(options.focusDisplayTime) + focusTriggerZero);

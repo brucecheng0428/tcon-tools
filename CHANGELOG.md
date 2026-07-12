@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.447 — 2026-07-13
+
+**需求（Bruce，兩項一起進版）**：
+
+**需求1 — 快捷 preset 套用後一律用現行分析器重跑解碼（根治過期烘焙誤報）**：快捷選單套用範例時原本會直接載入 snapshot 內烘焙好的 `decodeResults`，而非用現行分析器對波形重跑。舊版 decoder 的解碼結果被烘焙進 snapshot，decoder 進化後直接顯示就變成過期誤報（例：eDP AUX 解碼異常範例中心 7.774s 那筆假 `!ERR`「AUX preamble gap format error」，現行 decoder 重跑後會消失變回正常 REQ）。防呆 `hasStaleAuxGlitchErrors` 查 `r.description`、但 snapshot 錯誤字串存在 `r.value`，欄位對不上攔不到。改為 Bruce 設計原則：快捷 preset **只套用「波形 + 設定 + 分析器 config」，不套 snapshot 的解碼結果**；套用後**一律用現行分析器重跑一次**，顯示永遠是現行 code 算出來的。範圍＝所有快捷 preset（不只 AUX）。
+
+**需求2 — 解碼結果 Time 欄用完整精確時間（畫面 + Excel 匯出都要準確）**：解碼表 Time 欄原本走 `wfgLaDisplayTimeLabel → wfgLaTimeLabel`，對「秒」只 `toFixed(3)`（＝毫秒精度），把樣本位置捨進 ms（例 7.774000005s 只顯示 7.774s）；Excel 匯出固定 `toFixed(9)`。改為顯示足以精確定位的完整時間，且 Excel 匯出的 Time 精確、未被四捨五入截斷。
+
+**改動內容 / 改的是哪段 code**：`wfg.html`
+- 需求1：`wfgLaApplyParsedKvdatCapture` 末端 `if (!wfgLaApplyPresetDecodeResults(options.decodeResults)) wfgLaRunAnalyzers();` → 直接 `wfgLaRunAnalyzers();`。分析器 config 於本函式上方（`parsed.analyzers → wfgLaAnalyzers / wfgLaRenderAnalyzers`）已套妥，故重跑前 config 正確；沒有分析器的 preset，`wfgLaRunAnalyzers()` 迴圈跑 0 次 → 只顯示波形、不解碼也不報錯。`wfgLaApplyPresetDecodeResults` / `hasStaleAuxGlitchErrors` 自此不再被呼叫，保留為死碼（最小更動）。
+- 需求2：新增 `wfgLaDecodeTimeDecimals()`（位數隨取樣率自適應：`ceil(log10(rate))+1`，下限 9、上限 12）與畫面用 `wfgLaDecodeRowTimeLabel()`（相對觸發零點的完整秒數、去尾端 0，去 0 非四捨五入不損精度）。三個 dp_aux/i2c_eeprom/預設 `renderRow` 的 Time 欄由 `wfgLaDisplayTimeLabel` → `wfgLaDecodeRowTimeLabel`。Excel `wfgLaExcelTimeLabel` 由固定 `toFixed(9)` → `toFixed(wfgLaDecodeTimeDecimals())`；I2C 匯出 `wfgLaI2cExportTimeLabel` 由 `toFixed(10)` → 同一自適應位數。搜尋文字 `wfgLaDecodeSearchText` 額外收錄完整時間 label，讓搜尋框可用畫面顯示的完整時間比對。
+
+**未動 / 回歸**：座標軸等共用的 `wfgLaTimeLabel`／`wfgLaDisplayTimeLabel` 本體未改（只在解碼表另走新函式），故座標軸、cursor、hover 時間顯示不受影響；解碼數值、欄名、欄寬、`!` 異常標記（v2.97.445/446）等皆未動。
+
+**版本同步**：`common/version.js` `wfg: v2.97.446 → v2.97.447`；`wfg.html` 的 `version.js?v=20260712wfg446 → 20260713wfg447`。
+
 ## TCON 波形產生器 (wfg) v2.97.446 — 2026-07-12
 
 **需求（Bruce）**：延續 v2.97.445，LA 分頁 AUX「解碼結果」表 Type 欄加「!」的範圍，使用者原始要求是「解碼結果有**異常或警告**（黃色或紅色字樣）都加!」。v2.97.445 漏把 **preamble 警告（`auxPreambleWarn`，SYNC 18~25 的 `.warn` badge：底 #854d0e、字 #fde68a 淡黃、黃色外框，屬黃色系「警告」）** 納入，該分支被 `if (r.auxPreambleWarn) return false;` 排除掉、沒加「!」。本版把 preamble 警告也納入加「!」範圍。
