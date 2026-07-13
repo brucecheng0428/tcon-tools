@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.454 — 2026-07-13
+
+**需求（Bruce）**：v2.97.453 硬體連線按鈕的電源符號圓底渲染成**橢圓形、很難看**，要改回**正圓形**。
+
+**根因（Chrome MCP 實測，非猜測）**：CSS 特異度衝突。通用規則 `.wfg-la-toolbar button { height:26px; padding:0 7px }`（特異度 0,1,1）壓過 `.wfg-la-link-btn { height:40px }`（特異度 0,1,0），使整個按鈕實際只有 **26px 高**（非設計的 40px）。圓底 `.wfg-la-link-icon`（`flex-shrink` 預設 1）在被壓扁的按鈕內被壓縮 → 高度由 26px 縮成 **17px**、寬度維持 26px → 渲染成 **26×17 橫向橢圓**。線上 v453 實測 `getBoundingClientRect` = `{w:26, h:17}` 坐實。
+
+**改的是哪幾段 code（只動圓底形狀相關 CSS，狀態機/claim/release/自動 off 邏輯零改動）**：
+1. **選擇器特異度**：`.wfg-la-link-btn`（media 區塊，wfg.html:306）→ `.wfg-la-toolbar .wfg-la-link-btn`（特異度 0,2,0），蓋過 `.wfg-la-toolbar button` 的 26px 高與 `0 7px` padding，按鈕恢復設計的 40px 高 + `0 2px 1px` padding，圓底才有垂直空間。
+2. **鎖死圓底正方形**：`.wfg-la-link-icon`（wfg.html:309）加 `flex: 0 0 auto; aspect-ratio: 1;`，保留原 `width:26px; height:26px; border-radius:50%`，確保任何情況都不被 flex 拉伸/壓縮 → OFF/ON/busy 三態圓底皆恆為正圓。
+
+**驗證**：Chrome MCP 自開分頁載入修改版，量 `.wfg-la-link-icon` `getBoundingClientRect` 確認 width===height，OFF/ON 兩態各截圖確認肉眼正圓（見回報）。
+
+**版本同步**：`common/version.js` `wfg: v2.97.453 → v2.97.454`；`wfg.html` `version.js?v` / `i18n.js?v` → `…wfg454`。
+
 ## TCON 波形產生器 (wfg) v2.97.453 — 2026-07-13
 
 **需求（Bruce）**：把「執行」group 內的硬體連線按鈕（v2.97.452 的膠囊+內嵌 ON/OFF 文字）改成**電源符號(⏻)圖示 + 圖示下方 ON/OFF 文字**的形式。ON=白色電源圖示填在**亮綠**圓底上（參考圖為紅，Bruce 要改亮綠）+ 下方 ON 文字；OFF=圖示用**與框框背景同色**的低調外觀（融入背景、看似熄滅）+ 下方 OFF 文字。狀態機/claim/release/自動 off 邏輯完全不動，只改視覺。
