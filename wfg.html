@@ -1514,8 +1514,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg457"></script>
-<script src="common/i18n.js?v=20260714wfg457"></script>
+<script src="common/version.js?v=20260714wfg458"></script>
+<script src="common/i18n.js?v=20260714wfg458"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形產生器 ═══════════
@@ -4711,6 +4711,9 @@ function wfgLaRenderLinkButton() {
   // v2.97.455: 執行控制鈕（單次/循環/暫停）可用性綁定硬體連線 on/off。
   // 放在此單一出口 → claim/release/control-lost/USB 拔除等所有改變 wfgLaLinkActive 的路徑都會即時同步。
   wfgLaSyncRunButtonsEnabled();
+  // v2.97.458: PWM 燈也綁 wfgLaLinkActive → 同一單一出口一併刷新，
+  // 使 ON（claim 成功）後燈依 enabled 亮、OFF/control-lost 後燈即時滅。
+  try { wfgLaUpdatePwmButtons(); } catch (e) {}
 }
 
 /* v2.97.455: 依 wfgLaLinkActive（硬體連線是否已取得控制權）啟用/停用執行控制鈕。
@@ -4806,8 +4809,12 @@ function wfgLaUpdatePwmButtons() {
   var state = wfgLaPwmCloneState();
   var b1 = document.getElementById('wfg-la-pwm1-btn');
   var b2 = document.getElementById('wfg-la-pwm2-btn');
-  if (b1) b1.classList.toggle('active', !!state.pwm1.enabled && wfgLaHardwareReady);
-  if (b2) b2.classList.toggle('active', !!state.pwm2.enabled && wfgLaHardwareReady);
+  // v2.97.458: PWM 燈唯一閘＝連線按鈕 wfgLaLinkActive（不是 wfgLaHardwareReady）。
+  // on/off 按鈕 OFF＝硬體已斷開，斷開的硬體不可能輸出 PWM → 燈一律不亮
+  // （初次載入預設 OFF、按 OFF、背景自動連上但沒按 ON 全部同理）；
+  // 只有使用者按 ON（wfgLaLinkActive=true）後，燈才依 enabled 反映實際輸出。
+  if (b1) b1.classList.toggle('active', !!state.pwm1.enabled && wfgLaLinkActive);
+  if (b2) b2.classList.toggle('active', !!state.pwm2.enabled && wfgLaLinkActive);
 }
 
 /* v2.97.457: 若 PWM 設定選單當下開著，把選單裡的 checkbox 勾選狀態同步成
@@ -4817,7 +4824,8 @@ function wfgLaPwmSyncDialogChecks() {
   if (!back) return;
   ['pwm1', 'pwm2'].forEach(function(id) {
     var en = document.getElementById('wfg-la-' + id + '-en');
-    if (en) en.checked = !!(wfgLaPwmState && wfgLaPwmState[id] && wfgLaPwmState[id].enabled);
+    // v2.97.458: 選單勾選也以 wfgLaLinkActive 為閘 → OFF 時一律顯示未勾，與 PWM 燈一致。
+    if (en) en.checked = !!(wfgLaLinkActive && wfgLaPwmState && wfgLaPwmState[id] && wfgLaPwmState[id].enabled);
   });
   try { wfgLaUpdatePwmDialogEnabled(); } catch (e) {}
 }
@@ -4836,8 +4844,10 @@ function wfgLaPwmForceDisableOnDisconnect() {
 
 function wfgLaPwmDialogRow(id, cfg) {
   var u = wfgLaPwmUnitValue(cfg.frequencyHz);
-  return '<div class="wfg-la-pwm-row' + (cfg.enabled ? '' : ' disabled') + '" data-pwm-id="' + id + '">' +
-    '<label><input type="checkbox" id="wfg-la-' + id + '-en"' + (cfg.enabled ? ' checked' : '') + ' onchange="wfgLaUpdatePwmDialogEnabled()">' + id.toUpperCase() + '</label>' +
+  // v2.97.458: 選單顯示以 wfgLaLinkActive 為閘 → OFF（硬體斷開）時 checkbox 未勾、row disabled，與 PWM 燈一致。
+  var shown = !!(cfg.enabled && wfgLaLinkActive);
+  return '<div class="wfg-la-pwm-row' + (shown ? '' : ' disabled') + '" data-pwm-id="' + id + '">' +
+    '<label><input type="checkbox" id="wfg-la-' + id + '-en"' + (shown ? ' checked' : '') + ' onchange="wfgLaUpdatePwmDialogEnabled()">' + id.toUpperCase() + '</label>' +
     '<span class="wfg-la-pwm-unit">' + escapeHtml(t('wfg.laPwmFreq')) + '</span>' +
     '<input type="number" id="wfg-la-' + id + '-freq" min="0.05" step="0.01" value="' + u.value + '">' +
     '<select id="wfg-la-' + id + '-unit"><option value="Hz"' + (u.unit === 'Hz' ? ' selected' : '') + '>Hz</option><option value="KHz"' + (u.unit === 'KHz' ? ' selected' : '') + '>KHz</option><option value="MHz"' + (u.unit === 'MHz' ? ' selected' : '') + '>MHz</option></select>' +
@@ -4912,7 +4922,9 @@ async function wfgLaConfirmPwmDialog() {
     var unit = document.getElementById('wfg-la-' + id + '-unit');
     var duty = document.getElementById('wfg-la-' + id + '-duty');
     next[id] = {
-      enabled: !!(en && en.checked),
+      // v2.97.458: OFF（wfgLaLinkActive=false）時 checkbox 被閘顯示未勾，若使用者按確定
+      // 不得把既有 enabled 意圖洗成 false → OFF 保留原值，只有 ON 才依 checkbox 回寫。
+      enabled: wfgLaLinkActive ? !!(en && en.checked) : !!next[id].enabled,
       frequencyHz: wfgLaPwmFrequencyFromUnit(freq && freq.value, unit && unit.value, next[id].frequencyHz),
       dutyPercent: wfgLaNormalizePwmDuty(duty && duty.value)
     };

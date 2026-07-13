@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.458 — 2026-07-14
+
+**Bruce 實機回報 bug**：**重新整理頁面後、硬體連線按鈕還是 OFF（未按 ON），但 PWM1 就已經亮燈了。** OFF（含剛載入的預設 OFF、以及背景自動連上但使用者沒按 ON 的情況）時，PWM1/PWM2 就不該亮。
+
+**Bruce 澄清的框架**：on/off 按鈕 OFF ＝ 硬體斷開，斷開的硬體不可能輸出 PWM，所以只要 OFF，PWM 燈就一定不亮（初次載入、按 OFF、背景自動連上但沒按 ON… 全部同一道理）。這不是 load-time 特例，而是把「PWM 是否可能輸出」根本綁在「連線按鈕是否 ON（`wfgLaLinkActive`）」上。
+
+**根因（指到確切 code 行）**：PWM 燈判斷式 `wfgLaUpdatePwmButtons()`（wfg.html:4809-4810）原為 `enabled && wfgLaHardwareReady`，只看 `wfgLaHardwareReady` 不看連線按鈕 `wfgLaLinkActive`。
+- `wfgLaPwmState.pwm1.enabled` 預設 `true`（wfg.html:3786）。
+- 初次載入時，LA2016 仍實體插著且此 origin 已授權 → 背景 presence 輪詢 / auto-init 自動連上裝置 → `wfgLaSetStatus('wfg-la-status-device','ok')`（wfg.html:7706）把 `wfgLaHardwareReady=true`。
+- 但 `wfgLaLinkActive` 仍是預設 `false`（wfg.html:3764，使用者從沒按 ON）。
+- 燈判斷 `enabled(true) && hardwareReady(true)` ＝ 亮 → 與「按鈕 OFF」不一致。v2.97.457 的 `wfgLaLinkUserOff` 收斂只擋「按過 OFF/斷線後」的復連，管不到「初次載入從沒按 ON、輪詢正常放行」的情境。
+
+**修法（PWM 唯一閘＝連線按鈕 `wfgLaLinkActive`）**：
+1. **燈判斷式改唯一閘**（wfg.html:4809-4810）：`enabled && wfgLaHardwareReady` → `enabled && wfgLaLinkActive`。OFF（`wfgLaLinkActive=false`）時燈一律不亮，即使背景把 `hardwareReady` 設 true 也不亮；只有按 ON（claim 成功 `wfgLaLinkActive=true`）後才依 `enabled` 反映實際輸出。
+2. **單一出口即時刷燈**（`wfgLaRenderLinkButton`，wfg.html:4713 後）：加 `wfgLaUpdatePwmButtons()`。此函式是所有改變 `wfgLaLinkActive` 的路徑（ON claim 成功的 finally、OFF、control-lost、USB 拔除）的單一出口，故 ON 後燈依 enabled 亮、OFF/斷線後燈即時滅，皆自動同步。
+3. **選單勾選同步同一閘**（`wfgLaPwmSyncDialogChecks` wfg.html:4820、`wfgLaPwmDialogRow` wfg.html:4839-4840）：checkbox 顯示 checked／row disabled 也以 `wfgLaLinkActive && enabled` 為準 → OFF 時選單顯示未勾，與燈一致。
+4. **防污染**（`wfgLaConfirmPwmDialog` wfg.html:4915）：OFF 時 checkbox 被閘顯示未勾，若使用者按確定不得把既有 `enabled` 意圖洗成 false → OFF 保留原值，只有 ON 才依 checkbox 回寫。`enabled: wfgLaLinkActive ? !!(en&&en.checked) : !!next[id].enabled`。
+
+**未破壞 ON 正常反映**：ON 路徑 claim 成功 → `wfgLaLinkActive=true` → finally `wfgLaRenderLinkButton()` → `wfgLaUpdatePwmButtons()` → `enabled(pwm1 預設 true) && linkActive(true)` ＝ 亮，依 enabled 如實反映。v2.97.457 的 `wfgLaLinkUserOff` / `wfgLaPwmForceDisableOnDisconnect`（OFF 熄且維持）不受影響，OFF 後 `linkActive=false` 再疊一層閘，燈更不可能復亮。
+
+**驗證**：見對話回報（Chrome MCP 自開分頁，注入 hardwareReady=true 模擬背景自動連上後確認 OFF 時 PWM 不亮、模擬 linkActive ON/OFF 三情境）。
+
+**版本同步**：`common/version.js` `wfg: v2.97.457 → v2.97.458`；`wfg.html` `version.js?v` / `i18n.js?v` → `…20260714wfg458`。
+
 ## TCON 波形產生器 (wfg) v2.97.457 — 2026-07-14
 
 **Bruce 實機回報 bug**：按硬體連線鈕的 OFF（斷線）後，PWM1 綠燈會「熄一下、然後又復亮」。並要求：斷線後任何背景刷新都不可再把 PWM 燈點亮，直到重新連線（ON）；且 PWM 設定選單裡的勾選（checkbox）狀態要跟燈號用同一真值來源同步。
