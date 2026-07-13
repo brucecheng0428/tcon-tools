@@ -1473,7 +1473,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260713wfg449"></script>
+<script src="common/version.js?v=20260713wfg450"></script>
 <script src="common/i18n.js?v=20260713wfg449"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -11439,11 +11439,24 @@ function wfgLaDpAuxValidatePreambleRows(rows, edgesSec, ch, nominalBitT, tolPct)
     var a = wfgLaLowerBound(edgesSec, syncStart - halfNominal * tolPct);
     var b = wfgLaLowerBound(edgesSec, syncEnd + halfNominal * tolPct);
     var gaps = 0;
+    /* v2.97.450: preamble 掃描窗往前 padding（halfNominal*tolPct）會把真正 SYNC 之前的
+     * turn-around / pre-charge glitch 邊納入，其 gap 遠小於 minHalf → 被誤判成
+     * 'Invalid preamble duty/frequency'，把已由 source 正確 emit 的合法 reply 再降級成 !ERR。
+     * 修復：在遇到第一個「合法半位元 gap」之前，容忍領先的 sub-half-bit(pre-charge) gap，
+     * 只跳過不計、不報錯；一旦進入真正的 preamble，即恢復嚴格 duty 檢查（不放過真的 duty 錯）。*/
+    var seenValidHalf = false;
     for (var i = Math.max(a + 1, 1); i < b; i++) {
       var left = edgesSec[i - 1];
       var right = edgesSec[i];
       if (left < syncStart - halfNominal * tolPct || right > syncEnd + halfNominal * tolPct) continue;
       var gap = right - left;
+      if (!seenValidHalf) {
+        if (gap >= minHalf && gap <= maxHalf) {
+          seenValidHalf = true;
+        } else if (gap < minHalf) {
+          continue; // 領先的 turn-around / pre-charge glitch，尚未進入真正 preamble → 跳過
+        }
+      }
       gaps++;
       if (gap < minHalf || gap > maxHalf) return 'Invalid preamble duty/frequency';
     }
@@ -11978,7 +11991,34 @@ function wfgLaDecodeDpAuxSourceRows(decoded, cfg, ch) {
           var followsTurnAround = isFinite(lastFrameStopEndSample)
             && edges[syncFirstIndex - 1] >= lastFrameStopEndSample - tError
             && (edges[syncFirstIndex - 1] - lastFrameStopEndSample) <= auxTurnAroundMaxSamples;
-          if (followsPreviousStop || followsTurnAround) {
+          /* ═══ v2.97.450: 剝除 SYNC 前的 turn-around / pre-charge glitch run ═══
+           * REQ→REPLY 方向切換時，回覆端在真正 SYNC preamble 之前會先產生一撮
+           * 極窄的 pre-charge / ringing edge（gap 遠小於半位元 tHalf）。這些 edge
+           * 不是資料也不是 format glitch，應在對齊前剝除，讓「是否合法」的判斷以
+           * run 之前的「真正靜止線」為基準，而不是以最後一個 glitch 邊為基準。
+           * 修復前：多顆 pre-charge glitch 讓 previousQuiet=false，且當 followsTurnAround
+           *   （以 syncFirstIndex-1 計）因前一 frame 為 anomaly 而失敗時，整段合法 SYNC
+           *   落入最後的 else 分支被丟棄 → 無 frame → fallback「Unparsed AUX activity」!ERR。
+           * 修復後：往回走過整段 sub-bit glitch run，若 run 之前是靜止線或落在 turn-around
+           *   視窗內，即認定為合法 pre-charge，不丟 SYNC、不標 ERR，交由後續 START +
+           *   Manchester 驗證獨立把關（真壞的 body 仍解不出 → 維持 anomaly，不吃真錯）。*/
+          var preRunFirstIdx = syncFirstIndex;
+          var preRunGuard = 0;
+          while (preRunFirstIdx > 0
+              && (edges[preRunFirstIdx] - edges[preRunFirstIdx - 1]) < (tHalf - tError)
+              && preRunGuard < 64) {
+            preRunFirstIdx--;
+            preRunGuard++;
+          }
+          var preRunEdgeCount = syncFirstIndex - preRunFirstIdx;
+          var preRunLeadGap = preRunFirstIdx > 0 ? (edges[preRunFirstIdx] - edges[preRunFirstIdx - 1]) : Infinity;
+          var preRunLineQuiet = preRunLeadGap >= 3 * tHalf;
+          var preRunFollowsTurnAround = isFinite(lastFrameStopEndSample)
+            && edges[preRunFirstIdx] >= lastFrameStopEndSample - tError
+            && (edges[preRunFirstIdx] - lastFrameStopEndSample) <= auxTurnAroundMaxSamples;
+          var isPreChargeRun = preRunEdgeCount >= 1
+            && (preRunLineQuiet || preRunFollowsTurnAround || followsPreviousStop);
+          if (followsPreviousStop || followsTurnAround || isPreChargeRun) {
             pendingPrefixFormatError = null;
           } else if (preGap <= glitchMax && previousQuiet) {
             pendingPrefixFormatError = {

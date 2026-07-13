@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.450 — 2026-07-13
+
+**需求（Bruce）**：修好 LA 分頁 DP AUX 解碼「回覆前有 turn-around / pre-charge glitch 就被誤殺成 !ERR」的 bug，並推廣讓所有同因的假 !ERR 都能正確解出，同時不可過度抑制真正的線上異常。
+
+**根因（兩個獨立調查 + 專案記憶收斂）**：REQ→REPLY 方向切換時，回覆端在真正 SYNC preamble 之前會先產生一撮極窄的 pre-charge / ringing edge（gap 遠小於半位元 tHalf，約 5~80ns << 500ns）。此 glitch 讓兩處判斷以「最後一個 glitch 邊」為基準而非「真正靜止線」：
+- **source 狀態機**（`wfgLaDecodeDpAuxSourceRows`，約 wfg.html:11978 後）：`previousQuiet` 因 glitch 相鄰而為 false，且 `followsTurnAround`（以 `syncFirstIndex-1` 計）在前一 frame 為 anomaly（`lastFrameStopEndSample` 被破壞）時失敗 → 整段合法 SYNC 落入最後 else 分支被丟棄 → 無 frame → 落到 `addUnparsedActivityAnomalies()` fallback 標「Unparsed AUX activity」!ERR。並會連鎖破壞後續 frame 的 `lastFrameStopEndSample`，造成大量 cascade 誤殺。
+- **validate 階段**（`wfgLaDpAuxValidatePreambleRows` 的 `invalidReason`，約 wfg.html:11439）：preamble 掃描窗往前 padding `halfNominal*tolPct`（約 125ns）會把 SYNC 前 80ns 的 pre-charge glitch 納入，其 gap < minHalf → 回 `Invalid preamble duty/frequency`，把已由 source 正確 emit 的合法 reply 再降級成 !ERR。
+
+**改的是哪段 code**：
+- `wfg.html` `wfgLaDecodeDpAuxSourceRows`（source 狀態機，`followsTurnAround` 宣告後、`if(followsPreviousStop||followsTurnAround)` 前）：新增「剝除 SYNC 前 turn-around / pre-charge glitch run」邏輯 —— 往回走過整段 sub-bit（gap `< tHalf - tError`）的 glitch run（`preRunFirstIdx`，上限 64 邊防呆），若 run 之前是靜止線（`preRunLeadGap >= 3*tHalf`）或落在 turn-around 視窗內（`preRunFollowsTurnAround`）或 `followsPreviousStop`，即認定 `isPreChargeRun`；第一個條件式改為 `if (followsPreviousStop || followsTurnAround || isPreChargeRun)`，不丟 SYNC、不標 prefix ERR，交由後續 START + Manchester + `completePayload` 獨立把關。
+- `wfg.html` `wfgLaDpAuxValidatePreambleRows` `invalidReason` 的 preamble duty 掃描迴圈：新增 `seenValidHalf` 閘 —— 在遇到第一個「合法半位元 gap（`[minHalf,maxHalf]`）」之前，容忍領先的 sub-half-bit(pre-charge) gap（`gap < minHalf` → `continue` 不計不報錯）；一旦進入真正 preamble 即恢復嚴格 duty 檢查。
+
+**反例保護（不藏真錯）**：source 端 emit 閘（START timing + 逐 bit Manchester + `completePayload`）與 validate 端「進入 preamble 後的 duty / frequency / edge-count」檢查一字未改，只容忍「真正 SYNC 之前」的領先 pre-charge glitch。去 glitch 後仍框不出合法 frame 的段落維持 anomaly（Incomplete AUX payload / Unparsed AUX activity）。
+
+**操作式驗證（Chrome，Bruce 條件，本機 http server + JS 灌檔）**：
+- 敏感版 `AUX_ST_敏感版_20260713.kvdat`（DP AUX CH0 / 1Mbps）：**修正前 v449 = 304 列 / 274 個 !ERR**（#1 `!REQ` NO REPLY、#2/#3/#5 Unparsed、#4 Narrow glitch、#6/#9 preamble gap…cascade）；**修正後 = 226 列 / 0 個 !ERR**，#2 正確解為 `REPLY / TCON ACK + 0x12`（DPCD0x00000=0x12=DP1.2），#1、#39 讀 0x00000 皆有回覆（#40 = 16-byte 接收能力區塊，語意合理）。
+- 回歸 `AUX_ST_正常版_20260709.kvdat`：修正前後**逐列雜湊完全相同**（`5e632fd4-d0767f75-31103`，426 列 / 0 ERR），健康檔零改動。
+- 反例正控：對敏感版故意用**錯誤 bitRate=2Mbps**（訊號真的框不出）解碼 → **226 列全部 !ERR、0 REPLY**，證明修正不會硬還原 / 藏真錯。本敏感檔在正確 config 下無「真正壞掉」段落，274 筆 !ERR 全為 cascade 假陽性。
+
+**協議依據**：dp-aux-dpcd skill（Manchester II、turn-around pre-charge、DPCD_REV 0x00000=0x12 = DP1.2）。
+
+**版本同步**：`common/version.js` `wfg: v2.97.449 → v2.97.450`；`wfg.html` 的 `version.js?v=20260713wfg449 → wfg450`。
+
 ## TCON 波形產生器 (wfg) v2.97.449 — 2026-07-13
 
 **需求（Bruce）**：LA 分頁「取得韌體檔案（聯絡 Bruce）」按鈕按下後的對話框/引導文字裡，只寫「Bruce」，不要露出中文全名。
