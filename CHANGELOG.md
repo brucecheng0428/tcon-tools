@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.455 — 2026-07-14
+
+**需求（Bruce）**：把「執行」group 內其他控制按鈕（單次/循環/暫停）的可用性綁定硬體連線 on/off。OFF（未連線）→ 不可點/不可選取、無藍色 focus 外框、變不明顯灰色、原紅色暫停鈕也要變灰；ON（已取得控制）→ 恢復正常（可點、暫停恢復紅色）。硬體沒連線就不能操作擷取控制，連線後才可用。
+
+**現行狀態機（先讀懂再改，非猜測）**：`wfgLaLinkActive`（3756 行）= 使用者是否已用連線按鈕搶下 LA2016 控制權，即 Bruce 說的 link on/off 真值。`wfgLaRenderLinkButton()`（4687）是所有改變 link 狀態路徑（claim 成功 14399 / release 14467,14480 / control-lost / USB 拔除 7715）的**共同單一出口**。故把 enable/disable 綁在這裡 → 全路徑即時同步。
+
+**改的是哪幾段 code**：
+1. **JS（`wfgLaRenderLinkButton` 末尾 + 新增 `wfgLaSyncRunButtonsEnabled`，約 wfg.html:4695）**：依 `wfgLaLinkActive` 對 `#wfg-la-single-btn` / `#wfg-la-repeat-btn` / `#wfg-la-stop-btn` 設 `disabled = !on`。用原生 `disabled` 屬性：瀏覽器天生阻止點擊與 focus（故無藍色 focus 外框、onclick 不觸發）。連線按鈕本身不在清單，永遠可點以供切換。
+2. **CSS（run-btn 區塊，約 wfg.html:299-305）**：新增 `.wfg-la-toolbar .wfg-la-run-btn:disabled`（特異度 0,3,0）→ 暗灰 `#3a4048`、`pointer-events:none`、`cursor:not-allowed`、`box-shadow:none`。特異度刻意 ≥ `.wfg-la-run-btn.stop.acq-active`（0,3,0，本規則在後贏）與 `.wfg-la-toolbar button.acq-active` 藍框（0,2,1），確保 OFF 時**暫停鈕即使帶 acq-active 也不紅、且無藍框**。
+
+**驗證（Chrome MCP 實測 computed 值 + 截圖）**：
+- OFF 態：single/repeat/stop 三顆 `disabled=true`、`color=rgb(58,64,72)=#3a4048` 暗灰、`box-shadow=none`（無藍框）、`pointer-events=none`、`cursor=not-allowed`；stop 雖帶 `acq-active` 仍為暗灰**非紅**；連線鈕 `disabled=false` 仍可點。截圖確認三顆融入背景。
+- ON 態（`disabled=false` 分支，等效 `wfgLaLinkActive=true`；因該變數為閉包內變數無法從外部賦值，以移除 disabled 呈現同一行 `b.disabled=!on` 的 on=true 結果）：single/repeat 恢復 `#6b7280`、**stop 恢復紅色 `#f87171`**、`pointer-events=auto`、`cursor=pointer`，60ms 後穩定未被打回。截圖確認暫停回紅、可點。
+
+**版本同步**：`common/version.js` `wfg: v2.97.454 → v2.97.455`；`wfg.html` `version.js?v` / `i18n.js?v` → `…wfg455`。
+
 ## TCON 波形產生器 (wfg) v2.97.454 — 2026-07-13
 
 **需求（Bruce）**：v2.97.453 硬體連線按鈕的電源符號圓底渲染成**橢圓形、很難看**，要改回**正圓形**。
