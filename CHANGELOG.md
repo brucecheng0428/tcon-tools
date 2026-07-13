@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.448 — 2026-07-13
+
+**需求（Bruce，LA 分頁 WebUSB 韌體流程兩項 UI 改動）**：
+
+**改動1 — 第一次使用引導的「去 NAS 下載」按鈕改成聯絡 Bruce 對話框**：LA 分頁（`wfg.html#la`）第一次擷取時若瀏覽器內沒有韌體，會跳出引導視窗 `wfgLaOpenPackageGuide()`（標題「WebUSB 檔案包準備」），其中「開啟下載頁」按鈕原本 `window.open(WFG_LA_PACKAGE_URL)` 直接連 Bruce 的 Synology NAS 分享連結（`https://218.161.24.173:5001/d/s/...`，需分享密碼）。本版將該按鈕行為改為**彈出一個沿用頁面深色 dialog 樣式的對話框，內容顯示「需聯絡 Bruce 協助」**（附一句說明：如需要 WebUSB 韌體檔案包請聯絡 Bruce，取得後回上一視窗按「匯入 zip 檔案包」完成設定）。**不再自動連 NAS 下載**。「匯入 zip 檔案包」為另一顆獨立按鈕（`#wfg-la-package-input` → `wfgLaImportPackageZip()`），**保留不動**，Bruce 之後把檔案給使用者仍可匯入。
+
+**改動2 — 新增「清除韌體狀態」按鈕（方便 Bruce 測試）**：新增 `wfgLaClearFirmwareState()`，清掉存放韌體/裝置包的 **IndexedDB `wfg-la2016-firmware` 的 `files` object store**（fx2 / fpga 兩筆，`store.clear()`）＋ localStorage 的 `wfgLaPackageFileName` 檔名記錄，並重置記憶體旗標 `wfgLaHardwareReady = false`。清除前用 `confirm()` 二次確認，清除後 `alert()` 提示完成。清完後 `wfgLaHasStoredFirmwarePackage()` 回 false，下次按單次/循環即回到「第一次使用」流程（自動彈出檔案包引導）。按鈕放在 LA 工具列「設定」齒輪面板（`wfgLaRenderSettingsBody`）底部「韌體 / 測試」區。**只清韌體那份，不影響其他設定或波形**。
+
+**改的是哪段 code**：
+- `wfg.html`：引導視窗按鈕 onclick `wfgLaOpenPackageDownload()` → `wfgLaOpenContactBruce()`、label `wfg.laGuideOpenDownload` → `wfg.laGuideContactBruce`；新增 `wfgLaOpenContactBruce()` / `wfgLaCloseContactBruce()`（獨立 backdrop id `wfg-la-contact-backdrop`，沿用 `.wfg-la-guide-*` 深色樣式）；原 `wfgLaOpenPackageDownload()` 改為導向 `wfgLaOpenContactBruce()`（相容 alias，移除 `window.open(NAS)`）。新增 `wfgLaClearFirmwareState()`；`wfgLaRenderSettingsBody()` innerHTML 末端加「韌體 / 測試」區與清除按鈕。
+- `common/i18n.js`：新增 `wfg.laGuideContactBruce` / `wfg.laContactTitle` / `wfg.laContactBody` / `wfg.laContactClose` / `wfg.laClearFwBtn` / `wfg.laClearFwConfirm` / `wfg.laClearFwDone` / `wfg.laClearFwFail` / `wfg.laClearFwSection`（皆 zh-TW/en/zh-CN）；`wfg.laGuideStep1` 措辭由「開啟下載頁、輸入分享密碼並下載」改為「請聯絡 Bruce 協助提供」。
+
+**未動 / 回歸**：WebUSB 灌韌體主流程（`wfgLaImportPackageZip` 驗 SHA-256、`wfgLaInitHardwareFromStoredFirmware`、`wfgLaUploadFx2Firmware` 兩階段重枚舉、FPGA 載入）一字未改；匯入 zip 功能保留；`WFG_LA_PACKAGE_URL` 常數保留但不再被任何按鈕呼叫。
+
+**版本同步**：`common/version.js` `wfg: v2.97.447 → v2.97.448`；`wfg.html` 的 `version.js?v=20260713wfg447 → 20260713wfg448`、`i18n.js?v=20260704e → 20260713wfg448`。
+
 ## TCON 波形產生器 (wfg) v2.97.447 — 2026-07-13
 
 **需求（Bruce，兩項一起進版）**：
