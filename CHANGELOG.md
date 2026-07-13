@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.459 — 2026-07-14
+
+**Bruce 回報（ON 連線狀態下）**：「執行」group 三顆按鈕中，**暫停**被選中時紅色會保持住（正確，維持）；但**單次觸發／連續觸發**只有滑鼠 hover 時才顯示綠色，**按下去（選中）之後綠色沒有保持，只剩藍色 focus 框**。Bruce 要的是：單次/連續觸發被選中後綠色也要持續保持（滑鼠移開仍綠，表示正在作用的取樣模式），比照暫停保持紅色。
+
+**根因（指到確切 code 行）**：`.play`/`.loop` 只有兩種綠色來源都是 `:hover`——
+- `.wfg-la-run-btn.hardware-ready.play:hover, .loop:hover { color:#4ade80 }`（wfg.html:295，hover 才綠）。
+- 選中狀態的 class `acq-active`（由 `wfgLaSyncCaptureButtons` 於 wfg.html:4691-4692 對 running+對應 mode 掛上）在 CSS 只對應到 `button.acq-active { box-shadow:0 0 0 2px #0ea5e9 }`（wfg.html:257，藍框），**沒有任何綠色 fill 規則**。對比暫停 `.stop.acq-active { color:#f87171; background:rgba(248,113,113,0.12) }`（wfg.html:298）就有持續紅色，所以只有暫停會保持顏色。
+
+**修法（只動配色，狀態機/邏輯不動）**：新增一條與 `.stop.acq-active` 同機制的綠色 active 規則（wfg.html:299）：
+```css
+.wfg-la-run-btn.play.acq-active, .wfg-la-run-btn.loop.acq-active { color:#4ade80 !important; background:rgba(74,222,128,0.12); }
+```
+- 特異度 (0,3,0)，壓過 292/294 灰底(0,2,0) 與 257 `button.acq-active` 藍框背景(0,2,1)，故選中後綠底+綠字持續保持，滑鼠移開仍綠。
+- 只覆寫 `color`/`background`，**不覆寫 `box-shadow`** → 257 的藍色 focus/選中框保留（Bruce 沒要求去掉），綠底＋藍框並存共同表達「選中」，鍵盤可及性不破壞。
+- hover 綠（295 `:hover`）與此互不干擾；顏色同為 `#4ade80` 無跳色。
+- **不影響 v455**：OFF 時 `.wfg-la-run-btn:disabled`（wfg.html:302，特異度 0,3,0、順序在後）照舊壓成暗灰、無框、不可點；且 disabled 時擷取不 running 亦不會掛 `acq-active`（雙保險）。
+- **不影響 v458**：完全未動 PWM 相關 JS/CSS。
+
+**差異一句話**：hover 綠是 `:hover` pseudo（滑鼠在上才綠）；本次加的是 `.acq-active` 選中態綠（按下選中後持續綠，與暫停紅色同一 active-class 機制）。
+
 ## TCON 波形產生器 (wfg) v2.97.458 — 2026-07-14
 
 **Bruce 實機回報 bug**：**重新整理頁面後、硬體連線按鈕還是 OFF（未按 ON），但 PWM1 就已經亮燈了。** OFF（含剛載入的預設 OFF、以及背景自動連上但使用者沒按 ON 的情況）時，PWM1/PWM2 就不該亮。
