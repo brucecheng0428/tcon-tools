@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.451 — 2026-07-13
+
+**需求（Bruce，逐字為準）**：在 LA「執行」group 內加一個硬體連線的 on/off 按鈕（兼狀態燈）。用途：若同時開著原廠 UI 且原廠 UI 也連著硬體，可用此按鈕把硬體控制權「搶回」本工具。預設灰 off；按 on → 綠 on 並搶回控制權；再按 → off 釋放；或控制權被搶走/裝置斷線 → 自動變 off。
+
+**改的是哪幾段 code（wfg.html + common）**：
+1. **HTML — 按鈕（`wfg.html` 執行 group，`<div class="wfg-la-tool-group">` 內、stop 按鈕之後）**：新增 `#wfg-la-link-btn`（`.wfg-la-link-btn`），內含 `#wfg-la-link-led`（燈點）+ `#wfg-la-link-text`（文字「連線 / 已連線」）。`onclick=wfgLaToggleHardwareLink()`，`data-i18n-title=wfg.laLinkBtnTitle`。放在「執行」group 內 single / repeat / stop 三顆之後（同一 group）。
+2. **CSS（`.wfg-la-run-btn.stop.acq-active` 之後）**：`.wfg-la-link-btn { display:none }`，僅 `@media(min-width:901px)` 桌面顯示（WebUSB 限桌面 Chrome/Edge，比照 `.wfg-la-view-io` 桌面專屬做法）。`.on`＝綠燈（`#22c55e` + 綠光暈）、預設＝灰燈（`#6b7280`）、`.busy`＝黃燈閃爍（沿用 `wfg-cursor-blink`）。
+3. **JS globals（`wfgLaReconnectUserCancelled` 之後）**：`wfgLaLinkActive`（燈綠/灰唯一真值＝是否握有控制權）、`wfgLaLinkBusy`、`wfgLaLinkHeartbeatTimer`。
+4. **JS 渲染（`wfgLaUpdateToolbarState` 末端）**：加 `wfgLaRenderLinkButton()`，依 `wfgLaLinkActive`/`wfgLaLinkBusy` 切 `on`/`busy` class 與文字、`aria-pressed`。
+5. **JS 狀態機（`window.wfgLaStopCapture` 之後）**：
+   - `wfgLaToggleHardwareLink()`：busy 時忽略連點；active→off、否則→on。
+   - `wfgLaHardwareLinkOn()`：`wfgLaGetReadyDevice()`（open，必要時跳 USB 選擇器）→ `wfgLaClaimKingstInterface()`（＝真正搶回控制權）。成功才 `wfgLaLinkActive=true` 亮綠，並輕量 `wfgLaCanReadProtocol` 判斷 protocol 是否就緒（不就緒仍算搶到控制權，僅提示需初始化）。**claim 失敗絕不假亮綠**：被占用→灰 + 「裝置被其他程式占用，無法取得控制權（請先關閉原廠 UI 或按其停止再試）」；取消→「未選擇 USB 裝置」。擷取進行中按 on 直接反映綠燈（控制權本就在本工具）。
+   - `wfgLaHardwareLinkOff()`：`releaseInterface`＋`close` 釋放控制權、燈回灰；擷取中拒絕釋放並提示先停止。
+   - `wfgLaLinkOnControlLost(reason)`：自動 off（斷線/handle 失效）→ 靜默轉灰 + 同步內部狀態。
+   - `wfgLaStartLinkHeartbeat()`/`wfgLaStopLinkHeartbeat()`：2s 輕量偵測（僅檢查 `dev.opened` + `getDevices` 仍含 Kingst，**不打 EP0** 以免未載韌體時誤判），擷取中/背景分頁略過。
+6. **JS 斷線掛勾（`navigator.usb` `disconnect` 監聽內、`wfgLaForgetDevice` 之後）**：`if (wfgLaLinkActive) wfgLaLinkOnControlLost(...)`，拔除 USB 立即轉灰。
+
+**搶控制權的真實能力與限制（誠實，未以假狀態掩蓋）**：WebUSB `claimInterface` 為獨佔。macOS 上若原廠 UI 目前正持有該 interface，本工具 claim 會直接失敗（無法強制 detach kernel/user driver）→ 維持灰燈 + 明確占用訊息。一旦本工具成功 claim，反過來原廠 UI 就 claim 不到。故本按鈕實作的是「硬體可被取得時 open+claim 搶下；被占用時誠實回報」，即『先放掉的一方另一方才能接手』——這是平台限制，不是本工具的取捨。
+
+**驗證（見該版驗證章節；下方 commit）**：UI 狀態機以 Chrome 實測（灰↔綠切換、busy 黃燈、claim 失敗維持灰＋訊息、失控自動回灰）。實機（LA2016 已接 + USB 選擇器配對）之真正 claim 搶回/釋放屬需 Bruce 端硬體的部分，照實標示。
+
+**版本同步**：`common/version.js` `wfg: v2.97.450 → v2.97.451`；`wfg.html` `version.js?v=…wfg450→wfg451`、`i18n.js?v=…wfg449→wfg451`；`common/i18n.js` 新增 `wfg.laLinkBtnTitle / laLinkOff / laLinkOn`。
+
 ## TCON 波形產生器 (wfg) v2.97.450 — 2026-07-13
 
 **需求（Bruce）**：修好 LA 分頁 DP AUX 解碼「回覆前有 turn-around / pre-charge glitch 就被誤殺成 !ERR」的 bug，並推廣讓所有同因的假 !ERR 都能正確解出，同時不可過度抑制真正的線上異常。
