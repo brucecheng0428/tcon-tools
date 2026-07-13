@@ -116,7 +116,7 @@ var I18N = {
   'wfg.laGrpView':      { 'zh-TW': '檢視', 'en': 'View', 'zh-CN': '查看' },
   'wfg.laGrpPwm':       { 'zh-TW': 'PWM', 'en': 'PWM', 'zh-CN': 'PWM' },
   'wfg.laGrpCursor':    { 'zh-TW': '游標', 'en': 'Cursor', 'zh-CN': '光标' },
-  'wfg.laLinkBtnTitle': { 'zh-TW': '硬體連線 on/off：按下=向 LA2016 搶回控制權（claim）；再按=釋放（讓原廠 UI 接手）。若被其他程式占用則維持灰燈。', 'en': 'Hardware link on/off: press to claim the LA2016 (take control back); press again to release. Stays grey if another app holds the device.', 'zh-CN': '硬件连线 on/off：按下=向 LA2016 抢回控制权（claim）；再按=释放（让原厂 UI 接手）。若被其他程序占用则维持灰灯。' },
+  'wfg.laLinkBtnTitle': { 'zh-TW': '硬體連線 ON/OFF：按下=向 LA2016 搶回控制權（claim），燈號轉綠 ON；再按=釋放（讓原廠 UI 接手），轉灰 OFF。若被其他程式占用則維持灰 OFF 並顯示訊息。', 'en': 'Hardware link ON/OFF: press to claim the LA2016 (take control back, LED turns green ON); press again to release (grey OFF). Stays grey OFF with a message if another app holds the device.', 'zh-CN': '硬件连线 ON/OFF：按下=向 LA2016 抢回控制权（claim），灯号转绿 ON；再按=释放（让原厂 UI 接手），转灰 OFF。若被其他程序占用则维持灰 OFF 并显示讯息。' },
   'wfg.laLinkOff':      { 'zh-TW': '連線', 'en': 'Link', 'zh-CN': '连线' },
   'wfg.laLinkOn':       { 'zh-TW': '已連線', 'en': 'Linked', 'zh-CN': '已连线' },
   'wfg.siggenWip':      { 'zh-TW': '訊號產生器模式 — 開發中', 'en': 'Signal Generator Mode — Work in Progress', 'zh-CN': '信号产生器模式 — 开发中' },

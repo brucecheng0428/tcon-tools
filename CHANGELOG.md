@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.452 — 2026-07-13
+
+**需求（Bruce）**：v2.97.451 的連線燈號按鈕，把 on/off 字樣改成放在**燈號內部**、且用**英文 ON / OFF**（不要外部中文「連線／已連線」標籤）。燈號圓點改成膠囊，內顯示 ON（綠）／ OFF（灰）。
+
+**改的是哪幾段 code**：
+1. **HTML（執行 group 內 `#wfg-la-link-btn`）**：移除外部 `#wfg-la-link-text`（中文「連線」）span；`#wfg-la-link-led` 內文改由 JS 填 `ON`/`OFF`，預設 `OFF`。
+2. **CSS（`@media(min-width:901px)` 內 `.wfg-la-link-led`）**：燈號從 10px 圓點改為膠囊（`min-width:34px;height:18px;border-radius:9px`），內含 `ON`/`OFF` 文字（700 10px 等寬字、字距 0.6px、置中）。off=灰底(`#6b7280`)深字；`.on`=綠底(`#22c55e`)深字+綠光暈；`.busy`=黃底閃爍。按鈕本身縮為燈號 hit area。
+3. **JS（`wfgLaRenderLinkButton`）**：不再操作已移除的 text span；改為 `led.textContent = busy ? '…' : (active ? 'ON' : 'OFF')`。
+4. **i18n（`wfg.laLinkBtnTitle`）**：tooltip 文案更新為 ON/OFF 用語（三語）。`laLinkOff/laLinkOn` 已不再使用（保留不影響）。
+
+**實機驗證（真實 LA2016，非模擬）**：見本版下方「實機」小節與 v2.97.451。首次 USB 選擇器由 Bruce 手點完成配對後，此 origin `getDevices()` 由 0→1，網頁按 ON 對真實 LA2016（VID 0x77a1 / PID 0x01a2）`open()`+`claimInterface()` 成功、`device.opened=true`、燈號轉綠 ON。
+
+**版本同步**：`common/version.js` `wfg: v2.97.451 → v2.97.452`；`wfg.html` `version.js?v` / `i18n.js?v` → `…wfg452`。
+
 ## TCON 波形產生器 (wfg) v2.97.451 — 2026-07-13
 
 **需求（Bruce，逐字為準）**：在 LA「執行」group 內加一個硬體連線的 on/off 按鈕（兼狀態燈）。用途：若同時開著原廠 UI 且原廠 UI 也連著硬體，可用此按鈕把硬體控制權「搶回」本工具。預設灰 off；按 on → 綠 on 並搶回控制權；再按 → off 釋放；或控制權被搶走/裝置斷線 → 自動變 off。
