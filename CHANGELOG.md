@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.461 — 2026-07-14
+
+**Bruce 要求（「執行」group 兩件事）**：
+1. 硬體連線按鈕（電源圖示 + 下方 ON/OFF 文字）比右邊三顆（單次/循環/暫停）高、垂直對不齊 → **移除下方 ON/OFF 文字**、電源圖示高度與三顆 icon 同列齊平。
+2. 確認單次/循環/暫停**一次只有一顆 active**（前一 task 截圖出現三顆同時藍框，疑似同時選中）。
+
+**改動一：移除文字 + 對齊（改了哪幾行）**
+- CSS `.wfg-la-toolbar .wfg-la-link-btn`（wfg.html:318）：`height:40px→26px`、`width:42px→26px`，移除 `flex-direction:column / justify-content:flex-end / gap:2px / padding:0 2px 1px`，改 `align-items:center; justify-content:center; padding:0` → 圓底圖示垂直置中，與 `.wfg-la-tool-group{height:48px; align-items:flex-end}` 內三顆 `.wfg-la-run-btn`（height:26px）同列齊平。
+- 移除已無用的 `.wfg-la-link-text` 規則與 `.on/.busy .wfg-la-link-text` 兩條顏色規則（原 wfg.html:324/329/334）。
+- HTML（wfg.html:1358）：移除 `<span class="wfg-la-link-text" id="wfg-la-link-led">OFF</span>`，只留電源圖示 `<span class="wfg-la-link-icon">`。
+- JS 未動：`wfgLaRenderLinkButton`（wfg.html:4708）取 `wfg-la-link-led` 時本已有 `if (led)` 守衛，led 移除後為 null 直接略過，不報錯。
+- **保留不變**：正圓（aspect-ratio:1 + border-radius:50%）、ON 亮綠圓底白圖示 + 綠光暈、OFF 融背景灰、busy 黃閃、狀態機、v455 OFF 三顆變灰、v458 PWM 綁定、v459 綠色保持、v460 claim 退避重試。
+
+**改動二：互斥（驗證結論＝已互斥，未改 code）**
+- 全檔 `acq-active` 的唯一寫入點只有 wfg.html:4693-4695 三行，皆由**單一全域 `wfgLaCaptureState`** 與 `cfg.acquisitionMode` 以 `classList.toggle('acq-active', 條件)` 各自重算：single=`running∧single`、repeat=`running∧repeat`、stop=`stopped`。任一時刻 state 為單值 → 至多一顆為真，切換時舊顆條件轉 false 自動清除，無殘留。
+- 前一 task 截圖三顆同時藍框，是該 task 為展示三色**人工同時套 class** 造成，非狀態機真實行為。**故不需修改**。
+
+**驗證（Chrome 本地 http server 白箱，未 push）**：
+- 版號：`TOOL_VERSIONS.wfg=v2.97.461`、`version.js?v=20260714wfg461` 已載入。
+- DOM：`wfg-la-link-led` 已不存在、`.wfg-la-link-text` 已移除；link-btn `height/width=26px`。
+- 對齊量測：link 圓 icon 與 single/repeat/stop 三顆 svg 的垂直中心 **dy 全=0**（完全齊平）；icon 正圓（w=h=26、border-radius:50%）。
+- 顏色（截圖像素為準）：OFF=圓融背景灰、ON=亮綠圓底 + 白電源圖示 + 綠光暈。（getComputedStyle 於 transition 進行中讀到過渡中間值，畫面 paint 為正確綠。）
+- 互斥真值表：A running/single→只 single；B running/repeat→只 repeat（single 已清）；C stopped→只 stop；D 其他態→零顆；`maxActiveEver=1`。截圖 running/single：只有 single 亮綠+藍框，repeat/stop 灰。
+- **限制**：ON 端到端需真 LA2016 硬體（WebUSB），無法自動化，留 Bruce 實機確認燈號亮綠；本次驗證為 DOM/CSS/class 白箱 + 截圖。
+
 ## TCON 波形產生器 (wfg) v2.97.460 — 2026-07-14
 
 **Bruce 回報（兩分頁搶斷硬體，機率性）**：同時開兩個 LA 網頁 A、B。A 先按 ON（claim 到硬體）；B 按 ON 顯示「硬體被占用」（正常，A 佔著）。**但有機率**：A 按 OFF 釋放後，B 再按 ON **仍顯示被占用**；必須把 **A 重新整理後再關 OFF**，B 才能正常 ON。Bruce 要求先分析根因，找不到就至少做穩健緩解。
