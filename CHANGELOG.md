@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.456 — 2026-07-14
+
+**需求（Bruce，同一次進版三件事）**：① 連線狀態（ON）下直接按硬體連線鈕想變 OFF 不行，變成要「先按停止鍵才能按 OFF」，不合理 → 按一次 OFF 就直接斷線；若擷取正在進行，按 OFF 時自動先執行停止擷取再斷線，不需按兩次。② 按 OFF、硬體斷線後 PWM1/PWM2 綠燈也要跟著熄滅。③ 硬體連線 on/off 按鈕位置從「執行」group 最右改到最左（單次/循環/暫停之前），只移位置。
+
+**擋住的確切根因（指到 code 行）**：`wfgLaHardwareLinkOff()`（舊 wfg.html:14468）開頭有 early return：
+
+```
+if (wfgLaCaptureRunning) {
+  wfgLaSetStatus(... '擷取進行中，請先按「停止」再釋放控制權');
+  wfgLaLinkToast('擷取進行中，請先按「停止」再釋放控制權', 'warn');
+  return;   // ← 就是這行擋住：擷取中按 OFF 直接被退回，逼使用者先手動按停止
+}
+```
+
+連線鈕本身 v455 已永遠可點（`wfgLaToggleHardwareLink` 只擋 `wfgLaLinkBusy` 連點），所以按得下去，但一進 `wfgLaHardwareLinkOff` 就被這個 `wfgLaCaptureRunning` 分支 `return` 掉，燈不會轉灰、不會斷線。
+
+**改的是哪幾段 code（只動 `wfgLaHardwareLinkOff`，狀態機/claim/heartbeat 其餘零改動）**：
+1. 刪掉上述 early return。改成先 `wfgLaLinkBusy=true` + `wfgLaStopLinkHeartbeat()`，進入 try 後**若 `wfgLaCaptureRunning` 為真，自動 `await wfgLaStopCapture()`**（＝停止鍵同一支函式：`wfgLaCaptureSessionToken++` 讓進行中的擷取迴圈 token 失效、送 `RUN=0x00`、`wfgLaCaptureRunning=false`）。
+2. 接著沿用原本的 `releaseInterface` 迴圈 + `dev.close()`。`close()` 會把任何 in-flight EP6 `transferIn` 乾淨中止並 reject；該 reject 落到 `wfgLaStartCapture` 的 catch（14318）時因 `sessionToken !== wfgLaCaptureSessionToken` 直接 `return`，不會誤觸 `wfgLaRecoverUsbDevice` 重連 → 無副作用。
+3. 斷線順序：中止擷取 → `RUN=0x00` → `releaseInterface` → `close` → 清 `wfgLaClaimedInterfaces`、`wfgLaLinkActive=false`、`wfgLaRenderLinkButton()`（燈轉灰、v455 的 single/repeat/stop 變灰邏輯照走）。
+
+**效果**：任何狀態按一次 OFF 都能斷線。擷取中按 OFF → 自動先停擷取再斷；未擷取按 OFF → 與舊版行為相同正常斷線（未進 `wfgLaCaptureRunning` 分支）。
+
+**② 斷線後 PWM1/PWM2 綠燈熄滅**：PWM 綠燈＝`.wfg-la-pwm.active`（CSS wfg.html:353，綠底綠字），由 `wfgLaUpdatePwmButtons()`（wfg.html:4797）以 `!!enabled && wfgLaHardwareReady`（4801-4802）決定。斷線＝硬體不再就緒，故只要 `wfgLaHardwareReady=false` 且有刷新即熄滅。改動：
+1. `wfgLaHardwareLinkOff()`（wfg.html，`wfgLaLinkActive=false` 之後）：原本靠 `wfgLaSetStatus('wfg-la-status-device','warn')`（7673-7677）間接設 `wfgLaHardwareReady=false` 並呼叫 `wfgLaUpdateToolbarState`→`wfgLaUpdatePwmButtons`，但該 toolbar 更新包在 try/catch（7677）有被吞風險 → **新增顯式 `try { wfgLaUpdatePwmButtons(); } catch {}`**，保證 OFF 一定刷新 PWM 熄滅。
+2. `wfgLaLinkOnControlLost()`（wfg.html，自動斷線：USB 拔除 7737 / heartbeat handle 失效）：原本只設 `wfgLaLinkActive=false` + 'bridge' 狀態，**不動 `wfgLaHardwareReady`**（'bridge' 非 'device'）→ PWM 不會刷新。**新增 `wfgLaHardwareReady=false` + `wfgLaUpdatePwmButtons()`**，自動斷線也熄滅 PWM。
+   ON（成功 claim 且 proto ok）→ `wfgLaSetStatus('device','ok')` 設 `wfgLaHardwareReady=true` → PWM 恢復反映實際 enabled 狀態，還原路徑未動。未加 `&& wfgLaLinkActive` 至 gate（避免「未按連線鈕直接擷取＝硬體就緒但 linkActive=false」被誤熄的回歸）。
+
+**③ 連線 on/off 按鈕移到「執行」group 最左**：HTML `<div class="wfg-la-tool-group">`（wfg.html:1349）內，把 `#wfg-la-link-btn`（原在 stop 之後、group 最右）移到 group-label「執行」之後、`#wfg-la-single-btn` 之前 → 成為 group 第一個按鈕（最左）。純移動 DOM 位置，class/onclick/圓形圖示/顏色/狀態機全部不變。其餘 單次→循環→暫停 順序不動。
+
+**驗證（Chrome MCP 自開分頁，操作式）**：見對話回報 — Node 狀態機模擬證 ①「擷取中按一次 OFF＝先停擷取再 release→close、燈灰」；Chrome 載入改版頁確認版本 v2.97.456、console 無錯、③ link 鈕在「執行」group 最左（單次前）、② 斷線態（`wfgLaHardwareReady=false`）PWM1/PWM2 無 `.active`（綠燈熄）並截圖。
+
+**版本同步**：`common/version.js` `wfg: v2.97.455 → v2.97.456`；`wfg.html` `version.js?v` / `i18n.js?v` → `…20260714wfg456`。
+
 ## TCON 波形產生器 (wfg) v2.97.455 — 2026-07-14
 
 **需求（Bruce）**：把「執行」group 內其他控制按鈕（單次/循環/暫停）的可用性綁定硬體連線 on/off。OFF（未連線）→ 不可點/不可選取、無藍色 focus 外框、變不明顯灰色、原紅色暫停鈕也要變灰；ON（已取得控制）→ 恢復正常（可點、暫停恢復紅色）。硬體沒連線就不能操作擷取控制，連線後才可用。

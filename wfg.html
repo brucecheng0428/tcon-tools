@@ -1348,11 +1348,12 @@
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpRun">執行</span>
+                    <!-- v2.97.456: 硬體連線 on/off 按鈕移到「執行」group 最左（單次/循環/暫停之前）。僅移動位置，樣式/狀態機/圓形/顏色不變。 -->
+                    <!-- v2.97.453: 硬體連線 on/off 按鈕（兼狀態燈），僅桌面顯示（WebUSB 限桌面 Chrome）。電源符號(⏻)圖示 + 下方 ON/OFF 文字：OFF=融入框背景熄滅；ON=亮綠圓底白圖示 -->
+                    <button type="button" class="wfg-la-link-btn" id="wfg-la-link-btn" onclick="wfgLaToggleHardwareLink()" title="硬體連線 on/off" data-i18n-title="wfg.laLinkBtnTitle" aria-pressed="false"><span class="wfg-la-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5 L12 12"></path><path d="M7.05 6.55 a7 7 0 1 0 9.9 0"></path></svg></span><span class="wfg-la-link-text" id="wfg-la-link-led">OFF</span></button>
                     <button class="wfg-la-run-btn play" id="wfg-la-single-btn" onclick="wfgLaRequestCaptureMode('single')" title="Start single sampling" data-i18n-title="wfg.laSingleSamplingTitle" aria-label="Start single sampling"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="fill-icon" d="M4 2v12l10-6z"></path></svg></button>
                     <button class="wfg-la-run-btn loop" id="wfg-la-repeat-btn" onclick="wfgLaRequestCaptureMode('repeat')" title="Auto restart sampling" data-i18n-title="wfg.laRepeatSamplingTitle" aria-label="Auto restart sampling"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 5A6 6 0 0 0 3.5 3.5"></path><path d="M13.5 1.8v3.2h-3.2"></path><path d="M2.5 11A6 6 0 0 0 12.5 12.5"></path><path d="M2.5 14.2V11h3.2"></path></svg></button>
                     <button class="wfg-la-run-btn stop" id="wfg-la-stop-btn" onclick="wfgLaStopCapture()" title="Stop sampling" data-i18n-title="wfg.laStopSamplingTitle" aria-label="Stop sampling"><svg viewBox="0 0 16 16" aria-hidden="true"><rect class="fill-icon" x="3" y="3" width="10" height="10" rx="1.5"></rect></svg></button>
-                    <!-- v2.97.453: 硬體連線 on/off 按鈕（兼狀態燈），僅桌面顯示（WebUSB 限桌面 Chrome）。電源符號(⏻)圖示 + 下方 ON/OFF 文字：OFF=融入框背景熄滅；ON=亮綠圓底白圖示 -->
-                    <button type="button" class="wfg-la-link-btn" id="wfg-la-link-btn" onclick="wfgLaToggleHardwareLink()" title="硬體連線 on/off" data-i18n-title="wfg.laLinkBtnTitle" aria-pressed="false"><span class="wfg-la-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5 L12 12"></path><path d="M7.05 6.55 a7 7 0 1 0 9.9 0"></path></svg></span><span class="wfg-la-link-text" id="wfg-la-link-led">OFF</span></button>
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpFile">檔案</span>
@@ -1513,8 +1514,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260713wfg455"></script>
-<script src="common/i18n.js?v=20260713wfg455"></script>
+<script src="common/version.js?v=20260714wfg456"></script>
+<script src="common/i18n.js?v=20260714wfg456"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形產生器 ═══════════
@@ -14464,30 +14465,37 @@ async function wfgLaHardwareLinkOn() {
   }
 }
 
-/* 按 off：releaseInterface + close，釋放控制權（讓原廠 UI 可接手），燈回灰。 */
+/* 按 off：releaseInterface + close，釋放控制權（讓原廠 UI 可接手），燈回灰。
+   v2.97.456：按一次 OFF 即斷線。若偵測到擷取進行中，OFF 會「自動先執行停止擷取」
+   （呼叫停止鍵同一支 wfgLaStopCapture：bump session token → 迴圈失效、送 RUN=0x00、
+   wfgLaCaptureRunning=false），再往下 releaseInterface + close 把 in-flight EP6
+   transfer 乾淨中止。使用者不需先手動按停止、不需按兩次。 */
 async function wfgLaHardwareLinkOff() {
   if (wfgLaLinkBusy) return;
-  // 擷取進行中不可中途釋放（會弄斷擷取）；要求先停止。
-  if (wfgLaCaptureRunning) {
-    wfgLaSetStatus('wfg-la-status-bridge', 'warn', '擷取進行中，請先按「停止」再釋放控制權');
-    wfgLaLinkToast('擷取進行中，請先按「停止」再釋放控制權', 'warn');
-    return;
-  }
   wfgLaLinkBusy = true;
   wfgLaRenderLinkButton();
   wfgLaStopLinkHeartbeat();
   try {
+    // v2.97.456：擷取進行中 → 自動先停止擷取再斷線（取代舊版「請先按停止」的 early return）。
+    if (wfgLaCaptureRunning) {
+      wfgLaSetStatus('wfg-la-status-bridge', 'warn', '偵測到擷取進行中，OFF 自動先停止擷取再斷線');
+      wfgLaLinkToast('擷取進行中，已自動停止擷取後斷線', 'warn');
+      try { await wfgLaStopCapture(); } catch (eStop) {}   // 收尾：token bump + RUN=0x00 + wfgLaCaptureRunning=false
+    }
     var dev = wfgLaUsbDevice;
     if (dev && dev.opened) {
       try { await wfgLaSetRunMode(dev, 0x00); } catch (e) {}   // 保險：停掉 RUN
       for (var i = 0; i < wfgLaClaimedInterfaces.length; i++) {
         try { await dev.releaseInterface(wfgLaClaimedInterfaces[i]); } catch (e2) {}
       }
-      try { await dev.close(); } catch (e3) {}
+      try { await dev.close(); } catch (e3) {}   // close 會中止任何 in-flight EP6 transferIn（乾淨 abort）
     }
     wfgLaClaimedInterfaces = [];
     wfgLaLinkActive = false;
-    wfgLaSetStatus('wfg-la-status-device', 'warn', '已釋放控制權（可讓原廠 UI 接手）');
+    wfgLaSetStatus('wfg-la-status-device', 'warn', '已釋放控制權（可讓原廠 UI 接手）'); // 內含 wfgLaHardwareReady=false
+    // v2.97.456：硬體斷線 → PWM1/PWM2 綠燈一併熄滅。wfgLaUpdatePwmButtons 依 wfgLaHardwareReady
+    // 收斂 .active（綠燈）；此處顯式呼叫，不依賴 wfgLaSetStatus 內 toolbar 更新的 try/catch（避免被吞）。
+    try { wfgLaUpdatePwmButtons(); } catch (ePwm) {}
     wfgLaSetStatus('wfg-la-status-bridge', 'warn', '已 release interface / close，device handle 保留');
     wfgLaLinkToast('已釋放控制權（連線 off，可讓原廠 UI 接手）', 'warn');
   } finally {
@@ -14503,6 +14511,9 @@ function wfgLaLinkOnControlLost(reason) {
   wfgLaClaimedInterfaces = [];   // 控制權已失，清掉過期 claim 記錄
   wfgLaStopLinkHeartbeat();
   wfgLaRenderLinkButton();
+  // v2.97.456：自動斷線（USB 拔除 / handle 失效）也視為硬體不再就緒 → PWM1/PWM2 綠燈熄滅。
+  wfgLaHardwareReady = false;
+  try { wfgLaUpdatePwmButtons(); } catch (ePwm) {}
   if (reason) { wfgLaSetStatus('wfg-la-status-bridge', 'warn', reason); wfgLaLinkToast(reason, 'err'); }
 }
 window.wfgLaLinkOnControlLost = wfgLaLinkOnControlLost;
