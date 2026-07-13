@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.449 — 2026-07-13
+
+**需求（Bruce）**：LA 分頁「取得韌體檔案（聯絡 Bruce）」按鈕按下後的對話框/引導文字裡，只寫「Bruce」，不要露出中文全名。
+
+**改的是哪段 code（只動文字，不動任何功能）**：
+- `common/i18n.js`：
+  - `wfg.laGuideStep1`（引導視窗第一步說明）zh-TW「請聯絡 Bruce（鄭少鈞）協助提供」→「請聯絡 Bruce 協助提供」；zh-CN「请联络 Bruce（郑少钧）协助提供」→「请联络 Bruce 协助提供」。
+  - `wfg.laContactBody`（「需聯絡 Bruce 協助」對話框內文）zh-TW「請聯絡 Bruce（鄭少鈞）協助提供」→「請聯絡 Bruce 協助提供」；zh-CN「请联络 Bruce（郑少钧）协助提供」→「请联络 Bruce 协助提供」。
+  - `en` 兩者原本即為「contact Bruce」，未動。其餘 key（`laGuideContactBruce` label、`laContactTitle`、`laContactClose`、清除韌體相關）本就只有英文 Bruce，未動。
+
+**未動 / 回歸**：對話框開關函式 `wfgLaOpenContactBruce` / `wfgLaCloseContactBruce`、按鈕行為、清除韌體狀態、匯入 zip、WebUSB 灌韌體主流程一字未改。
+
+**版本同步**：`common/version.js` `wfg: v2.97.448 → v2.97.449`；`wfg.html` 的 `version.js?v=20260713wfg448 → wfg449`、`i18n.js?v=20260713wfg448 → wfg449`。
+
 ## TCON 波形產生器 (wfg) v2.97.448 — 2026-07-13
 
 **需求（Bruce，LA 分頁 WebUSB 韌體流程兩項 UI 改動）**：
