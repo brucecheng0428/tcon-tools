@@ -1519,7 +1519,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg459"></script>
+<script src="common/version.js?v=20260714wfg460"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -8971,6 +8971,40 @@ async function wfgLaClaimKingstInterface(dev, lines) {
   throw new Error('No USB interface available to claim');
 }
 
+/* v2.97.460：claim 退避重試。
+   情境：同時開兩個 LA 分頁搶斷硬體時，分頁 A 按 OFF（已 await releaseInterface + close）
+   釋放控制權後，分頁 B 立刻按 ON。WebUSB 的 claimInterface 是「獨佔」的，而 A 的 OFF 與
+   B 的 ON 分屬兩個 render process，macOS IOKit 把 A 端的 USB 獨佔「完全」放掉存在非確定性
+   的短暫延遲（數十～數百 ms）。若 B 剛好在此釋放窗口內 claim，就會 throw → 誤判「被占用」。
+   （重整 A 之所以「必成功」＝整個 render process 被銷毀，OS 強制回收該 process 全部 USB
+    handle，故不再有窗口。）
+   對策：claim 失敗且屬「占用類」錯誤時，做小退避重試涵蓋此窗口；使用者取消 / 無 interface
+   不重試；全部重試仍失敗才往外拋（由呼叫端顯示「被占用」）→ 真的被另一端長期占用時仍正確。 */
+async function wfgLaClaimWithRetry(dev, lines) {
+  var backoffMs = [0, 200, 300, 400];   // 首次立即 + 3 次重試，累計覆蓋 ~900ms 釋放窗口
+  var lastErr = null;
+  for (var attempt = 0; attempt < backoffMs.length; attempt++) {
+    if (attempt > 0) {
+      wfgLaLinkToast('裝置暫時無法取得（另一端剛釋放中），重試取得控制權（' + attempt + '/' + (backoffMs.length - 1) + '）…', 'warn');
+      await wfgLaSleep(backoffMs[attempt]);
+    }
+    try {
+      return await wfgLaClaimKingstInterface(dev, lines);
+    } catch (err) {
+      lastErr = err;
+      var msg = err && err.message ? err.message : String(err);
+      // 使用者取消 / 沒有可用 interface → 不是短暫窗口問題，立即拋出不重試。
+      if (err && (err.name === 'NotFoundError' || /No device selected|No USB interface/i.test(msg))) throw err;
+      // 只有「占用類」錯誤才值得等 OS 釋放後重試。
+      var occupied = /claim|access|busy|InvalidStateError|SecurityError|NetworkError/i.test(msg) ||
+                     (err && (err.name === 'InvalidStateError' || err.name === 'SecurityError' || err.name === 'NetworkError'));
+      if (!occupied) throw err;                 // 非占用類（例如 alt-setting 失敗）→ 不重試
+      // 下一輪重試（若還有次數）；用盡則跳出迴圈後拋 lastErr。
+    }
+  }
+  throw lastErr;
+}
+
 async function wfgLaUploadFpgaBitstream(dev, bitstream, lines) {
   if (!bitstream || !bitstream.bytes || !bitstream.bytes.byteLength) throw new Error('FPGA bitstream file is empty');
   lines.push('FPGA bitstream upload: ' + bitstream.name + ' bytes=' + bitstream.bytes.byteLength);
@@ -14487,7 +14521,7 @@ async function wfgLaHardwareLinkOn() {
   wfgLaSetStatus('wfg-la-status-device', 'warn', '正在向 LA2016 取得控制權（claim）...');
   try {
     var dev = await wfgLaGetReadyDevice();          // open（必要時跳出 USB 選擇器）
-    await wfgLaClaimKingstInterface(dev, null);     // ← 真正的「搶回控制權」；被占用會 throw
+    await wfgLaClaimWithRetry(dev, null);           // ← 真正的「搶回控制權」；被占用會 throw（v2.97.460：加退避重試涵蓋另一端剛 OFF 的 OS 釋放窗口）
     wfgLaLinkActive = true;
     // claim 成功＝已握有 USB interface；再輕量確認 protocol 是否就緒（不就緒不代表沒搶到控制權）
     var proto = false;
@@ -14543,7 +14577,14 @@ async function wfgLaHardwareLinkOff() {
       for (var i = 0; i < wfgLaClaimedInterfaces.length; i++) {
         try { await dev.releaseInterface(wfgLaClaimedInterfaces[i]); } catch (e2) {}
       }
-      try { await dev.close(); } catch (e3) {}   // close 會中止任何 in-flight EP6 transferIn（乾淨 abort）
+      // close 會中止任何 in-flight EP6 transferIn（乾淨 abort）。
+      // v2.97.460：close 失敗（例如仍有 in-flight transfer）時短延遲後再試一次，
+      // 盡量讓 OS/IOKit 徹底釋放 USB 獨佔，縮短另一分頁 claim 撞到的「未完全釋放」窗口。
+      try {
+        await dev.close();
+      } catch (e3) {
+        try { await wfgLaSleep(120); if (dev.opened) await dev.close(); } catch (e3b) {}
+      }
     }
     wfgLaClaimedInterfaces = [];
     wfgLaLinkActive = false;

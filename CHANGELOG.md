@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.460 — 2026-07-14
+
+**Bruce 回報（兩分頁搶斷硬體，機率性）**：同時開兩個 LA 網頁 A、B。A 先按 ON（claim 到硬體）；B 按 ON 顯示「硬體被占用」（正常，A 佔著）。**但有機率**：A 按 OFF 釋放後，B 再按 ON **仍顯示被占用**；必須把 **A 重新整理後再關 OFF**，B 才能正常 ON。Bruce 要求先分析根因，找不到就至少做穩健緩解。
+
+**根因分析（指到確切 code 行）**：
+- OFF 路徑 `wfgLaHardwareLinkOff`（wfg.html:14528）**已正確 await**：`wfgLaSetRunMode 0x00` → `releaseInterface`（14544）→ `await dev.close()`（14546）。非擷取情境無 in-flight transfer，close 乾淨。
+- 背景輪詢 `wfgLaStartUsbPresencePoll`（wfg.html:7853）與重連 `wfgLaStartReconnectAutoInit`（7801）在 v457 已由 `wfgLaLinkUserOff` 旗標擋住（7805、7860），且 poll 另有 `wfgLaHardwareReady` 閘門（7857）；heartbeat 在 OFF 開頭即 `wfgLaStopLinkHeartbeat()`（14532）。**逐一檢查未發現 A 在 OFF 後又把 device re-open 的 race**。
+- 真正根因＝**跨 render process + macOS IOKit 的 USB 獨佔釋放時序窗口**：WebUSB `claimInterface` 為獨佔；A 的 OFF（A 分頁 process）與 B 的 ON（B 分頁 process）分屬兩個 render process，`dev.close()` 的 Promise resolve 後，OS/IOKit 把 A 端獨佔「完全」放掉存在**非確定性的短暫延遲（數十～數百 ms）**。B 若在此窗口內 `claimInterface`（wfg.html:8964）→ throw → `wfgLaHardwareLinkOn` 的 catch（14504）**直接判「被占用」、無重試**。這完美解釋「機率性」（取決於 B 按 ON 落點）與「重整 A 必正常」（整個 render process 銷毀 → OS 強制回收該 process 全部 USB handle，窗口消失）。
+
+**修法（雙管齊下，緩解為主）**：
+1. **B 端 claim 退避重試**（wfg.html 新增 `wfgLaClaimWithRetry`）：`wfgLaHardwareLinkOn` 改呼叫此包裝（14490）。claim 失敗且屬「占用類」錯誤（claim/access/busy/InvalidStateError/SecurityError/NetworkError）時，以退避 `[0,200,300,400]ms`（首次立即＋3 次重試，累計覆蓋 ~900ms）重試，涵蓋 A 剛 OFF、OS 尚未完全釋放的短暫窗口；**使用者取消（NotFoundError）/ 無 interface 不重試**；重試用盡仍失敗才往外拋 → 由 catch 顯示「被占用」。**故 A 真的長期佔著時 B 仍會（約 0.9s 後）正確顯示被占用**，不破壞正常行為。
+2. **A 端 OFF 徹底釋放**（wfg.html:14546 一帶）：`dev.close()` 失敗時短延遲 120ms 後再試一次，盡量讓 OS 徹底釋放，縮短另一分頁撞到「未完全釋放」的窗口。
+
+**驗證**：程式路徑分析已指到行；`wfgLaClaimWithRetry` 的退避/占用判定/取消不重試邏輯以 Chrome 分頁載入實測（見對話）。**機率性 + 真 LA2016 + 兩分頁 race 的端到端無法自動穩定重現，留 Bruce 兩分頁實機確認**（預期：A OFF 後 B 就算撞到窗口也會在退避內自動 claim 成功，不再需要重整 A）。
+
 ## TCON 波形產生器 (wfg) v2.97.459 — 2026-07-14
 
 **Bruce 回報（ON 連線狀態下）**：「執行」group 三顆按鈕中，**暫停**被選中時紅色會保持住（正確，維持）；但**單次觸發／連續觸發**只有滑鼠 hover 時才顯示綠色，**按下去（選中）之後綠色沒有保持，只剩藍色 focus 框**。Bruce 要的是：單次/連續觸發被選中後綠色也要持續保持（滑鼠移開仍綠，表示正在作用的取樣模式），比照暫停保持紅色。
