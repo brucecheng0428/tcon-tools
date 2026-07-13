@@ -1514,8 +1514,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg456"></script>
-<script src="common/i18n.js?v=20260714wfg456"></script>
+<script src="common/version.js?v=20260714wfg457"></script>
+<script src="common/i18n.js?v=20260714wfg457"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形產生器 ═══════════
@@ -3764,6 +3764,13 @@ var wfgLaReconnectUserCancelled = false;
 var wfgLaLinkActive = false;
 var wfgLaLinkBusy = false;            // on/off 進行中，避免連點
 var wfgLaLinkHeartbeatTimer = 0;      // 定期驗證控制權是否仍在（偵測失控自動 off）
+/* v2.97.457: 使用者是否「顯式」按過 OFF（斷線）。
+   true 時，任何背景自動流程（USB presence poll / reconnect auto-init）都不得再把
+   device 狀態設回 'ok'（→ wfgLaHardwareReady=true → PWM 綠燈復亮）。
+   直到使用者按 ON（wfgLaHardwareLinkOn 清除此旗標）才恢復自動連線。
+   根因：OFF 只把 hardwareReady 設 false，但 presence poll（每 2.5s）會 re-open 裝置、
+   protocol 讀通後呼叫 wfgLaSetStatus(device,'ok') 使 PWM1 在 ~2.5s 後復亮。 */
+var wfgLaLinkUserOff = false;
 var wfgLaIoSelectLockUntil = 0;
 var wfgLaManualStopRequested = false;
 var wfgLaManualStopKeepLastComplete = false;
@@ -4801,6 +4808,30 @@ function wfgLaUpdatePwmButtons() {
   var b2 = document.getElementById('wfg-la-pwm2-btn');
   if (b1) b1.classList.toggle('active', !!state.pwm1.enabled && wfgLaHardwareReady);
   if (b2) b2.classList.toggle('active', !!state.pwm2.enabled && wfgLaHardwareReady);
+}
+
+/* v2.97.457: 若 PWM 設定選單當下開著，把選單裡的 checkbox 勾選狀態同步成
+   wfgLaPwmState 的 enabled 真值（燈與選單勾選共用同一真值來源，不會各走各的）。 */
+function wfgLaPwmSyncDialogChecks() {
+  var back = document.getElementById('wfg-la-pwm-backdrop');
+  if (!back) return;
+  ['pwm1', 'pwm2'].forEach(function(id) {
+    var en = document.getElementById('wfg-la-' + id + '-en');
+    if (en) en.checked = !!(wfgLaPwmState && wfgLaPwmState[id] && wfgLaPwmState[id].enabled);
+  });
+  try { wfgLaUpdatePwmDialogEnabled(); } catch (e) {}
+}
+
+/* v2.97.457: 斷線 / OFF 時的 PWM 收斂 —— enabled 是燈與選單勾選的「單一真值」。
+   斷線代表已 release interface、硬體 PWM 不再由本工具驅動 → enabled 一律歸零。
+   如此：①燈（enabled && hardwareReady）必滅，即使有任何背景刷新把 hardwareReady
+   誤設回 true 也不會復亮（雙保險）；②選單 checkbox 同步取消勾選，三者一致。
+   重新連線（ON）後使用者若要 PWM，重開選單勾選即可。 */
+function wfgLaPwmForceDisableOnDisconnect() {
+  if (wfgLaPwmState && wfgLaPwmState.pwm1) wfgLaPwmState.pwm1.enabled = false;
+  if (wfgLaPwmState && wfgLaPwmState.pwm2) wfgLaPwmState.pwm2.enabled = false;
+  try { wfgLaUpdatePwmButtons(); } catch (e) {}
+  wfgLaPwmSyncDialogChecks();
 }
 
 function wfgLaPwmDialogRow(id, cfg) {
@@ -7752,6 +7783,9 @@ function wfgLaInstallUsbWatchers() {
 
 function wfgLaStartReconnectAutoInit(eventDevice) {
   if (!navigator.usb) return;
+  // v2.97.457：使用者已顯式 OFF → 不自動重連/重初始化（否則會把 device 設回 ok 使 PWM 復亮）。
+  // 需使用者按 ON 才恢復（wfgLaHardwareLinkOn 清除 wfgLaLinkUserOff）。
+  if (wfgLaLinkUserOff) return;
   wfgLaReconnectUserCancelled = false;
   var token = ++wfgLaReconnectAttemptToken;
   var started = Date.now();
@@ -7804,6 +7838,9 @@ function wfgLaStartUsbPresencePoll() {
   wfgLaUsbPollTimer = setInterval(function() {
     if (document.hidden || wfgCurrentMode !== 'la' || wfgLaCaptureRunning) return;
     if (wfgLaHardwareReady || wfgLaPendingRenumeration) return;
+    // v2.97.457: 使用者已顯式 OFF → 不自動 re-open 裝置、不自動把 device 設回 'ok'
+    // （否則此 poll 會在 ~2.5s 後把 PWM 綠燈復亮）。等使用者按 ON 才恢復。
+    if (wfgLaLinkUserOff) return;
     wfgLaRefreshUsbPresence({ autoInit: true, quietMissing: true, fromPoll: true }).catch(function() {});
   }, 2500);
 }
@@ -14413,6 +14450,7 @@ window.wfgLaToggleHardwareLink = wfgLaToggleHardwareLink;
    成功才亮綠；claim 失敗（被占用/取消）維持灰 off 並給明確訊息。 */
 async function wfgLaHardwareLinkOn() {
   if (wfgLaLinkBusy || wfgLaLinkActive) return;
+  wfgLaLinkUserOff = false;   // v2.97.457：使用者主動按 ON → 解除「顯式 OFF」封鎖，恢復背景自動連線/初始化
   if (!('usb' in navigator)) {
     wfgLaSetStatus('wfg-la-status-device', 'err', '此瀏覽器不支援 WebUSB（請用桌面版 Chrome/Edge）');
     return;
@@ -14492,10 +14530,10 @@ async function wfgLaHardwareLinkOff() {
     }
     wfgLaClaimedInterfaces = [];
     wfgLaLinkActive = false;
+    wfgLaLinkUserOff = true;   // v2.97.457：使用者顯式 OFF → 禁止背景 poll/reconnect 自動把 device 設回 ok（PWM 復亮根因）
     wfgLaSetStatus('wfg-la-status-device', 'warn', '已釋放控制權（可讓原廠 UI 接手）'); // 內含 wfgLaHardwareReady=false
-    // v2.97.456：硬體斷線 → PWM1/PWM2 綠燈一併熄滅。wfgLaUpdatePwmButtons 依 wfgLaHardwareReady
-    // 收斂 .active（綠燈）；此處顯式呼叫，不依賴 wfgLaSetStatus 內 toolbar 更新的 try/catch（避免被吞）。
-    try { wfgLaUpdatePwmButtons(); } catch (ePwm) {}
+    // v2.97.457：硬體斷線 → PWM1/PWM2 綠燈熄滅，且選單勾選同步取消（enabled 歸零＝單一真值，雙保險防復亮）。
+    try { wfgLaPwmForceDisableOnDisconnect(); } catch (ePwm) {}
     wfgLaSetStatus('wfg-la-status-bridge', 'warn', '已 release interface / close，device handle 保留');
     wfgLaLinkToast('已釋放控制權（連線 off，可讓原廠 UI 接手）', 'warn');
   } finally {
@@ -14511,9 +14549,10 @@ function wfgLaLinkOnControlLost(reason) {
   wfgLaClaimedInterfaces = [];   // 控制權已失，清掉過期 claim 記錄
   wfgLaStopLinkHeartbeat();
   wfgLaRenderLinkButton();
-  // v2.97.456：自動斷線（USB 拔除 / handle 失效）也視為硬體不再就緒 → PWM1/PWM2 綠燈熄滅。
+  // v2.97.457：自動斷線（USB 拔除 / handle 失效）也視為硬體不再就緒 → PWM1/PWM2 綠燈熄滅、選單勾選同步取消。
   wfgLaHardwareReady = false;
-  try { wfgLaUpdatePwmButtons(); } catch (ePwm) {}
+  wfgLaLinkUserOff = true;   // 視同已斷線：禁止背景 poll 自動復連而使 PWM 復亮，直到使用者按 ON
+  try { wfgLaPwmForceDisableOnDisconnect(); } catch (ePwm) {}
   if (reason) { wfgLaSetStatus('wfg-la-status-bridge', 'warn', reason); wfgLaLinkToast(reason, 'err'); }
 }
 window.wfgLaLinkOnControlLost = wfgLaLinkOnControlLost;

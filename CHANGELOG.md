@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.457 — 2026-07-14
+
+**Bruce 實機回報 bug**：按硬體連線鈕的 OFF（斷線）後，PWM1 綠燈會「熄一下、然後又復亮」。並要求：斷線後任何背景刷新都不可再把 PWM 燈點亮，直到重新連線（ON）；且 PWM 設定選單裡的勾選（checkbox）狀態要跟燈號用同一真值來源同步。
+
+**復亮根因（指到確切 code 行）**：不是 PWM 特有問題，而是背景 USB presence 輪詢把 `wfgLaHardwareReady` 重設回 `true`。
+- v2.97.456 的 OFF 流程 `wfgLaHardwareLinkOff()` 只做到 `wfgLaSetStatus('wfg-la-status-device','warn')` → `wfgLaHardwareReady=false`（wfg.html:7675）+ `wfgLaUpdatePwmButtons()` → PWM 燈熄。**但裝置 handle 保留、且仍實體插著並已授權**。
+- `wfgLaStartUsbPresencePoll()` 的 `setInterval`（每 2500ms，wfg.html:7804）判斷條件只有 `!hardwareReady`（7806）→ OFF 後 `hardwareReady=false` 反而讓輪詢「通過閘門」開始跑。
+- 輪詢呼叫 `wfgLaRefreshUsbPresence({autoInit:true,...})`：`getDevices()` 找到仍插著的 Kingst 裝置 → `wfgLaOpenDevice(dev)` 重新開啟 → 韌體仍常駐、`wfgLaCanReadProtocol` 讀通 → **執行 `wfgLaSetStatus('wfg-la-status-device','ok', ...)`（wfg.html:7854）** → `wfgLaHardwareReady=true` → `wfgLaUpdateToolbarState` → `wfgLaUpdatePwmButtons` → **PWM1 在約 2.5s 後復亮**。這正好對上「熄一下又亮」的時間感。
+- **為何只有 PWM1**：`wfgLaUpdatePwmButtons` 亮燈條件 = `enabled && hardwareReady`。預設只有 `pwm1.enabled=true`、`pwm2.enabled=false`（wfg.html:3786-3787）。hardwareReady 復真時，只有被啟用的 PWM1 會亮，PWM2 因 enabled=false 不亮。所以這不是 PWM1 專屬 bug，而是「唯一被啟用的那個」被復亮。
+
+**修法（收斂到單一真值 + 阻斷背景復連）**：
+1. **新增顯式 OFF 旗標 `wfgLaLinkUserOff`**（wfg.html:3767 附近宣告）。使用者按 OFF → `wfgLaHardwareLinkOff()` 設 `wfgLaLinkUserOff=true`；自動斷線 `wfgLaLinkOnControlLost()` 也設 true；按 ON `wfgLaHardwareLinkOn()` 開頭設回 false。
+2. **presence 輪詢加閘**（wfg.html:7806 附近）：`if (wfgLaLinkUserOff) return;` → 顯式 OFF 後不再自動 re-open 裝置、不再把 device 設回 ok，PWM 不會復亮，直到 ON。
+3. **reconnect 自動初始化加閘**（`wfgLaStartReconnectAutoInit` 開頭）：`if (wfgLaLinkUserOff) return;` → 連 USB 拔插事件也不會在顯式 OFF 後自動復連復亮。
+4. **PWM 燈與選單勾選收斂到同一真值 `enabled`**：新增 `wfgLaPwmForceDisableOnDisconnect()`（wfg.html:4813 附近）——斷線／OFF 時把 `wfgLaPwmState.pwm1/pwm2.enabled` 一律歸零，再 `wfgLaUpdatePwmButtons()` 熄燈；若 PWM 選單當下開著，`wfgLaPwmSyncDialogChecks()` 同步把選單 checkbox 取消勾選並更新 disabled 樣式。OFF 與 control-lost 兩處由原本的 `wfgLaUpdatePwmButtons()` 改呼叫此函式。
+   - 因燈 = `enabled && hardwareReady`，斷線後 `enabled=false` 且 `hardwareReady=false` → **雙保險**：就算任何背景刷新誤把 hardwareReady 設回 true，燈仍不會亮。燈、選單勾選、`wfgLaPwmState` 三者皆由 `enabled` 驅動，永遠一致。
+   - **行為變化（已告知 Bruce）**：斷線會清除 PWM 啟用狀態，重新連線（ON）後如需 PWM，重開選單勾選即可。ON 後 hardwareReady 恢復、enabled 為使用者重設值 → 三者一致反映實際。
+
+**未破壞 ON 正常反映**：ON 路徑 `wfgLaHardwareLinkOn` 未改亮燈邏輯；未在 `wfgLaUpdatePwmButtons` 加 `&& wfgLaLinkActive`（避免 v456 記錄過的誤熄回歸），改由 enabled 單一真值收斂。首次使用（未曾按 OFF）`wfgLaLinkUserOff` 預設 false，輪詢自動初始化行為不變。
+
+**驗證**：見對話回報（Chrome MCP 自開分頁，模擬 presence 輪詢注入 hardwareReady 後確認 PWM 不復亮、選單勾選同步、ON 後恢復；截圖）。
+
+**版本同步**：`common/version.js` `wfg: v2.97.456 → v2.97.457`；`wfg.html` `version.js?v` / `i18n.js?v` → `…20260714wfg457`。
+
 ## TCON 波形產生器 (wfg) v2.97.456 — 2026-07-14
 
 **需求（Bruce，同一次進版三件事）**：① 連線狀態（ON）下直接按硬體連線鈕想變 OFF 不行，變成要「先按停止鍵才能按 OFF」，不合理 → 按一次 OFF 就直接斷線；若擷取正在進行，按 OFF 時自動先執行停止擷取再斷線，不需按兩次。② 按 OFF、硬體斷線後 PWM1/PWM2 綠燈也要跟著熄滅。③ 硬體連線 on/off 按鈕位置從「執行」group 最右改到最左（單次/循環/暫停之前），只移位置。
