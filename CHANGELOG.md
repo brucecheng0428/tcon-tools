@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.453 — 2026-07-13
+
+**需求（Bruce）**：把「執行」group 內的硬體連線按鈕（v2.97.452 的膠囊+內嵌 ON/OFF 文字）改成**電源符號(⏻)圖示 + 圖示下方 ON/OFF 文字**的形式。ON=白色電源圖示填在**亮綠**圓底上（參考圖為紅，Bruce 要改亮綠）+ 下方 ON 文字；OFF=圖示用**與框框背景同色**的低調外觀（融入背景、看似熄滅）+ 下方 OFF 文字。狀態機/claim/release/自動 off 邏輯完全不動，只改視覺。
+
+**改的是哪幾段 code（只動視覺呈現，狀態機零改動）**：
+1. **CSS（`@media(min-width:901px)` 內 `.wfg-la-link-btn` 區塊，約 wfg.html:299-320）**：由「膠囊 + 內嵌文字」改為 `flex-direction:column` 的「圓底電源圖示 + 下方文字」。新增 `.wfg-la-link-icon`（26px 圓底，OFF 態 `background:#161b22` = 工具列 `.wfg-la-toolbar` 背景色 → 融入框背景熄滅、極淡 `inset` 內描邊）與 `.wfg-la-link-text`（下方 9px ON/OFF 文字）。`.on` → 圓底 `#22c55e` 亮綠 + 白色 glyph（`svg stroke:#fff`）+ 綠光暈 + 文字 `#4ade80`；`.busy` → 黃底閃爍（沿用 `wfg-cursor-blink`）+ 深色 glyph。
+2. **HTML（執行 group 內 `#wfg-la-link-btn`，wfg.html:1338）**：內容由單一 `.wfg-la-link-led` span 改為 `.wfg-la-link-icon`（內嵌電源符號 SVG：`M12 2.5 L12 12` 豎線 + `M7.05 6.55 a7 7 0 1 0 9.9 0` 上方缺口圓弧）+ `.wfg-la-link-text`（**id 仍為 `wfg-la-link-led`**，讓 JS 不需改動）。
+3. **JS（`wfgLaRenderLinkButton`）**：**零改動**。仍 toggle 按鈕 `on`/`busy` class + 對 `#wfg-la-link-led` 設 `textContent`（現在是文字 span）。綁定沿用 `wfgLaLinkActive`（綠/ON 唯一真值）。
+
+**取的「框背景色」值**：`#161b22`，來源＝現行 `.wfg-la-toolbar { background:#161b22 }`（wfg.html:197，工具列/按鈕容器背景）。非猜測。
+
+**驗證**：Chrome MCP 自開分頁載入修改版，截 OFF/ON 兩態並確認狀態切換未破壞（見回報）。
+
+**版本同步**：`common/version.js` `wfg: v2.97.452 → v2.97.453`；`wfg.html` `version.js?v` / `i18n.js?v` → `…wfg453`。
+
 ## TCON 波形產生器 (wfg) v2.97.452 — 2026-07-13
 
 **需求（Bruce）**：v2.97.451 的連線燈號按鈕，把 on/off 字樣改成放在**燈號內部**、且用**英文 ON / OFF**（不要外部中文「連線／已連線」標籤）。燈號圓點改成膠囊，內顯示 ON（綠）／ OFF（灰）。
