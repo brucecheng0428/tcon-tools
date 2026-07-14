@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.466 — 2026-07-14
+
+**Bruce 需求**：LA cursor 快捷鍵（1=A1、2=A2…）的固定態行為修正。原本三態中：無 cursor 時按鍵→出現並跟隨滑鼠；未按左鍵再按同鍵→消失（正常）；但按左鍵釘住（固定態）後再按同鍵→原設計是「消失」。改成：固定態按鍵→cursor 不消失、改回「跟隨滑鼠」狀態（使用者可再按左鍵釘新位置）。一句話：只有前一刻是「跟隨態」按鍵才會進消失態；前一刻是「固定態」按鍵改成進入跟隨態。
+
+**現況（指行）**：狀態變數 `wfgLaCursorActive[idx]`（存在與否，wfg.html:3702）、`wfgLaCursorMoving[idx]`（是否跟隨滑鼠，3703）、`wfgLaCursorPos`/`wfgLaCursorAnchors`（3704-3705）；快捷鍵對應 `wfgLaCursorKeys`（3706，1→0…0→9）。三態＝消失(active=false)／跟隨態(active&&moving)／固定態(active&&!moving)。固定態由左鍵 mouseup 產生：`wfgLaFindMovingCursor` 找到跟隨中的 cursor 後 snap 定位並 `wfgLaCursorMoving[moving]=false`（wfg.html:5783-5785）釘住。keydown（5791-5797，已用 `wfgIsTextEntryEvent` 排除輸入框）呼叫 `wfgLaToggleCursor`（7747）。原 `wfgLaToggleCursor` else 分支（7757-7764）在 active 時不分 moving 一律清空消失。
+
+**改動（指行）**：`wfgLaToggleCursor`（wfg.html:7747）的 else 拆成兩支。新增 `else if (!wfgLaCursorMoving[idx])`（固定態）：清所有 moving、設 `wfgLaCursorMoving[idx]=true`、`wfgLaCursorSelected=idx`、若滑鼠在圖上則 `wfgLaCursorPos/Anchors` 依 `wfgLaCursorMouseTime/Anchor` 重設（解除舊釘住 anchor），`wfgLaCursorStartAnim()` 恢復跟隨——不移除 cursor。原消失邏輯保留於最後的 `else`（僅跟隨態會進入）。出現分支（7749-7756）與其他快捷鍵、左鍵釘住邏輯、cursor 卡片/解碼皆未動。版號 wfg→v2.97.466、快取字串 `?v=20260714wfg466`。
+
+**驗證**：`node --check` 抽出 inline script 通過；Chrome 真鍵盤＋真滑鼠實測 a) 全無→按1→A1 moving=true；b) 不點左鍵再按1→active=false 消失；c) 按1出現→左鍵釘住(moving=false)→再按1→A1 不消失且 moving=true（新行為）；d) 跟隨態再按1→消失；e) A2(鍵2)重複 c 亦成立。只動此狀態機分支，無副作用。
+
 ## TCON 波形產生器 (wfg) v2.97.465 — 2026-07-14
 
 **Bruce 需求**：LA 時基尺標卡片叫出成對 cursor（如 A1/A2）時，卡片顯示 `|A1-A2| = X us / Y kHz`。把 X 改成可即時輸入的數字框（正實數），輸入後按 Enter 生效：固定「較早（左邊）」的 cursor 當基準、移動「較晚（右邊）」的 cursor 到「基準 + X」，X 依卡片當下單位解讀；若輸入很小使間隔變小，Enter 後單位數量級自動改變（us→ns），X 與 Y 一起換算更新。
