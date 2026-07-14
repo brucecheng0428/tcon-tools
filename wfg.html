@@ -1528,7 +1528,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg467"></script>
+<script src="common/version.js?v=20260714wfg468"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -1868,6 +1868,9 @@ var wfgCursors = [
 ];
 var WFG_CURSOR_COLORS = {A:'#facc15',B:'#22d3ee',C:'#4ade80',D:'#fb923c',E:'#c084fc'};
 var WFG_CURSOR_KEYS = {'1':0,'2':1,'3':2,'4':3,'5':4,'6':5,'7':6,'8':7,'9':8,'0':9};
+/* v2.97.468: 主波形版 |Δt| 輸入後的「持續鎖定」狀態（鏡像 LA 版 wfgLaDtLock）。
+   key = group letter 'A'..'E'，value = { earlyIdx, lateIdx, dt(精確秒) }。 */
+var wfgDtLock = {};
 var _wfgCursorMouseTime = null;
 var _wfgCursorAnimRaf = 0;
 // Cache for time cursor (V cursor) labels — populated each render for hit-testing
@@ -3703,6 +3706,11 @@ var wfgLaCursorActive = [false, false, false, false, false, false, false, false,
 var wfgLaCursorMoving = [false, false, false, false, false, false, false, false, false, false];
 var wfgLaCursorPos = [null, null, null, null, null, null, null, null, null, null];
 var wfgLaCursorAnchors = [null, null, null, null, null, null, null, null, null, null];
+/* v2.97.468: |Δt| 輸入後的「持續鎖定」狀態。key = group letter 'A'..'E'，
+   value = { earlyIdx, lateIdx, dt(精確秒，浮點不量化) }。
+   鎖定期間每次 render 由 wfgLaApplyDtLock() 重算 late.pos = early.pos + dt，
+   使卡片 |Δt| 恆等於使用者輸入值，不隨基準貼邊 snap 而漂移。 */
+var wfgLaDtLock = {};
 var wfgLaCursorKeys = { '1':0, '2':1, '3':2, '4':3, '5':4, '6':5, '7':6, '8':7, '9':8, '0':9 };
 var wfgLaCursorNames = ['A1','A2','B1','B2','C1','C2','D1','D2','E1','E2'];
 var wfgLaCursorColors = ['#facc15','#facc15','#22d3ee','#22d3ee','#4ade80','#4ade80','#fb923c','#fb923c','#c084fc','#c084fc'];
@@ -6314,6 +6322,7 @@ function wfgLaTimeCursorLabelHitTest(x, y) {
 }
 
 function wfgLaTimeCursorStartDrag(idx) {
+  wfgLaClearDtLock(idx); /* v2.97.468: 手動拖曳任一支 → 解除該 group 的 |Δt| 鎖定 */
   for (var i = 0; i < wfgLaCursorMoving.length; i++) wfgLaCursorMoving[i] = false;
   wfgLaCursorActive[idx] = true;
   wfgLaCursorMoving[idx] = true;
@@ -6420,6 +6429,7 @@ function wfgLaComputeRowLayout(channelCount, areaHeight) {
 
 function wfgLaRenderScope(options) {
   wfgLaScopeRenderRaf = 0;
+  wfgLaApplyDtLock(); /* v2.97.468: 繪製前套用 |Δt| 鎖定，確保被鎖 cursor 跟隨基準、X 恆定 */
   var skipLabels = options && options.skipLabels;
   var canvas = document.getElementById('wfg-la-canvas');
   if (!canvas) return;
@@ -7069,7 +7079,9 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
       var i1 = gi * 2, i2 = i1 + 1;
       var name = String.fromCharCode(65 + gi);
       var both = wfgLaCursorActive[i1] && wfgLaCursorActive[i2] && wfgLaCursorPos[i1] != null && wfgLaCursorPos[i2] != null;
-      var dt = both ? Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1]) : 0;
+      /* v2.97.468: 鎖定中的 group 直接顯示鎖定的精確 dt（不用兩量化位置相減），恆等於輸入值 */
+      var _lockG = wfgLaDtLock[String.fromCharCode(65 + gi)];
+      var dt = both ? (_lockG ? _lockG.dt : Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1])) : 0;
       var color = wfgLaCursorColors[i1];
       if (!wfgLaCursorActive[i1] && !wfgLaCursorActive[i2]) continue;
       /* v2.97.465: both 時把 X 改成可輸入框（正實數、Enter 生效、移動較晚的 cursor）。
@@ -7672,6 +7684,7 @@ window.wfgLaCenterTrigger = wfgLaCenterTrigger;
 function wfgLaCloseCursorGroup(group) {
   var gi = ['A','B','C','D','E'].indexOf(String(group || '').toUpperCase());
   if (gi < 0) return;
+  wfgLaClearDtLock(group); /* v2.97.468: 移除 cursor group → 解除 |Δt| 鎖定 */
   for (var i = gi * 2; i <= gi * 2 + 1; i++) {
     wfgLaCursorActive[i] = false;
     wfgLaCursorMoving[i] = false;
@@ -7718,34 +7731,61 @@ function wfgLaCursorApplyDtInput(group, inputEl) {
     wfgLaRenderScope();
     return;
   }
-  /* 卡片全程以 ns 量化顯示，manual 輸入也對齊 ns；不足 1ns 視為無效（無法在此顯示精度下表達） */
-  var targetNs = Math.round(val * unitNs);
-  if (targetNs <= 0) {
+  /* v2.97.468: 鎖定間隔用「精確浮點秒」，不再 Math.round 到 ns，消除 ±1 取樣週期抖動。
+     仍要求對應 ≥ 0.5ns（低於此顯示精度無法表達）。 */
+  var dtRawNs = val * unitNs;
+  if (!(dtRawNs >= 0.5)) {
     wfgLaRenderScope();
     return;
   }
-  var dtSec = targetNs / 1e9;
+  var dtSec = dtRawNs / 1e9;
   /* 基準 = 較早（時間較小）者；移動 = 較晚者。位置相等時預設移動 i2 使其變晚 */
   var earlyIdx = (wfgLaCursorPos[i1] <= wfgLaCursorPos[i2]) ? i1 : i2;
   var lateIdx = (earlyIdx === i1) ? i2 : i1;
-  var basis = wfgLaCursorPos[earlyIdx];
-  var target = basis + dtSec;
-  /* clamp 到資料範圍 [0, duration]；超界時貼齊邊界（卡片會據實顯示縮短後的間隔） */
-  var duration = wfgLaCaptureDuration();
-  if (target > duration) target = duration;
-  if (target < 0) target = 0;
-  wfgLaCursorPos[lateIdx] = target;
-  wfgLaCursorAnchors[lateIdx] = null; /* 手動定位，不綁 edge anchor */
+  /* v2.97.468: 建立「持續鎖定」——late 恆等於 early + dt（精確浮點）。
+     不 clamp late 到資料範圍：維持 X 恆定優先（基準貼邊隨訊號晃時 late 即時跟隨，
+     若 early+dt 超界則 late 落在畫面外，屬預期取捨）。 */
+  wfgLaDtLock[String.fromCharCode(65 + gi)] = { earlyIdx: earlyIdx, lateIdx: lateIdx, dt: dtSec };
+  wfgLaCursorPos[lateIdx] = wfgLaCursorPos[earlyIdx] + dtSec;
+  wfgLaCursorAnchors[lateIdx] = null; /* late 鎖在 early+dt，不綁 edge anchor */
   wfgLaCursorMoving[lateIdx] = false;
   wfgLaCursorSelected = lateIdx;
   if (inputEl) inputEl.blur();
   wfgLaUpdateCursorButtons();
-  wfgLaRenderScope(); /* 重建卡片：X 依新間隔自動挑單位、Y 頻率同步更新 */
+  wfgLaRenderScope(); /* 重建卡片：X 依鎖定值顯示、Y 頻率同步更新 */
 }
 window.wfgLaCursorApplyDtInput = wfgLaCursorApplyDtInput;
 
+/* v2.97.468: 每次 render 前套用 |Δt| 鎖定——重算 late.pos = early.pos + dt（精確），
+   使基準（early，可貼邊隨訊號左右晃）移動時，被鎖 cursor 即時跟隨、卡片 X 恆定。
+   自檢失效（任一支不再 active / late 被改為 moving 跟隨 / 基準無位置）→ 自動解除鎖定。 */
+function wfgLaApplyDtLock() {
+  for (var gi = 0; gi < 5; gi++) {
+    var g = String.fromCharCode(65 + gi);
+    var lock = wfgLaDtLock[g];
+    if (!lock) continue;
+    var e = lock.earlyIdx, l = lock.lateIdx;
+    if (!wfgLaCursorActive[e] || !wfgLaCursorActive[l] || wfgLaCursorMoving[l] || wfgLaCursorPos[e] == null) {
+      delete wfgLaDtLock[g];
+      continue;
+    }
+    wfgLaCursorPos[l] = wfgLaCursorPos[e] + lock.dt;
+    wfgLaCursorAnchors[l] = null;
+  }
+}
+window.wfgLaApplyDtLock = wfgLaApplyDtLock;
+
+/* v2.97.468: 解除指定 group 的 |Δt| 鎖定（手動拖曳/toggle/移除任一支時呼叫）。 */
+function wfgLaClearDtLock(groupOrIdx) {
+  var g;
+  if (typeof groupOrIdx === 'number') g = String.fromCharCode(65 + Math.floor(groupOrIdx / 2));
+  else g = String(groupOrIdx || '').toUpperCase();
+  if (wfgLaDtLock[g]) delete wfgLaDtLock[g];
+}
+
 function wfgLaToggleCursor(idx) {
   wfgLaToggleCursorCluster(true);
+  wfgLaClearDtLock(idx); /* v2.97.468: 按鍵 toggle 任一支 → 解除該 group 的 |Δt| 鎖定 */
   if (!wfgLaCursorActive[idx]) {
     for (var i = 0; i < wfgLaCursorMoving.length; i++) wfgLaCursorMoving[i] = false;
     wfgLaCursorActive[idx] = true;
@@ -17957,6 +17997,7 @@ function _wfgTconRenderStickyOverlay() {
 
 // ─── Canvas Renderer ───
 function wfgRender() {
+  wfgApplyDtLock(); /* v2.97.468: 繪製前套用 |Δt| 鎖定，兩模式(phase/kvdat)皆生效 */
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
   var _pT0 = _wfgPerfEnabled ? performance.now() : 0;
   var canvas = document.getElementById('wfg-canvas');
@@ -23195,6 +23236,7 @@ function wfgTimeCursorLabelHitTest(cx, cy, isTouch) {
 
 // Start dragging a placed (non-moving) time cursor by its label
 function wfgTimeCursorStartDrag(ci) {
+  wfgClearDtLock(ci); /* v2.97.468: 手動拖曳任一支 → 解除該 group 的 |Δt| 鎖定 */
   // Auto-place any other moving cursors first
   for (var i = 0; i < wfgCursors.length; i++) {
     if (wfgCursors[i].moving) wfgCursors[i].moving = false;
@@ -23239,6 +23281,7 @@ function wfgCursorStopAnim() {
 }
 
 function wfgCloseCursorGroup(group) {
+  wfgClearDtLock(group); /* v2.97.468: 移除 cursor group → 解除 |Δt| 鎖定 */
   for (var ci = 0; ci < wfgCursors.length; ci++) {
     if (wfgCursors[ci].group === group) {
       wfgCursors[ci].active = false;
@@ -23305,32 +23348,58 @@ function wfgCursorApplyDtInput(group, inputEl) {
     wfgUpdateCursorPanel();
     return;
   }
-  /* 卡片以 ns 量化顯示，manual 輸入也對齊 ns；不足 1ns 視為無效 */
-  var targetNs = Math.round(val * unitNs);
-  if (targetNs <= 0) {
+  /* v2.97.468: 鎖定間隔用「精確浮點秒」，不再 Math.round 到 ns，消除 ±取樣週期抖動；
+     仍要求對應 ≥ 0.5ns（低於此顯示精度無法表達）。 */
+  var dtRawNs = val * unitNs;
+  if (!(dtRawNs >= 0.5)) {
     wfgUpdateCursorPanel();
     return;
   }
-  var dtSec = targetNs / 1e9;
+  var dtSec = dtRawNs / 1e9;
   /* 基準 = 較早（時間較小）者；移動 = 較晚者。位置相等時預設移動 c2 使其變晚 */
-  var early = (c1.time <= c2.time) ? c1 : c2;
-  var late = (early === c1) ? c2 : c1;
-  var target = early.time + dtSec;
-  var b = wfgCursorDataTimeBounds();
-  if (b) {
-    if (target > b.max) target = b.max;
-    if (target < b.min) target = b.min;
-  }
-  late.time = target;
-  late.moving = false; /* 手動定位 → 固定態 */
+  var i1 = gi * 2, i2 = gi * 2 + 1;
+  var earlyIdx = (c1.time <= c2.time) ? i1 : i2;
+  var lateIdx = (earlyIdx === i1) ? i2 : i1;
+  /* v2.97.468: 建立「持續鎖定」——late 恆等於 early + dt（精確浮點）。
+     不 clamp late 到資料範圍：維持 X 恆定優先（基準貼邊隨訊號晃時 late 即時跟隨）。 */
+  wfgDtLock[String.fromCharCode(65 + gi)] = { earlyIdx: earlyIdx, lateIdx: lateIdx, dt: dtSec };
+  wfgCursors[lateIdx].time = wfgCursors[earlyIdx].time + dtSec;
+  wfgCursors[lateIdx].moving = false; /* 手動定位 → 固定態 */
   if (inputEl) inputEl.blur();
   wfgUpdateCursorBtns();
-  wfgUpdateCursorPanel(); /* 重建卡片：X 依新間隔自動挑單位、頻率同步更新 */
+  wfgUpdateCursorPanel(); /* 重建卡片：X 依鎖定值顯示、頻率同步更新 */
   wfgRender();
 }
 window.wfgCursorApplyDtInput = wfgCursorApplyDtInput;
 
+/* v2.97.468: 每次繪製前套用 |Δt| 鎖定——重算 late.time = early.time + dt（精確），
+   使基準（early，可貼邊隨訊號左右晃）移動時被鎖 cursor 即時跟隨、卡片 X 恆定。
+   自檢失效（任一支不再 active / late 被改為 moving / 基準無時間）→ 自動解除。（鏡像 LA 版） */
+function wfgApplyDtLock() {
+  for (var gi = 0; gi < 5; gi++) {
+    var g = String.fromCharCode(65 + gi);
+    var lock = wfgDtLock[g];
+    if (!lock) continue;
+    var e = wfgCursors[lock.earlyIdx], l = wfgCursors[lock.lateIdx];
+    if (!e || !l || !e.active || !l.active || l.moving || e.time == null) {
+      delete wfgDtLock[g];
+      continue;
+    }
+    l.time = e.time + lock.dt;
+  }
+}
+window.wfgApplyDtLock = wfgApplyDtLock;
+
+/* v2.97.468: 解除指定 group 的 |Δt| 鎖定（手動拖曳/toggle/移除任一支時呼叫）。 */
+function wfgClearDtLock(groupOrIdx) {
+  var g;
+  if (typeof groupOrIdx === 'number') g = String.fromCharCode(65 + Math.floor(groupOrIdx / 2));
+  else g = String(groupOrIdx || '').toUpperCase();
+  if (wfgDtLock[g]) delete wfgDtLock[g];
+}
+
 function wfgUpdateCursorPanel() {
+  wfgApplyDtLock(); /* v2.97.468: 顯示前先套用鎖定，確保個別 cursor 時間與 |Δt| 一致 */
   var card = document.getElementById('wfg-cursor-card');
   var body = document.getElementById('wfg-cursor-body');
   if (!card || !body) return;
@@ -23362,7 +23431,9 @@ function wfgUpdateCursorPanel() {
 
     // Delta display
     if (c1.active && c2.active && c1.time !== null && c2.time !== null) {
-      var delta = Math.abs(c2.time - c1.time);
+      /* v2.97.468: 鎖定中的 group 直接顯示鎖定的精確 dt，恆等於輸入值、不漂移 */
+      var _lockG = wfgDtLock[g];
+      var delta = _lockG ? _lockG.dt : Math.abs(c2.time - c1.time);
       /* v2.97.467: 把 X 改成可輸入框（正實數、Enter 生效、移動較晚的 cursor），並補頻率顯示。 */
       var dtParts = wfgLaCursorDurationParts(delta);
       var dtInput = '<input type="text" inputmode="decimal" class="wfg-cursor-dt-input"' +
@@ -23403,6 +23474,7 @@ function wfgUpdateCursorPanel() {
 function wfgToggleCursor(idx) {
   /* v2.97.361: auto-open TCON cursor cluster when toggling cursor */
   wfgTconToggleCursorCluster(true);
+  wfgClearDtLock(idx); /* v2.97.468: 按鍵 toggle 任一支 → 解除該 group 的 |Δt| 鎖定 */
   var cur = wfgCursors[idx];
   if (!cur.active) {
     // inactive → active + moving (create cursor)

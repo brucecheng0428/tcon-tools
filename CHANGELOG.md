@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.468 — 2026-07-14
+
+**Bruce 需求**：時基尺標 |Δt| 輸入 X（例 3µs）後要「鎖定恆定」。情境＝左（較早）cursor 貼齊某訊號 rising edge 會隨訊號左右晃，右（較晚）cursor 不貼、輸入定值 3µs；理論上右 cursor 應永遠保持「左 cursor + 3µs」跟著一起晃，但實際會漂成 2.995/3.005µs。要求：輸入 X 後恆定不變；未輸入 X 時仍以實際量測為主（訊號變 X 跟著變）。
+
+**漂移根因（勘查指行，兩因）**：
+1. **無持續鎖定（主因，造成 2.995/3.005 這種較大漂移）**：舊 `wfgLaCursorApplyDtInput`（7704）/`wfgCursorApplyDtInput`（原 23291）只在 Enter 當下把較晚 cursor **一次性**設為 `basis+dtSec` 就結束，沒有建立任何持續關係。之後基準（左）cursor 因貼邊、隨訊號 re-snap 到最近同型 edge 而移動（LA `wfgLaResolveCursorAnchor` 6282、主波形 `wfgCursorSnapTime` 22886 依當下滑鼠找 edge），較晚 cursor 原地不動 → 間距 = |late−early| 就跑掉。
+2. **ns 量化抖動（次因，±1 取樣週期）**：卡片顯示的 dt 由兩個各自被 snap 到取樣點/量化的位置相減（LA 7072 `Math.abs(pos[i2]-pos[i1])`、主波形 23364 `Math.abs(c2.time-c1.time)`），再經 `wfgLaCursorDurationParts`（5410）→ 第一行 `wfgLaCursorNsValue`（5371）`Math.round(sec*1e9)` 量化到整數 ns；輸入端也 `var targetNs = Math.round(val*unitNs)` 先量化。取樣率使 edge 不落整數 ns 時，顯示就 ±ns 抖。
+
+**改動（指行，兩套語義一致）**：
+- 新增鎖定狀態：LA `var wfgLaDtLock = {}`（3705 後）、主波形 `var wfgDtLock = {}`（1871 後）。key＝group letter，value＝`{earlyIdx, lateIdx, dt(精確浮點秒)}`。
+- 輸入端改精確浮點：兩 `*ApplyDtInput` 移除 `Math.round` 量化，改 `dtRawNs = val*unitNs`（要求 ≥0.5ns），`dtSec = dtRawNs/1e9`；建立 `*DtLock[g]`、設 `late = early + dtSec`、`late.moving=false`。**不再 clamp late 到資料範圍**（維持 X 恆定優先）。
+- 持續重算：新增 `wfgLaApplyDtLock`（7762）/`wfgApplyDtLock`（主波形 applyDtInput 後）——遍歷鎖定，每次重算 `late.pos = early.pos + dt`（精確、不量化）。掛在繪製入口：LA `wfgLaRenderScope` 開頭（6423）、主波形 `wfgRender` 開頭（kvdat 分流前，兩模式皆生效）+ `wfgUpdateCursorPanel` 開頭。基準不論何因移動並觸發 render，late 即時跟上、X 恆定。
+- 卡片顯示改用鎖定值：LA 7072 / 主波形 23364 的 dt 改為「該 group 有 lock → 用 `lock.dt`（精確），否則才用兩位置相減」，顯示恆等於輸入值、不受量化影響。
+- 解除鎖定（回到實際量測）：新增 `wfgLaClearDtLock`/`wfgClearDtLock`，於「手動拖曳任一支」（`*TimeCursorStartDrag`）、「按鍵 toggle 任一支」（`*ToggleCursor`）、「移除 group」（`*CloseCursorGroup`）呼叫；`*ApplyDtLock` 亦自檢（任一支非 active / late 變 moving）自動解除。重新輸入新 X → 覆寫 lock。未鎖定時 X＝實際間距、隨訊號變（原行為不變）。
+
+**邊界決策（待 Bruce 確認）**：(a) 鎖定期間不 clamp late 到 [0,duration]，若 early+dt 超界 late 會落畫面外——為維持 X 恆定的取捨；(b) 解除時機採「手動拖/toggle/移除任一支、或 late 被改為跟隨」；基準 early 保持跟隨貼邊不解除（正是晃動情境）。
+
+**驗證**：`node --check` 抽出 inline script 通過；Chrome 真鍵盤＋真滑鼠兩分頁實測：建立鎖定→程式模擬基準隨訊號移動多次→印「基準.time、被鎖 cursor.time、卡片顯示字串」證 X 恆定不漂→拖曳解除→未鎖定隨訊號變（見對話數值＋截圖）。僅動 cursor |Δt| 相關路徑，解碼/硬體/其他未動。版號 wfg→v2.97.468、快取字串 `?v=20260714wfg468`。
+
 ## TCON 波形產生器 (wfg) v2.97.467 — 2026-07-14
 
 **Bruce 需求**：另一個 wfg 分頁（主波形 Phase Counter / kvdat，非 LA）的 cursor 系統與 LA 是同一套概念，卻沒同步到 LA 近期新增的功能。把 LA 版三項最近功能鏡像過去（不重構合併，只鏡像行為降風險）：① 快捷鍵三態（v466）；② 時基尺標卡片 |Δt| 的 X 可即時輸入（v465）；③ 即時測量卡片補頻率顯示。
