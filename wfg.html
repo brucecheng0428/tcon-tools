@@ -1524,7 +1524,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg463"></script>
+<script src="common/version.js?v=20260714wfg464"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -10902,6 +10902,23 @@ function wfgLaDpAuxIsNonAckReply(r) {
   return cmd !== 0x0;
 }
 
+/* v2.97.464: 產生「非 ACK 回覆」(NACK/DEFER)的 badge 說明文字，供 hover title 與點擊彈框共用。
+ * 依 r.raw[0] 的 reply command nibble 判定（與 wfgLaDpAuxReplyName / wfgLaDpAuxSourceTconText 同一依據，
+ * VESA DP 1.1a：Native ACK=0x0 / NACK=0x1 / DEFER=0x2；I2C ACK=0x0 / NACK=0x4 / DEFER=0x8）。
+ * 若 row 帶更精確的 r.description 則優先採用。純粹產生說明文字，不改任何狀態/判斷。 */
+function wfgLaDpAuxAnomalyReplyTip(r) {
+  if (r && r.description) return r.description;
+  var byte = (r && r.raw && r.raw.length) ? (r.raw[0] & 0xff) : -1;
+  var code = byte >= 0 ? ((byte >> 4) & 0xf) : -1;
+  var nativeReply = code & 0x3;
+  var i2cReply = (code >> 2) & 0x3;
+  if (nativeReply === 1) return 'AUX NACK：Sink 拒絕此請求（可能為不支援的 DPCD 位址、裝置尚未就緒或 HPD 未觸發）。';
+  if (nativeReply === 2) return 'AUX DEFER：Sink 忙碌中，Source 應稍後重試（Link Training 或開機初期屬正常）。';
+  if (nativeReply === 0 && i2cReply === 1) return 'AUX ACK + I2C NACK：AUX 傳輸成功，但 I2C 從裝置未回應（EDID/DDC 位址無回應）。';
+  if (nativeReply === 0 && i2cReply === 2) return 'AUX ACK + I2C DEFER：I2C 從裝置忙碌，Source 應稍後重試。';
+  return (byte >= 0 ? wfgLaDpAuxReplyName(byte) : '非 ACK 回覆') + '：Sink 未正常接受此 AUX 請求。';
+}
+
 /* v2.97.446: 判定某 DP AUX 解碼列的 Type 欄是否為「異常或警告上色」狀態 —— 亦即畫面上會顯示成
  *   黃色(非 ACK 回覆高亮 nonack，NACK/DEFER)、黃色系警告(preamble warn badge.warn，SYNC 18~25)
  *   或 紅色(ERR/協定錯誤 badge.err)。
@@ -12933,6 +12950,12 @@ function wfgLaRenderDecodeResults() {
         else if (r.auxPreambleError) badgeTitle = 'Preamble SYNC count is below 18, below eDP 1.4+ minimum.';
         else if (r.auxPreambleWarn) badgeTitle = 'Preamble SYNC count is 18~25: meets eDP 1.4+ minimum but below DP/eDP 1.2~1.3 minimum of 26.';
         else if (r.auxNoReply) badgeTitle = 'No matching AUX reply was decoded after this request.';
+        /* v2.97.464: 補齊被 wfgLaDpAuxTypeIsAnomaly 標「!」但上面五分支未涵蓋的異常，讓「凡有『!』必有說明」。
+           A. NACK/DEFER 回覆（wfgLaDpAuxIsNonAckReply）：ack='TCON'、非 ERR，原本五分支全不中 → title 空 → hover/彈框空白。
+           B. 廣義 protocol error（wfgLaDpAuxExportProtocolError，含 r.ack==='NACK'）：第一分支只認 ack==='ERR' → 漏接。
+           放在鏈末尾，既有五分支說明完全不動。 */
+        else if (wfgLaDpAuxIsNonAckReply(r)) badgeTitle = wfgLaDpAuxAnomalyReplyTip(r);
+        else if (wfgLaDpAuxExportProtocolError(r)) badgeTitle = r.description || r.value || 'AUX protocol error';
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
         var statusText = r.auxNoReply ? 'NO REPLY' : (r.dpcdWarn ? 'DPCD WARN' : r.ack);
         if (r.auxPreambleWarnText) statusText = statusText ? (statusText + ' / ' + r.auxPreambleWarnText) : r.auxPreambleWarnText;

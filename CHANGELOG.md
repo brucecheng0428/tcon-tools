@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.464 — 2026-07-14
+
+**Bruce 回報**：eDP AUX 解碼結果卡片，Type 欄部分 badge 有「!」異常標記（紅/黃色），但 hover 沒有浮動說明、v463 的點擊彈框也空白。實測：套「eDP AUX解碼（異常範例）」preset 時 hover 有說明；自己單次觸發取樣的結果就沒有。
+
+**根因（程式碼稽核，指行）**：「!」與說明文字用兩套不一致條件。「!」由 `wfgLaDpAuxTypeIsAnomaly`（wfg.html:10917-10921）判定，涵蓋 `wfgLaDpAuxIsNonAckReply`（NACK/DEFER）、`auxPreambleWarn`、`wfgLaDpAuxExportProtocolError`；但 `renderRow` 的 `badgeTitle`（12931-12935）只認 `auxAnomaly/ack==='ERR'/protocolError`、`auxPreambleError`、`auxPreambleWarn`、`auxNoReply`。兩處未對齊的「有『!』卻無 badgeTitle」情況：
+
+- **A. NACK/DEFER 回覆列**（`wfgLaDpAuxIsNonAckReply` 為真）：`wfgLaDpAuxSourceBuildRow`（11862-11875）產生的 REPLY 列 `ack='TCON'`（非 'ERR'）、無 `auxAnomaly/protocolError`，五分支全不中 → title 空。這正是「單次觸發取樣」看到 TCON NACK/DEFER 回覆的主案例。
+- **B. `r.ack === 'NACK'` 的列**（被 `wfgLaDpAuxExportProtocolError` 命中，10473）：第一分支只認 `ack==='ERR'`、不認 `'NACK'` → title 空。
+
+**修法（只補 badgeTitle，不動「!」判斷/顏色/Type 文字/匯出/彈框機制）**：
+1. 新增 `wfgLaDpAuxAnomalyReplyTip(r)`（wfg.html:10905-10920）：依 `r.raw[0]` reply command nibble（VESA DP 1.1a：Native NACK=0x1/DEFER=0x2、I2C NACK=0x4/DEFER=0x8）產生 NACK/DEFER 診斷說明，區分 Native 與 I2C；有 `r.description` 優先採用。
+2. `badgeTitle` 鏈末尾追加兩分支（wfg.html:12942-12948），既有五分支完全不動：`else if (wfgLaDpAuxIsNonAckReply(r))` → 專屬 NACK/DEFER 說明；`else if (wfgLaDpAuxExportProtocolError(r))` → `r.description || r.value || 'AUX protocol error'` 通用說明。
+3. hover 原生 `title` 與 v463 點擊彈框讀同一個 `badgeTitle`（同源），補齊後兩邊同時有內容。
+
+**驗證**：`node --check` 過；Chrome MCP 構造 NACK/DEFER/ERR/protocol-error 各一列餵 `wfgLaRenderDecodeResults`，確認每個「!」badge 皆 `hasAttribute('title')` 非空、有 `data-badge-tip`、彈框內容==title；正常 ACK 列無「!」、無 title、不可點。截圖彈框態。
+
 ## TCON 波形產生器 (wfg) v2.97.463 — 2026-07-14
 
 **Bruce 需求**：AUX/LA 解碼結果表 Type 欄異常（`!REQ`/`!ERR`/preamble 警告等）原本 hover 會出現浮動說明（原生 `title`）。保留 hover 不變，**新增：點擊該 badge → 彈框顯示同一份說明文字**。
