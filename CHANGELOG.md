@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.463 — 2026-07-14
+
+**Bruce 需求**：AUX/LA 解碼結果表 Type 欄異常（`!REQ`/`!ERR`/preamble 警告等）原本 hover 會出現浮動說明（原生 `title`）。保留 hover 不變，**新增：點擊該 badge → 彈框顯示同一份說明文字**。
+
+**現有機制（指行）**：dp_aux 的 `renderRow`（wfg.html:12859）內，`badgeTitle`（12864-12868）依 `auxAnomaly/ack==ERR/protocolError`、`auxPreambleError`、`auxPreambleWarn`、`auxNoReply` 產生說明字串，掛在 Type badge 的原生 `title` 屬性（原 12876）＝hover 浮動說明來源。
+
+**修法（只加「點擊→彈框」UI，不動解碼/顏色/`!`前綴/匯出）**：
+1. **同源文字**（wfg.html:12943-12948）：badge 有 `badgeTitle` 時，同一個 `badgeTitle` 變數同時寫入 `title`（保留 hover）與新增的 `data-badge-tip`，並加 class `wfg-la-decode-badge--tip` + `onclick="event.stopPropagation();wfgLaShowDecodeTipDialog(this.getAttribute('data-badge-tip'))"`。title 與彈框同一份文字，杜絕兩邊不一致。`event.stopPropagation` 避免只觸發整列選取。
+2. **彈框函式**（wfg.html:12828-12882）：`wfgLaShowDecodeTipDialog(text)` 沿用既有 `.wfg-la-modal-overlay`/`.wfg-la-modal-card` 暗色風格，內容以 `textContent` 顯示（防注入）；關閉方式＝X 鈕／點遮罩／Esc／底部關閉鈕；內容區 `max-height:50vh` + `overflow-y:auto` 容納較長說明。
+3. **CSS**（wfg.html:555-563）：`--tip` badge `cursor:pointer` + hover outline 提示可點；無 `badgeTitle` 的正常 badge 不加 class/onclick → 點了不跳。
+
+**驗證**：Chrome MCP 自開分頁載入敏感版 kvdat（DP AUX）—— hover `!REQ`/`!ERR` 仍出浮動說明；點擊出彈框且文字與 hover 一致；X／遮罩／Esc 可關；正常 cell 不跳。截圖兩態。
+
 ## TCON 波形產生器 (wfg) v2.97.462 — 2026-07-14
 
 **Bruce 回報（更正 v460 方向）**：v460 假設「A OFF 後只是 OS 短暫釋放窗口，B 退避重試可搶到」，做了 B 端 claim 退避重試（`wfgLaClaimWithRetry`）。**實機驗證：問題仍在，解法仍是「必須重新整理網頁 A，B 才能正常 ON」。** → 根因不是短暫窗口，而是 **A 按 OFF 後頁面仍有背景路徑持續持有 / 重新 open 裝置**；只有重整 A（render process 銷毀、OS 回收 handle）才真正釋放。退避重試無效。

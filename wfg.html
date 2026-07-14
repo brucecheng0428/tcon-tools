@@ -552,6 +552,14 @@
   .wfg-la-decode-badge.write { background: #14532d; color: #bbf7d0; }
   .wfg-la-decode-badge.err { background: #7f1d1d; color: #fecaca; }
   .wfg-la-decode-badge.warn { background: #854d0e; color: #fde68a; box-shadow: inset 0 0 0 1px rgba(250,204,21,0.75); }
+  /* v2.97.463: 帶說明（警告/異常）的 Type badge 可點擊出彈框，游標提示可點 */
+  .wfg-la-decode-badge--tip { cursor: pointer; }
+  .wfg-la-decode-badge--tip:hover { outline: 1px solid rgba(148,163,184,0.65); outline-offset: 1px; }
+  .wfg-la-decode-tip-card { width: min(440px, 90vw); gap: 10px; }
+  .wfg-la-decode-tip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .wfg-la-decode-tip-x { background: transparent; border: none; color: #94a3b8; font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .wfg-la-decode-tip-x:hover { background: #334155; color: #e2e8f0; }
+  .wfg-la-decode-tip-body { max-height: 50vh; overflow-y: auto; color: #e2e8f0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; text-align: left; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; }
   /* ── v2.97.442: DP AUX 解碼表欄寬策略（僅作用於 dp_aux 表，i2c/其他表不受影響） ── */
   /* 自適應內容寬 + 不換行：Time(1) / #(2) / Type(3) / Status(6) */
   .wfg-la-decode-table--dp_aux { table-layout: auto; }
@@ -1516,7 +1524,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg462"></script>
+<script src="common/version.js?v=20260714wfg463"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -12817,6 +12825,65 @@ function wfgLaRenderDecodeVRows(groupIdx) {
   tbody.innerHTML = html;
 }
 
+/* v2.97.463: 解碼結果 Type 欄 badge 說明彈框。
+   內容 = 呼叫時傳入的 badgeTitle 文字（與 hover 原生 title 同源同一份），用 textContent 顯示避免注入。
+   關閉方式：X 鈕 / 點遮罩 / Esc / 底部關閉鈕。內容區可捲動以容納較長說明。 */
+function wfgLaDecodeTipEscHandler(e) {
+  if (e && e.key === 'Escape') wfgLaCloseDecodeTipDialog();
+}
+function wfgLaCloseDecodeTipDialog() {
+  var overlay = document.getElementById('wfg-la-decode-tip-overlay');
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  document.removeEventListener('keydown', wfgLaDecodeTipEscHandler);
+}
+function wfgLaShowDecodeTipDialog(text) {
+  if (text == null || text === '') return;
+  wfgLaCloseDecodeTipDialog();
+  var overlay = document.createElement('div');
+  overlay.className = 'wfg-la-modal-overlay';
+  overlay.id = 'wfg-la-decode-tip-overlay';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) wfgLaCloseDecodeTipDialog(); });
+
+  var card = document.createElement('div');
+  card.className = 'wfg-la-modal-card wfg-la-decode-tip-card';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+
+  var head = document.createElement('div');
+  head.className = 'wfg-la-decode-tip-head';
+  var title = document.createElement('div');
+  title.className = 'wfg-la-modal-title';
+  title.style.margin = '0';
+  title.textContent = '說明';
+  var closeX = document.createElement('button');
+  closeX.type = 'button';
+  closeX.className = 'wfg-la-decode-tip-x';
+  closeX.setAttribute('aria-label', '關閉');
+  closeX.textContent = '✕';
+  closeX.onclick = wfgLaCloseDecodeTipDialog;
+  head.appendChild(title);
+  head.appendChild(closeX);
+
+  var body = document.createElement('div');
+  body.className = 'wfg-la-decode-tip-body';
+  body.textContent = String(text);
+
+  var footer = document.createElement('button');
+  footer.type = 'button';
+  footer.className = 'wfg-la-modal-cancel';
+  footer.textContent = '關閉';
+  footer.onclick = wfgLaCloseDecodeTipDialog;
+
+  card.appendChild(head);
+  card.appendChild(body);
+  card.appendChild(footer);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', wfgLaDecodeTipEscHandler);
+}
+window.wfgLaShowDecodeTipDialog = wfgLaShowDecodeTipDialog;
+window.wfgLaCloseDecodeTipDialog = wfgLaCloseDecodeTipDialog;
+
 function wfgLaRenderDecodeResults() {
   var el = document.getElementById('wfg-la-decoder-results');
   if (!el) return;
@@ -12873,7 +12940,13 @@ function wfgLaRenderDecodeResults() {
         var typeTdCls = wfgLaDpAuxIsNonAckReply(r) ? ' class="wfg-la-type-nonack"' : '';
         /* v2.97.445: 黃(nonack)/紅(err) 異常列的 Type 文字前補「!」（真的放進文字內容，搜尋框與匯出才撈得到），樣式/其他欄不動 */
         var typeDisplayText = (wfgLaDpAuxTypeIsAnomaly(r) ? '!' : '') + (r.type || '');
-        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + '"' + (badgeTitle ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '"' : '') + '>' + wfgLaEscapeHtml(typeDisplayText) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
+        /* v2.97.463: 有 badgeTitle（警告/異常說明）的 Type badge → 加可點擊樣式與點擊事件，
+           點擊開彈框顯示「同一份 badgeTitle 文字」（title 與 data-badge-tip 同源同一變數，保證兩邊一致）。
+           hover 原生 title 浮動說明維持不動；event.stopPropagation 避免只觸發整列選取。 */
+        var badgeTipAttr = badgeTitle
+          ? ' title="' + wfgLaEscapeHtml(badgeTitle) + '" data-badge-tip="' + wfgLaEscapeHtml(badgeTitle) + '" onclick="event.stopPropagation();wfgLaShowDecodeTipDialog(this.getAttribute(\'data-badge-tip\'))"'
+          : '';
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td' + typeTdCls + '><span class="wfg-la-decode-badge' + badgeCls + (badgeTitle ? ' wfg-la-decode-badge--tip' : '') + '"' + badgeTipAttr + '>' + wfgLaEscapeHtml(typeDisplayText) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(statusText) + '</td></tr>';
       };
     } else if (a.type === 'i2c_eeprom') {
       theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Device</th><th>Memory</th><th>R/W</th><th>Data</th></tr></thead>';
