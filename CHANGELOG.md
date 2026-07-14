@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.469 — 2026-07-14
+
+**Bruce 需求**：把 LA 分頁即時測量卡的「選定通道量測（最多 4）」區塊，移植到主波形分頁（TCON Timing 調整練習）的「即時測量」卡，兩邊一致。每個量測項顯示 頻率／正脈寬／負脈寬／週期／佔空比，計算語義與 LA 版一致，用主波形自己的資料算，phase 與 kvdat 兩模式都要能運作。
+
+**LA 版計算與主波形資料模型的對應（先讀再做，指行）**：
+- LA 版 `wfgLaMeasComputeChannel`（7277）吃 `wfgLaGetWaveform(cfg,ch)`（5224）回傳的 `{edges:[時間], initialLevel}`，用 `wfgLaEdgeTypeForIndex`（6184）判緣別，找第一個上升緣後的第一個完整週期：正脈寬=下降−上升、週期=下一上升−本上升、負脈寬=週期−正脈寬、頻率=1/週期、佔空比=正脈寬/週期。
+- 主波形有兩種資料模型（皆非 LA 的 logic channel）：
+  - **phase 模式**：訊號＝`wfgChannels[i]`（`.visible && .gpioIdx≥0`，排除類比 `waveform_type`）。取邊緣沿用 hover 版路徑：`wfgEnsureTransitions()`（3304）→ `wfgGetOaxForRange(gpioIdx, cache.transitions, cache.effHtotal, 0, wfgTotalLines())`（15422）拿 `{transitions:[{line,dly,level}], initLevel}`；分數線位置＝`line + dly/effHtotal`，秒＝分數線 × `timePerLine`，`timePerLine = dclkPerLine/(dclk×1e6)`、`dclkPerLine = dual? htotal/4 : htotal/2`（與 22475/22343 一致）。`initialLevel = oax.initLevel`。
+  - **kvdat 模式**：訊號＝`wfgKvdatChannels[i]`，`.edges` 為 sample 單位，秒＝`sample/wfgKvdatSmpFreqX1000`（與 22653 一致）；kvdat 起始為 LOW，故 `initialLevel=0`。
+- 兩模式各自取前 8 個交替邊緣（足以涵蓋第一個完整週期）後，統一套用與 LA 完全相同的週期演算法（重用純函式 `wfgLaEdgeTypeForIndex`／`wfgLaTimeLabel`／`wfgLaFreqLabel`，未改 LA 那套）。通道選單、顏色、預設通道比照既有「脈衝計數」卡（`wfgPulseRenderAll` 25736、`wfgPulseAdd` 25479）。
+
+**新增（指行）**：
+- HTML：即時測量卡標題（`wfg-meas-head`，~1134）加 ＋ 鈕 `#wfg-meas-sel-add-btn`（重用 `.wfg-la-panel-add`/`.wfg-la-panel-actions` 樣式）；卡片 body 底加容器 `#wfg-meas-sel-items`。
+- JS（插於 `var wfgPulseItems` 前）：`wfgMeasSelItems`/`WFG_MEAS_SEL_MAX=4` 狀態、`wfgMeasSelDefaultChannel`/`wfgMeasSelChannelValid`/`wfgMeasSelChannelColor`/`wfgMeasSelChannelOptions`、`wfgMeasSelGetEdges`（phase/kvdat 分流）、`wfgMeasSelCompute`（第一個完整週期五量）、`wfgMeasSelRowsHtml`、`wfgMeasSelAdd/Del/Change`、`wfgMeasSelRenderAll`（含就地更新守衛，防操作下拉時重建 DOM）、`wfgMeasSelRefresh`（60ms 節流，僅就地更新數值；模式切換或項數不符才整段重建）。CSS 零新增（全重用 `.wfg-la-meas-item*` + `.wfg-meas-row/val`）。
+- 掛載：phase render 尾（18821）、kvdat render 尾（25171）各加 `wfgMeasSelRefresh()`；語言切換（`_onLangChange`）與 preset 載入（`wfgLoadConfig` 尾）各加 `wfgMeasSelRenderAll()`。
+
+**驗證**：`node --check` 抽出 inline script 通過；Chrome MCP 實開主波形分頁載 preset 實測（見對話數值＋截圖）。僅動主波形即時測量卡新增區塊，未動 LA 那套、cursor/時基尺標/解碼等無關功能。版號 wfg→v2.97.469、快取字串 `?v=20260714wfg469`。
+
 ## TCON 波形產生器 (wfg) v2.97.468 — 2026-07-14
 
 **Bruce 需求**：時基尺標 |Δt| 輸入 X（例 3µs）後要「鎖定恆定」。情境＝左（較早）cursor 貼齊某訊號 rising edge 會隨訊號左右晃，右（較晚）cursor 不貼、輸入定值 3µs；理論上右 cursor 應永遠保持「左 cursor + 3µs」跟著一起晃，但實際會漂成 2.995/3.005µs。要求：輸入 X 後恆定不變；未輸入 X 時仍以實際量測為主（訊號變 X 跟著變）。

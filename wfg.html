@@ -1131,13 +1131,15 @@
       <!-- ─── 右側面板 (測量 + 時基標尺) ─── -->
       <div class="wfg-right-panel" id="wfg-right-panel">
         <div class="wfg-measure-card" id="wfg-measure-card">
-          <div class="wfg-meas-head" onclick="wfgToggleCard(this)"><span data-i18n="wfg.measTitle">即時測量</span><span class="wfg-chevron" style="margin-left:auto">▼</span></div>
+          <div class="wfg-meas-head" onclick="wfgToggleCard(this)"><span data-i18n="wfg.measTitle">即時測量</span><span class="wfg-la-panel-actions"><button class="wfg-la-panel-add" id="wfg-meas-sel-add-btn" type="button" onclick="wfgMeasSelAdd();event.stopPropagation()" title="新增量測通道（最多 4 個）">＋</button><span class="wfg-chevron">▼</span></span></div>
           <div class="wfg-meas-body">
             <div class="wfg-meas-ch" id="wfg-meas-ch">--</div>
             <div class="wfg-meas-row"><span class="wfg-meas-label" data-i18n="wfg.measPulseWidth">脈寬</span><span class="wfg-meas-val inactive" id="wfg-meas-pw">--</span></div>
             <div class="wfg-meas-row"><span class="wfg-meas-label" data-i18n="wfg.measPeriod">週期</span><span class="wfg-meas-val inactive" id="wfg-meas-per">--</span></div>
             <div class="wfg-meas-row"><span class="wfg-meas-label" data-i18n="wfg.measDuty">空佔比</span><span class="wfg-meas-val inactive" id="wfg-meas-duty">--</span></div>
             <div class="wfg-meas-row"><span class="wfg-meas-label" data-i18n="wfg.measFreq">頻率</span><span class="wfg-meas-val inactive" id="wfg-meas-freq">--</span></div>
+            <!-- v2.97.469: 選定通道量測（最多 4，仿 LA 版；頻率/正脈寬/負脈寬/週期/佔空比） -->
+            <div id="wfg-meas-sel-items"></div>
           </div>
         </div>
         <div class="wfg-cursor-card" id="wfg-cursor-card">
@@ -1528,7 +1530,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg468"></script>
+<script src="common/version.js?v=20260714wfg469"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -18819,6 +18821,7 @@ function wfgRender() {
   }
   if (!_wfgLabelDrag && !_wfgIrDrag && !wfgDragging && !_wfgContinuousMotion) wfgRenderLabels();
   if (typeof wfgPulseRefresh === 'function' && !wfgDragging && !_wfgContinuousMotion) wfgPulseRefresh();
+  if (typeof wfgMeasSelRefresh === 'function' && !wfgDragging && !_wfgContinuousMotion) wfgMeasSelRefresh();
   // v2.97.371: TCON sticky 時間軸
   _wfgTconRenderStickyTimeAxis();
   _wfgTconRenderStickyOverlay();
@@ -25169,6 +25172,7 @@ function wfgRenderKvdat() {
   }
   if (!_wfgLabelDrag) wfgRenderKvdatLabels();
   if (typeof wfgPulseRefresh === 'function') wfgPulseRefresh();
+  if (typeof wfgMeasSelRefresh === 'function') wfgMeasSelRefresh();
   // v2.97.371: TCON sticky 時間軸（kvdat 模式也需要）
   _wfgTconRenderStickyTimeAxis();
   _wfgTconRenderStickyOverlay();
@@ -25472,6 +25476,179 @@ function wfgResizeAndRenderWithMinimap() {
 wfgResizeAndRender = wfgResizeAndRenderWithMinimap;
 
 // ═══════════ Pulse Counter (脈衝計數) ═══════════
+// ─── v2.97.469: 選定通道量測（主波形，最多 4，仿 LA 版）───
+// 頻率 / 正脈寬 / 負脈寬 / 週期 / 佔空比；相容 phase(TCON) 與 kvdat 兩模式
+var wfgMeasSelItems = [];
+var WFG_MEAS_SEL_MAX = 4;
+var wfgMeasSelNextId = 1;
+var _wfgMeasSelThrottle = null;
+
+// 取某訊號的邊緣時間（秒）與初始電平
+function wfgMeasSelGetEdges(chIdx) {
+  var out = { edges: [], initialLevel: 0 };
+  if (wfgKvdatMode) {
+    if (chIdx < 0 || chIdx >= wfgKvdatChannels.length) return out;
+    var kch = wfgKvdatChannels[chIdx];
+    if (!kch || !kch.edges || !kch.edgeCount) return out;
+    var smp = wfgKvdatSmpFreqX1000;
+    if (!(smp > 0)) return out;
+    for (var k = 0; k < kch.edgeCount; k++) out.edges.push(kch.edges[k] / smp);
+    out.initialLevel = 0; // kvdat 起始 LOW
+    return out;
+  }
+  if (chIdx < 0 || chIdx >= wfgChannels.length) return out;
+  var ch = wfgChannels[chIdx];
+  if (!ch || !ch.visible || ch.gpioIdx < 0) return out;
+  var gpio = (ch.gpioIdx < wfgGpios.length) ? wfgGpios[ch.gpioIdx] : null;
+  if (gpio && gpio.waveform_type) return out; // 排除類比通道
+  var cache = wfgEnsureTransitions();
+  if (!cache) return out;
+  var isDual = wfgFrame.gateType === 'dual';
+  var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
+  var dclkFreqHz = wfgFrame.dclk * 1e6;
+  var timePerLine = dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
+  if (timePerLine <= 0) return out;
+  var oaxR = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, cache.effHtotal, 0, wfgTotalLines());
+  var trans = (oaxR && oaxR.transitions) || [];
+  var effHt = cache.effHtotal;
+  for (var ti = 0; ti < trans.length; ti++) {
+    var pos = trans[ti].line + (effHt > 0 ? trans[ti].dly / effHt : 0);
+    out.edges.push(pos * timePerLine);
+  }
+  out.initialLevel = (oaxR && oaxR.initLevel) ? 1 : 0;
+  return out;
+}
+
+// 由邊緣陣列算 頻率/正脈寬/負脈寬/週期/佔空比（仿 wfgLaMeasComputeChannel）
+function wfgMeasSelCompute(edges, initialLevel) {
+  var res = { pos: 0, neg: 0, period: 0, freq: 0, duty: 0 };
+  if (!edges || edges.length < 2) return res;
+  var r = -1;
+  for (var i = 0; i < edges.length; i++) {
+    if (wfgLaEdgeTypeForIndex(initialLevel, i) === 'rising') { r = i; break; }
+  }
+  if (r < 0 || r + 1 >= edges.length) return res;
+  res.pos = Math.max(0, edges[r + 1] - edges[r]);
+  if (r + 2 < edges.length) {
+    res.period = Math.max(0, edges[r + 2] - edges[r]);
+    res.neg = Math.max(0, edges[r + 2] - edges[r + 1]);
+    if (res.period > 0) { res.freq = 1 / res.period; res.duty = res.pos / res.period * 100; }
+  }
+  return res;
+}
+
+// 一顆量測卡的五列 HTML（重用 .wfg-meas-row / .wfg-meas-val 樣式）
+function wfgMeasSelRowsHtml(m) {
+  function row(label, val) {
+    var active = val && val !== '--';
+    return '<div class="wfg-meas-row"><span class="wfg-meas-label">' + label +
+      '</span><span class="wfg-meas-val' + (active ? '' : ' inactive') + '">' + (active ? val : '--') + '</span></div>';
+  }
+  return row('頻率', m.freq > 0 ? wfgLaFreqLabel(m.freq) : '--') +
+    row('正脈寬', m.pos > 0 ? wfgLaTimeLabel(m.pos) : '--') +
+    row('負脈寬', m.neg > 0 ? wfgLaTimeLabel(m.neg) : '--') +
+    row('週期', m.period > 0 ? wfgLaTimeLabel(m.period) : '--') +
+    row('佔空比', m.period > 0 ? m.duty.toFixed(1) + '%' : '--');
+}
+
+// 目前模式下的預設通道（第一個可見通道）
+function wfgMeasSelDefaultChannel() {
+  if (wfgKvdatMode) return wfgKvdatChannels.length > 0 ? 0 : -1;
+  for (var i = 0; i < wfgChannels.length; i++) {
+    if (wfgChannels[i].visible && wfgChannels[i].gpioIdx >= 0) return i;
+  }
+  return -1;
+}
+
+window.wfgMeasSelAdd = function() {
+  if (wfgMeasSelItems.length >= WFG_MEAS_SEL_MAX) return;
+  var chIdx = wfgMeasSelDefaultChannel();
+  if (chIdx < 0) return;
+  wfgMeasSelItems.push({ id: wfgMeasSelNextId++, chIdx: chIdx });
+  wfgMeasSelRenderAll({ force: true });
+};
+
+window.wfgMeasSelDel = function(id) {
+  wfgMeasSelItems = wfgMeasSelItems.filter(function(it) { return it.id !== id; });
+  wfgMeasSelRenderAll({ force: true });
+};
+
+window.wfgMeasSelChange = function(id, value) {
+  var item = wfgMeasSelItems.find(function(it) { return it.id === id; });
+  if (!item) return;
+  item.chIdx = parseInt(value, 10);
+  wfgMeasSelRenderAll({ force: true });
+};
+
+function wfgMeasSelRenderAll(options) {
+  var container = document.getElementById('wfg-meas-sel-items');
+  if (!container) return;
+  options = options || {};
+  var addBtn = document.getElementById('wfg-meas-sel-add-btn');
+  if (addBtn) addBtn.disabled = wfgMeasSelItems.length >= WFG_MEAS_SEL_MAX;
+  if (wfgMeasSelItems.length === 0) { container.innerHTML = ''; return; }
+
+  // 使用者正在操作某下拉且非強制：僅就地更新數值，勿重建 DOM（守衛聚焦）
+  var active = document.activeElement;
+  var editing = active && container.contains(active) && /^SELECT$/.test(active.tagName || '');
+  if (editing && !options.force) {
+    container.querySelectorAll('.wfg-la-meas-item').forEach(function(el) {
+      var id = Number(el.getAttribute('data-meas-sel-id'));
+      var item = wfgMeasSelItems.find(function(it) { return it.id === id; });
+      if (!item) return;
+      var rows = el.querySelector('.wfg-la-meas-rows');
+      var ed = wfgMeasSelGetEdges(item.chIdx);
+      if (rows) rows.innerHTML = wfgMeasSelRowsHtml(wfgMeasSelCompute(ed.edges, ed.initialLevel));
+    });
+    return;
+  }
+
+  // 通道下拉選項（同脈衝計數卡：可見通道）
+  var chOpts = '';
+  if (wfgKvdatMode) {
+    for (var ci = 0; ci < wfgKvdatChannels.length; ci++)
+      chOpts += '<option value="' + ci + '">' + escapeHtml(wfgKvdatChannels[ci].name) + '</option>';
+  } else {
+    for (var ci = 0; ci < wfgChannels.length; ci++) {
+      if (wfgChannels[ci].visible && wfgChannels[ci].gpioIdx >= 0)
+        chOpts += '<option value="' + ci + '">' + escapeHtml(wfgChDisplayName(wfgChannels[ci], ci)) + '</option>';
+    }
+  }
+
+  var html = '';
+  for (var pi = 0; pi < wfgMeasSelItems.length; pi++) {
+    var it = wfgMeasSelItems[pi];
+    var chColor = '#64748b';
+    if (wfgKvdatMode) {
+      if (it.chIdx >= 0 && it.chIdx < wfgKvdatChannels.length) chColor = wfgKvdatChannels[it.chIdx].color;
+    } else {
+      if (it.chIdx >= 0 && it.chIdx < wfgChannels.length) chColor = wfgChannels[it.chIdx].color;
+    }
+    var ed = wfgMeasSelGetEdges(it.chIdx);
+    var m = wfgMeasSelCompute(ed.edges, ed.initialLevel);
+    html += '<div class="wfg-la-meas-item" data-meas-sel-id="' + it.id + '">';
+    html += '<div class="wfg-la-meas-item-head">';
+    html += '<span class="wfg-la-meas-item-dot" style="background:' + escapeHtml(chColor) + '"></span>';
+    html += '<select onchange="wfgMeasSelChange(' + it.id + ',this.value)">' + chOpts.replace('value="' + it.chIdx + '"', 'value="' + it.chIdx + '" selected') + '</select>';
+    html += '<button class="wfg-la-meas-item-del" onclick="wfgMeasSelDel(' + it.id + ')" title="移除此量測">✕</button>';
+    html += '</div>';
+    html += '<div class="wfg-la-meas-rows">' + wfgMeasSelRowsHtml(m) + '</div>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+window.wfgMeasSelRenderAll = wfgMeasSelRenderAll;
+
+// 每次 wfgRender 後節流刷新（~60ms）
+function wfgMeasSelRefresh() {
+  if (wfgMeasSelItems.length === 0) return;
+  if (_wfgMeasSelThrottle) return;
+  _wfgMeasSelThrottle = setTimeout(function() {
+    _wfgMeasSelThrottle = null;
+    wfgMeasSelRenderAll();
+  }, 60);
+}
+
 var wfgPulseItems = [];
 var wfgPulseNextId = 1;
 var _wfgPulseThrottle = null;
@@ -25860,6 +26037,7 @@ window._onLangChange = function(lang) {
   try { wfgRenderChannelList(); } catch(e) {}
   try { wfgRenderGpioList(); } catch(e) {}
   try { wfgPulseRenderAll(); } catch(e) {}
+  try { wfgMeasSelRenderAll(); } catch(e) {}
   try { wfgUpdateCursorPanel(); } catch(e) {}
   // LA mode: re-render toolbar state (理論取樣時間 etc.) + scope labels (I/O 電平標註)
   if (wfgCurrentMode === 'la') {
@@ -26233,6 +26411,7 @@ window.wfgImportConfig = function(jsonStr) {
   // Pulse counter
   if (typeof wfgPulseRecalcAll === 'function') wfgPulseRecalcAll();
   if (typeof wfgPulseRenderAll === 'function') wfgPulseRenderAll();
+  if (typeof wfgMeasSelRenderAll === 'function') wfgMeasSelRenderAll();
 
   // 匯入後重置快捷設定選單（內容已與預設不同）
   var presetSel = document.getElementById('wfg-preset-select');
