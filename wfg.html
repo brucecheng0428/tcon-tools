@@ -863,9 +863,9 @@
   .wfg-cursor-group-header { display: flex; justify-content: space-between; align-items: center; }
   .wfg-cursor-group-delta { font-size: 12px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace; }
   /* v2.97.465: 時基尺標卡片 |Δt| 可輸入框 — 輸入正實數按 Enter 移動較晚的 cursor */
-  .wfg-la-cursor-dt-input { width: 7ch; min-width: 56px; box-sizing: content-box; padding: 0 4px; margin: 0 2px; font: inherit; color: #e2e8f0; background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.55); border-radius: 3px; text-align: right; vertical-align: baseline; }
-  .wfg-la-cursor-dt-input:focus { outline: none; background: #0b1220; border-color: #38bdf8; box-shadow: 0 0 0 1px rgba(56,189,248,0.5); }
-  .wfg-la-cursor-dt-input::-webkit-inner-spin-button, .wfg-la-cursor-dt-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .wfg-la-cursor-dt-input, .wfg-cursor-dt-input { width: 7ch; min-width: 56px; box-sizing: content-box; padding: 0 4px; margin: 0 2px; font: inherit; color: #e2e8f0; background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.55); border-radius: 3px; text-align: right; vertical-align: baseline; }
+  .wfg-la-cursor-dt-input:focus, .wfg-cursor-dt-input:focus { outline: none; background: #0b1220; border-color: #38bdf8; box-shadow: 0 0 0 1px rgba(56,189,248,0.5); }
+  .wfg-la-cursor-dt-input::-webkit-inner-spin-button, .wfg-la-cursor-dt-input::-webkit-outer-spin-button, .wfg-cursor-dt-input::-webkit-inner-spin-button, .wfg-cursor-dt-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .wfg-cursor-group-close { background: none; border: none; color: #64748b; cursor: pointer; font-size: 14px; padding: 2px 4px; }
   .wfg-cursor-group-close:hover { color: #f87171; }
   .wfg-cursor-detail { font-size: 11px; color: #94a3b8; padding-left: 8px; line-height: 1.6; font-family: 'SF Mono', 'Consolas', monospace; }
@@ -1528,7 +1528,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg466"></script>
+<script src="common/version.js?v=20260714wfg467"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -23251,10 +23251,96 @@ function wfgCloseCursorGroup(group) {
   wfgRender();
 }
 
+/* v2.97.467: 主波形分頁時基尺標卡片 —— 鏡像 LA 版 v2.97.465 的 |Δt| 可輸入框行為。
+   資料模型不同（LA 用平行陣列，主波形用 wfgCursors 物件陣列），故仿寫一份 wfg* 版；
+   但數量級/單位拆解沿用 LA 的純函式 wfgLaCursorDurationParts（僅依賴純函式，無 LA 狀態）。 */
+function wfgCursorDtInputKey(e, group) {
+  if (!e) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    wfgCursorApplyDtInput(group, e.target);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    if (e.target) e.target.blur();
+    wfgUpdateCursorPanel(); /* 放棄輸入 → 用現值重建卡片 */
+  }
+}
+window.wfgCursorDtInputKey = wfgCursorDtInputKey;
+
+/* 主波形資料時間域上下界（供 |Δt| 輸入 clamp 用）：
+   - phase 模式：[0, 總行數 × 每行時間]
+   - kvdat 模式：[TotalStart, TotalEnd] / 取樣頻率（*Time* 變數實為 sample-domain） */
+function wfgCursorDataTimeBounds() {
+  var p = wfgCursorGetTimeParams();
+  if (!p) return null;
+  if (p.mode === 'kvdat') {
+    var smp = wfgKvdatSmpFreqX1000;
+    if (!isFinite(smp) || smp <= 0) return null;
+    var mn = wfgKvdatTotalStart / smp, mx = wfgKvdatTotalEnd / smp;
+    if (!isFinite(mn) || !isFinite(mx) || mx <= mn) return null;
+    return { min: mn, max: mx };
+  }
+  if (!isFinite(p.timePerLine) || p.timePerLine <= 0) return null;
+  var maxT = wfgTotalLines() * p.timePerLine;
+  if (!isFinite(maxT) || maxT <= 0) return null;
+  return { min: 0, max: maxT };
+}
+
+/* 依輸入的 |Δt|（以目前顯示單位解讀）移動「較晚」的 cursor，固定「較早」者當基準；
+   正實數才生效，非正數/非法一律不移動；超界 clamp 到資料範圍。（鏡像 wfgLaCursorApplyDtInput） */
+function wfgCursorApplyDtInput(group, inputEl) {
+  var gi = ['A','B','C','D','E'].indexOf(String(group || '').toUpperCase());
+  if (gi < 0) return;
+  var c1 = wfgCursors[gi * 2], c2 = wfgCursors[gi * 2 + 1];
+  /* 必須兩支都存在才能定義間隔 */
+  if (!c1.active || !c2.active || c1.time == null || c2.time == null) {
+    wfgUpdateCursorPanel();
+    return;
+  }
+  var val = inputEl ? parseFloat(inputEl.value) : NaN;
+  var unitNs = inputEl ? parseFloat(inputEl.getAttribute('data-unitns')) : NaN;
+  if (!isFinite(unitNs) || unitNs <= 0) unitNs = 1;
+  /* 非正數 / 非法輸入 → 不移動，還原顯示 */
+  if (!isFinite(val) || val <= 0) {
+    wfgUpdateCursorPanel();
+    return;
+  }
+  /* 卡片以 ns 量化顯示，manual 輸入也對齊 ns；不足 1ns 視為無效 */
+  var targetNs = Math.round(val * unitNs);
+  if (targetNs <= 0) {
+    wfgUpdateCursorPanel();
+    return;
+  }
+  var dtSec = targetNs / 1e9;
+  /* 基準 = 較早（時間較小）者；移動 = 較晚者。位置相等時預設移動 c2 使其變晚 */
+  var early = (c1.time <= c2.time) ? c1 : c2;
+  var late = (early === c1) ? c2 : c1;
+  var target = early.time + dtSec;
+  var b = wfgCursorDataTimeBounds();
+  if (b) {
+    if (target > b.max) target = b.max;
+    if (target < b.min) target = b.min;
+  }
+  late.time = target;
+  late.moving = false; /* 手動定位 → 固定態 */
+  if (inputEl) inputEl.blur();
+  wfgUpdateCursorBtns();
+  wfgUpdateCursorPanel(); /* 重建卡片：X 依新間隔自動挑單位、頻率同步更新 */
+  wfgRender();
+}
+window.wfgCursorApplyDtInput = wfgCursorApplyDtInput;
+
 function wfgUpdateCursorPanel() {
   var card = document.getElementById('wfg-cursor-card');
   var body = document.getElementById('wfg-cursor-body');
   if (!card || !body) return;
+
+  /* v2.97.467: 使用者正在 |Δt| 輸入框打字時，任何 hover/動畫觸發的重繪都不能 innerHTML
+     重建洗掉輸入框（會掉焦點與內容）。與 LA 版 wfgLaUpdateMeasure 的守衛同理。 */
+  var _dtAe = document.activeElement;
+  if (_dtAe && _dtAe.classList && _dtAe.classList.contains('wfg-cursor-dt-input') && body.contains(_dtAe)) {
+    return;
+  }
 
   var anyActive = false;
   for (var ci = 0; ci < wfgCursors.length; ci++) {
@@ -23277,7 +23363,15 @@ function wfgUpdateCursorPanel() {
     // Delta display
     if (c1.active && c2.active && c1.time !== null && c2.time !== null) {
       var delta = Math.abs(c2.time - c1.time);
-      html += '<span class="wfg-cursor-group-delta" style="color:' + color + '">|' + c1.id + ' - ' + c2.id + '| = ' + wfgMeasFormatTime(delta) + '</span>';
+      /* v2.97.467: 把 X 改成可輸入框（正實數、Enter 生效、移動較晚的 cursor），並補頻率顯示。 */
+      var dtParts = wfgLaCursorDurationParts(delta);
+      var dtInput = '<input type="text" inputmode="decimal" class="wfg-cursor-dt-input"' +
+        ' data-group="' + g + '" data-unitns="' + dtParts.unitNs + '"' +
+        ' value="' + dtParts.valueText + '"' +
+        ' title="' + escapeHtml(t('wfg.laCursorDtHint')) + '"' +
+        ' onmousedown="event.stopPropagation()" onclick="event.stopPropagation()"' +
+        ' onkeydown="wfgCursorDtInputKey(event,\'' + g + '\')">';
+      html += '<span class="wfg-cursor-group-delta" style="color:' + color + '">|' + c1.id + ' - ' + c2.id + '| = ' + dtInput + ' ' + dtParts.unit + ' / ' + wfgMeasFormatFreq(delta > 0 ? 1 / delta : 0) + '</span>';
     } else if (c1.active) {
       html += '<span class="wfg-cursor-group-delta" style="color:' + color + '">' + c1.id + (c1.moving ? ' (' + t('wfg.cursorMoving') + ')' : '') + '</span>';
     } else {
@@ -23327,8 +23421,18 @@ function wfgToggleCursor(idx) {
       cur.time = wfgCursorGetCenterTime();
     }
     wfgCursorStartAnim();
+  } else if (!cur.moving) {
+    /* v2.97.467: 固定態(已釘住,moving=false)按鍵 → 改回跟隨滑鼠,不消失。
+       解除釘住、切回 following,清掉其他 cursor 的 moving,讓使用者可再按左鍵釘新位置。
+       只有從「跟隨態」按鍵才會走下面的 else 分支消失。(鏡像 LA 版 wfgLaToggleCursor v2.97.466) */
+    for (var cj = 0; cj < wfgCursors.length; cj++) {
+      if (wfgCursors[cj].moving) wfgCursors[cj].moving = false;
+    }
+    cur.moving = true;
+    if (_wfgCursorMouseTime != null) cur.time = _wfgCursorMouseTime;
+    wfgCursorStartAnim();
   } else {
-    // active (moving or placed) → inactive (remove cursor)
+    // active + moving (following) → inactive (remove cursor)
     cur.active = false;
     cur.moving = false;
     cur.time = null;

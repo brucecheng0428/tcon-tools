@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.467 — 2026-07-14
+
+**Bruce 需求**：另一個 wfg 分頁（主波形 Phase Counter / kvdat，非 LA）的 cursor 系統與 LA 是同一套概念，卻沒同步到 LA 近期新增的功能。把 LA 版三項最近功能鏡像過去（不重構合併，只鏡像行為降風險）：① 快捷鍵三態（v466）；② 時基尺標卡片 |Δt| 的 X 可即時輸入（v465）；③ 即時測量卡片補頻率顯示。
+
+**兩套落差（勘查結果，指行）**：主波形那套資料模型為 `wfgCursors` 物件陣列 `{active,moving,time,group,id}`（wfg.html:1857），與 LA 的平行陣列（`wfgLaCursorActive/Pos/Moving/Anchors`）不同。落差：(1) `wfgToggleCursor`（原 23309）的 else 分支不分 moving 一律消失，缺 LA v466 的固定態→回跟隨分支；(2) `wfgUpdateCursorPanel`（原 23254）的 both 分支只用 `wfgMeasFormatTime(delta)` 純文字顯示 Δt，無可輸入框、無頻率、無打字聚焦守衛，缺 LA v465 的 `wfgLaCursorApplyDtInput`/`wfgLaCursorDtInputKey`/`wfgLaCursorDurationParts` + `wfgLaUpdateMeasure` 聚焦守衛。主波形已內建 `wfgMeasFormatFreq`（22008）可直接用於頻率。
+
+**改動（指行）**：
+1. 三態：`wfgToggleCursor` 的 `else` 拆成 `else if (!cur.moving)`（固定態→清所有 moving、`cur.moving=true`、有滑鼠時 `cur.time=_wfgCursorMouseTime`、`wfgCursorStartAnim()`，不消失）與最後 `else`（跟隨態→消失）。鏡像 `wfgLaToggleCursor`（7747）。
+2. |Δt| 可輸入：`wfgUpdateCursorPanel` both 分支把 Δt 改為 `<input class="wfg-cursor-dt-input">` + 單位 + `wfgMeasFormatFreq(1/delta)`；卡片頂端加聚焦守衛（activeElement 為 dt 輸入框時直接 return，不 innerHTML 重建）。新增 `wfgCursorDtInputKey`/`wfgCursorApplyDtInput`（Enter 固定較早 cursor、移動較晚 cursor 到基準+X、非正數/非法不移動、超界 clamp、Esc 放棄）與 `wfgCursorDataTimeBounds`（phase=[0,總行數×每行時間]、kvdat=[TotalStart,TotalEnd]/取樣頻率）。數量級/單位拆解直接重用 LA 純函式 `wfgLaCursorDurationParts`（僅依賴純函式，無 LA 狀態）。
+3. 頻率：同上 both 分支已補 `wfgMeasFormatFreq`。CSS `.wfg-cursor-dt-input` 併入既有 `.wfg-la-cursor-dt-input` 規則（866-868）。i18n 沿用 `wfg.laCursorDtHint`。LA 那套（wfgLa*）與解碼/硬體按鈕皆未動。版號 wfg→v2.97.467、快取字串 `?v=20260714wfg467`。
+
+**驗證**：`node --check` 抽出 inline script 通過；Chrome 真鍵盤＋真滑鼠切到主波形分頁實測三態、|Δt| 輸入移動較晚 cursor＋單位換算＋頻率同步、聚焦守衛不掉字，印旗標數值＋截圖佐證（見對話）。
+
 ## TCON 波形產生器 (wfg) v2.97.466 — 2026-07-14
 
 **Bruce 需求**：LA cursor 快捷鍵（1=A1、2=A2…）的固定態行為修正。原本三態中：無 cursor 時按鍵→出現並跟隨滑鼠；未按左鍵再按同鍵→消失（正常）；但按左鍵釘住（固定態）後再按同鍵→原設計是「消失」。改成：固定態按鍵→cursor 不消失、改回「跟隨滑鼠」狀態（使用者可再按左鍵釘新位置）。一句話：只有前一刻是「跟隨態」按鍵才會進消失態；前一刻是「固定態」按鍵改成進入跟隨態。
