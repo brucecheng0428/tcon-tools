@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.462 — 2026-07-14
+
+**Bruce 回報（更正 v460 方向）**：v460 假設「A OFF 後只是 OS 短暫釋放窗口，B 退避重試可搶到」，做了 B 端 claim 退避重試（`wfgLaClaimWithRetry`）。**實機驗證：問題仍在，解法仍是「必須重新整理網頁 A，B 才能正常 ON」。** → 根因不是短暫窗口，而是 **A 按 OFF 後頁面仍有背景路徑持續持有 / 重新 open 裝置**；只有重整 A（render process 銷毀、OS 回收 handle）才真正釋放。退避重試無效。
+
+**根因（確定性程式碼稽核，指行）**：
+本頁**設計成「背景自動連上硬體」**，這是背景 open 的來源：
+- `wfgLaStartUsbPresencePoll`（原 7850）每 2.5s → `wfgLaRefreshUsbPresence({autoInit:true})` → `wfgLaOpenDevice`（原 7896 `await dev.open()`）→ protocol ready 時 `wfgLaSetStatus('wfg-la-status-device','ok')`（7719-7720 → `wfgLaHardwareReady=true`）。即「只要在 LA 模式、裝置插著，頁面就會背景 open 持有裝置」，**不需按 ON**。
+- `wfgLaStartReconnectAutoInit`（原 7798，connect/disconnect 事件觸發）與 install-time 的 `wfgLaRefreshUsbPresence({autoInit:false})`（原 7795）也都會走 `wfgLaOpenDevice`。
+- v457 的 `wfgLaLinkUserOff` 只在「使用者曾按 ON 再按 OFF」時為 true。而背景 poll / reconnect 是設計性的背景 open 路徑；只要 gate 有任何時序/狀態縫隙（OFF 中 `hardwareReady=false` 與 `userOff=true` 的設定順序、poll 與 OFF 的競態、或 A 從背景自動連上時 `userOff` 恆為 false），A 就會在 OFF 後被背景 re-open。重整 A 之所以「必成功」＝process 銷毀，所有 timer 停 + USBDevice GC + OS handle 回收。
+- 另一確定資源洩漏：`wfgLaHardwareLinkOn` 的 claim 失敗 catch（原 14535）**沒 close 本分頁剛 open 的裝置**（open 非獨佔、claim 才獨佔）→ 兩分頁互搶時各自殘留 opened handle，加重 IOKit 釋放競態。
+
+**修法（往根治：頁面預設「絕不背景自動 open/claim」，指行）**：
+1. **presence poll 不再 open**（wfg.html:7862）：新增 `wfgLaProbeDevicePresenceOnly()`（7877）——只用 `navigator.usb.getDevices()` 列舉判斷裝置插著與否、僅更新狀態燈文字，**絕不呼叫 `dev.open()`／`claimInterface`／`setStatus(device,'ok')`**（不設 `hardwareReady=true`）。poll 改呼叫它。
+2. **install 初始化不再 open**（wfg.html:7795-7797）：`wfgLaRefreshUsbPresence({autoInit:false})` → `wfgLaProbeDevicePresenceOnly()`。
+3. **reconnect 只在「有進行中擷取要恢復」或「已主動連線(ON)」才自動 open**（wfg.html:7805-7813）：`shouldAutoOpen = resumeMode || pendingCaptureMode || restoreReady || linkActive`；否則只 probe 不 open。純插上裝置不自動 open。
+4. **ON 失敗 close 自己 handle**（wfg.html:14568-14580）：claim 失敗且非擷取中 → releaseInterface + `await close()`，不留 opened 殘留。
+5. **OFF 徹底釋放**（wfg.html:14621-14625）：迴圈 close 直到 `dev.opened===false`（至多 3 次 × 120ms），確保 IOKit 真正放掉獨佔。
+- 保留 v460 的 `wfgLaClaimWithRetry` 退避重試當第二層保險（主修是讓 A 真正放掉、不再 re-grab）。
+
+**採「背景不自動 open」根治的影響**：
+- **擷取不受影響**：按單次/循環擷取走 `wfgLaStartCapture`→`wfgLaEnsureHardwareInitializedForCapture`（14334）→`wfgLaGetReadyDevice`（自己 open）+claim，路徑自足，不依賴背景 poll 先 open。
+- **狀態燈**：載入/插上裝置時不再自動顯示「已連線」，改顯示「偵測到 LA2016（未連線）；按 ON 或單次/循環擷取以連線」——更如實反映控制權歸屬。
+- **自動恢復擷取**：擷取進行中拔插仍會自動恢復（`resumeMode` 保留 open 路徑）；非擷取狀態拔插不自動 open。
+- **同時根治**「初次載入 PWM 誤亮 / 背景自動連上」：載入不再背景 open+設 `hardwareReady`，PWM 燈（閘＝`linkActive`，v458）在按 ON 前不會亮。
+
+**驗證（誠實）**：
+- 靜態：`node --check` 抽出全部 script → **SYNTAX_OK**。
+- 邏輯稽核：全檔 `wfgLaOpenDevice` 呼叫點＝{7896 refreshUsbPresence（現僅被 gated reconnect step 呼叫）、8940 re-enum、14107/14122/14133 getReadyDevice（ON/擷取）、14215 診斷}；`claimInterface`＝{8961 claimKingstInterface（擷取/ON）、14212/14216/14304 診斷}；背景 timer 中 poll 已**無** open、install 已改 probe、reconnect 已 gate。`wfgLaProbeDevicePresenceOnly` 定義 1、呼叫 3（poll/install/reconnect）。
+- **限制（必要）**：真正的「兩分頁 race」需真 LA2016＋兩分頁，非確定性、自動化無法穩定重現。**最終要 Bruce 兩分頁實機驗**：A ON → B 佔用 → A OFF → **B 直接 ON 成功、不需重整 A**；併驗單次/循環擷取、PWM、拔插自動恢復仍正常。
+
 ## TCON 波形產生器 (wfg) v2.97.461 — 2026-07-14
 
 **Bruce 要求（「執行」group 兩件事）**：

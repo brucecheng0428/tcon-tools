@@ -7792,7 +7792,9 @@ function wfgLaInstallUsbWatchers() {
     wfgLaStartReconnectAutoInit(ev && ev.device);
   });
   wfgLaStartUsbPresencePoll();
-  wfgLaRefreshUsbPresence({ autoInit: false }).catch(function() {});
+  // v2.97.462：初始化不再背景 open 裝置（舊 refreshUsbPresence 會 wfgLaOpenDevice + 設 hardwareReady）。
+  // 改用純偵測（不 open），避免載入即占用硬體 / PWM 誤亮 / 與另一分頁互搶。
+  wfgLaProbeDevicePresenceOnly().catch(function() {});
 }
 
 function wfgLaStartReconnectAutoInit(eventDevice) {
@@ -7800,6 +7802,14 @@ function wfgLaStartReconnectAutoInit(eventDevice) {
   // v2.97.457：使用者已顯式 OFF → 不自動重連/重初始化（否則會把 device 設回 ok 使 PWM 復亮）。
   // 需使用者按 ON 才恢復（wfgLaHardwareLinkOn 清除 wfgLaLinkUserOff）。
   if (wfgLaLinkUserOff) return;
+  // v2.97.462：頁面預設不背景自動 open。只有「有進行中的擷取要恢復」或「使用者已主動連線(ON)」時，
+  // 才自動 open+初始化去恢復硬體；純插上/連接事件不自動 open（交由使用者按 ON / 單次擷取觸發），
+  // 以免背景 re-open 造成兩分頁互搶 / PWM 誤亮。
+  var shouldAutoOpen = wfgLaReconnectResumeMode || wfgLaPendingCaptureMode || wfgLaReconnectRestoreReady || wfgLaLinkActive;
+  if (!shouldAutoOpen) {
+    wfgLaProbeDevicePresenceOnly().catch(function() {});
+    return;
+  }
   wfgLaReconnectUserCancelled = false;
   var token = ++wfgLaReconnectAttemptToken;
   var started = Date.now();
@@ -7851,12 +7861,33 @@ function wfgLaStartUsbPresencePoll() {
   if (wfgLaUsbPollTimer || !navigator.usb || !navigator.usb.getDevices) return;
   wfgLaUsbPollTimer = setInterval(function() {
     if (document.hidden || wfgCurrentMode !== 'la' || wfgLaCaptureRunning) return;
-    if (wfgLaHardwareReady || wfgLaPendingRenumeration) return;
-    // v2.97.457: 使用者已顯式 OFF → 不自動 re-open 裝置、不自動把 device 設回 'ok'
-    // （否則此 poll 會在 ~2.5s 後把 PWM 綠燈復亮）。等使用者按 ON 才恢復。
-    if (wfgLaLinkUserOff) return;
-    wfgLaRefreshUsbPresence({ autoInit: true, quietMissing: true, fromPoll: true }).catch(function() {});
+    // v2.97.462：頁面預設「絕不背景自動 open/claim」。此 poll 只做「不開啟裝置」的存在偵測，
+    // 更新狀態燈文字；真正的 dev.open()／claimInterface 只在使用者主動按連線 ON 或按單次/循環
+    // 擷取時發生。這是「A OFF 後 B 仍需重整 A」的根治：A 不按 ON、不擷取時完全不碰裝置，
+    // 也沒有任何背景 timer 會在 OFF 之後把裝置 re-open 回去（先前 refreshUsbPresence→wfgLaOpenDevice
+    // 是背景自動 open 的來源）。同時根治「初次載入 PWM 誤亮 / 背景自動連上」。
+    wfgLaProbeDevicePresenceOnly().catch(function() {});
   }, 2500);
+}
+
+// v2.97.462：純存在偵測——只用 getDevices() 列舉判斷已授權的 LA2016 是否插著，
+// 絕不呼叫 dev.open()／claimInterface，也絕不呼叫 wfgLaSetStatus(device,'ok')
+// （避免把 wfgLaHardwareReady 設 true → PWM 誤亮 / 占用硬體）。僅在 present 狀態變化時更新燈文字。
+var wfgLaProbeLastPresent = null;
+async function wfgLaProbeDevicePresenceOnly() {
+  if (!navigator.usb || !navigator.usb.getDevices) return;
+  // 已由使用者主動連線(ON)或擷取中 → 控制權在本工具，交給 heartbeat / 擷取流程管理，poll 不介入。
+  if (wfgLaLinkActive || wfgLaLinkBusy || wfgLaCaptureRunning || wfgLaHardwareReady || wfgLaPendingRenumeration) return;
+  var known = await navigator.usb.getDevices();
+  var present = false;
+  for (var i = 0; i < known.length; i++) { if (wfgLaIsKingstDevice(known[i])) { present = true; break; } }
+  if (present === wfgLaProbeLastPresent) return;   // 僅在狀態變化時更新，避免持續洗掉其他訊息
+  wfgLaProbeLastPresent = present;
+  if (present) {
+    wfgLaSetStatus('wfg-la-status-device', 'warn', '偵測到 LA2016（未連線）；按連線 ON 或單次/循環擷取以取得控制權');
+  } else {
+    wfgLaSetStatus('wfg-la-status-device', 'warn', '尚未偵測到已授權的 LA2016；按單次/循環時選擇 77a1:01a2');
+  }
 }
 
 function wfgLaResumeInterruptedCapture() {
@@ -14534,6 +14565,18 @@ async function wfgLaHardwareLinkOn() {
     wfgLaStartLinkHeartbeat();
   } catch (err) {
     wfgLaLinkActive = false;                          // 🔴 claim 失敗絕不假亮綠
+    // v2.97.462：claim 失敗（被占用/取消）時，若本分頁的 getReadyDevice 已把裝置 open 成功
+    // （open 非獨佔、claim 才獨佔），要 close 掉這個殘留 handle，不留 opened 狀態。
+    // 否則兩分頁互搶時會各自殘留 open handle，加重 macOS IOKit 釋放競態，使另一端更難接手。
+    try {
+      if (wfgLaUsbDevice && wfgLaUsbDevice.opened && !wfgLaCaptureRunning) {
+        for (var ri = 0; ri < wfgLaClaimedInterfaces.length; ri++) {
+          try { await wfgLaUsbDevice.releaseInterface(wfgLaClaimedInterfaces[ri]); } catch (eRel) {}
+        }
+        wfgLaClaimedInterfaces = [];
+        await wfgLaUsbDevice.close();
+      }
+    } catch (eClose) {}
     var msg = err && err.message ? err.message : String(err);
     var friendly;
     if (err && (err.name === 'NotFoundError' || /No device selected|cancel/i.test(msg))) {
@@ -14575,12 +14618,12 @@ async function wfgLaHardwareLinkOff() {
         try { await dev.releaseInterface(wfgLaClaimedInterfaces[i]); } catch (e2) {}
       }
       // close 會中止任何 in-flight EP6 transferIn（乾淨 abort）。
-      // v2.97.460：close 失敗（例如仍有 in-flight transfer）時短延遲後再試一次，
-      // 盡量讓 OS/IOKit 徹底釋放 USB 獨佔，縮短另一分頁 claim 撞到的「未完全釋放」窗口。
-      try {
-        await dev.close();
-      } catch (e3) {
-        try { await wfgLaSleep(120); if (dev.opened) await dev.close(); } catch (e3b) {}
+      // v2.97.462：徹底且持久釋放——迴圈 close 直到 dev.opened===false（至多 3 次，每次間隔 120ms），
+      // 確保 macOS IOKit 真的把本分頁的 USB 獨佔放掉，讓另一分頁能立即 open+claim（不必重整本頁）。
+      for (var closeTry = 0; closeTry < 3; closeTry++) {
+        try { if (dev.opened) await dev.close(); } catch (e3) {}
+        if (!dev.opened) break;
+        await wfgLaSleep(120);
       }
     }
     wfgLaClaimedInterfaces = [];
