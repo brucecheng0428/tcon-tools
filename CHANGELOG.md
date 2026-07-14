@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.465 — 2026-07-14
+
+**Bruce 需求**：LA 時基尺標卡片叫出成對 cursor（如 A1/A2）時，卡片顯示 `|A1-A2| = X us / Y kHz`。把 X 改成可即時輸入的數字框（正實數），輸入後按 Enter 生效：固定「較早（左邊）」的 cursor 當基準、移動「較晚（右邊）」的 cursor 到「基準 + X」，X 依卡片當下單位解讀；若輸入很小使間隔變小，Enter 後單位數量級自動改變（us→ns），X 與 Y 一起換算更新。
+
+**現況（指行）**：LA 卡片由 `wfgLaUpdateMeasure`（wfg.html:7029）重建 `#wfg-la-cursor-body` 的 innerHTML；`both` 時 delta 字串＝`wfgLaCursorCardDurationLabel(dt) + ' / ' + wfgLaFreqLabel(1/dt)`（原 7053），dt＝`|wfgLaCursorPos[i2]-wfgLaCursorPos[i1]|`（絕對秒）。單位挑選在 `wfgLaCursorCardDurationLabel`（5392）依 ns 量級（s/ms/us/ns）選；頻率 `wfgLaFreqLabel`（5407）。cursor 位置 `wfgLaCursorPos[0..9]`＝絕對秒、名稱 `wfgLaCursorNames`（A1/A2…E1/E2）、5 組各 2 支。全域 keydown 快捷（5765）已用 `wfgIsTextEntryEvent`（5425）排除 input，打字不會誤觸放 cursor 快捷鍵。
+
+**改動（指行）**：
+1. 新增 `wfgLaCursorDurationParts(sec)`（wfg.html:5407-5429）：與 `wfgLaCursorCardDurationLabel` 同一套 ns 量化＋挑單位規則，回傳 `{valueText, unit, unitNs, ns}`，供輸入框顯示數值與 Enter 反算回秒。
+2. `wfgLaUpdateMeasure`：`both` 時 X 改成 `<input class="wfg-la-cursor-dt-input">`（wfg.html:7059-7071），值＝`dtParts.valueText`、`data-unitns` 帶目前單位的 ns，後接「單位 / 頻率」；`onkeydown` 綁 `wfgLaCursorDtInputKey`。並在函式開頭加「輸入框聚焦守衛」（wfg.html:7031-7038）：焦點在 dt input 時跳過 innerHTML 重建，避免 hover/動畫重繪洗掉輸入（比照 label 名稱編輯守衛）。
+3. 新增 `wfgLaCursorDtInputKey`（wfg.html:7688-7700）：Enter→套用、Esc→放棄重建。`wfgLaCursorApplyDtInput`（wfg.html:7704-7745）：正實數才生效；`earlyIdx`＝`wfgLaCursorPos` 較小者（基準不動），`lateIdx`＝較大者（移動）；`target = basis + round(X×unitNs)/1e9`，clamp 到 `[0, wfgLaCaptureDuration()]`；清 `wfgLaCursorAnchors[lateIdx]`（手動定位不綁 edge）後 `wfgLaRenderScope()` 重建（單位/頻率自動更新）。用「左/右時間先後」判定，不寫死 A1/A2。
+4. i18n 新增 `wfg.laCursorDtHint`（common/i18n.js:319）作輸入框 title。版號 wfg→v2.97.465、快取字串 `?v=20260714wfg465`。
+
+**邊界處理**：非正數/非法/空值→不移動、還原顯示；輸入換算後不足 1ns（`round(X×unitNs)≤0`）→視為無效不移動（卡片全程 ns 量化，無法表達更細）；`基準+X` 超過資料尾端→clamp 到 duration（卡片據實顯示縮短後間隔）；失焦不生效，一律以 Enter 為準。只動 LA 卡片，未改 cursor 拖曳、單位挑選演算法本身、AUX/硬體等無關功能。
+
+**驗證**：`node --check` 抽出的 inline script 過；Chrome MCP 本地 server 實測（見下方對話）：叫出 A1/A2 後於 X 輸入數字按 Enter，較晚 cursor 移到「基準+X」、`|Δt|`/X/Y 一致；輸入極小值→單位由 us 變 ns、X/Y 換算更新；基準（較早）cursor 不動；A1/A2 左右對調時移動的仍是較晚者。附移動前後 `wfgLaCursorPos` 秒值與卡片字串為證。
+
 ## TCON 波形產生器 (wfg) v2.97.464 — 2026-07-14
 
 **Bruce 回報**：eDP AUX 解碼結果卡片，Type 欄部分 badge 有「!」異常標記（紅/黃色），但 hover 沒有浮動說明、v463 的點擊彈框也空白。實測：套「eDP AUX解碼（異常範例）」preset 時 hover 有說明；自己單次觸發取樣的結果就沒有。

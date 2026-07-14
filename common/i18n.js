@@ -316,6 +316,7 @@ var I18N = {
   'wfg.cursorMoving':   { 'zh-TW': '移動中', 'en': 'moving', 'zh-CN': '移动中' },
   'wfg.cursorClose':    { 'zh-TW': '關閉', 'en': 'Close', 'zh-CN': '关闭' },
   'wfg.cursorShortcut': { 'zh-TW': '快捷鍵', 'en': 'Shortcut', 'zh-CN': '快捷键' },
+  'wfg.laCursorDtHint':  { 'zh-TW': '輸入正實數後按 Enter，會固定較早的 cursor、移動較晚的 cursor 使間隔等於此值（依目前顯示單位）', 'en': 'Type a positive number and press Enter: the earlier cursor stays, the later cursor moves so the gap equals this value (in the unit shown)', 'zh-CN': '输入正实数后按 Enter，固定较早的 cursor、移动较晚的 cursor 使间隔等于此值（依当前显示单位）' },
   // ─── WFG: Pulse counter ───
   'wfg.pulseTitle':     { 'zh-TW': '脈衝計數', 'en': 'Pulse Counter', 'zh-CN': '脉冲计数' },
   'wfg.pulseAdd':       { 'zh-TW': '新增計數項目', 'en': 'Add counter', 'zh-CN': '新增计数项目' },

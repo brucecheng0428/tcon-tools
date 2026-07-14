@@ -862,6 +862,10 @@
   .wfg-cursor-group:last-child { margin-bottom: 0; }
   .wfg-cursor-group-header { display: flex; justify-content: space-between; align-items: center; }
   .wfg-cursor-group-delta { font-size: 12px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace; }
+  /* v2.97.465: 時基尺標卡片 |Δt| 可輸入框 — 輸入正實數按 Enter 移動較晚的 cursor */
+  .wfg-la-cursor-dt-input { width: 7ch; min-width: 56px; box-sizing: content-box; padding: 0 4px; margin: 0 2px; font: inherit; color: #e2e8f0; background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.55); border-radius: 3px; text-align: right; vertical-align: baseline; }
+  .wfg-la-cursor-dt-input:focus { outline: none; background: #0b1220; border-color: #38bdf8; box-shadow: 0 0 0 1px rgba(56,189,248,0.5); }
+  .wfg-la-cursor-dt-input::-webkit-inner-spin-button, .wfg-la-cursor-dt-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .wfg-cursor-group-close { background: none; border: none; color: #64748b; cursor: pointer; font-size: 14px; padding: 2px 4px; }
   .wfg-cursor-group-close:hover { color: #f87171; }
   .wfg-cursor-detail { font-size: 11px; color: #94a3b8; padding-left: 8px; line-height: 1.6; font-family: 'SF Mono', 'Consolas', monospace; }
@@ -1524,7 +1528,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260714wfg464"></script>
+<script src="common/version.js?v=20260714wfg465"></script>
 <script src="common/i18n.js?v=20260714wfg459"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5400,6 +5404,28 @@ function wfgLaCursorCardDurationLabel(sec) {
   return ns + ' ns';
 }
 
+/* v2.97.465: 把 |Δt| 拆成「數值文字 + 單位 + 每單位的 ns 數」，
+   讓時基尺標卡片的可輸入框知道目前用哪個數量級顯示 X，Enter 時可反算回秒。
+   與 wfgLaCursorCardDurationLabel 用同一套 ns 量化與挑單位規則，確保顯示一致。 */
+function wfgLaCursorDurationParts(sec) {
+  var ns = Math.max(0, Math.abs(wfgLaCursorNsValue(sec)));
+  var units = [
+    { unit: 's', ns: 1000000000 },
+    { unit: 'ms', ns: 1000000 },
+    { unit: 'us', ns: 1000 },
+    { unit: 'ns', ns: 1 }
+  ];
+  for (var i = 0; i < units.length; i++) {
+    var u = units[i];
+    if (ns < u.ns && i < units.length - 1) continue;
+    var valueText;
+    if (ns % u.ns === 0) valueText = String(ns / u.ns);
+    else valueText = wfgLaTrimFixed(ns / u.ns, Math.ceil(Math.log10(u.ns)));
+    return { valueText: valueText, unit: u.unit, unitNs: u.ns, ns: ns };
+  }
+  return { valueText: String(ns), unit: 'ns', unitNs: 1, ns: ns };
+}
+
 function wfgLaFreqLabel(freq) {
   if (!isFinite(freq) || freq <= 0) return '--';
   if (freq >= 1e6) return (freq / 1e6).toFixed(2) + ' MHz';
@@ -7020,6 +7046,14 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
   var card = document.getElementById('wfg-la-cursor-card');
   var body = document.getElementById('wfg-la-cursor-body');
   if (card && body) {
+    /* v2.97.465: 使用者正在時基尺標卡片的 |Δt| 輸入框打字時，任何 hover/動畫重繪
+       都不能用 innerHTML 重建洗掉輸入框（會掉焦點與內容）。與 label 名稱編輯守衛同理。 */
+    var _dtEditAe = document.activeElement;
+    if (_dtEditAe && _dtEditAe.classList && _dtEditAe.classList.contains('wfg-la-cursor-dt-input') && body.contains(_dtEditAe)) {
+      wfgLaPulseRenderAll(cfg);
+      wfgLaMeasRenderAll(cfg);
+      return;
+    }
     var anyActive = false;
     for (var ai = 0; ai < wfgLaCursorActive.length; ai++) {
       if (wfgLaCursorActive[ai]) { anyActive = true; break; }
@@ -7038,7 +7072,21 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
       var dt = both ? Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1]) : 0;
       var color = wfgLaCursorColors[i1];
       if (!wfgLaCursorActive[i1] && !wfgLaCursorActive[i2]) continue;
-      var val = both ? (wfgLaCursorCardDurationLabel(dt) + ' / ' + wfgLaFreqLabel(1 / dt)) : '--';
+      /* v2.97.465: both 時把 X 改成可輸入框（正實數、Enter 生效、移動較晚的 cursor）。
+         單只有一支 cursor（未成對）時仍顯示 '--'，無輸入框。 */
+      var val;
+      if (both) {
+        var dtParts = wfgLaCursorDurationParts(dt);
+        val = '<input type="text" inputmode="decimal" class="wfg-la-cursor-dt-input"' +
+          ' data-group="' + name + '" data-unitns="' + dtParts.unitNs + '"' +
+          ' value="' + dtParts.valueText + '"' +
+          ' title="' + escapeHtml(t('wfg.laCursorDtHint')) + '"' +
+          ' onmousedown="event.stopPropagation()" onclick="event.stopPropagation()"' +
+          ' onkeydown="wfgLaCursorDtInputKey(event,\'' + name + '\')">' +
+          ' ' + dtParts.unit + ' / ' + wfgLaFreqLabel(1 / dt);
+      } else {
+        val = '--';
+      }
       html += '<div class="wfg-cursor-group">';
       html += '<div class="wfg-cursor-group-header">';
       html += '<span class="wfg-cursor-group-delta" style="color:' + color + '">|' + wfgLaCursorNames[i1] + ' - ' + wfgLaCursorNames[i2] + '| = ' + val + '</span>';
@@ -7636,6 +7684,65 @@ function wfgLaCloseCursorGroup(group) {
   wfgLaRenderScope();
 }
 window.wfgLaCloseCursorGroup = wfgLaCloseCursorGroup;
+
+/* v2.97.465: 時基尺標卡片 |Δt| 輸入框 —— 按 Enter 才生效。 */
+function wfgLaCursorDtInputKey(e, group) {
+  if (!e) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    wfgLaCursorApplyDtInput(group, e.target);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    if (e.target) e.target.blur();
+    wfgLaRenderScope(); /* 放棄輸入 → 用現值重建卡片 */
+  }
+}
+window.wfgLaCursorDtInputKey = wfgLaCursorDtInputKey;
+
+/* v2.97.465: 依輸入的 |Δt|（以目前顯示單位解讀）移動「較晚（時間較大）」的 cursor，
+   固定「較早（時間較小）」的 cursor 當基準；正實數才生效，非正數/非法一律不移動。 */
+function wfgLaCursorApplyDtInput(group, inputEl) {
+  var gi = ['A','B','C','D','E'].indexOf(String(group || '').toUpperCase());
+  if (gi < 0) return;
+  var i1 = gi * 2, i2 = i1 + 1;
+  /* 必須兩支都存在才能定義間隔 */
+  if (!wfgLaCursorActive[i1] || !wfgLaCursorActive[i2] || wfgLaCursorPos[i1] == null || wfgLaCursorPos[i2] == null) {
+    wfgLaRenderScope();
+    return;
+  }
+  var val = inputEl ? parseFloat(inputEl.value) : NaN;
+  var unitNs = inputEl ? parseFloat(inputEl.getAttribute('data-unitns')) : NaN;
+  if (!isFinite(unitNs) || unitNs <= 0) unitNs = 1;
+  /* 非正數 / 非法輸入 → 不移動，還原顯示 */
+  if (!isFinite(val) || val <= 0) {
+    wfgLaRenderScope();
+    return;
+  }
+  /* 卡片全程以 ns 量化顯示，manual 輸入也對齊 ns；不足 1ns 視為無效（無法在此顯示精度下表達） */
+  var targetNs = Math.round(val * unitNs);
+  if (targetNs <= 0) {
+    wfgLaRenderScope();
+    return;
+  }
+  var dtSec = targetNs / 1e9;
+  /* 基準 = 較早（時間較小）者；移動 = 較晚者。位置相等時預設移動 i2 使其變晚 */
+  var earlyIdx = (wfgLaCursorPos[i1] <= wfgLaCursorPos[i2]) ? i1 : i2;
+  var lateIdx = (earlyIdx === i1) ? i2 : i1;
+  var basis = wfgLaCursorPos[earlyIdx];
+  var target = basis + dtSec;
+  /* clamp 到資料範圍 [0, duration]；超界時貼齊邊界（卡片會據實顯示縮短後的間隔） */
+  var duration = wfgLaCaptureDuration();
+  if (target > duration) target = duration;
+  if (target < 0) target = 0;
+  wfgLaCursorPos[lateIdx] = target;
+  wfgLaCursorAnchors[lateIdx] = null; /* 手動定位，不綁 edge anchor */
+  wfgLaCursorMoving[lateIdx] = false;
+  wfgLaCursorSelected = lateIdx;
+  if (inputEl) inputEl.blur();
+  wfgLaUpdateCursorButtons();
+  wfgLaRenderScope(); /* 重建卡片：X 依新間隔自動挑單位、Y 頻率同步更新 */
+}
+window.wfgLaCursorApplyDtInput = wfgLaCursorApplyDtInput;
 
 function wfgLaToggleCursor(idx) {
   wfgLaToggleCursorCluster(true);
