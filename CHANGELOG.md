@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.470 — 2026-07-18
+
+**Bruce 需求**：LA 分頁同時相容舊硬體與新 Type-C 版 LA2016（USB 同 VID/PID 0x77A1:0x01A2）。(1) 新壓縮包用不一樣的檔名以便區別；(2) 網頁所有彈窗提示的壓縮包檔名一併換新；(3) 不做手動選擇——全自動判斷新舊硬體並抓取對應初始化檔案。
+
+**根因**（前置調查定案）：舊包 `webusb-device-package.zip` 只含 la2016a1 bitstream；新 Type-C 版依 EEPROM magic（libsigrok 對照表 {0x0b,0x10}→la2016a2）需要 la2016a2 bitstream（577,892B），從未進包。
+
+**改動**：
+- 新檔案包 `la2016-firmware-multipack-v2.zip`（本機 `~/Documents/TCON/Share/`，不進 git/Pages）：manifest v2＋fw01A1~A4/03A1 全部 MCU 韌體＋la2016/la2016a1/la2016a2/la1016/la1016a1 bitstream，各檔 SHA256。來源：KingstVIS v3.6.5 Linux 版，sigrok-fwextract-kingst-la2016 抽取；與 5/6 既有抽取檔逐檔 SHA256 相符。**LA2016A3 不存在**於 3.6.5 資源（Linux＋Mac 二進位皆掃描確認，修正前次調查報告記載）。
+- IndexedDB 多 bitstream：新增 `fpga:<model>` 多筆儲存；`wfgLaHasStoredFirmwarePackage` 認得新舊兩種儲存；`wfgLaListStoredFirmwareKinds` 新增。
+- `wfgLaIdentifyMagic` 改用 libsigrok `kingst_model models[]` 完整 15 項對照表（含 0x0b:0x10→la2016a2；magic2 wildcard 語義同 C 版），回傳 `fpga` 目標欄位。
+- init（`wfgLaInitHardwareFromStoredFirmware`）：讀 EEPROM magic 後**全自動**選檔上傳（`wfgLaSelectStoredBitstream`）；unknown magic 明確顯示「未知修訂＋magic/magic2 值」絕不默默用 a1；「FPGA 已可用就跳過上傳」檢查原樣保留；舊包單 blob 僅在判定為 la2016/la2016a1 時作 legacy fallback（舊硬體回歸不壞）。
+- 匯入：`wfgLaImportPackageZip` 支援 multipack v2（全檔 SHA256 驗證）；匯入舊包仍可用但跳出「此為舊版包，缺新硬體支援，請改匯入新檔名」提示（`wfg.laLegacyPackageWarn`）。資料夾掃描匯入路徑同步存 per-model bitstream。
+- 彈窗/引導文字（`wfg.laGuideStep1`/`wfg.laContactBody`）改為指名新檔名；全 repo grep 舊檔名字串＝0。
+
+**驗證**：`node --check` 通過；Chrome 實測匯入新包→IndexedDB 讀回 fx2＋5 顆 bitstream；magic→檔案選擇單元驗證（0x0b:0x10→a2、0x08→a1、0x02:0x01→a1、0x02:0x00→la2016、unknown 0x0d→報錯文案、invalid→報錯）；彈窗截圖確認新檔名。硬體端到端（新 Type-C 斷電重插不開原廠 UI 直接初始化＋觸發＋記錄；舊硬體回歸）留 Bruce 實機驗收。版號 wfg→v2.97.470、快取字串 `?v=20260718wfg470`（version.js/i18n.js）。
+
 ## TCON 波形產生器 (wfg) v2.97.469 — 2026-07-14
 
 **Bruce 需求**：把 LA 分頁即時測量卡的「選定通道量測（最多 4）」區塊，移植到主波形分頁（TCON Timing 調整練習）的「即時測量」卡，兩邊一致。每個量測項顯示 頻率／正脈寬／負脈寬／週期／佔空比，計算語義與 LA 版一致，用主波形自己的資料算，phase 與 kvdat 兩模式都要能運作。

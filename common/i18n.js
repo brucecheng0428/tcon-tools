@@ -232,7 +232,8 @@ var I18N = {
   'wfg.laFwImportFailed': { 'zh-TW': 'Firmware 匯入失敗：{msg}', 'en': 'Firmware import failed: {msg}', 'zh-CN': 'Firmware 导入失败：{msg}' },
   'wfg.laFwImportStatusFail': { 'zh-TW': 'firmware 匯入失敗', 'en': 'firmware import failed', 'zh-CN': 'firmware 导入失败' },
   'wfg.laGuideTitle':   { 'zh-TW': '需要 KingstVIS 支援檔案', 'en': 'KingstVIS Support Files Required', 'zh-CN': '需要 KingstVIS 支持文件' },
-  'wfg.laGuideStep1':   { 'zh-TW': '若還沒有 zip 檔案包，請聯絡 Bruce 協助提供。', 'en': 'If you do not have the zip package yet, please contact Bruce for assistance.', 'zh-CN': '若还没有 zip 文件包，请联络 Bruce 协助提供。' },
+  /* v2.97.470: 檔案包改版為 la2016-firmware-multipack-v2.zip（多 bitstream，依 EEPROM magic 自動選檔） */
+  'wfg.laGuideStep1':   { 'zh-TW': '若還沒有檔案包「la2016-firmware-multipack-v2.zip」，請聯絡 Bruce 協助提供（此包同時支援舊版與新 Type-C 版 LA2016）。', 'en': 'If you do not have the package "la2016-firmware-multipack-v2.zip" yet, please contact Bruce for assistance (it supports both the old and the new Type-C LA2016).', 'zh-CN': '若还没有文件包「la2016-firmware-multipack-v2.zip」，请联络 Bruce 协助提供（此包同时支持旧版与新 Type-C 版 LA2016）。' },
   'wfg.laGuideStep2':   { 'zh-TW': '下載完成後回到這裡匯入 zip。匯入成功後會自動接續剛剛的單次/循環流程。', 'en': 'After download, come back here to import the zip. Once imported, the previous single/repeat flow will resume automatically.', 'zh-CN': '下载完成后回到这里导入 zip。导入成功后会自动接续刚刚的单次/循环流程。' },
   'wfg.laGuideOpenDownload': { 'zh-TW': '開啟下載頁', 'en': 'Open Download Page', 'zh-CN': '开启下载页' },
   'wfg.laGuideImportZip': { 'zh-TW': '匯入 zip 檔案包', 'en': 'Import zip Package', 'zh-CN': '导入 zip 文件包' },
@@ -244,8 +245,10 @@ var I18N = {
   /* v2.97.448 改動1：原「開啟下載頁」改為聯絡 Bruce 對話框 */
   'wfg.laGuideContactBruce': { 'zh-TW': '取得韌體檔案（聯絡 Bruce）', 'en': 'Get Firmware File (Contact Bruce)', 'zh-CN': '取得固件文件（联络 Bruce）' },
   'wfg.laContactTitle': { 'zh-TW': '需聯絡 Bruce 協助', 'en': 'Please Contact Bruce for Assistance', 'zh-CN': '需联络 Bruce 协助' },
-  'wfg.laContactBody': { 'zh-TW': '如需要 WebUSB 韌體檔案包（zip），請聯絡 Bruce 協助提供。取得檔案後，回到上一個視窗按「匯入 zip 檔案包」即可完成設定。', 'en': 'To obtain the WebUSB firmware package (zip), please contact Bruce for assistance. Once you have the file, return to the previous dialog and click “Import zip Package” to finish setup.', 'zh-CN': '如需要 WebUSB 固件文件包（zip），请联络 Bruce 协助提供。取得文件后，回到上一个视窗按「导入 zip 文件包」即可完成设定。' },
+  'wfg.laContactBody': { 'zh-TW': '如需要 WebUSB 韌體檔案包「la2016-firmware-multipack-v2.zip」，請聯絡 Bruce 協助提供。取得檔案後，回到上一個視窗按「匯入 zip 檔案包」即可完成設定。', 'en': 'To obtain the WebUSB firmware package "la2016-firmware-multipack-v2.zip", please contact Bruce for assistance. Once you have the file, return to the previous dialog and click “Import zip Package” to finish setup.', 'zh-CN': '如需要 WebUSB 固件文件包「la2016-firmware-multipack-v2.zip」，请联络 Bruce 协助提供。取得文件后，回到上一个视窗按「导入 zip 文件包」即可完成设定。' },
   'wfg.laContactClose': { 'zh-TW': '我知道了', 'en': 'Got it', 'zh-CN': '我知道了' },
+  /* v2.97.470: 匯入舊版包時的辨識提示 */
+  'wfg.laLegacyPackageWarn': { 'zh-TW': '注意：此為舊版檔案包，缺少新 Type-C 版 LA2016（la2016a2）的韌體。舊硬體仍可正常使用；若要使用新硬體，請改匯入新版「la2016-firmware-multipack-v2.zip」。', 'en': 'Note: this is the legacy package and lacks firmware for the new Type-C LA2016 (la2016a2). Old hardware still works; for the new hardware, please import the new "la2016-firmware-multipack-v2.zip" instead.', 'zh-CN': '注意：此为旧版文件包，缺少新 Type-C 版 LA2016（la2016a2）的固件。旧硬件仍可正常使用；若要使用新硬件，请改导入新版「la2016-firmware-multipack-v2.zip」。' },
   /* v2.97.448 改動2：清除韌體狀態（測試用） */
   'wfg.laClearFwBtn': { 'zh-TW': '清除韌體狀態', 'en': 'Clear Firmware State', 'zh-CN': '清除固件状态' },
   'wfg.laClearFwConfirm': { 'zh-TW': '確定清除已存的 WebUSB 韌體/裝置包快取？清除後會回到「第一次使用」狀態，下次擷取需重新匯入 zip。此操作只清韌體，不影響其他設定或波形。', 'en': 'Clear the stored WebUSB firmware/device package cache? This returns to the first-use state; you will need to re-import the zip before the next capture. It only clears firmware and does not affect other settings or waveforms.', 'zh-CN': '确定清除已存的 WebUSB 固件/设备包缓存？清除后会回到「第一次使用」状态，下次撷取需重新导入 zip。此操作只清固件，不影响其他设定或波形。' },
