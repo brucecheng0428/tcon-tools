@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.471 — 2026-07-18
+
+**Bruce 需求**：「Y，但要注意壓縮包檔名要重新命名，網頁對應的名稱也要，重點是KingstVIS全系列都可用」——韌體包升級 v3，KingstVIS 全系列硬體（LA1010/LA1016/LA2016/LA5016/LA5032）都可用；壓縮包重新命名、網頁對應名稱同步更換。
+
+**求證（libsigrok master，2026-07-18 抓取）**：
+- `protocol.c` `MCU_FWFILE_FMT "kingst-la-%04x.fw"`＝MCU 韌體檔名**直接以 USB PID 格式化**（`la2016_upload_firmware` 以 `devc->usb_pid` 組檔名）→ 網頁可做「PID→fw 檔名」純函數對應，無需型號猜測。
+- `protocol.h` `LA2016_VID 0x77a1 / LA2016_PID 0x01a2`＝libsigrok 掃描唯一記載的 PID；01a1/01a3/01a4/03a1 為 KingstVIS 資源收錄、libsigrok 無 device match 記載（照實標註於 manifest）。
+- `models[]` 15 項 magic 對照與 v2.97.470 已入表者逐項一致；本輪補上同表的規格欄（rateMHz/ch/memGbit/baseMHz）。
+
+**改動**：
+- 新檔案包 `kingst-la-firmware-allseries-v3.zip`（`~/Documents/TCON/Share/`，不進 git/Pages）：manifest v3（package=`kingst-la-firmware-allseries`）＋全部 18 檔（5 顆 MCU fw：01a1/01a2/01a3/01a4/03a1＋13 顆 bitstream 含 la1010a0/a1/a2、la5016/a1/a2、la5032a0、ms6218），逐檔 SHA256 與 `extracted-sha256-20260718.txt` 相符；`la5016`（無後綴）與 `ms6218` 照實標「libsigrok 無 magic 指向此檔」。
+- MCU 韌體依 USB PID 全自動選檔：新增 `wfgLaSelectStoredMcuFirmware(dev)`（IndexedDB 新增 `fx2:<pid>` 多筆；PID=01a2 可退回 legacy `fx2`；缺檔明確報「缺 kingst-la-<pid>.fw」不亂頂替）；init 改用之。
+- 匯入：`wfgLaImportPackageZip` 新增 allseries v3 分支（mcu×5＋fpga×13 全檔 SHA256 驗證；01a2 雙寫 legacy `fx2` 保回歸）；匯入 v2 舊包仍可用但警告指名 v3 新檔名（新 i18n `wfg.laV2PackageWarn`）；v1 舊包警告文字同步改指 v3。
+- `wfgLaHasStoredFirmwarePackage` 認得 `fx2:<pid>`；資料夾掃描匯入同步存 `fx2:<pid>`、bitstream regex 擴為全系列（含 ms6218）。
+- `wfgLaLooksPreFirmwareDevice` 不再限定 PID 0x01a2（任何 VID 0x77a1 適用同判定）；USB filter 改 wildcard 77a1＋08a9；所有「77a1:01a2」提示文字改「Kingst (VID 77a1) 裝置」。
+- init log 誠實顯示 libsigrok 規格；非「16ch＋板載記憶體＋≤200MHz」機型明示**本版僅保證初始化可用**。
+- 彈窗/引導/聯絡文案（laGuideStep1/laContactBody/laLegacyPackageWarn）全部換 v3 檔名；grep v2 檔名於程式碼＝0（CHANGELOG 歷史除外；`la2016-firmware-multipack` package-id 字串屬 v2 包匯入辨識功能必須保留）。
+
+**各家族功能適配限制（誠實清單，本輪不動核心擷取邏輯）**：
+- LA1010（memGbit=0，streaming-only）：本網頁擷取為板載記憶體下載流程，**不適用**；僅保證初始化。
+- LA5032（32ch）：擷取路徑為 16ch 資料格式（api.c 32ch 需 uint32＋2-byte sequence），僅保證初始化。
+- LA5016（500MHz、baseclock 800MHz）：取樣率 UI/換算為 200/100MHz 設計，僅保證初始化。
+- PID 01a4 韌體 142KB 遠超典型 FX2 64KiB，上傳協定可能不同，未驗證。
+- MS6218：libsigrok 無記載，bitstream 已收錄但辨識碼未知；偵測到未知 magic 顯示 magic 值，不自動對應。
+- PWM 時脈沿用 200MHz（libsigrok 僅記載 LA2016/LA1016）。
+
+**驗證**：v3 包 zip 讀回 19 檔逐檔 SHA256/size 全驗 OK；node harness 單元測試 28/28（15 項 magic→bitstream＋specs、unknown/invalid/secondary、PID→fw 選檔含缺檔文案、bitstream 缺檔/legacy fallback/未知 magic 文案）；Chrome localhost 實測匯入 v3→IndexedDB 讀回 fx2:5＋fpga:13＋legacy fx2、匯入 v2 舊包出現指名 v3 警告、彈窗截圖確認新檔名；LA2016 舊流程回歸靠 legacy fallback 單測＋v2 匯入路徑不動。硬體端到端（Type-C 與舊機驗收條件）照舊留 Bruce 實機。版號 wfg→v2.97.471、快取 `?v=20260718wfg471`。
+
 ## TCON 波形產生器 (wfg) v2.97.470 — 2026-07-18
 
 **Bruce 需求**：LA 分頁同時相容舊硬體與新 Type-C 版 LA2016（USB 同 VID/PID 0x77A1:0x01A2）。(1) 新壓縮包用不一樣的檔名以便區別；(2) 網頁所有彈窗提示的壓縮包檔名一併換新；(3) 不做手動選擇——全自動判斷新舊硬體並抓取對應初始化檔案。
