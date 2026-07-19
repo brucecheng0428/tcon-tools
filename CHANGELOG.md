@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## TCON 波形產生器 (wfg) v2.97.475 — 2026-07-19
+
+**Bruce 需求**：接續 v2.97.474。LA 分頁凡使用者能看到的地方，型號與廠商商標字樣一律不留。這次針對前一輪點名、先沒動的部分——LA 面板底下的診斷/狀態/init/probe log 顯示行（初始化、偵測、匯入、上傳時的英文技術狀態），仍有 M16-200 / M16-100 / M16S-100 / M16-500 / M32-500 / X1 / 16ch / 200MHz / A2 等型號能力字樣，使用者看得到，改成中性。
+
+**判準**：使用者在畫面上（`#wfg-la-log` 面板、彈窗、下拉）看得到的字串，含型號代號／通道數頻率能力／修訂版者一律清；純內部（變數／函式名／IndexedDB key／magic 表 `model`/`fpga` 欄／kvset XML 標籤）與辨識邏輯／選檔／匯入流程一律不碰，只改顯示字串。
+
+**改動（`wfg.html` — 只改渲染字串，未動任何辨識/選檔/匯入邏輯）**：
+- init 診斷行 `identified model=…`：去掉 `model=`（原輸出 `M16-200-A2` 之中性代號），只留 `magic`/`magic2`/`source`（純值，無型號）。
+- `probe` 診斷行 `identify: … model=…`：同上去 `model=`。
+- FPGA bitstream 目標行：`FPGA bitstream target (auto-selected): M16-200-A2` → `FPGA bitstream target auto-selected for this device.`。
+- 未知修訂警告：`… will NOT fall back to M16-200-A1.` → `… will NOT fall back to a default bitstream.`；`model table` → `reference table`。
+- `model specs: 200MHz max, 16ch, memory=…` 行整行移除（純能力揭露，唯一去處是型號辨識）；相容性警告 `以 16ch、板載記憶體、<=200MHz 機型（M16-200/M16-100）為準` → `以標準相容裝置為準`（判斷邏輯 `ident.specs.ch!==16 || …` 內部保留不變，只是不再向使用者顯示數值）。
+- bitstream 選定/上傳行：`FPGA bitstream selected: <檔名> bytes=…` / `FPGA bitstream upload: <檔名> bytes=…` → 只留 `bytes=…`（v4 包檔名如 `fpga-M16-200-…` 含型號代號）。
+- 檔案包匯入狀態行（v4／v3／v2／legacy 四分支＋資料夾匯入）：`fpga[M16-200-A2] imported/stored: <檔名/路徑> bytes=…` → `fpga bitstream imported/stored: bytes=…`；`skipped unknown code <代號>` → `skipped unrecognized entry`；匯入驗證改看每檔位元組數＋末尾 `SHA256 verified` 總結行（不靠型號代號）。
+- 未知修訂錯誤：去掉「（提示：檔案包另收錄 X1 保留 bitstream…）」X1 字樣。
+- 缺 bitstream 錯誤：`缺少 M16-200-A2 bitstream（裝置判定為 M16-200）` → `缺少對應此裝置的 bitstream`。
+- Device Model 下拉可見標籤：`16通道 200MHz 型號 / 相容`、`16通道 100MHz 型號` → `裝置類型一（預設 / 相容）`、`裝置類型二`（`value="M16-200"/"M16-100"` 隱藏值不變，選檔評分邏輯不受影響）。
+
+**改動（`legacy-index.html` 舊凍結頁，同類渲染行）**：`identified model=`、`identify: … model=` 去 `model=`；`M16-200 WebUSB protocol probe` / `M16-200 capture` → `Logic analyzer …`；`fpga imported: <檔名>` / `FPGA bitstream upload: <檔名>` → 只留 `bytes=`；Device Model 下拉 `M16-200 / 相容`、`M16-100` → `裝置類型一/二`。
+
+**保留（判斷後未清，列出供裁決）**：
+- 取樣率下拉 `200 MHz / 100 MHz / …`：為使用者自選的功能參數（任何邏輯分析儀通用），非型號能力揭露，保留。
+- 檔案包 size/SHA256 mismatch 錯誤仍顯示 `info.name`（如 `fpga-M16-200-…`）：僅在檔案包損毀時觸發，檔名是判斷哪個檔壞掉的除錯關鍵，暫留；如要一併清可改為只報位元組數。
+- `fx2:<pid> imported: mcu-<pid>.bin`、`Selected folder: <使用者資料夾名>`、`fx2 firmware upload: <mcu 檔名>`：PID 為 USB 十六進位值、資料夾名為使用者自訂、mcu 檔名不含型號代號，均非型號/商標，保留。
+- 內部 `WFG_LA_MODEL_TABLE` 的 `model`/`fpga` 欄、`wfgLaNeutralFpgaCode`／`WFG_LA_V4_FPGA_KEY_MAP`、IndexedDB key、kvset XML 標籤：不渲染或為互通硬限制，維持 v2.97.473 定義不動。
+
+**驗證**：`node --check`（以 `<script>` 抽出）通過；grep 確認兩檔可見 sink（`lines.push`/`throw`/`<option>` 可見文字）已無 `M16-/M32-/M16S/-A1/-A2/型號/16通道` 型號 token；Chrome 實測觸發 init/probe log 面板，截圖確認顯示中性文字；辨識/選檔邏輯（magic 表、`ident.specs` 判斷、`value` 屬性）未改，回歸不受影響。
+
+**版本同步**：`common/version.js` `wfg: v2.97.474 → v2.97.475`；`wfg.html` `version.js?v` / `i18n.js?v` → `20260719wfg474 → 20260719wfg475`。
+
+---
+
 ## TCON 波形產生器 (wfg) v2.97.474 — 2026-07-19
 
 **Bruce 需求**：LA 分頁「WebUSB 檔案包準備」彈窗不用再寫「（此包支援全系列……）」——去商標化已把型號都避開，使用者操作上也不需要知道這些內部技術能力描述。

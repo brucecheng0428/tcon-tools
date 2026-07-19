@@ -1182,8 +1182,8 @@
               <div class="wfg-field">
                 <label data-i18n="wfg.laModel">Device Model</label>
                 <select id="wfg-la-model" onchange="wfgLaUpdateSummary()">
-                  <option value="M16-200" selected>16通道 200MHz 型號 / 相容</option>
-                  <option value="M16-100">16通道 100MHz 型號</option>
+                  <option value="M16-200" selected>裝置類型一（預設 / 相容）</option>
+                  <option value="M16-100">裝置類型二</option>
                 </select>
               </div>
               <div class="wfg-field-row">
@@ -1530,8 +1530,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260719wfg474"></script>
-<script src="common/i18n.js?v=20260719wfg474"></script>
+<script src="common/version.js?v=20260719wfg475"></script>
+<script src="common/i18n.js?v=20260719wfg475"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形產生器 ═══════════
@@ -8782,12 +8782,13 @@ async function wfgLaImportPackageZip(input) {
         var v4Neutral = String(v4Keys[v4k]).toLowerCase();
         var v4Store = WFG_LA_V4_FPGA_KEY_MAP[v4Neutral];
         if (!v4Store) {
-          lines.push('skipped unknown code ' + v4Neutral + '（此版本網頁不認識此代號，可能需更新網頁）');
+          lines.push('skipped unrecognized entry（此版本網頁不認識此代號，可能需更新網頁）');
           continue;
         }
         var v4fRec = await importOne(manifest.fpga[v4Keys[v4k]], 'fpga:' + v4Store);
         v4Known++;
-        lines.push('fpga[' + v4Neutral.toUpperCase() + '] imported: ' + v4fRec.name + ' bytes=' + v4fRec.size);
+        /* v2.97.475: 匯入狀態行去型號代號/檔名，只留位元組數（驗證用，SHA256 另有總結行） */
+        lines.push('fpga bitstream imported: bytes=' + v4fRec.size);
       }
       if (!v4Known) throw new Error('manifest.json 的 fpga 區塊沒有任何本版本認識的代號');
       lines.push('SHA256 verified for all files');
@@ -8809,7 +8810,7 @@ async function wfgLaImportPackageZip(input) {
       for (var fi = 0; fi < fpgaModels3.length; fi++) {
         var modelKey3 = String(fpgaModels3[fi]).toLowerCase();
         var rec3 = await importOne(manifest.fpga[fpgaModels3[fi]], 'fpga:' + modelKey3);
-        lines.push('fpga[' + wfgLaNeutralFpgaCode(modelKey3) + '] imported: ' + wfgLaNeutralText(rec3.name) + ' bytes=' + rec3.size);
+        lines.push('fpga bitstream imported: bytes=' + rec3.size);
       }
       lines.push('SHA256 verified for all files');
       /* v2.97.472: v3 舊包提示——仍可用，建議改用中性檔名的 v4 */
@@ -8827,7 +8828,7 @@ async function wfgLaImportPackageZip(input) {
       for (var mi = 0; mi < fpgaModels.length; mi++) {
         var modelKey = fpgaModels[mi];
         var rec = await importOne(manifest.fpga[modelKey], 'fpga:' + modelKey);
-        lines.push('fpga[' + wfgLaNeutralFpgaCode(modelKey) + '] imported: ' + wfgLaNeutralText(rec.name) + ' bytes=' + rec.size);
+        lines.push('fpga bitstream imported: bytes=' + rec.size);
       }
       lines.push('SHA256 verified for all files');
       /* v2.97.472: v2 舊包警告——指名 v4 新檔名（仍可用，既有機型不受影響） */
@@ -8842,7 +8843,7 @@ async function wfgLaImportPackageZip(input) {
       var fpgaR = await importOne(manifest.files.fpga, 'fpga');
       lines.push('manifest OK (legacy package)');
       lines.push('fx2 imported: ' + wfgLaNeutralText(fx2R.name) + ' bytes=' + fx2R.size);
-      lines.push('fpga imported: ' + wfgLaNeutralText(fpgaR.name) + ' bytes=' + fpgaR.size);
+      lines.push('fpga bitstream imported: bytes=' + fpgaR.size);
       lines.push('SHA256 verified');
       var legacyWarn = t('wfg.laLegacyPackageWarn');
       lines.push('');
@@ -8913,8 +8914,7 @@ async function wfgLaSelectStoredBitstream(ident) {
   if (!ident.fpga) {
     throw new Error('未知硬體修訂：magic=0x' + ident.magic.toString(16).padStart(2, '0') +
       ' magic2=0x' + ident.magic2.toString(16).padStart(2, '0') +
-      '。此 magic 不在對照表內，不會退回舊版 bitstream；請把這兩個值回報給 Bruce。' +
-      '（提示：檔案包另收錄 X1 保留 bitstream，但無 magic 記載，無法自動對應。）');
+      '。此 magic 不在對照表內，不會退回舊版 bitstream；請把這兩個值回報給 Bruce。');
   }
   var record = await wfgLaLoadFirmware('fpga:' + ident.fpga);
   if (record && record.bytes && record.bytes.byteLength) return record;
@@ -8925,7 +8925,8 @@ async function wfgLaSelectStoredBitstream(ident) {
       return legacy;
     }
   }
-  throw new Error('缺少 ' + wfgLaNeutralFpgaCode(ident.fpga) + ' bitstream（裝置判定為 ' + ident.model + '）：' +
+  /* v2.97.475: 錯誤訊息去型號代號，改中性描述 */
+  throw new Error('缺少對應此裝置的 bitstream：' +
     '目前瀏覽器內存的檔案包沒有這顆 bitstream，請改匯入裝置支援包「la-device-support-pack-v4.zip」。');
 }
 
@@ -9059,9 +9060,9 @@ async function wfgLaProcessOemFolderItems(items, lines) {
     try {
       var mBytes = new Uint8Array(await items[bi].file.arrayBuffer());
       await wfgLaStoreFirmware('fpga:' + mMatch[1].toLowerCase(), items[bi].file, mBytes);
-      lines.push('fpga[' + wfgLaNeutralFpgaCode(mMatch[1]) + '] stored: ' + wfgLaNeutralText(items[bi].path) + ' bytes=' + mBytes.byteLength);
+      lines.push('fpga bitstream stored: bytes=' + mBytes.byteLength);
     } catch (eStore) {
-      lines.push('fpga model store failed: ' + items[bi].path + ' - ' + (eStore && eStore.message ? eStore.message : eStore));
+      lines.push('fpga bitstream store failed: ' + (eStore && eStore.message ? eStore.message : eStore));
     }
   }
   if (fx2 && fpga) {
@@ -9430,7 +9431,8 @@ async function wfgLaClaimWithRetry(dev, lines) {
 
 async function wfgLaUploadFpgaBitstream(dev, bitstream, lines) {
   if (!bitstream || !bitstream.bytes || !bitstream.bytes.byteLength) throw new Error('FPGA bitstream file is empty');
-  lines.push('FPGA bitstream upload: ' + bitstream.name + ' bytes=' + bitstream.bytes.byteLength);
+  /* v2.97.475: 上傳狀態行不顯示 bitstream 檔名（含型號代號），只留位元組數 */
+  lines.push('FPGA bitstream upload: bytes=' + bitstream.bytes.byteLength);
   await wfgLaClaimDeviceInterface(dev, lines);
   var size = [];
   wfgLaPushU32LE(size, bitstream.bytes.byteLength);
@@ -9526,18 +9528,16 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     var eepromId = await wfgLaCtrlIn(dev, 0xa2, 0x08, 0, 8);
     var ident = wfgLaIdentifyMagic(eepromId);
     lines.push('EEPROM[0x08..0x0f] = ' + wfgLaHex(eepromId));
-    lines.push('identified model=' + ident.model + ' magic=0x' + ident.magic.toString(16) + ' magic2=0x' + ident.magic2.toString(16) + ' source=' + ident.source);
+    /* v2.97.475: 使用者可見診斷行去型號 — 只留 magic/source（純值），不顯示型號代號 */
+    lines.push('identified device: magic=0x' + ident.magic.toString(16) + ' magic2=0x' + ident.magic2.toString(16) + ' source=' + ident.source);
     /* v2.97.470: 依 magic 自動決定 bitstream 目標；未知修訂先明示（若 FPGA 已可用仍可繼續） */
-    if (ident.fpga) lines.push('FPGA bitstream target (auto-selected): ' + wfgLaNeutralFpgaCode(ident.fpga));
-    else lines.push('WARNING: unknown hardware revision (magic not in the model table); will NOT fall back to M16-200-A1.');
-    /* v2.97.471: 誠實顯示規格；非 16ch 板載記憶體 ≤200MHz 機型本輪僅保證初始化 */
+    if (ident.fpga) lines.push('FPGA bitstream target auto-selected for this device.');
+    else lines.push('WARNING: unknown hardware revision (magic not in the reference table); will NOT fall back to a default bitstream.');
+    /* v2.97.475: 相容性檢查邏輯不變（仍讀 ident.specs），但不再向使用者顯示通道數/取樣率/型號等能力字樣 */
     if (ident.specs) {
-      lines.push('model specs: ' + ident.specs.rateMHz + 'MHz max, ' + ident.specs.ch + 'ch, memory=' +
-        (ident.specs.memGbit ? ident.specs.memGbit + 'Gbit' : 'none (streaming-only)') +
-        (ident.specs.baseMHz ? ', baseclock=' + ident.specs.baseMHz + 'MHz' : ''));
       if (ident.specs.ch !== 16 || !ident.specs.memGbit || ident.specs.rateMHz > 200) {
-        lines.push('注意：本網頁擷取流程目前以 16ch、板載記憶體、<=200MHz 機型（M16-200/M16-100）為準；');
-        lines.push('此機型本版僅保證「初始化可用」，取樣率/深度/擷取功能的完整適配列入後續計畫。');
+        lines.push('注意：本網頁擷取流程目前以標準相容裝置為準；');
+        lines.push('此裝置本版僅保證「初始化可用」，取樣率/深度/擷取功能的完整適配列入後續計畫。');
       }
     }
     var fpgaOk = false;
@@ -9553,8 +9553,8 @@ async function wfgLaInitHardwareFromStoredFirmware() {
     if (!fpgaOk) {
       /* v2.97.470: 全自動依 magic 選檔（不提供手動選擇）；unknown/缺檔在此明確失敗 */
       var bitstream = await wfgLaSelectStoredBitstream(ident);
-      lines.push('FPGA bitstream selected: ' + wfgLaNeutralText(bitstream.name || ('fpga:' + ident.fpga)) +
-        ' bytes=' + bitstream.bytes.byteLength +
+      /* v2.97.475: 不顯示 bitstream 檔名/型號代號，只留位元組數（除錯用） */
+      lines.push('FPGA bitstream selected: ' + bitstream.bytes.byteLength + ' bytes' +
         (bitstream.legacyFallback ? ' (legacy single-blob package fallback)' : ''));
       await wfgLaUploadFpgaBitstream(dev, bitstream, lines);
       await wfgLaApplyOemStartupDefaults(dev);
@@ -9695,7 +9695,8 @@ async function wfgLaProtocolProbe(dev) {
   var eepromId = await wfgLaCtrlIn(dev, CMD_EEPROM, 0x08, 0, 8);
   var ident = wfgLaIdentifyMagic(eepromId);
   lines.push('EEPROM[0x08..0x0f] = ' + wfgLaHex(eepromId));
-  lines.push('identify: source=' + ident.source + ' magic=0x' + ident.magic.toString(16) + ' magic2=0x' + ident.magic2.toString(16) + ' model=' + ident.model);
+  /* v2.97.475: 探針診斷行去型號，只留 magic/source */
+  lines.push('identify: source=' + ident.source + ' magic=0x' + ident.magic.toString(16) + ' magic2=0x' + ident.magic2.toString(16));
 
   try {
     var mfg = await wfgLaCtrlIn(dev, CMD_EEPROM, 0x20, 0, 4);
