@@ -489,6 +489,11 @@ var I18N = {
   'isp.scrOff':         { 'zh-TW': 'Off', 'en': 'Off', 'zh-CN': 'Off' },
   'isp.scrOnPixel':     { 'zh-TW': 'On', 'en': 'On', 'zh-CN': 'On' },
   'isp.scrKey':         { 'zh-TW': '初始 Key (16-bit hex)', 'en': 'Initial Key (16-bit hex)', 'zh-CN': '初始 Key (16-bit hex)' },
+  'isp.bkpol':          { 'zh-TW': 'BKPOL', 'en': 'BKPOL', 'zh-CN': 'BKPOL' },
+  'isp.bkpolOn':        { 'zh-TW': 'ON', 'en': 'ON', 'zh-CN': 'ON' },
+  'isp.bkpolOff':       { 'zh-TW': 'OFF', 'en': 'OFF', 'zh-CN': 'OFF' },
+  'isp.bkpolHint':      { 'zh-TW': '開啟後於 frame 末端加入 VBK 段：BK · BAC · BKPOL± · BK（依 datasheet §8.3.2，BAC+BKPOL 接在 EOL 之後，本身不帶 EOL）。點波形上的 BKPOL 色塊可切換正／負。', 'en': 'When ON, appends a VBK segment at the end of the frame: BK · BAC · BKPOL± · BK (per datasheet §8.3.2, BAC+BKPOL follows the EOL code and carries no EOL of its own). Click the BKPOL block on the waveform to flip polarity.', 'zh-CN': '开启后于 frame 末端加入 VBK 段：BK · BAC · BKPOL± · BK（依 datasheet §8.3.2，BAC+BKPOL 接在 EOL 之后，本身不带 EOL）。点波形上的 BKPOL 色块可切换正／负。' },
+  'isp.legBKPOL':       { 'zh-TW': 'BKPOL+', 'en': 'BKPOL+', 'zh-CN': 'BKPOL+' },
   'isp.modeHint':       {
     'zh-TW': '<strong>目前支援：</strong>1-pair &amp; 2-pair / 6-bit &amp; 8-bit / DLL &amp; PLL / Scrambler On/Off。',
     'en':    '<strong>Currently supports:</strong> 1-pair &amp; 2-pair / 6-bit &amp; 8-bit / DLL &amp; PLL / Scrambler On/Off.',

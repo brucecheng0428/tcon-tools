@@ -505,6 +505,15 @@
           <input type="text" id="isp-scr-key" class="isp-num-input" value="FFFF" maxlength="4" style="width:80px;text-transform:uppercase;font-family:monospace;" placeholder="FFFF">
         </div>
 
+        <div class="field">
+          <label data-i18n="isp.bkpol">BKPOL</label>
+          <div class="radio-group">
+            <div class="radio-opt"><input type="radio" name="isp-bkpol-en" id="isp-bkpol-on" value="on" checked><label for="isp-bkpol-on" data-i18n="isp.bkpolOn">ON</label></div>
+            <div class="radio-opt"><input type="radio" name="isp-bkpol-en" id="isp-bkpol-off" value="off"><label for="isp-bkpol-off" data-i18n="isp.bkpolOff">OFF</label></div>
+          </div>
+          <div class="field-hint" data-i18n="isp.bkpolHint">開啟後於 frame 末端加入 VBK 段：BK · BAC · BKPOL± · BK（依 datasheet §8.3.2，BAC+BKPOL 接在 EOL 之後，本身不帶 EOL）。點波形上的 BKPOL 色塊可切換正／負。</div>
+        </div>
+
         <div class="isp-mode-hint" data-i18n-html="isp.modeHint">
           <strong>目前支援：</strong>1-pair & 2-pair / 6-bit & 8-bit / DLL & PLL / Scrambler On/Off。
         </div>
@@ -734,6 +743,7 @@
           <span><span class="isp-legend-dot" style="background:#a855f7"></span><span data-i18n="isp.legEOL">EOL</span></span>
           <span><span class="isp-legend-dot" style="background:#d946ef"></span><span data-i18n="isp.legSET">Setting</span></span>
           <span><span class="isp-legend-dot" style="background:#e879f9"></span>REG</span>
+          <span><span class="isp-legend-dot" style="background:#14b8a6"></span><span data-i18n="isp.legBKPOL">BKPOL+</span></span>
         </div>
       </div>
     </div>
@@ -779,8 +789,8 @@
 </div><!-- /page-isp -->
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260709isp1"></script>
-<script src="common/i18n.js?v=20260519"></script>
+<script src="common/version.js?v=20260731isp2"></script>
+<script src="common/i18n.js?v=20260731isp2"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ iSP 波形產生器（DLL+PLL / 8-bit+6-bit / 1-pair+2-pair / Scrambler On/Off） ═══════════
@@ -850,6 +860,7 @@
     EOL:  '#a855f7',   // 紫
     SET:  '#d946ef',   // 粉紫（Setting 特殊碼）
     REG:  '#e879f9',   // 淺粉紫（REG 資料）
+    BKPOL:'#14b8a6',   // 藍綠（VBK 段的 BKPOL 極性碼）
     PACKED: '#8b5cf6', // 深紫（6-bit 打包後的 byte）
   };
 
@@ -969,10 +980,11 @@
   // regEnable=true 時，於 Data line 後再接一條完整的 Setting line（不是把 REG 黏在 EOL 後）
   // BK 用 ispGetBk()（依 BK Zone encoding），Data/REG 用 ispEncodeByte()（依 Data Zone encoding）
   function ispBuildFrame(params) {
-    const {rGray, gGray, bGray, pixelCount, bkBefore, bkAfter, regEnable, regBytes, polSign, pixelData} = params;
+    const {rGray, gGray, bGray, pixelCount, bkBefore, bkAfter, regEnable, regBytes, polSign, pixelData, bkpolEnable, bkpolSign} = params;
     const bits = (params.bits === 6) ? 6 : 8;
     const segs = [];
     const polLabel = (polSign === '-') ? 'POL-' : 'POL+';
+    const bkpolLabel = (bkpolSign === '-') ? 'BKPOL-' : 'BKPOL+';
     const bk = ispGetBk();
     // ── Data line ──
     for (let i = 0; i < bkBefore; i++) {
@@ -1031,6 +1043,17 @@
         segs.push({label:'BK', color: COLOR.BK, bits: bk});
       }
     }
+    // ── BKPOL 段（可選，VBK 起始的 BAC+BKPOL 命令；datasheet §8.3.2「接在 EOL 之後」，本身不帶 EOL） ──
+    if (bkpolEnable) {
+      for (let i = 0; i < bkBefore; i++) {
+        segs.push({label:'BK', color: COLOR.BK, bits: bk});
+      }
+      segs.push({label:'BAC', color: COLOR.BAC, bits: ISP_CTRL.BAC});
+      segs.push({label:bkpolLabel, color: COLOR.BKPOL, bits: ISP_CTRL[bkpolLabel], kind:'bkpol'});
+      for (let i = 0; i < bkAfter; i++) {
+        segs.push({label:'BK', color: COLOR.BK, bits: bk});
+      }
+    }
     return segs;
   }
 
@@ -1040,9 +1063,10 @@
   //   slot 3k+2: P0=B(2k+1) P1=R(2k+2)
   //   slot 3k+3: P0=G(2k+2) P1=B(2k+2)
   function ispBuild2PairFrames(params) {
-    const {rGray, gGray, bGray, pixelCount, bkBefore, bkAfter, regEnable, regBytes, polSign, pixelData} = params;
+    const {rGray, gGray, bGray, pixelCount, bkBefore, bkAfter, regEnable, regBytes, polSign, pixelData, bkpolEnable, bkpolSign} = params;
     const bits = (params.bits === 6) ? 6 : 8;
     const polLabel = (polSign === '-') ? 'POL-' : 'POL+';
+    const bkpolLabel = (bkpolSign === '-') ? 'BKPOL-' : 'BKPOL+';
     const bk = ispGetBk();
 
     // Helper to get per-pixel R/G/B values
@@ -1071,6 +1095,15 @@
       s.push({label:'SET', color: COLOR.SET, bits: ISP_CTRL.SET});
       for (let r = 0; r < regBytes.length; r++) s.push({label:'REG'+r, color: COLOR.REG, bits: ispEncodeByte(regBytes[r] || 0)});
       s.push({label:'EOL', color: COLOR.EOL, bits: ISP_CTRL.EOL});
+      for (let i = 0; i < bkAfter; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
+      return s;
+    }
+    function makeBkpolLine() {
+      if (!bkpolEnable) return [];
+      const s = [];
+      for (let i = 0; i < bkBefore; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
+      s.push({label:'BAC', color: COLOR.BAC, bits: ISP_CTRL.BAC});
+      s.push({label:bkpolLabel, color: COLOR.BKPOL, bits: ISP_CTRL[bkpolLabel], kind:'bkpol'});
       for (let i = 0; i < bkAfter; i++) s.push({label:'BK', color: COLOR.BK, bits: bk});
       return s;
     }
@@ -1198,15 +1231,17 @@
     const ctrl = makeCtrlSegs();
     const end = makeEndSegs();
     const setting = makeSettingLine();
+    const bkpol = makeBkpolLine();
 
     return {
-      pair0: [...ctrl, ...pair0Data, ...end, ...setting],
-      pair1: [...ctrl.map(s => ({...s})), ...pair1Data, ...end.map(s => ({...s})), ...setting.map(s => ({...s}))]
+      pair0: [...ctrl, ...pair0Data, ...end, ...setting, ...bkpol],
+      pair1: [...ctrl.map(s => ({...s})), ...pair1Data, ...end.map(s => ({...s})), ...setting.map(s => ({...s})), ...bkpol.map(s => ({...s}))]
     };
   }
 
   let ispZoomHVal = 1.0;
   let ispPolSign = '+';   // '+' 或 '-'，POL 極性
+  let ispBkpolSign = '+'; // '+' 或 '-'，BKPOL 極性（與 POL 各自獨立）
 
   // Hex 字串解析（"0xFF"、"FF"、"ff"、"0Xa3" 皆可），回傳 0~255 或 null
   function parseHexByte(s) {
@@ -1271,7 +1306,9 @@
     segs.forEach((seg) => {
       const segW = seg.bits.length * bitW;
       const isPol = (seg.kind === 'pol');
-      const polAttrs = isPol ? ' onclick="ispTogglePol()" style="cursor:pointer;"' : '';
+      const isBkpol = (seg.kind === 'bkpol');
+      const polAttrs = isPol ? ' onclick="ispTogglePol()" style="cursor:pointer;"'
+                     : (isBkpol ? ' onclick="ispToggleBkpol()" style="cursor:pointer;"' : '');
       // 背景淡色（6-bit mode 下另外疊 R/G/B 淡色條紋在資料 bit 上，呈現 byte 內的 component 分佈）
       parts.push(`<rect x="${cursorX}" y="${labelH}" width="${segW}" height="${waveH}" fill="${seg.color}" fill-opacity="0.10"${polAttrs}/>`);
       if (seg.scrambled) {
@@ -1413,6 +1450,8 @@
     const regOnEl  = document.getElementById('isp-reg-on');
     const regEnable = !!(regOnEl && regOnEl.checked);
     const regBytes  = getRegBytes();
+    const bkpolOffEl = document.getElementById('isp-bkpol-off');
+    const bkpolEnable = !(bkpolOffEl && bkpolOffEl.checked);   // 預設 ON（找不到元素時亦視為 ON）
 
     // 產生 per-pixel data（Mode B/C）
     let pixelData = null;
@@ -1442,7 +1481,7 @@
       }
     }
 
-    const buildParams = {bits, rGray, gGray, bGray, pixelCount: pixels, bkBefore, bkAfter, regEnable, regBytes, polSign: ispPolSign, pixelData};
+    const buildParams = {bits, rGray, gGray, bGray, pixelCount: pixels, bkBefore, bkAfter, regEnable, regBytes, polSign: ispPolSign, pixelData, bkpolEnable, bkpolSign: ispBkpolSign};
 
     // UI elements for dual mode (both SVGs are in the same scroll container now)
     const p0Label = document.getElementById('isp-pair0-label');
@@ -1510,7 +1549,9 @@
       if (infoFrame) {
         const dataLine = `[${encTag}] [2-pair] BK×${bkBefore} · BAC · ${polTxt} · ${dataBody} · EOL · BK×${bkAfter}`;
         const setLine = regEnable ? `  +  Setting line` : '';
-        infoFrame.textContent = dataLine + setLine;
+        const bkpolTxt = ispBkpolSign === '-' ? 'BKPOL−' : 'BKPOL+';
+        const bkpolLine = bkpolEnable ? `  +  BK×${bkBefore} · BAC · ${bkpolTxt} · BK×${bkAfter}` : '';
+        infoFrame.textContent = dataLine + setLine + bkpolLine;
       }
 
       // Minimap (pair 0 top half, pair 1 bottom half)
@@ -1563,7 +1604,9 @@
         const encTag = (ispEncData === ispEncBk) ? ispEncData : `Data:${ispEncData} BK:${ispEncBk}`;
         const dataLine = `[${encTag}] BK×${bkBefore} · BAC · ${polTxt} · ${dataBody} · EOL · BK×${bkAfter}`;
         const setLine = regEnable ? `  +  BK×${bkBefore} · BAC · Setting · REG0..${regBytes.length - 1} · EOL · BK×${bkAfter}` : '';
-        infoFrame.textContent = dataLine + setLine;
+        const bkpolTxt = ispBkpolSign === '-' ? 'BKPOL−' : 'BKPOL+';
+        const bkpolLine = bkpolEnable ? `  +  BK×${bkBefore} · BAC · ${bkpolTxt} · BK×${bkAfter}` : '';
+        infoFrame.textContent = dataLine + setLine + bkpolLine;
       }
 
       ispRenderMinimap(segs, totalBits);
@@ -1752,6 +1795,12 @@
   // #3 POL 極性切換（ispRender 內部已同步 FS/minimap）
   window.ispTogglePol = function() {
     ispPolSign = ispPolSign === '+' ? '-' : '+';
+    ispRender();
+  };
+
+  // BKPOL 極性切換（與 POL 同樣點一下就正負互換，兩者各自獨立）
+  window.ispToggleBkpol = function() {
+    ispBkpolSign = ispBkpolSign === '+' ? '-' : '+';
     ispRender();
   };
 

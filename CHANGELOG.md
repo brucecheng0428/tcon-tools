@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## iSP 波形產生器 (isp) v1.17.0 — 2026-07-31
+
+**Bruce 需求**：iSP 分頁「模式設定」卡片中多增加一個 BKPOL 按鍵。(1) ON/OFF 選項，預設 ON。(2) 開啟時仿照 iSP REG Setting 的方式，前面跟後面都包 BK。(3) 本身是 BAC，再加上 BKPOL 正或負；點一下 BKPOL 就正轉負／負轉正，跟 POL 一樣。BKPOL 正／負的定義去查 iSP 分頁既有的資料庫。
+
+**BKPOL 正／負來源（未自行發明）**：`isp.html` 既有 control code 表 `ISP_CTRL`（9-bit LSB-first）本來就已定義但從未被使用：`'BKPOL+' = [0,1,1,1,0,1,1,1,1]`、`'BKPOL-' = [1,0,0,0,1,0,0,0,0]`。本次直接沿用這兩筆，一個 bit 都沒改。
+
+**格式依據**：RM96K80 / RM96H60 / RM96681 datasheet §8.3.2「Special process for the first VBK line」——「When the Rx receive the **BAC+BKPOL** code **after the EOL** code…」，時序圖為 `… EOL │ BK BAC BKPOL± BK`。故 BKPOL 段＝`BK×bkBefore · BAC · BKPOL± · BK×bkAfter`，**本身不帶 EOL**（與 Setting line 帶 EOL 的差別），位置在 frame 末端（Data line、以及有開的話 Setting line 之後）。
+
+**改動（`isp.html`）**：
+- 模式設定卡片新增 BKPOL 欄位：radio `isp-bkpol-on` / `isp-bkpol-off`，`on` 為 `checked`（預設 ON），沿用既有 `.radio-group`/`.radio-opt` 樣式與 `.field-hint` 說明。事件不需另接——既有 `#page-isp input[type="radio"]` 的 change 委派會呼叫 `ispRender()`。
+- `COLOR.BKPOL = '#14b8a6'`（藍綠，與 POL 的青 `#06b6d4`、BAC 的黃 `#eab308` 區隔）；圖例新增 BKPOL 色點。
+- 新增狀態 `ispBkpolSign`（`'+'`／`'-'`，預設 `'+'`），與 `ispPolSign` **各自獨立**。
+- `ispBuildFrame()`（1-pair）：Setting line 之後，`bkpolEnable` 為真時 push `BK×bkBefore` → `BAC` → `BKPOL±`（`kind:'bkpol'`）→ `BK×bkAfter`。
+- `ispBuild2PairFrames()`（2-pair）：新增 `makeBkpolLine()`，比照 `makeSettingLine()` 的作法，pair0/pair1 各自附加（pair1 用 `.map(s => ({...s}))` 淺拷貝，與既有 ctrl/end/setting 一致）。
+- `ispBuildSvgInner()`：`seg.kind === 'bkpol'` 時掛 `onclick="ispToggleBkpol()"` + `cursor:pointer`，與 POL 走同一組 `polAttrs`（背景 rect／label 色塊／label 文字三處都掛），故全螢幕模式一樣可點。
+- 新增 `window.ispToggleBkpol()`：`'+' ↔ '-'` 後 `ispRender()`，行為與 `ispTogglePol()` 對稱。
+- `ispRender()`：讀 `isp-bkpol-off` 判斷開關（找不到元素亦視為 ON），併入 `buildParams`；1-pair 與 2-pair 兩個分支的 Frame 資訊列都追加 `+ BK×n · BAC · BKPOL± · BK×n`（OFF 時不顯示）。
+
+**i18n（`common/i18n.js`，三語齊備）**：新增 `isp.bkpol` / `isp.bkpolOn` / `isp.bkpolOff` / `isp.bkpolHint` / `isp.legBKPOL`。
+
+**驗證（Chrome 實機操作，非只讀 code）**：預設載入即為 ON 且波形末端出現 `BK BAC BKPOL+ BK`；切 OFF → 末端 BKPOL 段整段消失、資訊列不再出現 BKPOL、總 bit 數對應減少；切回 ON → 段落復原且 BK 前後包法與 REG Setting line 相同（同樣取 `bkBefore`/`bkAfter`）；連點 BKPOL 色塊 4 次 → `+ → − → + → − → +` 正確互換且 POL 不受影響；反向點 POL 亦不影響 BKPOL；REG Setting 開／關與 2-pair 模式回歸正常。
+
+**版本同步**：`common/version.js` `isp: v1.16.1 → v1.17.0`；`isp.html` `version.js?v` `20260709isp1 → 20260731isp2`、`i18n.js?v` `20260519 → 20260731isp2`（i18n 新增字串，cache buster 一併 bump）。
+
+---
+
 ## TCON 波形產生器 (wfg) v2.97.475 — 2026-07-19
 
 **Bruce 需求**：接續 v2.97.474。LA 分頁凡使用者能看到的地方，型號與廠商商標字樣一律不留。這次針對前一輪點名、先沒動的部分——LA 面板底下的診斷/狀態/init/probe log 顯示行（初始化、偵測、匯入、上傳時的英文技術狀態），仍有 M16-200 / M16-100 / M16S-100 / M16-500 / M32-500 / X1 / 16ch / 200MHz / A2 等型號能力字樣，使用者看得到，改成中性。
