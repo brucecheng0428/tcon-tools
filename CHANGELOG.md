@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## iSP 波形產生器 (isp) v1.18.0 — 2026-07-31
+
+**Bruce 需求**：在「波形反推卡片」增加搜尋功能。(1) 可輸入要搜尋的波形名稱，例如 BKPOL +、BKPOL −，或像 BAC 之類的卡面。(2) 輸入完後要有類似清單可讓使用者選擇，例如輸入 BK 就有 BK、BKPOL+、BKPOL− 可選，輸入 L0 就有 L0(DLL) 或 L0(PLL) 可選；選擇後下方的輸入波形區就會自動變成搜尋的波形。(3) 灰階用 L0 到 L255 來輸入。
+
+**資料來源（未自行發明任何 bit pattern）**：
+- 控制碼一律取自 `isp.html` 既有的 `ISP_CTRL`（9-bit LSB-first）與 `ISP_BK_PLL`：`BK`(DLL-BK) `[1,0,0,0,0,1,1,1,1]`、`BK`(PLL-BK) `[0,0,1,0,1,0,1,0,1]`、`BAC`、`POL+`、`POL-`、`SET`、`EOL`、`BKPOL+`、`BKPOL-`，共 9 筆。
+- 灰階 L0~L255 取自既有 `ISP_DLL_LUT` / `ISP_PLL_LUT`（即 `ispEncodeByte()` 使用的同一組 8B9B LUT），DLL 與 PLL 各 256 筆、共 512 筆。索引總計 521 筆。
+
+**6-bit / 8-bit 的處理依據（讀 code 後的結論，非推測）**：`ispBuild6bDataSegs()`（isp.html）顯示 6-bit 模式的差異只在上游——把每 pixel 的 R/G/B 各 6 bits 串成 LSB-first bit stream、每 8 bits 切成一個 byte；切出的 byte 一樣送進 `ispEncodeByte()` 做 8B9B。也就是**「9-bit packet ↔ byte(0~255)」的映射在 6-bit 與 8-bit 完全相同**，且反推卡片本來就是獨立工具（原註解：「反推卡片永遠顯示（獨立工具，不隨 bits 模式切換）」）。因此 L0~L255 指的是 data byte 值，搜尋索引與結果在兩種模式下一致；變體是 DLL / PLL 兩種編碼，而非 6-bit / 8-bit。此結論以 6-bit 與 8-bit 各實測一輪坐實（見下方驗證）。
+
+**改動（`isp.html`）**：
+- 反推卡片 `card-body` 內、hint 之後新增搜尋列 `.isp-rev-search`：放大鏡圖示 + `#isp-rev-search-input`（`data-i18n-ph`）+ `#isp-rev-search-clear`（×），下方 `#isp-rev-search-list` 為絕對定位的候選清單；另加一行說明 hint（`isp.revSearchHint`）。
+- CSS 新增 `.isp-rev-search*` 一組（沿用既有深藍暗色主題：`#0f172a` 底、`#334155` 邊框、focus-within 轉 `#3b82f6`；清單 `#1e293b` + 藍框 + 陰影，`max-height:240px` 可捲動）。
+- JS 新增（皆掛在既有 IIFE 內，沿用 `isp` 前綴）：`ispRevGetSearchIndex()`（惰性建索引並快取）、`ispRevSearchFilter()`、`ispRevSearchRender()`、`ispRevSearchClose()`、`ispRevSearchSetActive()`、`ispRevSearchApply()`、`ispRevBuildSearchUI()`，以及輔助 `_revBitsFromVal` / `_revValFromBits` / `_revSearchDisplayName` / `_revSearchBitStr`。
+- 比對規則：不分大小寫。排序分數 = 名稱完全相符(0) → 名稱前綴(1) → 名稱包含(2) → 含 kind 的全名包含(3)，同分依索引原序（控制碼在前、L 由小到大）。最多顯示 40 筆，超出顯示「另有 N 筆」。
+- 選取後 `ispRevSearchApply()` 直接寫入 `_revBits`、同步 9 個 checkbox，再呼叫既有的 `ispRevRenderWave()` + `ispRevUpdate()`，也就是走原本的反推流程，沒有另開分支。
+- 操作方式：滑鼠點選（用 `mousedown` + `preventDefault`，避免 input blur 先關掉清單）、鍵盤 ↑/↓ 移動 + Enter 套用（未移動時 Enter 取第一筆）、Esc 關閉、× 清除搜尋字（已填入的 9-bit 保留不動）。
+- 初始化：`ispInit()` 內 `ispRevBuildUI()` 之後呼叫 `ispRevBuildSearchUI()`（需在 `_revCBs` 建好之後）。
+
+**i18n（`common/i18n.js`，三語齊備）**：新增 `isp.revSearchPh`（placeholder）、`isp.revSearchHint`、`isp.revSearchClear`（aria-label）、`isp.revSearchNone`、`isp.revSearchMore`（含 `{n}`）。
+
+**驗證（Chrome 實機、真實鍵盤與滑鼠操作，非只讀 code）**：
+- 輸入 `BK` → 清單 4 筆：`BK/DLL-BK 100001111`、`BK/PLL-BK 001010101`、`BKPOL+ 011101111`、`BKPOL- 100010000`（與 `ISP_CTRL`／`ISP_BK_PLL` 逐 bit 相符）。
+- 輸入 `L0` → 只有 2 筆：`L0 (DLL) 100000000`（0x001）、`L0 (PLL) 110010110`（0x0D3），與 `ISP_DLL_LUT[0]=0x001`、`ISP_PLL_LUT[0]=0x0D3` 相符。
+- 輸入 `POL` → `POL+ 011001111`、`POL- 100110000`、`BKPOL+`、`BKPOL-`；輸入 `E` → `EOL 011111100`、`SET 100000011`。
+- 輸入 `BAC` + Enter（8-bit）→ 下方 checkbox 變 `011110000`、9-bit 值 `0x01E (011110000)`、Command 顯示 `BAC (DLL-BK)`、DLL Data `L15 (0x0F)`；波形圖同步變為 b1~b4 為高。
+- 灰階 8-bit：`L128`+Enter → `0x101 (100000001)`、DLL 反推回 `L128 (0x80)`；`L0` ↓↓+Enter 選 PLL → `0x0D3 (110010110)`、PLL 反推回 `L0 (0x00)`；`L255`+Enter → `0x1FE (011111111)`、DLL 反推回 `L255 (0xFF)`。
+- 灰階 6-bit（點「6 bits」切換後重測）：`L0`→`0x001`、`L128`→`0x101`、`L255`→`0x1FE`，與 8-bit 完全相同；6-bit 下 `BK` 清單、`BAC` 滑鼠點選（→`0x01E`）亦正常。
+- 滑鼠點選候選：`L200 (PLL)`→`0x191 (100010011)`、`L100 (PLL)`→`0x0C9 (100100110)`（DLL/PLL 同碼，兩列反推皆回 L100）。
+- 排序：輸入 `L25` → 14 筆且 `L25` 排第一（其後 L250~L255）；輸入 `L1` → 顯示 40 筆 + 「另有 182 筆」（40+182=222=(L1,L10~L19,L100~L199)×2）。
+- 三語：`繁體中文` / `English` / `简体中文` 切換後 placeholder、說明 hint、清除鈕 aria-label、「找不到符合的波形名稱 / No matching waveform name / 找不到符合的波形名称」、「另有 N 筆 / N more — keep typing to narrow down」皆正確。
+- Esc 關閉清單、× 清除輸入（已填入的 9-bit 保留）皆正常；重新載入頁面後 console 無任何錯誤或訊息；主波形 SVG（532 個節點）、minimap、反推波形皆正常渲染，無回歸。
+
+**版本同步**：`common/version.js` `isp: v1.17.0 → v1.18.0`；`isp.html` `version.js?v` 與 `i18n.js?v` 皆 `20260731isp2 → 20260731isp3`。
+
+---
+
 ## iSP 波形產生器 (isp) v1.17.0 — 2026-07-31
 
 **Bruce 需求**：iSP 分頁「模式設定」卡片中多增加一個 BKPOL 按鍵。(1) ON/OFF 選項，預設 ON。(2) 開啟時仿照 iSP REG Setting 的方式，前面跟後面都包 BK。(3) 本身是 BAC，再加上 BKPOL 正或負；點一下 BKPOL 就正轉負／負轉正，跟 POL 一樣。BKPOL 正／負的定義去查 iSP 分頁既有的資料庫。

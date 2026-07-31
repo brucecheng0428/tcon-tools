@@ -392,6 +392,59 @@
   .isp-rev-card .card-header {
     background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
   }
+  /* 波形搜尋（名稱 → 自動填入 9-bit） */
+  .isp-rev-search { position: relative; margin: 10px 0 2px; }
+  .isp-rev-search-box {
+    display: flex; align-items: center; gap: 6px;
+    background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+    padding: 6px 8px;
+  }
+  .isp-rev-search-box:focus-within { border-color: #3b82f6; }
+  .isp-rev-search-icon { color: var(--text-sub); font-size: 13px; flex-shrink: 0; }
+  .isp-rev-search-input {
+    flex: 1; background: transparent; border: 0; outline: none;
+    color: var(--text-main); font-size: 13px; font-family: inherit;
+    min-width: 0; padding: 2px 0;
+  }
+  .isp-rev-search-input::placeholder { color: #64748b; }
+  .isp-rev-search-clear {
+    background: transparent; border: 0; color: var(--text-sub);
+    font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
+    flex-shrink: 0; display: none;
+  }
+  .isp-rev-search-clear.show { display: block; }
+  .isp-rev-search-list {
+    display: none; position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+    z-index: 30; max-height: 240px; overflow-y: auto;
+    background: #1e293b; border: 1px solid #3b82f6; border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .isp-rev-search-list.show { display: block; }
+  .isp-rev-search-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 10px; cursor: pointer; border-bottom: 1px solid #273449;
+  }
+  .isp-rev-search-item:last-child { border-bottom: 0; }
+  .isp-rev-search-item:hover, .isp-rev-search-item.active { background: #2b3b52; }
+  .isp-rev-search-name {
+    font-size: 13px; font-weight: 600; color: var(--text-main);
+    font-family: 'SF Mono', monospace;
+  }
+  .isp-rev-search-kind {
+    font-size: 10px; color: #93c5fd; background: rgba(59,130,246,0.15);
+    border-radius: 4px; padding: 1px 5px; flex-shrink: 0;
+  }
+  .isp-rev-search-bits {
+    font-size: 10px; color: var(--text-sub); font-family: 'SF Mono', monospace;
+    margin-left: auto; flex-shrink: 0;
+  }
+  .isp-rev-search-empty {
+    padding: 10px; font-size: 12px; color: #f87171; text-align: center;
+  }
+  .isp-rev-search-more {
+    padding: 6px 10px; font-size: 10px; color: var(--text-sub);
+    text-align: center; border-top: 1px solid #273449;
+  }
   .isp-rev-wave-wrap {
     background: #000000; border: 1px solid #334155; border-radius: 8px;
     margin: 12px 0 6px; padding: 0; overflow: hidden;
@@ -755,6 +808,20 @@
       </div>
       <div class="card-body">
         <div class="hint" data-i18n="isp.revHint">輸入示波器上看到的 9-bit 波形，即時反推可能的 Command 或 Data Level</div>
+        <!-- 波形名稱搜尋：選取後自動填入下方 9-bit 輸入區 -->
+        <div class="isp-rev-search">
+          <div class="isp-rev-search-box">
+            <span class="isp-rev-search-icon">🔍</span>
+            <input type="text" class="isp-rev-search-input" id="isp-rev-search-input"
+                   autocomplete="off" spellcheck="false"
+                   data-i18n-ph="isp.revSearchPh"
+                   placeholder="搜尋波形名稱：BK、BAC、BKPOL+、L0、L255…">
+            <button type="button" class="isp-rev-search-clear" id="isp-rev-search-clear"
+                    data-i18n-aria="isp.revSearchClear">×</button>
+          </div>
+          <div class="isp-rev-search-list" id="isp-rev-search-list"></div>
+        </div>
+        <div class="hint" data-i18n="isp.revSearchHint">控制碼可輸入 BK / BAC / POL± / SET / EOL / BKPOL±；灰階資料以 L0～L255 輸入，DLL 與 PLL 兩種編碼分別列出。</div>
         <!-- 9-bit waveform display (matches main waveform style) -->
         <div class="isp-rev-wave-wrap" id="isp-rev-wave-wrap">
           <svg id="isp-rev-svg" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -789,8 +856,8 @@
 </div><!-- /page-isp -->
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260731isp2"></script>
-<script src="common/i18n.js?v=20260731isp2"></script>
+<script src="common/version.js?v=20260731isp3"></script>
+<script src="common/i18n.js?v=20260731isp3"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ iSP 波形產生器（DLL+PLL / 8-bit+6-bit / 1-pair+2-pair / Scrambler On/Off） ═══════════
@@ -2270,6 +2337,197 @@
     ispRevRenderWave();
   }
 
+  // ── 波形名稱搜尋 ──────────────────────────────
+  // 資料來源全部沿用既有定義：控制碼取自 ISP_CTRL / ISP_BK_PLL，
+  // 灰階 L0~L255 取自 ISP_DLL_LUT / ISP_PLL_LUT（與 ispEncodeByte 同一組 LUT）。
+  // 9-bit packet ↔ byte 的映射與 6-bit / 8-bit 模式無關（6-bit 差異只在上游打包成 byte），
+  // 故此索引在兩種模式下皆適用。
+  let _revSearchIndex = null;
+  let _revSearchResults = [];
+  let _revSearchActive = -1;
+
+  function _revBitsFromVal(v) {
+    const bits = new Array(9);
+    for (let i = 0; i < 9; i++) bits[i] = (v >> i) & 1;
+    return bits;
+  }
+  function _revValFromBits(bits) {
+    let v = 0;
+    for (let i = 0; i < 9; i++) v |= (bits[i] << i);
+    return v;
+  }
+
+  function ispRevGetSearchIndex() {
+    if (_revSearchIndex) return _revSearchIndex;
+    const list = [];
+    const add = (name, kind, bits) => {
+      list.push({ name, kind, bits: bits.slice(), val: _revValFromBits(bits) });
+    };
+    // 控制碼（9-bit LSB-first，一律沿用 ISP_CTRL / ISP_BK_PLL）
+    add('BK', 'DLL-BK', ISP_CTRL.BK);
+    add('BK', 'PLL-BK', ISP_BK_PLL);
+    ['BAC', 'POL+', 'POL-', 'SET', 'EOL', 'BKPOL+', 'BKPOL-'].forEach(n => {
+      if (ISP_CTRL[n]) add(n, 'CTRL', ISP_CTRL[n]);
+    });
+    // 灰階資料 L0~L255（DLL / PLL 兩種 8B9B 編碼）
+    for (let b = 0; b < 256; b++) {
+      add('L' + b, 'DLL', _revBitsFromVal(ISP_DLL_LUT[b]));
+      add('L' + b, 'PLL', _revBitsFromVal(ISP_PLL_LUT[b]));
+    }
+    _revSearchIndex = list;
+    return list;
+  }
+
+  function _revSearchDisplayName(item) {
+    return item.kind === 'CTRL' ? item.name : item.name + ' (' + item.kind + ')';
+  }
+  function _revSearchBitStr(item) {
+    // LSB-first 顯示，與波形/9-bit 值列一致
+    return item.bits.join('');
+  }
+
+  const ISP_REV_SEARCH_MAX = 40;
+
+  function ispRevSearchFilter(query) {
+    const idx = ispRevGetSearchIndex();
+    const q = (query || '').trim().toUpperCase();
+    if (!q) return idx.slice(0, ISP_REV_SEARCH_MAX);
+    const scored = [];
+    for (let i = 0; i < idx.length; i++) {
+      const item = idx[i];
+      const name = item.name.toUpperCase();
+      const full = _revSearchDisplayName(item).toUpperCase();
+      let score = -1;
+      if (name === q) score = 0;
+      else if (name.indexOf(q) === 0) score = 1;
+      else if (name.indexOf(q) >= 0) score = 2;
+      else if (full.indexOf(q) >= 0) score = 3;
+      if (score >= 0) scored.push({ item, score, ord: i });
+    }
+    scored.sort((a, b) => (a.score - b.score) || (a.ord - b.ord));
+    return scored.map(s => s.item);
+  }
+
+  function ispRevSearchRender(items) {
+    const listEl = document.getElementById('isp-rev-search-list');
+    if (!listEl) return;
+    _revSearchResults = items;
+    _revSearchActive = -1;
+    if (!items.length) {
+      const msg = (window.t ? window.t('isp.revSearchNone') : '找不到符合的波形名稱');
+      listEl.innerHTML = '<div class="isp-rev-search-empty"></div>';
+      listEl.firstChild.textContent = msg;
+      listEl.classList.add('show');
+      return;
+    }
+    const shown = items.slice(0, ISP_REV_SEARCH_MAX);
+    listEl.innerHTML = '';
+    shown.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'isp-rev-search-item';
+      row.setAttribute('data-idx', String(i));
+      const nameEl = document.createElement('span');
+      nameEl.className = 'isp-rev-search-name';
+      nameEl.textContent = item.name;
+      const kindEl = document.createElement('span');
+      kindEl.className = 'isp-rev-search-kind';
+      kindEl.textContent = item.kind;
+      const bitsEl = document.createElement('span');
+      bitsEl.className = 'isp-rev-search-bits';
+      bitsEl.textContent = _revSearchBitStr(item);
+      row.appendChild(nameEl);
+      row.appendChild(kindEl);
+      row.appendChild(bitsEl);
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // 避免 input blur 先關掉清單
+        ispRevSearchApply(item);
+      });
+      listEl.appendChild(row);
+    });
+    if (items.length > shown.length) {
+      const more = document.createElement('div');
+      more.className = 'isp-rev-search-more';
+      const tpl = (window.t ? window.t('isp.revSearchMore') : '另有 {n} 筆，請再輸入以縮小範圍');
+      more.textContent = tpl.replace('{n}', String(items.length - shown.length));
+      listEl.appendChild(more);
+    }
+    listEl.classList.add('show');
+  }
+
+  function ispRevSearchClose() {
+    const listEl = document.getElementById('isp-rev-search-list');
+    if (listEl) listEl.classList.remove('show');
+    _revSearchActive = -1;
+  }
+
+  function ispRevSearchSetActive(next) {
+    const listEl = document.getElementById('isp-rev-search-list');
+    if (!listEl) return;
+    const rows = listEl.querySelectorAll('.isp-rev-search-item');
+    if (!rows.length) return;
+    if (_revSearchActive >= 0 && rows[_revSearchActive]) rows[_revSearchActive].classList.remove('active');
+    _revSearchActive = (next + rows.length) % rows.length;
+    rows[_revSearchActive].classList.add('active');
+    rows[_revSearchActive].scrollIntoView({ block: 'nearest' });
+  }
+
+  // 套用選取結果：直接寫入下方 9-bit 輸入區並觸發既有反推流程
+  function ispRevSearchApply(item) {
+    if (!item) return;
+    for (let i = 0; i < 9; i++) {
+      _revBits[i] = item.bits[i];
+      if (_revCBs[i]) _revCBs[i].checked = !!item.bits[i];
+    }
+    ispRevRenderWave();
+    ispRevUpdate();
+    const input = document.getElementById('isp-rev-search-input');
+    if (input) input.value = _revSearchDisplayName(item);
+    const clearBtn = document.getElementById('isp-rev-search-clear');
+    if (clearBtn) clearBtn.classList.add('show');
+    ispRevSearchClose();
+  }
+
+  function ispRevBuildSearchUI() {
+    const input = document.getElementById('isp-rev-search-input');
+    const clearBtn = document.getElementById('isp-rev-search-clear');
+    const listEl = document.getElementById('isp-rev-search-list');
+    if (!input || !listEl) return;
+
+    function syncClear() {
+      if (clearBtn) clearBtn.classList.toggle('show', input.value.length > 0);
+    }
+    input.addEventListener('input', () => {
+      syncClear();
+      ispRevSearchRender(ispRevSearchFilter(input.value));
+    });
+    input.addEventListener('focus', () => {
+      ispRevSearchRender(ispRevSearchFilter(input.value));
+    });
+    input.addEventListener('blur', () => {
+      setTimeout(ispRevSearchClose, 120);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); ispRevSearchSetActive(_revSearchActive + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); ispRevSearchSetActive(_revSearchActive - 1); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const pick = _revSearchActive >= 0 ? _revSearchResults[_revSearchActive] : _revSearchResults[0];
+        if (pick) ispRevSearchApply(pick);
+      } else if (e.key === 'Escape') {
+        ispRevSearchClose();
+      }
+    });
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        input.value = '';
+        syncClear();
+        ispRevSearchClose();
+        input.focus();
+      });
+    }
+    syncClear();
+  }
+
   function _revSvgTotalW() {
     // Match main waveform proportions: 9 bits × 12px base + 2×6 pad
     return 9 * 12 + 12;
@@ -2976,6 +3234,8 @@
 
     // 波形反推 UI 初始化
     ispRevBuildUI();
+    // 波形名稱搜尋 UI 初始化（必須在 ispRevBuildUI 之後，_revCBs 已建立）
+    ispRevBuildSearchUI();
     // 初始顯示（8-bit 時顯示）
     const revCard = document.getElementById('isp-rev-card');
     // 反推卡片永遠顯示（獨立工具）

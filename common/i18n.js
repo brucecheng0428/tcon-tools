@@ -549,5 +549,10 @@ var I18N = {
   'isp.overview':       { 'zh-TW': 'Overview · 點縮圖跳轉', 'en': 'Overview · Tap to jump', 'zh-CN': 'Overview · 点缩图跳转' },
   'isp.revHeader':      { 'zh-TW': '波形反推（8-bit）', 'en': 'Waveform Reverse Lookup (8-bit)', 'zh-CN': '波形反推（8-bit）' },
   'isp.revHint':        { 'zh-TW': '輸入示波器上看到的 9-bit 波形，即時反推可能的 Command 或 Data Level', 'en': 'Enter the 9-bit waveform observed on oscilloscope to reverse-lookup Command or Data Level', 'zh-CN': '输入示波器上看到的 9-bit 波形，即时反推可能的 Command 或 Data Level' },
+  'isp.revSearchPh':    { 'zh-TW': '搜尋波形名稱：BK、BAC、BKPOL+、L0、L255…', 'en': 'Search waveform name: BK, BAC, BKPOL+, L0, L255…', 'zh-CN': '搜索波形名称：BK、BAC、BKPOL+、L0、L255…' },
+  'isp.revSearchHint':  { 'zh-TW': '控制碼可輸入 BK / BAC / POL± / SET / EOL / BKPOL±；灰階資料以 L0～L255 輸入，DLL 與 PLL 兩種編碼分別列出。', 'en': 'Control codes: BK / BAC / POL± / SET / EOL / BKPOL±. Gray levels: enter L0–L255; DLL and PLL encodings are listed separately.', 'zh-CN': '控制码可输入 BK / BAC / POL± / SET / EOL / BKPOL±；灰阶数据以 L0～L255 输入，DLL 与 PLL 两种编码分别列出。' },
+  'isp.revSearchClear': { 'zh-TW': '清除搜尋', 'en': 'Clear search', 'zh-CN': '清除搜索' },
+  'isp.revSearchNone':  { 'zh-TW': '找不到符合的波形名稱', 'en': 'No matching waveform name', 'zh-CN': '找不到符合的波形名称' },
+  'isp.revSearchMore':  { 'zh-TW': '另有 {n} 筆，請再輸入以縮小範圍', 'en': '{n} more — keep typing to narrow down', 'zh-CN': '另有 {n} 笔，请再输入以缩小范围' },
   'isp.revNote':        { 'zh-TW': 'Bit 順序為 LSB-first（b0 在最左，b8 在最右），與示波器上實際傳輸順序一致。Command 同時比對 DLL-BK 與 PLL-BK。', 'en': 'Bit order is LSB-first (b0 leftmost, b8 rightmost), matching actual transmission order on oscilloscope. Command matches both DLL-BK and PLL-BK.', 'zh-CN': 'Bit 顺序为 LSB-first（b0 在最左，b8 在最右），与示波器上实际传输顺序一致。Command 同时比对 DLL-BK 与 PLL-BK。' },
 };
