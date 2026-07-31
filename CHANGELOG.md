@@ -1,5 +1,64 @@
 # CHANGELOG
 
+## Pattern Generator 畫面產生器 (pattern) v1.3.0 — 2026-07-31
+
+新增「**測試畫面選單**」：依某面板廠內部測試程式的原始選單結構重建的階層式選單（21 個頂層項目 + 24 個子項目 = 45 個 MenuItem），以及能畫非平鋪 pattern 的繪圖引擎。選單文字一律保留英文原文（含原程式既有拼字 `LUMINACE`），不翻譯。
+
+### 選單與進入點
+
+- 主頁「快速樣式」下方新增 `▾ Test Pattern Menu` 下拉選單；**原有 9 顆快速樣式按鈕全部保留**。
+- 全畫面時**按滑鼠右鍵**跳出同一套選單（兩處共用同一份 `PG_MENU` JS 資料，不重複維護）；全畫面面板內另有 `☰ 測試畫面選單` 按鈕。
+- 外觀比照原程式：淺灰底 `#f0f0f0`、細字、hover 藍底白字、子選單 `▶` 箭頭。`Horizontal` 的 3 個子項目為 RadioItem（`●`），其餘選中項顯示 `✓`。
+- 靠近右緣／下緣時整個選單與子選單**往內翻**，不開到畫面外（用 `getBoundingClientRect()` 量測，不用 `offsetWidth/Height`，避免四捨五入造成 0.x px 溢出）。
+- **Esc 兩段優先序**：選單開著 → 只關選單；選單關著 → 才離開全畫面。進入全螢幕時額外呼叫 `navigator.keyboard.lock(['Escape'])`（Keyboard Lock API），否則瀏覽器會直接吃掉 Esc。
+
+### pattern 引擎（非平鋪畫面）
+
+新增 `pgDrawPattern(ctx, W, H)`，以裝置像素為單位繪製；per-pixel 類 pattern 走 `Uint32Array` 直寫 ImageData，無縮放無內插。`pgRenderFill()` / `pgRenderPreview()` 依模式分派，**4×4 sub-pixel 編輯器與 1:1 滿版機制完全未動**（動到編輯器會自動切回 subpixel 模式）。
+
+已實作畫面：Horizontal / Vertical / Center（9・64・256）、Gray Level、Skip 1 Dot（1V 1H・1V 2H）、Skip 2 Dot（2V 1H・2V 2H・2V (1+2)H）、Skip SubPixel、Horizontal Line、Vertical Line（含 Sub Line）、Cross Talk、XY Coordinate、Align Center、Color Test、Flicker、Checker、Character、LUMINACE（COMPARE・DIVIDE）、Response Time、SMPTE、Skip 1 Dot 2 Gray、Exit（＝離開全畫面）。
+
+共用基礎：顏色乘數表 8 筆（`color = table[idx] × level`）、Checker 格數表 `[2,4,8,16,32,64,128,256]`。鍵盤沿用原程式：`1`~`8` 選色、`↑`/`↓` 同組變體循環、`Space` 反相、`Esc` 關閉。
+
+### Skip 系列的語意（重要）
+
+Skip 1 Dot / Skip 2 Dot 的**單位是 pixel**（1 pixel = RGB 三個 sub-pixel）：`1V 1H` 就是 pixel 級的 on/off 棋盤，`1V 2H` = 垂直 1、水平 2，其餘類推。原程式是用 45° 斜線鋪出來的，結果等價，但**描述與變數命名一律用 pixel on/off 的講法**。Skip SubPixel 與 Vertical Line ▸ Sub Line 則以 **sub-pixel** 為單位一亮一暗。
+
+**起始相位（已讀死，非推測）**：原程式 Skip SubPixel 在偶數位置畫 **G**、奇數位置畫 **R+B（Magenta）**；Sub Line 同理（`x mod 2 == 反相旗標` → G，否則 Magenta）。也就是序列從「**R 不亮**」起頭。需要從「**R 亮**」起頭時按 `Space` 反相即可，**兩種相位都拿得到**，UI 上也直接標示這段說明。
+
+### 其他
+
+- `Vertical 9/64/256`：原程式硬編碼 480 × 800（只畫左上角），此處**改用實際畫面尺寸**繪製整個畫面，UI 上有註記。
+- `2V (1+2)H`：起始相位與步進照原程式參數實作，但讀出的結果與 `2V 2H` 只差 1 px 水平相位，與名稱暗示的「1+2 混合」對不起來 → UI 明確標示「**語意待確認**」，**不臆測、也不畫一個假的充數**。
+- Character 畫面的重複文字改為中性字串 `TKTools`。
+- 三語 i18n：說明文字三語，**選單項目一律英文原文不翻譯**。
+
+### 驗證（Chrome 實機，127.0.0.1 本機 server）
+
+| 驗證項 | 實際結果 |
+|---|---|
+| 選單 DOM 層級 | `.pg-menu[data-menu-depth=0]` 21 項 + `depth=1` 共 24 子項 = **45 個 MenuItem** ✔ |
+| 全畫面右鍵選單 | 截圖確認：選單疊在 Checker 畫面上，`Vertical Line ▸ 1 line / 2 line / Sub Line` 展開正常，`✓ Checker` 標記正確 ✔ |
+| 右下角邊界翻轉 | 於 `(1615, 719)`（viewport 1619 × 723）叫出：root `L=1465 T=207 R=1615 B=722.25`、子選單 `L=1318 R=1468`（往左開），**四邊皆在畫面內** ✔ |
+| 左上／右緣／下緣 | root 與子選單 `inView=true` 全過（右緣子選單自動 LEFT-flipped）✔ |
+| Skip SubPixel 像素 | `lv=127` `(0,0)=(0,127,0)` G 亮、`(1,0)=(127,0,127)` R+B 亮、`(0,1)=(127,0,127)`；反相後 `(0,0)=(127,0,127)` ✔ |
+| Sub Line 像素 | `(0,0)=(0,127,0)`、`(1,0)=(127,0,127)`、`(0,50)=(0,127,0)`（垂直不變）✔ |
+| Checker 像素 | 格子 `404 × 180`（= W/8 × H/8）、`(0,0)` 白、`(404,0)` 黑、`(0,180)` 黑、`(404,180)` 白 ✔ |
+| Cross Talk 像素 | 外圍 `(127,127,127)`、正中央 `(0,0,0)`、內框外緣 `(127,127,127)` ✔ |
+| Color Test 像素 | 8 欄 `(0,0,0) (0,0,255) (0,255,0) (0,255,255) (255,0,0) (255,0,255) (255,255,0) (255,255,255)` ✔ |
+| Horizontal 9 像素 | band0 白 `0→255` 漸階、band1 `(255,0,0)`、band2 `(0,255,0)`、band3 `(0,0,255)` ✔ |
+| Skip 1 Dot 2 Gray | `(0,0)=(255,0,0)`、`(1,1)=(0,255,0)`、`(1,0)/(0,1)=(0,0,0)` ✔ |
+| Align Center | 垂直中心線 `(1618,5)=白`、水平中心線 `(5,722)=白`、對角線、k=1 矩形左邊與頂邊皆白 ✔ |
+| 全部 34 個畫面 | 逐一套用 + 取樣像素，**0 個例外** ✔ |
+| Esc 兩段 | 第 1 次 → `menuOpen=false, overlayOn=true`；第 2 次 → `overlayOn=false` ✔ |
+| v1.2.0 回歸 | sub-pixel 模式前 16 格與 `pgLevels` **完全相符**、`(4,4)` 平鋪重複正確、`scrollHeight = clientHeight = 723`（無捲軸）、overlay 內除 canvas 外**無任何會繪製的元素** ✔ |
+| console | 載入 + 走一輪互動（SMPTE→Response Time→Run→XY→回編輯器→開關選單）後**無任何訊息／錯誤** ✔ |
+| 三語 i18n | en / zh-CN / zh-TW 切換正常，說明文字 `<b>` 正確渲染（改用 `data-i18n-html`）✔ |
+
+**未能驗證的部分（誠實說明）**：本次自動化環境下 `requestFullscreen()` 一律以 `TypeError: Permissions check failed` 被拒（合成鍵盤事件不算 user activation），因此上述全畫面驗證都是在 **overlay 覆蓋整個 viewport** 的狀態下完成，**沒有實際進入真・全螢幕**。Esc 兩段優先序在真・全螢幕下是否會被瀏覽器搶走（有無 Keyboard Lock 生效），需要 Bruce 手動點一次「進入全畫面顯示」才能確認。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v1.2.0 — 2026-07-31
 
 **Bruce 回報**：「為何進入全螢幕、全畫面顯示的時候，左側還會有一個浮在畫面上的圖示？右側居然還有垂直方向的卷軸？不是都是全螢幕嗎？我要的是這張畫面的大小，就是這個解析度的大小，1 比 1。」

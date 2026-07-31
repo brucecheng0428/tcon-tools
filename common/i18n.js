@@ -211,6 +211,48 @@ var I18N = {
   'pat.fsInfoShort':    { 'zh-TW': '⚠ 繪圖區比螢幕小 {dx} × {dy} px（被瀏覽器工具列／系統列佔用），這部分網頁拿不到。', 'en': '⚠ Drawing area is {dx} × {dy} px smaller than the screen (taken by browser/system bars); a web page cannot reclaim it.', 'zh-CN': '⚠ 绘图区比屏幕小 {dx} × {dy} px（被浏览器工具栏／系统栏占用），这部分网页拿不到。' },
   'pat.fsInfoWarn':     { 'zh-TW': '⚠ dPR 非整數，畫面會被重新取樣，非 1:1。', 'en': '⚠ dPR is not an integer: the output is resampled and is not 1:1.', 'zh-CN': '⚠ dPR 非整数，画面会被重新采样，非 1:1。' },
 
+  /* ─── 測試畫面選單（選單項目一律英文原文，不進 i18n） ─── */
+  'pat.menuLabel':      { 'zh-TW': '測試畫面選單（階層式）', 'en': 'Test Pattern Menu (hierarchical)', 'zh-CN': '测试画面选单（阶层式）' },
+  'pat.menuBtn':        { 'zh-TW': '▾ Test Pattern Menu', 'en': '▾ Test Pattern Menu', 'zh-CN': '▾ Test Pattern Menu' },
+  'pat.menuHint':       {
+    'zh-TW': '選單結構重建自面板廠測試程式的原始選單（21 個頂層項目、24 個子項目），選單文字保留英文原文不翻譯。<b>全畫面時按滑鼠右鍵</b>可叫出同一套選單；選單開著時 Esc 只關選單，選單關著時 Esc 才離開全畫面。',
+    'en': 'The menu structure is reconstructed from the original panel-maker test program menu (21 top-level items, 24 sub-items); menu labels keep the original English wording. <b>Right-click in full-screen</b> to bring up the same menu. While the menu is open, Esc closes only the menu; Esc exits full-screen only when the menu is closed.',
+    'zh-CN': '选单结构重建自面板厂测试程序的原始选单（21 个顶层项目、24 个子项目），选单文字保留英文原文不翻译。<b>全画面时按鼠标右键</b>可叫出同一套选单；选单开着时 Esc 只关选单，选单关着时 Esc 才离开全画面。'
+  },
+  'pat.patCur':         { 'zh-TW': '目前畫面', 'en': 'Current pattern', 'zh-CN': '当前画面' },
+  'pat.patBack':        { 'zh-TW': '回到 Sub-pixel 編輯', 'en': 'Back to sub-pixel editor', 'zh-CN': '回到 Sub-pixel 编辑' },
+  'pat.patColor':       { 'zh-TW': '顏色（對應原程式數字鍵 1–8）', 'en': 'Color (original program number keys 1–8)', 'zh-CN': '颜色（对应原程序数字键 1–8）' },
+  'pat.patLevel':       { 'zh-TW': '灰階 Level（L0 – L255）', 'en': 'Gray level (L0 – L255)', 'zh-CN': '灰阶 Level（L0 – L255）' },
+  'pat.patInvert':      { 'zh-TW': 'Space 反相', 'en': 'Space: invert', 'zh-CN': 'Space 反相' },
+  'pat.patPrev':        { 'zh-TW': '↑ 上一個變體', 'en': '↑ Previous variant', 'zh-CN': '↑ 上一个变体' },
+  'pat.patNext':        { 'zh-TW': '↓ 下一個變體', 'en': '↓ Next variant', 'zh-CN': '↓ 下一个变体' },
+  'pat.ckN':            { 'zh-TW': 'Checker 格數（n × n）', 'en': 'Checker grid (n × n)', 'zh-CN': 'Checker 格数（n × n）' },
+  'pat.ctTitle':        { 'zh-TW': 'Cross Talk 參數', 'en': 'Cross Talk parameters', 'zh-CN': 'Cross Talk 参数' },
+  'pat.ctOuterColor':   { 'zh-TW': 'Outer Color', 'en': 'Outer Color', 'zh-CN': 'Outer Color' },
+  'pat.ctOuterLevel':   { 'zh-TW': 'Outer Level', 'en': 'Outer Level', 'zh-CN': 'Outer Level' },
+  'pat.ctInnerColor':   { 'zh-TW': 'Inner Color', 'en': 'Inner Color', 'zh-CN': 'Inner Color' },
+  'pat.ctInnerLevel':   { 'zh-TW': 'Inner Level', 'en': 'Inner Level', 'zh-CN': 'Inner Level' },
+  'pat.ctSize':         { 'zh-TW': 'Inner Size（占畫面高 %）', 'en': 'Inner Size (% of screen height)', 'zh-CN': 'Inner Size（占画面高 %）' },
+  'pat.ctPos':          { 'zh-TW': 'Inner Position X / Y（%）', 'en': 'Inner Position X / Y (%)', 'zh-CN': 'Inner Position X / Y（%）' },
+  'pat.rtTitle':        { 'zh-TW': 'Response Time 參數', 'en': 'Response Time parameters', 'zh-CN': 'Response Time 参数' },
+  'pat.xyHint':         { 'zh-TW': '全畫面時用方向鍵移動準星，Space 黑白反相。', 'en': 'In full-screen, move the crosshair with the arrow keys; Space inverts black/white.', 'zh-CN': '全画面时用方向键移动准星，Space 黑白反相。' },
+  'pat.fsMenuBtn':      { 'zh-TW': '☰ 測試畫面選單', 'en': '☰ Test Pattern Menu', 'zh-CN': '☰ 测试画面选单' },
+  'pat.notePhase':      {
+    'zh-TW': '<b>相位說明</b>：反組譯結果為「<b>R 不亮</b>、G 亮、B 不亮…」起頭（原程式偶數位置畫 G）。若需要「<b>R 亮</b>」起頭，按 <b>Space</b>（或上方「Space 反相」）切換相位，兩種相位都拿得到。',
+    'en': '<b>Phase note:</b> the disassembly starts with <b>R off</b>, G on, B off… (the original program paints G at even positions). For a sequence starting with <b>R on</b>, press <b>Space</b> (or the invert button above) — both phases are available.',
+    'zh-CN': '<b>相位说明</b>：反汇编结果为「<b>R 不亮</b>、G 亮、B 不亮…」起头（原程序偶数位置画 G）。若需要「<b>R 亮</b>」起头，按 <b>Space</b>（或上方「Space 反相」）切换相位，两种相位都拿得到。'
+  },
+  'pat.note12h':        {
+    'zh-TW': '<b>語意待確認</b>：此變體的起始相位與步進已從原程式讀出並照實實作，但讀出的結果與 <b>2V 2H</b> 只差 1 px 水平相位，與名稱暗示的「1+2 混合」對不起來。此處<b>不做臆測</b>，畫面即為原程式參數的忠實還原。',
+    'en': '<b>Semantics unconfirmed:</b> the start phase and step of this variant were read from the original program and implemented literally, but the result differs from <b>2V 2H</b> only by a 1 px horizontal phase, which does not match the “1+2 mix” the name suggests. No guess is made here — the output is a faithful reproduction of the original parameters.',
+    'zh-CN': '<b>语意待确认</b>：此变体的起始相位与步进已从原程序读出并照实实作，但读出的结果与 <b>2V 2H</b> 只差 1 px 水平相位，与名称暗示的「1+2 混合」对不起来。此处<b>不做臆测</b>，画面即为原程序参数的忠实还原。'
+  },
+  'pat.noteVert':       {
+    'zh-TW': '原程式此畫面硬編碼 480 × 800（只畫左上角）。此處<b>改用實際畫面尺寸</b>繪製整個畫面。',
+    'en': 'The original program hard-codes 480 × 800 for this pattern (only the top-left corner is painted). Here it is drawn across the <b>actual screen size</b> instead.',
+    'zh-CN': '原程序此画面硬编码 480 × 800（只画左上角）。此处<b>改用实际画面尺寸</b>绘制整个画面。'
+  },
+
   'wfg.title':        { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
   'wfg.subtitle':       { 'zh-TW': 'Phase Counter Timing 信號波形模擬', 'en': 'Phase Counter Timing Signal Waveform Simulator', 'zh-CN': 'Phase Counter Timing 信号波形模拟' },
   'wfg.modeTcon':       { 'zh-TW': 'TCON Timing 調整練習', 'en': 'TCON Timing Practice', 'zh-CN': 'TCON Timing 调整练习' },
