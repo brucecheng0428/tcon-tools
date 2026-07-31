@@ -1,5 +1,77 @@
 # CHANGELOG
 
+## Pattern Generator 畫面產生器 (pattern) v1.2.0 — 2026-07-31
+
+**Bruce 回報**：「為何進入全螢幕、全畫面顯示的時候，左側還會有一個浮在畫面上的圖示？右側居然還有垂直方向的卷軸？不是都是全螢幕嗎？我要的是這張畫面的大小，就是這個解析度的大小，1 比 1。」
+
+### 問題 1：右側垂直捲軸 — 先量出成因，不是用 overflow:hidden 蓋掉
+
+實測 v1.1.0 全螢幕當下：
+
+| 量測項 | 值 |
+|---|---|
+| `documentElement.clientHeight` | 1024 |
+| `documentElement.scrollHeight` | **2768** |
+| **垂直溢出** | **1744 px** |
+| 水平溢出 | 0 px |
+| `body` 實際高度 | 2768 px（含 `padding-bottom: 40px`） |
+| 超出 viewport 的元素數 | **97 個** |
+
+成因：v1.1.0 是對 **`documentElement`** 呼叫 `requestFullscreen()`，整份文件進入全螢幕，但**原本三張卡片（螢幕資訊／編輯器／預覽）全部還留在文件流裡**，總高 2768 px → 右側必然出現捲軸。捲軸同時吃掉 viewport 寬度，1:1 也跟著破功。
+
+**修法（根治）**：
+1. `requestFullscreen()` 改成對 **overlay 元素 `#pg-fs`** 呼叫，不是 documentElement → 背景頁面內容完全不參與版面。
+2. overlay 開啟時對 `<html>` 加 `.pg-fs-lock`（`overflow:hidden; height:100%; padding-bottom:0`），並隱藏 `#ptr-indicator` → 即使 `requestFullscreen()` 因缺 user activation 而失敗，也不會有捲軸。離開時移除。
+
+### 問題 2：左側浮動圖示
+
+就是 v1.0.0 的面板把手 `.pg-handle`（進場 3 秒內 `opacity: .85`，之後 `.07` 仍看得見）。桌面截圖已確認是它。
+
+**修法**：`.pg-handle` 元素與相關 JS（`pgHandleWake` / `pgHandleTimer` / click 綁定）**整個移除**，全畫面時畫面上**沒有任何 UI 元素**。只留完全透明的 26 px 邊緣感應區 `.pg-hot`（不繪任何像素）。觸控裝置改用「**從該側邊緣往內滑**」（`touchstart` 落在邊緣 26 px 內即開啟面板），不放任何看得見的把手。
+
+### 問題 3：1:1 的定義 — canvas 尺寸來源改掉
+
+v1.1.0 用 `window.innerWidth/innerHeight` 決定 canvas 尺寸，那是「**網頁 viewport**」，會被瀏覽器工具列／捲軸吃掉。改為新的 `pgFillCssSize()`，以 **overlay 元素本身的 `getBoundingClientRect()`** 為準——它就是 fullscreen 元素，尺寸即為系統實際給的全螢幕繪圖區。
+
+另外新增**繪圖區 vs 螢幕解析度對照**，直接顯示在全畫面面板裡，讓使用者當場就知道有沒有真的滿版：
+
+- 相等 → 綠字「✔ 繪圖區 = 整個螢幕，已是完整 1:1 滿版。」
+- 不等 → 紅字「⚠ 繪圖區比螢幕小 {dx} × {dy} px（被瀏覽器工具列／系統列佔用），這部分網頁拿不到。」
+
+再加 `ResizeObserver` 觀察 overlay，尺寸一變（進出全螢幕、換螢幕、轉向）立刻重繪；`fullscreenchange` 進入時額外補一次延遲重繪。
+
+### 驗證（Chrome 實機，含桌面截圖看實際畫面）
+
+修後全畫面實測：
+
+| 驗證項 | 實際值 | 結果 |
+|---|---|---|
+| `document.fullscreenElement` | **`pg-fs`**（overlay 本身） | 非 null ✔ |
+| `scrollWidth` = `clientWidth` | **1920 = 1920** | true ✔ |
+| `scrollHeight` = `clientHeight` | **1024 = 1024** | true ✔ |
+| 溢出 X, Y | **0 , 0**（修前 0 , 1744） | 無捲軸 ✔ |
+| canvas CSS 尺寸 | **1920 × 1024** | = 繪圖區 `innerWidth × innerHeight` ✔ |
+| canvas backing 尺寸 | **1920 × 1024** | = CSS 尺寸 × dPR(1) ✔ |
+| `screen.width/height` × dPR | **1920 × 1080** | — |
+| `outerHeight` | **1080**（= screen.height） | 視窗確實佔滿螢幕 |
+| `outerHeight − innerHeight` | **56 px** | 見下方說明 |
+| 面板收合後位置 | `left = 1926`（畫面寬 1920） | **完全在畫面外**，非半透明 ✔ |
+| `#pg-handle` 元素 | **不存在** | 浮動圖示已移除 ✔ |
+
+**關於那 56 px**：桌面截圖顯示螢幕頂端有一條深色列，文字為「**『Claude』已開始為這個瀏覽器偵錯**」——這是自動化偵錯工具的橫幅，高度約 56 px，與 `outerHeight − innerHeight = 56` 完全吻合。**這是測試環境造成的，一般使用時不會出現**；新增的紅字提示會把這個差距如實顯示出來（實測顯示「⚠ 繪圖區比螢幕小 0 × 56 px」），所以在真實環境若能拿到完整螢幕，該行會變成綠字「繪圖區 = 整個螢幕」。
+
+**畫面實際外觀（桌面截圖確認）**：除了上述偵錯橫幅外，整個螢幕就是 pattern 本身——**左側無把手、右側無捲軸、無任何浮動 UI**。
+
+**面板行為**：滑鼠移到左邊緣 → 滑出（含快速樣式／切換左右／離開全畫面／解析度資訊）；點「⇄ 切換面板左右」→ 移到右側且維持開啟；滑鼠移到畫面中央 3.5 秒後 → **完全消失**（`left = 1926 > 1920`）；滑鼠移到右邊緣 → 再次滑出。**離開方式兩種都實測通過**：`Esc`（`fullscreenElement → null`、overlay off、`.pg-fs-lock` 移除、頁面恢復可捲）與面板中的「✕ 離開全畫面」按鈕（同樣三項全部復原）。
+
+**其他**：`pat.fsHint` 三語同步改寫（移除「半透明拉柄」說法，改為邊緣滑入；舊字串殘留 0 筆）；新增 `pat.fsInfoScreen` / `pat.fsInfoFull` / `pat.fsInfoShort` 三組 × 3 語。掃描全頁 `data-i18n` / `data-i18n-html` 與 JS 用到的 key，**缺翻譯 0 筆**；載入與全程操作 console **無任何錯誤或訊息**。
+
+**驗證方法補記**：本輪全螢幕改用 Chrome 擴充功能的鍵盤事件（對已 focus 的按鈕送 `space`）觸發，確認**具備 user activation**，`requestFullscreen()` 直接成功，不需再借助外部工具送鍵盤。
+
+**版本同步**：`pattern: v1.1.0 → v1.2.0`、`app: v1.89.0 → v1.90.0`；`pattern.html` 與 `index.html` 的 `version.js?v` / `i18n.js?v` 皆 `20260731pat2 → 20260731pat3`。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v1.1.0 — 2026-07-31
 
 **Bruce 上線後回饋 6 項**（v1.0.0 已 push 上線）。

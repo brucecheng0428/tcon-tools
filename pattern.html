@@ -154,27 +154,33 @@
   #pg-preview { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
 
   /* ─── 全畫面 OVERLAY ───────────────────────────── */
+  /* 全畫面時鎖住整份文件：不捲動、不留捲軸（背景頁面內容約 2700px 高，
+     否則會在右側出現垂直捲軸，且 viewport 寬度被捲軸吃掉而破壞 1:1） */
+  html.pg-fs-lock, html.pg-fs-lock body {
+    overflow: hidden !important;
+    height: 100% !important;
+    padding-bottom: 0 !important;
+  }
+  html.pg-fs-lock #ptr-indicator { display: none !important; }
+
   #pg-fs {
     position: fixed; inset: 0; z-index: 10000; background: #000; display: none;
+    overflow: hidden;
   }
   #pg-fs.on { display: block; }
+  /* 本身成為 fullscreen 元素時，尺寸即為整個螢幕 */
+  #pg-fs:fullscreen { width: 100%; height: 100%; background: #000; }
+  #pg-fs:-webkit-full-screen { width: 100%; height: 100%; background: #000; }
   #pg-fs-canvas {
     position: absolute; left: 0; top: 0; display: block;
     image-rendering: pixelated; image-rendering: crisp-edges;
   }
-  .pg-hot { position: absolute; top: 0; bottom: 0; width: 26px; z-index: 3; }
-  .pg-hot.left { left: 0; } .pg-hot.right { right: 0; }
-
-  .pg-handle {
-    position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
-    width: 16px; height: 62px; border-radius: 8px;
-    background: rgba(120,120,120,.55); color: #fff; font-size: 11px; font-weight: 800;
-    display: flex; align-items: center; justify-content: center; cursor: pointer;
-    opacity: .85; transition: opacity .5s ease; border: none;
+  /* 邊緣感應區：完全透明、不繪任何像素，只負責接滑鼠／觸控 */
+  .pg-hot {
+    position: absolute; top: 0; bottom: 0; width: 26px; z-index: 3;
+    background: transparent; border: none;
   }
-  .pg-handle.dim { opacity: .07; }
-  .pg-handle.left { left: 0; border-radius: 0 8px 8px 0; }
-  .pg-handle.right { right: 0; border-radius: 8px 0 0 8px; }
+  .pg-hot.left { left: 0; } .pg-hot.right { right: 0; }
 
   #pg-fs-panel {
     position: absolute; top: 0; bottom: 0; width: 290px; max-width: 86vw; z-index: 6;
@@ -356,7 +362,6 @@
   <canvas id="pg-fs-canvas"></canvas>
   <div class="pg-hot left"  id="pg-hot-left"></div>
   <div class="pg-hot right" id="pg-hot-right"></div>
-  <button class="pg-handle left" id="pg-handle" aria-label="panel">‹</button>
   <div id="pg-fs-panel" class="side-left">
     <h3 data-i18n="pat.fsPanelTitle">畫面產生器</h3>
     <div id="pg-fs-quick"></div>
@@ -367,8 +372,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260731pat2"></script>
-<script src="common/i18n.js?v=20260731pat2"></script>
+<script src="common/version.js?v=20260731pat3"></script>
+<script src="common/i18n.js?v=20260731pat3"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -386,7 +391,6 @@
   }
   var pgSel = {};          // key "r-p-c" -> true
   var pgSide = 'left';
-  var pgHandleTimer = null;
   var pgPanelTimer = null;
   var pgKeepOpenUntil = 0;   // 剛切換左右／剛手動開啟時，暫時不因滑鼠位置自動收合
 
@@ -664,12 +668,22 @@
   // ─── 全畫面 1:1 平鋪 ──────────────────────────────
   // 直接以 ImageData 逐「裝置像素」填色，過程中沒有任何縮放／內插，
   // 因此 canvas backing store 的 1 像素 = pattern 的 1 像素。
+  // 取得全畫面繪圖區的 CSS 尺寸。以 overlay 元素本身的實際尺寸為準：
+  // 真全螢幕時它就是 fullscreen 元素，尺寸 = 整個螢幕（不受瀏覽器工具列影響）。
+  function pgFillCssSize(){
+    var ov = document.getElementById('pg-fs');
+    var r = ov.getBoundingClientRect();
+    var w = Math.round(r.width)  || ov.clientWidth  || window.innerWidth;
+    var h = Math.round(r.height) || ov.clientHeight || window.innerHeight;
+    return { w: w, h: h };
+  }
   function pgRenderFill(){
     var ov = document.getElementById('pg-fs');
     if (!ov || !ov.classList.contains('on')) return;
     var cv = document.getElementById('pg-fs-canvas');
     var dpr = window.devicePixelRatio || 1;
-    var cssW = window.innerWidth, cssH = window.innerHeight;
+    var sz = pgFillCssSize();
+    var cssW = sz.w, cssH = sz.h;
     var W = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
     if (W < 1 || H < 1) return;
     cv.style.width  = cssW + 'px';
@@ -704,47 +718,49 @@
     var el = document.getElementById('pg-fs-info');
     if (!el) return;
     var dpr = window.devicePixelRatio || 1;
-    var W = Math.round(window.innerWidth * dpr), H = Math.round(window.innerHeight * dpr);
+    var sz = pgFillCssSize();
+    var W = Math.round(sz.w * dpr), H = Math.round(sz.h * dpr);
+    var SW = Math.round((screen.width || 0) * dpr), SH = Math.round((screen.height || 0) * dpr);
     var isInt = Math.abs(dpr - Math.round(dpr)) < 1e-6;
-    el.innerHTML = t('pat.fsInfo', { w: W, h: H, d: pgFmtNum(dpr) }) +
+    var html = t('pat.fsInfo', { w: W, h: H, d: pgFmtNum(dpr) }) +
       '<br>' + (isInt ? t('pat.fsInfoOk') : t('pat.fsInfoWarn'));
+    // 繪圖區是否真的等於整個螢幕（被瀏覽器工具列／系統列吃掉會在這裡看出來）
+    html += '<br>' + t('pat.fsInfoScreen', { w: SW, h: SH });
+    if (W === SW && H === SH) {
+      html += '<br><span style="color:#4ade80">' + t('pat.fsInfoFull') + '</span>';
+    } else {
+      html += '<br><span style="color:#fca5a5">' +
+        t('pat.fsInfoShort', { dx: SW - W, dy: SH - H }) + '</span>';
+    }
+    el.innerHTML = html;
   }
 
   // ─── 全畫面控制面板 ──────────────────────────────
   function pgApplySide(){
     var panel = document.getElementById('pg-fs-panel');
-    var handle = document.getElementById('pg-handle');
     panel.classList.remove('side-left', 'side-right');
     panel.classList.add('side-' + pgSide);
-    handle.classList.remove('left', 'right');
-    handle.classList.add(pgSide);
-    handle.textContent = pgSide === 'left' ? '›' : '‹';
     var lr = document.getElementById('pg-side-' + pgSide);
     if (lr) lr.checked = true;
   }
   function pgPanelOpen(open){
     var panel = document.getElementById('pg-fs-panel');
     if (open) panel.classList.add('open'); else panel.classList.remove('open');
-    if (open) pgHandleWake();
-  }
-  function pgHandleWake(){
-    var h = document.getElementById('pg-handle');
-    h.classList.remove('dim');
-    clearTimeout(pgHandleTimer);
-    pgHandleTimer = setTimeout(function(){ h.classList.add('dim'); }, 3000);
   }
 
   function pgEnterFs(){
     var ov = document.getElementById('pg-fs');
     ov.classList.add('on');
+    // 鎖住整份文件：背景頁面內容約 2700px 高，不鎖就會在右側出現垂直捲軸
+    document.documentElement.classList.add('pg-fs-lock');
     pgApplySide();
     pgPanelOpen(false);
-    pgHandleWake();
-    var el = document.documentElement;
-    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    // 對 overlay 元素本身要求全螢幕（不是 documentElement）：
+    // 這樣背景頁面內容完全不參與版面，overlay 尺寸即為整個螢幕。
+    var req = ov.requestFullscreen || ov.webkitRequestFullscreen || ov.msRequestFullscreen;
     if (req) {
       try {
-        var pr = req.call(el, { navigationUI: 'hide' });
+        var pr = req.call(ov, { navigationUI: 'hide' });
         if (pr && pr.catch) pr.catch(function(){});
       } catch (e) {}
     }
@@ -755,6 +771,7 @@
   function pgExitFs(){
     var ov = document.getElementById('pg-fs');
     ov.classList.remove('on');
+    document.documentElement.classList.remove('pg-fs-lock');
     pgPanelOpen(false);
     if (document.fullscreenElement || document.webkitFullscreenElement) {
       var ex = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
@@ -764,6 +781,7 @@
 
   // ─── 事件綁定 ─────────────────────────────────────
   function pgBind(){
+    var ov0 = document.getElementById('pg-fs');
     // ── 編輯格：點下去就直接套用目前灰階值（可按住拖曳連續塗刷） ──
     var rows = document.getElementById('pg-rows');
     var painting = false;
@@ -881,23 +899,25 @@
       pgKeepOpenUntil = Date.now() + 2500;   // 切換後滑鼠還停在原側，先別自動收合
       pgPanelOpen(true);
     });
-    document.getElementById('pg-handle').addEventListener('click', function(e){
-      e.stopPropagation();
-      var panel = document.getElementById('pg-fs-panel');
-      var willOpen = !panel.classList.contains('open');
-      clearTimeout(pgPanelTimer);
-      if (willOpen) pgKeepOpenUntil = Date.now() + 2500;
-      pgPanelOpen(willOpen);
-    });
+    // 觸控裝置：沒有 hover，改用「從畫面最左／最右邊緣往內滑」開啟面板
+    // （畫面上不放任何看得見的把手，避免污染測試畫面）
+    ov0.addEventListener('touchstart', function(e){
+      if (!e.touches || !e.touches.length) return;
+      var x = e.touches[0].clientX, edge = 26;
+      var atEdge = (pgSide === 'left') ? (x <= edge) : (x >= pgFillCssSize().w - edge);
+      if (atEdge) {
+        clearTimeout(pgPanelTimer);
+        pgKeepOpenUntil = Date.now() + 4000;
+        pgPanelOpen(true);
+      }
+    }, { passive: true });
 
     // 滑鼠移到指定側邊緣 → 面板滑出
-    var ov = document.getElementById('pg-fs');
-    ov.addEventListener('mousemove', function(e){
-      pgHandleWake();
+    ov0.addEventListener('mousemove', function(e){
       var panel = document.getElementById('pg-fs-panel');
       var edge = 26;
       var atEdge = (pgSide === 'left') ? (e.clientX <= edge)
-                                       : (e.clientX >= window.innerWidth - edge);
+                                       : (e.clientX >= pgFillCssSize().w - edge);
       if (atEdge) {
         clearTimeout(pgPanelTimer);
         pgPanelOpen(true);
@@ -917,8 +937,7 @@
 
     // 鍵盤：Esc / F 離開全畫面
     document.addEventListener('keydown', function(e){
-      var ov = document.getElementById('pg-fs');
-      if (!ov.classList.contains('on')) return;
+      if (!ov0.classList.contains('on')) return;
       if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
         pgExitFs();
       }
@@ -926,12 +945,17 @@
     // 使用者用瀏覽器方式離開全螢幕 → 同步關掉 overlay
     document.addEventListener('fullscreenchange', function(){
       if (!document.fullscreenElement) {
-        var ov = document.getElementById('pg-fs');
-        if (ov.classList.contains('on')) ov.classList.remove('on');
+        if (ov0.classList.contains('on')) ov0.classList.remove('on');
+        document.documentElement.classList.remove('pg-fs-lock');
       } else {
         pgRenderFill();
+        setTimeout(pgRenderFill, 120);
       }
     });
+    // overlay 尺寸一變（進出全螢幕、換螢幕、轉向）就重繪，確保 canvas 尺寸永遠等於繪圖區
+    if (window.ResizeObserver) {
+      try { new ResizeObserver(function(){ pgRenderFill(); }).observe(ov0); } catch (e) {}
+    }
 
     window.addEventListener('resize', function(){
       pgRefreshScreenInfo();

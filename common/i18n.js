@@ -197,15 +197,18 @@ var I18N = {
   'pat.sideRight':      { 'zh-TW': '靠右', 'en': 'Right', 'zh-CN': '靠右' },
   'pat.fsEnter':        { 'zh-TW': '⛶ 進入全畫面顯示', 'en': '⛶ Enter full-screen', 'zh-CN': '⛶ 进入全画面显示' },
   'pat.fsHint': {
-    'zh-TW': '全畫面時控制面板會收到側邊隱藏。<b>滑鼠移到該側最邊緣</b>（約 26 px 內）面板就會滑出；觸控裝置請點邊緣的半透明拉柄。<br>離開方式：面板中的「✕ 離開全畫面」按鈕、鍵盤 <b>Esc</b>，或按 <b>F</b>。',
-    'en': 'In full-screen the control panel hides at the chosen edge. <b>Move the mouse to that edge</b> (within ~26 px) and it slides out; on touch devices tap the translucent handle at the edge.<br>To exit: the “✕ Exit full-screen” button in the panel, the <b>Esc</b> key, or <b>F</b>.',
-    'zh-CN': '全画面时控制面板会收到侧边隐藏。<b>鼠标移到该侧最边缘</b>（约 26 px 内）面板就会滑出；触控设备请点边缘的半透明拉柄。<br>离开方式：面板中的「✕ 离开全画面」按钮、键盘 <b>Esc</b>，或按 <b>F</b>。'
+    'zh-TW': '全畫面時<b>畫面上不會有任何 UI</b>（純 pattern，1 pattern 像素 = 1 實體像素）。<b>滑鼠移到該側最邊緣</b>（約 26 px 內）控制面板才會滑出，滑鼠離開就完全消失；觸控裝置請<b>從該側邊緣往內滑</b>。<br>離開方式：面板中的「✕ 離開全畫面」按鈕、鍵盤 <b>Esc</b>，或按 <b>F</b>。',
+    'en': 'In full-screen <b>nothing is drawn over the pattern</b> (1 pattern pixel = 1 physical pixel). <b>Move the mouse to that edge</b> (within ~26 px) to slide the control panel out; it disappears completely once the mouse leaves. On touch devices, <b>swipe in from that edge</b>.<br>To exit: the “✕ Exit full-screen” button in the panel, the <b>Esc</b> key, or <b>F</b>.',
+    'zh-CN': '全画面时<b>画面上不会有任何 UI</b>（纯 pattern，1 pattern 像素 = 1 物理像素）。<b>鼠标移到该侧最边缘</b>（约 26 px 内）控制面板才会滑出，鼠标离开就完全消失；触控设备请<b>从该侧边缘往内滑</b>。<br>离开方式：面板中的「✕ 离开全画面」按钮、键盘 <b>Esc</b>，或按 <b>F</b>。'
   },
   'pat.fsPanelTitle':   { 'zh-TW': '畫面產生器', 'en': 'Pattern Generator', 'zh-CN': '画面产生器' },
   'pat.fsSwitchSide':   { 'zh-TW': '⇄ 切換面板左右', 'en': '⇄ Switch panel side', 'zh-CN': '⇄ 切换面板左右' },
   'pat.fsExit':         { 'zh-TW': '✕ 離開全畫面', 'en': '✕ Exit full-screen', 'zh-CN': '✕ 离开全画面' },
   'pat.fsInfo':         { 'zh-TW': '繪製解析度：<b>{w} × {h}</b> 裝置像素 · dPR <b>{d}</b>', 'en': 'Render size: <b>{w} × {h}</b> device px · dPR <b>{d}</b>', 'zh-CN': '绘制分辨率：<b>{w} × {h}</b> 设备像素 · dPR <b>{d}</b>' },
   'pat.fsInfoOk':       { 'zh-TW': '✔ dPR 為整數，1 pattern 像素 = 1 實體像素。', 'en': '✔ dPR is an integer: 1 pattern pixel = 1 physical pixel.', 'zh-CN': '✔ dPR 为整数，1 pattern 像素 = 1 物理像素。' },
+  'pat.fsInfoScreen':   { 'zh-TW': '螢幕解析度：<b>{w} × {h}</b> 實體像素', 'en': 'Screen resolution: <b>{w} × {h}</b> physical px', 'zh-CN': '屏幕分辨率：<b>{w} × {h}</b> 物理像素' },
+  'pat.fsInfoFull':     { 'zh-TW': '✔ 繪圖區 = 整個螢幕，已是完整 1:1 滿版。', 'en': '✔ Drawing area = whole screen: true 1:1 full-screen.', 'zh-CN': '✔ 绘图区 = 整个屏幕，已是完整 1:1 满版。' },
+  'pat.fsInfoShort':    { 'zh-TW': '⚠ 繪圖區比螢幕小 {dx} × {dy} px（被瀏覽器工具列／系統列佔用），這部分網頁拿不到。', 'en': '⚠ Drawing area is {dx} × {dy} px smaller than the screen (taken by browser/system bars); a web page cannot reclaim it.', 'zh-CN': '⚠ 绘图区比屏幕小 {dx} × {dy} px（被浏览器工具栏／系统栏占用），这部分网页拿不到。' },
   'pat.fsInfoWarn':     { 'zh-TW': '⚠ dPR 非整數，畫面會被重新取樣，非 1:1。', 'en': '⚠ dPR is not an integer: the output is resampled and is not 1:1.', 'zh-CN': '⚠ dPR 非整数，画面会被重新采样，非 1:1。' },
 
   'wfg.title':        { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
