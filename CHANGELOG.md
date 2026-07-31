@@ -1,5 +1,157 @@
 # CHANGELOG
 
+## Pattern Generator 畫面產生器 (pattern) v1.5.0 — 2026-08-01
+
+三件事：預覽區現況確認（結論是本來就對）、全畫面鍵盤補齊、依量測結果做效能優化。
+
+### 一、非週期畫面的預覽區 — 確認已符合，未做修改
+
+Bruce：「非 4x4 週期圖的 pattern，預覽區顯示目前的顯示方式，可以看到整個 pattern。」
+
+實測確認**現況已經是這樣**，因此沒有改動。預覽是用「預覽自己的尺寸」重新畫一整張 pattern（不是裁切、也不是縮圖取樣），所以看得到全貌。9 點取樣（四角＋四邊中點＋正中）結果：
+
+| 畫面 | 預覽尺寸 | 9 點取樣到的相異色數 |
+|---|---|---|
+| Cross Talk | 1086 × 611 | 2（外圍灰 + 中央黑方塊）|
+| SMPTE | 1086 × 611 | 4 |
+| Align Center | 1086 × 611 | 3 |
+| Character | 1086 × 611 | 7 |
+| Color Test | 1086 × 611 | 3 |
+| Horizontal 64 | 1086 × 611 | 9 |
+| Center 9 | 1086 × 611 | 2 |
+
+另附 SMPTE 預覽截圖佐證：75% 彩條、色度條、灰階斜坡、PLUGE 段落全部在預覽裡完整呈現。
+
+**順帶修掉一個既有問題**：週期圖的預覽相位跟全畫面對不起來。`1V 2H`／`2V 2H`／`2V (1+2)H` 的起始相位含畫面高度 H，預覽用自己的高度（611）算、全畫面用 958 算，兩邊差了 1–2 px：
+
+| 畫面 | 全畫面首列 R | 預覽首列 R | 一致？ |
+|---|---|---|---|
+| Skip 1 Dot ▸ 1V 2H | `127,127,0,0` | `0,0,127,127` | ✗ |
+| Skip 2 Dot ▸ 2V 2H | `127,0,0,127` | `127,0,127,0` | ✗ |
+| Skip 2 Dot ▸ 2V (1+2)H | `0,0,127,127` | `0,127,0,127` | ✗ |
+| Skip 1 Dot ▸ 1V 1H | `127,0,127,0` | `127,0,127,0` | ✓（不含 H）|
+
+改法與效能優化同一招：週期圖的預覽直接平鋪「全畫面相位」的重複單元，相位就一定一致。非週期圖維持原本的逐張重畫。
+
+### 二、全畫面鍵盤 — 依原程式 FormKeyDown 補齊，每張畫面各自不同
+
+完整反組譯了原程式的 `FormKeyDown`（0x4021d0 ~ 0x402f48，讀到 `ret`），照它的分派表實作。**沒有統一成一套。**
+
+先說 v1.4.0 為什麼會覺得「按了沒反應」，有三個原因：
+
+1. **多數畫面根本不使用顏色 index**。Checker 是純黑白、SMPTE 與 Color Test 用自己的色表，按 1~8 本來就不會變（原程式也一樣）。
+2. **Horizontal / Vertical / LUMINACE 的單色模式完全沒實作**。原程式這幾張畫面用 `[0x3bc] == 4`（Black）當哨兵：等於 4 是「4 帶 W/R/G/B」，不等於 4 就切成**整張單色漸層**。v1.4.0 只做了 4 帶模式，所以按 1~8 畫面不動。這版補上了。
+3. **↑↓ 的行為原本就搞反了**。原程式在 Skip／Line 群是 **←→ 切變體、↑↓ 調灰階**，只有 Horizontal 群才是 ↑↓ 切變體。v1.3.0 起一律用 ↑↓ 切變體，是錯的。
+
+完整按鍵表（`s` = 一般 1、按住 Shift 為 16）：
+
+| 畫面群 | 1–8 | ↑ / ↓ | ← / → | Home / End | Space |
+|---|---|---|---|---|---|
+| Horizontal / Vertical / Center | 選色，**含 5**（= 回到 4 帶 W/R/G/B）| 切 9 / 64 / 256 | — | — | 漸層方向反轉 |
+| Color Test / SMPTE | — | — | — | — | 切版面 |
+| Gray Level / Skip 1 Dot / Skip 2 Dot / Skip SubPixel / Horizontal Line / Vertical Line / Sub Line / Flicker | 選色，**排除 5** | 灰階 ± s | 切變體 | 灰階 = 255 / 0 | 反相 |
+| Cross Talk | 依模式選色 | 依模式調整 | 依模式調整 | 依模式 | 切換調整項目（Outer Color → Inner Color → Inner Size → Inner Position）|
+| XY Coordinate | 選色，排除 5 | 準星上下 ± s px | 準星左右 ± s px | — | 反相 |
+| Checker | **無作用** | 格數上下一段（2…256）| **無作用** | **無作用** | 黑白反相 |
+| Character | 選色，排除 5 | — | — | — | 文字灰階分佈三態 |
+| LUMINACE COMPARE | 選色，含 5 | — | 起始值 ±1（**Shift 為 ±7**）| — | 6-bit / 8-bit |
+| LUMINACE DIVIDE | 選色，含 5 | 欄數 ±1（**Shift 為 ±7**）| — | — | 6-bit / 8-bit |
+| Align Center / Response Time / Skip 1 Dot 2 Gray | 原程式只吃 Esc，全部無作用 | | | | |
+
+**原程式中按了會改狀態、但畫面不會變的組合**（繪圖函式不讀該欄位）也照原樣做成無作用，不假裝有效：Gray Level 的 Space 與 ←→、Horizontal Line 與 Flicker 的 Space。唯一例外是 **Skip SubPixel 的 Space**：原程式不讀反相旗標，但相位切換是先前指定要有的功能，保留為本工具擴充。
+
+順帶修掉：**切變體時不再重設顏色與灰階**（原程式切變體只動 variant）。以及 **Cross Talk 的調整項目、LUMINACE 的 6-bit 與起始值在切換畫面時會重設**——原程式每個畫面的進入點都會清掉共用欄位 `[0x3dc]`，那個欄位在 Cross Talk 是「編輯項目」、在 LUMINACE 是「6-bit 旗標」，不重設就會把舊值帶過去（實測到 `lum_compare` 的起始值被前一張畫面的 6-bit 狀態污染成 57）。
+
+畫面上新增**鍵盤說明區**（主頁控制區與全畫面面板各一份，三語），直接列出「目前這張畫面哪些鍵有效」，包含「此畫面 1–8 無作用」這種說明。
+
+其他跟著補的繪圖行為：Horizontal / Vertical 的單色滿版模式與漸層反向、XY Coordinate 的準星改用選定顏色（反相時底色與準星對調）、Character 的三種文字灰階分佈、LUMINACE 的單列模式與 6-bit 值域。
+
+### 三、效能 — 先量再砍
+
+先拆解量測（同條件：overlay 關閉、JIT 熱身後取 5 次中位數）：
+
+| 畫面 | preview | 週期偵測 | pgSelectPattern 總計 |
+|---|---|---|---|
+| Skip 1 Dot 1V1H | **296 ms** | 53 ms | 200 ms |
+| Skip SubPixel | **357 ms** | 59 ms | 348 ms |
+| SMPTE | 5 ms | **144 ms** | 89 ms |
+| Cross Talk | 0 ms | 6 ms | 94 ms |
+
+量出來的瓶頸跟原先猜的不同：**週期圖的大頭是預覽繪製（296–357 ms），不是週期偵測**。預覽是逐像素跑 pattern 公式畫 0.66 M 像素。另外週期偵測本來不論結果如何都要畫滿 8 條寬條。
+
+兩項優化：
+
+1. **週期圖的預覽改用重複單元平鋪**（typed array 整列複製），不再逐像素跑公式。順便讓相位與全畫面一致（見第一節）。
+2. **週期偵測逐條淘汰、提早收工**：一條寬條就把 1/2/4 三個候選全打掉時立刻停手，不必畫完 8 條。
+
+優化後（同條件、同量法）：
+
+| 畫面 | preview | 週期偵測 | 總計 |
+|---|---|---|---|
+| Skip 1 Dot 1V1H | 296 → **45 ms** | 53 → 46 ms | 200 → **52 ms** |
+| Skip SubPixel | 357 → **43 ms** | 59 → 54 ms | 348 → **93 ms** |
+| SMPTE | 5 → 3 ms | 144 → **4 ms** | 89 → **47 ms** |
+| Cross Talk | 0 → 0 ms | 6 → 10 ms | 94 → **42 ms** |
+
+**關於「不用全掃、掃部分就知道規律」**：判斷「已知是週期圖的重複單元長什麼樣」確實只要看一小塊，這部分本來就只讀左上角 8×8。但判斷「**是不是**週期圖」不能只看局部——Flicker 的欄界只出現在 x = W/2 附近、Cross Talk 的內框邊界只在中央、Checker 的格界隨 n 分布，只看小區域會把它們誤判成週期圖。所以偵測仍需涵蓋整個 x 範圍，用的是「8 條整個畫面寬、每條 6 列」的寬條（成本 O(W×6×8)，不是 O(W×H)），再加上這次的提早收工。**不能只看小區域的就是這幾張**：Flicker、Checker、Cross Talk、XY Coordinate、Align Center，它們的特徵尺寸由畫面尺寸決定。
+
+**砍完的結果與砍之前完全相同**（同樣 5 項逐格比對）：
+
+| 畫面 | 週期 | 不符格數 | 編輯區 L1 |
+|---|---|---|---|
+| Skip 1 Dot ▸ 1V 1H | 2×2 | **0 / 48** | `[127,127,127] [0,0,0] [127,127,127] [0,0,0]` |
+| Skip 1 Dot ▸ 1V 2H | 4×2 | **0 / 48** | `[127,127,127] [127,127,127] [0,0,0] [0,0,0]` |
+| Skip SubPixel | 2×2 | **0 / 48** | `[0,127,0] [127,0,127] [0,127,0] [127,0,127]` |
+| Vertical Line ▸ Sub Line | 2×1 | **0 / 48** | `[0,127,0] [127,0,127] [0,127,0] [127,0,127]` |
+| Horizontal Line ▸ 2 line | 1×4 | **0 / 48** | 四格皆 `[127,127,127]` |
+
+### 驗證
+
+鍵盤逐項實測（按鍵 → 狀態 + canvas 實際像素）：
+
+| 畫面 | 按鍵 | 結果 |
+|---|---|---|
+| Gray Level | `3` | ci 3→2，像素 `127,127,127` → `0,0,127` ✔ |
+| Gray Level | `↑` / `Shift+↑` | level 127→128 / 127→143 ✔ |
+| Gray Level | `Home` / `End` | level → 255 / 0 ✔ |
+| Gray Level | `Space` | 無變化（原程式即無效）✔ |
+| Checker | `1` | 無變化（原程式即無效）✔ |
+| Checker | `↑` | n 8→16，格寬 240→120 ✔ |
+| Checker | `Space` | 像素 `255,255,255` → `0,0,0` ✔ |
+| Skip 1 Dot 1V1H | `→` | 切到 1V2H，**level 保留 127**，週期 2×2→4×2 ✔ |
+| Skip 1 Dot 1V1H | `↑` | level 127→128（不是切變體）✔ |
+| Horizontal 9 | `2` | 切單色 G，右上像素 → `0,255,0` ✔ |
+| Horizontal 9 | `↑` | horiz9 → horiz64 ✔ |
+| Character | `Space` | 上方像素 195 → 2（全亮 → 上暗下亮）✔ |
+| SMPTE | `1` / `Space` | 無變化 / 版面 A→B，像素 `192,192,192` → `192,192,0` ✔ |
+| XY Coordinate | `Shift+→` | 準星 x 960 → 976 ✔ |
+| XY Coordinate | `2` | 準星 `255,255,255` → `0,255,0` ✔ |
+| LUMINACE COMPARE | `→` / `Shift+→` | 起始值 248→249 / 248→255（步進 7）✔ |
+| LUMINACE COMPARE | `2` | 切單列全高，下半像素 → `0,248,0` ✔ |
+| LUMINACE DIVIDE | `↑` / `Space` | N 8→9 / 6-bit 切換 ✔ |
+| Cross Talk | `Space` / `↑` | 調整項目 0→1 / Outer Level 127→128 且像素跟著變 ✔ |
+| Align Center | `3` | 無變化（原程式只吃 Esc）✔ |
+
+其餘：三語（Checker / Align Center 兩種說明各切 zh-TW / en / zh-CN 皆正確）；回歸（快速樣式仍切回 subpixel 模式、4×4 平鋪相符、`scrollHeight = clientHeight = 958` 無捲軸、右鍵選單 21 項、Esc 兩段仍為「先關選單、再離開全畫面」）；console 全程無訊息；鍵盤說明區已截圖確認。
+
+### ⚠️ 未驗證的部分
+
+**全畫面鍵盤沒有在「真・全螢幕」下驗證過。** 上面的鍵盤結果全部是在 overlay 覆蓋整個 viewport 的狀態下取得的，不是真的進入了全螢幕。試過的方法與結果：
+
+| 方法 | 結果 |
+|---|---|
+| Chrome 擴充送 `Return`（焦點在「進入全畫面顯示」按鈕）| click 有觸發、overlay 有開，但 `requestFullscreen()` 回 **`TypeError: Permissions check failed`** |
+| Chrome 擴充送 `space`（同上）| click 完全沒觸發 |
+| Chrome 擴充**真實座標左鍵點擊**按鈕 | click 有觸發（overlay 開啟），`requestFullscreen()` 仍回 **`TypeError: Permissions check failed`** |
+| 在 click handler 內**同步**呼叫（排除非同步破壞 user activation）| 同樣 `TypeError: Permissions check failed` |
+| 作業系統層級送鍵 | 事件沒送達頁面；且瀏覽器在本工作階段只被授權為唯讀，明文禁止用這種方式對瀏覽器送鍵，已停用此路 |
+
+結論是合成事件不被 Chrome 認可為 Fullscreen API 所需的 user activation。
+
+**另外，本次連「真實按鍵」都送不進頁面**：Chrome 擴充送 `3`、`7`、`↑` 到頁面，`document` 上的 keydown 監聽器完全收不到（只有 `Escape`／`Return` 例外）。因此鍵盤驗證改用 `dispatchEvent` 觸發——走的是**完全相同的那一條 handler、同一段程式碼**，能證明邏輯正確，但**不能證明實體鍵盤在真・全螢幕下按下去會被瀏覽器送到頁面**。這一項需要 Bruce 手動進全螢幕實際按按看。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v1.4.0 — 2026-08-01
 
 **Bruce 需求**：「如果在 Test Pattern Menu 裡面選擇了像是 Skip 1 dot 1v1h 這一類的 Pattern，它其實是重複性的 Pattern，也就是跟 Pixel-on-off 一樣。所以在 SubPixel 編輯區應該要顯示一樣的重複排列，包含選的灰階值。」
