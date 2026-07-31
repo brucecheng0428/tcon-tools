@@ -263,6 +263,10 @@ var I18N = {
   'pat.keyLumN':        { 'zh-TW': '欄數 ±1（按住 Shift 為 ±7）', 'en': 'column count ±1 (±7 with Shift)', 'zh-CN': '栏数 ±1（按住 Shift 为 ±7）' },
   'pat.keyNone':        { 'zh-TW': '此畫面沒有任何按鍵操作，只有 Esc 可離開（原程式即如此）', 'en': 'This pattern has no key controls; only Esc exits (same as the original program)', 'zh-CN': '此画面没有任何按键操作，只有 Esc 可离开（原程序即如此）' },
 
+  /* 左上角資訊框：內容照原程式格式不翻譯，只有標題與「隱藏」是說明性文字 */
+  'pat.infoTitle':      { 'zh-TW': '左上角資訊框（全畫面時顯示）', 'en': 'Top-left info box (shown in full-screen)', 'zh-CN': '左上角信息框（全画面时显示）' },
+  'pat.infoHidden':     { 'zh-TW': '此畫面不顯示（原程式即隱藏）', 'en': 'not shown on this pattern (hidden in the original program)', 'zh-CN': '此画面不显示（原程序即隐藏）' },
+
   'pat.patCur':         { 'zh-TW': '目前畫面', 'en': 'Current pattern', 'zh-CN': '当前画面' },
   'pat.patBack':        { 'zh-TW': '回到 Sub-pixel 編輯', 'en': 'Back to sub-pixel editor', 'zh-CN': '回到 Sub-pixel 编辑' },
   'pat.patColor':       { 'zh-TW': '顏色（對應原程式數字鍵 1–8）', 'en': 'Color (original program number keys 1–8)', 'zh-CN': '颜色（对应原程序数字键 1–8）' },

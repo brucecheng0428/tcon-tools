@@ -241,6 +241,30 @@
   .pg-grid-note.na b { color: #fef3c7; }
   .pg-grid-wrap.na { opacity: .38; filter: grayscale(.5); }
 
+  /* ─── 左上角資訊框（照原程式 Panel1 的屬性） ───
+     Left=1 Top=1 Width=180 Height=25 AutoSize=True BevelOuter=bvNone
+     Color=clBlack Font=Arial Bold Height=-16 Font.Color=clWhite Visible=False */
+  #pg-info {
+    position: absolute; left: 1px; top: 1px; z-index: 4;
+    display: none; box-sizing: border-box;
+    min-width: 180px; height: 25px; line-height: 25px;
+    padding: 0 3px; background: #000; color: #fff;
+    font: bold 16px Arial, "Helvetica Neue", sans-serif;
+    white-space: pre; letter-spacing: 0;
+  }
+  #pg-info.on { display: inline-block; }
+
+  .pg-infoecho {
+    margin-top: 8px; padding: 7px 10px; border-radius: 8px;
+    border: 1.5px solid var(--border); background: #0a1628;
+    font-size: 12px; color: var(--text-sub);
+  }
+  .pg-infoecho b {
+    display: inline-block; min-width: 180px; padding: 2px 4px; margin-left: 6px;
+    background: #000; color: #fff; font: bold 15px Arial, sans-serif; white-space: pre;
+  }
+  .pg-infoecho .hide { color: #f59e0b; font-weight: 700; }
+
   .pg-keyhelp {
     margin-top: 8px; padding: 8px 10px; border-radius: 8px;
     border: 1.5px solid var(--border); background: #0a1628;
@@ -412,6 +436,7 @@
             <button class="pg-mini" id="pg-pat-inv" data-i18n="pat.patInvert">Space 反相</button>
             <button class="pg-mini" id="pg-pat-next" data-i18n="pat.patNext">下一個變體</button>
           </div>
+          <div class="pg-infoecho" id="pg-infoecho"></div>
           <div class="pg-keyhelp" id="pg-keyhelp"></div>
         </div>
 
@@ -494,6 +519,7 @@
 <!-- ═══ 全畫面 OVERLAY ═══ -->
 <div id="pg-fs">
   <canvas id="pg-fs-canvas"></canvas>
+  <div id="pg-info"></div>
   <div class="pg-hot left"  id="pg-hot-left"></div>
   <div class="pg-hot right" id="pg-hot-right"></div>
   <div id="pg-fs-panel" class="side-left">
@@ -508,8 +534,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260801pat7"></script>
-<script src="common/i18n.js?v=20260801pat7"></script>
+<script src="common/version.js?v=20260801pat8"></script>
+<script src="common/i18n.js?v=20260801pat8"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1593,6 +1619,7 @@
       pgPeriod = null; pgPeriodKey = '';
       noteEl.style.display = 'none';
       wrapEl.classList.remove('na');
+      pgUpdateInfo();
       return;
     }
     var key = pgGeomKey();
@@ -1612,6 +1639,7 @@
       noteEl.style.display = 'block';
       wrapEl.classList.add('na');
       pgRenderPreview();                 // 預覽必須在週期判定之後畫（週期圖走平鋪、非週期圖重畫整張）
+      pgUpdateInfo();
       return;
     }
     // 只需要左上角 pw × ph，用小 canvas 取（邏輯 W/H 仍傳真實值，相位完全一致）
@@ -1632,6 +1660,7 @@
     noteEl.style.display = 'block';
     wrapEl.classList.remove('na');
     pgRenderPreview();
+    pgUpdateInfo();
   }
   // 用 setTimeout 而不是 requestAnimationFrame：分頁被切到背景時 rAF 不會執行，
   // 會讓編輯區停在舊值直到使用者切回來。
@@ -1639,6 +1668,71 @@
     if (pgGridRaf) clearTimeout(pgGridRaf);
     pgGridRaf = setTimeout(function(){ pgGridRaf = 0; pgSyncGrid(); }, 16);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  左上角資訊框 — 照原程式 UpdateInfoPanel (0x40201c) 的區間判斷
+  //    mode < 200        → 隱藏
+  //    200 ≤ mode < 400  → "%3d"                        （灰階）
+  //    400 ≤ mode < 500  → "%3d,%3d,%s"                 （外框階／內框階／調整項目）
+  //    500 ≤ mode < 600  → "%3d,%3d"                    （準星 X+1, Y+1）
+  //    mode ≥ 600        → "%3d Checker %02d:%02d:%02d" （格數＋經過時間）
+  // ═══════════════════════════════════════════════════════════════
+  var PG_MODE = {
+    horiz9:10, horiz64:11, horiz256:12,
+    vert9:20, vert64:21, vert256:22,
+    center9:30, center64:31, center256:32,
+    aligncenter:40, colortest:50, character:70,
+    lum_compare:80, lum_divide:81, resptime:90, smpte:100, skip1dot2gray:110,
+    gray:200, skip1_1v1h:210, skip1_1v2h:211,
+    skip2_2v1h:220, skip2_2v2h:221, skip2_2v12h:222,
+    skipsub:230, hline1:240, hline2:241,
+    vline1:250, vline2:251, vsubline:252,
+    flicker1:260, flicker2:261,
+    crosstalk:400, xy:500, checker:600
+  };
+  var PG_CT_NAMES = ['Outer Color', 'Inner Color', 'Inner Size', 'Inner Position'];
+  var pgCkT0 = 0, pgCkTimer = null;
+
+  function pgP3(v){ var s = String(v); return s.length >= 3 ? s : ('   ' + s).slice(-3); }   // %3d
+  function pgP02(v){ return (v < 10 ? '0' : '') + v; }                                       // %02d
+
+  // 回傳資訊框文字；null 代表這個畫面不顯示（原程式 Visible=False）
+  function pgInfoText(){
+    if (pgMode !== 'pattern') return null;
+    var m = PG_MODE[pgPat.id];
+    if (m === undefined || m < 200) return null;
+    if (m < 400) return pgP3(pgPat.level);
+    if (m < 500) return pgP3(pgPat.ctOL) + ',' + pgP3(pgPat.ctIL) + ',' + PG_CT_NAMES[pgPat.ctMode];
+    if (m < 600) {
+      // 原程式顯示的是 [0x3c4]+1 / [0x3cc]+1，也就是 1-based 座標
+      var t = pgTargetSize();
+      return pgP3(Math.round(pgPat.xyFx * t.W)) + ',' + pgP3(Math.round(pgPat.xyFy * t.H));
+    }
+    var n = PG_CK_N[pgPat.ckIdx];
+    var el = Math.max(0, Math.floor((Date.now() - pgCkT0) / 1000));
+    return pgP3(n) + ' Checker ' + pgP02(Math.floor(el / 3600)) + ':' +
+           pgP02(Math.floor((el % 3600) / 60)) + ':' + pgP02(el % 60);
+  }
+  function pgUpdateInfo(){
+    var el = document.getElementById('pg-info');
+    var echo = document.getElementById('pg-infoecho');
+    var txt = pgInfoText();
+    if (el) {
+      if (txt === null) { el.classList.remove('on'); el.textContent = ''; }
+      else { el.textContent = txt; el.classList.add('on'); }
+    }
+    if (echo) {
+      echo.innerHTML = (txt === null)
+        ? escapeHtml(t('pat.infoTitle')) + ' <span class="hide">' + escapeHtml(t('pat.infoHidden')) + '</span>'
+        : escapeHtml(t('pat.infoTitle')) + ' <b>' + escapeHtml(txt) + '</b>';
+    }
+    // 只有 Checker 需要每秒跳一次；其餘畫面把計時器關掉（原程式也只在 Checker 啟用 Timer）
+    var needTimer = (pgMode === 'pattern' && PG_MODE[pgPat.id] >= 600);
+    if (needTimer && !pgCkTimer) pgCkTimer = setInterval(pgUpdateInfo, 1000);
+    else if (!needTimer && pgCkTimer) { clearInterval(pgCkTimer); pgCkTimer = null; }
+  }
+  // 原程式在「重繪 Checker」的結尾把起算點歸零並啟用 Timer → 改格數等操作也會重新計時
+  function pgCkRestart(){ pgCkT0 = Date.now(); }
 
   // ─── 選取畫面 ───
   function pgSelectPattern(id){
@@ -1662,6 +1756,8 @@
       pgPat.ctH = (2 * s4) / ts.H;
     }
     if (id === 'xy')          { pgPat.xyFx = 0.5; pgPat.xyFy = 0.5; }   // 原程式進入點：準星回到畫面中心
+    // 原程式 Checker 進入點：格數索引回到 2（n = 8）、反相關閉、計時歸零
+    if (id === 'checker')     { pgPat.ckIdx = 2; pgPat.invert = 0; pgCkRestart(); }
     if (id === 'lum_compare') { pgPat.sixBit = 0; pgPat.lumStart = 248; }
     if (id === 'lum_divide')  { pgPat.sixBit = 0; pgPat.lumN = 6; }
     if (id === 'character')   { pgPat.charMode = 0; }
@@ -1721,6 +1817,8 @@
     var tg = e.target;
     if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'SELECT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return false;
     var id = pgPat.id, grp = pgKeyGroup(id), k = e.key;
+    // 原程式的 Response Time 量測是「按任意鍵或滑鼠雙擊就中止」
+    if (id === 'resptime' && pgPat.rt.run) { pgRtStop(); pgRenderFill(); pgSyncPatternUI(); return true; }
     if (grp === 'none') return false;
     var isSpace = (k === ' ' || k === 'Spacebar' || e.code === 'Space');
     var num = (k >= '1' && k <= '8') ? (+k - 1) : -1;
@@ -1802,6 +1900,7 @@
       if (isSpace)                    { inv(); changed = true; }
       else if (k === 'ArrowUp')       { pgPat.ckIdx = (pgPat.ckIdx + 1) % PG_CK_N.length; changed = true; }
       else if (k === 'ArrowDown')     { pgPat.ckIdx = (pgPat.ckIdx + PG_CK_N.length - 1) % PG_CK_N.length; changed = true; }
+      if (changed) pgCkRestart();     // 原程式每次重繪 Checker 都會把計時歸零
     }
     else if (grp === 'character') {
       if (isSpace)                    { pgPat.charMode = (pgPat.charMode + 1) % 3; changed = true; }
@@ -1934,7 +2033,7 @@
     var ctrl = document.getElementById('pg-pat-ctrl');
     if (bar)  bar.style.display  = on ? 'flex' : 'none';
     if (ctrl) ctrl.style.display = on ? 'block' : 'none';
-    if (!on) return;
+    if (!on) { pgUpdateInfo(); return; }
     var nm = document.getElementById('pg-cur-name');
     if (nm) nm.textContent = pgPatLabel(pgPat.id);
     Array.prototype.forEach.call(document.querySelectorAll('#pg-pat-colors .pg-mini'), function(b){
@@ -1966,6 +2065,7 @@
     var kh1 = document.getElementById('pg-keyhelp'), kh2 = document.getElementById('pg-fs-keyhelp');
     if (kh1) kh1.innerHTML = kh;
     if (kh2) kh2.innerHTML = kh;
+    pgUpdateInfo();
     var note = document.getElementById('pg-pat-note');
     if (note) {
       var txt = '';
@@ -2088,6 +2188,12 @@
     });
     // 全畫面：滑鼠右鍵叫出同一套選單
     var ov = document.getElementById('pg-fs');
+    // 滑鼠雙擊中止 Response Time（原程式 FormDblClick 設的就是那個中止旗標）
+    ov.addEventListener('dblclick', function(){
+      if (pgMode === 'pattern' && pgPat.id === 'resptime' && pgPat.rt.run) {
+        pgRtStop(); pgRenderFill(); pgSyncPatternUI();
+      }
+    });
     ov.addEventListener('contextmenu', function(e){
       if (!ov.classList.contains('on')) return;
       e.preventDefault();
@@ -2369,6 +2475,8 @@
   window.pgPatState      = pgPat;
   window.pgGetMode       = function(){ return pgMode; };
   window.pgSyncGrid      = pgSyncGrid;
+  window.pgInfoText      = pgInfoText;
+  window.pgUpdateInfo    = pgUpdateInfo;
   window.pgHandleKey     = pgHandlePatternKey;
   window.pgKeyGroupOf    = pgKeyGroup;
   window.pgRenderPreview = pgRenderPreview;

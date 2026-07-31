@@ -1,5 +1,130 @@
 # CHANGELOG
 
+## Pattern Generator 畫面產生器 (pattern) v1.7.0 — 2026-08-01
+
+補上左上角資訊框。這個先前已經有規格卻沒實作。
+
+### 規格來源
+
+`UpdateInfoPanel` **0x40201c 整段讀到 `ret`**（123 條指令）。區間判斷與格式字串：
+
+| mode | 格式字串（位址）| 參數 |
+|---|---|---|
+| < 200 | — | 隱藏（`Visible = False`）|
+| 200–399 | `%3d`（0x472400）| 灰階 `[0x3c0]` |
+| 400–499 | `%3d,%3d,%s`（0x472404）| 外框階 `[0x3c0]`、內框階 `[0x3d4]`、調整項目名稱 |
+| 500–599 | `%3d,%3d`（0x47240f）| **`[0x3c4]+1`、`[0x3cc]+1`** |
+| ≥ 600 | `%3d Checker %02d:%02d:%02d`（0x472417）| 格數、時、分、秒 |
+
+兩個先前的摘要沒寫到、這次才讀出來的細節：
+
+- **XY 的座標是 +1 的**（`inc ecx` / `inc edx` 在 0x4020fc、0x402104），也就是顯示 1-based 座標。準星畫在 `W/2−1` 但資訊框顯示 `W/2`。
+- 調整項目名稱表在 **0x472314**，四個字串是 `Outer Color` / `Inner Color` / `Inner Size` / `Inner Position`。
+
+### Checker 的計時器
+
+`Timer1Timer` **0x401b68**：
+
+```
+sec = GetTickCount() / 1000
+[0x3e8] = sec - [0x3e0]          ; [0x3e0] = 起算基準
+if ([0x3e8] != [0x3e4]) { [0x3e4] = [0x3e8]; UpdateInfoPanel(); }
+```
+
+- **起算點在 Checker 的繪圖函式結尾**（0x40648b）：把 `[0x3e0]` 設成當下秒數、`[0x3e4]` 清 0、啟用 Timer1、呼叫 UpdateInfoPanel。所以**每次重繪 Checker（包含按 ↑↓ 改格數）計時都會歸零**，這是原程式行為。
+- Timer1 在 DFM 裡**沒有 Interval 屬性** → Delphi 預設 **1000 ms**，每秒更新一次。
+- 附帶一提：UpdateInfoPanel 會把 `[0x3e8]` 取餘數後寫回，但因為 Timer 每次都從 tick 重算，不會累積誤差。
+
+### 外觀（照 DFM 的 Panel1 抄，沒有自己設計）
+
+```
+TPanel Panel1
+  Left = 1              Top = 1
+  Width = 180           Height = 25
+  Align = alCustom      AutoSize = True
+  BevelOuter = bvNone   Color = clBlack
+  Font.Charset = ANSI_CHARSET
+  Font.Color = clWhite  Font.Height = -16
+  Font.Name = 'Arial'   Font.Style = [fsBold]
+  Visible = False
+```
+
+實測我們的實作：`left=1 top=1`、`180×25`、背景 `rgb(0,0,0)`、文字 `rgb(255,255,255)`、`700 16px Arial`、`border=none` — 與上表逐項相符。
+
+**顯示位置的判斷**：資訊框只畫在**全畫面 overlay** 裡（那才是原程式的使用情境，而且它本來就會蓋住畫面左上角）。預覽區**不畫**——預覽的用途是看整張 pattern 的版面，疊一個 180 px 的框上去會佔掉不成比例的面積。改成在主頁控制區另外用同樣的黑底白字樣式**回顯**同一段文字，不進全畫面也看得到數值，且不污染預覽。
+
+### 34 個畫面的資訊框內容（全部實測）
+
+**隱藏 17 個**（mode < 200）：`horiz9/64/256`、`vert9/64/256`、`center9/64/256`、`aligncenter`、`colortest`、`character`、`lum_compare`、`lum_divide`、`resptime`、`smpte`、`skip1dot2gray` — 全部 `DOM顯示=false`，與原程式一致。
+
+**顯示 17 個**：
+
+| 畫面 | 實際內容 | 畫面 | 實際內容 |
+|---|---|---|---|
+| gray | `127` | vline1 | `127` |
+| skip1_1v1h | `127` | vline2 | `127` |
+| skip1_1v2h | `127` | vsubline | `127` |
+| skip2_2v1h | `127` | flicker1 | `127` |
+| skip2_2v2h | `127` | flicker2 | `127` |
+| skip2_2v12h | `127` | crosstalk | `127,  0,Outer Color` |
+| skipsub | `127` | xy | `960,540` |
+| hline1 | `127` | checker | `  8 Checker 00:00:00` |
+| hline2 | `127` | | |
+
+`%3d` 的右對齊補空白有做出來：內框階 0 顯示成 `  0`、格數 8 顯示成 `  8`。
+
+### 即時更新（實測前後文字）
+
+| 畫面 | 操作 | 前 → 後 |
+|---|---|---|
+| Gray Level | `↑` | `127` → `128` |
+| Gray Level | `Shift+↑` | `127` → `143` |
+| Gray Level | `Home` | `127` → `255` |
+| Checker | `↑` | `  8 Checker 00:00:00` → ` 16 Checker 00:00:00` |
+| Checker | `↑`×3 | `  8 …` → ` 64 …` |
+| XY | `Shift+→` | `960,540` → `976,540` |
+| XY | `Shift+↑` 再 `←` | `960,540` → `959,524` |
+| Cross Talk | `↑` | `127,  0,Outer Color` → `128,  0,Outer Color` |
+| Cross Talk | `Space` | `…,Outer Color` → `…,Inner Color` |
+| Cross Talk | `Space`×3 | `…,Outer Color` → `…,Inner Position` |
+| Cross Talk | `Space` 後 `↑` | `127,  0,Outer Color` → `127,  1,Inner Color` |
+
+**計時器實測**：進入 Checker 讀到 `  8 Checker 00:00:00`，等待後再讀 `  8 Checker 00:00:17`，確實在跳；切到 Gray Level 後計時器停止（資訊框變成 `127`）。
+
+### 順手修掉的 bug
+
+**`pgSelectPattern('checker')` 沒有把格數重置**。原程式 `Checker1Click` 進入點有 `[0x424] = 2`（n = 8）與 `[0x420] = 0`，我們漏了，導致切走再切回來會沿用上次的格數。是在驗證資訊框時發現的（重新進入 Checker 卻顯示 ` 16`）。
+
+### 順手補的（來自這輪的全面盤點）
+
+- **按任意鍵中止 Response Time**：原程式 FormKeyDown 開頭會寫 `[0x408]`，而 Response Time 的等待迴圈條件是 `until [0x408]<>0 or [0x40c]<>0`。
+- **滑鼠雙擊中止 Response Time**：`FormDblClick`（0x401f94）整個函式就只有 `[0x40c] = 1` 一行，用途就是中止量測。
+
+兩者都已實作並實測（Run 後按鍵 → `run=false`；再 Run 後雙擊 → `run=false`）。
+
+### 「原程式有、我們沒有」盤點清單
+
+這輪順便把使用者看得到的東西掃了一遍：
+
+| 項目 | 原程式 | 我們 | 說明 |
+|---|---|---|---|
+| **開機／標題畫面** | 有（`Timer2Timer` 0x401ba0）| **沒有** | 啟動後顯示程式名稱與版本字樣的畫面。字串內含廠商名，依保密規定**不實作**。 |
+| **Skip 1 Dot 2 Gray 的參數對話框** | 有（`TS1D2G`）| **沒有** | 可調 Pattern#1／#2 的顏色與 level（預設 Red/255、Green/255）。我們目前寫死預設值。**這是真正的功能缺口，建議下一版補。** |
+| Response Time 對話框 | 獨立對話框 | 控制區欄位 | 功能等價（顏色／level／Timming／Run），形式不同。 |
+| 按任意鍵／雙擊中止 Response Time | 有 | **本版補上** | — |
+| 選單快捷鍵 | **沒有** | 沒有 | DFM 中 `ShortCut` 出現 **0 次**，確認原程式選單本來就沒有快捷鍵，我們沒漏。 |
+| 視窗填滿螢幕 | `FormCreate` 設成螢幕寬高 | 全畫面 overlay | 等效。 |
+| 啟動時的空白畫面 | `mode = 0`，不畫任何 pattern | 我們啟動是 sub-pixel 編輯器 | 本站額外功能，不需複製。 |
+| Timer3（Response Time 閃爍）| 有 | 有等效實作 | — |
+
+### 驗證
+
+三語（`zh-TW` / `en` / `zh-CN`）的標題與「此畫面不顯示」說明都正確；資訊框內容本身**照原程式格式不翻譯**。回歸：sub-pixel 模式下 overlay 內**沒有** `pg-info`，切到 Gray Level 才出現；`scrollHeight = clientHeight = 1080`（無捲軸）。console 全程無訊息。Cross Talk 的資訊框已截圖確認（左上角黑底白字 `127,  0,Outer Color`）。
+
+**限制照舊**：按鍵透過 `dispatchEvent` 觸發（此環境送不出真實按鍵），且仍無法進入真・全螢幕（`requestFullscreen()` 一律 `TypeError: Permissions check failed`）。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v1.6.0 — 2026-08-01
 
 把原程式的鍵盤處理**整段掃完**，34 個畫面 × 19 個按鍵／組合逐格實測。
