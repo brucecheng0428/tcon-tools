@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## iSP 波形產生器 (isp) v1.19.0 — 2026-07-31
+
+**Bruce 需求**：「幫我把 iSP REG Setting 的預設改為加入」——iSP 分頁 REG Setting 的「加入 Setting line」預設由「不加入」改為「加入」。
+
+**預設值來源盤點（先確認再改）**：`isp-reg-en` 這組 radio 的預設**只由 HTML 的 `checked` 屬性決定**，沒有第二處。查證：
+- `regEnable` 的唯一決定處是 `ispRender()`：`const regEnable = !!(regOnEl && regOnEl.checked)`（純讀 DOM，無獨立 JS 初始值）。
+- 全檔 `.checked =` 的指派只出現在波形反推卡片的 9 個 checkbox（與 REG 無關）。
+- `isp.html` 無 `localStorage` / `sessionStorage`，沒有持久化會覆蓋預設。
+
+**改動（`isp.html`，只動預設值）**：`checked` 由 `#isp-reg-off` 移到 `#isp-reg-on`（與 v1.17.0 的 BKPOL 同一種寫法）。其餘 REG Setting 行為（REG 數量 slider、REG hex 輸入、複製至全部、卡片收合、Setting line 的組成與位置）**一律未動**。改後 grep 確認：`id="isp-reg-off" ... checked` 0 筆、`id="isp-reg-on" ... checked` 1 筆，無殘留舊預設。
+
+**驗證（Chrome 實機，重新載入頁面而非手動點選）**：
+
+首次載入即生效（要求 3、5）：
+
+| 項目 | 改前（v1.18.2） | 改後（v1.19.0） |
+|---|---|---|
+| `#isp-reg-off` checked | `true` | `false` |
+| `#isp-reg-on` checked | `false` | **`true`** |
+| Bits | 225 | **360**（**+135**） |
+| 資訊列 Setting line | 無 | **`+ BK×2 · BAC · Setting · REG0..7 · EOL · BK×2`** |
+
++135 bit 與格式吻合：Setting line = `BK×2 + BAC + SET + REG0..7(8) + EOL + BK×2` = 15 個 packet × 9 bit = 135。
+
+波形本身確實含 Setting line（不是只有勾選框被打勾）：主波形 SVG 的段落標籤序列為
+`BK BK BAC POL+ EOL BK BK │ BK BK BAC SET REG0 REG1 REG2 REG3 REG4 REG5 REG6 REG7 EOL BK BK │ BK BK BAC BKPOL+ BK BK`，
+SET 與 REG0~REG7 皆實際繪出，SVG 節點數 532 → 847。
+
+回歸（要求 6）：
+- BKPOL 預設仍為 ON（`#isp-bkpol-on` = `true`），frame 段落順序為 **Data line → Setting line → BKPOL 段**，與 datasheet 的 `… EOL │ BK BAC BKPOL± BK` 位在 frame 末端一致。
+- 兩者互相獨立：手動切 REG 為「不加入」→ 225、切回「加入」→ 360；把 BKPOL 切 OFF（REG 維持 ON）→ 306，frame 僅剩 Data line + Setting line。BKPOL 段 = `BK×2+BAC+BKPOL+BK×2` = 6 packet × 9 = 54，`360 − 306 = 54` 吻合。
+- 2-pair：Bits `306 × 2`，pair0 與 pair1 的段落序列都完整含 Data line → Setting line → BKPOL 段。
+- 6-bit（1-pair）：Bits 333，段落序列同上正確。
+- 重新載入後 console 無任何錯誤或訊息；v1.18.2 的波形反推卡片高度（160px）不受影響。
+
+**版本同步**：`common/version.js` `isp: v1.18.2 → v1.19.0`（預設輸出波形改變、屬行為變更而非修錯，故進 minor）；`isp.html` `version.js?v` 與 `i18n.js?v` 皆 `20260731isp5 → 20260731isp6`。本次無新增 i18n 字串。
+
+---
+
 ## iSP 波形產生器 (isp) v1.18.2 — 2026-07-31
 
 **Bruce 打回 v1.18.1**：「波形反推我只是要你降高度，沒有要你寬度一起縮啊，而且這樣與下方的核取方塊對不上」。
