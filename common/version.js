@@ -11,5 +11,5 @@ var TOOL_VERSIONS = {
   isp:     'v1.19.0',      // iSP 波形產生器
   aux:     'v2.3.1',       // eDP AUX / DPCD 查詢工具
   wfg:     'v2.97.475',    // TCON 波形產生器
-  pattern: 'v1.5.0'        // Pattern Generator 畫面產生器
+  pattern: 'v1.6.0'        // Pattern Generator 畫面產生器
 };

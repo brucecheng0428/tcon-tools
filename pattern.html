@@ -429,10 +429,10 @@
             <div><label data-i18n="pat.ctOuterLevel">Outer Level</label><input type="number" id="pg-ct-ol" min="0" max="255" value="127"></div>
             <div><label data-i18n="pat.ctInnerColor">Inner Color</label><select id="pg-ct-ic"></select></div>
             <div><label data-i18n="pat.ctInnerLevel">Inner Level</label><input type="number" id="pg-ct-il" min="0" max="255" value="0"></div>
-            <div><label data-i18n="pat.ctSize">Inner Size（占畫面高 %）</label><input type="number" id="pg-ct-size" min="1" max="100" value="50"></div>
-            <div><label data-i18n="pat.ctPos">Inner Position X / Y（%）</label>
-              <div style="display:flex;gap:4px"><input type="number" id="pg-ct-px" min="0" max="100" value="50"><input type="number" id="pg-ct-py" min="0" max="100" value="50"></div>
-            </div>
+            <div><label data-i18n="pat.ctW">Inner Width（px）</label><input type="number" id="pg-ct-w" min="1" value="240"></div>
+            <div><label data-i18n="pat.ctH">Inner Height（px）</label><input type="number" id="pg-ct-h" min="1" value="240"></div>
+            <div><label data-i18n="pat.ctLeft">Inner Left（px）</label><input type="number" id="pg-ct-l" value="840"></div>
+            <div><label data-i18n="pat.ctTop">Inner Top（px）</label><input type="number" id="pg-ct-t" value="240"></div>
           </div>
         </div>
 
@@ -508,8 +508,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260801pat6"></script>
-<script src="common/i18n.js?v=20260801pat6"></script>
+<script src="common/version.js?v=20260801pat7"></script>
+<script src="common/i18n.js?v=20260801pat7"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1064,7 +1064,10 @@
   var pgPat = {
     id: 'gray', colorIdx: 3, level: 127, invert: 0,
     ckIdx: 2,
-    ctOC: 3, ctOL: 127, ctIC: 3, ctIL: 0, ctSize: 50, ctPX: 50, ctPY: 50, ctMode: 0,
+    ctOC: 3, ctOL: 127, ctIC: 3, ctIL: 0, ctMode: 0,
+    // Cross Talk 內框：原程式是 left / top / width / height 四個獨立值（絕對像素），
+    // 這裡存成相對畫面尺寸的比例，預覽與全畫面才會是同一個比例。
+    ctL: 0, ctT: 0.25, ctW: 0, ctH: 0.5,
     xyFx: 0.5, xyFy: 0.5,
     charMode: 0,          // Character：0 全亮 / 1 上暗下亮 / 2 上亮下暗
     lumStart: 248,        // LUMINACE COMPARE 起始值（原程式 [0x404]，預設 0xf8）
@@ -1213,8 +1216,9 @@
 
       case 'crosstalk': {
         clear(pgCss(P.ctOC, P.ctOL));
-        var iw = Math.max(1, Math.round(H * P.ctSize / 100)), ih = iw;
-        var il = Math.round(W * P.ctPX / 100 - iw / 2), it = Math.round(H * P.ctPY / 100 - ih / 2);
+        // 內框 = Rect(left, top, left + w, top + h)，與原程式相同
+        var il = Math.round(P.ctL * W), it = Math.round(P.ctT * H);
+        var iw = Math.max(1, Math.round(P.ctW * W)), ih = Math.max(1, Math.round(P.ctH * H));
         box(il, it, il + iw, it + ih, pgCss(P.ctIC, P.ctIL));
         return;
       }
@@ -1224,8 +1228,9 @@
         var xyC = pgCss(ci, 255);
         var bg = inv ? xyC : '#000000', fg = inv ? '#000000' : xyC;
         clear(bg);
-        var cx = Math.min(W - 1, Math.max(0, Math.round(P.xyFx * W) - 1));
-        var cy = Math.min(H - 1, Math.max(0, Math.round(P.xyFy * H) - 1));
+        // 原程式對準星座標沒有任何邊界限制，可以一路移出畫面 → 這裡也不 clamp
+        var cx = Math.round(P.xyFx * W) - 1;
+        var cy = Math.round(P.xyFy * H) - 1;
         box(cx, 0, cx + 1, H, fg);
         box(0, cy, W, cy + 1, fg);
         ctx.fillStyle = fg;
@@ -1577,7 +1582,8 @@
   // 幾何相關參數；灰階與顏色 index 不影響週期，故不進 key（避免拖灰階時重跑全圖偵測）
   function pgGeomKey(){
     var t = pgTargetSize();
-    return [pgPat.id, pgPat.invert, pgPat.ckIdx, pgPat.ctSize, pgPat.ctPX, pgPat.ctPY, t.W, t.H].join('|');
+    return [pgPat.id, pgPat.invert, pgPat.ckIdx, pgPat.ctL, pgPat.ctT, pgPat.ctW, pgPat.ctH,
+            pgPat.charMode, pgPat.lumN, pgPat.sixBit, t.W, t.H].join('|');
   }
   function pgSyncGrid(){
     var noteEl = document.getElementById('pg-grid-note');
@@ -1647,9 +1653,15 @@
     // 原程式每個畫面的進入點都會把共用欄位 [0x3dc] 清 0；那個欄位在 Cross Talk 是「編輯項目」、
     // 在 LUMINACE 是「6-bit 旗標」，不重設就會從別的畫面帶著舊值過來。
     if (id === 'crosstalk') {
-      pgPat.ctOC = 3; pgPat.ctOL = 127; pgPat.ctIC = 3; pgPat.ctIL = 0;
-      pgPat.ctSize = 50; pgPat.ctPX = 50; pgPat.ctPY = 50; pgPat.ctMode = 0;
+      // 原程式進入點：s = H/4；left = W/2 − s、top = H/2 − s、w = h = 2s
+      var ts = pgTargetSize(), s4 = Math.floor(ts.H / 4);
+      pgPat.ctOC = 3; pgPat.ctOL = 127; pgPat.ctIC = 3; pgPat.ctIL = 0; pgPat.ctMode = 0;
+      pgPat.ctL = (Math.floor(ts.W / 2) - s4) / ts.W;
+      pgPat.ctT = (Math.floor(ts.H / 2) - s4) / ts.H;
+      pgPat.ctW = (2 * s4) / ts.W;
+      pgPat.ctH = (2 * s4) / ts.H;
     }
+    if (id === 'xy')          { pgPat.xyFx = 0.5; pgPat.xyFy = 0.5; }   // 原程式進入點：準星回到畫面中心
     if (id === 'lum_compare') { pgPat.sixBit = 0; pgPat.lumStart = 248; }
     if (id === 'lum_divide')  { pgPat.sixBit = 0; pgPat.lumN = 6; }
     if (id === 'character')   { pgPat.charMode = 0; }
@@ -1719,6 +1731,9 @@
 
     if (grp === 'bands') {
       // Horizontal / Vertical / Center：1~8 含 5（index 4 = 回到 4 帶 W/R/G/B 模式）
+      // 原程式在 Center 群對 '5' 有一道守衛：欄位會被改掉但不重繪，畫面看起來沒反應
+      // → 這裡直接當成無作用，可見結果相同但不會留下看不見的狀態。
+      if (num === 4 && /^center/.test(id)) return false;
       if (num >= 0)                   { pgPat.colorIdx = num; changed = true; }
       else if (k === 'ArrowUp')       { return pgCycleVariant(1); }     // 9 → 64 → 256 → 9
       else if (k === 'ArrowDown')     { return pgCycleVariant(-1); }
@@ -1738,8 +1753,12 @@
       else if (isSpace)               { if (!PG_NO_INVERT[id]) { inv(); changed = true; } }
     }
     else if (grp === 'crosstalk') {
+      // 內框以絕對像素運算後再換回比例，步進與 24 px 下限都與原程式相同
       var tsz = pgTargetSize();
-      var stepH = 100 * s / Math.max(1, tsz.H), stepW = 100 * s / Math.max(1, tsz.W);
+      var pxL = pgPat.ctL * tsz.W, pxT = pgPat.ctT * tsz.H;
+      var pxW = pgPat.ctW * tsz.W, pxH = pgPat.ctH * tsz.H;
+      var CT_MIN = 0x18;                                   // 原程式的寬高下限 = 24
+      function ctSave(){ pgPat.ctL = pxL / tsz.W; pgPat.ctT = pxT / tsz.H; pgPat.ctW = pxW / tsz.W; pgPat.ctH = pxH / tsz.H; }
       if (isSpace)                    { pgPat.ctMode = (pgPat.ctMode + 1) % 4; changed = true; }
       else if (pgPat.ctMode === 0) {                       // Outer Color
         if (num >= 0 && num !== 4)    { pgPat.ctOC = num; changed = true; }
@@ -1753,14 +1772,20 @@
         else if (k === 'ArrowDown')   { pgPat.ctIL = w256(pgPat.ctIL - s); changed = true; }
         else if (k === 'Home')        { pgPat.ctIL = 255; changed = true; }
         else if (k === 'End')         { pgPat.ctIL = 0; changed = true; }
-      } else if (pgPat.ctMode === 2) {                     // Inner Size
-        if (k === 'ArrowUp' || k === 'ArrowRight')   { pgPat.ctSize = Math.min(100, pgPat.ctSize + stepH); changed = true; }
-        else if (k === 'ArrowDown' || k === 'ArrowLeft'){ pgPat.ctSize = Math.max(2, pgPat.ctSize - stepH); changed = true; }
-      } else {                                             // Inner Position
-        if (k === 'ArrowUp')          { pgPat.ctPY = Math.max(0, pgPat.ctPY - stepH); changed = true; }
-        else if (k === 'ArrowDown')   { pgPat.ctPY = Math.min(100, pgPat.ctPY + stepH); changed = true; }
-        else if (k === 'ArrowLeft')   { pgPat.ctPX = Math.max(0, pgPat.ctPX - stepW); changed = true; }
-        else if (k === 'ArrowRight')  { pgPat.ctPX = Math.min(100, pgPat.ctPX + stepW); changed = true; }
+      } else if (pgPat.ctMode === 2) {                     // Inner Size（不對稱：↑ 往上長、→ 往右長）
+        if (k === 'ArrowUp')          { pxH += s; pxT -= s; ctSave(); changed = true; }
+        else if (k === 'ArrowRight')  { pxW += s; ctSave(); changed = true; }
+        else if (k === 'ArrowDown')   {
+          if (pxH > CT_MIN) pxH -= s;
+          if (pxH > CT_MIN) pxT += s;
+          ctSave(); changed = true;
+        }
+        else if (k === 'ArrowLeft')   { if (pxW > CT_MIN) { pxW -= s; ctSave(); } changed = true; }
+      } else {                                             // Inner Position（原程式無邊界限制）
+        if (k === 'ArrowUp')          { pxT -= s; ctSave(); changed = true; }
+        else if (k === 'ArrowDown')   { pxT += s; ctSave(); changed = true; }
+        else if (k === 'ArrowLeft')   { pxL -= s; ctSave(); changed = true; }
+        else if (k === 'ArrowRight')  { pxL += s; ctSave(); changed = true; }
       }
     }
     else if (grp === 'xy') {
@@ -1771,10 +1796,6 @@
       else if (k === 'ArrowRight')    { pgPat.xyFx += s / t2.W; changed = true; }
       else if (k === 'ArrowUp')       { pgPat.xyFy -= s / t2.H; changed = true; }
       else if (k === 'ArrowDown')     { pgPat.xyFy += s / t2.H; changed = true; }
-      if (changed) {
-        pgPat.xyFx = Math.min(1, Math.max(0, pgPat.xyFx));
-        pgPat.xyFy = Math.min(1, Math.max(0, pgPat.xyFy));
-      }
     }
     else if (grp === 'checker') {
       // 1~8 / ←→ / Home / End 原程式皆無反應
@@ -1848,9 +1869,15 @@
     var g = pgKeyGroup(pgPat.id), L = [];
     function r(keys, desc){ return '<b>' + keys + '</b> — ' + desc; }
     if (g === 'bands') {
-      L.push(r('1–8', t('pat.keyColor') + '；5 = ' + t('pat.keyBandMode')));
+      if (/^center/.test(pgPat.id)) {
+        L.push(r('1–4 / 6–8', t('pat.keyColor')));
+        L.push('<span class="na">' + t('pat.keyCenter5') + '</span>');
+      } else {
+        L.push(r('1–8', t('pat.keyColor') + '；5 = ' + t('pat.keyBandMode')));
+      }
       L.push(r('↑ / ↓', t('pat.keyVariant') + '（9 / 64 / 256）'));
       L.push(r('Space', t('pat.keyGradDir')));
+      L.push('<span class="na">' + t('pat.keyNoShift') + '</span>');
     } else if (g === 'spaceOnly') {
       L.push(r('Space', t('pat.keyLayout')));
       L.push('<span class="na">' + t('pat.keyOnlySpace') + '</span>');
@@ -1859,8 +1886,9 @@
       L.push(r('↑ / ↓', t('pat.keyLevel')));
       L.push(r('Home / End', t('pat.keyLevelHiLo')));
       if (PG_GROUPS.some(function(a){ return a.indexOf(pgPat.id) >= 0; })) L.push(r('← / →', t('pat.keyVariant')));
-      L.push(PG_NO_INVERT[pgPat.id] ? '<span class="na">' + t('pat.keyInvertNA') + '</span>'
-                                    : r('Space', t('pat.keyInvert')));
+      if (PG_NO_INVERT[pgPat.id]) L.push('<span class="na">' + t('pat.keyInvertNA') + '</span>');
+      else if (pgPat.id === 'skipsub') L.push(r('Space', t('pat.keyInvert') + ' <span class="na">[' + t('pat.keyExt') + ']</span>'));
+      else L.push(r('Space', t('pat.keyInvert')));
     } else if (g === 'crosstalk') {
       var names = ['Outer Color', 'Inner Color', 'Inner Size', 'Inner Position'];
       L.push(r('Space', t('pat.keyCtMode') + ' → <b>' + names[pgPat.ctMode] + '</b>'));
@@ -1869,7 +1897,8 @@
         L.push(r('↑ / ↓', t('pat.keyLevel')));
         L.push(r('Home / End', t('pat.keyLevelHiLo')));
       } else if (pgPat.ctMode === 2) {
-        L.push(r('↑ → / ↓ ←', t('pat.keyCtSize')));
+        L.push(r('↑ / →', t('pat.keyCtGrow')));
+        L.push(r('↓ / ←', t('pat.keyCtShrink')));
       } else {
         L.push(r('↑ ↓ ← →', t('pat.keyCtPos')));
       }
@@ -1877,6 +1906,7 @@
       L.push(r('1–4 / 6–8', t('pat.keyColorNo5')));
       L.push(r('↑ ↓ ← →', t('pat.keyXY')));
       L.push(r('Space', t('pat.keyInvert')));
+      L.push('<span class="na">' + t('pat.keyXYFree') + '</span>');
     } else if (g === 'checker') {
       L.push(r('↑ / ↓', t('pat.keyCkN')));
       L.push(r('Space', t('pat.keyInvert')));
@@ -1920,6 +1950,18 @@
     show('pg-pat-xy',      pgPat.id === 'xy');
     show('pg-pat-lv-box',  pgPat.id !== 'checker' && pgPat.id !== 'smpte' && pgPat.id !== 'colortest' &&
                            pgPat.id !== 'crosstalk' && pgPat.id !== 'resptime' && pgPat.id !== 'xy');
+    if (pgPat.id === 'crosstalk') {          // Cross Talk 四個幾何輸入框顯示成像素
+      var tsC = pgTargetSize();
+      var setV = function(i2, v){ var e2 = document.getElementById(i2); if (e2 && document.activeElement !== e2) e2.value = Math.round(v); };
+      setV('pg-ct-l', pgPat.ctL * tsC.W); setV('pg-ct-t', pgPat.ctT * tsC.H);
+      setV('pg-ct-w', pgPat.ctW * tsC.W); setV('pg-ct-h', pgPat.ctH * tsC.H);
+      var ocSel = document.getElementById('pg-ct-oc'), icSel = document.getElementById('pg-ct-ic');
+      var olIn = document.getElementById('pg-ct-ol'), ilIn = document.getElementById('pg-ct-il');
+      if (ocSel && document.activeElement !== ocSel) ocSel.value = String(pgPat.ctOC);
+      if (icSel && document.activeElement !== icSel) icSel.value = String(pgPat.ctIC);
+      if (olIn && document.activeElement !== olIn) olIn.value = pgPat.ctOL;
+      if (ilIn && document.activeElement !== ilIn) ilIn.value = pgPat.ctIL;
+    }
     var kh = pgKeyHelpHtml();
     var kh1 = document.getElementById('pg-keyhelp'), kh2 = document.getElementById('pg-fs-keyhelp');
     if (kh1) kh1.innerHTML = kh;
@@ -1981,8 +2023,21 @@
     pgFillColorSelect(byId('pg-ct-ic'), 3);
     pgFillColorSelect(byId('pg-rt-c1'), 3);
     pgFillColorSelect(byId('pg-rt-c2'), 3);
-    var ctMap = { 'pg-ct-oc': 'ctOC', 'pg-ct-ol': 'ctOL', 'pg-ct-ic': 'ctIC', 'pg-ct-il': 'ctIL',
-                  'pg-ct-size': 'ctSize', 'pg-ct-px': 'ctPX', 'pg-ct-py': 'ctPY' };
+    var ctMap = { 'pg-ct-oc': 'ctOC', 'pg-ct-ol': 'ctOL', 'pg-ct-ic': 'ctIC', 'pg-ct-il': 'ctIL' };
+    // 內框幾何四項：UI 用像素、內部存比例
+    var ctGeo = { 'pg-ct-l': ['ctL', 'W'], 'pg-ct-t': ['ctT', 'H'], 'pg-ct-w': ['ctW', 'W'], 'pg-ct-h': ['ctH', 'H'] };
+    Object.keys(ctGeo).forEach(function(idKey){
+      var el = byId(idKey);
+      if (!el) return;
+      var h2 = function(){
+        var v = parseInt(el.value, 10);
+        if (isNaN(v)) return;
+        var ts2 = pgTargetSize();
+        pgPat[ctGeo[idKey][0]] = v / (ctGeo[idKey][1] === 'W' ? ts2.W : ts2.H);
+        pgRenderFill(); pgSyncGridSoon();
+      };
+      el.addEventListener('input', h2); el.addEventListener('change', h2);
+    });
     Object.keys(ctMap).forEach(function(idKey){
       var el = byId(idKey);
       if (!el) return;
@@ -2314,6 +2369,8 @@
   window.pgPatState      = pgPat;
   window.pgGetMode       = function(){ return pgMode; };
   window.pgSyncGrid      = pgSyncGrid;
+  window.pgHandleKey     = pgHandlePatternKey;
+  window.pgKeyGroupOf    = pgKeyGroup;
   window.pgRenderPreview = pgRenderPreview;
   window.pgDetectPeriod  = pgDetectPeriod;
   window.pgGetPeriod     = function(){ return pgPeriod ? { pw: pgPeriod.pw, ph: pgPeriod.ph } : null; };
