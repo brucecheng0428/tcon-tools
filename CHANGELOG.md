@@ -1,5 +1,61 @@
 # CHANGELOG
 
+## Pattern Generator 畫面產生器 (pattern) v1.0.0 — 2026-07-31（新分頁）
+
+**Bruce 需求**：新增一個 Pattern Generator 分頁，(1) 偵測螢幕原生解析度與 OS/瀏覽器縮放，若非 100% 要提醒（或強制改回）；(2) 以 sub-pixel（RGB 分開）為單位編輯 4 px × 4 列、灰階 L0–L255，可循環填滿整個畫面；(3) 一鍵全螢幕，全螢幕時控制面板收到側邊隱藏，滑鼠移到該側邊緣才滑出。
+
+### 需求 1：螢幕/縮放偵測 — 先查證再實作，能力分三類誠實標示
+
+查證來源：CSSOM View（`screen.width` / `devicePixelRatio` 定義）、W3C Window Management（`isExtended` / `getScreenDetails` / `window-management` 權限）、MDN + browser-compat-data、CSSWG issue 3538（`window.pageZoomFactor` 提案被關閉）、CSS Images L3 §5.2（`image-rendering: pixelated`）。
+
+- **(a) 確定做得到**：`screen.width/height`（規範明訂為 **CSS 像素**，非實體像素）、`devicePixelRatio`、`availWidth/Height`、`colorDepth`、`orientation.type`、`screen.isExtended`；並以「dPR 是否為整數」判斷能否做 1:1 對應。
+- **(b) 有前提**：`getScreenDetails()` 可列出每台螢幕的 label / 尺寸 / 各自 dPR，並用 `window.devicePixelRatio ÷ ScreenDetailed.devicePixelRatio` **推估**瀏覽器頁面縮放（依據：MDN 明載 `ScreenDetailed.devicePixelRatio` 不含 page zoom）。僅 Chromium 系 100+、需 secure context 與 `window-management` 授權；Firefox / Safari / iOS 全不支援。頁面對不支援者直接停用按鈕並說明。
+- **(c) 確定做不到（頁面上白紙黑字寫出）**：① 無法區分「OS 顯示縮放 125%/150%」與「瀏覽器頁面縮放」——兩者都只反映在同一個 `devicePixelRatio`；② 無法讀取面板原生實體解析度（`screen.width × dPR` 只是推算，在部分桌面縮放模式與手機的 render-then-downscale 下會與面板原生值不符，頁面已標註「推算裝置像素（非 API 值）」）；③ **無法強制更改** OS 顯示縮放或瀏覽器縮放（改 zoom 只有瀏覽器擴充功能的 `tabs.setZoom` 辦得到），因此只做提醒 + 手動步驟指引（Ctrl/⌘ + 0、系統顯示設定改 100%）。
+
+### 需求 2：Sub-pixel 編輯器
+
+4 px（橫）× 4 列（縱），每 px 有 R/G/B 三個 sub-pixel = **48 格**，每格獨立設 L0–L255。選取後套用灰階：數值輸入 + 滑桿 + 快捷鍵 L0/L32/L64/L128/L192/L255 + 微調 −16/−1/+1/+16。點 `L1~L4` 列頭選整列、點 `px1~px4` 選該 px 全部 3 個 sub-pixel、點 `R/G/B` 選該 px 的該通道（皆為 toggle）。另附 8 組快速樣式（全黑/全白/純 R/G/B/1×1 棋盤/直條/橫條）。
+
+### 需求 2 的關鍵：1:1 像素對應怎麼保證
+
+全畫面 canvas 採 `canvas.width = round(innerWidth × devicePixelRatio)`，並**直接以 `ImageData` 逐「裝置像素」寫入** `pattern[y % 4][x % 4]`（先建 4 條 template row 再用 `TypedArray.set()` 整列複製），**過程中完全沒有任何縮放、drawImage 或內插**，因此 canvas backing store 的 1 像素 = pattern 的 1 像素。另加 `imageSmoothingEnabled = false` 與 `image-rendering: pixelated` 作為第二道保險。canvas 固定 `position:absolute; left:0; top:0`，起點對齊裝置像素格線。
+
+**何時會失準（已在 UI 明示）**：`devicePixelRatio` 非整數時（例如 OS 125% → 1.25、瀏覽器縮放 110% → 1.1），backing store 到實體面板之間必然存在非整數倍重新取樣，`image-rendering: pixelated` 依規範在非整數倍時也會做 smooth 補完，**此時無法保證 1:1**。頁面偵測到非整數 dPR 會顯示紅色警告並要求改回 100%。
+
+### 需求 3：全畫面
+
+`documentElement.requestFullscreen({navigationUI:'hide'})` + 全螢幕 overlay。控制面板預設收在側邊（可選靠左／靠右，全螢幕中也能用「⇄ 切換面板左右」即時切換），滑鼠移到該側 26 px 內滑出，離開後 450 ms 收回；觸控裝置有邊緣半透明拉柄（3 秒後淡到 opacity 0.07，避免污染測試畫面）。離開方式三選一：面板「✕ 離開全畫面」按鈕、`Esc`、`F`。切換左右／手動拉開後 2.5 秒內不因滑鼠位置自動收合（否則切到另一側時面板會立刻消失）。
+
+### 驗證（Chrome 實機，非看 code 推論）
+
+**1:1 與灰階正確性** — 以真實座標點擊套用「全黑」→ 點選 L1/px1/R → 按 L255；再設 L2/px2/G = 128、L3/px3/B = 64、L4/px4 = 255,255,255。進全畫面後用 `getImageData` 讀 canvas 實際像素：
+
+| 讀取座標 | 期望 | 實際讀到 |
+|---|---|---|
+| (0,0) | R255 | **(255,0,0)** |
+| (1,1) | G128 | **(0,128,0)** |
+| (2,2) | B64 | **(0,0,64)** |
+| (3,3) | 白 255 | **(255,255,255)** |
+| 右下角 (W−4,H−4)…(W−1,H−1) | 同上四色 | **(255,0,0) (0,128,0) (0,0,64) (255,255,255)** |
+
+平鋪重複性正確（右移 4 px 顏色相同）。`canvas.width × height = 1920 × 1024`，等於 `innerWidth × innerHeight × dPR(1)`，`exact_1to1 = true`。
+
+**全螢幕** — `document.fullscreenElement = "HTML"`（以 host 端真實鍵盤事件觸發；Chrome MCP 的合成點擊不具 user activation，會回 `TypeError: Permissions check failed`，此為自動化環境限制非頁面問題）。左側邊緣 hover → 面板滑出；按「⇄ 切換面板左右」→ 面板改在右側**且維持開啟**；滑鼠移開 3 秒後自動收合（`open = false`）；右側邊緣 hover → 再次滑出；`Esc` 與「✕ 離開全畫面」皆可離開（`fullscreenElement = false`、overlay `on = false`）。
+
+**螢幕資訊正確性** — UI 顯示值與 JS 直接讀到的原始值逐項一致：`1440 × 900 CSS px` / dPR `2` / 推算 `2880 × 1800` / inner `500 × 723` / avail `1440 × 814` / `24 bit` / `landscape-primary` / isExtended `是`。
+
+**縮放偵測即時性（真實瀏覽器縮放）** — host 端按 ⌘ + 「+」把頁面縮放到 110%：頁面**不需重整**即自動更新為 `devicePixelRatio = 1.1`，並切換成紅色警告「非整數…無法保證 1:1」；按 ⌘ + 0 復原後自動變回綠色「dPR = 1（整數）」。同時實測到 Chrome 在縮放時 `screen.width` 不變（維持 1920），與查證到的行為一致。
+
+**Window Management API** — 目前權限狀態 `prompt`，未授權時走 reject 路徑並正確顯示「無法取得（NotAllowedError）…」；以假資料驗證授權成功的渲染路徑，正確列出 2 台螢幕（label / CSS px / 各自 dPR / 主螢幕・內建・外接・★目前視窗所在）並算出推估縮放 100%。**真實授權提示需 Bruce 自行按一次「允許」**，自動化環境無法點擊瀏覽器原生權限泡泡，這點不謊報為已驗證。
+
+**三語 + console** — zh-TW / en / zh-CN 三語逐項切換皆正確（標題、卡片、按鈕、灰階提示、能力說明、全畫面面板快速樣式鈕）；掃描頁面所有 `data-i18n` / `data-i18n-html` 與 JS 內 `t()` 使用的 key，**缺翻譯 0 筆**。載入與操作全程 console **無任何錯誤或訊息**。
+
+**首頁入口** — `index.html` 新增卡片（第 6 張），標題／說明／版本 badge `v1.0.0` 皆正確；`#page-pattern` 與 `#pattern` 兩組舊式 hash 轉址也一併補上。
+
+**版本同步**：`common/version.js` 新增 `pattern: v1.0.0`，`app: v1.87.1 → v1.88.0`；`index.html` 的 `version.js?v` / `i18n.js?v` 一併更新為 `20260731pat1` 以避開快取。新增 i18n 字串 61 組（pat.* 59 + home.pat* 2）× 3 語。
+
+---
+
 ## iSP 波形產生器 (isp) v1.19.0 — 2026-07-31
 
 **Bruce 需求**：「幫我把 iSP REG Setting 的預設改為加入」——iSP 分頁 REG Setting 的「加入 Setting line」預設由「不加入」改為「加入」。

@@ -104,7 +104,110 @@ var I18N = {
   'home.auxDesc':       { 'zh-TW': 'AUX Transaction 解碼 & DPCD 暫存器查詢', 'en': 'AUX Transaction Decoder & DPCD Register Lookup', 'zh-CN': 'AUX Transaction 解码 & DPCD 寄存器查询' },
   'home.wfgTitle':      { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
   'home.wfgDesc':       { 'zh-TW': 'Phase Counter 引擎驅動 TCON Timing 信號波形模擬', 'en': 'Phase Counter engine driven TCON timing signal waveform simulator', 'zh-CN': 'Phase Counter 引擎驱动 TCON Timing 信号波形模拟' },
-  'wfg.title':          { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
+
+  // ── Pattern Generator 畫面產生器 ──
+  'home.patTitle':      { 'zh-TW': 'Pattern Generator 畫面產生器', 'en': 'Pattern Generator', 'zh-CN': 'Pattern Generator 画面产生器' },
+  'home.patDesc':       { 'zh-TW': 'Sub-pixel 編輯 4×4 px，全畫面 1:1 平鋪測試畫面', 'en': '4×4 px sub-pixel editor, tiled full-screen test pattern at 1:1', 'zh-CN': 'Sub-pixel 编辑 4×4 px，全画面 1:1 平铺测试画面' },
+
+  'pat.title':          { 'zh-TW': 'Pattern Generator 畫面產生器', 'en': 'Pattern Generator', 'zh-CN': 'Pattern Generator 画面产生器' },
+  'pat.subtitle':       { 'zh-TW': 'Sub-pixel 編輯 · 全畫面 1:1 平鋪', 'en': 'Sub-pixel editing · Full-screen 1:1 tiling', 'zh-CN': 'Sub-pixel 编辑 · 全画面 1:1 平铺' },
+
+  'pat.screenCard':     { 'zh-TW': '螢幕資訊與縮放偵測', 'en': 'Screen Info & Scaling Detection', 'zh-CN': '屏幕信息与缩放检测' },
+  'pat.lblCssRes':      { 'zh-TW': 'CSS 邏輯解析度', 'en': 'CSS logical resolution', 'zh-CN': 'CSS 逻辑分辨率' },
+  'pat.lblDpr':         { 'zh-TW': 'devicePixelRatio', 'en': 'devicePixelRatio', 'zh-CN': 'devicePixelRatio' },
+  'pat.lblDevRes':      { 'zh-TW': '推算裝置像素（非 API 值）', 'en': 'Derived device pixels (not from API)', 'zh-CN': '推算设备像素（非 API 值）' },
+  'pat.lblInner':       { 'zh-TW': '視窗內部尺寸', 'en': 'Window inner size', 'zh-CN': '窗口内部尺寸' },
+  'pat.lblAvail':       { 'zh-TW': '可用區域', 'en': 'Available area', 'zh-CN': '可用区域' },
+  'pat.lblColor':       { 'zh-TW': '色彩深度', 'en': 'Color depth', 'zh-CN': '色彩深度' },
+  'pat.lblOrient':      { 'zh-TW': '螢幕方向', 'en': 'Orientation', 'zh-CN': '屏幕方向' },
+  'pat.lblExtended':    { 'zh-TW': '多螢幕 (isExtended)', 'en': 'Multi-screen (isExtended)', 'zh-CN': '多屏幕 (isExtended)' },
+  'pat.cssPxUnit':      { 'zh-TW': 'CSS px', 'en': 'CSS px', 'zh-CN': 'CSS px' },
+  'pat.unknown':        { 'zh-TW': '未知', 'en': 'Unknown', 'zh-CN': '未知' },
+  'pat.apiUnsupported': { 'zh-TW': '此瀏覽器不支援', 'en': 'Not supported in this browser', 'zh-CN': '此浏览器不支持' },
+  'pat.yes':            { 'zh-TW': '是', 'en': 'Yes', 'zh-CN': '是' },
+  'pat.no':             { 'zh-TW': '否', 'en': 'No', 'zh-CN': '否' },
+
+  'pat.dprIntOk': {
+    'zh-TW': '<b>devicePixelRatio = {d}（整數）</b><br>全畫面平鋪時每個 pattern 像素可對應 1 個實體像素，不會被重新取樣。',
+    'en': '<b>devicePixelRatio = {d} (integer)</b><br>In full-screen tiling each pattern pixel maps to one physical pixel with no resampling.',
+    'zh-CN': '<b>devicePixelRatio = {d}（整数）</b><br>全画面平铺时每个 pattern 像素可对应 1 个物理像素，不会被重新采样。'
+  },
+  'pat.dprNonInt': {
+    'zh-TW': '<b>⚠ devicePixelRatio = {d}（非整數）</b><br>畫面會被瀏覽器／系統重新取樣，<b>無法保證 1:1 實體像素對應</b>，sub-pixel pattern 會被糊掉。請把系統顯示縮放與瀏覽器縮放都設回 100%（瀏覽器按 Ctrl/⌘ + 0），讓此值變成整數（1、2 或 3）。',
+    'en': '<b>⚠ devicePixelRatio = {d} (non-integer)</b><br>The output will be resampled by the browser/OS, so <b>1:1 physical-pixel mapping cannot be guaranteed</b> and the sub-pixel pattern will be blurred. Set both OS display scaling and browser zoom back to 100% (press Ctrl/⌘ + 0) so this value becomes an integer (1, 2 or 3).',
+    'zh-CN': '<b>⚠ devicePixelRatio = {d}（非整数）</b><br>画面会被浏览器／系统重新采样，<b>无法保证 1:1 物理像素对应</b>，sub-pixel pattern 会被糊掉。请把系统显示缩放与浏览器缩放都设回 100%（浏览器按 Ctrl/⌘ + 0），让此值变成整数（1、2 或 3）。'
+  },
+
+  'pat.capBlock': {
+    'zh-TW': '<b>關於縮放偵測，網頁能做到什麼（誠實說明）</b><ul class="pg-cap-list">' +
+      '<li><b>(a) 確定做得到</b>：讀取 screen.width / height（CSS 像素）、devicePixelRatio、可用區域、色彩深度、方向；偵測 devicePixelRatio 是否為整數，藉此判斷能否做 1:1 對應。</li>' +
+      '<li><b>(b) 有前提才做得到</b>：Window Management API（getScreenDetails）可列出每台螢幕的 label 與各自的 devicePixelRatio，並可用「window.devicePixelRatio ÷ 該螢幕 devicePixelRatio」<u>推估</u>瀏覽器頁面縮放；但僅 Chromium 系瀏覽器 100 版以上支援，需 HTTPS 與使用者授權，Firefox / Safari / iOS 一律不支援。</li>' +
+      '<li><b>(c) 確定做不到</b>：① 無法區分「作業系統顯示縮放 125%/150%」與「瀏覽器頁面縮放」——兩者都只反映在同一個 devicePixelRatio 上，W3C 曾提案的 window.pageZoomFactor 已被否決。② 無法讀取螢幕面板的原生實體解析度（上方「推算裝置像素」只是乘法推算，在部分系統的縮放模式或手機上會與面板原生解析度不符）。③ <b>網頁完全無法修改</b>作業系統顯示縮放或瀏覽器縮放，改瀏覽器縮放只有擴充功能才辦得到，所以本工具只能提醒你手動改成 100%。</li></ul>' +
+      '<b>手動確認方式</b>：瀏覽器縮放按 Ctrl/⌘ + 0 重設為 100%；作業系統顯示縮放請到系統的「顯示器 / 縮放與版面配置」設定改為 100%（建議改完重新整理本頁）。改完後上方 devicePixelRatio 應為整數。',
+    'en': '<b>What a web page can actually detect (honest summary)</b><ul class="pg-cap-list">' +
+      '<li><b>(a) Definitely possible</b>: read screen.width / height (CSS pixels), devicePixelRatio, available area, color depth and orientation; check whether devicePixelRatio is an integer to decide if 1:1 mapping is achievable.</li>' +
+      '<li><b>(b) Possible with conditions</b>: the Window Management API (getScreenDetails) lists each screen with its label and its own devicePixelRatio, and browser page zoom can be <u>estimated</u> as window.devicePixelRatio ÷ that screen devicePixelRatio. Chromium-based browsers 100+ only, requires HTTPS and user permission; Firefox / Safari / iOS do not support it at all.</li>' +
+      '<li><b>(c) Definitely impossible</b>: (1) OS display scaling (125%/150%) cannot be distinguished from browser page zoom — both appear only in the same devicePixelRatio value, and the proposed W3C window.pageZoomFactor was rejected. (2) The panel native physical resolution cannot be read; the "derived device pixels" above is only a multiplication and will not match the panel on some scaled desktop modes or phones. (3) A web page <b>cannot change</b> OS display scaling or browser zoom at all (only browser extensions can change zoom), so this tool can only ask you to set 100% manually.</li></ul>' +
+      '<b>How to verify manually</b>: press Ctrl/⌘ + 0 to reset browser zoom to 100%; set OS display scaling to 100% in the system Display / Scale-and-layout settings, then reload this page. devicePixelRatio above should then be an integer.',
+    'zh-CN': '<b>关于缩放检测，网页能做到什么（诚实说明）</b><ul class="pg-cap-list">' +
+      '<li><b>(a) 确定做得到</b>：读取 screen.width / height（CSS 像素）、devicePixelRatio、可用区域、色彩深度、方向；检测 devicePixelRatio 是否为整数，藉此判断能否做 1:1 对应。</li>' +
+      '<li><b>(b) 有前提才做得到</b>：Window Management API（getScreenDetails）可列出每台屏幕的 label 与各自的 devicePixelRatio，并可用「window.devicePixelRatio ÷ 该屏幕 devicePixelRatio」<u>推估</u>浏览器页面缩放；但仅 Chromium 系浏览器 100 版以上支持，需 HTTPS 与用户授权，Firefox / Safari / iOS 一律不支持。</li>' +
+      '<li><b>(c) 确定做不到</b>：① 无法区分「操作系统显示缩放 125%/150%」与「浏览器页面缩放」——两者都只反映在同一个 devicePixelRatio 上，W3C 曾提案的 window.pageZoomFactor 已被否决。② 无法读取屏幕面板的原生物理分辨率（上方「推算设备像素」只是乘法推算，在部分系统的缩放模式或手机上会与面板原生分辨率不符）。③ <b>网页完全无法修改</b>操作系统显示缩放或浏览器缩放，改浏览器缩放只有扩展程序才办得到，所以本工具只能提醒你手动改成 100%。</li></ul>' +
+      '<b>手动确认方式</b>：浏览器缩放按 Ctrl/⌘ + 0 重设为 100%；操作系统显示缩放请到系统的「显示器 / 缩放与布局」设置改为 100%（建议改完刷新本页）。改完后上方 devicePixelRatio 应为整数。'
+  },
+
+  'pat.wmBtn':          { 'zh-TW': '🔎 取得每台螢幕詳細資訊（需授權）', 'en': '🔎 Get per-screen details (permission required)', 'zh-CN': '🔎 获取每台屏幕详细信息（需授权）' },
+  'pat.wmLoading':      { 'zh-TW': '查詢中…', 'en': 'Querying…', 'zh-CN': '查询中…' },
+  'pat.wmUnsupported': {
+    'zh-TW': '此瀏覽器<b>不支援</b> Window Management API（window.getScreenDetails）。此 API 僅 Chromium 系瀏覽器 100 版以上提供，Firefox 與 Safari（含 iOS）皆不支援，因此無法取得每台螢幕的個別資訊，也無法推估瀏覽器頁面縮放。',
+    'en': 'This browser does <b>not support</b> the Window Management API (window.getScreenDetails). It is available only in Chromium-based browsers 100+; Firefox and Safari (including iOS) do not support it, so per-screen details and browser zoom estimation are unavailable here.',
+    'zh-CN': '此浏览器<b>不支持</b> Window Management API（window.getScreenDetails）。此 API 仅 Chromium 系浏览器 100 版以上提供，Firefox 与 Safari（含 iOS）皆不支持，因此无法获取每台屏幕的个别信息，也无法推估浏览器页面缩放。'
+  },
+  'pat.wmScreens':      { 'zh-TW': '偵測到 {n} 台螢幕：', 'en': 'Detected {n} screen(s):', 'zh-CN': '检测到 {n} 台屏幕：' },
+  'pat.wmPrimary':      { 'zh-TW': '主螢幕', 'en': 'primary', 'zh-CN': '主屏幕' },
+  'pat.wmInternal':     { 'zh-TW': '內建', 'en': 'internal', 'zh-CN': '内建' },
+  'pat.wmExternal':     { 'zh-TW': '外接', 'en': 'external', 'zh-CN': '外接' },
+  'pat.wmCurrent':      { 'zh-TW': '★目前視窗所在', 'en': '★current window', 'zh-CN': '★当前窗口所在' },
+  'pat.wmZoomEst':      { 'zh-TW': '推估瀏覽器頁面縮放：<b>{z}%</b>（= window.devicePixelRatio ÷ 該螢幕 devicePixelRatio，僅為推估值）', 'en': 'Estimated browser page zoom: <b>{z}%</b> (= window.devicePixelRatio ÷ screen devicePixelRatio; estimate only)', 'zh-CN': '推估浏览器页面缩放：<b>{z}%</b>（= window.devicePixelRatio ÷ 该屏幕 devicePixelRatio，仅为推估值）' },
+  'pat.wmZoomNot100':   { 'zh-TW': '⚠ 瀏覽器縮放看起來不是 100%，請按 Ctrl/⌘ + 0 重設後再重新整理。', 'en': '⚠ Browser zoom does not look like 100%. Press Ctrl/⌘ + 0 to reset, then reload.', 'zh-CN': '⚠ 浏览器缩放看起来不是 100%，请按 Ctrl/⌘ + 0 重设后再刷新。' },
+  'pat.wmDenied':       { 'zh-TW': '無法取得（{e}）。可能是使用者拒絕授權、或頁面非 HTTPS 安全來源。', 'en': 'Unavailable ({e}). Permission may have been denied, or the page is not a secure (HTTPS) context.', 'zh-CN': '无法获取（{e}）。可能是用户拒绝授权、或页面非 HTTPS 安全来源。' },
+
+  'pat.editorCard':     { 'zh-TW': 'Sub-pixel 編輯（4 px × 4 列）', 'en': 'Sub-pixel Editor (4 px × 4 rows)', 'zh-CN': 'Sub-pixel 编辑（4 px × 4 列）' },
+  'pat.selected':       { 'zh-TW': '已選取', 'en': 'Selected', 'zh-CN': '已选取' },
+  'pat.subpxUnit':      { 'zh-TW': '個 sub-pixel', 'en': 'sub-pixel(s)', 'zh-CN': '个 sub-pixel' },
+  'pat.selAll':         { 'zh-TW': '全選', 'en': 'Select all', 'zh-CN': '全选' },
+  'pat.selNone':        { 'zh-TW': '取消選取', 'en': 'Clear', 'zh-CN': '取消选取' },
+  'pat.levelLabel':     { 'zh-TW': '灰階 L0 – L255（套用到已選取的 sub-pixel）', 'en': 'Gray level L0 – L255 (applied to selected sub-pixels)', 'zh-CN': '灰阶 L0 – L255（应用到已选取的 sub-pixel）' },
+  'pat.levelHint':      { 'zh-TW': '未選取任何 sub-pixel 時，灰階設定不會套用。點格子、點 R/G/B 或 px 標題可快速選取整欄。', 'en': 'Gray level is applied only to selected sub-pixels. Tap a cell, or tap an R/G/B or px header to select a whole column.', 'zh-CN': '未选取任何 sub-pixel 时，灰阶设定不会应用。点格子、点 R/G/B 或 px 标题可快速选取整列。' },
+  'pat.presetLabel':    { 'zh-TW': '快速樣式', 'en': 'Quick patterns', 'zh-CN': '快速样式' },
+  'pat.psBlack':        { 'zh-TW': '全黑', 'en': 'Black', 'zh-CN': '全黑' },
+  'pat.psWhite':        { 'zh-TW': '全白', 'en': 'White', 'zh-CN': '全白' },
+  'pat.psRed':          { 'zh-TW': '純 R', 'en': 'R only', 'zh-CN': '纯 R' },
+  'pat.psGreen':        { 'zh-TW': '純 G', 'en': 'G only', 'zh-CN': '纯 G' },
+  'pat.psBlue':         { 'zh-TW': '純 B', 'en': 'B only', 'zh-CN': '纯 B' },
+  'pat.psChecker':      { 'zh-TW': '1×1 棋盤', 'en': '1×1 checker', 'zh-CN': '1×1 棋盘' },
+  'pat.psVStripe':      { 'zh-TW': '直條', 'en': 'V stripe', 'zh-CN': '竖条' },
+  'pat.psHStripe':      { 'zh-TW': '橫條', 'en': 'H stripe', 'zh-CN': '横条' },
+
+  'pat.viewCard':       { 'zh-TW': '預覽與全畫面顯示', 'en': 'Preview & Full-screen', 'zh-CN': '预览与全画面显示' },
+  'pat.previewHint':    { 'zh-TW': '預覽為放大顯示（3×3 個 pattern 平鋪），非 1:1 比例。', 'en': 'Preview is magnified (3×3 tiles) and is not 1:1.', 'zh-CN': '预览为放大显示（3×3 个 pattern 平铺），非 1:1 比例。' },
+  'pat.panelSideLabel': { 'zh-TW': '全畫面時控制面板位置', 'en': 'Control panel side in full-screen', 'zh-CN': '全画面时控制面板位置' },
+  'pat.sideLeft':       { 'zh-TW': '靠左', 'en': 'Left', 'zh-CN': '靠左' },
+  'pat.sideRight':      { 'zh-TW': '靠右', 'en': 'Right', 'zh-CN': '靠右' },
+  'pat.fsEnter':        { 'zh-TW': '⛶ 進入全畫面顯示', 'en': '⛶ Enter full-screen', 'zh-CN': '⛶ 进入全画面显示' },
+  'pat.fsHint': {
+    'zh-TW': '全畫面時控制面板會收到側邊隱藏。<b>滑鼠移到該側最邊緣</b>（約 26 px 內）面板就會滑出；觸控裝置請點邊緣的半透明拉柄。<br>離開方式：面板中的「✕ 離開全畫面」按鈕、鍵盤 <b>Esc</b>，或按 <b>F</b>。',
+    'en': 'In full-screen the control panel hides at the chosen edge. <b>Move the mouse to that edge</b> (within ~26 px) and it slides out; on touch devices tap the translucent handle at the edge.<br>To exit: the “✕ Exit full-screen” button in the panel, the <b>Esc</b> key, or <b>F</b>.',
+    'zh-CN': '全画面时控制面板会收到侧边隐藏。<b>鼠标移到该侧最边缘</b>（约 26 px 内）面板就会滑出；触控设备请点边缘的半透明拉柄。<br>离开方式：面板中的「✕ 离开全画面」按钮、键盘 <b>Esc</b>，或按 <b>F</b>。'
+  },
+  'pat.fsPanelTitle':   { 'zh-TW': '畫面產生器', 'en': 'Pattern Generator', 'zh-CN': '画面产生器' },
+  'pat.fsSwitchSide':   { 'zh-TW': '⇄ 切換面板左右', 'en': '⇄ Switch panel side', 'zh-CN': '⇄ 切换面板左右' },
+  'pat.fsExit':         { 'zh-TW': '✕ 離開全畫面', 'en': '✕ Exit full-screen', 'zh-CN': '✕ 离开全画面' },
+  'pat.fsInfo':         { 'zh-TW': '繪製解析度：<b>{w} × {h}</b> 裝置像素 · dPR <b>{d}</b>', 'en': 'Render size: <b>{w} × {h}</b> device px · dPR <b>{d}</b>', 'zh-CN': '绘制分辨率：<b>{w} × {h}</b> 设备像素 · dPR <b>{d}</b>' },
+  'pat.fsInfoOk':       { 'zh-TW': '✔ dPR 為整數，1 pattern 像素 = 1 實體像素。', 'en': '✔ dPR is an integer: 1 pattern pixel = 1 physical pixel.', 'zh-CN': '✔ dPR 为整数，1 pattern 像素 = 1 物理像素。' },
+  'pat.fsInfoWarn':     { 'zh-TW': '⚠ dPR 非整數，畫面會被重新取樣，非 1:1。', 'en': '⚠ dPR is not an integer: the output is resampled and is not 1:1.', 'zh-CN': '⚠ dPR 非整数，画面会被重新采样，非 1:1。' },
+
+  'wfg.title':        { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
   'wfg.subtitle':       { 'zh-TW': 'Phase Counter Timing 信號波形模擬', 'en': 'Phase Counter Timing Signal Waveform Simulator', 'zh-CN': 'Phase Counter Timing 信号波形模拟' },
   'wfg.modeTcon':       { 'zh-TW': 'TCON Timing 調整練習', 'en': 'TCON Timing Practice', 'zh-CN': 'TCON Timing 调整练习' },
   'wfg.modeSiggen':     { 'zh-TW': '訊號產生器', 'en': 'Signal Generator', 'zh-CN': '信号产生器' },

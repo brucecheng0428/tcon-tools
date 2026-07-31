@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Sub-pixel 畫面產生器：4×4 px RGB sub-pixel 編輯、全畫面 1:1 平鋪、螢幕解析度與縮放偵測">
+<meta property="og:title" content="Pattern Generator 畫面產生器 — TCON FAE專用工具箱">
+<meta property="og:description" content="Sub-pixel 畫面產生器：4×4 px RGB sub-pixel 編輯、全畫面 1:1 平鋪、螢幕解析度與縮放偵測">
+<meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/pattern.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<title>Pattern Generator 畫面產生器 — TCON FAE專用工具箱</title>
+<link rel="stylesheet" href="common/common.css?v=20260523">
+<style>
+  /* ─── PATTERN PAGE 專屬 CSS ─────────────────────── */
+  .pg-screen .card-header { background: #0e7490; }
+  .pg-edit   .card-header { background: #6d28d9; }
+  .pg-view   .card-header { background: #b45309; }
+
+  /* 資訊列 */
+  .pg-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .pg-info-item { display: flex; flex-direction: column; min-width: 0; }
+  .pg-info-label {
+    font-size: 10px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px;
+  }
+  .pg-info-val { font-size: 14px; font-weight: 700; color: var(--accent); word-break: break-word; }
+  .pg-info-val.muted { color: var(--text-sub); font-weight: 600; font-size: 12px; }
+  .pg-info-val.warn  { color: var(--warn); }
+  .pg-info-val.err   { color: var(--error); }
+  .pg-info-val.ok    { color: var(--success); }
+  .pg-info-item.wide { grid-column: 1 / -1; }
+
+  /* 提示 / 警告方塊 */
+  .pg-note {
+    border-radius: 8px; padding: 9px 11px; font-size: 12px; line-height: 1.65;
+    margin-top: 10px; border: 1.5px solid var(--border); background: #0a1628;
+    color: var(--text-sub);
+  }
+  .pg-note.ok   { border-color: var(--result-border); background: #06251c; color: #a7f3d0; }
+  .pg-note.warn { border-color: #92400e; background: #2a1a06; color: #fcd34d; }
+  .pg-note.err  { border-color: #7f1d1d; background: #2a0c0c; color: #fca5a5; }
+  .pg-note b { color: var(--text); }
+  .pg-note.ok b   { color: #d1fae5; }
+  .pg-note.warn b { color: #fef3c7; }
+  .pg-note.err b  { color: #fecaca; }
+
+  .pg-cap-list { margin: 6px 0 0; padding-left: 0; list-style: none; }
+  .pg-cap-list li { position: relative; padding-left: 15px; margin-bottom: 4px; }
+  .pg-cap-list li::before { content: '·'; position: absolute; left: 4px; font-weight: 800; }
+
+  .pg-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 14px; border-radius: 8px; border: 1.5px solid var(--border);
+    background: #0f172a; color: var(--text); font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .pg-btn:active { background: #1e3a5f; border-color: var(--accent); }
+  .pg-btn.accent { background: linear-gradient(135deg,#0369a1,#0ea5e9); border-color: transparent; color:#fff; }
+  .pg-btn.full { display: flex; width: 100%; }
+  .pg-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ─── SUB-PIXEL 編輯格 ─────────────────────────── */
+  .pg-grid-wrap { overflow-x: auto; padding-bottom: 2px; }
+  .pg-grid { display: inline-block; min-width: 100%; }
+  .pg-grid-row { display: flex; align-items: stretch; gap: 4px; margin-bottom: 4px; }
+  .pg-grid-row:last-child { margin-bottom: 0; }
+  .pg-rowhead {
+    flex: 0 0 30px; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--text-sub);
+    border: 1.5px solid var(--border); border-radius: 6px; background: #0f172a;
+    cursor: pointer; user-select: none;
+  }
+  .pg-rowhead:active { border-color: var(--accent); color: var(--accent); }
+  .pg-pxgroup { flex: 1 1 0; min-width: 0; display: flex; gap: 2px; }
+  .pg-pxgroup + .pg-pxgroup { margin-left: 6px; }
+  .pg-cell {
+    flex: 1 1 0; min-width: 0; height: 34px; border-radius: 5px;
+    border: 1.5px solid #334155; cursor: pointer; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10.5px; font-weight: 800; color: #fff;
+    text-shadow: 0 0 3px #000, 0 1px 2px #000;
+    transition: border-color .12s, box-shadow .12s;
+    user-select: none;
+  }
+  .pg-cell.sel { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+  .pg-headrow { display: flex; align-items: stretch; gap: 4px; margin-bottom: 5px; }
+  .pg-headrow .pg-rowhead { visibility: hidden; cursor: default; }
+  .pg-chhead {
+    flex: 1 1 0; min-width: 0; text-align: center; font-size: 10px; font-weight: 800;
+    letter-spacing: .5px; padding: 3px 0; border-radius: 5px; cursor: pointer;
+    border: 1.5px solid transparent; user-select: none;
+  }
+  .pg-chhead.r { color: #f87171; }
+  .pg-chhead.g { color: #4ade80; }
+  .pg-chhead.b { color: #60a5fa; }
+  .pg-chhead:active { border-color: currentColor; }
+  .pg-pxlabelrow { display: flex; align-items: stretch; gap: 4px; margin-bottom: 3px; }
+  .pg-pxlabelrow .pg-rowhead { visibility: hidden; cursor: default; }
+  .pg-pxlabel {
+    flex: 1 1 0; min-width: 0; text-align: center; font-size: 10px; font-weight: 700;
+    color: var(--text-sub); letter-spacing: .3px; cursor: pointer;
+    border: 1.5px solid transparent; border-radius: 5px; padding: 2px 0;
+    user-select: none;
+  }
+  .pg-pxlabel + .pg-pxlabel { margin-left: 6px; }
+  .pg-pxlabel:active { border-color: var(--accent); color: var(--accent); }
+
+  .pg-selbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    margin-top: 10px; padding: 7px 10px; background: #0c1a2e;
+    border: 1.5px dashed var(--border); border-radius: 8px; font-size: 12px;
+    color: var(--text-sub); flex-wrap: wrap;
+  }
+  .pg-selbar b { color: var(--accent); font-size: 13px; }
+  .pg-minibtns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pg-mini {
+    padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: 6px;
+    border: 1.5px solid var(--border); background: #0f172a; color: var(--text-sub);
+    cursor: pointer;
+  }
+  .pg-mini:active { border-color: var(--accent); color: var(--accent); }
+
+  /* 灰階控制 */
+  .pg-level-box { margin-top: 12px; }
+  .pg-level-row { display: flex; align-items: center; gap: 8px; }
+  .pg-level-row input[type="number"] { width: 84px; flex: 0 0 84px; text-align: center; font-weight: 800; }
+  .pg-level-row input[type="range"] {
+    flex: 1 1 0; min-width: 0; -webkit-appearance: none; appearance: none;
+    height: 8px; border-radius: 4px; background: linear-gradient(90deg,#000,#fff);
+    border: 1.5px solid var(--border); outline: none;
+  }
+  .pg-level-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #0f172a; cursor: pointer;
+  }
+  .pg-level-row input[type="range"]::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent);
+    border: 2px solid #0f172a; cursor: pointer;
+  }
+  .pg-quick { display: grid; grid-template-columns: repeat(6,1fr); gap: 5px; margin-top: 8px; }
+  .pg-nudge { display: grid; grid-template-columns: repeat(4,1fr); gap: 5px; margin-top: 6px; }
+  .pg-presets { display: grid; grid-template-columns: repeat(4,1fr); gap: 5px; margin-top: 8px; }
+  @media (max-width: 380px) { .pg-quick { grid-template-columns: repeat(3,1fr); } }
+
+  /* 預覽 */
+  .pg-preview-wrap {
+    display: flex; align-items: center; justify-content: center;
+    background: #000; border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 10px; margin-top: 2px;
+  }
+  #pg-preview { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+
+  /* ─── 全畫面 OVERLAY ───────────────────────────── */
+  #pg-fs {
+    position: fixed; inset: 0; z-index: 10000; background: #000; display: none;
+  }
+  #pg-fs.on { display: block; }
+  #pg-fs-canvas {
+    position: absolute; left: 0; top: 0; display: block;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+  }
+  .pg-hot { position: absolute; top: 0; bottom: 0; width: 26px; z-index: 3; }
+  .pg-hot.left { left: 0; } .pg-hot.right { right: 0; }
+
+  .pg-handle {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
+    width: 16px; height: 62px; border-radius: 8px;
+    background: rgba(120,120,120,.55); color: #fff; font-size: 11px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    opacity: .85; transition: opacity .5s ease; border: none;
+  }
+  .pg-handle.dim { opacity: .07; }
+  .pg-handle.left { left: 0; border-radius: 0 8px 8px 0; }
+  .pg-handle.right { right: 0; border-radius: 8px 0 0 8px; }
+
+  #pg-fs-panel {
+    position: absolute; top: 0; bottom: 0; width: 290px; max-width: 86vw; z-index: 6;
+    background: rgba(15,23,42,.97); border-right: 1.5px solid var(--border);
+    box-shadow: 0 0 24px rgba(0,0,0,.7);
+    overflow-y: auto; padding: 12px;
+    transition: transform .22s ease;
+  }
+  #pg-fs-panel.side-left  { left: 0;  transform: translateX(-102%); border-right: 1.5px solid var(--border); border-left: none; }
+  #pg-fs-panel.side-right { right: 0; transform: translateX(102%);  border-left: 1.5px solid var(--border); border-right: none; }
+  #pg-fs-panel.open { transform: translateX(0); }
+  #pg-fs-panel h3 { font-size: 13px; font-weight: 800; margin-bottom: 8px; color: var(--text); }
+  #pg-fs-panel .pg-btn { margin-top: 6px; }
+  .pg-fs-info { font-size: 11px; color: var(--text-sub); line-height: 1.7; margin-top: 8px; }
+  .pg-fs-info b { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text" data-i18n="ptr.pull">下拉刷新</span></div>
+
+<div class="header subpage-header">
+  <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
+  <h1><svg width="20" height="16" viewBox="0 0 28 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><rect x="1" y="1" width="26" height="20" rx="2.5" stroke="#f472b6" stroke-width="1.6" fill="none"/><rect x="5" y="5" width="4" height="4" fill="#f87171"/><rect x="10" y="5" width="4" height="4" fill="#4ade80"/><rect x="15" y="5" width="4" height="4" fill="#60a5fa"/><rect x="20" y="5" width="3" height="4" fill="#e2e8f0"/><rect x="5" y="12" width="4" height="4" fill="#60a5fa"/><rect x="10" y="12" width="4" height="4" fill="#f87171"/><rect x="15" y="12" width="4" height="4" fill="#4ade80"/><rect x="20" y="12" width="3" height="4" fill="#475569"/></svg><span data-i18n="pat.title">Pattern Generator 畫面產生器</span> <span style="display:inline-block;background:#f472b6;color:#500724;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="pattern"></span></h1>
+  <p data-i18n="pat.subtitle">Sub-pixel 編輯 · 全畫面 1:1 平鋪</p>
+  <div class="lang-switcher">
+    <select id="lang-select" class="lang-select" aria-label="Language">
+      <option value="zh-TW">繁體中文</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ═══ 螢幕資訊 ═══ -->
+  <div class="card pg-screen">
+    <div class="card-header"><span class="icon">🖥️</span><span data-i18n="pat.screenCard">螢幕資訊與縮放偵測</span></div>
+    <div class="card-body">
+      <div class="pg-info-grid">
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblCssRes">CSS 邏輯解析度</div>
+          <div class="pg-info-val" id="pg-css-res">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblDpr">devicePixelRatio</div>
+          <div class="pg-info-val" id="pg-dpr">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblDevRes">推算裝置像素</div>
+          <div class="pg-info-val" id="pg-dev-res">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblInner">視窗內部尺寸</div>
+          <div class="pg-info-val muted" id="pg-inner">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblAvail">可用區域</div>
+          <div class="pg-info-val muted" id="pg-avail">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblColor">色彩深度</div>
+          <div class="pg-info-val muted" id="pg-color">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblOrient">螢幕方向</div>
+          <div class="pg-info-val muted" id="pg-orient">—</div>
+        </div>
+        <div class="pg-info-item">
+          <div class="pg-info-label" data-i18n="pat.lblExtended">多螢幕 (isExtended)</div>
+          <div class="pg-info-val muted" id="pg-extended">—</div>
+        </div>
+      </div>
+
+      <div class="pg-note" id="pg-dpr-note">—</div>
+
+      <div style="margin-top:10px">
+        <button class="pg-btn full" id="pg-wm-btn" data-i18n="pat.wmBtn">🔎 取得每台螢幕詳細資訊（需授權）</button>
+        <div class="pg-note" id="pg-wm-out" style="display:none"></div>
+      </div>
+
+      <div class="pg-note" id="pg-cap-note"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Sub-pixel 編輯 ═══ -->
+  <div class="card pg-edit">
+    <div class="card-header"><span class="icon">🎛️</span><span data-i18n="pat.editorCard">Sub-pixel 編輯（4 px × 4 列）</span></div>
+    <div class="card-body">
+      <div class="pg-grid-wrap">
+        <div class="pg-grid">
+          <div class="pg-pxlabelrow" id="pg-pxlabelrow"></div>
+          <div class="pg-headrow" id="pg-headrow"></div>
+          <div id="pg-rows"></div>
+        </div>
+      </div>
+
+      <div class="pg-selbar">
+        <div><span data-i18n="pat.selected">已選取</span> <b id="pg-selcount">0</b> <span data-i18n="pat.subpxUnit">個 sub-pixel</span></div>
+        <div class="pg-minibtns">
+          <button class="pg-mini" id="pg-sel-all" data-i18n="pat.selAll">全選</button>
+          <button class="pg-mini" id="pg-sel-none" data-i18n="pat.selNone">取消選取</button>
+        </div>
+      </div>
+
+      <div class="pg-level-box">
+        <label data-i18n="pat.levelLabel">灰階 L0 – L255（套用到已選取的 sub-pixel）</label>
+        <div class="pg-level-row">
+          <input type="number" id="pg-level-num" min="0" max="255" step="1" value="0">
+          <input type="range" id="pg-level-range" min="0" max="255" step="1" value="0">
+        </div>
+        <div class="pg-quick">
+          <button class="pg-mini pg-lv" data-lv="0">L0</button>
+          <button class="pg-mini pg-lv" data-lv="32">L32</button>
+          <button class="pg-mini pg-lv" data-lv="64">L64</button>
+          <button class="pg-mini pg-lv" data-lv="128">L128</button>
+          <button class="pg-mini pg-lv" data-lv="192">L192</button>
+          <button class="pg-mini pg-lv" data-lv="255">L255</button>
+        </div>
+        <div class="pg-nudge">
+          <button class="pg-mini pg-nd" data-d="-16">−16</button>
+          <button class="pg-mini pg-nd" data-d="-1">−1</button>
+          <button class="pg-mini pg-nd" data-d="1">+1</button>
+          <button class="pg-mini pg-nd" data-d="16">+16</button>
+        </div>
+        <div class="field-hint" data-i18n="pat.levelHint">未選取任何 sub-pixel 時，灰階設定不會套用。點格子、點 R/G/B 或 px 標題可快速選取整欄。</div>
+      </div>
+
+      <div class="divider"></div>
+      <label data-i18n="pat.presetLabel">快速樣式</label>
+      <div class="pg-presets">
+        <button class="pg-mini pg-ps" data-ps="black" data-i18n="pat.psBlack">全黑</button>
+        <button class="pg-mini pg-ps" data-ps="white" data-i18n="pat.psWhite">全白</button>
+        <button class="pg-mini pg-ps" data-ps="red" data-i18n="pat.psRed">純 R</button>
+        <button class="pg-mini pg-ps" data-ps="green" data-i18n="pat.psGreen">純 G</button>
+        <button class="pg-mini pg-ps" data-ps="blue" data-i18n="pat.psBlue">純 B</button>
+        <button class="pg-mini pg-ps" data-ps="checker" data-i18n="pat.psChecker">1×1 棋盤</button>
+        <button class="pg-mini pg-ps" data-ps="vstripe" data-i18n="pat.psVStripe">直條</button>
+        <button class="pg-mini pg-ps" data-ps="hstripe" data-i18n="pat.psHStripe">橫條</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 預覽與全畫面 ═══ -->
+  <div class="card pg-view">
+    <div class="card-header"><span class="icon">🔍</span><span data-i18n="pat.viewCard">預覽與全畫面顯示</span></div>
+    <div class="card-body">
+      <div class="pg-preview-wrap"><canvas id="pg-preview"></canvas></div>
+      <div class="field-hint" style="margin-top:6px" data-i18n="pat.previewHint">預覽為放大顯示（3×3 個 pattern 平鋪），非 1:1 比例。</div>
+
+      <div class="divider"></div>
+      <label data-i18n="pat.panelSideLabel">全畫面時控制面板位置</label>
+      <div class="radio-group">
+        <div class="radio-opt">
+          <input type="radio" name="pg-side" id="pg-side-left" value="left" checked>
+          <label for="pg-side-left" data-i18n="pat.sideLeft">靠左</label>
+        </div>
+        <div class="radio-opt">
+          <input type="radio" name="pg-side" id="pg-side-right" value="right">
+          <label for="pg-side-right" data-i18n="pat.sideRight">靠右</label>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <button class="pg-btn accent full" id="pg-fs-enter" data-i18n="pat.fsEnter">⛶ 進入全畫面顯示</button>
+      </div>
+      <div class="pg-note" data-i18n-html="pat.fsHint"></div>
+    </div>
+  </div>
+
+  <div class="footer-back">
+    <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
+  </div>
+</div>
+
+<!-- ═══ 全畫面 OVERLAY ═══ -->
+<div id="pg-fs">
+  <canvas id="pg-fs-canvas"></canvas>
+  <div class="pg-hot left"  id="pg-hot-left"></div>
+  <div class="pg-hot right" id="pg-hot-right"></div>
+  <button class="pg-handle left" id="pg-handle" aria-label="panel">‹</button>
+  <div id="pg-fs-panel" class="side-left">
+    <h3 data-i18n="pat.fsPanelTitle">畫面產生器</h3>
+    <div id="pg-fs-quick"></div>
+    <button class="pg-btn full" id="pg-fs-side-toggle" data-i18n="pat.fsSwitchSide">⇄ 切換面板左右</button>
+    <button class="pg-btn full accent" id="pg-fs-exit" data-i18n="pat.fsExit">✕ 離開全畫面</button>
+    <div class="pg-fs-info" id="pg-fs-info"></div>
+  </div>
+</div>
+
+<!-- 共用 JS（i18n 必須先於 common.js 載入） -->
+<script src="common/version.js?v=20260731pat1"></script>
+<script src="common/i18n.js?v=20260731pat1"></script>
+<script src="common/common.js?v=20260523"></script>
+<script>
+// ═══════════ Pattern Generator（畫面產生器） ═══════════
+(function(){
+  'use strict';
+
+  var CH = ['R','G','B'];
+  var NPX = 4, NROW = 4;
+
+  // levels[row][px][ch] = 0..255
+  var pgLevels = [];
+  for (var r = 0; r < NROW; r++) {
+    pgLevels[r] = [];
+    for (var p = 0; p < NPX; p++) pgLevels[r][p] = [0, 0, 0];
+  }
+  var pgSel = {};          // key "r-p-c" -> true
+  var pgSide = 'left';
+  var pgHandleTimer = null;
+  var pgPanelTimer = null;
+  var pgKeepOpenUntil = 0;   // 剛切換左右／剛手動開啟時，暫時不因滑鼠位置自動收合
+
+  function key(r,p,c){ return r + '-' + p + '-' + c; }
+  function selCount(){ return Object.keys(pgSel).length; }
+
+  // ─── 螢幕資訊 ─────────────────────────────────────
+  function pgFmtNum(n){
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    return (Math.round(n * 1000) / 1000).toString();
+  }
+  function pgRefreshScreenInfo(){
+    var s = window.screen || {};
+    var dpr = window.devicePixelRatio || 1;
+    var setTxt = function(id, txt, cls){
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = txt;
+      el.className = 'pg-info-val' + (cls ? ' ' + cls : '');
+    };
+    setTxt('pg-css-res', (s.width || 0) + ' × ' + (s.height || 0) + ' ' + t('pat.cssPxUnit'));
+    setTxt('pg-dpr', pgFmtNum(dpr));
+    setTxt('pg-dev-res', Math.round((s.width||0)*dpr) + ' × ' + Math.round((s.height||0)*dpr), 'warn');
+    setTxt('pg-inner', window.innerWidth + ' × ' + window.innerHeight, 'muted');
+    setTxt('pg-avail', (s.availWidth||0) + ' × ' + (s.availHeight||0), 'muted');
+    setTxt('pg-color', (s.colorDepth != null ? s.colorDepth + ' bit' : '—'), 'muted');
+    var ori = (s.orientation && s.orientation.type) ? s.orientation.type : t('pat.unknown');
+    setTxt('pg-orient', ori, 'muted');
+    var ext;
+    if (typeof s.isExtended === 'undefined') ext = t('pat.apiUnsupported');
+    else ext = s.isExtended ? t('pat.yes') : t('pat.no');
+    setTxt('pg-extended', ext, 'muted');
+
+    // dPR 是否整數 → 1:1 可行性
+    var note = document.getElementById('pg-dpr-note');
+    var isInt = Math.abs(dpr - Math.round(dpr)) < 1e-6;
+    if (isInt) {
+      note.className = 'pg-note ok';
+      note.innerHTML = t('pat.dprIntOk', { d: pgFmtNum(dpr) });
+    } else {
+      note.className = 'pg-note err';
+      note.innerHTML = t('pat.dprNonInt', { d: pgFmtNum(dpr) });
+    }
+
+    // 能力說明（(a)(b)(c) 三類，誠實列出）
+    var cap = document.getElementById('pg-cap-note');
+    cap.className = 'pg-note warn';
+    cap.innerHTML = t('pat.capBlock');
+  }
+
+  // ─── Window Management API（僅 Chromium 系） ────────
+  function pgWmInit(){
+    var btn = document.getElementById('pg-wm-btn');
+    var out = document.getElementById('pg-wm-out');
+    if (typeof window.getScreenDetails !== 'function') {
+      btn.disabled = true;
+      out.style.display = 'block';
+      out.className = 'pg-note';
+      out.innerHTML = t('pat.wmUnsupported');
+      return;
+    }
+    btn.addEventListener('click', function(){
+      out.style.display = 'block';
+      out.className = 'pg-note';
+      out.textContent = t('pat.wmLoading');
+      window.getScreenDetails().then(function(det){
+        var cur = det.currentScreen;
+        var html = '<b>' + escapeHtml(t('pat.wmScreens', { n: det.screens.length })) + '</b><ul class="pg-cap-list">';
+        det.screens.forEach(function(sc, i){
+          var tags = [];
+          if (sc.isPrimary)  tags.push(t('pat.wmPrimary'));
+          if (sc.isInternal) tags.push(t('pat.wmInternal')); else tags.push(t('pat.wmExternal'));
+          if (sc === cur) tags.push(t('pat.wmCurrent'));
+          html += '<li>#' + (i+1) + ' ' + escapeHtml(sc.label || '—') +
+                  ' — ' + sc.width + ' × ' + sc.height + ' ' + escapeHtml(t('pat.cssPxUnit')) +
+                  ' · dPR ' + pgFmtNum(sc.devicePixelRatio) +
+                  ' · ' + escapeHtml(tags.join(' / ')) + '</li>';
+        });
+        html += '</ul>';
+        if (cur && cur.devicePixelRatio) {
+          var zoom = (window.devicePixelRatio || 1) / cur.devicePixelRatio;
+          var zpct = Math.round(zoom * 1000) / 10;
+          html += '<div style="margin-top:6px">' + t('pat.wmZoomEst', { z: zpct }) + '</div>';
+          if (Math.abs(zoom - 1) > 0.01) {
+            html += '<div style="margin-top:4px;color:#fca5a5"><b>' + escapeHtml(t('pat.wmZoomNot100')) + '</b></div>';
+          }
+        }
+        out.className = 'pg-note ok';
+        out.innerHTML = html;
+      }).catch(function(err){
+        out.className = 'pg-note err';
+        out.innerHTML = t('pat.wmDenied', { e: escapeHtml(String(err && err.name || err)) });
+      });
+    });
+  }
+
+  // ─── 編輯格渲染 ───────────────────────────────────
+  function pgCellColor(c, v){
+    if (c === 0) return 'rgb(' + v + ',0,0)';
+    if (c === 1) return 'rgb(0,' + v + ',0)';
+    return 'rgb(0,0,' + v + ')';
+  }
+  function pgBuildHeaders(){
+    var pxrow = document.getElementById('pg-pxlabelrow');
+    var chrow = document.getElementById('pg-headrow');
+    pxrow.innerHTML = '';
+    chrow.innerHTML = '';
+    var sp1 = document.createElement('div'); sp1.className = 'pg-rowhead'; sp1.textContent = '.';
+    pxrow.appendChild(sp1);
+    var sp2 = document.createElement('div'); sp2.className = 'pg-rowhead'; sp2.textContent = '.';
+    chrow.appendChild(sp2);
+    for (var p = 0; p < NPX; p++) {
+      var lab = document.createElement('div');
+      lab.className = 'pg-pxlabel';
+      lab.setAttribute('data-px', p);
+      lab.textContent = 'px' + (p + 1);
+      pxrow.appendChild(lab);
+
+      var grp = document.createElement('div');
+      grp.className = 'pg-pxgroup';
+      for (var c = 0; c < 3; c++) {
+        var h = document.createElement('div');
+        h.className = 'pg-chhead ' + CH[c].toLowerCase();
+        h.setAttribute('data-ch', c);
+        h.textContent = CH[c];
+        grp.appendChild(h);
+      }
+      chrow.appendChild(grp);
+    }
+  }
+  function pgBuildRows(){
+    var wrap = document.getElementById('pg-rows');
+    wrap.innerHTML = '';
+    for (var r = 0; r < NROW; r++) {
+      var row = document.createElement('div');
+      row.className = 'pg-grid-row';
+      var rh = document.createElement('div');
+      rh.className = 'pg-rowhead';
+      rh.setAttribute('data-row', r);
+      rh.textContent = 'L' + (r + 1);
+      row.appendChild(rh);
+      for (var p = 0; p < NPX; p++) {
+        var grp = document.createElement('div');
+        grp.className = 'pg-pxgroup';
+        for (var c = 0; c < 3; c++) {
+          var cell = document.createElement('div');
+          cell.className = 'pg-cell';
+          cell.setAttribute('data-r', r);
+          cell.setAttribute('data-p', p);
+          cell.setAttribute('data-c', c);
+          grp.appendChild(cell);
+        }
+        row.appendChild(grp);
+      }
+      wrap.appendChild(row);
+    }
+  }
+  function pgPaintCells(){
+    document.querySelectorAll('#pg-rows .pg-cell').forEach(function(cell){
+      var r = +cell.getAttribute('data-r'), p = +cell.getAttribute('data-p'), c = +cell.getAttribute('data-c');
+      var v = pgLevels[r][p][c];
+      cell.style.background = pgCellColor(c, v);
+      cell.textContent = v;
+      if (pgSel[key(r,p,c)]) cell.classList.add('sel'); else cell.classList.remove('sel');
+    });
+    document.getElementById('pg-selcount').textContent = selCount();
+  }
+
+  function pgToggle(r,p,c){
+    var k = key(r,p,c);
+    if (pgSel[k]) delete pgSel[k]; else pgSel[k] = true;
+  }
+  function pgSelectSet(list, mode){
+    // mode: 全部已選 → 取消；否則全選
+    var allSel = list.every(function(k){ return !!pgSel[k]; });
+    list.forEach(function(k){ if (allSel) delete pgSel[k]; else pgSel[k] = true; });
+  }
+
+  function pgApplyLevel(v){
+    v = Math.max(0, Math.min(255, Math.round(v)));
+    Object.keys(pgSel).forEach(function(k){
+      var a = k.split('-');
+      pgLevels[+a[0]][+a[1]][+a[2]] = v;
+    });
+    pgPaintCells();
+    pgRenderPreview();
+    pgRenderFill();
+  }
+  function pgNudge(d){
+    Object.keys(pgSel).forEach(function(k){
+      var a = k.split('-');
+      var cur = pgLevels[+a[0]][+a[1]][+a[2]];
+      pgLevels[+a[0]][+a[1]][+a[2]] = Math.max(0, Math.min(255, cur + d));
+    });
+    pgPaintCells();
+    pgRenderPreview();
+    pgRenderFill();
+  }
+  function pgSetAll(fn){
+    for (var r = 0; r < NROW; r++)
+      for (var p = 0; p < NPX; p++)
+        for (var c = 0; c < 3; c++)
+          pgLevels[r][p][c] = fn(r,p,c);
+    pgPaintCells();
+    pgRenderPreview();
+    pgRenderFill();
+  }
+  function pgPreset(name){
+    switch (name) {
+      case 'black':   pgSetAll(function(){ return 0; }); break;
+      case 'white':   pgSetAll(function(){ return 255; }); break;
+      case 'red':     pgSetAll(function(r,p,c){ return c === 0 ? 255 : 0; }); break;
+      case 'green':   pgSetAll(function(r,p,c){ return c === 1 ? 255 : 0; }); break;
+      case 'blue':    pgSetAll(function(r,p,c){ return c === 2 ? 255 : 0; }); break;
+      case 'checker': pgSetAll(function(r,p){ return ((r + p) % 2 === 0) ? 255 : 0; }); break;
+      case 'vstripe': pgSetAll(function(r,p){ return (p % 2 === 0) ? 255 : 0; }); break;
+      case 'hstripe': pgSetAll(function(r){ return (r % 2 === 0) ? 255 : 0; }); break;
+    }
+  }
+
+  // ─── 預覽（3×3 平鋪、整數倍放大） ─────────────────
+  function pgRenderPreview(){
+    var cv = document.getElementById('pg-preview');
+    if (!cv) return;
+    var dpr = window.devicePixelRatio || 1;
+    var tiles = 3;
+    var patW = NPX * tiles, patH = NROW * tiles;   // 12 × 12 pattern 像素
+    var wrap = cv.parentElement;
+    var avail = Math.max(120, (wrap.clientWidth || 240) - 20);
+    var cssScale = Math.max(4, Math.floor(avail / patW));
+    var devScale = Math.max(1, Math.round(cssScale * dpr));   // 整數倍 → 不糊
+    var W = patW * devScale, H = patH * devScale;
+    cv.width = W; cv.height = H;
+    cv.style.width  = (W / dpr) + 'px';
+    cv.style.height = (H / dpr) + 'px';
+    var ctx = cv.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = false;
+    var img = ctx.createImageData(W, H);
+    var d = img.data;
+    for (var y = 0; y < H; y++) {
+      var pr = Math.floor(y / devScale) % NROW;
+      for (var x = 0; x < W; x++) {
+        var pp = Math.floor(x / devScale) % NPX;
+        var o = (y * W + x) * 4;
+        d[o]   = pgLevels[pr][pp][0];
+        d[o+1] = pgLevels[pr][pp][1];
+        d[o+2] = pgLevels[pr][pp][2];
+        d[o+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // ─── 全畫面 1:1 平鋪 ──────────────────────────────
+  // 直接以 ImageData 逐「裝置像素」填色，過程中沒有任何縮放／內插，
+  // 因此 canvas backing store 的 1 像素 = pattern 的 1 像素。
+  function pgRenderFill(){
+    var ov = document.getElementById('pg-fs');
+    if (!ov || !ov.classList.contains('on')) return;
+    var cv = document.getElementById('pg-fs-canvas');
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = window.innerWidth, cssH = window.innerHeight;
+    var W = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
+    if (W < 1 || H < 1) return;
+    cv.style.width  = cssW + 'px';
+    cv.style.height = cssH + 'px';
+    cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = false;
+    var img = ctx.createImageData(W, H);
+    var d = img.data;
+    var rowBytes = W * 4;
+    // 先建 4 條 template row，之後整列複製（快很多）
+    var tmpl = new Uint8ClampedArray(rowBytes * NROW);
+    for (var r = 0; r < NROW; r++) {
+      for (var x = 0; x < W; x++) {
+        var p = x % NPX;
+        var o = r * rowBytes + x * 4;
+        tmpl[o]   = pgLevels[r][p][0];
+        tmpl[o+1] = pgLevels[r][p][1];
+        tmpl[o+2] = pgLevels[r][p][2];
+        tmpl[o+3] = 255;
+      }
+    }
+    for (var y = 0; y < H; y++) {
+      var t0 = (y % NROW) * rowBytes;
+      d.set(tmpl.subarray(t0, t0 + rowBytes), y * rowBytes);
+    }
+    ctx.putImageData(img, 0, 0);
+    pgUpdateFsInfo();
+  }
+
+  function pgUpdateFsInfo(){
+    var el = document.getElementById('pg-fs-info');
+    if (!el) return;
+    var dpr = window.devicePixelRatio || 1;
+    var W = Math.round(window.innerWidth * dpr), H = Math.round(window.innerHeight * dpr);
+    var isInt = Math.abs(dpr - Math.round(dpr)) < 1e-6;
+    el.innerHTML = t('pat.fsInfo', { w: W, h: H, d: pgFmtNum(dpr) }) +
+      '<br>' + (isInt ? t('pat.fsInfoOk') : t('pat.fsInfoWarn'));
+  }
+
+  // ─── 全畫面控制面板 ──────────────────────────────
+  function pgApplySide(){
+    var panel = document.getElementById('pg-fs-panel');
+    var handle = document.getElementById('pg-handle');
+    panel.classList.remove('side-left', 'side-right');
+    panel.classList.add('side-' + pgSide);
+    handle.classList.remove('left', 'right');
+    handle.classList.add(pgSide);
+    handle.textContent = pgSide === 'left' ? '›' : '‹';
+    var lr = document.getElementById('pg-side-' + pgSide);
+    if (lr) lr.checked = true;
+  }
+  function pgPanelOpen(open){
+    var panel = document.getElementById('pg-fs-panel');
+    if (open) panel.classList.add('open'); else panel.classList.remove('open');
+    if (open) pgHandleWake();
+  }
+  function pgHandleWake(){
+    var h = document.getElementById('pg-handle');
+    h.classList.remove('dim');
+    clearTimeout(pgHandleTimer);
+    pgHandleTimer = setTimeout(function(){ h.classList.add('dim'); }, 3000);
+  }
+
+  function pgEnterFs(){
+    var ov = document.getElementById('pg-fs');
+    ov.classList.add('on');
+    pgApplySide();
+    pgPanelOpen(false);
+    pgHandleWake();
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (req) {
+      try {
+        var pr = req.call(el, { navigationUI: 'hide' });
+        if (pr && pr.catch) pr.catch(function(){});
+      } catch (e) {}
+    }
+    setTimeout(pgRenderFill, 60);
+    setTimeout(pgRenderFill, 350);
+    pgRenderFill();
+  }
+  function pgExitFs(){
+    var ov = document.getElementById('pg-fs');
+    ov.classList.remove('on');
+    pgPanelOpen(false);
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      var ex = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+      if (ex) { try { var pr = ex.call(document); if (pr && pr.catch) pr.catch(function(){}); } catch(e){} }
+    }
+  }
+
+  // ─── 事件綁定 ─────────────────────────────────────
+  function pgBind(){
+    // 編輯格點擊
+    document.getElementById('pg-rows').addEventListener('click', function(e){
+      var cell = e.target.closest('.pg-cell');
+      if (cell) {
+        pgToggle(+cell.getAttribute('data-r'), +cell.getAttribute('data-p'), +cell.getAttribute('data-c'));
+        pgPaintCells();
+        return;
+      }
+      var rh = e.target.closest('.pg-rowhead[data-row]');
+      if (rh) {
+        var r = +rh.getAttribute('data-row'), list = [];
+        for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) list.push(key(r,p,c));
+        pgSelectSet(list);
+        pgPaintCells();
+      }
+    });
+    // px 標題 → 選該 px 的 3 個 sub-pixel（全部 4 列）
+    document.getElementById('pg-pxlabelrow').addEventListener('click', function(e){
+      var lab = e.target.closest('.pg-pxlabel');
+      if (!lab) return;
+      var p = +lab.getAttribute('data-px'), list = [];
+      for (var r = 0; r < NROW; r++) for (var c = 0; c < 3; c++) list.push(key(r,p,c));
+      pgSelectSet(list);
+      pgPaintCells();
+    });
+    // R/G/B 標題 → 選該 px 的該通道（全部 4 列）
+    document.getElementById('pg-headrow').addEventListener('click', function(e){
+      var h = e.target.closest('.pg-chhead');
+      if (!h) return;
+      var c = +h.getAttribute('data-ch');
+      var grp = h.parentElement;
+      var p = Array.prototype.indexOf.call(grp.parentElement.querySelectorAll('.pg-pxgroup'), grp);
+      var list = [];
+      for (var r = 0; r < NROW; r++) list.push(key(r,p,c));
+      pgSelectSet(list);
+      pgPaintCells();
+    });
+
+    document.getElementById('pg-sel-all').addEventListener('click', function(){
+      for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) pgSel[key(r,p,c)] = true;
+      pgPaintCells();
+    });
+    document.getElementById('pg-sel-none').addEventListener('click', function(){
+      pgSel = {};
+      pgPaintCells();
+    });
+
+    var num = document.getElementById('pg-level-num');
+    var rng = document.getElementById('pg-level-range');
+    num.addEventListener('input', function(){
+      var v = parseInt(num.value, 10);
+      if (isNaN(v)) return;
+      v = Math.max(0, Math.min(255, v));
+      rng.value = v;
+      pgApplyLevel(v);
+    });
+    rng.addEventListener('input', function(){
+      num.value = rng.value;
+      pgApplyLevel(+rng.value);
+    });
+    document.querySelectorAll('.pg-lv').forEach(function(b){
+      b.addEventListener('click', function(){
+        var v = +b.getAttribute('data-lv');
+        num.value = v; rng.value = v;
+        pgApplyLevel(v);
+      });
+    });
+    document.querySelectorAll('.pg-nd').forEach(function(b){
+      b.addEventListener('click', function(){ pgNudge(+b.getAttribute('data-d')); });
+    });
+    document.querySelectorAll('.pg-ps').forEach(function(b){
+      b.addEventListener('click', function(){ pgPreset(b.getAttribute('data-ps')); });
+    });
+
+    document.querySelectorAll('input[name="pg-side"]').forEach(function(rd){
+      rd.addEventListener('change', function(){
+        if (rd.checked) { pgSide = rd.value; pgApplySide(); }
+      });
+    });
+
+    document.getElementById('pg-fs-enter').addEventListener('click', pgEnterFs);
+    document.getElementById('pg-fs-exit').addEventListener('click', pgExitFs);
+    document.getElementById('pg-fs-side-toggle').addEventListener('click', function(){
+      pgSide = (pgSide === 'left') ? 'right' : 'left';
+      pgApplySide();
+      clearTimeout(pgPanelTimer);
+      pgKeepOpenUntil = Date.now() + 2500;   // 切換後滑鼠還停在原側，先別自動收合
+      pgPanelOpen(true);
+    });
+    document.getElementById('pg-handle').addEventListener('click', function(e){
+      e.stopPropagation();
+      var panel = document.getElementById('pg-fs-panel');
+      var willOpen = !panel.classList.contains('open');
+      clearTimeout(pgPanelTimer);
+      if (willOpen) pgKeepOpenUntil = Date.now() + 2500;
+      pgPanelOpen(willOpen);
+    });
+
+    // 滑鼠移到指定側邊緣 → 面板滑出
+    var ov = document.getElementById('pg-fs');
+    ov.addEventListener('mousemove', function(e){
+      pgHandleWake();
+      var panel = document.getElementById('pg-fs-panel');
+      var edge = 26;
+      var atEdge = (pgSide === 'left') ? (e.clientX <= edge)
+                                       : (e.clientX >= window.innerWidth - edge);
+      if (atEdge) {
+        clearTimeout(pgPanelTimer);
+        pgPanelOpen(true);
+      } else if (Date.now() < pgKeepOpenUntil) {
+        clearTimeout(pgPanelTimer);
+      } else if (panel.classList.contains('open')) {
+        var rect = panel.getBoundingClientRect();
+        var inside = e.clientX >= rect.left && e.clientX <= rect.right;
+        if (!inside) {
+          clearTimeout(pgPanelTimer);
+          pgPanelTimer = setTimeout(function(){ pgPanelOpen(false); }, 450);
+        } else {
+          clearTimeout(pgPanelTimer);
+        }
+      }
+    });
+
+    // 鍵盤：Esc / F 離開全畫面
+    document.addEventListener('keydown', function(e){
+      var ov = document.getElementById('pg-fs');
+      if (!ov.classList.contains('on')) return;
+      if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
+        pgExitFs();
+      }
+    });
+    // 使用者用瀏覽器方式離開全螢幕 → 同步關掉 overlay
+    document.addEventListener('fullscreenchange', function(){
+      if (!document.fullscreenElement) {
+        var ov = document.getElementById('pg-fs');
+        if (ov.classList.contains('on')) ov.classList.remove('on');
+      } else {
+        pgRenderFill();
+      }
+    });
+
+    window.addEventListener('resize', function(){
+      pgRefreshScreenInfo();
+      pgRenderPreview();
+      pgRenderFill();
+    });
+    // dPR 改變（換螢幕 / 改縮放）→ 重新偵測
+    if (window.matchMedia) {
+      var watch = function(){
+        var mq = window.matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)');
+        var h = function(){
+          pgRefreshScreenInfo();
+          pgRenderPreview();
+          pgRenderFill();
+          watch();
+        };
+        if (mq.addEventListener) mq.addEventListener('change', h, { once: true });
+        else if (mq.addListener) mq.addListener(h);
+      };
+      try { watch(); } catch (e) {}
+    }
+  }
+
+  // 全畫面面板內的快速樣式鈕（與主頁面共用 pgPreset）
+  var PS_LIST = [
+    ['black','pat.psBlack'], ['white','pat.psWhite'],
+    ['red','pat.psRed'], ['green','pat.psGreen'], ['blue','pat.psBlue'],
+    ['checker','pat.psChecker'], ['vstripe','pat.psVStripe'], ['hstripe','pat.psHStripe']
+  ];
+  function pgBuildFsQuick(){
+    var box = document.getElementById('pg-fs-quick');
+    box.innerHTML = '';
+    var grid = document.createElement('div');
+    grid.className = 'pg-presets';
+    grid.style.marginTop = '0';
+    PS_LIST.forEach(function(it){
+      var b = document.createElement('button');
+      b.className = 'pg-mini';
+      b.setAttribute('data-i18n', it[1]);
+      b.textContent = t(it[1]);
+      b.addEventListener('click', function(){ pgPreset(it[0]); });
+      grid.appendChild(b);
+    });
+    box.appendChild(grid);
+  }
+
+  // 語言切換後重繪動態文字
+  window._onLangChange = function(){
+    pgRefreshScreenInfo();
+    pgUpdateFsInfo();
+  };
+
+  // ─── 初始化 ───────────────────────────────────────
+  pgBuildHeaders();
+  pgBuildRows();
+  pgPreset('white');       // 預設全白，方便一開始就看到畫面
+  pgSel = {};
+  pgPaintCells();
+  pgRefreshScreenInfo();
+  pgWmInit();
+  pgBuildFsQuick();
+  pgBind();
+  pgRenderPreview();
+
+  // 對外（除錯／驗證用）
+  window.pgLevels     = pgLevels;
+  window.pgRenderFill = pgRenderFill;
+  window.pgEnterFs    = pgEnterFs;
+  window.pgExitFs     = pgExitFs;
+  window.pgSetLevel   = function(r,p,c,v){ pgLevels[r][p][c] = v; pgPaintCells(); pgRenderPreview(); pgRenderFill(); };
+})();
+</script>
+</body>
+</html>
