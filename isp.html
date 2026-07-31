@@ -449,10 +449,9 @@
     background: #000000; border: 1px solid #334155; border-radius: 8px;
     margin: 12px 0 6px; padding: 0; overflow: hidden;
   }
-  /* 高度與「差動訊號波形」卡片的 .isp-wave-svg 一致（160px）。
-     兩者 viewBox 內部比例相同（labelH 22 / waveH 72 / axisH 22），
-     故等比縮放後訊號振幅與波形區高度也自動對齊。
-     preserveAspectRatio 預設 xMidYMid meet → 內容等比置中，不會被橫向拉伸。 */
+  /* 高度與「差動訊號波形」卡片的 .isp-wave-svg 一致（160px）；寬度維持滿版。
+     viewBox 寬度由 ispRevRenderWave 依元素實際寬度動態計算，使長寬比相符、
+     縮放維持等比（不變形），且 9 個 bit 與下方核取方塊逐格對齊。 */
   .isp-rev-wave-wrap svg { display: block; width: 100%; height: 160px; cursor: pointer; }
   .isp-rev-cb-row {
     display: flex; justify-content: space-around; padding: 4px 6px 6px;
@@ -860,8 +859,8 @@
 </div><!-- /page-isp -->
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260731isp4"></script>
-<script src="common/i18n.js?v=20260731isp4"></script>
+<script src="common/version.js?v=20260731isp5"></script>
+<script src="common/i18n.js?v=20260731isp5"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ iSP 波形產生器（DLL+PLL / 8-bit+6-bit / 1-pair+2-pair / Scrambler On/Off） ═══════════
@@ -2293,6 +2292,8 @@
   // 9-bit checkbox → reverse lookup against ISP_CTRL + ISP_BK_PLL + DLL/PLL LUT
   const _revBits = [0,0,0,0,0,0,0,0,0]; // b0..b8 (LSB-first)
   const _revCBs = []; // checkbox references
+  // 目前波形的 viewBox 幾何（隨容器寬度變動），供點擊映射使用
+  const _revGeom = { pad: 6, bitW: 12 };
 
   function ispRevBuildUI() {
     // Build checkbox row
@@ -2324,15 +2325,15 @@
     const svg = document.getElementById('isp-rev-svg');
     if (svg) {
       svg.addEventListener('click', (e) => {
-        // SVG 固定高度 160px 後，內容以 preserveAspectRatio 等比置中，
-        // 不再填滿元素寬度，故用 getScreenCTM 反轉換取 viewBox 座標（與縮放/置中無關）。
+        // viewBox 寬度隨容器變動，故用 getScreenCTM 反轉換取 viewBox 座標
+        // （與當下縮放比無關），再以 _revGeom 的 pad/bitW 換算 bit index。
         const ctm = svg.getScreenCTM();
         if (!ctm) return;
         const pt = svg.createSVGPoint();
         pt.x = e.clientX;
         pt.y = e.clientY;
         const vbX = pt.matrixTransform(ctm.inverse()).x;
-        const bitIdx = Math.floor((vbX - 6) / 12); // pad = 6, bitW = 12（見 ispRevRenderWave）
+        const bitIdx = Math.floor((vbX - _revGeom.pad) / _revGeom.bitW); // 幾何由 ispRevRenderWave 寫入
         if (bitIdx >= 0 && bitIdx < 9) {
           _revBits[bitIdx] = _revBits[bitIdx] ? 0 : 1;
           if (_revCBs[bitIdx]) _revCBs[bitIdx].checked = !!_revBits[bitIdx];
@@ -2341,6 +2342,12 @@
         }
       });
     }
+    // viewBox 寬度綁在容器實際寬度上，容器變寬變窄都要重畫才會繼續對齊核取方塊
+    let _revResizeTimer = 0;
+    window.addEventListener('resize', () => {
+      clearTimeout(_revResizeTimer);
+      _revResizeTimer = setTimeout(ispRevRenderWave, 100);
+    });
     ispRevRenderWave();
   }
 
@@ -2538,24 +2545,45 @@
   function ispRevRenderWave() {
     const svg = document.getElementById('isp-rev-svg');
     if (!svg) return;
-    // Use exact same dimensions/proportions as ispBuildSvgInner
-    const bitW = 12; // base per bit (zoom = 1)
-    const pad = 6;
+    // 垂直比例沿用 ispBuildSvgInner，一格都不改（配合 CSS height:160px
+    // → 訊號振幅與「差動訊號波形」卡片相同）
     const labelH = 22;
     const waveH = 72;
     const axisH = 22;
-    const totalW = 9 * bitW + pad * 2;
-    const totalH = labelH + waveH + axisH;
+    const totalH = labelH + waveH + axisH; // 116
     const signalY0 = labelH + waveH - 4;
     const signalY1 = labelH + 4;
+
+    // 寬度維持滿版：viewBox 寬度依元素實際寬度動態換算，讓 viewBox 長寬比
+    // 等於元素長寬比 → 縮放仍是等比（不能用 preserveAspectRatio="none"，
+    // 非等比會把 b0~b8 / 0-1 文字橫向拉扁、垂直與水平 stroke 粗細不一致）。
+    // 代價只有 bit 變寬，與主波形卡片的 bit 寬不同——高度才是要對齊的維度。
+    const rect = svg.getBoundingClientRect();
+    const elW = rect.width;
+    const elH = rect.height;
+    if (elW <= 0 || elH <= 0) {
+      // layout 尚未完成（例如頁面初始化中）→ 下一幀再畫
+      requestAnimationFrame(ispRevRenderWave);
+      return;
+    }
+    const scale = elH / totalH;
+    // pad 渲染後固定 PAD_PX：SVG 左緣比 .isp-rev-cb-row 左緣右移 1px（wrap 的 border），
+    // cb-row 左右各 6px padding，故 5px 可讓 9 個 bit 中心對齊 9 個核取方塊中心。
+    const PAD_PX = 5;
+    const totalW = elW / scale;
+    const pad = PAD_PX / scale;
+    const bitW = (totalW - pad * 2) / 9;
+    _revGeom.pad = pad;
+    _revGeom.bitW = bitW;
 
     const parts = [];
     // Background reference lines (dashed)
     parts.push('<line x1="' + pad + '" y1="' + signalY1 + '" x2="' + (totalW - pad) + '" y2="' + signalY1 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
     parts.push('<line x1="' + pad + '" y1="' + signalY0 + '" x2="' + (totalW - pad) + '" y2="' + signalY0 + '" stroke="#1f2937" stroke-width="0.8" stroke-dasharray="3,3"/>');
     // Level labels
-    parts.push('<text x="' + (pad - 2) + '" y="' + (signalY1 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">1</text>');
-    parts.push('<text x="' + (pad - 2) + '" y="' + (signalY0 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">0</text>');
+    // pad 縮小為 5px 後，0/1 位準標籤改貼齊 pad 右緣（原為 pad-2），避免被左邊界裁切
+    parts.push('<text x="' + pad + '" y="' + (signalY1 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">1</text>');
+    parts.push('<text x="' + pad + '" y="' + (signalY0 + 4) + '" text-anchor="end" fill="#64748b" font-size="9" font-family="-apple-system,system-ui,sans-serif">0</text>');
 
     // Bit dividers + bit labels
     for (let b = 0; b <= 9; b++) {

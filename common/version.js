@@ -8,7 +8,7 @@ var TOOL_VERSIONS = {
   app:  'v1.87.1',      // 首頁 app 總版號
   rxtx: 'v1.12.2',      // Rx/Tx 頻率計算工具
   calc: 'v1.5.3',       // mLVDS Skew 計算工具
-  isp:  'v1.18.1',      // iSP 波形產生器
+  isp:  'v1.18.2',      // iSP 波形產生器
   aux:  'v2.3.1',       // eDP AUX / DPCD 查詢工具
   wfg:  'v2.97.475'     // TCON 波形產生器
 };
