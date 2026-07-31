@@ -83,6 +83,7 @@
     text-shadow: 0 0 3px #000, 0 1px 2px #000;
     transition: border-color .12s, box-shadow .12s;
     user-select: none;
+    touch-action: none;   /* 觸控可直接拖曳塗刷，不觸發捲動 */
   }
   .pg-cell.sel { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
   .pg-headrow { display: flex; align-items: stretch; gap: 4px; margin-bottom: 5px; }
@@ -280,7 +281,7 @@
       </div>
 
       <div class="pg-level-box">
-        <label data-i18n="pat.levelLabel">灰階 L0 – L255（套用到已選取的 sub-pixel）</label>
+        <label data-i18n="pat.levelLabel">灰階 L0 – L255（點 sub-pixel 即套用此值）</label>
         <div class="pg-level-row">
           <input type="number" id="pg-level-num" min="0" max="255" step="1" value="0">
           <input type="range" id="pg-level-range" min="0" max="255" step="1" value="0">
@@ -299,20 +300,21 @@
           <button class="pg-mini pg-nd" data-d="1">+1</button>
           <button class="pg-mini pg-nd" data-d="16">+16</button>
         </div>
-        <div class="field-hint" data-i18n="pat.levelHint">未選取任何 sub-pixel 時，灰階設定不會套用。點格子、點 R/G/B 或 px 標題可快速選取整欄。</div>
+        <div class="field-hint" data-i18n="pat.levelHint">先設好上面的灰階值，再點格子就會直接套用；按住拖曳可連續塗刷。點 L1~L4 / px1~px4 / R、G、B 標題是「選取」整組，選好後改灰階即批次套用。</div>
       </div>
 
       <div class="divider"></div>
       <label data-i18n="pat.presetLabel">快速樣式</label>
       <div class="pg-presets">
-        <button class="pg-mini pg-ps" data-ps="black" data-i18n="pat.psBlack">全黑</button>
-        <button class="pg-mini pg-ps" data-ps="white" data-i18n="pat.psWhite">全白</button>
-        <button class="pg-mini pg-ps" data-ps="red" data-i18n="pat.psRed">純 R</button>
-        <button class="pg-mini pg-ps" data-ps="green" data-i18n="pat.psGreen">純 G</button>
-        <button class="pg-mini pg-ps" data-ps="blue" data-i18n="pat.psBlue">純 B</button>
-        <button class="pg-mini pg-ps" data-ps="checker" data-i18n="pat.psChecker">1×1 棋盤</button>
-        <button class="pg-mini pg-ps" data-ps="vstripe" data-i18n="pat.psVStripe">直條</button>
-        <button class="pg-mini pg-ps" data-ps="hstripe" data-i18n="pat.psHStripe">橫條</button>
+        <button class="pg-mini pg-ps" data-ps="l0" data-i18n="pat.psL0">L0</button>
+        <button class="pg-mini pg-ps" data-ps="l255" data-i18n="pat.psL255">L255</button>
+        <button class="pg-mini pg-ps" data-ps="r255" data-i18n="pat.psR255">R255</button>
+        <button class="pg-mini pg-ps" data-ps="g255" data-i18n="pat.psG255">G255</button>
+        <button class="pg-mini pg-ps" data-ps="b255" data-i18n="pat.psB255">B255</button>
+        <button class="pg-mini pg-ps" data-ps="pxonoff" data-i18n="pat.psPxOnOff">Pixel on/off</button>
+        <button class="pg-mini pg-ps" data-ps="v1line" data-i18n="pat.psV1Line">V 1 Line</button>
+        <button class="pg-mini pg-ps" data-ps="h1line" data-i18n="pat.psH1Line">H 1 Line</button>
+        <button class="pg-mini pg-ps" data-ps="subpxonoff" data-i18n="pat.psSubpxOnOff">Subpixel On/Off</button>
       </div>
     </div>
   </div>
@@ -365,8 +367,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260731pat1"></script>
-<script src="common/i18n.js?v=20260731pat1"></script>
+<script src="common/version.js?v=20260731pat2"></script>
+<script src="common/i18n.js?v=20260731pat2"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -563,6 +565,23 @@
     list.forEach(function(k){ if (allSel) delete pgSel[k]; else pgSel[k] = true; });
   }
 
+  // ─── 筆刷：直接點 sub-pixel 就套用目前灰階值 ─────────
+  function pgCurrentLevel(){
+    var el = document.getElementById('pg-level-num');
+    var v = parseInt(el && el.value, 10);
+    if (isNaN(v)) v = 0;
+    return Math.max(0, Math.min(255, v));
+  }
+  // 直接把目前灰階值寫進單一 sub-pixel（不需要先選取、也不需要再按灰階）
+  function pgPaintCell(r, p, c, additive){
+    pgLevels[r][p][c] = pgCurrentLevel();
+    if (!additive) pgSel = {};       // 單點：選取集合換成這一格
+    pgSel[key(r,p,c)] = true;        // 保留選取 → 之後可用滑桿即時微調同一格
+    pgPaintCells();
+    pgRenderPreview();
+    pgRenderFill();
+  }
+
   function pgApplyLevel(v){
     v = Math.max(0, Math.min(255, Math.round(v)));
     Object.keys(pgSel).forEach(function(k){
@@ -594,14 +613,18 @@
   }
   function pgPreset(name){
     switch (name) {
-      case 'black':   pgSetAll(function(){ return 0; }); break;
-      case 'white':   pgSetAll(function(){ return 255; }); break;
-      case 'red':     pgSetAll(function(r,p,c){ return c === 0 ? 255 : 0; }); break;
-      case 'green':   pgSetAll(function(r,p,c){ return c === 1 ? 255 : 0; }); break;
-      case 'blue':    pgSetAll(function(r,p,c){ return c === 2 ? 255 : 0; }); break;
-      case 'checker': pgSetAll(function(r,p){ return ((r + p) % 2 === 0) ? 255 : 0; }); break;
-      case 'vstripe': pgSetAll(function(r,p){ return (p % 2 === 0) ? 255 : 0; }); break;
-      case 'hstripe': pgSetAll(function(r){ return (r % 2 === 0) ? 255 : 0; }); break;
+      case 'l0':      pgSetAll(function(){ return 0; }); break;
+      case 'l255':    pgSetAll(function(){ return 255; }); break;
+      case 'r255':    pgSetAll(function(r,p,c){ return c === 0 ? 255 : 0; }); break;
+      case 'g255':    pgSetAll(function(r,p,c){ return c === 1 ? 255 : 0; }); break;
+      case 'b255':    pgSetAll(function(r,p,c){ return c === 2 ? 255 : 0; }); break;
+      // Pixel On/Off：以「像素」為單位一亮一暗（同一 px 的 R/G/B 同時亮或同時暗）
+      case 'pxonoff': pgSetAll(function(r,p){ return ((r + p) % 2 === 0) ? 255 : 0; }); break;
+      case 'v1line':  pgSetAll(function(r,p){ return (p % 2 === 0) ? 255 : 0; }); break;
+      case 'h1line':  pgSetAll(function(r){ return (r % 2 === 0) ? 255 : 0; }); break;
+      // Subpixel On/Off：以「sub-pixel」為單位一亮一暗，逐列反相
+      // sub-pixel 序號 i = p*3 + c（第 0 列：i 偶數亮；第 1 列反相，依此類推）
+      case 'subpxonoff': pgSetAll(function(r,p,c){ return ((r + p * 3 + c) % 2 === 0) ? 255 : 0; }); break;
     }
   }
 
@@ -741,21 +764,49 @@
 
   // ─── 事件綁定 ─────────────────────────────────────
   function pgBind(){
-    // 編輯格點擊
-    document.getElementById('pg-rows').addEventListener('click', function(e){
-      var cell = e.target.closest('.pg-cell');
-      if (cell) {
-        pgToggle(+cell.getAttribute('data-r'), +cell.getAttribute('data-p'), +cell.getAttribute('data-c'));
-        pgPaintCells();
-        return;
-      }
+    // ── 編輯格：點下去就直接套用目前灰階值（可按住拖曳連續塗刷） ──
+    var rows = document.getElementById('pg-rows');
+    var painting = false;
+    function cellOf(el){ return el && el.closest ? el.closest('.pg-cell') : null; }
+    function paintFrom(cell, additive){
+      if (!cell) return;
+      pgPaintCell(+cell.getAttribute('data-r'), +cell.getAttribute('data-p'), +cell.getAttribute('data-c'), additive);
+    }
+    rows.addEventListener('pointerdown', function(e){
+      var cell = cellOf(e.target);
+      if (!cell) return;
+      e.preventDefault();
+      painting = true;
+      paintFrom(cell, false);              // 起點：選取集合重設為這一格
+      if (cell.setPointerCapture) { try { cell.releasePointerCapture(e.pointerId); } catch(err){} }
+    });
+    rows.addEventListener('pointermove', function(e){
+      if (!painting) return;
+      // 用座標找目前指標下的格子（pointerenter 在觸控時不會逐格觸發）
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      var cell = cellOf(el);
+      if (!cell) return;
+      var k = key(+cell.getAttribute('data-r'), +cell.getAttribute('data-p'), +cell.getAttribute('data-c'));
+      if (pgSel[k] && pgLevels[+cell.getAttribute('data-r')][+cell.getAttribute('data-p')][+cell.getAttribute('data-c')] === pgCurrentLevel()) return;
+      paintFrom(cell, true);               // 拖曳經過：累加進選取集合
+    });
+    ['pointerup','pointercancel','pointerleave'].forEach(function(ev){
+      rows.addEventListener(ev, function(){ painting = false; });
+    });
+    window.addEventListener('pointerup', function(){ painting = false; });
+    // 觸控時不要讓下拉刷新誤觸發
+    ['touchstart','touchmove'].forEach(function(ev){
+      rows.addEventListener(ev, function(e){ if (cellOf(e.target)) e.stopPropagation(); }, { passive: true });
+    });
+
+    // 列頭 L1~L4 → 選取整列（群組批次用，維持「選取後再套用灰階」）
+    rows.addEventListener('click', function(e){
       var rh = e.target.closest('.pg-rowhead[data-row]');
-      if (rh) {
-        var r = +rh.getAttribute('data-row'), list = [];
-        for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) list.push(key(r,p,c));
-        pgSelectSet(list);
-        pgPaintCells();
-      }
+      if (!rh) return;
+      var r = +rh.getAttribute('data-row'), list = [];
+      for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) list.push(key(r,p,c));
+      pgSelectSet(list);
+      pgPaintCells();
     });
     // px 標題 → 選該 px 的 3 個 sub-pixel（全部 4 列）
     document.getElementById('pg-pxlabelrow').addEventListener('click', function(e){
@@ -906,9 +957,10 @@
 
   // 全畫面面板內的快速樣式鈕（與主頁面共用 pgPreset）
   var PS_LIST = [
-    ['black','pat.psBlack'], ['white','pat.psWhite'],
-    ['red','pat.psRed'], ['green','pat.psGreen'], ['blue','pat.psBlue'],
-    ['checker','pat.psChecker'], ['vstripe','pat.psVStripe'], ['hstripe','pat.psHStripe']
+    ['l0','pat.psL0'], ['l255','pat.psL255'],
+    ['r255','pat.psR255'], ['g255','pat.psG255'], ['b255','pat.psB255'],
+    ['pxonoff','pat.psPxOnOff'], ['v1line','pat.psV1Line'], ['h1line','pat.psH1Line'],
+    ['subpxonoff','pat.psSubpxOnOff']
   ];
   function pgBuildFsQuick(){
     var box = document.getElementById('pg-fs-quick');
@@ -936,7 +988,7 @@
   // ─── 初始化 ───────────────────────────────────────
   pgBuildHeaders();
   pgBuildRows();
-  pgPreset('white');       // 預設全白，方便一開始就看到畫面
+  pgPreset('l255');        // 預設 L255，方便一開始就看到畫面
   pgSel = {};
   pgPaintCells();
   pgRefreshScreenInfo();
