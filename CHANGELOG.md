@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## iSP 波形產生器 (isp) v1.18.1 — 2026-07-31
+
+**Bruce 需求**：「那個波形輸入區高度太高了，波形高度跟差動訊號波形卡片的訊號高度一樣就好」——指波形反推卡片下方的 9-bit 波形顯示區。
+
+**照抄的來源值（非自挑數字）**：差動訊號波形卡片的 SVG 用 `.isp-wave-svg { height: 160px; }`（`isp.html` CSS）。反推卡片的 `ispRevRenderWave()` 與主波形的 `ispBuildSvgInner()` **viewBox 內部比例本來就相同**（`labelH 22 / waveH 72 / axisH 22`，`bitW 12`、`pad 6`，原 code 註解即寫「Use exact same dimensions/proportions as ispBuildSvgInner」），所以只要把渲染高度對齊到同一個 `160px`，縮放比、訊號振幅（`waveH-8 = 64` 單位）、波形區高度（72 單位）、每 bit 寬度（12 單位）會**同時**對齊——不存在「該對齊哪一種高度」的分歧，因此未回頭詢問。
+
+**根因**：反推 SVG 原本是 `width:100%` 而未指定 height，viewBox 只有 `120×116`，在寬容器下被等比放大約 3.55 倍，高度衝到 411.8px（主波形固定 160px）。
+
+**改動（`isp.html`，只動高度與其必要配套）**：
+- CSS `.isp-rev-wave-wrap svg`：`width:100%; cursor:pointer` → 加上 `height:160px`（與 `.isp-wave-svg` 同值）。SVG 預設 `preserveAspectRatio="xMidYMid meet"`，內容等比置中、不會被橫向拉伸。
+- 配套修正（非順手改別的，是固定高度的直接後果）：波形點擊切換 bit 的座標映射原本假設「SVG 內容填滿元素寬度」（用 `rect.width` 推 pad 與 bit 寬），固定高度後內容只佔中間約 165px，該假設失效會導致點擊全部落錯格。改用 `svg.getScreenCTM().inverse()` 把 client 座標轉成 viewBox 座標，再以 `Math.floor((vbX - 6) / 12)` 取 bit index，與縮放／置中無關。
+- 隨之 `_revSvgTotalW()` 失去唯一呼叫點，一併移除（僅此一處引用，已 grep 確認）。
+
+**驗證（Chrome 實機量測，`getBoundingClientRect` + viewBox 換算）**：
+
+| 量測項 | 差動訊號波形卡片 | 波形反推卡片（改前） | 波形反推卡片（改後） |
+|---|---|---|---|
+| SVG 元素高度 | 160.00 px | 411.80 px | **160.00 px** |
+| viewBox 縮放比 | 1.3793 | 3.5500 | **1.3793** |
+| 訊號振幅（0↔1） | 88.28 px | 227.20 px | **88.28 px** |
+| 波形區高度（waveH） | 99.31 px | 255.60 px | **99.31 px** |
+| 每 bit 寬度 | 16.55 px | 42.60 px | **16.55 px** |
+
+- 點擊映射：依序點 b0 / b8 / b4 三格 → checkbox 變 `100010001`、`0x111 (100010001)`、DLL 反推 `L136 (0x88)`，位置完全正確；點內容外的左側留白區 → 不誤觸（值維持 `100010001`）。
+- v1.18.0 搜尋回歸：輸入 `BKPOL+` + Enter → `011101111`、`0x1EE`、Command `BKPOL+ (DLL-BK)`、DLL Data `L247 (0xF7)`，波形正確繪出。
+- 容器寬度掃描（120 / 150 / 200 / 300 / 420 px）：SVG 元素高度恆為 160px；內容完全對齊主波形的臨界容器寬為 `120 × 1.3793 ≈ 165.5px`，低於此值才會轉由寬度限制縮放（實機最窄手機的卡片內容寬約 270px，仍在對齊區間內）。
+- 重新載入後 console 無任何錯誤或訊息；主波形、minimap、搜尋清單皆正常。
+
+**版本同步**：`common/version.js` `isp: v1.18.0 → v1.18.1`；`isp.html` `version.js?v` 與 `i18n.js?v` 皆 `20260731isp3 → 20260731isp4`（`i18n.js` 本次內容未變，僅沿用前兩版「兩者同步 bump」的慣例，避免日後誤判漏改）。本次無新增 i18n 字串。
+
+---
+
 ## iSP 波形產生器 (isp) v1.18.0 — 2026-07-31
 
 **Bruce 需求**：在「波形反推卡片」增加搜尋功能。(1) 可輸入要搜尋的波形名稱，例如 BKPOL +、BKPOL −，或像 BAC 之類的卡面。(2) 輸入完後要有類似清單可讓使用者選擇，例如輸入 BK 就有 BK、BKPOL+、BKPOL− 可選，輸入 L0 就有 L0(DLL) 或 L0(PLL) 可選；選擇後下方的輸入波形區就會自動變成搜尋的波形。(3) 灰階用 L0 到 L255 來輸入。

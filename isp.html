@@ -449,7 +449,11 @@
     background: #000000; border: 1px solid #334155; border-radius: 8px;
     margin: 12px 0 6px; padding: 0; overflow: hidden;
   }
-  .isp-rev-wave-wrap svg { display: block; width: 100%; cursor: pointer; }
+  /* 高度與「差動訊號波形」卡片的 .isp-wave-svg 一致（160px）。
+     兩者 viewBox 內部比例相同（labelH 22 / waveH 72 / axisH 22），
+     故等比縮放後訊號振幅與波形區高度也自動對齊。
+     preserveAspectRatio 預設 xMidYMid meet → 內容等比置中，不會被橫向拉伸。 */
+  .isp-rev-wave-wrap svg { display: block; width: 100%; height: 160px; cursor: pointer; }
   .isp-rev-cb-row {
     display: flex; justify-content: space-around; padding: 4px 6px 6px;
   }
@@ -856,8 +860,8 @@
 </div><!-- /page-isp -->
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260731isp3"></script>
-<script src="common/i18n.js?v=20260731isp3"></script>
+<script src="common/version.js?v=20260731isp4"></script>
+<script src="common/i18n.js?v=20260731isp4"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ iSP 波形產生器（DLL+PLL / 8-bit+6-bit / 1-pair+2-pair / Scrambler On/Off） ═══════════
@@ -2320,12 +2324,15 @@
     const svg = document.getElementById('isp-rev-svg');
     if (svg) {
       svg.addEventListener('click', (e) => {
-        const rect = svg.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const svgW = rect.width;
-        const pad = svgW * 6 / _revSvgTotalW();
-        const bitAreaW = svgW - 2 * pad;
-        const bitIdx = Math.floor((x - pad) / (bitAreaW / 9));
+        // SVG 固定高度 160px 後，內容以 preserveAspectRatio 等比置中，
+        // 不再填滿元素寬度，故用 getScreenCTM 反轉換取 viewBox 座標（與縮放/置中無關）。
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return;
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const vbX = pt.matrixTransform(ctm.inverse()).x;
+        const bitIdx = Math.floor((vbX - 6) / 12); // pad = 6, bitW = 12（見 ispRevRenderWave）
         if (bitIdx >= 0 && bitIdx < 9) {
           _revBits[bitIdx] = _revBits[bitIdx] ? 0 : 1;
           if (_revCBs[bitIdx]) _revCBs[bitIdx].checked = !!_revBits[bitIdx];
@@ -2526,11 +2533,6 @@
       });
     }
     syncClear();
-  }
-
-  function _revSvgTotalW() {
-    // Match main waveform proportions: 9 bits × 12px base + 2×6 pad
-    return 9 * 12 + 12;
   }
 
   function ispRevRenderWave() {
