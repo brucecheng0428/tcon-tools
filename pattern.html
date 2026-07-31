@@ -231,6 +231,16 @@
   .pg-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
   .pg-row2 label { font-size: 11px; color: var(--text-sub); }
   .pg-row2 input, .pg-row2 select { width: 100%; }
+  /* 編輯區與測試畫面選單的連動狀態列 */
+  .pg-grid-note {
+    border-radius: 8px; padding: 7px 10px; font-size: 11.5px; line-height: 1.6;
+    margin-bottom: 9px; border: 1.5px solid var(--result-border); background: #06251c; color: #a7f3d0;
+  }
+  .pg-grid-note b { color: #d1fae5; }
+  .pg-grid-note.na { border-color: #92400e; background: #2a1a06; color: #fcd34d; }
+  .pg-grid-note.na b { color: #fef3c7; }
+  .pg-grid-wrap.na { opacity: .38; filter: grayscale(.5); }
+
   .pg-warnbox {
     margin-top: 8px; border-radius: 8px; padding: 8px 10px; font-size: 11.5px; line-height: 1.6;
     border: 1.5px solid #92400e; background: #2a1a06; color: #fcd34d;
@@ -309,7 +319,8 @@
   <div class="card pg-edit">
     <div class="card-header"><span class="icon">🎛️</span><span data-i18n="pat.editorCard">Sub-pixel 編輯（4 px × 4 列）</span></div>
     <div class="card-body">
-      <div class="pg-grid-wrap">
+      <div class="pg-grid-note" id="pg-grid-note" style="display:none"></div>
+      <div class="pg-grid-wrap" id="pg-grid-wrap">
         <div class="pg-grid">
           <div class="pg-pxlabelrow" id="pg-pxlabelrow"></div>
           <div class="pg-headrow" id="pg-headrow"></div>
@@ -486,8 +497,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260731pat4"></script>
-<script src="common/i18n.js?v=20260731pat4"></script>
+<script src="common/version.js?v=20260801pat5"></script>
+<script src="common/i18n.js?v=20260801pat5"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -697,6 +708,7 @@
     pgRtStop();
     pgMode = 'subpixel';
     pgSyncPatternUI();
+    pgSyncGrid();
   }
   function pgPaintCell(r, p, c, additive){
     pgLeavePattern();
@@ -1034,12 +1046,17 @@
   };
 
   // ─── 逐像素塗色（Uint32 直寫，無縮放無內插） ───
+  // W/H 是「邏輯畫面尺寸」（決定 pattern 內容）；實際只填 canvas 容納得下的左上角區域。
+  // 正常情況 canvas 尺寸 === W×H，行為與原本完全相同；只有取重複單元時會用小 canvas 加速。
   function pgPixels(ctx, W, H, fn){
-    var img = ctx.createImageData(W, H);
+    var ox = ctx.__pgOffX || 0, oy = ctx.__pgOffY || 0;   // 取重複單元時只畫某個切片
+    var OW = Math.min(W - ox, ctx.canvas.width), OH = Math.min(H - oy, ctx.canvas.height);
+    if (OW < 1 || OH < 1) return;
+    var img = ctx.createImageData(OW, OH);
     var buf = new Uint32Array(img.data.buffer);
     var i = 0;
-    for (var y = 0; y < H; y++) for (var x = 0; x < W; x++) buf[i++] = fn(x, y);
-    ctx.putImageData(img, 0, 0);
+    for (var y = 0; y < OH; y++) for (var x = 0; x < OW; x++) buf[i++] = fn(x + ox, y + oy);
+    ctx.putImageData(img, 0, 0);                          // putImageData 不受 transform 影響
   }
   function pgTwoTone(ctx, W, H, mask, onColor, offColor){
     pgPixels(ctx, W, H, function(x, y){ return mask(x, y) ? onColor : offColor; });
@@ -1423,6 +1440,134 @@
     pgMenuPlace(root, x, y, null, null);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  //  編輯區連動：重複單元一律「從 pgDrawPattern 的實際輸出反推」
+  //  ─ 這裡沒有第二份週期定義。週期是把畫面畫出來之後實測出來的，
+  //    值也是直接讀該畫面的像素，因此不可能與全畫面不同步。
+  // ═══════════════════════════════════════════════════════════════
+  var pgOffCv = null, pgOffCvSmall = null;
+  var pgGridRaf = 0, pgPeriod = null, pgPeriodKey = '';
+
+  // 與 pgRenderFill 完全相同的目標尺寸（相位依賴 H，尺寸不同相位就不同）
+  function pgTargetSize(){
+    var sz = pgFillCssSize(), dpr = window.devicePixelRatio || 1;
+    return { W: Math.max(1, Math.round(sz.w * dpr)), H: Math.max(1, Math.round(sz.h * dpr)) };
+  }
+  // 畫「邏輯尺寸 W×H 的畫面」中，起點 (ox,oy)、大小 sw×sh 的那一塊。
+  // 用同一支 pgDrawPattern：向量繪圖靠 translate，逐像素繪圖靠 ctx.__pgOff*。
+  function pgDrawSlice(cv, W, H, ox, oy, sw, sh){
+    if (cv.width !== sw || cv.height !== sh) { cv.width = sw; cv.height = sh; }
+    var ctx = cv.getContext('2d', { alpha: false, willReadFrequently: true });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.__pgOffX = ox; ctx.__pgOffY = oy;
+    ctx.translate(-ox, -oy);
+    pgDrawPattern(ctx, W, H);          // ← 與全畫面同一支函式、同一組 W/H
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.__pgOffX = 0; ctx.__pgOffY = 0;
+    return new Uint32Array(ctx.getImageData(0, 0, sw, sh).data.buffer);
+  }
+  // 週期偵測：只接受 1 / 2 / 4（編輯區是 4 px × 4 列，其他週期無法在 4×4 內正確平鋪）。
+  // 取樣方式：8 條「整個畫面寬」的橫向寬條（每條 6 列），分散在畫面上下。
+  //  → 水平方向涵蓋「所有 x」，任何直向邊界（欄界、格界、線條、漸層階界）都逃不掉；
+  //  → 垂直方向在 8 個位置各檢查 y、y+1、y+2、y+4，足以判定週期是否 ≤ 4。
+  // 成本 O((W×6)×8) 而不是 O(W×H)。
+  var PG_STRIP_H = 6, PG_STRIP_N = 8;
+  function pgStripShiftX(strips, W, sh, p){
+    for (var s = 0; s < strips.length; s++) {
+      var b = strips[s];
+      for (var y = 0; y < sh; y++) {
+        var o = y * W;
+        for (var x = 0; x + p < W; x++) if (b[o + x] !== b[o + x + p]) return false;
+      }
+    }
+    return true;
+  }
+  function pgStripShiftY(strips, W, sh, p){
+    if (sh <= p) return false;
+    for (var s = 0; s < strips.length; s++) {
+      var b = strips[s];
+      for (var y = 0; y + p < sh; y++) {
+        var o = y * W, o2 = (y + p) * W;
+        for (var x = 0; x < W; x++) if (b[o + x] !== b[o2 + x]) return false;
+      }
+    }
+    return true;
+  }
+  function pgDetectPeriod(){
+    var t = pgTargetSize(), W = t.W, H = t.H;
+    var sh = Math.min(PG_STRIP_H, H), n = Math.min(PG_STRIP_N, Math.max(1, H - sh + 1));
+    if (!pgOffCv) pgOffCv = document.createElement('canvas');
+    var strips = [], k, oy;
+    for (k = 0; k < n; k++) {
+      oy = (n === 1) ? 0 : Math.round((H - sh) * k / (n - 1));
+      strips.push(pgDrawSlice(pgOffCv, W, H, 0, oy, W, sh));
+    }
+    var cand = [1, 2, 4], i, pw = 0, ph = 0;
+    for (i = 0; i < 3; i++) if (pgStripShiftX(strips, W, sh, cand[i])) { pw = cand[i]; break; }
+    if (!pw) return null;
+    for (i = 0; i < 3; i++) if (pgStripShiftY(strips, W, sh, cand[i])) { ph = cand[i]; break; }
+    if (!ph) return null;
+    return { pw: pw, ph: ph };
+  }
+  // 幾何相關參數；灰階與顏色 index 不影響週期，故不進 key（避免拖灰階時重跑全圖偵測）
+  function pgGeomKey(){
+    var t = pgTargetSize();
+    return [pgPat.id, pgPat.invert, pgPat.ckIdx, pgPat.ctSize, pgPat.ctPX, pgPat.ctPY, t.W, t.H].join('|');
+  }
+  function pgSyncGrid(){
+    var noteEl = document.getElementById('pg-grid-note');
+    var wrapEl = document.getElementById('pg-grid-wrap');
+    if (!noteEl || !wrapEl) return;
+    if (pgMode !== 'pattern') {                       // 手動編輯模式：不干涉編輯區
+      pgPeriod = null; pgPeriodKey = '';
+      noteEl.style.display = 'none';
+      wrapEl.classList.remove('na');
+      return;
+    }
+    var key = pgGeomKey();
+    if (key !== pgPeriodKey) {
+      // Response Time 是「兩張畫面依時間交替」，單幀雖然是純色（演算法會判 1×1），
+      // 但 4×4 編輯區表達不了時間這個維度 → 明確歸為不適用，不假裝它是靜態圖樣。
+      pgPeriod = (pgPat.id === 'resptime') ? null : pgDetectPeriod();
+      pgPeriodKey = key;
+    }
+
+    if (!pgPeriod) {                                  // 非 4×4 週期性 → 不留殘值
+      for (var r0 = 0; r0 < NROW; r0++) for (var p0 = 0; p0 < NPX; p0++) for (var c0 = 0; c0 < 3; c0++) pgLevels[r0][p0][c0] = 0;
+      pgSel = {};
+      pgPaintCells();
+      noteEl.className = 'pg-grid-note na';
+      noteEl.innerHTML = t('pat.gridNA', { n: escapeHtml(pgPatLabel(pgPat.id)) });
+      noteEl.style.display = 'block';
+      wrapEl.classList.add('na');
+      return;
+    }
+    // 只需要左上角 pw × ph，用小 canvas 取（邏輯 W/H 仍傳真實值，相位完全一致）
+    var t2 = pgTargetSize();
+    if (!pgOffCvSmall) pgOffCvSmall = document.createElement('canvas');
+    var cw = Math.min(t2.W, 8), ch = Math.min(t2.H, 8);
+    var sbuf = pgDrawSlice(pgOffCvSmall, t2.W, t2.H, 0, 0, cw, ch);
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) {
+      var v = sbuf[(r % pgPeriod.ph) * cw + (p % pgPeriod.pw)];
+      pgLevels[r][p][0] = v & 0xff;
+      pgLevels[r][p][1] = (v >> 8) & 0xff;
+      pgLevels[r][p][2] = (v >> 16) & 0xff;
+    }
+    pgSel = {};
+    pgPaintCells();
+    noteEl.className = 'pg-grid-note';
+    noteEl.innerHTML = t('pat.gridOK', { n: escapeHtml(pgPatLabel(pgPat.id)), w: pgPeriod.pw, h: pgPeriod.ph });
+    noteEl.style.display = 'block';
+    wrapEl.classList.remove('na');
+  }
+  // 用 setTimeout 而不是 requestAnimationFrame：分頁被切到背景時 rAF 不會執行，
+  // 會讓編輯區停在舊值直到使用者切回來。
+  function pgSyncGridSoon(){
+    if (pgGridRaf) clearTimeout(pgGridRaf);
+    pgGridRaf = setTimeout(function(){ pgGridRaf = 0; pgSyncGrid(); }, 16);
+  }
+
   // ─── 選取畫面 ───
   function pgSelectPattern(id){
     if (id === 'exit') { pgExitFs(); return; }
@@ -1438,11 +1583,13 @@
     pgSyncPatternUI();
     pgRenderPreview();
     pgRenderFill();
+    pgSyncGrid();
   }
   function pgBackToSubpixel(){
     pgRtStop();
     pgMode = 'subpixel';
     pgSyncPatternUI();
+    pgSyncGrid();
     pgRenderPreview();
     pgRenderFill();
   }
@@ -1531,7 +1678,7 @@
         b.textContent = (idx + 1) + ' ' + nm;
         b.addEventListener('click', function(){
           pgPat.colorIdx = idx;
-          pgSyncPatternUI(); pgRenderPreview(); pgRenderFill();
+          pgSyncPatternUI(); pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
         });
         cbox.appendChild(b);
       });
@@ -1542,13 +1689,13 @@
       pgPat.level = v;
       if (ln) ln.value = v;
       if (lr) lr.value = v;
-      pgRenderPreview(); pgRenderFill();
+      pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
     }
     if (ln) ln.addEventListener('input', function(){ if (ln.value !== '') setLv(parseInt(ln.value, 10)); });
     if (lr) lr.addEventListener('input', function(){ setLv(parseInt(lr.value, 10)); });
 
     var byId = function(i){ return document.getElementById(i); };
-    if (byId('pg-pat-inv'))  byId('pg-pat-inv').addEventListener('click', function(){ pgPat.invert = pgPat.invert ? 0 : 1; pgRenderPreview(); pgRenderFill(); });
+    if (byId('pg-pat-inv'))  byId('pg-pat-inv').addEventListener('click', function(){ pgPat.invert = pgPat.invert ? 0 : 1; pgRenderPreview(); pgRenderFill(); pgSyncGridSoon(); });
     if (byId('pg-pat-prev')) byId('pg-pat-prev').addEventListener('click', function(){ pgCycleVariant(-1); });
     if (byId('pg-pat-next')) byId('pg-pat-next').addEventListener('click', function(){ pgCycleVariant(1); });
     if (byId('pg-cur-back')) byId('pg-cur-back').addEventListener('click', pgBackToSubpixel);
@@ -1559,7 +1706,7 @@
         var o = document.createElement('option'); o.value = String(i); o.textContent = n + ' × ' + n; ck.appendChild(o);
       });
       ck.value = '2';
-      ck.addEventListener('change', function(){ pgPat.ckIdx = +ck.value; pgRenderPreview(); pgRenderFill(); });
+      ck.addEventListener('change', function(){ pgPat.ckIdx = +ck.value; pgRenderPreview(); pgRenderFill(); pgSyncGridSoon(); });
     }
 
     pgFillColorSelect(byId('pg-ct-oc'), 3);
@@ -1575,13 +1722,13 @@
         var v = parseInt(el.value, 10);
         if (isNaN(v)) return;
         pgPat[ctMap[idKey]] = v;
-        pgRenderPreview(); pgRenderFill();
+        pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
       });
       el.addEventListener('change', function(){
         var v = parseInt(el.value, 10);
         if (isNaN(v)) return;
         pgPat[ctMap[idKey]] = v;
-        pgRenderPreview(); pgRenderFill();
+        pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
       });
     });
     var rtMap = { 'pg-rt-c1': 'c1', 'pg-rt-l1': 'l1', 'pg-rt-c2': 'c2', 'pg-rt-l2': 'l2', 'pg-rt-ms': 'ms' };
@@ -1593,7 +1740,7 @@
         if (isNaN(v)) return;
         pgPat.rt[rtMap[idKey]] = v;
         if (pgPat.rt.run && rtMap[idKey] === 'ms') pgRtStart();
-        pgRenderPreview(); pgRenderFill();
+        pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
       };
       el.addEventListener('input', h); el.addEventListener('change', h);
     });
@@ -1802,12 +1949,12 @@
       // 原程式鍵盤操作：1~8 選色、↑/↓ 變體循環、Space 反相
       if (e.key >= '1' && e.key <= '8') {
         pgPat.colorIdx = +e.key - 1;
-        pgSyncPatternUI(); pgRenderPreview(); pgRenderFill();
+        pgSyncPatternUI(); pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
         e.preventDefault(); return;
       }
       if (e.key === ' ' || e.code === 'Space') {
         pgPat.invert = pgPat.invert ? 0 : 1;
-        pgRenderPreview(); pgRenderFill();
+        pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
         e.preventDefault(); return;
       }
       if (pgPat.id === 'xy' &&
@@ -1923,6 +2070,9 @@
   window.pgBackToSubpixel= pgBackToSubpixel;
   window.pgPatState      = pgPat;
   window.pgGetMode       = function(){ return pgMode; };
+  window.pgSyncGrid      = pgSyncGrid;
+  window.pgGetPeriod     = function(){ return pgPeriod ? { pw: pgPeriod.pw, ph: pgPeriod.ph } : null; };
+  window.pgTargetSize    = pgTargetSize;
 })();
 </script>
 </body>

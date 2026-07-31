@@ -219,6 +219,16 @@ var I18N = {
     'en': 'The menu structure is reconstructed from the original panel-maker test program menu (21 top-level items, 24 sub-items); menu labels keep the original English wording. <b>Right-click in full-screen</b> to bring up the same menu. While the menu is open, Esc closes only the menu; Esc exits full-screen only when the menu is closed.',
     'zh-CN': '选单结构重建自面板厂测试程序的原始选单（21 个顶层项目、24 个子项目），选单文字保留英文原文不翻译。<b>全画面时按鼠标右键</b>可叫出同一套选单；选单开着时 Esc 只关选单，选单关着时 Esc 才离开全画面。'
   },
+  'pat.gridOK': {
+    'zh-TW': '編輯區顯示的是 <b>{n}</b> 的<b>重複單元</b>（水平 {w} px × 垂直 {h} 列，含目前灰階）。可直接接著手動微調。',
+    'en': 'The editor shows the <b>repeating unit</b> of <b>{n}</b> ({w} px wide × {h} rows, at the current gray level). You can fine-tune it by hand from here.',
+    'zh-CN': '编辑区显示的是 <b>{n}</b> 的<b>重复单元</b>（水平 {w} px × 垂直 {h} 列，含当前灰阶）。可直接接着手动微调。'
+  },
+  'pat.gridNA': {
+    'zh-TW': '<b>{n}</b> 不是 4 px × 4 列的週期性圖樣，<b>編輯區不適用</b>（已清空，不顯示上一個畫面的殘值）。點任一格即可回到手動編輯。',
+    'en': '<b>{n}</b> is not a 4 px × 4 row periodic pattern, so the <b>editor does not apply</b> (cleared, so no leftover values from the previous pattern). Tap any cell to return to manual editing.',
+    'zh-CN': '<b>{n}</b> 不是 4 px × 4 列的周期性图样，<b>编辑区不适用</b>（已清空，不显示上一个画面的残值）。点任一格即可回到手动编辑。'
+  },
   'pat.patCur':         { 'zh-TW': '目前畫面', 'en': 'Current pattern', 'zh-CN': '当前画面' },
   'pat.patBack':        { 'zh-TW': '回到 Sub-pixel 編輯', 'en': 'Back to sub-pixel editor', 'zh-CN': '回到 Sub-pixel 编辑' },
   'pat.patColor':       { 'zh-TW': '顏色（對應原程式數字鍵 1–8）', 'en': 'Color (original program number keys 1–8)', 'zh-CN': '颜色（对应原程序数字键 1–8）' },
