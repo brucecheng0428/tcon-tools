@@ -263,6 +263,31 @@ var I18N = {
   'pat.keyLumN':        { 'zh-TW': '欄數 ±1（按住 Shift 為 ±7）', 'en': 'column count ±1 (±7 with Shift)', 'zh-CN': '栏数 ±1（按住 Shift 为 ±7）' },
   'pat.keyNone':        { 'zh-TW': '此畫面沒有任何按鍵操作，只有 Esc 可離開（原程式即如此）', 'en': 'This pattern has no key controls; only Esc exits (same as the original program)', 'zh-CN': '此画面没有任何按键操作，只有 Esc 可离开（原程序即如此）' },
 
+  /* ★ 遮罩：本站設計，原程式沒有這個功能 */
+  'pat.maskCard':       { 'zh-TW': '遮罩（只露出指定等份）', 'en': 'Mask (reveal only selected segments)', 'zh-CN': '遮罩（只露出指定等份）' },
+  'pat.maskOn':         { 'zh-TW': '啟用遮罩', 'en': 'Enable mask', 'zh-CN': '启用遮罩' },
+  'pat.maskHint': {
+    'zh-TW': '把畫面左右平分成 N 等份，只露出勾選的等份，其餘蓋掉；也可以再加上垂直等份。<b>此功能為本站設計，原程式沒有。</b>遮罩只疊在畫面上，關掉後畫面與沒有遮罩時完全相同，也不會影響上方的 sub-pixel 編輯區。',
+    'en': 'Splits the screen into N equal columns and reveals only the ones you tick, covering the rest; vertical segments can be added too. <b>This is our own feature; the original program does not have it.</b> The mask is only an overlay — turning it off restores the picture exactly, and it never affects the sub-pixel editor above.',
+    'zh-CN': '把画面左右平分成 N 等份，只露出勾选的等份，其余盖掉；也可以再加上垂直等份。<b>此功能为本站设计，原程序没有。</b>遮罩只叠在画面上，关掉后画面与没有遮罩时完全相同，也不会影响上方的 sub-pixel 编辑区。'
+  },
+  'pat.maskHN':         { 'zh-TW': '水平等份數', 'en': 'Horizontal segments', 'zh-CN': '水平等份数' },
+  'pat.maskHSel':       { 'zh-TW': '露出哪幾等份（可複選）', 'en': 'Which segments to reveal (multi-select)', 'zh-CN': '露出哪几等份（可复选）' },
+  'pat.maskVOn':        { 'zh-TW': '同時使用垂直等份', 'en': 'Also use vertical segments', 'zh-CN': '同时使用垂直等份' },
+  'pat.maskVN':         { 'zh-TW': '垂直等份數', 'en': 'Vertical segments', 'zh-CN': '垂直等份数' },
+  'pat.maskVSel':       { 'zh-TW': '露出哪幾等份（可複選）', 'en': 'Which segments to reveal (multi-select)', 'zh-CN': '露出哪几等份（可复选）' },
+  'pat.maskCombine':    { 'zh-TW': '水平與垂直的組合方式', 'en': 'How horizontal and vertical combine', 'zh-CN': '水平与垂直的组合方式' },
+  'pat.maskAnd':        { 'zh-TW': '交集（露出矩形）', 'en': 'Intersection (reveals a rectangle)', 'zh-CN': '交集（露出矩形）' },
+  'pat.maskOr':         { 'zh-TW': '聯集（露出十字）', 'en': 'Union (reveals a cross)', 'zh-CN': '联集（露出十字）' },
+  'pat.maskPad':        { 'zh-TW': '露出區外緣調整（正 = 外擴、負 = 內縮，px）', 'en': 'Reveal edge adjust (positive = expand, negative = shrink, px)', 'zh-CN': '露出区外缘调整（正 = 外扩、负 = 内缩，px）' },
+  'pat.maskPadHint':    { 'zh-TW': '作用在整段連續露出區的外緣，所以露出相鄰的等份（例如 2、3）時中間不會出現接縫。', 'en': 'Applied to the outer edges of each continuous revealed run, so adjacent segments (say 2 and 3) show no seam between them.', 'zh-CN': '作用在整段连续露出区的外缘，所以露出相邻的等份（例如 2、3）时中间不会出现接缝。' },
+  'pat.maskFill':       { 'zh-TW': '遮罩內容', 'en': 'Mask content', 'zh-CN': '遮罩内容' },
+  'pat.maskFillColor':  { 'zh-TW': '單色', 'en': 'Solid colour', 'zh-CN': '单色' },
+  'pat.maskFillPat':    { 'zh-TW': '另一個畫面', 'en': 'Another pattern', 'zh-CN': '另一个画面' },
+  'pat.maskColor':      { 'zh-TW': '遮罩顏色', 'en': 'Mask colour', 'zh-CN': '遮罩颜色' },
+  'pat.maskLevel':      { 'zh-TW': '遮罩灰階', 'en': 'Mask gray level', 'zh-CN': '遮罩灰阶' },
+  'pat.maskPat':        { 'zh-TW': '遮罩用的畫面', 'en': 'Pattern used as the mask', 'zh-CN': '遮罩用的画面' },
+
   /* 左上角資訊框：內容照原程式格式不翻譯，只有標題與「隱藏」是說明性文字 */
   'pat.infoTitle':      { 'zh-TW': '左上角資訊框（全畫面時顯示）', 'en': 'Top-left info box (shown in full-screen)', 'zh-CN': '左上角信息框（全画面时显示）' },
   'pat.infoHidden':     { 'zh-TW': '此畫面不顯示（原程式即隱藏）', 'en': 'not shown on this pattern (hidden in the original program)', 'zh-CN': '此画面不显示（原程序即隐藏）' },
