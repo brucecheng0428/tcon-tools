@@ -250,7 +250,7 @@ var I18N = {
   'pat.keyCtShrink':    { 'zh-TW': '內框縮小，寬高下限 24 px，Shift 為 16 px', 'en': 'shrink the inner box, minimum 24 px, 16 px with Shift', 'zh-CN': '内框缩小，宽高下限 24 px，Shift 为 16 px' },
   'pat.keyCtPos':       { 'zh-TW': '移動內框位置（無邊界限制），Shift 為 16 px', 'en': 'move the inner box (no bounds), 16 px with Shift', 'zh-CN': '移动内框位置（无边界限制），Shift 为 16 px' },
   'pat.keyExt':         { 'zh-TW': '本站擴充，原程式沒有', 'en': 'our addition; not in the original', 'zh-CN': '本站扩充，原程序没有' },
-  'pat.keyXYFree':      { 'zh-TW': '準星沒有邊界限制，可以一路移出畫面（原程式即如此）', 'en': 'The crosshair has no bounds and can be moved off-screen (same as the original program)', 'zh-CN': '准星没有边界限制，可以一路移出画面（原程序即如此）' },
+  'pat.keyXYFree':      { 'zh-TW': '準星可以移出畫面，但四邊各最多超出 10 px（本站設計；原程式沒有邊界限制）', 'en': 'The crosshair may go off-screen by at most 10 px on each side (our design; the original program has no bounds at all)', 'zh-CN': '准星可以移出画面，但四边各最多超出 10 px（本站设计；原程序没有边界限制）' },
   'pat.keyCenter5':     { 'zh-TW': 'Center 按 5 沒有作用（原程式即如此）', 'en': 'On Center, 5 does nothing (same as the original program)', 'zh-CN': 'Center 按 5 没有作用（原程序即如此）' },
   'pat.keyNoShift':     { 'zh-TW': '此畫面的按鍵不吃 Shift', 'en': 'Shift has no effect on this pattern', 'zh-CN': '此画面的按键不吃 Shift' },
   'pat.ctW':            { 'zh-TW': 'Inner Width（px）', 'en': 'Inner Width (px)', 'zh-CN': 'Inner Width（px）' },

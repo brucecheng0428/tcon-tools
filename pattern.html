@@ -241,16 +241,17 @@
   .pg-grid-note.na b { color: #fef3c7; }
   .pg-grid-wrap.na { opacity: .38; filter: grayscale(.5); }
 
-  /* ─── 左上角資訊框（照原程式 Panel1 的屬性） ───
-     Left=1 Top=1 Width=180 Height=25 AutoSize=True BevelOuter=bvNone
-     Color=clBlack Font=Arial Bold Height=-16 Font.Color=clWhite Visible=False */
+  /* ─── 左上角資訊框 ───
+     位置與配色照原程式 Panel1：Left=1 Top=1 BevelOuter=bvNone Color=clBlack
+     Font=Arial Bold Height=-16 Font.Color=clWhite Visible=False
+     ★ 本站設計，與原程式不同：原程式是固定 180×25 的框，文字短的時候右邊會空一大片，
+       而且在 XY Coordinate 這種畫面會蓋掉旁邊的內容。這裡改成寬高都貼合文字。 */
   #pg-info {
     position: absolute; left: 1px; top: 1px; z-index: 4;
-    display: none; box-sizing: border-box;
-    min-width: 180px; height: 25px; line-height: 25px;
-    padding: 0 3px; background: #000; color: #fff;
+    display: none; box-sizing: content-box;
+    padding: 1px 4px; background: #000; color: #fff;
     font: bold 16px Arial, "Helvetica Neue", sans-serif;
-    white-space: pre; letter-spacing: 0;
+    line-height: 19px; white-space: pre; letter-spacing: 0;
   }
   #pg-info.on { display: inline-block; }
 
@@ -260,7 +261,7 @@
     font-size: 12px; color: var(--text-sub);
   }
   .pg-infoecho b {
-    display: inline-block; min-width: 180px; padding: 2px 4px; margin-left: 6px;
+    display: inline-block; padding: 1px 4px; margin-left: 6px;
     background: #000; color: #fff; font: bold 15px Arial, sans-serif; white-space: pre;
   }
   .pg-infoecho .hide { color: #f59e0b; font-weight: 700; }
@@ -534,8 +535,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260801pat8"></script>
-<script src="common/i18n.js?v=20260801pat8"></script>
+<script src="common/version.js?v=20260801pat9"></script>
+<script src="common/i18n.js?v=20260801pat9"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1254,15 +1255,12 @@
         var xyC = pgCss(ci, 255);
         var bg = inv ? xyC : '#000000', fg = inv ? '#000000' : xyC;
         clear(bg);
-        // 原程式對準星座標沒有任何邊界限制，可以一路移出畫面 → 這裡也不 clamp
         var cx = Math.round(P.xyFx * W) - 1;
         var cy = Math.round(P.xyFy * H) - 1;
         box(cx, 0, cx + 1, H, fg);
         box(0, cy, W, cy + 1, fg);
-        ctx.fillStyle = fg;
-        ctx.font = Math.max(11, F(H/60)) + 'px Arial, sans-serif';
-        ctx.textBaseline = 'top';
-        ctx.fillText('X = ' + cx + '   Y = ' + cy + '   (' + W + ' x ' + H + ')', 8, 6);
+        // 座標數值由左上角資訊框顯示（原程式也是如此），這裡不再另外畫一份，
+        // 否則會被資訊框蓋住變成看不見的重複文字。
         return;
       }
 
@@ -1691,6 +1689,8 @@
     crosstalk:400, xy:500, checker:600
   };
   var PG_CT_NAMES = ['Outer Color', 'Inner Color', 'Inner Size', 'Inner Position'];
+  // ★ 本站設計，與原程式不同：XY 準星允許超出畫面的最大 px 數（原程式無此限制）
+  var PG_XY_OVER = 10;
   var pgCkT0 = 0, pgCkTimer = null;
 
   function pgP3(v){ var s = String(v); return s.length >= 3 ? s : ('   ' + s).slice(-3); }   // %3d
@@ -1894,6 +1894,17 @@
       else if (k === 'ArrowRight')    { pgPat.xyFx += s / t2.W; changed = true; }
       else if (k === 'ArrowUp')       { pgPat.xyFy -= s / t2.H; changed = true; }
       else if (k === 'ArrowDown')     { pgPat.xyFy += s / t2.H; changed = true; }
+      // ★ 本站設計，與原程式不同：原程式對準星座標完全沒有邊界檢查，可以一路移到任意遠。
+      //   這裡允許超出畫面，但四邊各最多 PG_XY_OVER px，且用夾住（clamp）而不是拒絕移動 ——
+      //   Shift 步進是 16，一次就會跨過 10，拒絕移動的話最後 10 px 會永遠到不了。
+      if (changed && k.indexOf('Arrow') === 0) {
+        var cxv = Math.round(pgPat.xyFx * t2.W) - 1;
+        var cyv = Math.round(pgPat.xyFy * t2.H) - 1;
+        cxv = Math.min(t2.W - 1 + PG_XY_OVER, Math.max(-PG_XY_OVER, cxv));
+        cyv = Math.min(t2.H - 1 + PG_XY_OVER, Math.max(-PG_XY_OVER, cyv));
+        pgPat.xyFx = (cxv + 1) / t2.W;
+        pgPat.xyFy = (cyv + 1) / t2.H;
+      }
     }
     else if (grp === 'checker') {
       // 1~8 / ←→ / Home / End 原程式皆無反應
