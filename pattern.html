@@ -598,6 +598,16 @@
       </div>
       </div>
 
+      <!-- Skip 1 Dot 2 Gray 專屬：Pattern #2 -->
+      <div class="pg-sub" id="pg-pat-s2g" style="display:none">
+      <label data-i18n="pat.s2gTitle">Pattern #2（偶數列與奇數列交替）</label>
+      <div class="pg-row2">
+      <div><label data-i18n="pat.s2gColor">Pattern #2 Color</label><select id="pg-s2g-c"></select></div>
+      <div><label data-i18n="pat.s2gLevel">Pattern #2 Level</label><input type="number" id="pg-s2g-l" min="0" max="255" value="255"></div>
+      </div>
+      <div class="field-hint" data-i18n="pat.s2gHint">上方的顏色與灰階是 Pattern #1；這裡是 Pattern #2。原程式兩者都可調，本站先前漏了這一組。</div>
+      </div>
+
       <!-- XY Coordinate 專屬 -->
       <div class="pg-sub" id="pg-pat-xy" style="display:none">
       <div class="field-hint" data-i18n="pat.xyHint">全畫面時用方向鍵移動準星，Space 黑白反相。</div>
@@ -735,6 +745,13 @@
       <div id="pg-mask-patbox" style="display:none;margin-top:6px">
       <label data-i18n="pat.maskPat">遮罩用的畫面</label>
       <select id="pg-mask-pat"></select>
+      <div class="radio-group" style="margin-top:6px">
+      <div class="radio-opt">
+      <input type="checkbox" id="pg-mask-tint">
+      <label for="pg-mask-tint" data-i18n="pat.maskTint">把上面的顏色與灰階也套到這張畫面</label>
+      </div>
+      </div>
+      <div class="field-hint" data-i18n="pat.maskTintHint">預設不套用，讓那張畫面維持它原本該有的樣子。</div>
       </div>
       </div>
       </div>
@@ -891,8 +908,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat250"></script>
-<script src="common/i18n.js?v=20260802pat250"></script>
+<script src="common/version.js?v=20260802pat260"></script>
+<script src="common/i18n.js?v=20260802pat260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1168,6 +1185,7 @@
       ckIdx: 2, ctOC: 3, ctOL: 127, ctIC: 3, ctIL: 0, ctMode: 0,
       ctL: 0.25, ctT: 0.25, ctW: 0.5, ctH: 0.5,
       xyFx: 0.5, xyFy: 0.5, charMode: 0, lumStart: 248, lumN: 6, sixBit: 0,
+      s2gC2: 1, s2gL2: 255,
       rt: { c1: 3, l1: 0, c2: 3, l2: 255, ms: 500, run: false, phase: 0, t0: 0, timer: null }
     };
     if (over) for (var k in over) if (Object.prototype.hasOwnProperty.call(over, k)) s[k] = over[k];
@@ -1441,9 +1459,9 @@
   var PG_MENU = [
     { label: 'Horizontal', radio: true, children: [
       { id: 'horiz9', label: '9' }, { id: 'horiz64', label: '64' }, { id: 'horiz256', label: '256' } ] },
-    { label: 'Vertical', children: [
+    { label: 'Vertical', radio: true, children: [
       { id: 'vert9', label: '9' }, { id: 'vert64', label: '64' }, { id: 'vert256', label: '256' } ] },
-    { label: 'Center', children: [
+    { label: 'Center', radio: true, children: [
       { id: 'center9', label: '9' }, { id: 'center64', label: '64' }, { id: 'center256', label: '256' } ] },
     { id: 'gray', label: 'Gray Level' },
     { label: 'Skip 1 Dot', children: [
@@ -1570,7 +1588,7 @@
     lum_divide:   { def:{c:4,l:255}, key:'divide',    mode:81,  variants:'lum',     panels:['level'] },
     resptime:     { def:{c:3,l:255}, key:'none',      mode:90,                      panels:['rt'] },
     smpte:        { def:{c:3,l:255}, key:'spaceOnly', mode:100,                     panels:[] },
-    skip1dot2gray:{ def:{c:0,l:255}, key:'none',      mode:110,                     panels:['level'] }
+    skip1dot2gray:{ def:{c:0,l:255}, key:'none',      mode:110,                     panels:['level','s2g'] }
   };
   // 由註冊表衍生出原本那幾張散表，下游引用一律不動
   var PG_DEF = {}, PG_MODE = {}, PG_GROUPS = [];
@@ -1604,6 +1622,7 @@
     // 這裡存成相對畫面尺寸的比例，預覽與全畫面才會是同一個比例。
     ctL: 0, ctT: 0.25, ctW: 0, ctH: 0.5,
     xyFx: 0.5, xyFy: 0.5,
+    s2gC2: 1, s2gL2: 255, // Skip 1 Dot 2 Gray 的 Pattern #2 顏色／灰階（預設 Green/255）
     charMode: 0,          // Character：0 全亮 / 1 上暗下亮 / 2 上亮下暗
     lumStart: 248,        // LUMINACE COMPARE 起始值（原程式 [0x404]，預設 0xf8）
     lumN: 6,              // LUMINACE DIVIDE 的欄數參數（N = lumN + 2）
@@ -1930,7 +1949,9 @@
       case 'skip1dot2gray': {
         // 偶數列 Pattern#1 色、奇數列 Pattern#2 色，再用黑色 45° 斜線打掉一半 → pixel 棋盤
         var cA = pgU32(P.colorIdx, P.level);                     // Pattern #1（預設 Red/255）
-        var cB = pgU32(P.ctIC, P.ctIL);                          // Pattern #2（預設 Green/255）
+        // v2.6.0：改用自己的欄位。原本借用 Cross Talk 的 ctIC/ctIL，除了讓使用者
+        // 完全改不到之外，也會跟 Cross Talk 互相污染（那正是進入點要清 [0x3dc] 的原因）。
+        var cB = pgU32(P.s2gC2, P.s2gL2);                        // Pattern #2（預設 Green/255）
         pgPixels(ctx, W, H, function(x, y){
           if (((x + y + inv) & 1) !== 0) return offC;            // 黑色斜線
           return (y & 1) === 0 ? cA : cB;
@@ -2203,7 +2224,8 @@
     pad: 0,                            // 露出區外緣：正 = 外擴、負 = 內縮（px）
     fill: 'color',                     // 'color' | 'pattern'
     colorIdx: 4, level: 0,             // 遮罩顏色（預設 Black×0）
-    patId: 'gray'                      // 當 fill = 'pattern' 時用哪一張
+    patId: 'gray',                     // 當 fill = 'pattern' 時用哪一張
+    patTint: false                     // 是否把上面的遮罩顏色／灰階套到那張畫面上
   };
   var pgMaskCv = null;
 
@@ -2265,17 +2287,17 @@
     for (i = 0; i < rects.length; i++) ctx.putImageData(saved[i], rects[i].x, rects[i].y);
   }
   // 遮罩 pattern 用的狀態：以該畫面的預設值為底，套上使用者選的顏色與灰階
+  // v2.6.0 修正：原本一律把遮罩的顏色／灰階套到那張畫面上，而且判斷式
+  //   `if (pgMask.colorIdx === undefined)` 永遠是 false（初值就是 4），
+  //   所以取畫面預設色的那條分支是死碼、永遠不會執行。
+  // 更糟的是被硬套的 colorIdx = 4 在 Horizontal / Vertical / LUMINACE 裡
+  //   不是黑色，而是「四色帶模式」的哨兵值 —— 選了這幾張當遮罩內容，畫出來
+  //   會是四條彩色帶，跟使用者選的「遮罩顏色：Black」完全不符。
+  // 現在預設用該畫面自己的預設色（那才是「另一個畫面」的語意），
+  //   要套遮罩顏色則由使用者明確勾選。
   function pgMaskPatState(){
-    var d = PG_DEF[pgMask.patId] || { c: 3, l: 255 };
-    var s = {
-      id: pgMask.patId, colorIdx: pgMask.colorIdx, level: pgMask.level, invert: 0,
-      ckIdx: 2, ctOC: 3, ctOL: 127, ctIC: 3, ctIL: 0, ctMode: 0,
-      ctL: 0.25, ctT: 0.25, ctW: 0.5, ctH: 0.5,
-      xyFx: 0.5, xyFy: 0.5, charMode: 0, lumStart: 248, lumN: 6, sixBit: 0,
-      rt: { c1: 3, l1: 0, c2: 3, l2: 255, ms: 500, run: false, phase: 0, t0: 0, timer: null }
-    };
-    if (pgMask.colorIdx === undefined) { s.colorIdx = d.c; s.level = d.l; }
-    return s;
+    return pgMakeState(pgMask.patId,
+      pgMask.patTint ? { colorIdx: pgMask.colorIdx, level: pgMask.level } : null);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -2882,7 +2904,7 @@
     pgPat.colorIdx = d.c;
     pgPat.level = d.l;
     pgPat.invert = 0;
-    if (id === 'skip1dot2gray') { pgPat.colorIdx = 0; pgPat.level = 255; pgPat.ctIC = 1; pgPat.ctIL = 255; }
+    if (id === 'skip1dot2gray') { pgPat.colorIdx = 0; pgPat.level = 255; pgPat.s2gC2 = 1; pgPat.s2gL2 = 255; }
     // 原程式每個畫面的進入點都會把共用欄位 [0x3dc] 清 0；那個欄位在 Cross Talk 是「編輯項目」、
     // 在 LUMINACE 是「6-bit 旗標」，不重設就會從別的畫面帶著舊值過來。
     if (id === 'crosstalk') {
@@ -3219,7 +3241,13 @@
     show('pg-pat-ct',      panels.indexOf('ct') >= 0);
     show('pg-pat-rt',      panels.indexOf('rt') >= 0);
     show('pg-pat-xy',      panels.indexOf('xy') >= 0);
+    show('pg-pat-s2g',     panels.indexOf('s2g') >= 0);
     show('pg-pat-lv-box',  panels.indexOf('level') >= 0);
+    if (pgPat.id === 'skip1dot2gray') {
+      var sc = document.getElementById('pg-s2g-c'), sl = document.getElementById('pg-s2g-l');
+      if (sc && document.activeElement !== sc) sc.value = String(pgPat.s2gC2);
+      if (sl && document.activeElement !== sl) sl.value = pgPat.s2gL2;
+    }
     if (pgPat.id === 'crosstalk') {          // Cross Talk 四個幾何輸入框顯示成像素
       var tsC = pgTargetSize();
       var setV = function(i2, v){ var e2 = document.getElementById(i2); if (e2 && document.activeElement !== e2) e2.value = Math.round(v); };
@@ -3349,6 +3377,8 @@
       ps.appendChild(o);
     });
     ps.value = pgMask.patId;
+    var tint = byId('pg-mask-tint');
+    if (tint) tint.addEventListener('change', function(){ pgMask.patTint = tint.checked; pgMaskRedraw(); });
     ps.addEventListener('change', function(){ pgMask.patId = this.value; pgMaskRedraw(); });
     pgMaskBuildChips('h');
     pgMaskBuildChips('v');
@@ -3407,6 +3437,19 @@
       ck.addEventListener('change', function(){ pgPat.ckIdx = +ck.value; pgRenderPreview(); pgRenderFill(); pgSyncGridSoon(); });
     }
 
+    pgFillColorSelect(byId('pg-s2g-c'), 1);
+    var s2gMap = { 'pg-s2g-c': 's2gC2', 'pg-s2g-l': 's2gL2' };
+    Object.keys(s2gMap).forEach(function(idKey){
+      var el = byId(idKey);
+      if (!el) return;
+      var h = function(){
+        var v = parseInt(el.value, 10);
+        if (isNaN(v)) return;
+        pgPat[s2gMap[idKey]] = Math.max(0, Math.min(255, v));
+        pgRenderPreview(); pgRenderFill(); pgSyncGridSoon();
+      };
+      el.addEventListener('input', h); el.addEventListener('change', h);
+    });
     pgFillColorSelect(byId('pg-ct-oc'), 3);
     pgFillColorSelect(byId('pg-ct-ic'), 3);
     pgFillColorSelect(byId('pg-rt-c1'), 3);
