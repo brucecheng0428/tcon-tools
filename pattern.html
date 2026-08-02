@@ -394,6 +394,88 @@
   .pg-verify b { color: #d1fae5; }
   .pg-verify.bad b { color: #fecaca; }
   .pg-verify code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
+
+  /* ─── v2.3.0 輸出預覽 ───────────────────────────────
+     兩個檢視模式的縮放前提相反，所以不能疊在一起：
+       符合視窗 = 整張看得完 → 才能用套疊比例框判斷大小關係（但必然縮放）
+       1:1      = 看不完     → 才有東西可以拖、紅框才有意義（不縮放）        */
+  .pg-viewtabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 8px 0 6px; }
+  .pg-viewtab {
+    padding: 7px 6px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 700;
+    border: 1.5px solid var(--border); background: #0f172a; color: var(--text-sub);
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .pg-viewtab.on { background: #1e3a5f; border-color: var(--accent); color: var(--accent); }
+
+  .pg-prevbox {
+    position: relative; background: #000; border: 1.5px solid var(--border);
+    border-radius: 8px; overflow: hidden; touch-action: none;
+  }
+  #pg-prev-canvas { display: block; margin: 0 auto; image-rendering: auto; }
+  #pg-prev-canvas.crisp { image-rendering: pixelated; image-rendering: crisp-edges; }
+
+  /* 套疊比例框：實線＝目標、虛線＝比較基準。只在「符合視窗」模式出現 */
+  .pg-frame { position: absolute; pointer-events: none; box-sizing: border-box; }
+  .pg-frame.target { border: 2px solid #38bdf8; }
+  .pg-frame.base   { border: 2px dashed rgba(255,255,255,.75); }
+
+  /* 縮放警語：必須常駐貼在預覽畫面上，不能只寫在說明文字裡 */
+  .pg-prev-warn {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
+    background: rgba(120,53,15,.92); color: #fde68a;
+    font-size: 11px; line-height: 1.45; padding: 4px 8px; pointer-events: none;
+  }
+
+  /* 目標 > 基準：四周呼吸燈式紅框（慢慢亮、慢慢暗，不是閃爍） */
+  .pg-breathe {
+    position: absolute; inset: 0; z-index: 3; pointer-events: none;
+    box-shadow: inset 0 0 0 3px rgba(239,68,68,1);
+    animation: pgBreathe 3s ease-in-out infinite alternate;
+  }
+  @keyframes pgBreathe {
+    from { box-shadow: inset 0 0 0 3px rgba(239,68,68,.22); }
+    to   { box-shadow: inset 0 0 0 3px rgba(239,68,68,1); }
+  }
+  /* 相等：綠框淡入一次後停住 —— 與紅框的差別是「靜止 vs 持續呼吸」＋顏色，兩個維度都不同 */
+  .pg-equal {
+    position: absolute; inset: 0; z-index: 3; pointer-events: none;
+    box-shadow: inset 0 0 0 3px rgba(74,222,128,.95);
+    animation: pgEqualIn .4s ease-out 1;
+  }
+  @keyframes pgEqualIn { from { box-shadow: inset 0 0 0 3px rgba(74,222,128,0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .pg-breathe { animation: none; box-shadow: inset 0 0 0 3px rgba(239,68,68,.85); }
+    .pg-equal   { animation: none; }
+  }
+
+  /* 可拖曳時的手爪游標 */
+  .pg-prevbox.pannable  { cursor: grab; }
+  .pg-prevbox.panning   { cursor: grabbing; }
+
+  .pg-panhint {
+    position: absolute; left: 0; top: 0; z-index: 4;
+    background: rgba(0,0,0,.72); color: #e2e8f0; font-size: 11px;
+    padding: 3px 7px; pointer-events: none; display: none;
+  }
+  .pg-panhint.on { display: block; }
+
+  /* 全畫面預覽：基準是真正的螢幕，1:1 不縮放 */
+  #pg-fsprev { position: fixed; inset: 0; z-index: 10001; background: #000; display: none; overflow: hidden; }
+  #pg-fsprev.on { display: block; }
+  #pg-fsprev:fullscreen, #pg-fsprev:-webkit-full-screen { width: 100%; height: 100%; }
+  #pg-fsprev-canvas { position: absolute; left: 0; top: 0; display: block;
+    image-rendering: pixelated; image-rendering: crisp-edges; }
+  #pg-fsprev .pg-breathe, #pg-fsprev .pg-equal { z-index: 5; }
+  #pg-fsprev-bar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+    background: rgba(15,23,42,.94); color: var(--text-sub);
+    font-size: 12px; line-height: 1.55; padding: 8px 12px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  #pg-fsprev-bar b { color: var(--accent); }
+  #pg-fsprev-bar .pg-btn { padding: 6px 12px; font-size: 12px; }
+  #pg-fsprev.pannable #pg-fsprev-canvas { cursor: grab; }
+  #pg-fsprev.panning  #pg-fsprev-canvas { cursor: grabbing; }
 </style>
 </head>
 <body>
@@ -673,8 +755,20 @@
       </div>
       <div class="pg-chipwrap" id="pg-out-presets"></div>
 
+      <div class="pg-viewtabs">
+        <button class="pg-viewtab on" id="pg-view-fit" data-i18n="pat.viewFit">符合視窗</button>
+        <button class="pg-viewtab" id="pg-view-11" data-i18n="pat.view11">1:1 實際像素</button>
+      </div>
+      <div class="pg-prevbox" id="pg-prevbox">
+        <canvas id="pg-prev-canvas"></canvas>
+        <div class="pg-panhint" id="pg-panhint"></div>
+      </div>
+      <div class="field-hint" id="pg-prev-base">—</div>
+
       <div class="pg-cmp" id="pg-out-cmp">—</div>
       <div class="pg-warnbox" id="pg-out-maskinfo" style="display:none"></div>
+
+      <button class="pg-btn full" id="pg-fsprev-enter" style="margin-top:8px" data-i18n="pat.fsPrev">⛶ 用整個螢幕 1:1 檢視</button>
 
       <div class="pg-sub">
         <label data-i18n="pat.outFormat">檔案格式</label>
@@ -779,9 +873,18 @@
   </div>
 </div>
 
+<!-- ═══ 全畫面 1:1 預覽（基準＝真正的螢幕） ═══ -->
+<div id="pg-fsprev">
+  <canvas id="pg-fsprev-canvas"></canvas>
+  <div id="pg-fsprev-bar">
+    <span id="pg-fsprev-info">—</span>
+    <button class="pg-btn accent" id="pg-fsprev-exit" data-i18n="pat.fsPrevExit">✕ 離開</button>
+  </div>
+</div>
+
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat220"></script>
-<script src="common/i18n.js?v=20260802pat220"></script>
+<script src="common/version.js?v=20260802pat230"></script>
+<script src="common/i18n.js?v=20260802pat230"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -2248,6 +2351,7 @@
     if (ext) ext.textContent = '.' + pgOutFmt();
     var nm = document.getElementById('pg-out-name');
     if (nm && !nm.dataset.touched) nm.value = pgExportBaseName() + '_' + sz.W + 'x' + sz.H;
+    pgRenderPrev();
     var fh = document.getElementById('pg-out-fmthint');
     if (fh) fh.textContent = t('pat.outFmtHint') +
       (pgOutFmt() === 'bmp' ? ' ' + t('pat.outBmpSize', { s: pgFmtBytes(54 + (sz.W*3 + ((4-(sz.W*3)%4)%4)) * sz.H) }) : '');
@@ -2287,6 +2391,233 @@
     if (fmt === 'bmp') finish(pgEncodeBMP24(r.ctx, sz.W, sz.H));
     else r.canvas.toBlob(function(b){ finish(b); }, 'image/png');
   }
+  // ═══════════════════════════════════════════════════════════════
+  //  v2.3.0 輸出預覽
+  //  ⚠ previewCanvas 這條路徑會縮放，**只准用於螢幕顯示**。
+  //    寫進檔案的永遠是 pgRenderToSize() 產生的 exportCanvas，那條不縮放。
+  //  ⚠ 拖曳只改變「看哪一塊」，永遠不影響存檔內容 —— 存出去的一律是完整目標解析度。
+  // ═══════════════════════════════════════════════════════════════
+  var pgPrevMode = 'fit';                    // 'fit' | 'one'
+  var pgPan = { x: 0, y: 0 };                // 1:1 檢視的平移位置（僅影響顯示）
+  var pgPrevCache = { key: '', canvas: null };
+
+  function pgPrevExportCanvas(){
+    var sz = pgOutSize();
+    var key = [sz.W, sz.H, pgMode, pgPat.id, pgPat.colorIdx, pgPat.level, pgPat.invert,
+               pgPat.ckIdx, pgPat.charMode, pgPat.lumN, pgPat.sixBit, pgMask.on, pgMask.hN,
+               Object.keys(pgMask.hSel).join(','), pgMask.vOn, pgMask.vN,
+               Object.keys(pgMask.vSel).join(','), pgMask.combine, pgMask.pad,
+               pgMask.fill, pgMask.colorIdx, pgMask.level, pgMask.patId,
+               pgMode === 'subpixel' ? JSON.stringify(pgLevels) : ''].join('|');
+    if (pgPrevCache.key !== key) {
+      pgPrevCache = { key: key, canvas: pgRenderToSize(sz.W, sz.H).canvas };
+    }
+    return pgPrevCache.canvas;
+  }
+  function pgPrevBaseSize(){
+    // 主頁小預覽的比較基準是預覽框本身；全畫面預覽的基準才是螢幕
+    var box = document.getElementById('pg-prevbox');
+    var w = box ? Math.max(80, box.clientWidth) : 320;
+    return { W: w, H: Math.round(w * 9 / 16) };
+  }
+  function pgClearOverlays(host){
+    Array.prototype.forEach.call(host.querySelectorAll('.pg-frame,.pg-prev-warn,.pg-breathe,.pg-equal'),
+      function(e){ e.parentNode.removeChild(e); });
+  }
+  function pgRenderPrev(){
+    var box = document.getElementById('pg-prevbox');
+    var cv  = document.getElementById('pg-prev-canvas');
+    if (!box || !cv) return;
+    var src = pgPrevExportCanvas(), sz = { W: src.width, H: src.height };
+    var base = pgPrevBaseSize();
+    var boxW = Math.max(80, box.clientWidth);
+    pgClearOverlays(box);
+    var ctx;
+    if (pgPrevMode === 'fit') {
+      // 整張縮到看得完 —— 必然縮放，所以警語常駐
+      var s = Math.min(boxW / sz.W, 1);
+      var vw = Math.max(1, Math.round(sz.W * s)), vh = Math.max(1, Math.round(sz.H * s));
+      cv.width = vw; cv.height = vh;
+      cv.style.width = vw + 'px'; cv.style.height = vh + 'px';
+      cv.classList.remove('crisp');
+      ctx = cv.getContext('2d', { alpha: false });
+      ctx.imageSmoothingEnabled = true;     // 縮小顯示要平滑，否則 1px 線條會整條消失
+      ctx.drawImage(src, 0, 0, vw, vh);
+      box.classList.remove('pannable', 'panning');
+      // 套疊比例框：實線＝目標、虛線＝基準（都畫成同一個比例基準下的矩形）
+      var scr = pgScreenDevSize();
+      if (scr.W && scr.H) {
+        var k = Math.min(vw / Math.max(sz.W, scr.W), vh / Math.max(sz.H, scr.H));
+        var mk = function(cls, W, H){
+          var d = document.createElement('div');
+          d.className = 'pg-frame ' + cls;
+          d.style.width  = Math.max(4, Math.round(W * k)) + 'px';
+          d.style.height = Math.max(4, Math.round(H * k)) + 'px';
+          d.style.left = Math.round((boxW - W * k) / 2) + 'px';
+          d.style.top  = Math.round((vh - H * k) / 2) + 'px';
+          box.appendChild(d);
+        };
+        mk('base', scr.W, scr.H);
+        mk('target', sz.W, sz.H);
+      }
+      var warn = document.createElement('div');
+      warn.className = 'pg-prev-warn';
+      warn.textContent = t('pat.prevScaled', { p: Math.round(s * 1000) / 10 });
+      box.appendChild(warn);
+      var ph = document.getElementById('pg-panhint');
+      if (ph) ph.classList.remove('on');
+    } else {
+      // 1:1 實際像素 —— 不縮放，看不完的部分用拖曳
+      var vw2 = boxW, vh2 = Math.min(sz.H, Math.round(boxW * 9 / 16));
+      var pannable = (sz.W > vw2) || (sz.H > vh2);
+      cv.width = vw2; cv.height = vh2;
+      cv.style.width = vw2 + 'px'; cv.style.height = vh2 + 'px';
+      cv.classList.add('crisp');
+      ctx = cv.getContext('2d', { alpha: false });
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, vw2, vh2);
+      var maxX = Math.max(0, sz.W - vw2), maxY = Math.max(0, sz.H - vh2);
+      pgPan.x = Math.min(maxX, Math.max(0, pgPan.x));
+      pgPan.y = Math.min(maxY, Math.max(0, pgPan.y));
+      // 比基準小 → 置中顯示、四周留黑邊
+      var dx = sz.W < vw2 ? Math.round((vw2 - sz.W) / 2) : 0;
+      var dy = sz.H < vh2 ? Math.round((vh2 - sz.H) / 2) : 0;
+      var sw = Math.min(sz.W, vw2), sh = Math.min(sz.H, vh2);
+      ctx.drawImage(src, pgPan.x, pgPan.y, sw, sh, dx, dy, sw, sh);   // 1:1，來源與目的同尺寸
+      box.classList.toggle('pannable', pannable);
+      var ov = document.createElement('div');
+      if (sz.W === base.W && sz.H === base.H) ov.className = 'pg-equal';
+      else if (pannable)                      ov.className = 'pg-breathe';
+      else                                    ov = null;
+      if (ov) box.appendChild(ov);
+      var ph2 = document.getElementById('pg-panhint');
+      if (ph2) {
+        ph2.classList.toggle('on', pannable);
+        ph2.textContent = t('pat.panPos', { x: pgPan.x, y: pgPan.y });
+      }
+    }
+    var bs = document.getElementById('pg-prev-base');
+    if (bs) bs.textContent = t('pat.prevBase', { w: boxW, h: (pgPrevMode === 'fit' ? cv.height : cv.height) }) +
+      ' ' + t('pat.prevNoAffect');
+  }
+  function pgBindPrevUI(){
+    var box = document.getElementById('pg-prevbox');
+    var fit = document.getElementById('pg-view-fit'), one = document.getElementById('pg-view-11');
+    if (fit) fit.addEventListener('click', function(){
+      pgPrevMode = 'fit'; fit.classList.add('on'); if (one) one.classList.remove('on'); pgRenderPrev();
+    });
+    if (one) one.addEventListener('click', function(){
+      pgPrevMode = 'one'; one.classList.add('on'); if (fit) fit.classList.remove('on'); pgRenderPrev();
+    });
+    if (!box) return;
+    var drag = null;
+    box.addEventListener('pointerdown', function(e){
+      if (pgPrevMode !== 'one' || !box.classList.contains('pannable')) return;
+      e.preventDefault();
+      drag = { x: e.clientX, y: e.clientY, px: pgPan.x, py: pgPan.y };
+      box.classList.add('panning');
+      try { box.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    box.addEventListener('pointermove', function(e){
+      if (!drag) return;
+      pgPan.x = drag.px - (e.clientX - drag.x);
+      pgPan.y = drag.py - (e.clientY - drag.y);
+      pgRenderPrev();
+    });
+    ['pointerup','pointercancel'].forEach(function(ev){
+      box.addEventListener(ev, function(){ drag = null; box.classList.remove('panning'); });
+    });
+  }
+
+  // ─── 全畫面 1:1 預覽（基準＝真正的螢幕） ───
+  var pgFsPrevOn = false, pgFsPan = { x: 0, y: 0 };
+  function pgFsPrevRender(){
+    var host = document.getElementById('pg-fsprev');
+    if (!host || !pgFsPrevOn) return;
+    var cv = document.getElementById('pg-fsprev-canvas');
+    var r = host.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    var vw = Math.round(r.width * dpr), vh = Math.round(r.height * dpr);
+    if (vw < 1 || vh < 1) return;
+    cv.style.width = Math.round(r.width) + 'px'; cv.style.height = Math.round(r.height) + 'px';
+    cv.width = vw; cv.height = vh;
+    var src = pgPrevExportCanvas(), sz = { W: src.width, H: src.height };
+    var ctx = cv.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, vw, vh);
+    var maxX = Math.max(0, sz.W - vw), maxY = Math.max(0, sz.H - vh);
+    pgFsPan.x = Math.min(maxX, Math.max(0, pgFsPan.x));
+    pgFsPan.y = Math.min(maxY, Math.max(0, pgFsPan.y));
+    var dx = sz.W < vw ? Math.round((vw - sz.W) / 2) : 0;
+    var dy = sz.H < vh ? Math.round((vh - sz.H) / 2) : 0;
+    var sw = Math.min(sz.W, vw), sh = Math.min(sz.H, vh);
+    ctx.drawImage(src, pgFsPan.x, pgFsPan.y, sw, sh, dx, dy, sw, sh);
+    pgClearOverlays(host);
+    var bigger = (sz.W > vw) || (sz.H > vh);
+    var same = (sz.W === vw && sz.H === vh);
+    var o = document.createElement('div');
+    if (same)        o.className = 'pg-equal';
+    else if (bigger) o.className = 'pg-breathe';
+    else             o = null;
+    if (o) host.appendChild(o);
+    host.classList.toggle('pannable', bigger);
+    var info = document.getElementById('pg-fsprev-info');
+    if (info) info.innerHTML = t('pat.fsPrevInfo', { tw: sz.W, th: sz.H, sw: vw, sh: vh }) +
+      ' — ' + (same ? t('pat.fsPrevEq') : bigger ? t('pat.fsPrevBig', { x: pgFsPan.x, y: pgFsPan.y }) : t('pat.fsPrevSmall'));
+  }
+  function pgFsPrevEnter(){
+    var host = document.getElementById('pg-fsprev');
+    if (!host) return;
+    pgFsPrevOn = true; pgFsPan.x = 0; pgFsPan.y = 0;
+    host.classList.add('on');
+    document.documentElement.classList.add('pg-fs-lock');
+    var req = host.requestFullscreen || host.webkitRequestFullscreen;
+    if (req) { try { var pr = req.call(host, { navigationUI: 'hide' }); if (pr && pr.catch) pr.catch(function(){}); } catch (e) {} }
+    setTimeout(pgFsPrevRender, 60); setTimeout(pgFsPrevRender, 350);
+    pgFsPrevRender();
+  }
+  function pgFsPrevExit(){
+    var host = document.getElementById('pg-fsprev');
+    if (!host) return;
+    pgFsPrevOn = false;
+    host.classList.remove('on', 'pannable', 'panning');
+    document.documentElement.classList.remove('pg-fs-lock');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      var ex = document.exitFullscreen || document.webkitExitFullscreen;
+      if (ex) { try { var pr = ex.call(document); if (pr && pr.catch) pr.catch(function(){}); } catch (e) {} }
+    }
+  }
+  function pgBindFsPrev(){
+    var host = document.getElementById('pg-fsprev');
+    var enter = document.getElementById('pg-fsprev-enter'), exit = document.getElementById('pg-fsprev-exit');
+    if (enter) enter.addEventListener('click', pgFsPrevEnter);
+    if (exit)  exit.addEventListener('click', pgFsPrevExit);
+    if (!host) return;
+    var drag = null;
+    host.addEventListener('pointerdown', function(e){
+      if (!pgFsPrevOn || !host.classList.contains('pannable')) return;
+      if (e.target && e.target.closest && e.target.closest('#pg-fsprev-bar')) return;
+      e.preventDefault();
+      drag = { x: e.clientX, y: e.clientY, px: pgFsPan.x, py: pgFsPan.y };
+      host.classList.add('panning');
+      try { host.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    host.addEventListener('pointermove', function(e){
+      if (!drag) return;
+      var dpr = window.devicePixelRatio || 1;
+      pgFsPan.x = drag.px - Math.round((e.clientX - drag.x) * dpr);
+      pgFsPan.y = drag.py - Math.round((e.clientY - drag.y) * dpr);
+      pgFsPrevRender();
+    });
+    ['pointerup','pointercancel'].forEach(function(ev){
+      host.addEventListener(ev, function(){ drag = null; host.classList.remove('panning'); });
+    });
+    document.addEventListener('keydown', function(e){
+      if (pgFsPrevOn && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pgFsPrevExit(); }
+    }, true);
+    if (window.ResizeObserver) { try { new ResizeObserver(function(){ pgFsPrevRender(); }).observe(host); } catch (e) {} }
+  }
+
   function pgBindOutUI(){
     var byId = function(i){ return document.getElementById(i); };
     var box = byId('pg-out-presets');
@@ -3263,6 +3594,8 @@
   pgBindPatternUI();
   pgBindMaskUI();
   pgBindOutUI();
+  pgBindPrevUI();
+  pgBindFsPrev();
   pgSyncPatternUI();
   pgSyncMaskTag();
   pgRenderPreview();
@@ -3300,6 +3633,12 @@
   window.pgVerifyRoundTrip = pgVerifyRoundTrip;
   window.pgOutSize       = pgOutSize;
   window.pgOutUpdate     = pgOutUpdate;
+  window.pgRenderPrev    = pgRenderPrev;
+  window.pgFsPrevEnter   = pgFsPrevEnter;
+  window.pgFsPrevExit    = pgFsPrevExit;
+  window.pgPrevState     = function(){ return { mode: pgPrevMode, pan: pgPan, fsPan: pgFsPan, fsOn: pgFsPrevOn }; };
+  window.pgPrevSetMode   = function(m){ pgPrevMode = m; pgRenderPrev(); };
+  window.pgPrevSetPan    = function(x,y){ pgPan.x=x; pgPan.y=y; pgRenderPrev(); };
 })();
 </script>
 </body>
