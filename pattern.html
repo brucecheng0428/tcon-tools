@@ -508,16 +508,45 @@
   #pg-mag-info .b { color: #60a5fa; }
   #pg-mag-info .xy { color: var(--text-sub); font-weight: 600; margin-left: auto; }
 
-  /* 放大鏡工具列（全畫面時浮在上方，主頁時在卡片內） */
+  /* 放大鏡工具列：可拖曳，放開後自動吸到最近的一邊 */
   #pg-mag-bar {
-    position: fixed; left: 50%; transform: translateX(-50%); top: 8px; z-index: 10062;
-    display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+    position: fixed; z-index: 10062;
+    display: none; align-items: center; gap: 8px;
     background: rgba(15,23,42,.95); border: 1.5px solid var(--border); border-radius: 8px;
     padding: 6px 10px; font-size: 12px; color: var(--text-sub);
+    cursor: move;                       /* 整條都可以抓 */
+    user-select: none; -webkit-user-select: none;
+    touch-action: none;
   }
   #pg-mag-bar.on { display: flex; }
-  #pg-mag-bar .pg-mini { padding: 4px 9px; }
+  #pg-mag-bar.dragging { cursor: grabbing; opacity: .92; }
+  #pg-mag-bar .pg-mini { padding: 4px 9px; cursor: pointer; }
+  #pg-mag-bar .pg-btn  { cursor: pointer; }
   #pg-mag-bar b { color: var(--accent); }
+  /* 抓把手：讓「可以拖」這件事看得出來 */
+  #pg-mag-bar .grip {
+    flex: 0 0 auto; color: #64748b; font-size: 13px; letter-spacing: -1px; line-height: 1;
+  }
+  /* 吸在上／下：橫向排列（預設） */
+  #pg-mag-bar.edge-top, #pg-mag-bar.edge-bottom { flex-direction: row; flex-wrap: wrap; max-width: 96vw; }
+
+  /* 吸在左／右：改成直向，寬度縮窄，不佔掉畫面寬度 —— 不是把橫的轉 90 度，是重新排 */
+  #pg-mag-bar.edge-left, #pg-mag-bar.edge-right {
+    flex-direction: column; align-items: stretch; gap: 5px;
+    width: 92px; padding: 8px 7px; max-height: 92vh; overflow: hidden;
+  }
+  #pg-mag-bar.edge-left .grip, #pg-mag-bar.edge-right .grip { text-align: center; margin-bottom: 1px; }
+  #pg-mag-bar.edge-left  #pg-mag-title, #pg-mag-bar.edge-right #pg-mag-title {
+    text-align: center; font-weight: 700; color: var(--accent); font-size: 11px;
+  }
+  #pg-mag-bar.edge-left  #pg-mag-rangelabel, #pg-mag-bar.edge-right #pg-mag-rangelabel {
+    font-size: 10px; text-align: center; opacity: .8;
+  }
+  #pg-mag-bar.edge-left .pg-mini, #pg-mag-bar.edge-right .pg-mini { width: 100%; text-align: center; padding: 5px 2px; }
+  #pg-mag-bar.edge-left .pg-btn,  #pg-mag-bar.edge-right .pg-btn  { width: 100%; padding: 6px 2px; font-size: 11px; }
+  /* 直向放不下的長文字就收起來，改由 title 提供 —— 寧可不顯示也不要溢出 */
+  #pg-mag-bar.edge-left #pg-mag-tip,     #pg-mag-bar.edge-right #pg-mag-tip,
+  #pg-mag-bar.edge-left .hint,           #pg-mag-bar.edge-right .hint { display: none; }
 
   /* ─── v2.10.0 匯入圖片 ─── */
   .pg-import .card-header { background: #7e22ce; }
@@ -1022,8 +1051,9 @@
   <rect x="21" y="21" width="2" height="2" fill="#38bdf8"/>
 </svg>
 <div id="pg-mag-bar">
-  <span data-i18n="pat.magBar">放大鏡</span>
-  <span data-i18n="pat.magRange">範圍</span>
+  <span class="grip" aria-hidden="true">⠿</span>
+  <span id="pg-mag-title" data-i18n="pat.magBar">放大鏡</span>
+  <span id="pg-mag-rangelabel" data-i18n="pat.magRange">範圍</span>
   <button class="pg-mini" data-mag-n="5">5×5</button>
   <button class="pg-mini" data-mag-n="9">9×9</button>
   <button class="pg-mini" data-mag-n="17">17×17</button>
@@ -1033,8 +1063,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat2120"></script>
-<script src="common/i18n.js?v=20260802pat2120"></script>
+<script src="common/version.js?v=20260802pat2130"></script>
+<script src="common/i18n.js?v=20260802pat2130"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -3200,11 +3230,34 @@
     if (y + h > VH - 4) y = cy - gap - h;
     if (x < 4) x = Math.min(VW - w - 4, cx + gap);
     if (y < 4) y = Math.min(VH - h - 4, cy + gap);
-    host.style.left = Math.round(Math.max(4, Math.min(VW - w - 4, x))) + 'px';
-    host.style.top  = Math.round(Math.max(4, Math.min(VH - h - 4, y))) + 'px';
+    x = Math.max(4, Math.min(VW - w - 4, x));
+    y = Math.max(4, Math.min(VH - h - 4, y));
+    // 與工具列重疊時由放大鏡框讓開 —— 工具列的位置是使用者自己拖的，那是他的選擇
+    var bar = document.getElementById('pg-mag-bar');
+    if (bar && bar.classList.contains('on')) {
+      var b = bar.getBoundingClientRect();
+      var hitBar = function(px, py){ return !(px + w <= b.left || px >= b.right || py + h <= b.top || py >= b.bottom); };
+      if (hitBar(x, y)) {
+        var tries = [[cx - gap - w, y], [x, cy - gap - h], [cx - gap - w, cy - gap - h],
+                     [x, b.bottom + 6], [x, b.top - h - 6], [b.right + 6, y], [b.left - w - 6, y]];
+        for (var i = 0; i < tries.length; i++) {
+          var tx = Math.max(4, Math.min(VW - w - 4, tries[i][0]));
+          var ty = Math.max(4, Math.min(VH - h - 4, tries[i][1]));
+          if (!hitBar(tx, ty)) { x = tx; y = ty; break; }
+        }
+      }
+    }
+    host.style.left = Math.round(x) + 'px';
+    host.style.top  = Math.round(y) + 'px';
   }
   function pgMagMove(e){
     if (!pgMag.on) return;
+    if (pgMagBar.dragging) return;                       // 拖工具列時放大鏡內容定住，不要跟著亂跳
+    var bar = document.getElementById('pg-mag-bar');
+    if (bar && bar.classList.contains('on')) {
+      var br = bar.getBoundingClientRect();
+      if (e.clientX >= br.left && e.clientX < br.right && e.clientY >= br.top && e.clientY < br.bottom) return;
+    }
     var hit = pgMagHitScene(e.clientX, e.clientY);
     var host = document.getElementById('pg-mag'), cross = document.getElementById('pg-mag-cross');
     if (!hit) { if (host) host.classList.remove('on'); if (cross) cross.classList.remove('on'); return; }
@@ -3245,6 +3298,7 @@
     pgMagSetTargets(true);
     var bar = document.getElementById('pg-mag-bar');
     if (bar) bar.classList.add('on');
+    pgMagBarApply();                     // 回到上次放的那一邊
     pgMagSyncBar(); pgMagSyncBadges();
     document.addEventListener('pointermove', pgMagMove, true);
   }
@@ -3267,6 +3321,98 @@
   }
   // 再按一次入口即可關閉
   function pgMagToggle(){ if (pgMag.on) pgMagClose(); else pgMagOpen(); }
+
+  // ─── 工具列：可拖曳，放開後吸到最近的一邊 ───
+  // 吸附判準用「相對距離」（距離 ÷ 該方向的半長）而不是絕對距離 ——
+  // 畫面通常寬遠大於高，用絕對距離會一面倒地吸到上下；除以半長之後，
+  // 工具列在畫面正中時四邊等距，往哪邊靠就吸哪邊，符合直覺。
+  // 不提供「自由位置」：四個邊已經夠用，多一個不吸附的狀態反而讓落點變得不確定，
+  // 而且吸邊之後一定不會擋到畫面中央的 pattern。
+  var PG_MAG_BAR_KEY = 'pgMagBarPos';
+  var pgMagBar = { edge: 'top', offset: 0.5, dragging: false };
+  function pgMagBarLoad(){
+    try {
+      var o = JSON.parse(localStorage.getItem(PG_MAG_BAR_KEY) || 'null');
+      if (o && ['top','bottom','left','right'].indexOf(o.edge) >= 0) {
+        pgMagBar.edge = o.edge;
+        pgMagBar.offset = Math.min(1, Math.max(0, +o.offset || 0.5));
+      }
+    } catch (e) {}
+  }
+  function pgMagBarSave(){
+    try { localStorage.setItem(PG_MAG_BAR_KEY, JSON.stringify({ edge: pgMagBar.edge, offset: pgMagBar.offset })); } catch (e) {}
+  }
+  // 依 edge/offset 擺好位置。先套 class 讓排版換成橫向或直向，再量尺寸。
+  function pgMagBarApply(){
+    var bar = document.getElementById('pg-mag-bar');
+    if (!bar) return;
+    ['top','bottom','left','right'].forEach(function(e){ bar.classList.toggle('edge-' + e, pgMagBar.edge === e); });
+    bar.style.transform = '';
+    var r = bar.getBoundingClientRect();
+    var w = r.width, h = r.height, M = 8;
+    var VW = window.innerWidth, VH = window.innerHeight, x, y;
+    if (pgMagBar.edge === 'top' || pgMagBar.edge === 'bottom') {
+      x = Math.round((VW - w) * pgMagBar.offset);
+      y = (pgMagBar.edge === 'top') ? M : (VH - h - M);
+    } else {
+      y = Math.round((VH - h) * pgMagBar.offset);
+      x = (pgMagBar.edge === 'left') ? M : (VW - w - M);
+    }
+    bar.style.left = Math.round(Math.max(M, Math.min(VW - w - M, x))) + 'px';
+    bar.style.top  = Math.round(Math.max(M, Math.min(VH - h - M, y))) + 'px';
+  }
+  function pgMagBarSnapFrom(rect){
+    var VW = window.innerWidth, VH = window.innerHeight;
+    var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    // 相對距離：除以該方向的半長，長寬比就不會左右結果
+    var cand = [
+      { e: 'top',    d: cy / (VH / 2) },
+      { e: 'bottom', d: (VH - cy) / (VH / 2) },
+      { e: 'left',   d: cx / (VW / 2) },
+      { e: 'right',  d: (VW - cx) / (VW / 2) }
+    ].sort(function(a, b){ return a.d - b.d; });
+    pgMagBar.edge = cand[0].e;
+    pgMagBar.offset = (pgMagBar.edge === 'top' || pgMagBar.edge === 'bottom')
+      ? (VW - rect.width  > 0 ? rect.left / (VW - rect.width)  : 0.5)
+      : (VH - rect.height > 0 ? rect.top  / (VH - rect.height) : 0.5);
+    pgMagBar.offset = Math.min(1, Math.max(0, pgMagBar.offset));
+    pgMagBarApply();
+    pgMagBarSave();
+  }
+  function pgBindMagBarDrag(){
+    var bar = document.getElementById('pg-mag-bar');
+    if (!bar) return;
+    var drag = null;
+    bar.addEventListener('pointerdown', function(e){
+      // 點按鈕就是按按鈕，不要變成拖曳
+      if (e.target && e.target.closest && e.target.closest('button')) return;
+      e.preventDefault(); e.stopPropagation();
+      var r = bar.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      pgMagBar.dragging = true;            // 拖曳期間不取樣，準星與放大鏡內容都定住
+      bar.classList.add('dragging');
+      try { bar.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    bar.addEventListener('pointermove', function(e){
+      if (!drag) return;
+      e.preventDefault(); e.stopPropagation();
+      var r = bar.getBoundingClientRect();
+      var VW = window.innerWidth, VH = window.innerHeight;
+      bar.style.left = Math.round(Math.max(0, Math.min(VW - r.width,  e.clientX - drag.dx))) + 'px';
+      bar.style.top  = Math.round(Math.max(0, Math.min(VH - r.height, e.clientY - drag.dy))) + 'px';
+    });
+    ['pointerup','pointercancel'].forEach(function(ev){
+      bar.addEventListener(ev, function(e){
+        if (!drag) return;
+        drag = null;
+        bar.classList.remove('dragging');
+        pgMagBarSnapFrom(bar.getBoundingClientRect());
+        pgMagBar.dragging = false;
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+      });
+    });
+    window.addEventListener('resize', function(){ if (pgMag.on) pgMagBarApply(); });
+  }
   // 各顯示區邊角的放大鏡圖示：開啟後變成關閉鈕，本身就是退出的其中一條路
   function pgMagSyncBadges(){
     Array.prototype.forEach.call(document.querySelectorAll('.pg-magbadge'), function(b){
@@ -4420,7 +4566,9 @@
   pgBindPatternUI();
   pgBindMaskUI();
   pgBindOutUI();
+  pgMagBarLoad();
   pgBindMag();
+  pgBindMagBarDrag();
   pgBindImportUI();
   pgBindPrevUI();
   pgBindFsPrev();
@@ -4480,6 +4628,9 @@
   window.pgMagOpen       = pgMagOpen;
   window.pgMagClose      = pgMagClose;
   window.pgMagToggle     = pgMagToggle;
+  window.pgMagBar        = pgMagBar;
+  window.pgMagBarApply   = pgMagBarApply;
+  window.pgMagBarSnapFrom= pgMagBarSnapFrom;
   window.pgMagAttach     = pgMagAttach;
   window.pgMagHost       = pgMagHost;
   window.pgFsCursorUpdate = pgFsCursorUpdate;
