@@ -113,6 +113,13 @@ var I18N = {
   'pat.subtitle':       { 'zh-TW': 'Sub-pixel 編輯 · 全畫面 1:1 平鋪', 'en': 'Sub-pixel editing · Full-screen 1:1 tiling', 'zh-CN': 'Sub-pixel 编辑 · 全画面 1:1 平铺' },
 
   'pat.screenCard':     { 'zh-TW': '螢幕資訊與縮放偵測', 'en': 'Screen Info & Scaling Detection', 'zh-CN': '屏幕信息与缩放检测' },
+  'pat.nowCard':        { 'zh-TW': '現在顯示什麼', 'en': 'What Is Showing', 'zh-CN': '现在显示什么' },
+  'pat.paramsCard':     { 'zh-TW': '畫面參數', 'en': 'Pattern Parameters', 'zh-CN': '画面参数' },
+  'pat.tabPattern':     { 'zh-TW': '測試畫面', 'en': 'Test Pattern', 'zh-CN': '测试画面' },
+  'pat.tabSubpixel':    { 'zh-TW': '手動 4×4', 'en': 'Manual 4×4', 'zh-CN': '手动 4×4' },
+  'pat.nowSubpixel':    { 'zh-TW': '手動 4×4 平鋪', 'en': 'Manual 4×4 tiling', 'zh-CN': '手动 4×4 平铺' },
+  'pat.tagOn':          { 'zh-TW': '已啟用', 'en': 'On', 'zh-CN': '已启用' },
+  'pat.tagOff':         { 'zh-TW': '未啟用', 'en': 'Off', 'zh-CN': '未启用' },
   'pat.lblCssRes':      { 'zh-TW': 'CSS 邏輯解析度', 'en': 'CSS logical resolution', 'zh-CN': 'CSS 逻辑分辨率' },
   'pat.lblDpr':         { 'zh-TW': 'devicePixelRatio', 'en': 'devicePixelRatio', 'zh-CN': 'devicePixelRatio' },
   'pat.lblDevRes':      { 'zh-TW': '推算裝置像素（非 API 值）', 'en': 'Derived device pixels (not from API)', 'zh-CN': '推算设备像素（非 API 值）' },
