@@ -485,6 +485,11 @@
   /* 作用中的畫布隱藏系統游標，改由覆蓋層自繪準星 */
   .pg-mag-target { cursor: none !important; }
 
+  /* 全畫面：把滑鼠推到畫面邊緣時自動隱藏游標，離開邊緣立刻回來。
+     刻意不套用在「側邊控制面板那一側」—— 那一側的邊緣本來就是叫出面板的熱區，
+     滑鼠移過去是要操作面板的，這時候讓游標消失反而礙事。 */
+  #pg-fs.pg-hidecursor, #pg-fs.pg-hidecursor * { cursor: none !important; }
+
   #pg-mag-cross { position: fixed; z-index: 10061; pointer-events: none; display: none; }
   #pg-mag-cross.on { display: block; }
 
@@ -1032,8 +1037,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat2100"></script>
-<script src="common/i18n.js?v=20260802pat2100"></script>
+<script src="common/version.js?v=20260802pat2110"></script>
+<script src="common/i18n.js?v=20260802pat2110"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1532,6 +1537,22 @@
     var lr = document.getElementById('pg-side-' + pgSide);
     if (lr) lr.checked = true;
   }
+  // 全畫面的游標：平常看得見，推到邊緣才自動隱藏，離開立刻恢復。
+  // 門檻取 8 px（面板熱區是 26 px）—— 夠窄，正常移動不會誤觸，
+  // 但把滑鼠往邊上一推就會進到範圍內。
+  // 面板那一側不隱藏：那裡的邊緣是用來叫出控制面板的，游標必須看得到才能操作。
+  var PG_FS_CURSOR_EDGE = 8;
+  function pgFsCursorUpdate(e, nearPanelEdge){
+    var ov = document.getElementById('pg-fs');
+    if (!ov || !ov.classList.contains('on')) return;
+    if (pgMag.on) { ov.classList.remove('pg-hidecursor'); return; }  // 放大鏡自有準星，不干涉
+    var panel = document.getElementById('pg-fs-panel');
+    if (panel && panel.classList.contains('open')) { ov.classList.remove('pg-hidecursor'); return; }
+    var sz = pgFillCssSize(), E = PG_FS_CURSOR_EDGE;
+    var atAnyEdge = (e.clientX <= E) || (e.clientY <= E) ||
+                    (e.clientX >= sz.w - E) || (e.clientY >= sz.h - E);
+    ov.classList.toggle('pg-hidecursor', atAnyEdge && !nearPanelEdge);
+  }
   function pgPanelOpen(open){
     var panel = document.getElementById('pg-fs-panel');
     if (open) panel.classList.add('open'); else panel.classList.remove('open');
@@ -1567,6 +1588,7 @@
   }
   function pgExitFs(){
     var ov = document.getElementById('pg-fs');
+    ov.classList.remove('pg-hidecursor');
     pgMenuClose();
     pgMagClose();
     ov.classList.remove('on');
@@ -3219,6 +3241,8 @@
     if (pgMag.on) return;
     pgMag.on = true; pgMag.hasPos = false;
     pgMagAttach();                       // 掛到目前的全螢幕元素（或 body）底下
+    var ovFs = document.getElementById('pg-fs');
+    if (ovFs) ovFs.classList.remove('pg-hidecursor');   // 交給準星接手
     pgMagSetTargets(true);
     var bar = document.getElementById('pg-mag-bar');
     if (bar) bar.classList.add('on');
@@ -4302,6 +4326,7 @@
       var edge = 26;
       var atEdge = (pgSide === 'left') ? (e.clientX <= edge)
                                        : (e.clientX >= pgFillCssSize().w - edge);
+      pgFsCursorUpdate(e, atEdge);
       if (atEdge) {
         clearTimeout(pgPanelTimer);
         pgPanelOpen(true);
@@ -4458,6 +4483,8 @@
   window.pgMagToggle     = pgMagToggle;
   window.pgMagAttach     = pgMagAttach;
   window.pgMagHost       = pgMagHost;
+  window.pgFsCursorUpdate = pgFsCursorUpdate;
+  window.pgFsCursorEdge   = function(){ return PG_FS_CURSOR_EDGE; };
   window.pgMagMove       = pgMagMove;
   window.pgMagScenes     = pgMagScenes;
   window.pgMagHitScene   = pgMagHitScene;
