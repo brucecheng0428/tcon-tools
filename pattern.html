@@ -1054,17 +1054,18 @@
   <span class="grip" aria-hidden="true">⠿</span>
   <span id="pg-mag-title" data-i18n="pat.magBar">放大鏡</span>
   <span id="pg-mag-rangelabel" data-i18n="pat.magRange">範圍</span>
+  <button class="pg-mini" data-mag-n="3">3×3</button>
   <button class="pg-mini" data-mag-n="5">5×5</button>
   <button class="pg-mini" data-mag-n="9">9×9</button>
-  <button class="pg-mini" data-mag-n="17">17×17</button>
+  <button class="pg-mini" data-mag-n="13">13×13</button>
   <button class="pg-btn accent" id="pg-mag-exit" data-i18n="pat.magExit">✕ 關閉放大鏡</button>
   <span id="pg-mag-tip" data-i18n="pat.magTip">中心格的值看下方資訊列；切到 5×5 每格都會標數值</span>
   <span class="hint" data-i18n="pat.magHowExit">離開：按 Esc、點這裡的 ✕、或再點一次進入時用的那個入口</span>
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat2130"></script>
-<script src="common/i18n.js?v=20260802pat2130"></script>
+<script src="common/version.js?v=20260802pat2140"></script>
+<script src="common/i18n.js?v=20260802pat2140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -3164,7 +3165,7 @@
   // 數值只在格子夠寬時才標。實測 9×9（每條 13 px）垂直排 3 位數會擠成一團、
   // 根本讀不出來 —— 塞進去只是製造雜訊。放不下就不塞，改由資訊列負責顯示。
   function pgMagDrawDigits(ctx, txt, cx, cy, cellW, colour){
-    var fs = Math.max(9, Math.min(15, Math.floor(cellW * 0.42)));
+    var fs = Math.max(9, Math.min(15, Math.floor(cellW * 0.5)));
     ctx.font = '700 ' + fs + 'px ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(0,0,0,.9)';
@@ -3182,32 +3183,56 @@
     var x0 = pgMag.sx - half, y0 = pgMag.sy - half;
     var px = pgMagSample(src, x0, y0, n);
     var box = pgMag.box, cell = box / n;
-    cv.width = box; cv.height = box;
+    // 用裝置像素的解析度畫，繪圖座標仍以 CSS 尺度計算 ——
+    // 高 dPR 螢幕上黑邊才不會被放大成糊的一片
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(box * dpr); cv.height = Math.round(box * dpr);
     cv.style.width = box + 'px'; cv.style.height = box + 'px';
     var ctx = cv.getContext('2d', { alpha: false });
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;              // 逐格重畫，全程無內插
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, box, box);
     var third = cell / 3;
-    var showAll = (n <= 5);                          // 格子夠大時每一格都標數值
+    // 🔴 模擬面板的 black matrix：每個 sub-pixel 是獨立小方塊，四周留黑。
+    //    實際 LCD 的 sub-pixel 交界不透光，所以分界一律純黑，不是灰色或半透明。
+    //    這樣紅色 V-line 看起來會是「一顆一顆紅方塊由上而下排」，而不是一條連通的柱子。
+    //    寬度取 sub-pixel 寬的 14%，並保證至少 1 個裝置像素（1/dpr 個 CSS px）——
+    //    13×13 時算出來只有 1.3 px，再小就會消失。
+    // 兩級黑邊，比照實際面板：pixel 之間要走 gate／data line，那道 black matrix
+    // 比 pixel 內部 sub-pixel 之間的間隔更寬。用同一個寬度的話，因為 sub-pixel
+    // 是細長的（例如 24×72），上下分界在視覺上會細到看不清楚。
+    var gapOut = Math.max(1 / dpr, cell * 0.10);    // pixel 與 pixel 之間
+    var gapSub = Math.max(1 / dpr, third * 0.12);   // 同一 pixel 內 R/G/B 之間
+    var pxW = Math.max(3 / dpr, cell - gapOut);
+    var pxH = Math.max(1 / dpr, cell - gapOut);
+    var sw = Math.max(1 / dpr, (pxW - 2 * gapSub) / 3);
+    var sh = pxH;
+    // 數值顯示與否改成依實際格寬判定，不再寫死範圍：
+    // 3 位數字大約要 fs×1.8 的寬度，fs 最小 9 px 才讀得出來 → 臨界約 18 px
+    var showAll = (sw >= 18);
     for (var j = 0; j < n; j++) for (var i = 0; i < n; i++) {
       var v = px[j * n + i] >>> 0;
       var R = v & 0xff, G = (v >> 8) & 0xff, B = (v >> 16) & 0xff;
       var X = i * cell, Y = j * cell;
-      // 一個實體像素畫成 R / G / B 三個並排的次區塊，各自用該通道亮度上色
-      ctx.fillStyle = 'rgb(' + R + ',0,0)'; ctx.fillRect(X, Y, Math.ceil(third), Math.ceil(cell));
-      ctx.fillStyle = 'rgb(0,' + G + ',0)'; ctx.fillRect(X + third, Y, Math.ceil(third), Math.ceil(cell));
-      ctx.fillStyle = 'rgb(0,0,' + B + ')'; ctx.fillRect(X + 2 * third, Y, Math.ceil(third), Math.ceil(cell));
-      var isCenter = (i === half && j === half);
-      if (showAll) {                                 // 只有 5×5（每條 24 px）才放得下 3 位數
-        pgMagDrawDigits(ctx, R, X + third * 0.5, Y + cell / 2, third, '#fecaca');
-        pgMagDrawDigits(ctx, G, X + third * 1.5, Y + cell / 2, third, '#bbf7d0');
-        pgMagDrawDigits(ctx, B, X + third * 2.5, Y + cell / 2, third, '#bfdbfe');
+      var sy = Y + gapOut / 2;
+      var cols = [[R, 0, 0], [0, G, 0], [0, 0, B]];
+      for (var k = 0; k < 3; k++) {
+        var sx = X + gapOut / 2 + k * (sw + gapSub);
+        ctx.fillStyle = 'rgb(' + cols[k][0] + ',' + cols[k][1] + ',' + cols[k][2] + ')';
+        ctx.fillRect(sx, sy, sw, sh);
       }
-      if (isCenter) {                                // 準星對到的那一格明確框起來
+      if (showAll) {
+        for (var m = 0; m < 3; m++) {
+          pgMagDrawDigits(ctx, [R, G, B][m], X + gapOut / 2 + m * (sw + gapSub) + sw / 2,
+                          Y + cell / 2, sw, ['#fecaca', '#bbf7d0', '#bfdbfe'][m]);
+        }
+      }
+      if (i === half && j === half) {                // 準星對到的那一格明確框起來
         ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
         ctx.strokeRect(X + 1, Y + 1, cell - 2, cell - 2);
       }
     }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     var c = px[half * n + half] >>> 0;
     var info = document.getElementById('pg-mag-info');
     if (info) info.innerHTML =
