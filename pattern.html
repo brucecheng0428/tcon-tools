@@ -476,6 +476,51 @@
   #pg-fsprev-bar .pg-btn { padding: 6px 12px; font-size: 12px; }
   #pg-fsprev.pannable #pg-fsprev-canvas { cursor: grab; }
   #pg-fsprev.panning  #pg-fsprev-canvas { cursor: grabbing; }
+
+  /* ─── v2.9.0 放大鏡 ─────────────────────────────────
+     目的是看清 sub-pixel 的排列與亮度，所以放大一律逐格重畫、
+     不經任何內插；顯示的值也一律取自 pattern 的真實像素，
+     不從螢幕上那張可能被縮放過的圖取樣。                        */
+
+  /* 作用中的畫布隱藏系統游標，改由覆蓋層自繪準星 */
+  .pg-mag-target { cursor: none !important; }
+
+  #pg-mag-cross { position: fixed; z-index: 10061; pointer-events: none; display: none; }
+  #pg-mag-cross.on { display: block; }
+
+  #pg-mag { position: fixed; z-index: 10060; display: none; pointer-events: none;
+    background: #0b1220; border: 2px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 6px 26px rgba(0,0,0,.75); overflow: hidden; }
+  #pg-mag.on { display: block; }
+  #pg-mag-canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #pg-mag-info {
+    font: 700 13px ui-monospace, Menlo, Consolas, monospace;
+    padding: 5px 8px; background: #0b1220; color: #e2e8f0; white-space: nowrap;
+    border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center;
+  }
+  #pg-mag-info .r { color: #f87171; }
+  #pg-mag-info .g { color: #4ade80; }
+  #pg-mag-info .b { color: #60a5fa; }
+  #pg-mag-info .xy { color: var(--text-sub); font-weight: 600; margin-left: auto; }
+
+  /* 放大鏡工具列（全畫面時浮在上方，主頁時在卡片內） */
+  #pg-mag-bar {
+    position: fixed; left: 50%; transform: translateX(-50%); top: 8px; z-index: 10062;
+    display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: rgba(15,23,42,.95); border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; color: var(--text-sub);
+  }
+  #pg-mag-bar.on { display: flex; }
+  #pg-mag-bar .pg-mini { padding: 4px 9px; }
+  #pg-mag-bar b { color: var(--accent); }
+
+  /* 選單裡的放大鏡項目：放最上方，並與下方的畫面清單明確分開 */
+  .pg-menu-item.pg-menu-tool { font-weight: 700; }
+  .pg-menu-sep { height: 1px; margin: 3px 2px; background: #b8b8b8; }
+  .pg-menu-head {
+    padding: 3px 6px 2px; font-size: 11px; color: #5a5a5a;
+    letter-spacing: .3px; cursor: default; user-select: none;
+  }
 </style>
 </head>
 <body>
@@ -907,9 +952,37 @@
   </div>
 </div>
 
+<!-- ═══ 放大鏡（覆蓋層，作用於任何顯示 pattern 的地方） ═══ -->
+<div id="pg-mag">
+  <canvas id="pg-mag-canvas"></canvas>
+  <div id="pg-mag-info"></div>
+</div>
+<svg id="pg-mag-cross" width="44" height="44" viewBox="0 0 44 44">
+  <circle cx="22" cy="22" r="13" fill="none" stroke="#000" stroke-width="3.2" opacity=".55"/>
+  <circle cx="22" cy="22" r="13" fill="none" stroke="#fff" stroke-width="1.4"/>
+  <g stroke="#000" stroke-width="3.2" opacity=".55">
+    <line x1="22" y1="1"  x2="22" y2="14"/><line x1="22" y1="30" x2="22" y2="43"/>
+    <line x1="1"  y1="22" x2="14" y2="22"/><line x1="30" y1="22" x2="43" y2="22"/>
+  </g>
+  <g stroke="#fff" stroke-width="1.4">
+    <line x1="22" y1="1"  x2="22" y2="14"/><line x1="22" y1="30" x2="22" y2="43"/>
+    <line x1="1"  y1="22" x2="14" y2="22"/><line x1="30" y1="22" x2="43" y2="22"/>
+  </g>
+  <rect x="21" y="21" width="2" height="2" fill="#38bdf8"/>
+</svg>
+<div id="pg-mag-bar">
+  <span data-i18n="pat.magBar">放大鏡</span>
+  <span data-i18n="pat.magRange">範圍</span>
+  <button class="pg-mini" data-mag-n="5">5×5</button>
+  <button class="pg-mini" data-mag-n="9">9×9</button>
+  <button class="pg-mini" data-mag-n="17">17×17</button>
+  <button class="pg-btn accent" id="pg-mag-exit" data-i18n="pat.magExit">✕ 關閉放大鏡</button>
+  <span id="pg-mag-tip" data-i18n="pat.magTip">中心格的值看下方資訊列；切到 5×5 每格都會標數值</span>
+</div>
+
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat280"></script>
-<script src="common/i18n.js?v=20260802pat280"></script>
+<script src="common/version.js?v=20260802pat290"></script>
+<script src="common/i18n.js?v=20260802pat290"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1424,6 +1497,7 @@
   function pgExitFs(){
     var ov = document.getElementById('pg-fs');
     pgMenuClose();
+    pgMagClose();
     ov.classList.remove('on');
     document.documentElement.classList.remove('pg-fs-lock');
     pgPanelOpen(false);
@@ -1527,7 +1601,9 @@
     } catch (e) {}
   }
   function pgBuildRootMenu(kind){
-    var items = [], all = pgAllPatternItems();
+    // 放大鏡放在最上方，並用「分類標題 + 分隔線」與下方的畫面清單明確分開 ——
+    // 它是工具，不是一張測試畫面，混在一起會讓人以為選了會換畫面。
+    var items = [{ tool: 'mag', label: t('pat.magOpen') }, { sep: true }], all = pgAllPatternItems();
     var recent = pgRecentGet().map(function(id){
       var hit = all.filter(function(x){ return x.id === id; })[0];
       return hit ? { id: id, label: hit.label } : null;
@@ -2009,8 +2085,10 @@
     boxEl.className = 'pg-menu';
     boxEl.setAttribute('data-menu-depth', String(depth));
     items.forEach(function(it){
+      if (it.sep) { var sp = document.createElement('div'); sp.className = 'pg-menu-sep'; boxEl.appendChild(sp); return; }
+      if (it.head) { var hd = document.createElement('div'); hd.className = 'pg-menu-head'; hd.textContent = it.head; boxEl.appendChild(hd); return; }
       var row = document.createElement('div');
-      row.className = 'pg-menu-item' + (it.children ? ' has-sub' : '');
+      row.className = 'pg-menu-item' + (it.children ? ' has-sub' : '') + (it.tool ? ' pg-menu-tool' : '');
       if (it.id) row.setAttribute('data-menu-id', it.id);
       row.setAttribute('data-menu-label', it.label);
       var mark = document.createElement('span');
@@ -2028,6 +2106,7 @@
         row.appendChild(ar);
       }
       function activate(){
+        if (it.tool) { pgMenuTrim(depth + 1); return; }
         pgMenuTrim(depth + 1);
         Array.prototype.forEach.call(boxEl.querySelectorAll('.pg-menu-item.act'), function(e){ e.classList.remove('act'); });
         if (!it.children) return;
@@ -2041,6 +2120,7 @@
         ev.stopPropagation();
         if (it.children) { activate(); return; }
         pgMenuClose();
+        if (it.tool === 'mag') { pgMagOpen(); return; }
         pgSelectPattern(it.id);
       });
       boxEl.appendChild(row);
@@ -2741,9 +2821,6 @@
     ['pointerup','pointercancel'].forEach(function(ev){
       host.addEventListener(ev, function(){ drag = null; host.classList.remove('panning'); });
     });
-    document.addEventListener('keydown', function(e){
-      if (pgFsPrevOn && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pgFsPrevExit(); }
-    }, true);
     if (window.ResizeObserver) { try { new ResizeObserver(function(){ pgFsPrevRender(); }).observe(host); } catch (e) {} }
   }
 
@@ -2795,6 +2872,237 @@
       else r.canvas.toBlob(function(b){ after(b); }, 'image/png');
     }
     next();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  ★ v2.9.0 放大鏡
+  //
+  //  🔴 兩條不可違反的規則：
+  //   ① 顯示的亮度值一律取自 **pattern 的真實像素**，不從螢幕上那張可能被
+  //      縮放過的圖取樣。輸出預覽在「符合視窗」模式下是縮放顯示的，
+  //      從它取樣會拿到內插後的假值。
+  //   ② 放大一律**逐格重畫**，不經任何內插 —— 目的就是看清 sub-pixel 的
+  //      排列與亮度，插值出來的顏色是假的。
+  //
+  //  取樣範圍用奇數：偶數沒有真正的中心格，準星對到的像素無法明確標示。
+  // ═══════════════════════════════════════════════════════════════
+  var pgMag = { on: false, n: 9, box: 360, scene: null, sx: 0, sy: 0, hasPos: false };
+  var pgMagTmp = null;
+
+  // 目前作用中的場景：回傳螢幕座標 → 真實像素座標的換算，以及真實像素來源
+  // 每個場景都明確指出它的來源，不共用「畫面上那張 canvas」
+  function pgMagScenes(){
+    return [
+      { key: 'fs',     el: document.getElementById('pg-fs-canvas'),
+        live: function(){ var o = document.getElementById('pg-fs'); return o && o.classList.contains('on'); },
+        src:  function(){ return document.getElementById('pg-fs-canvas'); },   // 本來就是 1:1 裝置像素
+        map:  function(cx, cy, r, el){ var d = window.devicePixelRatio || 1;
+                return { x: Math.floor((cx - r.left) * d), y: Math.floor((cy - r.top) * d) }; } },
+
+      { key: 'fsprev', el: document.getElementById('pg-fsprev-canvas'),
+        live: function(){ return pgFsPrevOn; },
+        src:  function(){ return pgPrevExportCanvas(); },                      // 輸出解析度的真實像素
+        map:  function(cx, cy, r){ var d = window.devicePixelRatio || 1;
+                return { x: Math.floor((cx - r.left) * d) + pgFsPan.x, y: Math.floor((cy - r.top) * d) + pgFsPan.y }; } },
+
+      { key: 'prev',   el: document.getElementById('pg-prev-canvas'),
+        live: function(){ var d2 = document.querySelector('details.pg-out'); return !!(d2 && d2.open); },
+        src:  function(){ return pgPrevExportCanvas(); },
+        map:  function(cx, cy, r, el){
+                var s = el.width / Math.max(1, r.width);      // canvas 像素 / CSS 像素
+                var px = (cx - r.left) * s, py = (cy - r.top) * s;
+                if (pgPrevMode === 'fit') {
+                  // 符合視窗＝縮放顯示：換算回輸出解析度的座標
+                  var src = pgPrevExportCanvas();
+                  var k = src.width / Math.max(1, el.width);
+                  return { x: Math.floor(px * k), y: Math.floor(py * k) };
+                }
+                return { x: Math.floor(px) + pgPan.x, y: Math.floor(py) + pgPan.y };   // 1:1＋平移
+              } },
+
+      { key: 'home',   el: document.getElementById('pg-preview'),
+        live: function(){ return true; },
+        src:  function(){
+                if (pgMode === 'subpixel') {                  // 真實來源就是 4×4 編輯器的值
+                  var c = document.createElement('canvas'); c.width = NPX; c.height = NROW;
+                  var x = c.getContext('2d', { alpha: false });
+                  var img = x.createImageData(NPX, NROW), d = img.data;
+                  for (var r2 = 0; r2 < NROW; r2++) for (var p = 0; p < NPX; p++) {
+                    var o = (r2 * NPX + p) * 4;
+                    d[o] = pgLevels[r2][p][0]; d[o+1] = pgLevels[r2][p][1];
+                    d[o+2] = pgLevels[r2][p][2]; d[o+3] = 255;
+                  }
+                  x.putImageData(img, 0, 0);
+                  return c;
+                }
+                var t2 = pgTargetSize();                      // 主頁預覽的語意是「全畫面會長這樣」
+                return pgRenderToSize(t2.W, t2.H).canvas;
+              },
+        map:  function(cx, cy, r, el){
+                var s = el.width / Math.max(1, r.width);
+                var px = (cx - r.left) * s, py = (cy - r.top) * s;
+                if (pgMode === 'subpixel') {
+                  var dpr = window.devicePixelRatio || 1;
+                  var tiles = 3, devScale = Math.max(1, Math.round(el.width / (NPX * tiles)));
+                  return { x: Math.floor(px / devScale) % NPX, y: Math.floor(py / devScale) % NROW };
+                }
+                var t3 = pgTargetSize();
+                return { x: Math.floor(px * t3.W / Math.max(1, el.width)),
+                         y: Math.floor(py * t3.H / Math.max(1, el.height)) };
+              } }
+    ];
+  }
+  function pgMagHitScene(cx, cy){
+    var list = pgMagScenes();
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i];
+      if (!s.el || !s.live()) continue;
+      var r = s.el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      if (cx >= r.left && cx < r.right && cy >= r.top && cy < r.bottom) return { s: s, r: r };
+    }
+    return null;
+  }
+  // 取來源的 n×n 區塊（超出邊界補黑）。同尺寸 drawImage，不縮放不內插。
+  function pgMagSample(src, x0, y0, n){
+    if (!pgMagTmp) pgMagTmp = document.createElement('canvas');
+    if (pgMagTmp.width !== n || pgMagTmp.height !== n) { pgMagTmp.width = n; pgMagTmp.height = n; }
+    var c = pgMagTmp.getContext('2d', { alpha: false, willReadFrequently: true });
+    c.imageSmoothingEnabled = false;
+    c.fillStyle = '#000'; c.fillRect(0, 0, n, n);
+    var sx0 = Math.max(0, x0), sy0 = Math.max(0, y0);
+    var sx1 = Math.min(src.width, x0 + n), sy1 = Math.min(src.height, y0 + n);
+    if (sx1 > sx0 && sy1 > sy0)
+      c.drawImage(src, sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 - x0, sy0 - y0, sx1 - sx0, sy1 - sy0);
+    return new Uint32Array(c.getImageData(0, 0, n, n).data.buffer);
+  }
+  // 數值只在格子夠寬時才標。實測 9×9（每條 13 px）垂直排 3 位數會擠成一團、
+  // 根本讀不出來 —— 塞進去只是製造雜訊。放不下就不塞，改由資訊列負責顯示。
+  function pgMagDrawDigits(ctx, txt, cx, cy, cellW, colour){
+    var fs = Math.max(9, Math.min(15, Math.floor(cellW * 0.42)));
+    ctx.font = '700 ' + fs + 'px ui-monospace, Menlo, Consolas, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(0,0,0,.9)';
+    ctx.strokeText(String(txt), cx, cy);
+    ctx.fillStyle = colour;
+    ctx.fillText(String(txt), cx, cy);
+  }
+  function pgMagRender(){
+    var host = document.getElementById('pg-mag');
+    var cv = document.getElementById('pg-mag-canvas');
+    if (!host || !cv || !pgMag.on || !pgMag.scene || !pgMag.hasPos) return;
+    var src = pgMag.scene.src();
+    if (!src || !src.width) return;
+    var n = pgMag.n, half = (n - 1) >> 1;
+    var x0 = pgMag.sx - half, y0 = pgMag.sy - half;
+    var px = pgMagSample(src, x0, y0, n);
+    var box = pgMag.box, cell = box / n;
+    cv.width = box; cv.height = box;
+    cv.style.width = box + 'px'; cv.style.height = box + 'px';
+    var ctx = cv.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = false;              // 逐格重畫，全程無內插
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, box, box);
+    var third = cell / 3;
+    var showAll = (n <= 5);                          // 格子夠大時每一格都標數值
+    for (var j = 0; j < n; j++) for (var i = 0; i < n; i++) {
+      var v = px[j * n + i] >>> 0;
+      var R = v & 0xff, G = (v >> 8) & 0xff, B = (v >> 16) & 0xff;
+      var X = i * cell, Y = j * cell;
+      // 一個實體像素畫成 R / G / B 三個並排的次區塊，各自用該通道亮度上色
+      ctx.fillStyle = 'rgb(' + R + ',0,0)'; ctx.fillRect(X, Y, Math.ceil(third), Math.ceil(cell));
+      ctx.fillStyle = 'rgb(0,' + G + ',0)'; ctx.fillRect(X + third, Y, Math.ceil(third), Math.ceil(cell));
+      ctx.fillStyle = 'rgb(0,0,' + B + ')'; ctx.fillRect(X + 2 * third, Y, Math.ceil(third), Math.ceil(cell));
+      var isCenter = (i === half && j === half);
+      if (showAll) {                                 // 只有 5×5（每條 24 px）才放得下 3 位數
+        pgMagDrawDigits(ctx, R, X + third * 0.5, Y + cell / 2, third, '#fecaca');
+        pgMagDrawDigits(ctx, G, X + third * 1.5, Y + cell / 2, third, '#bbf7d0');
+        pgMagDrawDigits(ctx, B, X + third * 2.5, Y + cell / 2, third, '#bfdbfe');
+      }
+      if (isCenter) {                                // 準星對到的那一格明確框起來
+        ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+        ctx.strokeRect(X + 1, Y + 1, cell - 2, cell - 2);
+      }
+    }
+    var c = px[half * n + half] >>> 0;
+    var info = document.getElementById('pg-mag-info');
+    if (info) info.innerHTML =
+      '<span class="r">R ' + (c & 0xff) + '</span>' +
+      '<span class="g">G ' + ((c >> 8) & 0xff) + '</span>' +
+      '<span class="b">B ' + ((c >> 16) & 0xff) + '</span>' +
+      '<span class="xy">' + pgMag.sx + ', ' + pgMag.sy + '</span>';
+  }
+  function pgMagPlace(cx, cy){
+    var host = document.getElementById('pg-mag');
+    var cross = document.getElementById('pg-mag-cross');
+    if (!host) return;
+    if (cross) { cross.style.left = (cx - 22) + 'px'; cross.style.top = (cy - 22) + 'px'; }
+    var r = host.getBoundingClientRect();
+    var w = r.width || (pgMag.box + 4), h = r.height || (pgMag.box + 34);
+    var gap = 34, VW = window.innerWidth, VH = window.innerHeight;
+    // 預設放右下；靠近邊緣就翻到另一側，永遠不開到畫面外、也不蓋住準星
+    var x = cx + gap, y = cy + gap;
+    if (x + w > VW - 4) x = cx - gap - w;
+    if (y + h > VH - 4) y = cy - gap - h;
+    if (x < 4) x = Math.min(VW - w - 4, cx + gap);
+    if (y < 4) y = Math.min(VH - h - 4, cy + gap);
+    host.style.left = Math.round(Math.max(4, Math.min(VW - w - 4, x))) + 'px';
+    host.style.top  = Math.round(Math.max(4, Math.min(VH - h - 4, y))) + 'px';
+  }
+  function pgMagMove(e){
+    if (!pgMag.on) return;
+    var hit = pgMagHitScene(e.clientX, e.clientY);
+    var host = document.getElementById('pg-mag'), cross = document.getElementById('pg-mag-cross');
+    if (!hit) { if (host) host.classList.remove('on'); if (cross) cross.classList.remove('on'); return; }
+    pgMag.scene = hit.s;
+    var p = hit.s.map(e.clientX, e.clientY, hit.r, hit.s.el);
+    pgMag.sx = p.x; pgMag.sy = p.y; pgMag.hasPos = true;
+    if (host) host.classList.add('on');
+    if (cross) cross.classList.add('on');
+    pgMagRender();
+    pgMagPlace(e.clientX, e.clientY);
+  }
+  function pgMagSetTargets(on){
+    pgMagScenes().forEach(function(s){
+      if (s.el) s.el.classList.toggle('pg-mag-target', !!on);
+    });
+  }
+  function pgMagOpen(){
+    if (pgMag.on) return;
+    pgMag.on = true; pgMag.hasPos = false;
+    pgMagSetTargets(true);
+    var bar = document.getElementById('pg-mag-bar');
+    if (bar) bar.classList.add('on');
+    pgMagSyncBar();
+    document.addEventListener('pointermove', pgMagMove, true);
+  }
+  function pgMagClose(){
+    if (!pgMag.on) return;
+    pgMag.on = false; pgMag.scene = null; pgMag.hasPos = false;
+    pgMagSetTargets(false);
+    ['pg-mag', 'pg-mag-cross'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.classList.remove('on');
+    });
+    var bar = document.getElementById('pg-mag-bar');
+    if (bar) bar.classList.remove('on');
+    document.removeEventListener('pointermove', pgMagMove, true);
+  }
+  function pgMagSyncBar(){
+    Array.prototype.forEach.call(document.querySelectorAll('#pg-mag-bar [data-mag-n]'), function(b){
+      b.classList.toggle('on', +b.getAttribute('data-mag-n') === pgMag.n);
+    });
+  }
+  function pgBindMag(){
+    var bar = document.getElementById('pg-mag-bar');
+    if (bar) {
+      Array.prototype.forEach.call(bar.querySelectorAll('[data-mag-n]'), function(b){
+        b.addEventListener('click', function(){
+          pgMag.n = +b.getAttribute('data-mag-n');
+          pgMagSyncBar(); pgMagRender();
+        });
+      });
+    }
+    var ex = document.getElementById('pg-mag-exit');
+    if (ex) ex.addEventListener('click', pgMagClose);
   }
 
   function pgBindOutUI(){
@@ -3720,15 +4028,20 @@
     });
 
     // 鍵盤：Esc 兩段優先序（選單開著 → 只關選單；選單關著 → 才離開全畫面）
+    // v2.9.0：Esc 收成單一 handler，由內而外逐層關閉，一次只關一層。
+    // 先前是三個各自獨立的 handler（選單／全畫面預覽／全畫面），靠註冊順序決定誰先跑，
+    // 再加第四層就會失控。
     document.addEventListener('keydown', function(e){
-      if (e.key === 'Escape' && pgMenuIsOpen()) {
-        e.preventDefault();
-        e.stopPropagation();
-        pgMenuClose();
+      if (e.key === 'Escape') {
+        if (pgMenuIsOpen())  { e.preventDefault(); e.stopPropagation(); pgMenuClose();  return; }
+        if (pgMag.on)        { e.preventDefault(); e.stopPropagation(); pgMagClose();   return; }
+        if (pgFsPrevOn)      { e.preventDefault(); e.stopPropagation(); pgFsPrevExit(); return; }
+        if (ov0.classList.contains('on')) { e.preventDefault(); e.stopPropagation(); pgExitFs(); return; }
         return;
       }
       if (!ov0.classList.contains('on')) return;
-      if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') { pgExitFs(); return; }
+      // F 是明確的「離開全畫面」意圖，不逐層 —— 一併關掉放大鏡
+      if (e.key === 'f' || e.key === 'F') { pgMagClose(); pgExitFs(); return; }
       // 其餘按鍵一律交給依畫面分派的處理器（原程式 FormKeyDown 的行為）
       if (pgHandlePatternKey(e)) e.preventDefault();
     }, true);
@@ -3790,6 +4103,7 @@
   pgBindPatternUI();
   pgBindMaskUI();
   pgBindOutUI();
+  pgBindMag();
   pgBindPrevUI();
   pgBindFsPrev();
   pgSyncPatternUI();
@@ -3844,6 +4158,13 @@
   window.pgRecentGet     = pgRecentGet;
   window.pgAllPatternItems = pgAllPatternItems;
   window.pgOutPresets    = PG_OUT_PRESETS;
+  window.pgMagState      = pgMag;
+  window.pgMagOpen       = pgMagOpen;
+  window.pgMagClose      = pgMagClose;
+  window.pgMagMove       = pgMagMove;
+  window.pgMagScenes     = pgMagScenes;
+  window.pgMagHitScene   = pgMagHitScene;
+  window.pgMagSample     = pgMagSample;
 })();
 </script>
 </body>
