@@ -891,8 +891,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat240"></script>
-<script src="common/i18n.js?v=20260802pat240"></script>
+<script src="common/version.js?v=20260802pat241"></script>
+<script src="common/i18n.js?v=20260802pat241"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1469,33 +1469,72 @@
     { id: 'exit', label: 'Exit' }
   ];
 
-  // 變體循環群組（原程式 ↑ / ↓ 在同組變體間循環）
-  var PG_GROUPS = [
-    ['horiz9','horiz64','horiz256'], ['vert9','vert64','vert256'], ['center9','center64','center256'],
-    ['skip1_1v1h','skip1_1v2h'], ['skip2_2v1h','skip2_2v2h','skip2_2v12h'],
-    ['hline1','hline2'], ['vline1','vline2','vsubline'],
-    ['flicker1','flicker2'], ['lum_compare','lum_divide']
-  ];
-
-  // 各 pattern 進入時的預設色 / 灰階（取自原程式進入點的欄位初始化）
-  // 顏色 index 4（Black）在 Horizontal / Vertical / LUMINACE 是「多列 W/R/G/B 模式」的哨兵值，
-  // 不是真的黑色 —— 原程式這幾個畫面的進入點就是把 [0x3bc] 設成 4。
-  var PG_DEF = {
-    horiz9:{c:4,l:0}, horiz64:{c:4,l:0}, horiz256:{c:4,l:0},
-    vert9:{c:4,l:0}, vert64:{c:4,l:0}, vert256:{c:4,l:0},
-    center9:{c:4,l:0}, center64:{c:4,l:0}, center256:{c:4,l:0},
-    gray:{c:3,l:127},
-    skip1_1v1h:{c:3,l:127}, skip1_1v2h:{c:3,l:127},
-    skip2_2v1h:{c:3,l:127}, skip2_2v2h:{c:3,l:127}, skip2_2v12h:{c:3,l:127},
-    skipsub:{c:3,l:127},
-    hline1:{c:3,l:127}, hline2:{c:3,l:127},
-    vline1:{c:3,l:127}, vline2:{c:3,l:127}, vsubline:{c:3,l:127},
-    crosstalk:{c:3,l:127}, xy:{c:3,l:255}, aligncenter:{c:3,l:255},
-    colortest:{c:3,l:255}, flicker1:{c:3,l:127}, flicker2:{c:3,l:127},
-    checker:{c:3,l:255}, character:{c:3,l:255},
-    lum_compare:{c:4,l:255}, lum_divide:{c:4,l:255},
-    resptime:{c:3,l:255}, smpte:{c:3,l:255}, skip1dot2gray:{c:0,l:255}
+  // ═══════════════════════════════════════════════════════════════
+  //  v2.4.1 畫面註冊表 —— 一個畫面 = 一個物件
+  //
+  //  原本一張畫面的屬性散在六個地方：選單樹、變體群組、預設值、資訊框模式、
+  //  鍵盤群組（一串 regex 判斷 id）、參數面板（show() 加一條寫死的排除字串）。
+  //  加一張新畫面要改六處，其中兩處是字串比對、最容易漏。
+  //
+  //  現在集中成一張表，PG_DEF / PG_MODE / PG_GROUPS / pgKeyGroup / 面板顯示
+  //  全部由它衍生。**行為完全不變** —— 驗收條件就是黃金基線 204 組一個位元都不能動。
+  //
+  //  欄位：def 進入時的預設色與灰階｜key 鍵盤群組（原程式每張畫面吃的鍵不同，
+  //  刻意不統一）｜mode 左上角資訊框模式（< 200 不顯示）｜variants 同值者屬同一
+  //  變體循環群，依表中順序｜panels 要顯示哪些專屬面板（沒有 'level' 就不顯示灰階框）
+  // ═══════════════════════════════════════════════════════════════
+  var PG_PATTERNS = {
+    horiz9:       { def:{c:4,l:0},   key:'bands',     mode:10,  variants:'horiz',   panels:['level'] },
+    horiz64:      { def:{c:4,l:0},   key:'bands',     mode:11,  variants:'horiz',   panels:['level'] },
+    horiz256:     { def:{c:4,l:0},   key:'bands',     mode:12,  variants:'horiz',   panels:['level'] },
+    vert9:        { def:{c:4,l:0},   key:'bands',     mode:20,  variants:'vert',    panels:['level'] },
+    vert64:       { def:{c:4,l:0},   key:'bands',     mode:21,  variants:'vert',    panels:['level'] },
+    vert256:      { def:{c:4,l:0},   key:'bands',     mode:22,  variants:'vert',    panels:['level'] },
+    center9:      { def:{c:4,l:0},   key:'bands',     mode:30,  variants:'center',  panels:['level'] },
+    center64:     { def:{c:4,l:0},   key:'bands',     mode:31,  variants:'center',  panels:['level'] },
+    center256:    { def:{c:4,l:0},   key:'bands',     mode:32,  variants:'center',  panels:['level'] },
+    gray:         { def:{c:3,l:127}, key:'level',     mode:200,                     panels:['level'] },
+    skip1_1v1h:   { def:{c:3,l:127}, key:'level',     mode:210, variants:'skip1',   panels:['level'] },
+    skip1_1v2h:   { def:{c:3,l:127}, key:'level',     mode:211, variants:'skip1',   panels:['level'] },
+    skip2_2v1h:   { def:{c:3,l:127}, key:'level',     mode:220, variants:'skip2',   panels:['level'] },
+    skip2_2v2h:   { def:{c:3,l:127}, key:'level',     mode:221, variants:'skip2',   panels:['level'] },
+    skip2_2v12h:  { def:{c:3,l:127}, key:'level',     mode:222, variants:'skip2',   panels:['level'] },
+    skipsub:      { def:{c:3,l:127}, key:'level',     mode:230,                     panels:['level'] },
+    hline1:       { def:{c:3,l:127}, key:'level',     mode:240, variants:'hline',   panels:['level'] },
+    hline2:       { def:{c:3,l:127}, key:'level',     mode:241, variants:'hline',   panels:['level'] },
+    vline1:       { def:{c:3,l:127}, key:'level',     mode:250, variants:'vline',   panels:['level'] },
+    vline2:       { def:{c:3,l:127}, key:'level',     mode:251, variants:'vline',   panels:['level'] },
+    vsubline:     { def:{c:3,l:127}, key:'level',     mode:252, variants:'vline',   panels:['level'] },
+    crosstalk:    { def:{c:3,l:127}, key:'crosstalk', mode:400,                     panels:['ct'] },
+    xy:           { def:{c:3,l:255}, key:'xy',        mode:500,                     panels:['xy'] },
+    aligncenter:  { def:{c:3,l:255}, key:'none',      mode:40,                      panels:['level'] },
+    colortest:    { def:{c:3,l:255}, key:'spaceOnly', mode:50,                      panels:[] },
+    flicker1:     { def:{c:3,l:127}, key:'level',     mode:260, variants:'flicker', panels:['level'] },
+    flicker2:     { def:{c:3,l:127}, key:'level',     mode:261, variants:'flicker', panels:['level'] },
+    checker:      { def:{c:3,l:255}, key:'checker',   mode:600,                     panels:['checker'] },
+    character:    { def:{c:3,l:255}, key:'character', mode:70,                      panels:['level'] },
+    lum_compare:  { def:{c:4,l:255}, key:'compare',   mode:80,  variants:'lum',     panels:['level'] },
+    lum_divide:   { def:{c:4,l:255}, key:'divide',    mode:81,  variants:'lum',     panels:['level'] },
+    resptime:     { def:{c:3,l:255}, key:'none',      mode:90,                      panels:['rt'] },
+    smpte:        { def:{c:3,l:255}, key:'spaceOnly', mode:100,                     panels:[] },
+    skip1dot2gray:{ def:{c:0,l:255}, key:'none',      mode:110,                     panels:['level'] }
   };
+  // 由註冊表衍生出原本那幾張散表，下游引用一律不動
+  var PG_DEF = {}, PG_MODE = {}, PG_GROUPS = [];
+  (function(){
+    var byVariant = {}, order = [];
+    Object.keys(PG_PATTERNS).forEach(function(id){
+      var P = PG_PATTERNS[id];
+      PG_DEF[id] = P.def;
+      PG_MODE[id] = P.mode;
+      if (P.variants) {
+        if (!byVariant[P.variants]) { byVariant[P.variants] = []; order.push(P.variants); }
+        byVariant[P.variants].push(id);
+      }
+    });
+    order.forEach(function(v){ if (byVariant[v].length > 1) PG_GROUPS.push(byVariant[v]); });
+  })();
+
 
   function pgPatLabel(id){
     var found = '';
@@ -2738,19 +2777,6 @@
   //    500 ≤ mode < 600  → "%3d,%3d"                    （準星 X+1, Y+1）
   //    mode ≥ 600        → "%3d Checker %02d:%02d:%02d" （格數＋經過時間）
   // ═══════════════════════════════════════════════════════════════
-  var PG_MODE = {
-    horiz9:10, horiz64:11, horiz256:12,
-    vert9:20, vert64:21, vert256:22,
-    center9:30, center64:31, center256:32,
-    aligncenter:40, colortest:50, character:70,
-    lum_compare:80, lum_divide:81, resptime:90, smpte:100, skip1dot2gray:110,
-    gray:200, skip1_1v1h:210, skip1_1v2h:211,
-    skip2_2v1h:220, skip2_2v2h:221, skip2_2v12h:222,
-    skipsub:230, hline1:240, hline2:241,
-    vline1:250, vline2:251, vsubline:252,
-    flicker1:260, flicker2:261,
-    crosstalk:400, xy:500, checker:600
-  };
   var PG_CT_NAMES = ['Outer Color', 'Inner Color', 'Inner Size', 'Inner Position'];
   // ★ 本站設計，與原程式不同：XY 準星允許超出畫面的最大 px 數（原程式無此限制）
   var PG_XY_OVER = 10;
@@ -2859,17 +2885,8 @@
   //  Skip/Line 群是 ←→ 切變體而 ↑↓ 調灰階，與 Horizontal 群相反。
   // ═══════════════════════════════════════════════════════════════
   function pgKeyGroup(id){
-    if (/^(horiz|vert|center)\d+$/.test(id)) return 'bands';
-    if (id === 'colortest' || id === 'smpte') return 'spaceOnly';
-    if (id === 'gray' || /^skip[12]_/.test(id) || id === 'skipsub' ||
-        /^hline\d$/.test(id) || /^vline\d$/.test(id) || id === 'vsubline' || /^flicker\d$/.test(id)) return 'level';
-    if (id === 'crosstalk')   return 'crosstalk';
-    if (id === 'xy')          return 'xy';
-    if (id === 'checker')     return 'checker';
-    if (id === 'character')   return 'character';
-    if (id === 'lum_compare') return 'compare';
-    if (id === 'lum_divide')  return 'divide';
-    return 'none';        // Align Center / Response Time / Skip 1 Dot 2 Gray：原程式只吃 Esc
+    var P = PG_PATTERNS[id];
+    return P ? P.key : 'none';
   }
   // 原程式中繪圖函式「不讀取」反相旗標的畫面 → Space 按了畫面不會變。
   // Skip SubPixel 原程式也不讀，但相位切換是 Bruce 指定要有的功能，故保留為本工具擴充。
@@ -3145,13 +3162,14 @@
     var ln = document.getElementById('pg-pat-lv-num'), lr = document.getElementById('pg-pat-lv-range');
     if (ln) ln.value = pgPat.level;
     if (lr) lr.value = pgPat.level;
+    // v2.4.1：面板顯示由註冊表的 panels 驅動，不再是一串寫死的 id 比對
+    var panels = (PG_PATTERNS[pgPat.id] || {}).panels || [];
     var show = function(elId, vis){ var e = document.getElementById(elId); if (e) e.style.display = vis ? 'block' : 'none'; };
-    show('pg-pat-checker', pgPat.id === 'checker');
-    show('pg-pat-ct',      pgPat.id === 'crosstalk');
-    show('pg-pat-rt',      pgPat.id === 'resptime');
-    show('pg-pat-xy',      pgPat.id === 'xy');
-    show('pg-pat-lv-box',  pgPat.id !== 'checker' && pgPat.id !== 'smpte' && pgPat.id !== 'colortest' &&
-                           pgPat.id !== 'crosstalk' && pgPat.id !== 'resptime' && pgPat.id !== 'xy');
+    show('pg-pat-checker', panels.indexOf('checker') >= 0);
+    show('pg-pat-ct',      panels.indexOf('ct') >= 0);
+    show('pg-pat-rt',      panels.indexOf('rt') >= 0);
+    show('pg-pat-xy',      panels.indexOf('xy') >= 0);
+    show('pg-pat-lv-box',  panels.indexOf('level') >= 0);
     if (pgPat.id === 'crosstalk') {          // Cross Talk 四個幾何輸入框顯示成像素
       var tsC = pgTargetSize();
       var setV = function(i2, v){ var e2 = document.getElementById(i2); if (e2 && document.activeElement !== e2) e2.value = Math.round(v); };
@@ -3713,6 +3731,8 @@
   window.pgPrevSetPan    = function(x,y){ pgPan.x=x; pgPan.y=y; pgRenderPrev(); };
   window.pgOutBatch      = pgOutBatch;
   window.pgBatchSel      = pgBatchSel;
+  window.pgPatterns      = PG_PATTERNS;
+  window.pgGroups        = PG_GROUPS;
 })();
 </script>
 </body>
