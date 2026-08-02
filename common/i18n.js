@@ -167,6 +167,7 @@ var I18N = {
   'pat.outBatchRow':    { 'zh-TW': '{n} px，差異 {d}，{s}', 'en': '{n} px, {d} differing, {s}', 'zh-CN': '{n} px，差异 {d}，{s}' },
   'pat.outBatchOk':     { 'zh-TW': '✅ {n} 個尺寸全部匯出並通過逐像素驗證：', 'en': '✅ All {n} sizes exported and passed per-pixel verification:', 'zh-CN': '✅ {n} 个尺寸全部导出并通过逐像素验证：' },
   'pat.outBatchBad':    { 'zh-TW': '⚠ 共 {n} 個尺寸，其中 {b} 個驗證未通過：', 'en': '⚠ {n} sizes exported, {b} failed verification:', 'zh-CN': '⚠ 共 {n} 个尺寸，其中 {b} 个验证未通过：' },
+  'pat.menuRecent':     { 'zh-TW': '最近使用', 'en': 'Recently used', 'zh-CN': '最近使用' },
   'pat.lblCssRes':      { 'zh-TW': 'CSS 邏輯解析度', 'en': 'CSS logical resolution', 'zh-CN': 'CSS 逻辑分辨率' },
   'pat.lblDpr':         { 'zh-TW': 'devicePixelRatio', 'en': 'devicePixelRatio', 'zh-CN': 'devicePixelRatio' },
   'pat.lblDevRes':      { 'zh-TW': '推算裝置像素（非 API 值）', 'en': 'Derived device pixels (not from API)', 'zh-CN': '推算设备像素（非 API 值）' },
