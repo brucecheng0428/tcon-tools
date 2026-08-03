@@ -753,6 +753,7 @@
         <div class="pg-minibtns">
         <button class="pg-mini" id="pg-sel-lit" data-i18n="pat.selLit">選取亮組</button>
         <button class="pg-mini" id="pg-sel-dark" data-i18n="pat.selDark">選取暗組</button>
+        <button class="pg-mini" id="pg-swap" data-i18n="pat.swapGroups">亮暗反轉</button>
         <button class="pg-mini" id="pg-sel-all" data-i18n="pat.selAll">全選</button>
         <button class="pg-mini" id="pg-sel-none" data-i18n="pat.selNone">取消選取</button>
         </div>
@@ -1084,8 +1085,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260803pat311"></script>
-<script src="common/i18n.js?v=20260803pat311"></script>
+<script src="common/version.js?v=20260804pat320"></script>
+<script src="common/i18n.js?v=20260804pat320"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1299,6 +1300,14 @@
     var bL = document.getElementById('pg-sel-lit'), bD = document.getElementById('pg-sel-dark');
     if (bL) { bL.disabled = !nL; bL.title = nL ? t('pat.selLitTip', { n: nL }) : t('pat.noLitTip'); }
     if (bD) { bD.disabled = !nD; bD.title = nD ? t('pat.selDarkTip', { n: nD }) : t('pat.noDarkTip'); }
+    // 亮暗反轉：兩組都要有成員才交換得起來
+    var bS = document.getElementById('pg-swap');
+    if (bS) {
+      var can = !!(nL && nD);
+      bS.disabled = !can;
+      bS.title = can ? t('pat.swapTip', { l: nL, d: nD })
+                     : (!nD ? t('pat.swapNoDark') : t('pat.swapNoLit'));
+    }
     var note = document.getElementById('pg-grp-note');
     if (note) {
       if (!nD)      { note.textContent = t('pat.grpNoDark'); note.style.display = ''; }
@@ -1357,6 +1366,45 @@
       var k = key(r, p, c);
       if (pgLevels[r][p][c] !== 0) pgGrpLit[k] = true; else pgGrpDark[k] = true;
     }
+  }
+  // 某一組的代表灰階值：取該組出現最多次的值（平手取較大）。
+  // 與 pgRepresentativeLevel 不同的是**不排除 0** —— 暗組整組都是 0 時，
+  // 它的代表值本來就該是 0。
+  function pgGroupLevel(keys){
+    var cnt = {}, best = 0, bestN = -1;
+    keys.forEach(function(k){
+      var a = k.split('-');
+      var v = pgLevels[+a[0]][+a[1]][+a[2]];
+      cnt[v] = (cnt[v] || 0) + 1;
+    });
+    Object.keys(cnt).forEach(function(k){
+      var v = +k, n = cnt[k];
+      if (n > bestN || (n === bestN && v > best)) { best = v; bestN = n; }
+    });
+    return best;
+  }
+  // 亮暗反轉：把亮組與暗組的**灰階值**互換。
+  // 🔴 交換的是值不是分組 —— pgGrpLit／pgGrpDark 完全不動，原本屬於亮組的格子
+  //    反轉後仍屬亮組，「選取亮組」選到的還是同一批。因此連按兩次會回到原狀。
+  // 不受目前選取影響：這顆按鈕的語意是對整個畫面的亮暗做互換，與「選取哪幾格」
+  // 是不同維度的操作；若讓它跟著選取跑，語意會變得無法簡單描述。
+  function pgSwapGroups(){
+    var litKeys = Object.keys(pgGrpLit), darkKeys = Object.keys(pgGrpDark);
+    if (!litKeys.length || !darkKeys.length) return false;   // 少一組就無從交換
+    var lv = pgGroupLevel(litKeys), dv = pgGroupLevel(darkKeys);
+    pgLeavePattern();
+    function setAll(keys, v){
+      keys.forEach(function(k){
+        var a = k.split('-');
+        pgLevels[+a[0]][+a[1]][+a[2]] = v;
+      });
+    }
+    setAll(litKeys, dv);
+    setAll(darkKeys, lv);
+    // 分組刻意不重建：pgRebuildGroups() 只在載入畫面時呼叫。
+    pgSyncLevelInputs();
+    pgPaintCells(); pgRenderPreview(); pgRenderFill();
+    return true;
   }
   function pgAllKeys(){
     var all = [];
@@ -4746,6 +4794,7 @@
     document.getElementById('pg-sel-dark').addEventListener('click', function(){
       pgSelectSet(Object.keys(pgGrpDark)); pgPaintCells();
     });
+    document.getElementById('pg-swap').addEventListener('click', function(){ pgSwapGroups(); });
     document.getElementById('pg-sel-all').addEventListener('click', function(){
       for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) pgSel[key(r,p,c)] = true;
       pgPaintCells();
@@ -4780,6 +4829,8 @@
     window.pgGrpDark   = function(){ return Object.keys(pgGrpDark); };
     window.pgRepresentativeLevel = pgRepresentativeLevel;
     window.pgReloadUnit = pgReloadUnit;
+    window.pgSwapGroups = pgSwapGroups;
+    window.pgGroupLevel = function(which){ return pgGroupLevel(Object.keys(which==='dark'?pgGrpDark:pgGrpLit)); };
     window.pgNudgeLevels = pgNudgeLevels;
 
     if (num) num.addEventListener('input', function(){
@@ -4977,7 +5028,8 @@
   // ─── 初始化 ───────────────────────────────────────
   pgBuildHeaders();
   pgBuildRows();
-  // 預設 L255（＝ Gray Level／White／255），值同樣走捷徑那條路徑取自繪圖引擎
+  // 先把 4×4 編輯區填成 L255 的白畫面。這不是最終要顯示的畫面，只是給手動模式
+  // 一個乾淨的起始值——使用者按「手動 4×4」切過去時不會看到一片空白。
   pgAdoptUnitFrom(pgMakeState('gray', { colorIdx: 3, level: 255 }));
   pgSel = {};
   pgReloadUnit();          // 初始化這條路徑先前漏了同步：格子已載入但輸入框還停在別的值
@@ -4996,6 +5048,13 @@
   pgBindFsPrev();
   pgSyncPatternUI();
   pgSyncMaskTag();
+  // 2026-08-04：開啟工具的預設畫面改為測試畫面的 Horizontal 256（左到右的白／紅／綠／藍
+  // 灰階條），不再停在手動 4×4 模式。放在初始化的最後才呼叫，是因為 pgSelectPattern
+  // 會用到前面剛建好的編輯區、版面與遮罩狀態。
+  // 這張畫面屬於「4×4 編輯區不適用」那一類（週期偵測不成立），走的是 pgSyncGrid 的
+  // 不適用分支：48 格清空、亮組為空、未選取時的灰階操作作用於全部 48 格，並在提示
+  // 文字寫明——這條路徑在 v3.1.0 已經處理過，這裡只是讓它成為預設狀態。
+  pgSelectPattern('horiz256');
   pgRenderPreview();
 
   // 對外（除錯／驗證用）
