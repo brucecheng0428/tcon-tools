@@ -173,7 +173,7 @@ var I18N = {
   'pat.magBar':         { 'zh-TW': '🔍 放大鏡', 'en': '🔍 Magnifier', 'zh-CN': '🔍 放大镜' },
   'pat.magRange':       { 'zh-TW': '取樣範圍', 'en': 'Sample area', 'zh-CN': '采样范围' },
   'pat.magExit':        { 'zh-TW': '✕ 關閉放大鏡', 'en': '✕ Close magnifier', 'zh-CN': '✕ 关闭放大镜' },
-  'pat.magTip':         { 'zh-TW': '中心格的值看下方資訊列；切到 5×5 每格都會標數值', 'en': 'Read the centre pixel from the info bar below; switch to 5×5 to label every cell', 'zh-CN': '中心格的值看下方信息栏；切到 5×5 每格都会标数值' },
+  'pat.magTip':         { 'zh-TW': '方向鍵移動 1 px，Shift+方向鍵 10 px；中心格的值看下方資訊列', 'en': 'Arrow keys move 1 px, Shift+arrows 10 px; read the centre pixel from the info bar below', 'zh-CN': '方向键移动 1 px，Shift+方向键 10 px；中心格的值看下方信息栏' },
   'pat.magOpenShort':   { 'zh-TW': '放大鏡', 'en': 'Magnifier', 'zh-CN': '放大镜' },
   'pat.magOpenBtn':     { 'zh-TW': '🔍 開啟放大鏡（看 sub-pixel 排列）', 'en': '🔍 Open magnifier (inspect sub-pixel layout)', 'zh-CN': '🔍 开启放大镜（看 sub-pixel 排列）' },
   'pat.magHowExit':     { 'zh-TW': '離開：按 Esc、點這裡的 ✕、或再點一次進入時用的那個入口', 'en': 'To leave: press Esc, click the ✕ here, or use the same entry you came in by', 'zh-CN': '离开：按 Esc、点这里的 ✕、或再点一次进入时用的那个入口' },

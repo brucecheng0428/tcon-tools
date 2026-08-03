@@ -1064,8 +1064,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260802pat2140"></script>
-<script src="common/i18n.js?v=20260802pat2140"></script>
+<script src="common/version.js?v=20260802pat2150"></script>
+<script src="common/i18n.js?v=20260802pat2150"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -3289,6 +3289,10 @@
     pgMag.scene = hit.s;
     var p = hit.s.map(e.clientX, e.clientY, hit.r, hit.s.el);
     pgMag.sx = p.x; pgMag.sy = p.y; pgMag.hasPos = true;
+    // 記下這次的對應關係，鍵盤移動時用它換算準星該畫在螢幕的哪裡
+    pgMag.baseC = { x: e.clientX, y: e.clientY };
+    pgMag.baseS = { x: p.x, y: p.y };
+    pgMag.rect = hit.r;
     if (host) host.classList.add('on');
     if (cross) cross.classList.add('on');
     pgMagRender();
@@ -3346,6 +3350,69 @@
   }
   // 再按一次入口即可關閉
   function pgMagToggle(){ if (pgMag.on) pgMagClose(); else pgMagOpen(); }
+
+  // ─── 方向鍵移動準星（放大鏡模式專用）───
+  // 🔴 放大鏡開啟時，方向鍵**只**做這件事，pattern 原本的方向鍵功能整個暫停；
+  //    關閉放大鏡後原封不動回來。這是模式切換，不是把舊功能搬到組合鍵去。
+  //    數字 1–8、Space、Home/End 沒有衝突，維持有效。
+  var PG_MAG_KEY_MS = 40;                 // 連續按住時的節流上限，避免高 repeat rate 失控
+  var PG_MAG_KEY_BIG = 10;                // Shift 一次移動 10 px：最大取樣 13×13，
+                                          // 跳 16 會整個視野換掉、失去連續性
+  var pgMagKeyLast = 0;
+  // 1 個來源像素等於幾個螢幕 CSS px —— 各場景縮放比例不同（輸出預覽可能只有 28.8%），
+  // 用兩點取樣量出來，不必為每個場景各寫一份反向換算
+  function pgMagClientPerSrc(scene, r, el){
+    var a = scene.map(r.left + 10, r.top + 10, r, el);
+    var b = scene.map(r.left + 110, r.top + 110, r, el);
+    var dx = (b.x - a.x), dy = (b.y - a.y);
+    return { x: 100 / (Math.abs(dx) > 1e-6 ? dx : 1), y: 100 / (Math.abs(dy) > 1e-6 ? dy : 1) };
+  }
+  function pgMagKeyMove(key, big){
+    if (!pgMag.on) return false;
+    var now = Date.now();
+    if (now - pgMagKeyLast < PG_MAG_KEY_MS) return true;   // 吃掉但不動作，維持節流
+    pgMagKeyLast = now;
+    // 還沒用滑鼠指過任何地方 → 從第一個可見顯示區的中心開始
+    if (!pgMag.hasPos || !pgMag.scene) {
+      var list = pgMagScenes();
+      for (var i = 0; i < list.length; i++) {
+        if (!list[i].el || !list[i].live()) continue;
+        var rr = list[i].el.getBoundingClientRect();
+        if (rr.width < 2 || rr.height < 2) continue;
+        var cx0 = rr.left + rr.width / 2, cy0 = rr.top + rr.height / 2;
+        var p0 = list[i].map(cx0, cy0, rr, list[i].el);
+        pgMag.scene = list[i]; pgMag.sx = p0.x; pgMag.sy = p0.y; pgMag.hasPos = true;
+        pgMag.baseC = { x: cx0, y: cy0 }; pgMag.baseS = { x: p0.x, y: p0.y }; pgMag.rect = rr;
+        break;
+      }
+      if (!pgMag.hasPos) return true;
+    }
+    var step = big ? PG_MAG_KEY_BIG : 1;
+    var d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+    if (!d) return false;
+    pgMag.sx += d[0] * step;
+    pgMag.sy += d[1] * step;
+    // 夾在來源畫面內：準星是檢視工具，超出去只會看到一片黑，沒有資訊價值
+    var src = pgMag.scene.src();
+    if (src && src.width) {
+      pgMag.sx = Math.max(0, Math.min(src.width - 1, pgMag.sx));
+      pgMag.sy = Math.max(0, Math.min(src.height - 1, pgMag.sy));
+    }
+    // 準星畫在螢幕的哪裡：從記下的對應基準換算，不累積誤差
+    var host = document.getElementById('pg-mag');
+    if (host) host.classList.add('on');
+    var cross = document.getElementById('pg-mag-cross');
+    if (cross) cross.classList.add('on');
+    pgMagRender();
+    var el = pgMag.scene.el, r = pgMag.rect || (el && el.getBoundingClientRect());
+    if (el && r) {
+      var k = pgMagClientPerSrc(pgMag.scene, r, el);
+      var cx = (pgMag.baseC ? pgMag.baseC.x : r.left) + (pgMag.sx - (pgMag.baseS ? pgMag.baseS.x : 0)) * k.x;
+      var cy = (pgMag.baseC ? pgMag.baseC.y : r.top)  + (pgMag.sy - (pgMag.baseS ? pgMag.baseS.y : 0)) * k.y;
+      pgMagPlace(cx, cy);
+    }
+    return true;
+  }
 
   // ─── 工具列：可拖曳，放開後吸到最近的一邊 ───
   // 吸附判準用「相對距離」（距離 ÷ 該方向的半長）而不是絕對距離 ——
@@ -3768,6 +3835,9 @@
     var tg = e.target;
     if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'SELECT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return false;
     var id = pgPat.id, grp = pgKeyGroup(id), k = e.key;
+    // 放大鏡開啟時，方向鍵屬於放大鏡準星，不得動到 pattern 狀態
+    // （XY Coordinate 自己也有準星，這裡同時擋掉它被連帶移動）
+    if (pgMag.on && k.indexOf('Arrow') === 0) return false;
     // 原程式的 Response Time 量測是「按任意鍵或滑鼠雙擊就中止」
     if (id === 'resptime' && pgPat.rt.run) { pgRtStop(); pgRenderFill(); pgSyncPatternUI(); return true; }
     if (grp === 'none') return false;
@@ -4526,6 +4596,15 @@
         if (ov0.classList.contains('on')) { e.preventDefault(); e.stopPropagation(); pgExitFs(); return; }
         return;
       }
+      // 放大鏡開啟時：方向鍵只移動準星，pattern 的方向鍵功能整個暫停。
+      // 放在全畫面判斷之前 —— 放大鏡也能在主頁預覽／輸出預覽開啟。
+      if (pgMag.on && e.key.indexOf('Arrow') === 0) {
+        var tg0 = e.target;
+        if (!(tg0 && (tg0.tagName === 'INPUT' || tg0.tagName === 'SELECT' ||
+                      tg0.tagName === 'TEXTAREA' || tg0.isContentEditable))) {
+          if (pgMagKeyMove(e.key, e.shiftKey)) { e.preventDefault(); e.stopPropagation(); return; }
+        }
+      }
       if (!ov0.classList.contains('on')) return;
       // F 是明確的「離開全畫面」意圖，不逐層 —— 一併關掉放大鏡
       if (e.key === 'f' || e.key === 'F') { pgMagClose(); pgExitFs(); return; }
@@ -4656,6 +4735,7 @@
   window.pgMagBar        = pgMagBar;
   window.pgMagBarApply   = pgMagBarApply;
   window.pgMagBarSnapFrom= pgMagBarSnapFrom;
+  window.pgMagKeyMove    = pgMagKeyMove;
   window.pgMagAttach     = pgMagAttach;
   window.pgMagHost       = pgMagHost;
   window.pgFsCursorUpdate = pgFsCursorUpdate;
