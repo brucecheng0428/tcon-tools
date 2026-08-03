@@ -115,6 +115,8 @@
     color: var(--text-sub); flex-wrap: wrap;
   }
   .pg-selbar b { color: var(--accent); font-size: 13px; }
+  .pg-seltarget { margin-left: 7px; font-size: 11px; font-weight: 700; color: var(--text-sub); }
+  .pg-seltarget.all { color: #fcd34d; }
   .pg-minibtns { display: flex; gap: 6px; flex-wrap: wrap; }
   .pg-mini {
     padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: 6px;
@@ -736,7 +738,7 @@
         </div>
 
         <div class="pg-selbar">
-        <div><span data-i18n="pat.selected">已選取</span> <b id="pg-selcount">0</b> <span data-i18n="pat.subpxUnit">個 sub-pixel</span></div>
+        <div><span data-i18n="pat.selected">已選取</span> <b id="pg-selcount">0</b> <span data-i18n="pat.subpxUnit">個 sub-pixel</span><span id="pg-seltarget" class="pg-seltarget"></span></div>
         <div class="pg-minibtns">
         <button class="pg-mini" id="pg-sel-all" data-i18n="pat.selAll">全選</button>
         <button class="pg-mini" id="pg-sel-none" data-i18n="pat.selNone">取消選取</button>
@@ -1255,6 +1257,15 @@
       if (pgSel[key(r,p,c)]) cell.classList.add('sel'); else cell.classList.remove('sel');
     });
     document.getElementById('pg-selcount').textContent = selCount();
+    pgSyncSelTarget();
+  }
+  // 提示灰階那組控制項當下會套用到哪裡 —— 沒選取時是全部，要講清楚
+  function pgSyncSelTarget(){
+    var el = document.getElementById('pg-seltarget');
+    if (!el) return;
+    var n = selCount();
+    el.textContent = (n === 0) ? t('pat.applyAll', { n: NROW * NPX * 3 }) : t('pat.applySel');
+    el.className = 'pg-seltarget' + (n === 0 ? ' all' : '');
   }
 
   function pgToggle(r,p,c){
@@ -1293,10 +1304,20 @@
     pgRenderFill();
   }
 
+  // 灰階操作的作用對象：有選取就只動選取的，沒選取就作用於全部 48 個 sub-pixel
+  //（NROW 4 列 × NPX 4 px × R/G/B 3 色）。先前沒選取時等於什麼都不做，按鈕看起來像壞的。
+  function pgLevelTargets(){
+    var keys = Object.keys(pgSel);
+    if (keys.length) return keys;
+    var all = [];
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++)
+      all.push(key(r, p, c));
+    return all;
+  }
   function pgApplyLevel(v){
     pgLeavePattern();
     v = Math.max(0, Math.min(255, Math.round(v)));
-    Object.keys(pgSel).forEach(function(k){
+    pgLevelTargets().forEach(function(k){
       var a = k.split('-');
       pgLevels[+a[0]][+a[1]][+a[2]] = v;
     });
@@ -1306,7 +1327,7 @@
   }
   function pgNudge(d){
     pgLeavePattern();
-    Object.keys(pgSel).forEach(function(k){
+    pgLevelTargets().forEach(function(k){
       var a = k.split('-');
       var cur = pgLevels[+a[0]][+a[1]][+a[2]];
       pgLevels[+a[0]][+a[1]][+a[2]] = Math.max(0, Math.min(255, cur + d));
@@ -4515,6 +4536,7 @@
     }
     window.pgSetLevelUI = pgSetLevelUI;
     window.pgLevelCur   = pgLevelCur;
+    window.pgLevelTargets = pgLevelTargets;
 
     if (num) num.addEventListener('input', function(){
       if (num.value === '') return;
@@ -4705,6 +4727,7 @@
     pgUpdateFsInfo();
     pgSyncPatternUI();
     pgSyncMaskTag();
+    pgSyncSelTarget();
   };
 
   // ─── 初始化 ───────────────────────────────────────

@@ -263,6 +263,8 @@ var I18N = {
   'pat.editorCard':     { 'zh-TW': 'Sub-pixel 編輯（4 px × 4 列）', 'en': 'Sub-pixel Editor (4 px × 4 rows)', 'zh-CN': 'Sub-pixel 编辑（4 px × 4 列）' },
   'pat.selected':       { 'zh-TW': '已選取', 'en': 'Selected', 'zh-CN': '已选取' },
   'pat.subpxUnit':      { 'zh-TW': '個 sub-pixel', 'en': 'sub-pixel(s)', 'zh-CN': '个 sub-pixel' },
+  'pat.applyAll':       { 'zh-TW': '（未選取 → 將套用至全部 {n} 個）', 'en': '(none selected → applies to all {n})', 'zh-CN': '（未选取 → 将套用至全部 {n} 个）' },
+  'pat.applySel':       { 'zh-TW': '（只套用到選取的）', 'en': '(applies to the selected ones only)', 'zh-CN': '（只套用到选取的）' },
   'pat.selAll':         { 'zh-TW': '全選', 'en': 'Select all', 'zh-CN': '全选' },
   'pat.selNone':        { 'zh-TW': '取消選取', 'en': 'Clear', 'zh-CN': '取消选取' },
   'pat.levelLabel':     { 'zh-TW': '灰階 L0 – L255（點 sub-pixel 即套用此值）', 'en': 'Gray level L0 – L255 (tap a sub-pixel to apply this value)', 'zh-CN': '灰阶 L0 – L255（点 sub-pixel 即应用此值）' },
