@@ -86,6 +86,16 @@
     touch-action: none;   /* 觸控可直接拖曳塗刷，不觸發捲動 */
   }
   .pg-cell.sel { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+  /* 亮組標記：右上角一顆 4px 小圓點。標亮組而不標暗組，因為亮組是「未選取時的預設對象」，
+     而且只標一組畫面才不會變雜。 */
+  .pg-cell.grp-lit::after {
+    content: ''; position: absolute; top: 3px; right: 3px;
+    width: 4px; height: 4px; border-radius: 50%;
+    background: rgba(255,255,255,.75); box-shadow: 0 0 2px rgba(0,0,0,.9);
+    pointer-events: none;
+  }
+  .pg-grp-note { margin-top: 5px; font-size: 10.5px; color: var(--text-sub); line-height: 1.5; }
+  .pg-mini[disabled] { opacity: .38; cursor: not-allowed; }
   .pg-headrow { display: flex; align-items: stretch; gap: 4px; margin-bottom: 5px; }
   .pg-headrow .pg-rowhead { visibility: hidden; cursor: default; }
   .pg-chhead {
@@ -741,10 +751,13 @@
         <div class="pg-selbar">
         <div><span data-i18n="pat.selected">已選取</span> <b id="pg-selcount">0</b> <span data-i18n="pat.subpxUnit">個 sub-pixel</span><span id="pg-seltarget" class="pg-seltarget"></span></div>
         <div class="pg-minibtns">
+        <button class="pg-mini" id="pg-sel-lit" data-i18n="pat.selLit">選取亮組</button>
+        <button class="pg-mini" id="pg-sel-dark" data-i18n="pat.selDark">選取暗組</button>
         <button class="pg-mini" id="pg-sel-all" data-i18n="pat.selAll">全選</button>
         <button class="pg-mini" id="pg-sel-none" data-i18n="pat.selNone">取消選取</button>
         </div>
         </div>
+        <div class="pg-grp-note" id="pg-grp-note"></div>
 
         <div class="pg-level-box">
         <label data-i18n="pat.levelLabel">灰階 L0 – L255（點 sub-pixel 即套用此值）</label>
@@ -1258,6 +1271,7 @@
       cell.style.background = pgCellColor(c, v);
       cell.textContent = v;
       if (pgSel[key(r,p,c)]) cell.classList.add('sel'); else cell.classList.remove('sel');
+      if (pgGrpLit[key(r,p,c)]) cell.classList.add('grp-lit'); else cell.classList.remove('grp-lit');
     });
     document.getElementById('pg-selcount').textContent = selCount();
     pgSyncSelTarget();
@@ -1271,11 +1285,25 @@
       el.textContent = t('pat.applySel', { n: n });
       el.className = 'pg-seltarget';
     } else if (tg.mode === PG_LEVEL_MODES.LIT) {
-      el.textContent = t('pat.applyLit', { n: n });
+      el.textContent = t('pat.applyLitGrp', { n: n });
       el.className = 'pg-seltarget lit';
     } else {
-      el.textContent = t('pat.applyAllZero', { n: n });
+      el.textContent = t('pat.applyNoLit', { n: n });
       el.className = 'pg-seltarget all';
+    }
+    pgSyncGroupBtns();
+  }
+  // 某一組是空的時候，對應的按鈕停用並說明原因，不要讓它變成按了沒反應
+  function pgSyncGroupBtns(){
+    var nL = Object.keys(pgGrpLit).length, nD = Object.keys(pgGrpDark).length;
+    var bL = document.getElementById('pg-sel-lit'), bD = document.getElementById('pg-sel-dark');
+    if (bL) { bL.disabled = !nL; bL.title = nL ? t('pat.selLitTip', { n: nL }) : t('pat.noLitTip'); }
+    if (bD) { bD.disabled = !nD; bD.title = nD ? t('pat.selDarkTip', { n: nD }) : t('pat.noDarkTip'); }
+    var note = document.getElementById('pg-grp-note');
+    if (note) {
+      if (!nD)      { note.textContent = t('pat.grpNoDark'); note.style.display = ''; }
+      else if (!nL) { note.textContent = t('pat.grpNoLit');  note.style.display = ''; }
+      else          { note.textContent = t('pat.grpLegend', { l: nL, d: nD }); note.style.display = ''; }
     }
   }
 
@@ -1315,27 +1343,71 @@
     pgRenderFill();
   }
 
+  // ─── 亮組／暗組 ────────────────────────────────────────────────────
+  // 2026-08-03 規則變更：作用對象改由「畫面載入當下的結構」決定，不再看當下值。
+  //   亮組 ＝ 載入時值非 0 的格子；暗組 ＝ 載入時值為 0 的格子。
+  // 🔴 組員身分固定，不隨值改變。把暗組整批調到 64 之後它仍然是暗組，否則調過
+  //    一次就再也分不出兩組，「把暗的部分一起調到某個值」這件事只能做一次。
+  // 這同時讓「全部調成 0 之後動不了」與「長按遞減時作用集合縮小」兩個問題不存在
+  // ——集合本來就不是從當下值算出來的。
+  var pgGrpLit = {}, pgGrpDark = {};
+  function pgRebuildGroups(){
+    pgGrpLit = {}; pgGrpDark = {};
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) {
+      var k = key(r, p, c);
+      if (pgLevels[r][p][c] !== 0) pgGrpLit[k] = true; else pgGrpDark[k] = true;
+    }
+  }
+  function pgAllKeys(){
+    var all = [];
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) all.push(key(r, p, c));
+    return all;
+  }
+  // 這個畫面的代表灰階值：拿來同步拉霸與數字框，讓 ±1 的基準等於畫面上看到的東西。
+  // 取所有非 0 格的眾數（平手取較大）。實測 34 個畫面沒有多亮度混合，眾數就是唯一值；
+  // 眾數只是為了涵蓋「使用者手動改過幾格」之後仍有明確定義。
+  // 48 格全 0（編輯區不適用的畫面）時改取該畫面自己的灰階參數。
+  function pgRepresentativeLevel(){
+    var cnt = {}, best = -1, bestN = 0;
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) {
+      var v = pgLevels[r][p][c];
+      if (v !== 0) cnt[v] = (cnt[v] || 0) + 1;
+    }
+    Object.keys(cnt).forEach(function(k){
+      var v = +k, n = cnt[k];
+      if (n > bestN || (n === bestN && v > best)) { best = v; bestN = n; }
+    });
+    if (best >= 0) return best;
+    var lv = parseInt(pgPat && pgPat.level, 10);
+    return isNaN(lv) ? 0 : Math.max(0, Math.min(255, lv));
+  }
+  // 把代表值寫回拉霸與數字框。只動這兩個輸入框，不套用到格子
+  //（套用是 pgApplyLevel 的事，這裡若順手套用會把剛載入的畫面覆蓋掉）。
+  function pgSyncLevelInputs(){
+    var v = pgRepresentativeLevel();
+    var num = document.getElementById('pg-level-num'), rng = document.getElementById('pg-level-range');
+    if (num) num.value = v;
+    if (rng) rng.value = v;
+    return v;
+  }
+  // 畫面載入完、格值就緒之後統一走這裡：重新分組 + 同步灰階輸入框
+  function pgReloadUnit(){
+    pgRebuildGroups();
+    pgSyncLevelInputs();
+  }
   // ─── 灰階操作的作用對象 ────────────────────────────────────────────
-  // 三種模式，順序就是優先序：
-  //   sel     有選取 → 就作用在選取的那幾格。使用者刻意選了 L0 的格子也照做，
-  //                   「刻意選取」永遠優先於下面的自動判斷。
-  //   lit     沒選取 → 只作用在目前值非 0 的亮點。Skip SubPixel 這類畫面調的是
-  //                   亮點的灰階，暗的部分（L0）本來就該留著不動。
-  //   allzero 沒選取而且 48 格全是 0 → 作用於全部。少了這條就是死路：作用集合
-  //                   會是空集合，按任何按鈕都不會有反應，永遠回不到亮的狀態。
-  //                   （實測確認過：全 0 時 targets 長度為 0，L128／+16／+1 全部無效。）
-  var PG_LEVEL_MODES = { SEL: 'sel', LIT: 'lit', ALLZERO: 'allzero' };
+  //   sel    有選取 → 作用在選取的那幾格。刻意選取永遠優先。
+  //   lit    沒選取 → 作用在亮組（載入時非 0 的那些）。
+  //   nolit  沒選取而且亮組是空的（編輯區不適用的畫面，48 格全 0）→ 作用於全部。
+  //          這種畫面沒有「原本亮的部分」這個概念，空集合會讓按鈕完全沒反應，
+  //          所以退回全部，並在提示文字寫明現在會動到全部。
+  var PG_LEVEL_MODES = { SEL: 'sel', LIT: 'lit', NOLIT: 'nolit' };
   function pgLevelTargetsCompute(){
     var keys = Object.keys(pgSel);
     if (keys.length) return { mode: PG_LEVEL_MODES.SEL, keys: keys };
-    var lit = [], all = [];
-    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) {
-      var k = key(r, p, c);
-      all.push(k);
-      if (pgLevels[r][p][c] !== 0) lit.push(k);
-    }
-    return lit.length ? { mode: PG_LEVEL_MODES.LIT, keys: lit }
-                      : { mode: PG_LEVEL_MODES.ALLZERO, keys: all };
+    var lit = Object.keys(pgGrpLit);
+    if (lit.length) return { mode: PG_LEVEL_MODES.LIT, keys: lit };
+    return { mode: PG_LEVEL_MODES.NOLIT, keys: pgAllKeys() };
   }
   // 長按／拖曳期間鎖住作用集合：按下的當下決定要動哪些格子，過程中不重算。
   // 不鎖的話「作用對象」會隨著格子的值變動而漂移，同一次按住的前後段行為不一致。
@@ -1355,6 +1427,23 @@
     pgPaintCells();
     pgRenderPreview();
     pgRenderFill();
+  }
+  // ±1／±16 的語意（2026-08-03 起）：對**每個目標格各自**加減，不是「把某個基準值
+  // 加減之後設給所有目標格」。舊語意在亮組／暗組分別調整時會壞掉 —— 例如亮組是 192、
+  // 剛把暗組設成 64，再按 +16 會依基準 64 把亮組一路打到 80。
+  // L0~L255 快捷與拉霸維持「設定絕對值」，兩者分工明確。
+  function pgNudgeLevels(d){
+    pgLeavePattern();
+    var changed = false;
+    pgLevelTargets().forEach(function(k){
+      var a = k.split('-'), r = +a[0], p = +a[1], c = +a[2];
+      var v0 = pgLevels[r][p][c];
+      var v1 = Math.max(0, Math.min(255, v0 + d));
+      if (v1 !== v0) { pgLevels[r][p][c] = v1; changed = true; }
+    });
+    pgSyncLevelInputs();                 // 拉霸與數字框跟著新的代表值走
+    pgPaintCells(); pgRenderPreview(); pgRenderFill();
+    return changed;                      // false ＝ 目標格全部撞底了
   }
   function pgNudge(d){
     pgLeavePattern();
@@ -1404,20 +1493,38 @@
 
   // 把「指定狀態畫出來的重複單元」搬進 4×4 編輯格。回傳是否成功。
   // 邏輯 W/H 一律用 pgTargetSize()，與全畫面完全相同 —— 含 H 的相位圖才不會反推出錯的值。
+  // 探測用的固定尺寸。頁面剛載入、版面還沒完成時 pgTargetSize() 會退化成 1×1
+  // （全畫面元素此時量到 0），週期偵測必然失敗，48 格就停在全 0 —— 也就是
+  // 「開啟工具第一眼應該是白畫面」這件事會不會成立，取決於載入當下量不量得到版面。
+  // 改成量不到時用一組固定尺寸來探測：值仍然取自繪圖引擎，但不再依賴視窗大小。
+  var PG_PROBE_SIZE = { W: 1920, H: 1080 };
+  // 量不到版面時改用固定探測尺寸執行 fn。所有「從繪圖引擎取編輯格值」的地方都走這裡，
+  // 否則同一件事會有兩套判斷、修一邊漏一邊。
+  function pgWithProbeSize(fn){
+    var prev = pgSizeOverride, t = pgTargetSize();
+    if (t.W < 8 || t.H < 8) pgSizeOverride = PG_PROBE_SIZE;
+    try { return fn(); } finally { pgSizeOverride = prev; }
+  }
   function pgAdoptUnitFrom(state){
-    var per = pgDetectPeriod(state);
-    if (!per) return false;
+    var prevOv = pgSizeOverride;
     var t = pgTargetSize();
-    if (!pgOffCvSmall) pgOffCvSmall = document.createElement('canvas');
-    var cw = Math.min(t.W, 8), ch = Math.min(t.H, 8);
-    var sbuf = pgDrawSlice(pgOffCvSmall, t.W, t.H, 0, 0, cw, ch, state);
-    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) {
-      var v = sbuf[(r % per.ph) * cw + (p % per.pw)];
-      pgLevels[r][p][0] = v & 0xff;
-      pgLevels[r][p][1] = (v >> 8) & 0xff;
-      pgLevels[r][p][2] = (v >> 16) & 0xff;
+    if (t.W < 8 || t.H < 8) { pgSizeOverride = PG_PROBE_SIZE; t = PG_PROBE_SIZE; }
+    try {
+      var per = pgDetectPeriod(state);
+      if (!per) return false;
+      if (!pgOffCvSmall) pgOffCvSmall = document.createElement('canvas');
+      var cw = Math.min(t.W, 8), ch = Math.min(t.H, 8);
+      var sbuf = pgDrawSlice(pgOffCvSmall, t.W, t.H, 0, 0, cw, ch, state);
+      for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) {
+        var v = sbuf[(r % per.ph) * cw + (p % per.pw)];
+        pgLevels[r][p][0] = v & 0xff;
+        pgLevels[r][p][1] = (v >> 8) & 0xff;
+        pgLevels[r][p][2] = (v >> 16) & 0xff;
+      }
+      return true;
+    } finally {
+      pgSizeOverride = prevOv;
     }
-    return true;
   }
 
   // 按下捷徑：把對應選單項的實際輸出搬進編輯格，並停在手動模式（D1-a 方案甲）
@@ -1425,10 +1532,9 @@
     if (!pgAdoptUnitFrom(pgMakeState(sc.menuId, { colorIdx: sc.colorIdx, level: sc.level }))) return;
     pgMode = 'subpixel';
     pgSel = {};
-    // 捷徑帶著自己的灰階值，讓接下來點格子塗刷時直接沿用，不會退回上一個殘留值
-    var num = document.getElementById('pg-level-num'), rng = document.getElementById('pg-level-range');
-    if (num) num.value = sc.level;
-    if (rng) rng.value = sc.level;
+    // 捷徑帶著自己的灰階值，讓接下來點格子塗刷時直接沿用，不會退回上一個殘留值。
+    // pgReloadUnit() 會依剛載入的格值重新分組，並把拉霸與數字框同步到代表值。
+    pgReloadUnit();
     pgRtStop();
     pgSyncPatternUI();
     pgSyncGrid();
@@ -2431,13 +2537,14 @@
     if (key !== pgPeriodKey) {
       // Response Time 是「兩張畫面依時間交替」，單幀雖然是純色（演算法會判 1×1），
       // 但 4×4 編輯區表達不了時間這個維度 → 明確歸為不適用，不假裝它是靜態圖樣。
-      pgPeriod = (pgPat.id === 'resptime') ? null : pgDetectPeriod();
+      pgPeriod = (pgPat.id === 'resptime') ? null : pgWithProbeSize(function(){ return pgDetectPeriod(); });
       pgPeriodKey = key;
     }
 
     if (!pgPeriod) {                                  // 非 4×4 週期性 → 不留殘值
       for (var r0 = 0; r0 < NROW; r0++) for (var p0 = 0; p0 < NPX; p0++) for (var c0 = 0; c0 < 3; c0++) pgLevels[r0][p0][c0] = 0;
       pgSel = {};
+      pgReloadUnit();
       pgPaintCells();
       noteEl.className = 'pg-grid-note na';
       noteEl.innerHTML = t('pat.gridNA', { n: escapeHtml(pgPatLabel(pgPat.id)) });
@@ -2450,10 +2557,13 @@
       return;
     }
     // 只需要左上角 pw × ph，用小 canvas 取（邏輯 W/H 仍傳真實值，相位完全一致）
-    var t2 = pgTargetSize();
-    if (!pgOffCvSmall) pgOffCvSmall = document.createElement('canvas');
-    var cw = Math.min(t2.W, 8), ch = Math.min(t2.H, 8);
-    var sbuf = pgDrawSlice(pgOffCvSmall, t2.W, t2.H, 0, 0, cw, ch);
+    var probe = pgWithProbeSize(function(){
+      var t2 = pgTargetSize();
+      if (!pgOffCvSmall) pgOffCvSmall = document.createElement('canvas');
+      var cw2 = Math.min(t2.W, 8), ch2 = Math.min(t2.H, 8);
+      return { buf: pgDrawSlice(pgOffCvSmall, t2.W, t2.H, 0, 0, cw2, ch2), cw: cw2 };
+    });
+    var sbuf = probe.buf, cw = probe.cw;
     for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) {
       var v = sbuf[(r % pgPeriod.ph) * cw + (p % pgPeriod.pw)];
       pgLevels[r][p][0] = v & 0xff;
@@ -2461,6 +2571,7 @@
       pgLevels[r][p][2] = (v >> 16) & 0xff;
     }
     pgSel = {};
+    pgReloadUnit();
     pgPaintCells();
     noteEl.className = 'pg-grid-note';
     noteEl.innerHTML = t('pat.gridOK', { n: escapeHtml(pgPatLabel(pgPat.id)), w: pgPeriod.pw, h: pgPeriod.ph });
@@ -4629,6 +4740,12 @@
       pgPaintCells();
     });
 
+    document.getElementById('pg-sel-lit').addEventListener('click', function(){
+      pgSelectSet(Object.keys(pgGrpLit)); pgPaintCells();
+    });
+    document.getElementById('pg-sel-dark').addEventListener('click', function(){
+      pgSelectSet(Object.keys(pgGrpDark)); pgPaintCells();
+    });
     document.getElementById('pg-sel-all').addEventListener('click', function(){
       for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) pgSel[key(r,p,c)] = true;
       pgPaintCells();
@@ -4659,6 +4776,11 @@
     window.pgLevelCur   = pgLevelCur;
     window.pgLevelTargets = pgLevelTargets;
     window.pgLevelTargetsCompute = pgLevelTargetsCompute;
+    window.pgGrpLit    = function(){ return Object.keys(pgGrpLit); };
+    window.pgGrpDark   = function(){ return Object.keys(pgGrpDark); };
+    window.pgRepresentativeLevel = pgRepresentativeLevel;
+    window.pgReloadUnit = pgReloadUnit;
+    window.pgNudgeLevels = pgNudgeLevels;
 
     if (num) num.addEventListener('input', function(){
       if (num.value === '') return;
@@ -4689,9 +4811,7 @@
         pgLevelLockOff();                    // 放開就解鎖，下次按下重新決定作用對象
       }
       function stepOnce(){
-        var before = pgLevelCur();
-        var after = pgSetLevelUI(before + d);
-        if (after === before) stop();        // 已經到 0 或 255，夾住並停手
+        if (!pgNudgeLevels(d)) stop();       // 目標格全部撞到 0 或 255，夾住並停手
       }
       function start(e){
         if (e && e.button !== undefined && e.button !== 0) return;   // 只認左鍵
@@ -4860,6 +4980,7 @@
   // 預設 L255（＝ Gray Level／White／255），值同樣走捷徑那條路徑取自繪圖引擎
   pgAdoptUnitFrom(pgMakeState('gray', { colorIdx: 3, level: 255 }));
   pgSel = {};
+  pgReloadUnit();          // 初始化這條路徑先前漏了同步：格子已載入但輸入框還停在別的值
   pgPaintCells();
   pgRefreshScreenInfo();
   pgWmInit();
