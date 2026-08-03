@@ -116,6 +116,7 @@
   }
   .pg-selbar b { color: var(--accent); font-size: 13px; }
   .pg-seltarget { margin-left: 7px; font-size: 11px; font-weight: 700; color: var(--text-sub); }
+  .pg-seltarget.lit { color: #86efac; }
   .pg-seltarget.all { color: #fcd34d; }
   .pg-minibtns { display: flex; gap: 6px; flex-wrap: wrap; }
   .pg-mini {
@@ -943,6 +944,8 @@
 
       <div style="margin-top:10px">
         <button class="pg-btn accent full" id="pg-out-save" data-i18n="pat.outSave">💾 另存圖片</button>
+        <button class="pg-btn full" id="pg-out-share" style="margin-top:8px;display:none" data-i18n="pat.outShare">📤 分享圖片給其他 App</button>
+        <div class="field-hint" id="pg-out-sharehint" style="display:none" data-i18n="pat.outShareHint"></div>
       </div>
 
       <div class="pg-sub">
@@ -1259,13 +1262,21 @@
     document.getElementById('pg-selcount').textContent = selCount();
     pgSyncSelTarget();
   }
-  // 提示灰階那組控制項當下會套用到哪裡 —— 沒選取時是全部，要講清楚
+  // 提示灰階那組控制項當下實際會套用到幾格 —— 格數是算出來的，不是寫死
   function pgSyncSelTarget(){
     var el = document.getElementById('pg-seltarget');
     if (!el) return;
-    var n = selCount();
-    el.textContent = (n === 0) ? t('pat.applyAll', { n: NROW * NPX * 3 }) : t('pat.applySel');
-    el.className = 'pg-seltarget' + (n === 0 ? ' all' : '');
+    var tg = pgLevelTargetsCompute(), n = tg.keys.length;
+    if (tg.mode === PG_LEVEL_MODES.SEL) {
+      el.textContent = t('pat.applySel', { n: n });
+      el.className = 'pg-seltarget';
+    } else if (tg.mode === PG_LEVEL_MODES.LIT) {
+      el.textContent = t('pat.applyLit', { n: n });
+      el.className = 'pg-seltarget lit';
+    } else {
+      el.textContent = t('pat.applyAllZero', { n: n });
+      el.className = 'pg-seltarget all';
+    }
   }
 
   function pgToggle(r,p,c){
@@ -1304,15 +1315,35 @@
     pgRenderFill();
   }
 
-  // 灰階操作的作用對象：有選取就只動選取的，沒選取就作用於全部 48 個 sub-pixel
-  //（NROW 4 列 × NPX 4 px × R/G/B 3 色）。先前沒選取時等於什麼都不做，按鈕看起來像壞的。
-  function pgLevelTargets(){
+  // ─── 灰階操作的作用對象 ────────────────────────────────────────────
+  // 三種模式，順序就是優先序：
+  //   sel     有選取 → 就作用在選取的那幾格。使用者刻意選了 L0 的格子也照做，
+  //                   「刻意選取」永遠優先於下面的自動判斷。
+  //   lit     沒選取 → 只作用在目前值非 0 的亮點。Skip SubPixel 這類畫面調的是
+  //                   亮點的灰階，暗的部分（L0）本來就該留著不動。
+  //   allzero 沒選取而且 48 格全是 0 → 作用於全部。少了這條就是死路：作用集合
+  //                   會是空集合，按任何按鈕都不會有反應，永遠回不到亮的狀態。
+  //                   （實測確認過：全 0 時 targets 長度為 0，L128／+16／+1 全部無效。）
+  var PG_LEVEL_MODES = { SEL: 'sel', LIT: 'lit', ALLZERO: 'allzero' };
+  function pgLevelTargetsCompute(){
     var keys = Object.keys(pgSel);
-    if (keys.length) return keys;
-    var all = [];
-    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++)
-      all.push(key(r, p, c));
-    return all;
+    if (keys.length) return { mode: PG_LEVEL_MODES.SEL, keys: keys };
+    var lit = [], all = [];
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) {
+      var k = key(r, p, c);
+      all.push(k);
+      if (pgLevels[r][p][c] !== 0) lit.push(k);
+    }
+    return lit.length ? { mode: PG_LEVEL_MODES.LIT, keys: lit }
+                      : { mode: PG_LEVEL_MODES.ALLZERO, keys: all };
+  }
+  // 長按／拖曳期間鎖住作用集合：按下的當下決定要動哪些格子，過程中不重算。
+  // 不鎖的話「作用對象」會隨著格子的值變動而漂移，同一次按住的前後段行為不一致。
+  var pgLevelLock = null;
+  function pgLevelLockOn(){  pgLevelLock = pgLevelTargetsCompute(); }
+  function pgLevelLockOff(){ pgLevelLock = null; }
+  function pgLevelTargets(){
+    return (pgLevelLock ? pgLevelLock : pgLevelTargetsCompute()).keys;
   }
   function pgApplyLevel(v){
     pgLeavePattern();
@@ -2725,9 +2756,78 @@
     var nm = document.getElementById('pg-out-name');
     if (nm && !nm.dataset.touched) nm.value = pgExportBaseName() + '_' + sz.W + 'x' + sz.H;
     pgRenderPrev();
+    pgOutSyncShareBtn();                 // 換 PNG↔BMP 要重新判斷分不分得出去
     var fh = document.getElementById('pg-out-fmthint');
     if (fh) fh.textContent = t('pat.outFmtHint') +
       (pgOutFmt() === 'bmp' ? ' ' + t('pat.outBmpSize', { s: pgFmtBytes(54 + (sz.W*3 + ((4-(sz.W*3)%4)%4)) * sz.H) }) : '');
+  }
+  // ─── 分享能力偵測 ─────────────────────────────────────────────────
+  // 判準刻意不看 UA 字串：那是列舉式判準（要窮舉所有行動瀏覽器），必漏，而且
+  // UA 可被改寫、桌面版瀏覽器在某些作業系統上其實也支援分享。改成直接問瀏覽器
+  // 「這一個檔案分不分得出去」——用真的 File 物件去問。
+  // 依據 W3C Web Share 規格：canShare() 可在沒有 transient activation 時呼叫，
+  // share() 則必須由使用者手勢觸發。所以偵測隨時可做，實際分享只能綁在 click。
+  // MDN 的可分享型別清單同時列有 image/png 與 image/bmp。
+  function pgShareSupported(fmt){
+    if (typeof navigator === 'undefined' || typeof navigator.canShare !== 'function') return false;
+    fmt = fmt || pgOutFmt();
+    var mime = PG_OUT_MIME[fmt];
+    if (!mime) return false;
+    try {
+      // 探針只有 1 byte，純粹用來問「這個副檔名／MIME 分不分得出去」
+      return navigator.canShare({ files: [new File([new Uint8Array(1)], 'probe.' + fmt, { type: mime })] });
+    } catch (e) { return false; }
+  }
+  // 分享鈕只在真的分得出去時才出現；不支援就完全不顯示，下載鈕永遠在原位不變。
+  function pgOutSyncShareBtn(){
+    var ok = pgShareSupported();
+    var b = document.getElementById('pg-out-share');
+    if (b) b.style.display = ok ? '' : 'none';
+    var h = document.getElementById('pg-out-sharehint');
+    if (h) h.style.display = ok ? '' : 'none';
+  }
+  var pgSharing = false;      // 防連點：規格規定同時只能有一個分享進行中
+  function pgOutShare(){
+    if (pgSharing) return;
+    var sz0 = pgOutSize();
+    var name = pgOutFileName();
+    if (!pgShareSupported()) {           // 按鈕理論上不會出現，仍留退路
+      pgOutVerifyShow('busy', escapeHtml(t('pat.shareUnsupported')));
+      pgOutBuild(function(blob, ctx, sz, fmt){
+        if (!blob) { pgOutVerifyShow('bad', escapeHtml(t('pat.outFail'))); return; }
+        pgOutDownloadBlob(blob, name);
+        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareUnsupported')) + '<br>');
+      });
+      return;
+    }
+    pgSharing = true;
+    pgOutVerifyShow('busy', escapeHtml(t('pat.outWorking', { w: sz0.W, h: sz0.H })));
+    pgOutBuild(function(blob, ctx, sz, fmt){
+      if (!blob) { pgSharing = false; pgOutVerifyShow('bad', escapeHtml(t('pat.outFail'))); return; }
+      var file = new File([blob], name, { type: PG_OUT_MIME[fmt] });
+      var done = function(){ pgSharing = false; };
+      if (!navigator.canShare({ files: [file] })) {   // 這個檔案本身（含大小）分不出去
+        pgOutDownloadBlob(blob, name);
+        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareFellBack')) + '<br>');
+        done(); return;
+      }
+      navigator.share({ files: [file], title: name }).then(function(){
+        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareDone')) + '<br>');
+        done();
+      }, function(e){
+        var n = String(e && e.name || e);
+        // AbortError ＝ 使用者自己取消，或這台裝置沒有任何分享目標。規格明講這兩種
+        // 情況共用同一個錯誤碼、刻意不可區分。使用者按了取消卻被強制下載會很莫名，
+        // 所以這一種**不退回下載**；其餘錯誤才退回。
+        if (n === 'AbortError') {
+          pgOutVerifyShow('bad', escapeHtml(t('pat.shareCancelled')));
+        } else {
+          pgOutDownloadBlob(blob, name);
+          pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareFailFallback', { e: n })) + '<br>');
+        }
+        done();
+      });
+    });
   }
   function pgOutVerifyShow(cls, html){
     var v = document.getElementById('pg-out-verify');
@@ -2735,34 +2835,54 @@
     v.className = 'pg-verify on ' + cls;
     v.innerHTML = html;
   }
-  function pgOutSave(){
-    var sz = pgOutSize(), fmt = pgOutFmt();
+  // ─── 輸出的位元組只有一條產生路徑 ────────────────────────────────
+  // 下載與分享**共用同一顆 blob**。分享不會為了「傳給別的 App」而重新編碼或
+  // 縮放 —— 那正是 §0 像素完整性規格禁止的事。兩條路交付的是同一份位元組，
+  // 不是「各自編一次剛好一樣」。
+  var PG_OUT_MIME = { png: 'image/png', bmp: 'image/bmp' };
+  function pgOutFileName(){
     var nmEl = document.getElementById('pg-out-name');
     var base = (nmEl && nmEl.value.trim()) || pgExportBaseName();
-    base = base.replace(/[\\/:*?"<>|]/g, '_');
-    pgOutVerifyShow('busy', escapeHtml(t('pat.outWorking', { w: sz.W, h: sz.H })));
-    // 產生輸出用的 canvas（exportCanvas）—— 目標解析度原生重畫，全程無縮放
+    return base.replace(/[\\/:*?"<>|]/g, '_') + '.' + pgOutFmt();
+  }
+  // cb(blob, ctx, sz, fmt)；blob 為 null 代表編碼失敗
+  function pgOutBuild(cb){
+    var sz = pgOutSize(), fmt = pgOutFmt();
+    // 目標解析度原生重畫，全程無縮放
     var r = pgRenderToSize(sz.W, sz.H);
-    var finish = function(blob){
+    if (fmt === 'bmp') cb(pgEncodeBMP24(r.ctx, sz.W, sz.H), r.ctx, sz, fmt);
+    else r.canvas.toBlob(function(b){ cb(b, r.ctx, sz, fmt); }, 'image/png');
+  }
+  // 機械證明：把交付出去的那顆 blob 解碼回來逐像素比對
+  function pgOutVerifyBlob(blob, ctx, sz, fmt, prefix){
+    return pgVerifyRoundTrip(blob, ctx, sz.W, sz.H).then(function(v){
+      var ok = (v.diff === 0 && v.decodedW === sz.W && v.decodedH === sz.H);
+      pgOutVerifyShow(ok ? 'ok' : 'bad', (prefix || '') + t(ok ? 'pat.outVerifyOk' : 'pat.outVerifyBad', {
+        f: fmt.toUpperCase(), n: v.total.toLocaleString('en-US'), d: v.diff,
+        w: v.decodedW, h: v.decodedH, s: pgFmtBytes(blob.size)
+      }));
+      return v;
+    }).catch(function(e){
+      pgOutVerifyShow('bad', escapeHtml(t('pat.outVerifyErr', { e: String(e && e.name || e) })));
+      throw e;
+    });
+  }
+  function pgOutDownloadBlob(blob, name){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+  }
+  function pgOutSave(){
+    var sz0 = pgOutSize();
+    pgOutVerifyShow('busy', escapeHtml(t('pat.outWorking', { w: sz0.W, h: sz0.H })));
+    var name = pgOutFileName();
+    pgOutBuild(function(blob, ctx, sz, fmt){
       if (!blob) { pgOutVerifyShow('bad', escapeHtml(t('pat.outFail'))); return; }
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = base + '.' + fmt;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
-      // 機械證明：解碼回來逐像素比對
-      pgVerifyRoundTrip(blob, r.ctx, sz.W, sz.H).then(function(v){
-        var ok = (v.diff === 0 && v.decodedW === sz.W && v.decodedH === sz.H);
-        pgOutVerifyShow(ok ? 'ok' : 'bad', t(ok ? 'pat.outVerifyOk' : 'pat.outVerifyBad', {
-          f: fmt.toUpperCase(), n: v.total.toLocaleString('en-US'), d: v.diff,
-          w: v.decodedW, h: v.decodedH, s: pgFmtBytes(blob.size)
-        }));
-      }).catch(function(e){
-        pgOutVerifyShow('bad', escapeHtml(t('pat.outVerifyErr', { e: String(e && e.name || e) })));
-      });
-    };
-    if (fmt === 'bmp') finish(pgEncodeBMP24(r.ctx, sz.W, sz.H));
-    else r.canvas.toBlob(function(b){ finish(b); }, 'image/png');
+      pgOutDownloadBlob(blob, name);
+      pgOutVerifyBlob(blob, ctx, sz, fmt);
+    });
   }
   // ═══════════════════════════════════════════════════════════════
   //  v2.3.0 輸出預覽
@@ -3707,6 +3827,7 @@
     var nm = byId('pg-out-name');
     if (nm) nm.addEventListener('input', function(){ nm.dataset.touched = '1'; });
     if (byId('pg-out-save')) byId('pg-out-save').addEventListener('click', pgOutSave);
+    if (byId('pg-out-share')) byId('pg-out-share').addEventListener('click', pgOutShare);
     // 批次尺寸勾選
     var bs = byId('pg-out-batchsel');
     if (bs) PG_OUT_PRESETS.forEach(function(s){
@@ -4537,6 +4658,7 @@
     window.pgSetLevelUI = pgSetLevelUI;
     window.pgLevelCur   = pgLevelCur;
     window.pgLevelTargets = pgLevelTargets;
+    window.pgLevelTargetsCompute = pgLevelTargetsCompute;
 
     if (num) num.addEventListener('input', function(){
       if (num.value === '') return;
@@ -4564,6 +4686,7 @@
         if (t0) { clearTimeout(t0); t0 = null; }
         if (t1) { clearInterval(t1); t1 = null; }
         b.classList.remove('holding');
+        pgLevelLockOff();                    // 放開就解鎖，下次按下重新決定作用對象
       }
       function stepOnce(){
         var before = pgLevelCur();
@@ -4575,6 +4698,7 @@
         if (e) e.preventDefault();
         stop();
         b.classList.add('holding');
+        pgLevelLockOn();                     // 按下的當下決定作用對象，整段按住都用同一份
         stepOnce();                          // 先走一步，短按就等於點一下
         t0 = setTimeout(function(){
           t1 = setInterval(stepOnce, pgHoldInterval(d));
@@ -4785,6 +4909,13 @@
   window.pgEncodeBMP24   = pgEncodeBMP24;
   window.pgVerifyRoundTrip = pgVerifyRoundTrip;
   window.pgOutSize       = pgOutSize;
+  window.pgOutBuild      = pgOutBuild;
+  window.pgOutSave       = pgOutSave;
+  window.pgOutShare      = pgOutShare;
+  window.pgShareSupported = pgShareSupported;
+  window.pgOutFileName   = pgOutFileName;
+  window.pgOutSyncShareBtn = pgOutSyncShareBtn;
+  window.PG_OUT_MIME     = PG_OUT_MIME;
   window.pgOutUpdate     = pgOutUpdate;
   window.pgRenderPrev    = pgRenderPrev;
   window.pgFsPrevEnter   = pgFsPrevEnter;
