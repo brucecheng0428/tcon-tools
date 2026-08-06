@@ -64,6 +64,64 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v2.97.476 — 2026-08-06 ｜ PATCH
+
+**工具顯示名稱由「TCON 波形產生器」改為「TCON 波形模擬與取樣」（含 `<title>`、頁首標題、三語詞條）。**
+
+**判定依據：** `VERSIONING.md` **§2 案例 3**（改 UI 版面、不動功能：微調 —— 間距、配色、**文案**、控制項位置小移 → PATCH）＋**§2 案例 11**（i18n 文案改動、**預設語言不變** → PATCH）＋判定表「操作流程：位置微調、文案、配色 → PATCH」「既有功能的輸出：不變」「功能增減：不增不減」。
+
+- 只改**顯示文字**：檔名 `wfg.html` 不變、頁首與所有按鈕位置不變、沒有任何入口消失或移位 → 不觸發 MAJOR（使用者不需要重新找東西）。
+- 沒有多出任何使用者能做的事 → 不是 MINOR（R3 判準：這一版之後能做的事有沒有多一件？沒有）。
+- 波形計算、輸出檔案格式、`.txt` 設定檔內容全部未動 → 不需要 `⚠ 輸出變更`。
+- 不涉及 **R4**：起始狀態、預設值、預設語言都沒有改變。
+- 結論：**PATCH → v2.97.476**。
+
+> **未套用 2026-08-02 公告的 `wfg → v3.0.0` 界線跳版，理由如下，待裁決：**
+> 該公告寫的是「下次進版時順便讓爆掉的 patch 號歸零」。但本次實質是 PATCH，若寫成 v3.0.0，
+> `tools/version_bump_check.py` 會由數字算出級別為 MAJOR，並要求 CHANGELOG 宣告 MAJOR —— 
+> 那等於為了美觀而把 PATCH 宣告成 MAJOR，正好是該檢查器設計原則 1（級別由數字算出、宣告與事實不符即為錯）
+> 要防的事；且 wfg 歷史上已有 MAJOR，依 **R2** 還會被要求補「波次宣告」，但本次並非新的一波。
+> 界線跳版建議留給下一次真正的 MINOR 或 MAJOR 一併執行。
+
+### 改名範圍
+
+| 檔案 | 改動 |
+|---|---|
+| `wfg.html` | `<title>`、`og:title`、`meta description`、頁首 `wfg.title` 佔位文字、兩處程式註解 |
+| `common/i18n.js` | `home.wfgTitle`、`wfg.title`（繁／簡／英）；`home.wfgDesc`、`wfg.subtitle` 的簡體用詞 |
+| `index.html` | 工具卡片標題佔位文字 |
+| `wfg-guide.html` | `<title>`、hero 標題、內文與 footer 提及（說明頁不納入版號機制，不影響本判定） |
+| `ARCHITECTURE_PLAN.md` | 文件內的工具名稱 |
+
+三語對照：繁中 `TCON 波形模擬與取樣`／簡中 `TCON 波形仿真与取样`／英文 `TCON Waveform Simulation & Sampling`。
+
+🔴 **簡體用「仿真」不用「模拟」**：大陸將 analog 譯為「模拟」（模拟信号、模拟电路），而本工具正好有「類比信號」卡片，簡體即為「模拟信号」。叫「波形模拟」會被誤讀成「類比波形」；「仿真」無此歧義，且電子工程實務（SPICE 仿真、时序仿真）通行。
+
+🔴 **`iSP 波形產生器` 未改**：那是另一個工具（`isp.html`），不在本次範圍。`common/i18n.js` 中 `模拟信号`（= analog signals，`wfg.analogSources` / `wfg.groupAnalog`）與 `预计算模拟波形`（= 預計算類比波形）是正確用法，一併保留未動。
+
+### 配套
+
+- Cache buster：`wfg.html` 的 `common/version.js` 與 `common/i18n.js` 由 `?v=20260719wfg475` 改為 `?v=20260806wfg476`（C2）。
+
+---
+
+## TCON FAE 工具箱首頁 (app) v1.90.1 — 2026-08-06 ｜ PATCH
+
+**首頁工具卡片「TCON 波形產生器」改名為「TCON 波形模擬與取樣」。**
+
+**判定依據：** `VERSIONING.md` **§2 案例 13**（修改共用檔 `common/*.js` 影響多個分頁 → 受影響的每個分頁**各自**依自身受到的影響程度判定）＋**§2 案例 3**（文案微調 → PATCH）。
+
+- `common/i18n.js` 的 `home.wfgTitle` / `home.wfgDesc` 同時被首頁使用，首頁的可見文字確實改變，因此依案例 13 不能只進 wfg 而不判首頁。
+- 首頁只有一張卡片的**文字**改變：卡片位置、圖示、連結目標、`?` 說明鈕全部不變，沒有新增或移除任何工具 → PATCH，不是 MINOR（新增分頁工具才進首頁 MINOR，見案例 12）。
+- 結論：**PATCH → v1.90.1**。
+
+### 配套
+
+- Cache buster：`index.html` 的 `common/version.js` 與 `common/i18n.js` 由 `?v=20260804pat320` 改為 `?v=20260806app1901`（C2）。
+- `pattern.html` 的 buster 維持 `?v=20260804pat320`：該頁不顯示 WFG 名稱，本次共用檔改動對它無可見影響，依案例 13 不進版、不動 buster。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v3.2.0 — 2026-08-04 ｜ MINOR
 
 **新增「亮暗反轉」按鈕；開啟工具的預設畫面改為測試畫面的 Horizontal 256。**
