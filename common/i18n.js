@@ -102,7 +102,7 @@ var I18N = {
   'home.ispDesc':       { 'zh-TW': '8B9B 編碼、Control Code 產生 iSP 差動訊號波形', 'en': '8B9B encoding + Control Codes → iSP differential waveform', 'zh-CN': '8B9B 编码、Control Code 产生 iSP 差动讯号波形' },
   'home.auxTitle':      { 'zh-TW': 'eDP AUX / DPCD 查詢工具', 'en': 'eDP AUX / DPCD Lookup Tool', 'zh-CN': 'eDP AUX / DPCD 查询工具' },
   'home.auxDesc':       { 'zh-TW': 'AUX Transaction 解碼 & DPCD 暫存器查詢', 'en': 'AUX Transaction Decoder & DPCD Register Lookup', 'zh-CN': 'AUX Transaction 解码 & DPCD 寄存器查询' },
-  'home.wfgTitle':      { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
+  'home.wfgTitle':      { 'zh-TW': 'TCON 波形模擬與取樣', 'en': 'TCON Waveform Simulation & Sampling', 'zh-CN': 'TCON 波形模拟与取样' },
   'home.wfgDesc':       { 'zh-TW': 'Phase Counter 引擎驅動 TCON Timing 信號波形模擬', 'en': 'Phase Counter engine driven TCON timing signal waveform simulator', 'zh-CN': 'Phase Counter 引擎驱动 TCON Timing 信号波形模拟' },
 
   // ── Pattern Generator 畫面產生器 ──
@@ -439,7 +439,7 @@ var I18N = {
     'zh-CN': '原程序此画面硬编码 480 × 800（只画左上角）。此处<b>改用实际画面尺寸</b>绘制整个画面。'
   },
 
-  'wfg.title':        { 'zh-TW': 'TCON 波形產生器', 'en': 'TCON Waveform Generator', 'zh-CN': 'TCON 波形产生器' },
+  'wfg.title':        { 'zh-TW': 'TCON 波形模擬與取樣', 'en': 'TCON Waveform Simulation & Sampling', 'zh-CN': 'TCON 波形模拟与取样' },
   'wfg.subtitle':       { 'zh-TW': 'Phase Counter Timing 信號波形模擬', 'en': 'Phase Counter Timing Signal Waveform Simulator', 'zh-CN': 'Phase Counter Timing 信号波形模拟' },
   'wfg.modeTcon':       { 'zh-TW': 'TCON Timing 調整練習', 'en': 'TCON Timing Practice', 'zh-CN': 'TCON Timing 调整练习' },
   'wfg.modeSiggen':     { 'zh-TW': '訊號產生器', 'en': 'Signal Generator', 'zh-CN': '信号产生器' },

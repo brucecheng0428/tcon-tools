@@ -64,7 +64,7 @@ index.html (3.36 MB)
 │   ├── #page-calc (line 2217) — mLVDS Skew 計算
 │   ├── #page-rxtx (line 2525) — Rx/Tx 頻率計算
 │   ├── #page-isp (line 2908) — iSP 波形產生器
-│   ├── #page-wfg (line 3243) — WFG 波形產生器
+│   ├── #page-wfg (line 3243) — WFG 波形模擬與取樣
 │   │   ├── #wfg-tcon-content — TCON 模式
 │   │   ├── #wfg-siggen-content — 訊號產生器模式
 │   │   └── #wfg-la-content — LA 分析器模式
@@ -134,7 +134,7 @@ tcon-tools/
 ├── calc.html           — mLVDS Skew 計算
 ├── isp.html            — iSP 波形產生器
 ├── aux.html            — eDP AUX 解碼 / DPCD 查詢
-├── wfg.html            — WFG 波形產生器（含 TCON/SigGen/LA 三模式）
+├── wfg.html            — WFG 波形模擬與取樣（含 TCON/SigGen/LA 三模式）
 ├── common/
 │   ├── common.css      — 全域共用 CSS（變數 + 通用樣式 + RWD）
 │   ├── common.js       — 全域共用 JS（i18n + lang + nav helpers）
@@ -289,7 +289,7 @@ function onDpcdTabActivate() {
 <a href="calc.html" class="tool-card">mLVDS Skew 計算</a>
 <a href="isp.html" class="tool-card">iSP 波形產生器</a>
 <a href="aux.html" class="tool-card">eDP AUX / DPCD</a>
-<a href="wfg.html" class="tool-card">TCON 波形產生器</a>
+<a href="wfg.html" class="tool-card">TCON 波形模擬與取樣</a>
 
 <!-- 各工具頁面的返回按鈕 -->
 <a href="index.html" class="back-btn">← 返回首頁</a>
@@ -518,7 +518,7 @@ function onDpcdTabActivate() {
 - AUX Manchester 波形繪製正常
 - 從 AUX 解碼跳到 DPCD 查詢的連動正常
 
-### 3.7 Phase 5：WFG（TCON 波形產生器）
+### 3.7 Phase 5：WFG（TCON 波形模擬與取樣）
 
 **步驟：**
 
