@@ -64,6 +64,63 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v2.97.477 — 2026-08-06 ｜ PATCH ｜ ⚠ 輸出變更
+
+**⚠ 輸出變更 — 修正 SD1（Source Driver）反映 XPOL 極性轉態晚一行的問題。**
+
+**判定依據：** `VERSIONING.md` **§2 案例 2**（改一個 bug → PATCH）＋**§2 案例 7**（既有計算公式修正 → PATCH ＋ `⚠ 輸出變更`）＋**R1**（修 bug 即使畫面會變仍算 PATCH，但使用者過去存下來的圖用新版重跑會不一樣，必須標註）。沒有任何按鈕移位或功能增減 → 不觸發 MAJOR／MINOR。
+
+### 問題
+
+Source Driver 的極性取樣點與輸出點是**兩個不同的時間點**：
+
+1. **XSTB rising** — 取樣 XPOL 準位，決定這一筆要用正極還是負極 gamma rail
+2. **XSTB falling** — 才把該極性對應的類比電壓輸出（latch）
+
+舊版在 `_wfgPrecomputeSdChannel()` 用 `polForLine(line)` 取極性 —— 那是**該行行首（frac = 0）**的 XPOL 準位，不是 XSTB rising 位置的準位。當 XPOL 在一行的中間轉態（而 XSTB 在該行的後段）時，行首讀到的還是舊極性，SD1 要等到**下一行**的 XSTB falling 才會反映出新極性，畫面上就是**極性晚一條**。
+
+以預設的「FHD 60Hz Single Gate」為例（effHtotal = 1334，XPOL `st_line` 1087 / `r_dly` 700，XSTB `r_dly` 1116 / `f_dly` 1182）：
+
+| 位置 | 事件 |
+|---|---|
+| 1087.5247 | XPOL 0 → 1 |
+| 1087.8366 | XSTB↑（極性取樣點，此時 XPOL 已經是 1） |
+| 1087.8861 | XSTB↓（電壓輸出點）→ 應輸出正極 5.200 V |
+
+修正前 `target[1087] = 4.800 V`（負極，用行首 1087.0 的 XPOL = 0），要到 `target[1088]` 才變 5.200 V —— 晚一條。
+
+### 修正
+
+三條計算路徑同步改為「極性在**該 falling 之前最近的一個 XSTB rising** 取樣」，電壓輸出點（XSTB falling）維持不變：
+
+- `_wfgPrecomputeSdChannel()` — 新增 `xstbPolFracPerLine[]`，在掃描 XSTB transition 時記錄每個 falling 對應的 rising 位置；`polPerLine[]` 的填值改到 XSTB 掃描之後，用 `polForLine(line + xstbPolFracPerLine[line])`。沒有 falling 的行維持行首取樣（那些行不會 latch，行為與舊版一致）。
+- `_wfgExtendSdPrecomp()` — lazy extend 的同一份邏輯同步跟進。
+- `wfgComputeSourceDriverSamples()` — fallback／脈衝計數用的路徑：detailed path 追蹤最近的 rising 當 `polX`；fast path 新增 `xstbPolFracDly`。
+
+找不到前置 rising 時（初始準位就是 high）退回 falling 自身位置。rising 落在前一行（`f_dly` 跨行）時偏移為負，仍能正確配對。
+
+### 影響範圍
+
+- **會變的**：SD1 類比波形在 XPOL 轉態附近的極性切換時間點提早一行。舊版存下的截圖／匯出資料在該位置會與新版不同。
+- **不會變的**：Gate／CPV（CKO、Level Shifter）時序、數位信號、灰階與 gamma 計算、RC 充放電曲線、Line Buffer 位移、其他所有設定與輸出格式。
+
+### 驗證
+
+以 Bruce 回報的條件（TCON Timing 調整練習模式、FHD 60Hz Single Gate 預設）逐格對照，連續 6 個 XSTB 週期：
+
+| 行 | XSTB↑ | 該時點 XPOL | XSTB↓ | SD1 |
+|---|---|---|---|---|
+| 1085 | 1085.8366 | 0 | 1085.8861 | 4.800 V（負極） |
+| 1086 | 1086.8366 | 0 | 1086.8861 | 4.800 V（負極） |
+| **1087** | **1087.8366** | **1** | **1087.8861** | **5.200 V（正極）** |
+| 1088 | 1088.8366 | 1 | 1088.8861 | 5.200 V（正極） |
+| 1089 | 1089.8366 | 1 | 1089.8861 | 5.200 V（正極） |
+| 1090 | 1090.8366 | 1 | 1090.8861 | 5.200 V（正極） |
+
+反向轉態（XPOL 1 → 0 @ 2199.5247）同樣在 L2199 就反映；跨 frame（L5535，經 lazy extend 路徑）亦正確；把 `f_dly` 改成 1500 讓 falling 跨行後，`XSTB↓@1088.1244` 仍正確配對到 `XSTB↑@1087.8366` 的 XPOL 準位。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v2.97.476 — 2026-08-06 ｜ PATCH
 
 **工具顯示名稱由「TCON 波形產生器」改為「TCON 波形模擬與取樣」（含 `<title>`、頁首標題、三語詞條）。**

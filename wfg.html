@@ -1561,8 +1561,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260806wfg476"></script>
-<script src="common/i18n.js?v=20260806wfg476"></script>
+<script src="common/version.js?v=20260806wfg477"></script>
+<script src="common/i18n.js?v=20260806wfg477"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1623,8 +1623,11 @@ const WFG_CH_COLORS = [
 // analog_config is only meaningful when waveform_type !== 0.
 //
 // Source Driver model (per RM96681-class panel TCON):
+//   XPOL 的準位在 XSTB↑ 取樣（決定這一筆用哪一條 gamma rail）；
+//   隨後的 XSTB↓ 才把該極性的類比電壓輸出（latch）。
 //   At every XSTB↓ event, the source driver latches the L value of the H-line
-//   that just finished and updates its output voltage. Between consecutive
+//   that just finished and updates its output voltage. The polarity used is the
+//   XPOL level sampled at the preceding XSTB↑. Between consecutive
 //   XSTB↓ events the output is held flat. The latched voltage is selected by:
 //   • XPOL=1 (POL+): a voltage in the POSITIVE gamma rail
 //                    (VGMA1~VGMA7 region, mid-rail → AVDD)
@@ -2430,8 +2433,11 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
     polForLine = xpolLookupFn;
   }
+  // v2.97.477: polPerLine 的「填值」移到 XSTB 掃描之後。
+  // 原因：Source Driver 是在 XSTB rising 取樣 XPOL 準位（決定該筆的極性），
+  // 在隨後的 XSTB falling 才把對應極性的類比電壓輸出。舊版用 polForLine(line)
+  // ＝該行行首（frac=0）的 XPOL 準位，當 XPOL 在行中間轉態時會晚一行才反映。
   var polPerLine = new Uint8Array(computeExtent);
-  for (var pf = 0; pf < computeExtent; pf++) polPerLine[pf] = polForLine(pf);
 
   // L value per frame line
   var maxL = wfgAnalogMaxL(ac);
@@ -2465,6 +2471,9 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
   var xstbPerLine = new Uint8Array(computeExtent);  // 1 = has falling, 0 = no
   var xstbFracPerLine = new Float32Array(computeExtent); // fractional position in line
+  // v2.97.477: 每行 XPOL 取樣點相對行首的偏移 = 該 falling 之前最近的 XSTB rising。
+  // 0 = 沒有 falling 的行（沿用行首取樣，行為與舊版一致）。可為負（rising 落在前一行）。
+  var xstbPolFracPerLine = new Float32Array(computeExtent);
   var xstbHasAnyFalling = false;
   var xstbCommonFracDly = 0; // typical fracDly for exp lookup tables
   var xstbFlat = _wfgFlatGpios[xstbIdx];
@@ -2477,13 +2486,22 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     xstbAllTransitions = _xstbOax ? _xstbOax.transitions : [];
     // Walk ALL transitions, mark every falling edge (1→0)
     var _xstbPrevLvl = xstbInitLevel;
+    var _xstbLastRiseAbs = null; // v2.97.477: 最近一次 XSTB rising 的絕對位置
     for (var _xti = 0; _xti < xstbAllTransitions.length; _xti++) {
       var _xt = xstbAllTransitions[_xti];
+      if (_xstbPrevLvl === 0 && _xt.level === 1) {
+        _xstbLastRiseAbs = _xt.line + (effHtotal > 0 ? _xt.dly / effHtotal : 0);
+      }
       if (_xstbPrevLvl === 1 && _xt.level === 0) {
         var _xLine = _xt.line;
         if (_xLine >= 0 && _xLine < computeExtent) {
           xstbPerLine[_xLine] = 1;
           xstbFracPerLine[_xLine] = effHtotal > 0 ? _xt.dly / effHtotal : 0;
+          // v2.97.477: 極性取樣點 = 這個 falling 之前最近的 rising；
+          // 找不到 rising（初始準位就是 high）時退回 falling 自身位置。
+          var _xFallAbs = _xLine + xstbFracPerLine[_xLine];
+          var _xPolAbs = (_xstbLastRiseAbs != null && _xstbLastRiseAbs <= _xFallAbs) ? _xstbLastRiseAbs : _xFallAbs;
+          xstbPolFracPerLine[_xLine] = _xPolAbs - _xLine;
           if (!xstbHasAnyFalling) {
             xstbCommonFracDly = xstbFracPerLine[_xLine];
           }
@@ -2498,6 +2516,12 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var xstbDataOffset = 0;
   if (xstbHasAnyFalling && xstbGpio && effHtotal > 0) {
     xstbDataOffset = Math.floor((xstbGpio.f_dly || 0) / effHtotal);
+  }
+
+  // v2.97.477: XPOL 取樣 — 有 XSTB falling 的行用「該 falling 之前最近的 rising」位置取樣，
+  // 其餘行維持行首取樣（那些行的 polPerLine 不會被 latch 用到，只有 line 0 的初始值會）。
+  for (var pf = 0; pf < computeExtent; pf++) {
+    polPerLine[pf] = polForLine(pf + xstbPolFracPerLine[pf]);
   }
 
   // ── settled[] 衰減因子 (v2.93.0) ──
@@ -2588,6 +2612,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     xstbFracDly: xstbCommonFracDly,
     xstbPerLine: xstbPerLine,
     xstbFracPerLine: xstbFracPerLine,
+    xstbPolFracPerLine: xstbPolFracPerLine,
     holdV: holdV, computedExtent: computeExtent,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcPts: RC_PTS, xstbSampleIdx: xstbSampleIdx,
@@ -2615,11 +2640,13 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   var newHoldV = new Float32Array(newExtent);
   var newXstbPerLine = new Uint8Array(newExtent);
   var newXstbFracPerLine = new Float32Array(newExtent);
+  var newXstbPolFracPerLine = new Float32Array(newExtent); // v2.97.477
   newSettled.set(precomp.settled);
   newTarget.set(precomp.target);
   newHoldV.set(precomp.holdV);
   if (precomp.xstbPerLine) newXstbPerLine.set(precomp.xstbPerLine);
   if (precomp.xstbFracPerLine) newXstbFracPerLine.set(precomp.xstbFracPerLine);
+  if (precomp.xstbPolFracPerLine) newXstbPolFracPerLine.set(precomp.xstbPolFracPerLine);
 
   // Extend XSTB per-line data: get transitions for [0, newExtent)
   if (le.xstbIdx != null && le.allTrans && le.effHtotal) {
@@ -2628,13 +2655,21 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
     var _extTrans = _extOax ? _extOax.transitions : [];
     // Re-scan transitions for the new range
     var _extPrevLvl = _extInitLvl;
+    var _extLastRiseAbs = null; // v2.97.477: 最近一次 XSTB rising 的絕對位置
     for (var _eti = 0; _eti < _extTrans.length; _eti++) {
       var _et = _extTrans[_eti];
+      if (_extPrevLvl === 0 && _et.level === 1) {
+        _extLastRiseAbs = _et.line + (le.effHtotal > 0 ? _et.dly / le.effHtotal : 0);
+      }
       if (_et.line < oldExt) { _extPrevLvl = _et.level; continue; }
       if (_et.line >= newExtent) break;
       if (_extPrevLvl === 1 && _et.level === 0) {
         newXstbPerLine[_et.line] = 1;
         newXstbFracPerLine[_et.line] = le.effHtotal > 0 ? _et.dly / le.effHtotal : 0;
+        // v2.97.477: 極性取樣點 = 該 falling 之前最近的 rising
+        var _etFallAbs = _et.line + newXstbFracPerLine[_et.line];
+        var _etPolAbs = (_extLastRiseAbs != null && _extLastRiseAbs <= _etFallAbs) ? _extLastRiseAbs : _etFallAbs;
+        newXstbPolFracPerLine[_et.line] = _etPolAbs - _et.line;
       }
       _extPrevLvl = _et.level;
     }
@@ -2644,7 +2679,8 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   var prevV = (oldExt > 0) ? newSettled[oldExt - 1] : newSettled[0];
   for (var line = oldExt; line < newExtent; line++) {
     var lineInFrame = line % le.effVtotal;
-    var pol = le.polForLine(line);
+    // v2.97.477: 極性在 XSTB rising 取樣（沒有 falling 的行維持行首取樣）
+    var pol = le.polForLine(line + newXstbPolFracPerLine[line]);
     if (newXstbPerLine[line]) {
       var _dataLF = (lineInFrame - (le.xstbDataOffset || 0) + le.effVtotal) % le.effVtotal;
       var lVal = le.lValuePerFrame[_dataLF];
@@ -2665,6 +2701,7 @@ function _wfgExtendSdPrecomp(precomp, newExtent) {
   precomp.holdV = newHoldV;
   precomp.xstbPerLine = newXstbPerLine;
   precomp.xstbFracPerLine = newXstbFracPerLine;
+  precomp.xstbPolFracPerLine = newXstbPolFracPerLine;
   precomp.computedExtent = newExtent;
   precomp.lineMinMax = null;
   precomp.minMaxPyramid = null;
@@ -16713,7 +16750,8 @@ function wfgMakeLevelLookup(initLevel, transitions, effHtotal) {
 // value of the H-line that just finished and steps its output voltage to the
 // matching gamma target. The voltage is held flat between consecutive XSTB↓
 // events. The latched target depends on:
-//   • XPOL polarity at the latch instant (selects POS vs NEG gamma rail)
+//   • XPOL polarity sampled at the preceding XSTB↑ (selects POS vs NEG gamma
+//     rail). v2.97.477: 取樣點是 rising、輸出點是 falling — 兩者不同。
 //   • Gray level for that H-line (selects voltage within the rail)
 // Vblank: when the line is outside the active region (lineInFrame >= vactive),
 //   no new data is being shifted and TX DE is low — we skip the sample entirely
@@ -16812,7 +16850,8 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   //     latched at this XSTB↓ (matches what TX DE shows on this line).
   //     SD must follow TX DE timing, NOT raw RX timing; callers pass the
   //     lbShift-delayed dataIdx, never the raw lineInFrame.
-  //   lineX  = TX-side line position used for XPOL polarity lookup.
+  //   lineX  = XPOL 取樣位置（v2.97.477 起＝該 latch 之前最近的 XSTB↑，
+  //            不再是 XSTB↓ 本身的位置）。
   //   When dataIdx < 0 (TX DE not started) or dataIdx >= effVactive (Vblank),
   //   SD holds the last received data from the previous frame (holdL).
   function targetForData(dataIdx, lineX) {
@@ -16860,19 +16899,28 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
 
     // v2.95.0: 從實際 XSTB 波形讀取 falling edge 位置（取代獨立公式計算）
     var xstbFracDly = 0;
+    // v2.97.477: 極性取樣點（XSTB rising）相對同一行行首的偏移，可為負（rising 在前一行）
+    var xstbPolFracDly = 0;
     if (xstbEnabled && xstbTrans && xstbTrans.length > 0) {
       var _lsFpInitLvl = xstbOax ? xstbOax.initLevel : 0;
       var _lsFpPrevLvl = _lsFpInitLvl;
+      var _fpLastRiseAbs = null;
       for (var _lsFi = 0; _lsFi < xstbTrans.length; _lsFi++) {
         var _lsFt = xstbTrans[_lsFi];
+        if (_lsFpPrevLvl === 0 && _lsFt.level === 1) {
+          _fpLastRiseAbs = _lsFt.line + (effHtotal > 0 ? _lsFt.dly / effHtotal : 0);
+        }
         if (_lsFpPrevLvl === 1 && _lsFt.level === 0) {
           xstbFracDly = effHtotal > 0 ? _lsFt.dly / effHtotal : 0;
+          var _fpFallAbs = _lsFt.line + xstbFracDly;
+          var _fpPolAbs = (_fpLastRiseAbs != null && _fpLastRiseAbs <= _fpFallAbs) ? _fpLastRiseAbs : _fpFallAbs;
+          xstbPolFracDly = _fpPolAbs - _lsFt.line;
           break;
         }
         _lsFpPrevLvl = _lsFt.level;
       }
     }
-    if (!xstbEnabled || xstbFracDly >= 1.0) xstbFracDly = 2.0; // no falling → sentinel
+    if (!xstbEnabled || xstbFracDly >= 1.0) { xstbFracDly = 2.0; xstbPolFracDly = 2.0; } // no falling → sentinel
 
     for (var fr = firstFrame; fr <= lastFrame; fr += frameStep) {
       var frameBase = fr * effVtotal;
@@ -16895,12 +16943,12 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
       // Hold region (pre-TX-DE) — emit 1 event at start
       if (lo < activeStart && lo <= hi) {
         var lineX_h = lo + xstbFracDly;
-        var t_h = targetForData(-1, lineX_h);
+        var t_h = targetForData(-1, lo + xstbPolFracDly);
         events.push({ lineX: lineX_h, vTarget: t_h.vTarget, pol: t_h.pol, lValue: t_h.lValue });
         // End of hold region
         if (activeStart - 1 <= hi && activeStart - 1 > lo) {
           var lineX_he = activeStart - 1 + xstbFracDly;
-          var t_he = targetForData(-1, lineX_he);
+          var t_he = targetForData(-1, activeStart - 1 + xstbPolFracDly);
           events.push({ lineX: lineX_he, vTarget: t_he.vTarget, pol: t_he.pol, lValue: t_he.lValue });
         }
       }
@@ -16919,14 +16967,14 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
           var lineX_a = aL + xstbFracDly;
           var lineInFrame_a = ((aL % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_a = lineInFrame_a - lbShiftSD;
-          var t_a = targetForData(dataIdx_a, lineX_a);
+          var t_a = targetForData(dataIdx_a, aL + xstbPolFracDly);
           events.push({ lineX: lineX_a, vTarget: t_a.vTarget, pol: t_a.pol, lValue: t_a.lValue });
           // Emit event at line aL+1 (captures per-line alternation)
           if (aL + 1 <= actHi) {
             var lineX_b = aL + 1 + xstbFracDly;
             var lineInFrame_b = (((aL + 1) % effVtotal) + effVtotal) % effVtotal;
             var dataIdx_b = lineInFrame_b - lbShiftSD;
-            var t_b = targetForData(dataIdx_b, lineX_b);
+            var t_b = targetForData(dataIdx_b, aL + 1 + xstbPolFracDly);
             events.push({ lineX: lineX_b, vTarget: t_b.vTarget, pol: t_b.pol, lValue: t_b.lValue });
           }
         }
@@ -16936,7 +16984,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
           var lineX_al = actHi + xstbFracDly;
           var lineInFrame_al = ((actHi % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_al = lineInFrame_al - lbShiftSD;
-          var t_al = targetForData(dataIdx_al, lineX_al);
+          var t_al = targetForData(dataIdx_al, actHi + xstbPolFracDly);
           events.push({ lineX: lineX_al, vTarget: t_al.vTarget, pol: t_al.pol, lValue: t_al.lValue });
         }
       }
@@ -16948,13 +16996,13 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
         var lineX_v = vbLo + xstbFracDly;
         var lineInFrame_v = ((vbLo % effVtotal) + effVtotal) % effVtotal;
         var dataIdx_v = lineInFrame_v - lbShiftSD;
-        var t_v = targetForData(dataIdx_v, lineX_v);
+        var t_v = targetForData(dataIdx_v, vbLo + xstbPolFracDly);
         events.push({ lineX: lineX_v, vTarget: t_v.vTarget, pol: t_v.pol, lValue: t_v.lValue });
         if (vbHi > vbLo) {
           var lineX_ve = vbHi + xstbFracDly;
           var lineInFrame_ve = ((vbHi % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_ve = lineInFrame_ve - lbShiftSD;
-          var t_ve = targetForData(dataIdx_ve, lineX_ve);
+          var t_ve = targetForData(dataIdx_ve, vbHi + xstbPolFracDly);
           events.push({ lineX: lineX_ve, vTarget: t_ve.vTarget, pol: t_ve.pol, lValue: t_ve.lValue });
         }
       }
@@ -16970,15 +17018,21 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
     }
 
     if (fallingCount > 0) {
+      var _dpLastRiseAbs = null; // v2.97.477: 最近一次 XSTB rising 的絕對位置
       for (var i = 0; i < xstbTrans.length; i++) {
         var tr = xstbTrans[i];
-        if (tr.level !== 0) continue;
+        if (tr.level !== 0) {
+          if (tr.level === 1) _dpLastRiseAbs = tr.line + (effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0);
+          continue;
+        }
         var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
         var lineX = tr.line + fracDly;
         var lineFloor = Math.floor(lineX);
         var lineInFrame = effVtotal > 0 ? ((lineFloor % effVtotal) + effVtotal) % effVtotal : 0;
         var dataIdx = lineInFrame - lbShiftSD;
-        var t = targetForData(dataIdx, lineX);
+        // v2.97.477: 極性在 XSTB rising 取樣（電壓仍在 falling 才輸出，故 lineX 不變）
+        var polX = (_dpLastRiseAbs != null && _dpLastRiseAbs <= lineX) ? _dpLastRiseAbs : lineX;
+        var t = targetForData(dataIdx, polX);
         events.push({ lineX: lineX, vTarget: t.vTarget, pol: t.pol, lValue: t.lValue });
       }
     } else {
