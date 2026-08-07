@@ -22,6 +22,53 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v2.99.0 — 2026-08-07 ｜ MINOR
+
+**判定依據：** 兩條規則同時命中，依 §2 案例 14 的「取較高者」處理 —— (a) 案例 2「改一個 bug」（手機按「貼上」必定失敗）→ PATCH；(b) 案例 1「新增一個完整功能」：新增「手動貼上設定」視窗，使用者**多了一件原本做不到的事**（在任何不允許自動讀剪貼簿的瀏覽器上把設定貼進來），既有的桌機成功路徑與所有既有操作完全不變 → **MINOR**。輸出結果（波形、數值）不受影響，不加 `⚠ 輸出變更`。
+
+### 手機（iOS Safari）按「貼上」必定失敗 → 改用不需權限的手動貼上視窗
+
+**回報現象**：電腦按「複製」→ 把設定傳到手機 → 手機開 `wfg.html` 按「貼上」→ 跳出 `無法讀取剪貼簿：The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.` 並要求改用「匯入檔案」。
+
+**根因（可指證的 diff 範圍：`wfg.html` 舊 `window.wfgImportClipboard`）**：整個貼上流程只有 `navigator.clipboard.readText()` 一條路，`catch` 直接 `alert`。這個 API 受「剪貼簿讀取」權限管制：
+
+- 桌機 Chrome 第一次呼叫會跳權限提示，允許後記住 → 所以桌機看不到問題（本次實測：`navigator.permissions.query({name:'clipboard-read'})` 在未授權時為 `prompt`，`readText()` 的 promise 就一直 pending 等使用者回應）。
+- **iOS Safari 不允許網頁靜默讀剪貼簿**，必須由使用者在原生「貼上」浮動鈕再確認一次；沒確認到就丟 `NotAllowedError`，訊息正是上面那句。
+
+所以這不是「手機獨有的 bug」，而是**手機幾乎必然踩到、桌機因為權限早就授權過所以看不到**。同時對稱性也壞掉了：`wfgExportClipboard`（複製）在 `writeText` 失敗時會退回 `execCommand('copy')`，貼上這邊完全沒有任何備援；`wfg.html` 另一處（L5260 附近）有 `if (navigator.clipboard && window.isSecureContext)` 的守衛，import 這條路徑也沒有。
+
+**修法**：新增「手動貼上設定」視窗（`window.wfgOpenPasteModal`）——一個 `textarea` ＋ 確定／取消。這條路徑**不需要任何剪貼簿權限，所有平台都能用**。流程改為：
+
+| 情況 | 舊行為 | 新行為 |
+|---|---|---|
+| 無 `navigator.clipboard` / `readText` / 非安全環境 | 直接丟例外 → alert | **直接開視窗**（不先失敗），說明「此瀏覽器不支援自動讀取剪貼簿」 |
+| `readText()` 成功且有內容 | 直接匯入 | **不變**，直接匯入 |
+| `readText()` 丟 `NotAllowedError` 或任何錯誤 | alert「請改用匯入檔案」 | **開視窗**，把原始錯誤訊息當說明列出 |
+| 讀到空字串 | alert「剪貼簿是空的」 | **開視窗**，說明列顯示「剪貼簿是空的」 |
+
+其他：
+
+- 視窗開著時在 `document` 上攔 `paste` 事件，焦點不在 `textarea`（例如點到視窗空白處）也吃得到鍵盤貼上。
+- 按 Esc 或點視窗外可關閉。
+- 內容錯誤（JSON 壞掉／不是 WFG 設定檔／空白）改成**視窗內嵌紅字**，不再疊一層 alert，視窗保持開著可直接修正重按。做法是先自行驗證（`wfgValidateConfigText`），通過才交給既有的 `window.wfgImportConfig` —— **`wfgImportConfig` 本身一字未改**，套用結果與匯入檔案完全同一條路。
+- 成功後行為與原本一致：關閉視窗，按鈕顯示「✓ 已貼上」1.5 秒。
+- i18n 新增 7 個字串（zh-TW／zh-CN／en 三語齊全）；`wfg.clipboardFail` 文案重寫為「瀏覽器不允許自動讀取剪貼簿（{msg}）」，不再叫人去用匯入檔案。
+
+**檢查範圍**：全 repo grep `readText`，只有 `wfg.html` 與 `legacy-index.html` 兩處。`aux.html` / `calc.html` / `isp.html` / `rxtx.html` / `index.html` / `pattern.html` / `la.html` **完全沒有讀剪貼簿的程式碼**（只有 `writeText` 分享網址，且 `common/common.js` 那支本來就有 `.then/.catch`），因此不需要改。`legacy-index.html` 是凍結的歷史存檔、站內沒有任何頁面連結過去（同 CHANGELOG 既有結論），不動。
+
+**實測驗證（本機 `http://127.0.0.1:8912/wfg.html`，Chrome MCP 操作）**：
+
+1. **失敗路徑**：覆寫 `navigator.clipboard.readText` 使其 reject `NotAllowedError`（訊息與回報截圖一字不差）→ 真的用滑鼠點工具列「貼上」→ **舊 alert 沒有出現**（全程攔截 `window.alert`，累計 0 次），手動貼上視窗跳出。
+2. **設定真的套用**：在視窗中以 `paste` 事件貼入一份改過的設定 → 按「確定」→ 左欄參數由 `VTOTAL 1112 / VACTIVE 1080 / HTOTAL 2080 / HACTIVE 1920 / TCON HTOTAL 2668 / FRAME RATE 60 / TCON DCLK 89 / RX DCLK 69.3888 / LINE BUFFER 4` 變成 `1500 / 1440 / 2500 / 2200 / 2500 / 50 / 93.75 / 93.75 / 9`，**波形本身也重畫**（CK1–CK6 週期與相位改變，時間軸由 6.4669s 區段變為 5.7526s 區段）。
+3. **錯誤內嵌顯示**：貼 `{ not json` → 視窗內顯示「JSON 格式錯誤：…」且視窗不關；貼 `{"a":1}` → 「不是有效的 WFG 設定檔」；貼空白 → 「請先貼上設定內容」。三者 alert 次數皆為 0。Esc 可關閉。
+4. **正常路徑未被改壞**：`readText` 回 resolve → **不開視窗**，直接套用，按鈕當下文字為「✓ 已貼上」、1.5 秒後恢復「貼上」。
+5. **窄畫面**：以 386 px 寬的 iframe 載入同一份 `wfg.html`（macOS Chrome 視窗有最小寬度限制，直接縮視窗只能到 519 px，故改用 iframe 讓 media query 真的以 386 px 計算）→ 卡片 355×340 置中、無水平溢出、垂直完整可見；`textarea` 321×108、字級 16 px（防 iOS 聚焦自動放大）；取消／確定各佔一半（154 px / 158 px，高 42 px）。在該 386 px 環境中重跑貼上流程，`vtotal 1125→1500`、`htotal 2200→2500`、`frameRate 60→50`，確認手機版面下功能同樣成立。
+6. **三語**：zh-TW／zh-CN／en 逐一切換後重開視窗，標題／說明／placeholder／兩顆按鈕／三種錯誤訊息／四種說明列（NotAllowedError、剪貼簿是空的、不支援、空內容）全部有翻譯，無漏字、無 key 洩漏。
+
+**未能驗證的部分（誠實說明）**：真實的 `navigator.clipboard.readText()` 在本機 localhost 上會跳 Chrome 的「剪貼簿讀取」權限提示，promise 一直 pending。代使用者點「允許」屬於授權行為，我沒有這麼做，因此「正常路徑」是以受控 stub 讓 `readText` resolve 來驗證的 —— 走的是完全相同的那一段程式碼與分支，但**沒有經過真實的瀏覽器權限授權流程**。另外 iOS Safari 上的實機行為我沒有裝置可測，本次是以「重現它丟出的那一個 `NotAllowedError`」為等價條件驗證。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v2.98.1 — 2026-08-07 ｜ PATCH ｜ ⚠ 輸出變更
 
 **判定依據：** 純粹修 v2.98.0 的一個 bug（Toggle 信號 frame 0 的極性算錯），沒有新增任何使用者能做的事 —— `VERSIONING.md` §2 案例 2「改一個 bug」→ **PATCH**。因為 toggle 信號的逐 frame 極性會變，依 **R1** 加註 `⚠ 輸出變更`。

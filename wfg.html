@@ -379,6 +379,21 @@
   .wfg-la-modal-opt:hover .wfg-la-modal-opt-sub { color: #dbeafe; }
   .wfg-la-modal-cancel { width: 100%; padding: 8px; background: transparent; border: 1px solid #475569; border-radius: 8px; color: #94a3b8; cursor: pointer; font-size: 13px; margin-top: 2px; }
   .wfg-la-modal-cancel:hover { background: #334155; color: #e2e8f0; }
+  /* v2.99.0: 手動貼上視窗（沿用上方 modal 外觀，卡片加寬以容納 JSON） */
+  .wfg-paste-modal-card { width: min(480px, 92vw); gap: 10px; }
+  .wfg-paste-modal-hint { font-size: 12.5px; line-height: 1.55; color: #94a3b8; }
+  .wfg-paste-modal-reason { font-size: 11.5px; line-height: 1.5; color: #fbbf24; word-break: break-word; }
+  .wfg-paste-modal-ta { box-sizing: border-box; width: 100%; min-height: 132px; max-height: 40vh; resize: vertical; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font: 12px/1.5 'SF Mono','Consolas',monospace; -webkit-user-select: text; user-select: text; }
+  .wfg-paste-modal-ta:focus { outline: none; border-color: #3b82f6; }
+  .wfg-paste-modal-err { font-size: 12px; line-height: 1.5; color: #fca5a5; display: none; word-break: break-word; }
+  .wfg-paste-modal-actions { display: flex; gap: 10px; }
+  .wfg-paste-modal-actions > button { flex: 1 1 0; margin-top: 0; width: auto; }
+  .wfg-paste-modal-ok { padding: 10px; background: #2563eb; border: 1px solid #3b82f6; border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .wfg-paste-modal-ok:hover { background: #1d4ed8; }
+  @media (max-width: 480px) {
+    .wfg-paste-modal-card { padding: 16px; }
+    .wfg-paste-modal-ta { min-height: 108px; font-size: 16px; } /* 16px 防 iOS 聚焦自動放大 */
+  }
   .wfg-la-pwm-pill { display: inline-flex; background: rgba(255,255,255,0.04); border-radius: 6px; padding: 2px; gap: 0; }
   .wfg-la-pwm { box-sizing: border-box; height: 22px; display: inline-flex; align-items: center; gap: 0; padding: 0 8px; border: none; background: transparent; color: #6b7280; font-size: 11px; font-weight: 600; line-height: 1; cursor: pointer; border-radius: 4px; transition: background 0.15s, color 0.15s; }
   .wfg-la-pwm:hover { color: #c9d1d9; }
@@ -1573,8 +1588,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260807wfg2981"></script>
-<script src="common/i18n.js?v=20260807wfg2981"></script>
+<script src="common/version.js?v=20260807wfg2990"></script>
+<script src="common/i18n.js?v=20260807wfg2990"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -27208,20 +27223,162 @@ window.wfgScreenshotSmart = function() {
   });
 };
 
-window.wfgImportClipboard = async function() {
+// ── 貼上設定 ──────────────────────────────────────────────────────────────
+// v2.99.0：navigator.clipboard.readText() 受「剪貼簿讀取」權限管制，iOS Safari
+// 不允許網頁靜默讀剪貼簿（必定丟 NotAllowedError），舊版只有這一條路且失敗就 alert。
+// 改為失敗／不支援／讀到空字串時一律開「手動貼上視窗」——該路徑不需任何權限。
+
+function wfgPasteFlashBtn() {
   var btn = document.getElementById('wfg-paste-btn');
+  if (!btn) return;
+  var orig = btn.innerHTML;
+  btn.textContent = t('wfg.pasted');
+  setTimeout(function() { btn.innerHTML = orig; }, 1500);
+}
+
+// 直接套用一段設定文字；成功回 true。失敗時回傳錯誤字串（給 modal 內嵌顯示用）
+function wfgValidateConfigText(text) {
+  var config;
   try {
-    var text = await navigator.clipboard.readText();
-    if (!text || !text.trim()) { alert(t('wfg.clipboardEmpty')); return; }
-    var ok = window.wfgImportConfig(text);
-    if (ok && btn) {
-      var orig = btn.innerHTML;
-      btn.textContent = t('wfg.pasted');
-      setTimeout(function() { btn.innerHTML = orig; }, 1500);
-    }
+    config = JSON.parse(text);
   } catch (e) {
-    alert(t('wfg.clipboardFail').replace('{msg}', e.message));
+    return t('wfg.jsonError') + e.message;
   }
+  if (!config || config._format !== 'tcon-wfg-config') return t('wfg.invalidConfig');
+  return null;
+}
+
+function wfgClosePasteModal() {
+  var overlay = document.getElementById('wfg-paste-modal-overlay');
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  document.removeEventListener('keydown', wfgPasteModalKeyHandler, true);
+  document.removeEventListener('paste', wfgPasteModalPasteHandler, true);
+}
+
+function wfgPasteModalKeyHandler(e) {
+  if (e.key === 'Escape') { e.preventDefault(); wfgClosePasteModal(); }
+}
+
+// modal 開著時，焦點不在 textarea 也要能吃到鍵盤貼上
+function wfgPasteModalPasteHandler(e) {
+  var ta = document.getElementById('wfg-paste-modal-ta');
+  if (!ta) return;
+  if (e.target === ta) return; // textarea 自己會處理
+  var cd = e.clipboardData || window.clipboardData;
+  if (!cd) return;
+  var text = cd.getData('text');
+  if (!text) return;
+  e.preventDefault();
+  ta.value = text;
+  ta.focus();
+}
+
+// reasonText：說明為什麼走手動路徑（可為空字串）
+window.wfgOpenPasteModal = function(reasonText) {
+  wfgClosePasteModal();
+
+  var overlay = document.createElement('div');
+  overlay.className = 'wfg-la-modal-overlay';
+  overlay.id = 'wfg-paste-modal-overlay';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) wfgClosePasteModal(); });
+
+  var card = document.createElement('div');
+  card.className = 'wfg-la-modal-card wfg-paste-modal-card';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+
+  var title = document.createElement('div');
+  title.className = 'wfg-la-modal-title';
+  title.textContent = t('wfg.pasteModalTitle');
+  card.appendChild(title);
+
+  if (reasonText) {
+    var reason = document.createElement('div');
+    reason.className = 'wfg-paste-modal-reason';
+    reason.textContent = reasonText;
+    card.appendChild(reason);
+  }
+
+  var hint = document.createElement('div');
+  hint.className = 'wfg-paste-modal-hint';
+  hint.textContent = t('wfg.pasteModalHint');
+  card.appendChild(hint);
+
+  var ta = document.createElement('textarea');
+  ta.id = 'wfg-paste-modal-ta';
+  ta.className = 'wfg-paste-modal-ta';
+  ta.setAttribute('inputmode', 'text');
+  ta.setAttribute('autocapitalize', 'off');
+  ta.setAttribute('autocorrect', 'off');
+  ta.setAttribute('spellcheck', 'false');
+  ta.placeholder = t('wfg.pasteModalPlaceholder');
+  card.appendChild(ta);
+
+  var err = document.createElement('div');
+  err.id = 'wfg-paste-modal-err';
+  err.className = 'wfg-paste-modal-err';
+  card.appendChild(err);
+
+  var actions = document.createElement('div');
+  actions.className = 'wfg-paste-modal-actions';
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'wfg-la-modal-cancel';
+  cancelBtn.textContent = t('wfg.pasteModalCancel');
+  cancelBtn.onclick = wfgClosePasteModal;
+
+  var okBtn = document.createElement('button');
+  okBtn.type = 'button';
+  okBtn.className = 'wfg-paste-modal-ok';
+  okBtn.textContent = t('wfg.pasteModalOk');
+  okBtn.onclick = function() {
+    var text = ta.value;
+    err.style.display = 'none';
+    if (!text || !text.trim()) {
+      err.textContent = t('wfg.pasteModalEmpty');
+      err.style.display = 'block';
+      ta.focus();
+      return;
+    }
+    // 先自行驗證，通過才交給 wfgImportConfig，避免它在 modal 上再彈一層 alert
+    var problem = wfgValidateConfigText(text);
+    if (problem) {
+      err.textContent = problem;
+      err.style.display = 'block';
+      return;
+    }
+    var ok = window.wfgImportConfig(text);
+    if (ok) { wfgClosePasteModal(); wfgPasteFlashBtn(); }
+  };
+
+  actions.appendChild(cancelBtn);
+  actions.appendChild(okBtn);
+  card.appendChild(actions);
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', wfgPasteModalKeyHandler, true);
+  document.addEventListener('paste', wfgPasteModalPasteHandler, true);
+  setTimeout(function() { try { ta.focus(); } catch (e) {} }, 0);
+};
+
+window.wfgImportClipboard = async function() {
+  // 沒有 clipboard API／非安全環境 → 不必先失敗，直接走手動視窗
+  if (!window.isSecureContext || !navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+    window.wfgOpenPasteModal(t('wfg.clipboardUnsupported'));
+    return;
+  }
+  var text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch (e) {
+    // iOS Safari 的 NotAllowedError 走這裡；不再 alert
+    window.wfgOpenPasteModal(t('wfg.clipboardFail').replace('{msg}', (e && e.message) ? e.message : (e && e.name) ? e.name : ''));
+    return;
+  }
+  if (!text || !text.trim()) { window.wfgOpenPasteModal(t('wfg.clipboardEmpty')); return; }
+  if (window.wfgImportConfig(text)) wfgPasteFlashBtn();
 };
 
 })();
