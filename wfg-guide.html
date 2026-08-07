@@ -903,8 +903,8 @@
             <tr><td class="t-name">卡片標題列</td><td><span class="t-type tt-btn">可點擊</span></td><td>ON / OFF 標籤</td><td>點一下展開或收合此信號的所有參數。標籤顏色反映 ENABLE 狀態（綠 = ON，灰 = OFF）。</td></tr>
             <tr><td class="t-name">ENABLE</td><td><span class="t-type tt-chk">核取方塊</span></td><td>勾 / 不勾</td><td><strong>總開關。</strong>不勾則此信號完全不輸出，波形上該通道會是平的。這是結構性變更，改動時整份波形快取會重算。</td></tr>
             <tr><td class="t-name">ACT_TYPE</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>Active Type</strong>，決定這條信號的重複模式（每幾行動作一次）。0 = Column 模式（每個時脈都動作），數值越大表示週期越長。與 R_PH / F_PH 三者搭配決定基本波形形狀。</td></tr>
-            <tr><td class="t-name">R_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>Rising Phase</strong>，在 ACT_TYPE 定義的週期內，第幾個相位觸發上升。</td></tr>
-            <tr><td class="t-name">F_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>Falling Phase</strong>，在同一週期內第幾個相位觸發下降。R_PH 與 F_PH 的差距即為脈衝寬度（以相位為單位）。</td></tr>
+            <tr><td class="t-name">R_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>Rising Phase</strong>，<code>R_PH_CNT</code> 這個計數器在 <code>ST_LINE</code> 那一條載入的<strong>起始值</strong>，之後每條 line 加一，到 <code>ACT_TYPE</code> 後下一條歸零。一般信號：<strong>計數到 <code>ACT_TYPE</code> 的那一條就是上升邊所在的行。</strong></td></tr>
+            <tr><td class="t-name">F_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>一般信號</strong>：<code>F_PH_CNT</code> 的起始值，計數方式與 R_PH 相同，<strong>計數到 <code>ACT_TYPE</code> 的那一條就是下降邊所在的行</strong>；兩個計數器各數各的，脈衝寬度就是兩者觸發行的間隔。<br><strong>🔴 勾了 Toggle 的信號則完全不同</strong>：F_PH 是<strong>位元遮罩</strong>，指定要看 <code>R_PH_CNT</code> 的哪一個 bit，該 bit 的值就是輸出準位。詳見 <strong>6-2</strong>。</td></tr>
           </tbody>
         </table>
       </div>
@@ -933,12 +933,18 @@
         <table>
           <thead><tr><th>控制項</th><th>型別</th><th>範圍</th><th>說明</th></tr></thead>
           <tbody>
-            <tr><td class="t-name">R_DLY</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–65535</td><td><strong>Rising Delay</strong>，上升邊緣在一行之內延後幾個 DCLK。這是調整信號水平位置最直接的參數。</td></tr>
-            <tr><td class="t-name">F_DLY</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–65535</td><td><strong>Falling Delay</strong>，下降邊緣延後幾個 DCLK。F_DLY − R_DLY 決定實際脈衝寬度（以 DCLK 為單位）。</td></tr>
+            <tr><td class="t-name">R_DLY</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–65535</td><td><strong>Rising Delay</strong>，上升邊緣延後幾個 DCLK。<strong>起算點是「<code>R_PH_CNT</code> 數到 <code>ACT_TYPE</code> 的那一條」的行首</strong>。這是調整信號水平位置最直接的參數。</td></tr>
+            <tr><td class="t-name">F_DLY</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–65535</td><td><strong>Falling Delay</strong>，下降邊緣延後幾個 DCLK。<strong>起算點是「<code>F_PH_CNT</code> 數到 <code>ACT_TYPE</code> 的那一條」的行首</strong>——判準與 R_DLY 完全相同，只是各自看自己的計數器。<br><strong>🔴 勾了 Toggle 的信號沒有 F_DLY</strong>，兩個方向的轉態都用 <code>R_DLY</code>，此欄位無作用（詳見 6-2）。</td></tr>
           </tbody>
         </table>
       </div>
-      <p style="font-size:.92rem; color:var(--muted);">實務上：<strong>R_PH / F_PH 決定「第幾個相位」的粗調，R_DLY / F_DLY 決定「相位內偏移幾個時脈」的細調。</strong>兩者合起來才是最終的邊緣位置。</p>
+      <p style="font-size:.92rem; color:var(--muted);">實務上：<strong>R_PH / F_PH 決定「在第幾條 line 觸發」的粗調，R_DLY / F_DLY 決定「該條 line 之內偏移幾個時脈」的細調。</strong>兩者合起來才是最終的邊緣位置。</p>
+      <div class="callout info">
+        <strong>起算點怎麼判斷？兩個例子</strong>
+        <br><strong>XSTB</strong>（<code>ACT_TYPE=0</code>、<code>R_PH=0</code>、<code>F_PH=0</code>）：<code>ACT_TYPE</code> 是 0，兩個計數器一開始就等於最大值，所以<strong>每一條 line 都同時是 R 與 F 的觸發條</strong>。R_DLY 與 F_DLY 都從<strong>同一條</strong>的行首起算，一行內先上升再下降，形成每行一個窄脈衝。
+        <br><strong>VST1</strong>（<code>ACT_TYPE=15</code>、<code>R_PH=15</code>、<code>F_PH=13</code>、<code>ST_LINE=2</code>）：<code>R_PH_CNT</code> 在第 2 條就載入 15 = <code>ACT_TYPE</code>，所以 <strong>R_DLY 從第 2 條起算</strong>；<code>F_PH_CNT</code> 從 13 開始數，第 2 條是 13、第 3 條是 14、<strong>第 4 條才數到 15</strong>，所以 F_DLY 從第 4 條起算。兩者相差 2 條，脈衝寬度就是 2 條 line。
+        <br><span style="color:var(--muted);">把滑鼠停在波形上時，畫布會用綠色與橘色箭頭分別標出 R_DLY 與 F_DLY 的起算條到邊緣的距離；上方 <code>R_PH_CNT</code> / <code>F_PH_CNT</code> 兩列會把觸發的那一格反白，可以直接對照。</span>
+      </div>
     </div>
 
     <div class="card">
@@ -974,12 +980,13 @@
       </div>
     </div>
 
-    <h3 style="margin:30px 0 12px;">6-2　XPOL 專屬：極性反轉快速設定（7 顆按鈕）</h3>
+    <h3 style="margin:30px 0 12px;">6-2　Toggle 模式：另一套演算法（任一信號勾選即適用）</h3>
     <div class="card">
-      <p style="font-size:.94rem;">這是 18 條信號中<strong>唯一需要獨立說明</strong>的部分。勾選 <code>Toggle</code> 後，卡片上會多出七顆快速設定按鈕，一鍵把 <code>ACT_TYPE</code>、<code>R_PH</code>、<code>F_PH</code> 三個參數<strong>同時</strong>填成對應的極性反轉模式，並一併設定 <code>ST_LINE</code> / <code>SP_LINE</code> 的行區間，省去逐一計算。</p>
+      <p style="font-size:.94rem;">這是 18 條信號中<strong>唯一需要獨立說明</strong>的部分。<strong>只要勾選 <code>Toggle</code>，這條信號就改用另一套演算法</strong> —— 判準是「Toggle 有沒有被勾」，<strong>與信號名稱無關</strong>。XSTB、VST1／2、CK1–CK8、TEND、VS、HS、GPO0／1 任何一支勾了 Toggle，行為都與 XPOL 完全一致（同一組參數在不同信號上會產生一模一樣的波形）。實務上最常用在 XPOL 與 LC，但那是慣例，不是限制。</p>
+      <p style="font-size:.94rem;">勾選後卡片上還會多出七顆快速設定按鈕，一鍵把 <code>ACT_TYPE</code>、<code>R_PH</code>、<code>F_PH</code> 三個參數<strong>同時</strong>填成對應的極性反轉模式，並一併設定 <code>ST_LINE</code> / <code>SP_LINE</code> 的行區間，省去逐一計算。</p>
       <div class="callout info">
-        <strong>為什麼叫「XPOL 模式」？</strong>
-        這七組數值是為<strong>極性反轉（Polarity Inversion）</strong>設計的標準組合，而極性反轉正是 XPOL 這條信號的職責 — Source Driver 就是看 XPOL 決定要充正極還是負極 Gamma。技術上，任何一條信號勾選 Toggle 後都會出現這七顆按鈕（它們填的就是那三個通用參數），但<strong>實務上只有 XPOL 會用到</strong>，其他信號按了只是把參數填成極性反轉的數值而已。
+        <strong>為什麼這七組值叫「極性反轉模式」？</strong>
+        這七組數值是為<strong>極性反轉（Polarity Inversion）</strong>設計的標準組合，而極性反轉正是 XPOL 這條信號的職責 — Source Driver 就是看 XPOL 決定要充正極還是負極 Gamma。任何一條信號勾選 Toggle 後都會出現這七顆按鈕（它們填的就是那三個通用參數），只是其他信號按了單純把參數填成這組數值而已。
       </div>
       <div class="table-wrap">
         <table>
@@ -998,6 +1005,29 @@
       <div class="callout warn">
         <strong>按下按鈕會有兩個副作用</strong>
         除了填入上表三個值之外，它還會：① 把 <code>INI_VAL</code> 一律改成 <code>2 - Keep</code>；② 一併設定行區間 —— 按 <strong>Column 以外</strong>的任何一顆時 <code>ST_LINE</code> = <code>0</code>、<code>SP_LINE</code> = <code>16383</code>（圖樣涵蓋整個 frame）；按 <strong>Column</strong> 時 <code>ST_LINE</code> 與 <code>SP_LINE</code> <strong>都設回 <code>0</code></strong>。若你原本手動設過這幾個欄位，按下按鈕後會被覆蓋。
+      </div>
+      <div class="callout warn">
+        <strong>🔴 勾了 Toggle 的信號，演算法與一般打 pulse 的信號完全不同（適用任一信號，不限 XPOL／LC）</strong>
+        一般信號是「兩個計數器各自數到 <code>ACT_TYPE</code>，一個管上升一個管下降」；<strong>Toggle 信號只有一個計數器，而且 <code>F_PH</code> 不是相位起始值，是位元遮罩（bitmask）</strong>：
+        <ol style="margin:8px 0 8px 18px; padding:0;">
+          <li><code>R_PH_CNT</code> 在 <code>ST_LINE</code> 那一條載入 <code>R_PH</code>，每條 line 加一，數到 <code>ACT_TYPE</code> 後<strong>下一條歸零</strong>（週期 = <code>ACT_TYPE + 1</code>）。</li>
+          <li>把 <code>F_PH</code> 轉成二進位，<strong>為 1 的那個 bit 指定「要看 <code>R_PH_CNT</code> 的第幾個 bit」</strong>。例如 <code>F_PH = 2</code>（<code>0b10</code>）→ 看 bit 1。</li>
+          <li><strong>輸出準位就等於那個被選中 bit 的值</strong>：bit = 1 → HIGH、bit = 0 → LOW。</li>
+          <li><strong><code>R_DLY</code> 只在「被選中 bit 的值改變」的那一條作用，而且兩個方向都用 <code>R_DLY</code></strong>（low→high 與 high→low 皆然）。bit 沒變的那一條不套任何延遲，直接維持前一條的準位。</li>
+          <li><strong>Toggle 模式沒有 <code>F_DLY</code></strong>，該欄位在此模式下無作用（原廠 timing 文件的 XPOL 暫存器表也把它標為「Toggle mode 時 無用」，實際值設 0）。</li>
+          <li>整個 frame 要不要反相，由<strong>全域的 Toggle FRM_NO</strong> 決定 —— XPOL 用 <code>FRM_NO_0 = 0</code>，代表每 <code>0+1 = 1</code> 個 frame 反相一次。</li>
+        </ol>
+        <strong>逐行範例</strong>（<code>ACT_TYPE=3</code>、<code>R_PH=1</code>、<code>ST_LINE=2</code>、<code>F_PH=2</code> → 看 bit 1，週期 4 條）：
+        <table style="margin:8px 0; font-size:.88rem;">
+          <thead><tr><th>Line</th><th>R_PH_CNT</th><th>bit 1</th><th>輸出</th><th>R_DLY</th></tr></thead>
+          <tbody>
+            <tr><td>2</td><td><code>2'b01</code></td><td>0</td><td>LOW</td><td>—</td></tr>
+            <tr><td>3</td><td><code>2'b10</code></td><td>1</td><td>轉態 → HIGH</td><td><strong>作用</strong></td></tr>
+            <tr><td>4</td><td><code>2'b11</code></td><td>1</td><td>維持 HIGH</td><td>不作用</td></tr>
+            <tr><td>5</td><td><code>2'b00</code>（前一條到 ACT_TYPE=3，這條歸零）</td><td>0</td><td>轉態 → LOW</td><td><strong>作用</strong></td></tr>
+          </tbody>
+        </table>
+        以此類推。<span style="color:var(--muted);">把滑鼠停在 XPOL 波形上時，畫布只會畫一支 <strong>R_DLY</strong> 箭頭（起算條就是 bit 改變的那一條），不會畫 F_DLY —— 因為 Toggle 模式下它不存在。</span>
       </div>
       <div class="callout info">
         <strong>「3-line」為什麼在畫面上看起來像「正正負」或「正負負」？</strong>

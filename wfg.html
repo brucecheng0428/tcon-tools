@@ -1561,8 +1561,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260806wfg479"></script>
-<script src="common/i18n.js?v=20260806wfg479"></script>
+<script src="common/version.js?v=20260807wfg480"></script>
+<script src="common/i18n.js?v=20260807wfg480"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -15415,9 +15415,17 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
           prevFrameEndLevel = vbiInitLevel;
         }
       } else {
-        // ── XPOL Dot mode: line-level pattern XORed with frame polarity ──
-        // Per 6138 Timing doc: R_PH_CNT cycles from INI_R_PH, wraps at ACT_TYPE+1.
-        // Line level = ((R_PH_CNT & INI_F_PH) === 0) ? HIGH : LOW, then XOR toggleLevel.
+        // ── XPOL Dot mode（toggle 專屬演算法，與一般打 pulse 的信號不同）──
+        // 依 Set_6138_Timing_20171005.pdf P.19 與 2026-08-07 現場確認：
+        //   ・R_PH_CNT 於 ST_LINE 載入 R_PH，每條 line +1，數到 ACT_TYPE 後下一條歸零
+        //     （週期 = ACT_TYPE + 1）
+        //   ・F_PH 不是相位起始值，而是 **bitmask** —— 指定「輸出準位要看 R_PH_CNT 的哪個 bit」
+        //     例：F_PH=2 (0b10) → 看 bit 1；該 bit = 1 → HIGH、= 0 → LOW
+        //   ・R_DLY 只在「被選中 bit 的值改變」的那一條作用，**兩個方向都用 R_DLY**
+        //     （low→high 與 high→low 皆然）；bit 沒變的那一條不套任何 DLY
+        //   ・toggle mode **沒有 F_DLY**（P.17「F_DLY_XPOL：Toggle mode 時 無用」、P.18 值為 0000h）
+        //   ・frame 反相由全域 Toggle FRM_NO 決定（XPOL 用 FRM_NO_0=0 → 每 1 個 frame 反一次），
+        //     於下方以 XOR toggleLevel 疊加
         // Modes: 1-line(AT=1,FP=1), 2-line(AT=3,FP=2), 1+2-line(AT=3,RP=1,FP=2),
         //        4-line(AT=7,FP=4), 8-line(AT=15,FP=8), 3-line(AT=2,FP=1, was labelled "+-+")
         var dotStLine = Math.max(0, gpio.st_line);
@@ -16186,10 +16194,14 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
         var actType = gpio.act_type;
         var stLine = Math.max(0, gpio.st_line);
         var spLine = Math.min(vtotalView - 1, gpio.sp_line);
+        // v2.97.480: 判準是「這支信號有沒有勾 Toggle」，與信號名稱無關。
+        // 勾了 Toggle → F_PH 是位元遮罩，第二列改顯示「被選中 bit 的值」，
+        // 兩列的高亮都改成「bit 改變的那一條」（= R_DLY 作用的那一條）。
+        var _phMask = gpio.toggle ? gpio.f_ph : null;
         // Draw R_PH_CNT
-        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse);
-        // Draw F_PH_CNT
-        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse);
+        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, false);
+        // Draw F_PH_CNT（Toggle 時改畫 bit 值，計數器來源仍是 R_PH）
+        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.toggle ? gpio.r_ph : gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, !!gpio.toggle);
       }
     }
   }
@@ -16503,7 +16515,12 @@ function wfgDrawDclkRow(ctx, y, rowH, dclkPerLine, color, drawX0, w, firstVisLin
   ctx.globalAlpha = 1;
 }
 
-function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight) {
+// toggleMask：非 null 代表這支信號勾了 Toggle（值 = F_PH 位元遮罩）。
+//   toggle 下轉態發生在「被選中 bit 改變」的那一條，不是 counter 數到 ACT_TYPE 的那一條，
+//   高亮判準必須跟著改，否則 F_PH_CNT/R_PH_CNT 兩列會標錯格子。
+// isBitRow：這一列改成顯示「被選中 bit 的值（0/1）」而不是計數值 —— 用於 toggle 的第二列，
+//   因為 toggle 下 F_PH 是遮罩、根本沒有 F_PH_CNT 這個計數器。
+function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight, toggleMask, isBitRow) {
   ctx.textAlign = 'center';
   var textY = y + rowH / 2 + 3;
   var cycle = actType + 1;
@@ -16545,7 +16562,17 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     }
     // Effective counter for trigger detection
     var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
-    var isTrigger = (effCnt === actType) && inHL;
+    var isTrigger;
+    if (toggleMask != null) {
+      // Toggle 模式：準位 = R_PH_CNT 被 F_PH 選中的那個 bit；轉態在該 bit 改變的那一條
+      var cntPrev = (actType === 0) ? 0 : (effIniPh + linesFromSt - 1 + cycle) % cycle;
+      var bitHere = (effCnt & toggleMask) ? 1 : 0;
+      var bitPrev = (cntPrev & toggleMask) ? 1 : 0;
+      isTrigger = (linesFromSt > 0) && (bitHere !== bitPrev) && inHL;
+      if (isBitRow) counterVal = bitHere;
+    } else {
+      isTrigger = (effCnt === actType) && inHL;
+    }
     if (!inHL) {
       // Non-highlight: grey mask + dim text (no save/restore for perf)
       ctx.fillStyle = 'rgba(128,128,128,0.4)';
@@ -21285,7 +21312,11 @@ function wfgRenderGpioList(focusIdx) {
       + '<div class="wfg-field"><label>R_PH (0~511)</label><div class="wfg-slider-row">'
       + wfgSliderHtml(i, 'r_ph', 0, 511, g.r_ph)
       + '</div></div>'
-      + '<div class="wfg-field"><label>F_PH (0~511)</label><div class="wfg-slider-row">'
+      // v2.97.480: 勾了 Toggle 的信號（不限 XPOL/LC，任一支都適用）F_PH 是「位元遮罩」，
+      // 指定看 R_PH_CNT 的哪個 bit，不是相位起始值 —— 標籤要標清楚，避免誤讀。
+      + '<div class="wfg-field"><label>' + (g.toggle
+          ? 'F_PH <span style="color:#f97316">= bit mask (0b' + ((g.f_ph|0).toString(2)) + ')</span>'
+          : 'F_PH (0~511)') + '</label><div class="wfg-slider-row">'
       + wfgSliderHtml(i, 'f_ph', 0, 511, g.f_ph)
       + '</div></div></div>';
 
@@ -21303,7 +21334,10 @@ function wfgRenderGpioList(focusIdx) {
       + '<div class="wfg-field"><label>R_DLY (0~65535)</label><div class="wfg-slider-row">'
       + wfgSliderHtml(i, 'r_dly', 0, 65535, g.r_dly)
       + '</div></div>'
-      + '<div class="wfg-field"><label>F_DLY (0~65535)</label><div class="wfg-slider-row">'
+      // v2.97.480: Toggle 模式沒有 F_DLY（兩個方向的轉態都用 R_DLY），標示為未使用
+      + '<div class="wfg-field"><label>' + (g.toggle
+          ? 'F_DLY <span style="color:#94a3b8">(Toggle 模式不使用)</span>'
+          : 'F_DLY (0~65535)') + '</label><div class="wfg-slider-row">'
       + wfgSliderHtml(i, 'f_dly', 0, 65535, g.f_dly)
       + '</div></div></div>';
 
@@ -22883,54 +22917,50 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     var arrowResult = { x1: 0, x2: 0, y: 0, arrow2: null, _tconHoverChIdx: chIdx, _midY: (yHigh + yLow) / 2 };
     _wfgLastHoverChIdx = chIdx;
 
-    if (curLevel === 1) {
-      // Mouse is on a HIGH block: leftEdge is a rising edge, rightEdge is a falling edge
-      // R_DLY arrow: from R_PH_CNT trigger point to left edge (rising edge)
-      var rTrigger = wfgFindPhCntTriggerBefore(leftEdge, gpio.r_ph, actType, stLine, vtotalViewM, dclkPerLine);
-      if (rTrigger !== null) {
-        var rTrigX = lineToXLocal(rTrigger);
-        var rEdgeX = lineToXLocal(leftEdge);
-        arrowResult.x1 = Math.max(drawX0, rTrigX);
-        arrowResult.x2 = Math.min(w, rEdgeX);
-        arrowResult.y = yHigh - 3;
+    if (gpio.toggle) {
+      // ── toggle 類（XPOL / LC）──
+      // toggle 的轉態一律由 R_DLY 造成（low→high 與 high→low 皆然），
+      // 而且 **沒有 F_DLY**（Set_6138_Timing_20171005.pdf P.17「F_DLY_XPOL：Toggle mode 時 無用」、
+      // P.18 實際值 0000h）。所以這裡只畫一支 R_DLY 箭頭，起算條就是「被選中 bit 改變」的那一條，
+      // 也就是轉態邊沿往回退 R_DLY 之後所在的 line；不畫 F_DLY 箭頭，避免誤導。
+      if (idx >= 0) {
+        var tgEdge = leftEdge; // 進入目前這個準位區塊的那個轉態
+        var tgTrig = Math.round(tgEdge - (effHtotal > 0 ? gpio.r_dly / effHtotal : 0));
+        arrowResult.x1 = Math.max(drawX0, lineToXLocal(tgTrig));
+        arrowResult.x2 = Math.min(w, lineToXLocal(tgEdge));
+        arrowResult.y = (curLevel === 1) ? (yHigh - 3) : (yLow + 3);
         arrowResult._rDlyArrow = true;
       }
-      // F_DLY arrow: from F_PH_CNT trigger point to right edge (falling edge)
-      var fTrigger = wfgFindPhCntTriggerBefore(rightEdge, gpio.f_ph, actType, stLine, vtotalViewM, dclkPerLine);
-      if (fTrigger !== null) {
-        var fTrigX = lineToXLocal(fTrigger);
-        var fEdgeX = lineToXLocal(rightEdge);
-        arrowResult.arrow2 = {
-          x1: Math.max(drawX0, fTrigX),
-          x2: Math.min(w, fEdgeX),
-          y: yLow + 3,
-          _fDlyArrow: true
-        };
-      }
     } else {
-      // Mouse is on a LOW block: leftEdge is a falling edge, rightEdge is a rising edge
-      // F_DLY arrow: from F_PH_CNT trigger to left edge (falling edge)
-      var fTrigger2 = wfgFindPhCntTriggerBefore(leftEdge, gpio.f_ph, actType, stLine, vtotalViewM, dclkPerLine);
-      if (fTrigger2 !== null) {
-        var fTrigX2 = lineToXLocal(fTrigger2);
-        var fEdgeX2 = lineToXLocal(leftEdge);
-        arrowResult.x1 = Math.max(drawX0, fTrigX2);
-        arrowResult.x2 = Math.min(w, fEdgeX2);
-        arrowResult.y = yLow + 3;
-        arrowResult._fDlyArrow = true;
+      // ── 一般打 pulse 的信號（XSTB / VST / CK / TEND …）──
+      // v2.97.480: R_DLY 與 F_DLY 一律以「自己的 PH_CNT 數到 ACT_TYPE 的那一條」起算，判準相同。
+      // 舊版是拿 hover 區塊的左右邊界各自反推，導致 XSTB 這種每行一脈衝、滑鼠停在寬的
+      // LOW 區時，R 取到右邊界（下一條的 rising）、F 取到左邊界（前一條的 falling），
+      // 兩支箭頭參考的不是同一條。
+      var mouseLineInt = Math.floor(mouseLinePos);
+      var rSpan = wfgTconDlySpan(gpio, true,  actType, stLine, vtotalViewM, effHtotal, tPos, mouseLineInt, (curLevel === 1) ? leftEdge : rightEdge);
+      var fSpan = wfgTconDlySpan(gpio, false, actType, stLine, vtotalViewM, effHtotal, tPos, mouseLineInt, (curLevel === 1) ? rightEdge : leftEdge);
+      // curLevel===1（滑鼠在 HIGH 區）時主箭頭畫 R_DLY，否則主箭頭畫 F_DLY
+      var rArrow = rSpan ? {
+        x1: Math.max(drawX0, lineToXLocal(rSpan.trig)),
+        x2: Math.min(w, lineToXLocal(rSpan.edge)),
+        y: yHigh - 3, _rDlyArrow: true
+      } : null;
+      var fArrow = fSpan ? {
+        x1: Math.max(drawX0, lineToXLocal(fSpan.trig)),
+        x2: Math.min(w, lineToXLocal(fSpan.edge)),
+        y: yLow + 3, _fDlyArrow: true
+      } : null;
+      var mainArrow = (curLevel === 1) ? rArrow : fArrow;
+      var subArrow  = (curLevel === 1) ? fArrow : rArrow;
+      if (mainArrow) {
+        arrowResult.x1 = mainArrow.x1;
+        arrowResult.x2 = mainArrow.x2;
+        arrowResult.y = mainArrow.y;
+        if (mainArrow._rDlyArrow) arrowResult._rDlyArrow = true;
+        else arrowResult._fDlyArrow = true;
       }
-      // R_DLY arrow: from R_PH_CNT trigger to right edge (rising edge)
-      var rTrigger2 = wfgFindPhCntTriggerBefore(rightEdge, gpio.r_ph, actType, stLine, vtotalViewM, dclkPerLine);
-      if (rTrigger2 !== null) {
-        var rTrigX2 = lineToXLocal(rTrigger2);
-        var rEdgeX2 = lineToXLocal(rightEdge);
-        arrowResult.arrow2 = {
-          x1: Math.max(drawX0, rTrigX2),
-          x2: Math.min(w, rEdgeX2),
-          y: yHigh - 3,
-          _rDlyArrow: true
-        };
-      }
+      if (subArrow) arrowResult.arrow2 = subArrow;
     }
 
     // Store pulse-width bi-arrows (for white arrows, same as normal mode)
@@ -23123,6 +23153,42 @@ function wfgFindPhCntTriggerBefore(edgePos, iniPh, actType, stLine, vtotalView, 
     }
   }
   return null;
+}
+
+// ─── TCON Internal: 判斷某一條 line 是否為 PH_CNT 觸發條 ───
+// 計數規則與 wfgFindPhCntTriggerBefore 相同：counter 於 ST_LINE 載入 iniPh 後逐行遞增，
+// 數到 ACT_TYPE 的那一條即為觸發條。
+function wfgPhCntIsTriggerLine(line, iniPh, actType, stLine, vtotalView) {
+  if (line < 0 || !(vtotalView > 0)) return false;
+  var lineInFrame = line % vtotalView;
+  if (lineInFrame < stLine) return false;
+  if (actType <= 0) return true; // ACT_TYPE=0：ST_LINE 起每一條都觸發
+  var period = actType + 1;
+  var effIniPh = Math.min(iniPh, actType);
+  var targetOffset = ((actType - effIniPh) % period + period) % period;
+  return ((lineInFrame - stLine) % period) === targetOffset;
+}
+
+// ─── TCON Internal: 算出 R_DLY / F_DLY 箭頭的起訖（起算條 → 對應邊沿）───
+// v2.97.480: 起算點一律是「PH_CNT 數到 ACT_TYPE 的那一條」，R 與 F 判準完全相同。
+// 優先採用滑鼠所在那一條（前提：該條確實是觸發條，且該條算出來的邊沿真的存在於
+// transitions 裡），否則退回舊的「用 hover 區塊邊界反推」——VST1 這種單發脈衝、
+// 滑鼠停在 pulse 中段（該條沒有任何觸發）時就走這條路徑，行為與先前相同。
+function wfgTconDlySpan(gpio, isRising, actType, stLine, vtotalView, effH, tPos, mouseLine, fallbackEdge) {
+  var ph = isRising ? gpio.r_ph : gpio.f_ph;
+  var dly = isRising ? gpio.r_dly : gpio.f_dly;
+  var wantLevel = isRising ? 1 : 0;
+  if (gpio.inv) wantLevel = wantLevel ? 0 : 1;
+  if (wfgPhCntIsTriggerLine(mouseLine, ph, actType, stLine, vtotalView)) {
+    var edgePos = mouseLine + (effH > 0 ? dly / effH : 0);
+    for (var i = 0; i < tPos.length; i++) {
+      if (tPos[i].level === wantLevel && Math.abs(tPos[i].pos - edgePos) < 1e-6) {
+        return { trig: mouseLine, edge: edgePos };
+      }
+    }
+  }
+  var t = wfgFindPhCntTriggerBefore(fallbackEdge, ph, actType, stLine, vtotalView, 0);
+  return (t === null) ? null : { trig: t, edge: fallbackEdge };
 }
 
 function wfgMeasDrawArrow(ctx) {

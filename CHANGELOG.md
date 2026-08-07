@@ -22,6 +22,68 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v2.97.480 — 2026-08-07 ｜ PATCH ｜ ⚠ 輸出變更
+
+**判定依據：** 本版兩項改動都是**顯示層**修正，`VERSIONING.md` §2 案例 2「改一個 bug」→ **PATCH**；因為畫面上的箭頭位置會變（過去截的圖用新版重跑會不一樣），依 **R1** 加註 `⚠ 輸出變更`。**波形資料本身完全沒有改動** —— 非 toggle GPIO 66/66 回歸零差異，toggle GPIO 的 `wfgCalcGpio` 與前一版位元相同。
+
+> 開發過程中曾一度把 XPOL／LC 的 dot mode 改成 phase counter 語意（並暫定版號 v3.0.0／MAJOR），
+> 經現場確認 **toggle 的原演算法本來就是對的**，該改動已完整回退，故本版不是 MAJOR。
+> 回退後 `wfgCalcGpio` 與 v2.97.479 逐字元比對僅註解不同，程式碼完全相同。
+
+### 一、⚠ R_DLY 與 F_DLY 的起算條不再差一條（非 toggle 信號）
+
+**問題**：滑鼠停在 XSTB（`ACT_TYPE=0 / R_PH=0 / F_PH=0`）的波形上時，R_DLY 箭頭起算在滑鼠當下那一條，F_DLY 卻起算在**前一條**。
+
+**根因**（`wfg.html` 原 22889／22899／22913／22923）：舊版是拿「滑鼠所在區塊的左右邊界」各自往回反推觸發條 —— 滑鼠停在寬的 LOW 區時，R 取右邊界（下一條的 rising）、F 取左邊界（前一條的 falling），兩支箭頭參考的根本不是同一條。這是**顯示層**的問題，波形資料本身一直是對的。
+
+**修法**：新增 `wfgPhCntIsTriggerLine()` 與 `wfgTconDlySpan()`。起算點一律取「PH_CNT 數到 `ACT_TYPE` 的那一條」，R 與 F 判準完全相同：優先採用滑鼠所在那一條（前提是該條確實是觸發條，且該條算出的邊沿真的存在於 transitions 中）；該條沒有觸發時（例如 VST1 這種單發脈衝、滑鼠停在 pulse 中段）才退回舊的邊界反推，因此 VST1 既有的正確行為不變。
+
+**實測（改前 vs 改後，Chrome hover 讀值）**
+
+| 條件 | 改前 | 改後 |
+|---|---|---|
+| XSTB `ACT=0/R_PH=0/F_PH=0`，view 100–105，滑鼠停 Line 102 | R_DLY 起算 **Line 102**、F_DLY 起算 **Line 101** ← bug | 兩支箭頭起點同在 **Line 102 行首** ✅ |
+| VST1 `ACT=15/R_PH=15/F_PH=13/ST_LINE=2`，view 0–8 | R_DLY 起算 Line 2、F_DLY 起算 Line 4 | 完全相同（未被動到）✅ |
+
+VST1 的 F_PH_CNT 在畫布上實際顯示 Line 2 = 13 → Line 3 = 14 → **Line 4 = 15**（高亮），與規格描述一致。
+
+**規格依據**：`~/TCON/TCON設定相關/Set_6138_Timing_20171005.pdf`
+- P.12「YDIO/VST」：`When R_PH_CNT = ACT_TYPE , this line will have a rising` ／ `When F_PH_CNT = ACT_TYPE , this line will have a falling`（同句在 P.14／15／16 的 CKx 頁重複四次）
+- P.10「XSTB (each line a pulse)」圖：`ST_LINE=2`，R_DLY 與 F_DLY 兩支箭頭起點畫在**同一條垂直參考線**上
+
+### 二、Toggle 信號的顯示層改為符合 toggle 演算法
+
+Toggle 的演算法與一般打 pulse 的信號不同 —— **`F_PH` 是位元遮罩而非相位起始值**（指定要看 `R_PH_CNT` 的哪個 bit，該 bit 的值就是輸出準位），**兩個方向的轉態都用 `R_DLY`**，而且 **toggle 模式沒有 `F_DLY`**。
+
+🔴 **適用範圍是「這支信號有沒有勾 Toggle」，與信號名稱無關。** 18 支數位信號任何一支勾了 Toggle 都走這套演算法，不是 XPOL／LC 的特例。波形引擎 `wfgCalcGpio` 本來就是用 `if (gpio.toggle)` 分支（沒有任何 `name === 'xpol'` 之類的硬編判斷），本次把**顯示層**也一併改成同一個判準：
+
+- **hover 箭頭**：`gpio.toggle` 走獨立分支，只畫一支 **R_DLY** 箭頭，起算條取「轉態邊沿往回退 `R_DLY`」所在的那一條（跨行也正確），**不畫 F_DLY**。原本會用 phase counter 判準反推起算條並多畫一支 F_DLY，兩者對 toggle 都不成立。
+- **內部列 `F_PH_CNT`**：toggle 下沒有這個計數器，改顯示「被選中 bit 的值（0／1）」；兩列的高亮也從「counter 數到 ACT_TYPE」改成「bit 改變的那一條」（＝ R_DLY 實際作用的那一條）。
+- **信號卡片欄位標籤**：勾 Toggle 時 `F_PH` 標成 `= bit mask (0b…)`、`F_DLY` 標成「Toggle 模式不使用」。
+
+**規格佐證**：同一份 PDF 的 P.17（XPOL column mode 暫存器表）把 `R_DLY_XPOL` 標為「設定 toggle delay from 參考點」、`F_DLY_XPOL` 標為「**Toggle mode 時 無用**」；P.18（1 line dot 暫存器表）實際值 `R_DLY=03C0h`、`F_DLY=0000h`。P.19 明文 `INI_F_PHASE[5:0] = set the value of each line ( = 6'b 000001)`，即遮罩語意。
+
+**toggle 演算法逐條驗證**（`ACT_TYPE=3`／`R_PH=1`／`ST_LINE=2`／`F_PH=2` → 看 bit 1）：
+
+| Line | R_PH_CNT | bit 1 | 期望準位 | 實際準位 | 該行轉態 |
+|---|---|---|---|---|---|
+| 2 | `01` | 0 | LOW | LOW | （frame 起始準位造成一次轉態，見下註）|
+| 3 | `10` | 1 | HIGH | HIGH | `dly=700` = R_DLY ✅ |
+| 4 | `11` | 1 | HIGH | HIGH | 無 ✅ |
+| 5 | `00` | 0 | LOW | LOW | `dly=700` = **R_DLY**（high→low 也用 R_DLY）✅ |
+
+Line 6–11 延續同一週期同樣全對；frame 1 整體反相（`FRM_NO_0=0` → 每 1 frame 反一次）也全對。掃描整個 frame 的所有轉態，`dly` 值只有 `700`（= R_DLY），**沒有任何一筆用到 `F_DLY`（值為 0）**。
+
+> 註：Line 2 在 frame 0 會多一次轉態，成因是 `INI_VAL=2 (Keep)` 下 frame 0 的起始準位為 HIGH，在第一條 active line 落到 bit 決定的 LOW。這是 frame 邊界的初始化，不是 bit 判斷邏輯；frame 1 的 Line 2 就沒有這次轉態。
+
+**「與信號名稱無關」的機械化證明**：同一組參數（`ACT_TYPE=3 / R_PH=1 / ST_LINE=2 / F_PH=2 / Toggle 勾選`）套到全部 18 支數位信號（`xstb`、`xpol`、`vst1`、`vst2`、`ck1`–`ck8`、`LC`、`tend`、`vs`、`hs`、`gpo0`、`gpo1`），逐筆比對 4 個 frame 的 transitions，**18 支輸出完全相同**。同一組參數取消 Toggle 勾選則輸出不同（確認確實切換到 phase counter 演算法）。以 `ck1` 這支非 XPOL 信號單獨跑上表四條，結果與 XPOL 一字不差。
+
+### 三、回歸
+
+`wfgCalcGpio` **完全沒有改動**：與 v2.97.479 逐字元比對，差異僅止於註解（補上 toggle 演算法的完整說明），程式碼一字未動。另外抽出 preset 內全部 26 組 GPIO 定義 × 3 種 frame 設定（`vt=1112/ht=1334`、`vt=1112/ht=667` 模擬 dual gate、`vt=600/ht=1334`），共 66 次逐筆比對 `line:dly:level`，**差異 0 次**。7 顆 XPOL 快速設定鈕的輸出與 v2.97.479 相同，位移量 0。
+
+---
+
 ## 📌 文件整理 — 2026-08-04（不進版號）
 
 **判定依據：** `VERSIONING.md` **§3 不進版的情況**明列「只改 `docs/`、`CHANGELOG.md`、註解」→ **不動版號**。本次只補文件欄位與規則條文，未改動任何產品程式碼、未改變任何行為。
