@@ -1058,6 +1058,18 @@
             <span class="wfg-chevron">▼</span>
           </div>
           <div class="wfg-card-body">
+            <!-- v2.97.481: TCON 型態（全域，所有數位信號共用）— 決定 ACT_TYPE/R_PH/F_PH 的位元寬 -->
+            <div id="wfg-tcon-type-row" style="margin-bottom:10px;padding:8px;background:#1a2540;border-radius:6px;border:1px solid #334155">
+              <div style="font-size:11px;color:#94a3b8;margin-bottom:6px" data-i18n="wfg.tconTypeLabel">TCON 型態（決定 ACT_TYPE / R_PH / F_PH 位元寬，所有數位信號共用）</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                <label style="font-size:12px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer">
+                  <input type="radio" name="wfg-tcon-type" value="MNT" checked onchange="wfgSetTconType('MNT')"> MNT (Monitor, 9bit 0~511)
+                </label>
+                <label style="font-size:12px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer">
+                  <input type="radio" name="wfg-tcon-type" value="NB" onchange="wfgSetTconType('NB')"> NB (Notebook, 6bit 0~63)
+                </label>
+              </div>
+            </div>
             <div id="wfg-gpio-list"></div>
           </div>
         </div>
@@ -1561,8 +1573,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260807wfg480"></script>
-<script src="common/i18n.js?v=20260807wfg480"></script>
+<script src="common/version.js?v=20260807wfg2980"></script>
+<script src="common/i18n.js?v=20260807wfg2980"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1885,7 +1897,7 @@ let wfgChannels = [];
 for (let i = 0; i < 24; i++) wfgChannels.push(wfgMakeChannel(i));
 wfgLsRebuildCkoSlots(false); // create default CKO slots, disabled until preset loaded
 
-let wfgFrame = { vtotal: 1125, vactive: 1080, htotal: 2200, htotalBase: 2200, hactive: 1920, dclk: 74.25, rxDclk: 74.25, tconHtotal: 2200, frameRate: 60, gateType: 'single', frameCount: 10, frm_no_0: 0, frm_no_1: 0, frm_no_2: 0 };
+let wfgFrame = { vtotal: 1125, vactive: 1080, htotal: 2200, htotalBase: 2200, hactive: 1920, dclk: 74.25, rxDclk: 74.25, tconHtotal: 2200, frameRate: 60, gateType: 'single', frameCount: 10, frm_no_0: 0, frm_no_1: 0, frm_no_2: 0, tcon_type: 'MNT' };
 let wfgViewStart = 0;
 let wfgViewEnd = 100;
 let wfgDragging = false;
@@ -15357,6 +15369,81 @@ function wfgUpdateKvdatToolbarVisibility() {
   if (copyBtn) copyBtn.style.display = hideKvdatOnlyControls ? 'none' : '';
 }
 
+// ═══════════ Toggle 模式共用計數核心（v2.97.481 定版）═══════════
+// 2026-08-07 定版規則（手繪七例 + 三組實測共 10 例驗證通過）：
+//   ── 全域 ──
+//   TCON_TYPE = MNT（Monitor，9bit）| NB（Notebook，6bit）
+//   maskBits  = MNT ? 0x1FF : 0x3F
+//   ACT_TYPE / R_PH / F_PH 欄位上限皆為 maskBits
+//   ── counter（每個 frame 從 ST_LINE 重新開始）──
+//   cnt(ST_LINE) = R_PH                       ← 直接載入，**不取模**
+//   cnt(n+1) = (cnt(n) === ACT_TYPE) ? 0 : ((cnt(n) + 1) & maskBits)
+//     兩個歸零來源：① cnt === ACT_TYPE（正常週期）② 溢位 (cnt+1) & maskBits
+//   ── 準位 ──
+//   bit(n)   = (cnt(n) & F_PH) !== 0          ← F_PH 是位元遮罩，不是相位起始值
+//   ST_LINE 那條無條件進入 ACTIVE（套 R_DLY）
+//   level(n) = (bit(n) === bit(ST_LINE)) ? ACTIVE : !ACTIVE
+//   兩個方向的轉態都套 R_DLY；toggle mode **沒有 F_DLY**
+//   ── SP_LINE ──
+//   SP_LINE 是「最後一條參與 toggle 的 line」（含）。
+//   n > SP_LINE：停止計數、不再轉態，keep level(SP_LINE) 直到 frame 結束。
+//
+// 🔴 三處實作必須共用本函式，否則波形對了但 PH_CNT 顯示列 / cursor 對不上：
+//   ① wfgCalcGpio 的 toggle 分支（波形本體）
+//   ② wfgDrawPhCntRow（R_PH_CNT / bit 顯示列）
+//   ③ wfgPhCntIsTriggerLine / wfgFindPhCntTriggerBefore（cursor 的 R_DLY 起算條）
+function wfgToggleMaskBits() {
+  return (typeof wfgFrame !== 'undefined' && wfgFrame && wfgFrame.tcon_type === 'NB') ? 0x3F : 0x1FF;
+}
+// 從 ST_LINE 起算連續 len 條的 counter 值序列（index 0 = ST_LINE 那條）
+var _wfgToggleSeqCache = Object.create(null);
+var _wfgToggleSeqKeys = [];
+function wfgToggleCntSeq(rPh, actType, maskBits, len) {
+  if (!(len > 0)) len = 1;
+  var key = rPh + '|' + actType + '|' + maskBits + '|' + len;
+  var hit = _wfgToggleSeqCache[key];
+  if (hit) return hit;
+  var seq = new Int32Array(len);
+  var c = (rPh | 0) & maskBits;          // 直接載入（夾在位元寬內，不取模）
+  for (var i = 0; i < len; i++) {
+    seq[i] = c;
+    c = (c === actType) ? 0 : ((c + 1) & maskBits);
+  }
+  _wfgToggleSeqCache[key] = seq;
+  _wfgToggleSeqKeys.push(key);
+  if (_wfgToggleSeqKeys.length > 12) { delete _wfgToggleSeqCache[_wfgToggleSeqKeys.shift()]; }
+  return seq;
+}
+// 相對準位：1 = 與 ST_LINE 同相（ACTIVE），0 = 反相
+function wfgToggleRelLevel(seq, k, fPh) {
+  if (k < 0) k = 0;
+  if (k >= seq.length) k = seq.length - 1;
+  return (((seq[k] & fPh) !== 0) === ((seq[0] & fPh) !== 0)) ? 1 : 0;
+}
+// 主程式在 IIFE 內，這幾支要掛上 window 才能從 console／自動化驗證腳本直接呼叫
+window.wfgToggleMaskBits = wfgToggleMaskBits;
+window.wfgToggleCntSeq = wfgToggleCntSeq;
+window.wfgToggleRelLevel = wfgToggleRelLevel;
+// 驗證用：把「某支信號逐條 line 的準位」直接算出來（走的就是波形本體 wfgCalcGpio，
+// 不是另外重寫一份），供自動化腳本比對期望序列。
+window.wfgDebugGpioLevels = function(gpioIdx, firstLine, lastLine) {
+  var g = wfgGpios[gpioIdx];
+  if (!g) return null;
+  var vt = wfgFrame.vtotal, ht = wfgFrame.htotal;
+  var tr = wfgCalcGpio(g, vt, ht, Math.max(1, Math.ceil((lastLine + 1) / vt)));
+  var out = [];
+  for (var n = firstLine; n <= lastLine; n++) {
+    var lv = 0;
+    for (var i = 0; i < tr.length; i++) {
+      // 取「這條 line 中段」的準位：所有起點 <= n + 0.5 的轉態裡最後一個
+      var pos = tr[i].line + (ht > 0 ? (tr[i].dly / ht) : 0);
+      if (pos <= n + 0.5) lv = tr[i].level; else break;
+    }
+    out.push(lv ? 'H' : 'L');
+  }
+  return out.join('');
+};
+
 // ─── Phase Counter Engine (per GPIO) ───
 // ST_LINE: counter loads initial values here, no counting before this line.
 // SP_LINE: last allowed trigger line. Transitions only fire when line <= SP_LINE.
@@ -15373,11 +15460,24 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   var toggleLevel = (gpio.ini_val === 1) ? 1 : 0;
   var toggleFrmCounter = 0;
   var toggleFrmThreshold;
+  var toggleInitLevel = toggleLevel;
   if (gpio.toggle) {
     var frmNoVal = gpio.tg_ini_val === 0 ? wfgFrame.frm_no_0 : (gpio.tg_ini_val === 1 ? wfgFrame.frm_no_1 : wfgFrame.frm_no_2);
     toggleFrmThreshold = frmNoVal + 1;
+    // v2.97.481: frame 0 的 ACTIVE 一律是 HIGH（規則：ST_LINE 那條無條件 rising 進入 ACTIVE），
+    //   FRM_NO 由此往後每 FRM_NO+1 個 frame 把 ACTIVE 反相一次。
+    //   舊版把 toggleLevel 固定從 0 起算，FRM_NO=0（threshold=1）時 frame 0 會被翻成 1 剛好正確，
+    //   但 FRM_NO>0 時 frame 0 不翻 → ACTIVE=0，於是整個 frame 0 停在 !ACTIVE，
+    //   造成 XPOL 這種 FRM_NO=0 的信號正確、LC 這種 FRM_NO>0 的信號第一個 frame 極性相反。
+    //   這裡改成反推初值，讓兩種 FRM_NO 的 frame 0 都是 ACTIVE=HIGH。
+    toggleLevel = (1 >= toggleFrmThreshold) ? 0 : 1;
+    var _tgFirstActive = 1;
+    // frame 0 進入 ST_LINE 之前的準位（Keep 沒有前一個 frame → 取 ACTIVE 的反相，讓 rising 看得到）
+    toggleInitLevel = (gpio.ini_val === 0) ? 0
+                    : (gpio.ini_val === 1) ? 1
+                    : (_tgFirstActive ? 0 : 1);
     // Emit explicit initial level so INV can invert it correctly
-    allTransitions.push({ line: 0, dly: 0, level: toggleLevel });
+    allTransitions.push({ line: 0, dly: 0, level: toggleInitLevel });
   }
 
   for (var frame = 0; frame < frameCount; frame++) {
@@ -15391,70 +15491,46 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
         toggleLevel = toggleLevel ? 0 : 1;
       }
 
-      if (actType === 0) {
-        // ── VBI / Column mode: frame-level toggle ──
-        var absLine = lineOffset + Math.max(0, gpio.st_line);
-        // Determine frame initial level based on INI_VAL
-        var vbiInitLevel;
-        if (gpio.ini_val === 0) vbiInitLevel = 0;
-        else if (gpio.ini_val === 1) vbiInitLevel = 1;
-        else vbiInitLevel = (frame === 0) ? (toggleLevel ? 0 : 1) : prevFrameEndLevel; // Keep (INI_VAL=2/3): use pre-toggle level
+      // ── Toggle 演算法（2026-08-07 定版；ACT_TYPE=0 也走這裡）──
+      // 🔴 v2.97.481 前這裡有一個 `if (actType === 0)` 把 ACT_TYPE=0 導向「VBI/Column
+      //    frame 級 toggle」的獨立分支，導致 ACT_TYPE=0 永遠進不到 dot 演算法 —— 手繪
+      //    七例裡有 5 例是 ACT_TYPE=0，全部算錯。統一之後 Column preset（AT=0/RP=0/FP=0）
+      //    自然落在「bit 恆定 → 整個 frame 恆為 ACTIVE，ACTIVE 由 FRM_NO 逐 frame 反相」，
+      //    與舊 VBI 分支的輸出等價，所以那個分支可以整個拿掉。
+      //   ・cnt 於 ST_LINE 直接載入 R_PH（不取模），(cnt===ACT_TYPE)→0，否則 (cnt+1)&maskBits
+      //   ・F_PH 是 **bitmask**，指定「輸出準位要看 cnt 的哪個 bit」
+      //   ・準位相對於 bit(ST_LINE)：同相 = ACTIVE、反相 = !ACTIVE
+      //   ・R_DLY 兩個方向共用；toggle mode 沒有 F_DLY
+      //   ・SP_LINE 之後停止計數並 keep level(SP_LINE)
+      //   ・ACTIVE 由全域 Toggle FRM_NO 逐 frame 反相（toggleLevel）
+      // Presets: Column(AT=0,FP=0), 1-line(AT=1,FP=1), 2-line(AT=3,FP=2),
+      //          1+2-line(AT=3,RP=1,FP=2), 4-line(AT=7,FP=4), 8-line(AT=15,FP=8), 3-line(AT=2,FP=1)
+      var dotStLine = Math.max(0, gpio.st_line);
+      var dotSpLine = gpio.sp_line >= 16383 ? vtotal - 1 : Math.min(gpio.sp_line, vtotal - 1);
+      if (dotSpLine < dotStLine) dotSpLine = dotStLine;
+      var dotFPh = gpio.f_ph;
+      var dotSeq = wfgToggleCntSeq(gpio.r_ph, actType, wfgToggleMaskBits(), dotSpLine - dotStLine + 1);
+      var dotInactive = toggleLevel ? 0 : 1;
 
-        if (toggleFrmCounter === 0) {
-          // Toggle-flip frame: emit forced init level, then toggle transition at st_line
-          if (frame === 0 || vbiInitLevel !== prevFrameEndLevel) {
-            allTransitions.push({ line: lineOffset, dly: 0, level: vbiInitLevel });
-          }
-          if (toggleLevel !== vbiInitLevel) {
-            allTransitions.push({ line: absLine, dly: gpio.r_dly, level: toggleLevel });
-          }
-          prevFrameEndLevel = toggleLevel;
-        } else {
-          // Non-toggle frame: stays at INI_VAL-derived level
-          allTransitions.push({ line: lineOffset, dly: 0, level: vbiInitLevel });
-          prevFrameEndLevel = vbiInitLevel;
-        }
-      } else {
-        // ── XPOL Dot mode（toggle 專屬演算法，與一般打 pulse 的信號不同）──
-        // 依 Set_6138_Timing_20171005.pdf P.19 與 2026-08-07 現場確認：
-        //   ・R_PH_CNT 於 ST_LINE 載入 R_PH，每條 line +1，數到 ACT_TYPE 後下一條歸零
-        //     （週期 = ACT_TYPE + 1）
-        //   ・F_PH 不是相位起始值，而是 **bitmask** —— 指定「輸出準位要看 R_PH_CNT 的哪個 bit」
-        //     例：F_PH=2 (0b10) → 看 bit 1；該 bit = 1 → HIGH、= 0 → LOW
-        //   ・R_DLY 只在「被選中 bit 的值改變」的那一條作用，**兩個方向都用 R_DLY**
-        //     （low→high 與 high→low 皆然）；bit 沒變的那一條不套任何 DLY
-        //   ・toggle mode **沒有 F_DLY**（P.17「F_DLY_XPOL：Toggle mode 時 無用」、P.18 值為 0000h）
-        //   ・frame 反相由全域 Toggle FRM_NO 決定（XPOL 用 FRM_NO_0=0 → 每 1 個 frame 反一次），
-        //     於下方以 XOR toggleLevel 疊加
-        // Modes: 1-line(AT=1,FP=1), 2-line(AT=3,FP=2), 1+2-line(AT=3,RP=1,FP=2),
-        //        4-line(AT=7,FP=4), 8-line(AT=15,FP=8), 3-line(AT=2,FP=1, was labelled "+-+")
-        var dotStLine = Math.max(0, gpio.st_line);
-        var dotSpLine = gpio.sp_line >= 16383 ? vtotal - 1 : Math.min(gpio.sp_line, vtotal - 1);
-        var dotPeriod = actType + 1;
-        var dotFPh = gpio.f_ph;
-        var dotRCnt = gpio.r_ph % dotPeriod;
-
-        // Frame start: level based on INI_VAL (0→LOW, 1→HIGH, 2/3→Keep from prev frame)
-        var dotCurLevel;
-        if (gpio.ini_val === 0) dotCurLevel = 0;
-        else if (gpio.ini_val === 1) dotCurLevel = 1;
-        else dotCurLevel = (frame === 0) ? toggleLevel : prevFrameEndLevel; // Keep
-        if (frame > 0) {
-          allTransitions.push({ line: lineOffset, dly: 0, level: dotCurLevel });
-        }
-
-        // Active region: line-by-line dot pattern with transitions at level changes
-        for (var dotLine = dotStLine; dotLine <= dotSpLine && dotLine < vtotal; dotLine++) {
-          var dotBit = ((dotRCnt & dotFPh) === 0) ? 1 : 0;
-          var dotNewLevel = dotBit ^ toggleLevel;
-          if (dotNewLevel !== dotCurLevel) {
-            allTransitions.push({ line: lineOffset + dotLine, dly: gpio.r_dly, level: dotNewLevel });
-            dotCurLevel = dotNewLevel;
-          }
-          dotRCnt = (dotRCnt + 1) % dotPeriod;
-        }
-        prevFrameEndLevel = dotCurLevel;
+      // Frame start: level based on INI_VAL (0→LOW, 1→HIGH, 2/3→Keep from prev frame)
+      var dotCurLevel;
+      if (gpio.ini_val === 0) dotCurLevel = 0;
+      else if (gpio.ini_val === 1) dotCurLevel = 1;
+      else dotCurLevel = (frame === 0) ? toggleInitLevel : prevFrameEndLevel; // Keep
+      if (frame > 0) {
+        allTransitions.push({ line: lineOffset, dly: 0, level: dotCurLevel });
       }
+
+      // Active region: ST_LINE ~ SP_LINE（含），只在準位改變的那一條打轉態（套 R_DLY）
+      for (var dotLine = dotStLine; dotLine <= dotSpLine && dotLine < vtotal; dotLine++) {
+        var dotNewLevel = wfgToggleRelLevel(dotSeq, dotLine - dotStLine, dotFPh) ? toggleLevel : dotInactive;
+        if (dotNewLevel !== dotCurLevel) {
+          allTransitions.push({ line: lineOffset + dotLine, dly: gpio.r_dly, level: dotNewLevel });
+          dotCurLevel = dotNewLevel;
+        }
+      }
+      // SP_LINE 之後：停止計數、不再轉態，keep level(SP_LINE) 到 frame 結束
+      prevFrameEndLevel = dotCurLevel;
       continue;
     }
 
@@ -16530,7 +16606,13 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
   if (stLine <= spLine) { stToSp = spLine - stLine; }
   else { stToSp = (vtotalView - stLine) + spLine; }
   var highlightLen;
-  if (actType === 0) {
+  var tgSeq = null;
+  if (toggleMask != null) {
+    // v2.97.481 Toggle：SP_LINE 是「最後一條參與 toggle 的 line」，之後停止計數 →
+    // 高亮就到 SP_LINE 為止（舊版會延伸超過 SP_LINE 直到 counter 歸零，語義已不成立）
+    highlightLen = stToSp + 1;
+    tgSeq = wfgToggleCntSeq(iniPh, actType, wfgToggleMaskBits(), highlightLen);
+  } else if (actType === 0) {
     highlightLen = stToSp + 1;
   } else {
     var firstZero = (effIniPh === 0) ? cycle : (cycle - effIniPh);
@@ -16553,24 +16635,27 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     var inHL = forceNonHighlight ? false : (linesFromSt < highlightLen);
     // Display counter value
     var counterVal;
-    if (actType === 0) {
-      counterVal = 0;
-    } else if (linesFromSt === 0 && iniPh > actType) {
-      counterVal = iniPh;
-    } else {
-      counterVal = (effIniPh + linesFromSt) % cycle;
-    }
-    // Effective counter for trigger detection
-    var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
     var isTrigger;
     if (toggleMask != null) {
-      // Toggle 模式：準位 = R_PH_CNT 被 F_PH 選中的那個 bit；轉態在該 bit 改變的那一條
-      var cntPrev = (actType === 0) ? 0 : (effIniPh + linesFromSt - 1 + cycle) % cycle;
-      var bitHere = (effCnt & toggleMask) ? 1 : 0;
-      var bitPrev = (cntPrev & toggleMask) ? 1 : 0;
-      isTrigger = (linesFromSt > 0) && (bitHere !== bitPrev) && inHL;
-      if (isBitRow) counterVal = bitHere;
+      // v2.97.481 Toggle：counter 與波形計算共用 wfgToggleCntSeq —— 三處實作一致。
+      //   SP_LINE 之後停止計數 → 顯示 keep 住 level(SP_LINE) 那條的值（clamp 到序列末端）
+      var tgK = Math.min(Math.max(linesFromSt, 0), tgSeq.length - 1);
+      var tgCnt = tgSeq[tgK];
+      var bitHere = (tgCnt & toggleMask) ? 1 : 0;
+      var bitPrev = (tgK > 0) ? (((tgSeq[tgK - 1] & toggleMask) ? 1 : 0)) : bitHere;
+      counterVal = isBitRow ? bitHere : tgCnt;
+      // 轉態發生在「被選中 bit 改變」的那一條（= R_DLY 作用的那一條）
+      isTrigger = (tgK > 0) && (bitHere !== bitPrev) && inHL;
     } else {
+      // ── Normal (Phase Counter) 模式：維持原本邏輯不動 ──
+      if (actType === 0) {
+        counterVal = 0;
+      } else if (linesFromSt === 0 && iniPh > actType) {
+        counterVal = iniPh;
+      } else {
+        counterVal = (effIniPh + linesFromSt) % cycle;
+      }
+      var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
       isTrigger = (effCnt === actType) && inHL;
     }
     if (!inHL) {
@@ -20251,7 +20336,9 @@ function wfgLoadPreset(presetName) {
   if (!preset) return;
   wfgInvalidateCache();
   // Apply frame
-  wfgFrame = { vtotal: preset.frame.vtotal, vactive: preset.frame.vactive, htotal: preset.frame.htotal, htotalBase: preset.frame.htotalBase || preset.frame.htotal, hactive: preset.frame.hactive, dclk: preset.frame.dclk, rxDclk: preset.frame.rxDclk || 0, tconHtotal: preset.frame.tconHtotal || preset.frame.htotal, frameRate: preset.frame.frameRate || 60, gateType: preset.frame.gateType, frameCount: preset.frame.frameCount || 10, frm_no_0: preset.frame.frm_no_0 || 0, frm_no_1: preset.frame.frm_no_1 || 0, frm_no_2: preset.frame.frm_no_2 || 0 };
+  wfgFrame = { vtotal: preset.frame.vtotal, vactive: preset.frame.vactive, htotal: preset.frame.htotal, htotalBase: preset.frame.htotalBase || preset.frame.htotal, hactive: preset.frame.hactive, dclk: preset.frame.dclk, rxDclk: preset.frame.rxDclk || 0, tconHtotal: preset.frame.tconHtotal || preset.frame.htotal, frameRate: preset.frame.frameRate || 60, gateType: preset.frame.gateType, frameCount: preset.frame.frameCount || 10, frm_no_0: preset.frame.frm_no_0 || 0, frm_no_1: preset.frame.frm_no_1 || 0, frm_no_2: preset.frame.frm_no_2 || 0,
+    // v2.97.481: TCON 型態（MNT/NB）刻意**不跟內建 preset 綁定** —— 換 preset 時保留使用者目前的選擇
+    tcon_type: (wfgFrame && wfgFrame.tcon_type === 'NB') ? 'NB' : 'MNT' };
   // Compute derived values
   wfgUpdateRxDclk();
   wfgClampTconDclk();
@@ -20628,6 +20715,12 @@ function wfgOnGpioChange(gpioIdx, field, value) {
     if (typeof wfgRenderChannelList === 'function') wfgRenderChannelList();
   } else {
     gpio[field] = parseInt(value) || 0;
+    // v2.97.481: ACT_TYPE / R_PH / F_PH 一律夾在 TCON 型態的位元寬內（含手打數字）
+    if (field === 'act_type' || field === 'r_ph' || field === 'f_ph') {
+      var _lim = wfgTconTypeMax();
+      if (gpio[field] > _lim) gpio[field] = _lim;
+      if (gpio[field] < 0) gpio[field] = 0;
+    }
   }
   if (field === 'enable' || field === 'toggle') wfgRenderGpioList();
   if (isStructural) {
@@ -21236,6 +21329,41 @@ function wfgSliderHtml(gpioIdx, field, min, max, value) {
     + '<input type="number" min="' + min + '" max="' + max + '" value="' + value + '" oninput="wfgNumSync(this,' + gpioIdx + ',\'' + field + '\')">';
 }
 
+// ─── TCON 型態（MNT / NB）───
+// v2.97.481: 全域設定，所有數位信號共用。maskBits 決定 counter 的溢位點，
+//   同時也是 ACT_TYPE / R_PH / F_PH 三個欄位的上限（normal 模式一樣吃這個限制）。
+//   切到 NB 時把三個欄位 >63 的值**夾為 63**（clamp，不是 & 0x3F 截斷），且套用到全部數位信號。
+function wfgTconTypeMax() { return wfgToggleMaskBits(); }
+window.wfgTconTypeMax = wfgTconTypeMax;
+function wfgSetTconType(type) {
+  var next = (type === 'NB') ? 'NB' : 'MNT';
+  if (wfgFrame.tcon_type === next) return;
+  wfgFrame.tcon_type = next;
+  wfgInvalidateCache();
+  var lim = wfgTconTypeMax();
+  var fields = ['act_type', 'r_ph', 'f_ph'];
+  for (var gi = 0; gi < wfgGpios.length; gi++) {
+    var g = wfgGpios[gi];
+    if (!g || g.waveform_type !== 0) continue;   // 只夾數位信號
+    for (var fi = 0; fi < fields.length; fi++) {
+      var v = g[fields[fi]] | 0;
+      if (v > lim) g[fields[fi]] = lim;
+      if (v < 0) g[fields[fi]] = 0;
+    }
+  }
+  wfgSyncTconTypeRadio();
+  wfgRenderGpioList();
+  wfgRender();
+  wfgRenderMinimap();
+  wfgUpdateMinimapViewport();
+}
+window.wfgSetTconType = wfgSetTconType;
+function wfgSyncTconTypeRadio() {
+  var want = (wfgFrame && wfgFrame.tcon_type === 'NB') ? 'NB' : 'MNT';
+  document.querySelectorAll('input[name="wfg-tcon-type"]').forEach(function(r) { r.checked = (r.value === want); });
+}
+window.wfgSyncTconTypeRadio = wfgSyncTconTypeRadio;
+
 // ─── GPIO List UI ───
 function wfgRenderGpioList(focusIdx) {
   var container = document.getElementById('wfg-gpio-list');
@@ -21305,19 +21433,21 @@ function wfgRenderGpioList(focusIdx) {
       + '</div>';
 
     // Row 1: act_type, r_ph, f_ph (each with slider + ±buttons)
-    html += '<div class="wfg-field"><label>ACT_TYPE (0~511)</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'act_type', 0, 511, g.act_type)
+    // v2.97.481: 上限跟著 TCON 型態走（MNT 9bit 0~511 / NB 6bit 0~63），normal 模式一樣適用
+    var _phMax = wfgTconTypeMax();
+    html += '<div class="wfg-field"><label>ACT_TYPE (0~' + _phMax + ')</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'act_type', 0, _phMax, g.act_type)
       + '</div></div>';
     html += '<div class="wfg-gpio-grid-2">'
-      + '<div class="wfg-field"><label>R_PH (0~511)</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'r_ph', 0, 511, g.r_ph)
+      + '<div class="wfg-field"><label>R_PH (0~' + _phMax + ')</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'r_ph', 0, _phMax, g.r_ph)
       + '</div></div>'
       // v2.97.480: 勾了 Toggle 的信號（不限 XPOL/LC，任一支都適用）F_PH 是「位元遮罩」，
       // 指定看 R_PH_CNT 的哪個 bit，不是相位起始值 —— 標籤要標清楚，避免誤讀。
       + '<div class="wfg-field"><label>' + (g.toggle
           ? 'F_PH <span style="color:#f97316">= bit mask (0b' + ((g.f_ph|0).toString(2)) + ')</span>'
-          : 'F_PH (0~511)') + '</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'f_ph', 0, 511, g.f_ph)
+          : 'F_PH (0~' + _phMax + ')') + '</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'f_ph', 0, _phMax, g.f_ph)
       + '</div></div></div>';
 
     // Row 2: st_line, sp_line (each with slider + ±buttons)
@@ -23113,7 +23243,18 @@ function wfgMeasSetVal(id, text) {
 // The counter hit line is the integer line where PH_CNT == ACT_TYPE.
 // DLY shifts the actual edge: edgeLine = triggerLine + dly/dclkPerLine
 // So we need to find the trigger line from the transition that created this edge.
-function wfgFindPhCntTriggerBefore(edgePos, iniPh, actType, stLine, vtotalView, dclkPerLine) {
+// v2.97.481: toggleMask != null（信號勾了 Toggle）時，「觸發條」的定義改為
+//   「被 F_PH 選中的 bit 相對前一條改變的那一條」，而且只算到 SP_LINE 為止。
+//   計數一律走共用的 wfgToggleCntSeq，與波形本體、PH_CNT 顯示列三處同源。
+function wfgToggleIsChangeLine(lineInFrame, iniPh, actType, stLine, spLine, toggleMask) {
+  if (lineInFrame < stLine || lineInFrame > spLine) return false;
+  var k = lineInFrame - stLine;
+  if (k <= 0) return false;                       // ST_LINE 那條是無條件進入 ACTIVE，不算 bit 改變
+  var seq = wfgToggleCntSeq(iniPh, actType, wfgToggleMaskBits(), spLine - stLine + 1);
+  return (((seq[k] & toggleMask) !== 0) !== ((seq[k - 1] & toggleMask) !== 0));
+}
+
+function wfgFindPhCntTriggerBefore(edgePos, iniPh, actType, stLine, vtotalView, dclkPerLine, spLine, toggleMask) {
   // edgePos is a fractional line position (line + dly/dclkPerLine)
   // The trigger line is the integer line where the counter hit actType
   // For each frame, counter starts at iniPh at stLine, increments each line.
@@ -23124,6 +23265,20 @@ function wfgFindPhCntTriggerBefore(edgePos, iniPh, actType, stLine, vtotalView, 
   var effIniPh = (actType > 0) ? Math.min(iniPh, actType) : 0;  var edgeLine = Math.floor(edgePos);
   var frameIdx = Math.floor(edgeLine / vtotalView);
   var lineInFrame = edgeLine % vtotalView;
+
+  if (toggleMask != null) {
+    var tSp = Math.min(spLine == null ? vtotalView - 1 : spLine, vtotalView - 1);
+    if (tSp < stLine) tSp = stLine;
+    for (var tc = Math.min(lineInFrame, tSp); tc > stLine; tc--) {
+      if (wfgToggleIsChangeLine(tc, iniPh, actType, stLine, tSp, toggleMask)) return frameIdx * vtotalView + tc;
+    }
+    if (frameIdx > 0) {
+      for (var tc2 = tSp; tc2 > stLine; tc2--) {
+        if (wfgToggleIsChangeLine(tc2, iniPh, actType, stLine, tSp, toggleMask)) return (frameIdx - 1) * vtotalView + tc2;
+      }
+    }
+    return null;
+  }
 
   if (actType <= 0) {
     // actType=0: triggers every line at stLine or later
@@ -23158,10 +23313,15 @@ function wfgFindPhCntTriggerBefore(edgePos, iniPh, actType, stLine, vtotalView, 
 // ─── TCON Internal: 判斷某一條 line 是否為 PH_CNT 觸發條 ───
 // 計數規則與 wfgFindPhCntTriggerBefore 相同：counter 於 ST_LINE 載入 iniPh 後逐行遞增，
 // 數到 ACT_TYPE 的那一條即為觸發條。
-function wfgPhCntIsTriggerLine(line, iniPh, actType, stLine, vtotalView) {
+function wfgPhCntIsTriggerLine(line, iniPh, actType, stLine, vtotalView, spLine, toggleMask) {
   if (line < 0 || !(vtotalView > 0)) return false;
   var lineInFrame = line % vtotalView;
   if (lineInFrame < stLine) return false;
+  if (toggleMask != null) {
+    var tSp = Math.min(spLine == null ? vtotalView - 1 : spLine, vtotalView - 1);
+    if (tSp < stLine) tSp = stLine;
+    return wfgToggleIsChangeLine(lineInFrame, iniPh, actType, stLine, tSp, toggleMask);
+  }
   if (actType <= 0) return true; // ACT_TYPE=0：ST_LINE 起每一條都觸發
   var period = actType + 1;
   var effIniPh = Math.min(iniPh, actType);
@@ -23175,11 +23335,15 @@ function wfgPhCntIsTriggerLine(line, iniPh, actType, stLine, vtotalView) {
 // transitions 裡），否則退回舊的「用 hover 區塊邊界反推」——VST1 這種單發脈衝、
 // 滑鼠停在 pulse 中段（該條沒有任何觸發）時就走這條路徑，行為與先前相同。
 function wfgTconDlySpan(gpio, isRising, actType, stLine, vtotalView, effH, tPos, mouseLine, fallbackEdge) {
-  var ph = isRising ? gpio.r_ph : gpio.f_ph;
-  var dly = isRising ? gpio.r_dly : gpio.f_dly;
+  // v2.97.481: Toggle 模式下 counter 只有 R_PH 一顆、F_PH 是遮罩、兩個方向都用 R_DLY，
+  //   所以 ph/dly 一律取 R 側，觸發條判準改走共用的 toggle 計數。
+  var tgMask = gpio.toggle ? gpio.f_ph : null;
+  var tgSpLine = Math.min(gpio.sp_line >= 16383 ? vtotalView - 1 : gpio.sp_line, vtotalView - 1);
+  var ph = (tgMask != null) ? gpio.r_ph : (isRising ? gpio.r_ph : gpio.f_ph);
+  var dly = (tgMask != null) ? gpio.r_dly : (isRising ? gpio.r_dly : gpio.f_dly);
   var wantLevel = isRising ? 1 : 0;
   if (gpio.inv) wantLevel = wantLevel ? 0 : 1;
-  if (wfgPhCntIsTriggerLine(mouseLine, ph, actType, stLine, vtotalView)) {
+  if (wfgPhCntIsTriggerLine(mouseLine, ph, actType, stLine, vtotalView, tgSpLine, tgMask)) {
     var edgePos = mouseLine + (effH > 0 ? dly / effH : 0);
     for (var i = 0; i < tPos.length; i++) {
       if (tPos[i].level === wantLevel && Math.abs(tPos[i].pos - edgePos) < 1e-6) {
@@ -23187,7 +23351,7 @@ function wfgTconDlySpan(gpio, isRising, actType, stLine, vtotalView, effH, tPos,
       }
     }
   }
-  var t = wfgFindPhCntTriggerBefore(fallbackEdge, ph, actType, stLine, vtotalView, 0);
+  var t = wfgFindPhCntTriggerBefore(fallbackEdge, ph, actType, stLine, vtotalView, 0, tgSpLine, tgMask);
   return (t === null) ? null : { trig: t, edge: fallbackEdge };
 }
 
@@ -26684,7 +26848,12 @@ window.wfgImportConfig = function(jsonStr) {
     wfgFrame.frm_no_0 = (f.frm_no_0 != null) ? f.frm_no_0 : 0;
     wfgFrame.frm_no_1 = (f.frm_no_1 != null) ? f.frm_no_1 : 0;
     wfgFrame.frm_no_2 = (f.frm_no_2 != null) ? f.frm_no_2 : 0;
+    // v2.97.481: 舊設定檔沒有這個欄位 → 預設 MNT
+    wfgFrame.tcon_type = (f.tcon_type === 'NB') ? 'NB' : 'MNT';
+  } else {
+    wfgFrame.tcon_type = 'MNT';
   }
+  wfgSyncTconTypeRadio();
   // Compute derived values: RX DCLK, TCON Htotal
   wfgUpdateRxDclk();
   wfgClampTconDclk();

@@ -867,7 +867,7 @@
 
     <div class="callout success">
       <strong>先講重點：這 18 條的控制項完全相同</strong>
-      18 張信號卡的欄位、型別、範圍<strong>一模一樣</strong>，差別只在<strong>預設值</strong>與<strong>實務用途</strong>。所以本章<strong>只講一次通用結構</strong>（6-1），適用於全部 18 條；唯一需要獨立說明的是 <strong>XPOL 極性反轉快速設定</strong>（6-2）。其餘信號不再逐條重複。
+      18 張信號卡的欄位、型別、範圍<strong>一模一樣</strong>，差別只在<strong>預設值</strong>與<strong>實務用途</strong>。所以本章<strong>只講一次通用結構</strong>（6-1），適用於全部 18 條；另外兩個需要獨立說明的是<strong>全域的 TCON 型態 MNT／NB</strong>（6-0）與 <strong>Toggle 模式的另一套演算法</strong>（6-2）。其餘信號不再逐條重複。
     </div>
 
     <div class="card">
@@ -891,6 +891,32 @@
       <p style="font-size:.92rem;">卡片標題可點擊展開／收合，右側顯示 <span style="background:#10b981;color:#fff;padding:1px 8px;border-radius:10px;font-size:.72rem;">ON</span> 或 <span style="background:#94a3b8;color:#fff;padding:1px 8px;border-radius:10px;font-size:.72rem;">OFF</span>，一眼看出哪些被啟用。要在波形上顯示成別的名字（例如把 CK1 標成 CPV1），請改「輸出通道」的<strong>通道名稱</strong>，不是改信號本身。</p>
     </div>
 
+    <h3 id="sec6" style="margin:26px 0 12px;">6-0　TCON 型態（MNT／NB）— 全域設定</h3>
+    <div class="card">
+      <p style="font-size:.94rem;">卡片最上方有一組全域選項，決定 <code>ACT_TYPE</code> / <code>R_PH</code> / <code>F_PH</code> 這三個欄位的<strong>位元寬</strong>。<strong>所有數位信號共用同一個設定</strong>，不是逐條分別設。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>選項</th><th>位元寬</th><th>三個欄位的範圍</th><th>計數器溢位點</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">MNT（Monitor TCON）</td><td>9 bit</td><td><code>0 – 511</code></td><td>數到 <code>511</code> 後 <code>+1</code> 繞回 <code>0</code></td></tr>
+            <tr><td class="t-name">NB（Notebook TCON）</td><td>6 bit</td><td><code>0 – 63</code></td><td>數到 <code>63</code> 後 <code>+1</code> 繞回 <code>0</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin:10px 0 0 18px; padding:0; font-size:.93rem;">
+        <li><strong>預設 MNT</strong>。這個選項<strong>不跟內建預設綁定</strong> —— 換預設（快捷設定）時會保留你目前的選擇。</li>
+        <li>切到 <strong>NB</strong> 時，所有數位信號中大於 <code>63</code> 的 <code>ACT_TYPE</code> / <code>R_PH</code> / <code>F_PH</code> 會被<strong>夾為 <code>63</code></strong>（是 clamp，不是 <code>&amp; 0x3F</code> 截斷，所以 <code>500</code> 會變 <code>63</code> 而不是 <code>52</code>）。<strong>這個動作不可逆</strong>，切回 MNT 不會還原原值。</li>
+        <li>一般（非 Toggle）信號的欄位上限<strong>一樣</strong>吃這個限制。</li>
+        <li>設定會隨<strong>匯出／匯入</strong>一起帶走；沒有這個欄位的舊設定檔匯入時一律當成 <strong>MNT</strong>。</li>
+      </ul>
+      <div class="callout warn">
+        <strong>什麼時候看得出 MNT 與 NB 的差別？</strong>
+        只有在 Toggle 模式、而且計數器真的數到位元寬上限時才看得出來。例如 <code>ACT_TYPE=0 / R_PH=60 / F_PH=1 / ST_LINE=0 / SP_LINE=12</code>：<br>
+        <strong>NB</strong> → <code>60, 61, 62, 63, 0, 0, 0 …</code>（第 4 條溢位歸零，而 <code>0</code> 剛好等於 <code>ACT_TYPE</code> 所以鎖死）→ 波形 <code>H L H L H H H H H H H H H</code><br>
+        <strong>MNT</strong> → <code>60, 61, 62 … 72</code>（要數到 511 才繞回）→ 波形 <code>H L H L H L H L H L H L H</code>
+      </div>
+    </div>
+
     <h3 style="margin:26px 0 12px;">6-1　通用控制項（適用全部 18 條）</h3>
     <p style="color:var(--muted); font-size:.93rem; margin-bottom:12px;">以下 16 項每一張信號卡都有，按功能分成五群。看懂一張就等於看懂全部。</p>
 
@@ -902,9 +928,9 @@
           <tbody>
             <tr><td class="t-name">卡片標題列</td><td><span class="t-type tt-btn">可點擊</span></td><td>ON / OFF 標籤</td><td>點一下展開或收合此信號的所有參數。標籤顏色反映 ENABLE 狀態（綠 = ON，灰 = OFF）。</td></tr>
             <tr><td class="t-name">ENABLE</td><td><span class="t-type tt-chk">核取方塊</span></td><td>勾 / 不勾</td><td><strong>總開關。</strong>不勾則此信號完全不輸出，波形上該通道會是平的。這是結構性變更，改動時整份波形快取會重算。</td></tr>
-            <tr><td class="t-name">ACT_TYPE</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>Active Type</strong>，決定這條信號的重複模式（每幾行動作一次）。0 = Column 模式（每個時脈都動作），數值越大表示週期越長。與 R_PH / F_PH 三者搭配決定基本波形形狀。</td></tr>
-            <tr><td class="t-name">R_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>Rising Phase</strong>，<code>R_PH_CNT</code> 這個計數器在 <code>ST_LINE</code> 那一條載入的<strong>起始值</strong>，之後每條 line 加一，到 <code>ACT_TYPE</code> 後下一條歸零。一般信號：<strong>計數到 <code>ACT_TYPE</code> 的那一條就是上升邊所在的行。</strong></td></tr>
-            <tr><td class="t-name">F_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511</td><td><strong>一般信號</strong>：<code>F_PH_CNT</code> 的起始值，計數方式與 R_PH 相同，<strong>計數到 <code>ACT_TYPE</code> 的那一條就是下降邊所在的行</strong>；兩個計數器各數各的，脈衝寬度就是兩者觸發行的間隔。<br><strong>🔴 勾了 Toggle 的信號則完全不同</strong>：F_PH 是<strong>位元遮罩</strong>，指定要看 <code>R_PH_CNT</code> 的哪一個 bit，該 bit 的值就是輸出準位。詳見 <strong>6-2</strong>。</td></tr>
+            <tr><td class="t-name">ACT_TYPE</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511（MNT）／ 0–63（NB），見 <a href="#sec6">6-0</a></td><td><strong>Active Type</strong>，決定這條信號的重複模式（每幾行動作一次）。0 = Column 模式（每個時脈都動作），數值越大表示週期越長。與 R_PH / F_PH 三者搭配決定基本波形形狀。</td></tr>
+            <tr><td class="t-name">R_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511（MNT）／ 0–63（NB），見 <a href="#sec6">6-0</a></td><td><strong>Rising Phase</strong>，<code>R_PH_CNT</code> 這個計數器在 <code>ST_LINE</code> 那一條載入的<strong>起始值</strong>，之後每條 line 加一，到 <code>ACT_TYPE</code> 後下一條歸零。一般信號：<strong>計數到 <code>ACT_TYPE</code> 的那一條就是上升邊所在的行。</strong></td></tr>
+            <tr><td class="t-name">F_PH</td><td><span class="t-type tt-sld">滑桿列</span></td><td>0–511（MNT）／ 0–63（NB），見 <a href="#sec6">6-0</a></td><td><strong>一般信號</strong>：<code>F_PH_CNT</code> 的起始值，計數方式與 R_PH 相同，<strong>計數到 <code>ACT_TYPE</code> 的那一條就是下降邊所在的行</strong>；兩個計數器各數各的，脈衝寬度就是兩者觸發行的間隔。<br><strong>🔴 勾了 Toggle 的信號則完全不同</strong>：F_PH 是<strong>位元遮罩</strong>，指定要看 <code>R_PH_CNT</code> 的哪一個 bit，該 bit 的值就是輸出準位。詳見 <strong>6-2</strong>。</td></tr>
           </tbody>
         </table>
       </div>
@@ -1010,24 +1036,37 @@
         <strong>🔴 勾了 Toggle 的信號，演算法與一般打 pulse 的信號完全不同（適用任一信號，不限 XPOL／LC）</strong>
         一般信號是「兩個計數器各自數到 <code>ACT_TYPE</code>，一個管上升一個管下降」；<strong>Toggle 信號只有一個計數器，而且 <code>F_PH</code> 不是相位起始值，是位元遮罩（bitmask）</strong>：
         <ol style="margin:8px 0 8px 18px; padding:0;">
-          <li><code>R_PH_CNT</code> 在 <code>ST_LINE</code> 那一條載入 <code>R_PH</code>，每條 line 加一，數到 <code>ACT_TYPE</code> 後<strong>下一條歸零</strong>（週期 = <code>ACT_TYPE + 1</code>）。</li>
-          <li>把 <code>F_PH</code> 轉成二進位，<strong>為 1 的那個 bit 指定「要看 <code>R_PH_CNT</code> 的第幾個 bit」</strong>。例如 <code>F_PH = 2</code>（<code>0b10</code>）→ 看 bit 1。</li>
-          <li><strong>輸出準位就等於那個被選中 bit 的值</strong>：bit = 1 → HIGH、bit = 0 → LOW。</li>
-          <li><strong><code>R_DLY</code> 只在「被選中 bit 的值改變」的那一條作用，而且兩個方向都用 <code>R_DLY</code></strong>（low→high 與 high→low 皆然）。bit 沒變的那一條不套任何延遲，直接維持前一條的準位。</li>
+          <li><code>R_PH_CNT</code> 在 <code>ST_LINE</code> 那一條<strong>直接載入 <code>R_PH</code></strong>（<strong>不取模</strong>，就算 <code>R_PH</code> 比 <code>ACT_TYPE</code> 大也照載）。</li>
+          <li>之後每條 line 更新一次，<strong>有兩個歸零來源</strong>：<br>
+            ① 這條的值<strong>等於 <code>ACT_TYPE</code></strong> → 下一條歸零（正常週期，長度 = <code>ACT_TYPE + 1</code>）<br>
+            ② <strong>加一之後溢位</strong> → 依 TCON 型態的位元寬繞回（MNT 9bit 到 511、NB 6bit 到 63，見 <a href="#sec6">6-0</a>）<br>
+            寫成一行就是 <code>cnt(n+1) = (cnt(n) == ACT_TYPE) ? 0 : ((cnt(n) + 1) &amp; maskBits)</code>。<br>
+            <span style="color:var(--muted);">兩者合起來會有一個容易忽略的行為：溢位歸零後如果剛好等於 <code>ACT_TYPE</code>（例如 <code>ACT_TYPE = 0</code>），計數器就<strong>從此鎖死在 0</strong>，波形之後恆定不再轉態。</span></li>
+          <li>把 <code>F_PH</code> 轉成二進位當<strong>位元遮罩</strong>，<code>bit(n) = (cnt(n) &amp; F_PH) != 0</code>。例如 <code>F_PH = 2</code>（<code>0b10</code>）→ 看 bit 1。</li>
+          <li><strong><code>ST_LINE</code> 那一條無條件進入 ACTIVE</strong>（套 <code>R_DLY</code>）。之後每一條的準位是<strong>相對於 <code>ST_LINE</code> 那一條</strong>判斷的：<br>
+            <code>bit(n) == bit(ST_LINE)</code> → ACTIVE；不等 → 反相。<br>
+            <span style="color:var(--muted);">🔴 注意是「與起點同相／反相」，<strong>不是</strong>「bit=1 就 HIGH」。<code>R_PH</code> 只要改，整條波形的相位就跟著平移。</span></li>
+          <li><strong><code>R_DLY</code> 只在「準位改變」的那一條作用，而且兩個方向都用 <code>R_DLY</code></strong>（low→high 與 high→low 皆然）。沒變的那一條不套任何延遲，直接維持前一條的準位。</li>
           <li><strong>Toggle 模式沒有 <code>F_DLY</code></strong>，該欄位在此模式下無作用（原廠 timing 文件的 XPOL 暫存器表也把它標為「Toggle mode 時 無用」，實際值設 0）。</li>
-          <li>整個 frame 要不要反相，由<strong>全域的 Toggle FRM_NO</strong> 決定 —— XPOL 用 <code>FRM_NO_0 = 0</code>，代表每 <code>0+1 = 1</code> 個 frame 反相一次。</li>
+          <li><strong><code>SP_LINE</code> 是「最後一條參與 toggle 的 line」（含）</strong>。超過之後<strong>停止計數、不再轉態</strong>，一路 keep 住 <code>SP_LINE</code> 那條的準位到 frame 結束；下一個 frame 再從 <code>ST_LINE</code> 重新載入 <code>R_PH</code>。</li>
+          <li>整個 frame 的 ACTIVE 是 HIGH 還是 LOW，由<strong>全域的 Toggle FRM_NO</strong> 決定 —— frame 0 的 ACTIVE 一律是 HIGH，之後每 <code>FRM_NO + 1</code> 個 frame 反相一次。XPOL 用 <code>FRM_NO_0 = 0</code>，就是每 1 個 frame 反相一次。</li>
         </ol>
-        <strong>逐行範例</strong>（<code>ACT_TYPE=3</code>、<code>R_PH=1</code>、<code>ST_LINE=2</code>、<code>F_PH=2</code> → 看 bit 1，週期 4 條）：
+        <strong>逐行範例</strong>（<code>ACT_TYPE=0</code>、<code>R_PH=1</code>、<code>F_PH=2</code>、<code>ST_LINE=0</code>、<code>SP_LINE=8</code>、<code>R_DLY=0</code>、MNT）：
         <table style="margin:8px 0; font-size:.88rem;">
-          <thead><tr><th>Line</th><th>R_PH_CNT</th><th>bit 1</th><th>輸出</th><th>R_DLY</th></tr></thead>
+          <thead><tr><th>Line</th><th>R_PH_CNT</th><th>bit 1</th><th>與 L0 同相？</th><th>輸出</th></tr></thead>
           <tbody>
-            <tr><td>2</td><td><code>2'b01</code></td><td>0</td><td>LOW</td><td>—</td></tr>
-            <tr><td>3</td><td><code>2'b10</code></td><td>1</td><td>轉態 → HIGH</td><td><strong>作用</strong></td></tr>
-            <tr><td>4</td><td><code>2'b11</code></td><td>1</td><td>維持 HIGH</td><td>不作用</td></tr>
-            <tr><td>5</td><td><code>2'b00</code>（前一條到 ACT_TYPE=3，這條歸零）</td><td>0</td><td>轉態 → LOW</td><td><strong>作用</strong></td></tr>
+            <tr><td>0</td><td><code>1</code></td><td>0</td><td>—（起點）</td><td><strong>ACTIVE</strong>（H）</td></tr>
+            <tr><td>1</td><td><code>2</code></td><td>1</td><td>否</td><td>轉態 → L</td></tr>
+            <tr><td>2</td><td><code>3</code></td><td>1</td><td>否</td><td>維持 L</td></tr>
+            <tr><td>3</td><td><code>4</code></td><td>0</td><td>是</td><td>轉態 → H</td></tr>
+            <tr><td>4</td><td><code>5</code></td><td>0</td><td>是</td><td>維持 H</td></tr>
+            <tr><td>5–6</td><td><code>6, 7</code></td><td>1</td><td>否</td><td>轉態 → L，維持</td></tr>
+            <tr><td>7–8</td><td><code>8, 9</code></td><td>0</td><td>是</td><td>轉態 → H，維持</td></tr>
+            <tr><td>9 以後</td><td colspan="3">已超過 <code>SP_LINE = 8</code>，停止計數</td><td>keep H 到 frame 結束</td></tr>
           </tbody>
         </table>
-        以此類推。<span style="color:var(--muted);">把滑鼠停在 XPOL 波形上時，畫布只會畫一支 <strong>R_DLY</strong> 箭頭（起算條就是 bit 改變的那一條），不會畫 F_DLY —— 因為 Toggle 模式下它不存在。</span>
+        <span style="color:var(--muted);">注意 <code>ACT_TYPE = 0</code> 時計數器<strong>不會</strong>每條歸零 —— 因為載入的 <code>R_PH = 1</code> 不等於 <code>ACT_TYPE = 0</code>，之後也一路遞增到位元寬上限才繞回。這是 v2.98.0 修掉的四個錯誤案例之一。</span>
+        <br><span style="color:var(--muted);">把滑鼠停在 Toggle 信號的波形上時，畫布只會畫一支 <strong>R_DLY</strong> 箭頭（起算條就是準位改變的那一條），不會畫 F_DLY —— 因為 Toggle 模式下它不存在。上方 <code>R_PH_CNT</code> 列顯示計數值、<code>F_PH_CNT</code> 列改顯示被選中 bit 的值（0/1），兩列的高亮都到 <code>SP_LINE</code> 為止，之後轉灰。</span>
       </div>
       <div class="callout info">
         <strong>「3-line」為什麼在畫面上看起來像「正正負」或「正負負」？</strong>

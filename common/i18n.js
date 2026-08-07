@@ -630,6 +630,7 @@ var I18N = {
   'wfg.frmnoTitle':     { 'zh-TW': 'Toggle FRM_NO（全域共用）', 'en': 'Toggle FRM_NO (Global)', 'zh-CN': 'Toggle FRM_NO（全局共用）' },
   'wfg.frmnoDesc':      { 'zh-TW': '所有 GPIO 的 Toggle 模式共用此 FRM_NO 設定', 'en': 'All GPIO Toggle modes share this FRM_NO setting', 'zh-CN': '所有 GPIO 的 Toggle 模式共用此 FRM_NO 设定' },
   'wfg.xpolPresetLabel':{ 'zh-TW': 'XPOL 模式快速設定（自動填入 ACT_TYPE / R_PH / F_PH）', 'en': 'XPOL mode presets (auto-fill ACT_TYPE / R_PH / F_PH)', 'zh-CN': 'XPOL 模式快速设定（自动填入 ACT_TYPE / R_PH / F_PH）' },
+  'wfg.tconTypeLabel':  { 'zh-TW': 'TCON 型態（決定 ACT_TYPE / R_PH / F_PH 位元寬，所有數位信號共用）', 'en': 'TCON type (sets ACT_TYPE / R_PH / F_PH bit width, shared by all digital signals)', 'zh-CN': 'TCON 型态（决定 ACT_TYPE / R_PH / F_PH 位宽，所有数字信号共用）' },
   // ─── WFG: Toolbar buttons ───
   'wfg.zoomInTitle':    { 'zh-TW': '放大', 'en': 'Zoom In', 'zh-CN': '放大' },
   'wfg.zoomOutTitle':   { 'zh-TW': '縮小', 'en': 'Zoom Out', 'zh-CN': '缩小' },

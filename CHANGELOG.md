@@ -22,6 +22,88 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v2.98.0 — 2026-08-07 ｜ MINOR ｜ ⚠ 輸出變更
+
+**判定依據：** 本版有兩件事。① Toggle 演算法修正 —— `VERSIONING.md` §2 案例 2「改一個 bug」與案例 7「既有計算公式修正」→ **PATCH**，且因為舊版存下來的 toggle 波形圖用新版重跑會不一樣，依 **R1** 加註 `⚠ 輸出變更`。② 新增「TCON 型態（MNT／NB）」全域設定 —— 使用者多了一件能做的事（切 6-bit 欄位寬），既有操作全部保留、沒有任何按鈕移位或功能移除，符合 §2 案例 1 → **MINOR**。**兩者取較高者 → MINOR，版號 v2.97.480 → v2.98.0。**
+
+> 這**不是** §2 案例 8「主動改設計」的 MAJOR：規則是拿 Bruce 的手繪七例與三組實機實測反推出來的**原本就該有的行為**，不是換一套新定義。
+> 公告表列的 `wfg → v3.0.0` 分界跳版本次**仍未執行**（那一格是留給 MAJOR 的，本版不是），維持待裁決。
+
+### 一、⚠ Toggle 模式演算法修正（定版規則，10 例實測驗證）
+
+**問題**：Toggle 信號的逐行準位算錯。手繪七例中錯 4 例（#1／#3／#4／#7），而且 `ACT_TYPE = 0` 的設定完全算不出正確波形。
+
+**根因**（`wfg.html`，四處各自算了一份 counter，彼此還不一致）：
+
+| # | 位置 | 錯在哪 |
+|---|---|---|
+| 1 | `wfgCalcGpio` 的 `if (actType === 0)` | `ACT_TYPE = 0` 被導向「VBI／Column frame 級 toggle」的獨立分支，**永遠進不到 dot 演算法**。手繪七例有 5 例是 `ACT_TYPE = 0`，全部走錯路 |
+| 2 | `dotRCnt = gpio.r_ph % dotPeriod` | `R_PH` 應該是**直接載入、不取模**；且沒有位元寬溢位這條歸零路徑 |
+| 3 | `((dotRCnt & dotFPh) === 0) ? 1 : 0` XOR `toggleLevel` | 準位判準應該是「與 `bit(ST_LINE)` **同相／反相**」，不是「bit 等不等於 0」。`R_PH` 一改，整條波形的相位要跟著平移 |
+| 4 | `wfgDrawPhCntRow` 的高亮長度 | 註解明寫 "past spLine"，高亮會延伸超過 `SP_LINE`；新語義下 `SP_LINE` 之後就停止計數，高亮必須在那裡停 |
+| 5 | `wfgDrawPhCntRow` 的計數值 | `(effIniPh + linesFromSt) % cycle` + `Math.min(iniPh, actType)` —— 同樣是取模、沒有位元寬 wrap |
+| 6 | `wfgFindPhCntTriggerBefore` / `wfgPhCntIsTriggerLine` | 簽章沒有 `SP_LINE`；`actType <= 0` 時判成「`ST_LINE` 之後每條都觸發」 |
+| 7 | `toggleLevel` 初值固定為 0 | `FRM_NO = 0`（threshold = 1）時 frame 0 剛好被翻成 1、答案正確；但 `FRM_NO > 0` 時 frame 0 不翻，ACTIVE 變成 0，整個 frame 0 停在 `!ACTIVE`，**極性與後續 frame 相反** |
+
+**修法**：抽出共用核心 `wfgToggleMaskBits()` / `wfgToggleCntSeq()` / `wfgToggleRelLevel()`，波形本體、`R_PH_CNT` 顯示列、cursor 的 `R_DLY` 起算條**三處全部改用同一份計數**（先前是三份各自為政，會出現「波形對了但顯示列對不上」）。舊的 VBI／Column 分支整個移除 —— 統一之後 Column preset（`AT=0 / RP=0 / FP=0`）自然落在「bit 恆定 → 整個 frame 恆為 ACTIVE，ACTIVE 由 FRM_NO 逐 frame 反相」，與舊分支的輸出等價。
+
+**定版規則**（2026-08-07，經手繪七例 + 三組實測共 10 例驗證）：
+
+```
+maskBits = (TCON_TYPE == MNT) ? 0x1FF : 0x3F
+
+cnt(ST_LINE) = R_PH                                    ← 直接載入，不取模
+cnt(n+1)     = (cnt(n) == ACT_TYPE) ? 0                ← 正常週期歸零
+                                    : ((cnt(n)+1) & maskBits)   ← 溢位歸零
+
+bit(n)   = (cnt(n) & F_PH) != 0                        ← F_PH 是位元遮罩
+level(n) = (bit(n) == bit(ST_LINE)) ? ACTIVE : !ACTIVE ← 相對起點，不是 bit 值本身
+
+ST_LINE 那條無條件進入 ACTIVE（套 R_DLY）；兩個方向都用 R_DLY，toggle 沒有 F_DLY
+n > SP_LINE：停止計數、不再轉態，keep level(SP_LINE) 到 frame 結束
+frame 0 的 ACTIVE 為 HIGH，之後每 FRM_NO+1 個 frame 反相一次
+```
+
+> 「溢位歸零後若剛好等於 `ACT_TYPE` 就會鎖死」是這條規則一個容易忽略但已被實測坐實的行為：NB 下 `ACT_TYPE=0 / R_PH=60`，counter 走 `60→61→62→63→0`，而 `0 == ACT_TYPE`，於是從此恆為 0，波形之後不再轉態。
+
+**驗收（10 例全過）**：
+
+| 來源 | 參數（`ST_LINE=0 / R_DLY=0`） | L0～L10 |
+|---|---|---|
+| 手繪 #1 | `ACT=0, R_PH=1, F_PH=2, SP=8` | `H L L H H L L H H H H` |
+| 手繪 #2 | `ACT=1, R_PH=1, F_PH=1, SP=8` | `H L H L H L H L H H H` |
+| 手繪 #3 | `ACT=1, R_PH=1, F_PH=2, SP=8` | `H H H H H H H H H H H` |
+| 手繪 #4 | `ACT=0, R_PH=1, F_PH=1, SP=8` | `H L H L H L H L H H H` |
+| 手繪 #5 | `ACT=0, R_PH=1, F_PH=0, SP=8` | `H H H H H H H H H H H` |
+| 手繪 #6 | `ACT=0, R_PH=0, F_PH=1, SP=8` | `H H H H H H H H H H H` |
+| 手繪 #7 | `ACT=0, R_PH=2, F_PH=1, SP=8` | `H L H L H L H L H H H` |
+| **實測** | `ACT=0, R_PH=2, F_PH=2, SP=8` | `H H L L H H L L H H H` |
+| **實測** | `ACT=3, R_PH=60, F_PH=2, SP=8` | `H H L L H H L L H H H` |
+| **實測（NB）** | `ACT=0, R_PH=60, F_PH=1, SP=8 與 SP=12` | `H L H L H H H H H H H` |
+
+### 二、新增：TCON 型態（MNT／NB）全域設定
+
+「數位信號」卡片最上方新增一組 **MNT / NB** 選項，決定 `ACT_TYPE` / `R_PH` / `F_PH` 的位元寬 —— **MNT（Monitor）9 bit `0~511`**、**NB（Notebook）6 bit `0~63`**，所有數位信號共用。
+
+- **預設 MNT**；**不跟內建預設綁定**，換快捷設定時保留使用者目前的選擇。
+- 切到 NB 時，所有數位信號中大於 63 的三個欄位**夾為 63**（clamp，不是 `& 0x3F` 截斷 —— `500` 會變 `63` 而不是 `52`）。此動作不可逆。
+- 欄位標籤與滑桿上限跟著切換；一般（非 Toggle）信號**一樣**吃這個限制。
+- 隨匯出／匯入一起帶走；**沒有這個欄位的舊設定檔匯入時一律當成 MNT**。
+- 這也是唯一能分辨兩者的測項：同一組 `ACT=0 / R_PH=60 / F_PH=1 / SP_LINE=12` 下，NB 為 `H L H L H H H H H H H H H`（L4 溢位歸零後鎖死），MNT 為 `H L H L H L H L H L H L H`（要數到 511 才 wrap）。
+
+### 三、回歸驗證
+
+- **內建預設（FHD 60Hz Single Gate）整張 canvas 逐像素零差異**：與 v2.97.480（commit `b7f8d86`）在同一組 view 下比對 1330 條掃描線的 FNV-1a 雜湊，**diff = 0**，18 條通道全部相同。也就是說使用者實際會載入的預設，輸出完全沒變。
+- 上表 10 例 + MNT／NB 分辨測項共 13 組，透過**生產路徑** `wfgCalcGpio` 逐條取準位，13/13 全過（另有一份不依賴瀏覽器的 Node self-check，直接從 `wfg.html` 抽出共用核心函式跑同一組資料，同樣 13/13）。
+- `R_PH_CNT` / `F_PH_CNT` 顯示列、觸發格高亮、`SP_LINE` 之後轉灰、即時測量的脈寬／週期，與波形逐條對得上。
+
+### 四、附帶
+
+- 新增 `window.wfgDebugGpioLevels(gpioIdx, firstLine, lastLine)`：走 `wfgCalcGpio` 把某支信號逐條 line 的準位吐成 `H`/`L` 字串，供自動化驗證比對期望序列（不影響 UI）。共用核心三支函式一併掛上 `window`。
+- 說明頁 `wfg-guide.html` 同步更新：新增 **6-0 TCON 型態（MNT／NB）**，改寫 **6-2** 的 Toggle 演算法七條規則與逐行範例，`ACT_TYPE` / `R_PH` / `F_PH` 的範圍欄改成「0–511（MNT）／0–63（NB）」並連到 6-0。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v2.97.480 — 2026-08-07 ｜ PATCH ｜ ⚠ 輸出變更
 
 **判定依據：** 本版兩項改動都是**顯示層**修正，`VERSIONING.md` §2 案例 2「改一個 bug」→ **PATCH**；因為畫面上的箭頭位置會變（過去截的圖用新版重跑會不一樣），依 **R1** 加註 `⚠ 輸出變更`。**波形資料本身完全沒有改動** —— 非 toggle GPIO 66/66 回歸零差異，toggle GPIO 的 `wfgCalcGpio` 與前一版位元相同。
