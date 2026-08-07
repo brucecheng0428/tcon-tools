@@ -1100,8 +1100,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260808pat330"></script>
-<script src="common/i18n.js?v=20260808pat330"></script>
+<script src="common/version.js?v=20260808pat340"></script>
+<script src="common/i18n.js?v=20260808pat340"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -2813,6 +2813,93 @@
   //   而「最亮跟最暗要對」正是這個功能唯一在意的準確度。
   function pg8to10(v){ return (((v << 2) | (v >> 6)) & 0x3ff); }
 
+  // ─── 10 → 16 bit：放大到滿刻度 ───────────────────────────────────
+  //   v16 = round(v10 × 65535 / 1023)
+  // 用整數式 (v*65535 + 511) / 1023 取整，避開浮點。實測 1024 個值與
+  // Math.round(v*65535/1023) 完全一致，且 0→0、1023→65535 兩端精準。
+  //
+  // 🔴 為什麼是「放大到滿刻度」而不是「把 1023 放在低位」：
+  //   **多數讀取器不理會 sBIT。** 若把 1023 直接塞進 16bit 低位，不理 sBIT 的
+  //   讀取器會把全白讀成 1023/65535 ≈ 1.5% —— 全白變成幾乎全黑，正好毀掉
+  //   這個功能唯一在意的「最亮跟最暗要對」。放大到滿刻度則兩種讀取器都不會
+  //   錯得離譜：不理 sBIT 的讀到滿刻度（正確），理會 sBIT 的可用 v16>>6
+  //   精準還原回 0~1023（實測 1024 個值零失敗）。
+  function pg10to16(v){ return ((v * 65535 + 511) / 1023) | 0; }
+
+  // ─── PNG CRC32（每個 chunk 都要）───────────────────────────────
+  var PG_CRC_T = null;
+  function pgCrc32(buf, from, to){
+    if (!PG_CRC_T) {
+      PG_CRC_T = new Int32Array(256);
+      for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        PG_CRC_T[n] = c;
+      }
+    }
+    var crc = -1;
+    for (var i = from; i < to; i++) crc = PG_CRC_T[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+    return (crc ^ -1) >>> 0;
+  }
+  // 組一個 chunk：length(4) + type(4) + data + crc(4)；CRC 涵蓋 type + data
+  function pgPngChunk(type, data){
+    var out = new Uint8Array(12 + data.length), dv = new DataView(out.buffer);
+    dv.setUint32(0, data.length);
+    for (var i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+    out.set(data, 8);
+    dv.setUint32(8 + data.length, pgCrc32(out, 4, 8 + data.length));
+    return out;
+  }
+
+  // ─── PNG 16-bit truecolor 編碼器（含 sBIT = 10）──────────────────
+  //
+  // 為什麼不能用 canvas.toBlob：canvas 本身是 8-bit，toBlob 永遠只吐 8-bit。
+  // 要 16-bit 只能自己組檔案。
+  //
+  // chunk 序列：IHDR → sBIT → IDAT → IEND
+  //   IHDR: width/height/bitDepth=16/colourType=2(truecolor)/壓縮0/濾波0/交錯0
+  //   sBIT: colour type 2 時長度 3 bytes，內容 10,10,10
+  //         🔴 規格要求必須排在 PLTE 與 IDAT 之前
+  //   IDAT: zlib(RFC1950) 壓縮的原始資料；每條 scanline 前面一個 filter type byte（這裡用 0=None）
+  //   🔴 16-bit sample 是 network byte order（big-endian，MSB 先）—— 規格明文，最容易寫錯的地方
+  //
+  // 回傳 Promise<Blob>（要等 CompressionStream）。
+  function pgEncodePNG16_10(srcCtx, W, H){
+    var data = srcCtx.getImageData(0, 0, W, H).data;
+    var stride = 1 + W * 6;                       // filter byte + 每點 3 通道 × 2 bytes
+    var raw = new Uint8Array(H * stride);
+    for (var y = 0; y < H; y++) {
+      var ro = y * stride, so = y * W * 4;
+      raw[ro] = 0;                                // filter type 0 = None
+      var p = ro + 1;
+      for (var x = 0; x < W; x++) {
+        for (var c = 0; c < 3; c++) {
+          var v = pg10to16(pg8to10(data[so + x * 4 + c]));
+          raw[p++] = (v >>> 8) & 0xff;            // big-endian：高位先
+          raw[p++] = v & 0xff;
+        }
+      }
+    }
+    var ihdr = new Uint8Array(13), dv = new DataView(ihdr.buffer);
+    dv.setUint32(0, W); dv.setUint32(4, H);
+    ihdr[8] = 16;                                 // bit depth
+    ihdr[9] = 2;                                  // colour type 2 = truecolor
+    ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;     // compression / filter / interlace
+    var sig = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    // CompressionStream('deflate') 產生的是 zlib(RFC1950) 包裝，正是 IDAT 要的
+    var cs = new CompressionStream('deflate');
+    var w = cs.writable.getWriter();
+    w.write(raw); w.close();
+    return new Response(cs.readable).arrayBuffer().then(function(ab){
+      var parts = [sig,
+                   pgPngChunk('IHDR', ihdr),
+                   pgPngChunk('sBIT', new Uint8Array([10, 10, 10])),
+                   pgPngChunk('IDAT', new Uint8Array(ab)),
+                   pgPngChunk('IEND', new Uint8Array(0))];
+      return new Blob(parts, { type: 'image/png' });
+    });
+  }
+
   // ─── BMP 32-bit 10bpc 編碼器（A2R10G10B10）──────────────────────
   //
   // 檔案結構（給日後要對機台調格式的人看，數字都是實際會寫進去的值）：
@@ -2904,9 +2991,73 @@
       return { diff: diff, total: W * H, decodedW: dW, decodedH: absH };
     });
   }
+  // 16-bit PNG 專用：同樣**不准走 createImageBitmap**（理由同上）。
+  // 自己掃 chunk、驗 IHDR/sBIT、用 DecompressionStream 解 IDAT，再逐像素比對。
+  function pgVerifyPng16(blob, srcCtx, W, H){
+    return blob.arrayBuffer().then(function(ab){
+      var u8 = new Uint8Array(ab), dv = new DataView(ab);
+      var bad = function(msg){ return { diff: W * H, total: W * H, decodedW: 0, decodedH: 0, note: msg }; };
+      var SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+      for (var i = 0; i < 8; i++) if (u8[i] !== SIG[i]) return bad('bad signature');
+      // 掃 chunk 序列（順便記下順序，sBIT 必須在 IDAT 之前）
+      var o = 8, order = [], idat = [], sbit = null, ihdr = null;
+      while (o + 8 <= u8.length) {
+        var len = dv.getUint32(o);
+        var ty = String.fromCharCode(u8[o+4], u8[o+5], u8[o+6], u8[o+7]);
+        var body = u8.subarray(o + 8, o + 8 + len);
+        // 順便驗 CRC，壞掉的 chunk 直接抓出來
+        if (dv.getUint32(o + 8 + len) !== pgCrc32(u8, o + 4, o + 8 + len)) return bad('CRC fail @' + ty);
+        order.push(ty);
+        if (ty === 'IHDR') ihdr = body;
+        else if (ty === 'sBIT') sbit = body;
+        else if (ty === 'IDAT') idat.push(body);
+        o += 12 + len;
+        if (ty === 'IEND') break;
+      }
+      if (!ihdr) return bad('no IHDR');
+      var iv = new DataView(ihdr.buffer, ihdr.byteOffset, ihdr.byteLength);
+      var dW = iv.getUint32(0), dH = iv.getUint32(4), depthBits = ihdr[8], ctype = ihdr[9];
+      if (depthBits !== 16) return bad('bitDepth=' + depthBits);
+      if (ctype !== 2)      return bad('colourType=' + ctype);
+      if (!sbit)            return bad('no sBIT');
+      if (sbit.length !== 3 || sbit[0] !== 10 || sbit[1] !== 10 || sbit[2] !== 10)
+        return bad('sBIT=' + Array.prototype.join.call(sbit, ','));
+      if (order.indexOf('sBIT') > order.indexOf('IDAT')) return bad('sBIT after IDAT');
+      if (!idat.length) return bad('no IDAT');
+      // 多個 IDAT 要接起來再解
+      var total = 0, k;
+      for (k = 0; k < idat.length; k++) total += idat[k].length;
+      var z = new Uint8Array(total), zo = 0;
+      for (k = 0; k < idat.length; k++) { z.set(idat[k], zo); zo += idat[k].length; }
+      var ds = new DecompressionStream('deflate');
+      var wr = ds.writable.getWriter(); wr.write(z); wr.close();
+      return new Response(ds.readable).arrayBuffer().then(function(rawAb){
+        var raw = new Uint8Array(rawAb);
+        var stride = 1 + dW * 6;
+        if (raw.length !== dH * stride) return bad('raw size ' + raw.length + ' != ' + (dH * stride));
+        var src = srcCtx.getImageData(0, 0, W, H).data;
+        var diff = 0, y, x, c;
+        for (y = 0; y < dH; y++) {
+          var ro = y * stride, so = y * W * 4;
+          if (raw[ro] !== 0) return bad('filter type ' + raw[ro] + ' @row ' + y);
+          for (x = 0; x < dW; x++) {
+            for (c = 0; c < 3; c++) {
+              var p = ro + 1 + (x * 3 + c) * 2;
+              var got = (raw[p] << 8) | raw[p + 1];        // big-endian
+              if (got !== pg10to16(pg8to10(src[so + x * 4 + c]))) { diff++; break; }
+            }
+          }
+        }
+        return { diff: diff, total: W * H, decodedW: dW, decodedH: dH };
+      });
+    });
+  }
   // depth 預設 8 → 完全走原本那條路，8-bit 的行為一個位元都不會變
-  function pgVerifyRoundTrip(blob, srcCtx, W, H, depth){
-    if (depth === 10) return pgVerifyBmp10(blob, srcCtx, W, H);
+  function pgVerifyRoundTrip(blob, srcCtx, W, H, depth, fmt){
+    if (depth === 10) {
+      return (fmt === 'png') ? pgVerifyPng16(blob, srcCtx, W, H)
+                             : pgVerifyBmp10(blob, srcCtx, W, H);
+    }
     return createImageBitmap(blob).then(function(bmp){
       var c2 = document.createElement('canvas');
       c2.width = W; c2.height = H;
@@ -2963,24 +3114,20 @@
   // ─── 輸出色彩深度（8 / 10）───────────────────────────────────────
   // 目的很單純：有些機台只吃 10-bit 圖，不吃 8-bit。畫面本身仍是 8-bit 產生的，
   // 這裡只負責把每個通道放大成 10-bit 再寫進檔案。
-  // 🔴 目前只有 BMP 支援 10 bit。PNG 沒有原生 10 bit（規格只允許 1/2/4/8/16），
-  //    要做得靠 16-bit + sBIT，而且 canvas.toBlob 永遠只吐 8-bit、必須自寫編碼器
-  //    —— 那是另一階段的事。在那之前寧可把選項關掉，也不要讓使用者以為存到了
-  //    10-bit PNG 其實拿到 8-bit 檔。
+  // 兩種格式都支援 10 bit，但容器不同：
+  //   BMP → 32bpp BI_BITFIELDS，原生就是 10 bit
+  //   PNG → 沒有原生 10 bit（規格只允許 1/2/4/8/16），用 16 bit + sBIT=10 表達
   function pgOutDepth(){
     var d = document.getElementById('pg-out-d10');
     return (d && d.checked && !d.disabled) ? 10 : 8;
   }
-  function pgOutDepthAvail(fmt){ return (fmt || pgOutFmt()) === 'bmp'; }
-  // 依目前格式決定 10 bit 選項能不能點；不能點時強制退回 8 bit（不留假的勾選狀態）
+  function pgOutDepthAvail(){ return true; }
   function pgOutSyncDepthUI(){
-    var d10 = document.getElementById('pg-out-d10'), d8 = document.getElementById('pg-out-d8');
-    if (!d10 || !d8) return;
-    var ok = pgOutDepthAvail();
-    d10.disabled = !ok;
-    if (!ok && d10.checked) { d10.checked = false; d8.checked = true; }
+    var d10 = document.getElementById('pg-out-d10');
+    if (!d10) return;
+    d10.disabled = false;
     var opt = d10.closest ? d10.closest('.radio-opt') : null;
-    if (opt) { opt.style.opacity = ok ? '' : '.45'; opt.title = ok ? '' : t('pat.outDepthPngNA'); }
+    if (opt) { opt.style.opacity = ''; opt.title = ''; }
   }
   function pgOutSize(){
     var w = parseInt((document.getElementById('pg-out-w') || {}).value, 10);
@@ -3061,8 +3208,16 @@
     if (fh) fh.textContent = t('pat.outFmtHint') +
       (pgOutFmt() === 'bmp' ? ' ' + t('pat.outBmpSize', { s: pgFmtBytes(bmpBytes) }) : '');
     var dh = document.getElementById('pg-out-depthhint');
-    if (dh) dh.textContent = t('pat.outDepthHint') +
-      (pgOutDepthAvail() ? '' : ' ' + t('pat.outDepthPngNA'));
+    if (dh) {
+      var txt = t('pat.outDepthHint');
+      if (pgOutDepth() === 10) {
+        txt += ' ' + t(pgOutFmt() === 'bmp' ? 'pat.outDepthBmp' : 'pat.outDepthPng');
+        // PNG 有壓縮，壓完多大要看內容，只能給未壓縮基準
+        if (pgOutFmt() === 'png')
+          txt += ' ' + t('pat.outPng16Size', { s: pgFmtBytes(sz.W * sz.H * 6) });
+      }
+      dh.textContent = txt;
+    }
   }
   // ─── 分享能力偵測 ─────────────────────────────────────────────────
   // 判準刻意不看 UA 字串：那是列舉式判準（要窮舉所有行動瀏覽器），必漏，而且
@@ -3156,13 +3311,17 @@
     if (fmt === 'bmp') {
       cb(depth === 10 ? pgEncodeBMP32_10(r.ctx, sz.W, sz.H) : pgEncodeBMP24(r.ctx, sz.W, sz.H),
          r.ctx, sz, fmt, depth);
+    } else if (depth === 10) {
+      // 16-bit PNG 要自己編（canvas.toBlob 永遠只吐 8-bit），非同步
+      pgEncodePNG16_10(r.ctx, sz.W, sz.H).then(function(b){ cb(b, r.ctx, sz, fmt, depth); },
+                                                function(){ cb(null, r.ctx, sz, fmt, depth); });
     } else {
       r.canvas.toBlob(function(b){ cb(b, r.ctx, sz, fmt, depth); }, 'image/png');
     }
   }
   // 機械證明：把交付出去的那顆 blob 解碼回來逐像素比對
   function pgOutVerifyBlob(blob, ctx, sz, fmt, prefix, depth){
-    return pgVerifyRoundTrip(blob, ctx, sz.W, sz.H, depth).then(function(v){
+    return pgVerifyRoundTrip(blob, ctx, sz.W, sz.H, depth, fmt).then(function(v){
       var ok = (v.diff === 0 && v.decodedW === sz.W && v.decodedH === sz.H);
       pgOutVerifyShow(ok ? 'ok' : 'bad', (prefix || '') + t(ok ? 'pat.outVerifyOk' : 'pat.outVerifyBad', {
         f: fmt.toUpperCase() + (depth === 10 ? ' 10-bit' : '') + (v.note ? ' / ' + v.note : ''),
@@ -3450,7 +3609,7 @@
         a.href = url; a.download = stem + '_' + W + 'x' + H + '.' + fmt;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function(){ URL.revokeObjectURL(url); }, 15000);
-        pgVerifyRoundTrip(blob, r.ctx, W, H, depth).then(function(v){
+        pgVerifyRoundTrip(blob, r.ctx, W, H, depth, fmt).then(function(v){
           results.push({ size: W + '×' + H, diff: v.diff, total: v.total, bytes: blob.size,
                          sizeOK: (v.decodedW === W && v.decodedH === H) });
           idx++;
@@ -3461,6 +3620,7 @@
         });
       };
       if (fmt === 'bmp') after(depth === 10 ? pgEncodeBMP32_10(r.ctx, W, H) : pgEncodeBMP24(r.ctx, W, H));
+      else if (depth === 10) pgEncodePNG16_10(r.ctx, W, H).then(after);
       else r.canvas.toBlob(function(b){ after(b); }, 'image/png');
     }
     next();
@@ -5240,7 +5400,9 @@
   window.pgRenderToSize  = pgRenderToSize;
   window.pgEncodeBMP24   = pgEncodeBMP24;
   window.pgEncodeBMP32_10 = pgEncodeBMP32_10;
+  window.pgEncodePNG16_10 = pgEncodePNG16_10;
   window.pg8to10         = pg8to10;
+  window.pg10to16        = pg10to16;
   window.pgOutDepth      = pgOutDepth;
   window.pgVerifyRoundTrip = pgVerifyRoundTrip;
   window.pgOutSize       = pgOutSize;

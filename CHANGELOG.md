@@ -22,6 +22,41 @@
 
 ---
 
+## Pattern Generator 畫面產生器 (pattern) v3.4.0 — 2026-08-08 ｜ MINOR
+
+**判定依據：** `docs/VERSIONING.md` §2 案例 1「新增一個完整功能」—— 新增「10 bit PNG 輸出」，使用者**多了一件原本做不到的事**：v3.3.0 時選 PNG 會讓 10 bit 選項變灰不能點，現在可以了。既有操作全部在原位、色彩深度預設仍是 8 bit、8 bit 的 PNG 與 BMP 輸出結果經 22 個 sha256 證明**位元組完全相同**（比對基準是 v3.3.0 之前錄的原始基線，等於同時證明 v3.3.0 與 v3.4.0 兩次改動累積起來仍零回歸）→ 不觸發 MAJOR，也不是 PATCH。既有使用方式的輸出結果不變，**不加 `⚠ 輸出變更`**。同 §2 案例 13：`common/i18n.js` 只新增 `pat.outDepthBmp` / `pat.outDepthPng` / `pat.outPng16Size` 並改寫 `pat.outDepthHint`（該 key 僅 pattern 使用），其餘分頁不受影響、不進版。
+
+### 新增：10 bit PNG 輸出（16 bit + `sBIT=10`）
+
+PNG 規格沒有原生 10 bit（只允許 1/2/4/8/16，truecolor 只能 8 或 16），所以 10 bit 用 **16 bit truecolor + `sBIT=10`** 表達。`canvas.toBlob` 永遠只吐 8 bit，因此**自寫 PNG 編碼器**：IHDR → sBIT → IDAT → IEND，每個 chunk 附 CRC32，IDAT 用 `CompressionStream('deflate')`（實測 Chrome 150 吐的是 zlib/RFC1950，開頭 `78 9C`，正是 PNG 需要的；`deflate-raw` 是裸 deflate 不能用）。
+
+🔴 **16 bit sample 用 network byte order（big-endian，MSB 先）** —— 規格明文，也是最容易寫錯的地方，已用非對稱值專門驗過。
+
+**數值放大到滿刻度（1023 → 65535），不是把 1023 塞進低位。** 理由是**多數讀取器不理會 `sBIT`**：若把 1023 放低位，那些讀取器會把全白讀成 `1023/65535 ≈ 1.56%`，**全白變成幾乎全黑**，正好毀掉這個功能唯一在意的「最亮跟最暗要對」。放大到滿刻度則兩種讀取器都不會錯得離譜 —— 不理 sBIT 的讀到 100%（正確），理會 sBIT 的用 `v16>>6` 可精準還原回 0~1023（實測 1024 個值零失敗）。
+
+【實測佐證】同一支 ImageMagick 讀全白：**16bit PNG = 100%**、10bit BMP = 99.9%（它對 BMP 用 `v/1024` 正規化）、若採低位方案 = 1.56%。
+
+> 🔧 **若機台指名要在 16 bit 容器裡讀到 1023**，那它要的是低位方案。**判別方式：機台讀出來若是 ~1.5% 或整張近乎全黑，就是這種情況**，把 `pg10to16()` 改成直接回傳 v10 即可（一行）。
+
+**換算**：`v8 → v10 = (v8<<2)|(v8>>6)`（沿用 v3.3.0），`v10 → v16 = round(v10×65535/1023)`。整數實作用 `(v*65535+511)/1023` 取整避開浮點，實測與 `Math.round` 版本 1024 個值完全一致；`0→0`、`255→1023→65535` 兩端精準、全域嚴格遞增。（注意這**不等於** 10→16 的 bit replication，兩者有 234/1024 個值不同。）
+
+**驗證同樣不用 `createImageBitmap`**（它會把 16 bit 塞回 8 bit canvas），改自解 PNG 位元組：掃 chunk 序列、驗每個 chunk 的 CRC、驗 IHDR（bitDepth=16 / colourType=2）、驗 sBIT 存在且為 10,10,10 且**在 IDAT 之前**、`DecompressionStream` 解 IDAT 後逐像素比對。
+
+**驗證結果**：
+- 第三方解碼器 **pypng** 讀回：chunk 序列 `IHDR → sBIT → IDAT → IEND`、bitDepth=16、colourType=2、sBIT `[10,10,10]` 且在 IDAT 之前
+- 端點：全黑三通道 0；全白三通道 **65535**，取高 10 位還原回 **1023**
+- byte order：`v8=1 → v10=4 → v16=256`，檔案裡是 `01 00`（不是 `00 01`）；另驗 `v8=254 → 0xFEFF` 為 `fe ff`
+- subpixel on/off 1920×1080 的相異色**只有 (0,0,0) 與 (65535,65535,65535) 兩種**，還原回 0 與 1023
+- 內建驗證器 641×361 `diff = 0`；1920×1080 `diff = 0 / 2,073,600`
+- **負向對照（全部把 CRC 修好，逼驗證器走到更深層的檢查，否則只證明 CRC 有效）**：sBIT 值改 8 → 抓到 `sBIT=8,10,10`；sBIT 整段搬到 IDAT 之後 → 抓到 `sBIT after IDAT`；改 1 個像素後重壓並修正 CRC → 抓到 `diff=1`
+- 8 bit 回歸：11 組設定 × 2 格式 = **22 個 sha256 與 v3.3.0 之前的原始基線完全相同**
+- 檔案大小（1920×1080，未壓縮基準 12.4 MB）：subpixel on/off **27 KB**（455:1）、256 階漸層 **85 KB**（146:1）；編碼耗時 160~190 ms
+- macOS 預覽程式、ImageMagick 皆正常開啟
+
+批次匯出、副檔名、檔案大小提示、三語 i18n 一併處理。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v3.3.0 — 2026-08-08 ｜ MINOR
 
 **判定依據：** `docs/VERSIONING.md` §2 案例 1「新增一個完整功能」—— 新增「10 bit BMP 輸出」，使用者**多了一件原本做不到的事**：產生只吃 10-bit、不吃 8-bit 的機台能讀的檔案。既有操作全部在原位、色彩深度預設仍是 8 bit、8 bit 的輸出結果經 22 個 sha256 證明**位元組完全相同** → 不觸發 MAJOR，也不是 PATCH。既有使用方式的輸出結果不變，**不加 `⚠ 輸出變更`**。同時涉及 §2 案例 13（修改共用檔 `common/i18n.js`）：本次只**新增** `pat.outDepth*` 五個 key、未更動任何既有 key，其他分頁不使用這些 key，故其餘分頁不受影響、不進版、不動其 cache buster。
