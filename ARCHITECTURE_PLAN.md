@@ -66,7 +66,6 @@ index.html (3.36 MB)
 │   ├── #page-isp (line 2908) — iSP 波形產生器
 │   ├── #page-wfg (line 3243) — WFG 波形模擬與取樣
 │   │   ├── #wfg-tcon-content — TCON 模式
-│   │   ├── #wfg-siggen-content — 訊號產生器模式
 │   │   └── #wfg-la-content — LA 分析器模式
 │   └── #page-aux (line 3791) — eDP AUX 解碼 / DPCD 查詢
 ├── <script> (line 4022-37290) — 所有 JavaScript
@@ -134,7 +133,7 @@ tcon-tools/
 ├── calc.html           — mLVDS Skew 計算
 ├── isp.html            — iSP 波形產生器
 ├── aux.html            — eDP AUX 解碼 / DPCD 查詢
-├── wfg.html            — WFG 波形模擬與取樣（含 TCON/SigGen/LA 三模式）
+├── wfg.html            — WFG 波形模擬與取樣（含 TCON/LA 兩模式）
 ├── common/
 │   ├── common.css      — 全域共用 CSS（變數 + 通用樣式 + RWD）
 │   ├── common.js       — 全域共用 JS（i18n + lang + nav helpers）
@@ -310,7 +309,7 @@ function onDpcdTabActivate() {
     'aux': 'aux.html',
     'wfg': 'wfg.html',
     'wfg-la': 'wfg.html#la',
-    'wfg-siggen': 'wfg.html#siggen'
+    'wfg-siggen': 'wfg.html'   // v3.0.0: 分頁已移除，舊 hash 導回主頁
   };
   if (redirectMap[hash]) {
     location.replace(redirectMap[hash]);
@@ -527,7 +526,7 @@ function onDpcdTabActivate() {
 3. 移入 WFG 專屬 HTML（548 行）
 4. 移入 WFG CSS（566 行）
 5. 移入 WFG JS（22,624 行，775 函式） — 最大的工作量
-6. 三模式 tab（TCON / SigGen / LA）維持在同一頁面
+6. 兩模式 tab（TCON / LA）維持在同一頁面
 7. kvdat 範例改為 lazy load：
    - 使用者選擇 LA preset 時才下載對應 `.kvdat.b64.js`
    - 進度條顯示下載進度
@@ -547,7 +546,6 @@ function onDpcdTabActivate() {
 
 **驗證（逐步，每搬一批就測）：**
 - TCON 模式：波形顯示、通道切換、preset 載入
-- SigGen 模式：訊號產生器
 - LA 模式：kvdat 匯入、波形顯示、量測
 - Canvas 互動：滑鼠滾輪縮放、拖曳平移、觸控手勢
 - 類比波形：SD / LS 顯示正確

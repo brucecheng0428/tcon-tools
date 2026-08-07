@@ -22,6 +22,43 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.0.0 — 2026-08-08 ｜ MAJOR
+
+**判定依據：** `docs/VERSIONING.md` §2 案例 6「移除一個既有功能 → MAJOR」。本版移除「訊號產生器」分頁，屬於 §1 判定表 MAJOR 欄的「功能增減：**移除**既有功能」與「操作流程：原本的按鈕**找不到了**」——頁首模式頁籤由三個變兩個，依規則字面判定為 MAJOR。同時本版**不在任何重整波內**（`wfg` 在 git 歷史上從未進過 MAJOR，最舊可追到 v2.97.384），R2 不適用，不需要波次宣告。
+
+波形計算與輸出結果**一個位元都沒動**（本次 diff 完全沒有碰 `wfgCalcGpio` / `wfgRender` / 類比取樣等計算路徑），**不加 `⚠ 輸出變更`**。
+
+同 §2 案例 13：`common/i18n.js` 只刪除 `wfg.modeSiggen` / `wfg.siggenWip` 兩個 key（僅 wfg 使用），其餘分頁不受影響、不進版。
+
+這也正好落在版本號規則變更公告的分界規劃上：`wfg` 自本版起套用新規則，爆掉的 patch 號歸零。
+
+### 移除：訊號產生器（SigGen）分頁
+
+頁首模式頁籤由三個變成兩個：**TCON Timing 調整練習**、**LA分析器**。
+
+移除範圍：開場防閃爍 `document.write` 的 siggen 分支、`.wfg-siggen-placeholder` CSS、分頁按鈕、`#wfg-siggen-content` 佔位區塊、`wfgSwitchMode()` 內的 siggen 顯示切換與 `wfgResizeCanvas` 分支、`wfgEnterPage()` 的 siggen early-return、`wfgPersistMode()` 的 `#wfg-siggen` hash 對應，以及 `common/i18n.js` 的兩個 key。`wfg-guide.html` 與 `ARCHITECTURE_PLAN.md` 中提到三個頁籤的敘述一併改為兩個。
+
+### 舊入口相容 — 四條路都落回 TCON，不會出現空白畫面
+
+刻意保留四處 `siggen` 字樣作為 legacy fallback（全部集中在 `wfgRequestedModeFromUrl()` 與 `wfgSwitchMode()`，並標了 `v3.0.0` 註解）：
+
+| 舊入口 | 處理方式 |
+|---|---|
+| URL hash `#wfg-siggen` / `#siggen`（書籤） | `wfgRequestedModeFromUrl()` 回傳 `'tcon'`；切過去時 `wfgPersistMode()` 順手把網址 hash 改寫成 `#wfg`，等於自動修正舊書籤 |
+| URL 參數 `?mode=siggen` / `?wfgMode=siggen` | 同上，回傳 `'tcon'` |
+| `sessionStorage` 殘留的 `siggen` | 讀出後正規化成 `'tcon'`，並在下次寫入時覆蓋掉殘留值 |
+| **匯入設定檔裡的 `currentMode: 'siggen'`** | `wfgSwitchMode()` 白名單改成只認 `tcon` / `la`，其餘一律落回 `tcon`。已匯出過的舊 `.txt` 設定檔載進來不會呼叫到不存在的 mode |
+
+開場防閃爍那段也改成**只有 `la` 才寫覆蓋 style**，其餘（含 siggen）一律不寫 → 維持 HTML 的 TCON 預設顯示，不會出現「三個 content 全 `display:none`」的空白畫面。首頁 `index.html` 的 hash redirect `'wfg-siggen'` 改為導向 `wfg.html`（不再帶 `#siggen`），舊連結不會 404。
+
+### 實測驗證（本機 http server + Chrome）
+
+九項全過：頁籤只剩兩個且互切正常｜`#wfg-siggen` → 落回 TCON 且 hash 自動改寫成 `#wfg`｜`?mode=siggen` → 落回 TCON｜`sessionStorage` 塞 `siggen` 後重整 → 落回 TCON 且殘留值被正規化｜**匯入 `currentMode:'siggen'` 的設定檔 → 回傳 `true`、無 exception、無 alert、無 console error，落回 TCON，且 vtotal 1112→1300 / frameRate 60→48 / hactive→1600 / frameCount→3 / 匯入檔名顯示皆正確套用**（在 LA 模式匯入的情境另測一次，同樣落回 TCON 並正確套用 vtotal 1440 / frameRate 75）｜`#wfg-la` 與 `?mode=la` 仍正常進 LA｜三語切換後頁籤文字正確、無未解析的 `wfg.` key 殘留｜console 零錯誤。
+
+> 過程中發現一項**與本次改動無關的既有行為**：從 LA 模式匯入設定檔時，`wfgPrepareTconTimingEntry()` 會跳原生 `confirm()`（第 3695 行）詢問是否保留上次的 TCON 調整紀錄，該對話框會阻塞 renderer。用 `git show HEAD:wfg.html` 取出**未改動的原始版**、以 `currentMode:'tcon'` 的設定檔跑同一條路徑，同樣阻塞 → 確認為既有行為。另外若使用者在該對話框選「確定（保留紀錄）」，`wfgAutoRestore()` 會覆蓋掉剛匯入的參數 —— 這同樣不是本次改動造成，僅記錄於此。
+
+---
+
 ## Pattern Generator 畫面產生器 (pattern) v3.4.0 — 2026-08-08 ｜ MINOR
 
 **判定依據：** `docs/VERSIONING.md` §2 案例 1「新增一個完整功能」—— 新增「10 bit PNG 輸出」，使用者**多了一件原本做不到的事**：v3.3.0 時選 PNG 會讓 10 bit 選項變灰不能點，現在可以了。既有操作全部在原位、色彩深度預設仍是 8 bit、8 bit 的 PNG 與 BMP 輸出結果經 22 個 sha256 證明**位元組完全相同**（比對基準是 v3.3.0 之前錄的原始基線，等於同時證明 v3.3.0 與 v3.4.0 兩次改動累積起來仍零回歸）→ 不觸發 MAJOR，也不是 PATCH。既有使用方式的輸出結果不變，**不加 `⚠ 輸出變更`**。同 §2 案例 13：`common/i18n.js` 只新增 `pat.outDepthBmp` / `pat.outDepthPng` / `pat.outPng16Size` 並改寫 `pat.outDepthHint`（該 key 僅 pattern 使用），其餘分頁不受影響、不進版。
