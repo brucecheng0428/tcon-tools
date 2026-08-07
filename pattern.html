@@ -947,6 +947,21 @@
       </div>
 
       <div class="pg-sub">
+        <label data-i18n="pat.outDepth">色彩深度</label>
+        <div class="radio-group">
+          <div class="radio-opt">
+            <input type="radio" name="pg-out-depth" id="pg-out-d8" value="8" checked>
+            <label for="pg-out-d8" data-i18n="pat.outDepth8">8 bit</label>
+          </div>
+          <div class="radio-opt">
+            <input type="radio" name="pg-out-depth" id="pg-out-d10" value="10">
+            <label for="pg-out-d10" data-i18n="pat.outDepth10">10 bit</label>
+          </div>
+        </div>
+        <div class="field-hint" id="pg-out-depthhint" data-i18n="pat.outDepthHint">10 bit 供只吃 10-bit 圖的機台使用。畫面本身仍以 8 bit 產生，存檔時每個通道用 MSB replication 放大到 10 bit（0→0、255→1023，兩端精準）。</div>
+      </div>
+
+      <div class="pg-sub">
         <label data-i18n="pat.outName">檔名</label>
         <div class="pg-outname-row">
           <input type="text" id="pg-out-name" spellcheck="false">
@@ -1085,8 +1100,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260804pat320"></script>
-<script src="common/i18n.js?v=20260804pat320"></script>
+<script src="common/version.js?v=20260808pat330"></script>
+<script src="common/i18n.js?v=20260808pat330"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -2792,9 +2807,106 @@
     return new Blob([buf], { type: 'image/bmp' });
   }
 
+  // ─── 8 → 10 bit：MSB replication ─────────────────────────────────
+  // v8 的高位補到低位，而不是乘 4。兩端才會精準：
+  //   0 → 0、255 → 1023。乘 4 的話 255 只會到 1020，最亮就不對了，
+  //   而「最亮跟最暗要對」正是這個功能唯一在意的準確度。
+  function pg8to10(v){ return (((v << 2) | (v >> 6)) & 0x3ff); }
+
+  // ─── BMP 32-bit 10bpc 編碼器（A2R10G10B10）──────────────────────
+  //
+  // 檔案結構（給日後要對機台調格式的人看，數字都是實際會寫進去的值）：
+  //   [0  ..13]  BITMAPFILEHEADER  14 bytes
+  //              'BM' / bfSize / bfReserved1=0 / bfReserved2=0 / bfOffBits=66
+  //   [14 ..53]  BITMAPINFOHEADER  40 bytes（biSize=40，**不是** V4/V5 header）
+  //              biWidth=W / biHeight=+H（正數 → bottom-up）
+  //              biPlanes=1 / biBitCount=32 / biCompression=3 (BI_BITFIELDS)
+  //              biSizeImage=W*H*4 / 解析度 2835 (72dpi) / biClrUsed=0 / biClrImportant=0
+  //   [54 ..65]  三個 DWORD 遮罩（BI_BITFIELDS 規定放在 header 之後、像素之前）
+  //              R=0x3FF00000 (bit 20-29) / G=0x000FFC00 (bit 10-19) / B=0x000003FF (bit 0-9)
+  //   [66 ..  ]  像素，每點 4 bytes little-endian
+  //
+  // 幾個刻意的選擇：
+  //  ① 用 biSize=40 + 3 個遮罩，而不是 BITMAPV4HEADER(108)。這是 BI_BITFIELDS 最原始、
+  //     相容性最廣的寫法；V4/V5 有些舊讀取器不吃。
+  //  ② 最高 2 bit（alpha）一律填 3 = 不透明。biSize=40 的 BI_BITFIELDS 只定義 RGB 三個
+  //     遮罩，這 2 bit 嚴格說是未定義的；但若讀取器把它當 alpha 解讀，填 0 會變成全透明
+  //     （整張圖可能顯示成空白），填 3 才安全。兩種解讀下填 3 都不會錯。
+  //  ③ 32bpp 每列天然就是 4-byte 對齊，**不需要 padding**（24bpp 才需要）。
+  //  ④ 列順序沿用既有 24bpp 的 bottom-up。若機台要 top-down，把 biHeight 寫成 -H
+  //     並把列順序反過來即可（只有這兩處要改）。
+  function pgEncodeBMP32_10(srcCtx, W, H){
+    var data = srcCtx.getImageData(0, 0, W, H).data;
+    var HDR = 14 + 40 + 12;                           // 14 + BITMAPINFOHEADER + 3 個遮罩
+    var pixSize = W * H * 4, fileSize = HDR + pixSize;
+    var buf = new ArrayBuffer(fileSize), dv = new DataView(buf), u8 = new Uint8Array(buf);
+    u8[0] = 0x42; u8[1] = 0x4D;                       // 'BM'
+    dv.setUint32(2, fileSize, true); dv.setUint32(6, 0, true); dv.setUint32(10, HDR, true);
+    dv.setUint32(14, 40, true);                       // BITMAPINFOHEADER
+    dv.setInt32(18, W, true); dv.setInt32(22, H, true);   // height > 0 → bottom-up
+    dv.setUint16(26, 1, true); dv.setUint16(28, 32, true);
+    dv.setUint32(30, 3, true);                        // BI_BITFIELDS
+    dv.setUint32(34, pixSize, true);
+    dv.setInt32(38, 2835, true); dv.setInt32(42, 2835, true);   // 72 dpi
+    dv.setUint32(46, 0, true); dv.setUint32(50, 0, true);
+    dv.setUint32(54, 0x3FF00000, true);               // R mask
+    dv.setUint32(58, 0x000FFC00, true);               // G mask
+    dv.setUint32(62, 0x000003FF, true);               // B mask
+    for (var y = 0; y < H; y++) {
+      var so = (H - 1 - y) * W * 4, off = HDR + y * W * 4;
+      for (var x = 0; x < W; x++) {
+        var v = ((3 << 30) |                                  // alpha 2 bit = 不透明
+                 (pg8to10(data[so + x*4    ]) << 20) |         // R
+                 (pg8to10(data[so + x*4 + 1]) << 10) |         // G
+                 (pg8to10(data[so + x*4 + 2])      )) >>> 0;   // B
+        dv.setUint32(off + x*4, v, true);
+      }
+    }
+    return new Blob([buf], { type: 'image/bmp' });
+  }
+
   // ─── 機械證明：把存好的檔案解碼回來，跟來源 canvas 逐像素比對 ───
   // 讓「有沒有偏差」變成每次存圖自動驗一次的事實，而不是靠我們保證。
-  function pgVerifyRoundTrip(blob, srcCtx, W, H){
+  // 10 bit 專用：**不准走 createImageBitmap**。
+  // 實測（Chrome 150）：createImageBitmap 會把結果塞回 8-bit canvas，10-bit 的
+  // 512/513/514/515 會全部糊成同一個 128、1020~1023 全部變成 255 —— 那條路等於
+  // 沒在驗。所以這裡直接把檔案位元組解回來：自己讀 header、依遮罩算位移、
+  // 逐像素比對，順便把 header 欄位本身也一起驗。
+  function pgVerifyBmp10(blob, srcCtx, W, H){
+    return blob.arrayBuffer().then(function(ab){
+      var u8 = new Uint8Array(ab), dv = new DataView(ab);
+      var bad = function(msg){ return { diff: W * H, total: W * H, decodedW: 0, decodedH: 0, note: msg }; };
+      if (u8[0] !== 0x42 || u8[1] !== 0x4D) return bad('not BM');
+      var off = dv.getUint32(10, true), biSize = dv.getUint32(14, true);
+      var dW = dv.getInt32(18, true), dH = dv.getInt32(22, true);
+      var bpp = dv.getUint16(28, true), comp = dv.getUint32(30, true);
+      if (biSize !== 40)  return bad('biSize=' + biSize);
+      if (bpp !== 32)     return bad('bpp=' + bpp);
+      if (comp !== 3)     return bad('compression=' + comp);
+      var rM = dv.getUint32(54, true), gM = dv.getUint32(58, true), bM = dv.getUint32(62, true);
+      if (rM !== 0x3FF00000 || gM !== 0x000FFC00 || bM !== 0x000003FF)
+        return bad('mask ' + rM.toString(16) + '/' + gM.toString(16) + '/' + bM.toString(16));
+      var shiftOf = function(m){ var s = 0; while (s < 32 && !((m >>> s) & 1)) s++; return s; };
+      var rS = shiftOf(rM), gS = shiftOf(gM), bS = shiftOf(bM);
+      var topDown = dH < 0, absH = Math.abs(dH);
+      var src = srcCtx.getImageData(0, 0, W, H).data;
+      var diff = 0, y, x;
+      for (y = 0; y < absH; y++) {
+        var rowY = topDown ? y : (absH - 1 - y);        // 檔案第 y 列對應到影像的哪一列
+        var fo = off + y * dW * 4, so = rowY * W * 4;
+        for (x = 0; x < dW; x++) {
+          var v = dv.getUint32(fo + x * 4, true);
+          if (((v & rM) >>> rS) !== pg8to10(src[so + x*4    ]) ||
+              ((v & gM) >>> gS) !== pg8to10(src[so + x*4 + 1]) ||
+              ((v & bM) >>> bS) !== pg8to10(src[so + x*4 + 2])) diff++;
+        }
+      }
+      return { diff: diff, total: W * H, decodedW: dW, decodedH: absH };
+    });
+  }
+  // depth 預設 8 → 完全走原本那條路，8-bit 的行為一個位元都不會變
+  function pgVerifyRoundTrip(blob, srcCtx, W, H, depth){
+    if (depth === 10) return pgVerifyBmp10(blob, srcCtx, W, H);
     return createImageBitmap(blob).then(function(bmp){
       var c2 = document.createElement('canvas');
       c2.width = W; c2.height = H;
@@ -2830,6 +2942,7 @@
       parts = ['subpixel', ('00000' + s.toString(16)).slice(-6)];
     }
     if (pgMask.on) parts.push('mask');
+    if (pgOutDepth() === 10) parts.push('10bit');   // 交給機台的檔案要一眼看得出是哪一種
     return parts.join('_');
   }
 
@@ -2847,6 +2960,28 @@
     return (w/g) + ':' + (h/g) + '  ' + (Math.round(w*h/1e4)/100) + ' MP';
   }
   function pgOutFmt(){ var b = document.getElementById('pg-out-bmp'); return (b && b.checked) ? 'bmp' : 'png'; }
+  // ─── 輸出色彩深度（8 / 10）───────────────────────────────────────
+  // 目的很單純：有些機台只吃 10-bit 圖，不吃 8-bit。畫面本身仍是 8-bit 產生的，
+  // 這裡只負責把每個通道放大成 10-bit 再寫進檔案。
+  // 🔴 目前只有 BMP 支援 10 bit。PNG 沒有原生 10 bit（規格只允許 1/2/4/8/16），
+  //    要做得靠 16-bit + sBIT，而且 canvas.toBlob 永遠只吐 8-bit、必須自寫編碼器
+  //    —— 那是另一階段的事。在那之前寧可把選項關掉，也不要讓使用者以為存到了
+  //    10-bit PNG 其實拿到 8-bit 檔。
+  function pgOutDepth(){
+    var d = document.getElementById('pg-out-d10');
+    return (d && d.checked && !d.disabled) ? 10 : 8;
+  }
+  function pgOutDepthAvail(fmt){ return (fmt || pgOutFmt()) === 'bmp'; }
+  // 依目前格式決定 10 bit 選項能不能點；不能點時強制退回 8 bit（不留假的勾選狀態）
+  function pgOutSyncDepthUI(){
+    var d10 = document.getElementById('pg-out-d10'), d8 = document.getElementById('pg-out-d8');
+    if (!d10 || !d8) return;
+    var ok = pgOutDepthAvail();
+    d10.disabled = !ok;
+    if (!ok && d10.checked) { d10.checked = false; d8.checked = true; }
+    var opt = d10.closest ? d10.closest('.radio-opt') : null;
+    if (opt) { opt.style.opacity = ok ? '' : '.45'; opt.title = ok ? '' : t('pat.outDepthPngNA'); }
+  }
   function pgOutSize(){
     var w = parseInt((document.getElementById('pg-out-w') || {}).value, 10);
     var h = parseInt((document.getElementById('pg-out-h') || {}).value, 10);
@@ -2908,8 +3043,10 @@
       cmp.innerHTML = msg;
     }
     pgOutMaskInfo(sz.W, sz.H);
+    pgOutSyncDepthUI();                  // 換 PNG↔BMP 會影響 10 bit 能不能選
     var tag = document.getElementById('pg-out-tag');
-    if (tag) tag.textContent = sz.W + '×' + sz.H + ' ' + pgOutFmt().toUpperCase();
+    if (tag) tag.textContent = sz.W + '×' + sz.H + ' ' + pgOutFmt().toUpperCase() +
+      (pgOutDepth() === 10 ? ' 10bit' : '');
     var ext = document.getElementById('pg-out-ext');
     if (ext) ext.textContent = '.' + pgOutFmt();
     var nm = document.getElementById('pg-out-name');
@@ -2917,8 +3054,15 @@
     pgRenderPrev();
     pgOutSyncShareBtn();                 // 換 PNG↔BMP 要重新判斷分不分得出去
     var fh = document.getElementById('pg-out-fmthint');
+    // 10 bit 是 32bpp（每列天然 4-byte 對齊，無 padding）；8 bit 是 24bpp 要補對齊
+    var bmpBytes = (pgOutDepth() === 10)
+      ? (66 + sz.W * 4 * sz.H)
+      : (54 + (sz.W*3 + ((4-(sz.W*3)%4)%4)) * sz.H);
     if (fh) fh.textContent = t('pat.outFmtHint') +
-      (pgOutFmt() === 'bmp' ? ' ' + t('pat.outBmpSize', { s: pgFmtBytes(54 + (sz.W*3 + ((4-(sz.W*3)%4)%4)) * sz.H) }) : '');
+      (pgOutFmt() === 'bmp' ? ' ' + t('pat.outBmpSize', { s: pgFmtBytes(bmpBytes) }) : '');
+    var dh = document.getElementById('pg-out-depthhint');
+    if (dh) dh.textContent = t('pat.outDepthHint') +
+      (pgOutDepthAvail() ? '' : ' ' + t('pat.outDepthPngNA'));
   }
   // ─── 分享能力偵測 ─────────────────────────────────────────────────
   // 判準刻意不看 UA 字串：那是列舉式判準（要窮舉所有行動瀏覽器），必漏，而且
@@ -2952,26 +3096,26 @@
     var name = pgOutFileName();
     if (!pgShareSupported()) {           // 按鈕理論上不會出現，仍留退路
       pgOutVerifyShow('busy', escapeHtml(t('pat.shareUnsupported')));
-      pgOutBuild(function(blob, ctx, sz, fmt){
+      pgOutBuild(function(blob, ctx, sz, fmt, depth){
         if (!blob) { pgOutVerifyShow('bad', escapeHtml(t('pat.outFail'))); return; }
         pgOutDownloadBlob(blob, name);
-        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareUnsupported')) + '<br>');
+        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareUnsupported')) + '<br>', depth);
       });
       return;
     }
     pgSharing = true;
     pgOutVerifyShow('busy', escapeHtml(t('pat.outWorking', { w: sz0.W, h: sz0.H })));
-    pgOutBuild(function(blob, ctx, sz, fmt){
+    pgOutBuild(function(blob, ctx, sz, fmt, depth){
       if (!blob) { pgSharing = false; pgOutVerifyShow('bad', escapeHtml(t('pat.outFail'))); return; }
       var file = new File([blob], name, { type: PG_OUT_MIME[fmt] });
       var done = function(){ pgSharing = false; };
       if (!navigator.canShare({ files: [file] })) {   // 這個檔案本身（含大小）分不出去
         pgOutDownloadBlob(blob, name);
-        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareFellBack')) + '<br>');
+        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareFellBack')) + '<br>', depth);
         done(); return;
       }
       navigator.share({ files: [file], title: name }).then(function(){
-        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareDone')) + '<br>');
+        pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareDone')) + '<br>', depth);
         done();
       }, function(e){
         var n = String(e && e.name || e);
@@ -2982,7 +3126,7 @@
           pgOutVerifyShow('bad', escapeHtml(t('pat.shareCancelled')));
         } else {
           pgOutDownloadBlob(blob, name);
-          pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareFailFallback', { e: n })) + '<br>');
+          pgOutVerifyBlob(blob, ctx, sz, fmt, escapeHtml(t('pat.shareFailFallback', { e: n })) + '<br>', depth);
         }
         done();
       });
@@ -3004,20 +3148,25 @@
     var base = (nmEl && nmEl.value.trim()) || pgExportBaseName();
     return base.replace(/[\\/:*?"<>|]/g, '_') + '.' + pgOutFmt();
   }
-  // cb(blob, ctx, sz, fmt)；blob 為 null 代表編碼失敗
+  // cb(blob, ctx, sz, fmt, depth)；blob 為 null 代表編碼失敗
   function pgOutBuild(cb){
-    var sz = pgOutSize(), fmt = pgOutFmt();
+    var sz = pgOutSize(), fmt = pgOutFmt(), depth = pgOutDepth();
     // 目標解析度原生重畫，全程無縮放
     var r = pgRenderToSize(sz.W, sz.H);
-    if (fmt === 'bmp') cb(pgEncodeBMP24(r.ctx, sz.W, sz.H), r.ctx, sz, fmt);
-    else r.canvas.toBlob(function(b){ cb(b, r.ctx, sz, fmt); }, 'image/png');
+    if (fmt === 'bmp') {
+      cb(depth === 10 ? pgEncodeBMP32_10(r.ctx, sz.W, sz.H) : pgEncodeBMP24(r.ctx, sz.W, sz.H),
+         r.ctx, sz, fmt, depth);
+    } else {
+      r.canvas.toBlob(function(b){ cb(b, r.ctx, sz, fmt, depth); }, 'image/png');
+    }
   }
   // 機械證明：把交付出去的那顆 blob 解碼回來逐像素比對
-  function pgOutVerifyBlob(blob, ctx, sz, fmt, prefix){
-    return pgVerifyRoundTrip(blob, ctx, sz.W, sz.H).then(function(v){
+  function pgOutVerifyBlob(blob, ctx, sz, fmt, prefix, depth){
+    return pgVerifyRoundTrip(blob, ctx, sz.W, sz.H, depth).then(function(v){
       var ok = (v.diff === 0 && v.decodedW === sz.W && v.decodedH === sz.H);
       pgOutVerifyShow(ok ? 'ok' : 'bad', (prefix || '') + t(ok ? 'pat.outVerifyOk' : 'pat.outVerifyBad', {
-        f: fmt.toUpperCase(), n: v.total.toLocaleString('en-US'), d: v.diff,
+        f: fmt.toUpperCase() + (depth === 10 ? ' 10-bit' : '') + (v.note ? ' / ' + v.note : ''),
+        n: v.total.toLocaleString('en-US'), d: v.diff,
         w: v.decodedW, h: v.decodedH, s: pgFmtBytes(blob.size)
       }));
       return v;
@@ -3037,10 +3186,10 @@
     var sz0 = pgOutSize();
     pgOutVerifyShow('busy', escapeHtml(t('pat.outWorking', { w: sz0.W, h: sz0.H })));
     var name = pgOutFileName();
-    pgOutBuild(function(blob, ctx, sz, fmt){
+    pgOutBuild(function(blob, ctx, sz, fmt, depth){
       if (!blob) { pgOutVerifyShow('bad', escapeHtml(t('pat.outFail'))); return; }
       pgOutDownloadBlob(blob, name);
-      pgOutVerifyBlob(blob, ctx, sz, fmt);
+      pgOutVerifyBlob(blob, ctx, sz, fmt, '', depth);
     });
   }
   // ═══════════════════════════════════════════════════════════════
@@ -3274,7 +3423,7 @@
   function pgOutBatch(){
     var keys = Object.keys(pgBatchSel).filter(function(k){ return pgBatchSel[k]; });
     if (!keys.length) { pgOutVerifyShow('bad', escapeHtml(t('pat.outBatchNone'))); return; }
-    var fmt = pgOutFmt();
+    var fmt = pgOutFmt(), depth = pgOutDepth();
     var nmEl = document.getElementById('pg-out-name');
     var touched = nmEl && nmEl.dataset.touched;
     var stem = touched ? nmEl.value.trim().replace(/[\\/:*?"<>|]/g, '_') : pgExportBaseName();
@@ -3301,7 +3450,7 @@
         a.href = url; a.download = stem + '_' + W + 'x' + H + '.' + fmt;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function(){ URL.revokeObjectURL(url); }, 15000);
-        pgVerifyRoundTrip(blob, r.ctx, W, H).then(function(v){
+        pgVerifyRoundTrip(blob, r.ctx, W, H, depth).then(function(v){
           results.push({ size: W + '×' + H, diff: v.diff, total: v.total, bytes: blob.size,
                          sizeOK: (v.decodedW === W && v.decodedH === H) });
           idx++;
@@ -3311,7 +3460,7 @@
           idx++; setTimeout(next, 120);
         });
       };
-      if (fmt === 'bmp') after(pgEncodeBMP24(r.ctx, W, H));
+      if (fmt === 'bmp') after(depth === 10 ? pgEncodeBMP32_10(r.ctx, W, H) : pgEncodeBMP24(r.ctx, W, H));
       else r.canvas.toBlob(function(b){ after(b); }, 'image/png');
     }
     next();
@@ -3981,6 +4130,9 @@
       });
     });
     Array.prototype.forEach.call(document.querySelectorAll('input[name="pg-out-fmt"]'), function(r){
+      r.addEventListener('change', pgOutUpdate);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="pg-out-depth"]'), function(r){
       r.addEventListener('change', pgOutUpdate);
     });
     var nm = byId('pg-out-name');
@@ -5087,6 +5239,9 @@
   window.pgTargetSize    = pgTargetSize;
   window.pgRenderToSize  = pgRenderToSize;
   window.pgEncodeBMP24   = pgEncodeBMP24;
+  window.pgEncodeBMP32_10 = pgEncodeBMP32_10;
+  window.pg8to10         = pg8to10;
+  window.pgOutDepth      = pgOutDepth;
   window.pgVerifyRoundTrip = pgVerifyRoundTrip;
   window.pgOutSize       = pgOutSize;
   window.pgOutBuild      = pgOutBuild;
