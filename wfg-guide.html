@@ -798,10 +798,26 @@
     <div class="grid-2">
       <div class="card">
         <h3>它在控制什麼</h3>
-        <p>Toggle 模式讓信號的初始電位<strong>每隔幾張畫面翻轉一次</strong>，常見於極性反轉（Polarity Inversion）相關的控制信號。FRM_NO_0/1/2 決定翻轉的節奏。</p>
+        <p>Toggle 模式讓信號的 ACTIVE 極性<strong>每隔幾張畫面翻轉一次</strong>，常見於極性反轉（Polarity Inversion）相關的控制信號。FRM_NO_0/1/2 決定翻轉的節奏，每條信號用自己的 <code>TG_INI_VAL</code> <strong>選</strong>要吃三個裡面的哪一個。</p>
         <div class="callout" style="margin-top:10px;">
           <strong>Toggle 的 INI_VAL 是「每張畫面開頭」的初始電位</strong>
           它不是每一行重置一次，而是<strong>每一個影格（frame）</strong>開頭決定該張畫面的起始準位。這是最常被誤解的一點。
+        </div>
+        <div class="callout warn" style="margin-top:10px;">
+          <strong>🔴 第一個 frame 一定不翻</strong>
+          極性的閉式是 <code>ACTIVE(frame) = base XOR ( floor(frame / (FRM_NO + 1)) &amp; 1 )</code>，其中 <code>base</code> 就是 <code>INI_VAL</code> 給的初始極性（<code>0 - Low</code> → 0、<code>1 - High</code> → 1、<code>Keep</code> 因為沒有前一張畫面可延續 → 0）。<br>
+          代進去就是 <strong><code>frame 0</code> 恆等於 <code>base</code></strong> —— 初始極性是 0 它就是 0、是 1 它就是 1，<strong>不會「一律從 HIGH 開始」</strong>。<br>
+          <span style="color:var(--muted);">🔴 <strong>1-based / 0-based 換算</strong>：「<code>FRM_NO = 99</code> 代表每 100 張畫面變一次極性，<strong>第 1 張到第 100 張</strong>極性都一樣，<strong>第 101 張</strong>才反過來」是<strong>從 1 數起</strong>的講法；工具與程式內部的 <code>frame</code> 是<strong>從 0 數起</strong>，對應「<code>frame 0～99</code> 相同、<code>frame 100</code> 反相」。</span>
+        </div>
+        <div class="table-wrap" style="margin-top:10px;">
+          <table>
+            <thead><tr><th>FRM_NO</th><th>週期</th><th>frame 0 起的 ACTIVE（<code>b</code> = base）</th></tr></thead>
+            <tbody>
+              <tr><td><code>0</code></td><td>1 張</td><td><code>b, !b, b, !b, b, !b …</code>（每張都翻）</td></tr>
+              <tr><td><code>2</code></td><td>3 張</td><td><code>b, b, b, !b, !b, !b, b …</code></td></tr>
+              <tr><td><code>99</code></td><td>100 張</td><td><code>frame 0～99 = b</code>，<code>frame 100</code> 起 <code>= !b</code></td></tr>
+            </tbody>
+          </table>
         </div>
         <p style="margin-top:10px;">要看到 Toggle 效果，「Frame 重複數」必須夠大（至少大於 FRM_NO 的設定值），否則模擬範圍內根本還沒輪到翻轉。</p>
       </div>
@@ -981,7 +997,7 @@
           <tbody>
             <tr><td class="t-name">INI_VAL</td><td><span class="t-type tt-sel">下拉選單</span></td><td><code>0 - Low</code> / <code>1 - High</code> / <code>2 - Keep</code> / <code>3 - Keep</code></td><td>信號的<strong>初始電位</strong>。Low 從低準位開始、High 從高準位開始、Keep 維持前一個狀態（選項 2 與 3 行為相同，對應硬體的兩個編碼值）。</td></tr>
             <tr><td class="t-name">Toggle</td><td><span class="t-type tt-chk">核取方塊</span></td><td>勾 / 不勾</td><td>開啟後，此信號的初始電位會依全域 FRM_NO 設定<strong>逐影格翻轉</strong>。勾選後才會出現下面兩項。</td></tr>
-            <tr><td class="t-name">TG_INI_VAL</td><td><span class="t-type tt-sel">下拉選單</span><br><small style="color:var(--muted);">（Toggle 勾選時才顯示）</small></td><td><code>0</code> / <code>1</code> / <code>2</code></td><td>Toggle 模式的初始值。決定第一張畫面從哪個狀態開始翻轉。未勾 Toggle 時此欄位隱藏，位置留空。</td></tr>
+            <tr><td class="t-name">TG_INI_VAL</td><td><span class="t-type tt-sel">下拉選單</span><br><small style="color:var(--muted);">（Toggle 勾選時才顯示）</small></td><td><code>0</code> / <code>1</code> / <code>2</code></td><td>🔴 <strong>名字容易誤導：它不是初始電位</strong>，而是<strong>「這條信號要用全域三個 FRM_NO 中的哪一個」的選擇器</strong> —— 選 <code>0</code> 用 <code>FRM_NO_0</code>、<code>1</code> 用 <code>FRM_NO_1</code>、<code>2</code> 用 <code>FRM_NO_2</code>（見<a href="#frmno">第 5 章</a>）。初始電位是上面的 <code>INI_VAL</code>。未勾 Toggle 時此欄位隱藏，位置留空。</td></tr>
           </tbody>
         </table>
       </div>
@@ -1043,15 +1059,16 @@
             寫成一行就是 <code>cnt(n+1) = (cnt(n) == ACT_TYPE) ? 0 : ((cnt(n) + 1) &amp; maskBits)</code>。<br>
             <span style="color:var(--muted);">兩者合起來會有一個容易忽略的行為：溢位歸零後如果剛好等於 <code>ACT_TYPE</code>（例如 <code>ACT_TYPE = 0</code>），計數器就<strong>從此鎖死在 0</strong>，波形之後恆定不再轉態。</span></li>
           <li>把 <code>F_PH</code> 轉成二進位當<strong>位元遮罩</strong>，<code>bit(n) = (cnt(n) &amp; F_PH) != 0</code>。例如 <code>F_PH = 2</code>（<code>0b10</code>）→ 看 bit 1。</li>
-          <li><strong><code>ST_LINE</code> 那一條無條件進入 ACTIVE</strong>（套 <code>R_DLY</code>）。之後每一條的準位是<strong>相對於 <code>ST_LINE</code> 那一條</strong>判斷的：<br>
+          <li><strong><code>ST_LINE</code> 那一條無條件被驅動到 ACTIVE</strong>（套 <code>R_DLY</code>）。之後每一條的準位是<strong>相對於 <code>ST_LINE</code> 那一條</strong>判斷的：<br>
             <code>bit(n) == bit(ST_LINE)</code> → ACTIVE；不等 → 反相。<br>
-            <span style="color:var(--muted);">🔴 注意是「與起點同相／反相」，<strong>不是</strong>「bit=1 就 HIGH」。<code>R_PH</code> 只要改，整條波形的相位就跟著平移。</span></li>
+            <span style="color:var(--muted);">🔴 注意是「與起點同相／反相」，<strong>不是</strong>「bit=1 就 HIGH」。<code>R_PH</code> 只要改，整條波形的相位就跟著平移。<br>
+            🔴 也注意 <strong>ACTIVE 不等於 HIGH</strong> —— ACTIVE 是「這張畫面的作用極性」，它可能是 HIGH 也可能是 LOW，由 <code>INI_VAL</code> 與 <code>FRM_NO</code> 決定（見下一條）。所以 <code>ST_LINE</code> 那一條不保證是「上升邊」，只是「進入 ACTIVE」。</span></li>
           <li><strong><code>R_DLY</code> 只在「準位改變」的那一條作用，而且兩個方向都用 <code>R_DLY</code></strong>（low→high 與 high→low 皆然）。沒變的那一條不套任何延遲，直接維持前一條的準位。</li>
           <li><strong>Toggle 模式沒有 <code>F_DLY</code></strong>，該欄位在此模式下無作用（原廠 timing 文件的 XPOL 暫存器表也把它標為「Toggle mode 時 無用」，實際值設 0）。</li>
           <li><strong><code>SP_LINE</code> 是「最後一條參與 toggle 的 line」（含）</strong>。超過之後<strong>停止計數、不再轉態</strong>，一路 keep 住 <code>SP_LINE</code> 那條的準位到 frame 結束；下一個 frame 再從 <code>ST_LINE</code> 重新載入 <code>R_PH</code>。</li>
-          <li>整個 frame 的 ACTIVE 是 HIGH 還是 LOW，由<strong>全域的 Toggle FRM_NO</strong> 決定 —— frame 0 的 ACTIVE 一律是 HIGH，之後每 <code>FRM_NO + 1</code> 個 frame 反相一次。XPOL 用 <code>FRM_NO_0 = 0</code>，就是每 1 個 frame 反相一次。</li>
+          <li>整個 frame 的 ACTIVE 是 HIGH 還是 LOW：<code>ACTIVE(frame) = base XOR ( floor(frame / (FRM_NO + 1)) &amp; 1 )</code>，<code>base</code> 由 <code>INI_VAL</code> 給。<strong>frame 0 恆等於 <code>base</code>，第一個 frame 一定不翻</strong>；之後每 <code>FRM_NO + 1</code> 個 frame 反相一次。XPOL 用 <code>FRM_NO_0 = 0</code>，就是每 1 個 frame 反相一次。詳見<a href="#frmno">第 5 章</a>。</li>
         </ol>
-        <strong>逐行範例</strong>（<code>ACT_TYPE=0</code>、<code>R_PH=1</code>、<code>F_PH=2</code>、<code>ST_LINE=0</code>、<code>SP_LINE=8</code>、<code>R_DLY=0</code>、MNT）：
+        <strong>逐行範例</strong>（<code>ACT_TYPE=0</code>、<code>R_PH=1</code>、<code>F_PH=2</code>、<code>ST_LINE=0</code>、<code>SP_LINE=8</code>、<code>R_DLY=0</code>、MNT、<code>INI_VAL = 1 - High</code> 所以這張畫面的 ACTIVE = H）：
         <table style="margin:8px 0; font-size:.88rem;">
           <thead><tr><th>Line</th><th>R_PH_CNT</th><th>bit 1</th><th>與 L0 同相？</th><th>輸出</th></tr></thead>
           <tbody>

@@ -1573,8 +1573,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260807wfg2980"></script>
-<script src="common/i18n.js?v=20260807wfg2980"></script>
+<script src="common/version.js?v=20260807wfg2981"></script>
+<script src="common/i18n.js?v=20260807wfg2981"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -15456,26 +15456,40 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   var allTransitions = [];
   var prevFrameEndLevel = 0;
 
-  // Toggle mode state — initial polarity from INI_VAL (0→LOW, 1→HIGH, 2/3→default LOW)
-  var toggleLevel = (gpio.ini_val === 1) ? 1 : 0;
-  var toggleFrmCounter = 0;
-  var toggleFrmThreshold;
-  var toggleInitLevel = toggleLevel;
+  // ── Toggle mode：frame 級極性（v2.98.1 定版，2026-08-07 Bruce 裁示）──
+  // base（初始極性）由 **INI_VAL** 決定：0 - Low → 0、1 - High → 1、2/3 - Keep → frame 0
+  //   沒有「前一個 frame」可延續，退化為 0。
+  //   🔴 **TG_INI_VAL 不是初始電位**，它只是「這支信號要用全域三個 FRM_NO 的哪一個」的
+  //      選擇器（見下面 frmNoVal），全檔就只有那一處在用它。
+  //
+  // 閉式：ACTIVE(frame) = base XOR ( floor(frame / (FRM_NO + 1)) & 1 )
+  //
+  //   ⇒ frame 0 恆等於 base ——「**第一個 frame 絕對不翻**」
+  //   ⇒ FRM_NO = 0  → 週期 1  ：frame 0 = base、frame 1 = !base、frame 2 = base …
+  //   ⇒ FRM_NO = 2  → 週期 3  ：frame 0,1,2 = base、frame 3 = !base
+  //   ⇒ FRM_NO = 99 → 週期 100：frame 0～99 = base、frame 100 = !base
+  //
+  // 🔴 1-based / 0-based 換算（很容易被繞進去，寫死在這裡）：
+  //   Bruce 講的「從**第 1 個** frame 到**第 100 個** frame 極性都一樣，
+  //   直到**第 101 個** frame 才反過來」是 **1-based** 的講法；
+  //   對應到程式裡 0-based 的 `frame` 變數就是「frame 0～99 相同、frame 100 反相」。
+  //
+  // 這裡刻意用閉式而不是逐 frame 累加的 counter：舊版
+  //   `toggleFrmCounter++; if (counter >= threshold) { counter = 0; toggleLevel = !toggleLevel; }`
+  // 會在 **frame 0 就先翻一次**（counter 0→1，threshold=1 時立刻命中），frame 0 因此等於 !base。
+  // FRM_NO=0 時看起來剛好「對」，只是因為 base 是 0、翻成 1 之後與手繪例子一致而已，
+  // 本質是錯的。閉式沒有這個起始狀態問題。
+  var toggleBase = (gpio.ini_val === 1) ? 1 : 0;
+  var toggleLevel = toggleBase;
+  var toggleFrmThreshold = 1;
+  var toggleInitLevel = toggleBase;
   if (gpio.toggle) {
     var frmNoVal = gpio.tg_ini_val === 0 ? wfgFrame.frm_no_0 : (gpio.tg_ini_val === 1 ? wfgFrame.frm_no_1 : wfgFrame.frm_no_2);
     toggleFrmThreshold = frmNoVal + 1;
-    // v2.97.481: frame 0 的 ACTIVE 一律是 HIGH（規則：ST_LINE 那條無條件 rising 進入 ACTIVE），
-    //   FRM_NO 由此往後每 FRM_NO+1 個 frame 把 ACTIVE 反相一次。
-    //   舊版把 toggleLevel 固定從 0 起算，FRM_NO=0（threshold=1）時 frame 0 會被翻成 1 剛好正確，
-    //   但 FRM_NO>0 時 frame 0 不翻 → ACTIVE=0，於是整個 frame 0 停在 !ACTIVE，
-    //   造成 XPOL 這種 FRM_NO=0 的信號正確、LC 這種 FRM_NO>0 的信號第一個 frame 極性相反。
-    //   這裡改成反推初值，讓兩種 FRM_NO 的 frame 0 都是 ACTIVE=HIGH。
-    toggleLevel = (1 >= toggleFrmThreshold) ? 0 : 1;
-    var _tgFirstActive = 1;
-    // frame 0 進入 ST_LINE 之前的準位（Keep 沒有前一個 frame → 取 ACTIVE 的反相，讓 rising 看得到）
+    // frame 0 進入 ST_LINE 之前的準位：INI_VAL 指定什麼就是什麼；Keep 沒有前值 → 取 base
     toggleInitLevel = (gpio.ini_val === 0) ? 0
                     : (gpio.ini_val === 1) ? 1
-                    : (_tgFirstActive ? 0 : 1);
+                    : toggleBase;
     // Emit explicit initial level so INV can invert it correctly
     allTransitions.push({ line: 0, dly: 0, level: toggleInitLevel });
   }
@@ -15484,12 +15498,8 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
     var lineOffset = frame * vtotal;
 
     if (gpio.toggle) {
-      // ── Frame-level toggle counter (VBI & Dot modes both use) ──
-      toggleFrmCounter++;
-      if (toggleFrmCounter >= toggleFrmThreshold) {
-        toggleFrmCounter = 0;
-        toggleLevel = toggleLevel ? 0 : 1;
-      }
+      // ── 這個 frame 的 ACTIVE 極性（閉式，frame 0 恆為 base，說明見函式開頭）──
+      toggleLevel = toggleBase ^ ((Math.floor(frame / toggleFrmThreshold)) & 1);
 
       // ── Toggle 演算法（2026-08-07 定版；ACT_TYPE=0 也走這裡）──
       // 🔴 v2.97.481 前這裡有一個 `if (actType === 0)` 把 ACT_TYPE=0 導向「VBI/Column
@@ -15502,7 +15512,7 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       //   ・準位相對於 bit(ST_LINE)：同相 = ACTIVE、反相 = !ACTIVE
       //   ・R_DLY 兩個方向共用；toggle mode 沒有 F_DLY
       //   ・SP_LINE 之後停止計數並 keep level(SP_LINE)
-      //   ・ACTIVE 由全域 Toggle FRM_NO 逐 frame 反相（toggleLevel）
+      //   ・ACTIVE = toggleLevel，由 base 與 FRM_NO 用閉式算出（frame 0 恆為 base，不翻）
       // Presets: Column(AT=0,FP=0), 1-line(AT=1,FP=1), 2-line(AT=3,FP=2),
       //          1+2-line(AT=3,RP=1,FP=2), 4-line(AT=7,FP=4), 8-line(AT=15,FP=8), 3-line(AT=2,FP=1)
       var dotStLine = Math.max(0, gpio.st_line);

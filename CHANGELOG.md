@@ -22,6 +22,68 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v2.98.1 — 2026-08-07 ｜ PATCH ｜ ⚠ 輸出變更
+
+**判定依據：** 純粹修 v2.98.0 的一個 bug（Toggle 信號 frame 0 的極性算錯），沒有新增任何使用者能做的事 —— `VERSIONING.md` §2 案例 2「改一個 bug」→ **PATCH**。因為 toggle 信號的逐 frame 極性會變，依 **R1** 加註 `⚠ 輸出變更`。
+
+### ⚠ Toggle 信號的 frame 級極性：第一個 frame 一定不翻
+
+**問題**：v2.98.0 我把 frame 0 的 ACTIVE 寫死成 HIGH，理由是「`ST_LINE` 那條無條件 rising」。**這個理由是錯的** —— Bruce 手繪的那些例子之所以看起來是 rising，只是因為它們的初始極性剛好是 HIGH 且 `R_DLY = 0`，那是舉例、不是通則。而且手繪的圖也不代表它就是第一個 frame。
+
+**同時 v2.98.0 之前的舊寫法也是錯的**，只是錯得剛好看不出來：
+
+```js
+toggleFrmCounter++;
+if (toggleFrmCounter >= toggleFrmThreshold) { toggleFrmCounter = 0; toggleLevel = !toggleLevel; }
+```
+
+這個逐 frame 累加的寫法會在 **frame 0 就先翻一次**（counter `0 → 1`，`FRM_NO = 0` 時 threshold = 1，當場命中），所以 frame 0 等於 `!base`。`FRM_NO = 0` 時因為 base 是 0、翻成 1 之後與手繪一致，看起來「對」；`FRM_NO > 0` 時 frame 0 不翻，兩種情況的 frame 0 極性還互相矛盾。
+
+> 🔴 因此 v2.98.0 條目裡「與 v2.97.480 逐像素 diff = 0」那條佐證**不成立**（舊版本身就是錯的，跟它一樣不代表對）。以後不要再拿「跟舊版輸出相同」當正確性證據。
+
+**正確語義**（2026-08-07 Bruce 裁示）：
+
+```
+base = 初始極性，由 INI_VAL 決定
+       0 - Low  → 0
+       1 - High → 1
+       2/3 - Keep → frame 0 沒有前一張畫面可延續，退化為 0
+
+ACTIVE(frame) = base XOR ( floor(frame / (FRM_NO + 1)) & 1 )
+
+⇒ frame 0 恆等於 base ——「第一個 frame 絕對不翻」
+⇒ FRM_NO = 0  → frame 0 = base、frame 1 = !base、frame 2 = base …
+⇒ FRM_NO = 2  → frame 0,1,2 = base、frame 3 = !base
+⇒ FRM_NO = 99 → frame 0～99 = base、frame 100 = !base
+```
+
+🔴 **1-based / 0-based 換算**（已寫進 code 註解與說明頁，免得再被繞進去）：Bruce 講的「從**第 1 個**到**第 100 個** frame 極性都一樣，**第 101 個**才反過來」是 1-based；程式裡 0-based 的 `frame` 對應「frame 0～99 相同、frame 100 反相」。
+
+**修法**：移除 `toggleFrmCounter` 那套逐 frame 累加，改用上面的閉式直接算 —— 閉式沒有「起始狀態要先翻一次」的問題。
+
+**順帶更正**：`TG_INI_VAL` **不是**初始電位。全檔只有一處在用它，作用是「這條信號要吃全域三個 `FRM_NO` 中的哪一個」的**選擇器**（`0 → FRM_NO_0`、`1 → FRM_NO_1`、`2 → FRM_NO_2`）。初始電位一直都是 `INI_VAL`。說明頁原本把 `TG_INI_VAL` 寫成「Toggle 模式的初始值、決定第一張畫面從哪個狀態開始翻轉」，一併改掉。
+
+**⚠ 對內建預設的影響**：`FHD 60Hz Single Gate` 的 XPOL 與 LC 都是 `INI_VAL = 2 (Keep)` → `base = 0`，所以 frame 0 現在是 **LOW**（舊版是 HIGH），整體相對舊版反相一個 frame。XPOL（`FRM_NO_0 = 0`）逐 frame 為 `L H L H L H`；LC（`TG_INI_VAL = 1` → `FRM_NO_1 = 99`）frame 0～99 都是 LOW。
+
+**驗收**：
+
+*① 單 frame 的 13 例全數重跑（`INI_VAL = 1` → `base = 1`，對應手繪例子 L0 = H 的初始極性），13/13 通過，MNT／NB 分辨測項一併涵蓋、未受影響。*
+
+*② 多 frame 極性，Chrome 實跑（Frame 重複數 = 6，XPOL 設成 `ACT=0/R_PH=0/F_PH=0/ST_LINE=0/SP_LINE=16383`，整個 frame 的準位就等於該 frame 的 ACTIVE）：*
+
+| base | FRM_NO | frame 0 → 5 | 判讀 |
+|---|---|---|---|
+| `0`（INI_VAL=0） | `0` | `L H L H L H` | frame 0 = base，之後每張翻 |
+| `1`（INI_VAL=1） | `0` | `H L H L H L` | frame 0 = base，之後每張翻 |
+| `0`（INI_VAL=0） | `2` | `L L L H H H` | frame 0,1,2 = base，frame 3 起 = !base |
+| `1`（INI_VAL=1） | `2` | `H H H L L L` | frame 0,1,2 = base，frame 3 起 = !base |
+
+兩種 base 互為反相 → **frame 0 確實跟著 base 走，不是恆 HIGH**。
+
+*③ Node self-check 擴充：除了原本 13 例，另加 6 組 frame 極性序列與 `FRM_NO = 99` 的翻轉點（frame 99 仍是 base、frame 100 才反相），並直接從 `wfg.html` 比對閉式與 base 定義的字面、確認 `toggleFrmCounter` 已不存在。總計 20/20 通過。*
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v2.98.0 — 2026-08-07 ｜ MINOR ｜ ⚠ 輸出變更
 
 **判定依據：** 本版有兩件事。① Toggle 演算法修正 —— `VERSIONING.md` §2 案例 2「改一個 bug」與案例 7「既有計算公式修正」→ **PATCH**，且因為舊版存下來的 toggle 波形圖用新版重跑會不一樣，依 **R1** 加註 `⚠ 輸出變更`。② 新增「TCON 型態（MNT／NB）」全域設定 —— 使用者多了一件能做的事（切 6-bit 欄位寬），既有操作全部保留、沒有任何按鈕移位或功能移除，符合 §2 案例 1 → **MINOR**。**兩者取較高者 → MINOR，版號 v2.97.480 → v2.98.0。**
