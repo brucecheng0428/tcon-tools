@@ -248,6 +248,16 @@
     .wfg-la-main:has(.settings-expanded) { grid-template-columns: minmax(0, 1fr) 320px; }
     .wfg-la-workbench { display: contents; }
     .wfg-la-scope { grid-column: 1; min-width: 0; }
+    /* v3.2.0 修正：概覽圖被擠出 scope 可視範圍。
+       原因：.wfg-la-canvas-area 使用固定高度 height: calc(100vh - 190px)，
+       其中 190px 隱含假設「header 42 + 邊距 20 + 工具列約 54 + 概覽圖 74」。
+       但工具列高度會隨欄寬換行變化（實測 61 / 114 / 167px），
+       scope 實際可用高度 = 100vh - 62 - 工具列高，與上述固定值不一致，
+       差額由 scope 的最後一個子元素（概覽圖）吸收，被 overflow: clip 切掉。
+       修法：scope 改 flex 直排，波形區吸收剩餘高度，概覽圖固定不壓縮。 */
+    .wfg-la-main .wfg-la-scope { display: flex; flex-direction: column; }
+    .wfg-la-main .wfg-la-scope .wfg-la-canvas-area { height: auto; min-height: 0; flex: 1 1 auto; }
+    .wfg-la-main .wfg-la-scope .wfg-la-minimap { flex: 0 0 auto; }
     #wfg-la-right-panel { grid-column: 2; grid-row: 1 / -1; height: auto; max-height: none; min-width: 0; overflow: hidden; }
     /* v2.97.438: 桌面版右側面板內容超過可視高度時出現垂直捲軸（僅非 expanded 模式）；
        expanded（decode/settings）模式維持 overflow:hidden，由內部卡片自管捲動。min-height:0 讓 grid item 可縮小於內容以觸發捲動 */
@@ -1574,8 +1584,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260809wfg310"></script>
-<script src="common/i18n.js?v=20260809wfg310"></script>
+<script src="common/version.js?v=20260809wfg320"></script>
+<script src="common/i18n.js?v=20260809wfg320"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -7083,6 +7093,60 @@ function wfgLaRenderMinimap(cfg, channels) {
   wfgLaApplyDecodeScopeFocus();
 }
 
+/* ─── v3.2.0: 概覽圖「滑鼠按著拖曳」共用綁定（TCON 與 LA 兩個模式共用）───
+   設計重點：
+   1. 只新增滑鼠路徑，既有的 click / touch* handler 一行不動 → 觸控行為零回歸面。
+   2. mousedown 本身不跳轉，只記錄起點；水平移動超過 DRAG_THRESHOLD 才進入拖曳。
+      這樣「單純點一下」仍然只由既有的 click handler 觸發一次跳轉，
+      不會變成 mousedown + click 跳兩次（兩次跳轉的落點會因邊界夾制而不同）。
+   3. 拖曳結束後隨之而來的那一次 click 會被 suppressClick 吃掉，避免多跳一次。
+   4. mousemove / mouseup 綁在 window 上，游標移出概覽圖甚至移出視窗再放開，
+      仍收得到 mouseup；mousemove 另外檢查 e.buttons === 0 作為保險
+      （在瀏覽器外放開時補收），因此不會卡住繼續拖。
+   5. mousedown 呼叫 preventDefault() 防止拖曳過程反白選取頁面文字。
+   夾制與重繪完全交給呼叫端傳入的 jumpTo（LA→wfgLaSetViewRange，TCON→自己那套），不重造。 */
+function wfgBindMinimapMouseDrag(box, jumpTo) {
+  if (!box || typeof jumpTo !== 'function' || box._wfgMinimapMouseBound) return;
+  box._wfgMinimapMouseBound = true;
+  var DRAG_THRESHOLD = 3;   /* px：小於此距離視為單純點擊，不進入拖曳 */
+  var drag = null;          /* { startX, moved } */
+  var suppressClick = false;
+
+  box.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    drag = { startX: e.clientX, moved: false };
+    suppressClick = false;
+    e.preventDefault();     /* 避免拖曳時選取文字 */
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!drag) return;
+    if (e.buttons === 0) { drag = null; return; }   /* 在視窗外放開的保險 */
+    if (!drag.moved && Math.abs(e.clientX - drag.startX) < DRAG_THRESHOLD) return;
+    drag.moved = true;
+    jumpTo(e.clientX);
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (!drag) return;
+    suppressClick = drag.moved;
+    drag = null;
+  });
+
+  /* 拖曳後的那次 click 不再跳轉（既有 click handler 保持原樣不動）。
+     綁在 window 的 capture 階段：一定早於 box 上任何 target/bubble 階段的
+     listener，不依賴註冊順序，也不受「click 的 target 是 box 還是內層 canvas」影響。 */
+  window.addEventListener('click', function(e) {
+    if (!suppressClick) return;
+    suppressClick = false;                      /* 無論落在哪都清掉，不留殘留狀態 */
+    if (box === e.target || box.contains(e.target)) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+}
+window.wfgBindMinimapMouseDrag = wfgBindMinimapMouseDrag;
+
 /* ─── v3.1.0: LA 概覽圖點擊跳轉（比照 TCON 模式 wfgInitMinimap）───
    行為對齊 TCON：滑鼠 click 一次跳轉、觸控 touchstart/move 可連續拖曳、
    維持目前可視範圍寬度不變（只移動中心）、邊界夾制交給 wfgLaSetViewRange。
@@ -7124,6 +7188,9 @@ function wfgLaInitMinimap() {
   }, { passive: false });
   box.addEventListener('touchend', function() { miniDragging = false; });
   box.addEventListener('touchcancel', function() { miniDragging = false; });
+
+  /* v3.2.0: 滑鼠按著拖曳（與上方 touch 路徑並存，不互相干擾） */
+  wfgBindMinimapMouseDrag(box, wfgLaJumpFromMinimapX);
 }
 window.wfgLaInitMinimap = wfgLaInitMinimap;
 
@@ -26106,6 +26173,9 @@ function wfgInitMinimap() {
   }, { passive: false });
   box.addEventListener('touchend', function() { miniDragging = false; });
   box.addEventListener('touchcancel', function() { miniDragging = false; });
+
+  /* v3.2.0: 滑鼠按著拖曳（與上方 touch 路徑並存，不互相干擾） */
+  wfgBindMinimapMouseDrag(box, jumpTo);
 
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(function() {
