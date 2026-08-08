@@ -326,10 +326,10 @@
 
 | 版本 | 檔案名稱 | 位置 |
 |------|---------|------|
-| DP v1.2 | DP_v1_2.pdf | ~/Documents/TCON/Datasheet/ |
-| DP v1.3 | DP_v1_3.pdf | ~/Documents/TCON/Datasheet/ |
-| DP v1.4a | DP_v1.4a_mem.pdf | ~/Documents/TCON/Datasheet/ |
-| eDP v1.2 | eDPv1_2.pdf | ~/Documents/TCON/Datasheet/ |
-| eDP v1.3 | eDP_v1_3.pdf | ~/Documents/TCON/Datasheet/ |
-| eDP v1.4b | eDP_v1_4b.pdf | ~/Documents/TCON/Datasheet/ |
-| eDP v1.5 | eDP-v1.5-mem.pdf | ~/Documents/TCON/Datasheet/ |
+| DP v1.2 | DP_v1_2.pdf | ~/TCON/Datasheet/ |
+| DP v1.3 | DP_v1_3.pdf | ~/TCON/Datasheet/ |
+| DP v1.4a | DP_v1.4a_mem.pdf | ~/TCON/Datasheet/ |
+| eDP v1.2 | eDPv1_2.pdf | ~/TCON/Datasheet/ |
+| eDP v1.3 | eDP_v1_3.pdf | ~/TCON/Datasheet/ |
+| eDP v1.4b | eDP_v1_4b.pdf | ~/TCON/Datasheet/ |
+| eDP v1.5 | eDP-v1.5-mem.pdf | ~/TCON/Datasheet/ |
