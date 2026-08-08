@@ -1574,8 +1574,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260808wfg300"></script>
-<script src="common/i18n.js?v=20260808wfg300"></script>
+<script src="common/version.js?v=20260808wfg301"></script>
+<script src="common/i18n.js?v=20260808wfg301"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -20455,7 +20455,10 @@ function wfgLoadPreset(presetName) {
     _wfgIrOrder = preset.irOrder.slice();
   }
   // Apply currentMode
-  if (preset.currentMode) wfgSwitchMode(preset.currentMode);
+  // v3.0.1: 載入 preset 已明確指定所有參數，切到 TCON 時不該再問「是否保留上次調整紀錄」，
+  // 否則選「確定」會讓 wfgAutoRestore() 把剛套用的 preset 整個蓋掉。
+  // （不補 wfgTconEntryReady = true 的理由與前提，見 wfgImportConfig() 內同一處的註解。）
+  if (preset.currentMode) wfgSwitchMode(preset.currentMode, { skipTconPrompt: true });
   // Apply pulseItems
   if (preset.pulseItems && Array.isArray(preset.pulseItems)) {
     wfgPulseItems = [];
@@ -26970,7 +26973,20 @@ window.wfgImportConfig = function(jsonStr) {
   if (lbWrap) lbWrap.style.display = wfgTconInternalMode ? 'flex' : 'none';
 
   // ── Mode ──
-  if (config.currentMode) wfgSwitchMode(config.currentMode);
+  // v3.0.1: 匯入設定檔已明確指定所有參數，切到 TCON 時不該再問「是否保留上次調整紀錄」，
+  // 否則選「確定」會讓 wfgAutoRestore() 把剛匯入的參數整個蓋掉。
+  //
+  // 刻意不在這裡補 wfgTconEntryReady = true：
+  //   wfgPrepareTconTimingEntry() 的 `if (wfgTconEntryReady) return` 守衛在本頁永遠讀到 false，
+  //   因為它唯一的有效呼叫點是 wfgSwitchMode() 內 `prevMode !== 'tcon'` 那一條，而能走到那裡
+  //   代表先前必定經過 `if (mode !== 'tcon') wfgTconEntryReady = false;`。實測（v3.0.1）：
+  //   設 true 與不設 true 兩版跑同一組序列，8 個步驟的 confirm 次數／畫面參數／GPIO 全部相同，
+  //   且兩版進入 wfgPrepareTconTimingEntry 時讀到的都是 false。
+  // ⚠️ 前提：wfgEnterPage() 內那個「無條件」呼叫 wfgPrepareTconTimingEntry() 目前在本頁沒有
+  //   呼叫者（實測 __enterPageCalls 恆為 0，唯一呼叫者在 legacy-index.html 的舊 SPA）。
+  //   若日後把 wfg.html 接回 SPA 或替 wfgEnterPage 加上呼叫者，這裡就必須補 wfgTconEntryReady = true，
+  //   否則「匯入後離開再回到本頁」會再問一次，選確定又會蓋掉匯入的內容。
+  if (config.currentMode) wfgSwitchMode(config.currentMode, { skipTconPrompt: true });
 
   // ── Pulse Items ──
   if (config.pulseItems && Array.isArray(config.pulseItems)) {

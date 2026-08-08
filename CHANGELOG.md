@@ -22,6 +22,28 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.0.1 — 2026-08-08 ｜ PATCH
+
+⚠ 輸出變更
+
+**判定依據：** `docs/VERSIONING.md` §2 案例 2「改一個 bug → PATCH」，並依 **R1** 加 `⚠ 輸出變更`。R1 的字面判準是「修正後輸出會變」——舊版「從 LA 分頁匯入設定檔／載入快捷設定後選『確定』」得到的是**上次 autosave 的畫面**，新版得到的是**檔案／preset 本身的畫面**，同一操作的結果不同，因此照字面加標。波形演算法本身一行未動（`wfgCalcGpio` / `wfgRender` / 類比取樣路徑完全沒碰），本次 diff 只有兩個呼叫點各多傳一個既有的 `options.skipTconPrompt`。
+
+> 疑慮（提請裁決）：舊版那個「輸出」本身就是 bug 造成的錯誤畫面（顯示的不是使用者選的檔案），不太可能有人拿它當基準存圖或抄數字。依規則要求「覺得字面結果不合理時照字面判、把疑慮寫在回報裡」，此處照字面加了 `⚠ 輸出變更`，是否保留由 Bruce 裁決。
+
+### 修正：匯入設定檔／載入快捷設定時，剛套用的參數會被上次的自動存檔蓋掉
+
+**症狀**：人在 LA 分頁時匯入一份 `currentMode: 'tcon'` 的設定檔（或載入快捷設定），會跳出「是否要保留之前的 TCON Timing 調整紀錄？」，選「確定」之後畫面上是**上次調整的參數**，剛匯入的檔案內容整份消失。
+
+**根因**：`wfgImportConfig()` / `wfgLoadPreset()` 都在套用完參數之後才呼叫 `wfgSwitchMode(config.currentMode)`。`wfgSwitchMode()` 看到 `prevMode !== 'tcon'` 就觸發 `wfgPrepareTconTimingEntry()`，選「確定」即執行 `wfgAutoRestore()`，把 localStorage 裡上一次的設定整份寫回，覆蓋剛匯入的內容。
+
+**修法**：防呆機制 `options.skipTconPrompt` 本來就存在，`wfgInit()` 與 `wfgEnterPage()` 兩處早就正確使用，只有這兩條路徑漏傳。各補上 `{ skipTconPrompt: true }`——匯入檔案／載入 preset 時使用者的意圖已經明確，本來就不該再問「要不要還原上次的」。
+
+**未改動**：手動切分頁（LA → TCON）照樣跳 confirm；選「確定」照樣 `wfgAutoRestore()` 還原上次狀態；選「取消」照樣 `wfgResetToDefault()`。原設計「TCON 重算很貴，所以進 TCON 時問一次」的取捨完全保留。
+
+`wfgTconEntryReady` 刻意**不**在 `skipTconPrompt` 路徑補設 `true`：實測「設」與「不設」兩版跑同一組 8 步序列，confirm 次數／畫面參數／GPIO 值逐項完全相同，且兩版進入 `wfgPrepareTconTimingEntry()` 時讀到的都是 `false`（因為 `wfgSwitchMode()` 內 `if (mode !== 'tcon') wfgTconEntryReady = false;` 必先執行）。理由與「日後若把 wfg.html 接回 SPA 就必須補」的前提已寫進程式碼註解。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.0.0 — 2026-08-08 ｜ MAJOR
 
 **判定依據：** `docs/VERSIONING.md` §2 案例 6「移除一個既有功能 → MAJOR」。本版移除「訊號產生器」分頁，屬於 §1 判定表 MAJOR 欄的「功能增減：**移除**既有功能」與「操作流程：原本的按鈕**找不到了**」——頁首模式頁籤由三個變兩個，依規則字面判定為 MAJOR。同時本版**不在任何重整波內**（`wfg` 在 git 歷史上從未進過 MAJOR，最舊可追到 v2.97.384），R2 不適用，不需要波次宣告。
