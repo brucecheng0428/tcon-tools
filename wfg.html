@@ -1478,9 +1478,9 @@
                     <div class="wfg-la-acq-progress-track"><div class="wfg-la-acq-progress-fill" id="wfg-la-acq-progress-fill"></div></div>
                     <div class="wfg-la-acq-progress-label"><span id="wfg-la-acq-progress-text" data-i18n="wfg.laReady">Ready</span><span id="wfg-la-acq-progress-pct">0%</span></div>
                   </div>
-                  <div class="wfg-la-minimap-label" data-i18n="wfg.laOverviewCapture">Overview · Capture window</div>
+                  <div class="wfg-la-minimap-label" data-i18n="wfg.laOverviewCapture">Overview · 點擊跳轉</div>
                 </div>
-                <div class="wfg-la-minimap-box">
+                <div class="wfg-la-minimap-box" id="wfg-la-minimap-box">
                   <canvas id="wfg-la-minimap-canvas"></canvas>
                   <div class="wfg-la-minimap-viewport" id="wfg-la-minimap-viewport"></div>
                 </div>
@@ -1574,8 +1574,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260808wfg301"></script>
-<script src="common/i18n.js?v=20260808wfg301"></script>
+<script src="common/version.js?v=20260809wfg310"></script>
+<script src="common/i18n.js?v=20260809wfg310"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3837,6 +3837,9 @@ function wfgLaGetLabelW() {
 }
 var wfgLaOverlayRaf = 0;
 var wfgLaMinimapDeferred = false;
+/* v3.1.0: 概覽圖點擊跳轉 — 記錄最近一次 wfgLaRenderMinimap 實際使用的時間軸總長度，
+   讓點擊換算與「畫出來的圖 / 藍框位置」使用同一個基準，不另造一套換算。 */
+var wfgLaMinimapDuration = 0;
 var wfgLaChannelDrag = null;
 var wfgLaDemoEdges = {};
 var wfgLaCapturedWaveform = null;
@@ -7048,6 +7051,7 @@ function wfgLaRenderMinimap(cfg, channels) {
   ctx.fillStyle = '#050914';
   ctx.fillRect(0, 0, cssW, cssH);
   var duration = Math.max(cfg.durationSec || 1e-3, 1e-9);
+  wfgLaMinimapDuration = duration; /* v3.1.0: 供點擊跳轉沿用同一換算基準 */
   for (var i = 0; i < Math.min(channels.length, 8); i++) {
     var y = 5 + i * 4;
     var color = WFG_CH_COLORS[channels[i] % WFG_CH_COLORS.length];
@@ -7078,6 +7082,50 @@ function wfgLaRenderMinimap(cfg, channels) {
   }
   wfgLaApplyDecodeScopeFocus();
 }
+
+/* ─── v3.1.0: LA 概覽圖點擊跳轉（比照 TCON 模式 wfgInitMinimap）───
+   行為對齊 TCON：滑鼠 click 一次跳轉、觸控 touchstart/move 可連續拖曳、
+   維持目前可視範圍寬度不變（只移動中心）、邊界夾制交給 wfgLaSetViewRange。
+   換算基準沿用 wfgLaRenderMinimap 畫圖時所用的 wfgLaMinimapDuration。 */
+function wfgLaJumpFromMinimapX(clientX) {
+  var box = document.getElementById('wfg-la-minimap-box');
+  if (!box) return;
+  var rect = box.getBoundingClientRect();
+  if (!(rect.width > 0)) return;
+  var duration = wfgLaMinimapDuration > 0 ? wfgLaMinimapDuration : wfgLaCaptureDuration();
+  if (!isFinite(duration) || duration <= 0) return;
+  var frac = (clientX - rect.left) / rect.width;
+  if (!isFinite(frac)) return;
+  frac = Math.max(0, Math.min(1, frac));
+  var range = wfgLaViewEnd - wfgLaViewStart;
+  if (!isFinite(range) || range <= 0) range = duration;
+  var center = frac * duration;
+  wfgLaInertiaStop();            /* 取消進行中的慣性滑動，避免跳轉後被拖走 */
+  wfgLaMarkManualViewChange();   /* 視為手動改變視野，解除 trigger 自動聚焦 */
+  wfgLaSetViewRange(center - range / 2, center + range / 2);
+  wfgLaMinimapDeferred = false;  /* 確保這次一定重繪概覽圖與藍框 */
+  wfgLaRenderScope();
+}
+
+function wfgLaInitMinimap() {
+  var box = document.getElementById('wfg-la-minimap-box');
+  if (!box || box._wfgLaMinimapBound) return;
+  box._wfgLaMinimapBound = true;
+  var miniDragging = false;
+
+  box.addEventListener('click', function(e) { wfgLaJumpFromMinimapX(e.clientX); });
+  box.addEventListener('touchstart', function(e) {
+    miniDragging = true;
+    if (e.touches.length === 1) wfgLaJumpFromMinimapX(e.touches[0].clientX);
+  }, { passive: true });
+  box.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (miniDragging && e.touches.length === 1) wfgLaJumpFromMinimapX(e.touches[0].clientX);
+  }, { passive: false });
+  box.addEventListener('touchend', function() { miniDragging = false; });
+  box.addEventListener('touchcancel', function() { miniDragging = false; });
+}
+window.wfgLaInitMinimap = wfgLaInitMinimap;
 
 function wfgLaUpdateMeasureReadout(cfg) {
   cfg = cfg || wfgLaBuildConfig();
@@ -26623,10 +26671,11 @@ function wfgUpdateHeaderHeight() {
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function() { wfgInit(); wfgInitMinimap(); wfgUpdateHeaderHeight(); });
+  document.addEventListener('DOMContentLoaded', function() { wfgInit(); wfgInitMinimap(); wfgLaInitMinimap(); wfgUpdateHeaderHeight(); });
 } else {
   wfgInit();
   wfgInitMinimap();
+  wfgLaInitMinimap();
   wfgUpdateHeaderHeight();
 }
 window.addEventListener('resize', wfgUpdateHeaderHeight);

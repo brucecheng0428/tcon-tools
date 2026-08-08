@@ -22,6 +22,52 @@
 
 ---
 
+## Pattern Generator 畫面產生器 (pattern) v3.5.0 — 2026-08-09 ｜ MINOR
+
+**判定依據：** `docs/VERSIONING.md` **R3**「判準：這一版之後，使用者能做的事有沒有多一件？有 → MINOR」。加了錨點 id 之後，`pattern.html#pattern-card-mask` 這類網址從**無效**變成**會捲到該張卡**，這是 `pattern.html` 本身新增的可用能力（說明頁的深層連結靠它才成立），使用者確實多能做一件事。§2 案例 4「重構、行為不變 → PATCH」字面不適用，因為行為有變（錨點從無效變有效）。
+
+> 疑慮（提請裁決）：`rxtx` / `calc` / `isp` / `aux` 四頁在 commit `675ab0b` 做同一件事時**沒有進版號**（hook 因為「本次沒有任何工具的版號變動」而放行）。照字面判 `pattern` 應該進 MINOR，但這會造成同一件事在五個分頁的處理不一致。要嘛前四頁補進 MINOR，要嘛把「加錨點 id」明文寫進 `docs/VERSIONING.md` §3 的不進版清單。此處先照字面判 MINOR，如何收斂請 Bruce 裁決。
+
+### 新增：六張卡片補上錨點 id，說明頁可深層連結
+
+| 卡片標題 | 原本的 class | 新增 id |
+|---|---|---|
+| 👁 現在顯示什麼 | `card pg-now` | `pattern-card-now` |
+| 🎛️ 畫面參數 | `card pg-params` | `pattern-card-params` |
+| 🖼 匯入圖片 | `card pg-import` | `pattern-card-import` |
+| ▦ 遮罩（只露出指定等份） | `card pg-mask` | `pattern-card-mask` |
+| 💾 輸出與另存 | `card pg-out` | `pattern-card-out` |
+| 🖥️ 螢幕資訊與縮放偵測 | `card pg-screen` | `pattern-card-screen` |
+
+`pattern.html` 全頁就是這 6 張 `class="card"`（2 個 `<div>` ＋ 4 個 `<details>`），沒有多的、也沒有對不上命名的。新 id 不被任何 JS／CSS 引用，純錨點。
+
+`pattern-guide.html` 第 3／4／5／8／9／10／11 章的 `section-desc` 補上「→ 直接開啟工具的這張卡」連結，寫法與 `rxtx` / `calc` / `isp` 三份說明頁一致。
+
+---
+
+## TCON 波形模擬與取樣 (wfg) v3.1.0 — 2026-08-09 ｜ MINOR
+
+**判定依據：** `docs/VERSIONING.md` §2 案例 1「新增一個完整功能 → MINOR」＋ **R3**「這一版之後，使用者能做的事有沒有多一件？有 → MINOR」。LA 模式的概覽圖從「只是一張圖」變成「點一下會跳過去」，是多出來的能力；TCON 模式的既有行為一行未動，LA 既有的操作（滾輪縮放、拖曳平移、中心／倍率輸入框、Trigger 歸零）全部照舊、位置也沒動，因此不觸發 MAJOR，也不是 PATCH。
+
+### 新增：LA 模式概覽圖（Overview）可點擊跳轉
+
+**現況問題**：TCON 模式的概覽圖點一下就跳，LA 模式的概覽圖沒有綁任何事件——全檔沒有一行 JS 抓 `.wfg-la-minimap-box`。更糟的是 CSS 早就寫了 `cursor: pointer`（`wfg.html:487`），滑鼠移上去變成手指、看起來可以點，點下去卻沒反應，是明確的誤導。本次一併解決。
+
+**行為**（刻意對齊 TCON 模式，同一個工具裡兩種模式不該不一樣）：
+
+- 滑鼠 **click** 一次跳轉：把點到的位置移到畫面正中央，**目前的可視範圍寬度（放大倍率）不變**。
+- **觸控** `touchstart` / `touchmove` 可按著左右拖曳連續移動，`touchend` / `touchcancel` 放開即停。
+- 邊界夾制沿用既有的 `wfgLaSetViewRange()`，超出資料範圍會夾在 `[0, duration−range]`。
+- 跳轉前先 `wfgLaInertiaStop()` 取消進行中的慣性滑動，並 `wfgLaMarkManualViewChange()` 解除 trigger 自動聚焦，避免跳完又被拉走。
+
+**換算基準**：不另造一套。`wfgLaRenderMinimap()` 畫圖時用的 `duration` 存進新的 `wfgLaMinimapDuration`，點擊換算直接沿用同一個值，確保「點到的位置」與「畫出來的圖／藍框位置」用同一把尺。
+
+**與 TCON 版的取捨**：TCON 的 `wfgInitMinimap()` 只做 click ＋ touch 拖曳，**沒有滑鼠按住拖曳、沒有慣性**。LA 版照抄這個範圍，不自行加碼，理由是「兩種模式操作方式不該不一樣」優先於「LA 版做得更好」。TCON 版另有一個 `ResizeObserver` 用來重繪自己的 minimap，LA 的 minimap 由 `wfgLaRenderScope()` 負責重繪，不需要，故未複製。
+
+**同步更新**：`wfg-guide.html` 第 16 章原本寫「LA 的概覽只顯示、不能點擊跳轉」，已改為說明新行為；LA 概覽圖的標籤由「Overview · Capture window」改為「Overview · 點擊跳轉」（i18n key `wfg.laOverviewCapture`，三語同步）。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.0.1 — 2026-08-08 ｜ PATCH
 
 ⚠ 輸出變更

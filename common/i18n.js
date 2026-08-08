@@ -508,7 +508,7 @@ var I18N = {
   'wfg.laDeviceConnected': { 'zh-TW': '裝置已連接', 'en': 'Device connected', 'zh-CN': '装置已连接' },
   'wfg.laDeviceDisconnected': { 'zh-TW': '裝置未連接', 'en': 'Device disconnected', 'zh-CN': '装置未连接' },
   'wfg.laDeviceError':  { 'zh-TW': '裝置連線錯誤', 'en': 'Device connection error', 'zh-CN': '装置连接错误' },
-  'wfg.laOverviewCapture': { 'zh-TW': 'Overview · Capture window', 'en': 'Overview · Capture window', 'zh-CN': 'Overview · Capture window' },
+  'wfg.laOverviewCapture': { 'zh-TW': 'Overview · 點擊跳轉', 'en': 'Overview · Click to jump', 'zh-CN': 'Overview · 点击跳转' },
   'wfg.laTheoreticalTime': { 'zh-TW': '理論取樣時間', 'en': 'Theoretical capture time', 'zh-CN': '理论采样时间' },
   'wfg.laActualLengthHint': { 'zh-TW': '實際長度依硬體壓縮率', 'en': 'actual length depends on hardware compression', 'zh-CN': '实际长度依硬体压缩率' },
   'wfg.laCustomVth':    { 'zh-TW': '自定義 Vth', 'en': 'Custom Vth', 'zh-CN': '自定义 Vth' },
