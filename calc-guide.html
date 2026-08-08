@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+</script>
+<title>mLVDS 分顆(分時) Skew 計算工具 — 使用手冊</title>
+<meta name="description" content="mLVDS 分顆(分時) Skew 計算工具完整使用手冊：基本參數、示波器觸發設定、Xn Channel、A Event B 結果、UI cof_cnt 分界值與 Skew 檔位參照表的逐項說明。">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本 (Guide Template v1.0)
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  .container { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    overflow-x: auto;
+  }
+  .nav-inner { display: flex; gap: 2px; max-width: 980px; margin: 0 auto; align-items:center; }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === SEARCH === */
+  .search-wrap { margin-left:auto; display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0; margin-left: 8px;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .theme-toggle { margin-left: auto; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>mLVDS 分顆(分時) Skew 計算工具</h1>
+  <p class="subtitle">示波器 A Event B 設定 & UI cof_cnt 分界值計算 — 完整使用手冊。每一個輸入欄位、每一條公式、每一張結果表的詳細說明。</p>
+  <span class="version">網頁工具 · 免安裝 · 手機/桌面皆可使用</span>
+  <div class="hero-links">
+    <a href="calc.html">▶ 開啟 mLVDS Skew 計算工具</a>
+    <a href="index.html">⌂ 回到工具首頁</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <button class="nav-btn active" onclick="scrollToSection('#intro')">簡介</button>
+    <button class="nav-btn" onclick="scrollToSection('#quickstart')">快速開始</button>
+    <button class="nav-btn" onclick="scrollToSection('#basic')">基本參數</button>
+    <button class="nav-btn" onclick="scrollToSection('#oscsetup')">示波器觸發</button>
+    <button class="nav-btn" onclick="scrollToSection('#xn')">Xn Channel</button>
+    <button class="nav-btn" onclick="scrollToSection('#oscresult')">A Event B</button>
+    <button class="nav-btn" onclick="scrollToSection('#cof')">cof_cnt</button>
+    <button class="nav-btn" onclick="scrollToSection('#skew')">Skew 檔位</button>
+    <button class="nav-btn" onclick="scrollToSection('#faq')">常見問題</button>
+    <div class="search-wrap">
+      <input id="ctrl-search" type="search" placeholder="🔍 搜尋控制項…" autocomplete="off">
+      <span id="search-count"></span>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切換亮色／暗色主題" aria-label="切換亮色／暗色主題">
+      <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+    </button>
+  </div>
+</div>
+
+<!-- ==================== INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>工具簡介</h2>
+    <p class="section-desc">一個 Port 上串了好幾顆 Source Driver 時，每顆離 TCON 的距離不同，資料到達時間也就不同。這個工具算兩件事：<strong>去示波器上要怎麼觸發才看得到每一顆</strong>，以及 <strong>TCON 端的 cof_cnt 分界值要填多少</strong>。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>它解決什麼問題</h3>
+        <ul>
+          <li><strong>示波器 A Event B 設定</strong> — 要看第 3 顆 Driver 的波形，B event 要數到第幾個 CLK？手算很容易錯一位，這裡一次列出每一顆。</li>
+          <li><strong>UI cof_cnt 分界值</strong> — 分時（分顆）驅動時，TCON 要知道在哪個 pixel 位置切換到下一顆。分界值填錯，畫面上會出現直向的分區色差。</li>
+          <li><strong>Skew 檔位對照</strong> — 粗調（cksk）與微調（fine）的檔位表，調 skew 時直接查。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>使用前提</h3>
+        <ul>
+          <li><strong>這個工具有「開始計算」按鈕</strong>——與工具箱其他頁不同。原因是要先選 Driver 顆數、動態產生 X1…Xn 輸入欄，欄位齊全後才有得算。</li>
+          <li><strong>改任何輸入都會把結果收起來</strong>，提醒你重新按一次計算，避免看到舊結果誤以為是新的。</li>
+          <li>「X1 最靠近 TCON」——編號方向弄反的話，整組 event 值會完全對不上。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" data-zone-target="zone-desc-calc">
+      <h3>介面總覽</h3>
+      <p style="color:var(--muted); font-size:.92rem;">把滑鼠移到下圖任一區塊（手機請點一下），下方會顯示該區說明。</p>
+      <div style="border:2px solid #334155; border-radius:10px; overflow:hidden; font-size:.84rem; background:#0f172a; padding:10px; display:flex; flex-direction:column; gap:9px;">
+        <div class="zone" data-zone="c-basic" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--primary);">📐 基本參數</strong>
+          <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+            <span class="ui-chip">Hres. 1920 ▾</span><span class="ui-chip">Hactive 1920</span><span class="ui-chip">8 bits</span><span class="ui-chip">3 pairs</span><span class="ui-chip">Single (1)</span><span class="ui-chip on">顆數 1–8</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="c-osc" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-cyan);">📺 示波器觸發設定</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">XSTB(TP) rising → mLVDS RST falling 的 CLK EVENT 數 · 下方為可放大的觸發示意圖</div>
+        </div>
+        <div class="zone" data-zone="c-xn" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-amber);">🟫 Xn Channel（X1 最靠近 TCON）</strong>
+          <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+            <span class="ui-chip">X1 864</span><span class="ui-chip">Copy to All</span><span class="ui-chip">X2 864</span><span class="ui-chip">X3 864</span>
+          </div>
+        </div>
+        <div style="text-align:center; color:#f97316; font-weight:700;">▼ ▶ 開始計算 ▼</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="c-oscres" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-blue);">📺 示波器 A Event B 設定</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">COF / B event 值<br>X1 → 2726、X2 → 5030 …</div>
+          </div>
+          <div class="zone" data-zone="c-cof" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-green);">🔢 UI cof_cnt 分界值設定　<span style="font-weight:400;">TCON EM01 ▾</span></strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">cof 項目 / 交界位置 / 分界值</div>
+          </div>
+        </div>
+        <div class="zone" data-zone="c-skew" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-purple);">📋 Skew 檔位參照表</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">cksk lane 對應 · 粗調 0–15 · 微調 fine 0–7（靜態表，不隨計算改變）</div>
+        </div>
+      </div>
+      <div id="zone-desc-calc" style="margin-top:14px; padding:14px 18px; background:var(--primary-soft); border:1px solid var(--primary-line); border-radius:8px; font-size:.9rem; min-height:76px;">✦ 把滑鼠移到上方任一區域（手機請點一下），這裡會顯示詳細說明。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>快速開始</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>填基本參數</h3>
+        <p>用 <strong>Hres.</strong> 下拉帶入 Hactive，再確認 Driver bits、Driver pairs 與 Single／Dual Gate 三項與實際板子一致。</p>
+      </div>
+      <div class="step">
+        <h3>選 Driver 顆數</h3>
+        <p>點「單 Port Driver 顆數」的數字鈕（1–8）。<strong>點下去才會出現 X1…Xn 的輸入欄</strong>，這也是為什麼這頁需要一顆計算按鈕。</p>
+      </div>
+      <div class="step">
+        <h3>填示波器 Event 數</h3>
+        <p>用示波器量出 XSTB(TP) 正緣到 mLVDS RST 負緣之間的 CLK event 數，填進去。示意圖點一下可以放大看觸發定義。</p>
+      </div>
+      <div class="step">
+        <h3>填每顆 Driver 的 channel 數</h3>
+        <p>X1 填好之後，其餘 Xn 會自動跟著同步（除非你手動改過某一顆）。每顆不同時就個別填，或按 <strong>Copy to All</strong> 統一覆蓋。</p>
+      </div>
+      <div class="step">
+        <h3>按「▶ 開始計算」</h3>
+        <p>得到兩張表：左邊是每一顆的 B event 值（拿去示波器設），右邊是 cof_cnt 分界值（拿去 TCON 設）。TCON 型號可在右上角切 EM01／EM02。</p>
+      </div>
+    </div>
+    <div class="callout warn">
+      <strong>結果消失了不是壞掉</strong>
+      只要動到任何輸入欄，結果區就會自動收起來——因為那些數字已經對應不到目前的輸入了。改完再按一次計算即可。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== BASIC ==================== -->
+<section id="basic">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>基本參數</h2>
+    <p class="section-desc"><a href="calc.html#calc-card-basic">→ 直接開啟工具的這張卡</a></p>
+
+    <div class="card">
+      <h3>逐項說明</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控制項</th><th>型別</th><th>選項／預設</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Hres.</td><td><span class="t-type tt-sel">下拉</span></td><td>1920（預設）/ 2560 / 3440 / 3840</td><td>右上角的快捷下拉，選了會直接把值填進 Hactive。填完仍可手動改。</td></tr>
+            <tr><td class="t-name">Hactive</td><td><span class="t-type tt-num">數值輸入</span></td><td>正整數，預設 1920</td><td>水平可視像素數。<strong>cof_cnt 分界值完全由它決定</strong>：分界值是把 Hactive 平均切給每一顆 Driver 得到的。填成 Htotal（含 blank）會讓分界值整組偏大。</td></tr>
+            <tr><td class="t-name">Driver bits</td><td><span class="t-type tt-rad">單選鈕</span></td><td>6 / 8（預設）bits</td><td>Source Driver 的資料位元數，直接乘進 event 數。</td></tr>
+            <tr><td class="t-name">Driver pairs</td><td><span class="t-type tt-rad">單選鈕</span></td><td>3（預設）/ 6 pairs</td><td>每顆 Driver 的資料對數，除進 event 數。<strong>6 pairs 的 event 數是 3 pairs 的一半</strong>——同樣的資料量用兩倍的線送，時間就減半。</td></tr>
+            <tr><td class="t-name">Single / Dual Gate</td><td><span class="t-type tt-rad">單選鈕</span></td><td>Single (1)（預設）/ Dual (2)</td><td>Dual Gate 代表一行的資料由兩組 Gate 分擔，<strong>event 數與 cof 分界值都會再除以 2</strong>。這一項選錯，兩張結果表會整組差一倍——是最容易發生的錯誤。</td></tr>
+            <tr><td class="t-name">單 Port Driver 顆數</td><td><span class="t-type tt-btn">數字鈕 1–8</span></td><td>初次載入為 3</td><td>一個 Port 串了幾顆 Driver。<strong>點下去才會產生 X1…Xn 輸入欄</strong>，也決定了兩張結果表的列數。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout danger">
+        <strong>錯誤提示會直接標在欄位上</strong>
+        Hactive 與 Xn 必須是<strong>正整數</strong>，Event 數允許 0。不合法時欄位會變紅框並顯示訊息，按計算時畫面會自動捲到第一個出錯的欄位。沒有選顆數就按計算則會跳出提示。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== OSC SETUP ==================== -->
+<section id="oscsetup">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>示波器觸發設定</h2>
+    <p class="section-desc">這一格是整個計算的「起算點」。<a href="calc.html#calc-card-osc-setup">→ 直接開啟工具的這張卡</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>要量的是什麼</h3>
+        <p style="font-size:.93rem;">欄位全名是「<strong>XSTB(TP) rising → mLVDS RST falling 之 CLK EVENT 數</strong>」，也就是：</p>
+        <div class="flow">
+          <div class="flow-node" style="background:var(--accent-green);">A：XSTB(TP) 正緣</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node" style="background:var(--accent-cyan);">數 mLVDS CLK 邊緣</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node" style="background:var(--primary);">B：RST 負緣</div>
+        </div>
+        <ul>
+          <li>示波器觸發設成 <strong>A event B</strong> 模式</li>
+          <li><strong>A ＝ XSTB(TP) 正緣</strong></li>
+          <li><strong>B ＝ mLVDS CLK 正負緣</strong>（雙邊緣都算，因為 mLVDS 是 DDR）</li>
+        </ul>
+        <p style="font-size:.93rem;">量到的數字填進去，後面每一顆 Driver 的 B event 值都是<strong>從這個數字往上加</strong>。</p>
+      </div>
+      <div class="card">
+        <h3>控制項</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>控制項</th><th>型別</th><th>範圍／預設</th><th>說明</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">CLK EVENT 數</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥ 0 的整數，預設 510</td><td>允許填 0。這個值只影響 B event 結果，不影響 cof_cnt 分界值。</td></tr>
+              <tr><td class="t-name">觸發示意圖</td><td><span class="t-type tt-btn">可點擊圖</span></td><td>—</td><td>點圖任一處會放大成全螢幕燈箱。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout info">
+          <strong>示意圖放大後可以操作</strong>
+          滑鼠滾輪縮放、按住拖曳平移；手機用雙指捏合縮放、單指拖曳、<strong>連點兩下還原</strong>。關閉方式：右上角 ×、點圖以外的暗色區域，或按 <code>Esc</code>。
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== XN ==================== -->
+<section id="xn">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>Xn Channel 輸入</h2>
+    <p class="section-desc">每一顆 Driver 負責幾個 channel。欄位數量由「單 Port Driver 顆數」決定，選了幾顆就出現幾格。</p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控制項</th><th>型別</th><th>預設</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">X1 Channel</td><td><span class="t-type tt-num">數值輸入</span></td><td>864</td><td><strong>X1 是最靠近 TCON 的那一顆</strong>，也是整串的起點。改 X1 時，<strong>還沒被你手動改過</strong>的 X2…Xn 會自動跟著變成同一個值。</td></tr>
+            <tr><td class="t-name">Copy to All</td><td><span class="t-type tt-btn">按鈕</span></td><td>—</td><td>把 X1 的值強制覆蓋到所有 Xn，<strong>包含你手動改過的那些</strong>，並解除它們的「已手動編輯」標記。X1 空白時會跳提示。</td></tr>
+            <tr><td class="t-name">X2 … X8</td><td><span class="t-type tt-num">數值輸入</span></td><td>864</td><td>各顆的 channel 數。<strong>一旦手動改過某一格，它就不再跟著 X1 連動</strong>——這是刻意的，避免你細心調完又被 X1 洗掉。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>大多數情況每顆都一樣</strong>
+        同一 Port 上的 Driver 通常是同型號、同 channel 數，所以直接填 X1 讓它同步就好。只有在<strong>最後一顆吃剩下的 channel 數不同</strong>（面板寬度除不盡）時，才需要單獨改那一格。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== OSC RESULT ==================== -->
+<section id="oscresult">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>結果一：示波器 A Event B 設定</h2>
+    <p class="section-desc">拿去示波器上照設就能逐顆看到波形。<a href="calc.html#calc-card-osc-result">→ 直接開啟工具的這張卡</a></p>
+
+    <div class="card">
+      <h3>公式</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>對象</th><th>B event 值</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">X1（第一顆）</td><td><code>floor( floor(X1 × bits ÷ pairs ÷ gate) ÷ 2 ) + Event 數</code></td><td>先算出一顆 Driver 的資料所佔的 CLK 數，<strong>取一半</strong>（落在該顆資料的中間，比較好觸發），再加上你量到的起始 Event 數。</td></tr>
+            <tr><td class="t-name">X2 … Xn</td><td><code>floor(Xn × bits ÷ pairs ÷ gate) + 前一顆的值</code></td><td>逐顆累加。每往後一顆，就多等一整顆 Driver 的資料時間。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">所有除法都是<strong>無條件捨去</strong>（floor），與硬體計數器的行為一致。</p>
+      <div class="callout warn">
+        <strong>設定示波器時別忘了另外兩件事</strong>
+        表格下方的紅字提醒：<strong>A Trigger ＝ TP（正緣）</strong>、<strong>B Trigger ＝ mLVDS CLK（正負緣）</strong>。B 只設單一邊緣的話，數出來會差一倍。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== COF ==================== -->
+<section id="cof">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>結果二：UI cof_cnt 分界值設定</h2>
+    <p class="section-desc">拿去 TCON 暫存器設定的數字。<a href="calc.html#calc-card-cof">→ 直接開啟工具的這張卡</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>分界值怎麼來的</h3>
+        <p style="font-size:.93rem;">第 <code>i</code> 個分界（<code>i</code> 從 1 數到 顆數−1）：</p>
+        <p style="font-size:.93rem;"><code>分界值 = floor( Hactive ÷ 2 ÷ 顆數 ÷ gate × i − 1 )</code></p>
+        <ul>
+          <li><code>÷ 顆數</code>：把整行平均切給每一顆</li>
+          <li><code>÷ 2</code>：以 UI 為單位計數（一個 UI 對應兩個 pixel 位置）</li>
+          <li><code>÷ gate</code>：Dual Gate 時每組只處理一半</li>
+          <li><code>− 1</code>：計數器從 0 起算</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>最後一列的 2047</h3>
+        <p style="font-size:.93rem;">最後一顆（<code>Xn, End</code>）以及超出顆數的列，分界值固定顯示 <strong>2047</strong>。這不是算出來的，而是<strong>「一直到底」的結束標記</strong>——告訴 TCON 這一段沒有下一個交界。</p>
+        <div class="callout danger">
+          <strong>2047 不會被 EM02 除以二</strong>
+          它是 sentinel 而非公式結果，切到 EM02 時仍然是 2047。看到它保持不變是正確行為。
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>表格與控制項</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控制項／欄位</th><th>型別</th><th>選項</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">TCON</td><td><span class="t-type tt-sel">下拉</span></td><td>EM01（預設）／EM02</td><td>切換 TCON 型號。<strong>EM01 提供 cof1–cof3、EM02 提供 cof1–cof7</strong>，而且 <strong>EM02 的分界值 ＝ EM01 分界值 ÷ 2（無條件捨去）</strong>。切換是即時的，不必重按計算。</td></tr>
+            <tr><td class="t-name">cof_cnt 項目</td><td><span class="t-type tt-sel">下拉</span></td><td><code>-</code> 或 cof1…（依 TCON 型號）</td><td>指定該列要用哪一個 cof 暫存器。可自行調整對應關係。</td></tr>
+            <tr><td class="t-name">交界位置</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>—</td><td>顯示這一列是哪兩顆之間的交界，例如 <code>X1, X2</code>；最後一列為 <code>Xn, End</code>；超出顆數的列顯示 <code>-</code>。</td></tr>
+            <tr><td class="t-name">cof_cnt 分界值</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>—</td><td>綠底高亮的數字，就是要填進暫存器的值。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>改一個 cof 項目，後面會自動接續</strong>
+        把某一列改成 <code>cof2</code> 時，工具會自動把<strong>它後面的列依序排成 cof3、cof4…</strong>，並把其他列上重複的名稱清成 <code>-</code>。這樣就不會出現兩列都指到同一個暫存器的設定。若只是想清掉某列，選 <code>-</code> 即可，不會觸發連動。
+      </div>
+      <p style="font-size:.92rem;">表格列數取「Driver 顆數」與「該型號的 cof 數量」<strong>兩者較大者</strong>，所以 EM02 在顆數少時仍會列滿 7 列（多出來的列交界位置顯示 <code>-</code>、值為 2047）。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SKEW ==================== -->
+<section id="skew">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>Skew 檔位參照表</h2>
+    <p class="section-desc">靜態對照表，不隨計算改變，放在這裡是為了調 skew 時不必再翻文件。<a href="calc.html#calc-card-skew-ref">→ 直接開啟工具的這張卡</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>cksk lane 對應</h3>
+        <p style="font-size:.92rem;">「非分顆（時間）調整，只移動 CLK」時使用。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>代號</th><th>對應 lane</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">la</td><td>lane 0–3</td></tr>
+              <tr><td class="t-name">lb</td><td>lane 8–11</td></tr>
+              <tr><td class="t-name">ra</td><td>lane 4–7</td></tr>
+              <tr><td class="t-name">rb</td><td>lane 12–15</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warn">
+          <strong>lb 與 ra 的順序容易記反</strong>
+          表上是 <strong>la→0-3、lb→8-11、ra→4-7、rb→12-15</strong>，不是連續排的。調錯代號會移動到別組 lane 的時脈。
+        </div>
+      </div>
+      <div class="card">
+        <h3>粗調（cksk）</h3>
+        <p style="font-size:.92rem;">以 1/16 UI 為單位移動 setup time。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>檔位</th><th>Setup Time</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">0</td><td>8/16 UI<strong>（與檔位 8 相同）</strong></td></tr>
+              <tr><td class="t-name">1 – 7</td><td>1/16 – 7/16 UI</td></tr>
+              <tr><td class="t-name">8</td><td>8/16 UI　<strong>預設</strong></td></tr>
+              <tr><td class="t-name">9 – 15</td><td>9/16 – 15/16 UI</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:.92rem;">檔位 <code>0</code> 是特例，值與 <code>8</code> 相同；正常操作請從預設的 8 往上下調整。實際時間長度＝檔位比例 × 1 UI，1 UI 的絕對值可用 <a href="rxtx-guide.html">Rx/Tx 頻率計算工具</a> 算出。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>微調（fine）</h3>
+      <p style="font-size:.92rem;">「分顆（時間）調整」用，單位是實際的皮秒（ps），與頻率無關。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>檔位</th><th>位移量</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">0</td><td>P2S</td><td>特殊檔位，非數值位移。</td></tr>
+            <tr><td class="t-name">1</td><td>−52 ps</td><td rowspan="3">往前（提早）</td></tr>
+            <tr><td class="t-name">2</td><td>−31 ps</td></tr>
+            <tr><td class="t-name">3</td><td>−14 ps</td></tr>
+            <tr><td class="t-name">4</td><td>0 ps</td><td><strong>預設</strong>，不位移</td></tr>
+            <tr><td class="t-name">5</td><td>+11 ps</td><td rowspan="3">往後（延遲）</td></tr>
+            <tr><td class="t-name">6</td><td>+36 ps</td></tr>
+            <tr><td class="t-name">7</td><td>+59 ps</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>間距不是等分的</strong>
+        −52／−31／−14／0／+11／+36／+59 之間的間隔並不相等，這是電路實作的結果。所以「往前調兩格」與「往後調兩格」的位移量不對稱，微調時請直接看 ps 值，不要用格數推算。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">9</span>常見問題</h2>
+    <p class="section-desc">點問題展開答案。</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>按了計算沒反應，或畫面跳到某個欄位？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">代表<strong>有欄位沒通過驗證</strong>。畫面會自動捲到第一個紅框欄位。Hactive 與 X1…Xn 必須是正整數，Event 數必須是 0 或正整數；另外<strong>沒有先點「單 Port Driver 顆數」</strong>也會被擋下並跳出提示。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>改了輸入之後結果整塊不見了？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">刻意的。輸入一改，先前算出來的數字就對不上了，留著只會害人抄錯。重按「▶ 開始計算」即可。<strong>例外</strong>：在結果區內操作（切 TCON 型號、改 cof 項目下拉）不會清除結果，因為那些是結果的呈現方式而非輸入條件。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>切到 EM02，分界值全部變成一半？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">正確。<strong>EM02 的分界值 ＝ EM01 的分界值 ÷ 2（無條件捨去）</strong>，例如 15 → 7、32 → 16。切回 EM01 會回到原值，不會重複套用。唯一不變的是結束標記 2047。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>算出來的 B event 值到示波器上對不到？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">依可能性排查：</p>
+        <ol style="color:var(--muted); font-size:.93rem;">
+          <li><strong>B Trigger 沒設成正負緣</strong>——只算單邊緣會差一倍。</li>
+          <li><strong>Single／Dual Gate 選錯</strong>——同樣會整組差一倍。</li>
+          <li><strong>起始 Event 數量錯</strong>——A 必須是 XSTB(TP) 的正緣，量到 RST 的負緣為止。</li>
+          <li><strong>X1 方向反了</strong>——X1 必須是最靠近 TCON 的那一顆。</li>
+          <li>Driver bits／pairs 與實際板子不符。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>改 X1 的時候，某幾格 Xn 沒有跟著變？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">那幾格<strong>被你手動改過</strong>，工具就不再用 X1 覆蓋它們，避免辛苦調好的值被洗掉。要強制統一請按 <strong>Copy to All</strong>，它會連手動改過的一起覆蓋，並解除標記。重新點選顆數也會重置全部。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>cof 項目下拉改一個，其他列自己跟著動？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">這是<strong>順序連動</strong>：cof 暫存器必須依序對應到由近到遠的交界，所以指定某列為 cof2 之後，後面的列會自動排成 cof3、cof4…，同時把其他列上重複的名稱清成 <code>-</code>。選 <code>-</code> 則不會觸發連動。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>mLVDS 分顆(分時) Skew 計算工具 — 使用手冊</strong></p>
+  <p style="margin-top:6px;"><a href="calc.html">開啟工具</a> · <a href="index.html">回到工具首頁</a></p>
+  <p style="margin-top:8px; opacity:.65;">本手冊隨工具功能更新，不納入工具版本號機制。<br>本工具為工程輔助用途，計算結果僅供參考，實際規格請以正式文件為準。</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="回到頂端">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === NAV scroll tracking ===
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+const zoneDescriptions = {
+  'c-basic': "<strong>基本參數</strong><br>右上角 <b>Hres.</b> 下拉可一鍵填入 Hactive（1920／2560／3440／3840）。Driver bits（6/8）、Driver pairs（3/6）、Single／Dual Gate 三項決定 event 數的縮放；最下方的<b>單 Port Driver 顆數（1–8）</b>要先點，下面才會出現 X1…Xn 輸入欄。<b>Gate 選錯會讓兩張結果表整組差一倍</b>。",
+  'c-osc': "<strong>示波器觸發設定</strong><br>填入用示波器量到的「XSTB(TP) 正緣 → mLVDS RST 負緣」之間的 CLK event 數（預設 510，允許 0）。示波器需設成 <b>A event B</b>：A＝XSTB(TP) 正緣、B＝mLVDS CLK <b>正負緣</b>。下方示意圖可點擊放大，支援滾輪／雙指縮放、拖曳平移、雙擊還原、Esc 關閉。",
+  'c-xn': "<strong>Xn Channel</strong><br>每顆 Driver 負責的 channel 數，<b>X1 是最靠近 TCON 的那一顆</b>。改 X1 時，尚未被手動編輯的 X2…Xn 會自動同步；已手動改過的則不受影響。<b>Copy to All</b> 會強制把 X1 覆蓋到全部並解除手動標記。",
+  'c-oscres': "<strong>示波器 A Event B 設定（結果）</strong><br>逐顆列出要設在示波器上的 B event 值。第一顆＝<code>floor(floor(X1×bits÷pairs÷gate)÷2) + Event 數</code>（落在該顆資料中間比較好觸發），之後每顆再累加一整顆的資料時間。表格下方紅字提醒 A/B 觸發條件，<b>B 一定要設正負緣</b>。",
+  'c-cof': "<strong>UI cof_cnt 分界值設定（結果）</strong><br>要填進 TCON 暫存器的分界值：<code>floor(Hactive÷2÷顆數÷gate×i − 1)</code>。右上角可切 <b>EM01（cof1–3）／EM02（cof1–7）</b>，<b>EM02 的值＝EM01÷2 無條件捨去</b>，但結束標記 2047 不除。cof 項目下拉可改，改一列會自動把後面的列依序排好。",
+  'c-skew': "<strong>Skew 檔位參照表</strong><br>靜態對照，不隨計算變動。左側是 cksk（只移動 CLK）：lane 對應 la→0-3、lb→8-11、ra→4-7、rb→12-15，粗調 0–15 以 1/16 UI 為單位、預設 8。右側是分顆調整的微調 fine 0–7：0＝P2S、4＝0 ps（預設），其餘為 −52／−31／−14／+11／+36／+59 ps，<b>間距並非等分</b>。",
+};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' 筆符合';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+const keyMap = {
+  '1': ['A1', '#facc15'], '2': ['A2', '#facc15'],
+  '3': ['B1', '#22d3ee'], '4': ['B2', '#22d3ee'],
+  '5': ['C1', '#4ade80'], '6': ['C2', '#4ade80'],
+  '7': ['D1', '#fb923c'], '8': ['D2', '#fb923c'],
+  '9': ['E1', '#c084fc'], '0': ['E2', '#c084fc']
+};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = '按下數字鍵 <code>' + k + '</code> → 切換游標 <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>。<br>第一次按：游標出現並<strong>跟著滑鼠移動</strong>；在畫布上按一下滑鼠左鍵即可<strong>釘住</strong>；已釘住時再按同一鍵會<strong>回到跟隨狀態</strong>；跟隨狀態下再按一次才會<strong>移除</strong>該游標。';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>
