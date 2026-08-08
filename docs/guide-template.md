@@ -17,6 +17,7 @@
 | 檔名 | `<工具檔名去掉 .html>-guide.html`，放在專案根目錄 | `wfg.html` → `wfg-guide.html` |
 | 進入點 | `index.html` 工具卡片右側的 `?` 按鈕，`openGuide(event,'xxx-guide.html')` | — |
 | 版本號 | 🔴 **說明頁不納入版本號機制**，`common/version.js` 不加條目、頁面不顯示版號 | — |
+| CHANGELOG | 🔴 **純說明頁的改動不寫 CHANGELOG**，以 commit message 為紀錄。理由：CHANGELOG 條目格式強制帶 `vX.Y.Z` 與級別欄，說明頁沒有版號，硬塞會製造假版號（`tools/version_bump_check.py` 也會判定「本次無版號變動」直接放行） | — |
 | 相依 | 單一 HTML 檔，CSS/JS 全部內嵌，不引用 `common/` 也不引用任何 CDN | — |
 
 單檔的理由：說明頁要能被單獨存檔、單獨寄給客戶、離線開啟。
