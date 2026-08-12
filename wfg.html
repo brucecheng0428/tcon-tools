@@ -1624,8 +1624,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260812wfg350"></script>
-<script src="common/i18n.js?v=20260812wfg350"></script>
+<script src="common/version.js?v=20260812wfg351"></script>
+<script src="common/i18n.js?v=20260812wfg351"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -18759,6 +18759,20 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   ctx.restore();
 }
 
+/* v3.5.1: 清空 sticky 時間軸與其 overlay。
+   沒有可見通道時 wfgRender() 會提早 return（主 canvas 隱藏、顯示「請載入預設…」），
+   但 sticky 時間軸與 overlay 是**獨立的兩張 canvas**，不清就會保留上一幀的畫面 ——
+   波形已經清空了，畫面頂端卻還掛著時間刻度與 A1/A2 之類的 cursor 標籤。 */
+function _wfgTconClearStickyTimeAxis() {
+  ['wfg-tcon-time-axis-canvas', 'wfg-tcon-time-axis-overlay'].forEach(function(id) {
+    var c = document.getElementById(id);
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+  });
+}
+
 // v2.97.371: TCON sticky 時間軸 — 複製主 canvas 頂部 30px
 function _wfgTconRenderStickyTimeAxis() {
   var sCanvas = document.getElementById('wfg-tcon-time-axis-canvas');
@@ -18863,6 +18877,7 @@ function wfgRender() {
     canvas.style.display = 'none';
     if (emptyEl) emptyEl.style.display = 'flex';
     wfgRenderLabels();
+    _wfgTconClearStickyTimeAxis(); /* v3.5.1: 否則時間刻度與 cursor 標籤會殘留在畫面頂端 */
     return;
   }
   canvas.style.display = 'block';
@@ -20656,6 +20671,21 @@ window.wfgResizeCanvas = function() {
 // ─── Preset / Param ───
 
 
+/* v3.5.1: 把「清空 10 支時間 cursor」抽成單一函式，讓每一條會清空波形的路徑共用。
+   v3.5.0 只補了 wfgLoadPreset 一條，結果漏掉「切回『快捷設定』placeholder → wfgResetToDefault()」
+   這條（波形清空、cursor 卻留在畫面與卡片上）。抽成函式是為了讓「以後新增的清空路徑」
+   只需要呼叫一次，而不是各自複製一份清空邏輯再漏掉其中一份。
+   wfgDtLock（|Δt| 鎖定）同屬 cursor 狀態，必須一起清，否則會鎖住已不存在的 cursor 配對。
+   註：本函式只改狀態不碰 DOM，面板刷新由呼叫端在適當時機呼叫 wfgUpdateCursorPanel()。 */
+function wfgClearAllCursors() {
+  for (var cci = 0; cci < wfgCursors.length; cci++) {
+    wfgCursors[cci].time = null;
+    wfgCursors[cci].active = false;
+    wfgCursors[cci].moving = false;
+  }
+  wfgDtLock = {};
+}
+
 function wfgResetToDefault() {
   wfgInvalidateCache();
   _wfgPromotedRx = -1;
@@ -20677,10 +20707,15 @@ function wfgResetToDefault() {
   // Reset voltage cursors to defaults
   _wfgVoltCursorPerSlot = {};
   wfgVoltCursors.forEach(function(vc) { vc.active = true; });
+  /* v3.5.1: 時間 cursor 也要跟著清 —— 這裡是「切回『快捷設定』placeholder」與
+     「進 TCON 分頁選不保留上次紀錄」共用的清空入口，波形都已清空，
+     cursor 卻留著會讓時基標尺卡片繼續顯示一組指向已不存在波形的量測值。 */
+  wfgClearAllCursors();
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgTotalLines());
   wfgRenderGpioList();
   wfgRenderChannelList();
+  wfgUpdateCursorPanel();
   wfgResizeAndRender();
 }
 function wfgLoadPresetFromSelect(sel) {
@@ -20829,13 +20864,9 @@ function wfgLoadPreset(presetName) {
   /* v3.5.0 行為變更：preset 的語意是「完整定義一組情境」，不是「只覆蓋它有提到的欄位」。
      舊行為：沒有 cursors 欄位的 preset（例如 Multi CPV）不清空 → 上一個 preset 的 cursor 會殘留，
      畫面變成兩個 preset 的混血狀態。新行為：不論 preset 有沒有 cursors 欄位，一律先全部清空。
-     另：|Δt| 鎖定同屬 cursor 狀態，一併清除，否則會鎖住已不存在的 cursor 配對。 */
-  for (var curi = 0; curi < wfgCursors.length; curi++) {
-    wfgCursors[curi].time = null;
-    wfgCursors[curi].active = false;
-    wfgCursors[curi].moving = false;
-  }
-  wfgDtLock = {};
+     另：|Δt| 鎖定同屬 cursor 狀態，一併清除，否則會鎖住已不存在的 cursor 配對。
+     v3.5.1: 清空邏輯抽到 wfgClearAllCursors()，與 wfgResetToDefault() 共用同一份。 */
+  wfgClearAllCursors();
   if (preset.cursors && Array.isArray(preset.cursors)) {
     for (var pci = 0; pci < preset.cursors.length; pci++) {
       var pcursor = preset.cursors[pci];
@@ -27615,6 +27646,11 @@ window.wfgImportConfig = function(jsonStr) {
   wfgLsSyncChannels();
 
   // ── Cursors ──
+  /* v3.5.1: 與 preset 同一套語意 —— 匯入一份設定檔是「整組套用一份狀態」，不是「只覆蓋它有提到的欄位」。
+     舊行為：沒有 cursors 欄位的檔（舊版存檔／手改過的 JSON）匯入後，當下的 cursor 會原封不動留著，
+     畫面變成「新波形 ＋ 舊 cursor」的混血狀態。新行為：一律先清空再套用檔案指定的部分。
+     註：wfgExportConfig() 一定會寫出 cursors 欄位，autosave 走的自動還原不受影響（實測驗證）。 */
+  wfgClearAllCursors();
   if (config.cursors && Array.isArray(config.cursors)) {
     for (var ki = 0; ki < config.cursors.length && ki < wfgCursors.length; ki++) {
       var sc = config.cursors[ki];

@@ -22,6 +22,43 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.5.1 — 2026-08-12 ｜ PATCH ｜ ⚠ 輸出變更
+
+**判定依據：** 本版三件事的共同性質都是「**v3.5.0 應該做到卻漏掉的路徑**」→ `docs/VERSIONING.md` §2 案例 2「改一個 bug → PATCH」。使用者能做的事**沒有多一件**（R3 判準不成立），控制項位置與波形數值皆未動 → **PATCH**，`v3.5.0` → `v3.5.1`。
+
+> 🔴 第 3 項（匯入無 `cursors` 欄位的設定檔時清空 cursor）是行為變更，這裡記錄取捨供覆核：§1 判定表「既有功能的輸出主動改變 = MAJOR」字面上套得上。判給 PATCH 的理由是 —— 它不是新的設計決定，而是把 **v3.5.0 已經裁決過的同一條語意**（「一份 preset／設定檔是完整定義一組情境，不是只覆蓋它有提到的欄位」）補用到漏掉的入口上；v3.5.0 已為此語意付過一次 MINOR，同一件事不重複計價。若覆核認為匯入路徑應獨立計價，本版改判 MINOR（v3.6.0）或 MAJOR（v4.0.0），我照改。
+
+`⚠ 輸出變更`：三種操作序列的畫面與 v3.5.0 不同 ——
+(a) 任一 preset → 切回「快捷設定」placeholder：cursor 與時基標尺卡片內容從「殘留」變成「清空」；
+(b) 同上情境，畫面頂端的時間刻度與 A1/A2 等 cursor 標籤從「殘留」變成「消失」；
+(c) 匯入**沒有** `cursors` 欄位的設定檔：當下 cursor 從「保留」變成「清空」。
+波形本身的數值一位元未變（逐像素雜湊比對，見下）。
+
+### 修正：切回「快捷設定」placeholder 時，cursor 沒有跟著清
+
+**現象**（Bruce 回報）：把預設切回第一個選項「快捷設定」後，波形區整個清空，但 cursor 沒清，右邊時基標尺卡片還列著上一個 preset 的量測值。
+
+**根因**：v3.5.0 只補了 `wfgLoadPreset()`（載入**有效** preset）這一條路徑。切回 placeholder 走的是另一條分支 —— `wfgLoadPresetFromSelect()` 在 `!key` 時呼叫 `wfgResetToDefault()`，而該函式只重置 GPIO／通道／電壓 cursor，**完全沒碰時間 cursor，也沒刷新面板**。
+
+**修法**：把清空邏輯抽成單一函式 `wfgClearAllCursors()`（含 `wfgDtLock`），讓每條清空路徑共用同一份，而不是各自複製一份、再漏掉其中一份。目前三個呼叫點涵蓋全部四個入口：
+
+| 入口 | 走哪條 | 狀態 |
+|---|---|---|
+| 選有效 preset | `wfgLoadPreset()` | v3.5.0 已修 |
+| 切回「快捷設定」placeholder | `wfgResetToDefault()` | **本版修** |
+| 進 TCON 分頁選「不保留上次紀錄」 | 同上（`wfgPrepareTconTimingEntry()` 也呼叫 `wfgResetToDefault()`） | **本版一併涵蓋** |
+| 匯入設定檔／autosave 還原 | `wfgImportConfig()` | 面板刷新本來就有；**本版補上「無 cursors 欄位時清空」** |
+
+> 註：「使用者手動把所有通道取消勾選」也會讓波形區變空，但那是暫時隱藏、不是重置，**刻意不清 cursor**。
+
+### 修正：波形清空後，畫面頂端的時間刻度與 cursor 標籤殘留
+
+沒有可見通道時 `wfgRender()` 會提早 return，但 sticky 時間軸（`wfg-tcon-time-axis-canvas`）與其 overlay（`wfg-tcon-time-axis-overlay`）是**獨立的兩張 canvas**，不會被清 —— 結果波形區已顯示「請載入預設或新增信號以開始」，畫面頂端卻還掛著上一幀的時間刻度與 A1／A2 標籤和時間讀數。新增 `_wfgTconClearStickyTimeAxis()` 在該分支清掉這兩張 canvas。
+
+（此殘留在 v3.5.0 之前就存在，不是 v3.5.0 引入的，但它是同一個使用者可見症狀的一部分，一併修掉。）
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.5.0 — 2026-08-12 ｜ MINOR ｜ ⚠ 輸出變更
 
 **判定依據：** 本版三件事分別判定後取最高者：
