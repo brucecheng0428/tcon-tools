@@ -22,6 +22,146 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.6.0 — 2026-08-12 ｜ MINOR ｜ ⚠ 輸出變更
+
+autosave 從「**寫了但從來沒還原過**」改成「**離開就存、回來就自動還原**」，並移除進入 TCON Timing 分頁時的「是否要保留之前的調整紀錄？」確認框。
+
+**判定依據：** 本版三項改動逐一判定，取最高者：
+
+| 改動 | 適用規則 | 級別 |
+|---|---|---|
+| 移除「是否要保留之前的調整紀錄？」確認框 | §2 **案例 6** 的但書＋**R2** 明文：「波內若移除既有入口，算在開頭那個 MAJOR 的宣告範圍內，**不再另計**」。該確認框是 `v3.0.0` 拆頁那一波的產物，屬**波內** | **不另計 MAJOR** |
+| 自動還原修回歸（自 commit `4647a36` 拆頁後就沒作用過） | §2 **案例 2「改一個 bug → PATCH」** | **PATCH** |
+| 開頁起始狀態由「空白」改為「上次的工作狀態」 | **R4**：起始狀態改變、不影響既有操作（沒有功能被移除、沒有入口移位、原本會的操作照樣能做）→ MINOR | **MINOR** |
+
+取較高者 → **MINOR** → `v3.5.1` → **`v3.6.0`**。
+
+🔴 **v3 這一波可以一路走到 v3.9x，只有真正的大變動才進 v4。** 對照 `wfg` 的 2.x 一路走到 `v2.97.475`：波內版號能走多遠，取決於有沒有出現需要使用者整個重新熟悉的大變動，不取決於改了幾次。**「改動看起來很大」不是進 MAJOR 的理由。**（Bruce 2026-08-12 明示）
+
+`⚠ 輸出變更`：**開頁與切分頁的行為都與 v3.5.1 不同** ——
+(a) 有存檔時，開啟／重整 wfg.html 會自動還原上次的全部參數與 cursor（v3.5.1 是一律空白）；
+(b) TCON ↔ LA 分頁切換回來時同樣自動還原，且**不再跳確認框**（v3.5.1 會跳）；
+(c) 還原期間會出現「還原上次的工作狀態…」進度視窗。
+**以 v3.5.1 之前的版本建立、且假設「開頁必為空白」的截圖／逐像素基線，在有存檔的環境下不再直接適用**，需先清 localStorage 再建基線。無存檔的環境（全新使用者、清過 localStorage）開頁行為完全不變。
+
+### 版號更正紀錄
+
+**版號回溯核准：** Bruce 2026-08-12
+
+本版原先編為 **v4.0.0**（commit `6e32687`，已 push），不符 `docs/VERSIONING.md` 的 **R2（一波重整以 MAJOR 開頭，波內的後續步驟依自身性質各自判定）**，**更正為 v3.6.0**。
+
+- 本波重整自 **v3.0.0**（commit `8238ecb`，移除訊號產生器分頁）起算，波內後續不應重複進 MAJOR。R2 條文本身即載明理由，否則會出現 v2.0.0 → v3.0.0 → v4.0.0 這種編號。
+- 原條目以一段自填的「**波次宣告**」主張「上一波已在 v3.5.1 結束、本版開啟新的一波」而放行 MAJOR。**這個宣告不成立**：規則從未定義「一波如何結束」，也沒有授權 agent 自行判定波次終結；「主題與上一波沒有交集」不是波次界線的判準。**開新波必須有 Bruce 的明示裁示**（本次已補進 `docs/VERSIONING.md` §1 R2）。
+- 移除確認框那一項，正是 R2 明文「波內若移除既有入口，算在開頭那個 MAJOR 的宣告範圍內，不再另計」所涵蓋的情形，原條目卻拿它當 MAJOR 的主要依據 —— 條文被跳過。
+- 更正後依剩下兩項（修回歸 PATCH ＋ 起始狀態改變 R4 MINOR）取較高者 → **MINOR → v3.6.0**。
+
+**這是同一個錯誤的第二次。** 第一次是 `pattern` v4.0.0（見本檔 pattern v3.1.0 的〈版號更正紀錄〉），`tools/version_bump_check.py` 就是為了防它而寫的，卻仍然放行了本次 —— 因為它接受**自由填寫**的「波次宣告」作為放行條件，防呆被一個自己填的欄位繞過去。**同 commit 已修**：MAJOR 改為必須有 `MAJOR 核准：Bruce YYYY-MM-DD` 這一行才放行，「波次宣告」降級為純說明、不再構成放行條件。
+
+**為什麼這次可以回溯**（`docs/VERSIONING.md` §5「歷史版號一律不回溯調整」的**明示例外**，依 **Bruce 2026-08-12 裁示**）：
+
+| 顧慮（§5 方案 B 列的代價） | 本次情況 |
+|---|---|
+| git commit message 裡的版號改不掉 | **屬實，不迴避**：`6e32687` 會永遠寫著 v4.0.0 留在歷史裡。靠本節說明，**不改寫歷史、不 force push、不 rebase**，以一個新的更正 commit 處理 |
+| tag / Release 對不上 | **不存在**：本 repo `git tag` 為空，沒有任何 tag 或 Release |
+| cache buster 要重算 | 只有 `wfg.html` 兩處，已改 `20260812wfg400` → `20260812wfg360` |
+| 記憶中的版號、外部紀錄失效 | v4.0.0 上線僅數小時、未對外宣告，回溯成本遠低於讓錯誤編號永久固化 |
+
+### 一、修正：autosave 自動還原整個沒跑（不只是 cursor，是 19 個欄位全沒還原）
+
+**現象**（v3.5.1 結案時列出的既有問題）：改完參數重整頁面，cursor 不會回來。
+
+**真正的範圍比回報的大得多**：實測 v3.5.1，重整後**沒有任何一個欄位還原** —— Htotal 2200（存檔 2668）、Frame 數 10（存檔 1000）、`xstb` r_dly 0（存檔 1116）、cursor 全空（存檔 4 支 active）、檢視範圍 0–100（存檔 601590–601606）、快捷設定下拉是空的（存檔 `fhd_60hz_sg_ls_dual_cpv`）。cursor 只是最先被注意到的那一項，**不是獨立的 cursor bug**。
+
+**根因**：自動還原 `wfgAutoRestore()` 全檔只有一個入口 `wfgPrepareTconTimingEntry()`，而它在 wfg.html 的兩個呼叫點都走不到：
+
+| 呼叫點 | 為什麼走不到 |
+|---|---|
+| `wfgSwitchMode()` 的 `mode==='tcon' && prevMode!=='tcon'` | `wfgCurrentMode` 初值就是 `'tcon'`，純載入頁面時 `prevMode` 也是 `'tcon'`，條件永不成立 |
+| `wfgEnterPage()` 內的無條件呼叫 | **`wfgEnterPage()` 在 wfg.html 沒有任何呼叫者**，它唯一的呼叫端在舊 SPA `legacy-index.html:4727` |
+
+commit `4647a36`「Phase 5: extract WFG to wfg.html」把 WFG 從 SPA 拆成獨立頁時，**只搬了 `wfgEnterPage()` 的定義，沒搬呼叫端**，自動還原就此靜默失效至今。
+
+**證明是「沒人呼叫」而不是「套用失敗」**（三組互相印證的實測，全部不改一行 code）：
+
+1. 手動跑 `wfgImportConfig(wrapper.config)` → `true`，上述每一個欄位**全部正確還原**，時基標尺卡片立刻長出 `|A1-A2| … 33.234 kHz`；
+2. stub `confirm` 回 `true`，跑 `wfgSwitchMode('la')` → `wfgSwitchMode('tcon')` → 還原完整（含 cursor 與 preset 下拉）；
+3. localStorage 內容完整無缺（29113 bytes，19 個 config 欄位，cursor 與 `panel.gate_rc_mult` 都有寫）→ **寫入端沒有任何缺漏，本版一行未改**。
+
+**修法**：`wfgInit()` 末尾新增 `wfgInitTconTimingEntry()`，補回遺失的呼叫端。**不為 cursor 另寫任何特例** —— 根修好，cursor 自然跟著回來。
+
+### 二、設計變更：移除確認框，改為靜默自動還原
+
+原本的確認框問「是否要保留之前的 TCON Timing 調整紀錄？」。移除的理由來自使用者的實際情境：
+
+> 「我根本就不會存檔。我可能是在調 timing，調一調以後，我切到別的分頁、或是跳離開這一頁，它就要自動存檔……我再切回這個分頁，它要可以復原原本我調的 timing，或是我按重新整理也要可以復原，這是我最初的目的。除非我將快捷選單設成預設的，它才會整個清除。」
+
+也就是 autosave 對使用者而言是「**工作階段的延續**」，不是一道要不要載入的選擇題。定版後的三個時機：
+
+| | 時機 |
+|---|---|
+| **存檔** | 切換分頁／離開頁面／重新整理 → 自動存進 localStorage（寫入端原本就完整，未改動） |
+| **還原** | 回到分頁／重新整理 → **靜默自動還原，不跳任何確認框** |
+| **清除** | **唯一的主動入口 = 把快捷選單設回「快捷設定」** |
+
+連帶處理掉的死碼與註解：
+
+- 移除 i18n 的 `wfg.tconKeepRecordConfirm`（確認框文案，已無呼叫者）
+- `wfgPrepareTconTimingEntry()` 內的 `confirm` 分支與「選不保留 → `wfgResetToDefault()`」分支整段刪除
+- 三個名稱含 `Prompt` 的識別字改名，避免留下「這裡會跳框」的誤導：`wfgTconPromptBusy` → `wfgTconRestoreBusy`、`wfgSuppressTconPrompt` → `wfgSuppressTconAutoRestore`、選項 `skipTconPrompt` → `skipTconAutoRestore`（4 個呼叫端一併更新）
+- `wfgClearAllCursors()` 與 `wfgImportConfig()` 內描述舊 confirm 行為的註解已更新為現況
+
+🔴 **v3.5.1 列的四個清空入口少一條**：「進 TCON 分頁選『不保留上次紀錄』」隨 confirm 一起消失（它本來就是 confirm 的產物）。其餘三條（`wfgLoadPreset()`／切回 placeholder 的 `wfgResetToDefault()`／`wfgImportConfig()` 無 `cursors` 欄位）全部保留且已回歸驗證。
+
+### 三、安全性與可觀測性
+
+| 項目 | 做法 |
+|---|---|
+| 存檔壞掉不可以讓開頁失敗 | 新增 `wfgReadAutoSavedTconState()` 統一驗證：localStorage 不可讀／外層 JSON 壞／缺 `config` 字串／內層 JSON 壞／`_format` 不符 —— 任一不合就**當作沒有存檔**、`console.warn` 留一行可查訊息、正常進空白狀態 |
+| 不可以假裝在還原 | 上述任一情況都不顯示進度視窗、不跳 alert |
+| 還原期間要看得出在做事 | 還原前先叫出既有進度視窗（新增 i18n `wfg.progressRestore`：「還原上次的工作狀態…」），還原完才收掉 |
+| 耗時要查得到 | 還原成功時 `console.info` 一行「已自動還原上次的工作狀態（耗時 N ms）」 |
+
+> `_format` 必須在**丟進 `wfgImportConfig()` 之前**先驗：`wfgImportConfig()` 對格式不符的內容會跳 `alert()`，不先擋的話一份壞掉的 localStorage 會讓使用者每次開頁都吃到一個莫名其妙的警告框。
+
+**🔴 兩個時序陷阱**（都是實作時容易踩反的）：
+
+- 呼叫點必須放在 `wfgInit()` **最後一行**：上面那段「預設收合所有卡片」會覆蓋卡片收合狀態，還原要在它之後才不會被蓋掉。
+- **顯示進度視窗不可以只用 `setTimeout(…, 0)`**。`setTimeout(0)` 只保證「讓出一個 task」，**不保證中間發生一次 paint** —— 瀏覽器可以在下一次繪製前就執行 callback，結果是 DOM 上 overlay 已經是 `display:flex`，使用者卻整整 4.5 秒什麼都沒看到（DOM 對、畫面不對）。要保證畫出來只能用**雙層 `requestAnimationFrame`**。但 rAF 在背景分頁會被完全凍結，只靠 rAF 等於「在背景分頁開啟時永遠不還原」→ 最終做法是**雙 rAF ＋ 300ms `setTimeout` fallback，誰先到誰算數**。
+
+### 四、效能：如實量測，不迴避
+
+還原是同步的（`wfgImportConfig()` 內含整張波形重繪），存檔越重越久。實測（本機 Chrome，`http://127.0.0.1` 起 server）：
+
+| 情境 | 量測 |
+|---|---|
+| 還原一份 **1000 frame Dual CPV**（29113 bytes，16 個 GPIO、4 支 cursor） | `console.info` 量到 **4474 ms** |
+| 同一份存檔，開頁到 `loadEventEnd` | **4121 / 4932 / 5542 ms**（三次） |
+| **無存檔對照組**（清空 localStorage） | **175 / 191 ms** |
+| 清除後（空狀態存檔）重整 | **175 ms** |
+
+→ 還原成本 ≈ **4~5 秒**，期間畫面凍結但有進度視窗。這是選擇靜默還原的必然代價，**沒有用「部分還原／延遲還原」偷改語意**。若日後嫌慢，那是效能題目，不是改回詢問的理由。
+
+補充：還原路徑**不會**觸發 `wfgPrecomputeAnalogAsync()`（波形走 viewport fallback 繪製），所以看不到「預計算類比波形 (n/8)」那個進度，4.5 秒全部花在同步的 import ＋ 重繪上。
+
+### 驗證
+
+| # | 項目 | 結果 |
+|---|---|---|
+| ① | 調 timing（Gate 條數 7、充放電倍率 2.3）→ 重整 | 全部還原（Htotal 2668／Vtotal 1112／DCLK 89／Frame 1000／`panel.gate_line` 7／`gate_rc_mult` 2.3／UI 輸入框同步顯示 7 與 2.3／cursor A1 A2 B1 B2 含精確時間／檢視範圍／LINE BUFFER 4／preset 下拉），**confirm 呼叫次數 0** |
+| ② | 調 timing → 切到 LA 分頁 → 切回 TCON | 同樣全部還原，**confirm 呼叫次數 0**，`console.info` 量到 4474 ms |
+| ③ | preset 設回「快捷設定」 | enabled GPIO 16 → **0**、active cursor 4 → **0**、時基標尺卡片回到「尚未建立 cursor」、波形區顯示「📟 請載入預設或新增信號以開始」 |
+| ④ | ③ 之後重整 | **維持空狀態**（0 cursor／0 GPIO／preset 空／空狀態文字），**沒有把清空前的舊存檔撈回來**；autosave 內容已同步變成空狀態 |
+| ⑤ | 清空 localStorage 後開頁 | 空白狀態、零錯誤、loadEventEnd 191 ms |
+| ⑥ | localStorage 塞壞資料（6 種：非 JSON／缺 config／config 非 JSON／`_format` 不符／空字串／config 為 null） | 全部**不跳框、不跳 alert、不顯示進度視窗**，console 各有對應訊息，維持空白；真實開頁載入壞存檔亦正常（loadEventEnd 124 ms、工具列與空狀態文字都在） |
+| ⑦ | 清空入口回歸（扣掉已移除的 confirm 那條） | 載入有 cursors 的 preset → 套用；載入無 cursors 的 preset → 清空；匯入無 `cursors` 欄位的設定檔 → 清空；切回 placeholder → 清空。sticky 時間軸兩張 canvas **逐像素檢查 nonTransparentPx = 0** |
+| ⑧ | 進度視窗真的被畫出來 | 連拍截圖抓到還原中的畫面：空白工具畫面 ＋ 綠色進度條 ＋「還原上次的工作狀態…」 |
+| ⑨ | console 零錯誤 | 走完整流程（換 3 種 preset、LA↔TCON 切換、縮放／全覽／重置、匯出再匯入）：`error` / `unhandledrejection` / `console.error` / `console.warn` **全部為空** |
+| ⑩ | 語法靜態檢查 | `wfg.html` 內嵌 JS（26636 行）、`common/i18n.js`、`common/version.js` 三者 `node --check` 全數通過 |
+
+**已知且刻意未改**：切回「快捷設定」時 Frame 參數（Htotal／Vtotal／Frame 數）**不會**跟著重置，這是 `wfgResetToDefault()` v3.5.1 之前就有的既有行為，本版未動。被清掉的是波形（GPIO 全部 disable）、cursor 與時基標尺。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.5.1 — 2026-08-12 ｜ PATCH ｜ ⚠ 輸出變更
 
 **判定依據：** 本版三件事的共同性質都是「**v3.5.0 應該做到卻漏掉的路徑**」→ `docs/VERSIONING.md` §2 案例 2「改一個 bug → PATCH」。使用者能做的事**沒有多一件**（R3 判準不成立），控制項位置與波形數值皆未動 → **PATCH**，`v3.5.0` → `v3.5.1`。

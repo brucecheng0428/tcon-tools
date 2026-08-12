@@ -1624,8 +1624,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260812wfg351"></script>
-<script src="common/i18n.js?v=20260812wfg351"></script>
+<script src="common/version.js?v=20260812wfg360"></script>
+<script src="common/i18n.js?v=20260812wfg360"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3600,8 +3600,8 @@ let wfgDragStartScrollTop = 0; // v2.97.382
 let wfgDragStartView = 0;
 let wfgCurrentMode = 'tcon'; // 'tcon' or 'la'
 let wfgTconEntryReady = false;
-let wfgTconPromptBusy = false;
-let wfgSuppressTconPrompt = false;
+let wfgTconRestoreBusy = false;
+let wfgSuppressTconAutoRestore = false;
 // ─── TCON Internal Mode State ───
 let wfgTconInternalMode = false;
 let wfgLineBuffer = 6;
@@ -3848,37 +3848,163 @@ function wfgPersistMode(mode, options) {
   }
 }
 
-function wfgHasAutoSavedTconState() {
+/* v3.5.2: 安全讀取 autosave 存檔。
+   回傳 { wrapper, config } 或 null（null 一律代表「當作沒有存檔」）。
+   ⚠️ 這條路徑現在會在「頁面載入」時被走到（wfgInitTconTimingEntry），
+   所以存檔壞掉絕對不可以讓開頁失敗 —— 任何一步不合預期都吞掉、console 留訊息、回傳 null。
+   特別注意 `_format` 必須在這裡先驗：wfgImportConfig() 對格式不符的內容會跳 alert()，
+   若不先擋，一份壞掉的 localStorage 會讓使用者每次開頁都吃到一個莫名其妙的警告框。 */
+function wfgReadAutoSavedTconState() {
+  var raw = null;
   try {
-    var raw = localStorage.getItem(_wfgAutoSaveKey);
-    if (!raw) return false;
-    var wrapper = JSON.parse(raw);
-    return !!(wrapper && wrapper.config);
-  } catch(e) {
-    return false;
+    raw = localStorage.getItem(_wfgAutoSaveKey);
+  } catch (e) {
+    console.warn('[wfg] autosave: localStorage 不可讀，當作沒有存檔（' + (e && e.message) + '）');
+    return null;
   }
+  if (!raw) return null;
+  var wrapper;
+  try {
+    wrapper = JSON.parse(raw);
+  } catch (e) {
+    console.warn('[wfg] autosave: 外層 JSON 解析失敗，當作沒有存檔（' + (e && e.message) + '）');
+    return null;
+  }
+  if (!wrapper || typeof wrapper !== 'object' || typeof wrapper.config !== 'string') {
+    console.warn('[wfg] autosave: 存檔缺少 config 字串欄位，當作沒有存檔');
+    return null;
+  }
+  var config;
+  try {
+    config = JSON.parse(wrapper.config);
+  } catch (e) {
+    console.warn('[wfg] autosave: config JSON 解析失敗，當作沒有存檔（' + (e && e.message) + '）');
+    return null;
+  }
+  if (!config || config._format !== 'tcon-wfg-config') {
+    console.warn('[wfg] autosave: config._format 不是 tcon-wfg-config，當作沒有存檔');
+    return null;
+  }
+  return { wrapper: wrapper, config: config };
 }
 
+function wfgHasAutoSavedTconState() {
+  return !!wfgReadAutoSavedTconState();
+}
+
+/* v3.6.0: 進入 TCON Timing 分頁時**靜默**還原上次的工作狀態。
+   ─────────────────────────────────────────────────────────────────────────
+   🔴 v3.5.2 之前這裡會跳一個 confirm 問「是否要保留之前的 TCON Timing 調整紀錄？」，
+   v3.6.0 移除該詢問。理由來自使用者的實際情境（Bruce 2026-08-12 定案）：
+
+     「我根本就不會存檔。我可能是在調 timing，調一調以後，我切到別的分頁、或是跳離開
+       這一頁，它就要自動存檔……我再切回這個分頁，它要可以復原原本我調的 timing，
+       或是我按重新整理也要可以復原，這是我最初的目的。
+       除非我將快捷選單設成預設的，它才會整個清除。」
+
+   也就是說 autosave 對使用者而言是「**工作階段的延續**」，不是一道要不要載入的選擇題 ——
+   離開前調到一半的 timing，回來本來就該還在。每次都問一遍，等於要他重新確認一件他
+   認為理所當然的事。
+
+   ⚠️ 代價（刻意不迴避，也刻意不用「部分還原／延遲還原」偷改語意）：
+   還原一份重存檔（例如 1000 frame 的 Dual CPV）會觸發長時間的類比波形預計算。
+   進度由 wfgPrecomputeAnalogAsync() 的既有進度視窗呈現（totalLines > 200000 會自動顯示），
+   使用者看得到是在還原而不是當機。若日後嫌慢，那是效能題目，不是改回詢問的理由。
+
+   🔴 清除入口因此收斂：v3.5.1 列的「進 TCON 分頁選『不保留上次紀錄』→ wfgResetToDefault()」
+   這條隨 confirm 一起消失（它本來就是 confirm 的產物）。現在使用者要清空，唯一的主動入口是
+   **把快捷選單設回「快捷設定」placeholder**（wfgLoadPresetFromSelect → wfgResetToDefault），
+   另外 wfgLoadPreset()／wfgImportConfig() 仍各自帶自己的清空語意。 */
 function wfgPrepareTconTimingEntry() {
-  if (wfgTconEntryReady || wfgTconPromptBusy) return;
-  wfgTconPromptBusy = true;
-  try {
-    var keep = false;
-    if (wfgHasAutoSavedTconState()) {
-      keep = confirm(t('wfg.tconKeepRecordConfirm'));
+  if (wfgTconEntryReady || wfgTconRestoreBusy) return;
+
+  /* 沒有存檔、或存檔壞掉時（wfgReadAutoSavedTconState 已在 console 留訊息）什麼都不動 ——
+     維持呼叫端當下的空白狀態。這裡刻意**不呼叫 wfgResetToDefault()**：
+     開頁時 wfgInit() 建好的就是空白狀態，再重置一次只是白重繪一輪。 */
+  if (!wfgReadAutoSavedTconState()) { wfgTconEntryReady = true; return; }
+
+  /* 🔴 還原本身是同步的（wfgImportConfig 內含整張波形重繪），實測一份 1000 frame 的
+     Dual CPV 存檔要 4.4~4.5 秒 —— 這段期間畫面完全凍結，不給提示就像開頁當掉。
+     所以先把既有的進度視窗叫出來，**等瀏覽器真的把它畫出來之後**再開始還原。
+
+     🔴 這裡不可以用 setTimeout(…, 0)：它只保證「讓出一個 task」，**不保證中間發生一次 paint**，
+     瀏覽器完全可以在下一次繪製前就執行 timeout callback → DOM 上 overlay 是 display:flex，
+     使用者卻整整 4.5 秒什麼都沒看到（DOM 對、畫面不對）。要保證畫出來只能用**雙層 rAF**
+     （第二層必定在一次繪製之後）。
+     🔴 但 rAF 在背景分頁會被完全凍結，只靠 rAF 等於「在背景分頁開啟時永遠不還原」。
+     所以兩者並用、誰先到誰算數：可見分頁走雙 rAF（約 32ms，畫得出來）；
+     背景分頁走 300ms 的 setTimeout fallback（反正沒人在看，不需要 paint）。
+
+     ⚠️ 副作用：還原因此變成非同步完成。目前兩個活躍呼叫端（wfgInit 末尾、wfgSwitchMode）
+     都不依賴「回傳時已還原完畢」；其餘呼叫端都帶 skipTconAutoRestore:true 走不到這裡。 */
+  wfgTconRestoreBusy = true;
+  wfgTconEntryReady = true;   // 先佔位，避免非同步空窗期被重入還原第二次
+  wfgShowProgress(30, t('wfg.progressRestore'));
+
+  var _restoreStarted = false;
+  var _runRestore = function() {
+    if (_restoreStarted) return;   // 雙 rAF 與 fallback 只能有一個生效
+    _restoreStarted = true;
+    var _restoreT0 = performance.now();
+    var _restored = false;
+    try {
+      wfgSuppressTconAutoRestore = true;
+      _restored = wfgAutoRestore();
+    } catch (e) {
+      console.warn('[wfg] autosave: 自動還原失敗，維持目前狀態（' + (e && e.message) + '）');
+    } finally {
+      wfgSuppressTconAutoRestore = false;
+      wfgTconRestoreBusy = false;
+      wfgHideProgress();
     }
-    if (keep) {
-      wfgSuppressTconPrompt = true;
-      wfgAutoRestore();
-      wfgSuppressTconPrompt = false;
-    } else {
-      wfgResetToDefault();
+    /* 留一行耗時在 console，讓「開頁怎麼頓了一下」這種回報可以直接查到數字。 */
+    if (_restored) {
+      console.info('[wfg] autosave: 已自動還原上次的工作狀態（耗時 '
+        + Math.round(performance.now() - _restoreT0) + ' ms）');
     }
+  };
+  requestAnimationFrame(function() { requestAnimationFrame(_runRestore); });
+  setTimeout(_runRestore, 300);
+}
+
+/* v3.6.0: 頁面載入時的「進入 TCON Timing」入口。
+   🔴 根因（v3.5.1 之前自動還原完全沒作用）：自動還原只有 wfgPrepareTconTimingEntry()
+   一個入口，而它在本頁的兩個呼叫點都走不到：
+     (1) wfgSwitchMode() 的 `mode==='tcon' && prevMode!=='tcon'` —— wfgCurrentMode 初值就是
+         'tcon'，純載入頁面時 prevMode 也是 'tcon'，條件永不成立；
+     (2) wfgEnterPage() —— 這個函式在 wfg.html 完全沒有呼叫者，它唯一的呼叫端在舊 SPA
+         legacy-index.html:4727。commit 4647a36「Phase 5: extract WFG to wfg.html」拆頁時
+         只搬了定義沒搬呼叫端，自動還原就此靜默失效。
+   實測（v3.5.1）：重整後 19 個 config 欄位一個都沒還原（Htotal 2200 vs 存檔 2668、
+   Frame 數 10 vs 1000、cursor 全空 vs 存了 4 支、preset 下拉也是空的）；
+   而手動跑 wfgImportConfig(wrapper.config) 則全部正確還原 → 套用邏輯本來就是好的，
+   缺的只有「有人去呼叫它」。所以這裡只補呼叫端，不為 cursor 另寫任何特例。
+
+   兩個刻意的設計選擇：
+   - **沒有存檔就不重置**：直接把 wfgTconEntryReady 設 true 收工，不跑 wfgResetToDefault()
+     （wfgInit() 建好的就是空白狀態，再重置一次只是白重繪一輪）。
+   - **用 setTimeout 0 而不是 requestAnimationFrame**：讓瀏覽器先把空的工具畫面畫出來，
+     再開始可能很久的還原＋預計算，使用者才看得出是在還原而不是開頁當掉。
+     這裡不能用 rAF —— 背景分頁的 rAF 會被完全凍結，等於在背景分頁開啟時自動還原永遠不會發生。 */
+function wfgInitTconTimingEntry() {
+  if (wfgCurrentMode !== 'tcon') return;
+  if (!wfgReadAutoSavedTconState()) {
+    // 無存檔（或存檔壞掉，wfgReadAutoSavedTconState 已在 console 留訊息）→ 維持空白狀態
     wfgTconEntryReady = true;
-  } finally {
-    wfgSuppressTconPrompt = false;
-    wfgTconPromptBusy = false;
+    return;
   }
+  setTimeout(function() {
+    // 這 0ms 內使用者可能已切到 LA 分頁；切過去時 wfgSwitchMode 會把 ready 設回 false，
+    // 之後切回 tcon 自然會由 wfgSwitchMode 觸發還原，這裡就不要再插隊。
+    if (wfgCurrentMode !== 'tcon') return;
+    try {
+      wfgPrepareTconTimingEntry();
+    } catch (e) {
+      // 還原路徑再怎麼樣都不可以讓頁面開不起來
+      console.warn('[wfg] autosave: 自動還原失敗，維持目前狀態（' + (e && e.message) + '）');
+      wfgTconEntryReady = true;
+    }
+  }, 0);
 }
 
 /* v2.97.406: 匯入檔名顯示。per-mode 記住 tcon / la 各自最後匯入的檔名，
@@ -3914,7 +4040,7 @@ function wfgSwitchMode(mode, options) {
   var modeHint = document.getElementById('ss-wfg-mode-hint');
   if (modeHint) modeHint.remove();
   var prevMode = wfgCurrentMode;
-  if (mode === 'tcon' && prevMode !== 'tcon' && !options.skipTconPrompt && !wfgSuppressTconPrompt) {
+  if (mode === 'tcon' && prevMode !== 'tcon' && !options.skipTconAutoRestore && !wfgSuppressTconAutoRestore) {
     wfgPrepareTconTimingEntry();
   }
   if (mode !== 'tcon') wfgTconEntryReady = false;
@@ -20707,9 +20833,11 @@ function wfgResetToDefault() {
   // Reset voltage cursors to defaults
   _wfgVoltCursorPerSlot = {};
   wfgVoltCursors.forEach(function(vc) { vc.active = true; });
-  /* v3.5.1: 時間 cursor 也要跟著清 —— 這裡是「切回『快捷設定』placeholder」與
-     「進 TCON 分頁選不保留上次紀錄」共用的清空入口，波形都已清空，
-     cursor 卻留著會讓時基標尺卡片繼續顯示一組指向已不存在波形的量測值。 */
+  /* v3.5.1: 時間 cursor 也要跟著清 —— 波形都已清空，cursor 卻留著會讓時基標尺卡片
+     繼續顯示一組指向已不存在波形的量測值。
+     v3.6.0 更新：本函式原本有兩個呼叫端（「切回『快捷設定』placeholder」與
+     「進 TCON 分頁選不保留上次紀錄」），後者隨 confirm 一起移除，
+     現在**只剩「切回『快捷設定』placeholder」這一個主動清空入口**（使用者指定的語意）。 */
   wfgClearAllCursors();
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgTotalLines());
@@ -20852,7 +20980,7 @@ function wfgLoadPreset(presetName) {
   // v3.0.1: 載入 preset 已明確指定所有參數，切到 TCON 時不該再問「是否保留上次調整紀錄」，
   // 否則選「確定」會讓 wfgAutoRestore() 把剛套用的 preset 整個蓋掉。
   // （不補 wfgTconEntryReady = true 的理由與前提，見 wfgImportConfig() 內同一處的註解。）
-  if (preset.currentMode) wfgSwitchMode(preset.currentMode, { skipTconPrompt: true });
+  if (preset.currentMode) wfgSwitchMode(preset.currentMode, { skipTconAutoRestore: true });
   // Apply pulseItems
   if (preset.pulseItems && Array.isArray(preset.pulseItems)) {
     wfgPulseItems = [];
@@ -22638,12 +22766,20 @@ function wfgCaptureUIState() {
 
 function wfgAutoRestore() {
   try {
-    var raw = localStorage.getItem(_wfgAutoSaveKey);
-    if (!raw) return false;
-    var wrapper = JSON.parse(raw);
-    if (!wrapper || !wrapper.config) return false;
+    /* v3.5.2: 改走 wfgReadAutoSavedTconState() —— 它會連 config 的 JSON 與 _format 一起驗，
+       壞掉就當作沒有存檔（並在 console 留訊息），不會把壞內容丟進 wfgImportConfig() 觸發 alert。 */
+    var saved = wfgReadAutoSavedTconState();
+    if (!saved) return false;
+    var wrapper = saved.wrapper;
     _wfgAutoSaveEnabled = false; // prevent re-save during import
-    var ok = window.wfgImportConfig(wrapper.config);
+    var ok = false;
+    try {
+      ok = window.wfgImportConfig(wrapper.config);
+    } catch (e2) {
+      console.warn('[wfg] autosave: 套用存檔時發生例外，保持目前狀態（' + (e2 && e2.message) + '）');
+      ok = false;
+    }
+    if (!ok) console.warn('[wfg] autosave: wfgImportConfig 回傳失敗，存檔未套用');
     if (ok && wrapper.ui) {
       // Restore card collapse states
       if (wrapper.ui.collapsedCards) {
@@ -24918,7 +25054,7 @@ function wfgInit() {
   wfgUpdateTconInternalVisibility();
 
   var requestedMode = wfgRequestedModeFromUrl();
-  if (requestedMode) wfgSwitchMode(requestedMode, { skipTconPrompt: true });
+  if (requestedMode) wfgSwitchMode(requestedMode, { skipTconAutoRestore: true });
 
   // Collapse all cards except Frame card by default. TCON Timing autosave restore is
   // intentionally deferred until the user actually enters that sub-tab.
@@ -24946,6 +25082,11 @@ function wfgInit() {
     }
     if (_cbPollN >= 20) clearInterval(_cbPoll); // stop after 1 second
   }, 50);
+
+  /* v3.5.2: 補回 autosave 自動還原的觸發點（4647a36 拆頁時遺失，詳見 wfgInitTconTimingEntry()）。
+     🔴 位置必須是 wfgInit() 的最後一行：上面那段「預設收合所有卡片」會覆蓋卡片收合狀態，
+     還原要在它之後才不會被蓋掉。 */
+  wfgInitTconTimingEntry();
 }
 
 // ─── Left panel height sync via ResizeObserver ───
@@ -25007,7 +25148,7 @@ var _wfgEnterPageReady = false;
 window.wfgEnterPage = async function() {
   var seq = ++_wfgEnterPageSeq;
   var requestedMode = wfgRequestedModeFromUrl();
-  if (requestedMode && requestedMode !== wfgCurrentMode) wfgSwitchMode(requestedMode, { skipTconPrompt: requestedMode !== 'tcon' });
+  if (requestedMode && requestedMode !== wfgCurrentMode) wfgSwitchMode(requestedMode, { skipTconAutoRestore: requestedMode !== 'tcon' });
   if (wfgCurrentMode === 'la') {
     wfgLaInit();
     requestAnimationFrame(function() { requestAnimationFrame(function() { wfgLaRenderScope(); }); });
@@ -27695,20 +27836,22 @@ window.wfgImportConfig = function(jsonStr) {
   if (lbWrap) lbWrap.style.display = wfgTconInternalMode ? 'flex' : 'none';
 
   // ── Mode ──
-  // v3.0.1: 匯入設定檔已明確指定所有參數，切到 TCON 時不該再問「是否保留上次調整紀錄」，
-  // 否則選「確定」會讓 wfgAutoRestore() 把剛匯入的參數整個蓋掉。
+  // v3.0.1: 匯入設定檔已明確指定所有參數，切到 TCON 時不該再觸發 autosave 自動還原，
+  // 否則 wfgAutoRestore() 會把剛匯入的參數整個蓋掉。
+  // （v3.6.0 更新：這條路徑原本是「跳 confirm 問要不要保留、選確定才蓋掉」，
+  //   移除 confirm 之後變成**無條件蓋掉**，所以 skipTconAutoRestore 在這裡比以前更關鍵。）
   //
   // 刻意不在這裡補 wfgTconEntryReady = true：
-  //   wfgPrepareTconTimingEntry() 的 `if (wfgTconEntryReady) return` 守衛在本頁永遠讀到 false，
-  //   因為它唯一的有效呼叫點是 wfgSwitchMode() 內 `prevMode !== 'tcon'` 那一條，而能走到那裡
-  //   代表先前必定經過 `if (mode !== 'tcon') wfgTconEntryReady = false;`。實測（v3.0.1）：
-  //   設 true 與不設 true 兩版跑同一組序列，8 個步驟的 confirm 次數／畫面參數／GPIO 全部相同，
-  //   且兩版進入 wfgPrepareTconTimingEntry 時讀到的都是 false。
-  // ⚠️ 前提：wfgEnterPage() 內那個「無條件」呼叫 wfgPrepareTconTimingEntry() 目前在本頁沒有
-  //   呼叫者（實測 __enterPageCalls 恆為 0，唯一呼叫者在 legacy-index.html 的舊 SPA）。
-  //   若日後把 wfg.html 接回 SPA 或替 wfgEnterPage 加上呼叫者，這裡就必須補 wfgTconEntryReady = true，
-  //   否則「匯入後離開再回到本頁」會再問一次，選確定又會蓋掉匯入的內容。
-  if (config.currentMode) wfgSwitchMode(config.currentMode, { skipTconPrompt: true });
+  //   wfgPrepareTconTimingEntry() 的 `if (wfgTconEntryReady) return` 守衛在本頁**曾經**永遠讀到
+  //   false，因為當時它唯一的有效呼叫點是 wfgSwitchMode() 內 `prevMode !== 'tcon'` 那一條，
+  //   而能走到那裡代表先前必定經過 `if (mode !== 'tcon') wfgTconEntryReady = false;`。
+  //   實測（v3.0.1）：設 true 與不設 true 兩版跑同一組序列，8 個步驟的畫面參數／GPIO 全部相同。
+  // ⚠️ v3.6.0 起前提改變：wfgInit() 末尾新增了 wfgInitTconTimingEntry() 這個載入時的呼叫端，
+  //   但它只在**頁面載入**時跑一次，且跑在本函式之前（匯入必然發生在載入之後），
+  //   因此「匯入後離開再回到本頁」仍然只會經過 wfgSwitchMode 那條、結論不變。
+  //   若日後替 wfgEnterPage() 加上呼叫者（例如把 wfg.html 接回 SPA），這裡就必須補
+  //   wfgTconEntryReady = true，否則「匯入後離開再回到本頁」會把匯入的內容蓋掉。
+  if (config.currentMode) wfgSwitchMode(config.currentMode, { skipTconAutoRestore: true });
 
   // ── Pulse Items ──
   if (config.pulseItems && Array.isArray(config.pulseItems)) {
