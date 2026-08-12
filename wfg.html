@@ -1617,8 +1617,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260812wfg330"></script>
-<script src="common/i18n.js?v=20260812wfg330"></script>
+<script src="common/version.js?v=20260812wfg331"></script>
+<script src="common/i18n.js?v=20260812wfg331"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1897,6 +1897,10 @@ function wfgUpdateGateChannelName() {
     if (wfgChannels[i].gpioIdx !== gateIdx) continue;
     if (/^G\d+$/.test(wfgChannels[i].name || '')) {
       wfgChannels[i].name = 'G' + Math.max(1, wfgPanel.gate_line | 0);
+      // 只改這一列的輸入框，不整份重建輸出通道清單（改 G 值時每次重建 24 列
+      // DOM 是純浪費，而且會把使用者正在編輯的欄位洗掉）。
+      var row = document.querySelector('#wfg-channel-list .wfg-ch-row[data-ch-idx="' + i + '"] .wfg-ch-name');
+      if (row && document.activeElement !== row) row.value = wfgChannels[i].name;
     }
     return;
   }
@@ -3004,7 +3008,7 @@ function _wfgExtendLsPrecomp(precomp, newExtent) {
   // back to oldExtent (see _wfgLsBuildEvents), so ordinals stay correct across
   // the extension seam and no event is emitted twice.
   var newEvents = _wfgLsBuildEvents(le.ac, le.ckoIndex, le.numCko, le.mode, le.allTrans, le.effHtotal, le.effVtotal,
-                                    oldExtent, newExtent, 0.001);
+                                    oldExtent, newExtent, 0.001, true);
   if (!newEvents) newEvents = [];
 
   // Append new events
@@ -17824,7 +17828,8 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
 // All three call sites (render, precompute, lazy-extend) go through here so a
 // gate slot is guaranteed to be built from exactly the same events as the CKO
 // it is masking — the mask can never drift away from the pulse it targets.
-function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, startLine, endLine, linesPerPixel) {
+function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, startLine, endLine, linesPerPixel, trimToStart) {
+  var _pB0 = _wfgPerfEnabled ? performance.now() : 0;
   var isGate = !!(ac && ac.is_gate);
   var buildStart = startLine;
   var buildLpp = linesPerPixel;
@@ -17846,7 +17851,15 @@ function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effV
     events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, buildStart, endLine, buildLpp);
   }
   if (!events) events = [];
-  if (isGate) events = _wfgLsApplyGateMask(events, ac, effVtotal, startLine);
+  if (_wfgPerfEnabled && isGate) _wfgPerfLast.gateBuild = performance.now() - _pB0;
+  if (isGate) {
+    var _pM0 = _wfgPerfEnabled ? performance.now() : 0;
+    events = _wfgLsApplyGateMask(events, ac, effVtotal, trimToStart ? startLine : 0);
+    if (_wfgPerfEnabled) {
+      _wfgPerfLast.gateMask = performance.now() - _pM0;
+      _wfgPerfLast.gateRange = (endLine - buildStart);
+    }
+  }
   return events;
 }
 
@@ -21252,18 +21265,44 @@ function wfgUpdateGateReadout() {
     + '<span style="color:#64748b;margin-left:6px">（' + wfgLsGlobal.phase + ' Phase）</span>';
 }
 
+// ─── Gate-only 失效（效能，v3.4.0）───
+// 改 Gate 條數只會改變「露出哪一個 pulse」：CK transitions、OAX 快取、其餘每一條
+// CKO 的預計算結果全都一個位元沒變。舊版走 _wfgInvalidateLsOnly() 會把所有
+// waveform_type===2 的預計算全部丟掉，實測 6 CKO + Gate 共 7 條重算要 4.6~6.1 秒。
+//
+// 這裡只丟掉 Gate 自己那一筆，而且**刻意不動 _wfgPrecomputeVer** —— 讓 wfgRender()
+// 內的 `if (_wfgPrecomputeVer !== _wfgAnalogCacheVer) wfgPrecomputeAnalog()` 不被觸發，
+// Gate 那一列改走 render 既有的 fallback 路徑（wfgComputeLevelShifterSamples，只算
+// viewport ±margin 的事件串）。對 Gate 而言 fallback 反而比預計算便宜得多：
+// 預計算要配置 computeExtent×20 的 Float32Array（實測 30MB 以上／條），而 Gate 每個
+// frame 只有一個 pulse，viewport 範圍現算約 1~3ms。
+function _wfgInvalidateGateOnly() {
+  delete _wfgPrecomputed[wfgGateSlotIdx()];
+}
+
+// 連續拖拉把時，同一個 animation frame 內的多次 input 收斂成一次重繪。
+// 數字框輸入與 ± 按鈕走同一條路徑，最多延遲一幀（約 16ms），仍是即時反應。
+var _wfgGateRenderRaf = 0;
+function wfgScheduleGateRender() {
+  if (_wfgGateRenderRaf) return;
+  _wfgGateRenderRaf = requestAnimationFrame(function() {
+    _wfgGateRenderRaf = 0;
+    wfgRender();
+  });
+}
+
 function wfgOnGateLineChange(value) {
   var maxLine = wfgGateLineMax();
   var gl = parseInt(value, 10);
   if (!isFinite(gl)) return;
   gl = Math.max(1, Math.min(maxLine, gl));
+  if (gl === wfgPanel.gate_line) return; // 同值不重繪（拖拉把會連發同值 input）
   wfgPanel.gate_line = gl;
   wfgSyncGateGpio();
   wfgUpdateGateChannelName();
   wfgUpdateGateReadout();
-  wfgRenderChannelList();
-  _wfgInvalidateLsOnly();
-  wfgRender();
+  _wfgInvalidateGateOnly();
+  wfgScheduleGateRender();
 }
 
 function wfgGateSliderSync(rangeEl) {

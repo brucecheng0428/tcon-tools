@@ -22,6 +22,58 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.3.1 — 2026-08-12 ｜ PATCH
+
+**判定依據：** 純效能優化，畫面輸出零改變 → `docs/VERSIONING.md` §2 案例 9「效能優化、行為不變 → **PATCH**」。**不標** `⚠ 輸出變更`：優化前後同一組設定的整張 canvas 逐像素雜湊相同（見下方實測），既有回歸基線繼續有效。
+
+### 修正：調整 Gate 條數時波形嚴重 lag
+
+**現象**：拖 Gate 條數拉把或按 ± 時，波形要等好幾秒才更新。
+
+**量測（先量再改，Chrome，`fhd_60hz_sg`，1000 frame ＝ 1,112,000 行）**：
+
+| 項目 | 數字 |
+|---|---|
+| ① Gate 事件串重算（`_wfgLsBuildEvents`） | 全 1.11M 行 **200ms**；viewport 範圍 **0.2ms** |
+| ② Gate 遮罩（`_wfgLsApplyGateMask`） | 全範圍 **30ms**；viewport 範圍 **0.1ms** |
+| ③ 整個波形區重繪（24 通道） | **20~30ms**（其中 Gate 那一列 0.3ms） |
+| ④ 一次 G 值變動觸發 | 1 次 `wfgRender()` ＋ **1 次 7 條 LS 通道全量預計算** |
+| **實際主成本** | `[WFG] Precompute analog: **4556~6143ms**, recomputed=**7** (SD=0 LS=7)` |
+
+**根因**：`wfgOnGateLineChange()` 呼叫 `_wfgInvalidateLsOnly()`，它會把**所有** `waveform_type===2` 的預計算結果丟掉 —— 也就是 6 條 CKO ＋ Gate 共 7 條全部重算。但改 Gate 條數只改變「露出哪一個 pulse」，**CK transitions、OAX 快取、每一條 CKO 的結果全都一個位元沒變**。真正需要重算的只有 Gate 一條，其餘 6 條是純浪費。且每條要重新配置 `computeExtent × 20` 的 `Float32Array`（實測 30MB 以上／條）。
+
+**修法**（三項，都不動計算本身）：
+
+1. **只失效 Gate 一條**：新增 `_wfgInvalidateGateOnly()`，只刪 `_wfgPrecomputed[gateSlot]`，且**刻意不動 `_wfgPrecomputeVer`** —— 讓 `wfgRender()` 內的 `if (_wfgPrecomputeVer !== _wfgAnalogCacheVer) wfgPrecomputeAnalog()` 不被觸發。Gate 那一列改走 render 既有的 fallback 路徑（只算 viewport ±margin）。對 Gate 而言 fallback 反而遠比預計算便宜：Gate 每個 frame 只有一個 pulse，viewport 範圍現算 0.3ms，也不必配置上百 MB 陣列。
+2. **同一幀內的多次變動收斂成一次重繪**：`requestAnimationFrame` 合併（最多延遲一幀 ≈16ms，數字框輸入與 ± 按鈕仍是即時反應）。另加「同值不重繪」判斷 —— 拖拉把會連發相同值的 `input`。
+3. **不再整份重建輸出通道清單**：改 G 值只更新 Gate 那一列的名稱輸入框，不重建 24 列 DOM（也順帶避免洗掉使用者正在編輯的欄位）。
+
+**效果（同機、同設定、同視窗）**：
+
+| 操作 | 修正前 | 修正後 |
+|---|---|---|
+| 單次 G 值變動（同步處理） | **4556 ~ 6143ms** | **0.4 ~ 2.6ms** |
+| 之後的一次完整重繪 | （含在上面） | **23 ~ 52ms** |
+| 連續按 10 次 `+` | 約 50 秒 | **3.5ms**（10 次合併成 1 次重繪，52ms） |
+| 連續拖曳平均幀時間 | — | **165ms／幀**；**對照組**：完全不動 Gate、每幀強制重繪＝**161ms／幀** |
+
+最後一列是重點：優化後拖 Gate 的每幀成本與「單純每幀重繪一次」完全相同（165 vs 161ms），代表 **Gate 已經不再是成本**，剩下的是這個工具「整張波形區重繪」的既有成本，與本功能無關（拖任何拉把都一樣）。要再往下降就必須改成「只重畫單一列」的分層 canvas 架構，影響所有通道，未在本版進行。
+
+**精度未做任何犧牲** — Gate 改走 fallback 後，與預計算路徑畫出來的結果比對：
+
+```
+hash_fallback   = 4042542103
+hash_precompute = 4042542103   → 整張 canvas 815×1418 逐像素 FNV-1a 相同
+```
+
+**順帶修正**：事件串裁切改為只在 lazy-extend 路徑生效（新增 `trimToStart` 參數）。原本 render 路徑也會裁掉視窗起點前的事件，理論上當可視範圍正好落在露出 pulse 的中段時會少掉那個 pulse 的上升緣；實測 margin 夠大未觸發（波形逐像素相同），屬防禦性修正。
+
+**回歸（全部重跑，`window.wfgDebugGate()`）**：G1/6/7/12/13/1080 對位全中；G7→CKO1 pulse#2、G12→CKO6 pulse#2；改 timing（`r_dly` 850→1500、`st_line` 3→9）後露出的仍是 CKO1 pulse#2（rise 9.637→16.124），還原後回到 9.637；dual_cpv 模式 G1/7/12 全中；16 Phase G1/17/33 全中；Vactive 1080→500 時上限即時變 500 且目前值被夾住。
+
+> 註：16 Phase 時 G16 沒有波形 —— 內建 preset 的 `ck_sources` 只定義 6 個 CK 來源，CKO7~CKO16 本身就沒有來源（`ckoEvents: 0`），Gate 與被遮罩的 CKO 行為一致。既有行為，非本版造成。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.3.0 — 2026-08-12 ｜ MINOR ｜ ⚠ 輸出變更
 
 **判定依據：** 新增「面板信號」卡片與 Gate Line 功能 → `docs/VERSIONING.md` §2 案例 1「新增一個完整功能」＋ **R3**「這一版之後，使用者能做的事有沒有多一件？有 → MINOR」。既有卡片位置、既有波形的計算與畫法一律未動 → **MINOR**，`v3.2.0` → `v3.3.0`。
