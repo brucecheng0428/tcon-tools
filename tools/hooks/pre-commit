@@ -1,0 +1,51 @@
+#!/bin/sh
+# 版號判定閘（守則 B，2026-08-03；2026-08-12 補強）。
+# 這是最早的攔截點：版號錯了就不該進 commit。
+# 訂了 docs/VERSIONING.md 卻在隔天就把 R2 違反兩次，證明「靠當下自覺」不成立。
+#
+# 🔴 這份是**版控中的正本**，位置 tools/hooks/pre-commit。
+#    實際生效的是 .git/hooks/pre-commit，而 .git/ 不進版控 —— 也就是說
+#    重新 clone 一份 repo，這道閘門預設是**不存在**的。安裝／更新：
+#        ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
+#    （用 symlink，正本改了就自動跟著改，不會出現兩份不同步的版本）
+#
+# 逃生門：git commit --no-verify（git 內建，本 hook 不另做）。
+
+REPO="$(git rev-parse --show-toplevel)"
+CHK="$REPO/tools/version_bump_check.py"
+
+# 🔴 2026-08-12 修正之一：檢查腳本不見就**擋下**，不是略過。
+#    舊版是 `exit 0`（略過），等於「把守門員刪掉就沒人擋你」——
+#    這是最廉價的繞過方式，比填一個欄位還容易。
+if [ ! -f "$CHK" ]; then
+  echo "🛑 找不到 $CHK —— 版號判定閘無法執行，commit 已中止。"
+  echo "   守則 B 的檢查腳本不該消失。若確定要略過：git commit --no-verify"
+  exit 1
+fi
+
+# 🔴 2026-08-12 修正之二：明確傳 --repo。
+#    舊版沒傳，腳本會退回硬編的 DEFAULT_REPO（~/ClaudeData/Projects/tcon-tools-deploy）。
+#    在正本路徑上兩者剛好相同所以看不出問題，但只要 repo 被搬動、改名、
+#    或多開一份 worktree，檢查就會去驗**另一個目錄**，然後以 rc=2 放行。
+python3 "$CHK" --staged --repo "$REPO"
+rc=$?
+
+if [ $rc -eq 1 ]; then
+  echo ""
+  echo "🛑 版號判定不合規，commit 已中止。修正 common/version.js 或 CHANGELOG.md 後重試。"
+  echo "   （確定要略過：git commit --no-verify）"
+  exit 1
+fi
+
+# 🔴 2026-08-12 修正之三：rc=2（檢查本身跑不起來）改為**擋下**。
+#    舊版只印一行警告就放行，而腳本自己的文件寫的是「rc=2 不當作通過」——
+#    hook 與腳本的契約互相矛盾，且矛盾的方向剛好是「靜默失效」。
+#    大聲失敗的定義是擋下來讓人處理，不是印一行字然後照常放行。
+if [ $rc -eq 2 ]; then
+  echo ""
+  echo "🛑 版號檢查跑不起來（rc=2），commit 已中止 —— 檢查失效時不當作通過。"
+  echo "   先修好檢查本身。（確定要略過：git commit --no-verify）"
+  exit 1
+fi
+
+exit 0
