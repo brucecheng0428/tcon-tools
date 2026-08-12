@@ -1106,6 +1106,39 @@
           </div>
         </div>
 
+        <!-- Panel Signals (面板信號) -->
+        <div class="wfg-card" id="wfg-panel-card">
+          <div class="wfg-card-head" onclick="wfgToggleCard(this)">
+            <h3 data-i18n="wfg.panelSignals">面板信號</h3>
+            <span class="wfg-chevron">▼</span>
+          </div>
+          <div class="wfg-card-body">
+            <!-- Gate Line -->
+            <div class="wfg-signal-mini" style="border:1px solid #22c55e;margin-bottom:10px">
+              <div class="wfg-signal-mini-head" data-gpio-idx="panel-gate" onclick="wfgToggleSignalCard(this)">
+                <span class="wfg-sig-name" style="color:#4ade80">Gate Line<span style="color:#a78bfa;font-size:10px;margin-left:4px;font-weight:500">GOA</span></span>
+                <span class="wfg-chevron">▼</span>
+              </div>
+              <div class="wfg-signal-mini-body">
+                <div style="font-size:10px;color:#64748b;margin-bottom:6px" id="wfg-gate-range-hint"></div>
+                <div class="wfg-field"><label style="color:#e2e8f0" data-i18n="wfg.gateLineLabel">Gate 條數</label><div class="wfg-slider-row" id="wfg-gateline-row"></div></div>
+                <div id="wfg-gate-map" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
+                <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#e2e8f0;cursor:pointer">
+                  <input type="checkbox" id="wfg-gate-show-cb" checked onchange="wfgOnGateShowChange(this.checked)" style="accent-color:#22c55e;cursor:pointer">
+                  <span data-i18n="wfg.gateShow">在波形區顯示 Gate 波形</span>
+                </label>
+              </div>
+            </div>
+            <!-- Subpixel charge (placeholder — 待開發) -->
+            <div class="wfg-signal-mini" style="opacity:.55">
+              <div class="wfg-signal-mini-head collapsed" data-gpio-idx="panel-subpixel">
+                <span class="wfg-sig-name" data-i18n="wfg.subpixelCharge">Subpixel 電荷</span>
+                <span style="font-size:10px;color:#64748b" data-i18n="wfg.wip">開發中</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Output Channels -->
         <div class="wfg-card" id="wfg-channel-card">
           <div class="wfg-card-head" onclick="wfgToggleCard(this)">
@@ -1584,8 +1617,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260809wfg320"></script>
-<script src="common/i18n.js?v=20260809wfg320"></script>
+<script src="common/version.js?v=20260812wfg330"></script>
+<script src="common/i18n.js?v=20260812wfg330"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1633,6 +1666,26 @@ var wfgLsGlobal = {
   cpv_trig_edge: 'falling' // 'falling' (G2595E) or 'rising' (G2790B)
 };
 const WFG_LS_GOA_PHASES = [4, 6, 8, 10, 12, 14, 16];
+
+// ─── Panel Signal Config (面板信號) ───
+// Gate Line: which physical gate line of the panel to display.
+//   Range 1 .. Vactive.  The gate waveform is the mapped CKO output masked so
+//   that only the pulse that actually drives this gate line is exposed; every
+//   other pulse on that CKO is held at VGL.
+// Mapping (P = GOA phase = number of CKO channels):
+//   G1 → CKO1 pulse#1, G2 → CKO2 pulse#1, ... GP → CKOP pulse#1,
+//   G(P+1) → CKO1 pulse#2, ...
+//   CKO index (0-based) = (G-1) mod P ; pulse ordinal (0-based) = floor((G-1)/P)
+var wfgPanel = { gate_line: 1, gate_show: true };
+
+// Returns { ckoIndex (0-based), pulseOrdinal (0-based) } for a gate line number.
+function wfgGateMapping(gateLine, phase) {
+  var gl = Math.max(1, gateLine | 0);
+  var p = Math.max(1, phase | 0);
+  return { ckoIndex: (gl - 1) % p, pulseOrdinal: Math.floor((gl - 1) / p) };
+}
+// GPIO slot index of the virtual Gate channel (always the last virtual slot).
+function wfgGateSlotIdx() { return WFG_DIGITAL_GPIO_COUNT + 1 + wfgLsGlobal.phase; }
 
 // ─── 16 Channel Colors (原廠軟體 style) ───
 const WFG_CH_COLORS = [
@@ -1717,6 +1770,12 @@ function wfgLsRebuildCkoSlots(enableSlots) {
     WFG_GPIO_NAMES.push('cko' + (ci + 1));
     WFG_VIRTUAL_ANALOG_DEFAULTS[idx] = 2;
   }
+  // Gate slot (panel signal) — always the last virtual analog slot.
+  // Same waveform_type as a CKO (2 = level shifter); the gate mask lives in
+  // analog_config.is_gate / gate_pulse_ordinal.
+  var _gateIdx = WFG_DIGITAL_GPIO_COUNT + 1 + numCko;
+  WFG_GPIO_NAMES.push('gate');
+  WFG_VIRTUAL_ANALOG_DEFAULTS[_gateIdx] = 2;
   // Ensure wfgGpios array matches — trim excess or add new
   while (wfgGpios.length > WFG_GPIO_NAMES.length) wfgGpios.pop();
   for (var gi = wfgGpios.length; gi < WFG_GPIO_NAMES.length; gi++) {
@@ -1739,9 +1798,45 @@ function wfgLsRebuildCkoSlots(enableSlots) {
       g.analog_config.curvature_fall = wfgLsGlobal.curvature_fall;
     }
   }
+  // Gate slot config follows the LS globals + current gate line selection
+  wfgSyncGateGpio(enableSlots);
   // Auto-assign CKO channels to output channel slots if they have gpioIdx = -1
   // or if they point to old (now invalid) CKO indices
   wfgLsSyncChannels();
+}
+
+// ─── Gate (panel signal) slot sync ───
+// Keeps the virtual gate GPIO in step with wfgPanel.gate_line + LS globals.
+// The gate reuses the whole LS pipeline: same mode, same CK source as the
+// mapped CKO — so whenever a timing parameter moves the CKO pulses, the gate
+// pulse moves with them. Only the mask (which pulse is exposed) is extra.
+function wfgSyncGateGpio(enableSlots) {
+  var gi = wfgGateSlotIdx();
+  var g = wfgGpios[gi];
+  if (!g) return;
+  var map = wfgGateMapping(wfgPanel.gate_line, wfgLsGlobal.phase);
+  g.name = 'gate';
+  g.waveform_type = 2;
+  if (enableSlots !== undefined) g.enable = enableSlots;
+  if (!g.analog_config) g.analog_config = wfgMakeAnalogConfig(2, map.ckoIndex);
+  var ac = g.analog_config;
+  ac.voltage_min = wfgLsGlobal.vgl;
+  ac.voltage_max = wfgLsGlobal.vgh;
+  ac.curvature_rise = wfgLsGlobal.curvature_rise;
+  ac.curvature_fall = wfgLsGlobal.curvature_fall;
+  ac.cko_index = map.ckoIndex;
+  ac.is_gate = true;
+  ac.gate_line = Math.max(1, wfgPanel.gate_line | 0);
+  ac.gate_pulse_ordinal = map.pulseOrdinal;
+  ac.showCursors = false;
+  // Individual mode: follow the CK source of the mapped CKO (not a copy that
+  // could drift — read it back from the CKO slot every time).
+  var ckoGpio = wfgGpios[WFG_DIGITAL_GPIO_COUNT + 1 + map.ckoIndex];
+  if (ckoGpio && ckoGpio.analog_config && ckoGpio.analog_config.source_ck_idx != null) {
+    ac.source_ck_idx = ckoGpio.analog_config.source_ck_idx;
+  } else {
+    ac.source_ck_idx = (wfgLsGlobal.ck_sources[map.ckoIndex] != null) ? wfgLsGlobal.ck_sources[map.ckoIndex] : -1;
+  }
 }
 
 // Sync channel list: ensure CKO1~CKOn have corresponding output channels.
@@ -1777,6 +1872,33 @@ function wfgLsSyncChannels() {
         break;
       }
     }
+  }
+  // Gate channel (panel signal) — one slot, right after the CKOs
+  var gateIdx = wfgGateSlotIdx();
+  if (!assignedCko[gateIdx]) {
+    for (var ci5 = 0; ci5 < wfgChannels.length; ci5++) {
+      if (wfgChannels[ci5].gpioIdx === -1) {
+        wfgChannels[ci5].gpioIdx = gateIdx;
+        wfgChannels[ci5].name = 'G' + Math.max(1, wfgPanel.gate_line | 0);
+        wfgChannels[ci5].visible = !!wfgPanel.gate_show;
+        break;
+      }
+    }
+  }
+  wfgUpdateGateChannelName();
+}
+
+// Keep the gate output channel label in sync with the selected gate line.
+// Only auto-renames labels that still look like the auto-generated "G<n>" —
+// a name the user typed themselves is left alone.
+function wfgUpdateGateChannelName() {
+  var gateIdx = wfgGateSlotIdx();
+  for (var i = 0; i < wfgChannels.length; i++) {
+    if (wfgChannels[i].gpioIdx !== gateIdx) continue;
+    if (/^G\d+$/.test(wfgChannels[i].name || '')) {
+      wfgChannels[i].name = 'G' + Math.max(1, wfgPanel.gate_line | 0);
+    }
+    return;
   }
 }
 
@@ -2771,14 +2893,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var numCko = wfgLsGlobal.phase;
 
   // Get LS events for range [0, computeExtent)
-  var events;
-  if (mode === 'condensed') {
-    events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, computeExtent);
-  } else if (mode === 'dual_cpv') {
-    events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, 0, computeExtent);
-  } else {
-    events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, 0, computeExtent, 0.001);
-  }
+  var events = _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, 0, computeExtent, 0.001);
   if (!events) events = [];
 
   // RC params
@@ -2885,14 +3000,11 @@ function _wfgExtendLsPrecomp(precomp, newExtent) {
   var oldExtent = precomp.computedExtent;
 
   // Build events for range [oldExtent, newExtent)
-  var newEvents;
-  if (le.mode === 'condensed') {
-    newEvents = _wfgLsBuildCondensedEvents(le.ckoIndex, le.numCko, le.allTrans, le.effHtotal, le.effVtotal, oldExtent, newExtent);
-  } else if (le.mode === 'dual_cpv') {
-    newEvents = _wfgLsBuildDualCpvEvents(le.ckoIndex, le.numCko, le.allTrans, le.effHtotal, le.effVtotal, oldExtent, newExtent);
-  } else {
-    newEvents = _wfgLsBuildIndividualEvents(le.ac, le.allTrans, le.effHtotal, le.effVtotal, oldExtent, newExtent, 0.001);
-  }
+  // Gate slots re-open the window at the enclosing frame boundary and then trim
+  // back to oldExtent (see _wfgLsBuildEvents), so ordinals stay correct across
+  // the extension seam and no event is emitted twice.
+  var newEvents = _wfgLsBuildEvents(le.ac, le.ckoIndex, le.numCko, le.mode, le.allTrans, le.effHtotal, le.effVtotal,
+                                    oldExtent, newExtent, 0.001);
   if (!newEvents) newEvents = [];
 
   // Append new events
@@ -17556,16 +17668,9 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   var numCko = wfgLsGlobal.phase;
   var mode = wfgLsGlobal.mode;
 
-  // Build the LS event list based on mode
-  var events; // array of {lineX, vTarget}
-  if (mode === 'condensed') {
-    events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine);
-  } else if (mode === 'dual_cpv') {
-    events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine);
-  } else {
-    // Individual mode — original behavior
-    events = _wfgLsBuildIndividualEvents(ac, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine, linesPerPixel);
-  }
+  // Build the LS event list based on mode (gate slots get the mask applied here)
+  var events = _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allGpioTransitions, effHtotal, effVtotal,
+                                 viewStartLine, viewEndLine, linesPerPixel);
 
   if (!events || events.length === 0) {
     return { initVoltage: ac.voltage_min, samples: [], smooth: true };
@@ -17578,7 +17683,7 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
   // STV reset events (_reset flag) must be preserved — they are hard resets at frame
   // boundaries that can't be skipped without causing CKO to appear stuck at VGH.
   // Extract resets first, thin the rest, then merge back.
-  if (linesPerPixel > 8 && events.length > 2000) {
+  if (linesPerPixel > 8 && events.length > 2000 && !ac.is_gate) {
     var _resets = [];
     var _normal = [];
     for (var _ri = 0; _ri < events.length; _ri++) {
@@ -17713,6 +17818,78 @@ function wfgComputeLevelShifterSamples(gpio, allGpioTransitions, effHtotal, effV
     else break;
   }
   return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: _lsSkipRC, _events: _rawEventsForCache };
+}
+
+// ─── Single entry point for LS event generation (CKO and Gate) ───
+// All three call sites (render, precompute, lazy-extend) go through here so a
+// gate slot is guaranteed to be built from exactly the same events as the CKO
+// it is masking — the mask can never drift away from the pulse it targets.
+function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, startLine, endLine, linesPerPixel) {
+  var isGate = !!(ac && ac.is_gate);
+  var buildStart = startLine;
+  var buildLpp = linesPerPixel;
+  if (isGate) {
+    // Pulse ordinals are counted from the start of the frame, so the build
+    // window must begin on a frame boundary — otherwise a window that opens
+    // mid-frame would miss earlier pulses and shift every ordinal.
+    if (effVtotal > 0) buildStart = Math.floor(startLine / effVtotal) * effVtotal;
+    // Never thin the raw CK transitions for a gate: thinning drops whole
+    // pulses, which would corrupt the ordinal count.
+    buildLpp = 0.001;
+  }
+  var events;
+  if (mode === 'condensed') {
+    events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, buildStart, endLine);
+  } else if (mode === 'dual_cpv') {
+    events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, buildStart, endLine);
+  } else {
+    events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, buildStart, endLine, buildLpp);
+  }
+  if (!events) events = [];
+  if (isGate) events = _wfgLsApplyGateMask(events, ac, effVtotal, startLine);
+  return events;
+}
+
+// ─── Gate output mask ───
+// Keeps only the pulse that drives the selected gate line; every other pulse of
+// that CKO is dropped, so the waveform simply stays at VGL there.
+// Pulse ordinals are counted per frame (frame = floor(lineX / effVtotal)), the
+// same frame convention the dual-CPV round-robin reset already uses.
+// Positions are never hard-coded: the kept pulse is whichever pulse currently
+// occupies that ordinal, so shifting the CK timing shifts the exposed pulse too.
+function _wfgLsApplyGateMask(events, ac, effVtotal, trimBeforeLine) {
+  var ordinal = ac.gate_pulse_ordinal | 0;
+  var mid = (ac.voltage_max + ac.voltage_min) / 2;
+  var out = [];
+  var prevHigh = false;
+  var keeping = false;
+  var counts = {};
+  for (var i = 0; i < events.length; i++) {
+    var ev = events[i];
+    if (ev._reset) continue; // frame reset to VGL — the gate is at VGL anyway
+    var high = ev.vTarget >= mid;
+    if (high && !prevHigh) {
+      // Rising edge = start of a pulse
+      var f = (effVtotal > 0) ? Math.floor(ev.lineX / effVtotal) : 0;
+      var n = counts[f] || 0;
+      counts[f] = n + 1;
+      keeping = (n === ordinal);
+      if (keeping) out.push(ev);
+    } else if (!high && prevHigh) {
+      // Falling edge = end of the pulse
+      if (keeping) out.push(ev);
+      keeping = false;
+    }
+    prevHigh = high;
+  }
+  if (trimBeforeLine > 0) {
+    var trimmed = [];
+    for (var j = 0; j < out.length; j++) {
+      if (out[j].lineX >= trimBeforeLine) trimmed.push(out[j]);
+    }
+    out = trimmed;
+  }
+  return out;
 }
 
 // ── Individual mode: 1 CK → 1 CKO ──
@@ -20523,6 +20700,9 @@ function wfgLoadPreset(presetName) {
   for (var _vai = WFG_DIGITAL_GPIO_COUNT; _vai < wfgGpios.length; _vai++) {
     if (wfgGpios[_vai].waveform_type !== 0) wfgGpios[_vai].enable = true;
   }
+  // The GPIO array was rebuilt from scratch above, which wipes the gate slot
+  // config — re-derive it now that the preset CK sources are in place.
+  wfgSyncGateGpio(true);
 
   // Reset channels
   wfgChannels = [];
@@ -20541,6 +20721,8 @@ function wfgLoadPreset(presetName) {
       if (pc.color) wfgChannels[ci].color = pc.color;
     }
   }
+  // Presets predate the gate channel — give it an output slot of its own.
+  wfgLsSyncChannels();
 
   // Apply lineBuffer if preset specifies it
   if (typeof preset.lineBuffer === 'number') {
@@ -20616,6 +20798,7 @@ function wfgLoadPreset(presetName) {
     }
   }
   wfgRenderFrmNoCard();
+  wfgRenderPanelCard();
   wfgRenderGpioList();
   wfgRenderChannelList();
   // Async precompute with progress bar, then render
@@ -20803,6 +20986,8 @@ function wfgOnParamChange() {
   wfgFrame.frameCount = nextFrameCount;
   document.getElementById('wfg-frame-count').value = wfgFrame.frameCount;
   wfgFrame.gateType = nextGate;
+  // Gate Line upper bound follows Vactive
+  wfgRenderPanelCard();
   // Update RX DCLK from Htotal/Vtotal/FrameRate
   wfgUpdateRxDclk();
   // Clamp TCON DCLK ≥ RX DCLK
@@ -21026,6 +21211,164 @@ window.wfgFrmNoSliderSync = wfgFrmNoSliderSync;
 window.wfgFrmNoNumSync = wfgFrmNoNumSync;
 window.wfgFrmNoNudge = wfgFrmNoNudge;
 
+// ═══════════ 面板信號 — Gate Line ═══════════
+function wfgGateLineMax() { return Math.max(1, wfgFrame.vactive | 0); }
+
+function wfgGateSliderHtml(min, max, value) {
+  return '<button type="button" class="wfg-slider-btn" onclick="wfgGateNudge(this,-1)">−</button>'
+    + '<input type="range" min="' + min + '" max="' + max + '" value="' + value + '" oninput="wfgGateSliderSync(this)">'
+    + '<button type="button" class="wfg-slider-btn" onclick="wfgGateNudge(this,1)">+</button>'
+    + '<input type="number" min="' + min + '" max="' + max + '" value="' + value + '" oninput="wfgGateNumSync(this)">';
+}
+
+// Rebuilds the Gate Line slider row (range follows Vactive) and the readout.
+function wfgRenderPanelCard() {
+  var row = document.getElementById('wfg-gateline-row');
+  if (!row) return;
+  var maxLine = wfgGateLineMax();
+  var gl = Math.max(1, Math.min(maxLine, wfgPanel.gate_line | 0));
+  if (gl !== wfgPanel.gate_line) {
+    wfgPanel.gate_line = gl;
+    wfgSyncGateGpio();
+    wfgUpdateGateChannelName();
+  }
+  row.innerHTML = wfgGateSliderHtml(1, maxLine, gl);
+  if (typeof wfgAttachHoldRepeat === 'function') wfgAttachHoldRepeat(row);
+  var hint = document.getElementById('wfg-gate-range-hint');
+  if (hint) hint.textContent = t('wfg.gateRangeHint') + '：1 ~ ' + maxLine + '（Vactive）';
+  var cb = document.getElementById('wfg-gate-show-cb');
+  if (cb) cb.checked = !!wfgPanel.gate_show;
+  wfgUpdateGateReadout();
+}
+
+function wfgUpdateGateReadout() {
+  var el = document.getElementById('wfg-gate-map');
+  if (!el) return;
+  var map = wfgGateMapping(wfgPanel.gate_line, wfgLsGlobal.phase);
+  el.innerHTML = '<span style="color:#4ade80;font-weight:700">G' + wfgPanel.gate_line + '</span>'
+    + ' <span style="color:#64748b">→</span> '
+    + '<span style="color:#60a5fa;font-weight:700">CKO' + (map.ckoIndex + 1) + '</span> '
+    + t('wfg.gatePulseNth').replace('{n}', String(map.pulseOrdinal + 1))
+    + '<span style="color:#64748b;margin-left:6px">（' + wfgLsGlobal.phase + ' Phase）</span>';
+}
+
+function wfgOnGateLineChange(value) {
+  var maxLine = wfgGateLineMax();
+  var gl = parseInt(value, 10);
+  if (!isFinite(gl)) return;
+  gl = Math.max(1, Math.min(maxLine, gl));
+  wfgPanel.gate_line = gl;
+  wfgSyncGateGpio();
+  wfgUpdateGateChannelName();
+  wfgUpdateGateReadout();
+  wfgRenderChannelList();
+  _wfgInvalidateLsOnly();
+  wfgRender();
+}
+
+function wfgGateSliderSync(rangeEl) {
+  var row = rangeEl.closest('.wfg-slider-row');
+  var numEl = row ? row.querySelector('input[type="number"]') : null;
+  if (numEl) numEl.value = rangeEl.value;
+  wfgOnGateLineChange(rangeEl.value);
+}
+function wfgGateNumSync(numEl) {
+  var row = numEl.closest('.wfg-slider-row');
+  var rangeEl = row ? row.querySelector('input[type="range"]') : null;
+  if (rangeEl) rangeEl.value = numEl.value;
+  wfgOnGateLineChange(numEl.value);
+}
+function wfgGateNudge(btn, delta) {
+  var row = btn.closest('.wfg-slider-row');
+  var rangeEl = row.querySelector('input[type="range"]');
+  var numEl = row.querySelector('input[type="number"]');
+  var min = parseInt(rangeEl.min, 10) || 1;
+  var max = parseInt(rangeEl.max, 10) || 1;
+  var cur = parseInt(rangeEl.value, 10) || 1;
+  var nv = Math.max(min, Math.min(max, cur + delta));
+  rangeEl.value = nv;
+  if (numEl) numEl.value = nv;
+  wfgOnGateLineChange(nv);
+}
+function wfgOnGateShowChange(checked) {
+  wfgPanel.gate_show = !!checked;
+  var gateIdx = wfgGateSlotIdx();
+  for (var i = 0; i < wfgChannels.length; i++) {
+    if (wfgChannels[i].gpioIdx === gateIdx) wfgChannels[i].visible = !!checked;
+  }
+  wfgRenderChannelList();
+  wfgResizeAndRender();
+}
+window.wfgGateSliderSync = wfgGateSliderSync;
+window.wfgGateNumSync = wfgGateNumSync;
+window.wfgGateNudge = wfgGateNudge;
+window.wfgOnGateShowChange = wfgOnGateShowChange;
+window.wfgRenderPanelCard = wfgRenderPanelCard;
+
+// ─── Debug / regression helper ───
+// Compares the exposed gate pulse against the pulse train of the CKO it masks,
+// using each channel's own independently precomputed event list. Returns one row
+// per frame: the CKO pulse that *should* be exposed vs the one that actually is.
+// Reading pixels can't prove alignment after a timing shift; this can.
+window.wfgDebugGate = function(maxFrames) {
+  maxFrames = maxFrames || 4;
+  var tc = wfgEnsureTransitions();
+  if (!tc) return { ok: false, reason: 'no transition cache' };
+  var effH = tc.effHtotal, effV = tc.effVtotal;
+  var map = wfgGateMapping(wfgPanel.gate_line, wfgLsGlobal.phase);
+  var gateIdx = wfgGateSlotIdx();
+  var ckoIdx = WFG_DIGITAL_GPIO_COUNT + 1 + map.ckoIndex;
+  var gGpio = wfgGpios[gateIdx], cGpio = wfgGpios[ckoIdx];
+  if (!gGpio || !cGpio) return { ok: false, reason: 'missing slot' };
+  var endLine = Math.min(wfgTotalLines(), effV * maxFrames);
+  var gateEvents = _wfgLsBuildEvents(gGpio.analog_config, map.ckoIndex, wfgLsGlobal.phase, wfgLsGlobal.mode,
+                                     tc.transitions, effH, effV, 0, endLine, 0.001);
+  var ckoEvents = _wfgLsBuildEvents(cGpio.analog_config, map.ckoIndex, wfgLsGlobal.phase, wfgLsGlobal.mode,
+                                    tc.transitions, effH, effV, 0, endLine, 0.001);
+  function pulses(evs, ac) {
+    var out = [], mid = (ac.voltage_max + ac.voltage_min) / 2, prevHigh = false;
+    for (var i = 0; i < evs.length; i++) {
+      var e = evs[i];
+      if (e._reset) continue;
+      var high = e.vTarget >= mid;
+      if (high && !prevHigh) out.push({ rise: e.lineX, fall: null });
+      else if (!high && prevHigh && out.length) out[out.length - 1].fall = e.lineX;
+      prevHigh = high;
+    }
+    return out;
+  }
+  var gp = pulses(gateEvents, gGpio.analog_config);
+  var cp = pulses(ckoEvents, cGpio.analog_config);
+  function byFrame(list) {
+    var m = {};
+    for (var i = 0; i < list.length; i++) {
+      var f = effV > 0 ? Math.floor(list[i].rise / effV) : 0;
+      (m[f] = m[f] || []).push(list[i]);
+    }
+    return m;
+  }
+  var bg = byFrame(gp), bc = byFrame(cp);
+  var rows = [], ok = true;
+  for (var f = 0; f < maxFrames; f++) {
+    var cList = bc[f] || [], gList = bg[f] || [];
+    var expected = cList[map.pulseOrdinal] ? cList[map.pulseOrdinal].rise : null;
+    var actual = (gList.length === 1) ? gList[0].rise : null;
+    var match = (expected != null && actual != null && Math.abs(expected - actual) < 1e-9);
+    if (!match) ok = false;
+    rows.push({ frame: f, ckoPulsesInFrame: cList.length, gatePulsesInFrame: gList.length,
+                expectedRise: expected, actualRise: actual, match: match,
+                expectedFall: cList[map.pulseOrdinal] ? cList[map.pulseOrdinal].fall : null,
+                actualFall: (gList.length === 1) ? gList[0].fall : null });
+  }
+  var gAc = gGpio.analog_config;
+  return { ok: ok, gateLine: wfgPanel.gate_line, phase: wfgLsGlobal.phase,
+           cko: map.ckoIndex + 1, pulseOrdinal1Based: map.pulseOrdinal + 1,
+           mode: wfgLsGlobal.mode, effVtotal: effV, effHtotal: effH, rows: rows,
+           _diag: { gateSlot: gateIdx, isGate: !!gAc.is_gate, gateAcCko: gAc.cko_index,
+                    gateOrdinal: gAc.gate_pulse_ordinal, gateCkSrc: gAc.source_ck_idx,
+                    gateEvents: gateEvents.length, ckoEvents: ckoEvents.length } };
+};
+
 // Hold-to-repeat: attach to all .wfg-slider-btn after DOM update
 function wfgAttachHoldRepeat(container) {
   container.querySelectorAll('.wfg-slider-btn').forEach(function(btn) {
@@ -21109,6 +21452,8 @@ function wfgOnLsCkSourceChange(gpioIdx, value) {
   if (typeof ckoIdx === 'number' && ckoIdx >= 0) {
     wfgLsGlobal.ck_sources[ckoIdx] = v;
   }
+  // The gate follows the CK source of whichever CKO it is mapped to
+  wfgSyncGateGpio();
   _wfgInvalidateLsOnly();
   wfgRender();
 }
@@ -21285,6 +21630,7 @@ function wfgOnLsGlobalChange(field, value) {
     wfgLsRebuildCkoSlots();
     wfgInvalidateCache();
     wfgRenderGpioList();
+    wfgRenderPanelCard();
     wfgRenderChannelList();
     wfgResizeAndRender();
     return;
@@ -21294,6 +21640,7 @@ function wfgOnLsGlobalChange(field, value) {
     wfgLsRebuildCkoSlots();
     wfgInvalidateCache();
     wfgRenderGpioList();
+    wfgRenderPanelCard();
     wfgRenderChannelList();
     wfgResizeAndRender();
     return;
@@ -21334,6 +21681,9 @@ function wfgOnLsGlobalChange(field, value) {
   } else if (field === 'cond_2line_type') {
     wfgLsGlobal.cond_2line_type = value;
   }
+  // Gate slot mirrors the LS globals (VGH/VGL/RC/CK source)
+  wfgSyncGateGpio();
+  wfgUpdateGateReadout();
   _wfgInvalidateLsOnly();
   wfgRender();
 }
@@ -24329,6 +24679,7 @@ document.addEventListener('keydown', function(e) {
 function wfgInit() {
   wfgInitCanvas();
   wfgRenderFrmNoCard();
+  wfgRenderPanelCard();
   wfgRenderGpioList();
   wfgRenderChannelList();
   wfgUpdateRxDclk();
@@ -26903,6 +27254,7 @@ window.wfgExportConfig = function() {
       return { chIdx: p.chIdx, range: p.range, mode: p.mode, expanded: p.expanded };
     }),
     lsGlobal: JSON.parse(JSON.stringify(wfgLsGlobal)),
+    panel: JSON.parse(JSON.stringify(wfgPanel)),
     voltCursorPerSlot: JSON.parse(JSON.stringify(_wfgVoltCursorPerSlot)),
     voltCursorsActive: wfgVoltCursors.map(function(vc) { return vc.active; })
   };
@@ -27005,6 +27357,11 @@ window.wfgImportConfig = function(jsonStr) {
       }
     }
   }
+  // ── Panel signals (Gate Line) — must be applied before the slot rebuild ──
+  if (config.panel) {
+    if (config.panel.gate_line != null) wfgPanel.gate_line = Math.max(1, parseInt(config.panel.gate_line, 10) || 1);
+    if (config.panel.gate_show != null) wfgPanel.gate_show = !!config.panel.gate_show;
+  }
   wfgLsRebuildCkoSlots();
 
   // ── GPIOs ──
@@ -27046,6 +27403,11 @@ window.wfgImportConfig = function(jsonStr) {
       wfgChannels[ci].visible = ch.visible !== false;
     }
   }
+
+  // Gate slot: re-derive from the restored gate line (an older config file has
+  // no gate entry at all; a newer one may carry a stale mapping).
+  wfgSyncGateGpio();
+  wfgLsSyncChannels();
 
   // ── Cursors ──
   if (config.cursors && Array.isArray(config.cursors)) {
@@ -27140,6 +27502,7 @@ window.wfgImportConfig = function(jsonStr) {
 
   // ── Rebuild UI ──
   wfgRenderGpioList();
+  wfgRenderPanelCard();
   wfgRenderChannelList();
   wfgUpdateTconInternalVisibility();
   wfgResizeAndRender();

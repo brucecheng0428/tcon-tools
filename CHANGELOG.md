@@ -22,6 +22,55 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.3.0 — 2026-08-12 ｜ MINOR ｜ ⚠ 輸出變更
+
+**判定依據：** 新增「面板信號」卡片與 Gate Line 功能 → `docs/VERSIONING.md` §2 案例 1「新增一個完整功能」＋ **R3**「這一版之後，使用者能做的事有沒有多一件？有 → MINOR」。既有卡片位置、既有波形的計算與畫法一律未動 → **MINOR**，`v3.2.0` → `v3.3.0`。
+另依 2026-08-09 補訂的「`⚠ 輸出變更` 範圍定義」之**版面／構圖類**：波形區固定多出一列 Gate 波形（`G<n>`），同一組設定用新版重跑，截圖構圖與可視列數會與舊版不同 → 加註 `⚠ 輸出變更`。波形數值本身一位元未變。
+
+### 新增：面板信號卡片 — Gate Line（第一階段）
+
+左側新增「**面板信號**」卡片，位置在「類比信號」與「輸出通道」之間。本版只做 **Gate Line**，Subpixel 電荷僅保留版位（標示「開發中」），尚未實作。
+
+**Gate Line 是什麼**：選一條實體 Gate（G1 ~ G<Vactive>），波形區就多一列顯示那一條 Gate 的實際波形。做法是把驅動它的那個 CKO 拿來當來源，**只露出真正驅動這條 Gate 的那一個 pulse，同一個 CKO 上其餘 pulse 全部遮成 VGL**。
+
+- **範圍**：最小 1，最大 = Frame 參數的 **Vactive**（改 Vactive 時上限跟著動，目前值超出上限會被夾住）。
+- **CKO 數量連動 GOA Phase**：CKO 數直接取「類比信號 → Level Shifter 全域設定 → GOA Phase」，6 Phase 就是 6 個 CKO、16 Phase 就是 16 個，不另設參數。
+- **對應規則**（P = GOA Phase）：
+
+  ```
+  CKO 編號 = ((G-1) mod P) + 1
+  pulse 序號 = floor((G-1) / P) + 1
+  ```
+
+  卡片內即時顯示換算結果（例：`G7 → CKO1 第 2 個 pulse（6 Phase）`）。
+- Gate 波形自動佔一個輸出通道（預設名稱 `G<n>`，可自行改名；改名後不會再被自動改回）。卡片內有「在波形區顯示 Gate 波形」開關可隱藏。
+- 設定會一起進匯出檔（`panel.gate_line` / `panel.gate_show`），匯入舊設定檔時 Gate Line 取預設值 1。
+
+### 遮罩如何對位（這是本功能的關鍵）
+
+CKO 的 pulse 位置會隨 timing 參數前後左右移動，**遮罩不能綁在固定時間或畫面座標上**。實作把遮罩掛在 pulse 的邏輯來源，而不是位置：
+
+- Gate 走的是**與 CKO 完全相同的那一條事件產生鏈**（三種驅動模式 individual / condensed / dual_cpv 全部沿用），連 CK 來源都是即時從對應 CKO 讀回來的，不另存副本。三個呼叫點（render／precompute／lazy-extend）統一收斂到新函式 `_wfgLsBuildEvents()`，確保 Gate 與被遮罩的 CKO 不可能算出不同的事件。
+- 遮罩 `_wfgLsApplyGateMask()` 只做一件事：在事件串上數 pulse，保留序號相符的那一組 rise/fall，其餘丟棄（丟掉即維持在 VGL）。**留下來的是「當下排在第 N 個」的那個 pulse**，所以 pulse 一移動，露出的位置就跟著移動。
+- pulse 序號以 frame 為單位計數（frame = `floor(lineX / effVtotal)`，沿用 dual-CPV round-robin 既有的 frame 慣例）。事件視窗一律往前對齊到 frame 邊界再開始算，避免視窗落在 frame 中間導致序號整批位移；lazy-extend 時再把邊界前的事件裁掉，序號正確且不會重複發事件。
+- Gate 事件串**不套用縮放時的事件抽稀**（抽稀會整個 pulse 消失，序號就錯了）。
+
+### 驗證（本機 Chrome，`fhd_60hz_sg` / `fhd_60hz_sg_ls_dual_cpv` 兩個預設）
+
+新增 `window.wfgDebugGate(n)`：把 Gate 露出的 pulse 與「被遮罩 CKO 自己算出來的第 N 個 pulse」逐 frame 比對（兩邊各自獨立產生事件串），回傳 rise/fall 與是否相符。
+
+| 檢查 | 結果 |
+|---|---|
+| P=6, G=7 → CKO1 第 2 個 pulse | ✅ rise 9.637181409295351，與 CKO1 pulse#2 完全相同 |
+| P=6, G=12 → CKO6 第 2 個 pulse | ✅ rise 14.637181409295351 相符 |
+| G=1 / 6 / 13 / 1080 | ✅ 皆相符；每 frame 恰好 1 個 pulse |
+| dual_cpv 模式 G=1 / 7 / 12 | ✅ 皆相符 |
+| **對位實測**：CK1 `r_dly`/`f_dly` 850 → 1500（水平位移 0.487 line） | ✅ Gate pulse 由 9.637 → 10.124，仍是 CKO1 第 2 個 pulse |
+| **對位實測**：再把 CK1 `st_line` 3 → 9（垂直位移 6 line） | ✅ Gate pulse → 16.124，仍是 CKO1 第 2 個 pulse；改回原值後回到 9.637 |
+| Gate pulse 寬度 | ✅ rise 9.637 / fall 11.637，與 CKO1 pulse#2 一致（2 line） |
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.2.0 — 2026-08-09 ｜ MINOR
 
 **判定依據：** 本版含兩件改動，依 `docs/VERSIONING.md` 取較高者。

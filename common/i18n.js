@@ -719,6 +719,14 @@ var I18N = {
   'wfg.grayFixedLevel':     { 'zh-TW': '固定灰階值', 'en': 'Fixed gray level', 'zh-CN': '固定灰阶值' },
   'wfg.ckSource':           { 'zh-TW': 'CK 來源', 'en': 'CK source', 'zh-CN': 'CK 来源' },
   'wfg.ckNone':             { 'zh-TW': '未選', 'en': 'None', 'zh-CN': '未选' },
+  // ─── WFG: Panel Signals (面板信號) ───
+  'wfg.panelSignals':       { 'zh-TW': '面板信號', 'en': 'Panel Signals', 'zh-CN': '面板信号' },
+  'wfg.gateLineLabel':      { 'zh-TW': 'Gate 條數 (G)', 'en': 'Gate line (G)', 'zh-CN': 'Gate 条数 (G)' },
+  'wfg.gateRangeHint':      { 'zh-TW': '可選範圍', 'en': 'Range', 'zh-CN': '可选范围' },
+  'wfg.gatePulseNth':       { 'zh-TW': '第 {n} 個 pulse', 'en': 'pulse #{n}', 'zh-CN': '第 {n} 个 pulse' },
+  'wfg.gateShow':           { 'zh-TW': '在波形區顯示 Gate 波形', 'en': 'Show gate waveform', 'zh-CN': '在波形区显示 Gate 波形' },
+  'wfg.subpixelCharge':     { 'zh-TW': 'Subpixel 電荷', 'en': 'Subpixel charge', 'zh-CN': 'Subpixel 电荷' },
+  'wfg.wip':                { 'zh-TW': '開發中', 'en': 'WIP', 'zh-CN': '开发中' },
   // ─── WFG: LS Global Config ───
   'wfg.lsGlobalTitle':      { 'zh-TW': 'Level Shifter 全域設定', 'en': 'Level Shifter Global Config', 'zh-CN': 'Level Shifter 全局设定' },
   'wfg.lsMode':             { 'zh-TW': '驅動模式', 'en': 'Driving Mode', 'zh-CN': '驱动模式' },
