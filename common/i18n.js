@@ -662,6 +662,9 @@ var I18N = {
   'wfg.cursorMoving':   { 'zh-TW': '移動中', 'en': 'moving', 'zh-CN': '移动中' },
   'wfg.cursorClose':    { 'zh-TW': '關閉', 'en': 'Close', 'zh-CN': '关闭' },
   'wfg.cursorShortcut': { 'zh-TW': '快捷鍵', 'en': 'Shortcut', 'zh-CN': '快捷键' },
+  /* v3.5.0: 卡片空狀態提示 —— 原本沒有游標時是一片空白，無法區分「沒有游標」與「功能壞了」。
+     術語沿用既有 i18n 的寫法（laCursorDtHint 內文一律用英文 cursor，不譯）。 */
+  'wfg.cursorEmpty':    { 'zh-TW': '尚未建立 cursor（按 1～0 建立）', 'en': 'No cursors yet (press 1–0 to add)', 'zh-CN': '尚未建立 cursor（按 1～0 建立）' },
   'wfg.laCursorDtHint':  { 'zh-TW': '輸入正實數後按 Enter，會固定較早的 cursor、移動較晚的 cursor 使間隔等於此值（依目前顯示單位）', 'en': 'Type a positive number and press Enter: the earlier cursor stays, the later cursor moves so the gap equals this value (in the unit shown)', 'zh-CN': '输入正实数后按 Enter，固定较早的 cursor、移动较晚的 cursor 使间隔等于此值（依当前显示单位）' },
   // ─── WFG: Pulse counter ───
   'wfg.pulseTitle':     { 'zh-TW': '脈衝計數', 'en': 'Pulse Counter', 'zh-CN': '脉冲计数' },

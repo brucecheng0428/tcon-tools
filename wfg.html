@@ -921,6 +921,8 @@
   .wfg-cursor-group-close { background: none; border: none; color: #64748b; cursor: pointer; font-size: 14px; padding: 2px 4px; }
   .wfg-cursor-group-close:hover { color: #f87171; }
   .wfg-cursor-detail { font-size: 11px; color: #94a3b8; padding-left: 8px; line-height: 1.6; font-family: 'SF Mono', 'Consolas', monospace; }
+  /* v3.5.0: 無 cursor 時的空狀態文字（色階沿用 .wfg-empty-state 的 #64748b） */
+  .wfg-cursor-empty { font-size: 11px; color: #64748b; line-height: 1.6; }
   /* ── WFG Pulse Counter Card ── */
   .wfg-pulse-card { display: block; width: 100%; background: var(--card); border-radius: 12px; border: 1px solid #21262d; }
   .wfg-pulse-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 6px; border-bottom: 1px solid #21262d; cursor: pointer; user-select: none; }
@@ -1622,8 +1624,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260812wfg340"></script>
-<script src="common/i18n.js?v=20260812wfg340"></script>
+<script src="common/version.js?v=20260812wfg350"></script>
+<script src="common/i18n.js?v=20260812wfg350"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -20824,12 +20826,17 @@ function wfgLoadPreset(presetName) {
     });
   }
   // Apply time cursors
+  /* v3.5.0 行為變更：preset 的語意是「完整定義一組情境」，不是「只覆蓋它有提到的欄位」。
+     舊行為：沒有 cursors 欄位的 preset（例如 Multi CPV）不清空 → 上一個 preset 的 cursor 會殘留，
+     畫面變成兩個 preset 的混血狀態。新行為：不論 preset 有沒有 cursors 欄位，一律先全部清空。
+     另：|Δt| 鎖定同屬 cursor 狀態，一併清除，否則會鎖住已不存在的 cursor 配對。 */
+  for (var curi = 0; curi < wfgCursors.length; curi++) {
+    wfgCursors[curi].time = null;
+    wfgCursors[curi].active = false;
+    wfgCursors[curi].moving = false;
+  }
+  wfgDtLock = {};
   if (preset.cursors && Array.isArray(preset.cursors)) {
-    for (var curi = 0; curi < wfgCursors.length; curi++) {
-      wfgCursors[curi].time = null;
-      wfgCursors[curi].active = false;
-      wfgCursors[curi].moving = false;
-    }
     for (var pci = 0; pci < preset.cursors.length; pci++) {
       var pcursor = preset.cursors[pci];
       for (var wci = 0; wci < wfgCursors.length; wci++) {
@@ -20861,6 +20868,10 @@ function wfgLoadPreset(presetName) {
   wfgRenderPanelCard();
   wfgRenderGpioList();
   wfgRenderChannelList();
+  /* v3.5.0 修正：此處原本漏了這一行，導致 preset 帶進來的 cursor 雖然畫在波形上、
+     右側「時基標尺」卡片卻永遠是空的（wfgRender/wfgResizeAndRender 都不會刷新這張卡片，
+     只有 hover/拖曳/toggle/匯入等路徑才會呼叫它）。對照組：wfgImportConfig() 一直都有呼叫。 */
+  wfgUpdateCursorPanel();
   // Async precompute with progress bar, then render
   wfgPrecomputeAnalogAsync().then(function() { wfgResizeAndRender(); });
 }
@@ -24673,7 +24684,13 @@ function wfgUpdateCursorPanel() {
   for (var ci = 0; ci < wfgCursors.length; ci++) {
     if (wfgCursors[ci].active) { anyActive = true; break; }
   }
-  if (!anyActive) { body.innerHTML = ''; wfgUpdateCursorBtns(); return; }
+  /* v3.5.0: 一片空白無法區分「沒有 cursor」與「卡片壞掉」（這正是 v3.4.0 回報的 bug 表徵），
+     改為顯示空狀態提示。 */
+  if (!anyActive) {
+    body.innerHTML = '<div class="wfg-cursor-empty">' + escapeHtml(t('wfg.cursorEmpty')) + '</div>';
+    wfgUpdateCursorBtns();
+    return;
+  }
 
   var groups = ['A','B','C','D','E'];
   var html = '';
@@ -24861,6 +24878,9 @@ function wfgInit() {
   wfgRenderPanelCard();
   wfgRenderGpioList();
   wfgRenderChannelList();
+  /* v3.5.0: 初始化時也要建一次時基標尺卡片，否則剛開頁面（無 cursor）時卡片是一片空白，
+     使用者無從分辨「沒有 cursor」與「卡片壞掉」。 */
+  wfgUpdateCursorPanel();
   wfgUpdateRxDclk();
   wfgUpdateTconHtotal();
   wfgUpdateDclkLabel();
