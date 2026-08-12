@@ -1123,6 +1123,11 @@
                 <div style="font-size:10px;color:#64748b;margin-bottom:6px" id="wfg-gate-range-hint"></div>
                 <div class="wfg-field"><label style="color:#e2e8f0" data-i18n="wfg.gateLineLabel">Gate 條數</label><div class="wfg-slider-row" id="wfg-gateline-row"></div></div>
                 <div id="wfg-gate-map" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
+                <div class="wfg-field" style="margin-top:10px"><label style="color:#e2e8f0" data-i18n="wfg.gateRcMult">充放電時間倍率</label>
+                  <div style="font-size:10px;color:#64748b;margin-bottom:4px" id="wfg-gate-rc-hint"></div>
+                  <div class="wfg-slider-row" id="wfg-gate-rc-row"></div>
+                </div>
+                <div id="wfg-gate-rc-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
                 <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#e2e8f0;cursor:pointer">
                   <input type="checkbox" id="wfg-gate-show-cb" checked onchange="wfgOnGateShowChange(this.checked)" style="accent-color:#22c55e;cursor:pointer">
                   <span data-i18n="wfg.gateShow">在波形區顯示 Gate 波形</span>
@@ -1617,8 +1622,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260812wfg331"></script>
-<script src="common/i18n.js?v=20260812wfg331"></script>
+<script src="common/version.js?v=20260812wfg340"></script>
+<script src="common/i18n.js?v=20260812wfg340"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1676,7 +1681,43 @@ const WFG_LS_GOA_PHASES = [4, 6, 8, 10, 12, 14, 16];
 //   G1 → CKO1 pulse#1, G2 → CKO2 pulse#1, ... GP → CKOP pulse#1,
 //   G(P+1) → CKO1 pulse#2, ...
 //   CKO index (0-based) = (G-1) mod P ; pulse ordinal (0-based) = floor((G-1)/P)
-var wfgPanel = { gate_line: 1, gate_show: true };
+// gate_rc_mult: Gate 波形的充放電時間倍率（單一倍率，同時套用上升與下降）。
+//   Gate 的充放電時間 = Level Shifter 的對應設定 × 倍率，乘出來不得超過 300。
+//   上限 300 刻意高於 Level Shifter 自己的 0~255，用意是「與 LS 區隔」：
+//   倍率下限固定為 1 ⇒ Gate 的充放電時間永遠 >= LS 的設定，不會比 LS 快。
+//   只有一個倍率、而且兩者乘完都不能超過 300 ⇒ 上限由**較大的那個**決定：
+//       M_max = 300 / max(LS_rise, LS_fall)
+//   （例：LS 都是 100 → 1 ~ 3；rise=100 fall=200 → 1 ~ 1.5）
+//   預設 1.2；若 M_max < 1.2（LS 設定 > 250）則夾到 M_max。
+var WFG_GATE_RC_MULT_DEFAULT = 1.2;
+var WFG_GATE_RC_MAX_CURVATURE = 300; // Gate 充放電時間的上限（LS 自身上限為 255）
+var wfgPanel = { gate_line: 1, gate_show: true, gate_rc_mult: WFG_GATE_RC_MULT_DEFAULT };
+
+// 倍率上限：由 LS 上升／下降中「較大」的那個決定，兩者乘完才都不會超過 255。
+// LS 設定為 0 時乘任何倍率都還是 0（倍率無作用），回傳 1 代表沒有可調空間。
+function wfgGateRcMultMax() {
+  var mx = Math.max(wfgLsGlobal.curvature_rise | 0, wfgLsGlobal.curvature_fall | 0);
+  if (mx <= 0) return 1;
+  var m = WFG_GATE_RC_MAX_CURVATURE / mx;
+  // 倍率下限固定 1（Gate 不得比 LS 快）。LS >= 300 時 M_max 會 <= 1，與下限衝突 →
+  // 鎖在 1 並由 UI 顯示「已達上限」。註：LS 欄位本身的 UI 上限是 255，正常操作
+  // 到不了 300；這條只在匯入了帶有超界值的設定檔時才會走到。
+  if (!isFinite(m) || m < 1) m = 1;
+  // 無條件捨去到 0.001：LS=100 → 3、LS=200 → 1.5（剛好乘出 300，不超過）
+  return Math.floor(m * 1000) / 1000;
+}
+function wfgClampGateRcMult(v) {
+  var m = parseFloat(v);
+  if (!isFinite(m)) m = WFG_GATE_RC_MULT_DEFAULT;
+  var mx = wfgGateRcMultMax();
+  if (m < 1) m = 1;
+  if (m > mx) m = mx;
+  return Math.round(m * 1000) / 1000;
+}
+// 顯示用：去掉無意義的尾零（2.550 → 2.55、1.275 → 1.275、1.200 → 1.2）
+function wfgFmtGateRcMult(m) {
+  return (Math.round(m * 1000) / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}
 
 // Returns { ckoIndex (0-based), pulseOrdinal (0-based) } for a gate line number.
 function wfgGateMapping(gateLine, phase) {
@@ -1822,8 +1863,12 @@ function wfgSyncGateGpio(enableSlots) {
   var ac = g.analog_config;
   ac.voltage_min = wfgLsGlobal.vgl;
   ac.voltage_max = wfgLsGlobal.vgh;
-  ac.curvature_rise = wfgLsGlobal.curvature_rise;
-  ac.curvature_fall = wfgLsGlobal.curvature_fall;
+  // 充放電時間 = Level Shifter 的設定 × Gate 倍率（單一倍率同時套用上升與下降）
+  var _m = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
+  wfgPanel.gate_rc_mult = _m;
+  ac.gate_rc_mult = _m;
+  ac.curvature_rise = Math.min(WFG_GATE_RC_MAX_CURVATURE, Math.round(wfgLsGlobal.curvature_rise * _m));
+  ac.curvature_fall = Math.min(WFG_GATE_RC_MAX_CURVATURE, Math.round(wfgLsGlobal.curvature_fall * _m));
   ac.cko_index = map.ckoIndex;
   ac.is_gate = true;
   ac.gate_line = Math.max(1, wfgPanel.gate_line | 0);
@@ -20715,6 +20760,8 @@ function wfgLoadPreset(presetName) {
   }
   // The GPIO array was rebuilt from scratch above, which wipes the gate slot
   // config — re-derive it now that the preset CK sources are in place.
+  // 載入預設 → 充放電倍率回到預設 1.2（超過上限時由 wfgClampGateRcMult 夾住）
+  wfgPanel.gate_rc_mult = wfgClampGateRcMult(WFG_GATE_RC_MULT_DEFAULT);
   wfgSyncGateGpio(true);
 
   // Reset channels
@@ -21231,7 +21278,7 @@ function wfgGateSliderHtml(min, max, value) {
   return '<button type="button" class="wfg-slider-btn" onclick="wfgGateNudge(this,-1)">−</button>'
     + '<input type="range" min="' + min + '" max="' + max + '" value="' + value + '" oninput="wfgGateSliderSync(this)">'
     + '<button type="button" class="wfg-slider-btn" onclick="wfgGateNudge(this,1)">+</button>'
-    + '<input type="number" min="' + min + '" max="' + max + '" value="' + value + '" oninput="wfgGateNumSync(this)">';
+    + '<input type="number" min="' + min + '" max="' + max + '" value="' + value + '" oninput="wfgGateNumSync(this)" onchange="wfgGateNumCommit(this)">';
 }
 
 // Rebuilds the Gate Line slider row (range follows Vactive) and the readout.
@@ -21251,8 +21298,92 @@ function wfgRenderPanelCard() {
   if (hint) hint.textContent = t('wfg.gateRangeHint') + '：1 ~ ' + maxLine + '（Vactive）';
   var cb = document.getElementById('wfg-gate-show-cb');
   if (cb) cb.checked = !!wfgPanel.gate_show;
+  wfgRenderGateRcRow();
+  wfgUpdateGateRcReadout();
   wfgUpdateGateReadout();
 }
+
+// 充放電倍率列：拉把用整數（值 ×100，step 1 ＝ 0.01 倍），數字框直接鍵入小數。
+function wfgRenderGateRcRow() {
+  var row = document.getElementById('wfg-gate-rc-row');
+  if (!row) return;
+  var mx = wfgGateRcMultMax();
+  var m = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
+  if (m !== wfgPanel.gate_rc_mult) { wfgPanel.gate_rc_mult = m; wfgSyncGateGpio(); }
+  var disabled = (mx <= 1) ? ' disabled' : '';
+  // 拉把內部用 ×1000 的整數（step 1 ＝ 0.001），這樣拉到底剛好等於 M_max；
+  // ± 按鈕與數字框走 0.01 一格，符合精調需求。
+  row.innerHTML = '<button type="button" class="wfg-slider-btn" onclick="wfgGateRcNudge(this,-10)"' + disabled + '>−</button>'
+    + '<input type="range" min="1000" max="' + Math.round(mx * 1000) + '" step="1" value="' + Math.round(m * 1000) + '" oninput="wfgGateRcSliderSync(this)"' + disabled + '>'
+    + '<button type="button" class="wfg-slider-btn" onclick="wfgGateRcNudge(this,10)"' + disabled + '>+</button>'
+    + '<input type="number" min="1" max="' + wfgFmtGateRcMult(mx) + '" step="0.01" value="' + wfgFmtGateRcMult(m) + '" oninput="wfgGateRcNumSync(this)" onchange="wfgGateRcNumCommit(this)"' + disabled + '>';
+  if (typeof wfgAttachHoldRepeat === 'function') wfgAttachHoldRepeat(row);
+  var hint = document.getElementById('wfg-gate-rc-hint');
+  if (hint) {
+    hint.textContent = (mx <= 1)
+      ? t('wfg.gateRcNoRoom')
+      : t('wfg.gateRcRange') + '：1 ~ ' + wfgFmtGateRcMult(mx) + '（' + WFG_GATE_RC_MAX_CURVATURE + ' ÷ ' + Math.max(wfgLsGlobal.curvature_rise | 0, wfgLsGlobal.curvature_fall | 0) + '）';
+  }
+}
+
+function wfgUpdateGateRcReadout() {
+  var el = document.getElementById('wfg-gate-rc-readout');
+  if (!el) return;
+  var m = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
+  var r = Math.min(WFG_GATE_RC_MAX_CURVATURE, Math.round((wfgLsGlobal.curvature_rise | 0) * m));
+  var f = Math.min(WFG_GATE_RC_MAX_CURVATURE, Math.round((wfgLsGlobal.curvature_fall | 0) * m));
+  var ms = wfgFmtGateRcMult(m);
+  el.innerHTML = '<span style="color:#94a3b8">' + t('wfg.gateRcReadoutRise') + '　</span>'
+    + '<span style="color:#64748b">' + (wfgLsGlobal.curvature_rise | 0) + '</span>'
+    + ' <span style="color:#64748b">×</span> <span style="color:#4ade80;font-weight:700">' + ms + '</span>'
+    + ' <span style="color:#64748b">=</span> <span style="color:#60a5fa;font-weight:700">' + r + '</span><br>'
+    + '<span style="color:#94a3b8">' + t('wfg.gateRcReadoutFall') + '　</span>'
+    + '<span style="color:#64748b">' + (wfgLsGlobal.curvature_fall | 0) + '</span>'
+    + ' <span style="color:#64748b">×</span> <span style="color:#4ade80;font-weight:700">' + ms + '</span>'
+    + ' <span style="color:#64748b">=</span> <span style="color:#60a5fa;font-weight:700">' + f + '</span>';
+}
+
+function wfgOnGateRcMultChange(value) {
+  var m = wfgClampGateRcMult(value);
+  if (m === wfgPanel.gate_rc_mult) return;
+  wfgPanel.gate_rc_mult = m;
+  wfgSyncGateGpio();
+  wfgUpdateGateRcReadout();
+  _wfgInvalidateGateOnly();
+  wfgScheduleGateRender();
+}
+function wfgGateRcSliderSync(rangeEl) {
+  var row = rangeEl.closest('.wfg-slider-row');
+  var numEl = row ? row.querySelector('input[type=number]') : null;
+  var v = wfgClampGateRcMult((parseInt(rangeEl.value, 10) || 1000) / 1000);
+  if (numEl) numEl.value = wfgFmtGateRcMult(v);
+  wfgOnGateRcMultChange(v);
+}
+function wfgGateRcNumSync(numEl) {
+  var row = numEl.closest('.wfg-slider-row');
+  var rangeEl = row ? row.querySelector('input[type=range]') : null;
+  var v = wfgClampGateRcMult(numEl.value);
+  if (rangeEl) rangeEl.value = Math.round(v * 1000);
+  wfgOnGateRcMultChange(v);
+}
+function wfgGateRcNudge(btn, delta) {
+  var row = btn.closest('.wfg-slider-row');
+  var rangeEl = row.querySelector('input[type=range]');
+  var numEl = row.querySelector('input[type=number]');
+  var v = wfgClampGateRcMult(((parseInt(rangeEl.value, 10) || 1000) + delta) / 1000);
+  rangeEl.value = Math.round(v * 1000);
+  if (numEl) numEl.value = wfgFmtGateRcMult(v);
+  wfgOnGateRcMultChange(v);
+}
+// 數字框失焦／Enter 時把顯示值回寫成實際生效的值（輸入 0.5 會被夾到 1，
+// 若不回寫，欄位會停在 0.5 卻與實際波形不符）。
+function wfgGateRcNumCommit(numEl) {
+  numEl.value = wfgFmtGateRcMult(wfgClampGateRcMult(numEl.value));
+}
+window.wfgGateRcNumCommit = wfgGateRcNumCommit;
+window.wfgGateRcSliderSync = wfgGateRcSliderSync;
+window.wfgGateRcNumSync = wfgGateRcNumSync;
+window.wfgGateRcNudge = wfgGateRcNudge;
 
 function wfgUpdateGateReadout() {
   var el = document.getElementById('wfg-gate-map');
@@ -21338,6 +21469,10 @@ function wfgOnGateShowChange(checked) {
   wfgRenderChannelList();
   wfgResizeAndRender();
 }
+function wfgGateNumCommit(numEl) {
+  numEl.value = Math.max(1, Math.min(wfgGateLineMax(), parseInt(numEl.value, 10) || 1));
+}
+window.wfgGateNumCommit = wfgGateNumCommit;
 window.wfgGateSliderSync = wfgGateSliderSync;
 window.wfgGateNumSync = wfgGateNumSync;
 window.wfgGateNudge = wfgGateNudge;
@@ -21723,6 +21858,11 @@ function wfgOnLsGlobalChange(field, value) {
   // Gate slot mirrors the LS globals (VGH/VGL/RC/CK source)
   wfgSyncGateGpio();
   wfgUpdateGateReadout();
+  // 改 LS 的充放電時間會改變倍率上限（M_max = 255 / max(rise,fall)）→ 重建倍率列並夾住目前值
+  if (field === 'curvature_rise' || field === 'curvature_fall') {
+    wfgRenderGateRcRow();
+  }
+  wfgUpdateGateRcReadout();
   _wfgInvalidateLsOnly();
   wfgRender();
 }
@@ -27397,10 +27537,16 @@ window.wfgImportConfig = function(jsonStr) {
     }
   }
   // ── Panel signals (Gate Line) — must be applied before the slot rebuild ──
+  // 舊設定檔沒有 panel 區塊 → 回到預設（gate_line 1、顯示開啟、倍率 1.2）
+  wfgPanel.gate_rc_mult = WFG_GATE_RC_MULT_DEFAULT;
+  wfgPanel.gate_line = 1;
+  wfgPanel.gate_show = true;
   if (config.panel) {
     if (config.panel.gate_line != null) wfgPanel.gate_line = Math.max(1, parseInt(config.panel.gate_line, 10) || 1);
     if (config.panel.gate_show != null) wfgPanel.gate_show = !!config.panel.gate_show;
+    if (config.panel.gate_rc_mult != null) wfgPanel.gate_rc_mult = parseFloat(config.panel.gate_rc_mult) || WFG_GATE_RC_MULT_DEFAULT;
   }
+  wfgPanel.gate_rc_mult = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
   wfgLsRebuildCkoSlots();
 
   // ── GPIOs ──

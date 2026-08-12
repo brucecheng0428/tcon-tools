@@ -725,6 +725,11 @@ var I18N = {
   'wfg.gateRangeHint':      { 'zh-TW': '可選範圍', 'en': 'Range', 'zh-CN': '可选范围' },
   'wfg.gatePulseNth':       { 'zh-TW': '第 {n} 個 pulse', 'en': 'pulse #{n}', 'zh-CN': '第 {n} 个 pulse' },
   'wfg.gateShow':           { 'zh-TW': '在波形區顯示 Gate 波形', 'en': 'Show gate waveform', 'zh-CN': '在波形区显示 Gate 波形' },
+  'wfg.gateRcMult':         { 'zh-TW': '充放電時間倍率', 'en': 'Charge/discharge time multiplier', 'zh-CN': '充放电时间倍率' },
+  'wfg.gateRcRange':        { 'zh-TW': '可調範圍', 'en': 'Range', 'zh-CN': '可调范围' },
+  'wfg.gateRcNoRoom':       { 'zh-TW': 'Gate 充放電時間已達上限 300，倍率無可調空間', 'en': 'Gate charge time is already at the 300 cap — no room to multiply', 'zh-CN': 'Gate 充放电时间已达上限 300，倍率无可调空间' },
+  'wfg.gateRcReadoutRise':  { 'zh-TW': '上升充電時間', 'en': 'Rise', 'zh-CN': '上升充电时间' },
+  'wfg.gateRcReadoutFall':  { 'zh-TW': '下降充電時間', 'en': 'Fall', 'zh-CN': '下降充电时间' },
   'wfg.subpixelCharge':     { 'zh-TW': 'Subpixel 電荷', 'en': 'Subpixel charge', 'zh-CN': 'Subpixel 电荷' },
   'wfg.wip':                { 'zh-TW': '開發中', 'en': 'WIP', 'zh-CN': '开发中' },
   // ─── WFG: LS Global Config ───
