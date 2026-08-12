@@ -1,0 +1,29 @@
+name: 版號判定閘（Rule B）
+
+# 🔴 為什麼要有這個 workflow（2026-08-13）
+#   本機 .git/hooks/pre-commit 有兩個先天弱點：
+#     1. hook 不隨 git clone 走 —— 換一台機器、重新 clone 就等於沒有這道閘。
+#     2. `git commit --no-verify` 是 git 內建，本機任何 hook 都擋不住、且完全無痕。
+#   這兩點都讓「防呆存在」變成「防呆看心情」。本 workflow 跑在 GitHub 上，
+#   不受本機環境與 --no-verify 影響，是這道規則唯一無法被提交者關掉的執行點。
+#   —— 對照 wfg v4.0.0 事故：閘門的通關條件不可以由被檢查的人決定，
+#      執行與否同理，也不可以由被檢查的人決定。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 需要完整歷史：R2 要回溯上一次 MAJOR
+
+      - name: 版號判定（tools/version_bump_check.py --head）
+        run: |
+          python3 tools/version_bump_check.py --head --repo "$GITHUB_WORKSPACE"
+
