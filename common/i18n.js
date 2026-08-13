@@ -658,6 +658,16 @@ var I18N = {
   'wfg.screenshotPlain':{ 'zh-TW': '截圖', 'en': 'Screenshot', 'zh-CN': '截图' },
   // ─── WFG: Cursor panel ───
   'wfg.cursorTitle':    { 'zh-TW': '時基標尺', 'en': 'Time Base Cursors', 'zh-CN': '时基标尺' },
+  /* 類比波形疊合（v3.9.0）。UI 一律用「游標」不是「遊標」（站上既有用字）。 */
+  'wfg.ovlCardTitle':   { 'zh-TW': '電壓游標', 'en': 'Voltage Cursors', 'zh-CN': '电压游标' },
+  'wfg.ovlScale':       { 'zh-TW': '垂直刻度', 'en': 'V Scale', 'zh-CN': '垂直刻度' },
+  'wfg.ovlFixed':       { 'zh-TW': '固定（最大範圍）', 'en': 'Fixed (full range)', 'zh-CN': '固定（最大范围）' },
+  'wfg.ovlAuto':        { 'zh-TW': '自動（隨視窗）', 'en': 'Auto (follow view)', 'zh-CN': '自动（随视窗）' },
+  'wfg.ovlCenter':      { 'zh-TW': '中心電壓', 'en': 'Center', 'zh-CN': '中心电压' },
+  'wfg.ovlSpan':        { 'zh-TW': '範圍', 'en': 'Range', 'zh-CN': '范围' },
+  'wfg.ovlToggle':      { 'zh-TW': '開關這條游標', 'en': 'Toggle this cursor', 'zh-CN': '开关这条游标' },
+  'wfg.ovlStack':       { 'zh-TW': '疊合 {n}/{max}', 'en': 'Overlay {n}/{max}', 'zh-CN': '叠合 {n}/{max}' },
+  'wfg.ovlFull':        { 'zh-TW': '已達上限 {n} 條', 'en': 'Limit {n} reached', 'zh-CN': '已达上限 {n} 条' },
   'wfg.cursorMoving':   { 'zh-TW': '移動中', 'en': 'moving', 'zh-CN': '移动中' },
   'wfg.cursorClose':    { 'zh-TW': '關閉', 'en': 'Close', 'zh-CN': '关闭' },
   'wfg.cursorShortcut': { 'zh-TW': '快捷鍵', 'en': 'Shortcut', 'zh-CN': '快捷键' },
