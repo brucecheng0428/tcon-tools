@@ -614,7 +614,7 @@ var I18N = {
   'wfg.frameCount':     { 'zh-TW': 'Frame 重複數', 'en': 'Frame Repeat Count', 'zh-CN': 'Frame 重复数' },
   'wfg.gateType':       { 'zh-TW': 'Gate Type', 'en': 'Gate Type', 'zh-CN': 'Gate Type' },
   'wfg.gpioSources':    { 'zh-TW': '數位信號', 'en': 'Digital Signals', 'zh-CN': '数字信号' },
-  'wfg.analogSources':  { 'zh-TW': '類比信號', 'en': 'Analog Signals', 'zh-CN': '模拟信号' },
+  'wfg.analogSources':  { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog Signals', 'zh-CN': 'IC 模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '輸出通道', 'en': 'Output Channels', 'zh-CN': '输出通道' },
   'wfg.loadPreset':     { 'zh-TW': '載入預設…', 'en': 'Load Preset…', 'zh-CN': '载入预设…' },
   'wfg.fitAll':         { 'zh-TW': '📏 全覽', 'en': '📏 Fit All', 'zh-CN': '📏 全览' },
@@ -737,7 +737,7 @@ var I18N = {
   'wfg.ckSource':           { 'zh-TW': 'CK 來源', 'en': 'CK source', 'zh-CN': 'CK 来源' },
   'wfg.ckNone':             { 'zh-TW': '未選', 'en': 'None', 'zh-CN': '未选' },
   // ─── WFG: Panel Signals (面板信號) ───
-  'wfg.panelSignals':       { 'zh-TW': '面板信號', 'en': 'Panel Signals', 'zh-CN': '面板信号' },
+  'wfg.panelSignals':       { 'zh-TW': '面板類比信號', 'en': 'Panel Analog Signals', 'zh-CN': '面板模拟信号' },
   'wfg.gateLineLabel':      { 'zh-TW': 'Gate 條數 (G)', 'en': 'Gate line (G)', 'zh-CN': 'Gate 条数 (G)' },
   'wfg.gateRangeHint':      { 'zh-TW': '可選範圍', 'en': 'Range', 'zh-CN': '可选范围' },
   'wfg.gatePulseNth':       { 'zh-TW': '第 {n} 個 pulse', 'en': 'pulse #{n}', 'zh-CN': '第 {n} 个 pulse' },
@@ -774,7 +774,7 @@ var I18N = {
   'wfg.spxFull':            { 'zh-TW': '充到 99%（5τ）', 'en': 'To 99% (5τ)', 'zh-CN': '充到 99%（5τ）' },
   'wfg.spxLineNow':         { 'zh-TW': '目前 1 line', 'en': 'Current 1 line', 'zh-CN': '当前 1 line' },
   'wfg.spxNoSd':            { 'zh-TW': '找不到啟用中的 SD1，Subpixel 沒有充電來源', 'en': 'No enabled SD1 — Subpixel has no charging source', 'zh-CN': '找不到启用中的 SD1，Subpixel 没有充电来源' },
-  'wfg.spxCfgHint':         { 'zh-TW': '參數請在「面板信號 → Subpixel 電壓」卡片調整', 'en': 'Settings live in Panel Signals → Subpixel voltage', 'zh-CN': '参数请在「面板信号 → Subpixel 电压」卡片调整' },
+  'wfg.spxCfgHint':         { 'zh-TW': '參數請在「面板類比信號 → Subpixel 電壓」卡片調整', 'en': 'Settings live in Panel Analog Signals → Subpixel voltage', 'zh-CN': '参数请在「面板模拟信号 → Subpixel 电压」卡片调整' },
   'wfg.wip':                { 'zh-TW': '開發中', 'en': 'WIP', 'zh-CN': '开发中' },
   // ─── WFG: LS Global Config ───
   'wfg.lsGlobalTitle':      { 'zh-TW': 'Level Shifter 全域設定', 'en': 'Level Shifter Global Config', 'zh-CN': 'Level Shifter 全局设定' },
