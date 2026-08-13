@@ -22,6 +22,59 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.7.0 — 2026-08-13 ｜ MINOR ｜ ⚠ 輸出變更
+
+「面板信號 → Gate Line」卡片新增 **TFT 導通電壓**與 **TFT 關閉電壓**兩個設定（預設 **20V** / **−5V**），並新增一個判定框，顯示目前的驅動電壓（VGH/VGL）帶不帶得動這顆 TFT。
+
+### 這兩個值是什麼（決定了它們的行為）
+
+**它們是 TFT 元件本身的參數，不是 Gate 驅動端的輸出擺幅。**（Bruce 2026-08-13 定調）
+
+- **Gate Line 波形完全不變**，仍然由 VGH / VGL 驅動。這兩個值**不參與任何波形計算**。
+- 它們供後續「Subpixel 電荷」功能計算充放電行為使用，本版先做「登記 ＋ 判定 ＋ 存檔」。
+
+### 兩種情境的行為刻意不同
+
+| 使用者在改什麼 | 行為 |
+|---|---|
+| **TFT 導通／關閉電壓** | 約束成立，夾在 `VGL ≤ 關閉 ≤ 導通 ≤ VGH` 內 |
+| **VGH / VGL** | **完全不連動 TFT 值**，數值原封不動 |
+
+🔴 **約束只在「輸入 TFT 值的當下」檢查，不是持續強制的不變式。** 理由是物理的：TFT 導通電壓是元件特性，不會因為驅動電壓變小就跟著變小。所以把 VGH 從 30V 調到 15V 時，TFT 導通電壓仍然停在 20V —— 此時驅動電壓已經到不了 TFT 需要的電位，**代表 Subpixel 沒辦法充電**，這個狀態是允許存在的，並由判定框如實顯示，不靜默、不自動修正任何一邊的數值。
+
+### 判定框
+
+充電與放電**分開判**，互不牽連：
+
+- 充電：`VGH ≥ TFT 導通電壓`，不成立 → `✗ Subpixel 無法充電`
+- 放電：`VGL ≤ TFT 關閉電壓`，不成立 → `✗ Subpixel 無法放電`
+- 另有 `關閉電壓 > 導通電壓` 的參數矛盾判定：欄位輸入的夾制不可能產生這個狀態，只有手改過的設定檔匯入才到得了；靜默放過會讓後續 Subpixel 計算拿到無意義的參數，故一併標出。
+
+不成立時判定框邊框轉紅（`#ef4444`，沿用既有的 `.wfg-la-link-toast.err` 錯誤配色），並只對出問題的那個欄位加紅框。
+
+### 夾制 vs 阻擋的取捨（供覆核）
+
+選**夾制**，理由有二：(a) 本專案唯一同類慣例就是夾 —— 充放電時間倍率的 `wfgClampGateRcMult()`；(b) 在 `oninput` 階段阻擋會在打字打到一半時吃掉字元（要輸入 `-5`，先打的那個 `-` 會被判成無效值）。因此沿用 `wfgGateRcNumSync` / `wfgGateRcNumCommit` 的既有分工：`oninput` 夾值但**不回寫欄位**，`onchange`（失焦／Enter）才把欄位回寫成實際生效的值。
+
+### 改動範圍
+
+| 檔案 | 內容 |
+|---|---|
+| `wfg.html` | `wfgPanel` 新增 `tft_von` / `tft_voff`；新增 `wfgDriveRange` / `wfgClampTftVon` / `wfgClampTftVoff` / `wfgRoundV` / `wfgFmtV` / `wfgTftStatus` / `wfgRenderTftRow` / `wfgUpdateTftReadout` / `wfgOnTftVoltInput` / `wfgOnTftVoltCommit`；Gate 卡片 UI 兩個數字框（沿用 VGH/VGL 那組的 `wfg-gpio-grid-2` 版面，左側面板寬度不足時自動堆疊）＋範圍提示＋判定框；接進 `wfgRenderPanelCard()`、`wfgOnLsGlobalChange()` 的 `vgh`/`vgl` 分支、`wfgLoadPreset()`、`wfgResetToDefault()`、匯入設定 |
+| `common/i18n.js` | 新增 11 個 `wfg.tft*` key，三語（zh-TW / en / zh-CN）齊備 |
+
+**波形相關的路徑一個位元都沒有改動**：`wfgSyncGateGpio()` 的電壓賦值、`_wfgLsBuildCondensedEvents` / `_wfgLsBuildDualCpvEvents` 讀 `wfgLsGlobal.vgh/vgl` 那兩處、以及 LS 通道右側的 `VGH`/`VGL` 標籤，全部維持原狀。
+
+**判定依據：** §1 判定表逐欄複核 —— 操作流程：多了兩個欄位，既有控制項全部在原位 → PATCH；既有功能的輸出：Gate 波形與所有計算零改變 → 不變；功能增減：**新增獨立功能**（登記 TFT 參數 ＋ 充放電可行性判定）→ **MINOR**。R1～R4 逐項複核：R1 不適用（不是修 bug）、R2 不適用（未開新波，v3 這一波延續）、R3 適用 → **MINOR**（使用者多能做一件事：設定 TFT 參數並看出當前驅動設定能不能充放電）、R4 不適用（新欄位自己的預設值，不是改變既有欄位的預設）。取最高者 → **MINOR** → `v3.6.1` → **`v3.7.0`**。**沒有任何一項落在 MAJOR。**
+
+**`⚠ 輸出變更` 的範圍（刻意標窄，供覆核）**：依 R1 的範圍定義逐項對照 —— 數值類：波形逐像素零差異、所有計算結果零差異，**唯一變的是匯出 JSON 會多兩個 key**（`panel.tft_von` / `panel.tft_voff`，因為匯出是整包序列化 `wfgPanel`），拿舊版匯出的 JSON 做位元組比對會撞到，故標；版面／構圖類：**不標** —— 左側控制面板的 Gate 卡片變高，但波形區 canvas 與截圖／匯出圖片的構圖零改動，且純新增控制項依定義本就不標；同一操作序列結果不同：**不成立**。
+
+**相容性**：舊的 preset / autosave / 匯入檔沒有這兩個欄位 → 落回預設 20 / −5，載入不報錯。匯入檔若有這兩個欄位則**原樣保留、不夾** —— 夾住等於竄改使用者存下來的內容；檔案本身就是不成立的狀態（例如 VGH 20V 配 TFT 導通 25V）會如實載入並由判定框標紅，這與「改 VGH/VGL 不回頭動 TFT 值」是同一個原則。載入 preset 與「切回快捷設定 placeholder」則回到預設值（與 cursor、充放電倍率同屬「整組套用一份狀態」的語意）。
+
+**不碰說明頁**：`wfg-guide.html` 未更新（功能仍在調試階段，依 Bruce 指示待確定後再更新）。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.6.1 — 2026-08-13 ｜ PATCH
 
 「輸出通道」卡片的訊號下拉選單裡，Gate Line 那個項目的模式標籤由 **`LS`** 改為 **`LCD`** —— 顯示由 `GATE — LS` 變成 `GATE — LCD`。

@@ -732,6 +732,18 @@ var I18N = {
   'wfg.gateRcNoRoom':       { 'zh-TW': 'Gate 充放電時間已達上限 300，倍率無可調空間', 'en': 'Gate charge time is already at the 300 cap — no room to multiply', 'zh-CN': 'Gate 充放电时间已达上限 300，倍率无可调空间' },
   'wfg.gateRcReadoutRise':  { 'zh-TW': '上升充電時間', 'en': 'Rise', 'zh-CN': '上升充电时间' },
   'wfg.gateRcReadoutFall':  { 'zh-TW': '下降充電時間', 'en': 'Fall', 'zh-CN': '下降充电时间' },
+  // ─── TFT 導通／關閉電壓（v3.7.0）— TFT 元件參數，不參與 Gate 波形繪製 ───
+  'wfg.tftVoltages':        { 'zh-TW': 'TFT 導通／關閉電壓', 'en': 'TFT on / off voltage', 'zh-CN': 'TFT 导通／关闭电压' },
+  'wfg.tftVon':             { 'zh-TW': 'TFT 導通電壓 (V)', 'en': 'TFT on voltage (V)', 'zh-CN': 'TFT 导通电压 (V)' },
+  'wfg.tftVoff':            { 'zh-TW': 'TFT 關閉電壓 (V)', 'en': 'TFT off voltage (V)', 'zh-CN': 'TFT 关闭电压 (V)' },
+  'wfg.tftVonShort':        { 'zh-TW': '導通', 'en': 'On', 'zh-CN': '导通' },
+  'wfg.tftVoffShort':       { 'zh-TW': '關閉', 'en': 'Off', 'zh-CN': '关闭' },
+  'wfg.tftRange':           { 'zh-TW': '可輸入範圍', 'en': 'Input range', 'zh-CN': '可输入范围' },
+  'wfg.tftCharge':          { 'zh-TW': '充電', 'en': 'Charge', 'zh-CN': '充电' },
+  'wfg.tftDischarge':       { 'zh-TW': '放電', 'en': 'Discharge', 'zh-CN': '放电' },
+  'wfg.tftNoCharge':        { 'zh-TW': 'Subpixel 無法充電', 'en': 'Subpixel cannot charge', 'zh-CN': 'Subpixel 无法充电' },
+  'wfg.tftNoDischarge':     { 'zh-TW': 'Subpixel 無法放電', 'en': 'Subpixel cannot discharge', 'zh-CN': 'Subpixel 无法放电' },
+  'wfg.tftConflict':        { 'zh-TW': '參數矛盾：關閉電壓高於導通電壓', 'en': 'Conflict: off voltage is higher than on voltage', 'zh-CN': '参数矛盾：关闭电压高于导通电压' },
   'wfg.subpixelCharge':     { 'zh-TW': 'Subpixel 電荷', 'en': 'Subpixel charge', 'zh-CN': 'Subpixel 电荷' },
   'wfg.wip':                { 'zh-TW': '開發中', 'en': 'WIP', 'zh-CN': '开发中' },
   // ─── WFG: LS Global Config ───

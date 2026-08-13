@@ -1130,6 +1130,17 @@
                   <div class="wfg-slider-row" id="wfg-gate-rc-row"></div>
                 </div>
                 <div id="wfg-gate-rc-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
+                <!-- TFT 導通／關閉電壓（v3.7.0）— TFT 元件參數，不參與 Gate 波形繪製 -->
+                <div class="wfg-field" style="margin-top:10px;margin-bottom:0"><label style="color:#e2e8f0" data-i18n="wfg.tftVoltages">TFT 導通／關閉電壓</label>
+                  <div style="font-size:10px;color:#64748b;margin-bottom:4px" id="wfg-tft-hint"></div>
+                  <div class="wfg-gpio-grid-2">
+                    <div class="wfg-field" style="margin-bottom:0"><label data-i18n="wfg.tftVon">TFT 導通電壓</label>
+                      <input type="number" step="0.1" id="wfg-tft-von" oninput="wfgOnTftVoltInput('von',this)" onchange="wfgOnTftVoltCommit('von',this)" style="width:100%"></div>
+                    <div class="wfg-field" style="margin-bottom:0"><label data-i18n="wfg.tftVoff">TFT 關閉電壓</label>
+                      <input type="number" step="0.1" id="wfg-tft-voff" oninput="wfgOnTftVoltInput('voff',this)" onchange="wfgOnTftVoltCommit('voff',this)" style="width:100%"></div>
+                  </div>
+                </div>
+                <div id="wfg-tft-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
                 <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#e2e8f0;cursor:pointer">
                   <input type="checkbox" id="wfg-gate-show-cb" checked onchange="wfgOnGateShowChange(this.checked)" style="accent-color:#22c55e;cursor:pointer">
                   <span data-i18n="wfg.gateShow">在波形區顯示 Gate 波形</span>
@@ -1624,8 +1635,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260813wfg361"></script>
-<script src="common/i18n.js?v=20260812wfg360"></script>
+<script src="common/version.js?v=20260813wfg370"></script>
+<script src="common/i18n.js?v=20260813wfg370"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1693,7 +1704,63 @@ const WFG_LS_GOA_PHASES = [4, 6, 8, 10, 12, 14, 16];
 //   預設 1.2；若 M_max < 1.2（LS 設定 > 250）則夾到 M_max。
 var WFG_GATE_RC_MULT_DEFAULT = 1.2;
 var WFG_GATE_RC_MAX_CURVATURE = 300; // Gate 充放電時間的上限（LS 自身上限為 255）
-var wfgPanel = { gate_line: 1, gate_show: true, gate_rc_mult: WFG_GATE_RC_MULT_DEFAULT };
+
+// ─── TFT 導通／關閉電壓（v3.7.0）───
+// 這兩個值是 **TFT 元件本身的參數**，不是 Gate 驅動端的輸出擺幅：
+//   • Gate Line 波形仍然完全由 VGH / VGL 驅動，這兩個值不參與任何波形繪製。
+//   • 它們供後續「Subpixel 電荷」功能計算充放電行為使用，本階段先登記 + 判定。
+//
+// 兩種情境的行為**刻意不同**（依 Bruce 2026-08-13 裁示）：
+//   A. 使用者在改 TFT 導通／關閉電壓 → 約束成立，夾在 VGL ≤ V_off ≤ V_on ≤ VGH 內。
+//   B. 使用者在改 VGH / VGL      → **完全不連動 TFT 值**，數值原封不動。
+//      此時可能出現 VGH < V_on（驅動電壓到不了 TFT 需要的電位）——
+//      這是允許存在的狀態，由判定框如實顯示「Subpixel 無法充電／放電」。
+//
+// 🔴 關鍵：約束只在「輸入 TFT 值的當下」檢查，不是持續強制的不變式。
+//    因為 TFT 導通電壓是元件的物理特性，不會因為驅動電壓變小就跟著變小。
+var WFG_TFT_VON_DEFAULT = 20;   // TFT 導通電壓預設 (V)
+var WFG_TFT_VOFF_DEFAULT = -5;  // TFT 關閉電壓預設 (V)
+var wfgPanel = { gate_line: 1, gate_show: true, gate_rc_mult: WFG_GATE_RC_MULT_DEFAULT,
+                 tft_von: WFG_TFT_VON_DEFAULT, tft_voff: WFG_TFT_VOFF_DEFAULT };
+
+// 驅動端可用的電壓區間 [lo, hi]。正常是 [VGL, VGH]；VGL > VGH 的病態設定（欄位本身
+// 不擋，見 wfgOnLsGlobalChange）會讓區間反向，這裡排序後回傳，夾制才不會產生 lo > hi。
+function wfgDriveRange() {
+  var a = parseFloat(wfgLsGlobal.vgl), b = parseFloat(wfgLsGlobal.vgh);
+  if (!isFinite(a)) a = 0;
+  if (!isFinite(b)) b = 0;
+  return { lo: Math.min(a, b), hi: Math.max(a, b) };
+}
+// 電壓值統一取到小數 2 位（欄位 step 0.1，2 位足以吸收浮點誤差且不吃掉使用者精度）
+function wfgRoundV(v) { return Math.round(v * 100) / 100; }
+
+// A 情境：使用者輸入 TFT 導通電壓 → 夾在 [max(VGL, V_off), VGH] 內。
+// 下界先與上界取 min，確保 V_off 本身已超出驅動範圍時（B 情境遺留）不會夾出 lo > hi。
+function wfgClampTftVon(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) return wfgRoundV(wfgPanel.tft_von);
+  var dr = wfgDriveRange();
+  var voff = parseFloat(wfgPanel.tft_voff);
+  if (!isFinite(voff)) voff = WFG_TFT_VOFF_DEFAULT;
+  var lo = Math.min(Math.max(dr.lo, voff), dr.hi);
+  return wfgRoundV(Math.max(lo, Math.min(dr.hi, n)));
+}
+// A 情境：使用者輸入 TFT 關閉電壓 → 夾在 [VGL, min(VGH, V_on)] 內。
+function wfgClampTftVoff(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) return wfgRoundV(wfgPanel.tft_voff);
+  var dr = wfgDriveRange();
+  var von = parseFloat(wfgPanel.tft_von);
+  if (!isFinite(von)) von = WFG_TFT_VON_DEFAULT;
+  var hi = Math.max(Math.min(dr.hi, von), dr.lo);
+  return wfgRoundV(Math.min(hi, Math.max(dr.lo, n)));
+}
+// 顯示用：去掉無意義的尾零（20.00 → 20、-5.50 → -5.5）
+function wfgFmtV(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) n = 0;
+  return (Math.round(n * 100) / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
 
 // 倍率上限：由 LS 上升／下降中「較大」的那個決定，兩者乘完才都不會超過 255。
 // LS 設定為 0 時乘任何倍率都還是 0（倍率無作用），回傳 1 代表沒有可調空間。
@@ -20839,10 +20906,18 @@ function wfgResetToDefault() {
      「進 TCON 分頁選不保留上次紀錄」），後者隨 confirm 一起移除，
      現在**只剩「切回『快捷設定』placeholder」這一個主動清空入口**（使用者指定的語意）。 */
   wfgClearAllCursors();
+  /* v3.7.0: TFT 導通／關閉電壓一併回到預設。本函式已經把 wfgLsGlobal 整組重設
+     （VGH/VGL 回 30 / -10），TFT 值若留著上一組的殘值，畫面會變成「驅動端已回預設、
+     TFT 端還停在使用者上次設的值」的混血狀態 —— 與 v3.5.1 修掉的 cursor 殘留同一種形狀。
+     註：本函式沒有呼叫 wfgRenderPanelCard()，所以這裡要自己刷新 TFT 那一列的 DOM。
+     （既有的 gate_rc_mult 在本函式同樣沒有重設，那是既有行為，本次不改動。） */
+  wfgPanel.tft_von = WFG_TFT_VON_DEFAULT;
+  wfgPanel.tft_voff = WFG_TFT_VOFF_DEFAULT;
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgTotalLines());
   wfgRenderGpioList();
   wfgRenderChannelList();
+  wfgRenderTftRow();
   wfgUpdateCursorPanel();
   wfgResizeAndRender();
 }
@@ -20927,6 +21002,10 @@ function wfgLoadPreset(presetName) {
   // config — re-derive it now that the preset CK sources are in place.
   // 載入預設 → 充放電倍率回到預設 1.2（超過上限時由 wfgClampGateRcMult 夾住）
   wfgPanel.gate_rc_mult = wfgClampGateRcMult(WFG_GATE_RC_MULT_DEFAULT);
+  // v3.7.0: TFT 導通／關閉電壓同屬「整組套用一份狀態」的語意（與 cursor、充放電倍率一致）
+  // —— preset 沒有 TFT 欄位，載入後回到預設 20 / -5，不留上一組設定的殘值。
+  wfgPanel.tft_von = WFG_TFT_VON_DEFAULT;
+  wfgPanel.tft_voff = WFG_TFT_VOFF_DEFAULT;
   wfgSyncGateGpio(true);
 
   // Reset channels
@@ -21470,6 +21549,7 @@ function wfgRenderPanelCard() {
   if (cb) cb.checked = !!wfgPanel.gate_show;
   wfgRenderGateRcRow();
   wfgUpdateGateRcReadout();
+  wfgRenderTftRow();
   wfgUpdateGateReadout();
 }
 
@@ -21554,6 +21634,108 @@ window.wfgGateRcNumCommit = wfgGateRcNumCommit;
 window.wfgGateRcSliderSync = wfgGateRcSliderSync;
 window.wfgGateRcNumSync = wfgGateRcNumSync;
 window.wfgGateRcNudge = wfgGateRcNudge;
+
+// ═══════════ TFT 導通／關閉電壓（v3.7.0）═══════════
+// 這兩個欄位的值不進入任何波形計算 —— Gate 波形仍由 VGH/VGL 驅動，一個位元都沒改。
+// 這裡只做三件事：把值收好、把可輸入範圍寫給使用者看、把「驅動電壓夠不夠帶動 TFT」
+// 的判定結果如實顯示出來。
+
+// 把欄位值刷成目前狀態（載入預設／匯入設定／改 VGH/VGL 之後都要呼叫）。
+// 🔴 只寫欄位不夾值：改 VGH/VGL 屬於 B 情境，TFT 數值必須原封不動。
+function wfgRenderTftRow() {
+  var vonEl = document.getElementById('wfg-tft-von');
+  var voffEl = document.getElementById('wfg-tft-voff');
+  if (vonEl && document.activeElement !== vonEl) vonEl.value = wfgFmtV(wfgPanel.tft_von);
+  if (voffEl && document.activeElement !== voffEl) voffEl.value = wfgFmtV(wfgPanel.tft_voff);
+  var hint = document.getElementById('wfg-tft-hint');
+  if (hint) {
+    var dr = wfgDriveRange();
+    hint.textContent = t('wfg.tftRange') + '：' + wfgFmtV(dr.lo) + ' ~ ' + wfgFmtV(dr.hi) + '（VGL ~ VGH）';
+  }
+  wfgUpdateTftReadout();
+}
+
+// 判定框：充電與放電**分開判**，兩者互不牽連。
+//   充電：VGH >= TFT 導通電壓 ⇒ 驅動電壓帶得動 TFT 導通
+//   放電：VGL <= TFT 關閉電壓 ⇒ 驅動電壓拉得下去關斷 TFT
+// 任一條不成立 → 整框轉紅並指出是哪一條、差在哪，對應欄位一併加紅框。
+function wfgTftStatus() {
+  var vgh = parseFloat(wfgLsGlobal.vgh), vgl = parseFloat(wfgLsGlobal.vgl);
+  var von = parseFloat(wfgPanel.tft_von), voff = parseFloat(wfgPanel.tft_voff);
+  if (!isFinite(vgh)) vgh = 0;
+  if (!isFinite(vgl)) vgl = 0;
+  if (!isFinite(von)) von = WFG_TFT_VON_DEFAULT;
+  if (!isFinite(voff)) voff = WFG_TFT_VOFF_DEFAULT;
+  return {
+    vgh: vgh, vgl: vgl, von: von, voff: voff,
+    canCharge: (vgh >= von),
+    canDischarge: (vgl <= voff),
+    // 參數矛盾（關閉電壓高於導通電壓）。A 情境的夾制不可能產生這個狀態，
+    // 只有手改過的設定檔匯入才到得了 —— 靜默放過會讓後續 Subpixel 計算拿到無意義的參數。
+    conflict: (voff > von)
+  };
+}
+
+function wfgUpdateTftReadout() {
+  var el = document.getElementById('wfg-tft-readout');
+  if (!el) return;
+  var s = wfgTftStatus();
+  var bad = (!s.canCharge || !s.canDischarge || s.conflict);
+  el.style.borderColor = bad ? '#ef4444' : '#334155';
+  var okC = '#4ade80', badC = '#fca5a5', dim = '#64748b';
+  function row(label, lv, lval, op, rv, rval, ok, failMsg) {
+    var c = ok ? okC : badC;
+    return '<span style="color:#94a3b8">' + label + '　</span>'
+      + '<span style="color:' + dim + '">' + lv + ' ' + wfgFmtV(lval) + 'V</span>'
+      + ' <span style="color:' + c + ';font-weight:700">' + op + '</span> '
+      + '<span style="color:' + dim + '">' + rv + ' ' + wfgFmtV(rval) + 'V</span>'
+      + ' <span style="color:' + c + ';font-weight:700">' + (ok ? '✓' : '✗ ' + failMsg) + '</span>';
+  }
+  var h = row(t('wfg.tftCharge'), 'VGH', s.vgh, s.canCharge ? '≥' : '<', t('wfg.tftVonShort'), s.von,
+              s.canCharge, t('wfg.tftNoCharge'))
+    + '<br>'
+    + row(t('wfg.tftDischarge'), 'VGL', s.vgl, s.canDischarge ? '≤' : '>', t('wfg.tftVoffShort'), s.voff,
+          s.canDischarge, t('wfg.tftNoDischarge'));
+  if (s.conflict) {
+    h += '<br><span style="color:' + badC + ';font-weight:700">✗ ' + t('wfg.tftConflict') + '</span>';
+  }
+  el.innerHTML = h;
+  // 欄位紅框：只標真正出問題的那一個，另一個維持原樣
+  var vonEl = document.getElementById('wfg-tft-von');
+  var voffEl = document.getElementById('wfg-tft-voff');
+  if (vonEl) vonEl.style.borderColor = (!s.canCharge || s.conflict) ? '#ef4444' : '';
+  if (voffEl) voffEl.style.borderColor = (!s.canDischarge || s.conflict) ? '#ef4444' : '';
+}
+
+// A 情境：使用者正在輸入 TFT 值 → 夾在 VGL ≤ V_off ≤ V_on ≤ VGH 內。
+// oninput 階段**不回寫欄位**（回寫會在打字打到一半時吃掉字元，例如要打「-5」
+// 先打的那個「-」會被當成無效值），只更新狀態與判定框；失焦／Enter 才由
+// wfgOnTftVoltCommit 把欄位回寫成實際生效的值。這是 wfgGateRcNumSync /
+// wfgGateRcNumCommit 既有的分工，沿用同一套。
+function wfgOnTftVoltInput(which, el) {
+  var raw = parseFloat(el.value);
+  if (!isFinite(raw)) return; // 打到一半（"-"、""、"1e"）→ 不動狀態，讓使用者繼續打
+  var v = (which === 'von') ? wfgClampTftVon(raw) : wfgClampTftVoff(raw);
+  if (which === 'von') {
+    if (v === wfgPanel.tft_von) return;
+    wfgPanel.tft_von = v;
+  } else {
+    if (v === wfgPanel.tft_voff) return;
+    wfgPanel.tft_voff = v;
+  }
+  wfgUpdateTftReadout();
+}
+// 失焦／Enter：把顯示值回寫成實際生效的值（打 35 但 VGH=30 會夾成 30，
+// 若不回寫，欄位會停在 35 卻與實際存下來的值不符）。
+function wfgOnTftVoltCommit(which, el) {
+  var v = (which === 'von') ? wfgClampTftVon(el.value) : wfgClampTftVoff(el.value);
+  if (which === 'von') wfgPanel.tft_von = v; else wfgPanel.tft_voff = v;
+  el.value = wfgFmtV(v);
+  wfgUpdateTftReadout();
+}
+window.wfgOnTftVoltInput = wfgOnTftVoltInput;
+window.wfgOnTftVoltCommit = wfgOnTftVoltCommit;
+window.wfgTftStatus = wfgTftStatus;
 
 function wfgUpdateGateReadout() {
   var el = document.getElementById('wfg-gate-map');
@@ -22031,6 +22213,12 @@ function wfgOnLsGlobalChange(field, value) {
   // 改 LS 的充放電時間會改變倍率上限（M_max = 255 / max(rise,fall)）→ 重建倍率列並夾住目前值
   if (field === 'curvature_rise' || field === 'curvature_fall') {
     wfgRenderGateRcRow();
+  }
+  // 🔴 改 VGH/VGL 是 B 情境：TFT 導通／關閉電壓的數值**原封不動、不回頭夾**（TFT 是元件
+  // 參數，不因驅動電壓改變）。這裡只刷新「可輸入範圍」提示與判定框 —— 驅動電壓若已
+  // 到不了 TFT 需要的電位，就由判定框顯示「Subpixel 無法充電／放電」，不靜默。
+  if (field === 'vgh' || field === 'vgl') {
+    wfgRenderTftRow();
   }
   wfgUpdateGateRcReadout();
   _wfgInvalidateLsOnly();
@@ -27735,10 +27923,20 @@ window.wfgImportConfig = function(jsonStr) {
   wfgPanel.gate_rc_mult = WFG_GATE_RC_MULT_DEFAULT;
   wfgPanel.gate_line = 1;
   wfgPanel.gate_show = true;
+  // v3.7.0: 舊檔沒有 tft_von / tft_voff → 落回預設 20 / -5（舊檔照樣載入，不報錯）
+  wfgPanel.tft_von = WFG_TFT_VON_DEFAULT;
+  wfgPanel.tft_voff = WFG_TFT_VOFF_DEFAULT;
   if (config.panel) {
     if (config.panel.gate_line != null) wfgPanel.gate_line = Math.max(1, parseInt(config.panel.gate_line, 10) || 1);
     if (config.panel.gate_show != null) wfgPanel.gate_show = !!config.panel.gate_show;
     if (config.panel.gate_rc_mult != null) wfgPanel.gate_rc_mult = parseFloat(config.panel.gate_rc_mult) || WFG_GATE_RC_MULT_DEFAULT;
+    // 🔴 匯入的 TFT 值**原樣保留、不夾**：夾住等於竄改使用者存下來的檔案內容。
+    // 檔案本身就是不成立的狀態（例如 VGH 20 配 TFT 導通 25）要如實載入並由判定框標紅，
+    // 這與「改 VGH/VGL 不回頭動 TFT 值」是同一個原則。只擋非數值（NaN）。
+    var _tvon = parseFloat(config.panel.tft_von);
+    if (config.panel.tft_von != null && isFinite(_tvon)) wfgPanel.tft_von = wfgRoundV(_tvon);
+    var _tvoff = parseFloat(config.panel.tft_voff);
+    if (config.panel.tft_voff != null && isFinite(_tvoff)) wfgPanel.tft_voff = wfgRoundV(_tvoff);
   }
   wfgPanel.gate_rc_mult = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
   wfgLsRebuildCkoSlots();
