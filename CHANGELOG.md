@@ -22,6 +22,54 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.8.1 — 2026-08-13 ｜ PATCH ｜ ⚠ 輸出變更
+
+修三個回報的 bug：Subpixel 波形在改 Gate 條數後消失且不可逆、Subpixel 波形在約 6.5 秒之後躺平、跟隨滑鼠的垂直時間軸在類比／面板列上卡住不動。
+
+判定依據：R1～R4 逐項判、取最高者。三項都是「讓行為回到本來就該是這樣」的 bug 修正 → §2 案例 2 ／ **R1 → PATCH**。R2 不適用（不開新波）。R3 不適用（使用者能做的事沒有多一件 —— Subpixel 本來就宣稱能用，只是壞了）。R4 不適用（起始狀態與預設值未動）。取最高 → **PATCH**。沒有任何一項落在 MAJOR：沒有移除功能、沒有入口消失、沒有控制項移位，既有操作全部照舊。
+**掛 `⚠ 輸出變更`**：依 R1「⚠ 輸出變更的範圍定義」，三項都屬「**同一操作序列得到不同結果**」（舊結果是 bug 產物，但拿舊版建立的截圖／基線會失效）。修正前後受影響的具體情況見下方各節。
+
+### 一、Subpixel 波形一改 Gate 條數就消失，移回原值也回不來 ⚠ 輸出變更
+
+**現象**（Bruce 2026-08-13 回報，已於瀏覽器逐步重現）：拖 GATE 條數的拉把、按 ± 鈕、或在數字框直接打字，只要值一變，`SPX*` 那一列立刻變成 0.00V 的平線；把值改回原本的數字，`G*` 的波形會回來，**`SPX*` 仍舊是平線**。
+
+**根因**：`_wfgInvalidateGateOnly()`（v3.4.0 的 Gate 效能優化）把 Gate 與 Subpixel 兩筆預計算一起 `delete`，而且**刻意不動 `_wfgPrecomputeVer`** —— 為的是讓 `wfgRender()` 內 `if (_wfgPrecomputeVer !== _wfgAnalogCacheVer) wfgPrecomputeAnalog()` 不被觸發，Gate 改走 render 的 viewport fallback（對 Gate 而言比預計算便宜得多）。問題是 **Subpixel 沒有 viewport fallback** —— 它是從 line 0 累積下來的狀態機，只算 viewport 得不到正確的起始電壓，所以 v3.8.0 在該分支寫的是「畫一條 0V 直線，不讓通道整條消失」。兩者相加的結果就是：預計算被刪、沒有人重算、fallback 只會畫 0V。不可逆則是因為每一次改 Gate 條數都再刪一次。
+
+`_wfgInvalidateSpxOnly()`（改 Subpixel 充電時間、TFT 導通／關閉電壓）是同一個形狀的問題，一併修掉。
+
+**修法**：新增 `_wfgSpxStale()` ／ `_wfgEnsureSpxPrecomp()`，在 `wfgRender()` 內另開一道**只算 Subpixel 一條**的閘門。它不碰 SD/LS，v3.4.0 的 Gate 效能優化原封不動（改 Gate 條數仍然不會重算那 7 條 CKO）。
+Subpixel 需要的 Gate 資料只有 events（每 frame 一個 pulse，全長也才 2000 筆）與四個 RC／電壓參數，**用不到 Gate 預計算裡那塊 `computeExtent×20` 的 Float32Array（實測 30MB 以上／條）**。因此新增 `_wfgGateSourceForSpx()`：Gate 的預計算缺席或算得不夠遠時，Subpixel 自己建這份最小來源，成本與 Gate 的預計算無關。`_wfgPrecomputeSpxChannel()` 的計算上限因此不再把 `gateExt` 取 min。
+
+**影響**：修正前只要動過 Gate 條數，Subpixel 一律是 0V 平線 —— 那個畫面不再出現。
+
+### 二、Subpixel 波形在約 6.5 秒之後整段躺平 ⚠ 輸出變更
+
+**現象**（Bruce 2026-08-13 回報）：Subpixel 只有前段有充放電，之後變成一條水平線。
+
+**根因（實測數據，非推論）**：以還原的預設設定（1112 line × 1000 frame ＝ 1,112,000 line ＝ 16.67 秒）量測 —— 剛載入時 SD1／Gate／Subpixel 三者的 `computedExtent` 都是 **432,608**（＝6.48 秒，與畫面上的分界吻合）；按「全覽」之後 `sd.ext` 與 `gate.ext` 都延伸到 **1,112,000**，而 **`spx.ext` 仍停在 432,608**。也就是 Subpixel 根本沒被重新計算，超出範圍之處由 `_wfgSpxVoltageAt()` 回傳最後一段的 `hold` 值 —— 表現出來就是一條平線。
+
+漏接的位置有兩處，兩處都補上：
+1. `wfgPrecomputeAnalog()` 的 `needSD` ／ `needLS` 掃描**只認 `waveform_type` 1 與 2**，只有 Subpixel 過期時會在 `if (!needSD && !needLS) return` 早退，於是它下面那段「比對上游 `computedExtent`、不符就重算 type 3」的邏輯永遠跑不到。改由上述 `_wfgEnsureSpxPrecomp()` 這條獨立閘門處理。
+2. SD／LS 的 lazy-extend 掛在 `wfgSamplesFromPrecomputed()` 裡，也就是 render **畫到那一列時**才發生，比閘門晚。若照 SD 當下的 extent 去算，Subpixel 只會算到舊範圍，要等下一次 render 才跟上（表現成「捲過去之後畫面不動，要再動一下滑鼠才出現」）。因此 `_wfgEnsureSpxPrecomp()` 會先主動把上游 SD1 延伸到需要的範圍再算。
+
+**驗證**：修正後同一組設定按「全覽」，`spx.ext` ＝ 1,112,000、`segs` ＝ 1000（1000 個 frame 各一個 pulse），畫面上 Subpixel 的充放電橫跨 0～16.67 秒全段。
+
+**影響**：修正前用全覽或捲到後段所存下來的 Subpixel 截圖，後段是平的；新版會有波形。
+
+### 三、跟隨滑鼠的垂直時間軸在類比／面板列上卡住 ⚠ 輸出變更
+
+> **這一項不是 v3.8.0 引入的。** 已用 v3.7.0（commit `ef99432`）實測比對：同樣把滑鼠移到 SD1 那一列，虛線同樣停在最後一次停留在數位列的位置。屬既有缺陷。
+
+**現象**（Bruce 2026-08-13 回報並自行找到重現條件）：滑鼠在**數位訊號列**（VST1／XSTB／CK1~CK6／XPOL／LC）上時，跟隨滑鼠的垂直虛線正常；一移到**類比訊號列**（SD1／CKO1~CKO6）或**面板訊號列**（G／SPX），虛線就停在原地不動。原先「點擊後消失」「滑鼠移太快就停住」的描述，都是滑鼠恰好落在這幾列造成的表象。
+
+**根因**：垂直虛線（crosshair）是在 `wfgRender()` 裡依 `_wfgTconHover` 畫的，而**重繪的責任一直掛在量測路徑上**。`wfgMeasUpdatePhase()` 對 `waveform_type` 非 0 的通道走的是 `wfgMeasClear(); return;` —— 即時測量卡正確地清成 `--`，但**沒有呼叫 `wfgRender()`**；數位列則會一路跑到函式結尾的 `wfgRender()`。列與列之間的空白、找不到 transition 等早退路徑也是同一個形狀。
+
+**修法**：不動量測本身的任何判斷（避免把即時測量的行為一起改掉）。新增純計數的 `_wfgRenderSeq`，在 mousemove 的 rAF 回呼裡記錄呼叫 `wfgMeasUpdate()` 前後的值，**這一輪沒有人重繪就補一次** —— 涵蓋全部早退路徑，成本與數位列本來就在付的一次 `wfgRender()` 相同。
+
+**影響**：滑鼠停在類比／面板列時，虛線與時間標籤的位置會跟著滑鼠，不再停留在舊位置。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.8.0 — 2026-08-13 ｜ MINOR ｜ ⚠ 輸出變更
 
 新增**面板信號 → Subpixel 電壓**波形，並修正 0~255 充放電刻度長年綁在 line 上的問題。

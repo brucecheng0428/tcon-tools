@@ -1648,8 +1648,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260813wfg380"></script>
-<script src="common/i18n.js?v=20260813wfg380"></script>
+<script src="common/version.js?v=20260813wfg381"></script>
+<script src="common/i18n.js?v=20260813wfg381"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3474,6 +3474,28 @@ function _wfgSdVoltageAt(p, lineX) {
   return ptg + (phV - ptg) * Math.exp(-pdt / ptau);
 }
 
+// v3.8.1: 只給 Subpixel 用的 Gate 事件來源。
+// 為什麼要有這個：Gate 的完整預計算會配置 computeExtent×20 的 Float32Array（實測 30MB
+// 以上／條），v3.4.0 為此刻意讓「改 G 條數」不重算 Gate、改走 render 的 viewport
+// fallback。但 Subpixel 需要的只有 events（每 frame 一個 pulse，全長也才 2000 筆）與
+// 四個 RC/電壓參數 —— 完全用不到那塊大陣列。這裡就只建這些，成本與 Gate 的預計算無關。
+function _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, extent) {
+  var g = wfgGpios[wfgGateSlotIdx()];
+  if (!g || !g.analog_config) return null;
+  var gac = g.analog_config;
+  // _wfgLsBuildEvents 內部對 is_gate 會自行套 _wfgLsApplyGateMask，濾成只留這一條 G 的 pulse
+  var evs = _wfgLsBuildEvents(gac, (gac.cko_index != null) ? gac.cko_index : 0,
+                              wfgLsGlobal.phase, wfgLsGlobal.mode,
+                              allTrans, effHtotal, effVtotal, 0, extent, 0.001);
+  if (!evs) evs = [];
+  return { events: evs,
+           rcTauRise: wfgRcTauLine((gac.curvature_rise != null) ? (gac.curvature_rise | 0) : 0),
+           rcTauFall: wfgRcTauLine((gac.curvature_fall != null) ? (gac.curvature_fall | 0) : 0),
+           vMin: (gac.voltage_min != null) ? gac.voltage_min : wfgLsGlobal.vgl,
+           vMax: (gac.voltage_max != null) ? gac.voltage_max : wfgLsGlobal.vgh,
+           computedExtent: extent };
+}
+
 function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, srcMap) {
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var ac = gpio.analog_config || {};
@@ -3490,21 +3512,33 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
     srcGateExtent: gateExt, srcSdExtent: sdExt, noSource: !sdPre, noGate: !gatePre,
     settled: null };
 
-  // 上游任一條不存在（被停用 / 尚未計算）→ 沒有充電來源，恆 0V。不靜默：
+  // v3.8.1: 想算到哪裡，只由「自己被要求的範圍」與「SD1 實際算到哪」決定。
+  // Gate 不再參與這個上限 —— 它算不到就自己建（見 _wfgGateSourceForSpx）。
+  // 舊版把 gateExt 一起取 min，於是有兩個後果：
+  //   ① 改 G 條數時 _wfgInvalidateGateOnly() 把 gate entry 刪掉 → gateExt=0 → 直接 return empty
+  //      → SPX 整條消失，而且移回原值也回不來（每次改都再刪一次，版本號又刻意不動）
+  //   ② SD/Gate lazy-extend 之後 SPX 沒被重算 → 停在舊 extent，後段變一條平的 hold 線
+  var want = Math.min(computeExtent, sdExt || computeExtent);
+  var gateSrc = gatePre;
+  if (!gateSrc || !gateSrc.events || !gateSrc.events.length || gateExt < want) {
+    gateSrc = _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, want);
+  }
+  // SD1 不存在（被停用 / 尚未計算）→ 沒有充電來源，恆 0V。不靜默：
   // noSource / noGate 會被判定框讀去顯示。
-  if (!gatePre || !gatePre.events || !gatePre.events.length || !sdPre) return empty;
+  empty.noGate = !gateSrc || !gateSrc.events || !gateSrc.events.length;
+  if (!sdPre || empty.noGate) return empty;
 
   var von = parseFloat(ac.tft_von);  if (!isFinite(von)) von = WFG_TFT_VON_DEFAULT;
   var voff = parseFloat(ac.tft_voff); if (!isFinite(voff)) voff = WFG_TFT_VOFF_DEFAULT;
   var tauSpx = wfgRcTauLine(wfgClampSpxRc(ac.spx_rc));
   if (!(tauSpx > 0)) tauSpx = 1e-6;
-  var tauGateFall = gatePre.rcTauFall || 0.1;
-  var tauGateRise = gatePre.rcTauRise || 0.1;
+  var tauGateFall = gateSrc.rcTauFall || 0.1;
+  var tauGateRise = gateSrc.rcTauRise || 0.1;
 
   // 從 gate events 抓出每個 pulse 的 [rising, falling]。gate slot 已被 _wfgLsApplyGateMask
   // 濾成「只留這一條 G 對應的那一個 pulse」，所以每個 frame 至多一個 pulse。
-  var gEv = gatePre.events;
-  var gMid = ((gatePre.vMax != null ? gatePre.vMax : 30) + (gatePre.vMin != null ? gatePre.vMin : -10)) / 2;
+  var gEv = gateSrc.events;
+  var gMid = ((gateSrc.vMax != null ? gateSrc.vMax : 30) + (gateSrc.vMin != null ? gateSrc.vMin : -10)) / 2;
   var pulses = [], prevHigh = false, curA = null;
   for (var pi = 0; pi < gEv.length; pi++) {
     var pe = gEv[pi];
@@ -3516,8 +3550,8 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
   }
   if (curA !== null) pulses.push([curA, curA + 1]); // 視窗尾端未收邊的 pulse
 
-  var limit = Math.min(computeExtent, gateExt || computeExtent, sdExt || computeExtent);
-  var gateAt = _wfgLsVoltFactory(gatePre);
+  var limit = want;
+  var gateAt = _wfgLsVoltFactory(gateSrc);
   var segs = [], segStart = [];
   var vspx = 0;          // 起始 0V（波形最左邊）
   var conducting = false;
@@ -3554,6 +3588,59 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
     vMin: vMin, vMax: vMax, computedExtent: limit, ver: _wfgAnalogCacheVer,
     srcGateExtent: gateExt, srcSdExtent: sdExt, noSource: false, noGate: false,
     settled: null };
+}
+
+// ─── Subpixel 的獨立重算閘門（v3.8.1）───
+// SPX 是唯一一條「render 沒有 viewport fallback」的波形 —— 預計算缺席時 render 只能畫
+// 一條 0V 直線（見 wfgRender 的 waveform_type === 3 分支）。而它的三個失效來源，沒有
+// 一個會 bump _wfgPrecomputeVer，因此 wfgRender 內既有的
+// `if (_wfgPrecomputeVer !== _wfgAnalogCacheVer) wfgPrecomputeAnalog()` 全部攔不到：
+//   ① _wfgInvalidateGateOnly() / _wfgInvalidateSpxOnly() 直接 delete entry（改 G 條數、
+//      改充電時間、改 TFT 電壓）—— 這兩支刻意不動版本號，是 v3.4.0 的 Gate 效能優化
+//   ② 上游 SD / Gate lazy-extend 之後，SPX 自己的 computedExtent 仍停在舊值
+//   ③ totalLines 改變
+// 就算真的進到 wfgPrecomputeAnalog()，它的 needSD / needLS 掃描也只認 waveform_type
+// 1 與 2，只有 SPX 過期時會在 `if (!needSD && !needLS) return` 早退。
+// 所以另開這條只算 SPX 一條的路徑；它不碰 SD/LS，Gate 的效能優化原封不動。
+function _wfgSpxWantExtent(totalLines) {
+  var viewPad = _wfgSliderDragging ? 0 : Math.max(1, Math.ceil((wfgViewEnd - wfgViewStart) * 0.5));
+  return Math.min(totalLines, Math.max(1, Math.ceil(wfgViewEnd) + viewPad));
+}
+function _wfgSpxStale() {
+  var si = wfgSpxSlotIdx();
+  var gpio = wfgGpios[si];
+  if (!gpio || !gpio.enable || gpio.waveform_type !== 3) return false;
+  var p = _wfgPrecomputed[si];
+  if (!p) return true;                                  // ①
+  var totalLines = wfgTotalLines();
+  if (p.ver !== _wfgAnalogCacheVer || p.totalLines !== totalLines) return true;  // ③
+  var sdPre = _wfgPrecomputed[wfgSd1SlotIdx()];
+  var sdExt = sdPre ? (sdPre.computedExtent || 0) : 0;
+  if (p.srcSdExtent !== sdExt) return true;             // ② SD 延伸過
+  // ② 視窗往右捲到自己算過的範圍之外（SD 已經算得夠遠時才有意義）
+  return (p.computedExtent || 0) < Math.min(_wfgSpxWantExtent(totalLines), sdExt || totalLines);
+}
+function _wfgEnsureSpxPrecomp() {
+  var si = wfgSpxSlotIdx();
+  var gpio = wfgGpios[si];
+  if (!gpio || !gpio.enable || gpio.waveform_type !== 3) return false;
+  var totalLines = wfgTotalLines();
+  var want = _wfgSpxWantExtent(totalLines);
+  // 🔴 先把上游 SD1 延伸到需要的範圍再判 stale。
+  // SD/LS 的 lazy-extend 是掛在 wfgSamplesFromPrecomputed() 裡的 —— 也就是 render
+  // **畫到那一列時**才發生，比這個閘門晚。若在這裡照著 SD 當下的 extent 去算，SPX 就
+  // 只會算到舊範圍，等 SD 在同一次 render 中延伸完，SPX 又要等下一次 render 才跟上
+  // （表現成「捲過去之後畫面不動，要再動一下滑鼠才出現」）。主動延伸就沒有這個時序。
+  var sdPre = _wfgPrecomputed[wfgSd1SlotIdx()];
+  if (sdPre && sdPre._lazyExtend && (sdPre.computedExtent || 0) < want && !_wfgContinuousMotion) {
+    _wfgExtendSdPrecomp(sdPre, want);
+  }
+  if (!_wfgSpxStale()) return false;
+  var tc = wfgEnsureTransitions();
+  if (!tc) return false;
+  _wfgPrecomputed[si] = _wfgPrecomputeSpxChannel(si, gpio, tc.transitions,
+    tc.effHtotal, tc.effVtotal, totalLines, want);
+  return true;
 }
 
 // 二分找出 lineX 落在哪一段之後（回傳段 index，-1 = 在第一段之前）
@@ -19448,7 +19535,11 @@ function _wfgTconRenderStickyOverlay() {
 }
 
 // ─── Canvas Renderer ───
+/* v3.8.1: 重繪序號 —— 只給「這次呼叫到底有沒有重繪」這個判斷用（見 mousemove 的
+   時間軸補畫）。純計數，不參與任何繪圖決策。 */
+var _wfgRenderSeq = 0;
 function wfgRender() {
+  _wfgRenderSeq++;
   wfgApplyDtLock(); /* v2.97.468: 繪製前套用 |Δt| 鎖定，兩模式(phase/kvdat)皆生效 */
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
   var _pT0 = _wfgPerfEnabled ? performance.now() : 0;
@@ -19794,6 +19885,9 @@ function wfgRender() {
   if (_wfgPrecomputeVer !== _wfgAnalogCacheVer && !_wfgPrecompBusy) {
     wfgPrecomputeAnalog();
   }
+  // v3.8.1: Subpixel 走自己的閘門 —— 它的失效來源都不動版本號，上面那個條件攔不到。
+  // 說明見 _wfgSpxStale()。
+  if (!_wfgPrecompBusy) _wfgEnsureSpxPrecomp();
 
   // ── TCON Internal Rows (RX DE, TX DE, R_PH_CNT, F_PH_CNT) ──
   var internalExtraH = wfgInternalExtraH();
@@ -23859,7 +23953,16 @@ function wfgInitCanvas() {
     if (_wfgMeasRaf) return;
     _wfgMeasRaf = requestAnimationFrame(function() {
       _wfgMeasRaf = null;
+      /* v3.8.1: 跟隨滑鼠的垂直時間軸（crosshair）是在 wfgRender() 裡依 _wfgTconHover
+         畫的，而重繪的責任一直掛在量測路徑上 —— 數位列一路跑到底會 wfgRender()，但
+         類比列（SD1／CKO）、面板列（G／SPX）以及列與列之間的空白，走的是
+         `wfgMeasClear(); return;`，**不重繪**。於是滑鼠一進到那幾列，虛線就停在最後
+         一次數位列的位置不動（v3.7.0 實測同樣如此，非 v3.8.0 引入）。
+         這裡不去改量測本身的判斷，只補上「這一輪沒有人重繪的話就補一次」——
+         成本與數位列本來就在付的一次 wfgRender() 相同。 */
+      var _seq0 = _wfgRenderSeq;
       wfgMeasUpdate(e.clientX, e.clientY);
+      if (_wfgRenderSeq === _seq0) wfgRender();
     });
   });
   canvas.addEventListener('mouseleave', function() {
@@ -28324,7 +28427,6 @@ window.wfgBenchZoomDeep = function(steps) {
   return {avgLast5Ms: Math.round(avgMs*10)/10, steps: results};
 };
 window.wfgRender = wfgRender;
-
 // ═══════════ WFG 設定匯出 / 匯入 ═══════════
 
 window.wfgExportConfig = function() {
