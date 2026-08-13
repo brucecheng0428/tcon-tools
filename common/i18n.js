@@ -696,6 +696,11 @@ var I18N = {
   // ─── WFG: Channel list ───
   'wfg.channelPrefix':  { 'zh-TW': '通道', 'en': 'CH', 'zh-CN': '通道' },
   'wfg.dragSort':       { 'zh-TW': '拖曳排序', 'en': 'Drag to reorder', 'zh-CN': '拖拽排序' },
+  // ─── WFG: Channel colour picker (v3.10.0) ───
+  'wfg.colorPickTitle': { 'zh-TW': '點選更改通道顏色', 'en': 'Click to change channel colour', 'zh-CN': '点选更改通道颜色' },
+  'wfg.colorCustom':    { 'zh-TW': '其他顏色', 'en': 'Custom', 'zh-CN': '其他颜色' },
+  'wfg.colorReset':     { 'zh-TW': '恢復原本顏色', 'en': 'Restore original colour', 'zh-CN': '恢复原本颜色' },
+  'wfg.ovlCursorLimit': { 'zh-TW': '游標範圍（本視窗）', 'en': 'Cursor range (this view)', 'zh-CN': '游标范围（本视窗）' },
   'wfg.noSignal':       { 'zh-TW': '無', 'en': 'None', 'zh-CN': '无' },
   'wfg.unassigned':     { 'zh-TW': '未選擇信號', 'en': 'No signal assigned', 'zh-CN': '未选择信号' },
   'wfg.hideChannel':    { 'zh-TW': '隱藏', 'en': 'Hide', 'zh-CN': '隐藏' },
