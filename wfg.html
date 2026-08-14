@@ -1250,6 +1250,28 @@
                 </label>
               </div>
             </div>
+            <!-- VCOM 電壓（v3.13.0）—— 放在 Subpixel 電壓卡片「下面」（Bruce 2026-08-14）。
+                 它不是一條通道，是畫在 Vpix 那一格裡的水平參考線，所以不進輸出通道清單、
+                 也不參與疊合群組的成員數。卡片外框沿用 Subpixel 的藍，標題用白色呼應線色。 -->
+            <div class="wfg-signal-mini" style="border:1px solid #38bdf8;margin-top:10px">
+              <div class="wfg-signal-mini-head" data-gpio-idx="panel-vcom" onclick="wfgToggleSignalCard(this)">
+                <span class="wfg-sig-name" style="color:#f8fafc" data-i18n="wfg.vcomVoltage">VCOM 電壓</span>
+                <span class="wfg-chevron">▼</span>
+              </div>
+              <div class="wfg-signal-mini-body">
+                <div style="font-size:10px;color:#64748b;margin-bottom:8px" data-i18n="wfg.vcomDesc">VCOM 是面板共通電極的直流準位，畫成一條白色水平虛線，疊在 Vpix（Subpixel）波形的同一格裡當比較基準。它只是一條參考線，不參與任何計算，也不會改變 Vpix 的波形數值。</div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#e2e8f0;cursor:pointer">
+                  <input type="checkbox" id="wfg-vcom-cb" checked onchange="wfgOnVcomEnableChange(this.checked)" style="accent-color:#e2e8f0;cursor:pointer">
+                  <span data-i18n="wfg.vcomEnable">啟用 VCOM 電壓</span>
+                </label>
+                <div class="wfg-field" style="margin-top:8px;margin-bottom:0" id="wfg-vcom-field">
+                  <label data-i18n="wfg.vcomValue">VCOM 電壓 (V)</label>
+                  <div style="font-size:10px;color:#64748b;margin-bottom:4px" id="wfg-vcom-hint"></div>
+                  <input type="number" step="0.1" id="wfg-vcom-v" oninput="wfgOnVcomInput(this)" onchange="wfgOnVcomCommit(this)" style="width:100%">
+                </div>
+                <div id="wfg-vcom-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1736,8 +1758,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260814wfg3120"></script>
-<script src="common/i18n.js?v=20260814wfg3120"></script>
+<script src="common/version.js?v=20260814wfg3130"></script>
+<script src="common/i18n.js?v=20260814wfg3130"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1850,11 +1872,59 @@ var WFG_SPX_RC_DEFAULT = 150;
 // A1「共用一組錨點」才成立。
 var WFG_FT_D_DEFAULT = 1.0;    // 三個錨點的 drop 電壓預設值 (V)
 var WFG_FT_D_MAX = 50;         // 上限：比 VGH-VGL 的合理範圍寬，避免擋掉極端實驗
+// ─── VCOM 電壓（v3.13.0）───
+// 面板共通電極的直流準位。**它不是一條通道**，是畫在 Vpix（Subpixel）那一格裡的
+// 一條白色水平虛線，只當比較基準用：不進 wfgChannels、不參與疊合群組成員數、
+// 不影響任何取樣值，所以完全不需要 precompute（改它只要重畫，不必重算）。
+//
+// 可調範圍 = VGMA1 ~ VGMA14（Bruce 2026-08-14 指定）。這兩個名字對應到 SD1 的哪個
+// 欄位有明文依據，不是推測：common/i18n.js 的 'wfg.posGammaMax' 標籤即
+// 「VGMA1（白，最高）」→ pos_gamma_max；'wfg.negGammaMin' 即「VGMA14（白，最低）」
+// → neg_gamma_min。🔴 上下界一律由當下的 gamma 設定即時算出，不寫死 —— 使用者改
+// gamma（或載入別的 preset）之後範圍要跟著變，與 wfgDriveRange() 對 TFT 電壓的做法一致。
+//
+// vcom_v === null 的語意是「還沒手動設過 → 用 VGMA1／VGMA14 的中點」。這樣 preset
+// 一換、gamma 一改，預設值就自動跟到新的中點；使用者一旦手動輸入就固定在他的值。
 var wfgPanel = { gate_line: 1, gate_show: true, gate_rc_mult: WFG_GATE_RC_MULT_DEFAULT,
                  tft_von: WFG_TFT_VON_DEFAULT, tft_voff: WFG_TFT_VOFF_DEFAULT,
                  spx_rc: WFG_SPX_RC_DEFAULT, spx_show: true,
                  ft_enable: true, ft_d0: WFG_FT_D_DEFAULT,
-                 ft_d127: WFG_FT_D_DEFAULT, ft_d255: WFG_FT_D_DEFAULT };
+                 ft_d127: WFG_FT_D_DEFAULT, ft_d255: WFG_FT_D_DEFAULT,
+                 vcom_enable: true, vcom_v: null };
+// VCOM 的可調範圍：SD1 的 [VGMA14, VGMA1]。回 null 代表取不到（SD1 不存在／未啟用／
+// 不是 Source Driver），此時 UI 顯示「找不到 SD1」而不是拿一組編出來的預設值頂替。
+// 兩端排序後回傳：使用者把 VGMA14 設得比 VGMA1 高時（欄位本身不擋）夾制才不會 lo > hi。
+function wfgVcomRange() {
+  var sd = wfgGpios[wfgSd1SlotIdx()];
+  var ac = (sd && sd.enable && sd.waveform_type === 1) ? sd.analog_config : null;
+  if (!ac) return null;
+  var hi = (ac.pos_gamma_max != null) ? parseFloat(ac.pos_gamma_max) : NaN;  // VGMA1
+  var lo = (ac.neg_gamma_min != null) ? parseFloat(ac.neg_gamma_min) : NaN;  // VGMA14
+  if (!isFinite(hi) || !isFinite(lo)) return null;
+  return { lo: Math.min(lo, hi), hi: Math.max(lo, hi) };
+}
+// 預設值＝範圍中點。🔴 依 Dispatch 2026-08-14 判斷所定（Bruce 只說「先做到這樣子」，
+// 未指定預設值），preset 下 = (9.8 + 0.2) / 2 = 5.00V。由設定值算出，不寫死。
+function wfgVcomMid() {
+  var r = wfgVcomRange();
+  return r ? wfgRoundV((r.lo + r.hi) / 2) : 0;
+}
+function wfgClampVcom(v) {
+  var n = parseFloat(v);
+  var r = wfgVcomRange();
+  if (!isFinite(n)) return wfgVcomMid();
+  if (!r) return wfgRoundV(n);
+  return wfgRoundV(Math.max(r.lo, Math.min(r.hi, n)));
+}
+// 畫線與讀值一律走這個函式：未設過 → 中點；設過 → 夾制後的值。
+// 夾制放在讀取端而不是回頭改寫 wfgPanel.vcom_v，是為了讓「使用者輸入的值」與
+// 「實際生效的值」各自保留 —— 改了 gamma 讓舊值超界時，讀值框會兩個都顯示出來。
+function wfgVcomEffective() {
+  if (wfgPanel.vcom_v == null) return wfgVcomMid();
+  return wfgClampVcom(wfgPanel.vcom_v);
+}
+// 最近一次畫 VCOM 參考線時的座標系與 y（驗證用，見 wfgDrawAnalogChannel）
+var _wfgVcomLastDraw = null;
 function wfgClampSpxRc(v) {
   var n = parseInt(v, 10);
   if (!isFinite(n)) n = WFG_SPX_RC_DEFAULT;
@@ -20063,6 +20133,51 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   ctx.stroke();
   } // end if (!_useBand && !_useDirect)
 
+  /* ── VCOM 參考線（v3.13.0）──
+     🔴 刻意畫在**這個函式裡面**，而不是註冊成一條通道再走疊圖群組：
+       ① 疊圖群組會改變成員數 → 群組高度、格線數（4n 格）、游標配色（綁 ovlPos）
+          全部跟著變，牽連太大，而 VCOM 只是一條參考線。
+       ② 畫在這裡自動繼承這一格「當下實際使用的」座標系：voltToY() 用的 vMin/vMax
+          已經包含 forcedRange（疊圖群組的共用 V 軸）的覆寫，所以 Vpix 被疊進群組時
+          VCOM 自動改用群組的共用軸，不需要另外判斷。
+       ③ Vpix 不顯示時自動不畫 —— 三種隱藏路徑（spx_show 關閉、通道 visible 關閉、
+          v3.10.0 圖層開關 ovlOff）都不會呼叫到本函式，線跟著消失，不必另外處理。
+     只在 Subpixel（waveform_type 3）這一格畫，其他類比通道完全不受影響。 */
+  if (gpio && gpio.waveform_type === 3 && wfgPanel.vcom_enable) {
+    var _vcomV = wfgVcomEffective();
+    // 驗證用（比照 v3.12.0 的 wfgDebugFeedthrough）：把這一幀實際用到的座標系與
+    // 線的 y 如實記下來，讓驗證能拿「畫面上的白色像素」去對「程式宣稱的 y」。
+    _wfgVcomLastDraw = { v: _vcomV, vMin: vMin, vMax: vMax, yHigh: yHigh, yLow: yLow,
+                         y: null, drawn: false, forced: _forced };
+    // 超出這一格當下的顯示範圍就不畫：wfgVoltToY() 會把 frac 夾在 0~1，硬畫會讓線
+    // 貼在框線上緣／下緣，位置與讀值對不上 —— 那比不畫更容易誤導。
+    if (isFinite(_vcomV) && _vcomV >= vMin && _vcomV <= vMax) {
+      var _vcomY = Math.round(voltToY(_vcomV)) + 0.5;
+      _wfgVcomLastDraw.y = _vcomY;
+      _wfgVcomLastDraw.drawn = true;
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';      // 固定白色（Bruce 指定，不隨通道配色）
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(drawX0, _vcomY);
+      ctx.lineTo(w, _vcomY);            // 水平線：兩端同一個 y
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 線本身沒有顏色以外的識別，左端標一個 VCOM 字樣才知道這條是什麼
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      var _vcTxt = 'VCOM ' + _vcomV.toFixed(2) + 'V';
+      var _vcW = ctx.measureText(_vcTxt).width;
+      ctx.fillStyle = 'rgba(15,23,42,0.75)';
+      ctx.fillRect(drawX0 + 2, _vcomY - 13, _vcW + 6, 12);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(_vcTxt, drawX0 + 5, _vcomY - 2);
+      ctx.restore();
+    }
+  }
+
   // Edge label: print numerical vMin / vMax on the right rail so the auto-scale
   // is legible even when the slot is small. For LS channels, prefix VGH/VGL.
   // Drawn AFTER the waveform so text is always on top (canvas z-order).
@@ -22869,6 +22984,10 @@ function wfgResetToDefault() {
   wfgPanel.ft_d0 = WFG_FT_D_DEFAULT;
   wfgPanel.ft_d127 = WFG_FT_D_DEFAULT;
   wfgPanel.ft_d255 = WFG_FT_D_DEFAULT;
+  // v3.13.0: VCOM 同理。vcom_v 回 null ＝ 回到「跟著 VGMA1／VGMA14 中點走」的狀態，
+  // 不留上一組 gamma 設定下算出來的殘值。
+  wfgPanel.vcom_enable = true;
+  wfgPanel.vcom_v = null;
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgTotalLines());
   wfgRenderGpioList();
@@ -22878,6 +22997,8 @@ function wfgResetToDefault() {
   wfgUpdateSpxRcReadout();
   wfgRenderFtRow();
   wfgUpdateFtReadout();
+  wfgRenderVcomRow();
+  wfgUpdateVcomReadout();
   wfgUpdateCursorPanel();
   wfgResizeAndRender();
 }
@@ -22973,6 +23094,10 @@ function wfgLoadPreset(presetName) {
   wfgPanel.ft_d0 = WFG_FT_D_DEFAULT;
   wfgPanel.ft_d127 = WFG_FT_D_DEFAULT;
   wfgPanel.ft_d255 = WFG_FT_D_DEFAULT;
+  // v3.13.0: VCOM 同理 —— preset 沒有這些欄位，載入後回預設（啟用 + 跟著新 preset
+  // 的 VGMA1／VGMA14 中點走，所以是 null 而不是某個算好的數字）
+  wfgPanel.vcom_enable = true;
+  wfgPanel.vcom_v = null;
   wfgSyncGateGpio(true);
   wfgSyncSpxGpio(true);
 
@@ -23344,6 +23469,13 @@ function wfgOnAnalogConfigChange(gpioIdx, field, value) {
   }
   // Re-render gray_fixed_level row when gray_mode changes
   if (field === 'gray_mode') wfgRenderGpioList();
+  /* v3.13.0: VCOM 的上下界就是 VGMA1（pos_gamma_max）／VGMA14（neg_gamma_min），
+     改了 gamma 就要立刻反映在提示文字、預設中點與讀值框上 —— 否則畫面上的線已經
+     跟著新範圍動了，卡片裡的數字卻還停在舊值。 */
+  if (field === 'pos_gamma_max' || field === 'neg_gamma_min') {
+    wfgRenderVcomRow();
+    wfgUpdateVcomReadout();
+  }
   // Dependency-changing fields → full invalidation; otherwise dirty path
   var depFields = ['xpol_gpio_idx', 'xstb_gpio_idx', 'ck_gpio_idx', 'source_ck_idx', 'cko_index'];
   if (depFields.indexOf(field) >= 0) {
@@ -23529,6 +23661,9 @@ function wfgRenderPanelCard() {
   // v3.12.0: Feedthrough Voltage
   wfgRenderFtRow();
   wfgUpdateFtReadout();
+  // v3.13.0: VCOM 電壓卡片
+  wfgRenderVcomRow();
+  wfgUpdateVcomReadout();
 }
 
 // 充放電倍率列：拉把用整數（值 ×100，step 1 ＝ 0.01 倍），數字框直接鍵入小數。
@@ -23867,6 +24002,9 @@ function wfgOnSpxShowChange(checked) {
     if (wfgChannels[i].gpioIdx === spxIdx) wfgChannels[i].visible = !!checked;
   }
   wfgRenderChannelList();
+  // v3.13.0: VCOM 參考線畫在 Vpix 那一格裡，Vpix 一關線就跟著不見 —— 讀值框要講出來，
+  // 否則使用者會以為「勾了啟用卻沒有線」是壞掉。
+  wfgUpdateVcomReadout();
   wfgResizeAndRender();
 }
 window.wfgSpxRcSliderSync = wfgSpxRcSliderSync;
@@ -23974,6 +24112,111 @@ function wfgOnFtDropCommit(which, el) {
 window.wfgOnFtEnableChange = wfgOnFtEnableChange;
 window.wfgOnFtDropInput = wfgOnFtDropInput;
 window.wfgOnFtDropCommit = wfgOnFtDropCommit;
+
+// ═══════════ VCOM 電壓 UI（v3.13.0）═══════════
+// 取消勾選 → 電壓框 disable（值仍保留，重新勾選就回來），與 Feedthrough 同一原則。
+function wfgUpdateVcomUiState() {
+  var on = !!wfgPanel.vcom_enable;
+  var cb = document.getElementById('wfg-vcom-cb');
+  if (cb) cb.checked = on;
+  var fld = document.getElementById('wfg-vcom-field');
+  if (fld) fld.style.opacity = on ? '1' : '0.45';
+  var el = document.getElementById('wfg-vcom-v');
+  if (el) el.disabled = !on;
+}
+function wfgRenderVcomRow() {
+  var el = document.getElementById('wfg-vcom-v');
+  // 正在編輯的欄位不覆寫（與 wfgRenderTftRow / wfgRenderFtRow 同一原則）
+  if (el && document.activeElement !== el) el.value = wfgFmtV(wfgVcomEffective());
+  var hint = document.getElementById('wfg-vcom-hint');
+  if (hint) {
+    var r = wfgVcomRange();
+    hint.textContent = r
+      ? (t('wfg.vcomRange') + '：' + wfgFmtV(r.lo) + ' ~ ' + wfgFmtV(r.hi) + ' V')
+      : t('wfg.vcomNoSd');
+  }
+  wfgUpdateVcomUiState();
+}
+// 讀值框：把上下界來自哪兩個欄位、實際生效值、以及三種「線不會出現」的情況攤開來。
+function wfgUpdateVcomReadout() {
+  var el = document.getElementById('wfg-vcom-readout');
+  if (!el) return;
+  if (!wfgPanel.vcom_enable) {
+    el.innerHTML = '<span style="color:#64748b">' + t('wfg.vcomOff') + '</span>';
+    return;
+  }
+  var r = wfgVcomRange();
+  if (!r) {
+    el.innerHTML = '<span style="color:#f87171;font-weight:700">✗ ' + t('wfg.vcomNoSd') + '</span>';
+    return;
+  }
+  function f(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+  var eff = wfgVcomEffective();
+  var h = '<span style="color:#94a3b8">VGMA1　</span><span style="color:#4ade80;font-weight:700">' + f(r.hi) + ' V</span>'
+        + '<span style="color:#64748b">　/　</span>'
+        + '<span style="color:#94a3b8">VGMA14　</span><span style="color:#f0abfc;font-weight:700">' + f(r.lo) + ' V</span><br>'
+        + '<span style="color:#94a3b8">' + t('wfg.vcomEffective') + '　</span>'
+        + '<span style="color:#f8fafc;font-weight:700">' + f(eff) + ' V</span>';
+  // 使用者輸入被夾制時要講出來，否則欄位值與線的位置對不上會被當成 bug
+  if (wfgPanel.vcom_v != null && Math.abs(parseFloat(wfgPanel.vcom_v) - eff) > 0.005) {
+    h += '<br><span style="color:#fbbf24">⚠ ' + t('wfg.vcomClamped') + '</span>';
+  }
+  if (wfgPanel.vcom_v == null) {
+    h += '<br><span style="color:#64748b">' + t('wfg.vcomDefaultNote') + '</span>';
+  }
+  if (!wfgPanel.spx_show) {
+    h += '<br><span style="color:#fbbf24">⚠ ' + t('wfg.vcomHiddenNote') + '</span>';
+  }
+  el.innerHTML = h;
+}
+/* VCOM 不影響任何取樣值（它只是一條線）→ **不呼叫 _wfgInvalidateSpxOnly()**。
+   波形資料一位元都不用重算，只要重畫一幀。這也是它與 Feedthrough 的根本差別。 */
+function wfgOnVcomEnableChange(checked) {
+  wfgPanel.vcom_enable = !!checked;
+  wfgUpdateVcomUiState();
+  wfgUpdateVcomReadout();
+  wfgScheduleSpxRender();
+}
+function wfgOnVcomInput(el) {
+  var v = parseFloat(el.value);
+  if (!isFinite(v)) return;              // 打到一半（空字串、只有負號）不動狀態
+  var nv = wfgClampVcom(v);
+  if (wfgPanel.vcom_v != null && nv === wfgClampVcom(wfgPanel.vcom_v)) return; // 同值不重畫
+  wfgPanel.vcom_v = v;                   // 原樣存使用者輸入，夾制在讀取端做
+  wfgUpdateVcomReadout();
+  wfgScheduleSpxRender();
+}
+// 失焦／Enter：把顯示值回寫成實際生效的值（超界的輸入會被夾回來，欄位不停在超界值）
+function wfgOnVcomCommit(el) {
+  var v = parseFloat(el.value);
+  wfgPanel.vcom_v = isFinite(v) ? wfgClampVcom(v) : null;
+  el.value = wfgFmtV(wfgVcomEffective());
+  wfgUpdateVcomReadout();
+  wfgScheduleSpxRender();
+}
+window.wfgOnVcomEnableChange = wfgOnVcomEnableChange;
+window.wfgOnVcomInput = wfgOnVcomInput;
+window.wfgOnVcomCommit = wfgOnVcomCommit;
+// 驗證用 helper（比照 v3.12.0 的 wfgDebugFeedthrough）：把畫線用到的每個數字如實讀回。
+window.wfgDumpVcom = function() {
+  var r = wfgVcomRange();
+  return { enable: !!wfgPanel.vcom_enable, raw: wfgPanel.vcom_v,
+           effective: wfgVcomEffective(), mid: wfgVcomMid(),
+           range: r, spxShow: !!wfgPanel.spx_show, sdIdx: wfgSd1SlotIdx(),
+           lastDraw: _wfgVcomLastDraw ? JSON.parse(JSON.stringify(_wfgVcomLastDraw)) : null };
+};
+// 驗證用：直接改狀態（不經 DOM），供自動化腳本設定情境。回傳改完之後的 dump。
+window.wfgSetVcomForTest = function(opts) {
+  opts = opts || {};
+  // reset:true → 清掉上一幀的紀錄，之後 lastDraw 仍是 null 就代表「這一幀沒有畫」
+  if (opts.reset) _wfgVcomLastDraw = null;
+  if (opts.enable != null) wfgPanel.vcom_enable = !!opts.enable;
+  if (opts.hasOwnProperty('v')) wfgPanel.vcom_v = (opts.v == null) ? null : parseFloat(opts.v);
+  wfgRenderVcomRow();
+  wfgUpdateVcomReadout();
+  wfgScheduleSpxRender();
+  return window.wfgDumpVcom();
+};
 
 function wfgGateSliderSync(rangeEl) {
   var row = rangeEl.closest('.wfg-slider-row');
@@ -30030,6 +30273,9 @@ window._onLangChange = function(lang) {
      說明文字換了、提示仍停在「可輸入範圍：0 ~ 50 V」。 */
   try { wfgRenderFtRow(); } catch(e) {}
   try { wfgUpdateFtReadout(); } catch(e) {}
+  // v3.13.0: VCOM 的提示與讀值框同理（JS 用 t() 拼、沒有 data-i18n 屬性）
+  try { wfgRenderVcomRow(); } catch(e) {}
+  try { wfgUpdateVcomReadout(); } catch(e) {}
   // LA mode: re-render toolbar state (理論取樣時間 etc.) + scope labels (I/O 電平標註)
   if (wfgCurrentMode === 'la') {
     try { wfgLaUpdateToolbarState(wfgLaBuildConfig()); } catch(e) {}
@@ -30308,6 +30554,9 @@ window.wfgImportConfig = function(jsonStr) {
   wfgPanel.ft_d0 = WFG_FT_D_DEFAULT;
   wfgPanel.ft_d127 = WFG_FT_D_DEFAULT;
   wfgPanel.ft_d255 = WFG_FT_D_DEFAULT;
+  // v3.13.0: 舊檔（v3.12.0 及之前）沒有 vcom_* → 落回預設（啟用 + 跟著中點走）
+  wfgPanel.vcom_enable = true;
+  wfgPanel.vcom_v = null;
   if (config.panel) {
     if (config.panel.gate_line != null) wfgPanel.gate_line = Math.max(1, parseInt(config.panel.gate_line, 10) || 1);
     if (config.panel.gate_show != null) wfgPanel.gate_show = !!config.panel.gate_show;
@@ -30328,6 +30577,15 @@ window.wfgImportConfig = function(jsonStr) {
     if (config.panel.ft_d0 != null) wfgPanel.ft_d0 = wfgClampFtDrop(config.panel.ft_d0);
     if (config.panel.ft_d127 != null) wfgPanel.ft_d127 = wfgClampFtDrop(config.panel.ft_d127);
     if (config.panel.ft_d255 != null) wfgPanel.ft_d255 = wfgClampFtDrop(config.panel.ft_d255);
+    /* v3.13.0: VCOM。這裡**不夾**（與 TFT 值同一原則、與 ft_* 相反）：夾制本來就在
+       讀取端 wfgVcomEffective() 做，欄位存的是「使用者輸入的原始值」，如實載入才能
+       在讀值框把「你存的值」與「實際生效值」一起顯示出來。只擋非數值（NaN）。
+       vcom_v 明確存 null 時也要如實載入 null ＝「跟著中點走」。 */
+    if (config.panel.vcom_enable != null) wfgPanel.vcom_enable = !!config.panel.vcom_enable;
+    if (config.panel.hasOwnProperty('vcom_v')) {
+      var _vcv = parseFloat(config.panel.vcom_v);
+      wfgPanel.vcom_v = isFinite(_vcv) ? wfgRoundV(_vcv) : null;
+    }
   }
   wfgPanel.gate_rc_mult = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
   wfgLsRebuildCkoSlots();
