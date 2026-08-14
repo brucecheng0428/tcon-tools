@@ -1224,6 +1224,26 @@
                   <div class="wfg-slider-row" id="wfg-spx-rc-row"></div>
                 </div>
                 <div id="wfg-spx-rc-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
+                <!-- Feedthrough Voltage（v3.12.0）—— 放在充電時間之後、顯示開關之前：
+                     它是「充完電、Gate 關閉之後」才發生的事，順序與 Subpixel 實際的
+                     時序一致（TFT 電壓 → 充電 → 關閉瞬間的 feedthrough）。 -->
+                <div class="wfg-field" style="margin-top:10px;margin-bottom:0">
+                  <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;cursor:pointer;font-size:12px">
+                    <input type="checkbox" id="wfg-ft-cb" checked onchange="wfgOnFtEnableChange(this.checked)" style="accent-color:#38bdf8;cursor:pointer">
+                    <span data-i18n="wfg.ftEnable">啟用 Feedthrough Voltage</span>
+                  </label>
+                  <div style="font-size:10px;color:#64748b;margin:4px 0" data-i18n="wfg.ftDesc">Gate 電壓掉到 TFT 關閉電壓的那一瞬間，Subpixel 電壓會再往下掉一階（正電壓往 0 靠、負電壓更負，方向與 Gate 下降相同）。下掉幅度依當下灰階，在 L0／L127／L255 三個錨點之間做分段線性內插。</div>
+                  <div style="font-size:10px;color:#64748b;margin-bottom:4px" id="wfg-ft-hint"></div>
+                  <div class="wfg-gpio-grid-2" id="wfg-ft-grid">
+                    <div class="wfg-field" style="margin-bottom:0"><label data-i18n="wfg.ftD0">L0 Drop (V)</label>
+                      <input type="number" step="0.1" min="0" id="wfg-ft-d0" oninput="wfgOnFtDropInput('d0',this)" onchange="wfgOnFtDropCommit('d0',this)" style="width:100%"></div>
+                    <div class="wfg-field" style="margin-bottom:0"><label data-i18n="wfg.ftD127">L127 Drop (V)</label>
+                      <input type="number" step="0.1" min="0" id="wfg-ft-d127" oninput="wfgOnFtDropInput('d127',this)" onchange="wfgOnFtDropCommit('d127',this)" style="width:100%"></div>
+                    <div class="wfg-field" style="margin-bottom:0"><label data-i18n="wfg.ftD255">L255 Drop (V)</label>
+                      <input type="number" step="0.1" min="0" id="wfg-ft-d255" oninput="wfgOnFtDropInput('d255',this)" onchange="wfgOnFtDropCommit('d255',this)" style="width:100%"></div>
+                  </div>
+                </div>
+                <div id="wfg-ft-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
                 <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#e2e8f0;cursor:pointer">
                   <input type="checkbox" id="wfg-spx-show-cb" checked onchange="wfgOnSpxShowChange(this.checked)" style="accent-color:#38bdf8;cursor:pointer">
                   <span data-i18n="wfg.spxShow">在波形區顯示 Subpixel 波形</span>
@@ -1716,8 +1736,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260814wfg3110"></script>
-<script src="common/i18n.js?v=20260814wfg3110"></script>
+<script src="common/version.js?v=20260814wfg3120"></script>
+<script src="common/i18n.js?v=20260814wfg3120"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1814,13 +1834,45 @@ var WFG_TFT_VOFF_DEFAULT = -5;  // TFT 關閉電壓預設 (V)
 //     同時仍充得到 99.3%，不會讓人一開啟就以為壞掉。
 //   把 Frame Rate 往上調（line 變短、導通窗口的絕對時間變短）就會開始看到充不飽。
 var WFG_SPX_RC_DEFAULT = 150;
+
+// ─── Feedthrough Voltage（v3.12.0）───
+// LCD 的 feedthrough／kickback 效應：Gate 由 VGH 往下 drop、掉到 TFT 關閉電壓的那一
+// 瞬間，Cgs 的電容耦合會把 Subpixel 上已經寫好的電壓再往下拉一階。
+//
+// 🔴 依 Bruce 2026-08-14 裁示，這裡**不從 Cgs/Cst/Clc 去算**，而是直接讓使用者設定
+//    三個灰階錨點各自的 drop 電壓，中間灰階用內插取得（裁示 A1 + B2）：
+//      A1 = 正負極性共用同一組錨點（三個輸入框，不分極性）
+//      B2 = 內插在**電壓空間**進行，內插軸是「離中軌距離」d = |V_sd − Vmid|
+//
+// 為什麼 B2 一定要用「離中軌距離」而不是電壓本身：正極性 L0→L255 是遞增
+// （preset 5.2→9.8V），負極性 L0→L255 是遞減（4.8→0.2V），方向相反。直接拿電壓當
+// 內插軸，兩個極性會往相反方向查表。改用離中軌距離，兩者都變成同一條遞增的軸，
+// A1「共用一組錨點」才成立。
+var WFG_FT_D_DEFAULT = 1.0;    // 三個錨點的 drop 電壓預設值 (V)
+var WFG_FT_D_MAX = 50;         // 上限：比 VGH-VGL 的合理範圍寬，避免擋掉極端實驗
 var wfgPanel = { gate_line: 1, gate_show: true, gate_rc_mult: WFG_GATE_RC_MULT_DEFAULT,
                  tft_von: WFG_TFT_VON_DEFAULT, tft_voff: WFG_TFT_VOFF_DEFAULT,
-                 spx_rc: WFG_SPX_RC_DEFAULT, spx_show: true };
+                 spx_rc: WFG_SPX_RC_DEFAULT, spx_show: true,
+                 ft_enable: true, ft_d0: WFG_FT_D_DEFAULT,
+                 ft_d127: WFG_FT_D_DEFAULT, ft_d255: WFG_FT_D_DEFAULT };
 function wfgClampSpxRc(v) {
   var n = parseInt(v, 10);
   if (!isFinite(n)) n = WFG_SPX_RC_DEFAULT;
   return Math.max(0, Math.min(255, n));
+}
+// drop 電壓夾制：下界 0 —— feedthrough 的方向恆為「往下」（V = V − ΔV），
+// 負的 drop 等於往上推，那不是 feedthrough，欄位層就擋掉。
+function wfgClampFtDrop(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) n = WFG_FT_D_DEFAULT;
+  return wfgRoundV(Math.max(0, Math.min(WFG_FT_D_MAX, n)));
+}
+// 三個錨點裡最大的 drop —— Y 軸下緣要留出這麼多空間，否則掉下去的部分會畫到框外。
+function wfgFtMaxDrop() {
+  if (!wfgPanel.ft_enable) return 0;
+  return Math.max(wfgClampFtDrop(wfgPanel.ft_d0),
+                  wfgClampFtDrop(wfgPanel.ft_d127),
+                  wfgClampFtDrop(wfgPanel.ft_d255));
 }
 
 // 驅動端可用的電壓區間 [lo, hi]。正常是 [VGL, VGH]；VGL > VGH 的病態設定（欄位本身
@@ -1937,7 +1989,11 @@ function wfgMakeAnalogConfig(type, ckoIndex) {
     // Subpixel (v3.8.0): 顯示範圍跟著 SD1 走（wfgAnalogDisplayRange 會另外把 0V 納進來），
     // 這裡只放 Subpixel 自己的參數。真正的來源電壓在 precompute 時直接讀 SD1 的結果。
     return { voltage_min: 0, voltage_max: 13, spx_rc: wfgPanel.spx_rc,
-             tft_von: wfgPanel.tft_von, tft_voff: wfgPanel.tft_voff, showCursors: false };
+             tft_von: wfgPanel.tft_von, tft_voff: wfgPanel.tft_voff,
+             // v3.12.0: feedthrough 參數同樣由面板卡片同步進來（見 wfgSyncSpxGpio）
+             ft_enable: wfgPanel.ft_enable, ft_d0: wfgPanel.ft_d0,
+             ft_d127: wfgPanel.ft_d127, ft_d255: wfgPanel.ft_d255,
+             showCursors: false };
   }
   if (type === 2) {
     // Level Shifter: use global VGH/VGL/RC settings; source_ck_idx from global ck_sources
@@ -2098,6 +2154,12 @@ function wfgSyncSpxGpio(enableSlots) {
   ac.tft_voff = wfgPanel.tft_voff;
   ac.gate_line = Math.max(1, wfgPanel.gate_line | 0);
   ac.showCursors = false;
+  // v3.12.0: feedthrough 參數（欄位層已夾過，這裡再夾一次，手改設定檔匯入也會被收斂）
+  ac.ft_enable = !!wfgPanel.ft_enable;
+  ac.ft_d0 = wfgClampFtDrop(wfgPanel.ft_d0);
+  ac.ft_d127 = wfgClampFtDrop(wfgPanel.ft_d127);
+  ac.ft_d255 = wfgClampFtDrop(wfgPanel.ft_d255);
+  wfgPanel.ft_d0 = ac.ft_d0; wfgPanel.ft_d127 = ac.ft_d127; wfgPanel.ft_d255 = ac.ft_d255;
   // 顯示範圍跟著 SD1 的 gamma rail 走，但**下緣一定要含 0V**：Subpixel 從 0V 起算，
   // 而 SD1 的 neg_gamma_min 預設是 0.2V。
   // 🔴 這裡直接寫進 ac.voltage_min，不能只靠 wfgAnalogDisplayRange —— 實測發現
@@ -2105,11 +2167,16 @@ function wfgSyncSpxGpio(enableSlots) {
   //    夾制範圍，不經過 wfgAnalogDisplayRange。波形全平（例如 VGH < 導通電壓、
   //    Subpixel 恆 0V）時自動縮放會退回這個範圍，只改 wfgAnalogDisplayRange 會讓
   //    0V 落在框線下緣之外。
+  //
+  // v3.12.0: 下緣再多讓出 max(ΔV) —— feedthrough 可以把電壓拉到 0V 以下（hold 在
+  // 0.5V、ΔV=1V → −0.5V）。不延伸的後果不只是波形被切掉：電壓游標的可動範圍是
+  // 「本視窗可見極值 ∩ 座標系」（見 wfgVoltCursorAllowedRange），座標系停在 0V 時
+  // 游標也一樣到不了負電壓區，量不到掉下去的那一段。
   var sd = wfgGpios[wfgSd1SlotIdx()];
   if (sd && sd.analog_config) {
     var _sdLo = (sd.analog_config.neg_gamma_min != null) ? sd.analog_config.neg_gamma_min : 0;
     var _sdHi = (sd.analog_config.pos_gamma_max != null) ? sd.analog_config.pos_gamma_max : 13;
-    ac.voltage_min = Math.min(0, _sdLo);
+    ac.voltage_min = Math.min(0, _sdLo, -wfgFtMaxDrop());
     ac.voltage_max = Math.max(0, _sdHi);
   }
 }
@@ -3584,6 +3651,101 @@ function _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, extent) {
            computedExtent: extent };
 }
 
+// ═══════════ Feedthrough Voltage（v3.12.0）═══════════
+// 中軌 Vmid：正軌最靠中間的端點與負軌最靠中間的端點的中點。
+// 依據（不是猜的）：wfgAnalogTargetVoltageWithPol() 在 gf=0（＝L0）時，pol=1 回
+// pos_gamma_min、pol=0 回 neg_gamma_max —— 這兩個就是兩軌各自「最暗、最靠中間」
+// 的那一端（概念上的 VGMA7 與 VGMA8），它們的中點即極性反轉的軸。
+//   preset (pos_gamma_min 5.2 / neg_gamma_max 4.8) → 5.00V
+//   程式預設 (6.5 / 6.5)                            → 6.50V
+// 🔴 不寫死 5.0 或 6.5：使用者改 gamma 設定、甚至正負軌不對稱時都要成立。
+function _wfgSdMidRail(sdAc) {
+  var pMin = (sdAc.pos_gamma_min != null) ? sdAc.pos_gamma_min
+           : (sdAc.voltage_min != null ? sdAc.voltage_min : 0);
+  var nMax = (sdAc.neg_gamma_max != null) ? sdAc.neg_gamma_max
+           : (sdAc.voltage_max != null ? sdAc.voltage_max : 13);
+  return (pMin + nMax) / 2;
+}
+// 依 Bruce 2026-08-14 裁示 B2：內插在**電壓空間**做，內插軸 = 離中軌距離
+//   d = |V_sd(L, pol) − Vmid|
+// 錨點 d(L0) / d(L127) / d(L255) 由 gamma 曲線算出（不是寫死的常數），三個 drop 值
+// 由使用者設定。兩段各自線性內插：d(L0)~d(L127)、d(L127)~d(L255)。
+//
+// 為什麼用「距離」而不是電壓本身（A1 共用一組錨點的必要條件）：
+//   正極性 L0→L255 是 5.2→9.8V（遞增），負極性是 4.8→0.2V（遞減），方向相反。
+//   直接拿電壓當內插軸，兩個極性會往相反方向查表。取離中軌距離之後，兩者都成為
+//   同一條遞增的軸。
+// 附帶的數學性質（實作仍照裁示顯式走 d，這裡只記錄以便覆核）：
+//   正極性 d = (pMin−Vmid) + gf·(pMax−pMin)，負極性 d = (Vmid−nMax) + gf·(nMax−nMin)
+//   ⇒ t = (d−d(0))/(d(127)−d(0)) = gf/gf(127)，與 rail 位置、跨度、極性全部無關
+//   ⇒ **同一灰階在正負極性下 ΔV 必然相同**，即使兩軌不對稱。這就是 A1 成立的依據。
+function _wfgFtDropFactory(sdAc, d0, d127, d255) {
+  var vMid = _wfgSdMidRail(sdAc);
+  function distAt(frac, pol) {
+    return Math.abs(wfgAnalogTargetVoltageWithPol(frac, pol, sdAc) - vMid);
+  }
+  // 🔴 錨點恆為 **8-bit 灰階語意**（L0 / L127 / L255）—— 與 gray_fixed_level 的
+  //    「8-bit input scaled to bit_depth」慣例同源。當下灰階則走 L/maxL 換算，
+  //    所以 bit_depth 改成 6 或 10 時三個錨點的意義不變。
+  var F127 = 127 / 255;
+  var anchors = [[distAt(0, 0), distAt(F127, 0), distAt(1, 0)],
+                 [distAt(0, 1), distAt(F127, 1), distAt(1, 1)]];
+  return function(grayFrac, pol) {
+    var A = anchors[pol ? 1 : 0];
+    var d = distAt(grayFrac, pol);
+    if (d <= A[1]) {
+      var den1 = A[1] - A[0];
+      // rail 跨度為 0（pos_gamma_min == pos_gamma_max）→ 所有灰階同一個電壓，
+      // 內插沒有意義，退回該段起點的錨點值而不是除以 0。
+      if (Math.abs(den1) < 1e-12) return d0;
+      var t1 = (d - A[0]) / den1;
+      if (t1 < 0) t1 = 0; else if (t1 > 1) t1 = 1;
+      return d0 + t1 * (d127 - d0);
+    }
+    var den2 = A[2] - A[1];
+    if (Math.abs(den2) < 1e-12) return d127;
+    var t2 = (d - A[1]) / den2;
+    if (t2 < 0) t2 = 0; else if (t2 > 1) t2 = 1;
+    return d127 + t2 * (d255 - d127);
+  };
+}
+// 「當下 SD1 正在輸出的那一筆 latch」的灰階與極性。
+// 🔴 latch 的判斷必須與 _wfgSdVoltageAt() 同源，否則 ΔV 會對到另一筆資料的灰階
+//    （XSTB f_dly 造成的跨行偏移 xstbDataOffset 同樣要套，與 line 主迴圈同式）。
+// 資料來源：lValuePerFrame 只掛在 precomp._lazyExtend，頂層沒有。
+function _wfgSdGrayFracAt(p, lineX) {
+  var le = p && p._lazyExtend;
+  if (!le || !le.lValuePerFrame || !p.xstbPerLine) return null;
+  var ext = p.computedExtent || 0;
+  if (!ext) return null;
+  var L = Math.floor(lineX), frac = lineX - L;
+  if (L < 0) { L = 0; frac = 0; }
+  if (L >= ext) { L = ext - 1; frac = 1; }
+  if (L < 0) return null;
+  // 本行的 XSTB↓ 已經過去 → 用本行 latch 的資料；否則延續前一行。
+  // 對應 _wfgSdVoltageAt 的 target[L]（frac >= dly）／target[L-1] 兩個分支；
+  // 往回略過沒有 falling 的行，等價於 target[] 對那些行沿用前值的語意。
+  var lat = (p.xstbPerLine[L] && frac >= p.xstbFracPerLine[L]) ? L : (L - 1);
+  while (lat >= 0 && !p.xstbPerLine[lat]) lat--;
+  var eff = le.effVtotal || 1;
+  var off = le.xstbDataOffset || 0;
+  var dataLF, polAt;
+  if (lat < 0) {
+    // 還沒有任何 latch 發生過 → 與 _wfgPrecomputeSdChannel 的初始行同一組值
+    dataLF = (eff - off) % eff;
+    polAt = (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[0] : 0);
+  } else {
+    dataLF = ((lat % eff) - off + eff) % eff;
+    polAt = lat + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[lat] : 0);
+  }
+  var lVal = le.lValuePerFrame[dataLF] || 0;
+  var maxL = le.lutStride ? (le.lutStride - 1) : 255;
+  var gf = (maxL > 0) ? (lVal / maxL) : 0;
+  if (gf < 0) gf = 0; else if (gf > 1) gf = 1;
+  var pol = le.polForLine ? (le.polForLine(polAt) ? 1 : 0) : 0;
+  return { frac: gf, pol: pol, lVal: lVal, maxL: maxL };
+}
+
 function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, srcMap) {
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var ac = gpio.analog_config || {};
@@ -3638,6 +3800,18 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
   }
   if (curA !== null) pulses.push([curA, curA + 1]); // 視窗尾端未收邊的 pulse
 
+  // v3.12.0: feedthrough drop 計算器。內插軸來自 **SD1 的** gamma 設定（Subpixel
+  // 自己沒有 gamma 參數），所以讀 SD1 slot 的 analog_config，不是這裡的 ac。
+  var ftDropAt = null;
+  if (ac.ft_enable) {
+    var _sdGpio = wfgGpios[wfgSd1SlotIdx()];
+    var _sdAc = _sdGpio ? _sdGpio.analog_config : null;
+    if (_sdAc) {
+      ftDropAt = _wfgFtDropFactory(_sdAc, wfgClampFtDrop(ac.ft_d0),
+                                   wfgClampFtDrop(ac.ft_d127), wfgClampFtDrop(ac.ft_d255));
+    }
+  }
+
   var limit = want;
   var gateAt = _wfgLsVoltFactory(gateSrc);
   var segs = [], segStart = [];
@@ -3657,18 +3831,38 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
     var h = span / N;
     var alpha = 1 - Math.exp(-h / tauSpx);
     var v = new Float32Array(N + 1);
+    var fts = null;   // v3.12.0: 本段內的 feedthrough 落差（每個 pulse 至多一個）
     for (var k = 0; k <= N; k++) {
       var x = a + k * h;
       var vg = gateAt(x);
+      var turnedOff = false;
       if (!conducting) { if (vg > von) conducting = true; }
-      else { if (vg < voff) conducting = false; }
+      else if (vg < voff) { conducting = false; turnedOff = true; }
       if (conducting && k > 0) {
         var vsd = _wfgSdVoltageAt(sdPre, x);
         vspx += (vsd - vspx) * alpha;
       }
+      /* v3.12.0 Feedthrough：Gate 掉到 TFT 關閉電壓的**那一瞬間**扣一次 ΔV。
+         此時 conducting 已經是 false，上面的積分不會執行 —— 也就是「停止積分、
+         保持當下電壓」（v3.8.0 規格）之後，再往下掉這一階。扣完之後一路 hold
+         到下一次導通，正是 feedthrough 要呈現的東西。
+         🔴 方向永遠是相減（正電壓往 0 靠、負電壓更負，與 Gate 由 VGH 往下 drop
+            同向）。不可寫成「往 0 收斂」——那會在負電壓時反向。 */
+      if (turnedOff && ftDropAt) {
+        var _g = _wfgSdGrayFracAt(sdPre, x);
+        if (_g) {
+          var _dv = ftDropAt(_g.frac, _g.pol);
+          if (_dv > 0) {
+            if (!fts) fts = [];
+            fts.push({ k: k, x: x, before: vspx, after: vspx - _dv, drop: _dv,
+                       lVal: _g.lVal, maxL: _g.maxL, pol: _g.pol });
+            vspx -= _dv;
+          }
+        }
+      }
       v[k] = vspx;
     }
-    segs.push({ a: a, h: h, n: N, v: v, hold: vspx });
+    segs.push({ a: a, h: h, n: N, v: v, hold: vspx, fts: fts });
     segStart.push(a);
   }
 
@@ -3773,7 +3967,20 @@ function _wfgSpxSamplesFromPrecomp(pre, gpio, viewStart, viewEnd, drawW) {
     var segSpan = s.h * s.n;
     var want = Math.max(8, Math.min(s.n, Math.ceil(segSpan / Math.max(lpp, 1e-9) * 2)));
     var step = Math.max(1, Math.floor(s.n / want));
-    for (var k = 0; k <= s.n; k += step) samples.push({ lineX: s.a + k * s.h, voltage: s.v[k] });
+    /* v3.12.0: 降採樣的 step 最大可到 s.n/8，會整個跳過 feedthrough 那一格 ——
+       落差點被跳過就只剩一條斜線，甚至完全看不出階梯。所以在跨過落差點之前，
+       明確補上同一個 lineX 的「掉之前」與「掉之後」兩個點，畫出來就是一條垂直
+       線，且與降採樣密度無關。 */
+    var ftl = s.fts || null, fi = 0;
+    function _pushFt(f) {
+      samples.push({ lineX: f.x, voltage: f.before });
+      samples.push({ lineX: f.x, voltage: f.after });
+    }
+    for (var k = 0; k <= s.n; k += step) {
+      while (ftl && fi < ftl.length && ftl[fi].k <= k) { _pushFt(ftl[fi]); fi++; }
+      samples.push({ lineX: s.a + k * s.h, voltage: s.v[k] });
+    }
+    while (ftl && fi < ftl.length) { _pushFt(ftl[fi]); fi++; }
     if ((s.n % step) !== 0) samples.push({ lineX: s.a + segSpan, voltage: s.v[s.n] });
     prevHold = s.hold;
     // 段後拉一條水平線到下一段起點（或視窗右緣）
@@ -22657,6 +22864,11 @@ function wfgResetToDefault() {
   wfgPanel.tft_voff = WFG_TFT_VOFF_DEFAULT;
   // v3.8.0: Subpixel 充電時間同屬「整組套用一份狀態」，一併回預設
   wfgPanel.spx_rc = WFG_SPX_RC_DEFAULT;
+  // v3.12.0: Feedthrough 同理（啟用 + 三個錨點各 1V）
+  wfgPanel.ft_enable = true;
+  wfgPanel.ft_d0 = WFG_FT_D_DEFAULT;
+  wfgPanel.ft_d127 = WFG_FT_D_DEFAULT;
+  wfgPanel.ft_d255 = WFG_FT_D_DEFAULT;
   wfgViewStart = 0;
   wfgViewEnd = Math.min(100, wfgTotalLines());
   wfgRenderGpioList();
@@ -22664,6 +22876,8 @@ function wfgResetToDefault() {
   wfgRenderTftRow();
   wfgRenderSpxRcRow();
   wfgUpdateSpxRcReadout();
+  wfgRenderFtRow();
+  wfgUpdateFtReadout();
   wfgUpdateCursorPanel();
   wfgResizeAndRender();
 }
@@ -22754,6 +22968,11 @@ function wfgLoadPreset(presetName) {
   wfgPanel.tft_voff = WFG_TFT_VOFF_DEFAULT;
   // v3.8.0: Subpixel 充電時間同理 —— preset 沒有這個欄位，載入後回預設 150
   wfgPanel.spx_rc = WFG_SPX_RC_DEFAULT;
+  // v3.12.0: Feedthrough 同理 —— preset 沒有這些欄位，載入後回預設（啟用 + 各 1V）
+  wfgPanel.ft_enable = true;
+  wfgPanel.ft_d0 = WFG_FT_D_DEFAULT;
+  wfgPanel.ft_d127 = WFG_FT_D_DEFAULT;
+  wfgPanel.ft_d255 = WFG_FT_D_DEFAULT;
   wfgSyncGateGpio(true);
   wfgSyncSpxGpio(true);
 
@@ -23307,6 +23526,9 @@ function wfgRenderPanelCard() {
   if (scb) scb.checked = !!wfgPanel.spx_show;
   wfgRenderSpxRcRow();
   wfgUpdateSpxRcReadout();
+  // v3.12.0: Feedthrough Voltage
+  wfgRenderFtRow();
+  wfgUpdateFtReadout();
 }
 
 // 充放電倍率列：拉把用整數（值 ×100，step 1 ＝ 0.01 倍），數字框直接鍵入小數。
@@ -23653,6 +23875,106 @@ window.wfgSpxRcNudge = wfgSpxRcNudge;
 window.wfgSpxRcNumCommit = wfgSpxRcNumCommit;
 window.wfgOnSpxShowChange = wfgOnSpxShowChange;
 
+// ═══════════ Feedthrough Voltage UI（v3.12.0）═══════════
+// 取消勾選時三個 drop 欄位 disable —— 值仍保留（重新勾選就回來），只是視覺上明確
+// 表示不生效。留著可編輯會讓人以為改了有用。
+function wfgUpdateFtUiState() {
+  var on = !!wfgPanel.ft_enable;
+  var cb = document.getElementById('wfg-ft-cb');
+  if (cb) cb.checked = on;
+  var grid = document.getElementById('wfg-ft-grid');
+  if (grid) grid.style.opacity = on ? '1' : '0.45';
+  var ids = ['wfg-ft-d0', 'wfg-ft-d127', 'wfg-ft-d255'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.disabled = !on;
+  }
+}
+function wfgRenderFtRow() {
+  var pairs = [['wfg-ft-d0', 'ft_d0'], ['wfg-ft-d127', 'ft_d127'], ['wfg-ft-d255', 'ft_d255']];
+  for (var i = 0; i < pairs.length; i++) {
+    var v = wfgClampFtDrop(wfgPanel[pairs[i][1]]);
+    wfgPanel[pairs[i][1]] = v;
+    var el = document.getElementById(pairs[i][0]);
+    // 正在編輯的欄位不覆寫（與 wfgRenderTftRow 同一原則）
+    if (el && document.activeElement !== el) el.value = wfgFmtV(v);
+  }
+  var hint = document.getElementById('wfg-ft-hint');
+  if (hint) hint.textContent = t('wfg.ftRange') + '：0 ~ ' + WFG_FT_D_MAX + ' V';
+  wfgUpdateFtUiState();
+}
+// 讀值框：把「三個錨點各自對應的 SD1 電壓與離中軌距離」攤開來 —— 內插軸是這些
+// 距離，看不到它們就無法自己驗算中間灰階的 ΔV 對不對。
+function wfgUpdateFtReadout() {
+  var el = document.getElementById('wfg-ft-readout');
+  if (!el) return;
+  if (!wfgPanel.ft_enable) {
+    el.innerHTML = '<span style="color:#64748b">' + t('wfg.ftOff') + '</span>';
+    return;
+  }
+  var sd = wfgGpios[wfgSd1SlotIdx()];
+  var sdAc = (sd && sd.enable && sd.waveform_type === 1) ? sd.analog_config : null;
+  if (!sdAc) {
+    el.innerHTML = '<span style="color:#f87171;font-weight:700">✗ ' + t('wfg.spxNoSd') + '</span>';
+    return;
+  }
+  var vMid = _wfgSdMidRail(sdAc);
+  function f(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+  var rows = [['L0', 0], ['L127', 127 / 255], ['L255', 1]];
+  var h = '<span style="color:#94a3b8">' + t('wfg.ftMidRail') + '　</span>'
+        + '<span style="color:#38bdf8;font-weight:700">' + f(vMid) + ' V</span><br>'
+        + '<span style="color:#94a3b8">' + t('wfg.ftAnchorV') + '</span><br>';
+  for (var i = 0; i < rows.length; i++) {
+    var vp = wfgAnalogTargetVoltageWithPol(rows[i][1], 1, sdAc);
+    var vn = wfgAnalogTargetVoltageWithPol(rows[i][1], 0, sdAc);
+    h += '<span style="color:#64748b">' + rows[i][0] + '</span>　'
+      + '<span style="color:#4ade80">POL+ ' + f(vp) + 'V</span>'
+      + '<span style="color:#64748b"> / </span>'
+      + '<span style="color:#f0abfc">POL− ' + f(vn) + 'V</span>'
+      + '<span style="color:#64748b"> → d=' + f(Math.abs(vp - vMid))
+      + ' / ' + f(Math.abs(vn - vMid)) + '</span><br>';
+  }
+  h += '<span style="color:#64748b">' + t('wfg.ftInterpNote') + '</span>';
+  var spx = wfgGpios[wfgSpxSlotIdx()];
+  var spxAc = spx ? spx.analog_config : null;
+  if (spxAc && spxAc.voltage_min < 0) {
+    h += '<br><span style="color:#94a3b8">' + t('wfg.ftYAxisNote') + '　</span>'
+      + '<span style="color:#38bdf8;font-weight:700">' + f(spxAc.voltage_min) + ' V</span>';
+  }
+  el.innerHTML = h;
+}
+function wfgOnFtEnableChange(checked) {
+  wfgPanel.ft_enable = !!checked;
+  wfgSyncSpxGpio();          // 內含 Y 軸下緣的重算（ac.voltage_min）
+  wfgUpdateFtUiState();
+  wfgUpdateFtReadout();
+  _wfgInvalidateSpxOnly();   // Gate 與 SD1 完全不受影響，只重算 Subpixel 這一條
+  wfgScheduleSpxRender();
+}
+function wfgOnFtDropInput(which, el) {
+  var v = wfgClampFtDrop(el.value);
+  var key = 'ft_' + which;
+  if (v === wfgPanel[key]) return;   // 同值不重算（連續鍵入會連發）
+  wfgPanel[key] = v;
+  wfgSyncSpxGpio();
+  wfgUpdateFtReadout();
+  _wfgInvalidateSpxOnly();
+  wfgScheduleSpxRender();
+}
+// 失焦／Enter：把顯示值回寫成實際生效的值（打 -1 會被夾成 0，不回寫欄位會停在 -1）
+function wfgOnFtDropCommit(which, el) {
+  var v = wfgClampFtDrop(el.value);
+  wfgPanel['ft_' + which] = v;
+  el.value = wfgFmtV(v);
+  wfgSyncSpxGpio();
+  wfgUpdateFtReadout();
+  _wfgInvalidateSpxOnly();
+  wfgScheduleSpxRender();
+}
+window.wfgOnFtEnableChange = wfgOnFtEnableChange;
+window.wfgOnFtDropInput = wfgOnFtDropInput;
+window.wfgOnFtDropCommit = wfgOnFtDropCommit;
+
 function wfgGateSliderSync(rangeEl) {
   var row = rangeEl.closest('.wfg-slider-row');
   var numEl = row ? row.querySelector('input[type="number"]') : null;
@@ -23758,6 +24080,109 @@ window.wfgDebugGate = function(maxFrames) {
            _diag: { gateSlot: gateIdx, isGate: !!gAc.is_gate, gateAcCko: gAc.cko_index,
                     gateOrdinal: gAc.gate_pulse_ordinal, gateCkSrc: gAc.source_ck_idx,
                     gateEvents: gateEvents.length, ckoEvents: ckoEvents.length } };
+};
+
+// ─── Feedthrough 驗證用 helper（v3.12.0）───
+// 從 Subpixel 的預計算結果如實讀回每一次 feedthrough 落差：發生位置、當下 latch 到的
+// 灰階與極性、扣掉的 ΔV、扣前／扣後電壓。
+// 🔴 這裡**只回報實測值，不重算預期值** —— 用同一支 _wfgFtDropFactory 算「預期」再跟
+//    自己比對是自我循環，任何公式錯誤都會一起錯、比對照樣通過。預期值要在外部
+//    獨立算（見 CHANGELOG v3.12.0 的驗收紀錄）。
+window.wfgDebugFeedthrough = function(maxDrops) {
+  maxDrops = maxDrops || 12;
+  var si = wfgSpxSlotIdx();
+  var gpio = wfgGpios[si];
+  if (!gpio || !gpio.enable || gpio.waveform_type !== 3) return { ok: false, reason: 'spx slot not active' };
+  _wfgEnsureSpxPrecomp();
+  var p = _wfgPrecomputed[si];
+  if (!p) return { ok: false, reason: 'no spx precompute' };
+  var sd = wfgGpios[wfgSd1SlotIdx()];
+  var sdAc = sd ? sd.analog_config : null;
+  var segs = p.segs || [];
+  var drops = [];
+  for (var i = 0; i < segs.length && drops.length < maxDrops; i++) {
+    var fl = segs[i].fts;
+    if (!fl) continue;
+    for (var j = 0; j < fl.length && drops.length < maxDrops; j++) {
+      var f = fl[j];
+      drops.push({ seg: i, lineX: f.x, lVal: f.lVal, maxL: f.maxL, pol: f.pol,
+                   grayFrac: (f.maxL > 0) ? (f.lVal / f.maxL) : 0,
+                   vSdAtOff: sdAc ? _wfgSdVoltageAt(_wfgPrecomputed[wfgSd1SlotIdx()], f.x) : null,
+                   vBefore: f.before, vAfter: f.after, drop: f.drop });
+    }
+  }
+  return { ok: true,
+           ftEnable: !!wfgPanel.ft_enable,
+           anchors: { d0: wfgPanel.ft_d0, d127: wfgPanel.ft_d127, d255: wfgPanel.ft_d255 },
+           vMid: sdAc ? _wfgSdMidRail(sdAc) : null,
+           sdGamma: sdAc ? ((sdAc.sd_gamma != null) ? sdAc.sd_gamma : 2.2) : null,
+           sdRails: sdAc ? { pos_min: sdAc.pos_gamma_min, pos_max: sdAc.pos_gamma_max,
+                             neg_min: sdAc.neg_gamma_min, neg_max: sdAc.neg_gamma_max,
+                             bit_depth: sdAc.bit_depth, gray_mode: sdAc.gray_mode } : null,
+           spxYAxisMin: (gpio.analog_config || {}).voltage_min,
+           _diag: { noGate: !!p.noGate, noSource: !!p.noSource,
+                    spxExtent: p.computedExtent, srcSdExtent: p.srcSdExtent,
+                    srcGateExtent: p.srcGateExtent,
+                    sdPrecomp: !!_wfgPrecomputed[wfgSd1SlotIdx()],
+                    sdExtent: _wfgPrecomputed[wfgSd1SlotIdx()] ? _wfgPrecomputed[wfgSd1SlotIdx()].computedExtent : null,
+                    viewStart: wfgViewStart, viewEnd: wfgViewEnd,
+                    tftVon: wfgPanel.tft_von, tftVoff: wfgPanel.tft_voff,
+                    vgh: wfgLsGlobal.vgh, vgl: wfgLsGlobal.vgl },
+           segCount: segs.length, dropCount: drops.length, drops: drops };
+};
+/* ─── Subpixel 段式資料的數值 dump（v3.12.0，回歸比對用）───
+   為什麼需要這支：wfg 的 **canvas 逐像素比對在「重新載入 ＋ 重跑同一組操作」的層級
+   上不可重現**（實測：v3.11.0 自己跑兩次，Vpix 那一帶的相異色數 172 → 578，整張
+   canvas 的 distinct 3362 → 11670）。原因是 SD/SPX 的 lazy-extend 與降採樣密度取決於
+   render 當下已算到多遠，而 progress overlay 隱藏並不代表 lazy-extend 已完成。
+   所以「停用時與前一版零差異」這件事要在**數值層**驗，不是像素層。
+   本函式只讀既有的預計算結果，不參與任何計算。 */
+window.wfgDumpSpx = function(maxSegs) {
+  maxSegs = maxSegs || 40;
+  var si = wfgSpxSlotIdx();
+  var gpio = wfgGpios[si];
+  if (!gpio) return { ok: false, reason: 'no spx slot' };
+  if (typeof _wfgEnsureSpxPrecomp === 'function') _wfgEnsureSpxPrecomp();
+  var p = _wfgPrecomputed[si];
+  if (!p) return { ok: false, reason: 'no precompute' };
+  var segs = p.segs || [];
+  function fnv(s) { var h = 0x811c9dc5 >>> 0;
+    for (var i = 0; i < s.length; i++) { h = ((h ^ s.charCodeAt(i)) >>> 0); h = (Math.imul(h, 16777619)) >>> 0; }
+    return (h >>> 0).toString(16); }
+  var out = [], allParts = [];
+  for (var i = 0; i < segs.length && i < maxSegs; i++) {
+    var s = segs[i], parts = [];
+    for (var k = 0; k <= s.n; k++) parts.push(s.v[k]);
+    var vh = fnv(parts.join(','));
+    allParts.push(s.a + '|' + s.h + '|' + s.n + '|' + s.hold + '|' + vh);
+    out.push({ i: i, a: s.a, h: s.h, n: s.n, hold: s.hold, vHash: vh,
+               v0: s.v[0], vMid: s.v[Math.floor(s.n / 2)], vEnd: s.v[s.n],
+               ftCount: s.fts ? s.fts.length : 0 });
+  }
+  return { ok: true, segCount: segs.length, computedExtent: p.computedExtent,
+           vMin: p.vMin, vMax: p.vMax,
+           yAxisMin: (gpio.analog_config || {}).voltage_min,
+           overallHash: fnv(allParts.join(';')), segs: out };
+};
+// 面板參數的程式化設定入口（驗證用）—— 走與 UI 完全相同的 handler，不直接改 wfgPanel，
+// 否則會繞過 wfgSyncSpxGpio / 失效邏輯，測出來的東西跟使用者操作的不是同一條路徑。
+window.wfgDebugSetFt = function(opts) {
+  opts = opts || {};
+  if (opts.enable != null) {
+    var cb = document.getElementById('wfg-ft-cb');
+    if (cb) { cb.checked = !!opts.enable; }
+    wfgOnFtEnableChange(!!opts.enable);
+  }
+  var map = { d0: 'wfg-ft-d0', d127: 'wfg-ft-d127', d255: 'wfg-ft-d255' };
+  for (var k in map) {
+    if (opts[k] == null) continue;
+    var el = document.getElementById(map[k]);
+    if (!el) continue;
+    el.value = String(opts[k]);
+    wfgOnFtDropCommit(k, el);
+  }
+  return { ft_enable: wfgPanel.ft_enable, ft_d0: wfgPanel.ft_d0,
+           ft_d127: wfgPanel.ft_d127, ft_d255: wfgPanel.ft_d255 };
 };
 
 // Hold-to-repeat: attach to all .wfg-slider-btn after DOM update
@@ -29600,6 +30025,11 @@ window._onLangChange = function(lang) {
   try { wfgUpdateCursorPanel(); } catch(e) {}
   // v3.9.0: 電壓游標卡片的內容是 JS 用 t() 拼出來的，不帶 data-i18n → applyLang 換不到
   try { wfgUpdateOverlayCard(); } catch(e) {}
+  /* v3.12.0: Feedthrough 的「可輸入範圍」提示與讀值框同理 —— 都是 JS 用 t() 拼的，
+     沒有 data-i18n 屬性，applyLang 掃不到。實測不掛這裡的話切到 English 之後
+     說明文字換了、提示仍停在「可輸入範圍：0 ~ 50 V」。 */
+  try { wfgRenderFtRow(); } catch(e) {}
+  try { wfgUpdateFtReadout(); } catch(e) {}
   // LA mode: re-render toolbar state (理論取樣時間 etc.) + scope labels (I/O 電平標註)
   if (wfgCurrentMode === 'la') {
     try { wfgLaUpdateToolbarState(wfgLaBuildConfig()); } catch(e) {}
@@ -29873,6 +30303,11 @@ window.wfgImportConfig = function(jsonStr) {
   // v3.8.0: 舊檔沒有 spx_rc / spx_show → 落回預設 150 / 顯示（舊檔照樣載入，不報錯）
   wfgPanel.spx_rc = WFG_SPX_RC_DEFAULT;
   wfgPanel.spx_show = true;
+  // v3.12.0: 舊檔（v3.11.0 及之前）沒有 ft_* → 落回預設（啟用 + 三個錨點各 1V）
+  wfgPanel.ft_enable = true;
+  wfgPanel.ft_d0 = WFG_FT_D_DEFAULT;
+  wfgPanel.ft_d127 = WFG_FT_D_DEFAULT;
+  wfgPanel.ft_d255 = WFG_FT_D_DEFAULT;
   if (config.panel) {
     if (config.panel.gate_line != null) wfgPanel.gate_line = Math.max(1, parseInt(config.panel.gate_line, 10) || 1);
     if (config.panel.gate_show != null) wfgPanel.gate_show = !!config.panel.gate_show;
@@ -29886,6 +30321,13 @@ window.wfgImportConfig = function(jsonStr) {
     if (config.panel.tft_von != null && isFinite(_tvon)) wfgPanel.tft_von = wfgRoundV(_tvon);
     var _tvoff = parseFloat(config.panel.tft_voff);
     if (config.panel.tft_voff != null && isFinite(_tvoff)) wfgPanel.tft_voff = wfgRoundV(_tvoff);
+    // v3.12.0: Feedthrough。drop 值**要夾**（與 TFT 值不同）—— 負的 drop 在物理上
+    // 不是 feedthrough 而是反向推升，載入後會讓波形往上跳，那不是「如實載入一個
+    // 不成立的狀態」而是直接畫錯。上下界都是物理約束，不是使用者的設計選擇。
+    if (config.panel.ft_enable != null) wfgPanel.ft_enable = !!config.panel.ft_enable;
+    if (config.panel.ft_d0 != null) wfgPanel.ft_d0 = wfgClampFtDrop(config.panel.ft_d0);
+    if (config.panel.ft_d127 != null) wfgPanel.ft_d127 = wfgClampFtDrop(config.panel.ft_d127);
+    if (config.panel.ft_d255 != null) wfgPanel.ft_d255 = wfgClampFtDrop(config.panel.ft_d255);
   }
   wfgPanel.gate_rc_mult = wfgClampGateRcMult(wfgPanel.gate_rc_mult);
   wfgLsRebuildCkoSlots();

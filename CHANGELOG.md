@@ -22,6 +22,188 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.12.0 — 2026-08-14 ｜ MINOR ｜ ⚠ 輸出變更
+
+Subpixel 電壓卡片新增 **Feedthrough Voltage**：Gate 電壓掉到 TFT 關閉電壓的那一瞬間，Subpixel 電壓再階梯式往下掉一階。下掉幅度由 **L0／L127／L255 三個錨點**的 drop 電壓決定（預設各 1 V），中間灰階內插取得。核取方塊**預設打勾**。
+
+判定依據：R1～R4 逐項判、取最高者。
+
+| 項目 | 級別 | 依據 |
+|---|---|---|
+| ① 新增 Feedthrough 功能（核取方塊 ＋ 三個 drop 欄位） | **MINOR** | §2 案例 1「新增一個完整功能」字面適用 —— 多了能做的事，既有控制項全部在原位，沒有任何入口消失或移位 |
+| ② 預設啟用（＝改變起始狀態） | **MINOR** | **R4**：起始狀態／預設值改變，但**不影響任何既有操作** —— 取消勾選就完整取回 v3.11.0 的行為（已用逐像素雜湊驗證可逆，見〈驗收〉第 6 項） |
+| ③ Subpixel 的 Y 軸下緣往下延伸到 −max(ΔV) | PATCH | §2 案例 3「改 UI 版面」的微調一側 —— 沒有控制項移位。它是 ① 的必要配套（不延伸的話掉到 0 V 以下的部分會被畫到框外，**電壓游標也會被卡在 0 V**，見〈三〉） |
+
+取最高 → **MINOR**，`v3.11.0` → `v3.12.0`。
+
+R2 不觸發 MAJOR：既有入口一個都沒動。§2 案例 8（既有計算公式主動改設計）**不適用** —— Subpixel 在 Gate 關閉後「停止積分、保持當下電壓」這條 v3.8.0 的規則一字未改，feedthrough 是**接在那個 hold 值之後**再減一階，不是換掉原本的模型。
+
+**為什麼掛 `⚠ 輸出變更`**：本功能**預設啟用**，所以同一組設定用新版重跑，Subpixel 波形會多一個往下的階梯，Y 軸下緣也會從 0 V 變成 −max(ΔV)（預設 −1 V）造成整條波形在框內的垂直位置改變。依 R1 的範圍定義，這同時命中「數值類」與「版面／構圖類」，拿 v3.11.0 建立的 Subpixel 基線不能直接沿用。**停用時逐像素零差異**（已驗證），所以基線只在啟用態失效。
+
+### 一、規格（依 Bruce 2026-08-14 裁示）
+
+```
+UI（Subpixel 電壓卡片內，排在「Subpixel 充電時間」之後、顯示開關之前）
+ ├─ ☑ 啟用 Feedthrough Voltage（預設打勾；取消勾選時三個欄位 disable ＋ 變暗）
+ └─ L0 Drop / L127 Drop / L255 Drop（V），預設各 1，可輸入 0 ~ 50
+
+行為
+  觸發：Gate 電壓掉到 TFT 關閉電壓以下的那一瞬間 → 階梯式扣一次
+  方向：V = V − ΔV，永遠相減（正電壓往 0 靠、負電壓更負，與 Gate 由 VGH 往下 drop 同向）
+        🔴 不是「往 0 收斂」——那會在負電壓時反向
+  幅度：依當下灰階，在三個錨點之間分段線性內插（L0~L127、L127~L255 兩段）
+  停用：完全維持 v3.11.0 行為（關閉後保持關閉前的電壓不變）
+```
+
+**兩個經 Bruce 裁示的設計點**：
+
+- **A1｜正負極性共用同一組錨點**（三個欄位，不分極性）。
+- **B2｜內插在電壓空間進行**，內插軸是**離中軌距離** `d = |V_sd − Vmid|`。
+
+### 二、為什麼 B2 的內插軸必須是「離中軌距離」
+
+同一個灰階在兩種極性下對應**兩個不同的 SD1 電壓**，而且方向相反：
+
+| 灰階 | 正極性（POL+） | 負極性（POL−） |
+|---|---|---|
+| L0 | `pos_gamma_min` 5.20 V | `neg_gamma_max` 4.80 V |
+| L127 | 7.50 V | 2.50 V |
+| L255 | `pos_gamma_max` 9.80 V | `neg_gamma_min` 0.20 V |
+
+（表中數值為 `fhd_60hz_sg` preset 的 SD1 設定。這四個端點就是 Bruce 所說的 VGMA7／VGMA8／VGMA1／VGMA14 —— 本工具**沒有** VGMA1~14 這 14 個獨立設定，只有這 4 個端點 ＋ `sd_gamma` 指數所構成的對稱 S 曲線；中間 12 個 VGMA 由該曲線取代。對應關係已逐項核對 `wfgAnalogTargetVoltageWithPol()`：gf=0 時 POL+ 取 `pos_gamma_min`、POL− 取 `neg_gamma_max`，gf=1 時取另外兩端。）
+
+正極性 L0→L255 遞增、負極性遞減。**直接拿電壓當內插軸，兩個極性會往相反方向查表** —— 選了 A1（共用一組錨點）之後這就從注意事項變成必要條件。取離中軌距離之後，兩者都成為同一條遞增的軸。
+
+**中軌 Vmid 的取法**（不寫死）：`Vmid = (pos_gamma_min + neg_gamma_max) / 2`。依據是這兩個端點都是 **L0** 對應的電壓（各軌最靠中間的那一端），其中點即極性反轉的軸。preset 下 = 5.00 V，程式預設 (6.5 / 6.5) 下 = 6.50 V。正負軌不對稱時同樣成立。
+
+**附帶的數學性質**（實作仍照裁示顯式走 d，此處僅記錄以便覆核）：
+```
+POL+：d = (pMin − Vmid) + gf·(pMax − pMin)
+POL−：d = (Vmid − nMax) + gf·(nMax − nMin)
+⇒ t = (d − d(L0)) / (d(L127) − d(L0)) = gf / gf(L127)
+```
+t 與 rail 位置、跨度、極性**全部無關** ⇒ 同一灰階在正負極性下 ΔV 必然相同，即使兩軌不對稱。**這就是 A1 成立的依據**，不是巧合。
+
+**錨點恆為 8-bit 灰階語意**（L0／L127／L255），當下灰階走 `L / maxL` 換算 —— 與 `gray_fixed_level` 的「8-bit input scaled to bit_depth」慣例同源，`bit_depth` 改成 6 或 10 時三個錨點的意義不變。
+
+### 三、灰階從哪裡取（整個功能的基礎）
+
+`_wfgSdGrayFracAt()` 讀 SD1 預計算的 `lValuePerFrame`（`Uint16Array(effVtotal)`，建於 `_wfgPrecomputeSdChannel`）。
+
+🔴 **兩個查證後才確定、不能靠推測的點**：
+
+1. `lValuePerFrame` **不在 precompute 的頂層 return，只掛在 `precomp._lazyExtend`**。
+2. latch 的判斷必須與 `_wfgSdVoltageAt()` **同源**，否則 ΔV 會對到另一筆資料的灰階：
+   - `xstbPerLine[L] && frac >= xstbFracPerLine[L]` → latch 行 = L；否則往前找最近有 XSTB falling 的行（等價於 `target[]` 對沒有 falling 的行沿用前值）
+   - 再套 XSTB `f_dly` 造成的跨行偏移：`dataLF = (lat % effVtotal − xstbDataOffset + effVtotal) % effVtotal`
+   - 全程無 falling 時退回 `(effVtotal − xstbDataOffset) % effVtotal`（與主迴圈的初始行同式）
+
+極性同樣取自 latch 行：`polForLine(lat + xstbPolFracPerLine[lat])`（v2.97.477 起 XPOL 在 XSTB rising 取樣）。
+
+**這條路徑完全不動 SD1 的 precompute**，所以「SD1 波形零差異」是結構上保證的，不靠比對。
+
+### 四、Y 軸下緣與電壓游標是綁在一起的
+
+`wfgSyncSpxGpio()` 的 `ac.voltage_min` 由 `Math.min(0, _sdLo)` 改為 `Math.min(0, _sdLo, -wfgFtMaxDrop())`。
+
+不延伸的後果**不只是波形被切掉**：電壓游標的可動範圍是「本視窗可見極值 ∩ **座標系**」（`wfgVoltCursorAllowedRange`），座標系停在 0 V 時游標一樣到不了負電壓區，掉下去的那一段量不到。`wfgAnalogDisplayRange()` 讀的就是 `ac.voltage_min`，改一處兩邊同步。
+
+游標的可動範圍本身**不需要另外處理** —— auto-range 走 `samplesData.samples` 的可見極值，而落差點已明確寫進 samples（見〈五〉），會自動跟著變。
+
+### 五、階梯不能被降採樣吃掉
+
+`_wfgSpxSamplesFromPrecomp()` 的降採樣 `step` 最大可到 `s.n / 8`，會整個跳過 feedthrough 那一格 —— 落差點被跳過就只剩一條斜線，甚至完全看不出階梯。所以段內改為：在跨過落差點之前，明確補上**同一個 `lineX` 的「掉之前」與「掉之後」兩個點**，畫出來是一條垂直線，與降採樣密度無關。
+
+落差資料存在 seg 的 `fts` 陣列（每個 gate pulse 至多一個），含 `k / x / before / after / drop / lVal / pol`。
+
+### 六、驗證用 helper
+
+新增三支（沿用 `wfgDebugGate` 的慣例）：
+
+| helper | 用途 |
+|---|---|
+| `wfgDebugFeedthrough(maxDrops)` | 如實回報每一次落差：位置、latch 到的灰階與極性、ΔV、扣前／扣後電壓，＋ 一組 `_diag`（`noGate` / `noSource` / 各條的 `computedExtent` / view / TFT 電壓） |
+| `wfgDebugSetFt(opts)` | 程式化設定三個錨點與啟用狀態 |
+| `wfgDumpSpx(maxSegs)` | dump Subpixel 段式資料的**數值**（每段 `a/h/n/hold` ＋ 段內逐點電壓雜湊），供跨版本回歸比對 |
+
+🔴 `wfgDebugFeedthrough` 與 `wfgDumpSpx` **只回報實測值，不重算預期值** —— 用同一支 `_wfgFtDropFactory` 算「預期」再跟自己比對是自我循環，公式錯了會一起錯、比對照樣通過。預期值一律在外部獨立算。
+🔴 `wfgDebugSetFt` 走與 UI 完全相同的 handler（不直接改 `wfgPanel`），否則會繞過 `wfgSyncSpxGpio` 與失效邏輯，測到的不是使用者走的那條路徑。`_diag` 是後來補上的 —— 第一次量到 `segCount: 0` 時若沒有它，只能靠猜。
+
+### 驗收
+
+環境：本機 `http.server`，`fhd_60hz_sg` preset、FRAME 重複數 4、G45、`wfgResetView()`（view 0~100）。v3.11.0 由 `git archive d51cbab` 取出另起一個 server 對照。
+
+**1｜預設值**：核取方塊打勾、三個 drop 皆 1 V、可輸入範圍 0~50 V、readout 顯示 `中軌 Vmid 5.00 V` 與三個錨點的 POL+／POL− 電壓與 d 值。取消勾選 → 三個欄位 `disabled` ＋ 變暗（截圖存證）。
+
+**2｜啟用 vs 停用波形對照**（G45、L255、POL−）：
+
+| | Subpixel 波形 | Y 軸 |
+|---|---|---|
+| 啟用 | 充到 0.20 V → Gate 掉到 −5 V 之後**垂直掉到 −2.80 V** | 0.20 V ~ −2.80 V |
+| 停用 | 充到 0.20 V → **一路平走，無階梯** | 0.00 V ~ 0.20 V |
+
+**3｜內插實測**（`L0=0.5 / L127=1.5 / L255=3.0`，SD1 切 Fixed 灰階以精確指定 L；預期值以獨立腳本按〈二〉的算式重算，**不從實作取值**）：
+
+| L | 實測 ΔV (POL−) | 實測 ΔV (POL+) | 獨立算式預期 | 差 |
+|---|---|---|---|---|
+| 0 | 0.50000000 | 0.50000000 | 0.50000000 | 0 |
+| 32 | 1.03442241 | 1.03442241 | 1.03442241 | 1.6e−09 |
+| 64 | 1.23234628 | 1.23234628 | 1.23234628 | 2.1e−09 |
+| 96 | 1.38055799 | 1.38055799 | 1.38055799 | 4.2e−09 |
+| 127 | 1.50000000 | 1.50000000 | 1.50000000 | 0 |
+| 128 | 1.50534379 | 1.50534379 | 1.50534379 | 1.2e−09 |
+| 160 | 1.69011802 | 1.69011802 | 1.69011802 | 3.6e−10 |
+| 192 | 1.91320167 | 1.91320167 | 1.91320167 | 4.7e−09 |
+| 224 | 2.21266679 | 2.21266679 | 2.21266679 | 2.0e−09 |
+| 255 | 3.00000000 | 3.00000000 | 3.00000000 | 0 |
+
+最大差 4.7e−09（浮點捨入）。順帶對照：若改在**灰階空間**內插，L32 會是 0.752（差 37.6%）、L224 會是 2.637（差 −16.1%）—— 兩種做法差別可觀，B2 的裁示不是形式問題。
+
+**4｜正負極性**：上表每一列 POL+ 與 POL− 的 ΔV 逐位吻合（僅最後一位浮點差），且全部落差都是 `vAfter < vBefore`（方向往下）。
+
+**5｜Y 軸延伸與游標**：`ac.voltage_min` 隨 max(ΔV) 變動（實測 1 V → −1、3 V → −3、停用 → 0）。ΔV=3 V 時 Subpixel 掉到 −2.80 V，波形完整可見；Vpix 的兩條電壓游標讀到 **V1 = −0.55 V、V2 = −2.05 V**，皆位於負電壓區（＝座標系與可動範圍都跟著延伸了）。
+
+**6｜停用時與 v3.11.0 零差異 —— 改用數值級比對，原因如下**
+
+🔴 **先說結論中最重要的一件事：wfg 的 canvas 逐像素比對在「重新載入 ＋ 重跑同一組操作」的層級上不可重現，這是既有行為，不是本次改動造成的。** 這一點是實測出來的，不是推論：
+
+| 實測 | 結果 |
+|---|---|
+| **同一個 v3.11.0 分頁**，clear → reload → 同一組序列，跑**兩次** | 整張 canvas 雜湊 `cf767898` vs `809f7678`；相異色數 **11,670 vs 3,362** |
+| 同上，只比 Vpix 那一帶（列 1417~1504） | 相異色數 **172 vs 578** |
+| 同一狀態內連續重繪（不重新載入） | **穩定**（雜湊不變） |
+
+相異色數差三倍不是抗鋸齒雜訊，是「波形畫得多密」整體不同。根因：**SD/SPX 的 lazy-extend 與降採樣密度取決於 render 當下已經算到多遠，而 progress overlay 隱藏並不代表 lazy-extend 已完成**（同一件事也解釋了為什麼第一次量到的 `wfgDumpSpx` 回 `segCount: 0` —— SD 還沒 extend 到 G45 那個 pulse）。
+
+所以「零差異」改在**數值層**驗，繞開繪圖的非決定性。做法：新增 `window.wfgDumpSpx()`（見〈六〉），並用腳本把**位元完全相同的同一段 helper** 注入 `git archive d51cbab` 取出的 v3.11.0（只加 helper，不動任何計算；注入後實測該檔 `ft_enable` 出現次數 = 0，確認是真的舊版）。兩邊各自跑到收斂（連續兩次 dump 相同）後比對。
+
+比對內容：Subpixel 的全部段式資料 —— 每段的 `a / h / n / hold` ＋ **段內每一個取樣點的電壓逐點雜湊**（4 段 × 139 點）。
+
+| 狀態 | overallHash | seg0.hold | seg0.vHash | Y 軸下緣 | 段數 | 落差數 |
+|---|---|---|---|---|---|---|
+| v3.11.0（＋helper） | `30414702` | 1.284477630033319 | `8961b572` | 0 | 4 | 0 |
+| v3.12.0 ft **停用** | `30414702` ✅ **相同** | 1.284477630033319 ✅ | `8961b572` ✅ | 0 ✅ | 4 | 0 |
+| v3.12.0 ft **啟用**（負向對照） | `2e380b88` ❌ 不同 | 0.28447763003331894 | `fe2d1657` | −1 | 4 | 4 |
+
+啟用與停用的 `hold` 差 **1.000000000000000**（＝ L0 錨點的 1 V），負向對照證明這個比對有辨識力；停用時逐點數值與 v3.11.0 完全一致。
+
+另外，兩邊的**輸入狀態**也逐欄位比對過（`wfgExportConfig()` 的每個 top-level key 各算雜湊）：19 個 key 中只有 `gpios` 與 `panel` 不同，而深入到逐 gpio 比對後，27 個 gpio 只有 **idx 26（Subpixel）**不同，差異**只有多出 `ft_enable` / `ft_d0` / `ft_d127` / `ft_d255` 四個欄位**（`voltage_min` 兩邊皆 0）。SD1（idx 18）與其餘 25 個 gpio、`frame` / `lsGlobal` / `channels` / `view` / `cursors` 全部逐位元組相同。
+
+（順帶記錄另一個較小的非決定性：canvas 第 117 與 153 列在**首次繪製與後續重繪之間**也會變 —— 同一分頁不改設定、只重繪一次即可重現。位置在 canvas 上方的文字區，離 Subpixel 波形 1200 列以外。）
+
+**7｜舊檔相容**：v3.11.0 匯出檔的 `panel` 區塊實測只有 `gate_line / gate_show / gate_rc_mult / tft_von / tft_voff / spx_rc / spx_show` 七個欄位、無任何 `ft_*`。先把 ft 設成非預設（停用 ＋ 0.5/1.5/3.0），再匯入該格式 → `wfgImportConfig` 回傳 `true`、無 error，ft 落回預設（啟用 ＋ 1/1/1），核取方塊與三個欄位的 DOM 同步更新。
+
+**8｜版號閘**：`tools/check_cache_buster.py` 指出 `index.html` 引用的 `?v=` 與前一版相同（因為 `common/version.js`、`common/i18n.js` 本次有改），已一併 bump 為 `20260814wfg3120`。`pre-commit` 通過。
+
+### 順帶發現（不在本次範圍，回報供裁示）
+
+1. **改 SD1 的灰階設定（`gray_mode` / `gray_fixed_level`）後，Subpixel 波形不會即時更新。** 實測：連續改 `gray_fixed_level` 為 0→32→…→255，Subpixel 讀到的 `lVal` 全部停在第一次的值不動；隨後改一次 Gate 條數（走 `_wfgInvalidateGateOnly()`）就立刻正確。原因是 `wfgOnAnalogConfigChange` 走 dirty 路徑，而 `_wfgSpxStale()` 的判斷只看 `ver` / `totalLines` / `srcSdExtent` —— SD1 重算後 `computedExtent` 不變，三個條件全不成立。**這是 v3.8.0 起就存在的既有結構，與本次改動無關**（本次的 handler 都自己呼叫 `_wfgInvalidateSpxOnly()`，不受影響）。未修，因為它會動到 SD/SPX 的失效判斷，屬於獨立的一項改動。
+2. preset 的 SD1 是 `gray_mode: 2`（H1 逐行交替 L0／L255），**預設狀態下驗不到內插**（同一條 G 每 frame 對到同一個 data line ⇒ 灰階固定）。要驗中間灰階必須改 `gray_mode`，或改 Gate 條數換到不同的 data line。
+3. **`wfg-progress-overlay` 隱藏 ≠ 全部算完。** SD/SPX 的 lazy-extend 掛在 render 的逐列繪製上，不走那個 overlay。任何跨版本或跨載入的回歸比對都必須自己等到「連續兩次量測相同」才算收斂 —— 只等 overlay 消失會拿到中間態（本次實測踩到兩次：一次讓 `wfgDumpSpx` 回 `segCount: 0`，一次讓整張 canvas 的相異色數少了三分之二）。
+4. 改 FRAME 重複數之後，**SD1 的 `computedExtent` 仍停在舊值**（實測 1000 frames → 4 frames 後仍是 1112000）。SPX 自己會因 `p.totalLines !== totalLines` 重算、且 `want = min(自己要的, sdExt)` 取小者，所以結果正確；但這個殘留值會讓診斷數字看起來矛盾。同樣屬既有結構，未修。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.11.0 — 2026-08-14 ｜ MINOR
 
 四件事：左側兩張類比卡片的外框改為**上綠下藍**、移除 IC 類比信號卡裡那張**殘留的 Subpixel 空殼卡片**、兩張卡片**改名**（`類比信號` → `IC 類比信號`、`面板信號` → `面板類比信號`）、**輸出通道卡片的色點也能開調色盤**。
