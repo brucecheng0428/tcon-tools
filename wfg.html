@@ -1243,7 +1243,10 @@
                       <input type="number" step="0.1" min="0" id="wfg-ft-d255" oninput="wfgOnFtDropInput('d255',this)" onchange="wfgOnFtDropCommit('d255',this)" style="width:100%"></div>
                   </div>
                 </div>
-                <div id="wfg-ft-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
+                <!-- v3.14.0: 原本這裡有一個 wfg-ft-readout 灰框（中軌 Vmid ／三個錨點的
+                     SD1 電壓與離中軌距離／內插說明／Y 軸下緣提示）。依 Bruce 2026-08-14
+                     「『中軌 V-MID』這個文字描述 block 可以直接拿掉，因為完全看不懂」整框移除。
+                     上方的 wfg-ft-hint（可輸入範圍 0 ~ 4 V）是操作必需資訊，保留。 -->
                 <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#e2e8f0;cursor:pointer">
                   <input type="checkbox" id="wfg-spx-show-cb" checked onchange="wfgOnSpxShowChange(this.checked)" style="accent-color:#38bdf8;cursor:pointer">
                   <span data-i18n="wfg.spxShow">在波形區顯示 Subpixel 波形</span>
@@ -1267,7 +1270,9 @@
                 <div class="wfg-field" style="margin-top:8px;margin-bottom:0" id="wfg-vcom-field">
                   <label data-i18n="wfg.vcomValue">VCOM 電壓 (V)</label>
                   <div style="font-size:10px;color:#64748b;margin-bottom:4px" id="wfg-vcom-hint"></div>
-                  <input type="number" step="0.1" id="wfg-vcom-v" oninput="wfgOnVcomInput(this)" onchange="wfgOnVcomCommit(this)" style="width:100%">
+                  <!-- v3.14.0: step 0.1 → 0.01（Bruce 2026-08-14「Vcom 電壓的輸入 Step 為 0.01V」）。
+                       內部 wfgRoundV() 本來就取到小數 2 位，0.01 不會被四捨五入吃掉。 -->
+                  <input type="number" step="0.01" id="wfg-vcom-v" oninput="wfgOnVcomInput(this)" onchange="wfgOnVcomCommit(this)" style="width:100%">
                 </div>
                 <div id="wfg-vcom-readout" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
               </div>
@@ -1758,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260814wfg3130"></script>
-<script src="common/i18n.js?v=20260814wfg3130"></script>
+<script src="common/version.js?v=20260815wfg3140"></script>
+<script src="common/i18n.js?v=20260815wfg3140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1871,7 +1876,10 @@ var WFG_SPX_RC_DEFAULT = 150;
 // 內插軸，兩個極性會往相反方向查表。改用離中軌距離，兩者都變成同一條遞增的軸，
 // A1「共用一組錨點」才成立。
 var WFG_FT_D_DEFAULT = 1.0;    // 三個錨點的 drop 電壓預設值 (V)
-var WFG_FT_D_MAX = 50;         // 上限：比 VGH-VGL 的合理範圍寬，避免擋掉極端實驗
+// v3.14.0: 上限由 50V 收到 4V（Bruce 2026-08-14 指定：「L0 到 L255 三個電壓 drop
+// 可輸入範圍請改成 0 伏到 4 伏」）。🔴 這是輸出變更 —— 夾制走 wfgClampFtDrop()，
+// 舊設定檔／舊 localStorage 裡若存有 >4V 的 drop，載入後會被夾到 4V，波形跟著變。
+var WFG_FT_D_MAX = 4;
 // ─── VCOM 電壓（v3.13.0）───
 // 面板共通電極的直流準位。**它不是一條通道**，是畫在 Vpix（Subpixel）那一格裡的
 // 一條白色水平虛線，只當比較基準用：不進 wfgChannels、不參與疊合群組成員數、
@@ -4015,6 +4023,289 @@ function _wfgSpxVoltageAt(pre, x) {
   if (k0 < 0) { k0 = 0; f = 0; }
   return s.v[k0] + (s.v[k0 + 1] - s.v[k0]) * f;
 }
+
+/* ═══════════ VCOM 極性面積著色 — 計算層（v3.14.0）═══════════
+
+   Bruce 2026-08-14／15 的規格（逐條對應到下面的實作）：
+   ① 著色區域 = VCOM 虛線與 Vpix 波形之間的面積；Vpix 在 VCOM 之上＝正極性區，
+      之下＝負極性區。
+   ② 兩區各自顯示一個灰階：面積相等 → 上下都是 L127；ΔV 越小越靠 L0、越大越靠 L255。
+   ③ 比較方式 = 平均正極性面積 : 平均負極性面積。
+   ④ 前導「還沒進入穩態」的 frame 全部排除（🔴 不是寫死跳過第一個 —— Bruce 明講
+      未來可能加 2~3 個拋案 frame）。排除後若剩奇數個，再從**右邊**砍一個湊偶數。
+      順序不可顛倒。
+   ⑤ 效能：拖曳／縮放／平移只改視窗、不改面積比，**不得觸發重算**。
+
+   🔴 灰階公式（Dispatch 2026-08-14 提案，**尚待 Bruce 確認**）：
+        gray_pos = 255 × A_pos / (A_pos + A_neg)
+        gray_neg = 255 × A_neg / (A_pos + A_neg)
+      相等時兩邊都是 127.5 ≈ L127（吻合「剛好上 127、下 127」）；一邊變小另一邊必然
+      變大，也吻合「越小越接近 L0、越大越接近 L255」。除以總和而不是各除以 frame 數，
+      兩者在比值上等價（同一個分母），這裡另外把每 frame 平均值也存下來供覆核。
+
+   🔴 計算範圍（**與 Bruce 字面的「整段波形」不同，待裁示**）：
+      Vpix 的預計算是 viewport-lazy 的（`_wfgSpxWantExtent()` 只算到視窗右緣再往外
+      半個視窗），「整段波形」的資料**預設根本不存在**；要照字面做就得把上游 SD1 一路
+      延伸到 totalLines，frameCount 上限 4096 時那是 4.6M line 的 per-line 陣列
+      （settled／target／holdV／xstb×3／pol，約 30 bytes/line ≈ 138MB），與「不可以卡」
+      直接衝突。
+      這裡改取**固定的前 WFG_POLAREA_MAX_FRAMES 個 frame**（與視窗無關 ⇒ 拖曳縮放
+      不重算，⑤ 自然成立）。在穩態下 Vpix 的週期 ≤ 2 frame，取穩態起點之後任意偶數個
+      frame 的平均與「整段偶數個 frame 的平均」相同 —— 這一點不是假設，可以把上限調到
+      涵蓋全部 frame 再比對（window.wfgPolAreaMaxFrames 就是為此開的）。 */
+var WFG_POLAREA_MAX_FRAMES = 32;   // 取來比較的 frame 數上限（可由 window.wfgPolAreaMaxFrames 覆寫）
+/* 🔴 填色透明度是**固定值，不隨灰階變**（Bruce 2026-08-15：「L255 也不要變成全部透明，
+   我還是需要它有透明度，也就是它還是要可以看到後面的波形」）。
+   拿灰階本身當 alpha 會讓 L0 全透明、L255 全不透明，兩端的語意就壞了 —— 深淺只由
+   **顏色**表現，可見度由這個固定值保證。0.55 的選法：卡片底色是 #0f172a，
+   L0（黑）疊上去仍比底色暗、看得出是「更暗」，L255（白）疊上去底下的格線與波形線
+   仍透得出來（波形線另外畫在色塊之上，所以恆可見）。 */
+var WFG_POLAREA_FILL_ALPHA = 0.55;
+/* 穩態判準的相對容忍度。frame N 與 N+2（同極性才可比）的 (A_pos, A_neg) 差異占
+   總面積的比例低於此值即視為已吻合。🔴 1e-3 的依據見 CHANGELOG：實測穩態之後
+   同極性 frame 的差異是浮點級（<1e-7），而第 1 個 frame（Vpix 由 0V 起充）的差異
+   是 10⁻¹ 量級，兩者相差六個數量級以上，門檻落在中間任何一處結論都相同。 */
+var WFG_POLAREA_STEADY_TOL = 1e-3;
+var _wfgPolAreaBase = null;        // 貴層快取（與 VCOM 無關）
+var _wfgPolAreaCache = null;       // 廉價層快取（貴層 ＋ VCOM）
+var _wfgPolAreaBaseCalcCount = 0;  // 🔴 驗證用：貴層重算次數（移動 VCOM 時應該不增加）
+var _wfgPolAreaCalcCount = 0;      // 🔴 驗證用：廉價層重算次數（拖曳／縮放時應該不增加）
+
+/* 逐 frame 累加 |Vpix − VCOM| 對時間（單位：line）的積分。
+   資料來源是 precompute 的 segs（段內折線 v[]）＋段間的 hold 水平線，也就是畫面上
+   那條線本身，不是像素。每個線段先按 **frame 邊界**切、再按 **與 VCOM 的交點**切，
+   之後才用梯形公式累加 —— 跨越 VCOM 的線段若不切開，正負會互相抵消。 */
+/* 遍歷器：把 Vpix 波形（段內折線 v[]＋段間 hold 水平線＋feedthrough 的垂直落差）
+   走一遍，**先按 frame 邊界切開**，再把每一小段 (frameIdx, x0, v0, x1, v1) 交給 cb。
+   切分邏輯只寫這一份，矩（穩態判定用）與面積（著色用）共用，兩者不可能走岔。 */
+function _wfgPolAreaWalk(pre, effVtotal, nFrames, cb) {
+  if (!(effVtotal > 0)) return;
+  var xEnd = nFrames * effVtotal;
+  var px = 0, pv = pre.v0 || 0;
+  function emit(x, v) {
+    if (x > px) {
+      var x0 = px, v0 = pv, cur = px, cv = pv;
+      // 逐 frame 邊界切開。guard：effVtotal>0 已在函式開頭確認，不會無限迴圈。
+      while (true) {
+        var bnd = (Math.floor(cur / effVtotal) + 1) * effVtotal;
+        if (bnd >= x) { cb(Math.floor(cur / effVtotal), cur, cv, x, v); break; }
+        var vb = v0 + (v - v0) * ((bnd - x0) / (x - x0));
+        cb(Math.floor(cur / effVtotal), cur, cv, bnd, vb);
+        cur = bnd; cv = vb;
+      }
+    }
+    px = x; pv = v;
+  }
+  var segs = pre.segs || [];
+  for (var i = 0; i < segs.length; i++) {
+    var s = segs[i];
+    if (s.a >= xEnd) break;
+    emit(s.a, pv);                        // 前一段的 hold 水平拉到本段起點
+    var ftl = s.fts || null, fi = 0;
+    for (var k = 0; k <= s.n; k++) {
+      // feedthrough 的垂直落差：先走到落差點的「掉之前」，再垂直到「掉之後」。
+      // 垂直段 dx=0 面積為 0，但不補的話 v[k-1]→v[k] 會被當成一條斜線，面積偏大。
+      while (ftl && fi < ftl.length && ftl[fi].k <= k) {
+        emit(ftl[fi].x, ftl[fi].before);
+        emit(ftl[fi].x, ftl[fi].after);
+        fi++;
+      }
+      emit(s.a + k * s.h, s.v[k]);
+      if (px >= xEnd) break;
+    }
+    while (ftl && fi < ftl.length) { emit(ftl[fi].x, ftl[fi].before); emit(ftl[fi].x, ftl[fi].after); fi++; }
+    if (px >= xEnd) break;
+  }
+  if (px < xEnd) emit(xEnd, pv);          // 最後一段之後的 hold
+}
+
+/* ── 貴層用：每個 frame 的波形矩（🔴 **與 VCOM 完全無關**）──
+   m1 = ∫V dt、m2 = ∫V² dt、dt = 該 frame 的總時間。
+   穩態判定改用這兩個矩而不是正負面積 —— 面積依賴 VCOM，放在貴層會讓「移動 VCOM」
+   連帶重算穩態判定，那正是 Bruce 2026-08-15 要求避免的。
+   兩個 frame 的波形若相同，m1／m2 必相同；用兩個矩而不是一個，是為了不讓
+   「平均值相同但形狀不同」的兩個 frame 被誤判成吻合。 */
+function _wfgPolAreaMoments(pre, effVtotal, nFrames) {
+  var m1 = new Float64Array(nFrames), m2 = new Float64Array(nFrames), dt = new Float64Array(nFrames);
+  _wfgPolAreaWalk(pre, effVtotal, nFrames, function(f, x0, v0, x1, v1) {
+    if (f < 0 || f >= nFrames) return;
+    var dx = x1 - x0;
+    if (!(dx > 0)) return;
+    m1[f] += (v0 + v1) * 0.5 * dx;                      // V 線性 ⇒ 梯形即精確值
+    m2[f] += (v0 * v0 + v0 * v1 + v1 * v1) / 3 * dx;    // ∫(線性)² 的閉式
+    dt[f] += dx;
+  });
+  return { m1: m1, m2: m2, dt: dt };
+}
+
+/* ── 廉價層：給定 VCOM，切成正／負極性面積（🔴 移動 VCOM 時只跑這一支）──
+   跨越 VCOM 的線段一定要先在交點切開，否則同一段裡的正負會互相抵消。 */
+function _wfgPolAreaAccum(pre, vcom, effVtotal, nFrames) {
+  var pos = new Float64Array(nFrames), neg = new Float64Array(nFrames);
+  function addPiece(f, x0, d0, x1, d1) {
+    if (!(x1 > x0)) return;
+    var a = (Math.abs(d0) + Math.abs(d1)) * 0.5 * (x1 - x0);
+    if (d0 + d1 >= 0) pos[f] += a; else neg[f] += a;
+  }
+  _wfgPolAreaWalk(pre, effVtotal, nFrames, function(f, x0, v0, x1, v1) {
+    if (f < 0 || f >= nFrames) return;
+    var d0 = v0 - vcom, d1 = v1 - vcom;
+    if (((d0 < 0) !== (d1 < 0)) && d0 !== 0 && d1 !== 0) {
+      var xm = x0 + (x1 - x0) * (d0 / (d0 - d1));
+      addPiece(f, x0, d0, xm, 0);
+      addPiece(f, xm, 0, x1, d1);
+    } else {
+      addPiece(f, x0, d0, x1, d1);
+    }
+  });
+  return { pos: pos, neg: neg };
+}
+
+/* ═══ 貴層（🔴 與 VCOM 無關，只在 Vpix 資料／frame 範圍改變時才跑）═══
+   內容：獨立的 SD1＋Subpixel 預計算、每個 frame 的波形矩、穩態起點、偶數 frame 區間。
+   這一層是全部成本的來源（實測見 CHANGELOG），所以它**不能**掛在 VCOM 上。 */
+function _wfgPolAreaBaseCompute() {
+  _wfgPolAreaBaseCalcCount++;
+  var t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  var res = { ok: false, reason: '', ver: _wfgAnalogCacheVer, ms: 0,
+              totalFrames: 0, scanFrames: 0, steadyFrom: -1, usedFrom: -1, usedTo: -1,
+              pre: null, effVtotal: 0 };
+  var spxIdx = wfgSpxSlotIdx(), sdIdx = wfgSd1SlotIdx();
+  var spxGpio = wfgGpios[spxIdx], sdGpio = wfgGpios[sdIdx];
+  if (!spxGpio || spxGpio.waveform_type !== 3) { res.reason = 'nospx'; return res; }
+  if (!sdGpio || !sdGpio.enable || sdGpio.waveform_type !== 1) { res.reason = 'nosd'; return res; }
+  var tc = wfgEnsureTransitions();
+  if (!tc) { res.reason = 'notrans'; return res; }
+  var effVtotal = tc.effVtotal, effHtotal = tc.effHtotal;
+  var totalLines = wfgTotalLines();
+  if (!(effVtotal > 0)) { res.reason = 'badvtotal'; return res; }
+  res.totalFrames = Math.floor(totalLines / effVtotal);
+  var cap = (typeof window !== 'undefined' && window.wfgPolAreaMaxFrames > 0)
+            ? (window.wfgPolAreaMaxFrames | 0) : WFG_POLAREA_MAX_FRAMES;
+  var nFrames = Math.min(cap, res.totalFrames);
+  if (nFrames < 2) { res.reason = 'toofewframes'; return res; }
+  res.scanFrames = nFrames;
+  /* 🔴 另外算一份，**不碰 `_wfgPrecomputed`**。理由有二：
+       ① `_wfgPrecomputed` 是 viewport-lazy 的，寫進去會改變 render 走的資料 ⇒
+          「不啟用 VCOM 時與 v3.13.0 零差異」這條驗收會直接破功。
+       ② 這一份的範圍固定（前 nFrames 個 frame），與視窗無關，才可能做到拖曳不重算。
+     srcMap 只塞 SD1；Gate 故意不塞，`_wfgPrecomputeSpxChannel` 取不到就會自己走
+     `_wfgGateSourceForSpx()` 建一份輕量的（只有 events，不配置那塊 30MB 的大陣列）。 */
+  var want = Math.min(totalLines, nFrames * effVtotal);
+  var srcMap = {};
+  srcMap[sdIdx] = _wfgPrecomputeSdChannel(sdIdx, sdGpio, tc.transitions, effHtotal, effVtotal, totalLines, want);
+  var pre = _wfgPrecomputeSpxChannel(spxIdx, spxGpio, tc.transitions, effHtotal, effVtotal, totalLines, want, srcMap);
+  // 驗證用：把這一份獨立計算的中間狀態如實記下來（空 segs／全 0 波形長得一樣，
+  // 不記下來就分不出是「沒算」還是「算出來就是 0」）
+  var _s0 = (pre && pre.segs && pre.segs.length) ? pre.segs[0] : null;
+  res.dbg = { want: want, segs: pre ? (pre.segs || []).length : -1,
+              ext: pre ? pre.computedExtent : -1,
+              noSource: pre ? pre.noSource : null, noGate: pre ? pre.noGate : null,
+              sdExt: srcMap[sdIdx].computedExtent,
+              sdV: [_wfgSdVoltageAt(srcMap[sdIdx], effVtotal * 0.5),
+                    _wfgSdVoltageAt(srcMap[sdIdx], effVtotal * 1.5)],
+              seg0: _s0 ? { a: _s0.a, n: _s0.n, h: _s0.h, v0: _s0.v[0],
+                            vMid: _s0.v[_s0.n >> 1], vEnd: _s0.v[_s0.n], hold: _s0.hold } : null };
+  // 對照組：render 實際在用的那一份（viewport-lazy）。兩邊都是 0 → Vpix 本來就是 0；
+  // 只有這一份是 0 → 是這條獨立計算路徑自己的問題。假陰性長得跟成功一樣，必須有對照。
+  var _gp = _wfgPrecomputed[spxIdx];
+  var _g0 = (_gp && _gp.segs && _gp.segs.length) ? _gp.segs[0] : null;
+  res.dbgGlobal = _gp ? { segs: _gp.segs.length, ext: _gp.computedExtent,
+                          noSource: _gp.noSource, noGate: _gp.noGate,
+                          seg0: _g0 ? { a: _g0.a, n: _g0.n, v0: _g0.v[0],
+                                        vMid: _g0.v[_g0.n >> 1], vEnd: _g0.v[_g0.n], hold: _g0.hold } : null }
+                      : null;
+  var _sdG = _wfgPrecomputed[sdIdx];
+  res.dbg.sdGlobalV = _sdG ? [_wfgSdVoltageAt(_sdG, effVtotal * 0.5), _wfgSdVoltageAt(_sdG, effVtotal * 1.5)] : null;
+  res.dbg.sdGlobalExt = _sdG ? _sdG.computedExtent : null;
+  res.dbg.spxAc = spxGpio.analog_config ? { von: spxGpio.analog_config.tft_von,
+      voff: spxGpio.analog_config.tft_voff, rc: spxGpio.analog_config.spx_rc,
+      ftEn: spxGpio.analog_config.ft_enable } : null;
+  if (!pre || !pre.segs || !pre.segs.length) { res.reason = 'nosegs'; return res; }
+  res.pre = pre; res.effVtotal = effVtotal;
+
+  /* 穩態起點：極性逐 frame 交替 ⇒ 只有 **N 與 N+2** 可比。
+     🔴 從最後往前掃，第一個不吻合的 N 決定起點 = N+1 —— 也就是「它自己與其後所有
+        同極性 frame 都吻合」才算穩態。只比一組就判定會被中間偶然相近的兩個 frame 騙到。
+     🔴 特徵用 VCOM 無關的波形矩，不用面積 —— 否則移動 VCOM 就得重跑這一層。 */
+  var mo = _wfgPolAreaMoments(pre, effVtotal, nFrames);
+  res.moments = mo;
+  var last = nFrames - 1, steady = 0, i;
+  for (i = last - 2; i >= 0; i--) {
+    var den = Math.abs(mo.m1[i + 2]) + Math.abs(mo.m2[i + 2]);
+    if (!(den > 1e-12)) den = 1e-12;
+    var err = (Math.abs(mo.m1[i] - mo.m1[i + 2]) + Math.abs(mo.m2[i] - mo.m2[i + 2])) / den;
+    if (!(err < WFG_POLAREA_STEADY_TOL)) { steady = i + 1; break; }
+  }
+  res.steadyFrom = steady;
+  // 🔴 順序：先排除前導非穩態 → 剩下的若是奇數再從右邊砍一個。不可顛倒。
+  var from = steady, to = last;
+  if (((to - from + 1) % 2) === 1) to--;
+  if (to < from) { res.reason = 'nosteadypair'; return res; }
+  res.usedFrom = from; res.usedTo = to;
+  res.ok = true;
+  res.ms = (typeof performance !== 'undefined') ? (performance.now() - t0) : 0;
+  return res;
+}
+
+/* ═══ 廉價層（🔴 每次移動 VCOM 都跑）═══
+   只做「以 VCOM 為分界把已算好的波形切成正／負兩份面積」，不碰任何預計算。 */
+function _wfgPolAreaSplit(base) {
+  _wfgPolAreaCalcCount++;
+  var t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  var vcom = wfgVcomEffective();
+  var res = { ok: false, reason: base.reason, ver: base.ver, vcom: vcom, ms: 0, baseMs: base.ms,
+              totalFrames: base.totalFrames, scanFrames: base.scanFrames,
+              steadyFrom: base.steadyFrom, usedFrom: base.usedFrom, usedTo: base.usedTo,
+              aPos: 0, aNeg: 0, grayPos: 127.5, grayNeg: 127.5, frames: [],
+              dbg: base.dbg, dbgGlobal: base.dbgGlobal };
+  if (!base.ok) return res;
+  var nFrames = base.scanFrames, from = base.usedFrom, to = base.usedTo, i;
+  var acc = _wfgPolAreaAccum(base.pre, vcom, base.effVtotal, nFrames);
+  var pos = acc.pos, neg = acc.neg;
+  var sp = 0, sn = 0;
+  for (i = from; i <= to; i++) { sp += pos[i]; sn += neg[i]; }
+  var nUsed = to - from + 1;
+  res.aPos = sp / nUsed;               // 「平均正極性面積」＝每 frame 平均
+  res.aNeg = sn / nUsed;
+  var sum = res.aPos + res.aNeg;
+  if (sum > 1e-12) {
+    res.grayPos = 255 * res.aPos / sum;
+    res.grayNeg = 255 * res.aNeg / sum;
+  }
+  for (i = 0; i < nFrames; i++) {
+    res.frames.push({ f: i, pos: pos[i], neg: neg[i],
+                      pol: (pos[i] >= neg[i]) ? '+' : '-',
+                      used: (i >= from && i <= to) });
+  }
+  res.ok = true;
+  res.ms = (typeof performance !== 'undefined') ? (performance.now() - t0) : 0;
+  return res;
+}
+
+/* 取用入口。🔴 每幀都會被呼叫，所以這裡只做 O(1) 的比較：
+     貴層 key＝`_wfgAnalogCacheVer`（timing／gamma／GPIO 改變時會 bump）
+     廉價層 key＝貴層 ＋ 生效的 VCOM 電壓
+   其餘輸入（spx_rc、TFT 電壓、feedthrough、Gate 條數）走**既有的**精準失效路徑：
+   `_wfgInvalidateSpxOnly()` / `_wfgInvalidateGateOnly()` 各加一行清空，不另建一條
+   粗糙的失效路徑（v3.3.1 的教訓：過度失效 ＝ 卡頓的根因）。
+   🔴 兩層的 key 都刻意**不含** wfgViewStart／wfgViewEnd ⇒ 拖曳、縮放、平移不會重算。 */
+function wfgPolAreaBase() {
+  if (_wfgPolAreaBase && _wfgPolAreaBase.ver === _wfgAnalogCacheVer) return _wfgPolAreaBase;
+  _wfgPolAreaBase = _wfgPolAreaBaseCompute();
+  return _wfgPolAreaBase;
+}
+function wfgPolArea() {
+  var base = wfgPolAreaBase();
+  var eff = wfgVcomEffective();
+  if (_wfgPolAreaCache && _wfgPolAreaCache.base === base && _wfgPolAreaCache.vcom === eff) {
+    return _wfgPolAreaCache;
+  }
+  _wfgPolAreaCache = _wfgPolAreaSplit(base);
+  _wfgPolAreaCache.base = base;
+  return _wfgPolAreaCache;
+}
+function _wfgInvalidatePolArea() { _wfgPolAreaBase = null; _wfgPolAreaCache = null; }
 
 // Subpixel → wfgDrawAnalogChannel 的 samples 格式。
 // 段內按需降採樣（每像素約 2 點），段與段之間是水平的 hold 線，補兩個點就夠。
@@ -19960,6 +20251,55 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
       else { endIdx = _bMid + 1; _bHi = _bMid - 1; }
     }
   }
+  /* ── VCOM 極性面積著色（v3.14.0）──
+     🔴 畫在波形 stroke **之前**：波形線與 VCOM 虛線都疊在色塊之上，任何灰階下都看得見。
+        再加上固定 alpha（見 WFG_POLAREA_FILL_ALPHA），L0 與 L255 兩個極端也一樣透得出
+        底下的格線。
+     🔴 只在 Subpixel（waveform_type 3）且 VCOM 啟用時做；其餘通道連判斷都走不進來，
+        「不啟用 VCOM 時與 v3.13.0 零差異」由這個閘門保證。
+     著色區域的封閉路徑 = 波形折線 →（右緣垂直落到 VCOM）→ 沿 VCOM 回左緣 → 閉合。
+     波形在 VCOM 上下來回穿越時這條路徑會自交，各區的繞數是 ±1、都不為 0，用預設的
+     nonzero 規則填正好涵蓋全部 |Vpix − VCOM| 區域；上下兩色再靠 clip 分開。 */
+  if (gpio && gpio.waveform_type === 3 && wfgPanel.vcom_enable
+      && samples.length > 0 && typeof Path2D !== 'undefined') {
+    var _paV = wfgVcomEffective();
+    if (isFinite(_paV) && _paV >= vMin && _paV <= vMax) {
+      var _pa = wfgPolArea();
+      if (_pa.ok) {
+        var _paY = voltToY(_paV);
+        var _paHoldV = (startIdx >= 0) ? samples[startIdx].voltage : initV;
+        var _paPath = new Path2D();
+        var _paLastX = drawX0 + 0.5, _paLastY = voltToY(_paHoldV);
+        _paPath.moveTo(_paLastX, _paLastY);
+        for (var _pi = (startIdx >= 0 ? startIdx + 1 : 0); _pi < endIdx && _pi < samples.length; _pi++) {
+          var _pxx = lineToX(samples[_pi].lineX);
+          if (_pxx < drawX0) _pxx = drawX0;
+          if (_pxx > w) _pxx = w;
+          _paLastY = voltToY(samples[_pi].voltage);
+          _paPath.lineTo(_pxx, _paLastY);
+          _paLastX = _pxx;
+        }
+        if (_paLastX < w) _paPath.lineTo(w, _paLastY);
+        _paPath.lineTo(w, _paY);
+        _paPath.lineTo(drawX0 + 0.5, _paY);
+        _paPath.closePath();
+        var _paFill = function(gray, yTop, yBot) {
+          if (!(yBot > yTop)) return;
+          var _g = Math.round(Math.max(0, Math.min(255, gray)));
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(drawX0, yTop, w - drawX0, yBot - yTop);
+          ctx.clip();
+          ctx.fillStyle = 'rgba(' + _g + ',' + _g + ',' + _g + ',' + WFG_POLAREA_FILL_ALPHA + ')';
+          ctx.fill(_paPath);
+          ctx.restore();
+        };
+        _paFill(_pa.grayPos, yHigh, _paY);   // VCOM 之上 ＝ 正極性區
+        _paFill(_pa.grayNeg, _paY, yLow);    // VCOM 之下 ＝ 負極性區
+      }
+    }
+  }
+
   if (_useBand) {
     var band = samplesData.bandData;
     var bandW = samplesData.bandW || (band.length >> 1);
@@ -22996,7 +23336,6 @@ function wfgResetToDefault() {
   wfgRenderSpxRcRow();
   wfgUpdateSpxRcReadout();
   wfgRenderFtRow();
-  wfgUpdateFtReadout();
   wfgRenderVcomRow();
   wfgUpdateVcomReadout();
   wfgUpdateCursorPanel();
@@ -23658,9 +23997,8 @@ function wfgRenderPanelCard() {
   if (scb) scb.checked = !!wfgPanel.spx_show;
   wfgRenderSpxRcRow();
   wfgUpdateSpxRcReadout();
-  // v3.12.0: Feedthrough Voltage
+  // v3.12.0: Feedthrough Voltage（v3.14.0 起無讀值框，只剩欄位與範圍提示）
   wfgRenderFtRow();
-  wfgUpdateFtReadout();
   // v3.13.0: VCOM 電壓卡片
   wfgRenderVcomRow();
   wfgUpdateVcomReadout();
@@ -23883,12 +24221,14 @@ function wfgUpdateGateReadout() {
 // 預計算要配置 computeExtent×20 的 Float32Array（實測 30MB 以上／條），而 Gate 每個
 // frame 只有一個 pulse，viewport 範圍現算約 1~3ms。
 function _wfgInvalidateGateOnly() {
+  _wfgInvalidatePolArea();   // v3.14.0: Gate 一變，Vpix 跟著變 → 極性面積要重算
   delete _wfgPrecomputed[wfgGateSlotIdx()];
   // v3.8.0: Subpixel 吃 Gate 的結果，Gate 一失效它就必須跟著失效
   delete _wfgPrecomputed[wfgSpxSlotIdx()];
 }
 // Subpixel 自己的參數（充電時間 / TFT 電壓）改變 → 只重算 Subpixel，不動 Gate 與 SD1
 function _wfgInvalidateSpxOnly() {
+  _wfgInvalidatePolArea();   // v3.14.0: 充電時間／TFT 電壓／feedthrough 改變 → 面積跟著變
   delete _wfgPrecomputed[wfgSpxSlotIdx()];
 }
 
@@ -24034,6 +24374,9 @@ function wfgRenderFtRow() {
     var v = wfgClampFtDrop(wfgPanel[pairs[i][1]]);
     wfgPanel[pairs[i][1]] = v;
     var el = document.getElementById(pairs[i][0]);
+    // v3.14.0: max 由 WFG_FT_D_MAX 動態寫入，不在 HTML 硬編 —— 上限只有一個來源，
+    // 否則改常數時 HTML 的 max 會留在舊值，spinner 還能點到超界值。
+    if (el) el.max = WFG_FT_D_MAX;
     // 正在編輯的欄位不覆寫（與 wfgRenderTftRow 同一原則）
     if (el && document.activeElement !== el) el.value = wfgFmtV(v);
   }
@@ -24041,51 +24384,15 @@ function wfgRenderFtRow() {
   if (hint) hint.textContent = t('wfg.ftRange') + '：0 ~ ' + WFG_FT_D_MAX + ' V';
   wfgUpdateFtUiState();
 }
-// 讀值框：把「三個錨點各自對應的 SD1 電壓與離中軌距離」攤開來 —— 內插軸是這些
-// 距離，看不到它們就無法自己驗算中間灰階的 ΔV 對不對。
-function wfgUpdateFtReadout() {
-  var el = document.getElementById('wfg-ft-readout');
-  if (!el) return;
-  if (!wfgPanel.ft_enable) {
-    el.innerHTML = '<span style="color:#64748b">' + t('wfg.ftOff') + '</span>';
-    return;
-  }
-  var sd = wfgGpios[wfgSd1SlotIdx()];
-  var sdAc = (sd && sd.enable && sd.waveform_type === 1) ? sd.analog_config : null;
-  if (!sdAc) {
-    el.innerHTML = '<span style="color:#f87171;font-weight:700">✗ ' + t('wfg.spxNoSd') + '</span>';
-    return;
-  }
-  var vMid = _wfgSdMidRail(sdAc);
-  function f(n) { return (Math.round(n * 100) / 100).toFixed(2); }
-  var rows = [['L0', 0], ['L127', 127 / 255], ['L255', 1]];
-  var h = '<span style="color:#94a3b8">' + t('wfg.ftMidRail') + '　</span>'
-        + '<span style="color:#38bdf8;font-weight:700">' + f(vMid) + ' V</span><br>'
-        + '<span style="color:#94a3b8">' + t('wfg.ftAnchorV') + '</span><br>';
-  for (var i = 0; i < rows.length; i++) {
-    var vp = wfgAnalogTargetVoltageWithPol(rows[i][1], 1, sdAc);
-    var vn = wfgAnalogTargetVoltageWithPol(rows[i][1], 0, sdAc);
-    h += '<span style="color:#64748b">' + rows[i][0] + '</span>　'
-      + '<span style="color:#4ade80">POL+ ' + f(vp) + 'V</span>'
-      + '<span style="color:#64748b"> / </span>'
-      + '<span style="color:#f0abfc">POL− ' + f(vn) + 'V</span>'
-      + '<span style="color:#64748b"> → d=' + f(Math.abs(vp - vMid))
-      + ' / ' + f(Math.abs(vn - vMid)) + '</span><br>';
-  }
-  h += '<span style="color:#64748b">' + t('wfg.ftInterpNote') + '</span>';
-  var spx = wfgGpios[wfgSpxSlotIdx()];
-  var spxAc = spx ? spx.analog_config : null;
-  if (spxAc && spxAc.voltage_min < 0) {
-    h += '<br><span style="color:#94a3b8">' + t('wfg.ftYAxisNote') + '　</span>'
-      + '<span style="color:#38bdf8;font-weight:700">' + f(spxAc.voltage_min) + ' V</span>';
-  }
-  el.innerHTML = h;
-}
+/* v3.14.0: wfgUpdateFtReadout() 連同 wfg-ft-readout 灰框整個移除（Bruce 2026-08-14：
+   「『中軌 V-MID』這個文字描述 block 可以直接拿掉，因為完全看不懂」）。
+   函式一併刪掉而不是留成空殼，是為了不留死碼；三個呼叫點也同步移除。
+   計算端完全不受影響 —— _wfgSdMidRail()／_wfgFtDropFactory() 是波形計算用的，
+   跟這個唯讀顯示框沒有共用路徑。 */
 function wfgOnFtEnableChange(checked) {
   wfgPanel.ft_enable = !!checked;
   wfgSyncSpxGpio();          // 內含 Y 軸下緣的重算（ac.voltage_min）
   wfgUpdateFtUiState();
-  wfgUpdateFtReadout();
   _wfgInvalidateSpxOnly();   // Gate 與 SD1 完全不受影響，只重算 Subpixel 這一條
   wfgScheduleSpxRender();
 }
@@ -24095,7 +24402,6 @@ function wfgOnFtDropInput(which, el) {
   if (v === wfgPanel[key]) return;   // 同值不重算（連續鍵入會連發）
   wfgPanel[key] = v;
   wfgSyncSpxGpio();
-  wfgUpdateFtReadout();
   _wfgInvalidateSpxOnly();
   wfgScheduleSpxRender();
 }
@@ -24105,7 +24411,6 @@ function wfgOnFtDropCommit(which, el) {
   wfgPanel['ft_' + which] = v;
   el.value = wfgFmtV(v);
   wfgSyncSpxGpio();
-  wfgUpdateFtReadout();
   _wfgInvalidateSpxOnly();
   wfgScheduleSpxRender();
 }
@@ -24137,37 +24442,35 @@ function wfgRenderVcomRow() {
   }
   wfgUpdateVcomUiState();
 }
-// 讀值框：把上下界來自哪兩個欄位、實際生效值、以及三種「線不會出現」的情況攤開來。
+/* 讀值框（v3.14.0 改寫）：依 Bruce 2026-08-14「Vcom 電壓裡面的說明框『VGMA1、VGMA14
+   實際生效』，這個可以拿掉」，移除 VGMA1／VGMA14／實際生效這三個唯讀數值。
+   🔴 保留的只有「異常／需注意」三種狀態，因為它們回答的是「為什麼線不見／為什麼我
+      打的值沒生效」，不是說明：
+        ① 找不到 SD1（沒有上下界，線畫不出來）
+        ② 輸入值被夾制（欄位值與線的位置對不上，不講會被當成 bug）
+        ③ Vpix 未顯示（線寄生在 Vpix 那一格，跟著消失）
+      「尚未手動設定＝跟隨中點」屬於說明，一併移除。
+   三種狀態都不成立時整個框隱藏（display:none），否則會留一個空的灰框。 */
 function wfgUpdateVcomReadout() {
   var el = document.getElementById('wfg-vcom-readout');
   if (!el) return;
-  if (!wfgPanel.vcom_enable) {
-    el.innerHTML = '<span style="color:#64748b">' + t('wfg.vcomOff') + '</span>';
-    return;
-  }
+  if (!wfgPanel.vcom_enable) { el.style.display = 'none'; el.innerHTML = ''; return; }
   var r = wfgVcomRange();
   if (!r) {
+    el.style.display = '';
     el.innerHTML = '<span style="color:#f87171;font-weight:700">✗ ' + t('wfg.vcomNoSd') + '</span>';
     return;
   }
-  function f(n) { return (Math.round(n * 100) / 100).toFixed(2); }
   var eff = wfgVcomEffective();
-  var h = '<span style="color:#94a3b8">VGMA1　</span><span style="color:#4ade80;font-weight:700">' + f(r.hi) + ' V</span>'
-        + '<span style="color:#64748b">　/　</span>'
-        + '<span style="color:#94a3b8">VGMA14　</span><span style="color:#f0abfc;font-weight:700">' + f(r.lo) + ' V</span><br>'
-        + '<span style="color:#94a3b8">' + t('wfg.vcomEffective') + '　</span>'
-        + '<span style="color:#f8fafc;font-weight:700">' + f(eff) + ' V</span>';
-  // 使用者輸入被夾制時要講出來，否則欄位值與線的位置對不上會被當成 bug
+  var parts = [];
   if (wfgPanel.vcom_v != null && Math.abs(parseFloat(wfgPanel.vcom_v) - eff) > 0.005) {
-    h += '<br><span style="color:#fbbf24">⚠ ' + t('wfg.vcomClamped') + '</span>';
-  }
-  if (wfgPanel.vcom_v == null) {
-    h += '<br><span style="color:#64748b">' + t('wfg.vcomDefaultNote') + '</span>';
+    parts.push('<span style="color:#fbbf24">⚠ ' + t('wfg.vcomClamped') + '</span>');
   }
   if (!wfgPanel.spx_show) {
-    h += '<br><span style="color:#fbbf24">⚠ ' + t('wfg.vcomHiddenNote') + '</span>';
+    parts.push('<span style="color:#fbbf24">⚠ ' + t('wfg.vcomHiddenNote') + '</span>');
   }
-  el.innerHTML = h;
+  el.style.display = parts.length ? '' : 'none';
+  el.innerHTML = parts.join('<br>');
 }
 /* VCOM 不影響任何取樣值（它只是一條線）→ **不呼叫 _wfgInvalidateSpxOnly()**。
    波形資料一位元都不用重算，只要重畫一幀。這也是它與 Feedthrough 的根本差別。 */
@@ -24197,6 +24500,27 @@ function wfgOnVcomCommit(el) {
 window.wfgOnVcomEnableChange = wfgOnVcomEnableChange;
 window.wfgOnVcomInput = wfgOnVcomInput;
 window.wfgOnVcomCommit = wfgOnVcomCommit;
+/* 驗證用（v3.14.0）：把極性面積的每個中間結果如實讀回 —— 總 frame 數、掃描範圍、
+   判定的穩態起點、實際採用的區間、每個 frame 的正負面積與極性、以及灰階值。
+   `calcCount` 是**累計重算次數**：拖曳／縮放前後各讀一次，差值必須為 0。 */
+window.wfgDumpPolArea = function() {
+  var r = wfgPolArea();
+  return { ok: r.ok, reason: r.reason, vcom: r.vcom, ms: r.ms, baseMs: r.baseMs,
+           baseCalcCount: _wfgPolAreaBaseCalcCount,
+           totalFrames: r.totalFrames, scanFrames: r.scanFrames,
+           steadyFrom: r.steadyFrom, usedFrom: r.usedFrom, usedTo: r.usedTo,
+           usedCount: (r.usedTo >= r.usedFrom) ? (r.usedTo - r.usedFrom + 1) : 0,
+           aPos: r.aPos, aNeg: r.aNeg, grayPos: r.grayPos, grayNeg: r.grayNeg,
+           polSeq: r.frames.map(function(f) { return f.pol; }).join(''),
+           usedPolSeq: r.frames.filter(function(f) { return f.used; })
+                        .map(function(f) { return f.pol; }).join(''),
+           frames: r.frames, dbg: r.dbg, dbgGlobal: r.dbgGlobal, calcCount: _wfgPolAreaCalcCount,
+           maxFrames: (typeof window !== 'undefined' && window.wfgPolAreaMaxFrames > 0)
+                      ? (window.wfgPolAreaMaxFrames | 0) : WFG_POLAREA_MAX_FRAMES,
+           fillAlpha: WFG_POLAREA_FILL_ALPHA, steadyTol: WFG_POLAREA_STEADY_TOL };
+};
+window.wfgPolAreaCalcCount = function() { return _wfgPolAreaCalcCount; };
+window.wfgPolAreaBaseCalcCount = function() { return _wfgPolAreaBaseCalcCount; };
 // 驗證用 helper（比照 v3.12.0 的 wfgDebugFeedthrough）：把畫線用到的每個數字如實讀回。
 window.wfgDumpVcom = function() {
   var r = wfgVcomRange();
@@ -30268,11 +30592,10 @@ window._onLangChange = function(lang) {
   try { wfgUpdateCursorPanel(); } catch(e) {}
   // v3.9.0: 電壓游標卡片的內容是 JS 用 t() 拼出來的，不帶 data-i18n → applyLang 換不到
   try { wfgUpdateOverlayCard(); } catch(e) {}
-  /* v3.12.0: Feedthrough 的「可輸入範圍」提示與讀值框同理 —— 都是 JS 用 t() 拼的，
-     沒有 data-i18n 屬性，applyLang 掃不到。實測不掛這裡的話切到 English 之後
-     說明文字換了、提示仍停在「可輸入範圍：0 ~ 50 V」。 */
+  /* v3.12.0: Feedthrough 的「可輸入範圍」提示是 JS 用 t() 拼的，沒有 data-i18n 屬性，
+     applyLang 掃不到。實測不掛這裡的話切到 English 之後說明文字換了、提示仍停在
+     「可輸入範圍：0 ~ 4 V」的中文標籤。（v3.14.0：讀值框已移除，只剩這一支。） */
   try { wfgRenderFtRow(); } catch(e) {}
-  try { wfgUpdateFtReadout(); } catch(e) {}
   // v3.13.0: VCOM 的提示與讀值框同理（JS 用 t() 拼、沒有 data-i18n 屬性）
   try { wfgRenderVcomRow(); } catch(e) {}
   try { wfgUpdateVcomReadout(); } catch(e) {}
