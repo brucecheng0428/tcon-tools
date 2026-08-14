@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260815wfg3140"></script>
-<script src="common/i18n.js?v=20260815wfg3140"></script>
+<script src="common/version.js?v=20260815wfg3150"></script>
+<script src="common/i18n.js?v=20260815wfg3150"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -4306,6 +4306,206 @@ function wfgPolArea() {
   return _wfgPolAreaCache;
 }
 function _wfgInvalidatePolArea() { _wfgPolAreaBase = null; _wfgPolAreaCache = null; }
+
+/* ═══════════ VCOM 極性面積閃爍（v3.15.0）═══════════
+
+   規格（Bruce 2026-08-15）：正負極性面積不相等時，兩個色塊要閃爍 ——
+     gray < 127 → 與 L255 交替；gray > 127 → 與 L0 交替；等於 127 → 停止。頻率每秒五次。
+
+   🔴 **效能優先於功能**（Bruce 明示）。這一段的整個設計都是為了這句話：
+
+   為什麼不能用「改相位 → 重繪」：主 canvas 的 `wfgRender()` 開頭就
+   `fillRect(0,0,w,h)` 塗滿不透明底色，著色又夾在格線與波形線**之間**，所以
+     ① 沒有辦法把著色拆到獨立的 underlay canvas（會被底色蓋掉）；
+     ② 疊一層 overlay 在上面會蓋住波形線與游標，視覺不等價。
+   而每 100ms 觸發一次整張 render（實測 p50 8ms）＝ 持續 8% CPU，也違反指示。
+
+   做法：**畫面靜止後，對 Vpix 那一格取兩份像素快照（基準相位／交替相位），
+   之後閃爍只做 `putImageData` 在兩份之間切換。**
+     ・快照是真正 render 出來的畫面 ⇒ 視覺完全等價，游標、標籤、疊合群組內的
+       其他通道全部含在裡面，不必逐項重畫。
+     ・閃爍的每次成本 ＝ 一次 putImageData（實測見 CHANGELOG），**不碰繪製路徑、
+       不重算面積**。
+     ・🔴 建立快照要多跑一次 render，所以**掛在 debounce 之後**：拖曳／縮放期間
+       每一幀都會把快照作廢並重排 debounce ⇒ 那段時間**完全不建快照、不閃爍**，
+       每幀耗時與 v3.14.0 基線相同。停下來 150ms 才建一次。 */
+/* 🔴 週期與工作比（Bruce 2026-08-15 修訂）：**每秒 4 次**，且**不對稱** ——
+   閃出去的那個顏色（L0／L255）只佔 1/4，本來的灰階佔 3/4，是「短促閃一下」
+   而不是各半的方波。兩個常數放這裡，覺得太快只要改這裡一處。
+     週期 250ms ＝ base 187.5ms ＋ flash 62.5ms */
+var WFG_FLICK_PERIOD_MS = 250;
+var WFG_FLICK_FLASH_DUTY = 0.25;
+var WFG_FLICK_FLASH_MS = WFG_FLICK_PERIOD_MS * WFG_FLICK_FLASH_DUTY;
+var WFG_FLICK_BASE_MS  = WFG_FLICK_PERIOD_MS - WFG_FLICK_FLASH_MS;
+/* 🔴「面積相等」的容差與遲滯（Bruce 2026-08-15：「面積相等時，兩區都變為不閃爍的
+   L127 就好」，容差由我訂）。
+   本工具的公式讓 gray_pos + gray_neg 恆等於 255 ⇒ 正負相等對應的是 **127.5**，
+   浮點永遠不會剛好落在那裡，所以一定要有容差。
+     進入（吸附成 L127、停止閃爍）：|gray − 127.5| < 0.5
+       ＝ 四捨五入後就是 127／128 那一格，**畫面上已經看不出差別**；
+         換算成面積不平衡度是 |A_pos − A_neg| / (A_pos + A_neg) < 1/255 ≈ 0.39%
+     離開（恢復各自灰階、開始閃爍）：|gray − 127.5| > 1.0（＝ 2 階）
+   🔴 兩個門檻不同是**刻意的遲滯**：VCOM 停在邊界上時，單一門檻會讓畫面在
+      「閃／不閃」之間來回跳，比閃爍本身更擾人。 */
+var WFG_FLICK_MID_TOL_IN = 0.5;
+var WFG_FLICK_MID_TOL_OUT = 1.0;
+var WFG_FLICK_SNAP_DELAY_MS = 150;   // 靜止多久之後才建快照
+var _wfgFlickPhase = 0;              // 0 ＝ base（render 畫的那個）、1 ＝ flash
+var _wfgFlickForceAlt = false;       // 只在建立 flash 快照的那一次 render 期間為 true
+var _wfgFlickSnapping = false;       // 建快照期間的遞迴防護
+var _wfgFlickSnapBase = null, _wfgFlickSnapAlt = null, _wfgFlickSnapRect = null;
+var _wfgFlickSlotRect = null;        // Vpix 那一格的 CSS 座標，由 wfgDrawAnalogChannel 記下
+var _wfgFlickTimer = 0, _wfgFlickSnapDebounce = 0;
+var _wfgFlickBlitCount = 0;          // 🔴 驗證用：putImageData 次數
+var _wfgFlickSnapCount = 0;          // 🔴 驗證用：快照建立次數（＝額外 render 次數）
+var _wfgFlickPhaseLog = [];          // 🔴 驗證用：相位切換的時間戳（用來統計 3:1）
+var _wfgFlickInvCount = 0, _wfgFlickInvMs = 0;   // 診斷用：invalidate 被呼叫的次數與累計耗時
+var _wfgPolGrayCount = 0, _wfgPolGrayMs = 0;     // 診斷用：繪製路徑上取顯示灰階的次數與累計耗時
+var _wfgPaFillCount = 0, _wfgPaFillMs = 0;       // 診斷用：著色（建 Path2D ＋兩次 clip fill）的次數與累計耗時
+var _wfgFlickEnable = true;          // 供驗證關閉用（UI 上沒有開關，跟著 VCOM 啟用走）
+var _wfgFlickMidLatched = false;     // 遲滯狀態：目前是否處於「相等 → 吸附成 L127」
+
+/* 「實際要顯示的」兩個灰階，含相等時吸附成 L127。**繪製與建快照都只能走這一支**，
+   否則兩者可能算出不同的顏色，閃爍就會在切相位時跳色。
+   遲滯狀態在這裡更新：同一組輸入重複呼叫不會改變結果（建 flash 快照時會再呼叫一次，
+   必須是冪等的）。 */
+function wfgPolAreaDisplayGray() {
+  var pa = wfgPolArea();
+  if (!pa.ok) return { ok: false, pos: 127, neg: 127, mid: true };
+  var d = Math.abs(pa.grayPos - 127.5);
+  if (_wfgFlickMidLatched) {
+    if (d > WFG_FLICK_MID_TOL_OUT) _wfgFlickMidLatched = false;
+  } else if (d < WFG_FLICK_MID_TOL_IN) {
+    _wfgFlickMidLatched = true;
+  }
+  if (_wfgFlickMidLatched) return { ok: true, pos: 127, neg: 127, mid: true };
+  return { ok: true, pos: pa.grayPos, neg: pa.grayNeg, mid: false };
+}
+/* flash 相位的灰階：比自己暗的那一區往 L0 閃、比較亮的那一區往 L255 閃。
+   🔴 分界用 127.5（＝正負相等時的值），不是口述的 127 —— 127 在這個公式下不是中點。
+   兩區**同相**（同時切換）：見 CHANGELOG〈相位〉一節的取捨說明。 */
+function wfgFlickAltGray(gray) {
+  if (!isFinite(gray)) return gray;
+  return (gray < 127.5) ? 255 : 0;
+}
+// 目前這組設定要不要閃。mid（吸附成 L127）就不閃。
+function _wfgFlickShouldRun() {
+  if (!_wfgFlickEnable || !wfgPanel.vcom_enable) return false;
+  var g = wfgPolAreaDisplayGray();
+  return !!(g.ok && !g.mid);
+}
+function _wfgFlickCanvasVisible(canvas) {
+  return !!(canvas && canvas.offsetParent !== null && canvas.style.display !== 'none');
+}
+function _wfgFlickStopTimer() {
+  if (_wfgFlickTimer) { clearTimeout(_wfgFlickTimer); _wfgFlickTimer = 0; }
+}
+/* 🔴 用 setTimeout 鏈而不是 setInterval —— 兩個相位的停留時間不一樣
+   （base 187.5ms／flash 62.5ms），setInterval 只能給等長間隔。 */
+function _wfgFlickSchedule(ms) {
+  _wfgFlickStopTimer();
+  _wfgFlickTimer = setTimeout(function() { _wfgFlickTimer = 0; _wfgFlickTick(); }, ms);
+}
+/* 🔴 快照一律走「離屏 canvas ＋ drawImage」，**絕對不可以用 getImageData／putImageData**。
+   實測（2026-08-15，Chrome/macOS）：對主 canvas 呼叫一次 `getImageData` 之後，
+   Chrome 會把該 canvas 從 GPU 加速降級成 software rendering，**而且不會恢復** ——
+   同一組拖曳的每幀耗時由 9.3ms 變成 80ms（慢 8.6 倍）。這與畫什麼無關，只要 readback
+   發生過一次就永久生效。drawImage 是 GPU→GPU 的複製，不觸發 readback。 */
+function _wfgFlickMakeOffscreen(w, h) {
+  var cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  return cv;
+}
+// 把離屏快照貼回主 canvas。主 ctx 帶著 scale(dpr) 的 transform，這裡改回單位矩陣，
+// 讓來源與目標都用裝置像素座標（與快照擷取時同一組座標）。
+function _wfgFlickBlit(off) {
+  var canvas = document.getElementById('wfg-canvas');
+  if (!canvas || !off || !_wfgFlickSnapRect) return;
+  var r = _wfgFlickSnapRect;
+  var ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(off, 0, 0, r.w, r.h, r.x, r.y, r.w, r.h);
+  ctx.restore();
+}
+function _wfgFlickTick() {
+  if (!_wfgFlickSnapBase || !_wfgFlickSnapAlt || !_wfgFlickSnapRect) return;
+  if (document.hidden) return;                       // 背景分頁不燒 CPU（visibilitychange 會收尾）
+  var canvas = document.getElementById('wfg-canvas');
+  if (!_wfgFlickCanvasVisible(canvas)) return;       // 切到 LA 分頁時不要對著隱藏的 canvas blit
+  _wfgFlickPhase = _wfgFlickPhase ? 0 : 1;
+  _wfgFlickBlit(_wfgFlickPhase ? _wfgFlickSnapAlt : _wfgFlickSnapBase);
+  _wfgFlickBlitCount++;
+  if (_wfgFlickPhaseLog.length < 400) {
+    _wfgFlickPhaseLog.push({ t: (typeof performance !== 'undefined' ? performance.now() : Date.now()),
+                             phase: _wfgFlickPhase });
+  }
+  // 停在 flash 只有 1/4 的時間，停在 base 有 3/4
+  _wfgFlickSchedule(_wfgFlickPhase ? WFG_FLICK_FLASH_MS : WFG_FLICK_BASE_MS);
+}
+function _wfgFlickBuildSnapshots() {
+  _wfgFlickSnapBase = _wfgFlickSnapAlt = _wfgFlickSnapRect = null;
+  if (_wfgFlickSnapping) return;
+  var canvas = document.getElementById('wfg-canvas');
+  if (!_wfgFlickCanvasVisible(canvas) || !_wfgFlickSlotRect) return;
+  if (!_wfgFlickShouldRun()) return;
+  var dpr = window.devicePixelRatio || 1;
+  var s = _wfgFlickSlotRect;
+  var rx = Math.max(0, Math.floor(s.x * dpr)), ry = Math.max(0, Math.floor(s.y * dpr));
+  var rw = Math.min(canvas.width - rx, Math.ceil(s.w * dpr));
+  var rh = Math.min(canvas.height - ry, Math.ceil(s.h * dpr));
+  if (!(rw > 0 && rh > 0)) return;
+  _wfgFlickSnapping = true;
+  try {
+    // 當下畫面就是 base 相位，直接複製；flash 要多跑一次 render（這是唯一的額外成本）
+    var base = _wfgFlickMakeOffscreen(rw, rh);
+    base.getContext('2d').drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
+    _wfgFlickForceAlt = true;
+    wfgRender();
+    var alt = _wfgFlickMakeOffscreen(rw, rh);
+    alt.getContext('2d').drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
+    _wfgFlickForceAlt = false;
+    _wfgFlickSnapBase = base; _wfgFlickSnapAlt = alt;
+    _wfgFlickSnapRect = { x: rx, y: ry, w: rw, h: rh };
+    _wfgFlickPhase = 0;
+    _wfgFlickBlit(base);                 // 直接貼回 base 相位，不必再 render 一次
+    _wfgFlickSnapCount++;
+  } finally {
+    _wfgFlickForceAlt = false;
+    _wfgFlickSnapping = false;
+  }
+}
+/* 每次 render 之後呼叫：畫面變了 ⇒ 快照作廢、閃爍先停、重新排 debounce。
+   🔴 拖曳／縮放時每一幀都會走到這裡，所以那段期間快照永遠建不起來 ——
+      這正是「拖曳時每幀耗時與基線相同」的保證，不是副作用。 */
+function wfgFlickInvalidate() {
+  if (_wfgFlickSnapping || !_wfgFlickEnable) return;   // 建快照自己觸發的那次 render 不算
+  var _t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  _wfgFlickInvCount++;
+  _wfgFlickSnapBase = _wfgFlickSnapAlt = _wfgFlickSnapRect = null;
+  _wfgFlickPhase = 0;
+  _wfgFlickStopTimer();
+  if (_wfgFlickSnapDebounce) clearTimeout(_wfgFlickSnapDebounce);
+  _wfgFlickSnapDebounce = setTimeout(function() {
+    _wfgFlickSnapDebounce = 0;
+    _wfgFlickBuildSnapshots();
+    if (_wfgFlickSnapBase) _wfgFlickSchedule(WFG_FLICK_BASE_MS);   // 從 base 開始
+  }, WFG_FLICK_SNAP_DELAY_MS);
+  if (typeof performance !== 'undefined') _wfgFlickInvMs += performance.now() - _t0;
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) { _wfgFlickStopTimer(); return; }
+    // 回到前景：畫面停在離開時的相位，先貼回 base 再重新起算，避免 flash 停留過久
+    if (_wfgFlickSnapBase && _wfgFlickSnapRect) {
+      if (_wfgFlickCanvasVisible(document.getElementById('wfg-canvas'))) {
+        _wfgFlickBlit(_wfgFlickSnapBase);
+        _wfgFlickPhase = 0;
+        _wfgFlickSchedule(WFG_FLICK_BASE_MS);
+      }
+    }
+  });
+}
 
 // Subpixel → wfgDrawAnalogChannel 的 samples 格式。
 // 段內按需降採樣（每像素約 2 點），段與段之間是水平的 hold 線，補兩個點就夠。
@@ -20264,8 +20464,14 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
       && samples.length > 0 && typeof Path2D !== 'undefined') {
     var _paV = wfgVcomEffective();
     if (isFinite(_paV) && _paV >= vMin && _paV <= vMax) {
-      var _pa = wfgPolArea();
+      var _paT0 = performance.now();
+      var _pa = wfgPolAreaDisplayGray();
+      _wfgPolGrayMs += performance.now() - _paT0; _wfgPolGrayCount++;
       if (_pa.ok) {
+        /* v3.15.0: 記下這一格的 CSS 矩形，閃爍的像素快照就取這一塊。
+           疊合群組時 y0／height 是整組的 —— 快照連同組內其他通道一起存，
+           貼回去時整格都正確，不必逐條重畫。 */
+        _wfgFlickSlotRect = { x: 0, y: y0, w: w, h: height };
         var _paY = voltToY(_paV);
         var _paHoldV = (startIdx >= 0) ? samples[startIdx].voltage : initV;
         var _paPath = new Path2D();
@@ -20294,8 +20500,13 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
           ctx.fill(_paPath);
           ctx.restore();
         };
-        _paFill(_pa.grayPos, yHigh, _paY);   // VCOM 之上 ＝ 正極性區
-        _paFill(_pa.grayNeg, _paY, yLow);    // VCOM 之下 ＝ 負極性區
+        /* v3.15.0: 正常 render 恆畫 base 相位；`_wfgFlickForceAlt` 只有在建立 flash
+           快照的那一次 render 期間為 true。閃爍本身完全不經過這條路徑。 */
+        var _paAlt = _wfgFlickForceAlt && !_pa.mid;
+        var _pfT0 = performance.now();
+        _paFill(_paAlt ? wfgFlickAltGray(_pa.pos) : _pa.pos, yHigh, _paY);   // VCOM 之上 ＝ 正極性區
+        _paFill(_paAlt ? wfgFlickAltGray(_pa.neg) : _pa.neg, _paY, yLow);    // VCOM 之下 ＝ 負極性區
+        _wfgPaFillMs += performance.now() - _pfT0; _wfgPaFillCount++;
       }
     }
   }
@@ -21672,6 +21883,11 @@ function wfgRender() {
   // v2.97.371: TCON sticky 時間軸
   _wfgTconRenderStickyTimeAxis();
   _wfgTconRenderStickyOverlay();
+  /* v3.15.0: 畫面變了 ⇒ 閃爍的像素快照作廢，重新排 debounce。
+     🔴 拖曳／縮放時每一幀都走到這裡，所以那段期間快照永遠建不起來、閃爍不會發生 ——
+        這是「拖曳每幀耗時與 v3.14.0 基線相同」的保證。成本只有一次
+        clearTimeout ＋ setTimeout。 */
+  if (typeof wfgFlickInvalidate === 'function') wfgFlickInvalidate();
   if (_wfgPerfEnabled) {
     _wfgPerfLast.total = performance.now() - _pT0;
     console.log('[WFG perf] render: ' + JSON.stringify(_wfgPerfLast) + ' ms');
@@ -24521,6 +24737,62 @@ window.wfgDumpPolArea = function() {
 };
 window.wfgPolAreaCalcCount = function() { return _wfgPolAreaCalcCount; };
 window.wfgPolAreaBaseCalcCount = function() { return _wfgPolAreaBaseCalcCount; };
+/* 驗證用（v3.15.0）：閃爍層的完整狀態。
+   `blitCount` ＝ putImageData 次數、`snapCount` ＝ 快照建立次數（＝額外 render 次數）。
+   拖曳／縮放期間兩者都不該增加；靜止後 snapCount 只加 1、blitCount 才開始跑。 */
+window.wfgDumpFlick = function() {
+  var g = wfgPolAreaDisplayGray();
+  return { running: !!_wfgFlickTimer, shouldRun: _wfgFlickShouldRun(),
+           phase: _wfgFlickPhase, mid: g.mid, midLatched: _wfgFlickMidLatched,
+           grayBase: [g.pos, g.neg],
+           grayFlash: g.mid ? [g.pos, g.neg] : [wfgFlickAltGray(g.pos), wfgFlickAltGray(g.neg)],
+           periodMs: WFG_FLICK_PERIOD_MS, flashMs: WFG_FLICK_FLASH_MS, baseMs: WFG_FLICK_BASE_MS,
+           flashDuty: WFG_FLICK_FLASH_DUTY, snapDelayMs: WFG_FLICK_SNAP_DELAY_MS,
+           tolIn: WFG_FLICK_MID_TOL_IN, tolOut: WFG_FLICK_MID_TOL_OUT,
+           blitCount: _wfgFlickBlitCount, snapCount: _wfgFlickSnapCount,
+           hasSnap: !!(_wfgFlickSnapBase && _wfgFlickSnapAlt),
+           snapRect: _wfgFlickSnapRect ? { x: _wfgFlickSnapRect.x, y: _wfgFlickSnapRect.y,
+                                           w: _wfgFlickSnapRect.w, h: _wfgFlickSnapRect.h } : null,
+           slotRect: _wfgFlickSlotRect, hidden: document.hidden,
+           prof: { invCount: _wfgFlickInvCount, invMs: +_wfgFlickInvMs.toFixed(2),
+                   grayCount: _wfgPolGrayCount, grayMs: +_wfgPolGrayMs.toFixed(2),
+                   fillCount: _wfgPaFillCount, fillMs: +_wfgPaFillMs.toFixed(2) } };
+};
+window.wfgFlickProfReset = function() {
+  _wfgFlickInvCount = 0; _wfgFlickInvMs = 0;
+  _wfgPolGrayCount = 0; _wfgPolGrayMs = 0;
+  _wfgPaFillCount = 0; _wfgPaFillMs = 0;
+  return true;
+};
+// 驗證用：相位切換的時間戳，用來統計 base:flash 的實際停留時間比（應接近 3:1）
+window.wfgFlickPhaseLog = function(reset) {
+  var out = _wfgFlickPhaseLog.slice();
+  if (reset) _wfgFlickPhaseLog = [];
+  return out;
+};
+/* 驗證用：把畫面凍結在指定相位（flash 只停留 62.5ms，靠運氣截圖截不到）。
+   停 timer ＋ 直接貼對應的快照；呼叫 wfgFlickInvalidate() 即可恢復自動閃爍。 */
+window.wfgFlickForcePhase = function(ph) {
+  if (!_wfgFlickSnapBase || !_wfgFlickSnapAlt || !_wfgFlickSnapRect) return false;
+  var cv = document.getElementById('wfg-canvas');
+  if (!_wfgFlickCanvasVisible(cv)) return false;
+  _wfgFlickStopTimer();
+  _wfgFlickPhase = ph ? 1 : 0;
+  _wfgFlickBlit(_wfgFlickPhase ? _wfgFlickSnapAlt : _wfgFlickSnapBase);
+  return true;
+};
+// 驗證用：關閉／開啟閃爍（UI 上沒有開關，這只給自動化腳本比對用）
+window.wfgSetFlickEnabled = function(on) {
+  _wfgFlickEnable = !!on;
+  if (!_wfgFlickEnable) { _wfgFlickStopTimer();
+    if (_wfgFlickSnapBase && _wfgFlickSnapRect &&
+        _wfgFlickCanvasVisible(document.getElementById('wfg-canvas'))) {
+      _wfgFlickBlit(_wfgFlickSnapBase);   // 關閉時把畫面貼回 base，不要停在 flash
+      _wfgFlickPhase = 0;
+    }
+  } else { wfgFlickInvalidate(); }
+  return _wfgFlickEnable;
+};
 // 驗證用 helper（比照 v3.12.0 的 wfgDebugFeedthrough）：把畫線用到的每個數字如實讀回。
 window.wfgDumpVcom = function() {
   var r = wfgVcomRange();
