@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260816wfg3172"></script>
-<script src="common/i18n.js?v=20260816wfg3172"></script>
+<script src="common/version.js?v=20260816wfg3173"></script>
+<script src="common/i18n.js?v=20260816wfg3173"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -20490,7 +20490,17 @@ function wfgVcomDragToVoltage(cy) {
   if (nv === wfgClampVcom(wfgPanel.vcom_v)) return false;   // 同值不重畫
   wfgPanel.vcom_v = nv;
   wfgUpdateVcomReadout();
-  wfgRenderVcomRow();          // 左側輸入框同步（欄位沒有焦點，不會被那道保護擋住）
+  /* 🔴 v3.17.3：這裡一定要傳 `force`。原本的註解「欄位沒有焦點，不會被那道保護擋住」
+     是錯的假設 —— `<canvas>` 沒有 tabindex，**點它不會讓輸入框失焦**。使用者只要
+     先用左側輸入框設過 VCOM（最自然的順序），焦點就一直留在那個欄位上，
+     `wfgRenderVcomRow()` 的「正在編輯不覆寫」保護於是整段拖曳都在擋回寫：
+     白線在動、標籤在動，左側數字卻停在放手前的舊值。
+     實測（v3.17.1 與 v3.17.2 皆同，**不是 v3.17.2 才有的回歸**）：
+       先點輸入框 → 拖白線 8 步，wfgPanel.vcom_v 2.49→0.81、線 y 1447.5→1471.5，
+       而輸入框從頭到尾停在 "2.49"。沒有先點輸入框則三者同步。
+     傳 force 是安全的：拖曳期間使用者不可能同時在打字，而且值已經被拖曳改掉了，
+     欄位裡留的那串字本來就不再對應任何東西。 */
+  wfgRenderVcomRow(true);
   return true;
 }
 /* 拖曳結束後的校正。上面那道「顯示範圍」夾制用的是**當幀**的 vMin／vMax，而這一格的
@@ -20508,7 +20518,7 @@ function wfgVcomEnsureVisible() {
   if (nv === v) return false;
   wfgPanel.vcom_v = nv;
   wfgUpdateVcomReadout();
-  wfgRenderVcomRow();
+  wfgRenderVcomRow(true);   // v3.17.3: 同上，這支只掛在拖曳結束，來源同樣是滑鼠
   wfgRender();
   return true;
 }
@@ -24889,10 +24899,13 @@ function wfgUpdateVcomUiState() {
   var el = document.getElementById('wfg-vcom-v');
   if (el) el.disabled = !on;
 }
-function wfgRenderVcomRow() {
+/* `force`（v3.17.3）：略過「正在編輯的欄位不覆寫」那道保護，強制回寫。
+   🔴 只有**畫面上的拖曳**可以傳 true —— 拖曳期間值的來源是滑鼠不是鍵盤，
+      欄位裡的字已經是過期的，保護它反而是保護錯的那一份。細節見下方註解。 */
+function wfgRenderVcomRow(force) {
   var el = document.getElementById('wfg-vcom-v');
   // 正在編輯的欄位不覆寫（與 wfgRenderTftRow / wfgRenderFtRow 同一原則）
-  if (el && document.activeElement !== el) el.value = wfgFmtV(wfgVcomEffective());
+  if (el && (force || document.activeElement !== el)) el.value = wfgFmtV(wfgVcomEffective());
   var hint = document.getElementById('wfg-vcom-hint');
   if (hint) {
     var r = wfgVcomRange();
