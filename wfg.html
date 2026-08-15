@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260815wfg3150"></script>
-<script src="common/i18n.js?v=20260815wfg3150"></script>
+<script src="common/version.js?v=20260815wfg3160"></script>
+<script src="common/i18n.js?v=20260815wfg3160"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -4329,12 +4329,13 @@ function _wfgInvalidatePolArea() { _wfgPolAreaBase = null; _wfgPolAreaCache = nu
      ・🔴 建立快照要多跑一次 render，所以**掛在 debounce 之後**：拖曳／縮放期間
        每一幀都會把快照作廢並重排 debounce ⇒ 那段時間**完全不建快照、不閃爍**，
        每幀耗時與 v3.14.0 基線相同。停下來 150ms 才建一次。 */
-/* 🔴 週期與工作比（Bruce 2026-08-15 修訂）：**每秒 4 次**，且**不對稱** ——
-   閃出去的那個顏色（L0／L255）只佔 1/4，本來的灰階佔 3/4，是「短促閃一下」
-   而不是各半的方波。兩個常數放這裡，覺得太快只要改這裡一處。
-     週期 250ms ＝ base 187.5ms ＋ flash 62.5ms */
-var WFG_FLICK_PERIOD_MS = 250;
-var WFG_FLICK_FLASH_DUTY = 0.25;
+/* 🔴 週期與工作比。整個閃爍的節奏只由這兩個常數決定，改頻率／工作比就只改這兩行。
+   v3.15.0：每秒 4 次、base:flash = 3:1（週期 250ms ＝ 187.5 ＋ 62.5）
+   v3.16.0（Bruce 2026-08-15 修訂）：**每秒 8 次、各佔一半**
+     週期 125ms ＝ base 62.5ms ＋ flash 62.5ms
+   註：flash 的持續時間與 v3.15.0 完全相同（都是 62.5ms），變的是 base 由 187.5 縮到 62.5。 */
+var WFG_FLICK_PERIOD_MS = 125;
+var WFG_FLICK_FLASH_DUTY = 0.5;
 var WFG_FLICK_FLASH_MS = WFG_FLICK_PERIOD_MS * WFG_FLICK_FLASH_DUTY;
 var WFG_FLICK_BASE_MS  = WFG_FLICK_PERIOD_MS - WFG_FLICK_FLASH_MS;
 /* 🔴「面積相等」的容差與遲滯（Bruce 2026-08-15：「面積相等時，兩區都變為不閃爍的
@@ -20297,8 +20298,71 @@ function wfgVoltCursorHitTest(cx, cy, isTouch) {
       var y = wfgVoltCursorY(_sc[c.key], yHigh, yLow);
       if (Math.abs(cy - y) <= 5) return { ci: ci, slotIdx: si, gpioIdx: slot.gpioIdx };
     }
+    /* v3.16.0: VCOM 白色虛線納入**同一套** hit-test，`ci` 用字串 'vcom' 與 V1／V2 的
+       數字索引區分。拖曳狀態機、mouseup、觸控全部沿用既有那一套，不另寫一份。
+
+       🔴 **重疊時 V1／V2 優先**（所以放在上面那個迴圈之後）。依據不是喜好：
+         V1／V2 **只能靠拖曳**操作，抓不到就完全動不了；VCOM 另有左側輸入框
+         （step 0.01）可以精確設定，搶輸了還有退路。兩者都搶不到時的損失不對稱。
+
+       判定直接比對 `_wfgVcomLastDraw.y` —— 那是**畫線那一幀實際用的 y**，與畫出來
+       的像素同源，不必自己再換算一次座標（換算兩份就是不同步的開始）。
+       線沒畫出來時（未啟用／超出該格顯示範圍）`drawn` 為 false，自然不會命中。 */
+    if (_wfgVcomLastDraw && _wfgVcomLastDraw.drawn && wfgPanel.vcom_enable &&
+        isFinite(_wfgVcomLastDraw.y) && Math.abs(cy - _wfgVcomLastDraw.y) <= 5) {
+      return { ci: 'vcom', slotIdx: si, gpioIdx: slot.gpioIdx };
+    }
   }
   return null;
+}
+
+/* v3.16.0: 拖曳中的 VCOM 換算。y → 電壓用的是 `_wfgVcomLastDraw` 記下的座標系
+   （vMin／vMax／yHigh／yLow），與畫線同源；夾制與取小數 2 位一律走 `wfgClampVcom()`，
+   與輸入框同一支，不另寫。回傳 true 代表值有變動（呼叫端才需要重繪）。 */
+function wfgVcomDragToVoltage(cy) {
+  var ld = _wfgVcomLastDraw;
+  if (!ld || !ld.drawn) return false;
+  var span = ld.yLow - ld.yHigh;
+  if (!(span > 0)) return false;
+  var frac = (ld.yLow - cy) / span;
+  if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
+  var nv = wfgClampVcom(ld.vMin + frac * (ld.vMax - ld.vMin));
+  /* 🔴 還要夾在「四捨五入之後仍落在這一格顯示範圍內」的區間。
+     `wfgClampVcom()` 內含 `wfgRoundV()`（小數 2 位，與輸入框 step 0.01 一致），
+     而拖到底時 vMin 例如是 0.2540542 —— 捨成 0.25 就**小於** vMin，繪製端的
+     `_vcomV >= vMin` 判定會失敗 ⇒ **線直接消失，而且線一消失 hit-test 就再也抓不到，
+     只能回去用輸入框救**。所以下界往上取整、上界往下取整，各留一個 0.01 的餘裕。 */
+  var _lo = Math.ceil(ld.vMin * 100) / 100;
+  var _hi = Math.floor(ld.vMax * 100) / 100;
+  if (_lo <= _hi) {
+    if (nv < _lo) nv = _lo;
+    else if (nv > _hi) nv = _hi;
+    nv = wfgClampVcom(nv);          // 再套一次值域夾制（VGMA14 ~ VGMA1）
+  }
+  if (nv === wfgClampVcom(wfgPanel.vcom_v)) return false;   // 同值不重畫
+  wfgPanel.vcom_v = nv;
+  wfgUpdateVcomReadout();
+  wfgRenderVcomRow();          // 左側輸入框同步（欄位沒有焦點，不會被那道保護擋住）
+  return true;
+}
+/* 拖曳結束後的校正。上面那道「顯示範圍」夾制用的是**當幀**的 vMin／vMax，而這一格的
+   自動縮放在波形剛算好的那段暫態會變動（實測 vMin 由 -1 變成 0.254）—— 於是有機會
+   出現「放開手時線剛好落在新範圍外而消失」。線一消失 hit-test 就抓不到，只能回去
+   用輸入框。這裡在 mouseup 補一次：真的看不見了就把值收回可見範圍。
+   只掛在拖曳結束，輸入框的行為完全不動（那是 v3.13.0 的既有設計）。 */
+function wfgVcomEnsureVisible() {
+  var ld = _wfgVcomLastDraw;
+  if (!ld || ld.drawn) return false;
+  var lo = Math.ceil(ld.vMin * 100) / 100, hi = Math.floor(ld.vMax * 100) / 100;
+  if (!(lo <= hi)) return false;
+  var v = wfgVcomEffective();
+  var nv = wfgClampVcom(Math.max(lo, Math.min(hi, v)));
+  if (nv === v) return false;
+  wfgPanel.vcom_v = nv;
+  wfgUpdateVcomReadout();
+  wfgRenderVcomRow();
+  wfgRender();
+  return true;
 }
 
 // Compute auto-scale voltage range (visible window) for an analog channel.
@@ -24793,6 +24857,19 @@ window.wfgSetFlickEnabled = function(on) {
   } else { wfgFlickInvalidate(); }
   return _wfgFlickEnable;
 };
+/* 驗證用（v3.16.0）：拖曳白線的狀態。`drag` 非 null 代表 hit-test 命中且正在拖，
+   `ci === 'vcom'` 是 VCOM、數字是 V1／V2 —— 用來證明兩者不會互相搶。 */
+window.wfgDumpVcomDrag = function() {
+  return { drag: _wfgVoltCursorDrag ? { ci: _wfgVoltCursorDrag.ci,
+                                        gpioIdx: _wfgVoltCursorDrag.gpioIdx } : null,
+           lastDrawY: _wfgVcomLastDraw ? _wfgVcomLastDraw.y : null,
+           drawn: _wfgVcomLastDraw ? _wfgVcomLastDraw.drawn : null };
+};
+// 驗證用：對指定 canvas y 做一次 hit-test，回傳抓到誰（不改變任何狀態）
+window.wfgVcomHitTestAt = function(cx, cy) {
+  var h = wfgVoltCursorHitTest(cx, cy, false);
+  return h ? { ci: h.ci, slotIdx: h.slotIdx, gpioIdx: h.gpioIdx } : null;
+};
 // 驗證用 helper（比照 v3.12.0 的 wfgDebugFeedthrough）：把畫線用到的每個數字如實讀回。
 window.wfgDumpVcom = function() {
   var r = wfgVcomRange();
@@ -26374,6 +26451,11 @@ function wfgInitCanvas() {
     var sc = (canvas.height / dpr) / rect.height;
     var cy = (e.clientY - rect.top) * sc;
     var d = _wfgVoltCursorDrag;
+    // v3.16.0: VCOM 走自己的換算（絕對電壓，不是 slot 內的 frac），其餘完全沿用
+    if (d.ci === 'vcom') {
+      if (wfgVcomDragToVoltage(cy)) { wfgRender(); wfgUpdateOverlayCard(); }
+      return;
+    }
     var yHigh = d.slotY + 6;
     var yLow = d.slotY + d.slotH - 6;
     var span = yLow - yHigh;
@@ -26389,9 +26471,11 @@ function wfgInitCanvas() {
   });
   window.addEventListener('mouseup', function() {
     if (_wfgVoltCursorDrag) {
+      var _wasVcom = (_wfgVoltCursorDrag.ci === 'vcom');   // v3.16.0
       _wfgVoltCursorDrag = null;
       var canvas = document.getElementById('wfg-canvas');
       if (canvas) canvas.style.cursor = 'crosshair'; // v2.97.384: 恢復十字指標
+      if (_wasVcom) wfgVcomEnsureVisible();
     }
   });
 
@@ -26468,6 +26552,19 @@ function wfgInitCanvas() {
 
   // Measurement mousemove (throttled via rAF) + cursor tracking + crosshair hover
   canvas.addEventListener('mousemove', function(e) {
+    /* v3.16.0: hover 到可拖曳的水平游標時給 ns-resize 提示。
+       走的是**同一支** wfgVoltCursorHitTest，所以提示的範圍與真正抓得到的範圍
+       必然一致（各寫一份判定就是不同步的開始）。座標換算刻意與 mousedown 那段
+       逐字相同（都用 width 推出的 scale），否則提示會與可點區域對不上。
+       V1／V2 一併適用 —— hit-test 是共用的，只讓 VCOM 有提示反而不一致。 */
+    if (!_wfgVoltCursorDrag && !wfgDragging) {
+      var _hvRect = canvas.getBoundingClientRect();
+      var _hvSc = (canvas.width / (window.devicePixelRatio || 1)) / _hvRect.width;
+      var _hvHit = wfgVoltCursorHitTest((e.clientX - _hvRect.left) * _hvSc,
+                                        (e.clientY - _hvRect.top) * _hvSc);
+      var _hvWant = _hvHit ? 'ns-resize' : 'crosshair';
+      if (canvas.style.cursor !== _hvWant) canvas.style.cursor = _hvWant;
+    }
     // Always update mouse time for cursor spawn position
     var _ctp = wfgCursorGetTimeParams();
     if (_ctp) {
@@ -26606,6 +26703,11 @@ function wfgInitCanvas() {
       var _vtSc2 = (canvas.height / _vtDpr2) / _vtRect2.height;
       var _vtCy2 = (e.touches[0].clientY - _vtRect2.top) * _vtSc2;
       var _vtD = _wfgVoltCursorDrag;
+      // v3.16.0: VCOM 走自己的換算（與滑鼠拖曳同一支 wfgVcomDragToVoltage）
+      if (_vtD.ci === 'vcom') {
+        if (wfgVcomDragToVoltage(_vtCy2)) { wfgRender(); wfgUpdateOverlayCard(); }
+        return;
+      }
       var _vtYH = _vtD.slotY + 6;
       var _vtYL = _vtD.slotY + _vtD.slotH - 6;
       var _vtSpan = _vtYL - _vtYH;
@@ -26710,7 +26812,9 @@ function wfgInitCanvas() {
   canvas.addEventListener('touchend', function(e) {
     // ── Voltage cursor touch drag end ──
     if (_wfgVoltCursorDrag && e.touches.length === 0) {
+      var _wasVcomT = (_wfgVoltCursorDrag.ci === 'vcom');   // v3.16.0（與滑鼠端同一套校正）
       _wfgVoltCursorDrag = null;
+      if (_wasVcomT) wfgVcomEnsureVisible();
       return;
     }
     if (wfgTouchTrackingCursor && e.touches.length === 0) {
