@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260815wfg3170"></script>
-<script src="common/i18n.js?v=20260815wfg3170"></script>
+<script src="common/version.js?v=20260815wfg3171"></script>
+<script src="common/i18n.js?v=20260815wfg3171"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -20295,11 +20295,25 @@ function wfgVoltCursorHitTest(cx, cy, isTouch) {
     if (cy < yHigh - 10 || cy > yLow + 10) continue;
     var _hGpIdx = slot.gpioIdx != null ? slot.gpioIdx : si;
     var _sc = _wfgGetSlotCursors(_hGpIdx);
-    for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
-      var c = wfgVoltCursors[ci];
-      if (!wfgVoltCursorOn(_hGpIdx, ci)) continue;
-      var y = wfgVoltCursorY(_sc[c.key], yHigh, yLow);
-      if (Math.abs(cy - y) <= 5) return { ci: ci, slotIdx: si, gpioIdx: slot.gpioIdx };
+    /* 🔴 v3.17.1: 與繪製端**同一個條件**。`wfgDrawVoltCursors()` 有
+       `ac.showCursors !== false` 這一關（通道列上那顆眼睛），關掉就不畫 V1／V2；
+       但 hit-test 從來沒有這一關，只看 `wfgVoltCursorOn()`（那是 per-slot 的
+       v1On/v2On，不同的東西）。
+
+       後果是使用者在**看不見任何線**的地方拿到 `ns-resize`，而且這兩條隱形帶
+       依序位在 VCOM 判定之前 ⇒ 會把 VCOM 的可抓範圍上下各切掉一塊。
+       實測：Vpix 這一格眼睛是關的，畫面上只有白色 VCOM 虛線，卻掃得到三條帶。
+
+       閘門只能加在**這個內層迴圈**，不能加在外層 `si` 迴圈 —— 外層 continue 會
+       連同下面的 VCOM 判定一起跳過，那一格的 VCOM 就變成完全抓不到。 */
+    var _hAc = slot.gpio ? slot.gpio.analog_config : null;
+    if (_hAc && _hAc.showCursors !== false) {
+      for (var ci = 0; ci < wfgVoltCursors.length; ci++) {
+        var c = wfgVoltCursors[ci];
+        if (!wfgVoltCursorOn(_hGpIdx, ci)) continue;
+        var y = wfgVoltCursorY(_sc[c.key], yHigh, yLow);
+        if (Math.abs(cy - y) <= 5) return { ci: ci, slotIdx: si, gpioIdx: slot.gpioIdx };
+      }
     }
     /* v3.16.0: VCOM 白色虛線納入**同一套** hit-test，`ci` 用字串 'vcom' 與 V1／V2 的
        數字索引區分。拖曳狀態機、mouseup、觸控全部沿用既有那一套，不另寫一份。
@@ -23572,7 +23586,21 @@ window.wfgResizeCanvas = function() {
     for (var _ok in _ovlCnt) if (_ovlCnt[_ok] >= 2) _ovlGapSaved += (_ovlCnt[_ok] - 1) * WFG_ROW_GAP;
   }
   var contentH = WFG_AXIS_H + wfgInternalExtraH() + (sigCount + promotedExtra) * (WFG_ROW_H + WFG_ROW_GAP) + _analogExtraH - _ovlGapSaved + 10;
-  var canvasTop = wrap.getBoundingClientRect().top;
+  /* v3.17.1: `canvasTop` 夾在 0 以上。
+     這一段的原意是「內容很少時把 canvas 撐到填滿視窗，不要留一塊死白」，前提是
+     波形區的**頂端還在視窗裡**。但本函式由掛在 wrap 上的 ResizeObserver 驅動，
+     跑的時機是「任何讓 wrap 尺寸變動的事」—— 捲動位置是多少完全看當下。
+
+     🔴 手機版是單欄，波形區被推到頁面 2200px 處，使用者必須整頁捲動才看得到；
+     捲過去之後 `canvasTop` 變成大負數，`innerHeight - canvasTop - 70` 就隨捲動
+     距離線性膨脹（實測 wrapTop −1300 ⇒ viewH 2074），一旦超過 contentH 就被
+     下面的 max() 選中，canvas 被撐高 569px —— 那塊多出來的高度只畫得出背景格線，
+     沒有任何通道列，而且不會自己復原。
+
+     `canvasTop < 0` 代表「已經捲過去了」，此時「填滿視窗」這個意圖本來就不成立，
+     所以直接夾成 0。桌機不受影響：雙欄版面讓 wrap 頂端恆為小正數（實測 71~111），
+     `Math.max(0, canvasTop)` 取到的就是原值，逐位元組不變。 */
+  var canvasTop = Math.max(0, wrap.getBoundingClientRect().top);
   var viewH = window.innerHeight - canvasTop - 70;
   var h = Math.floor(Math.max(300, Math.max(contentH, viewH)));
   var dpr = window.devicePixelRatio || 1;
@@ -24953,9 +24981,15 @@ window.wfgDumpCursorGeom = function() {
               vcomEnable: !!wfgPanel.vcom_enable };
   for (i = 0; i < _wfgAnalogChSlots.length; i++) {
     var s = _wfgAnalogChSlots[i];
+    /* v3.17.1: 多回一個 `showCursors` —— 驗證「這個 y 上畫面到底有沒有線」時，
+       這是判定的來源本身，比從像素反推可靠。 */
+    var _sAc = s.gpio ? s.gpio.analog_config : null;
     out.slots.push({ i: i, chIdx: s.chIdx, gpioIdx: s.gpioIdx, slotY: s.slotY,
                      slotH: s.slotH, ovlId: s.ovlId || null,
-                     wfType: s.gpio ? s.gpio.waveform_type : null });
+                     wfType: s.gpio ? s.gpio.waveform_type : null,
+                     showCursors: _sAc ? (_sAc.showCursors !== false) : null,
+                     v1On: wfgVoltCursorOn(s.gpioIdx, 0),
+                     v2On: wfgVoltCursorOn(s.gpioIdx, 1) });
   }
   for (i = 0; i < _wfgVoltCursorLabels.length; i++) {
     var l = _wfgVoltCursorLabels[i];
