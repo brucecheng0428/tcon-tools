@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260815wfg3171"></script>
-<script src="common/i18n.js?v=20260815wfg3171"></script>
+<script src="common/version.js?v=20260816wfg3172"></script>
+<script src="common/i18n.js?v=20260816wfg3172"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -4334,15 +4334,42 @@ function _wfgInvalidatePolArea() { _wfgPolAreaBase = null; _wfgPolAreaCache = nu
    v3.16.0（Bruce 2026-08-15 修訂）：**每秒 8 次、各佔一半**
      週期 125ms ＝ base 62.5ms ＋ flash 62.5ms
    註：flash 的持續時間與 v3.15.0 完全相同（都是 62.5ms），變的是 base 由 187.5 縮到 62.5。 */
-var WFG_FLICK_PERIOD_MS = 125;
+/* v3.17.2: `WFG_FLICK_PERIOD_MS` 已移除 —— 週期不再是常數，改由不對稱程度算出
+   （見下方 wfgFlickFreqAt）。工作比仍是常數，本次沒有要改。 */
 var WFG_FLICK_FLASH_DUTY = 0.5;
-var WFG_FLICK_FLASH_MS = WFG_FLICK_PERIOD_MS * WFG_FLICK_FLASH_DUTY;
-var WFG_FLICK_BASE_MS  = WFG_FLICK_PERIOD_MS - WFG_FLICK_FLASH_MS;
-/* 🔴「面積相等」的容差與遲滯（Bruce 2026-08-15：「面積相等時，兩區都變為不閃爍的
-   L127 就好」，容差由我訂）。
+
+/* ── v3.17.2：頻率隨「不對稱程度」變化（Bruce 2026-08-15）──
+   越對稱越慢、越偏一邊（上下皆然）越快，完全對稱則停止。工作比維持 1:1。
+
+   不對稱程度 d ＝ 顯示灰階對中點的偏離，正規化到 [0,1]。
+
+   🔴 中點取 **127.5 而不是 127**。本工具的公式讓 grayPos + grayNeg 恆等於 255，
+      所以正負面積相等對應的是 127.5。用 127 當中點會讓上下不對稱：
+        gray=255（全偏一邊） → |255−127|/127 = 1.0079
+        gray=0  （全偏另一邊）→ |0−127|/127  = 1.0000
+      兩端差 0.79%，違反「不管偏上偏下頻率都要相同」這個硬條件。
+      用 127.5 兩端都恰好是 1.0000。口述的「127」指的是那一格灰階，
+      實際的對稱中心是 127.5 —— 取後者才符合要求的意圖。
+
+   慢端 1Hz 是我訂的：再慢會讓人以為功能沒反應，而「完全對稱」已經用「不畫底色」
+   表達（見 wfgPolAreaDisplayGray），不需要再用超慢閃來代表。 */
+var WFG_POLAREA_MID = 127.5;
+var WFG_FLICK_FREQ_MIN_HZ = 1;    // 剛離開中心區間（d→0+）
+var WFG_FLICK_FREQ_MAX_HZ = 32;   // d = 1，每秒 32 次來回
+/* 'linear'    ：f = 1 + 31d
+   'geometric' ：f = 1 × 32^d（每 0.2 的 d 就翻一倍）
+   預設 linear（依指示）。兩者的實測對照見 CHANGELOG，切換只改這一行。 */
+var WFG_FLICK_FREQ_CURVE = 'linear';
+var _wfgFlickFreqOverride = 0;    // >0 時覆蓋頻率，只給驗證腳本用
+var _wfgFlickPhaseAcc = 0;        // 相位累積器 ∈ [0,1)
+var _wfgFlickLastT = 0;           // 上一次 tick 的時間戳
+/* 🔴「面積相等」的容差與遲滯（依 Bruce 2026-08-15 指示；容差數值由我訂）。
+   指示本身在 v3.17.2 換過一次：v3.15.0 是「相等時兩區都變成不閃的 L127」，
+   v3.17.2 改為「完全對稱的區間直接回到波形原本的底色，也就是不畫」。
+   **容差與遲滯的機制兩版完全相同**，變的只有落在區間內時要畫什麼。
    本工具的公式讓 gray_pos + gray_neg 恆等於 255 ⇒ 正負相等對應的是 **127.5**，
    浮點永遠不會剛好落在那裡，所以一定要有容差。
-     進入（吸附成 L127、停止閃爍）：|gray − 127.5| < 0.5
+     進入（不畫底色、停止閃爍）：|gray − 127.5| < 0.5
        ＝ 四捨五入後就是 127／128 那一格，**畫面上已經看不出差別**；
          換算成面積不平衡度是 |A_pos − A_neg| / (A_pos + A_neg) < 1/255 ≈ 0.39%
      離開（恢復各自灰階、開始閃爍）：|gray − 127.5| > 1.0（＝ 2 階）
@@ -4357,30 +4384,60 @@ var _wfgFlickSnapping = false;       // 建快照期間的遞迴防護
 var _wfgFlickSnapBase = null, _wfgFlickSnapAlt = null, _wfgFlickSnapRect = null;
 var _wfgFlickSlotRect = null;        // Vpix 那一格的 CSS 座標，由 wfgDrawAnalogChannel 記下
 var _wfgFlickTimer = 0, _wfgFlickSnapDebounce = 0;
-var _wfgFlickBlitCount = 0;          // 🔴 驗證用：putImageData 次數
+var _wfgFlickBlitCount = 0;          // 🔴 驗證用：貼快照回主 canvas 的次數
 var _wfgFlickSnapCount = 0;          // 🔴 驗證用：快照建立次數（＝額外 render 次數）
-var _wfgFlickPhaseLog = [];          // 🔴 驗證用：相位切換的時間戳（用來統計 3:1）
+/* 🔴 驗證用：每個 tick 的時間戳、相位、相位累積器與當下頻率。
+   v3.17.2 起頻率是變動的，所以光有時間戳不夠 —— 要證明「頻率變了相位也不跳」，
+   看的是 `acc` 單調前進、且 `phase === (acc >= 0.5)` 恆成立。 */
+var _wfgFlickPhaseLog = [];
 var _wfgFlickInvCount = 0, _wfgFlickInvMs = 0;   // 診斷用：invalidate 被呼叫的次數與累計耗時
 var _wfgPolGrayCount = 0, _wfgPolGrayMs = 0;     // 診斷用：繪製路徑上取顯示灰階的次數與累計耗時
 var _wfgPaFillCount = 0, _wfgPaFillMs = 0;       // 診斷用：著色（建 Path2D ＋兩次 clip fill）的次數與累計耗時
 var _wfgFlickEnable = true;          // 供驗證關閉用（UI 上沒有開關，跟著 VCOM 啟用走）
-var _wfgFlickMidLatched = false;     // 遲滯狀態：目前是否處於「相等 → 吸附成 L127」
+var _wfgPolAreaFillEnable = true;    // 同上：關掉就完全不畫面積底色，只給驗證比對用
+var _wfgFlickMidLatched = false;     // 遲滯狀態：目前是否處於「完全對稱 → 不畫底色」
 
-/* 「實際要顯示的」兩個灰階，含相等時吸附成 L127。**繪製與建快照都只能走這一支**，
+/* 「實際要顯示的」兩個灰階，含完全對稱時的 `mid` 旗標（v3.17.2 起代表**整段不畫**，
+   v3.15.0～v3.17.1 是吸附成 L127）。**繪製與建快照都只能走這一支**，
    否則兩者可能算出不同的顏色，閃爍就會在切相位時跳色。
    遲滯狀態在這裡更新：同一組輸入重複呼叫不會改變結果（建 flash 快照時會再呼叫一次，
    必須是冪等的）。 */
 function wfgPolAreaDisplayGray() {
   var pa = wfgPolArea();
   if (!pa.ok) return { ok: false, pos: 127, neg: 127, mid: true };
-  var d = Math.abs(pa.grayPos - 127.5);
+  var d = Math.abs(pa.grayPos - WFG_POLAREA_MID);
   if (_wfgFlickMidLatched) {
     if (d > WFG_FLICK_MID_TOL_OUT) _wfgFlickMidLatched = false;
   } else if (d < WFG_FLICK_MID_TOL_IN) {
     _wfgFlickMidLatched = true;
   }
+  /* v3.17.2: 完全對稱時**不畫任何底色**（Bruce 2026-08-15），不再吸附成 L127 灰。
+     `pos`／`neg` 保留 127 只是為了讓呼叫端拿到有效數字；真正的旗標是 `mid`，
+     繪製端看到 `mid` 就整段跳過填色。
+     🔴 遲滯（TOL_IN 0.5 / TOL_OUT 1.0）原封不動 —— 它存在的理由沒有變：VCOM 停在
+        邊界上時，單一門檻會讓底色在「有／無」之間狂閃，比閃爍本身更擾人。
+        改成不畫底色之後，抖動的視覺代價其實更大（整塊出現又消失），遲滯更該留。 */
   if (_wfgFlickMidLatched) return { ok: true, pos: 127, neg: 127, mid: true };
   return { ok: true, pos: pa.grayPos, neg: pa.grayNeg, mid: false };
+}
+
+/* 不對稱程度 d ∈ [0,1]。🔴 每次相位切換都會呼叫，所以只做 O(1) 的算術 ——
+   `wfgPolArea()` 本身有快取（key ＝ 貴層 ver ＋ 生效 VCOM），命中時不重算。 */
+function wfgFlickAsymmetry() {
+  var pa = wfgPolArea();
+  if (!pa.ok) return 0;
+  var d = Math.abs(pa.grayPos - WFG_POLAREA_MID) / WFG_POLAREA_MID;
+  return d < 0 ? 0 : (d > 1 ? 1 : d);
+}
+/* d → 每秒來回次數。上下對稱由 `wfgFlickAsymmetry()` 取絕對值保證：
+   grayPos = 127.5+k 與 127.5−k 得到同一個 d ⇒ 同一個頻率。 */
+function wfgFlickFreqAt(d) {
+  if (_wfgFlickFreqOverride > 0) return _wfgFlickFreqOverride;
+  var lo = WFG_FLICK_FREQ_MIN_HZ, hi = WFG_FLICK_FREQ_MAX_HZ;
+  if (!(d > 0)) return lo;
+  if (d > 1) d = 1;
+  if (WFG_FLICK_FREQ_CURVE === 'geometric') return lo * Math.pow(hi / lo, d);
+  return lo + (hi - lo) * d;
 }
 /* flash 相位的灰階：比自己暗的那一區往 L0 閃、比較亮的那一區往 L255 閃。
    🔴 分界用 127.5（＝正負相等時的值），不是口述的 127 —— 127 在這個公式下不是中點。
@@ -4389,7 +4446,7 @@ function wfgFlickAltGray(gray) {
   if (!isFinite(gray)) return gray;
   return (gray < 127.5) ? 255 : 0;
 }
-// 目前這組設定要不要閃。mid（吸附成 L127）就不閃。
+// 目前這組設定要不要閃。mid（完全對稱 ⇒ 不畫底色）就不閃。
 function _wfgFlickShouldRun() {
   if (!_wfgFlickEnable || !wfgPanel.vcom_enable) return false;
   var g = wfgPolAreaDisplayGray();
@@ -4401,8 +4458,9 @@ function _wfgFlickCanvasVisible(canvas) {
 function _wfgFlickStopTimer() {
   if (_wfgFlickTimer) { clearTimeout(_wfgFlickTimer); _wfgFlickTimer = 0; }
 }
-/* 🔴 用 setTimeout 鏈而不是 setInterval —— 兩個相位的停留時間不一樣
-   （base 187.5ms／flash 62.5ms），setInterval 只能給等長間隔。 */
+/* 🔴 用 setTimeout 鏈而不是 setInterval。v3.16.0 的理由是兩個相位停留時間不一樣，
+   v3.17.2 換成更硬的理由：**週期本身會隨 VCOM 連續改變**，setInterval 只能給
+   一個固定間隔，改頻率就得砍掉重設，而那正是相位會跳拍的時機。 */
 function _wfgFlickSchedule(ms) {
   _wfgFlickStopTimer();
   _wfgFlickTimer = setTimeout(function() { _wfgFlickTimer = 0; _wfgFlickTick(); }, ms);
@@ -4434,15 +4492,43 @@ function _wfgFlickTick() {
   if (document.hidden) return;                       // 背景分頁不燒 CPU（visibilitychange 會收尾）
   var canvas = document.getElementById('wfg-canvas');
   if (!_wfgFlickCanvasVisible(canvas)) return;       // 切到 LA 分頁時不要對著隱藏的 canvas blit
-  _wfgFlickPhase = _wfgFlickPhase ? 0 : 1;
-  _wfgFlickBlit(_wfgFlickPhase ? _wfgFlickSnapAlt : _wfgFlickSnapBase);
-  _wfgFlickBlitCount++;
-  if (_wfgFlickPhaseLog.length < 400) {
-    _wfgFlickPhaseLog.push({ t: (typeof performance !== 'undefined' ? performance.now() : Date.now()),
-                             phase: _wfgFlickPhase });
+  /* ── v3.17.2：相位累積（不是「經過時間 mod 週期」）──
+     🔴 頻率會隨 VCOM 連續改變。若用 `t mod period` 決定相位，週期一變、相位就會
+        瞬間跳到另一個位置，看起來像卡頓／漏拍。累積式的 phase 只單向往前加，
+        週期怎麼變都不會產生不連續。
+     仍然用 setTimeout 鏈而不是 rAF：rAF 每幀都要醒（60fps 持續佔 CPU），
+     而這裡真正要做事的只有相位邊界那一刻。 */
+  var _now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  var _dt = _wfgFlickLastT ? (_now - _wfgFlickLastT) : 0;
+  _wfgFlickLastT = _now;
+  var _d = wfgFlickAsymmetry();
+  var _freq = wfgFlickFreqAt(_d);
+  var _period = 1000 / _freq;                      // 一次完整來回的 ms
+  if (_dt > 0 && _period > 0) {
+    var _adv = _dt / _period;
+    if (_adv > 4) _adv = 4;   // 分頁凍結後回來，不要一次補幾百個切換
+    _wfgFlickPhaseAcc += _adv;
   }
-  // 停在 flash 只有 1/4 的時間，停在 base 有 3/4
-  _wfgFlickSchedule(_wfgFlickPhase ? WFG_FLICK_FLASH_MS : WFG_FLICK_BASE_MS);
+  while (_wfgFlickPhaseAcc >= 1) _wfgFlickPhaseAcc -= 1;
+  // base 佔 [0, 1−duty)、flash 佔 [1−duty, 1)。duty 0.5 ⇒ 各半。
+  var _baseEnd = 1 - WFG_FLICK_FLASH_DUTY;
+  var _want = (_wfgFlickPhaseAcc < _baseEnd) ? 0 : 1;
+  if (_want !== _wfgFlickPhase) {
+    _wfgFlickPhase = _want;
+    _wfgFlickBlit(_wfgFlickPhase ? _wfgFlickSnapAlt : _wfgFlickSnapBase);
+    _wfgFlickBlitCount++;
+  }
+  if (_wfgFlickPhaseLog.length < 4000) {
+    _wfgFlickPhaseLog.push({ t: _now, phase: _wfgFlickPhase,
+                             acc: +_wfgFlickPhaseAcc.toFixed(6),
+                             d: +_d.toFixed(6), hz: +_freq.toFixed(4) });
+  }
+  // 睡到下一個相位邊界為止，不是睡固定長度
+  var _nextEdge = (_want === 0) ? _baseEnd : 1;
+  var _wait = (_nextEdge - _wfgFlickPhaseAcc) * _period;
+  if (!(_wait > 1)) _wait = 1;
+  if (_wait > 1000) _wait = 1000;
+  _wfgFlickSchedule(_wait);
 }
 function _wfgFlickBuildSnapshots() {
   _wfgFlickSnapBase = _wfgFlickSnapAlt = _wfgFlickSnapRect = null;
@@ -4490,7 +4576,13 @@ function wfgFlickInvalidate() {
   _wfgFlickSnapDebounce = setTimeout(function() {
     _wfgFlickSnapDebounce = 0;
     _wfgFlickBuildSnapshots();
-    if (_wfgFlickSnapBase) _wfgFlickSchedule(WFG_FLICK_BASE_MS);   // 從 base 開始
+    if (_wfgFlickSnapBase) {
+      /* v3.17.2: 相位從 base 的起點重新起算。這裡歸零是**畫面本來就重繪過**，
+         不是頻率變動造成的跳拍 —— 快照作廢期間根本沒有在閃。 */
+      _wfgFlickPhaseAcc = 0;
+      _wfgFlickLastT = 0;
+      _wfgFlickSchedule(500 / wfgFlickFreqAt(wfgFlickAsymmetry()));   // 半個週期後翻面
+    }
   }, WFG_FLICK_SNAP_DELAY_MS);
   if (typeof performance !== 'undefined') _wfgFlickInvMs += performance.now() - _t0;
 }
@@ -4502,7 +4594,9 @@ if (typeof document !== 'undefined') {
       if (_wfgFlickCanvasVisible(document.getElementById('wfg-canvas'))) {
         _wfgFlickBlit(_wfgFlickSnapBase);
         _wfgFlickPhase = 0;
-        _wfgFlickSchedule(WFG_FLICK_BASE_MS);
+        _wfgFlickPhaseAcc = 0;
+        _wfgFlickLastT = 0;
+        _wfgFlickSchedule(500 / wfgFlickFreqAt(wfgFlickAsymmetry()));
       }
     }
   });
@@ -20619,12 +20713,17 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
           ctx.restore();
         };
         /* v3.15.0: 正常 render 恆畫 base 相位；`_wfgFlickForceAlt` 只有在建立 flash
-           快照的那一次 render 期間為 true。閃爍本身完全不經過這條路徑。 */
-        var _paAlt = _wfgFlickForceAlt && !_pa.mid;
-        var _pfT0 = performance.now();
-        _paFill(_paAlt ? wfgFlickAltGray(_pa.pos) : _pa.pos, yHigh, _paY);   // VCOM 之上 ＝ 正極性區
-        _paFill(_paAlt ? wfgFlickAltGray(_pa.neg) : _pa.neg, _paY, yLow);    // VCOM 之下 ＝ 負極性區
-        _wfgPaFillMs += performance.now() - _pfT0; _wfgPaFillCount++;
+           快照的那一次 render 期間為 true。閃爍本身完全不經過這條路徑。
+           v3.17.2: `mid`（完全對稱）**整段跳過填色** —— 這一格因此與沒有這個功能時
+           逐位元組相同，而不是像 v3.15.0～v3.17.1 那樣蓋一層不閃的 L127 灰。
+           `_wfgPolAreaFillEnable` 只是驗證用的關閉開關，UI 上不存在。 */
+        var _paAlt = _wfgFlickForceAlt;
+        if (!_pa.mid && _wfgPolAreaFillEnable) {
+          var _pfT0 = performance.now();
+          _paFill(_paAlt ? wfgFlickAltGray(_pa.pos) : _pa.pos, yHigh, _paY);   // VCOM 之上 ＝ 正極性區
+          _paFill(_paAlt ? wfgFlickAltGray(_pa.neg) : _pa.neg, _paY, yLow);    // VCOM 之下 ＝ 負極性區
+          _wfgPaFillMs += performance.now() - _pfT0; _wfgPaFillCount++;
+        }
       }
     }
   }
@@ -24891,7 +24990,10 @@ window.wfgDumpFlick = function() {
            phase: _wfgFlickPhase, mid: g.mid, midLatched: _wfgFlickMidLatched,
            grayBase: [g.pos, g.neg],
            grayFlash: g.mid ? [g.pos, g.neg] : [wfgFlickAltGray(g.pos), wfgFlickAltGray(g.neg)],
-           periodMs: WFG_FLICK_PERIOD_MS, flashMs: WFG_FLICK_FLASH_MS, baseMs: WFG_FLICK_BASE_MS,
+           /* v3.17.2: 週期不再是常數，改由不對稱程度算出來（見 wfgDumpFlickFreq）。 */
+           d: wfgFlickAsymmetry(), hz: wfgFlickFreqAt(wfgFlickAsymmetry()),
+           periodMs: 1000 / wfgFlickFreqAt(wfgFlickAsymmetry()),
+           curve: WFG_FLICK_FREQ_CURVE, phaseAcc: _wfgFlickPhaseAcc,
            flashDuty: WFG_FLICK_FLASH_DUTY, snapDelayMs: WFG_FLICK_SNAP_DELAY_MS,
            tolIn: WFG_FLICK_MID_TOL_IN, tolOut: WFG_FLICK_MID_TOL_OUT,
            blitCount: _wfgFlickBlitCount, snapCount: _wfgFlickSnapCount,
@@ -24909,14 +25011,19 @@ window.wfgFlickProfReset = function() {
   _wfgPaFillCount = 0; _wfgPaFillMs = 0;
   return true;
 };
-// 驗證用：相位切換的時間戳，用來統計 base:flash 的實際停留時間比（應接近 3:1）
+/* 驗證用：每個 tick 的 { t, phase, acc, d, hz }。v3.16.0 是拿它統計 base:flash 的
+   停留時間比；v3.17.2 起週期會變，改為驗「acc 單調前進 ＋ phase === (acc >= 0.5)」。 */
 window.wfgFlickPhaseLog = function(reset) {
   var out = _wfgFlickPhaseLog.slice();
   if (reset) _wfgFlickPhaseLog = [];
   return out;
 };
-/* 驗證用：把畫面凍結在指定相位（flash 只停留 62.5ms，靠運氣截圖截不到）。
-   停 timer ＋ 直接貼對應的快照；呼叫 wfgFlickInvalidate() 即可恢復自動閃爍。 */
+/* 驗證用：把畫面凍結在指定相位（每個相位最短只停留 15.6ms，靠運氣截圖截不到）。
+   🔴 凍結之後**不可以用 captureBeyondViewport 截圖**：它會暫時改視窗尺寸，
+      ResizeObserver → wfgResizeCanvas → wfgRender → wfgFlickInvalidate，
+      快照當場作廢、畫面重畫回 base，兩個相位截出來會一模一樣（實測 2026-08-15：
+      截圖前後 snapCount 3→4、hasSnap true→false）。要整頁就先確認目標在視窗內。
+   停 timer ＋ 直接貼對應的快照；呼叫任何會觸發 render 的動作即可恢復自動閃爍。 */
 window.wfgFlickForcePhase = function(ph) {
   if (!_wfgFlickSnapBase || !_wfgFlickSnapAlt || !_wfgFlickSnapRect) return false;
   var cv = document.getElementById('wfg-canvas');
@@ -24925,6 +25032,72 @@ window.wfgFlickForcePhase = function(ph) {
   _wfgFlickPhase = ph ? 1 : 0;
   _wfgFlickBlit(_wfgFlickPhase ? _wfgFlickSnapAlt : _wfgFlickSnapBase);
   return true;
+};
+/* 驗證用（v3.17.2）：頻率映射的當下狀態。`hz` 是**設定值**，實測值要另外從
+   `wfgFlickPhaseLog()` 的時間戳統計 —— 兩者對不上正是要量的東西（顯示更新率極限）。 */
+window.wfgDumpFlickFreq = function() {
+  var pa = wfgPolArea();
+  var g = wfgPolAreaDisplayGray();
+  var d = wfgFlickAsymmetry();
+  return { curve: WFG_FLICK_FREQ_CURVE, minHz: WFG_FLICK_FREQ_MIN_HZ,
+           maxHz: WFG_FLICK_FREQ_MAX_HZ, mid: WFG_POLAREA_MID,
+           grayPos: pa.ok ? pa.grayPos : null, grayNeg: pa.ok ? pa.grayNeg : null,
+           d: d, hz: wfgFlickFreqAt(d), periodMs: 1000 / wfgFlickFreqAt(d),
+           latched: _wfgFlickMidLatched, isMid: !!g.mid,
+           phaseAcc: _wfgFlickPhaseAcc, phase: _wfgFlickPhase,
+           override: _wfgFlickFreqOverride, running: _wfgFlickShouldRun(),
+           tolIn: WFG_FLICK_MID_TOL_IN, tolOut: WFG_FLICK_MID_TOL_OUT };
+};
+// 驗證用：不經 VCOM 直接算某個 d 的頻率（畫頻率曲線用，不改任何狀態）
+window.wfgFlickFreqOf = function(d) { return wfgFlickFreqAt(d); };
+/* 驗證用（v3.17.2）：量**畫面實際換了幾次**，不是量 timer 想換幾次。
+   rAF 的節奏就是合成器的節奏（vsync），所以逐幀取樣 `_wfgFlickPhase` 得到的
+   `cyclesPerSec` 才是使用者眼睛看得到的來回次數。
+   🔴 設定頻率一旦逼近顯示更新率的一半，兩者就會分岔 —— 每秒 32 次來回代表每個
+      畫面只有 15.625ms，比 60Hz 的一格（16.67ms）還短，撐不滿一格。
+   一併回報量到的 `fps`，否則 `cyclesPerSec` 沒有辦法解讀。 */
+window.wfgFlickMeasureRaf = function(ms) {
+  ms = ms || 3000;
+  return new Promise(function(resolve) {
+    var t0 = performance.now(), last = null, changes = 0, frames = 0;
+    var distinct = [];
+    function step() {
+      var now = performance.now();
+      frames++;
+      var p = _wfgFlickPhase;
+      if (last !== null && p !== last) { changes++; distinct.push(+(now - t0).toFixed(2)); }
+      last = p;
+      if (now - t0 < ms) requestAnimationFrame(step);
+      else {
+        var sec = (now - t0) / 1000;
+        resolve({ ms: +(now - t0).toFixed(1), frames: frames, changes: changes,
+                  fps: +(frames / sec).toFixed(2),
+                  cyclesPerSec: +((changes / 2) / sec).toFixed(3),
+                  edges: distinct.slice(0, 200) });
+      }
+    }
+    requestAnimationFrame(step);
+  });
+};
+// 驗證用：切換映射曲線，回傳整條曲線供比對
+window.wfgSetFlickCurve = function(name) {
+  if (name === 'linear' || name === 'geometric') WFG_FLICK_FREQ_CURVE = name;
+  var out = [];
+  for (var i = 0; i <= 20; i++) out.push([i / 20, +wfgFlickFreqAt(i / 20).toFixed(4)]);
+  return { curve: WFG_FLICK_FREQ_CURVE, table: out };
+};
+/* 驗證用：覆蓋頻率（0 ＝ 取消覆蓋）。用來在**閃爍進行中**連續改變頻率，
+   證明相位累積不會跳拍 —— 拖曳 VCOM 時快照會作廢、根本不閃，測不到這件事。 */
+window.wfgSetFlickTestFreq = function(hz) {
+  _wfgFlickFreqOverride = (hz > 0) ? hz : 0;
+  return _wfgFlickFreqOverride;
+};
+// 驗證用：關閉／開啟面積底色本身，供「完全對稱時是否與沒有這功能時相同」的比對
+window.wfgSetPolAreaFillEnabled = function(on) {
+  _wfgPolAreaFillEnable = !!on;
+  wfgFlickInvalidate();
+  wfgRender();
+  return _wfgPolAreaFillEnable;
 };
 // 驗證用：關閉／開啟閃爍（UI 上沒有開關，這只給自動化腳本比對用）
 window.wfgSetFlickEnabled = function(on) {
