@@ -1262,7 +1262,7 @@
                 <span class="wfg-chevron">▼</span>
               </div>
               <div class="wfg-signal-mini-body">
-                <div style="font-size:10px;color:#64748b;margin-bottom:8px" data-i18n="wfg.vcomDesc">VCOM 是面板共通電極的直流準位，畫成一條白色水平虛線，疊在 Vpix（Subpixel）波形的同一格裡當比較基準。它只是一條參考線，不參與任何計算，也不會改變 Vpix 的波形數值。</div>
+                <div style="font-size:10px;color:#64748b;margin-bottom:8px" data-i18n="wfg.vcomDesc">VCOM 是面板共通電極的直流準位，畫成一條白色水平虛線，疊在 Vpix（Subpixel）波形的同一格裡當比較基準。它會參與計算：VCOM 與 Vpix 波形之間的正、負極性面積比會換算成兩側的灰階底色，兩側面積不相等時該底色還會閃爍。它不改變的是 Vpix 波形本身 —— 波形的電壓數值不受 VCOM 影響。這條線可以直接拖曳，抓線本身或左端的 VCOM 標籤都可以。</div>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#e2e8f0;cursor:pointer">
                   <input type="checkbox" id="wfg-vcom-cb" checked onchange="wfgOnVcomEnableChange(this.checked)" style="accent-color:#e2e8f0;cursor:pointer">
                   <span data-i18n="wfg.vcomEnable">啟用 VCOM 電壓</span>
@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260815wfg3160"></script>
-<script src="common/i18n.js?v=20260815wfg3160"></script>
+<script src="common/version.js?v=20260815wfg3170"></script>
+<script src="common/i18n.js?v=20260815wfg3170"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -20273,7 +20273,7 @@ function wfgDrawVoltCursors(ctx) {
 function wfgVoltCursorHitTest(cx, cy, isTouch) {
   if (!_wfgAnalogChSlots || _wfgAnalogChSlots.length === 0) return null;
   // On touch devices, first check if finger is on a V1/V2 label (generous 12px margin)
-  if (isTouch && _wfgVoltCursorLabels.length > 0) {
+  if (isTouch) {
     var margin = 12;
     for (var li = 0; li < _wfgVoltCursorLabels.length; li++) {
       var lb = _wfgVoltCursorLabels[li];
@@ -20282,7 +20282,10 @@ function wfgVoltCursorHitTest(cx, cy, isTouch) {
         return { ci: lb.ci, slotIdx: lb.slotIdx, gpioIdx: lb.gpioIdx };
       }
     }
-    return null; // touch must hit a label; don't fall through to thin line hit-test
+    /* v3.17.0: 觸控也讓 VCOM 標籤可抓。v3.16.0 把 VCOM 併進這支 hit-test 時只補了
+       滑鼠那條路徑，觸控在上面的 V1／V2 標籤迴圈之後直接 `return null` ⇒
+       **手機上完全拖不動 VCOM**。V1／V2 仍然先判，理由與線帶那段相同。 */
+    return wfgVcomLabelHit(cx, cy, margin);
   }
   if (cx < WFG_LABEL_W) return null;
   for (var si = 0; si < _wfgAnalogChSlots.length; si++) {
@@ -20313,7 +20316,44 @@ function wfgVoltCursorHitTest(cx, cy, isTouch) {
       return { ci: 'vcom', slotIdx: si, gpioIdx: slot.gpioIdx };
     }
   }
-  return null;
+
+  /* ── v3.17.0: 線帶全部落空之後，才檢查**標籤矩形** ──
+     為什麼要有這一段：標籤是畫面上唯一看得見、寫著數值的那塊東西，使用者的直覺
+     就是去拖它 —— 但 V1／V2 的標籤貼在右緣、VCOM 的標籤在線的上方 13~1px，
+     三者都完全在各自的線帶之外，瞄準標籤拖曳一律沒反應。
+
+     🔴 為什麼是「另開一塊命中區」而不是把線帶加寬：實測三條線帶的中心只相隔
+        19.5px 與 31.5px，把 ±5px 加寬到能含住標籤（±13px）會讓相鄰的帶重疊，
+        然後就得再發明一套優先序規則。標籤是有明確邊界的小矩形、x 位置固定
+        （VCOM 在左端、V1／V2 在右緣），當成獨立命中區不會動到線帶的判定。
+
+     🔴 為什麼放在迴圈**之後**：這樣線帶永遠贏過標籤，v3.16.0 既有的命中結果
+        一個都不會改變 —— 新舊行為是嚴格的包含關係，只在「本來什麼都抓不到」
+        的位置多抓到東西。不需要另立優先序規則，也不可能互搶。
+     標籤之間則沿用線帶的順序：V1／V2 先判，理由同上（它們沒有輸入框可退）。 */
+  for (var lj = 0; lj < _wfgVoltCursorLabels.length; lj++) {
+    var lb2 = _wfgVoltCursorLabels[lj];
+    if (cx >= lb2.lx && cx <= lb2.lx + lb2.tw &&
+        cy >= lb2.ly && cy <= lb2.ly + lb2.th) {
+      return { ci: lb2.ci, slotIdx: lb2.slotIdx, gpioIdx: lb2.gpioIdx };
+    }
+  }
+  return wfgVcomLabelHit(cx, cy, 0);
+}
+
+/* VCOM 標籤矩形的命中判定。滑鼠用 margin 0（就是畫出來那塊 rect），觸控放寬。
+   `slotIdx` 由 `gpioIdx` 反查 —— 標籤判定不在 slot 迴圈裡，拿不到迴圈變數。 */
+function wfgVcomLabelHit(cx, cy, margin) {
+  var vl = _wfgVcomLastDraw;
+  if (!vl || !vl.drawn || !vl.label || !wfgPanel.vcom_enable) return null;
+  var lb = vl.label;
+  if (cx < lb.lx - margin || cx > lb.lx + lb.lw + margin ||
+      cy < lb.ly - margin || cy > lb.ly + lb.lh + margin) return null;
+  var vsi = 0;
+  for (var vi = 0; vi < _wfgAnalogChSlots.length; vi++) {
+    if (_wfgAnalogChSlots[vi].gpioIdx === vl.gpioIdx) { vsi = vi; break; }
+  }
+  return { ci: 'vcom', slotIdx: vsi, gpioIdx: vl.gpioIdx };
 }
 
 /* v3.16.0: 拖曳中的 VCOM 換算。y → 電壓用的是 `_wfgVcomLastDraw` 記下的座標系
@@ -20751,7 +20791,9 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
   /* ── VCOM 參考線（v3.13.0）──
      🔴 刻意畫在**這個函式裡面**，而不是註冊成一條通道再走疊圖群組：
        ① 疊圖群組會改變成員數 → 群組高度、格線數（4n 格）、游標配色（綁 ovlPos）
-          全部跟著變，牽連太大，而 VCOM 只是一條參考線。
+          全部跟著變，牽連太大，而 VCOM 不需要自己的一格。
+          （v3.17.0 修：這裡原本寫「VCOM 只是一條參考線」—— v3.14.0 起它已經參與
+           面積／灰階計算，那個說法不再成立。不走群組的理由與此無關，是上面那條。）
        ② 畫在這裡自動繼承這一格「當下實際使用的」座標系：voltToY() 用的 vMin/vMax
           已經包含 forcedRange（疊圖群組的共用 V 軸）的覆寫，所以 Vpix 被疊進群組時
           VCOM 自動改用群組的共用軸，不需要另外判斷。
@@ -20762,8 +20804,13 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
     var _vcomV = wfgVcomEffective();
     // 驗證用（比照 v3.12.0 的 wfgDebugFeedthrough）：把這一幀實際用到的座標系與
     // 線的 y 如實記下來，讓驗證能拿「畫面上的白色像素」去對「程式宣稱的 y」。
+    /* v3.17.0: 多記 `label`（標籤矩形）與 `gpioIdx`。
+       `label` 給 hit-test 用（見 wfgVoltCursorHitTest 末段），`gpioIdx` 讓 hit-test
+       能從 `_wfgAnalogChSlots` 反查 slot —— 標籤命中的判定跑在 slot 迴圈之外，
+       拿不到迴圈變數。兩者都在畫的當下記，避免第二份座標換算。 */
     _wfgVcomLastDraw = { v: _vcomV, vMin: vMin, vMax: vMax, yHigh: yHigh, yLow: yLow,
-                         y: null, drawn: false, forced: _forced };
+                         y: null, drawn: false, forced: _forced, label: null,
+                         gpioIdx: (ch && ch.gpioIdx != null) ? ch.gpioIdx : null };
     // 超出這一格當下的顯示範圍就不畫：wfgVoltToY() 會把 frac 夾在 0~1，硬畫會讓線
     // 貼在框線上緣／下緣，位置與讀值對不上 —— 那比不畫更容易誤導。
     if (isFinite(_vcomV) && _vcomV >= vMin && _vcomV <= vMax) {
@@ -20785,8 +20832,14 @@ function wfgDrawAnalogChannel(ctx, ch, gpio, samplesData, y0, height, lineToX, d
       ctx.textBaseline = 'bottom';
       var _vcTxt = 'VCOM ' + _vcomV.toFixed(2) + 'V';
       var _vcW = ctx.measureText(_vcTxt).width;
+      /* v3.17.0: 標籤矩形先存成變數，再同時餵給 fillRect 與 hit-test。
+         🔴 一定要同一組數字：標籤畫在線的**上方** 13~1px，整塊都落在線帶（±5px）
+         之外，使用者瞄準看得見的字去拖時完全沒反應。若 hit-test 自己再估一份
+         rect，兩份就會在字寬改變（電壓位數不同）時漂開。 */
+      var _vcLx = drawX0 + 2, _vcLy = _vcomY - 13, _vcLw = _vcW + 6, _vcLh = 12;
+      _wfgVcomLastDraw.label = { lx: _vcLx, ly: _vcLy, lw: _vcLw, lh: _vcLh };
       ctx.fillStyle = 'rgba(15,23,42,0.75)';
-      ctx.fillRect(drawX0 + 2, _vcomY - 13, _vcW + 6, 12);
+      ctx.fillRect(_vcLx, _vcLy, _vcLw, _vcLh);
       ctx.fillStyle = '#ffffff';
       ctx.fillText(_vcTxt, drawX0 + 5, _vcomY - 2);
       ctx.restore();
@@ -24889,6 +24942,35 @@ window.wfgSetVcomForTest = function(opts) {
   wfgUpdateVcomReadout();
   wfgScheduleSpxRender();
   return window.wfgDumpVcom();
+};
+/* 驗證用（v3.17.0）：把 hit-test 依賴的幾何原封不動讀回 —— 通道 slot、V1／V2 標籤
+   rect、VCOM 標籤 rect。標籤命中區必須拿「畫出來的那組 rect」驗證，估一份出來對
+   不上就失去意義；整份程式的變數都關在 IIFE 裡，沒有這個出口就只能從像素反推。 */
+window.wfgDumpCursorGeom = function() {
+  var i;
+  var out = { labelW: WFG_LABEL_W, slots: [], voltLabels: [],
+              vcomLabel: null, vcomY: null, vcomDrawn: false,
+              vcomEnable: !!wfgPanel.vcom_enable };
+  for (i = 0; i < _wfgAnalogChSlots.length; i++) {
+    var s = _wfgAnalogChSlots[i];
+    out.slots.push({ i: i, chIdx: s.chIdx, gpioIdx: s.gpioIdx, slotY: s.slotY,
+                     slotH: s.slotH, ovlId: s.ovlId || null,
+                     wfType: s.gpio ? s.gpio.waveform_type : null });
+  }
+  for (i = 0; i < _wfgVoltCursorLabels.length; i++) {
+    var l = _wfgVoltCursorLabels[i];
+    out.voltLabels.push({ ci: l.ci, slotIdx: l.slotIdx, gpioIdx: l.gpioIdx,
+                          lx: l.lx, ly: l.ly, tw: l.tw, th: l.th });
+  }
+  if (_wfgVcomLastDraw) {
+    out.vcomY = _wfgVcomLastDraw.y;
+    out.vcomDrawn = !!_wfgVcomLastDraw.drawn;
+    if (_wfgVcomLastDraw.label) {
+      out.vcomLabel = { lx: _wfgVcomLastDraw.label.lx, ly: _wfgVcomLastDraw.label.ly,
+                        lw: _wfgVcomLastDraw.label.lw, lh: _wfgVcomLastDraw.label.lh };
+    }
+  }
+  return out;
 };
 
 function wfgGateSliderSync(rangeEl) {

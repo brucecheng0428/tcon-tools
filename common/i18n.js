@@ -795,9 +795,9 @@ var I18N = {
   // ─── WFG: VCOM 電壓（v3.13.0）───
   'wfg.vcomVoltage':        { 'zh-TW': 'VCOM 電壓', 'en': 'VCOM voltage', 'zh-CN': 'VCOM 电压' },
   'wfg.vcomEnable':         { 'zh-TW': '啟用 VCOM 電壓', 'en': 'Enable VCOM voltage', 'zh-CN': '启用 VCOM 电压' },
-  'wfg.vcomDesc':           { 'zh-TW': 'VCOM 是面板共通電極的直流準位，畫成一條白色水平虛線，疊在 Vpix（Subpixel）波形的同一格裡當比較基準。它只是一條參考線，不參與任何計算，也不會改變 Vpix 的波形數值。',
-                              'en': 'VCOM is the DC level of the panel common electrode. It is drawn as a white dashed horizontal line overlaid on the Vpix (subpixel) trace as a reference. It is a reference line only — it takes no part in any computation and does not change the Vpix waveform values.',
-                              'zh-CN': 'VCOM 是面板共通电极的直流准位，画成一条白色水平虚线，叠在 Vpix（Subpixel）波形的同一格里当比较基准。它只是一条参考线，不参与任何计算，也不会改变 Vpix 的波形数值。' },
+  'wfg.vcomDesc':           { 'zh-TW': 'VCOM 是面板共通電極的直流準位，畫成一條白色水平虛線，疊在 Vpix（Subpixel）波形的同一格裡當比較基準。它會參與計算：VCOM 與 Vpix 波形之間的正、負極性面積比會換算成兩側的灰階底色，兩側面積不相等時該底色還會閃爍。它不改變的是 Vpix 波形本身 —— 波形的電壓數值不受 VCOM 影響。這條線可以直接拖曳，抓線本身或左端的 VCOM 標籤都可以。',
+                              'en': 'VCOM is the DC level of the panel common electrode. It is drawn as a white dashed horizontal line overlaid on the Vpix (subpixel) trace as a reference. It does take part in the computation: the positive/negative polarity areas between VCOM and the Vpix trace are turned into the gray shading on each side, and that shading flickers when the two areas are unequal. What it does not change is the Vpix trace itself — the waveform voltage values are unaffected by VCOM. The line can be dragged directly; grab either the line or the VCOM label at its left end.',
+                              'zh-CN': 'VCOM 是面板共通电极的直流准位，画成一条白色水平虚线，叠在 Vpix（Subpixel）波形的同一格里当比较基准。它会参与计算：VCOM 与 Vpix 波形之间的正、负极性面积比会换算成两侧的灰阶底色，两侧面积不相等时该底色还会闪烁。它不改变的是 Vpix 波形本身 —— 波形的电压数值不受 VCOM 影响。这条线可以直接拖曳，抓线本身或左端的 VCOM 标签都可以。' },
   'wfg.vcomValue':          { 'zh-TW': 'VCOM 電壓 (V)', 'en': 'VCOM voltage (V)', 'zh-CN': 'VCOM 电压 (V)' },
   'wfg.vcomRange':          { 'zh-TW': '可輸入範圍（VGMA14 ~ VGMA1）', 'en': 'Input range (VGMA14 – VGMA1)', 'zh-CN': '可输入范围（VGMA14 ~ VGMA1）' },
   'wfg.vcomOff':            { 'zh-TW': '未啟用 —— 不畫 VCOM 參考線', 'en': 'Disabled — the VCOM reference line is not drawn', 'zh-CN': '未启用 —— 不画 VCOM 参考线' },
