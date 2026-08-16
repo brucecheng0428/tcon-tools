@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260816wfg3173"></script>
-<script src="common/i18n.js?v=20260816wfg3173"></script>
+<script src="common/version.js?v=20260816wfg3174"></script>
+<script src="common/i18n.js?v=20260816wfg3174"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -4355,10 +4355,20 @@ var WFG_FLICK_FLASH_DUTY = 0.5;
    表達（見 wfgPolAreaDisplayGray），不需要再用超慢閃來代表。 */
 var WFG_POLAREA_MID = 127.5;
 var WFG_FLICK_FREQ_MIN_HZ = 1;    // 剛離開中心區間（d→0+）
-var WFG_FLICK_FREQ_MAX_HZ = 32;   // d = 1，每秒 32 次來回
-/* 'linear'    ：f = 1 + 31d
-   'geometric' ：f = 1 × 32^d（每 0.2 的 d 就翻一倍）
-   預設 linear（依指示）。兩者的實測對照見 CHANGELOG，切換只改這一行。 */
+/* v3.17.4（Bruce 2026-08-16 裁示）：上限由 32 改為 **24**。
+   🔴 依據是 v3.17.2 量到的「設定值 vs 畫面實際來回次數」對照（見該版 CHANGELOG）：
+        設定 24 → 實測 23.978（比值 0.999）← 最後一個吻合的
+        設定 32 → 實測 26.868（比值 0.840）← 從這裡開始對不上
+        設定 48 → 11.776、64 → 8.632（混疊，設得越快看起來越慢）
+      理論上限：60Hz 顯示器一格 16.67ms，一個相位至少要撐滿一格 ⇒ 每秒最多 30 次
+      來回。24 在這條線下留了一格餘裕，所以設定值與眼睛看到的次數一致。
+      32 之所以對不上，是因為每個相位只有 15.6ms，比一格還短、撐不住。 */
+var WFG_FLICK_FREQ_MAX_HZ = 24;   // d = 1，每秒 24 次來回
+/* 'linear'    ：f = 1 + 23d
+   'geometric' ：f = 1 × 24^d（每 0.218 的 d 翻一倍，＝ 1/log2(24)）
+   預設 linear（依指示）。兩者的實測對照見 CHANGELOG，切換只改這一行。
+   🔴 兩條曲線都只從 MIN/MAX 兩個常數推導（見 wfgFlickFreqAt），沒有任何地方
+      另外寫死 23 或 24 —— 改上限只需要改上面那一個數字。 */
 var WFG_FLICK_FREQ_CURVE = 'linear';
 var _wfgFlickFreqOverride = 0;    // >0 時覆蓋頻率，只給驗證腳本用
 var _wfgFlickPhaseAcc = 0;        // 相位累積器 ∈ [0,1)
@@ -25066,8 +25076,12 @@ window.wfgFlickFreqOf = function(d) { return wfgFlickFreqAt(d); };
 /* 驗證用（v3.17.2）：量**畫面實際換了幾次**，不是量 timer 想換幾次。
    rAF 的節奏就是合成器的節奏（vsync），所以逐幀取樣 `_wfgFlickPhase` 得到的
    `cyclesPerSec` 才是使用者眼睛看得到的來回次數。
-   🔴 設定頻率一旦逼近顯示更新率的一半，兩者就會分岔 —— 每秒 32 次來回代表每個
-      畫面只有 15.625ms，比 60Hz 的一格（16.67ms）還短，撐不滿一格。
+   🔴 設定頻率一旦逼近顯示更新率的一半，兩者就會分岔：每個相位的長度是
+      `1000 / (2f)` ms，比顯示器的一格還短就撐不住。60Hz ⇒ 一格 16.67ms ⇒
+      每秒最多 30 次來回。
+      v3.17.4 起上限是 **24**（每相位 20.83ms，還撐得滿一格），實測比值 0.999；
+      v3.17.2～v3.17.3 的上限 32（每相位 15.63ms）實測只跑到 26.868，比值 0.840。
+      這支的存在意義就是把這種分岔量出來 —— 它量的是畫面，不是 timer 的意圖。
    一併回報量到的 `fps`，否則 `cyclesPerSec` 沒有辦法解讀。 */
 window.wfgFlickMeasureRaf = function(ms) {
   ms = ms || 3000;
