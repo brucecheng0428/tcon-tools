@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260818wfg3175"></script>
-<script src="common/i18n.js?v=20260818wfg3175"></script>
+<script src="common/version.js?v=20260818wfg3180"></script>
+<script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1790,7 +1790,8 @@ var WFG_VIRTUAL_ANALOG_DEFAULTS = { 18: 1 };
 
 // ─── LS Global Config ───
 // Shared Level Shifter settings that apply to ALL CKO output channels.
-// Modes: 'individual' = 1-in-1-out, 'condensed' = 1-in-N-out (VCE), 'dual_cpv' = 2-in-N-out
+// Modes: 'individual' = 1-in-1-out, 'condensed' = 1-in-N-out (VCE),
+//        'dual_cpv' = 2-in-N-out, 'quad_cpv' = 4-in-N-out (v3.18.0)
 var wfgLsGlobal = {
   mode: 'individual',
   phase: 6,             // GOA phase: 4/6/8/10/12/14/16 → number of CKO channels
@@ -1809,7 +1810,11 @@ var wfgLsGlobal = {
   // Dual CPV mode: two CPV clock sources
   cpv1_ck_idx: 4,       // GPIO index of CPV1 (default CK1)
   cpv2_ck_idx: 5,       // GPIO index of CPV2 (default CK2)
-  cpv_trig_edge: 'falling' // 'falling' (G2595E) or 'rising' (G2790B)
+  // Quad CPV mode (v3.18.0): 另外兩個來源，供「偶數序 CKO」那一組使用。
+  // 奇數組沿用 cpv1/cpv2（與二進多出同一組欄位）→ 兩種模式互切時奇數組設定不會遺失。
+  cpv3_ck_idx: 6,       // GPIO index of CPV3 (default CK3)
+  cpv4_ck_idx: 7,       // GPIO index of CPV4 (default CK4)
+  cpv_trig_edge: 'falling' // 'falling' (G2595E) or 'rising' (G2790B) — 二進／四進共用同一個設定
 };
 const WFG_LS_GOA_PHASES = [4, 6, 8, 10, 12, 14, 16];
 
@@ -2674,11 +2679,17 @@ function _wfgBuildAnalogDeps() {
         var vceCkIdx = (typeof wfgLsGlobal !== 'undefined' && wfgLsGlobal.vce_ck_idx >= 0) ? wfgLsGlobal.vce_ck_idx : -1;
         if (vceCkIdx >= 0) deps.add(vceCkIdx);
         // v2.97.19: dual_cpv mode depends on cpv1_ck_idx and cpv2_ck_idx
+        // v3.18.0: quad_cpv 另外吃 cpv3_ck_idx / cpv4_ck_idx —— 漏掉的話改 CPV3/CPV4
+        //          的 timing 不會讓 LS 失效重算，偶數組波形會停在舊值（靜默錯誤）。
         if (typeof wfgLsGlobal !== 'undefined') {
           var cpv1Idx = wfgLsGlobal.cpv1_ck_idx;
           var cpv2Idx = wfgLsGlobal.cpv2_ck_idx;
           if (cpv1Idx >= 0) deps.add(cpv1Idx);
           if (cpv2Idx >= 0) deps.add(cpv2Idx);
+          var cpv3Idx = wfgLsGlobal.cpv3_ck_idx;
+          var cpv4Idx = wfgLsGlobal.cpv4_ck_idx;
+          if (cpv3Idx != null && cpv3Idx >= 0) deps.add(cpv3Idx);
+          if (cpv4Idx != null && cpv4Idx >= 0) deps.add(cpv4Idx);
         }
       }
     }
@@ -19856,6 +19867,8 @@ function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effV
     events = _wfgLsBuildCondensedEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, buildStart, endLine);
   } else if (mode === 'dual_cpv') {
     events = _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, buildStart, endLine);
+  } else if (mode === 'quad_cpv') {
+    events = _wfgLsBuildQuadCpvEvents(ckoIndex, numCko, allTrans, effHtotal, effVtotal, buildStart, endLine);
   } else {
     events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, buildStart, endLine, buildLpp);
   }
@@ -20126,16 +20139,24 @@ function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHto
   return events;
 }
 
-// ── Dual CPV mode: CPV1 + CPV2 → N CKOs (二進多出) ──
+// ── CPV pair core: one charge clock + one discharge clock → a group of CKOs ──
+// v3.18.0: 這段原本就是 `_wfgLsBuildDualCpvEvents` 的完整內容，行為一位元未改，
+// 只是把「用哪兩個 CPV」「這條 CKO 在群組裡排第幾／群組共幾條」抽成參數。
+// 二進多出＝整組 N 條 CKO 用同一對 (CPV1, CPV2)；
+// 四進多出＝拆兩組，各自呼叫本函式一次 —— 這樣「控制方式跟二進多出一樣」
+// 不是靠複製一份時序邏輯來保證，而是**同一段程式碼**。
+//
 // Based on GOA IC datasheets (G2595E, G2790B, LP6297A, etc.):
-// CPV1 = charge control: each active edge charges the next CKO to VGH (round-robin all N CKOs)
-// CPV2 = discharge control: each active edge discharges the next CKO to VGL (round-robin all N CKOs)
-// CPV1 and CPV2 have independent counters, both cycling CKO1→CKO2→…→CKON→CKO1→…
-// Trigger edge: G2595E uses falling edge, G2790B uses rising edge (user-selectable).
+// chargeSrc    = charge control: each active edge charges the next CKO in the group to VGH (round-robin)
+// dischargeSrc = discharge control: each active edge discharges the next CKO in the group to VGL (round-robin)
+// The two counters are independent, both cycling group[0]→group[1]→…→group[G-1]→group[0]→…
+// Trigger edge: G2595E uses falling edge, G2790B uses rising edge (user-selectable, shared).
 // STV frame boundary: at every frame start, all CKOs reset to VGL and round-robin counters reset to 0.
-function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
-  var cpv1Idx = wfgLsGlobal.cpv1_ck_idx;
-  var cpv2Idx = wfgLsGlobal.cpv2_ck_idx;
+function _wfgLsBuildCpvPairEvents(chargeSrcIdx, dischargeSrcIdx, posInGroup, groupSize, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
+  var cpv1Idx = chargeSrcIdx;
+  var cpv2Idx = dischargeSrcIdx;
+  var ckoIndex = posInGroup;
+  var numCko = groupSize;
   if (cpv1Idx < 0 || cpv2Idx < 0) return [];
   if (numCko <= 0) return [];
 
@@ -20248,6 +20269,29 @@ function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtota
   // Sort by timeline position
   merged.sort(function(a, b) { return a.lineX - b.lineX; });
   return merged;
+}
+
+// ── Dual CPV mode: CPV1 + CPV2 → N CKOs (二進多出) ──
+// 全部 N 條 CKO 屬於同一組，共用 (CPV1, CPV2)。
+function _wfgLsBuildDualCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
+  return _wfgLsBuildCpvPairEvents(wfgLsGlobal.cpv1_ck_idx, wfgLsGlobal.cpv2_ck_idx,
+    ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine);
+}
+
+// ── Quad CPV mode: CPV1~CPV4 → N CKOs (四進多出) ── v3.18.0
+// 依 Bruce 2026-08-18 規格：**分奇數輸出與偶數輸出兩組**，每組內部的控制方式
+// 與二進多出完全相同（同一支 `_wfgLsBuildCpvPairEvents`）：
+//   • 奇數序 CKO（CKO1/3/5/7…，0-based index 為偶數）→ CPV1 充電、CPV2 放電
+//   • 偶數序 CKO（CKO2/4/6/8…，0-based index 為奇數）→ CPV3 充電、CPV4 放電
+// 群組內的 round-robin 只在自己這一組裡循環（8 phase → 每組 4 條）。
+// phase 數只來自 WFG_LS_GOA_PHASES = [4,6,8,10,12,14,16]（下拉選單就是照它生的），
+// 全部是偶數 ⇒ 兩組必定等長 numCko/2，不存在奇數 phase 的情境。
+function _wfgLsBuildQuadCpvEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
+  var isOddCko = (ckoIndex % 2 === 0);  // 0-based 0 → CKO1 → 奇數序
+  var chargeSrc    = isOddCko ? wfgLsGlobal.cpv1_ck_idx : wfgLsGlobal.cpv3_ck_idx;
+  var dischargeSrc = isOddCko ? wfgLsGlobal.cpv2_ck_idx : wfgLsGlobal.cpv4_ck_idx;
+  return _wfgLsBuildCpvPairEvents(chargeSrc, dischargeSrc, ckoIndex >> 1, numCko / 2,
+    allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine);
 }
 
 // Voltage → canvas Y. yHigh < yLow (canvas Y grows downward).
@@ -23775,7 +23819,7 @@ function wfgResetToDefault() {
     curvature_rise: 127, curvature_fall: 127,
     ck_sources: [4,5,6,7,8,9,10,11,4,5,6,7,8,9,10,11],
     vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cond_line_mode: '1line', cond_2line_type: 'type1',
-    cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge: 'falling' };
+    cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7, cpv_trig_edge: 'falling' };
   wfgLsRebuildCkoSlots();
   wfgGpios = WFG_GPIO_NAMES.map(function(n, i) { return wfgMakeGpio(n, i); });
   wfgChannels = [];
@@ -25314,6 +25358,67 @@ window.wfgDebugGate = function(maxFrames) {
                     gateEvents: gateEvents.length, ckoEvents: ckoEvents.length } };
 };
 
+// ─── LS / CKO 驗收用 helper（v3.18.0）───
+// 如實回報每一條 CKO 的充放電事件 —— 走的是 render 用的**同一支** `_wfgLsBuildEvents`，
+// 所以讀到的就是畫面上那條波形的事件，不是另一套平行邏輯。
+// 🔴 這裡**只回報實測值，不在此重算「預期」**：用同一段程式碼算預期再跟自己比對是
+//    自我循環，公式錯了會一起錯、比對照樣通過。預期值必須在外部用獨立來源算 ——
+//    見下面的 `wfgDumpGpioEdges()`，它走 `wfgCalcGpio()`（GPIO 時序引擎），
+//    與 LS 的事件產生器完全沒有共用程式碼。
+window.wfgDumpLsCko = function(maxFrames) {
+  maxFrames = maxFrames || 2;
+  var tc = wfgEnsureTransitions();
+  if (!tc) return { ok: false, reason: 'no transition cache' };
+  var effH = tc.effHtotal, effV = tc.effVtotal;
+  var numCko = wfgLsGlobal.phase;
+  var endLine = Math.min(wfgTotalLines(), effV * maxFrames);
+  var ckos = [];
+  for (var c = 0; c < numCko; c++) {
+    var gi = WFG_DIGITAL_GPIO_COUNT + 1 + c;
+    var gp = wfgGpios[gi];
+    if (!gp || !gp.analog_config) { ckos.push({ cko: c + 1, err: 'missing slot' }); continue; }
+    var evs = _wfgLsBuildEvents(gp.analog_config, c, numCko, wfgLsGlobal.mode,
+                                tc.transitions, effH, effV, 0, endLine, 0.001);
+    var mid = (gp.analog_config.voltage_max + gp.analog_config.voltage_min) / 2;
+    var rises = [], falls = [], prevHigh = false;
+    for (var i = 0; i < evs.length; i++) {
+      var e = evs[i];
+      if (e._reset) continue;
+      var high = (e.vTarget >= mid);
+      if (high && !prevHigh) rises.push(e.lineX);
+      else if (!high && prevHigh) falls.push(e.lineX);
+      prevHigh = high;
+    }
+    ckos.push({ cko: c + 1, name: gp.name, events: evs.length, rises: rises, falls: falls });
+  }
+  return { ok: true, mode: wfgLsGlobal.mode, phase: numCko,
+           trigEdge: wfgLsGlobal.cpv_trig_edge,
+           src: { cpv1: wfgLsGlobal.cpv1_ck_idx, cpv2: wfgLsGlobal.cpv2_ck_idx,
+                  cpv3: wfgLsGlobal.cpv3_ck_idx, cpv4: wfgLsGlobal.cpv4_ck_idx },
+           effHtotal: effH, effVtotal: effV, endLine: endLine, ckos: ckos };
+};
+
+// 獨立地基：直接回報某個 GPIO 的**原始未加工**轉態（`wfgCalcGpio` 產出，與 LS 無關），
+// 供外部自行推算「哪一個 CPV 邊沿該打到哪一條 CKO」。
+// 🔴 這裡刻意**不做任何過濾、也不換算 lineX**，原始 { line, dly, level } 原樣送出：
+//    • lineX 的換算基準是 `effHtotal`（LS 路徑用的），不是 `wfgFrame.htotal` ——
+//      兩者在 LINE BUFFER 生效時會差整數倍，在這裡先換算就會把單位錯誤烘焙進地基。
+//    • 第一筆 line 0 是「初始準位」標記而非真正的邊沿，濾不濾、怎麼濾由外部決定。
+//    地基只負責如實搬運，任何解讀都留在外面，錯了看得見。
+window.wfgDumpGpioEdges = function(gpioIdx, maxFrames) {
+  maxFrames = maxFrames || 2;
+  var g = wfgGpios[gpioIdx];
+  if (!g) return null;
+  var vt = wfgFrame.vtotal, ht = wfgFrame.htotal;
+  var tr = wfgCalcGpio(g, vt, ht, maxFrames);
+  var out = [];
+  for (var i = 0; i < tr.length; i++) {
+    out.push({ line: tr[i].line, dly: tr[i].dly || 0, level: tr[i].level });
+  }
+  return { gpioIdx: gpioIdx, name: g.name, enable: !!g.enable,
+           vtotal: vt, htotal: ht, transitions: out };
+};
+
 // ─── Feedthrough 驗證用 helper（v3.12.0）───
 // 從 Subpixel 的預計算結果如實讀回每一次 feedthrough 落差：發生位置、當下 latch 到的
 // 灰階與極性、扣掉的 ΔV、扣前／扣後電壓。
@@ -25543,10 +25648,14 @@ function wfgRenderLsGlobalPanel() {
     + '<option value="individual"' + (g.mode === 'individual' ? ' selected' : '') + '>' + t('wfg.lsModeIndividual') + '</option>'
     + '<option value="condensed"' + (g.mode === 'condensed' ? ' selected' : '') + '>' + t('wfg.lsModeCondensed') + '</option>'
     + '<option value="dual_cpv"' + (g.mode === 'dual_cpv' ? ' selected' : '') + '>' + t('wfg.lsModeDualCPV') + '</option>'
+    + '<option value="quad_cpv"' + (g.mode === 'quad_cpv' ? ' selected' : '') + '>' + t('wfg.lsModeQuadCPV') + '</option>'
     + '</select></div>';
 
   // Mode hint
-  var hintKey = g.mode === 'condensed' ? 'wfg.lsCondensedHint' : g.mode === 'dual_cpv' ? 'wfg.lsDualCpvHint' : 'wfg.lsIndivCkHint';
+  var hintKey = g.mode === 'condensed' ? 'wfg.lsCondensedHint'
+    : g.mode === 'dual_cpv' ? 'wfg.lsDualCpvHint'
+    : g.mode === 'quad_cpv' ? 'wfg.lsQuadCpvHint'
+    : 'wfg.lsIndivCkHint';
   h += '<div style="font-size:10px;color:#64748b;margin:-4px 0 8px">' + t(hintKey) + '</div>';
 
   // GOA Phase
@@ -25611,6 +25720,35 @@ function wfgRenderLsGlobalPanel() {
     }
     h += '</select></div></div>';
     // Trigger edge selector
+    h += '<div class="wfg-field"><label>' + t('wfg.lsCpvTrigEdge') + '</label>'
+      + '<select onchange="wfgOnLsGlobalChange(\'cpv_trig_edge\',this.value)" style="width:100%">'
+      + '<option value="falling"' + (g.cpv_trig_edge === 'falling' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigFalling') + '</option>'
+      + '<option value="rising"' + (g.cpv_trig_edge === 'rising' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigRising') + '</option>'
+      + '</select></div>';
+  } else if (g.mode === 'quad_cpv') {
+    /* v3.18.0 四進多出：四個來源分兩組並排 —— 上排＝奇數序 CKO 用的 (CPV1, CPV2)，
+       下排＝偶數序 CKO 用的 (CPV3, CPV4)。分組標題直接寫在來源上方，
+       避免使用者要回頭猜哪兩個是一組。 */
+    var _qGroups = [
+      { label: t('wfg.lsQuadOddGroup'), a: 'cpv1_ck_idx', an: t('wfg.lsCpv1Source'), b: 'cpv2_ck_idx', bn: t('wfg.lsCpv2Source') },
+      { label: t('wfg.lsQuadEvenGroup'), a: 'cpv3_ck_idx', an: t('wfg.lsCpv3Source'), b: 'cpv4_ck_idx', bn: t('wfg.lsCpv4Source') }
+    ];
+    for (var qi = 0; qi < _qGroups.length; qi++) {
+      var _qg = _qGroups[qi];
+      h += '<div style="font-size:11px;color:#94a3b8;margin:6px 0 4px">' + _qg.label + '</div>'
+        + '<div class="wfg-gpio-grid-2">';
+      var _qFields = [[_qg.a, _qg.an], [_qg.b, _qg.bn]];
+      for (var qf = 0; qf < _qFields.length; qf++) {
+        h += '<div class="wfg-field"><label>' + _qFields[qf][1] + '</label>'
+          + '<select onchange="wfgOnLsGlobalChange(\'' + _qFields[qf][0] + '\',this.value)" style="width:100%">';
+        for (var qci = 4; qci <= 11; qci++) {
+          h += '<option value="' + qci + '"' + (g[_qFields[qf][0]] === qci ? ' selected' : '') + '>' + WFG_GPIO_NAMES[qci].toUpperCase() + '</option>';
+        }
+        h += '</select></div>';
+      }
+      h += '</div>';
+    }
+    // Trigger edge selector（與二進多出共用同一個 cpv_trig_edge 欄位）
     h += '<div class="wfg-field"><label>' + t('wfg.lsCpvTrigEdge') + '</label>'
       + '<select onchange="wfgOnLsGlobalChange(\'cpv_trig_edge\',this.value)" style="width:100%">'
       + '<option value="falling"' + (g.cpv_trig_edge === 'falling' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigFalling') + '</option>'
@@ -25733,8 +25871,12 @@ function wfgOnLsGlobalChange(field, value) {
         wfgGpios[gIdx2].analog_config[field] = iv;
       }
     }
-  } else if (field === 'vce_ck_idx' || field === 'cpv1_ck_idx' || field === 'cpv2_ck_idx') {
+  } else if (field === 'vce_ck_idx' || field === 'cpv1_ck_idx' || field === 'cpv2_ck_idx'
+             || field === 'cpv3_ck_idx' || field === 'cpv4_ck_idx') {
     wfgLsGlobal[field] = parseInt(value) || 4;
+    // 換 CPV 來源＝換 LS 的相依 GPIO，相依表要重建，否則之後改那條 CK 的 timing
+    // 不會讓 LS 失效重算（v2.97.19 起 _wfgAnalogDeps 是快取）。
+    _wfgAnalogDeps = {};
   } else if (field === 'cpv_trig_edge') {
     wfgLsGlobal.cpv_trig_edge = value;
   } else if (field === 'cond_phase') {
@@ -25838,8 +25980,10 @@ function wfgRenderAnalogConfigHtml(gpioIdx, gpio) {
       }
       html += '</select></div>';
     } else {
-      // In condensed/dual_cpv mode, CK source is managed globally
-      var modeLabel = wfgLsGlobal.mode === 'condensed' ? t('wfg.lsModeCondensed') : t('wfg.lsModeDualCPV');
+      // In condensed/dual_cpv/quad_cpv mode, CK source is managed globally
+      var modeLabel = wfgLsGlobal.mode === 'condensed' ? t('wfg.lsModeCondensed')
+        : wfgLsGlobal.mode === 'quad_cpv' ? t('wfg.lsModeQuadCPV')
+        : t('wfg.lsModeDualCPV');
       html += '<div style="font-size:11px;color:#94a3b8;margin:4px 0 8px">'
         + modeLabel + ' — ' + t('wfg.lsGoaPhaseHint')
         + '</div>';
