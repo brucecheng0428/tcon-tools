@@ -22,6 +22,67 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.17.5 — 2026-08-18 ｜ PATCH ｜ ⚠ 輸出變更
+
+修 Bruce 2026-08-18 回報的 bug：**匯入設定檔後 SD1 一直顯示不出來**。通道列上「SD1 — SD」選好了、眼睛是開的，波形區卻連一條 label 都不會出現。
+
+判定依據：§2 案例 2（改一個 bug → PATCH）＋ R1（修正後輸出會變 → 加 `⚠ 輸出變更`）。R2 不適用（沒有開新波）；R3 不適用 —— 使用者能做的事**一件都沒有多**，「選了 SD1 就看得到 SD1」本來就該成立，這是壞掉不是缺功能；R4 不適用（沒有改任何預設值或起始畫面）。逐項判、取最高者 → **PATCH**，`v3.17.4` → `v3.17.5`。不觸發 MAJOR，因此不需要 `MAJOR 核准：`：沒有任何入口移動或消失，沒有既有功能被移除，既有波形的數值一位元未變。
+
+### 一、根因：`enable` 是繪製閘門，虛擬類比 slot 卻沒有 `ENABLE` 開關
+
+三段程式各自都說得通，湊在一起就出現一個使用者救不回來的死角：
+
+| # | 位置 | 內容 |
+|---|---|---|
+| ① | `wfgMakeGpio()` | **所有** GPIO 的初始值是 `enable: false`，SD1（slot 18）也不例外 |
+| ② | `wfgRenderGpioList()` | 虛擬類比信號卡片**刻意不畫 ENABLE 勾選框** —— 原註解寫著「Virtual analog slots: no ENABLE checkbox (**always active**)」 |
+| ③ | `wfgRender()` 的可見通道蒐集 ／ `wfgRenderLabels()` 的 `visMap` | 判斷是 `if (_gp.waveform_type && !_gp.enable) continue;` —— **整條通道連 label 一起跳過** |
+
+②假設虛擬類比 slot 恆為啟用，③卻拿 `enable` 當閘門。只要 SD1 的 `enable` 落在 `false`，使用者在 UI 上**沒有任何辦法把它打開**。
+
+**為什麼偏偏是 SD1**：`wfgLsRebuildCkoSlots(enableSlots)` 會統一設定 `cko1~ckoN` / `gate` / `subpixel` 的 `enable`，**但它從不碰 slot 18**（該函式的註解就是「Preserves SD1 at index 18」）。於是同一份設定檔裡會出現這種不對稱：
+
+```
+slot 18 sd1       enable=false   ← 沒人管它
+slot 19~22 cko1~4 enable=true    ← wfgLsRebuildCkoSlots() 設的
+slot 23 gate      enable=true
+slot 24 subpixel  enable=true
+```
+
+`wfgApplyPreset()` 另外有一段補救（「Enable virtual analog GPIOs (SD1, CKO1~CKOn) when loading a preset — they default to enable:false」），所以**載過 preset 的人碰不到這個 bug**；從空白狀態自己設定、或匯入一份 `sd1.enable:false` 的設定檔，就會踩到。
+
+### 二、改了什麼
+
+兩處，都在 `wfg.html`：
+
+1. **`wfgOnChannelChange()` 的 `gpioIdx` 分支** — 使用者從通道下拉選單指派虛擬類比 slot 時，一併 `enable = true` 並 `wfgInvalidateCache()`（`enable` 屬結構性改動，比照 `wfgOnGpioChange()` 的 `isStructural` 分支）。這與 console API `wfgEnableSourceDriver()` 早就有的 `g.enable = true; // ensure visible in transition cache` 是同一個理由，只是 UI 路徑漏了。
+2. **`wfgImportConfig()` 在 `wfgLsSyncChannels()` 之後** — 補上 preset 路徑早就有的那段補救。**只補「有可見通道指向它」的 slot**：使用者要隱藏某條波形，表達方式是通道的眼睛圖示（`channel.visible`），不是這個沒有 UI 入口的 `enable` 旗標，所以不會把使用者刻意隱藏的東西打開；沒有通道指向的 slot 一律不碰。autosave 自動還原（`wfgAutoRestore` → `wfgImportConfig`）走同一條路徑，一併受惠。
+
+繪製端的 `waveform_type && !enable → continue` **兩處都維持原樣不動**：那個閘門對 CKO 有實質作用 —— 開頁時 `wfgLsRebuildCkoSlots(false)` 讓 CKO slot 停用，而 `wfgLsSyncChannels()` 又會自動把 CKO 指派到空通道，靠的正是這道閘門擋住不畫。把它拿掉會讓空白狀態一開頁就冒出一排 CKO 波形。
+
+### 三、`⚠ 輸出變更` 的範圍（給回歸流程界定用）
+
+**同一份設定檔、同一組操作，新版會比舊版多畫出一條 SD1 波形。** 依 R1 的範圍定義，這同時屬於「版面／構圖類」（可視列數 +1、波形區捲動內容變長、截圖構圖改變）與「同一操作序列得到不同結果」（舊結果是 bug 產物，但拿舊版建立的基線一樣會失效）。
+
+- 受影響的條件：設定檔裡 `sd1.enable === false`，且有一個 `visible` 的通道指向 slot 18。
+- **不受影響**：載 preset 的路徑（本來就會被 `wfgApplyPreset()` 補成 `enable:true`）；SD1 以外的通道；所有波形的數值本身。
+- 🔴 **`<canvas>` 元素的 `height` 兩版皆為 1042，沒有改變** —— 它由容器高度決定、不隨列數變，多出來的列是靠波形區捲動容納的。構圖差異來自列的內容與捲動長度，不是畫布尺寸。（這一條是實測結果，推翻了本條目初稿裡「canvas 總高改變」的推測。）
+
+**A/B 實測**（同一台機器、同一份設定檔 `wfg-config-20260818(EM01_B19_34WQHD_HSR_144Hz).txt`，舊版取自 `git show HEAD:wfg.html`）：
+
+| 路徑 | 觀察項 | v3.17.4 | v3.17.5 |
+|---|---|---|---|
+| 匯入設定檔 | `gpios[18].enable` | `false` | **`true`** |
+| 匯入設定檔 | 波形區 label 數 | 11（SD1 缺席） | **12**（多出「通道 13」＝SD1） |
+| 下拉選單選「SD1 — SD」 | `gpios[18].enable` | `false` | **`true`** |
+| 下拉選單選「SD1 — SD」 | 波形區 label 數 | 11 → **11**（選了也沒反應） | 11 → **12** |
+
+兩條路徑在舊版都停在 `channels[13] = {gpioIdx:18, visible:true}` 而 `enable:false` —— 通道設定完全正確，就是畫不出來，正是回報的現象。
+
+**回歸比對**：原有 11 條通道的**名稱、順序、`gpioIdx`、`initLevel`、`transCount` 逐項完全相同**（`wfgDebugPulses()`，XSTB 127／XPOL 2／STV 2／CPV1 46／CPV2 42 兩版一致）。註：`wfgDebugPulses()` 走的是數位 transition cache，類比通道的 `transCount` 恆為 0 —— 這個指標對 CKO／Gate／Subpixel **不具鑑別力**，那幾條的無回歸另以波形截圖目視確認。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.17.4 — 2026-08-16 ｜ PATCH ｜ ⚠ 輸出變更
 
 依 Bruce 2026-08-16 裁示（轉述，非原文）：**極性面積閃爍的頻率上限由每秒 32 次改為 24 次。**

@@ -1763,8 +1763,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260816wfg3174"></script>
-<script src="common/i18n.js?v=20260816wfg3174"></script>
+<script src="common/version.js?v=20260818wfg3175"></script>
+<script src="common/i18n.js?v=20260818wfg3175"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -25472,12 +25472,29 @@ function wfgOnChannelChange(chIdx, field, value) {
     if (ch.gpioIdx === -1) ch.visible = false;
     else {
       ch.visible = true;
-      // When the user assigns a virtual analog slot, re-render the GPIO list
-      // so the analog config card appears — but do NOT pass focusIdx so the
-      // page won't auto-scroll away from the channel list (lets users pick
-      // multiple output channels in succession without being interrupted).
-      if (wfgIsVirtualAnalogIdx(ch.gpioIdx) && typeof wfgRenderGpioList === 'function') {
-        wfgRenderGpioList();
+      /* v3.17.5（修 bug）：指派到虛擬類比 slot 時，一併把該 slot 的 enable 打開。
+         虛擬類比信號卡片**刻意不提供 ENABLE 勾選框**（見 wfgRenderGpioList() 的
+         「Virtual analog slots: no ENABLE checkbox (always active)」），但繪製端
+         用的判斷是 `waveform_type && !enable → continue`（wfgRender() 的可見通道
+         蒐集、wfgRenderLabels() 的 visMap）。兩者對不上時 slot 會掉進「畫不出來、
+         UI 也打不開」的死角。
+         SD1 尤其明顯：它的 enable 不歸 wfgLsRebuildCkoSlots(enableSlots) 管
+         （那支只碰 cko / gate / subpixel），初始值又是 wfgMakeGpio() 的
+         enable:false，於是沒載過 preset 的人在這裡選了「SD1 — SD」，通道列有了、
+         眼睛也是開的，波形卻連一條 label 都不會出現。
+         這與 wfgEnableSourceDriver() 的 `g.enable = true; // ensure visible in
+         transition cache` 是同一個理由，只是那支是 console 用的 API，UI 路徑漏了。 */
+      if (wfgIsVirtualAnalogIdx(ch.gpioIdx)) {
+        var _vSlot = wfgGpios[ch.gpioIdx];
+        if (_vSlot && _vSlot.waveform_type && !_vSlot.enable) {
+          _vSlot.enable = true;
+          // enable 屬結構性改動，比照 wfgOnGpioChange() 的 isStructural 分支全清
+          wfgInvalidateCache();
+        }
+        // re-render the GPIO list so the analog config card appears — but do NOT
+        // pass focusIdx so the page won't auto-scroll away from the channel list
+        // (lets users pick multiple output channels in succession uninterrupted).
+        if (typeof wfgRenderGpioList === 'function') wfgRenderGpioList();
       }
     }
   }
@@ -31688,6 +31705,25 @@ window.wfgImportConfig = function(jsonStr) {
   // no gate entry at all; a newer one may carry a stale mapping).
   wfgSyncGateGpio();
   wfgLsSyncChannels();
+
+  /* v3.17.5（修 bug）：補齊虛擬類比 slot 的 enable。
+     preset 載入路徑（wfgApplyPreset）早就有同一段補救 ——「Enable virtual analog
+     GPIOs (SD1, CKO1~CKOn) when loading a preset — they default to enable:false」
+     —— 匯入設定檔這條路徑卻沒有。而上面的 GPIO 迴圈是逐欄位覆蓋，檔案裡存的
+     `"sd1": {"enable": false}` 會被原樣灌進來；SD1 又不歸 wfgLsRebuildCkoSlots()
+     的 enableSlots 管，於是這種檔案匯入後 SD1 永遠畫不出來，而虛擬類比信號卡片
+     沒有 ENABLE 勾選框可以救回（同 wfgOnChannelChange() 那處的死角）。
+     autosave 自動還原（wfgAutoRestore → wfgImportConfig）走的是同一條路徑，
+     一併受惠。
+     只補「有可見通道指向它」的 slot：使用者要隱藏某條波形，表達方式是通道的眼睛
+     圖示（channel.visible），不是這個沒有 UI 入口的 enable 旗標 —— 所以這裡不會
+     把使用者刻意隱藏的東西打開。沒有通道指向的 slot 一律不碰。 */
+  for (var _vci = 0; _vci < wfgChannels.length; _vci++) {
+    var _vch = wfgChannels[_vci];
+    if (!_vch.visible || !wfgIsVirtualAnalogIdx(_vch.gpioIdx)) continue;
+    var _vgp = wfgGpios[_vch.gpioIdx];
+    if (_vgp && _vgp.waveform_type && !_vgp.enable) _vgp.enable = true;
+  }
 
   // ── Cursors ──
   /* v3.5.1: 與 preset 同一套語意 —— 匯入一份設定檔是「整組套用一份狀態」，不是「只覆蓋它有提到的欄位」。
