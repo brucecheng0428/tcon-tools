@@ -1763,7 +1763,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260818wfg3190"></script>
+<script src="common/version.js?v=20260819wfg3191"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -17403,6 +17403,26 @@ window.wfgDebugGpioLevels = function(gpioIdx, firstLine, lastLine) {
   return out.join('');
 };
 
+/* ═══════════ F_ST_SEL 未勾選時的「延伸上限」（暫定規格）═══════════
+
+   🔴 **暫定值，Bruce 之後會更正「不打勾」的完整行為。**
+   規格來源：Bruce 2026-08-19 口述 ——
+     「先把它當作延伸一個 frame 來處理：雖然我設定 Stop Line 是 16383，
+       假設一個 frame 是 1500 條 line，超過 1500 條到下一個 frame，
+       兩個 frame 最多就是 3000 條 line，它就不會超過 3000 條。」
+
+   ⇒ 未結束的脈衝最多再延伸 N 個 frame，**總長上限 = (N + 1) × vtotal**。
+     N = 1 → 上限 2 × vtotal，與 Bruce 舉的 1500/3000 例子相符。
+
+   🔴 這個數字只准出現在這一個常數。要改行為就改這裡，不要把 `2 * vtotal`
+      抄到別的地方 —— 規格未定案，散出去就改不回來了。
+
+   ⚠ 這裡刻意**只管未勾選**。F_ST_SEL 勾選時的行為由 INI_VAL 決定（見下方
+     「Frame 起始準位」），Bruce 沒有對勾選時的脈衝長度下過任何規格，
+     實測勾選 + INI_VAL=1/2/3 同樣可以無限延伸 —— 那一項**留著不動、待裁示**，
+     不在這次的修正範圍內。                                                      */
+const WFG_FST_SEL_MAX_EXTEND_FRAMES = 1;
+
 // ─── Phase Counter Engine (per GPIO) ───
 // ST_LINE: counter loads initial values here, no counting before this line.
 // SP_LINE: last allowed trigger line. Transitions only fire when line <= SP_LINE.
@@ -17504,6 +17524,21 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
     }
 
     // ── Normal (Phase Counter) mode ──
+    /* ── Frame 起始準位 ──
+       🔴 規格來源只有 Bruce 本人（2026-08-19）：
+         「F_ST_SEL 如果是打勾的話…它的確就是要去參考 INI_VAL 的設定」
+         「不打勾的話，是上一個 frame 的信號如果有超過一個 frame，它會繼續延伸下去」
+
+       F_ST_SEL 勾選 → 每個 frame 的起始準位**無條件**由 INI_VAL 決定：
+         0 → Low、1 → High、2/3 → Keep（沿用上一 frame 的結束準位）
+       F_ST_SEL 未勾選 → 未結束的脈衝往下一個 frame 延伸（延伸上限見
+         WFG_FST_SEL_MAX_EXTEND_FRAMES）。
+
+       ⚠ 舊註解寫的「F_ST_SEL 改變 F_PH / F_DLY 的參考基準」查無依據
+         （瑞鼎原廠文件全文檢索只有暫存器名稱、沒有定義文字），已刪除。
+
+       ⚠ 未勾選時這裡仍保留 `sp_line >= vtotal` 的分支：Bruce 明確表示
+         「不打勾的行為我這邊還要再查一下」，**本次只加延伸上限、不重寫起始準位**。 */
     var initLevel;
     if (frame === 0) {
       // Frame 0: always use INI_VAL
@@ -17628,6 +17663,51 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   allTransitions.sort(function(a, b) {
     return a.line - b.line || a.dly - b.dly;
   });
+
+  /* ── F_ST_SEL 未勾選：延伸上限（暫定規格，見 WFG_FST_SEL_MAX_EXTEND_FRAMES）──
+
+     為什麼放在這裡、而不是塞進上面的 counter 迴圈：
+       counter 迴圈是「一個 frame 一輪」，而要限制的量是「一段脈衝的總長」，
+       它可以橫跨多個 frame。放在迴圈裡就得在每個 frame 之間傳遞脈衝起點，
+       等於把跨 frame 狀態摻進本來只管單一 frame 的邏輯裡。排序完之後
+       整條時間軸已經在手上，一次掃完即可，勾選時的路徑一個位元都不會碰到。
+
+     🔴 只處理 HIGH 段：Bruce 講的是「信號延伸下去」，指的是還沒收掉的脈衝。
+        LOW 是靜止狀態，不是延伸。`inv` 在本段之後才套用，所以這裡看到的
+        HIGH 就是反相前的 active 脈衝 —— 這正是要限制的對象。
+
+     🔴 toggle mode 不適用：它在上面就 `continue` 走自己的演算法，而且完全不看
+        f_st_sel。硬套上限會改到一個 Bruce 沒有下過規格的模式。                      */
+  if (!gpio.f_st_sel && !gpio.toggle && vtotal > 0) {
+    var _capLines = (WFG_FST_SEL_MAX_EXTEND_FRAMES + 1) * vtotal;
+    var _totalLines = vtotal * frameCount;
+    var _posOf = function(t) { return t.line + (htotal > 0 ? t.dly / htotal : 0); };
+    var _mkFall = function(pos) {
+      var ln = Math.floor(pos);
+      return { line: ln, dly: htotal > 0 ? Math.round((pos - ln) * htotal) : 0, level: 0 };
+    };
+    var _capInserts = [];
+    var _riseAt = null;
+    for (var _ci = 0; _ci < allTransitions.length; _ci++) {
+      var _t = allTransitions[_ci];
+      var _p = _posOf(_t);
+      // 走到這一筆時，前面那段 HIGH 已經超過上限 → 在上限處補一個下降緣
+      if (_riseAt !== null && _p > _riseAt + _capLines) {
+        _capInserts.push(_mkFall(_riseAt + _capLines));
+        _riseAt = null;
+      }
+      if (_t.level === 1) { if (_riseAt === null) _riseAt = _p; }
+      else _riseAt = null;
+    }
+    // 收尾：最後一段 HIGH 一路撐到資料尾端，同樣要在上限處收掉
+    if (_riseAt !== null && _totalLines > _riseAt + _capLines) {
+      _capInserts.push(_mkFall(_riseAt + _capLines));
+    }
+    if (_capInserts.length) {
+      allTransitions = allTransitions.concat(_capInserts);
+      allTransitions.sort(function(a, b) { return a.line - b.line || a.dly - b.dly; });
+    }
+  }
 
   // Apply inv
   if (gpio.inv) {
