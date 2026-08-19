@@ -22,6 +22,66 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.20.5 — 2026-08-20 ｜ PATCH ｜ ⚠ 輸出變更
+
+**frame 2 以後，每個 frame 的 Line 0 起始準位在畫面上整個消失。** 波形算得對、`wfgExpandRange` 也回得對，是**畫的時候**掉的 —— dense template 的逐像素掃描漏掉了週期起點那一筆。
+
+判定依據：§1 判定表逐欄 ——「操作流程」零改變；「功能增減」不增不減；「既有功能的輸出」屬**修正為原本就該有的行為** → PATCH。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`（同一份設定新舊版重跑，frame ≥ 2 的 Line 0 會多出原本就該有的起始準位，舊截圖／基線不能直接沿用）；R2／R3／R4 不適用。取最高者 → **PATCH**。
+
+### 症狀與重現條件
+
+Bruce 的設定：`vtotal 1490 / htotal 3878 / frameRate 144 / frameCount 500 / lineBuffer 11`，XSTB `ST_LINE=2 R_DLY=1829 F_DLY=1870 INI_VAL=1 F_ST_SEL 勾選`，視野停在 **frame 201**（`view.start 299487.4`）。
+
+畫面上 Line 0 應該從 INI_VAL=1 起始為 HIGH、一路平到 ST_LINE 那行的 F_DLY 才掉，實際卻整段是 LOW。**而且 INI_VAL 設 1 跟設 0 畫出來一模一樣** —— 因為 INI_VAL=1 的那筆切斷根本沒被畫。
+
+🔴 **為什麼一直測不出來**：這條路徑要 `frameCount` 大到讓週期偵測成立（`isPeriodic`）**且** 視野落在 frame 2 以後才會踩到。先前的驗證全部用 `frameCount` 3 或 20、而且都看 frame 1 的邊界 —— `frameCount ≤ 3` 直接走非週期的逐筆路徑，frame 0／1 則走 prelude 分支（用絕對座標），兩者都繞開了出問題的那一段。
+
+### 根因（`wfgRender` 的 Smart Dense Mode，不在 `wfgCalcGpio`）
+
+`useDenseTemplate` 成立時，波形不展開，改成逐像素去 template 裡掃：
+
+```js
+var relLeft  = (lineLeft - steadyLine) % pv;
+var relRight = relLeft + (lineRight - lineLeft);
+// binary search: 第一個 _tplPos >= relLeft
+while (_bsLo < _bsHi) { …; if (_tplPos[_bsM] < relLeft) _bsLo = _bsM + 1; else _bsHi = _bsM; }
+for (var tj = _bsLo; tj < tplLen; tj++) { if (_tplPos[tj] > relRight) break; … }
+```
+
+template 第一筆是 `relLine 0, dly 0`（F_ST_SEL 勾選時在 Line 0 落的 INI_VAL 切斷），它的 `_tplPos` 是 **0**。而任何一個像素的 `relLeft` 都 > 0，binary search 的 `_tplPos[_bsM] < relLeft` 一律把它跳過；跨越 frame 邊界的那個像素則是 `relLeft ≈ pv`、`relRight ≈ pv + ε`，區間在 `[1489.998, 1490.004]`，同樣涵蓋不到 0。**`relRight` 跨過週期邊界後沒有 wrap 回 `[0, pv)`，於是那一筆永遠落在兩個像素的縫裡。**
+
+修法：原迴圈之後補一段 —— `relRight >= pv` 時回頭掃 `[0, relRight - pv]`。
+
+🔴 **規則只有一條，沒有特例分支**：「這個像素涵蓋的區間是模 `pv` 的，掃描也必須是模 `pv` 的」。新增的判斷條件只有 `relRight >= pv`，**不看任何 GPIO 參數（沒有 `f_st_sel`、沒有 `ini_val`）、不看 frame index、也不特判 `relLine 0`**；凡是落在環繞區間裡的 template 項目一視同仁。`relLine 0` 只是實務上最常落在那裡的那一筆，因而症狀最明顯。這是補完既有演算法的一般性缺陷，不是為某個欄位打的補丁。
+
+### 已知次因（本次**不修**）
+
+`useDenseTemplate` 的門檻用 `estTransCount = template.length × Math.max(1, framesInView)`。當視野遠小於一個 frame 時（本例 7 行、`framesInView ≈ 0.0047`），`Math.max(1, …)` 讓它退化成整個 template 的長度 **2977**，超過 `drawW × 2 = 2466`，於是**只有 7 行的視野也會走 dense 路徑** —— 而該視野內實際只有 13 筆轉態，本來該走逐筆的 sparse 路徑。
+
+估得準的話（`2977 × 0.0047 ≈ 14`）就會走 sparse，本次這個 bug 也就不會被觸發。但它與上面的根因是**兩件獨立的事**：即使改了門檻，大視野仍會走 dense、仍需要環繞掃描才正確。因此本次只修根因，門檻維持原樣，記在這裡供後續評估（改它會改變路徑選擇與效能特性，需要另外做效能驗收）。
+
+### 驗收
+
+**frame index 掃描**（視野固定 7 行，量 XSTB 那一列的 HIGH 段寬度；正常脈衝約 4px，Line 0 的平段約 521px）：
+
+| frame | 修正前 | 修正後 |
+|---|---|---|
+| 0 | 有平段 `637-1159` | 有 |
+| 1 | 有平段 `637-1159` | 有 |
+| 2, 3, 5, 10, 50, 100, 200, 201, 300 | **無** | 有平段 `637-1159`（各 frame 逐段一致） |
+
+**臨界點就在 frame 2**，與根因推導一致（frame 0／1 走 prelude 分支，用絕對座標，不受影響）。
+
+**負向對照**：修正前的同一支掃描在 frame 2 以後全部量不到平段 —— 掃描本身有鑑別力，不是「怎麼量都說有」。
+
+**INI_VAL 鑑別力**（Bruce 的設定，frame 201）：修正後 `INI_VAL=1 → 567-1088`（521px 平段）、`INI_VAL=0/2/3 → 1085-1088`（4px 窄脈衝）。修正**前** `INI_VAL=1` 畫出來是 `1085-1088`，與 `INI_VAL=0` 完全相同 —— 這就是「設 0 跟設 1 沒有變化」的直接根因。
+
+**未波及其他通道**：同一份設定、同一個視野，把整片波形區（1343×901）在新舊版各存一張 PNG 逐像素比對，差異 bbox 只有 `(567, 182, 1086, 213)` —— 就是 XSTB 那一列被補回來的平段與它的兩條邊沿，共 1094 個像素。其餘所有數位／類比通道**逐像素相同**。
+
+**`wfgCalcGpio` 一個字都沒動**：v3.20.4 的三條規格掃描（128000 組）與計算層輸出不受本次改動影響。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.20.4 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
 
 **F_ST_SEL 勾選時，Line 0 的起始準位現在一定等於 INI_VAL；F_DLY 跨行時 falling 不再被整批丟掉。** 依 Bruce 2026-08-19 口述規格（與 v3.20.2／v3.20.3 同一份，那兩版做的是「未勾選」那半邊，這版補「勾選」這半邊）。

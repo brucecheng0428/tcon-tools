@@ -1778,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260819wfg3204"></script>
+<script src="common/version.js?v=20260820wfg3205"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22190,6 +22190,24 @@ function wfgRender() {
               if (_tplPos[tj] > relRight) break;
               if (_tplLvl[tj] !== curLevel) sawToggle = true;
               lastLevel = _tplLvl[tj];
+            }
+            /* v3.20.5 — 規則只有一條：**這個像素涵蓋的區間是模 pv 的，掃描也必須是模 pv 的。**
+               `relLeft` 已經取過模，`relRight = relLeft + span` 卻沒有，所以當像素跨過週期
+               邊界時，區間變成 [relLeft, pv+ε) 這種超出 [0,pv) 的形式，落在 [0, relRight-pv]
+               的 template 項目就一個都掃不到 —— 上面的 binary search 只會往 relLeft 右邊找。
+               這裡把區間的環繞部分補回來，掃 [0, relRight - pv]。
+
+               這不是為了哪一個欄位加的特例：判斷條件只有 `relRight >= pv`，不看任何 GPIO
+               參數、不看 frame index、也不特判 relLine 0；凡是落在環繞區間裡的 template
+               項目都一視同仁。relLine 0 只是實務上最常落在那裡的那一筆，因而症狀最明顯
+               （F_ST_SEL 勾選時它就是 Line 0 的 INI_VAL 切斷，frame 2 以後整個畫不出來；
+               frame 0／1 走下面的 prelude 分支、用絕對座標，所以看不出來）。 */
+            if (relRight >= pv) {
+              var _wrapEnd = relRight - pv;
+              for (var tw = 0; tw < tplLen && _tplPos[tw] <= _wrapEnd; tw++) {
+                if (_tplLvl[tw] !== curLevel) sawToggle = true;
+                lastLevel = _tplLvl[tw];
+              }
             }
           }
           if (lineLeft < steadyLine && _preLen > 0) {
