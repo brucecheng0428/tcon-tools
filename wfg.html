@@ -1778,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260819wfg3203"></script>
+<script src="common/version.js?v=20260819wfg3204"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -17612,9 +17612,15 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       frameReset = true;
       rCnt = -1; fCnt = -1; counterActive = false;
     } else if (gpio.f_st_sel) {
-      var _cut0 = (gpio.ini_val === 0) ? 0 : (gpio.ini_val === 1) ? 1 : level;  // 2/3 = Keep
-      if (_cut0 !== level) {
-        allTransitions.push({ line: lineOffset, dly: 0, level: _cut0 });
+      /* 🔴 v3.20.4：一律落一筆切斷轉態，**不可以**拿 `level` 判斷「準位一樣就不用落」。
+         `level` 追蹤的是「按 line 迴圈跑出來的邏輯準位」，DLY 跨行時它會跟畫面上的
+         時間序準位脫節 —— line L 的 falling 被推到 line L+1，排序後落在 line L+1 的
+         rising **之後**，於是 `level` 說 1、畫面上其實是 0。拿它判斷會整筆漏掉切斷點，
+         Line 0 的起始準位就不等於 INI_VAL 了（實測 128000 組裡有 5106 組因此違規）。
+         多落的同準位轉態在下面排序後靠 `_cut` 標記統一清掉，不會污染脈衝計數。 */
+      var _cut0 = (gpio.ini_val === 0) ? 0 : (gpio.ini_val === 1) ? 1 : null;  // 2/3 = Keep → 不切斷
+      if (_cut0 !== null) {
+        allTransitions.push({ line: lineOffset, dly: 0, level: _cut0, _cut: 1 });
         level = _cut0;
         frameReset = true;
       }
@@ -17688,9 +17694,14 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
             // Transition exceeds frame boundary — suppress under F_ST_SEL
             // Do NOT set fFired: signal visually stays high (no transition pushed)
             // so prevFrameEndLevel should reflect the visual high state
-          } else if (fExtraLines >= 1 && fDly > htotal + gpio.r_dly) {
-            // F_DLY crossed to next line past next line's R_DLY position — suppress
-            // Level stays high (no falling edge), fFired stays false
+          /* 🔴 v3.20.4 移除：這裡原本還有一條
+                 `else if (fExtraLines >= 1 && fDly > htotal + gpio.r_dly)` 的抑制。
+             它的本意是「F_DLY 跨到下一行、又超過下一行 R_DLY 的位置就別打了」，
+             實際效果卻不是只丟掉邊界那一筆 —— 條件跟 line 無關，所以**每一行**的
+             falling 都被丟掉，訊號拉高之後永遠不會掉（實測 st=3 r_dly=1 f_dly=150
+             時 line4~8 的 HIGH 佔比 100%，移除後回到 49.25%）。
+             這直接牴觸「到 F_DLY 才會將訊號變為 low」。F_DLY 不跨行的組合完全不受
+             影響：f_st_sel 未勾選、DLY 不跨行的 20480 組輸出逐位元組相同。 */
           } else {
             allTransitions.push({ line: lineOffset + fActualLine, dly: fNormDly, level: 0 });
             fFired = true;
@@ -17727,6 +17738,23 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   allTransitions.sort(function(a, b) {
     return a.line - b.line || a.dly - b.dly;
   });
+
+  /* v3.20.4：上面 F_ST_SEL 的切斷轉態是一律落的，這裡把「跟前一筆同準位」的清掉 ——
+     準位沒變的轉態對畫面沒有作用，留著只會讓脈衝計數多算。
+     🔴 只認自己打的 `_cut` 標記。**不可以**改用「dly===0 且落在 frame 邊界」這種幾何
+     條件去猜：F_DLY 跨行時本來就會有正常的轉態剛好落在下一個 frame 的開頭，用幾何
+     條件會把它一起清掉，波及 F_ST_SEL 未勾選的路徑。 */
+  if (allTransitions.length > 1) {
+    var _cleaned = [];
+    for (var _ci = 0; _ci < allTransitions.length; _ci++) {
+      var _t = allTransitions[_ci];
+      var _isCut = !!_t._cut;
+      if (_isCut) delete _t._cut;
+      if (_isCut && _cleaned.length && _t.level === _cleaned[_cleaned.length - 1].level) continue;
+      _cleaned.push(_t);
+    }
+    allTransitions = _cleaned;
+  }
 
   /* v3.20.3：這裡原本有一段「F_ST_SEL 未勾選的延伸上限」後處理（v3.19.1 加的）。
      完整模型上線後它一次都不會生效 —— 每個 frame 的 ST_LINE 都會切斷並重設 counter，
