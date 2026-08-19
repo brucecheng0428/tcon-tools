@@ -891,7 +891,22 @@
   .wfg-ovl-ctl select, .wfg-ovl-ctl input { background: #0d1117; border: 1px solid #30363d; color: #e2e8f0; border-radius: 4px; font-size: 10px; padding: 2px 4px; min-width: 0; }
   .wfg-ovl-ctl select { flex: 1; }
   .wfg-ovl-ctl select option { background: #1e293b; color: #e2e8f0; }
-  .wfg-ovl-ctl input { width: 56px; text-align: right; }
+  /* v3.20.0：中心電壓那一列多了 −／+ 兩顆鈕。卡片內容區只有 123px 寬，
+     「中心電壓」這個 label 就吃掉約 40px —— 固定 56px 的輸入框會被 flex 壓成一條縫
+     （實測剩 34px，連 "5.5" 都顯示不完）。
+     解法是讓這一列可以換行：擠不下時 label 自己佔一行，控制項退到第二行拿到完整寬度。
+     不刪任何既有文字、不縮字級，窄卡片與寬卡片都成立。 */
+  .wfg-ovl-ctl { flex-wrap: wrap; }
+  /* 🔴 −／輸入框／+／V 必須整組一起換行。只加 flex-wrap 的話斷點會落在中間
+     （實測：`−` 留在 label 那一行、輸入框與 `+` 掉到第二行），所以包一層。
+     min-width 是「擠不下就整組換行」的門檻，不是固定寬度 —— 卡片變寬時會自動回到同一行。 */
+  .wfg-ovl-step { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 96px; }
+  .wfg-ovl-ctl input { flex: 1 1 56px; min-width: 56px; width: auto; text-align: right; }
+  /* 中心電壓的 −／+（v3.20.0）：沿用左側面板 .wfg-slider-btn 的視覺語言
+     （同樣的邊框、圓角、配色、hover/active），只把尺寸縮到卡片的 10px 字級。
+     🔴 不另立一套外觀 —— 只有尺寸是本地的。 */
+  .wfg-ovl-ctl .wfg-slider-btn { flex: 0 0 22px; width: 22px; height: 22px; font-size: 14px; }
+  .wfg-ovl-ctl label { white-space: nowrap; }
   .wfg-ovl-read { display: flex; align-items: center; gap: 4px; font-size: 10px; font-family: monospace; padding: 1px 0; }
   .wfg-ovl-read .sw { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
   .wfg-ovl-read .nm { color: #c9d1d9; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1763,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260819wfg3192"></script>
+<script src="common/version.js?v=20260819wfg3200"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -23246,12 +23261,21 @@ function wfgUpdateOverlayCard() {
       html += '<option value="' + sv + '"' + (selv ? ' selected' : '') + '>' + wfgFormatVPerDiv(sv) + '/div</option>';
     }
     html += '</select></div>';
-    // 中心電壓（示波器的垂直位置。手動模式才可編輯；非手動時顯示目前的中心值供參考）
+    /* 中心電壓（示波器的垂直位置）。輸入框仍只在手動模式可打字；
+       −／+ 兩顆鈕**三種模式都可以按**（Bruce 2026-08-19 裁示），
+       在固定／自動下按會接手成手動，見 wfgOvlNudgeCenter 的說明。
+       🔴 按鈕的步進量與輸入框的 step 取自同一個 wfgOvlCenterStep()，
+          鍵盤上下鍵與按鈕不會給出不同的量。 */
     var centerNow = (cfg.vMode === 'manual') ? cfg.vcenter : (range.vMin + range.vMax) / 2;
+    var _cStep = wfgOvlCenterStep(gid);
     html += '<div class="wfg-ovl-ctl"><label>' + escapeHtml(t('wfg.ovlCenter')) + '</label>'
-      + '<input type="number" step="0.5" value="' + (Math.round(centerNow * 100) / 100)
+      + '<span class="wfg-ovl-step">'
+      + '<button type="button" class="wfg-slider-btn" onclick="wfgOvlNudgeCenter(\'' + gid + '\',-1)">−</button>'
+      + '<input type="number" step="' + _cStep + '" value="' + (Math.round(centerNow * 100) / 100)
       + '"' + (cfg.vMode === 'manual' ? '' : ' disabled')
-      + ' onchange="wfgOvlSetCenter(\'' + gid + '\',this.value)"><span>V</span></div>';
+      + ' onchange="wfgOvlSetCenter(\'' + gid + '\',this.value)">'
+      + '<button type="button" class="wfg-slider-btn" onclick="wfgOvlNudgeCenter(\'' + gid + '\',1)">+</button>'
+      + '<span>V</span></span></div>';
     html += '<div class="wfg-ovl-dv">' + escapeHtml(t('wfg.ovlSpan')) + ' ' + range.vMin.toFixed(2) + ' ~ '
       + range.vMax.toFixed(2) + ' V ｜ ' + divs + ' div × ' + wfgFormatVPerDiv(vPerDiv) + '</div>';
     // 逐條讀值：色塊即該條游標的顏色，一眼看得出歸屬
@@ -23305,6 +23329,51 @@ window.wfgOvlSetScale = function(id, val) {
     cfg.vMode = 'manual';
     cfg.vdiv = parseFloat(val) || 1;
   }
+  wfgRender();
+  wfgUpdateOverlayCard();
+  wfgOverlayRefreshPulse();
+  wfgAutoSave();
+};
+/* 中心電壓的步進量 ＝ **半格**（v3.20.0）。
+   為什麼是半格而不是固定 0.5V：中心電壓是示波器的垂直位置旋鈕，語意上該以「格」
+   為單位。固定 0.5V 的話，20V/div 要按 40 下才移動一格；整格的話 0.5V/div 又太粗。
+   半格在 0.5~20V/div 全檔位（0.25V ~ 10V）都是**畫面上固定移動半格**，手感一致。
+   非手動模式回傳畫面上實際的 V/div 的一半（那才是使用者看到的格）。 */
+function wfgOvlCenterStep(id) {
+  var cfg = wfgOverlayGetCfg(id);
+  if (cfg.vMode === 'manual') return cfg.vdiv / 2;
+  var mem = wfgOverlayMembersInfo(id);
+  var r = wfgOverlayRange(id, mem);
+  var divs = Math.max(1, mem.length * WFG_OVERLAY_DIVS_PER_CH);
+  var s = (r.vMax - r.vMin) / divs / 2;
+  return (isFinite(s) && s > 0) ? Math.round(s * 1000) / 1000 : 0.5;
+}
+/* −／+ 按鈕。
+   🔴 Bruce 2026-08-19 裁示：**固定／自動模式下按鈕也要能按。**
+   但這兩個模式的軸是「從資料推出來的」，中心不是自由參數 —— 硬移它會讓模式名稱
+   與實際行為不符。所以按下去的語意只能是「接手成手動」，接手時做兩件事讓畫面不跳：
+     ① 中心沿用當下的中心 → 不會左右跳（與 wfgOvlSetScale 切進手動時的處理一致）
+     ② V/div 取「**還能完整涵蓋目前範圍的最小檔位**」→ 原本看得到的東西不會被切掉
+        （例如固定模式 −1~12V、8 格 ⇒ 每格 1.625V ⇒ 取 2V/div，跨度 16V ⊇ 13V）
+   刻意**不**讓 vdiv 落在 WFG_VDIV_STEPS 以外的自由值：那樣下拉選單會找不到對應的
+   option 而顯示成第一項「固定（最大範圍）」，畫面說一套、實際做一套。 */
+window.wfgOvlNudgeCenter = function(id, dir) {
+  var cfg = wfgOverlayGetCfg(id);
+  if (cfg.vMode !== 'manual') {
+    var mem = wfgOverlayMembersInfo(id);
+    var r = wfgOverlayRange(id, mem);
+    var divs = Math.max(1, mem.length * WFG_OVERLAY_DIVS_PER_CH);
+    var need = (r.vMax - r.vMin) / divs;
+    var pick = WFG_VDIV_STEPS[WFG_VDIV_STEPS.length - 1];
+    for (var i = 0; i < WFG_VDIV_STEPS.length; i++) {
+      if (WFG_VDIV_STEPS[i] >= need) { pick = WFG_VDIV_STEPS[i]; break; }
+    }
+    cfg.vcenter = Math.round(((r.vMin + r.vMax) / 2) * 100) / 100;
+    cfg.vdiv = pick;
+    cfg.vMode = 'manual';
+  }
+  var step = cfg.vdiv / 2;
+  cfg.vcenter = Math.round((cfg.vcenter + dir * step) * 1000) / 1000;
   wfgRender();
   wfgUpdateOverlayCard();
   wfgOverlayRefreshPulse();
