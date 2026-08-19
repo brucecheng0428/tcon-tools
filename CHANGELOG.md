@@ -22,6 +22,71 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.19.2 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
+
+**修好「兩條類比波形合併顯示時，垂直軸被算成 0~1V、把訊號整條夾到上緣」** —— Bruce 2026-08-18 回報的「Yout 變成 Always High」。
+
+判定依據：§1 判定表逐欄 ——「操作流程」零改變；「功能增減」不增不減；「既有功能的輸出」屬**修正為原本就該有的行為**（0~1V 這個軸是退化 fallback 的產物，不是任何人設計的）→ PATCH。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`；R2／R3／R4 皆不適用。取最高者 → **PATCH**，`v3.19.1` → `v3.19.2`。
+
+`⚠ 輸出變更`：**只有處於合併群組的類比通道**顯示會變（軸從 0~1V 變成正確範圍，波形因此不再貼在上緣）。非合併通道實測零差異，見下方驗收。
+
+### 一、根因：一個函式，兩種索引空間，無解
+
+`wfgOverlayRange(id, memberChIdx, autoRanges)` 內部兩個分支需要的是**不同的索引空間**：
+
+| 分支 | 讀什麼 | 需要的索引 |
+|---|---|---|
+| `vMode === 'auto'` | `autoRanges[ci]`（`_wfgLastAutoRanges`） | **visibleChs** 索引 |
+| `vMode === 'fixed'` | `wfgChannels[ci]` → `wfgGpios[ch.gpioIdx]` | **wfgChannels** 索引 |
+
+而兩個呼叫端各傳一種：繪製端傳 visibleChs、卡片端傳 wfgChannels。**所以不管誰呼叫，一定有一個分支是錯的 —— 這個函式在那個簽章下無解。**
+
+實測（Bruce 的設定檔，`Vpix_23 + Yout` 群組）：成員的 wfgChannels 索引是 `[22, 23]`，繪製端傳進去的卻是 visibleChs 索引 `[16, 17]`。`wfgChannels[16]` / `[17]` 是 `gpioIdx = -1` 的佔位通道 → `wfgGpios[-1]` 是 undefined → 兩個成員都被 `continue` 跳過 → `vMin` 停在 `Infinity` → 落到退化 fallback `{vMin: 0, vMax: 1}`。
+
+`wfgVoltToY()` 會把 frac 夾在 0~1，於是所有 ≥1V 的取樣點全部貼在上緣 —— Yout 的資料一直都是 0 ~ 12.000 V，一個位元都沒錯，錯的是座標軸。
+
+**第二個症狀（同根因）**：卡片與畫布永遠不同軸。固定模式下卡片印 −1~12V、畫布用 0~1V；自動模式下卡片仍印 −1~12V、畫布用 0~12V —— **連自動模式的卡片數字也是錯的**，只是畫面看起來正常所以沒人發現。
+
+### 二、修法：把「索引」從介面上拿掉
+
+不是去改哪一個呼叫端傳什麼索引（那只是把錯誤搬家），而是讓 `wfgOverlayRange` **只認已解析好的成員物件**：
+
+```js
+function wfgOverlayMemberInfo(chIdx)   // → { ch, gpioIdx, gpio, autoRange }
+function wfgOverlayMembersInfo(id)     // → 上面那種物件的陣列
+function wfgOverlayRange(id, members)  // 🔴 不再接受索引
+```
+
+四個呼叫端全部改走它：繪製端（直接把已經蒐集好的 `_gMembers` 傳進去，本來就有 `gpio`，補上 `gpioIdx` 與 `autoRange`）、`wfgOverlayRangeForCh`、`wfgUpdateOverlayCard`、`wfgOvlSetScale`。
+
+**`_wfgLastAutoRanges` 的 key 由 visibleChs 索引改成 `gpioIdx`。** visibleChs 索引會隨「哪些通道可見」浮動，而讀取端（卡片、群組共用軸、游標範圍）手上往往只有 wfgChannels 索引或 gpioIdx —— 兩邊拿不到同一套索引，就是這個 bug 的來源。`gpioIdx` 是唯一在繪製端／卡片端／游標端三邊都拿得到、且不隨可見性改變的鍵；`_wfgVoltCursorPerSlot` 早就是用它當 key，這次與它對齊。寫入端兩處、讀取端（`wfgVoltCursorAllowedRange`）一處同步改。
+
+> 同一個坑的警告其實早就寫在 `wfgUpdateOverlayCard` 裡（「那張表的 key 是 visibleChs 索引，會查到別條通道」），只是 `wfgOverlayRange` 這一支沒被一起修。該處註解已更新。
+
+### 三、驗收
+
+**① 固定（最大範圍）** —— 畫布實際軸 `{vMin: -1, vMax: 12}`（Vpix_23 `[-1,12]` ∪ Yout `[0,12]` 的聯集），**不再是 `[0,1]`**。截圖確認 Yout 在前一個 frame 位於 VCOM 5.00V 之下（負極性）、後一個 frame 位於其上（正極性），兩個極性都看得到。
+
+**② / ③ / ④ 三種模式下卡片與畫布逐項相同**
+
+| 模式 | 畫布實際軸 | 卡片顯示範圍 | 一致 |
+|---|---|---|---|
+| 固定（最大範圍） | `-1 ~ 12` | `-1 ~ 12` | ✅ |
+| 自動（隨視窗） | `0 ~ 12` | `0 ~ 12` | ✅（舊版卡片印 `-1 ~ 12`，與畫布不符） |
+| 手動 5V/div | `-14 ~ 26` | `-14 ~ 26`（8 div × 5V） | ✅ 行為不變 |
+
+**⑤ 回歸** —— 4 種檢視位置 × 每個 analog slot 的「顯示範圍」與「游標可移動範圍」，共 **88 項比較**：
+
+- **72 項完全相同**
+- 改變的 16 項**全部**是合併群組 g3 的兩個成員（gpio 18 Yout、gpio 28 Vpix_23），正是本次要修的對象
+- CKO1~8、Gate 等**非合併通道跨全部 4 種檢視位置零差異**
+- 附帶修好的下游症狀：舊版有數筆游標可移動範圍是 `null`（因為 0~1V 的軸與資料範圍完全不相交，等於「不設限」），現在都是真實的資料範圍
+- 🔴 比較器負控制通過
+
+**⑥ 已知的行為收斂（非回歸）**：兩條**可見通道指向同一個 gpioIdx** 時，`_wfgLastAutoRanges` 由兩筆變成共用一筆。因為 auto-range 是從該 gpio 的資料＋當下視窗算出來的，同一個 gpio 在同一幀本來就只會有一個值，故無行為差異。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.19.1 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
 
 **F_ST_SEL 未勾選時，未結束的脈衝不再無限延伸下去 —— 總長上限為 `2 × VTOTAL`（暫定規格）。** 依 Bruce 2026-08-19 口述規格。

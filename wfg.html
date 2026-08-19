@@ -1763,7 +1763,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260819wfg3191"></script>
+<script src="common/version.js?v=20260819wfg3192"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -18847,30 +18847,67 @@ function wfgOverlayCount() {
   }
   return n;
 }
+/* ═══════════ 群組成員的解析（v3.19.2）═══════════
+
+   🔴 **這裡是「索引空間」這個概念唯一被消滅的地方，別再讓它長回來。**
+
+   v3.9.0～v3.19.1 的 `wfgOverlayRange(id, memberChIdx, autoRanges)` 收的是**索引**，
+   而它內部兩個分支需要的是**兩套不同的索引空間**：
+     ・`vMode === 'auto'`  讀 `autoRanges[ci]`      → 需要 **visibleChs** 索引
+     ・`vMode === 'fixed'` 讀 `wfgChannels[ci]`     → 需要 **wfgChannels** 索引
+   兩個呼叫端各傳一種（繪製端傳 visibleChs、卡片端傳 wfgChannels），
+   **所以不管誰呼叫，一定有一個分支是錯的** —— 這個函式在那個簽章下無解。
+
+   實測後果（Bruce 2026-08-18 回報的「Yout 變成 Always High」）：繪製端傳進去的是
+   visibleChs 索引 `[16,17]`，`wfgChannels[16]/[17]` 是 `gpioIdx = -1` 的佔位通道，
+   `wfgGpios[-1]` 是 undefined → 兩個成員都被 `continue` 跳過 → vMin 停在 Infinity
+   → 落到退化 fallback `{vMin:0, vMax:1}` → 0~1V 的軸把 0~12V 的訊號整條夾到上緣。
+
+   修法不是去改哪一個呼叫端傳什麼索引（那只是把錯誤搬家），而是**讓介面上不再有索引**：
+   呼叫端各自把通道解析成成員物件，`wfgOverlayRange` 只認物件。                        */
+function wfgOverlayMemberInfo(chIdx) {
+  var ch = wfgChannels[chIdx];
+  if (!ch || ch.gpioIdx < 0) return null;
+  var gpio = wfgGpios[ch.gpioIdx];
+  if (!gpio) return null;
+  return { ch: ch, gpioIdx: ch.gpioIdx, gpio: gpio,
+           autoRange: _wfgLastAutoRanges[ch.gpioIdx] || null };
+}
+// 由 ovlId 直接取「已解析好的成員」——卡片／設定端用這一支，不要自己拼索引
+function wfgOverlayMembersInfo(id) {
+  var idxs = wfgOverlayMembers(id), out = [];
+  for (var i = 0; i < idxs.length; i++) {
+    var m = wfgOverlayMemberInfo(idxs[i]);
+    if (m) out.push(m);
+  }
+  return out;
+}
 /* 群組的共用 V 軸範圍。三態：
      fixed （預設）→ 各成員 wfgAnalogDisplayRange() 的聯集。不隨視窗捲動縮放而變，
                      但會跟著使用者改 VGH/VGL/gamma 更新（固定的是「不隨看的位置變」，
                      不是凍結成死值）。
      manual        → 由 V/div × 格數 與中心電壓推得。
      auto          → 各成員 auto-range（隨可見視窗）的聯集，＝ v3.8.1 的行為。
-   memberChIdx: wfgChannels 的索引陣列；autoRanges: chIdx -> {vMin,vMax}（本幀 render 算好的） */
-function wfgOverlayRange(id, memberChIdx, autoRanges) {
+   members: wfgOverlayMemberInfo() 產生的物件陣列 `{ ch, gpioIdx, gpio, autoRange }`。
+   🔴 **不接受索引。** 理由見上面那段。 */
+function wfgOverlayRange(id, members) {
   var cfg = wfgOverlayGetCfg(id);
-  var n = memberChIdx.length || 1;
+  var n = (members && members.length) || 1;
   if (cfg.vMode === 'manual') {
     var half = cfg.vdiv * WFG_OVERLAY_DIVS_PER_CH * n / 2;
     return { vMin: cfg.vcenter - half, vMax: cfg.vcenter + half };
   }
   var vMin = Infinity, vMax = -Infinity;
-  for (var i = 0; i < memberChIdx.length; i++) {
-    var ci = memberChIdx[i];
-    var ch = wfgChannels[ci];
+  for (var i = 0; members && i < members.length; i++) {
+    var m = members[i];
+    if (!m) continue;
     var r = null;
-    if (cfg.vMode === 'auto' && autoRanges && autoRanges[ci]) {
-      r = autoRanges[ci];
-    } else {
-      var g = wfgGpios[ch.gpioIdx];
-      if (g) r = wfgAnalogDisplayRange(g);
+    // auto：優先用本幀算好的 auto-range；還沒算過就退回設定範圍（沿用舊行為）
+    if (cfg.vMode === 'auto' && m.autoRange &&
+        isFinite(m.autoRange.vMin) && isFinite(m.autoRange.vMax)) {
+      r = m.autoRange;
+    } else if (m.gpio) {
+      r = wfgAnalogDisplayRange(m.gpio);
     }
     if (!r || !isFinite(r.vMin) || !isFinite(r.vMax)) continue;
     if (r.vMin < vMin) vMin = r.vMin;
@@ -18885,12 +18922,18 @@ function wfgOverlayRange(id, memberChIdx, autoRanges) {
 function wfgOverlayRangeForCh(chIdx, fallbackRange) {
   var ch = wfgChannels[chIdx];
   if (ch && ch.ovlId) {
-    var mem = wfgOverlayMembers(ch.ovlId);
-    if (mem.length >= 2) return wfgOverlayRange(ch.ovlId, mem, _wfgLastAutoRanges);
+    var mem = wfgOverlayMembersInfo(ch.ovlId);
+    if (mem.length >= 2) return wfgOverlayRange(ch.ovlId, mem);
   }
   return fallbackRange;
 }
-// 本幀每條類比通道的 auto-range 快取（chIdx -> {vMin,vMax}），供 'auto' 模式取聯集
+/* 本幀每條類比通道的 auto-range 快取。
+   🔴 v3.19.2 起 key 是 **gpioIdx**，不再是 visibleChs 索引。
+      理由：visibleChs 索引會隨「哪些通道可見」浮動，而讀取端（卡片、群組共用軸）
+      手上往往只有 wfgChannels 索引或 gpioIdx —— 兩邊拿不到同一套索引，就是
+      v3.19.1 之前那個 `{vMin:0, vMax:1}` bug 的來源。gpioIdx 是唯一在
+      「繪製端／卡片端／游標端」三邊都拿得到、而且不隨可見性改變的鍵。
+      `_wfgVoltCursorPerSlot` 早就是用 gpioIdx 當 key，這裡與它對齊。 */
 var _wfgLastAutoRanges = {};
 /* 把 display list 裡「連續且 ovlId 相同」的 channel 項合併成一個 group 項。
    沒有群組時原樣回傳（陣列內容不變）→ 既有路徑零改變。 */
@@ -19005,11 +19048,10 @@ function wfgSlotDisplayRange(slot) {
    存進 _wfgLastAutoRanges），不另寫一套視窗極值算法 —— 兩套遲早不一致。 */
 function wfgVoltCursorAllowedRange(slot) {
   if (!slot) return null;
-  /* 🔴 key 是 **visibleChs 的索引**，不是 wfgChannels 的索引 —— slot.chIdx 與
-     _wfgLastAutoRanges 的寫入端（群組繪製 ①、單獨繪製）用的是同一套索引，兩邊
-     必須同源。從別處（例如讀值卡片只有 wfgChannels 索引）要取這個值時，一律先用
-     wfgSlotByGpioIdx() 拿到 slot 再進來，不要自己拿 wfgChannels 索引去查。 */
-  var r = _wfgLastAutoRanges[slot.chIdx];
+  /* v3.19.2：key 已改成 **gpioIdx**（見 _wfgLastAutoRanges 的宣告）。
+     舊版用 visibleChs 索引，讀取端只要拿錯索引空間就會查到別條通道 —— 那正是
+     v3.19.1 之前群組共用軸退化成 0~1V 的原因。gpioIdx 三邊都拿得到、不隨可見性浮動。 */
+  var r = _wfgLastAutoRanges[slot.gpioIdx];
   if (!r || !isFinite(r.vMin) || !isFinite(r.vMax) || r.vMax - r.vMin < 1e-9) return null;
   /* 與座標系取交集：auto-range 在「可見視窗內取不到樣本」時會退回
      analog_config.voltage_min/max（對 Subpixel 而言可能是 VGL/VGH −10~30V），
@@ -21907,14 +21949,17 @@ function wfgRender() {
       var _gAuto = wfgComputeAnalogAutoRange(_gData, wfgViewStart, wfgViewEnd,
         (_ggpio.analog_config && _ggpio.analog_config.voltage_min != null) ? _ggpio.analog_config.voltage_min : undefined,
         (_ggpio.analog_config && _ggpio.analog_config.voltage_max != null) ? _ggpio.analog_config.voltage_max : undefined);
-      _wfgLastAutoRanges[_gci] = { vMin: _gAuto.vMin, vMax: _gAuto.vMax };
-      _gMembers.push({ chIdx: _gci, ch: _gch, gpio: _ggpio, data: _gData });
+      var _gAutoR = { vMin: _gAuto.vMin, vMax: _gAuto.vMax };
+      _wfgLastAutoRanges[_gch.gpioIdx] = _gAutoR;   // v3.19.2：key 改 gpioIdx
+      /* 🔴 `chIdx` 是 **visibleChs** 索引，只給 _wfgAnalogChSlots／_ovlDrawn 這些
+         同樣走 visibleChs 的地方用。共用 V 軸改吃 `gpioIdx` / `gpio` / `autoRange`
+         這三個與索引空間無關的欄位，wfgOverlayRange 不會再碰到 chIdx。 */
+      _gMembers.push({ chIdx: _gci, ch: _gch, gpioIdx: _gch.gpioIdx, gpio: _ggpio,
+                       data: _gData, autoRange: _gAutoR });
     }
     if (_gMembers.length === 0) continue;
-    // ② 共用 V 軸（三態：fixed / manual / auto）
-    var _gMemberIdx = [];
-    for (var _gm3 = 0; _gm3 < _gMembers.length; _gm3++) _gMemberIdx.push(_gMembers[_gm3].chIdx);
-    var _gRange = wfgOverlayRange(_gInfo.ovlId, _gMemberIdx, _wfgLastAutoRanges);
+    // ② 共用 V 軸（三態：fixed / manual / auto）—— 直接傳成員物件，不再傳索引
+    var _gRange = wfgOverlayRange(_gInfo.ovlId, _gMembers);
     // ③ 群組外框 ＋ 水平格線（每條波形 4 格 → 群組 4n 格）
     wfgDrawOverlayFrame(ctx, _gY0, _gH, _gMembers.length, drawX0, w, _gRange);
     /* ④ 逐條畫，全部用同一個 y0 / 高度 / 電壓範圍。
@@ -21985,7 +22030,8 @@ function wfgRender() {
         // v3.9.0: 記下本幀的 auto-range，供群組 'auto' 模式取聯集（單獨顯示時也記，
         // 使用者把它拖進群組的下一幀就有值可用）
         if (isFinite(_anaData.autoVMin) && isFinite(_anaData.autoVMax)) {
-          _wfgLastAutoRanges[i] = { vMin: _anaData.autoVMin, vMax: _anaData.autoVMax };
+          // v3.19.2：key 改 gpioIdx（與群組繪製端、卡片端同一套鍵）
+          _wfgLastAutoRanges[ch.gpioIdx] = { vMin: _anaData.autoVMin, vMax: _anaData.autoVMax };
         }
       }
       // Cache slot info for voltage-cursor rendering / hit-testing
@@ -23181,7 +23227,9 @@ function wfgUpdateOverlayCard() {
     var gid = ids[gi];
     var mem = wfgOverlayMembers(gid);
     var cfg = wfgOverlayGetCfg(gid);
-    var range = wfgOverlayRange(gid, mem, _wfgLastAutoRanges);
+    /* 🔴 v3.19.2：一定要走 wfgOverlayMembersInfo()，不可以把 `mem`（wfgChannels 索引）
+       直接丟進去 —— 卡片印的軸與畫布實際用的軸從此保證是同一組數字。 */
+    var range = wfgOverlayRange(gid, wfgOverlayMembersInfo(gid));
     var divs = mem.length * WFG_OVERLAY_DIVS_PER_CH;
     var vPerDiv = (range.vMax - range.vMin) / divs;
     var names = [];
@@ -23230,8 +23278,10 @@ function wfgUpdateOverlayCard() {
       /* v3.10.0: 該條游標在目前視窗能走的範圍 —— 不寫出來的話，使用者只會覺得
          「游標拖不動」而不知道原因。這是**隨視窗浮動**的量，與上面那行固定的
          V 軸刻度範圍（wfg.ovlSpan）是兩回事，所以另起一行、用不同字樣。 */
-      /* 🔴 一定要走 slot（gpioIdx→slot），不可拿 ci2（wfgChannels 索引）直接查
-         _wfgLastAutoRanges —— 那張表的 key 是 visibleChs 索引，會查到別條通道。 */
+      /* 走 slot（gpioIdx→slot）而不是直接查表：這一行還要跟 wfgSlotDisplayRange()
+         取交集（見 wfgVoltCursorAllowedRange），那個資訊只有 slot 身上有。
+         v3.19.2 起 _wfgLastAutoRanges 已改為 gpioIdx-keyed，原本「查到別條通道」
+         的風險本身已經消失，但這裡仍走 slot —— 取交集這件事沒有變。 */
       var _limR = wfgVoltCursorAllowedRange(wfgSlotByGpioIdx(ch2.gpioIdx));
       if (_limR && isFinite(_limR.vMin) && isFinite(_limR.vMax)) {
         html += '<div class="wfg-ovl-dv" style="margin:0 0 6px 13px">' + escapeHtml(t('wfg.ovlCursorLimit'))
@@ -23247,11 +23297,10 @@ window.wfgUpdateOverlayCard = wfgUpdateOverlayCard;
    由自動或固定切進手動時，中心電壓沿用當下的中心，畫面不會突然跳走。 */
 window.wfgOvlSetScale = function(id, val) {
   var cfg = wfgOverlayGetCfg(id);
-  var mem = wfgOverlayMembers(id);
   if (val === 'fixed' || val === 'auto') {
     cfg.vMode = val;
   } else {
-    var cur = wfgOverlayRange(id, mem, _wfgLastAutoRanges);
+    var cur = wfgOverlayRange(id, wfgOverlayMembersInfo(id));
     if (cfg.vMode !== 'manual') cfg.vcenter = Math.round(((cur.vMin + cur.vMax) / 2) * 100) / 100;
     cfg.vMode = 'manual';
     cfg.vdiv = parseFloat(val) || 1;
