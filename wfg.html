@@ -1778,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3205"></script>
+<script src="common/version.js?v=20260820wfg3206"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22176,9 +22176,16 @@ function wfgRender() {
           var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
           var lastLevel = curLevel;
           var sawToggle = false;
+          /* v3.20.6 — 規則只有一條：**一個像素的最終準位，取該像素區間內「時間最晚」
+             那一筆轉態的準位**（區間內沒有轉態就延續前一個像素）。
+             template 與 prelude 是同一條時間軸上的兩段來源，底下兩個區塊都可能在同一
+             個像素命中；勝負必須由各自命中那筆的**絕對時間**決定，不能靠程式碼的先後
+             順序覆蓋。`_hitAbs` 就是為此存在 —— 記住目前命中的最晚位置，誰晚誰說了算。 */
+          var _hitAbs = -Infinity;
           if ((lineRight - lineLeft) >= sVtotal && tplLen > 0) {
             lastLevel = _tplLvl[tplLen - 1];
             sawToggle = _tplHasToggle || (lastLevel !== curLevel);
+            _hitAbs = lineRight;   // 這個像素涵蓋整個週期，命中點就在區間尾端
           } else if (lineRight >= steadyLine && tplLen > 0) {
             var relLeft = (lineLeft - steadyLine) % pv;
             var relRight = relLeft + (lineRight - lineLeft);
@@ -22186,10 +22193,15 @@ function wfgRender() {
             // Binary search for first template entry >= relLeft
             var _bsLo = 0, _bsHi = tplLen;
             while (_bsLo < _bsHi) { var _bsM = (_bsLo + _bsHi) >>> 1; if (_tplPos[_bsM] < relLeft) _bsLo = _bsM + 1; else _bsHi = _bsM; }
+            /* template 的位置是「相對週期起點」，換算回絕對時間才能跟 prelude 比。
+               本像素落在哪一個週期：用 max(lineLeft, steadyLine) 起算（跨 steadyLine 的
+               像素，其 template 部分屬於第一個週期）。 */
+            var _tplBase = steadyLine + Math.floor((Math.max(lineLeft, steadyLine) - steadyLine) / pv) * pv;
             for (var tj = _bsLo; tj < tplLen; tj++) {
               if (_tplPos[tj] > relRight) break;
               if (_tplLvl[tj] !== curLevel) sawToggle = true;
-              lastLevel = _tplLvl[tj];
+              var _tAbs = _tplBase + _tplPos[tj];
+              if (_tAbs >= _hitAbs) { _hitAbs = _tAbs; lastLevel = _tplLvl[tj]; }
             }
             /* v3.20.5 — 規則只有一條：**這個像素涵蓋的區間是模 pv 的，掃描也必須是模 pv 的。**
                `relLeft` 已經取過模，`relRight = relLeft + span` 卻沒有，所以當像素跨過週期
@@ -22206,7 +22218,8 @@ function wfgRender() {
               var _wrapEnd = relRight - pv;
               for (var tw = 0; tw < tplLen && _tplPos[tw] <= _wrapEnd; tw++) {
                 if (_tplLvl[tw] !== curLevel) sawToggle = true;
-                lastLevel = _tplLvl[tw];
+                var _wAbs = _tplBase + pv + _tplPos[tw];   // 環繞部分屬於下一個週期
+                if (_wAbs >= _hitAbs) { _hitAbs = _wAbs; lastLevel = _tplLvl[tw]; }
               }
             }
           }
@@ -22217,7 +22230,9 @@ function wfgRender() {
             for (var pj = _bpLo; pj < _preLen; pj++) {
               if (_prePos[pj] > lineRight) break;
               if (_preLvl[pj] !== curLevel) sawToggle = true;
-              lastLevel = _preLvl[pj];
+              /* prelude 的位置本來就是絕對的，直接比。跨 steadyLine 的那個像素會同時
+                 命中 prelude 與 template，這裡靠時間分勝負，不再無條件覆蓋。 */
+              if (_prePos[pj] >= _hitAbs) { _hitAbs = _prePos[pj]; lastLevel = _preLvl[pj]; }
             }
           }
           curLevel = lastLevel;
