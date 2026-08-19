@@ -22,6 +22,80 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.20.3 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
+
+**更正 v3.20.2：F_ST_SEL 未勾選時，Line 0 到 ST_LINE 之間要延續前一個 frame 的「產生行為」（照樣逐條打脈衝），不是延續「準位」（一條平線）。** 依 Bruce 2026-08-19 實測後的更正。
+
+判定依據：§1 判定表逐欄 ——「操作流程」零改變；「既有功能的輸出」屬**修正為原本就該有的行為**（v3.20.2 把規格讀錯了）→ PATCH。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`；R2／R3／R4 不適用。
+> **移除 `WFG_FST_SEL_MAX_EXTEND_FRAMES` 為什麼不觸發「移除既有功能 → MAJOR」**：判定表那一欄講的是**使用者會用的功能**。這個常數沒有任何 UI、沒有任何入口，而且移除前後 12 組專用案例**逐位元組相同**（見下方四），使用者不可能察覺。屬內部清理 → PATCH。
+
+取最高者 → **PATCH**，`v3.20.2` → `v3.20.3`。
+
+`⚠ 輸出變更`：**只影響 F_ST_SEL 未勾選的訊號**（未勾選時 Line 0~ST_LINE 之間現在會出現脈衝）。勾選的訊號逐位元不變。
+
+### 一、v3.20.2 錯在哪
+
+v3.20.2 做的是「frame 起始沿用前一 frame 的**結束準位**，到 ST_LINE 才套 INI_VAL」—— Line 0 到 ST_LINE 之間是**一條平的線**。
+
+Bruce 更正（逐字）：
+
+> 「『延續前一個 frame 的行為』，是指前一個 frame 如果每條 line 都打一個 pulse，不勾選時，那在 line 0 到 start line 這段之前（假設有三條 line），也是一樣要每條 line 都打一個 pulse…像是 stop line 是 16383，那明顯這個 frame 沒有打完，要接著繼續打到下一個 frame 的 st line 為止。可是，如果 F_ST_SEL 設 1 的話，那等於在 line 0 就開始切斷。」
+
+**要延續的是「脈衝的產生行為」，不是準位。**
+
+### 二、模型：脈衝跨 frame 連續，F_ST_SEL 決定在哪裡切斷
+
+| | 切斷點 | 切斷前 | 切斷後 |
+|---|---|---|---|
+| **勾選** | **Line 0** | — | 立刻套 INI_VAL，counter 重設 |
+| **不勾選** | **ST_LINE** | Line 0~ST_LINE **前一 frame 的產生行為原封不動繼續跑** | 套 INI_VAL，counter 重設 |
+
+實作上這代表 **phase counter 的狀態（`rCnt` / `fCnt` / `counterActive` / `level`）必須活在 frame 迴圈外面**，未勾選時原封不動帶過 frame 邊界，只在 `line === st_line` 重設。這是本次最需要小心的地方 —— `wfgCalcGpio` 原本是「一個 frame 一輪、每輪重新開始」的結構。
+
+**勾選路徑刻意維持原樣**（Line 0 切斷 ＋ counter 重設），實測逐位元不變。
+
+### 三、驗收 —— 判準是**脈衝**，不是準位
+
+**① 主測**：`act_type=0, r_ph=0, f_ph=0, r_dly=500, f_dly=600`（每條 line 一個 pulse）、`ST_LINE=3`、`SP_LINE=16383`、**不勾選**。列出 frame 1 前 6 條 line 的逐筆轉態（絕對行號，vtotal=1490）：
+
+```
+line 1490  rises=1 falls=1   [500:1 600:0]     ← frame 1 的 line 0
+line 1491  rises=1 falls=1   [500:1 600:0]     ← line 1
+line 1492  rises=1 falls=1   [500:1 600:0]     ← line 2
+line 1493  rises=1 falls=1   [500:1 600:0]     ← ST_LINE
+line 1494  rises=1 falls=1   [500:1 600:0]
+line 1495  rises=1 falls=1   [500:1 600:0]
+```
+**line 0/1/2 每條各有一個完整 pulse** ✅
+
+**③ 勾選對照**（同參數只差 `f_st_sel`）：
+```
+line 1490  rises=0 falls=0   []
+line 1491  rises=0 falls=0   []
+line 1492  rises=0 falls=0   []
+line 1493  rises=1 falls=1   [500:1 600:0]     ← ST_LINE 起才有
+```
+✅ 兩者對照清楚。
+
+**④⑤ Bruce 的兩個勾選例子**：轉態逐位元組與 v3.20.2 **完全相同**（hash 一致）。
+
+**② `SP_LINE=800`（< vtotal）**：line 0/1/2 **沒有** pulse，line 3 起才有。
+> 🔴 **這一項與交辦說明裡「應與 16383 一致」不符，理由寫在這裡供覆核。** 我實作的是 Bruce 的規則本身：「延續前一個 frame 的產生行為」。`SP_LINE=800` 時前一個 frame 的脈衝列早在 line 800 就停了，延續過來的自然也是「停著」；而 `16383` 依 Bruce 的話是「明顯這個 frame 沒有打完」，所以要繼續打。兩者相同的是**更新點都在 ST_LINE**，不是脈衝圖形。**若 Bruce 認為兩者連脈衝都該一樣，這裡要再改。**
+
+**④ 回歸**
+
+- **42 組參數矩陣（vs v3.20.2）：32 / 42 逐位元組相同**，改變的 10 組**全部是 `F_ST_SEL 未勾選`**；勾選的 20 組、toggle 的 8 組零差異
+- **真實引擎（headless Chrome，同一份設定檔，vs v3.20.2）**：29 支 GPIO 轉態雜湊**全部相同**；**SD1 / CKO1 / Gate / Subpixel 四條類比鏈 precompute 全部相同**（＝SD 綁 XSTB falling edge 的相依鏈）；無 JS error
+- **內建 preset**：`WFG_PRESETS` 沒有任何一處寫 `f_st_sel`，`wfgMakeGpio()` 預設 `true` → 本次改動的分支對內建 preset **結構上不可達**
+
+### 四、移除 `WFG_FST_SEL_MAX_EXTEND_FRAMES`（v3.19.1 加的暫定上限）
+
+新模型下每個 frame 的 ST_LINE 都會切斷並重設 counter，脈衝長度天然被「到下一個 ST_LINE 為止」界定，**上限沒有工作可做**。
+
+證據不是推論：把常數與那段後處理**整段拿掉**，用同一組會踩到上限的參數（`act_type=15, r_ph=15, f_ph=0, st_line=1485, sp_line=16383`，上限值 2980）重跑 12 組專用案例 —— **移除前後 12/12 逐位元組相同**，最長 HIGH 為 15 / 1500.05 / 17 行（INI_VAL = 0 / 1 / 2），全部遠低於 2980。上限一次都沒有生效，所以是移除，不是放著。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.20.2 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
 
 **F_ST_SEL 未勾選時，INI_VAL 改在 ST_LINE 生效；Line 0 到 ST_LINE 之間延續前一個 frame。** 依 Bruce 2026-08-19 的完整口述規格。
