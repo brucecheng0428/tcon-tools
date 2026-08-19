@@ -640,6 +640,11 @@ var I18N = {
   'wfg.zoomOutTitle':   { 'zh-TW': '縮小', 'en': 'Zoom Out', 'zh-CN': '缩小' },
   'wfg.fitAllTitle':    { 'zh-TW': '全覽', 'en': 'Fit All', 'zh-CN': '全览' },
   'wfg.resetTitle':     { 'zh-TW': '重置', 'en': 'Reset', 'zh-CN': '重置' },
+  // v3.21.0: 檢視 group — 中心 / 倍率 直接輸入
+  'wfg.viewCenter':     { 'zh-TW': '中心', 'en': 'Center', 'zh-CN': '中心' },
+  'wfg.viewCenterTitle':{ 'zh-TW': '波形區中心位置（絕對時間，秒；與上方時間軸同一個讀數）', 'en': 'Waveform view center position (absolute time in seconds, same reading as the time axis above)', 'zh-CN': '波形区中心位置（绝对时间，秒；与上方时间轴同一个读数）' },
+  'wfg.viewZoom':       { 'zh-TW': '倍率', 'en': 'Zoom', 'zh-CN': '倍率' },
+  'wfg.viewZoomTitle':  { 'zh-TW': '波形區放大倍率（1 = 全覽）', 'en': 'Waveform view zoom factor (1 = fit all)', 'zh-CN': '波形区放大倍率（1 = 全览）' },
   'wfg.export':         { 'zh-TW': '📤 匯出', 'en': '📤 Export', 'zh-CN': '📤 导出' },
   'wfg.exportTitle':    { 'zh-TW': '下載設定檔 (.txt)', 'en': 'Download config (.txt)', 'zh-CN': '下载设定档 (.txt)' },
   'wfg.import':         { 'zh-TW': '📥 匯入', 'en': '📥 Import', 'zh-CN': '📥 导入' },
