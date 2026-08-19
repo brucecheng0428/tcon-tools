@@ -22,6 +22,78 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.20.2 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
+
+**F_ST_SEL 未勾選時，INI_VAL 改在 ST_LINE 生效；Line 0 到 ST_LINE 之間延續前一個 frame。** 依 Bruce 2026-08-19 的完整口述規格。
+
+判定依據：§1 判定表逐欄 ——「操作流程」零改變；「功能增減」不增不減；「既有功能的輸出」屬**修正為原本就該有的行為**（依硬體實際行為修正模擬器，不是換一套設計）→ PATCH。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`；R2／R3／R4 不適用。**§2 案例 8（既有計算公式主動改設計 → MAJOR）不適用**：那一條講的是「主動換一套定義、使用者必須重新確認過去的結果」，本次是把模擬器對齊硬體既有行為，而且**勾選路徑一個位元都沒動**（實際設定檔全部是勾選）。取最高者 → **PATCH**，`v3.20.1` → `v3.20.2`。
+
+`⚠ 輸出變更`：**只影響 F_ST_SEL 未勾選的訊號**。勾選的訊號逐位元不變。
+
+### 一、規格（Bruce 2026-08-19 逐字）
+
+> 「勾選的時候，會在一個 frame 最開始的位置，也就是 Line 0 的位置的初始值為 INI_VAL 定義，直到 R_DLY 或 F_DLY 觸發…若 INI_VAL 設定 1 則 Line 0 一開始會是 high，到 R_DLY 時，由於已經是 high 了，所以不會改變，直到 F_DLY 時(600)，才會將訊號變為 low。」
+>
+> 「若是 F_ST_SEL=0(取消勾選)，則訊號 reset 的位置不是在 line 0，是在 ST_Line 定義的位置才觸發 INI_VAL 設定，而在 ST_Line 之前，Line 0 以後的這段範圍，則是延續前一個 frame 的行為…但若是 SP_Line 沒有超過 V total，那前一個 frame 最後是什麼狀態，一樣會延續到這個 frame 的 ST_Line 才更新」
+
+### 二、🔴「勾選」原本就已經完全符合，這一版沒有動它
+
+用 Bruce 給的兩個例子，直接讀資料層：
+
+| 例子 | 量測點 | 結果 |
+|---|---|---|
+| `ST_LINE=0, R_DLY=500, F_DLY=600, INI_VAL=1` | Line0 dly 0 / 499 / 501 / 599 / 601 | `1 / 1 / 1 / 1 / 0` ✅ 完全符合（500 時已是 High 所以不變，600 才轉 Low） |
+| `ST_LINE=1, R_DLY=500, F_DLY=600, INI_VAL=0` | Line0 dly 0 / 501 / 601，Line1 dly 499 / 501 / 599 / 601 | `0 / 0 / 0`，`0 / 1 / 1 / 0` ✅ 完全符合 |
+
+這與 v3.19.1 的結論一致 —— 勾選一直是對的。
+
+### 三、真正要改的是「不勾選」，而且原本有**兩種**錯法
+
+| SP_LINE | 舊行為 | 規格 |
+|---|---|---|
+| `>= VTOTAL` | 延續前一 frame，但**整個 frame 都不套 INI_VAL** | 應在 ST_LINE 套 |
+| `< VTOTAL` | **在 Line 0 就套 INI_VAL** | 應延續到 ST_LINE 才套 |
+
+修法：
+- Frame 起始準位一律 `initLevel = prevFrameEndLevel`（刪掉 `sp_line >= vtotal` 那個分支 —— Bruce 明講兩種情況結果相同）
+- 在 `line === st` 設定 counter 的同時，套用 INI_VAL（`0`→Low、`1`→High、`2`/`3`→Keep 不動），擺在 dly 0、R_DLY/F_DLY 之前
+- 準位本來就相同時不落轉態，避免產生無作用的同準位空轉態污染脈衝計數
+- Frame 0 沒有「前一個 frame」，維持用 INI_VAL 當開機狀態（Bruce 的規格沒有涵蓋 frame 0）
+
+### 四、`WFG_FST_SEL_MAX_EXTEND_FRAMES` 檢討結果：**保留，但只剩三分之一的工作量**
+
+新規則上線後逐一實測（`act_type=15, r_ph=15, f_ph=0, st_line=1485, sp_line=16383, vtotal=1490`）：
+
+| INI_VAL | 新規則之後的最長 HIGH | 誰在界定 |
+|---|---|---|
+| `0` | **1489.9 行**（原本 2980） | **新規則**，上限用不到 |
+| `1` | 仍然無界（ST_LINE 套 INI_VAL=1 → 還是 High） | **只有這個上限** |
+| `2` / `3` | 仍然無界（Keep ＝ 不套任何東西） | **只有這個上限** |
+
+所以**不能移除**：它是「未勾選 ＋ INI_VAL 為 1 或 2/3」這兩種情況下唯一的界限。常數的註解已改寫成上表。
+
+### 五、驗收
+
+**A. 參數矩陣（42 組，獨立 Node 測試台，與 HEAD `f7f00bb` 比對）**
+**38 / 42 逐位元組相同**。改變的 4 組**全部**是 `F_ST_SEL 未勾選`：
+
+- `E/spshort fst=0 ini=1`：line0 `111111` → `100000`（不再在 Line 0 套 INI_VAL）
+- `B/cross fst=0 ini=0`、`C/never fst=0 ini=0`：最長 HIGH `2980` → `1489.948`（新規則自然界定）
+- `A/xstb fst=0 ini=1`：轉態數 +19（每個 frame 在 ST_LINE 多一筆 INI_VAL 轉態）
+
+**勾選的 20 組、toggle 的 8 組、真實 CK/VST/XSTB 參數全部零差異。**
+
+**B. 真實引擎（瀏覽器 headless，同一份 `_02` 設定檔，HEAD vs 本版）**
+- 29 支 GPIO 的轉態雜湊：**全部相同**（該設定檔的訊號全是勾選）
+- **SD1 / CKO1 / Gate / Subpixel 四條類比鏈的 precompute：全部相同** —— 這正是 SD 綁 XSTB falling edge 的相依鏈
+- 無 JS error
+
+**C. 不勾選的兩種 SP_LINE 現在結果一致**：`SP_LINE=16383` 與 `SP_LINE=800` 都得到 line0 序列 `10000000`、且 `f1_atSt = 1`（ST_LINE 才套 INI_VAL）✅ 符合 Bruce「一樣會延續到這個 frame 的 ST_Line 才更新」
+
+**D. 內建 preset**：`WFG_PRESETS` 沒有任何一處寫 `f_st_sel`，`wfgMakeGpio()` 預設 `true` → 本次改動的分支對內建 preset **結構上不可達**。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.20.1 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修好「toggle 任一數位訊號的 ENABLE 之後，CKO1~8 有一段變成上下兩條平行線」。** Bruce 2026-08-19 提供重現手法。

@@ -1778,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260819wfg3201"></script>
+<script src="common/version.js?v=20260819wfg3202"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -17445,24 +17445,29 @@ window.wfgDebugGpioLevels = function(gpioIdx, firstLine, lastLine) {
   return out.join('');
 };
 
-/* ═══════════ F_ST_SEL 未勾選時的「延伸上限」（暫定規格）═══════════
+/* ═══════════ F_ST_SEL 未勾選時的「延伸上限」═══════════
 
-   🔴 **暫定值，Bruce 之後會更正「不打勾」的完整行為。**
    規格來源：Bruce 2026-08-19 口述 ——
      「先把它當作延伸一個 frame 來處理：雖然我設定 Stop Line 是 16383，
        假設一個 frame 是 1500 條 line，超過 1500 條到下一個 frame，
        兩個 frame 最多就是 3000 條 line，它就不會超過 3000 條。」
-
    ⇒ 未結束的脈衝最多再延伸 N 個 frame，**總長上限 = (N + 1) × vtotal**。
-     N = 1 → 上限 2 × vtotal，與 Bruce 舉的 1500/3000 例子相符。
 
-   🔴 這個數字只准出現在這一個常數。要改行為就改這裡，不要把 `2 * vtotal`
-      抄到別的地方 —— 規格未定案，散出去就改不回來了。
+   🔴 **v3.21.0 檢討過「還需不需要它」，結論是需要 —— 但只剩三分之一的工作量。**
+   完整規格上線後（未勾選時 INI_VAL 改在 ST_LINE 生效），逐一實測
+   （act_type=15, r_ph=15, f_ph=0, st_line=1485, sp_line=16383, vtotal=1490）：
 
-   ⚠ 這裡刻意**只管未勾選**。F_ST_SEL 勾選時的行為由 INI_VAL 決定（見下方
-     「Frame 起始準位」），Bruce 沒有對勾選時的脈衝長度下過任何規格，
-     實測勾選 + INI_VAL=1/2/3 同樣可以無限延伸 —— 那一項**留著不動、待裁示**，
-     不在這次的修正範圍內。                                                      */
+     | INI_VAL | 新規則之後的最長 HIGH | 誰在界定 |
+     |---|---|---|
+     | 0     | **1489.9 行**（下一個 frame 的 ST_LINE 就把它拉回 0） | 新規則，**上限用不到** |
+     | 1     | 仍然無界（ST_LINE 套 INI_VAL=1 → 還是 high）        | **只有這個上限** |
+     | 2 / 3 | 仍然無界（Keep ＝ 不套任何東西）                     | **只有這個上限** |
+
+   所以不能移除：它是 `未勾選 ＋ INI_VAL = 1 或 2/3` 這兩種情況下唯一的界限。
+   要改行為就改這一個常數，`2 * vtotal` 這個數字不出現在別的地方。
+
+   ⚠ 仍然**只管未勾選**。勾選時 Bruce 沒有對脈衝長度下過規格（實測勾選 +
+     INI_VAL=1/2/3 同樣可以無限延伸），那一項留著不動、待裁示。            */
 const WFG_FST_SEL_MAX_EXTEND_FRAMES = 1;
 
 // ─── Phase Counter Engine (per GPIO) ───
@@ -17566,40 +17571,43 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
     }
 
     // ── Normal (Phase Counter) mode ──
-    /* ── Frame 起始準位 ──
-       🔴 規格來源只有 Bruce 本人（2026-08-19）：
-         「F_ST_SEL 如果是打勾的話…它的確就是要去參考 INI_VAL 的設定」
-         「不打勾的話，是上一個 frame 的信號如果有超過一個 frame，它會繼續延伸下去」
+    /* ── Frame 起始準位 ── 🔴 規格來源只有 Bruce 本人（2026-08-19 完整口述）：
 
-       F_ST_SEL 勾選 → 每個 frame 的起始準位**無條件**由 INI_VAL 決定：
-         0 → Low、1 → High、2/3 → Keep（沿用上一 frame 的結束準位）
-       F_ST_SEL 未勾選 → 未結束的脈衝往下一個 frame 延伸（延伸上限見
-         WFG_FST_SEL_MAX_EXTEND_FRAMES）。
+       **F_ST_SEL 勾選**：INI_VAL 在 **Line 0** 生效，之後就交給 R_DLY / F_DLY。
+         「若 INI_VAL 設定 1 則 Line 0 一開始會是 high，到 R_DLY 時，由於已經是 high 了，
+           所以不會改變，直到 F_DLY 時(600)，才會將訊號變為 low」
+         —— 注意「已經是 high 就不會改變」講的是**準位**，不是「不觸發」。
+
+       **F_ST_SEL 未勾選**：INI_VAL 改在 **ST_LINE** 生效；**Line 0 到 ST_LINE 之間
+         延續前一個 frame 的狀態**。
+         「則訊號 reset 的位置不是在 line 0，是在 ST_Line 定義的位置才觸發 INI_VAL 設定，
+           而在 ST_Line 之前，Line 0 以後的這段範圍，則是延續前一個 frame 的行為」
+         🔴 **SP_LINE 有沒有超過 VTOTAL 一律相同** —— Bruce 明確講了兩種情況都是
+            「一樣會延續到這個 frame 的 ST_Line 才更新」。v3.19.1 以前那個
+            `sp_line >= vtotal` 的分支就是照這句話刪掉的。
 
        ⚠ 舊註解寫的「F_ST_SEL 改變 F_PH / F_DLY 的參考基準」查無依據
-         （瑞鼎原廠文件全文檢索只有暫存器名稱、沒有定義文字），已刪除。
-
-       ⚠ 未勾選時這裡仍保留 `sp_line >= vtotal` 的分支：Bruce 明確表示
-         「不打勾的行為我這邊還要再查一下」，**本次只加延伸上限、不重寫起始準位**。 */
+         （瑞鼎原廠文件全文檢索只有暫存器名稱、沒有定義文字），已刪除。 */
     var initLevel;
+    // 未勾選時要在 ST_LINE 套用的準位；null = 不套（INI_VAL 2/3 ＝ Keep）
+    var _stSelLevel = null;
     if (frame === 0) {
-      // Frame 0: always use INI_VAL
+      /* Frame 0 沒有「前一個 frame」可以延續，用 INI_VAL 當開機狀態。
+         這一支未勾選時也走，維持 v3.20.1 以前的行為（Bruce 的規格沒有涵蓋 frame 0）。 */
       if (gpio.ini_val === 0) initLevel = 0;
       else if (gpio.ini_val === 1) initLevel = 1;
       else initLevel = 0;
     } else if (gpio.f_st_sel) {
-      // F_ST_SEL checked: use INI_VAL each frame start
+      // 勾選：Line 0 就套 INI_VAL
       if (gpio.ini_val === 0) initLevel = 0;
       else if (gpio.ini_val === 1) initLevel = 1;
-      else initLevel = prevFrameEndLevel;
-    } else if (gpio.sp_line >= vtotal) {
-      // F_ST_SEL unchecked + SP_LINE covers entire frame: carry over
-      initLevel = prevFrameEndLevel;
+      else initLevel = prevFrameEndLevel;   // 2/3 = Keep
     } else {
-      // F_ST_SEL unchecked + SP_LINE < vtotal: signal ended in prev frame, use INI_VAL
-      if (gpio.ini_val === 0) initLevel = 0;
-      else if (gpio.ini_val === 1) initLevel = 1;
-      else initLevel = prevFrameEndLevel;
+      // 未勾選：Line 0 延續前一個 frame，INI_VAL 留到 ST_LINE 才套
+      initLevel = prevFrameEndLevel;
+    }
+    if (!gpio.f_st_sel) {
+      _stSelLevel = (gpio.ini_val === 0) ? 0 : (gpio.ini_val === 1) ? 1 : null;
     }
 
     var level = initLevel;
@@ -17620,6 +17628,15 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
         rCnt = (actType > 0) ? Math.min(gpio.r_ph, actType) : 0;
         fCnt = (actType > 0) ? Math.min(gpio.f_ph, actType) : 0;
         counterActive = true;
+        /* F_ST_SEL 未勾選：INI_VAL 在這裡才生效（Bruce 2026-08-19）。
+           擺在 R_DLY / F_DLY 之前、dly 0 的位置 —— Bruce 說的是「ST_Line 定義的
+           位置才觸發 INI_VAL 設定」，同一條 line 上的 R_DLY/F_DLY 仍照常在它之後動作。
+           準位本來就相同時不落轉態（與下面 frameReset 的作法一致，避免產生無作用的
+           同準位空轉態去污染脈衝計數）。 */
+        if (_stSelLevel !== null && _stSelLevel !== level) {
+          allTransitions.push({ line: lineOffset + line, dly: 0, level: _stSelLevel });
+          level = _stSelLevel;
+        }
       }
 
       if (!counterActive) continue;
