@@ -22,6 +22,87 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.20.1 — 2026-08-19 ｜ PATCH ｜ ⚠ 輸出變更
+
+**修好「toggle 任一數位訊號的 ENABLE 之後，CKO1~8 有一段變成上下兩條平行線」。** Bruce 2026-08-19 提供重現手法。
+
+判定依據：§1 判定表逐欄 ——「操作流程」零改變；「功能增減」不增不減；「既有功能的輸出」屬**修正為原本就該有的行為**（同一份設定，toggle 一次 ENABLE 就得到與完整重算不同的波形，這不是任何人設計的）→ PATCH。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`；R2／R3／R4 皆不適用。取最高者 → **PATCH**，`v3.20.0` → `v3.20.1`。
+
+`⚠ 輸出變更`：只影響「**改過任一數位訊號的 ENABLE 或 waveform_type 之後**」的 LS（CKO／Gate）波形。沒做過那個操作的畫面完全不變。
+
+### 一、🔴 這**不是**繪圖問題，是資料問題
+
+接手時的假設（我與交辦端都傾向）是「資料應該沒錯，只是繪圖在這個條件下出問題」。**實測推翻。**
+
+用 Bruce 的手法（載入設定檔 → toggle XSTB 的 ENABLE 一次），直接讀 `_wfgPrecomputed[CKO2].events`：
+
+| | events 筆數 | 完全重複的筆數 | 陣列升序 | 繪圖吃到的取樣數 |
+|---|---|---|---|---|
+| toggle 前 | 4050 | **0** | ✅ | 34490 |
+| toggle 後 | 4778 | **573** | ❌（接縫處 1 個逆序） | **64792** |
+| 完整重算（對照組） | 4050 | 0 | ✅ | 34490 |
+
+重複的定義是**同 lineX ＋ 同 vTarget ＋ 同 reset flag**，重複區間 lineX **12153.86 ~ 15129.86**，寬度恰為一個 `effVtotal`（1490）。八條 CKO 全中（572~574 筆），而且**不會自己恢復**。
+
+來源 CK（CPV2）的 transition 在同一區間是 **390 筆，前後完全相同** —— 上游資料沒動，是 LS precompute 自己多算了一份。
+
+畫面上的「上下兩條平行線」只是忠實反映這件事：同一條 line 上有兩份重複的充放電事件，每個 pixel column 因此同時出現 VGH 與 VGL。
+
+### 二、根因（三處合起來才成立）
+
+1. **`_wfgLsBuildCpvPairEvents()`（`wfg.html:20340-20342`）刻意把視窗前後各撐開 `pad = max(effVtotal, 100)` 行**
+   ```js
+   var pad = Math.max(effVtotal, 100);
+   var extStart = Math.max(0, viewStartLine - pad);
+   var extEnd = viewEndLine + pad;
+   ```
+   round-robin 狀態與跨界脈衝需要，所以它**回傳的範圍必然大於呼叫端要求的**。
+
+2. **`_wfgExtendLsPrecomp()`（`wfg.html:3606-3612`）把那份含 padding 的結果整包 `push` 進既有陣列**，完全沒有去掉重疊區。
+
+3. **`trimToStart` 這個參數只有 gate slot 會被理會** —— `_wfgLsBuildEvents()`（`wfg.html:20049-20051`）只在 `isGate` 時才呼叫 `_wfgLsApplyGateMask(events, ac, effVtotal, trimToStart ? startLine : 0)`。一般 CKO 傳了 `true` 也是**靜默忽略**。
+
+原本 3603-3605 的註解寫著「gate slot 會 trim 回 oldExtent，所以 no event is emitted twice」—— **那句話只對 gate 成立**，卻被當成整支函式的保證。
+
+**為什麼只有中間一段 x 受影響**：重複只落在 `[oldExtent − pad, oldExtent]` 這一條 1490 行寬的帶裡；這一帶以外沒有重複，所以左右兩側正常。Bruce 的視窗（13211~13642）整段落在帶內，於是整個可視範圍都是雙份事件。
+
+**為什麼非得 toggle ENABLE 才會觸發**：`wfgOnGpioChange` 把 `enable` 歸類為 structural（`wfg.html:24517`）→ 走 `wfgInvalidateCache()` 清掉整個 `_wfgPrecomputed` → 重建一份較小 extent 的 precomp → 之後的 render 需要更大範圍就走 `_wfgExtendLsPrecomp` → 重複。**單純縮放或平移不會清 precomp**，所以先前 924 組 zoom×pan 掃描一次都掃不到 —— 觸發條件是一個操作事件，不是視窗位置。
+
+### 三、修法
+
+`_wfgExtendLsPrecomp` 只收「比陣列中最後一筆更晚」的事件：
+
+```js
+var _lastX = events.length ? events[events.length - 1].lineX : -Infinity;
+for (var ne = 0; ne < newEvents.length; ne++) {
+  var _nev = newEvents[ne];
+  if (!(_nev.lineX > _lastX)) continue;   // 重疊區：已經在陣列裡
+  events.push(_nev); _lastX = _nev.lineX;
+}
+```
+
+既有陣列由同一支產生器算出、已完整涵蓋到 `lastX`，所以任何 `lineX <= lastX` 的新事件必然是重複。這一條**同時**解決「重複」與「升序被破壞」（下面 `settled[]` 的迴圈用 `while (events[ei].lineX <= line)` 往前走，是吃升序的）。
+
+沒有去改 `pad`：那個 padding 是 round-robin 正確性需要的，動它會改到演算法本身。修在消費端才是對的位置。
+
+### 四、驗收
+
+| 情境 | railRun（上下兩條線的最長連續欄數） | 取樣數 | 重複 | 逆序 |
+|---|---|---|---|---|
+| 基線 | 11 | 34490 | 0 | 0 |
+| toggle XSTB ENABLE 後 | **11** | **34490** | **0** | **0** |
+| 再 toggle CK1／CK2／STV | **11** | **34490** | **0** | **0** |
+| 完整重算對照 | 11 | 34490 | 0 | 0 |
+
+（修正前同一個量測：CKO2 的 railRun = **452**、取樣數 **64792**、重複 **573**、逆序 1。）
+
+- 八條 CKO 全部通過，**其他數位訊號（CK1／CK2／STV）也一併驗過** —— Bruce 說「其他數位信號應該也是」，實測成立且已修好
+- toggle 後 events 比基線多 1~2 筆，對應 extent 15132 → 15134 延伸 2 行**確實新增的**事件，這是正確的增量
+- 截圖確認（已開圖看過）：toggle 四支數位訊號後，CKO1~8 全是正常方波，無任何平行線
+- 無 JS error
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.20.0 — 2026-08-19 ｜ MINOR
 
 **「電壓游標」卡片的中心電壓多了 −／+ 兩顆鈕，一按移動半格；固定／自動模式下也能按。** 依 Bruce 2026-08-19 需求與裁示。

@@ -1778,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260819wfg3200"></script>
+<script src="common/version.js?v=20260819wfg3201"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3599,17 +3599,44 @@ function _wfgExtendLsPrecomp(precomp, newExtent) {
   var le = precomp._lazyExtend;
   var oldExtent = precomp.computedExtent;
 
-  // Build events for range [oldExtent, newExtent)
-  // Gate slots re-open the window at the enclosing frame boundary and then trim
-  // back to oldExtent (see _wfgLsBuildEvents), so ordinals stay correct across
-  // the extension seam and no event is emitted twice.
+  /* Build events for range [oldExtent, newExtent)
+
+     🔴 產生器回傳的範圍**比要求的大**，一定要過濾才能 append。
+     `_wfgLsBuildCpvPairEvents()` 刻意把視窗前後各撐開 `pad = max(effVtotal, 100)` 行
+     （round-robin 狀態與跨界脈衝需要），`_wfgLsBuildEvents()` 對 gate slot 還會再往
+     frame 邊界對齊。所以它回傳的事件必然涵蓋 [startLine − pad, endLine + pad]，
+     而其中 [.., oldExtent] 這一段**早就在 precomp.events 裡了**。
+
+     舊版的註解說「gate slot 會 trim 回 oldExtent，所以不會重複」—— 那句話**只對
+     gate 成立**：`trimToStart` 只在 `_wfgLsApplyGateMask()` 裡被理會，而那支只有
+     `isGate` 時才會被呼叫（見 _wfgLsBuildEvents）。一般 CKO 傳了 `true` 也是**靜默
+     忽略**，於是整段重疊區被 append 第二次。
+
+     實測（Bruce 2026-08-19 的手法：toggle 任一數位訊號的 ENABLE 一次）：
+       events 4050 → 4778，其中 **573 筆是完全重複**（同 lineX、同 vTarget、同 reset），
+       重複區間 lineX 12153.86 ~ 15129.86 —— 剛好一個 effVtotal(1490) 寬，
+       正是 `pad` 的大小。八條 CKO 全中，而且**不會自己恢復**。
+       畫面上就是那一段 x 每個 pixel column 同時有 VGH 與 VGL → 上下兩條平行線。
+
+     順帶一提，重複 append 也會**破壞 events 的升序**（實測在接縫處出現 1 個逆序），
+     而下面 settled[] 的迴圈用 `while (events[ei].lineX <= line)` 往前走，是吃升序的。
+
+     過濾條件用「必須晚於陣列中最後一筆」：既有陣列是同一支產生器算出來的，
+     已經完整涵蓋到 lastX 為止，所以任何 lineX <= lastX 的新事件必然是重複。
+     這一條同時解決「重複」與「升序被破壞」兩件事。 */
   var newEvents = _wfgLsBuildEvents(le.ac, le.ckoIndex, le.numCko, le.mode, le.allTrans, le.effHtotal, le.effVtotal,
                                     oldExtent, newExtent, 0.001, true);
   if (!newEvents) newEvents = [];
 
-  // Append new events
+  // Append new events（只收比既有最後一筆更晚的）
   var events = precomp.events;
-  for (var ne = 0; ne < newEvents.length; ne++) events.push(newEvents[ne]);
+  var _lastX = events.length ? events[events.length - 1].lineX : -Infinity;
+  for (var ne = 0; ne < newEvents.length; ne++) {
+    var _nev = newEvents[ne];
+    if (!(_nev.lineX > _lastX)) continue;   // 重疊區：已經在陣列裡
+    events.push(_nev);
+    _lastX = _nev.lineX;
+  }
 
   // Grow arrays
   var RC_PTS = le.RC_PTS;
