@@ -1778,7 +1778,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3206"></script>
+<script src="common/version.js?v=20260820wfg3207"></script>
 <script src="common/i18n.js?v=20260818wfg3180"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5268,6 +5268,36 @@ function wfgIrRowYFiltered(ri) {
 function wfgTotalLines() {
   var mult = wfgFrame.gateType === 'dual' ? 2 : 1;
   return wfgFrame.vtotal * mult * (wfgFrame.frameCount || 1);
+}
+
+/* ── 視野的唯一規則 ──────────────────────────────────────────────
+   **視野永遠必須滿足 0 <= start < end <= 總行數。**
+
+   這支函式是那條規則的唯一實作，任何視野進入系統的入口都先過它一遍，
+   而不是讓每個寫入點各自去記得夾（散在三十幾處的 Math.max/Math.min 就是
+   這次出事的原因：放大用 `start = Math.max(0, …)` 只夾下界、
+   `end = Math.min(total, …)` 只夾上界，兩邊不對稱；一旦視野已經越界，
+   end 被夾回總行數而 start 沒有，就變成 end < start，畫布上什麼都畫不出來
+   而且不會有任何錯誤訊息）。
+
+   夾法：寬度優先保留（使用者的縮放層級不該被沒收），把視窗整個平移回界內；
+   寬度本身非法（NaN／零寬／負寬）才退回 fit-all。 */
+function wfgClampViewToBounds() {
+  var total = wfgTotalLines();
+  if (!isFinite(total) || total <= 0) return false;
+  var s = wfgViewStart, e = wfgViewEnd;
+  var range = e - s;
+  var MIN_RANGE = 1e-6;
+  if (!isFinite(s) || !isFinite(e) || !(range >= MIN_RANGE)) {
+    wfgViewStart = 0; wfgViewEnd = total;
+    return true;
+  }
+  if (range > total) range = total;
+  var ns = Math.max(0, Math.min(total - range, s));
+  var ne = ns + range;
+  if (ns === s && ne === e) return false;
+  wfgViewStart = ns; wfgViewEnd = ne;
+  return true;
 }
 
 // ─── Debug: expose state for console diagnostics ───
@@ -21433,6 +21463,10 @@ function wfgRender() {
   _wfgRenderSeq++;
   wfgApplyDtLock(); /* v2.97.468: 繪製前套用 |Δt| 鎖定，兩模式(phase/kvdat)皆生效 */
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
+  /* v3.20.7：畫之前先讓視野符合規則。這是最後一道守門 —— 上面所有改視野的動作
+     （縮放／平移／minimap／鍵盤／改 VTOTAL 或 FRAME 重複數而讓總行數變短）不論
+     有沒有自己夾好，到這裡都會被夾正，畫布不會再出現靜默的空白。 */
+  wfgClampViewToBounds();
   var _pT0 = _wfgPerfEnabled ? performance.now() : 0;
   var canvas = document.getElementById('wfg-canvas');
   if (!canvas) return;
@@ -24302,6 +24336,7 @@ function wfgLoadPreset(presetName) {
     wfgViewStart = 0;
     wfgViewEnd = Math.min(100, wfgTotalLines());
   }
+  wfgClampViewToBounds();   // v3.20.7：autosave 還原的視野同樣是外部輸入
   // Apply tconInternalMode
   if (typeof preset.tconInternalMode === 'boolean') {
     wfgTconInternalMode = preset.tconInternalMode;
@@ -32207,6 +32242,10 @@ window.wfgImportConfig = function(jsonStr) {
     wfgViewStart = config.view.start || 0;
     wfgViewEnd = config.view.end || Math.min(100, wfgTotalLines());
   }
+  /* v3.20.7：設定檔裡的視野一律當成外部輸入看待，套用後立刻夾回規則範圍。
+     舊版匯出的檔案可能帶著非法視野（end 已被夾到總行數、start 沒有），
+     直接吃下去畫布就是一片空白而且不報錯。 */
+  wfgClampViewToBounds();
 
   // ── TCON Internal Mode ──
   wfgTconInternalMode = !!config.tconInternalMode;
