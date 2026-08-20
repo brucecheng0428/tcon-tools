@@ -1794,8 +1794,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3230"></script>
-<script src="common/i18n.js?v=20260820wfg3230"></script>
+<script src="common/version.js?v=20260820wfg3231"></script>
+<script src="common/i18n.js?v=20260820wfg3231"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -32098,12 +32098,23 @@ window.wfgExportConfig = function() {
     cursors: wfgCursors.map(function(c) {
       return { id: c.id, group: c.group, time: c.time, active: c.active };
     }),
-    /* v3.22.0：除了原本的 start/end（line）之外，另外寫出與工具列兩個輸入框
-       **同定義**的 center（絕對秒）與 zoom（1 = 全覽）。
-       🔴 start/end 一律保留、單位仍是 line、值一位元未變 —— 舊版程式讀新檔照樣
-       走它原本那條路，不會因為多了兩個欄位而讀錯。 */
+    /* v3.23.1：設定檔裡的視野**只以時間表示** —— 只寫 center（絕對秒）與
+       zoom（1 = 全覽），`start`／`end`（line）不再寫出。
+
+       🔴 為什麼要拿掉 line：`line` 是這支程式的內部座標，它的絕對長度由
+       Vtotal × FrameRate 決定 —— 換一組 timing，同一個 line 號指的就不是同一個
+       時間點。設定檔是要拿給人看、拿去跨檔比對的東西，裡面出現一個「意義隨參數
+       浮動」的數字本身就是錯的來源。center/zoom 這一組沒有這個問題：秒就是秒。
+       同時 start/end 與 center/zoom 描述的是同一件事，四個欄位並存＝同一份狀態
+       有兩個真值來源，手改其中一邊就會自我矛盾。
+
+       ⚠ 這是匯出格式的破壞性變更：本版之後匯出的檔案，若拿去給 v3.21.0 以前的
+       版本讀，會因為找不到 start/end 而拿不到視野（退回該版自己的預設視野）。
+       反方向（舊檔給新版讀）不受影響 —— 匯入端保留了 start/end 的回退路徑。
+
+       計算式與 v3.22.0 一位元未變，只是不再附帶 start/end。 */
     view: (function() {
-      var o = { start: wfgViewStart, end: wfgViewEnd };
+      var o = {};
       var tpl = wfgTimePerLine(), total = wfgTotalLines(), span = wfgViewEnd - wfgViewStart;
       if (tpl > 0) o.center = ((wfgViewStart + wfgViewEnd) / 2) * tpl;   /* 秒，同 wfgFormatViewCenter 的來源 */
       if (isFinite(total) && total > 0 && span > 0) o.zoom = total / span; /* 同 wfgCurrentZoomFactor() */
@@ -32397,6 +32408,11 @@ window.wfgImportConfig = function(jsonStr) {
      為什麼 center/zoom 優先：它們是**使用者在工具列上直接設定的那兩個值**，
      start/end 只是它們被夾取、四捨五入之後的結果。兩者矛盾時（例如有人手改過
      JSON），以使用者親手輸入的那組為準才符合直覺。
+
+     🔴 v3.23.1 起匯出端**不再寫出 start/end**，下面那條 else 從此只有一個用途：
+     讀 v3.21.0 以前版本存下來的舊檔。它是**唯一**的舊檔相容位置，不要因為
+     「匯出端已經不寫了」就把它清掉 —— 清掉等於使用者手上所有舊設定檔的視野全部
+     失效。此處保留 line 不違反「檔案裡不准有 line」：那條規則管的是**寫出**。
 
      舊檔沒有這兩個欄位 → 走 else，行為與 v3.20.7 逐字相同。
      值無效（NaN／負數／字串／zoom 為 0）→ 一律當成沒有，退回 start/end；
