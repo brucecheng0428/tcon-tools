@@ -624,8 +624,11 @@ var I18N = {
   'wfg.delete':         { 'zh-TW': '刪除', 'en': 'Delete', 'zh-CN': '删除' },
   'wfg.measTitle':      { 'zh-TW': '即時測量', 'en': 'Live Measure', 'zh-CN': '即时测量' },
   'wfg.measPulseWidth': { 'zh-TW': '脈寬', 'en': 'Pulse Width', 'zh-CN': '脉宽' },
+  // v3.26.0: 即時測量改成 5 欄，與「＋」小卡片同欄位同順序
+  'wfg.measPosWidth':   { 'zh-TW': '正脈寬', 'en': 'High Width', 'zh-CN': '正脉宽' },
+  'wfg.measNegWidth':   { 'zh-TW': '負脈寬', 'en': 'Low Width', 'zh-CN': '负脉宽' },
   'wfg.measPeriod':     { 'zh-TW': '週期', 'en': 'Period', 'zh-CN': '周期' },
-  'wfg.measDuty':       { 'zh-TW': '空佔比', 'en': 'Duty Cycle', 'zh-CN': '占空比' },
+  'wfg.measDuty':       { 'zh-TW': '佔空比', 'en': 'Duty Cycle', 'zh-CN': '占空比' },
   'wfg.measFreq':       { 'zh-TW': '頻率', 'en': 'Frequency', 'zh-CN': '频率' },
   // ─── WFG: HTML static labels ───
   'wfg.frameRate':      { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
