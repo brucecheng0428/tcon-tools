@@ -664,7 +664,7 @@ var I18N = {
   // ─── WFG: Cursor panel ───
   'wfg.cursorTitle':    { 'zh-TW': '時基標尺', 'en': 'Time Base Cursors', 'zh-CN': '时基标尺' },
   /* 類比波形疊合（v3.9.0）。UI 一律用「游標」不是「遊標」（站上既有用字）。 */
-  'wfg.ovlCardTitle':   { 'zh-TW': '電壓游標', 'en': 'Voltage Cursors', 'zh-CN': '电压游标' },
+  'wfg.ovlCardTitle':   { 'zh-TW': '類比垂直設定', 'en': 'Analog Vertical Settings', 'zh-CN': '模拟垂直设置' },
   'wfg.ovlScale':       { 'zh-TW': '垂直刻度', 'en': 'V Scale', 'zh-CN': '垂直刻度' },
   'wfg.ovlFixed':       { 'zh-TW': '固定（最大範圍）', 'en': 'Fixed (full range)', 'zh-CN': '固定（最大范围）' },
   'wfg.ovlAuto':        { 'zh-TW': '自動（隨視窗）', 'en': 'Auto (follow view)', 'zh-CN': '自动（随视窗）' },
