@@ -22,6 +22,65 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.25.1 — 2026-08-20 ｜ PATCH ｜ ⚠ 輸出變更
+
+三件都來自 Bruce 2026-08-20 用實機 timing 檔（`wfg-config-20260820(B19_34_WQHD_144Hz_HSR200_Timing02).txt`）回報的問題。
+
+### ① combo（OAX）訊號的 PH_CNT 遮罩改取所有成分訊號的聯集
+
+`STV0` 這條通道是 `vs` **OR** `tend`（`oax_mode: 1, oax_sel: 13`）。R_PH_CNT / F_PH_CNT 兩列的遮罩過去只吃通道自己那顆 GPIO（`vs`，ST/SP_LINE 都是 0），於是 `tend` 的作用區間（ST/SP_LINE 735）整段被灰掉 —— 畫面上明明有 `tend` 打出來的脈衝。
+
+新增 `wfgPhGateCombined()`（放在 `wfgApplyOAX` 旁邊），把成分訊號的**逐行閘門紀錄**（v3.24.2 由 `wfgCalcGpio()` 記下來的 `phGate`）逐 bit 聯集，繪製端仍然只是投影上游結果，**沒有另寫一套聯集判斷**。成立條件與 `wfgApplyOAX()` 逐字相同（`oax_mode !== 0`、索引合法、不是自己）。
+
+**只聯集閘門 bit0 / bit1，不聯集觸發 bit2 / bit3**（`out[i] = a[i] | (b[i] & 3)`）：那兩列顯示的數字自始至終是本通道那顆 GPIO 的計數值，把另一顆的觸發條也框成觸發格，會出現「格子被框起來、裡面的數字卻不是 ACT_TYPE」的矛盾畫面。Bruce 的要求是「TEND 那邊也要將顯示範圍露出來」，範圍＝bit0/bit1。**若覆核後認為觸發格也該一起標，這是一行的事，請提出來改，不要當成既成決定。**
+
+⚠ 已知限制：成分訊號本身若是 toggle，它沒有 `phGate`（v3.24.2 起 toggle 一律供應 null），聯集時只剩本體那一份。不替它猜代用值。
+
+### ② Toggle 訊號（XPOL / LC）的 R_DLY 綠色箭頭
+
+Bruce：「因為它是 Toggle 訊號，只看 R_DLY 且觸發計算 R_DLY，是要轉態的那一條 line 才計算 R_DLY，所以綠色的箭頭應該也要顯示出來才對。而且顯示的位置就是轉態那時候的位置，而不用顯示 F_DLY。」
+
+箭頭的**算法**（起算條＝轉態往回退 R_DLY、只畫 R_DLY、不畫 F_DLY）從 v2.97.481 起就是對的，壞的是「根本畫不出來」，兩個獨立原因：
+
+1. **錨點取錯**：原本用 `leftEdge`（目前準位區塊的起點）。但 `wfgCalcGpio()` 的 toggle 分支**每個 frame 開頭都會補一筆** `{line: lineOffset, dly: 0, level: 目前準位}`（wfg.html:17640），這些補的筆數與真正的轉態混在同一個陣列裡。實測 LC（FRM_NO=99，每 100 個 frame 才翻一次）：真正的轉態在絕對 line 77741.365，`leftEdge` 卻解析到 77000 —— 箭頭兩端一起被推到畫面左外（實測 `x1=110(夾住), x2=-85543`），`x2-x1 < 4` → 什麼都沒畫。改成新增的 `tconNearestLevelChange()`：找「離滑鼠最近的一次**真正的準位改變**」。兩邊都找，因為 R_DLY 會把轉態推到行中間，使用者把滑鼠移到那條 line 時很容易落在轉態左側。
+2. **兩條提早 return**：`transitions.length < 2` 與 `rightEdge === null` 是為了「量脈衝寬度」設計的（要有左右兩個邊沿），但 toggle 的轉態太稀疏，查詢範圍只有 ±vtotal（本例 ±770 行），常常兩條都踩到。R_DLY 只需要一個轉態，不需要右邊界 —— 兩條路徑改為仍然畫箭頭（`tconToggleRDlyArrow` / `tconMeasArrowWith`）。
+
+### ③ R_DLY 或 F_DLY 設為 0 時，改畫單一圓點但文字照常顯示
+
+`drawUniArrow()` 原本第一行就是 `if (x2 - x1 < 4) return false;`，而呼叫端「回傳 false 就連文字也不畫」。DLY=0 時起點與終點是同一個位置，於是箭頭與文字**兩個都不見**，使用者完全看不出這一條有觸發（XPOL 的 R_DLY 就是 0）。
+
+改為：`dlyVal === 0` → 畫一個 r=2.5 的圓點並回傳 true，文字照常顯示且改對齊 x1（否則會壓在圓點上）。**只認「DLY 真的是 0」，不拿 `x2-x1 < 4` 當判準** —— DLY 不是 0 只是縮太小的情況維持原本「不畫」，否則縮到很遠時整排標籤會糊成一片。DLY 值由 `_dlyVal` 從量測端帶到繪製端。
+
+### 改了什麼
+
+| 位置 | 改動 |
+|---|---|
+| 新增 `wfgPhGateCombined()` | OAX 成分訊號的閘門聯集 |
+| `wfgDrawInternalRows()` 取 phGate 處 | 改呼叫上面那支 |
+| 新增 `tconNearestLevelChange()` / `tconToggleRDlyArrow()` / `tconMeasArrowWith()` | 三處共用的 toggle R_DLY 箭頭 |
+| `wfgMeasUpdatePhase()` toggle 分支 | 錨點由 `leftEdge` 改為最近一次真正的準位改變 |
+| `wfgMeasUpdatePhase()` 兩條提早 return | toggle 仍然畫 R_DLY 箭頭 |
+| `wfgMeasUpdatePhase()` 一般分支 | 箭頭物件帶上 `_dlyVal` |
+| `wfgMeasDrawArrow()` `drawUniArrow()` | DLY=0 → 單一圓點 + 文字；四段重複的標籤程式碼收斂成 `drawDlyLabel()` |
+
+### 實測（headless Chrome，載入 Bruce 那份 timing02 原檔）
+
+量測手法：暫時攔截 `CanvasRenderingContext2D.prototype.fillText / arc`，直接記錄「畫布上到底畫了什麼」，不靠眼睛判讀。圓點半徑可區分兩種形態：**r=2.5 ＝ DLY=0 的單一圓點**，r=2 ＝ 一般箭頭的起點圓點。
+
+| 案例 | 畫出來的 | 判定 |
+|---|---|---|
+| STV0 遮罩（TEND 區間 line 735） | 改動前兩列全灰；改動後 R_PH_CNT 露出 line 735、F_PH_CNT 露出 line 735~739（＝tend 的 rising 閘門 [735,735] 與 falling 閘門＋收尾） | ✅ ① |
+| `phGate` 資料層 | `vs` 單獨＝`[[0,7],[1,2],[2,2],[3,2],[4,10]]`；聯集後多出 `[735,3],[736,2]…[739,2]` | ✅ ① |
+| XPOL（toggle, R_DLY=0） | `R_DLY` 綠字 ＋ **r=2.5 單一圓點**，位置就在轉態上；無 F_DLY | ✅ ②③ |
+| LC（toggle, R_DLY=685, FRM_NO=99） | `R_DLY` 綠字 ＋ r=2 起點圓點 ＋ 箭頭（x1=875.8 → x2=918.4），箭尾正好落在轉態；無 F_DLY | ✅ ② |
+| STV（一般訊號，R/F_DLY 皆非 0） | R_DLY ＋ F_DLY 各一，皆 r=2 | ✅ 未回歸 |
+| STV 改 R_DLY=0 | `R_DLY` ＋ **r=2.5 單一圓點**；F_DLY 仍是正常箭頭 | ✅ ③ |
+| STV 改 F_DLY=0 | `F_DLY` ＋ **r=2.5 單一圓點** | ✅ ③ |
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表逐欄 ——「操作流程」零改變（沒有任何控制項增減或移位）；「功能增減」不增不減（三件都是既有顯示該有卻沒有）；「既有功能的輸出」落在 **PATCH 那一格「修正為原本就該有的行為」**，不是 MAJOR 的「主動改變」：使用者本人三處都用「應該是要…」「應該也要顯示出來才對」「還是應該要顯示…」describe，也就是外部事實上這是修 bug。逐項判：**R1 適用 → PATCH**，且同一組設定（timing02 + hover STV0／XPOL／LC）新舊版截圖不同、拿舊版建立的像素基線會失效，依〈`⚠ 輸出變更` 範圍定義〉的「版面／構圖類」與「同一操作序列得到不同結果（即使舊結果本身是 bug 造成的）」兩條，**掛 `⚠ 輸出變更`**（PH_CNT 兩列與量測箭頭都畫在 `#wfg-canvas` 上，`wfgScreenshot()` 的匯出圖含這些內容）；R2 不適用（不開新波）；R3 不適用（使用者能做的事沒有多一件）；R4 不適用（起始狀態與預設值皆未變）。取最高者 → **PATCH**。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.25.0 — 2026-08-20 ｜ MINOR
 
 **Line / R_PH_CNT / F_PH_CNT 三列固定在波形區最上方，上下捲動波形時不再跟著捲走。**（依 Bruce 2026-08-20 指示）

@@ -1814,7 +1814,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3250"></script>
+<script src="common/version.js?v=20260820wfg3251"></script>
 <script src="common/i18n.js?v=20260820wfg3241"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -18192,6 +18192,45 @@ function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
   return result;
 }
 
+/* ═══ v3.26.0：combo（OAX）訊號的 PH_CNT 遮罩要涵蓋所有成分訊號 ═══════════════
+   STV0 = `vs` OR `tend` 這種通道，波形是兩顆 GPIO 的輸出做邏輯組合（見上面
+   wfgApplyOAX / wfgGetOaxForRange）。但 R_PH_CNT / F_PH_CNT 兩列的遮罩過去只吃
+   「這條通道自己那顆 GPIO」的閘門紀錄，於是另一顆的作用區間整段被灰掉 ——
+   實測 Bruce 的 timing02：`vs` 是 ST/SP_LINE 0，`tend` 是 735，畫面上 line 735
+   附近明明有 tend 打出來的脈衝，兩列卻全灰。
+
+   這裡把成分訊號的閘門紀錄**逐 bit 聯集**。仍然是投影 wfgCalcGpio() 記下來的
+   上游結果（v3.24.2 那套），**不是另寫一套判斷**。
+
+   🔴 只聯集「閘門開／關」的 bit0 / bit1，**不聯集觸發 bit2 / bit3**：
+      這兩列顯示的數字自始至終是本通道那顆 GPIO 的計數值。把另一顆的觸發條也標成
+      觸發格，會出現「格子被框起來、裡面的數字卻不是 ACT_TYPE」的矛盾畫面。
+      Bruce 2026-08-20 的要求是「TEND 那邊也要將顯示範圍露出來」，範圍＝bit0/bit1。
+
+   ⚠ 已知限制：成分訊號若本身是 toggle，它沒有 phGate（v3.24.2 起 toggle 一律
+      供應 null，因為 toggle 走另一條完全不同的路徑），聯集時就只剩本體那一份。
+      不替它猜一個代用值。 */
+function wfgPhGateCombined(gpioIdx, transitions) {
+  var baseRec = transitions && transitions[gpioIdx];
+  var base = baseRec && baseRec.phGate;
+  if (!base) return null;
+  var gpio = wfgGpios[gpioIdx];
+  var otherIdx = gpio.oax_sel;
+  // 與 wfgApplyOAX() 完全相同的成立條件，不另訂一套
+  if (!gpio.oax_mode || otherIdx < 0 || otherIdx >= wfgGpios.length || otherIdx === gpioIdx) return base;
+  var otherRec = transitions[otherIdx];
+  var other = otherRec && otherRec.phGate;
+  if (!other) return base;
+  function uniFrame(a, b) {
+    if (!a) return b || null;
+    if (!b || b.length !== a.length) return a;
+    var out = new Uint8Array(a.length);
+    for (var i = 0; i < a.length; i++) out[i] = a[i] | (b[i] & 3);   // b 只取閘門 bit
+    return out;
+  }
+  return { g0: uniFrame(base.g0, other.g0), g1: uniFrame(base.g1, other.g1) };
+}
+
 // ─── TCON Internal Rows Drawing ───
 function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRange, lineToX, vtotalView, dclkPerLine) {
   var baseY = WFG_AXIS_H;
@@ -18520,7 +18559,8 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
            **刻意不回頭自己算一個近似值**。 */
         var _phGate = null;
         if (!gpio.toggle && _wfgTransitionCache && _wfgTransitionCache.transitions[ch.gpioIdx]) {
-          _phGate = _wfgTransitionCache.transitions[ch.gpioIdx].phGate || null;
+          // v3.26.0：combo（OAX）訊號要取所有成分訊號的閘門聯集，見 wfgPhGateCombined()
+          _phGate = wfgPhGateCombined(ch.gpioIdx, _wfgTransitionCache.transitions);
         }
         // Draw R_PH_CNT
         wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, false, _phGate, 0);
@@ -28361,6 +28401,57 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   var measEnd = Math.min(totalLines, mouseLinePos + measMargin);
   var oaxResult = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, cache.effHtotal, measStart, measEnd);
   var transitions = oaxResult.transitions;
+
+  /* ═══ v3.26.0：toggle 訊號（XPOL / LC）的 R_DLY 箭頭 ═══════════════════════
+     Bruce 2026-08-20：「像是 LC 或是 XPOL 的訊號，因為它是 Toggle 訊號，只看
+     R_DLY 且觸發計算 R_DLY，是要轉態的那一條 line 才計算 R_DLY，所以綠色的箭頭
+     應該也要顯示出來才對。而且顯示的位置就是轉態那時候的位置，而不用顯示 F_DLY。」
+
+     箭頭的算法（起算條 = 轉態往回退 R_DLY、只畫 R_DLY、不畫 F_DLY）在下面的
+     toggle 分支本來就是對的，問題出在**根本走不到那裡**：
+       ・`transitions.length < 2` 與 `rightEdge === null` 兩條提早 return，
+         是為了「量脈衝寬度」設計的（要有左右兩個邊沿才算得出寬度）。
+       ・但 toggle 訊號的轉態非常稀疏 —— LC 是每 100 個 frame 才翻一次
+         （FRM_NO=99），查詢範圍只有 ±vtotal（本例 ±770 行），裡面往往只有
+         0～1 個轉態，兩條提早 return 都會踩到。
+     而 R_DLY 只需要「進入目前準位的那個轉態」，不需要右邊界。所以把這支抽出來，
+     讓那兩條提早 return 也能畫。`lineToXLocal` 是函式宣告，會被提升，這裡叫得到。 */
+  function tconToggleRDlyArrow(g, edgePos, lvl, yH, yL) {
+    if (!g || !g.toggle || edgePos === null || edgePos === undefined) return null;
+    var effH0 = cache.effHtotal;
+    var trig = Math.round(edgePos - (effH0 > 0 ? g.r_dly / effH0 : 0));
+    return {
+      x1: Math.max(drawX0, lineToXLocal(trig)),
+      x2: Math.min(w, lineToXLocal(edgePos)),
+      y: (lvl === 1) ? (yH - 3) : (yL + 3),
+      _rDlyArrow: true, _dlyVal: g.r_dly
+    };
+  }
+  /* 找「離滑鼠最近的一次**真正的準位改變**」。
+     🔴 不能用「進入目前區塊的那個轉態」（leftEdge）：wfgCalcGpio() 的 toggle 分支
+     每個 frame 開頭都會補一筆 `{line: lineOffset, dly:0, level: 目前準位}`（line 17640），
+     那些補的筆數與真正的轉態混在同一個陣列裡，區塊起點常常落在 frame 邊界上。
+     實測 LC：真正的轉態在 77741.365，滑鼠停在它左邊 0.3 行時 leftEdge 解析到 77000，
+     箭頭兩端一起被推到畫面左外，什麼都畫不出來。
+     🔴 也不能只往回找：使用者把滑鼠移到「轉態那條 line」時，很容易落在轉態的**左側**
+     （同一條 line 內，轉態被 R_DLY 推到行中間），這時最近的轉態在右邊。所以兩邊都找。 */
+  function tconNearestLevelChange(tp, mousePos) {
+    var best = -1, bestD = Infinity;
+    for (var k = 1; k < tp.length; k++) {
+      if (tp[k].level === tp[k - 1].level) continue;
+      var d = Math.abs(tp[k].pos - mousePos);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    return best;
+  }
+  function tconMeasArrowWith(tgA, chIdx0, midY) {
+    var base = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx0, _midY: midY };
+    if (!tgA) return base;
+    base.x1 = tgA.x1; base.x2 = tgA.x2; base.y = tgA.y;
+    base._rDlyArrow = true; base._dlyVal = tgA._dlyVal;
+    return base;
+  }
+
   if (transitions.length < 2) {
     // Pre-compute Y positions for TCON fallback
     var _slotNp = (_wfgLastChSlotMap[chIdx] !== undefined) ? _wfgLastChSlotMap[chIdx] : chIdx;
@@ -28370,7 +28461,13 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
     var yLowNp = Math.round(y0np + hNp - 4) + 0.5;
     if (wfgTconInternalMode && !wfgKvdatMode) {
       // No transitions but still show PH_CNT (all non-highlight)
-      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx, _midY: (yHighNp + yLowNp) / 2 };
+      // v3.26.0：範圍內只有一個轉態時，toggle 訊號仍要畫 R_DLY 箭頭
+      var _tgA = null;
+      if (chGpio && chGpio.toggle && transitions.length === 1) {
+        var _p0 = transitions[0].line + (cache.effHtotal > 0 ? transitions[0].dly / cache.effHtotal : 0);
+        if (_p0 <= mouseLinePos) _tgA = tconToggleRDlyArrow(chGpio, _p0, transitions[0].level, yHighNp, yLowNp);
+      }
+      _wfgMeasArrow = tconMeasArrowWith(_tgA, chIdx, (yHighNp + yLowNp) / 2);
       _wfgLastHoverChIdx = chIdx;
       wfgMeasSetVal('wfg-meas-pw', '--');
       wfgMeasSetVal('wfg-meas-per', '--');
@@ -28440,7 +28537,11 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
   if (rightEdge === null) {
     if (wfgTconInternalMode && !wfgKvdatMode) {
       // No pulse edge found, but still show PH_CNT (all non-highlight since no trigger)
-      _wfgMeasArrow = { x1: 0, x2: 0, y: 0, _tconHoverChIdx: chIdx, _midY: (yHigh + yLow) / 2 };
+      // v3.26.0：右邊界不存在（toggle 的下一次轉態遠在查詢範圍外）時，
+      //   R_DLY 只靠最近那一次準位改變就算得出來，仍要畫。
+      var _tgKb = (chGpio && chGpio.toggle) ? tconNearestLevelChange(tPos, mouseLinePos) : -1;
+      var _tgB = (_tgKb >= 0) ? tconToggleRDlyArrow(chGpio, tPos[_tgKb].pos, tPos[_tgKb].level, yHigh, yLow) : null;
+      _wfgMeasArrow = tconMeasArrowWith(_tgB, chIdx, (yHigh + yLow) / 2);
       _wfgLastHoverChIdx = chIdx;
       wfgMeasSetVal('wfg-meas-pw', '--');
       wfgMeasSetVal('wfg-meas-per', '--');
@@ -28522,13 +28623,23 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
       // 而且 **沒有 F_DLY**（Set_6138_Timing_20171005.pdf P.17「F_DLY_XPOL：Toggle mode 時 無用」、
       // P.18 實際值 0000h）。所以這裡只畫一支 R_DLY 箭頭，起算條就是「被選中 bit 改變」的那一條，
       // 也就是轉態邊沿往回退 R_DLY 之後所在的 line；不畫 F_DLY 箭頭，避免誤導。
-      if (idx >= 0) {
-        var tgEdge = leftEdge; // 進入目前這個準位區塊的那個轉態
-        var tgTrig = Math.round(tgEdge - (effHtotal > 0 ? gpio.r_dly / effHtotal : 0));
-        arrowResult.x1 = Math.max(drawX0, lineToXLocal(tgTrig));
-        arrowResult.x2 = Math.min(w, lineToXLocal(tgEdge));
-        arrowResult.y = (curLevel === 1) ? (yHigh - 3) : (yLow + 3);
+      /* 🔴 v3.26.0：錨點由 `leftEdge` 改成「**最近一次真正的準位改變**」。
+         `leftEdge` 是「目前準位區塊的起點」，而 wfgCalcGpio() 的 toggle 分支
+         **每個 frame 開頭都會補一筆 `{line: lineOffset, dly: 0, level: 目前準位}`**
+         （line 17640）。這些補的筆數與真正的轉態混在同一個陣列裡，區塊起點因此
+         常常落在某個 frame 邊界上 —— 實測 LC（FRM_NO=99，每 100 個 frame 才翻一次）
+         在 line 77741.365 有真正的轉態，`leftEdge` 卻解析到 77000 附近，
+         箭頭兩端都被推到畫面左外，`x2 - x1 < 4` → 什麼都沒畫。
+         往回找「level 與前一筆不同」的那一筆才是轉態本身，也才是 Bruce 說的
+         「顯示的位置就是轉態那時候的位置」。 */
+      var tgK = tconNearestLevelChange(tPos, mouseLinePos);
+      var _tgArr = (tgK >= 0) ? tconToggleRDlyArrow(gpio, tPos[tgK].pos, tPos[tgK].level, yHigh, yLow) : null;
+      if (_tgArr) {
+        arrowResult.x1 = _tgArr.x1;
+        arrowResult.x2 = _tgArr.x2;
+        arrowResult.y = _tgArr.y;
         arrowResult._rDlyArrow = true;
+        arrowResult._dlyVal = gpio.r_dly;   // v3.26.0：R_DLY=0 時要畫成單一圓點
       }
     } else {
       // ── 一般打 pulse 的信號（XSTB / VST / CK / TEND …）──
@@ -28540,15 +28651,16 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
       var rSpan = wfgTconDlySpan(gpio, true,  actType, stLine, vtotalViewM, effHtotal, tPos, mouseLineInt, (curLevel === 1) ? leftEdge : rightEdge);
       var fSpan = wfgTconDlySpan(gpio, false, actType, stLine, vtotalViewM, effHtotal, tPos, mouseLineInt, (curLevel === 1) ? rightEdge : leftEdge);
       // curLevel===1（滑鼠在 HIGH 區）時主箭頭畫 R_DLY，否則主箭頭畫 F_DLY
+      // v3.26.0：_dlyVal 讓繪製端知道「這支箭頭的 DLY 是不是 0」——是的話畫單一圓點
       var rArrow = rSpan ? {
         x1: Math.max(drawX0, lineToXLocal(rSpan.trig)),
         x2: Math.min(w, lineToXLocal(rSpan.edge)),
-        y: yHigh - 3, _rDlyArrow: true
+        y: yHigh - 3, _rDlyArrow: true, _dlyVal: gpio.r_dly
       } : null;
       var fArrow = fSpan ? {
         x1: Math.max(drawX0, lineToXLocal(fSpan.trig)),
         x2: Math.min(w, lineToXLocal(fSpan.edge)),
-        y: yLow + 3, _fDlyArrow: true
+        y: yLow + 3, _fDlyArrow: true, _dlyVal: gpio.f_dly
       } : null;
       var mainArrow = (curLevel === 1) ? rArrow : fArrow;
       var subArrow  = (curLevel === 1) ? fArrow : rArrow;
@@ -28556,6 +28668,7 @@ function wfgMeasUpdatePhase(cx, cy, drawX0, drawW, w, canvas) {
         arrowResult.x1 = mainArrow.x1;
         arrowResult.x2 = mainArrow.x2;
         arrowResult.y = mainArrow.y;
+        arrowResult._dlyVal = mainArrow._dlyVal;   // v3.26.0
         if (mainArrow._rDlyArrow) arrowResult._rDlyArrow = true;
         else arrowResult._fDlyArrow = true;
       }
@@ -28851,10 +28964,27 @@ function wfgMeasDrawArrow(ctx) {
     ctx.closePath(); ctx.fill();
   }
 
-  // Draw a single uni-directional arrow (TCON internal mode: left→right)
-  // Returns true if arrow was drawn, false if too small
-  function drawUniArrow(x1, x2, y, color) {
+  /* Draw a single uni-directional arrow (TCON internal mode: left→right)
+     Returns true if something was drawn（回傳 true 才會跟著畫 R_DLY / F_DLY 文字）
+
+     v3.26.0：`dlyVal === 0` 時**畫一個單獨的圓點**並回傳 true —— 依 Bruce
+     2026-08-20：「如果 R_DLY 設定為 0，或者是 F_DLY 設定為 0，當滑鼠移動到觸發的
+     那條 Line，還是應該要顯示 R_DLY 的文字與 F_DLY 的文字，只是圓點加箭頭變成
+     單一個圓點，而不用圓點再加上一個箭頭。」
+     DLY=0 時起點與終點是同一個位置（x2-x1 === 0），舊版被 `< 4` 擋掉，
+     結果是箭頭與文字**兩個都不見**，使用者完全看不出這一條有觸發。
+     🔴 只認「DLY 真的是 0」，不拿 `x2-x1 < 4` 當判準：DLY 不是 0 只是縮太小的
+        情況維持原本「不畫」的行為，否則縮到很遠時整排標籤會糊成一片。 */
+  function drawUniArrow(x1, x2, y, color, dlyVal) {
     y = Math.round(y) + 0.5;
+    if (dlyVal === 0) {
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x1, y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      return true;
+    }
     if (x2 - x1 < 4) return false;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
@@ -28895,38 +29025,23 @@ function wfgMeasDrawArrow(ctx) {
     if (a._biArrow2) {
       drawBiArrow(a._biArrow2.x1, a._biArrow2.x2, a._biArrow2.y);
     }
-    // TCON internal colored uni-arrows with labels (text only shown when arrow is drawn)
-    if (a._rDlyArrow) {
-      if (drawUniArrow(a.x1, a.x2, a.y, WFG_INTERNAL_COLORS.rph)) {
-        ctx.fillStyle = WFG_INTERNAL_COLORS.rph;
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('R_DLY', (a.x1 + a.x2) / 2, a.y - 4);
-      }
-    } else if (a._fDlyArrow) {
-      if (drawUniArrow(a.x1, a.x2, a.y, WFG_INTERNAL_COLORS.fph)) {
-        ctx.fillStyle = WFG_INTERNAL_COLORS.fph;
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('F_DLY', (a.x1 + a.x2) / 2, a.y - 4);
-      }
+    /* TCON internal colored uni-arrows with labels (text only shown when arrow is drawn)
+       v3.26.0：DLY=0 時 drawUniArrow 會畫單一圓點並回傳 true，文字仍照常顯示；
+       文字改對齊 x1（＝起算點／圓點所在），否則 DLY=0 時 (x1+x2)/2 剛好壓在圓點上。 */
+    function drawDlyLabel(arr, isRising) {
+      var color = isRising ? WFG_INTERNAL_COLORS.rph : WFG_INTERNAL_COLORS.fph;
+      if (!drawUniArrow(arr.x1, arr.x2, arr.y, color, arr._dlyVal)) return;
+      ctx.fillStyle = color;
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      var lx = (arr._dlyVal === 0) ? arr.x1 : (arr.x1 + arr.x2) / 2;
+      ctx.fillText(isRising ? 'R_DLY' : 'F_DLY', lx, arr.y - 6);
     }
+    if (a._rDlyArrow) drawDlyLabel(a, true);
+    else if (a._fDlyArrow) drawDlyLabel(a, false);
     if (a.arrow2) {
-      if (a.arrow2._rDlyArrow) {
-        if (drawUniArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y, WFG_INTERNAL_COLORS.rph)) {
-          ctx.fillStyle = WFG_INTERNAL_COLORS.rph;
-          ctx.font = 'bold 12px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText('R_DLY', (a.arrow2.x1 + a.arrow2.x2) / 2, a.arrow2.y - 4);
-        }
-      } else if (a.arrow2._fDlyArrow) {
-        if (drawUniArrow(a.arrow2.x1, a.arrow2.x2, a.arrow2.y, WFG_INTERNAL_COLORS.fph)) {
-          ctx.fillStyle = WFG_INTERNAL_COLORS.fph;
-          ctx.font = 'bold 12px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText('F_DLY', (a.arrow2.x1 + a.arrow2.x2) / 2, a.arrow2.y - 4);
-        }
-      }
+      if (a.arrow2._rDlyArrow) drawDlyLabel(a.arrow2, true);
+      else if (a.arrow2._fDlyArrow) drawDlyLabel(a.arrow2, false);
     }
   } else {
     // Normal mode: white bi-directional arrows
