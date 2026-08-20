@@ -1658,8 +1658,9 @@
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpFile">檔案</span>
-                    <button class="wfg-la-icon-only" onclick="document.getElementById('wfg-la-kvdat-input').click()" title="匯入 .kvdat / .kvset" data-i18n-title="wfg.laImportKvFileTitle" aria-label="匯入 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
-                    <button class="wfg-la-icon-only" onclick="wfgLaShowExportMenu()" title="匯出 .kvdat / .kvset" data-i18n-title="wfg.laExportMenuTitle" aria-label="匯出 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg></button>
+                    <!-- v3.26.1: 順序與樣式對齊 WFG 分頁的「檔案」group：先匯出、再匯入，且帶文字 -->
+                    <button onclick="wfgLaShowExportMenu()" title="匯出 .kvdat / .kvset" data-i18n-title="wfg.laExportMenuTitle" aria-label="匯出 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.exportPlain">匯出</span></button>
+                    <button onclick="document.getElementById('wfg-la-kvdat-input').click()" title="匯入 .kvdat / .kvset" data-i18n-title="wfg.laImportKvFileTitle" aria-label="匯入 .kvdat / .kvset"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.importPlain">匯入</span></button>
                   </div>
                   <div class="wfg-la-tool-group">
                     <span class="wfg-la-group-label" data-i18n="wfg.laGrpView">檢視</span>
@@ -1818,7 +1819,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3260"></script>
+<script src="common/version.js?v=20260821wfg3261"></script>
 <script src="common/i18n.js?v=20260820wfg3260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5240,6 +5241,11 @@ let wfgDragStartView = 0;
 let wfgCurrentMode = 'tcon'; // 'tcon' or 'la'
 let wfgTconEntryReady = false;
 let wfgTconRestoreBusy = false;
+/* v3.26.1：這一輪頁面生命週期裡，autosave 是否已經套進記憶體。
+   ⚠ 與 wfgTconEntryReady 不同：那一個會在切到 LA 時被清掉（讓載入當下的競態能重試），
+   這一個一旦為 true 就不再變 —— 它擋的是「切分頁回來又整份還原一次」。
+   詳細理由見 wfgSwitchMode() 內的說明。 */
+let wfgTconRestoreDone = false;
 let wfgSuppressTconAutoRestore = false;
 // ─── TCON Internal Mode State ───
 let wfgTconInternalMode = false;
@@ -5612,7 +5618,7 @@ function wfgPrepareTconTimingEntry() {
   /* 沒有存檔、或存檔壞掉時（wfgReadAutoSavedTconState 已在 console 留訊息）什麼都不動 ——
      維持呼叫端當下的空白狀態。這裡刻意**不呼叫 wfgResetToDefault()**：
      開頁時 wfgInit() 建好的就是空白狀態，再重置一次只是白重繪一輪。 */
-  if (!wfgReadAutoSavedTconState()) { wfgTconEntryReady = true; return; }
+  if (!wfgReadAutoSavedTconState()) { wfgTconEntryReady = true; wfgTconRestoreDone = true; return; }
 
   /* 🔴 還原本身是同步的（wfgImportConfig 內含整張波形重繪），實測一份 1000 frame 的
      Dual CPV 存檔要 4.4~4.5 秒 —— 這段期間畫面完全凍結，不給提示就像開頁當掉。
@@ -5646,6 +5652,7 @@ function wfgPrepareTconTimingEntry() {
     } finally {
       wfgSuppressTconAutoRestore = false;
       wfgTconRestoreBusy = false;
+      wfgTconRestoreDone = true;   // v3.26.1：這一份 autosave 已經套進記憶體，之後切分頁不必再來一次
       wfgHideProgress();
     }
     /* 留一行耗時在 console，讓「開頁怎麼頓了一下」這種回報可以直接查到數字。 */
@@ -5682,6 +5689,7 @@ function wfgInitTconTimingEntry() {
   if (!wfgReadAutoSavedTconState()) {
     // 無存檔（或存檔壞掉，wfgReadAutoSavedTconState 已在 console 留訊息）→ 維持空白狀態
     wfgTconEntryReady = true;
+    wfgTconRestoreDone = true;   // v3.26.1：沒東西可還原，之後切分頁也不必再查一次
     return;
   }
   setTimeout(function() {
@@ -5694,6 +5702,7 @@ function wfgInitTconTimingEntry() {
       // 還原路徑再怎麼樣都不可以讓頁面開不起來
       console.warn('[wfg] autosave: 自動還原失敗，維持目前狀態（' + (e && e.message) + '）');
       wfgTconEntryReady = true;
+      wfgTconRestoreDone = true;   // v3.26.1：失敗過就別在每次切分頁時再慢一次
     }
   }, 0);
 }
@@ -5734,7 +5743,29 @@ function wfgSwitchMode(mode, options) {
   if (mode === 'tcon' && prevMode !== 'tcon' && !options.skipTconAutoRestore && !wfgSuppressTconAutoRestore) {
     wfgPrepareTconTimingEntry();
   }
-  if (mode !== 'tcon') wfgTconEntryReady = false;
+  /* ═══ v3.26.1：切到 LA 再切回來，不可以整份 autosave 重新還原一次 ═══════════
+     🔴 這一行原本是無條件的 `wfgTconEntryReady = false`，於是**每一次** LA → TCON
+        都會再跑一遍 wfgPrepareTconTimingEntry() → wfgAutoRestore() → wfgImportConfig()
+        ＋整張波形重繪＋類比預計算，而且是在下面把面板切回來**之前**跑。
+
+        在 Bruce 的瀏覽器實測（2026-08-21，線上版 v3.26.0、他自己的 localStorage
+        autosave 30,359 bytes）：點下「TCON Timing 調整練習」之後，主執行緒
+        **整整 211 秒沒有讓出**（掛在頁面上的 500ms setInterval 只在 t=211,347ms
+        跑了唯一一次），期間畫面完全凍結、按什麼都沒反應 —— 這就是他說的
+        「切到 LA 分析器就切不回 WFG 分頁」。**不是點不到按鈕**（同一次量測裡
+        `document.elementFromPoint()` 在按鈕中心回傳的就是按鈕本身），
+        **也沒有任何 JS 例外**（window.onerror 全程 0 筆）。
+
+     ⚠ 為什麼可以直接跳過：切分頁**不會動到記憶體裡的 TCON 狀態**（wfgSwitchMode
+        只切 display 並呼叫 wfgLaInit()），所以回來時記憶體裡就是使用者離開前的樣子，
+        而且它必然比 localStorage 那份更新（autosave 是被它寫出去的）。
+        還原只該發生在「這一輪頁面生命週期的第一次進入 TCON」。
+
+     ⚠ 為什麼還要留條件而不是整行刪掉：載入當下有一段競態（見
+        wfgInitTconTimingEntry() 的註解）—— 0ms 的 setTimeout 還沒跑、使用者已經切到 LA，
+        那時 wfgTconRestoreDone 還是 false，仍然需要靠這一行把 ready 清掉，
+        好讓之後切回 tcon 補做第一次還原。 */
+  if (mode !== 'tcon' && !wfgTconRestoreDone) wfgTconEntryReady = false;
   wfgCurrentMode = mode;
   wfgPersistMode(mode, options);
   var wfgPage = document.getElementById('page-wfg');
