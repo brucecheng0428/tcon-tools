@@ -1798,7 +1798,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3241"></script>
+<script src="common/version.js?v=20260820wfg3242"></script>
 <script src="common/i18n.js?v=20260820wfg3241"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -17603,6 +17603,29 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
      SP_LINE < VTOTAL 代表脈衝列在這個 frame 之內就停了，那麼延續過來的也是「停著」。 */
   var carryFiring = (gpio.sp_line >= vtotal);
 
+  /* ═══ v3.24.2：逐行閘門紀錄（R_PH_CNT / F_PH_CNT 兩列的灰色遮罩就吃這一份）═══
+
+     🔴 **遮罩不該有自己的演算法。** 判定「這一行的 rising／falling 過不過閘」
+        只有下面那個迴圈一個地方在做，這裡把它當場記下來，繪製端直接投影
+        （見 `wfgDrawPhCntRow`）。只要存在第二份推算，遲早會漂移 ——
+        v3.24.1 以前繪製端自己推的那一份就是這樣算出「SP_LINE=5 時 R_PH_CNT
+        可以到 line 18」這種畫面上根本沒有邊緣的範圍。
+
+     ・記的是**原始行號**（0 ~ vtotal-1），**尚未**套 R_DLY / F_DLY 的跨行位移
+       （`rActualLine = line + rExtraLines`）。PH_CNT 兩列的座標系正是「counter
+       在第幾行」，位移過的行號不能用。
+     ・只記 frame 0 與 frame 1：frame 0 有 frameReset、frame ≥1 可能延續前一個
+       frame（F_ST_SEL 未勾選），兩者閘門本來就不同；frame ≥1 之間對週期性信號
+       相同 —— `wfgCalcGpioSmart()` 的模板壓縮正是靠這一點。
+     ・bit0 = rising 閘門開、bit1 = falling 閘門開、
+       bit2 = rising 過閘（觸發）、bit3 = falling 過閘（觸發）。
+       迴圈沒走到的行留 0 ＝ 全遮（那些行本來就不可能產生邊緣）。 */
+  var gateFrames = [null, null];
+  if (vtotal > 0 && vtotal <= 65536) {
+    gateFrames[0] = new Uint8Array(vtotal);
+    if (frameCount > 1) gateFrames[1] = new Uint8Array(vtotal);
+  }
+
   for (var frame = 0; frame < frameCount; frame++) {
     var lineOffset = frame * vtotal;
 
@@ -17673,6 +17696,7 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
          （瑞鼎原廠文件全文檢索只有暫存器名稱、沒有定義文字），已刪除。 */
     var st = Math.max(0, gpio.st_line);
     var sp = Math.min(vtotal - 1, gpio.sp_line);
+    var gateRec = (frame < 2) ? gateFrames[frame] : null;   // v3.24.2，見函式上方說明
 
     /* ── 切斷點 ──
        frame 0：沒有前一個 frame 可以延續，用 INI_VAL 當開機狀態（規格未涵蓋 frame 0）。
@@ -17726,6 +17750,16 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
          停了**（SP_LINE < VTOTAL）時才不打。 */
       if (!gpio.f_st_sel && frame > 0 && line < st && !carryFiring) continue;
 
+      /* v3.24.2：閘門狀態在這裡定案，當場記給遮罩投影用。
+         兩個條件與下面 rising／falling 實際用的判斷式**逐字相同**，不是另寫一份：
+           rising  閘門 = `line <= sp`
+           falling 閘門 = `line <= sp || level === 1`（後者＝收尾一個還沒關的脈衝）
+         `level` 此刻仍是「上一行結束時的準位」（它要到本行兩個判斷跑完才更新），
+         正是 falling 判斷式讀到的那個值。 */
+      if (gateRec) {
+        gateRec[line] |= (line <= sp) ? 3 : ((level === 1) ? 2 : 0);
+      }
+
       var rFired = false, fFired = false;
       var rDlyVal = 0, fDlyVal = 0;
 
@@ -17748,6 +17782,7 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
           }
           rFired = true;
           rDlyVal = rDly;
+          if (gateRec) gateRec[line] |= 4;   // v3.24.2：R_PH_CNT 這一格是觸發格
         }
         rCnt = 0;
       } else {
@@ -17758,6 +17793,7 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       if (fCnt === actType) {
         // Falling fires if line <= SP_LINE, OR if pulse is open (level===1) to complete it
         if (line <= sp || level === 1) {
+          if (gateRec) gateRec[line] |= 8;   // v3.24.2：F_PH_CNT 這一格是觸發格
           var fDly = gpio.f_dly;
           // Normalize DLY: if it exceeds one line (htotal DCLKs), wrap to next line(s)
           var fExtraLines = htotal > 0 ? Math.floor(fDly / htotal) : 0;
@@ -17841,6 +17877,14 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
     }
   }
 
+  /* v3.24.2：把逐行閘門紀錄掛在回傳陣列上 —— **不改函式簽章**，既有呼叫端
+     （wfgCalcGpioSmart / wfgDebugGpioLevels）一行都不用動。
+     toggle 模式走的是另一條完全不同的路徑（上面 17644 那個迴圈），它的遮罩自
+     v2.97.481 起就是「只到 SP_LINE」且有自己的序列，這裡不供應紀錄、繪製端也
+     不會去讀，避免把 toggle 的既有行為一起改掉。 */
+  allTransitions.phGate = gpio.toggle ? null
+    : { g0: gateFrames[0], g1: gateFrames[1] || gateFrames[0] };
+
   return allTransitions;
 }
 
@@ -17867,15 +17911,19 @@ function wfgBuildLevelArray(transitions, htotal) {
 // ─── Smart Template: compute GPIO transitions with period detection ───
 // Returns { isPeriodic, prelude, template, steadyStart, period, vtotal, frameCount, periodVtotal }
 // For non-periodic signals, returns { isPeriodic: false, transitions: flatArray }
+// v3.24.2: 每一條回傳路徑都要把 wfgCalcGpio() 掛在陣列上的 `phGate`（逐行閘門紀錄）
+//   一併帶出來 —— PH_CNT 兩列的遮罩只認這一份，漏帶就會整條變成全遮。
 function wfgCalcGpioSmart(gpio, vtotal, htotal, frameCount) {
-  if (!gpio.enable) return { isPeriodic: true, prelude: [], template: [], steadyStart: 0, period: 1, vtotal: vtotal, frameCount: frameCount, periodVtotal: vtotal };
+  if (!gpio.enable) return { isPeriodic: true, prelude: [], template: [], steadyStart: 0, period: 1, vtotal: vtotal, frameCount: frameCount, periodVtotal: vtotal, phGate: null };
   if (frameCount <= 3) {
-    return { isPeriodic: false, transitions: wfgCalcGpio(gpio, vtotal, htotal, frameCount) };
+    var _shortTr = wfgCalcGpio(gpio, vtotal, htotal, frameCount);
+    return { isPeriodic: false, transitions: _shortTr, phGate: _shortTr.phGate || null };
   }
   // Toggle mode: period depends on FRM_NO threshold, 3-frame sampling is insufficient
   // for large thresholds — skip periodicity detection and compute all frames directly
   if (gpio.toggle) {
-    return { isPeriodic: false, transitions: wfgCalcGpio(gpio, vtotal, htotal, frameCount) };
+    var _tgTr = wfgCalcGpio(gpio, vtotal, htotal, frameCount);
+    return { isPeriodic: false, transitions: _tgTr, phGate: _tgTr.phGate || null };
   }
   // Compute 3 frames to detect periodicity
   var threeFr = wfgCalcGpio(gpio, vtotal, htotal, 3);
@@ -17903,7 +17951,7 @@ function wfgCalcGpioSmart(gpio, vtotal, htotal, frameCount) {
       var t = frames[0][i];
       prelude.push({ line: t.relLine, dly: t.dly, level: t.level });
     }
-    return { isPeriodic: true, prelude: prelude, template: f1, steadyStart: 1, period: 1, vtotal: vtotal, frameCount: frameCount, periodVtotal: vtotal };
+    return { isPeriodic: true, prelude: prelude, template: f1, steadyStart: 1, period: 1, vtotal: vtotal, frameCount: frameCount, periodVtotal: vtotal, phGate: threeFr.phGate || null };
   }
   // Check period=2: compare [f0,f1] with [f2,f3] — need 5 frames
   if (frameCount > 5) {
@@ -17936,11 +17984,12 @@ function wfgCalcGpioSmart(gpio, vtotal, htotal, frameCount) {
           tpl2.push({ relLine: pp * vtotal + t.relLine, dly: t.dly, level: t.level });
         }
       }
-      return { isPeriodic: true, prelude: prelude2, template: tpl2, steadyStart: 1, period: 2, vtotal: vtotal, frameCount: frameCount, periodVtotal: 2 * vtotal };
+      return { isPeriodic: true, prelude: prelude2, template: tpl2, steadyStart: 1, period: 2, vtotal: vtotal, frameCount: frameCount, periodVtotal: 2 * vtotal, phGate: fiveFr.phGate || null };
     }
   }
   // Fallback: full computation
-  return { isPeriodic: false, transitions: wfgCalcGpio(gpio, vtotal, htotal, frameCount) };
+  var _fullTr = wfgCalcGpio(gpio, vtotal, htotal, frameCount);
+  return { isPeriodic: false, transitions: _fullTr, phGate: _fullTr.phGate || null };
 }
 
 // ─── Expand smart transitions for a line range [startLine, endLine] ───
@@ -18448,10 +18497,19 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
         // 勾了 Toggle → F_PH 是位元遮罩，第二列改顯示「被選中 bit 的值」，
         // 兩列的高亮都改成「bit 改變的那一條」（= R_DLY 作用的那一條）。
         var _phMask = gpio.toggle ? gpio.f_ph : null;
+        /* v3.24.2：Normal 模式的遮罩與觸發格改為**投影 wfgCalcGpio() 記下來的逐行閘門**，
+           繪製端不再自行推算。`wfgEnsureTransitions()` 在本函式之前就被呼叫過
+           （wfgRender 內，見「Use cached transitions」那段），所以這裡一定拿得到。
+           拿不到（類比虛擬 slot、快取尚未建立）時 phGate 為 null → 全遮，
+           **刻意不回頭自己算一個近似值**。 */
+        var _phGate = null;
+        if (!gpio.toggle && _wfgTransitionCache && _wfgTransitionCache.transitions[ch.gpioIdx]) {
+          _phGate = _wfgTransitionCache.transitions[ch.gpioIdx].phGate || null;
+        }
         // Draw R_PH_CNT
-        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, false);
+        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, false, _phGate, 0);
         // Draw F_PH_CNT（Toggle 時改畫 bit 值，計數器來源仍是 R_PH）
-        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.toggle ? gpio.r_ph : gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, !!gpio.toggle);
+        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.toggle ? gpio.r_ph : gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, !!gpio.toggle, _phGate, 1);
       }
     }
   }
@@ -18770,29 +18828,35 @@ function wfgDrawDclkRow(ctx, y, rowH, dclkPerLine, color, drawX0, w, firstVisLin
 //   高亮判準必須跟著改，否則 F_PH_CNT/R_PH_CNT 兩列會標錯格子。
 // isBitRow：這一列改成顯示「被選中 bit 的值（0/1）」而不是計數值 —— 用於 toggle 的第二列，
 //   因為 toggle 下 F_PH 是遮罩、根本沒有 F_PH_CNT 這個計數器。
-function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight, toggleMask, isBitRow) {
+/* phGate / gateSel（v3.24.2）：Normal 模式的遮罩與觸發格**只認上游**。
+   phGate = wfgCalcGpio() 記下來的 { g0, g1 }（每 frame 一份 Uint8Array，索引 = 原始行號）；
+   gateSel = 0（R_PH_CNT 列）／1（F_PH_CNT 列），決定要看哪兩個 bit。
+
+   🔴 這裡**不再有任何自行推算的遮罩長度**。v3.24.1 以前是用
+       `firstZero = cycle - effIniPh; while (firstZero <= stToSp) firstZero += cycle;`
+   推「延伸到 counter 下一次歸零」，那是第二份實作，而且把只屬於 falling 的
+   「收尾未關閉脈衝」例外誤套到 rising 上 —— SP_LINE=5 時因此把 R_PH_CNT 開放到
+   line 18、F_PH_CNT 開放到 line 20，而那兩行的邊緣其實被 `line <= sp` 擋掉了，
+   還被畫成觸發格。整段已刪除，改由上游投影。 */
+function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight, toggleMask, isBitRow, phGate, gateSel) {
   ctx.textAlign = 'center';
   var textY = y + rowH / 2 + 3;
   var cycle = actType + 1;
   var effIniPh = (actType === 0) ? 0 : Math.min(iniPh, actType);
-  // Compute highlight length: from stLine, past spLine, until counter wraps to 0
-  var stToSp;
-  if (stLine <= spLine) { stToSp = spLine - stLine; }
-  else { stToSp = (vtotalView - stLine) + spLine; }
-  var highlightLen;
+  var highlightLen = 0;
   var tgSeq = null;
   if (toggleMask != null) {
     // v2.97.481 Toggle：SP_LINE 是「最後一條參與 toggle 的 line」，之後停止計數 →
     // 高亮就到 SP_LINE 為止（舊版會延伸超過 SP_LINE 直到 counter 歸零，語義已不成立）
+    var stToSp;
+    if (stLine <= spLine) { stToSp = spLine - stLine; }
+    else { stToSp = (vtotalView - stLine) + spLine; }
     highlightLen = stToSp + 1;
     tgSeq = wfgToggleCntSeq(iniPh, actType, wfgToggleMaskBits(), highlightLen);
-  } else if (actType === 0) {
-    highlightLen = stToSp + 1;
-  } else {
-    var firstZero = (effIniPh === 0) ? cycle : (cycle - effIniPh);
-    while (firstZero <= stToSp) { firstZero += cycle; }
-    highlightLen = firstZero;
   }
+  // Normal 模式要看的 bit：bit0/bit2 = rising 列，bit1/bit3 = falling 列
+  var gateOpenBit = gateSel ? 2 : 1;
+  var gateTrigBit = gateSel ? 8 : 4;
   // Parse base color for dimmed version
   var dimColor = color;
   var m = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
@@ -18806,7 +18870,18 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
     var clampL = Math.max(drawX0, xL);
     var clampR = Math.min(w, xR);
     var linesFromSt = ((lineInFrame - stLine) + vtotalView) % vtotalView;
-    var inHL = forceNonHighlight ? false : (linesFromSt < highlightLen);
+    /* v3.24.2：Normal 模式的「這一格遮不遮」直接讀上游閘門紀錄。
+       frame 0 與 frame ≥1 的閘門可能不同（F_ST_SEL 未勾選時 frame ≥1 會延續前一個
+       frame 的產生行為），所以分兩份取用。 */
+    var gateVal = 0;
+    var inHL;
+    if (toggleMask != null) {
+      inHL = forceNonHighlight ? false : (linesFromSt < highlightLen);
+    } else {
+      var _gArr = phGate ? ((ln < vtotalView) ? phGate.g0 : phGate.g1) : null;
+      gateVal = _gArr ? _gArr[lineInFrame] : 0;
+      inHL = forceNonHighlight ? false : ((gateVal & gateOpenBit) !== 0);
+    }
     // Display counter value
     var counterVal;
     var isTrigger;
@@ -18821,7 +18896,12 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
       // 轉態發生在「被選中 bit 改變」的那一條（= R_DLY 作用的那一條）
       isTrigger = (tgK > 0) && (bitHere !== bitPrev) && inHL;
     } else {
-      // ── Normal (Phase Counter) 模式：維持原本邏輯不動 ──
+      /* ── Normal (Phase Counter) 模式 ──
+         顯示的**計數值**仍在這裡算（它就是 counter 本身，與閘門無關，且與
+         wfgCalcGpio() 的遞迴式等價：v(st)=min(iniPh,actType)、之後 +1 到 actType 歸零）。
+         v3.24.2：**觸發格改讀上游閘門**（bit2 / bit3）—— 舊版用
+         `effCnt === actType` 判，那只問「counter 有沒有數到」，沒問
+         「這一行有沒有過閘」，所以 SP_LINE 之外的行也會被標成觸發格。 */
       if (actType === 0) {
         counterVal = 0;
       } else if (linesFromSt === 0 && iniPh > actType) {
@@ -18829,8 +18909,7 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
       } else {
         counterVal = (effIniPh + linesFromSt) % cycle;
       }
-      var effCnt = (actType === 0) ? 0 : (effIniPh + linesFromSt) % cycle;
-      isTrigger = (effCnt === actType) && inHL;
+      isTrigger = ((gateVal & gateTrigBit) !== 0) && inHL;
     }
     if (!inHL) {
       // Non-highlight: grey mask + dim text (no save/restore for perf)

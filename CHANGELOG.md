@@ -22,6 +22,89 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.24.2 — 2026-08-20 ｜ PATCH ｜ ⚠ 輸出變更
+
+**R_PH_CNT / F_PH_CNT 兩列的灰色遮罩改為「投影波形產生器的逐行閘門判定」，不再自己推算一份。**
+
+### 問題（Bruce 2026-08-20 回報，已完整重現）
+
+預設 `FHD 60Hz Single Gate(LS：Dual CPV)`、VST1（`ACT_TYPE=15, R_PH=15, F_PH=13, ST_LINE=2, SP_LINE=2`），把 SP_LINE 從 2 改成 5：
+
+| SP_LINE | 舊版 R_PH_CNT 未遮到 | 舊版 F_PH_CNT 未遮到 | VST1 實際脈衝 |
+|---|---|---|---|
+| 2 | line 2 | line 4 | 1 個：2→4 |
+| **5** | **line 18** | **line 20** | **仍然只有 1 個：2→4** |
+| 18 | line 18 | line 20 | 2 個：2→4、18→20 |
+
+line 18 / line 20 不只是沒被遮，還被畫成**觸發格**（色底＋粗體），畫面等於在說「這裡有一個邊緣」，而那裡一個邊緣都沒有。更清楚的症狀：**SP_LINE=5 與 SP_LINE=18 兩列長得一模一樣**，但波形一個是單脈衝、一個是雙脈衝。
+
+### 根因
+
+遮罩過去是在繪製端**自己推**的（`wfgDrawPhCntRow()`）：
+
+```js
+var firstZero = (effIniPh === 0) ? cycle : (cycle - effIniPh);
+while (firstZero <= stToSp) { firstZero += cycle; }
+highlightLen = firstZero;      // ＝「延伸到 counter 下一次歸零」
+```
+
+化簡後是「開放到第一個落在 SP_LINE 或之後的計數器觸發行」。這個近似是為了處理 falling 的**收尾例外**（SP_LINE=2 時 line 4 的下降緣真的會打，見 `wfgCalcGpio()` 的 `line <= sp || level === 1`）而生的，在原始 preset 的 SP_LINE=2 上剛好完全正確，所以一直沒暴露。
+
+但波形產生器真正的閘門是：
+
+- **rising：`line <= sp`，沒有任何例外。**
+- **falling：`line <= sp`，或 `level === 1`（收尾一個還沒關的脈衝）。**
+- counter **不會在 SP_LINE 停止**，被擋住的是「打不打」，不是「數不數」。
+
+舊算法把「counter 還會繼續數」誤當成「這裡還會產生邊緣」，並且把只屬於 falling 的收尾例外一併套到了 rising 上 —— 這才是 line 18 / line 20 的來源。
+
+### 修法：遮罩不再有自己的演算法
+
+閘門判定只有 `wfgCalcGpio()` 的逐行掃描迴圈一個地方在做。本版在**判定的當下、位移之前**把結果記下來，繪製端直接投影：
+
+| 位置 | 改動 |
+|---|---|
+| `wfgCalcGpio()` frame 迴圈外 | 配置 `gateFrames[0..1]`（`Uint8Array(vtotal)`，只記 frame 0 與 frame 1） |
+| `wfgCalcGpio()` 逐行迴圈，兩個 `continue` 守衛之後 | `gateRec[line] |= (line <= sp) ? 3 : ((level === 1) ? 2 : 0)` — bit0＝rising 閘門開、bit1＝falling 閘門開 |
+| rising 過閘處（`rFired = true` 旁） | `gateRec[line] |= 4` |
+| falling 過閘處（`if (line <= sp \|\| level === 1)` 進入處） | `gateRec[line] \|= 8` |
+| `wfgCalcGpio()` 回傳前 | `allTransitions.phGate = { g0, g1 }`（掛在回傳陣列上，**不改函式簽章**） |
+| `wfgCalcGpioSmart()` 全部 6 條回傳路徑 | 一併帶出 `phGate` |
+| `wfgDrawInternalRows()` 呼叫處 | 從 `_wfgTransitionCache.transitions[gpioIdx].phGate` 取，傳給兩列 |
+| `wfgDrawPhCntRow()` | **刪掉 `firstZero` / `highlightLen` 那段自行推算**；`inHL` 讀 bit0/bit1、`isTrigger` 讀 bit2/bit3 |
+
+🔴 **記的是原始行號（0 ~ vtotal-1），尚未套 R_DLY / F_DLY 的跨行位移**（`rActualLine = line + rExtraLines`）。PH_CNT 兩列的座標系就是「counter 在第幾行」，用下游位移過的 `_wfgTransitionCache` 行號會偏移 —— 這是本次刻意「往上游取」而不是「取 transitions」的原因。
+
+**Toggle 信號完全不受影響**：toggle 走 `wfgCalcGpio()` 裡另一個迴圈，其遮罩自 v2.97.481 起就是「只到 SP_LINE」且有自己的 `wfgToggleCntSeq` 序列。本版對 toggle 一律供應 `phGate = null`、繪製端也不讀，既有行為一行未動。
+
+### 實測（headless Chrome、走使用者路徑：選 preset → 改 SP_LINE 數字框 → 截圖）
+
+驗收條件用 Bruce 指定的原條件，一字未改：`FHD 60Hz` / `Single-Gate` / `LS：Dual CPV` / VST1。
+
+| SP_LINE | 舊版 R / F 未遮到 | 新版 R / F 未遮到 | 判定 |
+|---|---|---|---|
+| 2 | line 2 / line 2~4 | line 2 / line 2~4 | **畫面零變化** ✅ |
+| 5 | line 2~18 / line 2~20 | line 2~5 / line 2~5 | 修正 ✅ |
+| 6 | line 2~18 / line 2~20 | line 2~6 / line 2~6 | 修正 ✅ |
+| 10 | line 2~18 / line 2~20 | line 2~10 / line 2~10 | 修正 ✅ |
+| 17 | line 2~18 / line 2~20 | line 2~17 / line 2~17 | 修正 ✅ |
+| 18 | line 2~18 / line 2~20 | line 2~18 / line 2~20 | **畫面零變化** ✅ |
+
+line 18 / line 20 的假觸發格在 SP_LINE ≤ 17 時一併消失。SP_LINE=18 時第二個 pass 真的出現，兩列一格未動。
+
+**效能**：用站上既有的 `window._wfgPerfEnabled` 儀表量 `wfgCalcGpioSmart()` 全量重建（VTOTAL=4000/4001、FRAME 重複數 4、19 支數位信號、每支掃 3 個 frame），各取 12 次：舊版中位數 **7.1 ms**（4.9~16.2），新版中位數 **6.6 ms**（5.1~55.4，首筆為 JIT 暖機離群值）。差異落在雜訊內 —— 每支信號只多寫 2 × VTOTAL 個 byte，且 `wfgCalcGpio()` 每次快取失效只跑一次（週期性信號固定只掃 3 個 frame，之後靠模板展開）。記憶體：2 × VTOTAL bytes/信號（VTOTAL 4000、25 個 slot ≈ 200 KB）。
+
+### 附帶的行為變更（都在 `⚠ 輸出變更` 的範圍內）
+
+1. **遮罩改為逐 frame**：frame 0 用 `g0`、frame ≥1 用 `g1`。舊版所有 frame 畫同一套。`F_ST_SEL` 未勾選時 frame 0（有 frameReset）與 frame ≥1（延續前一個 frame）的閘門本來就不同，舊版必有一邊是錯的。
+   ⚠️ 已知限制：週期為 2 的信號，frame 2/4/… 會沿用 frame 1 的紀錄。舊版是「所有 frame 都用同一個靜態推算」，故本版不會比舊版差，但也還沒做到逐週期精確。
+2. **`SP_LINE < ST_LINE`**：舊版會「繞過 frame 尾端」開放一大段；依 `line <= sp`，這種設定其實一個 rising 都不會打，新版全遮。
+3. **類比虛擬 slot（SD1 / CKO*）**：它們沒有相位計數器（`phGate = null`）→ 兩列全遮。舊版會因為預設 `ACT_TYPE=0, ST_LINE=0, SP_LINE=0` 而把每個 frame 的 line 0 那一格畫成未遮。只有在「第一條可見通道是類比通道且未 hover」時看得到差別（hover 時舊版本來就已經靠 `_phNoPulse` 全遮）。
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表逐欄 ——「操作流程」零改變（沒有任何控制項新增、移除或移位）；「功能增減」不增不減；「既有功能的輸出」→ 落在 **PATCH 那一格「修正為原本就該有的行為」**，不是 MAJOR 的「主動改變」：這一格的分野是「修 bug」還是「主動改設計」，而**使用者本人在 2026-08-20 明確認定舊行為是錯的**（原話：「這個遮罩的範圍應該是遮錯了」「遮罩顯示的範圍不合理」）—— 這是外部事實，不是撰稿者的解讀。逐項判：**R1 適用 → PATCH**，且因為同一組設定（SP_LINE=5/6/10/17）新舊版截圖不同、拿舊版建立的像素基線會失效，依〈`⚠ 輸出變更` 範圍定義〉的「版面／構圖類」與「同一操作序列得到不同結果（即使舊結果本身是 bug 造成的）」兩條，**掛 `⚠ 輸出變更`**；R2 不適用（不開新波、不進 MAJOR）；R3 不適用（使用者能做的事一件都沒多，兩列本來就在）；R4 不適用（起始狀態與任何預設值皆未變）。取最高者 → **PATCH**。§2 案例 2「改一個 bug → PATCH，若輸出會變加 ⚠ 輸出變更」與案例 4「重構、使用者無感 → PATCH（風險高不等於版號要大）」兩條同時支持。**未落在 MAJOR，因此無需 `MAJOR 核准：`。**
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.24.1 — 2026-08-20 ｜ PATCH
 
 **右側卡片「電壓游標」改名為「類比垂直設定」**（依 Bruce 2026-08-20 指示）。卡片位置、展開／收合行為、卡片內每一項控制項（垂直刻度、固定／自動、中心電壓 −／+、範圍、各條游標的 ◉／○ 開關、游標範圍提示）全部不動，只換卡片標題那一行字。
