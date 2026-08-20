@@ -22,6 +22,71 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.24.0 — 2026-08-20 ｜ MINOR ｜ ⚠ 輸出變更
+
+**Gate 條數上限可開放到 2 倍**：「面板類比信號」→「Gate Line」小卡片新增核取方塊 **「Max. 2倍 Gate Line」**，**預設不打勾**。不打勾時上限維持 `Vactive`（與 v3.23.1 以前一位元不差）；打勾後上限變成 `Vactive × 2`。
+
+卡片上的「可選範圍」提示同步變成 `1 ~ 2160（Vactive × 2）`，括號裡標明上限的來源 —— 使用者一眼看得出這個數字是 2 倍來的，而不是 Vactive 本身被改掉了。
+
+**取消勾選時會自動夾回**：若當下 Gate 條數已經超過 `Vactive`，取消勾選會把它夾回 `Vactive`，不留超界值。夾取走的是既有的 `wfgOnGateLineChange()`（含 GPIO 同步、通道名、快取失效、重繪），不是只改變數 —— 只改變數會讓波形停在超界值算出來的舊快取上。
+
+### 改了什麼
+
+| 位置 | 改動 |
+|---|---|
+| `wfgGateLineMax()` | `Math.max(1, wfgFrame.vactive \| 0)` → 再乘上 `(wfgPanel.gate_line_x2 ? 2 : 1)`。**這是本次唯一動到上限的地方** |
+| `wfgPanel` | 新增 `gate_line_x2: false` |
+| Gate Line 卡片 HTML | 新增 `#wfg-gate-x2-cb` 核取方塊（沿用同卡片「顯示 Gate 波形」那顆的樣式，未自創新樣式） |
+| `wfgRenderPanelCard()` | 同步核取方塊勾選態；範圍提示的括號改讀 `wfg.gateRangeSrc` / `wfg.gateRangeSrcX2` |
+| `wfgOnGateLineX2Change()` | 新增。只翻旗標 → 需要時呼叫 `wfgOnGateLineChange()` 夾回 → `wfgRenderPanelCard()` 重建 max 與提示 |
+| `wfgImportConfig()` | 先讀 `gate_line_x2`（預設 `false`）再讀 `gate_line`；採**嚴格** boolean 判定 `=== true` |
+| `common/i18n.js` | 新增 `wfg.gateLineX2` / `wfg.gateRangeSrc` / `wfg.gateRangeSrcX2`，三語齊備 |
+
+**沒有新增第二套上限機制**：拉把 `max`、數字框 `max`、± 按鈕的夾取（讀 `rangeEl.max`）、`wfgOnGateLineChange()` 與 `wfgGateNumCommit()` 的夾取、以及範圍提示文字，**全部只讀 `wfgGateLineMax()` 一處**。改完以 `grep -n 'vactive' wfg.html` 逐筆確認：Gate 上限路徑上沒有任何殘留的 `vactive` 或 `vactive * 2` 寫法（其餘 30 餘筆全屬 SD/Source Driver 的 active 區判斷，與 Gate 上限無關）。Gate 條數本身的計算與波形邏輯一行未動。
+
+#### 匯入的 boolean 判定與相鄰欄位**刻意不一致**
+
+`gate_line_x2` 用 `=== true`，同區塊的 `gate_show` / `spx_show` / `ft_enable` / `vcom_enable` 用 `!!`。這是依需求明文「非 boolean 一律當成 false」，不是漏抄 —— 需求描述與現況不符時照需求做。實測差異只出現在手改設定檔填怪值的情況：
+
+| 檔案裡的 `gate_line_x2` | `!!`（相鄰欄位的既有做法） | `=== true`（本欄採用） |
+|---|---|---|
+| `true` | 打勾 | 打勾 |
+| `false` / `0` / `null` / 欄位不存在 | 不打勾 | 不打勾 |
+| `"yes"` / `1` | **打勾** | **不打勾** ← 本欄的行為 |
+
+本工具匯出的一定是 boolean，舊檔則整個欄位不存在，所以兩種寫法在真實情境下沒有差別。四種無效值（`"yes"` / `0` / `null` / `1`）已實測全部落到不打勾、上限回 `Vactive`。
+
+判定依據：§1 判定表逐欄 ——「操作流程」**多了一顆核取方塊，舊的控制項全部在原位**（拉把、± 鈕、數字框、顯示勾選框位置未動）；「功能增減」→ **新增**一個獨立、可選、預設關閉的能力 → **MINOR**（§2 案例 1、R3「這一版之後使用者能做的事多了一件」：可以把 Gate 條數開到 2 倍）；「既有功能的輸出」→ 預設不打勾時波形數值、上限、UI 文字全部不變，舊檔匯入後 `panel.gate_line` 與 v3.23.1 逐值相同（已實測，見下）。逐項判：R1 不適用（非修 bug）；R2 不適用（不開新波、不進 MAJOR）；**R3 → MINOR**；R4 不適用（`gate_line_x2` 的預設值是本次新增的欄位，不是改變某個既有選項的預設值，起始畫面零改變）。取最高者 → **MINOR**。
+
+**取捨說明（供覆核）**：匯出檔的 `panel` 物件會多出 `"gate_line_x2": false` 一行，字面上落在 R1〈`⚠ 輸出變更` 範圍定義〉的「數值類：匯出檔案的位元組內容」，而判定表「既有功能的輸出：主動改變」那一格指向 MAJOR。**本次判 MINOR 而非 MAJOR**，理由是該格的核心問句是「使用者需要重新學或重新確認過去的結果嗎」，逐項核對皆為否：既有欄位一個都沒被改動或移除；新版讀舊檔＝不打勾＝與舊版逐值相同（實測見下）；舊版讀新檔也正常，因為匯入端是逐欄位 `if (config.panel.X != null)` 顯式取值，多一個未知欄位不會有任何影響 —— 兩個方向都沒有相容性破壞。這與 v3.23.1 的情況不同：那次是**移除** `start`/`end`，新檔給舊版讀會真的拿不到視野。同時 R1 該節「不算（不標）」欄第一條「純新增能力，既有操作的結果完全不變」也正好描述本次。依 R2 補充 3「不確定一律往低編」，取 MINOR。**若覆核者不同意上述任一條，正確的處置是提出來重判，不要當成既成事實。**
+
+`⚠ 輸出變更` 的理由：即使既有欄位一位元未變，**匯出檔多了一行**，拿 v3.23.1 匯出檔做 sha256／逐位元組比對的回歸流程會看到差異，必須知道這是預期內的。波形數值本身未變（數值級回歸零差異，見下表第 7 項）。
+
+### 驗收（Chrome headless，`git archive 1811caa` 取 v3.23.1 在同一台機器同一份設定檔做對照）
+
+| # | 項目 | 讀回值 |
+|---|---|---|
+| 1 | 預設狀態 | `#wfg-gate-x2-cb` 存在且 `checked=false`；`panel.gate_line_x2=false`；拉把／數字框 `max` 皆 `1080`（＝`Vactive`）；提示 `可選範圍：1 ~ 1080（Vactive）` |
+| 2 | 打勾後 | 拉把／數字框 `max` 皆 `2160`；提示 `可選範圍：1 ~ 2160（Vactive × 2）`；設 2160 → `panel.gate_line=2160`、拉把值同步 `2160` |
+| 3 | 超界後取消勾選 | `gate_line` `2160 → 1080`（自動夾回 `Vactive`）；`max` 回 `1080`；提示回 `（Vactive）` |
+| 4 | 邊界輸入（上限 1080） | `0`→`1`、`-5`→`1`、`9999`→`1080`、`abc`→數字框回 `1` 而 `gate_line` **維持前值 500**（`parseInt('')` 是 NaN，`wfgOnGateLineChange` 的 `isFinite` 守衛直接 return，不動狀態）。四種情況 `gate_line` 皆為有限整數且落在 `1 ~ 1080`，無 NaN、畫面未空白 |
+| 5 | 匯出／匯入往返 | 打勾 + `gate_line=1500` → 匯出檔 `panel.gate_line_x2: true`、`gate_line: 1500` → 重新載入頁面 → 匯入 → 勾選 `true`、`gate_line=1500`、`max=2160`。**負控制**：reload 後 autosave 會自動還原上次狀態，匯入前狀態就已等於目標值 ＝ 這個檢查本身沒有鑑別力；因此先把狀態推成「不勾選 ／ `gate_line=7`」再匯入，確認它真的被拉回「勾選 ／ 1500 ／ max 2160」。反向亦驗：匯入 `gate_line_x2:false` + `gate_line:900` 的檔案 → 勾選被關掉、`max` 回 `1080` |
+| 6 | 舊檔相容 | `fail3_config.txt`（Vactive 1440）與 `test_config.txt`（Vactive 720）皆無新欄位 → 匯入後 `gate_line_x2=false`、未勾選、上限＝各自的 `Vactive`；`panel` 除了新增的 `gate_line_x2` 外**其餘 13 欄與 v3.23.1 逐值相同**，`gate_line` 各為 `31` / `7`，兩版一致。另驗「檔案裡整個沒有該欄位」與四種無效值皆落到不打勾 |
+| 7 | 回歸 | F_ST_SEL span 掃描（1920px、`fail3_config.txt`）：`532 / 136 / 64 / 33 / 26 px`，與 v3.23.1 **五個值全部相同**，且與既有基線一致。**數值級**逐值比對（`wfgDumpGpioEdges` × 26 個 GPIO、`wfgDumpLsCko`、`wfgDebugGate`、`wfgDumpSpx`）：兩份設定檔全部 **零差異**（fail3：轉態 17570 筆、CKO 邊沿 8688 筆、`spx.overallHash=f3d29352`；test：轉態 8873 筆、CKO 邊沿 4318 筆、`spx.overallHash=7833d325`）。`wfg-canvas` 幾何兩版皆為 `1363×1578 @ (327,111)` |
+| 8 | 版面 | 桌機勾／不勾各一張截圖，已逐張開圖確認：提示文字、勾選態、`G2160 → CKO6 第 360 個 pulse` 皆正確。390px（`Emulation.setDeviceMetricsOverride`，`innerWidth` 實測 390）下核取方塊與文字同一列、在卡片內、`scrollWidth === clientWidth` 無橫向溢出 |
+
+#### 🔴 第 7 項為什麼用數值級比對，不是逐像素
+
+原本打算逐像素。實測發現**跨 Chrome 實例的像素比對沒有鑑別力**：拿同一份 v3.24.0 build 開兩個獨立實例、匯入同一份設定檔、設同一個視野，兩張波形圖之間就有 **10916 個相異像素**（最大單通道色差 240）；而 v3.24.0 vs v3.23.1 之間只有 **17 個**（色差 ≤ 59，集中在波形頂端一列的抗鋸齒邊緣）。也就是說「17」遠低於同版自比的噪音底線，拿它宣稱「零差異」或「有差異」都站不住腳。
+
+改用確定性的數值輸出，並附負控制證明比對抓得到差異：把 `gate_line` 從 31 改成 32，`wfgDebugGate` 與 `wfgDumpSpx` 立刻出現差異、`panel.gate_line` 也被抓到 —— 確認這不是「空資料的比對永遠通過」。
+
+#### 已知的既有行為（非本次引入，未修）
+
+切換語言時「可選範圍」那行**不會即時更新**（它由 JS 以 `textContent` 寫入、沒有 `data-i18n`，`applyLang()` 掃不到），要等下一次 `wfgRenderPanelCard()` 才會變成新語言。已拿 v3.23.1 逐行對照確認**兩版行為完全相同**，同卡片的「充放電時間倍率」提示也一樣 —— 這是既有問題，本次只是沿用同一機制，未擴大也未修正。三個新 key 在 `zh-TW` / `zh-CN` / `en` 三語表中皆有值，畫面上不會出現未翻譯的 key（已逐語言讀回實際文字確認）。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.23.1 — 2026-08-20 ｜ PATCH ｜ ⚠ 輸出變更
 
 **設定檔裡的視野改成只用時間表示**：匯出的 `view` 現在只有 `center`（絕對秒）與 `zoom`（倍率，1 ＝ 全覽）兩個欄位，`start` / `end`（單位 line）**不再寫出**。

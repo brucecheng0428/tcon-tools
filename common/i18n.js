@@ -745,6 +745,11 @@ var I18N = {
   'wfg.panelSignals':       { 'zh-TW': '面板類比信號', 'en': 'Panel Analog Signals', 'zh-CN': '面板模拟信号' },
   'wfg.gateLineLabel':      { 'zh-TW': 'Gate 條數 (G)', 'en': 'Gate line (G)', 'zh-CN': 'Gate 条数 (G)' },
   'wfg.gateRangeHint':      { 'zh-TW': '可選範圍', 'en': 'Range', 'zh-CN': '可选范围' },
+  // v3.24.0: 「可選範圍：1 ~ N（…）」括號裡的上限來源。三語同字（Vactive 是暫存器名，
+  // 不翻譯），但仍走 t() 而非寫死，之後要改措辭時三語才在同一處。
+  'wfg.gateRangeSrc':       { 'zh-TW': 'Vactive', 'en': 'Vactive', 'zh-CN': 'Vactive' },
+  'wfg.gateRangeSrcX2':     { 'zh-TW': 'Vactive × 2', 'en': 'Vactive × 2', 'zh-CN': 'Vactive × 2' },
+  'wfg.gateLineX2':         { 'zh-TW': 'Max. 2倍 Gate Line', 'en': 'Max. 2× gate line', 'zh-CN': 'Max. 2倍 Gate Line' },
   'wfg.gatePulseNth':       { 'zh-TW': '第 {n} 個 pulse', 'en': 'pulse #{n}', 'zh-CN': '第 {n} 个 pulse' },
   'wfg.gateShow':           { 'zh-TW': '在波形區顯示 Gate 波形', 'en': 'Show gate waveform', 'zh-CN': '在波形区显示 Gate 波形' },
   'wfg.gateRcMult':         { 'zh-TW': '充放電時間倍率', 'en': 'Charge/discharge time multiplier', 'zh-CN': '充放电时间倍率' },

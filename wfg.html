@@ -1213,6 +1213,10 @@
               <div class="wfg-signal-mini-body">
                 <div style="font-size:10px;color:#64748b;margin-bottom:6px" id="wfg-gate-range-hint"></div>
                 <div class="wfg-field"><label style="color:#e2e8f0" data-i18n="wfg.gateLineLabel">Gate 條數</label><div class="wfg-slider-row" id="wfg-gateline-row"></div></div>
+                <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#e2e8f0;cursor:pointer">
+                  <input type="checkbox" id="wfg-gate-x2-cb" onchange="wfgOnGateLineX2Change(this.checked)" style="accent-color:#22c55e;cursor:pointer;flex:0 0 auto">
+                  <span data-i18n="wfg.gateLineX2">Max. 2倍 Gate Line</span>
+                </label>
                 <div id="wfg-gate-map" style="margin-top:6px;padding:6px 8px;background:#0f172a;border-radius:6px;border:1px solid #334155;font-size:11px;color:#94a3b8"></div>
                 <div class="wfg-field" style="margin-top:10px"><label style="color:#e2e8f0" data-i18n="wfg.gateRcMult">充放電時間倍率</label>
                   <div style="font-size:10px;color:#64748b;margin-bottom:4px" id="wfg-gate-rc-hint"></div>
@@ -1794,8 +1798,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3231"></script>
-<script src="common/i18n.js?v=20260820wfg3231"></script>
+<script src="common/version.js?v=20260820wfg3240"></script>
+<script src="common/i18n.js?v=20260820wfg3240"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -1934,7 +1938,12 @@ var wfgPanel = { gate_line: 1, gate_show: true, gate_rc_mult: WFG_GATE_RC_MULT_D
                  spx_rc: WFG_SPX_RC_DEFAULT, spx_show: true,
                  ft_enable: true, ft_d0: WFG_FT_D_DEFAULT,
                  ft_d127: WFG_FT_D_DEFAULT, ft_d255: WFG_FT_D_DEFAULT,
-                 vcom_enable: true, vcom_v: null };
+                 vcom_enable: true, vcom_v: null,
+                 /* v3.24.0: gate_line_x2 ＝「Max. 2倍 Gate Line」核取方塊。
+                    預設 false ＝ 上限維持 Vactive（與 v3.23.1 以前完全相同）。
+                    🔴 這個旗標**只影響上限**，不參與 Gate 條數本身的計算或波形繪製；
+                    上限的唯一實作是 wfgGateLineMax()，不得在別處另寫一份 vactive×2。 */
+                 gate_line_x2: false };
 // VCOM 的可調範圍：SD1 的 [VGMA14, VGMA1]。回 null 代表取不到（SD1 不存在／未啟用／
 // 不是 Source Driver），此時 UI 顯示「找不到 SD1」而不是拿一組編出來的預設值頂替。
 // 兩端排序後回傳：使用者把 VGMA14 設得比 VGMA1 高時（欄位本身不擋）夾制才不會 lo > hi。
@@ -24870,7 +24879,13 @@ window.wfgFrmNoNumSync = wfgFrmNoNumSync;
 window.wfgFrmNoNudge = wfgFrmNoNudge;
 
 // ═══════════ 面板信號 — Gate Line ═══════════
-function wfgGateLineMax() { return Math.max(1, wfgFrame.vactive | 0); }
+/* Gate 條數上限的**唯一來源**。拉把 max、數字框 max、± 按鈕的夾取、
+   wfgOnGateLineChange()／wfgGateNumCommit() 的夾取、以及卡片上的「可選範圍」
+   提示文字，全部只讀這一個函式 —— 不要在任何地方另寫一份 vactive 或 vactive×2。
+   v3.24.0: 勾選「Max. 2倍 Gate Line」後上限變成 2 倍（預設不勾 ＝ 維持 Vactive）。 */
+function wfgGateLineMax() {
+  return Math.max(1, wfgFrame.vactive | 0) * (wfgPanel.gate_line_x2 ? 2 : 1);
+}
 
 function wfgGateSliderHtml(min, max, value) {
   return '<button type="button" class="wfg-slider-btn" onclick="wfgGateNudge(this,-1)">−</button>'
@@ -24893,7 +24908,12 @@ function wfgRenderPanelCard() {
   row.innerHTML = wfgGateSliderHtml(1, maxLine, gl);
   if (typeof wfgAttachHoldRepeat === 'function') wfgAttachHoldRepeat(row);
   var hint = document.getElementById('wfg-gate-range-hint');
-  if (hint) hint.textContent = t('wfg.gateRangeHint') + '：1 ~ ' + maxLine + '（Vactive）';
+  // 括號裡標明上限是哪來的：不勾 →「Vactive」，勾了 →「Vactive × 2」，
+  // 使用者一眼就看得出這個 2160 是 2 倍來的而不是 Vactive 本身變了。
+  if (hint) hint.textContent = t('wfg.gateRangeHint') + '：1 ~ ' + maxLine
+    + '（' + t(wfgPanel.gate_line_x2 ? 'wfg.gateRangeSrcX2' : 'wfg.gateRangeSrc') + '）';
+  var x2cb = document.getElementById('wfg-gate-x2-cb');
+  if (x2cb) x2cb.checked = !!wfgPanel.gate_line_x2;
   var cb = document.getElementById('wfg-gate-show-cb');
   if (cb) cb.checked = !!wfgPanel.gate_show;
   wfgRenderGateRcRow();
@@ -25671,6 +25691,19 @@ function wfgOnGateShowChange(checked) {
 function wfgGateNumCommit(numEl) {
   numEl.value = Math.max(1, Math.min(wfgGateLineMax(), parseInt(numEl.value, 10) || 1));
 }
+/* v3.24.0: 「Max. 2倍 Gate Line」核取方塊。
+   本函式**不自己算上限**，只翻旗標；上限由 wfgGateLineMax() 一處決定。
+   🔴 取消勾選時若現值已超過 Vactive，要主動夾回 —— 而且必須走
+   wfgOnGateLineChange()（既有的夾取＋GPIO 同步＋通道名＋失效＋重繪那條路徑），
+   不能只改 wfgPanel.gate_line，否則波形會停在超界值算出來的舊快取上。
+   wfgRenderPanelCard() 隨後重建拉把／數字框的 max 與範圍提示文字。 */
+function wfgOnGateLineX2Change(checked) {
+  wfgPanel.gate_line_x2 = !!checked;
+  var gl = Math.max(1, Math.min(wfgGateLineMax(), wfgPanel.gate_line | 0));
+  if (gl !== wfgPanel.gate_line) wfgOnGateLineChange(gl);
+  wfgRenderPanelCard();
+}
+window.wfgOnGateLineX2Change = wfgOnGateLineX2Change;
 window.wfgGateNumCommit = wfgGateNumCommit;
 window.wfgGateSliderSync = wfgGateSliderSync;
 window.wfgGateNumSync = wfgGateNumSync;
@@ -32252,7 +32285,20 @@ window.wfgImportConfig = function(jsonStr) {
   // v3.13.0: 舊檔（v3.12.0 及之前）沒有 vcom_* → 落回預設（啟用 + 跟著中點走）
   wfgPanel.vcom_enable = true;
   wfgPanel.vcom_v = null;
+  // v3.24.0: 舊檔（v3.23.1 及之前）沒有 gate_line_x2 → 一律當成**不打勾**，
+  // 上限落回 Vactive，與舊版逐值相同。這是硬相容要求，不可改成「沿用目前狀態」。
+  wfgPanel.gate_line_x2 = false;
   if (config.panel) {
+    /* 順序有意義：x2 要先讀，gate_line 的夾取才會用到正確的上限。
+       （gate_line 這行本身只夾下界，上界統一由 wfgRenderPanelCard() 依
+       wfgGateLineMax() 夾 —— 仍是同一套上限實作，這裡不另寫一份。） */
+    /* 🔴 這裡是**嚴格** boolean 判定（`=== true`），不是同區塊其他欄位用的 `!!`：
+       只有 true 算打勾，'yes' / 1 / 'true' 這類 truthy 值一律當成 false。
+       與 gate_show / spx_show / ft_enable / vcom_enable 不一致是**刻意的**，
+       依需求明文「非 boolean 一律當成 false」，不是漏抄。
+       實務上兩種寫法沒有差別 —— 本工具匯出的一定是 boolean，舊檔則整個欄位
+       不存在；差別只出現在有人手改設定檔填了怪值。 */
+    if (config.panel.gate_line_x2 != null) wfgPanel.gate_line_x2 = (config.panel.gate_line_x2 === true);
     if (config.panel.gate_line != null) wfgPanel.gate_line = Math.max(1, parseInt(config.panel.gate_line, 10) || 1);
     if (config.panel.gate_show != null) wfgPanel.gate_show = !!config.panel.gate_show;
     if (config.panel.spx_rc != null) wfgPanel.spx_rc = wfgClampSpxRc(config.panel.spx_rc);
