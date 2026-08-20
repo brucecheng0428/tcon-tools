@@ -1827,7 +1827,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260821wfg3262"></script>
+<script src="common/version.js?v=20260821wfg3263"></script>
 <script src="common/i18n.js?v=20260820wfg3260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -27471,7 +27471,11 @@ function wfgAutoRestore() {
     _wfgAutoSaveEnabled = false; // prevent re-save during import
     var ok = false;
     try {
-      ok = window.wfgImportConfig(wrapper.config);
+      /* v3.26.3：keepCurrentMode —— autosave 還原不得改變目前分頁。
+         這條路徑的觸發者是「使用者剛按下 TCON 分頁」或「頁面載入」，兩者的分頁都已經
+         由別的機制決定好了（wfgGetInitialMode() 讀 hash / sessionStorage），
+         再讓存檔裡的 currentMode 插手只會把使用者的操作蓋掉。詳見 wfgImportConfig 內註解。 */
+      ok = window.wfgImportConfig(wrapper.config, { keepCurrentMode: true });
     } catch (e2) {
       console.warn('[wfg] autosave: 套用存檔時發生例外，保持目前狀態（' + (e2 && e2.message) + '）');
       ok = false;
@@ -32584,7 +32588,11 @@ window.wfgExportClipboard = async function() {
   }
 };
 
-window.wfgImportConfig = function(jsonStr) {
+/* options（v3.26.3 新增，選填）：
+     keepCurrentMode: true → **不要**套用設定檔裡的 `currentMode`，維持呼叫當下的分頁。
+       只有 autosave 自動還原會用（見 wfgAutoRestore()），使用者主動匯入／貼上不受影響。 */
+window.wfgImportConfig = function(jsonStr, options) {
+  options = options || {};
   var config;
   try {
     config = JSON.parse(jsonStr);
@@ -32914,7 +32922,22 @@ window.wfgImportConfig = function(jsonStr) {
   //   因此「匯入後離開再回到本頁」仍然只會經過 wfgSwitchMode 那條、結論不變。
   //   若日後替 wfgEnterPage() 加上呼叫者（例如把 wfg.html 接回 SPA），這裡就必須補
   //   wfgTconEntryReady = true，否則「匯入後離開再回到本頁」會把匯入的內容蓋掉。
-  if (config.currentMode) wfgSwitchMode(config.currentMode, { skipTconAutoRestore: true });
+  /* 🔴 v3.26.3：autosave 自動還原時**不可以**套用存檔裡的 currentMode。
+     實測（2026-08-21，v3.26.2，autosave 的 currentMode 是 'la'）的事件序列：
+       t=10005ms  使用者點「TCON Timing 調整練習」→ wfgSwitchMode('tcon') → hash 變 #wfg
+       t=10042ms  wfgPrepareTconTimingEntry 排的 _runRestore 跑起來
+                  → wfgAutoRestore() → wfgImportConfig() → **這一行** → wfgSwitchMode('la')
+                  → hash 變回 #wfg-la  ⇒ 畫面「切過去又自己彈回 LA」
+     兩者只差 **37 ms**，所以使用者看到的是「點一下彈回去、快速點兩三下才留得住」——
+     第二下發生在彈回之後，而那時 wfgTconRestoreDone 已為 true、不會再還原，於是留住了。
+
+     為什麼只擋 autosave 這條：使用者**主動**匯入一份設定檔時，還原它存的分頁是對的
+     （檔案裡就寫著要在哪個分頁看）；但 autosave 還原是「使用者剛剛按下 TCON」才觸發的，
+     這時候把分頁改掉，等於推翻他當下的操作。分頁的初始值本來就另有來源
+     （wfgGetInitialMode() 讀 hash / sessionStorage），不靠這份設定檔。 */
+  if (config.currentMode && !options.keepCurrentMode) {
+    wfgSwitchMode(config.currentMode, { skipTconAutoRestore: true });
+  }
 
   // ── Pulse Items ──
   if (config.pulseItems && Array.isArray(config.pulseItems)) {

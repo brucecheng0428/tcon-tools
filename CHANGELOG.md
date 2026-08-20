@@ -22,6 +22,56 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.26.3 — 2026-08-21 ｜ PATCH
+
+**修「點一下切到 TCON 分頁，畫面過去了又自己彈回 LA」。**（Bruce 2026-08-21 回報：「點一下 → 有切過去，然後又自己跳回 LA 分頁。快速連點兩三下 → 才留得住。」）
+
+### 是誰把 hash 改回 `#wfg-la`：抓到現行犯
+
+在文件建立當下就注入 instrumentation（CDP `Page.addScriptToEvaluateOnNewDocument`，攔 `history.replaceState`／`pushState`／`hashchange` 並記 `new Error().stack`），每一輪都真正重新載入文件。修正前（v3.26.2）**每一輪的三筆 hash 變更完全一致**：
+
+| 時間 | hash 變成 | 是誰改的（stack） |
+|---|---|---|
+| t=159 ms | `wfg-la` | `wfgPersistMode ← wfgSwitchMode ← wfgInit`（載入時依 sessionStorage 進 LA，正常） |
+| t=10,000 ms | `wfg` | `wfgPersistMode ← wfgSwitchMode ← HTMLButtonElement.onclick`（**使用者這一下點擊**） |
+| **t=10,036 ms** | **`wfg-la`** | `wfgPersistMode ← wfgSwitchMode ← window.wfgImportConfig(:32917) ← wfgAutoRestore(:27474) ← _runRestore(:5657)` |
+
+**兩者只差 36 ms。** 點擊觸發的 `wfgPrepareTconTimingEntry()` 會排一個延後的 `_runRestore` → `wfgAutoRestore()` → `wfgImportConfig()`，而 `wfgImportConfig()` 的最後有一行
+`if (config.currentMode) wfgSwitchMode(config.currentMode, {skipTconAutoRestore:true});` ——
+Bruce 的 autosave 是**在 LA 分頁時存下來的**，所以 `config.currentMode === 'la'`，於是還原的最後一個動作就是把分頁切回 LA。
+
+**這也解釋了「快速點兩三下才留得住」**：第一下已經把還原跑完、`wfgTconRestoreDone` 變成 true，第二下就不會再觸發還原，自然留得住。這不是 timing 運氣，是**第一下必然被彈回、第二下必然成功**。
+
+> 與 v3.26.1 的關係：v3.26.1 把「每次切分頁都重跑還原」改成「一輪頁面生命週期只跑第一次」，堵塞從 211 秒降到 0.3 秒 —— 於是**原本被 211 秒凍結畫面蓋住的這個彈回，浮出來變成看得見的症狀**。彈回本身在 v3.26.1 之前就存在，不是 v3.26.1 造成的。
+
+### 修法：autosave 還原不得改變目前分頁
+
+`wfgImportConfig(jsonStr, options)` 新增選填的 `options.keepCurrentMode`；只有 `wfgAutoRestore()` 那一個呼叫點傳 `true`。
+
+- **使用者主動匯入設定檔／貼上 → 行為完全不變**：檔案裡寫著要在哪個分頁看，就切過去（三個呼叫點 `wfg.html:33008`／`33299`／`33329` 一個字都沒動）。
+- **autosave 自動還原 → 不碰分頁**：它的觸發者是「使用者剛按下 TCON 分頁」或「頁面載入」，兩者的分頁都已經另有來源決定（`wfgGetInitialMode()` 讀 hash／sessionStorage），存檔裡的 `currentMode` 沒有立場推翻使用者當下的操作。
+
+### 驗收（headless Chrome，真實座標點擊，autosave 用 Bruce 那份 timing02 且 `currentMode:'la'`）
+
+依 Bruce 指定的條件：**只點一下**，等 3 秒，記錄 `location.hash` 與實際顯示的分頁，重複 **10 次**。
+
+| 版本 | 單擊 10 次 | 結果 |
+|---|---|---|
+| v3.26.2（修正前） | 10 次 | **彈回 10/10**（`hash:"#wfg-la"`、`#wfg-tcon-content: none`） |
+| **v3.26.3（修正後）** | 10 次 | **留在 WFG 10/10**（`hash:"#wfg"`、`#wfg-tcon-content: block`、`sessionStorage: tcon`） |
+
+修正後同一輪的 hash 變更只剩兩筆（載入那筆 ＋ 使用者點擊那筆），**第三筆 `replaceState → wfg-la` 整個消失**。
+
+- **連點兩下**（Bruce 原本用來繞過的操作）：7 次全部留在 WFG，沒有因為這次修改而壞掉。
+- **負控制**（證明沒有把整條匯入路徑一起關掉）：在 TCON 分頁直接匯入 `currentMode:'la'` 的設定檔 → 切到 LA ✅；再匯入 `currentMode:'tcon'` 的 → 切回 TCON ✅。**使用者主動匯入的分頁還原仍然有效。**
+
+> 測試環境備註：同一個 headless Chrome 連續重新載入 6 次以上會被系統以記憶體壓力殺掉（log 斷在一半、`stderr` 沒有 traceback ＝ SIGKILL 的指紋），所以單擊 10 次是分兩批 5 次跑的（5/5 ＋ 5/5）；連點兩下那組排 5＋3，第一批的第 5 次因此中止，實際完成 **7 次**（4 ＋ 3）—— **中止不是失敗，但也不當成功計入**。
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表逐欄 ——「既有功能的輸出」→「**修正為原本就該有的行為**」（點哪個分頁就該留在哪個分頁）；「操作流程」零改變（沒有任何按鈕移位或消失）；「功能增減」不增不減（`options.keepCurrentMode` 是內部參數，使用者看不到，主動匯入的行為一位元未變）。逐項判：**R1 適用 → PATCH**；R2 不適用（不開新波）；R3 不適用（使用者能做的事沒有多一件，是原本就該能做的事終於做得到）；R4 不適用（起始狀態與預設值皆未變 —— 載入時進哪個分頁仍由 hash／sessionStorage 決定，這次改的是「還原完之後不准再改分頁」）。取最高者 → **PATCH**。
+**不掛 `⚠ 輸出變更`**：波形數值、計算結果、匯出設定檔的位元組內容一位元未變；`wfgScreenshot()` 只合成 `#wfg-canvas` ＋ `#wfg-labels`，分頁切換不在其匯出範圍內，既有像素基線不受影響 —— 命中 R1〈範圍定義〉「不算（不標）」那一側（與同性質的 v3.26.1 ① 判法一致）。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.26.2 — 2026-08-21 ｜ PATCH ｜ ⚠ 輸出變更
 
 **WFG 分頁右側欄加寬到與 LA 分頁完全相同，切分頁時右側卡片不再抽動。**（依 Bruce 2026-08-21 指示）
