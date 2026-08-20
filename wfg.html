@@ -1814,7 +1814,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3251"></script>
+<script src="common/version.js?v=20260820wfg3252"></script>
 <script src="common/i18n.js?v=20260820wfg3241"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -31698,19 +31698,40 @@ function wfgMeasSelGetEdges(chIdx) {
   if (gpio && gpio.waveform_type) return out; // 排除類比通道
   var cache = wfgEnsureTransitions();
   if (!cache) return out;
-  var isDual = wfgFrame.gateType === 'dual';
-  var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
-  var dclkFreqHz = wfgFrame.dclk * 1e6;
-  var timePerLine = dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
+  // v3.25.2：line → 秒的換算改走唯一來源 wfgTimePerLine()（式子與原本逐字相同，
+  //   見該函式 v3.21.0 的說明：抄一份等於多一個會各自漂移的來源）
+  var timePerLine = wfgTimePerLine();
   if (timePerLine <= 0) return out;
   var oaxR = wfgGetOaxForRange(ch.gpioIdx, cache.transitions, cache.effHtotal, 0, wfgTotalLines());
   var trans = (oaxR && oaxR.transitions) || [];
   var effHt = cache.effHtotal;
+  /* ═══ v3.25.2：只收「**準位真的改變**」的轉態 ═══════════════════════════════
+     下游 wfgMeasSelCompute() 是用 wfgLaEdgeTypeForIndex()（wfg.html:8255）判斷
+     第幾個邊緣是 rising，而那支是**純奇偶**：
+         before = (initialLevel + (edgeIndex & 1)) & 1;  before ? 'falling' : 'rising'
+     也就是它假設「邊緣陣列嚴格交替」。LA 分頁的邊緣來自解碼後的取樣流，邊緣依定義
+     就是準位改變，這個前提成立；**但 wfg 的 transitions 陣列不成立** —— 裡面混著
+     與前一筆同準位的項目，例如 frame 0 的 INI_VAL 切斷點（wfg.html:17685）、
+     F_ST_SEL 的切斷點、toggle 每個 frame 開頭補的那一筆（17640）。
+
+     實測 Bruce 的 timing02 / XSTB：transitions 前幾筆是
+         [[0,0,0], [1,54,1], [1,264,0], [2,54,1], …]
+     第 0 筆是 line 0 的 level 0（不是邊緣），卻被當成 edge 0；奇偶因此整個錯位一格，
+     於是「＋」釘住的小卡片五個值全錯（頻率 194.39 kHz / 正脈寬 4.64us / 負脈寬
+     504.8ns / 週期 5.14us / 佔空比 90.2%），而滑鼠懸停那條路徑是逐筆比對 level、
+     不吃奇偶，所以一直是對的（221.748 kHz / 4.510 μs / 11.2%）。
+
+     🔴 修在這裡而不是改 wfgLaEdgeTypeForIndex()：那支是 LA 與 wfg 共用的，
+        LA 的資料本來就滿足前提。要修的是「wfg 這邊送進去的東西不算是邊緣」。 */
+  var lvlRun = (oaxR && oaxR.initLevel) ? 1 : 0;
+  out.initialLevel = lvlRun;   // 第一個真正邊緣**之前**的準位；跳過的同準位項不影響它
   for (var ti = 0; ti < trans.length; ti++) {
+    var lvNow = trans[ti].level ? 1 : 0;
+    if (lvNow === lvlRun) continue;   // 同準位 ⇒ 不是邊緣
+    lvlRun = lvNow;
     var pos = trans[ti].line + (effHt > 0 ? trans[ti].dly / effHt : 0);
     out.edges.push(pos * timePerLine);
   }
-  out.initialLevel = (oaxR && oaxR.initLevel) ? 1 : 0;
   return out;
 }
 
