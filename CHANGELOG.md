@@ -22,6 +22,62 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.25.0 — 2026-08-20 ｜ MINOR
+
+**Line / R_PH_CNT / F_PH_CNT 三列固定在波形區最上方，上下捲動波形時不再跟著捲走。**（依 Bruce 2026-08-20 指示）
+
+### 沿用既有機制，沒有新造第二套
+
+波形區的垂直捲動是 `.wfg-canvas-wrap` 的**原生捲動**（桌面 `overflow: auto`），波形本體是一整張 `#wfg-canvas`。站上從 v2.97.371 起就有一套「把主 canvas 頂部若干 px 複製到一個 `position: sticky` 的容器」的做法在跑（原本只釘 30px 的時間刻度）。本版**就是把那個「若干 px」加大**，不另外分層、不拆第二張 canvas、不自寫捲動。
+
+| 位置 | 改動 |
+|---|---|
+| 新增 `wfgTconStickyTopH()` | 釘住區塊的高度：kvdat → 30；TCON 內部運算關掉 → `WFG_AXIS_H` 54（Time + Line）；開啟 → **102**（再加 R_PH_CNT 22 + gap 2 + F_PH_CNT 22 + gap 2） |
+| `_wfgTconRenderStickyTimeAxis()` | `axisH` 由常數 `WFG_TIME_H` 改為 `wfgTconStickyTopH()`；同時把值寫進 CSS 變數 `--tcon-sticky-h` |
+| CSS `#wfg-tcon-sticky-time-axis` | `margin-bottom` 由寫死的 `-32px` 改為 `calc(-1 * var(--tcon-sticky-h, 30px))` |
+| 新增 `#wfg-tcon-sticky-labels` + CSS | 釘住區塊的左側名稱欄（Time / Line / R_PH_CNT / F_PH_CNT） |
+| `wfgRenderLabels()` | 多收集一份 `stickyHtml`，寫進上面那個容器 |
+| `_wfgTconClearStickyTimeAxis()` | 一併清空名稱欄 |
+| 檔尾新增 `ResizeObserver` | 盯 `#wfg-tcon-toolbar-sticky` / `#wfg-la-toolbar-sticky` 的尺寸變化，即時更新 `--tcon-toolbar-h`（理由見下方第 3 點） |
+
+**左側名稱欄為什麼要另外處理**：`#wfg-labels` 是 DOM（`position:absolute; top:0`），會跟著波形區一起捲走；主 canvas 在那 110px 內是空的，所以純畫素複製帶不出「R_PH_CNT」這幾個字。實測舊版捲到底時連 `Time` 這個字也是不見的（只剩刻度）。本版把 `wfgRenderLabels()` **產生 `#wfg-labels` 的同一段字串**多寫一份到 sticky 容器 —— 刻意不另寫一份 HTML，理由見 v3.24.2 那條（第二份實作必然漂移）。該容器是 `pointer-events:none`，不會搶走原本的拖曳／點擊。
+
+**水平方向為什麼不會脫鉤**：釘住的那張 canvas 是 `drawImage(mainCanvas, …)` 的 1:1 畫素複製，沒有第二套座標換算，所以左右捲動、改倍率時必然逐格對齊。已實測（見下）。
+
+**三個順帶修掉的問題（前兩個是小的，第三個原本會讓這個功能直接失效）**
+
+1. `margin-bottom` 從 `-32px` 改成 `-(高度)`：舊值配 30px 高度等於讓釘住的區塊比主 canvas 低 2px。只釘刻度時看不出來，釘住的區塊一旦自帶文字就會變成 2px 重影。改完之後 `sticky.top === canvas.top`（實測 166 / 166）。
+2. 名稱欄背景用**不透明** `#0d1117`，不是 `.wfg-labels` 的 `rgba(13,17,23,0.92)`：捲動後這一欄底下是波形，8% 透光會讓波形透出來。
+3. 🔴 **`--tcon-toolbar-h` 加 `ResizeObserver`**（`wfg.html` 檔尾，`window.addEventListener('resize', wfgUpdateHeaderHeight)` 之後）。這個變數是「釘住的區塊要黏在哪個位置」的唯一依據，原本只在載入時與 **window resize** 時更新。實測到的失效路徑（1600×900 + 本 preset）：
+
+   ```
+   載入   波形區 1058px 寬 → 工具列 1 行 → 變數寫入 61px
+   套預設 內容變長 → 垂直捲軸出現 → 波形區剩 1043px
+          → 工具列的「游標」group 換到第 2 行 → 實際高度 114px
+          → 但 window 沒有 resize，變數仍停在 61px
+   ```
+
+   結果：釘住的區塊黏在 61px 處，被 114px 高的工具列蓋掉上緣 **53px** —— `Time` 整列與 `Line` 的上半截看不到。**逐像素證據**：釘住區塊頂端取樣值在捲動後是 `#161b22`（工具列底色），捲到頂時是 `#0d1117`（波形區底色）；差異範圍剛好是 0~53px。這個 bug 在只釘 30px 刻度的舊版一樣存在（刻度會被整條蓋掉），只是不容易被當成 bug。改用 ResizeObserver 盯工具列自己的尺寸後，四種桌面寬度實測重疊量皆為 0。
+
+### 實測（headless Chrome，preset = FHD 60Hz Single Gate(LS：Dual CPV)）
+
+| 驗收項 | 方法 | 結果 |
+|---|---|---|
+| ① 捲到底三列仍在頂端且內容正確 | scrollTop 0 → 660(底)，量 `getBoundingClientRect` + 截圖 | sticky 固定在 top=113、高 102，`#wfg-canvas` 的 top 由 166 一路跑到 −494；Time / Line / R_PH_CNT / F_PH_CNT 四列與名稱都在 ✅ |
+| ② 捲動中不閃爍、不錯位 | scrollTop 0 / 60 / 180 / 360 / 底，各截「釘住區塊」本身（scale 4）比對 md5 | 五張**逐位元組相同**（`79a7b85cd390`）✅ |
+| ③ 左右捲動與改倍率仍逐格對齊 | 把主 canvas 頂部同高區塊畫到離屏 canvas，與釘住的那張逐位元組比對（原始視野／放大／再放大／平移／全覽／重置） | 六種狀態全部 `same: true` ✅ |
+| ④ 視窗寬度與手機版 | 1600 / 1280 / 1024 / 960 各量「工具列底部 − 釘住區塊頂部」；390 量 `scrollWidth vs clientWidth` | 四種寬度重疊量皆 **0px**（工具列換到 2~3 行時 `--tcon-toolbar-h` 跟著變 114/167/220，釘住的區塊也跟著往下）；390 寬 `scrollWidth == clientWidth == 390`（無橫向溢出），sticky 依既有 media query 為 `display:none` ✅ |
+| ⑤ 既有功能 | 切換游標 A1 → 釘住區塊要跟著更新且仍與主 canvas 相同；關閉「TCON 內部運算」→ 高度要退成 54 | 皆符合 ✅ |
+
+**手機版說明（誠實交代範圍）**：`#wfg-tcon-sticky-time-axis` 自 v2.97 起就只在 `min-width: 901px` 顯示，而 `< 769px` 的 `.wfg-canvas-wrap` 是 `overflow: clip`（捲動的是整頁，不是波形區）。本版沿用這個既有分界，**沒有替手機版新增釘住行為**，只驗證了不破版。要不要延伸到手機版是另一個題目。
+
+**驗證方法上的一個坑（記下來避免下次再踩）**：`Page.captureScreenshot` 的 `captureBeyondViewport: true` 會把視窗撐成整份文件高度再拍，**內部捲動容器與 `position: sticky` 的位置會因此重排** —— 拍「釘在頂端」這種東西會拍到別的區塊，而且拍出來的圖看起來完全正常。上表的截圖一律關掉這個選項。另外，`STRIPS 五張相同` 這個結論第一次跑出來是 False，逐像素 diff 之後才發現差異範圍剛好是頂端 53px、顏色是工具列底色 —— 那不是量測雜訊，而是上面第 3 點那個真的 bug。**先 diff 再下結論，不要把不一致當成子像素誤差帶過。**
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表逐欄 ——「操作流程」零改變（沒有任何控制項新增／移除／移位，捲動方式也沒變）；「既有功能的輸出」不變：`wfgScreenshot()` 是自己用 `#wfg-canvas` ＋ `#wfg-labels` 合成離屏畫布，**完全不含 sticky 容器**，所以匯出圖／截圖逐項不變，波形數值與匯出設定檔也一位元未變；「功能增減」→ **新增**一個獨立能力。逐項判：R1 不適用（舊行為不是 bug，是當時只釘刻度的設計）；R2 不適用（不開新波）；**R3 適用 → MINOR** —— 「這一版之後使用者能做的事有沒有多一件？」有：捲到波形下半部時仍能對照 Line／R_PH_CNT／F_PH_CNT，過去必須捲回頂端；R4 不適用（起始狀態與所有預設值皆未變，scrollTop=0 的畫面與前一版相同）。取最高者 → **MINOR**。
+**不掛 `⚠ 輸出變更`**：依 R1〈範圍定義〉逐類對照 —— 數值類（波形數值、計算結果、匯出檔位元組）零改動；版面／構圖類的判準是「用截圖／匯出圖片功能存下來的成果會不會不一樣」，而截圖不含 sticky 容器，故不成立；剩下的正好命中「不算（不標）」欄第一條「純新增能力，既有操作的結果完全不變」。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.24.2 — 2026-08-20 ｜ PATCH ｜ ⚠ 輸出變更
 
 **R_PH_CNT / F_PH_CNT 兩列的灰色遮罩改為「投影波形產生器的逐行閘門判定」，不再自己推算一份。**

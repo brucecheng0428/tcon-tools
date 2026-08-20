@@ -231,13 +231,27 @@
   #wfg-tcon-sticky-time-axis { pointer-events: none; position: relative; display: none; /* v2.97: 手機版隱藏，桌面版由 media query 控制 */ }
   #wfg-tcon-sticky-time-axis canvas { display: block; }
   #wfg-tcon-time-axis-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
+  /* v3.25.0: 釘在頂端那一塊的左側名稱欄（Time / Line / R_PH_CNT / F_PH_CNT）。
+     主 canvas 的畫素複製不含這些字 —— 它們是 #wfg-labels 的 DOM，會跟著波形區一起
+     捲走。這裡放的是 wfgRenderLabels() 產出的**同一段 HTML 字串**（不是另寫一份）。 */
+  /* 🔴 背景是**不透明** #0d1117，不是 .wfg-labels 那個 rgba(…,0.92)：捲動之後這一欄
+     底下是波形，8% 的透光會讓波形在名稱欄裡透出來（實測：捲到頂端與捲到底的頂端
+     區塊截圖雜湊不同，差別就是這層透光）。捲到頂端時底下是同色的 #0d1117，
+     所以改成不透明之後兩種狀態逐像素相同。 */
+  #wfg-tcon-sticky-labels { position: absolute; left: 0; top: 0; width: 110px; overflow: hidden;
+    background: #0d1117; border-right: 1px solid #21262d; box-sizing: border-box; }
   /* 桌面版 LA toolbar + 時間軸 sticky（>900px 才啟用） */
   @media (min-width: 901px) {
     #wfg-la-toolbar-sticky { position: sticky; top: var(--header-h, 42px); z-index: 15; }
     #wfg-la-sticky-time-axis { position: sticky; top: calc(var(--header-h, 42px) + var(--la-toolbar-h, 38px)); z-index: 4; margin-bottom: -32px; }
     /* v2.97.377: TCON sticky toolbar + 時間軸（相對 canvas-wrap scroll container） */
     #wfg-tcon-toolbar-sticky { position: sticky; top: 0; z-index: 15; }
-    #wfg-tcon-sticky-time-axis { display: block; position: sticky; top: var(--tcon-toolbar-h, 38px); z-index: 4; margin-bottom: -32px; }
+    /* v3.25.0: 高度改由 --tcon-sticky-h 決定（Time + Line + R_PH_CNT + F_PH_CNT）。
+       margin-bottom = **-高度**（不是舊的 -32）：舊值配 30px 的高度，等於讓釘住的
+       那一塊比主 canvas 低 2px。以前只釘 30px 的純刻度看不出來，現在釘住的區塊
+       自帶名稱欄文字，低 2px 會變成「同一行字疊在自己下方 2px」的重影。
+       改成剛好等於高度後，釘住的複製品與底下的真身逐像素重合。 */
+    #wfg-tcon-sticky-time-axis { display: block; position: sticky; top: var(--tcon-toolbar-h, 38px); z-index: 4; margin-bottom: calc(-1 * var(--tcon-sticky-h, 30px)); }
     /* v2.97.379: 工具列/右側面板對齊（工具列=波形區寬度，右側卡片頂部對齊工具列） */
     .wfg-la-layout { height: calc(100vh - var(--header-h, 42px) - 20px); overflow: hidden; align-items: stretch; }
     .wfg-la-main { display: grid !important; grid-template-columns: minmax(0, 1fr) 260px; grid-template-rows: auto minmax(0, 1fr); gap: 0 10px; flex-direction: unset; overflow: hidden; }
@@ -1383,6 +1397,8 @@
         <div id="wfg-tcon-sticky-time-axis">
           <canvas id="wfg-tcon-time-axis-canvas"></canvas>
           <canvas id="wfg-tcon-time-axis-overlay"></canvas>
+          <!-- v3.25.0: 名稱欄要疊在兩張 canvas 之上，所以放最後 -->
+          <div id="wfg-tcon-sticky-labels"></div>
         </div>
         <div class="wfg-canvas-area">
           <div class="wfg-labels" id="wfg-labels"></div>
@@ -1798,7 +1814,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260820wfg3242"></script>
+<script src="common/version.js?v=20260820wfg3250"></script>
 <script src="common/i18n.js?v=20260820wfg3241"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -21497,16 +21513,42 @@ function _wfgTconClearStickyTimeAxis() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
   });
+  var sLab = document.getElementById('wfg-tcon-sticky-labels');   // v3.25.0
+  if (sLab) sLab.innerHTML = '';
 }
 
-// v2.97.371: TCON sticky 時間軸 — 複製主 canvas 頂部 30px
+/* ═══ v3.25.0：釘在波形區頂端的高度 ═══════════════════════════════════════════
+   Bruce 2026-08-20：「Line、R_PH_CNT、F_PH_CNT 這三列請 always 固定在畫面的
+   波形區最上方，不隨著上下移動波形區而消失」。
+
+   做法沿用 v2.97.371 就在跑的那一套 —— **不另創第二套機制**：
+   `#wfg-tcon-sticky-time-axis` 是一個 `position: sticky` 的容器，裡面那張 canvas
+   只是把主 canvas 頂部若干 px `drawImage` 複製過來。要多釘幾列，就是把「若干 px」
+   從 30 加大到涵蓋 Line + R_PH_CNT + F_PH_CNT。
+
+   ・水平方向天生不會脫鉤：複製的是**同一張 canvas 的同一段畫素**，1:1 貼上，
+     所以左右捲動／改倍率時欄位與波形必然逐格對齊，沒有第二套座標換算。
+   ・R_PH_CNT / F_PH_CNT 恆在內部列的最前兩列：`WFG_IR_FIXED_GROUPS` 在拖曳
+     （startIrDrag 直接 return）與設定檔匯入（_fixedRows.concat）兩處都強制了。
+     這裡仍加一道防禦：萬一不在最前兩列就只釘 Time + Line，不要釘到不相干的列。 */
+function wfgTconStickyTopH() {
+  if (wfgKvdatMode) return WFG_TIME_H;              // kvdat 沒有 Line / PH_CNT 列，維持原本 30
+  if (!wfgTconInternalMode) return WFG_AXIS_H;      // Time(30) + Line(22) + 2px 分隔 = 54
+  var i0 = _wfgIrOrder.indexOf(4), i1 = _wfgIrOrder.indexOf(5);   // 4 = R_PH_CNT, 5 = F_PH_CNT
+  if (i0 < 0 || i1 < 0 || i0 > 1 || i1 > 1) return WFG_AXIS_H;
+  // 第 2 顯示列（index 1）的底部 ＝ 兩列都涵蓋進來，含列下方的分隔線
+  return WFG_AXIS_H + wfgIrRowYFiltered(1) + wfgIrRowH(_wfgIrOrder[1]) + WFG_INTERNAL_ROW_GAP;
+}
+
+var _wfgTconStickyHSet = -1;   // 已寫進 CSS 變數的值，避免每幀都動 style
+// v2.97.371: TCON sticky 時間軸 — 複製主 canvas 頂部（v3.25.0 起高度由 wfgTconStickyTopH() 決定）
 function _wfgTconRenderStickyTimeAxis() {
   var sCanvas = document.getElementById('wfg-tcon-time-axis-canvas');
   var mainCanvas = document.getElementById('wfg-canvas');
   if (!sCanvas || !mainCanvas) return;
   var dpr = window.devicePixelRatio || 1;
   var cssW = Math.round(mainCanvas.width / dpr);
-  var axisH = WFG_TIME_H; // 30
+  var axisH = wfgTconStickyTopH();
   var bw = Math.round(cssW * dpr);
   var bh = Math.round(axisH * dpr);
   if (sCanvas.width !== bw) sCanvas.width = bw;
@@ -21515,6 +21557,20 @@ function _wfgTconRenderStickyTimeAxis() {
   sCanvas.style.height = axisH + 'px';
   var ctx = sCanvas.getContext('2d');
   ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, bh, 0, 0, bw, bh);
+  /* v3.25.0：高度是動態的（TCON 內部運算關掉就只有 Time + Line），CSS 的
+     margin-bottom 要跟著走，否則波形區會被推開或被蓋住。 */
+  if (_wfgTconStickyHSet !== axisH) {
+    _wfgTconStickyHSet = axisH;
+    document.documentElement.style.setProperty('--tcon-sticky-h', axisH + 'px');
+  }
+  var sLab = document.getElementById('wfg-tcon-sticky-labels');
+  if (sLab) {
+    /* kvdat 沒有 Line / PH_CNT 列，名稱欄要收起來，否則會在時間軸左側留一塊
+       空的深色方塊（wfgRenderKvdatLabels 是另一支函式，不會寫這個容器）。 */
+    if (wfgKvdatMode) sLab.innerHTML = '';
+    sLab.style.height = axisH + 'px';
+    sLab.style.display = sLab.innerHTML ? 'block' : 'none';
+  }
 }
 
 // v2.97.371: TCON sticky 時間軸 overlay — crosshair 時間標籤 + cursor 線段/標籤
@@ -22807,9 +22863,14 @@ function wfgRenderLabels() {
   var el = document.getElementById('wfg-labels');
   if (!el) return;
   var html = '';
+  /* v3.25.0：頂端釘住那一塊（Time / Line / R_PH_CNT / F_PH_CNT）的名稱欄。
+     🔴 刻意收集的是「產生 #wfg-labels 的那一段**同一個字串**」，不是另外寫一份 ——
+        兩份 HTML 遲早會漂移（v3.24.2 遮罩那次的教訓就是第二份實作）。 */
+  var stickyHtml = '';
   if (!wfgKvdatMode) {
     html += '<div style="height:' + WFG_TIME_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#6e7681;">Time</div>';
     html += '<div style="height:' + WFG_LINE_H + 'px;display:flex;align-items:center;padding-left:6px;font-size:9px;color:#c9d1d9;background:rgba(30,58,95,0.5);">Line</div>';
+    stickyHtml = html;   // Time + Line 一定屬於頂端區塊
     if (wfgTconInternalMode) {
       var rxDclkNs = wfgFrame.rxDclk > 0 ? (1000 / wfgFrame.rxDclk).toFixed(1) : '—';
       var tconDclkNs = wfgFrame.dclk > 0 ? (1000 / wfgFrame.dclk).toFixed(1) : '—';
@@ -22839,7 +22900,10 @@ function wfgRenderLabels() {
         }
         var _isFixed = WFG_IR_FIXED_GROUPS.indexOf(_grp) >= 0;
         var _cursor = _isFixed ? 'default' : 'grab';
-        html += '<div class="wfg-ir-label" data-ir-idx="' + _logRow + '" data-ir-group="' + _grp + '" data-ir-fixed="' + (_isFixed ? '1' : '0') + '" style="height:' + _irH + 'px;display:flex;align-items:center;padding-left:' + _lb.pl + ';font-size:' + _lb.fs + ';color:' + _lb.color + ';white-space:nowrap;cursor:' + _cursor + ';user-select:none;">' + _lb.text + '</div>';
+        var _irItemHtml = '<div class="wfg-ir-label" data-ir-idx="' + _logRow + '" data-ir-group="' + _grp + '" data-ir-fixed="' + (_isFixed ? '1' : '0') + '" style="height:' + _irH + 'px;display:flex;align-items:center;padding-left:' + _lb.pl + ';font-size:' + _lb.fs + ';color:' + _lb.color + ';white-space:nowrap;cursor:' + _cursor + ';user-select:none;">' + _lb.text + '</div>';
+        html += _irItemHtml;
+        // v3.25.0: 固定列（R_PH_CNT / F_PH_CNT）同時進頂端釘住的那一欄
+        if (_isFixed) stickyHtml += _irItemHtml;
         // Close group border div after last member
         if (_grp === 0 || _grp === 1) {
           var _grpMembers = WFG_IR_GROUPS[_grp];
@@ -22903,6 +22967,10 @@ function wfgRenderLabels() {
   }
   html += '<div class="wfg-label-drop-indicator" id="wfg-label-drop-indicator"></div>';
   el.innerHTML = html;
+  /* v3.25.0: 頂端釘住那一塊的名稱欄 —— 與上面同一段字串，只是多寫一份到 sticky 容器。
+     那個容器是 pointer-events:none，所以這些節點不會搶走 #wfg-labels 的拖曳／點擊。 */
+  var _sLab = document.getElementById('wfg-tcon-sticky-labels');
+  if (_sLab && _sLab.innerHTML !== stickyHtml) _sLab.innerHTML = stickyHtml;
   var rowH = WFG_ROW_H + WFG_ROW_GAP;
   // Analog channels (waveform_type !== 0) get a taller row so the curve has
   // headroom; digital labels keep the standard 48px height.
@@ -32038,6 +32106,30 @@ if (document.readyState === 'loading') {
   wfgUpdateHeaderHeight();
 }
 window.addEventListener('resize', wfgUpdateHeaderHeight);
+
+/* ═══ v3.25.0：工具列高度要用 ResizeObserver 追，不能只靠 window resize ═══
+   `--tcon-toolbar-h` 是「釘在頂端的區塊要黏在哪個位置」的唯一依據，而它原本只在
+   載入時與 window resize 時更新。實測到的失效路徑（Bruce 的預設 + 1600×900）：
+
+     載入時波形區 1058px 寬 → 工具列一行 → 變數寫入 61px
+     → 套用預設、內容變長 → 出現垂直捲軸 → 波形區剩 1043px
+     → 工具列的「游標」group 換到第二行 → 實際高度 114px
+     → 但 window **沒有 resize**，變數仍是 61px
+
+   結果就是釘住的區塊黏在 61px 處，被 114px 高的工具列蓋掉上緣 53px ——
+   Time 整列與 Line 的上半截都看不到（實測像素：該區塊頂端取樣值為工具列底色
+   #161b22，不是波形區的 #0d1117）。這在只釘 30px 刻度的舊版一樣會發生，只是
+   刻度被整條蓋掉比較不容易被當成 bug。
+
+   🔴 用 ResizeObserver 盯工具列**自己的尺寸**，才追得到「不是 window 造成的」高度變化。
+   wfgUpdateHeaderHeight() 內部有「值沒變就不寫」的比較，所以不會來回觸發。 */
+if (typeof ResizeObserver !== 'undefined') {
+  var _wfgToolbarRo = new ResizeObserver(function() { wfgUpdateHeaderHeight(); });
+  ['wfg-tcon-toolbar-sticky', 'wfg-la-toolbar-sticky'].forEach(function(_tbId) {
+    var _tbEl = document.getElementById(_tbId);
+    if (_tbEl) _wfgToolbarRo.observe(_tbEl);
+  });
+}
 
 // ─── Expose render functions for applyLang() re-render ───
 window.wfgRenderChannelList = wfgRenderChannelList;
