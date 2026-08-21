@@ -22,6 +22,81 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.28.0 — 2026-08-22 ｜ MINOR ｜ ⚠ 輸出變更
+
+**Frame 參數改成輸入 Blanking、顯示 Total。**（Bruce 2026-08-21：「像是 Vtotal 跟 Htotal，我要改成 Vblanking 跟 Hblanking 的輸入，但是要顯示 Vtotal 的值跟 Htotal 的值……有點像是 RXTX 那個分頁」）
+
+### 範本與欄位關係（先到 code 確認，不靠推測）
+
+參考 rxtx 分頁：`Hactive / Hblank / Vactive / Vblank` 四格輸入 ＋ `Htotal / Vtotal` 兩個唯讀值（`rxtx.html:240-262`），公式 `const Ht = ha + hb, Vt = va + vb;`（`rxtx.html:671`）。wfg 沿用**同一套**：
+
+| 欄位 | 性質 | 關係 |
+|---|---|---|
+| VACTIVE / HACTIVE | 輸入（維持不變） | — |
+| **VBLANK / HBLANK** | **輸入（新）** | — |
+| VTOTAL | **顯示** | `VACTIVE + VBLANK` |
+| HTOTAL | **顯示** | `HACTIVE + HBLANK`（**RX 側**，即既有的 `htotalBase`） |
+| TCON HTOTAL | 顯示（原本就是衍生值） | `round(htotalBase × TCON DCLK / RX DCLK)` —— **公式一字未改**，仍在同一個 H Total 分組框內 |
+
+版面沿用 v3.27.0 的分組框：**V Total** 組 = Vactive / Vblank ＋ VTOTAL；**H Total** 組 = Hactive / Hblank ＋ HTOTAL / TCON HTOTAL。
+
+⚠ 相容：`wfg-vtotal` / `wfg-htotal` 兩個 input 保留為 `hidden` 並持續回填，既有讀它們的程式碼與外部測試腳本不必改寫。
+
+### 舊資料相容：雙寫，以 blanking 為準（Bruce 2026-08-22 裁示）
+
+- **匯出**：同時寫 `vblank` / `hblank` **與** `frame.vtotal` / `frame.htotalBase`。舊版網頁讀後者照樣能開。
+- **匯入**：檔案有 blanking 就**以 blanking 為準**重算 total；兩組矛盾時採用 blanking，並在 H Total 分組框內顯示一行黃色提示（**不跳 modal** —— autosave 還原每次開頁都會走這條路），使用者一動參數提示就消失。
+- **舊檔**（只有 total）→ 由 `total − active` 反推 blanking。
+
+**四條路徑實測**：
+
+| 情境 | 結果 |
+|---|---|
+| 開頁預設 | vblank 45 → VTOTAL 1125；hblank 280 → HTOTAL 2200 ✅ |
+| **內建 preset**（舊格式） | 反推 vblank 32（1112−1080）、hblank 160（2080−1920）✅ |
+| 輸入 vblank=100 | VTOTAL 顯示 1180、`wfgFrame.vtotal` 1180 ✅ |
+| 輸入 hblank=500 | HTOTAL 2420、TCON HTOTAL 跟著重算 ✅ |
+| **輸入 0 / −5** | 夾到 1（與 rxtx `min="1"` 一致），顯示值立刻反映夾過的結果 ✅ |
+| **匯出（雙寫）** | `vblank:1, hblank:1` ＋ `frame.vtotal:1081, htotalBase:1921`，兩組一致 ✅ |
+| **匯出檔再匯入** | 完全還原 ✅ |
+| **舊格式匯入**（刪掉 vblank/hblank） | 由 total−active 反推 ✅ |
+| **矛盾檔**（vblank 200 / hblank 300 與 total 對不上） | 以 blanking 為準：VTOTAL 1081→**1280**、HTOTAL 1921→**2220**，畫面提示「已以 blanking 為準：VTOTAL 1081 → 1280、HTOTAL 1921 → 2220」✅ |
+| **autosave 還原** | vblank 200 / VTOTAL 1280 正確還原，無誤報提示 ✅ |
+
+### 邊界
+
+- blanking ≤ 0 → 夾到 1（VTOTAL ≤ VACTIVE 代表沒有空白期，在本工具沒有意義，也會讓 `wfgTotalLines()` 與時間換算失去意義）。夾過的結果立即顯示在 VTOTAL/HTOTAL 上，不靜默。
+- 「VTOTAL 小於 VACTIVE」在新配置下**不可能發生** —— total 是加出來的，最小為 active + 1。
+- 與既有 min/max 驗證無衝突：blanking 輸入沿用 `min="1"`，active 欄位的驗證未改。
+
+### 不得回歸
+
+253/252 的 C1／C2：252 時距初始 0.003008 / 0.003739、回 253 逐位元復原 → **PASS**。時間軸每格時間不變／中心 line 不動／游標貼附／量測重算／v3.27.0 的拉桿與 Group 框皆未受影響（本版只改 Frame 卡片的輸入來源與顯示，換算與繪製路徑一行未動）。
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表逐欄，本次**字面命中 MAJOR 兩欄**：
+①「操作流程」→ 原本「在 VTOTAL / HTOTAL 格直接輸入」的輸入格變成唯讀顯示；
+②「功能增減」→ 移除了「直接輸入 VTOTAL / HTOTAL」這個能力。
+
+**但字面命中不等於 MAJOR。** 依 §1「🔴 改動大小不是判準」該節（`docs/VERSIONING.md:55-57`）：
+MAJOR 的實質門檻是判定表的核心問句 —— 「使用者需要**整個重新熟悉一次**嗎？」，
+文件並明文警告「判到 MAJOR 時請先回頭確認自己是不是在用改動大小當判準」，
+且以 `wfg` 的 2.x「一路走到 v2.97.475 才進 v3.0.0、3.x 同樣可以走到 v3.9x」為對照。
+
+本次逐條對照那道門檻：
+- 涉及範圍只有**一張卡片內的兩個輸入格**；其餘分頁、按鈕、操作一律不動。
+- **VTOTAL / HTOTAL 的值仍然可見**，就在原本的位置，只是改為唯讀顯示。
+- 匯出採**雙寫**、舊檔可由 `total − active` 反推 ⇒ 既有檔案與流程不失效。
+- 使用者要重新學的只有「這兩格改成填 blanking」這一件事。
+
+⇒ **未達「整個重新熟悉一次」的門檻**。其餘逐項：R1 不適用（不是修 bug）；
+R3（新增 Vblank / Hblank 兩個輸入、多了一種輸入方式）→ MINOR；R4 不適用（起始狀態與預設值未變）。
+取最高者 → **MINOR v3.28.0**。
+
+> 併記：Bruce 於 2026-08-21 明示「版號不要進到 4.0，還是用原本的 3.x 這種方式」，與上述判定一致。
+**掛 `⚠ 輸出變更`**：匯出設定檔新增 `vblank` / `hblank` 兩個欄位（R1〈範圍定義〉「匯出檔案的位元組內容」）；Frame 卡片版面改變，卡片截圖構圖不同。波形數值與 `wfgScreenshot()` 的波形區內容不受影響。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.27.0 — 2026-08-22 ｜ MINOR ｜ ⚠ 輸出變更
 
 **Frame 參數卡片三件事：輸入不再卡住、Frame Rate 加拉桿、H Total 與 D-Clock 各自框成一組。**（依 Bruce 2026-08-21 指示）

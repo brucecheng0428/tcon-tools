@@ -236,6 +236,10 @@
      所以是**靠下對齊**而不是靠上 —— 靠上的話輸入框與數值會一高一低（實測截圖看得出來）。 */
   .wfg-field-group .wfg-field { display: flex; flex-direction: column; justify-content: flex-end; }
   .wfg-field-readout { display: flex; align-items: center; min-height: 34px; }
+  /* v3.28.0：匯入的檔案裡 blanking 與 total 互相矛盾時的就地提示 */
+  .wfg-blank-warn { margin-top: 6px; font-size: 10px; line-height: 1.5; color: #fbbf24;
+                    background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.35);
+                    border-radius: 5px; padding: 4px 6px; }
   .wfg-fps-slider-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
   .wfg-fps-slider { flex: 1 1 auto; min-width: 0; accent-color: #38bdf8; height: 18px; }
   .wfg-fps-slider-min, .wfg-fps-slider-max { font-size: 10px; color: #64748b; flex: 0 0 auto;
@@ -1170,14 +1174,33 @@
             <span class="wfg-chevron">▼</span>
           </div>
           <div class="wfg-card-body">
+            <!-- v3.28.0：輸入改成 Blanking、Total 改成顯示值（沿用 rxtx 分頁的配置，
+                 rxtx.html:240-262 —— 那裡也是 Hactive/Hblank/Vactive/Vblank 四格輸入
+                 ＋ Htotal/Vtotal 兩個唯讀值，公式 `Ht = ha + hb, Vt = va + vb`，rxtx.html:671）。
+                 `wfg-vtotal` / `wfg-htotal` 兩個 input 仍然存在（改為 hidden），
+                 讓既有讀這兩格的程式碼與測試腳本不必全部改寫；它們由 blanking 推算後回填。 -->
+            <input type="hidden" id="wfg-vtotal" value="1125">
+            <input type="hidden" id="wfg-htotal" value="2200">
             <div class="wfg-field-row">
-              <div class="wfg-field">
-                <label>Vtotal</label>
-                <input type="number" id="wfg-vtotal" value="1125" min="1" oninput="wfgOnParamChange()">
-              </div>
-              <div class="wfg-field">
-                <label>Vactive</label>
-                <input type="number" id="wfg-vactive" value="1080" min="1" oninput="wfgOnParamChange()">
+              <div class="wfg-field-group">
+                <span class="wfg-la-group-label" data-i18n="wfg.grpVtotal">V Total</span>
+                <div class="wfg-field-row" style="margin:0">
+                  <div class="wfg-field">
+                    <label>Vactive</label>
+                    <input type="number" id="wfg-vactive" value="1080" min="1" oninput="wfgOnParamChange()">
+                  </div>
+                  <div class="wfg-field">
+                    <label>Vblank</label>
+                    <input type="number" id="wfg-vblank" value="45" min="1" oninput="wfgOnParamChange()">
+                  </div>
+                </div>
+                <div class="wfg-field-row" style="margin:6px 0 0">
+                  <div class="wfg-field">
+                    <label>VTOTAL</label>
+                    <div class="wfg-field-readout"><span class="rxtx-result-val" id="wfg-vtotal-val">1125</span></div>
+                  </div>
+                  <div class="wfg-field"></div>
+                </div>
               </div>
             </div>
             <!-- v3.27.0：H Total 與 TCON H Total 框在一起（依 Bruce 2026-08-21 指示）。
@@ -1188,22 +1211,27 @@
                 <span class="wfg-la-group-label" data-i18n="wfg.grpHtotal">H Total</span>
                 <div class="wfg-field-row" style="margin:0">
                   <div class="wfg-field">
-                    <label>Htotal</label>
-                    <input type="number" id="wfg-htotal" value="2200" min="1" oninput="wfgOnParamChange()">
+                    <label>Hactive</label>
+                    <input type="number" id="wfg-hactive" value="1920" min="1" oninput="wfgOnParamChange()">
+                  </div>
+                  <div class="wfg-field">
+                    <label>Hblank</label>
+                    <input type="number" id="wfg-hblank" value="280" min="1" oninput="wfgOnParamChange()">
+                  </div>
+                </div>
+                <div class="wfg-field-row" style="margin:6px 0 0">
+                  <div class="wfg-field">
+                    <label>HTOTAL</label>
+                    <div class="wfg-field-readout"><span class="rxtx-result-val" id="wfg-htotal-val">2200</span></div>
                   </div>
                   <div class="wfg-field">
                     <label>TCON HTOTAL</label>
                     <div class="wfg-field-readout"><span class="rxtx-result-val" id="wfg-tcon-htotal">2200</span></div>
                   </div>
                 </div>
+                <!-- 匯入的檔案裡 blanking 與 total 互相矛盾時，在這裡就地提示（不擋操作） -->
+                <div class="wfg-blank-warn" id="wfg-blank-warn" style="display:none"></div>
               </div>
-            </div>
-            <div class="wfg-field-row">
-              <div class="wfg-field">
-                <label>Hactive</label>
-                <input type="number" id="wfg-hactive" value="1920" min="1" oninput="wfgOnParamChange()">
-              </div>
-              <div class="wfg-field"></div>
             </div>
             <div class="wfg-field-row">
               <div class="wfg-field">
@@ -1911,8 +1939,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg3270"></script>
-<script src="common/i18n.js?v=20260822wfg3270"></script>
+<script src="common/version.js?v=20260822wfg3280"></script>
+<script src="common/i18n.js?v=20260822wfg3280"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -24695,10 +24723,11 @@ function wfgLoadPreset(presetName) {
   wfgUpdateRxDclk();
   wfgClampTconDclk();
   wfgUpdateTconHtotal();
-  document.getElementById('wfg-vtotal').value = wfgFrame.vtotal;
-  document.getElementById('wfg-vactive').value = wfgFrame.vactive;
-  document.getElementById('wfg-htotal').value = wfgFrame.htotalBase;
-  document.getElementById('wfg-hactive').value = wfgFrame.hactive;
+  /* v3.28.0：四個輸入格與兩個顯示值統一由這裡回填（blanking 由 total − active 反推）。
+     preset 載入與設定檔匯入兩條路徑共用，不各寫一份。 */
+  wfgSyncBlankInputs();
+  wfgShowBlankConflict(_wfgImportBlankNote);
+  _wfgImportBlankNote = '';
   document.getElementById('wfg-dclk').value = wfgFrame.dclk;
   document.getElementById('wfg-framerate').value = wfgFrame.frameRate;
   wfgSetFrameRateSliderMax(_wfgPendingFrameRateMax || wfgFrame.frameRate);   // v3.27.0
@@ -24999,6 +25028,46 @@ function wfgOnDclkManualChange() {
   wfgRenderMinimap();
   wfgUpdateMinimapViewport();
 }
+/* ══ v3.28.0：Blanking 輸入、Total 顯示 ══════════════════════════════════════
+   （Bruce 2026-08-21：「像是 Vtotal 跟 Htotal，我要改成 Vblanking 跟 Hblanking 的輸入，
+     但是要顯示 Vtotal 的值跟 Htotal 的值……有點像是 RXTX 那個分頁」）
+
+   範本＝rxtx 分頁：`Hactive/Hblank/Vactive/Vblank` 四格輸入 ＋ `Htotal/Vtotal` 兩個唯讀值
+   （`rxtx.html:240-262`），公式 `Ht = ha + hb, Vt = va + vb`（`rxtx.html:671`）。
+   本頁沿用同一套關係，**已在 code 內確認**：
+     VTOTAL = VACTIVE + VBLANK
+     HTOTAL = HACTIVE + HBLANK   ← 這裡的 HTOTAL 是 **RX 側**（既有的 `htotalBase`）
+     TCON HTOTAL = round(htotalBase × TCON DCLK / RX DCLK)   ← 衍生值，公式一字未改
+                   （`wfgUpdateTconHtotal()`；它仍然顯示在同一個 H Total 分組框裡）
+
+   ⚠ 相容：`wfg-vtotal` / `wfg-htotal` 兩個 input 保留為 hidden 並持續回填，
+   既有讀它們的程式碼（含 `wfgOnParamChange` 本身與外部測試腳本）不必改寫。 */
+var _wfgImportBlankNote = '';   // v3.28.0：匯入時偵測到的矛盾，回填 UI 時顯示
+function wfgBlankFromTotal(total, active) {
+  var b = (parseInt(total) || 0) - (parseInt(active) || 0);
+  return (isFinite(b) && b >= 1) ? b : 1;   // 下限與 rxtx 一致（min="1"）
+}
+function wfgSyncBlankInputs() {
+  /* 由目前的 wfgFrame 回填四個輸入格與兩個顯示值。匯入／preset／還原都走這裡。 */
+  var set = function(id, v) { var e = document.getElementById(id); if (e) e.value = v; };
+  var txt = function(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; };
+  set('wfg-vactive', wfgFrame.vactive);
+  set('wfg-hactive', wfgFrame.hactive);
+  set('wfg-vblank', wfgBlankFromTotal(wfgFrame.vtotal, wfgFrame.vactive));
+  set('wfg-hblank', wfgBlankFromTotal(wfgFrame.htotalBase, wfgFrame.hactive));
+  set('wfg-vtotal', wfgFrame.vtotal);
+  set('wfg-htotal', wfgFrame.htotalBase);
+  txt('wfg-vtotal-val', wfgFrame.vtotal);
+  txt('wfg-htotal-val', wfgFrame.htotalBase);
+}
+function wfgShowBlankConflict(msg) {
+  var el = document.getElementById('wfg-blank-warn');
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.textContent = msg;
+  el.style.display = '';
+}
+
 function wfgRecalcHtotal() {
   // TCON Htotal = RX Htotal × (TCON DCLK / RX DCLK)
   // wfg-htotal input stays as htotalBase (RX Htotal), don't overwrite it
@@ -25100,10 +25169,21 @@ function wfgOnParamChange() {
   var prevVtotal = wfgFrame.vtotal;
   var prevHtotal = wfgFrame.htotalBase;
   var prevGate = wfgFrame.gateType;
-  var nextVtotal = parseInt(document.getElementById('wfg-vtotal').value) || 1;
   var nextVactive = parseInt(document.getElementById('wfg-vactive').value) || 1;
-  var nextHtotal = parseInt(document.getElementById('wfg-htotal').value) || 1;
   var nextHactive = parseInt(document.getElementById('wfg-hactive').value) || 1;
+  /* v3.28.0：total 由 blanking 推出來。blanking 夾在 ≥1（與 rxtx 的 min="1" 一致）——
+     0 或負值會讓 VTOTAL ≤ VACTIVE（沒有空白期），在這個工具裡沒有意義，也會讓
+     `wfgTotalLines()` 與時間換算失去意義。使用者打 0 就當 1 處理，畫面上的
+     VTOTAL 顯示值會立刻反映夾過的結果，不會靜默。 */
+  var nextVblank = Math.max(1, parseInt(document.getElementById('wfg-vblank').value) || 1);
+  var nextHblank = Math.max(1, parseInt(document.getElementById('wfg-hblank').value) || 1);
+  var nextVtotal = nextVactive + nextVblank;
+  var nextHtotal = nextHactive + nextHblank;
+  document.getElementById('wfg-vtotal').value = nextVtotal;
+  document.getElementById('wfg-htotal').value = nextHtotal;
+  var _vt = document.getElementById('wfg-vtotal-val'); if (_vt) _vt.textContent = nextVtotal;
+  var _ht = document.getElementById('wfg-htotal-val'); if (_ht) _ht.textContent = nextHtotal;
+  wfgShowBlankConflict('');   // 使用者自己動過參數 → 先前的矛盾提示失效
   var nextFrameRate = parseInt(document.getElementById('wfg-framerate').value) || 60;
   var nextFrameCount = Math.max(1, Math.min(4096, parseInt(document.getElementById('wfg-frame-count').value) || 10));
   var gateRadio = document.querySelector('input[name="wfg-gate"]:checked');
@@ -30508,6 +30588,7 @@ function wfgInit() {
   /* v3.5.0: 初始化時也要建一次時基標尺卡片，否則剛開頁面（無 cursor）時卡片是一片空白，
      使用者無從分辨「沒有 cursor」與「卡片壞掉」。 */
   wfgUpdateCursorPanel();
+  wfgSyncBlankInputs();   // v3.28.0：開頁時先把 blanking 與 total 顯示值對齊 wfgFrame
   wfgUpdateRxDclk();
   wfgUpdateTconHtotal();
   wfgUpdateDclkLabel();
@@ -33150,6 +33231,11 @@ window.wfgExportConfig = function() {
     /* v3.27.0：Frame Rate 拉桿的上限（＝使用者最後一次手動輸入的值）。
        拉桿目前的位置不另存 —— 它永遠等於 frameRate。舊版讀到這個欄位會直接忽略。 */
     frameRateMax: wfgFrameRateSliderMax,
+    /* v3.28.0：雙寫（Bruce 2026-08-22 裁示「Y」）——
+       同時寫 blanking 與 total。舊版網頁讀 frame.vtotal/htotal 照樣能開；
+       新版**以 blanking 為準**（見 wfgImportConfig 內的處理）。 */
+    vblank: Math.max(1, (wfgFrame.vtotal || 0) - (wfgFrame.vactive || 0)),
+    hblank: Math.max(1, (wfgFrame.htotalBase || 0) - (wfgFrame.hactive || 0)),
     cursors: wfgCursors.map(function(c) {
       /* v3.26.4：連 anchor 一起寫出去 —— 游標的真相是「貼在哪個邊緣」，
          只存 time 的話，把設定檔換到別組 timing 再匯入，游標就會落在錯的地方。
@@ -33255,9 +33341,36 @@ window.wfgImportConfig = function(jsonStr, options) {
   if (config.frame) {
     var f = config.frame;
     wfgFrame.vtotal = f.vtotal || 1125;
+    _wfgImportBlankNote = '';   // v3.28.0：每次匯入重新判定
     wfgFrame.vactive = f.vactive || 1080;
     wfgFrame.htotal = f.htotal || 2200;
     wfgFrame.htotalBase = f.htotalBase || f.htotal || 2200;
+    /* ══ v3.28.0：blanking 優先 ══════════════════════════════════════════
+       檔案裡若有 vblank/hblank（新格式），**以它們為準**重算 total；
+       兩組同時存在又互相矛盾時，採用 blanking 並在畫面上留一行提示
+       （不跳 modal、不擋操作 —— autosave 還原也走這條路，跳窗會每次開頁都煩人）。
+       舊檔沒有 blanking → 由 total − active 反推（`wfgSyncBlankInputs()` 會回填輸入格）。 */
+    var _vb = parseInt(config.vblank), _hb = parseInt(config.hblank);
+    var _conf = [];
+    if (isFinite(_vb) && _vb >= 1) {
+      var _vtFromBlank = (wfgFrame.vactive || 0) + _vb;
+      if (wfgFrame.vtotal !== _vtFromBlank) {
+        _conf.push('VTOTAL ' + wfgFrame.vtotal + ' → ' + _vtFromBlank);
+        wfgFrame.vtotal = _vtFromBlank;
+      }
+    }
+    if (isFinite(_hb) && _hb >= 1) {
+      var _htFromBlank = (wfgFrame.hactive || 0) + _hb;
+      if (wfgFrame.htotalBase !== _htFromBlank) {
+        _conf.push('HTOTAL ' + wfgFrame.htotalBase + ' → ' + _htFromBlank);
+        wfgFrame.htotalBase = _htFromBlank;
+      }
+    }
+    if (_conf.length) {
+      _wfgImportBlankNote = '匯入的設定檔中 blanking 與 total 不一致，已以 blanking 為準：'
+        + _conf.join('、');
+      console.warn('[wfg] ' + _wfgImportBlankNote);
+    }
     wfgFrame.hactive = f.hactive || 1920;
     wfgFrame.dclk = f.dclk || 74.25;
     wfgFrame.frameRate = f.frameRate || 60;
@@ -33281,10 +33394,11 @@ window.wfgImportConfig = function(jsonStr, options) {
   wfgUpdateRxDclk();
   wfgClampTconDclk();
   wfgUpdateTconHtotal();
-  document.getElementById('wfg-vtotal').value = wfgFrame.vtotal;
-  document.getElementById('wfg-vactive').value = wfgFrame.vactive;
-  document.getElementById('wfg-htotal').value = wfgFrame.htotalBase;
-  document.getElementById('wfg-hactive').value = wfgFrame.hactive;
+  /* v3.28.0：四個輸入格與兩個顯示值統一由這裡回填（blanking 由 total − active 反推）。
+     preset 載入與設定檔匯入兩條路徑共用，不各寫一份。 */
+  wfgSyncBlankInputs();
+  wfgShowBlankConflict(_wfgImportBlankNote);
+  _wfgImportBlankNote = '';
   document.getElementById('wfg-dclk').value = wfgFrame.dclk;
   document.getElementById('wfg-framerate').value = wfgFrame.frameRate;
   wfgSetFrameRateSliderMax(_wfgPendingFrameRateMax || wfgFrame.frameRate);   // v3.27.0
