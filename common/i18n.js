@@ -616,6 +616,9 @@ var I18N = {
   /* v3.27.0：Frame 參數卡片的兩個分組框標題 */
   'wfg.grpHtotal':      { 'zh-TW': 'H Total', 'en': 'H Total', 'zh-CN': 'H Total' },
   'wfg.grpVtotal':      { 'zh-TW': 'V Total', 'en': 'V Total', 'zh-CN': 'V Total' },
+  /* v3.28.1：類比波形延後補算期間的佔位標示 */
+  'wfg.analogPending':  { 'zh-TW': '類比波形更新中…', 'en': 'Updating analog waveform…',
+                          'zh-CN': '模拟波形更新中…' },
   'wfg.grpDclk':        { 'zh-TW': 'D-Clock (MHz)', 'en': 'D-Clock (MHz)', 'zh-CN': 'D-Clock (MHz)' },
   'wfg.gpioSources':    { 'zh-TW': '數位信號', 'en': 'Digital Signals', 'zh-CN': '数字信号' },
   'wfg.analogSources':  { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog Signals', 'zh-CN': 'IC 模拟信号' },
