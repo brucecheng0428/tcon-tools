@@ -1939,7 +1939,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg3281"></script>
+<script src="common/version.js?v=20260822wfg3282"></script>
 <script src="common/i18n.js?v=20260822wfg3281"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -22292,13 +22292,23 @@ function wfgRender() {
   var allGpioTransitions = cache.transitions;
   if (_wfgPerfEnabled) _wfgPerfLast.cache = performance.now() - _pT1;
 
-  // Lazy precompute analog data if stale (sync path; heavy entry points use async progress).
-  if (_wfgPrecomputeVer !== _wfgAnalogCacheVer && !_wfgPrecompBusy) {
+  /* Lazy precompute analog data if stale (sync path; heavy entry points use async progress).
+
+     🔴 v3.28.2：`_wfgAnalogPending` 期間**連算都不要算**。
+     v3.28.1 只做了一半 —— 佔位標示擋住了「**畫**舊類比」（`_wfgAnaDataFor()` 22470
+     提早 return null），卻沒擋住這裡的「**算**類比」。於是那次號稱「只畫數位」的重繪，
+     其實把 7 條 CKO 整條算完才畫，實測整支 `wfgRender()` 3,438 ms、其中
+     `wfgPrecomputeAnalog()` 佔 3,422 ms（99.5%）。加上這道閘門後同一次重繪 15.3 ms。
+
+     為什麼安全：pending 為真時 `_wfgAnaDataFor()` 一律回 null，這一輪畫面上沒有任何
+     一條類比波形會讀到預計算結果；算出來的東西**這一輪不會被任何人使用**。
+     pending 解除前的那次完整重繪（`wfgBeginDeferredAnalog()` 排的）會照常算。 */
+  if (_wfgPrecomputeVer !== _wfgAnalogCacheVer && !_wfgPrecompBusy && !_wfgAnalogPending) {
     wfgPrecomputeAnalog();
   }
   // v3.8.1: Subpixel 走自己的閘門 —— 它的失效來源都不動版本號，上面那個條件攔不到。
   // 說明見 _wfgSpxStale()。
-  if (!_wfgPrecompBusy) _wfgEnsureSpxPrecomp();
+  if (!_wfgPrecompBusy && !_wfgAnalogPending) _wfgEnsureSpxPrecomp();
 
   // ── TCON Internal Rows (RX DE, TX DE, R_PH_CNT, F_PH_CNT) ──
   var internalExtraH = wfgInternalExtraH();
