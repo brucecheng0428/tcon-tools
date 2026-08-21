@@ -22,6 +22,108 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v3.26.4 — 2026-08-21 ｜ PATCH ｜ ⚠ 輸出變更
+
+### ① 游標改成「貼附在訊號的某一個邊緣」，不再綁絕對時間
+
+**問題**（Bruce 2026-08-21 回報）：A1 放在某訊號的 rising、A2 放在另一訊號的 falling，把 Frame Rate 往下調，游標就從原本的邊緣跑掉。
+
+**修正前實測**（v3.26.3，預設 preset `FHD 60Hz Single Gate(LS：Multi CPV)`，真實座標點擊放置；A1 貼 xstb rising @ line 431445.837、A2 貼 vst1 falling @ line 431460.637）：
+
+| Frame Rate | A1 所在 line | 原邊緣 line | 偏差 |
+|---|---|---|---|
+| 60（放下時） | 431445.837 | 431445.837 | 0 |
+| 50 | 359605.590 | 431445.739 | **−71,840 line**（畫面上 −1.44e6 px） |
+| 40 | 287630.558 | 431445.591 | **−143,815 line** |
+| 30 | 215722.918 | 431445.443 | **−215,723 line** |
+
+**不是「小幅漂移」，是整支游標飛出畫面。** 根因：游標存絕對秒數（`cur.time`），畫面橫軸是 line，`wfgCursorTimeToX()` 用 `time / timePerLine` 換算；而 `timePerLine = 1/(Vtotal × FrameRate)`（Htotal 與 DCLK 互相抵消），FrameRate 一降 timePerLine 變大，同一個秒數換算出來的 line 就變小。
+
+**修法**（依 Bruce 2026-08-21 裁示：「其實這個做法就跟 LA 那邊是一樣的……如果核心是做到這樣子，其實你根本不用管改變的是 Frame Rate、Vtotal 還是 Htotal」）：
+
+游標記住的不再是座標，而是**它貼在哪個訊號的哪一個邊緣**；波形只要重算，就重新落到那個邊緣的新位置。
+
+**沿用 LA 既有的機制，不另寫第二套** —— LA 連續取樣時游標會一直貼在同一個 rising 上，那套是：
+
+| 角色 | LA（既有） | WFG（本版新增） |
+|---|---|---|
+| 記錄 | `wfgLaFindEdgeSnap()` `wfg.html:8346` | `wfgCursorSnapTime()` 改為回傳 `{time, anchor}` |
+| 內容 | `{ch, edgeIndex, edgeType, relTime}` | `{kind, gi, edge, frame, lineInFrame, dly}` |
+| 解析 | `wfgLaResolveCursorAnchor()` `8404` | `wfgCursorResolveAnchor()` |
+| 觸發 | `wfgLaApplyCapturedWaveform()` `12358`（套用新擷取時） | `wfgCursorReattachIfStale()`（波形重算時，掛在 `wfgRender()` 開頭） |
+
+差別只有「不變量」不同：LA 是相對 trigger 的時間，WFG 是**第幾個 frame 的第幾條 line**（波形本來就以 frame × line 定義，換 timing 時只有這組座標不動）。
+
+**觸發條件刻意不逐個參數掛 hook**：signature = transition cache 的 rebuild 序號 ＋ `timePerLine`。兩個都要 —— cache 只認 `(effVtotal, effHtotal, frameCount)`，**只改 TCON DCLK 不會讓 cache 失效但 timePerLine 會變**。逐個參數掛 hook 的做法漏掉任何一個就是同一個 bug 再來一次。
+
+**修正後實測**（同樣的放置條件，每一格都確認「游標實際貼到的 gi/dly ＝ 指定的那個邊緣」才採計）：
+
+| 參數 | 掃描序列 | A1 偏差 | A2 偏差 |
+|---|---|---|---|
+| Frame Rate | 60 → 50 → 40 → 30 → 60 | **0.0 px** 全程 | **0.0 px** 全程 |
+| VTOTAL | 1112 → 1000 → 900 → 1125 | **0.0 px** 全程 | **0.0 px** 全程 |
+| HTOTAL | 2668 → 2000 → 1800 → 2200 | **0.0 px** 全程 | **0.0 px** 全程 |
+
+- **反向調回 60**：A1 回到 `6.466839842696629 s`，與放下時**逐位元相同**。
+- **手動拖曳後重新吸附**：把 A1 拖到另一個 rising（line 431452.846），偏差 **0.0 秒**，anchor 改為新的邊緣。
+- Bruce 上一則要求「查 VTOTAL/HTOTAL/DCLK 是不是同類問題」的答案：**是同一個根因**（都改變 `timePerLine` 或邊緣的 line 位置），而這個做法一次涵蓋，不需要各自處理。
+
+**開發過程中被實測推翻的兩個做法**（留著避免重做）：
+
+1. 一開始用「目標整數 line」去比 `linePos` 最近者 → xstb 每條 line 都有 rising，改 timing 後 `dly/dclkPerLine` 的小數部分變動，**上一條 line 的 rising 反而更近**，於是每改一次就往前跳一條。正解是拿 `(line, dly)` 這組**結構整數**比對。
+2. 解析成功後用結果重新拆一次 `frame/lineInFrame` → VTOTAL 一變 frame 長度就變，重拆出來的座標與原本不是同一組，**改參數的路徑不同落點就不同**，調回原值也回不去（實測差 125 line）。正解是**錨永遠不被改寫**，只重算位置。
+
+**幾個刻意的選擇**（Bruce 若想要不同行為請告知，都是一行的事）：
+
+- **放下時怎麼決定貼哪個邊緣**：沿用既有的 ±10px 吸附，最近者優先；**離所有邊緣都超過 10px → 不建立 anchor**，行為與舊版完全相同（落在 1 DCLK 的整數位置，之後改參數就不會跟著跑）。
+- **邊緣消失了**（例如 VTOTAL 變小、那條 line 不存在）：**留在原本的絕對時間、解除貼附**，不亂跳到別的邊緣（與 LA 同一個處理）。
+- **`|Δt|` 鎖定的那一支**：由「基準 ＋ Δt」決定位置，不貼邊緣（與 LA 的 `wfgLaCursorAnchors[lateIdx] = null` 一致）。
+- **視野不跟著跑**：改 VTOTAL 時邊緣在絕對 line 上會移動，游標跟著移動、可能移出目前視野。要不要讓視野一起跟過去是另一個題目，本版沒動。
+- 設定檔（含 autosave）會一起寫出 `anchor`；舊檔沒有這個欄位 → 匯入後 anchor 為 null，行為與舊版相同。
+
+### ② 捲軸樣式：WFG 各處對齊 LA 右側欄，收斂成一組變數
+
+**問題**（Bruce 2026-08-21）：「WFG 分頁的上下垂直方向卷軸，它的顏色風格太突兀了。」
+
+現況是 v2.97.438 只替 `#wfg-la-right-panel` 寫了深色捲軸（`wfg.html:525-529`），WFG 分頁那幾個會捲動的容器都吃瀏覽器預設 → 深色介面上一條淺灰白捲軸。
+
+**做法**：把那組色值抽成 `--wfg-sb-*` 變數，選擇器一次列全，**不在每個容器各寫一份色碼**（同 v3.26.2 的 `--wfg-side-w`）。原本 LA 那五行刪掉改吃共用規則，**色值一位元未變**：
+
+| 變數 | 值 | 來源 |
+|---|---|---|
+| `--wfg-sb-size` | 8px | LA 原值 |
+| `--wfg-sb-radius` | 4px | LA 原值 |
+| `--wfg-sb-track` | transparent | LA 原值 |
+| `--wfg-sb-thumb` | #30363d | LA 原值 |
+| `--wfg-sb-thumb-hover` | #3f4855 | LA 原值 |
+
+**套用清單**（Bruce 指示「全部一起套用」，含 LA 側同性質容器，避免兩個分頁出現兩種深色捲軸）：
+
+| 容器 | 檔案位置 | 實測有無捲軸 |
+|---|---|---|
+| `.wfg-panel`（左側參數欄，TCON 與 LA 共用同一個 class） | 定義 `wfg.html:765`，用於 1101／1468 | **有**（實測 `scrollHeight > clientHeight`） |
+| `.wfg-canvas-wrap`（波形區） | `wfg.html:766` | **有** |
+| `.wfg-right-panel` / `#wfg-right-panel`（WFG 右側欄） | `wfg.html:1017` | 目前內容未溢出，規則已套 |
+| `#wfg-la-right-panel`（LA 右側欄，原本唯一有樣式的） | `wfg.html:522` | 目前內容未溢出，規則已套 |
+| `.wfg-la-trigger-grid` / `.wfg-la-log` / `.wfg-la-decode-table-wrap` / `.wfg-la-decode-tip-body` / `.wfg-la-guide-dialog` | 152／194／599／635／197 | 依內容出現 |
+| `.wfg-scrollable` | 保留給日後新增的捲動容器 | — |
+
+橫向捲軸一併涵蓋（`::-webkit-scrollbar` 同時設 `width` 與 `height`，同一組規則自然帶到）。
+
+**實測對照**（headless Chrome，同一組 preset，截 `.wfg-panel` 右緣 40px×360px、3 倍放大）：
+
+| | 修正前 | 修正後 |
+|---|---|---|
+| 捲軸寬（`offsetWidth - clientWidth`） | 15px | **11px** |
+| `scrollbar-width` computed | auto | **thin** |
+| `scrollbar-color` computed | auto | **rgb(48,54,61) transparent** |
+| 外觀 | 淺灰白 thumb ＋ 淺色 track | 深色 thumb、透明 track（與 LA 右側欄同一組值） |
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表逐欄 —— ①「既有功能的輸出」→「**修正為原本就該有的行為**」（游標放下時本來就會吸附到邊緣，只是後續參數改變時沒有跟著；使用者能做的事一件都沒多，是原本就該成立的事終於成立）；②屬 §2 案例 3 的「微調（配色）」，控制項位置零改變。「操作流程」兩項皆零改變；「功能增減」不增不減（`anchor` 是內部欄位，使用者看不到）。逐項判：**R1 適用 → PATCH**；R2 不適用（不開新波）；R3 不適用（`wfgCursorSnapTime()` 的回傳型別改變是內部重構）；R4 不適用（起始狀態與預設值皆未變）。取最高者 → **PATCH**。
+**掛 `⚠ 輸出變更`**，兩個原因：(1) 同一組操作序列（放游標 → 改 Frame Rate）在新版會得到不同的游標位置與 Δt 讀數 —— 依 R1〈範圍定義〉「即使舊結果本身是 bug 造成的仍要標」；(2) 捲軸由 15px 變 11px，波形區 canvas 因此**由 963px 變 967px**（實測，其餘 `.wfg-panel`／`.wfg-canvas-wrap`／`#wfg-right-panel` 的 left/top/width/height 與視野範圍逐項相同、無位移），命中「版面／構圖類：canvas 尺寸」，舊版的截圖像素基線會失效。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.26.3 — 2026-08-21 ｜ PATCH
 
 **修「點一下切到 TCON 分頁，畫面過去了又自己彈回 LA」。**（Bruce 2026-08-21 回報：「點一下 → 有切過去，然後又自己跳回 LA 分頁。快速連點兩三下 → 才留得住。」）
