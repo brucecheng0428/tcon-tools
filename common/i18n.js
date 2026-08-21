@@ -613,6 +613,9 @@ var I18N = {
   'wfg.frameParams':    { 'zh-TW': 'Frame 參數', 'en': 'Frame Parameters', 'zh-CN': 'Frame 参数' },
   'wfg.frameCount':     { 'zh-TW': 'Frame 重複數', 'en': 'Frame Repeat Count', 'zh-CN': 'Frame 重复数' },
   'wfg.gateType':       { 'zh-TW': 'Gate Type', 'en': 'Gate Type', 'zh-CN': 'Gate Type' },
+  /* v3.27.0：Frame 參數卡片的兩個分組框標題 */
+  'wfg.grpHtotal':      { 'zh-TW': 'H Total', 'en': 'H Total', 'zh-CN': 'H Total' },
+  'wfg.grpDclk':        { 'zh-TW': 'D-Clock (MHz)', 'en': 'D-Clock (MHz)', 'zh-CN': 'D-Clock (MHz)' },
   'wfg.gpioSources':    { 'zh-TW': '數位信號', 'en': 'Digital Signals', 'zh-CN': '数字信号' },
   'wfg.analogSources':  { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog Signals', 'zh-CN': 'IC 模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '輸出通道', 'en': 'Output Channels', 'zh-CN': '输出通道' },
