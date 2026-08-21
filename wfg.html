@@ -1865,7 +1865,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260821wfg3266"></script>
+<script src="common/version.js?v=20260821wfg3267"></script>
 <script src="common/i18n.js?v=20260820wfg3260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -29348,12 +29348,18 @@ function wfgCursorAnchorTargetLine(anchor) {
 }
 function wfgCursorCloneAnchor(a) {
   return a ? { kind: a.kind, gi: a.gi, edge: a.edge, frame: a.frame,
-               lineInFrame: a.lineInFrame, dly: a.dly } : null;
+               lineInFrame: a.lineInFrame, dly: a.dly, frac: a.frac } : null;
 }
-function wfgCursorMakeGpioAnchor(gi, tr) {
+/* v3.26.7：`frac` = 這個邊緣在「frame 內第幾條 line」之後的**連續**偏移量（單位：line）。
+   放下時 = dly / effHtotal（落在 0~1），之後每次解析成功就更新成解析結果的實際偏移
+   —— 因為同一個實體邊緣的 (line, dly) 拆法**會隨 effHtotal 改變**，見下方 resolve 的註解。
+   `frame` / `lineInFrame` / `dly` 仍然不可改寫（那是身分），frac 只是「上次看到它在哪」。 */
+function wfgCursorMakeGpioAnchor(gi, tr, effHtotal) {
   var s = wfgCursorSplitLine(tr.line);
+  var eh = effHtotal || (_wfgTransitionCache && _wfgTransitionCache.effHtotal) || 0;
   return { kind: 'gpio', gi: gi, edge: (tr.level === 1) ? 'r' : 'f',
-           frame: s.frame, lineInFrame: s.lineInFrame, dly: tr.dly };
+           frame: s.frame, lineInFrame: s.lineInFrame, dly: tr.dly,
+           frac: (eh > 0) ? (tr.dly / eh) : 0 };
 }
 function wfgCursorMakeDeAnchor(kind, edge, line) {
   var s = wfgCursorSplitLine(line);
@@ -29524,26 +29530,36 @@ function wfgCursorResolveAnchor(anchor) {
       ? wfgExpandRange(smart, from, to, cache.effHtotal)
       : (smart.transitions || []);
     var want = anchor.edge;
-    var best = null, bestKey = Infinity;
+    /* 🔴 v3.26.7：比對改用「連續的 line 位置」，不再是「先比整數 line、再比 dly」。
+       ── 為什麼（Bruce 2026-08-21 回報：Frame Rate 253 改成 252，C2 跳到下一個 XSTB falling）：
+          同一個實體邊緣的 (line, dly) 拆法**會隨 effHtotal 改變**。實測他那份設定：
+            253 Hz → effHtotal 2136，xstb 的 falling 落在 **dly 4**  ⇒ linePos 77784.001873
+            252 Hz → effHtotal 2144，同一批 falling 落在 **dly 2140** ⇒ linePos 77783.998134
+          也就是那個邊緣**跨過了 line 邊界**（它本來就貼在邊界上，dly 4 ≒ 一條 line 的頭）。
+          舊規則「整數 line 要一樣」於是選中 77784.998134 —— 正好是**下一個** falling。
+          C1 沒事，因為 ck1 的 rising 在 dly 1620（line 中段），離邊界很遠。
+       ── 連續位置就沒有這個縫：77783.998134 距離目標 0.0037，77784.998134 距離 0.9963。
+       ── 目標位置＝`frame × effVtotal + lineInFrame + frac`。舊版存下來的錨沒有 frac，
+          退回用 `dly / effHtotal`（＝舊行為的等價值），實測對 Bruce 那份也能選對。 */
+    var frac = (typeof anchor.frac === 'number' && isFinite(anchor.frac))
+      ? anchor.frac
+      : ((cache.effHtotal > 0) ? (anchor.dly || 0) / cache.effHtotal : 0);
+    var targetPos = targetLine + frac;
+    var best = null, bestD = Infinity, bestDly = Infinity;
     for (var i = 0; i < edges.length; i++) {
       var tr = edges[i];
       if (((tr.level === 1) ? 'r' : 'f') !== want) continue;
-      /* 🔴 比對用「(line, dly)」這組整數，不要用換算後的 linePos 去比距離。
-         實測（v3.26.4 開發中）：xstb 每條 line 都有一個 rising（dly 1116），
-         改 Frame Rate 之後 dclkPerLine 由 1334 變 1600.5，同一個邊緣的 linePos
-         由 431445.8366 變成 431445.6973 —— 若拿「目標整數 line 431445」去比 linePos，
-         **上一條 line 的那個 rising（431444.6973，差 0.303）反而比自己（差 0.697）更近**，
-         於是每改一次參數就往前跳一條 line，看起來像「有貼住但一直漂」。
-         line 與 dly 都是結構值（跟 timing 換算無關），拿它們比才是同一個邊緣。 */
-      var dLine = Math.abs(tr.line - targetLine);
-      if (dLine > 1) continue;
+      var d = Math.abs((tr.line + tr.dly / p.dclkPerLine) - targetPos);
       var dDly = Math.abs((tr.dly || 0) - (anchor.dly || 0));
-      var key = dLine * 1e9 + dDly;     // 先看是不是同一條 line，再看 dly 誰最接近
-      if (key < bestKey) { bestKey = key; best = tr; }
+      /* 距離相同時（同一條 line 上有多個同型邊緣才可能發生）用 dly 決勝，結果才是決定性的 */
+      if (d < bestD - 1e-12 || (Math.abs(d - bestD) <= 1e-12 && dDly < bestDly)) {
+        bestD = d; bestDly = dDly; best = tr;
+      }
     }
-    /* 容忍度 ±1 條 line：改 VTOTAL 之類的動作可能讓邊緣在 frame 內微移一條；
-       差超過一條就不是原來那個邊緣了，寧可判定「不見了」也不要偷偷換一個給使用者。 */
-    if (!best) return null;
+    /* 容忍度 0.5 條 line：邊緣跨越 line 邊界時位移極小（實測 0.0037 line），
+       而相鄰的同型邊緣至少差一整條 line ⇒ 0.5 內不可能有第二個候選，判定是唯一的。
+       超過 0.5 就不是原來那個邊緣（例如使用者把 R_DLY 改掉了），寧可判定「不見了」。 */
+    if (!best || bestD > 0.5) return null;
     var bestLinePos = best.line + best.dly / p.dclkPerLine;
     /* 🔴 錨本身**不更新**（原封不動回傳），只重算位置。
        實測（v3.26.4 開發中，VTOTAL 1112 → 1000 → 900 → 1125）：原本每次解析完都用
@@ -29551,8 +29567,14 @@ function wfgCursorResolveAnchor(anchor) {
        重新拆出來的座標就跟原本那個不是同一組（1112 的第 387 frame 第 1101 行，
        用 1000 去拆變成第 388 frame 第 101 行）—— 於是**改參數的路徑不同、落點就不同**，
        而且調回原本的 VTOTAL 也回不到原位（實測差 125 條 line）。
-       錨是使用者當初指的那個結構位置，它不該被後來的參數改寫。 */
-    return { time: bestLinePos * p.timePerLine, anchor: wfgCursorCloneAnchor(anchor) };
+       錨是使用者當初指的那個結構位置，它不該被後來的參數改寫。
+       🔴 v3.26.7 唯一的例外是 `frac`：它記的是「上次看到這個邊緣在哪」，
+       而同一個實體邊緣的 line 內偏移**本來就會隨 effHtotal 改變**（跨 line 邊界時甚至
+       會落到 0~1 之外）。不更新它，下一次比對就會拿一個過期的位置當目標。
+       身分欄位（frame / lineInFrame / dly）仍然原封不動 —— 換 VTOTAL 時靠它們定位。 */
+    var out = wfgCursorCloneAnchor(anchor);
+    out.frac = bestLinePos - targetLine;
+    return { time: bestLinePos * p.timePerLine, anchor: out };
   }
 
   if (anchor.kind === 'rxde' || anchor.kind === 'txde') {
