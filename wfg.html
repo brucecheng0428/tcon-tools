@@ -1865,7 +1865,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260821wfg3264"></script>
+<script src="common/version.js?v=20260821wfg3265"></script>
 <script src="common/i18n.js?v=20260820wfg3260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5350,6 +5350,46 @@ function wfgTimePerLine() {
   var dclkPerLine = isDual ? wfgFrame.htotal / 4 : wfgFrame.htotal / 2;
   var dclkFreqHz = wfgFrame.dclk * 1e6;
   return dclkFreqHz > 0 ? dclkPerLine / dclkFreqHz : 0;
+}
+
+/* ══ v3.26.5：改參數時「時間軸不動」═══════════════════════════════════════════
+   （Bruce 2026-08-21：「在改變 Frequency 或是其他參數的時候，應該要讓波形區的每一格
+     時間維持不變。也就是說，會看到波形的寬度、間距改變，但是時間軸不變。除非我刻意
+     回到波形區，用滾輪再去放大、縮小，才會改變。」）
+
+   現況（v3.26.4 實測）：視野存的是 **line**（`wfgViewStart/End`），時間軸標籤則是
+   `line × timePerLine` 算出來的。Frame Rate 60 → 30 時 timePerLine 加倍，同一段 line
+   範圍換算出來的時間就整個加倍 —— 線上量到「檢視中心 9.017221 → 18.034442（剛好兩倍）」、
+   刻度由 `+10μs +20μs +30μs` 變成 `+20μs +40μs +60μs`。
+
+   修法：視野的**真相改成「絕對時間」**。timePerLine 一變，就把 line 座標依
+   `新line = 舊line × (舊tpl / 新tpl)` 重新換算 —— 兩者相乘後的絕對時間保持不變，
+   於是中心時間、視野涵蓋的時間長度、每一格代表的時間全部不動，變的是同一段時間裡
+   塞得下幾條 line（＝波形看起來變寬或變窄）。滾輪縮放改的是 line 範圍而不是 tpl，
+   所以不會走到這裡，「只有使用者主動縮放時時間軸才變」成立。
+
+   ⚠ 與游標的 line 錨定如何共存：兩者鎖的是**不同的東西**，不衝突 ——
+     視野鎖「看哪一段時間」，游標鎖「貼在哪一個邊緣」。參數一改，邊緣的絕對時間變了，
+     所以游標會在畫面上移動、甚至移出視野（Bruce 已明示這是合理的，不要為了留住游標去動視野）。
+     兩者都不需要對方的座標系：視野只用 tpl 換算，游標只用 (frame, line, dly) 解析。
+
+   ⚠ 「倍率」欄位會變，這是算術上的必然，不是漏改：
+     倍率的定義是 `wfgCurrentZoomFactor() = 總行數 / 視野行數`（27408）。Frame Rate 減半時
+     總行數不變（frameCount × Vtotal），而視野行數依上式減半 ⇒ 倍率加倍。
+     反過來說，要讓倍率不變就只能讓視野行數不變 ⇒ 那正是「時間軸跟著縮放」的舊行為。
+     **兩者不可能同時成立**，本版依 Bruce 的主要指示選「時間軸不變」。 */
+var _wfgViewTplRef = 0;
+function wfgKeepViewTimeWindow() {
+  var tpl = wfgTimePerLine();
+  if (!(tpl > 0)) return;
+  if (!(_wfgViewTplRef > 0)) { _wfgViewTplRef = tpl; return; }
+  if (tpl === _wfgViewTplRef) return;
+  var k = _wfgViewTplRef / tpl;
+  var s = wfgViewStart * k, e = wfgViewEnd * k;
+  _wfgViewTplRef = tpl;
+  if (!isFinite(s) || !isFinite(e) || !(e > s)) return;
+  wfgViewStart = s;
+  wfgViewEnd = e;
 }
 
 /* v3.21.0：最近一次時間軸實際用的刻度（由 wfgRender() 畫刻度時寫入）。
@@ -21793,12 +21833,24 @@ function _wfgTconRenderStickyOverlay() {
 var _wfgRenderSeq = 0;
 function wfgRender() {
   _wfgRenderSeq++;
+  /* v3.26.5：還原／匯入回來但沒有錨的游標，在這裡補建（旗標沒立就是一個 if 的成本）。
+     必須排在 reattach 之前：補完錨的當下就是它的基準 timing，順序反了會先被當成「沒有錨」跳過。 */
+  wfgRefreshMeasurementsIfTimingChanged();   // v3.26.5：見該函式的註解
+  var _curMoved = wfgCursorRebuildMissingAnchors();
   /* v3.26.4：先把游標貼回它們的邊緣，再套 |Δt| 鎖定 —— 順序不能反：
      鎖定是「late = early + dt」，early 得先落到正確位置，late 才會跟著對。
      這裡是唯一的觸發點（signature 沒變就是一個字串比對，不會有額外成本）。 */
-  wfgCursorReattachIfStale();
+  if (wfgCursorReattachIfStale()) _curMoved = true;
+  /* 🔴 v3.26.5：游標動了就要重畫時基標尺卡片。
+     實測（v3.26.4 的第二個缺口）：改 Frame Rate 之後 `cur.time` 已經正確更新，
+     但卡片仍顯示 `A1 @ 6.466870 s`、`|A1−A2|` 也沒變 —— 因為卡片的 HTML 是
+     `wfgUpdateCursorPanel()` 重建的，而 `wfgOnFrameRateChange()` 只呼叫 wfgRender()。
+     Bruce 在線上看到的「一個數字都沒變」有一半是這個（另一半是沒有 anchor）。
+     只在真的有變動時才重建 HTML，hover 造成的每秒數十次重繪不受影響。 */
+  if (_curMoved) wfgUpdateCursorPanel();
   wfgApplyDtLock(); /* v2.97.468: 繪製前套用 |Δt| 鎖定，兩模式(phase/kvdat)皆生效 */
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
+  wfgKeepViewTimeWindow();   // v3.26.5：改參數時時間軸不動（見該函式註解）
   /* v3.20.7：畫之前先讓視野符合規則。這是最後一道守門 —— 上面所有改視野的動作
      （縮放／平移／minimap／鍵盤／改 VTOTAL 或 FRAME 重複數而讓總行數變短）不論
      有沒有自己夾好，到這裡都會被夾正，畫布不會再出現靜默的空白。 */
@@ -24743,6 +24795,7 @@ function wfgLoadPreset(presetName) {
         }
       }
     }
+    wfgCursorRequestAnchorRebuild();   // v3.26.5：preset 內建的 cursor 同樣補建錨
   }
   // Apply voltage cursor per-slot positions & active state
   if (preset.voltCursorPerSlot && typeof preset.voltCursorPerSlot === 'object') {
@@ -29516,29 +29569,118 @@ function wfgCursorResolveAnchor(anchor) {
      漏掉任何一個就是同一個 bug 再來一次。這裡改成「只要波形換了就重貼」。 */
 var _wfgTransitionCacheSerial = 0;
 var _wfgCursorAnchorSig = '';
+/* v3.26.5：還原／匯入回來的游標若沒有 anchor（v3.26.4 之前存的檔就沒有這個欄位），
+   要在畫得出來的第一個 render 補建一次錨。用 pending 旗標而不是當場做，理由見
+   wfgCursorRebuildMissingAnchors() 內的註解。 */
+var _wfgCursorAnchorRebuildPending = false;
 function wfgCursorTimingSig() {
   return _wfgTransitionCacheSerial + '|' + wfgTimePerLine() + '|' + (wfgKvdatMode ? 'k' : 'p')
        + '|' + (wfgTconInternalMode ? 'i' : '-');
 }
+/* ══ v3.26.5：替「沒有錨」的游標補建錨 ═══════════════════════════════════════
+   🔴 v3.26.4 的缺口（Bruce 2026-08-21 線上實測抓到）：
+      `wfgCursorReattachIfStale()` 只處理**有 anchor** 的游標，而 Bruce 打開頁面時
+      游標一律是從 **autosave 還原**回來的 —— 那份存檔是 v3.26.4 之前寫的，
+      **裡面根本沒有 anchor 欄位** ⇒ 還原回來 anchor 全是 null ⇒ 一個都不會重貼。
+      實測：線上載入後 A1 @ 9.017176 s，把 Frame Rate 60 改成 30，
+      視野中心自動變成兩倍（18.034442），但 `A1 @ 9.017176 s`、`|A1−A2| = 30.09 us`
+      一個數字都沒變，游標整個留在畫面外。
+      **他永遠碰不到「新放下的游標」那條我測過的路徑。**
+
+   補法：拿還原回來的絕對時間，用**當下的波形**跑一次和「使用者放下游標」完全相同的
+   吸附邏輯（`wfgCursorSnapAtTime()` → `wfgCursorSnapTime()`，同一個 ±10px 門檻）。
+   超過門檻 → 維持無錨，行為與舊版相同（本來就是放在平坦區的游標，不該硬貼給它一個邊緣）。
+
+   ⚠ 為什麼用 pending 旗標而不是在 wfgImportConfig() 裡當場做：
+   吸附要有**畫得出來的幾何**（canvas 寬度、目前視野）才能算 ±10px。還原有兩種時機
+   會拿不到：(a) 以 `#wfg-la` 進站時 TCON 面板還是 display:none，canvas 寬度為 0；
+   (b) 匯入流程中 cursors 比視野先套用。掛旗標、等第一個真的畫得出來的 render 再做，
+   這兩種情況都自然涵蓋，也不必在還原路徑上各補一次幾何檢查。 */
+function wfgCursorRequestAnchorRebuild() { _wfgCursorAnchorRebuildPending = true; }
+
+/* ══ v3.26.5：timing 一改，**所有量測讀數**都要重算，不是只有時基標尺 ═════════
+   （Bruce 2026-08-21：「應該不只實際標示，還要考慮到所有的量測數據都要跟著變動，
+     例如即時測量，這個可能也會要注意。」）
+
+   盤點結果（全檔）：
+
+   | 卡片 | 值從哪來 | 參數改變後會不會自己重算 |
+   |---|---|---|
+   | 時基標尺 `A1 @ / |Δt| / 頻率` | `wfgUpdateCursorPanel()`(29959) 每次都由 `cur.time` **現算** | ❌ 沒人在參數改變後呼叫它 → v3.26.5 補 |
+   | ＋ 釘住的量測小卡 | `wfgMeasSelRenderAll()`(32196) 內 `wfgMeasSelGetEdges`＋`wfgMeasSelCompute` 現算 | ✅ 已掛在 wfgRender 尾端節流刷新(22813)，但**節流 60ms＋拖曳時跳過**，這裡改為強制刷新一次 |
+   | 脈衝計數卡 | `wfgPulseRenderAll()`(32527) 現算 | ✅ 同上(22812)，一併強制刷新 |
+   | 即時測量（hover 卡） | `wfgMeasUpdate(滑鼠座標)` → `wfgMeasSetFive()` | ❌ **只有滑鼠事件會觸發**；參數改了而滑鼠沒動 → 五個值全部留在舊的 |
+   | LA 分頁的量測 | 來源是側錄下來的資料，與 TCON timing 參數無關 | — 不受影響 |
+
+   **沒有任何一處是「算一次存起來」的快取**，全部都是現算 —— 缺的只是「參數改變後有人去呼叫」。
+   所以這裡不新增第二套計算邏輯，只做一件事：**在同一個判定點上，把既有的重算入口各叫一次**。
+
+   ⚠ 用 setTimeout(0) 延後：本函式由 wfgRender() 開頭呼叫，而 `wfgMeasUpdate()` 這條路徑
+   會再進 wfgRender()（量測要重畫箭頭）。同步呼叫等於在 render 裡面再 render。 */
+var _wfgMeasTimingSig = '';
+var _wfgMeasRefreshPending = false;
+function wfgRefreshMeasurementsIfTimingChanged() {
+  var sig = wfgCursorTimingSig();
+  if (sig === _wfgMeasTimingSig) return;
+  _wfgMeasTimingSig = sig;
+  if (_wfgMeasRefreshPending) return;
+  _wfgMeasRefreshPending = true;
+  setTimeout(function() {
+    _wfgMeasRefreshPending = false;
+    try { wfgUpdateCursorPanel(); } catch (e) {}
+    try { if (typeof wfgMeasSelRenderAll === 'function') wfgMeasSelRenderAll({ force: true }); } catch (e) {}
+    try { if (typeof wfgPulseRenderAll === 'function') wfgPulseRenderAll(); } catch (e) {}
+    /* hover 卡：用最後一次滑鼠位置重跑一遍（`_wfgLastMouseX/Y` 是既有機制，
+       縮放後重新量測走的就是同一條，見 27319 等處）。滑鼠不在波形區時它會自己清空。 */
+    try { wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY); } catch (e) {}
+  }, 0);
+}
+function wfgCursorRebuildMissingAnchors() {
+  if (!_wfgCursorAnchorRebuildPending) return;
+  if (wfgKvdatMode) { _wfgCursorAnchorRebuildPending = false; return; }
+  var p = wfgCursorGetTimeParams();
+  if (!p || p.mode !== 'phase' || !(p.drawW > 0) || !(p.timePerLine > 0)) return; // 還畫不出來 → 下一輪再說
+  wfgEnsureTransitions();
+  var changed = false;
+  for (var ci = 0; ci < wfgCursors.length; ci++) {
+    var cur = wfgCursors[ci];
+    if (!cur.active || cur.time === null || cur.anchor || cur.moving) continue;
+    var s = wfgCursorSnapAtTime(cur.time);
+    if (s && s.anchor) {
+      cur.anchor = wfgCursorCloneAnchor(s.anchor);
+      cur.time = s.time;   // 存檔的秒數本來就是吸附出來的，這裡等於原值；不同才代表真的有微差
+      changed = true;
+    }
+  }
+  _wfgCursorAnchorRebuildPending = false;
+  /* 這一輪的 timing 就是這些錨的基準，先對齊 signature，避免同一輪又被 reattach 動一次。 */
+  _wfgCursorAnchorSig = wfgCursorTimingSig();
+  return changed;
+}
+
 function wfgCursorReattachIfStale() {
   var sig = wfgCursorTimingSig();
-  if (sig === _wfgCursorAnchorSig) return;
+  if (sig === _wfgCursorAnchorSig) return false;
   _wfgCursorAnchorSig = sig;
-  if (wfgKvdatMode) return;
+  if (wfgKvdatMode) return false;
+  var changed = false;
   for (var ci = 0; ci < wfgCursors.length; ci++) {
     var cur = wfgCursors[ci];
     if (!cur.active || !cur.anchor || cur.moving) continue;
     var r = wfgCursorResolveAnchor(cur.anchor);
     if (r) {
+      if (cur.time !== r.time) changed = true;
       cur.time = r.time;
       cur.anchor = r.anchor;
     } else {
+      changed = true;
       /* 那個邊緣在新的參數下不存在了（例如 VTOTAL 變小、該 frame 整個沒了）。
          沿用 LA 的處理：**留在原本的絕對時間、解除貼附**，不亂跳到別的邊緣。
          （LA: wfgLaApplyCapturedWaveform() 解析失敗時 anchor 設 null、位置退回相對時間。） */
       cur.anchor = null;
     }
   }
+  return changed;
 }
 
 function wfgCursorTrackMouse(e) {
@@ -30035,6 +30177,26 @@ function wfgCursorGetCenterTime() {
 }
 
 function wfgToggleCursorBtn(idx) { wfgToggleCursor(idx); }
+
+/* v3.26.5：唯讀的除錯出口（依 Bruce 2026-08-21 要求）。
+   線上驗證時可在 console 直接 `__wfgCursorsDebug()` 讀游標狀態，不必靠截圖猜。
+   回傳的是**複本**：改它不會影響任何狀態；主程式包在 IIFE 裡，這是唯一的對外窗口。 */
+window.__wfgCursorsDebug = function() {
+  return {
+    timePerLine: wfgTimePerLine(),
+    frame: { vtotal: wfgFrame.vtotal, htotal: wfgFrame.htotal, dclk: wfgFrame.dclk,
+             frameRate: wfgFrame.frameRate, gateType: wfgFrame.gateType },
+    view: { start: wfgViewStart, end: wfgViewEnd },
+    anchorSig: wfgCursorTimingSig(),
+    rebuildPending: _wfgCursorAnchorRebuildPending,
+    cursors: wfgCursors.map(function(c) {
+      return { id: c.id, group: c.group, active: c.active, moving: c.moving,
+               time: c.time, line: (c.time != null && wfgTimePerLine() > 0)
+                                    ? c.time / wfgTimePerLine() : null,
+               anchor: wfgCursorCloneAnchor(c.anchor) };
+    })
+  };
+};
 
 function wfgUpdateCursorBtns() {
   var btns = document.querySelectorAll('.wfg-cursor-btn');
@@ -33077,6 +33239,10 @@ window.wfgImportConfig = function(jsonStr, options) {
       wfgCursors[ki].active = !!sc.active;
       wfgCursors[ki].anchor = wfgCursorCloneAnchor(sc.anchor);   // v3.26.4（舊檔沒這欄 → null）
     }
+    /* v3.26.5：不論檔案新舊都掛旗標 —— 只有「active、有時間、但沒有 anchor」的那幾支會被補建，
+       檔案裡本來就帶 anchor 的完全不受影響。autosave 自動還原、匯入設定檔、貼上 JSON
+       三條路徑都會經過這裡（都呼叫 wfgImportConfig），所以只補這一個點。 */
+    wfgCursorRequestAnchorRebuild();
   }
 
   // ── View ──
