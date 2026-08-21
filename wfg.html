@@ -1865,7 +1865,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260821wfg3267"></script>
+<script src="common/version.js?v=20260821wfg3268"></script>
 <script src="common/i18n.js?v=20260820wfg3260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -29366,6 +29366,23 @@ function wfgCursorMakeDeAnchor(kind, edge, line) {
   return { kind: kind, edge: edge, frame: s.frame, lineInFrame: s.lineInFrame };
 }
 
+/* ══ v3.26.8：吸附／錨點解析改讀「畫面上看到的」那一份邊緣 ═══════════════════
+   （Bruce 2026-08-21 裁示：「Y , OAX也需要吸附的到才對」）
+
+   在此之前，繪製端用 `wfgGetOaxForRange()`（OAX 合成後，wfg.html:18262，見 22739 的呼叫），
+   而吸附／解析端讀 `cache.transitions[gi]`（**合成前的 base**）—— 兩份資料。實測內建 preset
+   的 vst2（`oax_mode:1` OR tend）在第 387 個 frame：base 3 個邊緣、畫面上 5 個，
+   由 tend 貢獻的 `(line 1090, dly 850, ↑)` 與 `(line 1092, dly 850, ↓)` **畫得出來卻吸附不到**。
+
+   收斂成一個入口：三個用到邊緣的地方（吸附 / 解析 / 補建錨）全部改呼叫這一支，
+   **不在吸附端另寫一套 OAX 合成**。`wfgGetOaxForRange()` 在 `oax_mode === 0` 時就是
+   `wfgExpandRange(base…)`，與舊行為逐筆相同 —— 非 OAX 訊號零影響。 */
+function wfgCursorEdgesForRange(gi, cache, fromLine, toLine) {
+  if (!cache || !cache.transitions || !cache.transitions[gi]) return [];
+  var r = wfgGetOaxForRange(gi, cache.transitions, cache.effHtotal, fromLine, toLine);
+  return (r && r.transitions) ? r.transitions : [];
+}
+
 function wfgCursorSnapTime(rawTime, cx, p) {
   // Snap to nearest edge within ±10px
   // v3.26.4：回傳改為 { time, anchor } —— anchor 記住「貼在哪一個邊緣」，null = 沒貼到任何邊緣
@@ -29382,9 +29399,8 @@ function wfgCursorSnapTime(rawTime, cx, p) {
       var dclkPerLine = p.dclkPerLine;
       var timePerLine = p.timePerLine;
       for (var gi = 0; gi < cache.transitions.length; gi++) {
-        var smart = cache.transitions[gi];
-        if (!smart) continue;
-        var edges = smart.isPeriodic !== undefined ? wfgExpandRange(smart, wfgViewStart, wfgViewEnd, cache.effHtotal) : (smart.transitions || []);
+        if (!cache.transitions[gi]) continue;
+        var edges = wfgCursorEdgesForRange(gi, cache, wfgViewStart, wfgViewEnd);   // v3.26.8
         for (var ei = 0; ei < edges.length; ei++) {
           var tr = edges[ei];
           var edgeTime = (tr.line + tr.dly / dclkPerLine) * timePerLine;
@@ -29521,14 +29537,11 @@ function wfgCursorResolveAnchor(anchor) {
   if (anchor.kind === 'gpio') {
     var cache = wfgEnsureTransitions();
     if (!cache || !cache.transitions) return null;
-    var smart = cache.transitions[anchor.gi];
-    if (!smart) return null;
+    if (!cache.transitions[anchor.gi]) return null;
     /* 只展開目標 line 前後各 2 條 —— 這是「同一個邊緣」該在的地方。
        開太大會在波形改變時默默吸到隔壁週期的另一個邊緣（看起來像沒壞，其實換人了）。 */
     var from = Math.max(0, targetLine - 2), to = Math.min(totalLines, targetLine + 2);
-    var edges = (smart.isPeriodic !== undefined)
-      ? wfgExpandRange(smart, from, to, cache.effHtotal)
-      : (smart.transitions || []);
+    var edges = wfgCursorEdgesForRange(anchor.gi, cache, from, to);   // v3.26.8：與畫面同一份
     var want = anchor.edge;
     /* 🔴 v3.26.7：比對改用「連續的 line 位置」，不再是「先比整數 line、再比 dly」。
        ── 為什麼（Bruce 2026-08-21 回報：Frame Rate 253 改成 252，C2 跳到下一個 XSTB falling）：
@@ -29668,11 +29681,8 @@ function wfgCursorRebuildAnchorAtTime(time) {
   var to = Math.min(totalLines, Math.ceil(targetLine) + 1);
   var best = null, bestD = Infinity, hits = 0;
   for (var gi = 0; gi < cache.transitions.length; gi++) {
-    var smart = cache.transitions[gi];
-    if (!smart) continue;
-    var edges = (smart.isPeriodic !== undefined)
-      ? wfgExpandRange(smart, from, to, cache.effHtotal)
-      : (smart.transitions || []);
+    if (!cache.transitions[gi]) continue;
+    var edges = wfgCursorEdgesForRange(gi, cache, from, to);   // v3.26.8：與畫面同一份
     for (var i = 0; i < edges.length; i++) {
       var tr = edges[i];
       var d = Math.abs((tr.line + tr.dly / p.dclkPerLine) - targetLine);
