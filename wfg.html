@@ -1865,7 +1865,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260821wfg3265"></script>
+<script src="common/version.js?v=20260821wfg3266"></script>
 <script src="common/i18n.js?v=20260820wfg3260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5362,11 +5362,21 @@ function wfgTimePerLine() {
    範圍換算出來的時間就整個加倍 —— 線上量到「檢視中心 9.017221 → 18.034442（剛好兩倍）」、
    刻度由 `+10μs +20μs +30μs` 變成 `+20μs +40μs +60μs`。
 
-   修法：視野的**真相改成「絕對時間」**。timePerLine 一變，就把 line 座標依
-   `新line = 舊line × (舊tpl / 新tpl)` 重新換算 —— 兩者相乘後的絕對時間保持不變，
-   於是中心時間、視野涵蓋的時間長度、每一格代表的時間全部不動，變的是同一段時間裡
-   塞得下幾條 line（＝波形看起來變寬或變窄）。滾輪縮放改的是 line 範圍而不是 tpl，
-   所以不會走到這裡，「只有使用者主動縮放時時間軸才變」成立。
+   🔴 v3.26.5 第一版把**整個絕對時間視窗**釘住（中心時間與跨距都不變），Bruce 實測打回：
+      「我改變 frame rate 的時候，原本畫面中心如果是某一個時間，我一改，它就整個跑掉了。
+        也就是我要看的位置，會整個跑到波形顯示區外面。」
+      原因：波形內容是綁 line 的。中心**時間**釘住 ⇒ 中心 **line** 就得跟著換算 ⇒
+      他原本在看的那段波形整個移出視野。兩個需求其實各綁不同的東西：
+
+        「每一格時間維持不變」＝ 縮放（time/div）→ 綁**時間**
+        「我要看的位置不要跑掉」＝ 視野中心 → 綁**內容**（line）
+
+   修法（v3.26.5 定版）：**中心 line 不動，可視的時間跨距不動**。
+   於是 `可視 line 數 = 固定時間跨距 ÷ 新的 tpl`。tpl 加倍時可視 line 數減半 ——
+   同樣的螢幕寬度裡塞的 line 變少（波形看起來變寬），每一格代表的時間不變，
+   而中心那段波形仍然在正中央。游標綁邊緣（line）、視野中心也綁 line，兩者一致，
+   游標不會莫名其妙飛出畫面。
+   滾輪縮放改的是 line 範圍而不是 tpl，所以不會走到這裡，「只有使用者主動縮放時時間軸才變」成立。
 
    ⚠ 與游標的 line 錨定如何共存：兩者鎖的是**不同的東西**，不衝突 ——
      視野鎖「看哪一段時間」，游標鎖「貼在哪一個邊緣」。參數一改，邊緣的絕對時間變了，
@@ -5384,12 +5394,14 @@ function wfgKeepViewTimeWindow() {
   if (!(tpl > 0)) return;
   if (!(_wfgViewTplRef > 0)) { _wfgViewTplRef = tpl; return; }
   if (tpl === _wfgViewTplRef) return;
-  var k = _wfgViewTplRef / tpl;
-  var s = wfgViewStart * k, e = wfgViewEnd * k;
+  var center = (wfgViewStart + wfgViewEnd) / 2;                 // ← 中心 line：不動
+  var spanLines = (wfgViewEnd - wfgViewStart) * (_wfgViewTplRef / tpl);  // ← 時間跨距不動
   _wfgViewTplRef = tpl;
-  if (!isFinite(s) || !isFinite(e) || !(e > s)) return;
-  wfgViewStart = s;
-  wfgViewEnd = e;
+  if (!isFinite(center) || !isFinite(spanLines) || !(spanLines > 0)) return;
+  wfgViewStart = center - spanLines / 2;
+  wfgViewEnd = center + spanLines / 2;
+  /* 中心那條 line 在新參數下若已不存在（例如 VTOTAL 變小、總行數變短），
+     交給緊接在後面的 wfgClampViewToBounds() 夾正 —— 視野合法性只有那一份實作。 */
 }
 
 /* v3.21.0：最近一次時間軸實際用的刻度（由 wfgRender() 畫刻度時寫入）。
@@ -24551,6 +24563,7 @@ function wfgClearAllCursors() {
     wfgCursors[cci].active = false;
     wfgCursors[cci].moving = false;
     wfgCursors[cci].anchor = null;   // v3.26.4：清空要連 anchor 一起，否則會留下貼在舊波形上的錨
+    wfgCursors[cci].anchorReason = null;   // v3.26.6
   }
   wfgDtLock = {};
 }
@@ -24791,6 +24804,7 @@ function wfgLoadPreset(presetName) {
           wfgCursors[wci].active = !!pcursor.active;
           wfgCursors[wci].moving = false;
           wfgCursors[wci].anchor = wfgCursorCloneAnchor(pcursor.anchor);   // v3.26.4
+          wfgCursors[wci].anchorReason = pcursor.anchor ? 'restored-with-anchor' : 'restored-without-anchor'; // v3.26.6
           break;
         }
       }
@@ -29598,6 +29612,82 @@ function wfgCursorTimingSig() {
    這兩種情況都自然涵蓋，也不必在還原路徑上各補一次幾何檢查。 */
 function wfgCursorRequestAnchorRebuild() { _wfgCursorAnchorRebuildPending = true; }
 
+/* ══ v3.26.6：補建錨改用「line／DCLK 容差」，不再借用放置時的 ±10px 吸附 ═════════
+   🔴 v3.26.5 的補建直接呼叫 `wfgCursorSnapAtTime()`（＝放游標時那套），結果在 Bruce
+      自己的存檔上一支都沒建起來。線上實測 `__wfgCursorsDebug()`：四支游標
+      `anchor: null`、`rebuildPending: false` —— **補建確實跑了，只是一個都沒找到**。
+
+   兩個原因，都出在「借用放置時的吸附」這個決定：
+   1. **門檻是像素**（±10px）。像素距離會隨當下縮放倍率變動 —— 同一支游標在不同倍率下
+      會得到不同結果。還原後的視野是存檔決定的，使用者根本沒得選。
+   2. **候選邊緣只展開「目前視野」那一段**（`wfgCursorSnapTime()` 用
+      `wfgExpandRange(smart, wfgViewStart, wfgViewEnd, …)`）。還原回來的游標若不在
+      視野內（很常見：視野是另存的），候選集合根本是空的，不管門檻多寬都找不到。
+
+   正解：還原回來的時間**本來就是當初吸附出來的**，它應該精確落在某個邊緣上。
+   所以改成在 **line 空間**、**以游標自己的位置為中心**搜尋，容差 1 個 DCLK
+   （＝顯示上能表達的最小刻度，`wfgCursorSnapTime()` 找不到邊緣時也是四捨五入到 1 DCLK）。
+   與視野、縮放、canvas 寬度全部無關。
+
+   ⚠ 同一個位置常常有多個訊號的邊緣（例如 vst1 的下降與 ck2 的上升在同一條 line 同一個 dly）。
+   還原時無從得知使用者當初指的是哪一個 —— 取 gpio 索引最小者，並在
+   `__wfgCursorsDebug()` 標記 `rebuilt-ambiguous`，讓這件事在線上看得見而不是猜。 */
+function wfgCursorRebuildAnchorAtTime(time) {
+  if (time == null || wfgKvdatMode) return null;
+  var p = wfgCursorGetTimeParams();
+  if (!p || p.mode !== 'phase' || !(p.timePerLine > 0) || !(p.dclkPerLine > 0)) return null;
+  var targetLine = time / p.timePerLine;
+  var totalLines = wfgTotalLines();
+  if (!(targetLine >= 0) || targetLine > totalLines) return null;
+  var tolLine = 1 / p.dclkPerLine;          // 1 DCLK，換算成 line
+  var cache = wfgEnsureTransitions();
+  if (!cache || !cache.transitions) return null;
+  var from = Math.max(0, Math.floor(targetLine) - 1);
+  var to = Math.min(totalLines, Math.ceil(targetLine) + 1);
+  var best = null, bestD = Infinity, hits = 0;
+  for (var gi = 0; gi < cache.transitions.length; gi++) {
+    var smart = cache.transitions[gi];
+    if (!smart) continue;
+    var edges = (smart.isPeriodic !== undefined)
+      ? wfgExpandRange(smart, from, to, cache.effHtotal)
+      : (smart.transitions || []);
+    for (var i = 0; i < edges.length; i++) {
+      var tr = edges[i];
+      var d = Math.abs((tr.line + tr.dly / p.dclkPerLine) - targetLine);
+      if (d > tolLine) continue;
+      hits++;
+      if (d < bestD - 1e-12) { bestD = d; best = { gi: gi, tr: tr }; }
+    }
+  }
+  /* TCON Internal 的 RX/TX DE 沒有 transition 記錄，用同一組公式反推它們在這條 line 的位置。 */
+  if (wfgTconInternalMode) {
+    var isDual = wfgFrame.gateType === 'dual';
+    var ln = Math.round(targetLine);
+    var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
+    var rxDeFrac = rxDclkPerLine > 0 ? (wfgFrame.hactive / 2) / rxDclkPerLine : 0;
+    var txDeFrac = (wfgFrame.hactive / (2 * (isDual ? 2 : 1))) / p.dclkPerLine;
+    var deCand = [
+      { kind: 'rxde', edge: 'r', pos: ln },
+      { kind: 'rxde', edge: 'f', pos: ln + rxDeFrac },
+      { kind: 'txde', edge: 'r', pos: ln },
+      { kind: 'txde', edge: 'f', pos: ln + txDeFrac }
+    ];
+    for (var di = 0; di < deCand.length; di++) {
+      var dd = Math.abs(deCand[di].pos - targetLine);
+      if (dd > tolLine) continue;
+      hits++;
+      if (dd < bestD - 1e-12) { bestD = dd; best = { de: deCand[di] }; }
+    }
+  }
+  if (!best) return null;
+  if (best.de) {
+    return { time: best.de.pos * p.timePerLine, ambiguous: hits > 1,
+             anchor: wfgCursorMakeDeAnchor(best.de.kind, best.de.edge, Math.round(targetLine)) };
+  }
+  return { time: (best.tr.line + best.tr.dly / p.dclkPerLine) * p.timePerLine,
+           ambiguous: hits > 1, anchor: wfgCursorMakeGpioAnchor(best.gi, best.tr) };
+}
+
 /* ══ v3.26.5：timing 一改，**所有量測讀數**都要重算，不是只有時基標尺 ═════════
    （Bruce 2026-08-21：「應該不只實際標示，還要考慮到所有的量測數據都要跟著變動，
      例如即時測量，這個可能也會要注意。」）
@@ -29645,11 +29735,14 @@ function wfgCursorRebuildMissingAnchors() {
   for (var ci = 0; ci < wfgCursors.length; ci++) {
     var cur = wfgCursors[ci];
     if (!cur.active || cur.time === null || cur.anchor || cur.moving) continue;
-    var s = wfgCursorSnapAtTime(cur.time);
+    var s = wfgCursorRebuildAnchorAtTime(cur.time);
     if (s && s.anchor) {
       cur.anchor = wfgCursorCloneAnchor(s.anchor);
       cur.time = s.time;   // 存檔的秒數本來就是吸附出來的，這裡等於原值；不同才代表真的有微差
+      cur.anchorReason = s.ambiguous ? 'rebuilt-ambiguous' : 'rebuilt-from-time';
       changed = true;
+    } else {
+      cur.anchorReason = 'no-edge-near-restored-time';
     }
   }
   _wfgCursorAnchorRebuildPending = false;
@@ -29678,6 +29771,7 @@ function wfgCursorReattachIfStale() {
          沿用 LA 的處理：**留在原本的絕對時間、解除貼附**，不亂跳到別的邊緣。
          （LA: wfgLaApplyCapturedWaveform() 解析失敗時 anchor 設 null、位置退回相對時間。） */
       cur.anchor = null;
+      cur.anchorReason = 'edge-gone-after-param-change';   // v3.26.6
     }
   }
   return changed;
@@ -29704,6 +29798,7 @@ function wfgCursorTrackMouse(e) {
     if (wfgCursors[ci].moving) {
       wfgCursors[ci].time = snapped.time;
       wfgCursors[ci].anchor = wfgCursorCloneAnchor(snapped.anchor); // v3.26.4：拖到哪就貼哪
+      wfgCursors[ci].anchorReason = snapped.anchor ? 'placed' : 'placed-no-edge-within-10px'; // v3.26.6
     }
   }
   wfgUpdateCursorPanel();
@@ -29732,6 +29827,7 @@ function wfgCursorTrackTouch(clientX) {
     if (wfgCursors[ci].moving) {
       wfgCursors[ci].time = snapped.time;
       wfgCursors[ci].anchor = wfgCursorCloneAnchor(snapped.anchor); // v3.26.4
+      wfgCursors[ci].anchorReason = snapped.anchor ? 'placed' : 'placed-no-edge-within-10px'; // v3.26.6
     }
   }
   wfgUpdateCursorPanel();
@@ -29999,6 +30095,7 @@ function wfgCursorApplyDtInput(group, inputEl) {
   /* v3.26.4：被鎖的那一支改由「基準 ＋ dt」決定位置，不再貼附任何邊緣
      （鏡像 LA 的 wfgLaCursorAnchors[lateIdx] = null）。基準那一支的 anchor 不動。 */
   wfgCursors[lateIdx].anchor = null;
+  wfgCursors[lateIdx].anchorReason = 'dt-locked';   // v3.26.6
   wfgCursors[lateIdx].moving = false; /* 手動定位 → 固定態 */
   if (inputEl) inputEl.blur();
   wfgUpdateCursorBtns();
@@ -30134,6 +30231,7 @@ function wfgToggleCursor(idx) {
       (_wfgCursorMouseTime != null) ? _wfgCursorMouseTime : wfgCursorGetCenterTime());
     cur.time = _newSnap.time;
     cur.anchor = wfgCursorCloneAnchor(_newSnap.anchor);
+    cur.anchorReason = _newSnap.anchor ? 'placed' : 'placed-no-edge-within-10px'; // v3.26.6
     wfgCursorStartAnim();
   } else if (!cur.moving) {
     /* v2.97.467: 固定態(已釘住,moving=false)按鍵 → 改回跟隨滑鼠,不消失。
@@ -30147,6 +30245,7 @@ function wfgToggleCursor(idx) {
       var _reSnap = wfgCursorSnapAtTime(_wfgCursorMouseTime);   // v3.26.4：同上
       cur.time = _reSnap.time;
       cur.anchor = wfgCursorCloneAnchor(_reSnap.anchor);
+      cur.anchorReason = _reSnap.anchor ? 'placed' : 'placed-no-edge-within-10px'; // v3.26.6
     }
     wfgCursorStartAnim();
   } else {
@@ -30193,7 +30292,12 @@ window.__wfgCursorsDebug = function() {
       return { id: c.id, group: c.group, active: c.active, moving: c.moving,
                time: c.time, line: (c.time != null && wfgTimePerLine() > 0)
                                     ? c.time / wfgTimePerLine() : null,
-               anchor: wfgCursorCloneAnchor(c.anchor) };
+               anchor: wfgCursorCloneAnchor(c.anchor),
+               /* v3.26.6：沒有 anchor 時「為什麼沒有」要看得出來，不必猜。
+                  placed / placed-no-edge-within-10px / restored-with-anchor /
+                  restored-without-anchor / rebuilt-from-time / rebuilt-ambiguous /
+                  no-edge-near-restored-time / edge-gone-after-param-change / dt-locked */
+               anchorReason: c.anchorReason || null };
     })
   };
 };
@@ -33238,6 +33342,7 @@ window.wfgImportConfig = function(jsonStr, options) {
       wfgCursors[ki].time = sc.time;
       wfgCursors[ki].active = !!sc.active;
       wfgCursors[ki].anchor = wfgCursorCloneAnchor(sc.anchor);   // v3.26.4（舊檔沒這欄 → null）
+      wfgCursors[ki].anchorReason = sc.anchor ? 'restored-with-anchor' : 'restored-without-anchor'; // v3.26.6
     }
     /* v3.26.5：不論檔案新舊都掛旗標 —— 只有「active、有時間、但沒有 anchor」的那幾支會被補建，
        檔案裡本來就帶 anchor 的完全不受影響。autosave 自動還原、匯入設定檔、貼上 JSON
