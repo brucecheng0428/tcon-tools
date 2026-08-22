@@ -22,6 +22,93 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.4.0 — 2026-08-22 ｜ MINOR
+
+**E512 補上 script 匯出；匯入對話框改成「直接在框裡輸入」，輸入即確認。**
+
+判定依據：§1 判定表「功能增減：**新增獨立功能**」→ MINOR，取最高者。
+　・E512 script 匯出是全新能力（v4.3.0 只做匯入）。
+　・對話框把勾選框換成輸入欄：確認機制換了一種、而且**多了「直接在對話框裡改值」這件事**，
+　　也落在「新增能力」。被移除的「我已確認」勾選框是**上一版才加的、且被更好的機制取代**，
+　　依 R2 算在 4.x 這一波內，不另計 MAJOR。
+不標 `⚠ 輸出變更`：波形與計算結果不變；EM02 的匯出**逐行相同**（實測見下），
+E512 的匯出是新增的（前一版根本沒有）。
+
+### ① E512 script 匯出
+
+🔴 **register 位址逐項從 E512 自己的 `e512_register_bank_final.xls` 查證**，不是因為「跟 EM02 很像」就套用：
+
+```
+bank_offset      rt8_tcon_1 Low=h0500 / rt8_tcon_2 Low=h0600
+rt8_tcon_1 rel A0  [7]enable [6]tg_mode [5]f_st_sel [4]no_keep_last_sig [3]eng_inv [1:0]tg_ini_val_sel
+rel A1/A2/A3       act_type / ini_r_ph / ini_f_ph 各 8 bit
+rel A4[7:0]+A5[5:0] st_line 14 bit ；A5[7:6] ini_val
+rel A6[7:0]+A7[5:0] sp_line 14 bit ；A7[6] out2_en、A7[7] no_fall
+rel A8/AA          r_dly / f_dly 各 16 bit
+rel 83+i           [4:0] oax_sel、[7:6] oax_mode（bit5 unused）
+rel C2+⌊(i+1)/2⌋   act_type/r_ph/f_ph 的 bit8
+rel 04 [7:6]       reg_rd_mode（bit5 mgoa_rotate、bit4 rd_non_stop）
+rel 2E/30/32       reg_tg_ini_frm_no_0/1/2，各 12 bit
+```
+
+⇒ 結論是「E512 與 EM02 的 regAddr 相同」，但那是**查證後的結論，不是前提**。
+script 產生器因此改成吃一張 `regmap` 表（`WFG_GPO_REGMAP_EM02` / `WFG_GPO_REGMAP_E512`），
+日後哪一顆不同，只要改它自己那張表，產生器一行都不用動。
+
+**手工驗算兩行**（實際產生的內容）：
+
+| 產生的行 | 驗算 |
+|---|---|
+| `write -m 0530 2B FF // FRM_NO_1 = 299 (low 8 bits)` | 299 = **0x12B** → 低位元組 **0x2B** ✓（高 4 bit 在下一行 `write -m 0531 01 0F`） |
+| `write -m 05A0 A0 EB // enable/toggle/f_st_sel/inv/tg_ini_val` | 該檔 xstb 解出 `en=1 tg=0 f_st_sel=1 inv=0 tg_ini_val=0` → bit7+bit5 = **0xA0** ✓；遮罩 EB 保留 bit4(`no_keep_last_sig`) 與 bit2(unused) ✓ |
+
+另外交叉核對：`write -m 05A4 00 FF // ST_LINE = 0` 與匯入解出的 xstb `st_line = 0` 一致。
+
+全檔 11977 bytes、**`≥0x80` 位元組數 0**；檔名 `WFG_GPO_E512_20260822_2003.script`，非 ASCII 0。
+
+### ② 匯入對話框：直接在框裡輸入
+
+Bruce：「可否直接在『目前設定值』右邊提供一個手動輸入更改的欄位…這樣就不用點『帶我去』和『我已確認』…輸入完自然就可以開始編輯。」
+
+- 兩張卡片各自變成 `目前值 → [輸入欄]`，**輸入的值會真的寫回實際設定**
+  （DCLK 走 `wfgOnDclkManualChange()`、Line Buffer 走 `wfgOnLineBufferChange()`），不是只存在對話框裡。
+- **「我已確認」勾選框拿掉**，確認訊號改成「這一格被碰過且值合法」。
+- **輸入框預填目前值**：本來就對的情況不必重打，點進去再離開（blur）或按 Enter 就算確認 ——
+  這是 Bruce 提的做法，採用。既滿足「一定要手動確認」，又不會逼人無謂重輸。
+- **「帶我去 →」保留**但降為次要（縮到輸入欄右邊的小按鈕）。理由：Bruce 說的是「不用點」而非「拿掉」，
+  有人會想先去現場看上下文再決定填什麼；它不參與確認判定。
+- **驗證**：DCLK 必須 > 0 且不得低於 RX DCLK；Line Buffer 必須是 0~15 的整數。
+  不合法時「開始編輯」不啟用，並在該卡片下方以紅字寫明是哪裡不合法。
+  🔴 這裡是**先擋下來並說明**，而不是像 `wfgOnDclkManualChange()` 那樣靜靜把值夾回去 —— 使用者要知道自己填低了。
+- 🔴 **變頻應用的例外**：那個模式下 TCON DCLK 是 RX DCLK 的衍生值、UI 本來就唯讀，
+  所以該格改為 disabled ＋ **自動視為已確認**，並寫明原因。逼人「手動設定」一個他改不了的值沒有意義。
+
+### 驗收（全部實測）
+
+| 檢查 | 結果 |
+|---|---|
+| 初始 | 兩格都預填目前值（`74.25` / `6`），按鈕 disabled，提示「兩項都填好才能開始編輯」 |
+| DCLK 填 `1`（低於 RX 70.335） | 按鈕仍 disabled，紅字「TCON DCLK 不可低於 RX DCLK（70.335 MHz）」 |
+| DCLK 填 `150`（只填一項） | 按鈕仍 disabled |
+| 再把 LB 填 `9` | 按鈕啟用；按下後對話框關閉 |
+| **實際設定有沒有跟著變** | 輸入前 `wfg-dclk = 74.25`／`wfg-linebuf = 6` → 輸入後 **`150` / `9`**，且 `wfgExportConfig().frame.dclk = 150` |
+| LB 填 `99` | 按鈕 disabled，紅字「Line Buffer 必須是 0~15 的整數」 |
+| 版面 | 輸入欄實測寬 **108px**、該列高 **41px**（沒有換行），三語截圖各一張 |
+| E512 匯出 | 11977 bytes、非 ASCII 0、259 行、檔名純 ASCII |
+| **EM02 無回歸** | 匯入 detail 與前版相同；匯出 12029 bytes、**259 行（與 E512 同）**、非 ASCII 0、`write -m 0504 40 C0`、`write -m 0530 C7 FF`、`write -m 05A0 A0 EB` |
+
+### 🔴 截圖抓到的版面 bug（DOM 值全對，畫面是壞的）
+
+輸入欄第一版只寫了 `width: 108px`，結果**被站上另一條把 input 撐成 100% 的規則壓過**，
+輸入欄佔滿整列、把「MHz」與「帶我去」擠到下一行。
+`value`、`disabled`、驗證邏輯、按鈕啟用條件**全部正確** —— 只有版面壞掉，只有截圖看得出來。
+
+修法：`flex: 0 0 108px; width: 108px; max-width: 108px; box-sizing: border-box`。
+並在驗收腳本補兩道斷言：**輸入欄寬 ≤ 130px、該列高 ≤ 44px（超過就是換行了）**，
+讓下次同類問題在截圖之前就被程式擋下。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.3.0 — 2026-08-22 ｜ MINOR
 
 **新增 E512 的 code 匯入；匯入後改用「必須手動確認」的對話框，取代原本那個只有文字的 alert。**
