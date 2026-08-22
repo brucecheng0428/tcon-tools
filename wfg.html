@@ -125,6 +125,13 @@
   /* v2.97.406: 匯入檔名顯示 — 桌面填滿標題與 tab 間的中間空白並置中 */
   .wfg-import-filename { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 3px 12px; margin: 0 6px; color: #93c5fd; font-size: 12px; font-weight: 600; background: rgba(59,130,246,0.10); border: 1px solid rgba(59,130,246,0.25); border-radius: 6px; overflow: hidden; }
   .wfg-import-filename.hidden { display: none; }
+  /* v4.1.0：Code group 的 checksum 徽章。固定寬度上限＋ellipsis，
+     不讓它把工具列撐寬（v3.27.0 踩過提示文字換行造成底下欄位跳 10px）。 */
+  .wfg-code-cks { flex: 0 0 auto; max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700;
+                  color: #fca5a5; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.30);
+                  border-radius: 5px; padding: 2px 6px; align-self: center; }
+  .wfg-code-cks.hidden { display: none; }
   .wfg-import-filename-icon { flex: 0 0 auto; font-size: 12px; opacity: 0.9; }
   .wfg-import-filename-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 手機版：改放在標題下方獨立一列、置中、不擠壓 tab/語言列 */
@@ -1516,6 +1523,7 @@
               <select id="wfg-code-tcon" class="wfg-code-select" onchange="wfgCodeOnTconChange(this.value)" title="選擇 TCON 型號" data-i18n-title="wfg.codeTconTitle"></select>
               <button id="wfg-code-import-btn" onclick="wfgCodeImport()" title="匯入 TCON code 檔" data-i18n-title="wfg.codeImportTitle" aria-label="匯入 code"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.importPlain">匯入</span></button>
               <button id="wfg-code-export-btn" onclick="wfgCodeExport()" title="匯出為 TCON 可載入的檔案" data-i18n-title="wfg.codeExportTitle" aria-label="匯出 code"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.exportPlain">匯出</span></button>
+              <span id="wfg-code-cks" class="wfg-code-cks hidden" title=""></span>
             </div>
             <!-- ── 游標 group ── -->
             <div class="wfg-la-tool-group">
@@ -1962,8 +1970,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg403"></script>
-<script src="common/i18n.js?v=20260822wfg403"></script>
+<script src="common/version.js?v=20260822wfg410"></script>
+<script src="common/i18n.js?v=20260822wfg410"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -33992,6 +34000,37 @@ var WFG_TCON_CODECS = {
   e501: { label: 'E501', importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null }
 };
 var wfgCodeTcon = 'em02';
+/* v4.1.0：Code group 要顯示「這份 code 的 checksum」。
+   🔴 定義來自反組譯 EM02 工具本身，不是猜的：
+     Orig CKS = checksum(整個檔案, 檔案長度)，而那支 checksum 函式
+     （VA 0x00820E7C）是**純無號位元組累加**、高 32 位元被清成 0：
+        `mov al,[ecx]; cdq; add [ebp-8],eax; adc [ebp-4],edx; and [ebp-8],FFFFFFFF; mov [ebp-4],0`
+     呼叫點 VA 0x00135C9E 傳入的長度是 TStream.Size（整個檔），
+     結果以 6 位大寫 hex 接在字串 `Orig CKS:0x` 後面。
+     ⇒ 與我們一直在算、也與檔名 `..._CKS_02A91A.bin` 相符的那個值是同一個。
+   ⚠ UI 上另一個藍字 `Mod CKS:0x`（VA 0x00131991 附近）**不是檔案的屬性**：
+     它是把工具記憶體裡「目前啟用的各個 chunk 緩衝區」逐塊 checksum 再相加
+     （0x001318A6 / 0x001318DD / 0x00131914 / 0x00131948 … 一連串
+      `push chunk_ptr; call 0x820E7C; add [ebp-0xA0],eax`，每塊前面都有一個
+      enable 旗標的 `cmp byte ptr [...],0 / je`）。
+     那是**編輯階段的狀態**，同一個 .bin 在不同勾選下會得到不同值，
+     從 .bin 本身重現不出來 → 不顯示。 */
+var wfgCodeLastFileName = '';
+var wfgCodeLastCks = -1;
+function wfgCodeSetStatus(fileName, cks) {
+  wfgCodeLastFileName = fileName || '';
+  wfgCodeLastCks = (typeof cks === 'number' && cks >= 0) ? cks : -1;
+  var el = document.getElementById('wfg-code-cks');
+  if (!el) return;
+  if (wfgCodeLastCks >= 0) {
+    el.textContent = '0x' + wfgEm02Hex(wfgCodeLastCks, 6);
+    el.title = (wfgCodeLastFileName ? wfgCodeLastFileName + '\n' : '') +
+               t('wfg.codeCksTitle').replace('{v}', '0x' + wfgEm02Hex(wfgCodeLastCks, 6));
+    el.classList.remove('hidden');
+  } else {
+    el.textContent = ''; el.title = ''; el.classList.add('hidden');
+  }
+}
 
 function wfgCodeInitUi() {
   var sel = document.getElementById('wfg-code-tcon');
@@ -34008,9 +34047,11 @@ function wfgCodeInitUi() {
 function wfgCodeOnTconChange(v) {
   if (!WFG_TCON_CODECS[v]) return;
   wfgCodeTcon = v;
+  wfgCodeSetStatus('', -1);   // 顯示中的 checksum 屬於上一個型號匯入的檔，換型號就不再成立
   wfgCodeUpdateBtns();
 }
 window.wfgCodeOnTconChange = wfgCodeOnTconChange;
+window.wfgCodeSetStatus = wfgCodeSetStatus;   // 驗收腳本要走與按鈕相同的顯示路徑
 function wfgCodeUpdateBtns() {
   var c = WFG_TCON_CODECS[wfgCodeTcon] || {};
   var ib = document.getElementById('wfg-code-import-btn');
@@ -34040,10 +34081,15 @@ window.wfgCodeImport = function() {
       try { res = codec.parseCode(new Uint8Array(e.target.result), f.name); }
       catch (err) { res = { ok: false, reason: String(err && err.message || err) }; }
       if (!res || !res.ok) {
+        /* 🔴 失敗就要把上一次成功的檔名與 checksum 清掉，
+           不能讓畫面停在「看起來匯入成功」的狀態（Bruce 指定）。 */
+        wfgCodeSetStatus('', -1);
+        wfgSetImportedFileName('tcon', '');
         alert(t('wfg.codeImportFail').replace('{f}', f.name).replace('{r}', (res && res.reason) || '?'));
         return;
       }
       wfgCodeApplyToWfg(res);
+      wfgCodeSetStatus(f.name, (typeof res.cks === 'number') ? res.cks : -1);
       wfgSetImportedFileName('tcon', f.name);
       alert(t('wfg.codeImportOk').replace('{f}', f.name).replace('{n}', String(res.applied))
             .replace('{d}', res.detail || ''));
@@ -34195,7 +34241,13 @@ function wfgEm02ParseBin(buf, fname) {
      `rd_mode = 1D1G` 的 47 個檔有 44 個行號落在 1×VTOTAL 內（另外 3 個是 code 裡殘留的
      舊值，見下面的 overflow 提示）。所以這是讀 register，不是猜。 */
   var _rdMode = (base1 + 0x04 < buf.length) ? ((buf[base1 + 0x04] >> 6) & 3) : 0;
-  var gateType = (_rdMode === 1) ? 'dual' : 'single';
+  /* 0 → 1D1G ＝ WFG 的 SINGLE；1 → HSD dual-gate ＝ WFG 的 DUAL。
+     🔴 2（LTPS tri-gate）／3：**WFG 沒有 tri-gate 這個選項**。
+     它代表每個 frame 的行計數跑 3×，硬對到 single(1×) 或 dual(2×) 都是錯的，
+     而且錯的方式正是「行號落在 frame 外 → 波形安靜消失」那個坑。
+     所以這裡**不改 GATE TYPE**（維持使用者目前的選擇）並在匯入訊息明確警告。
+     ⚠ 118 個樣本裡 rd_mode 只有 0 與 1，**這條路徑沒有真實資料驗證過**。 */
+  var gateType = (_rdMode === 0) ? 'single' : (_rdMode === 1) ? 'dual' : null;
   var _vt = (frame && frame.vactive > 0 && frame.vblank > 0) ? (frame.vactive + frame.vblank) : 0;
   var overflow = [];
   if (_vt > 0) {
@@ -34212,11 +34264,14 @@ function wfgEm02ParseBin(buf, fname) {
   }
   var det = 'GPO @0x' + base1.toString(16).toUpperCase();
   if (hit[0].cand.off_names.length) det += ' (' + t('wfg.codeChunkOff') + ': ' + hit[0].cand.off_names.join(', ') + ')';
+  /* 與 EM02 工具的 Orig CKS 同一個算法：全檔無號位元組累加（32-bit）。 */
   var cks = 0; for (var b = 0; b < buf.length; b++) cks += buf[b];
-  det += ' / CKS 0x' + (cks & 0xFFFFFF).toString(16).toUpperCase();
-  det += ' / GATE ' + gateType.toUpperCase() + ' (rd_mode=' + _rdMode + ')';
+  cks = cks >>> 0;
+  det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
+  det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
+  if (!gateType) det += '\n' + t('wfg.codeTriGate').replace('{v}', String(_rdMode));
   if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
-  return { ok: true, signals: hit[0].sig, frame: frame, base1: base1,
+  return { ok: true, signals: hit[0].sig, frame: frame, base1: base1, cks: cks,
            gateType: gateType, applied: 18, detail: det };
 }
 
@@ -34238,16 +34293,65 @@ function wfgEm02Line(addr, val, mask, note) {
   var s = 'write -m ' + wfgEm02Hex(addr, 4) + ' ' + wfgEm02Hex(val, 2) + ' ' + wfgEm02Hex(mask, 2);
   return note ? (s + '    // ' + note) : s;
 }
+/* v4.1.0：GATE TYPE 是雙向的 —— 匯入讀 `reg_rd_mode`，匯出就要照使用者在 Frame 卡片
+   選的 SINGLE/DUAL 寫回去（Bruce 2026-08-22：「匯出的時候也是要照這個去設定」）。
+   我先前決定「不寫」的理由是「WFG 沒有讓使用者編輯的地方」——那是錯的，
+   Frame 卡片的 GATE TYPE radio 就是使用者的選擇。
+   🔴 register 0x0504 這個 byte 裡不是只有 rd_mode：
+       bit[7:6] reg_rd_mode        ← 我們要寫的
+       bit[5]   reg_mgoa_rotate    (Unused)
+       bit[4]   reg_rd_non_stop
+       bit[3:0] reg_tcon_mode      (Unused)
+   所以遮罩必須是 **C0**，其餘位元一個都不能碰。 */
+var WFG_EM02_RD_MODE_REG = 0x0504;
+function wfgEm02RdModeLine() {
+  var v = (wfgFrame.gateType === 'dual') ? 1 : 0;   // 0 = 1D1G(single)、1 = HSD dual-gate
+  return wfgEm02Line(WFG_EM02_RD_MODE_REG, v << 6, 0xC0,
+                     'GATE TYPE = ' + (v ? 'DUAL (HSD dual-gate)' : 'SINGLE (1D1G)') + '  reg_rd_mode=' + v);
+}
+/* 🔴 v4.1.0：**匯出的 .script 全檔只能是 ASCII**（Bruce 2026-08-22：
+   「script 檔案裡面不要用中文，它只接受英文的格式。如果你用中文的話，
+     就算是在註解的地方，它也會顯示出亂碼。」）
+   所以：
+     ・所有註解文字**寫死英文**，不走 i18n（i18n 的 zh-TW 值是中文，會直接進檔案）
+     ・分隔線不用 U+2500 的 `──`，改用 ASCII `--`
+     ・會被帶進註解的**外部字串**只有「使用者匯入的 bin 檔名」，而那個檔名常含中文
+       （例：`..._EM02_仁惠)/Code/05_提供客戶版本/...`）→ 一律先過 wfgEm02Ascii()
+     ・最後再做一次全檔掃描當保險（防止未來有人加了新字串忘了這條規則） */
+function wfgEm02Ascii(sIn) {
+  var r = '', c;
+  sIn = String(sIn == null ? '' : sIn);
+  for (var i = 0; i < sIn.length; i++) {
+    c = sIn.charCodeAt(i);
+    /* 只留可列印 ASCII 與空白；其餘（含中文、全形括號）換成 '_'，
+       不是刪掉 —— 刪掉會讓 `A仁惠B` 變成 `AB` 這種看不出被改過的字串。 */
+    if (c === 9 || (c >= 0x20 && c < 0x7F)) r += sIn.charAt(i);
+    else r += '_';
+  }
+  return r;
+}
 function wfgEm02BuildScript(opt) {
   opt = opt || {};
   var lines = [], cnt = 0;
   if (opt.comments !== false) {
     var now = new Date();
-    lines.push('// WFG ' + (window.TCON_VERSIONS ? TCON_VERSIONS.wfg : '') + ' ' + t('wfg.codeScriptHdr'));
+    /* 🔴 v4.1.0 修：v4.0.0 這裡寫的是 `TCON_VERSIONS`，而版號單一來源的變數名是
+       `TOOL_VERSIONS`（common/version.js）。因為外面包了 `window.xxx ? ... : ''`，
+       打錯名字不會拋錯，只會讓版號**靜默變成空字串** —— 匯出的第一行長成
+       `// WFG  - exported ...`（兩個空格），實測才抓到。 */
+    lines.push('// WFG ' + (window.TOOL_VERSIONS ? TOOL_VERSIONS.wfg : '(version unknown)') + ' - exported EM02 GPO settings');
+    lines.push('// Load this file from the Script page of the TCON tool.');
+    lines.push('// Digital signals (GPO) only - no frame timing, no analog settings.');
     lines.push('// ' + now.toISOString());
-    lines.push('// ' + t('wfg.codeScriptNote'));
+    if (wfgCodeLastFileName) lines.push('// source: ' + wfgEm02Ascii(wfgCodeLastFileName));
+    if (wfgCodeLastCks >= 0) lines.push('// source CKS: 0x' + wfgEm02Hex(wfgCodeLastCks, 6));
     lines.push('');
   }
+  /* Frame 層級：GATE TYPE。放在所有訊號之前，因為它決定每個 frame 有幾條 line。 */
+  if (opt.comments !== false) lines.push('// -- FRAME --');
+  lines.push(wfgEm02RdModeLine());
+  cnt += 1;
+  if (opt.comments !== false) lines.push('');
   for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
     var g = wfgGpios[i];
     if (!g) continue;
@@ -34258,7 +34362,7 @@ function wfgEm02BuildScript(opt) {
     }
     var b = wfgEm02RegBase(i);
     if (opt.comments !== false) {
-      lines.push('// ── ' + (WFG_EM02_SIGS[i] || '').toUpperCase() + '  (0x' + wfgEm02Hex(b, 4) + ') ──');
+      lines.push('// -- ' + (WFG_EM02_SIGS[i] || '').toUpperCase() + '  (0x' + wfgEm02Hex(b, 4) + ') --');
     }
     var b0 = ((g.enable ? 1 : 0) << 7) | ((g.toggle ? 1 : 0) << 6) | ((g.f_st_sel ? 1 : 0) << 5)
            | ((g.inv ? 1 : 0) << 3) | (g.tg_ini_val & 3);
@@ -34283,7 +34387,17 @@ function wfgEm02BuildScript(opt) {
     cnt += 14;
     if (opt.comments !== false) lines.push('');
   }
-  return { ok: true, text: lines.join('\n') + '\n', count: cnt };
+  var text = lines.join('\n') + '\n';
+  /* 保險絲：真的有非 ASCII 混進來就**不要靜默替換**，直接失敗並指出是哪一行。
+     （靜默替換會讓下一個人以為規則有被遵守。） */
+  for (var _c = 0; _c < text.length; _c++) {
+    if (text.charCodeAt(_c) > 0x7F) {
+      var _ln = text.slice(0, _c).split('\n').length;
+      return { ok: false, reason: 'non-ASCII char U+' + text.charCodeAt(_c).toString(16).toUpperCase() +
+                                  ' at line ' + _ln + ' - the .script format accepts ASCII only' };
+    }
+  }
+  return { ok: true, text: text, count: cnt };
 }
 window.wfgEm02ParseBin = wfgEm02ParseBin;
 window.wfgEm02BuildScript = wfgEm02BuildScript;

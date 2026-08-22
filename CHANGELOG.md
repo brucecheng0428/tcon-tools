@@ -22,6 +22,131 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.1.0 — 2026-08-22 ｜ MINOR ｜ ⚠ 輸出變更
+
+**GATE TYPE 匯出／匯入雙向；Code group 顯示 checksum；匯出的 .script 全檔純 ASCII。**
+
+判定依據：依 §1 判定表與 R1～R4 逐項判、取最高者。
+　・**R3／判定表「功能增減：新增獨立功能」→ MINOR**（取這個）：這一版之後使用者多了兩件能做的事 ——
+　　(a) 匯出的 .script 會帶 GATE TYPE，設定能真的回寫到 TCON；(b) 匯入後看得到這份 code 的 checksum。
+　・R1 → PATCH：「匯出的註解是中文，在工具裡變亂碼」是修 bug；版號級別取較高者，故不影響結論。
+　・判定表「既有功能的輸出：主動改變」字面落在 MAJOR 欄（匯出檔案的位元組內容變了），
+　　但**依 R2，本版在 4.x 這一波內，波內後續步驟依自身性質各自判定，不再進 MAJOR**（Bruce 2026-08-22 明示）。
+　・取捨說明（供覆核）：也可以主張這三項都只是「把 v4.0.0 沒做完的補完」而編成 PATCH。
+　　我編成 MINOR 的理由是 (a) 與 (b) 都通過 R3 的判準「使用者能做的事有沒有多一件」。若認為過高，下次可往低編。
+⚠ 輸出變更：**這一版之前匯出的 .script 與這一版的不再逐位元組相同** ——
+新增一行 `write -m 0504`、註解由中文改為英文、檔頭多了 `source:` 與 `source CKS:` 兩行。
+拿舊版建立的 .script 基線不能直接比對。（波形、畫面、設定檔匯出**不受影響**。）
+
+### ① GATE TYPE 現在是雙向的
+
+上一版我決定「匯出不寫 `reg_rd_mode`」，理由是「WFG 沒有讓使用者編輯的地方」。
+**那個理由不成立** —— Frame 卡片本來就有 SINGLE／DUAL 的 radio，那就是使用者的選擇。撤回原決定。
+
+匯出時在所有訊號之前先寫一行：
+
+| Frame 卡片選擇 | 實際產生的那一行 |
+|---|---|
+| SINGLE | `write -m 0504 00 C0    // GATE TYPE = SINGLE (1D1G)  reg_rd_mode=0` |
+| DUAL | `write -m 0504 40 C0    // GATE TYPE = DUAL (HSD dual-gate)  reg_rd_mode=1` |
+
+兩行都是實測產生的（點 Frame 卡片的 radio 走 `onchange`，再呼叫匯出），不是照著規格手寫的。
+
+**遮罩為什麼是 `C0` 而不是 `FF`**：0x0504 這個 byte 裡不只有 rd_mode ——
+
+```
+bit[7:6] reg_rd_mode      ← 只有這兩位是我們的
+bit[5]   reg_mgoa_rotate  (Unused)
+bit[4]   reg_rd_non_stop
+bit[3:0] reg_tcon_mode    (Unused)
+```
+
+用 `FF` 會把 `reg_rd_non_stop` 一起清成 0。
+
+**tri-gate（`reg_rd_mode` = 2）的處理**：WFG 沒有 tri-gate 這個選項，硬對到 single(1×) 或 dual(2×) 都是錯的，
+而且錯的方式正是「行號落在 frame 外 → 波形安靜消失」那個坑。所以匯入讀到 2／3 時**不動 GATE TYPE**
+（維持使用者目前的選擇）並在匯入訊息明白說出來。
+⚠ 118 個樣本裡 `rd_mode` 只有 0 與 1，**這條路徑沒有真實資料驗證過**，只有程式邏輯。
+
+### ② Code group 顯示 checksum：定義是反組譯出來的，不是猜的
+
+照片上 EM02 工具顯示兩個值，`Orig CKS:0x02A91A`（紅）與 `Mod CKS:0x001927`（藍）。查了工具本體：
+
+| | 出處 | 算法 |
+|---|---|---|
+| **Orig CKS** | 呼叫點 VA `0x00135C9E` | `checksum(整個檔案緩衝區, TStream.Size)` |
+| checksum 函式 | VA `0x00820E7C` | **純無號位元組累加**：`mov al,[ecx]; cdq; add [ebp-8],eax; adc [ebp-4],edx;` 之後 `and [ebp-8],FFFFFFFF; mov [ebp-4],0`（高 32 位元清掉） |
+| **Mod CKS** | VA `0x00131991` 附近 | 把記憶體裡**目前啟用的各個 chunk 緩衝區**逐塊丟進同一支 checksum 再相加（`0x1318A6`／`0x1318DD`／`0x131914`／`0x131948`… 一連串 `push chunk; call 0x820E7C; add [ebp-0xA0],eax`），每塊前面都有一個 enable 旗標的 `cmp byte ptr [...],0 / je` |
+
+⇒ 「這份 code 的 checksum」＝ **Orig CKS**，就是我們一路在算、也與檔名 `..._CKS_02A91A.bin` 相符的那個值。
+**Mod CKS 不顯示**：它是**編輯階段的狀態**（同一個 .bin 在不同勾選下會得到不同值），從 .bin 本身重現不出來。
+
+顯示成 `0x02A91A`（6 位大寫），與工具一致。徽章有 `max-width` ＋ ellipsis，不會把工具列撐寬。
+
+### ③ 匯出的 .script 全檔純 ASCII
+
+Bruce：「script 檔案裡面不要用中文，它只接受英文的格式。如果你用中文的話，就算是在註解的地方，它也會顯示出亂碼。」
+
+- 所有註解**寫死英文**，不再走 i18n（i18n 的 zh-TW 值是中文，`t()` 會把中文直接寫進檔案）。
+  連帶把只剩這一個用途的 `wfg.codeScriptHdr` / `wfg.codeScriptNote` 兩個 key 移除 ——
+  留著會讓下一個人以為那是正確的取用方式，再把中文寫回檔案裡。
+- 分隔線由 `── XSTB ──`（U+2500）改成 `-- XSTB --`。**這個是眼睛看不出來的**：`──` 是非 ASCII。
+- 檔頭的 `source:` 是使用者匯入的 bin 檔名，過 `wfgEm02Ascii()`（非 ASCII → `_`）當保險。
+  Bruce 已澄清 bin 檔名／內容不會有中文，所以這只是低成本保險，UI 上不做任何警告。
+- 最後有一道**保險絲**：產生完逐字元掃描，真有非 ASCII 就**回報失敗並指出行號**，不靜默替換
+  （靜默替換會讓下一個人以為規則有被遵守）。
+
+### ④ 修：匯出檔頭的版號一直是空白（v4.0.0 起）
+
+v4.0.0 那行寫的是 `window.TCON_VERSIONS`，而版號單一來源的變數名是 **`TOOL_VERSIONS`**。
+因為外面包了 `window.xxx ? ... : ''`，**打錯名字不會拋錯，只會讓版號靜默變成空字串** ——
+匯出的第一行長成 `// WFG  - exported ...`（兩個空格）。實測看輸出才抓到；改對之後是 `// WFG v4.1.0 - exported ...`。
+
+### ⑤ 匯入失敗不得停在「看起來成功」的畫面
+
+匯入被拒（例如混在資料夾裡的聯詠 NT515091 檔）時，會把上一次成功的檔名與 checksum 一併清掉。
+換 TCON 型號時同樣清掉 —— 顯示中的 checksum 屬於上一個型號匯入的那份檔，換了就不再成立。
+
+### 驗收（全部實測）
+
+| 項目 | 結果 |
+|---|---|
+| 匯入目標 bin | `cks = 0x02A91A`、`gate = dual`、detail `GPO @0x440 / CKS 0x02A91A / GATE DUAL (rd_mode=1)` |
+| 與檔名比對 | 檔名 `..._CKS_02A91A.bin`，Python 獨立算 `sum(bytes) & 0xFFFFFFFF = 0x02A91A` ✓ |
+| Code group 徽章 | 文字 `0x02A91A`、`hidden = false`、title 帶完整檔名 |
+| 檔名顯示 | header `wfg-import-filename` 顯示完整檔名、`title` 同字串（沿用 LA 那一套，v2.97.406 的既有機制） |
+| 長檔名不破版 | 用那個 101 字元的檔名實測：工具列 `scrollWidth == clientWidth`（匯入前 958/958、匯入後 947/947）＝**無橫向溢出**；工具列高度 **101px 前後相同**（沒有換行、沒有 v3.27.0 那種欄位跳動）。Code group 由 201→271px 是徽章出現造成的、屬預期。（958→947 的 11px 是匯入後通道變多、頁面長出垂直捲軸，與工具列無關） |
+| SINGLE 匯出 | `write -m 0504 00 C0` |
+| DUAL 匯出 | `write -m 0504 40 C0` |
+| 全檔 ASCII | `export_single.script` 11711 bytes、`export_dual.script` 11718 bytes，兩者 **max byte = 0x7A**、**≥0x80 的位元組數 = 0** |
+| 匯出檔名 | `WFG_GPO_EM02_<YYYYMMDD_HHMM>.script`，非 ASCII 字元數 = 0 |
+| 聯詠檔被拒 | `ok=false`；之後 `cksHidden = true`、`cksText = ''`、`fnHidden = true` |
+| 無回歸：名稱全大寫 | 18 條全大寫，不符者 0 筆 |
+| 無回歸：可見通道 | 10 條 |
+| 無回歸：CK8 有波形 | dual（effVtotal 2972）下 ck8 `st=sp=2898` → 5 個邊緣；ck1/ck2 各 11541 |
+
+### 驗證腳本自己壞掉的兩次（記錄下來，免得再犯）
+
+1. `wfgCodeSetStatus` 沒有掛在 `window` 上 → 腳本 `ReferenceError`。補 `window.wfgCodeSetStatus = ...`（與 `wfgCodeApplyToWfg` 同一個做法，讓驗收走與按鈕相同的路徑）。
+2. 🔴 **`wfgExportConfig()` 回傳的是 JSON 字串，不是物件。** 我直接 `.frame.gateType` 取值 → `undefined`。
+   是 `Object.keys()` 回傳 `"0","1","2",…` 才看出來。要 `JSON.parse(wfgExportConfig())`。
+
+### 🔴 截圖抓到的一個實體 bug（DOM 檢查全過，畫面是錯的）
+
+checksum 徽章第一版**長在「檔案」group 裡**，不是 Code group。
+原因是我插入 HTML 時錨在 `<span data-i18n="wfg.exportPlain">匯出</span></button>` 這串文字上，
+而**「匯出」這個按鈕文字在同一列工具列出現兩次**（檔案 group 一個、Code group 一個），
+`replace(..., 1)` 命中的是前面那個。
+
+**這個錯誤在所有數值檢查裡都是「通過」的**：`getElementById('wfg-code-cks').textContent` 是 `0x02A91A`、
+`classList.contains('hidden')` 是 `false`、`title` 也對 —— 因為元素確實存在、內容也確實正確，只是**位置錯了**。
+只有截圖看得出來。改成用 `id="wfg-code-export-btn"` 定位後重拍確認。
+
+⇒ 沿用既有規則：**版面／位置類的改動，DOM 屬性對不等於畫面對，一律要看實際畫面截圖。**
+補一條可操作的做法：**用文字當插入錨點之前，先數一下那串文字在檔案裡出現幾次。**
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.0.3 — 2026-08-22 ｜ PATCH ｜ ⚠ 輸出變更
 
 **匯入時把 GATE TYPE 一併帶入（讀 code 裡的 register），通道名稱一律大寫。**
