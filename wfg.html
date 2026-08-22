@@ -144,6 +144,12 @@
   .wfg-ack-mask { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center;
                   justify-content: center; padding: 16px;
                   background: rgba(2, 6, 23, 0.72); backdrop-filter: blur(3px); }
+  /* v4.6.0：聚光燈期間 —— 遮罩本體不再自己壓黑／模糊（改由四片 .wfg-spot-panel 負責，
+     它們中間留一個真正的空洞），這樣**卡片可以繼續留在畫面上**，目標也是清晰的。 */
+  .wfg-ack-mask.spot { background: transparent; backdrop-filter: none; pointer-events: none;
+                       display: block; padding: 0; }
+  .wfg-ack-mask.spot .wfg-ack { position: fixed; pointer-events: auto; width: min(480px, calc(100vw - 24px));
+                                box-shadow: 0 18px 50px rgba(0,0,0,0.75); }
   .wfg-ack-mask.hidden { display: none; }
   .wfg-ack { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto;
              background: #0f172a; border: 1px solid rgba(245,158,11,0.45); border-radius: 12px;
@@ -202,13 +208,13 @@
      中間那塊完全沒有元素覆蓋 ⇒ 目標是**原本的清晰度**，不是半透明勉強看得到。
      比 clip-path 挖洞可靠：backdrop-filter 與 clip-path 在部分瀏覽器會互相打架，
      四片矩形則是最基本的定位，任何位置都算得出來。 */
-  .wfg-spot { position: fixed; inset: 0; z-index: 9100; pointer-events: none; }
+  .wfg-spot { position: fixed; inset: 0; z-index: 8990; pointer-events: none; }   /* 在對話框之下：卡片要看得見 */
   .wfg-spot.hidden { display: none; }
   .wfg-spot-panel { position: fixed; background: rgba(2,6,23,0.72); backdrop-filter: blur(3px);
                     pointer-events: auto; }
   .wfg-spot-ring { position: fixed; pointer-events: none; border: 2px solid #f59e0b; border-radius: 8px;
                    box-shadow: 0 0 0 3px rgba(245,158,11,0.30), 0 0 22px rgba(245,158,11,0.45); }
-  .wfg-spot-bar { position: fixed; z-index: 9101; display: flex; align-items: center; gap: 10px;
+  .wfg-spot-bar { position: fixed; z-index: 9001; display: flex; align-items: center; gap: 10px;
                   padding: 9px 12px; border-radius: 10px; pointer-events: auto;
                   background: #0f172a; border: 1px solid rgba(245,158,11,0.5);
                   box-shadow: 0 10px 30px rgba(0,0,0,0.55); }
@@ -2078,7 +2084,7 @@
   </div>
   <div class="wfg-spot-bar hidden" id="wfg-spot-bar">
     <span class="wfg-spot-tx" id="wfg-spot-tx"></span>
-    <button type="button" class="wfg-spot-back" onclick="wfgSpotEnd()" data-i18n="wfg.spotBack">回到設定 ←</button>
+    <button type="button" class="wfg-spot-back" onclick="wfgSpotEnd()" data-i18n="wfg.spotBack">知道了</button>
   </div>
   <div class="wfg-ack-mask hidden" id="wfg-ack-mask" role="dialog" aria-modal="true" aria-labelledby="wfg-ack-title">
     <div class="wfg-ack">
@@ -2131,8 +2137,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260822wfg450"></script>
-<script src="common/i18n.js?v=20260822wfg450"></script>
+<script src="common/version.js?v=20260822wfg451"></script>
+<script src="common/i18n.js?v=20260822wfg451"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -17849,6 +17855,7 @@ function wfgOnLineBufferChange(val) {
   wfgLineBuffer = Math.max(0, Math.min(15, parseInt(val) || 0));
   wfgInvalidateCache(); // line buffer affects SD precomputation
   wfgRender();
+  if (typeof wfgAckPullFromLive === 'function') wfgAckPullFromLive();   // v4.6.0 雙向綁定
 }
 window.wfgOnLineBufferChange = wfgOnLineBufferChange;
 
@@ -25368,6 +25375,8 @@ function wfgOnDclkManualChange() {
   wfgRender();
   wfgRenderMinimap();
   wfgUpdateMinimapViewport();
+  /* v4.6.0：雙向綁定 —— TCON DCLK 不管是誰改的，匯入確認卡片的輸入欄都要跟著更新。 */
+  if (typeof wfgAckPullFromLive === 'function') wfgAckPullFromLive();
 }
 /* ══ v3.28.0：Blanking 輸入、Total 顯示 ══════════════════════════════════════
    （Bruce 2026-08-21：「像是 Vtotal 跟 Htotal，我要改成 Vblanking 跟 Hblanking 的輸入，
@@ -34335,10 +34344,46 @@ function wfgCodeNotSupported(codec) {
 
    「帶我去」**保留**但降為次要（放在輸入欄右邊的小按鈕）：Bruce 說的是「不用點」，
    不是「拿掉」；有人會想先去現場看上下文再決定填什麼。它不影響確認判定。 */
-var _wfgAckTouched = { dclk: false, linebuf: false };
+/* ══ v4.6.0：三個 Bruce 實測回報的問題，一次改掉 ═══════════════════════════
+   ① 在「帶我去」的現場改了值，回到卡片沒同步
+   ② 按「帶我去」時卡片整個消失，還要按「回到設定」繞回來 —— 太麻煩
+   ③ 🔴 **值本來就對、沒動過時「開始編輯」不會啟用** —— 這是 bug
+
+   ①③ 是同一個病：**輸入欄與實際欄位被當成兩份各自獨立的狀態。**
+
+   ③ 的真正原因（更正外界猜測的「綁在 change 事件」）：我 v4.4.0 綁的是 **`onblur` ＋ Enter**，
+   並且要求「這一格被碰過」(`_wfgAckTouched`) 才算確認。預填值不動時，
+   **沒有任何事件會發生** ⇒ touched 永遠 false ⇒ 按鈕永遠是灰的。
+   不是 change 事件的問題，是「把『使用者要主動碰過每一格』當成確認條件」這個設計本身錯了。
+
+   ③ 的修法：**確認條件改成「兩格目前都是合法值」，拿掉 touched 追蹤。**
+   Bruce 要的是「他知道有這兩件事」，不是「他一定要動手改數字」——
+   而**「開始編輯」那顆按鈕本身就是手動確認**，他還是得看過、還是得按。
+
+   ①② 的修法：**雙向綁定 ＋ 卡片不消失。**
+     ・卡片輸入欄改 → 立刻寫進實際欄位（沿用既有 wfgOnDclkManualChange / wfgOnLineBufferChange）
+     ・實際欄位改（不管誰改的）→ `wfgAckPullFromLive()` 把值拉回卡片
+     ・聚光燈期間**卡片留在畫面上**，只是移到不會擋住目標的一側；
+       「回到設定」那顆按鈕與整套「藏卡片再還原」的邏輯全部拿掉。 */
+var _wfgAckPushing = false;      // 防止「卡片寫欄位 → 欄位回拉卡片」互相打架
 function wfgAckDclkReadOnly() {
   return (typeof wfgDclkModeIsVar === 'function') && wfgDclkModeIsVar();
 }
+function wfgAckIsOpen() {
+  var m = document.getElementById('wfg-ack-mask');
+  return !!(m && !m.classList.contains('hidden'));
+}
+/* 實際欄位 → 卡片。由 wfgOnDclkManualChange / wfgOnLineBufferChange 尾端呼叫。 */
+function wfgAckPullFromLive() {
+  if (_wfgAckPushing || !wfgAckIsOpen()) return;
+  var di = document.getElementById('wfg-ack-dclk-in');
+  if (di && document.activeElement !== di) di.value = wfgFrame.dclk;
+  var li = document.getElementById('wfg-ack-lb-in');
+  if (li && document.activeElement !== li) li.value = wfgLineBuffer;
+  wfgAckSync();
+  if (_wfgSpotTarget) wfgSpotLayout();
+}
+window.wfgAckPullFromLive = wfgAckPullFromLive;
 /* 回傳 {ok, val, err}。err 是已翻譯好的字串。 */
 function wfgAckValidate(which) {
   var el = document.getElementById(which === 'dclk' ? 'wfg-ack-dclk-in' : 'wfg-ack-lb-in');
@@ -34349,8 +34394,6 @@ function wfgAckValidate(which) {
   if (!isFinite(v)) return { ok: false, err: t('wfg.ackErrNum') };
   if (which === 'dclk') {
     if (!(v > 0)) return { ok: false, err: t('wfg.ackErrNum') };
-    /* 定頻應用：TCON DCLK 不得低於 RX DCLK（與 wfgOnDclkManualChange 的夾值同一條規則，
-       但這裡是**先擋下來並說明**，而不是靜靜把值改掉 —— 使用者要知道自己填低了。 */
     if (v < wfgFrame.rxDclk) {
       return { ok: false, err: t('wfg.ackErrDclkMin').replace('{v}', String(wfgFrame.rxDclk)) };
     }
@@ -34359,20 +34402,23 @@ function wfgAckValidate(which) {
   if (!(v >= 0 && v <= 15) || Math.floor(v) !== v) return { ok: false, err: t('wfg.ackErrLb') };
   return { ok: true, val: v };
 }
-/* commit ＝ 使用者把這一格填完離開（blur／Enter）。合法就**立刻寫回實際設定**。 */
+/* 卡片 → 實際欄位。合法就立刻寫回。 */
 function wfgAckCommit(which) {
-  _wfgAckTouched[which] = true;
   var r = wfgAckValidate(which);
   if (r.ok) {
-    if (which === 'dclk') {
-      var de = document.getElementById('wfg-dclk');
-      if (de) { de.value = r.val; wfgOnDclkManualChange(); }
-    } else {
-      var le = document.getElementById('wfg-linebuf');
-      if (le) { le.value = r.val; wfgOnLineBufferChange(r.val); }
-    }
+    _wfgAckPushing = true;
+    try {
+      if (which === 'dclk') {
+        var de = document.getElementById('wfg-dclk');
+        if (de && Number(de.value) !== r.val) { de.value = r.val; wfgOnDclkManualChange(); }
+      } else {
+        var le = document.getElementById('wfg-linebuf');
+        if (le && Number(le.value) !== r.val) { le.value = r.val; wfgOnLineBufferChange(r.val); }
+      }
+    } finally { _wfgAckPushing = false; }
   }
   wfgAckSync();
+  if (_wfgSpotTarget) wfgSpotLayout();
 }
 function wfgAckSync() {
   var ok = document.getElementById('wfg-ack-ok');
@@ -34388,15 +34434,13 @@ function wfgAckSync() {
     var err = document.getElementById(items[i][3]);
     var auto = (key === 'dclk' && wfgAckDclkReadOnly());
     var r = auto ? { ok: true } : wfgAckValidate(key);
-    var good = auto || (r.ok && _wfgAckTouched[key]);
+    /* 🔴 v4.6.0：只看「目前值合不合法」，不再要求使用者一定要碰過。 */
+    var good = auto || r.ok;
     if (good) done++;
     if (card) card.classList.toggle('done', good);
-    if (inp) {
-      inp.classList.toggle('ok', good);
-      inp.classList.toggle('bad', !auto && _wfgAckTouched[key] && !r.ok);
-    }
+    if (inp) { inp.classList.toggle('ok', good); inp.classList.toggle('bad', !auto && !r.ok); }
     if (err) {
-      var msg = auto ? t('wfg.ackDclkVarMode') : ((_wfgAckTouched[key] && !r.ok) ? r.err : '');
+      var msg = auto ? t('wfg.ackDclkVarMode') : (r.ok ? '' : r.err);
       err.textContent = msg;
       err.classList.toggle('hidden', !msg);
     }
@@ -34406,19 +34450,35 @@ function wfgAckSync() {
   ok.disabled = !both;
   if (hint) hint.textContent = both ? t('wfg.ackHintOk') : t('wfg.ackHint');
 }
-/* ══ v4.5.0：「帶我去」＝ 聚光燈開窗 ═══════════════════════════════════════
-   Bruce 2026-08-22：對話框有遮罩＋模糊，捲過去也看不清楚，等於白按。
-
-   新流程：
-     ① 展開目標所在的卡片、捲到畫面中央
-     ② **收起對話框**（只是 hidden，DOM 不重建 ⇒ 已填的值與確認狀態原封不動）
-     ③ 開四片遮罩把目標矩形圍起來 —— 中間那塊**沒有任何元素覆蓋**，是原本的清晰度
-     ④ 橘框 ＋ 浮動列「回到設定 ←」，明確的回程入口
-   捲動／改變視窗大小時會重算四片的位置（rAF 節流）。
-
-   手機寬度：**同一套邏輯照用**，不降級 —— 四片矩形與螢幕大小無關；
-   浮動列會自動夾在視窗內（見 wfgSpotLayout 的夾值）。 */
+/* ── 聚光燈：卡片留著，只把目標從遮罩裡露出來 ───────────────────────── */
 var _wfgSpotTarget = null, _wfgSpotRaf = 0;
+/* 把卡片挪到「不會擋住目標」的一側。左半邊的目標 → 卡片靠右，反之亦然；
+   目標在上方 → 卡片往下。挪完由 elementFromPoint 驗證（驗收腳本會斷言）。 */
+function wfgSpotPlaceCard(x, y, w, h) {
+  var card = document.querySelector('.wfg-ack');
+  if (!card) return;
+  var vw = window.innerWidth, vh = window.innerHeight, gap = 12;
+  /* 🔴 先決定「卡片放在目標的上方還是下方」——取空間較大的那一帶，
+     並**把卡片的高度限制在那一帶之內**。
+     這一段是實測逼出來的：手機 390×780 時卡片本身就 491px 高，
+     不限高就沒有任何位置能不蓋到目標（elementFromPoint 直接抓到卡片）。 */
+  var bandTop = y - gap * 2;                       // 目標上方可用高度
+  var bandBottom = vh - (y + h) - gap * 2;         // 目標下方可用高度
+  var useBottom = bandBottom >= bandTop;
+  var band = Math.max(120, useBottom ? bandBottom : bandTop);
+  card.style.maxHeight = Math.floor(band) + 'px';
+  card.style.overflowY = 'auto';
+  var cw = card.offsetWidth, ch = card.offsetHeight;
+  var top = useBottom ? (y + h + gap) : Math.max(gap, y - gap - ch);
+  top = Math.max(gap, Math.min(vh - ch - gap, top));
+  /* 水平：寬螢幕時擺到目標的另一側（比較好看）；窄螢幕就置中，
+     反正上下已經錯開，不會蓋住。 */
+  var left;
+  if (vw - cw - gap * 2 > w + 40) left = (x + w / 2 < vw / 2) ? Math.max(gap, vw - cw - gap) : gap;
+  else left = Math.max(gap, Math.round((vw - cw) / 2));
+  card.style.left = Math.round(left) + 'px';
+  card.style.top = Math.round(top) + 'px';
+}
 function wfgSpotLayout() {
   var el = _wfgSpotTarget;
   if (!el) return;
@@ -34436,20 +34496,17 @@ function wfgSpotLayout() {
   set('wfg-spot-l', { left: 0, top: y, width: x, height: h });
   set('wfg-spot-r', { left: x + w, top: y, width: Math.max(0, window.innerWidth - x - w), height: h });
   set('wfg-spot-ring', { left: x, top: y, width: w, height: h });
-  /* 浮動列：優先放在目標下方，放不下就放上方；左右夾在視窗內。 */
+  wfgSpotPlaceCard(x, y, w, h);
   var bar = document.getElementById('wfg-spot-bar');
   if (bar) {
     bar.style.left = '0px'; bar.style.top = '0px';
     var bw = bar.offsetWidth, bh = bar.offsetHeight;
-    var by = (y + h + 12 + bh <= window.innerHeight) ? (y + h + 12) : Math.max(8, y - bh - 12);
-    var bx = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - bw - 8));
+    var by = (y + h + 10 + bh <= window.innerHeight) ? (y + h + 10) : Math.max(6, y - bh - 10);
+    var bx = Math.min(Math.max(6, x), Math.max(6, window.innerWidth - bw - 6));
     bar.style.left = bx + 'px'; bar.style.top = by + 'px';
   }
 }
-function _wfgSpotTick() {
-  _wfgSpotRaf = 0;
-  wfgSpotLayout();
-}
+function _wfgSpotTick() { _wfgSpotRaf = 0; wfgSpotLayout(); }
 function _wfgSpotOnMove() {
   if (_wfgSpotRaf) return;
   _wfgSpotRaf = requestAnimationFrame(_wfgSpotTick);
@@ -34460,17 +34517,17 @@ function wfgSpotEnd() {
   window.removeEventListener('resize', _wfgSpotOnMove);
   var sp = document.getElementById('wfg-spot');
   var bar = document.getElementById('wfg-spot-bar');
+  var m = document.getElementById('wfg-ack-mask');
+  var card = document.querySelector('.wfg-ack');
   if (sp) sp.classList.add('hidden');
   if (bar) bar.classList.add('hidden');
-  var m = document.getElementById('wfg-ack-mask');
-  if (m) m.classList.remove('hidden');     // 值與確認狀態都還在（DOM 沒重建）
-  wfgAckSync();
+  if (m) m.classList.remove('spot');
+  if (card) { card.style.left = ''; card.style.top = ''; card.style.maxHeight = ''; card.style.overflowY = ''; }
 }
 function wfgAckGoto(which) {
   var id = (which === 'dclk') ? 'wfg-dclk' : 'wfg-linebuf';
   var el = document.getElementById(id);
   if (!el) return;
-  /* 目標可能在收合的卡片裡 —— 先展開，否則量到的是 0×0（v4.3.0 踩過同型的坑）。 */
   var p = el.parentElement;
   while (p) {
     if (p.classList && p.classList.contains('wfg-card-body') && p.classList.contains('collapsed')) {
@@ -34482,9 +34539,8 @@ function wfgAckGoto(which) {
   }
   try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); }
   catch (e) { el.scrollIntoView(); }
-  /* 🔴 對話框只是 hidden，不重建 ⇒ 已填的輸入值與 _wfgAckTouched 都保留。 */
   var m = document.getElementById('wfg-ack-mask');
-  if (m) m.classList.add('hidden');
+  if (m) m.classList.add('spot');        // 🔴 卡片留著，只是遮罩改由四片負責
   _wfgSpotTarget = el;
   var tx = document.getElementById('wfg-spot-tx');
   if (tx) tx.textContent = t(which === 'dclk' ? 'wfg.spotDclk' : 'wfg.spotLb');
@@ -34501,21 +34557,21 @@ window.wfgSpotEnd = wfgSpotEnd;
 window.wfgSpotLayout = wfgSpotLayout;
 function wfgAckClose() {
   var okBtn = document.getElementById('wfg-ack-ok');
-  if (!okBtn || okBtn.disabled) return;     // 唯一出口：兩項都填好且合法
+  if (!okBtn || okBtn.disabled) return;     // 唯一出口：兩項都是合法值
+  wfgSpotEnd();                             // 關閉時一併收掉聚光燈，不留殘影
   var m = document.getElementById('wfg-ack-mask');
   if (m) m.classList.add('hidden');
 }
 function wfgAckShow(fileName, detail) {
   var m = document.getElementById('wfg-ack-mask');
   if (!m) { alert(detail || ''); return; }             // 大聲失敗，不要靜默跳過提醒
-  _wfgAckTouched = { dclk: false, linebuf: false };
   var sub = document.getElementById('wfg-ack-sub');
   if (sub) sub.textContent = (fileName ? fileName + '\n' : '') + (detail || '');
   var d = document.getElementById('wfg-ack-dclk-now');
   if (d) d.textContent = t('wfg.ackNow').replace('{v}', String(wfgFrame.dclk) + ' MHz');
   var l = document.getElementById('wfg-ack-lb-now');
   if (l) l.textContent = t('wfg.ackNow').replace('{v}', String(wfgLineBuffer));
-  /* 預填目前值 —— 本來就對的話，點一下再離開就算確認，不必無謂重打。 */
+  /* 預填目前值。v4.6.0 起「合法即通過」，本來就對的值不必動它。 */
   var di = document.getElementById('wfg-ack-dclk-in');
   if (di) { di.value = wfgFrame.dclk; di.disabled = wfgAckDclkReadOnly(); }
   var li = document.getElementById('wfg-ack-lb-in');
