@@ -22,6 +22,137 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.0.0 — 2026-08-22 ｜ MAJOR
+
+**MAJOR 核准：Bruce 2026-08-22**
+（Dispatch 原話：「這個 bin 檔匯入的功能還有匯出的功能，算是一個大改版，所以版號請進階到 4.0。」）
+
+**工具列新增 Code group：匯入 TCON 的 code 檔、匯出成 TCON 工具可載入的 script。**
+
+### 這一版做了什麼
+
+WFG 一直是「自己設參數、自己看波形」的封閉工具。這一版把它接上真實的 TCON code：
+
+- **匯入**：讀 EM02 的 `.bin`，把 18 條數位信號的 15 個欄位（ENABLE / ACT_TYPE / R_PH / F_PH /
+  ST_LINE / SP_LINE / R_DLY / F_DLY / INI_VAL / Toggle / TG_INI_VAL / F_ST_SEL / INV /
+  OAX_MODE / OAX_SEL）直接填進「數位信號」卡片，Frame 參數（HACTIVE / VACTIVE /
+  HBLANK / VBLANK）順帶帶入當參考。
+- **匯出**：產生 `.script`，可在 Raydium TCON Tool 的 Script 分頁 Load → Run，直接改到晶片 register。
+
+### 🔴 擴充點：型號 → 解析器／產生器 的可註冊對照表
+
+**UI 完全不認識任何型號。** 下拉選單、可接受的副檔名、匯出格式、按鈕提示，全部由
+`WFG_TCON_CODECS` 這張表生成：
+
+```js
+var WFG_TCON_CODECS = {
+  em02: { label:'EM02', importExts:['.bin'], exportFormat:'script',
+          parseCode: wfgEm02ParseBin, buildExport: wfgEm02BuildScript },
+  em01: { label:'EM01', importExts:['.bin'],        exportFormat:'script', parseCode:null, buildExport:null },
+  e503: { label:'E503', importExts:['.bin','.hex'], exportFormat:'bin',    parseCode:null, buildExport:null },
+  e501: { label:'E501', importExts:['.bin','.hex'], exportFormat:'bin',    parseCode:null, buildExport:null }
+};
+```
+
+日後補 EM01 只要把 `parseCode` / `buildExport` 填上，**UI 一行都不用改**。
+`parseCode` 為 null 的型號在選單上以 `*` 標示，選了會明確告知「尚未支援」——
+**不靜默失敗、也不假裝成功**（Bruce 指定）。
+E501/E503 的 `exportFormat` 先寫 `'bin'`，Bruce 說他有那兩款的完整 source code，
+日後直接產 bin/hex 這條路已經預留。
+EM01/EM02 **只有 .bin、沒有 hex**（Bruce 2026-08-22 明確補充），所以 `importExts` 只列 `.bin`。
+
+### 匯入怎麼在檔案裡找到 GPO 區塊
+
+.bin 是「各 register 分區依位址順序打包」的映像。GPO 資料在 `rt8_tcon_1`（xstb/xpol）與
+`rt8_tcon_2`（其餘 16 條）兩個 chunk。
+
+🔴 **不能用固定 offset**：排在 GPO 前面的 chunk 有四個（`lvds2gbpll` / `minitx2gpio` /
+`dither` / `rt8tcon2rt7`），任何一個被關掉，GPO 就整段往前移。
+
+**做法**：列出 2⁴ ＝ **16 個可能的起點**，逐一套上五條合理性檢查，
+**只接受「恰好一個候選通過」**；零個或多個都拒絕匯入並說明原因。
+
+五條檢查（全部出自 register 定義，不是憑感覺挑的）：
+`XSTB.enable==1`、`XPOL.tg_mode==1`、`VST1.enable==1`、`LC.tg_mode==1`、`XSTB.sp_line>100`。
+
+**實測 118 個 EM02 樣本：117/117 唯一命中 0x0440，15 個錯誤候選零假陽性。**
+第 118 個是混在資料夾裡的聯詠 `NT515091` 檔，五條全不過 → **正確被拒絕**。
+
+### 匯出為什麼一律用 `write -m`（遮罩寫入）
+
+**這不是偏好問題**：`base+0` 那個位元組除了 WFG 有的五個欄位，還有 `no_keep_last_sig`(bit4)；
+`base+7` 還有 `no_fall`(bit7) 與 `out2_en`(bit6)。這三個 WFG 沒有，
+用 `write -n` 整個位元組寫下去會**把它們清成 0**。
+遮罩：`base+0` 用 `EB`、`base+5`／`base+7` 的 line 高位元用 `3F`、`base+5` 的 INI_VAL 用 `C0`、其餘 `FF`。
+
+只用 8 bit 形式、一行一個位址 —— 16 bit 形式（`write -n 0F26 1234`）的端序在 UI 說明裡沒寫，不碰未知數。
+
+`//` 註解**不是照著範例檔假設的**：`B18_27Q100_LOD_data_mapping_0722.script` 的三段寫入
+各自前面都有 `//` 註解行，而**那三段的值在 9 個真實 .bin 裡全部命中**。
+若解析器在 `//` 停住，後兩段就不會生效 ⇒ **實測證明註解會被略過**。
+
+### register 位址（由反組譯 `Raydium_TCON_Tool_EM02_v0.3.2.exe` 確認）
+
+| 項目 | 位址 | 證據（程式位址） |
+|---|---|---|
+| xstb / xpol | 0x05A0 / 0x05B0，各 16 個 register | `shl edx,4` ＋ `add edx,5A0h` ＋ `push 10h` @0x015E5B40–5B4C |
+| vst1…gpo1 | 0x0600 + (i−2)×16 | `shl eax,4` ＋ `add eax,-20h` ＋ `add eax,600h` @0x015E5B66–5B6F |
+| oax_mode/oax_sel | 0x0583 + i | `add eax,583h` ＋ `push 1` @0x015E5B8D |
+| act_type/r_ph/f_ph 的 bit8 | 0x05C2 起 | `push 5C2h` @0x015E5B06 |
+
+位寬同樣由機器碼確認：**ST_LINE / SP_LINE ＝ 14 bit**（低位元組全 8 bit ＋ 高位元組 `and dl,3Fh`、
+保留 `and cl,0C0h`，@0x015E7482／0x015E7639）、**R_DLY / F_DLY ＝ 16 bit**、
+**ACT_TYPE / R_PH / F_PH ＝ 9 bit**（8 ＋ bit8）。
+
+### 防呆
+
+- `ACT_TYPE`／`R_PH`／`F_PH` > 255 時**拒絕匯出**：bit8 的 nibble 排法還沒在機器碼裡驗證過，
+  寧可不能匯也不要猜著寫。
+- 匯入失敗時**完全不動現有設定**，並在訊息裡寫出失敗原因。
+- 匯入成功會顯示判定出來的 GPO 起點與偵測到的未下載 chunk，以及全檔 checksum。
+
+### 驗收（`RESULT V1: PASS`，共 30 項斷言）
+
+| 項目 | 結果 |
+|---|---|
+| 三個機種（QHD100 / FHD180 / FHD165）匯入 | 18 訊號 × 15 欄位與獨立參考實作**逐項相同** |
+| 判定出的 GPO 起點 | 三個機種都是 `0x0440`，checksum 0x2AD3A / 0x2C5B0 / 0x22DDB |
+| Frame 參數帶入 | 2560×1440 hb160 vb40 ／ 1920×1080 hb164 vb45 ／ 同前 |
+| 聯詠 NT515091 檔 | **被拒絕**，理由「16 個候選位置都通不過合理性檢查」 |
+| 匯入後套進 `wfgGpios` | act/st/sp/r_dly 逐條相同 |
+| 匯出 script | 252 行（18 × 14），**全部是 `write -m`** |
+| 手工驗算 ck1 的 ST_LINE=3 | `write -m 0624 03 FF` ＋ `write -m 0625 00 3F` ✅ |
+| 手工驗算 ck1 的 SP_LINE=2170 | 2170 ＝ 0x087A → `write -m 0626 7A FF` ＋ `write -m 0627 08 3F` ✅ |
+| `base+0` 的遮罩 | `write -m 0620 A0 EB`（保住 `no_keep_last_sig`） |
+| 位址正確性 | xstb `05A0`、xpol `05B0`、ck1 的 oax `0587` |
+| EM01 / E503 / E501 | 匯入與匯出各自都回「尚未支援」，不是壞掉 |
+
+版面：Code group 寬 201px，`scrollWidth == clientWidth == 1600`（無橫向溢出），
+標籤與按鈕樣式與旁邊的「檔案」group 一致（截圖確認）。
+
+不得回歸：253/252 的 C1/C2、時間軸每格時間不變、中心 line 不動、游標貼附、
+v3.27.0 拉桿與 Group 框、v3.28.1 標示、v3.28.2 pending 跳過、v3.29.0 定頻／變頻 —— 全部未觸及。
+
+### 🔴 這是一波的開頭（R2）
+
+依 `docs/VERSIONING.md` §R2，**波內後續步驟依自身性質各自判定**：
+之後補 EM01 / E501 / E503 的解析器是「新增獨立功能」→ **MINOR**；
+修匯入解析的 bug → **PATCH**。**不要每一步都 MAJOR**，避免出現 v4 → v5 → v6 的荒謬編號。
+
+**判定依據：** 逐欄判定 ——
+**操作流程**：新增了一整條對外的資料通道（匯入 TCON code、匯出 script），
+使用者要重新認識「WFG 可以吃真實 code、也可以吐回給 TCON 工具」這件事 → 達到 MAJOR 門檻；
+**既有功能的輸出**：不變（既有的設定檔匯出、波形、量測一個位元都沒動）；
+**功能增減**：純新增，沒有移除任何東西。
+R1／R3／R4 皆不適用。取最高者 → **MAJOR**。
+
+與 **v3.28.0** 那次的對比（寫下來讓日後翻紀錄的人看得懂兩次為何不同）：
+v3.28.0 只是把 Frame 卡片的兩個輸入格從 VTOTAL/HTOTAL 換成 VBLANK/HBLANK，
+**值仍然看得見、操作位置沒移、能做的事沒有變多**，所以當時判 MINOR；
+本版是**多了一整條原本不存在的工作流程**，性質不同。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v3.29.0 — 2026-08-22 ｜ MINOR ｜ ⚠ 輸出變更
 
 **D-Clock 分組框裡新增「定頻應用 / 變頻應用」選擇，預設定頻應用。**

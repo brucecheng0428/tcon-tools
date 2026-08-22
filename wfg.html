@@ -868,6 +868,10 @@
      顏色，讓「這格現在是唯讀」在視覺上與其他唯讀顯示值一致。 */
   input[readonly].wfg-input-derived { background: #0b1220; color: #94a3b8; cursor: not-allowed; }
   .wfg-dclk-hint { display: block; font-size: 10px; color: #64748b; line-height: 1.2; }
+  /* v3.30.0：Code group 的型號下拉。尺寸／配色沿用工具列既有的 .wfg-la-quick-select 那組值 */
+  .wfg-code-select { padding: 4px 6px; font-size: 11px; color: #e2e8f0; background: #0f172a;
+                     border: 1px solid #334155; border-radius: 4px; max-width: 96px; }
+  .wfg-code-select option { background: #1e293b; color: #e2e8f0; }
   .wfg-btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
   .wfg-btn-primary { background: #f97316; color: white; }
   .wfg-btn-primary:active { background: #ea580c; }
@@ -1506,6 +1510,13 @@
               <button id="wfg-paste-btn" onclick="wfgImportClipboard()" title="從剪貼簿貼上波形設定" data-i18n-title="wfg.pasteTitle" aria-label="貼上波形"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="12" rx="1.5" fill="none"></rect><path d="M5.5 3V2.2A1.2 1.2 0 0 1 6.7 1h2.6A1.2 1.2 0 0 1 10.5 2.2V3" fill="none"></path></svg><span data-i18n="wfg.pastePlain">貼上</span></button>
               <button onclick="wfgScreenshotSmart()" title="截圖分享" data-i18n-title="wfg.screenshotTitle" aria-label="截圖"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="10" rx="2" fill="none"></rect><circle cx="8" cy="8.5" r="2.5" fill="none"></circle><path d="M5 3.5 6 1.5h4l1 2"></path></svg><span data-i18n="wfg.screenshotPlain">截圖</span></button>
             </div>
+            <!-- ── Code group（v3.30.0）：TCON code 檔的匯入／匯出。樣式沿用旁邊的「檔案」group ── -->
+            <div class="wfg-la-tool-group" id="wfg-code-group">
+              <span class="wfg-la-group-label" data-i18n="wfg.grpCode">Code</span>
+              <select id="wfg-code-tcon" class="wfg-code-select" onchange="wfgCodeOnTconChange(this.value)" title="選擇 TCON 型號" data-i18n-title="wfg.codeTconTitle"></select>
+              <button id="wfg-code-import-btn" onclick="wfgCodeImport()" title="匯入 TCON code 檔" data-i18n-title="wfg.codeImportTitle" aria-label="匯入 code"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.importPlain">匯入</span></button>
+              <button id="wfg-code-export-btn" onclick="wfgCodeExport()" title="匯出為 TCON 可載入的檔案" data-i18n-title="wfg.codeExportTitle" aria-label="匯出 code"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.exportPlain">匯出</span></button>
+            </div>
             <!-- ── 游標 group ── -->
             <div class="wfg-la-tool-group">
               <span class="wfg-la-group-label" data-i18n="wfg.laGrpCursor">游標</span>
@@ -1951,8 +1962,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg3290"></script>
-<script src="common/i18n.js?v=20260822wfg3290"></script>
+<script src="common/version.js?v=20260822wfg400"></script>
+<script src="common/i18n.js?v=20260822wfg400"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -30767,6 +30778,7 @@ function wfgInit() {
   wfgUpdateTconHtotal();
   wfgSyncDclkUi();        // v3.29.0：radio 勾選狀態／唯讀狀態／提示文字（內含 wfgUpdateDclkLabel）
   wfgUpdateTconInternalVisibility();
+  wfgCodeInitUi();        // v4.0.0：Code group 的型號下拉由 WFG_TCON_CODECS 生成，UI 不認識任何型號
 
   var requestedMode = wfgRequestedModeFromUrl();
   if (requestedMode) wfgSwitchMode(requestedMode, { skipTconAutoRestore: true });
@@ -33955,6 +33967,300 @@ window.wfgImportConfig = function(jsonStr, options) {
 
   return true;
 };
+
+/* ══ v3.30.0：TCON Code 匯入／匯出 ═══════════════════════════════════════════
+   Bruce 2026-08-22：「在 WFG 分頁上方那一列新增一個 code 的 group……匯入是可以選擇
+   T-CON 哪一種，目前的範例是 EM02，但要預留 EM01、E503 還有 E501……匯出的功能在
+   EM02 與 EM01 都是先預設為 script。」
+
+   🔴 擴充點就是下面這張 `WFG_TCON_CODECS` 表 —— **UI 完全不認識任何型號**，
+   下拉選單、可接受的副檔名、匯出格式、按鈕啟用狀態全部從這張表生出來。
+   日後要加 EM01 只要在表裡把 `parseCode` / `buildExport` 補上，UI 一行都不用改。
+
+   各型號的能力（依 Bruce 說明）：
+     EM01 / EM02 —— code 只有 .bin（**沒有 hex**），匯出 .script
+     E501 / E503 —— NB 用，bin 或 hex 都有；Bruce 手上有完整 source code，
+                    日後匯出可以直接產 bin/hex（`exportFormat` 改成 'bin' 即可） */
+var WFG_TCON_CODECS = {
+  em02: {
+    label: 'EM02', importExts: ['.bin'], exportFormat: 'script',
+    parseCode: function(buf, fname) { return wfgEm02ParseBin(buf, fname); },
+    buildExport: function(opt) { return wfgEm02BuildScript(opt); }
+  },
+  em01: { label: 'EM01', importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null },
+  e503: { label: 'E503', importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
+  e501: { label: 'E501', importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null }
+};
+var wfgCodeTcon = 'em02';
+
+function wfgCodeInitUi() {
+  var sel = document.getElementById('wfg-code-tcon');
+  if (!sel) return;
+  var html = '';
+  for (var k in WFG_TCON_CODECS) {
+    var c = WFG_TCON_CODECS[k];
+    var na = c.parseCode ? '' : ' *';   // * = 尚未支援，選單上就看得出來
+    html += '<option value="' + k + '"' + (k === wfgCodeTcon ? ' selected' : '') + '>' + c.label + na + '</option>';
+  }
+  sel.innerHTML = html;
+  wfgCodeUpdateBtns();
+}
+function wfgCodeOnTconChange(v) {
+  if (!WFG_TCON_CODECS[v]) return;
+  wfgCodeTcon = v;
+  wfgCodeUpdateBtns();
+}
+window.wfgCodeOnTconChange = wfgCodeOnTconChange;
+function wfgCodeUpdateBtns() {
+  var c = WFG_TCON_CODECS[wfgCodeTcon] || {};
+  var ib = document.getElementById('wfg-code-import-btn');
+  var eb = document.getElementById('wfg-code-export-btn');
+  if (ib) ib.title = c.parseCode ? (t('wfg.codeImportTitle') + ' (' + c.importExts.join('/') + ')')
+                                 : t('wfg.codeNotSupported').replace('{m}', c.label || '');
+  if (eb) eb.title = c.buildExport ? (t('wfg.codeExportTitle') + ' (.' + c.exportFormat + ')')
+                                   : t('wfg.codeNotSupported').replace('{m}', c.label || '');
+}
+function wfgCodeNotSupported(codec) {
+  /* 🔴 明確告知，不靜默失敗也不假裝成功（Bruce 指定） */
+  alert(t('wfg.codeNotSupported').replace('{m}', codec.label));
+}
+window.wfgCodeImport = function() {
+  var codec = WFG_TCON_CODECS[wfgCodeTcon];
+  if (!codec) return;
+  if (!codec.parseCode) { wfgCodeNotSupported(codec); return; }
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = codec.importExts.join(',');
+  input.onchange = function() {
+    if (!input.files || !input.files[0]) return;
+    var f = input.files[0];
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var res;
+      try { res = codec.parseCode(new Uint8Array(e.target.result), f.name); }
+      catch (err) { res = { ok: false, reason: String(err && err.message || err) }; }
+      if (!res || !res.ok) {
+        alert(t('wfg.codeImportFail').replace('{f}', f.name).replace('{r}', (res && res.reason) || '?'));
+        return;
+      }
+      wfgCodeApplyToWfg(res);
+      wfgSetImportedFileName('tcon', f.name);
+      alert(t('wfg.codeImportOk').replace('{f}', f.name).replace('{n}', String(res.applied))
+            .replace('{d}', res.detail || ''));
+    };
+    reader.readAsArrayBuffer(f);
+  };
+  input.click();
+};
+window.wfgCodeExport = function() {
+  var codec = WFG_TCON_CODECS[wfgCodeTcon];
+  if (!codec) return;
+  if (!codec.buildExport) { wfgCodeNotSupported(codec); return; }
+  var out;
+  try { out = codec.buildExport({ onlyChanged: false, comments: true }); }
+  catch (err) { alert(String(err && err.message || err)); return; }
+  if (!out || !out.ok) { alert((out && out.reason) || '?'); return; }
+  var now = new Date();
+  var p = function(n) { return n < 10 ? '0' + n : '' + n; };
+  var stamp = now.getFullYear() + p(now.getMonth() + 1) + p(now.getDate()) + '_' + p(now.getHours()) + p(now.getMinutes());
+  var fname = 'WFG_GPO_' + codec.label + '_' + stamp + '.' + codec.exportFormat;
+  var blob = new Blob([out.text], { type: 'text/plain;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+};
+
+/* ══ EM02 解析器 ══════════════════════════════════════════════════════════
+   .bin 是「把各 register 分區依位址順序打包」的映像，不是寫入序列。
+   GPO 資料落在 rt8_tcon_1（xstb / xpol）與 rt8_tcon_2（其餘 16 條）兩個 chunk。
+
+   🔴 為什麼不用固定 offset：排在 GPO 前面的 chunk 有四個，任何一個被關掉
+   （工具端的 `<chunk>_dl_en`），GPO 就會整段往前移。所以改成
+   **列出 2⁴ = 16 個可能的起點，逐一試，只接受「恰好一個通過防呆檢查」**。
+   實測 118 個 EM02 樣本：117/117 唯一命中 0x0440，15 個錯誤候選**零假陽性**；
+   剩下那 1 個是混在資料夾裡的聯詠 NT515091 檔，五條檢查全不過 → 正確被拒絕。 */
+var WFG_EM02_SIGS = ['xstb','xpol','vst1','vst2','ck1','ck2','ck3','ck4','ck5','ck6',
+                     'ck7','ck8','lc','tend','vs','hs','gpo0','gpo1'];
+var WFG_EM02_BASE1 = 0x0440;      // 四個前置 chunk 都存在時，rt8_tcon_1 chunk 的檔案起點
+var WFG_EM02_LEN1  = 0x101;       // rt8_tcon_1 chunk 在檔案裡佔的長度（實測）
+var WFG_EM02_PRE_CHUNKS = [192, 304, 198, 256];   // lvds2gbpll / minitx2gpio / dither / rt8tcon2rt7
+var WFG_EM02_PRE_NAMES  = ['lvds2gbpll', 'minitx2gpio', 'dither', 'rt8tcon2rt7'];
+/* 晶片端 register 位址（由 exe 反組譯確認，見 docs 之外的研究記錄）：
+     xstb 0x05A0、xpol 0x05B0、其餘 0x0600 + (i−2)×16，每條 16 個 register
+     oax  0x0583 + i
+     act_type/r_ph/f_ph 的第 9 位元 0x05C2 + ⌊(i+1)/2⌋ */
+function wfgEm02RegBase(i) { return (i < 2) ? (0x05A0 + i * 16) : (0x0600 + (i - 2) * 16); }
+function wfgEm02OaxReg(i)  { return 0x0583 + i; }
+function wfgEm02Bit8Reg(i) { return 0x05C2 + ((i + 1) >> 1); }
+
+function wfgEm02DecodeAt(buf, base1) {
+  var base2 = base1 + WFG_EM02_LEN1;
+  var out = [];
+  for (var i = 0; i < 18; i++) {
+    var o = (i === 0) ? (base1 + 0xA0) : (i === 1) ? (base1 + 0xB0) : (base2 + 16 * (i - 2));
+    if (o + 16 > buf.length) return null;
+    var r = buf.subarray(o, o + 16);
+    var bb = base1 + 0xC2 + ((i + 1) >> 1);
+    var ext = (bb < buf.length) ? ((i % 2 === 0) ? ((buf[bb] >> 4) & 7) : (buf[bb] & 7)) : 0;
+    var ox = (base1 + 0x83 + i < buf.length) ? buf[base1 + 0x83 + i] : 0;
+    out.push({
+      name: WFG_EM02_SIGS[i],
+      enable: (r[0] >> 7) & 1, toggle: (r[0] >> 6) & 1,
+      f_st_sel: (r[0] >> 5) & 1, inv: (r[0] >> 3) & 1,
+      tg_ini_val: r[0] & 3,
+      act_type: r[1] | (((ext >> 0) & 1) << 8),
+      r_ph:     r[2] | (((ext >> 1) & 1) << 8),
+      f_ph:     r[3] | (((ext >> 2) & 1) << 8),
+      st_line: r[4] | ((r[5] & 0x3F) << 8),      // 14 bit（機器碼確認：+4 全 8 bit ＋ +5[5:0]）
+      ini_val: (r[5] >> 6) & 3,
+      sp_line: r[6] | ((r[7] & 0x3F) << 8),      // 14 bit
+      no_fall: (r[7] >> 7) & 1, out2_en: (r[7] >> 6) & 1,
+      r_dly: r[8] | (r[9] << 8), f_dly: r[10] | (r[11] << 8),   // 16 bit LE
+      oax_mode: (ox >> 5) & 7, oax_sel: ox & 0x1F
+    });
+  }
+  return out;
+}
+/* 防呆：五條全部來自 Excel 的欄位定義，不是憑感覺挑的。
+   實測對 offset 錯位有鑑別力（15 個錯誤候選 × 117 檔 = 0 假陽性）。 */
+function wfgEm02Sane(sig) {
+  if (!sig) return false;
+  var by = {};
+  for (var i = 0; i < sig.length; i++) by[sig[i].name] = sig[i];
+  return !!(by.xstb && by.xstb.enable && by.xpol && by.xpol.toggle &&
+            by.vst1 && by.vst1.enable && by.lc && by.lc.toggle &&
+            by.xstb.sp_line > 100);
+}
+function wfgEm02Candidates() {
+  var out = [];
+  for (var m = 0; m < 16; m++) {
+    var off = WFG_EM02_BASE1, off_names = [];
+    for (var k = 0; k < 4; k++) if (m & (1 << k)) { off -= WFG_EM02_PRE_CHUNKS[k]; off_names.push(WFG_EM02_PRE_NAMES[k]); }
+    if (off >= 0) out.push({ off: off, off_names: off_names });
+  }
+  return out;
+}
+function wfgEm02ParseBin(buf, fname) {
+  if (!buf || buf.length < 3000) return { ok: false, reason: t('wfg.codeErrTooSmall') };
+  var cands = wfgEm02Candidates(), hit = [];
+  for (var i = 0; i < cands.length; i++) {
+    var sig = wfgEm02DecodeAt(buf, cands[i].off);
+    if (wfgEm02Sane(sig)) hit.push({ cand: cands[i], sig: sig });
+  }
+  /* 🔴 只接受「恰好一個候選通過」。零個或多個都拒絕 —— 寧可不能匯，不要匯錯。 */
+  if (hit.length === 0) return { ok: false, reason: t('wfg.codeErrNoMatch') };
+  if (hit.length > 1)  return { ok: false, reason: t('wfg.codeErrAmbiguous').replace('{n}', String(hit.length)) };
+  var base1 = hit[0].cand.off;
+  var frame = (buf.length > 0x7E) ? {
+    hactive: buf[0x13] | (buf[0x14] << 8),          // reg_tmg_hres
+    vactive: buf[0x15] | (buf[0x16] << 8),          // reg_tmg_vres
+    hblank:  buf[0x17] | (buf[0x18] << 8),          // reg_tmg_hblk
+    vblank:  buf[0x19] | (buf[0x7E] << 8)           // reg_tmg_vblk + _msb
+  } : null;
+  var det = 'GPO @0x' + base1.toString(16).toUpperCase();
+  if (hit[0].cand.off_names.length) det += ' (' + t('wfg.codeChunkOff') + ': ' + hit[0].cand.off_names.join(', ') + ')';
+  var cks = 0; for (var b = 0; b < buf.length; b++) cks += buf[b];
+  det += ' / CKS 0x' + (cks & 0xFFFFFF).toString(16).toUpperCase();
+  return { ok: true, signals: hit[0].sig, frame: frame, base1: base1,
+           applied: 18, detail: det };
+}
+
+/* ══ EM02 匯出 .script ═════════════════════════════════════════════════════
+   🔴 一律用 `write -m`（遮罩寫入），不用 `-n`。理由不是偏好：
+     ・base+0 那個 byte 還有 `no_keep_last_sig`（bit4）—— WFG 沒有這個欄位
+     ・base+7 那個 byte 還有 `no_fall`(bit7) / `out2_en`(bit6) —— WFG 也沒有
+   用 `-n` 整個 byte 寫下去會把它們清成 0。全部走 `-m` 還有一個好處：
+   產生器只有一條路徑，不會有「哪些用 -n、哪些用 -m」的判斷失誤。
+
+   只用 8 bit 形式、一行一個位址 —— 16 bit 形式（`write -n 0F26 1234`）的端序
+   在 UI 說明裡沒寫，不碰未知數。 */
+function wfgEm02Hex(v, n) {
+  var s = (v >>> 0).toString(16).toUpperCase();
+  while (s.length < n) s = '0' + s;
+  return s.slice(-n);
+}
+function wfgEm02Line(addr, val, mask, note) {
+  var s = 'write -m ' + wfgEm02Hex(addr, 4) + ' ' + wfgEm02Hex(val, 2) + ' ' + wfgEm02Hex(mask, 2);
+  return note ? (s + '    // ' + note) : s;
+}
+function wfgEm02BuildScript(opt) {
+  opt = opt || {};
+  var lines = [], cnt = 0;
+  if (opt.comments !== false) {
+    var now = new Date();
+    lines.push('// WFG ' + (window.TCON_VERSIONS ? TCON_VERSIONS.wfg : '') + ' ' + t('wfg.codeScriptHdr'));
+    lines.push('// ' + now.toISOString());
+    lines.push('// ' + t('wfg.codeScriptNote'));
+    lines.push('');
+  }
+  for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
+    var g = wfgGpios[i];
+    if (!g) continue;
+    if (opt.onlySignals && opt.onlySignals.indexOf(i) < 0) continue;
+    if (g.act_type > 255 || g.r_ph > 255 || g.f_ph > 255) {
+      /* bit8 的 nibble 排法還沒在機器碼裡驗證過 → 大聲失敗，不要猜著寫 */
+      return { ok: false, reason: t('wfg.codeErrBit8').replace('{s}', WFG_EM02_SIGS[i] || String(i)) };
+    }
+    var b = wfgEm02RegBase(i);
+    if (opt.comments !== false) {
+      lines.push('// ── ' + (WFG_EM02_SIGS[i] || '').toUpperCase() + '  (0x' + wfgEm02Hex(b, 4) + ') ──');
+    }
+    var b0 = ((g.enable ? 1 : 0) << 7) | ((g.toggle ? 1 : 0) << 6) | ((g.f_st_sel ? 1 : 0) << 5)
+           | ((g.inv ? 1 : 0) << 3) | (g.tg_ini_val & 3);
+    lines.push(wfgEm02Line(b + 0x0, b0, 0xEB, 'enable/toggle/f_st_sel/inv/tg_ini_val'));
+    lines.push(wfgEm02Line(b + 0x1, g.act_type & 0xFF, 0xFF, 'ACT_TYPE = ' + g.act_type));
+    lines.push(wfgEm02Line(b + 0x2, g.r_ph & 0xFF, 0xFF, 'R_PH = ' + g.r_ph));
+    lines.push(wfgEm02Line(b + 0x3, g.f_ph & 0xFF, 0xFF, 'F_PH = ' + g.f_ph));
+    lines.push(wfgEm02Line(b + 0x4, g.st_line & 0xFF, 0xFF, 'ST_LINE = ' + g.st_line + ' (low)'));
+    lines.push(wfgEm02Line(b + 0x5, (g.st_line >> 8) & 0x3F, 0x3F, 'ST_LINE (high 6 bits)'));
+    lines.push(wfgEm02Line(b + 0x6, g.sp_line & 0xFF, 0xFF, 'SP_LINE = ' + g.sp_line + ' (low)'));
+    lines.push(wfgEm02Line(b + 0x7, (g.sp_line >> 8) & 0x3F, 0x3F, 'SP_LINE (high 6 bits)'));
+    lines.push(wfgEm02Line(b + 0x8, g.r_dly & 0xFF, 0xFF, 'R_DLY = ' + g.r_dly + ' (low)'));
+    lines.push(wfgEm02Line(b + 0x9, (g.r_dly >> 8) & 0xFF, 0xFF, 'R_DLY (high)'));
+    lines.push(wfgEm02Line(b + 0xA, g.f_dly & 0xFF, 0xFF, 'F_DLY = ' + g.f_dly + ' (low)'));
+    lines.push(wfgEm02Line(b + 0xB, (g.f_dly >> 8) & 0xFF, 0xFF, 'F_DLY (high)'));
+    lines.push(wfgEm02Line(b + 0x5, (g.ini_val & 3) << 6, 0xC0, 'INI_VAL = ' + g.ini_val));
+    lines.push(wfgEm02Line(wfgEm02OaxReg(i), ((g.oax_mode & 7) << 5) | (g.oax_sel & 0x1F), 0xFF,
+                           'OAX mode=' + g.oax_mode + ' sel=' + g.oax_sel));
+    cnt += 14;
+    if (opt.comments !== false) lines.push('');
+  }
+  return { ok: true, text: lines.join('\n') + '\n', count: cnt };
+}
+window.wfgEm02ParseBin = wfgEm02ParseBin;
+window.wfgEm02BuildScript = wfgEm02BuildScript;
+
+/* ── 型號無關：把解析結果套進 WFG ───────────────────────────────────────── */
+function wfgCodeApplyToWfg(res) {
+  wfgInvalidateCache();
+  for (var i = 0; i < res.signals.length && i < WFG_DIGITAL_GPIO_COUNT; i++) {
+    var s = res.signals[i], g = wfgGpios[i];
+    if (!g || !s) continue;
+    g.enable = !!s.enable; g.toggle = !!s.toggle; g.f_st_sel = !!s.f_st_sel; g.inv = !!s.inv;
+    g.act_type = s.act_type; g.r_ph = s.r_ph; g.f_ph = s.f_ph;
+    g.st_line = s.st_line; g.sp_line = s.sp_line;
+    g.r_dly = s.r_dly; g.f_dly = s.f_dly;
+    g.ini_val = s.ini_val; g.tg_ini_val = s.tg_ini_val;
+    g.oax_mode = s.oax_mode; g.oax_sel = s.oax_sel;
+  }
+  /* Frame 參數「順便帶入當作參考」（Bruce Q6）。只帶 code 檔真的有的四個值，
+     其餘（Frame Rate、DCLK、Gate Type…）維持使用者目前的設定不動。 */
+  if (res.frame) {
+    if (res.frame.hactive > 0) wfgFrame.hactive = res.frame.hactive;
+    if (res.frame.vactive > 0) wfgFrame.vactive = res.frame.vactive;
+    if (res.frame.hblank > 0) wfgFrame.htotalBase = res.frame.hactive + res.frame.hblank;
+    if (res.frame.vblank > 0) wfgFrame.vtotal = res.frame.vactive + res.frame.vblank;
+    wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
+    wfgSyncBlankInputs(); wfgSyncDclkUi();
+  }
+  wfgRenderGpioList();
+  wfgRenderChannelList();
+  wfgScheduleFrameParamRender();
+  wfgBeginDeferredAnalog();
+}
+window.wfgCodeApplyToWfg = wfgCodeApplyToWfg;   // 驗收腳本要走與按鈕相同的套用路徑
 
 window.wfgImportFile = function() {
   var input = document.createElement('input');

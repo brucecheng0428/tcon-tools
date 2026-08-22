@@ -10,6 +10,6 @@ var TOOL_VERSIONS = {
   calc:    'v1.5.3',       // mLVDS Skew 計算工具
   isp:     'v1.19.0',      // iSP 波形產生器
   aux:     'v2.3.1',       // eDP AUX / DPCD 查詢工具
-  wfg:     'v3.29.0',     // TCON 波形模擬與取樣
+  wfg:     'v4.0.0',     // TCON 波形模擬與取樣
   pattern: 'v3.5.0'        // Pattern Generator 畫面產生器
 };
