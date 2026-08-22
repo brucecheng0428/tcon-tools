@@ -1962,7 +1962,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg400"></script>
+<script src="common/version.js?v=20260822wfg401"></script>
 <script src="common/i18n.js?v=20260822wfg400"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -34255,12 +34255,57 @@ function wfgCodeApplyToWfg(res) {
     wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
     wfgSyncBlankInputs(); wfgSyncDclkUi();
   }
+  wfgCodeResetChannels();
   wfgRenderGpioList();
   wfgRenderChannelList();
+  wfgRenderLabels();
   wfgScheduleFrameParamRender();
   wfgBeginDeferredAnalog();
 }
+/* ══ v4.0.1：匯入 code 之後的通道整理 ═══════════════════════════════════════
+   Bruce 2026-08-22：「匯入以後，所有訊號只保留數位訊號，其他類比訊號、面板訊號都先
+   不要顯示在通道上面。另外，你還要去確認每一個數位訊號的 Enable 是否有打勾，有打勾的
+   話就要 show 在波形區。顏色的話一樣，只要匯入就回到 default 顏色設定。」
+
+   🔴 「不要顯示在通道上面」我選的是 **visible = false（隱藏、資料不刪）**，
+   不是把通道從清單移除、也不是把 gpio 的 enable 關掉。三個理由：
+     ① 可回復 —— 通道清單每一列本來就有眼睛圖示（`wfgToggleChVis`），
+        使用者要看類比波形隨時點回來，不必重載 preset。
+     ② 不動 gpio 的 `enable` —— 那是**匯出時會寫進 register 的值**（GPO 記錄 +0 的 bit7）。
+        為了「畫面不顯示」去改它，會讓匯出的 script 把晶片上的類比訊號一起關掉。
+     ③ 不從清單移除 —— 移除等於刪資料，救不回來。
+   選擇留在這裡，日後若 Bruce 要的是另一種，改這一支就好。 */
+function wfgCodeResetChannels() {
+  /* ① 確保 18 條數位訊號各自有一個通道（沒有就補在最後） */
+  var byGpio = {};
+  for (var i = 0; i < wfgChannels.length; i++) {
+    var gi = wfgChannels[i].gpioIdx;
+    if (gi >= 0 && byGpio[gi] === undefined) byGpio[gi] = i;
+  }
+  for (var g = 0; g < WFG_DIGITAL_GPIO_COUNT; g++) {
+    if (byGpio[g] === undefined) {
+      var nc = wfgMakeChannel(wfgChannels.length);
+      nc.gpioIdx = g;
+      wfgChannels.push(nc);
+      byGpio[g] = wfgChannels.length - 1;
+    }
+  }
+  /* ② 逐通道決定可見性與顏色 */
+  for (var c = 0; c < wfgChannels.length; c++) {
+    var ch = wfgChannels[c];
+    var gp = (ch.gpioIdx >= 0 && ch.gpioIdx < wfgGpios.length) ? wfgGpios[ch.gpioIdx] : null;
+    /* 顏色回到預設色盤。`color0`（＝「原本顏色」的基準）也要一起重設 ——
+       只改 color 的話，調色盤的「還原」會把使用者帶回匯入前的自訂色，
+       那不是「回到 default」。重設後仍可再用色點自行改色（wfgOpenColorPicker 不受影響）。 */
+    var c0 = WFG_CH_COLORS[c % WFG_CH_COLORS.length];
+    ch.color = c0; ch.color0 = c0;
+    if (!gp) ch.visible = false;                     // 沒綁訊號的通道
+    else if (gp.waveform_type) ch.visible = false;   // 類比（SD/CKO）與面板（Gate/Vpix）
+    else ch.visible = !!gp.enable;                   // 數位：完全照 GPO 記錄 +0 的 bit7
+  }
+}
 window.wfgCodeApplyToWfg = wfgCodeApplyToWfg;   // 驗收腳本要走與按鈕相同的套用路徑
+window.wfgCodeResetChannels = wfgCodeResetChannels;
 
 window.wfgImportFile = function() {
   var input = document.createElement('input');
