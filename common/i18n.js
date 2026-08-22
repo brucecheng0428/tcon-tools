@@ -620,6 +620,9 @@ var I18N = {
   'wfg.analogPending':  { 'zh-TW': '類比波形更新中…', 'en': 'Updating analog waveform…',
                           'zh-CN': '模拟波形更新中…' },
   'wfg.grpDclk':        { 'zh-TW': 'D-Clock (MHz)', 'en': 'D-Clock (MHz)', 'zh-CN': 'D-Clock (MHz)' },
+  /* v3.29.0：D-Clock 應用型態。定頻＝TCON DCLK 固定且 ≥ RX DCLK；變頻＝TCON DCLK 恆等於 RX DCLK */
+  'wfg.dclkModeFixed':  { 'zh-TW': '定頻應用', 'en': 'Fixed Clock', 'zh-CN': '定频应用' },
+  'wfg.dclkModeVar':    { 'zh-TW': '變頻應用', 'en': 'Variable Clock', 'zh-CN': '变频应用' },
   'wfg.gpioSources':    { 'zh-TW': '數位信號', 'en': 'Digital Signals', 'zh-CN': '数字信号' },
   'wfg.analogSources':  { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog Signals', 'zh-CN': 'IC 模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '輸出通道', 'en': 'Output Channels', 'zh-CN': '输出通道' },

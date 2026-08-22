@@ -864,6 +864,10 @@
   .wfg-field-row .wfg-field { flex: 1; }
   .wfg-radio-group { display: flex; gap: 6px; }
   .wfg-radio-group label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #cbd5e1; cursor: pointer; }
+  /* v3.29.0：變頻應用時 TCON DCLK 是衍生值，不可輸入。用與 .wfg-field-readout 同一組
+     顏色，讓「這格現在是唯讀」在視覺上與其他唯讀顯示值一致。 */
+  input[readonly].wfg-input-derived { background: #0b1220; color: #94a3b8; cursor: not-allowed; }
+  .wfg-dclk-hint { display: block; font-size: 10px; color: #64748b; line-height: 1.2; }
   .wfg-btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
   .wfg-btn-primary { background: #f97316; color: white; }
   .wfg-btn-primary:active { background: #ea580c; }
@@ -1253,9 +1257,17 @@
             <div class="wfg-field-row">
               <div class="wfg-field-group">
                 <span class="wfg-la-group-label" data-i18n="wfg.grpDclk">D-Clock (MHz)</span>
+                <!-- v3.29.0：應用型態。樣式沿用 Gate Type 那組 .wfg-radio-group，不另造一套 -->
+                <div class="wfg-radio-group" style="margin:2px 0 6px">
+                  <label><input type="radio" name="wfg-dclk-mode" value="fixed" checked onchange="wfgOnDclkModeChange(this.value)"> <span data-i18n="wfg.dclkModeFixed">定頻應用</span></label>
+                  <label><input type="radio" name="wfg-dclk-mode" value="var" onchange="wfgOnDclkModeChange(this.value)"> <span data-i18n="wfg.dclkModeVar">變頻應用</span></label>
+                </div>
                 <div class="wfg-field-row" style="margin:0">
                   <div class="wfg-field">
-                    <label>TCON DCLK <span id="wfg-dclk-calc" style="font-size:10px;color:#64748b"></span></label>
+                    <!-- 🔴 v3.29.0：提示文字固定自成一行。不這樣的話「定頻」的
+                         `(≥74.25)` 會換行、「變頻」的 `(= RX)` 不會，切換型態時整張卡片
+                         高度差 10px，底下的 Gate Type／Frame 重複數會跳一下（實測 583 vs 573）。 -->
+                    <label>TCON DCLK <span id="wfg-dclk-calc" class="wfg-dclk-hint"></span></label>
                     <input type="number" id="wfg-dclk" value="74.25" min="0.1" step="any" onchange="wfgOnDclkManualChange()">
                   </div>
                   <div class="wfg-field">
@@ -1939,8 +1951,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg3282"></script>
-<script src="common/i18n.js?v=20260822wfg3281"></script>
+<script src="common/version.js?v=20260822wfg3290"></script>
+<script src="common/i18n.js?v=20260822wfg3290"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -2715,7 +2727,9 @@ let wfgChannels = [];
 for (let i = 0; i < 24; i++) wfgChannels.push(wfgMakeChannel(i));
 wfgLsRebuildCkoSlots(false); // create default CKO slots, disabled until preset loaded
 
-let wfgFrame = { vtotal: 1125, vactive: 1080, htotal: 2200, htotalBase: 2200, hactive: 1920, dclk: 74.25, rxDclk: 74.25, tconHtotal: 2200, frameRate: 60, gateType: 'single', frameCount: 10, frm_no_0: 0, frm_no_1: 0, frm_no_2: 0, tcon_type: 'MNT' };
+/* v3.29.0：`dclkMode` 預設 'fixed'（定頻應用，＝ v3.28.2 為止的行為）；
+   `dclkFixed` 記住使用者在定頻下手動輸入的 TCON DCLK，切回定頻時還原。 */
+let wfgFrame = { vtotal: 1125, vactive: 1080, htotal: 2200, htotalBase: 2200, hactive: 1920, dclk: 74.25, rxDclk: 74.25, tconHtotal: 2200, frameRate: 60, gateType: 'single', frameCount: 10, frm_no_0: 0, frm_no_1: 0, frm_no_2: 0, tcon_type: 'MNT', dclkMode: 'fixed', dclkFixed: 74.25 };
 // ═══════════ RC 充放電時間常數：0~255 刻度 → 絕對時間（v3.8.0）═══════════
 // 【修正的是什麼】
 // v3.7.0 以前：`TAU = 2.0 * exp(-0.0235 * (255 - c))`，這個數字**直接被當成「幾條 line」**
@@ -24737,11 +24751,17 @@ function wfgLoadPreset(presetName) {
   // Apply frame
   wfgFrame = { vtotal: preset.frame.vtotal, vactive: preset.frame.vactive, htotal: preset.frame.htotal, htotalBase: preset.frame.htotalBase || preset.frame.htotal, hactive: preset.frame.hactive, dclk: preset.frame.dclk, rxDclk: preset.frame.rxDclk || 0, tconHtotal: preset.frame.tconHtotal || preset.frame.htotal, frameRate: preset.frame.frameRate || 60, gateType: preset.frame.gateType, frameCount: preset.frame.frameCount || 10, frm_no_0: preset.frame.frm_no_0 || 0, frm_no_1: preset.frame.frm_no_1 || 0, frm_no_2: preset.frame.frm_no_2 || 0,
     // v2.97.481: TCON 型態（MNT/NB）刻意**不跟內建 preset 綁定** —— 換 preset 時保留使用者目前的選擇
-    tcon_type: (wfgFrame && wfgFrame.tcon_type === 'NB') ? 'NB' : 'MNT' };
+    tcon_type: (wfgFrame && wfgFrame.tcon_type === 'NB') ? 'NB' : 'MNT',
+    /* v3.29.0：內建 preset 的 TCON DCLK 與 RX DCLK 本來就不相等（例如 89 vs 69.3888），
+       那組數字的意義就是「定頻」。所以載入 preset 一律回到定頻，並把 preset 的
+       TCON DCLK 記成手動值。與 tcon_type 的處理不同是刻意的：型態是使用者偏好，
+       而 D-Clock 型態是這組 timing 資料的一部分。 */
+    dclkMode: 'fixed', dclkFixed: preset.frame.dclk };
   // Compute derived values
   wfgUpdateRxDclk();
   wfgClampTconDclk();
   wfgUpdateTconHtotal();
+  wfgSyncDclkUi();
   /* v3.28.0：四個輸入格與兩個顯示值統一由這裡回填（blanking 由 total − active 反推）。
      preset 載入與設定檔匯入兩條路徑共用，不各寫一份。 */
   wfgSyncBlankInputs();
@@ -24958,15 +24978,81 @@ function wfgUpdateTconHtotal() {
   var el = document.getElementById('wfg-tcon-htotal');
   if (el) el.textContent = wfgFrame.tconHtotal;
 }
+/* ══ v3.29.0：D-Clock 應用型態（定頻 / 變頻）═════════════════════════════════
+   Bruce 2026-08-22：「定頻應用：TCON D-Clock 是一個固定的定值，而且它一定會大於等於
+   RX D-Clock。變頻應用：TCON D-Clock 會永遠等於 RX D-Clock。」
+
+   🔴 **定頻 ＝ v3.28.2 為止的行為，一個字都沒改**（含「RX 超過時自動把 TCON 抬到
+   等於 RX」這個既有的夾法）。新增的只有變頻那一支。
+
+   為什麼把兩種型態都塞進 `wfgClampTconDclk()` 而不是另開一支：這支是**現成的唯一
+   收斂點** —— 每一個會改動 RX DCLK 的入口（Frame Rate 輸入、Frame Rate 拉桿、
+   `wfgOnParamChange`、preset 載入、設定檔匯入）本來就都呼叫它。另開一支就等於要求
+   未來每個新入口記得多呼叫一次，那種靠記性的規則遲早會漏。
+
+   衍生結果：變頻時 `dclk === rxDclk`，因此
+       TCON HTOTAL = round(htotalBase × dclk / rxDclk) = round(htotalBase × 1) = htotalBase
+   也就是 **TCON HTOTAL 恆等於 HTOTAL**。這是公式的必然，不是另外寫的特例。 */
+function wfgDclkModeIsVar() { return wfgFrame.dclkMode === 'var'; }
 function wfgClampTconDclk() {
-  if (wfgFrame.dclk < wfgFrame.rxDclk) {
+  if (wfgDclkModeIsVar()) {
+    // 變頻：TCON DCLK 永遠等於 RX DCLK（衍生值，使用者不能輸入）
     wfgFrame.dclk = wfgFrame.rxDclk;
-    document.getElementById('wfg-dclk').value = wfgFrame.dclk;
+  } else if (wfgFrame.dclk < wfgFrame.rxDclk) {
+    // 定頻：維持既有行為 —— RX 超過 TCON 時把 TCON 抬到等於 RX
+    wfgFrame.dclk = wfgFrame.rxDclk;
+  } else {
+    wfgSyncDclkUi();
+    return;
   }
+  var _de = document.getElementById('wfg-dclk');
+  if (_de) _de.value = wfgFrame.dclk;
+  wfgSyncDclkUi();
 }
+/* 依目前型態把 TCON DCLK 欄位設成可輸入／唯讀，並同步 radio 與提示文字。
+   單獨抽出來是因為「切換型態」「載入 preset」「匯入設定檔」「開頁初始化」四條路徑
+   都要做同一件事。 */
+function wfgSyncDclkUi() {
+  var isVar = wfgDclkModeIsVar();
+  var inp = document.getElementById('wfg-dclk');
+  if (inp) {
+    inp.readOnly = isVar;
+    inp.classList.toggle('wfg-input-derived', isVar);
+    inp.value = wfgFrame.dclk;
+  }
+  document.querySelectorAll('input[name="wfg-dclk-mode"]').forEach(function(r) {
+    r.checked = (r.value === (isVar ? 'var' : 'fixed'));
+  });
+  wfgUpdateDclkLabel();
+}
+function wfgOnDclkModeChange(v) {
+  var isVar = (v === 'var');
+  if (isVar === wfgDclkModeIsVar()) return;
+  wfgInvalidateCache();
+  if (isVar) {
+    /* 進變頻前先把目前的手動值收起來。不收的話「定頻 → 變頻 → 定頻」會把使用者
+       原本輸入的 TCON DCLK 靜默換成當下的 RX DCLK，而且救不回來。 */
+    wfgFrame.dclkFixed = wfgFrame.dclk;
+    wfgFrame.dclkMode = 'var';
+  } else {
+    wfgFrame.dclkMode = 'fixed';
+    // 回定頻：還原使用者上次手動輸入的值；若它已低於現在的 RX DCLK，交給下面的夾法處理
+    var back = parseFloat(wfgFrame.dclkFixed);
+    if (isFinite(back) && back > 0) wfgFrame.dclk = back;
+  }
+  wfgUpdateRxDclk();
+  wfgClampTconDclk();
+  wfgRecalcHtotal();
+  wfgUpdateTconHtotal();
+  wfgSyncDclkUi();
+  wfgScheduleFrameParamRender();
+  wfgBeginDeferredAnalog();   // 順序見 wfgOnParamChange 內的說明
+}
+window.wfgOnDclkModeChange = wfgOnDclkModeChange;
 function wfgUpdateDclkLabel() {
   var el = document.getElementById('wfg-dclk-calc');
-  if (el) el.textContent = '(≥' + wfgCalcRxDclk().toFixed(2) + ')';
+  if (!el) return;
+  el.textContent = wfgDclkModeIsVar() ? '(= RX)' : ('(≥' + wfgCalcRxDclk().toFixed(2) + ')');
 }
 function wfgOnFrameRateChange() {
   wfgInvalidateCache();
@@ -25034,6 +25120,9 @@ function wfgOnFrameRateSlider(v) {
 }
 window.wfgOnFrameRateSlider = wfgOnFrameRateSlider;
 function wfgOnDclkManualChange() {
+  // v3.29.0：變頻應用時這格是唯讀衍生值，任何輸入都不採用（readOnly 已擋住鍵盤，
+  // 這裡再擋一次是為了程式化賦值／自動填表這類繞過 readOnly 的路徑）
+  if (wfgDclkModeIsVar()) { wfgSyncDclkUi(); return; }
   wfgInvalidateCache();
   var newDclk = parseFloat(document.getElementById('wfg-dclk').value) || 1;
   // Clamp: TCON DCLK ≥ RX DCLK
@@ -25042,6 +25131,7 @@ function wfgOnDclkManualChange() {
     document.getElementById('wfg-dclk').value = newDclk;
   }
   wfgFrame.dclk = newDclk;
+  wfgFrame.dclkFixed = newDclk;   // v3.29.0：記住使用者手動輸入的值，切回定頻時還原
   // Recalculate Htotal: line time = 1/(FrameRate*Vtotal), Htotal = DCLK*1e6 * lineTime * 2
   wfgRecalcHtotal();
   wfgUpdateTconHtotal();
@@ -30673,8 +30763,9 @@ function wfgInit() {
   wfgUpdateCursorPanel();
   wfgSyncBlankInputs();   // v3.28.0：開頁時先把 blanking 與 total 顯示值對齊 wfgFrame
   wfgUpdateRxDclk();
+  wfgClampTconDclk();     // v3.29.0：開頁時也要套用 D-Clock 應用型態（變頻要立刻等於 RX）
   wfgUpdateTconHtotal();
-  wfgUpdateDclkLabel();
+  wfgSyncDclkUi();        // v3.29.0：radio 勾選狀態／唯讀狀態／提示文字（內含 wfgUpdateDclkLabel）
   wfgUpdateTconInternalVisibility();
 
   var requestedMode = wfgRequestedModeFromUrl();
@@ -33473,10 +33564,25 @@ window.wfgImportConfig = function(jsonStr, options) {
     wfgFrame.tcon_type = 'MNT';
   }
   wfgSyncTconTypeRadio();
+  /* v3.29.0：D-Clock 應用型態。舊設定檔沒有這個欄位 → 預設「定頻應用」，
+     與 Bruce 指定的預設一致，也與這些檔案被存下來時的實際行為一致。
+     `dclkFixed` 沒有就退回 `dclk` 本身。 */
+  /* 🔴 這裡用 `config.frame` 不是 `f` —— `f` 只在上面那個 `if (config.frame)` 區塊內有定義，
+     在這一行是 undefined，寫成 `f.dclkMode` 會直接丟 ReferenceError 讓整個匯入失敗。 */
+  var _cf = config.frame || {};
+  wfgFrame.dclkMode = (_cf.dclkMode === 'var') ? 'var' : 'fixed';
   // Compute derived values: RX DCLK, TCON Htotal
   wfgUpdateRxDclk();
   wfgClampTconDclk();
+  /* 🔴 `dclkFixed` 的退路要取**夾過之後實際生效的值**，不是檔案裡的原始 `dclk`。
+     理由是與手動輸入那條路徑一致：`wfgOnDclkManualChange()` 存的也是夾過之後的值
+     （使用者打 50、RX 是 74.25 時，欄位顯示 74.25，記下來的就是 74.25）。
+     若這裡改存檔案裡的原始值，同一個「記住的定頻值」會依來源不同而有兩種語意，
+     切回定頻時還原出來的數字就會對不上畫面。所以這一行必須排在 clamp 之後。 */
+  var _dfx = parseFloat(_cf.dclkFixed);
+  wfgFrame.dclkFixed = (isFinite(_dfx) && _dfx > 0) ? _dfx : wfgFrame.dclk;
   wfgUpdateTconHtotal();
+  wfgSyncDclkUi();
   /* v3.28.0：四個輸入格與兩個顯示值統一由這裡回填（blanking 由 total − active 反推）。
      preset 載入與設定檔匯入兩條路徑共用，不各寫一份。 */
   wfgSyncBlankInputs();
