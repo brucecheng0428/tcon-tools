@@ -173,19 +173,31 @@
                  display: flex; align-items: center; justify-content: center; }
   .wfg-ack-item.done .wfg-ack-num { background: #22c55e; }
   /* v4.5.3：兩項各有固定色（1 綠、2 藍），與畫面上那兩個框同色 —— 顏色就是
-     「卡片第幾項 ↔ 畫面哪一格」的對應線索，所以是常駐的，不隨 done 狀態變。 */
-  .wfg-ack-item.tone-green { border-color: rgba(34,197,94,0.75); }
-  .wfg-ack-item.tone-green .wfg-ack-num { background: #22c55e; }
-  .wfg-ack-item.tone-blue { border-color: rgba(59,130,246,0.75); }
-  .wfg-ack-item.tone-blue .wfg-ack-num { background: #3b82f6; }
-  .wfg-ack-item.tone-blue.done { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.75); }
+     「卡片第幾項 ↔ 畫面哪一格」的對應線索，所以是常駐的，不隨 done 狀態變。
+     ═══ v4.5.4：🔴 顏色收斂成**每一項自己的一組變數**（Bruce 實測回報 ═════════
+     「1 的綠框裡面你要用藍框去標出數值…2 外面是藍框，為什麼裡面要用綠框呢？」）
+     根因不是「顏色填錯」，是**項目內的元素各自寫死顏色、與所屬項目無關**：
+       ・`.wfg-ack-now`（目前值徽章）寫死藍 ⇒ 在 1（綠項）裡是藍的
+       ・`.wfg-ack-input.ok`（數值框）寫死綠 ⇒ 在 2（藍項）裡是綠的
+     兩個寫死值剛好一藍一綠，所以看起來像「兩項對調」。
+     ⇒ 改成 tone 只在項目層宣告一次（--ack-tone / --ack-tone-text / --ack-tone-rgb），
+     項目內的徽章、數值框、外框、編號全部引用它。**日後要加第三項也不會再錯位。** */
+  .wfg-ack-item.tone-green { --ack-tone: #22c55e; --ack-tone-text: #86efac; --ack-tone-rgb: 34,197,94; }
+  .wfg-ack-item.tone-blue  { --ack-tone: #3b82f6; --ack-tone-text: #93c5fd; --ack-tone-rgb: 59,130,246; }
+  .wfg-ack-item.tone-green, .wfg-ack-item.tone-blue { border-color: rgba(var(--ack-tone-rgb), 0.75); }
+  .wfg-ack-item.tone-green .wfg-ack-num, .wfg-ack-item.tone-blue .wfg-ack-num { background: var(--ack-tone); }
+  .wfg-ack-item.tone-green.done, .wfg-ack-item.tone-blue.done {
+    background: rgba(var(--ack-tone-rgb), 0.10); border-color: rgba(var(--ack-tone-rgb), 0.75); }
   .wfg-ack-tx { min-width: 0; flex: 1 1 auto; }
   .wfg-ack-name { font-size: 13.5px; font-weight: 700; color: #e2e8f0; }
   .wfg-ack-where { margin-top: 3px; font-size: 11.5px; color: #94a3b8; line-height: 1.5; }
+  /* v4.5.4：色值一律取自所屬項目的 tone 變數；沒有 tone 的情境（理論上不存在）
+     才落到原本的藍色預設值，不再有第二個寫死的顏色來源。 */
   .wfg-ack-now { display: inline-block; margin-top: 6px; padding: 2px 7px; border-radius: 5px;
                  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
-                 font-weight: 700; color: #93c5fd; background: rgba(59,130,246,0.12);
-                 border: 1px solid rgba(59,130,246,0.30); }
+                 font-weight: 700; color: var(--ack-tone-text, #93c5fd);
+                 background: rgba(var(--ack-tone-rgb, 59,130,246), 0.12);
+                 border: 1px solid rgba(var(--ack-tone-rgb, 59,130,246), 0.30); }
   .wfg-ack-row { display: flex; align-items: center; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
   /* v4.5.3：「帶我去」按鈕已移除（兩個框改為一開就同時出現），連帶拿掉 .wfg-ack-go 的樣式。 */
   .wfg-ack-row > .wfg-ack-now { flex: 0 0 auto; }
@@ -196,11 +208,23 @@
   .wfg-ack-input { flex: 0 0 108px; width: 108px; max-width: 108px; box-sizing: border-box;
                    padding: 4px 8px; border-radius: 6px; font-size: 13px; font-weight: 700;
                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right;
-                   color: #e2e8f0; background: #0f172a; border: 1px solid #f59e0b; }
-  .wfg-ack-input:focus { outline: none; border-color: #fbbf24; box-shadow: 0 0 0 3px rgba(245,158,11,0.22); }
-  .wfg-ack-input.ok { border-color: #22c55e; }
-  .wfg-ack-input.bad { border-color: #ef4444; }
-  .wfg-ack-input:disabled { border-color: #334155; color: #64748b; }
+                   color: #e2e8f0; background: #0f172a;
+                   border: 1px solid var(--ack-tone, #f59e0b); }
+  /* ═══ v4.5.4：邊框色一律多包一層 `.wfg-ack-item` ══════════════════════════
+     🔴 站上另有一條全域規則 `input[type="number"]:focus { border-color: var(--accent) }`
+     （`--accent` ＝ 天藍 #38bdf8），它的特異度是 **(0,2,1)**，比
+     `.wfg-ack-input:focus` 的 **(0,2,0)** 高 —— 所以 v4.5.3 的數值框**一被點進去就變天藍**，
+     這正是 Bruce 說的「綠框裡面用藍框」的另一半（CDP `CSS.getMatchedStylesForNode`
+     ＋ `forcePseudoState:focus` 實測抓到的，只看沒有焦點的截圖看不出來）。
+     多一層 `.wfg-ack-item` 把特異度提到 (0,3,0) 才蓋得過去。
+     `input[type="number"]` 那條（0,1,1）也高於 `.wfg-ack-input`（0,1,0），一併在這裡蓋掉。 */
+  .wfg-ack-item .wfg-ack-input { border-color: var(--ack-tone, #f59e0b); }
+  .wfg-ack-item .wfg-ack-input:focus { outline: none; border-color: var(--ack-tone, #fbbf24);
+                         box-shadow: 0 0 0 3px rgba(var(--ack-tone-rgb, 245,158,11), 0.28); }
+  .wfg-ack-item .wfg-ack-input.ok { border-color: var(--ack-tone, #22c55e); }
+  /* 🔴 只有「錯誤」是唯一不跟 tone 走的顏色 —— 紅色是警訊，不是分類色。 */
+  .wfg-ack-item .wfg-ack-input.bad { border-color: #ef4444; }
+  .wfg-ack-item .wfg-ack-input:disabled { border-color: #334155; color: #64748b; }
   .wfg-ack-unit { font-size: 11.5px; color: #94a3b8; }
   .wfg-ack-err { margin-top: 6px; font-size: 11px; font-weight: 700; color: #fca5a5; }
   .wfg-ack-err.hidden { display: none; }
@@ -2135,8 +2159,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260822wfg453"></script>
-<script src="common/i18n.js?v=20260822wfg453"></script>
+<script src="common/version.js?v=20260822wfg454"></script>
+<script src="common/i18n.js?v=20260822wfg454"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -34371,6 +34395,36 @@ function wfgAckIsOpen() {
   var m = document.getElementById('wfg-ack-mask');
   return !!(m && !m.classList.contains('hidden'));
 }
+/* ══ v4.5.4：「目前值」要即時連動 ══════════════════════════════════════════
+   Bruce 實測：「如果改了像是 T-CON DCLK 的內容，目前值並不會跟著更新…目前值都要跟著一起更新。」
+   🔴 根因：`wfg-ack-dclk-now` / `wfg-ack-lb-now` 兩個徽章**只在 `wfgAckShow()` 裡寫過一次**
+   （＝開啟當下的快照），全檔沒有第二個地方會再寫它們。v4.5.1 補的雙向綁定
+   （`wfgAckPullFromLive`）只更新**輸入欄**，徽章不在它的更新清單裡 ——
+   所以在頁面上改 DCLK，輸入欄跟著動、徽章卻永遠停在匯入當下的值。
+   ⇒ 抽成 `wfgAckRenderNow()`，凡是值可能變動的路徑都呼叫它。 */
+var _wfgAckNowKeyLast = '';
+function _wfgAckNowKey() { return String(wfgFrame.dclk) + '|' + String(wfgLineBuffer); }
+function wfgAckRenderNow() {
+  var d = document.getElementById('wfg-ack-dclk-now');
+  if (d) d.textContent = t('wfg.ackNow').replace('{v}', String(wfgFrame.dclk) + ' MHz');
+  var l = document.getElementById('wfg-ack-lb-now');
+  if (l) l.textContent = t('wfg.ackNow').replace('{v}', String(wfgLineBuffer));
+  _wfgAckNowKeyLast = _wfgAckNowKey();
+}
+window.wfgAckRenderNow = wfgAckRenderNow;
+/* 🔴 事件掛完還要加一道守衛輪詢：「我有沒有把所有會改到這兩個值的路徑都掛到」是**列舉題**，
+   而列舉必漏（變頻應用切換、preset 套用、自動還原…都會動到）。
+   開著的時候每 250ms 比對兩個純量，只有真的變了才寫 DOM —— 代價可忽略，
+   但「有路徑沒掛到」這個失敗模式從此不存在。關閉時停掉。 */
+var _wfgAckNowTimer = 0;
+function wfgAckStopNowWatch() { if (_wfgAckNowTimer) { clearInterval(_wfgAckNowTimer); _wfgAckNowTimer = 0; } }
+function wfgAckStartNowWatch() {
+  wfgAckStopNowWatch();
+  _wfgAckNowTimer = setInterval(function() {
+    if (!wfgAckIsOpen()) { wfgAckStopNowWatch(); return; }
+    if (_wfgAckNowKey() !== _wfgAckNowKeyLast) wfgAckPullFromLive();
+  }, 250);
+}
 /* 實際欄位 → 卡片。由 wfgOnDclkManualChange / wfgOnLineBufferChange 尾端呼叫。 */
 function wfgAckPullFromLive() {
   if (_wfgAckPushing || !wfgAckIsOpen()) return;
@@ -34378,6 +34432,7 @@ function wfgAckPullFromLive() {
   if (di && document.activeElement !== di) di.value = wfgFrame.dclk;
   var li = document.getElementById('wfg-ack-lb-in');
   if (li && document.activeElement !== li) li.value = wfgLineBuffer;
+  wfgAckRenderNow();                 // v4.5.4：徽章與輸入欄一起更新，不再只更新輸入欄
   wfgAckSync();
   if (_wfgSpotOn) wfgSpotLayout();
 }
@@ -34444,6 +34499,9 @@ function wfgAckCommit(which) {
       }
     } finally { _wfgAckPushing = false; }
   }
+  /* v4.5.4：卡片自己寫回時 `_wfgAckPushing` 會擋掉 wfgAckPullFromLive，
+     所以徽章要在這裡自己更新一次（不然「在卡片裡改」也不會反映到目前值）。 */
+  wfgAckRenderNow();
   wfgAckSync();
   if (_wfgSpotOn) wfgSpotLayout();
 }
@@ -34780,6 +34838,7 @@ function wfgAckClose() {
   var okBtn = document.getElementById('wfg-ack-ok');
   if (!okBtn || okBtn.disabled) return;     // 唯一出口：兩項都是合法值
   wfgSpotEnd();                             // 關閉時一併收掉聚光燈，不留殘影
+  wfgAckStopNowWatch();                     // v4.5.4：關掉守衛輪詢，不留背景計時器
   var m = document.getElementById('wfg-ack-mask');
   if (m) m.classList.add('hidden');
 }
@@ -34788,10 +34847,7 @@ function wfgAckShow(fileName, detail) {
   if (!m) { alert(detail || ''); return; }             // 大聲失敗，不要靜默跳過提醒
   var sub = document.getElementById('wfg-ack-sub');
   if (sub) sub.textContent = (fileName ? fileName + '\n' : '') + (detail || '');
-  var d = document.getElementById('wfg-ack-dclk-now');
-  if (d) d.textContent = t('wfg.ackNow').replace('{v}', String(wfgFrame.dclk) + ' MHz');
-  var l = document.getElementById('wfg-ack-lb-now');
-  if (l) l.textContent = t('wfg.ackNow').replace('{v}', String(wfgLineBuffer));
+  wfgAckRenderNow();
   /* 預填目前值。v4.6.0 起「合法即通過」，本來就對的值不必動它。 */
   var di = document.getElementById('wfg-ack-dclk-in');
   if (di) { di.value = wfgFrame.dclk; di.disabled = wfgAckDclkReadOnly(); }
@@ -34801,6 +34857,7 @@ function wfgAckShow(fileName, detail) {
   m.classList.remove('hidden');
   /* v4.5.3：兩個框跟著對話框一起出現（要先 remove('hidden') 才量得到卡片尺寸）。 */
   wfgSpotStart();
+  wfgAckStartNowWatch();             // v4.5.4：目前值的守衛輪詢（列舉必漏，見上方註解）
   setTimeout(function() { if (di && !di.disabled) di.focus({ preventScroll: true }); }, 60);
 }
 window.wfgAckCommit = wfgAckCommit;
