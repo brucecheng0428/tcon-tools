@@ -454,6 +454,9 @@ var I18N = {
   'wfg.laGrpSample':    { 'zh-TW': '取樣', 'en': 'Sample', 'zh-CN': '采样' },
   'wfg.laGrpRun':       { 'zh-TW': '執行', 'en': 'Run', 'zh-CN': '执行' },
   'wfg.laGrpFile':      { 'zh-TW': '檔案', 'en': 'File', 'zh-CN': '文件' },
+  /* 🔴 WFG 分頁專用。**不能直接改 wfg.laGrpFile** —— 那個 key 是 WFG 與 LA 共用的，
+     改下去 LA 分頁的「檔案」group 會一起被改掉（Bruce 2026-08-22 指定 LA 維持原名）。 */
+  'wfg.grpWaveform':    { 'zh-TW': '波形', 'en': 'Waveform', 'zh-CN': '波形' },
   'wfg.laGrpView':      { 'zh-TW': '檢視', 'en': 'View', 'zh-CN': '查看' },
   'wfg.laGrpPwm':       { 'zh-TW': 'PWM', 'en': 'PWM', 'zh-CN': 'PWM' },
   'wfg.laGrpCursor':    { 'zh-TW': '游標', 'en': 'Cursor', 'zh-CN': '光标' },
