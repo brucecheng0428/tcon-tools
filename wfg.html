@@ -132,6 +132,11 @@
                   color: #fca5a5; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.30);
                   border-radius: 5px; padding: 2px 6px; align-self: center; }
   .wfg-code-cks.hidden { display: none; }
+  /* v4.2.0：轉態週期超過畫面 frame 數時的「近似顯示」提示。Bruce 明令不得無聲。 */
+  .wfg-frmno-approx { margin-top: 6px; padding: 6px 8px; font-size: 11px; line-height: 1.45;
+                      color: #fcd34d; background: rgba(245,158,11,0.10);
+                      border: 1px solid rgba(245,158,11,0.30); border-radius: 5px; }
+  .wfg-frmno-approx.hidden { display: none; }
   .wfg-import-filename-icon { flex: 0 0 auto; font-size: 12px; opacity: 0.9; }
   .wfg-import-filename-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 手機版：改放在標題下方獨立一列、置中、不擠壓 tab/語言列 */
@@ -1317,6 +1322,7 @@
               <div class="wfg-field"><label style="color:#e2e8f0">FRM_NO_1 (0~4095)</label><div class="wfg-slider-row" id="wfg-frmno1-row"></div></div>
               <div class="wfg-field"><label style="color:#e2e8f0">FRM_NO_2 (0~4095)</label><div class="wfg-slider-row" id="wfg-frmno2-row"></div></div>
             </div>
+            <div id="wfg-frmno-approx" class="wfg-frmno-approx hidden"></div>
           </div>
         </div>
 
@@ -1971,8 +1977,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg412"></script>
-<script src="common/i18n.js?v=20260822wfg412"></script>
+<script src="common/version.js?v=20260822wfg420"></script>
+<script src="common/i18n.js?v=20260822wfg420"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -17825,6 +17831,56 @@ window.wfgDebugGpioLevels = function(gpioIdx, firstLine, lastLine) {
 // SP_LINE: last allowed trigger line. Transitions only fire when line <= SP_LINE.
 //          Exception: if a rising edge already fired (pulse is open), the corresponding
 //          falling edge still completes even if line > SP_LINE, to avoid incomplete pulses.
+/* ══ v4.2.0：轉態週期超過畫面 frame 數時，把那一次轉態擺在正中心的 frame ═══════
+   Bruce 2026-08-22 裁示：
+   「像 LC 這種可能超過很多個 frame 才轉態的（也不一定是 LC，因為每個訊號都可以
+     這樣設定），可以把它設在整個波形區域最中心的 frame 來當作轉態位置。」
+
+   **為什麼需要**：FRM_NO = 199（＝每 200 個 frame 翻一次）而畫面只畫 10 個 frame 時，
+   真實波形在畫面上就是一條平的直線 —— 使用者完全看不到轉態，也就沒辦法調那條訊號的
+   timing。實測（該 EM02 code、frm_no_1 = 199、frameCount = 10）：LC 的 10 個邊緣
+   **全部是 level = 1**，一次都沒翻。
+
+   **做法**：只在「週期 > 畫面 frame 數」時，把**顯示用**的週期改成 ⌊frameCount / 2⌋，
+   於是閉式 `floor(frame / thr) & 1` 的第一次翻轉正好落在中間那個 frame。
+   週期 ≤ frame 數時**原封不動**，照真實週期畫。
+
+   🔴 **這是刻意的顯示近似，不是真實波形。**
+     ・畫面上會在 FRM_NO 卡片明確標示是哪幾條被近似（wfgUpdateFrmNoApproxHint）。
+     ・**匯出永遠寫真實的 FRM_NO**（wfgEm02FrmNoLines 直接讀 wfgFrame.frm_no_*，
+       完全不經過這支函式），近似值不可能被反寫回 code。
+   🔴 **對所有訊號一視同仁**，判斷只看「週期與 frame 數的大小關係」，
+     不看訊號名稱 —— 程式裡不存在、也不准有任何按名稱的特判。 */
+function wfgToggleDisplayThreshold(frmNoVal, frameCount) {
+  var real = (frmNoVal | 0) + 1;
+  var fc = frameCount | 0;
+  if (!(fc > 1) || real <= fc) return real;      // 畫得出來就照實際的畫
+  var half = Math.floor(fc / 2);
+  return half > 0 ? half : real;                 // fc<2 時沒有「中心」可言，退回真實值
+}
+function wfgToggleIsApprox(gpio, frameCount) {
+  if (!gpio || !gpio.enable || !gpio.toggle) return false;
+  var v = gpio.tg_ini_val === 0 ? wfgFrame.frm_no_0 : (gpio.tg_ini_val === 1 ? wfgFrame.frm_no_1 : wfgFrame.frm_no_2);
+  return wfgToggleDisplayThreshold(v, frameCount) !== ((v | 0) + 1);
+}
+/* 近似提示：列出目前被近似的訊號與它們真正的週期。空的就整條隱藏。 */
+function wfgUpdateFrmNoApproxHint() {
+  var el = document.getElementById('wfg-frmno-approx');
+  if (!el) return;
+  var fc = wfgFrame.frameCount || 1, names = [];
+  for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT && i < wfgGpios.length; i++) {
+    var g = wfgGpios[i];
+    if (!wfgToggleIsApprox(g, fc)) continue;
+    var v = g.tg_ini_val === 0 ? wfgFrame.frm_no_0 : (g.tg_ini_val === 1 ? wfgFrame.frm_no_1 : wfgFrame.frm_no_2);
+    names.push((g.name || '').toUpperCase() + '(' + ((v | 0) + 1) + ' frame)');
+  }
+  if (!names.length) { el.textContent = ''; el.classList.add('hidden'); return; }
+  el.textContent = t('wfg.frmnoApprox').replace('{s}', names.join('、')).replace('{n}', String(fc));
+  el.classList.remove('hidden');
+}
+window.wfgToggleDisplayThreshold = wfgToggleDisplayThreshold;
+window.wfgUpdateFrmNoApproxHint = wfgUpdateFrmNoApproxHint;
+
 function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   if (!gpio.enable) return [];
 
@@ -17861,7 +17917,7 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   var toggleInitLevel = toggleBase;
   if (gpio.toggle) {
     var frmNoVal = gpio.tg_ini_val === 0 ? wfgFrame.frm_no_0 : (gpio.tg_ini_val === 1 ? wfgFrame.frm_no_1 : wfgFrame.frm_no_2);
-    toggleFrmThreshold = frmNoVal + 1;
+    toggleFrmThreshold = wfgToggleDisplayThreshold(frmNoVal, frameCount);
     // frame 0 進入 ST_LINE 之前的準位：INI_VAL 指定什麼就是什麼；Keep 沒有前值 → 取 base
     toggleInitLevel = (gpio.ini_val === 0) ? 0
                     : (gpio.ini_val === 1) ? 1
@@ -25325,6 +25381,10 @@ function wfgOnFrameCountChange() {
   if (wfgFrame.frameCount !== nextFrameCount) {
     wfgFrame.frameCount = nextFrameCount;
     _wfgFrameCountRenderDirty = true;
+    /* 🔴 v4.2.0：近似提示是「週期 vs frame 數」的比較結果，**frame 數改了就要重算**。
+       第一版只掛在 wfgRenderFrmNoCard()（只有改 FRM_NO 才呼叫），
+       結果把 Frame 重複數調到大於週期之後，提示還留在畫面上 —— 我自己的驗收抓到的。 */
+    wfgUpdateFrmNoApproxHint();
   }
   wfgScheduleFrameParamRender();
 }
@@ -25618,6 +25678,7 @@ function wfgRenderFrmNoCard() {
   r1.innerHTML = wfgFrmNoSliderHtml('frm_no_1', 0, 4095, wfgFrame.frm_no_1);
   r2.innerHTML = wfgFrmNoSliderHtml('frm_no_2', 0, 4095, wfgFrame.frm_no_2);
   wfgAttachHoldRepeat(r0); wfgAttachHoldRepeat(r1); wfgAttachHoldRepeat(r2);
+  wfgUpdateFrmNoApproxHint();
 }
 window.wfgFrmNoSliderSync = wfgFrmNoSliderSync;
 window.wfgFrmNoNumSync = wfgFrmNoNumSync;
@@ -34150,14 +34211,36 @@ var WFG_EM02_BASE1 = 0x0440;      // 四個前置 chunk 都存在時，rt8_tcon_
 var WFG_EM02_LEN1  = 0x101;       // rt8_tcon_1 chunk 在檔案裡佔的長度（實測）
 var WFG_EM02_PRE_CHUNKS = [192, 304, 198, 256];   // lvds2gbpll / minitx2gpio / dither / rt8tcon2rt7
 var WFG_EM02_PRE_NAMES  = ['lvds2gbpll', 'minitx2gpio', 'dither', 'rt8tcon2rt7'];
-/* 晶片端 register 位址（由 exe 反組譯確認，見 docs 之外的研究記錄）：
-     xstb 0x05A0、xpol 0x05B0、其餘 0x0600 + (i−2)×16，每條 16 個 register
-     oax  0x0583 + i
-     act_type/r_ph/f_ph 的第 9 位元 0x05C2 + ⌊(i+1)/2⌋ */
+/* 🔴🔴 v4.2.0：**兩個座標系，永遠不可以混用** —— Bruce 2026-08-22 提出的警告，成立。
+
+   ┌ `regAddr`（晶片端 register 位址）
+   │   Excel register bank 與 `write -m/-n` script 用的就是這個。
+   │   EM02：xstb 0x05A0、xpol 0x05B0、其餘 0x0600+(i−2)×16、oax 0x0583+i、
+   │        bit8 0x05C2+⌊(i+1)/2⌋、rd_mode 0x0504、FRM_NO 0x052E/0x0530/0x0532
+   └ `fileOff`（.bin 檔案裡的位元組偏移）
+       解析 .bin 用的就是這個。EM02：xstb **0x04E0**、xpol **0x04F0**、
+       其餘 **0x0541 + (i−2)×16**。
+
+   **同一條 xstb，regAddr 是 0x05A0、fileOff 是 0x04E0 —— 差 0x0C0。**
+   這就是「Excel 給的不是檔案位置」最直接的證據，而且是從 EM02 自己身上取得的。
+
+   換算法則（**不是單一常數，是每個 chunk 各自一個基準**）：
+       fileOff = chunkFileBase + (regAddr − chunkRegBase)
+     EM02：rt8_tcon_1 regBase 0x0500 → fileBase 0x0440（差 −0x0C0）
+           rt8_tcon_2 regBase 0x0600 → fileBase 0x0541（差 −0x0BF）
+     ⇒ 兩個 chunk 的差值就已經不一樣，證明沒有全域固定 offset 這回事。
+
+   下面的函式一律回傳 **regAddr**（只給匯出的 script 用）；
+   解析 .bin 的那一段一律用 `base1 / base2 + rel`（＝ fileOff），兩邊不共用變數。 */
+function wfgEm02RegAddrDoc() { /* 純文件錨點，勿刪 */ }
 function wfgEm02RegBase(i) { return (i < 2) ? (0x05A0 + i * 16) : (0x0600 + (i - 2) * 16); }
 function wfgEm02OaxReg(i)  { return 0x0583 + i; }
 function wfgEm02Bit8Reg(i) { return 0x05C2 + ((i + 1) >> 1); }
 
+/* 🔴 這一支收的是 **fileOff**（base1 ＝ rt8_tcon_1 chunk 在**檔案**裡的起點），
+   裡面所有 `base1 + 0xNN` / `base2 + 0xNN` 的 0xNN 是**chunk 內相對位址**，
+   剛好與 regAddr 的低位元組相同（因為 chunk 是照 register 順序整段搬進檔案），
+   但**它不是 regAddr** —— 不要拿它去組 `write -m` 的位址。 */
 function wfgEm02DecodeAt(buf, base1) {
   var base2 = base1 + WFG_EM02_LEN1;
   var out = [];
@@ -34257,6 +34340,18 @@ function wfgEm02ParseBin(buf, fname) {
      掃 118 個樣本交叉驗證：`rd_mode = dual-gate` 的 71 個檔**全部**行號超過 1×VTOTAL；
      `rd_mode = 1D1G` 的 47 個檔有 44 個行號落在 1×VTOTAL 內（另外 3 個是 code 裡殘留的
      舊值，見下面的 overflow 提示）。所以這是讀 register，不是猜。 */
+  /* ══ v4.2.0：FRM_NO 三個一起匯入 ═══════════════════════════════════════
+     `reg_tg_ini_frm_no_0/1/2` 在 rt8_tcon_1 rel **0x2E / 0x30 / 0x32**，
+     每個 **12 bit**（低位元組 ＋ 高位元組的 [3:0]），與 WFG 卡片的 0~4095 相符。
+     實測該 EM02 code：rel 0x30 = `C7 00` → 199（＝每 200 個 frame 翻一次），
+     與 Bruce 在 EM02 UI 上看到的數字一致。
+     🔴 v4.1.2 之前完全沒讀這三個值，所以 WFG 一律用 0（每個 frame 都翻），
+     這正是「LC 轉態看起來在畫面中間」的真正原因。 */
+  function _frm12(rel) {
+    var a = base1 + rel;
+    return (a + 1 < buf.length) ? (buf[a] | ((buf[a + 1] & 0x0F) << 8)) : 0;
+  }
+  var frmNo = { f0: _frm12(0x2E), f1: _frm12(0x30), f2: _frm12(0x32) };
   var _rdMode = (base1 + 0x04 < buf.length) ? ((buf[base1 + 0x04] >> 6) & 3) : 0;
   /* 0 → 1D1G ＝ WFG 的 SINGLE；1 → HSD dual-gate ＝ WFG 的 DUAL。
      🔴 2（LTPS tri-gate）／3：**WFG 沒有 tri-gate 這個選項**。
@@ -34286,10 +34381,11 @@ function wfgEm02ParseBin(buf, fname) {
   cks = cks >>> 0;
   det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
   det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
+  det += ' / FRM_NO ' + frmNo.f0 + '/' + frmNo.f1 + '/' + frmNo.f2;
   if (!gateType) det += '\n' + t('wfg.codeTriGate').replace('{v}', String(_rdMode));
   if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
   return { ok: true, signals: hit[0].sig, frame: frame, base1: base1, cks: cks,
-           gateType: gateType, applied: 18, detail: det };
+           gateType: gateType, frmNo: frmNo, applied: 18, detail: det };
 }
 
 /* ══ EM02 匯出 .script ═════════════════════════════════════════════════════
@@ -34347,6 +34443,21 @@ function wfgEm02Ascii(sIn) {
   }
   return r;
 }
+/* v4.2.0：FRM_NO 匯出。三個都要寫（Bruce 明示），每個 12 bit ⇒ 兩行：
+     低位元組 mask FF、高位元組只動 [3:0] ⇒ mask 0F。
+   🔴 這裡讀的是 `wfgFrame.frm_no_*` ＝ **使用者實際設定的真值**，
+   與 wfgToggleDisplayThreshold() 的顯示近似完全無關 —— 近似值不可能被寫進 code。 */
+var WFG_EM02_FRMNO_REG = [0x052E, 0x0530, 0x0532];   // base1(0x0500) + rel 0x2E/0x30/0x32
+function wfgEm02FrmNoLines() {
+  var vals = [wfgFrame.frm_no_0 | 0, wfgFrame.frm_no_1 | 0, wfgFrame.frm_no_2 | 0];
+  var out = [];
+  for (var i = 0; i < 3; i++) {
+    var v = vals[i] & 0x0FFF, a = WFG_EM02_FRMNO_REG[i];
+    out.push(wfgEm02Line(a, v & 0xFF, 0xFF, 'FRM_NO_' + i + ' = ' + v + ' (low 8 bits)'));
+    out.push(wfgEm02Line(a + 1, (v >> 8) & 0x0F, 0x0F, 'FRM_NO_' + i + ' (high 4 bits)'));
+  }
+  return out;
+}
 function wfgEm02BuildScript(opt) {
   opt = opt || {};
   var lines = [], cnt = 0;
@@ -34368,6 +34479,9 @@ function wfgEm02BuildScript(opt) {
   if (opt.comments !== false) lines.push('// -- FRAME --');
   lines.push(wfgEm02RdModeLine());
   cnt += 1;
+  var _fn = wfgEm02FrmNoLines();
+  for (var _fi = 0; _fi < _fn.length; _fi++) lines.push(_fn[_fi]);
+  cnt += _fn.length;
   if (opt.comments !== false) lines.push('');
   for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
     var g = wfgGpios[i];
@@ -34462,6 +34576,13 @@ function wfgCodeApplyToWfg(res) {
     }
     wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
     wfgSyncBlankInputs(); wfgSyncDclkUi();
+  }
+  /* v4.2.0：FRM_NO 三個一起帶入（型號無關，只要解析器有給就套）。 */
+  if (res.frmNo) {
+    wfgFrame.frm_no_0 = res.frmNo.f0 | 0;
+    wfgFrame.frm_no_1 = res.frmNo.f1 | 0;
+    wfgFrame.frm_no_2 = res.frmNo.f2 | 0;
+    if (typeof wfgRenderFrmNoCard === 'function') wfgRenderFrmNoCard();
   }
   wfgCodeResetChannels();
   wfgCodeResetMeasurements();
