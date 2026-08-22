@@ -22,6 +22,224 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.7.0 — 2026-08-23 ｜ MINOR ｜ ⚠ 輸出變更
+
+**Bruce 2026-08-23 回報的八項，一次做完：卡頓、硬上下限、版面、機種決定一切。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+・判定表「功能增減：**新增**獨立功能」→ **MINOR**（機種類別規格表、定頻／變頻隨機種連動、
+  TCON UI DCLK 的絕對上下限、Frame Rate 與 Gate/Frame 兩個新 Group 框）。
+・R1（修 bug，輸出會變）→ PATCH ＋ `⚠ 輸出變更`（卡頓、下限的「先套用再回彈」）。
+・R4（起始狀態／預設值改變）→ **MINOR**（Frame 參數卡片的分組結構改變，但沒有任何入口消失或移位）。
+・R2 不適用（不開新波）、R3 不適用（不是分階段交付）。
+
+🔴 **有一項我判不下去，請 Bruce 覆核是否該編 MAJOR**：本版**移除了「數位信號」卡片上
+   MNT／NB 那組手動選項**（Bruce 指示）。判定表「功能增減：**移除**既有功能 → MAJOR」與
+   「操作流程：原本的按鈕**找不到了** → MAJOR」這兩格字面上都命中。
+   我編成 MINOR 的取捨是：**能力沒有消失，只是入口整併** —— 位元寬仍然可切換（MNT ⇄ NB），
+   只是改成由「機種」決定，而機種在兩個地方都選得到（Frame 參數 → DCLK、工具列 Code group）。
+   使用者要做的事還在，只是換一個地方做，且那個地方本來就存在。
+   依 §1 R2 補充第 3 點「不確定就編較低的級別，並在判定依據裡寫明取捨供覆核」，
+   **本版編 MINOR**。若 Bruce 認為這仍屬「移除既有功能」，請裁示，我會用更正 commit 處理。
+
+### ① 調 TX DCLK 卡到當機 —— 根因與修法（Bruce 最優先）
+
+🔴 **根因是量出來的，不是猜的。** 用 Bruce 的實際條件重現
+（快捷設定 FHD 60Hz Single Gate(LS：Dual CPV)、VTOTAL 1112／HTOTAL 2080／FPS 144／
+Frame 重複數 1000／Line Buffer 4 ＝ **1,112,000 行**），把 `wfgOnDclkManualChange()`
+拆成五段各自計時，連按上鍵 20 次的分項總和：
+
+| 分項 | 耗時（20 次） | 佔比 |
+|---|---|---|
+| `wfgRender()` | **2502 ms** | 80% |
+| `wfgRenderMinimap()` ＋ `wfgUpdateMinimapViewport()` | **591 ms** | 19% |
+| `wfgRecalcHtotal()` ＋ `wfgUpdateTconHtotal()` | 0 ms | — |
+| **`wfgUpdateUiDclk()`（v4.6.0 新增的雙向連動）** | **0 ms** | — |
+| `wfgAckPullFromLive()` | 0 ms | — |
+
+⇒ **v4.6.0 新增的即時連動不是原因**（`input` 那一段實測 **1 ms**）。
+真正的原因是這支從 v3.29.0 起就**同步**呼叫 `wfgRender()`／`wfgRenderMinimap()`，
+沒有 debounce、沒有 async 類比預計算 —— 而 `<input type=number>` 的上下鍵／滾輪
+**每按一次就派發一次 `change`**，於是每按一次就是一個 60～600 ms 的不可中斷 longtask。
+
+🔴 **決定性的對照組**（同一頁、同一情境、同樣連按 20 次）：
+
+| 欄位 | 走的路徑 | 總阻塞 | 最大單次 | 中位數 |
+|---|---|---|---|---|
+| TX DCLK（修前） | 同步 render，**無 debounce** | 2206～3890 ms | 257～1449 ms | 94～194 ms |
+| Frame Rate（對照組） | `wfgScheduleFrameParamRender()`，**有 debounce** | **56 ms** | 35 ms | **1 ms** |
+
+相差 40～70 倍。**同一張卡片上隔壁那一格早就有節流，只有 TX DCLK 這一格漏掉。**
+
+⇒ 修法：接回既有收斂點，與 `wfgOnFrameRateChange()` 走一模一樣的兩行
+（`wfgScheduleFrameParamRender()` ＋ `wfgBeginDeferredAnalog()`）。不是新機制。
+
+**修後實測（同一情境、同樣連按 20 次）**：
+
+| | 總阻塞 | 最大單次 | 中位數 |
+|---|---|---|---|
+| v4.6.0 | 2206～3890 ms | 257～1449 ms | 94～194 ms |
+| **v4.7.0** | **10 ms** | **2 ms** | **0 ms** |
+
+改善 **220～390 倍**。且**不是「不重算所以快」**：debounce 結束後
+TCON HTOTAL ＝ 2330 ＝ round(2080×186.5331/166.5331)、內部真值 `dclk` ＝ 186.5331，
+波形確實更新了，只是被合併成一次。
+
+⚠ **「v4.6.0 比 v4.5.5 慢兩倍」是量測雜訊，不是回歸**：同一個版本、同一個載入狀態連跑三組，
+總阻塞就在 2206～3748 ms 之間跳（最大單次 257～1449 ms）。跨版本的單次比較在這個變異下
+沒有鑑別力，所以本版**不宣稱**修掉了任何回歸。
+
+### ② TX DCLK ／ TCON UI DCLK 改成硬上下限
+
+Bruce：「應該是它的下限就不能小於 RX DCLK，連調下去都不行，應該就要卡住才對。」
+
+兩道一起才是完整的下限：
+
+1. **`min`／`max` 屬性**（動態寫入）→ 上下鍵／滾輪／spinner 在界限**停住**，走不下去。
+2. **套用前檢核**（`wfgValidateTxDclk()`）→ 打字超出範圍時**在套用前擋下**，
+   保留原值、就地說明，**一次重算都不會發生**。舊版是「先讓快取失效、算完整張波形、再把值改回 RX」，
+   那一次完全白費的重算正是 Bruce 說的「卡頓一下」。
+
+🔴 **`step` 由 `any` 改成 `1`** —— 這一項是實測逼出來的：`step="any"` 時**上下鍵與滾輪完全不作用**
+（`stepDown()` 直接丟 `InvalidStateError: This form element does not have an allowed value step`，
+真實 ArrowDown ×5 也量到值完全不動）。也就是說 Bruce 要的「上下鍵調到下限就卡住」
+在 `any` 之下**根本無從發生**。改成 1 之後每次 ±1 MHz，且以 `min` 為基準，
+所以 166.5331 這種小數下限本身仍是合法值；打字任意小數不受影響（檢核一直是自己做的）。
+
+### ③④ D-Clock 群組版面（子群組框、間距、下拉尺寸）
+
+- **TX DCLK 與 TCON UI DCLK 各自包進一個子群組框**（Bruce：「用一個子 Group 把它框起來」），
+  沿用外層同一個 `.wfg-field-group`，只把 padding／底色調淡一階。
+- **機種下拉放回正常尺寸**（v4.6.0 為了不讓註記被擠掉而鎖成 62×19px，Bruce 回報「縮得太小、突兀」）。
+  實測現在是 **76×23px**。
+- **兩個子框上下堆疊、不並排**：並排時每欄只剩約 98px，下拉 76px 之後換算註記 `(= TX × 2)`
+  會被裁掉（實測 `scrollWidth > clientWidth`）。堆疊後每框有整行約 233px，
+  下拉正常、註記完整、兩框結構一致。換算註記移到框名那一行。
+- **Pixel Rate ／ RX DCLK 的標題與數值間距收緊**：`.wfg-field-readout` 的 `min-height`
+  34px → 26px（它比數值本身 19px 高出 15px，置中後上下各多 7.5px 空白），label margin 3px → 2px。
+  實測「標題底 → 數值頂」的間距 **11px → 6px**。
+
+### ⑤ 移除「數位信號」卡片的 MNT／NB 選項
+
+型態改為**一律由目前機種查表**（`wfgTconClass()` → `WFG_TCON_CODECS[key].tconClass`）。
+`wfgFrame.tcon_type` 這個獨立狀態、`wfgSetTconType()`、`wfgSyncTconTypeRadio()`
+與那組 radio 全部移除（改完 grep 殘留為 0，只剩註解裡的歷史說明）。
+
+**這同時消滅了一個既有 bug**：舊版只有「匯入 code 成功」那條路徑會同步型態，
+所以「在 Code group 換了機種但還沒匯入」會停在錯的位元寬。移除手動開關之後
+這個不一致的狀態**不存在了**（實測：換 EM01 ⇄ E501，`wfgToggleMaskBits()` 立刻由 0x1FF 變 0x3F）。
+
+**舊檔相容策略（Bruce 要求說明，實測雙向皆通過）**：
+
+| 檔案內容 | 處理 | 實測結果 |
+|---|---|---|
+| 有 `codeTcon`（v4.6.0 以後） | 直接用 | ✅ |
+| 只有 `tcon_type='NB'`（v2.97.481～v4.6.0） | **推回同 class 的代表機種 `e501`** | ✅ class NB、位元寬 0x3F |
+| 只有 `tcon_type='MNT'` | 推回 `em01` | ✅ class MNT、位元寬 0x1FF |
+| 兩者都沒有（v2.97.480 以前） | 預設 `em01`（＝當時的預設行為） | ✅ 0x1FF |
+
+🔴 **為什麼不直接忽略舊欄位**：`tcon_type` 決定位元寬與 toggle counter 遮罩。
+忽略它 ⇒ 一份存成 NB（6bit）的舊檔用新版打開會變成 MNT（9bit），**同一份檔案畫出來的
+toggle 波形會不一樣**。推回同 class 的機種，位元寬與舊檔逐位元相同，波形不變 —— 這才是相容。
+
+**反方向也顧到了**：匯出時仍然**雙寫** `frame.tcon_type`（做法同 v3.28.0 的 blanking 雙寫），
+所以新版存的檔拿去用 v4.6.0 以前的版本打開，位元寬一樣正確。
+實測：EM01 → 寫出 `tcon_type:"MNT"`；切 E501 → 寫出 `"NB"`。
+
+### ⑥ Frame 參數卡片版面整齊化
+
+- `D-Clock (MHz)` → **`DCLK (MHz)`**（Bruce 指定）。
+- **Frame Rate (Hz)** 自成一個 Group 框。
+- **Gate / Frame** 把 Gate Type 與 Frame 重複數框在一起，並靠上對齊
+  （左欄 radio 比右欄輸入框矮，沿用預設的靠下對齊會讓兩個標題差一行，實測改後差 **0px**）。
+- 三個新框的樣式全部沿用既有的 `.wfg-field-group`，不自創第二套。
+
+### ⑦ 定頻／變頻隨機種連動
+
+Bruce：「只要是 NB TCON，都一定是定頻應用；而 EM01、EM02 定頻跟變頻都有可能，就不去更動它。」
+
+- NB 機種 → `dclkMode` 強制 `fixed`，且**變頻 radio 真的 `disabled`**（不是只有預設值不同）。
+- MNT 機種 → 不動使用者當下的選擇。
+
+🔴 **邊界處理（Bruce 要求說明）**：新增 `wfgFrame.dclkModeUser` ＝「**使用者自己選的**型態」，
+與 `dclkMode` ＝「**目前實際生效**的型態」分開。切到 NB 時只改 `dclkMode`，
+`dclkModeUser` 原封不動；切回 MNT 時**還原成 `dclkModeUser`**。
+不這樣做的話「MNT 選變頻 → 切 NB → 切回 MNT」會停在定頻，使用者的選擇被機種切換靜默吃掉。
+TX DCLK 的值完全交給既有的 `wfgOnDclkModeChange` 語意（回定頻還原 `dclkFixed`，
+低於 RX 則由既有的 `wfgClampTconDclk()` 抬到 RX），不另立規則。
+實測：EM02 選變頻 → 切 E501（強制定頻、變頻變灰、TX 還原成 200）→ 切回 EM02（**自動回到變頻**）✅
+
+### ⑧ TCON UI DCLK 依機種類別的絕對上下限
+
+| 類別 | 下限 | 上限 |
+|---|---|---|
+| Monitor（EM01／EM02／E512） | 40 MHz | 500 MHz |
+| Notebook（E501／E503／EN01） | 20 MHz | 105 MHz |
+
+放進**類別規格表** `WFG_TCON_CLASS_SPEC`（不是逐一填進每個型號）——
+位元寬、能否變頻、上下限這三件事都是**類別層級**的，型號表只要維持既有的 `tconClass` 一格，
+新增型號自動繼承三項。
+
+換算：`uiMin = max(規格下限, RX × ratio)`、`uiMax = 規格上限`、`txMin = uiMin ÷ ratio`、`txMax = uiMax ÷ ratio`。
+🔴 兩格由**同一支** `wfgValidateTxDclk()` 檢核（Bruce 明示「不能出現一格擋下、另一格放行」）；
+數學上也等價：`max(a,b)/r === max(a/r, b/r)`（r>0）。
+
+**超界處理（Bruce 要求說明）**：
+
+- **有合法區間、目前值超界** → **夾到最近的界限，並寫明前後數字與原因**。
+  實測（RX 74.25、TX 200 切 E501）：訊息「已換成 E501：TX DCLK 由 200 調整為 105 MHz，
+  因為 E501 的 TCON UI DCLK 規格範圍是 20～105 MHz。」兩格與內部真值三者都是 105 ✅
+  這既不是靜默夾值（有具體訊息與前後數字），也不會留著非法值。
+- **沒有合法區間**（RX 本身就超過機種上限，例：RX 178.2 切 E503 上限 105）→ **不夾、保留原值**，
+  訊息說明真正的原因是「這組 Frame 參數與這顆機種不相容」並指向 Frame Rate／HTOTAL／VTOTAL。
+  硬夾到 105 會讓 TX < RX，違反更基本的約束 —— 夾成另一個非法值不是修正。
+  此時 `min`／`max` 屬性一併移除（不寫出 min > max 這種瀏覽器行為無保證的組合）。✅ 實測通過
+- **變頻模式** → 只提示不夾（`dclk` 是 RX 的衍生值，夾了下一次 `wfgClampTconDclk()` 也會改回去）。
+
+### `⚠ 輸出變更` 的依據
+
+① 位元寬可能隨機種改變（MNT 9bit ⇄ NB 6bit），換到 NB 機種時超出 63 的
+`ACT_TYPE`／`R_PH`／`F_PH` 會被夾 —— 同一組設定的 toggle 波形會不同。
+② Frame 參數卡片新增三個 Group 框、D-Clock 群組改為四格＋兩個堆疊子框，
+卡片版面大幅改變（實測群組高度 210 → 256px）。
+符合 §1 R1「版面／構圖類」與「同一操作序列得到不同結果」兩項判準。
+
+### 驗證（Chrome 實測，本機 http://127.0.0.1:8899，Bruce 的實際 profile）
+
+| # | 項目 | 結果 |
+|---|---|---|
+| ① | 卡頓：連按 20 次上鍵 | 總阻塞 3890 → **10 ms**、最大 598 → **2 ms**、中位 194 → **0 ms** ✅ |
+| ① | 波形有沒有真的更新 | debounce 後 TCON HTOTAL 2330 ＝ round(2080×186.5331/166.5331)、真值 dclk 186.5331 ✅ |
+| ② | 硬下限（原生 stepper） | 200 → 199.5331 → … → **166.5331 停住**，再按不動、無訊息、無回彈 ✅ |
+| ② | 硬上限（原生 stepper） | 498 → 498.5331 → 499.5331 → 停（max 500）✅ |
+| ② | 打字低於下限 | TX 100（< RX 166.5331）→ 擋下、兩格保留原值、TCON HTOTAL 不動、訊息正確 ✅ |
+| ② | 打字高於上限 | TX 600 與 UI 700 → 皆擋下，訊息一致（兩格共用檢核）✅ |
+| ⑤ | MNT/NB radio | 已移除；`wfg-tcon-type`／`wfgSyncTconTypeRadio` 全庫殘留 **0** ✅ |
+| ⑤ | 舊檔相容 | `tcon_type=NB` → e501/0x3F；`=MNT` → em01/0x1FF；兩者皆無 → em01/0x1FF ✅ |
+| ⑤ | 新檔給舊版 | 匯出仍雙寫 `tcon_type`，EM01→"MNT"、E501→"NB" ✅ |
+| ⑦ | 定頻變頻連動 | EM02 變頻 → 切 E501（強制定頻＋radio disabled）→ 切回 EM02（**還原變頻**）✅ |
+| ⑧ | 換機種換算 | EM01→EM02：TX 不變 200、UI 400、TX 上限自動 250、UI 下限 333.0662 ✅ |
+| ⑧ | 超界夾值＋提示 | TX 200 切 E501 → 三處（TX 格／UI 格／真值）都是 105，訊息完整 ✅ |
+| ⑧ | 無合法區間 | RX 178.2 切 E503 → 不夾、min/max 移除、訊息指向 Frame 參數 ✅ |
+| ③④⑥ | 版面 | 下拉 62×19 → **76×23**；標題→數值間距 11 → **6px**；Gate/Frame 兩標題頂端差 **0px**；註記不被裁；無水平溢出 ✅ |
+| — | 兩格對等即時未被破壞 | TX 打 120 → UI 即時 240（未重算）；UI 打 300 → TX 即時 150；定案後真值 150、Pixel Rate 全程 148.5 不變 ✅ |
+| — | 三語 | 新增 7 鍵、移除 1 鍵（`wfg.tconTypeLabel`），三語零缺漏 ✅ |
+
+### 🔴 開發中實測抓到並修掉的問題
+
+1. **i18n 佔位符只替換第一個**：`String.replace('{m}', …)` 只換第一個，而
+   `wfg.errDclkRangeEmpty` 裡 `{m}`／`{hi}` 各出現兩次 ⇒ 畫面上真的印出未替換的 `{m}`。
+   全部改成 `/\{m\}/g` 正則版。（與「用文字當插入錨點前先數出現次數」是同一類錯誤。）
+2. **夾值後只更新了 UI 那一格**：`wfgApplyTconClassConstraints()` 原本只呼叫 `wfgUpdateUiDclk()`，
+   TX 格停在夾值前的舊數字（畫面 TX 200／UI 105，真值 105）。改呼叫 `wfgRevertDclkInputs()`。
+3. **flex `min-width:auto` 把左欄擠窄**：兩個子框並排時，右欄內容較寬（下拉 76px）
+   會把左欄壓到 60px vs 131px。加 `min-width: 0` 後兩欄各半（96/96）——
+   但註記仍被裁，最後改成上下堆疊才根治。
+4. **`step="any"` 讓上下鍵完全失效**（見 ②）。這一項若沒有用真實鍵盤與原生 stepper 交叉驗證，
+   會誤以為「min 屬性沒生效」而去改錯地方。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.6.0 — 2026-08-23 ｜ MINOR ｜ ⚠ 輸出變更
 
 **DCLK 定義重整：把「Pixel Rate ／ RX・TX DCLK ／ TCON UI DCLK」三大類分開，

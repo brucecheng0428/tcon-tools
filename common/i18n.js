@@ -622,7 +622,11 @@ var I18N = {
   /* v3.28.1：類比波形延後補算期間的佔位標示 */
   'wfg.analogPending':  { 'zh-TW': '類比波形更新中…', 'en': 'Updating analog waveform…',
                           'zh-CN': '模拟波形更新中…' },
-  'wfg.grpDclk':        { 'zh-TW': 'D-Clock (MHz)', 'en': 'D-Clock (MHz)', 'zh-CN': 'D-Clock (MHz)' },
+  /* v4.7.0：Bruce 2026-08-23 指定「那個 D-CLOCK 改成 DCLK」 */
+  'wfg.grpDclk':        { 'zh-TW': 'DCLK (MHz)', 'en': 'DCLK (MHz)', 'zh-CN': 'DCLK (MHz)' },
+  /* v4.7.0：Frame 參數卡片新增的兩個 Group 框名 */
+  'wfg.grpFrameRate':   { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
+  'wfg.grpGateFrame':   { 'zh-TW': 'Gate / Frame', 'en': 'Gate / Frame', 'zh-CN': 'Gate / Frame' },
   /* v3.29.0：D-Clock 應用型態。定頻＝TX DCLK 固定且 ≥ RX DCLK；變頻＝TX DCLK 恆等於 RX DCLK */
   'wfg.dclkModeFixed':  { 'zh-TW': '定頻應用', 'en': 'Fixed Clock', 'zh-CN': '定频应用' },
   'wfg.dclkModeVar':    { 'zh-TW': '變頻應用', 'en': 'Variable Clock', 'zh-CN': '变频应用' },
@@ -635,14 +639,35 @@ var I18N = {
   'wfg.rxDclkHint':     { 'zh-TW': '(= Pixel Rate ÷ 2)', 'en': '(= Pixel Rate / 2)',
                           'zh-CN': '(= Pixel Rate ÷ 2)' },
   'wfg.uiDclk':         { 'zh-TW': 'TCON UI DCLK', 'en': 'TCON UI DCLK', 'zh-CN': 'TCON UI DCLK' },
-  'wfg.errUiDclkNum':   { 'zh-TW': 'TCON UI DCLK 請填入大於 0 的數值，已保留原本的值。',
-                          'en': 'TCON UI DCLK must be a number greater than 0; the previous value was kept.',
-                          'zh-CN': 'TCON UI DCLK 请填入大于 0 的数值，已保留原本的值。' },
-  /* 🔴 Bruce 指定「不要靜默夾值」：換算後會讓 TX 低於 RX 時，就地說明並保留原值。
-     {m}=機種 {r}=係數 {u}=這個機種下 UI 的下限 {t}=RX DCLK */
-  'wfg.errUiDclkMin':   { 'zh-TW': '{m} 的 TCON UI DCLK 不可低於 {u} MHz —— 除以係數 {r} 之後的 TX DCLK 會低於 RX DCLK（{t} MHz）。已保留原本的值，沒有自動改成下限。',
-                          'en': 'TCON UI DCLK for {m} cannot be below {u} MHz - divided by {r} the TX DCLK would fall under RX DCLK ({t} MHz). The previous value was kept; nothing was silently clamped.',
-                          'zh-CN': '{m} 的 TCON UI DCLK 不可低于 {u} MHz —— 除以系数 {r} 之后的 TX DCLK 会低于 RX DCLK（{t} MHz）。已保留原本的值，没有自动改成下限。' },
+  /* ══ v4.7.0：TX DCLK ／ TCON UI DCLK 的檢核訊息 ════════════════════════════
+     兩格共用同一支檢核（`wfgValidateTxDclk`），所以訊息也只有這一組。
+     🔴 Bruce 指定「不要靜默夾值」：擋下時一律保留原值，並寫清楚為什麼被擋。 */
+  'wfg.errTxDclkNum':   { 'zh-TW': '請填入大於 0 的數值，已保留原本的值。',
+                          'en': 'Enter a number greater than 0; the previous value was kept.',
+                          'zh-CN': '请填入大于 0 的数值，已保留原本的值。' },
+  /* 下限來自 RX DCLK（TX 永遠 ≥ RX）。{t}=RX DCLK */
+  'wfg.errTxDclkMin':   { 'zh-TW': 'TX DCLK 不可低於 RX DCLK（{t} MHz）。已保留原本的值。',
+                          'en': 'TX DCLK cannot be lower than RX DCLK ({t} MHz). The previous value was kept.',
+                          'zh-CN': 'TX DCLK 不可低于 RX DCLK（{t} MHz）。已保留原本的值。' },
+  /* 下限／上限來自機種規格。{m}=機種 {lo}/{hi}=該機種的 UI DCLK 規格值 {t}=換算成 TX 的界限 */
+  'wfg.errDclkSpecMin': { 'zh-TW': '{m} 的 TCON UI DCLK 規格下限是 {lo} MHz（換算成 TX DCLK ＝ {t} MHz），已保留原本的值。',
+                          'en': 'The TCON UI DCLK spec minimum for {m} is {lo} MHz (TX DCLK {t} MHz). The previous value was kept.',
+                          'zh-CN': '{m} 的 TCON UI DCLK 规格下限是 {lo} MHz（换算成 TX DCLK ＝ {t} MHz），已保留原本的值。' },
+  'wfg.errDclkSpecMax': { 'zh-TW': '{m} 的 TCON UI DCLK 規格上限是 {hi} MHz（換算成 TX DCLK ＝ {t} MHz），已保留原本的值。',
+                          'en': 'The TCON UI DCLK spec maximum for {m} is {hi} MHz (TX DCLK {t} MHz). The previous value was kept.',
+                          'zh-CN': '{m} 的 TCON UI DCLK 规格上限是 {hi} MHz（换算成 TX DCLK ＝ {t} MHz），已保留原本的值。' },
+  /* 下限已經高過上限 —— 這組 Frame 參數與這顆機種不相容，要改的是 Frame 參數不是這一格。 */
+  'wfg.errDclkRangeEmpty': { 'zh-TW': '目前的 Frame 參數與 {m} 不相容：RX DCLK 換算後的 TCON UI DCLK 至少要 {need} MHz，已超過 {m} 的規格上限 {hi} MHz（規格範圍 {lo}～{hi} MHz）。請先調整 Frame Rate／HTOTAL／VTOTAL，或改選其他機種。',
+                          'en': 'The current frame parameters are incompatible with {m}: RX DCLK implies a TCON UI DCLK of at least {need} MHz, above the {hi} MHz spec limit for {m} (spec range {lo}-{hi} MHz). Adjust Frame Rate / HTOTAL / VTOTAL, or pick another model.',
+                          'zh-CN': '目前的 Frame 参数与 {m} 不兼容：RX DCLK 换算后的 TCON UI DCLK 至少要 {need} MHz，已超过 {m} 的规格上限 {hi} MHz（规格范围 {lo}～{hi} MHz）。请先调整 Frame Rate／HTOTAL／VTOTAL，或改选其他机种。' },
+  /* 換機種後目前值超出新機種範圍 → 夾到最近的界限，但**寫明前後數字與原因**（不是靜默夾值）。 */
+  'wfg.dclkAutoAdjust': { 'zh-TW': '已換成 {m}：TX DCLK 由 {from} 調整為 {to} MHz，因為 {m} 的 TCON UI DCLK 規格範圍是 {lo}～{hi} MHz。',
+                          'en': 'Switched to {m}: TX DCLK adjusted from {from} to {to} MHz, because the TCON UI DCLK spec range for {m} is {lo}-{hi} MHz.',
+                          'zh-CN': '已换成 {m}：TX DCLK 由 {from} 调整为 {to} MHz，因为 {m} 的 TCON UI DCLK 规格范围是 {lo}～{hi} MHz。' },
+  /* v4.7.0：NB 機種一定是定頻應用（Bruce 2026-08-23） */
+  'wfg.varClockNbTitle': { 'zh-TW': 'Notebook TCON 一定是定頻應用，不能選變頻',
+                          'en': 'Notebook TCONs are always fixed-clock; variable clock is not available',
+                          'zh-CN': 'Notebook TCON 一定是定频应用，不能选变频' },
   /* v3.30.0：TCON Code 匯入／匯出 */
   'wfg.grpCode':        { 'zh-TW': 'Code', 'en': 'Code', 'zh-CN': 'Code' },
   'wfg.codeTconTitle':  { 'zh-TW': '選擇 TCON 型號（* ＝ 尚未支援）',
@@ -756,7 +781,8 @@ var I18N = {
   'wfg.frmnoTitle':     { 'zh-TW': 'Toggle FRM_NO（全域共用）', 'en': 'Toggle FRM_NO (Global)', 'zh-CN': 'Toggle FRM_NO（全局共用）' },
   'wfg.frmnoDesc':      { 'zh-TW': '所有 GPIO 的 Toggle 模式共用此 FRM_NO 設定', 'en': 'All GPIO Toggle modes share this FRM_NO setting', 'zh-CN': '所有 GPIO 的 Toggle 模式共用此 FRM_NO 设定' },
   'wfg.xpolPresetLabel':{ 'zh-TW': 'XPOL 模式快速設定（自動填入 ACT_TYPE / R_PH / F_PH）', 'en': 'XPOL mode presets (auto-fill ACT_TYPE / R_PH / F_PH)', 'zh-CN': 'XPOL 模式快速设定（自动填入 ACT_TYPE / R_PH / F_PH）' },
-  'wfg.tconTypeLabel':  { 'zh-TW': 'TCON 型態（決定 ACT_TYPE / R_PH / F_PH 位元寬，所有數位信號共用）', 'en': 'TCON type (sets ACT_TYPE / R_PH / F_PH bit width, shared by all digital signals)', 'zh-CN': 'TCON 型态（决定 ACT_TYPE / R_PH / F_PH 位宽，所有数字信号共用）' },
+  /* v4.7.0：`wfg.tconTypeLabel` 已移除 —— 數位信號卡片的 MNT/NB radio 拿掉了，
+     型態改由機種查表（見 wfg.html 的 WFG_TCON_CLASS_SPEC）。 */
   // ─── WFG: Toolbar buttons ───
   'wfg.zoomInTitle':    { 'zh-TW': '放大', 'en': 'Zoom In', 'zh-CN': '放大' },
   'wfg.zoomOutTitle':   { 'zh-TW': '縮小', 'en': 'Zoom Out', 'zh-CN': '缩小' },
