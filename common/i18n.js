@@ -664,6 +664,15 @@ var I18N = {
   'wfg.dclkAutoAdjust': { 'zh-TW': '已換成 {m}：TX DCLK 由 {from} 調整為 {to} MHz，因為 {m} 的 TCON UI DCLK 規格範圍是 {lo}～{hi} MHz。',
                           'en': 'Switched to {m}: TX DCLK adjusted from {from} to {to} MHz, because the TCON UI DCLK spec range for {m} is {lo}-{hi} MHz.',
                           'zh-CN': '已换成 {m}：TX DCLK 由 {from} 调整为 {to} MHz，因为 {m} 的 TCON UI DCLK 规格范围是 {lo}～{hi} MHz。' },
+  /* ══ v4.7.1：上游參數（Frame Rate／HTOTAL／VTOTAL）的硬上限 ═════════════════
+     上限來自機種的 TCON UI DCLK 上限反推：Pixel Rate ≤ 2 × 機種上限 ÷ ratio。
+     {m}=機種 {max}=該參數的上限 {px}=Pixel Rate 上限 {f}=欄位名 */
+  'wfg.errFpsMax':      { 'zh-TW': 'Frame Rate 最高只能到 {max} Hz —— 再高的話 {m} 的 TCON UI DCLK 就會超出規格（Pixel Rate 上限 {px} MHz）。要再往上，請先降低 HTOTAL／VTOTAL 或改選其他機種。',
+                          'en': 'Frame Rate can go up to {max} Hz - any higher and the TCON UI DCLK for {m} would exceed spec (Pixel Rate limit {px} MHz). Lower HTOTAL / VTOTAL first, or pick another model.',
+                          'zh-CN': 'Frame Rate 最高只能到 {max} Hz —— 再高的话 {m} 的 TCON UI DCLK 就会超出规格（Pixel Rate 上限 {px} MHz）。要再往上，请先降低 HTOTAL／VTOTAL 或改选其他机种。' },
+  'wfg.errTotalMax':    { 'zh-TW': '{f} 最高只能到 {max} —— 再高的話 {m} 的 TCON UI DCLK 就會超出規格（Pixel Rate 上限 {px} MHz）。要再往上，請先降低 Frame Rate 或改選其他機種。',
+                          'en': '{f} can go up to {max} - any higher and the TCON UI DCLK for {m} would exceed spec (Pixel Rate limit {px} MHz). Lower the Frame Rate first, or pick another model.',
+                          'zh-CN': '{f} 最高只能到 {max} —— 再高的话 {m} 的 TCON UI DCLK 就会超出规格（Pixel Rate 上限 {px} MHz）。要再往上，请先降低 Frame Rate 或改选其他机种。' },
   /* v4.7.0：NB 機種一定是定頻應用（Bruce 2026-08-23） */
   'wfg.varClockNbTitle': { 'zh-TW': 'Notebook TCON 一定是定頻應用，不能選變頻',
                           'en': 'Notebook TCONs are always fixed-clock; variable clock is not available',

@@ -22,6 +22,125 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.7.1 — 2026-08-23 ｜ PATCH ｜ ⚠ 輸出變更
+
+**修兩個 bug：窄視窗下群組框標題整排消失、以及超限之後退不出來的鎖死。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+・R1（修 bug，輸出會變）→ **PATCH** ＋ `⚠ 輸出變更`。兩項主體都是修 bug：
+  ① 窄視窗破版 ② 進入超限狀態後無法回頭。
+・上游硬上限（Frame Rate／HTOTAL／VTOTAL）**不算新增功能** —— 機種的規格上限 v4.7.0 就存在，
+  這一版只是把它擋在上游、讓限制自洽；使用者不會「多能做一件事」，R3 不適用。
+・判定表「操作流程」→ PATCH（沒有任何入口消失或移位）。R2、R4 不適用。
+⇒ **PATCH**。
+
+### ① 窄視窗下群組框標題整排消失（Bruce 2026-08-23 於約 931px 視窗實測回報）
+
+🔴 **根因（負控制證明，不是推測）**：`@media (max-width: 900px)` 裡有一行
+`.wfg-la-group-label { display: none; }` —— 它是為「手機版 LA 工具列壓縮」寫的，
+但**選擇器沒有限定範圍**，於是 Frame 參數卡片的群組框標題（它們從 v3.27.0 起就借用同一個 class）
+也一起被藏掉：框線還在、標題整排不見。
+
+**負控制**（iframe 固定 480px，直接刪掉／還原本版新加的那條規則）：
+
+| 狀態 | 被隱藏的群組標題數 |
+|---|---|
+| 修後（規則在） | **0** |
+| 刪掉新規則 | **7**（V Total／H Total／Frame Rate／DCLK／TX DCLK／TCON UI DCLK／Gate / Frame） |
+| 還原 | **0** |
+
+⇒ 這是**既有 bug**：V Total／H Total／DCLK 三個標題從 v3.27.0 起在 ≤900px 就會消失，
+v4.7.0 新增四個框只是讓它明顯到被看見。
+
+**修法**：不動 LA 那一行（改它會連 LA 設定面板裡的標籤一起放出來，那是另一套已驗證的排版），
+只把 Frame 卡片的標題挑出來還原 —— `.wfg-field-group` 是 v3.27.0 為 Frame 卡片新增的 class，
+LA 用的是 `.wfg-la-tool-group`，兩者不重疊。
+⚠ 樣式要整組重寫，不能只寫 `display:block`：`.wfg-la-group-label` 的 `position:absolute`
+與字型／顏色定義在 `@media (min-width: 901px)` 裡，≤900px 根本沒套到，只改 display 會把整個框撐開。
+
+### ② 超限之後退不出來（Bruce：「再把它往下降卻降不下來」）
+
+🔴 **根因（實測重現）**：v4.7.0 的 `wfgValidateTxDclk()` 在 `empty`
+（RX 換算後已超過機種上限 ⇒ 沒有任何合法值）時**對所有輸入一律回傳 `ok:false`**。
+於是使用者一旦被推進這個狀態（例如把 Frame Rate 調高，而那條路徑當時完全沒有檢查機種上限，
+連警示都沒有），連**把值改回合法區間**都被擋 —— 整格鎖死。
+
+**修法（結構性，不是放寬個案）**：
+
+1. `empty` 時**不再拒絕所有值**。那個狀態下機種上限已無法滿足，剩下唯一仍成立的是物理約束
+   `TX ≥ RX`；「與機種不相容」改用**警示**（`warn`）表達，不阻止輸入。
+2. 新增 `wfgBlockIfWorse(next, prev, max)` —— **只擋「超界**且**比原值更大」的方向**。
+   往合法方向移動一律放行。所有上游欄位（Frame Rate／HTOTAL／VTOTAL）共用這一支，
+   所以「一定有退路」是**結構保證**，不是靠記得留後門。
+
+### ③ 上限反向約束到上游參數（Bruce 指定）
+
+約束鏈（**已自行驗算**）：
+
+```
+Pixel Rate = HTOTAL × VTOTAL × FrameRate ；RX = Pixel Rate / 2 ；TX ≥ RX ；UI = TX × ratio ≤ 機種上限
+⇒ TX 取最小（＝RX）時最寬鬆 ⇒ Pixel Rate ≤ 2 × 機種上限 / ratio
+```
+
+| 機種 | UI 上限 | ratio | Pixel Rate 上限 | FPS 上限（HT 2200 × VT 1125） |
+|---|---|---|---|---|
+| EM01 | 500 | 1 | **1000 MHz** | 404（raw 404.04） |
+| EM02 | 500 | 2 | **500 MHz** | 202（raw 202.02） |
+| E503 | 105 | 1 | **210 MHz** | 84（raw 84.85） |
+
+與 Bruce 給的數字一致。反推其餘欄位（其他固定）：
+`HTOTAL_max = PxMax/(VTOTAL×FPS)`、`VTOTAL_max = PxMax/(HTOTAL×FPS)`，
+四個 active／blank 欄位各自的上限 ＝ 對應的 total 上限扣掉另一半。
+
+**約束表（誰限制誰）**：
+
+| 被限制的 | 上限來源 | 實作 |
+|---|---|---|
+| TCON UI DCLK | 機種規格 `uiDclkMax`；下限 `max(uiDclkMin, RX×ratio)` | `wfgDclkLimits()` |
+| TX DCLK | 上一列 ÷ ratio（**同一支算出來，不可能不一致**） | 同上 |
+| Frame Rate | `PxMax / (HTOTAL × VTOTAL)` | `wfgFrameBounds().fpsMax` |
+| HTOTAL（HACTIVE＋HBLANK） | `PxMax / (VTOTAL × FrameRate)` | `wfgFrameBounds().htotalMax` |
+| VTOTAL（VACTIVE＋VBLANK） | `PxMax / (HTOTAL × FrameRate)` | `wfgFrameBounds().vtotalMax` |
+| PxMax 本身 | `2 × 機種 UI 上限 / ratio` | `wfgPixelRateMaxMHz()` |
+
+三者由同一個 `wfgSyncAllBounds()` 一起刷新（界限、上游 max、狀態警示），分開刷新遲早有一邊漏掉。
+HTOTAL／VTOTAL 判在 **total** 而不是四個欄位各自判：進 Pixel Rate 的是 total，
+active 與 blank 只是它的兩半，判 total 一次就涵蓋四格且不會互相矛盾。
+
+### 驗證（Chrome 實測）
+
+| # | 項目 | 結果 |
+|---|---|---|
+| ① | 群組標題（iframe 931px／390px） | 兩個寬度下 **7 個標題全部可見、隱藏數 0**、無水平溢出（390px 時 scrollWidth 375）✅ |
+| ① | 負控制 | 刪掉新規則 → 7 個全消失；還原 → 0 ✅ |
+| ② | EM02 打 FPS=300（上限 202） | 擋下、還原成 60、訊息指出「請先降低 HTOTAL／VTOTAL 或改選其他機種」、**Pixel Rate 不變**（無重算）✅ |
+| ② | FPS 頂到 202 | Px 499.95、UI **499.95 < 500**（沒有產生超限值）；再打 203 被擋回 202 ✅ |
+| ② | **202 → 60 往下降** | **成功**，訊息自動清掉 ✅ |
+| ② | EM01/FPS300 → 切 E503（不相容） | 顯示不相容警示；**FPS 300 → 60 成功**；接著**手動把 TX 371.25 → 105 也成功**（v4.7.0 這一步會被鎖死）✅ |
+| ③ | 三機種 FPS 上限 | EM01 **404**／EM02 **202**／E503 **84**，DOM `max` 與 `wfgFrameBounds()` 一致 ✅ |
+| ③ | 四欄硬上限 | E503 下 HACTIVE 2831／HBLANK 1191／VACTIVE 1545／VBLANK 510；打 HACTIVE=5000 → 擋下、四格還原、訊息「HTOTAL 最高只能到 3111」✅ |
+| ③ | 往下調 | VACTIVE 1080 → 600 放行 ✅ |
+| ③ | 上下限自洽 | `txMax === uiMax/ratio` 且 `txMin === uiMin/ratio`，兩式皆 true ✅ |
+
+### `⚠ 輸出變更` 的依據
+
+① ≤900px 時 Frame 卡片多出七行群組標題，卡片高度改變（截圖比對會不同）。
+② Frame Rate／HTOTAL／VTOTAL 現在有上限，同一組舊操作序列（例如 EM02 下打 FPS 300）
+現在會被擋下 —— 符合「同一操作序列得到不同結果」。
+
+### 🔴 開發中實測抓到並修掉的問題
+
+1. **警示被「成功」路徑蓋掉**：`wfgValidateTxDclk()` 在 `empty` 時回的是 `{ok:true, warn:…}`，
+   而呼叫端原本無條件 `wfgShowDclkError('')` ⇒ 畫面看起來一切正常、實際已超出機種規格。
+   三個呼叫端（`wfgApplyTconClassConstraints`／`wfgOnDclkManualChange`／`wfgOnUiDclkCommit`）都補上 `warn` 處理。
+2. **目前值本身超界時沒有持續警示**：不相容狀態下把 Frame Rate 降回來後 `empty` 解除，
+   但定頻的 TX 只會被往上抬、不會自動降，於是停在 371.25（上限 105）卻一句話都沒有。
+   `wfgRefreshRangeWarning()` 改為連「目前值超界」也一併警示。
+3. **成功操作後舊訊息殘留**：FPS 從 202 降到 60 之後，「最高只能到 202」的訊息還掛在畫面上。
+   成功路徑補 `wfgShowDclkError('')`；狀態型警示（`kind='range'`）會由 `wfgSyncAllBounds()` 自己回來，不會漏。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.7.0 — 2026-08-23 ｜ MINOR ｜ ⚠ 輸出變更
 
 **Bruce 2026-08-23 回報的八項，一次做完：卡頓、硬上下限、版面、機種決定一切。**
