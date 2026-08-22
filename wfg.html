@@ -2159,8 +2159,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260822wfg454"></script>
-<script src="common/i18n.js?v=20260822wfg454"></script>
+<script src="common/version.js?v=20260823wfg455"></script>
+<script src="common/i18n.js?v=20260823wfg455"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3351,6 +3351,72 @@ function _wfgCheckDirtyZoomOut() {
   _wfgSdFullRecomputeWithProgress(sdDirty, lsDirty);
 }
 
+/* ═══════════ 區段式類比預計算的視窗（v4.6.0）═══════════
+   在此之前，三支 precompute 只能「從第 0 行算到第 N 行」（前綴式）。內建快捷設定
+   FHD 60Hz Single Gate 的視窗位置在第 431,443 行，於是為了畫看得到的 42 行，實際
+   算了 432,599 行 —— 浪費 99.99%，形成單一 5.1～8.5 秒的 longtask（實測見
+   docs/perf_viewport_lazy_investigation_20260822.md）。
+
+   改成區段式之後，三支 precompute 都吃 `winStart`，只配置並計算 [base, end) 這一段。
+
+   三個欄位的語意（每一個都不同，混用即靜默錯誤）：
+     precomp.base          陣列索引 0 對應的**絕對行號**。索引一律 line − base。
+     precomp.validFrom     這一份資料**可信**的最早絕對行。base ~ validFrom 之間是
+                           warm-up（遞推起始狀態用的暖機區），值不保證正確，繪製一律
+                           不得取用。
+     precomp.computedExtent 已算到的絕對行號（exclusive）。語意與舊版相同，所以既有
+                           「line < computedExtent」的上界判斷全部原封不動仍然正確；
+                           新增的只有下界。
+   有效區間 ＝ [validFrom, computedExtent)。 */
+/* warm-up 行數 —— 🔴 這兩個數字是**實測掃出來的**，不是估的。
+   量法：同一組參數，窗算（帶 warm-up）vs 全算（從第 0 行算起）在窗內抽樣行逐值比對，
+   掃 warm ∈ {0.25, 0.5, 1, 2, 3, 4, 6, 8, 12} frame，取誤差降到 ≤1e-3 V 的最小值。
+   治具與原始數據：_tmp_seg_20260822/{cmp.js,harness*.py,cmp1..4.json}。
+
+   ① SD / LS：**1 行就夠**。這兩種波形每一行都有事件（XSTB falling／CK 邊緣），
+      遞推狀態在第一個事件就與全算同步，實測 warm=1、0.25 frame、0.5 frame 全部
+      **零差異**，連把 curvature_rise/fall 拉到上限 255（τ 最大）也一樣是零。
+      → 取 2 個 frame，是實測需求的兩千倍以上邊際。
+
+   ② Subpixel：**要 12 個 frame**。它的 vspx 是跨 pulse 的**保持量**（TFT 關閉後停在
+      原地，不會每行指數遺忘），所以只能靠一個一個 pulse 慢慢逼近。實測（掃 spx_rc
+      0..255 × feedthrough 開關，共 26 組）：
+        warm 0.5 frame → 誤差 4.9 ~ 9.0 V（＝整條波形是錯的，而且畫得出來）
+        spx_rc ≤ 180   → 1 frame 即收斂
+        spx_rc = 220   → 4 frame
+        spx_rc = 240   → 6 frame
+        spx_rc = 255   → 12 frame（最壞）
+      🔴 一開始以為「把 rc 拉到最大＝最壞情況」，實測不是：τ 太大時 alpha≈0，vspx
+         幾乎不動（一直 0V），兩邊都 0 反而零差異。最壞情況在「充得掉一部分又充不飽」
+         的中高段，所以必須掃整個定義域才問得出這個 12。
+      → 取 16 個 frame（最壞值 +33% 邊際）。
+      SD1 一併用同一個值：Subpixel 的積分要讀 SD1 的電壓，SD1 的視窗不夠早，
+      Subpixel 就暖機不了（成本可忽略，SD 窗算本來就只有 1~2 ms）。 */
+var WFG_WIN_WARM_FRAMES_LS = 2;
+var WFG_WIN_WARM_FRAMES_SD = 16;   // SD1 與 Subpixel 共用
+var WFG_WIN_WARM_LINES = null;     // null = 自動（見上）；數字＝覆寫，供比對治具掃描用
+function _wfgWarmLines(effVtotal, kind) {
+  if (WFG_WIN_WARM_LINES != null && WFG_WIN_WARM_LINES >= 0) return WFG_WIN_WARM_LINES | 0;
+  var frames = (kind === 'ls') ? WFG_WIN_WARM_FRAMES_LS : WFG_WIN_WARM_FRAMES_SD;
+  return Math.max(frames * (effVtotal || 1), 2000);
+}
+function _wfgAnalogWindow(totalLines, effVtotal) {
+  var span = Math.max(1, wfgViewEnd - wfgViewStart);
+  // pad ＝ 捲動遲滯（不要一動就換窗）。拖曳中不放大 pad，與舊版 viewPad 的取捨一致。
+  var pad = _wfgSliderDragging ? Math.max(effVtotal || 1, 100)
+                               : Math.max(effVtotal || 1, Math.ceil(span * 0.5), 100);
+  var start = Math.max(0, Math.floor(wfgViewStart) - pad);
+  var end = Math.min(totalLines, Math.ceil(wfgViewEnd) + pad + 2);
+  if (end <= start) end = Math.min(totalLines, start + 1);
+  return { start: start, end: end, pad: pad };
+}
+/* 這一份 precomp 目前涵蓋得住 [a, b) 嗎？b 為 exclusive。 */
+function _wfgPrecompCovers(p, a, b) {
+  if (!p) return false;
+  var vf = (p.validFrom != null) ? p.validFrom : 0;
+  return (a >= vf) && (b <= (p.computedExtent || 0));
+}
+
 async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
   if (_wfgPrecompBusy) return;
   // Default: recompute both if called without args (legacy)
@@ -3380,8 +3446,9 @@ async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
                   recompSD ? 'SD 類比波形計算中...' : 'CKO 類比波形計算中...';
   wfgShowProgress(0, progLabel);
   await wfgYield();
-  // v2.97.19: always compute full frame range (no viewport-lazy)
-  var sdExtent = totalLines;
+  // v4.6.0: 區段式 —— 只算目前視窗那一段（含 pad 與 warm-up），不再 always full range
+  var _win = _wfgAnalogWindow(totalLines, effVtotal);
+  var sdExtent = _win.end, winStart = _win.start;
   var newPrecomp = {};
   // Preserve existing precomp for channels NOT being recomputed
   for (var pk in _wfgPrecomputed) {
@@ -3395,13 +3462,13 @@ async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
     var gi = analogChs[ci];
     var gpio = wfgGpios[gi];
     if (gpio.waveform_type === 1) {
-      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      newPrecomp[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, winStart);
     } else if (gpio.waveform_type === 2) {
-      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      newPrecomp[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, winStart);
     } else if (gpio.waveform_type === 3) {
       // 🔴 這裡的上游必須讀 newPrecomp（本輪剛算好的），不是 _wfgPrecomputed（要到迴圈結束
       //    才會被指派過去）。slot index 遞增保證 SD1 / Gate 在本輪已經先算完。
-      newPrecomp[gi] = _wfgPrecomputeSpxChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, newPrecomp);
+      newPrecomp[gi] = _wfgPrecomputeSpxChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, newPrecomp, winStart);
     }
     var pct = Math.round(((ci + 1) / analogChs.length) * 100);
     wfgShowProgress(pct, progLabel + ' (' + (ci + 1) + '/' + analogChs.length + ')');
@@ -3450,35 +3517,42 @@ function wfgPrecomputeAnalog() {
     _wfgSdFullRecomputeWithProgress(needSD, needLS);
     return;
   }
-  // 同步重算（改參數觸發）— 只算 viewport 範圍 + padding
+  // 同步重算（改參數觸發）— 只算目前視窗那一段
   var t0 = performance.now();
   var effVtotal = tc.effVtotal;
   var effHtotal = tc.effHtotal;
   var allTrans = tc.transitions;
-  // v2.97.19: 連續操作時只算 viewport 剛好範圍（減少 CKO 計算量），停止後 lazy extend 補齊
-  var viewPad = _wfgSliderDragging ? 0 : Math.max(effVtotal, Math.ceil((wfgViewEnd - wfgViewStart) * 0.5));
-  var sdExtent = _isGlobalRecompute ? totalLines : Math.min(totalLines, Math.ceil(wfgViewEnd) + viewPad);
+  // v4.6.0: 區段式 —— 起點不再固定為 0（前綴式的浪費就出在這裡），改成視窗起點。
+  var _win = _wfgAnalogWindow(totalLines, effVtotal);
+  var sdExtent = _win.end, winStart = _win.start;
   var recomputed = 0, sdRecomp = 0, lsRecomp = 0;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
     var existing = _wfgPrecomputed[gi];
-    if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines) {
-      // v3.8.0: Subpixel 吃 Gate 與 SD1 的結果 —— 上游 lazy-extend 過就必須跟著重算，
-      // 否則畫面往右捲時 Subpixel 會停在舊的 computedExtent 不再更新。
+    // v4.6.0: 快取有效還要「視窗涵蓋得住現在要看的範圍」。舊版只有上界（computedExtent），
+    // 區段式多了下界，漏掉的話往左捲會拿到 base 之外的索引 ＝ 讀到別行的值（靜默錯誤）。
+    var _needA = Math.max(0, Math.floor(wfgViewStart) - 1);
+    var _needB = Math.min(totalLines, Math.ceil(wfgViewEnd) + 2);
+    if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines
+        && _wfgPrecompCovers(existing, _needA, _needB)) {
+      // v3.8.0: Subpixel 吃 Gate 與 SD1 的結果 —— 上游換過窗就必須跟著重算，
+      // 否則畫面捲動時 Subpixel 會停在舊視窗不再更新。
       if (gpio.waveform_type !== 3) continue;
       var _upG = _wfgPrecomputed[wfgGateSlotIdx()], _upS = _wfgPrecomputed[wfgSd1SlotIdx()];
       var _ge = _upG ? (_upG.computedExtent || 0) : 0, _se = _upS ? (_upS.computedExtent || 0) : 0;
-      if (existing.srcGateExtent === _ge && existing.srcSdExtent === _se) continue;
+      var _gb = _upG ? (_upG.base || 0) : 0, _sb = _upS ? (_upS.base || 0) : 0;
+      if (existing.srcGateExtent === _ge && existing.srcSdExtent === _se
+          && existing.srcGateBase === _gb && existing.srcSdBase === _sb) continue;
     }
     if (gpio.waveform_type === 1) {
-      _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      _wfgPrecomputed[gi] = _wfgPrecomputeSdChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, winStart);
       sdRecomp++;
     } else if (gpio.waveform_type === 2) {
-      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      _wfgPrecomputed[gi] = _wfgPrecomputeLsChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, winStart);
       lsRecomp++;
     } else if (gpio.waveform_type === 3) {
-      _wfgPrecomputed[gi] = _wfgPrecomputeSpxChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+      _wfgPrecomputed[gi] = _wfgPrecomputeSpxChannel(gi, gpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, null, winStart);
     }
     recomputed++;
   }
@@ -3512,19 +3586,20 @@ async function wfgPrecomputeAnalogAsync(options) {
     // Show progress bar only for heavy workloads (>200k total lines)
     showProg = !!options.forceProgress || totalLines > 200000;
     if (showProg) wfgShowProgress(0, t('wfg.progressPrecomp').replace('{n}', '0').replace('{total}', String(analogChs.length)));
-    // v2.97.19: always compute full frame range
-    var sdExtent = totalLines;
+    // v4.6.0: 區段式 —— 只算目前視窗那一段
+    var _win = _wfgAnalogWindow(totalLines, effVtotal);
+    var sdExtent = _win.end, winStart = _win.start;
     var newPrecomp = {};
     for (var ci = 0; ci < analogChs.length; ci++) {
       var aGi = analogChs[ci];
       var aGpio = wfgGpios[aGi];
       if (aGpio.waveform_type === 1) {
-        newPrecomp[aGi] = _wfgPrecomputeSdChannel(aGi, aGpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+        newPrecomp[aGi] = _wfgPrecomputeSdChannel(aGi, aGpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, winStart);
       } else if (aGpio.waveform_type === 2) {
-        newPrecomp[aGi] = _wfgPrecomputeLsChannel(aGi, aGpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent);
+        newPrecomp[aGi] = _wfgPrecomputeLsChannel(aGi, aGpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, winStart);
       } else if (aGpio.waveform_type === 3) {
         // 同上：上游讀 newPrecomp
-        newPrecomp[aGi] = _wfgPrecomputeSpxChannel(aGi, aGpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, newPrecomp);
+        newPrecomp[aGi] = _wfgPrecomputeSpxChannel(aGi, aGpio, allTrans, effHtotal, effVtotal, totalLines, sdExtent, newPrecomp, winStart);
       }
       if (showProg) {
         var pct = Math.round(((ci + 1) / analogChs.length) * 100);
@@ -3545,10 +3620,15 @@ async function wfgPrecomputeAnalogAsync(options) {
 }
 
 // ─── SD channel precomputation ───
-function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent) {
-  // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.93.0)
-  // 後續可用 _wfgExtendSdPrecomp() 延伸
+function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, winStart) {
+  // computeExtent: 算到第 computeExtent 行（exclusive，絕對行號）
+  // winStart:      這一段**可信**的起點（絕對行號）。函式自行往前多算 warm 行暖機。
+  //                不傳＝0＝與 v4.6.0 之前的前綴式完全相同（陣列從第 0 行起算）。
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
+  var _warm = _wfgWarmLines(effVtotal, 'sd');
+  var validFrom = Math.max(0, Math.min((winStart | 0), computeExtent - 1));
+  var base = Math.max(0, validFrom - _warm);
+  var winLen = computeExtent - base;
   var ac = gpio.analog_config;
   var effVactive = wfgEffVactive(effVtotal);
   var isDualSD = wfgFrame.gateType === 'dual';
@@ -3565,7 +3645,9 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     var _xpolLevel = xpolFlat.level ? 1 : 0;
     polForLine = function() { return _xpolLevel; };
   } else {
-    var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, 0, totalLines);
+    // v4.6.0: XPOL 的準位查表也只建視窗這一段（原本從 0 建到 totalLines）。
+    // initLevel 是 base 處的準位，查詢一律落在 [base, computeExtent) 內，不會取到窗外。
+    var xpolOax = wfgGetOaxForRange(xpolIdx, allTrans, effHtotal, base, computeExtent);
     var xpolInitLevel = xpolOax ? xpolOax.initLevel : 0;
     var xpolLookupFn = wfgMakeLevelLookup(xpolInitLevel, xpolOax ? xpolOax.transitions : [], effHtotal);
     polForLine = xpolLookupFn;
@@ -3574,7 +3656,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // 原因：Source Driver 是在 XSTB rising 取樣 XPOL 準位（決定該筆的極性），
   // 在隨後的 XSTB falling 才把對應極性的類比電壓輸出。舊版用 polForLine(line)
   // ＝該行行首（frac=0）的 XPOL 準位，當 XPOL 在行中間轉態時會晚一行才反映。
-  var polPerLine = new Uint8Array(computeExtent);
+  var polPerLine = new Uint8Array(winLen);
 
   // L value per frame line
   var maxL = wfgAnalogMaxL(ac);
@@ -3606,11 +3688,11 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // 每行獨立判斷 XSTB 是否有 falling edge，沒有 → SD 不轉態（持續 RC 衰減）
   var xstbIdx = (ac.xstb_gpio_idx != null) ? (ac.xstb_gpio_idx | 0) : WFG_XSTB_GPIO_IDX;
   if (xstbIdx < 0 || xstbIdx >= wfgGpios.length) xstbIdx = WFG_XSTB_GPIO_IDX;
-  var xstbPerLine = new Uint8Array(computeExtent);  // 1 = has falling, 0 = no
-  var xstbFracPerLine = new Float32Array(computeExtent); // fractional position in line
+  var xstbPerLine = new Uint8Array(winLen);  // 1 = has falling, 0 = no
+  var xstbFracPerLine = new Float32Array(winLen); // fractional position in line
   // v2.97.477: 每行 XPOL 取樣點相對行首的偏移 = 該 falling 之前最近的 XSTB rising。
   // 0 = 沒有 falling 的行（沿用行首取樣，行為與舊版一致）。可為負（rising 落在前一行）。
-  var xstbPolFracPerLine = new Float32Array(computeExtent);
+  var xstbPolFracPerLine = new Float32Array(winLen);
   var xstbHasAnyFalling = false;
   var xstbCommonFracDly = 0; // typical fracDly for exp lookup tables
   var xstbFlat = _wfgFlatGpios[xstbIdx];
@@ -3618,7 +3700,8 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var xstbAllTransitions = []; // store for lazy extend
   var xstbInitLevel = 0;
   if (!xstbFlat && xstbGpio && xstbGpio.enable) {
-    var _xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, 0, computeExtent);
+    // v4.6.0: 只取視窗（含 warm-up）這一段的 XSTB transitions，不再從第 0 行取起
+    var _xstbOax = wfgGetOaxForRange(xstbIdx, allTrans, effHtotal, base, computeExtent);
     xstbInitLevel = _xstbOax ? _xstbOax.initLevel : 0;
     xstbAllTransitions = _xstbOax ? _xstbOax.transitions : [];
     // Walk ALL transitions, mark every falling edge (1→0)
@@ -3631,16 +3714,17 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
       }
       if (_xstbPrevLvl === 1 && _xt.level === 0) {
         var _xLine = _xt.line;
-        if (_xLine >= 0 && _xLine < computeExtent) {
-          xstbPerLine[_xLine] = 1;
-          xstbFracPerLine[_xLine] = effHtotal > 0 ? _xt.dly / effHtotal : 0;
+        if (_xLine >= base && _xLine < computeExtent) {
+          var _xRel = _xLine - base;
+          xstbPerLine[_xRel] = 1;
+          xstbFracPerLine[_xRel] = effHtotal > 0 ? _xt.dly / effHtotal : 0;
           // v2.97.477: 極性取樣點 = 這個 falling 之前最近的 rising；
           // 找不到 rising（初始準位就是 high）時退回 falling 自身位置。
-          var _xFallAbs = _xLine + xstbFracPerLine[_xLine];
+          var _xFallAbs = _xLine + xstbFracPerLine[_xRel];
           var _xPolAbs = (_xstbLastRiseAbs != null && _xstbLastRiseAbs <= _xFallAbs) ? _xstbLastRiseAbs : _xFallAbs;
-          xstbPolFracPerLine[_xLine] = _xPolAbs - _xLine;
+          xstbPolFracPerLine[_xRel] = _xPolAbs - _xLine;
           if (!xstbHasAnyFalling) {
-            xstbCommonFracDly = xstbFracPerLine[_xLine];
+            xstbCommonFracDly = xstbFracPerLine[_xRel];
           }
           xstbHasAnyFalling = true;
         }
@@ -3657,8 +3741,8 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
 
   // v2.97.477: XPOL 取樣 — 有 XSTB falling 的行用「該 falling 之前最近的 rising」位置取樣，
   // 其餘行維持行首取樣（那些行的 polPerLine 不會被 latch 用到，只有 line 0 的初始值會）。
-  for (var pf = 0; pf < computeExtent; pf++) {
-    polPerLine[pf] = polForLine(pf + xstbPolFracPerLine[pf]);
+  for (var pf = 0; pf < winLen; pf++) {
+    polPerLine[pf] = polForLine((base + pf) + xstbPolFracPerLine[pf]);
   }
 
   // ── settled[] 衰減因子 (v2.93.0) ──
@@ -3671,49 +3755,48 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
   // xstbHasAnyFalling=true → expRise/expFall 保持 exp(-1/tau)，RC 跑完整一行
 
-  var settled = new Float32Array(computeExtent);
-  var target = new Float32Array(computeExtent);
+  var settled = new Float32Array(winLen);
+  var target = new Float32Array(winLen);
 
   // Initial line: find the initial target (v2.97.19: 考慮 xstbDataOffset)
+  // v4.6.0: 「第一行」＝視窗的第一行（絕對行號 base），不再固定是 0。
+  //         這一行的起始電壓只是猜測（真值要從前面累積而來），warm-up 區就是為了
+  //         讓 RC 遞推把這個猜測沖掉 —— 誤差隨行數指數收斂，實測見 CHANGELOG。
   var pol0 = polPerLine[0];
-  var dataLine0 = (effVtotal - xstbDataOffset) % effVtotal;
+  var dataLine0 = ((base % effVtotal) - xstbDataOffset + effVtotal) % effVtotal;
   var lVal0 = lValuePerFrame[dataLine0];
   var tgtV0 = voltLut[pol0 * lutStride + lVal0];
   var lastTarget = tgtV0;
 
-  // If line 0 itself has a falling, use its data
-  if (xstbPerLine[0]) {
-    lastTarget = tgtV0;
-  }
   settled[0] = lastTarget;
   target[0] = lastTarget;
   var prevV = lastTarget;
 
   // Main loop: only update target when xstbPerLine[line] is 1
-  for (var line = 1; line < computeExtent; line++) {
-    var lineInFrame = line % effVtotal;
-    var pol = polPerLine[line];
-    if (xstbPerLine[line]) {
+  for (var _r = 1; _r < winLen; _r++) {
+    var lineInFrame = (base + _r) % effVtotal;
+    var pol = polPerLine[_r];
+    if (xstbPerLine[_r]) {
       // XSTB has falling edge → latch data (v2.97.19: 跨行偏移修正)
       var dataLineInFrame = (lineInFrame - xstbDataOffset + effVtotal) % effVtotal;
       var lVal = lValuePerFrame[dataLineInFrame];
       lastTarget = voltLut[pol * lutStride + lVal];
     }
-    target[line] = lastTarget;
+    target[_r] = lastTarget;
     if (lastTarget === prevV) {
-      settled[line] = lastTarget;
+      settled[_r] = lastTarget;
     } else {
       var factor = (lastTarget >= prevV) ? expRise : expFall;
-      settled[line] = lastTarget + (prevV - lastTarget) * factor;
+      settled[_r] = lastTarget + (prevV - lastTarget) * factor;
     }
-    prevV = settled[line];
+    prevV = settled[_r];
   }
 
   // ── holdV + sub-line exp lookup tables (v2.93.0 viewport-lazy) ──
   var RC_PTS = 20;
-  var holdV = new Float32Array(computeExtent);
+  var holdV = new Float32Array(winLen);
   holdV[0] = tgtV0;
-  for (var _hi = 1; _hi < computeExtent; _hi++) holdV[_hi] = settled[_hi - 1];
+  for (var _hi = 1; _hi < winLen; _hi++) holdV[_hi] = settled[_hi - 1];
 
   // Precompute exp lookup for sub-line samples (共 80 個 Math.exp，一次性)
   // Segment 1 (frac < xstbCommonFracDly): continuing RC from previous period
@@ -3751,11 +3834,15 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     xstbFracPerLine: xstbFracPerLine,
     xstbPolFracPerLine: xstbPolFracPerLine,
     holdV: holdV, computedExtent: computeExtent,
+    gi: gpioIdx, base: base, validFrom: validFrom,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
     rcPts: RC_PTS, xstbSampleIdx: xstbSampleIdx,
     rcBefore_Rise: rcBefore_Rise, rcBefore_Fall: rcBefore_Fall,
     rcAfter_Rise: rcAfter_Rise, rcAfter_Fall: rcAfter_Fall,
-    // Lazy-extend metadata: store config needed to extend computation
+    // v4.6.0: 這個袋子原本是給 lazy-extend 用的（延伸時要接續的狀態）。區段式改成
+    // 「換窗重算」之後不再有延伸，但 _wfgSdGrayFracAt() 仍從這裡讀 lValuePerFrame /
+    // polForLine / xstbDataOffset / effVtotal / lutStride，所以保留，名字不動以免
+    // 呼叫端走岔。
     _lazyExtend: { expRise: expRise, expFall: expFall, voltLut: voltLut,
       lutStride: lutStride, lValuePerFrame: lValuePerFrame, effVtotal: effVtotal,
       polForLine: polForLine,
@@ -3765,127 +3852,33 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     ver: _wfgAnalogCacheVer };
 }
 
-// ─── SD lazy extend: compute settled/target/holdV from computedExtent to newExtent (v2.97.19: per-line XSTB) ───
-function _wfgExtendSdPrecomp(precomp, newExtent) {
-  if (newExtent <= precomp.computedExtent) return;
-  if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
-  var le = precomp._lazyExtend;
-  var oldExt = precomp.computedExtent;
-  // Grow arrays
-  var newSettled = new Float32Array(newExtent);
-  var newTarget = new Float32Array(newExtent);
-  var newHoldV = new Float32Array(newExtent);
-  var newXstbPerLine = new Uint8Array(newExtent);
-  var newXstbFracPerLine = new Float32Array(newExtent);
-  var newXstbPolFracPerLine = new Float32Array(newExtent); // v2.97.477
-  newSettled.set(precomp.settled);
-  newTarget.set(precomp.target);
-  newHoldV.set(precomp.holdV);
-  if (precomp.xstbPerLine) newXstbPerLine.set(precomp.xstbPerLine);
-  if (precomp.xstbFracPerLine) newXstbFracPerLine.set(precomp.xstbFracPerLine);
-  if (precomp.xstbPolFracPerLine) newXstbPolFracPerLine.set(precomp.xstbPolFracPerLine);
-
-  // Extend XSTB per-line data: get transitions for [0, newExtent)
-  if (le.xstbIdx != null && le.allTrans && le.effHtotal) {
-    var _extOax = wfgGetOaxForRange(le.xstbIdx, le.allTrans, le.effHtotal, 0, newExtent);
-    var _extInitLvl = _extOax ? _extOax.initLevel : (le.xstbInitLevel || 0);
-    var _extTrans = _extOax ? _extOax.transitions : [];
-    // Re-scan transitions for the new range
-    var _extPrevLvl = _extInitLvl;
-    var _extLastRiseAbs = null; // v2.97.477: 最近一次 XSTB rising 的絕對位置
-    for (var _eti = 0; _eti < _extTrans.length; _eti++) {
-      var _et = _extTrans[_eti];
-      if (_extPrevLvl === 0 && _et.level === 1) {
-        _extLastRiseAbs = _et.line + (le.effHtotal > 0 ? _et.dly / le.effHtotal : 0);
-      }
-      if (_et.line < oldExt) { _extPrevLvl = _et.level; continue; }
-      if (_et.line >= newExtent) break;
-      if (_extPrevLvl === 1 && _et.level === 0) {
-        newXstbPerLine[_et.line] = 1;
-        newXstbFracPerLine[_et.line] = le.effHtotal > 0 ? _et.dly / le.effHtotal : 0;
-        // v2.97.477: 極性取樣點 = 該 falling 之前最近的 rising
-        var _etFallAbs = _et.line + newXstbFracPerLine[_et.line];
-        var _etPolAbs = (_extLastRiseAbs != null && _extLastRiseAbs <= _etFallAbs) ? _extLastRiseAbs : _etFallAbs;
-        newXstbPolFracPerLine[_et.line] = _etPolAbs - _et.line;
-      }
-      _extPrevLvl = _et.level;
-    }
-  }
-
-  var lastTarget = le.lastTarget || newTarget[oldExt - 1];
-  var prevV = (oldExt > 0) ? newSettled[oldExt - 1] : newSettled[0];
-  for (var line = oldExt; line < newExtent; line++) {
-    var lineInFrame = line % le.effVtotal;
-    // v2.97.477: 極性在 XSTB rising 取樣（沒有 falling 的行維持行首取樣）
-    var pol = le.polForLine(line + newXstbPolFracPerLine[line]);
-    if (newXstbPerLine[line]) {
-      var _dataLF = (lineInFrame - (le.xstbDataOffset || 0) + le.effVtotal) % le.effVtotal;
-      var lVal = le.lValuePerFrame[_dataLF];
-      lastTarget = le.voltLut[pol * le.lutStride + lVal];
-    }
-    newTarget[line] = lastTarget;
-    if (lastTarget === prevV) {
-      newSettled[line] = lastTarget;
-    } else {
-      var factor = (lastTarget >= prevV) ? le.expRise : le.expFall;
-      newSettled[line] = lastTarget + (prevV - lastTarget) * factor;
-    }
-    prevV = newSettled[line];
-    newHoldV[line] = (line > 0) ? newSettled[line - 1] : newSettled[0];
-  }
-  precomp.settled = newSettled;
-  precomp.target = newTarget;
-  precomp.holdV = newHoldV;
-  precomp.xstbPerLine = newXstbPerLine;
-  precomp.xstbFracPerLine = newXstbFracPerLine;
-  precomp.xstbPolFracPerLine = newXstbPolFracPerLine;
-  precomp.computedExtent = newExtent;
-  precomp.lineMinMax = null;
-  precomp.minMaxPyramid = null;
-  precomp.minMaxPyramidExtent = 0;
-  le.lastTarget = lastTarget;
-}
-
-// ─── SD async extend with progress bar (v2.95.0) ───
-var _wfgExtendBusy = false;
-async function _wfgExtendSdPrecompAsync(precomp, newExtent) {
-  if (_wfgExtendBusy) return;
-  _wfgExtendBusy = true;
-  try {
-    var oldExt = precomp.computedExtent;
-    var totalToExtend = newExtent - oldExt;
-    var CHUNK = 40000;
-    wfgShowProgress(0, '延伸 SD 計算...');
-    await wfgYield();
-    while (precomp.computedExtent < newExtent) {
-      var chunkEnd = Math.min(precomp.computedExtent + CHUNK, newExtent);
-      _wfgExtendSdPrecomp(precomp, chunkEnd);
-      var done = precomp.computedExtent - oldExt;
-      wfgShowProgress(Math.round(done / totalToExtend * 100), '延伸 SD 計算...');
-      await wfgYield();
-    }
-    wfgHideProgress();
-  } catch(e) {
-    console.error('SD async extend error:', e);
-    wfgHideProgress();
-  } finally {
-    _wfgExtendBusy = false;
-  }
-  wfgRender();
-}
+// ─── v4.6.0：SD/LS 的 lazy-extend 已移除，改為「換窗重算」 ───
+// 舊版 _wfgExtendSdPrecomp / _wfgExtendLsPrecomp / _wfgExtendSdPrecompAsync 的語意是
+// 「把陣列往右長，從 computedExtent 接著算到 newExtent」（append）。區段式之後陣列
+// 只涵蓋 [base, computedExtent)，往左捲同樣會出界，append 救不了 —— 而且真正該做的
+// 是把整個視窗搬過去，不是無限往右長（那正是前綴式浪費 99.99% 的原因）。
+// 取而代之的是 _wfgRewindowPrecomp()：依目前 wfgViewStart/wfgViewEnd 重算一個新視窗，
+// 就地覆寫同一個 precomp 物件（保持物件 identity，呼叫端不必改）。
 
 // ─── LS channel precomputation (v2.95.0: viewport-lazy with computeExtent) ───
-function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent) {
-  // computeExtent: 只計算到第 computeExtent 行 (viewport-lazy, v2.95.0)
-  // 後續可用 _wfgExtendLsPrecomp() 延伸
+function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, winStart) {
+  // computeExtent: 算到第 computeExtent 行（exclusive，絕對行號）
+  // winStart:      這一段**可信**的起點（絕對行號）。函式自行往前多算 warm 行暖機。
+  //                不傳＝0＝與 v4.6.0 之前的前綴式完全相同。
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
+  var _warm = _wfgWarmLines(effVtotal, 'ls');
+  var validFrom = Math.max(0, Math.min((winStart | 0), computeExtent - 1));
+  var base = Math.max(0, validFrom - _warm);
+  var winLen = computeExtent - base;
   var ac = gpio.analog_config;
   var mode = wfgLsGlobal.mode;
   var ckoIndex = (ac.cko_index != null) ? ac.cko_index : 0;
   var numCko = wfgLsGlobal.phase;
 
-  // Get LS events for range [0, computeExtent)
-  var events = _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, 0, computeExtent, 0.001);
+  // Get LS events for range [base, computeExtent)
+  // 事件產生器自己還會再往前撐開 pad（round-robin 與跨界脈衝需要），所以拿到的事件
+  // 必然涵蓋 base 之前一小段 —— 那正好當作 RC 遞推的暖機輸入。
+  var events = _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, base, computeExtent, 0.001);
   if (!events) events = [];
 
   // RC params
@@ -3894,15 +3887,18 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var RC_TAU_RISE = wfgRcTauLine(_curveRise);   // v3.8.0: 0~255 → 絕對時間（見 WFG_T_LINE_REF_US）
   var RC_TAU_FALL = wfgRcTauLine(_curveFall);
 
-  var settled = new Float32Array(computeExtent);
+  var settled = new Float32Array(winLen);
   var voltage = ac.voltage_min; // CKOs start at VGL
   var curTarget = voltage;
   var curRcTau = RC_TAU_RISE;
-  var lastEventX = 0;
+  // v4.6.0: 遞推起點改成視窗起點。events 涵蓋 base 之前一小段，先讓它們把狀態推起來
+  //（下面 while 迴圈第一輪就會處理掉所有 lineX <= base 的事件），這就是 LS 的暖機。
+  var lastEventX = base;
   var baseV = voltage;
   var ei = 0;
 
-  for (var line = 0; line < computeExtent; line++) {
+  for (var _r = 0; _r < winLen; _r++) {
+    var line = base + _r;
     // Process events at or before this line
     while (ei < events.length && events[ei].lineX <= line) {
       var ev = events[ei];
@@ -3920,20 +3916,21 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     // Voltage at this line (continuing RC from last event)
     var dt2 = line - lastEventX;
     if (dt2 > 0 && Math.abs(curTarget - baseV) > 0.0001) {
-      settled[line] = curTarget + (baseV - curTarget) * Math.exp(-dt2 / curRcTau);
+      settled[_r] = curTarget + (baseV - curTarget) * Math.exp(-dt2 / curRcTau);
     } else {
-      settled[line] = (Math.abs(curTarget - baseV) < 0.0001) ? curTarget : baseV;
+      settled[_r] = (Math.abs(curTarget - baseV) < 0.0001) ? curTarget : baseV;
     }
   }
 
   // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
   var RC_PTS = 20;
-  var rcSamples = new Float32Array(computeExtent * RC_PTS);
-  var lineMinMax = new Float32Array(computeExtent * 2);
+  var rcSamples = new Float32Array(winLen * RC_PTS);
+  var lineMinMax = new Float32Array(winLen * 2);
   var _rsV = ac.voltage_min, _rsTarget = _rsV, _rsTau = RC_TAU_RISE;
-  var _rsLastX = 0, _rsBaseV = _rsV, _rsEi = 0;
-  for (var _rsLine = 0; _rsLine < computeExtent; _rsLine++) {
-    var _rsBase = _rsLine * RC_PTS;
+  var _rsLastX = base, _rsBaseV = _rsV, _rsEi = 0;
+  for (var _rsRel = 0; _rsRel < winLen; _rsRel++) {
+    var _rsLine = base + _rsRel;
+    var _rsBase = _rsRel * RC_PTS;
     var _rsMin = Infinity, _rsMax = -Infinity;
     for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
       var _rsPos = _rsLine + _rsSi / RC_PTS;
@@ -3963,8 +3960,8 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
       if (_rsVal < _rsMin) _rsMin = _rsVal;
       if (_rsVal > _rsMax) _rsMax = _rsVal;
     }
-    lineMinMax[_rsLine * 2] = _rsMin;
-    lineMinMax[_rsLine * 2 + 1] = _rsMax;
+    lineMinMax[_rsRel * 2] = _rsMin;
+    lineMinMax[_rsRel * 2 + 1] = _rsMax;
   }
 
   return { settled: settled, events: events, totalLines: totalLines, effVtotal: effVtotal,
@@ -3972,6 +3969,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     rcSamples: rcSamples, lineMinMax: lineMinMax, rcPts: RC_PTS,
     vMin: ac.voltage_min, vMax: ac.voltage_max, ver: _wfgAnalogCacheVer,
     computedExtent: computeExtent,
+    gi: gpioIdx, base: base, validFrom: validFrom,
     _lazyExtend: {
       voltage: voltage, curTarget: curTarget, curRcTau: curRcTau,
       lastEventX: lastEventX, baseV: baseV, eventIdx: ei,
@@ -3982,142 +3980,6 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
       RC_TAU_RISE: RC_TAU_RISE, RC_TAU_FALL: RC_TAU_FALL, RC_PTS: RC_PTS
     }
   };
-}
-
-// ─── LS lazy extend: compute settled/rcSamples/lineMinMax from computedExtent to newExtent (v2.95.0) ───
-function _wfgExtendLsPrecomp(precomp, newExtent) {
-  if (newExtent <= precomp.computedExtent) return;
-  if (newExtent > precomp.totalLines) newExtent = precomp.totalLines;
-  var le = precomp._lazyExtend;
-  var oldExtent = precomp.computedExtent;
-
-  /* Build events for range [oldExtent, newExtent)
-
-     🔴 產生器回傳的範圍**比要求的大**，一定要過濾才能 append。
-     `_wfgLsBuildCpvPairEvents()` 刻意把視窗前後各撐開 `pad = max(effVtotal, 100)` 行
-     （round-robin 狀態與跨界脈衝需要），`_wfgLsBuildEvents()` 對 gate slot 還會再往
-     frame 邊界對齊。所以它回傳的事件必然涵蓋 [startLine − pad, endLine + pad]，
-     而其中 [.., oldExtent] 這一段**早就在 precomp.events 裡了**。
-
-     舊版的註解說「gate slot 會 trim 回 oldExtent，所以不會重複」—— 那句話**只對
-     gate 成立**：`trimToStart` 只在 `_wfgLsApplyGateMask()` 裡被理會，而那支只有
-     `isGate` 時才會被呼叫（見 _wfgLsBuildEvents）。一般 CKO 傳了 `true` 也是**靜默
-     忽略**，於是整段重疊區被 append 第二次。
-
-     實測（Bruce 2026-08-19 的手法：toggle 任一數位訊號的 ENABLE 一次）：
-       events 4050 → 4778，其中 **573 筆是完全重複**（同 lineX、同 vTarget、同 reset），
-       重複區間 lineX 12153.86 ~ 15129.86 —— 剛好一個 effVtotal(1490) 寬，
-       正是 `pad` 的大小。八條 CKO 全中，而且**不會自己恢復**。
-       畫面上就是那一段 x 每個 pixel column 同時有 VGH 與 VGL → 上下兩條平行線。
-
-     順帶一提，重複 append 也會**破壞 events 的升序**（實測在接縫處出現 1 個逆序），
-     而下面 settled[] 的迴圈用 `while (events[ei].lineX <= line)` 往前走，是吃升序的。
-
-     過濾條件用「必須晚於陣列中最後一筆」：既有陣列是同一支產生器算出來的，
-     已經完整涵蓋到 lastX 為止，所以任何 lineX <= lastX 的新事件必然是重複。
-     這一條同時解決「重複」與「升序被破壞」兩件事。 */
-  var newEvents = _wfgLsBuildEvents(le.ac, le.ckoIndex, le.numCko, le.mode, le.allTrans, le.effHtotal, le.effVtotal,
-                                    oldExtent, newExtent, 0.001, true);
-  if (!newEvents) newEvents = [];
-
-  // Append new events（只收比既有最後一筆更晚的）
-  var events = precomp.events;
-  var _lastX = events.length ? events[events.length - 1].lineX : -Infinity;
-  for (var ne = 0; ne < newEvents.length; ne++) {
-    var _nev = newEvents[ne];
-    if (!(_nev.lineX > _lastX)) continue;   // 重疊區：已經在陣列裡
-    events.push(_nev);
-    _lastX = _nev.lineX;
-  }
-
-  // Grow arrays
-  var RC_PTS = le.RC_PTS;
-  var newSettled = new Float32Array(newExtent);
-  newSettled.set(precomp.settled);
-  var newRcSamples = new Float32Array(newExtent * RC_PTS);
-  newRcSamples.set(precomp.rcSamples);
-  var newLineMinMax = new Float32Array(newExtent * 2);
-  newLineMinMax.set(precomp.lineMinMax);
-
-  // Continue settled[] loop from stored state
-  var voltage = le.voltage, curTarget = le.curTarget, curRcTau = le.curRcTau;
-  var lastEventX = le.lastEventX, baseV = le.baseV, ei = le.eventIdx;
-  var RC_TAU_RISE = le.RC_TAU_RISE, RC_TAU_FALL = le.RC_TAU_FALL;
-
-  for (var line = oldExtent; line < newExtent; line++) {
-    while (ei < events.length && events[ei].lineX <= line) {
-      var ev = events[ei];
-      var dt = ev.lineX - lastEventX;
-      if (dt > 0 && Math.abs(curTarget - baseV) > 0.0001) {
-        voltage = curTarget + (baseV - curTarget) * Math.exp(-dt / curRcTau);
-      }
-      if (ev._reset) { voltage = ev.vTarget; }
-      baseV = voltage;
-      curTarget = ev.vTarget;
-      curRcTau = (ev.vTarget >= voltage) ? RC_TAU_RISE : RC_TAU_FALL;
-      lastEventX = ev.lineX;
-      ei++;
-    }
-    var dt2 = line - lastEventX;
-    if (dt2 > 0 && Math.abs(curTarget - baseV) > 0.0001) {
-      newSettled[line] = curTarget + (baseV - curTarget) * Math.exp(-dt2 / curRcTau);
-    } else {
-      newSettled[line] = (Math.abs(curTarget - baseV) < 0.0001) ? curTarget : baseV;
-    }
-  }
-
-  // Continue rcSamples[] + lineMinMax[] loop from stored state
-  var _rsV = le._rsV, _rsTarget = le._rsTarget, _rsTau = le._rsTau;
-  var _rsLastX = le._rsLastX, _rsBaseV = le._rsBaseV, _rsEi = le._rsEi;
-
-  for (var _rsLine = oldExtent; _rsLine < newExtent; _rsLine++) {
-    var _rsBase = _rsLine * RC_PTS;
-    var _rsMin = Infinity, _rsMax = -Infinity;
-    for (var _rsSi = 0; _rsSi < RC_PTS; _rsSi++) {
-      var _rsPos = _rsLine + _rsSi / RC_PTS;
-      while (_rsEi < events.length && events[_rsEi].lineX <= _rsPos) {
-        var _rsEv = events[_rsEi];
-        var _rsDt = _rsEv.lineX - _rsLastX;
-        if (_rsDt > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
-          _rsV = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt / _rsTau);
-        } else {
-          _rsV = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
-        }
-        if (_rsEv._reset) _rsV = _rsEv.vTarget;
-        _rsBaseV = _rsV;
-        _rsTarget = _rsEv.vTarget;
-        _rsTau = (_rsEv.vTarget >= _rsV) ? RC_TAU_RISE : RC_TAU_FALL;
-        _rsLastX = _rsEv.lineX;
-        _rsEi++;
-      }
-      var _rsDt2 = _rsPos - _rsLastX;
-      var _rsVal;
-      if (_rsDt2 > 0 && Math.abs(_rsTarget - _rsBaseV) > 0.0001) {
-        _rsVal = _rsTarget + (_rsBaseV - _rsTarget) * Math.exp(-_rsDt2 / _rsTau);
-      } else {
-        _rsVal = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
-      }
-      newRcSamples[_rsBase + _rsSi] = _rsVal;
-      if (_rsVal < _rsMin) _rsMin = _rsVal;
-      if (_rsVal > _rsMax) _rsMax = _rsVal;
-    }
-    newLineMinMax[_rsLine * 2] = _rsMin;
-    newLineMinMax[_rsLine * 2 + 1] = _rsMax;
-  }
-
-  // Update precomp object
-  precomp.settled = newSettled;
-  precomp.rcSamples = newRcSamples;
-  precomp.lineMinMax = newLineMinMax;
-  precomp.events = events;
-  precomp.computedExtent = newExtent;
-  precomp.minMaxPyramid = null;
-  precomp.minMaxPyramidExtent = 0;
-  // Update continuation state
-  le.voltage = voltage; le.curTarget = curTarget; le.curRcTau = curRcTau;
-  le.lastEventX = lastEventX; le.baseV = baseV; le.eventIdx = ei;
-  le._rsV = _rsV; le._rsTarget = _rsTarget; le._rsTau = _rsTau;
-  le._rsLastX = _rsLastX; le._rsBaseV = _rsBaseV; le._rsEi = _rsEi;
 }
 
 // ═══════════ Subpixel（面板信號）— v3.8.0 ═══════════
@@ -4142,7 +4004,10 @@ function _wfgLsVoltFactory(pre) {
   var ev = (pre && pre.events) || [];
   var vmin = (pre && pre.vMin != null) ? pre.vMin : 0;
   var tauR = (pre && pre.rcTauRise) || 1e-6, tauF = (pre && pre.rcTauFall) || 1e-6;
-  var i = 0, base = vmin, target = vmin, lastX = 0, tau = tauR;
+  // v4.6.0: 起算點改成這份資料的視窗起點（`base` 這個區域變數是「電壓基準」，不是
+  // precomp.base —— 同名不同義，不要混）。lastX 停在 0 會讓第一個事件的 dt 變成整個
+  // 前綴長度，指數項直接壓成 0。
+  var i = 0, base = vmin, target = vmin, lastX = (pre && pre.base) ? pre.base : 0, tau = tauR;
   return function(x) {
     while (i < ev.length && ev[i].lineX <= x) {
       var e = ev[i];
@@ -4166,22 +4031,25 @@ function _wfgLsVoltFactory(pre) {
 //   frac <  該行 XSTB↓ 位置 → 還在延續前一行的 RC
 function _wfgSdVoltageAt(p, lineX) {
   if (!p || !p.target || !p.holdV) return 0;
-  var ext = p.computedExtent || p.target.length;
+  // v4.6.0: 陣列以 base 為索引原點，clamp 的下界是 base 不是 0。
+  var b = p.base | 0;
+  var ext = p.computedExtent || (b + p.target.length);
   var L = Math.floor(lineX), frac = lineX - L;
-  if (L < 0) { L = 0; frac = 0; }
+  if (L < b) { L = b; frac = 0; }
   if (L >= ext) { L = ext - 1; frac = 1; }
-  if (L < 0) return 0;
-  var hasFall = p.xstbPerLine && p.xstbPerLine[L];
-  var dly = hasFall ? p.xstbFracPerLine[L] : -1;
+  if (L < b) return 0;
+  var Lr = L - b;
+  var hasFall = p.xstbPerLine && p.xstbPerLine[Lr];
+  var dly = hasFall ? p.xstbFracPerLine[Lr] : -1;
   if (hasFall && frac >= dly) {
-    var hV = p.holdV[L], tg = p.target[L];
+    var hV = p.holdV[Lr], tg = p.target[Lr];
     var tau = (tg >= hV) ? p.rcTauRise : p.rcTauFall;
     return tg + (hV - tg) * Math.exp(-(frac - dly) / tau);
   }
-  var PL = L - 1;
-  if (PL < 0) return p.settled ? p.settled[0] : 0;
-  var pdly = (p.xstbPerLine && p.xstbPerLine[PL]) ? p.xstbFracPerLine[PL] : 0;
-  var phV = p.holdV[PL], ptg = p.target[PL];
+  var PLr = Lr - 1;
+  if (PLr < 0) return p.settled ? p.settled[0] : 0;
+  var pdly = (p.xstbPerLine && p.xstbPerLine[PLr]) ? p.xstbFracPerLine[PLr] : 0;
+  var phV = p.holdV[PLr], ptg = p.target[PLr];
   var ptau = (ptg >= phV) ? p.rcTauRise : p.rcTauFall;
   var pdt = (1 - pdly) + frac;
   return ptg + (phV - ptg) * Math.exp(-pdt / ptau);
@@ -4192,16 +4060,17 @@ function _wfgSdVoltageAt(p, lineX) {
 // 以上／條），v3.4.0 為此刻意讓「改 G 條數」不重算 Gate、改走 render 的 viewport
 // fallback。但 Subpixel 需要的只有 events（每 frame 一個 pulse，全長也才 2000 筆）與
 // 四個 RC/電壓參數 —— 完全用不到那塊大陣列。這裡就只建這些，成本與 Gate 的預計算無關。
-function _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, extent) {
+function _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, extent, startLine) {
   var g = wfgGpios[wfgGateSlotIdx()];
   if (!g || !g.analog_config) return null;
   var gac = g.analog_config;
+  var _s = Math.max(0, startLine | 0);   // v4.6.0: 只建視窗這一段的 gate 事件
   // _wfgLsBuildEvents 內部對 is_gate 會自行套 _wfgLsApplyGateMask，濾成只留這一條 G 的 pulse
   var evs = _wfgLsBuildEvents(gac, (gac.cko_index != null) ? gac.cko_index : 0,
                               wfgLsGlobal.phase, wfgLsGlobal.mode,
-                              allTrans, effHtotal, effVtotal, 0, extent, 0.001);
+                              allTrans, effHtotal, effVtotal, _s, extent, 0.001);
   if (!evs) evs = [];
-  return { events: evs,
+  return { events: evs, base: _s,
            rcTauRise: wfgRcTauLine((gac.curvature_rise != null) ? (gac.curvature_rise | 0) : 0),
            rcTauFall: wfgRcTauLine((gac.curvature_fall != null) ? (gac.curvature_fall | 0) : 0),
            vMin: (gac.voltage_min != null) ? gac.voltage_min : wfgLsGlobal.vgl,
@@ -4276,25 +4145,27 @@ function _wfgSdGrayFracAt(p, lineX) {
   if (!le || !le.lValuePerFrame || !p.xstbPerLine) return null;
   var ext = p.computedExtent || 0;
   if (!ext) return null;
+  var b = p.base | 0;   // v4.6.0: 索引原點
   var L = Math.floor(lineX), frac = lineX - L;
-  if (L < 0) { L = 0; frac = 0; }
+  if (L < b) { L = b; frac = 0; }
   if (L >= ext) { L = ext - 1; frac = 1; }
-  if (L < 0) return null;
+  if (L < b) return null;
   // 本行的 XSTB↓ 已經過去 → 用本行 latch 的資料；否則延續前一行。
   // 對應 _wfgSdVoltageAt 的 target[L]（frac >= dly）／target[L-1] 兩個分支；
   // 往回略過沒有 falling 的行，等價於 target[] 對那些行沿用前值的語意。
-  var lat = (p.xstbPerLine[L] && frac >= p.xstbFracPerLine[L]) ? L : (L - 1);
-  while (lat >= 0 && !p.xstbPerLine[lat]) lat--;
+  var latR = (p.xstbPerLine[L - b] && frac >= p.xstbFracPerLine[L - b]) ? (L - b) : (L - b - 1);
+  while (latR >= 0 && !p.xstbPerLine[latR]) latR--;
   var eff = le.effVtotal || 1;
   var off = le.xstbDataOffset || 0;
   var dataLF, polAt;
-  if (lat < 0) {
-    // 還沒有任何 latch 發生過 → 與 _wfgPrecomputeSdChannel 的初始行同一組值
-    dataLF = (eff - off) % eff;
-    polAt = (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[0] : 0);
+  if (latR < 0) {
+    // 視窗內還沒有任何 latch 發生過 → 與 _wfgPrecomputeSdChannel 的初始行同一組值
+    dataLF = ((b % eff) - off + eff) % eff;
+    polAt = b + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[0] : 0);
   } else {
+    var lat = b + latR;   // 絕對行號
     dataLF = ((lat % eff) - off + eff) % eff;
-    polAt = lat + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[lat] : 0);
+    polAt = lat + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[latR] : 0);
   }
   var lVal = le.lValuePerFrame[dataLF] || 0;
   var maxL = le.lutStride ? (le.lutStride - 1) : 255;
@@ -4304,7 +4175,7 @@ function _wfgSdGrayFracAt(p, lineX) {
   return { frac: gf, pol: pol, lVal: lVal, maxL: maxL };
 }
 
-function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, srcMap) {
+function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, srcMap, winStart) {
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var ac = gpio.analog_config || {};
   // srcMap：非同步全量重算時上游剛算好的結果還在 newPrecomp 裡，尚未指派回 _wfgPrecomputed
@@ -4313,11 +4184,27 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
   var sdPre = src[wfgSd1SlotIdx()];
   var gateExt = gatePre ? (gatePre.computedExtent || 0) : 0;
   var sdExt = sdPre ? (sdPre.computedExtent || 0) : 0;
+  var gateBase = gatePre ? (gatePre.base || 0) : 0;
+  var sdBase = sdPre ? (sdPre.base || 0) : 0;
+  /* v4.6.0：Subpixel 的 vspx 是**跨 pulse 的保持量**（TFT 關閉後停在原地），不像
+     SD/LS 那樣每行指數遺忘 —— 所以它需要以 frame 為單位的暖機。
+     🔴 但它的暖機**不能自己往前多算**：積分要讀 SD1 的電壓，而 SD1 的陣列只涵蓋
+        [sdPre.base, sdExt)。因此 SPX 的起點一律取「自己要的起點」與「SD1 實際有的
+        起點」的較大者，暖機區就是 base ~ validFrom 這一段（與 SD/LS 同一組 warm）。 */
+  var _warm = _wfgWarmLines(effVtotal, 'spx');
+  var validFrom = Math.max(0, Math.min((winStart | 0), computeExtent - 1));
+  /* 🔴 這裡**不可以**把 gateBase 也取 max：gate 是 LS 型、warm 只有 2 個 frame，
+     拿它當下界會把 Subpixel 的暖機從 16 個 frame 砍成 2 個（實測那會有 5~9V 誤差）。
+     gate 涵蓋不夠時下面會自己用 _wfgGateSourceForSpx() 重建一份輕量的（只有 events）。
+     sdBase 則必須取 —— SD1 是陣列，窗外的值根本不存在，重建不了。 */
+  var base = Math.max(0, validFrom - _warm, sdBase);
   var vMin = (ac.voltage_min != null) ? ac.voltage_min : 0;
   var vMax = (ac.voltage_max != null) ? ac.voltage_max : 13;
   var empty = { segs: [], segStart: [], v0: 0, totalLines: totalLines, effVtotal: effVtotal,
     vMin: vMin, vMax: vMax, computedExtent: computeExtent, ver: _wfgAnalogCacheVer,
-    srcGateExtent: gateExt, srcSdExtent: sdExt, noSource: !sdPre, noGate: !gatePre,
+    gi: gpioIdx, base: base, validFrom: Math.max(validFrom, base),
+    srcGateExtent: gateExt, srcSdExtent: sdExt, srcGateBase: gateBase, srcSdBase: sdBase,
+    noSource: !sdPre, noGate: !gatePre,
     settled: null };
 
   // v3.8.1: 想算到哪裡，只由「自己被要求的範圍」與「SD1 實際算到哪」決定。
@@ -4328,8 +4215,9 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
   //   ② SD/Gate lazy-extend 之後 SPX 沒被重算 → 停在舊 extent，後段變一條平的 hold 線
   var want = Math.min(computeExtent, sdExt || computeExtent);
   var gateSrc = gatePre;
-  if (!gateSrc || !gateSrc.events || !gateSrc.events.length || gateExt < want) {
-    gateSrc = _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, want);
+  // v4.6.0: 上游 gate 的視窗**起點**若晚於本段起點，一樣要自己重建（只比 extent 不夠）
+  if (!gateSrc || !gateSrc.events || !gateSrc.events.length || gateExt < want || gateBase > base) {
+    gateSrc = _wfgGateSourceForSpx(allTrans, effHtotal, effVtotal, want, base);
   }
   // SD1 不存在（被停用 / 尚未計算）→ 沒有充電來源，恆 0V。不靜默：
   // noSource / noGate 會被判定框讀去顯示。
@@ -4378,6 +4266,7 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
   for (var qi = 0; qi < pulses.length; qi++) {
     var a = pulses[qi][0], b = pulses[qi][1];
     if (a >= limit) break;
+    if (b < base) continue;   // v4.6.0: 視窗之前的 pulse 不參與（SD1 資料也不涵蓋那裡）
     // 掃描到 falling 之後 5×τ_gate_fall，讓 gate 有機會真的掉到 TFT 關閉電壓以下
     var end = Math.min(limit, b + 5 * tauGateFall);
     var span = end - a;
@@ -4426,7 +4315,9 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
 
   return { segs: segs, segStart: segStart, v0: 0, totalLines: totalLines, effVtotal: effVtotal,
     vMin: vMin, vMax: vMax, computedExtent: limit, ver: _wfgAnalogCacheVer,
-    srcGateExtent: gateExt, srcSdExtent: sdExt, noSource: false, noGate: false,
+    gi: gpioIdx, base: base, validFrom: Math.max(validFrom, base),
+    srcGateExtent: gateExt, srcSdExtent: sdExt, srcGateBase: gateBase, srcSdBase: sdBase,
+    noSource: false, noGate: false,
     settled: null };
 }
 
@@ -4442,9 +4333,9 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
 // 就算真的進到 wfgPrecomputeAnalog()，它的 needSD / needLS 掃描也只認 waveform_type
 // 1 與 2，只有 SPX 過期時會在 `if (!needSD && !needLS) return` 早退。
 // 所以另開這條只算 SPX 一條的路徑；它不碰 SD/LS，Gate 的效能優化原封不動。
-function _wfgSpxWantExtent(totalLines) {
-  var viewPad = _wfgSliderDragging ? 0 : Math.max(1, Math.ceil((wfgViewEnd - wfgViewStart) * 0.5));
-  return Math.min(totalLines, Math.max(1, Math.ceil(wfgViewEnd) + viewPad));
+// v4.6.0: 「想算到哪裡」與「想從哪裡開始算」都由同一支視窗函式決定。
+function _wfgSpxWantWindow(totalLines, effVtotal) {
+  return _wfgAnalogWindow(totalLines, effVtotal);
 }
 function _wfgSpxStale() {
   var si = wfgSpxSlotIdx();
@@ -4456,30 +4347,69 @@ function _wfgSpxStale() {
   if (p.ver !== _wfgAnalogCacheVer || p.totalLines !== totalLines) return true;  // ③
   var sdPre = _wfgPrecomputed[wfgSd1SlotIdx()];
   var sdExt = sdPre ? (sdPre.computedExtent || 0) : 0;
-  if (p.srcSdExtent !== sdExt) return true;             // ② SD 延伸過
-  // ② 視窗往右捲到自己算過的範圍之外（SD 已經算得夠遠時才有意義）
-  return (p.computedExtent || 0) < Math.min(_wfgSpxWantExtent(totalLines), sdExt || totalLines);
+  var sdBase = sdPre ? (sdPre.base || 0) : 0;
+  if (p.srcSdExtent !== sdExt || p.srcSdBase !== sdBase) return true;   // ② SD 換過窗
+  // ② 視窗捲到自己算過的範圍之外 —— v4.6.0 起**兩邊**都要判（區段式左邊也會出界）
+  var _a = Math.max(0, Math.floor(wfgViewStart) - 1);
+  var _b = Math.min(totalLines, Math.ceil(wfgViewEnd) + 2);
+  return !_wfgPrecompCovers(p, _a, Math.min(_b, sdExt || totalLines));
 }
 function _wfgEnsureSpxPrecomp() {
   var si = wfgSpxSlotIdx();
   var gpio = wfgGpios[si];
   if (!gpio || !gpio.enable || gpio.waveform_type !== 3) return false;
   var totalLines = wfgTotalLines();
-  var want = _wfgSpxWantExtent(totalLines);
-  // 🔴 先把上游 SD1 延伸到需要的範圍再判 stale。
-  // SD/LS 的 lazy-extend 是掛在 wfgSamplesFromPrecomputed() 裡的 —— 也就是 render
-  // **畫到那一列時**才發生，比這個閘門晚。若在這裡照著 SD 當下的 extent 去算，SPX 就
-  // 只會算到舊範圍，等 SD 在同一次 render 中延伸完，SPX 又要等下一次 render 才跟上
-  // （表現成「捲過去之後畫面不動，要再動一下滑鼠才出現」）。主動延伸就沒有這個時序。
+  var tc0 = wfgEnsureTransitions();
+  if (!tc0) return false;
+  var win = _wfgSpxWantWindow(totalLines, tc0.effVtotal);
+  /* 🔴 先把上游 SD1 換到需要的視窗再判 stale。
+     SD/LS 的換窗是掛在 wfgSamplesFromPrecomputed() 裡的 —— 也就是 render **畫到那一列
+     時**才發生，比這個閘門晚。若在這裡照著 SD 當下的視窗去算，SPX 就只會算到舊範圍，
+     等 SD 在同一次 render 中換完窗，SPX 又要等下一次 render 才跟上（表現成「捲過去之後
+     畫面不動，要再動一下滑鼠才出現」）。主動換窗就沒有這個時序。 */
   var sdPre = _wfgPrecomputed[wfgSd1SlotIdx()];
-  if (sdPre && sdPre._lazyExtend && (sdPre.computedExtent || 0) < want && !_wfgContinuousMotion) {
-    _wfgExtendSdPrecomp(sdPre, want);
+  if (sdPre && !_wfgPrecompCovers(sdPre, Math.max(0, Math.floor(wfgViewStart) - 1),
+                                  Math.min(totalLines, Math.ceil(wfgViewEnd) + 2))
+      && !_wfgContinuousMotion) {
+    _wfgRewindowPrecomp(sdPre, wfgGpios[wfgSd1SlotIdx()]);
   }
   if (!_wfgSpxStale()) return false;
   var tc = wfgEnsureTransitions();
   if (!tc) return false;
   _wfgPrecomputed[si] = _wfgPrecomputeSpxChannel(si, gpio, tc.transitions,
-    tc.effHtotal, tc.effVtotal, totalLines, want);
+    tc.effHtotal, tc.effVtotal, totalLines, win.end, null, win.start);
+  return true;
+}
+
+/* ═══════════ 換窗（v4.6.0，取代 lazy-extend）═══════════
+   依目前的 wfgViewStart/wfgViewEnd 重算一條類比通道，並把結果**就地覆寫**到同一個
+   precomp 物件上 —— 物件 identity 不變，所以 _wfgPrecomputed 裡的參考、render 手上
+   已經拿到的參考全部自動跟著更新，呼叫端不必改。
+   🔴 覆寫必須「先刪掉舊鍵再貼新鍵」：舊視窗留下的 lineMinMax / minMaxPyramid 是用舊
+      base 建的，殘留就是靜默錯誤（畫得出來、值對不上）。 */
+function _wfgRewindowPrecomp(precomp, gpio) {
+  if (!precomp || !gpio) return false;
+  var gi = (precomp.gi != null) ? precomp.gi : -1;
+  if (gi < 0) return false;
+  var tc = wfgEnsureTransitions();
+  if (!tc) return false;
+  var totalLines = wfgTotalLines();
+  var win = _wfgAnalogWindow(totalLines, tc.effVtotal);
+  var fresh;
+  if (gpio.waveform_type === 1) {
+    fresh = _wfgPrecomputeSdChannel(gi, gpio, tc.transitions, tc.effHtotal, tc.effVtotal,
+                                    totalLines, win.end, win.start);
+  } else if (gpio.waveform_type === 2) {
+    fresh = _wfgPrecomputeLsChannel(gi, gpio, tc.transitions, tc.effHtotal, tc.effVtotal,
+                                    totalLines, win.end, win.start);
+  } else if (gpio.waveform_type === 3) {
+    fresh = _wfgPrecomputeSpxChannel(gi, gpio, tc.transitions, tc.effHtotal, tc.effVtotal,
+                                     totalLines, win.end, null, win.start);
+  } else {
+    return false;
+  }
+  for (var k in precomp) { if (Object.prototype.hasOwnProperty.call(precomp, k)) delete precomp[k]; }
+  for (var k2 in fresh) { if (Object.prototype.hasOwnProperty.call(fresh, k2)) precomp[k2] = fresh[k2]; }
   return true;
 }
 
@@ -4524,8 +4454,8 @@ function _wfgSpxVoltageAt(pre, x) {
       兩者在比值上等價（同一個分母），這裡另外把每 frame 平均值也存下來供覆核。
 
    🔴 計算範圍（**與 Bruce 字面的「整段波形」不同，待裁示**）：
-      Vpix 的預計算是 viewport-lazy 的（`_wfgSpxWantExtent()` 只算到視窗右緣再往外
-      半個視窗），「整段波形」的資料**預設根本不存在**；要照字面做就得把上游 SD1 一路
+      Vpix 的預計算是 viewport 區段式的（v4.6.0 起 `_wfgAnalogWindow()` 只算視窗前後各
+      一段 pad），「整段波形」的資料**預設根本不存在**；要照字面做就得把上游 SD1 一路
       延伸到 totalLines，frameCount 上限 4096 時那是 4.6M line 的 per-line 陣列
       （settled／target／holdV／xstb×3／pol，約 30 bytes/line ≈ 138MB），與「不可以卡」
       直接衝突。
@@ -5136,9 +5066,27 @@ function _wfgSpxSamplesFromPrecomp(pre, gpio, viewStart, viewEnd, drawW) {
   return { initVoltage: initVoltage, samples: samples, smooth: true, skipRC: false, bandData: null, bandW: 0 };
 }
 
+/* v4.6.0：絕對行號 → 這份 precomp 陣列的**相對索引**，並夾在有效區間內。
+   有效區間是 [validFrom, computedExtent)，夾完再減 base。
+   單獨抽成函式的理由：這個轉換在 band 的四條分支各出現一次，寫錯任何一處就是
+   「畫得出來、值是別行的」靜默錯誤，抽出來才有單一改點。 */
+function _wfgClampRel(absLine, base, validFrom, precomp) {
+  var hi = (precomp.computedExtent != null ? precomp.computedExtent : (base + precomp.settled.length)) - 1;
+  var v = absLine;
+  if (v < validFrom) v = validFrom;
+  if (v > hi) v = hi;
+  var r = v - base;
+  if (r < 0) r = 0;
+  var maxR = (precomp.settled ? precomp.settled.length : 1) - 1;
+  if (r > maxR) r = maxR;
+  return r;
+}
+
 function _wfgEnsureLineMinMax(precomp, gpio) {
   if (precomp.lineMinMax) return precomp.lineMinMax;
-  var extent = precomp.computedExtent || (precomp.settled ? precomp.settled.length : 0);
+  // v4.6.0: 長度取陣列本身（＝視窗長度），不是 computedExtent（那是絕對行號）。
+  // 這兩個在區段式下不再相等，寫成 computedExtent 會配置整個前綴長度然後讀爆。
+  var extent = precomp.settled ? precomp.settled.length : 0;
   if (!extent || !precomp.settled) return null;
   var lmm = new Float32Array(extent * 2);
   var isSD = gpio && gpio.waveform_type === 1;
@@ -5157,43 +5105,62 @@ function _wfgEnsureLineMinMax(precomp, gpio) {
   return lmm;
 }
 
+/* min/max 金字塔。
+   🔴 v4.6.0 起每一層的分塊**以絕對行號對齊**（第 lvl 層的第 k 個元素恆等於絕對行
+      [k·2^lvl, (k+1)·2^lvl) 的 min/max），不是以陣列索引 0 對齊。
+
+   為什麼一定要這樣：`_wfgPyramidRangeMinMax()` 是**超取樣**近似 —— 它把像素範圍
+   向外擴到整數個區塊。分塊若跟著 base 漂移，同一個像素涵蓋到的行就會不同。
+   實測（治具 harness6，比 bandData 而不是比中間陣列）：只把索引改成相對、分塊仍
+   對齊索引 0 時，SD1 在 lpp≥16 的縮放層級最大差 **5.0 V**（band 全幅才 9.6 V），
+   360k 行視野下有 341 個像素不同 —— 肉眼直接看得到，而且逐陣列比對**完全抓不到**
+   （settled/target/holdV 一位元都沒差，差的是聚合方式）。 */
 function _wfgBuildMinMaxPyramid(precomp, gpio) {
-  var base = _wfgEnsureLineMinMax(precomp, gpio);
-  if (!base) return null;
-  if (precomp.minMaxPyramid && precomp.minMaxPyramidExtent === (precomp.computedExtent || 0)) {
+  var lmm = _wfgEnsureLineMinMax(precomp, gpio);
+  if (!lmm) return null;
+  // v4.6.0: 快取有效性要一併比對視窗起點 —— 換窗之後 extent 可能相同但 base 變了，
+  // 只比 extent 會留下用舊 base 建的金字塔（畫得出來、值對不上，典型靜默錯誤）。
+  if (precomp.minMaxPyramid && precomp.minMaxPyramidExtent === (precomp.computedExtent || 0)
+      && precomp.minMaxPyramidBase === (precomp.base || 0)) {
     return precomp.minMaxPyramid;
   }
-  var levels = [base];
-  var count = base.length >> 1;
-  var prev = base;
+  var pBase = precomp.base | 0;
+  var levels = [lmm];
+  var starts = [pBase];          // 第 lvl 層第 0 個元素對應的**絕對起始行**（必為 2^lvl 的倍數）
+  var count = lmm.length >> 1;
+  var prev = lmm, prevStart = pBase, prevBlock = 1;
   while (count > 1) {
-    var nextCount = Math.ceil(count / 2);
+    var block = prevBlock * 2;
+    var firstAbs = Math.floor(prevStart / block) * block;      // 對齊到下一層的區塊邊界
+    var lastAbs = prevStart + count * prevBlock - 1;
+    var nextCount = Math.floor(lastAbs / block) - (firstAbs / block) + 1;
     var next = new Float32Array(nextCount * 2);
-    for (var i = 0; i < nextCount; i++) {
-      var a = i * 4;
-      var mn = prev[a], mx = prev[a + 1];
-      if (i * 2 + 1 < count) {
-        var mn2 = prev[a + 2], mx2 = prev[a + 3];
-        if (mn2 < mn) mn = mn2;
-        if (mx2 > mx) mx = mx2;
-      }
-      next[i * 2] = mn;
-      next[i * 2 + 1] = mx;
+    for (var q = 0; q < nextCount; q++) { next[q * 2] = Infinity; next[q * 2 + 1] = -Infinity; }
+    for (var i = 0; i < count; i++) {
+      // 上一層第 i 個元素涵蓋絕對行 [prevStart + i*prevBlock, +prevBlock)
+      var abs = prevStart + i * prevBlock;
+      var k = ((abs - firstAbs) / block) | 0;
+      var p2 = k * 2, s2 = i * 2;
+      if (prev[s2] < next[p2]) next[p2] = prev[s2];
+      if (prev[s2 + 1] > next[p2 + 1]) next[p2 + 1] = prev[s2 + 1];
     }
     levels.push(next);
-    prev = next;
-    count = nextCount;
+    starts.push(firstAbs);
+    prev = next; prevStart = firstAbs; prevBlock = block; count = nextCount;
   }
-  precomp.minMaxPyramid = levels;
-  precomp.minMaxPyramidExtent = precomp.computedExtent || (base.length >> 1);
-  return levels;
+  var py = { levels: levels, starts: starts, base: pBase, count0: lmm.length >> 1 };
+  precomp.minMaxPyramid = py;
+  precomp.minMaxPyramidExtent = precomp.computedExtent || (pBase + (lmm.length >> 1));
+  precomp.minMaxPyramidBase = pBase;
+  return py;
 }
 
-function _wfgPyramidRangeMinMax(levels, start, end) {
-  var baseCount = levels && levels[0] ? (levels[0].length >> 1) : 0;
-  if (!baseCount) return null;
-  var s = Math.max(0, Math.floor(start));
-  var e = Math.min(baseCount - 1, Math.floor(end));
+/* start / end 為**絕對行號**（v4.6.0 起；舊版收的是陣列索引）。 */
+function _wfgPyramidRangeMinMax(py, start, end) {
+  if (!py || !py.levels || !py.count0) return null;
+  var levels = py.levels, starts = py.starts, pBase = py.base;
+  var s = Math.max(pBase, Math.floor(start));
+  var e = Math.min(pBase + py.count0 - 1, Math.floor(end));
   if (e < s) e = s;
   var len = e - s + 1;
   var lvl = 0, block = 1;
@@ -5201,9 +5168,12 @@ function _wfgPyramidRangeMinMax(levels, start, end) {
     lvl++;
     block *= 2;
   }
-  var arr = levels[lvl];
-  var bs = Math.floor(s / block);
-  var be = Math.floor(e / block);
+  var arr = levels[lvl], st = starts[lvl];   // st 必為 block 的倍數
+  var bs = Math.floor(s / block) - (st / block);
+  var be = Math.floor(e / block) - (st / block);
+  if (bs < 0) bs = 0;
+  var maxB = (arr.length >> 1) - 1;
+  if (be > maxB) be = maxB;
   var mn = Infinity, mx = -Infinity;
   for (var bi = bs; bi <= be; bi++) {
     var p = bi * 2;
@@ -5211,6 +5181,7 @@ function _wfgPyramidRangeMinMax(levels, start, end) {
     if (vMin < mn) mn = vMin;
     if (vMax > mx) mx = vMax;
   }
+  if (!isFinite(mn)) return null;
   return { min: mn, max: mx };
 }
 
@@ -5221,6 +5192,7 @@ function _wfgBuildFastBand(precomp, gpio, viewStart, viewEnd, drawW, totalLines)
   var levels = _wfgBuildMinMaxPyramid(precomp, gpio);
   if (!levels) return null;
   var lpp = drawW > 0 ? (viewEnd - viewStart) / drawW : 1;
+  // v4.6.0: _wfgPyramidRangeMinMax 收的是**絕對行號**（金字塔分塊本身就對齊絕對行）
   for (var px = 0; px < _bW; px++) {
     var pxS = Math.max(0, viewStart + px * lpp);
     var pxE = Math.min(totalLines - 1, viewStart + (px + 1) * lpp);
@@ -5240,29 +5212,32 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   // v3.8.0: Subpixel 走自己的段式資料結構（沒有 settled[]），在這裡分流出去
   if (gpio.waveform_type === 3) return _wfgSpxSamplesFromPrecomp(precomp, gpio, viewStart, viewEnd, drawW);
   var totalLines = precomp.totalLines;
-  // v2.97.11: viewport-based precomp — 如果 viewport 超出 computedExtent，同步延伸
+  /* v4.6.0: 視窗不夠用時**換窗重算**（舊版是往右 append 延伸）。
+     區段式的資料只涵蓋 [base, computedExtent)，往左捲同樣會出界 —— 所以這裡判的是
+     「兩邊都涵蓋得住嗎」，不是只判右界。 */
+  var neededStart = Math.max(0, Math.floor(viewStart) - 1);
   var neededEnd = Math.min(totalLines, Math.ceil(viewEnd) + 2);
-  if (precomp.computedExtent != null && neededEnd > precomp.computedExtent && precomp._lazyExtend) {
-    if (!_wfgContinuousMotion) {
-      var extTarget = Math.min(totalLines, neededEnd + Math.max(effVtotal, 100));
-      if (gpio.waveform_type === 1) _wfgExtendSdPrecomp(precomp, extTarget);
-      else if (gpio.waveform_type === 2) _wfgExtendLsPrecomp(precomp, extTarget);
-    }
+  if (!_wfgPrecompCovers(precomp, neededStart, neededEnd) && !_wfgContinuousMotion) {
+    _wfgRewindowPrecomp(precomp, gpio);
   }
+  var _pb = precomp.base | 0;              // 陣列索引原點（絕對行號）
+  var _pv = (precomp.validFrom != null) ? precomp.validFrom : 0;  // 可信起點
   var settled = precomp.settled;
   var ac = gpio.analog_config;
   var lpp = drawW > 0 ? (viewEnd - viewStart) / drawW : 1;
   var visibleLines = viewEnd - viewStart;
   var startLine = Math.max(0, Math.floor(viewStart) - 1);
   var endLine = Math.min(totalLines - 1, Math.ceil(viewEnd) + 1);
-  // Clamp to computed extent
+  // Clamp to the computed window（v4.6.0：下界改成 validFrom，暖機區不得取用）
   if (precomp.computedExtent != null) {
     endLine = Math.min(endLine, precomp.computedExtent - 1);
   }
+  if (startLine < _pv) startLine = _pv;
   if (startLine > endLine) startLine = endLine;
   var isSD = gpio.waveform_type === 1;
   var isLS = gpio.waveform_type === 2;
-  var initVoltage = (startLine > 0 && startLine < settled.length) ? settled[startLine] : (settled[0] || 0);
+  var initVoltage = (startLine - _pb > 0 && startLine - _pb < settled.length)
+    ? settled[startLine - _pb] : (settled[0] || 0);
   var RC_PTS = precomp.rcPts || 20;
 
   // ═══ Path 1: Close zoom (≤ 500 lines visible) — real-time high-density RC ═══
@@ -5283,14 +5258,15 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
       var _ucPerLine = precomp.xstbPerLine;
       var _ucFracPerLine = precomp.xstbFracPerLine;
       for (var L = startLine; L <= endLine; L++) {
-        var hV = _ucHoldV ? _ucHoldV[L] : (L > 0 ? settled[L - 1] : settled[0]);
+        var Lr = L - _pb;   // v4.6.0: 相對索引
+        var hV = _ucHoldV ? _ucHoldV[Lr] : (Lr > 0 ? settled[Lr - 1] : settled[0]);
 
         // Check if this line has XSTB falling
-        var lineHasFalling = _ucPerLine && _ucPerLine[L];
+        var lineHasFalling = _ucPerLine && _ucPerLine[Lr];
 
         // No XSTB falling on this line → continuous RC toward current target
         if (_ucNoFalling || !lineHasFalling) {
-          var noFallTgt = precomp.target[L];
+          var noFallTgt = precomp.target[Lr];
           if (Math.abs(noFallTgt - hV) > 0.001) {
             var rcTau = (noFallTgt >= hV) ? _ucTauR : _ucTauF;
             var numPts = Math.max(12, Math.round(pixelsPerLine));
@@ -5306,14 +5282,14 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
         }
 
         // Has XSTB falling → use per-line fracDly
-        var _ucDlyL = _ucFracPerLine ? _ucFracPerLine[L] : _ucDly;
-        var tgtV = precomp.target[L];
+        var _ucDlyL = _ucFracPerLine ? _ucFracPerLine[Lr] : _ucDly;
+        var tgtV = precomp.target[Lr];
         var eventX = L + _ucDlyL;
 
         // ─ Segment 1: continuing RC from previous period (line start → XSTB↓) ─
-        if (_ucDlyL > 0.01 && L > 0) {
-          var prevTgt = precomp.target[L - 1];
-          var prevHoldV = _ucHoldV ? _ucHoldV[L - 1] : (L > 1 ? settled[L - 2] : settled[0]);
+        if (_ucDlyL > 0.01 && Lr > 0) {
+          var prevTgt = precomp.target[Lr - 1];
+          var prevHoldV = _ucHoldV ? _ucHoldV[Lr - 1] : (Lr > 1 ? settled[Lr - 2] : settled[0]);
           var seg1Tau = (prevTgt >= prevHoldV) ? _ucTauR : _ucTauF;
           var seg1Diff = prevHoldV - prevTgt;
           if (Math.abs(seg1Diff) > 0.001) {
@@ -5424,20 +5400,21 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     for (var px = 0; px < _bW; px++) {
       var pxSF = viewStart + px * lpp;
       var pxEF = viewStart + (px + 1) * lpp;
-      var lineS = Math.max(0, Math.floor(pxSF));
+      var lineS = Math.max(_pv, Math.floor(pxSF));      // v4.6.0: 下界＝可信起點
       var lineE = Math.min(totalLines - 1, Math.floor(pxEF));
       var bMin = Infinity, bMax = -Infinity;
       for (var line = lineS; line <= lineE; line++) {
         if (line >= precomp.computedExtent) break;
+        var lr = line - _pb;    // v4.6.0: 相對索引
         var fracS = (line === lineS) ? Math.max(0, pxSF - line) : 0;
         var fracE = (line === lineE) ? Math.min(1, pxEF - line) : 1;
         var siS = Math.max(0, Math.floor(fracS * RC_PTS));
         var siE = Math.min(RC_PTS - 1, Math.ceil(fracE * RC_PTS));
 
-        if (!_sdPerLine || !_sdPerLine[line]) {
+        if (!_sdPerLine || !_sdPerLine[lr]) {
           // No XSTB falling → continuous RC toward target
-          var nfTgt = _sdTarget[line];
-          var nfHold = _sdHoldV[line];
+          var nfTgt = _sdTarget[lr];
+          var nfHold = _sdHoldV[lr];
           if (Math.abs(nfTgt - nfHold) < 0.001) {
             // Settled — flat
             if (nfTgt < bMin) bMin = nfTgt;
@@ -5453,12 +5430,12 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
           }
         } else {
           // Has XSTB falling → segment 1/2 split
-          var seg1Tgt = (line > 0) ? _sdTarget[line - 1] : _sdTarget[0];
-          var seg1Hold = (line > 0) ? _sdHoldV[line - 1] : _sdHoldV[0];
+          var seg1Tgt = (lr > 0) ? _sdTarget[lr - 1] : _sdTarget[0];
+          var seg1Hold = (lr > 0) ? _sdHoldV[lr - 1] : _sdHoldV[0];
           var seg1Diff = seg1Hold - seg1Tgt;
           var seg1Exp = (seg1Tgt >= seg1Hold) ? _sdBR : _sdBF;
-          var seg2Tgt = _sdTarget[line];
-          var seg2Hold = _sdHoldV[line];
+          var seg2Tgt = _sdTarget[lr];
+          var seg2Hold = _sdHoldV[lr];
           var seg2Diff = seg2Hold - seg2Tgt;
           var seg2Exp = (seg2Tgt >= seg2Hold) ? _sdAR : _sdAF;
           for (var si = siS; si <= siE; si++) {
@@ -5473,7 +5450,7 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
           }
         }
       }
-      if (!isFinite(bMin)) { bMin = bMax = settled[Math.max(0, Math.min(totalLines - 1, lineS))]; }
+      if (!isFinite(bMin)) { bMin = bMax = settled[_wfgClampRel(lineS, _pb, _pv, precomp)]; }
       bandData[px * 2] = bMin;
       bandData[px * 2 + 1] = bMax;
       if (bMin < bandVMin) bandVMin = bMin;
@@ -5485,22 +5462,22 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     for (var px = 0; px < _bW; px++) {
       var pxSF = viewStart + px * lpp;
       var pxEF = viewStart + (px + 1) * lpp;
-      var lineS = Math.max(0, Math.floor(pxSF));
-      var lineE = Math.min(totalLines - 1, Math.floor(pxEF));
+      var lineS = Math.max(_pv, Math.floor(pxSF));                                 // v4.6.0
+      var lineE = Math.min(totalLines - 1, precomp.computedExtent - 1, Math.floor(pxEF));
       var bMin = Infinity, bMax = -Infinity;
       for (var line = lineS; line <= lineE; line++) {
         var fracS = (line === lineS) ? Math.max(0, pxSF - line) : 0;
         var fracE = (line === lineE) ? Math.min(1, pxEF - line) : 1;
         var siS = Math.max(0, Math.floor(fracS * RC_PTS));
         var siE = Math.min(RC_PTS - 1, Math.ceil(fracE * RC_PTS));
-        var base = line * RC_PTS;
+        var base = (line - _pb) * RC_PTS;    // v4.6.0: 相對索引
         for (var si = siS; si <= siE; si++) {
           var v = rcs[base + si];
           if (v < bMin) bMin = v;
           if (v > bMax) bMax = v;
         }
       }
-      if (!isFinite(bMin)) { bMin = bMax = settled[Math.max(0, Math.min(totalLines - 1, lineS))]; }
+      if (!isFinite(bMin)) { bMin = bMax = settled[_wfgClampRel(lineS, _pb, _pv, precomp)]; }
       bandData[px * 2] = bMin;
       bandData[px * 2 + 1] = bMax;
       if (bMin < bandVMin) bandVMin = bMin;
@@ -5510,8 +5487,8 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
     // LS channels zoomed out: per-line min/max
     var lmm = precomp.lineMinMax;
     for (var px = 0; px < _bW; px++) {
-      var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
-      var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
+      var pxS = _wfgClampRel(Math.floor(viewStart + px * lpp), _pb, _pv, precomp);          // v4.6.0
+      var pxE = _wfgClampRel(Math.floor(viewStart + (px + 1) * lpp), _pb, _pv, precomp);
       var bMin = lmm[pxS * 2], bMax = lmm[pxS * 2 + 1];
       for (var k = pxS + 1; k <= pxE; k++) {
         if (lmm[k * 2] < bMin) bMin = lmm[k * 2];
@@ -5525,8 +5502,8 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
   } else {
     // Fallback: settled[] direct scan
     for (var px = 0; px < _bW; px++) {
-      var pxS = Math.max(0, Math.floor(viewStart + px * lpp));
-      var pxE = Math.min(totalLines - 1, Math.floor(viewStart + (px + 1) * lpp));
+      var pxS = _wfgClampRel(Math.floor(viewStart + px * lpp), _pb, _pv, precomp);          // v4.6.0
+      var pxE = _wfgClampRel(Math.floor(viewStart + (px + 1) * lpp), _pb, _pv, precomp);
       var bMin = settled[pxS], bMax = settled[pxS];
       for (var k = pxS + 1; k <= pxE; k++) {
         var sv = settled[k];
