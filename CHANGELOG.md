@@ -22,6 +22,91 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.5.2 — 2026-08-22 ｜ PATCH
+
+**修「知道了」小卡片按了開始編輯還留著、卡片改值沒寫回實際欄位、以及連動慢半拍。**
+
+判定依據：三項都是 R1（讓行為回到本來就該是這樣）→ PATCH。沒有新增能力。
+
+### C 🔴「知道了」小卡片殘留 —— 根因是 CSS 少一條規則，拆除函式是**空砲**
+
+Bruce：「要是這個時候我沒有按『知道了』，而是直接按『開始編輯』，那個『知道了』的小卡片就會一直留在那邊。」
+
+`wfgAckClose()` 明明有呼叫 `wfgSpotEnd()`，`wfgSpotEnd()` 也明明有
+`bar.classList.add('hidden')` —— **但全站沒有全域 `.hidden { display:none }`，每個元素都要自己寫一條，
+而 `.wfg-spot-bar.hidden` 這一條我漏了。**
+所以那行 `classList.add('hidden')` 從頭到尾**沒有任何作用**。
+
+「加進拆除函式」≠「真的拆掉」。我上一版回報「『回到設定』整條拿掉，自然消失」是**沒有驗證的推論**，而且是錯的。
+
+**修法（兩層）**
+1. 補上 `.wfg-spot-bar.hidden { display: none; }`。
+2. 用腳本**盤點全檔所有帶 `hidden` 的 class**，逐一確認有對應的 CSS 規則：
+
+```
+wfg-ack-err / wfg-ack-mask / wfg-code-cks / wfg-frmno-approx /
+wfg-import-filename / wfg-spot            → 都有
+wfg-spot-bar                              → 🔴 沒有（本次補上）
+wfg-la-hidden-inputs                      → 用 inline style="display:none"，不受影響
+全域 .hidden 規則                          → 不存在
+```
+
+3. 新增 `wfgSpotIsActive()`，它看的是**電腦算出來的實際可見性**（`getComputedStyle` ＋ `getBoundingClientRect`），
+   **不是 class 名稱** —— class 沒作用時它會照樣回報「還在」，驗收腳本才擋得住這種空砲。
+
+### B 卡片改值沒寫回實際欄位
+
+`oninput` 只綁了 `wfgAckSync()`（純驗證與上色），真正的寫回在 `onblur`。
+在卡片裡打完字沒離開欄位 ⇒ 什麼都沒寫出去。
+**修法：`oninput` 直接綁 `wfgAckCommit()`**，打字當下就寫回。
+
+### A 連動慢半拍
+
+實際欄位的 `#wfg-dclk` 是 `onchange`（要離開欄位才觸發），所以「在現場改 → 卡片更新」會等到 blur。
+**修法：文件層級的捕獲式委派**，`input` 事件當下先鏡射到卡片（只複製、不重算），
+`change` 時再以程式端的真值覆寫。
+
+🔴 **為什麼用委派而不是在 `#wfg-dclk` 上加 inline `oninput`**：Frame 卡片會被重繪，
+重繪後 inline 屬性跟著新元素走。第一版我加的 inline `oninput` 就是這樣在某些順序下失效的。
+
+### 驗收（這次全部是腳本斷言，不看截圖）
+
+**1) 四種同步組合 ＝ {聚光燈 開／關} × {改動來源 卡片／實際欄位}**
+
+| 聚光燈 | 來源 | 前 | 後 | |
+|---|---|---|---|---|
+| 關 | 卡片 | live 74.25/6、card 74.25/6 | **live 188/12、card 188/12** | PASS |
+| 關 | 實際欄位 | live 188/12、card 188/12 | **live 199/13、card 199/13** | PASS |
+| **開** | **卡片** | live 199/13、card 199/13 | **live 188/12、card 188/12** | PASS |
+| 開 | 實際欄位 | live 188/12、card 188/12 | **live 199/13、card 199/13** | PASS |
+
+**2) 殘留檢查（四條關閉路徑，全部 `visibleCount` 必須為 0）**
+
+選擇器：`#wfg-spot, #wfg-spot-bar, #wfg-spot-t, #wfg-spot-b, #wfg-spot-l, #wfg-spot-r, #wfg-spot-ring, #wfg-ack-mask, .wfg-ack`
+（判定用 `getComputedStyle` ＋ rect，不是 class 名稱）
+
+| 路徑 | visibleCount | spotActive | maskHasSpot |
+|---|---:|---|---|
+| **匯入 → 帶我去 → 不按知道了 → 按開始編輯**（Bruce 的路徑） | **0** | false | false |
+| 匯入 → 帶我去 → 按知道了 → 按開始編輯 | **0** | false | false |
+| 匯入 → 直接按開始編輯（沒開過聚光燈） | **0** | false | false |
+| 匯入 → 帶我去 dclk → 再帶我去 linebuf → 按開始編輯 | **0** | false | false |
+
+**3) 連動延遲**：兩個方向都是同步呼叫，量到 **0.1 ～ 0.2 ms**。
+
+### 🔴 我的驗收腳本自己誤報了一次，記下來
+
+四種組合第一次跑，「聚光燈關／改動來源＝實際欄位」報 FAIL（card 停在舊值）。
+追下去發現**不是產品的 bug，是我的腳本**：它直接對元素 `dispatchEvent` 而**沒有先 `focus()`**。
+程式端有「使用者正在編輯的那一格不被覆寫」的保護（`document.activeElement` 判斷），
+而真人要打字必然先點進那一格 —— 腳本製造了一個**真人做不到的情境**。
+
+修法：`typ()` 一律先 `focus()`、事後 `blur()`。
+與 [先前那條「讀碼定位到根因 ≠ Bruce 遇到的那個，要走使用者真正的操作路徑」] 同型 ——
+**斷言要建立在真人走得到的路徑上，否則抓到的是自己造的假 bug。**
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.5.1 — 2026-08-22 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修 Bruce 實測回報的三個問題：值沒同步、卡片不該消失、值本來就對時按鈕不啟用。**

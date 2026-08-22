@@ -221,6 +221,11 @@
   .wfg-spot-tx { font-size: 12px; font-weight: 700; color: #fbbf24; }
   .wfg-spot-back { padding: 6px 14px; border-radius: 7px; font-size: 12.5px; font-weight: 800;
                    background: #f59e0b; border: 1px solid #f59e0b; color: #0f172a; cursor: pointer; }
+  /* 🔴 v4.5.2：這一行原本**不存在**，所以 `bar.classList.add('hidden')` 是**完全沒有作用的**——
+     拆除函式明明有把它加進去，畫面上卻永遠拆不掉（Bruce 實測：按「開始編輯」後小卡片留著）。
+     全站沒有全域 `.hidden { display:none }`，每個元素都要自己寫一條；
+     我加 .wfg-spot-bar 時漏了。已用腳本盤點全檔所有帶 hidden 的 class，其餘都有規則。 */
+  .wfg-spot-bar.hidden { display: none; }
   .wfg-spot-back:hover { background: #fbbf24; }
   .wfg-ack-ft { padding: 12px 16px 14px; display: flex; align-items: center; gap: 10px;
                 justify-content: space-between; flex-wrap: wrap; }
@@ -2106,7 +2111,7 @@
               <span class="wfg-ack-arrow" aria-hidden="true">→</span>
               <input type="number" class="wfg-ack-input" id="wfg-ack-dclk-in" step="any" min="0.1"
                      onblur="wfgAckCommit('dclk')" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
-                     oninput="wfgAckSync()">
+                     oninput="wfgAckCommit('dclk')">
               <span class="wfg-ack-unit">MHz</span>
               <button type="button" class="wfg-ack-go" onclick="wfgAckGoto('dclk')" data-i18n="wfg.ackGoto">帶我去 →</button>
             </div>
@@ -2123,7 +2128,7 @@
               <span class="wfg-ack-arrow" aria-hidden="true">→</span>
               <input type="number" class="wfg-ack-input" id="wfg-ack-lb-in" step="1" min="0" max="15"
                      onblur="wfgAckCommit('linebuf')" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
-                     oninput="wfgAckSync()">
+                     oninput="wfgAckCommit('linebuf')">
               <button type="button" class="wfg-ack-go" onclick="wfgAckGoto('linebuf')" data-i18n="wfg.ackGoto">帶我去 →</button>
             </div>
             <div class="wfg-ack-err hidden" id="wfg-ack-lb-err"></div>
@@ -2137,8 +2142,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260822wfg451"></script>
-<script src="common/i18n.js?v=20260822wfg451"></script>
+<script src="common/version.js?v=20260822wfg452"></script>
+<script src="common/i18n.js?v=20260822wfg452"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -34384,6 +34389,35 @@ function wfgAckPullFromLive() {
   if (_wfgSpotTarget) wfgSpotLayout();
 }
 window.wfgAckPullFromLive = wfgAckPullFromLive;
+/* v4.5.2：TCON DCLK 那個實際欄位是 `onchange`（要離開欄位才觸發），所以「在現場改 → 卡片更新」
+   會慢半拍。這裡多掛一個 `oninput` **只做鏡射、不做重算**（重算仍留給 onchange），
+   於是打字當下卡片就跟上，而每個按鍵都重算波形的代價不會被引入。 */
+function wfgAckMirrorLive(which) {
+  if (_wfgAckPushing || !wfgAckIsOpen()) return;   // 卡片正在寫回時不要反向覆寫
+  var src = document.getElementById(which === 'dclk' ? 'wfg-dclk' : 'wfg-linebuf');
+  var dst = document.getElementById(which === 'dclk' ? 'wfg-ack-dclk-in' : 'wfg-ack-lb-in');
+  if (!src || !dst || document.activeElement === dst) return;
+  if (dst.value === src.value) return;
+  dst.value = src.value;
+  wfgAckSync();
+}
+window.wfgAckMirrorLive = wfgAckMirrorLive;
+/* 🔴 v4.5.2：這裡刻意用**文件層級的捕獲式委派**，不是在 `#wfg-dclk` 上掛 inline `oninput`。
+   理由是實測抓到的：Frame 卡片會被重繪（wfgScheduleFrameParamRender 等路徑），
+   重繪後 inline 屬性就跟著新元素走 —— 我第一版加的 `oninput="wfgAckMirrorLive('dclk')"`
+   在「先在卡片改、再回到實際欄位改」的順序下就失效了（驗收腳本的四種組合抓到，Bruce 沒提到這條）。
+   委派掛在 document 上，元素被換掉幾次都不受影響。 */
+(function() {
+  function _relay(e) {
+    var id = e.target && e.target.id;
+    if (id !== 'wfg-dclk' && id !== 'wfg-linebuf') return;
+    var which = (id === 'wfg-dclk') ? 'dclk' : 'linebuf';
+    wfgAckMirrorLive(which);                 // 打字當下就鏡射（不重算）
+    if (e.type === 'change') wfgAckPullFromLive();   // 值定案後，以程式端的真值為準
+  }
+  document.addEventListener('input', _relay, true);
+  document.addEventListener('change', _relay, true);
+})();
 /* 回傳 {ok, val, err}。err 是已翻譯好的字串。 */
 function wfgAckValidate(which) {
   var el = document.getElementById(which === 'dclk' ? 'wfg-ack-dclk-in' : 'wfg-ack-lb-in');
@@ -34511,8 +34545,33 @@ function _wfgSpotOnMove() {
   if (_wfgSpotRaf) return;
   _wfgSpotRaf = requestAnimationFrame(_wfgSpotTick);
 }
+/* ══ v4.5.2：聚光燈的組成收斂成一對函式，拆除只有這一個入口 ═════════════════
+   組成有五樣：四片遮罩(#wfg-spot)、提示列(#wfg-spot-bar)、目標框(#wfg-spot-ring，
+   在 #wfg-spot 內)、兩個事件監聽(scroll/resize)、以及主遮罩上的 `.spot` 狀態 class。
+   🔴 **v4.5.1 的 bug 就是「加進拆除函式」不等於「真的拆掉」** ——
+   `.wfg-spot-bar` 當時沒有對應的 `.hidden` CSS 規則，那一行是空砲。
+   所以除了修 CSS，這裡再提供 `wfgSpotIsActive()`：它看的是**電腦算出來的實際可見性**
+   （offsetParent / getBoundingClientRect），不是 class 名稱 ——
+   class 沒作用時它會照樣回報「還在」，驗收腳本才擋得住。 */
+function _wfgVisible(el) {
+  if (!el) return false;
+  if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+  if (getComputedStyle(el).display === 'none') return false;
+  var r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+function wfgSpotIsActive() {
+  var m = document.getElementById('wfg-ack-mask');
+  if (_wfgVisible(document.getElementById('wfg-spot'))) return true;
+  if (_wfgVisible(document.getElementById('wfg-spot-bar'))) return true;
+  if (m && m.classList.contains('spot')) return true;
+  if (_wfgSpotTarget) return true;
+  return false;
+}
+window.wfgSpotIsActive = wfgSpotIsActive;
 function wfgSpotEnd() {
   _wfgSpotTarget = null;
+  if (_wfgSpotRaf) { cancelAnimationFrame(_wfgSpotRaf); _wfgSpotRaf = 0; }
   window.removeEventListener('scroll', _wfgSpotOnMove, true);
   window.removeEventListener('resize', _wfgSpotOnMove);
   var sp = document.getElementById('wfg-spot');
