@@ -22,6 +22,124 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.0.3 — 2026-08-22 ｜ PATCH ｜ ⚠ 輸出變更
+
+**匯入時把 GATE TYPE 一併帶入（讀 code 裡的 register），通道名稱一律大寫。**
+
+### ① 🔴 先更正我自己的說法
+
+我上一輪把 CK8 沒有波形說成「這顆很可能是 Dual Gate，所以 CK8 畫不出來」。
+Bruce 打回來是對的：**這與「CK8 是什麼訊號」完全無關。**
+每一條 GPIO 都能造任意波形，CK7/CK8 要當 CK、要當 POL 給 Driver 都可以。
+程式裡**沒有、也不准有**任何「某條訊號只能做什麼」的特判。
+
+真正的原因只有一句：**那個行號在目前 frame 的行數裡不存在。**
+
+### ② 分辨兩種假設的對照實驗（先做這個，結論才站得住）
+
+同一份 code、同一個 frame 行數（Single，effVtotal ＝ 1486）下，2 個 frame 內的邊緣數：
+
+| 訊號 | st_line | sp_line | 邊緣數 | 判讀 |
+|---|---:|---:|---:|---|
+| ck1 | 9 | 2893 | **5909** | st 在 frame 內 → 畫得出來（sp 被夾到 1485，等於畫到 frame 結束） |
+| ck2 | 13 | 2897 | **5893** | 同上 |
+| **ck8** | **2898** | **2898** | **1** | 只有 frame 邊界的準位標記，不是脈衝 |
+| **tend** | **2905** | 2905 | **1** | 同上 |
+| LC | 2904 | 0 | 3 | toggle 模式不走同一條閘門 |
+
+⇒ **分界是「st_line 有沒有落在 frame 行數內」，不是 `st_line == sp_line`。**
+把行數改成 2972 之後，**同樣 `st==sp==2898` 的 ck8 產生 5 個邊緣** ——
+這直接證明 `st_line == sp_line` 本身沒有問題。
+
+（WFG 的閘門是 `st = max(0, st_line)` / `sp = min(effVtotal−1, sp_line)`；
+st(2898) > sp(1485) 時閘門一次都打不開。）
+
+### ③ Gate Type 的 register：找到了，不是猜的
+
+Bruce 說「bin 檔或 Excel 裡一定有一個參數跟 Dual/Single Gate 相關」——確實有：
+
+| 項目 | 內容 |
+|---|---|
+| 欄位 | **`reg_rd_mode`** |
+| 位置 | `rt8_tcon_1` rel **0x004**，**bit[7:6]** ⇒ 絕對 register **0x0504** |
+| Excel 說明 | `Read mode. 0: 1D1G  1: HSD (dual-gate)  2: LTPS (tri-gate)` |
+| 檔案 offset | `base1 + 0x04`（本批樣本 ＝ 0x0444） |
+
+（另有 `rt7_data_proc` 0x000 bit[2:1] `reg_panel_mode`，說明同樣是
+`0: 1D1G / 1: dual-gate / 2: tri-gate`，但**在 118 個樣本裡全部是 1D1G**，不是判別欄位。）
+
+**118 個樣本的交叉驗證**（用 Bruce 給的經驗法則當對照組：
+「有 stop line（排除 16383）> 2×VACTIVE ⇒ 很可能是 Dual」）：
+
+| `reg_rd_mode` | 檔數 |
+|---|---:|
+| `HSD dual-gate` | 71 |
+| `1D1G` | 46 |
+
+**與經驗法則的一致率 117/117 ＝ 100.0%。** 所以是讀 register，經驗法則只用來交叉驗證。
+
+Bruce 指定的那個檔（`…CKS_02A91A.bin`）：`reg_rd_mode = 1 (HSD dual-gate)`，
+VACTIVE 1440 / VBLANK 46 ⇒ VTOTAL 1486，Dual 之下 effVtotal ＝ 2972。
+
+**修法**：GATE TYPE 本來就是 Frame 參數卡片的欄位，匯入時就該跟
+HACTIVE / VACTIVE / HBLANK / VBLANK 一起帶入。現在照 `reg_rd_mode` 帶入，
+`tri-gate` 目前 WFG 沒有對應選項 → 當 single 處理（並在匯入訊息顯示 `rd_mode=2` 供辨識）。
+
+**匯出不寫這個 register**：WFG 的畫面上沒有讓使用者編輯 `reg_rd_mode` 的地方
+（Frame 卡片的 GATE TYPE 是顯示用途），寫出去等於推一個使用者沒選過的值到晶片。
+要不要一併寫出，請 Bruce 裁示。
+
+另外新增：匯入後若仍有 enable 的訊號其 st/sp 超出 frame 行數（code 裡殘留的舊值），
+**在匯入訊息裡明白列出**，不再像 v4.0.2 那樣安靜地消失。
+
+### ④ 通道名稱一律大寫
+
+Bruce：「訊號名稱都用大寫吧！你這樣才會跟數位訊號卡片裡面的名稱一致，不用分什麼大小寫。」
+（我上一輪寫成「LC 大寫、其餘小寫」，作廢。）
+而且 v4.0.2 只覆蓋**新建**通道的名稱，既有通道沿用站上的舊名 —— Bruce 實測看到 `vs` 顯示成 `STV0`。
+現在**無論新舊一律覆蓋**成 `WFG_GPIO_NAMES[g].toUpperCase()`。
+
+### 驗收（`RESULT V2: PASS`）
+
+前置：先載 `FHD 60Hz Single Gate(LS：Dual CPV)` preset，
+此時通道名稱是站上的舊命名 `VST1, VST2, XSTB, XPOL, CPV1, CPV2, LC, SD1, CKO1…`，
+GATE TYPE = single、VTOTAL = 1112。
+
+匯入 `…CKS_02A91A.bin` 之後（匯入訊息：`GPO @0x440 / CKS 0x2A91A / GATE DUAL (rd_mode=1)`）：
+
+- **通道名稱**：`XSTB, XPOL, VST1, VST2, CK1, CK2, CK3, CK4, CK5, CK6, CK7, CK8, LC, TEND, VS, HS, GPO0, GPO1`
+  —— 18 條全大寫、無 STV0／CPV1 等舊名。
+- **GATE TYPE**：single → **dual**（VTOTAL 1486 ⇒ effVtotal 2972）。
+- **每一條 enable 的訊號都畫得出波形**：
+
+| 訊號 | st_line | sp_line | 邊緣數（2 frame） |
+|---|---:|---:|---:|
+| xstb | 8 | 16383 | 11857 |
+| xpol | 0 | 0 | 5 |
+| vst1 | 5 | 5 | 5 |
+| vst2 | 0 | 0 | 6 |
+| ck1 | 9 | 2893 | 11541 |
+| ck2 | 13 | 2897 | 11541 |
+| **ck8** | **2898** | **2898** | **5**（原本 1） |
+| LC | 2904 | 0 | 3 |
+| **tend** | **2905** | 2905 | **5**（原本 1） |
+| vs | 0 | 16383 | 11891 |
+
+- 截圖（視野 line 2880.9～2915.1）看得到 **CK8 在 2898 有一個完整脈衝**，VST2、TEND 也各自有脈衝。
+- 不得回歸：輸出通道打開的仍是那 10 條、18 條數位仍排最前面。
+
+### ⚠ 輸出變更
+
+匯入現在會改動 Frame 卡片的 **GATE TYPE**，並覆蓋所有通道名稱。
+同一個 .bin 在 v4.0.2 與 v4.0.3 匯入後的畫面不同，舊基線要重建。
+
+**判定依據：** `docs/VERSIONING.md` §2 案例 2「改一個 bug → PATCH」——
+GATE TYPE 本來就該跟其他 Frame 參數一起帶入、通道名稱本來就該全部覆蓋，
+兩項都是修正為應有行為，不是主動改設計。依 R1 輸出會變 → 掛 `⚠ 輸出變更`，級別仍 **PATCH**。
+R2：在 v4.0.0 開的那一波內，依自身性質判定，**不進 MAJOR**。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.0.2 — 2026-08-22 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修 v4.0.1 的「輸出通道卡片幾乎全是空白列」，並更正 OAX 的位元切法。**

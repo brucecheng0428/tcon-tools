@@ -1962,8 +1962,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg402"></script>
-<script src="common/i18n.js?v=20260822wfg400"></script>
+<script src="common/version.js?v=20260822wfg403"></script>
+<script src="common/i18n.js?v=20260822wfg403"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -34167,12 +34167,57 @@ function wfgEm02ParseBin(buf, fname) {
     hblank:  buf[0x17] | (buf[0x18] << 8),          // reg_tmg_hblk
     vblank:  buf[0x19] | (buf[0x7E] << 8)           // reg_tmg_vblk + _msb
   } : null;
+  /* ══ v4.0.3：Panel / Gate 模式 ═══════════════════════════════════════════
+     Bruce 回報「CK8 設定都對、輸出通道也開著，波形區卻沒有波形」。
+
+     🔴 先講清楚根因，因為我上一輪的說法會誤導人：**這與「CK8 是什麼訊號」無關。**
+     每一條 GPIO 都能造任意波形，CK7/CK8 想當 CK、當 POL 給 Driver 都可以，
+     程式裡不存在、也不准存在任何「某條訊號只能做什麼」的特判。
+
+     真正的原因只有一句：**那個行號在目前 frame 的行數裡不存在。**
+     CK8 的 `st_line = 2898`，而 VACTIVE 1440 ＋ VBLANK 46 ＝ 1486 行。
+     WFG 的閘門是 `st = max(0, st_line)` / `sp = min(effVtotal−1, sp_line)`，
+     st(2898) > sp(1485) ⇒ 閘門一次都打不開。
+
+     **對照組（實測，能分辨兩種假設）**：同一份 code、同一個 frame 行數下，
+       ck1 (st 9,  sp 2893) → 5909 個邊緣  ← st 在 frame 內，畫得出來
+       ck2 (st 13, sp 2897) → 5893 個邊緣  ← 同上
+       ck8 (st 2898)        → 1 個（只有 frame 邊界的準位標記，不是脈衝）
+       tend(st 2905)        → 1 個
+     ⇒ 分界是 **st_line 有沒有落在 frame 行數內**，不是 `st_line == sp_line`。
+     把行數改成 2972 之後，同樣 `st==sp==2898` 的 ck8 產生 5 個邊緣 ——
+     這直接證明 `st==sp` 本身沒問題。
+
+     決定行數的是 Frame 參數裡的 GATE TYPE，而它**在 code 裡有對應的 register**：
+       `reg_rd_mode`（`rt8_tcon_1` rel 0x004 bit[7:6]，絕對位址 0x0504）
+       Excel 說明：`Read mode. 0: 1D1G  1: HSD (dual-gate)  2: LTPS (tri-gate)`
+     掃 118 個樣本交叉驗證：`rd_mode = dual-gate` 的 71 個檔**全部**行號超過 1×VTOTAL；
+     `rd_mode = 1D1G` 的 47 個檔有 44 個行號落在 1×VTOTAL 內（另外 3 個是 code 裡殘留的
+     舊值，見下面的 overflow 提示）。所以這是讀 register，不是猜。 */
+  var _rdMode = (base1 + 0x04 < buf.length) ? ((buf[base1 + 0x04] >> 6) & 3) : 0;
+  var gateType = (_rdMode === 1) ? 'dual' : 'single';
+  var _vt = (frame && frame.vactive > 0 && frame.vblank > 0) ? (frame.vactive + frame.vblank) : 0;
+  var overflow = [];
+  if (_vt > 0) {
+    /* 連目前行數都放不下的，多半是 code 裡殘留的舊值 —— 那幾條畫不出來是事實，
+       但要**講出來**，不能像 v4.0.2 那樣安靜地消失。 */
+    var _eff = (gateType === 'dual') ? _vt * 2 : _vt;
+    for (var _si2 = 0; _si2 < hit[0].sig.length; _si2++) {
+      var _s2 = hit[0].sig[_si2];
+      if (!_s2.enable) continue;
+      var _mx2 = _s2.st_line;
+      if (_s2.sp_line !== 16383 && _s2.sp_line > _mx2) _mx2 = _s2.sp_line;
+      if (_mx2 > _eff - 1) overflow.push(_s2.name + '(' + _mx2 + ')');
+    }
+  }
   var det = 'GPO @0x' + base1.toString(16).toUpperCase();
   if (hit[0].cand.off_names.length) det += ' (' + t('wfg.codeChunkOff') + ': ' + hit[0].cand.off_names.join(', ') + ')';
   var cks = 0; for (var b = 0; b < buf.length; b++) cks += buf[b];
   det += ' / CKS 0x' + (cks & 0xFFFFFF).toString(16).toUpperCase();
+  det += ' / GATE ' + gateType.toUpperCase() + ' (rd_mode=' + _rdMode + ')';
+  if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
   return { ok: true, signals: hit[0].sig, frame: frame, base1: base1,
-           applied: 18, detail: det };
+           gateType: gateType, applied: 18, detail: det };
 }
 
 /* ══ EM02 匯出 .script ═════════════════════════════════════════════════════
@@ -34263,6 +34308,15 @@ function wfgCodeApplyToWfg(res) {
     if (res.frame.vactive > 0) wfgFrame.vactive = res.frame.vactive;
     if (res.frame.hblank > 0) wfgFrame.htotalBase = res.frame.hactive + res.frame.hblank;
     if (res.frame.vblank > 0) wfgFrame.vtotal = res.frame.vactive + res.frame.vblank;
+    /* v4.0.3：GATE TYPE 也要帶進來。不帶的話，行號 > VTOTAL 的訊號（本例 CK8 的
+       st_line=2898）在 Single Gate 的座標系下閘門永遠打不開，波形整條不見。
+       推定規則見 wfgEm02ParseBin 內的說明。 */
+    if (res.gateType === 'single' || res.gateType === 'dual') {
+      wfgFrame.gateType = res.gateType;
+      document.querySelectorAll('input[name="wfg-gate"]').forEach(function(r) {
+        r.checked = (r.value === res.gateType);
+      });
+    }
     wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
     wfgSyncBlankInputs(); wfgSyncDclkUi();
   }
@@ -34302,11 +34356,16 @@ function wfgCodeResetChannels() {
     for (var i = 0; i < wfgChannels.length; i++) {
       if (wfgChannels[i].gpioIdx === g) { found = wfgChannels[i]; break; }
     }
-    if (!found) {
-      found = wfgMakeChannel(g);
-      found.gpioIdx = g;
-      found.name = (WFG_GPIO_NAMES[g] || '').toUpperCase();   // 直接用訊號名，不要「通道 24」
-    }
+    if (!found) { found = wfgMakeChannel(g); found.gpioIdx = g; }
+    /* 🔴 v4.0.3：**無論新舊通道，名稱一律覆蓋成 EM02 的訊號名。**
+       v4.0.2 只有新建的通道給訊號名，既有通道沿用站上的舊顯示名 ——
+       Bruce 實測看到 `vs` 那條顯示成 `STV0`。他的要求是「匯入進來的時候，
+       所有訊號的通道名稱都要跟數位訊號的名稱一致」。
+       🔴 v4.0.3 更正：**一律大寫**（Bruce 2026-08-22：「訊號名稱都用大寫吧！你這樣才會跟
+       數位訊號卡片裡面的名稱一致，不用分什麼大小寫」）——「數位信號」卡片本來就是把訊號名
+       `toUpperCase()` 後顯示的，通道名跟著大寫兩邊才會長得一樣。
+       使用者匯入後仍可自行改名（`wfgOnChannelChange(i,'name',…)` 完全沒動）。 */
+    found.name = (WFG_GPIO_NAMES[g] || found.name || '').toUpperCase();
     digital.push(found);
   }
   for (var i2 = 0; i2 < wfgChannels.length; i2++) {
