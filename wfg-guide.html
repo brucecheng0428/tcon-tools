@@ -740,9 +740,13 @@
               </div>
               <div class="ui-row2">
                 <div class="ui-field"><span class="ui-label">Frame Rate (Hz)</span><span class="ui-input">60</span></div>
-                <div class="ui-field"><span class="ui-label">RX DCLK (MHz)</span><br><span class="ui-val">74.25</span></div>
+                <div class="ui-field"><span class="ui-label">Pixel Rate (MHz)</span><br><span class="ui-val">148.5</span></div>
               </div>
-              <div class="ui-field"><span class="ui-label">TCON DCLK (MHz)</span><span class="ui-input">74.25</span></div>
+              <div class="ui-row2">
+                <div class="ui-field"><span class="ui-label">RX DCLK (MHz)</span><br><span class="ui-val">74.25</span></div>
+                <div class="ui-field"><span class="ui-label">TX DCLK (MHz)</span><span class="ui-input">74.25</span></div>
+              </div>
+              <div class="ui-field"><span class="ui-label">TCON UI DCLK (MHz)　[EM01 ▾]</span><span class="ui-input">74.25</span></div>
               <div class="ui-row2">
                 <div class="ui-field"><span class="ui-label">Gate Type</span><br>
                   <span class="ui-chip on">Single</span><span class="ui-chip">Dual</span></div>
@@ -756,11 +760,24 @@
         <h3>參數之間的關係</h3>
         <ul>
           <li><strong>Htotal × Vtotal</strong> = 一張畫面的總時脈數</li>
-          <li><strong>RX DCLK</strong> 由 Htotal × Vtotal × Frame Rate 自動算出，是<strong>唯讀顯示</strong>，不能直接改</li>
-          <li><strong>TCON DCLK</strong> 可以手動輸入。改了 Frame Rate 會重算它；反過來手動改 TCON DCLK 不會回頭改 Frame Rate</li>
+          <li><strong>Pixel Rate</strong> = Htotal × Vtotal × Frame Rate，<strong>唯讀</strong>。它只由這三個參數決定，<strong>把 TX DCLK 往上調並不會改變它</strong></li>
+          <li><strong>RX DCLK</strong> = Pixel Rate ÷ 2，<strong>唯讀顯示</strong>，不能直接改</li>
+          <li><strong>TX DCLK</strong> 可以手動輸入，但<strong>永遠 ≥ RX DCLK</strong>。改了 Frame Rate 會重算它；反過來手動改 TX DCLK 不會回頭改 Frame Rate</li>
+          <li><strong>TCON UI DCLK</strong> = TX DCLK × 機種係數，<strong>可以手動輸入</strong>，與 TX DCLK <strong>互相連動</strong>（改哪一格另一格都會立刻跟著算好）</li>
           <li><strong>TCON HTOTAL</strong> 是依 Gate Type 與內部時脈換算後的實際 TCON 端 Htotal，顯示在 Htotal 輸入框下方</li>
           <li><strong>Vactive / Hactive</strong> 只影響有效顯示區的位置標示，不影響總時間長度</li>
         </ul>
+        <div class="callout warn" style="margin-top:12px;">
+          <strong>從 TCON UI 抄 D-Clock 之前，先確認機種</strong>
+          不同系列的 TCON，介面上那個「D-Clock」代表的東西不一樣：<br>
+          ・<strong>EM01 系列與所有 NB TCON</strong>（E501 / E503 / EN01）→ 係數 <strong>×1</strong>，UI 上的數字就等於 TX DCLK<br>
+          ・<strong>EM02 / E512</strong>（同一系列，E512 在前、EM02 是它的改版）→ 係數 <strong>×2</strong>，UI 上的數字是 TX DCLK 的兩倍<br>
+          所以在預設狀態（TX DCLK = RX DCLK）下，EM02 的 UI 會顯示整個 Pixel Rate（例如 148.5），EM01 則顯示它的一半（74.25）。
+          <strong>把 EM02 UI 上看到的 148.5 直接填進 TX DCLK 會差兩倍</strong>——請填在「TCON UI DCLK」那一格，並確認左邊的機種選對了。
+          <br><br>
+          注意「UI ＝ Pixel Rate」「UI ＝ Pixel Rate ÷ 2」只是<strong>預設狀態下的結果</strong>，不是恆等式。
+          係數是乘在 <strong>TX DCLK</strong> 上的：一旦把 TX DCLK 調高，UI DCLK 會跟著 TX 走，而 Pixel Rate 不動。
+        </div>
         <div class="callout warn" style="margin-top:12px;">
           <strong>Frame 重複數越大越吃資源</strong>
           它決定要模擬幾張畫面（1–4096）。預設 10 張足夠觀察大部分時序；要看跨很多張畫面的 Toggle 行為（例如 FRM_NO 週期）才需要調大。設到上千張時，第一次繪製會需要一點時間。
@@ -778,9 +795,12 @@
           <tr><td class="t-name">Htotal</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥1，預設 2200</td><td>一行的<strong>總時脈數</strong>（含水平空白區）。這是輸入端（RX）的 Htotal。</td></tr>
           <tr><td class="t-name">TCON HTOTAL</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>隨 Htotal 換算</td><td>顯示在 Htotal 輸入框正下方。是 TCON 內部實際使用的 Htotal，會依 Gate Type 與 DCLK 比例換算。</td></tr>
           <tr><td class="t-name">Hactive</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥1，預設 1920</td><td>一行的<strong>有效顯示時脈數</strong>。Htotal − Hactive 即為水平空白（HBlank）。</td></tr>
-          <tr><td class="t-name">Frame Rate (Hz)</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥1，step 1，預設 60</td><td>畫面更新率。改動時會<strong>同時重算</strong> RX DCLK 與 TCON DCLK。</td></tr>
-          <tr><td class="t-name">RX DCLK (MHz)</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>預設 74.25</td><td>輸入端像素時脈，= Htotal × Vtotal × Frame Rate ÷ 10⁶。<strong>不可手動輸入</strong>，只會跟著上面三個參數變動。</td></tr>
-          <tr><td class="t-name">TCON DCLK (MHz)</td><td><span class="t-type tt-num">數值輸入</span></td><td>&gt;0.1，任意小數，預設 74.25</td><td>TCON 端實際工作時脈，<strong>可手動輸入</strong>。標籤右側會顯示一小段換算註記，提示目前值與計算值的關係。改 Frame Rate 會覆蓋它；手動改它則不影響 Frame Rate。</td></tr>
+          <tr><td class="t-name">Frame Rate (Hz)</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥1，step 1，預設 60</td><td>畫面更新率。改動時會<strong>同時重算</strong> RX DCLK 與 TX DCLK。</td></tr>
+          <tr><td class="t-name">Pixel Rate (MHz)</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>預設 148.5</td><td>= Htotal × Vtotal × Frame Rate ÷ 10⁶。<strong>不隨 TX DCLK 調整而變</strong>——它只由這三個參數定義。</td></tr>
+          <tr><td class="t-name">RX DCLK (MHz)</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>預設 74.25</td><td>輸入端像素時脈，= Pixel Rate ÷ 2。<strong>不可手動輸入</strong>，只會跟著上面三個參數變動。</td></tr>
+          <tr><td class="t-name">TX DCLK (MHz)</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥ RX DCLK，任意小數，預設 74.25</td><td>TCON 端實際工作時脈，<strong>可手動輸入</strong>，但<strong>不得低於 RX DCLK</strong>（填低了會自動抬到 RX DCLK）。標籤右側會顯示一小段換算註記。改 Frame Rate 會覆蓋它；手動改它則不影響 Frame Rate。舊版這一格叫「TCON DCLK」，v4.6.0 起改名——它一直都是<strong>波形區</strong>的 TX 時脈，不是 TCON 介面上的那個數字。</td></tr>
+          <tr><td class="t-name">TCON UI DCLK (MHz)</td><td><span class="t-type tt-num">數值輸入</span></td><td>依機種換算，預設 74.25（EM01）</td><td><strong>你在 TCON 自家介面上看到的那個 D-Clock</strong>。= TX DCLK × 機種係數（EM01 與所有 NB ×1；EM02 / E512 ×2）。與 TX DCLK <strong>對等雙向連動</strong>：改哪一格另一格都立刻跟著算好。若填進來的值換算後會讓 TX DCLK 低於 RX DCLK，會<strong>就地顯示錯誤並保留原值</strong>，不會偷偷改成下限。</td></tr>
+          <tr><td class="t-name">機種下拉（TCON UI DCLK 標籤內）</td><td><span class="t-type tt-rad">下拉選單</span></td><td>預設 EM01</td><td>決定上面那個係數。與上方工具列 Code group 的型號下拉是<strong>同一個設定的兩個入口</strong>，改任一邊兩邊都會同步，並會一起存進設定檔與自動存檔。<strong>換機種不會動到 TX DCLK</strong>（波形不變），只有 TCON UI DCLK 那格會重新換算。</td></tr>
           <tr><td class="t-name">Gate Type</td><td><span class="t-type tt-rad">單選鈕</span></td><td>Single / Dual，預設 Single</td><td>閘極驅動架構。Dual Gate 時一行分成兩半驅動，會影響 TCON HTOTAL 的換算與內部時序推算。</td></tr>
           <tr><td class="t-name">Frame 重複數</td><td><span class="t-type tt-num">數值輸入</span></td><td>1–4096，預設 10</td><td>模擬幾張連續畫面。要觀察 Toggle 模式的跨影格行為（FRM_NO）時必須調大。</td></tr>
         </tbody>
@@ -1408,14 +1428,14 @@
         <table>
           <thead><tr><th>控制項</th><th>型別</th><th>範圍／預設</th><th>作用</th></tr></thead>
           <tbody>
-            <tr><td class="t-name">TCON 內部運算</td><td><span class="t-type tt-chk">核取方塊</span></td><td>預設勾選</td><td>開啟後，波形畫布上方會多出六列內部訊號：<code>RX DCLK</code>、<code>RX DE</code>、<code>TCON DCLK</code>、<code>TX DE</code>、<code>R_PH_CNT</code>、<code>F_PH_CNT</code>，用來對照輸入端與 TCON 端的時序關係。</td></tr>
+            <tr><td class="t-name">TCON 內部運算</td><td><span class="t-type tt-chk">核取方塊</span></td><td>預設勾選</td><td>開啟後，波形畫布上方會多出六列內部訊號：<code>RX DCLK</code>、<code>RX DE</code>、<code>TX DCLK</code>、<code>TX DE</code>、<code>R_PH_CNT</code>、<code>F_PH_CNT</code>，用來對照輸入端與 TCON 端的時序關係。</td></tr>
             <tr><td class="t-name">Line Buffer</td><td><span class="t-type tt-num">數值輸入</span></td><td>0–15，預設 6</td><td>行緩衝深度。影響 RX DE 與 TX DE 之間的延遲行數，也就是輸入到輸出之間隔了幾行。</td></tr>
           </tbody>
         </table>
       </div>
       <div class="callout info">
         <strong>六列內部訊號的意義</strong>
-        <code>RX DCLK / RX DE</code>（藍色系）代表輸入端，<code>TCON DCLK / TX DE</code>（橘色系）代表 TCON 輸出端，兩者的時間差就是 Line Buffer 造成的延遲。<code>R_PH_CNT / F_PH_CNT</code> 是相位計數器，用來對照各信號的 R_PH / F_PH 究竟落在第幾個計數上。前四列可以拖曳到通道區與一般信號並排比較，後兩列固定不可拖曳。
+        <code>RX DCLK / RX DE</code>（藍色系）代表輸入端，<code>TX DCLK / TX DE</code>（橘色系）代表 TCON 輸出端，兩者的時間差就是 Line Buffer 造成的延遲。<code>R_PH_CNT / F_PH_CNT</code> 是相位計數器，用來對照各信號的 R_PH / F_PH 究竟落在第幾個計數上。前四列可以拖曳到通道區與一般信號並排比較，後兩列固定不可拖曳。
       </div>
     </div>
 
@@ -1573,7 +1593,7 @@
             <tr><td class="t-name">時間軸</td><td>畫布正上方（吸頂）</td><td>顯示時間刻度。從主畫布獨立出來，捲動時固定不動。</td></tr>
             <tr><td class="t-name">Time 列</td><td>畫布內第一列</td><td>時間標記列。</td></tr>
             <tr><td class="t-name">Line 列</td><td>畫布內第二列（藍底）</td><td>行號標記列，方便對照 ST_LINE / SP_LINE 的設定值。</td></tr>
-            <tr><td class="t-name">內部訊號列 ×6</td><td>Line 列之下</td><td>啟用「TCON 內部運算」才出現：RX DCLK、RX DE、TCON DCLK、TX DE、R_PH_CNT、F_PH_CNT。</td></tr>
+            <tr><td class="t-name">內部訊號列 ×6</td><td>Line 列之下</td><td>啟用「TCON 內部運算」才出現：RX DCLK、RX DE、TX DCLK、TX DE、R_PH_CNT、F_PH_CNT。</td></tr>
             <tr><td class="t-name">通道波形列</td><td>主要區域</td><td>依輸出通道的順序由上而下排列。類比通道的列高是數位通道的兩倍。</td></tr>
             <tr><td class="t-name">通道名稱欄</td><td>畫布最左側</td><td>顯示顏色點與通道名稱。類比通道還會多一顆 V1/V2 電壓游標開關。</td></tr>
             <tr><td class="t-name">Overview 小地圖</td><td>畫布下方</td><td>整段波形的縮圖，橘色框表示目前視窗位置。點一下可跳轉，也可以<strong>按住左鍵左右拖曳</strong>連續移動（v3.2.0 起；觸控則按著拖曳）。</td></tr>
@@ -1672,7 +1692,7 @@
           <thead><tr><th>動作</th><th>效果</th></tr></thead>
           <tbody>
             <tr><td class="t-name">拖曳通道名稱</td><td>上下拖曳可改變波形的排列順序。拖曳過程中<strong>波形會即時跟著移動</strong>，並有一條落點指示線提示會插到哪裡。</td></tr>
-            <tr><td class="t-name">把內部訊號往下拖</td><td>RX（RX DCLK + RX DE）與 TCON（TCON DCLK + TX DE）兩個群組可以拖到通道區之中，跟一般信號並排比較。拖進去後會有一個帶色邊框的群組容器。</td></tr>
+            <tr><td class="t-name">把內部訊號往下拖</td><td>RX（RX DCLK + RX DE）與 TCON（TX DCLK + TX DE）兩個群組可以拖到通道區之中，跟一般信號並排比較。拖進去後會有一個帶色邊框的群組容器。</td></tr>
             <tr><td class="t-name">把內部訊號拖回上方</td><td>已拖下來的群組往上拖回內部訊號區，即可還原。</td></tr>
             <tr><td class="t-name">R_PH_CNT / F_PH_CNT</td><td>這兩列是<strong>固定的，不能拖曳</strong>，永遠留在內部訊號區。</td></tr>
           </tbody>
@@ -1698,7 +1718,7 @@
         <thead><tr><th>選項</th><th>載入什麼</th></tr></thead>
         <tbody>
           <tr><td class="t-name">快捷設定<br><small style="color:var(--muted);">（空選項）</small></td><td>選這個等於<strong>重置回預設狀態</strong>，清空目前的設定。</td></tr>
-          <tr><td class="t-name">FHD 60Hz Single Gate<br>(LS：Multi CPV)</td><td>完整的 FHD 60Hz 範例。Frame 設定為 Vtotal 1112 / Htotal 2668 / TCON DCLK 89 MHz / Frame 重複數 1000，18 條數位信號全部設定完成，Level Shifter 使用<strong>一進一出（Multi-CPV）</strong>模式、6 Phase，18 條輸出通道已指派好（含 SD1 與 CKO1–CKO6），並啟用 TCON 內部運算。</td></tr>
+          <tr><td class="t-name">FHD 60Hz Single Gate<br>(LS：Multi CPV)</td><td>完整的 FHD 60Hz 範例。Frame 設定為 Vtotal 1112 / Htotal 2668 / TX DCLK 89 MHz / Frame 重複數 1000，18 條數位信號全部設定完成，Level Shifter 使用<strong>一進一出（Multi-CPV）</strong>模式、6 Phase，18 條輸出通道已指派好（含 SD1 與 CKO1–CKO6），並啟用 TCON 內部運算。</td></tr>
           <tr><td class="t-name">FHD 60Hz Single Gate<br>(LS：Dual CPV)</td><td>同上的 Frame 設定，但 Level Shifter 改用<strong>二進多出（Dual-CPV）</strong>模式：只啟用 CK1／CK2 當作 CPV1／CPV2，並在輸出通道上直接把它們命名為 CPV1／CPV2。此範例還<strong>預先放好了 A1/A2/B1/B2 四支游標</strong>，載入後可直接看到量測結果，並把 TCON 內部訊號群組拉到了第一列。</td></tr>
         </tbody>
       </table>
@@ -1717,7 +1737,7 @@
           <tr><td class="t-name"><code>_format</code></td><td>固定字串 <code>tcon-wfg-config</code>。匯入時會檢查這個值，不符會拒絕載入。</td></tr>
           <tr><td class="t-name"><code>_version</code></td><td>格式版本號，目前為 <code>1</code>。</td></tr>
           <tr><td class="t-name"><code>_exportDate</code></td><td>匯出當下的時間戳記（ISO 格式）。</td></tr>
-          <tr><td class="t-name"><code>frame</code></td><td>所有 Frame 參數：Vtotal、Vactive、Htotal、Hactive、TCON DCLK、RX DCLK、TCON HTOTAL、Frame Rate、Gate Type、Frame 重複數，以及 FRM_NO_0/1/2。</td></tr>
+          <tr><td class="t-name"><code>frame</code></td><td>所有 Frame 參數：Vtotal、Vactive、Htotal、Hactive、TX DCLK、RX DCLK、TCON HTOTAL、Frame Rate、Gate Type、Frame 重複數，以及 FRM_NO_0/1/2。</td></tr>
           <tr><td class="t-name"><code>gpios</code></td><td>全部信號的完整參數（含 18 條數位與所有類比 slot 的 analog_config）。</td></tr>
           <tr><td class="t-name"><code>channels</code></td><td>24 條輸出通道的名稱、來源、顏色與顯示狀態。</td></tr>
           <tr><td class="t-name"><code>cursors</code></td><td>10 支游標的位置與啟用狀態。<strong>不含「跟隨中」狀態</strong> — 匯入後游標一律是釘住的。</td></tr>
@@ -2674,7 +2694,7 @@ const zoneDescriptions = {
   'header': '<strong>區域 ⓪ — 頁首列</strong><br>左邊是「‹ 返回主頁」按鈕，回到工具首頁。中間是工具名稱與版本徽章。右邊由左至右為兩個模式頁籤（TCON Timing 調整練習／LA分析器）、「? 說明」按鈕（開啟本手冊，於新分頁）、語言下拉（繁體中文／简体中文／English）。若曾用「匯入」載入設定檔，檔名會顯示在標題與頁籤之間（手機則顯示在標題下一列）。',
   'left': '<strong>區域 ① — 左側參數面板</strong><br>由上而下五張卡片：<b>預設</b>（一鍵載入完整範例）、<b>Frame 參數</b>（畫面時間骨架）、<b>Toggle FRM_NO</b>（全域共用的三個影格編號）、<b>數位信號</b>（18 條 GPIO，每條 17 項參數）、<b>類比信號</b>（Level Shifter 全域設定 + Source Driver）、<b>輸出通道</b>（24 條，決定畫布上顯示什麼）。每張卡片點標題即可收合。所有欄位都是即時計算，沒有「計算」按鈕。',
   'toolbar': '<strong>區域 ② — 工具列</strong><br>分成四個群組：<b>檢視</b>（放大／縮小／全覽／重置）、<b>TCON</b>（內部運算勾選、Line Buffer 數值，此群組只在特定條件下顯示）、<b>檔案</b>（匯出 .txt／匯入／複製到剪貼簿／從剪貼簿貼上／截圖分享）、<b>游標</b>（A1–E2 共 10 顆按鈕，可摺疊）。',
-  'canvas': '<strong>區域 ③ — 波形畫布</strong><br>最左是通道名稱欄（可上下拖曳排序），上方兩列固定為 Time（時間刻度）與 Line（行號）。啟用「TCON 內部運算」後還會多出 RX DCLK、RX DE、TCON DCLK、TX DE、R_PH_CNT、F_PH_CNT 六列內部訊號。滑鼠滾輪縮放、拖曳平移、放開後有慣性滑動；滑鼠停留處會畫十字線並即時顯示量測值。畫布下方的 Overview 小地圖顯示目前視窗在整段波形中的位置，點一下即可跳轉，也可以按住左鍵左右拖曳連續移動。',
+  'canvas': '<strong>區域 ③ — 波形畫布</strong><br>最左是通道名稱欄（可上下拖曳排序），上方兩列固定為 Time（時間刻度）與 Line（行號）。啟用「TCON 內部運算」後還會多出 RX DCLK、RX DE、TX DCLK、TX DE、R_PH_CNT、F_PH_CNT 六列內部訊號。滑鼠滾輪縮放、拖曳平移、放開後有慣性滑動；滑鼠停留處會畫十字線並即時顯示量測值。畫布下方的 Overview 小地圖顯示目前視窗在整段波形中的位置，點一下即可跳轉，也可以按住左鍵左右拖曳連續移動。',
   'la-toolbar': '<strong>區域 ① — LA 工具列</strong><br>七個群組：<b>預設</b>（五組現成範例／設定檔，選回空白即完整復原）、<b>取樣</b>（深度 @ 取樣率，下方顯示理論取樣時間）、<b>執行</b>（硬體連線 ⏻、單次、循環、停止）、<b>檔案</b>（匯入 .kvdat/.kvset、匯出時可選 .kvset 或 .kvdat）、<b>檢視</b>（放大／縮小／全覽／Trigger 歸零／B# 事件計數／畫面中心／放大倍率）、<b>PWM</b>（兩路方波輸出設定）、<b>游標</b>（A1–E2 可摺疊）。最右邊的 ≡ 開啟「觸發與通道設定」面板。',
   'la-left': '<strong>區域 ② — 左側設定面板</strong><br>兩張卡片：<b>取樣設定</b>（Device Model、Sampling Rate、Sampling Depth、單次／循環、循環刷新策略、Trigger Position、門檻電壓）與 <b>Trigger 設定</b>（觸發通道與邊緣、B Event Count、CH0-3／0-7／0-15 啟用快捷、I/O 電平標準顯示、裝置狀態）。這裡的取樣率與深度和工具列的「取樣」群組是同一組值。',
   'la-scope': '<strong>區域 ③ — 波形區</strong><br>最左是通道名稱欄：彩色色塊（上面的數字是原始通道號，按住可上下拖曳排序）、可直接點擊編輯的通道名稱、A↑ A↓ B↑ B↓ 觸發鈕、最右的訊號燈（有邊緣亮綠，沒有變化則直接顯示靜態準位 0 或 1）。時間軸以<b>觸發點為 0 s</b>，左負右正。滾輪縮放、Shift＋滾輪平移、拖曳平移並有慣性；手機單指水平平移、雙指縮放。最下方的 Overview 顯示目前視窗在整段擷取中的位置，<b>點一下即可跳轉</b>，也可以<b>按住左鍵左右拖曳</b>連續移動（觸控同樣按著拖曳）。',
