@@ -1508,9 +1508,9 @@
                 <input type="number" id="wfg-linebuf" value="6" min="0" max="15" style="width:42px;padding:2px 4px;font-size:11px;color:#e2e8f0;background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnLineBufferChange(this.value)">
               </label>
             </div>
-            <!-- ── 檔案 group ── -->
+            <!-- ── 波形 group（v4.1.1 由「檔案」改名；LA 分頁那個仍叫「檔案」、用 wfg.laGrpFile） ── -->
             <div class="wfg-la-tool-group">
-              <span class="wfg-la-group-label" data-i18n="wfg.laGrpFile">檔案</span>
+              <span class="wfg-la-group-label" data-i18n="wfg.grpWaveform">波形</span>
               <button id="wfg-export-btn" onclick="wfgExportDownload()" title="下載設定檔 (.txt)" data-i18n-title="wfg.exportTitle" aria-label="匯出"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.exportPlain">匯出</span></button>
               <button onclick="wfgImportFile()" title="從 .txt 檔載入設定" data-i18n-title="wfg.importTitle" aria-label="匯入"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="wfg.importPlain">匯入</span></button>
               <button id="wfg-copy-btn" onclick="wfgExportClipboard()" title="複製波形設定到剪貼簿" data-i18n-title="wfg.copyTitle" aria-label="複製波形"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="10" rx="1.5" fill="none"></rect><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2H3.5A1.5 1.5 0 0 0 2 3.5v8A1.5 1.5 0 0 0 3.5 13H5" fill="none"></path></svg><span data-i18n="wfg.copyPlain">複製</span></button>
@@ -1970,8 +1970,8 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg410"></script>
-<script src="common/i18n.js?v=20260822wfg410"></script>
+<script src="common/version.js?v=20260822wfg411"></script>
+<script src="common/i18n.js?v=20260822wfg411"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -33989,15 +33989,31 @@ window.wfgImportConfig = function(jsonStr, options) {
      EM01 / EM02 —— code 只有 .bin（**沒有 hex**），匯出 .script
      E501 / E503 —— NB 用，bin 或 hex 都有；Bruce 手上有完整 source code，
                     日後匯出可以直接產 bin/hex（`exportFormat` 改成 'bin' 即可） */
+/* 🔴 v4.1.1 新增 `tconClass` ＝「數位信號」卡片最上方那個 TCON 型態（MNT / NB）。
+   它不只是一個勾選：**它決定 ACT_TYPE / R_PH / F_PH 的位元寬**
+   （MNT ＝ Monitor，9 bit 0~511；NB ＝ Notebook，6 bit 0~63），
+   `wfgToggleMaskBits()` 就是拿它在算 toggle 的 counter 遮罩。
+
+   🔴 **不用字串前綴判斷。** Bruce 舉的例子裡 Notebook 同時有 `E5` 與 `EN` 兩種開頭，
+   前綴規則本身就不只一條，寫死在匯入流程裡遲早會漏；查表則是加型號時填一格就好。
+
+   佐證（交叉印證這條規則不是聽來的）：EM02 的 ACT_TYPE / R_PH / F_PH 我是從 bin 解出
+   **8 bit ＋ 另一個 register 的 bit8 ＝ 9 bit**（`wfgEm02Bit8Reg`），值域正好 0~511，
+   與 MNT 的「9bit 0~511」完全吻合。 */
 var WFG_TCON_CODECS = {
   em02: {
-    label: 'EM02', importExts: ['.bin'], exportFormat: 'script',
+    label: 'EM02', tconClass: 'MNT', importExts: ['.bin'], exportFormat: 'script',
     parseCode: function(buf, fname) { return wfgEm02ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm02BuildScript(opt); }
   },
-  em01: { label: 'EM01', importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null },
-  e503: { label: 'E503', importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
-  e501: { label: 'E501', importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null }
+  em01: { label: 'EM01', tconClass: 'MNT', importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null },
+  e503: { label: 'E503', tconClass: 'NB',  importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
+  e501: { label: 'E501', tconClass: 'NB',  importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
+  /* EN01：Bruce 2026-08-22 明確歸在 Notebook。目前沒有解析器（選單上會有 `*`）。
+     ⚠ 它的副檔名我沒有實據，`['.bin']` 只是佔位 —— `parseCode` 是 null，這個欄位不會被
+     執行到，等真的要實作時再確認。現在就填進表的理由：這張表是「型號 → 位元寬」的
+     唯一來源，少一列就等於「哪天有人加 EN01 時必須記得補」，而那正是這張表要消滅的東西。 */
+  en01: { label: 'EN01', tconClass: 'NB',  importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null }
 };
 var wfgCodeTcon = 'em02';
 /* v4.1.0：Code group 要顯示「這份 code 的 checksum」。
@@ -34405,6 +34421,18 @@ window.wfgEm02BuildScript = wfgEm02BuildScript;
 /* ── 型號無關：把解析結果套進 WFG ───────────────────────────────────────── */
 function wfgCodeApplyToWfg(res) {
   wfgInvalidateCache();
+  /* ══ v4.1.1：先把「數位信號」卡片的 TCON 型態切成這個型號該有的 ══════════════
+     🔴 **必須在寫入 GPO 數值之前做**，因為 `wfgSetTconType()` 會**夾**既有的
+     act_type / r_ph / f_ph。放在後面的話，NB code 匯入時會把剛寫進去的值再夾一次；
+     放在前面，被夾到的是上一份 code 的殘值（下一行就整組覆蓋），零風險。
+
+     ⚠ 這同時修掉一個**既有的隱性 bug**：v4.1.0 之前匯入完全不碰這個 radio，
+     於是「使用者上次選 NB → 匯入 EM02」會停在 NB，`wfgToggleMaskBits()` 回 0x3F，
+     9-bit 的 R_PH / ACT_TYPE 被當 6-bit 去算 toggle counter，輸入框上限也顯示成 63。 */
+  var _codec = WFG_TCON_CODECS[wfgCodeTcon];
+  if (_codec && (_codec.tconClass === 'MNT' || _codec.tconClass === 'NB')) {
+    wfgSetTconType(_codec.tconClass);   // 型態沒變時這支自己會 return，不會多做事
+  }
   for (var i = 0; i < res.signals.length && i < WFG_DIGITAL_GPIO_COUNT; i++) {
     var s = res.signals[i], g = wfgGpios[i];
     if (!g || !s) continue;
@@ -34435,12 +34463,53 @@ function wfgCodeApplyToWfg(res) {
     wfgSyncBlankInputs(); wfgSyncDclkUi();
   }
   wfgCodeResetChannels();
+  wfgCodeResetMeasurements();
   wfgRenderGpioList();
   wfgRenderChannelList();
   wfgRenderLabels();
   wfgScheduleFrameParamRender();
   wfgBeginDeferredAnalog();
 }
+/* ══ v4.1.1：匯入 code 之後把「量測狀態」清乾淨 ═════════════════════════════
+   Bruce 2026-08-22：「匯入 bin 檔以後，在 WFG 頁面上面的相關設定應該要復原。
+   也就是像 Cursor 的部分，那會同樣連動影響到右側的時間標尺，還有像脈衝計數卡片
+   這些，都應該要變成原本沒有新增的樣子。」
+
+   為什麼要清（不是為了畫面好看）：**這些量測物件都綁在「上一份 code 的訊號」上**。
+
+   | 物件 | 綁的是什麼 | 匯入後為什麼失效 |
+   |---|---|---|
+   | 時間游標 A1…D2 | 絕對時間 ＋ `anchor`（貼在某條訊號的某個邊緣） | Frame 參數換了 ⇒ 同一個時間點對到不同的 line；anchor 指的那個邊緣可能已不存在 |
+   | `wfgDtLock`（\|Δt\| 鎖定） | 一對游標 | 游標沒了，鎖住的配對也不存在 |
+   | 脈衝計數項目 | `gpioIdx` ＋ 邊緣序號 | 該訊號的 ACT_TYPE／ST_LINE 全換了，數出來的是新訊號、標籤還是舊的 |
+   | 「＋」釘住的量測小卡 | `chIdx`（**wfgChannels 的索引**） | 🔴 `wfgCodeResetChannels()` 會**重排整個 wfgChannels**，同一個索引匯入後指到別條訊號 |
+
+   🔴 最後一項 Bruce 沒有明講，我判斷**要清**，理由就是上表那一列：它存的是通道索引，
+   而這一版的匯入流程本身就會重排通道。不清的話卡片會**安靜地換成另一條訊號的數值**，
+   標籤卻還是舊訊號的名字 —— 那比「清掉」難發現得多。
+
+   **刻意不動的東西**（避免清過頭）：
+     ・匯入本身帶進來的：Frame 參數、GATE TYPE、18 條 GPO 設定、通道名稱／可見性／顏色。
+     ・視野中心／倍率、時間軸縮放、分頁狀態 —— 與量測無關的使用者偏好。
+       （匯入不改變「使用者想看哪一段」這件事，沒有理由把他捲回原點。）
+     ・電壓游標 V1／V2／VCOM —— 它們**不是「使用者新增」的物件**，是一直都在的參考線，
+       而且 V1 就是脈衝計數在用的閾值。清掉等於改動一個與這份 code 無關的設定。 */
+function wfgCodeResetMeasurements() {
+  /* ① 時間游標 ＋ |Δt| 鎖定（沿用 v3.5.1 抽出來的那一支，不另寫一份清空邏輯） */
+  wfgClearAllCursors();
+  /* ② 脈衝計數項目 */
+  wfgPulseItems = [];
+  /* ③ 「＋」釘住的量測小卡 */
+  wfgMeasSelItems = [];
+  /* ④ 把三張卡片各刷新一次。
+     🔴 不能只清資料就走 —— 這三張卡片都是「有人呼叫才重畫」，
+     沒刷新的話畫面會停在舊讀數上（v3.26.5 盤點過的同一個坑）。 */
+  try { wfgUpdateCursorPanel(); } catch (e) {}
+  try { if (typeof wfgPulseRenderAll === 'function') wfgPulseRenderAll(); } catch (e) {}
+  try { if (typeof wfgMeasSelRenderAll === 'function') wfgMeasSelRenderAll({ force: true }); } catch (e) {}
+}
+window.wfgCodeResetMeasurements = wfgCodeResetMeasurements;   // 驗收腳本要走與按鈕相同的路徑
+
 /* ══ v4.0.1：匯入 code 之後的通道整理 ═══════════════════════════════════════
    Bruce 2026-08-22：「匯入以後，所有訊號只保留數位訊號，其他類比訊號、面板訊號都先
    不要顯示在通道上面。另外，你還要去確認每一個數位訊號的 Enable 是否有打勾，有打勾的
