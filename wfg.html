@@ -1962,7 +1962,7 @@
   <div class="wfg-progress-text" id="wfg-progress-text" data-i18n="wfg.progressRead">讀取檔案…</div>
 </div>
 
-<script src="common/version.js?v=20260822wfg401"></script>
+<script src="common/version.js?v=20260822wfg402"></script>
 <script src="common/i18n.js?v=20260822wfg400"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -34118,7 +34118,15 @@ function wfgEm02DecodeAt(buf, base1) {
       sp_line: r[6] | ((r[7] & 0x3F) << 8),      // 14 bit
       no_fall: (r[7] >> 7) & 1, out2_en: (r[7] >> 6) & 1,
       r_dly: r[8] | (r[9] << 8), f_dly: r[10] | (r[11] << 8),   // 16 bit LE
-      oax_mode: (ox >> 5) & 7, oax_sel: ox & 0x1F
+      /* 🔴 v4.0.2：oax_mode 是 **bit[7:6]（2 bit）**，不是 Excel 寫的 bit[7:5]。
+         Excel `rt8_tcon_1` rel 0x083 標成 `bit[7:5] reg_oax_mode`，但機器碼是：
+             mov dl,[edi+2E8009Ch] ; shr edx,6 ; and edx,3    ← oax_mode
+             mov dl,[edi+2E8009Ch] ; and edx,1Fh              ← oax_sel
+         （`Raydium_TCON_Tool_EM02_v0.3.2.exe` @0x015E8E40 與 @0x015E8F2A）
+         bit5 兩邊都沒用到。Bruce 從 UI 判讀的 vst2 = `oax_sel 11 / oax_mode 1`
+         對應 byte 0x4B：bits[7:6]=01→1 ✅、bits[4:0]=01011→11 ✅；
+         用 Excel 的 3 bit 會算成 2（AND），與畫面不符。 */
+      oax_mode: (ox >> 6) & 3, oax_sel: ox & 0x1F
     });
   }
   return out;
@@ -34222,7 +34230,10 @@ function wfgEm02BuildScript(opt) {
     lines.push(wfgEm02Line(b + 0xA, g.f_dly & 0xFF, 0xFF, 'F_DLY = ' + g.f_dly + ' (low)'));
     lines.push(wfgEm02Line(b + 0xB, (g.f_dly >> 8) & 0xFF, 0xFF, 'F_DLY (high)'));
     lines.push(wfgEm02Line(b + 0x5, (g.ini_val & 3) << 6, 0xC0, 'INI_VAL = ' + g.ini_val));
-    lines.push(wfgEm02Line(wfgEm02OaxReg(i), ((g.oax_mode & 7) << 5) | (g.oax_sel & 0x1F), 0xFF,
+    /* 🔴 v4.0.2：oax_mode 佔 bit[7:6]、oax_sel 佔 bit[4:0]，**bit5 兩邊都不用**
+       （機器碼證據見 wfgEm02DecodeAt 內的說明）。遮罩因此是 0xDF 而不是 0xFF ——
+       用 0xFF 會把 bit5 一起寫成 0，那個位元不屬於我們。 */
+    lines.push(wfgEm02Line(wfgEm02OaxReg(i), ((g.oax_mode & 3) << 6) | (g.oax_sel & 0x1F), 0xDF,
                            'OAX mode=' + g.oax_mode + ' sel=' + g.oax_sel));
     cnt += 14;
     if (opt.comments !== false) lines.push('');
@@ -34276,20 +34287,35 @@ function wfgCodeApplyToWfg(res) {
      ③ 不從清單移除 —— 移除等於刪資料，救不回來。
    選擇留在這裡，日後若 Bruce 要的是另一種，改這一支就好。 */
 function wfgCodeResetChannels() {
-  /* ① 確保 18 條數位訊號各自有一個通道（沒有就補在最後） */
-  var byGpio = {};
-  for (var i = 0; i < wfgChannels.length; i++) {
-    var gi = wfgChannels[i].gpioIdx;
-    if (gi >= 0 && byGpio[gi] === undefined) byGpio[gi] = i;
-  }
+  /* ① 重排「輸出通道」清單：18 條數位訊號依訊號順序排在最前面，類比／面板接在後面。
+
+     🔴 v4.0.2 修的就是這裡。v4.0.1 是「缺的補在清單最後」，結果在 Bruce 的實機上
+     變成：前面 8 條隱藏的類比、接著 16 條空白（「無信號」）通道，真正的 18 條訊號
+     被擠到第 24~41 列 —— 波形區其實有正確畫出那 10 條，但「輸出通道」卡片上看過去
+     幾乎全是空白列，看起來就像「太多都沒有顯示出來」。
+
+     `gpioIdx < 0` 的空白通道直接不收：它沒有名稱以外的任何資料，留著只會把真正的
+     訊號擠到卷軸看不到的地方。有綁到訊號的通道（含類比／面板）一條都不刪。 */
+  var digital = [], rest = [];
   for (var g = 0; g < WFG_DIGITAL_GPIO_COUNT; g++) {
-    if (byGpio[g] === undefined) {
-      var nc = wfgMakeChannel(wfgChannels.length);
-      nc.gpioIdx = g;
-      wfgChannels.push(nc);
-      byGpio[g] = wfgChannels.length - 1;
+    var found = null;
+    for (var i = 0; i < wfgChannels.length; i++) {
+      if (wfgChannels[i].gpioIdx === g) { found = wfgChannels[i]; break; }
     }
+    if (!found) {
+      found = wfgMakeChannel(g);
+      found.gpioIdx = g;
+      found.name = (WFG_GPIO_NAMES[g] || '').toUpperCase();   // 直接用訊號名，不要「通道 24」
+    }
+    digital.push(found);
   }
+  for (var i2 = 0; i2 < wfgChannels.length; i2++) {
+    var ch2 = wfgChannels[i2];
+    if (digital.indexOf(ch2) >= 0) continue;
+    var gp2 = (ch2.gpioIdx >= 0 && ch2.gpioIdx < wfgGpios.length) ? wfgGpios[ch2.gpioIdx] : null;
+    if (gp2) rest.push(ch2);        // 類比／面板：保留（隱藏，可回復）
+  }
+  wfgChannels = digital.concat(rest);
   /* ② 逐通道決定可見性與顏色 */
   for (var c = 0; c < wfgChannels.length; c++) {
     var ch = wfgChannels[c];
