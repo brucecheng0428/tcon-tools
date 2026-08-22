@@ -768,8 +768,8 @@
           <li><strong>Vactive / Hactive</strong> 只影響有效顯示區的位置標示，不影響總時間長度</li>
         </ul>
         <div class="callout warn" style="margin-top:12px;">
-          <strong>從 TCON UI 抄 D-Clock 之前，先確認機種</strong>
-          不同系列的 TCON，介面上那個「D-Clock」代表的東西不一樣：<br>
+          <strong>從 TCON UI 抄 DCLK 之前，先確認機種</strong>
+          不同系列的 TCON，介面上那個「D-Clock／DCLK」代表的東西不一樣：<br>
           ・<strong>EM01 系列與所有 NB TCON</strong>（E501 / E503 / EN01）→ 係數 <strong>×1</strong>，UI 上的數字就等於 TX DCLK<br>
           ・<strong>EM02 / E512</strong>（同一系列，E512 在前、EM02 是它的改版）→ 係數 <strong>×2</strong>，UI 上的數字是 TX DCLK 的兩倍<br>
           所以在預設狀態（TX DCLK = RX DCLK）下，EM02 的 UI 會顯示整個 Pixel Rate（例如 148.5），EM01 則顯示它的一半（74.25）。
@@ -777,6 +777,27 @@
           <br><br>
           注意「UI ＝ Pixel Rate」「UI ＝ Pixel Rate ÷ 2」只是<strong>預設狀態下的結果</strong>，不是恆等式。
           係數是乘在 <strong>TX DCLK</strong> 上的：一旦把 TX DCLK 調高，UI DCLK 會跟著 TX 走，而 Pixel Rate 不動。
+        </div>
+        <div class="callout info" style="margin-top:12px;">
+          <strong>v4.7.0 起：TX DCLK 與 TCON UI DCLK 是硬下限／硬上限</strong>
+          上下鍵、滑鼠滾輪、輸入框箭頭調到界限就<strong>停住</strong>，不會再往下（或往上）走；
+          手動打字超出範圍時會<strong>在套用前擋下</strong>並就地說明，<strong>保留原本的值</strong>，
+          既不會靜默改成界限值，也不會先套用再彈回。<br><br>
+          範圍由兩組限制疊起來：<br>
+          ・<strong>TX DCLK ≥ RX DCLK</strong>（一直都有的約束）<br>
+          ・<strong>TCON UI DCLK 的機種規格</strong>：Monitor（EM01／EM02／E512）<code>40 – 500 MHz</code>；
+            Notebook（E501／E503／EN01）<code>20 – 105 MHz</code><br>
+          兩格的界限由同一份計算換算而來，所以不會出現「一格擋下、另一格放行」。
+          若 RX DCLK 本身就已經超過該機種的規格上限，代表這組 Frame 參數與這顆機種不相容，
+          畫面會直接說明要去調 Frame Rate／HTOTAL／VTOTAL，而不是硬夾一個同樣不合法的數字。
+        </div>
+        <div class="callout info" style="margin-top:12px;">
+          <strong>v4.7.0 起：定頻／變頻跟著機種走</strong>
+          <strong>Notebook TCON（E501／E503／EN01）一定是定頻應用</strong>，所以選到 NB 機種時
+          「變頻應用」會變灰、不能選，並自動切回定頻。<br>
+          <strong>Monitor TCON（EM01／EM02／E512）</strong>兩種都可能，<strong>不會去動你當下的選擇</strong>。<br>
+          你自己選過的型態會被記住：在 MNT 選了變頻、切到 NB（被強制定頻）、再切回 MNT 時，
+          會<strong>還原成變頻</strong>，你的選擇不會被機種切換吃掉。
         </div>
         <div class="callout warn" style="margin-top:12px;">
           <strong>Frame 重複數越大越吃資源</strong>
@@ -934,7 +955,18 @@
 
     <h3 id="sec6" style="margin:26px 0 12px;">6-0　TCON 型態（MNT／NB）— 全域設定</h3>
     <div class="card">
-      <p style="font-size:.94rem;">卡片最上方有一組全域選項，決定 <code>ACT_TYPE</code> / <code>R_PH</code> / <code>F_PH</code> 這三個欄位的<strong>位元寬</strong>。<strong>所有數位信號共用同一個設定</strong>，不是逐條分別設。</p>
+      <p style="font-size:.94rem;">TCON 型態決定 <code>ACT_TYPE</code> / <code>R_PH</code> / <code>F_PH</code> 這三個欄位的<strong>位元寬</strong>。<strong>所有數位信號共用同一個設定</strong>，不是逐條分別設。</p>
+      <div class="callout info" style="margin-bottom:12px;">
+        <strong>v4.6.0 起：型態不再是獨立選項，改由「機種」決定</strong>
+        以前「數位信號」卡片最上方有一組 MNT／NB 的手動選項，v4.6.0 起<strong>已移除</strong>。
+        型態現在直接由你選的 <strong>TCON 機種</strong>推得：<br>
+        ・<strong>EM01 / EM02 / E512</strong> → Monitor（MNT，9 bit）<br>
+        ・<strong>E501 / E503 / EN01</strong> → Notebook（NB，6 bit）<br>
+        機種在兩個地方都可以選，兩處是<strong>同一個設定</strong>：「Frame 參數 → DCLK → TCON UI DCLK」的下拉，
+        以及上方工具列 Code group 的型號下拉。<br>
+        這樣改的好處：同一件事不再有兩個真值來源。舊版只有「匯入 code 成功」才會把型態同步成機種該有的，
+        所以「換了機種但還沒匯入」會停在錯的位元寬 —— 現在不會了。
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>選項</th><th>位元寬</th><th>三個欄位的範圍</th><th>計數器溢位點</th></tr></thead>
@@ -945,10 +977,10 @@
         </table>
       </div>
       <ul style="margin:10px 0 0 18px; padding:0; font-size:.93rem;">
-        <li><strong>預設 MNT</strong>。這個選項<strong>不跟內建預設綁定</strong> —— 換預設（快捷設定）時會保留你目前的選擇。</li>
-        <li>切到 <strong>NB</strong> 時，所有數位信號中大於 <code>63</code> 的 <code>ACT_TYPE</code> / <code>R_PH</code> / <code>F_PH</code> 會被<strong>夾為 <code>63</code></strong>（是 clamp，不是 <code>&amp; 0x3F</code> 截斷，所以 <code>500</code> 會變 <code>63</code> 而不是 <code>52</code>）。<strong>這個動作不可逆</strong>，切回 MNT 不會還原原值。</li>
+        <li><strong>預設機種 EM01 ⇒ 預設 MNT</strong>。機種<strong>不跟內建預設綁定</strong> —— 換快捷設定時會保留你目前選的機種。</li>
+        <li>換成 <strong>NB 機種</strong>時，所有數位信號中大於 <code>63</code> 的 <code>ACT_TYPE</code> / <code>R_PH</code> / <code>F_PH</code> 會被<strong>夾為 <code>63</code></strong>（是 clamp，不是 <code>&amp; 0x3F</code> 截斷，所以 <code>500</code> 會變 <code>63</code> 而不是 <code>52</code>）。<strong>這個動作不可逆</strong>，換回 MNT 機種不會還原原值。</li>
         <li>一般（非 Toggle）信號的欄位上限<strong>一樣</strong>吃這個限制。</li>
-        <li>設定會隨<strong>匯出／匯入</strong>一起帶走；沒有這個欄位的舊設定檔匯入時一律當成 <strong>MNT</strong>。</li>
+        <li>機種會隨<strong>匯出／匯入</strong>一起帶走。舊設定檔的相容處理：檔案裡若有舊的 <code>tcon_type</code> 欄位而沒有機種欄位，會用它推回同類別的代表機種（MNT → EM01、NB → E501），<strong>位元寬與舊檔完全相同</strong>，波形不會變；兩者都沒有的更舊檔案則當成 EM01（MNT）。反方向也顧到了：新版匯出的檔案仍會寫出 <code>tcon_type</code>，拿去用舊版打開位元寬一樣正確。</li>
       </ul>
       <div class="callout warn">
         <strong>什麼時候看得出 MNT 與 NB 的差別？</strong>
