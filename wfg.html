@@ -184,9 +184,18 @@
      項目內的徽章、數值框、外框、編號全部引用它。**日後要加第三項也不會再錯位。** */
   .wfg-ack-item.tone-green { --ack-tone: #22c55e; --ack-tone-text: #86efac; --ack-tone-rgb: 34,197,94; }
   .wfg-ack-item.tone-blue  { --ack-tone: #3b82f6; --ack-tone-text: #93c5fd; --ack-tone-rgb: 59,130,246; }
-  .wfg-ack-item.tone-green, .wfg-ack-item.tone-blue { border-color: rgba(var(--ack-tone-rgb), 0.75); }
-  .wfg-ack-item.tone-green .wfg-ack-num, .wfg-ack-item.tone-blue .wfg-ack-num { background: var(--ack-tone); }
-  .wfg-ack-item.tone-green.done, .wfg-ack-item.tone-blue.done {
+  /* v4.16.0：匯出確認框要表達「擋下」與「注意」兩種狀態 ⇒ 補兩個 tone。
+     照上面那段註解訂下的規則辦：**tone 只在項目層宣告三個變數**，項目內的元素一律引用，
+     不在任何地方再寫死第二個顏色來源。下面三條選擇器也跟著擴充，否則新 tone 只會有
+     變數、沒有外框與編號底色（那正是「加第三項會錯位」的老問題）。 */
+  .wfg-ack-item.tone-red   { --ack-tone: #ef4444; --ack-tone-text: #fca5a5; --ack-tone-rgb: 239,68,68; }
+  .wfg-ack-item.tone-amber { --ack-tone: #f59e0b; --ack-tone-text: #fcd34d; --ack-tone-rgb: 245,158,11; }
+  .wfg-ack-item.tone-green, .wfg-ack-item.tone-blue,
+  .wfg-ack-item.tone-red, .wfg-ack-item.tone-amber { border-color: rgba(var(--ack-tone-rgb), 0.75); }
+  .wfg-ack-item.tone-green .wfg-ack-num, .wfg-ack-item.tone-blue .wfg-ack-num,
+  .wfg-ack-item.tone-red .wfg-ack-num, .wfg-ack-item.tone-amber .wfg-ack-num { background: var(--ack-tone); }
+  .wfg-ack-item.tone-green.done, .wfg-ack-item.tone-blue.done,
+  .wfg-ack-item.tone-red.done, .wfg-ack-item.tone-amber.done {
     background: rgba(var(--ack-tone-rgb), 0.10); border-color: rgba(var(--ack-tone-rgb), 0.75); }
   .wfg-ack-tx { min-width: 0; flex: 1 1 auto; }
   .wfg-ack-name { font-size: 13.5px; font-weight: 700; color: #e2e8f0; }
@@ -2375,8 +2384,34 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4150"></script>
-<script src="common/i18n.js?v=20260823wfg4150"></script>
+  <!-- ══ v4.16.0：匯出的型號確認框 ══════════════════════════════════════════
+       Bruce 2026-08-23：「匯出時也一同跳 TCON 的確認框，因為可能有一種情況是：
+       我用不同 TCON 匯入，再用另外一個 TCON 匯出，這個也要可以相容。
+       只是最大值這個地方要特別小心。」
+
+       視覺沿用 `wfg-ack-mask` 那一整套 class（hd／bd／ft），不新造第三種對話框樣式。 -->
+  <div class="wfg-ack-mask hidden" id="wfg-exp-mask" role="dialog" aria-modal="true" aria-labelledby="wfg-exp-title">
+    <div class="wfg-ack">
+      <div class="wfg-ack-hd">
+        <div class="wfg-ack-bang" aria-hidden="true">?</div>
+        <div class="wfg-ack-hd-tx">
+          <div class="wfg-ack-title" id="wfg-exp-title" data-i18n="wfg.expTitle">要用哪一顆 TCON 的格式匯出？</div>
+          <div class="wfg-ack-sub" id="wfg-exp-sub"></div>
+        </div>
+      </div>
+      <div class="wfg-ack-bd" id="wfg-exp-bd"></div>
+      <div class="wfg-ack-ft">
+        <button type="button" class="wfg-ack-ok on" id="wfg-exp-ok" onclick="wfgExpConfirm()" data-i18n="wfg.expOk">用選定的型號匯出</button>
+        <button type="button" class="wfg-ack-ok on" id="wfg-exp-switch" onclick="wfgExpSwitchAndFix()"
+                style="background:#334155;border-color:#475569;color:#e2e8f0" data-i18n="wfg.expSwitch">切換到該型號並自動調整</button>
+        <button type="button" class="wfg-ack-ok on" id="wfg-exp-cancel" onclick="wfgExpCancel()"
+                style="background:#334155;border-color:#475569;color:#e2e8f0" data-i18n="wfg.expCancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+<script src="common/version.js?v=20260823wfg4160"></script>
+<script src="common/i18n.js?v=20260823wfg4160"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -25774,7 +25809,17 @@ function wfgValidateTxDclk(tx) {
      是物理約束 `TX ≥ RX`；機種不相容改用**警示**（`warn`）表達，不阻止輸入。 */
   if (L.empty) {
     if (tx < L.rx - WFG_DCLK_EPS) {
-      return { ok: false, err: t('wfg.errTxDclkMin').replace(/\{t\}/g, String(wfgFmtDclk(L.rx))) };
+      /* 🔴 v4.16.0：這個狀態下只講「TX 不可低於 RX」是不夠的 ——
+         使用者看到的是「我明明照機種上限填 105，它卻不讓我填」，而真正的死結是
+         **這組 Frame 參數（解析度×Frame Rate）本身就超過這顆機種的能力**：
+         需要 {need} MHz，機種最高只有 {hi} MHz。訊息必須指出該去改哪裡，
+         否則使用者只能像 Bruce 那樣「先按確定保留舊值、回主畫面再試」。 */
+      return { ok: false, err: t('wfg.errDclkEmptyBelowRx')
+        .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+        .replace(/\{t\}/g, String(wfgFmtDclk(L.rx)))
+        .replace(/\{hi\}/g, String(L.specMax))
+        .replace(/\{need\}/g, String(wfgFmtDclk(L.rx * L.ratio)))
+        .replace(/\{fps\}/g, String(wfgFrame.frameRate | 0)) };
     }
     return { ok: true, warn: t('wfg.errDclkRangeEmpty')
       .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
@@ -36912,8 +36957,189 @@ function wfgCodeDlyDrift() {
   return { warn: names.length > 0, noBaseline: false, names: names };
 }
 window.wfgCodeDlyDrift = wfgCodeDlyDrift;
+/* ══════════════════════════════════════════════════════════════════════════
+   v4.16.0：匯出的型號確認框 ＋ 跨型號相容性檢查
+   ══════════════════════════════════════════════════════════════════════════
+
+   Bruce 2026-08-23：「匯出時也一同跳 TCON 的確認框，因為可能有一種情況是：
+   我用不同 TCON 匯入，再用另外一個 TCON 匯出，這個也要可以相容。
+   **只是最大值這個地方要特別小心。**」
+
+   ── 語意：確認框選的型號**只決定產出格式，不動當前資料** ────────────────
+   兩種語意差很多，這裡選的是「只決定格式」：
+     ・匯出是「產出一份檔案」，不是「改變我正在編輯的東西」。使用者只是想存個檔，
+       結果畫面上的數值被夾掉，那是意外傷害。
+     ・工具列的型號下拉仍是唯一的「當前機種」真值（左側欄位上下限、COMBO 顯示都跟著它）。
+       匯出框如果也會改它，同一件事就有兩個入口，回到 v4.7.0 之前那種不一致狀態。
+   要「連資料一起換過去」有獨立的按鈕（`wfgExpSwitchAndFix()`），走的是既有的
+   `wfgCodeOnTconChange()` 路徑 —— 夾值與逐條提示一項都不會少，而且是使用者主動按的。
+
+   ── 🔴 最大值：**不夾、不截斷，直接擋** ──────────────────────────────────
+   跨型號最危險的就是位元寬變窄：EN01 的 ST_LINE 是 16 bit（上限 65535），
+   拿 20000 這個值去用 E503（14 bit，上限 16383）匯出 —— 20000 放不進 14 個 bit。
+   如果靜默截斷，產出的 xlsx **看起來完全正常**，但客戶照著設就是錯的。
+
+   所以：任何一條訊號的任何一個欄位超出目標型號的位元寬 ⇒ **擋下匯出**，
+   在框上逐條列出「哪條訊號、哪個欄位、目前值 vs 目標上限」，只留兩條出路：
+     ① 取消，自己回去調
+     ② 按「切換到該型號並自動調整」，走既有的夾值路徑（有完整提示）
+   **刻意不提供「照樣匯出」** —— 那等於把「靜默截斷」換成「按過同意的截斷」，
+   產出的檔案一樣是錯的。
+
+   ── COMBO／OAX 的跨型號差異：**提示但不擋** ────────────────────────────
+   MNT 可任意指派對象、NB 只能用硬體固定的那一條，所以同一個 `oax_mode` 在不同型號
+   會作用在**不同的對象**上。這不是「值放不下」，是「語意換了」——
+   值本身完全合法，擋下來反而擋掉正當用途（例如就是要把 MNT 的設定移植到 NB）。
+   ⇒ 逐條列出「來源對象 → 目標對象」，讓使用者自己判斷。只列 `oax_mode > 0` 的，
+     沒開 COMBO 的訊號列出來只是噪音。 */
+function wfgExportSigCount(key) {
+  var nb = (typeof WFG_NB_MODELS !== 'undefined') && WFG_NB_MODELS[key];
+  if (nb) return isFinite(nb.exportSigCount) ? nb.exportSigCount : nb.sigCount;
+  return WFG_DIGITAL_GPIO_COUNT;
+}
+/* 回傳 { over:[…], combo:[…], drop:[…] }。`over` 非空 ＝ 必須擋下。 */
+function wfgExpCompatCheck(targetKey) {
+  var tc = WFG_TCON_CODECS[targetKey] || {};
+  var bits = tc.gpoBits || WFG_GPO_BITS_MNT;
+  var tgtSrc = tc.comboSrc || null;
+  var curSrc = wfgComboSrcTable();
+  var nOut = wfgExportSigCount(targetKey);
+  var over = [], combo = [], drop = [];
+  for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
+    var g = wfgGpios[i];
+    if (!g || g.waveform_type !== 0) continue;
+    var nm = (WFG_GPIO_NAMES[i] || String(i)).toUpperCase();
+    if (i >= nOut) {                       // 目標型號寫不到這一條（E503 的 4 條、EN01 的 gpo0/1）
+      if (g.enable) drop.push(nm);
+      continue;
+    }
+    for (var f = 0; f < WFG_GPO_RANGE_FIELDS.length; f++) {
+      var fd = WFG_GPO_RANGE_FIELDS[f];
+      var nbits = bits[fd] | 0;
+      if (!(nbits > 0)) continue;
+      var mx = Math.pow(2, nbits) - 1, v = g[fd] | 0;
+      if (v > mx) over.push({ sig: nm, field: fd.toUpperCase(), val: v, max: mx, enable: !!g.enable });
+    }
+    /* COMBO：只有真的開了才有意義。`from`／`to` 分別是「目前機種」與「目標機種」
+       對這條訊號指定的對象；MNT 那一側是使用者自選的 `oax_sel`。 */
+    if ((g.oax_mode | 0) > 0) {
+      var from = curSrc ? String(curSrc[i] || '').toUpperCase()
+                        : String(WFG_GPIO_NAMES[g.oax_sel | 0] || '').toUpperCase();
+      var to   = tgtSrc ? String(tgtSrc[i] || '').toUpperCase()
+                        : String(WFG_GPIO_NAMES[g.oax_sel | 0] || '').toUpperCase();
+      if (from !== to) combo.push({ sig: nm, from: from || '?', to: to || '?' });
+    }
+  }
+  return { over: over, combo: combo, drop: drop };
+}
+window.wfgExpCompatCheck = wfgExpCompatCheck;
+
+var _wfgExpPick = null;
+function wfgExpShow() {
+  var m = document.getElementById('wfg-exp-mask');
+  if (!m) { wfgCodeExportRun(wfgTconKey()); return; }   // 大聲失敗不了就照舊直接匯出
+  _wfgExpPick = wfgTconKey();
+  var sub = document.getElementById('wfg-exp-sub');
+  if (sub) sub.textContent = t('wfg.expSub').replace('{m}', (wfgTconCodec() && wfgTconCodec().label) || '');
+  wfgExpRender();
+  m.classList.remove('hidden');
+}
+function wfgExpPick(k) { _wfgExpPick = k; wfgExpRender(); }
+window.wfgExpPick = wfgExpPick;
+function wfgExpRender() {
+  var box = document.getElementById('wfg-exp-bd');
+  if (!box) return;
+  var cur = wfgTconKey();
+  var html = '<div class="wfg-ack-item tone-blue"><div class="wfg-ack-num">1</div><div class="wfg-ack-tx">'
+           + '<div class="wfg-ack-name">' + t('wfg.expPickName') + '</div>'
+           + '<div class="wfg-ack-row"><select class="wfg-ack-input" style="width:auto;min-width:150px" onchange="wfgExpPick(this.value)">';
+  for (var k in WFG_TCON_CODECS) {
+    var c = WFG_TCON_CODECS[k];
+    if (!c.buildExport) continue;                       // 沒有匯出器的型號不列
+    html += '<option value="' + k + '"' + (k === _wfgExpPick ? ' selected' : '') + '>'
+          + c.label + '  (.' + c.exportFormat + ')' + (k === cur ? '  ' + t('wfg.expCurrentTag') : '') + '</option>';
+  }
+  html += '</select></div></div></div>';
+
+  var r = wfgExpCompatCheck(_wfgExpPick);
+  var tgtLabel = (WFG_TCON_CODECS[_wfgExpPick] || {}).label || _wfgExpPick;
+  if (r.over.length) {
+    /* 🔴 紅色、排在最上面、而且是**擋下匯出**的那一項 —— 不是可以按掉的警告。 */
+    var rows = r.over.map(function (o) {
+      return '・' + o.sig + ' ' + o.field + '：' + o.val + '　>　' + t('wfg.expMaxIs').replace('{v}', String(o.max))
+           + (o.enable ? '' : '　' + t('wfg.expNotEnabled'));
+    }).join('<br>');
+    html += '<div class="wfg-ack-item tone-red"><div class="wfg-ack-num">!</div><div class="wfg-ack-tx">'
+          + '<div class="wfg-ack-name" style="color:#f87171">' + t('wfg.expOverName').replace('{m}', tgtLabel).replace('{n}', String(r.over.length)) + '</div>'
+          + '<div class="wfg-ack-where">' + t('wfg.expOverWhere') + '</div>'
+          + '<div class="wfg-ack-where" style="color:#e2e8f0;line-height:1.9">' + rows + '</div>'
+          + '</div></div>';
+  }
+  if (r.combo.length) {
+    var crows = r.combo.map(function (c2) { return '・' + c2.sig + '：' + c2.from + ' → ' + c2.to; }).join('<br>');
+    html += '<div class="wfg-ack-item tone-amber"><div class="wfg-ack-num">⚠</div><div class="wfg-ack-tx">'
+          + '<div class="wfg-ack-name">' + t('wfg.expComboName').replace('{m}', tgtLabel) + '</div>'
+          + '<div class="wfg-ack-where">' + t('wfg.expComboWhere') + '</div>'
+          + '<div class="wfg-ack-where" style="color:#e2e8f0;line-height:1.9">' + crows + '</div>'
+          + '</div></div>';
+  }
+  if (r.drop.length) {
+    html += '<div class="wfg-ack-item tone-amber"><div class="wfg-ack-num">⚠</div><div class="wfg-ack-tx">'
+          + '<div class="wfg-ack-name">' + t('wfg.expDropName').replace('{m}', tgtLabel) + '</div>'
+          + '<div class="wfg-ack-where" style="color:#e2e8f0">' + r.drop.join('、') + '</div>'
+          + '</div></div>';
+  }
+  if (!r.over.length && !r.combo.length && !r.drop.length) {
+    html += '<div class="wfg-ack-item tone-green"><div class="wfg-ack-num">✓</div><div class="wfg-ack-tx">'
+          + '<div class="wfg-ack-name">' + t('wfg.expOkName').replace('{m}', tgtLabel) + '</div></div></div>';
+  }
+  box.innerHTML = html;
+  var ok = document.getElementById('wfg-exp-ok');
+  var sw = document.getElementById('wfg-exp-switch');
+  if (ok) {
+    ok.disabled = r.over.length > 0;
+    ok.style.opacity = r.over.length ? '0.4' : '';
+    ok.style.cursor = r.over.length ? 'not-allowed' : '';
+    ok.title = r.over.length ? t('wfg.expOkBlockedTitle') : '';
+  }
+  /* 「切換並調整」只在**真的有東西要調** 且 目標不是目前型號時才出現 ——
+     沒有超界卻放一顆會改資料的按鈕，只會讓人誤按。 */
+  if (sw) sw.classList.toggle('hidden', !(r.over.length && _wfgExpPick !== cur));
+}
+function wfgExpCancel() {
+  var m = document.getElementById('wfg-exp-mask');
+  if (m) m.classList.add('hidden');
+}
+function wfgExpConfirm() {
+  var k = _wfgExpPick;
+  var r = wfgExpCompatCheck(k);
+  if (r.over.length) return;            // 防呆：按鈕已 disabled，這裡再擋一次（程式化呼叫）
+  wfgExpCancel();
+  wfgCodeExportRun(k);
+}
+/* 使用者主動選擇「連資料一起換過去」。走既有的 `wfgCodeOnTconChange()`，
+   所以夾值明細與確認卡一項都不會少；回來後重畫這個框（超界項應該就清空了）。 */
+function wfgExpSwitchAndFix() {
+  var k = _wfgExpPick;
+  wfgCodeOnTconChange(k);
+  wfgSyncTconSelects();
+  wfgExpRender();
+}
+window.wfgExpShow = wfgExpShow;
+window.wfgExpConfirm = wfgExpConfirm;
+window.wfgExpCancel = wfgExpCancel;
+window.wfgExpSwitchAndFix = wfgExpSwitchAndFix;
+
+/* 按鈕入口：先問型號，再匯出。 */
 window.wfgCodeExport = function() {
   var codec = wfgTconCodec();
+  if (!codec) return;
+  if (!codec.buildExport) { wfgCodeNotSupported(codec, 'export'); return; }
+  wfgExpShow();
+};
+/* 實際產檔。`targetKey` ＝ 確認框選定的型號，**不一定等於目前機種**。 */
+function wfgCodeExportRun(targetKey) {
+  var codec = WFG_TCON_CODECS[targetKey];
   if (!codec) return;
   if (!codec.buildExport) { wfgCodeNotSupported(codec, 'export'); return; }
   var out;
@@ -36967,11 +37193,19 @@ window.wfgCodeExport = function() {
     }
     msgs.push(t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
   }
+  /* v4.16.0：用「不是目前機種」的格式匯出時，把這件事講清楚 ——
+     檔名裡雖然有型號，但使用者剛剛在畫面上看的是另一顆的上下限與 COMBO 對象。 */
+  if (targetKey !== wfgTconKey()) {
+    msgs.unshift(t('wfg.expCrossNote')
+                   .replace('{cur}', (wfgTconCodec() && wfgTconCodec().label) || '')
+                   .replace('{tgt}', codec.label));
+  }
   if (msgs.length) {
     var _txt = msgs.join('\n\n──────────────────────────────\n\n');
     setTimeout(function() { alert(_txt); }, 0);
   }
-};
+}
+window.wfgCodeExportRun = wfgCodeExportRun;
 
 /* ══ EM02 解析器 ══════════════════════════════════════════════════════════
    .bin 是「把各 register 分區依位址順序打包」的映像，不是寫入序列。
@@ -38231,13 +38465,39 @@ function wfgNbEdidFrame(buf, edidOff) {
   for (var k = 0; k < 128; k++) s += buf[edidOff + k];
   if ((s & 0xFF) !== 0) return null;
   var d = edidOff + 0x36;
-  return {
-    hactive: buf[d + 2] | ((buf[d + 4] >> 4) << 8),
-    hblank:  buf[d + 3] | ((buf[d + 4] & 0x0F) << 8),
-    vactive: buf[d + 5] | ((buf[d + 7] >> 4) << 8),
-    vblank:  buf[d + 6] | ((buf[d + 7] & 0x0F) << 8),
-    pclk10k: buf[d] | (buf[d + 1] << 8)
-  };
+  var ha = buf[d + 2] | ((buf[d + 4] >> 4) << 8);
+  var hb = buf[d + 3] | ((buf[d + 4] & 0x0F) << 8);
+  var va = buf[d + 5] | ((buf[d + 7] >> 4) << 8);
+  var vb = buf[d + 6] | ((buf[d + 7] & 0x0F) << 8);
+  var pclk10k = buf[d] | (buf[d + 1] << 8);          // 單位 10 kHz（VESA 定義）
+  /* ══ 🔴 v4.16.0：Frame Rate 也從 EDID 帶進來 ══════════════════════════════
+     Bruce 2026-08-23 回報：MNT（3440×1440@144Hz、TX 416 MHz）→ 匯入 E503 後，
+     匯入卡片上填不進 105 MHz，非得先按確定保留 416、回主畫面才改得成。
+
+     追出來的根因**與「輸入框 min/max 沿用舊型號」無關**（那兩格根本沒有 max 屬性，
+     限制全在 JS）。真正的原因是：匯入把 Frame 參數換成了 code 檔裡的 1920×1080，
+     **Frame Rate 卻留著使用者原本的 144Hz** ⇒
+         RX DCLK = 2160 × 1120 × 144 / 1e6 = **174.18 MHz**
+     而 E503 的機種上限只有 105 ⇒ `wfgDclkLimits()` 的 `uiMin(174.18) > uiMax(105)`
+     ＝ `empty` 狀態。這時唯一仍成立的物理約束是 `TX ≥ RX`，105 < 174.18 於是被擋。
+     **「填不到 105」在那個狀態下是對的** —— 1920×1080@144Hz 這組參數 E503 本來就跑不動。
+
+     ⇒ 真正該修的是「為什麼會湊出這種組合」：**code 檔的 EDID 裡本來就寫著這片面板
+       要跑幾 Hz**（DTD 的 pixel clock），我們卻只拿了解析度、沒拿 frame rate。
+       補上之後 Frame Rate 會變成 60Hz、RX 掉到 72.58 MHz，105 就完全合法了。
+
+     這與 v4.0.x「只帶 code 檔真的有的值」的裁示一致 —— 當時 MNT 三顆的 bin 沒有 EDID，
+     所以沒有 frame rate 可帶；NB 有，所以現在是五個值而不是四個。
+     實測四份真實 NB code（E501／E503／EN01×2）算出來都是 60Hz，與 NB 面板規格相符。
+
+     防呆：算出來落在 20~360 Hz 以外一律不採用（回 0，呼叫端就不會動 Frame Rate）——
+     EDID 的 pclk 欄位若是 0 或壞掉，寧可不帶，也不要把一個荒謬的 frame rate 塞進去。 */
+  var ht = ha + hb, vt = va + vb, fr = 0;
+  if (ht > 0 && vt > 0 && pclk10k > 0) {
+    var f = (pclk10k * 10000) / (ht * vt);
+    if (f >= 20 && f <= 360) fr = Math.round(f);
+  }
+  return { hactive: ha, hblank: hb, vactive: va, vblank: vb, pclk10k: pclk10k, frameRate: fr };
 }
 window.wfgNbEdidFrame = wfgNbEdidFrame;
 
@@ -38683,6 +38943,18 @@ function wfgCodeApplyToWfg(res) {
     if (res.frame.vactive > 0) wfgFrame.vactive = res.frame.vactive;
     if (res.frame.hblank > 0) wfgFrame.htotalBase = res.frame.hactive + res.frame.hblank;
     if (res.frame.vblank > 0) wfgFrame.vtotal = res.frame.vactive + res.frame.vblank;
+    /* 🔴 v4.16.0：Frame Rate（只有 EDID 解得出來的型號會給，見 `wfgNbEdidFrame()`）。
+       不帶的話會湊出「新解析度 ＋ 舊 frame rate」這種該機種跑不動的組合，
+       使用者在匯入卡片上就會被 `TX ≥ RX` 擋住（Bruce 2026-08-23 回報的現象）。
+       MNT 三顆不回傳這一格，行為完全不變。 */
+    if (res.frame.frameRate > 0 && wfgFrame.frameRate !== res.frame.frameRate) {
+      wfgFrame.frameRate = res.frame.frameRate;
+      var _fre = document.getElementById('wfg-framerate');
+      if (_fre) _fre.value = res.frame.frameRate;
+      if (typeof wfgSetFrameRateSliderMax === 'function') {
+        try { wfgSetFrameRateSliderMax(res.frame.frameRate); } catch (e) {}
+      }
+    }
     /* v4.0.3：GATE TYPE 也要帶進來。不帶的話，行號 > VTOTAL 的訊號（本例 CK8 的
        st_line=2898）在 Single Gate 的座標系下閘門永遠打不開，波形整條不見。
        推定規則見 wfgEm02ParseBin 內的說明。 */
@@ -38694,6 +38966,11 @@ function wfgCodeApplyToWfg(res) {
     }
     wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
     wfgSyncBlankInputs(); wfgSyncDclkUi();
+    /* 🔴 v4.16.0：DCLK 的機種檢核走**與換機種完全同一支**。
+       Bruce 2026-08-23：「型號一旦確定，所有依型號而變的東西……在同一個時間點一起更新，
+       不要各自為政。」匯入這條路徑原本少了這一步 —— 匯入後若 TX DCLK 超出新機種規格，
+       既不會夾也不會提示，錯誤訊息要等使用者自己去碰那一格才出現。 */
+    wfgApplyTconClassConstraints();
   }
   /* v4.2.0：FRM_NO 三個一起帶入（型號無關，只要解析器有給就套）。 */
   if (res.frmNo) {
