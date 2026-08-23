@@ -2348,8 +2348,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4111"></script>
-<script src="common/i18n.js?v=20260823wfg4110"></script>
+<script src="common/version.js?v=20260823wfg4120"></script>
+<script src="common/i18n.js?v=20260823wfg4120"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -35477,6 +35477,12 @@ window.wfgUiDclkRatio = wfgUiDclkRatio;
      從 .bin 本身重現不出來 → 不顯示。 */
 var wfgCodeLastFileName = '';
 var wfgCodeLastCks = -1;
+/* v4.12.0：「這份設定是從哪一組 timing 讀出來的」。只有 EM01 多模檔會填，
+   其餘型號永遠是空字串 ⇒ EM02／E512 匯出的內容一位元都不會變。
+   🔴 清空的位置在 `wfgCodeImport()` 的 onchange 最前面（**呼叫 parseCode 之前**），
+   不能放在 wfgCodeSetStatus() —— 那支是在 parseCode **之後**才被呼叫的，
+   放那裡會把剛解析出來的註解清掉。 */
+var wfgCodeLastTimingNote = '';
 function wfgCodeSetStatus(fileName, cks) {
   wfgCodeLastFileName = fileName || '';
   wfgCodeLastCks = (typeof cks === 'number' && cks >= 0) ? cks : -1;
@@ -36179,6 +36185,7 @@ window.wfgCodeImport = function() {
   input.onchange = function() {
     if (!input.files || !input.files[0]) return;
     var f = input.files[0];
+    wfgCodeLastTimingNote = '';      // v4.12.0：每次匯入都從乾淨狀態開始，見該變數的說明
     /* ══ v4.11.1：大小不合法的檔案在**讀進記憶體之前**就擋掉 ═══════════════════
        Bruce 2026-08-23：「照規格應該是在解析之前就擋，不該有可觀察的延遲。」
        v4.11.0 的判定確實在解析之前（`wfgCodeLoadImage()` 第一步），但**位置在
@@ -36557,6 +36564,8 @@ function wfgEm02BuildScript(opt) {
     lines.push('// ' + now.toISOString());
     if (wfgCodeLastFileName) lines.push('// source: ' + wfgEm02Ascii(wfgCodeLastFileName));
     if (wfgCodeLastCks >= 0) lines.push('// source CKS: 0x' + wfgEm02Hex(wfgCodeLastCks, 6));
+    /* v4.12.0：多模 code 才有值；其餘型號永遠是空字串，輸出因此完全不變。 */
+    if (wfgCodeLastTimingNote) lines.push('// source timing: ' + wfgEm02Ascii(wfgCodeLastTimingNote));
     lines.push('');
   }
   /* Frame 層級：GATE TYPE。放在所有訊號之前，因為它決定每個 frame 有幾條 line。 */
@@ -36911,6 +36920,100 @@ var WFG_EM01_LAYOUT = {
   eeprom: { key: 'EEPROM', base1: 0x0457, base2: 0x0556, base3: 0x0658 },
   flash:  { key: 'Flash',  base1: 0x0500, base2: 0x0600, base3: 0x0700 }
 };
+/* ══ v4.12.0：EM01 Flash 的「多模 GPO Timing」════════════════════════════════
+   Bruce 2026-08-23：「正常的 GPO Timing 只會有一個，可是因為 EM01 有支援這種特殊的
+   應用，所以除了 Normal Timing 之外，還有一個是 133% 的 Timing，另一個是 200% 的
+   Timing……我希望匯入的時候顯示的 Timing 都只有 Normal。」
+   並補充：「有這種三模 timing 的應用，只有在 Flash EM01 的版本才會有。」
+
+   ── 先講一個會誤導人的事實：register bank 裡**沒有**三組 GPO timing ──────────
+   `em01_register_bank_svn2415.xlsx` 全庫搜過，`st_line`／`sp_line` **每條訊號只有一組**。
+   帶 `_2nd`／`_3rd` 的暫存器全部是**延遲**（`r_dly_*_2nd`／`f_dly_*_2nd`）與讀取時序
+   （`reg_rd_2nd_dly`／`reg_rd_3rd_dly`／`_abs`／`_shift`），**不是**另一組 st/sp_line。
+   ⇒ 三模不是「三組暫存器」，而是**三份完整的 rt8_tcon_1＋rt8_tcon_2 影像**，
+   存在 Flash 的另一個區段，由 MCU 在切模式時整批寫回同一組暫存器。
+
+   ── 影像表的位置與結構（實測歸納）──────────────────────────────────────────
+       slot k 的起點 ＝ 0x35000 + k × 0x300   （k = 0,1,2）
+         +0x000  rt8_tcon_1（0xCC bytes，與 regAddr 0x0500 那份同格式）
+         +0x100  rt8_tcon_2（0x100 bytes）
+         +0x200  2 bytes CRC（與 EEPROM 各 bank 之間夾 CRC 是同一條規則）
+   每個 slot 的 `reg_hap`／`reg_val`（rt8_tcon_1 rel 0x00／0x02）就是**那一模的有效區**，
+   所以 slot 自己會說自己是哪一模：
+       slot0 0x35000 → reg_val 720  ＝ 1440 ÷ 2      → 200%
+       slot1 0x35300 → reg_val 1080 ＝ 1440 ÷ 1.333  → 133%
+       slot2 0x35600 → reg_val 1440 ＝ VRES 本身      → Normal
+
+   ── 為什麼不能沿用「flat image 就是 Normal」──────────────────────────────────
+   🔴 **會錯，而且正是 Bruce 這一份 code 踩到的**：
+   `..._(Initial00_DCLK416M_PinMuxOK_HSR100.200ok_...)_CKS_3CFBE9_20260821175154.bin`
+     flat @0x0500  ck1~ck4 sp ＝ 733/735/734/736  ← **200% 的 timing**
+     slot0 @0x35000 reg_val 720   ck1~ck4 sp ＝ 733/735/734/736
+     slot2 @0x35600 reg_val 1440  ck1~ck4 sp ＝ 1455/1459/1456/1460  ← Normal
+   與 Bruce 的描述完全吻合（「200% 的 stop line 大概 700 多、Normal 大概 1400 多」）。
+   ⚠ 另外注意：**flat image 自己的 `reg_val` 是 1440**（Normal 的值），GPO 卻是 200% 的
+   —— 所以「看 flat 的 reg_val」也不能當判準，只有 **slot 的** reg_val 才是。
+
+   ── 判定方式與依據（不是拿單一觀測當規則）────────────────────────────────────
+   採用 **「reg_val 等於 sys 的 reg_tmg_vres 的那個 slot ＝ Normal」**。
+   理由是它有物理意義（reg_val 是該模式的有效行數，sys 的 VRES 是面板本來的有效行數），
+   而不是「sp_line 比較大的就是 Normal」這種單一特徵。
+
+   `TCON/Model` 全庫 EM01 檔（去重 66 個）實測：
+     ・EEPROM 10 個檔 → **0 個有 slot**（與 Bruce 說的「EEPROM 不會有三模」一致）
+     ・Flash 56 個檔 → 51 個沒有 slot、3 個 1 個 slot、1 個 2 個 slot、1 個 3 個 slot
+     ・有 slot 的 5 個檔上，三條規則同時成立 5/5：
+         A「恰好一個 slot 的 reg_val ＝ sys VRES」 B「0x35600 一定存在」 C「0x35600 的 reg_val ＝ sys VRES」
+   檔名交叉印證（獨立於位元組分析）：`HSR_3Mode` → 3 個 slot；`HSR100.200ok` → 2 個 slot
+   （100% 與 200%）；`HSR100ok` 與 `PinMuxOK` → 1 個 slot。**數量與檔名一一對上。**
+
+   🔴 規則 A 與 B 目前**互相同意**，但我採 A 並拿 B 當交叉檢查：位置（B）只是慣例，
+   reg_val（A）才是內容自證。兩者不一致時**不切換、保留 flat 並警告** —— 不猜。 */
+var WFG_EM01_MODE_SLOT_BASE = 0x35000;
+var WFG_EM01_MODE_SLOT_STRIDE = 0x300;
+var WFG_EM01_MODE_SLOT_COUNT = 3;
+var WFG_EM01_NORMAL_SLOT_HINT = 0x35600;   // 交叉檢查用（實測 5/5），不是判定依據
+function wfgEm01SlotHapVal(buf, s) {
+  return { hap: buf[s] | ((buf[s + 1] & 0x3F) << 8),      // reg_hap 14 bit
+           val: buf[s + 2] | ((buf[s + 3] & 0x1F) << 8) };  // reg_val 13 bit
+}
+/* 一個 slot 要通過與 flat image **同一組**結構檢查，才算數。
+   多一條 `reg_hap`／`reg_val` 的合理性 —— 那是 slot 特有的自證欄位。 */
+function wfgEm01SlotValid(buf, s) {
+  if (s + 0x202 > buf.length) return false;
+  if (buf[s + 0xC2] & 0x8E) return false;
+  for (var k = 1; k <= 9; k++) if (buf[s + 0xC2 + k] & 0x88) return false;
+  var hv = wfgEm01SlotHapVal(buf, s);
+  if (!(hv.hap >= 600 && hv.hap <= 8000)) return false;
+  if (!(hv.val >= 200 && hv.val <= 5000)) return false;
+  var sig = wfgGpoDecodeAt(buf, s, s + 0x100);
+  if (!sig) return false;
+  var ne = 0;
+  for (var i = 0; i < sig.length; i++) {
+    if (sig[i].unused2) return false;
+    if (sig[i].enable) ne++;
+  }
+  return ne >= 1;
+}
+/* 回傳 { slots: [{base, val, ratio}], normal: <base or -1>, why: '<原因碼>' }。
+   `normal < 0` ＝ 不切換（沒有 slot、或判不出唯一的 Normal）。 */
+function wfgEm01FindModeSlots(buf, sysVres) {
+  var out = { slots: [], normal: -1, why: 'none' };
+  for (var k = 0; k < WFG_EM01_MODE_SLOT_COUNT; k++) {
+    var s = WFG_EM01_MODE_SLOT_BASE + k * WFG_EM01_MODE_SLOT_STRIDE;
+    if (!wfgEm01SlotValid(buf, s)) continue;
+    var hv = wfgEm01SlotHapVal(buf, s);
+    out.slots.push({ base: s, val: hv.val,
+                     ratio: (sysVres > 0 && hv.val > 0) ? (sysVres / hv.val) : 0 });
+  }
+  if (!out.slots.length) return out;
+  var hit = [];
+  for (var i = 0; i < out.slots.length; i++) if (out.slots[i].val === sysVres) hit.push(out.slots[i]);
+  if (hit.length === 1) { out.normal = hit[0].base; out.why = 'byVres'; }
+  else { out.why = (hit.length === 0) ? 'noVresMatch' : 'ambiguous'; }
+  return out;
+}
+window.wfgEm01FindModeSlots = wfgEm01FindModeSlots;
 function wfgEm01Frame(buf) {
   if (buf.length < 0x19) return null;
   return {
@@ -36971,10 +37074,32 @@ function wfgEm01ParseBin(rawBuf, fname) {
   if (!wfgEm01Sane(buf, L, sig, frame)) {
     return { ok: false, reason: t('wfg.codeErrNotThisModel').replace(/\{m\}/g, 'EM01 ' + L.key) };
   }
-  var _rdMode = ((buf[L.base1 + 0x04] >> 6) & 3);
+  /* ══ v4.12.0：多模 GPO Timing —— 有 Normal 就一律用 Normal ═══════════════════
+     🔴 **只在 Flash 版找**（Bruce：三模只有 Flash EM01 才有；實測 10 個 EEPROM 檔
+     一個 slot 都沒有）。找不到 slot 就完全維持 v4.11.x 的行為 —— 全庫 56 個 Flash 檔
+     裡有 51 個屬於這一類，它們一個位元組都不會受影響。
+     🔴 `gpoBase1` 之後所有「GPO 相關」的讀取（含 rd_mode 與 FRM_NO）都改用它；
+     frame timing 仍然來自 `sys` bank（那是面板屬性，不隨模式走）。 */
+  var modes = { slots: [], normal: -1, why: 'none' };
+  var gpoBase1 = L.base1, gpoBase2 = L.base2, modeNote = '';
+  if (img.medium === 'flash') {
+    modes = wfgEm01FindModeSlots(buf, frame.vactive);
+    if (modes.normal >= 0) {
+      var nsig = wfgGpoDecodeAt(buf, modes.normal, modes.normal + 0x100);
+      /* 🔴 換來源之前先用**同一組**防呆檢查一次。Normal slot 看起來再合理，
+         也不能沒驗就拿去覆蓋使用者畫面 —— 驗不過就退回 flat 並講出來。 */
+      var nL = { base1: modes.normal, base2: modes.normal + 0x100, base3: L.base3, key: L.key };
+      if (nsig && wfgEm01Sane(buf, nL, nsig, frame)) {
+        gpoBase1 = nL.base1; gpoBase2 = nL.base2; sig = nsig;
+      } else {
+        modes.normal = -1; modes.why = 'normalSlotInsane';
+      }
+    }
+  }
+  var _rdMode = ((buf[gpoBase1 + 0x04] >> 6) & 3);
   var gateType = (_rdMode === 0) ? 'single' : (_rdMode === 1) ? 'dual' : null;
   function _frm12(rel) {
-    var a = L.base1 + rel;
+    var a = gpoBase1 + rel;
     return (a + 1 < buf.length) ? (buf[a] | ((buf[a + 1] & 0x0F) << 8)) : 0;
   }
   var frmNo = { f0: _frm12(0x2E), f1: _frm12(0x30), f2: _frm12(0x32) };
@@ -36996,17 +37121,48 @@ function wfgEm01ParseBin(rawBuf, fname) {
   var cks = 0; for (var b = 0; b < rawBuf.length; b++) cks += rawBuf[b];
   cks = cks >>> 0;
   var det = 'EM01 ' + L.key + ' (' + buf.length + ' B' + (img.srcFormat === 'hex' ? ', from .hex' : '') + ')';
-  det += ' / GPO @0x' + L.base1.toString(16).toUpperCase() + '/0x' + L.base2.toString(16).toUpperCase();
+  det += ' / GPO @0x' + gpoBase1.toString(16).toUpperCase() + '/0x' + gpoBase2.toString(16).toUpperCase();
   det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
   det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
   det += ' / FRM_NO ' + frmNo.f0 + '/' + frmNo.f1 + '/' + frmNo.f2;
   det += ' / EN ' + nEn + '/18';
+  /* ── v4.12.0：多模資訊一律講出來（即使只有一模，也讓使用者看得到「就只有一模」）── */
+  var modeLabel = '';
+  if (modes.slots.length) {
+    var parts = [];
+    for (var mi = 0; mi < modes.slots.length; mi++) {
+      var sl = modes.slots[mi];
+      var pct = sl.ratio > 0 ? Math.round(sl.ratio * 100) : 0;
+      parts.push((pct === 100 ? 'Normal' : (pct + '%')) + '(VAL ' + sl.val +
+                 ' @0x' + sl.base.toString(16).toUpperCase() + ')' +
+                 (sl.base === modes.normal ? ' ←' : ''));
+    }
+    modeLabel = parts.join(', ');
+    if (modes.normal >= 0) {
+      det += '\n' + t('wfg.codeEm01Modes').replace('{n}', String(modes.slots.length))
+                     .replace('{s}', modeLabel);
+      if (modes.normal !== WFG_EM01_NORMAL_SLOT_HINT) {
+        det += '\n' + t('wfg.codeEm01ModeSlotOdd')
+                        .replace('{a}', '0x' + modes.normal.toString(16).toUpperCase())
+                        .replace('{b}', '0x' + WFG_EM01_NORMAL_SLOT_HINT.toString(16).toUpperCase());
+      }
+    } else {
+      det += '\n' + t('wfg.codeEm01ModeAmbiguous').replace('{n}', String(modes.slots.length))
+                     .replace('{s}', modeLabel).replace('{v}', String(frame.vactive));
+    }
+  }
   if (!gateType) det += '\n' + t('wfg.codeTriGate').replace('{v}', String(_rdMode));
   if (nEn < 4) det += '\n' + t('wfg.codeEm01FewEnabled').replace('{n}', String(nEn));
   if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
   if (dlyOver.length) det += '\n' + t('wfg.codeDlyOver').replace('{s}', dlyOver.join(', ')).replace('{h}', String(ht));
-  return { ok: true, signals: sig, frame: frame, base1: L.base1, cks: cks,
-           gateType: gateType, frmNo: frmNo, applied: 18, detail: det, em01Layout: L.key };
+  /* 匯出的 .script 要能追溯「這組值是從哪一模來的」。純 ASCII（.script 只吃 ASCII）。 */
+  wfgCodeLastTimingNote = (modes.normal >= 0)
+    ? ('Normal timing slot @0x' + modes.normal.toString(16).toUpperCase() +
+       ' of ' + modes.slots.length + ' mode slot(s)')
+    : (modes.slots.length ? ('flat image (mode slots found but Normal not identified)') : '');
+  return { ok: true, signals: sig, frame: frame, base1: gpoBase1, cks: cks,
+           gateType: gateType, frmNo: frmNo, applied: 18, detail: det, em01Layout: L.key,
+           modeSlots: modes.slots.length, modeNormal: modes.normal };
 }
 window.wfgEm01ParseBin = wfgEm01ParseBin;
 /* 匯出：regAddr 與 EM02 逐項相同（見上方 ②），所以只是換一張 label 不同的表。

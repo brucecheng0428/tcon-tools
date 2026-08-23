@@ -22,6 +22,116 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.12.0 — 2026-08-23 ｜ MINOR ｜ ⚠ 輸出變更
+
+**EM01 Flash 的多模 GPO Timing：偵測出來，並一律匯入 Normal 那一組。**
+
+Bruce 2026-08-23：「除了 Normal Timing 之外，還有一個是 133% 的 Timing，另一個是 200% 的 Timing……我希望匯入的時候顯示的 Timing 都只有 Normal。」「有這種三模 timing 的應用，只有在 Flash EM01 的版本才會有。」
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+判定表「功能增減：**新增**獨立功能」→ **MINOR**（多了「偵測這份 code 有幾組 timing 並選出 Normal」）。
+R3「這一版之後使用者能多做一件事」→ MINOR。「操作流程」零變動 → PATCH。R4 不適用。
+R1（回到規格該有的行為，輸出會變）→ PATCH ＋ `⚠ 輸出變更`。⇒ 取最高者 **MINOR ＋ `⚠ 輸出變更`**。
+
+> 🔴 **取捨說明，供 Bruce 覆核（依 R2 補充 #3「不確定一律往低編並寫明取捨」）**：
+> 判定表還有一格是「既有功能的輸出：**主動改變**（設計上決定不一樣）→ MAJOR」，**字面上會被觸發**
+> —— 對某些 code，匯入後的波形數值確實與 v4.11.1 不同。我編成 MINOR 而不是 MAJOR，理由有三：
+> ① 使用者**原本會的操作一個都沒變**（同一顆按鈕、同一個流程、同樣的畫面位置）；
+> ② 這不是「設計上決定不一樣」，而是**回到 Bruce 明示的規格**（匯入應該顯示 Normal），性質接近 R1；
+> ③ 影響範圍實測是 **89 個 EM01 檔裡的 1 個**（見下表），其餘 88 個逐欄位完全相同。
+> 若你認為仍應算 MAJOR，這一版可以用新的更正 commit 重編（不改寫歷史）。
+
+### 🔴 先更正一個會誤導人的說法：register bank 裡**沒有**三組 GPO timing
+
+`em01_register_bank_svn2415.xlsx` 全庫搜過：`st_line`／`sp_line` **每條訊號只有一組**。
+帶 `_2nd`／`_3rd` 的暫存器全部是**延遲**（`r_dly_*_2nd`／`f_dly_*_2nd`）與讀取時序
+（`reg_rd_2nd_dly`／`reg_rd_3rd_dly`／`_abs`／`_shift`），**不是**另一組 st/sp_line。
+
+⇒ 三模不是「三組暫存器」，而是 Flash 另一個區段裡的**三份完整 rt8_tcon_1＋rt8_tcon_2 影像**，
+由 MCU 在切模式時整批寫回同一組暫存器。
+
+### 影像表的位置與結構
+
+```
+slot k 起點 = 0x35000 + k × 0x300     (k = 0,1,2)
+   +0x000  rt8_tcon_1（0xCC bytes，與 regAddr 0x0500 那份同格式）
+   +0x100  rt8_tcon_2（0x100 bytes）
+   +0x200  2 bytes CRC（與 EEPROM 各 bank 之間夾 CRC 同一條規則）
+```
+
+每個 slot 的 `reg_hap`／`reg_val`（rt8_tcon_1 rel 0x00／0x02）就是**那一模的有效區**，slot 自己會說自己是哪一模：
+
+| slot | 位址 | reg_val | 對 VRES 1440 的比例 |
+|---|---|---|---|
+| 0 | 0x35000 | 720 | 200% |
+| 1 | 0x35300 | 1080 | 133% |
+| 2 | 0x35600 | 1440 | **Normal** |
+
+### 為什麼不能沿用「flat image 就是 Normal」
+
+🔴 **會錯，而且正是 Bruce 這一份 code 踩到的**
+（`..._(Initial00_DCLK416M_PinMuxOK_HSR100.200ok_...)_CKS_3CFBE9_20260821175154.bin`，楊雷 8/21 寄出）：
+
+| 位置 | reg_val | CK1~CK4 SP_LINE |
+|---|---|---|
+| flat @0x0500 | 1440 | **733 / 735 / 734 / 736** ← 200% 的 timing |
+| slot0 @0x35000 | 720 | 733 / 735 / 734 / 736 |
+| slot2 @0x35600 | 1440 | **1455 / 1459 / 1456 / 1460** ← Normal |
+
+與 Bruce 的描述完全吻合（「200% 的 stop line 大概 700 多、Normal 大概 1400 多」）。
+⚠ 另外注意：**flat image 自己的 `reg_val` 是 1440**（Normal 的值），GPO 卻是 200% 的
+—— 所以「看 flat 的 reg_val」也不能當判準，只有 **slot 的** reg_val 才是。
+
+### 判定方式與依據（不是拿單一觀測當規則）
+
+採用 **「`reg_val` 等於 sys `reg_tmg_vres` 的那個 slot ＝ Normal」**。它有物理意義
+（reg_val 是該模式的有效行數、sys VRES 是面板本來的有效行數），而不是「sp_line 比較大的就是 Normal」這種單一特徵。
+**找不到唯一的 Normal 就不切換**，保留原本位置並在卡片上警告 —— 不猜。
+
+`TCON/Model` 全庫 EM01 檔實測（去重 66 個機種檔／89 個含副本）：
+
+- **EEPROM 10 個檔 → 0 個有 slot**（與 Bruce 說的「EEPROM 不會有三模」一致）
+- Flash 56 個檔 → 51 個沒有 slot、3 個 1 slot、1 個 2 slot、1 個 3 slot
+- 有 slot 的 5 個檔上，三條規則同時成立 **5/5**：
+  A「恰好一個 slot 的 reg_val ＝ sys VRES」　B「0x35600 一定存在」　C「0x35600 的 reg_val ＝ sys VRES」
+- **檔名交叉印證（獨立於位元組分析）**：`HSR_3Mode` → 3 slot；`HSR100.200ok` → 2 slot（100% 與 200%）；`HSR100ok`／`PinMuxOK` → 1 slot。**數量與檔名一一對上。**
+
+採 A 並拿 B 當交叉檢查：位置只是慣例，`reg_val` 才是內容自證。
+
+### 影響範圍（用本版原始碼跑全庫，逐檔比對「匯入結果 vs flat image」）
+
+**89 個 EM01 檔全部解析成功，其中只有 1 個檔的匯入結果改變：**
+
+| 檔案 | slot 數 | 舊（flat） | 新（Normal slot） |
+|---|---|---|---|
+| `..._HSR100.200ok_..._CKS_3CFBE9_20260821175154.bin` | 2 | CK1~4 SP 733/735/734/736 | **1455/1459/1456/1460** |
+
+其餘 88 個（含 3Mode 那一份，因為它的 flat 與 Normal slot **逐位元相同**）結果完全不變。
+
+### 其他
+
+- 匯入提醒卡片新增一行，列出這份 code 有幾組 timing、各自的百分比與 `reg_val`，並用 `←` 標出採用的那一組。
+- 匯出的 `.script` 多一行 `// source timing: Normal timing slot @0x35600 of N mode slot(s)`。
+  🔴 這個欄位**只有 EM01 多模檔會有值**，EM02／E512 永遠是空字串 ⇒ 它們的匯出內容一位元未變（已實測）。
+- 只在 **Flash** 找 slot；EEPROM 路徑一行都沒動。
+- Normal slot 在採用之前會再跑一次**與 flat image 相同**的防呆；驗不過就退回 flat 並講出來。
+
+### 驗證（headless Chrome，CDP 真實檔案選取路徑）
+
+| 情境 | 結果 |
+|---|---|
+| 楊雷 0821（2 模） | 匯入 **164.8 ms**，`GPO @0x35600/0x35700`，CK1~4 SP ＝ **1455/1459/1456/1460** ✅；卡片顯示「內含 2 組 GPO Timing：200%(VAL 720 @0x35000), Normal(VAL 1440 @0x35600) ←」；匯出帶 `// source timing: Normal timing slot @0x35600 of 2 mode slot(s)` |
+| HSR_3Mode（3 模） | 匯入 441.3 ms，CK1~4 SP ＝ 1452/1456/0/1462 ✅；卡片列出 200%／133%／Normal 三組 |
+| 無 slot 的 Flash（回歸） | `GPO @0x500/0x600`，與 v4.11.1 相同，無 timing 註解 |
+| EEPROM（回歸） | `GPO @0x457/0x556`，不找 slot，與 v4.11.1 相同 |
+| EM02 選 EM02（回歸） | 匯入成功 178.6 ms，`GPO @0x440`，CK1~4 SP 2897/2901/0/0，匯出無 timing 註解 |
+| E512 選 E512（回歸） | 匯入成功 483.5 ms，`GPO @0x3D7/0x4A5`，CK1~4 SP 2173/2174/2175/2176 |
+
+> ⚠ 驗收腳本自身的坑（記錄下來免得再犯）：換機種下拉之後**必須讀回 `wfgTconKey()` 確認**。
+> 第一輪沒讀回，「EM02 回歸」那一項其實整個跑在 em01 上，看起來像產品出錯，實際是腳本沒切成功。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.11.1 — 2026-08-23 ｜ PATCH
 
 **大小不合法的 code 檔改成在「讀進記憶體之前」就擋掉。**
