@@ -741,6 +741,17 @@ var I18N = {
   'wfg.codeErrHexNoEof':{ 'zh-TW': 'Intel HEX 檔缺少結束記錄（:00000001FF），可能被截斷',
                           'en': 'the Intel HEX file has no EOF record (:00000001FF) and may be truncated',
                           'zh-CN': 'Intel HEX 档缺少结束记录（:00000001FF），可能被截断' },
+  /* ══ v4.12.0：EM01 Flash 的多模 GPO Timing ═══════════════════════════════════
+     {n} ＝ 這份 code 裡有幾組 timing、{s} ＝ 每一組的百分比與 reg_val（箭頭指向採用的那一組）。 */
+  'wfg.codeEm01Modes':  { 'zh-TW': '這份 code 內含 {n} 組 GPO Timing：{s}　已採用 Normal 那一組（133% / 200% 不會被匯入）。',
+                          'en': 'This code carries {n} GPO timing sets: {s}  The Normal set was used (133% / 200% are not imported).',
+                          'zh-CN': '这份 code 内含 {n} 组 GPO Timing：{s}　已采用 Normal 那一组（133% / 200% 不会被导入）。' },
+  'wfg.codeEm01ModeAmbiguous': { 'zh-TW': '⚠ 這份 code 內含 {n} 組 GPO Timing：{s}，但沒有任何一組的 reg_val 等於面板的 VRES（{v}），無法確定哪一組是 Normal。已維持原本位置的設定不變，請自行確認。',
+                          'en': '⚠ This code carries {n} GPO timing sets: {s}, but none of them has reg_val equal to the panel VRES ({v}), so the Normal set cannot be identified. The settings from the default location were kept unchanged - please verify manually.',
+                          'zh-CN': '⚠ 这份 code 内含 {n} 组 GPO Timing：{s}，但没有任何一组的 reg_val 等于面板的 VRES（{v}），无法确定哪一组是 Normal。已维持原本位置的设定不变，请自行确认。' },
+  'wfg.codeEm01ModeSlotOdd': { 'zh-TW': '⚠ Normal 這一組落在 {a}，與慣例位置 {b} 不同（已依 reg_val 判定，不是依位置）。',
+                          'en': '⚠ The Normal set sits at {a}, not at the usual {b} (it was identified by reg_val, not by position).',
+                          'zh-CN': '⚠ Normal 这一组落在 {a}，与惯例位置 {b} 不同（已依 reg_val 判定，不是依位置）。' },
   'wfg.ackTitle':       { 'zh-TW': '匯入完成 — 但有 2 項沒有跟著 Code 連動',
                           'en': 'Import done - but 2 settings did NOT come from the code',
                           'zh-CN': '导入完成 — 但有 2 项没有跟着 Code 连动' },
