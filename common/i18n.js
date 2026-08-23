@@ -749,6 +749,14 @@ var I18N = {
   'wfg.codeEm01ModeAmbiguous': { 'zh-TW': '⚠ 這份 code 內含 {n} 組 GPO Timing：{s}，但沒有任何一組的 reg_val 等於面板的 VRES（{v}），無法確定哪一組是 Normal。已維持原本位置的設定不變，請自行確認。',
                           'en': '⚠ This code carries {n} GPO timing sets: {s}, but none of them has reg_val equal to the panel VRES ({v}), so the Normal set cannot be identified. The settings from the default location were kept unchanged - please verify manually.',
                           'zh-CN': '⚠ 这份 code 内含 {n} 组 GPO Timing：{s}，但没有任何一组的 reg_val 等于面板的 VRES（{v}），无法确定哪一组是 Normal。已维持原本位置的设定不变，请自行确认。' },
+  /* ══ v4.12.1：匯出後提醒 `_2nd` 延遲不會被寫回（EM01／EM02／E512 都適用）══════
+     {s} ＝ 這次改過延遲的訊號名。兩則的差別只在「有沒有匯入基準可比」。 */
+  'wfg.codeExportDly2nd': { 'zh-TW': '⚠ 延遲值已變更：{s}\n\n匯出的 script 只會寫 R_DLY / F_DLY，**不會寫第二組 R_DLY_2nd / F_DLY_2nd**（WFG 沒有這兩個欄位）。\n把這份 script 寫進 TCON 之後，第二組延遲仍是原本的值，會與你剛改的值不一致。若你的應用會用到第二組延遲，請另外自行設定。',
+                          'en': '⚠ Delay values were changed: {s}\n\nThe exported script only writes R_DLY / F_DLY - it does NOT write the second set R_DLY_2nd / F_DLY_2nd (WFG has no field for them).\nAfter loading this script into the TCON, the second set keeps its original values and will no longer match what you just changed. If your application uses the second delay set, please set it separately.',
+                          'zh-CN': '⚠ 延迟值已变更：{s}\n\n导出的 script 只会写 R_DLY / F_DLY，**不会写第二组 R_DLY_2nd / F_DLY_2nd**（WFG 没有这两个字段）。\n把这份 script 写进 TCON 之后，第二组延迟仍是原本的值，会与你刚改的值不一致。若你的应用会用到第二组延迟，请另外自行设定。' },
+  'wfg.codeExportDly2ndNoBase': { 'zh-TW': '⚠ 這次匯出沒有以任何 code 為基準（沒有先匯入 code，或上一次匯入失敗）。\n\n匯出的 script 只會寫 R_DLY / F_DLY，**不會寫第二組 R_DLY_2nd / F_DLY_2nd**（WFG 沒有這兩個欄位）。\n目前這 18 條延遲值與 TCON 內既有的第二組延遲沒有對應關係，寫入後兩者一定不一致。若你的應用會用到第二組延遲，請另外自行設定。',
+                          'en': '⚠ This export is not based on any imported code (no code was imported, or the last import failed).\n\nThe exported script only writes R_DLY / F_DLY - it does NOT write the second set R_DLY_2nd / F_DLY_2nd (WFG has no field for them).\nThe 18 delay values here bear no relation to the second delay set already in the TCON, so after loading they will certainly not match. If your application uses the second delay set, please set it separately.',
+                          'zh-CN': '⚠ 这次导出没有以任何 code 为基准（没有先导入 code，或上一次导入失败）。\n\n导出的 script 只会写 R_DLY / F_DLY，**不会写第二组 R_DLY_2nd / F_DLY_2nd**（WFG 没有这两个字段）。\n目前这 18 条延迟值与 TCON 内既有的第二组延迟没有对应关系，写入后两者一定不一致。若你的应用会用到第二组延迟，请另外自行设定。' },
   'wfg.codeEm01ModeSlotOdd': { 'zh-TW': '⚠ Normal 這一組落在 {a}，與慣例位置 {b} 不同（已依 reg_val 判定，不是依位置）。',
                           'en': '⚠ The Normal set sits at {a}, not at the usual {b} (it was identified by reg_val, not by position).',
                           'zh-CN': '⚠ Normal 这一组落在 {a}，与惯例位置 {b} 不同（已依 reg_val 判定，不是依位置）。' },

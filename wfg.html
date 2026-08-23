@@ -2348,8 +2348,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4120"></script>
-<script src="common/i18n.js?v=20260823wfg4120"></script>
+<script src="common/version.js?v=20260823wfg4121"></script>
+<script src="common/i18n.js?v=20260823wfg4121"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -35378,8 +35378,12 @@ window.wfgImportConfig = function(jsonStr, options) {
    為什麼是查表欄位而不是字串前綴：與 `tconClass` 同一個理由（見下方原註解），
    舊編號 `E`＋數字在 MNT／NB 兩邊都有，前綴規則本身就不只一條。 */
 var WFG_TCON_CODECS = {
+  /* `hasSecondDly`（v4.12.1）＝ 這顆的 register bank 有 `r_dly_*_2nd`／`f_dly_*_2nd`，
+     而 WFG 沒有對應欄位、匯出也不寫 ⇒ 改過延遲之後匯出要提醒使用者兩者會不同步。
+     EM01／EM02／E512 三顆都逐項查證過（見 wfgCodeExport 上方的說明）。 */
   em02: {
     label: 'EM02', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
+    hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgEm02ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm02BuildScript(opt); }
   },
@@ -35389,6 +35393,7 @@ var WFG_TCON_CODECS = {
      v4.4.0 補上 script 匯出（Bruce 2026-08-22 追加）。 */
   e512: {
     label: 'E512', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 360, importExts: ['.bin'], exportFormat: 'script',
+    hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgE512ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgE512BuildScript(opt); }
   },
@@ -35400,6 +35405,7 @@ var WFG_TCON_CODECS = {
     /* v4.11.1：宣告「這顆用內容大小分 EEPROM／Flash」⇒ 自動獲得讀檔前的大小閘門
        （`wfgCodeSizePreflight()`）。之後 NB 型號填同一格即可。 */
     mediumBySize: true,
+    hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgEm01ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm01BuildScript(opt); }
   },
@@ -36186,6 +36192,9 @@ window.wfgCodeImport = function() {
     if (!input.files || !input.files[0]) return;
     var f = input.files[0];
     wfgCodeLastTimingNote = '';      // v4.12.0：每次匯入都從乾淨狀態開始，見該變數的說明
+    /* v4.12.1：延遲基準也一起清掉。匯入**失敗**時基準就該是「沒有」——
+       留著上一份 code 的快照會讓下一次匯出誤判成「沒改過」而不示警。 */
+    wfgCodeImportedDly = null;
     /* ══ v4.11.1：大小不合法的檔案在**讀進記憶體之前**就擋掉 ═══════════════════
        Bruce 2026-08-23：「照規格應該是在解析之前就擋，不該有可觀察的延遲。」
        v4.11.0 的判定確實在解析之前（`wfgCodeLoadImage()` 第一步），但**位置在
@@ -36218,6 +36227,53 @@ window.wfgCodeImport = function() {
   };
   input.click();
 };
+/* ══ v4.12.1：匯出後提醒「`_2nd` 延遲不會被寫回」════════════════════════════
+   Bruce 2026-08-23：「可以加一行警告，但是不要加在 script，而是加在會出 script 的
+   那個按鈕按下去以後。」
+
+   **風險是什麼**：每一條訊號的延遲在晶片上其實有兩份 ——
+     `reg_r_dly_<sig>` / `reg_f_dly_<sig>`（主值，rel +0x8 / +0xA）
+     `reg_r_dly_<sig>_2nd` / `reg_f_dly_<sig>_2nd`（rel +0xC / +0xE）
+   WFG 只有主值這一份，匯出的 script 也只寫主值。所以使用者改過延遲之後，
+   TCON 裡的 `_2nd` 仍是原值 —— **兩份會不同步**。
+
+   🔴 **三顆型號一視同仁**（查證結果，不是推論）：
+     EM01 `em01_register_bank_svn2415.xlsx`   rt8_tcon_1 rel AC/AE/BC/BE ＋ rt8_tcon_2 每條 +0xC/+0xE
+     EM02 `EM02A1_register_bank_svn213_final.xls`  同上（rt8_tcon_2 共 32 個）
+     E512 `e512_register_bank_final.xls`          同上（rt8_tcon_1 4 個 ＋ rt8_tcon_2 32 個）
+   三顆的暫存器排法相同、三顆的匯出**都不寫** ⇒ 風險相同。只對 EM01 示警會讓人以為
+   EM02／E512 沒這回事，反而誤導。旗標放在 codec 表的 `hasSecondDly`，新型號自行宣告。
+
+   🔴 **觸發條件：只有「這次匯出真的可能造成不同步」才跳。**
+     ① 有匯入基準（匯入成功時拍的快照）→ 只在**任一條 r_dly／f_dly 與匯入當下不同**時跳。
+        沒改過主值時，script 寫回去的就是 code 原本的值，`_2nd` 與它的關係沒被破壞，
+        這時跳出來純粹是噪音 —— 噪音會讓人學會無視警告，警告就失效了。
+     ② 沒有匯入基準（沒匯入過 code、或上一次匯入失敗被清掉）→ **一律跳**。
+        這不是保守，是事實：18 條延遲全部是預設值或使用者自己填的，
+        與 TCON 內既有的 `_2nd` 沒有任何對應關係，不同步是必然而不是可能。 */
+var wfgCodeImportedDly = null;   // 匯入當下的 r_dly/f_dly 快照；null ＝ 沒有基準
+function wfgCodeSnapshotDly() {
+  var out = [];
+  for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
+    var g = wfgGpios[i];
+    out.push(g ? { r: g.r_dly | 0, f: g.f_dly | 0 } : { r: 0, f: 0 });
+  }
+  return out;
+}
+/* 回傳 { warn: bool, noBaseline: bool, names: [] }。 */
+function wfgCodeDlyDrift() {
+  if (!wfgCodeImportedDly) return { warn: true, noBaseline: true, names: [] };
+  var names = [];
+  for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
+    var g = wfgGpios[i], b = wfgCodeImportedDly[i];
+    if (!g || !b) continue;
+    if ((g.r_dly | 0) !== b.r || (g.f_dly | 0) !== b.f) {
+      names.push((WFG_EM02_SIGS[i] || String(i)).toUpperCase());
+    }
+  }
+  return { warn: names.length > 0, noBaseline: false, names: names };
+}
+window.wfgCodeDlyDrift = wfgCodeDlyDrift;
 window.wfgCodeExport = function() {
   var codec = wfgTconCodec();
   if (!codec) return;
@@ -36236,6 +36292,18 @@ window.wfgCodeExport = function() {
   a.download = fname;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
+  /* 🔴 提醒排在**下載觸發之後**，而且丟到下一個 tick —— `alert()` 會阻塞 renderer，
+     同步跳出來會卡在下載開始之前。Bruce 要的也是「按鈕按下去**以後**」。
+     沿用 `alert()` 這條既有管道（匯出失敗本來就走它），不新增第三套 UI。 */
+  if (codec.hasSecondDly) {
+    var d = wfgCodeDlyDrift();
+    if (d.warn) {
+      var msg = d.noBaseline
+        ? t('wfg.codeExportDly2ndNoBase')
+        : t('wfg.codeExportDly2nd').replace('{s}', d.names.join(', '));
+      setTimeout(function() { alert(msg); }, 0);
+    }
+  }
 };
 
 /* ══ EM02 解析器 ══════════════════════════════════════════════════════════
@@ -37225,6 +37293,10 @@ function wfgCodeApplyToWfg(res) {
     wfgFrame.frm_no_2 = res.frmNo.f2 | 0;
     if (typeof wfgRenderFrmNoCard === 'function') wfgRenderFrmNoCard();
   }
+  /* v4.12.1：拍下這份 code 的延遲基準（18 條 r_dly／f_dly）。
+     位置在 GPO 值全部寫進 `wfgGpios` 之後、任何使用者操作之前 ——
+     它代表的就是「這份 code 原本的延遲」，匯出時用來判斷使用者到底改了沒。 */
+  wfgCodeImportedDly = wfgCodeSnapshotDly();
   wfgCodeResetChannels();
   wfgCodeResetMeasurements();
   wfgRenderGpioList();
