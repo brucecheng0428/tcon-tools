@@ -1,9 +1,40 @@
-# EM01「匯出時選擇寫到哪一模」評估 —— **暫停**，以及一次概念混淆的記錄
+# EM01 三模 GPO Timing：匯出走 CURRENT ＋ 官方 UI 複製 —— **結案**
 
 日期：2026-08-23
-狀態：🔴 **本題由 Bruce 裁示暫停，不往下實作。** 本文只保留概念釐清、已取得的發現與知識記錄。
-提案（Bruce 原話）：「匯入時偵測到三模，那匯出的時候，是否也可以選擇我要匯出哪一個？……也就是這個 script 也要對應到相對的位置。」
-暫停理由（Bruce 原話）：「Register 的位置應該沒有這麼多，而 Flash 的位置才有這麼多，所以這條路是沒辦法做，因為寫入 script 好像寫不了 Flash，它只能寫 Register。」
+狀態：✅ **已結案，工作流程由 Bruce 於 2026-08-23 裁示採用。**
+
+## 結論（先講）
+
+> **wfg 匯出的 script 一律寫入 CURRENT；要放到 Normal／133%／200%，在 EM01 官方 TCON UI 用複製功能完成後半段。**
+
+Bruce 原話：
+> 「現在就是走這個方向。也就是說，匯出的 scraper（口誤，指 script）都只能寫到 current 的那個部分，
+> 後面我再用 UI 去把它 copy 到看是 normal、133% 還是 200%，這條路是 OK 的。」
+
+**⇒ wfg 現行的匯出行為本來就是對的，不需要任何行為變更。**
+v4.13.3 只做了兩件事：匯出後多一段說明（見 §4），以及把印給人看的位址標明是檔案偏移（見 §2）。
+
+完整流程：
+
+| # | 在哪 | 做什麼 |
+|---|---|---|
+| 1 | wfg | 匯出 script（內容寫的是 CURRENT 的暫存器位址） |
+| 2 | 官方 TCON UI | 載入 script → 值進入 **CURRENT**（校驗值由該工具自動處理） |
+| 3 | 官方 TCON UI | `Flash R/W` → `From Current` 複製 |
+| 4 | 官方 TCON UI | `Flash R/W` → `Write Normal`／`Write 133%`／`Write 200%` |
+
+（步驟 3、4 的選單名稱取自官方工具的表單資源，**未實機驗證**，證據等級見 §3。）
+
+---
+
+## 1'. 這一題原本怎麼走偏的
+
+原提案（Bruce）：「匯入時偵測到三模，那匯出的時候，是否也可以選擇我要匯出哪一個？……也就是這個 script 也要對應到相對的位置。」
+
+我花了一整輪評估「把 script 的 `write` 位址平移到 slot」，最後是 Bruce 自己看出問題：
+> 「Register 的位置應該沒有這麼多，而 Flash 的位置才有這麼多，所以這條路是沒辦法做，因為寫入 script 好像寫不了 Flash，它只能寫 Register。」
+
+他是對的。下一節就是這個錯的完整解剖 —— 留著它，是因為**根因（兩種位址空間重合）還會再出現**。
 
 ---
 
@@ -51,56 +82,97 @@ exe 裡也沒有任何 script 層級的 flash 寫入指令（`Flashwrite_trig` �
 `WFG_EM01_LAYOUT` 的 `base1/base2/base3`、`WFG_EM01_MODE_SLOT_BASE` 都註明是 fileOff；
 `WFG_GPO_REGMAP_EM01` 的 `0x05A0`／`0x0600`／`0x0583`／`0x0504`／`0x052E` 都註明是 regAddr。**這部分沒有錯。**
 
-**🔴 使用者看得到的地方：三處只印裸位址，沒有標明是「檔案偏移」。**
+**🔴 使用者看得到的地方：只印裸位址，沒有標明是「檔案偏移」。** —— ✅ **已於 v4.13.3 修正**
 
-| 位置 | 目前顯示 | 問題 |
+新增兩個小函式：`wfgCodeOffLabel()`（走 i18n，給畫面用）、
+`wfgCodeOffLabelAscii()`（固定英文，給 **.script 檔案內容**用 —— .script 只吃 ASCII，兩者不可互換）。
+
+| 位置 | 改前 | 改後（v4.13.3） |
 |---|---|---|
-| 匯入提醒卡片的 detail | `GPO CURRENT @0x500` ／ `GPO SLOT @0x35600` | 未標明是檔案偏移 |
-| Timing 選擇框每一項（`.wfg-ack-where`） | `…　@0x500`、`@0x35000` | 兩種位址並列，最容易誤導 |
-| 匯出 script 的來源註解 | `// source timing: read from 200% @0x35000` | 出現在一個**全部都是 register 位址**的檔案裡，最容易被當成 register 位址 |
+| EM01 匯入卡片 detail | `GPO CURRENT @0x500/0x600` | `GPO CURRENT 檔案偏移 0x500/0x600` |
+| Timing 選擇框每一項（`.wfg-ack-where`） | `…　@0x35000` | `…　檔案偏移 0x35000` |
+| 匯出 script 的來源註解 | `// source timing: read from 200% @0x35000` | `…read from 200% (file offset 0x35000 in the code file, NOT a register address); …` |
+| **EM02** 匯入卡片 detail | `GPO @0x4E0` | `GPO 檔案偏移 0x4E0` |
+| **E512** 匯入卡片 detail | `GPO @0x…/0x…` | `GPO 檔案偏移 0x…/0x…` |
 
-第三處尤其值得注意：那一行夾在一整串 `write -m 0626 …`（register 位址）之間，
-讀者很難不把 `@0x35000` 也當成 register 位址。
+後兩處原本不在盤點清單裡，是查證時發現的**同型缺陷**（EM02／E512 的 base 同樣是掃描 buf 得到的
+檔案偏移）。只修 EM01 那三處，等於留下兩個一模一樣的地雷，所以一併修掉。
 
-**建議（不在本輪實作，等 Bruce 決定）**：這三處把位址標成 `file 0x35000` 或加註「（檔案偏移，非暫存器位址）」。
-成本很小，能從源頭消掉這個誤解。
+第三處原本最危險：那一行夾在一整串 `write -m 0626 …`（全部是 register 位址）之間，
+讀者幾乎不可能不把 `@0x35000` 也當成 register 位址 —— 所以它除了標明偏移，還直接寫上
+`NOT a register address`。
 
 ---
 
-## 3. ✅ 發現：EM01 官方 TCON UI **自己就有三模寫入功能**
+## 3. ✅ 官方 TCON UI 的 `Flash R/W` 選單（本案採用的後半段）
 
-這是本次評估唯一有價值的產出，可能是日後真正的解法方向。
+### 3.1 🔴 證據等級：**我沒有看過 UI**
 
-**在哪看到**：`TCON_UI/EM01/Raydium_TCON_Tool_RM80100_v0.3.42Beta9/Raydium_TCON_Tool_RM80100_v0.3.42Beta9.exe`
-（20.9 MB，Delphi/VCL 程式）。用 `strings` 取出的 **VCL 表單元件名**如下，`TMenuItem` 前綴代表它們是彈出選單項：
+- ❌ 沒有執行過那支程式（Windows .exe，開發環境是 macOS／Linux）
+- ❌ 沒有截圖、沒有說明文件、沒有 Excel 來源
+- ✅ 唯一做的事：**對 exe 做二進位字串萃取**，讀出 Delphi 表單資源（DFM）裡的元件定義
+
+⇒ **全部是間接證據。** 但比對過兩層，第二層（Caption）強度較高。
+
+### 3.2 來源與逐字原文
+
+**檔案**：`TCON_UI/EM01/Raydium_TCON_Tool_RM80100_v0.3.42Beta9/Raydium_TCON_Tool_RM80100_v0.3.42Beta9.exe`
+20,879,872 bytes，MD5 `3cc619cf2aaf7f97c5cede108b095a7e`
+
+**第一層 —— 元件名**（`strings -a -t d -n 6 <exe> | grep GPO_Mode`，逐字節錄）：
 
 ```
-TMenuItem  PopupMenu_System_GPO_Mode_Flash_WriteNormal
-TMenuItem  PopupMenu_System_GPO_Mode_Flash_Write133
-TMenuItem  PopupMenu_System_GPO_Mode_Flash_Write200
-TMenuItem  PopupMenu_System_GPO_Mode_Flash_WriteAll
-TMenuItem  PopupMenu_System_GPO_Mode_Flash_ReadNormal / Read133 / Read200 / ReadAll
-TMenuItem  PopupMenu_System_GPO_Mode_CopyCurrent / CopyNormal / Copy133 / Copy200
-TMenuItem  PopupMenu_System_GPO_Mode_InitThreeMode
-           PopupMenu_System_GPO_Mode_Load / Save / FileIO
-           Button_System_GPO_Mode_WriteRegister
-           CheckBox_System_GPO_Mode_RealTime
+12652875 (PopupMenu_System_GPO_Mode_Flash_WriteAll<8
+12653063 +PopupMenu_System_GPO_Mode_Flash_WriteNormalL8
+12653113 (PopupMenu_System_GPO_Mode_Flash_Write200P8
+12653160 (PopupMenu_System_GPO_Mode_Flash_Write133T8
 ```
 
-**怎麼讀這組名字**：
+名字前的 `(`／`+` 不是雜訊，是 Delphi 的**長度前綴位元組**：`(` ＝ 0x28 ＝ 40，
+而 `PopupMenu_System_GPO_Mode_Flash_WriteAll` 剛好 40 字元 —— 這本身就證明它是結構化字串表。
 
-- `Flash_Write<模式>`／`Flash_Read<模式>` —— 走的是 **Flash 讀寫路徑**，不是 script。
-  這正是「寫到 slot」該用的機制，而 script 做不到的也正是這件事。
-- `Copy<模式>` —— 看起來是在 UI 內部把目前編輯中的一組值複製到某一模的欄位。
-- `InitThreeMode` —— 初始化三模表（對應我們在檔案裡看到的 `0x35000/0x35300/0x35600` 三個 slot）。
-- `WriteRegister` —— 寫暫存器，對應的就是 CURRENT。
-- 另有 `Button_GPO_r_dly_2_*` / `f_dly_2_*`，證實 UI 有第二組延遲欄位（即我們一直沒寫的 `_2nd`）。
-- MCU 檔名也可交叉印證：`TCON_UI/EM01/MCU/m0_CRC_DLG_GPO_Table_Test_FF97_T1.bin` —— 三模表在 MCU 側叫 **GPO Table**。
+**第二層 —— DFM 資源，含 Caption**（偏移 `20808271` 附近，逐字）：
 
-⚠️ **這些是從 exe 的元件名讀出來的，我沒有執行過那支工具**，實際選單位置、操作步驟與行為請 Bruce 實機確認。
+```
+TMenuItem(PopupMenu_System_GPO_Mode_Flash_Write133 | Caption | Write 133% |
+OnClick | *PopupMenu_System_GPO_Mode_Flash_WriteClick |
+TMenuItem(PopupMenu_System_GPO_Mode_Flash_WriteAll | Caption | Write All |
+OnClick | *PopupMenu_System_GPO_Mode_Flash_WriteClick | PNG | IHDR ...
+```
 
-**若日後要恢復本題**，方向應該是：wfg 匯出 script 寫進 **CURRENT** → 在 TCON UI 用 `GPO Mode → Flash Write <模式>`
-把它寫進指定的模式。wfg 這邊不需要、也做不到最後那一步。
+標準 DFM 版面：`型別 TMenuItem` → `元件名` → `屬性 Caption` → **值** → `事件 OnClick` → 處理函式。
+後面接 `PNG IHDR` 是選單項的小圖示。**Caption 就是使用者在畫面上看到的文字。**
+
+### 3.3 重建出來的選單
+
+| 元件名 | Caption（畫面文字） | 中譯 |
+|---|---|---|
+| `..._Load` ／ `..._Save` | `Load` ／ `Save` | 載入／儲存 |
+| `..._InitThreeMode` | `Init Three Mode` | 初始化三模 |
+| （分隔標題） | `--- Copy Data ---` | ---複製資料--- |
+| `..._CopyNormal` ／ `Copy200` ／ `Copy133` ／ `CopyCurrent` | `From Normal` ／ `From 200%` ／ `From 133%` ／ **`From Current`** | 從 … |
+| `..._Flash_ReadNormal` ／ `Read200` ／ `Read133` ／ `ReadAll` | `Read Normal` ／ `Read 200%` ／ `Read 133%` ／ `Read All` | 讀取 … |
+| `..._Flash_WriteNormal` ／ `Write200` ／ `Write133` ／ `WriteAll` | **`Write Normal`** ／ `Write 200%` ／ `Write 133%` ／ `Write All` | 寫入 … |
+
+**開啟這個選單的按鈕**：`Button_System_GPO_Mode_FlashReadWrite`，Caption ＝ **`Flash R/W`**。
+
+⚠ `Button_System_GPO_Mode_WriteRegister` 的 Caption 抓取時解析視窗溢出到隔壁元件，
+拿到的值不可採信，**該按鈕的 Caption 未確認**。
+
+### 3.4 各項主張的確定程度
+
+| 主張 | 等級 |
+|---|---|
+| exe 內有這四個 `TMenuItem`，顯示文字為 `Write Normal／133%／200%／All` | **間接但強**（DFM 結構完整、直接讀到 Caption 值） |
+| 四個 Write 項共用同一個 `OnClick` 處理函式 | **間接但強**（有接事件，不是沒實作的空殼） |
+| 開啟選單的按鈕上寫著 `Flash R/W` | 間接、中等（單一樣本、未交叉驗證） |
+| `Flash_` 前綴 ＝ 走 Flash 讀寫路徑、對應 `0x35000/0x35300/0x35600` 三個 slot | 🔴 **推測**（由命名與檔案結構對上，非讀到） |
+| 這組功能實際可用、沒有前置條件 | 🔴 **推測** —— 未執行過。`Label_System_GPO_Mode_LockedMsg`（「鎖定訊息」）的存在暗示某些狀態下不可用 |
+
+### 3.5 旁證
+
+- `Button_GPO_r_dly_2_*` ／ `f_dly_2_*` —— 證實 UI 有第二組延遲欄位（即 wfg 一直沒有的 `_2nd`）
+- `TCON_UI/EM01/MCU/m0_CRC_DLG_GPO_Table_Test_FF97_T1.bin` —— 三模表在 MCU 側叫 **GPO Table**
 
 ---
 

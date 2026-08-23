@@ -776,6 +776,22 @@ var I18N = {
   'wfg.codeExportDly2ndNoBase': { 'zh-TW': '⚠ 這次匯出沒有以任何 code 為基準（沒有先匯入 code，或上一次匯入失敗）。\n\n匯出的 script 只會寫 R_DLY / F_DLY，**不會寫第二組 R_DLY_2nd / F_DLY_2nd**（WFG 沒有這兩個欄位）。\n目前這 18 條延遲值與 TCON 內既有的第二組延遲沒有對應關係，寫入後兩者一定不一致。若你的應用會用到第二組延遲，請另外自行設定。',
                           'en': '⚠ This export is not based on any imported code (no code was imported, or the last import failed).\n\nThe exported script only writes R_DLY / F_DLY - it does NOT write the second set R_DLY_2nd / F_DLY_2nd (WFG has no field for them).\nThe 18 delay values here bear no relation to the second delay set already in the TCON, so after loading they will certainly not match. If your application uses the second delay set, please set it separately.',
                           'zh-CN': '⚠ 这次导出没有以任何 code 为基准（没有先导入 code，或上一次导入失败）。\n\n导出的 script 只会写 R_DLY / F_DLY，**不会写第二组 R_DLY_2nd / F_DLY_2nd**（WFG 没有这两个字段）。\n目前这 18 条延迟值与 TCON 内既有的第二组延迟没有对应关系，写入后两者一定不一致。若你的应用会用到第二组延迟，请另外自行设定。' },
+  /* ══ v4.13.3：位址空間標示 ═══════════════════════════════════════════════════
+     🔴 為什麼要有這個 key：EM01 Flash 低位是平坦映像，`fileOff == regAddr`，
+     於是 `0x0500` 這個數字**同時**是暫存器位址與檔案偏移。看的人一旦習慣，
+     再看到 `0x35000` 就會當成暫存器位址 —— 而暫存器空間根本只到 `0xFFFF`。
+     這個誤解實際害我們花了一整輪去評估一個原理上做不到的方案（見
+     `docs/em01_export_to_slot_assessment.md`），所以凡是**印給人看**的位址，
+     一律用這個前綴標明它是檔案裡的第幾個位元組，不是暫存器編號。 */
+  'wfg.codeFileOff':    { 'zh-TW': '檔案偏移', 'en': 'file offset', 'zh-CN': '文件偏移' },
+  /* ══ v4.13.3：匯出後說明 script 只寫 CURRENT ═════════════════════════════════
+     Bruce 2026-08-23 裁示的工作流程：wfg 匯出 script 寫 CURRENT →
+     用官方 UI 把它複製到 Normal／133%／200%。校驗值由官方 UI 自動處理。
+     ⚠ 選單名稱取自官方工具的表單資源（未實機執行驗證），所以文案要留餘地。 */
+  'wfg.codeExportCurrentOnly': {
+    'zh-TW': '匯出的 script 一律寫入 CURRENT，也就是這顆 TCON 實際輸出的那一組 GPO Timing。\n\n若要把這組值放進 Normal／133%／200%，請在 EM01 官方 TCON UI 完成後半段：先用本 script 寫入 TCON（進 CURRENT），再到「Flash R/W」選單用「From Current」複製、以「Write Normal／Write 133%／Write 200%」寫入指定模式。校驗值由該工具自動處理。\n（選單名稱依工具版本可能略有不同。）\n\n為什麼 script 做不到：三模位於 Flash 檔案偏移 0x35000／0x35300／0x35600，而 script 的 write 指令只能寫暫存器，位址上限 0xFFFF。',
+    'en': 'The exported script always writes to CURRENT - the GPO timing set this TCON actually outputs.\n\nTo place these values into Normal / 133% / 200%, finish the job in the official EM01 TCON UI: load this script into the TCON (it lands in CURRENT), then use the "Flash R/W" menu - "From Current" to copy, and "Write Normal / Write 133% / Write 200%" to store it into a mode. That tool handles the checksum for you.\n(Menu names may differ slightly between tool versions.)\n\nWhy a script cannot do this: the three mode slots live at file offsets 0x35000 / 0x35300 / 0x35600, while a script write command can only address registers, which stop at 0xFFFF.',
+    'zh-CN': '导出的 script 一律写入 CURRENT，也就是这颗 TCON 实际输出的那一组 GPO Timing。\n\n若要把这组值放进 Normal／133%／200%，请在 EM01 官方 TCON UI 完成后半段：先用本 script 写入 TCON（进 CURRENT），再到「Flash R/W」菜单用「From Current」复制、以「Write Normal／Write 133%／Write 200%」写入指定模式。校验值由该工具自动处理。\n（菜单名称依工具版本可能略有不同。）\n\n为什么 script 做不到：三模位于 Flash 文件偏移 0x35000／0x35300／0x35600，而 script 的 write 指令只能写寄存器，地址上限 0xFFFF。' },
   'wfg.ackTitle':       { 'zh-TW': '匯入完成 — 但有 2 項沒有跟著 Code 連動',
                           'en': 'Import done - but 2 settings did NOT come from the code',
                           'zh-CN': '导入完成 — 但有 2 项没有跟着 Code 连动' },
