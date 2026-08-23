@@ -740,6 +740,11 @@ var I18N = {
                           'en': 'Switched to {m}.\n\n{n} field(s) held values wider than this model\'s registers allow, so they were reduced to each field\'s maximum:\n\n{s}\n\nThese fields can be lowered freely from here; switching back to the previous model restores the original values.',
                           'zh-CN': '已切换到 {m}。\n\n这颗机种有 {n} 个字段的值超出它的寄存器位宽，已调整到各自的上限：\n\n{s}\n\n这些字段现在可以自由往下调；要恢复原本的数值，切回原本的机种即可。' },
   /* ══ v4.16.0：匯出的型號確認框 ＋ 跨型號相容性 ══════════════════════════ */
+  /* ══ v4.17.1：匯入卡片上兩格的完整名稱與換算關係式 ══════════════════════ */
+  'wfg.ackUiLbl':       { 'zh-TW': 'TCON({m}) UI DCLK', 'en': 'TCON({m}) UI DCLK', 'zh-CN': 'TCON({m}) UI DCLK' },
+  'wfg.ackRelTitle':    { 'zh-TW': '{m} 的 TCON UI DCLK ＝ TX DCLK × {r}。兩格互相換算就是用這個係數，改任一格另一格都會即時跟著變。',
+                          'en': 'On {m}, TCON UI DCLK = TX DCLK x {r}. The two fields convert with this ratio; editing either one updates the other live.',
+                          'zh-CN': '{m} 的 TCON UI DCLK ＝ TX DCLK × {r}。两格互相换算就是用这个系数，改任一格另一格都会即时跟着变。' },
   /* ══ v4.17.0：匯入的型號確認框（取代 Code group 的常駐下拉）══════════════ */
   'wfg.impTitle':       { 'zh-TW': '要匯入哪一顆 TCON 的 code？', 'en': 'Which TCON\'s code are you importing?',
                           'zh-CN': '要导入哪一颗 TCON 的 code？' },
