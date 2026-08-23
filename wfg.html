@@ -2348,7 +2348,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4110"></script>
+<script src="common/version.js?v=20260823wfg4111"></script>
 <script src="common/i18n.js?v=20260823wfg4110"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -35397,6 +35397,9 @@ var WFG_TCON_CODECS = {
      hex 解碼能力放在型號無關的 `wfgCodeToImage()`，等 NB 要用時把副檔名加上即可。 */
   em01: {
     label: 'EM01', tconClass: 'MNT', uiDclkRatio: 1, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
+    /* v4.11.1：宣告「這顆用內容大小分 EEPROM／Flash」⇒ 自動獲得讀檔前的大小閘門
+       （`wfgCodeSizePreflight()`）。之後 NB 型號填同一格即可。 */
+    mediumBySize: true,
     parseCode: function(buf, fname) { return wfgEm01ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm01BuildScript(opt); }
   },
@@ -36158,6 +36161,14 @@ window.wfgAckSync = wfgAckSync;
 window.wfgAckClose = wfgAckClose;
 window.wfgAckShow = wfgAckShow;
 
+/* v4.11.1：匯入失敗的收尾抽成一支 —— 早期攔截與解析失敗要走**完全相同**的路徑。
+   🔴 失敗一定要把上一次成功的檔名與 checksum 清掉，不能讓畫面停在
+   「看起來匯入成功」的狀態（Bruce 指定，v3.30.0 起）。 */
+function wfgCodeImportFail(fname, reason) {
+  wfgCodeSetStatus('', -1);
+  wfgSetImportedFileName('tcon', '');
+  alert(t('wfg.codeImportFail').replace('{f}', fname).replace('{r}', reason || '?'));
+}
 window.wfgCodeImport = function() {
   var codec = wfgTconCodec();
   if (!codec) return;
@@ -36168,17 +36179,25 @@ window.wfgCodeImport = function() {
   input.onchange = function() {
     if (!input.files || !input.files[0]) return;
     var f = input.files[0];
+    /* ══ v4.11.1：大小不合法的檔案在**讀進記憶體之前**就擋掉 ═══════════════════
+       Bruce 2026-08-23：「照規格應該是在解析之前就擋，不該有可觀察的延遲。」
+       v4.11.0 的判定確實在解析之前（`wfgCodeLoadImage()` 第一步），但**位置在
+       FileReader 讀完之後** —— 對 64 KB 來說快到量不出來，可是「先把整份讀進來
+       才發現不該讀」這件事本身站不住腳：使用者選錯一個 500 MB 的檔，我們沒有理由
+       先把它整份塞進記憶體。
+
+       🔴 只有 **bin** 能用 `File.size` 早退：hex 的檔案大小 ≠ 內容大小（1 byte 寫成
+       2 字元再加位址／長度／checksum／換行），必須解碼後才知道內容多長。
+       所以這道閘門對 `.hex` 一律放行，交給讀完之後的 `wfgCodeLoadImage()` 判。 */
+    var pre = wfgCodeSizePreflight(codec, f);
+    if (pre) { wfgCodeImportFail(f.name, pre); return; }
     var reader = new FileReader();
     reader.onload = function(e) {
       var res;
       try { res = codec.parseCode(new Uint8Array(e.target.result), f.name); }
       catch (err) { res = { ok: false, reason: String(err && err.message || err) }; }
       if (!res || !res.ok) {
-        /* 🔴 失敗就要把上一次成功的檔名與 checksum 清掉，
-           不能讓畫面停在「看起來匯入成功」的狀態（Bruce 指定）。 */
-        wfgCodeSetStatus('', -1);
-        wfgSetImportedFileName('tcon', '');
-        alert(t('wfg.codeImportFail').replace('{f}', f.name).replace('{r}', (res && res.reason) || '?'));
+        wfgCodeImportFail(f.name, (res && res.reason) || '?');
         return;
       }
       wfgCodeApplyToWfg(res);
@@ -36818,8 +36837,25 @@ function wfgCodeLoadImage(rawBuf, fname, opt) {
   }
   return { ok: true, bytes: img.bytes, srcFormat: img.srcFormat, contentLen: n, medium: medium };
 }
+/* v4.11.1：**讀檔之前**就能做的大小檢查。回傳拒絕理由字串，或 null ＝ 放行。
+   放在共用層而不是 EM01 裡：任何宣告 `mediumBySize: true` 的型號自動有這道閘門，
+   之後 NB 加進來時填那一格就好。沒宣告的型號（例如 EM02／E512，它們不用大小分載體）
+   完全不受影響 —— 這道閘門只會擋掉「本來就會在解析階段被同一條規則擋掉」的檔。 */
+function wfgCodeSizePreflight(codec, file) {
+  if (!codec || !codec.mediumBySize || !file) return null;
+  if (wfgCodeIsHexName(file.name)) return null;   // hex：檔案大小 ≠ 內容大小，不能在這裡判
+  var n = file.size;
+  if (!isFinite(n)) return null;
+  if (wfgCodeClassifyMedium(n, codec.mediumOpt)) return null;
+  var o = codec.mediumOpt || {};
+  return t('wfg.codeErrMediumSize')
+           .replace('{n}', String(n))
+           .replace('{e}', String(isFinite(o.eepromMax) ? o.eepromMax : WFG_CODE_EEPROM_MAX))
+           .replace('{f}', String(isFinite(o.flashMin) ? o.flashMin : WFG_CODE_FLASH_MIN));
+}
 window.wfgCodeClassifyMedium = wfgCodeClassifyMedium;
 window.wfgCodeLoadImage = wfgCodeLoadImage;
+window.wfgCodeSizePreflight = wfgCodeSizePreflight;
 
 /* ══ EM01 解析器（v4.11.0）═══════════════════════════════════════════════════
    權威來源：`TCON_UI/Register_Excel/EM01/(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`
