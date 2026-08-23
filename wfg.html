@@ -2370,8 +2370,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4131"></script>
-<script src="common/i18n.js?v=20260823wfg4131"></script>
+<script src="common/version.js?v=20260823wfg4132"></script>
+<script src="common/i18n.js?v=20260823wfg4132"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3653,10 +3653,12 @@ async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
   var totalLines = wfgTotalLines();
   var allTrans = tc.transitions;
   if (Object.keys(_wfgFlatGpios).length === 0) wfgDetectFlat();
+  var _need = _wfgAnalogNeedSet();          // v4.13.2：只算畫得到／量得到的
   var analogChs = [];
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
+    if (!_need[gi]) continue;
     if (gpio.waveform_type === 1 && recompSD) analogChs.push(gi);
     else if (gpio.waveform_type === 2 && recompLS) analogChs.push(gi);
     // v3.8.0: Subpixel 吃 SD1 與 Gate 的結果 —— 其中任一條重算，它就必須跟著重算
@@ -3710,6 +3712,81 @@ async function _wfgSdFullRecomputeWithProgress(recompSD, recompLS) {
 
 // ─── Master precompute function (sync fast path + async with progress bar) ───
 var _wfgPrecompBusy = false;   // guard against overlapping async runs
+/* ══ v4.13.2：只算「畫得到／量得到」的類比通道 ═══════════════════════════════
+   Bruce 2026-08-23：「我明明沒有勾選類比波形或是面板的訊號波形，但它卻一直在計算
+   類比波形，這樣子是不是也佔據了時間？」—— **實測證實他是對的。**
+
+   量到的事實（重情境：preset FHD 60Hz SG ＋ frameCount 100 ＋ 8/19 三模檔選 200%）：
+     匯入後類比通道是**可見 0／隱藏 9**（`wfgCodeResetChannels()` 刻意只留數位），
+     可是滾輪縮放 20 次仍然跑了 **12 次**類比預計算（spx 3＋sd 2＋ls 7）、352.7 ms、
+     最大 longtask 1046 ms。把 9 條全部打開再滾 20 次，也是**同樣的 12 次**
+     —— 隱藏一條都沒省下來。
+
+   根因：三處預計算迴圈的篩選條件都只看 `gpio.enable && gpio.waveform_type`，
+   **完全沒有看通道有沒有在顯示**（繪製端則處處都有 `if (!ch.visible) continue`）。
+
+   ── 為什麼不能只看 `ch.visible` ──────────────────────────────────────────
+   有三種「沒顯示但仍必須算」的情況，漏掉任何一種都會變成靜默錯誤：
+     ① **Subpixel 讀 Gate 與 SD1 的預計算結果**（v3.8.0）。SPX 顯示而上游隱藏時，
+        上游還是得算 —— 而且 SPX 是唯一一條 render 沒有 fallback 的波形，
+        缺了預計算它會畫成 0V 直線（見 `_wfgSpxStale()` 上方的說明）。
+     ② **釘住的量測小卡** `wfgMeasSelItems[].chIdx` 綁的是通道索引，
+     ③ **脈衝計數** `wfgPulseItems[].gpioIdx` 綁的是 GPIO 索引，
+        這兩者都可能指到目前隱藏的通道，而它們會去讀預計算結果。
+   所以「需要算的集合」＝ 可見 ∪ SPX 上游 ∪ 量測小卡 ∪ 脈衝計數。 */
+function _wfgAnalogNeedSet() {
+  var need = Object.create(null), hasSpx = false;
+  function want(gi) {
+    if (gi == null) return;
+    gi = gi | 0;
+    if (gi < 0 || gi >= wfgGpios.length) return;
+    var g = wfgGpios[gi];
+    if (!g || !g.enable || !g.waveform_type) return;
+    need[gi] = true;
+    if (g.waveform_type === 3) hasSpx = true;
+  }
+  for (var i = 0; i < wfgChannels.length; i++) {
+    var ch = wfgChannels[i];
+    if (ch && ch.visible) want(ch.gpioIdx);
+  }
+  /* 這兩個容器宣告在檔案後段（var hoisting 使它們一定存在，但初始化順序不保證），
+     所以取值前先確認 —— 這支函式在頁面初始化的很早期就可能被呼叫到。 */
+  if (typeof wfgMeasSelItems !== 'undefined' && wfgMeasSelItems) {
+    for (var m = 0; m < wfgMeasSelItems.length; m++) {
+      var mc = wfgChannels[wfgMeasSelItems[m].chIdx];
+      if (mc) want(mc.gpioIdx);
+    }
+  }
+  if (typeof wfgPulseItems !== 'undefined' && wfgPulseItems) {
+    for (var p = 0; p < wfgPulseItems.length; p++) want(wfgPulseItems[p].gpioIdx);
+  }
+  if (hasSpx) { want(wfgGateSlotIdx()); want(wfgSd1SlotIdx()); }
+  return need;
+}
+/* 🔴 **單一收斂點**：有東西「需要算但還沒算」時回 true。
+   為什麼需要它：`wfgRender()` 只在版本號不符時才呼叫預計算，而「把一條隱藏的類比
+   通道打開」**不會**動版本號 —— 只加篩選不加這道檢查，那條通道就永遠不會被算，
+   畫面上會少一條波形（SPX 更會畫成 0V 直線）。
+   為什麼不改各個「讓通道變可見」的入口：那種靠列舉的作法必漏（preset 還原、
+   面板的 gate_show／spx_show、疊合群組、autosave 還原…），而漏掉是靜默的。
+   這裡放一道「事實查核」，不管是誰讓它變可見都攔得到。 */
+var _wfgNeedSig = '';
+function _wfgAnalogNeedMissing() {
+  var need = _wfgAnalogNeedSet();
+  var miss = false;
+  for (var k in need) if (!_wfgPrecomputed[k]) { miss = true; break; }
+  var sig = Object.keys(need).sort().join(',') + '|' + _wfgAnalogCacheVer;
+  if (!miss) { _wfgNeedSig = sig; return false; }
+  /* 🔴 **只對「同一組需求」補算一次。** 沒有這道記號的話，只要有一條 need 的通道
+     這一輪算不出來（例如 `wfgPrecomputeAnalog()` 在 needSD/needLS 都為 false 時會提早
+     return），這個函式就會**每一幀**都回 true，把 `wfgPrecomputeAnalog()` 變成每幀重算。
+     第一版沒有這道記號，實測滾輪 20 次的預計算總時間從 617 ms 暴增到 5,557 ms
+     （呼叫次數一樣是 12 次，是**單次成本**被反覆的換窗推高）—— 那是我自己引入的退化。
+     需求集合或版本號一變（打開新通道、匯入新 code…）簽章就變，會重新嘗試一次。 */
+  if (sig === _wfgNeedSig) return false;
+  _wfgNeedSig = sig;
+  return true;
+}
 function wfgPrecomputeAnalog() {
   // v2.97.19: always compute full frame range. For large datasets, delegate to async with progress bar.
   var tc = wfgEnsureTransitions();
@@ -3717,10 +3794,12 @@ function wfgPrecomputeAnalog() {
   if (Object.keys(_wfgFlatGpios).length === 0) wfgDetectFlat();
   var totalLines = wfgTotalLines();
   // Check if any channels need recomputing
+  var _need = _wfgAnalogNeedSet();          // v4.13.2：只算畫得到／量得到的
   var needSD = false, needLS = false;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
+    if (!_need[gi]) continue;
     var existing = _wfgPrecomputed[gi];
     if (existing && existing.ver === _wfgAnalogCacheVer && existing.totalLines === totalLines) continue;
     if (gpio.waveform_type === 1) needSD = true;
@@ -3751,6 +3830,7 @@ function wfgPrecomputeAnalog() {
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var gpio = wfgGpios[gi];
     if (!gpio || !gpio.enable || !gpio.waveform_type) continue;
+    if (!_need[gi]) continue;                // v4.13.2
     var existing = _wfgPrecomputed[gi];
     // v4.5.5: 快取有效還要「視窗涵蓋得住現在要看的範圍」。舊版只有上界（computedExtent），
     // 區段式多了下界，漏掉的話往左捲會拿到 base 之外的索引 ＝ 讀到別行的值（靜默錯誤）。
@@ -3799,10 +3879,11 @@ async function wfgPrecomputeAnalogAsync(options) {
     var totalLines = wfgTotalLines();
     var allTrans = tc.transitions;
     // Collect analog channel indices
+    var _need = _wfgAnalogNeedSet();        // v4.13.2：只算畫得到／量得到的
     var analogChs = [];
     for (var gi = 0; gi < wfgGpios.length; gi++) {
       var gpio = wfgGpios[gi];
-      if (gpio && gpio.enable && gpio.waveform_type) analogChs.push(gi);
+      if (gpio && gpio.enable && gpio.waveform_type && _need[gi]) analogChs.push(gi);
     }
     if (analogChs.length === 0) return;
     // Show progress bar only for heavy workloads (>200k total lines)
@@ -4580,6 +4661,11 @@ function _wfgEnsureSpxPrecomp() {
   var si = wfgSpxSlotIdx();
   var gpio = wfgGpios[si];
   if (!gpio || !gpio.enable || gpio.waveform_type !== 3) return false;
+  /* 🔴 v4.13.2：這支有**自己的閘門**（因為 SPX 的失效來源不動版本號），所以
+     `wfgPrecomputeAnalog()` 那邊加的 need 篩選管不到它 —— 第一版改完實測，
+     LS 7 條確實省掉了，SPX 3 條＋SD 1 條卻照算。這裡補上同一道篩選。
+     它也會順手把上游 SD1 換窗，同樣是 SPX 沒人看時不需要做的事。 */
+  if (!_wfgAnalogNeedSet()[si]) return false;
   var totalLines = wfgTotalLines();
   var tc0 = wfgEnsureTransitions();
   if (!tc0) return false;
@@ -22812,7 +22898,10 @@ function wfgRender() {
      為什麼安全：pending 為真時 `_wfgAnaDataFor()` 一律回 null，這一輪畫面上沒有任何
      一條類比波形會讀到預計算結果；算出來的東西**這一輪不會被任何人使用**。
      pending 解除前的那次完整重繪（`wfgBeginDeferredAnalog()` 排的）會照常算。 */
-  if (_wfgPrecomputeVer !== _wfgAnalogCacheVer && !_wfgPrecompBusy && !_wfgAnalogPending) {
+  /* v4.13.2：多一個 `_wfgAnalogNeedMissing()` —— 「把隱藏的類比通道打開」不會動
+     版本號，只靠上面那個條件的話那條通道永遠不會被算。說明見該函式。 */
+  if ((_wfgPrecomputeVer !== _wfgAnalogCacheVer || _wfgAnalogNeedMissing())
+      && !_wfgPrecompBusy && !_wfgAnalogPending) {
     wfgPrecomputeAnalog();
   }
   // v3.8.1: Subpixel 走自己的閘門 —— 它的失效來源都不動版本號，上面那個條件攔不到。
