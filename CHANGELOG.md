@@ -22,6 +22,83 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.14.0 — 2026-08-23 ｜ MINOR
+
+**NB 三顆（E501／E503／EN01）的 code 匯入匯出建置完成。匯出的是官方 Code Check 查核清單（.xlsx），不是 code 檔。**
+
+這三顆原本 `parseCode` / `buildExport` 都是 `null`，選單上顯示 `*`（尚未建置），按匯入只會跳「不支援」。本版全部補上。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+判定表「功能增減：**新增**獨立功能」→ **MINOR**；R3 判準「這一版之後使用者能做的事有沒有多一件」＝ **有**（三顆 NB 現在能匯入 code、能匯出查核清單）→ **MINOR**。
+逐項確認其餘各條皆不觸發更高級別：
+・**沒有移除任何功能**、沒有任何按鈕移位或流程改變 ⇒ 判定表 MAJOR 欄的三條（重新學／輸出主動改變／移除功能）全部不成立。
+・**MNT 三顆（EM01／EM02／E512）的輸出一位元未變** —— 已用真實 code 檔實測匯入匯出（見下方驗證 ⑤），匯出仍是 `.script`、內容與改版前相同。
+・R1 不適用（本版不是修 bug）。R2 不適用（**本版不主張開新波，仍在 4.x 波內**）。R4 不適用（預設型號仍是 `em01`，沒有任何預設值改變）。
+・NB 三顆的 `exportFormat` 由佔位值 `'bin'`／`'script'` 改為 `'xlsx'`：那三顆原本 `buildExport` 是 `null`，這個欄位**從來沒有被執行到**，因此不構成既有輸出的改變。
+⇒ **MINOR**，不標 `⚠ 輸出變更`（依 R1 的範圍定義：純新增能力、既有操作的結果完全不變 ⇒ 不標）。
+
+### 1. 🔴 匯出格式定為 `.xlsx`（Bruce 2026-08-23 裁示）
+
+官方 RomCodeProcessUI 的 **Code Check** 與 **SCRIPT** 兩個分頁吃的是**同一種 xlsx 格式、同一支 `import_checklist()`**（差別只在 `i2c_mode`）。wfg 產這份 xlsx，使用者的後半段流程是：
+
+> 官方 UI 開原本的 code 檔 → Code Check 分頁 `Import CheckList` → `Modify All` → `Save As`
+
+**wfg 一律不碰 checksum、不碰 ROM 佈局**：官方的 `check_sum_modify()` 在每次資料變動時自動重算全部 checksum，`set_3e_to_rom()` 負責把 register 值搬回 ROM 映像。這正是選 xlsx 而不是直接產 `.bin` 的理由 —— 自己產 bin 就得複製整張佈局表並自行算三組以上 checksum，而其中 E501 的第二組（`setting_cks2`）至今沒算對。
+
+xlsx 為 22 欄、只填 A~G（與官方 `export_script()` 一致，Description 欄留空）。表頭字串與欄序**同時滿足三個世代的官方工具**：Python 版 5.0.4 與 RCP2 1.1.x 比對表頭字串（前者完全相等、後者「去空白＋小寫＋去換行後 Contains」），RCP2 2.0.x 則完全不看表頭、只認固定欄位索引 0..23。
+
+無外部函式庫：xlsx 由本檔自組（zip STORE ＋ 5 份 XML ＋ 自寫 CRC32），維持 wfg 單檔無建置的架構。
+
+### 2. 🔴 NB 的 16-byte 版面與 MNT **不同**，另寫一套解碼器
+
+兩邊長得幾乎一樣，但 `st_line` / `sp_line` / `r_dly` / `f_dly` 的**位元組順序相反**（MNT little-endian、NB big-endian），`+0[2:0]`、`+1`／`+2`／`+3` 的高位元定義也不同，且 NB 多了 `+12~+15` 的 `R_DLY_F40` / `F_DLY_F40`、沒有 MNT 的 bit8 擴充。
+
+沿用 `wfgGpoDecodeAt()` 的後果不是「壞掉」而是「看起來只是延遲怪怪的」：`ST_LINE = 3` 會變成 `768`，在畫面上完全合理。所以另寫 `wfgNbDecodeChunk()`，並用逐值比對驗證（見下方驗證 ①）。
+
+NB 內部再分兩種版面，逐位元比對三顆 `.model` 的結果：**E501 與 E503 的 16 bytes 一字不差**，EN01 只差三處（`INI_VAL` 的位置、`ST_LINE`／`SP_LINE` 由 14 bit 變 16 bit）。
+
+### 3. register → 檔案偏移：兩種機制
+
+| 型號 | 機制 | 內容 |
+|---|---|---|
+| E503 | 固定 delta | `fileOff = reg + 0x100`（reg 0x000–0x4D3）；xstb base reg `0x3B0` |
+| E501 | 固定 delta | `fileOff = reg + 0xA000`（reg 0x000–0x63F）；xstb base reg `0x480`。128 KB 檔實測是「前 64 KB × 2」 |
+| EN01 | **Dynamic Header** | 檔案 `0x100` 起的 header 表；每筆 8 bytes：`From`／`Read_length`／`To` ＋ checksum。`fileOff = From + (reg − To)` |
+
+Frame 參數（hactive／vactive／hblank／vblank）一律取自 code 檔內的 EDID DTD#1（E503／EN01 在檔案 0x0、E501 在 0x1000）；**EDID checksum 不為 0 就整份拒絕匯入** —— 讀不到 EDID 代表位置判斷有誤，這時帶進來的解析度會靜默污染使用者的 Frame 設定。
+
+### 4. E503 的四條缺項：匯出強制清除（Bruce 2026-08-23 裁示）
+
+Bruce 原話：「E503 少納 4 條其實沒有影響，因為你匯入的時候根本就不會把這 4 條的 enable 給打勾啊……匯出的話，如果有誤勾選到 VS、HS 或是其他兩條，再強制把它清除就好了。」
+
+- **匯入**：E503 只有 14 條訊號，`signals` 就只給 14 個元素，`wfgCodeApplyToWfg()` 的迴圈自然只套 14 條，後 4 條原封不動。**零特別處理**。
+- **匯出**：`i >= 可匯出條數` 的通道一律不寫進 xlsx，不管畫面上有沒有勾 Enable。
+- 🔴 **刻意不去改 `wfgGpios[i].enable`**：改了等於動到使用者的畫面狀態。這裡只是「這一次匯出不寫它」，畫面完全不動 ⇒ 既有操作一項都沒變（這也是本版能停在 MINOR 的關鍵之一）。
+
+### 5. EN01 ＝ RM81008（已證實），但有兩個已知缺口
+
+型號對應的證據：六個 `.model` 檔在 `RomCodeProcessUI_1.1.6.0`（`EN01_*.model`）與 `2.0.0.0`（`RM81008_*.model`）之間**逐檔 MD5 完全相同**；RCP2 exe 內含 UI 字串 `RM81008(EN01)`；UserManual 明寫「EN01 系列的 RM81008」；`Setting.json` 的 IC 定義由 `"Name":"EN01"` 改名為 `"Name":"RM81008"`。
+
+**缺口 ①：GPO0／GPO1 匯入讀得到、匯出不寫**（`exportSigCount: 16`）。手上兩份真實 EN01 code 的 header 表裡，涵蓋 reg `0x12D0` 的區段一個都沒啟用（讀不到值）；而官方 Python 版的 register table 只到 `0xFFF`，RCP2 對超範圍位址的處理沒有實據可驗證。⇒ 寫一個「可能被忽略、也可能寫到別處」的值比不寫危險。
+
+**缺口 ②：GPO2（第 19 條）完全不支援。** wfg 的通道是固定 18 條（`WFG_GPIO_NAMES`），為它新增第 19 條會動到全域結構（LA 對應、快捷設定、設定檔相容性）＝ **MAJOR**，依 `CLAUDE.md`「判到 MAJOR 就停手」，本版不做。
+
+### 6. 驗證
+
+| # | 項目 | 結果 |
+|---|---|---|
+| ① | **真實 code 檔匯入逐值比對**：E501×2、E503（bin ＋ hex 各一）、EN01×2 共 6 份，逐訊號逐欄位對照獨立實作的解析結果 | 全部相符。E503 的 `.hex` 與同名 `.bin` 解出的 4096 bytes **逐位元組相同** |
+| ② | **負控制矩陣**：3 型號 × 4 檔（含 Novatek NT71855）＝ 12 格，錯的組合必須被拒 | 對角線 3 格接受、其餘 **9 格全部拒絕**；跨類別的 MNT EM02 檔餵給三顆 NB 也**全部拒絕**，零假陽性 |
+| ③ | **xlsx round-trip**：用官方 `get_offset_to_register()` ＋ `read_value_from_data()` 的**逐行照抄邏輯**讀回，比對記憶體中的 `wfgGpios` | 6 份 xlsx 共 **1268 列，不一致 0 列** |
+| ④ | **誤勾負控制**：把 VS／HS／GPO0／GPO1 全部勾上 Enable 再匯出 | E503 的 4 條、EN01 的 2 條**完全沒有出現在 xlsx 裡**；該寫的一條不少 |
+| ⑤ | **端到端**（jsdom 載入真實 `wfg.html`，走「選型號 → 按匯入 → 按匯出」的真實按鈕路徑） | 6 顆型號全通過，執行期錯誤 0。NB 三顆產 `.xlsx`（`PK` 開頭）、MNT 三顆仍產 `.script`（`//` 開頭）；CKS 徽章與檔名中的 CKS 一致。EM01 的多模 timing 選擇框行為不變 |
+| ⑥ | **表頭逐字元比對**（含儲存格內換行） | 6 份 xlsx 的 22 欄表頭與官方格式**完全相同** |
+| ⑦ | **三語 i18n**：8 個新 key × 3 語言，逐一呼叫 `t()` 確認不回傳 key 本身 | 24/24 全部有翻譯 |
+
+⚠ 未能驗證的部分（誠實標記）：**沒有在 Windows 上實際開官方 exe 匯入這份 xlsx**（本機是 macOS，無執行環境）。已驗證的是「用官方原始碼的讀取邏輯逐行照抄後能正確讀回」與「openpyxl 能開」。RCP2 2.0.x 用的是 .NET 的 NPOI，同樣無環境可驗 —— 已補上標準的 `xl/styles.xml` 降低風險。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.13.3 — 2026-08-23 ｜ PATCH
 
 **匯出後說明「script 只寫得到 CURRENT」，並把印給人看的位址標明是檔案偏移。**

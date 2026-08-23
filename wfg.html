@@ -2370,8 +2370,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4133"></script>
-<script src="common/i18n.js?v=20260823wfg4133"></script>
+<script src="common/version.js?v=20260823wfg4140"></script>
+<script src="common/i18n.js?v=20260823wfg4140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -35560,13 +35560,36 @@ var WFG_TCON_CODECS = {
     parseCode: function(buf, fname, opt) { return wfgEm01ParseBin(buf, fname, opt); },
     buildExport: function(opt) { return wfgEm01BuildScript(opt); }
   },
-  e503: { label: 'E503', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
-  e501: { label: 'E501', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
-  /* EN01：Bruce 2026-08-22 明確歸在 Notebook。目前沒有解析器（選單上會有 `*`）。
-     ⚠ 它的副檔名我沒有實據，`['.bin']` 只是佔位 —— `parseCode` 是 null，這個欄位不會被
-     執行到，等真的要實作時再確認。現在就填進表的理由：這張表是「型號 → 位元寬」的
-     唯一來源，少一列就等於「哪天有人加 EN01 時必須記得補」，而那正是這張表要消滅的東西。 */
-  en01: { label: 'EN01', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null }
+  /* ══ NB 三顆：v4.14.0 建置完成 ═══════════════════════════════════════════
+     `exportFormat` 從佔位的 `'bin'`／`'script'` 一律改成 **`'xlsx'`**（Bruce 2026-08-23 裁示）。
+     產出的是官方 Code Check / SCRIPT 的查核清單，不是 code 檔本身 ——
+     checksum 與 ROM 佈局交給官方 UI，wfg 不碰。理由與證據見 `wfgNbBuildXlsx()` 上方。
+     `exportBinary: true` ＝ codec 回傳的是 `bytes`（Uint8Array）而不是 `text`。 */
+  e503: {
+    label: 'E503', tconClass: 'NB', uiDclkRatio: 1,
+    importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
+    parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e503'); },
+    buildExport: function(opt) { return wfgNbBuildXlsx('e503', opt); }
+  },
+  e501: {
+    label: 'E501', tconClass: 'NB', uiDclkRatio: 1,
+    /* 實測 `TCON/Model` 底下 332 個 E501 code 檔**全部是 .bin、一律 131072 bytes**，
+       一個 .hex 都沒有。`.hex` 仍留著是因為共用層本來就支援，多留無害。 */
+    importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
+    parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e501'); },
+    buildExport: function(opt) { return wfgNbBuildXlsx('e501', opt); }
+  },
+  /* EN01 ＝ RM81008（2026-08-23 查證：六個 `.model` 檔逐一 MD5 相同、
+     RCP2 exe 內含 UI 字串 `RM81008(EN01)`、UserManual 明寫「EN01 系列的 RM81008」、
+     `Setting.json` 的 IC 定義從 `"Name":"EN01"` 改名為 `"Name":"RM81008"`）。
+     ⚠ 已知缺口：EN01 實體上有第 19 條 GPO2，wfg 的通道固定 18 條 ⇒ 本版不支援，
+       詳見 `WFG_NB_MODELS.en01` 的註解。 */
+  en01: {
+    label: 'EN01', tconClass: 'NB', uiDclkRatio: 1,
+    importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
+    parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'en01'); },
+    buildExport: function(opt) { return wfgNbBuildXlsx('en01', opt); }
+  }
 };
 /* v4.6.0：目前機種的單一真值搬進 `wfgFrame.codeTcon`（見該處註解）。
    這兩支是**唯一**的存取窗口 —— 全檔不得再出現第二個「目前機種」的變數。
@@ -36536,7 +36559,11 @@ window.wfgCodeExport = function() {
   var p = function(n) { return n < 10 ? '0' + n : '' + n; };
   var stamp = now.getFullYear() + p(now.getMonth() + 1) + p(now.getDate()) + '_' + p(now.getHours()) + p(now.getMinutes());
   var fname = 'WFG_GPO_' + codec.label + '_' + stamp + '.' + codec.exportFormat;
-  var blob = new Blob([out.text], { type: 'text/plain;charset=utf-8' });
+  /* v4.14.0：NB 三顆匯出的是 .xlsx（二進位），MNT 三顆仍是 .script（文字）。
+     差異只有「拿 bytes 還是 text」與 MIME，其餘下載流程完全共用 —— 不另開一條路徑。 */
+  var blob = codec.exportBinary
+    ? new Blob([out.bytes], { type: out.mime || 'application/octet-stream' })
+    : new Blob([out.text], { type: 'text/plain;charset=utf-8' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = fname;
@@ -36561,6 +36588,20 @@ window.wfgCodeExport = function() {
      每次匯出都講 —— 這不是「出事了」的警告，是這條路本來就有的後半段，
      而且使用者可能在沒匯入 code 的情況下直接匯出，那時更需要知道。 */
   if (codec.hasModeSlots) msgs.push(t('wfg.codeExportCurrentOnly'));
+  /* v4.14.0：NB 的 .xlsx 只是「指令」，不是 code 檔 —— 後半段一定要回官方 UI 走完，
+     否則使用者會以為手上這份 xlsx 就能燒。每次匯出都講，理由與 hasModeSlots 那則相同。
+     被強制清除的訊號排在前面（那是「跟你想的不一樣」的事，優先讀）。 */
+  if (codec.exportFormat === 'xlsx') {
+    if (out.dropped && out.dropped.length) {
+      /* 兩種「不寫」的理由不一樣，訊息不能共用一句：
+         E503 ＝ 這顆晶片**根本沒有**這幾條訊號；
+         EN01 ＝ 有訊號，但**寫回去的路徑沒有實據**（見 exportSigCount 的註解）。
+         把兩者講成同一件事，會讓看到 EN01 訊息的人以為晶片沒有 GPO。 */
+      msgs.push(t(out.dropKey || 'wfg.codeNbDropped')
+                  .replace('{m}', codec.label).replace('{s}', out.dropped.join(', ')));
+    }
+    msgs.push(t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
+  }
   if (msgs.length) {
     var _txt = msgs.join('\n\n──────────────────────────────\n\n');
     setTimeout(function() { alert(_txt); }, 0);
@@ -37577,6 +37618,641 @@ function wfgEm01BuildScript(opt) {
   return wfgEm02BuildScript(opt);
 }
 window.wfgEm01BuildScript = wfgEm01BuildScript;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   NB codec 共用層（E501 / E503 / EN01）— v4.14.0
+   ══════════════════════════════════════════════════════════════════════════
+
+   ── 權威來源（每一條都查過，沒有一條是「長得像就套」）─────────────────────
+   ① 16-byte GPO 版面      各型號自己的 `.model` 檔（RegAddr/RegMsb/RegBits）
+                           E501 `RM81011_for_FAE_20231025_20240509.model`
+                           E503 `RM8100x_for_FAE_20240925_20250311.model`
+                           EN01 `RCP2/RomCodeProcessUI_2.0.16.0/ModelFiles/RM81008.model`
+   ② register → 檔案偏移   E501/E503：`SourceCode_V5.0.4/RomCodeProcessUI.py`
+                              `map_setting_addr_rom_3e_dict`（@1759）
+                           EN01：`raydium.core.dll` 的 `EN01HeaderDefineEEPROM`
+                              ＋ RCP2 UserManual「Define → Header」章節
+   ③ 匯出的 xlsx 格式      `RomCodeProcessUI.py:27110 import_checklist()`
+                           ＋ `:36643 export_script()`
+                           ＋ 官方現成範本 `Check_List/RM81011/Function_Select/
+                              RM81011_UI_Function(XSTB標準化設定_VBK區打滿)_...xlsx`
+   ④「左側為 MSB」          `Raydium_RomCodeProcessUI/Bruce - Code Check UI.pdf`（Bruce 自撰）
+
+   ── 🔴 為什麼不能沿用 `wfgGpoDecodeAt()`（MNT 那一份）──────────────────────
+   兩邊的 16 bytes 長得幾乎一樣，但**位元組順序是相反的**：
+
+     欄位            MNT（EM01/EM02/E512）        NB（E501/E503/EN01）
+     st_line   `r[4] | (r[5]&0x3F)<<8`  ← LE    `(r[4]&0x3F)<<8 | r[5]`  ← **BE**
+     sp_line   `r[6] | (r[7]&0x3F)<<8`  ← LE    `(r[6]&0x3F)<<8 | r[7]`  ← **BE**
+     r_dly     `r[8] | r[9]<<8`         ← LE    `r[8]<<8 | r[9]`         ← **BE**
+     f_dly     `r[10] | r[11]<<8`       ← LE    `r[10]<<8 | r[11]`       ← **BE**
+     ini_val   `+5[7:6]`                        `+4[7:6]`（A）／`+0[1:0]`（B）
+     +0[2:0]   bit2 unused ＋ tg_ini_val[1:0]   FGO_SEL（A）／ST_SP_USE_2ND＋INI_VAL（B）
+     +1/+2/+3  8 bit ＋ 外部 bit8 擴充          只有 6 bit，**沒有** bit8 擴充
+     +12~+15   （MNT 無此四 byte）              R_DLY_F40 / F_DLY_F40
+
+   套錯的後果不是「壞掉」而是「看起來只是延遲怪怪的」：`ST_LINE = 3` 會變成 768。
+   這種錯誤在畫面上完全合理，只有逐值比對抓得到 —— 所以另寫一份，不共用。
+
+   ── NB 內部的兩種版面（A / B）───────────────────────────────────────────
+   逐位元比對三顆 `.model` 的結果：**E501 與 E503 完全相同（16 bytes 一字不差）**，
+   EN01 只差三處。所以只需要兩種版面，不是三種：
+
+     rel   版面 A（E501 / E503）                     版面 B（EN01）
+     +0    [7]EN [6]TG [5]F_ST [3]INV [2:0]FGO_SEL   [7]EN [6]TG [5]F_ST [3]INV
+                                                     [2]ST_SP_USE_2ND [1:0]INI_VAL
+     +1    [7:6]ENG_COMB  [5:0]ACT_TYPE              （同 A）
+     +2    [5:0]INI_R_PHASE                          （同 A）
+     +3    [7:6]TG_INI_VAL_SEL [5:0]INI_F_PHASE      （同 A）
+     +4    [7:6]INI_VAL  [5:0]ST_LINE 高 6 位        [7:0]ST_LINE 高 8 位
+     +5    ST_LINE 低 8 位                           （同 A）
+     +6    [7]NO_FALL  [5:0]SP_LINE 高 6 位          [7:0]SP_LINE 高 8 位
+     +7    SP_LINE 低 8 位                           （同 A）
+     +8/+9    R_DLY（高在前）                        （同 A）
+     +10/+11  F_DLY（高在前）                        （同 A）
+     +12~+15  R_DLY_F40 / F_DLY_F40                  （同 A）
+
+   ⇒ A 的 ST/SP_LINE 是 **14 bit**、B 是 **16 bit**。
+     但兩邊的 `.model` 都寫「3FFFh = non stop」，所以 wfg 既有的
+     `sp_line !== 16383` 哨兵判斷對三顆都成立，不必特例。
+
+   ── 🔴 wfg 沒有載體的欄位一律「不讀也不寫」────────────────────────────────
+   `wfgMakeGpio()` 的欄位裡沒有 FGO_SEL / ENG_COMB_MODE / NO_FALL / ST_SP_USE_2ND /
+   R_DLY_F40 / F_DLY_F40。匯入時忽略它們，匯出時**也不寫進 xlsx** ——
+   官方 UI 只改寫 xlsx 有列出的欄位，沒列的維持 code 檔原值。
+   這是刻意的：不寫 ＝ 不動使用者沒改過的東西，比寫一個猜來的值安全。
+   （另有 `NO_KEEP_LAST_SIG`：同事手寫的 Check List 有它，但三顆 `.model` 都查不到
+     定義 ⇒ 未證實，同樣不寫。） */
+
+/* 版面 B（EN01）以外一律 A。只有這一個常數決定差異，不要在別處再判一次型號。 */
+function wfgNbDecodeChunk(buf, off, layout) {
+  if (!buf || off < 0 || off + 12 > buf.length) return null;
+  var r0 = buf[off],     r1 = buf[off + 1], r2 = buf[off + 2],  r3 = buf[off + 3],
+      r4 = buf[off + 4], r5 = buf[off + 5], r6 = buf[off + 6],  r7 = buf[off + 7],
+      r8 = buf[off + 8], r9 = buf[off + 9], rA = buf[off + 10], rB = buf[off + 11];
+  var st, sp, iniVal;
+  if (layout === 'B') {                       // EN01：ST/SP 各 16 bit、INI_VAL 在 +0[1:0]
+    st = (r4 << 8) | r5;
+    sp = (r6 << 8) | r7;
+    iniVal = r0 & 3;
+  } else {                                    // E501 / E503：ST/SP 各 14 bit、INI_VAL 在 +4[7:6]
+    st = ((r4 & 0x3F) << 8) | r5;
+    sp = ((r6 & 0x3F) << 8) | r7;
+    iniVal = (r4 >> 6) & 3;
+  }
+  return {
+    enable: (r0 >> 7) & 1, toggle: (r0 >> 6) & 1,
+    f_st_sel: (r0 >> 5) & 1, inv: (r0 >> 3) & 1,
+    ini_val: iniVal,
+    act_type: r1 & 0x3F,                      // 🔴 只有 6 bit，不是 8 —— +1[7:6] 是 ENG_COMB_MODE
+    r_ph: r2 & 0x3F,
+    tg_ini_val: (r3 >> 6) & 3,
+    f_ph: r3 & 0x3F,
+    st_line: st, sp_line: sp,
+    r_dly: (r8 << 8) | r9,                    // 🔴 big-endian
+    f_dly: (rA << 8) | rB,                    // 🔴 big-endian
+    /* wfg 的資料模型有這兩格，NB 的 OAX 不在 chunk 內（STG23_OAX_0/1 是獨立區塊、
+       結構也與 MNT 不同）⇒ 一律填 0，匯出時同樣不寫。 */
+    oax_mode: 0, oax_sel: 0
+  };
+}
+window.wfgNbDecodeChunk = wfgNbDecodeChunk;
+
+/* ── EN01 專用：Dynamic Header（EEPROM 格式）────────────────────────────────
+   🔴 EN01 **不是固定 delta**。它的 register → 檔案偏移由檔案 0x100 起的 Header 表描述。
+
+   Header0（8 bytes，index 0）：Password(3) / AP2 起始位址(2) / I2C 速度 /
+                                通道選擇 / fw_backup / 有效 Header 數
+   Item  i（8 bytes，i = 1..19）：
+       From  = ((b0 & 0x7F) << 8) | b1                    ← 檔案偏移（直接值）
+       Len   = ((b2 & 0x7F) << 8) | b3                    ← 長度（直接值）
+       To    = ((b4 & 0x07) << 16) | (b5 << 8) | b6       ← register 起始位址
+       b7    = 前 7 bytes 相加的低位元組（checksum）
+       Enable = (Len > 0)
+
+   ⇒ regToFile(reg) ＝ 取 To ≤ reg < To+Len 的那一筆，回傳 From + (reg − To)。
+
+   實測兩份真實檔（`EN01_EEPROM_Demo_20251020.bin` 6354 bytes、
+   `RM81008_F1567_FRC7_..._2026025.bin` 4096 bytes）：**20/20 個 checksum 全對**，
+   Demo 檔的各 item 首尾相接、最後一筆 end ＝ 0x18D2 ＝ 檔案大小，一個 byte 不差。
+
+   ⚠ FLASH 格式（header 在 0x000、item 16 bytes、`From = ST_ADDR × 0x100`、
+     `Len = RD_LEN − 1`）**手邊沒有實檔可驗**，所以這裡只實作 EEPROM 那條路；
+     碰到 Flash 大小的 EN01 檔一律拒絕，不猜。 */
+var WFG_EN01_HDR_OFF = 0x100;     // fileOff：Header 表起點（EEPROM 格式）
+var WFG_EN01_HDR_ITEM = 8;        // 每筆 8 bytes
+var WFG_EN01_HDR_MAX = 20;        // 含 Header0 共 20 筆
+function wfgEn01ParseHeader(buf) {
+  var base = WFG_EN01_HDR_OFF;
+  if (!buf || base + WFG_EN01_HDR_ITEM * WFG_EN01_HDR_MAX > buf.length) return null;
+  function cksOk(o) {
+    var s = 0;
+    for (var k = 0; k < 7; k++) s += buf[o + k];
+    return (s & 0xFF) === buf[o + 7];
+  }
+  if (!cksOk(base)) return null;                       // Header0 壞掉 ⇒ 整份不可信
+  var items = [], bad = 0;
+  for (var i = 1; i < WFG_EN01_HDR_MAX; i++) {
+    var o = base + i * WFG_EN01_HDR_ITEM;
+    if (!cksOk(o)) { bad++; continue; }
+    var frm = ((buf[o] & 0x7F) << 8) | buf[o + 1];
+    var len = ((buf[o + 2] & 0x7F) << 8) | buf[o + 3];
+    var to  = ((buf[o + 4] & 0x07) << 16) | (buf[o + 5] << 8) | buf[o + 6];
+    if (len === 0) continue;                           // Enable = Len > 0
+    if (frm + len > buf.length) { bad++; continue; }    // 指到檔案外 ⇒ 不採信這一筆
+    items.push({ from: frm, len: len, to: to });
+  }
+  /* 「一筆都沒有」與「壞掉的比好的多」都當作解析失敗 —— 這兩種情況繼續往下走，
+     只會得到一堆 regToFile()=-1，比直接失敗更難查。 */
+  if (!items.length || bad > items.length) return null;
+  return { items: items, bad: bad, pwd: (buf[base] << 16) | (buf[base + 1] << 8) | buf[base + 2] };
+}
+window.wfgEn01ParseHeader = wfgEn01ParseHeader;
+
+/* 型號設定表。三顆的差異全部收斂在這裡，解析／匯出兩支函式都不認識任何型號。 */
+var WFG_NB_MODELS = {
+  e503: {
+    label: 'E503', tconName: 'E503A', layout: 'A',
+    sigCount: 14,                                   // xstb…tend（無 vs/hs/gpo0/gpo1）
+    sigBase: function(i) { return 0x3B0 + i * 0x10; },
+    map: { kind: 'fixed', delta: 0x100, regMin: 0x000, regMax: 0x4D3 },
+    edidOff: 0,                                     // EDID 就在檔案最前面
+    rdMode: { reg: 0x350, msb: 7, lsb: 6 },
+    sizes: [4096]
+  },
+  e501: {
+    label: 'E501', tconName: 'E501B2', layout: 'A',
+    sigCount: 18,                                   // 與 wfg 的 18 條完全對齊
+    sigBase: function(i) { return 0x480 + i * 0x10; },
+    map: { kind: 'fixed', delta: 0xA000, regMin: 0x000, regMax: 0x63F },
+    /* 🔴 128 KB 的 E501 檔其實是「前 64 KB 內容 × 2」——
+       `RomCodeProcessUI.py:13539 double_list_data()` 的註解寫明，實測 first64K === second64K。
+       所有位址都用前半部；後半部是複本，讀哪一份都一樣，但寫回時官方 UI 會自己 double。 */
+    edidOff: 0x1000,
+    rdMode: { reg: 0x420, msb: 7, lsb: 6 },
+    sizes: [131072]
+  },
+  en01: {
+    label: 'EN01', tconName: 'EN01', layout: 'B',
+    /* 16 條連續（0x490 起）＋ gpo0/gpo1 遠在 0x12D0/0x12E0。
+       🔴 EN01 實體上還有第 19 條 **GPO2（0x12F0）**，但 wfg 的通道是固定 18 條
+          （`WFG_GPIO_NAMES`）。為它新增第 19 條會動到全域結構（LA 對應、快捷設定、
+          設定檔相容性）＝ MAJOR，依 CLAUDE.md 不自行進版 ⇒ **本版不支援 GPO2**，
+          匯入不讀、匯出不寫。這是已知的功能缺口，不是漏掉。 */
+    sigCount: 18,
+    /* 🔴 `exportSigCount` 只有 EN01 有，而且比 `sigCount` 少 2 —— 匯入讀 18 條、
+       匯出只寫前 16 條（gpo0 / gpo1 不寫）。這不是筆誤，是查證後的取捨：
+
+       ① **匯入拿不到值**：gpo0/gpo1 在 register 0x12D0/0x12E0，屬 bank 0x12（RT8_p2）。
+          手上兩份真實 EN01 code（`EN01_EEPROM_Demo_20251020.bin`、
+          `RM81008_F1567_FRC7_..._2026025.bin`）的 Header 表裡，涵蓋 0x12D0 的區段
+          一個都沒啟用 ⇒ 兩份都讀不到，wfg 這兩條只會是預設值。
+       ② **匯出寫回去的路徑沒有實據**：Python 版官方 UI 的 register table 只到 0xFFF
+          （`list_3e_table_*_data`），0x12D0 根本不在裡面；RCP2（EN01 走的那一支）
+          對超出範圍的位址怎麼處理，我沒有 .NET 環境可以驗證。
+       ⇒ 寫一個「可能被忽略、也可能寫到別的地方」的值，比不寫危險得多。
+
+       這與 Bruce 對 E503 那四條的裁示是同一條原則：**這顆晶片上我們沒把握的訊號，
+       匯出時強制不寫**，而且同樣**不去動畫面上的 enable**（既有操作完全不變）。
+       第 19 條 GPO2 更是連通道都沒有，詳見上方 `sigCount` 的說明。 */
+    exportSigCount: 16,
+    dropKey: 'wfg.codeNbDroppedNoPath',
+    sigBase: function(i) { return (i < 16) ? (0x490 + i * 0x10) : (0x12D0 + (i - 16) * 0x10); },
+    map: { kind: 'header' },
+    edidOff: 0,
+    rdMode: { reg: 0x41C, msb: 2, lsb: 0 },         // 🔴 3 bit，與 E501/E503 的 2 bit 不同
+    sizes: null                                     // 大小不固定（6354 / 4096 都見過）
+  }
+};
+
+/* register → 檔案偏移。回傳 -1 ＝ 這個 register 不在這份 code 檔裡
+   （EN01 的某個 bank 被停用時會發生，是正常狀況，不是錯誤）。 */
+function wfgNbRegToFile(m, ctx, reg) {
+  if (m.map.kind === 'fixed') {
+    if (reg < m.map.regMin || reg > m.map.regMax) return -1;
+    return reg + m.map.delta;
+  }
+  var it = ctx && ctx.header && ctx.header.items;
+  if (!it) return -1;
+  for (var i = 0; i < it.length; i++) {
+    if (reg >= it[i].to && reg < it[i].to + it[i].len) return it[i].from + (reg - it[i].to);
+  }
+  return -1;
+}
+/* 讀單一 register 的完整 byte（找不到回 -1）。 */
+function wfgNbReadReg(buf, m, ctx, reg) {
+  var o = wfgNbRegToFile(m, ctx, reg);
+  return (o < 0 || o >= buf.length) ? -1 : buf[o];
+}
+
+/* ── EDID 的 DTD#1 → Frame 參數 ──────────────────────────────────────────
+   三顆 NB 的 code 檔開頭（E501 是 0x1000）都是一份完整 128 bytes EDID。
+   Detailed Timing Descriptor #1 固定在 EDID 內的 0x36，欄位是 VESA 標準：
+       +2 hactive 低 8、+3 hblank 低 8、+4 [7:4]hactive 高 4 [3:0]hblank 高 4
+       +5 vactive 低 8、+6 vblank 低 8、+7 [7:4]vactive 高 4 [3:0]vblank 高 4
+   實測四份真實檔（E501 / E503 / EN01×2）：EDID checksum 全部為 0，
+   解出 1920×1200 與 1920×1080，與面板規格相符。
+
+   🔴 EDID checksum 不為 0 就回 null（不帶 frame）——
+   EDID 壞掉代表我們找錯位置，這時候帶進來的 hactive 會靜默污染使用者的 Frame 設定。 */
+function wfgNbEdidFrame(buf, edidOff) {
+  if (!buf || edidOff < 0 || edidOff + 128 > buf.length) return null;
+  var MAGIC = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
+  for (var i = 0; i < 8; i++) if (buf[edidOff + i] !== MAGIC[i]) return null;
+  var s = 0;
+  for (var k = 0; k < 128; k++) s += buf[edidOff + k];
+  if ((s & 0xFF) !== 0) return null;
+  var d = edidOff + 0x36;
+  return {
+    hactive: buf[d + 2] | ((buf[d + 4] >> 4) << 8),
+    hblank:  buf[d + 3] | ((buf[d + 4] & 0x0F) << 8),
+    vactive: buf[d + 5] | ((buf[d + 7] >> 4) << 8),
+    vblank:  buf[d + 6] | ((buf[d + 7] & 0x0F) << 8),
+    pclk10k: buf[d] | (buf[d + 1] << 8)
+  };
+}
+window.wfgNbEdidFrame = wfgNbEdidFrame;
+
+/* ── 防呆 ────────────────────────────────────────────────────────────────
+   全部是「物理上不可能」的條件。實測對位址錯位有鑑別力：
+   同一份 E503 檔，delta 改成 0（不加偏移）或 base 偏 8 bytes，解出來是
+   `R_DLY=17408`、`ST_LINE=8224`、`R_DLY=57344` 這類值，五條檢查全不過。 */
+function wfgNbSane(sig, fr) {
+  if (!sig || !sig.length || !fr) return false;
+  if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
+  if (!(fr.vactive >= 400 && fr.vactive <= 5000)) return false;
+  if (!(fr.hblank > 0 && fr.hblank <= 4000)) return false;
+  if (!(fr.vblank > 0 && fr.vblank <= 2000)) return false;
+  var ht = fr.hactive + fr.hblank, vt = fr.vactive + fr.vblank;
+  var ne = 0;
+  for (var i = 0; i < sig.length; i++) {
+    var s = sig[i];
+    if (!s) continue;
+    if (!s.enable) continue;
+    ne++;
+    if (s.r_dly > ht || s.f_dly > ht) return false;                 // 延遲量是一條 line 內的 DCLK 數
+    if (s.st_line !== 16383 && s.st_line > vt * 3) return false;    // ×3 已涵蓋 tri-gate
+    if (s.sp_line !== 16383 && s.sp_line > vt * 3) return false;
+  }
+  /* xstb 一定要 enable —— 它是 gate driver 的起始訊號，任何一份能開機的 code 都有。 */
+  if (!sig[0] || !sig[0].enable) return false;
+  return ne >= 4;
+}
+
+/* ── 匯出：Check List / SCRIPT 欄位定義 ──────────────────────────────────
+   每一列 ＝ 一個具名欄位。`off(b)` 回傳官方 Offset 欄的字串。
+
+   🔴 Offset 欄的三條硬性規則（`get_offset_to_register()` @34756 的正則所決定，
+      違反會**靜默**寫到錯的地方，不會報錯）：
+        ① 位址一定要 `0x` 前綴 —— 寫 `3B0[7:7]` 會被解析成 **register 0x000**
+        ② bit 範圍每一邊只能一位數（msb ≤ 7）—— 寫 `[15:8]` 得到 msb=1、lsb=8、bits=−6
+        ③ 跨 byte 必須用 `,` 拆段，**左側為 MSB**（Bruce 的規格書原文）
+   下面每一條 `off()` 都遵守這三條，格式與官方現成範本逐字相同。 */
+var WFG_NB_FIELDS = [
+  { key: 'ENABLE',         get: function(g) { return g.enable ? 1 : 0; },
+    off: function(b) { return wfgNbOff(b + 0, 7, 7); } },
+  { key: 'TG_MODE_EN',     get: function(g) { return g.toggle ? 1 : 0; },
+    off: function(b) { return wfgNbOff(b + 0, 6, 6); } },
+  { key: 'F_ST_SEL',       get: function(g) { return g.f_st_sel ? 1 : 0; },
+    off: function(b) { return wfgNbOff(b + 0, 5, 5); } },
+  { key: 'INV',            get: function(g) { return g.inv ? 1 : 0; },
+    off: function(b) { return wfgNbOff(b + 0, 3, 3); } },
+  { key: 'ACT_TYPE',       get: function(g) { return g.act_type & 0x3F; },
+    off: function(b) { return wfgNbOff(b + 1, 5, 0); } },
+  { key: 'INI_R_PHASE',    get: function(g) { return g.r_ph & 0x3F; },
+    off: function(b) { return wfgNbOff(b + 2, 5, 0); } },
+  { key: 'TG_INI_VAL_SEL', get: function(g) { return g.tg_ini_val & 3; },
+    off: function(b) { return wfgNbOff(b + 3, 7, 6); } },
+  { key: 'INI_F_PHASE',    get: function(g) { return g.f_ph & 0x3F; },
+    off: function(b) { return wfgNbOff(b + 3, 5, 0); } },
+  /* INI_VAL / ST_LINE / SP_LINE 的位置與寬度**依版面而異** ⇒ 交給 `offL(b, layout)`。 */
+  { key: 'INI_VAL',        get: function(g) { return g.ini_val & 3; },
+    offL: function(b, L) { return (L === 'B') ? wfgNbOff(b + 0, 1, 0) : wfgNbOff(b + 4, 7, 6); } },
+  { key: 'ST_LINE',        get: function(g) { return g.st_line; },
+    offL: function(b, L) {
+      return (L === 'B') ? (wfgNbOff(b + 4, 7, 0) + ',' + wfgNbOff(b + 5, 7, 0))
+                         : (wfgNbOff(b + 4, 5, 0) + ',' + wfgNbOff(b + 5, 7, 0));
+    } },
+  { key: 'SP_LINE',        get: function(g) { return g.sp_line; },
+    offL: function(b, L) {
+      return (L === 'B') ? (wfgNbOff(b + 6, 7, 0) + ',' + wfgNbOff(b + 7, 7, 0))
+                         : (wfgNbOff(b + 6, 5, 0) + ',' + wfgNbOff(b + 7, 7, 0));
+    } },
+  { key: 'R_DLY',          get: function(g) { return g.r_dly; },
+    off: function(b) { return wfgNbOff(b + 8, 7, 0) + ',' + wfgNbOff(b + 9, 7, 0); } },
+  { key: 'F_DLY',          get: function(g) { return g.f_dly; },
+    off: function(b) { return wfgNbOff(b + 10, 7, 0) + ',' + wfgNbOff(b + 11, 7, 0); } }
+];
+/* 位址一律三位數大寫 hex ＋ `0x`；單 bit 寫成 `[n]`（與官方範本一致）。 */
+function wfgNbOff(addr, msb, lsb) {
+  var h = (addr >>> 0).toString(16).toUpperCase();
+  while (h.length < 3) h = '0' + h;
+  return '0x' + h + '[' + msb + (msb === lsb ? '' : ':' + lsb) + ']';
+}
+window.wfgNbOff = wfgNbOff;
+
+/* ── 匯出：xlsx 表頭 ─────────────────────────────────────────────────────
+   🔴 22 欄，**欄序與字串都不可改**，兩個世代的官方 UI 靠的東西不一樣：
+     ・`SourceCode_V5.0.4`（Python/openpyxl）與 RCP2 1.1.x：**比對表頭字串**
+       （1.1.x 是「去空白 ＋ 轉小寫 ＋ 去換行後 Contains」，寬鬆；Python 版是**完全相等**，嚴格）
+     ・RCP2 2.0.x：**完全不看表頭**，固定欄位索引 0..23（A..X）
+   ⇒ 照 Python 版的字串寫、並維持這個欄序，是唯一同時滿足三者的寫法。
+   `\n` 是儲存格內的換行，不是筆誤 —— Python 版比對的就是含換行的字串。 */
+var WFG_NB_XLSX_HEADER = [
+  'TCON\n(內部型號)', 'Check Item', 'Slave Address\n(HEX)', 'Offset-Bytes', 'Offset\n(HEX)',
+  'Default Case',
+  'Case 0 Value\n(HEX)', 'Case 1 Value\n(HEX)', 'Case 2 Value\n(HEX)', 'Case 3 Value\n(HEX)',
+  'Case 4 Value\n(HEX)', 'Case 5 Value\n(HEX)', 'Case 6 Value\n(HEX)', 'Case 7 Value\n(HEX)',
+  'Description Case 0', 'Description Case 1', 'Description Case 2', 'Description Case 3',
+  'Description Case 4', 'Description Case 5', 'Description Case 6', 'Description Case 7'
+];
+window.WFG_NB_XLSX_HEADER = WFG_NB_XLSX_HEADER;
+
+/* ── 最小 XLSX 產生器 ────────────────────────────────────────────────────
+   wfg 是單檔、無建置、不引外部函式庫，所以自己組。xlsx ＝ zip 容器 ＋ 幾份 XML。
+
+   ・zip 一律用 **STORE（method 0，不壓縮）**：省掉 deflate 實作，
+     而且 openpyxl（Python）與 NPOI（.NET）讀的都是標準 zip，不在意有沒有壓縮。
+   ・字串用 **inlineStr**，不做 sharedStrings —— 少一份 XML、少一層索引對應。
+   ・數值格一律走 `<v>`，字串格走 `<is><t xml:space="preserve">`；
+     表頭那幾個含 `\n` 的字串靠 `xml:space="preserve"` ＋ `&#10;` 保住換行。 */
+function wfgXlsxEsc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;').replace(/\r/g, '').replace(/\n/g, '&#10;');
+}
+function wfgXlsxColName(n) {          // 0 → A、25 → Z、26 → AA
+  var s = '';
+  n = n + 1;
+  while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = ((n - r) / 26) | 0; }
+  return s;
+}
+/* rows：二維陣列。每格可以是 null（空格）、number（數值格）或 string（文字格）。 */
+function wfgXlsxSheetXml(rows) {
+  var out = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  for (var r = 0; r < rows.length; r++) {
+    out += '<row r="' + (r + 1) + '">';
+    for (var c = 0; c < rows[r].length; c++) {
+      var v = rows[r][c];
+      if (v === null || v === undefined || v === '') continue;
+      var ref = wfgXlsxColName(c) + (r + 1);
+      if (typeof v === 'number' && isFinite(v)) {
+        out += '<c r="' + ref + '"><v>' + v + '</v></c>';
+      } else {
+        out += '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' +
+               wfgXlsxEsc(v) + '</t></is></c>';
+      }
+    }
+    out += '</row>';
+  }
+  return out + '</sheetData></worksheet>';
+}
+var WFG_CRC32_TABLE = null;
+function wfgCrc32(bytes) {
+  if (!WFG_CRC32_TABLE) {
+    WFG_CRC32_TABLE = new Int32Array(256);
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      WFG_CRC32_TABLE[n] = c;
+    }
+  }
+  var crc = -1;
+  for (var i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ WFG_CRC32_TABLE[(crc ^ bytes[i]) & 0xFF];
+  return (crc ^ -1) >>> 0;
+}
+function wfgUtf8Bytes(str) {
+  var out = [];
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) { out.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F)); }
+    else if (c < 0xD800 || c >= 0xE000) { out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F)); }
+    else {                              // surrogate pair
+      var cp = 0x10000 + (((c & 0x3FF) << 10) | (str.charCodeAt(++i) & 0x3FF));
+      out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
+    }
+  }
+  return new Uint8Array(out);
+}
+/* files：[{ name, data:Uint8Array }]。回傳整包 zip 的 Uint8Array。 */
+function wfgZipStore(files) {
+  var parts = [], central = [], offset = 0;
+  function u16(a, v) { a.push(v & 0xFF, (v >> 8) & 0xFF); }
+  function u32(a, v) { a.push(v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF); }
+  for (var i = 0; i < files.length; i++) {
+    var nm = wfgUtf8Bytes(files[i].name), da = files[i].data, crc = wfgCrc32(da);
+    var lh = [];
+    u32(lh, 0x04034B50); u16(lh, 20); u16(lh, 0); u16(lh, 0);   // 版本 / flags / method=0(STORE)
+    u16(lh, 0); u16(lh, 0);                                      // 時間 / 日期（固定 0，不影響讀取）
+    u32(lh, crc); u32(lh, da.length); u32(lh, da.length);
+    u16(lh, nm.length); u16(lh, 0);
+    parts.push(new Uint8Array(lh), nm, da);
+    var ch = [];
+    u32(ch, 0x02014B50); u16(ch, 20); u16(ch, 20); u16(ch, 0); u16(ch, 0);
+    u16(ch, 0); u16(ch, 0);
+    u32(ch, crc); u32(ch, da.length); u32(ch, da.length);
+    u16(ch, nm.length); u16(ch, 0); u16(ch, 0); u16(ch, 0); u16(ch, 0);
+    u32(ch, 0); u32(ch, offset);
+    central.push(new Uint8Array(ch), nm);
+    offset += lh.length + nm.length + da.length;
+  }
+  var cenSize = 0;
+  for (var j = 0; j < central.length; j++) cenSize += central[j].length;
+  var eo = [];
+  u32(eo, 0x06054B50); u16(eo, 0); u16(eo, 0);
+  u16(eo, files.length); u16(eo, files.length);
+  u32(eo, cenSize); u32(eo, offset); u16(eo, 0);
+  var all = parts.concat(central, [new Uint8Array(eo)]);
+  var total = 0;
+  for (var k = 0; k < all.length; k++) total += all[k].length;
+  var buf = new Uint8Array(total), p = 0;
+  for (var m2 = 0; m2 < all.length; m2++) { buf.set(all[m2], p); p += all[m2].length; }
+  return buf;
+}
+function wfgBuildXlsx(rows) {
+  var S = function(s) { return wfgUtf8Bytes(s); };
+  return wfgZipStore([
+    { name: '[Content_Types].xml', data: S(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      '</Types>') },
+    { name: '_rels/.rels', data: S(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>') },
+    { name: 'xl/workbook.xml', data: S(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: S(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+      '</Relationships>') },
+    /* 🔴 最小 styles.xml。openpyxl 沒有它也讀得動（實測），但 NPOI（RCP2 2.0.x 用的
+       .NET 函式庫）在缺 styles part 時的行為我**沒有 .NET 環境可以驗證** ——
+       這一份是標準必備 part，補上的成本近乎零，換掉一個無法驗證的風險。 */
+    { name: 'xl/styles.xml', data: S(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>' +
+      '<borders count="1"><border/></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>' +
+      '</styleSheet>') },
+    { name: 'xl/worksheets/sheet1.xml', data: S(wfgXlsxSheetXml(rows)) }
+  ]);
+}
+window.wfgBuildXlsx = wfgBuildXlsx;
+
+/* ── 型號無關的 NB 解析器 ────────────────────────────────────────────────── */
+function wfgNbParse(rawBuf, fname, key) {
+  var m = WFG_NB_MODELS[key];
+  if (!m) return { ok: false, reason: 'unknown NB model: ' + key };
+  var img = wfgCodeLoadImage(rawBuf, fname);        // 共用層：hex 解碼 ＋ EEPROM/Flash 門檻
+  if (!img.ok) return img;
+  var buf = img.bytes;
+  /* 大小門檻：有明列 `sizes` 的型號一律嚴格比對 —— E501 拿到 4096 的檔、
+     E503 拿到 128 KB 的檔，都代表選錯型號，這時往下解只會得到垃圾。 */
+  if (m.sizes && m.sizes.indexOf(img.contentLen) < 0) {
+    return { ok: false, reason: t('wfg.codeErrNbSize')
+               .replace('{m}', m.label).replace('{n}', String(img.contentLen))
+               .replace('{s}', m.sizes.join(' / ')) };
+  }
+  var ctx = {};
+  if (m.map.kind === 'header') {
+    ctx.header = wfgEn01ParseHeader(buf);
+    if (!ctx.header) return { ok: false, reason: t('wfg.codeErrNbHeader').replace('{m}', m.label) };
+  }
+  var frame = wfgNbEdidFrame(buf, m.edidOff);
+  if (!frame) return { ok: false, reason: t('wfg.codeErrNbEdid')
+                         .replace('{m}', m.label)
+                         .replace('{o}', wfgCodeOffLabel(m.edidOff)) };
+  var sig = [], miss = [];
+  for (var i = 0; i < m.sigCount; i++) {
+    var reg = m.sigBase(i);
+    var off = wfgNbRegToFile(m, ctx, reg);
+    var one = (off < 0) ? null : wfgNbDecodeChunk(buf, off, m.layout);
+    if (!one) {
+      /* 這個 register 不在檔案裡（EN01 的 bank 被停用）⇒ 該條**保持 wfg 現值不動**。
+         用 null 佔位，`wfgCodeApplyToWfg()` 迴圈裡的 `if (!s) continue` 會跳過。 */
+      miss.push((WFG_EM02_SIGS[i] || String(i)).toUpperCase());
+      sig.push(null);
+      continue;
+    }
+    one.name = WFG_EM02_SIGS[i] || String(i);
+    sig.push(one);
+  }
+  var solid = sig.filter(function(s) { return !!s; });
+  if (!wfgNbSane(solid, frame)) {
+    return { ok: false, reason: t('wfg.codeErrNotThisModel').replace(/\{m\}/g, m.label) };
+  }
+  /* GATE TYPE：只有 rd_mode 語意與 MNT 相同的 E501/E503 才推定，EN01 是 3 bit、
+     語意未查證 ⇒ 一律不推定（`gateType: null`，wfg 會保留使用者目前的設定）。 */
+  var gateType = null, rdRaw = -1;
+  var rdb = wfgNbReadReg(buf, m, ctx, m.rdMode.reg);
+  if (rdb >= 0) {
+    rdRaw = (rdb >> m.rdMode.lsb) & ((1 << (m.rdMode.msb - m.rdMode.lsb + 1)) - 1);
+    if (m.layout === 'A') gateType = (rdRaw === 0) ? 'single' : (rdRaw === 1) ? 'dual' : null;
+  }
+  var cks = 0;
+  for (var b = 0; b < buf.length; b++) cks += buf[b];
+  cks = cks >>> 0;
+  var det = m.label + ' / ' + (m.map.kind === 'fixed'
+              ? ('reg+0x' + m.map.delta.toString(16).toUpperCase() + ' → ' + wfgCodeOffLabel(m.sigBase(0) + m.map.delta))
+              : ('header ' + wfgCodeOffLabel(WFG_EN01_HDR_OFF) + ' / ' + ctx.header.items.length + ' banks'));
+  det += ' / ' + img.medium.toUpperCase() + ' ' + img.contentLen + 'B (' + img.srcFormat + ')';
+  det += ' / EDID ' + frame.hactive + 'x' + frame.vactive +
+         ' hblk ' + frame.hblank + ' vblk ' + frame.vblank;
+  det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
+  det += ' / RD_MODE=' + (rdRaw < 0 ? '?' : rdRaw) +
+         ' GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)');
+  if (miss.length) det += '\n' + t('wfg.codeNbRegMiss').replace('{s}', miss.join(', '));
+  var overflow = [];
+  var _vt = frame.vactive + frame.vblank;
+  /* 🔴 gateType 推不出來時（EN01 的 rd_mode 是 3 bit、語意未查證）用**寬鬆**上限 vt×2。
+     用 vt 會對 EN01 全面誤報 —— 實測兩份真實 EN01 檔的 ST/SP_LINE 都在 2100~2200，
+     而 vt 只有 1112~1120，看起來像「整份 code 都爆掉」，但那只是 dual gate 的正常值。
+     誤報的代價比漏報高：使用者會開始懷疑解析器，然後忽略所有警告。
+     真正離譜的值仍擋得住 —— `wfgNbSane()` 那一關用的是 vt×3。 */
+  var _eff = (gateType === 'single') ? _vt : _vt * 2;
+  for (var q = 0; q < solid.length; q++) {
+    var s2 = solid[q];
+    if (!s2.enable) continue;
+    var mx = s2.st_line;
+    if (s2.sp_line !== 16383 && s2.sp_line > mx) mx = s2.sp_line;
+    if (mx > _eff - 1) overflow.push(s2.name.toUpperCase() + '(' + mx + ')');
+  }
+  if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
+  return { ok: true, signals: sig, frame: frame, cks: cks,
+           gateType: gateType, applied: solid.length, detail: det };
+}
+
+/* ── 型號無關的 NB 匯出器（產 .xlsx）─────────────────────────────────────
+   產出的是「官方 Code Check / SCRIPT 的查核清單」，不是 code 檔本身。
+   使用者拿它到 RomCodeProcessUI：Import CheckList → Modify All → Save As。
+   🔴 checksum 與 ROM 佈局全部由官方 UI 負責（`check_sum_modify()` 每次資料變動都會重算），
+      wfg 一律不碰 —— 這正是選 xlsx 而不是直接產 .bin 的理由。 */
+function wfgNbBuildXlsx(key, opt) {
+  opt = opt || {};
+  var m = WFG_NB_MODELS[key];
+  if (!m) return { ok: false, reason: 'unknown NB model: ' + key };
+  var rows = [WFG_NB_XLSX_HEADER.slice()];
+  var cnt = 0, dropped = [];
+  /* 匯出可寫的條數 ≤ 匯入可讀的條數。目前只有 EN01 兩者不同（18 讀 / 16 寫），
+     理由見 `WFG_NB_MODELS.en01.exportSigCount` 的註解。 */
+  var nOut = isFinite(m.exportSigCount) ? m.exportSigCount : m.sigCount;
+  for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
+    var g = wfgGpios[i];
+    if (!g) continue;
+    /* 🔴 Bruce 2026-08-23 裁示：E503 沒有 vs／hs／gpo0／gpo1 這四條，
+       「如果有誤勾選到 VS、HS 或是其他兩條，再強制把它清除就好了」。
+       ⇒ 超出該型號訊號數的通道**一律不寫進 xlsx**，不管使用者有沒有勾。
+       刻意**不去改 `wfgGpios[i].enable`**：改了等於動到使用者的畫面狀態，
+       而這裡只是「這一次匯出不寫它」。畫面不動 ⇒ 既有操作完全不變。 */
+    if (i >= nOut) {
+      if (g.enable) dropped.push((WFG_EM02_SIGS[i] || String(i)).toUpperCase());
+      continue;
+    }
+    var b = m.sigBase(i);
+    for (var f = 0; f < WFG_NB_FIELDS.length; f++) {
+      var fd = WFG_NB_FIELDS[f];
+      var off = fd.offL ? fd.offL(b, m.layout) : fd.off(b);
+      var val = fd.get(g) | 0;
+      if (val < 0) val = 0;
+      var row = new Array(WFG_NB_XLSX_HEADER.length);
+      for (var z = 0; z < row.length; z++) row[z] = null;
+      row[0] = m.tconName;
+      row[1] = fd.key + '_' + (WFG_EM02_SIGS[i] || String(i)).toUpperCase();
+      row[2] = '0x3E';                       // TCON register。官方靠這個字串含 "3E" 決定走 register 而非 ROM 空間
+      row[3] = 2;                            // Offset-Bytes：slave 0x3E ⇒ 2（官方 `modify_one()` 也會這樣覆寫）
+      row[4] = off;
+      row[5] = 0;                            // Default Case
+      row[6] = '0x' + val.toString(16).toUpperCase();
+      rows.push(row);
+      cnt++;
+    }
+  }
+  if (!cnt) return { ok: false, reason: t('wfg.codeErrNbNoRows') };
+  var bytes = wfgBuildXlsx(rows);
+  return { ok: true, bytes: bytes, count: cnt, dropped: dropped, rows: rows,
+           dropKey: m.dropKey || 'wfg.codeNbDropped',
+           mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+}
+window.wfgNbParse = wfgNbParse;
+window.wfgNbBuildXlsx = wfgNbBuildXlsx;
+window.WFG_NB_MODELS = WFG_NB_MODELS;
+window.WFG_NB_FIELDS = WFG_NB_FIELDS;
 
 /* ── 型號無關：把解析結果套進 WFG ───────────────────────────────────────── */
 function wfgCodeApplyToWfg(res) {
