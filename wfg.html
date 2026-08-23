@@ -2370,8 +2370,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4132"></script>
-<script src="common/i18n.js?v=20260823wfg4132"></script>
+<script src="common/version.js?v=20260823wfg4133"></script>
+<script src="common/i18n.js?v=20260823wfg4133"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -35551,6 +35551,10 @@ var WFG_TCON_CODECS = {
        （`wfgCodeSizePreflight()`）。之後 NB 型號填同一格即可。 */
     mediumBySize: true,
     hasSecondDly: true,
+    /* v4.13.3：這顆的 Flash code 有三模候選 slot（Normal／133%／200%），而匯出的
+       script 一律只寫 CURRENT ⇒ 匯出後要說明「後半段得在官方 UI 完成」。
+       EM02／E512 沒有三模，CURRENT 是唯一位置，對它們講這件事只是噪音。 */
+    hasModeSlots: true,
     /* v4.13.0：第三個參數 `opt` ＝ 使用者在 timing 選擇框選定的來源（`{gpoBase}`）。
        其餘型號的 parseCode 簽名不變、也不會收到這個參數。 */
     parseCode: function(buf, fname, opt) { return wfgEm01ParseBin(buf, fname, opt); },
@@ -36367,7 +36371,7 @@ function wfgTmgRender() {
       + ' onchange="wfgTmgSelect(' + c.base + ')" style="margin-right:7px;vertical-align:middle">'
       + c.label + (c.kind === 'current' ? ('　' + t('wfg.tmgDefaultTag')) : '')
       + '</div>'
-      + '<div class="wfg-ack-where">' + note + '　@0x' + c.base.toString(16).toUpperCase() + '</div>'
+      + '<div class="wfg-ack-where">' + note + '　' + wfgCodeOffLabel(c.base) + '</div>'
       + '<div class="wfg-ack-now">CK1~CK4 SP_LINE = ' + (c.ckSp.join(' / ') || '-') + '</div>'
       + '</div></label>';
   }
@@ -36541,14 +36545,25 @@ window.wfgCodeExport = function() {
   /* 🔴 提醒排在**下載觸發之後**，而且丟到下一個 tick —— `alert()` 會阻塞 renderer，
      同步跳出來會卡在下載開始之前。Bruce 要的也是「按鈕按下去**以後**」。
      沿用 `alert()` 這條既有管道（匯出失敗本來就走它），不新增第三套 UI。 */
+  /* 🔴 兩則訊息合併成**一個** alert。連跳兩個 alert 的實際後果是第二個被當成
+     「又來了」直接按掉 —— 訊息越多、被讀到的比例越低。
+     順序：先警告（可能出錯的事），後說明（工作流程）。 */
+  var msgs = [];
   if (codec.hasSecondDly) {
     var d = wfgCodeDlyDrift();
     if (d.warn) {
-      var msg = d.noBaseline
+      msgs.push(d.noBaseline
         ? t('wfg.codeExportDly2ndNoBase')
-        : t('wfg.codeExportDly2nd').replace('{s}', d.names.join(', '));
-      setTimeout(function() { alert(msg); }, 0);
+        : t('wfg.codeExportDly2nd').replace('{s}', d.names.join(', ')));
     }
+  }
+  /* v4.13.3：script 只寫得到 CURRENT，三模要用官方 UI 複製過去（Bruce 2026-08-23 裁示的流程）。
+     每次匯出都講 —— 這不是「出事了」的警告，是這條路本來就有的後半段，
+     而且使用者可能在沒匯入 code 的情況下直接匯出，那時更需要知道。 */
+  if (codec.hasModeSlots) msgs.push(t('wfg.codeExportCurrentOnly'));
+  if (msgs.length) {
+    var _txt = msgs.join('\n\n──────────────────────────────\n\n');
+    setTimeout(function() { alert(_txt); }, 0);
   }
 };
 
@@ -36737,7 +36752,7 @@ function wfgEm02ParseBin(buf, fname) {
       if (_mx2 > _eff - 1) overflow.push(_s2.name + '(' + _mx2 + ')');
     }
   }
-  var det = 'GPO @0x' + base1.toString(16).toUpperCase();
+  var det = 'GPO ' + wfgCodeOffLabel(base1);
   if (hit[0].cand.off_names.length) det += ' (' + t('wfg.codeChunkOff') + ': ' + hit[0].cand.off_names.join(', ') + ')';
   /* 與 EM02 工具的 Orig CKS 同一個算法：全檔無號位元組累加（32-bit）。 */
   var cks = 0; for (var b = 0; b < buf.length; b++) cks += buf[b];
@@ -37022,7 +37037,7 @@ function wfgE512ParseBin(buf, fname) {
   }
   var cks = 0; for (var b = 0; b < buf.length; b++) cks += buf[b];
   cks = cks >>> 0;
-  var det = 'GPO @0x' + b1.toString(16).toUpperCase() + '/0x' + b2.toString(16).toUpperCase();
+  var det = 'GPO ' + wfgCodeOffLabel(b1) + '/0x' + b2.toString(16).toUpperCase();
   det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
   det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
   det += ' / FRM_NO ' + frmNo.f0 + '/' + frmNo.f1 + '/' + frmNo.f2;
@@ -37055,6 +37070,28 @@ window.wfgEm02BuildScript = wfgEm02BuildScript;
        那正是「靠記性的規則」。放在這裡，任何 codec 呼叫 `wfgCodeToImage()` 就有。 */
 function wfgCodeIsHexName(fname) {
   return /\.hex$/i.test(String(fname || ''));
+}
+/* ══ v4.13.3：印給人看的位址一律標明是「檔案偏移」════════════════════════════
+   🔴🔴 這個函式存在的唯一理由，是一次真實的誤解 —— 不是潔癖。
+
+   EM01 Flash 低位是平坦映像，`fileOff == regAddr`，所以 `0x0500` 這個數字**同時**
+   是暫存器位址與檔案偏移。一旦習慣「0x0500 就是那個位置」，再看到 `0x35000`
+   就會不自覺當成暫存器位址 —— 而暫存器空間只到 `0xFFFF`，`0x35000` 是 217088，
+   根本不在裡面，script 的 `write` 也寫不到 Flash。
+   我們就是這樣花了一整輪去評估一個原理上做不到的方案（`docs/em01_export_to_slot_assessment.md`）。
+
+   程式碼內部從 v4.2.0 起就標得很清楚（每個常數都註明 fileOff／regAddr），
+   漏掉的是**給人看的那一層**：匯入卡片、選擇框、匯出註解三處都只印裸位址。
+   最糟的是匯出註解 —— 它夾在一整串 `write -m 0626 …`（暫存器位址）之間。
+
+   ⚠ 兩個變體不可互換：
+     `wfgCodeOffLabel()` 走 i18n，給畫面用。
+     `wfgCodeOffLabelAscii()` 固定英文，給 **.script 檔案內容**用 —— .script 只吃 ASCII。 */
+function wfgCodeOffLabel(n) {
+  return t('wfg.codeFileOff') + ' 0x' + (n >>> 0).toString(16).toUpperCase();
+}
+function wfgCodeOffLabelAscii(n) {
+  return 'file offset 0x' + (n >>> 0).toString(16).toUpperCase();
 }
 /* Intel HEX → Uint8Array。只實作實際會遇到的 record type：
      00 Data、01 EOF、02 Extended Segment Address、04 Extended Linear Address。
@@ -37457,7 +37494,7 @@ function wfgEm01ParseBin(rawBuf, fname, opt) {
   cks = cks >>> 0;
   var _isCur = (gpoBase1 === L.base1);
   var det = 'EM01 ' + L.key + ' (' + buf.length + ' B' + (img.srcFormat === 'hex' ? ', from .hex' : '') + ')';
-  det += ' / GPO ' + (_isCur ? 'CURRENT' : 'SLOT') + ' @0x' + gpoBase1.toString(16).toUpperCase()
+  det += ' / GPO ' + (_isCur ? 'CURRENT' : 'SLOT') + ' ' + wfgCodeOffLabel(gpoBase1)
          + '/0x' + gpoBase2.toString(16).toUpperCase();
   det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
   det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
@@ -37514,8 +37551,9 @@ function wfgEm01ParseBin(rawBuf, fname, opt) {
     for (var ci = 0; ci < (choices || []).length; ci++) {
       if (choices[ci].base === gpoBase1) { _srcLbl = choices[ci].label; break; }
     }
-    timingNote = 'read from ' + _srcLbl + ' @0x' + gpoBase1.toString(16).toUpperCase() +
-                 ' (' + modes.slots.length + ' mode slot(s) present); written back to CURRENT';
+    timingNote = 'read from ' + _srcLbl + ' (' + wfgCodeOffLabelAscii(gpoBase1) + ' in the code file, ' +
+                 'NOT a register address); ' + modes.slots.length + ' mode slot(s) present; ' +
+                 'written back to CURRENT';
   }
   return { ok: true, signals: sig, frame: frame, base1: gpoBase1, cks: cks,
            gateType: gateType, frmNo: frmNo, applied: 18, detail: det, em01Layout: L.key,
