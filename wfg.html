@@ -2455,8 +2455,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4192"></script>
-<script src="common/i18n.js?v=20260824wfg4192"></script>
+<script src="common/version.js?v=20260824wfg4193"></script>
+<script src="common/i18n.js?v=20260824wfg4193"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -39869,17 +39869,49 @@ function wfgCodeResetChannels() {
     found.name = (WFG_GPIO_NAMES[g] || found.name || '').toUpperCase();
     digital.push(found);
   }
-  /* 🔴 v4.19.0：**一格都不丟。**
-     v4.0.2 這裡原本會把 `gpioIdx < 0` 的空白通道整批捨棄（當時是為了修「畫面上一排
-     空白列」）。副作用在 v4.18.0 被實測抓到：匯入之後一格空的都不剩，使用者再把
-     phase 調大時 CKO7…CKO12 **找不到位置而靜默消失**。
-     Bruce 2026-08-24 的用詞是「匯入的時候，類比訊號跟面板訊號都**不顯示**」——
-     不顯示 ≠ 不存在。所以改成：通道全部留著、格數不變、只關掉顯示（下面的 ② 段）。 */
+  /* ══ 🔴 v4.19.3：匯入後的格數＝一個訊號源一格，剛好 33 ═══════════════════════
+     Bruce 2026-08-24 實測（線上 v4.19.1，帶著他自己 24 格的 autosave）：匯入之後
+     **36 格**，多出來的三格是「重複的 XSTB ×1 ＋ 空白通道 ×2」。
+     他要的是「善用這 33 個通道」＝ 18 數位 ＋ SD1 ＋ CKO1~12 ＋ GATE ＋ SUBPIXEL。
+
+     ── 這兩類多餘格從哪來 ──────────────────────────────────────────────
+     ① **重複**：他的 autosave 有兩格都指到 `gpioIdx = 0`（一格名為 VST1、一格名為
+        XSTB，都綁 xstb）。上面第 ① 段的 `digital` 迴圈對每個 g 只收**第一個**命中的
+        通道，第二個就落進 `rest` 變成第 19 列 —— 畫面上出現兩條一模一樣的 XSTB。
+     ② **空白**：`gpioIdx < 0` 的通道（他有 8 格，其中 6 格被 CKO7~12 用掉，剩 2 格）。
+
+     ── 為什麼現在可以把空白格丟掉（v4.19.0 當時不敢丟的理由已經不成立）──────
+     v4.19.0 保留空白格的理由寫的是：「匯入之後一格空的都不剩，使用者再把 phase 調大時
+     CKO7…CKO12 找不到位置而靜默消失」。但那個「找不到位置」是 **v4.18.0 之前**的行為 ——
+     v4.18.0 已經把 `wfgTakeChannelSlot()` 改成「沒有空格就 `push` 一格出來，直到
+     `WFG_CHANNEL_MAX`(40)」。所以空白格不再是 CKO 的落腳處。
+     🔴 這一點不是推論：實測「匯入後 33 格 / 0 空白 → 把 GOA Phase 由 12 改成 16」，
+     通道長到 37 格且 CKO13~CKO16 各自有通道（見本版 CHANGELOG 的驗證表）。
+
+     ── 做法 ──────────────────────────────────────────────────────────
+     `rest` 只收「有綁訊號、而且該訊號還沒被別的通道佔走」的通道；
+     空白格與重複格直接不收。丟掉的都是**沒有任何獨立資料**的列
+     （空白格只有一個預設名字；重複格是同一條訊號的第二份顯示）。
+     🔴 只在匯入這條路徑上正規化 —— 匯入＝全新檔案（Bruce 2026-08-24 原話）。
+     載入設定檔／autosave 那條路徑不動，那是使用者自己的配置。 */
+  var _seen = {};
+  for (var _di = 0; _di < digital.length; _di++) _seen[digital[_di].gpioIdx] = true;
   for (var i2 = 0; i2 < wfgChannels.length; i2++) {
     var ch2 = wfgChannels[i2];
     if (digital.indexOf(ch2) >= 0) continue;
+    if (!(ch2.gpioIdx >= 0)) continue;        // 空白通道
+    if (_seen[ch2.gpioIdx]) continue;         // 同一個訊號源的第二份
+    _seen[ch2.gpioIdx] = true;
     rest.push(ch2);
   }
+  /* 🔴 v4.19.3：類比／面板那一段也依訊號順序排（SD1 → CKO1…CKOn → GATE → SUBPIXEL）。
+     不排的話順序會繼承 autosave 的歷史形態 —— Bruce 那份就是
+     `SD1, CKO1~6, GATE, SUBPIXEL, CKO7~12`，CKO 被面板訊號從中間切斷
+     （v4.18.0 已經把這個現象記成缺陷，只是那支的重排有 `_wfgSlotGrew` 閘門，
+     匯入這條路徑不會長新格 ⇒ 永遠不觸發）。
+     這裡不加閘門：匯入＝全新檔案，順序本來就該是決定性的，不該取決於使用者上一次
+     存了什麼。（拖曳排序仍然照舊 —— 它只在匯入這一刻被重設，之後怎麼拖都不會再被動。） */
+  rest.sort(function(a, b) { return a.gpioIdx - b.gpioIdx; });
   wfgChannels = digital.concat(rest);
   wfgEnsureVirtualChannels();   // v4.19.2：重排之後再保證一次（下面第②段會把它們設為不顯示）
   /* ② 逐通道決定可見性與顏色 */
