@@ -2455,8 +2455,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4190"></script>
-<script src="common/i18n.js?v=20260824wfg4190"></script>
+<script src="common/version.js?v=20260824wfg4191"></script>
+<script src="common/i18n.js?v=20260824wfg4191"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -2484,6 +2484,12 @@ var WFG_VIRTUAL_ANALOG_DEFAULTS = { 18: 1 };
 // Shared Level Shifter settings that apply to ALL CKO output channels.
 // Modes: 'individual' = 1-in-1-out, 'condensed' = 1-in-N-out (VCE),
 //        'dual_cpv' = 2-in-N-out, 'quad_cpv' = 4-in-N-out (v3.18.0)
+/* ══ 🔴 v4.19.1：預設 phase 與「預設格數」抽成常數 ═══════════════════════════
+   舊版存檔（autosave／設定檔）升級判定要用到它們。`WFG_LEGACY_DEFAULT_PHASE` 是
+   v4.18.0 以前的預設值，用來辨認「這個 6 是舊版預設留下來的，不是使用者自己選的」。 */
+var WFG_DEFAULT_PHASE = 12;
+var WFG_LEGACY_DEFAULT_PHASE = 6;
+
 /* v4.19.0：CKO 的訊號來源預設表抽成常數 —— `wfgNormalizeCkSources()` 補齊時要用它當退路。
    索引即 gpio index：4~11 ＝ CK1~CK8，兩輪循環共 16 項（涵蓋 phase 最大值 16）。 */
 var WFG_CK_SOURCES_DEFAULT = [4, 5, 6, 7, 8, 9, 10, 11, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -3094,6 +3100,60 @@ function wfgTakeChannelSlot() {
    CK7／CK8 這兩條數位訊號**根本沒有轉態** ⇒ 補成內建表之後 CKO7←CK7、CKO8←CK8
    一樣是平線（events=0）。循環自帶的 6 項才會得到 CKO7←CK1、CKO8←CK2，全部有波形。
    兩個內建快捷設定因此**維持 6 項**，由這支在載入後補齊。 */
+/* ══ 🔴 v4.19.1：舊版存檔的升級 ═══════════════════════════════════════════
+   v4.19.0 交付後實測到的問題：**乾淨 profile 是 33 格，Bruce 自己的瀏覽器卻還是 24 格。**
+   原因是 autosave（走 `wfgImportConfig`）會用存檔裡的 `channels` 與 `lsGlobal.phase`
+   覆蓋現況 —— 舊存檔 phase 是 6，CKO 就只生得出 6 條，補格也補不出 CKO7~CKO12。
+   對長期使用者而言這一版等於完全沒生效。
+
+   🔴 這正是我上一版驗證的盲點：驗了「舊檔載入不會壞」，沒驗「舊檔載入有沒有升級」。
+   **不壞 ≠ 有升級。**
+
+   ── ① 舊索引必須重新對位 ──────────────────────────────────────────────
+   虛擬 slot 的索引跟著 phase 走：phase 6 時 25 是 gate、26 是 subpixel；
+   phase 12 時 25 變成 cko7、26 變成 cko8。存檔裡記的是**當時那個 phase 下的索引**，
+   直接沿用會讓使用者的 G1／Vpix_1 通道安靜地指到 CKO7／CKO8。
+   （v4.18.0 在 `wfgLsRebuildCkoSlots()` 裡修過同型問題，但那支救不到這條路徑 ——
+     設定檔是「先 rebuild、再把存檔的 gpioIdx 寫進去」，寫進去的已經是舊語意的數字。）
+   ⇒ 用存檔自己的 phase 把索引還原成**訊號名**，再查成新索引。 */
+function wfgLegacySlotName(idx, oldPhase) {
+  if (!(idx >= 0)) return null;
+  if (idx < WFG_DIGITAL_GPIO_COUNT) return WFG_GPIO_NAMES[idx];   // 0~17 的索引與 phase 無關
+  if (idx === WFG_DIGITAL_GPIO_COUNT) return 'sd1';               // 18 固定
+  var k = idx - WFG_DIGITAL_GPIO_COUNT - 1;                       // 0-based 的虛擬序號
+  if (k < oldPhase) return 'cko' + (k + 1);
+  if (k === oldPhase) return 'gate';
+  if (k === oldPhase + 1) return 'subpixel';
+  return null;                                                    // 存檔裡有、現在沒有的 slot
+}
+function wfgMapLegacyIdx(idx, oldPhase) {
+  if (!(idx >= 0)) return -1;
+  if (!(oldPhase > 0) || oldPhase === wfgLsGlobal.phase) return idx;
+  var nm = wfgLegacySlotName(idx, oldPhase);
+  if (nm == null) return -1;
+  var ni = WFG_GPIO_NAMES.indexOf(nm);
+  return ni >= 0 ? ni : -1;
+}
+
+/* 「預設格數」＝ 18 數位 ＋ SD1 ＋ 12 CKO ＋ GATE ＋ SUBPIXEL ＝ 33。 */
+function wfgDefaultSlotCount() { return WFG_DIGITAL_GPIO_COUNT + 3 + WFG_DEFAULT_PHASE; }
+
+/* ── ② 什麼樣的存檔要升 phase ──────────────────────────────────────────
+   只升「看得出來是舊版預設留下的」那一種，兩個條件都要成立：
+     ・`channels` 比現在的預設格數少（＝這份存檔是舊版寫的）
+     ・`phase` 缺漏、或正好等於舊版預設值 6
+   使用者自己挑過 4／8／10／14／16 的一律不動 —— 那是他對硬體的選擇。
+   卡在「他自己也選 6」這種分不出來的情況：實測 phase 6→12 **既有波形零改變**
+   （CKO1~CKO6 與 GATE 的訊號來源逐條相同），而且面板上的 GOA phase 下拉隨時可以改回 6，
+   改回去之後多出來的通道格會自動釋放。取「讓他看得到 CKO12」這一邊。 */
+function wfgShouldUpgradePhase(config) {
+  var ch = config && config.channels;
+  if (!Array.isArray(ch)) return false;
+  if (ch.length >= wfgDefaultSlotCount()) return false;
+  var p = config.lsGlobal ? config.lsGlobal.phase : null;
+  return (p == null) || ((p | 0) === WFG_LEGACY_DEFAULT_PHASE);
+}
+
 function wfgNormalizeCkSources() {
   var src = wfgLsGlobal.ck_sources;
   if (!Array.isArray(src) || src.length === 0) {
@@ -35601,6 +35661,14 @@ window.wfgImportConfig = function(jsonStr, options) {
     }
     wfgNormalizeCkSources();   // v4.19.0：同 preset —— 舊設定檔只帶 6 項時循環補齊
   }
+  /* 🔴 v4.19.1：舊版存檔升級。`_wfgCfgPhase` 是**存檔裡的 phase**，
+     下面套用 `config.channels` 時要用它把舊索引還原成訊號名再對位（見 wfgMapLegacyIdx）。 */
+  var _wfgCfgPhase = (config.lsGlobal && config.lsGlobal.phase != null)
+                       ? (config.lsGlobal.phase | 0) : wfgLsGlobal.phase;
+  if (wfgShouldUpgradePhase(config)) {
+    wfgLsGlobal.phase = WFG_DEFAULT_PHASE;
+    wfgNormalizeCkSources();   // phase 變大 ⇒ ck_sources 也要跟著補，否則新的 CKO 是平線
+  }
   // ── Panel signals (Gate Line) — must be applied before the slot rebuild ──
   // 舊設定檔沒有 panel 區塊 → 回到預設（gate_line 1、顯示開啟、倍率 1.2）
   wfgPanel.gate_rc_mult = WFG_GATE_RC_MULT_DEFAULT;
@@ -35719,7 +35787,9 @@ window.wfgImportConfig = function(jsonStr, options) {
     for (var ci = 0; ci < _ccN; ci++) {
       var ch = config.channels[ci];
       wfgChannels[ci].name = ch.name || wfgChannels[ci].name;
-      wfgChannels[ci].gpioIdx = (ch.gpioIdx != null) ? ch.gpioIdx : -1;
+      /* 🔴 v4.19.1：存檔裡的 gpioIdx 是**當時那個 phase 下的索引**，phase 變了就要重新對位。
+         不做的話 phase 6 的存檔升到 12 之後，使用者的 G1（舊 25）會指到 CKO7。 */
+      wfgChannels[ci].gpioIdx = (ch.gpioIdx != null) ? wfgMapLegacyIdx(ch.gpioIdx | 0, _wfgCfgPhase) : -1;
       wfgChannels[ci].color = ch.color || wfgChannels[ci].color;
       /* v3.10.0: 基準色。舊檔（v3.9.0 以前）沒有 color0 欄位 —— 此時以檔案裡的
          color 當基準，等同「這份檔案載入時的顏色」，相容無痕。 */
@@ -35756,7 +35826,23 @@ window.wfgImportConfig = function(jsonStr, options) {
   // Gate slot: re-derive from the restored gate line (an older config file has
   // no gate entry at all; a newer one may carry a stale mapping).
   wfgSyncGateGpio();
+  /* 🔴 v4.19.1：記下「這份存檔本來就有的訊號」。下面 `wfgLsSyncChannels()` 會把缺的
+     訊號源補成新的通道格（舊版 24／26 格的存檔就是靠這一步長到 33 格）——
+     **本輪才補進來的虛擬通道一律預設不顯示**，否則長期使用者升級後畫面會突然多出
+     十幾條他沒要求的波形。存檔裡本來就有的格子（含使用者自己調過的可見性、
+     自己改過的指派）一格都不動。 */
+  var _wfgPreAssigned = {};
+  for (var _pa = 0; _pa < wfgChannels.length; _pa++) {
+    var _pg = wfgChannels[_pa].gpioIdx;
+    if (_pg >= 0 && WFG_GPIO_NAMES[_pg]) _wfgPreAssigned[WFG_GPIO_NAMES[_pg]] = true;
+  }
   wfgLsSyncChannels();
+  for (var _pb = 0; _pb < wfgChannels.length; _pb++) {
+    var _pch = wfgChannels[_pb];
+    if (_pch.gpioIdx < WFG_DIGITAL_GPIO_COUNT) continue;        // 數位通道不碰
+    var _pnm = WFG_GPIO_NAMES[_pch.gpioIdx];
+    if (_pnm && !_wfgPreAssigned[_pnm]) _pch.visible = false;   // 本輪才補進來的
+  }
 
   /* v3.17.5（修 bug）：補齊虛擬類比 slot 的 enable。
      preset 載入路徑（wfgApplyPreset）早就有同一段補救 ——「Enable virtual analog
@@ -39671,6 +39757,41 @@ window.wfgCodeResetMeasurements = wfgCodeResetMeasurements;   // 驗收腳本要
      ③ 不從清單移除 —— 移除等於刪資料，救不回來。
    選擇留在這裡，日後若 Bruce 要的是另一種，改這一支就好。 */
 function wfgCodeResetChannels() {
+  /* ══ 🔴 v4.19.1：匯入＝全新檔案，通道結構要回到完整的預設 ═══════════════════
+     Bruce 2026-08-24：「我說的條件是匯入新的 code 的時候，所以跟之前 autosave 有沒有
+     關係啊？因為匯入就是全新的檔案啊。」
+
+     ── 實測到的行為（v4.19.0，也就是目前線上版）────────────────────────────
+     這一支只做「18 條數位排前面 ＋ 其餘保留 ＋ 決定可見性與顏色」，
+     **完全不碰 `wfgLsGlobal.phase`，也不補齊缺的訊號源**，於是格數與 CKO 條數
+     整個繼承匯入前的狀態。帶著舊版 24 格 / phase 6 的 autosave 時：
+
+       | 步驟 | channelRows | CKO 條數 | phase |
+       |---|---|---|---|
+       | 首次進站（乾淨） | 33 | 12 | 12 |
+       | 還原舊版 24 格 autosave | 27 | 6 | 6 |
+       | **在此狀態匯入真實 code（E503）** | **27** | **6** | **6** |
+
+     ⇒ 對長期使用者而言，匯入之後仍然看不到 CKO7~CKO12。
+
+     ── 改法 ────────────────────────────────────────────────────────────
+     ① `phase` 若還停在**舊版預設值 6**、而且通道數少於預設格數 ⇒ 判定為舊狀態遺留，
+        升到 12（判準與設定檔升級同一套 `wfgShouldUpgradePhase` 的精神）。
+        使用者自己挑過 4／8／10／14／16 的一律不動 —— 那是他對面板 GOA 的選擇，
+        而 TCON 的 code 檔裡本來就沒有 GOA 相位數這項資訊，匯入沒有理由覆寫它。
+     ② 無條件 `wfgLsRebuildCkoSlots(true)`：依（可能已升級的）phase 重建虛擬 slot，
+        它內部的 `wfgLsSyncChannels()` 會把缺的訊號源補成通道 —— 這就是 24/27 格
+        長回 33 格的那一步。
+        🔴 這裡必須傳 `true` 而不是 `false`：`enableSlots=false` 會把虛擬 slot 的
+        `enable` 關掉，而那個旗標**沒有 UI 入口**，關掉之後使用者用眼睛圖示把通道
+        打開也畫不出波形（v3.17.5 記錄過同型災情）。「匯入後不顯示」要靠下面第 ② 段的
+        `ch.visible = false`，不是靠 enable。 */
+  if (wfgLsGlobal.phase === WFG_LEGACY_DEFAULT_PHASE && wfgChannels.length < wfgDefaultSlotCount()) {
+    wfgLsGlobal.phase = WFG_DEFAULT_PHASE;
+    wfgNormalizeCkSources();
+  }
+  wfgLsRebuildCkoSlots(true);
+
   /* ① 重排「輸出通道」清單：18 條數位訊號依訊號順序排在最前面，類比／面板接在後面。
 
      🔴 v4.0.2 修的就是這裡。v4.0.1 是「缺的補在清單最後」，結果在 Bruce 的實機上
