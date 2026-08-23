@@ -1497,18 +1497,31 @@
                   <label><input type="radio" name="wfg-dclk-mode" value="fixed" checked onchange="wfgOnDclkModeChange(this.value)"> <span data-i18n="wfg.dclkModeFixed">定頻應用</span></label>
                   <label><input type="radio" name="wfg-dclk-mode" value="var" onchange="wfgOnDclkModeChange(this.value)"> <span data-i18n="wfg.dclkModeVar">變頻應用</span></label>
                 </div>
+                <!-- v4.9.0：Pixel Rate 單獨一列（純唯讀、無可調項），
+                     RX DCLK 改成與 TX／TCON UI 同款的子群組框，因為它現在也有一條滑桿了。 -->
                 <div class="wfg-field-row" style="margin:0">
                   <div class="wfg-field">
                     <!-- v4.6.0：Pixel Rate ＝ HTOTAL × VTOTAL × Frame Rate。
                          🔴 它**不隨 TX DCLK 調整而變**（Bruce 2026-08-23），所以放在唯讀那一列。 -->
                     <!-- 🔴 `data-i18n` 走的是 `textContent`（common.js:61），會把子元素整個沖掉。
-                         所以 label 本身不掛 key，改成內層兩個 span 各自掛 —— 與右邊那格同一個寫法。 -->
+                         所以 label 本身不掛 key，改成內層兩個 span 各自掛。 -->
                     <label><span data-i18n="wfg.pixelRate">Pixel Rate</span> <span class="wfg-dclk-hint wrap" data-i18n="wfg.pixelRateHint">(Ht×Vt×FPS)</span></label>
                     <div class="wfg-field-readout"><span class="rxtx-result-val" id="wfg-pixel-rate">148.5</span></div>
                   </div>
-                  <div class="wfg-field">
-                    <label>RX DCLK <span class="wfg-dclk-hint" data-i18n="wfg.rxDclkHint">(= Pixel Rate ÷ 2)</span></label>
+                </div>
+                <div class="wfg-field-row" style="margin:6px 0 0">
+                  <div class="wfg-field-group wfg-subgroup">
+                    <span class="wfg-la-group-label">RX DCLK <span class="wfg-dclk-hint" data-i18n="wfg.rxDclkHint">(= Pixel Rate ÷ 2)</span></span>
+                    <!-- 🔴 v4.9.0：數值本身**維持唯讀**（判斷理由見 wfgOnRxDclkSlider 的說明），
+                         但下方的滑桿可以拖 —— 拖動時反推 Frame Rate（Bruce 2026-08-23 裁示 F）。 -->
                     <div class="wfg-field-readout"><span class="rxtx-result-val" id="wfg-rx-dclk">74.25</span></div>
+                    <div class="wfg-fps-slider-row">
+                      <span class="wfg-fps-slider-min" id="wfg-rx-dclk-slider-min">1.2375</span>
+                      <input type="range" id="wfg-rx-dclk-slider" class="wfg-fps-slider"
+                             min="1.2375" max="419.5125" step="1.2375" value="74.25"
+                             oninput="wfgOnRxDclkSlider(this.value)">
+                      <span class="wfg-fps-slider-max" id="wfg-rx-dclk-slider-max">419.5125</span>
+                    </div>
                   </div>
                 </div>
                 <!-- 🔴 v4.7.0：TX DCLK 與 TCON UI DCLK 各自包進一個**子群組框**。
@@ -2335,8 +2348,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg480"></script>
-<script src="common/i18n.js?v=20260823wfg480"></script>
+<script src="common/version.js?v=20260823wfg490"></script>
+<script src="common/i18n.js?v=20260823wfg490"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -25672,6 +25685,33 @@ function wfgSyncDclkSliders() {
         L.txMin, L.txMax, wfgFrame.dclk);
   apply('wfg-ui-dclk-slider', 'wfg-ui-dclk-slider-min', 'wfg-ui-dclk-slider-max',
         L.uiMin, L.uiMax, wfgFrame.dclk * L.ratio);
+  /* ══ v4.9.0：RX DCLK 滑桿 ══════════════════════════════════════════════════
+     🔴 端點**由 Frame Rate 的合法區間反推**，不是另外訂一組：
+         rxMin = HTOTAL × VTOTAL × fpsMin / 2 / 1e6、rxMax = 同式代 fpsMax。
+     這樣「拖 RX 到端點」與「拖 Frame Rate 到端點」是同一件事，
+     而 fpsMin/fpsMax 本身又是由 TX/UI 的機種上下限推出來的 ——
+     四條滑桿的端點因此**同源**，不可能出現拖了 RX 之後另外三格變非法。
+     `step` ＝ 1 Hz 對應的增量，讓滑桿只停在可達點上（見 wfgOnRxDclkSlider 的說明）。 */
+  var B = (typeof wfgFrameBounds === 'function') ? wfgFrameBounds() : null;
+  var rs = document.getElementById('wfg-rx-dclk-slider');
+  if (rs && B) {
+    var step = wfgRxStepMHz();
+    var rxLo = wfgRxFromFps(B.fpsMin), rxHi = wfgRxFromFps(B.fpsMax);
+    var badRx = !(isFinite(rxLo) && isFinite(rxHi) && rxHi > rxLo && step > 0);
+    rs.disabled = badRx;
+    if (!badRx) {
+      rs.min = String(wfgFmtDclk(rxLo));
+      rs.max = String(wfgFmtDclk(rxHi));
+      rs.step = String(wfgFmtDclk(step));
+      if (document.activeElement !== rs) {
+        rs.value = String(Math.min(rxHi, Math.max(rxLo, wfgFrame.rxDclk)));
+      }
+    }
+    var e1 = document.getElementById('wfg-rx-dclk-slider-min');
+    if (e1) e1.textContent = badRx ? '—' : String(wfgFmtDclk(rxLo));
+    var e2 = document.getElementById('wfg-rx-dclk-slider-max');
+    if (e2) e2.textContent = badRx ? '—' : String(wfgFmtDclk(rxHi));
+  }
 }
 window.wfgSyncDclkSliders = wfgSyncDclkSliders;
 /* 拖曳 → 寫進對應的輸入框 → 走**既有的**那條 commit 路徑。
@@ -25687,6 +25727,54 @@ function wfgOnTxDclkSlider(v) {
   wfgOnDclkManualChange();
 }
 window.wfgOnTxDclkSlider = wfgOnTxDclkSlider;
+/* ══ v4.9.0：RX DCLK 滑桿 —— 拖動時**反推 Frame Rate** ═══════════════════════
+   Bruce 2026-08-23 裁示（選項 F）：「滑桿可以拖。拖動時反過來去改 Frame Rate，
+   讓算出來的 RX DCLK 等於你拖到的值（HTotal、VTotal 不動）。」
+
+   **公式（已自行雙向驗算）**：
+     RX DCLK(MHz) = HTOTAL × VTOTAL × FrameRate / 2 / 1e6
+     ⇒ FrameRate  = RX × 2 × 1e6 / (HTOTAL × VTOTAL)
+   代 RX 74.25、HT 2200、VT 1125 → FrameRate 60；反代回去 → RX 74.25 ✅
+
+   🔴 **非整數怎麼處理（Bruce 要求說明）**：Frame Rate 欄位吃的是整數（`parseInt`），
+   所以並不是每個 RX 值都可達 —— 可達的 RX 是離散的，間距 ＝ 1 Hz 對應的增量
+   `HTOTAL × VTOTAL / 2 / 1e6`（2200×1125 時 ＝ **1.2375 MHz**）。
+   做法是把**滑桿的 `step` 直接設成那個間距、`min` 對齊 fpsMin 的精確值**，
+   於是拖曳只會停在可達點上，`Math.round()` 前後完全一致 ——
+   **不會出現「拖到 100、顯示 99.5」這種落差**，因為 100 這個位置根本停不上去。
+   （若改成「自由拖曳＋事後四捨五入」，滑塊會在放開手後自己跳一小段，那才是困惑的來源。）
+
+   🔴 **RX 那一格的數值維持唯讀 —— 這是我的判斷，請 Bruce 覆核**：
+     ① 可達值是離散的（每 1.2375 MHz 一格）。滑桿因為 `step` 對齊而沒有落差問題，
+        **輸入框沒有** —— 打 100 進去必須夾到 99.0 或 100.2375，那就是上面要避免的落差。
+     ② RX 是三個上游參數的函數，開放打字等於開一個「反解」入口，而反解本身有多組解
+        （改 FPS？改 HT？還是 VT？）。滑桿是 Bruce 明確定義過的**一種**操作，輸入框沒有。
+     ③ 要精確設定的人本來就該用正上方的 Frame Rate 欄位，它是整數、語意明確。
+   ⇒ 定位是「滑桿粗調、Frame Rate 精調」，與 Frame Rate 自己那條滑桿＋輸入框的分工相同。 */
+function wfgRxStepMHz() {
+  var ht = wfgFrame.htotalBase | 0, vt = wfgFrame.vtotal | 0;
+  return (ht > 0 && vt > 0) ? (ht * vt / 2 / 1e6) : 0;
+}
+function wfgRxFromFps(fps) { return wfgFrame.htotalBase * wfgFrame.vtotal * fps / 2 / 1e6; }
+function wfgFpsFromRx(rx) {
+  var ht = wfgFrame.htotalBase | 0, vt = wfgFrame.vtotal | 0;
+  return (ht > 0 && vt > 0) ? (rx * 2 * 1e6 / (ht * vt)) : 0;
+}
+function wfgOnRxDclkSlider(v) {
+  var B = wfgFrameBounds();
+  var fps = Math.round(wfgFpsFromRx(parseFloat(v)));
+  /* 端點夾在 Frame Rate 的合法區間內 —— 滑桿的 min/max 本來就是由它反推的，
+     這裡再夾一次是為了程式化呼叫的路徑。 */
+  fps = Math.max(B.fpsMin, Math.min(B.fpsMax, fps));
+  if (!isFinite(fps) || fps < 1) return;
+  if (fps === wfgFrame.frameRate) { wfgSyncDclkSliders(); return; }   // 同一格內微動，不重算
+  var fr = document.getElementById('wfg-framerate');
+  if (fr) fr.value = String(fps);
+  /* 走**既有的**那條路徑：它含上下限檢核、debounce 重算、以及所有連動的刷新。
+     RX 的顯示值由 `wfgUpdateRxDclk()` 在裡面重算，不在這裡自己寫。 */
+  wfgOnFrameRateChange();
+}
+window.wfgOnRxDclkSlider = wfgOnRxDclkSlider;
 function wfgOnUiDclkSlider(v) {
   if (wfgDclkModeIsVar()) { wfgSyncDclkSliders(); return; }
   var L = wfgDclkLimits();
