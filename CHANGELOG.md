@@ -22,6 +22,82 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.10.1 — 2026-08-23 ｜ PATCH ｜ ⚠ 輸出變更
+
+**v4.10.0 的「Frame Rate 滑桿右端＝真上限」只改了一半：漏掉「改 Frame Rate 的值」那條路徑。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+R1（修 bug，輸出會變）→ **PATCH** ＋ `⚠ 輸出變更`（改過 Frame Rate 之後滑桿右端的數字會不同）。
+判定表「操作流程」→ PATCH（沒有入口變動）。R2／R3／R4 不適用。⇒ **PATCH**。
+
+### 根因：漏掉的是 `wfgSetFrameRateSliderMax()` 本身
+
+v4.10.0 只改了 `wfgSyncFrameBounds()` 與 `wfgOnFrameRateSlider()`，
+但**實際寫 `sl.max` 的還有第三個地方** —— `wfgSetFrameRateSliderMax()`，
+而 `wfgOnFrameRateChange()` 尾端就會呼叫它（`wfgSetFrameRateSliderMax(_fpsRaw)`）。
+於是「改 Frame Rate 的值」這條路徑仍把滑桿 max 寫成當前值，
+還會被 autosave 帶走、reload 後沿用（Bruce 2026-08-23 逐步重現）：
+
+```
+全新載入          fpsIn max=339  fpsSl max=339   ✅
+切機種 em01→em02  fpsIn max=169  fpsSl max=169   ✅
+改 Frame Rate=144 fpsIn max=339  fpsSl max=144   🔴
+reload            fpsIn max=339  fpsSl max=144   🔴 沿用錯的值
+```
+
+**修法是結構性的，不是補第三個 if**：`wfgSetFrameRateSliderMax()` 與
+`wfgSyncFrameRateSliderValue()` **不再碰滑桿的 `max` 與右端標籤**，
+夾值改用與端點同源的 `wfgFrameBounds()`。
+滑桿端點從此**只有一個寫入點**（`wfgSyncFrameBounds()`）——
+比「記得每一處都要改」可靠，新的寫入點若又冒出來，稽核會叫。
+
+`wfgFrameRateSliderMax` 變數**保留**，用途縮到只剩匯出欄位 `frameRateMax`（舊版讀它決定滑桿上限）。
+grep 確認：`wfg-framerate-slider` 的 `max` 在全檔只剩 `wfgSyncFrameBounds()` 一處寫入。
+
+### 稽核為什麼沒抓到，以及補了什麼
+
+v4.10.0 的 `wfgAuditBounds()` **其實已經有**「fps slider max ≡ fpsMax」這條檢查，
+沒抓到是因為**我只在切機種之後手動呼叫它**，而弄壞端點的 `wfgSetFrameRateSliderMax()`
+是在 `wfgOnFrameRateChange()` 的更尾端才跑 —— **檢查點錯過時機，不是檢查不夠**。
+
+兩項補強：
+1. **`wfgScheduleAudit()`**：把稽核排到本輪同步程式碼跑完之後（`setTimeout 0`）自動執行，
+   掛在 `wfgSyncAllBounds()` 尾端，有問題就 `console.warn`。時序死角消失。
+2. **新增 G 檢查：兩端標籤文字 ≡ 該滑桿的 min／max。**
+   🔴 這一條是負控制逼出來的 —— 只改標籤不改屬性時，A～F 全部通過，
+   但使用者看到的數字是錯的。**標籤才是使用者實際讀到的東西，不能只驗屬性。**
+
+### 負控制（證明擴充後的稽核抓得到）
+
+| 注入 | 稽核結果 |
+|---|---|
+| 目前狀態 | `ok: true` |
+| slider max ＝ 當前值 144（**這次的 bug**） | `ok: false` — 3 項（含 `input max 339 ≠ slider max 144`） |
+| **只改右端標籤**（v4.10.0 抓不到） | `ok: false` — `fps 右端標籤 "144" ≠ slider max 339` |
+| 只改 RX 右端標籤 | `ok: false` — 抓到 |
+| 還原 | `ok: true` |
+
+### 驗證（Bruce 指定序列：載入 → 改 Frame Rate → reload）
+
+| 機種 | 設 Frame Rate | input max | slider max | 右端標籤 | max ≠ 當前值 | 稽核 |
+|---|---|---|---|---|---|---|
+| EM01 | 144 | 339 | **339** | 339 | ✅ | ok |
+| EM02 | 100 | 169 | **169** | 169 | ✅ | ok |
+| E512 | 90 | 145 | **145** | 145 | ✅ | ok |
+| E503 | 50 | 84 | **84** | 84 | ✅ | ok |
+
+reload 後（autosave 還原）：EM01/FPS 144 → slider max 仍 **339**；
+E503/FPS 50 → slider max 仍 **84**，四條滑桿 fps[1,84]／tx[61.875,105]／ui[61.875,105]／rx[1.2375,103.95] 全部正確、稽核 ok ✅
+（reload 走的是同一條 `wfgImportConfig` → `wfgSetFrameRateSliderMax` 路徑，與機種無關，故取 MNT／NB 各一個代表驗證。）
+
+### 待辦（本輪未做，範圍收斂）
+
+- `wfgAuditBounds()` 目前只在 `wfgSyncAllBounds()` 之後自動跑。
+  若日後出現不經過該收斂點的新路徑，仍需要另外的觸發點。
+- 稽核尚未涵蓋 `disabled` 狀態與 `step` 以外的滑桿屬性。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.10.0 — 2026-08-23 ｜ MINOR ｜ ⚠ 輸出變更
 
 **修滑桿端點殘留舊機種範圍；Frame Rate 滑桿右端改成真正的上限；補上端點一致性稽核。**

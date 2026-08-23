@@ -2348,8 +2348,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4100"></script>
-<script src="common/i18n.js?v=20260823wfg4100"></script>
+<script src="common/version.js?v=20260823wfg4101"></script>
+<script src="common/i18n.js?v=20260823wfg4101"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -25815,6 +25815,21 @@ function wfgAuditBounds() {
     if (!near(num(frS.min), B.fpsMin)) issues.push('fps slider min ≠ wfgFrameBounds().fpsMin');
     if (!near(num(frS.max), B.fpsMax)) issues.push('fps slider max ≠ wfgFrameBounds().fpsMax');
   }
+  /* G：v4.10.1 補 —— **兩端標籤的文字**必須等於該滑桿的 min／max。
+     🔴 這一條是負控制逼出來的：只改標籤、不改屬性時，前面 A～F 全部通過，
+     但使用者看到的數字是錯的 —— 畫面說謊而稽核不叫，等於沒有守到。
+     標籤才是使用者實際讀到的東西，不能只驗屬性。 */
+  [['fps', frS, 'wfg-framerate-slider-min', 'wfg-framerate-slider-max'],
+   ['tx',  txS, 'wfg-dclk-slider-min',      'wfg-dclk-slider-max'],
+   ['ui',  uiS, 'wfg-ui-dclk-slider-min',   'wfg-ui-dclk-slider-max'],
+   ['rx',  rxS, 'wfg-rx-dclk-slider-min',   'wfg-rx-dclk-slider-max']].forEach(function(p) {
+    var sl = p[1], lo = el(p[2]), hi = el(p[3]);
+    if (!sl || !lo || !hi) return;
+    if (!near(num(lo.textContent), num(sl.min)))
+      issues.push(p[0] + ' 左端標籤 "' + lo.textContent + '" ≠ slider min ' + sl.min);
+    if (!near(num(hi.textContent), num(sl.max)))
+      issues.push(p[0] + ' 右端標籤 "' + hi.textContent + '" ≠ slider max ' + sl.max);
+  });
   // E：RX 端點由 Frame Rate 區間反推
   if (rxS) {
     if (!near(num(rxS.min), wfgRxFromFps(B.fpsMin))) issues.push('rx slider min ≠ fpsMin 反推值');
@@ -25895,11 +25910,28 @@ function wfgOnUiDclkSlider(v) {
 window.wfgOnUiDclkSlider = wfgOnUiDclkSlider;
 /* v4.7.1：TX/UI 的界限、上游參數的界限、以及不相容警示，三件事一起刷新。
    它們的來源都是「機種規格 ＋ 目前 Frame 參數」，分開刷新遲早會有一邊漏掉。 */
+var _wfgAuditTimer = 0;
+/* 🔴 v4.10.1：把稽核排到**本輪同步程式碼全部跑完之後**（`setTimeout 0`）才執行。
+   v4.10.0 的 `wfgAuditBounds()` 其實**已經有**「fps slider max ≡ fpsMax」這條檢查，
+   卻沒抓到這次的 bug —— 因為我只在「切機種之後」手動呼叫它，
+   而弄壞端點的 `wfgSetFrameRateSliderMax()` 是在 `wfgOnFrameRateChange()` 的**更尾端**才跑。
+   檢查點錯過了時機，不是檢查本身不夠。排到巨集任務就不會再有這個時序死角。 */
+function wfgScheduleAudit() {
+  if (_wfgAuditTimer) return;
+  _wfgAuditTimer = setTimeout(function() {
+    _wfgAuditTimer = 0;
+    try {
+      var r = wfgAuditBounds();
+      if (!r.ok) console.warn('[wfg] 端點稽核失敗（' + r.model + (r.empty ? ' / 無合法區間' : '') + '）：', r.issues);
+    } catch (e) { /* 稽核自己壞掉不可以影響使用者 */ }
+  }, 0);
+}
 function wfgSyncAllBounds() {
   wfgSyncDclkBounds();
   if (typeof wfgSyncDclkSliders === 'function') wfgSyncDclkSliders();   // v4.8.0：兩條滑桿一起刷
   if (typeof wfgSyncFrameBounds === 'function') wfgSyncFrameBounds();
   if (typeof wfgRefreshRangeWarning === 'function') wfgRefreshRangeWarning();
+  wfgScheduleAudit();   // v4.10.1：第二道防線，任何路徑弄壞端點都會在 console 留下痕跡
 }
 window.wfgSyncAllBounds = wfgSyncAllBounds;
 function wfgSyncDclkMin() { wfgSyncAllBounds(); }   // 舊名保留，內部已收斂成同一支
@@ -26301,20 +26333,31 @@ function wfgOnFrameRateChange() {
    - 拉桿位置本身**不另存**：它永遠等於 frameRate；只有 max 需要記住，存成 `frameRateMax`。 */
 var wfgFrameRateSliderMax = 60;
 var _wfgPendingFrameRateMax = 0;   // v3.27.0：匯入時暫存設定檔裡的上限
+/* 🔴 v4.10.1：這兩支**不再碰滑桿的 `max` 與右端標籤**。
+
+   v4.10.0 只改了 `wfgSyncFrameBounds()` 與 `wfgOnFrameRateSlider()` 兩處，
+   漏掉這裡 —— 而這裡才是「改 Frame Rate 的值」那條路徑實際寫 `sl.max` 的地方
+   （`wfgOnFrameRateChange()` 尾端會呼叫 `wfgSetFrameRateSliderMax(_fpsRaw)`）。
+   於是出現：輸入框 max ＝ 339（正確）、滑桿 max ＝ 144（＝剛打進去的值），
+   而且會被 autosave 一起帶走、reload 之後沿用（Bruce 2026-08-23 逐步重現）。
+
+   **結構性的修法**：滑桿的端點從此**只有一個寫入點** —— `wfgSyncFrameBounds()`。
+   這比「記得每一處都要改」可靠：新的寫入點若又冒出來，`wfgAuditBounds()` 會叫。
+
+   `wfgFrameRateSliderMax` 這個變數**保留**，但用途縮到只剩一個：
+   匯出欄位 `frameRateMax`（v4.9.0 以前的版本讀它來決定滑桿上限）。
+   拿掉會讓新檔在舊版打開時失去滑桿上限，屬無謂的破壞。 */
 function wfgSetFrameRateSliderMax(v) {
-  var m = Math.max(1, parseInt(v) || 1);
-  wfgFrameRateSliderMax = m;
-  var sl = document.getElementById('wfg-framerate-slider');
-  var lb = document.getElementById('wfg-framerate-slider-max');
-  if (sl) {
-    sl.max = m;
-    sl.value = Math.max(1, Math.min(m, wfgFrame.frameRate || m));
-  }
-  if (lb) lb.textContent = m;
+  wfgFrameRateSliderMax = Math.max(1, parseInt(v) || 1);   // 只記錄，供匯出相容用
+  wfgSyncFrameRateSliderValue();
 }
 function wfgSyncFrameRateSliderValue() {
   var sl = document.getElementById('wfg-framerate-slider');
-  if (sl) sl.value = Math.max(1, Math.min(wfgFrameRateSliderMax, wfgFrame.frameRate || 1));
+  if (!sl) return;
+  /* 夾值改用 `wfgFrameBounds()` —— 與滑桿的 min/max 同源。
+     用 `wfgFrameRateSliderMax` 夾會夾到「使用者上次打的值」，那正是 v4.10.0 漏掉的那半。 */
+  var B = wfgFrameBounds();
+  sl.value = Math.max(B.fpsMin, Math.min(B.fpsMax, wfgFrame.frameRate || B.fpsMin));
 }
 function wfgOnFrameRateSlider(v) {
   /* 🔴 v4.10.0：這一行原本是 `Math.min(wfgFrameRateSliderMax, …)` ——
