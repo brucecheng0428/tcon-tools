@@ -1059,18 +1059,29 @@
      註記在極窄畫面下改為省略號，而不是把欄寬撐開。 */
   /* meta 行裡的輸入框吃掉下拉之後的剩餘寬度（下拉是 flex:0 0 auto）。 */
   .wfg-sub-meta input[type="number"] { flex: 1 1 auto; min-width: 0; }
-  /* 🔴 v4.7.0：下拉尺寸**放回正常**。v4.6.0 為了不讓 `(= TX x 2)` 被擠出 label 那一行，
-     把它鎖成 62x19px —— Bruce 回報「縮得太小、視覺上有點突兀」。有了子群組框之後
-     這一行有足夠寬度，不必再壓縮。
-     ⚠ 但仍要壓過站上「把 select/input 撐成 100%」的既有規則（`.wfg-field select` 那組），
-     所以用 `.wfg-sub-meta select` 這個更具體的選擇器，並且**只鎖寬度、不鎖 line-height**
-     （指定 line-height 會讓文字被裁到看不見，實測 v4.6.0 開發中踩過）。 */
-  .wfg-sub-meta select.wfg-tcon-mini {
-    flex: 0 0 auto; width: auto; min-width: 76px; max-width: 100px;
-    margin: 0; padding: 3px 4px; box-sizing: border-box; font-size: 11px;
-    color: #e2e8f0; background: #0f172a; border: 1px solid #475569; border-radius: 5px;
-    appearance: auto; cursor: pointer; }
-  .wfg-sub-meta select.wfg-tcon-mini:focus { border-color: #f97316; }
+  /* ══ 🔴 v4.8.0：子群組裡的輸入框／下拉，與**同一張卡片的其他欄位**用同一組尺寸 ══
+     根因是量出來的（Bruce 2026-08-23 回報「為什麼比其他的輸入框大很多」）：
+     v4.7.0 把這兩個 input 從 `.wfg-field` 裡移到 `.wfg-field-group.wfg-subgroup` 底下之後，
+     **就不再符合 `.wfg-field input` 那條站上統一樣式的選擇器**，於是掉回瀏覽器預設 ——
+     實測 41.5px 高 / 16px 字 / padding 10px 12px / 圓角 8px，而同卡片其他欄位是
+     31.5px / 13px / 7px 10px / 6px。不是有人刻意放大，是選擇器沒跟著搬。
+
+     這一條把統一樣式補回 `.wfg-subgroup`，數值與 `.wfg-field input`（本檔 1003 行）**逐項相同**，
+     所以是同一組值的第二個入口，不是第二套視覺。
+     ⚠ 之前為了「不讓換算註記被擠掉」而鎖死尺寸的做法（v4.6.0 的 112×33、v4.7.0 的 76×23）
+     一併移除 —— 註記在 v4.7.0 已經搬到框名那一行，不再與下拉搶同一行的寬度，
+     這個限制的前提本來就消失了。 */
+  .wfg-subgroup input[type="number"],
+  .wfg-subgroup select { width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
+                         color: #e2e8f0; background: #0f172a; border: 1px solid #334155;
+                         border-radius: 6px; outline: none; }
+  .wfg-subgroup input:focus, .wfg-subgroup select:focus { border-color: #f97316; }
+  /* `<select>` 的原生行高比 `<input>` 高 1.5px（實測 33 vs 31.5）。改用固定高度 ＋ 垂直置中
+     把它拉齊，而不是去猜一個 line-height 數字。 */
+  .wfg-subgroup select { height: 31.5px; padding-top: 0; padding-bottom: 0; }
+  /* 機種下拉只需要限制**寬度**（讓右邊的數值框吃掉剩餘空間），高度／字級／內距全部沿用上一條。 */
+  .wfg-sub-meta select.wfg-tcon-mini { flex: 0 0 auto; width: auto; min-width: 92px; max-width: 122px;
+                                       cursor: pointer; }
   .wfg-tcon-mini option { background: #1e293b; color: #e2e8f0; font-size: 12px; }
   /* v4.7.0：NB 機種下「變頻應用」不可選，要看得出來是「不能按」而不是「沒選到」。 */
   .wfg-opt-disabled { opacity: 0.42; cursor: not-allowed; }
@@ -1464,7 +1475,8 @@
                   <!-- v3.27.0：Frame Rate 拉桿。min=1、step=1；
                        max = **使用者在上面輸入格手動輸入的值**，拉桿本身不會改動 max。 -->
                   <div class="wfg-fps-slider-row">
-                    <span class="wfg-fps-slider-min">1</span>
+                    <!-- v4.8.0：左端標籤加 id —— 下限不再固定是 1（變頻時由機種規格反推）。 -->
+                    <span class="wfg-fps-slider-min" id="wfg-framerate-slider-min">1</span>
                     <input type="range" id="wfg-framerate-slider" class="wfg-fps-slider"
                            min="1" max="60" step="1" value="60"
                            oninput="wfgOnFrameRateSlider(this.value)">
@@ -1524,6 +1536,17 @@
                          （HTML step 的基準就是 min），所以 166.5331 這種小數下限本身仍是合法值。
                          打字輸入任意小數不受影響 —— 值的檢核一直是 wfgValidateTxDclk() 自己做的。 -->
                     <input type="number" id="wfg-dclk" value="74.25" step="1" onchange="wfgOnDclkManualChange()">
+                    <!-- v4.8.0：TX DCLK 滑桿（Bruce 2026-08-23「TX DCLK 下方也做拉霸」）。
+                         結構與樣式沿用 Frame Rate 那條（.wfg-fps-slider-row），不自創。
+                         範圍就是這一格的動態 min/max，由 wfgSyncDclkBounds() 一起寫入。
+                         `step="any"` 是刻意的：下限常是 74.25 這種小數，用固定 step 會拖不到邊界；
+                         拖曳中的值由 wfgSliderSnap() 收成 2 位小數，拖到底則取精確的 min/max。 -->
+                    <div class="wfg-fps-slider-row">
+                      <span class="wfg-fps-slider-min" id="wfg-dclk-slider-min">74.25</span>
+                      <input type="range" id="wfg-dclk-slider" class="wfg-fps-slider" step="any"
+                             min="74.25" max="420" value="74.25" oninput="wfgOnTxDclkSlider(this.value)">
+                      <span class="wfg-fps-slider-max" id="wfg-dclk-slider-max">420</span>
+                    </div>
                   </div>
                 </div>
                 <div class="wfg-field-row" style="margin:6px 0 0">
@@ -1535,6 +1558,13 @@
                       <select id="wfg-ui-tcon" class="wfg-tcon-mini" onchange="wfgCodeOnTconChange(this.value)"
                               title="選擇 TCON 型號" data-i18n-title="wfg.codeTconTitle"></select>
                       <input type="number" id="wfg-ui-dclk" value="74.25" step="1">   <!-- step 的理由同上格 -->
+                    </div>
+                    <!-- v4.8.0：TCON UI DCLK 滑桿。理由與上格相同。 -->
+                    <div class="wfg-fps-slider-row">
+                      <span class="wfg-fps-slider-min" id="wfg-ui-dclk-slider-min">74.25</span>
+                      <input type="range" id="wfg-ui-dclk-slider" class="wfg-fps-slider" step="any"
+                             min="74.25" max="420" value="74.25" oninput="wfgOnUiDclkSlider(this.value)">
+                      <span class="wfg-fps-slider-max" id="wfg-ui-dclk-slider-max">420</span>
                     </div>
                   </div>
                 </div>
@@ -2305,8 +2335,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg471"></script>
-<script src="common/i18n.js?v=20260823wfg471"></script>
+<script src="common/version.js?v=20260823wfg480"></script>
+<script src="common/i18n.js?v=20260823wfg480"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -25451,15 +25481,53 @@ function wfgPixelRateMaxMHz() {
   var sp = wfgTconSpec();
   return 2 * sp.uiDclkMax / wfgUiDclkRatio();
 }
+/* ══ v4.8.0：Frame Rate 的**下限**也要被 TCON UI DCLK 的規格下限反向約束 ═══════
+   Bruce 2026-08-23：「我將 frame rate 往左拉到最小……TCON UI DCLK 可能已經抵觸到
+   之前規範的最小值，所以這個不應該到這麼小才對。」
+
+   🔴 **定頻與變頻的推導不同 —— 這是追過程式路徑得到的結論，不是推理帶過**：
+
+   `wfgClampTconDclk()`（本檔內，v3.29.0 起未變）：
+     ・變頻 → `wfgFrame.dclk = wfgFrame.rxDclk`（TX **恆等於** RX）
+     ・定頻 → 只有 `dclk < rxDclk` 時把 TX **往上**抬到 RX；**RX 變小時 TX 一動也不動**
+
+   ⇒ **變頻**：UI ＝ (Pixel Rate ÷ 2) × ratio，完全跟著 Frame Rate 走。
+       UI ≥ specMin ⇒ Pixel Rate ≥ 2 × specMin / ratio ⇒ Frame Rate 有下限。
+   ⇒ **定頻**：降低 Frame Rate 只讓 RX 變小，TX 停在原值 ⇒ **UI 一點都不會變**。
+       所以 UI 的下限**約束不到** Frame Rate，定頻的 Frame Rate 下限仍是 1。
+       （定頻下真正被 UI 下限約束的是 TX 那一格自己，那條已經在 `wfgDclkLimits()` 裡。）
+   上限則兩種型態相同：提高 Frame Rate 會把 RX 推上去，定頻的 TX 也會被 clamp 跟著抬，
+   所以 UI ≤ specMax 這條在兩種型態下都會約束 Frame Rate 的上限。
+
+   實際數字（HTOTAL 2200 × VTOTAL 1125 ＝ 2,475,000）：
+
+   | 機種 | specMin | ratio | 變頻 FPS 下限 | 定頻 FPS 下限 | FPS 上限（兩者相同） |
+   |---|---|---|---|---|---|
+   | EM01 | 40 | 1 | ceil(80e6/2475000) ＝ **33** | 1 | 339 |
+   | EM02 | 40 | 2 | ceil(40e6/2475000) ＝ **17** | 1 | 169 |
+   | E512 | 40 | 2 | **17** | 1 | 145 |
+   | NB   | 20 | 1 | ceil(40e6/2475000) ＝ **17** | 1 | 84 | */
+function wfgPixelRateMinMHz() {
+  /* 只有變頻應用時 UI 才跟著 Frame Rate 一起降 —— 定頻下 TX 不動，UI 也不動。 */
+  if (!wfgDclkModeIsVar()) return 0;
+  var sp = wfgTconSpec();
+  return 2 * sp.uiDclkMin / wfgUiDclkRatio();
+}
 function wfgFrameBounds() {
   var pxMaxHz = wfgPixelRateMaxMHz() * 1e6;
   var vt = wfgFrame.vtotal | 0, ht = wfgFrame.htotalBase | 0, fps = wfgFrame.frameRate | 0;
   var lim = function(a, b) { return (a > 0 && b > 0) ? Math.max(1, Math.floor(pxMaxHz / (a * b))) : 1; };
   var htMax = lim(vt, fps), vtMax = lim(ht, fps);
+  /* v4.8.0：下限只在變頻時存在（見 wfgPixelRateMinMHz 的推導）。用 ceil —— 下限要**進位**，
+     取 floor 會得到一個仍然違規的值。 */
+  var pxMinHz = wfgPixelRateMinMHz() * 1e6;
+  var fpsMin = (pxMinHz > 0 && ht > 0 && vt > 0) ? Math.max(1, Math.ceil(pxMinHz / (ht * vt))) : 1;
   var hbl = Math.max(1, ht - (wfgFrame.hactive | 0));
   var vbl = Math.max(1, vt - (wfgFrame.vactive | 0));
   return {
     pixelRateMaxMHz: wfgPixelRateMaxMHz(),
+    pixelRateMinMHz: wfgPixelRateMinMHz(),
+    fpsMin:     fpsMin,
     fpsMax:     lim(ht, vt),
     htotalMax:  htMax,
     vtotalMax:  vtMax,
@@ -25481,6 +25549,12 @@ window.wfgFrameBounds = wfgFrameBounds;
 function wfgBlockIfWorse(next, prev, max) {
   return isFinite(max) && (next > max + 1e-9) && (next > prev);
 }
+/* v4.8.0：下界版本。語意完全對稱 —— 低於下限**且變得更小**才擋，往上調一律放行。
+   🔴 這一支存在的理由與上面那支相同：改了下限之後，既有設定（或使用者的 autosave）
+   可能本來就低於新下限；若無條件擋，使用者連往合法方向調都不行 —— 那是 v4.7.0 的鎖死重演。 */
+function wfgBlockIfWorseLow(next, prev, min) {
+  return isFinite(min) && (next < min - 1e-9) && (next < prev);
+}
 /* 把上游參數的 max 寫進 DOM。與 TX/UI 那組一樣：`max` 屬性擋 stepper／滑桿，
    打字則由各自的 handler 在套用前用 wfgBlockIfWorse() 判斷。 */
 function wfgSyncFrameBounds() {
@@ -25489,13 +25563,18 @@ function wfgSyncFrameBounds() {
   set('wfg-vactive', B.vactiveMax); set('wfg-vblank', B.vblankMax);
   set('wfg-hactive', B.hactiveMax); set('wfg-hblank', B.hblankMax);
   var fr = document.getElementById('wfg-framerate');
-  if (fr) fr.max = String(B.fpsMax);
+  if (fr) { fr.max = String(B.fpsMax); fr.min = String(B.fpsMin); }
   /* 滑桿的 max 是「使用者最後一次手動輸入的值」（v3.27.0），但它不得超過機種允許的上限。
      取兩者較小值 —— 滑桿是拖曳操作，Bruce 要求「拖到界就停住」。 */
   var sl = document.getElementById('wfg-framerate-slider');
   if (sl) {
-    var m = Math.max(1, Math.min(wfgFrameRateSliderMax, B.fpsMax));
+    var m = Math.max(B.fpsMin, Math.min(wfgFrameRateSliderMax, B.fpsMax));
+    sl.min = String(B.fpsMin);
     sl.max = String(m);
+    /* v4.8.0：兩端標籤都要跟著動 —— 左邊那個原本硬編 "1"，
+       在變頻 + EM01 這種下限 33 的組合下會騙人。 */
+    var lbMin = document.getElementById('wfg-framerate-slider-min');
+    if (lbMin) lbMin.textContent = B.fpsMin;
     var lb = document.getElementById('wfg-framerate-slider-max');
     if (lb) lb.textContent = m;
   }
@@ -25555,10 +25634,72 @@ function wfgSyncDclkBounds() {
   if (de) { de.min = String(wfgFmtDclk(L.txMin)); de.max = String(wfgFmtDclk(L.txMax)); }
   if (ue) { ue.min = String(wfgFmtDclk(L.uiMin)); ue.max = String(wfgFmtDclk(L.uiMax)); }
 }
+/* ══ v4.8.0：TX DCLK ／ TCON UI DCLK 的滑桿 ═══════════════════════════════════
+   Bruce 2026-08-23：「TX DCLK 下方也做拉霸。TCON UI DCLK 下方也做拉霸。」
+   （RX DCLK 那條先不做 —— 它是唯讀衍生值，拖動要反推哪個上游參數尚未定案。）
+
+   範圍就是各自的動態 min/max，與輸入框**同一份** `wfgDclkLimits()`，
+   所以滑桿與打字不可能有不同的可用區間。 */
+function wfgSliderSnap(v, lo, hi) {
+  if (!isFinite(v)) return lo;
+  if (!(isFinite(lo) && isFinite(hi) && hi > lo)) return v;   // 沒有合法區間時原值奉還
+  /* 拖到兩端就取**精確的邊界值**（74.25 這種小數不能被 round 掉，
+     否則永遠拖不到剛好等於下限的那個點）；中間則收成 2 位小數，避免出現 123.4567 這種數字。 */
+  if (v <= lo + 1e-9) return lo;
+  if (v >= hi - 1e-9) return hi;
+  return Math.round(v * 100) / 100;
+}
+/* 依目前真值與界限刷新兩條滑桿（位置、範圍、兩端標籤、是否可用）。 */
+function wfgSyncDclkSliders() {
+  var L = wfgDclkLimits();
+  var ro = wfgDclkModeIsVar();           // 變頻應用：TX 是衍生值 ⇒ 兩條滑桿都不可拖
+  var apply = function(slId, loId, hiId, lo, hi, val) {
+    var sl = document.getElementById(slId);
+    var bad = !(isFinite(lo) && isFinite(hi) && hi > lo);   // 無合法區間（機種不相容）
+    if (sl) {
+      sl.disabled = ro || bad;
+      if (!bad) { sl.min = String(wfgFmtDclk(lo)); sl.max = String(wfgFmtDclk(hi)); }
+      /* 🔴 使用者正在拖這一條時不要覆寫它的 value（與 wfgUpdateUiDclk 的 activeElement 守衛同一個道理），
+         否則拖曳過程會被自己的回寫打斷、滑塊跳回去。 */
+      if (document.activeElement !== sl) {
+        sl.value = String(bad ? val : Math.min(hi, Math.max(lo, val)));
+      }
+    }
+    var e1 = document.getElementById(loId); if (e1) e1.textContent = bad ? '—' : String(wfgFmtDclk(lo));
+    var e2 = document.getElementById(hiId); if (e2) e2.textContent = bad ? '—' : String(wfgFmtDclk(hi));
+  };
+  apply('wfg-dclk-slider', 'wfg-dclk-slider-min', 'wfg-dclk-slider-max',
+        L.txMin, L.txMax, wfgFrame.dclk);
+  apply('wfg-ui-dclk-slider', 'wfg-ui-dclk-slider-min', 'wfg-ui-dclk-slider-max',
+        L.uiMin, L.uiMax, wfgFrame.dclk * L.ratio);
+}
+window.wfgSyncDclkSliders = wfgSyncDclkSliders;
+/* 拖曳 → 寫進對應的輸入框 → 走**既有的**那條 commit 路徑。
+   🔴 效能不必另外處理：`wfgOnDclkManualChange()` 從 v4.7.0 起就是
+   `wfgScheduleFrameParamRender()` ＋ `wfgBeginDeferredAnalog()`（debounce），
+   所以拖曳過程中的數值與畫面即時、波形重算被合併成一次。
+   在這裡另寫一套節流反而會有兩層 debounce 互相打架。 */
+function wfgOnTxDclkSlider(v) {
+  if (wfgDclkModeIsVar()) { wfgSyncDclkSliders(); return; }
+  var L = wfgDclkLimits();
+  var de = document.getElementById('wfg-dclk');
+  if (de) de.value = String(wfgFmtDclk(wfgSliderSnap(parseFloat(v), L.txMin, L.txMax)));
+  wfgOnDclkManualChange();
+}
+window.wfgOnTxDclkSlider = wfgOnTxDclkSlider;
+function wfgOnUiDclkSlider(v) {
+  if (wfgDclkModeIsVar()) { wfgSyncDclkSliders(); return; }
+  var L = wfgDclkLimits();
+  var ue = document.getElementById('wfg-ui-dclk');
+  if (ue) ue.value = String(wfgFmtDclk(wfgSliderSnap(parseFloat(v), L.uiMin, L.uiMax)));
+  wfgOnUiDclkCommit();   // 換算成 TX 之後與上面同一條路，兩格的檢核不可能不一致
+}
+window.wfgOnUiDclkSlider = wfgOnUiDclkSlider;
 /* v4.7.1：TX/UI 的界限、上游參數的界限、以及不相容警示，三件事一起刷新。
    它們的來源都是「機種規格 ＋ 目前 Frame 參數」，分開刷新遲早會有一邊漏掉。 */
 function wfgSyncAllBounds() {
   wfgSyncDclkBounds();
+  if (typeof wfgSyncDclkSliders === 'function') wfgSyncDclkSliders();   // v4.8.0：兩條滑桿一起刷
   if (typeof wfgSyncFrameBounds === 'function') wfgSyncFrameBounds();
   if (typeof wfgRefreshRangeWarning === 'function') wfgRefreshRangeWarning();
 }
@@ -25917,6 +26058,16 @@ function wfgOnFrameRateChange() {
     wfgSyncFrameRateSliderValue();
     return;
   }
+  /* v4.8.0：下限（只有變頻時存在，見 wfgPixelRateMinMHz）。同樣只擋「更小且更糟」的方向。 */
+  if (wfgBlockIfWorseLow(_nextFps, _prevFps, _B.fpsMin)) {
+    document.getElementById('wfg-framerate').value = _prevFps;
+    wfgShowDclkError(t('wfg.errFpsMin')
+      .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+      .replace(/\{min\}/g, String(_B.fpsMin))
+      .replace(/\{lo\}/g, String(wfgTconSpec().uiDclkMin)));
+    wfgSyncFrameRateSliderValue();
+    return;
+  }
   wfgInvalidateCache();
   /* v4.7.1：這次操作被接受了 → 上一次「超過上限」的訊息不再成立，先清掉。
      清掉之後 wfgSyncAllBounds() 會重新評估「機種不相容」那種狀態型警示（kind='range'），
@@ -25974,6 +26125,7 @@ function wfgOnFrameRateSlider(v) {
      🔴 一樣只在「變大」時才夾 —— 往下拖永遠放行。 */
   var _fb = wfgFrameBounds();
   if (n > _fb.fpsMax && n > wfgFrame.frameRate) n = Math.max(1, _fb.fpsMax);
+  if (n < _fb.fpsMin && n < wfgFrame.frameRate) n = _fb.fpsMin;   // v4.8.0：下限同理
   if (n === wfgFrame.frameRate) return;
   wfgInvalidateCache();
   wfgFrame.frameRate = n;
@@ -34981,7 +35133,7 @@ window.wfgImportConfig = function(jsonStr, options) {
    舊編號 `E`＋數字在 MNT／NB 兩邊都有，前綴規則本身就不只一條。 */
 var WFG_TCON_CODECS = {
   em02: {
-    label: 'EM02', tconClass: 'MNT', uiDclkRatio: 2, importExts: ['.bin'], exportFormat: 'script',
+    label: 'EM02', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
     parseCode: function(buf, fname) { return wfgEm02ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm02BuildScript(opt); }
   },
@@ -34990,11 +35142,11 @@ var WFG_TCON_CODECS = {
      這就是 tconClass 必須是查表欄位、不能用字串前綴推導的原因（Bruce 2026-08-22）。
      v4.4.0 補上 script 匯出（Bruce 2026-08-22 追加）。 */
   e512: {
-    label: 'E512', tconClass: 'MNT', uiDclkRatio: 2, importExts: ['.bin'], exportFormat: 'script',
+    label: 'E512', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 360, importExts: ['.bin'], exportFormat: 'script',
     parseCode: function(buf, fname) { return wfgE512ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgE512BuildScript(opt); }
   },
-  em01: { label: 'EM01', tconClass: 'MNT', uiDclkRatio: 1, importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null },
+  em01: { label: 'EM01', tconClass: 'MNT', uiDclkRatio: 1, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null },
   e503: { label: 'E503', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
   e501: { label: 'E501', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
   /* EN01：Bruce 2026-08-22 明確歸在 Notebook。目前沒有解析器（選單上會有 `*`）。
@@ -35017,8 +35169,14 @@ var WFG_TCON_DEFAULT = 'em01';   // Bruce 2026-08-23 裁示
    `WFG_TCON_CODECS` 的每一列 —— 型號表只要維持既有的 `tconClass` 一格，
    新增型號時填那一格就自動繼承這三項，不必記得補三個欄位。
    （`uiDclkRatio` 仍留在型號表：EM01 與 EM02 同為 MNT 卻是 1 與 2，它確實是型號層級的。） */
+/* 🔴 v4.8.0：`uiDclkMax` 從**類別層級**降到**型號層級**（Bruce 2026-08-23：
+   「EM01、EM02 上限的 TCON UI DCLK 都是 420，然後 E512 的上限 DCLK 是 360」）——
+   同屬 MNT 的 EM01/EM02（420）與 E512（360）上限已經不同，類別再也代表不了它。
+   這張表留下的是**真正屬於類別**的三件事（位元寬、能否變頻、下限），
+   以及型號沒指定時的上限 fallback。上限一律以型號表的 `uiDclkMax` 優先。
+   下限 Bruce 未提及 → 維持既有（MNT 40／NB 20），不自行更動。 */
 var WFG_TCON_CLASS_SPEC = {
-  MNT: { maskBits: 0x1FF, allowVarClock: true,  uiDclkMin: 40, uiDclkMax: 500 },
+  MNT: { maskBits: 0x1FF, allowVarClock: true,  uiDclkMin: 40, uiDclkMax: 420 },
   NB:  { maskBits: 0x3F,  allowVarClock: false, uiDclkMin: 20, uiDclkMax: 105 }
 };
 function wfgTconKey() {
@@ -35026,7 +35184,18 @@ function wfgTconKey() {
   return WFG_TCON_CODECS[k] ? k : WFG_TCON_DEFAULT;
 }
 function wfgTconCodec() { return WFG_TCON_CODECS[wfgTconKey()]; }
-function wfgTconSpec() { return WFG_TCON_CLASS_SPEC[wfgTconClass()] || WFG_TCON_CLASS_SPEC.MNT; }
+/* v4.8.0：類別規格 ＋ 型號覆寫。型號表若帶 `uiDclkMax`／`uiDclkMin` 就以它為準，
+   沒帶就沿用類別值 —— 新增型號時「跟類別一樣」什麼都不必填，「不一樣」才填一格。 */
+function wfgTconSpec() {
+  var cls = WFG_TCON_CLASS_SPEC[wfgTconClass()] || WFG_TCON_CLASS_SPEC.MNT;
+  var c = wfgTconCodec() || {};
+  return {
+    maskBits: cls.maskBits,
+    allowVarClock: cls.allowVarClock,
+    uiDclkMin: (isFinite(c.uiDclkMin) && c.uiDclkMin > 0) ? c.uiDclkMin : cls.uiDclkMin,
+    uiDclkMax: (isFinite(c.uiDclkMax) && c.uiDclkMax > 0) ? c.uiDclkMax : cls.uiDclkMax
+  };
+}
 window.wfgTconSpec = wfgTconSpec;
 /* TCON UI DCLK ＝ TX DCLK × ratio。查不到就當 1（＝ UI 與 TX 相同，最保守）。 */
 function wfgUiDclkRatio() {
