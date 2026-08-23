@@ -2348,8 +2348,30 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4121"></script>
-<script src="common/i18n.js?v=20260823wfg4121"></script>
+  <!-- ══ v4.13.0：多組 GPO Timing 的選擇框 ═══════════════════════════════════
+       🔴 **沿用提醒卡片那一整套 CSS**（.wfg-ack-mask / .wfg-ack / .wfg-ack-item …），
+       不新增第三套視覺語言 —— 使用者看到的是同一種卡片，只是內容換成選項。
+       只在「EM01 ＋ Flash ＋ 真的有候選 slot」時才出現；其餘情況完全不打擾。 -->
+  <div class="wfg-ack-mask hidden" id="wfg-tmg-mask" role="dialog" aria-modal="true" aria-labelledby="wfg-tmg-title">
+    <div class="wfg-ack">
+      <div class="wfg-ack-hd">
+        <div class="wfg-ack-bang" aria-hidden="true">?</div>
+        <div class="wfg-ack-hd-tx">
+          <div class="wfg-ack-title" id="wfg-tmg-title" data-i18n="wfg.tmgTitle">這份 code 有多組 GPO Timing，請選擇要匯入哪一組</div>
+          <div class="wfg-ack-sub" id="wfg-tmg-sub"></div>
+        </div>
+      </div>
+      <div class="wfg-ack-bd" id="wfg-tmg-list"></div>
+      <div class="wfg-ack-ft">
+        <button type="button" class="wfg-ack-ok on" id="wfg-tmg-ok" onclick="wfgTmgConfirm()" data-i18n="wfg.tmgOk">用選定的 Timing 匯入</button>
+        <button type="button" class="wfg-ack-ok on" id="wfg-tmg-cancel" onclick="wfgTmgCancel()"
+                style="background:#334155;border-color:#475569;color:#e2e8f0" data-i18n="wfg.tmgCancel">取消匯入</button>
+      </div>
+    </div>
+  </div>
+
+<script src="common/version.js?v=20260823wfg4130"></script>
+<script src="common/i18n.js?v=20260823wfg4130"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -35406,7 +35428,9 @@ var WFG_TCON_CODECS = {
        （`wfgCodeSizePreflight()`）。之後 NB 型號填同一格即可。 */
     mediumBySize: true,
     hasSecondDly: true,
-    parseCode: function(buf, fname) { return wfgEm01ParseBin(buf, fname); },
+    /* v4.13.0：第三個參數 `opt` ＝ 使用者在 timing 選擇框選定的來源（`{gpoBase}`）。
+       其餘型號的 parseCode 簽名不變、也不會收到這個參數。 */
+    parseCode: function(buf, fname, opt) { return wfgEm01ParseBin(buf, fname, opt); },
     buildExport: function(opt) { return wfgEm01BuildScript(opt); }
   },
   e503: { label: 'E503', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
@@ -35485,9 +35509,11 @@ var wfgCodeLastFileName = '';
 var wfgCodeLastCks = -1;
 /* v4.12.0：「這份設定是從哪一組 timing 讀出來的」。只有 EM01 多模檔會填，
    其餘型號永遠是空字串 ⇒ EM02／E512 匯出的內容一位元都不會變。
-   🔴 清空的位置在 `wfgCodeImport()` 的 onchange 最前面（**呼叫 parseCode 之前**），
-   不能放在 wfgCodeSetStatus() —— 那支是在 parseCode **之後**才被呼叫的，
-   放那裡會把剛解析出來的註解清掉。 */
+   🔴 **v4.13.0 起由 `wfgCodeApplyToWfg()` 寫入**（＝真的套用的那一刻），
+   不再由 parseCode 寫 —— 解析成功不等於套用，選擇框可以按取消。
+   清空點有兩個：`wfgCodeImport()` 的 onchange 最前面（每次匯入從零開始），
+   以及 `wfgCodeApplyToWfg()`（沒帶 timingNote 的型號一律清空）。
+   ⚠ 不能放在 `wfgCodeSetStatus()` —— 那支是在套用**之後**才被呼叫的，會把剛寫的清掉。 */
 var wfgCodeLastTimingNote = '';
 function wfgCodeSetStatus(fileName, cks) {
   wfgCodeLastFileName = fileName || '';
@@ -36181,6 +36207,84 @@ function wfgCodeImportFail(fname, reason) {
   wfgSetImportedFileName('tcon', '');
   alert(t('wfg.codeImportFail').replace('{f}', fname).replace('{r}', reason || '?'));
 }
+/* ══ v4.13.0：GPO Timing 選擇框 ═══════════════════════════════════════════════
+   Bruce 2026-08-23：「如果有東西，就應該跳出讓使用者選擇要用哪一個 timing 來匯入。」
+
+   **設計決定（都寫在這裡供覆核，不靜默決定）**
+     ・**形式**：沿用提醒卡片那一整套 CSS，不新增第三套視覺語言。
+     ・**選項**：第一項固定是 **CURRENT**，後面才是實際存在的候選（Normal／133%／200%）。
+       為什麼 CURRENT 也要當選項：它是**晶片實際在輸出**的那一組，而且它不一定等於任何一組
+       候選（楊雷那份的 CURRENT 就與 200% slot 差在 `reg_val`）。少了它，使用者就沒辦法
+       匯入「這顆現在真正在跑的 timing」——而那正是 v4.11.x 的行為。
+     ・**每項顯示 CK1~CK4 的 SP_LINE**：Bruce 本人就是用這個數字辨認哪組是哪組
+       （「200% 大概 700 多、Normal 大概 1400 多」），所以直接把辨識依據放在選項上。
+     ・**預設 ＝ CURRENT**，並在卡片上**明寫**它是「目前實際輸出」。
+       理由：① 那是這份 code 當下的真實狀態；② 使用者什麼都不改按確定，得到的結果
+       與 v4.11.1 相同，升版不會偷偷改變既有結果。
+     ・**取消 ＝ 取消整個匯入**，一個設定都不動（與其他拒絕路徑一致：清檔名、清 checksum）。
+       不採「取消就用 CURRENT」—— 那會讓「取消」變成另一種確定，違反字面意義。 */
+var _wfgTmgState = null;   // { fname, choices, pick, onDone }
+function wfgTmgRender() {
+  var box = document.getElementById('wfg-tmg-list');
+  if (!box || !_wfgTmgState) return;
+  var cs = _wfgTmgState.choices, html = '';
+  for (var i = 0; i < cs.length; i++) {
+    var c = cs[i];
+    var sel = (c.base === _wfgTmgState.pick);
+    var tone = (c.kind === 'current') ? 'tone-green' : 'tone-blue';
+    var note = (c.kind === 'current')
+      ? t('wfg.tmgCurrentNote')
+      : (t('wfg.tmgSlotNote').replace('{v}', String(c.val))
+         + (c.sameAsCurrent ? ('　' + t('wfg.tmgSameAsCurrent')) : ''));
+    html += '<label class="wfg-ack-item ' + tone + (sel ? ' done' : '') + '" style="cursor:pointer">'
+      + '<div class="wfg-ack-num">' + (i + 1) + '</div>'
+      + '<div class="wfg-ack-tx">'
+      + '<div class="wfg-ack-name">'
+      + '<input type="radio" name="wfg-tmg-pick" value="' + c.base + '"' + (sel ? ' checked' : '')
+      + ' onchange="wfgTmgSelect(' + c.base + ')" style="margin-right:7px;vertical-align:middle">'
+      + c.label + (c.kind === 'current' ? ('　' + t('wfg.tmgDefaultTag')) : '')
+      + '</div>'
+      + '<div class="wfg-ack-where">' + note + '　@0x' + c.base.toString(16).toUpperCase() + '</div>'
+      + '<div class="wfg-ack-now">CK1~CK4 SP_LINE = ' + (c.ckSp.join(' / ') || '-') + '</div>'
+      + '</div></label>';
+  }
+  box.innerHTML = html;
+}
+function wfgTmgSelect(base) {
+  if (!_wfgTmgState) return;
+  _wfgTmgState.pick = base | 0;
+  wfgTmgRender();
+}
+window.wfgTmgSelect = wfgTmgSelect;
+function wfgTmgShow(fname, choices, onDone) {
+  var m = document.getElementById('wfg-tmg-mask');
+  if (!m) { onDone(choices[0].base); return; }      // 大聲失敗不了就用 CURRENT，不擋住使用者
+  _wfgTmgState = { fname: fname, choices: choices, pick: choices[0].base, onDone: onDone };
+  var sub = document.getElementById('wfg-tmg-sub');
+  if (sub) sub.textContent = fname + ' — ' + t('wfg.tmgSub').replace('{n}', String(choices.length - 1));
+  wfgTmgRender();
+  m.classList.remove('hidden');
+}
+function wfgTmgClose() {
+  var m = document.getElementById('wfg-tmg-mask');
+  if (m) m.classList.add('hidden');
+}
+function wfgTmgConfirm() {
+  if (!_wfgTmgState) { wfgTmgClose(); return; }
+  var st = _wfgTmgState; _wfgTmgState = null;
+  wfgTmgClose();
+  st.onDone(st.pick);
+}
+function wfgTmgCancel() {
+  if (!_wfgTmgState) { wfgTmgClose(); return; }
+  var st = _wfgTmgState; _wfgTmgState = null;
+  wfgTmgClose();
+  st.onDone(null);                                   // null ＝ 取消整個匯入
+}
+window.wfgTmgConfirm = wfgTmgConfirm;
+window.wfgTmgCancel = wfgTmgCancel;
+window.wfgTmgShow = wfgTmgShow;
+
 window.wfgCodeImport = function() {
   var codec = wfgTconCodec();
   if (!codec) return;
@@ -36209,19 +36313,38 @@ window.wfgCodeImport = function() {
     if (pre) { wfgCodeImportFail(f.name, pre); return; }
     var reader = new FileReader();
     reader.onload = function(e) {
-      var res;
-      try { res = codec.parseCode(new Uint8Array(e.target.result), f.name); }
-      catch (err) { res = { ok: false, reason: String(err && err.message || err) }; }
-      if (!res || !res.ok) {
-        wfgCodeImportFail(f.name, (res && res.reason) || '?');
+      var bytes = new Uint8Array(e.target.result);
+      function parse(o) {
+        try { return codec.parseCode(bytes, f.name, o); }
+        catch (err) { return { ok: false, reason: String(err && err.message || err) }; }
+      }
+      function finish(res) {
+        wfgCodeApplyToWfg(res);
+        wfgCodeSetStatus(f.name, (typeof res.cks === 'number') ? res.cks : -1);
+        wfgSetImportedFileName('tcon', f.name);
+        /* v4.3.0：不再用 alert（Bruce：「非常醜陋且只有文字」）。 */
+        wfgAckShow(f.name, t('wfg.codeImportOk').replace('{f}', '').replace('{n}', String(res.applied))
+                   .replace('{d}', res.detail || '').trim());
+      }
+      var res = parse(null);
+      if (!res || !res.ok) { wfgCodeImportFail(f.name, (res && res.reason) || '?'); return; }
+      /* ══ v4.13.0：這份 code 有多組 GPO Timing ⇒ 讓使用者選 ═══════════════════
+         🔴 只有 codec 真的回傳候選才會走這條（＝ EM01 Flash 且 slot 存在）。
+         其餘型號、EEPROM、以及沒有 slot 的 Flash 檔連判斷都不會進來，流程完全不變。 */
+      if (res.timingChoices && res.timingChoices.length > 1) {
+        wfgTmgShow(f.name, res.timingChoices, function(base) {
+          if (base === null) {          // 取消 ＝ 取消整個匯入，一個設定都不動
+            wfgCodeSetStatus('', -1);
+            wfgSetImportedFileName('tcon', '');
+            return;
+          }
+          var r2 = parse({ gpoBase: base });
+          if (!r2 || !r2.ok) { wfgCodeImportFail(f.name, (r2 && r2.reason) || '?'); return; }
+          finish(r2);
+        });
         return;
       }
-      wfgCodeApplyToWfg(res);
-      wfgCodeSetStatus(f.name, (typeof res.cks === 'number') ? res.cks : -1);
-      wfgSetImportedFileName('tcon', f.name);
-      /* v4.3.0：不再用 alert（Bruce：「非常醜陋且只有文字」）。 */
-      wfgAckShow(f.name, t('wfg.codeImportOk').replace('{f}', '').replace('{n}', String(res.applied))
-                 .replace('{d}', res.detail || '').trim());
+      finish(res);
     };
     reader.readAsArrayBuffer(f);
   };
@@ -37020,15 +37143,15 @@ var WFG_EM01_LAYOUT = {
        slot1 0x35300 → reg_val 1080 ＝ 1440 ÷ 1.333  → 133%
        slot2 0x35600 → reg_val 1440 ＝ VRES 本身      → Normal
 
-   ── 為什麼不能沿用「flat image 就是 Normal」──────────────────────────────────
+   ── 為什麼不能假設「CURRENT 裡放的一定是 Normal」────────────────────────────
    🔴 **會錯，而且正是 Bruce 這一份 code 踩到的**：
    `..._(Initial00_DCLK416M_PinMuxOK_HSR100.200ok_...)_CKS_3CFBE9_20260821175154.bin`
-     flat @0x0500  ck1~ck4 sp ＝ 733/735/734/736  ← **200% 的 timing**
+     CURRENT @0x0500  ck1~ck4 sp ＝ 733/735/734/736  ← 當下實際輸出的是 **200%** 那一組
      slot0 @0x35000 reg_val 720   ck1~ck4 sp ＝ 733/735/734/736
      slot2 @0x35600 reg_val 1440  ck1~ck4 sp ＝ 1455/1459/1456/1460  ← Normal
    與 Bruce 的描述完全吻合（「200% 的 stop line 大概 700 多、Normal 大概 1400 多」）。
-   ⚠ 另外注意：**flat image 自己的 `reg_val` 是 1440**（Normal 的值），GPO 卻是 200% 的
-   —— 所以「看 flat 的 reg_val」也不能當判準，只有 **slot 的** reg_val 才是。
+   ⚠ 另外注意：**CURRENT 自己的 `reg_val` 是 1440**（Normal 的值），GPO 卻是 200% 那一組
+   —— 所以「看 CURRENT 的 reg_val」判不出它現在裝的是哪一模，只有 **slot 的** reg_val 能替候選貼標籤。
 
    ── 判定方式與依據（不是拿單一觀測當規則）────────────────────────────────────
    採用 **「reg_val 等於 sys 的 reg_tmg_vres 的那個 slot ＝ Normal」**。
@@ -37043,17 +37166,20 @@ var WFG_EM01_LAYOUT = {
    檔名交叉印證（獨立於位元組分析）：`HSR_3Mode` → 3 個 slot；`HSR100.200ok` → 2 個 slot
    （100% 與 200%）；`HSR100ok` 與 `PinMuxOK` → 1 個 slot。**數量與檔名一一對上。**
 
-   🔴 規則 A 與 B 目前**互相同意**，但我採 A 並拿 B 當交叉檢查：位置（B）只是慣例，
-   reg_val（A）才是內容自證。兩者不一致時**不切換、保留 flat 並警告** —— 不猜。 */
+   🔴 **v4.13.0 更正**：上面那段是在「那個位置應該要是 Normal」的錯誤前提下寫的。
+   Bruce 2026-08-23 給了正確模型：**那個位置的正式名稱是 CURRENT**，是晶片**實際輸出**
+   的 GPO timing；三個 slot 是**候選**，TCON 運行時由 MCU 決定把哪一組塞進 CURRENT。
+   ⇒ 「reg_val ＝ sys VRES 的 slot 就是 Normal」這條規則**仍然成立且仍在用**，
+      但它現在只負責**替候選貼標籤**（Normal／133%／200%），
+      **不再**用來決定要匯入哪一組 —— 那件事交給使用者選（見 `wfgTmgShow()`）。 */
 var WFG_EM01_MODE_SLOT_BASE = 0x35000;
 var WFG_EM01_MODE_SLOT_STRIDE = 0x300;
 var WFG_EM01_MODE_SLOT_COUNT = 3;
-var WFG_EM01_NORMAL_SLOT_HINT = 0x35600;   // 交叉檢查用（實測 5/5），不是判定依據
 function wfgEm01SlotHapVal(buf, s) {
   return { hap: buf[s] | ((buf[s + 1] & 0x3F) << 8),      // reg_hap 14 bit
            val: buf[s + 2] | ((buf[s + 3] & 0x1F) << 8) };  // reg_val 13 bit
 }
-/* 一個 slot 要通過與 flat image **同一組**結構檢查，才算數。
+/* 一個 slot 要通過與 CURRENT **同一組**結構檢查，才算數。
    多一條 `reg_hap`／`reg_val` 的合理性 —— 那是 slot 特有的自證欄位。 */
 function wfgEm01SlotValid(buf, s) {
   if (s + 0x202 > buf.length) return false;
@@ -37135,7 +37261,7 @@ function wfgEm01Sane(buf, L, sig, fr) {
   }
   return ne >= 1;
 }
-function wfgEm01ParseBin(rawBuf, fname) {
+function wfgEm01ParseBin(rawBuf, fname, opt) {
   /* 🔴 第一步走**共用層**：它負責「hex 先解碼 → 取實際內容長度 → 判 EEPROM／Flash」。
      EM01 的 importExts 只有 .bin，所以 hex 那段實際上一律直通；走同一支的理由是
      讓「大小判定的輸入是內容長度、不是 File.size」在程式碼上只有一條路徑（見該處註解）。 */
@@ -37150,27 +37276,37 @@ function wfgEm01ParseBin(rawBuf, fname) {
   if (!wfgEm01Sane(buf, L, sig, frame)) {
     return { ok: false, reason: t('wfg.codeErrNotThisModel').replace(/\{m\}/g, 'EM01 ' + L.key) };
   }
-  /* ══ v4.12.0：多模 GPO Timing —— 有 Normal 就一律用 Normal ═══════════════════
-     🔴 **只在 Flash 版找**（Bruce：三模只有 Flash EM01 才有；實測 10 個 EEPROM 檔
-     一個 slot 都沒有）。找不到 slot 就完全維持 v4.11.x 的行為 —— 全庫 56 個 Flash 檔
-     裡有 51 個屬於這一類，它們一個位元組都不會受影響。
-     🔴 `gpoBase1` 之後所有「GPO 相關」的讀取（含 rd_mode 與 FRM_NO）都改用它；
-     frame timing 仍然來自 `sys` bank（那是面板屬性，不隨模式走）。 */
+  /* ══ v4.13.0：CURRENT ＋ 三模候選 —— 由**使用者**決定要匯入哪一組 ═══════════
+     🔴 v4.12.0 的「一律採用 Normal」是**錯的**，本版改掉。更正後的模型（Bruce 2026-08-23）：
+
+       **CURRENT** ＝ `0x0500/0x0600`（Flash）或 `0x0457/0x0556`（EEPROM）
+                    ＝ EM01 **實際輸出**用的那一組 GPO timing。
+       **Normal / 133% / 200%** ＝ `0x35000 + k×0x300` 的三個**候選** slot（只有 Flash 有）。
+       TCON 運行時由 **MCU 決定把候選裡的哪一組塞進 CURRENT**。
+
+     ⇒ 所以 v4.11.x 讀 CURRENT 讀到 200% 的 stop line（733/735/734/736）**是正確的資料**，
+        那就是那份 code 當下實際在輸出的 timing。v4.12.0 把它換成 Normal 才是失真。
+
+     本版行為：先讀 CURRENT；Flash 再看三個 slot 有沒有東西；
+     有 → 回傳 `timingChoices` 讓匯入流程跳出選擇框；沒有 → 直接用 CURRENT，不打擾。
+     （全庫 56 個 Flash 檔有 51 個沒有 slot，那 51 個的流程順暢度完全不變。）
+
+     🔴 `gpoBase1` 之後所有「GPO 相關」的讀取（含 rd_mode 與 FRM_NO）都跟著它走；
+     frame timing 仍然來自 `sys` bank —— 那是面板屬性，不隨模式改變。 */
   var modes = { slots: [], normal: -1, why: 'none' };
-  var gpoBase1 = L.base1, gpoBase2 = L.base2, modeNote = '';
-  if (img.medium === 'flash') {
-    modes = wfgEm01FindModeSlots(buf, frame.vactive);
-    if (modes.normal >= 0) {
-      var nsig = wfgGpoDecodeAt(buf, modes.normal, modes.normal + 0x100);
-      /* 🔴 換來源之前先用**同一組**防呆檢查一次。Normal slot 看起來再合理，
-         也不能沒驗就拿去覆蓋使用者畫面 —— 驗不過就退回 flat 並講出來。 */
-      var nL = { base1: modes.normal, base2: modes.normal + 0x100, base3: L.base3, key: L.key };
-      if (nsig && wfgEm01Sane(buf, nL, nsig, frame)) {
-        gpoBase1 = nL.base1; gpoBase2 = nL.base2; sig = nsig;
-      } else {
-        modes.normal = -1; modes.why = 'normalSlotInsane';
-      }
+  var gpoBase1 = L.base1, gpoBase2 = L.base2;      // 預設就是 CURRENT
+  if (img.medium === 'flash') modes = wfgEm01FindModeSlots(buf, frame.vactive);
+  /* 呼叫端（選擇框）指定了要用哪一組 → **用同一組防呆驗過**才換來源，驗不過就明確失敗，
+     不會靜默退回 CURRENT 讓使用者以為選到了。 */
+  if (opt && isFinite(opt.gpoBase) && (opt.gpoBase | 0) !== L.base1) {
+    var nb = opt.gpoBase | 0;
+    var nsig = wfgGpoDecodeAt(buf, nb, nb + 0x100);
+    var nL = { base1: nb, base2: nb + 0x100, base3: L.base3, key: L.key };
+    if (!nsig || !wfgEm01Sane(buf, nL, nsig, frame)) {
+      return { ok: false, reason: t('wfg.codeErrTimingSlot')
+                 .replace('{a}', '0x' + nb.toString(16).toUpperCase()) };
     }
+    gpoBase1 = nb; gpoBase2 = nb + 0x100; sig = nsig;
   }
   var _rdMode = ((buf[gpoBase1 + 0x04] >> 6) & 3);
   var gateType = (_rdMode === 0) ? 'single' : (_rdMode === 1) ? 'dual' : null;
@@ -37196,49 +37332,73 @@ function wfgEm01ParseBin(rawBuf, fname) {
      是對檔案算的，拿映像去算 hex 來源就對不上。bin 兩者相同。 */
   var cks = 0; for (var b = 0; b < rawBuf.length; b++) cks += rawBuf[b];
   cks = cks >>> 0;
+  var _isCur = (gpoBase1 === L.base1);
   var det = 'EM01 ' + L.key + ' (' + buf.length + ' B' + (img.srcFormat === 'hex' ? ', from .hex' : '') + ')';
-  det += ' / GPO @0x' + gpoBase1.toString(16).toUpperCase() + '/0x' + gpoBase2.toString(16).toUpperCase();
+  det += ' / GPO ' + (_isCur ? 'CURRENT' : 'SLOT') + ' @0x' + gpoBase1.toString(16).toUpperCase()
+         + '/0x' + gpoBase2.toString(16).toUpperCase();
   det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
   det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
   det += ' / FRM_NO ' + frmNo.f0 + '/' + frmNo.f1 + '/' + frmNo.f2;
   det += ' / EN ' + nEn + '/18';
-  /* ── v4.12.0：多模資訊一律講出來（即使只有一模，也讓使用者看得到「就只有一模」）── */
-  var modeLabel = '';
+  /* ── v4.13.0：候選清單 ────────────────────────────────────────────────────
+     `timingChoices` 給選擇框用。第一項固定是 **CURRENT**（實際輸出、也是預設），
+     後面才是三模候選。**只有在呼叫端沒指定 gpoBase 時才回傳** ——
+     第二次（使用者已經選好）呼叫進來就不該再跳一次框。 */
+  function _ckSp(b1) {
+    var s = wfgGpoDecodeAt(buf, b1, b1 + 0x100);
+    return s ? [s[4].sp_line, s[5].sp_line, s[6].sp_line, s[7].sp_line] : [];
+  }
+  function _sameAsCurrent(b1) {
+    if (b1 === L.base1) return true;
+    for (var q = 0; q < 0xCC; q++) if (buf[L.base1 + q] !== buf[b1 + q]) return false;
+    for (var w = 0; w < 0x100; w++) if (buf[L.base2 + w] !== buf[b1 + 0x100 + w]) return false;
+    return true;
+  }
+  var choices = null;
   if (modes.slots.length) {
-    var parts = [];
+    choices = [{ base: L.base1, kind: 'current', label: 'CURRENT', val: -1,
+                 ckSp: _ckSp(L.base1), sameAsCurrent: true }];
     for (var mi = 0; mi < modes.slots.length; mi++) {
       var sl = modes.slots[mi];
       var pct = sl.ratio > 0 ? Math.round(sl.ratio * 100) : 0;
-      parts.push((pct === 100 ? 'Normal' : (pct + '%')) + '(VAL ' + sl.val +
-                 ' @0x' + sl.base.toString(16).toUpperCase() + ')' +
-                 (sl.base === modes.normal ? ' ←' : ''));
+      choices.push({ base: sl.base, kind: 'slot', val: sl.val,
+                     label: (pct === 100 ? 'Normal' : (pct + '%')),
+                     ckSp: _ckSp(sl.base), sameAsCurrent: _sameAsCurrent(sl.base) });
     }
-    modeLabel = parts.join(', ');
-    if (modes.normal >= 0) {
-      det += '\n' + t('wfg.codeEm01Modes').replace('{n}', String(modes.slots.length))
-                     .replace('{s}', modeLabel);
-      if (modes.normal !== WFG_EM01_NORMAL_SLOT_HINT) {
-        det += '\n' + t('wfg.codeEm01ModeSlotOdd')
-                        .replace('{a}', '0x' + modes.normal.toString(16).toUpperCase())
-                        .replace('{b}', '0x' + WFG_EM01_NORMAL_SLOT_HINT.toString(16).toUpperCase());
-      }
-    } else {
-      det += '\n' + t('wfg.codeEm01ModeAmbiguous').replace('{n}', String(modes.slots.length))
-                     .replace('{s}', modeLabel).replace('{v}', String(frame.vactive));
+    var parts = [];
+    for (var pi = 0; pi < choices.length; pi++) {
+      var ch = choices[pi];
+      parts.push(ch.label + (ch.val > 0 ? '(VAL ' + ch.val + ')' : '') +
+                 (ch.base === gpoBase1 ? ' ←' : ''));
     }
+    det += '\n' + t('wfg.codeEm01Modes').replace('{n}', String(modes.slots.length))
+                   .replace('{s}', parts.join(', '));
   }
   if (!gateType) det += '\n' + t('wfg.codeTriGate').replace('{v}', String(_rdMode));
   if (nEn < 4) det += '\n' + t('wfg.codeEm01FewEnabled').replace('{n}', String(nEn));
   if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
   if (dlyOver.length) det += '\n' + t('wfg.codeDlyOver').replace('{s}', dlyOver.join(', ')).replace('{h}', String(ht));
-  /* 匯出的 .script 要能追溯「這組值是從哪一模來的」。純 ASCII（.script 只吃 ASCII）。 */
-  wfgCodeLastTimingNote = (modes.normal >= 0)
-    ? ('Normal timing slot @0x' + modes.normal.toString(16).toUpperCase() +
-       ' of ' + modes.slots.length + ' mode slot(s)')
-    : (modes.slots.length ? ('flat image (mode slots found but Normal not identified)') : '');
+  /* 匯出的 .script 要能追溯「畫面上這組值是從哪裡讀來的」。純 ASCII（.script 只吃 ASCII）。
+     🔴 註解記的是**來源**，不是去向 —— 匯出一律寫回 CURRENT 的 regAddr（見 WFG_GPO_REGMAP_EM01）。
+
+     🔴 **只回傳字串，不在這裡寫進全域** —— 由 `wfgCodeApplyToWfg()`（真正套用的那一刻）寫。
+     實測抓到的 bug：解析成功但使用者在選擇框按「取消匯入」時，畫面一個值都沒變，
+     全域註解卻已經被改掉，下一次匯出就會帶著一則屬於「那份沒有匯入的 code」的來源說明。
+     解析 ≠ 套用，只有套用了才有資格描述畫面。 */
+  var timingNote = '';
+  if (modes.slots.length) {
+    var _srcLbl = 'CURRENT';
+    for (var ci = 0; ci < (choices || []).length; ci++) {
+      if (choices[ci].base === gpoBase1) { _srcLbl = choices[ci].label; break; }
+    }
+    timingNote = 'read from ' + _srcLbl + ' @0x' + gpoBase1.toString(16).toUpperCase() +
+                 ' (' + modes.slots.length + ' mode slot(s) present); written back to CURRENT';
+  }
   return { ok: true, signals: sig, frame: frame, base1: gpoBase1, cks: cks,
            gateType: gateType, frmNo: frmNo, applied: 18, detail: det, em01Layout: L.key,
-           modeSlots: modes.slots.length, modeNormal: modes.normal };
+           modeSlots: modes.slots.length, gpoBase: gpoBase1, currentBase: L.base1,
+           timingNote: timingNote,
+           timingChoices: (opt && isFinite(opt.gpoBase)) ? null : choices };
 }
 window.wfgEm01ParseBin = wfgEm01ParseBin;
 /* 匯出：regAddr 與 EM02 逐項相同（見上方 ②），所以只是換一張 label 不同的表。
@@ -37260,6 +37420,10 @@ window.wfgEm01BuildScript = wfgEm01BuildScript;
 /* ── 型號無關：把解析結果套進 WFG ───────────────────────────────────────── */
 function wfgCodeApplyToWfg(res) {
   wfgInvalidateCache();
+  /* v4.13.0：匯出用的「來源」註解在**這一刻**才成立 —— 解析成功不等於套用
+     （選擇框可以取消）。沒帶 `timingNote` 的型號一律清成空字串，
+     所以 EM02／E512 的匯出內容不會沾到上一份 EM01 檔的註解。 */
+  wfgCodeLastTimingNote = res.timingNote || '';
   /* ══ v4.1.1：先把「數位信號」卡片的 TCON 型態切成這個型號該有的 ══════════════
      v4.1.1 的原始理由（保留供追溯）：那時要在寫入 GPO 數值前先切型態，因為切換會夾值。 */
   /* v4.7.0：這裡原本呼叫 `wfgSetTconType(_codec.tconClass)`。型態已改為即時查表
