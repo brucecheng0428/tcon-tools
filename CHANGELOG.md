@@ -92,6 +92,25 @@ WFG 只有主值這一份，匯出的 script 也只寫主值 ⇒ 使用者改過
 含 MCU 韌體的 Flash code 只有 3/18 條 GPO enable —— Bruce 2026-08-23 確認「那個是開機之後，MCU 才會去開啟 enable 的」。
 ⇒ v4.11.0 的推測**被證實**，這是正常現象。UI 維持只陳述事實（`EN n/18`），**不當異常警告**，本版沒有為此改任何東西。
 
+### 更正紀錄（措辭，2026-08-23；不進版，依 `docs/VERSIONING.md` §3「只改註解／CHANGELOG」）
+
+**我把推測寫成了斷言。** v4.11.0 與 v4.12.0 都寫了「bank 之間夾 2 bytes **CRC**」，
+那是從 E512 的 `Mapping Layout_20240118.xlsx` 有 `crc 2` 欄位**類推**過來的。查證結果：
+
+- EM01 的 `bank_offset` 分頁欄位共 15 欄，**沒有任何 CRC 欄位**（逐欄列出確認）。
+- 那 2 bytes 確實**隨檔案內容變動**：10 個 EEPROM 檔在 `0x0656` 出現 4 種不同值；
+  3Mode 檔三個 slot 的 `+0x200` 分別是 `34BF` / `C691` / `EEDD`。⇒ 符合校驗值的特徵。
+- 但**演算法未驗證**（沒有規格、也算不出來），所以一律改稱「2 bytes 校驗值」，不宣稱是 CRC。
+
+不影響任何行為：WFG 從頭到尾**沒有讀也沒有寫**這 2 bytes。
+（E512 那一段的「CRC」措辭**保留** —— 它的來源 `Mapping Layout` 表上明寫 `crc 2`，有實據。）
+
+### EEPROM 與 Flash 的 register 相對位置是否相同（Bruce 2026-08-23 追問）
+
+**答案：(a) 內部相對位置完全相同**，只有區塊起點不同。證明方式與證據見下一節條目說明；
+現行程式碼本來就**共用同一支** `wfgGpoDecodeAt(buf, base1, base2)`，三種情境只是傳不同的 base：
+EEPROM `(0x0457, 0x0556)`、Flash flat `(0x0500, 0x0600)`、Flash mode slot `(slot, slot+0x100)`。
+
 ---
 
 ## TCON 波形模擬與取樣 (wfg) v4.12.0 — 2026-08-23 ｜ MINOR ｜ ⚠ 輸出變更
@@ -128,7 +147,7 @@ R1（回到規格該有的行為，輸出會變）→ PATCH ＋ `⚠ 輸出變�
 slot k 起點 = 0x35000 + k × 0x300     (k = 0,1,2)
    +0x000  rt8_tcon_1（0xCC bytes，與 regAddr 0x0500 那份同格式）
    +0x100  rt8_tcon_2（0x100 bytes）
-   +0x200  2 bytes CRC（與 EEPROM 各 bank 之間夾 CRC 同一條規則）
+   +0x200  2 bytes 校驗值（措辭於 2026-08-23 更正，原寫「CRC」，見 v4.12.1 的更正紀錄）
 ```
 
 每個 slot 的 `reg_hap`／`reg_val`（rt8_tcon_1 rel 0x00／0x02）就是**那一模的有效區**，slot 自己會說自己是哪一模：
@@ -296,7 +315,7 @@ R2：**不是新的一波** —— 沒有任何既有操作失效，是在 v4.x 
 
 | 版本 | 判定（依**實際內容長度**） | rt8_tcon_1 | rt8_tcon_2 | rt8_tcon_3 | 依據 |
 |---|---|---|---|---|---|
-| EEPROM | ≤ 8192 B | **0x0457** | **0x0556** | **0x0658** | Excel `bank_offset` 的「EEPROM Low Address」欄；各 bank 緊密打包、之間夾 2 bytes CRC |
+| EEPROM | ≤ 8192 B | **0x0457** | **0x0556** | **0x0658** | Excel `bank_offset` 的「EEPROM Low Address」欄；各 bank 緊密打包、之間夾 2 bytes 校驗值（措辭於 2026-08-23 更正，原寫「CRC」，見 v4.12.1 的更正紀錄） |
 | Flash | ≥ 131072 B | **0x0500** | **0x0600** | **0x0700** | 平坦映像：fileOff ＝ regAddr |
 
 兩者的**內容格式相同**，差的只有 chunk 起點。自我驗證：EEPROM 的 `0x0556 + 0x100 + 2 = 0x0658` 與表上 rt8_tcon_3 的位址完全吻合。

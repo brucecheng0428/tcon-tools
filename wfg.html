@@ -36970,8 +36970,14 @@ window.wfgCodeSizePreflight = wfgCodeSizePreflight;
      | Flash  | 內容 ≥ 131072 B| 0x0500    | 0x0600    | 0x0700    | 平坦映像：fileOff ＝ regAddr |
 
    兩者的**內容格式相同**（同樣的 chunk 內排法），差的只有 chunk 在檔案裡的起點：
-   EEPROM 是「各 bank 緊密打包、bank 之間夾 2 bytes CRC」（0x0556＋0x100＋2 ＝ 0x0658
+   EEPROM 是「各 bank 緊密打包、bank 之間夾 **2 bytes 校驗值**」（0x0556＋0x100＋2 ＝ 0x0658
    對得剛剛好，這一條自我驗證了整張表）；Flash 則是把暫存器位址直接當檔案位移。
+
+   ⚠ **措辭更正（2026-08-23）**：這裡原本寫「2 bytes CRC」，那是從 E512 的
+   `Mapping Layout` 有 `crc 2` 欄位**類推**過來的，屬於把推測寫成斷言。查證結果：
+   EM01 的 `bank_offset` **沒有任何 CRC 欄位**；那 2 bytes 確實**隨檔案內容變動**
+   （10 個 EEPROM 檔出現 4 種不同值），符合校驗值的特徵，但**演算法未驗證**，
+   所以只稱「校驗值」，不宣稱是 CRC。這不影響解析 —— WFG 沒有讀也沒有寫這 2 bytes。
 
    實測（`TCON/Model` 全庫掃描，非抽樣）：
      ・EM01 檔 **77**（EEPROM 10 ＋ Flash 67）→ 以上規則 **77/77 全部通過**
@@ -37005,7 +37011,9 @@ var WFG_EM01_LAYOUT = {
        slot k 的起點 ＝ 0x35000 + k × 0x300   （k = 0,1,2）
          +0x000  rt8_tcon_1（0xCC bytes，與 regAddr 0x0500 那份同格式）
          +0x100  rt8_tcon_2（0x100 bytes）
-         +0x200  2 bytes CRC（與 EEPROM 各 bank 之間夾 CRC 是同一條規則）
+         +0x200  2 bytes 校驗值（位置與 EEPROM 各 bank 之間那 2 bytes 一致；
+                 三個 slot 各不相同 —— 34BF / C691 / EEDD —— 符合校驗值的特徵，
+                 但**演算法未驗證，不宣稱是 CRC**。WFG 沒有讀也沒有寫它。）
    每個 slot 的 `reg_hap`／`reg_val`（rt8_tcon_1 rel 0x00／0x02）就是**那一模的有效區**，
    所以 slot 自己會說自己是哪一模：
        slot0 0x35000 → reg_val 720  ＝ 1440 ÷ 2      → 200%
