@@ -1031,6 +1031,11 @@
   .wfg-field select { width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px; color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 6px; outline: none; }
   .wfg-field input[type="checkbox"] { accent-color: #f97316; }
   .wfg-field input:focus, .wfg-field select:focus { border-color: #f97316; }
+  /* v4.15.0：NB 機種的 COMBO 對象是硬體固定的，這一格是唯讀顯示、不是輸入框。
+     刻意做成「看得出來不能點」：虛線框 ＋ 灰底 ＋ default 游標。 */
+  .wfg-combo-fixed { width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
+    color: #cbd5e1; background: #16203a; border: 1px dashed #475569; border-radius: 6px;
+    cursor: default; user-select: none; }
   .wfg-field-row { display: flex; gap: 8px; }
   .wfg-field-row .wfg-field { flex: 1; }
   .wfg-radio-group { display: flex; gap: 6px; }
@@ -2370,8 +2375,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4140"></script>
-<script src="common/i18n.js?v=20260823wfg4140"></script>
+<script src="common/version.js?v=20260823wfg4150"></script>
+<script src="common/i18n.js?v=20260823wfg4150"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -18231,10 +18236,16 @@ function wfgUpdateKvdatToolbarVisibility() {
 //   ② wfgDrawPhCntRow（R_PH_CNT / bit 顯示列）
 //   ③ wfgPhCntIsTriggerLine / wfgFindPhCntTriggerBefore（cursor 的 R_DLY 起算條）
 function wfgToggleMaskBits() {
-  /* v4.7.0：型態不再是獨立狀態，改由目前機種的**類別規格表**查得
-     （見 `WFG_TCON_CLASS_SPEC` 與 `wfgTconClass` 的說明）。
-     那幾支定義在檔案後段，函式宣告有 hoisting，執行期一定拿得到。 */
-  return (typeof wfgTconSpec === 'function') ? wfgTconSpec().maskBits : 0x1FF;
+  /* v4.7.0：型態不再是獨立狀態，改由目前機種查表得到。
+     v4.15.0：來源從**類別**（`WFG_TCON_CLASS_SPEC.maskBits`）降到**型號**
+     （`WFG_TCON_CODECS[].gpoBits.act_type`）。
+
+     🔴 這裡取的是 `act_type` 的上限，不是隨便挑一個欄位 —— toggle counter 的溢位點
+     與 ACT_TYPE 是**同一個硬體暫存器的寬度**（`cnt(n+1) = (cnt===ACT_TYPE) ? 0 : (cnt+1) & mask`，
+     見本函式上方的演算法說明）。兩者必須永遠相等，所以共用同一格，不另存一份。
+
+     那幾支定義在檔案後段，函式宣告有 hoisting、`var` 的值在執行期也已備妥。 */
+  return (typeof wfgGpoMax === 'function') ? wfgGpoMax('act_type') : 0x1FF;
 }
 // 從 ST_LINE 起算連續 len 條的 counter 值序列（index 0 = ST_LINE 那條）
 var _wfgToggleSeqCache = Object.create(null);
@@ -26897,13 +26908,21 @@ function wfgOnGpioChange(gpioIdx, field, value) {
     wfgRenderGpioList();
     if (typeof wfgRenderChannelList === 'function') wfgRenderChannelList();
   } else {
-    gpio[field] = parseInt(value) || 0;
-    // v2.97.481: ACT_TYPE / R_PH / F_PH 一律夾在 TCON 型態的位元寬內（含手打數字）
-    if (field === 'act_type' || field === 'r_ph' || field === 'f_ph') {
-      var _lim = wfgTconTypeMax();
-      if (gpio[field] > _lim) gpio[field] = _lim;
-      if (gpio[field] < 0) gpio[field] = 0;
+    var _nv = parseInt(value);
+    if (!isFinite(_nv)) _nv = 0;
+    /* v2.97.481：ACT_TYPE / R_PH / F_PH 夾在位元寬內（含手打數字）。
+       🔴 v4.15.0：改成 `WFG_GPO_RANGE_FIELDS` 全部七個欄位，**各用自己的上限**
+       （原本三個共用一個 `wfgTconTypeMax()`，而 ST_LINE/SP_LINE/R_DLY/F_DLY 根本沒被管）。
+
+       這裡是**程式化路徑的最後防線**（preset 載入、匯入套用、驗收腳本直接呼叫）。
+       使用者手動輸入不會走到這裡的夾值 —— UI 層的 `wfgGpoRangeGuard()` 會先擋下並還原，
+       理由見那一支的說明（Bruce：不可鎖死、不可靜默夾值）。 */
+    var _lim = (WFG_GPO_RANGE_FIELDS.indexOf(field) >= 0) ? wfgGpoMax(field) : 0;
+    if (_lim > 0) {
+      if (_nv > _lim) _nv = _lim;
+      if (_nv < 0) _nv = 0;
     }
+    gpio[field] = _nv;
   }
   if (field === 'enable' || field === 'toggle') wfgRenderGpioList();
   if (isStructural) {
@@ -26996,6 +27015,11 @@ function wfgApplyXpolPreset(gpioIdx, actType, rPh, fPh) {
   // Line window follows the preset (ACT_TYPE===0 is the Column preset, all others are dot modes):
   //   dot modes  → ST_LINE=0, SP_LINE=16383 so the pattern covers the whole frame
   //   Column     → ST_LINE=0, SP_LINE=0 (frame-level toggle only needs the frame start line)
+  /* 🔴 v4.15.0：這個 `16383` **不可以**改成 `wfgGpoMax('sp_line')`。
+     它不是「欄位上限」，是原廠定義的 **non-stop 哨兵值 `0x3FFF`** —— 三顆 NB 的 `.model`
+     都寫 `(3FFFh = non stop)`，包含 ST_LINE／SP_LINE 為 **16 bit** 的 EN01。
+     換成查表後 EN01 會寫進 65535，那只是一個很大的行號，不是 non-stop，
+     全檔各處的 `sp_line !== 16383` 判斷也會全部失準。 */
   gpio.st_line = 0;
   gpio.sp_line = (actType > 0) ? 16383 : 0;
   wfgRenderGpioList();
@@ -27006,8 +27030,66 @@ function wfgApplyXpolPreset(gpioIdx, actType, rPh, fPh) {
 window.wfgApplyXpolPreset = wfgApplyXpolPreset;
 
 // Slider ↔ Number sync helpers
+/* ══ v4.15.0：數位訊號欄位的輸入守衛 ═══════════════════════════════════════
+   Bruce 2026-08-23：「切換機種時若當前值超出新上限，必須留退路：不可鎖死、
+   不可靜默夾值，要有明確提示並讓使用者能調回合法範圍。」
+
+   沿用 DCLK 那一輪建立的 `wfgBlockIfWorse()`／`wfgBlockIfWorseLow()`，**不另造一套**：
+   只擋「**超界且比原值更大**」，往合法方向一律放行。所以即使目前值本身超界
+   （preset 帶進來的舊值、或某條路徑漏夾），使用者永遠調得回來 —— 這就是「退路」。
+
+   🔴 被擋下時**兩格都要還原**：滑桿與數字框是互相鏡射的（`wfgSliderSync`／`wfgNumSync`
+   會把值抄給對方），只還原被打的那一格，另一格會停在被拒的值 ——
+   「訊息說已保留原值、畫面卻顯示被拒的值」比靜默夾值更糟（v4.5.x 踩過）。
+   還原路徑**不套 activeElement 守衛**：正在打字的那一格才是最需要被還原的那一格。
+
+   回傳 true ＝ 已擋下（呼叫端不要再往下走）。 */
+function wfgGpoRangeGuard(rowEl, gpioIdx, field, next) {
+  if (WFG_GPO_RANGE_FIELDS.indexOf(field) < 0) return false;
+  var g = wfgGpios[gpioIdx];
+  if (!g) return false;
+  var lim = wfgGpoMax(field);
+  var prev = g[field] | 0;
+  var nv = parseInt(next);
+  if (!isFinite(nv)) nv = 0;
+  if (!(lim > 0)) return false;
+  if (!wfgBlockIfWorse(nv, prev, lim) && !wfgBlockIfWorseLow(nv, prev, 0)) return false;
+  // ① 兩格都寫回目前真值
+  var rEl = rowEl && rowEl.querySelector('input[type="range"]');
+  var nEl = rowEl && rowEl.querySelector('input[type="number"]');
+  if (rEl) rEl.value = prev;
+  if (nEl) nEl.value = prev;
+  // ② 在該欄位的 label 上顯示明確訊息（label 本來就寫著上限，訊息出現在同一個位置）
+  wfgGpoFlashRangeMsg(rowEl, field, nv, lim, prev);
+  return true;
+}
+var _wfgGpoMsgTimer = null;
+function wfgGpoFlashRangeMsg(rowEl, field, tried, lim, kept) {
+  var fld = rowEl && rowEl.closest('.wfg-field');
+  var lab = fld && fld.querySelector('label');
+  if (!lab) return;
+  if (lab.getAttribute('data-wfg-orig') === null) lab.setAttribute('data-wfg-orig', lab.innerHTML);
+  lab.innerHTML = '<span style="color:#f87171">'
+    + t('wfg.gpoRangeBlocked')
+        .replace('{f}', field.toUpperCase())
+        .replace('{v}', String(tried))
+        .replace('{max}', String(lim))
+        .replace('{keep}', String(kept))
+    + '</span>';
+  if (_wfgGpoMsgTimer) clearTimeout(_wfgGpoMsgTimer);
+  _wfgGpoMsgTimer = setTimeout(function () {
+    /* 清單可能已經被 `wfgRenderGpioList()` 整個重建 —— 那時這個節點已不在文件上，
+       還原沒有意義也做不到，靜靜略過即可（不是錯誤）。 */
+    if (!lab.isConnected) return;
+    var o = lab.getAttribute('data-wfg-orig');
+    if (o !== null) { lab.innerHTML = o; lab.removeAttribute('data-wfg-orig'); }
+  }, 4000);
+}
+window.wfgGpoRangeGuard = wfgGpoRangeGuard;
+
 function wfgSliderSync(rangeEl, gpioIdx, field) {
   var row = rangeEl.closest('.wfg-slider-row');
+  if (wfgGpoRangeGuard(row, gpioIdx, field, rangeEl.value)) return;
   var numEl = row.querySelector('input[type="number"]');
   if (numEl) numEl.value = rangeEl.value;
   wfgOnGpioChange(gpioIdx, field, rangeEl.value);
@@ -27016,6 +27098,7 @@ window.wfgSliderSync = wfgSliderSync;
 
 function wfgNumSync(numEl, gpioIdx, field) {
   var row = numEl.closest('.wfg-slider-row');
+  if (wfgGpoRangeGuard(row, gpioIdx, field, numEl.value)) return;
   var rangeEl = row.querySelector('input[type="range"]');
   if (rangeEl) rangeEl.value = numEl.value;
   wfgOnGpioChange(gpioIdx, field, numEl.value);
@@ -28703,24 +28786,50 @@ function wfgTconClass() {
 window.wfgTconClass = wfgTconClass;
 function wfgTconTypeMax() { return wfgToggleMaskBits(); }
 window.wfgTconTypeMax = wfgTconTypeMax;
-/* 換機種可能讓位元寬變窄（MNT 9bit → NB 6bit），既有的 ACT_TYPE / R_PH / F_PH
-   要夾回上限。**夾（clamp）不是截斷（& 0x3F）** —— 沿用 v2.97.481 的既有行為。
-   由 `wfgCodeOnTconChange()` 呼叫；回傳有沒有真的改到值，讓呼叫端決定要不要重繪。 */
-function wfgClampGpioToTconClass() {
-  var lim = wfgTconTypeMax();
-  var fields = ['act_type', 'r_ph', 'f_ph'];
-  var changed = false;
+/* 換機種可能讓某個欄位的位元寬變窄（例如 MNT 9bit → NB 6bit 的 ACT_TYPE，
+   或 EN01 16bit → E503 14bit 的 ST_LINE），既有的值要夾回上限。
+   **夾（clamp）不是截斷（& mask）** —— 沿用 v2.97.481 的既有行為。
+
+   🔴 v4.15.0 兩個改動：
+   ① 從只夾 `act_type/r_ph/f_ph` 三個，改成夾 `WFG_GPO_RANGE_FIELDS` 全部七個，
+      每一個用**自己的**上限（原本三個共用一個 `wfgTconTypeMax()`）。
+   ② **回傳被夾的明細，不再只回傳 true/false。** Bruce 2026-08-23：
+      「切換機種時若當前值超出新上限，必須留退路：不可鎖死、不可靜默夾值，
+        要有明確提示並讓使用者能調回合法範圍。」
+      靜默夾值正是這一版要修掉的行為 —— 呼叫端拿到明細後負責告訴使用者。 */
+function wfgClampGpiosToModel() {
+  var hits = [], changed = false;
   for (var gi = 0; gi < wfgGpios.length; gi++) {
     var g = wfgGpios[gi];
     if (!g || g.waveform_type !== 0) continue;   // 只夾數位信號
-    for (var fi = 0; fi < fields.length; fi++) {
-      var v = g[fields[fi]] | 0;
-      if (v > lim) { g[fields[fi]] = lim; changed = true; }
-      else if (v < 0) { g[fields[fi]] = 0; changed = true; }
+    /* 🔴 v4.15.0：NB 的 COMBO 對象是硬體固定的 —— 從 MNT 切過來時，使用者原本自由指派的
+       `oax_sel` 在這顆晶片上根本做不到，要改成該訊號唯一合法的對象。
+       這同樣是「值被我們改動了」，所以一併記進 `hits`，由呼叫端一起告訴使用者。 */
+    var _fixIdx = wfgComboSrcIdx(gi);
+    if (wfgComboSrcName(gi) && _fixIdx >= 0 && (g.oax_sel | 0) !== _fixIdx) {
+      hits.push({ sig: (WFG_GPIO_NAMES[gi] || String(gi)).toUpperCase(), field: 'OAX_SEL',
+                  from: (WFG_GPIO_NAMES[g.oax_sel | 0] || String(g.oax_sel)).toUpperCase(),
+                  to: (WFG_GPIO_NAMES[_fixIdx] || String(_fixIdx)).toUpperCase() });
+      g.oax_sel = _fixIdx; changed = true;
+    }
+    for (var fi = 0; fi < WFG_GPO_RANGE_FIELDS.length; fi++) {
+      var f = WFG_GPO_RANGE_FIELDS[fi];
+      var lim = wfgGpoMax(f);
+      var v = g[f] | 0;
+      if (lim > 0 && v > lim) {
+        hits.push({ sig: (WFG_GPIO_NAMES[gi] || String(gi)).toUpperCase(), field: f.toUpperCase(), from: v, to: lim });
+        g[f] = lim; changed = true;
+      } else if (v < 0) {
+        hits.push({ sig: (WFG_GPIO_NAMES[gi] || String(gi)).toUpperCase(), field: f.toUpperCase(), from: v, to: 0 });
+        g[f] = 0; changed = true;
+      }
     }
   }
-  return changed;
+  return { changed: changed, hits: hits };
 }
+/* 舊名保留：preset 載入那條路徑只在意「有沒有改到值」，而且驗收腳本用的是這個名字。 */
+function wfgClampGpioToTconClass() { return wfgClampGpiosToModel().changed; }
+window.wfgClampGpiosToModel = wfgClampGpiosToModel;
 window.wfgClampGpioToTconClass = wfgClampGpioToTconClass;
 
 // ─── GPIO List UI ───
@@ -28821,25 +28930,33 @@ function wfgRenderGpioList(focusIdx) {
       + wfgSliderHtml(i, 'f_ph', 0, _phMax, g.f_ph)
       + '</div></div></div>';
 
+    /* Row 2/3：st_line、sp_line、r_dly、f_dly
+       🔴 v4.15.0：上限改為**逐欄位查目前機種**。這四個原本是硬編的 `16383`／`65535`，
+       六顆型號一律相同 —— 而 EN01 的 ST_LINE／SP_LINE 是 16 bit，超過 16383 的合法值
+       會被輸入框擋掉或夾掉，而且使用者看不出來（Bruce 2026-08-23 抓到的缺陷）。 */
+    var _stMax = wfgGpoMax('st_line');
+    var _spMax = wfgGpoMax('sp_line');
+    var _rdMax = wfgGpoMax('r_dly');
+    var _fdMax = wfgGpoMax('f_dly');
     // Row 2: st_line, sp_line (each with slider + ±buttons)
     html += '<div class="wfg-gpio-grid-2">'
-      + '<div class="wfg-field"><label>ST_LINE (0~16383)</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'st_line', 0, 16383, g.st_line)
+      + '<div class="wfg-field"><label>ST_LINE (0~' + _stMax + ')</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'st_line', 0, _stMax, g.st_line)
       + '</div></div>'
-      + '<div class="wfg-field"><label>SP_LINE (0~16383)</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'sp_line', 0, 16383, g.sp_line)
+      + '<div class="wfg-field"><label>SP_LINE (0~' + _spMax + ')</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'sp_line', 0, _spMax, g.sp_line)
       + '</div></div></div>';
 
     // Row 3: r_dly, f_dly (each with slider + ±buttons)
     html += '<div class="wfg-gpio-grid-2">'
-      + '<div class="wfg-field"><label>R_DLY (0~65535)</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'r_dly', 0, 65535, g.r_dly)
+      + '<div class="wfg-field"><label>R_DLY (0~' + _rdMax + ')</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'r_dly', 0, _rdMax, g.r_dly)
       + '</div></div>'
       // v2.97.480: Toggle 模式沒有 F_DLY（兩個方向的轉態都用 R_DLY），標示為未使用
       + '<div class="wfg-field"><label>' + (g.toggle
           ? 'F_DLY <span style="color:#94a3b8">(Toggle 模式不使用)</span>'
-          : 'F_DLY (0~65535)') + '</label><div class="wfg-slider-row">'
-      + wfgSliderHtml(i, 'f_dly', 0, 65535, g.f_dly)
+          : 'F_DLY (0~' + _fdMax + ')') + '</label><div class="wfg-slider-row">'
+      + wfgSliderHtml(i, 'f_dly', 0, _fdMax, g.f_dly)
       + '</div></div></div>';
 
     // Row 4: ini_val, toggle checkbox, tg_ini_val (conditional)
@@ -28891,20 +29008,40 @@ function wfgRenderGpioList(focusIdx) {
       + '<label><input type="checkbox"' + (g.inv ? ' checked' : '') + ' onchange="wfgOnGpioChange(' + i + ',\'inv\',this.checked)"> INV</label>'
       + '</div>';
 
-    // Row 6: oax_mode, oax_sel
+    /* Row 6: oax_mode, oax_sel
+       🔴 v4.15.0：NB 的 COMBO **對象是硬體固定的，不能任選**（Bruce 2026-08-23）。
+       所以 `OAX_SEL` 在 NB 機種下不給選單，改成唯讀顯示那一條固定對象。
+       `OAX_MODE` 兩邊都是選單（0 無／1 OR／2 AND／3 XOR），NB 這一格對應的就是
+       `ENG_COMB_MODE`（chunk 內 `+1[7:6]`）—— 換句話說，選單改了就是改那兩個 bit。
+       MNT 三顆完全維持原本的自由指派行為，一行都沒動。 */
+    var _comboName = wfgComboSrcName(i);              // '' ＝ 自由指派（MNT）
+    var _comboIdx  = _comboName ? wfgComboSrcIdx(i) : -1;
     html += '<div class="wfg-gpio-grid-2">'
-      + '<div class="wfg-field"><label>OAX_MODE</label><select onchange="wfgOnGpioChange(' + i + ',\'oax_mode\',this.value)">'
+      + '<div class="wfg-field"><label>' + (_comboName ? 'OAX_MODE / COMBO' : 'OAX_MODE')
+      + '</label><select onchange="wfgOnGpioChange(' + i + ',\'oax_mode\',this.value)">'
       + '<option value="0"' + (g.oax_mode === 0 ? ' selected' : '') + '>' + t('wfg.noSignal') + '</option>'
       + '<option value="1"' + (g.oax_mode === 1 ? ' selected' : '') + '>OR</option>'
       + '<option value="2"' + (g.oax_mode === 2 ? ' selected' : '') + '>AND</option>'
       + '<option value="3"' + (g.oax_mode === 3 ? ' selected' : '') + '>XOR</option>'
-      + '</select></div>'
-      + '<div class="wfg-field"><label>OAX_SEL</label><select onchange="wfgOnGpioChange(' + i + ',\'oax_sel\',this.value)">';
-    for (var oi = 0; oi < WFG_DIGITAL_GPIO_COUNT; oi++) {
-      if (oi === i) continue;
-      html += '<option value="' + oi + '"' + (g.oax_sel === oi ? ' selected' : '') + '>' + WFG_GPIO_NAMES[oi].toUpperCase() + '</option>';
+      + '</select></div>';
+    if (_comboName) {
+      /* 唯讀顯示。`_comboIdx < 0` ＝ 這條對象在本工具沒有對應通道（EN01 的 GPO2）——
+         照實把名稱印出來並標明，比靜默指到別條訊號誠實。 */
+      html += '<div class="wfg-field"><label>' + t('wfg.comboFixedLabel') + '</label>'
+        + '<div class="wfg-combo-fixed" title="' + wfgEscAttr(t('wfg.comboFixedTitle')
+              .replace('{m}', (wfgTconCodec() && wfgTconCodec().label) || '')
+              .replace('{s}', _comboName.toUpperCase())) + '">'
+        + _comboName.toUpperCase()
+        + (_comboIdx < 0 ? ' <span style="color:#f59e0b">' + t('wfg.comboNoChannelTag') + '</span>' : '')
+        + '</div></div></div>';
+    } else {
+      html += '<div class="wfg-field"><label>OAX_SEL</label><select onchange="wfgOnGpioChange(' + i + ',\'oax_sel\',this.value)">';
+      for (var oi = 0; oi < WFG_DIGITAL_GPIO_COUNT; oi++) {
+        if (oi === i) continue;
+        html += '<option value="' + oi + '"' + (g.oax_sel === oi ? ' selected' : '') + '>' + WFG_GPIO_NAMES[oi].toUpperCase() + '</option>';
+      }
+      html += '</select></div></div>';
     }
-    html += '</select></div></div>';
 
     html += '</div></div>';
   }
@@ -35522,12 +35659,216 @@ window.wfgImportConfig = function(jsonStr, options) {
 
    為什麼是查表欄位而不是字串前綴：與 `tconClass` 同一個理由（見下方原註解），
    舊編號 `E`＋數字在 MNT／NB 兩邊都有，前綴規則本身就不只一條。 */
+/* ══════════════════════════════════════════════════════════════════════════
+   v4.15.0：數位訊號欄位的位元寬 —— 從**類別層級**降到**型號層級**
+   ══════════════════════════════════════════════════════════════════════════
+
+   Bruce 2026-08-23：「左側欄位數位訊號的上限值，本來就應該要跟著你選擇匯入的
+   TCON 檔案而有所不同，要不然會出問題。」
+
+   ── 這一版之前錯在哪（實測）─────────────────────────────────────────────
+   `ACT_TYPE`／`R_PH`／`F_PH` 的上限確實會跟著**類別**變（MNT 9 bit／NB 6 bit），
+   但 `ST_LINE`／`SP_LINE`／`R_DLY`／`F_DLY` 四個欄位的 `max` 是**硬編**在渲染字串裡的
+   `16383` 與 `65535`，六顆型號完全一樣。而 **EN01 的 ST_LINE／SP_LINE 是 16 bit**，
+   超過 16383 的合法值會被輸入框擋掉或夾掉，使用者看不出來。
+
+   還有第二個坑：`wfgCodeOnTconChange()` 原本只在 `wfgToggleMaskBits()` 變了才重繪
+   GPO 清單。EN01 ↔ E501 的 `act_type` 都是 6 bit ⇒ 遮罩沒變 ⇒ **不重繪** ⇒
+   即使把 max 改成查表，畫面上的 `max` 屬性仍會停在上一個機種。所以判斷條件也一併
+   改成「**整組位元寬的指紋**有沒有變」（`wfgGpoBitsSig()`）。
+
+   ── 位元寬對照表（每一格都有出處，不是推論）─────────────────────────────
+   NB 三顆：各自的 `.model`（`RegBits*` 欄位累加）
+     E501 `RM81011_for_FAE_20231025_20240509.model`
+     E503 `RM8100x_for_FAE_20240925_20250311.model`
+     EN01 `RCP2/RomCodeProcessUI_2.0.16.0/ModelFiles/RM81008.model`
+   MNT 三顆：原廠 register bank 的 `Bits` 欄
+     EM01 `Register_Excel/EM01/(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx` 表 `rt8_tcon_1`
+     EM02 `Register_Excel/EM02/EM02A1_register_bank_svn213_final.xls` 表 `rt8_tcon_1`
+     E512 `E512/07.Register/e512_register_bank_final.xls` 表 `rt8_tcon_1`
+          ＋ `RCP2/…/ModelFiles/E512_ModelFile_20250902152136.model`
+
+   | 欄位 | E501 | E503 | **EN01** | EM01 | EM02 | E512 |
+   |---|---|---|---|---|---|---|
+   | act_type    | 6 | 6 | 6 | 9 | 9 | 9 |
+   | r_ph        | 6 | 6 | 6 | 9 | 9 | 9 |
+   | f_ph        | 6 | 6 | 6 | 9 | 9 | 9 |
+   | **st_line** | 14 | 14 | **16** | 14 | 14 | 14 |
+   | **sp_line** | 14 | 14 | **16** | 14 | 14 | 14 |
+   | r_dly       | 16 | 16 | 16 | 16 | 16 | 16 |
+   | f_dly       | 16 | 16 | 16 | 16 | 16 | 16 |
+   | ini_val     | 2 | 2 | 2 | 2 | 2 | 2 |
+   | tg_ini_val  | 2 | 2 | 2 | 2 | 2 | 2 |
+   | oax_mode    | — | — | — | 2 | 2 | 2 |
+   | oax_sel     | — | — | — | 5 | 5 | 5 |
+
+   ⇒ 型號之間真正不一致的只有兩組：`act_type/r_ph/f_ph`（NB 6／MNT 9，本來就有處理）
+     與 **`st_line/sp_line`（EN01 16、其餘 14）**。其餘欄位六顆全同，仍然列出來，
+     因為「全同」是查證的結果、不是預設 —— 下次新增型號時要能一眼看出該填什麼。
+
+   ⚠ 兩個註記：
+   ① MNT 的 `act_type/r_ph/f_ph` 在 register bank 上宣告為 **8 bit 主體 ＋ 另一個
+      register 的 1 bit 擴充**（`rel 0x0C2` 起，一個 byte 裝兩條訊號各 3 個 bit，
+      原廠 Comment 寫 `Extend act_type bit to [8:0]`）⇒ 有效寬度 9 bit。
+      這裡填的是**有效寬度**，不是主體寬度。
+   ② `oax_mode` 填 **2** 而不是 register bank 的 3：那是 v4.0.2 用**機器碼**推翻 Excel
+      的既有結論（`shr edx,6; and edx,3`，bit5 兩邊都沒用到），且經 Bruce 從 UI 判讀
+      的數值佐證過。不因為這次看到 register bank 寫 3 就改回去 —— 詳見 `wfgGpoDecodeAt()`
+      內的說明。NB 三顆沒有 OAX 這組欄位（它們的 `STG23_OAX_*` 是獨立區塊、結構也不同）。
+
+   ── 為什麼是「表」而不是從型號字首推導 ───────────────────────────────────
+   與 `tconClass`／`uiDclkRatio`／`uiDclkMax` 同一個理由：`E501` 與 `E503` 開頭都是 `E5`
+   卻不保證同寬（EN01 就與 E501 同 class 但 st_line 不同寬）。新增型號只要在
+   `WFG_TCON_CODECS` 填一格 `gpoBits`，這裡與 UI 都不用改。 */
+var WFG_GPO_BITS_MNT = {
+  act_type: 9, r_ph: 9, f_ph: 9, st_line: 14, sp_line: 14,
+  r_dly: 16, f_dly: 16, ini_val: 2, tg_ini_val: 2, oax_mode: 2, oax_sel: 5
+};
+var WFG_GPO_BITS_NB = {
+  act_type: 6, r_ph: 6, f_ph: 6, st_line: 14, sp_line: 14,
+  r_dly: 16, f_dly: 16, ini_val: 2, tg_ini_val: 2
+};
+/* EN01 只有 st_line／sp_line 與其他 NB 不同，其餘完全相同。
+   用「複製 NB 再覆寫兩格」而不是整份重打：日後 NB 共通的欄位改了，這裡自動跟著改，
+   不會出現兩份不同步的表。 */
+var WFG_GPO_BITS_EN01 = (function () {
+  var o = {};
+  for (var k in WFG_GPO_BITS_NB) o[k] = WFG_GPO_BITS_NB[k];
+  o.st_line = 16;
+  o.sp_line = 16;
+  return o;
+})();
+/* 由滑桿／數字框呈現、會被上下限機制管的欄位。
+   `ini_val`／`tg_ini_val`／`oax_mode`／`oax_sel` 不在此列 —— 它們是**列舉出來的下拉選單**，
+   選項本身就是合法值域，不需要（也不能）用 min/max 去管。 */
+var WFG_GPO_RANGE_FIELDS = ['act_type', 'r_ph', 'f_ph', 'st_line', 'sp_line', 'r_dly', 'f_dly'];
+/* 查不到型號時退回 MNT —— 與 `wfgTconClass()` 的 fallback 一致（最寬鬆，不會誤擋既有值）。 */
+function wfgGpoBitsTable() {
+  var c = wfgTconCodec();
+  return (c && c.gpoBits) || WFG_GPO_BITS_MNT;
+}
+function wfgGpoBits(field) { return wfgGpoBitsTable()[field] | 0; }
+/* 位元寬 → 欄位上限。0 或缺 ＝ 該型號沒有這個欄位 ⇒ 回 0（呼叫端自行決定要不要顯示）。
+   🔴 用 `Math.pow` 不用 `1 << n`：JS 的位元運算是 32 bit 有號數，n = 31 會變負的。
+   目前最大只有 16，但這一格是「日後有人填 24 或 32 也不會靜默出錯」的保險。 */
+function wfgGpoMax(field) {
+  var n = wfgGpoBits(field);
+  return n > 0 ? (Math.pow(2, n) - 1) : 0;
+}
+/* 整組位元寬的指紋。換機種時用它判斷「輸入框的上限要不要重畫」——
+   🔴 不可以只看 `act_type`（＝ 舊的 `maskBits`）：EN01 與 E501 的 act_type 同為 6 bit，
+   只看它會漏掉 st_line 14→16 的變化，畫面上的 max 就會停在上一個機種。 */
+function wfgGpoBitsSig() {
+  var b = wfgGpoBitsTable(), out = [];
+  for (var i = 0; i < WFG_GPO_RANGE_FIELDS.length; i++) {
+    out.push(b[WFG_GPO_RANGE_FIELDS[i]] | 0);
+  }
+  return out.join(',');
+}
+window.wfgGpoBits = wfgGpoBits;
+window.wfgGpoMax = wfgGpoMax;
+window.wfgGpoBitsSig = wfgGpoBitsSig;
+window.WFG_GPO_RANGE_FIELDS = WFG_GPO_RANGE_FIELDS;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   v4.15.0：NB 的 COMBO（ENG_COMB_MODE）—— 對象是**固定**的，不能任選
+   ══════════════════════════════════════════════════════════════════════════
+
+   Bruce 2026-08-23：「NB 的 TCON E503 它的數位信號 COMBO 的地方（也就是類似 MNT TCON
+   的 OAX 設定），不像 Monitor TCON 可以任意指派其他的數位信號做 OR、AND 等邏輯運算。
+   每個數位信號只有它固定搭配的數位信號才能做 COMBO……像是 TEND 它的 COMBO 設定是在
+   3E_0x481[7:6] 這兩個 bit，而它的 COMBO 對象只能是 LC。」
+
+   ── 本質差異 ────────────────────────────────────────────────────────────
+   | | MNT（EM01／EM02／E512） | NB（E501／E503／EN01） |
+   |---|---|---|
+   | 控制位元 | `oax_mode` 2 bit ＋ `oax_sel` **5 bit** | **只有** `ENG_COMB_MODE` 2 bit（chunk 內 `+1[7:6]`） |
+   | 對象 | `oax_sel` 指定，**18 條任選** | **硬體固定**，一條訊號只有一個對象 |
+   | 運算 | 0 無 / 1 OR / 2 AND / 3 XOR | 同左 |
+
+   ⇒ wfg 的資料模型**不需要改**：把 NB 的 `oax_sel` 當成「被硬體釘死的 oax_sel」即可，
+     `oax_mode` 直接對應 `ENG_COMB_MODE`。共用結構零改動 ⇒ 不觸及 MAJOR。
+     差別只在 UI：NB 的 `OAX_SEL` 不給選單，改成唯讀顯示那一條固定對象。
+
+   ── 對照表（每一條都來自 `.model` 的 Comment 欄位，逐字）─────────────────
+   **E503**（`RM8100x_for_FAE_20240925_20250311.model`，14 條，每條各自明寫）
+   例：`[ENG_COMB_MODE_TEND]` `RegAddr0=0x481` `RegMsb0=7` `RegBits0=2`
+       `Comment0 = 0:COMB Disable (default:0)` / `Comment1 = 1:or LC`
+       `Comment2 = 2:and LC` / `Comment3 = 3:xor LC`
+       ⇒ **TEND 的對象是 LC、控制位元 `0x481[7:6]`**，與 Bruce 給的已知範例逐字相符。
+   全部 14 條：xstb→CK8、xpol→TEND、vst1→XPOL、vst2→VST1、ck1→VST2、ck2→CK1、
+              ck3→CK2、ck4→CK3、ck5→CK4、ck6→CK5、ck7→CK6、ck8→CK7、lc→XSTB、tend→LC
+
+   **E501**（`RM81011_for_FAE_20231025_20240509.model`，18 條，每條各自明寫）
+   全部 18 條：xstb→CK8、**xpol→GPO1**、vst1→XPOL、vst2→VST1、ck1→VST2、ck2→CK1、
+              ck3→CK2、ck4→CK3、ck5→CK4、ck6→CK5、ck7→CK6、ck8→CK7、lc→XSTB、
+              tend→LC、vs→TEND、hs→VS、gpo0→HS、gpo1→GPO0
+
+   🔴 **E501 與 E503 的 xpol 對象不同**（GPO1 vs TEND）—— 這就是為什麼**不能用任何
+      規則推導**（「前一條訊號」之類的通則在 xstb／xpol／lc 三處都會猜錯）。逐條列表。
+
+   **EN01**（`RM81008.model`，19 條）—— ⚠ **證據等級與前兩顆不同，見下**
+   它不是逐條明寫，而是每一條的 Comment 都掛同一段鏈的文字敘述，原文逐字：
+       `Do AND/OR/XOR mode with another enging`
+       `0:  (default ) no OR/AND/XOR  1: OR 2:AND 3:XOR`
+       `Eeah engine has fix source as below  GPO2=>XSTB=>XPOL=>`
+       `VST1 => VST2 => CK1- CK8  => LC=> TEND => VS => HS =>GPO0 - GPO2 => XSTB`
+   採「`source => engine`」讀法（句子主詞是 “has fix **source**”）：
+       xstb→GPO2、xpol→XSTB、vst1→XPOL、vst2→VST1、ck1→VST2、ck2..ck8→前一個 CK、
+       lc→CK8、tend→LC、vs→TEND、hs→VS、gpo0→HS、gpo1→GPO0、gpo2→GPI1
+
+   **【推論，非逐條明寫】** 支持這個讀法的兩點：
+     ① 句子寫的是「每個 engine 有固定的 **source**」，`A => B` 自然讀成「A 是 B 的 source」；
+     ② 這樣解出來的 19 條**恰好構成一個封閉環**，與 E501（18 條成環）／E503（14 條成環）
+        的結構一致 —— 反向讀也會成環，但會與另外兩顆的「同一段文字＋各自明寫」對不上。
+   **反向讀法（`engine => source`）我無法用第二個來源排除。** 所以 UI 上 EN01 的
+   COMBO 對象標了來源提示，程式碼這裡也標明是推論 —— 這一格若日後證實反了，改這張表即可。
+
+   ⚠ **EN01 的 xstb 對象是 GPO2，而 wfg 沒有第 19 條通道**（見 `WFG_NB_MODELS.en01`）。
+     表裡仍照實寫 `'gpo2'`，UI 會顯示名稱並標明本工具沒有這條通道，波形不做 COMBO 運算 ——
+     比靜默改成別條訊號誠實。 */
+var WFG_COMBO_SRC_E503 = ['ck8','tend','xpol','vst1','vst2','ck1','ck2','ck3','ck4','ck5','ck6','ck7','xstb','lc'];
+var WFG_COMBO_SRC_E501 = ['ck8','gpo1','xpol','vst1','vst2','ck1','ck2','ck3','ck4','ck5','ck6','ck7','xstb','lc','tend','vs','hs','gpo0'];
+var WFG_COMBO_SRC_EN01 = ['gpo2','xstb','xpol','vst1','vst2','ck1','ck2','ck3','ck4','ck5','ck6','ck7','ck8','lc','tend','vs','hs','gpo0'];
+/* 目前機種的 COMBO 對象表；MNT 三顆回 null ＝ 對象自由指派（維持 oax_sel 選單）。 */
+function wfgComboSrcTable() {
+  var c = wfgTconCodec();
+  return (c && c.comboSrc) || null;
+}
+/* 第 `i` 條訊號的 COMBO 對象名稱（小寫）。沒有固定對象時回 ''。 */
+function wfgComboSrcName(i) {
+  var t2 = wfgComboSrcTable();
+  return (t2 && t2[i]) ? t2[i] : '';
+}
+/* 對象在 `WFG_GPIO_NAMES` 裡的 index；-1 ＝ 本工具沒有這條通道（例如 EN01 的 gpo2）。 */
+function wfgComboSrcIdx(i) {
+  var nm = wfgComboSrcName(i);
+  if (!nm) return -1;
+  for (var k = 0; k < WFG_DIGITAL_GPIO_COUNT; k++) {
+    if (String(WFG_GPIO_NAMES[k]).toLowerCase() === nm) return k;
+  }
+  return -1;
+}
+/* 把文字放進 HTML 屬性（`title="…"`）前的跳脫。訊息來自 i18n，含中文引號與換行，
+   不跳脫的話一個 `"` 就會把屬性提早關掉、後面整段變成亂七八糟的假屬性。 */
+function wfgEscAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '&#10;');
+}
+window.wfgEscAttr = wfgEscAttr;
+window.wfgComboSrcName = wfgComboSrcName;
+window.wfgComboSrcIdx = wfgComboSrcIdx;
+window.wfgComboSrcTable = wfgComboSrcTable;
+
 var WFG_TCON_CODECS = {
   /* `hasSecondDly`（v4.12.1）＝ 這顆的 register bank 有 `r_dly_*_2nd`／`f_dly_*_2nd`，
      而 WFG 沒有對應欄位、匯出也不寫 ⇒ 改過延遲之後匯出要提醒使用者兩者會不同步。
      EM01／EM02／E512 三顆都逐項查證過（見 wfgCodeExport 上方的說明）。 */
   em02: {
     label: 'EM02', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
+    gpoBits: WFG_GPO_BITS_MNT,
     hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgEm02ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm02BuildScript(opt); }
@@ -35538,6 +35879,7 @@ var WFG_TCON_CODECS = {
      v4.4.0 補上 script 匯出（Bruce 2026-08-22 追加）。 */
   e512: {
     label: 'E512', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 360, importExts: ['.bin'], exportFormat: 'script',
+    gpoBits: WFG_GPO_BITS_MNT,
     hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgE512ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgE512BuildScript(opt); }
@@ -35547,6 +35889,7 @@ var WFG_TCON_CODECS = {
      hex 解碼能力放在型號無關的 `wfgCodeToImage()`，等 NB 要用時把副檔名加上即可。 */
   em01: {
     label: 'EM01', tconClass: 'MNT', uiDclkRatio: 1, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
+    gpoBits: WFG_GPO_BITS_MNT,
     /* v4.11.1：宣告「這顆用內容大小分 EEPROM／Flash」⇒ 自動獲得讀檔前的大小閘門
        （`wfgCodeSizePreflight()`）。之後 NB 型號填同一格即可。 */
     mediumBySize: true,
@@ -35566,13 +35909,13 @@ var WFG_TCON_CODECS = {
      checksum 與 ROM 佈局交給官方 UI，wfg 不碰。理由與證據見 `wfgNbBuildXlsx()` 上方。
      `exportBinary: true` ＝ codec 回傳的是 `bytes`（Uint8Array）而不是 `text`。 */
   e503: {
-    label: 'E503', tconClass: 'NB', uiDclkRatio: 1,
+    label: 'E503', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E503,
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e503'); },
     buildExport: function(opt) { return wfgNbBuildXlsx('e503', opt); }
   },
   e501: {
-    label: 'E501', tconClass: 'NB', uiDclkRatio: 1,
+    label: 'E501', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E501,
     /* 實測 `TCON/Model` 底下 332 個 E501 code 檔**全部是 .bin、一律 131072 bytes**，
        一個 .hex 都沒有。`.hex` 仍留著是因為共用層本來就支援，多留無害。 */
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
@@ -35585,7 +35928,7 @@ var WFG_TCON_CODECS = {
      ⚠ 已知缺口：EN01 實體上有第 19 條 GPO2，wfg 的通道固定 18 條 ⇒ 本版不支援，
        詳見 `WFG_NB_MODELS.en01` 的註解。 */
   en01: {
-    label: 'EN01', tconClass: 'NB', uiDclkRatio: 1,
+    label: 'EN01', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_EN01, comboSrc: WFG_COMBO_SRC_EN01,
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'en01'); },
     buildExport: function(opt) { return wfgNbBuildXlsx('en01', opt); }
@@ -35719,9 +36062,6 @@ window.wfgSyncTconSelects = wfgSyncTconSelects;
 function wfgCodeOnTconChange(v) {
   if (!WFG_TCON_CODECS[v]) return;
   if (wfgFrame.codeTcon === v) { wfgSyncTconSelects(); return; }
-  /* 🔴 必須在改 `codeTcon` **之前**取舊遮罩 —— `wfgToggleMaskBits()` 是即時查表的，
-     改完再取就永遠等於新值，下面那個「位元寬有沒有變」的判斷會恆為 false。 */
-  var _prevMask = wfgToggleMaskBits();
   wfgFrame.codeTcon = v;
   wfgCodeSetStatus('', -1);   // 顯示中的 checksum 屬於上一個型號匯入的檔，換型號就不再成立
   wfgShowDclkError('');       // 上一個機種留下的換算錯誤訊息，換機種就不再成立
@@ -35736,12 +36076,37 @@ function wfgCodeOnTconChange(v) {
           位元寬沒變、值也不會動，不該付重繪的代價）
      🔴 但輸入框的**上限屬性**與 toggle 的遮罩是即時查表的，不論有沒有夾到值都要重畫
      那份清單，否則畫面上的 max 會停在舊機種的數字。 */
-  var _oldMask = _prevMask;
-  var _newMask = wfgToggleMaskBits();
-  if (_oldMask !== _newMask) {
-    if (wfgClampGpioToTconClass()) wfgInvalidateCache();
+  /* ══ 🔴 v4.15.0：換機種一律重繪 ＋ 一律夾值，**不再判斷「規格有沒有變」** ══════
+     舊版的條件是「toggle 遮罩（＝ act_type 位元寬）變了沒」。它漏掉的東西：
+       ・EN01 與 E501 的 act_type 同為 6 bit，但 `ST_LINE` 是 16 bit vs 14 bit
+       ・E501 與 E503 的位元寬**完全相同**，但 COMBO 對象不同（xpol→GPO1 vs TEND）
+     判成「沒變」就不重繪 ⇒ 畫面上的 `max` 與 COMBO 對象停在上一個機種
+     （這正是 Bruce 兩次抓到的問題的共同根因）。
+
+     這一版不修條件、直接**移除條件** —— 因為「哪些差異需要重繪」這個判斷本身
+     就是每加一項型號規格就會漏一次的東西。換機種是低頻操作，無條件重繪一次
+     18 張卡片的成本可以接受；`wfgInvalidateCache()` 仍然只在真的夾到值時才做，
+     所以 EM01↔EM02 這種零差異的切換不會付重算波形的代價。 */
+  {
+    var _cl = wfgClampGpiosToModel();
+    if (_cl.changed) wfgInvalidateCache();
     wfgRenderGpioList();
     wfgScheduleFrameParamRender();   // 與 TX DCLK 同一個收斂點，不做同步重繪
+    /* 🔴 夾了值就一定要講。Bruce 2026-08-23：「不可鎖死、不可靜默夾值，要有明確提示」。
+       沿用匯入在用的確認卡（`wfgAckShow`）而不是 `alert()` ——
+       alert 會阻塞 renderer，而且這不是錯誤、是「我幫你改了什麼」的說明。 */
+    if (_cl.hits.length) {
+      var _lines = _cl.hits.map(function (h) {
+        return '・' + h.sig + ' ' + h.field + '：' + h.from + ' → ' + h.to;
+      }).join('\n');
+      var _label = (wfgTconCodec() && wfgTconCodec().label) || v;
+      try {
+        wfgAckShow(_label, t('wfg.gpoClampedOnTconChange')
+                             .replace('{m}', _label)
+                             .replace('{n}', String(_cl.hits.length))
+                             .replace('{s}', _lines));
+      } catch (e) {}
+    }
   }
   if (typeof wfgAckPullFromLive === 'function') wfgAckPullFromLive();
 }
@@ -37711,9 +38076,12 @@ function wfgNbDecodeChunk(buf, off, layout) {
     st_line: st, sp_line: sp,
     r_dly: (r8 << 8) | r9,                    // 🔴 big-endian
     f_dly: (rA << 8) | rB,                    // 🔴 big-endian
-    /* wfg 的資料模型有這兩格，NB 的 OAX 不在 chunk 內（STG23_OAX_0/1 是獨立區塊、
-       結構也與 MNT 不同）⇒ 一律填 0，匯出時同樣不寫。 */
-    oax_mode: 0, oax_sel: 0
+    /* 🔴 v4.15.0：`+1[7:6]` 是 **ENG_COMB_MODE**（0 無／1 OR／2 AND／3 XOR），
+       這就是 NB 的 COMBO，等同 MNT 的 `oax_mode` ⇒ 直接放進同一格，資料模型不必改。
+       v4.14.0 這裡填 0 是錯的（把整組 COMBO 設定丟掉了），本版修正。
+       對象（`oax_sel`）不在 chunk 裡 —— 它是**硬體固定**的，由 `wfgComboSrcIdx()` 查表補，
+       在 `wfgNbParse()` 裡填（那裡才知道自己是第幾條訊號）。 */
+    oax_mode: (r1 >> 6) & 3, oax_sel: 0
   };
 }
 window.wfgNbDecodeChunk = wfgNbDecodeChunk;
@@ -37917,6 +38285,11 @@ var WFG_NB_FIELDS = [
     off: function(b) { return wfgNbOff(b + 0, 5, 5); } },
   { key: 'INV',            get: function(g) { return g.inv ? 1 : 0; },
     off: function(b) { return wfgNbOff(b + 0, 3, 3); } },
+  /* 🔴 v4.15.0 新增：NB 的 COMBO。`+1[7:6]` ＝ ENG_COMB_MODE（0 無／1 OR／2 AND／3 XOR），
+     對象是硬體固定的（見 `WFG_COMBO_SRC_*`），所以**只有 mode 要寫、沒有 sel 可寫**。
+     v4.14.0 漏了這一欄 ⇒ 使用者在畫面上設的 COMBO 匯出後整個不見。 */
+  { key: 'ENG_COMB_MODE',  get: function(g) { return g.oax_mode & 3; },
+    off: function(b) { return wfgNbOff(b + 1, 7, 6); } },
   { key: 'ACT_TYPE',       get: function(g) { return g.act_type & 0x3F; },
     off: function(b) { return wfgNbOff(b + 1, 5, 0); } },
   { key: 'INI_R_PHASE',    get: function(g) { return g.r_ph & 0x3F; },
@@ -38138,7 +38511,7 @@ function wfgNbParse(rawBuf, fname, key) {
   if (!frame) return { ok: false, reason: t('wfg.codeErrNbEdid')
                          .replace('{m}', m.label)
                          .replace('{o}', wfgCodeOffLabel(m.edidOff)) };
-  var sig = [], miss = [];
+  var sig = [], miss = [], comboMiss = [];
   for (var i = 0; i < m.sigCount; i++) {
     var reg = m.sigBase(i);
     var off = wfgNbRegToFile(m, ctx, reg);
@@ -38151,6 +38524,13 @@ function wfgNbParse(rawBuf, fname, key) {
       continue;
     }
     one.name = WFG_EM02_SIGS[i] || String(i);
+    /* v4.15.0：COMBO 對象是硬體固定的，查表補上。查不到（例如 EN01 的 xstb 對象是 GPO2，
+       而本工具沒有第 19 條通道）就填 0 並在 detail 標明 —— 不要靜默指到別條訊號。 */
+    var _cs = wfgComboSrcIdx(i);
+    one.oax_sel = (_cs >= 0) ? _cs : 0;
+    if (one.oax_mode > 0 && _cs < 0) {
+      comboMiss.push(one.name.toUpperCase() + '→' + (wfgComboSrcName(i) || '?').toUpperCase());
+    }
     sig.push(one);
   }
   var solid = sig.filter(function(s) { return !!s; });
@@ -38178,6 +38558,7 @@ function wfgNbParse(rawBuf, fname, key) {
   det += ' / RD_MODE=' + (rdRaw < 0 ? '?' : rdRaw) +
          ' GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)');
   if (miss.length) det += '\n' + t('wfg.codeNbRegMiss').replace('{s}', miss.join(', '));
+  if (comboMiss.length) det += '\n' + t('wfg.codeComboNoChannel').replace('{s}', comboMiss.join(', '));
   var overflow = [];
   var _vt = frame.vactive + frame.vblank;
   /* 🔴 gateType 推不出來時（EN01 的 rd_mode 是 3 bit、語意未查證）用**寬鬆**上限 vt×2。
@@ -38266,6 +38647,13 @@ function wfgCodeApplyToWfg(res) {
   /* v4.7.0：這裡原本呼叫 `wfgSetTconType(_codec.tconClass)`。型態已改為即時查表
      （匯入時 `wfgCodeTcon` 本來就是使用者選的那一顆），所以不必也不能再設狀態。
      夾值也不需要：下面幾行會把 act_type / r_ph / f_ph **整組覆蓋**成 code 裡的值。 */
+  /* 🔴 v4.15.0：解析出來的值若超出**這個型號**的欄位位元寬，一定要看得見。
+     Bruce 2026-08-23：「照理不會發生，但若發生代表我們的位元寬判斷錯了，
+     應該要看得見而不是無聲夾掉。」
+
+     為什麼仍然夾：不夾的話波形會拿超界值去畫，畫面與匯出都是錯的、而且更難查。
+     所以**夾 ＋ 大聲說**，兩件事一起做，訊息直接掛進匯入完成卡的 detail。 */
+  var _over = [];
   for (var i = 0; i < res.signals.length && i < WFG_DIGITAL_GPIO_COUNT; i++) {
     var s = res.signals[i], g = wfgGpios[i];
     if (!g || !s) continue;
@@ -38275,6 +38663,18 @@ function wfgCodeApplyToWfg(res) {
     g.r_dly = s.r_dly; g.f_dly = s.f_dly;
     g.ini_val = s.ini_val; g.tg_ini_val = s.tg_ini_val;
     g.oax_mode = s.oax_mode; g.oax_sel = s.oax_sel;
+    for (var _fi = 0; _fi < WFG_GPO_RANGE_FIELDS.length; _fi++) {
+      var _f = WFG_GPO_RANGE_FIELDS[_fi], _lim = wfgGpoMax(_f), _v = g[_f] | 0;
+      if (_lim > 0 && _v > _lim) {
+        _over.push((WFG_GPIO_NAMES[i] || String(i)).toUpperCase() + ' ' + _f.toUpperCase() +
+                   '=' + _v + '>' + _lim);
+        g[_f] = _lim;
+      }
+    }
+  }
+  if (_over.length) {
+    res.detail = (res.detail ? res.detail + '\n' : '') +
+                 t('wfg.codeBitWidthOver').replace('{s}', _over.join(', '));
   }
   /* Frame 參數「順便帶入當作參考」（Bruce Q6）。只帶 code 檔真的有的四個值，
      其餘（Frame Rate、DCLK、Gate Type…）維持使用者目前的設定不動。 */
