@@ -2370,8 +2370,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4130"></script>
-<script src="common/i18n.js?v=20260823wfg4130"></script>
+<script src="common/version.js?v=20260823wfg4131"></script>
+<script src="common/i18n.js?v=20260823wfg4131"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -18827,7 +18827,36 @@ function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine
   var ptList = [];
   for (var k in allPts) ptList.push(allPts[k]);
   ptList.sort(function(a, b) { return a.line - b.line || a.dly - b.dly; });
-  // Build level functions (with initLevel)
+  /* ══ v4.13.1：這裡原本是 O(n²)，實測會讓整頁停住一分鐘 ═══════════════════════
+     Bruce 2026-08-23 回報「選 133% 之後停等非常久，甚至像當機」。實測（frameCount 100
+     ＋ 9 條類比通道 ＋ 三模檔）：
+
+       選 CURRENT → 類比預計算 258 ms，2.0 秒可用
+       選 200%    → 類比預計算 **41,076 ms**，60.2 秒才可用（單次輪詢被卡 39.6 秒）
+       選 133%    → 類比預計算 **14,974 ms**，58.5 秒才可用
+       選 Normal  → 類比預計算 135 ms，1.6 秒可用
+
+     CPU profile 指名兇手就是**下面這支 `makeLevelFn` 回傳的查找函式**：
+     200% 那一輪它自身佔 **55,398 ms**，CURRENT／Normal 那兩輪是 0。
+
+     為什麼是 O(n²)：外層對 `ptList` 的**每一個**轉態點都呼叫 `baseFn` 與 `otherFn`
+     各一次，而舊版的查找是從陣列頭開始線性掃描 —— 第 i 個點要掃 i 步，總和 n²/2。
+
+     為什麼「開 ck7/ck8」會引爆：CURRENT 與 Normal 這兩組 ck7/ck8 是關的，
+     OAX 的另一路幾乎沒有轉態點（n 很小）；200%／133% 把 ck7/ck8 打開之後，
+     它們是**每行一個脈衝**的 CK，視窗內轉態點瞬間變成上萬 —— n 變大 300 倍，n² 就是 9 萬倍。
+     所以這不是「某一模特別慢」，而是「**任何一組讓轉態點變多的 timing 都會引爆**」，
+     與 Bruce 的預判（「可能不只 133%」）一致。
+
+     🔴 改法刻意選**二分搜尋**而不是「單調游標」：
+     外層 `ptList` 是照 `(line, dly)` 字典序排的，但這支函式比較的是
+     `pos = line + dly/ht` —— `r_dly` 可以大於 HTOTAL（實測這份 code 的 f_dly 1474
+     就接近 HTOTAL 2720 的一半，其他 code 更大），一旦 `dly/ht >= 1`，字典序就**不等於**
+     pos 的順序。單調游標會在那種資料上悄悄給錯答案；二分搜尋不依賴呼叫順序，
+     對任何輸入都與舊版逐點相同。
+
+     等價性：舊版是「從頭走過所有 `pos <= 目標` 的元素，取最後一個的 level」。
+     `sorted` 已按 pos 遞增排序，所以那等於 upper_bound(pos) − 1。下面就是這個。 */
   function makeLevelFn(trans, initLvl, ht) {
     var sorted = [];
     for (var i = 0; i < trans.length; i++) {
@@ -18835,13 +18864,18 @@ function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine
       sorted.push({ pos: t.line + (ht > 0 ? t.dly / ht : 0), level: t.level });
     }
     sorted.sort(function(a, b) { return a.pos - b.pos; });
+    var n = sorted.length;
+    /* 拆成兩個平坦陣列：查找迴圈裡不再走物件屬性，省下大量的 shape 檢查。 */
+    var poss = new Float64Array(n), lvls = new Array(n);
+    for (var j = 0; j < n; j++) { poss[j] = sorted[j].pos; lvls[j] = sorted[j].level; }
     return function(line, dly) {
       var pos = line + (ht > 0 ? dly / ht : 0);
-      var lvl = initLvl;
-      for (var i = 0; i < sorted.length; i++) {
-        if (sorted[i].pos <= pos) lvl = sorted[i].level; else break;
+      var lo = 0, hi = n;
+      while (lo < hi) {                       // upper_bound：第一個 pos > 目標的位置
+        var mid = (lo + hi) >> 1;
+        if (poss[mid] <= pos) lo = mid + 1; else hi = mid;
       }
-      return lvl;
+      return lo > 0 ? lvls[lo - 1] : initLvl;
     };
   }
   var baseFn = makeLevelFn(baseExp, baseInit, effHtotal);
