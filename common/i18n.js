@@ -756,11 +756,14 @@ var I18N = {
   'wfg.impCancel':      { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
   'wfg.impNoParser':    { 'zh-TW': '{m} 的 code 解析尚未建置，無法匯入', 'en': 'Code parsing for {m} is not implemented yet',
                           'zh-CN': '{m} 的 code 解析尚未建置，无法导入' },
-  'wfg.impSwitchName':  { 'zh-TW': '按下去會先把機種從 {from} 換成 {to}', 'en': 'Continuing will switch the model from {from} to {to} first',
-                          'zh-CN': '按下去会先把机种从 {from} 换成 {to}' },
-  'wfg.impSwitchWhere': { 'zh-TW': '換機種會一併更新左側欄位的上下限與 COMBO 對象顯示；若目前有數值超出新機種的位元寬，會夾到上限並另外列出改了哪些。按「取消」則什麼都不會動。',
-                          'en': 'Switching also refreshes the field limits and COMBO sources on the left. Any value beyond the new model\'s register width is clamped, and every change is listed separately. Cancel leaves everything untouched.',
-                          'zh-CN': '换机种会一并更新左侧字段的上下限与 COMBO 对象显示；若目前有数值超出新机种的位宽，会夹到上限并另外列出改了哪些。按「取消」则什么都不会动。' },
+  /* v4.19.0：匯入框裡不再講跨型號相容（夾值／COMBO 語意差異）——
+     匯入本來就會用新檔案把整組波形換掉，拿匯入前的舊值去比對相容性在語意上不成立。
+     這兩則改成中性說明：只講「會換成哪一顆、會整組覆蓋」。 */
+  'wfg.impSwitchName':  { 'zh-TW': '會以 {to} 的格式讀取（目前是 {from}）', 'en': 'The file will be read as {to} (currently {from})',
+                          'zh-CN': '会以 {to} 的格式读取（目前是 {from}）' },
+  'wfg.impSwitchWhere': { 'zh-TW': '匯入會用檔案的內容整組更新波形，目前畫面上的數值會被覆蓋。按「取消」則什麼都不會動。',
+                          'en': 'Importing replaces the whole waveform with the contents of the file; the values currently on screen will be overwritten. Cancel leaves everything untouched.',
+                          'zh-CN': '导入会用文件的内容整组更新波形，目前画面上的数值会被覆盖。按「取消」则什么都不会动。' },
   'wfg.expTitle':       { 'zh-TW': '要用哪一顆 TCON 的格式匯出？', 'en': 'Which TCON format should this be exported as?',
                           'zh-CN': '要用哪一颗 TCON 的格式导出？' },
   'wfg.expSub':         { 'zh-TW': '目前畫面上的機種是 {m}。可以改用別顆匯出 —— 選定的型號只決定產出格式，不會改動畫面上的任何數值。',
