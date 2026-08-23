@@ -2348,8 +2348,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg490"></script>
-<script src="common/i18n.js?v=20260823wfg490"></script>
+<script src="common/version.js?v=20260823wfg4100"></script>
+<script src="common/i18n.js?v=20260823wfg4100"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -25581,7 +25581,20 @@ function wfgSyncFrameBounds() {
      取兩者較小值 —— 滑桿是拖曳操作，Bruce 要求「拖到界就停住」。 */
   var sl = document.getElementById('wfg-framerate-slider');
   if (sl) {
-    var m = Math.max(B.fpsMin, Math.min(wfgFrameRateSliderMax, B.fpsMax));
+    /* ══ 🔴 v4.10.0：滑桿右端改成**真正的上限**（Bruce 2026-08-23 裁示
+         「第二個可採納右端等於真正的上限」）══════════════════════════════════
+       **先查過這是刻意還是意外**：v3.27.0 的原註解（本檔上方）寫得很清楚 ——
+       「max ＝ 使用者最後一次**手動輸入**的值……所以『先輸入 144 再拖到 60』之後，
+         拉桿還能一路拖回 144，不必重打一次」。**是刻意的**，不是意外。
+
+       那為什麼還是改：那個設計的**目的**是「別讓滑桿右端跟著當前值往下縮，
+       否則拖低之後就拖不回去」。新做法（右端 ＝ 機種／HTOTAL／VTOTAL 推出來的上限）
+       **把同一個目的達成得更徹底** —— 右端從此是一個固定的、有物理意義的邊界，
+       不再取決於使用者曾經打過什麼。原設計要解的問題消失了，不是被違反。
+
+       `wfgFrameRateSliderMax`／匯出欄位 `frameRateMax` **保留但不再參與滑桿端點計算**：
+       拿掉會讓 v4.9.0 以前存的設定檔在舊版打開時失去滑桿上限，屬無謂的破壞。 */
+    var m = B.fpsMax;
     sl.min = String(B.fpsMin);
     sl.max = String(m);
     /* v4.8.0：兩端標籤都要跟著動 —— 左邊那個原本硬編 "1"，
@@ -25666,25 +25679,51 @@ function wfgSliderSnap(v, lo, hi) {
 function wfgSyncDclkSliders() {
   var L = wfgDclkLimits();
   var ro = wfgDclkModeIsVar();           // 變頻應用：TX 是衍生值 ⇒ 兩條滑桿都不可拖
-  var apply = function(slId, loId, hiId, lo, hi, val) {
-    var sl = document.getElementById(slId);
+  /* ══ 🔴 v4.10.0：區間為空時滑桿端點該長什麼樣 ═════════════════════════════════
+     v4.9.0 的寫法是 `if (!bad) { sl.min = …; sl.max = …; }` ——
+     **`bad` 時完全跳過寫入**，於是端點停在上一個機種的值（Bruce 2026-08-23 實測：
+     切到 E503 之後 TX 滑桿仍是 148.5~180、UI 仍是 297~360，那是 E512 的範圍）。
+     RX 與 Frame Rate 兩條沒事，是因為它們的端點來自 `wfgFrameBounds()`，
+     那一組在區間為空時**仍然有合法值**（fpsMax 84），所以永遠走得到寫入那一行 ——
+     這正好解釋了「四條滑桿只有兩條更新」這個內部不一致。
+
+     **區間為空時的選擇（Bruce 要求說明）**：`<input type=range>` **不可能沒有端點** ——
+     不寫 min/max 會退回瀏覽器預設的 0~100，而目前值 148.5 會被夾到 100，
+     **滑塊位置就會說謊**。所以：
+       端點 ＝ **機種規格範圍 ∪ 當前值**（`[min(specLo, val), max(specHi, val)]`）
+       ＋ **滑桿 disabled**
+     理由：
+       ① 必須涵蓋當前值，滑塊位置才誠實（這是不寫 0~100 的直接原因）。
+       ② 必須涵蓋機種規格，兩端標籤才仍然在說「這顆 TCON 的規格是多少」。
+       ③ disable：沒有合法值可選時，讓它可拖等於邀請使用者拖到另一個非法位置。
+          退路由**輸入框**（限制已清空、可打字）與 **RX／Frame Rate 兩條滑桿**提供 ——
+          那才是真正能解開不相容的地方（要改的是 Frame 參數，不是 TX）。
+       ④ 兩端標籤顯示**滑桿的實際端點**而不是規格值：標籤的職責就是說明這條滑桿的兩端，
+          寫規格值會與實際端點不符。不相容這件事已由紅字錯誤列說明，資訊不會缺。 */
+  var apply = function(slId, loId, hiId, lo, hi, val, specLo, specHi) {
     var bad = !(isFinite(lo) && isFinite(hi) && hi > lo);   // 無合法區間（機種不相容）
+    var v = isFinite(val) ? val : 0;
+    var eLo = bad ? Math.min(specLo, v) : lo;
+    var eHi = bad ? Math.max(specHi, v) : hi;
+    var sl = document.getElementById(slId);
     if (sl) {
       sl.disabled = ro || bad;
-      if (!bad) { sl.min = String(wfgFmtDclk(lo)); sl.max = String(wfgFmtDclk(hi)); }
+      /* 🔴 不論 bad 與否**一律寫入**端點 —— 這一行就是 v4.9.0 的 bug 所在。 */
+      sl.min = String(wfgFmtDclk(eLo));
+      sl.max = String(wfgFmtDclk(eHi));
       /* 🔴 使用者正在拖這一條時不要覆寫它的 value（與 wfgUpdateUiDclk 的 activeElement 守衛同一個道理），
          否則拖曳過程會被自己的回寫打斷、滑塊跳回去。 */
       if (document.activeElement !== sl) {
-        sl.value = String(bad ? val : Math.min(hi, Math.max(lo, val)));
+        sl.value = String(Math.min(eHi, Math.max(eLo, v)));
       }
     }
-    var e1 = document.getElementById(loId); if (e1) e1.textContent = bad ? '—' : String(wfgFmtDclk(lo));
-    var e2 = document.getElementById(hiId); if (e2) e2.textContent = bad ? '—' : String(wfgFmtDclk(hi));
+    var e1 = document.getElementById(loId); if (e1) e1.textContent = String(wfgFmtDclk(eLo));
+    var e2 = document.getElementById(hiId); if (e2) e2.textContent = String(wfgFmtDclk(eHi));
   };
   apply('wfg-dclk-slider', 'wfg-dclk-slider-min', 'wfg-dclk-slider-max',
-        L.txMin, L.txMax, wfgFrame.dclk);
+        L.txMin, L.txMax, wfgFrame.dclk, L.specMin / L.ratio, L.specMax / L.ratio);
   apply('wfg-ui-dclk-slider', 'wfg-ui-dclk-slider-min', 'wfg-ui-dclk-slider-max',
-        L.uiMin, L.uiMax, wfgFrame.dclk * L.ratio);
+        L.uiMin, L.uiMax, wfgFrame.dclk * L.ratio, L.specMin, L.specMax);
   /* ══ v4.9.0：RX DCLK 滑桿 ══════════════════════════════════════════════════
      🔴 端點**由 Frame Rate 的合法區間反推**，不是另外訂一組：
          rxMin = HTOTAL × VTOTAL × fpsMin / 2 / 1e6、rxMax = 同式代 fpsMax。
@@ -25714,6 +25753,77 @@ function wfgSyncDclkSliders() {
   }
 }
 window.wfgSyncDclkSliders = wfgSyncDclkSliders;
+/* ══ 🔴 v4.10.0：四條滑桿端點與輸入框限制的一致性稽核 ═══════════════════════════
+   Bruce 2026-08-23 要求「補上『四條滑桿端點在任何狀態下都與輸入框限制一致』的檢查」。
+
+   為什麼做成可呼叫的函式而不是寫在註解裡：這一輪的 bug（TX/UI 端點殘留上一個機種的值）
+   **在畫面上看不出來** —— 滑桿長得好好的，只是範圍是錯的。這種錯只有把不變量寫成
+   可執行的斷言才擋得住，靠人眼複查必漏。驗收腳本直接呼叫 `wfgAuditBounds()` 即可。
+
+   檢查的不變量：
+     A. 區間**非空**時，每條滑桿的 min/max 必須等於對應輸入框的 min/max。
+     B. 區間**為空**時，輸入框的限制被清空（保留退路），滑桿則必須是
+        「規格範圍 ∪ 當前值」且 disabled（見 wfgSyncDclkSliders 內的說明）。
+     C. 不論何時，四條滑桿都必須有 min/max（不得留空 → 否則退回 0~100 讓滑塊說謊）。
+     D. TX 與 UI 的端點必須滿足 `uiX === txX × ratio`（同源）。
+     E. RX 滑桿端點必須等於 `HTOTAL × VTOTAL × [fpsMin, fpsMax] / 2 / 1e6`。 */
+function wfgAuditBounds() {
+  var issues = [];
+  var L = wfgDclkLimits(), B = wfgFrameBounds();
+  var num = function(v) { return (v === '' || v == null) ? NaN : Number(v); };
+  var el = function(id) { return document.getElementById(id); };
+  var near = function(a, b) { return isFinite(a) && isFinite(b) && Math.abs(a - b) < 1e-4; };
+  var txI = el('wfg-dclk'), uiI = el('wfg-ui-dclk');
+  var txS = el('wfg-dclk-slider'), uiS = el('wfg-ui-dclk-slider'), rxS = el('wfg-rx-dclk-slider');
+  var frS = el('wfg-framerate-slider');
+  // C：四條滑桿一律要有端點
+  [['tx', txS], ['ui', uiS], ['rx', rxS], ['fps', frS]].forEach(function(p) {
+    if (!p[1]) { issues.push(p[0] + ' slider 不存在'); return; }
+    if (!isFinite(num(p[1].min)) || !isFinite(num(p[1].max))) issues.push(p[0] + ' slider 缺 min/max');
+    if (num(p[1].min) > num(p[1].max)) issues.push(p[0] + ' slider min > max');
+  });
+  if (!L.empty) {
+    // A：非空時滑桿端點 === 輸入框限制
+    if (txI && txS && !(near(num(txI.min), num(txS.min)) && near(num(txI.max), num(txS.max))))
+      issues.push('tx: input[' + txI.min + ',' + txI.max + '] ≠ slider[' + txS.min + ',' + txS.max + ']');
+    if (uiI && uiS && !(near(num(uiI.min), num(uiS.min)) && near(num(uiI.max), num(uiS.max))))
+      issues.push('ui: input[' + uiI.min + ',' + uiI.max + '] ≠ slider[' + uiS.min + ',' + uiS.max + ']');
+  } else {
+    // B：為空時輸入框限制應已清空、滑桿應 disabled 且涵蓋規格與當前值
+    if (txI && (txI.getAttribute('min') || txI.getAttribute('max'))) issues.push('tx input 在無合法區間時仍留著 min/max');
+    if (uiI && (uiI.getAttribute('min') || uiI.getAttribute('max'))) issues.push('ui input 在無合法區間時仍留著 min/max');
+    if (txS && !txS.disabled) issues.push('tx slider 在無合法區間時未 disabled');
+    if (uiS && !uiS.disabled) issues.push('ui slider 在無合法區間時未 disabled');
+    var txV = wfgFrame.dclk, uiV = wfgFrame.dclk * L.ratio;
+    if (txS && (num(txS.min) > txV + 1e-6 || num(txS.max) < txV - 1e-6)) issues.push('tx slider 端點未涵蓋當前值 ' + txV);
+    if (uiS && (num(uiS.min) > uiV + 1e-6 || num(uiS.max) < uiV - 1e-6)) issues.push('ui slider 端點未涵蓋當前值 ' + uiV);
+    if (txS && (num(txS.min) > L.specMin / L.ratio + 1e-6 || num(txS.max) < L.specMax / L.ratio - 1e-6))
+      issues.push('tx slider 端點未涵蓋機種規格範圍');
+    if (uiS && (num(uiS.min) > L.specMin + 1e-6 || num(uiS.max) < L.specMax - 1e-6))
+      issues.push('ui slider 端點未涵蓋機種規格範圍');
+  }
+  // D：TX 與 UI 同源
+  if (txS && uiS) {
+    if (!near(num(uiS.min), num(txS.min) * L.ratio)) issues.push('ui slider min ≠ tx slider min × ratio');
+    if (!near(num(uiS.max), num(txS.max) * L.ratio)) issues.push('ui slider max ≠ tx slider max × ratio');
+  }
+  // F：v4.10.0 起 Frame Rate 滑桿端點必須與它的輸入框完全一致
+  var frI = el('wfg-framerate');
+  if (frI && frS) {
+    if (!near(num(frI.min), num(frS.min))) issues.push('fps: input min ' + frI.min + ' ≠ slider min ' + frS.min);
+    if (!near(num(frI.max), num(frS.max))) issues.push('fps: input max ' + frI.max + ' ≠ slider max ' + frS.max);
+    if (!near(num(frS.min), B.fpsMin)) issues.push('fps slider min ≠ wfgFrameBounds().fpsMin');
+    if (!near(num(frS.max), B.fpsMax)) issues.push('fps slider max ≠ wfgFrameBounds().fpsMax');
+  }
+  // E：RX 端點由 Frame Rate 區間反推
+  if (rxS) {
+    if (!near(num(rxS.min), wfgRxFromFps(B.fpsMin))) issues.push('rx slider min ≠ fpsMin 反推值');
+    if (!near(num(rxS.max), wfgRxFromFps(B.fpsMax))) issues.push('rx slider max ≠ fpsMax 反推值');
+    if (!near(num(rxS.step), wfgRxStepMHz())) issues.push('rx slider step ≠ 1Hz 增量');
+  }
+  return { ok: issues.length === 0, empty: L.empty, model: wfgTconKey(), issues: issues };
+}
+window.wfgAuditBounds = wfgAuditBounds;
 /* 拖曳 → 寫進對應的輸入框 → 走**既有的**那條 commit 路徑。
    🔴 效能不必另外處理：`wfgOnDclkManualChange()` 從 v4.7.0 起就是
    `wfgScheduleFrameParamRender()` ＋ `wfgBeginDeferredAnalog()`（debounce），
@@ -26207,7 +26317,12 @@ function wfgSyncFrameRateSliderValue() {
   if (sl) sl.value = Math.max(1, Math.min(wfgFrameRateSliderMax, wfgFrame.frameRate || 1));
 }
 function wfgOnFrameRateSlider(v) {
-  var n = Math.max(1, Math.min(wfgFrameRateSliderMax, parseInt(v) || 1));
+  /* 🔴 v4.10.0：這一行原本是 `Math.min(wfgFrameRateSliderMax, …)` ——
+     v4.10.0 把滑桿的 `max` 屬性改成機種上限之後，**若這裡沒一起改，就等於只改了一半**：
+     滑桿看起來能拖到 339，值卻在這裡被夾回 `wfgFrameRateSliderMax`（＝使用者上次手動輸入的 60）。
+     實測抓到：從最左拖到最右之後 Frame Rate 仍是 60、RX 仍是 74.25，完全沒動。
+     現在只夾在 1，真正的上下限交給下面那兩行（它們讀的是 `wfgFrameBounds()`，與滑桿 `max` 同源）。 */
+  var n = Math.max(1, parseInt(v) || 1);
   /* v4.7.1：滑桿的 max 已由 wfgSyncFrameBounds() 夾到機種允許值，這裡再夾一次
      是為了程式化呼叫的路徑（與 wfgOnDclkManualChange 對 readOnly 再擋一次同一個道理）。
      🔴 一樣只在「變大」時才夾 —— 往下拖永遠放行。 */
