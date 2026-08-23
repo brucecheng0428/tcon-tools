@@ -2455,8 +2455,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4191"></script>
-<script src="common/i18n.js?v=20260824wfg4191"></script>
+<script src="common/version.js?v=20260824wfg4192"></script>
+<script src="common/i18n.js?v=20260824wfg4192"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3147,11 +3147,44 @@ function wfgDefaultSlotCount() { return WFG_DIGITAL_GPIO_COUNT + 3 + WFG_DEFAULT
    （CKO1~CKO6 與 GATE 的訊號來源逐條相同），而且面板上的 GOA phase 下拉隨時可以改回 6，
    改回去之後多出來的通道格會自動釋放。取「讓他看得到 CKO12」這一邊。 */
 function wfgShouldUpgradePhase(config) {
-  var ch = config && config.channels;
-  if (!Array.isArray(ch)) return false;
-  if (ch.length >= wfgDefaultSlotCount()) return false;
-  var p = config.lsGlobal ? config.lsGlobal.phase : null;
-  return (p == null) || ((p | 0) === WFG_LEGACY_DEFAULT_PHASE);
+  /* 🔴 v4.19.2：判準**只看 phase 本身**，不再看 `channels.length`。
+     v4.19.1 多了一個 `ch.length >= wfgDefaultSlotCount()` 的門檻，本意是「已經是新版存檔就別動」，
+     但那等於把「要不要升 phase」綁在一個我猜的存檔形態上 —— 而存檔形態有無數種組合
+     （匯入過幾次、隱藏過哪些、手動改過哪幾格），任何一種我沒想到的就會靜默不升。
+     Bruce 的實際環境就落在我沒涵蓋到的那一種：11 種造出來的形態全部升級成功，他那份沒有。
+     現在的判準只有一句話可驗證：**存檔的 phase 是不是還停在舊版預設 6（或根本沒存）**。
+     是 → 升；使用者自己挑過 4／8／10／14／16 → 一律不動。新版存檔的 phase 是 12，不受影響。 */
+  var p = (config && config.lsGlobal) ? config.lsGlobal.phase : null;
+  if (p == null) return true;
+  return (p | 0) === WFG_LEGACY_DEFAULT_PHASE;
+}
+
+/* ══ 🔴 v4.19.2：無條件保證每個虛擬訊號源都有通道 ═══════════════════════════
+   v4.19.1 的補齊是靠 `wfgLsSyncChannels()` 的三段補位（SD1／CKO／GATE＋SPX），
+   而那三段各自帶著自己的前置條件（`assignedCko` 的收集範圍、`numCko` 的迴圈上界…）。
+   條件愈多，「某種存檔形態剛好每個條件都擦邊而過」的機會就愈大 —— 這就是 Bruce
+   那份 autosave 發生的事，而我在測試環境重現不出來。
+
+   這一支不判斷任何前置條件：**逐一走過 index ≥ 18 的每個訊號源，沒有通道指到它就補一格。**
+   補進來的一律 `visible = false`（不打擾既有使用者的畫面）。
+   回傳補了幾格，供 console 記錄 —— 下次再有人回報「我看不到 CKO12」，
+   直接看那一行就知道升級到底有沒有跑、補了什麼。 */
+function wfgEnsureVirtualChannels() {
+  var added = [];
+  for (var gi = WFG_DIGITAL_GPIO_COUNT; gi < WFG_GPIO_NAMES.length; gi++) {
+    var found = false;
+    for (var ci = 0; ci < wfgChannels.length; ci++) {
+      if (wfgChannels[ci].gpioIdx === gi) { found = true; break; }
+    }
+    if (found) continue;
+    var slot = wfgTakeChannelSlot();
+    if (slot < 0) break;                       // 真的滿了（WFG_CHANNEL_MAX）
+    wfgChannels[slot].gpioIdx = gi;
+    wfgChannels[slot].name = wfgDefaultChannelName(gi);
+    wfgChannels[slot].visible = false;
+    added.push(WFG_GPIO_NAMES[gi]);
+  }
+  return added;
 }
 
 function wfgNormalizeCkSources() {
@@ -3241,6 +3274,12 @@ function wfgLsSyncChannels() {
       wfgChannels[ci6].visible = !!wfgPanel.spx_show && !!(wfgGpios[spxIdx] && wfgGpios[spxIdx].enable);
     }
   }
+  /* 🔴 v4.19.2：上面三段補位各自帶著自己的前置條件，任何一種我沒想到的存檔形態
+     都可能剛好每個條件都擦邊而過（Bruce 的 autosave 就是）。這裡不判斷任何條件，
+     逐一保證 index ≥ 18 的每個訊號源都有通道 —— 所有路徑（首次進站／快捷設定／
+     設定檔／匯入 code）都會經過這一支。 */
+  wfgEnsureVirtualChannels();
+
   /* ══ 🔴 v4.18.0：虛擬通道依訊號順序歸位 ═══════════════════════════════
      phase 由 6 加到 12 時，cko7…cko12 是「長出新格」接在最後面，畫面會變成
      CKO1…CKO6 → G1 → Vpix_1 → CKO7…CKO12，CKO 被面板訊號從中間切斷。
@@ -35837,12 +35876,23 @@ window.wfgImportConfig = function(jsonStr, options) {
     if (_pg >= 0 && WFG_GPIO_NAMES[_pg]) _wfgPreAssigned[WFG_GPIO_NAMES[_pg]] = true;
   }
   wfgLsSyncChannels();
+  /* 🔴 v4.19.2：不管上面那些補位有沒有觸發，這裡再無條件掃一次，
+     保證 SD1／CKO1~CKO12／GATE／SUBPIXEL 每一條都有通道。 */
+  var _wfgAdded = wfgEnsureVirtualChannels();
   for (var _pb = 0; _pb < wfgChannels.length; _pb++) {
     var _pch = wfgChannels[_pb];
     if (_pch.gpioIdx < WFG_DIGITAL_GPIO_COUNT) continue;        // 數位通道不碰
     var _pnm = WFG_GPIO_NAMES[_pch.gpioIdx];
     if (_pnm && !_wfgPreAssigned[_pnm]) _pch.visible = false;   // 本輪才補進來的
   }
+  /* 留一行在 console：下次有人回報「我看不到 CKO12」，直接看這一行就知道
+     存檔帶了什麼、升級有沒有跑、補了哪幾條。 */
+  try {
+    console.info('[wfg] 通道升級：存檔 ' + (config.channels ? config.channels.length : 0)
+      + ' 格 / phase ' + _wfgCfgPhase + '  →  ' + wfgChannels.length
+      + ' 格 / phase ' + wfgLsGlobal.phase
+      + (_wfgAdded.length ? ('，補上 ' + _wfgAdded.join('、')) : '，無須補格'));
+  } catch (e) {}
 
   /* v3.17.5（修 bug）：補齊虛擬類比 slot 的 enable。
      preset 載入路徑（wfgApplyPreset）早就有同一段補救 ——「Enable virtual analog
@@ -39831,6 +39881,7 @@ function wfgCodeResetChannels() {
     rest.push(ch2);
   }
   wfgChannels = digital.concat(rest);
+  wfgEnsureVirtualChannels();   // v4.19.2：重排之後再保證一次（下面第②段會把它們設為不顯示）
   /* ② 逐通道決定可見性與顏色 */
   for (var c = 0; c < wfgChannels.length; c++) {
     var ch = wfgChannels[c];
