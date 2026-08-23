@@ -208,6 +208,12 @@
                  background: rgba(var(--ack-tone-rgb, 59,130,246), 0.12);
                  border: 1px solid rgba(var(--ack-tone-rgb, 59,130,246), 0.30); }
   .wfg-ack-row { display: flex; align-items: center; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+  /* v4.17.1：兩格的換算關係式。等寬字體讓 `2 × TX DCLK = TCON(EM02) UI DCLK` 對齊好讀。 */
+  .wfg-ack-rel { margin-top: 7px; padding: 4px 8px; border-radius: 5px;
+                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+                 color: var(--ack-tone-text, #93c5fd);
+                 background: rgba(var(--ack-tone-rgb, 59,130,246), 0.10);
+                 border: 1px dashed rgba(var(--ack-tone-rgb, 59,130,246), 0.35); }
   /* v4.5.3：「帶我去」按鈕已移除（兩個框改為一開就同時出現），連帶拿掉 .wfg-ack-go 的樣式。 */
   .wfg-ack-row > .wfg-ack-now { flex: 0 0 auto; }
   .wfg-ack-arrow { color: #64748b; font-size: 13px; }
@@ -2327,21 +2333,32 @@
                    實測（v4.6.0 開發中截圖）：直接把六個元素平鋪在 flex-wrap 容器裡，
                    斷點會落在「EM02 UI」與它的輸入框之間 —— 畫面變成
                    「TX [100] MHz EM02 UI」換行「[200] MHz」，標籤與它的框被拆散，看起來像孤兒。 -->
+              <!-- 🔴 v4.17.1：兩格都要標明**完整名稱**（Bruce 2026-08-23）：
+                   「TX DCLK 的這個框框，它只有框到 TX DCLK，而下面的 UI 沒有註明
+                     TCON(EM02) UI DCLK。」
+                   上面那格原本只寫 `TX`、下面只寫 `EM02 UI`，看不出是什麼。
+                   下面那格的機種名由 `wfgAckRenderNow()` 依當前機種動態帶入。 -->
               <span class="wfg-ack-pair">
-                <span class="wfg-ack-sub-lbl">TX</span>
+                <span class="wfg-ack-sub-lbl" id="wfg-ack-tx-lbl">TX DCLK</span>
                 <input type="number" class="wfg-ack-input" id="wfg-ack-dclk-in" step="any" min="0.1"
                        onblur="wfgAckBlurSettle()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
                        oninput="wfgAckCommit('dclk')">
                 <span class="wfg-ack-unit">MHz</span>
               </span>
               <span class="wfg-ack-pair">
-                <span class="wfg-ack-sub-lbl" id="wfg-ack-ui-lbl">UI</span>
+                <span class="wfg-ack-sub-lbl" id="wfg-ack-ui-lbl">TCON UI DCLK</span>
                 <input type="number" class="wfg-ack-input" id="wfg-ack-ui-in" step="any" min="0.1"
                        onblur="wfgAckOnUiInput();wfgAckBlurSettle()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
                        oninput="wfgAckOnUiInput()">
                 <span class="wfg-ack-unit">MHz</span>
               </span>
             </div>
+            <!-- 🔴 v4.17.1：兩格的換算關係式（Bruce 2026-08-23）：
+                 「應該也要把 TCON(E503) UI DCLK 跟 TX DCLK 在這顆 TCON 的關係式列在旁邊
+                   （例如是 1 比 1 還是兩倍的，像是 2 x TX DCLK = TCON(EM02) UI DCLK
+                   這些關係要寫清楚）。」
+                 內容由 `wfgAckRenderNow()` 依 `wfgUiDclkRatio()` 動態產生，不寫死。 -->
+            <div class="wfg-ack-rel" id="wfg-ack-dclk-rel"></div>
             <div class="wfg-ack-err hidden" id="wfg-ack-dclk-err"></div>
           </div>
         </div>
@@ -2438,8 +2455,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4170"></script>
-<script src="common/i18n.js?v=20260823wfg4170"></script>
+<script src="common/version.js?v=20260823wfg4171"></script>
+<script src="common/i18n.js?v=20260823wfg4171"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -36357,12 +36374,25 @@ function wfgAckRenderNow() {
   var l = document.getElementById('wfg-ack-lb-now');
   if (l) l.textContent = t('wfg.ackNow').replace('{v}', String(wfgLineBuffer));
   /* v4.6.0：UI 那格的標籤要寫出**是哪一顆 TCON 的 UI** —— 使用者剛從那顆的介面抄完數字，
-     標籤只寫「UI」他無法確認自己抄的是不是這一顆。 */
+     標籤只寫「UI」他無法確認自己抄的是不是這一顆。
+     🔴 v4.17.1：改成完整名稱 `TCON(EM02) UI DCLK`（原本是 `EM02 UI`）。 */
   var ul = document.getElementById('wfg-ack-ui-lbl');
+  var _lbl = (wfgTconCodec() && wfgTconCodec().label) || '';
+  var _uiName = t('wfg.ackUiLbl').replace('{m}', _lbl);
   if (ul) {
-    var c = wfgTconCodec();
-    ul.textContent = ((c && c.label) || '') + ' UI';
-    ul.title = t('wfg.uiDclk') + ' = TX × ' + wfgUiDclkRatio();
+    ul.textContent = _uiName;
+    ul.title = _uiName + ' = TX DCLK × ' + wfgUiDclkRatio();
+  }
+  /* 🔴 v4.17.1：換算關係式。**一律由 `wfgUiDclkRatio()` 產生，不用型號名推**
+     —— 係數是 codec 表的一格（EM01 1、EM02 2、E512 2、NB 三顆 1），
+     日後新增型號只要填那一格，這行字自動就對。
+     ratio 為 1 時不印「1 ×」（`1 × TX DCLK = …` 讀起來像有倍率，反而更難懂）。 */
+  var rel = document.getElementById('wfg-ack-dclk-rel');
+  if (rel) {
+    var _r = wfgUiDclkRatio();
+    var _lhs = (_r === 1) ? 'TX DCLK' : (wfgFmtDclk(_r) + ' × TX DCLK');
+    rel.textContent = _lhs + '  =  ' + _uiName;
+    rel.title = t('wfg.ackRelTitle').replace('{m}', _lbl).replace('{r}', String(_r));
   }
   /* 在 TX 那格打字時，UI 這格要即時跟上（反向由 wfgAckOnUiInput 自己處理）。
      🔴 `activeElement` 守衛不可省：`wfgAckOnUiInput` 自己也會走到這裡，
@@ -36607,9 +36637,16 @@ function wfgAckSync() {
    請不要把這些流程搞得這麼複雜，越簡單越好。」
    ⇒「帶我去」整顆拿掉；1 綠框（TX DCLK）／2 藍框（Line Buffer）與卡片編號同色。 */
 var _wfgSpotOn = false, _wfgSpotRaf = 0, _wfgSpotPanels = [];
+/* 🔴 v4.17.1：`box` ＝ 挖空範圍要涵蓋的容器（Bruce 2026-08-23）：
+   「浮動視窗背景的霧化區域、綠色框框與藍色框框的清除範圍，到輸入框的標題，
+     你才知道這個輸入框是在做什麼用的。」
+   原本只框 `id` 那個輸入框本身 ＋ 8px padding，**標題被留在霧化區裡**，
+   使用者看得到一個被打亮的數字框，卻看不到它叫什麼。
+   ⇒ 改成往上找 `box` 這個容器（標題與輸入框共同的父層），用它的範圍挖空。
+   找不到 `box` 就退回原本只框輸入框的行為，不會壞。 */
 var WFG_SPOT_TARGETS = [
-  { key: 'dclk',    id: 'wfg-dclk',    ring: 'wfg-spot-ring-dclk' },
-  { key: 'linebuf', id: 'wfg-linebuf', ring: 'wfg-spot-ring-linebuf' }
+  { key: 'dclk',    id: 'wfg-dclk',    ring: 'wfg-spot-ring-dclk',    box: '.wfg-field-group' },
+  { key: 'linebuf', id: 'wfg-linebuf', ring: 'wfg-spot-ring-linebuf', box: '#wfg-linebuf-wrap' }
 ];
 /* ══ 🔴 v4.5.3 修「畫面往下移動、上方顯示區被截掉且回不去」════════════════
    Bruce 實測：「按下 T-CON D-Clock 的『帶我去』，畫面會整個往下移動，導致上方的一些
@@ -36686,7 +36723,20 @@ function wfgSpotHoles() {
   for (var i = 0; i < WFG_SPOT_TARGETS.length; i++) {
     var t = WFG_SPOT_TARGETS[i];
     var el = document.getElementById(t.id);
-    var r = el ? el.getBoundingClientRect() : null;
+    if (!el) continue;
+    var r = el.getBoundingClientRect();
+    /* v4.17.1：把標題一起框進來。取 `box` 容器與輸入框自己的**聯集** ——
+       聯集而不是直接用容器，是因為容器若因某種版面狀態量不到（width/height 為 0），
+       至少還框得到輸入框本身，不會整個目標消失。 */
+    if (t.box && el.closest) {
+      var bx = el.closest(t.box);
+      var br = bx ? bx.getBoundingClientRect() : null;
+      if (br && br.width > 0 && br.height > 0) {
+        r = { left: Math.min(r.left, br.left), top: Math.min(r.top, br.top),
+              right: Math.max(r.right, br.right), bottom: Math.max(r.bottom, br.bottom) };
+        r.width = r.right - r.left; r.height = r.bottom - r.top;
+      }
+    }
     if (!r || r.width <= 0 || r.height <= 0) continue;
     if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) continue;
     var x = Math.max(0, r.left - pad), y = Math.max(0, r.top - pad);
@@ -36696,6 +36746,9 @@ function wfgSpotHoles() {
   }
   return out;
 }
+/* 驗收腳本要能讀回挖空範圍，與畫面用的是同一支、同一組目標定義。 */
+window.wfgSpotHoles = wfgSpotHoles;
+window.WFG_SPOT_TARGETS = WFG_SPOT_TARGETS;
 /* 依所有洞的上下緣把畫面切成水平帶 —— 帶的邊界就是洞的邊界，所以帶裡的洞一定
    「整條貫穿」，帶內只要由左往右補上洞與洞之間的空隙就好。洞有幾個都成立。 */
 function wfgSpotMaskRects(holes, vw, vh) {
