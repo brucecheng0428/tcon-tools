@@ -2348,8 +2348,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260823wfg4101"></script>
-<script src="common/i18n.js?v=20260823wfg4101"></script>
+<script src="common/version.js?v=20260823wfg4110"></script>
+<script src="common/i18n.js?v=20260823wfg4110"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -35392,7 +35392,14 @@ var WFG_TCON_CODECS = {
     parseCode: function(buf, fname) { return wfgE512ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgE512BuildScript(opt); }
   },
-  em01: { label: 'EM01', tconClass: 'MNT', uiDclkRatio: 1, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script', parseCode: null, buildExport: null },
+  /* EM01：v4.11.0 建置完成。`importExts` 維持只有 `.bin` —— 實測 `TCON/Model` 底下
+     EM01 資料夾的 111 個 code 檔全部是 .bin，一個 .hex 都沒有（.hex 只出現在 NB 型號）。
+     hex 解碼能力放在型號無關的 `wfgCodeToImage()`，等 NB 要用時把副檔名加上即可。 */
+  em01: {
+    label: 'EM01', tconClass: 'MNT', uiDclkRatio: 1, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
+    parseCode: function(buf, fname) { return wfgEm01ParseBin(buf, fname); },
+    buildExport: function(opt) { return wfgEm01BuildScript(opt); }
+  },
   e503: { label: 'E503', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
   e501: { label: 'E501', tconClass: 'NB',  uiDclkRatio: 1, importExts: ['.bin', '.hex'], exportFormat: 'bin', parseCode: null, buildExport: null },
   /* EN01：Bruce 2026-08-22 明確歸在 Notebook。目前沒有解析器（選單上會有 `*`）。
@@ -36685,6 +36692,302 @@ function wfgE512ParseBin(buf, fname) {
 window.wfgE512ParseBin = wfgE512ParseBin;
 window.wfgEm02ParseBin = wfgEm02ParseBin;
 window.wfgEm02BuildScript = wfgEm02BuildScript;
+
+/* ══ v4.11.0：型號無關 —— 檔案位元組 → 「暫存器映像」 ══════════════════════
+   Bruce 2026-08-23：「Monitor 的 T-CON 都是用 bin 檔，那 bin 檔的大小就跟實際內容
+   大小是一樣的。可是 NB 的 T-CON 可能有 4KB 的 bin 檔，也有 8KB 的 bin 檔。如果換算成
+   Hex 檔案的話，檔案又會更大……不過 NB 如果用 Flash 的話就還是 bin 檔，也就是 Hex
+   只有用在 EEPROM 的 NB 而已。」
+
+   🔴 **這就是「不可以拿 File.size 去比大小門檻」的理由。** Intel HEX 是文字格式：
+   每 1 個內容位元組寫成 2 個十六進位字元，每一行還多出 `:`、長度、位址、型別、
+   checksum、換行。實測 `RM81002_..._20230728.hex` 的內容只有 0x1000 ＝ 4096 bytes，
+   檔案本身卻是 12 KB 上下 —— 直接拿 12 KB 去比「8192 以下算 EEPROM」會**整個判錯類別**。
+   所以流程一律是：**先依副檔名決定要不要解碼 → 取得「實際內容長度」→ 才套大小規則。**
+
+   為什麼放在型號無關的位置、而不是寫死在 EM01 裡：
+     ・EM01 是 MNT，實測 `TCON/Model` 底下 EM01 資料夾共 111 個 code 檔**全部是 .bin，
+       一個 .hex 都沒有**（`.hex` 全部落在 RM81002／RM81003／DAZ7353 這些 NB 型號）。
+       ⇒ 本版 EM01 其實只會走 bin 這條路，hex 這段是**替 E501／E503／EN01 預留**。
+     ・預留的東西如果藏在 EM01 的函式裡，下一個人要用就得先發現它、再搬出來 ——
+       那正是「靠記性的規則」。放在這裡，任何 codec 呼叫 `wfgCodeToImage()` 就有。 */
+function wfgCodeIsHexName(fname) {
+  return /\.hex$/i.test(String(fname || ''));
+}
+/* Intel HEX → Uint8Array。只實作實際會遇到的 record type：
+     00 Data、01 EOF、02 Extended Segment Address、04 Extended Linear Address。
+   🔴 checksum 一律驗；任何一行壞掉就整份拒絕，**不做「盡量讀」**——
+   讀進半份 code 再拿去解析 GPO，錯得比讀不到還難發現。 */
+function wfgCodeDecodeIntelHex(buf) {
+  var txt = '';
+  for (var i = 0; i < buf.length; i++) txt += String.fromCharCode(buf[i]);
+  var lines = txt.split(/\r?\n/);
+  var map = {}, maxAddr = -1, minAddr = -1, seenEof = false, base = 0, dataLines = 0;
+  for (var li = 0; li < lines.length; li++) {
+    var ln = lines[li].trim();
+    if (!ln) continue;
+    if (ln.charAt(0) !== ':') return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
+    if (ln.length < 11 || (ln.length % 2) === 0) return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
+    var by = [];
+    for (var c = 1; c < ln.length; c += 2) {
+      var v = parseInt(ln.substr(c, 2), 16);
+      if (!isFinite(v)) return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
+      by.push(v);
+    }
+    var sum = 0;
+    for (var s = 0; s < by.length; s++) sum += by[s];
+    if ((sum & 0xFF) !== 0) return { ok: false, reason: t('wfg.codeErrHexCks').replace('{n}', String(li + 1)) };
+    var len = by[0], addr = (by[1] << 8) | by[2], typ = by[3];
+    if (by.length !== len + 5) return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
+    if (typ === 0x00) {
+      dataLines++;
+      for (var k = 0; k < len; k++) {
+        var a = base + addr + k;
+        map[a] = by[4 + k];
+        if (maxAddr < 0 || a > maxAddr) maxAddr = a;
+        if (minAddr < 0 || a < minAddr) minAddr = a;
+      }
+    } else if (typ === 0x01) { seenEof = true; break; }
+    else if (typ === 0x02) { base = ((by[4] << 8) | by[5]) * 16; }
+    else if (typ === 0x04) { base = ((by[4] << 8) | by[5]) * 65536; }
+    /* 其餘 type（03/05 起始位址）對「內容映像」沒有貢獻，略過即可，不視為錯誤。 */
+  }
+  if (!dataLines || maxAddr < 0) return { ok: false, reason: t('wfg.codeErrHexEmpty') };
+  if (!seenEof) return { ok: false, reason: t('wfg.codeErrHexNoEof') };
+  /* 🔴 映像長度以 **0 為起點**算到最高位址（不是 max−min）：這些 code 的暫存器位址
+     本來就是從 0 開始編的，用 min 當起點會讓「第 0 個 bank 剛好整段沒寫」的檔案
+     整份位移。未填到的位元組補 0，與晶片上「沒被寫過」的狀態一致。 */
+  var out = new Uint8Array(maxAddr + 1);
+  for (var key in map) out[key | 0] = map[key];
+  return { ok: true, bytes: out };
+}
+/* codec 的統一入口：回傳 { ok, bytes, srcFormat }。bytes.length 就是「實際內容長度」。 */
+function wfgCodeToImage(buf, fname) {
+  if (!wfgCodeIsHexName(fname)) return { ok: true, bytes: buf, srcFormat: 'bin' };
+  var r = wfgCodeDecodeIntelHex(buf);
+  if (!r.ok) return r;
+  return { ok: true, bytes: r.bytes, srcFormat: 'hex' };
+}
+window.wfgCodeToImage = wfgCodeToImage;
+window.wfgCodeDecodeIntelHex = wfgCodeDecodeIntelHex;
+
+/* ══ v4.11.0：型號無關 —— 依「實際內容長度」判 EEPROM／Flash ═════════════════
+   Bruce 2026-08-23 定案（原話）：「8K bytes 就是 8192 bytes，也就是 64K bits……
+   8K 到 128KB 中間是沒有過渡大小的。檔案 8KB 以下的都是 EEPROM，128KB 以上的都是
+   Flash。如果拿到中間的值，這些都是不合法的檔案，不能匯入。」
+   ⇒ 邊界值本身合法：8192 屬 EEPROM、131072 屬 Flash；中間一律拒絕，不猜、不靠邊。
+
+   Bruce 2026-08-23 追加：「將通則先為 NB 鋪路」——
+   這是**通則**，不是 EM01 專屬，所以放在型號無關這一層。之後 E501／E503／EN01
+   的 codec 直接呼叫 `wfgCodeLoadImage()` 就有同一套判定，不必各自複製一份門檻。
+   若日後查出某一顆的門檻不同，由該 codec 傳 `opt` 覆寫，通則本身不動。
+
+   🔴 **刻意只做到「介面清楚、可被重用」，沒有替 NB 預先發明任何解析邏輯** ——
+   NB 的 bank 位置、防呆條件都要等拿到真實素材才寫得出來，現在編出來的只會是猜測。 */
+var WFG_CODE_EEPROM_MAX = 8192;      // 8 KB ＝ 64 Kbit
+var WFG_CODE_FLASH_MIN  = 131072;    // 128 KB
+function wfgCodeClassifyMedium(contentLen, opt) {
+  opt = opt || {};
+  var emax = isFinite(opt.eepromMax) ? opt.eepromMax : WFG_CODE_EEPROM_MAX;
+  var fmin = isFinite(opt.flashMin)  ? opt.flashMin  : WFG_CODE_FLASH_MIN;
+  if (contentLen <= emax) return 'eeprom';
+  if (contentLen >= fmin) return 'flash';
+  return null;                        // 中間 ＝ 不合法
+}
+/* codec 只要呼叫這一支就同時拿到「實際內容」與「哪一種載體」。
+   回傳 { ok, bytes, srcFormat:'bin'|'hex', contentLen, medium:'eeprom'|'flash' }
+   或   { ok:false, reason }（hex 壞掉、或大小落在不合法區間）。
+
+   🔴 為什麼 `medium` 一定要由這裡算、不准 codec 自己看 `File.size`：
+     ・MNT 一律 bin ⇒ 檔案大小 ＝ 內容大小，看哪一個都對。
+     ・NB 的 **Flash 是 bin、EEPROM 才是 hex**（Bruce 2026-08-23）。hex 是文字格式，
+       檔案 byte 數遠大於內容（1 byte → 2 字元 ＋ 位址／長度／checksum／換行），
+       拿 hex 的檔案大小去比 8192 會**整個判錯載體**。
+     ・NB 的 bin 有 4 KB 與 8 KB 兩種，兩者都 ≤ 8192 ⇒ 都是 EEPROM，這條規則涵蓋得到。 */
+function wfgCodeLoadImage(rawBuf, fname, opt) {
+  var img = wfgCodeToImage(rawBuf, fname);
+  if (!img.ok) return img;
+  var n = img.bytes.length;
+  var medium = wfgCodeClassifyMedium(n, opt);
+  if (!medium) {
+    var o = opt || {};
+    return { ok: false, reason: t('wfg.codeErrMediumSize')
+               .replace('{n}', String(n))
+               .replace('{e}', String(isFinite(o.eepromMax) ? o.eepromMax : WFG_CODE_EEPROM_MAX))
+               .replace('{f}', String(isFinite(o.flashMin) ? o.flashMin : WFG_CODE_FLASH_MIN)) };
+  }
+  return { ok: true, bytes: img.bytes, srcFormat: img.srcFormat, contentLen: n, medium: medium };
+}
+window.wfgCodeClassifyMedium = wfgCodeClassifyMedium;
+window.wfgCodeLoadImage = wfgCodeLoadImage;
+
+/* ══ EM01 解析器（v4.11.0）═══════════════════════════════════════════════════
+   權威來源：`TCON_UI/Register_Excel/EM01/(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`
+
+   ── 與 EM02／E512 的關係（逐項查證後的結論，不是「長得像」就套） ──────────
+   ① **GPO 記錄在 chunk 內的排法，EM01 與 EM02 逐位元完全相同。**
+      EM01 的 `rt8_tcon_1` rel 0xA0/0xB0（xstb/xpol）、`rt8_tcon_2` rel 0x00 起每 16 byte
+      一條（vst1…gpo1），欄位位置（[7]enable [6]tg_mode [5]f_st_sel [4]no_keep_last_sig
+      [3]eng_inv [1:0]tg_ini_val_sel、+1/+2/+3 act_type/r_ph/f_ph、+4/+5 st_line 14bit
+      ＋ ini_val、+6/+7 sp_line 14bit ＋ out2_en/no_fall、+8/+A r_dly/f_dly 16bit）
+      與 EM02 的 Excel 逐行對照**一字不差** ⇒ 直接沿用 `wfgGpoDecodeAt()`，不另寫一份。
+   ② **regAddr 也完全相同**：oax `0x0583+i`、bit8 `0x05C2+⌊(i+1)/2⌋`（偶數 i 用 bits[6:4]、
+      奇數 i 用 bits[2:0]，18 條逐一核對過）、rd_mode `0x0504` bit[7:6]、
+      FRM_NO `0x052E/0x0530/0x0532` ⇒ 匯出用的 regmap 與 EM02 同一組位址。
+   ③ **只有兩處真的不一樣**：
+      ・`sys` 的 frame timing 是 **nibble 打包**（和 E512 同型、和 EM02 的 byte 對齊不同）：
+          reg_tmg_hres = b[0x13] | b[0x14][3:0]<<8
+          reg_tmg_vres = b[0x14][7:4] | b[0x15]<<4
+          reg_tmg_hblk = b[0x16] | b[0x17][3:0]<<8
+          reg_tmg_vblk = b[0x17][7:4] | b[0x18]<<4
+        （Excel `sys` 分頁 High/Low Address ＋ Loc MSB/LSB 四欄直接給出這個打包方式）
+      ・**檔案裡的 GPO 位置有兩套**，見下面 WFG_EM01_LAYOUT。
+   ④ EM01 多出來、但 WFG 沒有對應欄位、因此**碰都不碰**的東西：
+      ・每條訊號 +0xC/+0xE 的 `r_dly_*_2nd` / `f_dly_*_2nd`
+        （查證：**EM02 的 register bank 也有這一組**，現行 EM02 匯出同樣不寫，
+         所以「不寫」是沿用既有且已被接受的行為，不是 EM01 新開的例外）
+      ・`rt8_tcon_3` 的 ext1~ext8 共 8 條額外 GPO（WFG 只有 18 條，沒有對應通道）
+
+   ── 🔴 EEPROM 版與 Flash 版：位置**不一樣** ────────────────────────────────
+   Bruce 2026-08-23 指定要查證這件事。答案是**不同**，而且兩者都是固定值：
+
+     | 版本   | 判定           | rt8_tcon_1 | rt8_tcon_2 | rt8_tcon_3 | 依據 |
+     |--------|----------------|-----------|-----------|-----------|------|
+     | EEPROM | 內容 ≤ 8192 B  | 0x0457    | 0x0556    | 0x0658    | Excel `bank_offset` 的「EEPROM Low Address」欄 |
+     | Flash  | 內容 ≥ 131072 B| 0x0500    | 0x0600    | 0x0700    | 平坦映像：fileOff ＝ regAddr |
+
+   兩者的**內容格式相同**（同樣的 chunk 內排法），差的只有 chunk 在檔案裡的起點：
+   EEPROM 是「各 bank 緊密打包、bank 之間夾 2 bytes CRC」（0x0556＋0x100＋2 ＝ 0x0658
+   對得剛剛好，這一條自我驗證了整張表）；Flash 則是把暫存器位址直接當檔案位移。
+
+   實測（`TCON/Model` 全庫掃描，非抽樣）：
+     ・EM01 檔 **77**（EEPROM 10 ＋ Flash 67）→ 以上規則 **77/77 全部通過**
+     ・負控制 EM02 **118** 檔 ＋ E512(RM80020) **104** 檔 → **0 個誤收**
+       （EM02 卡在 `rt8_tcon_3` 的未用位元、E512 卡在 nibble 解出來的 hres/vres 不合理）
+     ・反向也查過：EM01 的 77 個檔拿去餵 EM02 解析器（16 候選）與 E512 解析器
+       → **0 個被誤收**，兩邊互不干擾。
+   佐證這不是湊出來的：flash 的 `RM80203.PB_BOE_B19_..._DCLK416...` 解出
+   3584×1440 ＋ hblk 280 ＋ vblk 50，×144Hz ＝ Pixel Rate 829 MHz ⇒ TX DCLK 414.5 MHz，
+   與檔名裡的 `DCLK416` 相符 —— frame 那組 nibble 公式是對的。 */
+/* 大小門檻用共用層的通則（`wfgCodeClassifyMedium()`），EM01 不自己定義一份。
+   這裡只放「這一顆的兩種載體各自把 GPO 放在哪」—— 那才是型號專屬的知識。 */
+var WFG_EM01_LAYOUT = {
+  eeprom: { key: 'EEPROM', base1: 0x0457, base2: 0x0556, base3: 0x0658 },
+  flash:  { key: 'Flash',  base1: 0x0500, base2: 0x0600, base3: 0x0700 }
+};
+function wfgEm01Frame(buf) {
+  if (buf.length < 0x19) return null;
+  return {
+    hactive: buf[0x13] | ((buf[0x14] & 0x0F) << 8),
+    vactive: ((buf[0x14] >> 4) & 0x0F) | (buf[0x15] << 4),
+    hblank:  buf[0x16] | ((buf[0x17] & 0x0F) << 8),
+    vblank:  ((buf[0x17] >> 4) & 0x0F) | (buf[0x18] << 4)
+  };
+}
+/* 防呆：每一條都來自 Excel 的欄位定義（未用位元必須為 0）或物理上不可能的值。
+   🔴 **刻意不放進來的兩條**，因為實測會誤殺真實檔：
+     ・「r_dly / f_dly 必須 ≤ HTOTAL」—— 2 個真實 EM01 Flash 檔（FHD320 的 Initial 與
+       PinMuxOK_TxNG）xstb f_dly ＝ 2140 > HTOTAL 2080，那是 code 裡殘留的樣板值。
+       它是事實、不是解析錯誤 ⇒ 改成**警告**（見下方 dlyOver），不當拒絕理由。
+     ・「至少要有 N 條 enable」—— 5 個真實 Flash 檔（檔名帶 MCUv0079 的那批）
+       暫存器映像裡只有 3 條 enable。同一顆面板的前一版（DisplayOK02）是 14 條，
+       兩版的差異區段正好只有「GPO 區 ＋ 0x10000 起的 MCU 韌體區」。
+       ⇒ 那是檔案內容本身如此，門檻設 4 會把合法檔擋掉。只擋「一條都沒有」。 */
+function wfgEm01Sane(buf, L, sig, fr) {
+  if (!sig || !fr) return false;
+  if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
+  if (!(fr.vactive >= 400 && fr.vactive <= 5000)) return false;
+  if (!(fr.hblank > 0 && fr.hblank <= 4000)) return false;
+  if (!(fr.vblank > 0 && fr.vblank <= 2000)) return false;
+  /* bit8 打包位元組的未用位元：0x C2 只有 bit0/4/5/6 有定義；0xC3~0xCB 只有 bit0~2、4~6。 */
+  if (buf[L.base1 + 0xC2] & 0x8E) return false;
+  for (var k = 1; k <= 9; k++) if (buf[L.base1 + 0xC2 + k] & 0x88) return false;
+  /* rt8_tcon_3（ext1~ext8）：WFG 不用它的值，但它的未用位元是**最有鑑別力的一條**
+     —— 118 個 EM02 檔有 117 個就是卡在這裡被擋下的。 */
+  if (L.base3 + 0x80 > buf.length) return false;
+  for (var e = 0; e < 8; e++) {
+    if ((buf[L.base3 + 16 * e] >> 2) & 1) return false;          // byte0 bit2 unused
+    if (buf[L.base3 + 16 * e + 0x0F] & 0xF8) return false;       // +0xF bit3~7 unused
+  }
+  var vt = fr.vactive + fr.vblank, ne = 0;
+  for (var i = 0; i < sig.length; i++) {
+    var s = sig[i];
+    if (s.unused2) return false;                                  // byte0 bit2 unused
+    if (!s.enable) continue;
+    ne++;
+    if (s.st_line !== 16383 && s.st_line > vt * 3) return false;  // ×3 已涵蓋 tri-gate
+    if (s.sp_line !== 16383 && s.sp_line > vt * 3) return false;
+  }
+  return ne >= 1;
+}
+function wfgEm01ParseBin(rawBuf, fname) {
+  /* 🔴 第一步走**共用層**：它負責「hex 先解碼 → 取實際內容長度 → 判 EEPROM／Flash」。
+     EM01 的 importExts 只有 .bin，所以 hex 那段實際上一律直通；走同一支的理由是
+     讓「大小判定的輸入是內容長度、不是 File.size」在程式碼上只有一條路徑（見該處註解）。 */
+  var img = wfgCodeLoadImage(rawBuf, fname);
+  if (!img.ok) return { ok: false, reason: img.reason };
+  var buf = img.bytes;
+  var L = WFG_EM01_LAYOUT[img.medium];
+  if (!L) return { ok: false, reason: t('wfg.codeErrTooSmall') };
+  if (L.base3 + 0x80 > buf.length) return { ok: false, reason: t('wfg.codeErrTooSmall') };
+  var sig = wfgGpoDecodeAt(buf, L.base1, L.base2);
+  var frame = wfgEm01Frame(buf);
+  if (!wfgEm01Sane(buf, L, sig, frame)) {
+    return { ok: false, reason: t('wfg.codeErrNotThisModel').replace(/\{m\}/g, 'EM01 ' + L.key) };
+  }
+  var _rdMode = ((buf[L.base1 + 0x04] >> 6) & 3);
+  var gateType = (_rdMode === 0) ? 'single' : (_rdMode === 1) ? 'dual' : null;
+  function _frm12(rel) {
+    var a = L.base1 + rel;
+    return (a + 1 < buf.length) ? (buf[a] | ((buf[a + 1] & 0x0F) << 8)) : 0;
+  }
+  var frmNo = { f0: _frm12(0x2E), f1: _frm12(0x30), f2: _frm12(0x32) };
+  var ht = frame.hactive + frame.hblank, vt = frame.vactive + frame.vblank;
+  var eff = (gateType === 'dual') ? vt * 2 : vt;
+  var overflow = [], dlyOver = [], nEn = 0;
+  for (var i2 = 0; i2 < sig.length; i2++) {
+    var s2 = sig[i2];
+    if (!s2.enable) continue;
+    nEn++;
+    var mx = s2.st_line;
+    if (s2.sp_line !== 16383 && s2.sp_line > mx) mx = s2.sp_line;
+    if (mx > eff - 1) overflow.push(s2.name + '(' + mx + ')');
+    if (s2.r_dly > ht || s2.f_dly > ht) dlyOver.push(s2.name + '(' + Math.max(s2.r_dly, s2.f_dly) + ')');
+  }
+  /* checksum 與 EM02 同一個算法：全檔無號位元組累加（32-bit）。
+     🔴 用 **rawBuf**（使用者手上那個檔）而不是解碼後的映像 —— 檔名上的 `_CKS_xxxxxx`
+     是對檔案算的，拿映像去算 hex 來源就對不上。bin 兩者相同。 */
+  var cks = 0; for (var b = 0; b < rawBuf.length; b++) cks += rawBuf[b];
+  cks = cks >>> 0;
+  var det = 'EM01 ' + L.key + ' (' + buf.length + ' B' + (img.srcFormat === 'hex' ? ', from .hex' : '') + ')';
+  det += ' / GPO @0x' + L.base1.toString(16).toUpperCase() + '/0x' + L.base2.toString(16).toUpperCase();
+  det += ' / CKS 0x' + wfgEm02Hex(cks, 6);
+  det += ' / GATE ' + (gateType ? gateType.toUpperCase() : '(未變更)') + ' (rd_mode=' + _rdMode + ')';
+  det += ' / FRM_NO ' + frmNo.f0 + '/' + frmNo.f1 + '/' + frmNo.f2;
+  det += ' / EN ' + nEn + '/18';
+  if (!gateType) det += '\n' + t('wfg.codeTriGate').replace('{v}', String(_rdMode));
+  if (nEn < 4) det += '\n' + t('wfg.codeEm01FewEnabled').replace('{n}', String(nEn));
+  if (overflow.length) det += '\n' + t('wfg.codeOverflow').replace('{s}', overflow.join(', '));
+  if (dlyOver.length) det += '\n' + t('wfg.codeDlyOver').replace('{s}', dlyOver.join(', ')).replace('{h}', String(ht));
+  return { ok: true, signals: sig, frame: frame, base1: L.base1, cks: cks,
+           gateType: gateType, frmNo: frmNo, applied: 18, detail: det, em01Layout: L.key };
+}
+window.wfgEm01ParseBin = wfgEm01ParseBin;
+/* 匯出：regAddr 與 EM02 逐項相同（見上方 ②），所以只是換一張 label 不同的表。
+   若日後查出某一顆位址不同，改它自己這張表即可，產生器一行都不用動。 */
+var WFG_GPO_REGMAP_EM01 = {
+  label: 'EM01',
+  base: function(i) { return (i < 2) ? (0x05A0 + i * 16) : (0x0600 + (i - 2) * 16); },
+  oax:  function(i) { return 0x0583 + i; },
+  rdMode: 0x0504,
+  frmNo: [0x052E, 0x0530, 0x0532]
+};
+function wfgEm01BuildScript(opt) {
+  opt = opt || {};
+  opt.regmap = WFG_GPO_REGMAP_EM01;
+  return wfgEm02BuildScript(opt);
+}
+window.wfgEm01BuildScript = wfgEm01BuildScript;
 
 /* ── 型號無關：把解析結果套進 WFG ───────────────────────────────────────── */
 function wfgCodeApplyToWfg(res) {

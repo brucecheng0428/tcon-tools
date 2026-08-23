@@ -22,6 +22,91 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.11.0 — 2026-08-23 ｜ MINOR
+
+**EM01 的 Code 匯入／匯出建置完成**，仿照既有的 EM02／E512。原本按下匯入／匯出會跳「目前還沒建置」並取消，現在可以用了。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+判定表「功能增減：**新增**獨立功能」→ **MINOR**；「操作流程」沒有任何入口移位或消失 → PATCH；
+「既有功能的輸出」EM02／E512 的解析與匯出一位元未動 → 不觸發。
+R1 不適用（不是修 bug）。R3「這一版之後使用者能多做一件事」→ MINOR。R4 不適用（沒改預設值，預設機種仍是 EM01）。
+R2：**不是新的一波** —— 沒有任何既有操作失效，是在 v4.x 這一波內補齊型號。⇒ 取最高者 **MINOR**。
+（不標 `⚠ 輸出變更`：EM02／E512 的既有輸出完全不變，本版只是讓原本無法操作的型號可以操作。）
+
+### EM01 與 EM02／E512 的結構差異（逐項查證，不是「長得像」就套）
+
+權威來源：`TCON_UI/Register_Excel/EM01/(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`
+
+| 項目 | EM02 | E512 | **EM01** |
+|---|---|---|---|
+| GPO 記錄在 chunk 內的排法 | — | 同 EM02 | **與 EM02 逐位元相同**（byte0 各 bit、st/sp 14bit、r/f_dly 16bit、oax、bit8 nibble 全部一致） |
+| regAddr | 0x05A0/0x05B0、0x0600+16(i−2)、oax 0x0583+i、bit8 0x05C2+⌊(i+1)/2⌋、rd_mode 0x0504、FRM_NO 0x052E/30/32 | 同 | **完全相同** |
+| `sys` frame timing | byte 對齊 | nibble | **nibble**（同 E512 型，與 EM02 不同） |
+| .bin 裡 GPO 的位置 | 16 個候選（前置 chunk 可能被關掉） | 固定一組 | **依載體固定兩組**（見下） |
+| 多出來、WFG 沒有對應欄位的東西 | `_2nd` 延遲 | — | `_2nd` 延遲（EM02 也有，同樣不寫）＋ `rt8_tcon_3` 的 ext1~ext8 共 8 條 |
+
+⇒ 結構同源，只有「sys 打包方式」與「檔案位移」兩處不同，兩者都已有既有樣板（E512 就是固定位移＋nibble sys），所以照既有模式實作，沒有動到任何共用的解析框架。
+
+### 🔴 EEPROM 版與 Flash 版：GPO 的位置**不一樣**（Bruce 指定必查項）
+
+| 版本 | 判定（依**實際內容長度**） | rt8_tcon_1 | rt8_tcon_2 | rt8_tcon_3 | 依據 |
+|---|---|---|---|---|---|
+| EEPROM | ≤ 8192 B | **0x0457** | **0x0556** | **0x0658** | Excel `bank_offset` 的「EEPROM Low Address」欄；各 bank 緊密打包、之間夾 2 bytes CRC |
+| Flash | ≥ 131072 B | **0x0500** | **0x0600** | **0x0700** | 平坦映像：fileOff ＝ regAddr |
+
+兩者的**內容格式相同**，差的只有 chunk 起點。自我驗證：EEPROM 的 `0x0556 + 0x100 + 2 = 0x0658` 與表上 rt8_tcon_3 的位址完全吻合。
+
+實測（`TCON/Model` **全庫**掃描，用本版 `wfg.html` 的原始碼直接跑，非重寫版）：
+
+- EM01 **101/101 全部接受**（EEPROM 尺寸 10 ＋ Flash 尺寸 91）
+- 負控制 EM02 **118** 檔 ＋ E512(RM80020) **106** 檔 → **0 個誤收**
+- 反向：EM01 的 101 檔餵給 EM02 解析器（16 候選）與 E512 解析器 → **0 個誤收**
+
+交叉印證公式正確：flash 的 `RM80203.PB_BOE_B19_..._DCLK416...` 解出 3584×1440 ＋ hblank 280 ＋ vblank 50，×144 Hz ⇒ Pixel Rate 829 MHz ⇒ TX DCLK 414.5 MHz，與檔名裡的 `DCLK416` 相符。
+
+### 型號無關的共用層（Bruce 2026-08-23：「將通則先為 NB 鋪路」）
+
+放在 codec 表之外、任何型號都能呼叫：
+
+| 函式 | 做什麼 |
+|---|---|
+| `wfgCodeDecodeIntelHex(buf)` | Intel HEX → 位元組映像。record type 00/01/02/04；**每行驗 checksum，壞一行整份拒絕**，不做「盡量讀」 |
+| `wfgCodeToImage(buf, fname)` | 副檔名是 `.hex` 就解碼，否則直通。回 `{ok, bytes, srcFormat}` |
+| `wfgCodeClassifyMedium(len, opt)` | 依**實際內容長度**回 `'eeprom'`／`'flash'`／`null`（不合法）。門檻可由 codec 覆寫 |
+| `wfgCodeLoadImage(buf, fname, opt)` | codec 的單一入口，一次拿到 `{bytes, srcFormat, contentLen, medium}` |
+
+🔴 **為什麼不能用 `File.size` 判定**：MNT 一律 bin（檔案大小＝內容大小），但 NB 的 **Flash 是 bin、EEPROM 才是 hex**（Bruce 2026-08-23）。hex 是文字格式，1 byte 寫成 2 字元再加位址／長度／checksum／換行 —— 實測 `RM81002_..._20230728.hex` 內容只有 4096 B、檔案卻是 12 KB 上下，直接比 8192 會**整個判錯載體**。
+
+EM01 的 `importExts` 依查證結果維持 `['.bin']`：`TCON/Model` 底下 EM01 資料夾的 111 個 code 檔**全部是 .bin，一個 .hex 都沒有**（.hex 全部落在 RM81002／RM81003／DAZ7353 這些 NB 型號）。hex 路徑是替 NB 預留的，沒有替 NB 預先發明任何解析邏輯。
+
+### 大小規則（Bruce 2026-08-23 定案）
+
+`≤ 8192 B` ＝ EEPROM、`≥ 131072 B` ＝ Flash、**中間一律拒絕匯入**並跳訊息說明兩個合法區間與這個檔案的實際大小；不猜、不靠邊、不改變任何既有設定。邊界值本身合法（8192 屬 EEPROM、131072 屬 Flash）。NB 常見的 4 KB bin 落在 EEPROM 區間，不會因為小而被擋。
+
+### 防呆條件：兩條刻意**不放**進來（因為實測會誤殺真實檔）
+
+- 「`r_dly`／`f_dly` 必須 ≤ HTOTAL」—— 2 個真實 Flash 檔（FHD320 的 Initial 與 PinMuxOK_TxNG）xstb `f_dly = 2140` > HTOTAL 2080，那是 code 裡殘留的樣板值 ⇒ 改成**警告**，不當拒絕理由。
+- 「至少要有 N 條 enable」—— 5 個真實 Flash 檔（檔名帶 `MCUv0079` 的那批）暫存器映像裡只有 3 條 enable，同一顆面板的前一版是 14 條，兩版差異區段正好只有「GPO 區 ＋ 0x10000 起的韌體區」。那是檔案內容本身如此 ⇒ 只擋「一條都沒有」，並在匯入提醒卡片明寫 `EN n/18`。
+
+### 驗證（headless Chrome，走使用者真正的按鈕路徑，**89 項全過、0 失敗**）
+
+改機種下拉 → 按匯入鈕 → `wfgCodeImport()` 建 file input → onchange → FileReader → `parseCode` → `wfgCodeApplyToWfg` → 提醒卡片，整條產品路徑一行都沒繞過（只把「作業系統的檔案選擇對話框」換成把 File 塞進 `input.files`）。
+
+- 5 個**真實** EM01 檔（2 EEPROM ＋ 3 Flash）：18 條 GPO × 15 欄位 ＝ **270 格逐格相符**，frame 參數、GATE TYPE、FRM_NO 全對；提醒卡片標明「EM01 EEPROM／Flash」，兩項欄位可用且 UI DCLK ＝ TX DCLK × 1。
+- 匯出：按匯出鈕產生的 259 行 `write -m`，**每一行的遮罩寫入值與原始 bin 對應位元組逐位元相符**（EEPROM 與 Flash 各驗一次）。
+- round-trip：EEPROM 改 `ck1.ST_LINE` → 匯出只有那 2 行變；Flash 改 `lc.SP_LINE` ＋ `vst1.OAX_SEL` → 只有對應的 3 行變。
+- 負控制：64 KB 合成檔被拒且訊息含 65536／8192／131072、真實 EM02 檔與真實 E512 檔在 EM01 下被拒、被拒後 18 條 GPO 一格未動；E503 匯入與 EN01 匯出仍攔「尚未建置」。
+- 回歸：EM02 選 EM02 檔仍可匯入且匯出正常、E512 選 E512 檔仍可匯入。
+- 共用層：hex 解碼正確、checksum 錯與缺 EOF 都被拒、`.bin` 直通、6 個大小門檻邊界值判定正確。
+
+### 待 Bruce 裁示（本版**沒有**動）
+
+- **`_2nd` 延遲暫存器不寫**：EM01 與 EM02 都有 `r_dly_*_2nd`／`f_dly_*_2nd`（每條訊號 +0xC/+0xE），WFG 沒有對應欄位，現行 EM02 匯出也不寫。維持一致，但這代表匯出的 script 改了 `r_dly` 卻不動 `r_dly_2nd`，兩者會不同步。要不要一起寫（或至少在 script 裡出一行警告）請裁示。
+- **含 MCU 韌體的 Flash code**：暫存器映像裡的 GPO 多半是關的，推測實際設定由韌體在開機後寫入（證據：`MCUv0079` 那批與前一版的差異只有 GPO 區與韌體區）。**這只是推測，尚未證實**，所以 UI 訊息只陳述「映像裡只有 n/18 條 enable，這是檔案內容本身如此」，沒有把推測寫進去。
+- **資料夾名 vs 實際大小不一致**：`(驗證)BOE_B4_27.0_FHD_320Hz_..._EM01_Flash_溥哲` 資料夾裡有 1 個 8192 B 的檔（檔名本身就寫 `EEPROM_Initial`）。⇒ 資料夾名是專案層級的標示，**單一檔案的版本仍須以實際大小判定**，本版就是這樣做的。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.10.1 — 2026-08-23 ｜ PATCH ｜ ⚠ 輸出變更
 
 **v4.10.0 的「Frame Rate 滑桿右端＝真上限」只改了一半：漏掉「改 Frame Rate 的值」那條路徑。**
