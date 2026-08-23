@@ -2455,8 +2455,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4180"></script>
-<script src="common/i18n.js?v=20260824wfg4180"></script>
+<script src="common/version.js?v=20260824wfg4190"></script>
+<script src="common/i18n.js?v=20260824wfg4190"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -2484,15 +2484,25 @@ var WFG_VIRTUAL_ANALOG_DEFAULTS = { 18: 1 };
 // Shared Level Shifter settings that apply to ALL CKO output channels.
 // Modes: 'individual' = 1-in-1-out, 'condensed' = 1-in-N-out (VCE),
 //        'dual_cpv' = 2-in-N-out, 'quad_cpv' = 4-in-N-out (v3.18.0)
+/* v4.19.0：CKO 的訊號來源預設表抽成常數 —— `wfgNormalizeCkSources()` 補齊時要用它當退路。
+   索引即 gpio index：4~11 ＝ CK1~CK8，兩輪循環共 16 項（涵蓋 phase 最大值 16）。 */
+var WFG_CK_SOURCES_DEFAULT = [4, 5, 6, 7, 8, 9, 10, 11, 4, 5, 6, 7, 8, 9, 10, 11];
+
 var wfgLsGlobal = {
   mode: 'individual',
-  phase: 6,             // GOA phase: 4/6/8/10/12/14/16 → number of CKO channels
+  /* 🔴 v4.19.0：預設 GOA phase 由 6 改為 **12**（Bruce 2026-08-24 裁示）。
+     CKO 的數量恆等於 phase，要讓 CKO1~CKO12 預設就存在，這一格就必須是 12。
+     實測（jsdom 讀 source_ck_idx）：6→12 之後 **CKO1~CKO6 的訊號來源一個都沒變**
+     （仍是 CK1~CK6）、**GATE 的來源也沒變**（gate_line 預設 1 ⇒ ckoIndex=(1-1)%phase=0，
+     與 phase 無關），新增的 CKO7~CKO12 取 ck_sources[6..11] = CK7,CK8,CK1,CK2,CK3,CK4。
+     ⇒ 既有波形零改變，只是多 6 條。 */
+  phase: 12,            // GOA phase: 4/6/8/10/12/14/16 → number of CKO channels
   vgh: 30,              // VGH voltage (V)
   vgl: -10,             // VGL voltage (V)
   curvature_rise: 127,  // RC charge time (0~255)
   curvature_fall: 127,  // RC discharge time (0~255)
   // Individual mode: each CKO[i] → source_ck_idx[i] (GPIO index of CK1~CK8)
-  ck_sources: [4, 5, 6, 7, 8, 9, 10, 11, 4, 5, 6, 7, 8, 9, 10, 11], // up to 16 CKOs
+  ck_sources: WFG_CK_SOURCES_DEFAULT.slice(), // up to 16 CKOs
   // Condensed mode: single VCE clock source
   vce_ck_idx: 4,        // GPIO index of VCE clock (default CK1)
   cond_phase: 8,        // Condensed phase count: 4/6/8 (how many CKH outputs participate)
@@ -2782,6 +2792,7 @@ function wfgPanelNameNumber() {
 
 /* 8 色一輪：紫／藍／綠／黃／橙／紅／棕／灰，重複到蓋滿所有通道。
    🔴 v4.18.0：通道格數上限提高到 40（見 `WFG_CHANNEL_MAX`），配色補到 40 色（8 色 × 5 輪整）。
+   v4.19.0：預設 33 格全部指派，第 n 格取色仍是 `(n-1) % 8` ⇒ 紫／藍／綠／黃／橙／紅／棕／灰 循環。
    取色本來就是 `idx % WFG_CH_COLORS.length`（會自動循環），所以就算不補也不會出錯；
    補到 8 的整數倍只是讓人不必心算「24 之後會繞回哪一格」；索引一律走 `%`，長度多於通道數無妨。
    Bruce 2026-08-23：「顏色也要按照原本的順序，就是紫、藍、綠、黃……以此類推。」 */
@@ -2792,52 +2803,32 @@ const WFG_CH_COLORS = [
   '#FF00FF','#0000FF','#00FF00','#FFFF00','#FF8000','#FF0000','#8B4513','#AAAAAA',
   '#FF00FF','#0000FF','#00FF00','#FFFF00','#FF8000','#FF0000','#8B4513','#AAAAAA'
 ];
-/* ══ 🔴 v4.18.0：輸出通道數 ═══════════════════════════════════════════════════
-   Bruce 2026-08-23（第二則，以這一則為準）：
-   「輸出通道 CKO 的部分先預設最多到 12 個，就是 CKO1、CKO2 一直到 CKO12」
+/* ══ 🔴 v4.19.0：輸出通道＝33 格，預設就把訊號源排滿 ═══════════════════════
+   Bruce 2026-08-24 定案（v4.18.0 交付後他實測發現需求沒達成，這一則是更正後的完整規格）：
+   > 「我當然知道可以選，但是我要一開始善用這 33 個通道。CKO 要從 1 到 12，包含 SD1，
+   >   然後 Gate 的訊號、SPX 口訊號都要在預設通道出現，只不過匯入的時候，
+   >   類比訊號跟面板訊號都不顯示而已。」
+   > 「還沒匯入的時候，首次打開頁面時只顯示數位訊號的部分就好，所以一樣是到 18 格。」
 
-   ── 先講清楚 CKO 是什麼、跟那 18 條 GPO 什麼關係 ──────────────────────
-   `WFG_GPIO_NAMES` 前 **18** 個是固定的數位訊號（xstb…gpo1，`WFG_DIGITAL_GPIO_COUNT`）；
-   第 19 個是 SD1；**再往後的 `cko1…ckoN` 是虛擬類比 slot**，由
-   `wfgLsRebuildCkoSlots()` 依 `wfgLsGlobal.phase` **動態建立**（合法值 4/6/8/10/12/14/16，
-   預設 6），最後再接 `gate` 與 `subpixel`。
-   ⇒ **CKO 與那 18 條是不同組的東西**，擴充 CKO 不會動到 18 條的固定結構。
+   ── 為什麼是 33 ────────────────────────────────────────────────────
+   18（固定數位 GPO）＋ 1（SD1）＋ 12（CKO，＝phase）＋ 1（GATE）＋ 1（SUBPIXEL）＝ **33**
+   ＝ `WFG_GPIO_NAMES.length`（phase=12 時）。所以預設通道不是「建 N 個空格再想辦法填」，
+   而是**直接一格對一個訊號源**，第 i 格 ↔ `WFG_GPIO_NAMES[i]`，順序天然正確。
 
-   ── 為什麼「最多只到 CKO6」──────────────────────────────────────────
-   CKO 的**數量本來就等於 phase**，預設 6 ⇒ 只有 cko1…cko6。phase 設成 12 就會有
-   cko1…cko12 —— 那一格是硬體參數（GOA 相位數），**本版不動它的預設值**：改了會直接
-   改變預設波形，那是另一件事，要由 Bruce 裁示。
+   （v4.18.0 曾把數字寫成 32 —— 那是**匯入 code 之後**的格數，當時 SD1 沒有被指派到任何一格。
+     Bruce 要求 SD1 也要進去，因此更正為 33。）
 
-   本版要解的是**容器不夠**：訊號源總數 ＝ 18（GPO）＋ 1（SD1）＋ phase（CKO）
-   ＋ 1（GATE）＋ 1（SUBPIXEL）＝ **21 ＋ phase**，而輸出通道原本硬編 **24**。
+   ── 預設可見性 ────────────────────────────────────────────────────
+   第 1~18 格（數位）`visible = true`；第 19~33 格（SD1／CKO／GATE／SUBPIXEL）
+   `visible = false` —— 首次進站畫面只有 18 條數位訊號。
+   類比／面板通道的可見性一律綁在它自己那顆 gpio 的 `enable` 上（見 `wfgLsSyncChannels`），
+   所以「初始 rebuild 時 enable=false ⇒ 不顯示」與「使用者之後自己把 phase 調大 ⇒ 顯示」
+   兩種情境會自動分開，不需要各自寫一份規則。
 
-   | phase | 訊號源（21＋phase） |
-   |---|---|
-   | 4  | 25 |
-   | 6（預設） | 27 |
-   | 8  | 29 |
-   | 10 | 31 |
-   | **12（Bruce 指定要能到 CKO12）** | **33** |
-   | 14 | 35 |
-   | 16 | 37 |
-
-   ── 🔴 舊版卡在 CKO6 的真正原因（實測，不是猜的）──────────────────────
-   一開始我以為是「套用快捷設定／匯入設定檔」那條路徑的 `ci < 24` 截斷。**那條只是其中
-   一半。** 用 jsdom 走真實匯入路徑量出來的事實是：匯入 E503 之後
-   `wfgChannels.length` 變成 **26**，一格空的都不剩 —— 因為
-   `wfgCodeResetChannels()` 會把 `gpioIdx < 0` 的空白通道整批丟掉（那是 v4.0.2
-   為了「畫面上一堆空白列」修的，本身沒錯）。於是之後把 phase 調到 12 時，
-   `wfgLsSyncChannels()` 想幫 cko7…cko12 找空位，**找不到任何一格**，就靜默放棄。
-   ⇒ 光把初始格數從 24 加大治不好這個病，反而會讓首次進站多出一排「無信號」空白列
-   （實測 HEAD 24 列 → 改成 36 就變 36 列，其中 28 列是空的）。
-
-   ── 本版的作法：初始格數不動，不夠時才長出來 ────────────────────────
-   `WFG_CHANNEL_INIT` 維持 **24**（首次進站的畫面與 v4.17.1 完全一樣，不多出空白列）；
-   `wfgLsSyncChannels()` 找不到空格時改為**動態 push 一格**，上限 `WFG_CHANNEL_MAX`。
-   取 **40**：phase 16 需要 18＋1(SD1)＋16＋1＋1 ＝ 37 格，40 有餘裕，
-   而且剛好是配色盤的 5 輪整數（8 色 × 5）。 */
-var WFG_CHANNEL_INIT = 24;   // 初始／重設時建立的空白通道格數（維持原值）
-var WFG_CHANNEL_MAX  = 40;   // 通道格數上限；不足時由 wfgTakeChannelSlot() 動態長出
+   ── 上限 ──────────────────────────────────────────────────────────
+   `WFG_CHANNEL_MAX = 40`：phase 16 時需要 18＋1＋16＋1＋1 ＝ 37 格，有餘裕；
+   40 也剛好是配色盤的 5 輪整數（8 色 × 5）。 */
+var WFG_CHANNEL_MAX  = 40;   // 通道格數上限；不足時由 wfgTakeChannelSlot() 動態長出   // 通道格數上限；不足時由 wfgTakeChannelSlot() 動態長出
 
 // ─── Default GPIO factory ───
 // waveform_type: 0=digital (default), 1=source_driver, 2=level_shifter
@@ -3094,6 +3085,26 @@ function wfgTakeChannelSlot() {
   return wfgChannels.length - 1;
 }
 
+/* ══ 🔴 v4.19.0：ck_sources 長度不足時循環補齊 ═══════════════════════════
+   `individual` 模式下 CKO_k 的波形完全由 `ck_sources[k]` 指到的那條 CK 決定；
+   查不到就是 `-1`，`_wfgLsBuildIndividualEvents()` 直接回傳空陣列 ⇒ **畫出來是平線**。
+   兩個內建快捷設定原本只帶 6 項，phase 改成 12 之後 CKO7~CKO12 全部會是平線（實測確認）。
+   🔴 補齊必須**循環該份設定自己帶的那幾項**，不能補成程式內建的 16 項表。
+   實測到的坑：內建表是 CK1~CK8 兩輪，但快捷設定 `fhd_60hz_sg` 只啟用了 CK1~CK6，
+   CK7／CK8 這兩條數位訊號**根本沒有轉態** ⇒ 補成內建表之後 CKO7←CK7、CKO8←CK8
+   一樣是平線（events=0）。循環自帶的 6 項才會得到 CKO7←CK1、CKO8←CK2，全部有波形。
+   兩個內建快捷設定因此**維持 6 項**，由這支在載入後補齊。 */
+function wfgNormalizeCkSources() {
+  var src = wfgLsGlobal.ck_sources;
+  if (!Array.isArray(src) || src.length === 0) {
+    wfgLsGlobal.ck_sources = WFG_CK_SOURCES_DEFAULT.slice();
+    return;
+  }
+  var need = Math.max(WFG_CK_SOURCES_DEFAULT.length, wfgLsGlobal.phase | 0);
+  var base = src.slice();
+  while (src.length < need) src.push(base[src.length % base.length]);
+}
+
 function wfgLsSyncChannels() {
   var numCko = wfgLsGlobal.phase;
   _wfgSlotGrew = false;
@@ -3101,7 +3112,10 @@ function wfgLsSyncChannels() {
   var assignedCko = {};
   for (var ci2 = 0; ci2 < wfgChannels.length; ci2++) {
     var gpi = wfgChannels[ci2].gpioIdx;
-    if (gpi >= WFG_DIGITAL_GPIO_COUNT + 1 && gpi < WFG_GPIO_NAMES.length) {
+    /* 🔴 v4.19.0：下界由 `+1` 改成含 `WFG_DIGITAL_GPIO_COUNT`（＝18，SD1）。
+       舊碼從 19 起算 ⇒ 已經指派好的 SD1 不會被記成「已指派」⇒ 下面的補位段會**再補一格**，
+       實測首次進站因此變成 34 格、SD1 出現兩次。 */
+    if (gpi >= WFG_DIGITAL_GPIO_COUNT && gpi < WFG_GPIO_NAMES.length) {
       assignedCko[gpi] = true;
     }
   }
@@ -3113,6 +3127,19 @@ function wfgLsSyncChannels() {
       wfgChannels[ci3].visible = false;
     }
   }
+  /* 🔴 v4.19.0：SD1（index 18）也要有自己的一格。
+     舊碼只補 cko／gate／subpixel 三種，SD1 **從來沒有被指派過** —— 它出現在通道下拉的
+     選項裡，但預設一格都沒有（v4.17.1 實測也是如此，是既有缺口不是新的回歸）。
+     Bruce 2026-08-24 要求 SD1 要在預設通道裡，補在這裡。 */
+  var _sd1Idx = wfgSd1SlotIdx();
+  if (!assignedCko[_sd1Idx] && _sd1Idx < WFG_GPIO_NAMES.length) {
+    var _sc = wfgTakeChannelSlot();
+    if (_sc >= 0) {
+      wfgChannels[_sc].gpioIdx = _sd1Idx;
+      wfgChannels[_sc].name = 'SD1';
+      wfgChannels[_sc].visible = !!(wfgGpios[_sd1Idx] && wfgGpios[_sd1Idx].enable);
+    }
+  }
   // Assign unassigned CKO slots to empty channel slots
   for (var ki2 = 0; ki2 < numCko; ki2++) {
     var ckoIdx = WFG_DIGITAL_GPIO_COUNT + 1 + ki2;
@@ -3121,7 +3148,12 @@ function wfgLsSyncChannels() {
     if (ci4 < 0) break;                       // 通道格數已達上限
     wfgChannels[ci4].gpioIdx = ckoIdx;
     wfgChannels[ci4].name = 'CKO' + (ki2 + 1);
-    wfgChannels[ci4].visible = true;
+    /* 🔴 v4.19.0：可見性改綁那顆 gpio 自己的 `enable`，不再無條件 true。
+       這一行同時服務兩種情境，不必各寫一份規則：
+         · 首次進站／重設 → `wfgLsRebuildCkoSlots(false)` ⇒ enable=false ⇒ 不顯示
+           （Bruce：「首次打開頁面時只顯示數位訊號的部分就好」）
+         · 使用者自己把 phase 調大 → `wfgLsRebuildCkoSlots()` 預設 true ⇒ 顯示（維持原本手感） */
+    wfgChannels[ci4].visible = !!(wfgGpios[ckoIdx] && wfgGpios[ckoIdx].enable);
   }
   // Gate channel (panel signal) — one slot, right after the CKOs
   var gateIdx = wfgGateSlotIdx();
@@ -3130,7 +3162,8 @@ function wfgLsSyncChannels() {
     if (ci5 >= 0) {
       wfgChannels[ci5].gpioIdx = gateIdx;
       wfgChannels[ci5].name = WFG_GATE_NAME_PREFIX + wfgPanelNameNumber();
-      wfgChannels[ci5].visible = !!wfgPanel.gate_show;
+      // v4.19.0：同 CKO —— 再 AND 上 gpio 的 enable，首次進站才不會顯示
+      wfgChannels[ci5].visible = !!wfgPanel.gate_show && !!(wfgGpios[gateIdx] && wfgGpios[gateIdx].enable);
     }
   }
   // Subpixel channel (panel signal, v3.8.0) — one slot, right after the gate
@@ -3144,7 +3177,8 @@ function wfgLsSyncChannels() {
          autosave 與匯出檔，改了會破壞相容。「變數叫 spx、UI 叫 Vpix」是刻意的，
          不是漏改。 */
       wfgChannels[ci6].name = WFG_SPX_NAME_PREFIX + wfgPanelNameNumber();
-      wfgChannels[ci6].visible = !!wfgPanel.spx_show;
+      // v4.19.0：同 CKO
+      wfgChannels[ci6].visible = !!wfgPanel.spx_show && !!(wfgGpios[spxIdx] && wfgGpios[spxIdx].enable);
     }
   }
   /* ══ 🔴 v4.18.0：虛擬通道依訊號順序歸位 ═══════════════════════════════
@@ -3157,7 +3191,7 @@ function wfgLsSyncChannels() {
   if (_wfgSlotGrew) {
     var _rows = [], _objs = [];
     for (var _si = 0; _si < wfgChannels.length; _si++) {
-      if (wfgChannels[_si].gpioIdx >= WFG_DIGITAL_GPIO_COUNT + 1) {
+      if (wfgChannels[_si].gpioIdx >= WFG_DIGITAL_GPIO_COUNT) {   // v4.19.0：含 SD1（18）
         _rows.push(_si); _objs.push(wfgChannels[_si]);
       }
     }
@@ -3202,6 +3236,39 @@ function wfgUpdateSpxChannelName() {
 }
 
 // ─── Default Channel factory ───
+/* ══ 🔴 v4.19.0：預設通道的名稱與整組建立 ═══════════════════════════════
+   第 i 格 ↔ `WFG_GPIO_NAMES[i]`，一格對一個訊號源，順序天然正確：
+     0~17  數位 GPO（XSTB…GPO1）  ← 顯示
+     18    SD1                     ← 不顯示
+     19~30 CKO1…CKO12（＝phase）   ← 不顯示
+     31    GATE（G<n>）            ← 不顯示
+     32    SUBPIXEL（Vpix_<n>）    ← 不顯示
+   名稱一律大寫，與「數位信號」卡片一致（沿用 v4.0.3 的規則）。 */
+function wfgDefaultChannelName(gi) {
+  var n = WFG_GPIO_NAMES[gi] || '';
+  if (gi < WFG_DIGITAL_GPIO_COUNT) return n.toUpperCase();
+  if (n === 'gate') return WFG_GATE_NAME_PREFIX + wfgPanelNameNumber();
+  if (n === 'subpixel') return WFG_SPX_NAME_PREFIX + wfgPanelNameNumber();
+  var m = /^cko(\d+)$/.exec(n);
+  if (m) return 'CKO' + m[1];
+  return n.toUpperCase();
+}
+
+/* 建立「預設的一整組通道」：一格對一個訊號源，數位可見、其餘不可見。
+   🔴 這支只用在**首次進站**與**重設回預設**兩條路徑。匯入 code、套用快捷設定、
+   匯入設定檔都不呼叫它 —— 那三條各自有自己的通道來源，蓋過去會把使用者的配置洗掉。 */
+function wfgBuildDefaultChannels() {
+  wfgChannels = [];
+  var n = Math.min(WFG_GPIO_NAMES.length, WFG_CHANNEL_MAX);
+  for (var i = 0; i < n; i++) {
+    var ch = wfgMakeChannel(i);
+    ch.gpioIdx = i;
+    ch.name = wfgDefaultChannelName(i);
+    ch.visible = (i < WFG_DIGITAL_GPIO_COUNT);
+    wfgChannels.push(ch);
+  }
+}
+
 function wfgMakeChannel(idx) {
   /* v3.10.0: color0 ＝「原本顏色」的基準值。出廠時等於色盤色，套 preset／匯入設定時
      一併改寫成該份設定指定的顏色 —— 因為 preset 的 color 不一定等於出廠色盤
@@ -3237,7 +3304,7 @@ const WFG_PRESETS = {
       {"name":"gpo1","act_type":0,"r_ph":0,"f_ph":0,"st_line":0,"sp_line":0,"r_dly":0,"f_dly":0,"f_st_sel":true,"ini_val":0,"toggle":false,"tg_ini_val":0,"inv":false,"enable":false,"oax_mode":0,"oax_sel":0},
       {"name":"sd1","waveform_type":1,"enable":true,"analog_config":{"pos_gamma_min":5.2,"pos_gamma_max":9.8,"neg_gamma_min":0.2,"neg_gamma_max":4.8,"xpol_gpio_idx":1,"xstb_gpio_idx":0,"curvature_rise":127,"curvature_fall":127,"gray_mode":2,"gray_fixed_level":128,"source_ck_idx":-1,"bit_depth":8,"voltage_min":0,"voltage_max":10,"sd_gamma":2.2}}
     ],
-    lsGlobal: { mode: 'individual', phase: 6, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cpv1_ck_idx: 4, cpv2_ck_idx: 5 },
+    lsGlobal: { mode: 'individual', phase: 12, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cpv1_ck_idx: 4, cpv2_ck_idx: 5 },
     lineBuffer: 4,
     channels: [
       {"name":"VST1","gpioIdx":2,"color":"#FF00FF","visible":true},
@@ -3291,7 +3358,7 @@ const WFG_PRESETS = {
       {"name":"cko5","waveform_type":2,"enable":true,"analog_config":{"voltage_min":-10,"voltage_max":30,"curvature_rise":127,"curvature_fall":127,"source_ck_idx":8,"cko_index":4,"showCursors":false}},
       {"name":"cko6","waveform_type":2,"enable":true,"analog_config":{"voltage_min":-10,"voltage_max":30,"curvature_rise":127,"curvature_fall":127,"source_ck_idx":9,"cko_index":5,"showCursors":false}}
     ],
-    lsGlobal: { mode: 'dual_cpv', phase: 6, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cond_line_mode: '1line', cond_2line_type: 'type1', cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge: 'falling' },
+    lsGlobal: { mode: 'dual_cpv', phase: 12, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cond_line_mode: '1line', cond_2line_type: 'type1', cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge: 'falling' },
     lineBuffer: 4,
     channels: [
       {"name":"VST1","gpioIdx":2,"color":"#FF00FF","visible":true},
@@ -3330,8 +3397,12 @@ const WFG_PRESETS = {
 // ─── State ───
 // Build initial GPIO array — SD1 only at this point; CKO slots added by wfgLsRebuildCkoSlots()
 let wfgGpios = WFG_GPIO_NAMES.map(function(n, i) { return wfgMakeGpio(n, i); });
+/* 🔴 v4.19.0：這一行執行時 `WFG_GPIO_NAMES` 還只有 19 個（18 數位＋SD1）——
+   CKO／GATE／SUBPIXEL 要等下一行的 `wfgLsRebuildCkoSlots(false)` 才建出來。
+   所以這裡先建前 19 格，剩下的 14 格由該函式裡的 `wfgLsSyncChannels()` 依序長出，
+   長完剛好 33 格且順序正確（實測驗證，不是推論）。 */
 let wfgChannels = [];
-for (let i = 0; i < WFG_CHANNEL_INIT; i++) wfgChannels.push(wfgMakeChannel(i));
+wfgBuildDefaultChannels();
 wfgLsRebuildCkoSlots(false); // create default CKO slots, disabled until preset loaded
 
 /* v3.29.0：`dclkMode` 預設 'fixed'（定頻應用，＝ v3.28.2 為止的行為）；
@@ -6103,6 +6174,9 @@ const WFG_INTERNAL_COLORS = { rxde: '#38bdf8', txde: '#f97316', rph: '#4ade80', 
    位移沒超過這個值就當點擊 —— 手指／滑鼠都很難做到 0 位移。 */
 const WFG_CLICK_SLOP = 4;
 const WFG_ROW_H = 40;
+/* v4.19.0：波形區 canvas 的最小高度。只剩一條可見通道時避免時間軸與捲動過度侷促；
+   **固定值，不隨視窗大小變動** —— 會隨視窗長大的那條路（viewH）已於本版移除。 */
+const WFG_CANVAS_MIN_H = 300;
 const WFG_ROW_GAP = 8;
 const WFG_LABEL_W = 110;
 const WFG_AXIS_H = 54; // Time(30) + Line(22) + 2px separator
@@ -25434,23 +25508,37 @@ window.wfgResizeCanvas = function() {
     for (var _ok in _ovlCnt) if (_ovlCnt[_ok] >= 2) _ovlGapSaved += (_ovlCnt[_ok] - 1) * WFG_ROW_GAP;
   }
   var contentH = WFG_AXIS_H + wfgInternalExtraH() + (sigCount + promotedExtra) * (WFG_ROW_H + WFG_ROW_GAP) + _analogExtraH - _ovlGapSaved + 10;
-  /* v3.17.1: `canvasTop` 夾在 0 以上。
-     這一段的原意是「內容很少時把 canvas 撐到填滿視窗，不要留一塊死白」，前提是
-     波形區的**頂端還在視窗裡**。但本函式由掛在 wrap 上的 ResizeObserver 驅動，
-     跑的時機是「任何讓 wrap 尺寸變動的事」—— 捲動位置是多少完全看當下。
+  /* ══ 🔴 v4.19.0：波形區高度只看內容，不再撐到填滿視窗 ═══════════════════════
+     Bruce 2026-08-24：「我匯入一個 TCON code 以後，預設的顯示確實只有數位訊號，
+     可是在波形區下方怎麼會預留一大堆空白區？……應該是我顯示數位訊號就這幾條，
+     這幾條顯示完以後，下面就應該直接到 overview 的最底端。」
 
-     🔴 手機版是單欄，波形區被推到頁面 2200px 處，使用者必須整頁捲動才看得到；
-     捲過去之後 `canvasTop` 變成大負數，`innerHeight - canvasTop - 70` 就隨捲動
-     距離線性膨脹（實測 wrapTop −1300 ⇒ viewH 2074），一旦超過 contentH 就被
-     下面的 max() 選中，canvas 被撐高 569px —— 那塊多出來的高度只畫得出背景格線，
-     沒有任何通道列，而且不會自己復原。
+     ── 根因（真實 Chrome 量出來的，不是推論）────────────────────────────
+     `contentH` **本來就只算可見通道**（上面的 `sigCount` 只數 `visible && gpioIdx>=0`），
+     所以空白不是「不可見通道也佔高度」。真正的來源是這一行原本的
+     `Math.max(contentH, viewH)` —— v3.17.1 加的「內容很少時把 canvas 撐到填滿視窗，
+     不要留一塊死白」。`viewH` 隨瀏覽器視窗高度線性增長，視窗一高就蓋過 contentH：
 
-     `canvasTop < 0` 代表「已經捲過去了」，此時「填滿視窗」這個意圖本來就不成立，
-     所以直接夾成 0。桌機不受影響：雙欄版面讓 wrap 頂端恆為小正數（實測 71~111），
-     `Math.max(0, canvasTop)` 取到的就是原值，逐位元組不變。 */
-  var canvasTop = Math.max(0, wrap.getBoundingClientRect().top);
-  var viewH = window.innerHeight - canvasTop - 70;
-  var h = Math.floor(Math.max(300, Math.max(contentH, viewH)));
+       | 視窗高 | viewH | canvas 高 | 多出來的空白 |
+       |---|---|---|---|
+       | 760  | 639  | 1098 | 0（取 contentH） |
+       | 900  | 779  | 1098 | 0 |
+       | 1100 | 979  | 1098 | 0 |
+       | 1400 | 1279 | 1164 | **66 px** |
+       | 1800 | 1679 | 1564 | **466 px** |
+
+     可見通道愈少、視窗愈高，空白愈大 —— 而這一版預設只顯示 18 條數位訊號
+     （通道總數 33），contentH 變小，正好把這個既有問題放到最明顯。
+
+     ── 改法 ──────────────────────────────────────────────────────────
+     直接**移除 viewH 這條路**：高度只由 contentH 決定，最後一條通道畫完就結束，
+     下面接的就是概覽圖。保留 `WFG_CANVAS_MIN_H`（300）當下限 —— 只剩一條可見通道時
+     canvas 若只有兩百多 px，時間軸與捲動操作會過度侷促；這個下限與視窗大小無關，
+     是固定值，不會隨視窗長大。
+     一併移除的還有 `canvasTop` / `viewH` 兩個中間變數（只有這一行用得到），
+     以及 v3.17.1 為了「捲過去之後 viewH 會膨脹」而加的 `Math.max(0, canvasTop)` 夾制 ——
+     那個夾制的存在理由就是 viewH，viewH 沒了它也沒有意義。 */
+  var h = Math.floor(Math.max(WFG_CANVAS_MIN_H, contentH));
   var dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
@@ -25502,15 +25590,17 @@ function wfgResetToDefault() {
   var lbEl = document.getElementById('wfg-linebuf');
   if (lbEl) lbEl.value = wfgLineBuffer;
   // Reset LS global to defaults
-  wfgLsGlobal = { mode: 'individual', phase: 6, vgh: 30, vgl: -10,
+  wfgLsGlobal = { mode: 'individual', phase: 12, vgh: 30, vgl: -10,   // v4.19.0：phase 預設 12
     curvature_rise: 127, curvature_fall: 127,
-    ck_sources: [4,5,6,7,8,9,10,11,4,5,6,7,8,9,10,11],
+    ck_sources: WFG_CK_SOURCES_DEFAULT.slice(),
     vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cond_line_mode: '1line', cond_2line_type: 'type1',
     cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7, cpv_trig_edge: 'falling' };
-  wfgLsRebuildCkoSlots();
+  /* 🔴 v4.19.0：改成 `false`。重設的語意就是「回到首次進站那個狀態」，
+     而首次進站是 `wfgLsRebuildCkoSlots(false)` ⇒ 類比／面板 slot 的 enable 為 false
+     ⇒ 通道不顯示。兩條路徑要一致，否則「重設」之後畫面會比剛打開時多出一堆波形。 */
+  wfgLsRebuildCkoSlots(false);
   wfgGpios = WFG_GPIO_NAMES.map(function(n, i) { return wfgMakeGpio(n, i); });
-  wfgChannels = [];
-  for (var i = 0; i < WFG_CHANNEL_INIT; i++) wfgChannels.push(wfgMakeChannel(i));
+  wfgBuildDefaultChannels();   // v4.19.0：重設＝回到首次進站那一組（33 格、只顯示 18 條數位）
   wfgOverlayCfg = {}; // v3.9.0: 通道整組換掉，疊合群組的 V 軸設定不能留殘值
   // Reset voltage cursors to defaults
   _wfgVoltCursorPerSlot = {};
@@ -25605,6 +25695,7 @@ function wfgLoadPreset(presetName) {
         wfgLsGlobal[lk] = preset.lsGlobal[lk];
       }
     }
+    wfgNormalizeCkSources();   // v4.19.0：長度不足 phase 會讓 CKO 畫成平線
   }
   // Rebuild CKO slots based on (potentially updated) lsGlobal
   wfgLsRebuildCkoSlots();
@@ -25664,8 +25755,12 @@ function wfgLoadPreset(presetName) {
   wfgSyncSpxGpio(true);
 
   // Reset channels
+  /* v4.19.0：快捷設定自己帶一份 `channels`，所以這裡建的是**空白格**（不預先指派），
+     否則 preset 的配置與預設配置會疊在一起、同一個訊號被指派到兩格。
+     格數用 33（＝訊號源總數）讓 preset 套完之後的容量與預設一致。 */
   wfgChannels = [];
-  for (var i = 0; i < WFG_CHANNEL_INIT; i++) wfgChannels.push(wfgMakeChannel(i));
+  var _presetSlots = Math.min(WFG_GPIO_NAMES.length, WFG_CHANNEL_MAX);
+  for (var i = 0; i < _presetSlots; i++) wfgChannels.push(wfgMakeChannel(i));
   wfgOverlayCfg = {}; // v3.9.0: 通道整組換掉，疊合群組的 V 軸設定不能留殘值
   // Apply preset channels
   if (preset.channels) {
@@ -35504,6 +35599,7 @@ window.wfgImportConfig = function(jsonStr, options) {
         wfgLsGlobal[lk] = config.lsGlobal[lk];
       }
     }
+    wfgNormalizeCkSources();   // v4.19.0：同 preset —— 舊設定檔只帶 6 項時循環補齊
   }
   // ── Panel signals (Gate Line) — must be applied before the slot rebuild ──
   // 舊設定檔沒有 panel 區塊 → 回到預設（gate_line 1、顯示開啟、倍率 1.2）
@@ -36318,7 +36414,13 @@ function wfgSyncTconSelects() {
   wfgCodeUpdateBtns();
 }
 window.wfgSyncTconSelects = wfgSyncTconSelects;
-function wfgCodeOnTconChange(v) {
+/* v4.19.0：`opts.silentClamp` —— 夾值照做，但**不跳提示**。
+   給匯入路徑用：匯入接下來就要用新檔案把整組 GPO 值覆蓋掉，
+   此時去提示「舊值被夾到上限」講的是一組即將被丟棄的數字，是純噪音
+   （Bruce 2026-08-24：「按匯入的時候應該不用這些提醒」）。
+   夾值本身仍然要做 —— 使用者若在選檔對話框按取消，型號已經換了，
+   資料必須與新型號的位元寬一致，不能留超界值。 */
+function wfgCodeOnTconChange(v, opts) {
   if (!WFG_TCON_CODECS[v]) return;
   if (wfgFrame.codeTcon === v) { wfgSyncTconSelects(); return; }
   wfgFrame.codeTcon = v;
@@ -36365,7 +36467,7 @@ function wfgCodeOnTconChange(v) {
 
        ⇒ 換機種一律改用 `alert()`（丟到下一個 tick，不阻塞這一輪渲染），
          與匯出提醒同一條管道。**`wfgAckShow` 從此只屬於匯入這一條路徑。** */
-    if (_cl.hits.length) {
+    if (_cl.hits.length && !(opts && opts.silentClamp)) {
       var _lines = _cl.hits.map(function (h) {
         return '・' + h.sig + ' ' + h.field + '：' + h.from + ' → ' + h.to;
       }).join('\n');
@@ -37236,8 +37338,8 @@ function wfgImpRender() {
           + '<div class="wfg-ack-name">' + t('wfg.impNoParser').replace('{m}', pc.label || _wfgImpPick) + '</div>'
           + '</div></div>';
   } else if (_wfgImpPick !== cur) {
-    /* 換型號會連帶做的事講清楚 —— 它會走 `wfgCodeOnTconChange()`，
-       可能夾值（那時另外會跳一則 alert 說明夾了什麼）。 */
+    /* v4.19.0：這一項只講「會以哪一顆的格式讀取、會整組覆蓋」，
+       **不再講跨型號相容**（夾值清單、COMBO 對象差異）—— 那些只屬於匯出路徑。 */
     html += '<div class="wfg-ack-item tone-amber"><div class="wfg-ack-num">⚠</div><div class="wfg-ack-tx">'
           + '<div class="wfg-ack-name">' + t('wfg.impSwitchName')
               .replace('{from}', (WFG_TCON_CODECS[cur] || {}).label || cur)
@@ -37264,9 +37366,12 @@ function wfgImpConfirm() {
   if (!c || !c.parseCode) return;             // 防呆：按鈕已 disabled，程式化呼叫再擋一次
   wfgImpCancel();
   /* 型號真值只有一個。走既有的 `wfgCodeOnTconChange()` —— 它負責：
-     夾值＋提示、重繪 GPO 清單（上下限／COMBO 顯示）、DCLK 檢核、
-     以及 `wfgSyncTconSelects()` 把 D-Clock 群組那顆鏡射下拉同步過去。 */
-  if (k !== wfgTconKey()) wfgCodeOnTconChange(k);
+     夾值、重繪 GPO 清單（上下限／COMBO 顯示）、DCLK 檢核、
+     以及 `wfgSyncTconSelects()` 把 D-Clock 群組那顆鏡射下拉同步過去。
+     🔴 v4.19.0：帶 `silentClamp` —— 夾值照做但不跳「已切換到 X，有 N 個欄位被夾到上限」
+     那則 alert。那則屬於**換型號**這條路徑；匯入接著就會用檔案內容整組覆蓋，
+     提示一組即將被丟棄的舊值只會干擾（Bruce 2026-08-24）。 */
+  if (k !== wfgTconKey()) wfgCodeOnTconChange(k, { silentClamp: true });
   wfgCodePickFile();
 }
 window.wfgImpShow = wfgImpShow;
@@ -39501,6 +39606,14 @@ function wfgCodeApplyToWfg(res) {
   wfgRenderGpioList();
   wfgRenderChannelList();
   wfgRenderLabels();
+  /* 🔴 v4.19.0：補上 `wfgResizeAndRender()`。
+     匯入會大幅改變**可見通道數**（`wfgCodeResetChannels()` 把類比／面板全部關掉，
+     數位則依各自的 enable），而 canvas 高度是由可見通道數算出來的（`contentH`）——
+     舊碼這條路徑上沒有任何一個呼叫會重算它，所以 canvas 高**停在匯入前的值**。
+     以前看不出來，是因為高度還有 `viewH`（撐到填滿視窗）那條路托著，總是偏大；
+     本版把 viewH 移除之後，不重算就會直接變成「畫 7 條、canvas 卻有 18 條的高度」。
+     實測：匯入 EM02 後 canvas 停在 1098px，實際內容只需要 570px ⇒ 下方 528px 空白。 */
+  wfgResizeAndRender();
   wfgScheduleFrameParamRender();
   wfgBeginDeferredAnalog();
 }
@@ -39585,11 +39698,16 @@ function wfgCodeResetChannels() {
     found.name = (WFG_GPIO_NAMES[g] || found.name || '').toUpperCase();
     digital.push(found);
   }
+  /* 🔴 v4.19.0：**一格都不丟。**
+     v4.0.2 這裡原本會把 `gpioIdx < 0` 的空白通道整批捨棄（當時是為了修「畫面上一排
+     空白列」）。副作用在 v4.18.0 被實測抓到：匯入之後一格空的都不剩，使用者再把
+     phase 調大時 CKO7…CKO12 **找不到位置而靜默消失**。
+     Bruce 2026-08-24 的用詞是「匯入的時候，類比訊號跟面板訊號都**不顯示**」——
+     不顯示 ≠ 不存在。所以改成：通道全部留著、格數不變、只關掉顯示（下面的 ② 段）。 */
   for (var i2 = 0; i2 < wfgChannels.length; i2++) {
     var ch2 = wfgChannels[i2];
     if (digital.indexOf(ch2) >= 0) continue;
-    var gp2 = (ch2.gpioIdx >= 0 && ch2.gpioIdx < wfgGpios.length) ? wfgGpios[ch2.gpioIdx] : null;
-    if (gp2) rest.push(ch2);        // 類比／面板：保留（隱藏，可回復）
+    rest.push(ch2);
   }
   wfgChannels = digital.concat(rest);
   /* ② 逐通道決定可見性與顏色 */
