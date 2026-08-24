@@ -2621,8 +2621,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4221"></script>
-<script src="common/i18n.js?v=20260824wfg4221"></script>
+<script src="common/version.js?v=20260824wfg4222"></script>
+<script src="common/i18n.js?v=20260824wfg4222"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -29718,10 +29718,21 @@ function wfgRenderGpioList(focusIdx) {
         + (_comboIdx < 0 ? ' <span style="color:#f59e0b">' + t('wfg.comboNoChannelTag') + '</span>' : '')
         + '</div></div></div>';
     } else {
+      /* 🔴 v4.22.2：**自己也要列進選項**，不可跳過。
+         `oax_sel === 自己的 index` 是合法且有意義的狀態 —— 波形端第 19491 行的
+         `gpio.oax_sel === gpioIdx` 分支就是照這個值判「這條不做 COMBO 運算」，
+         官方 UI 的 XSTB 也確實顯示 `xstb`。既然合法，就不該從選單移除。
+         舊的 `if (oi === i) continue;` 造成三個後果（v4.22.1 實測）：
+           ① 只有 XSTB 中招（唯一「正確值 0 ＝ 自己的 index」的一條）：沒有任何
+              option 帶 selected ⇒ 瀏覽器顯示第一個 ⇒ **XSTB 顯示成 XPOL**；
+           ② 總表 v4.21.0 的同步路徑 `inp.value = '0'` 在沒有 value="0" 的 select 上
+              會讓 selectedIndex 變 -1 ⇒ 匯入 code 之後那一格**變成空白**；
+           ③ 更嚴重：這條訊號一旦被改成別條，就**再也選不回自己**
+              （實測 `select.value='0'` 被瀏覽器拒絕，值原地不動）。
+         值一律維持該訊號自己的 index，不引入 -1 之類的哨兵值 ⇒ 匯出的位元不變。 */
       html += '<div class="wfg-field"><label>OAX_SEL</label><select onchange="wfgOnGpioChange(' + i + ',\'oax_sel\',this.value)">';
       for (var oi = 0; oi < WFG_DIGITAL_GPIO_COUNT; oi++) {
-        if (oi === i) continue;
-        html += '<option value="' + oi + '"' + (g.oax_sel === oi ? ' selected' : '') + '>' + WFG_GPIO_NAMES[oi].toUpperCase() + '</option>';
+        html += '<option value="' + oi + '"' + ((g.oax_sel | 0) === oi ? ' selected' : '') + '>' + WFG_GPIO_NAMES[oi].toUpperCase() + '</option>';
       }
       html += '</select></div></div>';
     }
@@ -29774,6 +29785,7 @@ function wfgRenderGpioList(focusIdx) {
      enable/toggle 切換…）一律在這裡把總表拉回同步。與 wfgOnGpioChange() 尾端那一處
      一樣，總表沒開時第一行就 return。 */
   wfgOvSyncAll();
+  wfgOaxSelAssert('renderGpioList');
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -29975,6 +29987,7 @@ function wfgOvBuild() {
   if (ft) ft.textContent = t('wfg.ovFoot');
   wfgOvHideMsg();
   wfgOvFitWidth();
+  wfgOaxSelAssert('ovBuild');
 }
 
 /* ══ v4.22.1：視窗寬度跟著實際欄位走 ═════════════════════════════════════════
@@ -30078,8 +30091,9 @@ function wfgOvCellHtml(gi, g, c) {
     }
     var o = '<td><span ' + base + '><select onclick="event.stopPropagation()"'
           + ' onchange="wfgOvOnSel(this,' + gi + ',\'oax_sel\')">';
+    /* 🔴 v4.22.2：與卡片 Row 6 同一件事 —— 自己也要列進選項。理由與後果見那一處的註解。
+       這裡當初是照抄卡片那段寫的，所以把同一個缺陷一起帶了過來。 */
     for (var k = 0; k < WFG_DIGITAL_GPIO_COUNT; k++) {
-      if (k === gi) continue;
       o += '<option value="' + k + '"' + ((g.oax_sel | 0) === k ? ' selected' : '') + '>'
          + escapeHtml(String(WFG_GPIO_NAMES[k]).toUpperCase()) + '</option>';
     }
@@ -30135,6 +30149,8 @@ window.wfgOvOnBool = wfgOvOnBool;
 function wfgOvOnSel(el, gi, field) {
   wfgOnGpioChange(gi, field, el.value);
   wfgOvPushToCard(gi, field);
+  /* 收斂點：模型、總表、卡片三者此刻都已是新值 ⇒ 這裡的不一致才是真的不一致。 */
+  if (field === 'oax_sel') wfgOaxSelAssert('ovOnSel', gi);
 }
 window.wfgOvOnSel = wfgOvOnSel;
 
@@ -30202,6 +30218,13 @@ function wfgOvSyncRow(gi) {
     }
     if (c.f === 'f_dly') cell.classList.toggle('dim', !!g.toggle);
   }
+  /* 🔴 這裡**刻意不放** wfgOaxSelAssert()。第一版放了，實測抓到三筆「不一致」，
+     但那是**探測位置錯誤**不是產品缺陷：總表改值走
+       wfgOvOnSel() → wfgOnGpioChange()〔更新模型 → 這支〕→ wfgOvPushToCard()〔更新卡片〕
+     所以這支執行的當下，卡片那一側**本來就還沒被推回**（實測 log：
+     `card#0 顯示=0(XSTB) model=4`，下一行 push 完就一致了）。
+     在「同步進行中」的中間狀態上斷言，會長得跟功能壞掉一模一樣。
+     斷言只掛在真正的收斂點：wfgRenderGpioList 尾、wfgOvBuild 尾、wfgOvOnSel 尾。 */
 }
 window.wfgOvSyncRow = wfgOvSyncRow;
 
@@ -30213,6 +30236,56 @@ function wfgOvSyncAll() {
   for (var gi = 0; gi < WFG_DIGITAL_GPIO_COUNT; gi++) wfgOvSyncRow(gi);
 }
 window.wfgOvSyncAll = wfgOvSyncAll;
+
+/* ── 🔴 v4.22.2：OAX_SEL 的渲染後機械檢查 ──────────────────────────────────
+   為什麼要有這一支：v4.22.1 的缺陷是 **select 沒有任何 option 帶 selected**，
+   瀏覽器於是顯示第一個 option。這種失敗**完全靜默** —— 畫面上是一個看起來很正常的
+   下拉，值也讀得出來，只是跟模型不一樣。console 不會叫，本機隨手看也看不出來
+   （18 條裡只有 XSTB 會中招，因為只有它的正確值 0 剛好等於自己的 index）。
+   同一類「t(key) 查不到就回傳 key 本身」的靜默失敗，本專案已經靠 `tools/` 的機械檢查
+   擋過一次；這裡照同樣的邏輯，在**渲染的收斂點**上斷言而不是靠人記得看。
+
+   判準（卡片與總表兩側各自成立）：
+     `select.selectedIndex >= 0` **且** `+select.value === (g.oax_sel | 0)`
+   NB 機種的 OAX_SEL 是唯讀 div／span、沒有 select ⇒ 不適用，直接略過（不是「通過」）。
+
+   🔴 **只掛在收斂點**（wfgRenderGpioList 尾、wfgOvBuild 尾、wfgOvOnSel 尾），
+   不掛在 wfgOvSyncRow —— 理由寫在該函式尾端（在同步進行中的中間狀態上斷言，
+   會長得跟功能壞掉一模一樣；第一版就是這樣誤報了三筆）。
+
+   `gi` 省略 ＝ 檢查 18 條全部；帶 `gi` ＝ 只檢查那一列（給 wfgOvOnSel 用，
+   它每改一格就被呼叫一次，成本必須是常數）。 */
+function wfgOaxSelAssert(tag, gi) {
+  var bad = [];
+  var host = document.getElementById('wfg-gpio-list');
+  var lo = (typeof gi === 'number') ? gi : 0;
+  var hi = (typeof gi === 'number') ? gi + 1 : WFG_DIGITAL_GPIO_COUNT;
+  for (var i = lo; i < hi; i++) {
+    var g = wfgGpios[i];
+    if (!g || g.waveform_type !== 0) continue;
+    var want = g.oax_sel | 0;
+    var cell = document.querySelector('#wfg-ov-scroll [data-ov-cell="' + i + '|oax_sel"]');
+    var pair = [
+      ['card', host ? host.querySelector('select[onchange*="(' + i + ",'oax_sel'" + '"]') : null],
+      ['ov',   cell ? cell.querySelector('select') : null]
+    ];
+    for (var k = 0; k < pair.length; k++) {
+      var el = pair[k][1];
+      if (!el) continue;                       // NB 唯讀 or 該區塊沒開 ⇒ 不適用
+      if (el.selectedIndex < 0) {
+        bad.push(pair[k][0] + '#' + i + ' 顯示=(空白) model=' + want);
+      } else if ((el.value | 0) !== want) {
+        bad.push(pair[k][0] + '#' + i + ' 顯示=' + el.value + '(' +
+                 (el.options[el.selectedIndex] || {}).text + ') model=' + want);
+      }
+    }
+  }
+  if (bad.length) {
+    console.error('[wfg] OAX_SEL 選單與模型不一致（' + (tag || '') + '）：' + bad.join(' ｜ '));
+  }
+  return bad;
+}
+window.wfgOaxSelAssert = wfgOaxSelAssert;
 
 // ─── Channel display name (i18n-aware) ───
 // Detects if channel name is a default "通道 X" / "CH X" pattern and translates it
