@@ -1193,6 +1193,13 @@
   .wfg-ch-name { flex: 0 0 58px; width: 58px; min-width: 0; box-sizing: border-box; padding: 3px 5px; font-size: 11px; color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; }
   .wfg-ch-select { flex: 1 1 auto; min-width: 0; box-sizing: border-box; padding: 3px 22px 3px 6px; font-size: 11px; color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; }
   .wfg-ch-vis { cursor: pointer; font-size: 14px; flex: 0 0 16px; text-align: center; }
+  /* v4.20.0：新增／移除通道的動作列。`flex-wrap` 讓 480px 以下的手機版換行而不是擠壓，
+     計數字樣寬度不固定（三語長度不同），所以放在最後靠右自動吸收剩餘寬度。 */
+  .wfg-ch-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 6px 2px; border-top: 1px solid #1e293b; margin-top: 4px; }
+  .wfg-ch-act-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 11px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+  .wfg-ch-act-btn:hover:not(:disabled) { background: #30363d; }
+  .wfg-ch-act-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .wfg-ch-count { font-size: 10px; color: #64748b; margin-left: auto; white-space: nowrap; }
   .wfg-canvas-wrap { position: relative; background: #0d1117; border-radius: 12px; overflow: clip; border: 1px solid #21262d; }
   .wfg-canvas-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: #161b22; border-bottom: 1px solid #21262d; flex-wrap: wrap; }
   .wfg-canvas-toolbar button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 12px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
@@ -1797,6 +1804,19 @@
           </div>
           <div class="wfg-card-body">
             <div id="wfg-channel-list"></div>
+            <!-- ══ v4.20.0：新增／移除通道 ══════════════════════════════════════
+                 Bruce 2026-08-24：「要增加一個『新增通道』的按鈕，這樣子的話後面真的有超過，
+                 才不用再重新改動程式。」＋「那有新增通道按鈕，是不是應該也要有一個移除通道
+                 按鈕，這樣子才不會不合理吧？」⇒ 兩顆成對，放在清單正下方。
+                 🔴 這兩顆是**清單的動作列**，不是工具列按鈕 —— 放在卡片內、清單之後，
+                 既有的任何控制項都沒有移位（拖曳把手／色點／名稱／下拉／眼睛全部原位）。 -->
+            <div class="wfg-ch-actions">
+              <button type="button" id="wfg-ch-add-btn" class="wfg-ch-act-btn" onclick="wfgAddChannel()"
+                      data-i18n="wfg.chAdd" data-i18n-title="wfg.chAddTitle">＋ 新增通道</button>
+              <button type="button" id="wfg-ch-del-btn" class="wfg-ch-act-btn" onclick="wfgDeleteChannel()"
+                      data-i18n="wfg.chDel" data-i18n-title="wfg.chDelTitle">－ 移除通道</button>
+              <span id="wfg-ch-count" class="wfg-ch-count"></span>
+            </div>
           </div>
         </div>
 
@@ -2455,8 +2475,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4193"></script>
-<script src="common/i18n.js?v=20260824wfg4193"></script>
+<script src="common/version.js?v=20260824wfg4200"></script>
+<script src="common/i18n.js?v=20260824wfg4200"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -2832,9 +2852,21 @@ const WFG_CH_COLORS = [
    兩種情境會自動分開，不需要各自寫一份規則。
 
    ── 上限 ──────────────────────────────────────────────────────────
-   `WFG_CHANNEL_MAX = 40`：phase 16 時需要 18＋1＋16＋1＋1 ＝ 37 格，有餘裕；
-   40 也剛好是配色盤的 5 輪整數（8 色 × 5）。 */
-var WFG_CHANNEL_MAX  = 40;   // 通道格數上限；不足時由 wfgTakeChannelSlot() 動態長出   // 通道格數上限；不足時由 wfgTakeChannelSlot() 動態長出
+   v4.18.0～v4.19.3：`WFG_CHANNEL_MAX = 40`。phase 16 時需要 18＋1＋16＋1＋1 ＝ 37 格，
+   當時只要「自動長格夠用」就好，40 有餘裕。
+
+   🔴 v4.20.0：提高到 **64**。理由是這一版多了「新增通道」按鈕 ——
+   Bruce 2026-08-24：「這樣子的話後面真的有超過，才不用再重新改動程式。」
+   上限如果留在 40，訊號源滿載（phase 16 ⇒ 37 格）時只剩 3 次可以按，
+   「不用再改程式」就沒有成立。
+   64 = 8 色 × 8 輪，`WFG_CH_COLORS` 現有 40 項（40 % 8 == 0），
+   取色一律 `idx % 長度`，所以 index 40 之後仍然接續紫／藍／綠／黃／橙／紅／棕／灰 這一輪，
+   **配色盤不需要補**（補了只是多 24 行重複資料）。
+   為什麼不是無上限：這個數字同時是 `wfgTakeChannelSlot()` 自動長格與
+   `wfgImportConfig()`／preset 套用時 `Math.min(config.channels.length, …)` 的夾制，
+   拿掉等於讓一份壞掉的存檔可以長出任意多列。64 列 × 88px（全類比）≒ 5.6k px 的 canvas，
+   仍在既有效能範圍內（v4.13.2 起隱藏通道不進類比預計算）。 */
+var WFG_CHANNEL_MAX  = 64;   // 通道格數上限；不足時由 wfgTakeChannelSlot() 動態長出
 
 // ─── Default GPIO factory ───
 // waveform_type: 0=digital (default), 1=source_driver, 2=level_shifter
@@ -29597,6 +29629,10 @@ function wfgRenderChannelList() {
   }
   container.innerHTML = html;
   wfgAttachChannelDragHandlers(container);
+  /* v4.20.0：新增／移除鈕的可用狀態與「n / max 列」計數。掛在這裡而不是各個呼叫點，
+     是因為所有會改變通道列數的路徑（新增、移除、匯入 code、設定檔、快捷設定、改 GOA
+     Phase）最後都會重畫這份清單 —— 一個收斂點，不必逐條記得去更新按鈕。 */
+  if (typeof wfgUpdateChActions === 'function') wfgUpdateChActions();
 }
 
 // ─── Channel drag-to-reorder (desktop DnD + touch) ───
@@ -29731,6 +29767,123 @@ function wfgToggleChVis(idx) {
   wfgResizeAndRender();
 }
 window.wfgToggleChVis = wfgToggleChVis;
+
+/* ══ 🔴 v4.20.0：新增／移除通道 ═══════════════════════════════════════════════
+   Bruce 2026-08-24：
+     「要增加一個『新增通道』的按鈕，這樣子的話後面真的有超過，才不用再重新改動程式。
+       不過要注意的是，這樣子新增通道的話，也要考慮波形區的上限、下限，也要跟著一起調變，
+       不要又出現之前的下方一大堆空白的問題。」
+     「那有新增通道按鈕，是不是應該也要有一個移除通道按鈕，這樣子才不會不合理吧？」
+
+   ── 為什麼在 v4.19.3 之後才需要這兩顆 ──────────────────────────────────────
+   v4.19.3 把匯入後的通道結構固定成剛好 33 格（一個訊號源一格），**空白格不再保留**。
+   在那之前使用者可以拿匯入留下的空白格當「多的一列」；現在沒有了，而這個工具原本
+   沒有任何「多開一列」的入口 —— 只能把 GOA Phase 調大讓它自動長格。這兩顆補的是這個缺口。
+
+   ── 波形區高度：不另外算，一律走既有的單一收斂點 ────────────────────────────
+   🔴 高度只由 `wfgResizeCanvas()` 這一支決定（`54 + wfgInternalExtraH() + Σ列高 + 10`，
+   下限 `WFG_CANVAS_MIN_H`），而它只數 `visible && gpioIdx >= 0` 的通道。
+   所以：
+     ・新增出來的列 `gpioIdx = -1` ⇒ **對高度貢獻 0**，按幾次都不會長出空白。
+     ・指派訊號源之後（`wfgOnChannelChange` 會把 visible 設成 true）才 +48（數位）
+       或 +88（類比／面板）。
+     ・移除一列就少對應的高度。
+   這兩支跟 `wfgToggleChVis()` / `wfgMoveChannel()` 用**完全相同的三行收尾**
+   （list → labels → resize），不自己算任何高度 —— 不新增第二條高度路徑，
+   就不會有「某一條路徑忘了重算」的空白。
+
+   ── 顏色 ────────────────────────────────────────────────────────────────
+   新增的列取 `WFG_CH_COLORS[列索引 % 長度]`，與 `wfgMakeChannel()` 其他呼叫點同一條規則。
+   **移除之後不重算既有列的顏色** —— 顏色自 v3.11.0 起是可以用色點自訂的使用者資料，
+   每次增刪都依位置重刷會把他挑過的顏色靜默洗掉。既有的 `wfgMoveChannel()`（拖曳排序）
+   也是不重算顏色的，這裡與它一致。（唯一會整批重刷顏色的仍然只有匯入 code 那條路徑。） */
+function wfgChActionMax() { return WFG_CHANNEL_MAX; }
+
+function wfgAddChannel() {
+  if (wfgChannels.length >= WFG_CHANNEL_MAX) {
+    alert(t('wfg.chMaxReached').replace('{max}', String(WFG_CHANNEL_MAX)));
+    return;
+  }
+  var ch = wfgMakeChannel(wfgChannels.length);
+  /* 🔴 `wfgMakeChannel()` 出廠是 `visible: true`。這裡明確設回 false：
+     `gpioIdx = -1` 時 `wfgResizeCanvas()` 本來就不會把它算進高度，但通道清單那一列的
+     眼睛圖示是依 `gpioIdx === -1` 畫成不可點的 ○，兩邊的語意要一致，
+     免得之後有人把可見性當真值讀。 */
+  ch.visible = false;
+  wfgChannels.push(ch);
+  wfgRenderChannelList();
+  wfgRenderLabels();
+  wfgResizeAndRender();
+  wfgAutoSave();
+}
+window.wfgAddChannel = wfgAddChannel;
+
+/* 移除哪一列：**一律是清單的最後一列**。
+
+   ── 為什麼是「最後一列」而不是別的 ──────────────────────────────────────────
+   ・「新增」是接在最後，「移除」拿掉最後 ⇒ 兩顆剛好互為反向，按錯了按回去就好。
+   ・**不動中間的列** ⇒ 前面所有列的索引都不會位移。這很重要：釘住的量測小卡
+     （`wfgMeasSelItems[].chIdx`）綁的是**通道索引**，動到中間會讓它們安靜地改指別條。
+     我一度寫成「優先移除最後一個『無信號』的列」（想讓「新增→反悔」永不誤傷綁訊號的列），
+     但舊存檔的空白列可能夾在中間，那條規則就會去動中間 —— 為了一個小方便換來一類
+     靜默錯誤，不划算。改成永遠只動最後一列。
+
+   ── 為什麼不是「每列各一顆移除鈕」──────────────────────────────────────────
+   那會讓每一列都多一個元素。480px 以下的手機版本來就已經是「把手＋色點＋名稱＋下拉＋眼睛」
+   五個元素擠在一行，再加一顆必然壓縮下拉寬度；而且誤觸機會更高。
+   要移除中間某一列有兩條既有的路：用拖曳把手把它拖到最後再按移除；
+   或者更省事 —— 把它的訊號源改成「無信號」，那一列就不佔任何波形高度。
+
+   ── 綁著訊號的列 ────────────────────────────────────────────────────────
+   先 `confirm()` 並在訊息裡指名是哪一列、綁的是哪條訊號。沿用本頁既有的 `confirm()`
+   管道（韌體包清除、kvdat 大檔都是用它），不新增第三套 UI。
+   移除的只是「顯示用的那一列」—— 訊號本身的設定在 `wfgGpios`，一個位元都不會動，
+   之後新增一列再從下拉選回來即可。
+
+   ── 下限 ────────────────────────────────────────────────────────────────
+   **至少保留一列**。不設「至少 18 條數位」那種下限：一來刪不掉本身就是另一個意外，
+   二來刪掉的列隨時加得回來，三來「數位」與「類比」在這份清單裡沒有結構性差別，
+   憑什麼保 18 條說不出理由。到 1 列時「移除」鈕自己會變成停用狀態。
+
+   ── 一個要知道的行為（不是 bug）────────────────────────────────────────────
+   🔴 移除掉某條**虛擬訊號源**（SD1／CKO*／GATE／SUBPIXEL）的那一列之後，
+   只要下一次跑到 `wfgLsSyncChannels()`（改 GOA Phase、套快捷設定、載入設定檔、匯入 code），
+   v4.19.2 的 `wfgEnsureVirtualChannels()` 就會**把它補回來**（補進來的一律 `visible=false`，
+   所以不佔波形高度）。那支的存在理由是「index ≥ 18 的訊號源一條都不能沒有通道」，
+   是 v4.19.1／v4.19.2 兩輪修出來的不變量 —— 為了讓「使用者刪掉的就別回來」而加一個
+   例外清單，等於把那個不變量拆掉。取「訊號源不會消失」這一邊。 */
+function wfgDeleteChannel() {
+  if (wfgChannels.length <= 1) {
+    alert(t('wfg.chMinReached'));
+    return;
+  }
+  var target = wfgChannels.length - 1;
+  var ch = wfgChannels[target];
+  if (ch.gpioIdx >= 0) {
+    var sig = (WFG_GPIO_NAMES[ch.gpioIdx] || String(ch.gpioIdx)).toUpperCase();
+    var msg = t('wfg.chDelConfirm').replace('{name}', ch.name || '').replace('{sig}', sig);
+    if (typeof window.confirm === 'function' && !window.confirm(msg)) return;
+  }
+  wfgChannels.splice(target, 1);
+  wfgRenderChannelList();
+  wfgRenderLabels();
+  wfgResizeAndRender();
+  wfgAutoSave();
+}
+window.wfgDeleteChannel = wfgDeleteChannel;
+
+/* 兩顆按鈕的可用狀態與列數計數。跟著 `wfgRenderChannelList()` 一起更新 —— 所有會改變
+   通道列數的路徑（新增／移除／匯入／設定檔／快捷設定／改 phase）最後都會重畫清單。 */
+function wfgUpdateChActions() {
+  var add = document.getElementById('wfg-ch-add-btn');
+  var del = document.getElementById('wfg-ch-del-btn');
+  var cnt = document.getElementById('wfg-ch-count');
+  if (add) add.disabled = (wfgChannels.length >= WFG_CHANNEL_MAX);
+  if (del) del.disabled = (wfgChannels.length <= 1);
+  if (cnt) cnt.textContent = t('wfg.chCount')
+    .replace('{n}', String(wfgChannels.length))
+    .replace('{max}', String(WFG_CHANNEL_MAX));
+}
 
 // ─── Toggle Cards ───
 function wfgToggleCard(headEl) {
