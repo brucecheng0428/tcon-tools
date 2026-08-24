@@ -22,6 +22,327 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.23.0 — 2026-08-25 ｜ MINOR ｜ ⚠ 輸出變更
+
+**新增 First Line Read：MNT 三顆顯示一格（`reg_st_line_rd`），NB 三顆顯示 `ST_LINE_RD` ＋ `PRE_BLK_RD_NO` 兩格取代它；與 Line Buffer 雙向連動；Dual Gate 下 First Line Read 一次只移動一條 line（Line Buffer 因此可以是 x.5）；六顆機種各自的 Line Buffer 上限一併做進去；匯入讀回、匯出寫回。**
+
+來源：Bruce 2026-08-24 逐字交代（三則）：
+
+> 「現在還要新增一個跟 Line Buffer 有關的功能：在 Monitor T-CON 裡面要找到一個 UI 上寫著「First Line Read」的設定Register，它其實就跟 Line Buffer 一樣。EM01 最多可以移動到 11 條Line buffer，在 Single Gate 的應用下，First Line Read 剛好就等於 Line Buffer……但如果不是 Single Gate 而是 Dual Gate 的話First line read就會變成兩倍，也就是最多 22 條。」
+>
+> 「在目前的波形當中，如果是 Dual Gate，Line Buffer 一次加 1 在波形裡是一次移動兩條；但如果是搭配剛才說的 First Line Read(又是dual gate)，一次加 1 其實一次只移動一條 Line。這部分要靠演算法重新改過。(波形的Line TX DE移動也需重新設計)」
+>
+> 「EM02/E512最多7條Line buffer，E503最多6條Line buffer，EN01最多8條Line buffer」／「E501上限是7條Line buffer」
+>
+> 「NB 的 TCON沒有所謂的 First Line Read，它比較特別一點，是有個 Register 名稱叫做 ST_Line_RD 跟 PRE_BLK_RD_NO，這兩個 register 相加即為 First Line Read。所以如果選到 NB 的時候，要秀出這兩個 register 在 line buffer 底下，替換掉 First Line Read。」
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+§2 案例 1「新增一個完整功能」→ **MINOR**：多了 First Line Read（MNT）／ST_LINE_RD＋PRE_BLK_RD_NO（NB）這組能力，
+而 **Line Buffer 那一格位置、名稱、可輸入範圍下界、既有值一個都沒動**。
+逐項確認其餘各條：
+・R1（修 bug）**不適用** —— 這不是「回到本來就該是這樣」，是新增一個原本不存在的欄位與新的粒度。
+  但輸出確實會變（匯出多一行、匯入會改到 Line Buffer）⇒ `⚠ 輸出變更` 照掛，範圍見下表。
+・R3（大功能分階段交付）**適用且只算一次**：本版一次交付「顯示 ＋ 雙向連動 ＋ 波形粒度 ＋ 匯入 ＋ 匯出」，
+  不拆版本（Bruce 明示「一次到位，不要拆版本分批交」）⇒ 一次 MINOR。
+・R4（起始狀態／預設值改變）**判過、結論是不觸發 MAJOR**：Line Buffer 的預設值仍是 6，
+  改變的是「匯入 code 之後它會被 code 帶入」——那是新增的連動，不是把預設值換掉。
+・R2 不適用 —— 不主張開新波，仍在 4.x 內。
+・**MAJOR 逐條排除**（`docs/VERSIONING.md` §1 判定表三欄逐格對）：
+  ① 操作流程：**沒有任何控制項被移除或移位**。Line Buffer 仍在工具列 TCON group 原位、原名、原事件。
+     新欄位一律**加在它後面**，NB 的兩格是「取代同一個位置上的 First Line Read」，不是取代 Line Buffer。
+  ② 既有功能的輸出：**沒有主動改變**。實測（見下方第 5 節）：同一支探針對 v4.22.2 與 v4.23.0 各跑一次，
+     Single Gate 的 Line Buffer 5／6／7 與 Dual Gate 的 6／7，TX DE 墨跡**十六條掃描線逐值完全相同**；
+     匯出的 script 除了版號、時間戳與新增的那一行 `write -m 0507` 之外**逐字相同**。
+  ③ 功能增減：**只增不減**。
+  ④ §2 案例 8「既有計算公式主動改設計」**判過但不成立**：位移公式由
+     `isDual ? LineBuffer×2 : LineBuffer` 改成 `FirstLineRead`，而 `FirstLineRead` 就定義成前者的值 ——
+     整數 Line Buffer 下**兩者恆等**（實測逐值相同）。新增的是「FLR 為奇數」這個舊式表達不出來的狀態，
+     那是**新增能力**不是改寫既有結果。
+⇒ **MINOR ＋ `⚠ 輸出變更`**。
+
+`⚠ 輸出變更` 的範圍（依 R1 的範圍定義）：
+
+| 類別 | 內容 |
+|---|---|
+| 匯出檔案的位元組內容 | MNT 的 `.script` **多一行** `write -m 0507 <v> 3F`（First Line Read）。NB 的 `.xlsx` **多三列**：`RD_MODE`（只有 E501／E503）、`ST_LINE_RD`／`PRE_BLK_RD_NO`（EN01 是 `START_LINE_RD`／`PRE_BLK_DATA`）。拿舊版建立的匯出基線比對會多出這些列 |
+| 數值（波形） | 只在「Dual Gate ＋ First Line Read 為奇數」時才可能與舊版不同 —— 那是舊版表達不出來的狀態。**整數 Line Buffer 下逐值不變**（實測見第 5 節） |
+| 數值（匯入後的狀態） | 匯入 code 之後 **Line Buffer 不再停在使用者原本的值，改為由 code 的 `reg_st_line_rd`（NB：兩個 register 之和）帶入**。實測：同一份 EM01 EEPROM，舊版匯入後 Line Buffer 停在 7（使用者上一次的值），新版變成 6（code 裡真正的值） |
+| 版面／構圖 | 工具列 TCON group 多出 1 格（MNT）或 2 格（NB）＋ 一行紅色警示位。**對工具列截圖，新舊版會不一樣** |
+
+---
+
+### 1. 🔴 階段一：register 出處（每一項都可查，沒有一項是推測）
+
+Bruce 指定的查法是「NB YCON source → 3E Data 位置 → E503 register 名稱 → 回查 MNT」。照走的結果如下。
+
+#### 1-1 Gate Type：兩個 register，不是一個
+
+`Raydium_RomCodeProcessUI/SourceCode_V5.0.4/RomCodeProcessUI.py` 的 Others → Data Mapping 分頁，
+Gate Type 下拉（`comboBox_49`）背後讀的是**兩個** 3E register（`dm_panel_mode_addr_3e_dict`，L1807）：
+
+```
+'RM81004'(E503): [0x320, 1, 0,  0x350, 7, 6]
+'RM81010'(E501): [0x3F0, 1, 0,  0x420, 7, 6]
+   # MAIN_PANEL_MODE(0:Normal 1:Zinv 2:HSD 3:LTPS), RD_MODE(0:single 1:dual 2:tri)
+```
+
+回查 `.model` 逐項相符：E503 `[PANEL_MODE]` 0x320 Msb1 Bits2、`[RD_MODE]` 0x350 Msb7 Bits2。
+再回查 MNT 的 register bank，**同名的兩個 register 都在**：
+
+| 型號 | `reg_rd_mode`（Gate Type） | `reg_panel_mode`（Data Mapping 用） | 出處 |
+|---|---|---|---|
+| EM01 | **0x0504 [7:6]** | 0x0400 [2:1] | `(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`：`rt8_tcon_1` rel 0x04、`rt7_data_proc` rel 0x00；`bank_offset` 給 rt8_tcon_1 Low=h0500、rt7_data_proc Low=h0400 |
+| EM02 | **0x0504 [7:6]** | 0x0480 [2:1] | `EM02A1_register_bank_svn213_final.xls`（rt7_data_proc Low=**h0480**，與 EM01 不同） |
+| E512 | **0x0504 [7:6]** | 0x0480 [2:1] | `e512_register_bank_final.xls` |
+
+**`reg_rd_mode` 從 v4.1.0 就已經在做**（匯入讀、匯出寫），本版一行未動。
+**`reg_panel_mode` 本版查到了但刻意不接**：它屬於 Data Mapping 子系統（EM01 官方 UI 裡有一句
+`rt7 Panel mode/rt8 rd mode not match! Setting again!`，代表兩者要一致），wfg 沒有 Data Mapping 功能，
+寫它等於改一個我們沒有能力驗證的東西。**這一項列出來供 Bruce 裁示要不要做。**
+
+#### 1-2 First Line Read（MNT 三顆）＝ `reg_st_line_rd`
+
+原廠 EM01 工具 `Raydium_TCON_Tool_RM80100_v0.3.58.exe` 的 Delphi 表單資源裡逐字寫著：
+
+```
+TGroupBox  GroupBox_TX_Data_First_line    Caption = 'First Line read'
+  TLabel Label236 Caption='0'   TLabel Label262 Caption='11'      ← 畫面上標的下限／上限
+  TLabeledEdit LabeledEdit_TX_Data_First_line   Text='3'
+  TScrollBar   ScrollBar_TX_Data_First_line     Max=0x0B(=11)  Position=3
+```
+
+同一個 group 內還有 `Pre-Charge Line`、`Post-Dummy Line`、`Frame End Position(Read only)`，
+其中 `Post-Dummy Line` 的紅字提示是 `(Notice: line <= (vblk - First Line read)`，
+而 exe 裡的錯誤訊息把兩者成對點名：`First Line read/Post-Dummy Line error!`。
+
+對回 `rt8_tcon_1` 分頁，這一組控制項一格一格都對得上：
+
+| UI 控制項 | register | 位址 | 原廠說明 |
+|---|---|---|---|
+| `rd_non_stop` 勾選框 | `reg_rd_non_stop` | rel 0x04 [4] | Skip reg_sp_line_rd setting |
+| **First Line read** | **`reg_st_line_rd`** | **rel 0x07 [5:0]** | **Start line of rt8_out signals.** |
+| Post-Dummy Line | `reg_st_line_rd_pst` | rel 0x0A [5:0] | （成對命名，與錯誤訊息一致） |
+| Frame End Position | `reg_f_end_posi` | rel 0x0C/0x0D [5:0] | Setting f_end_line value |
+
+⇒ **regAddr `0x0507` bit[5:0]**，EM01／EM02／E512 三顆相同（三份 register bank 的 `bank_offset`
+都寫 rt8_tcon_1 Low = h0500）。初始值 EM01 = h9、EM02 = h3、E512 = h3。
+
+#### 1-3 NB 三顆：兩個 register 相加
+
+`.model` 檔（INI 文字格式）逐字：
+
+| 型號（IC） | ST 側 | PRE 側 | 原廠 Comment |
+|---|---|---|---|
+| E503（RM8100x） | `[ST_LINE_RD]` **0x353 [5:0]** | `[PRE_BLK_RD_NO]` **0x352 [5:0]** | `ST_LINE_RD + PRE_BLK_RD_NO Please set to 3/6/9 in different panel mode` |
+| E501（RM81010／RM81011） | `[ST_LINE_RD]` **0x423 [5:0]** | `[PRE_BLK_RD_NO]` **0x422 [5:0]** | 同上（兩份 `.model` 逐項相同） |
+| EN01（RM81008） | `[START_LINE_RD]` **0x41F [7:0]** ← **8 bit** | `[PRE_BLK_DATA]` **0x41E [5:0]** | `ST_LINE_RD + PRE_BLK_RD Please set to 8/16/24/32/48 in Nor/HSD/MUX3/MUX4/MUX6 panel mode` |
+
+🔴 **EN01 的區塊名與另外兩顆不同**（`START_LINE_RD` / `PRE_BLK_DATA`），位元寬也不同（8 bit vs 6 bit）。
+`Check Item` 欄寫錯名字，官方 UI 會**靜默略過**那兩列（與 v4.22.0 `R_DLY_F40` 同一個坑）——
+所以 xlsx 裡用各自 `.model` 的真名，**畫面上仍照 Bruce 的稱呼顯示 `ST_LINE_RD` / `PRE_BLK_RD_NO`**。
+
+⚠ 那句 `3/6/9`（E501／E503）與 `8/16/24/32/48`（EN01）是**原廠建議設定值，不是上限**，因此不拿來當判準。
+
+#### 1-4 Line Buffer 上限：Bruce 給的六個數字，與原廠 UI 交叉核對後**零衝突**
+
+| 型號 | Bruce 指定的 LB 上限 | Dual Gate 的 FLR 上限 | 獨立佐證 |
+|---|---|---|---|
+| EM01 | 11 | 22 | 原廠 exe `ScrollBar_TX_Data_First_line.Max = 0x0B = **11**` ✅ 相符 |
+| EM02 | 7 | 14 | `Raydium_TCON_Tool_EM02_v0.3.2.exe` `Max = 0x07 = **7**` ✅ 相符 |
+| E512 | 7 | 14 | `Raydium_TV_TCON_Tool_V2.1.12.exe` `Max = 0x07 = **7**` ✅ 相符 |
+| E501 | 7 | 14 | NB 原廠 UI 沒有這個欄位，`.model` 只給建議值 ⇒ **無獨立佐證，以 Bruce 為準** |
+| E503 | 6 | 12 | 同上 ⇒ **無獨立佐證，以 Bruce 為準** |
+| EN01 | 8 | 16 | 同上；`.model` 的建議值 Normal = 8 恰好相同，但那是建議值，只當旁證 |
+
+---
+
+### 2. 資料模型：真值換成 First Line Read
+
+```
+wfgFirstLineRead   真值。單位＝**輸出（TX／檢視）行**。晶片暫存器裡真正存的那個數字
+wfgLineBuffer      衍生視圖。單位＝**輸入（RX）資料行** ＝ FLR ÷ (dual?2:1)，可能是 x.5
+wfgNbPreBlkRd      NB 專用：兩個 register 之中的 PRE 側；ST 側 ＝ FLR − PRE
+```
+
+・**波形位移一律等於 FLR**（`wfgLbShift()`）。全檔六處 `isDual ? wfgLineBuffer*2 : wfgLineBuffer`
+  與 `wfgComputeSourceDriverSamples()` 的第七個參數全部收斂到這一支。
+・**切 GATE TYPE 時保留 Line Buffer、重算 FLR** —— 與 v4.23.0 之前的行為完全一致
+  （舊版切 dual 時 `wfgLineBuffer` 不動、位移自動變兩倍）。
+・**設定檔同時寫兩個**：舊欄位 `lineBuffer`（保留不刪，dual＋奇數 FLR 時會是 x.5，刻意不取整）
+  ＋ 新欄位 `firstLineRead`（真值，匯入時優先吃它）＋ `nbPreBlkRd`（NB 的兩個 register 之和無法還原兩者）。
+  **舊設定檔匯入後波形逐值不變**（舊檔的 lineBuffer 一定是整數，×mult 回推就是舊版實際用的位移量）。
+
+### 3. 夾值政策：兩條，刻意不一樣
+
+| 情況 | 做法 | 為什麼 |
+|---|---|---|
+| ① 使用者**當下打進來**的值超過上限 | 夾到上限 ＋ 立即顯示紅字 | 不靜默 |
+| ② **既有的值**因為換機種／換 gate type／匯入 code 而超界 | **保留不動**，改為持續顯示紅字警示 | 主動改掉使用者早就存在的設定 ＝ 在他沒下指令的情況下改變波形輸出 |
+
+🔴 政策②不是保守而已，是**必要的**：實測全庫真實 code 檔，`reg_st_line_rd` 出現過
+EM01 = 11（52 份，剛好等於上限）、EM02 dual = 13（1 份）、E503 = 20（1 份，遠超上限 6×2）。
+若匯入時照夾，這些檔一進來數字就被改掉，而使用者會以為晶片裡就是那個被夾過的值。
+
+NB 的 `PRE_BLK_RD_NO` 被連帶夾住時（FLR 被調到比它還小）**也會出訊息** ——
+使用者只是把 Line Buffer 往下調，另一個 register 卻被動了，不講就是靜默改資料。
+
+### 4. 🔴 NB 的反向連動：不唯一解，本版採用的規則寫明供 Bruce 裁示
+
+`First Line Read = ST_LINE_RD + PRE_BLK_RD_NO`。
+正向（改任一格 → Line Buffer 跟著變）是唯一解，沒有爭議。
+**反向（改 Line Buffer → 回推兩格）不是唯一解。** 本版採用：
+
+> **PRE_BLK_RD_NO 維持不變，差額全部落在 ST_LINE_RD。**
+
+理由：原廠 Comment 把兩者的角色講得很清楚 ——
+`ST_LINE_RD` = "Set first data output delay from the first input line"（**延遲量**）、
+`PRE_BLK_RD_NO` = "Set the pre-dummy lines before first valid data out"（**dummy 行數**）。
+dummy 行數由面板／應用決定，通常不會因為想調延遲就跟著動；而且這條規則**可逆**
+（把 Line Buffer 改回原值就回到原本那兩個數字）。
+
+其餘兩個候選作法（**未採用**，列出供覆核）：
+(B) 兩者依目前比例分攤 —— 會產生原本不存在的第三個數字，而且不可逆；
+(C) 反向不自動分，NB 的 Line Buffer 改成唯讀 —— 最不會猜錯，但會讓 NB 少一個既有的操作。
+
+### 5. 實測（headless Chrome ＋ CDP，走真實 UI；同一支探針對 v4.22.2 與 v4.23.0 各跑一次）
+
+探針只讀**畫出來的像素**與 DOM，不讀任何內部位移變數。
+（產品 JS 全包在 IIFE 裡，`_wfgIrOrder` / `WFG_AXIS_H` 這些外面根本看不到 —— 第一版探針就是踩這個而全滅，
+改成純像素反而更符合「從使用者視角量測」。）
+
+**探針自身的正／負控制**（先證明它會動、且不是在量雜訊）：
+
+| 檢查 | 結果 |
+|---|---|
+| 正控制：FLR 6 → 0，TX DE 墨跡最左緣 | 195 px → **122 px**（會動） |
+| 負控制：什麼都不改，連量兩次 | 十六條掃描線 **逐值完全相同** |
+| 負控制：對 v4.22.2 跑同一支探針 | `#wfg-flr` **不存在**、Line Buffer `max=15`／無 `step`、`wfgExportConfig()` **沒有** `firstLineRead` ⇒ 探針不是恆真 |
+
+**① Single Gate 連動（EM01）** —— Line Buffer 0→12 與 First Line Read 0→12 各逐格走一遍：
+
+```
+LB  0..11  → FLR 0..11（逐格相等）；LB 12 → 夾成 11，紅字「⚠ First Line Read 12 超過 EM01 的上限 11…已夾到 11」
+FLR 0..11  → LB  0..11（逐格相等）；FLR 12 → 同上
+上限屬性：lb.max=11 / flr.max=11 / step=1
+```
+
+**② Dual Gate 連動（EM01）** —— 切 dual 時 Line Buffer 保留 6、FLR 自動變 12：
+
+```
+FLR   1 → LB 0.5     FLR  2 → LB 1      FLR  3 → LB 1.5     FLR  4 → LB 2   ← Bruce 指定的 (a)(b)(c)
+FLR  21 → LB 10.5    FLR 22 → LB 11     FLR 23 → 夾成 22（紅字）
+LB  0.5 → FLR 1      LB 1.5 → FLR 3     LB 11  → FLR 22     LB 11.5 → 夾成 11（紅字）
+上限屬性：lb.max=11 / flr.max=22 / step=0.5
+```
+
+**③ 波形位移：First Line Read +1 恰好是 Line Buffer +1 的一半**
+（Dual Gate、視野完全固定：zoom 187.5、center 0.00044444 s；量的是 TX DE 那一列橘色墨跡的最左緣）
+
+| 設定 | FLR | Line Buffer | TX DE 墨跡最左緣 | 相對位移 |
+|---|---|---|---|---|
+| First Line Read = 12 | 12 | 6 | **195 px** | — |
+| First Line Read = 13 | 13 | 6.5 | **202 px** | **+7 px** |
+| First Line Read = 14 | 14 | 7 | **210 px** | **+15 px** |
+| Line Buffer = 6 | 12 | 6 | **195 px**（與 FLR=12 逐值相同） | — |
+| Line Buffer = 7 | 14 | 7 | **210 px**（與 FLR=14 逐值相同） | **+15 px** |
+
+該視野下 1 條檢視行 ＝ 7.5 px（900 px ÷ 120 行）。
+⇒ **FLR +1 ＝ 7／8 px ＝ 恰好一條 line；LB +1 ＝ 15 px ＝ 兩條 line。前者正是後者的一半。**
+（7 與 8 交錯是像素取整，平均 7.5。）
+
+**④ TX DE 的移動**：上表量的就是 **TX DE 那一列**（internal row 3）的墨跡 —— 位移即 `dataIdx = lineInFrame − FLR`。
+
+**⑤ 匯入真實 code（8 份真檔，值全部與外部獨立計算的位元組相符）**
+
+| 檔案 | 外部直接讀位元組 | 工具讀出來 |
+|---|---|---|
+| EM01 EEPROM `RM80100_BOE_FHD320_EEPROM_Initial_CKS_05B313` | rd_mode 0 / `[0x0457+7]&0x3F` = 6 | Single ／ FLR 6 ／ LB 6 |
+| EM01 Flash `RM80203.PB_BOE_B19_3440x1440_144Hz_(DisplayOK_12…)` | rd_mode 0 / `[0x0500+7]&0x3F` = 11 | Single ／ FLR 11 ／ LB 11 |
+| EM02 single `temp01_CKS_03239A_CKS_0323C7.bin` | rd_mode 0 / 6 | Single ／ FLR 6 ／ LB 6 |
+| EM02 **dual** `RM80103.PC_BOE_B4_QHD100_(V02_LODfineTune…)` | rd_mode 1 / **5** | Dual ／ FLR 5 ／ **LB 2.5** |
+| EM02 **dual** `BOE_FHD165_(Case01)_32K…preLine+8…` | rd_mode 1 / **13** | Dual ／ FLR 13 ／ **LB 6.5** |
+| E503 single `RM81003_BOE_BOE14.0(NV140FHM-N4K)…` | ST 4 ＋ PRE 2 = 6 | Single ／ ST 4 ／ PRE 2 ／ LB 6 |
+| E503 **dual** `RM81003_JHE_INX15.6(156020A00V1)…` | rd_mode 1 / ST 4 ＋ PRE 2 = 6 | Dual ／ ST 4 ／ PRE 2 ／ LB 3 |
+| E503 **dual** `FT24C32A-ETR-T(TCN15604-I22A-V0…)` | rd_mode 1 / ST 0 ＋ PRE 6 = 6 | Dual ／ **ST 0 ／ PRE 6** ／ LB 3（分法原樣保留） |
+
+🔴 **EM01 的 Dual Gate 真檔找不到**：`~/TCON/Model` 全庫掃描，EM01 共 **103 份**，
+`reg_rd_mode` **全部是 0（single）**，一份 dual 都沒有。⇒ MNT 的 dual 用 **EM02 的真檔**補上
+（EM02／E512 共 118 份通過未用位元檢查，其中 **71 份是 dual**）。**沒有用改過的假檔冒充真檔。**
+
+⚠ 另外，第一個挑到的 E503 dual 真檔（`RM81003_JDZ_BOE15.6…20231113.bin`）被**v4.22.2 就已存在的**
+E503 GPO 格式檢查拒收（訊息：「內容不符合 E503 的 GPO 格式」）—— 與本版無關，換了另外兩份 dual 真檔。
+
+**⑥ 匯出 round-trip（匯入 → 不改任何東西 → 匯出）**
+
+```
+EM01 EEPROM   write -m 0507 06 3F   // FIRST LINE READ = 6   （匯入讀到 6）
+EM01 Flash    write -m 0507 0B 3F   // FIRST LINE READ = 11  （匯入讀到 11）
+EM02 dual     write -m 0507 05 3F   ＋ write -m 0504 40 C0（DUAL）
+EM02 dual     write -m 0507 0D 3F   ＋ write -m 0504 40 C0（DUAL）
+E503 single   ST_LINE_RD 0x353[5:0]=0x4 ／ PRE_BLK_RD_NO 0x352[5:0]=0x2 ／ RD_MODE 0x350[7:6]=0x0
+E503 dual     ST_LINE_RD 0x353[5:0]=0x4 ／ PRE_BLK_RD_NO 0x352[5:0]=0x2 ／ RD_MODE 0x350[7:6]=0x1
+E503 dual②    ST_LINE_RD 0x353[5:0]=0x0 ／ PRE_BLK_RD_NO 0x352[5:0]=0x6 ／ RD_MODE 0x350[7:6]=0x1
+```
+
+**八份全部位元一致**（匯入讀到什麼、匯出就寫回什麼），位址與 `.model` / register bank 逐項相符。
+
+**⑦ 不弄壞既有行為（negative control，同一支探針對兩個版本各跑一次）**
+
+| 檢查 | v4.22.2 | v4.23.0 |
+|---|---|---|
+| Single Gate LB 5 的 TX DE 墨跡（16 條掃描線） | first=181, n=124 | **逐值完全相同** |
+| Single Gate LB 6 | first=195, n=122 | **逐值完全相同** |
+| Single Gate LB 7 | first=210, n=107 | **逐值完全相同** |
+| Dual Gate LB 6 | first=195, n=245 | **逐值完全相同** |
+| Dual Gate LB 7 | first=210, n=239 | **逐值完全相同** |
+| Dual Gate 的 ΔLB+1 | 15 px | 15 px（不變） |
+| 切 dual 之後 Line Buffer | 7（保留） | 7（保留）＋ FLR 14 |
+| EM01 匯出的 script | 15008 B | 15120 B，`diff` 只有 **3 處**：版號、時間戳、新增的 `write -m 0507 06 3F` |
+
+**⑧ 各機種上限（切機種即時生效）**
+
+```
+EM01 lb.max=11  flr.max=22(dual)   MNT ⇒ 顯示 First Line Read 一格
+EM02 lb.max=7   flr.max=14(dual)   MNT
+E512 lb.max=7   flr.max=14(dual)   MNT
+E501 lb.max=7   flr.max=14(dual)   NB  ⇒ 顯示 ST_LINE_RD ＋ PRE_BLK_RD_NO 兩格
+E503 lb.max=6   flr.max=12(dual)   NB
+EN01 lb.max=8   flr.max=16(dual)   NB
+```
+
+**⑨ NB 反向／正向連動實測**（E503、dual、起始 ST 0 ／ PRE 6）
+
+```
+改 Line Buffer：3.5 → ST 1 ／ PRE 6   4 → ST 2 ／ PRE 6   5 → ST 4 ／ PRE 6   ← PRE 完全不動 ✅
+                 2   → ST 0 ／ PRE 4（紅字：PRE_BLK_RD_NO 由 6 一併調整為 4）
+                 1   → ST 0 ／ PRE 2（紅字）
+改 ST_LINE_RD ：0 → LB 1     3 → LB 2.5    6 → LB 4     9 → LB 5.5   ← PRE 完全不動 ✅
+```
+
+**⑩ 常設機械檢查**
+
+```
+tools/scan_untranslated_keys.js（在頁面上實跑）  → {"pass": true, "hits": []}
+tools/check_cache_buster.py                      → 通過（?v= 已由 20260824wfg4222 bump 到 20260825wfg4230）
+console 錯誤                                     → 0 筆
+```
+
+### 6. 已知缺口與待裁示（照實列出，不藏）
+
+1. **`reg_panel_mode` 查到了但沒接**（EM01 0x0400[2:1]／EM02・E512 0x0480[2:1]／E503 0x320[1:0]／E501 0x3F0[1:0]）。
+   官方 UI 有「rt7 Panel mode 與 rt8 rd mode 不一致就重設」的行為，代表兩者該一起改；
+   但那屬於 Data Mapping 子系統，wfg 沒有對應功能，寫它等於改一個無法驗證的東西。**要不要做請 Bruce 裁示。**
+2. **NB 的反向分法**（見第 4 節）採用「PRE 不動、差額落在 ST」，**請 Bruce 覆核**。
+3. **EN01 的 `RD_MODE` 匯出不寫**：它是 3 bit、可能是 MUX3／MUX4／MUX6（值 2／3／5），
+   而 wfg 只有 single／dual。寫 0 或 1 回去會把使用者的 MUX 設定改掉。
+   匯入端從 v4.14.0 起就因為同一個理由不推定 EN01 的 gate type，這裡與它保持一致。
+   E501／E503 的 `RD_MODE` **本版起有寫**（之前 NB 匯出完全沒寫這一項）。
+4. **EN01 沒有真實 code 檔可做 round-trip**（手上兩份 EN01 檔的 Header 表沒有涵蓋這兩個 register 的 bank），
+   位址來自 `.model` 逐字，但**沒有實檔驗證過**。讀不到時工具會顯示「維持目前設定不變」而不是填 0。
+5. **E501 的 Line Buffer 上限 7 沒有獨立佐證**（NB 原廠 UI 沒有這個欄位），以 Bruce 給的數字為準。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.22.2 — 2026-08-24 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修好 OAX_SEL 選單「把自己排除在外」造成的三個缺陷：XSTB 顯示成 XPOL、匯入 code 後那一格變空白、以及被改成別條後再也選不回自己（且會把 `oax_sel` 由 0 污染成 1、連匯出的暫存器一起寫錯）。**
