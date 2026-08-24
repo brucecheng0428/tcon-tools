@@ -1203,8 +1203,13 @@
     justify-content: center; padding: 16px; background: rgba(2, 6, 23, 0.72); backdrop-filter: blur(3px);
   }
   .wfg-ov-mask.hidden { display: none; }
+  /* 🔴 v4.22.1：寬度不再是寫死的 1180px，改成「實際欄位需要多少就多寬，螢幕不夠才截」。
+     `--wfg-ov-need` 由 wfgOvFitWidth() 在建表後量出來寫進來（欄位組成隨機種變，
+     位元寬不同 ⇒ 表頭文字長度不同 ⇒ 不可能用一個常數涵蓋所有型號）。
+     min(…, 100%) 這一層留給螢幕：夠寬時 need 勝出＝不出捲軸，不夠寬時 100% 勝出＝出捲軸。
+     var() 的 fallback 1180px ＝ JS 還沒跑到時的舊行為，不會比現況差。 */
   .wfg-ov-box {
-    width: min(1180px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column;
+    width: min(var(--wfg-ov-need, 1180px), 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column;
     background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
     box-shadow: 0 18px 50px rgba(0,0,0,0.55); overflow: hidden;
   }
@@ -2616,8 +2621,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4220"></script>
-<script src="common/i18n.js?v=20260824wfg4220"></script>
+<script src="common/version.js?v=20260824wfg4221"></script>
+<script src="common/i18n.js?v=20260824wfg4221"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -29880,6 +29885,7 @@ function wfgOvOpen() {
   m.classList.remove('hidden');
   wfgOvBuild();
   document.addEventListener('keydown', _wfgOvKey);
+  window.addEventListener('resize', _wfgOvOnResize);   // v4.22.1：寬度要跟著視窗重量
   m.addEventListener('mousedown', _wfgOvMaskDown);
 }
 window.wfgOvOpen = wfgOvOpen;
@@ -29892,6 +29898,7 @@ function wfgOvClose() {
     m.removeEventListener('mousedown', _wfgOvMaskDown);
   }
   document.removeEventListener('keydown', _wfgOvKey);
+  window.removeEventListener('resize', _wfgOvOnResize);
   wfgOvHideMsg();
 }
 window.wfgOvClose = wfgOvClose;
@@ -29967,6 +29974,74 @@ function wfgOvBuild() {
   var ft = document.getElementById('wfg-ov-ft');
   if (ft) ft.textContent = t('wfg.ovFoot');
   wfgOvHideMsg();
+  wfgOvFitWidth();
+}
+
+/* ══ v4.22.1：視窗寬度跟著實際欄位走 ═════════════════════════════════════════
+   Bruce 2026-08-24：「為何數位信號總表的寬度不符合實際欄位呢，造成還有水平捲軸，
+   如果螢幕過窄，可以用水平捲軸，但螢幕寬度足夠，就不該用捲軸」
+
+   改動前（v4.22.0）實測：`.wfg-ov-box` 寫死 `width: min(1180px, 100%)`，
+   而表格自然寬 ＝ MNT 1215 / E501 E503 1270 / EN01 1341（含捲動區左右內距），
+   **六顆型號在 1920 與 1440 的螢幕上全部都出水平捲軸**，
+   其中 MNT 只差 37px，但螢幕還空著 740px。
+
+   🔴 為什麼不能改成一個更大的常數：欄位組成隨機種變 —— NB 的表頭是
+   `OAX_MODE / COMBO`（138px，MNT 只有 83px）、`OAX_SEL` 帶「硬體固定」標籤，
+   位元寬不同又讓 `ST_LINE0~16383` 與 `ST_LINE0~65535` 不一樣長。
+   常數只會對「當下這一顆」成立，下一顆型號或下一個新欄位就再錯一次。
+
+   🔴 量法：**不加總 padding／border／捲軸寬**（每多一個會吃寬度的東西就漏一次），
+   而是把每一段都當場量出來：
+     ・`natural`                       ＝ 表格自己的 max-content 寬
+     ・`padLeft + padRight`            ＝ 捲動區左右內距
+     ・`sc.offsetWidth - sc.clientWidth` ＝ 捲動區框線 ＋（有的話）垂直捲軸
+     ・`box.offsetWidth - sc.offsetWidth` ＝ 視窗外框的框線
+   量測期間要把兩個「會跟著容器走」的東西關掉，否則量到的是容器寬不是內容寬：
+     ① `--wfg-ov-need` 先設成極大值 ⇒ `min()` 選 100%，容器不再是限制
+     ② 表格的 `min-width: 100%` ⇒ 暫時設 0，才會落在真正的 max-content
+   量完兩者都還原。整支只在建表後跑一次（換機種／開表），改一格值不會進來。
+
+   🔴 `need` **不是**與視窗無關的常數 —— 本版開發時我原本這樣假設，被截圖驗證當場推翻：
+   手機斷點（`max-width: 640px`）會把表格字級 11→10.5px、輸入框 min-width 54→48px、
+   訊號欄 62→54px，**同一顆型號在窄視窗下量到的自然寬比寬視窗小**
+   （EN01：430px 下量到 1316，1920px 下實際需要 1344）。
+   實測後果：在窄視窗開表 → 拉寬視窗，`need` 停在 1316 ⇒ 捲軸又冒出來。
+   ⇒ 視窗大小改變時必須重量。監聽只在表開著時掛（關表就移除），
+      並用 rAF 節流 —— resize 期間每個事件都重量會變成新的卡頓來源（v4.13.2 的教訓）。 */
+var WFG_OV_MIN_W = 640;   /* 下限。目前六顆型號的 need 都 > 1180，這條不會生效；
+                             留著是防「未來某顆型號欄位很少」把視窗縮成一條細縫。
+                             取 640 ＝ 與手機斷點同值，不另外發明一個數字。 */
+function wfgOvFitWidth() {
+  var box = document.querySelector('.wfg-ov-box');
+  var sc = document.getElementById('wfg-ov-scroll');
+  var tbl = sc ? sc.querySelector('.wfg-ov-tbl') : null;
+  if (!box || !sc || !tbl) return;
+  if (!box.getBoundingClientRect().width) return;   // 表沒開（display:none）⇒ 量不到，不要寫進錯的值
+  box.style.setProperty('--wfg-ov-need', '100000px');
+  var prevMin = tbl.style.minWidth;
+  tbl.style.minWidth = '0';
+  var natural = tbl.getBoundingClientRect().width;
+  var cs = getComputedStyle(sc);
+  var need = Math.ceil(natural
+    + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+    + (sc.offsetWidth - sc.clientWidth)
+    + (box.offsetWidth - sc.offsetWidth)) + 1;   // +1 ＝ 次像素捨入的餘裕
+  tbl.style.minWidth = prevMin;
+  if (!(need > 0)) { box.style.removeProperty('--wfg-ov-need'); return; }
+  box.style.setProperty('--wfg-ov-need', Math.max(need, WFG_OV_MIN_W) + 'px');
+}
+window.wfgOvFitWidth = wfgOvFitWidth;
+
+/* 視窗大小改變 ⇒ 重量（理由見上方 🔴 那段）。rAF 節流：一次 resize 拖曳會連發
+   數十個事件，每個都做兩次強制 reflow 會卡。表關著時第一行就 return。 */
+var _wfgOvFitRaf = 0;
+function _wfgOvOnResize() {
+  if (!_wfgOvOpen || _wfgOvFitRaf) return;
+  _wfgOvFitRaf = requestAnimationFrame(function () {
+    _wfgOvFitRaf = 0;
+    if (_wfgOvOpen) wfgOvFitWidth();
+  });
 }
 
 function wfgOvCellHtml(gi, g, c) {
