@@ -1176,6 +1176,121 @@
   @media (hover:hover) { .wfg-slider-btn:hover { background: #334155; } }
   .wfg-gpio-check-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
   .wfg-gpio-check-row label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; cursor: pointer; }
+
+  /* ══ v4.21.0：數位訊號「總表」（wfgOv*）═══════════════════════════════════
+     Bruce 2026-08-24：「我需要在 WFG 左側的數位訊號小卡片最上方新增一個按鈕，這個按鈕
+     叫做『總表』…將所有可以控制設定的數位訊號呈現成一個表格…點選某一個訊號時，那一行
+     訊號會反白…我也可以直接在裡面修改值，這個修改的值也會連動到實際上數位訊號卡片裡面
+     的各個數位訊號。」
+
+     🔴 顏色一律走 `common/common.css` 的 `:root` 變數（--bg／--card／--border／--text／
+     --text-sub／--accent／--primary／--error／--warn），本區塊不硬編任何色碼 ——
+     深色主題日後若調色票，這張表自動跟著走。
+     反白選擇 `--primary`（#2563eb 實心）而不是照片的橘：橘在本站是「拖曳／作用中」的
+     既有語意（.wfg-ir-group-tcon、XPOL preset 的 active 態），再拿來當列選取會混淆。 */
+  .wfg-ov-btnrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .wfg-ov-btn {
+    padding: 6px 14px; font-size: 12px; font-weight: 700; font-family: inherit;
+    border-radius: 6px; border: 1.5px solid var(--accent); background: transparent;
+    color: var(--accent); cursor: pointer; white-space: nowrap; transition: background .12s, color .12s;
+  }
+  .wfg-ov-btn:active { background: var(--accent); color: var(--bg); }
+  @media (hover:hover) { .wfg-ov-btn:hover { background: var(--accent); color: var(--bg); } }
+  .wfg-ov-btn-hint { font-size: 10.5px; color: var(--text-sub); line-height: 1.3; min-width: 0; }
+
+  .wfg-ov-mask {
+    position: fixed; inset: 0; z-index: 9100; display: flex; align-items: center;
+    justify-content: center; padding: 16px; background: rgba(2, 6, 23, 0.72); backdrop-filter: blur(3px);
+  }
+  .wfg-ov-mask.hidden { display: none; }
+  .wfg-ov-box {
+    width: min(1180px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.55); overflow: hidden;
+  }
+  .wfg-ov-hd {
+    display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px 10px;
+    background: var(--card); border-bottom: 1px solid var(--border); flex: 0 0 auto;
+  }
+  .wfg-ov-hd-tx { min-width: 0; flex: 1 1 auto; }
+  .wfg-ov-title { font-size: 15px; font-weight: 800; color: var(--accent); line-height: 1.3; }
+  .wfg-ov-sub { margin-top: 3px; font-size: 11px; color: var(--text-sub); line-height: 1.5; overflow-wrap: anywhere; }
+  .wfg-ov-x {
+    flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-sub); font-size: 15px; font-family: inherit;
+    cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center;
+  }
+  .wfg-ov-x:active { background: var(--border); color: var(--text); }
+  @media (hover:hover) { .wfg-ov-x:hover { background: var(--border); color: var(--text); } }
+  /* 超界訊息列：卡片版顯示在該欄位的 label 上，總表沒有 label ⇒ 顯示在表格正上方。
+     兩者共用同一支 wfgGpoRangeGuard()／同一段 i18n 文案，只有呈現位置不同。 */
+  .wfg-ov-msg {
+    flex: 0 0 auto; margin: 8px 12px 0; padding: 7px 10px; border-radius: 7px;
+    font-size: 11.5px; line-height: 1.45; color: var(--error);
+    background: var(--card); border: 1px solid var(--error);
+  }
+  .wfg-ov-msg.hidden { display: none; }
+  .wfg-ov-scroll { flex: 1 1 auto; overflow: auto; padding: 10px 12px 12px; -webkit-overflow-scrolling: touch; }
+  .wfg-ov-tbl { border-collapse: separate; border-spacing: 0; font-size: 11px; width: max-content; min-width: 100%; }
+  .wfg-ov-tbl th, .wfg-ov-tbl td {
+    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    padding: 0; text-align: center; white-space: nowrap;
+  }
+  .wfg-ov-tbl thead th {
+    position: sticky; top: 0; z-index: 3; background: var(--card); color: var(--text);
+    font-weight: 700; padding: 5px 7px; font-size: 11px; border-top: 1px solid var(--border);
+  }
+  .wfg-ov-tbl thead th .wfg-ov-rangetag { display: block; font-size: 9.5px; font-weight: 500; color: var(--text-sub); margin-top: 1px; }
+  /* 凍結第一欄（訊號名）—— 欄位多到一定要橫捲，名字捲掉就對不上是哪一條了。
+     z-index 4 > thead 的 3，讓左上角那一格同時壓住兩個方向。 */
+  .wfg-ov-tbl th.wfg-ov-name, .wfg-ov-tbl td.wfg-ov-name {
+    position: sticky; left: 0; z-index: 2; background: var(--card); color: var(--text);
+    font-weight: 700; text-align: left; padding: 4px 9px; border-left: 1px solid var(--border);
+    min-width: 62px; cursor: pointer;
+  }
+  .wfg-ov-tbl thead th.wfg-ov-name { z-index: 4; }
+  .wfg-ov-row { cursor: pointer; }
+  .wfg-ov-row td { background: var(--bg); }
+  /* 反白（Bruce：「那一行訊號會反白（不一定是反白，只要你有辦法 highlight 出來就好）」） */
+  .wfg-ov-row.sel td, .wfg-ov-row.sel td.wfg-ov-name { background: var(--primary); color: #fff; }
+  .wfg-ov-row.sel td.wfg-ov-name { box-shadow: inset 3px 0 0 0 var(--accent); }
+  .wfg-ov-row.sel input[type="number"], .wfg-ov-row.sel select { color: #fff; }
+  .wfg-ov-cell { display: block; padding: 2px 3px; }
+  .wfg-ov-cell input[type="number"] {
+    width: 100%; min-width: 54px; max-width: 84px; box-sizing: border-box;
+    padding: 3px 4px; font-size: 11px; font-family: inherit; text-align: center;
+    background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 4px;
+  }
+  .wfg-ov-cell input[type="number"]:focus { border-color: var(--accent); background: var(--bg); outline: none; }
+  .wfg-ov-cell select {
+    width: 100%; min-width: 54px; box-sizing: border-box; padding: 3px 2px;
+    font-size: 11px; font-family: inherit; text-align: center;
+    background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 4px;
+  }
+  /* 下拉展開的清單背景由瀏覽器畫，不繼承 transparent ⇒ 必須明寫，否則白底白字（calc v1.5.3 踩過）。 */
+  .wfg-ov-cell select option { background: var(--card); color: var(--text); }
+  .wfg-ov-cell select:focus { border-color: var(--accent); background: var(--bg); outline: none; }
+  .wfg-ov-cell input[type="checkbox"] { margin: 4px auto; display: block; cursor: pointer; accent-color: var(--accent); }
+  .wfg-ov-cell.dim { opacity: 0.38; }
+  .wfg-ov-cell.ro { padding: 4px 6px; font-size: 10.5px; color: var(--text-sub); font-weight: 600; }
+  .wfg-ov-cell.bad input[type="number"] { border-color: var(--error); background: var(--card); }
+  .wfg-ov-ft {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 12px; border-top: 1px solid var(--border); background: var(--card);
+    font-size: 10.5px; color: var(--text-sub); line-height: 1.45;
+  }
+  /* 手機（Bruce 常在 430px 寬的手機上看）：整個蓋滿、表格靠橫捲＋凍結首欄。 */
+  @media (max-width: 640px) {
+    /* 手機：貼滿寬度（表格本來就要橫捲），但**高度跟著內容**而不是撐滿 ——
+       撐滿時 18 列以下會出現一大片空白，底部說明列被推到很遠的地方。 */
+    .wfg-ov-mask { padding: 6px; }
+    .wfg-ov-box { width: 100%; max-height: calc(100vh - 12px); }
+    .wfg-ov-scroll { padding: 8px; }
+    .wfg-ov-tbl { font-size: 10.5px; }
+    .wfg-ov-cell input[type="number"] { min-width: 48px; }
+    .wfg-ov-cell select { min-width: 50px; }
+    .wfg-ov-tbl th.wfg-ov-name, .wfg-ov-tbl td.wfg-ov-name { min-width: 54px; padding: 4px 6px; }
+  }
   .wfg-ir-group-border { border: 1.5px solid; border-radius: 4px; margin: 1px 0; padding: 1px 0; cursor: grab; user-select: none; -webkit-user-select: none; }
   .wfg-ir-group-rx { border-color: #38bdf8; }
   .wfg-ir-group-tcon { border-color: #f97316; }
@@ -1668,6 +1783,13 @@
                     也順帶消滅了「在 Code group 改下拉不會同步位元寬」那個既有的不一致狀態。
                  目前型態改在下方每一條數位信號的欄位上限反映；機種選擇在
                  「Frame 參數 → DCLK」與工具列 Code group 兩處。 -->
+            <!-- v4.21.0：「總表」按鈕。位置＝卡片 body 的**最上方**（Bruce 2026-08-24
+                 「在 WFG 左側的數位訊號小卡片最上方新增一個按鈕」）。
+                 它在 #wfg-gpio-list 之外，所以 wfgRenderGpioList() 重建清單時不會被沖掉。 -->
+            <div class="wfg-ov-btnrow">
+              <button type="button" class="wfg-ov-btn" id="wfg-ov-open" onclick="wfgOvOpen()" data-i18n="wfg.ovBtn">總表</button>
+              <span class="wfg-ov-btn-hint" data-i18n="wfg.ovBtnHint">18 條數位訊號一次看完，可直接改值</span>
+            </div>
             <div id="wfg-gpio-list"></div>
           </div>
         </div>
@@ -2475,8 +2597,27 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4201"></script>
-<script src="common/i18n.js?v=20260824wfg4201"></script>
+  <!-- ══ v4.21.0：數位訊號總表 ══════════════════════════════════════════════
+       浮動視窗而不是就地展開：左側欄固定 260px（--wfg-side-w），15 欄 × 18 列
+       無論如何塞不進去；而總表的用途正是「一次看完全部」，塞在側欄裡等於每一格
+       都要橫捲，失去意義。關閉行為沿用站上既有慣例（右上 ✕／點遮罩／Esc）。 -->
+  <div class="wfg-ov-mask hidden" id="wfg-ov-mask" role="dialog" aria-modal="true" aria-labelledby="wfg-ov-title">
+    <div class="wfg-ov-box">
+      <div class="wfg-ov-hd">
+        <div class="wfg-ov-hd-tx">
+          <div class="wfg-ov-title" id="wfg-ov-title" data-i18n="wfg.ovTitle">數位訊號總表</div>
+          <div class="wfg-ov-sub" id="wfg-ov-sub"></div>
+        </div>
+        <button type="button" class="wfg-ov-x" id="wfg-ov-close" onclick="wfgOvClose()" aria-label="close">✕</button>
+      </div>
+      <div class="wfg-ov-msg hidden" id="wfg-ov-msg"></div>
+      <div class="wfg-ov-scroll" id="wfg-ov-scroll"></div>
+      <div class="wfg-ov-ft" id="wfg-ov-ft"></div>
+    </div>
+  </div>
+
+<script src="common/version.js?v=20260824wfg4210"></script>
+<script src="common/i18n.js?v=20260824wfg4210"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -27396,6 +27537,11 @@ function wfgOnGpioChange(gpioIdx, field, value) {
   }
   _wfgScheduleRender();
   _wfgScheduleFullRecompute();
+  /* v4.21.0：數位訊號總表的「卡片 → 總表」方向。**這裡是所有 gpio 值改動的單一收斂點**
+     （滑桿、數字框、+/− 鈕、checkbox、下拉全部匯流到這支），所以只掛這一處就涵蓋全部
+     入口 —— 不逐一去找呼叫端加（那正是 v4.13.2 效能修正漏掉一個入口的成因）。
+     總表沒開時 wfgOvSyncRow() 第一行就 return。 */
+  wfgOvSyncRow(gpioIdx);
 }
 window.wfgOnGpioChange = wfgOnGpioChange;
 
@@ -27528,6 +27674,18 @@ function wfgGpoRangeGuard(rowEl, gpioIdx, field, next) {
 }
 var _wfgGpoMsgTimer = null;
 function wfgGpoFlashRangeMsg(rowEl, field, tried, lim, kept) {
+  /* v4.21.0：同一段文案的第二個呈現位置。總表的儲存格沒有 `<label>`（欄名在表頭、
+     一欄共用一個），所以顯示在表格正上方的訊息列並把那一格框紅。
+     🔴 分流只在「訊息顯示在哪」這一層 —— 判斷是否超界、還原成原值全部在
+     `wfgGpoRangeGuard()` 完成，兩個入口共用同一支、同一段 i18n。 */
+  if (rowEl && rowEl.closest && rowEl.closest('#wfg-ov-mask')) {
+    wfgOvFlashMsg(rowEl, t('wfg.gpoRangeBlocked')
+      .replace('{f}', field.toUpperCase())
+      .replace('{v}', String(tried))
+      .replace('{max}', String(lim))
+      .replace('{keep}', String(kept)));
+    return;
+  }
   var fld = rowEl && rowEl.closest('.wfg-field');
   var lab = fld && fld.querySelector('label');
   if (!lab) return;
@@ -29550,7 +29708,370 @@ function wfgRenderGpioList(focusIdx) {
       try { target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { target.scrollIntoView(); }
     }
   }
+  /* v4.21.0：卡片被整份重建的路徑（XPOL 快捷鈕、匯入 code、換機種、preset 載入、
+     enable/toggle 切換…）一律在這裡把總表拉回同步。與 wfgOnGpioChange() 尾端那一處
+     一樣，總表沒開時第一行就 return。 */
+  wfgOvSyncAll();
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   v4.21.0：數位訊號「總表」（wfgOv*）
+   ══════════════════════════════════════════════════════════════════════════════
+
+   Bruce 2026-08-24 逐字：
+   > 「我需要在 WFG 左側的數位訊號小卡片最上方新增一個按鈕，這個按鈕叫做『總表』。
+   >   點下去以後，可以出現像我附的這張照片一樣，將所有可以控制設定的數位訊號呈現成一個
+   >   表格。而且點選某一個訊號時，那一行訊號會反白（不一定是反白，只要你有辦法 highlight
+   >   出來就好）。另外，點下去我也可以直接在裡面修改值，這個修改的值也會連動到實際上
+   >   數位訊號卡片裡面的各個數位訊號。」
+
+   ── 欄位組成：與參考照片（官方 UI「File IO → Current」總表）的逐項對照 ──────────
+   照片欄（左→右）：Enable, Toggle, inv, f_st_sel, **fgo_sel**, ini_val, tg_ini_val,
+                    act_type, r_ph, f_ph, st_line, sp_line, r_dly, f_dly（右緣被相機裁掉）
+   本表欄：         ENABLE, TOGGLE, INV, F_ST_SEL, INI_VAL, TG_INI_VAL,
+                    ACT_TYPE, R_PH, F_PH, ST_LINE, SP_LINE, R_DLY, F_DLY,
+                    OAX_MODE, OAX_SEL
+
+   差異兩處，都是刻意的：
+   ① **`fgo_sel` 不做** —— 全檔 `grep -i fgo` ＝ 0 筆，wfg 從來沒有這個欄位，也沒有 FGO
+      這組功能。照抄一個空欄只會讓人以為改得動。**照片有而本表沒有的只有這一個。**
+   ② **`OAX_MODE` / `OAX_SEL` 要做** —— 卡片有、照片那一截沒拍到（官方 UI 把 oax_mode／
+      oax_sel 放在卡片區右上角，總表右緣也還有欄位被裁掉）。這是「WFG 有而照片沒有」，
+      依 Bruce 的要求（欄位以卡片實際存在者為準）必須列入。
+   其餘 13 欄與卡片、與照片三方一致。卡片上的 XPOL 快捷鈕（Column／1-line…）不是欄位、
+   是一組會同時改 4 個欄位的捷徑 ⇒ 不進表（它改的值本表全部看得到）。
+
+   ── 欄位組成隨機種變（延續 v4.15.0／v4.17.x 的既有機制，不另造一套）──────────
+   • 七個數值欄的上限一律 `wfgGpoMax(field)`：MNT 的 ACT_TYPE/R_PH/F_PH 是 9 bit(0~511)、
+     NB 是 6 bit(0~63)；ST_LINE/SP_LINE 在 EN01 是 16 bit(0~65535)、其餘 14 bit(0~16383)。
+     `wfgGpoMax()` 回 0 ＝ **這顆型號沒有這個欄位** ⇒ 整欄不畫（目前六顆都有，這條是為
+     日後新增型號留的，與卡片的判斷方式相同）。
+   • `OAX_SEL`：MNT 三顆自由指派 ⇒ 下拉；NB 三顆的 COMBO 對象**硬體固定** ⇒ 唯讀顯示
+     （`wfgComboSrcName()`），`wfgComboSrcIdx() < 0` 時（EN01 的 GPO2）照實標明本工具
+     沒有對應通道 —— 與卡片 Row 6 一字不差的行為。
+   • `OAX_MODE` 的表頭在 NB 標成 `OAX_MODE / COMBO`，同樣沿用卡片的寫法。
+   換機種時整表**重建**而不是只更新值：位元寬指紋 `wfgGpoBitsSig()` ＋ 型號 key 一起當
+   結構指紋。🔴 不可以只看 act_type —— EN01 與 E501 的 act_type 同為 6 bit，只看它會漏掉
+   ST_LINE 14→16（`wfgGpoBitsSig()` 上方的註解就是在講這件事）。
+
+   ── 夾值：走同一支函式，不另寫一份 ────────────────────────────────────────
+   數值欄的 oninput → `wfgGpoRangeGuard()`（卡片滑桿／數字框用的同一支，本版一行未改）
+   → 沒被擋才 `wfgOnGpioChange()`。`wfgGpoRangeGuard` 內部用
+   `rowEl.querySelector('input[type=range]')` 找滑桿，總表的儲存格沒有滑桿 ⇒ 回 null、
+   該行自動跳過，數字框那一格照樣被還原。**所以它不必為總表改任何一行。**
+   唯一要分流的是「訊息顯示在哪」：卡片顯示在欄位的 `<label>` 上，總表沒有 label ⇒
+   在 `wfgGpoFlashRangeMsg()` 開頭加一個「這個節點在總表裡嗎」的分支，文案同一段 i18n。
+
+   ── 雙向連動：單一收斂點，不列舉入口 ──────────────────────────────────────
+   總表 → 卡片／波形：`wfgOnGpioChange()`（波形重畫、快取失效全部由它既有的流程負責）
+                      ＋ `wfgOvPushToCard()` 把值寫回卡片上那一格的滑桿與數字框。
+   卡片 → 總表：`wfgOnGpioChange()` 尾端呼叫 `wfgOvSyncRow()`；
+                `wfgRenderGpioList()` 尾端呼叫 `wfgOvSyncAll()`（涵蓋 XPOL 快捷鈕、匯入、
+                換機種、preset 載入等所有會重建卡片的路徑）。
+   🔴 用收斂點而不是逐一去找呼叫端 —— v4.13.2 的效能修正就是因為「列舉入口」漏了一個。
+   關表時兩支都在第一行 return，成本 ≈ 0。 */
+
+var WFG_OV_COLS = [
+  { f: 'enable',     head: 'ENABLE',     kind: 'bool' },
+  { f: 'toggle',     head: 'TOGGLE',     kind: 'bool' },
+  { f: 'inv',        head: 'INV',        kind: 'bool' },
+  { f: 'f_st_sel',   head: 'F_ST_SEL',   kind: 'bool' },
+  { f: 'ini_val',    head: 'INI_VAL',    kind: 'sel', opts: [0, 1, 2, 3] },
+  /* TG_INI_VAL 在卡片上只有勾了 Toggle 才出現。總表是「一次看完」的視圖，欄位消失會讓
+     行與行對不齊 ⇒ 一律留欄，未勾 Toggle 的那一列**淡化並 disabled**（值仍照實顯示）。 */
+  { f: 'tg_ini_val', head: 'TG_INI_VAL', kind: 'sel', opts: [0, 1, 2], needToggle: true },
+  { f: 'act_type',   head: 'ACT_TYPE',   kind: 'num' },
+  { f: 'r_ph',       head: 'R_PH',       kind: 'num' },
+  { f: 'f_ph',       head: 'F_PH',       kind: 'num' },
+  { f: 'st_line',    head: 'ST_LINE',    kind: 'num' },
+  { f: 'sp_line',    head: 'SP_LINE',    kind: 'num' },
+  { f: 'r_dly',      head: 'R_DLY',      kind: 'num' },
+  { f: 'f_dly',      head: 'F_DLY',      kind: 'num' },
+  { f: 'oax_mode',   head: 'OAX_MODE',   kind: 'sel', opts: [0, 1, 2, 3] },
+  { f: 'oax_sel',    head: 'OAX_SEL',    kind: 'oax' }
+];
+
+var _wfgOvOpen = false;      // 表開著沒有
+var _wfgOvSel = -1;          // 目前反白的列（gpio index），-1 ＝ 沒有
+var _wfgOvSig = '';          // 結構指紋：位元寬 ＋ 型號 key
+var _wfgOvMsgTimer = null;
+
+/* 目前機種下真的要畫的欄。`wfgGpoMax()` 回 0 ＝ 該型號沒有這個欄位（見上方說明）。 */
+function wfgOvCols() {
+  var out = [];
+  for (var i = 0; i < WFG_OV_COLS.length; i++) {
+    var c = WFG_OV_COLS[i];
+    if (c.kind === 'num' && !(wfgGpoMax(c.f) > 0)) continue;
+    out.push(c);
+  }
+  return out;
+}
+/* 結構指紋。變了就整表重建，沒變就只同步值 —— 重建一次 ≈ 18×15 個節點，
+   每改一格都重建會變成新的卡頓來源（v4.13.2 的教訓）。 */
+function wfgOvStructSig() { return wfgGpoBitsSig() + '|' + wfgTconKey(); }
+
+function wfgOvOpen() {
+  var m = document.getElementById('wfg-ov-mask');
+  if (!m) return;
+  _wfgOvOpen = true;
+  m.classList.remove('hidden');
+  wfgOvBuild();
+  document.addEventListener('keydown', _wfgOvKey);
+  m.addEventListener('mousedown', _wfgOvMaskDown);
+}
+window.wfgOvOpen = wfgOvOpen;
+
+function wfgOvClose() {
+  var m = document.getElementById('wfg-ov-mask');
+  _wfgOvOpen = false;
+  if (m) {
+    m.classList.add('hidden');
+    m.removeEventListener('mousedown', _wfgOvMaskDown);
+  }
+  document.removeEventListener('keydown', _wfgOvKey);
+  wfgOvHideMsg();
+}
+window.wfgOvClose = wfgOvClose;
+
+function _wfgOvKey(e) { if (e.key === 'Escape') wfgOvClose(); }
+/* 只有點在遮罩本體（不是視窗內容）才關 —— 從表格裡開始拖選文字、放開時滑到遮罩上
+   不應該把視窗關掉，所以判斷用 e.target 而不是冒泡上來的任何東西。 */
+function _wfgOvMaskDown(e) { if (e.target && e.target.id === 'wfg-ov-mask') wfgOvClose(); }
+
+function wfgOvHideMsg() {
+  var el = document.getElementById('wfg-ov-msg');
+  if (el) { el.classList.add('hidden'); el.textContent = ''; }
+  if (_wfgOvMsgTimer) { clearTimeout(_wfgOvMsgTimer); _wfgOvMsgTimer = null; }
+  var bad = document.querySelectorAll('#wfg-ov-scroll .wfg-ov-cell.bad');
+  for (var i = 0; i < bad.length; i++) bad[i].classList.remove('bad');
+}
+/* 由 wfgGpoFlashRangeMsg() 的總表分支呼叫。文案是同一段 i18n（wfg.gpoRangeBlocked），
+   只是顯示位置從 label 換成表格上方的訊息列，並把那一格框紅。 */
+function wfgOvFlashMsg(cellEl, text) {
+  var el = document.getElementById('wfg-ov-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('hidden');
+  if (cellEl && cellEl.classList) cellEl.classList.add('bad');
+  if (_wfgOvMsgTimer) clearTimeout(_wfgOvMsgTimer);
+  _wfgOvMsgTimer = setTimeout(function () {
+    _wfgOvMsgTimer = null;
+    if (!_wfgOvOpen) return;
+    wfgOvHideMsg();
+  }, 4000);
+}
+
+// ── 建表 ──────────────────────────────────────────────────────────────────
+function wfgOvBuild() {
+  var host = document.getElementById('wfg-ov-scroll');
+  if (!host) return;
+  var cols = wfgOvCols();
+  var codec = wfgTconCodec() || {};
+  var isNb = !!wfgComboSrcTable();
+  var h = '<table class="wfg-ov-tbl"><thead><tr>'
+        + '<th class="wfg-ov-name">' + escapeHtml(t('wfg.ovSignal')) + '</th>';
+  for (var ci = 0; ci < cols.length; ci++) {
+    var c = cols[ci];
+    var head = c.head;
+    if (c.f === 'oax_mode' && isNb) head = 'OAX_MODE / COMBO';
+    var tag = '';
+    if (c.kind === 'num') tag = '<span class="wfg-ov-rangetag">0~' + wfgGpoMax(c.f) + '</span>';
+    else if (c.f === 'oax_sel' && isNb) tag = '<span class="wfg-ov-rangetag">' + escapeHtml(t('wfg.ovFixed')) + '</span>';
+    h += '<th>' + head + tag + '</th>';
+  }
+  h += '</tr></thead><tbody>';
+  for (var gi = 0; gi < WFG_DIGITAL_GPIO_COUNT; gi++) {
+    var g = wfgGpios[gi];
+    if (!g) continue;
+    h += '<tr class="wfg-ov-row' + (gi === _wfgOvSel ? ' sel' : '') + '" data-ov-row="' + gi + '" onclick="wfgOvSelectRow(' + gi + ')">'
+       + '<td class="wfg-ov-name">' + escapeHtml(String(WFG_GPIO_NAMES[gi] || gi).toUpperCase()) + '</td>';
+    for (var cj = 0; cj < cols.length; cj++) h += wfgOvCellHtml(gi, g, cols[cj]);
+    h += '</tr>';
+  }
+  h += '</tbody></table>';
+  host.innerHTML = h;
+  _wfgOvSig = wfgOvStructSig();
+
+  var sub = document.getElementById('wfg-ov-sub');
+  if (sub) {
+    sub.textContent = t('wfg.ovSub')
+      .replace('{m}', codec.label || wfgTconKey())
+      .replace('{cls}', wfgTconClass())
+      .replace('{n}', String(WFG_DIGITAL_GPIO_COUNT));
+  }
+  var ft = document.getElementById('wfg-ov-ft');
+  if (ft) ft.textContent = t('wfg.ovFoot');
+  wfgOvHideMsg();
+}
+
+function wfgOvCellHtml(gi, g, c) {
+  var base = 'class="wfg-ov-cell" data-ov-cell="' + gi + '|' + c.f + '"';
+  if (c.kind === 'bool') {
+    return '<td><span ' + base + '><input type="checkbox"' + (g[c.f] ? ' checked' : '')
+         + ' onclick="event.stopPropagation()"'
+         + ' onchange="wfgOvOnBool(this,' + gi + ',\'' + c.f + '\')"></span></td>';
+  }
+  if (c.kind === 'sel') {
+    var dim = (c.needToggle && !g.toggle);
+    var s = '<td><span class="wfg-ov-cell' + (dim ? ' dim' : '') + '" data-ov-cell="' + gi + '|' + c.f + '">'
+          + '<select onclick="event.stopPropagation()"' + (dim ? ' disabled' : '')
+          + (dim ? ' title="' + wfgEscAttr(t('wfg.ovNeedToggle')) + '"' : '')
+          + ' onchange="wfgOvOnSel(this,' + gi + ',\'' + c.f + '\')">';
+    for (var oi = 0; oi < c.opts.length; oi++) {
+      var v = c.opts[oi];
+      s += '<option value="' + v + '"' + ((g[c.f] | 0) === v ? ' selected' : '') + '>' + v + '</option>';
+    }
+    return s + '</select></span></td>';
+  }
+  if (c.kind === 'oax') {
+    /* NB：COMBO 對象硬體固定 ⇒ 唯讀。與卡片 Row 6 同一組來源函式、同一組文案。 */
+    var nm = wfgComboSrcName(gi);
+    if (nm) {
+      var idx = wfgComboSrcIdx(gi);
+      return '<td><span class="wfg-ov-cell ro" data-ov-cell="' + gi + '|oax_sel" title="'
+           + wfgEscAttr(t('wfg.comboFixedTitle')
+               .replace('{m}', (wfgTconCodec() && wfgTconCodec().label) || '')
+               .replace('{s}', nm.toUpperCase())) + '">'
+           + escapeHtml(nm.toUpperCase())
+           + (idx < 0 ? ' <span style="color:var(--warn)">' + escapeHtml(t('wfg.comboNoChannelTag')) + '</span>' : '')
+           + '</span></td>';
+    }
+    var o = '<td><span ' + base + '><select onclick="event.stopPropagation()"'
+          + ' onchange="wfgOvOnSel(this,' + gi + ',\'oax_sel\')">';
+    for (var k = 0; k < WFG_DIGITAL_GPIO_COUNT; k++) {
+      if (k === gi) continue;
+      o += '<option value="' + k + '"' + ((g.oax_sel | 0) === k ? ' selected' : '') + '>'
+         + escapeHtml(String(WFG_GPIO_NAMES[k]).toUpperCase()) + '</option>';
+    }
+    return o + '</select></span></td>';
+  }
+  // kind === 'num'
+  var lim = wfgGpoMax(c.f);
+  /* 兩個依 Toggle 而變的註記，與卡片標籤上寫的完全同一件事：
+     F_PH 在 Toggle 模式是 bit mask（不是相位起始值）；F_DLY 在 Toggle 模式不使用。 */
+  var ttl = '';
+  if (g.toggle && c.f === 'f_ph') ttl = ' title="' + wfgEscAttr(t('wfg.ovFphMask')) + '"';
+  if (g.toggle && c.f === 'f_dly') ttl = ' title="' + wfgEscAttr(t('wfg.ovFdlyUnused')) + '"';
+  var dimN = (g.toggle && c.f === 'f_dly') ? ' dim' : '';
+  return '<td><span class="wfg-ov-cell' + dimN + '" data-ov-cell="' + gi + '|' + c.f + '">'
+       + '<input type="number" min="0" max="' + lim + '" step="1" value="' + (g[c.f] | 0) + '"'
+       + ttl + ' onclick="event.stopPropagation()"'
+       + ' oninput="wfgOvOnNum(this,' + gi + ',\'' + c.f + '\')"></span></td>';
+}
+
+// ── 反白 ──────────────────────────────────────────────────────────────────
+function wfgOvSelectRow(gi) {
+  _wfgOvSel = gi;
+  var rows = document.querySelectorAll('#wfg-ov-scroll .wfg-ov-row');
+  for (var i = 0; i < rows.length; i++) {
+    var on = (parseInt(rows[i].getAttribute('data-ov-row'), 10) === gi);
+    rows[i].classList.toggle('sel', on);
+  }
+}
+window.wfgOvSelectRow = wfgOvSelectRow;
+
+// ── 總表 → 模型 → 卡片 ────────────────────────────────────────────────────
+function wfgOvOnNum(el, gi, field) {
+  var cell = el.parentNode;   // .wfg-ov-cell，裡面只有這一個 number（沒有 range）
+  /* 🔴 卡片與總表共用同一支守衛：擋「超界且更糟」的輸入並還原，往合法方向一律放行。
+     它找不到 range 元素時會自動略過那一格 —— 所以總表不必、也沒有另寫一份夾值。 */
+  if (wfgGpoRangeGuard(cell, gi, field, el.value)) return;
+  wfgOvHideMsg();
+  wfgOnGpioChange(gi, field, el.value);
+  wfgOvPushToCard(gi, field);
+}
+window.wfgOvOnNum = wfgOvOnNum;
+
+function wfgOvOnBool(el, gi, field) {
+  wfgOnGpioChange(gi, field, el.checked);
+  /* enable／toggle 會讓 wfgOnGpioChange() 重建整份卡片清單（且 toggle 還會改變
+     TG_INI_VAL／F_DLY 這兩格的淡化狀態）⇒ 那條路徑尾端的 wfgOvSyncAll() 會接手，
+     這裡不必也不該再推一次。其餘布林欄（inv／f_st_sel）沒有重建，要自己推回卡片。 */
+  if (field !== 'enable' && field !== 'toggle') wfgOvPushToCard(gi, field);
+}
+window.wfgOvOnBool = wfgOvOnBool;
+
+function wfgOvOnSel(el, gi, field) {
+  wfgOnGpioChange(gi, field, el.value);
+  wfgOvPushToCard(gi, field);
+}
+window.wfgOvOnSel = wfgOvOnSel;
+
+/* 把模型的現值寫回**卡片上**那一格的控制項。卡片的 DOM 是 wfgRenderGpioList() 產生的
+   字串，沒有 data 屬性可以直接定位 ⇒ 用該格 onchange/oninput 屬性裡的引數當選擇器。
+   這是既有 HTML 的既成事實，改不動；用屬性選擇器比另外替卡片加一套 id 侵入性小得多
+   （卡片的 render 一行未動）。
+
+   🔴 **兩種呼叫形狀都要比對，只認一種會靜默漏掉一半的欄位**（驗收第一輪實測抓到：
+   數值欄完全沒推回卡片，而 checkbox 正常 ⇒ 看起來像「有做」）：
+     ・checkbox／select： `wfgOnGpioChange(0,'inv',this.checked)`      → `(0,'inv'`
+     ・滑桿／數字框：     `wfgNumSync(this,0,'st_line')`               → `this,0,'st_line'`
+   `+/−` 鈕是 `wfgSliderNudge(this,-1,0,'st_line')`，兩種形狀都不匹配 ——
+   它本來也不在 `input,select` 的選取範圍內（是 button），不會被誤傷。 */
+function wfgOvPushToCard(gi, field) {
+  var host = document.getElementById('wfg-gpio-list');
+  if (!host) return;
+  var g = wfgGpios[gi];
+  if (!g) return;
+  var n1 = '(' + gi + ",'" + field + "'";        // wfgOnGpioChange(gi,'field',…)
+  var n2 = 'this,' + gi + ",'" + field + "'";    // wfgSliderSync/wfgNumSync(this,gi,'field')
+  /* 過濾交給瀏覽器的屬性選擇器，不要自己掃過整份卡片 DOM 再逐一 getAttribute ——
+     卡片上 18 張 mini-card 約 270 個控制項，每次輸入都全掃一遍實測會多 8ms
+     （驗收實測：表格改一格 11~13.6ms vs 卡片改同一格 2.9ms，差額就在這裡）。
+     改成屬性選擇器後只走命中的那 1~2 個節點。
+     值裡有單引號、沒有雙引號與反斜線（欄位名恆為 [a-z_]、gi 是數字）⇒ 用雙引號包住即可，
+     不需要 CSS.escape。 */
+  var els = host.querySelectorAll(
+    'input[onchange*="' + n1 + '"],select[onchange*="' + n1 + '"],' +
+    'input[oninput*="' + n2 + '"],select[oninput*="' + n2 + '"]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    if (el.type === 'checkbox') el.checked = !!g[field];
+    else el.value = String(g[field] | 0);
+  }
+}
+
+// ── 模型 → 總表（卡片改值時） ─────────────────────────────────────────────
+/* 單一列同步。`_wfgOvOpen` 為假就立刻 return ⇒ 表沒開時這支的成本是一次布林判斷，
+   不會變成 wfgOnGpioChange() 的新負擔。 */
+function wfgOvSyncRow(gi) {
+  if (!_wfgOvOpen) return;
+  var g = wfgGpios[gi];
+  if (!g) return;
+  /* 結構（欄位組成／上限）變了就整表重建 —— 例如換機種。 */
+  if (wfgOvStructSig() !== _wfgOvSig) { wfgOvBuild(); return; }
+  var cols = wfgOvCols();
+  for (var ci = 0; ci < cols.length; ci++) {
+    var c = cols[ci];
+    var cell = document.querySelector('#wfg-ov-scroll [data-ov-cell="' + gi + '|' + c.f + '"]');
+    if (!cell) continue;
+    if (c.kind === 'oax' && cell.classList.contains('ro')) continue;   // 唯讀格沒有值要同步
+    var inp = cell.querySelector('input,select');
+    if (!inp) continue;
+    /* 🔴 正在打字的那一格不覆寫（游標會跳）。**這是「同步」路徑，不是「還原」路徑** ——
+       被拒輸入的還原走 wfgGpoRangeGuard()，那支刻意不套這個守衛（v4.5.x 的教訓：
+       正在打字的那一格才是最需要被還原的那一格）。 */
+    if (inp === document.activeElement) continue;
+    if (inp.type === 'checkbox') inp.checked = !!g[c.f];
+    else inp.value = String(g[c.f] | 0);
+    if (c.needToggle) {
+      var dim = !g.toggle;
+      inp.disabled = dim;
+      cell.classList.toggle('dim', dim);
+    }
+    if (c.f === 'f_dly') cell.classList.toggle('dim', !!g.toggle);
+  }
+}
+window.wfgOvSyncRow = wfgOvSyncRow;
+
+/* 全表同步。掛在 wfgRenderGpioList() 尾端 ⇒ 涵蓋所有會重建卡片的路徑
+   （XPOL 快捷鈕、匯入 code、換機種、preset 載入、enable/toggle 切換…）。 */
+function wfgOvSyncAll() {
+  if (!_wfgOvOpen) return;
+  if (wfgOvStructSig() !== _wfgOvSig) { wfgOvBuild(); return; }
+  for (var gi = 0; gi < WFG_DIGITAL_GPIO_COUNT; gi++) wfgOvSyncRow(gi);
+}
+window.wfgOvSyncAll = wfgOvSyncAll;
 
 // ─── Channel display name (i18n-aware) ───
 // Detects if channel name is a default "通道 X" / "CH X" pattern and translates it

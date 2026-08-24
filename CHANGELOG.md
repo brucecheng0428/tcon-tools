@@ -22,6 +22,154 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.21.0 — 2026-08-24 ｜ MINOR
+
+**數位訊號卡片最上方新增「總表」按鈕：18 條數位訊號 × 15 個可設定欄位排成一張表，可直接改值，與卡片、波形雙向即時連動。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 1「新增一個完整功能 → MINOR」。R1～R4 逐項判、取最高者：
+R1（修 bug）不適用 —— 這是新增能力，不是修正既有行為；
+R2（波次）不適用 —— 沒有開新波，仍在 4.x 這一波內；
+R3（分階段交付）→ **MINOR**，使用者多了「一次看完全部數位訊號並就地改值」這件事；
+R4（起始狀態／預設值）不適用 —— 表格預設關閉，開站畫面一個像素都沒變。
+取最高 ⇒ **MINOR**。
+MAJOR 逐條排除：**既有控制項一個都沒有移位或消失** —— 18 張訊號 mini-card、每張裡的
+ENABLE／滑桿／下拉／XPOL 快捷鈕全部留在原位（新按鈕加在清單**上方**，是新增不是重排）；
+沒有移除任何功能；沒有改變任何既有計算或匯出格式。
+不標 `⚠ 輸出變更`：波形數值、canvas 尺寸、匯出檔內容全部一位元未變 ——
+本版新增的是**另一個編輯入口**，改的值走的是既有的 `wfgOnGpioChange()`，
+不動用它就完全不會發生任何事（依 §1 R1「純新增能力、既有操作的結果完全不變 → 不標」）。
+
+來源：Bruce 2026-08-24 逐字裁示（附官方 UI「File IO → Current」總表的照片）：
+
+> 「我需要在 WFG 左側的數位訊號小卡片最上方新增一個按鈕，這個按鈕叫做『總表』。
+>   點下去以後，可以出現像我附的這張照片一樣，將所有可以控制設定的數位訊號呈現成一個表格。
+>   而且點選某一個訊號時，那一行訊號會反白（不一定是反白，只要你有辦法 highlight 出來就好）。
+>   另外，點下去我也可以直接在裡面修改值，這個修改的值也會連動到實際上數位訊號卡片裡面的
+>   各個數位訊號。」
+
+### 欄位組成：與參考照片的逐項對照
+
+照片（官方 UI）欄：`Enable, Toggle, inv, f_st_sel, `**`fgo_sel`**`, ini_val, tg_ini_val, act_type, r_ph, f_ph, st_line, sp_line, r_dly, f_dly`（右緣被相機裁掉）
+本表欄：`ENABLE, TOGGLE, INV, F_ST_SEL, INI_VAL, TG_INI_VAL, ACT_TYPE, R_PH, F_PH, ST_LINE, SP_LINE, R_DLY, F_DLY, `**`OAX_MODE, OAX_SEL`**
+
+差異只有兩處，都是刻意的：
+
+| 差異 | 判斷 |
+|---|---|
+| **照片有 `fgo_sel`，本表沒有** | 全檔 `grep -i fgo` ＝ **0 筆** —— wfg 從來沒有這個欄位，也沒有 FGO 這組功能。照抄一個空欄只會讓人以為改得動 |
+| **本表有 `OAX_MODE`／`OAX_SEL`，照片那一截沒有** | **卡片上有**（Row 6），官方 UI 把它們放在卡片區右上角、總表右緣也還有欄位被裁掉。依 Bruce「欄位以卡片實際存在者為準」必須列入 |
+
+其餘 13 欄與卡片、與照片三方一致。卡片上的 XPOL 快捷鈕（Column／1-line／…）不是欄位、
+是一次改 4 個欄位的捷徑 ⇒ 不進表（它改的值本表全部看得到，且按下去表格會即時跟著變）。
+
+### 欄位組成跟著機種走（沿用 v4.15.0／v4.17.x 的既有機制，沒有另造一套）
+
+| 隨機種變的東西 | 來源 | 實測（EM01 → E503） |
+|---|---|---|
+| 七個數值欄的上限 | `wfgGpoMax(field)` | ACT_TYPE／R_PH／F_PH **0~511 → 0~63**，表頭與 `max` 屬性同步 |
+| `OAX_MODE` 的欄名 | `wfgComboSrcTable()` | `OAX_MODE` → **`OAX_MODE / COMBO`** |
+| `OAX_SEL` 的儲存格型態 | `wfgComboSrcName()`／`wfgComboSrcIdx()` | 下拉 → **唯讀的硬體固定對象**（EN01 的 GPO2 這種本工具沒有對應通道的，照實標明） |
+| 欄位存不存在 | `wfgGpoMax()` 回 0 | 目前六顆都有；這條是給日後新增型號用的，判斷方式與卡片相同 |
+
+結構指紋用 `wfgGpoBitsSig() + 型號 key`，變了才整表重建、沒變只同步值。
+🔴 不可以只看 `act_type`：EN01 與 E501 的 act_type 同為 6 bit，只看它會漏掉 ST_LINE 14→16。
+
+### 夾值：走同一支函式，沒有第二份實作
+
+表格數值欄的 `oninput` → **`wfgGpoRangeGuard()`（卡片滑桿／數字框用的同一支，本版一行未改）**
+→ 沒被擋才 `wfgOnGpioChange()`。那支內部用 `rowEl.querySelector('input[type=range]')` 找滑桿，
+總表的儲存格沒有滑桿 ⇒ 回 `null`、該行自動跳過，數字框那一格照樣被還原 —— **所以它不必為總表改任何一行**。
+唯一分流的是「訊息顯示在哪」：卡片顯示在欄位的 `<label>` 上，總表沒有 label（欄名在表頭、一欄共用一個）
+⇒ 在 `wfgGpoFlashRangeMsg()` 開頭加一個「這個節點在總表裡嗎」的分支，顯示在表格上方的訊息列並把那一格框紅。
+**文案是同一段 i18n（`wfg.gpoRangeBlocked`）**，判斷與還原全在守衛裡完成。
+
+### 雙向連動：兩個單一收斂點，不列舉入口
+
+| 方向 | 掛在哪 | 涵蓋 |
+|---|---|---|
+| 總表 → 卡片／波形 | `wfgOnGpioChange()`（波形重畫、快取失效沿用它既有的流程）＋ `wfgOvPushToCard()` | 表格裡的每一格 |
+| 卡片 → 總表 | `wfgOnGpioChange()` 尾端 `wfgOvSyncRow()` | 滑桿、數字框、+/− 鈕、checkbox、下拉 —— **全部匯流到這一支** |
+| 卡片整份重建 → 總表 | `wfgRenderGpioList()` 尾端 `wfgOvSyncAll()` | XPOL 快捷鈕、匯入 code、換機種、preset 載入、enable／toggle 切換 |
+
+🔴 用收斂點而不是逐一去找呼叫端加 —— v4.13.2 的效能修正就是「列舉入口」漏掉一個造成的。
+總表沒開時兩支都在第一行 `return`。
+
+### 🔴 開發過程中自己犯、由驗收抓出來的一個錯（記錄下來避免再犯）
+
+`wfgOvPushToCard()` 第一版只比對 `(gi,'field'` 這一種呼叫形狀，結果**數值欄完全沒有推回卡片**，
+而 checkbox／下拉正常 —— 表面上「有做」，實際只做了一半。根因是卡片的兩類控制項呼叫形狀不同：
+
+- checkbox／select：`wfgOnGpioChange(0,'inv',this.checked)` → `(0,'inv'`
+- 滑桿／數字框：`wfgNumSync(this,0,'st_line')` → **`this,0,'st_line'`**
+
+修法是兩種形狀都比對。**這個錯只有「跨層驗證」抓得到** —— 只驗 `wfgGpios` 的值會全部通過。
+
+### 效能：實測數字
+
+| 操作 | 耗時 | 說明 |
+|---|---|---|
+| 在**表格**改一格 | **2.6～5.7 ms** | 含 `wfgOnGpioChange` ＋ 同步回卡片 |
+| 在**卡片**改同一格（對照組） | **1.2～2.9 ms** | 含 `wfgOnGpioChange` ＋ 同步到表格 |
+| 是否觸發整表重建 | **否** | 探針：在第 0 列的名稱格上留記號，改值後記號與節點識別都還在 |
+
+第一版是 11～13.6 ms，差額全在 `wfgOvPushToCard()` 用 `querySelectorAll('input,select')`
+掃過卡片上約 270 個控制項再逐一 `getAttribute`。改用屬性選擇器讓瀏覽器原生過濾後降到 3～5 ms。
+波形本身走的是既有的 `wfgInvalidateDirty(gpioIdx)`（單通道髒），**不是**全通道失效。
+
+### UI 決定（Bruce 交給我決定的部分）
+
+- **浮動視窗**而不是就地展開：左側欄固定 260px（`--wfg-side-w`），15 欄 × 18 列無論如何塞不進去；
+  而總表的用途正是「一次看完」，塞在側欄裡等於每一格都要橫捲。關閉沿用站上既有慣例：右上 ✕／點遮罩／Esc。
+- **橫向**：`overflow:auto` 橫捲 ＋ **表頭 sticky top ＋ 第一欄（訊號名）sticky left**。
+  桌機 1440px 下 15 欄全部一次看得完，不需要捲。
+- **手機 430px**：視窗貼滿寬度、高度跟著內容（撐滿會在 18 列以下留一大片空白），表格橫捲、第一欄凍結。
+- **反白**用 `--primary`（實心藍）而不是照片的橘：橘在本站已有「拖曳／作用中」的語意
+  （`.wfg-ir-group-tcon`、XPOL preset 的 active 態），再拿來當列選取會混淆。
+  🔴 本區塊的 CSS **不硬編任何色碼**，一律走 `common/common.css` 的 `:root` 變數。
+
+### 驗證：headless Chrome ＋ CDP，走真實按鈕流程
+
+所有點擊一律 `Input.dispatchMouseEvent`（viewport 座標，先把元素捲進視野、`elementFromPoint`
+確認命中該元素本身），**沒有**呼叫 `el.click()`、也**沒有**直接呼叫 `wfgOvOpen()` 之類的內部函式。
+
+| # | 檢查 | 桌機 1440px | 手機 430px |
+|---|---|---|---|
+| T1a | 按鈕在卡片 body 最上方（在訊號清單之上） | PASS | PASS |
+| T1b | 真實點擊「總表」（`elementFromPoint` 命中該鈕） | PASS | PASS |
+| T1c | 表格開出、**18 列**、列名與順序與 `wfgGpios` 一致 | PASS | PASS |
+| T2a | 點第 3 列 → **只有**第 3 列 highlight（VST1） | PASS | PASS |
+| T2b | 再點第 7 列 → highlight 移動、前一列復原（CK3） | PASS | PASS |
+| T3a | 表格改 F_DLY 600→1000 → `wfgGpios` 實際值變 | PASS | PASS |
+| T3b | → 卡片同一格的**滑桿與數字框**都同步 | PASS | PASS |
+| T3c | → **波形墨跡指紋改變**（主 canvas `getImageData` 雙雜湊，繪製層） | PASS | PASS |
+| T3d | 負控制：改回原值 → 指紋**回到原值**（探針不是恆變） | PASS | PASS |
+| T3e | 表格勾 INV → `wfgGpios`／卡片 checkbox／墨跡**三層皆變** | PASS | PASS |
+| T4a | 反向：卡片改 R_DLY → 表格對應格子跟著更新 | PASS | PASS |
+| T4b | 反向：卡片勾 Toggle → 表格 TOGGLE 跟著勾、TG_INI_VAL 由淡化轉可編 | PASS | PASS |
+| T5a | MNT(EM01) 表格輸入 516（>511）→ 擋下、保留原值、訊息與紅框都出現 | PASS | PASS |
+| T5b | 上限值 511 本身放行（不鎖死、有退路） | PASS | PASS |
+| T5c | 切 E503(NB) → 表格自動重畫，上限 511→**63**、表頭同步 | PASS | PASS |
+| T5d | 切 NB → OAX_SEL 變唯讀的硬體固定對象 | PASS | PASS |
+| T5e | NB 下輸入 100 → 依 **NB 的**位元寬擋下（同一個值在 MNT 是合法的） | PASS | PASS |
+| T7 | 改一格耗時 ＋ 未觸發整表重建 | PASS | PASS |
+| T6 | 430px：視窗不超出畫面、可橫捲、第一欄凍結、18 列都在 | — | PASS |
+
+🔴 **跨層**：T3c／T3e 的探針在**繪製層**（主 canvas 的像素），注入在**表格 UI 層** ——
+不是「注入在計算層、探測也在計算層」那種只證明得了一層的驗證（v4.19 的 INV bug 就是這樣漏掉的）。
+T3d 是配套的鑑別力證明：改回原值後指紋必須**回到**原值，排除「探針只會每次都不同」。
+
+🔴 **負控制（證明這支探針不是恆真）**：同一支腳本對 **v4.20.1（`git show HEAD:`，改動前）**
+跑一次 ⇒ **12 FAIL / 1 PASS**（`#wfg-ov-open` 不存在、表格取不到、值改不動、墨跡不變）。
+唯一 PASS 的 T3d 是「兩次讀值相同」這種弱斷言，在沒改到任何值的 base 上本來就會成立 ——
+真正的鑑別力來自 T3c 在 base **FAIL**、在 cur **PASS** 這一對。
+
+一個實作坑順帶記下：`--window-size=430,900` 在 headless 下量到的 `innerWidth` 是 **500**
+（Chrome 有最小視窗寬度），要真的模擬 430px 只能用 CDP 的 `Emulation.setDeviceMetricsOverride`。
+另外換機種那條路徑會跳原生 `confirm()`，它會阻塞 renderer 讓 `Runtime.evaluate` 直接 timeout，
+測試開頭必須先接管 `confirm`／`alert`。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.20.1 — 2026-08-24 ｜ PATCH ⚠ 輸出變更
 
 **EM01 的 TCON UI DCLK 上限 420 → 432 MHz。**
