@@ -2616,8 +2616,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260824wfg4210"></script>
-<script src="common/i18n.js?v=20260824wfg4210"></script>
+<script src="common/version.js?v=20260824wfg4220"></script>
+<script src="common/i18n.js?v=20260824wfg4220"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -3068,6 +3068,12 @@ function wfgMakeGpio(name, idx) {
   return {
     name: name, act_type: 0, r_ph: 0, f_ph: 0,
     st_line: 0, sp_line: 0, r_dly: 0, f_dly: 0,
+    /* v4.22.0：第二組延遲（官方 UI 的 `r_dly_2` / `f_dly_2`）。
+       晶片上每條訊號的延遲有兩份，第二份用在「偵測到 frame rate 改變」之後的第二組
+       timing（MNT 叫 `reg_*_dly_<sig>_2nd`、NB 叫 `*_DLY_F40_<sig>`，見 wfgGpoDecodeAt
+       上方的對照表）。**wfg 的波形只模擬第一組**，所以這兩個值不進任何計算，
+       純粹是「讓使用者在同一個畫面把 code 設完、匯出時一起寫回去」的載體。 */
+    r_dly_2: 0, f_dly_2: 0,
     f_st_sel: true, ini_val: 0, toggle: false, tg_ini_val: 0,
     inv: false, enable: false, oax_mode: 0, oax_sel: 0,
     waveform_type: virtualType, analog_config: wfgMakeAnalogConfig(virtualType, ckoIndex)
@@ -27498,6 +27504,36 @@ function wfgBeginDeferredAnalog() {
 function wfgOnGpioChange(gpioIdx, field, value) {
   if (gpioIdx < 0 || gpioIdx >= wfgGpios.length) return;
   var gpio = wfgGpios[gpioIdx];
+  /* ══ v4.22.0：R_DLY2 / F_DLY2 —— **不參與波形計算**，走專用短路徑 ═══════════════
+     Bruce 2026-08-24：「雖然調整的時候不影響波形，但要設定成可以調整。」
+
+     這兩個值是**第二組 timing** 用的延遲（MNT `reg_*_dly_<sig>_2nd`／NB `*_DLY_F40_<sig>`，
+     見 `wfgGpoDecodeAt()` 上方的對照表），而 wfg 的波形只模擬第一組 ⇒ 改它們
+     **不可以**走 `wfgInvalidateDirty()` ／ `_wfgScheduleRender()` ／
+     `_wfgScheduleFullRecompute()`。否則等於替 18 條訊號各開兩個「改一下就整張畫布
+     重算」的入口，成本換不到任何一個像素的差異（v4.13.2 那一輪的教訓：多餘的
+     重算路徑就是卡頓來源）。
+
+     夾值仍走與其他欄位**完全相同**的規則（`WFG_GPO_RANGE_FIELDS` ＋ `wfgGpoMax()`），
+     這裡只是把同一段夾值抄在短路徑上，不另訂一套上限。
+
+     🔴 這裡自己呼叫 `wfgAutoSave()`：其餘欄位是靠掛在 `#page-wfg` 上的 input/change
+     監聽器間接存檔的，而數位訊號總表是 **`#page-wfg` 之外**的浮動視窗
+     （`#wfg-ov-mask`）⇒ 只在總表改過這兩格的話，事件冒泡不到那個監聽器，重整後會不見。
+     `wfgAutoSave()` 自帶 debounce，重複呼叫沒有成本。 */
+  if (field === 'r_dly_2' || field === 'f_dly_2') {
+    var _d2v = parseInt(value);
+    if (!isFinite(_d2v)) _d2v = 0;
+    var _d2lim = wfgGpoMax(field);
+    if (_d2lim > 0) {
+      if (_d2v > _d2lim) _d2v = _d2lim;
+      if (_d2v < 0) _d2v = 0;
+    }
+    gpio[field] = _d2v;
+    wfgOvSyncRow(gpioIdx);
+    if (typeof wfgAutoSave === 'function') wfgAutoSave();
+    return;
+  }
   // Structural changes (waveform_type, enable) → full invalidation; param tweaks → dirty path
   var isStructural = (field === 'waveform_type' || field === 'enable');
   if (field === 'enable' || field === 'inv' || field === 'toggle' || field === 'f_st_sel') {
@@ -29580,6 +29616,27 @@ function wfgRenderGpioList(focusIdx) {
       + wfgSliderHtml(i, 'f_dly', 0, _fdMax, g.f_dly)
       + '</div></div></div>';
 
+    /* Row 3b：r_dly_2、f_dly_2（v4.22.0）
+       Bruce 2026-08-24：「位置就放在 F_DLY 跟 OAX_MODE 的中間，左邊是 R_DLY2，右邊是 F_DLY2。」
+       ⇒ 卡片上緊接在 R_DLY／F_DLY 那一列之後（仍落在 F_DLY 與 OAX_MODE 之間），
+         控制項型式、上限來源、夾值函式全部與上一列一模一樣，不另寫一套。
+       整列掛一個 title：這兩格**不影響波形**，不講的話使用者會以為畫面壞了。
+       ⚠ 刻意**不**比照 F_DLY 加「Toggle 模式不使用」的註記 —— 第二組延遲在 Toggle
+         模式下的行為，三顆 MNT 的 register bank 與三顆 NB 的 `.model` 都沒有明文，
+         照抄第一組的說法等於編一個沒有出處的規格。 */
+    var _rd2Max = wfgGpoMax('r_dly_2');
+    var _fd2Max = wfgGpoMax('f_dly_2');
+    if (_rd2Max > 0 && _fd2Max > 0) {
+      var _dly2Ttl = wfgEscAttr(t('wfg.dly2Note'));
+      html += '<div class="wfg-gpio-grid-2" title="' + _dly2Ttl + '">'
+        + '<div class="wfg-field"><label>R_DLY2 (0~' + _rd2Max + ')</label><div class="wfg-slider-row">'
+        + wfgSliderHtml(i, 'r_dly_2', 0, _rd2Max, g.r_dly_2)
+        + '</div></div>'
+        + '<div class="wfg-field"><label>F_DLY2 (0~' + _fd2Max + ')</label><div class="wfg-slider-row">'
+        + wfgSliderHtml(i, 'f_dly_2', 0, _fd2Max, g.f_dly_2)
+        + '</div></div></div>';
+    }
+
     // Row 4: ini_val, toggle checkbox, tg_ini_val (conditional)
     html += '<div class="wfg-gpio-grid">'
       + '<div class="wfg-field"><label>INI_VAL</label><select onchange="wfgOnGpioChange(' + i + ',\'ini_val\',this.value)">'
@@ -29730,6 +29787,7 @@ function wfgRenderGpioList(focusIdx) {
                     act_type, r_ph, f_ph, st_line, sp_line, r_dly, f_dly（右緣被相機裁掉）
    本表欄：         ENABLE, TOGGLE, INV, F_ST_SEL, INI_VAL, TG_INI_VAL,
                     ACT_TYPE, R_PH, F_PH, ST_LINE, SP_LINE, R_DLY, F_DLY,
+                    **R_DLY2, F_DLY2**（v4.22.0 新增，Bruce 指定夾在 F_DLY 與 OAX_MODE 之間），
                     OAX_MODE, OAX_SEL
 
    差異兩處，都是刻意的：
@@ -29787,6 +29845,11 @@ var WFG_OV_COLS = [
   { f: 'sp_line',    head: 'SP_LINE',    kind: 'num' },
   { f: 'r_dly',      head: 'R_DLY',      kind: 'num' },
   { f: 'f_dly',      head: 'F_DLY',      kind: 'num' },
+  /* v4.22.0：Bruce 2026-08-24 明確指定「位置就放在 F_DLY 跟 OAX_MODE 的中間，
+     左邊是 R_DLY2，右邊是 F_DLY2」⇒ 這兩列的順序與位置不可調換。
+     `ttl` ＝ 整欄共用的提示（這兩格不影響波形），掛在表頭與每一格上。 */
+  { f: 'r_dly_2',    head: 'R_DLY2',     kind: 'num', ttl: 'wfg.dly2Note' },
+  { f: 'f_dly_2',    head: 'F_DLY2',     kind: 'num', ttl: 'wfg.dly2Note' },
   { f: 'oax_mode',   head: 'OAX_MODE',   kind: 'sel', opts: [0, 1, 2, 3] },
   { f: 'oax_sel',    head: 'OAX_SEL',    kind: 'oax' }
 ];
@@ -29877,7 +29940,9 @@ function wfgOvBuild() {
     var tag = '';
     if (c.kind === 'num') tag = '<span class="wfg-ov-rangetag">0~' + wfgGpoMax(c.f) + '</span>';
     else if (c.f === 'oax_sel' && isNb) tag = '<span class="wfg-ov-rangetag">' + escapeHtml(t('wfg.ovFixed')) + '</span>';
-    h += '<th>' + head + tag + '</th>';
+    /* v4.22.0：整欄共用的說明（目前只有 R_DLY2／F_DLY2 用到）。 */
+    var hTtl = c.ttl ? (' title="' + wfgEscAttr(t(c.ttl)) + '"') : '';
+    h += '<th' + hTtl + '>' + head + tag + '</th>';
   }
   h += '</tr></thead><tbody>';
   for (var gi = 0; gi < WFG_DIGITAL_GPIO_COUNT; gi++) {
@@ -29950,6 +30015,7 @@ function wfgOvCellHtml(gi, g, c) {
   /* 兩個依 Toggle 而變的註記，與卡片標籤上寫的完全同一件事：
      F_PH 在 Toggle 模式是 bit mask（不是相位起始值）；F_DLY 在 Toggle 模式不使用。 */
   var ttl = '';
+  if (c.ttl) ttl = ' title="' + wfgEscAttr(t(c.ttl)) + '"';          // v4.22.0：整欄共用的說明
   if (g.toggle && c.f === 'f_ph') ttl = ' title="' + wfgEscAttr(t('wfg.ovFphMask')) + '"';
   if (g.toggle && c.f === 'f_dly') ttl = ' title="' + wfgEscAttr(t('wfg.ovFdlyUnused')) + '"';
   var dimN = (g.toggle && c.f === 'f_dly') ? ' dim' : '';
@@ -36451,6 +36517,14 @@ window.wfgImportConfig = function(jsonStr, options) {
   if (config.gpios && Array.isArray(config.gpios)) {
     for (var gi = 0; gi < config.gpios.length && gi < wfgGpios.length; gi++) {
       var src = config.gpios[gi];
+      /* 🔴 v4.22.0：先無條件清成 0，再讓下面的迴圈覆寫。
+         這個迴圈是「有什麼欄位就抄什麼」，**不會清掉檔案裡沒有的欄位** ——
+         v4.21.0 以前匯出的設定檔沒有 `r_dly_2` / `f_dly_2`，不先清的話會沿用
+         上一份設定的值，變成「新設定＋舊延遲」的混血（v3.9.0 的 ovlId、
+         v3.0.1／v3.5.1 的殘留都是同一種錯，處理方式也照抄那一套）。
+         舊檔載入後這兩格 ＝ 0，與 `wfgMakeGpio()` 的預設值一致。 */
+      wfgGpios[gi].r_dly_2 = 0;
+      wfgGpios[gi].f_dly_2 = 0;
       for (var k in src) {
         if (k !== 'name') wfgGpios[gi][k] = src[k];
       }
@@ -36848,6 +36922,8 @@ window.wfgImportConfig = function(jsonStr, options) {
    | **sp_line** | 14 | 14 | **16** | 14 | 14 | 14 |
    | r_dly       | 16 | 16 | 16 | 16 | 16 | 16 |
    | f_dly       | 16 | 16 | 16 | 16 | 16 | 16 |
+   | r_dly_2     | 16 | 16 | 16 | 16 | 16 | 16 |
+   | f_dly_2     | 16 | 16 | 16 | 16 | 16 | 16 |
    | ini_val     | 2 | 2 | 2 | 2 | 2 | 2 |
    | tg_ini_val  | 2 | 2 | 2 | 2 | 2 | 2 |
    | oax_mode    | — | — | — | 2 | 2 | 2 |
@@ -36873,11 +36949,13 @@ window.wfgImportConfig = function(jsonStr, options) {
    `WFG_TCON_CODECS` 填一格 `gpoBits`，這裡與 UI 都不用改。 */
 var WFG_GPO_BITS_MNT = {
   act_type: 9, r_ph: 9, f_ph: 9, st_line: 14, sp_line: 14,
-  r_dly: 16, f_dly: 16, ini_val: 2, tg_ini_val: 2, oax_mode: 2, oax_sel: 5
+  r_dly: 16, f_dly: 16, r_dly_2: 16, f_dly_2: 16,
+  ini_val: 2, tg_ini_val: 2, oax_mode: 2, oax_sel: 5
 };
 var WFG_GPO_BITS_NB = {
   act_type: 6, r_ph: 6, f_ph: 6, st_line: 14, sp_line: 14,
-  r_dly: 16, f_dly: 16, ini_val: 2, tg_ini_val: 2
+  r_dly: 16, f_dly: 16, r_dly_2: 16, f_dly_2: 16,
+  ini_val: 2, tg_ini_val: 2
 };
 /* EN01 只有 st_line／sp_line 與其他 NB 不同，其餘完全相同。
    用「複製 NB 再覆寫兩格」而不是整份重打：日後 NB 共通的欄位改了，這裡自動跟著改，
@@ -36892,7 +36970,12 @@ var WFG_GPO_BITS_EN01 = (function () {
 /* 由滑桿／數字框呈現、會被上下限機制管的欄位。
    `ini_val`／`tg_ini_val`／`oax_mode`／`oax_sel` 不在此列 —— 它們是**列舉出來的下拉選單**，
    選項本身就是合法值域，不需要（也不能）用 min/max 去管。 */
-var WFG_GPO_RANGE_FIELDS = ['act_type', 'r_ph', 'f_ph', 'st_line', 'sp_line', 'r_dly', 'f_dly'];
+/* 🔴 v4.22.0：`r_dly_2` / `f_dly_2` **要**列進來 —— 它們雖然不影響波形，
+   但輸入框的上下限、換機種的夾值、跨型號匯出的夾值全部由這張清單驅動，
+   漏列的話這兩格就變成「什麼都能填、匯出時才靜默截斷」。
+   （不影響波形是靠 `wfgOnGpioChange()` 裡的專用分支達成的，不是靠不列進這裡。） */
+var WFG_GPO_RANGE_FIELDS = ['act_type', 'r_ph', 'f_ph', 'st_line', 'sp_line',
+                            'r_dly', 'f_dly', 'r_dly_2', 'f_dly_2'];
 /* 查不到型號時退回 MNT —— 與 `wfgTconClass()` 的 fallback 一致（最寬鬆，不會誤擋既有值）。 */
 /* v4.16.2：取**指定型號**的欄位上限（不是目前機種）——
    跨型號匯出時要用目標型號的位元寬夾值，`wfgGpoMax()` 看的是當前機種，不能用。 */
@@ -37023,13 +37106,15 @@ window.wfgComboSrcIdx = wfgComboSrcIdx;
 window.wfgComboSrcTable = wfgComboSrcTable;
 
 var WFG_TCON_CODECS = {
-  /* `hasSecondDly`（v4.12.1）＝ 這顆的 register bank 有 `r_dly_*_2nd`／`f_dly_*_2nd`，
-     而 WFG 沒有對應欄位、匯出也不寫 ⇒ 改過延遲之後匯出要提醒使用者兩者會不同步。
-     EM01／EM02／E512 三顆都逐項查證過（見 wfgCodeExport 上方的說明）。 */
+  /* ⚠ `hasSecondDly`（v4.12.1 ～ v4.21.0）**已於 v4.22.0 移除**。
+     它的語意是「這顆有 `r_dly_*_2nd`／`f_dly_*_2nd`，而 WFG 沒有對應欄位、匯出也不寫
+     ⇒ 要提醒使用者兩者會不同步」。v4.22.0 把這兩個值做成正式欄位（`r_dly_2`／`f_dly_2`），
+     六顆的匯入與匯出都寫，**那個不同步的來源不存在了** ⇒ 旗標與警示一併移除。
+     留著一個說「WFG 沒有這個欄位」的提示，等於對使用者說謊。
+     取而代之的是 `hasSecondStSpLine`（見 `en01`），描述真正**還沒補上**的那一項。 */
   em02: {
     label: 'EM02', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 420, importExts: ['.bin'], exportFormat: 'script',
     gpoBits: WFG_GPO_BITS_MNT,
-    hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgEm02ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgEm02BuildScript(opt); }
   },
@@ -37040,7 +37125,6 @@ var WFG_TCON_CODECS = {
   e512: {
     label: 'E512', tconClass: 'MNT', uiDclkRatio: 2, uiDclkMax: 360, importExts: ['.bin'], exportFormat: 'script',
     gpoBits: WFG_GPO_BITS_MNT,
-    hasSecondDly: true,
     parseCode: function(buf, fname) { return wfgE512ParseBin(buf, fname); },
     buildExport: function(opt) { return wfgE512BuildScript(opt); }
   },
@@ -37053,7 +37137,6 @@ var WFG_TCON_CODECS = {
     /* v4.11.1：宣告「這顆用內容大小分 EEPROM／Flash」⇒ 自動獲得讀檔前的大小閘門
        （`wfgCodeSizePreflight()`）。之後 NB 型號填同一格即可。 */
     mediumBySize: true,
-    hasSecondDly: true,
     /* v4.13.3：這顆的 Flash code 有三模候選 slot（Normal／133%／200%），而匯出的
        script 一律只寫 CURRENT ⇒ 匯出後要說明「後半段得在官方 UI 完成」。
        EM02／E512 沒有三模，CURRENT 是唯一位置，對它們講這件事只是噪音。 */
@@ -37090,6 +37173,22 @@ var WFG_TCON_CODECS = {
   en01: {
     label: 'EN01', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_EN01, comboSrc: WFG_COMBO_SRC_EN01,
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
+    /* ══ 🔴 v4.22.0：`hasSecondStSpLine` —— 唯一還沒補上的第二組設定 ═══════════════
+       v4.22.0 補完了第二組**延遲**（`r_dly_2` / `f_dly_2`，六顆都做）。查證的時候
+       同時發現：**只有 EN01 另外還有第二組 ST/SP LINE**，而 wfg 沒有對應欄位。
+         `RCP2/RomCodeProcessUI_2.0.16.0/ModelFiles/RM81008.model`
+           `ST2_LINE_XSTB` RegAddr1 0x1280 / RegAddr0 0x1281（16 bit BE）
+           `SP2_LINE_XSTB` RegAddr1 0x1282 / RegAddr0 0x1283（16 bit BE）
+           全機共 19 條 × 2 ＝ 38 個區塊，位在 **0x1280 起的另一個 bank**，
+           不在每條訊號那 16 bytes 之內。
+         啟用開關 `ST_SP_USE_2ND_<sig>`（0x490 bit2，每條一個）原廠 Comment 原文：
+           `When LONG_H active , can use 2nd set ST2_LINE or SP2_LINE enable`
+           `1: (default ) enable use 2ND ST2_LINE / SP2_LINE`
+         ⇒ **預設就是啟用**，所以這不是罕見設定。
+       E501 / E503 全庫搜尋 `ST2_LINE` / `SP2_LINE` ＝ **0 筆**，MNT 三顆的 register bank
+       也已於 v4.11.0 查證過「`st_line`／`sp_line` 每條訊號只有一組」⇒ 只有 EN01 要警示。
+       這一格就是把舊 `hasSecondDly` 那個**已經不成立**的警示，換成一個仍然成立的。 */
+    hasSecondStSpLine: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'en01'); },
     buildExport: function(opt) { return wfgNbBuildXlsx('en01', opt); }
   }
@@ -38206,9 +38305,10 @@ function wfgCodePickFile() {
     if (!input.files || !input.files[0]) return;
     var f = input.files[0];
     wfgCodeLastTimingNote = '';      // v4.12.0：每次匯入都從乾淨狀態開始，見該變數的說明
-    /* v4.12.1：延遲基準也一起清掉。匯入**失敗**時基準就該是「沒有」——
-       留著上一份 code 的快照會讓下一次匯出誤判成「沒改過」而不示警。 */
-    wfgCodeImportedDly = null;
+    /* v4.12.1（v4.22.0 由延遲改為 ST/SP LINE）：基準也一起清掉。匯入**失敗**時
+       基準就該是「沒有」—— 留著上一份 code 的快照會讓下一次匯出誤判成
+       「沒改過」而不示警。 */
+    wfgCodeImportedStSp = null;
     /* ══ v4.11.1：大小不合法的檔案在**讀進記憶體之前**就擋掉 ═══════════════════
        Bruce 2026-08-23：「照規格應該是在解析之前就擋，不該有可觀察的延遲。」
        v4.11.0 的判定確實在解析之前（`wfgCodeLoadImage()` 第一步），但**位置在
@@ -38261,53 +38361,52 @@ function wfgCodePickFile() {
   input.click();
 }
 window.wfgCodePickFile = wfgCodePickFile;   // 驗收腳本要走與按鈕相同的路徑
-/* ══ v4.12.1：匯出後提醒「`_2nd` 延遲不會被寫回」════════════════════════════
-   Bruce 2026-08-23：「可以加一行警告，但是不要加在 script，而是加在會出 script 的
-   那個按鈕按下去以後。」
+/* ══ v4.22.0：匯出後提醒「第二組 ST/SP LINE 不會被寫回」（取代 v4.12.1 的延遲提醒）══
+   Bruce 2026-08-23 定下的呈現方式沿用不變：「可以加一行警告，但是不要加在 script，
+   而是加在會出 script 的那個按鈕按下去以後。」
 
-   **風險是什麼**：每一條訊號的延遲在晶片上其實有兩份 ——
-     `reg_r_dly_<sig>` / `reg_f_dly_<sig>`（主值，rel +0x8 / +0xA）
-     `reg_r_dly_<sig>_2nd` / `reg_f_dly_<sig>_2nd`（rel +0xC / +0xE）
-   WFG 只有主值這一份，匯出的 script 也只寫主值。所以使用者改過延遲之後，
-   TCON 裡的 `_2nd` 仍是原值 —— **兩份會不同步**。
+   ── 這則警示為什麼換了主題 ────────────────────────────────────────────────
+   v4.12.1 那一則講的是「第二組**延遲** WFG 沒有欄位、匯出不寫 ⇒ 會不同步」。
+   v4.22.0 把 `r_dly_2` / `f_dly_2` 做成正式欄位，六顆的匯入與匯出都寫了 ——
+   **那個風險已經不存在**，繼續顯示就是對使用者說謊，所以整則移除。
 
-   🔴 **三顆型號一視同仁**（查證結果，不是推論）：
-     EM01 `em01_register_bank_svn2415.xlsx`   rt8_tcon_1 rel AC/AE/BC/BE ＋ rt8_tcon_2 每條 +0xC/+0xE
-     EM02 `EM02A1_register_bank_svn213_final.xls`  同上（rt8_tcon_2 共 32 個）
-     E512 `e512_register_bank_final.xls`          同上（rt8_tcon_1 4 個 ＋ rt8_tcon_2 32 個）
-   三顆的暫存器排法相同、三顆的匯出**都不寫** ⇒ 風險相同。只對 EM01 示警會讓人以為
-   EM02／E512 沒這回事，反而誤導。旗標放在 codec 表的 `hasSecondDly`，新型號自行宣告。
+   但查證第二組延遲時發現另一件仍然成立的事：**EN01 另外還有第二組 ST/SP LINE**
+   （`ST2_LINE_<sig>` / `SP2_LINE_<sig>`，0x1280 起的另一個 bank，16 bit BE，
+   19 條 × 2），wfg 沒有對應欄位、匯出的 xlsx 也不寫；而它的啟用開關
+   `ST_SP_USE_2ND_<sig>` 原廠**預設就是 1（啟用）**。E501／E503 全庫 0 筆、
+   MNT 三顆的 register bank 也確認過每條訊號只有一組 ST/SP ⇒ **只有 EN01 要警示**。
+   旗標放在 codec 表的 `hasSecondStSpLine`（見 `WFG_TCON_CODECS.en01` 的說明）。
 
-   🔴 **觸發條件：只有「這次匯出真的可能造成不同步」才跳。**
-     ① 有匯入基準（匯入成功時拍的快照）→ 只在**任一條 r_dly／f_dly 與匯入當下不同**時跳。
-        沒改過主值時，script 寫回去的就是 code 原本的值，`_2nd` 與它的關係沒被破壞，
+   🔴 **觸發條件沿用 v4.12.1 那套，只是改看 st_line／sp_line**：
+     ① 有匯入基準（匯入成功時拍的快照）→ 只在**任一條 ST_LINE／SP_LINE 與匯入當下不同**
+        時跳。沒改過的話，xlsx 寫回去的就是 code 原本的值，與 ST2/SP2 的關係沒被破壞，
         這時跳出來純粹是噪音 —— 噪音會讓人學會無視警告，警告就失效了。
      ② 沒有匯入基準（沒匯入過 code、或上一次匯入失敗被清掉）→ **一律跳**。
-        這不是保守，是事實：18 條延遲全部是預設值或使用者自己填的，
-        與 TCON 內既有的 `_2nd` 沒有任何對應關係，不同步是必然而不是可能。 */
-var wfgCodeImportedDly = null;   // 匯入當下的 r_dly/f_dly 快照；null ＝ 沒有基準
-function wfgCodeSnapshotDly() {
+        這不是保守，是事實：畫面上的行號全部是預設值或使用者自己填的，
+        與 TCON 內既有的 ST2/SP2 沒有任何對應關係，不同步是必然而不是可能。 */
+var wfgCodeImportedStSp = null;   // 匯入當下的 st_line/sp_line 快照；null ＝ 沒有基準
+function wfgCodeSnapshotStSp() {
   var out = [];
   for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
     var g = wfgGpios[i];
-    out.push(g ? { r: g.r_dly | 0, f: g.f_dly | 0 } : { r: 0, f: 0 });
+    out.push(g ? { st: g.st_line | 0, sp: g.sp_line | 0 } : { st: 0, sp: 0 });
   }
   return out;
 }
 /* 回傳 { warn: bool, noBaseline: bool, names: [] }。 */
-function wfgCodeDlyDrift() {
-  if (!wfgCodeImportedDly) return { warn: true, noBaseline: true, names: [] };
+function wfgCodeStSpDrift() {
+  if (!wfgCodeImportedStSp) return { warn: true, noBaseline: true, names: [] };
   var names = [];
   for (var i = 0; i < WFG_DIGITAL_GPIO_COUNT; i++) {
-    var g = wfgGpios[i], b = wfgCodeImportedDly[i];
+    var g = wfgGpios[i], b = wfgCodeImportedStSp[i];
     if (!g || !b) continue;
-    if ((g.r_dly | 0) !== b.r || (g.f_dly | 0) !== b.f) {
+    if ((g.st_line | 0) !== b.st || (g.sp_line | 0) !== b.sp) {
       names.push((WFG_EM02_SIGS[i] || String(i)).toUpperCase());
     }
   }
   return { warn: names.length > 0, noBaseline: false, names: names };
 }
-window.wfgCodeDlyDrift = wfgCodeDlyDrift;
+window.wfgCodeStSpDrift = wfgCodeStSpDrift;
 /* ══════════════════════════════════════════════════════════════════════════
    v4.16.0：匯出的型號確認框 ＋ 跨型號相容性檢查
    ══════════════════════════════════════════════════════════════════════════
@@ -38566,12 +38665,14 @@ function wfgCodeExportRun(targetKey) {
      「又來了」直接按掉 —— 訊息越多、被讀到的比例越低。
      順序：先警告（可能出錯的事），後說明（工作流程）。 */
   var msgs = [];
-  if (codec.hasSecondDly) {
-    var d = wfgCodeDlyDrift();
+  /* v4.22.0：由「第二組延遲」改為「第二組 ST/SP LINE」（目前只有 EN01 宣告這個旗標）。
+     前者已在本版補齊欄位與匯出 ⇒ 不再有風險可提醒；後者才是仍然存在的缺口。 */
+  if (codec.hasSecondStSpLine) {
+    var d = wfgCodeStSpDrift();
     if (d.warn) {
       msgs.push(d.noBaseline
-        ? t('wfg.codeExportDly2ndNoBase')
-        : t('wfg.codeExportDly2nd').replace('{s}', d.names.join(', ')));
+        ? t('wfg.codeExportStSp2ndNoBase').replace('{m}', codec.label)
+        : t('wfg.codeExportStSp2nd').replace('{m}', codec.label).replace('{s}', d.names.join(', ')));
     }
   }
   /* v4.13.3：script 只寫得到 CURRENT，三模要用官方 UI 複製過去（Bruce 2026-08-23 裁示的流程）。
@@ -38691,6 +38792,19 @@ function wfgGpoDecodeAt(buf, base1, base2) {
       no_fall: (r[7] >> 7) & 1, out2_en: (r[7] >> 6) & 1,
       unused2: (r[0] >> 2) & 1,   // register bank 標為 unused，防呆用（EM02 路徑不使用）
       r_dly: r[8] | (r[9] << 8), f_dly: r[10] | (r[11] << 8),   // 16 bit LE
+      /* ══ v4.22.0：第二組延遲 ═══════════════════════════════════════════════
+         MNT 三顆的 register bank 逐項查證（三顆的相對位址與寬度完全相同）：
+           EM01 `(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`
+                rt8_tcon_1 `reg_r_dly_xstb_2nd` Low h00AC High h00AD Bits 16
+                           `reg_f_dly_xstb_2nd` Low h00AE High h00AF Bits 16
+                rt8_tcon_2 `reg_r_dly_vst1_2nd` Low h000C High h000D Bits 16 …（每條 +0x10）
+                Description 欄原文：`Rising delay of eng_out (second timing setting).`
+           EM02 `EM02A1_register_bank_svn213_final.xls`  同名、同位址、同寬
+           E512 `e512_register_bank_final.xls`           同名、同位址、同寬
+         ⇒ chunk 內相對位址固定是 **+0xC/+0xD ＝ r_dly_2、+0xE/+0xF ＝ f_dly_2**，
+           位元組序與第一組相同（**LE，低位在偶數位址**）。
+         這四個 byte 本來就落在既有的 `buf.subarray(o, o + 16)` 之內 —— 讀取範圍一位元未變。 */
+      r_dly_2: r[12] | (r[13] << 8), f_dly_2: r[14] | (r[15] << 8), // 16 bit LE
       /* 🔴 v4.0.2：oax_mode 是 **bit[7:6]（2 bit）**，不是 Excel 寫的 bit[7:5]。
          Excel `rt8_tcon_1` rel 0x083 標成 `bit[7:5] reg_oax_mode`，但機器碼是：
              mov dl,[edi+2E8009Ch] ; shr edx,6 ; and edx,3    ← oax_mode
@@ -38900,6 +39014,7 @@ function wfgEm02FrmNoLines(RM) {
      rel A4[7:0]+A5[5:0] st_line 14 bit；A5[7:6] ini_val
      rel A6[7:0]+A7[5:0] sp_line 14 bit；A7[6]out2_en A7[7]no_fall
      rel A8/AA          r_dly / f_dly 各 16 bit
+     rel AC/AE          r_dly_2 / f_dly_2 各 16 bit（`reg_*_dly_xstb_2nd`，v4.22.0 補）
      rel 83+i           [4:0]oax_sel [7:6]oax_mode（bit5 unused ⇒ 遮罩 DF）
      rel C2+⌊(i+1)/2⌋   act_type/r_ph/f_ph 的 bit8
      rel 04 [7:6]       reg_rd_mode（bit5 mgoa_rotate、bit4 rd_non_stop ⇒ 遮罩 C0）
@@ -38980,13 +39095,22 @@ function wfgEm02BuildScript(opt) {
     lines.push(wfgEm02Line(b + 0x9, (g.r_dly >> 8) & 0xFF, 0xFF, 'R_DLY (high)'));
     lines.push(wfgEm02Line(b + 0xA, g.f_dly & 0xFF, 0xFF, 'F_DLY = ' + g.f_dly + ' (low)'));
     lines.push(wfgEm02Line(b + 0xB, (g.f_dly >> 8) & 0xFF, 0xFF, 'F_DLY (high)'));
+    /* ══ v4.22.0：第二組延遲（reg_r_dly_<sig>_2nd / reg_f_dly_<sig>_2nd）══════════
+       rel +0xC/+0xD 與 +0xE/+0xF，16 bit LE，三顆 MNT 的 register bank 逐項相同
+       （出處見 `wfgGpoDecodeAt()` 內的說明）。這一段補上之前，匯出的 script 只寫
+       第一組 ⇒ 使用者改過延遲之後晶片裡的第二組仍是舊值（v4.12.1 為此加過警示）。
+       現在兩組一起寫，那個不同步的來源就消失了，警示也隨之移除。 */
+    lines.push(wfgEm02Line(b + 0xC, g.r_dly_2 & 0xFF, 0xFF, 'R_DLY2 = ' + g.r_dly_2 + ' (low)'));
+    lines.push(wfgEm02Line(b + 0xD, (g.r_dly_2 >> 8) & 0xFF, 0xFF, 'R_DLY2 (high)'));
+    lines.push(wfgEm02Line(b + 0xE, g.f_dly_2 & 0xFF, 0xFF, 'F_DLY2 = ' + g.f_dly_2 + ' (low)'));
+    lines.push(wfgEm02Line(b + 0xF, (g.f_dly_2 >> 8) & 0xFF, 0xFF, 'F_DLY2 (high)'));
     lines.push(wfgEm02Line(b + 0x5, (g.ini_val & 3) << 6, 0xC0, 'INI_VAL = ' + g.ini_val));
     /* 🔴 v4.0.2：oax_mode 佔 bit[7:6]、oax_sel 佔 bit[4:0]，**bit5 兩邊都不用**
        （機器碼證據見 wfgEm02DecodeAt 內的說明）。遮罩因此是 0xDF 而不是 0xFF ——
        用 0xFF 會把 bit5 一起寫成 0，那個位元不屬於我們。 */
     lines.push(wfgEm02Line(RM.oax(i), ((g.oax_mode & 3) << 6) | (g.oax_sel & 0x1F), 0xDF,
                            'OAX mode=' + g.oax_mode + ' sel=' + g.oax_sel));
-    cnt += 14;
+    cnt += 18;   // v4.22.0：14 → 18（每條訊號多寫 R_DLY2 / F_DLY2 各 2 個 byte）
     if (opt.comments !== false) lines.push('');
   }
   var text = lines.join('\n') + '\n';
@@ -39678,15 +39802,19 @@ window.wfgEm01BuildScript = wfgEm01BuildScript;
      +7    SP_LINE 低 8 位                           （同 A）
      +8/+9    R_DLY（高在前）                        （同 A）
      +10/+11  F_DLY（高在前）                        （同 A）
-     +12~+15  R_DLY_F40 / F_DLY_F40                  （同 A）
+     +12/+13  R_DLY_F40（高在前）→ `r_dly_2`         （同 A）
+     +14/+15  F_DLY_F40（高在前）→ `f_dly_2`         （同 A）
 
    ⇒ A 的 ST/SP_LINE 是 **14 bit**、B 是 **16 bit**。
      但兩邊的 `.model` 都寫「3FFFh = non stop」，所以 wfg 既有的
      `sp_line !== 16383` 哨兵判斷對三顆都成立，不必特例。
 
    ── 🔴 wfg 沒有載體的欄位一律「不讀也不寫」────────────────────────────────
-   `wfgMakeGpio()` 的欄位裡沒有 FGO_SEL / ENG_COMB_MODE / NO_FALL / ST_SP_USE_2ND /
-   R_DLY_F40 / F_DLY_F40。匯入時忽略它們，匯出時**也不寫進 xlsx** ——
+   `wfgMakeGpio()` 的欄位裡沒有 FGO_SEL / NO_FALL / ST_SP_USE_2ND。
+   （ENG_COMB_MODE 自 v4.15.0 起對應到 `oax_mode`；
+     **R_DLY_F40 / F_DLY_F40 自 v4.22.0 起對應到 `r_dly_2` / `f_dly_2`**，
+     兩者都已離開這份清單。）
+   匯入時忽略它們，匯出時**也不寫進 xlsx** ——
    官方 UI 只改寫 xlsx 有列出的欄位，沒列的維持 code 檔原值。
    這是刻意的：不寫 ＝ 不動使用者沒改過的東西，比寫一個猜來的值安全。
    （另有 `NO_KEEP_LAST_SIG`：同事手寫的 Check List 有它，但三顆 `.model` 都查不到
@@ -39698,6 +39826,25 @@ function wfgNbDecodeChunk(buf, off, layout) {
   var r0 = buf[off],     r1 = buf[off + 1], r2 = buf[off + 2],  r3 = buf[off + 3],
       r4 = buf[off + 4], r5 = buf[off + 5], r6 = buf[off + 6],  r7 = buf[off + 7],
       r8 = buf[off + 8], r9 = buf[off + 9], rA = buf[off + 10], rB = buf[off + 11];
+  /* ══ v4.22.0：第二組延遲（NB 叫 `R_DLY_F40_<sig>` / `F_DLY_F40_<sig>`）══════════
+     三顆 NB 的 `.model` 逐條查過（19／19、18／18、14／14，一條不缺）：
+       E501 `RM81011_for_FAE_20231025_20240509.model`
+            `R_DLY_F40_XSTB` RegAddr1 0x48C RegAddr0 0x48D（＝ sigBase 0x480 +0xC/+0xD）
+            `F_DLY_F40_XSTB` RegAddr1 0x48E RegAddr0 0x48F
+       E503 `RM8100x_for_FAE_20240925_20250311.model`  sigBase 0x3B0 起，同樣 +0xC/+0xE
+       EN01 `RCP2/RomCodeProcessUI_2.0.16.0/ModelFiles/RM81008.model` sigBase 0x490 起，同上
+     每筆 `TotalBytes = 2`、`RegBits1 = RegBits0 = 8` ⇒ 16 bit；`RegAddr1` 是高位
+     ⇒ **big-endian**，與第一組 R_DLY/F_DLY 一致、與 MNT 相反。
+     原廠 Comment 原文：`Setting rising edge delay for frame rate 40/48`
+     —— 與 MNT 的 `(second timing setting)` 是同一件事（換 frame rate 後生效的第二組
+     timing），所以放進同一個 `r_dly_2` / `f_dly_2` 欄位，資料模型不必分兩套。
+
+     🔴 讀取閘門維持 `off + 12`，第二組只在**真的讀得到**時才填，讀不到就留 0：
+     這四個 byte 落在 chunk 尾端，若某份 code 的 header 區段剛好在此截斷，
+     為了兩個不影響波形的值把整條訊號判成解析失敗，代價完全不成比例。 */
+  var has2 = (off + 16 <= buf.length);
+  var rC = has2 ? buf[off + 12] : 0, rD = has2 ? buf[off + 13] : 0,
+      rE = has2 ? buf[off + 14] : 0, rF = has2 ? buf[off + 15] : 0;
   var st, sp, iniVal;
   if (layout === 'B') {                       // EN01：ST/SP 各 16 bit、INI_VAL 在 +0[1:0]
     st = (r4 << 8) | r5;
@@ -39719,6 +39866,8 @@ function wfgNbDecodeChunk(buf, off, layout) {
     st_line: st, sp_line: sp,
     r_dly: (r8 << 8) | r9,                    // 🔴 big-endian
     f_dly: (rA << 8) | rB,                    // 🔴 big-endian
+    r_dly_2: (rC << 8) | rD,                  // 🔴 big-endian（R_DLY_F40）
+    f_dly_2: (rE << 8) | rF,                  // 🔴 big-endian（F_DLY_F40）
     /* 🔴 v4.15.0：`+1[7:6]` 是 **ENG_COMB_MODE**（0 無／1 OR／2 AND／3 XOR），
        這就是 NB 的 COMBO，等同 MNT 的 `oax_mode` ⇒ 直接放進同一格，資料模型不必改。
        v4.14.0 這裡填 0 是錯的（把整組 COMBO 設定丟掉了），本版修正。
@@ -39983,7 +40132,18 @@ var WFG_NB_FIELDS = [
   { key: 'R_DLY', field: 'r_dly',          get: function(g) { return g.r_dly; },
     off: function(b) { return wfgNbOff(b + 8, 7, 0) + ',' + wfgNbOff(b + 9, 7, 0); } },
   { key: 'F_DLY', field: 'f_dly',          get: function(g) { return g.f_dly; },
-    off: function(b) { return wfgNbOff(b + 10, 7, 0) + ',' + wfgNbOff(b + 11, 7, 0); } }
+    off: function(b) { return wfgNbOff(b + 10, 7, 0) + ',' + wfgNbOff(b + 11, 7, 0); } },
+  /* ══ 🔴 v4.22.0：第二組延遲 ═══════════════════════════════════════════════════
+     `key` 必須是 **`R_DLY_F40` / `F_DLY_F40`**（不是 `R_DLY2`）—— 這一格會被組成
+     `Check Item` 欄的 `<key>_<SIG>`，官方 UI 靠它對回 `.model` 裡的區塊名，
+     而三顆 NB 的 `.model` 寫的就是 `R_DLY_F40_XSTB` 這個字串。寫成別的名字，
+     官方 UI 會找不到欄位而**靜默略過**這兩列，看起來完全正常但其實沒寫進去。
+     位址 +12/+13、+14/+15，左側為 MSB（與 R_DLY／F_DLY 同一套寫法）。
+     欄序排在 F_DLY 之後 ＝ 與 register 順序一致，也與官方範本的排法一致。 */
+  { key: 'R_DLY_F40', field: 'r_dly_2',    get: function(g) { return g.r_dly_2; },
+    off: function(b) { return wfgNbOff(b + 12, 7, 0) + ',' + wfgNbOff(b + 13, 7, 0); } },
+  { key: 'F_DLY_F40', field: 'f_dly_2',    get: function(g) { return g.f_dly_2; },
+    off: function(b) { return wfgNbOff(b + 14, 7, 0) + ',' + wfgNbOff(b + 15, 7, 0); } }
 ];
 /* 位址一律三位數大寫 hex ＋ `0x`；單 bit 寫成 `[n]`（與官方範本一致）。 */
 function wfgNbOff(addr, msb, lsb) {
@@ -40351,6 +40511,10 @@ function wfgCodeApplyToWfg(res) {
     g.act_type = s.act_type; g.r_ph = s.r_ph; g.f_ph = s.f_ph;
     g.st_line = s.st_line; g.sp_line = s.sp_line;
     g.r_dly = s.r_dly; g.f_dly = s.f_dly;
+    /* v4.22.0：第二組延遲。用 `| 0` 而不是直接指派 —— 解析器若因為檔案截斷而沒給
+       這一格（`wfgNbDecodeChunk()` 的 `has2` 分支），這裡要得到 0 而不是 undefined，
+       否則 `undefined` 會一路流進輸入框與匯出。 */
+    g.r_dly_2 = s.r_dly_2 | 0; g.f_dly_2 = s.f_dly_2 | 0;
     g.ini_val = s.ini_val; g.tg_ini_val = s.tg_ini_val;
     g.oax_mode = s.oax_mode; g.oax_sel = s.oax_sel;
     for (var _fi = 0; _fi < WFG_GPO_RANGE_FIELDS.length; _fi++) {
@@ -40409,10 +40573,11 @@ function wfgCodeApplyToWfg(res) {
     wfgFrame.frm_no_2 = res.frmNo.f2 | 0;
     if (typeof wfgRenderFrmNoCard === 'function') wfgRenderFrmNoCard();
   }
-  /* v4.12.1：拍下這份 code 的延遲基準（18 條 r_dly／f_dly）。
+  /* v4.22.0（原 v4.12.1 是延遲，本版改為行號）：拍下這份 code 的 ST/SP LINE 基準（18 條）。
      位置在 GPO 值全部寫進 `wfgGpios` 之後、任何使用者操作之前 ——
-     它代表的就是「這份 code 原本的延遲」，匯出時用來判斷使用者到底改了沒。 */
-  wfgCodeImportedDly = wfgCodeSnapshotDly();
+     它代表的就是「這份 code 原本的行號」，匯出時用來判斷使用者到底改了沒
+     （EN01 的 ST2/SP2 仍未支援，見 `wfgCodeStSpDrift()` 上方的說明）。 */
+  wfgCodeImportedStSp = wfgCodeSnapshotStSp();
   wfgCodeResetChannels();
   wfgCodeResetMeasurements();
   wfgRenderGpioList();

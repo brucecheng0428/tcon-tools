@@ -925,14 +925,22 @@ var I18N = {
   'wfg.tmgOk':          { 'zh-TW': '用選定的 Timing 匯入', 'en': 'Import with the selected timing',
                           'zh-CN': '用选定的 Timing 导入' },
   'wfg.tmgCancel':      { 'zh-TW': '取消匯入', 'en': 'Cancel import', 'zh-CN': '取消导入' },
-  /* ══ v4.12.1：匯出後提醒 `_2nd` 延遲不會被寫回（EM01／EM02／E512 都適用）══════
-     {s} ＝ 這次改過延遲的訊號名。兩則的差別只在「有沒有匯入基準可比」。 */
-  'wfg.codeExportDly2nd': { 'zh-TW': '⚠ 延遲值已變更：{s}\n\n匯出的 script 只會寫 R_DLY / F_DLY，**不會寫第二組 R_DLY_2nd / F_DLY_2nd**（WFG 沒有這兩個欄位）。\n把這份 script 寫進 TCON 之後，第二組延遲仍是原本的值，會與你剛改的值不一致。若你的應用會用到第二組延遲，請另外自行設定。',
-                          'en': '⚠ Delay values were changed: {s}\n\nThe exported script only writes R_DLY / F_DLY - it does NOT write the second set R_DLY_2nd / F_DLY_2nd (WFG has no field for them).\nAfter loading this script into the TCON, the second set keeps its original values and will no longer match what you just changed. If your application uses the second delay set, please set it separately.',
-                          'zh-CN': '⚠ 延迟值已变更：{s}\n\n导出的 script 只会写 R_DLY / F_DLY，**不会写第二组 R_DLY_2nd / F_DLY_2nd**（WFG 没有这两个字段）。\n把这份 script 写进 TCON 之后，第二组延迟仍是原本的值，会与你刚改的值不一致。若你的应用会用到第二组延迟，请另外自行设定。' },
-  'wfg.codeExportDly2ndNoBase': { 'zh-TW': '⚠ 這次匯出沒有以任何 code 為基準（沒有先匯入 code，或上一次匯入失敗）。\n\n匯出的 script 只會寫 R_DLY / F_DLY，**不會寫第二組 R_DLY_2nd / F_DLY_2nd**（WFG 沒有這兩個欄位）。\n目前這 18 條延遲值與 TCON 內既有的第二組延遲沒有對應關係，寫入後兩者一定不一致。若你的應用會用到第二組延遲，請另外自行設定。',
-                          'en': '⚠ This export is not based on any imported code (no code was imported, or the last import failed).\n\nThe exported script only writes R_DLY / F_DLY - it does NOT write the second set R_DLY_2nd / F_DLY_2nd (WFG has no field for them).\nThe 18 delay values here bear no relation to the second delay set already in the TCON, so after loading they will certainly not match. If your application uses the second delay set, please set it separately.',
-                          'zh-CN': '⚠ 这次导出没有以任何 code 为基准（没有先导入 code，或上一次导入失败）。\n\n导出的 script 只会写 R_DLY / F_DLY，**不会写第二组 R_DLY_2nd / F_DLY_2nd**（WFG 没有这两个字段）。\n目前这 18 条延迟值与 TCON 内既有的第二组延迟没有对应关系，写入后两者一定不一致。若你的应用会用到第二组延迟，请另外自行设定。' },
+  /* ══ v4.22.0：匯出後提醒「第二組 ST/SP LINE 不會被寫回」（只有 EN01）══════════
+     ⚠ 這一組取代了 v4.12.1 的 `wfg.codeExportDly2nd` / `…NoBase`（已刪除）：
+       那兩則說的是「第二組延遲 WFG 沒有欄位、匯出不寫」，而 v4.22.0 已把
+       `r_dly_2` / `f_dly_2` 做成正式欄位、六顆的匯入匯出都寫 ⇒ 該風險不存在了，
+       留著等於對使用者說謊。真正還沒補上的是 EN01 的 ST2_LINE / SP2_LINE。
+     {m} ＝ 型號、{s} ＝ 這次改過行號的訊號名。兩則差別只在「有沒有匯入基準可比」。 */
+  'wfg.codeExportStSp2nd': { 'zh-TW': '⚠ ST_LINE / SP_LINE 已變更：{s}\n\n{m} 的每條訊號另外還有第二組行號（ST2_LINE / SP2_LINE，位在 0x1280 起的另一個 bank），而且原廠的啟用開關 ST_SP_USE_2ND 預設就是「使用第二組」。\n本工具沒有這兩個欄位，匯出的 xlsx **不會寫第二組行號**。寫進 TCON 之後，第二組仍是原本的值，會與你剛改的不一致。若這片面板會用到第二組 timing，請在官方 UI 另外設定。',
+                          'en': '⚠ ST_LINE / SP_LINE were changed: {s}\n\nOn {m} every signal also has a second set of line numbers (ST2_LINE / SP2_LINE, in a separate bank starting at 0x1280), and the vendor enable bit ST_SP_USE_2ND defaults to "use the second set".\nThis tool has no field for them, so the exported xlsx does NOT write the second set. After loading, the second set keeps its original values and will no longer match what you just changed. If this panel uses the second timing set, please set it separately in the official UI.',
+                          'zh-CN': '⚠ ST_LINE / SP_LINE 已变更：{s}\n\n{m} 的每条讯号另外还有第二组行号（ST2_LINE / SP2_LINE，位在 0x1280 起的另一个 bank），而且原厂的启用开关 ST_SP_USE_2ND 预设就是「使用第二组」。\n本工具没有这两个字段，导出的 xlsx **不会写第二组行号**。写进 TCON 之后，第二组仍是原本的值，会与你刚改的不一致。若这片面板会用到第二组 timing，请在官方 UI 另外设定。' },
+  'wfg.codeExportStSp2ndNoBase': { 'zh-TW': '⚠ 這次匯出沒有以任何 code 為基準（沒有先匯入 code，或上一次匯入失敗）。\n\n{m} 的每條訊號另外還有第二組行號（ST2_LINE / SP2_LINE，位在 0x1280 起的另一個 bank），啟用開關 ST_SP_USE_2ND 預設就是「使用第二組」。\n本工具沒有這兩個欄位，匯出的 xlsx **不會寫第二組行號**。目前畫面上的行號與 TCON 內既有的第二組沒有對應關係，寫入後兩者一定不一致。若這片面板會用到第二組 timing，請在官方 UI 另外設定。',
+                          'en': '⚠ This export is not based on any imported code (no code was imported, or the last import failed).\n\nOn {m} every signal also has a second set of line numbers (ST2_LINE / SP2_LINE, in a separate bank starting at 0x1280); the enable bit ST_SP_USE_2ND defaults to "use the second set".\nThis tool has no field for them, so the exported xlsx does NOT write the second set. The line numbers on screen bear no relation to the second set already in the TCON, so after loading they will certainly not match. If this panel uses the second timing set, please set it separately in the official UI.',
+                          'zh-CN': '⚠ 这次导出没有以任何 code 为基准（没有先导入 code，或上一次导入失败）。\n\n{m} 的每条讯号另外还有第二组行号（ST2_LINE / SP2_LINE，位在 0x1280 起的另一个 bank），启用开关 ST_SP_USE_2ND 预设就是「使用第二组」。\n本工具没有这两个字段，导出的 xlsx **不会写第二组行号**。目前画面上的行号与 TCON 内既有的第二组没有对应关系，写入后两者一定不一致。若这片面板会用到第二组 timing，请在官方 UI 另外设定。' },
+  /* ══ v4.22.0：R_DLY2 / F_DLY2 的欄位說明（卡片整列與總表表頭／儲存格共用）══════ */
+  'wfg.dly2Note':       { 'zh-TW': 'R_DLY2 / F_DLY2 ＝ 第二組 timing 的延遲（MNT 的 reg_*_dly_*_2nd／NB 的 *_DLY_F40_*）。本工具的波形只模擬第一組，所以改這兩格**不會改變波形**；它們會被匯入讀出、也會被匯出寫回。',
+                          'en': 'R_DLY2 / F_DLY2 = the delay of the second timing set (reg_*_dly_*_2nd on MNT, *_DLY_F40_* on NB). This tool only simulates the first set, so changing these two does NOT change the waveform; they are read on import and written on export.',
+                          'zh-CN': 'R_DLY2 / F_DLY2 ＝ 第二组 timing 的延迟（MNT 的 reg_*_dly_*_2nd／NB 的 *_DLY_F40_*）。本工具的波形只模拟第一组，所以改这两格**不会改变波形**；它们会被导入读出、也会被导出写回。' },
   /* ══ v4.13.3：位址空間標示 ═══════════════════════════════════════════════════
      🔴 為什麼要有這個 key：EM01 Flash 低位是平坦映像，`fileOff == regAddr`，
      於是 `0x0500` 這個數字**同時**是暫存器位址與檔案偏移。看的人一旦習慣，
