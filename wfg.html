@@ -2669,7 +2669,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4262"></script>
+<script src="common/version.js?v=20260825wfg4263"></script>
 <script src="common/i18n.js?v=20260825wfg4261"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5131,7 +5131,13 @@ function _wfgPrecomputeSpxChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
   var pulses = [], prevHigh = false, curA = null;
   for (var pi = 0; pi < gEv.length; pi++) {
     var pe = gEv[pi];
-    if (pe._reset) continue;
+    if (pe._reset) {
+      // 準位被硬拉回 VGL：有 pulse 還開著就用這個 reset 收邊，並把 prevHigh 清掉。
+      // 只 continue 會讓 gate 高電位橫跨 frame 邊界（與 _wfgLsApplyGateMask 同一個根因）。
+      if (prevHigh && curA !== null) { pulses.push([curA, pe.lineX]); curA = null; }
+      prevHigh = false;
+      continue;
+    }
     var high = pe.vTarget >= gMid;
     if (high && !prevHigh) curA = pe.lineX;
     else if (!high && prevHigh && curA !== null) { pulses.push([curA, pe.lineX]); curA = null; }
@@ -22268,7 +22274,17 @@ function _wfgLsApplyGateMask(events, ac, effVtotal, trimBeforeLine) {
   var counts = {};
   for (var i = 0; i < events.length; i++) {
     var ev = events[i];
-    if (ev._reset) continue; // frame reset to VGL — the gate is at VGL anyway
+    if (ev._reset) {
+      // STV frame reset：整條 CKO 被硬拉回 VGL（事件由 _wfgLsBuildCpvPairEvents 產生）。
+      // 🔴 不能只 continue —— continue 會讓 prevHigh 停在上一個 frame 結尾的 HIGH，
+      //    新 frame 的第一次充電就不算 rising edge，該 frame 的 pulse 序號整排位移一格。
+      //    2026-08-25 實例：CK1~CK4 的 SP_LINE 超過一個 frame 時 CKO4~CKO7 會停在 VGH，
+      //    Gate 4~8 因此從 frame 1 起往後跳 4 行。
+      if (keeping) out.push(ev);   // 被選中的 pulse 還開著 → 用這個 reset 事件收邊
+      prevHigh = false;
+      keeping = false;
+      continue;
+    }
     var high = ev.vTarget >= mid;
     if (high && !prevHigh) {
       // Rising edge = start of a pulse
@@ -29240,7 +29256,15 @@ window.wfgDebugGate = function(maxFrames) {
     var out = [], mid = (ac.voltage_max + ac.voltage_min) / 2, prevHigh = false;
     for (var i = 0; i < evs.length; i++) {
       var e = evs[i];
-      if (e._reset) continue;
+      if (e._reset) {
+        // 與 _wfgLsApplyGateMask 同語意：reset ＝ 準位真的回到 VGL，必須清 prevHigh，
+        // 否則這支工具會帶著同一個 off-by-one，比對時反而產生假警報。
+        if (prevHigh && out.length && out[out.length - 1].fall === null) {
+          out[out.length - 1].fall = e.lineX;
+        }
+        prevHigh = false;
+        continue;
+      }
       var high = e.vTarget >= mid;
       if (high && !prevHigh) out.push({ rise: e.lineX, fall: null });
       else if (!high && prevHigh && out.length) out[out.length - 1].fall = e.lineX;
@@ -29305,7 +29329,13 @@ window.wfgDumpLsCko = function(maxFrames) {
     var rises = [], falls = [], prevHigh = false;
     for (var i = 0; i < evs.length; i++) {
       var e = evs[i];
-      if (e._reset) continue;
+      if (e._reset) {
+        // 同上：reset ＝ 準位真的回到 VGL。停在 VGH 的 CKO 會在這裡被正確收邊，
+        // 所以每個 frame 的 rise 數與 fall 數才會相等。
+        if (prevHigh) falls.push(e.lineX);
+        prevHigh = false;
+        continue;
+      }
       var high = (e.vTarget >= mid);
       if (high && !prevHigh) rises.push(e.lineX);
       else if (!high && prevHigh) falls.push(e.lineX);
