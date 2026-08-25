@@ -2707,7 +2707,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4271"></script>
+<script src="common/version.js?v=20260825wfg4272"></script>
 <script src="common/i18n.js?v=20260825wfg4271"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4260,6 +4260,39 @@ function _wfgAnalogWindow(totalLines, effVtotal) {
   if (end <= start) end = Math.min(totalLines, start + 1);
   return { start: start, end: end, pad: pad };
 }
+/* ══ v4.27.2：LS 的 rcSamples 只在「近端」才會被讀到 ════════════════════════════
+   `rcSamples`（每行 20 個 sub-line RC 取樣）在整份檔案裡**只有一個讀取點** ——
+   `wfgSamplesFromPrecomputed()` 的 Path 2 LS 分支，而那個分支的守衛是 `lpp <= 2`。
+   也就是說每像素超過 2 行的時候，這個陣列**一次都不會被讀**。
+
+   但它照樣被算、被配置：`_wfgPrecomputeLsChannel()` 無條件配置 `winLen × 20` 個
+   Float32。視窗長度 winLen ≈ 2×視野（見上面 `_wfgAnalogWindow()` 的 pad），所以
+   全覽（444,000 行）時單條就是 **888 萬個 float ＝ 35.5 MB**，9 條類比通道合計
+   **320 MB** —— 而且是同步、在主執行緒上配置與寫入。實測「滾一滾放開」的凍結時間
+   在全覽時是 **103 秒**。
+
+   門檻取 4 ＝ 實際讀取門檻（2）的兩倍，留一格餘裕給邊界抖動；真的落到 lpp<=2 而
+   手上沒有 rcSamples 時，`wfgSamplesFromPrecomputed()` 會就地換窗補算（那時 span
+   必定 <= 4×畫布寬 ≈ 3,300 行，重算很便宜），所以**畫面逐值不變**。
+
+   ⚠ 不能順手把「每行 20 點的掃描」也拿掉：`lineMinMax` 的 sub-line 極值就是那個
+   掃描算出來的，改用 settled 單點會讓 band 變窄 ⇒ 畫面會變。這裡拿掉的只有
+   「把 20 個取樣**存下來**」這件事，掃描本身一步不動。 */
+var WFG_RC_SAMPLES_LPP_MAX = 4;
+function _wfgNeedRcSamples() {
+  try {
+    var cv = document.getElementById('wfg-canvas');
+    if (!cv) return true;                    // 拿不到畫布就照舊算：寧可慢，不可錯
+    var dpr = window.devicePixelRatio || 1;
+    var drawW = (cv.width / dpr) - WFG_LABEL_W;
+    if (!(drawW > 0)) return true;
+    var span = wfgViewEnd - wfgViewStart;
+    if (!(span > 0)) return true;
+    return (span / drawW) <= WFG_RC_SAMPLES_LPP_MAX;
+  } catch (e) {
+    return true;
+  }
+}
 /* 這一份 precomp 目前涵蓋得住 [a, b) 嗎？b 為 exclusive。 */
 function _wfgPrecompCovers(p, a, b) {
   if (!p) return false;
@@ -4855,7 +4888,11 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
 
   // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
   var RC_PTS = 20;
-  var rcSamples = new Float32Array(winLen * RC_PTS);
+  /* v4.27.2：只有近端（lpp <= WFG_RC_SAMPLES_LPP_MAX）才留下 rcSamples。
+     下面那個雙層迴圈**一步都沒改**，改的只有「要不要把每一點存進陣列」。
+     lineMinMax 照樣由同一個掃描算出來，所以遠端的 band 一位元不變。 */
+  var _needRc = _wfgNeedRcSamples();
+  var rcSamples = _needRc ? new Float32Array(winLen * RC_PTS) : null;
   var lineMinMax = new Float32Array(winLen * 2);
   var _rsV = ac.voltage_min, _rsTarget = _rsV, _rsTau = RC_TAU_RISE;
   var _rsLastX = base, _rsBaseV = _rsV, _rsEi = 0;
@@ -4887,7 +4924,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
       } else {
         _rsVal = (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
       }
-      rcSamples[_rsBase + _rsSi] = _rsVal;
+      if (_needRc) rcSamples[_rsBase + _rsSi] = _rsVal;
       if (_rsVal < _rsMin) _rsMin = _rsVal;
       if (_rsVal > _rsMax) _rsMax = _rsVal;
     }
@@ -6159,7 +6196,13 @@ function wfgSamplesFromPrecomputed(precomp, gpio, viewStart, viewEnd, drawW, eff
      「兩邊都涵蓋得住嗎」，不是只判右界。 */
   var neededStart = Math.max(0, Math.floor(viewStart) - 1);
   var neededEnd = Math.min(totalLines, Math.ceil(viewEnd) + 2);
-  if (!_wfgPrecompCovers(precomp, neededStart, neededEnd) && !_wfgContinuousMotion) {
+  /* v4.27.2：LS 通道在「需要 rcSamples 但手上沒有」時也要換窗補算。
+     🔴 這一條刻意**不受 `_wfgContinuousMotion` 保護**：受保護的話，拖動途中一旦
+     跨進 lpp<=2 就會落到下面的 lineMinMax 分支，等於拖動中的畫面與現行版不同 ——
+     那是降級渲染（LOD），本輪明確不做。而它只在 lpp <= WFG_RC_SAMPLES_LPP_MAX
+     時才可能成立（span <= 4×畫布寬 ≈ 3,300 行），重算的視窗小、成本可控。 */
+  var _rcMissing = (gpio.waveform_type === 2) && !precomp.rcSamples && _wfgNeedRcSamples();
+  if (_rcMissing || (!_wfgPrecompCovers(precomp, neededStart, neededEnd) && !_wfgContinuousMotion)) {
     _wfgRewindowPrecomp(precomp, gpio);
   }
   var _pb = precomp.base | 0;              // 陣列索引原點（絕對行號）
@@ -20137,6 +20180,155 @@ function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine
   return { transitions: result, initLevel: initLvl };
 }
 
+/* ══ v4.27.3：OAX 的合併改成「整條 timeline 算一次、之後每像素二分查找」════════
+   ── 問題 ───────────────────────────────────────────────────────────────────
+   `wfgGetOaxForRange()` 的成本與**視野有幾行**成正比，不是與**畫面有幾個像素**
+   成正比。CK 類訊號每行一個脈衝，視野 33,451 行時單條就要物化 6.7 萬筆轉態、
+   base＋other 共 13.4 萬筆，再用 `line + ':' + dly` 字串當 hash key 去重、對十幾萬
+   筆排序、然後每一筆做兩次二分查找。三條可見的 OAX 通道各做一遍。
+
+   實測（CPU profile，自身耗時）：span≈9,000 時 `wfgGetOaxForRange` 佔 54.0%；
+   span≈33,000 時佔 61.3%；另一份設定是 `addP` 28.8% ＋ 本體 26.1% ＋ 查找 10.3%
+   ＝ 68.4%。全覽（444,000 行）時單次重繪的 `digital` 是 **11,190 ms**，而同一次
+   `analog` 只有 1.9 ms —— 遠端的卡頓幾乎 100% 在這裡。
+
+   ── 為什麼可以只算一次 ─────────────────────────────────────────────────────
+   OAX 的合併結果**只跟 timing 有關，跟視野無關**。縮放不會改變任何一個轉態，
+   所以整條 timeline 的合併序列可以算一次就收起來，之後縮放只做查詢。
+   快取用 `_wfgTransitionCacheSerial` 當版本 —— 那正是「波形換過了」的既有記號，
+   `wfgEnsureTransitions()` 重建時會 +1，所以 timing 一變就自動失效。
+
+   ── 等價性（逐值，不是「看起來一樣」）─────────────────────────────────────
+   序列裡每一筆的準位算法與舊版逐字相同：舊版 `makeLevelFn` 回傳的查找是
+   「`pos <= 目標` 的最後一筆 level」，這裡的雙指標把「所有 `pos <= p` 的」都吃掉，
+   得到的 curA／curB 完全一樣。差別只在舊版對每個點做二分查找（O(n log n)），
+   這裡走一次雙指標（O(n)）。
+   `pos = line + dly/ht` 的排序不能省：`r_dly` 可以大於 HTOTAL，`(line, dly)` 的
+   字典序**不等於** pos 的順序（這一點舊版註解已經踩過並寫明）。 */
+/* 🔴 快取**掛在 `_wfgTransitionCache` 這個物件本身**，不另外用版本號比對。
+   理由：`_wfgTransitionCacheSerial` 只在轉態表重建時 +1，但 `wfgInvalidateCache()`
+   會把整份轉態表清掉，序號與物件的生命週期並不完全同步；掛在物件上就天生一致 ——
+   轉態表還在＝波形沒變＝序列可以續用，轉態表被換掉＝序列自動跟著消失。 */
+
+/* 把一條 smart 的**整條 timeline** 展開成兩個平坦陣列 (pos, level)，依 pos 遞增。
+
+   🔴 刻意不呼叫 `wfgExpandRange(smart, 0, totalLines)`：那一支每一筆轉態都配置一個
+   物件，整條 timeline 是 400 個週期 × template ≈ 88 萬筆／條，base＋other＋三條 OAX
+   通道就是五百多萬個物件（實測會讓建構本身變成分鐘級，比原本的問題還糟）。
+   這裡改成直接寫進 Float64Array/Uint8Array，記憶體與時間都降一個數量級。
+
+   展開的集合與 `wfgExpandRange(smart, 0, totalLines, ht)` 逐筆對應：
+     • prelude：全取（`line > endLine` 才 break，endLine ＝ totalLines）
+     • template：週期 0 .. min(floor((totalLines-steadyLine)/pv), maxPeriod)，
+                 每個週期內 `absLine > totalLines` 就 break
+   （`startLine = 0` ⇒ 那兩個 `tPos >= startLine` 的判斷恆真，所以省略。） */
+function _wfgSmartToPosLvl(smart, ht, totalLines) {
+  var pos, lvl, n = 0, i, j;
+  if (!smart.isPeriodic) {
+    var tr = smart.transitions || [];
+    n = tr.length;
+    pos = new Float64Array(n); lvl = new Uint8Array(n);
+    for (i = 0; i < n; i++) {
+      pos[i] = tr[i].line + (ht > 0 ? (tr[i].dly || 0) / ht : 0);
+      lvl[i] = tr[i].level;
+    }
+  } else {
+    var pre = smart.prelude || [], tpl = smart.template || [];
+    var pv = smart.periodVtotal, steadyLine = smart.steadyStart * smart.vtotal;
+    var endPeriod = -1;
+    if (totalLines >= steadyLine && pv > 0) {
+      var maxPeriod = Math.ceil((smart.frameCount - smart.steadyStart) / smart.period) - 1;
+      endPeriod = Math.min(Math.floor((totalLines - steadyLine) / pv), maxPeriod);
+    }
+    var cap = pre.length + (endPeriod >= 0 ? (endPeriod + 1) * tpl.length : 0);
+    pos = new Float64Array(cap); lvl = new Uint8Array(cap);
+    for (i = 0; i < pre.length; i++) {
+      if (pre[i].line > totalLines) break;
+      pos[n] = pre[i].line + (ht > 0 ? (pre[i].dly || 0) / ht : 0);
+      lvl[n] = pre[i].level; n++;
+    }
+    for (var p = 0; p <= endPeriod; p++) {
+      var pOff = steadyLine + p * pv;
+      for (j = 0; j < tpl.length; j++) {
+        var absLine = pOff + tpl[j].relLine;
+        if (absLine > totalLines) break;
+        pos[n] = absLine + (ht > 0 ? (tpl[j].dly || 0) / ht : 0);
+        lvl[n] = tpl[j].level; n++;
+      }
+    }
+  }
+  /* 舊版 `makeLevelFn` 對每一條都做過 `sort by pos`，理由是 `dly` 可以大於 HTOTAL，
+     此時 `(line, dly)` 的字典序不等於 pos 序。但實務上絕大多數 code 的 dly < htotal，
+     產出本來就已經遞增 —— 先掃一遍確認，已排序就不排（結果相同，只是快）。 */
+  var sorted = true;
+  for (i = 1; i < n; i++) { if (pos[i] < pos[i - 1]) { sorted = false; break; } }
+  if (!sorted) {
+    var idx = new Array(n);
+    for (i = 0; i < n; i++) idx[i] = i;
+    idx.sort(function(a, b) { return pos[a] - pos[b]; });   // V8 的 sort 是 stable
+    var p2 = new Float64Array(n), l2 = new Uint8Array(n);
+    for (i = 0; i < n; i++) { p2[i] = pos[idx[i]]; l2[i] = lvl[idx[i]]; }
+    pos = p2; lvl = l2;
+  }
+  return { pos: pos, lvl: lvl, n: n };
+}
+
+/* 整條 timeline 的 OAX 合併序列（已依 pos 遞增、已對 level 去重）。
+   回傳 { pos: Float64Array, lvl: Uint8Array, n, initLevel }。 */
+function _wfgOaxSeries(gpioIdx, allGpioSmarts, effHtotal, totalLines) {
+  var tc = _wfgTransitionCache;
+  var store;
+  if (tc) {
+    if (!tc._oaxSeries) tc._oaxSeries = {};
+    store = tc._oaxSeries;
+  } else {
+    store = {};    // 沒有轉態表可掛（理論上不會發生）就當一次性使用，不快取
+  }
+  var gpio = wfgGpios[gpioIdx];
+  /* 🔴 快取 key 一定要含 oax_mode／oax_sel：`wfgEnsureTransitions()` 的版本記號只認
+     effVtotal／effHtotal／frameCount，改 OAX 的模式或來源**不會**讓它 +1。
+     只用 gpioIdx 當 key 的話，改完 OAX 會拿到上一組設定的序列（畫得出來、值是錯的）。 */
+  var ckey = gpioIdx + ':' + gpio.oax_mode + ':' + gpio.oax_sel;
+  var hit = store[ckey];
+  if (hit) return hit;
+  var baseSmart = allGpioSmarts[gpioIdx];
+  var otherSmart = allGpioSmarts[gpio.oax_sel];
+  var A = _wfgSmartToPosLvl(baseSmart, effHtotal, totalLines);
+  var B = _wfgSmartToPosLvl(otherSmart, effHtotal, totalLines);
+  var baseInit = wfgGetInitLevel(baseSmart, 0, effHtotal, gpio);
+  var otherInit = wfgGetInitLevel(otherSmart, 0, effHtotal, wfgGpios[gpio.oax_sel]);
+  var oaxMode = gpio.oax_mode;
+  function comb(a, b) { return oaxMode === 1 ? (a | b) : oaxMode === 2 ? (a & b) : (a ^ b); }
+  var initLevel = comb(baseInit, otherInit);
+  var cap = A.n + B.n;
+  var outPos = new Float64Array(cap), outLvl = new Uint8Array(cap);
+  var m = 0, ia = 0, ib = 0, curA = baseInit, curB = otherInit, prev = initLevel;
+  while (ia < A.n || ib < B.n) {
+    var pa = (ia < A.n) ? A.pos[ia] : Infinity;
+    var pb = (ib < B.n) ? B.pos[ib] : Infinity;
+    var p = (pa <= pb) ? pa : pb;
+    while (ia < A.n && A.pos[ia] <= p) { curA = A.lvl[ia]; ia++; }
+    while (ib < B.n && B.pos[ib] <= p) { curB = B.lvl[ib]; ib++; }
+    var c = comb(curA, curB);
+    if (c !== prev) { outPos[m] = p; outLvl[m] = c; m++; prev = c; }
+  }
+  var series = { pos: outPos, lvl: outLvl, n: m, initLevel: initLevel };
+  store[ckey] = series;
+  return series;
+}
+/* 第一個 pos >= v 的位置 */
+function _wfgOaxLowerBound(pos, n, v) {
+  var lo = 0, hi = n;
+  while (lo < hi) { var mid = (lo + hi) >>> 1; if (pos[mid] < v) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+/* 第一個 pos > v 的位置 */
+function _wfgOaxUpperBound(pos, n, v) {
+  var lo = 0, hi = n;
+  while (lo < hi) { var mid = (lo + hi) >>> 1; if (pos[mid] <= v) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
 // ─── OAX: apply OAX logic to transitions ───
 function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
   var gpio = wfgGpios[gpioIdx];
@@ -24551,19 +24743,27 @@ function wfgRender() {
         var remW = Math.ceil(w - drawX0 - pixelCount);
         if (remW > 0) ctx.fillRect(drawX0 + pixelCount, curLevel ? yHighI : yLowI, remW, 1);
       } else {
-        // OAX per-pixel: expand ONCE for full view, then cursor-scan
-        var _oaxFull = wfgGetOaxForRange(ch.gpioIdx, allGpioTransitions, effHtotal, wfgViewStart, wfgViewEnd);
-        var _oaxTrans = _oaxFull.transitions;
-        var curLevel = _oaxFull.initLevel;
-        // Pre-compute temporal positions for binary search
-        var _oaxLen = _oaxTrans.length;
-        var _oaxPos = new Float64Array(_oaxLen);
-        var _oaxLvl = new Uint8Array(_oaxLen);
-        for (var _oi = 0; _oi < _oaxLen; _oi++) {
-          _oaxPos[_oi] = effHtotal > 0 ? _oaxTrans[_oi].line + (_oaxTrans[_oi].dly || 0) / effHtotal : _oaxTrans[_oi].line;
-          _oaxLvl[_oi] = _oaxTrans[_oi].level;
-        }
-        var _oaxCursor = 0; // sliding cursor — transitions are sorted, pixels advance monotonically
+        /* v4.27.3：OAX per-pixel —— 改用整條 timeline 的合併序列（`_wfgOaxSeries()`，
+           以 `_wfgTransitionCacheSerial` 快取，縮放不會讓它失效）＋ 每像素二分查找。
+
+           舊版是「每次重繪都把視野內的轉態整批物化再排序」＝ O(視野行數)；
+           新版是 O(像素 × log n)，畫布 822 px ⇒ 每次重繪約 822×20 次比較。
+
+           逐值等價（三個地方一一對上）：
+             ① 進入本像素的準位：舊版 cursor 前進條件是 `pos < lineLeft`，前進完的
+                curLevel ＝「最後一個 pos < lineLeft 的 level」。
+                新版 `f = lowerBound(lineLeft)`（第一個 pos >= lineLeft）⇒ `f-1` 正是那一筆。
+             ② sawToggle：舊版掃 [cursor, lineRight] 找「有沒有一筆 level ≠ curLevel」。
+                本序列**已對 level 去重**，相鄰兩筆必然一高一低，所以區間內只要有一筆，
+                第一筆就必定 ≠ curLevel ⇒ 等價於「區間內有沒有轉態」＝ `l >= f`。
+             ③ 收尾準位：舊版取區間內最後一筆的 level（沒有就維持），新版取 `lvl[l]`。
+           舊版的 `_oaxTrans` 只多了「視野內第一筆一定 push」造成的那一筆冗餘點
+           （它的 level 可能與進入準位相同）；那一筆在舊版掃描裡既不會設 sawToggle
+           也不會改變 lastLvl，所以拿掉它不影響結果。 */
+        var _oaxS = _wfgOaxSeries(ch.gpioIdx, allGpioTransitions, effHtotal, totalLines);
+        var _oaxPos = _oaxS.pos, _oaxLvl = _oaxS.lvl, _oaxLen = _oaxS.n;
+        var _oaxF0 = _wfgOaxLowerBound(_oaxPos, _oaxLen, wfgViewStart);
+        var curLevel = _oaxF0 > 0 ? _oaxLvl[_oaxF0 - 1] : _oaxS.initLevel;
         var _oBatchStart = 0, _oBatchType = -1;
         function _oFlushBatch(endPx) {
           if (_oBatchType < 0 || endPx <= _oBatchStart) return;
@@ -24575,18 +24775,13 @@ function wfgRender() {
         for (var px = 0; px < pixelCount; px++) {
           var lineLeft = wfgViewStart + (px / drawW) * viewRange;
           var lineRight = wfgViewStart + ((px + 1) / drawW) * viewRange;
-          // Advance cursor past entries before this pixel
-          while (_oaxCursor < _oaxLen && _oaxPos[_oaxCursor] < lineLeft) {
-            curLevel = _oaxLvl[_oaxCursor];
-            _oaxCursor++;
-          }
-          var lastLvl = curLevel;
-          var sawToggle = false;
-          for (var oj = _oaxCursor; oj < _oaxLen && _oaxPos[oj] <= lineRight; oj++) {
-            if (_oaxLvl[oj] !== curLevel) sawToggle = true;
-            lastLvl = _oaxLvl[oj];
-          }
-          curLevel = lastLvl;
+          // ① 進入本像素的準位＝最後一個 pos < lineLeft 的 level
+          var _oF = _wfgOaxLowerBound(_oaxPos, _oaxLen, lineLeft);
+          if (_oF > 0) curLevel = _oaxLvl[_oF - 1];
+          // ②③ 區間 [lineLeft, lineRight] 內有沒有轉態、最後一筆是什麼
+          var _oL = _wfgOaxUpperBound(_oaxPos, _oaxLen, lineRight) - 1;
+          var sawToggle = (_oL >= _oF);
+          if (sawToggle) curLevel = _oaxLvl[_oL];
           var _oPxType = sawToggle ? 0 : (curLevel ? 1 : 2);
           if (_oPxType !== _oBatchType) { _oFlushBatch(px); _oBatchStart = px; _oBatchType = _oPxType; }
         }
