@@ -2669,8 +2669,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4250"></script>
-<script src="common/i18n.js?v=20260825wfg4250"></script>
+<script src="common/version.js?v=20260825wfg4260"></script>
+<script src="common/i18n.js?v=20260825wfg4260"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -6540,6 +6540,12 @@ let wfgNbDclkImported = null;
 let _wfgAckDclkFromCode = false;
 /* ══ 各型號的 Line Buffer 上限（Bruce 2026-08-24 逐一指定，以他為準）═════════════
      EM01 11 ／ EM02 7 ／ E512 7 ／ E501 7 ／ E503 6 ／ EN01 8
+   🔴 v4.26.0：`e501` 拆成 `e501a`（RM81010）／`e501b`（RM81011）之後，**兩顆都沿用 7**。
+      Bruce 2026-08-25 指定「先沿用 E501A 與 E501B 都是 7；若在 register 文件裡查到不同的
+      值，不要自己改」。實際查證結果：兩顆的 `.model`（`RM81010_for_FAE_20240509_20241127`
+      ／`RM81011_for_FAE_20231025_20240509`）在 `ST_LINE_RD`／`PRE_BLK_RD_NO` 上**逐項相同**
+      （都是 6 bit、都帶同一句 `Please set to 3/6/9 in different panel mode` 的建議值），
+      **沒有任何一份文件給出不同的 Line Buffer 條數** ⇒ 沿用 7/7，不發明數字。
    Dual Gate 的 First Line Read 上限 ＝ 這個數字 × 2。
 
    ── 獨立佐證（只用於交叉檢查，衝突時仍以 Bruce 為準）──────────────────────
@@ -6551,7 +6557,7 @@ let _wfgAckDclkFromCode = false;
    NB 三顆的原廠 UI 沒有這個欄位（NB 用 ST_LINE_RD + PRE_BLK_RD_NO 兩格），
    `.model` 檔只給「建議設定值」（E501/E503 = 3/6/9、EN01 = 8/16/24/32/48
    對應 Nor/HSD/MUX3/MUX4/MUX6），那是**建議值不是上限**，因此不拿來當判準。 */
-var WFG_LB_MAX = { em01: 11, em02: 7, e512: 7, e501: 7, e503: 6, en01: 8 };
+var WFG_LB_MAX = { em01: 11, em02: 7, e512: 7, e501a: 7, e501b: 7, e503: 6, en01: 8 };
 var WFG_LB_MAX_FALLBACK = 15;   // 認不得的型號 ⇒ 沿用 v4.22.2 之前的舊上限，不發明數字
 function wfgLbMax() {
   var m = WFG_LB_MAX[wfgTconKey()];
@@ -37069,17 +37075,21 @@ window.wfgImportConfig = function(jsonStr, options) {
      三種來源，依序：
        ① 檔案有 `codeTcon`（v4.6.0 以後匯出的）→ 直接用。
        ② 檔案沒有 `codeTcon` 但有 `tcon_type`（v2.97.481 ～ v4.6.0 的舊檔）→
-          **用它推回同 class 的代表機種**（MNT → `em01`、NB → `e501`）。
+          **用它推回同 class 的代表機種**（MNT → `em01`、NB → `e501b`）。
           🔴 為什麼不是直接忽略舊欄位：`tcon_type` 決定 ACT_TYPE / R_PH / F_PH 的位元寬
           與 toggle counter 的遮罩。忽略它 ⇒ 一份存成 NB（6bit）的舊檔用新版打開會變成
           MNT（9bit），**同一份檔案畫出來的 toggle 波形會不一樣**。用它推回同 class 的機種，
           位元寬與舊檔逐位元相同，波形不變 —— 這才是「相容」。
           代表機種取同 class 裡編號最小的那一顆；同 class 內位元寬相同，選誰對波形無影響。
        ③ 兩者都沒有（v2.97.480 以前）→ 預設 `em01`（＝ MNT，與當時的預設行為一致）。 */
-  if (WFG_TCON_CODECS[_cf.codeTcon]) {
-    wfgFrame.codeTcon = _cf.codeTcon;
+  /* 🔴 v4.26.0：`codeTcon` 一律過 `wfgTconResolveKey()`（別名表），
+     v4.25.0 以前存下來的 `"e501"` 會解成 `e501b`。理由見 `WFG_TCON_ALIAS` 的說明。
+     不加這一層的話舊存檔會落到最後那個 `else` ⇒ 退回 EM01（MNT，9 bit），波形會變。 */
+  var _ck = wfgTconResolveKey(_cf.codeTcon);
+  if (_ck) {
+    wfgFrame.codeTcon = _ck;
   } else if (_cf.tcon_type === 'NB' || _cf.tcon_type === 'MNT') {
-    wfgFrame.codeTcon = (_cf.tcon_type === 'NB') ? 'e501' : 'em01';
+    wfgFrame.codeTcon = (_cf.tcon_type === 'NB') ? 'e501b' : 'em01';
   } else {
     wfgFrame.codeTcon = WFG_TCON_DEFAULT;
   }
@@ -37862,13 +37872,38 @@ var WFG_TCON_CODECS = {
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e503'); },
     buildExport: function(opt) { return wfgNbBuildXlsx('e503', opt); }
   },
-  e501: {
-    label: 'E501', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E501,
+  /* ══ 🔴 v4.26.0：舊的 `e501` 一顆拆成 `e501a` ＋ `e501b` ═══════════════════════════
+     Bruce 2026-08-25 逐字：
+       「WFG 的 E501 實際上是 E501A 跟 E501B。E501A 對應的是 RM81010，E501B 對應的是 RM81011。
+         如果 DCLK 的算法兩邊不同會有困難，那乾脆在 WFG 的頁面 TCON 這邊，
+         把它變成 E501A 跟 E501B 分別處理就好。」
+
+     ── 這兩顆在 wfg 眼中**只差一件事：DCLK** ────────────────────────────────────
+       訊號區（`sigBase` 0x480 起、18 條、每條 16 bytes）、位元寬（`WFG_GPO_BITS_NB`）、
+       COMBO 對象（`WFG_COMBO_SRC_E501`）、`rdMode`／`stLineRd`／`preBlkRd`／`panelMode`、
+       檔案大小（131072）、`map.delta`（0xA000）、EDID 位置（0x1000）**全部相同**。
+       依據：`RM81010_for_FAE_20240509_20241127.model` 與
+             `RM81011_for_FAE_20231025_20240509.model` 逐項比對相同（v4.23.0／v4.24.0 已查證），
+       另有官方 CheckList 交叉佐證 —— 兩顆的 `XSTB標準化設定` 清單 14 列的
+       `Offset (HEX)` 一字不差（0x480[7]、0x481[7:6]、0x483[7:6]…），差別只在 A 欄的
+       內部型號字串：**RM81010 ＝ `E501A6`、RM81011 ＝ `E501B2`**
+       （`Check_List/RM8101{0,1}/Function_Select/RM8101x_UI_Function(XSTB標準化設定_VBK區打滿)_(Default)_*.xlsx`）。
+       ⇒ 兩列的差異刻意壓到最小：只有 `label` 與傳給 `wfgNbParse`／`wfgNbBuildXlsx` 的 key。
+
+     🔴 舊設定檔／autosave 裡的 `codeTcon: "e501"` 由 `WFG_TCON_ALIAS` 接手，見該處說明。 */
+  e501a: {
+    label: 'E501A', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E501,
     /* 實測 `TCON/Model` 底下 332 個 E501 code 檔**全部是 .bin、一律 131072 bytes**，
        一個 .hex 都沒有。`.hex` 仍留著是因為共用層本來就支援，多留無害。 */
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
-    parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e501'); },
-    buildExport: function(opt) { return wfgNbBuildXlsx('e501', opt); }
+    parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e501a'); },
+    buildExport: function(opt) { return wfgNbBuildXlsx('e501a', opt); }
+  },
+  e501b: {
+    label: 'E501B', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E501,
+    importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
+    parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e501b'); },
+    buildExport: function(opt) { return wfgNbBuildXlsx('e501b', opt); }
   },
   /* EN01 ＝ RM81008（2026-08-23 查證：六個 `.model` 檔逐一 MD5 相同、
      RCP2 exe 內含 UI 字串 `RM81008(EN01)`、UserManual 明寫「EN01 系列的 RM81008」、
@@ -37902,6 +37937,35 @@ var WFG_TCON_CODECS = {
    這兩支是**唯一**的存取窗口 —— 全檔不得再出現第二個「目前機種」的變數。
    `wfgTconCodec()` 對不認識的 key 一律退回預設，呼叫端不必各自防呆。 */
 var WFG_TCON_DEFAULT = 'em01';   // Bruce 2026-08-23 裁示
+/* ══ 🔴 v4.26.0：舊機種 key 的別名表（設定檔／autosave 相容）═══════════════════════
+   v4.25.0 以前存下來的檔案裡寫的是 `codeTcon: "e501"`，而 v4.26.0 起表裡只有
+   `e501a`／`e501b`。**沒有這張表的話** `wfgTconKey()` 會查不到而退回 `WFG_TCON_DEFAULT`
+   ＝ `em01` ＝ **MNT**，位元寬從 6 bit 變 9 bit，同一份存檔畫出來的 toggle 波形會不一樣
+   —— 那正是 v4.7.0 補相容處理時要防的那件事。
+
+   ── 為什麼 `e501` 對到 **B** 而不是 A（三條理由，缺一都還不夠）───────────────────
+     ① **匯出位元不變**：xlsx 第一欄寫的是 `m.tconName`，舊 `e501` 的值是 `'E501B2'`。
+        對到 `e501b` ⇒ 載入舊存檔後匯出，那一欄與 v4.25.0 完全相同；對到 `e501a`
+        會變成 `E501A6`，等於默默改掉使用者手上那份查核清單的型號欄。
+     ② **行為不變**：v4.25.0 的 `e501` DCLK 實作就是 GBPLL 那條路（＝ RM81011 ＝ B）。
+        `e501a` 的 AGBSFR DCLK 是本版才新做的東西，把舊存檔對到一個新行為上沒有道理。
+     ③ **對波形零影響**：A／B 的訊號區、位元寬、COMBO 對象、Line Buffer 上限完全相同
+        （見 `WFG_TCON_CODECS.e501a` 上方的逐項比對），而存檔裡本來就不含 code 檔，
+        載入時不會重跑任何 DCLK 解析 ⇒ 選 A 或 B 對「載入後看到的畫面」一個位元都不差。
+   ⇒ 三條裡只有 ①② 有分別，兩條都指向 B。
+
+   🔴 這**不構成**「舊值失效」：舊設定檔照樣載得進來、波形一模一樣、匯出位元一模一樣，
+      使用者唯一會注意到的是下拉從 `E501` 變成選中 `E501B`。 */
+var WFG_TCON_ALIAS = { e501: 'e501b' };
+/* 把任何來源的機種字串正規化成表裡真的存在的 key。查不到回空字串（呼叫端自己決定退路）。
+   🔴 全檔凡是「從外部資料（設定檔／autosave／舊欄位）拿到機種字串」的地方都要過這一支，
+      不要各自寫 `WFG_TCON_CODECS[k] ? k : …` —— 那種寫法漏掉一處就是靜默退回 EM01。 */
+function wfgTconResolveKey(k) {
+  if (k && WFG_TCON_CODECS[k]) return k;
+  var a = k && WFG_TCON_ALIAS[k];
+  return (a && WFG_TCON_CODECS[a]) ? a : '';
+}
+window.wfgTconResolveKey = wfgTconResolveKey;
 /* ══ v4.7.0：機種**類別**規格表 ══════════════════════════════════════════════
    Bruce 2026-08-23 一次交代了三件都由「這顆是 Monitor 還是 Notebook」決定的事：
      ① ACT_TYPE / R_PH / F_PH 的位元寬（MNT 9bit 0~511；NB 6bit 0~63）
@@ -37925,8 +37989,10 @@ var WFG_TCON_CLASS_SPEC = {
   NB:  { maskBits: 0x3F,  allowVarClock: false, uiDclkMin: 20, uiDclkMax: 105 }
 };
 function wfgTconKey() {
-  var k = wfgFrame && wfgFrame.codeTcon;
-  return WFG_TCON_CODECS[k] ? k : WFG_TCON_DEFAULT;
+  /* v4.26.0：中間插一層別名解析 —— 若 `wfgFrame.codeTcon` 仍停在舊的 `e501`
+     （例如某條路徑忘了正規化），這裡也會解成 `e501b` 而不是靜默掉回 EM01。 */
+  var k = wfgTconResolveKey(wfgFrame && wfgFrame.codeTcon);
+  return k || WFG_TCON_DEFAULT;
 }
 function wfgTconCodec() { return WFG_TCON_CODECS[wfgTconKey()]; }
 /* v4.8.0：類別規格 ＋ 型號覆寫。型號表若帶 `uiDclkMax`／`uiDclkMin` 就以它為準，
@@ -39510,14 +39576,24 @@ function wfgCodeExportRun(targetKey) {
     /* 🔴 v4.25.0：DCLK 有沒有寫回去，一定要講。排在最前面 —— 這是這份 xlsx 裡
        唯一會改動 PLL 的一組列，使用者必須知道自己送出去的是什麼。 */
     if (out.dclkOut) {
-      msgs.unshift(t('wfg.codeNbDclkWrote').replace('{m}', codec.label)
-                     .replace('{was}', wfgFmtDclk(out.dclkOut.from))
-                     .replace('{now}', wfgFmtDclk(out.dclkOut.to))
-                     .replace('{p}', String(out.dclkOut.p))
-                     .replace('{i}', String(out.dclkOut.iniM))
-                     .replace('{d}', out.dclkOut.deltaM >= 0
-                        ? (String(out.dclkOut.deltaM) + '（SSCG ' + wfgFmtDclk(out.dclkOut.sscgPct) + '%）')
-                        : t('wfg.codeNbDclkNoDelta')));
+      /* v4.26.0：兩種機制寫進去的 register 完全不同，訊息各一則
+         —— 對 E501A 印一串 GBPLL_* 是憑空捏造，那些 register 在 RM81010 上不存在。 */
+      if (out.dclkOut.kind === 'agbsfr') {
+        msgs.unshift(t('wfg.codeNbDclkWroteAgbs').replace('{m}', codec.label)
+                       .replace('{was}', wfgFmtDclk(out.dclkOut.from))
+                       .replace('{now}', wfgFmtDclk(out.dclkOut.to))
+                       .replace(/\{i\}/g, String(out.dclkOut.intg))
+                       .replace(/\{f\}/g, String(out.dclkOut.frac)));
+      } else {
+        msgs.unshift(t('wfg.codeNbDclkWrote').replace('{m}', codec.label)
+                       .replace('{was}', wfgFmtDclk(out.dclkOut.from))
+                       .replace('{now}', wfgFmtDclk(out.dclkOut.to))
+                       .replace('{p}', String(out.dclkOut.p))
+                       .replace('{i}', String(out.dclkOut.iniM))
+                       .replace('{d}', out.dclkOut.deltaM >= 0
+                          ? (String(out.dclkOut.deltaM) + '（SSCG ' + wfgFmtDclk(out.dclkOut.sscgPct) + '%）')
+                          : t('wfg.codeNbDclkNoDelta')));
+      }
     }
     msgs.push(t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
   }
@@ -40810,7 +40886,44 @@ function wfgEn01ParseHeader(buf) {
 }
 window.wfgEn01ParseHeader = wfgEn01ParseHeader;
 
-/* 型號設定表。三顆的差異全部收斂在這裡，解析／匯出兩支函式都不認識任何型號。 */
+/* ══ 🔴 v4.26.0：E501A／E501B 的共用欄位 ═══════════════════════════════════════════
+   RM81010 與 RM81011 在 wfg 用得到的每一個 register 上都相同（`.model` 逐項比對＋
+   官方 CheckList 的 `Offset (HEX)` 欄一字不差，詳見 `WFG_TCON_CODECS.e501a` 上方）。
+   把共用的部分放這裡，**兩顆的差異就只剩 `label`／`tconName`／`dclk`／`idFingerprint` 四格**
+   —— 這正是「拆型號」該有的樣子：新加的東西不會順手把已經驗過的東西改掉。
+
+   `over` 的欄位一律覆蓋預設。用複製（不是原型鏈）是因為這張表在全檔被當純資料讀。 */
+function _wfgE501Common(over) {
+  var base = {
+    layout: 'A',
+    sigCount: 18,                                   // 與 wfg 的 18 條完全對齊
+    sigBase: function(i) { return 0x480 + i * 0x10; },
+    map: { kind: 'fixed', delta: 0xA000, regMin: 0x000, regMax: 0x63F },
+    /* 🔴 128 KB 的 E501 檔其實是「前 64 KB 內容 × 2」——
+       `RomCodeProcessUI.py:13539 double_list_data()` 的註解寫明，實測 first64K === second64K。
+       所有位址都用前半部；後半部是複本，讀哪一份都一樣，但寫回時官方 UI 會自己 double。 */
+    edidOff: 0x1000,
+    rdMode: { reg: 0x420, msb: 7, lsb: 6 },
+    /* v4.23.0：出處 `RM81010_for_FAE_20240509_20241127.model` 與
+       `RM81011_for_FAE_20231025_20240509.model`（兩份逐項相同）：
+         [ST_LINE_RD]     RegAddr0 0x423  RegMsb0 5  RegBits0 6  → 0x423[5:0]
+         [PRE_BLK_RD_NO]  RegAddr0 0x422  RegMsb0 5  RegBits0 6  → 0x422[5:0]
+         同樣帶著 `ST_LINE_RD + PRE_BLK_RD_NO Please set to 3/6/9 in different panel mode`。 */
+    stLineRd: { reg: 0x423, msb: 5, lsb: 0, key: 'ST_LINE_RD' },
+    preBlkRd: { reg: 0x422, msb: 5, lsb: 0, key: 'PRE_BLK_RD_NO' },
+    /* v4.24.0：出處 `RM81010_for_FAE_20240509_20241127.model` 與
+       `RM81011_for_FAE_20231025_20240509.model`（兩份逐項相同）：
+         [ Data_Mapping ] → [ PANEL_MODE ]  RegAddr0 0x3F0  RegMsb0 1  RegBits0 2 → 0x3F0[1:0]
+       與官方 UI `dm_panel_mode_addr_3e_dict['RM81010'] = [0x3F0, 1, 0, 0x420, 7, 6]` 相符。
+       實測 188 份 E501 真檔：dual 28/29 為 2（另 1 份是 3）⇒ 正規值 2。 */
+    panelMode: { reg: 0x3F0, msb: 1, lsb: 0, key: 'PANEL_MODE' },
+    pmCanonicalDual: 2,
+    sizes: [131072]
+  };
+  for (var k in over) if (Object.prototype.hasOwnProperty.call(over, k)) base[k] = over[k];
+  return base;
+}
+/* 型號設定表。各顆的差異全部收斂在這裡，解析／匯出兩支函式都不認識任何型號。 */
 var WFG_NB_MODELS = {
   e503: {
     label: 'E503', tconName: 'E503A', layout: 'A',
@@ -40864,30 +40977,67 @@ var WFG_NB_MODELS = {
     },
     sizes: [4096]
   },
-  e501: {
-    label: 'E501', tconName: 'E501B2', layout: 'A',
-    sigCount: 18,                                   // 與 wfg 的 18 條完全對齊
-    sigBase: function(i) { return 0x480 + i * 0x10; },
-    map: { kind: 'fixed', delta: 0xA000, regMin: 0x000, regMax: 0x63F },
-    /* 🔴 128 KB 的 E501 檔其實是「前 64 KB 內容 × 2」——
-       `RomCodeProcessUI.py:13539 double_list_data()` 的註解寫明，實測 first64K === second64K。
-       所有位址都用前半部；後半部是複本，讀哪一份都一樣，但寫回時官方 UI 會自己 double。 */
-    edidOff: 0x1000,
-    rdMode: { reg: 0x420, msb: 7, lsb: 6 },
-    /* v4.23.0：出處 `RM81010_for_FAE_20240509_20241127.model` 與
-       `RM81011_for_FAE_20231025_20240509.model`（兩份逐項相同）：
-         [ST_LINE_RD]     RegAddr0 0x423  RegMsb0 5  RegBits0 6  → 0x423[5:0]
-         [PRE_BLK_RD_NO]  RegAddr0 0x422  RegMsb0 5  RegBits0 6  → 0x422[5:0]
-         同樣帶著 `ST_LINE_RD + PRE_BLK_RD_NO Please set to 3/6/9 in different panel mode`。 */
-    stLineRd: { reg: 0x423, msb: 5, lsb: 0, key: 'ST_LINE_RD' },
-    preBlkRd: { reg: 0x422, msb: 5, lsb: 0, key: 'PRE_BLK_RD_NO' },
-    /* v4.24.0：出處 `RM81010_for_FAE_20240509_20241127.model` 與
-       `RM81011_for_FAE_20231025_20240509.model`（兩份逐項相同）：
-         [ Data_Mapping ] → [ PANEL_MODE ]  RegAddr0 0x3F0  RegMsb0 1  RegBits0 2 → 0x3F0[1:0]
-       與官方 UI `dm_panel_mode_addr_3e_dict['RM81010'] = [0x3F0, 1, 0, 0x420, 7, 6]` 相符。
-       實測 188 份 E501 真檔：dual 28/29 為 2（另 1 份是 3）⇒ 正規值 2。 */
-    panelMode: { reg: 0x3F0, msb: 1, lsb: 0, key: 'PANEL_MODE' },
-    pmCanonicalDual: 2,
+  /* ══ 🔴 v4.26.0：`e501` 拆成 `e501a`（RM81010）／`e501b`（RM81011）═══════════════
+     兩列**只有 `tconName` 與 `dclk` 不同**，其餘逐項相同（見 `WFG_TCON_CODECS.e501a`
+     上方的比對）。`tconName` 是官方 CheckList A 欄「TCON（內部型號）」的字串，
+     取自官方自己的清單：RM81010 ＝ `E501A6`、RM81011 ＝ `E501B2`。
+
+     `_e501Common` 把共用欄位集中一處 —— 用複製而不是原型鏈，是因為這張表在全檔被當成
+     純資料讀（`for…in`、`m.xxx`），原型上的欄位會在某些讀法下消失。 */
+  e501a: _wfgE501Common({
+    label: 'E501A', tconName: 'E501A6',
+    /* ══ 🔴 v4.26.0：E501A（RM81010）的 AGBSFR DCLK —— 與 E501B 完全不同的機制 ══════
+       出處（`SourceCode_V5.0.4/RomCodeProcessUI.py`，RM81010 只有 Python 版官方 UI 支援）：
+         讀 `:21740-21743`（`read_agbsfr_romcode_info()`，`self.tcon_a_name in {'RM81010'}` 分支）
+             agbs_dclk_integer  = read(0x09C, 7, 0)
+             agbs_dclk_floating = read(0x09D, 7, 0, 0x09E, 7, 0)      ← 0x09D 是高位
+             agbs_dclk = agbs_dclk_integer + round(agbs_dclk_floating / 65536, 8)
+         寫 `:23452-23464`（`set_agbsfr_n_percent()`，同一個 RM81010 分支）
+             agbs_dclk_integer  = int(new_dclk)                  → 0x09C
+             agbs_dclk_floating = int((new_dclk - int(new_dclk)) * 65536) → 0x09D,0x09E
+             fr_dclk_integer    = agbs_dclk_integer              → 0x09F
+             fr_dclk_floating   = agbs_dclk_floating             → 0x0A0,0x0A1
+       區塊名（＝ CheckList 的 `Check Item` 欄）逐字取自
+       `RM81010_for_FAE_20240509_20241127.model` 的 `[ AG_BS_FR_TIMING ]`：
+         `AGBS_DCLK_INTEGER`        RegAddr0 156(0x09C) RegMsb0 7 RegBits0 8
+         `AGBS_DCLK_FLOATING POINT` RegAddr1 157(0x09D) / RegAddr0 158(0x09E)，各 8 bit
+         `FR_DCLK_INTEGER`          RegAddr0 159(0x09F)
+         `FR_DCLK_FLOATING POINT`   RegAddr1 160(0x0A0) / RegAddr0 161(0x0A1)
+       🔴 `AGBS_DCLK_FLOATING POINT` 的 `FLOATING` 與 `POINT` 之間是**空格不是底線** ——
+          寫錯名字官方 UI 會靜默略過那一列（v4.22.0 `R_DLY_F40` 那一輪踩過同一個坑）。
+
+       🔴 **絕對不可以套 E501B 的 GBPLL 公式**：實測 131 份 RM81010 真檔，
+          N_PRE／N_PSDIV1 一律是 (2,8)、INI_M ＝ 0，套 GBPLL 公式**131/131 都得到 81.0**
+          （單一常數垃圾值）。反方向同樣成立：107 份 RM81011 真檔套 0x09C~0x09E
+          **107/107 都得到 70.0**。這組雙向負控制就是 `idFingerprint` 的依據。
+
+       ⚠ 這裡**不寫** `DCLK_ADJ`(0x0A7)：它是「AGBSFR 相對 EDID 的加成百分比」
+         （`.model` Comment：`default = 66h(102), DCLK increase % = DCLK_ADJ/1024`），
+         改它會連帶改掉 aging/BIST 的行為，而 wfg 沒有 EDID 標準化那一整套輸入
+         —— 與 v4.25.0「不寫 HBLK／VBLK／FR_DET_TH」是同一條原則。 */
+    dclk: {
+      kind:    'agbsfr',
+      intg:    { reg: 0x09C, msb: 7, lsb: 0, key: 'AGBS_DCLK_INTEGER' },
+      frac:    { key: 'AGBS_DCLK_FLOATING POINT', parts: [{ reg: 0x09D, msb: 7, lsb: 0 }, { reg: 0x09E, msb: 7, lsb: 0 }] },
+      frIntg:  { reg: 0x09F, msb: 7, lsb: 0, key: 'FR_DCLK_INTEGER' },
+      frFrac:  { key: 'FR_DCLK_FLOATING POINT', parts: [{ reg: 0x0A0, msb: 7, lsb: 0 }, { reg: 0x0A1, msb: 7, lsb: 0 }] },
+      /* py 版官方 UI 是 `round(floating/65536, 8)` ⇒ 小數保留 8 位。 */
+      round: 8
+    },
+    /* ── 型號指紋：這份 code 到底是 A 還是 B（Bruce 2026-08-25 第 5 點）───────────
+       `GBPLL_EN_SDM` 在 RM81011 的 register map 裡是 0x15E[5]；RM81010 的 `.model`
+       裡**根本沒有 GBPLL_EN_SDM／N_PRE／P／INI_M 這一整組**（只有 `GBPLL_P_ADJ_EN`／
+       `GBPLL_ADD_SUB_SEL`／`GBPLL_P_Value` 那組 DCLK tuning），所以那個位元對 A 而言
+       是未使用區、實測 131/131 恆為 0；B 則 107/107 恆為 1。**238 份零例外。**
+       ⇒ 拿它當「使用者選的型號與這份檔相不相符」的防呆，不是拿來猜型號。 */
+    idFingerprint: { field: { reg: 0x15E, msb: 5, lsb: 5, key: 'GBPLL_EN_SDM' },
+                     expect: 0, otherLabel: 'E501B', otherIc: 'RM81011', ic: 'RM81010' }
+  }),
+  e501b: _wfgE501Common({
+    label: 'E501B', tconName: 'E501B2',
+    /* 型號指紋：與 `e501a` 同一個位元、期望值相反。實測 107/107 恆為 1。 */
+    idFingerprint: { field: { reg: 0x15E, msb: 5, lsb: 5, key: 'GBPLL_EN_SDM' },
+                     expect: 1, otherLabel: 'E501A', otherIc: 'RM81010', ic: 'RM81011' },
     /* v4.25.0：AGBSFR DCLK。位址逐筆取自 `Raydium.Core.dll` 的
        `ICDefine.GetRM81011()`（RVA 0xB5B8），並與 `RomCodeProcessUI.py:21791-21812`
        硬寫的位址逐一相符。
@@ -40907,9 +41057,8 @@ var WFG_NB_MODELS = {
       autoMode: null,
       /* `E501AgbsfrViewModel::InitializeUI` 取 `Math.Round(…, 2)`（比 E503 少一位）。 */
       round: 2
-    },
-    sizes: [131072]
-  },
+    }
+  }),
   en01: {
     label: 'EN01', tconName: 'EN01', layout: 'B',
     /* 16 條連續（0x490 起）＋ gpo0/gpo1 遠在 0x12D0/0x12E0。
@@ -41152,11 +41301,49 @@ function wfgNbDclkEncode(dclk) {
   return { h: h, l: l, p: Math.max(h - 3 - WFG_NB_DCLK_STD.iniMHi, 0),
            iniM: WFG_NB_DCLK_STD.iniMHi * 65536 + l };
 }
+/* ══ 🔴 v4.26.0：型號指紋 —— 這份 code 與使用者選的型號相不相符 ═══════════════════
+   Bruce 2026-08-25 第 5 點：「`GBPLL_EN_SDM` 那個逐檔閘門在型號拆開後的角色要重新想：
+   它應該變成『匯入時檢查這份檔案與使用者選的型號相不相符』的防呆（選了 E501A 卻餵
+   RM81011 的檔就要警告），而不是拿來猜型號。」
+
+   ⇒ 這一支**只回報相不相符，絕不改變 `wfgFrame.codeTcon`**。型號是使用者選的，
+     wfg 沒有資格替他改；能做的是把「你選的跟你餵的對不上」講清楚，然後**不要**
+     拿一個機制不同的公式去算 DCLK（那會靜默給出 81.0／70.0 這種垃圾值）。
+
+   只有 `idFingerprint` 存在的型號才做（目前是 e501a／e501b）。
+   e503／en01 沒有這一格 ⇒ 整段不執行，行為與 v4.25.0 逐位元相同。
+
+   回傳 `{ ok, why }`；`ok===true` 也包含「這顆型號不做指紋檢查」的情況。 */
+function wfgNbCheckModelId(buf, m, ctx) {
+  var f = m && m.idFingerprint;
+  if (!f || !f.field) return { ok: true, why: '', got: -1 };
+  var got = wfgNbReadField(buf, m, ctx, f.field);
+  /* 讀不到（bank 沒啟用／檔案截斷）⇒ **不判定**。把「讀不到」講成「型號選錯」
+     會製造假警報，而假警報的代價是使用者開始忽略所有警告。 */
+  if (got < 0) return { ok: true, why: '', got: -1 };
+  if (got === f.expect) return { ok: true, why: '', got: got };
+  return { ok: false, got: got,
+           why: t('wfg.codeNbModelMismatch').replace(/\{m\}/g, m.label)
+                  .replace('{ic}', f.ic).replace('{k}', f.field.key)
+                  .replace('{got}', String(got)).replace('{exp}', String(f.expect))
+                  .replace(/\{other\}/g, f.otherLabel).replace('{otherIc}', f.otherIc) };
+}
+window.wfgNbCheckModelId = wfgNbCheckModelId;
+
 /* 匯入端：把這份 code 的 DCLK 讀出來。
-   回傳 `{ ok, dclk, why, raw }`。`ok=false` 時 `why` 是給使用者看的原因字串（已翻譯）。 */
+   回傳 `{ ok, dclk, why, raw }`。`ok=false` 時 `why` 是給使用者看的原因字串（已翻譯）。
+   v4.26.0：依 `m.dclk.kind` 分派 —— `gbpll`（E501B／E503）與 `agbsfr`（E501A）
+   是兩套完全不同的 register 與公式，不共用任何一行計算。 */
 function wfgNbReadDclk(buf, m, ctx) {
   var d = m && m.dclk;
-  if (!d || d.kind !== 'gbpll') return { ok: false, why: '', raw: null };
+  if (!d) return { ok: false, why: '', raw: null };
+  /* 🔴 型號指紋不符 ⇒ 一律不填 DCLK。理由不是「算不出來」而是「算出來的一定是錯的」：
+     實測 131 份 RM81010 套 GBPLL 公式 131/131 得 81.0、107 份 RM81011 套 AGBSFR
+     107/107 得 70.0，兩邊都是單一常數垃圾值，而且都落在合理區間內、閘門②擋不住它們。 */
+  var _id = wfgNbCheckModelId(buf, m, ctx);
+  if (!_id.ok) return { ok: false, why: _id.why, raw: null, idMismatch: true };
+  if (d.kind === 'agbsfr') return wfgNbReadDclkAgbsfr(buf, m, ctx, d);
+  if (d.kind !== 'gbpll') return { ok: false, why: '', raw: null };
   var raw = {
     enSdm:   wfgNbReadField(buf, m, ctx, d.enSdm),
     nPre:    wfgNbReadField(buf, m, ctx, d.nPre),
@@ -41202,6 +41389,74 @@ function wfgNbReadDclk(buf, m, ctx) {
 window.wfgNbReadDclk = wfgNbReadDclk;
 window.wfgNbDclkCalc = wfgNbDclkCalc;
 window.wfgNbDclkEncode = wfgNbDclkEncode;
+
+/* ══ 🔴 v4.26.0：E501A（RM81010）的 AGBSFR DCLK ══════════════════════════════════
+   它**不是 PLL**，就是一個 8.16 定點數：整數在 0x09C、小數 16 bit 在 0x09D(高)/0x09E(低)。
+   `RomCodeProcessUI.py:21741-21743`：
+       agbs_dclk = read(0x09C,7,0) + round(read(0x09D,7,0, 0x09E,7,0) / 65536, 8)
+
+   ── 閘門（過不了就不填，並把理由講出來；順序即優先序）──────────────────────────
+     ① 型號指紋（在 `wfgNbReadDclk()` 已先擋掉，這裡不重複）
+     ② 讀得到（bank 沒啟用／檔案截斷 ⇒ 兩段有一段讀不到就整組不採信）
+     ③ 落在機種規格區間（NB 20～105 MHz）—— 實測 131/131 通過（74.037～91.729）
+     ④ 🔴 `AGBS_DCLK === FR_DCLK`（第二來源交叉比對，等同 E503 的 `DCLK_AUTO_MODE` 那一關）
+        依據：官方標準化 `:23456/:23464` 把 `fr_dclk_integer/floating` **直接指派成
+        `agbs_dclk_*`**，兩者設計上必然相同；實測 131 份 RM81010 真檔
+        **131/131 完全相等**（B 群則是 0/107 相等 —— 那正是 0x09C 對 B 而言不是 DCLK 的旁證）。
+        不相等 ⇒ 這份 code 有我們沒理解的狀態，而 wfg 只有一個 TCON UI DCLK 欄位，
+        填哪一個都可能是錯的 ⇒ 寧可不填。
+
+   ⚠ **刻意不拿 `(EDID px/2) × (1024 + DCLK_ADJ)/1024` 當閘門**：那是標準化當下的
+     *產生方式*，不是 DCLK 的*定義*。實測 131 份裡有 14 份對不上
+     （8 份差 −7.63、5 份差 +0.036~0.039 —— 那些檔的 EDID 換過但 AGBSFR 沒重新標準化），
+     拿它當閘門會誤殺 14/131 份合法檔案。定義就是 0x09C~0x09E 那個欄位本身。 */
+function wfgNbReadDclkAgbsfr(buf, m, ctx, d) {
+  var raw = {
+    intg:   wfgNbReadField(buf, m, ctx, d.intg),
+    frac:   wfgNbReadParts(buf, m, ctx, d.frac),
+    frIntg: d.frIntg ? wfgNbReadField(buf, m, ctx, d.frIntg) : -1,
+    frFrac: d.frFrac ? wfgNbReadParts(buf, m, ctx, d.frFrac) : -1
+  };
+  var nd = isFinite(d.round) ? d.round : 8, f = Math.pow(10, nd);
+  function _mk(i, fr) {
+    if (i < 0 || fr < 0) return NaN;
+    return i + Math.round((fr / 65536) * f) / f;
+  }
+  var dclk = _mk(raw.intg, raw.frac);
+  var frDclk = _mk(raw.frIntg, raw.frFrac);
+  raw.dclk = dclk; raw.frDclk = frDclk;
+  /* 閘門②：讀不到 */
+  if (!isFinite(dclk)) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkNoRegAgbs').replace('{m}', m.label)
+                    .replace('{k}', d.intg.key) };
+  }
+  /* 閘門③：機種規格區間 */
+  var _sp = wfgTconSpec();
+  if (!(dclk >= _sp.uiDclkMin && dclk <= _sp.uiDclkMax)) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkRange').replace('{m}', m.label).replace('{v}', wfgFmtDclk(dclk))
+                    .replace('{lo}', String(_sp.uiDclkMin)).replace('{hi}', String(_sp.uiDclkMax)) };
+  }
+  /* 閘門④：AGBS 與 FR 兩組必須一致 */
+  if (isFinite(frDclk) && Math.abs(dclk - frDclk) > 1e-9) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkFrDiff').replace('{m}', m.label)
+                    .replace('{v}', wfgFmtDclk(dclk)).replace('{a}', wfgFmtDclk(frDclk)) };
+  }
+  return { ok: true, dclk: dclk, why: '', raw: raw };
+}
+window.wfgNbReadDclkAgbsfr = wfgNbReadDclkAgbsfr;
+/* DCLK(MHz) → { intg, frac }，照 `RomCodeProcessUI.py:23452/23460` 的 `int()` ＋
+   `int((x - int(x)) * 65536)`（兩處都是**截斷**不是四捨五入）。 */
+function wfgNbDclkEncodeAgbsfr(dclk) {
+  var i = Math.trunc(dclk);
+  var fr = Math.trunc((dclk - i) * 65536);
+  if (fr < 0) fr = 0;
+  if (fr > 65535) fr = 65535;
+  return { intg: i, frac: fr };
+}
+window.wfgNbDclkEncodeAgbsfr = wfgNbDclkEncodeAgbsfr;
 
 /* ── EDID 的 DTD#1 → Frame 參數 ──────────────────────────────────────────
    三顆 NB 的 code 檔開頭（E501 是 0x1000）都是一份完整 128 bytes EDID。
@@ -41626,12 +41881,23 @@ function wfgNbParse(rawBuf, fname, key) {
   var _dc = wfgNbReadDclk(buf, m, ctx);
   if (m.dclk && _dc.ok) {
     var _r = _dc.raw;
-    det += ' / TCON UI DCLK ' + wfgFmtDclk(_dc.dclk) + ' MHz (' +
-           m.dclk.p.key + '@' + wfgNbOffStrOf(m.dclk.p) + '=' + _r.p + ' + ' +
-           m.dclk.iniM.key + '=' + _r.iniM + ' / ' +
-           m.dclk.nPre.key + '=' + _r.nPre + ' ' + m.dclk.nPs1.key + '=' + _r.nPs1 +
-           (m.dclk.autoMode && _r.auto >= 0 ? (' / ' + m.dclk.autoMode.key + '=' + _r.auto) : '') + ')';
-  } else if (m.dclk && _dc.why) {
+    /* v4.26.0：兩種機制的 register 名稱完全不同，明細也要分開組
+       —— 對 `agbsfr` 去讀 `m.dclk.p.key` 會直接丟 TypeError。 */
+    if (m.dclk.kind === 'agbsfr') {
+      det += ' / TCON UI DCLK ' + wfgFmtDclk(_dc.dclk) + ' MHz (' +
+             m.dclk.intg.key + '@' + wfgNbOffStrOf(m.dclk.intg) + '=' + _r.intg + ' + ' +
+             m.dclk.frac.key + '@' + wfgNbOffStrOf(m.dclk.frac) + '=' + _r.frac + '/65536' +
+             (_r.frIntg >= 0 ? (' / FR_DCLK=' + wfgFmtDclk(_r.frDclk)) : '') + ')';
+    } else {
+      det += ' / TCON UI DCLK ' + wfgFmtDclk(_dc.dclk) + ' MHz (' +
+             m.dclk.p.key + '@' + wfgNbOffStrOf(m.dclk.p) + '=' + _r.p + ' + ' +
+             m.dclk.iniM.key + '=' + _r.iniM + ' / ' +
+             m.dclk.nPre.key + '=' + _r.nPre + ' ' + m.dclk.nPs1.key + '=' + _r.nPs1 +
+             (m.dclk.autoMode && _r.auto >= 0 ? (' / ' + m.dclk.autoMode.key + '=' + _r.auto) : '') + ')';
+    }
+  } else if (_dc.why) {
+    /* v4.26.0：條件從 `m.dclk && _dc.why` 放寬成 `_dc.why` —— 型號指紋不符的訊息
+       不是「DCLK 的事」，即使某顆型號將來沒有 `dclk` 也一樣要講。 */
     det += '\n' + _dc.why;
   }
   if (miss.length) det += '\n' + t('wfg.codeNbRegMiss').replace('{s}', miss.join(', '));
@@ -41747,10 +42013,41 @@ function wfgNbBuildXlsx(key, opt) {
         wfg 沒有 EDID 那一整套輸入，**那些一律不寫**，不是漏掉。
      🔴 `GBPLL_SSCGDIV` 由 Mod Rate 決定、與 DCLK 無關 ⇒ 不寫（只拿它的原值算 DELTA_M）。 */
   var dclkOut = null;
-  if (m.dclk && m.dclk.kind === 'gbpll' && wfgNbDclkImported && wfgNbDclkImported.key === key) {
+  if (m.dclk && wfgNbDclkImported && wfgNbDclkImported.key === key) {
     var _uiNow = wfgFrame.dclk * (wfgUiDclkRatio() || 1);
     var _uiWas = wfgNbDclkImported.dclk;
-    if (isFinite(_uiNow) && _uiNow > 0 && Math.abs(_uiNow - _uiWas) > 1e-9) {
+    var _changed = isFinite(_uiNow) && _uiNow > 0 && Math.abs(_uiNow - _uiWas) > 1e-9;
+    /* ══ 🔴 v4.26.0：E501A（RM81010）的反寫 —— 定點數，不是 PLL ═══════════════════
+       `RomCodeProcessUI.py:23452-23464`（`set_agbsfr_n_percent()` 的 RM81010 分支）：
+         agbs_dclk_integer  = int(new)                        → AGBS_DCLK_INTEGER
+         agbs_dclk_floating = int((new − int(new)) × 65536)    → AGBS_DCLK_FLOATING POINT
+         fr_dclk_integer    = agbs_dclk_integer                → FR_DCLK_INTEGER
+         fr_dclk_floating   = agbs_dclk_floating               → FR_DCLK_FLOATING POINT
+       🔴 官方把 FR 那一組**直接指派成 AGBS 的值**（不是各算一次），實測 131 份真檔
+          131/131 兩者相等 ⇒ 這裡照寫，兩組都寫。只寫 AGBS 會在晶片上留下
+          agbs≠fr 的矛盾狀態（而閘門④正是拿這個矛盾當「不可信」的判準）。
+       ⚠ `DCLK_ADJ`(0x0A7) 與 EDID 那一整套（HBLK／VBLK／FR_DET_TH）一律不寫，
+          理由與 v4.25.0 的 GBPLL 路徑完全相同。 */
+    if (m.dclk.kind === 'agbsfr' && _changed) {
+      var DA = m.dclk, encA = wfgNbDclkEncodeAgbsfr(_uiNow);
+      var _bitsA = function(spec) {
+        var ps = spec.parts || [spec], n = 0;
+        for (var z = 0; z < ps.length; z++) n += (ps[z].msb - ps[z].lsb + 1);
+        return n;
+      };
+      var _putA = function(spec, val) {
+        var mx = Math.pow(2, _bitsA(spec)) - 1, v = Math.max(0, Math.round(val));
+        if (v > mx) { clamped.push({ sig: 'FRAME', field: spec.key, from: v, to: mx }); v = mx; }
+        _nbFrameRow(spec.key, wfgNbOffStrOf(spec), v);
+        return v;
+      };
+      var _iA = _putA(DA.intg, encA.intg);
+      var _fA = _putA(DA.frac, encA.frac);
+      if (DA.frIntg) _putA(DA.frIntg, encA.intg);
+      if (DA.frFrac) _putA(DA.frFrac, encA.frac);
+      dclkOut = { kind: 'agbsfr', from: _uiWas, to: _uiNow, intg: _iA, frac: _fA };
+    }
+    if (m.dclk.kind === 'gbpll' && _changed) {
       var D = m.dclk, B = wfgNbDclkImported.raw, enc = wfgNbDclkEncode(_uiNow);
       /* 欄位位元寬（多段的話逐段相加）—— 超界一律夾 ＋ 記進 `clamped`，
          沿用 v4.16.2 Bruce 裁示的「不要靜默夾值」。 */
@@ -41785,7 +42082,7 @@ function wfgNbBuildXlsx(key, opt) {
         _sscg = B.deltaM * B.sscgDiv * 8 / _den;
         _dOut = _put(D.deltaM, Math.trunc((enc.h * 65536 + enc.l) * _sscg / (B.sscgDiv * 8)));
       }
-      dclkOut = { from: _uiWas, to: _uiNow, p: _pOut, iniM: _iOut, auto: _aOut,
+      dclkOut = { kind: 'gbpll', from: _uiWas, to: _uiNow, p: _pOut, iniM: _iOut, auto: _aOut,
                   deltaM: _dOut, sscgPct: (_sscg >= 0) ? (_sscg * 100) : -1 };
     }
   }
