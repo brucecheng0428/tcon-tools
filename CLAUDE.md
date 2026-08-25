@@ -53,6 +53,7 @@ ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
 | `version_bump_check.py` | 版號級別與 CHANGELOG 宣告不符、缺 `判定依據：`、MAJOR 無核准、版號倒退無核准 |
 | `check_cache_buster.py` | 改了 `common/*.js` 卻沒 bump 引用頁的 `?v=`（實測案例：`pattern.html` 連續三版沒 bump，線上顯示未翻譯的 key） |
 | `scan_untranslated_keys.js` | 畫面上出現未翻譯的 i18n key —— `t(key)` 查不到翻譯會**回傳 key 本身**，靜默失敗，console 不會叫 |
+| `check_line_buffer_half_step.py` | wfg 的 Line Buffer 在 **Single Gate** 下冒出小數（Bruce 2026-08-25：「LineBuffer 出現 .5，只存在 Dual gate 的情況下」）。擋「`.step` 給 0.5 但條件不是 `wfgFlrMult() === 2`」與「寫死的 step 0.5」 |
 
 > 這三支的共同前提：**這些錯在本機測試時都不會出現**，只能靠機械檢查擋，不能靠記得。
 
