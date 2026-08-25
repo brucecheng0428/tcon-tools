@@ -22,6 +22,88 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.27.0 — 2026-08-25 ｜ MINOR
+
+**新增：MNT 機種按下「匯出」之後跳一個浮動提醒視窗，告訴使用者匯入官方 TCON UI 後還要按一次 GPO 分頁的「Read」。NB 機種不跳。**
+
+**為什麼要做這件事。** Bruce 2026-08-25 回報「匯出 script 有 bug」：他調好 200% timing、
+匯出 script、用 EM01 官方 UI 匯入，畫面上卻還是舊的 timing。
+
+端到端往返驗證的結論是 **script 沒有 bug**：把官方 UI 匯入後產生的 bin 用 wfg 匯入
+CURRENT timing，與他的基準設定檔逐欄比對，**18 條數位訊號 × 16 個欄位（enable／
+st_line／sp_line／r_dly／f_dly／r_dly2／f_dly2／act_type／r_ph／f_ph／ini_val／inv／
+oax_mode／oax_sel／toggle／f_st_sel）零差異**。真正缺的是官方 UI 匯入 script 之後
+**不會自動重讀**，要手動按 GPO 分頁的 Read。
+
+⇒ 這是**流程缺口**，不是錯誤。但它的後果很實在：使用者會判定工具壞了、回頭手動
+key in，等於白調一次。Bruce 原話：「警告務必要明顯清楚。」
+
+**改了什麼**
+
+| 位置 | 內容 |
+|---|---|
+| `wfg.html` 新增 `#wfg-gpord-mask` | 沿用 `wfg-ack-mask` 那一整套 class（hd／bd／ft／item／tone-amber），不新造第五種對話框樣式 |
+| `wfg.html` 新增 `wfgGpoRdShow()` / `wfgGpoRdClose()` | 視窗開關；找不到視窗元素時退回 `alert()`，不靜默吞掉提醒 |
+| `wfg.html` `wfgCodeExportRun()` 收尾 | 依匯出格式那一顆的 `tconClass` 分流：**MNT 走視窗、NB 維持既有 `alert()`** |
+| `common/i18n.js` | 新增 `wfg.gpoRdTitle` / `gpoRdName` / `gpoRdWhere` / `gpoRdOk`，三語齊備 |
+
+**三個設計決定（都經 Bruce 裁示，寫在這裡供覆核）**
+
+1. **只掛在 Code group 的 `#wfg-code-export-btn`。** wfg 上有 4 個「匯出」入口，
+   只有這一個產出「要拿去 TCON UI 匯入的檔案」；工具列的 `#wfg-export-btn`（wfg 自己的
+   `.txt` 設定檔）與 LA 的 `.kvdat`／解碼 Excel 掛上去只是噪音。
+2. **MNT 顯示視窗時不跳 alert，原本要進 alert 的訊息一併分項塞進視窗。**
+   🔴 技術上不能兩個一起跳：`alert()` 會阻塞 renderer，浮動視窗會被壓在後面完全看不到。
+   `wfg.codeExportCurrentOnly`（三模 slot 的寫入流程）**文字一個字未改，只是換容器**，
+   而且與新增的 GPO Read 提醒**各自成項、不合併** —— 兩者講的是不同的事。
+   GPO Read 那則固定排最上面（這次新增的重點，也是最容易被誤判成工具 bug 的那一件）。
+3. **不做「不再顯示」。** 站上既有的 4 個提醒視窗沒有任何一個有這個選項，
+   Bruce 又指定務必明顯 —— 沒有理由這次開特例。
+
+**🔴 判 MNT/NB 用 `codec.tconClass`，不是 `codec.hasModeSlots`**：後者全庫只有 `em01`
+宣告，用它會漏掉 EM02 與 E512 這兩顆同樣是 Monitor 的機種。而且判的是
+**`targetKey` 那一顆**（匯出格式），不是畫面上的機種 —— v4.16.0 起可以用 A 機種的畫面
+選 B 機種的格式匯出，提醒要跟著產出的檔案走。
+
+**附帶更正一項既有紀錄（不影響 code）**：以往紀錄寫 EM01 三模 slot「`rt8_tcon_1`／
+`rt8_tcon_2` 各 0xCC bytes」是**錯的**。反組譯官方工具
+`Raydium_TCON_Tool_RM80100_v0.3.42Beta9.exe`（Delphi 原生 x86，ImageBase `0x1000000`），
+位址表在檔案偏移 `0xA12CF4`（VA `0x1A142F4`）＝ `[0x35600, 0x35000, 0x35300]`；
+引用它的函式 VA `0x010E712C` 的迴圈是
+`shl esi,8` ＋ `lea esi,[esi+esi*2]`（stride **0x300**）→ `push 0x200` 算 16-bit 校驗值 →
+`mov word [esi+0x200], ax` → `memcpy 0x300`。
+⇒ **每個 slot ＝ 0x200 bytes 資料（register 0x500…0x6FF，1:1 對映）＋ +0x200 的校驗值**，
+`0x6CC`～`0x6FF`（含 gpo0 0x6E0、gpo1 0x6F0）**確實在 slot 範圍內**，
+Bruce 那顆 bin 的三個 slot 在該區也都讀得到非零值。
+（校驗值的演算法試了數百組 CRC16 參數與加總／補數都對不上，**我不確定它是什麼**；
+本版不寫 slot，所以不影響任何行為。）
+
+**驗收**（headless Chrome + CDP，量的是**可見性**：`display`／`visibility`／`opacity`／
+版面面積／可讀文字，不是 DOM 節點數；走真實使用者路徑：動真的下拉、勾真的
+ENABLE、點真的按鈕）
+
+- MNT 三顆（EM01／EM02／E512）：跳窗 ✓
+- NB 三顆（E503／E501A／EN01）：不跳窗 ✓
+- 🔴 負控制 ①：NB 情境下強制呼叫 `wfgGpoRdShow()` ⇒ 偵測器抓得到可見（證明「NB 沒跳」
+  不是偵測器壞掉）
+- 🔴 負控制 ②：畫面 NB、匯出格式選 EM01 ⇒ **要跳**（提醒跟著產出的檔案走）
+- 🔴 每個 case 都確認**匯出真的走完**（有下載、無「沒有任何可匯出的訊號」）——
+  第一版探針就是在這裡踩到坑：預設 18 條訊號全沒勾，NB 的 xlsx 匯出會提前 return，
+  「NB 沒跳窗」變成一個**被混淆的陰性**（根本沒走到判斷式）。修法是匯出前先勾兩條訊號。
+
+**不標 `⚠ 輸出變更`**：匯出的檔案內容**逐位元組未變**，本版一行都沒碰產檔邏輯。
+
+**判定依據**：`docs/VERSIONING.md` §1 判定表「功能增減：**新增**獨立功能 → MINOR」
+＋ §2 案例 1（新增一個完整功能 ⇒ MINOR）。逐項複查：操作流程 —— 既有按鈕全部在原位、
+沒有任何入口移位或消失；既有功能的輸出 —— 匯出檔案零位元組差異；R2 —— 不開新波；
+R4 —— 不改起始狀態或預設值。**取捨說明供覆核**：本版把 EM01 匯出後的訊息呈現方式
+由 `alert()` 改為浮動視窗（設計決定 2），單看這一項是「既有功能的呈現變了」；
+但呈現的**文字內容一字未改**、既有操作也沒有失效或移位，使用者不需要重新學、
+也不需要重新確認過去的結果 ⇒ 不構成 MAJOR。依 §1「不確定一律往低編」與
+R2 補充第 3 點，取 MINOR。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.26.3 — 2026-08-25 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修：CKO 在 frame 結尾停在 VGH 時，Gate 的脈衝序號會整排位移一格（波形亂跳）。**
