@@ -22,6 +22,46 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.26.3 — 2026-08-25 ｜ PATCH ｜ ⚠ 輸出變更
+
+**修：CKO 在 frame 結尾停在 VGH 時，Gate 的脈衝序號會整排位移一格（波形亂跳）。**
+
+Bruce 回報：匯入他的設定檔後把面板 Gate 條數由 1 加到 8，到 4 或 8 時波形亂跳。
+
+**根因。** 當 CK 的 SP_LINE 超過一整個 frame（他的檔：VTOTAL 1110，CK1~CK4 的
+SP_LINE 是 2172~2176），`sp = Math.min(vtotal - 1, sp_line)` 會把四條都夾到 frame
+最後一行；在 dual_cpv 下 CPV1 每個 frame 比 CPV2 多 4 個邊沿，round-robin 分配不均，
+**CKO4~CKO7 每個 frame 充電比放電多一次，frame 結束時停在 VGH**。
+
+`_wfgLsApplyGateMask()` 在 frame 邊界遇到 STV reset 事件時只寫了 `continue`，
+**沒有把 `prevHigh` 清成 false** —— 上一個 frame 結尾的 HIGH 被帶進新 frame，
+新 frame 的第一次充電不算 rising edge，該 frame 的 pulse 序號整排位移一格。
+原本的註解「frame reset to VGL — the gate is at VGL anyway」是錯的假設。
+
+**改哪四處**（同一個語意：`_reset` ＝ 準位真的被打回 VGL ⇒ 必須清 `prevHigh`）：
+
+| 位置 | 函式 | 性質 |
+|---|---|---|
+| `_wfgLsApplyGateMask()` | Gate 遮罩 | 產品路徑，本次 bug 所在 |
+| Subpixel 從 gate events 抽 pulse | 下游 | 原本會讓 gate 高電位橫跨 frame 邊界 |
+| `wfgDebugGate()` 內 `pulses()` | 驗證工具 | 不同步改會產生假警報 |
+| `wfgDumpLsCko()` | 驗證工具 | 同上 |
+
+**⚠ 輸出變更**：只影響「CKO 在 frame 結尾停在 VGH」的設定 —— 這種設定在此版之前
+Gate 波形是錯的。CKO 在 frame 邊界本來就回到 VGL 的設定（絕大多數）逐值不變：
+那些設定在邊界時 `prevHigh` 本來就是 false，新增的兩行賦值是 no-op。
+
+**判定依據**：`docs/VERSIONING.md` §2 案例 2（修 bug ⇒ PATCH）＋ R1（同一操作序列
+新舊版結果不同 ⇒ 必須標 ⚠ 輸出變更）。操作流程不變、功能不增不減 ⇒ R2／R4 不適用。
+非案例 8（主動改設計）—— 程式自己的註解就寫著 pulse ordinal 是「per frame 計數」，
+這是修回它本來就宣稱的行為，不是改變設計。
+
+**本版不動**（已確認、非本次範圍）：`sp = Math.min(vtotal - 1, sp_line)` 這條夾值
+（stop line 超過 frame ＝ 這個 frame 內不停，語意正確）；LC／TEND 因 `st_line`
+未夾值而整條不顯示（既有行為，未回報）。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.26.2 — 2026-08-25 ｜ PATCH ｜ ⚠ 輸出變更
 
 **MNT 三顆（EM01／EM02／E512）的 `First Line Read` 與 `Line Buffer` 兩格：被夾掉的值不再留在畫面上。保持游標在該格打 99、內部已夾到 22 時，欄位會顯示實際採用的 22。🔴 夾值邏輯一行未改（夾到 22 是對的），只改「畫面顯示哪個數字」。NB 四顆的兩格（v4.24.1 已修）與其餘一切逐值不變。同版另補 `wfg-guide.html` 到 v4.26.1（說明頁不納入版號機制）。**
