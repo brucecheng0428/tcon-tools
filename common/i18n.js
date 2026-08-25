@@ -1036,12 +1036,12 @@ var I18N = {
   'wfg.flrTitle':       { 'zh-TW': 'First Line Read（reg_st_line_rd）＝ 波形位移的輸出行數。\nSingle Gate：＝ Line Buffer；Dual Gate：＝ Line Buffer × 2（可為奇數 ⇒ Line Buffer 出現 .5）',
                           'en': 'First Line Read (reg_st_line_rd) = waveform shift in output lines.\nSingle gate: = Line Buffer; dual gate: = Line Buffer x 2 (odd values make Line Buffer show .5)',
                           'zh-CN': 'First Line Read（reg_st_line_rd）＝ 波形位移的输出行数。\nSingle Gate：＝ Line Buffer；Dual Gate：＝ Line Buffer × 2（可为奇数 ⇒ Line Buffer 出现 .5）' },
-  'wfg.nbStLineRdTitle':{ 'zh-TW': 'ST_LINE_RD（EN01 的區塊名是 START_LINE_RD）。\nNB 沒有單一的 First Line Read：First Line Read ＝ ST_LINE_RD ＋ PRE_BLK_RD_NO',
-                          'en': 'ST_LINE_RD (named START_LINE_RD on EN01).\nNB has no single First Line Read: First Line Read = ST_LINE_RD + PRE_BLK_RD_NO',
-                          'zh-CN': 'ST_LINE_RD（EN01 的区块名是 START_LINE_RD）。\nNB 没有单一的 First Line Read：First Line Read ＝ ST_LINE_RD ＋ PRE_BLK_RD_NO' },
-  'wfg.nbPreBlkRdTitle':{ 'zh-TW': 'PRE_BLK_RD_NO（EN01 的區塊名是 PRE_BLK_DATA）＝ 第一筆有效資料前的 dummy 行數。\n可自由輸入（Single Gate 下也不是固定值）。First Line Read ＝ PRE_BLK_RD_NO ＋ ST_LINE_RD',
-                          'en': 'PRE_BLK_RD_NO (named PRE_BLK_DATA on EN01) = pre-dummy lines before the first valid data.\nFreely editable (it is not fixed even in single gate). First Line Read = PRE_BLK_RD_NO + ST_LINE_RD',
-                          'zh-CN': 'PRE_BLK_RD_NO（EN01 的区块名是 PRE_BLK_DATA）＝ 第一笔有效数据前的 dummy 行数。\n可自由输入（Single Gate 下也不是固定值）。First Line Read ＝ PRE_BLK_RD_NO ＋ ST_LINE_RD' },
+  'wfg.nbStLineRdTitle':{ 'zh-TW': 'ST_LINE_RD（EN01 的區塊名是 START_LINE_RD）。\nNB 沒有單一的 First Line Read：First Line Read ＝ ST_LINE_RD ＋ PRE_BLK_RD_NO\n上限 ＝ min（本 register 的位元寬上限, Line Buffer 上限×gate 倍率 − PRE_BLK_RD_NO 的當下值）',
+                          'en': 'ST_LINE_RD (named START_LINE_RD on EN01).\nNB has no single First Line Read: First Line Read = ST_LINE_RD + PRE_BLK_RD_NO\nMax = min(this register bit-width limit, Line Buffer max x gate multiplier - current PRE_BLK_RD_NO)',
+                          'zh-CN': 'ST_LINE_RD（EN01 的区块名是 START_LINE_RD）。\nNB 没有单一的 First Line Read：First Line Read ＝ ST_LINE_RD ＋ PRE_BLK_RD_NO\n上限 ＝ min（本 register 的位宽上限, Line Buffer 上限×gate 倍率 − PRE_BLK_RD_NO 的当下值）' },
+  'wfg.nbPreBlkRdTitle':{ 'zh-TW': 'PRE_BLK_RD_NO（EN01 的區塊名是 PRE_BLK_DATA）＝ 第一筆有效資料前的 dummy 行數。\n可自由輸入（Single Gate 下也不是固定值）。First Line Read ＝ PRE_BLK_RD_NO ＋ ST_LINE_RD\n上限 ＝ min（本 register 的位元寬上限, Line Buffer 上限×gate 倍率 − ST_LINE_RD 的當下值）',
+                          'en': 'PRE_BLK_RD_NO (named PRE_BLK_DATA on EN01) = pre-dummy lines before the first valid data.\nFreely editable (it is not fixed even in single gate). First Line Read = PRE_BLK_RD_NO + ST_LINE_RD\nMax = min(this register bit-width limit, Line Buffer max x gate multiplier - current ST_LINE_RD)',
+                          'zh-CN': 'PRE_BLK_RD_NO（EN01 的区块名是 PRE_BLK_DATA）＝ 第一笔有效数据前的 dummy 行数。\n可自由输入（Single Gate 下也不是固定值）。First Line Read ＝ PRE_BLK_RD_NO ＋ ST_LINE_RD\n上限 ＝ min（本 register 的位宽上限, Line Buffer 上限×gate 倍率 − ST_LINE_RD 的当下值）' },
   /* ══ v4.24.0：NB 改成方案 C（Line Buffer 唯讀）══════════════════════════════ */
   'wfg.lbNbReadOnly':   { 'zh-TW': 'NB TCON 的真值是 PRE_BLK_RD_NO 與 ST_LINE_RD 兩個 register。\nLine Buffer ＝（兩者相加）÷（Dual Gate 2／Single Gate 1），為唯讀衍生值。',
                           'en': 'On NB TCONs the truth is the two registers PRE_BLK_RD_NO and ST_LINE_RD.\nLine Buffer = (their sum) / (2 for dual gate, 1 for single gate) and is read-only.',
@@ -1049,6 +1049,19 @@ var I18N = {
   'wfg.nbRegClamped':   { 'zh-TW': '⚠ {f} {from} 超過該 register 的位元寬上限 {to}，已夾到 {to}',
                           'en': '⚠ {f} {from} exceeds the register bit-width limit {to}; clamped to {to}',
                           'zh-CN': '⚠ {f} {from} 超过该 register 的位宽上限 {to}，已夹到 {to}' },
+  /* ══ v4.24.1：ST＋PRE 的**總和**夾值（Bruce 2026-08-25：「總數最高上限是由 Line Buffer 決定」）══
+     {f} 被編輯的那一格／{o} 另一格／{ov} 另一格的當下值／{sum} 總和上限／{lb} Line Buffer 上限／{mult} gate 倍率 */
+  'wfg.nbSumClamped':   { 'zh-TW': '⚠ {f} ＋ {o} 相加不可超過 {sum}（{m} 的 Line Buffer 上限 {lb} × {mult}）。{o} 目前是 {ov}，所以 {f} 最多只能到 {to}；{from} 已夾到 {to}',
+                          'en': '⚠ {f} + {o} must not exceed {sum} ({m} Line Buffer max {lb} x {mult}). {o} is currently {ov}, so {f} can only reach {to}; {from} was clamped to {to}',
+                          'zh-CN': '⚠ {f} ＋ {o} 相加不可超过 {sum}（{m} 的 Line Buffer 上限 {lb} × {mult}）。{o} 目前是 {ov}，所以 {f} 最多只能到 {to}；{from} 已夹到 {to}' },
+  /* 退化情形：另一格自己就已經超過總和上限（匯入的超界真檔）⇒ 加不上去、保留原值。
+     🔴 這時**不可以**講「最多只能到 {to}」—— {to} 就是目前值，它本身已經超界了。 */
+  'wfg.nbSumNoRoom':    { 'zh-TW': '⚠ {f} 加不上去：{o} 目前是 {ov}，兩格相加已經超過上限 {sum}（{m} 的 Line Buffer 上限 {lb} × {mult}）。{f} 已保留原值 {to}（沒有替你改動）；要往上加請先把 {o} 調小',
+                          'en': '⚠ {f} cannot be increased: {o} is currently {ov}, and the two already exceed the limit of {sum} ({m} Line Buffer max {lb} x {mult}). {f} was kept at {to} (nothing was changed for you); lower {o} first if you need to raise it',
+                          'zh-CN': '⚠ {f} 加不上去：{o} 目前是 {ov}，两格相加已经超过上限 {sum}（{m} 的 Line Buffer 上限 {lb} × {mult}）。{f} 已保留原值 {to}（没有替你改动）；要往上加请先把 {o} 调小' },
+  'wfg.nbSumOverLimit': { 'zh-TW': '⚠ 目前 ST_LINE_RD {s} ＋ PRE_BLK_RD_NO {p} ＝ {v}，超過 {m} 的上限 {max}（Line Buffer 上限 {lb} × {mult}）。這組值來自匯入的檔案或換機種／換 Gate Type，屬硬體真值，已保留未更動；只要開始編輯任一格，該格就會夾在上限內',
+                          'en': '⚠ Current ST_LINE_RD {s} + PRE_BLK_RD_NO {p} = {v} exceeds the {m} limit of {max} (Line Buffer max {lb} x {mult}). These values came from an imported file or from switching model / gate type - they are hardware truth and were kept unchanged; editing either field will clamp that field within the limit',
+                          'zh-CN': '⚠ 目前 ST_LINE_RD {s} ＋ PRE_BLK_RD_NO {p} ＝ {v}，超过 {m} 的上限 {max}（Line Buffer 上限 {lb} × {mult}）。这组值来自导入的档案或换机种／换 Gate Type，属硬件真值，已保留未更动；只要开始编辑任一格，该格就会夹在上限内' },
   'wfg.ackLbNbAuto':    { 'zh-TW': 'NB TCON：Line Buffer 由 PRE_BLK_RD_NO ＋ ST_LINE_RD 換算，唯讀',
                           'en': 'NB TCON: Line Buffer is derived from PRE_BLK_RD_NO + ST_LINE_RD and is read-only',
                           'zh-CN': 'NB TCON：Line Buffer 由 PRE_BLK_RD_NO ＋ ST_LINE_RD 换算，只读' },

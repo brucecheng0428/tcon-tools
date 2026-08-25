@@ -2005,8 +2005,11 @@
                    🔴 v4.24.0（方案 C）：這兩格**都是真值、都可自由輸入**，Line Buffer 變唯讀。
                    Bruce 2026-08-25：「Line buffer 在 Single Gate 下並沒有強制要求 PRE 的這個
                    都不動，它有可能是 0、1 或 2，因為這個是前面的 dummy 訊號。」
-                   `max` 由 wfgFlrSync() 依**該 register 自己的位元寬**改寫
-                   （E501/E503 兩格 6 bit ⇒ 63；EN01 START_LINE_RD 8 bit ⇒ 255、PRE_BLK_DATA 6 bit ⇒ 63）。 -->
+                   🔴 v4.24.1：`max` 由 wfgFlrSync() 改寫成
+                   **min(該 register 的位元寬上限, 總和上限 − 另一格的當下值)**（見 wfgNbCap()）——
+                   位元寬那道界線仍在（E501/E503 兩格 6 bit ⇒ 63；EN01 START_LINE_RD 8 bit ⇒ 255、
+                   PRE_BLK_DATA 6 bit ⇒ 63），但總和上限（Line Buffer 上限 × gate 倍率）通常更小。
+                   Bruce 2026-08-25：「這兩個加起來，不可超過 Line Buffer……總數最高上限是由 Line Buffer 決定。」 -->
               <span id="wfg-nbflr-wrap" style="display:none;align-items:center;gap:6px;font-size:11px;color:#94a3b8;white-space:nowrap;">
                 <label style="display:flex;align-items:center;gap:3px;">
                   <span>ST_LINE_RD:</span>
@@ -2666,8 +2669,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4240"></script>
-<script src="common/i18n.js?v=20260825wfg4240"></script>
+<script src="common/version.js?v=20260825wfg4241"></script>
+<script src="common/i18n.js?v=20260825wfg4241"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -6553,6 +6556,42 @@ function wfgNbRegMax(which) {
 }
 function wfgFlrMult() { return wfgFlrIsDual() ? 2 : 1; }
 function wfgFlrMax() { return wfgLbMax() * wfgFlrMult(); }
+/* ══ 🔴 v4.24.1：NB 兩格的**實際**上限 ＝ min(位元寬上限, 總和上限 − 另一格) ═════════
+   Bruce 2026-08-25 裁示（逐字）：
+     「ST 加上 PRE 還是要夾，也就是這兩個加起來，不可超過 Line Buffer。
+       舉例好了，如果 Line Buffer 總數是 6：
+       1. 當 ST 是 4、PRE 是 2 時：這時候我不管加哪一個都不行。
+       2. 當 ST 是 3、PRE 是 1 時：(a) 如果是加 ST，我還可以繼續加到 5。
+          (b) 如果反過來我加 PRE，那我還可以繼續加到 3。
+       也就是說，總數最高上限是由 Line Buffer 決定。」
+
+   ⇒ 夾的是**總和**，不是單格。使用者在動哪一格，那一格的上限就是「總和上限 − 另一格的當下值」。
+     驗算他的兩個例子（總和上限 6）：
+       ST=4 PRE=2 ⇒ ST 上限 6−2＝4（＝當下值，加不動）、PRE 上限 6−4＝2（＝當下值，加不動）✓
+       ST=3 PRE=1 ⇒ ST 上限 6−1＝**5**、PRE 上限 6−3＝**3** ✓
+   🔴 位元寬那道界線**仍然在**（EN01 `START_LINE_RD` 8 bit ＝ 255、E503/E501 6 bit ＝ 63），
+      實際上限取兩者較小者 —— EN01 dual gate 的總和上限只有 16，255 那道界線根本輪不到它生效。 */
+function wfgNbSumMax() { return wfgFlrMax(); }          // ＝ Line Buffer 上限 × (dual 2／single 1)
+/* 純上限：min(位元寬, 總和上限 − 另一格)。另一格自己就已經超過總和上限時會是 0。 */
+function wfgNbCapRaw(which, otherVal) {
+  var o = (typeof otherVal === 'number') ? otherVal
+        : ((which === 'stLineRd') ? (wfgNbPreBlkRd | 0) : (wfgNbStLine | 0));
+  return Math.max(0, Math.min(wfgNbRegMax(which), wfgNbSumMax() - Math.max(0, o)));
+}
+/* 🔴 實際生效的上限 ＝ max(純上限, 該格目前值)。
+   為什麼要「不低於目前值」：匯入的真檔可能本來就超界（實測 E503 有 ST=44／PRE=9），
+   這時純上限會算成 0（6 − 9 < 0）。若直接夾到 0，使用者只是想把 44 改成 50，
+   結果 44 被砍成 0 —— **那是在他沒下指令的情況下把值毀掉**，比拒絕輸入嚴重得多
+   （v3.19.1「加上下限一定要留退路：只擋變更糟的方向」）。
+   改成「拒絕往上加、保留原值」：加不上去，但既有真值一個位元都不動，
+   往下調則永遠放行（新值 ≤ 目前值 一定 ≤ 本上限）。
+   ⚠ 位元寬那道界線不受此保護 —— 它是硬體硬限制，超過一定夾。 */
+function wfgNbCap(which, otherVal, curVal) {
+  var cur = (typeof curVal === 'number') ? curVal
+          : ((which === 'stLineRd') ? (wfgNbStLine | 0) : (wfgNbPreBlkRd | 0));
+  cur = Math.max(0, Math.min(cur, wfgNbRegMax(which)));
+  return Math.max(wfgNbCapRaw(which, otherVal), cur);
+}
 /* 波形位移（檢視行）。全檔**唯一**的來源 —— 舊式 `isDual ? wfgLineBuffer*2 : wfgLineBuffer`
    已全部改呼叫這一支，不得再出現第二份寫法。 */
 function wfgLbShift() { return wfgFirstLineRead | 0; }
@@ -6561,6 +6600,9 @@ function wfgNbStLineRd() { return Math.max(0, wfgNbStLine | 0); }
 window.wfgLbShift = wfgLbShift;
 window.wfgFlrIsNb = wfgFlrIsNb;
 window.wfgNbRegMax = wfgNbRegMax;
+window.wfgNbSumMax = wfgNbSumMax;
+window.wfgNbCap = wfgNbCap;
+window.wfgNbCapRaw = wfgNbCapRaw;
 window.wfgLbMax = wfgLbMax;
 window.wfgFlrMax = wfgFlrMax;
 window.wfgNbStLineRd = wfgNbStLineRd;
@@ -18854,6 +18896,14 @@ window.wfgToggleTconInternal = wfgToggleTconInternal;
       🔴 這一條是刻意的：主動把使用者早就存在的設定改掉，等於在他沒下指令的情況下
       改變波形輸出。他調得回來（往合法方向永遠放行），但我們不替他調。 */
 var _wfgFlrMsg = '';            // 目前要顯示的夾值／超界訊息（'' ＝ 沒有）
+/* 🔴 v4.24.1：本次真的發生夾值的欄位（'st' / 'pre' / null）。
+   wfgFlrSync() 平常有 `document.activeElement !== el` 守衛（避免打字打到一半被改掉），
+   但**拒絕輸入並還原**這條路徑不可以套那道守衛 —— 否則內部值是 4、畫面卻停在被拒的 5，
+   使用者照著畫面判讀就會錯（v3.19.1 Bruce 明示：「訊息說已保留原值、畫面卻是被拒的值，
+   比靜默夾值更糟」）。這個旗標只在「確實夾了」時打開，用完立刻清掉。
+   ⚠ 只涵蓋 NB 的兩格 —— MNT 的 First Line Read／Line Buffer 維持 v4.24.0 行為不動
+     （本版的驗收條件之一是 MNT 零回歸）。 */
+var _wfgFlrForce = null;
 function wfgFlrRound(v, step) {
   var n = Number(v);
   if (!isFinite(n)) return null;
@@ -18899,14 +18949,29 @@ function wfgFlrApply(flr, opt) {
 /* ══ 🔴 v4.24.0：NB 專用 —— 直接設兩顆 register 的真值 ═══════════════════════════
    FLR 與 Line Buffer 都是它們的衍生量，這一支是 NB 唯一的寫入口。
 
-   ── 夾值政策（承接 v4.23.0 的兩條，但這裡的界線換了一個）─────────────────────
-   ① 夾的是**該 register 自己的位元寬**（E501/E503 兩格都 6 bit ⇒ 63；
+   ── 夾值政策（🔴 v4.24.1 依 Bruce 2026-08-25 裁示改寫政策②）───────────────────
+   ① 夾**該 register 自己的位元寬**（E501/E503 兩格都 6 bit ⇒ 63；
       EN01 的 `START_LINE_RD` 是 8 bit ⇒ 255、`PRE_BLK_DATA` 6 bit ⇒ 63）。
       這是硬體硬限制，唯一解、沒有爭議，而且夾了一定顯示紅字。
-   ② **不夾 Line Buffer 的上限。** 理由是結構性的：ST＋PRE 超過上限時，
-      要夾哪一格是**沒有唯一解**的 —— 那正是 Bruce 這一輪否決掉的那種「自己發明規則」。
-      超界改走持續紅字警示（wfgFlrSync 的政策②），使用者看得見、也調得回來。
-      實測真檔本來就有超界的：E503 出現過 ST=44／PRE=9（＝53，遠超上限 6×2）。 */
+   ② 🔴 **也夾「ST＋PRE 的總和」不得超過 Line Buffer 上限。**
+      v4.24.0 這一條原本是「不夾、只持續紅字」，理由寫成「要夾哪一格沒有唯一解」。
+      **Bruce 2026-08-25 給出了唯一解，那個理由整條作廢**：
+        「ST 加上 PRE 還是要夾……總數最高上限是由 Line Buffer 決定。」
+      唯一解就是「**動哪一格就夾哪一格**」—— 使用者正在編輯的那一格，
+      它的上限 ＝ min(位元寬上限, 總和上限 − 另一格的當下值)，見 `wfgNbCap()`。
+      呼叫端用 `opt.edit`（'st'／'pre'）指名是哪一格被編輯；沒指名（匯入／preset／
+      換機種等非使用者編輯路徑）就**只夾位元寬**，總和超界一律保留原值走紅字（政策③）。
+   ③ 匯入／換機種／換 gate type 造成的既有值超界 ⇒ **保留不動 ＋ 持續紅字**。
+      實測真檔本來就有超界的：E503 出現過 ST=44／PRE=9（＝53，遠超上限 6×2）。
+      🔴 那是硬體真值，不是使用者打的字，不替他改（v4.23.0 政策②，本版未變）。
+   🔴 ④ **只擋「往更糟的方向」**（v3.19.1「加上下限一定要留退路：只擋變更糟的方向」）。
+      實際生效的上限是 `wfgNbCap()` ＝ **max(純上限, 該格目前值)**，不是純上限。
+      理由用實測講：匯入 ST=44／PRE=9（總和上限 6）之後把 ST 改成 50，
+      純上限是 max(0, 6−9) ＝ **0** ⇒ 若夾到純上限，44 會被砍成 0。
+      第一版就是這樣寫的，實測抓到（`out/fixed_r1.json` 的 `cfg_st_up_50`：44 → **0**），
+      而且之後 `cfg_st_down_40`／`cfg_st_down_3` 全部停在 0 —— 值毀掉了還爬不回來。
+      改成 max(純上限, 目前值) 之後：加不上去（拒絕 ＋ 保留原值），往下調永遠放行。
+      在合法狀態下純上限恆 ≥ 目前值，所以這條對 Bruce 的兩個例子**零影響**（實測逐項確認）。 */
 function wfgNbApplyRegs(st, pre, opt) {
   opt = opt || {};
   _wfgFlrMsg = '';
@@ -18914,18 +18979,49 @@ function wfgNbApplyRegs(st, pre, opt) {
   var stMax = wfgNbRegMax('stLineRd'), pbMax = wfgNbRegMax('preBlkRd');
   var s = Math.max(0, Math.round(Number(st) || 0));
   var p = Math.max(0, Math.round(Number(pre) || 0));
+  var sumMax = wfgNbSumMax();
   var msgs = [];
+  _wfgFlrForce = null;
   if (opt.clamp && s > stMax) {
     msgs.push(t('wfg.nbRegClamped')
       .replace('{f}', (m && m.stLineRd && m.stLineRd.key) || 'ST_LINE_RD')
       .replace('{from}', String(s)).replace(/\{to\}/g, String(stMax)));
     s = stMax;
+    _wfgFlrForce = 'st';        // v4.24.1：被拒的值不可以留在畫面上（見宣告處）
   }
   if (opt.clamp && p > pbMax) {
     msgs.push(t('wfg.nbRegClamped')
       .replace('{f}', (m && m.preBlkRd && m.preBlkRd.key) || 'PRE_BLK_RD_NO')
       .replace('{from}', String(p)).replace(/\{to\}/g, String(pbMax)));
     p = pbMax;
+    _wfgFlrForce = 'pre';       // 同上
+  }
+  /* 🔴 v4.24.1 政策②：總和夾值。只在「使用者正在編輯某一格」時生效，
+     被夾的一定是**他正在動的那一格**（另一格是他沒碰的既有真值，不得代他更動）。 */
+  if (opt.clamp && (opt.edit === 'st' || opt.edit === 'pre')) {
+    var isSt  = (opt.edit === 'st');
+    var which = isSt ? 'stLineRd' : 'preBlkRd';
+    var cur   = isSt ? Math.max(0, wfgNbStLine | 0) : Math.max(0, wfgNbPreBlkRd | 0);
+    var other = isSt ? Math.max(0, p) : Math.max(0, s);
+    var want  = isSt ? s : p;
+    var raw   = wfgNbCapRaw(which, other);          // 純上限（可能小於目前值）
+    var cap   = wfgNbCap(which, other, cur);        // 實際生效上限 ＝ max(純上限, 目前值)
+    if (want > cap) {
+      /* 兩種處境要講不同的話，否則會出現「最多只能到 44」這種與規則不符的句子：
+         ・raw >= cur（常態）  ⇒ 夾到上限，講「最多只能到 {to}」
+         ・raw <  cur（超界檔）⇒ 加不上去、保留原值，講「請先把另一格調小」 */
+      msgs.push(t(raw >= cur ? 'wfg.nbSumClamped' : 'wfg.nbSumNoRoom')
+        .replace(/\{f\}/g, (isSt ? (m && m.stLineRd && m.stLineRd.key) || 'ST_LINE_RD'
+                                 : (m && m.preBlkRd && m.preBlkRd.key) || 'PRE_BLK_RD_NO'))
+        .replace(/\{o\}/g, (isSt ? (m && m.preBlkRd && m.preBlkRd.key) || 'PRE_BLK_RD_NO'
+                                 : (m && m.stLineRd && m.stLineRd.key) || 'ST_LINE_RD'))
+        .replace(/\{from\}/g, String(want)).replace(/\{to\}/g, String(cap))
+        .replace(/\{ov\}/g, String(other)).replace(/\{sum\}/g, String(sumMax))
+        .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
+        .replace(/\{lb\}/g, String(wfgLbMax())).replace(/\{mult\}/g, String(wfgFlrMult())));
+      if (isSt) s = cap; else p = cap;
+      _wfgFlrForce = opt.edit;  // 同上：畫面必須回到實際採用的值，不留被拒的數字
+    }
   }
   if (msgs.length) _wfgFlrMsg = msgs.join('　');
   wfgNbStLine = s;
@@ -18973,18 +19069,24 @@ function wfgFlrSync() {
     fl.disabled = isNb;
     if (document.activeElement !== fl) fl.value = String(wfgFirstLineRead);
   }
-  /* NB 兩格的 `max` 是**該 register 自己的位元寬**，不是 Line Buffer 換算出來的 FLR 上限
-     —— 兩格相加才受 FLR 上限約束，而那條約束走紅字警示不走夾值（見 wfgNbApplyRegs）。 */
+  /* 🔴 v4.24.1：NB 兩格的 `max` ＝ min(位元寬上限, 總和上限 − 另一格的當下值)。
+     v4.24.0 這裡放的是位元寬上限（固定值），使用者在 UI 上看不出「已經加不動了」。
+     Bruce 2026-08-25：「當 ST 是 3、PRE 是 1 時，加 ST 還可以繼續加到 5、加 PRE 還可以加到 3。」
+     ⇒ 兩格的 max 必須**隨另一格即時互相改寫**，改完 PRE 之後 ST 的 max 也要跟著變。
+     這一支是唯一收斂點，兩格的寫入都會回到這裡，所以只要寫在這裡就一定同步。 */
   var st = document.getElementById('wfg-nb-stlinerd');
   if (st) {
-    st.max = String(wfgNbRegMax('stLineRd'));
-    if (document.activeElement !== st) st.value = String(wfgNbStLineRd());
+    st.max = String(wfgNbCap('stLineRd'));
+    /* 🔴 v4.24.1：`_wfgFlrForce` ＝ 本次真的被夾的那一格 ⇒ **繞過 activeElement 守衛**。
+       使用者正在這一格打字時被夾，畫面若停在被拒的數字，他會照著錯的數字判讀。 */
+    if (document.activeElement !== st || _wfgFlrForce === 'st') st.value = String(wfgNbStLineRd());
   }
   var pb = document.getElementById('wfg-nb-preblkrd');
   if (pb) {
-    pb.max = String(wfgNbRegMax('preBlkRd'));
-    if (document.activeElement !== pb) pb.value = String(wfgNbPreBlkRd | 0);
+    pb.max = String(wfgNbCap('preBlkRd'));
+    if (document.activeElement !== pb || _wfgFlrForce === 'pre') pb.value = String(wfgNbPreBlkRd | 0);
   }
+  _wfgFlrForce = null;          // 用完立刻清掉，不讓它外溢到下一次同步
   /* MNT 顯示一格 First Line Read；NB 顯示 ST_LINE_RD ＋ PRE_BLK_RD_NO 兩格取代它
      （Bruce 2026-08-24：「如果選到 NB 的時候，要秀出這兩個 register 在 line buffer 底下，
        替換掉 First Line Read」）。可見性另外還要服從「TCON 內部運算」那個勾選框。 */
@@ -18993,15 +19095,26 @@ function wfgFlrSync() {
   var nbW = document.getElementById('wfg-nbflr-wrap');
   if (flW) flW.style.display = (on && !isNb) ? 'flex' : 'none';
   if (nbW) nbW.style.display = (on && isNb) ? 'flex' : 'none';
-  /* 警示：目前值超界（政策②）優先於剛剛被夾的訊息（政策①）—— 前者是持續狀態。 */
+  /* 警示：目前值超界（政策③）優先於剛剛被夾的訊息（政策①②）—— 前者是持續狀態。
+     🔴 v4.24.1：NB 的正常編輯路徑**已經不可能**走到超界（總和被夾住了），
+        剩下唯一會超界的來源是「匯入的 code／設定檔本身就超界」與「換機種／換 gate type
+        讓既有值超界」。文案必須跟著改成描述那個處境 —— 舊的 `wfg.flrOverLimit` 說的是
+        「First Line Read {v} 超過上限」，而 NB 畫面上根本沒有 First Line Read 這一格，
+        使用者會對不上（v4.22.2 `hasSecondDly` 那次的教訓：留一句與行為不符的提示比沒有更糟）。 */
   var warn = '';
   if (wfgFirstLineRead > mx) {
-    warn = t('wfg.flrOverLimit')
-      /* 同上：這句雖然目前每個佔位符只出現一次，仍統一走全域正規式 ——
-         兩句訊息共用同一組佔位符，只修一句下次翻譯改動時又會分岔。 */
-      .replace(/\{v\}/g, String(wfgFirstLineRead)).replace(/\{max\}/g, String(mx))
-      .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
-      .replace(/\{lb\}/g, String(lbMx));
+    warn = isNb
+      ? t('wfg.nbSumOverLimit')
+          .replace(/\{s\}/g, String(wfgNbStLineRd())).replace(/\{p\}/g, String(wfgNbPreBlkRd | 0))
+          .replace(/\{v\}/g, String(wfgFirstLineRead)).replace(/\{max\}/g, String(mx))
+          .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
+          .replace(/\{lb\}/g, String(lbMx)).replace(/\{mult\}/g, String(mult))
+      : t('wfg.flrOverLimit')
+          /* 同上：這句雖然目前每個佔位符只出現一次，仍統一走全域正規式 ——
+             兩句訊息共用同一組佔位符，只修一句下次翻譯改動時又會分岔。 */
+          .replace(/\{v\}/g, String(wfgFirstLineRead)).replace(/\{max\}/g, String(mx))
+          .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
+          .replace(/\{lb\}/g, String(lbMx));
   } else if (_wfgFlrMsg) {
     warn = _wfgFlrMsg;
   }
@@ -19048,12 +19161,14 @@ window.wfgOnFirstLineReadChange = wfgOnFirstLineReadChange;
    🔴 特別是 PRE_BLK_RD_NO **在 Single Gate 下也不是固定值**（Bruce 明示：「它有可能是
       0、1 或 2，因為這個是前面的 dummy 訊號」），全庫真檔實測到 0/1/2/3/4/6 都出現過。 */
 function wfgOnNbStLineRdChange(val) {
-  wfgNbApplyRegs(parseInt(val, 10) || 0, wfgNbPreBlkRd, { clamp: true });
+  /* 🔴 v4.24.1：`edit:'st'` 指名被編輯的是哪一格 —— 總和夾值只能夾這一格，
+     另一格是使用者沒碰的既有真值，代他改動就是「自己發明規則」。 */
+  wfgNbApplyRegs(parseInt(val, 10) || 0, wfgNbPreBlkRd, { clamp: true, edit: 'st' });
   wfgFlrAfterChange();
 }
 window.wfgOnNbStLineRdChange = wfgOnNbStLineRdChange;
 function wfgOnNbPreBlkRdChange(val) {
-  wfgNbApplyRegs(wfgNbStLine, parseInt(val, 10) || 0, { clamp: true });
+  wfgNbApplyRegs(wfgNbStLine, parseInt(val, 10) || 0, { clamp: true, edit: 'pre' });
   wfgFlrAfterChange();
 }
 window.wfgOnNbPreBlkRdChange = wfgOnNbPreBlkRdChange;
