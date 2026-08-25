@@ -1041,6 +1041,24 @@ var I18N = {
     'zh-TW': '沒寫（算不出原本的 SSCG%）',
     'en': 'not written (original SSCG% unknown)',
     'zh-CN': '没写（算不出原本的 SSCG%）' },
+  /* ══ v4.26.0：E501 拆成 E501A（RM81010）／E501B（RM81011）之後新增的四則 ══════════ */
+  'wfg.codeNbModelMismatch': {
+    'zh-TW': '⚠ 型號可能選錯了：你選的是 {m}（{ic}），但這份 code 的 {k} ＝ {got}（{m} 應該是 {exp}）。\n這個位元在 238 份實測檔案裡 100% 分離兩顆晶片，零例外 ⇒ 這份 code 看起來是 **{other}（{otherIc}）** 的。\n兩顆的 DCLK 存放位置完全不同，用錯的公式去算會得到看似合理、其實固定不變的垃圾值，因此 TCON UI DCLK **沒有自動帶入**。\n請把 TCON 型號改成 {other} 後重新匯入；訊號區兩顆相同，其餘的值仍是對的。',
+    'en': '⚠ The model may be wrong: you picked {m} ({ic}), but this code has {k} = {got} ({m} should be {exp}).\nAcross 238 measured files this bit separates the two chips with zero exceptions, so this code looks like **{other} ({otherIc})**.\nThe two chips store DCLK in completely different places; applying the wrong formula yields a plausible-looking but constant garbage value, so TCON UI DCLK was NOT filled in.\nSwitch the TCON model to {other} and import again. The signal registers are identical on both chips, so everything else is still correct.',
+    'zh-CN': '⚠ 型号可能选错了：你选的是 {m}（{ic}），但这份 code 的 {k} ＝ {got}（{m} 应该是 {exp}）。\n这个位元在 238 份实测档案里 100% 分离两颗芯片，零例外 ⇒ 这份 code 看起来是 **{other}（{otherIc}）** 的。\n两颗的 DCLK 存放位置完全不同，用错的公式去算会得到看似合理、其实固定不变的垃圾值，因此 TCON UI DCLK **没有自动带入**。\n请把 TCON 型号改成 {other} 后重新导入；信号区两颗相同，其余的值仍是对的。' },
+  'wfg.codeNbDclkNoRegAgbs': {
+    'zh-TW': '⚠ {m}：這份 code 讀不到 {k} 那組 register（bank 沒啟用或檔案截斷），TCON UI DCLK 維持你目前的設定不變。',
+    'en': '⚠ {m}: the {k} registers could not be read from this code (bank disabled or file truncated); TCON UI DCLK was left as-is.',
+    'zh-CN': '⚠ {m}：这份 code 读不到 {k} 那组 register（bank 没启用或档案截断），TCON UI DCLK 维持你目前的设定不变。' },
+  'wfg.codeNbDclkFrDiff': {
+    'zh-TW': '⚠ {m}：AGBS_DCLK 是 {v} MHz，但同一份 code 裡的 FR_DCLK 是 {a} MHz，兩個來源對不上（原廠標準化會把兩者寫成同一個值，實測 131 份真檔 131/131 相等），因此 TCON UI DCLK **沒有自動帶入**，請自己確認。',
+    'en': '⚠ {m}: AGBS_DCLK is {v} MHz but FR_DCLK in the same code says {a} MHz. The official standardize writes both to the same value (131/131 real files agree), so the two sources disagreeing means TCON UI DCLK was NOT filled in - please set it yourself.',
+    'zh-CN': '⚠ {m}：AGBS_DCLK 是 {v} MHz，但同一份 code 里的 FR_DCLK 是 {a} MHz，两个来源对不上（原厂标准化会把两者写成同一个值，实测 131 份真档 131/131 相等），因此 TCON UI DCLK **没有自动带入**，请自己确认。',
+  },
+  'wfg.codeNbDclkWroteAgbs': {
+    'zh-TW': '本次匯出**有寫回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n寫進去的 register：\n・AGBS_DCLK_INTEGER = {i}\n・AGBS_DCLK_FLOATING POINT = {f}（＝ 小數 × 65536）\n・FR_DCLK_INTEGER = {i}\n・FR_DCLK_FLOATING POINT = {f}\n\n這一組是照原廠「AGBSFR 標準化」的寫入序列產生的（FR 那一組原廠是直接指派成 AGBS 的值）。原廠標準化另外還會依 EDID 重寫 DCLK_ADJ／HBLANK／VBLANK／FR_DET_TH —— 本工具沒有 EDID 那一整套輸入，**那些一律不寫**。',
+    'en': 'This export DID write TCON UI DCLK back ({m}): {was} → {now} MHz\n\nRegisters written:\n・AGBS_DCLK_INTEGER = {i}\n・AGBS_DCLK_FLOATING POINT = {f} (= fraction x 65536)\n・FR_DCLK_INTEGER = {i}\n・FR_DCLK_FLOATING POINT = {f}\n\nThis follows the official "AGBSFR standardize" write sequence (the official flow assigns the FR pair directly from the AGBS pair). The official flow also rewrites DCLK_ADJ / HBLANK / VBLANK / FR_DET_TH from the EDID - this tool has no EDID input, so those are NOT written.',
+    'zh-CN': '本次导出**有写回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n写进去的 register：\n・AGBS_DCLK_INTEGER = {i}\n・AGBS_DCLK_FLOATING POINT = {f}（＝ 小数 × 65536）\n・FR_DCLK_INTEGER = {i}\n・FR_DCLK_FLOATING POINT = {f}\n\n这一组是照原厂「AGBSFR 标准化」的写入序列产生的（FR 那一组原厂是直接指派成 AGBS 的值）。原厂标准化另外还会依 EDID 重写 DCLK_ADJ／HBLANK／VBLANK／FR_DET_TH —— 本工具没有 EDID 那一整套输入，**那些一律不写**。' },
   'wfg.ackClose':       { 'zh-TW': '開始編輯', 'en': 'Start editing', 'zh-CN': '开始编辑' },
   'wfg.codeCksTitle':   { 'zh-TW': '這份 code 的 checksum（全檔位元組總和）＝ {v}，與 EM02 工具顯示的 Orig CKS 相同',
                           'en': 'Checksum of this code (sum of all file bytes) = {v}; same value the EM02 tool shows as Orig CKS',
