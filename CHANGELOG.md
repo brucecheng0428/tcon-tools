@@ -22,6 +22,234 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.25.0 — 2026-08-25 ｜ MINOR ｜ ⚠ 輸出變更
+
+**E501／E503 匯入 code 時自動把「AGBSFR 分頁的 DCLK」帶進 TCON UI DCLK；使用者改過之後匯出，反算回 `GBPLL_P`／`GBPLL_INI_M`／`GBPLL_DELTA_M` 等 register 寫進 xlsx；帶得進來的那一次，匯入提醒卡片就不再顯示 TCON UI DCLK 那一項，只留 Line Buffer。EN01 依 Bruce 裁示走退路（提醒照舊保留），MNT 三顆一行未改。**
+
+判定依據：`VERSIONING.md` §1 判定表逐項判、取最高者。
+「功能增減」欄 ＝ **新增**兩個獨立能力（匯入自動帶入 DCLK、匯出反寫 DCLK register）⇒ MINOR（§2 案例 1、R3）。
+「既有功能的輸出」欄 ＝ 匯入 E501／E503 之後 TX DCLK 會從「使用者原本的值」變成「code 裡的值」——
+這在本 repo 有明確先例：v4.16.0（匯入帶入 Frame Rate）、v4.23.0（帶入 First Line Read）、v4.24.0（帶入 PANEL_MODE）
+三次都是「匯入時多帶一個 code 裡本來就有的參數」，都編 MINOR／PATCH，沒有一次進 MAJOR ⇒ 沿用，不另起爐灶。
+「操作流程」欄 ＝ 提醒卡片上的 TCON UI DCLK 那一項在**帶得進來的那一次**不顯示。
+🔴 這一項我特別回頭確認過會不會構成「移除既有功能」（那會是 MAJOR）：**不構成**——
+設定 DCLK 的入口有兩個且都在原位（Frame 卡片的 TX DCLK、工具列的 TCON UI DCLK），一個都沒動；
+消失的只是「匯入後強制確認」這個提醒，而它消失的前提正是「這件事已經由系統做好了」。
+不確定的地方（提醒卡片少一項算不算移除）依 R2 補充第 3 點**往低編**，並寫在這裡供你覆核。
+⚠ 輸出變更：匯入 E501／E503 之後的 TX DCLK 與波形會與舊版不同（舊版停在使用者原本的值）；
+匯出的 xlsx 在「使用者改過 DCLK」時會多出 8～9 列。拿 v4.24.1 建立的 NB 基線不能直接比對。**MNT 三顆逐項不變**（實測見下）。
+
+---
+
+### 1. 來源與公式（全部逐字抄自原廠，附出處）
+
+Bruce 2026-08-25 逐字：
+
+> 「現在還有一個是 NB TCON 要附屬的功能。你直接用 NB 的 UI 去查可以查得出來，在 AGBSFR 分頁有一個 DCLK 的設定值，那個設定值就是 WFG 裡面的 TCON UI DCLK。先讀 source code 看要怎麼把設定值抓出來，匯入的時候要直接填寫到 TCON UI 的 DCLK 裡面。」
+>
+> 「如果 NB 匯出的時候有動到這個 TCON UI 的 DCLK，一樣要反過來寫到 code 裡面，所以 script 裡面也要加入怎麼去計算出動到 TCON UI DCLK 時會影響的那些 registers，在 source code 裡面都有。」
+>
+> 「如果這件事情可以做到，那在 WFG 的 Code Group 匯入 NB TCON 的 Code 時候，跳出的浮動視窗就不用包含 TCON UI DCLK 那一個，只需要 Line buffer 的注意就可以。」
+
+**型號對應先釘死**（兩代 UI 命名不一致，先確認才不會挖錯顆）：
+`Raydium.Core.dll` 的 `EnumICSeries = { None=0, E501=1, E503=2, EN01=3, DAZ6xxx=4 }`；
+`ICDefine.GetRM81011()`（RVA 0xB5B8）→ `set_ICSeries(1)`、`GetRM8100x()`（0xCB20）→ `(2)`、`GetRM81008()`（0x30D8）→ `(3)`
+⇒ **RM81011＝E501、RM8100x＝E503、RM81008＝EN01**，與 `wfg.html` 既有的對應完全一致，`WFG_NB_MODELS` 不需改。
+
+**正算（register → DCLK）**，兩代官方 UI 逐字相同：
+
+```
+# SourceCode_V5.0.4/RomCodeProcessUI.py:21793-21812（RM81011）／:21896-21918（RM8100x）
+p    = reg_p + 3 + (reg_ini_m/65536)
+dclk = (54 * p) / (reg_n_pre * reg_n_ps1)
+```
+
+```
+# RCP2 2.0.16.0  E503AgbsfrViewModel::ComputeDCLK      RVA 0x0000F418
+#                E501AgbsfrViewModel::InitializeUI     RVA 0x0000E31C
+P    = (GBPLL_P + 3) + GBPLL_INI_M / 65536.0
+DCLK = Math.Round(54.0 * P / (GBPLL_N_PRE * GBPLL_N_PSDIV1), 3 或 2)
+```
+
+**反算（DCLK → register）**，`RomCodeProcessUI.py:23608-23629`（E501）／`:23825-23846`（E503）與
+`E501AgbsfrViewModel::Standardize`（RVA 0x0000E910）／`E503AgbsfrViewModel::Standardize`（RVA 0x0000FDC4）四處相同：
+
+```
+g = (6 * DCLK * 8) / 54          ← 6 與 8 是**寫死**的標準化 N_PSDIV1 / N_PRE
+h = trunc(g) ; l = trunc((g − h) * 65536)
+GBPLL_P     = h − 3 − 3
+GBPLL_INI_M = 3 * 65536 + l
+```
+
+round-trip 精確（自行驗算）：`INI_M/65536 = 3 + k` ⇒ `P = (h−6)+3+3+k = g` ⇒ `54g/(8×6) = DCLK`；
+唯一損失是 `l` 的截斷（< 1.7×10⁻⁵ MHz）。
+
+**register 對照表**（逐筆解自 `Raydium.Core.dll` 的 `ICDefine`，與 `RomCodeProcessUI.py` 硬寫的位址逐一相符）：
+
+| `EnumICPropertyType` | E501（RM81011） | E503（RM8100x，另有 +0x100 第二 bank） |
+|---|---|---|
+| `GBPLL_N_PRE` (13) | `0x152[5:0]` | `0x0E2[5:0]` |
+| `GBPLL_N_PSDIV1` (14) | `0x153[5:0]` | `0x0E3[5:0]` |
+| `GBPLL_INI_M` (15) | `0x15E[4:0] 0x15F[7:0] 0x160[7:2]` | `0x0EE[4:0] 0x0EF[7:0] 0x0F0[7:2]` |
+| `GBPLL_P` (16) | `0x15B[7:0] 0x15C[7]` | `0x0EB[7:0] 0x0EC[7]` |
+| `GBPLL_DELTA_M` (18) | `0x161[7:0] 0x162[7:0] 0x163[7:5]` | `0x0F1[7:0] 0x0F2[7:0] 0x0F3[7:5]` |
+| `GBPLL_SSCGDIV` (19) | `0x164[7:2]` | `0x0F4[7:2]` |
+| `GBPLL_EN_SDM`（小數模式）(27) | `0x15E[5]` | `0x0EE[5]` |
+| `GBPLL_N_PSDIV2` (31) | `0x154[5:0]` | `0x0E4[5:0]` |
+| `N_PRETX` (32) | `0x1C0[3:0]` | `0x128[3:0]` |
+| `DCLK_AUTO_MODE` (26) | —（這顆沒有） | `0x09A[7:0]` |
+
+`Offset (HEX)` 欄的多 register 寫法（逗號分隔、MSB 在前）是官方自己的格式，不是我發明的：
+`Check_List/RM8100x/.../E503A_UI_Function(XSTB標準化設定…).xlsx` 的 `ST_LINE_XSTB` ＝ `0x3B4[5:0],0x3B5[7:0]`，
+137 份官方 checklist 裡共 76 列這樣寫；讀取端 `RomCodeProcessUI.py:35276-35308 write_value_to_multi_3e_data()`
+以 `split(',')` 解析，2 段時把 `list[0]` 當高位 ⇒ MSB-first 成立。
+
+---
+
+### 2. 匯入：可用性閘門（為什麼不能無條件套公式）
+
+wfg 的 `e501` codec **同時吃得下 RM81010 與 RM81011**（兩份 `.model` 的訊號區逐項相同），
+但兩顆的 DCLK 機制完全不同 —— RM81010 走 `0x09C~0x09E`（`RomCodeProcessUI.py:21741-21743`），
+而那三顆在 RM81011 的 register map 裡叫 **`AGING_VALUE`**，不是 DCLK。
+
+實測 `~/TCON/Model` 底下 **238 份 131072-byte 檔**：
+
+| 檔名前綴 | `N_PRE` | `N_PSDIV1` | `GBPLL_EN_SDM` | 份數 | 套公式的結果 |
+|---|---|---|---|---|---|
+| `RM81011` | 8 | 6 | **1** | 93 | 82.0000 / 84.0000（正確） |
+| `E501B1` | 8 | 6 | **1** | 12 | 同上 |
+| `E501B2` | 8 | 6 | **1** | 2 | 同上 |
+| `RM81010` | 2 | 8 | **0** | 128 | 一律 81.0000（垃圾值） |
+| `test`／`ttt`／`90C7BAh` | 2 | 8 | **0** | 3 | 同上 |
+
+**`GBPLL_EN_SDM` 100% 分離兩群，零例外。** 而 82／84 這兩個數字恰好就是官方標準化寫的
+`max_fix_dclk = 82.0`（≤1920×1080）與 `max_fix2_dclk = 84.0`（>1920×1080）（`RomCodeProcessUI.py:21578-21579`）。
+
+E503 側：111 份 4096-byte 且 EDID 合法的檔，**107 份** `EN_SDM=1`／N_PRE=8／N_PSDIV1=6，
+且 `round(公式值)` 與 `DCLK_AUTO_MODE`(0x09A) **逐份完全相同（差異 0 筆）**；
+其餘 4 份是 `MST7332`／`NT71810`／`NT71837`（非瑞鼎，`wfgNbSane()` 本來就會擋）。
+
+⇒ 閘門三條，全過才自動填：
+① `GBPLL_EN_SDM === 1 && N_PRE > 0 && N_PSDIV1 > 0`
+② 算出來的值落在該機種的 TCON UI DCLK 規格區間（NB 20～105 MHz）
+③ 有 `DCLK_AUTO_MODE` 的型號（E503）另加 `round(DCLK) === DCLK_AUTO_MODE`
+過不了就**不填**、把理由寫進匯入卡片、並保留提醒。填進去之後還會**回頭確認真的填成功**——
+若被 `wfgClampTconDclk()` 或機種規格改掉，一樣收回旗標、保留提醒、照實寫「code 說 X、實際套用 Y」。
+
+---
+
+### 3. 匯出：只有「動過」才寫
+
+三條判準缺一不可：① 這顆型號有 DCLK 描述（EN01 是 null）② 有匯入基準且屬於這顆型號 ③ 目前 UI DCLK ≠ 基準。
+
+⇒ **「匯入 → 什麼都不改 → 匯出」一列都不寫**，round-trip 位元一個不變（實測見下）。
+沒有匯入基準時（例如從空白開始、或載入設定檔）也不寫 —— wfg 沒有「原本是多少」可以比，
+無中生有寫一組 PLL 設定進使用者的 code 是我們沒有資格做的事。
+
+寫的時候照官方標準化的寫入序列，只取與 DCLK 有關的那幾顆：
+`GBPLL_EN_SDM=1`、`N_PRE=8`、`N_PSDIV1=6`、`N_PSDIV2=9`、`N_PRETX=1`、`GBPLL_P`、`GBPLL_INI_M`、
+`GBPLL_DELTA_M`（**是 DCLK 的函數**，依匯入那份 code 的 SSCG% 等比換算），E503 另寫 `DCLK_AUTO_MODE`。
+🔴 官方標準化**另外**還會依 EDID 重寫 `HBLK`／`VBLK`／`FR_DET_TH`／`VBP`／`PSR VTL` ——
+wfg 沒有 EDID 那一整套輸入，**那些一律不寫**，並在匯出後的訊息裡明講。
+
+---
+
+### 4. 🔴 EN01：公式挖得到，但驗不過，依 Bruce 裁示走退路
+
+Bruce 2026-08-25 逐字：
+
+> 「但是如果是 EN01（假設挖不到，因為那個 UI 不是我寫的，沒有 source code），那還有一個退路，就是讓它回歸到匯入 code 的時候，還是秀出那個浮動視窗，要他去確認 T-CON UI DCLK 的設定。」
+
+**照實寫：公式其實挖出來了**（`EN01AgbsfrViewModel`，RCP2 2.0.16.0）：
+`FVCO = 54×(1+FNPLL_N_FB)/(1+FNPLL_N_PRE)`（RVA 0x00010048）、
+`WMK = (FVCO/2)/(1+FNPLL_N_POS1)`（0x000100C8）、
+`DCLK = Round(WMK×(1 − FNPLL_FTN×0.125/65535), 2)`（0x00010B54），
+反算另有兩張查表（`EN01_DCLK_Table` 5 筆、`EN01_NFB_Table` 74 筆，`.cctor` RVA 0x00011BF0）。
+
+**但是驗不過**：全機只有 3 份 EN01 真檔（其中 2 份位元組完全相同），三份的 `FNPLL_N_PRE` 都是 3
+（官方標準化會寫 **1**）、`FNPLL_FTN` 都是 0 ⇒ 從來沒做過 AGBSFR 標準化。套公式算出 **43.88／21.94 MHz**，
+而同一份檔案裡 `DCLK_AUTO_MODE`(0x08D) ＝ **75**、`OUTPUT_DCK_SET_EN`(0x08A[6]) ＝ 0（手動 DCLK 模式關閉），
+EDID 的 px/2 是 70.00。43.88 遠低於 RX DCLK 70.00，填進去會被夾到 70 ⇒ **靜默給出錯的值**。
+
+⇒ `WFG_NB_MODELS.en01.dclk = null`，匯入不自動填、浮動視窗照舊保留 DCLK 那一項。
+公式與兩張表都寫在該處的註解裡，等哪天拿到一份標準化過的 EN01 code 再回來驗
+（判準：`FNPLL_N_PRE === 1` 且 `round(公式值) === DCLK_AUTO_MODE`）。
+
+---
+
+### 5. 實測（headless Chrome ＋ CDP，走真實按鈕：按匯入 → 選型號 → 選檔 → 按匯出）
+
+同一支探針對 `fixed`（工作區 v4.25.0）與 `base`（`git archive HEAD`＝v4.24.1）各跑一次，共 27 個探針。
+每個探針前都 `localStorage.clear()` ＋ 重新載入 —— 第一輪沒清，同一顆 EM01、同一份檔跑出**兩個不同的匯出 sha256**，
+因為 wfg 的 autosave 把上一個探針的 TX DCLK 帶了過去。
+
+**① 匯入：畫面上的值 vs python 端獨立實作的公式**
+
+| 型號 | 檔案 | python 公式 | 畫面 TCON UI DCLK | 卡片 |
+|---|---|---|---|---|
+| E503 | `G173ED02-RM81003-ILI6148B_45628.bin` | 104.0（P=86 INI_M=225735 AUTO=104） | **104** ✔ | 1 項、無 DCLK 項 |
+| E503 | `TCON_Code_CL1_TM153VDXP01-00_…RM81004….bin` | 89.0（P=73 INI_M=203889 AUTO=89） | **89** ✔ | 1 項、無 DCLK 項 |
+| E501 | `RM81011_BOE_BOE13.3(Demo)…` | 84.0（P=68 INI_M=240298） | **84** ✔ | 1 項、無 DCLK 項 |
+| E501 | `RM81011_JDZ_BOE15.6(G156EA06)…` | 82.0（P=66 INI_M=254862） | **82** ✔ | 1 項、無 DCLK 項 |
+| E501 | `RM81010_JDZ_BOE14.0(G140EA14)…` | 81.0（**EN_SDM=0**） | **不填**、值不動 ✔ | 2 項、DCLK 項還在 ✔ |
+| EN01 | `EN01_EEPROM_Demo_20251020.bin` | —（本版不做） | **不填**、值不動 ✔ | 2 項、DCLK 項還在 ✔ |
+
+RM81010 那一份的匯入卡片逐字印出：
+`⚠ E501：這份 code 不是走 GBPLL 小數模式那條路（GBPLL_EN_SDM=0、N_PRE=2、N_PSDIV1=8），套公式會得到 81 MHz 這種無意義的值，因此 TCON UI DCLK **沒有自動帶入**，請自己確認。`
+
+**② round-trip 零變更（匯入 → 不改 → 匯出）**：四份 NB 真檔全部 **DCLK 相關列 ＝ 0**
+（E503 196／164 列、E501 132／244 列，全部沒有任何 `GBPLL_*`／`N_PRETX`／`DCLK_AUTO_MODE`）。
+
+**③ 反算 round-trip（在畫面上改 DCLK → 匯出 → 讀回 xlsx 的 register → 用正算公式再算一次）**
+
+| 型號 | 設定 | 寫出的 `GBPLL_P` / `GBPLL_INI_M` | 正算回來 | 判定 |
+|---|---|---|---|---|
+| E503 | 95 | 0x4E(78) / 0x371C7(225735)，`DCLK_AUTO_MODE`=0x5F(95) | **95.0** | ✔ |
+| E503 | 80 | — | **80.0** | ✔ |
+| E503 | 88.75 | 0x48(72) / 0x3E38E(254862)，AUTO=0x58(88) | **88.75** | ✔ |
+| E503 | 100 | — | **100.0** | ✔ |
+| E501 | 90 | 0x4A(74) / 0x30000(196608) | **90.0** | ✔ |
+| E501 | 77.5 | 0x3E(62) / 0x3E38E(254862) | **77.5** | ✔ |
+| E501 | 100 | 0x52(82) / 0x3E38E(254862) | **100.0** | ✔ |
+| E501 | 74 | — | **74.0** | ✔ |
+| E503 | 104（＝匯入值） | 不寫 | — | ✔ 依設計不寫 |
+| E501 | 84／82（＝匯入值） | 不寫 | — | ✔ 依設計不寫 |
+| E503 | 70（低於 RX 76.42） | 不寫 | — | ✔ 被既有下限擋下、畫面未變 |
+
+`GBPLL_DELTA_M` 在每一組都跟著換算，SSCG% 維持匯入時的值不變
+（E501 那份全程 **1.4988%**、E503 `_b` 全程 **1.9997%**、E503 `_c` 全程 **0.4999%**）。
+
+**④ 負控制（同一支探針對 v4.24.1 跑）**：
+匯入 7 個探針有 **4 個看得出差異**（E501／E503 四份：v4.25.0 填 104／89／84／82，v4.24.1 停在 76.41／78.624／77.376／74.25；
+卡片第 1 項 v4.25.0 不顯示、v4.24.1 顯示）；
+匯出 8 個「有改 DCLK」的探針，v4.25.0 各寫 8～9 列、v4.24.1 一律 0 列。
+另外 3 個（E503 格式不符被拒、RM81010、EN01）**兩版完全相同** —— 這正是閘門與 EN01 退路該有的樣子。
+⇒ 探針有鑑別力，不是恆真。
+
+**⑤ MNT 零回歸**：EM01／EM02／E512 三顆，把匯出 script 開頭的版號橫幅與時間戳正規化之後，
+**畫面值（TCON UI DCLK／TX DCLK／Line Buffer／Gate／checksum）、匯出長度、匯出內容 sha256、
+提醒卡片（第 1 項可見、編號 2、聚光燈 `['dclk','linebuf']`）全部逐項相同，差異 0 筆。**
+
+| 型號 | UI DCLK | TX DCLK | LB | gate | CKS | 匯出 | 正規化後 sha256 |
+|---|---|---|---|---|---|---|---|
+| EM01 | 119.544 | 119.544 | 10 | single | 0x3EAF3F | 15183 B | `9fd03238a64c2777…` 兩版相同 |
+| EM02 | 236.52 | 118.26 | 2.5 | dual | 0x02B001 | 15076 B | `8c2b4ed43903f351…` 兩版相同 |
+| E512 | 148.5 | 74.25 | 6 | single | 0x01DFD0 | 15026 B | `3c8643f63b7fdd35…` 兩版相同 |
+
+**⑥ 常設機械檢查**：`check_cache_buster.py` 通過、`check_line_buffer_half_step.py` 通過（3 處 `.step` 全部只在 dual gate 生效）、
+`scan_untranslated_keys.js` 在**繁中／英文／簡中三種語言**下各掃一次，畫面上未翻譯的 i18n key ＝ **0**。
+
+---
+
+### 6. 觀察事項（本版沒處理，記下來）
+
+1. **`wfg-guide.html` 還沒寫 TCON UI DCLK 會由 code 帶入這件事。** 說明頁不納入版號機制，但內容已經對不上。
+2. **`e503_a.bin`（`RM81003_JDZ_BOE15.6…CKS(51BD_43423h)`）被 `wfgNbSane()` 拒絕匯入**，
+   訊息是「內容不符合 E503 的 GPO 格式」。這是 v4.24.1 就有的行為（負控制兩版一致），與本版無關，
+   但同一個機種資料夾裡的其他檔案匯得進去 ⇒ 這份檔案本身或 `wfgNbSane()` 的門檻值得再查一次。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.24.1 — 2026-08-25 ｜ PATCH ｜ ⚠ 輸出變更
 
 **NB 三顆的 `ST_LINE_RD` ＋ `PRE_BLK_RD_NO` 改為「總和動態夾值」：兩格相加不可超過 Line Buffer 上限，正在編輯的那一格上限 ＝ min(該 register 的位元寬上限, 總和上限 − 另一格的當下值)，兩格的 `max` 屬性隨另一格即時互改。v4.24.0 的「不夾、只紅字」整條移除。MNT 三顆一行未改。**
