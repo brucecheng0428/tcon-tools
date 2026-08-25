@@ -22,6 +22,36 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.27.1 — 2026-08-25 ｜ PATCH
+
+**修：匯出提醒視窗的兩則文案寫錯了官方 UI 的操作路徑。**
+
+Bruce 用 EM01 官方 UI 的實機截圖指正兩處。
+
+**一、複製 timing 到三模的入口寫錯。** 原文寫「再到『Flash R/W』選單用『From Current』
+複製、以『Write Normal／Write 133%／Write 200%』寫入指定模式」—— 兩件事都錯：
+
+- 入口是 GPO 分頁**左下角的「File IO」按鈕**，不是右下角的「Flash R/W」下拉。
+- 官方 UI 裡**沒有**「Write Normal / Write 133% / Write 200%」這種動作。File IO 展開後
+  的選單是 `Load / Save / --- Copy Data --- / From Normal / From 200% / From 133% /
+  From Current`，運作方式是**先切到目標子分頁，再用 From Current 把 CURRENT 的值複製過去**。
+
+改成 Bruce 給的四步：① script 寫入 TCON 後在 GPO 分頁按 Read → ② 切到要寫入的子分頁
+（Normal／200%／133%）→ ③ 點左下角 File IO → ④ 在 `--- Copy Data ---` 底下選 From Current。
+
+同時移除「校驗值由該工具自動處理」一句 —— 這句沒有依據來源，不該寫成肯定句。
+
+**二、按下 Read 之後設定出現在哪裡沒講。** 原文只說「才會顯示這次匯出的設定」，
+補上「會出現在**「Current」子分頁**裡」。
+
+zh-TW／zh-CN／en 三語同步修正。
+
+**判定依據**：`docs/VERSIONING.md` §1 判定表 —— 只改提示文字，操作流程不變、功能不增不減、
+匯出檔案逐位元組不變 ⇒ PATCH。不標 `⚠ 輸出變更`（產檔邏輯一行未動）。非案例 8：
+這是把寫錯的說明改對，不是改變設計。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.27.0 — 2026-08-25 ｜ MINOR
 
 **新增：MNT 機種按下「匯出」之後跳一個浮動提醒視窗，告訴使用者匯入官方 TCON UI 後還要按一次 GPO 分頁的「Read」。NB 機種不跳。**
