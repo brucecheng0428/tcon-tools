@@ -2669,8 +2669,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4241"></script>
-<script src="common/i18n.js?v=20260825wfg4241"></script>
+<script src="common/version.js?v=20260825wfg4250"></script>
+<script src="common/i18n.js?v=20260825wfg4250"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -6526,6 +6526,18 @@ let wfgNbStLine = 6;
    刻意只存不改：single gate 的合法值有 0（Normal）與 1（ZigZag/ZINV）兩個，
    自動同步成單一值會把使用者的面板 Data Mapping 型態改掉（見 wfgNbPanelModeForExport）。 */
 let wfgNbPanelMode = -1;
+/* ══ v4.25.0：匯入這份 NB code 時讀到的 AGBSFR DCLK 基準 ═══════════════════════
+   `{ key, dclk, raw:{ p, iniM, deltaM, sscgDiv, nPre, nPs1, nPs2, nPreTx, enSdm, auto } }`
+   null ＝ 沒有基準（沒匯入過 NB code／這份 code 的 DCLK 讀不出來／讀出來但被夾掉）。
+   🔴 匯出端**只有**在「有基準 且 目前 UI DCLK 與基準不同」時才寫 DCLK 那組 register。
+      這一條同時滿足 Bruce 的兩個要求：
+        ・「如果匯出的時候有動到這個 TCON UI 的 DCLK，一樣要反過來寫到 code 裡面」
+        ・匯入→不改→匯出 的 round-trip **位元一個不變**（因為根本不寫那幾列）。 */
+let wfgNbDclkImported = null;
+/* v4.25.0：這一次匯入有沒有成功自動填好 TCON UI DCLK。
+   true ⇒ 匯入提醒卡片**不顯示** DCLK 那一項（Bruce 2026-08-25 裁示）。
+   只由 `wfgCodeApplyToWfg()` 設定，每次匯入都會先歸零。 */
+let _wfgAckDclkFromCode = false;
 /* ══ 各型號的 Line Buffer 上限（Bruce 2026-08-24 逐一指定，以他為準）═════════════
      EM01 11 ／ EM02 7 ／ E512 7 ／ E501 7 ／ E503 6 ／ EN01 8
    Dual Gate 的 First Line Read 上限 ＝ 這個數字 × 2。
@@ -26363,6 +26375,9 @@ function wfgResetToDefault() {
   wfgNbPreBlkRd = 0;
   wfgNbStLine = 6;
   wfgNbPanelMode = -1;
+  /* v4.25.0：DCLK 基準屬於「上一份匯入的 code」，重設回預設之後就不再成立。 */
+  wfgNbDclkImported = null;
+  _wfgAckDclkFromCode = false;
   wfgFlrApply(6 * wfgFlrMult(), {});
   // Reset LS global to defaults
   wfgLsGlobal = { mode: 'individual', phase: 12, vgh: 30, vgl: -10,   // v4.19.0：phase 預設 12
@@ -37419,6 +37434,12 @@ window.wfgImportConfig = function(jsonStr, options) {
      🔴 這一段必須在 `wfgFrame`（含 gateType）已經套用之後才執行，否則 mult 會用到舊值。 */
   wfgNbPreBlkRd = (typeof config.nbPreBlkRd === 'number') ? Math.max(0, config.nbPreBlkRd | 0) : 0;
   wfgNbPanelMode = (typeof config.nbPanelMode === 'number') ? (config.nbPanelMode | 0) : -1;
+  /* v4.25.0：設定檔**刻意不存** DCLK 基準 —— 基準是「那份 code 檔裡的 register 原值」，
+     設定檔沒有那些位元組，硬存進去只會變成一份無法驗證的複本。
+     所以載入設定檔一律把基準清掉：此後匯出不寫 DCLK 那幾列（＝ v4.24.1 的既有行為），
+     不會拿一份不知道從哪來的基準去改使用者的 code。 */
+  wfgNbDclkImported = null;
+  _wfgAckDclkFromCode = false;
   /* v4.24.0：新欄位 `nbStLineRd`（NB 真值②）。只有在目前是 NB 機種時才吃它 ——
      MNT 機種的真值是 `firstLineRead` 那一顆 register，兩者不可互相覆蓋。
      舊設定檔（v4.23.0 以前）沒有這一格 ⇒ 走既有的 firstLineRead／lineBuffer 路徑，
@@ -38030,6 +38051,10 @@ function wfgCodeOnTconChange(v, opts) {
   /* v4.24.0：PANEL_MODE 的原值屬於**上一顆晶片**匯入的那份 code，換機種就不再成立。
      留著它會讓匯出時「原值相容就寫回」這條路徑寫出一個不屬於這顆晶片的值。 */
   wfgNbPanelMode = -1;
+  /* v4.25.0：同理 —— DCLK 基準是「上一顆晶片那份 code 的 register 原值」，
+     換機種之後再拿它去判斷「使用者改了沒」就是拿錯的東西比。 */
+  wfgNbDclkImported = null;
+  _wfgAckDclkFromCode = false;
   wfgCodeSetStatus('', -1);   // 顯示中的 checksum 屬於上一個型號匯入的檔，換型號就不再成立
   wfgShowDclkError('');       // 上一個機種留下的換算錯誤訊息，換機種就不再成立
   /* 🔴 換機種**原則上不動 TX DCLK** —— TX DCLK 是真值，UI DCLK 是它乘上機種係數的視圖。
@@ -38182,6 +38207,17 @@ function wfgAckDclkReadOnly() {
    沿用 TX DCLK 在變頻應用下那套 `auto` 機制：欄位 disabled ＋ 該項直接算「已確認」，
    而不是讓使用者卡在一個他改不動的必填項上。 */
 function wfgAckLbReadOnly() { return wfgFlrIsNb(); }
+/* ══ 🔴 v4.25.0：這一項整個不顯示（不是唯讀，是**不存在**）════════════════════
+   Bruce 2026-08-25：「在 WFG 的 Code Group 匯入 NB TCON 的 Code 時候，跳出的浮動視窗
+   就不用包含 TCON UI DCLK 那一個，只需要 Line buffer 的注意就可以。」
+
+   🔴 條件是**這一次匯入有沒有真的把 DCLK 填對**，不是「是不是 NB」——
+      ・E501 拿到 RM81010 的檔（實測 128/238 份是這種）⇒ 填不了 ⇒ 提醒要留著
+      ・EN01 一律填不了（見 `WFG_NB_MODELS.en01.dclk` 的說明）⇒ 提醒要留著
+      ・填了但被 clamp 改掉 ⇒ 旗標會被收回 false ⇒ 提醒要留著
+   這比「按型號一刀切」更嚴，方向也對：**只有證明得了填對了才敢把提醒拿掉**。 */
+function wfgAckDclkAuto() { return !!_wfgAckDclkFromCode; }
+window.wfgAckDclkAuto = wfgAckDclkAuto;
 function wfgAckIsOpen() {
   var m = document.getElementById('wfg-ack-mask');
   return !!(m && !m.classList.contains('hidden'));
@@ -38467,8 +38503,13 @@ function wfgAckSync() {
   var done = 0;
   var items = [['dclk', 'wfg-ack-item-1', 'wfg-ack-dclk-in', 'wfg-ack-dclk-err'],
                ['linebuf', 'wfg-ack-item-2', 'wfg-ack-lb-in', 'wfg-ack-lb-err']];
+  /* v4.25.0：被隱藏的那一項不計進總數，也不參與驗證 —— 它在畫面上不存在，
+     卻擋著「開始編輯」按鈕，會變成一個使用者永遠找不到的死結。 */
+  var _hidden = wfgAckDclkAuto() ? 1 : 0;
+  var _need = items.length - _hidden;
   for (var i = 0; i < items.length; i++) {
     var key = items[i][0];
+    if (key === 'dclk' && wfgAckDclkAuto()) continue;
     var card = document.getElementById(items[i][1]);
     var inp = document.getElementById(items[i][2]);
     var err = document.getElementById(items[i][3]);
@@ -38486,10 +38527,14 @@ function wfgAckSync() {
       err.classList.toggle('hidden', !msg);
     }
   }
-  var both = (done === 2);
+  var both = (done === _need);
   ok.classList.toggle('on', both);
   ok.disabled = !both;
-  if (hint) hint.textContent = both ? t('wfg.ackHintOk') : t('wfg.ackHint');
+  if (hint) {
+    hint.textContent = (_need === 1)
+      ? (both ? t('wfg.ackHintOk1') : t('wfg.ackHint1'))
+      : (both ? t('wfg.ackHintOk') : t('wfg.ackHint'));
+  }
 }
 /* ══ 聚光燈：兩個目標**同時**開窗，對話框一出現就在 ══════════════════════
    Bruce 2026-08-22（v4.5.3）：「這兩個框應該要同時出現，不用再按下『帶我去』按鈕才出現…
@@ -38581,6 +38626,9 @@ function wfgSpotHoles() {
   var vw = window.innerWidth, vh = window.innerHeight, pad = 8, out = [];
   for (var i = 0; i < WFG_SPOT_TARGETS.length; i++) {
     var t = WFG_SPOT_TARGETS[i];
+    /* v4.25.0：DCLK 已由 code 自動帶入 ⇒ 卡片上沒有那一項，聚光燈也不該圈它。
+       這裡是**唯一的收斂點** —— `wfgSpotLayout()` 找不到對應的洞就會自己把框藏起來。 */
+    if (t.key === 'dclk' && wfgAckDclkAuto()) continue;
     var el = document.getElementById(t.id);
     if (!el) continue;
     var r = el.getBoundingClientRect();
@@ -38787,6 +38835,7 @@ function wfgSpotStart() {
   var sp = document.getElementById('wfg-spot');
   if (!m || !sp) return false;
   for (var i = 0; i < WFG_SPOT_TARGETS.length; i++) {
+    if (WFG_SPOT_TARGETS[i].key === 'dclk' && wfgAckDclkAuto()) continue;   // v4.25.0
     var el = document.getElementById(WFG_SPOT_TARGETS[i].id);
     if (!el) continue;
     var p = el.parentElement;
@@ -38826,6 +38875,25 @@ function wfgAckShow(fileName, detail) {
   if (!m) { alert(detail || ''); return; }             // 大聲失敗，不要靜默跳過提醒
   var sub = document.getElementById('wfg-ack-sub');
   if (sub) sub.textContent = (fileName ? fileName + '\n' : '') + (detail || '');
+  /* ══ 🔴 v4.25.0：DCLK 已自動帶入 ⇒ 整項不顯示，卡片只剩 Line Buffer 一項 ══════
+     三處都要改，少一處就會出現「看不到第 1 項卻寫著有 2 項」這種自相矛盾的畫面：
+       ① 項目本身 `display:none`
+       ② 剩下那一項的編號要變成 1（原本硬寫 2）
+       ③ 標題的「有 N 項」與底部提示語要跟著換
+     `display` 一律**每次都設**（不是只在 auto 時設）—— 上一次匯入藏起來、
+     這一次沒藏，卻沒人把它顯示回來，就會變成永久消失。 */
+  var _auto = wfgAckDclkAuto();
+  var it1 = document.getElementById('wfg-ack-item-1');
+  if (it1) it1.style.display = _auto ? 'none' : '';
+  var num2 = document.querySelector('#wfg-ack-item-2 .wfg-ack-num');
+  if (num2) num2.textContent = _auto ? '1' : '2';
+  var ttl = document.getElementById('wfg-ack-title');
+  if (ttl) {
+    /* `data-i18n` 也要一起改 —— 卡片開著時切語言會重跑 i18n 套用，
+       只改 textContent 的話會被改回「有 2 項」。 */
+    ttl.setAttribute('data-i18n', _auto ? 'wfg.ackTitle1' : 'wfg.ackTitle');
+    ttl.textContent = t(_auto ? 'wfg.ackTitle1' : 'wfg.ackTitle');
+  }
   wfgAckRenderNow();
   /* 預填目前值。v4.5.1 起「合法即通過」，本來就對的值不必動它。 */
   var di = document.getElementById('wfg-ack-dclk-in');
@@ -38842,7 +38910,12 @@ function wfgAckShow(fileName, detail) {
   /* v4.5.3：兩個框跟著對話框一起出現（要先 remove('hidden') 才量得到卡片尺寸）。 */
   wfgSpotStart();
   wfgAckStartNowWatch();             // v4.5.4：目前值的守衛輪詢（列舉必漏，見上方註解）
-  setTimeout(function() { if (di && !di.disabled) di.focus({ preventScroll: true }); }, 60);
+  /* v4.25.0：DCLK 那格藏起來時改把焦點給 Line Buffer —— 對一個 `display:none`
+     的輸入框呼叫 focus() 不會有任何效果，使用者會拿到一張沒有焦點的卡片。 */
+  setTimeout(function() {
+    var tgt = _auto ? li : di;
+    if (tgt && !tgt.disabled) tgt.focus({ preventScroll: true });
+  }, 60);
 }
 window.wfgAckCommit = wfgAckCommit;
 window.wfgAckSync = wfgAckSync;
@@ -39434,6 +39507,18 @@ function wfgCodeExportRun(targetKey) {
     /* 🔴 v4.24.0：PANEL_MODE 沒寫也要講。排在最前面 —— 「有一列你以為會寫、其實沒寫」
        是這份 xlsx 裡最容易被漏看、後果又最實在的一件事。 */
     if (out.pmSkipped) msgs.unshift(t('wfg.codeNbPmSkipped').replace('{m}', codec.label));
+    /* 🔴 v4.25.0：DCLK 有沒有寫回去，一定要講。排在最前面 —— 這是這份 xlsx 裡
+       唯一會改動 PLL 的一組列，使用者必須知道自己送出去的是什麼。 */
+    if (out.dclkOut) {
+      msgs.unshift(t('wfg.codeNbDclkWrote').replace('{m}', codec.label)
+                     .replace('{was}', wfgFmtDclk(out.dclkOut.from))
+                     .replace('{now}', wfgFmtDclk(out.dclkOut.to))
+                     .replace('{p}', String(out.dclkOut.p))
+                     .replace('{i}', String(out.dclkOut.iniM))
+                     .replace('{d}', out.dclkOut.deltaM >= 0
+                        ? (String(out.dclkOut.deltaM) + '（SSCG ' + wfgFmtDclk(out.dclkOut.sscgPct) + '%）')
+                        : t('wfg.codeNbDclkNoDelta')));
+    }
     msgs.push(t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
   }
   /* v4.16.0：用「不是目前機種」的格式匯出時，把這件事講清楚 ——
@@ -40759,6 +40844,24 @@ var WFG_NB_MODELS = {
        `pmCanonicalDual`：dual gate 沒有匯入原值時可寫的正規值（實測 25/25 個 E503 dual 真檔皆為 2）。 */
     panelMode: { reg: 0x320, msb: 1, lsb: 0, key: 'PANEL_MODE' },
     pmCanonicalDual: 2,
+    /* v4.25.0：AGBSFR DCLK。位址逐筆取自 `Raydium.Core.dll` 的
+       `ICDefine.GetRM8100x()`（RVA 0xCB20），並與 `RomCodeProcessUI.py:21894-21918`
+       硬寫的位址逐一相符。完整說明見 `WFG_NB_DCLK` 上方的區塊註解。 */
+    dclk: {
+      kind:     'gbpll',
+      enSdm:    { reg: 0x0EE, msb: 5, lsb: 5, key: 'GBPLL_EN_SDM' },
+      nPre:     { reg: 0x0E2, msb: 5, lsb: 0, key: 'GBPLL_N_PRE' },
+      nPs1:     { reg: 0x0E3, msb: 5, lsb: 0, key: 'GBPLL_N_PSDIV1' },
+      nPs2:     { reg: 0x0E4, msb: 5, lsb: 0, key: 'GBPLL_N_PSDIV2' },
+      nPreTx:   { reg: 0x128, msb: 3, lsb: 0, key: 'N_PRETX' },
+      p:        { key: 'GBPLL_P',       parts: [{ reg: 0x0EB, msb: 7, lsb: 0 }, { reg: 0x0EC, msb: 7, lsb: 7 }] },
+      iniM:     { key: 'GBPLL_INI_M',   parts: [{ reg: 0x0EE, msb: 4, lsb: 0 }, { reg: 0x0EF, msb: 7, lsb: 0 }, { reg: 0x0F0, msb: 7, lsb: 2 }] },
+      deltaM:   { key: 'GBPLL_DELTA_M', parts: [{ reg: 0x0F1, msb: 7, lsb: 0 }, { reg: 0x0F2, msb: 7, lsb: 0 }, { reg: 0x0F3, msb: 7, lsb: 5 }] },
+      sscgDiv:  { reg: 0x0F4, msb: 7, lsb: 2, key: 'GBPLL_SSCGDIV' },
+      autoMode: { reg: 0x09A, msb: 7, lsb: 0, key: 'DCLK_AUTO_MODE' },
+      /* 顯示精度依各自的官方 UI：`E503AgbsfrViewModel::ComputeDCLK` 取 `Math.Round(…, 3)`。 */
+      round: 3
+    },
     sizes: [4096]
   },
   e501: {
@@ -40785,6 +40888,26 @@ var WFG_NB_MODELS = {
        實測 188 份 E501 真檔：dual 28/29 為 2（另 1 份是 3）⇒ 正規值 2。 */
     panelMode: { reg: 0x3F0, msb: 1, lsb: 0, key: 'PANEL_MODE' },
     pmCanonicalDual: 2,
+    /* v4.25.0：AGBSFR DCLK。位址逐筆取自 `Raydium.Core.dll` 的
+       `ICDefine.GetRM81011()`（RVA 0xB5B8），並與 `RomCodeProcessUI.py:21791-21812`
+       硬寫的位址逐一相符。
+       🔴 **E501 沒有 `DCLK_AUTO_MODE`** —— `ICDefine.GetRM81011()` 整支沒有這一項
+          （E503 有 0x09A、EN01 有 0x08D），所以這裡是 null，不是漏填。 */
+    dclk: {
+      kind:     'gbpll',
+      enSdm:    { reg: 0x15E, msb: 5, lsb: 5, key: 'GBPLL_EN_SDM' },
+      nPre:     { reg: 0x152, msb: 5, lsb: 0, key: 'GBPLL_N_PRE' },
+      nPs1:     { reg: 0x153, msb: 5, lsb: 0, key: 'GBPLL_N_PSDIV1' },
+      nPs2:     { reg: 0x154, msb: 5, lsb: 0, key: 'GBPLL_N_PSDIV2' },
+      nPreTx:   { reg: 0x1C0, msb: 3, lsb: 0, key: 'N_PRETX' },
+      p:        { key: 'GBPLL_P',       parts: [{ reg: 0x15B, msb: 7, lsb: 0 }, { reg: 0x15C, msb: 7, lsb: 7 }] },
+      iniM:     { key: 'GBPLL_INI_M',   parts: [{ reg: 0x15E, msb: 4, lsb: 0 }, { reg: 0x15F, msb: 7, lsb: 0 }, { reg: 0x160, msb: 7, lsb: 2 }] },
+      deltaM:   { key: 'GBPLL_DELTA_M', parts: [{ reg: 0x161, msb: 7, lsb: 0 }, { reg: 0x162, msb: 7, lsb: 0 }, { reg: 0x163, msb: 7, lsb: 5 }] },
+      sscgDiv:  { reg: 0x164, msb: 7, lsb: 2, key: 'GBPLL_SSCGDIV' },
+      autoMode: null,
+      /* `E501AgbsfrViewModel::InitializeUI` 取 `Math.Round(…, 2)`（比 E503 少一位）。 */
+      round: 2
+    },
     sizes: [131072]
   },
   en01: {
@@ -40847,6 +40970,32 @@ var WFG_NB_MODELS = {
           只寫 PANEL_MODE 卻不寫 RD_MODE，會在晶片上湊出一組互相矛盾的設定。
           ⇒ EN01 只走「匯入原值相容才原樣寫回」，永遠不發明值。 */
     panelMode: { reg: 0x390, msb: 1, lsb: 0, key: 'PANEL_MODE' },
+    /* ══ 🔴 v4.25.0：EN01 的 AGBSFR DCLK **刻意不做**（Bruce 2026-08-25 裁示）═════════
+       Bruce 原話：「如果是 EN01（假設挖不到，因為那個 UI 不是我寫的，沒有 source code），
+       那還有一個退路，就是讓它回歸到匯入 code 的時候，還是秀出那個浮動視窗，
+       要他去確認 T-CON UI DCLK 的設定。」
+
+       **我實際挖到的東西與為什麼仍然不做**（照實寫，不修飾）：
+       公式其實挖出來了 —— `RCP2/RomCodeProcessUI_2.0.16.0` 的 `EN01AgbsfrViewModel`：
+         get_FVCO      RVA 0x00010048 : FVCO = 54.0 × (1 + FNPLL_N_FB) / (1 + FNPLL_N_PRE)
+         get_WMK_WOSDM RVA 0x000100C8 : WMK  = (FVCO / 2) / (1 + FNPLL_N_POS1)
+         ComputeDCLK   RVA 0x00010B54 : DCLK = Round(WMK × (1 − FNPLL_FTN × 0.125 / 65535), 2)
+       register（`ICDefine.GetRM81008()` RVA 0x30D8，與 `RM81008.model` 的 `[PLL_CTRL]` 一致）：
+         FNPLL_N_FB 0x0EC[6:1]／FNPLL_N_PRE 0x0EB[3:0]／FNPLL_N_POS1 0x0ED[7:2]／
+         FNPLL_FTN 0x0EF[6:0]+0x0F0[7:0]／FNPLL_N_POS2 0x0ED[1:0]+0x0EE[6:3]
+
+       🔴 **但是驗不過，所以不能用**：全機只有 3 份 EN01 真檔（其中 2 份位元組完全相同），
+          三份的 `FNPLL_N_PRE` 都是 3（官方標準化會寫 **1**）、`FNPLL_FTN` 都是 0
+          ⇒ 這三份從來沒做過 AGBSFR 標準化，PLL 那組是上電預設值。
+          用上面的公式算出來是 **43.88 / 21.94 MHz**，而同一份檔案裡的
+          `DCLK_AUTO_MODE`(0x08D) ＝ **75**、`OUTPUT_DCK_SET_EN`(0x08A[6]) ＝ 0
+          （＝ 手動 DCLK 模式關閉，晶片吃的是 `FNPLL_VALUE`），EDID 的 px/2 是 70.00。
+          43.88 遠低於 RX DCLK 70.00，直接填進去會被 `wfgClampTconDclk()` 往上夾到 70 ——
+          那是**靜默給出錯的值**，比不做更糟。
+       ⇒ 依 Bruce 的退路裁示：EN01 匯入時**不自動帶入 DCLK**，浮動視窗照舊保留
+          「TCON UI DCLK 需要確認」那一項。等哪天拿到一份標準化過的 EN01 code
+          再回來驗證（判準：`FNPLL_N_PRE === 1` 且 `round(公式值) === DCLK_AUTO_MODE`）。 */
+    dclk: null,
     sizes: null                                     // 大小不固定（6354 / 4096 都見過）
   }
 };
@@ -40904,6 +41053,155 @@ function wfgNbReadField(buf, m, ctx, f) {
   return (b >> f.lsb) & ((1 << (f.msb - f.lsb + 1)) - 1);
 }
 window.wfgNbReadField = wfgNbReadField;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   🔴 v4.25.0：NB 的「AGBSFR 分頁 DCLK」＝ wfg 的「TCON UI DCLK」
+   ══════════════════════════════════════════════════════════════════════════════
+
+   Bruce 2026-08-25：「在 AGBSFR 分頁有一個 DCLK 的設定值，那個設定值就是 WFG 裡面的
+   TCON UI DCLK。先讀 source code 看要怎麼把設定值抓出來，匯入的時候要直接填寫到
+   TCON UI 的 DCLK 裡面。」
+
+   ── 兩者是同一個量（推導，不是猜的）─────────────────────────────────────────
+     官方 UI：`agbs_framerate = agbs_dclk × 2e6 / (Htotal × Vtotal)`
+              （`SourceCode_V5.0.4/RomCodeProcessUI.py:21857`）
+              ⇒ DCLK = Htotal × Vtotal × FrameRate / 2 / 1e6
+     wfg    ：`TCON UI DCLK = TX DCLK × uiDclkRatio`，NB 三顆 ratio 都是 1；
+              `TX DCLK = tconHtotal × vtotal × fps / 2 / 1e6`（本檔 v4.6.0 的三大類定義）
+     兩邊定義式相同 ⇒ 直接對填，不需要任何換算係數。
+
+   ── 正算：register → DCLK（兩代官方 UI 逐字相同）───────────────────────────
+     `RomCodeProcessUI.py:21793-21812`（RM81011＝E501）／`:21896-21918`（RM8100x＝E503）
+         p    = reg_p + 3 + (reg_ini_m / 65536)
+         dclk = (54 * p) / (reg_n_pre * reg_n_ps1)
+     `RCP2 2.0.16.0` `E503AgbsfrViewModel::ComputeDCLK`（RVA 0x0000F418）／
+                     `E501AgbsfrViewModel::InitializeUI`（RVA 0x0000E31C）
+         P = (GBPLL_P + 3) + GBPLL_INI_M / 65536.0
+         DCLK = Math.Round(54.0 * P / (GBPLL_N_PRE * GBPLL_N_PSDIV1), 3 或 2)
+
+   ── 反算：DCLK → register（官方「AGBSFR 標準化」）──────────────────────────
+     `RomCodeProcessUI.py:23608-23629`（E501）／`:23825-23846`（E503）與
+     `E503AgbsfrViewModel::Standardize`（RVA 0x0000FDC4）／
+     `E501AgbsfrViewModel::Standardize`（RVA 0x0000E910）四處逐條相同：
+         g = (6 * DCLK * 8) / 54        ← 6 與 8 是**寫死**的標準化 N_PSDIV1／N_PRE
+         h = trunc(g) ; l = trunc((g − h) * 65536)
+         GBPLL_P     = h − 3 − 3
+         GBPLL_INI_M = 3 * 65536 + l
+     round-trip 是精確的（我自行驗算）：`INI_M/65536 = 3 + k` ⇒ `P = (h−6)+3+3+k = g`
+     ⇒ `54g/(8×6) = DCLK`。唯一損失是 `l` 的截斷（< 1.7e−5 MHz）。
+
+   ── 🔴 可用性閘門：為什麼不能無條件套公式 ───────────────────────────────────
+     wfg 的 `e501` codec **同時吃得下 RM81010 與 RM81011**（兩份 `.model` 的訊號區逐項相同），
+     但這兩顆的 DCLK 機制完全不同：RM81010 走 `0x09C~0x09E`（`RomCodeProcessUI.py:21741-21743`），
+     在 RM81011 的 register map 裡那三顆叫 `AGING_VALUE`，**不是 DCLK**。
+     實測 `~/TCON/Model` 底下 238 份 131072-byte 檔：
+       ・`GBPLL_EN_SDM`(0x15E[5]) = 1 ⇒ RM81011 93 份 ＋ E501B1 12 份 ＋ E501B2 2 份，
+         全部 N_PRE=8／N_PSDIV1=6，算出來的 DCLK 全部落在 82.0000／84.0000
+         ——恰好就是官方標準化寫的 `max_fix_dclk=82.0`（≤1920×1080）與
+         `max_fix2_dclk=84.0`（>1920×1080）（`RomCodeProcessUI.py:21578-21579`）。
+       ・`GBPLL_EN_SDM` = 0 ⇒ RM81010 128 份 ＋ 雜項 3 份，N_PRE=2／N_PSDIV1=8、INI_M=0，
+         套公式一律得到垃圾值 81.0000。
+     **零例外，100% 分離。**
+     E503 側：111 份 4096-byte 且 EDID 合法的檔，107 份 `EN_SDM=1`／N_PRE=8／N_PSDIV1=6，
+     且 `round(公式值)` 與 `DCLK_AUTO_MODE`(0x09A) **逐份完全相同（差異 0 筆）**；
+     其餘 4 份是 MST7332／NT71810／NT71837（非瑞鼎，`wfgNbSane()` 本來就會擋）。
+   ⇒ 閘門：`EN_SDM===1 && N_PRE>0 && N_PSDIV1>0 && DCLK 落在機種規格區間`，
+     E503 另加 `round(DCLK) === DCLK_AUTO_MODE`。過不了就**不填**，並把理由講出來。 */
+var WFG_NB_DCLK_STD = { nPre: 8, nPs1: 6, nPs2: 9, nPreTx: 1, iniMHi: 3 };
+
+/* 多段欄位（MSB-first，與官方 `read_value_from_data()` 的參數順序相同）。
+   任一段讀不到（bank 沒啟用／超出檔尾）一律回 -1 —— 半個值比沒有值更危險。 */
+function wfgNbReadParts(buf, m, ctx, spec) {
+  if (!spec) return -1;
+  var parts = spec.parts || [spec], v = 0;
+  for (var i = 0; i < parts.length; i++) {
+    var one = wfgNbReadField(buf, m, ctx, parts[i]);
+    if (one < 0) return -1;
+    v = v * (1 << (parts[i].msb - parts[i].lsb + 1)) + one;
+  }
+  return v;
+}
+/* 產生官方 CheckList `Offset (HEX)` 欄的字串。
+   🔴 多 register 用**逗號分隔、MSB 在前** —— 這是官方自己的格式，實測依據：
+      `Check_List/RM8100x/.../E503A_UI_Function(XSTB標準化設定…).xlsx`
+        `ST_LINE_XSTB` = `0x3B4[5:0],0x3B5[7:0]`（與 wfg 已知的 14 bit 欄位一致）
+      `…(iSPtype_DataDLL_BkDLL)….xlsx` `TBK1` = `0x4CA[0], 0x4CB[7:0]`
+      137 份官方 checklist 裡共 76 列用了這個寫法。
+   讀取端：`RomCodeProcessUI.py:35276-35308 write_value_to_multi_3e_data()`
+      `list_regaddr = input_multi_string.split(',')`，2 段時把 **list[0] 當高位**傳給
+      `write_value_to_data()` 的第一組參數 ⇒ MSB-first 成立。 */
+function wfgNbOffStrOf(spec) {
+  var parts = spec.parts || [spec], out = [];
+  for (var i = 0; i < parts.length; i++) out.push(wfgNbOff(parts[i].reg, parts[i].msb, parts[i].lsb));
+  return out.join(',');
+}
+/* register → DCLK(MHz)。回傳 NaN ＝ 算不出來。 */
+function wfgNbDclkCalc(p, iniM, nPre, nPs1, nd) {
+  if (!(nPre > 0) || !(nPs1 > 0) || p < 0 || iniM < 0) return NaN;
+  var P = (p + 3) + iniM / 65536;
+  var v = 54 * P / (nPre * nPs1);
+  if (!isFinite(v)) return NaN;
+  var f = Math.pow(10, isFinite(nd) ? nd : 3);
+  return Math.round(v * f) / f;
+}
+/* DCLK(MHz) → { p, iniM, h, l }。用官方標準化寫死的 N_PRE=8／N_PSDIV1=6。 */
+function wfgNbDclkEncode(dclk) {
+  var g = (WFG_NB_DCLK_STD.nPs1 * dclk * WFG_NB_DCLK_STD.nPre) / 54;
+  var h = Math.trunc(g);
+  var l = Math.trunc((g - h) * 65536);
+  return { h: h, l: l, p: Math.max(h - 3 - WFG_NB_DCLK_STD.iniMHi, 0),
+           iniM: WFG_NB_DCLK_STD.iniMHi * 65536 + l };
+}
+/* 匯入端：把這份 code 的 DCLK 讀出來。
+   回傳 `{ ok, dclk, why, raw }`。`ok=false` 時 `why` 是給使用者看的原因字串（已翻譯）。 */
+function wfgNbReadDclk(buf, m, ctx) {
+  var d = m && m.dclk;
+  if (!d || d.kind !== 'gbpll') return { ok: false, why: '', raw: null };
+  var raw = {
+    enSdm:   wfgNbReadField(buf, m, ctx, d.enSdm),
+    nPre:    wfgNbReadField(buf, m, ctx, d.nPre),
+    nPs1:    wfgNbReadField(buf, m, ctx, d.nPs1),
+    nPs2:    wfgNbReadField(buf, m, ctx, d.nPs2),
+    nPreTx:  wfgNbReadField(buf, m, ctx, d.nPreTx),
+    p:       wfgNbReadParts(buf, m, ctx, d.p),
+    iniM:    wfgNbReadParts(buf, m, ctx, d.iniM),
+    deltaM:  wfgNbReadParts(buf, m, ctx, d.deltaM),
+    sscgDiv: wfgNbReadField(buf, m, ctx, d.sscgDiv),
+    auto:    d.autoMode ? wfgNbReadField(buf, m, ctx, d.autoMode) : -1
+  };
+  var dclk = wfgNbDclkCalc(raw.p, raw.iniM, raw.nPre, raw.nPs1, d.round);
+  raw.dclk = dclk;
+  if (raw.p < 0 || raw.iniM < 0 || raw.nPre < 0 || raw.nPs1 < 0 || !isFinite(dclk)) {
+    return { ok: false, why: t('wfg.codeNbDclkNoReg').replace('{m}', m.label), raw: raw };
+  }
+  /* 閘門①：小數模式沒開 ⇒ 這不是走 GBPLL 那條路的 code（實測 100% 分離 RM81010／RM81011）。 */
+  if (raw.enSdm !== 1 || !(raw.nPre > 0) || !(raw.nPs1 > 0)) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkNotStd').replace('{m}', m.label)
+                    .replace('{sdm}', String(raw.enSdm)).replace('{npre}', String(raw.nPre))
+                    .replace('{nps1}', String(raw.nPs1)).replace('{v}', wfgFmtDclk(dclk)) };
+  }
+  /* 閘門②：算出來的值必須落在這顆機種的 TCON UI DCLK 規格區間內。
+     🔴 用 `WFG_TCON_CLASS_SPEC` 的原始規格而不是 `wfgTconSpec()` —— 後者會把 RX DCLK
+        疊進下限，而「這份 code 的 DCLK 低於目前畫面的 RX」是另一回事，要分開講。 */
+  var _sp = wfgTconSpec();
+  if (!(dclk >= _sp.uiDclkMin && dclk <= _sp.uiDclkMax)) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkRange').replace('{m}', m.label).replace('{v}', wfgFmtDclk(dclk))
+                    .replace('{lo}', String(_sp.uiDclkMin)).replace('{hi}', String(_sp.uiDclkMax)) };
+  }
+  /* 閘門③：有 `DCLK_AUTO_MODE` 的型號（E503）拿它當第二來源交叉比對。
+     實測 107/107 逐份相同 ⇒ 不同就代表這份 code 有我們沒理解的狀態，寧可不填。 */
+  if (d.autoMode && raw.auto >= 0 && Math.round(dclk) !== raw.auto) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkAutoDiff').replace('{m}', m.label)
+                    .replace('{v}', wfgFmtDclk(dclk)).replace('{a}', String(raw.auto)) };
+  }
+  return { ok: true, dclk: dclk, why: '', raw: raw };
+}
+window.wfgNbReadDclk = wfgNbReadDclk;
+window.wfgNbDclkCalc = wfgNbDclkCalc;
+window.wfgNbDclkEncode = wfgNbDclkEncode;
 
 /* ── EDID 的 DTD#1 → Frame 參數 ──────────────────────────────────────────
    三顆 NB 的 code 檔開頭（E501 是 0x1000）都是一份完整 128 bytes EDID。
@@ -41323,6 +41621,19 @@ function wfgNbParse(rawBuf, fname, key) {
                .replace('{rd}', String(rdRaw)).replace('{gate}', gateType.toUpperCase());
     }
   }
+  /* ══ 🔴 v4.25.0：AGBSFR DCLK（＝ TCON UI DCLK）══════════════════════════════════
+     `m.dclk` 為 null 的型號（EN01）整段不做，行為與 v4.24.1 完全相同。 */
+  var _dc = wfgNbReadDclk(buf, m, ctx);
+  if (m.dclk && _dc.ok) {
+    var _r = _dc.raw;
+    det += ' / TCON UI DCLK ' + wfgFmtDclk(_dc.dclk) + ' MHz (' +
+           m.dclk.p.key + '@' + wfgNbOffStrOf(m.dclk.p) + '=' + _r.p + ' + ' +
+           m.dclk.iniM.key + '=' + _r.iniM + ' / ' +
+           m.dclk.nPre.key + '=' + _r.nPre + ' ' + m.dclk.nPs1.key + '=' + _r.nPs1 +
+           (m.dclk.autoMode && _r.auto >= 0 ? (' / ' + m.dclk.autoMode.key + '=' + _r.auto) : '') + ')';
+  } else if (m.dclk && _dc.why) {
+    det += '\n' + _dc.why;
+  }
   if (miss.length) det += '\n' + t('wfg.codeNbRegMiss').replace('{s}', miss.join(', '));
   if (comboMiss.length) det += '\n' + t('wfg.codeComboNoChannel').replace('{s}', comboMiss.join(', '));
   var overflow = [];
@@ -41349,7 +41660,12 @@ function wfgNbParse(rawBuf, fname, key) {
            firstLineRead: (_flr >= 0) ? _flr : undefined,
            nbStLineRd: (_flr >= 0) ? _st : undefined,
            nbPreBlkRd: (_flr >= 0) ? _pb : undefined,
-           panelMode: (_pm >= 0) ? _pm : undefined };
+           panelMode: (_pm >= 0) ? _pm : undefined,
+           /* v4.25.0：`uiDclk` 只有閘門全過才給 —— `wfgCodeApplyToWfg()` 用
+              `typeof === 'number'` 判斷要不要填，給 undefined 就等於「不填」。
+              `nbDclk` 不論成敗都帶回去，匯出端要靠它判斷「使用者到底改了沒」。 */
+           uiDclk: (m.dclk && _dc.ok) ? _dc.dclk : undefined,
+           nbDclk: (m.dclk && _dc.ok) ? { key: key, dclk: _dc.dclk, raw: _dc.raw } : undefined };
 }
 
 /* ── 型號無關的 NB 匯出器（產 .xlsx）─────────────────────────────────────
@@ -41407,6 +41723,71 @@ function wfgNbBuildXlsx(key, opt) {
     if (_pbV > _pbMax) { clamped.push({ sig: 'FRAME', field: m.preBlkRd.key, from: _pbV, to: _pbMax }); _pbV = _pbMax; }
     _nbFrameRow(m.stLineRd.key, wfgNbOff(m.stLineRd.reg, m.stLineRd.msb, m.stLineRd.lsb), _stV);
     _nbFrameRow(m.preBlkRd.key, wfgNbOff(m.preBlkRd.reg, m.preBlkRd.msb, m.preBlkRd.lsb), _pbV);
+  }
+  /* ══ 🔴 v4.25.0：TCON UI DCLK 反寫 ═══════════════════════════════════════════════
+     Bruce 2026-08-25：「如果 NB 匯出的時候有動到這個 TCON UI 的 DCLK，一樣要反過來
+     寫到 code 裡面，所以 script 裡面也要加入怎麼去計算出動到 TCON UI DCLK 時
+     會影響的那些 registers。」
+
+     ── 🔴 只有「動過」才寫，三條判準缺一不可 ──────────────────────────────────
+       ① 這顆型號有 DCLK 描述（`m.dclk`）—— EN01 是 null，整段不執行。
+       ② 有匯入基準（`wfgNbDclkImported`）且基準屬於**這顆型號**。
+       ③ 目前的 UI DCLK 與基準不同。
+     ⇒ 「匯入 → 什麼都不改 → 匯出」時**一列都不寫**，round-trip 位元一個不變。
+        沒有匯入基準時（例如從空白開始）也不寫 —— wfg 沒有「原本是多少」可以比，
+        無中生有寫一組 PLL 設定進使用者的 code 是我們沒有資格做的事。
+
+     ── 要寫哪些：照官方「AGBSFR 標準化」的寫入序列，只取與 DCLK 有關的那幾顆 ────
+       `RomCodeProcessUI.py:23579-23629`（E501）／`:23792-23846`（E503）＋
+       `E50xAgbsfrViewModel::Standardize`（RVA 0x0000E910 / 0x0000FDC4）
+         EN_SDM=1、N_PRE=8、N_PSDIV1=6、N_PSDIV2=9、N_PRETX=1、P、INI_M
+         ＋ E503 專有的 DCLK_AUTO_MODE = trunc(DCLK)
+         ＋ DELTA_M（**是 DCLK 的函數**：`r = h×65536+l`，不重算 SSCG% 會跟著漂）
+     🔴 官方標準化**另外**還會依 EDID 重寫 HBLK／VBLK／FR_DET_TH／VBP／PSR VTL ——
+        wfg 沒有 EDID 那一整套輸入，**那些一律不寫**，不是漏掉。
+     🔴 `GBPLL_SSCGDIV` 由 Mod Rate 決定、與 DCLK 無關 ⇒ 不寫（只拿它的原值算 DELTA_M）。 */
+  var dclkOut = null;
+  if (m.dclk && m.dclk.kind === 'gbpll' && wfgNbDclkImported && wfgNbDclkImported.key === key) {
+    var _uiNow = wfgFrame.dclk * (wfgUiDclkRatio() || 1);
+    var _uiWas = wfgNbDclkImported.dclk;
+    if (isFinite(_uiNow) && _uiNow > 0 && Math.abs(_uiNow - _uiWas) > 1e-9) {
+      var D = m.dclk, B = wfgNbDclkImported.raw, enc = wfgNbDclkEncode(_uiNow);
+      /* 欄位位元寬（多段的話逐段相加）—— 超界一律夾 ＋ 記進 `clamped`，
+         沿用 v4.16.2 Bruce 裁示的「不要靜默夾值」。 */
+      var _bits = function(spec) {
+        var ps = spec.parts || [spec], n = 0;
+        for (var z = 0; z < ps.length; z++) n += (ps[z].msb - ps[z].lsb + 1);
+        return n;
+      };
+      var _put = function(spec, val) {
+        var mx = Math.pow(2, _bits(spec)) - 1, v = Math.max(0, Math.round(val));
+        if (v > mx) { clamped.push({ sig: 'FRAME', field: spec.key, from: v, to: mx }); v = mx; }
+        _nbFrameRow(spec.key, wfgNbOffStrOf(spec), v);
+        return v;
+      };
+      _put(D.enSdm,  1);
+      _put(D.nPre,   WFG_NB_DCLK_STD.nPre);
+      _put(D.nPs1,   WFG_NB_DCLK_STD.nPs1);
+      _put(D.nPs2,   WFG_NB_DCLK_STD.nPs2);
+      _put(D.nPreTx, WFG_NB_DCLK_STD.nPreTx);
+      var _pOut = _put(D.p, enc.p);
+      var _iOut = _put(D.iniM, enc.iniM);
+      var _aOut = D.autoMode ? _put(D.autoMode, Math.trunc(_uiNow)) : -1;
+      /* DELTA_M：把匯入那份 code 的 SSCG%**維持住**再換算回來。
+         SSCG% = DELTA_M × SSCGDIV × 8 ÷ (65536×P + 3×65536 + INI_M)
+         （`E503AgbsfrViewModel::ComputeSSCGRange` RVA 0x0000F4D8 ／
+           `RomCodeProcessUI.py:21842`，兩處相同）
+         算不出來（基準缺 SSCGDIV／分母 0）就**不寫這一列**並在匯出後講明 ——
+         寫一個猜的 DELTA_M 會讓展頻量默默變掉。 */
+      var _den = 65536 * B.p + 3 * 65536 + B.iniM;
+      var _dOut = -1, _sscg = -1;
+      if (B.deltaM >= 0 && B.sscgDiv > 0 && _den > 0) {
+        _sscg = B.deltaM * B.sscgDiv * 8 / _den;
+        _dOut = _put(D.deltaM, Math.trunc((enc.h * 65536 + enc.l) * _sscg / (B.sscgDiv * 8)));
+      }
+      dclkOut = { from: _uiWas, to: _uiNow, p: _pOut, iniM: _iOut, auto: _aOut,
+                  deltaM: _dOut, sscgPct: (_sscg >= 0) ? (_sscg * 100) : -1 };
+    }
   }
   /* 匯出可寫的條數 ≤ 匯入可讀的條數。目前只有 EN01 兩者不同（18 讀 / 16 寫），
      理由見 `WFG_NB_MODELS.en01.exportSigCount` 的註解。 */
@@ -41467,7 +41848,7 @@ function wfgNbBuildXlsx(key, opt) {
   if (!sigCnt) return { ok: false, reason: t('wfg.codeErrNbNoRows') };
   var bytes = wfgBuildXlsx(rows);
   return { ok: true, bytes: bytes, count: cnt, dropped: dropped, rows: rows,
-           skipped: skipped, clamped: clamped, pmSkipped: pmSkipped,
+           skipped: skipped, clamped: clamped, pmSkipped: pmSkipped, dclkOut: dclkOut,
            dropKey: m.dropKey || 'wfg.codeNbDropped',
            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
 }
@@ -41571,6 +41952,22 @@ function wfgCodeApplyToWfg(res) {
        ——「上一份 NB code 的 panel_mode」不屬於現在這份 MNT code。
        🔴 只**記下來**不拿它去改 Gate Type：Gate Type 的真值仍然是 `RD_MODE`（見上一段）。 */
     wfgNbPanelMode = (typeof res.panelMode === 'number' && res.panelMode >= 0) ? (res.panelMode | 0) : -1;
+    /* ══ 🔴 v4.25.0：TCON UI DCLK 從 code 帶進來 ═══════════════════════════════════
+       Bruce 2026-08-25：「匯入的時候要直接填寫到 TCON UI 的 DCLK 裡面。」
+       填的是 **TX DCLK**（`wfgFrame.dclk`）—— UI DCLK ＝ TX × ratio，NB 三顆 ratio 都是 1，
+       但仍然除回去而不是直接指派，這樣日後有 ratio≠1 的 NB 也不會錯。
+       🔴 一定要排在下面那組 `wfgUpdateRxDclk() / wfgClampTconDclk()` **之前**：
+          clamp 會把低於 RX 的 TX 往上抬，順序反了就會拿舊的 RX 去夾新的 DCLK。
+       🔴 `wfgNbDclkImported` 只有在**真的填進去**時才記 —— 匯出端用它判斷
+          「使用者到底有沒有改過 DCLK」，記了一個沒填進去的基準會讓匯出誤判。 */
+    wfgNbDclkImported = null;
+    _wfgAckDclkFromCode = false;
+    if (typeof res.uiDclk === 'number' && res.uiDclk > 0) {
+      var _ratio = wfgUiDclkRatio() || 1;
+      wfgFrame.dclk = res.uiDclk / _ratio;
+      wfgNbDclkImported = res.nbDclk || null;
+      _wfgAckDclkFromCode = true;
+    }
     wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
     wfgSyncBlankInputs(); wfgSyncDclkUi();
     /* 🔴 v4.16.0：DCLK 的機種檢核走**與換機種完全同一支**。
@@ -41578,6 +41975,22 @@ function wfgCodeApplyToWfg(res) {
        不要各自為政。」匯入這條路徑原本少了這一步 —— 匯入後若 TX DCLK 超出新機種規格，
        既不會夾也不會提示，錯誤訊息要等使用者自己去碰那一格才出現。 */
     wfgApplyTconClassConstraints();
+    /* ══ 🔴 v4.25.0：填進去之後**回頭確認真的填成功** ═══════════════════════════════
+       上面那一串（clamp／機種上下限）任何一步都可能把值改掉。如果被改掉，
+       畫面上的 TCON UI DCLK 就**不是** code 裡的那個值 —— 這時候：
+         ① 照實把「code 說 X、實際套用 Y」寫進匯入卡片
+         ② 把 `_wfgAckDclkFromCode` 收回 false ⇒ 浮動視窗**保留** DCLK 那一項
+       靜默接受一個被夾過的值，正是 Bruce 一再說的「比不做更糟」。 */
+    if (_wfgAckDclkFromCode && typeof res.uiDclk === 'number') {
+      var _uiNow = wfgFrame.dclk * (wfgUiDclkRatio() || 1);
+      if (Math.abs(_uiNow - res.uiDclk) > 1e-6) {
+        res.detail = (res.detail ? res.detail + '\n' : '') +
+                     t('wfg.codeNbDclkClamped').replace('{v}', wfgFmtDclk(res.uiDclk))
+                       .replace('{a}', wfgFmtDclk(_uiNow));
+        _wfgAckDclkFromCode = false;
+        wfgNbDclkImported = null;
+      }
+    }
   }
   /* v4.2.0：FRM_NO 三個一起帶入（型號無關，只要解析器有給就套）。 */
   if (res.frmNo) {

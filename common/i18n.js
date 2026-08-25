@@ -1003,6 +1003,44 @@ var I18N = {
                           'zh-CN': '两项都填好才能开始编辑' },
   'wfg.ackHintOk':      { 'zh-TW': '兩項都已設定，可以開始編輯', 'en': 'Both set - you can start editing',
                           'zh-CN': '两项都已设定，可以开始编辑' },
+  /* ══ v4.25.0：TCON UI DCLK 已由 code 自動帶入時，卡片只剩 Line Buffer 一項 ══════
+     標題／提示語都要跟著變成單數，不然會出現「看不到第 1 項卻寫著有 2 項」。 */
+  'wfg.ackTitle1':      { 'zh-TW': '匯入完成 — 有 1 項需要你確認（TCON UI DCLK 已由 code 自動帶入）',
+                          'en': 'Import done - 1 setting needs your confirmation (TCON UI DCLK came from the code)',
+                          'zh-CN': '导入完成 — 有 1 项需要你确认（TCON UI DCLK 已由 code 自动带入）' },
+  'wfg.ackHint1':       { 'zh-TW': '這一項填好才能開始編輯', 'en': 'Fill this in to start editing',
+                          'zh-CN': '这一项填好才能开始编辑' },
+  'wfg.ackHintOk1':     { 'zh-TW': '已確認，可以開始編輯', 'en': 'Confirmed - you can start editing',
+                          'zh-CN': '已确认，可以开始编辑' },
+  /* ══ v4.25.0：NB 的 AGBSFR DCLK。閘門過不了時**一定要說原因**，不能靜默不填。 ══ */
+  'wfg.codeNbDclkNoReg': {
+    'zh-TW': '⚠ {m}：這份 code 讀不到 GBPLL 那組 register（bank 沒啟用或檔案截斷），TCON UI DCLK 維持你目前的設定不變。',
+    'en': '⚠ {m}: the GBPLL registers could not be read from this code (bank disabled or file truncated); TCON UI DCLK was left as-is.',
+    'zh-CN': '⚠ {m}：这份 code 读不到 GBPLL 那组 register（bank 没启用或文件截断），TCON UI DCLK 维持你目前的设定不变。' },
+  'wfg.codeNbDclkNotStd': {
+    'zh-TW': '⚠ {m}：這份 code 不是走 GBPLL 小數模式那條路（GBPLL_EN_SDM={sdm}、N_PRE={npre}、N_PSDIV1={nps1}），套公式會得到 {v} MHz 這種無意義的值，因此 TCON UI DCLK **沒有自動帶入**，請自己確認。\n（實測 238 份 E501 尺寸的檔：RM81011 系 107 份 EN_SDM 一律是 1，RM81010 系 131 份一律是 0。這兩顆的 DCLK 存放位置不同。）',
+    'en': '⚠ {m}: this code does not use the GBPLL fractional path (GBPLL_EN_SDM={sdm}, N_PRE={npre}, N_PSDIV1={nps1}). Applying the formula would give a meaningless {v} MHz, so TCON UI DCLK was NOT filled in - please set it yourself.',
+    'zh-CN': '⚠ {m}：这份 code 不是走 GBPLL 小数模式那条路（GBPLL_EN_SDM={sdm}、N_PRE={npre}、N_PSDIV1={nps1}），套公式会得到 {v} MHz 这种无意义的值，因此 TCON UI DCLK **没有自动带入**，请自己确认。' },
+  'wfg.codeNbDclkRange': {
+    'zh-TW': '⚠ {m}：由 code 算出來的 TCON UI DCLK 是 {v} MHz，超出這顆機種的規格範圍（{lo}～{hi} MHz），因此**沒有自動帶入**，請自己確認。',
+    'en': '⚠ {m}: TCON UI DCLK computed from the code is {v} MHz, outside this model spec ({lo}-{hi} MHz), so it was NOT filled in - please set it yourself.',
+    'zh-CN': '⚠ {m}：由 code 算出来的 TCON UI DCLK 是 {v} MHz，超出这颗机种的规格范围（{lo}～{hi} MHz），因此**没有自动带入**，请自己确认。' },
+  'wfg.codeNbDclkAutoDiff': {
+    'zh-TW': '⚠ {m}：GBPLL 算出來的 DCLK 是 {v} MHz，但同一份 code 裡的 DCLK_AUTO_MODE 是 {a}，兩個來源對不上，因此 TCON UI DCLK **沒有自動帶入**，請自己確認。',
+    'en': '⚠ {m}: the GBPLL registers give {v} MHz but DCLK_AUTO_MODE in the same code says {a}. The two sources disagree, so TCON UI DCLK was NOT filled in - please set it yourself.',
+    'zh-CN': '⚠ {m}：GBPLL 算出来的 DCLK 是 {v} MHz，但同一份 code 里的 DCLK_AUTO_MODE 是 {a}，两个来源对不上，因此 TCON UI DCLK **没有自动带入**，请自己确认。' },
+  'wfg.codeNbDclkClamped': {
+    'zh-TW': '⚠ code 裡的 TCON UI DCLK 是 {v} MHz，但套用之後變成 {a} MHz（被 RX DCLK 下限或機種規格夾住）。畫面上的值不是 code 裡的值，請自己確認。',
+    'en': '⚠ the code says TCON UI DCLK = {v} MHz but after applying it became {a} MHz (clamped by the RX DCLK floor or the model spec). What you see is not what the code says - please check.',
+    'zh-CN': '⚠ code 里的 TCON UI DCLK 是 {v} MHz，但套用之后变成 {a} MHz（被 RX DCLK 下限或机种规格夹住）。画面上的值不是 code 里的值，请自己确认。' },
+  'wfg.codeNbDclkWrote': {
+    'zh-TW': '本次匯出**有寫回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n寫進去的 register：\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8、GBPLL_N_PSDIV1 = 6、GBPLL_N_PSDIV2 = 9、N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\n這一組是照原廠「AGBSFR 標準化」的寫入序列產生的。原廠標準化另外還會依 EDID 重寫 HBLANK／VBLANK／FR_DET_TH／VBP／PSR VTL —— 本工具沒有 EDID 那一整套輸入，**那些一律不寫**。',
+    'en': 'This export DID write TCON UI DCLK back ({m}): {was} → {now} MHz\n\nRegisters written:\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8, GBPLL_N_PSDIV1 = 6, GBPLL_N_PSDIV2 = 9, N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\nThis follows the official "AGBSFR standardize" write sequence. The official flow also rewrites HBLANK / VBLANK / FR_DET_TH / VBP / PSR VTL from the EDID - this tool has no EDID input, so those are NOT written.',
+    'zh-CN': '本次导出**有写回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n写进去的 register：\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8、GBPLL_N_PSDIV1 = 6、GBPLL_N_PSDIV2 = 9、N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\n这一组是照原厂「AGBSFR 标准化」的写入序列产生的。原厂标准化另外还会依 EDID 重写 HBLANK／VBLANK／FR_DET_TH／VBP／PSR VTL —— 本工具没有 EDID 那一整套输入，**那些一律不写**。' },
+  'wfg.codeNbDclkNoDelta': {
+    'zh-TW': '沒寫（算不出原本的 SSCG%）',
+    'en': 'not written (original SSCG% unknown)',
+    'zh-CN': '没写（算不出原本的 SSCG%）' },
   'wfg.ackClose':       { 'zh-TW': '開始編輯', 'en': 'Start editing', 'zh-CN': '开始编辑' },
   'wfg.codeCksTitle':   { 'zh-TW': '這份 code 的 checksum（全檔位元組總和）＝ {v}，與 EM02 工具顯示的 Orig CKS 相同',
                           'en': 'Checksum of this code (sum of all file bytes) = {v}; same value the EM02 tool shows as Orig CKS',
