@@ -2669,7 +2669,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4261"></script>
+<script src="common/version.js?v=20260825wfg4262"></script>
 <script src="common/i18n.js?v=20260825wfg4261"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -18919,8 +18919,19 @@ var _wfgFlrMsg = '';            // 目前要顯示的夾值／超界訊息（'' 
    但**拒絕輸入並還原**這條路徑不可以套那道守衛 —— 否則內部值是 4、畫面卻停在被拒的 5，
    使用者照著畫面判讀就會錯（v3.19.1 Bruce 明示：「訊息說已保留原值、畫面卻是被拒的值，
    比靜默夾值更糟」）。這個旗標只在「確實夾了」時打開，用完立刻清掉。
-   ⚠ 只涵蓋 NB 的兩格 —— MNT 的 First Line Read／Line Buffer 維持 v4.24.0 行為不動
-     （本版的驗收條件之一是 MNT 零回歸）。 */
+
+   ══ 🔴 v4.26.2：擴充到 MNT 的兩格（'flr' ／ 'lb'）════════════════════════════
+   v4.24.1 當時只涵蓋 NB 兩格，理由逐字是「本版的驗收條件之一是 MNT 零回歸」——
+   那是**驗收流程上的取捨**，不是「MNT 沒有這個問題」。同一份 CHANGELOG 的
+   〈未處理、留給後續的觀察〉第 1 條就已經照實記著：
+     「EM01 Dual 在 First Line Read 那一格保持 focus 打 99，內部夾到 22，
+       但欄位畫面上停在 99。」
+   本版把那一條補完。🔴 **夾值邏輯一行未改**（夾到 22 是對的），只改「畫面顯示哪個數字」。
+
+   🔴 只在「**上界被夾**」時打開，觸發條件與 NB 兩格逐字相同。**刻意不涵蓋**
+      四捨五入（dual gate 的 0.5 步進）與負數：那兩種的中間輸入是合法的打字過程
+      （"1." → Number 得 1、"-" → NaN），強制回寫會在使用者打到一半時吃掉字元。
+      NB 兩格同樣沒有涵蓋這兩種，維持一致。 */
 var _wfgFlrForce = null;
 function wfgFlrRound(v, step) {
   var n = Number(v);
@@ -18934,7 +18945,12 @@ function wfgFlrApply(flr, opt) {
   var mx = wfgFlrMax();
   var v = Math.max(0, Math.round(Number(flr) || 0));
   _wfgFlrMsg = '';
+  _wfgFlrForce = null;
   if (opt.clamp && v > mx) {
+    /* 🔴 v4.26.2：被夾了 ⇒ 使用者正在編輯的那一格必須顯示實際採用的值。
+       `opt.edit` 由呼叫端指名（'flr' ／ 'lb'）；非使用者編輯的路徑（匯入、preset、
+       換機種）不傳 clamp，走不到這裡。 */
+    _wfgFlrForce = (opt.edit === 'lb') ? 'lb' : 'flr';
     _wfgFlrMsg = t('wfg.flrClamped')
       /* 🔴 v4.24.0 修（v4.23.0 起就存在的缺陷，實測抓到）：`{max}` 在這句訊息裡出現
          **兩次**（「超過上限 {max}…已夾到 {max}」），而 `String.replace(字串, …)`
@@ -19068,8 +19084,10 @@ function wfgFlrSync() {
     /* 🔴 這一行不可以少。v4.24.0 開發中實測抓到：改寫這個區塊時把它漏掉，
        畫面上的 Line Buffer 就**永遠停在使用者上一次打進去的字**，
        而內部 FLR 是對的 —— 症狀是「唯讀擋住了寫入，但欄位還顯示被拒的值」，
-       比靜默夾值更糟（v3.19.1 那一輪 Bruce 明示過同一件事）。 */
-    if (document.activeElement !== lb) lb.value = String(wfgLineBuffer);
+       比靜默夾值更糟（v3.19.1 那一輪 Bruce 明示過同一件事）。
+       🔴 v4.26.2：`_wfgFlrForce === 'lb'` ⇒ 本次真的夾到了這一格，**繞過 activeElement 守衛**
+       （與下面 NB 兩格、與 `#wfg-flr` 同一條規則）。 */
+    if (document.activeElement !== lb || _wfgFlrForce === 'lb') lb.value = String(wfgLineBuffer);
     /* v4.24.0：NB 的 Line Buffer 改唯讀（真值是兩顆 register）。
        用 `readOnly` 而不是 `disabled` —— disabled 的欄位在部分瀏覽器連值都讀不到／選不起來，
        使用者會看不到這個數字；readOnly 仍可讀、可選取、可複製，只是改不動。 */
@@ -19085,7 +19103,9 @@ function wfgFlrSync() {
        確保它不會以任何形式（focus、tab、程式化 dispatch）影響 NB 的行為。
        Bruce 2026-08-25：「只要遇到是 NB TCON 的匯入，就要把 First Line Read 移除。」 */
     fl.disabled = isNb;
-    if (document.activeElement !== fl) fl.value = String(wfgFirstLineRead);
+    /* 🔴 v4.26.2：同上 —— 保持 focus 打 99 被夾到 22 時，這一格必須顯示 22。
+       在此之前畫面會停在 99，使用者照著它判讀就會錯（Bruce 回報的正是這一格）。 */
+    if (document.activeElement !== fl || _wfgFlrForce === 'flr') fl.value = String(wfgFirstLineRead);
   }
   /* 🔴 v4.24.1：NB 兩格的 `max` ＝ min(位元寬上限, 總和上限 − 另一格的當下值)。
      v4.24.0 這裡放的是位元寬上限（固定值），使用者在 UI 上看不出「已經加不動了」。
@@ -19161,14 +19181,15 @@ function wfgOnLineBufferChange(val) {
   var lbv = wfgFlrRound(val, step);
   if (lbv === null) lbv = 0;
   if (lbv < 0) lbv = 0;
-  wfgFlrApply(lbv * mult, { clamp: true });
+  /* v4.26.2：`edit:'lb'` 指名使用者正在編輯的是 Line Buffer 那一格 —— 被夾時要回寫的是它。 */
+  wfgFlrApply(lbv * mult, { clamp: true, edit: 'lb' });
   wfgFlrAfterChange();
 }
 window.wfgOnLineBufferChange = wfgOnLineBufferChange;
 /* 使用者改 First Line Read（MNT）⇒ LB = FLR / mult（可能是 .5）。 */
 function wfgOnFirstLineReadChange(val) {
   if (wfgFlrIsNb()) return;   // v4.24.0：NB 沒有這個欄位（同上，擋程式化呼叫）
-  wfgFlrApply(parseInt(val, 10) || 0, { clamp: true });
+  wfgFlrApply(parseInt(val, 10) || 0, { clamp: true, edit: 'flr' });   // v4.26.2：同上
   wfgFlrAfterChange();
 }
 window.wfgOnFirstLineReadChange = wfgOnFirstLineReadChange;
