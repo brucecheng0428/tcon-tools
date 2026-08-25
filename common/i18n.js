@@ -957,6 +957,25 @@ var I18N = {
     'zh-TW': '匯出的 script 一律寫入 CURRENT，也就是這顆 TCON 實際輸出的那一組 GPO Timing。\n\n若要把這組值放進 Normal／133%／200%，請在 EM01 官方 TCON UI 完成後半段：先用本 script 寫入 TCON（進 CURRENT），再到「Flash R/W」選單用「From Current」複製、以「Write Normal／Write 133%／Write 200%」寫入指定模式。校驗值由該工具自動處理。\n（選單名稱依工具版本可能略有不同。）\n\n為什麼 script 做不到：三模位於 Flash 檔案偏移 0x35000／0x35300／0x35600，而 script 的 write 指令只能寫暫存器，位址上限 0xFFFF。',
     'en': 'The exported script always writes to CURRENT - the GPO timing set this TCON actually outputs.\n\nTo place these values into Normal / 133% / 200%, finish the job in the official EM01 TCON UI: load this script into the TCON (it lands in CURRENT), then use the "Flash R/W" menu - "From Current" to copy, and "Write Normal / Write 133% / Write 200%" to store it into a mode. That tool handles the checksum for you.\n(Menu names may differ slightly between tool versions.)\n\nWhy a script cannot do this: the three mode slots live at file offsets 0x35000 / 0x35300 / 0x35600, while a script write command can only address registers, which stop at 0xFFFF.',
     'zh-CN': '导出的 script 一律写入 CURRENT，也就是这颗 TCON 实际输出的那一组 GPO Timing。\n\n若要把这组值放进 Normal／133%／200%，请在 EM01 官方 TCON UI 完成后半段：先用本 script 写入 TCON（进 CURRENT），再到「Flash R/W」菜单用「From Current」复制、以「Write Normal／Write 133%／Write 200%」写入指定模式。校验值由该工具自动处理。\n（菜单名称依工具版本可能略有不同。）\n\n为什么 script 做不到：三模位于 Flash 文件偏移 0x35000／0x35300／0x35600，而 script 的 write 指令只能写寄存器，地址上限 0xFFFF。' },
+  /* ══ v4.27.0：MNT 匯出後的提醒視窗 ═══════════════════════════════════════════
+     Bruce 2026-08-25 實測踩到的坑：官方 UI 匯入 script 之後**畫面不會自動重讀**，
+     GPO 分頁仍顯示舊的 timing ⇒ 他一度判定 wfg 匯出的 script 有 bug。
+     端到端往返驗證的結果是 script 逐值正確（18 條數位訊號、16 個欄位零差異），
+     缺的只有「按一次 Read」這個動作。所以這則提醒的性質是**流程缺口**，
+     不是錯誤警告 —— 文案不要寫成「發生錯誤」。 */
+  'wfg.gpoRdTitle': {
+    'zh-TW': '匯出完成 — 匯入 TCON UI 後還有一步',
+    'en': 'Export done - one more step after loading it into the TCON UI',
+    'zh-CN': '导出完成 — 导入 TCON UI 后还有一步' },
+  'wfg.gpoRdName': {
+    'zh-TW': '匯入 Script 後，記得到 TCON UI 的 GPO 分頁按一次「Read」',
+    'en': 'After loading the script, press "Read" once on the GPO tab of the TCON UI',
+    'zh-CN': '导入 Script 后，记得到 TCON UI 的 GPO 分页按一次「Read」' },
+  'wfg.gpoRdWhere': {
+    'zh-TW': '官方 UI 匯入 Script 之後不會自動重新讀取，畫面上仍會顯示舊的 timing。按下 GPO 分頁的 Read，才會顯示這次匯出的設定。',
+    'en': 'The official UI does not re-read after loading a script, so the screen still shows the old timing. Press Read on the GPO tab to see the settings you just exported.',
+    'zh-CN': '官方 UI 导入 Script 之后不会自动重新读取，画面上仍会显示旧的 timing。按下 GPO 分页的 Read，才会显示这次导出的设定。' },
+  'wfg.gpoRdOk': { 'zh-TW': '知道了', 'en': 'Got it', 'zh-CN': '知道了' },
   /* 🔴 v4.23.0 改字：Line Buffer **已經**跟著 code 連動了（由 First Line Read 帶入），
      再說「沒有跟著 Code 連動」就是對使用者說謊。改成「需要你確認」，
      兩項各自的說明由 ackDclkName / ackLbName 分別講清楚是哪一種。 */
