@@ -1976,23 +1976,37 @@
                 <span data-i18n="wfg.lineBuffer">Line Buffer:</span>
                 <!-- 🔴 v4.23.0：`max` 與 `step` 由 wfgFlrSync() 依機種／gate type 動態改寫
                      （上限：EM01 11／EM02 7／E512 7／E501 7／E503 6／EN01 8；
-                       dual gate 下 step 變 0.5，因為 FLR 可以是奇數 ⇒ LB 會出現 x.5）。
-                     HTML 上留 max="15" 只是「JS 還沒跑」的保底，不是真正的規則。 -->
+                       dual gate 下 step 變 0.5，因為 FLR 可以是奇數 ⇒ LB 會出現 x.5。
+                       🔴 Bruce 2026-08-25：「LineBuffer 出現 .5，只存在 Dual gate 的情況下。」
+                       single gate 下 step 永遠是 1，且 LB ＝ FLR（整數 register）⇒ 結構上無小數）。
+                     HTML 上留 max="15" 只是「JS 還沒跑」的保底，不是真正的規則。
+                     🔴 v4.24.0：NB 機種下 `readOnly` 由 wfgFlrSync() 打開 —— NB 的真值是
+                     PRE_BLK_RD_NO ＋ ST_LINE_RD 兩顆 register，Line Buffer 只是它們的衍生視圖。 -->
                 <input type="number" id="wfg-linebuf" value="6" min="0" max="15" step="1" style="width:48px;padding:2px 4px;font-size:11px;color:#e2e8f0;background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnLineBufferChange(this.value)">
               </label>
-              <!-- ══ v4.23.0：First Line Read（MNT 三顆）══════════════════════════
+              <!-- ══ v4.23.0：First Line Read（**只有 MNT 三顆**）════════════════════
                    Bruce 2026-08-24：「在 WFG 分頁的 T-CON Group 裡面，First Line Read
                    也要秀在這個 Group 裡面，而且改變 Line Buffer 會有連動到 First Line Read，
-                   改變 First Line Read 也會連動到 Line Buffer」。 -->
+                   改變 First Line Read 也會連動到 Line Buffer」。
+                   🔴 v4.24.0：NB 機種下這一格**整個移除** —— wfgFlrSync() 會同時
+                   `display:none` 與 `disabled`，且 wfgOnFirstLineReadChange() 直接 return，
+                   確保它不會以任何形式（focus／tab／程式化呼叫）影響 NB 的行為。
+                   Bruce 2026-08-25：「只要遇到是 NB TCON 的匯入，就要把 First Line Read 移除，
+                   改由這兩個參數。」 -->
               <label id="wfg-flr-wrap" style="display:none;align-items:center;gap:3px;font-size:11px;color:#94a3b8;white-space:nowrap;">
                 <span data-i18n="wfg.firstLineRead">First Line Read:</span>
                 <input type="number" id="wfg-flr" value="6" min="0" max="11" step="1" title="reg_st_line_rd" data-i18n-title="wfg.flrTitle" style="width:48px;padding:2px 4px;font-size:11px;color:#e2e8f0;background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnFirstLineReadChange(this.value)">
               </label>
-              <!-- ══ v4.23.0：NB 三顆沒有 First Line Read，改用兩個 register 相加 ═════
+              <!-- ══ v4.23.0／v4.24.0：NB 三顆沒有 First Line Read，用兩個 register 相加 ═══
                    Bruce 2026-08-24：「NB 的 TCON 沒有所謂的 First Line Read……有個 Register
                    名稱叫做 ST_Line_RD 跟 PRE_BLK_RD_NO，這兩個 register 相加即為 First Line Read。
                    所以如果選到 NB 的時候，要秀出這兩個 register 在 line buffer 底下，
-                   替換掉 First Line Read」。 -->
+                   替換掉 First Line Read」。
+                   🔴 v4.24.0（方案 C）：這兩格**都是真值、都可自由輸入**，Line Buffer 變唯讀。
+                   Bruce 2026-08-25：「Line buffer 在 Single Gate 下並沒有強制要求 PRE 的這個
+                   都不動，它有可能是 0、1 或 2，因為這個是前面的 dummy 訊號。」
+                   `max` 由 wfgFlrSync() 依**該 register 自己的位元寬**改寫
+                   （E501/E503 兩格 6 bit ⇒ 63；EN01 START_LINE_RD 8 bit ⇒ 255、PRE_BLK_DATA 6 bit ⇒ 63）。 -->
               <span id="wfg-nbflr-wrap" style="display:none;align-items:center;gap:6px;font-size:11px;color:#94a3b8;white-space:nowrap;">
                 <label style="display:flex;align-items:center;gap:3px;">
                   <span>ST_LINE_RD:</span>
@@ -2652,8 +2666,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4230"></script>
-<script src="common/i18n.js?v=20260825wfg4230"></script>
+<script src="common/version.js?v=20260825wfg4240"></script>
+<script src="common/i18n.js?v=20260825wfg4240"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -6477,13 +6491,38 @@ let wfgTconInternalMode = false;
    ── 切 GATE TYPE 時保留哪一個 ───────────────────────────────────────────
    保留 **LB**、重算 FLR。理由：這與 v4.23.0 之前的行為完全一致（舊版切 gate type
    時 `wfgLineBuffer` 不動、位移自動變兩倍），使用者原本會的操作與結果都不變。 */
+/* ══ 🔴 v4.24.0：NB 改成方案 C —— 真值換成兩個 register，Line Buffer 變唯讀 ═══════
+   Bruce 2026-08-25 裁示（逐字）：
+     「NB 的連動做法其實是 PRE_BLK_RD_NO 加上 ST_LINE_RD。Line buffer 在 Single Gate 下
+       並沒有強制要求 PRE 的這個都不動，它有可能是 0、1 或 2，因為這個是前面的 dummy 訊號。
+       在 NB 的算法中，是前面的 dummy 訊號再加上 ST_LINE_RD 才會是第一筆 data 的位置。
+       所以在 WFG 網頁上面，只要遇到是 NB TCON 的匯入，就要把 First Line Read 移除，
+       改由這兩個參數。而且這兩個參數只要有輸入數值就可以改變，反而 Line buffer 變成是唯讀。」
+
+   ── 真值鏈（MNT 與 NB 不同，這是本版的核心）────────────────────────────────
+     MNT（EM01／EM02／E512）：`wfgFirstLineRead` 是真值（＝ `reg_st_line_rd` 一顆 register）
+                              `wfgLineBuffer` 是衍生視圖，兩者雙向連動（v4.23.0 行為，一行未改）
+     NB （E501／E503／EN01）：`wfgNbStLine` 與 `wfgNbPreBlkRd` **兩個都是真值**
+                              `wfgFirstLineRead` ＝ 兩者相加，**衍生**
+                              `wfgLineBuffer`    ＝ FLR ÷ mult，**衍生且唯讀**
+
+   🔴 v4.23.0 的「PRE_BLK_RD_NO 維持不變、差額全部落在 ST_LINE_RD」這條**反向回推規則已整個移除**。
+      它建立在「PRE 是固定的」這個錯誤前提上。實測 `~/TCON/Model` 全庫真檔推翻了它：
+        E503 74 檔 single gate：(ST,PRE) 出現 (6,0)×24、(2,4)×13、(2,2)×6、(4,2)×5
+        E501 188 檔 single gate：(5,1)×59、(4,2)×55、(3,3)×42、(4,3)×3
+      —— PRE 實際取過 0/1/2/3/4/6，**沒有任何一顆機種的 PRE 是固定值**。 */
 let wfgLineBuffer = 6;          // 衍生視圖（RX 行；dual gate 下可能是 x.5）
-let wfgFirstLineRead = 6;       // 🔴 真值（TX／檢視行）＝ MNT `reg_st_line_rd`
-                                //    ＝ NB `ST_LINE_RD + PRE_BLK_RD_NO`
-/* NB 專用：FLR 由兩個暫存器相加而成，這裡存**其中的 PRE_BLK_RD_NO**，
-   另一個 `ST_LINE_RD = wfgFirstLineRead − wfgNbPreBlkRd`（見 wfgNbStLineRd()）。
-   只存一個是刻意的：存兩個就會有「兩個之和 ≠ FLR」的第三種不一致狀態。 */
+let wfgFirstLineRead = 6;       // MNT：真值（＝ `reg_st_line_rd`）；NB：衍生（＝ ST + PRE）
+/* NB 真值①：PRE_BLK_RD_NO（EN01 的區塊名是 PRE_BLK_DATA）＝ 前置 dummy 行數。 */
 let wfgNbPreBlkRd = 0;
+/* NB 真值②：ST_LINE_RD（EN01 的區塊名是 START_LINE_RD）＝ 第一筆資料的延遲量。
+   🔴 v4.24.0 由「衍生量（FLR − PRE）」升格為**獨立真值** —— 兩格都可自由輸入，
+   兩者相加才是「第一筆 data 的位置」（Bruce 2026-08-25）。 */
+let wfgNbStLine = 6;
+/* NB 的 `PANEL_MODE`（Data Mapping）。存**匯入時讀到的原值**，−1 ＝ 沒有讀到過。
+   刻意只存不改：single gate 的合法值有 0（Normal）與 1（ZigZag/ZINV）兩個，
+   自動同步成單一值會把使用者的面板 Data Mapping 型態改掉（見 wfgNbPanelModeForExport）。 */
+let wfgNbPanelMode = -1;
 /* ══ 各型號的 Line Buffer 上限（Bruce 2026-08-24 逐一指定，以他為準）═════════════
      EM01 11 ／ EM02 7 ／ E512 7 ／ E501 7 ／ E503 6 ／ EN01 8
    Dual Gate 的 First Line Read 上限 ＝ 這個數字 × 2。
@@ -6504,15 +6543,24 @@ function wfgLbMax() {
   return (isFinite(m) && m > 0) ? m : WFG_LB_MAX_FALLBACK;
 }
 function wfgFlrIsDual() { return wfgFrame && wfgFrame.gateType === 'dual'; }
+/* v4.24.0：NB 與 MNT 的真值鏈不同，全檔一律問這一支，不要各自寫 `wfgTconClass() === 'NB'`。 */
+function wfgFlrIsNb() { return !!(typeof wfgTconClass === 'function' && wfgTconClass() === 'NB'); }
+/* NB 兩格各自的 register 位元寬上限（找不到型號 ⇒ 退回 6 bit 的 63，與 v4.23.0 的 HTML 相同）。 */
+function wfgNbRegMax(which) {
+  var m = (typeof WFG_NB_MODELS !== 'undefined') && WFG_NB_MODELS[wfgTconKey()];
+  var f = m && m[which];
+  return f ? ((1 << (f.msb - f.lsb + 1)) - 1) : 63;
+}
 function wfgFlrMult() { return wfgFlrIsDual() ? 2 : 1; }
 function wfgFlrMax() { return wfgLbMax() * wfgFlrMult(); }
 /* 波形位移（檢視行）。全檔**唯一**的來源 —— 舊式 `isDual ? wfgLineBuffer*2 : wfgLineBuffer`
    已全部改呼叫這一支，不得再出現第二份寫法。 */
 function wfgLbShift() { return wfgFirstLineRead | 0; }
-/* NB 的 ST_LINE_RD（＝ FLR 減掉 PRE_BLK_RD_NO）。負值代表 PRE_BLK 被設得比 FLR 還大，
-   由 wfgFlrSync() 事先夾住，這裡再夾一次當保險。 */
-function wfgNbStLineRd() { return Math.max(0, (wfgFirstLineRead | 0) - (wfgNbPreBlkRd | 0)); }
+/* NB 的 ST_LINE_RD。🔴 v4.24.0 起這是**獨立真值**，不再由 FLR 減 PRE 推出來。 */
+function wfgNbStLineRd() { return Math.max(0, wfgNbStLine | 0); }
 window.wfgLbShift = wfgLbShift;
+window.wfgFlrIsNb = wfgFlrIsNb;
+window.wfgNbRegMax = wfgNbRegMax;
 window.wfgLbMax = wfgLbMax;
 window.wfgFlrMax = wfgFlrMax;
 window.wfgNbStLineRd = wfgNbStLineRd;
@@ -18820,57 +18868,121 @@ function wfgFlrApply(flr, opt) {
   _wfgFlrMsg = '';
   if (opt.clamp && v > mx) {
     _wfgFlrMsg = t('wfg.flrClamped')
-      .replace('{v}', String(v)).replace('{max}', String(mx))
-      .replace('{m}', (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
-      .replace('{lb}', String(wfgLbMax()));
+      /* 🔴 v4.24.0 修（v4.23.0 起就存在的缺陷，實測抓到）：`{max}` 在這句訊息裡出現
+         **兩次**（「超過上限 {max}…已夾到 {max}」），而 `String.replace(字串, …)`
+         只會換掉第一個 —— 線上實際顯示的是「…已夾到 {max}」這種半成品。
+         與 v4.16.0 的 `{cur}` 同一個坑，一律改用全域正規式。 */
+      .replace(/\{v\}/g, String(v)).replace(/\{max\}/g, String(mx))
+      .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
+      .replace(/\{lb\}/g, String(wfgLbMax()));
     v = mx;
   }
   wfgFirstLineRead = v;
-  /* NB：PRE_BLK_RD_NO 不能大於 FLR（否則 ST_LINE_RD 會變負）。夾在這裡是唯一出口。
-     🔴 這個夾值**一定要講出來** —— 使用者只是把 Line Buffer 往下調，
-     另一個 register 卻被動了；不講就是靜默改資料（v4.16.2 那一輪 Bruce 明示過的原則）。
-     只在 NB 機種講，MNT 沒有這兩格，講了是噪音。 */
-  if (wfgNbPreBlkRd < 0) wfgNbPreBlkRd = 0;
-  if (wfgNbPreBlkRd > wfgFirstLineRead) {
-    if (wfgTconClass && wfgTconClass() === 'NB') {
-      var _m = WFG_NB_MODELS && WFG_NB_MODELS[wfgTconKey()];
-      var _msg = t('wfg.flrPbClamped')
-        .replace('{from}', String(wfgNbPreBlkRd | 0))
-        .replace('{to}', String(wfgFirstLineRead))
-        .replace('{pb}', (_m && _m.preBlkRd && _m.preBlkRd.key) || 'PRE_BLK_RD_NO');
-      _wfgFlrMsg = _wfgFlrMsg ? (_wfgFlrMsg + '　' + _msg) : _msg;
-    }
-    wfgNbPreBlkRd = wfgFirstLineRead;
+  /* ══ 🔴 v4.24.0：NB 的一次性 seed（**不是** v4.23.0 那條被移除的反向連動）════════
+     NB 的真值是 ST／PRE 兩顆 register，而在三條邊界上只有 FLR 這一個數字延續得下來：
+       ① MNT → NB 換機種（MNT 根本沒有 PRE 這顆 register —— register bank 的
+          `reg_pre_blk_rd` description 逐字就是 "Unused."）
+       ② 舊設定檔只帶 `firstLineRead` / `lineBuffer`、沒帶 `nbStLineRd`
+       ③ preset / 重設
+     這三條路徑必須把 FLR 拆成兩個數字才有 NB 的真值可用，所以留下「PRE 不動、差額落在 ST」。
+     🔴 與 v4.23.0 被移除的那條的差別是**它不再是使用者可觸發的規則**：
+        NB 的 Line Buffer 已改為唯讀、也沒有 First Line Read 欄位，使用者永遠走不到這裡；
+        使用者能動的只有 ST 與 PRE 兩格，而那兩格走 wfgNbApplyRegs()，完全不做任何回推。 */
+  if (wfgFlrIsNb()) {
+    var _p = Math.max(0, Math.min(wfgNbPreBlkRd | 0, wfgFirstLineRead));
+    wfgNbPreBlkRd = _p;
+    wfgNbStLine = wfgFirstLineRead - _p;
   }
   wfgFlrSync();
   return wfgFirstLineRead;
 }
+/* ══ 🔴 v4.24.0：NB 專用 —— 直接設兩顆 register 的真值 ═══════════════════════════
+   FLR 與 Line Buffer 都是它們的衍生量，這一支是 NB 唯一的寫入口。
+
+   ── 夾值政策（承接 v4.23.0 的兩條，但這裡的界線換了一個）─────────────────────
+   ① 夾的是**該 register 自己的位元寬**（E501/E503 兩格都 6 bit ⇒ 63；
+      EN01 的 `START_LINE_RD` 是 8 bit ⇒ 255、`PRE_BLK_DATA` 6 bit ⇒ 63）。
+      這是硬體硬限制，唯一解、沒有爭議，而且夾了一定顯示紅字。
+   ② **不夾 Line Buffer 的上限。** 理由是結構性的：ST＋PRE 超過上限時，
+      要夾哪一格是**沒有唯一解**的 —— 那正是 Bruce 這一輪否決掉的那種「自己發明規則」。
+      超界改走持續紅字警示（wfgFlrSync 的政策②），使用者看得見、也調得回來。
+      實測真檔本來就有超界的：E503 出現過 ST=44／PRE=9（＝53，遠超上限 6×2）。 */
+function wfgNbApplyRegs(st, pre, opt) {
+  opt = opt || {};
+  _wfgFlrMsg = '';
+  var m = (typeof WFG_NB_MODELS !== 'undefined') && WFG_NB_MODELS[wfgTconKey()];
+  var stMax = wfgNbRegMax('stLineRd'), pbMax = wfgNbRegMax('preBlkRd');
+  var s = Math.max(0, Math.round(Number(st) || 0));
+  var p = Math.max(0, Math.round(Number(pre) || 0));
+  var msgs = [];
+  if (opt.clamp && s > stMax) {
+    msgs.push(t('wfg.nbRegClamped')
+      .replace('{f}', (m && m.stLineRd && m.stLineRd.key) || 'ST_LINE_RD')
+      .replace('{from}', String(s)).replace(/\{to\}/g, String(stMax)));
+    s = stMax;
+  }
+  if (opt.clamp && p > pbMax) {
+    msgs.push(t('wfg.nbRegClamped')
+      .replace('{f}', (m && m.preBlkRd && m.preBlkRd.key) || 'PRE_BLK_RD_NO')
+      .replace('{from}', String(p)).replace(/\{to\}/g, String(pbMax)));
+    p = pbMax;
+  }
+  if (msgs.length) _wfgFlrMsg = msgs.join('　');
+  wfgNbStLine = s;
+  wfgNbPreBlkRd = p;
+  wfgFirstLineRead = s + p;      // 🔴 NB 的 FLR 是衍生量，只有這一行寫得到它
+  wfgFlrSync();
+  return wfgFirstLineRead;
+}
+window.wfgNbApplyRegs = wfgNbApplyRegs;
 /* 由 FLR 重算衍生量、寫回三（或四）個輸入框、更新上下限與警示文字。
    🔴 這是**唯一**的收斂點 —— 換機種、換 gate type、匯入、preset 都只要呼叫它。 */
 function wfgFlrSync() {
   var mult = wfgFlrMult();
+  var isNb = wfgFlrIsNb();
+  /* 🔴 v4.24.0：NB 的 FLR 是 ST＋PRE 的衍生量。這裡再算一次是**收斂保險** ——
+     任何路徑若不小心直接動了 wfgNbStLine／wfgNbPreBlkRd，到這一支就會被拉回一致。 */
+  if (isNb) wfgFirstLineRead = Math.max(0, (wfgNbStLine | 0)) + Math.max(0, (wfgNbPreBlkRd | 0));
   wfgLineBuffer = wfgFirstLineRead / mult;          // dual gate 下可能是 x.5
-  var isNb = (wfgTconClass && wfgTconClass() === 'NB');
   var mx = wfgFlrMax(), lbMx = wfgLbMax();
   var lb = document.getElementById('wfg-linebuf');
   if (lb) {
     lb.max = String(lbMx);
+    /* 🔴 Bruce 2026-08-25：「LineBuffer 出現 .5，只存在 Dual gate 的情況下。」
+       single gate ⇒ step 1，LB ＝ FLR（整數 register）⇒ 結構上不可能有小數。 */
     lb.step = (mult === 2) ? '0.5' : '1';
+    /* 🔴 這一行不可以少。v4.24.0 開發中實測抓到：改寫這個區塊時把它漏掉，
+       畫面上的 Line Buffer 就**永遠停在使用者上一次打進去的字**，
+       而內部 FLR 是對的 —— 症狀是「唯讀擋住了寫入，但欄位還顯示被拒的值」，
+       比靜默夾值更糟（v3.19.1 那一輪 Bruce 明示過同一件事）。 */
     if (document.activeElement !== lb) lb.value = String(wfgLineBuffer);
+    /* v4.24.0：NB 的 Line Buffer 改唯讀（真值是兩顆 register）。
+       用 `readOnly` 而不是 `disabled` —— disabled 的欄位在部分瀏覽器連值都讀不到／選不起來，
+       使用者會看不到這個數字；readOnly 仍可讀、可選取、可複製，只是改不動。 */
+    lb.readOnly = isNb;
+    lb.title = isNb ? t('wfg.lbNbReadOnly') : '';
+    lb.style.opacity = isNb ? '0.65' : '';
+    lb.style.cursor = isNb ? 'not-allowed' : '';
   }
   var fl = document.getElementById('wfg-flr');
   if (fl) {
     fl.max = String(mx);
+    /* 🔴 v4.24.0：NB 一律移除 First Line Read —— 不只藏起來，連欄位本身都停用，
+       確保它不會以任何形式（focus、tab、程式化 dispatch）影響 NB 的行為。
+       Bruce 2026-08-25：「只要遇到是 NB TCON 的匯入，就要把 First Line Read 移除。」 */
+    fl.disabled = isNb;
     if (document.activeElement !== fl) fl.value = String(wfgFirstLineRead);
   }
+  /* NB 兩格的 `max` 是**該 register 自己的位元寬**，不是 Line Buffer 換算出來的 FLR 上限
+     —— 兩格相加才受 FLR 上限約束，而那條約束走紅字警示不走夾值（見 wfgNbApplyRegs）。 */
   var st = document.getElementById('wfg-nb-stlinerd');
   if (st) {
-    st.max = String(mx);
+    st.max = String(wfgNbRegMax('stLineRd'));
     if (document.activeElement !== st) st.value = String(wfgNbStLineRd());
   }
   var pb = document.getElementById('wfg-nb-preblkrd');
   if (pb) {
-    pb.max = String(mx);
+    pb.max = String(wfgNbRegMax('preBlkRd'));
     if (document.activeElement !== pb) pb.value = String(wfgNbPreBlkRd | 0);
   }
   /* MNT 顯示一格 First Line Read；NB 顯示 ST_LINE_RD ＋ PRE_BLK_RD_NO 兩格取代它
@@ -18885,9 +18997,11 @@ function wfgFlrSync() {
   var warn = '';
   if (wfgFirstLineRead > mx) {
     warn = t('wfg.flrOverLimit')
-      .replace('{v}', String(wfgFirstLineRead)).replace('{max}', String(mx))
-      .replace('{m}', (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
-      .replace('{lb}', String(lbMx));
+      /* 同上：這句雖然目前每個佔位符只出現一次，仍統一走全域正規式 ——
+         兩句訊息共用同一組佔位符，只修一句下次翻譯改動時又會分岔。 */
+      .replace(/\{v\}/g, String(wfgFirstLineRead)).replace(/\{max\}/g, String(mx))
+      .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || wfgTconKey().toUpperCase())
+      .replace(/\{lb\}/g, String(lbMx));
   } else if (_wfgFlrMsg) {
     warn = _wfgFlrMsg;
   }
@@ -18907,6 +19021,10 @@ function wfgFlrAfterChange() {
 }
 /* 使用者改 Line Buffer（RX 行，dual gate 下允許 .5）⇒ FLR = LB × mult。 */
 function wfgOnLineBufferChange(val) {
+  /* 🔴 v4.24.0：NB 的 Line Buffer 是唯讀衍生值。`readOnly` 已經擋掉打字，
+     這一行擋的是**程式化呼叫**（匯入提醒卡片、preset、外部 script）——
+     少了它就會出現「畫面唯讀、但別的路徑改得動」這種只有跨層測試才抓得到的破口。 */
+  if (wfgFlrIsNb()) { wfgFlrSync(); return; }
   var mult = wfgFlrMult();
   var step = (mult === 2) ? 0.5 : 1;
   var lbv = wfgFlrRound(val, step);
@@ -18918,42 +19036,48 @@ function wfgOnLineBufferChange(val) {
 window.wfgOnLineBufferChange = wfgOnLineBufferChange;
 /* 使用者改 First Line Read（MNT）⇒ LB = FLR / mult（可能是 .5）。 */
 function wfgOnFirstLineReadChange(val) {
+  if (wfgFlrIsNb()) return;   // v4.24.0：NB 沒有這個欄位（同上，擋程式化呼叫）
   wfgFlrApply(parseInt(val, 10) || 0, { clamp: true });
   wfgFlrAfterChange();
 }
 window.wfgOnFirstLineReadChange = wfgOnFirstLineReadChange;
-/* ══ 🔴 NB 的兩格 ═══════════════════════════════════════════════════════════════
-   正向（改任一格 → FLR/LB 跟著變）是唯一解，沒有爭議：FLR = ST_LINE_RD + PRE_BLK_RD_NO。
-
-   🔴 **反向（改 LB / FLR → 回推兩格）不是唯一解。** 本版採用的規則，寫明供覆核：
-       **PRE_BLK_RD_NO 維持不變，差額全部落在 ST_LINE_RD。**
-     理由：原廠 `.model` 的 Comment 把兩者講得很清楚 ——
-       `ST_LINE_RD`      = "Set first data output delay from the first input line"（延遲量）
-       `PRE_BLK_RD_NO`   = "Set the pre-dummy lines before first valid data out"（dummy 行數）
-     dummy 行數是面板／應用決定的，通常不會因為想調延遲就跟著動；要調的是延遲。
-     而且這條規則是**可逆的** —— 把 LB 改回原值就會回到原本那兩個數字（沒被夾住的話）。
-   若 FLR 被調到比 PRE_BLK_RD_NO 還小，PRE_BLK_RD_NO 會被夾到 FLR（ST_LINE_RD 變 0），
-   這時反向不可逆，所以夾值會走 `wfgFlrSync()` 的警示路徑讓使用者看得見。 */
+/* ══ 🔴 v4.24.0：NB 的兩格 —— 各自獨立，兩格都可自由輸入 ══════════════════════
+   Bruce 2026-08-25：「這兩個參數只要有輸入數值就可以改變，反而 Line buffer 變成是唯讀。」
+   ⇒ 只有正向：FLR = ST_LINE_RD + PRE_BLK_RD_NO，Line Buffer = FLR ÷ mult。
+     **沒有任何反向回推**，因此也不存在「該把差額算給誰」這個沒有唯一解的問題。
+   🔴 特別是 PRE_BLK_RD_NO **在 Single Gate 下也不是固定值**（Bruce 明示：「它有可能是
+      0、1 或 2，因為這個是前面的 dummy 訊號」），全庫真檔實測到 0/1/2/3/4/6 都出現過。 */
 function wfgOnNbStLineRdChange(val) {
-  var v = Math.max(0, parseInt(val, 10) || 0);
-  wfgFlrApply(v + (wfgNbPreBlkRd | 0), { clamp: true });
+  wfgNbApplyRegs(parseInt(val, 10) || 0, wfgNbPreBlkRd, { clamp: true });
   wfgFlrAfterChange();
 }
 window.wfgOnNbStLineRdChange = wfgOnNbStLineRdChange;
 function wfgOnNbPreBlkRdChange(val) {
-  var v = Math.max(0, parseInt(val, 10) || 0);
-  var stKeep = wfgNbStLineRd();          // 先記住目前的 ST_LINE_RD
-  wfgNbPreBlkRd = v;
-  wfgFlrApply(stKeep + v, { clamp: true });
+  wfgNbApplyRegs(wfgNbStLine, parseInt(val, 10) || 0, { clamp: true });
   wfgFlrAfterChange();
 }
 window.wfgOnNbPreBlkRdChange = wfgOnNbPreBlkRdChange;
-/* 換 GATE TYPE：**保留 LB、重算 FLR**（與 v4.23.0 之前的行為一致，見宣告處的說明）。
-   換機種：LB 與 FLR 都不動，只重算上下限與警示（政策②）。 */
+/* 換 GATE TYPE：
+     MNT ⇒ **保留 LB、重算 FLR**（與 v4.23.0 之前的行為一致，見宣告處的說明）。
+     NB  ⇒ 🔴 **保留兩顆 register、Line Buffer 跟著變**。這是方案 C 的必然結果：
+            ST／PRE 是晶片裡真正存在的數字，不會因為使用者在 wfg 上改了 gate type 就變；
+            會變的是「一條輸入行對應幾條輸出行」，也就是 Line Buffer 這個衍生視圖。
+   換機種：值都不動，只重算上下限與警示（政策②）。 */
 function wfgFlrOnGateTypeChange() {
+  if (wfgFlrIsNb()) { wfgFlrSync(); return; }
   wfgFlrApply(Math.round(wfgLineBuffer * wfgFlrMult()), {});
 }
 window.wfgFlrOnGateTypeChange = wfgFlrOnGateTypeChange;
+/* ══ v4.24.0：換機種時把 NB 的兩顆 register 種好 ═════════════════════════════════
+   MNT → NB 時只有 FLR 延續得下來（MNT 沒有 PRE 這顆 register，它的 `reg_pre_blk_rd`
+   在 register bank 裡的 description 逐字就是 "Unused."）⇒ 走 wfgFlrApply 的一次性 seed。
+   NB → NB 與 NB → MNT 都不需要動任何值（FLR ＝ ST＋PRE 本來就成立）。 */
+function wfgFlrSeedForModel(prevWasNb) {
+  if (!wfgFlrIsNb()) return;          // 切到 MNT：FLR 已經是真值，什麼都不用做
+  if (prevWasNb) { wfgFlrSync(); return; }   // NB → NB：兩顆 register 原樣保留
+  wfgFlrApply(wfgFirstLineRead | 0, {});     // MNT → NB：seed（PRE 不動、差額落在 ST）
+}
+window.wfgFlrSeedForModel = wfgFlrSeedForModel;
 
 // Show/hide TCON Internal checkbox based on mode
 function wfgUpdateTconInternalVisibility() {
@@ -26118,7 +26242,12 @@ function wfgResetToDefault() {
   _wfgIrOrder = [4, 5, 0, 1, 2, 3];
   /* v4.23.0：預設值仍是 Line Buffer 6（gateType 也一併被重設為 single ⇒ FLR 也是 6）。
      🔴 一律走 wfgFlrApply()，不再直接指派 wfgLineBuffer —— 直接指派會讓 FLR 與它脫鉤。 */
+  /* v4.24.0：NB 的兩顆 register 也一起回到預設（PRE 0 ／ ST 6 ⇒ FLR 6 ＝ 舊行為的同一個值）。
+     🔴 這裡不能只設 PRE 就靠 seed 推 ST —— 目前若是 MNT 機種，seed 那條路徑不會跑，
+        wfgNbStLine 會留著上一次在 NB 模式下的值，之後切到 NB 就冒出一個沒重設過的數字。 */
   wfgNbPreBlkRd = 0;
+  wfgNbStLine = 6;
+  wfgNbPanelMode = -1;
   wfgFlrApply(6 * wfgFlrMult(), {});
   // Reset LS global to defaults
   wfgLsGlobal = { mode: 'individual', phase: 12, vgh: 30, vgl: -10,   // v4.19.0：phase 預設 12
@@ -26321,6 +26450,8 @@ function wfgLoadPreset(presetName) {
      🔴 `clamp` 刻意不開：preset 是工具內建的既有資料，不該因為新加的上限被靜默改掉；
         真的超界會由 wfgFlrSync() 的持續警示講出來（政策②）。 */
   if (typeof preset.lineBuffer === 'number') {
+    /* v4.24.0：preset 沒有 NB 的兩顆 register 這個概念 ⇒ PRE 歸 0、ST 由 seed 帶（＝ FLR）。
+       MNT 機種完全不受影響（seed 只在 NB 才跑）。 */
     wfgNbPreBlkRd = 0;
     wfgFlrApply(Math.round(preset.lineBuffer * wfgFlrMult()), {});
   } else {
@@ -36675,6 +36806,11 @@ window.wfgExportConfig = function() {
     lineBuffer: wfgLineBuffer,
     firstLineRead: wfgFirstLineRead,
     nbPreBlkRd: wfgNbPreBlkRd,
+    /* v4.24.0：NB 的兩顆 register 都是真值，兩個都要存。
+       只存 `firstLineRead` ＋ `nbPreBlkRd` 也還原得回來，但那是「靠減法」的還原 ——
+       等於把 v4.23.0 那條被移除的回推規則又偷偷寫進檔案格式裡。直接存兩個數字。 */
+    nbStLineRd: wfgNbStLineRd(),
+    nbPanelMode: wfgNbPanelMode,
     currentMode: wfgCurrentMode,
     pulseItems: wfgPulseItems.map(function(p) {
       return { chIdx: p.chIdx, range: p.range, mode: p.mode, expanded: p.expanded };
@@ -37167,7 +37303,15 @@ window.wfgImportConfig = function(jsonStr, options) {
      所以**舊設定檔匯入後波形逐值不變**。
      🔴 這一段必須在 `wfgFrame`（含 gateType）已經套用之後才執行，否則 mult 會用到舊值。 */
   wfgNbPreBlkRd = (typeof config.nbPreBlkRd === 'number') ? Math.max(0, config.nbPreBlkRd | 0) : 0;
-  if (typeof config.firstLineRead === 'number') {
+  wfgNbPanelMode = (typeof config.nbPanelMode === 'number') ? (config.nbPanelMode | 0) : -1;
+  /* v4.24.0：新欄位 `nbStLineRd`（NB 真值②）。只有在目前是 NB 機種時才吃它 ——
+     MNT 機種的真值是 `firstLineRead` 那一顆 register，兩者不可互相覆蓋。
+     舊設定檔（v4.23.0 以前）沒有這一格 ⇒ 走既有的 firstLineRead／lineBuffer 路徑，
+     由 wfgFlrApply 的一次性 seed 拆出 ST，**波形逐值不變**（FLR 就是舊版實際用的位移量）。 */
+  var _cfgSt = (typeof config.nbStLineRd === 'number') ? Math.max(0, config.nbStLineRd | 0) : -1;
+  if (wfgFlrIsNb() && _cfgSt >= 0) {
+    wfgNbApplyRegs(_cfgSt, wfgNbPreBlkRd, {});
+  } else if (typeof config.firstLineRead === 'number') {
     wfgFlrApply(config.firstLineRead, {});
   } else if (typeof config.lineBuffer === 'number') {
     wfgFlrApply(Math.round(config.lineBuffer * wfgFlrMult()), {});
@@ -37759,13 +37903,18 @@ window.wfgSyncTconSelects = wfgSyncTconSelects;
 function wfgCodeOnTconChange(v, opts) {
   if (!WFG_TCON_CODECS[v]) return;
   if (wfgFrame.codeTcon === v) { wfgSyncTconSelects(); return; }
+  var _prevWasNb = wfgFlrIsNb();      // v4.24.0：要在改 codeTcon **之前**取，否則問到的是新機種
   wfgFrame.codeTcon = v;
   /* 🔴 v4.23.0：換機種 ⇒ Line Buffer 上限、以及「MNT 一格 First Line Read / NB 兩格
      ST_LINE_RD＋PRE_BLK_RD_NO」的顯示切換都要跟著換。
      **值本身刻意不動** —— 目前值若超過新機種的上限，走政策②（保留＋持續警示），
      不替使用者把他早就設好的波形改掉。 */
   _wfgFlrMsg = '';        // 上一個機種留下的夾值訊息，換機種就不再成立
+  wfgFlrSeedForModel(_prevWasNb);   // v4.24.0：MNT→NB 要把 FLR 拆成 ST／PRE 兩顆 register
   wfgFlrSync();
+  /* v4.24.0：PANEL_MODE 的原值屬於**上一顆晶片**匯入的那份 code，換機種就不再成立。
+     留著它會讓匯出時「原值相容就寫回」這條路徑寫出一個不屬於這顆晶片的值。 */
+  wfgNbPanelMode = -1;
   wfgCodeSetStatus('', -1);   // 顯示中的 checksum 屬於上一個型號匯入的檔，換型號就不再成立
   wfgShowDclkError('');       // 上一個機種留下的換算錯誤訊息，換機種就不再成立
   /* 🔴 換機種**原則上不動 TX DCLK** —— TX DCLK 是真值，UI DCLK 是它乘上機種係數的視圖。
@@ -37912,6 +38061,12 @@ var _wfgAckPushing = false;      // 防止「卡片寫欄位 → 欄位回拉卡
 function wfgAckDclkReadOnly() {
   return (typeof wfgDclkModeIsVar === 'function') && wfgDclkModeIsVar();
 }
+/* 🔴 v4.24.0：匯入提醒卡片上的 Line Buffer 是**第二個入口**，主畫面改唯讀而它沒改，
+   就會出現「工具列改不動、卡片改得動」這種只有跨層測試抓得到的破口（v4.21.0 已踩過一次
+   同型缺陷：只驗 wfgGpios 全過、跨層才發現數值欄沒推回卡片）。
+   沿用 TX DCLK 在變頻應用下那套 `auto` 機制：欄位 disabled ＋ 該項直接算「已確認」，
+   而不是讓使用者卡在一個他改不動的必填項上。 */
+function wfgAckLbReadOnly() { return wfgFlrIsNb(); }
 function wfgAckIsOpen() {
   var m = document.getElementById('wfg-ack-mask');
   return !!(m && !m.classList.contains('hidden'));
@@ -38001,6 +38156,10 @@ function wfgAckSyncLbLimits() {
   if (!li) return;
   li.max = String(wfgLbMax());
   li.step = (wfgFlrMult() === 2) ? '0.5' : '1';
+  /* v4.24.0：NB ⇒ 唯讀（真值是兩顆 register）。放在這裡而不是 wfgAckShow()／
+     wfgAckPullFromLive() 各寫一次 —— 這一支是那兩條路徑共同的收斂點，
+     換機種、切 gate type 也都會經過它。 */
+  li.disabled = wfgAckLbReadOnly();
 }
 window.wfgAckSyncLbLimits = wfgAckSyncLbLimits;
 function wfgAckSyncDclkLimits() {
@@ -38198,7 +38357,7 @@ function wfgAckSync() {
     var card = document.getElementById(items[i][1]);
     var inp = document.getElementById(items[i][2]);
     var err = document.getElementById(items[i][3]);
-    var auto = (key === 'dclk' && wfgAckDclkReadOnly());
+    var auto = (key === 'dclk') ? wfgAckDclkReadOnly() : wfgAckLbReadOnly();
     var r = auto ? { ok: true } : wfgAckValidate(key);
     /* 🔴 v4.5.1：只看「目前值合不合法」，不再要求使用者一定要碰過。 */
     var good = auto || r.ok;
@@ -38206,7 +38365,8 @@ function wfgAckSync() {
     if (card) card.classList.toggle('done', good);
     if (inp) { inp.classList.toggle('ok', good); inp.classList.toggle('bad', !auto && !r.ok); }
     if (err) {
-      var msg = auto ? t('wfg.ackDclkVarMode') : (r.ok ? '' : r.err);
+      var msg = auto ? t(key === 'dclk' ? 'wfg.ackDclkVarMode' : 'wfg.ackLbNbAuto')
+                     : (r.ok ? '' : r.err);
       err.textContent = msg;
       err.classList.toggle('hidden', !msg);
     }
@@ -39156,6 +39316,9 @@ function wfgCodeExportRun(targetKey) {
     if (out.skipped && out.skipped.length) {
       msgs.push(t('wfg.codeNbSkipped').replace('{n}', String(out.skipped.length)).replace('{s}', out.skipped.join('、')));
     }
+    /* 🔴 v4.24.0：PANEL_MODE 沒寫也要講。排在最前面 —— 「有一列你以為會寫、其實沒寫」
+       是這份 xlsx 裡最容易被漏看、後果又最實在的一件事。 */
+    if (out.pmSkipped) msgs.unshift(t('wfg.codeNbPmSkipped').replace('{m}', codec.label));
     msgs.push(t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
   }
   /* v4.16.0：用「不是目前機種」的格式匯出時，把這件事講清楚 ——
@@ -40472,6 +40635,15 @@ var WFG_NB_MODELS = {
        `key` 是官方 CheckList 的 `Check Item` 欄位名，必須與 `.model` 的區塊名一字不差。 */
     stLineRd: { reg: 0x353, msb: 5, lsb: 0, key: 'ST_LINE_RD' },
     preBlkRd: { reg: 0x352, msb: 5, lsb: 0, key: 'PRE_BLK_RD_NO' },
+    /* v4.24.0：Data Mapping 的 `PANEL_MODE`。出處逐字：
+       `RM8100x_for_FAE_20240925_20250311.model`
+         [ Data_Mapping ] → [ PANEL_MODE ]  RegAddr0 0x320  RegMsb0 1  RegBits0 2 → 0x320[1:0]
+         Comment0 0: Normal Data Mapping ／ Comment1 1: ZigZag Mode (ZINV Mode)
+         Comment2 2: Half Source Driver (HSD) Mode ／ Comment3 3: LTPS Mode
+       與官方 UI `dm_panel_mode_addr_3e_dict['RM81004'] = [0x320, 1, 0, 0x350, 7, 6]` 相符。
+       `pmCanonicalDual`：dual gate 沒有匯入原值時可寫的正規值（實測 25/25 個 E503 dual 真檔皆為 2）。 */
+    panelMode: { reg: 0x320, msb: 1, lsb: 0, key: 'PANEL_MODE' },
+    pmCanonicalDual: 2,
     sizes: [4096]
   },
   e501: {
@@ -40491,6 +40663,13 @@ var WFG_NB_MODELS = {
          同樣帶著 `ST_LINE_RD + PRE_BLK_RD_NO Please set to 3/6/9 in different panel mode`。 */
     stLineRd: { reg: 0x423, msb: 5, lsb: 0, key: 'ST_LINE_RD' },
     preBlkRd: { reg: 0x422, msb: 5, lsb: 0, key: 'PRE_BLK_RD_NO' },
+    /* v4.24.0：出處 `RM81010_for_FAE_20240509_20241127.model` 與
+       `RM81011_for_FAE_20231025_20240509.model`（兩份逐項相同）：
+         [ Data_Mapping ] → [ PANEL_MODE ]  RegAddr0 0x3F0  RegMsb0 1  RegBits0 2 → 0x3F0[1:0]
+       與官方 UI `dm_panel_mode_addr_3e_dict['RM81010'] = [0x3F0, 1, 0, 0x420, 7, 6]` 相符。
+       實測 188 份 E501 真檔：dual 28/29 為 2（另 1 份是 3）⇒ 正規值 2。 */
+    panelMode: { reg: 0x3F0, msb: 1, lsb: 0, key: 'PANEL_MODE' },
+    pmCanonicalDual: 2,
     sizes: [131072]
   },
   en01: {
@@ -40541,10 +40720,48 @@ var WFG_NB_MODELS = {
           但那仍是**建議值不是上限**，兩者相符只當交叉佐證。 */
     stLineRd: { reg: 0x41F, msb: 7, lsb: 0, key: 'START_LINE_RD' },
     preBlkRd: { reg: 0x41E, msb: 5, lsb: 0, key: 'PRE_BLK_DATA' },
+    /* ══ v4.24.0：EN01 的 PANEL_MODE 在**別的位址**，而且只有新版 .model 才有 ════════
+       出處 `RCP2/RomCodeProcessUI_2.0.16.0/ModelFiles/RM81008.model`：
+         [ Data_Mapping ] → [ PANEL_MODE ]  RegAddr0 0x390  RegMsb0 1  RegBits0 2 → **0x390[1:0]**
+         列舉與另外兩顆相同（0 Normal／1 ZigZag(ZINV)／2 HSD／3 LTPS）
+       ⚠ wfg 目前拿來查 ST/PRE 的那一份 `RomCodeProcessUI_1.1.15.0/RM81008_20251226.model`
+         **沒有 Data_Mapping 這個區塊**，位址只在 2.0.16.0 那份出現。兩份的 `RD_MODE`
+         逐項相同（0x41C[2:0]），交叉一致，所以採信 2.0.16.0 這一份。
+       🔴 `pmCanonicalDual` **刻意不給** EN01：它的 `RD_MODE` 是 3 bit、可能是 MUX3/MUX4/MUX6，
+          而 wfg 只有 single/dual、匯出也不寫 EN01 的 RD_MODE（v4.23.0 起的既有決定）。
+          只寫 PANEL_MODE 卻不寫 RD_MODE，會在晶片上湊出一組互相矛盾的設定。
+          ⇒ EN01 只走「匯入原值相容才原樣寫回」，永遠不發明值。 */
+    panelMode: { reg: 0x390, msb: 1, lsb: 0, key: 'PANEL_MODE' },
     sizes: null                                     // 大小不固定（6354 / 4096 都見過）
   }
 };
 
+/* ══ v4.24.0：`PANEL_MODE` 的列舉與「哪些值配哪個 gate type」═══════════════════
+   列舉逐字取自三份 `.model` 的 `[ PANEL_MODE ]` Comment0~3（三顆完全相同）。
+   `WFG_NB_PM_OK` 取自官方 UI 的**讀回**邏輯（`RomCodeProcessUI.py:29015-29021`）——
+   刻意用讀回端而不是寫入端：寫入端 single 一律寫 1（原始碼註解：「用 hand mode 都是
+   z-zag，很少用 hand mode 是 normal pixel」），那是它的偏好，不是硬體約束；
+   讀回端接受 {0,1} 才是「哪些值算 single」的真正定義。 */
+var WFG_NB_PM_NAMES = ['Normal Data Mapping', 'ZigZag (ZINV)', 'Half Source Driver (HSD)', 'LTPS'];
+var WFG_NB_PM_OK = { single: [0, 1], dual: [2] };
+/* 匯出時要寫進 `PANEL_MODE` 的值。回傳 −1 ＝ **不寫這一列**。
+   ── 三條規則，優先序由上而下 ──────────────────────────────────────────────
+   ① 匯入時讀到的原值與目前 Gate Type 相容 ⇒ **原值寫回**（位元一個不變，round-trip 成立）
+   ② 沒有可沿用的原值、而且是 dual gate ⇒ 寫該型號的正規值 2（HSD）
+      — E501/E503 實測 53/54 個 dual 真檔就是 2，唯一解、有據。
+   ③ 其餘（single gate 且沒有可沿用的原值）⇒ **不寫**，並在匯出後明講。
+      🔴 這一條是本版最重要的取捨：single 的合法值有 0（Normal）與 1（ZigZag/ZINV）兩個，
+         實測 188 份 E501 真檔裡 103 份用 0、56 份用 1 —— 挑任何一個都會把一半客戶的
+         面板 Data Mapping 型態改掉。官方 UI 敢一律寫 1，是因為它的 Data Mapping 分頁
+         同時在改那整組 hand-mode 對照表；wfg 沒有那張表，沒有資格替使用者決定。 */
+function wfgNbPanelModeForExport(m) {
+  if (!m || !m.panelMode) return -1;
+  var ok = WFG_NB_PM_OK[wfgFrame.gateType] || [];
+  if (wfgNbPanelMode >= 0 && ok.indexOf(wfgNbPanelMode) >= 0) return wfgNbPanelMode;   // ①
+  if (wfgFrame.gateType === 'dual' && isFinite(m.pmCanonicalDual)) return m.pmCanonicalDual;  // ②
+  return -1;                                                                           // ③
+}
+window.wfgNbPanelModeForExport = wfgNbPanelModeForExport;
 /* register → 檔案偏移。回傳 -1 ＝ 這個 register 不在這份 code 檔裡
    （EN01 的某個 bank 被停用時會發生，是正常狀況，不是錯誤）。 */
 function wfgNbRegToFile(m, ctx, reg) {
@@ -40969,6 +41186,28 @@ function wfgNbParse(rawBuf, fname, key) {
   } else {
     det += '\n' + t('wfg.codeFlrMiss').replace('{m}', m.label);
   }
+  /* ══ 🔴 v4.24.0：`PANEL_MODE`（Others → Data Mapping）═══════════════════════════
+     Bruce 2026-08-25：「只要是 NB 的那個 UI 的 source code 裡面要用到的，就要一起做。」
+     官方 UI 的 Gate Type 下拉（`comboBox_49`）**同時**寫兩顆 register
+     （`RomCodeProcessUI.py:29874-29884 get_object_to_dm_info()`）：
+        single → PANEL_MODE 1、RD_MODE 0 ／ dual → 2、1 ／ tri → 3、2
+     讀回時（同檔 :29015-29021）single 接受 PANEL_MODE ∈ {0,1}、dual 接受 2、tri 接受 3。
+     ⇒ **single 有兩個合法值**，這是後面「匯出不發明值」那條規則的全部理由。
+     實測 `~/TCON/Model`：E503 74 檔 rd=0→pm=1 全部、rd=1→pm=2 全部；
+     E501 188 檔 rd=0→pm=0 有 103 份、pm=1 有 56 份，rd=1→pm=2 有 28 份。 */
+  var _pm = wfgNbReadField(buf, m, ctx, m.panelMode);
+  if (_pm >= 0) {
+    det += ' / PANEL_MODE=' + _pm + ' (' + (WFG_NB_PM_NAMES[_pm] || '?') +
+           ' @0x' + wfgEm02Hex(m.panelMode.reg, 3) + ')';
+    /* 一致性檢查：只在 gate type 推得出來時做（EN01 的 RD_MODE 有 MUX 值 ⇒ gateType 為 null）。
+       🔴 不一致時**不改任何值** —— 照實講，讓使用者自己判斷哪一個才對（政策②的同一條原則）。 */
+    var _ok = WFG_NB_PM_OK[gateType];
+    if (_ok && _ok.indexOf(_pm) < 0) {
+      det += '\n' + t('wfg.codeNbPmMismatch').replace('{m}', m.label)
+               .replace('{pm}', String(_pm)).replace('{pmn}', WFG_NB_PM_NAMES[_pm] || '?')
+               .replace('{rd}', String(rdRaw)).replace('{gate}', gateType.toUpperCase());
+    }
+  }
   if (miss.length) det += '\n' + t('wfg.codeNbRegMiss').replace('{s}', miss.join(', '));
   if (comboMiss.length) det += '\n' + t('wfg.codeComboNoChannel').replace('{s}', comboMiss.join(', '));
   var overflow = [];
@@ -40990,9 +41229,12 @@ function wfgNbParse(rawBuf, fname, key) {
   return { ok: true, signals: sig, frame: frame, cks: cks,
            gateType: gateType, applied: solid.length, detail: det,
            /* v4.23.0：`nbPreBlkRd` 一定要跟著回去 —— 只有總和的話，
-              匯出時無法還原「哪一份落在哪個 register」。 */
+              匯出時無法還原「哪一份落在哪個 register」。
+              v4.24.0：兩顆都是真值 ⇒ `nbStLineRd` 也一起回去，不再由 FLR 減 PRE 推。 */
            firstLineRead: (_flr >= 0) ? _flr : undefined,
-           nbPreBlkRd: (_flr >= 0) ? _pb : undefined };
+           nbStLineRd: (_flr >= 0) ? _st : undefined,
+           nbPreBlkRd: (_flr >= 0) ? _pb : undefined,
+           panelMode: (_pm >= 0) ? _pm : undefined };
 }
 
 /* ── 型號無關的 NB 匯出器（產 .xlsx）─────────────────────────────────────
@@ -41025,6 +41267,20 @@ function wfgNbBuildXlsx(key, opt) {
   if (m.layout === 'A' && m.rdMode) {
     _nbFrameRow('RD_MODE', wfgNbOff(m.rdMode.reg, m.rdMode.msb, m.rdMode.lsb),
                 (wfgFrame.gateType === 'dual') ? 1 : 0);
+  }
+  /* ══ 🔴 v4.24.0：`PANEL_MODE` —— 官方 UI 的 Gate Type 是「一鍵寫兩顆」════════════
+     `RomCodeProcessUI.py:29874-29884`：single→(1,0)、dual→(2,1)、tri→(3,2)。
+     值怎麼決定見 `wfgNbPanelModeForExport()`；回 −1 代表刻意不寫，要講出來。
+     `Check Item` 欄用 `.model` 的區塊名 `PANEL_MODE`（三顆相同），寫錯名字官方 UI 會靜默略過。 */
+  var pmSkipped = false;
+  if (m.panelMode) {
+    var _pmOut = wfgNbPanelModeForExport(m);
+    if (_pmOut >= 0) {
+      _nbFrameRow(m.panelMode.key,
+                  wfgNbOff(m.panelMode.reg, m.panelMode.msb, m.panelMode.lsb), _pmOut);
+    } else {
+      pmSkipped = true;
+    }
   }
   if (m.stLineRd && m.preBlkRd) {
     /* 兩格各自的位元寬上限。超界一律夾 ＋ 記進 `clamped`（沿用 v4.16.2 Bruce 裁示的
@@ -41096,7 +41352,7 @@ function wfgNbBuildXlsx(key, opt) {
   if (!sigCnt) return { ok: false, reason: t('wfg.codeErrNbNoRows') };
   var bytes = wfgBuildXlsx(rows);
   return { ok: true, bytes: bytes, count: cnt, dropped: dropped, rows: rows,
-           skipped: skipped, clamped: clamped,
+           skipped: skipped, clamped: clamped, pmSkipped: pmSkipped,
            dropKey: m.dropKey || 'wfg.codeNbDropped',
            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
 }
@@ -41186,10 +41442,20 @@ function wfgCodeApplyToWfg(res) {
        🔴 `clamp` 不開 —— 這是 code 檔裡**實際存在**的值，不管它是不是超過我們認知的上限，
           都不該被靜默改掉；真的超界會由 wfgFlrSync() 的持續警示講出來（政策②）。
           「code 說 12，工具顯示 11」是最糟的結果：使用者會以為晶片裡就是 11。 */
-    if (typeof res.firstLineRead === 'number' && res.firstLineRead >= 0) {
+    /* 🔴 v4.24.0：NB 走兩顆 register 的真值路徑（解析器同時回傳 `nbStLineRd` 與 `nbPreBlkRd`），
+       MNT 仍走單一 FLR。`clamp` 兩邊都不開 —— 這是 code 檔裡實際存在的值，
+       超界由 wfgFlrSync() 的持續警示講出來（政策②），不靜默改掉。 */
+    if (typeof res.nbStLineRd === 'number' && res.nbStLineRd >= 0 &&
+        typeof res.nbPreBlkRd === 'number' && res.nbPreBlkRd >= 0) {
+      wfgNbApplyRegs(res.nbStLineRd | 0, res.nbPreBlkRd | 0, {});
+    } else if (typeof res.firstLineRead === 'number' && res.firstLineRead >= 0) {
       wfgNbPreBlkRd = (typeof res.nbPreBlkRd === 'number' && res.nbPreBlkRd >= 0) ? (res.nbPreBlkRd | 0) : 0;
       wfgFlrApply(res.firstLineRead | 0, {});
     }
+    /* v4.24.0：`PANEL_MODE`（Data Mapping）。只有 NB 三顆讀得到；MNT 一律回到 −1
+       ——「上一份 NB code 的 panel_mode」不屬於現在這份 MNT code。
+       🔴 只**記下來**不拿它去改 Gate Type：Gate Type 的真值仍然是 `RD_MODE`（見上一段）。 */
+    wfgNbPanelMode = (typeof res.panelMode === 'number' && res.panelMode >= 0) ? (res.panelMode | 0) : -1;
     wfgUpdateRxDclk(); wfgClampTconDclk(); wfgUpdateTconHtotal();
     wfgSyncBlankInputs(); wfgSyncDclkUi();
     /* 🔴 v4.16.0：DCLK 的機種檢核走**與換機種完全同一支**。
