@@ -22,6 +22,181 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.26.1 — 2026-08-25 ｜ PATCH ｜ ⚠ 輸出變更
+
+**修正 EM01 Flash 三模 GPO Timing 的模式標籤：`Normal`／`133%`／`200%` 改由 slot 在檔案裡的**固定位置**決定（`0x35000 = 200%`、`0x35300 = 133%`、`0x35600 = Normal`），不再用 `sys VRES ÷ reg_val` 推比例。Bruce 回報的「匯入非 Normal 的 timing，GPO Enable 只剩 XSTB 與 XPOL」是這個標籤錯誤造成的 —— 他點的「200%」實際載到的是 133% 那個半成品 slot。同一版順手在 Timing 選擇框每張卡片加上 `Enable n/18`，讓「這一組只燒了幾條」在**選之前**就看得見。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 判定表欄位 | 判定 | 依據 |
+|---|---|---|
+| 既有功能的輸出 | **PATCH ＋ `⚠ 輸出變更`** | 這是「修正為原本就該有的行為」（§2 案例 2、R1）：模式標籤本來就該指向那一模真正的位置。但同一個標籤在新舊版會載到不同的 slot ⇒ 依 R1 必須標 `⚠ 輸出變更` |
+| 操作流程 | **不變** | 匯入鈕、型號確認框、Timing 選擇框、「用選定的 Timing 匯入」全部原位，預設仍是 `CURRENT` |
+| 功能增減（移除） | **否** | 沒有任何一項原本做得到的事現在做不到 |
+| 功能增減（新增） | **不構成 MINOR**（見下方 🔴） | 卡片上多一個 `Enable n/18`，使用者**能做的事沒有多一件**（R3 的判準），只是同一張卡片多顯示一個已經解析出來的數字，性質同「文案」 |
+| R4（起始狀態／預設值） | 不適用 | 預設選項仍是 `CURRENT`，一個位元未動 |
+
+🔴 **不確定的地方，依 R2 補充第 3 點往低編，寫在這裡供 Bruce 覆核**：`Enable n/18` 這個新增顯示，字面上碰得到判定表「功能增減 ＝ **新增**獨立功能」那一格。我判成 **PATCH 不是 MINOR**，理由：它不是一個能被獨立使用的功能，而是既有卡片（原本就顯示 `CK1~CK4 SP_LINE`）多一欄同性質的既有解析結果；R3 的判準是「使用者能做的事有沒有多一件」，答案是沒有。**編低了下次可以補。**
+
+⚠ 輸出變更：**只影響「EM01 Flash 且檔案裡有三模 slot」的匯入**（全庫去重後 6 個檔）。拿 v4.26.0 以前建立的基線比對時，同一個標籤可能對到不同的 slot：
+
+| 標籤 | v4.26.0（用 `reg_val` 推） | v4.26.1（固定位置） |
+|---|---|---|
+| Bruce 的 `..._400perTimingReady_..._CKS_3FA884_...bin` 選「200%」 | 0x35300（實際是 133%，只有 2 條 enable） | **0x35000**（真正的 200%，8 條 enable） |
+| 同上，清單裡的項目 | `CURRENT / Normal / 200% / Normal`（**兩個 Normal**） | `CURRENT / 200% / 133% / Normal` |
+| `HSR_3Mode` 等三模都燒好的檔 | Normal／133%／200% | **完全相同**（實測見下方第 4 節） |
+
+---
+
+### 1. 這一版到底改了什麼（先講清楚，避免宣稱修了沒改的東西）
+
+程式碼層只動三處，全部在 `wfg.html`：
+
+| # | 位置 | 改動 |
+|---|---|---|
+| ① | `WFG_EM01_MODE_LABEL` ＋ `wfgEm01ModeLabelAt()`（新增） | 位置 → 模式的**表**：`k=0 → 200%`、`k=1 → 133%`、`k=2 → Normal` |
+| ② | `wfgEm01FindModeSlots()` | `ratio: sysVres / reg_val` **移除**，改成 `mode: WFG_EM01_MODE_LABEL[k]`；`normal`／`why` 改由位置決定（`why` 由 `byVres`／`noVresMatch`／`ambiguous` 變成 `byFixedOffset`） |
+| ③ | `wfgEm01ParseBin()` 的 `choices` 建構 ＋ `wfgTmgRender()` | `label` 取 `sl.mode`（原本是 `Math.round(ratio*100)` 拼出來的字串）；卡片第三行加 `Enable n/18`（新增 `_nEnAt()`） |
+
+🔴 **沒有動到的**：`wfgEm01SlotValid()`（哪些 slot 算數）、`wfgGpoDecodeAt()`（16 byte 版面）、`wfgEm01Sane()`、slot 的 `base2 = base1 + 0x100`、匯出路徑、其餘五顆型號。所以本版**不宣稱**修好了上述任何一項。
+
+### 2. 「GPO Enable 掉光」的真正原因（不是 WFG 把它弄丟了）
+
+Bruce 2026-08-25 逐字：
+
+> 「當我匯入的不是 Normal，是 200% 或者是其他（可能是 133%）時，在 GPO 的 Timing Enable 地方會 lost 掉，只留下 XSTB 跟 XPOL 這兩個訊號的 Enable 還在。」
+
+逐位元組追下去，`..._CKS_3FA884_...bin` 這份檔的 0x35300 那一組**本來就只燒了 XSTB 與 XPOL**：
+
+```
+0x35300 +0x0A0  a0 …  ← XSTB enable=1, r_dly=0x0797=1943
+0x35300 +0x0B0  e0 …  ← XPOL enable=1, toggle=1
+0x35300 +0x100 起的 16 筆（VST1…GPO1）byte0 全部是 0x20（enable=0），
+                只有 LC 那筆是 0x61（也沒有 enable）
+```
+
+而 0x35000 與 0x35600 兩組的 16 筆與 CURRENT 一樣有 8 條 enable。所以 **enable 沒有被程式丟掉，是使用者被錯誤的標籤帶到了半成品那一組**。這一點很重要：如果照字面去修「slot 路徑讀不到 rt8_tcon_2」，會修到一個不存在的問題。
+
+一併查證過、**確認沒有問題**的三件事（原本被懷疑是第二個缺陷）：
+
+- slot 的 `base2 = base1 + 0x100` **是對的**。官方 exe 的 `ReadFn`（VA 0x010EA8D8）對每個 slot 起點算 **0x200 bytes** 的校驗值、再整段搬 **0x300 bytes**，正好是「rt8_tcon_1 0x100 ＋ rt8_tcon_2 0x100 ＋ 校驗值」。
+- `base3`（rt8_tcon_3）在 slot 路徑沿用 CURRENT 的位置 —— slot 只有 0x300 bytes、**裡面沒有 rt8_tcon_3**，那是唯一可用的來源；它只參與未用位元的防呆，WFG 從不使用 ext1~ext8 的值。
+- `FRM_NO`（`gpoBase1 + 0x2E/0x30/0x32`）與 First Line Read 都跟著使用者選的那一組走，沒有混搭。
+
+### 3. 模式 ↔ 位置的權威依據（兩個互相獨立的來源）
+
+#### ① 官方 EM01 工具的機器碼
+
+`~/TCON/TCON_UI/EM01/Raydium_TCON_Tool_RM80100_v0.3.42Beta9/Raydium_TCON_Tool_RM80100_v0.3.42Beta9.exe`（20,879,872 B，Delphi/x86）
+
+- DFM 資源（fileOff 0x13D7F5B 起）：`Read Normal`／`Read 200%`／`Read 133%`／`Read All` 四個 `TMenuItem` **共用同一個** `OnClick` ＝ `PopupMenu_System_GPO_Mode_Flash_ReadClick`，**沒有 Tag 屬性** ⇒ 差別只能在程式碼裡。
+- 該處理函式（VA 0x01437BD4）用 `Sender` 比對 form 欄位位址決定索引：
+
+  | Sender | form 欄位 offset | 呼叫 |
+  |---|---|---|
+  | `Flash_ReadNormal` | +0x383C | `ReadFn(0)` |
+  | `Flash_Read200` | +0x3840 | `ReadFn(1)` |
+  | `Flash_Read133` | +0x3844 | `ReadFn(2)` |
+  | `Flash_ReadAll` | +0x3834 | `ReadFn(0)` `ReadFn(1)` `ReadFn(2)` |
+
+  （欄位 offset 取自 form 的 published field table：fileOff 0xC11174／0xC111A5／0xC111D3／0xC11117）
+- `ReadFn`（VA 0x010EA8D8）拿索引去查一張**寫死的位址表**（VA 0x01A142F4 ＝ fileOff 0xA12CF4，內容 `00 60 03 00 | 00 50 03 00 | 00 53 03 00`）：
+
+  ```
+  010EA90A  mov esi, dword ptr [eax*4 + 0x1a142f4]   ; eax = 0/1/2
+  010EA9B6  sub edi, 0x35000                          ; 換算成 0x35000 起的相對位移
+  010EAA96  push 0x300 ; memcpy 0x300 bytes           ; 一個 slot ＝ 0x300
+  ```
+  ⇒ **index 0 → 0x35600（Normal）、index 1 → 0x35000（200%）、index 2 → 0x35300（133%）**
+- 交叉檢查：同一份 exe 的 `Copy Data` 選單（`From Normal／200%／133%／Current`）走另一個處理函式 `PopupMenu_System_GPO_Mode_CopyDataClick`（VA 0x01437B34），索引用法完全一致（Normal→0、200%→1、133%→2、Current→**3**；`ReadFn` 收到 3 會在 0x010EA8F7 直接 return ⇒ 3 ＝ 不讀 slot ＝ CURRENT）。
+
+#### ② Bruce 2026-08-25 的標記檔
+
+`test_normal_133_200_CKS_3FA90C_20260825122155.bin`（262,144 B）—— 他把三模的 XSTB `R_DLY` 各設成不同的可辨識值。python 直接讀位元組：
+
+| 位置 | XSTB `R_DLY`（`+0xA8`，16-bit LE） | ⇒ 模式 |
+|---|---|---|
+| CURRENT @0x0500 | 1950 | 當下輸出的是 200% |
+| slot @0x35000 | **1950** | **200%** |
+| slot @0x35300 | **1943** | **133%** |
+| slot @0x35600 | **1960** | **Normal** |
+
+與 ① 的位址表逐項相符。同一份檔的 CURRENT CK4 `r_dly`／`f_dly` ＝ **1048／1928**，三個 slot 的 CK4 全為 0 —— 依 Bruce 的指示用它交叉確認 **CURRENT 的解析位置也沒取錯**。
+
+#### 🔴 註解一直是對的，是實作偏離了註解
+
+`wfg.html` v4.12.0 那段註解寫的就是 `0x35000→200%／0x35300→133%／0x35600→Normal`，**與上面兩個來源完全一致**。真正的問題是**程式沒有照那段註解做**，而是另外用 `reg_val` 推。本版把註解的推導理由改寫成上述兩個權威來源，並把實作換成位置表 —— 兩邊從此指向同一件事。
+
+### 4. 實測（headless Chrome ＋ CDP，走與使用者相同的按鈕路徑）
+
+流程：`#wfg-code-import-btn` → 型號確認框 `#wfg-imp-ok` → 檔案選取（覆寫 `HTMLInputElement.prototype.click` 餵真的 `File`）→ Timing 選擇框點 radio → `#wfg-tmg-ok` → 開「總表」按鈕讀 18 條的 `ENABLE`／`R_DLY`。每個 case 之前都 `localStorage.clear()` 再重載；可見性一律用 `getBoundingClientRect()` ＋ 祖先鏈的 computed style 量。
+
+**① 標記檔（最硬的驗收條件）** — `marker.bin`
+
+| 選項 | 檔案偏移 | UI 顯示 XSTB `R_DLY` | python 讀位元組 | Enable | python |
+|---|---|---|---|---|---|
+| CURRENT | 0x500 | 1950 | 1950 ✓ | 8/18 | 8 ✓ |
+| **200%** | 0x35000 | **1950** | 1950 ✓ | 8/18 | 8 ✓ |
+| **133%** | 0x35300 | **1943** | 1943 ✓ | 2/18 | 2 ✓ |
+| **Normal** | 0x35600 | **1960** | 1960 ✓ | 8/18 | 8 ✓ |
+
+**② Bruce 回報的那份檔** — `..._400perTimingReady_..._CKS_3FA884_...bin`
+
+| 選項 | 檔案偏移 | Enable（UI／python） | XSTB `R_DLY` |
+|---|---|---|---|
+| CURRENT | 0x500 | 8 ／ 8 ✓ | 1950 |
+| 200% | 0x35000 | 8 ／ 8 ✓ | 1950 |
+| 133% | 0x35300 | **2 ／ 2** ✓（檔案內容本來就只燒 2 條） | 1943 |
+| Normal | 0x35600 | 8 ／ 8 ✓ | 1950 |
+
+**③ slot 數不足的真檔（位置固定 ⇒ 沒燒的那一模就不出現，不補位）**
+
+| 檔案 | 出現的選項 | 與檔名 |
+|---|---|---|
+| `..._HSR_3Mode_DV1_0709__CKS_3FBE40_...bin` | CURRENT／200%(0x35000)／133%(0x35300)／Normal(0x35600) | `3Mode` ✓ |
+| `..._HSR100.200ok_..._CKS_3CFBE9_...bin` | CURRENT／**200%(0x35000)／Normal(0x35600)**，沒有 133% | `100.200ok` ✓ |
+| `..._HSR100ok)_from_3BDFBC_CKS_3BEBB4_...bin` | CURRENT／**Normal(0x35600)** | `100ok` ✓ |
+| `RM80100_BOE_FHD320_EEPROM_Initial_CKS_05B313_...bin` | **不跳選擇框**（EEPROM 沒有 slot） | ✓ |
+
+**④ EEPROM 零回歸**：EEPROM 檔走 CURRENT 路徑、連 slot 判斷都不會進來。v4.26.0 與 v4.26.1 兩版跑同一份 `RM80100_BOE_FHD320_EEPROM_Initial_...bin`，總表 18 列的 `enable/st_line/sp_line/r_dly/f_dly` **逐值相同、差異 0 筆**（見下方負控制）。
+
+**⑤ 負控制**：同一支探針對 **v4.26.0**（`git archive HEAD`）跑一次，必須重現兩個缺陷。結果見下方第 5 節 —— 探針對這兩個缺陷確實有鑑別力。
+
+### 5. 負控制：v4.26.0 vs v4.26.1 逐項對照
+
+同一支探針、同一組檔案，分別對 `git archive HEAD`（v4.26.0）與工作區（v4.26.1）各跑一次。
+
+**① 探針有沒有鑑別力 —— v4.26.0 必須重現兩個缺陷**
+
+| 檔案 | 檔案偏移 | v4.26.0 標籤 | v4.26.1 標籤 |
+|---|---|---|---|
+| 標記檔 ／ Bruce 那份 | 0x35000 | `Normal` ✗ | **`200%`** |
+| 標記檔 ／ Bruce 那份 | 0x35300 | `200%` ✗ | **`133%`** |
+| 標記檔 ／ Bruce 那份 | 0x35600 | `Normal` | `Normal` |
+
+⇒ v4.26.0 的清單是 `CURRENT / Normal / 200% / Normal`（**兩個 Normal**），而點下去標著 `200%` 的那一項載到的是 0x35300、**Enable 2/18**（只有 XSTB／XPOL）—— 與 Bruce 回報的症狀逐字相符。**探針抓得到這兩個缺陷。**
+
+**② 相同來源的解析結果沒有跟著改**
+
+同一個 `base` 在新舊兩版匯入後，總表 18 列的 `enable / st_line / sp_line / r_dly / f_dly` **逐值相同（差異 0 筆）**，六個檔全部如此。這證明本版**只改標籤、沒有動解析** —— 也就是說「非 Normal 的 slot 讀出來的內容」新舊版一模一樣，改變的只是「哪個標籤指向哪一個 slot」。
+
+**③ 三模都燒好的真檔：新舊版標籤完全相同**
+
+`HSR_3Mode`（0x35000→200%、0x35300→133%、0x35600→Normal）、`HSR100.200ok`（200%／Normal）、`HSR100ok`（Normal）三組檔，**新舊版標籤逐項一致**。舊的 `reg_val` 推導在這些檔上剛好都對 —— 這正是它一直沒被發現的原因，也說明本次改動不會影響已經燒好的正常檔。
+
+**④ EEPROM 零回歸**
+
+`RM80100_BOE_FHD320_EEPROM_Initial_CKS_05B313_...bin` 兩版都不跳選擇框、直接匯入，總表 18 列逐值相同（Enable 10/18、XSTB `R_DLY` 1810），**差異 0 筆**。
+
+**⑤ 探針自身的正確性**：每個 case 之前 `localStorage.clear()` 再重載（避免 autosave 把上一個 case 的狀態帶過來）；所有元素都用 `getBoundingClientRect()` ＋ 自己與祖先鏈的 computed style 判可見（不是數 DOM 節點）；點擊前先 `elementFromPoint` 確認沒有被蓋住；型號在每個 case 都回讀 `#wfg-ui-tcon` 確認是 `em01`。UI 讀到的每一個數字都另有 python 直接讀位元組的對照值，兩邊相符才算過。
+
+### 6. 沒有做、也不宣稱做到的事
+
+- slot 尾端那 2 bytes 校驗值：官方 exe 的 `0x0114DBF4` 是一支**逐位元**的 16-bit 移位暫存器（初值 0x0052），我用常見 CRC16 參數組（8 種多項式 × 初值／反轉／XOR 全排列）**沒有配出來**，因此**不宣稱**知道它的演算法。WFG 一直沒有讀也沒有寫這 2 bytes，本版同樣不碰。
+- 選擇框裡候選的**排列順序**維持「檔案偏移由小到大」（0x35000 → 0x35300 → 0x35600，也就是 `200% / 133% / Normal`），**沒有**改成官方選單的 `Normal / 200% / 133%` 順序 —— 那是一個沒有被要求的畫面改動，若要改請另外指示。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.26.0 — 2026-08-25 ｜ MINOR ｜ ⚠ 輸出變更
 
 **`E501` 這一個型號拆成 `E501A`（RM81010）與 `E501B`（RM81011）兩個。E501A 補上它自己的 AGBSFR DCLK 讀寫（`AGBS_DCLK_INTEGER`／`AGBS_DCLK_FLOATING POINT`，與 E501B 的 GBPLL 完全不同的機制），匯入自動帶入、匯出反寫；`GBPLL_EN_SDM` 從「猜這份檔能不能套公式」改成「檢查使用者選的型號與這份檔相不相符」的防呆。舊設定檔／autosave 裡的 `codeTcon: "e501"` 由別名表解成 `e501b`，波形與匯出位元完全不變。其餘五顆（EM01／EM02／E512／E503／EN01）一行未改。**

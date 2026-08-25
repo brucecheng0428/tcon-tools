@@ -2669,8 +2669,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260825wfg4260"></script>
-<script src="common/i18n.js?v=20260825wfg4260"></script>
+<script src="common/version.js?v=20260825wfg4261"></script>
+<script src="common/i18n.js?v=20260825wfg4261"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -39034,7 +39034,12 @@ function wfgTmgRender() {
       + c.label + (c.kind === 'current' ? ('　' + t('wfg.tmgDefaultTag')) : '')
       + '</div>'
       + '<div class="wfg-ack-where">' + note + '　' + wfgCodeOffLabel(c.base) + '</div>'
-      + '<div class="wfg-ack-now">CK1~CK4 SP_LINE = ' + (c.ckSp.join(' / ') || '-') + '</div>'
+      /* v4.26.1：`Enable n/18` 與同一行的 `CK1~CK4 SP_LINE` 一樣是純英數標籤，
+         三語完全相同 ⇒ 不進 i18n 表（進了會逼所有引用 common/i18n.js 的頁面
+         一起 bump `?v=`，而那些頁面這次一個字都沒改）。 */
+      + '<div class="wfg-ack-now">CK1~CK4 SP_LINE = ' + (c.ckSp.join(' / ') || '-')
+      + (isFinite(c.nEn) && c.nEn >= 0 ? ('　Enable ' + c.nEn + '/18') : '')
+      + '</div>'
       + '</div></label>';
   }
   box.innerHTML = html;
@@ -40420,44 +40425,95 @@ var WFG_EM01_LAYOUT = {
          +0x200  2 bytes 校驗值（位置與 EEPROM 各 bank 之間那 2 bytes 一致；
                  三個 slot 各不相同 —— 34BF / C691 / EEDD —— 符合校驗值的特徵，
                  但**演算法未驗證，不宣稱是 CRC**。WFG 沒有讀也沒有寫它。）
-   每個 slot 的 `reg_hap`／`reg_val`（rt8_tcon_1 rel 0x00／0x02）就是**那一模的有效區**，
-   所以 slot 自己會說自己是哪一模：
-       slot0 0x35000 → reg_val 720  ＝ 1440 ÷ 2      → 200%
-       slot1 0x35300 → reg_val 1080 ＝ 1440 ÷ 1.333  → 133%
-       slot2 0x35600 → reg_val 1440 ＝ VRES 本身      → Normal
+   🔴 **哪個位置是哪一模，是固定的**（v4.26.1 更正，兩個獨立來源見下方「判定方式與依據」）：
+       slot0 0x35000 → **200%**
+       slot1 0x35300 → **133%**
+       slot2 0x35600 → **Normal**
+   每個 slot 的 `reg_hap`／`reg_val`（rt8_tcon_1 rel 0x00／0x02）是**那一模的有效區**，
+   可以拿來顯示，但**不可以拿來判定它是哪一模**（理由見下）。
 
-   ── 為什麼不能假設「CURRENT 裡放的一定是 Normal」────────────────────────────
-   🔴 **會錯，而且正是 Bruce 這一份 code 踩到的**：
+   ── CURRENT 裝的不一定是 Normal（實測佐證）──────────────────────────────────
    `..._(Initial00_DCLK416M_PinMuxOK_HSR100.200ok_...)_CKS_3CFBE9_20260821175154.bin`
      CURRENT @0x0500  ck1~ck4 sp ＝ 733/735/734/736  ← 當下實際輸出的是 **200%** 那一組
-     slot0 @0x35000 reg_val 720   ck1~ck4 sp ＝ 733/735/734/736
-     slot2 @0x35600 reg_val 1440  ck1~ck4 sp ＝ 1455/1459/1456/1460  ← Normal
+     slot @0x35000（200%）  ck1~ck4 sp ＝ 733/735/734/736   ← 與 CURRENT 一致
+     slot @0x35600（Normal）ck1~ck4 sp ＝ 1455/1459/1456/1460
    與 Bruce 的描述完全吻合（「200% 的 stop line 大概 700 多、Normal 大概 1400 多」）。
-   ⚠ 另外注意：**CURRENT 自己的 `reg_val` 是 1440**（Normal 的值），GPO 卻是 200% 那一組
-   —— 所以「看 CURRENT 的 reg_val」判不出它現在裝的是哪一模，只有 **slot 的** reg_val 能替候選貼標籤。
+   ⚠ 注意：**CURRENT 自己的 `reg_val` 是 1440**（Normal 的值），GPO 卻是 200% 那一組
+   —— CURRENT 的 `reg_val` 判不出它現在裝的是哪一模。**slot 的 `reg_val` 同樣判不出**，
+   模式一律看**位置**（見下方「判定方式與依據」）。
 
-   ── 判定方式與依據（不是拿單一觀測當規則）────────────────────────────────────
-   採用 **「reg_val 等於 sys 的 reg_tmg_vres 的那個 slot ＝ Normal」**。
-   理由是它有物理意義（reg_val 是該模式的有效行數，sys 的 VRES 是面板本來的有效行數），
-   而不是「sp_line 比較大的就是 Normal」這種單一特徵。
+   ── 判定方式與依據（v4.26.1 改寫）────────────────────────────────────────────
+   🔴 **模式 ↔ 位置是固定對應，與 `reg_val` 一點關係都沒有。**
+   Bruce 2026-08-25 逐字：「Normal、133%、200%、Current 這些在併檔裡面的位置是固定的，
+   跟 REG_VAL 一點關係都沒有。」
 
-   `TCON/Model` 全庫 EM01 檔（去重 66 個）實測：
-     ・EEPROM 10 個檔 → **0 個有 slot**（與 Bruce 說的「EEPROM 不會有三模」一致）
-     ・Flash 56 個檔 → 51 個沒有 slot、3 個 1 個 slot、1 個 2 個 slot、1 個 3 個 slot
-     ・有 slot 的 5 個檔上，三條規則同時成立 5/5：
-         A「恰好一個 slot 的 reg_val ＝ sys VRES」 B「0x35600 一定存在」 C「0x35600 的 reg_val ＝ sys VRES」
-   檔名交叉印證（獨立於位元組分析）：`HSR_3Mode` → 3 個 slot；`HSR100.200ok` → 2 個 slot
-   （100% 與 200%）；`HSR100ok` 與 `PinMuxOK` → 1 個 slot。**數量與檔名一一對上。**
+   兩個**互相獨立**的權威來源，結論完全相同：
 
-   🔴 **v4.13.0 更正**：上面那段是在「那個位置應該要是 Normal」的錯誤前提下寫的。
-   Bruce 2026-08-23 給了正確模型：**那個位置的正式名稱是 CURRENT**，是晶片**實際輸出**
-   的 GPO timing；三個 slot 是**候選**，TCON 運行時由 MCU 決定把哪一組塞進 CURRENT。
-   ⇒ 「reg_val ＝ sys VRES 的 slot 就是 Normal」這條規則**仍然成立且仍在用**，
-      但它現在只負責**替候選貼標籤**（Normal／133%／200%），
-      **不再**用來決定要匯入哪一組 —— 那件事交給使用者選（見 `wfgTmgShow()`）。 */
+   ① 官方 EM01 工具的機器碼（`Raydium_TCON_Tool_RM80100_v0.3.42Beta9.exe`）
+      ・DFM 選單（fileOff 0x13D7F5B 起）：`Read Normal`／`Read 200%`／`Read 133%`／`Read All`
+        四個 TMenuItem **共用同一個** `OnClick` ＝ `PopupMenu_System_GPO_Mode_Flash_ReadClick`。
+      ・該處理函式（VA 0x01437BD4）用 `Sender` 比對欄位位址決定索引：
+          Sender ＝ Flash_ReadNormal (欄位 +0x383C) → ReadFn(**0**)
+          Sender ＝ Flash_Read200    (欄位 +0x3840) → ReadFn(**1**)
+          Sender ＝ Flash_Read133    (欄位 +0x3844) → ReadFn(**2**)
+          Sender ＝ Flash_ReadAll    (欄位 +0x3834) → ReadFn(0) ReadFn(1) ReadFn(2)
+        （欄位位址取自 form 的 published field table，fileOff 0xC11174／0xC111A5／0xC111D3／0xC11117）
+      ・`ReadFn`（VA 0x010EA8D8）用索引去查一張**寫死的位址表**（VA 0x01A142F4，
+        fileOff 0xA12CF4，內容 `35600 35000 35300`）：
+              index 0 → 0x35600      index 1 → 0x35000      index 2 → 0x35300
+        ⇒ **Normal ＝ 0x35600、200% ＝ 0x35000、133% ＝ 0x35300**
+      ・同一份 exe 的 `Copy Data` 選單（`From Normal/200%/133%/Current`）走
+        `PopupMenu_System_GPO_Mode_CopyDataClick`（VA 0x01437B34），索引用法完全一致
+        （Normal→0、200%→1、133%→2、Current→**3**；ReadFn 收到 3 會直接 return ⇒ 3 ＝ 不讀 slot）。
+
+   ② Bruce 2026-08-25 特地做的**標記檔**（`test_normal_133_200_CKS_3FA90C_20260825122155.bin`）
+      —— 他把三模的 XSTB `R_DLY` 各設成不同的可辨識值：
+          CURRENT @0x0500 → 1950      slot @0x35000 → **1950**（＝200%）
+          slot @0x35300  → **1943**（＝133%）      slot @0x35600 → **1960**（＝Normal）
+      與 ① 的位址表**逐項相符**。（同一份檔 CURRENT 的 CK4 `r_dly`/`f_dly` ＝ 1048／1928，
+      三個 slot 的 CK4 全為 0 ⇒ 一併交叉確認了 CURRENT 的解析位置沒有取錯。）
+
+   ── 為什麼 `reg_val` 推導會錯（這就是被修掉的那個 bug）────────────────────────
+   v4.12.0～v4.26.0 的**實作**用的是「`sysVres / reg_val` 算出比例再四捨五入成百分比」。
+   在**三模都燒好**的檔上它剛好都對（見下方全庫實測），所以一直沒被發現；
+   但只要有 slot 是**半成品或別的面板留下來的殘值**，它就會亂貼標籤：
+     Bruce 的 `..._(InitialCode01_DCLK432_NormalTimingOK_400perTimingReady)_..._CKS_3FA884_...bin`
+       sys VRES ＝ 2160
+       0x35000（**200%**）reg_val 2160 → 比例 1   → 被標成 `Normal`  ✗
+       0x35300（**133%**）reg_val 1080 → 比例 2   → 被標成 `200%`    ✗（hap 還是 2560，整組是殘值）
+       0x35600（**Normal**）reg_val 2160 → 比例 1 → 被標成 `Normal`  ✗（清單裡出現兩個 Normal）
+     ⇒ 使用者點「200%」實際拿到的是 **133% 那個半成品 slot**（只有 XSTB／XPOL 有 enable），
+       看起來就像「匯入非 Normal 就把 Timing Enable 弄丟了」。**那不是丟掉，是選錯 slot。**
+   🔴 **註解一直是對的（0x35000=200%／0x35300=133%／0x35600=Normal），是實作偏離了註解。**
+
+   ── slot 數不足時怎麼辦 ──────────────────────────────────────────────────────
+   位置固定 ⇒ **沒燒的那一模就不會出現在清單裡**，不需要也不可以「補位」。
+   `TCON/Model` 全庫實測（去重後有 slot 的 6 個 EM01 Flash 檔，非抽樣）：
+     `HSR_3Mode`（2 個檔）      → 0x35000 ＋ 0x35300 ＋ 0x35600（200%／133%／Normal）
+     `HSR100.200ok`（1 個檔）   → 0x35000 ＋ 0x35600（**200%／Normal**，沒有 133%）✓ 與檔名一致
+     `HSR100ok`／`PinMuxOK`（3 個檔）→ 只有 0x35600（**Normal**）✓ 與檔名一致
+   ＋ EEPROM 檔一律 0 個 slot（與 Bruce「三模只有 Flash EM01 才有」一致）。
+   在這 6 個檔上，固定位置表與舊的 `reg_val` 比例**結論相同**（都燒好了）；
+   差別只出現在半成品檔上 —— 那正是舊實作沒有鑑別力、而位置表有的地方。
+
+   ── 誰決定要匯入哪一組（v4.13.0 起不變）──────────────────────────────────────
+   **CURRENT** ＝ 晶片**實際輸出**的那一組；三個 slot 是**候選**，
+   運行時由 MCU 決定把哪一組塞進 CURRENT ⇒ CURRENT 可能裝著 200%（Bruce 的標記檔就是）。
+   所以「要匯入哪一組」一律交給使用者選（見 `wfgTmgShow()`），程式不替他決定。 */
 var WFG_EM01_MODE_SLOT_BASE = 0x35000;
 var WFG_EM01_MODE_SLOT_STRIDE = 0x300;
 var WFG_EM01_MODE_SLOT_COUNT = 3;
+/* 🔴 v4.26.1：模式標籤的**唯一**來源 —— 索引 k（＝ 檔案位置）決定，不看任何欄位值。
+   索引順序與官方 exe 的位址表 `35600 35000 35300`（VA 0x01A142F4）是同一件事，
+   只是那張表以「選單索引」為 key、這裡以「slot 索引」為 key：
+       k=0 → 0x35000 → 200%      k=1 → 0x35300 → 133%      k=2 → 0x35600 → Normal
+   ⚠ 這是**位置表**，不是推導。改動這一行等於宣稱位置變了，必須先有新的權威來源。 */
+var WFG_EM01_MODE_LABEL = ['200%', '133%', 'Normal'];
+function wfgEm01ModeLabelAt(base) {
+  var k = (base - WFG_EM01_MODE_SLOT_BASE) / WFG_EM01_MODE_SLOT_STRIDE;
+  return (k === (k | 0) && k >= 0 && k < WFG_EM01_MODE_SLOT_COUNT) ? WFG_EM01_MODE_LABEL[k] : '';
+}
+window.wfgEm01ModeLabelAt = wfgEm01ModeLabelAt;
 function wfgEm01SlotHapVal(buf, s) {
   return { hap: buf[s] | ((buf[s + 1] & 0x3F) << 8),      // reg_hap 14 bit
            val: buf[s + 2] | ((buf[s + 3] & 0x1F) << 8) };  // reg_val 13 bit
@@ -40480,22 +40536,23 @@ function wfgEm01SlotValid(buf, s) {
   }
   return ne >= 1;
 }
-/* 回傳 { slots: [{base, val, ratio}], normal: <base or -1>, why: '<原因碼>' }。
-   `normal < 0` ＝ 不切換（沒有 slot、或判不出唯一的 Normal）。 */
+/* 回傳 { slots: [{base, val, mode}], normal: <base or -1>, why: '<原因碼>' }。
+   🔴 v4.26.1：`mode` 由**位置**決定（`wfgEm01ModeLabelAt`），`val` 只供顯示。
+   `normal` ＝ Normal 那個 slot 的位置（沒燒就是 −1）。`sysVres` 已不參與任何判定，
+   保留參數只為不動呼叫端與 `window.wfgEm01FindModeSlots` 的既有簽名。 */
 function wfgEm01FindModeSlots(buf, sysVres) {
   var out = { slots: [], normal: -1, why: 'none' };
   for (var k = 0; k < WFG_EM01_MODE_SLOT_COUNT; k++) {
     var s = WFG_EM01_MODE_SLOT_BASE + k * WFG_EM01_MODE_SLOT_STRIDE;
     if (!wfgEm01SlotValid(buf, s)) continue;
     var hv = wfgEm01SlotHapVal(buf, s);
-    out.slots.push({ base: s, val: hv.val,
-                     ratio: (sysVres > 0 && hv.val > 0) ? (sysVres / hv.val) : 0 });
+    out.slots.push({ base: s, val: hv.val, mode: WFG_EM01_MODE_LABEL[k] });
   }
   if (!out.slots.length) return out;
-  var hit = [];
-  for (var i = 0; i < out.slots.length; i++) if (out.slots[i].val === sysVres) hit.push(out.slots[i]);
-  if (hit.length === 1) { out.normal = hit[0].base; out.why = 'byVres'; }
-  else { out.why = (hit.length === 0) ? 'noVresMatch' : 'ambiguous'; }
+  out.why = 'byFixedOffset';
+  for (var i = 0; i < out.slots.length; i++) {
+    if (out.slots[i].mode === 'Normal') { out.normal = out.slots[i].base; break; }
+  }
   return out;
 }
 window.wfgEm01FindModeSlots = wfgEm01FindModeSlots;
@@ -40636,6 +40693,15 @@ function wfgEm01ParseBin(rawBuf, fname, opt) {
     var s = wfgGpoDecodeAt(buf, b1, b1 + 0x100);
     return s ? [s[4].sp_line, s[5].sp_line, s[6].sp_line, s[7].sp_line] : [];
   }
+  /* v4.26.1：某一組實際燒了幾條 enable。放進選擇框，讓「這個 slot 是半成品」
+     在**選之前**就看得見（Bruce 2026-08-25 遇到的 133% slot 只有 XSTB／XPOL）。 */
+  function _nEnAt(b1) {
+    var s = wfgGpoDecodeAt(buf, b1, b1 + 0x100);
+    if (!s) return -1;
+    var n = 0;
+    for (var q = 0; q < s.length; q++) if (s[q].enable) n++;
+    return n;
+  }
   function _sameAsCurrent(b1) {
     if (b1 === L.base1) return true;
     for (var q = 0; q < 0xCC; q++) if (buf[L.base1 + q] !== buf[b1 + q]) return false;
@@ -40645,13 +40711,16 @@ function wfgEm01ParseBin(rawBuf, fname, opt) {
   var choices = null;
   if (modes.slots.length) {
     choices = [{ base: L.base1, kind: 'current', label: 'CURRENT', val: -1,
-                 ckSp: _ckSp(L.base1), sameAsCurrent: true }];
+                 ckSp: _ckSp(L.base1), nEn: _nEnAt(L.base1), sameAsCurrent: true }];
     for (var mi = 0; mi < modes.slots.length; mi++) {
       var sl = modes.slots[mi];
-      var pct = sl.ratio > 0 ? Math.round(sl.ratio * 100) : 0;
+      /* 🔴 v4.26.1：標籤直接取 slot 的位置對應，**不再**用 `sysVres / reg_val` 推比例。
+         舊寫法在半成品／殘值 slot 上會貼錯（清單出現兩個 `Normal`、133% 被標成 `200%`），
+         使用者照標籤點選就會拿到另一組 timing。 */
       choices.push({ base: sl.base, kind: 'slot', val: sl.val,
-                     label: (pct === 100 ? 'Normal' : (pct + '%')),
-                     ckSp: _ckSp(sl.base), sameAsCurrent: _sameAsCurrent(sl.base) });
+                     label: sl.mode || wfgEm01ModeLabelAt(sl.base) || ('0x' + sl.base.toString(16).toUpperCase()),
+                     ckSp: _ckSp(sl.base), nEn: _nEnAt(sl.base),
+                     sameAsCurrent: _sameAsCurrent(sl.base) });
     }
     var parts = [];
     for (var pi = 0; pi < choices.length; pi++) {
