@@ -126,8 +126,7 @@
   }
   .pg-selbar b { color: var(--accent); font-size: 13px; }
   .pg-seltarget { margin-left: 7px; font-size: 11px; font-weight: 700; color: var(--text-sub); }
-  .pg-seltarget.lit { color: #86efac; }
-  .pg-seltarget.all { color: #fcd34d; }
+  .pg-seltarget.none { color: #fcd34d; }
   .pg-minibtns { display: flex; gap: 6px; flex-wrap: wrap; }
   .pg-mini {
     padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: 6px;
@@ -1100,8 +1099,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260809pat350"></script>
-<script src="common/i18n.js?v=20260809pat350"></script>
+<script src="common/version.js?v=20260826pat351"></script>
+<script src="common/i18n.js?v=20260826pat351"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1281,6 +1280,9 @@
     }
   }
   function pgPaintCells(){
+    // 亮／暗組在這裡重算 —— 每一條會改到 pgLevels 的路徑（點格子、拉霸、±、亮暗反轉、
+    // 載入畫面）最後都會走到 pgPaintCells，把重算掛在這裡就不會有漏掉的路徑。
+    pgRebuildGroups();
     document.querySelectorAll('#pg-rows .pg-cell').forEach(function(cell){
       var r = +cell.getAttribute('data-r'), p = +cell.getAttribute('data-p'), c = +cell.getAttribute('data-c');
       var v = pgLevels[r][p][c];
@@ -1300,34 +1302,28 @@
     if (tg.mode === PG_LEVEL_MODES.SEL) {
       el.textContent = t('pat.applySel', { n: n });
       el.className = 'pg-seltarget';
-    } else if (tg.mode === PG_LEVEL_MODES.LIT) {
-      el.textContent = t('pat.applyLitGrp', { n: n });
-      el.className = 'pg-seltarget lit';
     } else {
-      el.textContent = t('pat.applyNoLit', { n: n });
-      el.className = 'pg-seltarget all';
+      el.textContent = t('pat.applyNone');
+      el.className = 'pg-seltarget none';
     }
     pgSyncGroupBtns();
   }
-  // 某一組是空的時候，對應的按鈕停用並說明原因，不要讓它變成按了沒反應
+  // 亮／暗組只有在「48 格恰好兩種亮度」時才成立（見 pgRebuildGroups）。
+  // 不成立時三顆按鈕一起停用，並用一句話說明是幾種亮度造成的，不要讓它變成按了沒反應。
   function pgSyncGroupBtns(){
+    var nV = pgGrpVals.length, ok = (nV === 2);
     var nL = Object.keys(pgGrpLit).length, nD = Object.keys(pgGrpDark).length;
+    var why = ok ? '' : (nV <= 1 ? t('pat.grpOneTip') : t('pat.grpMultiTip', { n: nV }));
     var bL = document.getElementById('pg-sel-lit'), bD = document.getElementById('pg-sel-dark');
-    if (bL) { bL.disabled = !nL; bL.title = nL ? t('pat.selLitTip', { n: nL }) : t('pat.noLitTip'); }
-    if (bD) { bD.disabled = !nD; bD.title = nD ? t('pat.selDarkTip', { n: nD }) : t('pat.noDarkTip'); }
-    // 亮暗反轉：兩組都要有成員才交換得起來
     var bS = document.getElementById('pg-swap');
-    if (bS) {
-      var can = !!(nL && nD);
-      bS.disabled = !can;
-      bS.title = can ? t('pat.swapTip', { l: nL, d: nD })
-                     : (!nD ? t('pat.swapNoDark') : t('pat.swapNoLit'));
-    }
+    if (bL) { bL.disabled = !ok; bL.title = ok ? t('pat.selLitTip',  { n: nL, v: pgGrpVals[1] }) : why; }
+    if (bD) { bD.disabled = !ok; bD.title = ok ? t('pat.selDarkTip', { n: nD, v: pgGrpVals[0] }) : why; }
+    if (bS) { bS.disabled = !ok; bS.title = ok ? t('pat.swapTip',    { l: pgGrpVals[1], d: pgGrpVals[0] }) : why; }
     var note = document.getElementById('pg-grp-note');
     if (note) {
-      if (!nD)      { note.textContent = t('pat.grpNoDark'); note.style.display = ''; }
-      else if (!nL) { note.textContent = t('pat.grpNoLit');  note.style.display = ''; }
-      else          { note.textContent = t('pat.grpLegend', { l: nL, d: nD }); note.style.display = ''; }
+      note.textContent = ok ? t('pat.grpLegend', { l: pgGrpVals[1], nl: nL, d: pgGrpVals[0], nd: nD })
+                            : (nV <= 1 ? t('pat.grpOne') : t('pat.grpMulti', { n: nV }));
+      note.style.display = '';
     }
   }
 
@@ -1368,18 +1364,37 @@
   }
 
   // ─── 亮組／暗組 ────────────────────────────────────────────────────
-  // 2026-08-03 規則變更：作用對象改由「畫面載入當下的結構」決定，不再看當下值。
-  //   亮組 ＝ 載入時值非 0 的格子；暗組 ＝ 載入時值為 0 的格子。
-  // 🔴 組員身分固定，不隨值改變。把暗組整批調到 64 之後它仍然是暗組，否則調過
-  //    一次就再也分不出兩組，「把暗的部分一起調到某個值」這件事只能做一次。
-  // 這同時讓「全部調成 0 之後動不了」與「長按遞減時作用集合縮小」兩個問題不存在
-  // ——集合本來就不是從當下值算出來的。
+  // 2026-08-26 規則變更（依 Bruce 指示）：分組改為**按下按鈕的當下、依 48 格的實際
+  // 灰階值即時計算**，不再沿用載入畫面時的快照。
+  //   • 48 格恰好只有兩種相異灰階 → 大的那個值是亮組、小的那個值是暗組
+  //     （例：暗 L4／亮 L128 → L128 那些是亮組）
+  //   • 三種以上、或只有一種 → 亮暗之分不成立，兩組皆空、按鈕停用（見 pgSyncGroupBtns）
+  //
+  // 為什麼改掉舊規則（2026-08-03 的「載入當下的結構」＋「非 0 即亮」）：
+  //   1. `pgRebuildGroups()` 只在 pgReloadUnit()（＝載入畫面）呼叫，之後怎麼編輯都不重算
+  //      → 使用者編輯過後分組就對不上畫面。
+  //   2. 判準是「值 !== 0」而不是兩個值比大小 → L4／L128 這種交錯圖樣裡 L4 也算「亮」，
+  //      整個 48 格都進亮組、暗組是空的，「選取暗組」變成永遠停用。
+  //   3. 實測預設畫面 horiz256 走的是編輯區不適用分支（48 格清 0）→ 亮組永遠是空集合，
+  //      之後切到手動 4×4 也不會重算，兩顆按鈕整段工作階段都認不得任何東西。
+  // 舊規則想解的「把暗組整批調亮之後就分不出組」在新規則下由「恰好兩種亮度」承接：
+  // 把暗組從 L0 調到 L64、亮組仍是 L128 時，兩種亮度依然成立，暗組只是換了個值。
+  // 只有調到與亮組同值（剩一種亮度）才會失去分組 —— 那時本來就沒有亮暗可言。
   var pgGrpLit = {}, pgGrpDark = {};
+  var pgGrpVals = [];        // 48 格目前的相異灰階值，升冪。長度 2 才有亮暗組
+  function pgDistinctLevels(){
+    var m = {};
+    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) m[pgLevels[r][p][c]] = 1;
+    return Object.keys(m).map(Number).sort(function(a, b){ return a - b; });
+  }
   function pgRebuildGroups(){
     pgGrpLit = {}; pgGrpDark = {};
+    pgGrpVals = pgDistinctLevels();
+    if (pgGrpVals.length !== 2) return;      // 不是恰好兩種亮度 → 兩組都不成立
+    var lo = pgGrpVals[0], hi = pgGrpVals[1];
     for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) {
       var k = key(r, p, c);
-      if (pgLevels[r][p][c] !== 0) pgGrpLit[k] = true; else pgGrpDark[k] = true;
+      if (pgLevels[r][p][c] === hi) pgGrpLit[k] = true; else pgGrpDark[k] = true;
     }
   }
   // 某一組的代表灰階值：取該組出現最多次的值（平手取較大）。
@@ -1399,8 +1414,13 @@
     return best;
   }
   // 亮暗反轉：把亮組與暗組的**灰階值**互換。
-  // 🔴 交換的是值不是分組 —— pgGrpLit／pgGrpDark 完全不動，原本屬於亮組的格子
-  //    反轉後仍屬亮組，「選取亮組」選到的還是同一批。因此連按兩次會回到原狀。
+  // 分組改為即時計算之後（2026-08-26），反轉完那批格子的身分也會跟著對調 ——
+  // 原本是亮組（值 hi）的格子拿到 lo，重算後歸入暗組。**連按兩次回到原狀仍然成立**：
+  //   第一次：litKeys→lo、darkKeys→hi
+  //   第二次：重算後亮組＝darkKeys（值 hi）、暗組＝litKeys（值 lo），代表值仍是 hi／lo，
+  //           再互換一次 → darkKeys→lo、litKeys→hi ＝ 原狀。
+  // 只在「恰好兩種亮度」時可用（按鈕由 pgSyncGroupBtns 停用），此時 pgGroupLevel 取到的
+  // 就是該組唯一的值，不會有眾數把資訊丟掉的問題。
   // 不受目前選取影響：這顆按鈕的語意是對整個畫面的亮暗做互換，與「選取哪幾格」
   // 是不同維度的操作；若讓它跟著選取跑，語意會變得無法簡單描述。
   function pgSwapGroups(){
@@ -1416,15 +1436,10 @@
     }
     setAll(litKeys, dv);
     setAll(darkKeys, lv);
-    // 分組刻意不重建：pgRebuildGroups() 只在載入畫面時呼叫。
+    // 分組由下面的 pgPaintCells() 統一重建（見 pgPaintCells 開頭）。
     pgSyncLevelInputs();
     pgPaintCells(); pgRenderPreview(); pgRenderFill();
     return true;
-  }
-  function pgAllKeys(){
-    var all = [];
-    for (var r = 0; r < NROW; r++) for (var p = 0; p < NPX; p++) for (var c = 0; c < 3; c++) all.push(key(r, p, c));
-    return all;
   }
   // 這個畫面的代表灰階值：拿來同步拉霸與數字框，讓 ±1 的基準等於畫面上看到的東西。
   // 取所有非 0 格的眾數（平手取較大）。實測 34 個畫面沒有多亮度混合，眾數就是唯一值；
@@ -1459,18 +1474,20 @@
     pgSyncLevelInputs();
   }
   // ─── 灰階操作的作用對象 ────────────────────────────────────────────
-  //   sel    有選取 → 作用在選取的那幾格。刻意選取永遠優先。
-  //   lit    沒選取 → 作用在亮組（載入時非 0 的那些）。
-  //   nolit  沒選取而且亮組是空的（編輯區不適用的畫面，48 格全 0）→ 作用於全部。
-  //          這種畫面沒有「原本亮的部分」這個概念，空集合會讓按鈕完全沒反應，
-  //          所以退回全部，並在提示文字寫明現在會動到全部。
-  var PG_LEVEL_MODES = { SEL: 'sel', LIT: 'lit', NOLIT: 'nolit' };
+  //   sel   有選取 → 作用在選取的那幾格。
+  //   none  沒選取 → **空集合，什麼都不動**。拉霸／數字框／L 快捷／± 全都不套用。
+  //
+  // 2026-08-26 依 Bruce 指示移除舊的兩條 fallback（沒選取→亮組、亮組空→全部 48 格）。
+  // 舊行為的實際後果：預設畫面 horiz256 讓亮組永遠是空集合 → 走 nolit → 使用者什麼都
+  // 沒選就拉拉霸，48 格會一起被改掉，把手上的圖樣整個抹平。「選好再套用」是這個編輯區
+  // 被文件化的主流程（見 pat.levelHint），fallback 與它互相矛盾。
+  // 🔴 拉霸刻意**不**停用：它的值同時是「點格子時要塗上去的筆刷值」（pgCurrentLevel），
+  //    停用等於斷掉「先設好灰階再點格子」這條主流程。零選取時它只設定筆刷，不動格子。
+  var PG_LEVEL_MODES = { SEL: 'sel', NONE: 'none' };
   function pgLevelTargetsCompute(){
     var keys = Object.keys(pgSel);
-    if (keys.length) return { mode: PG_LEVEL_MODES.SEL, keys: keys };
-    var lit = Object.keys(pgGrpLit);
-    if (lit.length) return { mode: PG_LEVEL_MODES.LIT, keys: lit };
-    return { mode: PG_LEVEL_MODES.NOLIT, keys: pgAllKeys() };
+    return keys.length ? { mode: PG_LEVEL_MODES.SEL, keys: keys }
+                       : { mode: PG_LEVEL_MODES.NONE, keys: [] };
   }
   // 長按／拖曳期間鎖住作用集合：按下的當下決定要動哪些格子，過程中不重算。
   // 不鎖的話「作用對象」會隨著格子的值變動而漂移，同一次按住的前後段行為不一致。
@@ -1481,9 +1498,13 @@
     return (pgLevelLock ? pgLevelLock : pgLevelTargetsCompute()).keys;
   }
   function pgApplyLevel(v){
+    var tg = pgLevelTargets();
+    // 零選取：一格都不動。🔴 也不能呼叫 pgLeavePattern() —— 那會把使用者從測試畫面
+    // 踢回手動 4×4，「拉霸沒有任何變化」就不成立了。
+    if (!tg.length) return;
     pgLeavePattern();
     v = Math.max(0, Math.min(255, Math.round(v)));
-    pgLevelTargets().forEach(function(k){
+    tg.forEach(function(k){
       var a = k.split('-');
       pgLevels[+a[0]][+a[1]][+a[2]] = v;
     });
@@ -1496,9 +1517,11 @@
   // 剛把暗組設成 64，再按 +16 會依基準 64 把亮組一路打到 80。
   // L0~L255 快捷與拉霸維持「設定絕對值」，兩者分工明確。
   function pgNudgeLevels(d){
+    var tg = pgLevelTargets();
+    if (!tg.length) return false;        // 零選取：與拉霸一致，一格都不動
     pgLeavePattern();
     var changed = false;
-    pgLevelTargets().forEach(function(k){
+    tg.forEach(function(k){
       var a = k.split('-'), r = +a[0], p = +a[1], c = +a[2];
       var v0 = pgLevels[r][p][c];
       var v1 = Math.max(0, Math.min(255, v0 + d));
@@ -1509,8 +1532,10 @@
     return changed;                      // false ＝ 目標格全部撞底了
   }
   function pgNudge(d){
+    var tg = pgLevelTargets();
+    if (!tg.length) return;              // 零選取：與拉霸一致，一格都不動
     pgLeavePattern();
-    pgLevelTargets().forEach(function(k){
+    tg.forEach(function(k){
       var a = k.split('-');
       var cur = pgLevels[+a[0]][+a[1]][+a[2]];
       pgLevels[+a[0]][+a[1]][+a[2]] = Math.max(0, Math.min(255, cur + d));
@@ -5139,6 +5164,7 @@
     window.pgLevelTargetsCompute = pgLevelTargetsCompute;
     window.pgGrpLit    = function(){ return Object.keys(pgGrpLit); };
     window.pgGrpDark   = function(){ return Object.keys(pgGrpDark); };
+    window.pgGrpVals   = function(){ return pgGrpVals.slice(); };   // 目前 48 格的相異灰階值
     window.pgRepresentativeLevel = pgRepresentativeLevel;
     window.pgReloadUnit = pgReloadUnit;
     window.pgSwapGroups = pgSwapGroups;
