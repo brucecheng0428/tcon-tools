@@ -627,6 +627,16 @@ var I18N = {
   /* v4.7.0：Frame 參數卡片新增的兩個 Group 框名 */
   'wfg.grpFrameRate':   { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
   'wfg.grpGateFrame':   { 'zh-TW': 'Gate / Frame', 'en': 'Gate / Frame', 'zh-CN': 'Gate / Frame' },
+  /* ══ v4.28.0：兩個大 Group 的框名與 System Simulation 內的子框名 ══════════════
+     `System Pixel Rate` 包住 V Total / H Total / Frame Rate 三個子 Group 與 Pixel Rate；
+     `System Simulation` 放三條拉霸（Frame Rate / Vblank / RX DCLK）。 */
+  'wfg.grpSysPixelRate':{ 'zh-TW': 'System Pixel Rate', 'en': 'System Pixel Rate',
+                          'zh-CN': 'System Pixel Rate' },
+  'wfg.grpSysSim':      { 'zh-TW': 'System Simulation（系統模擬）', 'en': 'System Simulation',
+                          'zh-CN': 'System Simulation（系统模拟）' },
+  'wfg.simFrameRate':   { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
+  'wfg.simVblankHint':  { 'zh-TW': '(Pixel Rate 不變)', 'en': '(Pixel Rate held)',
+                          'zh-CN': '(Pixel Rate 不变)' },
   /* v3.29.0：D-Clock 應用型態。定頻＝TX DCLK 固定且 ≥ RX DCLK；變頻＝TX DCLK 恆等於 RX DCLK */
   'wfg.dclkModeFixed':  { 'zh-TW': '定頻應用', 'en': 'Fixed Clock', 'zh-CN': '定频应用' },
   'wfg.dclkModeVar':    { 'zh-TW': '變頻應用', 'en': 'Variable Clock', 'zh-CN': '变频应用' },

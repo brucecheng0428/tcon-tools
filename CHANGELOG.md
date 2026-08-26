@@ -22,6 +22,134 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.28.0 — 2026-08-26 ｜ MINOR ｜ ⚠ 輸出變更
+
+**Frame 參數卡片改成兩個大 Group，並新增「Vblank 模擬拉霸」——拉它的時候
+Pixel Rate 與 RX DCLK 逐值不變，Frame Rate 跟著變。**
+
+Bruce 2026-08-26 三條需求：
+
+1. 新增 **System Pixel Rate** 大 Group，包住 V Total／H Total／Frame Rate 三個子
+   Group，Pixel Rate 也顯示在這個大 Group 內。
+2. 新增 **Vblank 拉霸**，min ＝ VBLANK 目前的輸入值（2026-08-26 裁示）、max ＝ 65535，
+   變動時 **pixel rate 與 RX DCLK 不變**（frame rate 會跟著變）。
+3. 新增 **System Simulation（系統模擬）** Group，放 Frame Rate 拉霸／Vblank 拉霸／
+   RX DCLK 拉霸；Frame Rate 的**輸入格留在原本的 Group**，拉霸搬過來。
+
+補充要求（同日）：「所有的輸入格、拉棒都要符合所有的限制條件。例如這顆 T-con，
+它的 T-con UI DCLK 最大值是多少，這都會連動影響到分頻率之類的。」
+
+### 版面
+
+三個子 Group **不是新做的框**，是把既有的 `.wfg-field-group` 加上 `.wfg-subgroup`
+（v4.7.0 就存在的巢狀樣式，TX DCLK／TCON UI DCLK 一直在用）。**所有 `id`、
+`oninput` handler、欄位順序一個字都沒改** —— 匯入匯出／autosave／既有驗收腳本
+一律走 `getElementById`，不依賴 DOM 位置。
+
+Pixel Rate 由 DCLK Group 移入大 Group，**只搬一份不留副本**；RX DCLK 的**數值**
+留在 DCLK Group（那個 Group 的職責是四個頻率並排比較），**拉霸**移入 System Simulation。
+
+⚠ 群組標題必須是 `.wfg-field-group` 的**直接子元素** —— ≤900px 有一條無範圍的
+`.wfg-la-group-label { display:none }`（LA 手機版工具列用的），靠
+`.wfg-field-group > .wfg-la-group-label` 這個直接子選擇器救回來（v4.7.1 修過同一個坑）。
+驗收因此把「窄視窗標題可見性」單獨列成一項。
+
+### Vblank 拉霸：為什麼 frame rate 必須是浮點
+
+`Pixel Rate = HTOTAL × VTOTAL × fps`。Vblank 變大 ⇒ VTOTAL 變大 ⇒ 要守住 Pixel Rate，
+**fps 必須等比下降**：`fps' = P₀ / (HTOTAL × (VACTIVE + VBLANK'))`。
+
+**取整就守不住**（實測，基準 148.5 MHz／74.25 MHz）：
+
+| Vblank | VTOTAL | fps 精確 | fps 取整 | Pixel Rate | RX DCLK |
+|---:|---:|---:|---:|---:|---:|
+| 100 | 1180 | 57.20339 | 57 | 147.972 ❌ | 73.986 ❌ |
+| 1000 | 2080 | 32.451923 | 32 | 146.432 ❌ | 73.216 ❌ |
+| 65535 | 66615 | 1.013285 | 1 | 146.553 ❌ | 73.2765 ❌ |
+
+「只停在 fps 剛好是整數的點」也不可行：65535 個 Vblank 值裡**只有 19 個**符合。
+
+⇒ Bruce 2026-08-26 裁示採全精度浮點。跑完全部 65535 個值：浮點往返最大相對誤差
+**2.0e-16**，而顯示層與真值層都經 `toFixed(4)`（`wfgFrame.rxDclk` 本來就存 4 位）
+⇒ **65535 組的 RX 全部等於 74.25，零例外**。
+
+**小數只從這條路徑產生**：Frame Rate 輸入格仍收整數、Frame Rate 拉霸仍 step＝1、
+RX DCLK 拉霸仍 `Math.round(fps)`（v4.9.0 的可達點對齊一行未動）。
+
+🔴 連帶修正 `wfgOnParamChange()`：那一支原本把 Frame Rate **輸入格的顯示值**讀回去
+當真值。frameRate 可能是浮點而輸入格只顯示 4 位，於是改一下 VACTIVE 就會讓
+Pixel Rate 靜默漂掉（最糟的一格：fps 1.013285 被截成 1.0133 ⇒ 148.5 → 148.5031）。
+改成「顯示值與真值在 4 位精度內一致時保留全精度真值」。
+
+### 限制條件：不開後門，且相容性是可以證明的
+
+拉這條拉霸時 Pixel Rate 守恆，於是：① 機種**上限**自動滿足（UI ≤ specMax 等價於
+P ≤ PxMax，P 不變）；② 機種**下限**也自動滿足（變頻時 UI ＝ (P/2) × ratio 不變、
+定頻時 TX 根本不動）；③ 剩下只有 `fps ≥ 1` 與 `VBLANK ≤ 65535`。
+
+⇒ `vblankSimMax = min(65535, floor(P / (HTOTAL × 1)) − VACTIVE)`
+
+**與 `#wfg-vblank` 輸入格的 max 不矛盾，這是證明**：輸入格 max ＝
+`floor(PxMax / (HTOTAL × fps)) − VACTIVE`；拉霸拉到某個 vb 時
+fps ＝ P/(HTOTAL × VTOTAL)，代入得 `floor(PxMax × VTOTAL / P) − VACTIVE`，
+而 P ≤ PxMax ⇒ 該值 ≥ vb。**拉霸拉得到的每一點，輸入格在那一刻都允許打。**
+
+端點來源 `wfgFrameBounds().vblankSim`（唯一來源）、寫入點 `wfgSyncFrameBounds()`
+（與其他五條同一支）、稽核 `wfgAuditBounds()` 新增 **H 條**（含上面那條不變量的
+可執行斷言）。下限另存 `wfgVblankSimMin`／匯出欄位 `vblankSimMin`：直接讀
+`#wfg-vblank` 的話，拉高之後下限會被自己推上去、再也拉不回來（與 v3.27.0
+`wfgFrameRateSliderMax` 是同一個結構性問題）。
+
+### 順帶修好一個 v4.9.0 就存在的 bug（RX DCLK 拉霸端點退化）
+
+`fpsMin === fpsMax` 時（例：E503 ＋ Frame Rate 1 ＋ VBLANK 65535），
+`wfgSyncDclkSliders()` 的 `rxHi > rxLo` 把它判成「無合法區間」而**跳過端點寫入**，
+兩端標籤改成「—」，`min`／`max` 屬性停在**上一組參數**的值 —— 滑塊位置與標籤同時說謊。
+v4.10.0 為 TX／UI 修過同一型錯（「bad 時完全跳過寫入」），**RX 這一段當時沒一起修**。
+
+**這不是本版引入的**：v4.27.3 實測重現，`wfgAuditBounds()` 報 5 條 issue、
+端點停在 1.2375／103.95。本版把條件改成 `>=` —— 區間退化成一個點是**合法狀態**
+（`<input type=range>` 的 `min === max` 合法），照常寫端點 ＋ `disabled`。
+
+### 驗收（三輪 headless Chrome 探針，獨立 user-data-dir）
+
+- **Vblank 硬條件**：八個定點 ＋ **全掃描 479 點**，Pixel Rate／RX DCLK **偏離 0 點**；
+  真實鍵盤 ArrowRight×5（CDP Input 事件）同樣守住。
+- **零回歸**：base(v4.27.3) vs fixed 同一組操作序列（VACTIVE 1200 → VBLANK 100 →
+  HBLANK 400 → Frame Rate 75），比對 pixel／rx／vtotal／htotal／tconHt／fps／tx
+  共 7 欄 × 5 步 ⇒ **差異 0 項**。
+- **機種 × 型態**：7 個機種 × 定頻/變頻（NB 四顆的變頻 radio 本來就 disabled），
+  每組拉到 min／中間／max ⇒ pixel/rx 全部守住、`wfgAuditBounds()` 全綠。
+- **拉霸/輸入格相容性**：獨立掃 211 點，違反 0 點。
+- **窄視窗**：390／430／900／1440 px，群組標題 13 個**未被畫出 0 個**
+  （量 `getComputedStyle` ＋ `getBoundingClientRect` 的實際渲染盒，不是數 DOM 節點）。
+- 🔴 **四個負控制全部抓得到**：注入「fps 取整」⇒ 148.5→146.432 抓到；
+  VACTIVE 1201 vs 1200 分得出；竄改輸入格 max 抓到；強制隱藏標題抓到。
+
+證據（log／JSON／截圖／探針原始碼）：`~/ClaudeData/_wfg_frame_group/`
+
+### 已知、本版**不動**的兩件事（照實列出，等 Bruce 裁示）
+
+1. **四個 blanking/active 欄位沒有下限保護**。`wfgFrameBounds()` 只算 `fpsMin`，
+   沒有 `vtotalMin`／`htotalMin`／…；`wfgOnParamChange()` 只呼叫 `wfgBlockIfWorse`。
+   實測（變頻 ＋ EM01，VACTIVE 1080 → 100）：TCON UI DCLK 74.25 → **9.57 MHz**
+   （規格下限 40），輸入**沒有被擋**，而紅字警示卻寫「已保留原本的值」——**與實際狀態不符**。
+2. **那四格的 max 不被 `wfgAuditBounds()` 稽核**（寫入點壞掉不會有人叫）。
+
+**判定依據**：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者 ——
+**新增獨立功能**（Vblank 拉霸、兩個 Group）⇒ MINOR（案例 1／R3）；
+**版面重排**⇒ 案例 3，判準是「使用者要不要重新找東西」：三個被搬動的控制項
+（Frame Rate 拉霸、RX DCLK 拉霸、Pixel Rate 顯示）**都還在同一張「Frame 參數」卡片內**、
+新位置有明確的 Group 標題、沒有任何功能被移除，屬「控制項位置移動」而非
+「原本的按鈕找不到了」⇒ 不觸發 MAJOR；RX 端點修正 ⇒ PATCH（案例 2／R1）。
+取最高者 ⇒ **MINOR**。
+🔴 取捨供覆核：版面重排與 MAJOR 的邊界由人判斷，依 §1「不確定一律往低編」編 MINOR
+並在此寫明；若 Bruce 認為需要重新熟悉一次版面，這一版要改判 MAJOR。
+`⚠ 輸出變更` 依 R1 的範圍定義標上：版面重排會改變卡片構圖與高度，RX 拉霸兩端標籤
+在退化情形下由「—」變成數字 —— 拿舊版建立的基線比對會把這些預期內的改變誤報成回歸。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.27.3 — 2026-08-25 ｜ PATCH
 
 **「匯入完成」視窗的字砍掉一大半。**
