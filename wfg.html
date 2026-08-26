@@ -1585,7 +1585,10 @@
                   </div>
                   <div class="wfg-field">
                     <label>Vblank</label>
-                    <input type="number" id="wfg-vblank" value="45" min="1" oninput="wfgOnParamChange()">
+                    <!-- 🔴 min＝10（Bruce 2026-08-26 裁示）。**只有兩個 blanking 有下限**：
+                         Vactive／Hactive 是面板解析度，Bruce 明示「輸入多少就是多少，
+                         active 沒有上下限保護」⇒ 那兩格一律不加。 -->
+                    <input type="number" id="wfg-vblank" value="45" min="10" oninput="wfgOnParamChange()">
                   </div>
                 </div>
                 <div class="wfg-field-row" style="margin:6px 0 0">
@@ -1610,7 +1613,8 @@
                   </div>
                   <div class="wfg-field">
                     <label>Hblank</label>
-                    <input type="number" id="wfg-hblank" value="280" min="1" oninput="wfgOnParamChange()">
+                    <!-- min＝10：理由同 #wfg-vblank。Hactive 那格維持不加。 -->
+                    <input type="number" id="wfg-hblank" value="280" min="10" oninput="wfgOnParamChange()">
                   </div>
                 </div>
                 <div class="wfg-field-row" style="margin:6px 0 0">
@@ -2771,8 +2775,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260826wfg4280"></script>
-<script src="common/i18n.js?v=20260826wfg4280"></script>
+<script src="common/version.js?v=20260826wfg4281"></script>
+<script src="common/i18n.js?v=20260826wfg4281"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -27182,13 +27186,76 @@ function wfgPixelRateMinMHz() {
 var wfgVblankSimMin = 45;
 var WFG_VBLANK_SIM_MAX_REG = 65535;   // Bruce 指定的位寬上限
 var WFG_VBLANK_SIM_FPS_FLOOR = 1;     // fps 的物理下限（機種下限見上方 ② 的推導）
+/* ══ 🔴 v4.28.1：兩個 blanking 欄位的下限 —— **兩層，取較大者** ═══════════════════
+   Bruce 2026-08-26 裁示：「VBLANK / HBLANK 下限保護都是 10」＋「1 ＝ 要擋（除了 10 之外，
+   還要保證 UI DCLK 不低於規格下限）」。
+
+   🔴 **只有 blanking 兩格有下限。** Vactive／Hactive 是面板解析度，Bruce 明示
+   「H-Active 和 V-Active 不會有上下限的問題，輸入多少就是多少」「active 沒有上下限保護」
+   ⇒ 這一支不碰那兩格，`wfgAuditBounds()` 也不納入那兩格。
+
+   **第一層｜硬底線 10**（Bruce 指定的數字，無推導）。
+   **第二層｜機種反推**（與 `wfgPixelRateMinMHz()` 同一條推導）：
+     UI ≥ specMin ⇒ P ≥ pxMinHz ⇒
+       VTOTAL_min = ceil(pxMinHz / (HTOTAL × fps))、HTOTAL_min = ceil(pxMinHz / (VTOTAL × fps))
+     用 **ceil** —— 下限取 floor 會得到一個仍然違規的值（理由同 `fpsMin`）。
+     🔴 **定頻時第二層不存在**：`wfgClampTconDclk()` 在定頻下 RX 變小時 TX 一動也不動
+     ⇒ UI 不變 ⇒ 這條約束約束不到上游。`wfgPixelRateMinMHz()` 定頻已 `return 0`，
+     於是 `pxMinHz = 0` ⇒ 第二層自動退化，只剩硬底線 10。
+
+   ══ 🔴 判定綁**單格**，不綁 total —— 這一條是被實測推翻後改的，過程記在這裡 ══════
+   原本（本版開發中途）判定是綁 total：`VTOTAL ≥ max(VACTIVE + 10, VTOTAL_機種)`。
+   理由是「`vblankMin` 依賴 VACTIVE，而取 bounds 時 `wfgFrame.vactive` 還是改動前的值」。
+
+   **驗收 B7 直接打臉**：EM01 變頻下依序打 HACTIVE 1280 → HBLANK 160 → VACTIVE 720，
+   第三步的 VTOTAL ＝ 765 < vtotalMin 926 ⇒ **VACTIVE 被擋、被還原成 1080**
+   （新舊版 UI DCLK 32.4 vs 47.952，一眼看得出行為不同）。
+   綁 total 會把「**ACTIVE 造成的** total 變動」一起算進去 —— 而 Bruce 2026-08-26 明示
+   「H-Active 和 V-Active 不會有上下限的問題，輸入多少就是多少」。**擋錯對象了。**
+
+   改綁單格之後，原本反對綁單格的那個理由也消失了：判定式裡的 active 項改用
+   **本次讀到的 `nextVactive`／`nextHactive`**（不是 bounds 裡的舊值），
+   資訊需求與綁 total 完全相同，卻不會把 ACTIVE 的變動誤判成違規。
+     ・使用者只改 ACTIVE ⇒ `nextVblank === prevVblank` ⇒ `next < prev` 不成立 ⇒ 放行 ✔
+     ・使用者只改 BLANK  ⇒ 正常擋 ✔
+   兩層仍然走**同一條判定路徑**（同一個 `wfgBlockIfWorseLow`、同一個門檻值），
+   不會變成「一層擋 stepper、一層擋打字」兩套心智模型。 */
+var WFG_BLANK_HARD_MIN = 10;
+function wfgBlankMins() {
+  var vt = wfgFrame.vtotal | 0, ht = wfgFrame.htotalBase | 0, fps = wfgFrame.frameRate;
+  var va = wfgFrame.vactive | 0, ha = wfgFrame.hactive | 0;
+  var pxMinHz = wfgPixelRateMinMHz() * 1e6;
+  var lo = function(a, b) { return (pxMinHz > 0 && a > 0 && b > 0) ? Math.ceil(pxMinHz / (a * b)) : 0; };
+  var vtSpec = lo(ht, fps), htSpec = lo(vt, fps);
+  return {
+    /* 第二層單獨留著，兩個用途：①訊息要分辨是哪一層在擋 ②`wfgOnParamChange()` 要用
+       **本次讀到的** active 值重算門檻，不能用下面這兩個（它們用的是改動前的 active）。 */
+    specVtotalMin: vtSpec, specHtotalMin: htSpec,
+    /* 這兩個是給 DOM `min` 屬性用的 —— stepper 是單格操作，另一半固定，用當下真值正確。 */
+    vblankMin: Math.max(WFG_BLANK_HARD_MIN, vtSpec - va),
+    hblankMin: Math.max(WFG_BLANK_HARD_MIN, htSpec - ha)
+  };
+}
+window.wfgBlankMins = wfgBlankMins;
 function wfgVblankNow() { return Math.max(1, (wfgFrame.vtotal | 0) - (wfgFrame.vactive | 0)); }
 function wfgPixelRateHzNow() { return wfgFrame.htotalBase * wfgFrame.vtotal * wfgFrame.frameRate; }
 function wfgVblankSimBounds() {
   var ht = wfgFrame.htotalBase | 0, va = wfgFrame.vactive | 0;
   var P0 = wfgPixelRateHzNow();
   var cur = wfgVblankNow();
-  var lo = Math.max(1, wfgVblankSimMin | 0);
+  /* ══ 🔴 v4.28.1：拉霸只吃**硬底線 10**，不吃機種那一層 —— 這是可以證明的 ═══════
+     拉這條拉霸時 **Pixel Rate 守恆**（v4.28.0 的 ① ② 推導）：P 不變 ⇒ 變頻時
+     UI ＝ (P/2)×ratio 不變、定頻時 TX 根本不動 ⇒ **UI 一步都不會低於規格下限**。
+     所以機種下限在這條路徑上永遠不會被踩到，套上去只會**無故縮小**合法拖曳範圍。
+     硬底線 10 則與怎麼到達無關（VBLANK 就是不該小於 10），所以要套。
+
+     🔴 與 `#wfg-vblank` 輸入格的 `min` 相容 —— 與 v4.28.0 的 H4（max 那半）對稱：
+       拉霸拉到 `min` 那一點時 fps' ＝ P/(HTOTAL × (VACTIVE+vb))，該刻輸入格的
+       vblankMin ＝ max(10, ceil(pxMinHz×(VACTIVE+vb)/P) − VACTIVE)。
+       目前狀態合法 ⇒ P ≥ pxMinHz ⇒ ceil(pxMinHz×(VACTIVE+vb)/P) ≤ VACTIVE+vb
+       ⇒ 該刻輸入格 vblankMin ≤ max(10, vb) ＝ vb（vb ≥ 10）。
+       ⇒ **拉霸拉得到的每一點，輸入格在那一刻都允許打。** 寫成斷言放在 `wfgAuditBounds()`（I4）。 */
+  var lo = Math.max(WFG_BLANK_HARD_MIN, wfgVblankSimMin | 0);
   var hi = (ht > 0 && isFinite(P0) && P0 > 0)
     ? Math.floor(P0 / (ht * WFG_VBLANK_SIM_FPS_FLOOR)) - va
     : cur;
@@ -27214,6 +27281,12 @@ function wfgFrameBounds() {
   var fpsMin = (pxMinHz > 0 && ht > 0 && vt > 0) ? Math.max(1, Math.ceil(pxMinHz / (ht * vt))) : 1;
   var hbl = Math.max(1, ht - (wfgFrame.hactive | 0));
   var vbl = Math.max(1, vt - (wfgFrame.vactive | 0));
+  var M = wfgBlankMins();
+  var vblankMax = Math.max(1, vtMax - (wfgFrame.vactive | 0));
+  var hblankMax = Math.max(1, htMax - (wfgFrame.hactive | 0));
+  /* 🔴 下限不得高過上限。`min > max` 代表「這格連 10 都放不下」＝這組 Frame 參數與
+     這顆機種不相容 —— 那種狀態下**不可以拒絕所有值**（v4.7.0 的鎖死教訓），
+     所以讓下限退讓。夾在這裡而不是在寫入點，`wfgFrameBounds()` 才仍是唯一來源。 */
   return {
     pixelRateMaxMHz: wfgPixelRateMaxMHz(),
     pixelRateMinMHz: wfgPixelRateMinMHz(),
@@ -27221,12 +27294,20 @@ function wfgFrameBounds() {
     fpsMax:     lim(ht, vt),
     htotalMax:  htMax,
     vtotalMax:  vtMax,
+    /* v4.28.1：blanking 兩格的下限（兩層取較大者，見 wfgBlankMins）。
+       🔴 active 兩格**刻意沒有** `*Min` —— Bruce：「active 沒有上下限保護」。
+       🔴 也**刻意沒有** `vtotalMin`／`htotalMin`：判定不綁 total（見 wfgBlankMins 上方
+          B7 那段），留一個沒人用卻看起來很權威的欄位，只會誤導下一個接手的人。 */
+    specVtotalMin: M.specVtotalMin,
+    specHtotalMin: M.specHtotalMin,
+    vblankMin:  Math.min(M.vblankMin, vblankMax),
+    hblankMin:  Math.min(M.hblankMin, hblankMax),
     /* 兩個 blanking 與兩個 active 是「HTOTAL ＝ active + blank」的兩半，
        所以各自的上限就是 total 上限扣掉另一半（至少留 1 給對方）。 */
     hactiveMax: Math.max(1, htMax - hbl),
-    hblankMax:  Math.max(1, htMax - (wfgFrame.hactive | 0)),
+    hblankMax:  hblankMax,
     vactiveMax: Math.max(1, vtMax - vbl),
-    vblankMax:  Math.max(1, vtMax - (wfgFrame.vactive | 0)),
+    vblankMax:  vblankMax,
     /* v4.28.0：Vblank 模擬拉霸的端點也掛在這一支上 —— Bruce 要求所有輸入格／拉霸
        的限制條件同源，`wfgFrameBounds()` 就是那個唯一來源。 */
     vblankSim:  wfgVblankSimBounds()
@@ -27255,6 +27336,10 @@ function wfgSyncFrameBounds() {
   var set = function(id, v) { var e = document.getElementById(id); if (e) e.max = String(v); };
   set('wfg-vactive', B.vactiveMax); set('wfg-vblank', B.vblankMax);
   set('wfg-hactive', B.hactiveMax); set('wfg-hblank', B.hblankMax);
+  /* v4.28.1：blanking 兩格的 `min`。**只有這兩格** —— active 兩格的 `min` 一律不寫
+     （Bruce：「active 沒有上下限保護」），它們的 HTML `min="1"` 維持原狀。 */
+  var setMin = function(id, v) { var e = document.getElementById(id); if (e) e.min = String(v); };
+  setMin('wfg-vblank', B.vblankMin); setMin('wfg-hblank', B.hblankMin);
   var fr = document.getElementById('wfg-framerate');
   if (fr) { fr.max = String(B.fpsMax); fr.min = String(B.fpsMin); }
   /* 滑桿的 max 是「使用者最後一次手動輸入的值」（v3.27.0），但它不得超過機種允許的上限。
@@ -27341,13 +27426,23 @@ function wfgValidateTxDclk(tx) {
       : t('wfg.errDclkSpecMin')
           .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
           .replace(/\{lo\}/g, String(L.specMin))
-          .replace(/\{t\}/g, String(wfgFmtDclk(L.txMin)))) };
+          .replace(/\{t\}/g, String(wfgFmtDclk(L.txMin)))),
+      /* v4.28.1：狀態型的中性版本，見 wfgRefreshRangeWarning()。只有機種下限這一支有
+         —— `errTxDclkMin`（TX < RX）不會變成持續狀態，`wfgClampTconDclk()` 一定把 TX 抬到 RX。 */
+      errState: L.rxBinds ? null : t('wfg.stateUiBelowMin')
+          .replace(/\{cur\}/g, String(wfgFmtDclk(tx * L.ratio)))
+          .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+          .replace(/\{lo\}/g, String(L.specMin)) };
   }
   if (tx > L.txMax + WFG_DCLK_EPS) {
     return { ok: false, err: t('wfg.errDclkSpecMax')
       .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
       .replace(/\{hi\}/g, String(L.specMax))
-      .replace(/\{t\}/g, String(wfgFmtDclk(L.txMax))) };
+      .replace(/\{t\}/g, String(wfgFmtDclk(L.txMax))),
+      errState: t('wfg.stateUiAboveMax')
+          .replace(/\{cur\}/g, String(wfgFmtDclk(tx * L.ratio)))
+          .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+          .replace(/\{hi\}/g, String(L.specMax)) };
   }
   return { ok: true };
 }
@@ -27586,6 +27681,54 @@ function wfgAuditBounds() {
         issues.push('vb slider max ' + VB.max + ' 超過該點輸入格允許的 vblankMax ' + _inputMaxThere);
     }
   }
+  /* ══ 🔴 I：v4.28.1 —— blanking 兩格的 min／max 納入稽核 ═══════════════════════════
+     為什麼補這一條：實測負控制證明**現行稽核對這四格完全不檢查** —— 把
+     `#wfg-vactive`／`#wfg-vblank`／`#wfg-hactive`／`#wfg-hblank` 的 `max` 全部篡改成
+     999999，`wfgAuditBounds()` 仍回 `ok:true, issues:[]`。寫入點（`wfgSyncFrameBounds()`）
+     壞掉不會有任何機制叫，與 v4.9.0 的 TX/UI 端點殘留是同一型。
+
+     🔴 **刻意只納入 blanking 兩格。** Vactive／Hactive 是面板解析度，Bruce 2026-08-26
+     明示「active 沒有上下限保護」—— 把 `vactiveMax`／`hactiveMax` 寫成斷言，等於用稽核
+     去鞏固一個他說不該存在的限制。那兩格的既有上限是另一個待裁示的題目，不在這裡固化。
+
+     I1 兩格的 `min` 必須等於 `wfgFrameBounds()` 的對應欄位（唯一來源）
+     I2 兩格的 `max` 必須等於 `wfgFrameBounds()` 的對應欄位
+     I3 `min ≤ max`，且 `min ≥ 10`（硬底線任何狀態下都不得被寫低）
+     I4 拉霸的 `min` 與輸入格相容 —— 與 H4（max 那半）對稱，證明見 `wfgVblankSimBounds()` */
+  [['vblank', 'wfg-vblank', B.vblankMin, B.vblankMax],
+   ['hblank', 'wfg-hblank', B.hblankMin, B.hblankMax]].forEach(function(p) {
+    var e = el(p[1]);
+    if (!e) { issues.push(p[0] + ' 輸入格不存在'); return; }
+    if (!near(num(e.min), p[2])) issues.push(p[0] + ' input min ' + e.min + ' ≠ wfgFrameBounds().' + p[0] + 'Min ' + p[2]);
+    if (!near(num(e.max), p[3])) issues.push(p[0] + ' input max ' + e.max + ' ≠ wfgFrameBounds().' + p[0] + 'Max ' + p[3]);
+    if (num(e.min) > num(e.max)) issues.push(p[0] + ' input min > max（' + e.min + ' > ' + e.max + '）');
+    if (num(e.min) < WFG_BLANK_HARD_MIN - 1e-9)
+      issues.push(p[0] + ' input min ' + e.min + ' 低於硬底線 ' + WFG_BLANK_HARD_MIN);
+  });
+  if (vbS) {
+    var _VB2 = B.vblankSim;
+    if (num(vbS.min) < WFG_BLANK_HARD_MIN - 1e-9)
+      issues.push('vb slider min ' + vbS.min + ' 低於硬底線 ' + WFG_BLANK_HARD_MIN);
+    /* I4：拉霸拉到 min 那一點時，輸入格在**那一刻**允許的 vblankMin 必須 ≤ 拉霸 min。
+       （拉霸守恆 Pixel Rate ⇒ 機種下限碰不到；輸入格則是 fps 固定、下限會跟著動。）
+
+       🔴 **前提：`P ≥ pxMinHz`（目前狀態本身合法）。** 這不是為了讓斷言好看而加的例外，
+       是因為 `wfgVblankSimBounds()` 上方那段證明就是拿這個當前提
+       （`P ≥ pxMinHz ⇒ ceil(pxMinHz×(VACTIVE+vb)/P) ≤ VACTIVE+vb`）。
+       前提不成立時結論當然不成立，此時斷言必須閉嘴 —— 否則就是**斷言自己壞掉**。
+       實測抓到：EM01 變頻把 HACTIVE 降到 800（active 沒有下限，這是合法操作）⇒
+       P ＝ 72.9 MHz < 80 ⇒ 已經是超規格狀態 ⇒ I4 誤報一條 issue。
+       超規格狀態本身由畫面上的中性警示負責告知，不該由稽核重複叫（同 v4.7.1 的 empty 處理）。 */
+    var _ht2 = wfgFrame.htotalBase | 0, _va2 = wfgFrame.vactive | 0;
+    var _P2 = wfgPixelRateHzNow(), _pxMin2 = wfgPixelRateMinMHz() * 1e6;
+    if (_ht2 > 0 && _P2 > 0 && _pxMin2 > 0 && _P2 >= _pxMin2 - 1e-6) {
+      var _fpsAtMin = _P2 / (_ht2 * (_va2 + _VB2.min));
+      var _inputMinThere = Math.max(WFG_BLANK_HARD_MIN,
+        Math.ceil(_pxMin2 / (_ht2 * _fpsAtMin)) - _va2);
+      if (_inputMinThere > _VB2.min)
+        issues.push('vb slider min ' + _VB2.min + ' 低於該點輸入格要求的 vblankMin ' + _inputMinThere);
+    }
+  }
   return { ok: issues.length === 0, empty: L.empty, model: wfgTconKey(), issues: issues };
 }
 window.wfgAuditBounds = wfgAuditBounds;
@@ -27791,7 +27934,11 @@ function wfgRefreshRangeWarning() {
      實測抓到：在不相容狀態下把 Frame Rate 降回來之後 `empty` 解除，但 TX 仍停在
      371.25（定頻的 TX 只會被往上抬、不會自動降），畫面顯示一個超過上限 105 的值
      卻一句話都沒有。這種「看起來正常、其實超規格」的狀態最危險。 */
-  else if (!chk.ok) { wfgShowDclkError(chk.err, 'range'); }
+  /* 🔴 v4.28.1：這裡顯示的是**現況說明**，不是「你剛剛那次輸入被拒絕」——
+     `chk.err` 那幾則的結尾是「已保留原本的值」，套在這條路徑上是假話（值沒有被保留，
+     是它自己被上游參數推過界的）。有中性版本就優先用中性版本。
+     實務觸發路徑：調 blanking 把 UI DCLK 壓過界、匯入設定檔、換機種、autosave 還原。 */
+  else if (!chk.ok) { wfgShowDclkError(chk.errState || chk.err, 'range'); }
   else if (el.dataset.kind === 'range') { wfgShowDclkError(''); }
 }
 /* 依目前真值把 UI DCLK 那一格、它的提示行與機種下拉全部刷新。
@@ -28475,6 +28622,40 @@ function wfgOnParamChange() {
       .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
       .replace(/\{max\}/g, String(_lim))
       .replace(/\{px\}/g, String(wfgFmtDclk(_fb.pixelRateMaxMHz))));
+    return;
+  }
+  /* ══ 🔴 v4.28.1：blanking 兩格的**下限**（Bruce 2026-08-26 裁示）══════════════════
+     判定綁**單格**（不綁 total —— 綁 total 會擋到 ACTIVE，實測經過見 `wfgBlankMins()` 上方）。
+     兩層合成一個門檻：`VBLANK ≥ max(10, VTOTAL_機種 − VACTIVE_本次)`。
+     🔴 減掉的是**本次讀到的** `nextVactive`／`nextHactive`，不是 `_fb` 裡那個改動前的值 ——
+        否則使用者同時動到 ACTIVE 時，門檻會用舊 ACTIVE 算，判錯。
+     🔴 `wfgBlockIfWorseLow()`：低於下限**且變得更小**才擋，往上調一律放行。
+        沒有這個方向性，既有 autosave／匯入進來低於下限的設定會連救都救不回來（v4.7.0 鎖死）。
+        這個方向性同時也是「只改 ACTIVE 不會被誤擋」的保證：blanking 沒變 ⇒ `next < prev` 不成立。
+     🔴 active 兩格**不參與這個判定**，它們沒有任何下限。 */
+  var _prevVblank = Math.max(1, (prevVtotal | 0) - (wfgFrame.vactive | 0));
+  var _prevHblank = Math.max(1, (prevHtotal | 0) - (wfgFrame.hactive | 0));
+  var _vbMinEff = Math.max(WFG_BLANK_HARD_MIN, _fb.specVtotalMin - nextVactive);
+  var _hbMinEff = Math.max(WFG_BLANK_HARD_MIN, _fb.specHtotalMin - nextHactive);
+  var _vLow = wfgBlockIfWorseLow(nextVblank, _prevVblank, _vbMinEff);
+  var _hLow = wfgBlockIfWorseLow(nextHblank, _prevHblank, _hbMinEff);
+  if (_vLow || _hLow) {
+    var _f2    = _vLow ? 'VBLANK' : 'HBLANK';
+    var _blMin = _vLow ? _vbMinEff : _hbMinEff;
+    /* 判斷是哪一層在擋：機種那層算出來的門檻大於硬底線，才是機種在擋。 */
+    var _spec  = (_vLow ? _fb.specVtotalMin - nextVactive : _fb.specHtotalMin - nextHactive);
+    wfgSyncBlankInputs();
+    /* 硬底線 10 與機種那一層是**不同的理由**，文案必須分開 —— 硬底線觸發時扯
+       「UI DCLK 會低於規格下限」是假話（定頻下第二層根本不存在）。 */
+    wfgShowDclkError((_spec > WFG_BLANK_HARD_MIN)
+      ? t('wfg.errBlankMinSpec')
+          .replace(/\{f\}/g, _f2)
+          .replace(/\{min\}/g, String(_blMin))
+          .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+          .replace(/\{lo\}/g, String(wfgTconSpec().uiDclkMin))
+      : t('wfg.errBlankMinHard')
+          .replace(/\{f\}/g, _f2)
+          .replace(/\{min\}/g, String(WFG_BLANK_HARD_MIN)));
     return;
   }
   wfgShowDclkError('');   // v4.7.1：理由同 wfgOnFrameRateChange 的那一行
