@@ -610,7 +610,9 @@ var I18N = {
   'wfg.laAnalyzerConfirm': { 'zh-TW': '確定', 'en': 'OK', 'zh-CN': '确定' },
   'wfg.laAnalyzerDpAuxHint': { 'zh-TW': '以網頁原生 JS 解碼 DisplayPort AUX Manchester II：bit 1 = H→L、bit 0 = L→H，START/STOP = HHLL。', 'en': 'Decodes DisplayPort AUX Manchester II in browser JS: bit 1 = H→L, bit 0 = L→H, START/STOP = HHLL.', 'zh-CN': '以网页原生 JS 解码 DisplayPort AUX Manchester II：bit 1 = H→L、bit 0 = L→H，START/STOP = HHLL。' },
   'wfg.presetTitle':    { 'zh-TW': '📋 載入預設', 'en': '📋 Load Preset', 'zh-CN': '📋 载入预设' },
-  'wfg.frameParams':    { 'zh-TW': 'Frame 參數', 'en': 'Frame Parameters', 'zh-CN': 'Frame 参数' },
+  /* 🔴 v4.30.0：卡片改名（Bruce 2026-08-27：「Frame 參數這個名詞似乎也不適合這個卡片，
+     我看把它換成『系統設定』應該會比較好」）。key 與卡片 id 都不動，只換顯示文字。 */
+  'wfg.frameParams':    { 'zh-TW': '系統設定', 'en': 'System Settings', 'zh-CN': '系统设定' },
   'wfg.frameCount':     { 'zh-TW': 'Frame 重複數', 'en': 'Frame Repeat Count', 'zh-CN': 'Frame 重复数' },
   'wfg.gateType':       { 'zh-TW': 'Gate Type', 'en': 'Gate Type', 'zh-CN': 'Gate Type' },
   /* v3.27.0：Frame 參數卡片的兩個分組框標題 */
@@ -629,8 +631,20 @@ var I18N = {
      `System Simulation` 放三條拉霸（Frame Rate / Vblank / RX DCLK）。 */
   'wfg.grpSysPixelRate':{ 'zh-TW': 'System Pixel Rate', 'en': 'System Pixel Rate',
                           'zh-CN': 'System Pixel Rate' },
+  /* ⚠ v4.30.0 起 `wfg.grpSysSim` 已無人引用 —— System Simulation 由「Group 框名」
+     升級成獨立卡片的標題（`wfg.cardSysSim`）。key 保留不刪：舊的匯出設定檔／
+     外部連結不會用到它，但刪 key 對翻譯檔沒有好處，留著也不會被畫出來。 */
   'wfg.grpSysSim':      { 'zh-TW': 'System Simulation（系統模擬）', 'en': 'System Simulation',
                           'zh-CN': 'System Simulation（系统模拟）' },
+  /* ══ 🔴 v4.30.0：四張卡片的標題（Bruce 2026-08-27）══════════════════════════════
+     「卡片名稱在繁體中文下，不要有英文」⇒ 繁中一律不含英文字母，
+     唯一例外是 Bruce 自己指定的寫法裡就有 `TCON` 三個字母（「TCON頻率設定」、
+     「TCON 其他設定」）—— 照抄不改。英文／簡中語系各自照該語言的慣例。 */
+  'wfg.cardSysSim':     { 'zh-TW': '系統模擬', 'en': 'System Simulation', 'zh-CN': '系统模拟' },
+  'wfg.cardTconFreq':   { 'zh-TW': 'TCON頻率設定', 'en': 'TCON Clock Settings',
+                          'zh-CN': 'TCON频率设定' },
+  'wfg.cardTconMisc':   { 'zh-TW': 'TCON 其他設定', 'en': 'Other TCON Settings',
+                          'zh-CN': 'TCON 其他设定' },
   'wfg.simFrameRate':   { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
   'wfg.simVblankHint':  { 'zh-TW': '(Pixel Rate 不變)', 'en': '(Pixel Rate held)',
                           'zh-CN': '(Pixel Rate 不变)' },
