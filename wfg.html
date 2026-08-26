@@ -2791,7 +2791,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260826wfg4284"></script>
+<script src="common/version.js?v=20260826wfg4285"></script>
 <script src="common/i18n.js?v=20260826wfg4283"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -27767,7 +27767,16 @@ function wfgAuditBounds() {
     if (num(vbS.min) > VB.cur || num(vbS.max) < VB.cur) issues.push('vb slider 端點未涵蓋當前值 ' + VB.cur);
     var _ht = wfgFrame.htotalBase | 0, _va = wfgFrame.vactive | 0;
     var _P = wfgPixelRateHzNow();
-    if (_ht > 0 && _P > 0) {
+    /* 🔴 v4.28.5：H4 補上它自己的證明前提 —— **`P ≤ pxMax`（目前狀態未超規格）**。
+       `wfgVblankSimBounds()` 上方那段推導就是拿這個當前提
+       （`P ≤ PxMax ⇒ floor(PxMax × VTOTAL / P) ≥ VTOTAL ⇒ 輸入格 max ≥ vb`）。
+       前提不成立時結論當然不成立，此時斷言必須閉嘴，否則就是**斷言自己壞掉**。
+       實測抓到（Bruce 的存檔 E503 / 1920×1080 / fps 144 / VBLANK 32 / HBLANK 160）：
+       P ＝ 333.07 MHz > pxMax 210 MHz ⇒ 誤報
+       「vb slider max 65535 超過該點輸入格允許的 vblankMax 40921」。
+       處理方式與 v4.28.1 為 I4、v4.28.4 為「min > max」立前提的做法完全一致 ——
+       超規格狀態由畫面上的中性警示負責告知，稽核不重複叫。 */
+    if (_ht > 0 && _P > 0 && _P <= wfgPixelRateMaxMHz() * 1e6 + 1e-6) {
       var _vtAtMax = _va + VB.max;
       var _fpsAtMax = _P / (_ht * _vtAtMax);
       var _inputMaxThere = Math.max(1, Math.floor(wfgPixelRateMaxMHz() * 1e6 / (_ht * _fpsAtMax)) - _va);
@@ -27805,8 +27814,29 @@ function wfgAuditBounds() {
   });
   if (vbS) {
     var _VB2 = B.vblankSim;
-    if (num(vbS.min) < WFG_BLANK_HARD_MIN - 1e-9)
-      issues.push('vb slider min ' + vbS.min + ' 低於硬底線 ' + WFG_BLANK_HARD_MIN);
+    /* ══ 🔴 v4.28.5：這一條原本與 `wfgVblankSimBounds()` 的既有規則互相矛盾 ═══════════
+       v4.28.1 寫的是「拉霸 min 一律不得低於硬底線 10」，但 `wfgVblankSimBounds()` 裡
+       有一條更早的規則：
+
+         /* 端點必須涵蓋當前值，否則滑塊位置會說謊 *\/
+         if (lo > cur) lo = cur;
+
+       載入一份 **VBLANK < 10 的舊設定檔**（v4.28.0 以前允許到 1）時「涵蓋當前值」勝出
+       ⇒ 拉霸 min ＝ 5 ⇒ 我的斷言誤報。實測（`wfgExportConfig()` → 把 `vblank` 改成 5
+       → `wfgImportConfig()`）：`#wfg-vblank` 的 min 屬性仍是 10（輸入格沒問題）、
+       `wfgFrameBounds().vblankMin` ＝ 10，只有拉霸 min ＝ 5。
+
+       改法是**把那條既有規則寫進斷言**，而不是把斷言刪掉 —— 兩個分支都有牙齒：
+         ・`cur ≥ 10` ⇒ 拉霸 min 必須 ≥ 10（把 min 竄改成 3 仍會被抓）
+         ・`cur < 10` ⇒ 拉霸 min 必須**恰好等於 cur**（把 min 寫成 10 會被抓，
+           因為那會讓滑塊被夾在 10、位置說謊） */
+    if (_VB2.cur >= WFG_BLANK_HARD_MIN) {
+      if (num(vbS.min) < WFG_BLANK_HARD_MIN - 1e-9)
+        issues.push('vb slider min ' + vbS.min + ' 低於硬底線 ' + WFG_BLANK_HARD_MIN);
+    } else if (!near(num(vbS.min), _VB2.cur)) {
+      issues.push('vb slider min ' + vbS.min + ' ≠ 當前值 ' + _VB2.cur
+                  + '（VBLANK 低於硬底線的舊設定：端點必須涵蓋當前值）');
+    }
     /* I4：拉霸拉到 min 那一點時，輸入格在**那一刻**允許的 vblankMin 必須 ≤ 拉霸 min。
        （拉霸守恆 Pixel Rate ⇒ 機種下限碰不到；輸入格則是 fps 固定、下限會跟著動。）
 
