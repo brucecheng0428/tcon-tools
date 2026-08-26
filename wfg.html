@@ -2775,8 +2775,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260826wfg4281"></script>
-<script src="common/i18n.js?v=20260826wfg4281"></script>
+<script src="common/version.js?v=20260826wfg4282"></script>
+<script src="common/i18n.js?v=20260826wfg4282"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -6883,6 +6883,65 @@ function wfgKeepViewTimeWindow() {
   wfgViewEnd = center + spanLines / 2;
   /* 中心那條 line 在新參數下若已不存在（例如 VTOTAL 變小、總行數變短），
      交給緊接在後面的 wfgClampViewToBounds() 夾正 —— 視野合法性只有那一份實作。 */
+}
+
+/* ══ 🔴 v4.28.2：VTOTAL 改變時，視野中心釘在**內容**上 ═══════════════════════════
+   （Bruce 2026-08-26：「將 V-Blanking 拉桿拉動的時候，波形區的畫面並沒有以中心固定不動
+     來做變化。像是 Frame Rate 拉桿在滑動的時候，已經做到以波形區中心為固定來改變狀態，
+     所以 V-Blanking 也要跟著做到。」）
+
+   **先量再修**（動 code 前的實測，探針 `~/ClaudeData/_wfg_lowbound/probe_d.py`）：
+   縮放到第 5 個 frame 附近（中心 line 6187.5），各拉一格拉霸 ——
+
+   | 拉霸 | 中心 line | 中心時間 | 中心的內容 (frame#, frame 內 line) |
+   |---|---|---|---|
+   | Frame Rate 60→45 | 保住 6187.5 | 0.09167→0.1222（跑掉） | **保住 (5, 562.5)** |
+   | Vblank 45→545    | 保住 6187.5 | 0.0917（保住）         | **(5,562.5)→(3,1312.5) 跑掉** |
+
+   ⇒ Frame Rate 的「中心固定」實質是**內容固定** —— 它不改 VTOTAL，所以中心 line 不動
+     就等於內容不動。Vblank 拉霸改 VTOTAL（1125→1625），同一個 line 換算到完全不同的
+     frame，使用者盯著的東西整個跑掉。這就是 Bruce 看到的。
+
+   🔴 **為什麼不能沿用 `wfgKeepViewTimeWindow()`**（有查過，不是懶得找）：
+   那一支的觸發條件是 **tpl 改變**（`_wfgViewTplRef`），而 `wfgTimePerLine()` 只依賴
+   `htotal` 與 `dclk` —— 拉 Vblank 時 Pixel Rate 守恆 ⇒ dclk 不變 ⇒ **tpl 一模一樣**
+   ⇒ 那支函式的 `if (tpl === _wfgViewTplRef) return;` 直接早退，結構上看不到這件事。
+   兩者是**不同的失真來源**，各治一種，互相正交：
+     ・tpl 變    → 每行代表的時間變了 → 調 **span**（`wfgKeepViewTimeWindow`，center 不動）
+     ・VTOTAL 變 → 行號與內容的對應關係變了 → 調 **center**（本支，span 不動）
+   因為一支只動 span、一支只動 center，**兩支的執行順序不影響結果**
+   （改 VBLANK 輸入格時 fps 不變、P 變 ⇒ 變頻下 dclk 也變 ⇒ 兩支會同時觸發）。
+
+   做法沿用 `wfgKeepViewTimeWindow()` 的形狀：一個 ref 變數偵測變化、掛在 `wfgRender()`
+   同一個位置、只改 `wfgViewStart/End`、合法性一樣交給緊接其後的 `wfgClampViewToBounds()`。
+
+   ⚠ 範圍是**所有讓 VTOTAL 改變的路徑**，不只拉霸（VBLANK／VACTIVE 輸入格、匯入、preset）——
+     與 `wfgKeepViewTimeWindow()` 掛在 render 上的通用做法一致。只治拉霸的話，
+     打 VBLANK 輸入格會得到不一樣的行為，那是新的不一致。
+
+   ⚠ 連續拖曳不會漂移：每一輪都用「上一次的 VTOTAL」換算，`frameIdx` 與 `lineInFrame`
+     都是不動點（`floor(next/vt) === frameIdx`、餘數仍是 `lineInFrame`）。 */
+var _wfgViewVtotalRef = 0;
+function wfgKeepViewContentCenter() {
+  var vt = wfgFrame.vtotal | 0;
+  if (!(vt > 0)) return;
+  if (!(_wfgViewVtotalRef > 0)) { _wfgViewVtotalRef = vt; return; }
+  var prev = _wfgViewVtotalRef;
+  if (vt === prev) return;
+  _wfgViewVtotalRef = vt;
+  var center = (wfgViewStart + wfgViewEnd) / 2;
+  var half = (wfgViewEnd - wfgViewStart) / 2;   // ← 可視跨距不動（tpl 不變時＝時間跨距不動）
+  if (!isFinite(center) || !isFinite(half)) return;
+  var frameIdx = Math.floor(center / prev);
+  var lineInFrame = center - frameIdx * prev;
+  /* frame 縮短時，原本盯著的位置（通常在 blanking 尾端）在新設定下已經不存在。
+     夾到新 frame 的最後一行 —— 這比讓它溢位到下一個 frame 好：溢位會讓連續拖曳
+     每一輪都把 frameIdx 往後推一格，變成持續漂移。 */
+  if (lineInFrame > vt - 1) lineInFrame = vt - 1;
+  var next = frameIdx * vt + lineInFrame;
+  if (!isFinite(next)) return;
+  wfgViewStart = next - half;
+  wfgViewEnd = next + half;
 }
 
 /* v3.21.0：最近一次時間軸實際用的刻度（由 wfgRender() 畫刻度時寫入）。
@@ -23962,6 +24021,9 @@ function wfgRender() {
   wfgApplyDtLock(); /* v2.97.468: 繪製前套用 |Δt| 鎖定，兩模式(phase/kvdat)皆生效 */
   if (wfgKvdatMode) { wfgRenderKvdat(); return; }
   wfgKeepViewTimeWindow();   // v3.26.5：改參數時時間軸不動（見該函式註解）
+  /* v4.28.2：VTOTAL 變動時把中心釘在**內容**上。與上一行正交（那支只動 span、
+     這支只動 center），所以先後順序不影響結果 —— 說明見該函式註解。 */
+  wfgKeepViewContentCenter();
   /* v3.20.7：畫之前先讓視野符合規則。這是最後一道守門 —— 上面所有改視野的動作
      （縮放／平移／minimap／鍵盤／改 VTOTAL 或 FRAME 重複數而讓總行數變短）不論
      有沒有自己夾好，到這裡都會被夾正，畫布不會再出現靜默的空白。 */
