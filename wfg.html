@@ -2791,8 +2791,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260826wfg4290"></script>
-<script src="common/i18n.js?v=20260826wfg4290"></script>
+<script src="common/version.js?v=20260827wfg4291"></script>
+<script src="common/i18n.js?v=20260827wfg4291"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -38074,6 +38074,23 @@ window.wfgImportConfig = function(jsonStr, options) {
     wfgFrame.vtotal = f.vtotal || 1125;
     _wfgImportBlankNote = '';   // v3.28.0：每次匯入重新判定
     wfgFrame.vactive = f.vactive || 1080;
+    /* ══ 🔴 v4.29.1：`hactive` 必須在下面那段「blanking 優先」之前套上去 ═══════════
+       原本這一行在下面那段之後（第 38105 行附近），造成 `_htFromBlank` 用的是
+       **上一份狀態殘留的 hactive**（開頁還原時就是預設值 1920），而不是這份檔案的 hactive。
+
+       實測（headless 重現 Bruce 2026-08-27 回報的 QHD 案例，
+       autosave 存的是 hactive 2560 / htotalBase 2590 / hblank 30 —— 存檔端完全正確）：
+         ① `1-from-file`        mem_hactive=1920（殘留）  mem_htotalBase=2590
+         ② `2-after-blank-recalc` htotalBase ← 1920 + 30 = **1950**，並誤報「blanking 與 total 不一致」
+         ③ `3-after-hactive-assign` hactive ← 2560，但 htotalBase 已經停在 1950 不再重算
+         ④ `4-syncBlankInputs`  hblank = 1950 − 2560 = **−610** → `wfgBlankFromTotal()` 夾成 **1**
+       ⇒ 畫面上的「HBLANK 1」不是被寫進去的，是負數被夾出來的；
+         v4.28.1 給 `#wfg-hblank` 的 `min=10` 擋不到，因為它根本沒走輸入路徑。
+
+       🔴 V 這半（`vactive`）沒有這個問題，正是因為它一直都在那段之前 ——
+          這個修正只是把 H 這半改成與 V 對稱，沒有引進任何新規則。
+       🔴 `f.hactive || 1920` 這個運算式一個字都沒改，缺欄位的舊檔行為完全不變。 */
+    wfgFrame.hactive = f.hactive || 1920;
     wfgFrame.htotal = f.htotal || 2200;
     wfgFrame.htotalBase = f.htotalBase || f.htotal || 2200;
     /* ══ v3.28.0：blanking 優先 ══════════════════════════════════════════
@@ -38102,7 +38119,8 @@ window.wfgImportConfig = function(jsonStr, options) {
         + _conf.join('、');
       console.warn('[wfg] ' + _wfgImportBlankNote);
     }
-    wfgFrame.hactive = f.hactive || 1920;
+    /* v4.29.1：`wfgFrame.hactive` 已經在上面「blanking 優先」那段**之前**套好了，
+       這裡不可以再套一次 —— 留著雖然值相同不會出錯，但會讓人以為順序無所謂。 */
     wfgFrame.dclk = f.dclk || 74.25;
     wfgFrame.frameRate = f.frameRate || 60;
     /* v3.27.0：拉桿上限。舊檔沒有這個欄位 → 用 frameRate 當上限（等同「剛手動輸入過」的狀態）。 */
