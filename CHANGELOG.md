@@ -22,6 +22,94 @@
 
 ---
 
+## 說明頁 wfg-guide.html 新增第 13 章「把匯出的檔案送進原廠 TCON UI」 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
+
+**Bruce 2026-08-27 交辦**：「在 WFG 分頁 Code 匯出後的 Script 跟 Excel 要如何匯入到原廠 TCON UI 當中」，
+以及「Monitor TCON EM01 的三模應用⋯⋯要把它 Copy 到 Normal、還是 200% 還是 133%？怎麼操作，這些都要講得非常清楚」。
+
+### 做了什麼
+
+新增 **第 13 章 `#tcon-ui`**（原第 13～19 章順延為 14～20），三節：
+
+| 節 | 內容 |
+|---|---|
+| **13-1** `#sec13script` | MNT 的 `.script` 怎麼匯入原廠 `Raydium_TCON_Tool_…`：檔案長相（實測樣本）、`Script` 分頁支援的指令語法表、六步操作（`Script → Load Script → ... → Run → GPO 的 Read → Current 子分頁確認`）、四條「不是這幾條路」 |
+| **13-2** `#sec13xlsx` | NB 的 `.xlsx` 是什麼（查核清單，不是 code 檔）、22 欄逐欄說明（實測樣本）、`RomCodeProcessUI` 六步（`... 開 code → Code Check → Import CheckList → Modify All → Judge → Save AS`）、「分頁變成 `SCRIPT` 代表 I2C 模式開著」的警示 |
+| **13-3** `#sec13em01` | EM01 三模：CURRENT 與三組候選的關係與位址、**為什麼 script 搆不到三模**、GPO 分頁長相、**該 copy 到哪一組的判斷依據表**、`File IO → From Current` 四步、「不是什麼」、常見錯誤 7 條 |
+
+§12-4 原本的四步 steps **整段移走**，改成指到第 13 章的連結清單 ＋ 一句話版本，
+避免同一件事在頁面上有兩套寫法（Bruce 明確要求「整併不要並存兩套說法」）。
+`#sec12gpord` 錨點保留（第 9 章有連過去）。
+
+### 每一項的出處
+
+| 寫進頁面的內容 | 出處 |
+|---|---|
+| `Script` 分頁 → `Load Script` 子分頁，控制項 `...`／路徑框／`Run`／`Save`／狀態框 | 原廠 `Raydium_TCON_Tool_RM80100_v0.3.58.exe` 的表單資源（DFM）：`TabSheet_Script.Caption='Script'`、`TabSheet_Load_Script.Caption='Load Script'`（`PageControl_Script.ActivePage`）、`Button_Script_Load_File.Caption='...'`、`Button_Script_Run.Caption='Run'`、`Button_Script_Save.Caption='Save'`、`Memo_Script_Status` |
+| 同層還有 `Transform`／`Record Script`／`I2C_cmd` 三個子分頁 | 同上：`TabSheet47='Transform'`、`TabSheet_Record_Script='Record Script'`、`TabSheet_I2C_CMD_Script='I2C_cmd'` |
+| `write -n`／`write -m`／`read -n`／`wait` 語法表 | 同上：`Load Script` 子分頁上的 `TLabel` 文字（`Write(Normal):` `1. [write] -n [add 15:0] [value 15:0]` `=> write -n 0F26 1234` …），逐字照抄 |
+| EM02／E512 也有同一個 `Script` → `Load Script` | 掃 `Raydium_TCON_Tool_EM02_v*.exe`（8 個版本）與 `Raydium_TV_TCON_Tool.exe`：`Load Script`／`Button_Script_Run` 命中，`File IO` 命中 0 |
+| 匯出的 script 長相：332 筆 `write -m`、位址 `0x0504`～`0x06FF`、純 ASCII、只有數位訊號 | **本次實測**：jsdom 載入真實 `wfg.html`、走真實的 `#wfg-code-export-btn` 按鈕路徑匯出，樣本存於 `~/ClaudeData/_wfg_guide_import/WFG_GPO_EM01_20260827_0703.script`（375 行 / 14 921 B） |
+| 匯入 script 後要按 `GPO` 的 `Read`，值出現在 `Current` 子分頁 | vault `journal/2026-08-25.md`（第 95、101 行，Bruce 實機截圖指正）＋ 產品 i18n `wfg.gpoRdName` / `wfg.gpoRdWhere`（v4.27.0） |
+| 「332/332 吻合、18 訊號 × 17 欄零差異」 | vault `journal/2026-08-25.md:95` |
+| `.xlsx` 22 欄結構與範例列 | **本次實測**：同一支探針匯出 E503 樣本 `WFG_GPO_E503_20260827_0703.xlsx`（22 欄 × 68 列），用 `openpyxl` 讀回 |
+| `RomCodeProcessUI` 主分頁列、`Import CheckList`／`Modify One`／`Modify All`／`Judge`／`Export Report`／`Save AS`／`File Output` | `SourceCode_V5.0.4/BruceMainWindow.py` 的 `setText(_translate(...))` 與 `setTabText(...)`；`Save AS` 在 `groupBox_48`（title `File Output`） |
+| 開 code 檔用 `...`（`toolButton` → `run_open_file_a`），過濾 `Code Files (*.hex *.bin *.rom *.txt *.dat)` | `RomCodeProcessUI.py:3238`、`:4216` |
+| `Import CheckList` 過濾 `Excel Files (*.xlsx)`、未選檔顯示 `No Check List` | `RomCodeProcessUI.py:27110 import_checklist()`、`:27158`、`:27167` |
+| `Modify All` 之後的提示「已全部依照 Check List 修改 Data 完畢 !!」「最後請按下 Judge 按鍵確認是否 Pass」 | `RomCodeProcessUI.py:27894 modify_all()`、`:27908`、`:27912` |
+| `Save AS` 未 Pass 會擋：「請確認是否完成 Code Check 分頁是否 Pass／請務必完成上述操作才能出 Code」 | `RomCodeProcessUI.py:5297 run_save_as()`、`:5353` |
+| I2C 模式一開，`Code Check` 分頁改名 `SCRIPT`、按鈕變 `Import SCRIPT`／`SCRIPT One`／`SCRIPT All` | `RomCodeProcessUI.py:31217 i2c_object_display_on()`（`:31254`、`:31292`）與 `i2c_object_display_off()`（`:31335`、`:31373`） |
+| 官方 UI 只改寫清單上有列的欄位；`Check Item` 名稱寫錯會靜默略過該列 | `wfg.html` codec 註解（v4.14.0／v4.22.0 兩輪實證），出處在該註解內標明 |
+| GPO 分頁四個子分頁 `Normal`／`200%`／`133%`／`Current` | DFM：`TabSheet_System_GPO_Normal='Normal'`、`_200='200%'`、`_133='133%'`、`TabSheet_System_GPO_SRAM_Current='Current'` |
+| `File IO` 在左、`Flash R/W` 在右，都是 split button | DFM：`Button_System_GPO_Mode_FileIO.Caption='File IO'`／`Align=alLeft`；`Button_System_GPO_Mode_FlashReadWrite.Caption='Flash R/W'`／`Align=alRight`；兩者 `Style=bsSplitButton` |
+| `File IO` 選單 `Load / Save / Init Three Mode / --- Copy Data --- / From Normal / From 200% / From 133% / From Current` | DFM：`PopupMenu_System_GPO_Mode_FileIO` 的 7 個 `TMenuItem` ＋ 分隔項 `N2` |
+| 三模位址 `0x35000=200%`／`0x35300=133%`／`0x35600=Normal`，且與 reg_val 無關 | vault `journal/2026-08-25.md:75`（兩個獨立來源：官方 exe 內寫死的位址表 ＋ Bruce 特製標記檔實測 1960/1950/1943） |
+| CURRENT 由 MCU 從三組候選中挑一組搬進來 | vault `journal/2026-08-23.md:40`（Bruce 定案） |
+| EEPROM 版 EM01 沒有三模 | vault `journal/2026-08-23.md:36`（EEPROM 10 檔實測 0 slot） |
+| script 搆不到三模的理由（位址上限 `0xFFFF`） | 原廠 `Load Script` 分頁自己印的語法 `[add 15:0]` ＋ 產品 i18n `wfg.codeExportCurrentOnly` |
+| `200%`／`133%` 是 HSR／DLG 倍率、Normal 2560×1440 200Hz vs 2x 2560×720 300/400Hz | vault `journal/2026-08-01.md:6`、`reports/received/2026-07-31.md:53` |
+| `Enable n/18` 標示 | 產品既有行為，已寫在 §12-4 |
+
+### 🔴 順手更正一句先前寫錯的話
+
+本 CHANGELOG **2026-08-27 前一條**的「順手修掉」表第 8 列寫著
+「入口是 GPO 分頁左下角 File IO，**且沒有『Write Normal／133%／200%』這種動作**」。
+**後半句是錯的**：原廠 exe 的 `PopupMenu_System_GPO_Mode_FlashReadWrite` 底下確實有
+`Read Normal / Read 200% / Read 133% / Read All` 與 `Write Normal / Write 200% / Write 133% / Write All`
+（v0.3.42Beta9 與 v0.3.58 兩版皆有）。**入口不是 `Flash R/W` 這件事仍然成立**（複製 CURRENT 走的是
+`File IO` 的 `PopupMenu_System_GPO_Mode_CopyDataClick`，與 `Flash_WriteClick` 是不同的處理常式），
+但「沒有那種動作」是我編出來的。**歷史條目不改寫**，本條更正。
+說明頁上的相關文字已改成只保留成立的那半句，並把 `Flash R/W` 選單的實際內容列出來。
+
+### 版號判定
+
+**判定依據**：`docs/VERSIONING.md` **§3「不進版的情況」**——本次改動的檔案只有
+`wfg-guide.html`（＋本 CHANGELOG 條目）；`common/version.js`、`wfg.html`、任何 `common/*.js`
+**一行未動** ⇒ 產品行為、波形、匯出位元組全部不變。
+逐項複核 R1～R4：R1 不適用（沒有修產品的 bug）、R2 不適用（不開新的一波）、
+R3 不適用（使用者能做的事沒有多一件，只是說明變詳細）、R4 不適用（沒有改任何預設值或起始畫面）。
+⇒ **不進版**，亦不需 bump `?v=`（`common/*.js` 未動）。
+不標 `⚠ 輸出變更`：§2「不算（不標）」明列「純文件、註解、說明頁」。
+
+### 驗收
+
+**① 錨點與 id**（腳本掃全檔）：`href="#…"` ＋ nav 的 `scrollToSection('#…')` 共 21 個 section ＋ 全部內部連結，
+**broken 0 個**、**重複 id 0 個**。新增的 `#tcon-ui`／`#sec13script`／`#sec13xlsx`／`#sec13em01` 皆指得到，
+`#sec12gpord` 未被移除（第 9 章仍連得過去）。
+
+**② 章號連續性**：`sec-num` 由 1 連號到 **20**、無跳號無重號；正文裡 3 處「第 18 章」（指 LA 硬體連線）
+已同步改為「第 19 章」。nav 列新增「原廠 UI 匯入」一顆，插在「預設與檔案」與「LA 簡介」之間。
+
+**③ 實際畫面**（headless Chrome，獨立 `user-data-dir`，未碰 Bruce 的 Chrome）：
+以相同 `<head>`／CSS 擷取新章節單獨渲染，三張截圖逐段看過
+（`~/ClaudeData/_wfg_guide_import/shots/p1b.png`、`p2.png`、`p3.png`）——
+表格、`steps` 編號圓圈、四種 `callout` 色帶、新加的 `<pre>` 程式碼框（`--code-bg` ＋ `--mono`）皆正常，無溢出、無破版。
+
+**④ 匯出樣本**：MNT／NB 各跑一次真實匯出路徑，檔案留存於 `~/ClaudeData/_wfg_guide_import/`，
+頁面上引用的行數、位址範圍、欄位名全部取自這兩個檔案，不是憑印象寫的。
+
+---
+
 ## 說明頁 wfg-guide.html 內容全面更新 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
 
 **補上 v4.26.2 → v4.30.1 期間所有使用者看得見的變更，並修掉說明頁裡描述「已經不存在的介面」的段落。**

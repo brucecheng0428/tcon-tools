@@ -461,6 +461,7 @@
     <button class="nav-btn" onclick="scrollToSection('#panels')">右側面板</button>
     <button class="nav-btn" onclick="scrollToSection('#canvas')">畫布操作</button>
     <button class="nav-btn" onclick="scrollToSection('#io')">預設與檔案</button>
+    <button class="nav-btn" onclick="scrollToSection('#tcon-ui')">原廠 UI 匯入</button>
     <button class="nav-btn" onclick="scrollToSection('#la-intro')">LA 簡介</button>
     <button class="nav-btn" onclick="scrollToSection('#la-acq')">LA 取樣觸發</button>
     <button class="nav-btn" onclick="scrollToSection('#la-toolbar')">LA 工具列</button>
@@ -2401,7 +2402,7 @@
         ・每張卡片上有 <code>Enable n/18</code>，讓你<strong>在選之前</strong>就看得出來「這一組只燒了幾條訊號」。<strong>看到某一組只有 2 條 enable（通常是 XSTB 與 XPOL），那是那一組本來就只燒了兩條</strong>，不是本工具把設定弄丟了。<br>
         ・<strong>EEPROM 的檔案沒有這三組</strong>，所以不會跳這個選擇框，直接走 CURRENT。
       </div>
-      <p style="font-size:.92rem; color:var(--muted);">匯出的 <code>.script</code> <strong>一律只寫 CURRENT</strong>。要把某一組候選 timing（Normal／200%／133%）也寫進去，得在官方 UI 裡多做一段複製動作 —— <strong>正確步驟見下一張卡片</strong>，匯出後的提醒視窗也會再講一次。</p>
+      <p style="font-size:.92rem; color:var(--muted);">匯出的 <code>.script</code> <strong>一律只寫 CURRENT</strong>。要把某一組候選 timing（Normal／200%／133%）也寫進去，得在官方 UI 裡多做一段複製動作 —— <strong>正確步驟見 <a href="#sec13em01">13-3</a></strong>，匯出後的提醒視窗也會再講一次。</p>
     </div>
 
     <div class="card" id="sec12gpord">
@@ -2416,30 +2417,326 @@
         <span style="color:var(--muted);">這個提醒只掛在工具列 <strong>Code 群組的「匯出」</strong>那一顆（產出要拿去 TCON UI 匯入的檔案）。工具列另一顆匯出本工具自己 <code>.txt</code> 設定檔的按鈕不會跳。</span>
       </div>
 
-      <h4 style="margin:18px 0 8px;">要把 CURRENT 的值複製到 Normal／200%／133% 子分頁，正確步驟是這四步</h4>
+      <h4 style="margin:18px 0 8px;">後半段（在原廠 UI 裡做的事）整段寫在第 13 章</h4>
+      <p style="font-size:.94rem;">「<code>.script</code> 怎麼匯入」、「<code>.xlsx</code> 怎麼匯入」、「EM01 的 CURRENT 怎麼複製到 <code>Normal</code> ／ <code>200%</code> ／ <code>133%</code>」這三件事都在原廠工具裡完成，逐步說明集中在 <a href="#tcon-ui">第 13 章</a>：</p>
+      <ul style="font-size:.93rem;">
+        <li><a href="#sec13script">13-1</a>　MNT：<code>.script</code> 怎麼匯入原廠 TCON UI（含 <code>Script → Load Script</code> 分頁與 <code>Run</code> 之後要按的 <code>Read</code>）</li>
+        <li><a href="#sec13xlsx">13-2</a>　NB：<code>.xlsx</code> 是什麼、怎麼在 <code>RomCodeProcessUI</code> 的 <code>Code Check</code> 分頁套用並存成新的 code 檔</li>
+        <li><a href="#sec13em01">13-3</a>　EM01 三模：<code>Current</code> 與三組候選的關係、<strong>該複製到哪一組</strong>、<code>File IO → From Current</code> 四步、常見錯誤</li>
+      </ul>
       <div class="callout" style="border-left-color:#f59e0b;">
-        <strong>🔴 官方 UI 裡沒有「Write Normal／Write 133%／Write 200%」這種動作，也不是在 <code>Flash R/W</code> 下拉裡做。</strong>
-        運作方式是<strong>先切到目標子分頁，再把 CURRENT 的值複製過去</strong>：
+        <strong>🔴 一句話版本</strong>
+        先按 <code>GPO</code> 分頁的 <code>Read</code> → 切到目標子分頁 → 點<strong>左邊</strong>的 <code>File IO</code> → 選 <code>--- Copy Data ---</code> 底下的 <code>From Current</code>。<strong>入口不是右邊的 <code>Flash R/W</code> 下拉。</strong>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== TCON UI ==================== -->
+<section id="tcon-ui">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">13</span>把匯出的檔案送進原廠 TCON UI</h2>
+    <p class="section-desc">第 12 章講的是<strong>怎麼把檔案匯出來</strong>；這一章講<strong>匯出來之後怎麼用</strong>。MNT 匯出的 <code>.script</code> 與 NB 匯出的 <code>.xlsx</code> 走的是<strong>兩支完全不同的原廠工具、兩條完全不同的流程</strong>，先看清楚自己手上是哪一種。</p>
+
+    <div class="card">
+      <h4 style="margin-top:0;">先分清楚：你手上這個檔案是什麼</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>匯出格式</th><th>哪些型號</th><th>用哪支原廠工具</th><th>它到底在動什麼</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="t-name"><code>.script</code><br><small style="color:var(--muted);">純文字</small></td>
+              <td>MNT：<br>EM01 ／ EM02 ／ E512</td>
+              <td><code>Raydium_TCON_Tool_…</code><br><small style="color:var(--muted);">（每個機種一支）</small></td>
+              <td><strong>直接對晶片下暫存器讀寫指令。</strong>執行完，值就已經在 TCON 裡了。</td>
+            </tr>
+            <tr>
+              <td class="t-name"><code>.xlsx</code><br><small style="color:var(--muted);">Excel 活頁簿</small></td>
+              <td>NB：<br>E501A ／ E501B ／ E503 ／ EN01</td>
+              <td><code>RomCodeProcessUI</code></td>
+              <td><strong>改的是硬碟上的 code 檔，完全不碰晶片。</strong>它只是一張「要改哪些暫存器」的清單。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <strong>🔴 這兩件事不能互相類比</strong>
+        <code>.script</code> 是<strong>對晶片下指令</strong>，做完晶片就變了、但硬碟上的 code 檔一個位元都沒動；<code>.xlsx</code> 是<strong>改檔案</strong>，做完硬碟上多一份新的 code 檔、但晶片一個位元都沒動。<span style="color:var(--muted);">會混淆的通常是「我明明匯出了，怎麼 code 檔沒變／怎麼面板沒反應」——先確認自己走的是哪一條。</span>
+      </div>
+    </div>
+
+    <!-- ============ 13-1 ============ -->
+    <h3 id="sec13script" style="margin:30px 0 12px;">13-1　MNT：<code>.script</code> 怎麼匯入原廠 TCON UI</h3>
+
+    <div class="card">
+      <h4 style="margin-top:0;">先看一眼檔案裡有什麼</h4>
+      <p style="font-size:.94rem;">下面是實際按一次匯出、用 EM01 產出的檔案（<code>WFG_GPO_EM01_…….script</code>，375 行 / 14.9 KB）的開頭：</p>
+      <pre style="background:var(--code-bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; overflow-x:auto; font-family:var(--mono); font-size:.82rem; line-height:1.6; margin:0;">// WFG v4.30.1 - exported EM01 GPO settings
+// Load this file from the Script page of the TCON tool.
+// Digital signals (GPO) only - no frame timing, no analog settings.
+// 2026-08-26T23:03:48.079Z
+
+// -- FRAME --
+write -m 0504 00 C0    // GATE TYPE = SINGLE (1D1G)  reg_rd_mode=0
+write -m 0507 06 3F    // FIRST LINE READ = 6 output line(s)  ...
+
+// -- XSTB  (0x05A0) --
+write -m 05A0 A0 EB    // enable/toggle/f_st_sel/inv/tg_ini_val
+write -m 05A1 00 FF    // ACT_TYPE = 0
+...</pre>
+      <ul style="font-size:.93rem;">
+        <li><strong>全檔純 ASCII</strong>，<code>//</code> 之後是註解。可以用任何文字編輯器打開檢查。</li>
+        <li>該樣本共 <strong>332 行 <code>write -m</code> 指令</strong>，位址全部落在 <code>0x0504</code>～<code>0x06FF</code>，也就是 <strong>CURRENT 那一區的 GPO 暫存器</strong>。</li>
+        <li><strong>只有數位信號（GPO）與 Gate Type／First Line Read／FRM_NO</strong>；Frame timing 與類比設定都不寫 —— 檔頭第三行自己就講了。</li>
+      </ul>
+      <div class="callout info">
+        <strong>為什麼用 <code>write -m</code>（遮罩版）而不是 <code>write -n</code></strong>
+        <code>write -m</code> 第三個參數是遮罩，<strong>只動遮罩點到的位元</strong>。同一個位址上常常擠了好幾個欄位，用不帶遮罩的 <code>write -n</code> 會把鄰居一起蓋掉。
+      </div>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">原廠工具的 <code>Script</code> 分頁支援哪些指令</h4>
+      <p style="font-size:.94rem;">這張表不是本站編的 —— 它就印在原廠工具 <code>Load Script</code> 子分頁的畫面上：</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>用途</th><th>語法</th><th>範例</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="2">Write(Normal)</td><td><code>write -n [add 15:0] [value 15:0]</code></td><td><code>write -n 0F26 1234</code></td></tr>
+            <tr><td><code>write -n [add 15:0] [value 7:0]</code></td><td><code>write -n 0F26 12</code></td></tr>
+            <tr><td rowspan="2">Write(Mask)</td><td><code>write -m [add 15:0] [value 15:0] [mask 15:0]</code></td><td><code>write -m 0F26 1234 FFFF</code></td></tr>
+            <tr><td><code>write -m [add 15:0] [value 7:0] [mask 7:0]</code></td><td><code>write -m 0F26 12 FF</code></td></tr>
+            <tr><td>Read(Normal)</td><td><code>read -n [add 15:0] [value] [length 1~256]</code></td><td><code>read -n 0F26 0B 1</code></td></tr>
+            <tr><td>Wait</td><td><code>wait time</code></td><td><code>wait 50 // delay 50ms</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem; color:var(--muted);">位址欄位是 <code>[add 15:0]</code> ⇒ <strong>script 的定址上限就是 <code>0xFFFF</code></strong>。這一點在 <a href="#sec13em01">13-3</a> 會再用到。</p>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">操作步驟</h4>
       <div class="steps" style="margin-top:12px;">
         <div class="step">
-          <h3>script 寫入 TCON 之後，在 <code>GPO</code> 分頁按 <code>Read</code></h3>
-          <p>先把晶片裡的值讀回來。讀回來的內容會出現在 <strong><code>Current</code> 子分頁</strong>。</p>
+          <h3>打開該機種的原廠 TCON 工具，切到最上排的 <code>Script</code> 分頁</h3>
+          <p>EM01、EM02、E512 三支工具都有這個分頁，位置在 <code>VGC</code> 與 <code>System</code> 之間。</p>
+        </div>
+        <div class="step">
+          <h3>停在 <code>Load Script</code> 子分頁</h3>
+          <p>這是 <code>Script</code> 分頁開啟時的預設子分頁。同一層還有 <code>Transform</code>、<code>Record Script</code>、<code>I2C_cmd</code> 三個子分頁 —— <strong>匯入 script 請認明 <code>Load Script</code></strong>。</p>
+        </div>
+        <div class="step">
+          <h3>按路徑框旁邊的 <code>...</code> 按鈕選檔</h3>
+          <p>選完之後，檔案路徑會出現在路徑框、<strong>script 的內容會出現在下方的內容框</strong>。內容框是空的就代表檔案沒讀進來。</p>
+        </div>
+        <div class="step">
+          <h3>按 <code>Run</code></h3>
+          <p>旁邊的<strong>狀態訊息框</strong>會列出執行過程。<span style="color:var(--muted);">同一頁還有一顆 <code>Save</code>，那是把內容框裡的 script 存成檔案，不是執行。</span></p>
+        </div>
+        <div class="step">
+          <h3>切到 <code>System</code> → <code>GPO</code> 分頁，按 <code>Read</code></h3>
+          <p>🔴 <strong>這一步不能省。</strong>原廠 UI 執行完 script <strong>不會自動重新讀取晶片</strong>，畫面上還是舊的 timing。</p>
+        </div>
+        <div class="step">
+          <h3>到 <code>Current</code> 子分頁確認</h3>
+          <p>剛寫進去的值會出現在 <strong><code>GPO</code> → <code>Current</code></strong> 子分頁。<strong>這就是「真的進去了」的判斷依據</strong> —— 不要只看 <code>Run</code> 沒報錯。</p>
+        </div>
+      </div>
+      <div class="callout danger">
+        <strong>🔴 沒按 <code>Read</code> 就以為工具壞了 —— 這是本專案實際發生過的誤判</strong>
+        曾經懷疑 WFG 匯出的 script 寫錯位置，實測結果是：332 筆 <code>write -m</code> <strong>逐筆核對 332/332 吻合</strong>，三個模式的資料區<strong>一個位元組都沒被動到</strong>；再做端到端往返比對，<strong>18 條數位訊號 × 17 個欄位全部逐值相同、零差異</strong>。<strong>缺的只是「按一次 Read」這個動作。</strong><span style="color:var(--muted);">所以 v4.27.0 起，MNT 機種按下匯出就會跳一個提醒視窗把這件事寫在最上面（見 <a href="#sec12gpord">12-4</a>）。</span>
+      </div>
+      <div class="callout warn">
+        <strong>不是這幾條路</strong>
+        ・<strong>不是</strong> <code>GPO</code> 分頁的 <code>File IO → Load</code> —— 那一項載入的是 GPO 的資料檔，不是 script。<br>
+        ・<strong>不是</strong> <code>Script</code> 分頁底下的 <code>Transform</code> ／ <code>Record Script</code> ／ <code>I2C_cmd</code> 子分頁。<br>
+        ・<strong>不是</strong> <code>RomCodeProcessUI</code> —— 那支是 NB 用的，見 <a href="#sec13xlsx">13-2</a>。
+      </div>
+    </div>
+
+    <!-- ============ 13-2 ============ -->
+    <h3 id="sec13xlsx" style="margin:34px 0 12px;">13-2　NB：<code>.xlsx</code> 是什麼、怎麼匯入 <code>RomCodeProcessUI</code></h3>
+
+    <div class="callout" style="border-left-color:#f59e0b;">
+      <strong>🔴 先講最容易誤會的一件事：這份 <code>.xlsx</code> 不是 code 檔，也不能拿去燒</strong>
+      它是一張<strong>「要改哪些暫存器、改成什麼值」的查核清單</strong>，官方工具裡叫 <strong>Check List / SCRIPT Excel</strong>。要拿到能燒的 code，必須<strong>回官方 <code>RomCodeProcessUI</code> 走完後半段</strong>，由它把清單套用到原本的 code 檔上，再另存成新的 code 檔。
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">檔案結構（實測 E503 樣本：22 欄 × 68 列）</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>欄</th><th>欄名</th><th>WFG 寫進去的內容</th></tr></thead>
+          <tbody>
+            <tr><td>A</td><td class="t-name">TCON（內部型號）</td><td>該型號的內部代號，例如 <code>E503A</code>。<strong>官方 UI 靠這一欄認機種。</strong></td></tr>
+            <tr><td>B</td><td class="t-name">Check Item</td><td>欄位名 ＋ 訊號名，例如 <code>ENABLE_XSTB</code>、<code>F_DLY_VST2</code>。</td></tr>
+            <tr><td>C</td><td class="t-name">Slave Address（HEX）</td><td>固定 <code>0x3E</code>。<strong>官方 UI 靠這個字串含 <code>3E</code> 判定要走暫存器空間而不是 ROM 空間。</strong></td></tr>
+            <tr><td>D</td><td class="t-name">Offset-Bytes</td><td>固定 <code>2</code>。</td></tr>
+            <tr><td>E</td><td class="t-name">Offset（HEX）</td><td>暫存器位址與位元範圍，例如 <code>0x3B0[7]</code>、<code>0x3EA[7:0],0x3EB[7:0]</code>（逗號分隔多個 register，<strong>左邊是 MSB</strong>）。</td></tr>
+            <tr><td>F</td><td class="t-name">Default Case</td><td>固定 <code>0</code>。</td></tr>
+            <tr><td>G</td><td class="t-name">Case 0 Value（HEX）</td><td>要寫入的值，例如 <code>0x1</code>。</td></tr>
+            <tr><td>H～N</td><td class="t-name">Case 1～7 Value</td><td rowspan="2"><strong>WFG 一律留空。</strong>這幾欄是官方查核清單用來列多組合法值／說明用的，本工具只產生單一組值。</td></tr>
+            <tr><td>O～V</td><td class="t-name">Description Case 0～7</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem; color:var(--muted);">一列長這樣：<code>E503A ｜ ENABLE_XSTB ｜ 0x3E ｜ 2 ｜ 0x3B0[7] ｜ 0 ｜ 0x1</code></p>
+      <div class="callout warn">
+        <strong>兩個「不會叫、但結果是錯的」陷阱</strong>
+        ・<strong>官方 UI 只改寫清單上有列出來的欄位</strong>，沒列的維持 code 檔原值 —— 所以清單短不代表漏了什麼，代表那些沒被動到。<br>
+        ・<strong><code>Check Item</code> 名稱寫錯，官方 UI 會靜默略過那一列</strong>，不會報錯。手動編輯這份 xlsx 時要特別小心，改值可以，<strong>不要改欄名</strong>。
+      </div>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">操作步驟（<code>RomCodeProcessUI</code>）</h4>
+      <div class="steps" style="margin-top:12px;">
+        <div class="step">
+          <h3>用 <code>...</code> 按鈕開啟原本的 code 檔（<code>Data A</code>）</h3>
+          <p>檔案對話框的副檔名過濾是 <code>Code Files (*.hex *.bin *.rom *.txt *.dat)</code>。<span style="color:var(--muted);">這支工具可以同時開 A／B 兩份 code 做比對，<code>...</code> 有兩顆，<strong>認清楚你要改的是哪一份</strong>。</span></p>
+        </div>
+        <div class="step">
+          <h3>切到 <code>Code Check</code> 分頁</h3>
+          <p>主分頁列是 <code>ROM Data ／ 3E Data ／ EDID ／ iSP REG ／ DGM ／ FRC ／ AGBSFR ／ MCU ／ <strong>Code Check</strong> ／ Others ／ I2C ／ Output</code>。</p>
+        </div>
+        <div class="step">
+          <h3>按 <code>Import CheckList</code>，選這份 <code>.xlsx</code></h3>
+          <p>檔案對話框的過濾是 <code>Excel Files (*.xlsx)</code>。沒選檔時畫面上會顯示 <code>No Check List</code>。</p>
+        </div>
+        <div class="step">
+          <h3>按 <code>Modify All</code> 一次全部套用</h3>
+          <p>成功時 log 會印「<strong>已全部依照 Check List 修改 Data 完畢 !!</strong>」。只想套用其中一列就用旁邊的 <code>Modify One</code>。</p>
+        </div>
+        <div class="step">
+          <h3>按 <code>Judge</code> 確認 Pass</h3>
+          <p>這是官方工具自己在 <code>Modify All</code> 之後印出來的提示：「最後請按下 <code>Judge</code> 按鍵確認是否 Pass」。</p>
+        </div>
+        <div class="step">
+          <h3>在 <code>File Output</code> 群組按 <code>Save AS</code> 存成新的 code 檔</h3>
+          <p>若 Code Check 還沒 Pass，按下去會先跳「<strong>請確認是否完成 Code Check 分頁是否 Pass ／ 請務必完成上述操作才能出 Code</strong>」。<strong>checksum 由官方 UI 自動重算，不需要手動處理。</strong></p>
+        </div>
+      </div>
+
+      <div class="callout danger">
+        <strong>🔴 分頁名變成 <code>SCRIPT</code>、按鈕變成 <code>Import SCRIPT</code>，代表你走錯路了</strong>
+        <code>RomCodeProcessUI</code> 的 <code>I2C</code> 模式一開，<strong><code>Code Check</code> 分頁會整個改名成 <code>SCRIPT</code></strong>，三顆按鈕同時變成 <code>Import SCRIPT</code> ／ <code>SCRIPT One</code> ／ <code>SCRIPT All</code> —— 那條路是<strong>直接對晶片下 I2C</strong>，不是改硬碟上的 code 檔。<br>
+        要改 code 檔就把 <code>I2C</code> 模式關掉，分頁名會變回 <code>Code Check</code>、按鈕變回 <code>Import CheckList</code> ／ <code>Modify One</code> ／ <code>Modify All</code>。
+      </div>
+      <div class="callout warn">
+        <strong>這幾顆長得很像，但都不是</strong>
+        ・<strong>不是</strong> <code>ROM Data</code> 分頁的 <code>Import Code</code>（那是匯入 code 本體）。<br>
+        ・<strong>不是</strong> <code>Hand Mode Enable</code> 群組的 <code>Import Excel</code> ／ <code>Export Excel</code>。<br>
+        ・<strong>不是</strong> <code>iSP REG</code> 分頁的 <code>Import iSP REG Table</code>。<br>
+        ・<strong>不是</strong> 各機種的 <code>Raydium_TCON_Tool_…</code>（那支吃的是 <code>.script</code>，見 <a href="#sec13script">13-1</a>）。
+      </div>
+    </div>
+
+    <!-- ============ 13-3 ============ -->
+    <h3 id="sec13em01" style="margin:34px 0 12px;">13-3　EM01 三模應用：<code>Current</code> 與 <code>Normal</code> ／ <code>200%</code> ／ <code>133%</code></h3>
+    <p style="color:var(--muted); font-size:.94rem;">這一節只適用 <strong>Flash 版的 EM01</strong>。EM02、E512 的原廠工具<strong>沒有</strong>這一套（實測它們的工具裡根本沒有 <code>File IO</code> 這顆按鈕）；EEPROM 版的 EM01 也沒有。</p>
+
+    <div class="card">
+      <h4 style="margin-top:0;">先把觀念立起來：<code>Current</code> 不是三個模式之一</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>它是什麼</th><th>存在哪裡</th><th>角色</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="t-name">CURRENT<br>（<code>Current</code> 子分頁）</td>
+              <td>暫存器 <code>0x0500</code>～<code>0x06FF</code></td>
+              <td><strong>TCON 當下實際輸出用的那一組 GPO Timing。</strong>只有這一組會真的驅動面板。</td>
+            </tr>
+            <tr><td class="t-name">Normal</td><td>Flash 檔案偏移 <code>0x35600</code></td><td rowspan="3">三組<strong>候選</strong>。它們躺在 Flash 裡不會自己作用；<strong>執行時由 MCU 決定把哪一組搬進 CURRENT。</strong></td></tr>
+            <tr><td class="t-name">200%</td><td>Flash 檔案偏移 <code>0x35000</code></td></tr>
+            <tr><td class="t-name">133%</td><td>Flash 檔案偏移 <code>0x35300</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>所以「匯入永遠先進 CURRENT」不是本工具的偷懶</strong>
+        <code>.script</code> 的 <code>write</code> 指令<strong>只能寫暫存器，位址欄位是 <code>[add 15:0]</code>、上限 <code>0xFFFF</code></strong>（見 <a href="#sec13script">13-1</a> 的語法表）；而三組候選在 <strong><code>0x35000</code> 這個量級的 Flash 檔案偏移</strong>上。<strong>script 在物理上就搆不到那三組</strong> —— 這才是要回原廠 UI 做後半段的原因。
+      </div>
+      <div class="callout warn">
+        <strong>🔴 模式標籤由「檔案裡的固定位置」決定，跟暫存器內容沒有關係</strong>
+        <code>0x35000 ＝ 200%</code>、<code>0x35300 ＝ 133%</code>、<code>0x35600 ＝ Normal</code>。這是原廠工具內部寫死的位址表，不是從 timing 值反推出來的。<span style="color:var(--muted);">曾經用「reg_val 反推模式」的做法，結果把 <code>0x35300</code> 標成 200%，連帶讓人以為 Enable 被程式弄丟了 —— 其實那一組本來就只燒了兩條訊號。</span>
+      </div>
+      <p style="font-size:.93rem; color:var(--muted);"><code>200%</code> ／ <code>133%</code> 指的是 HSR／DLG 高刷新率應用的倍率（例如對 TCON 而言 Normal 是 2560×1440 200Hz、2x 是 2560×720 300／400Hz）。三模只在有這類應用的機種上才會燒滿。</p>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">GPO 分頁長什麼樣</h4>
+      <ul style="font-size:.93rem;">
+        <li><strong>四個子分頁</strong>：<code>Normal</code> ／ <code>200%</code> ／ <code>133%</code> ／ <code>Current</code>。每個模式子分頁上都有一個 <code>CRC16:</code> 標籤。</li>
+        <li>子分頁上方有一條工具列，<strong>左邊是 <code>File IO</code>、右邊是 <code>Flash R/W</code></strong>，兩顆都是可以展開下拉選單的按鈕。中間還有 <code>Write Reg</code>、一個模式下拉（<code>Normal</code> ／ <code>200%</code> ／ <code>133%</code>）與 <code>Real Time GPO Mode</code> 勾選框。</li>
+        <li>整個分頁還有一顆 <code>Read</code>，就是 <a href="#sec13script">13-1</a> 第 5 步要按的那一顆。</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">🔴 那到底該 copy 到哪一個？</h4>
+      <p style="font-size:.94rem;"><strong>判斷依據只有一條：你在 WFG 調的這份 timing，是為哪一個模式調的。</strong>沒有「預設寫哪一個」這種答案 —— 三組是三個獨立的模式，寫錯就是把 A 模式的波形塞進 B 模式。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>你的情況</th><th>該寫回哪一組</th></tr></thead>
+          <tbody>
+            <tr><td>匯入這份 code 時，WFG 跳的「要載哪一組 Timing」選擇框裡你<strong>選了 <code>200%</code></strong>（或 <code>133%</code> ／ <code>Normal</code>）</td><td>就寫回<strong>同一組</strong>。你調的就是那一組的值。</td></tr>
+            <tr><td>你選的是 <strong><code>CURRENT</code></strong>（預設選項）</td><td>CURRENT 反映的是 TCON <strong>當下正在跑</strong>的那個模式。先確定那是哪一個，再寫回去。</td></tr>
+            <tr><td><strong>三個模式都要改</strong>（例如整組 timing 重調）</td><td>三組都要寫，<strong>②～④ 重複三次</strong>，每次先切到不同的子分頁。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>不確定 CURRENT 對應的是哪一個模式時</strong>
+        <code>File IO</code> 選單底下的 <code>From Normal</code> ／ <code>From 200%</code> ／ <code>From 133%</code> 可以把各組讀進來對照；每個模式子分頁上的 <code>CRC16:</code> 標籤也可以拿來比對。<span style="color:var(--muted);">另外 WFG 匯入 Flash code 時，每一組候選的卡片上會標 <code>Enable n/18</code>，可以看出哪幾組是燒滿的、哪幾組只燒了兩三條。</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">操作步驟：把 CURRENT 複製到目標子分頁</h4>
+      <div class="steps" style="margin-top:12px;">
+        <div class="step">
+          <h3>script 寫進 TCON 之後，在 <code>GPO</code> 分頁按 <code>Read</code></h3>
+          <p>把晶片裡的值讀回畫面。讀回來的內容會出現在 <strong><code>Current</code> 子分頁</strong>。<strong>沒做這一步，後面複製過去的會是舊資料。</strong></p>
         </div>
         <div class="step">
           <h3>切到你要寫入的<strong>子分頁</strong>（<code>Normal</code> ／ <code>200%</code> ／ <code>133%</code>）</h3>
-          <p>順序很重要 —— 複製的目的地就是「你現在停在哪一個子分頁」。</p>
+          <p>🔴 <strong>順序不能顛倒</strong>：複製的目的地就是「你現在停在哪一個子分頁」。先按 <code>File IO</code> 再想切分頁就來不及了。</p>
         </div>
         <div class="step">
-          <h3>點<strong>左下角</strong>的 <code>File IO</code> 按鈕</h3>
-          <p>是 GPO 分頁<strong>左下角的 <code>File IO</code> 按鈕</strong>，不是右下角的 <code>Flash R/W</code> 下拉。</p>
+          <h3>點工具列<strong>左邊</strong>的 <code>File IO</code> 按鈕</h3>
+          <p>它是分割式按鈕，按右側的箭頭展開下拉選單。<strong>不是右邊的 <code>Flash R/W</code>。</strong></p>
         </div>
         <div class="step">
-          <h3>在展開的選單裡，<code>--- Copy Data ---</code> 底下選 <code>From Current</code></h3>
-          <p>選單內容是 <code>Load / Save / --- Copy Data --- / From Normal / From 200% / From 133% / From Current</code>。選 <strong><code>From Current</code></strong>，就把 CURRENT 的值複製到你剛才切過去的那個子分頁。</p>
+          <h3>在 <code>--- Copy Data ---</code> 底下選 <code>From Current</code></h3>
+          <p><code>File IO</code> 展開的完整選單是：<br><code>Load ／ Save ／ Init Three Mode ／ --- Copy Data --- ／ From Normal ／ From 200% ／ From 133% ／ From Current</code><br>選 <strong><code>From Current</code></strong>，就把 CURRENT 的值複製到你剛才切過去的那個子分頁。</p>
         </div>
       </div>
-      <p style="margin-top:10px; font-size:.9rem; color:var(--muted);">要寫三個模式就把②～④重複三次，每次先切到不同的子分頁再選 <code>From Current</code>。</p>
+      <p style="margin-top:4px; font-size:.93rem; color:var(--muted);">三個模式都要更新時：<code>Read</code> 做一次就好，然後 <strong>切 <code>Normal</code> → <code>File IO</code> → <code>From Current</code>；切 <code>200%</code> → <code>File IO</code> → <code>From Current</code>；切 <code>133%</code> → <code>File IO</code> → <code>From Current</code></strong>。</p>
+
+      <div class="callout" style="border-left-color:#f59e0b;">
+        <strong>🔴 明確講「不是什麼」</strong>
+        ・<strong>入口不是右邊的 <code>Flash R/W</code> 下拉。</strong>它底下是 <code>Read Normal ／ Read 200% ／ Read 133% ／ Read All</code> 與 <code>Write Normal ／ Write 200% ／ Write 133% ／ Write All</code>，那是另一組動作，<strong>不是「把 CURRENT 複製到某一模式」</strong>。<br>
+        ・<strong>不要選成 <code>From Normal</code> ／ <code>From 200%</code> ／ <code>From 133%</code>。</strong>那三項的<strong>來源是別的模式</strong>，選下去等於拿別組的值蓋掉目前子分頁。要的是 <code>From Current</code>。<br>
+        ・<code>Init Three Mode</code> 就排在 <code>--- Copy Data ---</code> <strong>上面一項</strong>，非常容易點錯。<strong>本站沒有它的實測資料，複製資料請只用分隔線底下那四項。</strong>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0;">常見錯誤</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>做錯了什麼</th><th>會發生什麼</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">忘了先按 <code>GPO</code> 的 <code>Read</code></td><td><code>Current</code> 子分頁還停在舊值，<strong>複製過去的是舊資料</strong>，而且畫面上看不出來。</td></tr>
+            <tr><td class="t-name">沒先切子分頁就按 <code>File IO</code></td><td>複製到<strong>當下停留的那個子分頁</strong>，不是你想寫的那個。</td></tr>
+            <tr><td class="t-name">選成 <code>From Normal</code> ／ <code>From 200%</code> ／ <code>From 133%</code></td><td>來源不是 CURRENT，<strong>把別組的值蓋到目前子分頁</strong>。</td></tr>
+            <tr><td class="t-name">跑去右邊的 <code>Flash R/W</code></td><td>找不到 <code>From Current</code> —— 複製資料的入口在左邊的 <code>File IO</code>。</td></tr>
+            <tr><td class="t-name">只更新一個模式就出貨</td><td>另外兩組還是舊 timing。<strong>MCU 切到那個模式時，就會把舊的那一組搬進 CURRENT</strong>，面板當場變回舊波形。</td></tr>
+            <tr><td class="t-name">拿 EEPROM 版的 EM01 找三模</td><td>找不到 —— <strong>EEPROM 版沒有三組候選</strong>，CURRENT 的位置就是 Normal。</td></tr>
+            <tr><td class="t-name">在 EM02 ／ E512 上找 <code>File IO</code></td><td>找不到 —— <strong>那兩支原廠工具沒有這顆按鈕，也沒有三模。</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </section>
@@ -2447,7 +2744,7 @@
 <!-- ==================== LA INTRO ==================== -->
 <section id="la-intro">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">13</span>LA 分析器 — 簡介與快速開始</h2>
+    <h2 class="section-title"><span class="sec-num">14</span>LA 分析器 — 簡介與快速開始</h2>
     <p class="section-desc">前面十二章講的是「模擬」——用參數算出理想波形。<strong>LA 分析器</strong>是另一半：把<strong>真實量到的波形</strong>讀進來看。兩個模式共用同一個頁面，用頁首的模式頁籤切換，彼此的設定互不干擾。</p>
 
     <div class="grid-2">
@@ -2471,7 +2768,7 @@
         <ul>
           <li><strong>① 看內建範例</strong> — 工具列最左邊的「預設」下拉，五組現成資料（含三組真實異常案例），不用接任何硬體。</li>
           <li><strong>② 匯入現場檔案</strong> — 工具列「檔案」的匯入鈕，接受 <code>.kvdat</code>（設定＋波形）與 <code>.kvset</code>（只有設定）。同事在別台電腦錄的波形，丟進來就能看、能解碼。</li>
-          <li><strong>③ 接硬體實際擷取</strong> — 需要<strong>桌面版 Chrome／Edge</strong>（WebUSB），且第一次要匯入一次裝置支援包。詳見第 18 章。</li>
+          <li><strong>③ 接硬體實際擷取</strong> — 需要<strong>桌面版 Chrome／Edge</strong>（WebUSB），且第一次要匯入一次裝置支援包。詳見第 19 章。</li>
         </ul>
       </div>
     </div>
@@ -2603,7 +2900,7 @@
 <!-- ==================== LA ACQ ==================== -->
 <section id="la-acq">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">14</span>LA 取樣與觸發設定</h2>
+    <h2 class="section-title"><span class="sec-num">15</span>LA 取樣與觸發設定</h2>
     <p class="section-desc">左側兩張卡片。這裡決定「用多快的速度、錄多久、從哪一刻開始算 0 秒」——錄之前設錯，錄完就救不回來了。</p>
 
     <div class="grid-2">
@@ -2715,7 +3012,7 @@
 <!-- ==================== LA TOOLBAR ==================== -->
 <section id="la-toolbar">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">15</span>LA 工具列</h2>
+    <h2 class="section-title"><span class="sec-num">16</span>LA 工具列</h2>
     <p class="section-desc">波形區正上方，捲動時吸頂。共七個群組加上最右邊的設定鈕，與 TCON 模式的工具列完全是兩套東西。</p>
 
     <div class="card">
@@ -2750,7 +3047,7 @@
         <table>
           <thead><tr><th>按鈕</th><th>型別</th><th>作用</th><th>注意</th></tr></thead>
           <tbody>
-            <tr><td class="t-name">硬體連線 ⏻</td><td><span class="t-type tt-btn">切換鈕</span></td><td>取得／釋放擷取裝置的控制權。<strong>亮綠＝控制權在本工具</strong>，灰＝未連線。</td><td>只在桌面顯示。詳見第 18 章。</td></tr>
+            <tr><td class="t-name">硬體連線 ⏻</td><td><span class="t-type tt-btn">切換鈕</span></td><td>取得／釋放擷取裝置的控制權。<strong>亮綠＝控制權在本工具</strong>，灰＝未連線。</td><td>只在桌面顯示。詳見第 19 章。</td></tr>
             <tr><td class="t-name">單次擷取 ▶</td><td><span class="t-type tt-btn">按鈕</span></td><td>依目前設定抓一次。抓完自動停止並顯示結果。</td><td>選中狀態會保持綠色；第一次使用且尚未匯入裝置支援包時，會跳出匯入引導視窗。</td></tr>
             <tr><td class="t-name">循環擷取 ⟳</td><td><span class="t-type tt-btn">按鈕</span></td><td>抓完自動重新開始，畫面持續更新。</td><td>刷新行為受「Repeat Refresh」控制。</td></tr>
             <tr><td class="t-name">停止 ■</td><td><span class="t-type tt-btn">按鈕</span></td><td>中止目前的擷取。</td><td>手動停止時已經抓到的部分仍會顯示。</td></tr>
@@ -2828,7 +3125,7 @@
 <!-- ==================== LA SCOPE ==================== -->
 <section id="la-scope">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">16</span>LA 波形區與通道欄</h2>
+    <h2 class="section-title"><span class="sec-num">17</span>LA 波形區與通道欄</h2>
     <p class="section-desc">中間最大的一塊。由上而下是吸頂時間軸、通道名稱欄＋波形畫布、擷取進度條與概覽小地圖。</p>
 
     <div class="card">
@@ -2914,7 +3211,7 @@
 <!-- ==================== LA PANELS ==================== -->
 <section id="la-panels">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">17</span>LA 右側面板與協定解碼</h2>
+    <h2 class="section-title"><span class="sec-num">18</span>LA 右側面板與協定解碼</h2>
     <p class="section-desc">五張卡片，由上而下：即時測量、時基標尺、脈衝計數、分析器、解碼結果。每張都可以點標題收合。</p>
 
     <div class="grid-2">
@@ -3027,7 +3324,7 @@
 <!-- ==================== LA HARDWARE ==================== -->
 <section id="la-hw">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">18</span>LA 硬體連線與裝置支援包</h2>
+    <h2 class="section-title"><span class="sec-num">19</span>LA 硬體連線與裝置支援包</h2>
     <p class="section-desc">只有要「用這個網頁直接控制擷取裝置」時才需要這一章。看範例與匯入檔案完全用不到。</p>
 
     <div class="callout danger">
@@ -3091,7 +3388,7 @@
 <!-- ==================== FAQ ==================== -->
 <section id="faq">
   <div class="container">
-    <h2 class="section-title"><span class="sec-num">19</span>常見問題</h2>
+    <h2 class="section-title"><span class="sec-num">20</span>常見問題</h2>
     <p class="section-desc">點問題展開答案。</p>
 
     <div class="accordion-item open">
@@ -3351,7 +3648,7 @@
         <span>LA：按單次擷取沒有反應，或跳出要我匯入 zip？</span><span class="arrow">▼</span>
       </div>
       <div class="accordion-body">
-        <p style="color:var(--muted); font-size:.93rem;">實際擷取需要三個條件：<strong>桌面版 Chrome／Edge</strong>、網頁在 <code>https</code> 下開啟、裝置沒有被原廠軟體占用。第一次使用還要匯入一次裝置支援包（見第 18 章），匯入後會自動接續剛才的擷取。若提示「裝置被其他程式占用」，請先關閉原廠軟體再按硬體連線 ⏻。</p>
+        <p style="color:var(--muted); font-size:.93rem;">實際擷取需要三個條件：<strong>桌面版 Chrome／Edge</strong>、網頁在 <code>https</code> 下開啟、裝置沒有被原廠軟體占用。第一次使用還要匯入一次裝置支援包（見第 19 章），匯入後會自動接續剛才的擷取。若提示「裝置被其他程式占用」，請先關閉原廠軟體再按硬體連線 ⏻。</p>
       </div>
     </div>
 
