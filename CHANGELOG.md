@@ -22,6 +22,136 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.28.1 — 2026-08-26 ｜ PATCH ｜ ⚠ 輸出變更
+
+**VBLANK／HBLANK 兩格補上下限保護（硬底線 10 ＋ 機種規格反推，取較大者）；
+把這兩格納入 `wfgAuditBounds()`；狀態型警示改用不說謊的中性文案。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+・判定表「操作流程」→ 無入口消失或移位 → **PATCH**。
+・判定表「功能增減」→ 不增不減（收緊既有限制，不是移除功能）→ **PATCH**。
+・**R3 不適用** —— 使用者不會「多能做一件事」，反而少了（能打的值變少）。
+・**前例 v4.7.1（PATCH）**：「上游硬上限（Frame Rate／HTOTAL／VTOTAL）**不算新增功能**
+  —— 機種的規格上限 v4.7.0 就存在，這一版只是把它擋在上游、讓限制自洽」。
+  本版是**同一句話的下限那一半**，照抄同一個判定。
+・**R1**（修 bug，輸出會變）→ **PATCH ＋ `⚠ 輸出變更`**：舊版 VBLANK 打得到 1、新版打不到，
+  同一操作序列新舊版結果不同（依 R1「即使舊結果本身是 bug 產物仍要標」）。
+・**R4 不適用** —— 預設 VBLANK 45／HBLANK 280 遠高於新下限，開啟時的畫面零改變。
+・新增 i18n 文案 → §2 案例 11 → **PATCH**。R2 不適用；**未觸及 MAJOR 邊界**。
+⇒ 取最高 ＝ **PATCH**。
+
+### 範圍：只有 blanking 兩格，**ACTIVE 一個字都沒動**
+
+Bruce 2026-08-26：「H-Active 和 V-Active 不會有上下限的問題，輸入多少就是多少，
+而且也不會改動它」「active 沒有上下限保護」。
+
+⇒ `#wfg-vactive`／`#wfg-hactive` 的 `min` 維持原本的 `1`、不寫新的 `min`、不進判定、
+**也不納入稽核** —— 把 `vactiveMax`／`hactiveMax` 寫成斷言等於用稽核去鞏固一個
+他說不該存在的限制。那兩格的既有上限是另一個待裁示的題目，本版不碰。
+
+> 📌 **一個看似矛盾、經 Bruce 裁示「維持現狀」的點**（量測資料在
+> `~/ClaudeData/_wfg_lowbound/work/resultA2.json`）：
+> 現行的 total 上限判定（v4.7.1）**其實會改動 ACTIVE 的值**。實測從 1920×1080@60 起，
+> 依序打 HACTIVE、VACTIVE：E503／E501／EN01 在 **2560×1440** 就把 VACTIVE 改回 1080、
+> 在 3840×2160 連 HACTIVE 都改回 1920；EM02／E512 在 4K 被改；EM01 三種解析度全過。
+> 🔴 真正在改值的是 `wfgBlockIfWorse(nextVtotal, …)` ＋ `wfgSyncBlankInputs()`，
+> **不是** DOM 的 `max` 屬性（`max` 擋不住打字）——「要拆」得動的是前者。
+>
+> 這與「active 沒有上下限保護」表面上衝突。**Bruce 2026-08-26 裁示：維持現狀，不修。**
+> 理由是 v4.7.1 的「到達上限要反過來限制 HTOTAL／VTOTAL」是他自己要的需求，那條優先。
+> ⇒ `vactiveMax`／`hactiveMax` 不拆、total 上限判定不拆、稽核仍刻意不納入 ACTIVE 兩格。
+> 本版新增的**下限**則完全不碰 ACTIVE（見下方「判定綁單格」）。
+
+### 兩層下限
+
+| 層 | 值 | 來源 | 定頻時 |
+|---|---|---|---|
+| 硬底線 | `10` | Bruce 2026-08-26 指定，無推導 | 存在 |
+| 機種反推 | `VTOTAL_min = ceil(pxMinHz / (HTOTAL × fps))`、`HTOTAL_min = ceil(pxMinHz / (VTOTAL × fps))` | 與 `wfgPixelRateMinMHz()` 同一條推導（UI ≥ specMin ⇒ P ≥ pxMinHz） | **不存在**（`wfgClampTconDclk()` 定頻下 RX 變小時 TX 不動 ⇒ UI 不變 ⇒ 約束不到上游） |
+
+`effectiveMin = max(10, 機種反推值 − 對應的 ACTIVE)`。唯一來源是 `wfgBlankMins()`。
+用 `ceil` 不用 `floor` —— 下限取 floor 會得到一個仍然違規的值（理由同 `fpsMin`）。
+
+### 🔴 判定綁**單格**，不綁 total —— 開發中途被實測推翻
+
+本版開發到一半時判定是綁 total（`VTOTAL ≥ max(VACTIVE + 10, VTOTAL_機種)`），
+理由是「`vblankMin` 依賴 VACTIVE，而取 bounds 時 `wfgFrame.vactive` 還是改動前的值」。
+
+**驗收 B7 直接打臉**：EM01 變頻依序打 `HACTIVE 1280 → HBLANK 160 → VACTIVE 720`，
+第三步 VTOTAL ＝ 765 < `vtotalMin` 926 ⇒ **VACTIVE 被擋、被還原成 1080**
+（新舊版 UI DCLK 32.4 vs 47.952）。綁 total 會把「**ACTIVE 造成的** total 變動」
+一起算進去，正是 Bruce 說不該有的東西。
+
+改綁單格之後，原本反對綁單格的理由也消失了：判定式的 active 項改用**本次讀到的**
+`nextVactive`／`nextHactive`，資訊需求與綁 total 完全相同，卻不會誤判 ACTIVE 的變動。
+`wfgBlockIfWorseLow()` 的方向性（低於下限**且變得更小**才擋）同時就是
+「只改 ACTIVE 不會被誤擋」的結構保證 —— blanking 沒變 ⇒ `next < prev` 不成立。
+
+> ⚠ **為什麼原本的驗收沒抓到**：ACTIVE 回歸只測了**定頻**，而定頻下 `pxMinHz = 0`
+> ⇒ 機種層根本不存在 ⇒ 門檻永遠滿足。已把該項擴成 **定頻＋變頻 × 5 種解析度
+> （含降解析度）＝ 50 組**，新舊版逐值相同。
+
+### 拉霸：只吃硬底線，**不吃機種層**（有證明）
+
+拉 Vblank 拉霸時 **Pixel Rate 守恆**（v4.28.0 的 ①②）⇒ 變頻時 `UI = (P/2)×ratio` 不變、
+定頻時 TX 根本不動 ⇒ **UI 一步都不會低於規格下限**。機種下限在這條路徑上永遠踩不到，
+套上去只會無故縮小合法拖曳範圍。硬底線 10 與怎麼到達無關，所以要套。
+
+改為寫一條**相容性不變量**（I4），與 v4.28.0 的 H4（max 那半）對稱：
+拉霸拉到 `min` 那一點時，輸入格在那一刻允許的 `vblankMin ≤ 拉霸 min`。
+證明：目前狀態合法 ⇒ P ≥ pxMinHz ⇒ `ceil(pxMinHz×(VACTIVE+vb)/P) ≤ VACTIVE+vb`。
+
+> 🔴 **I4 的前提也是被實測補上的**：第一版斷言沒帶「目前狀態合法」這個前提，
+> 於是 EM01 變頻把 HACTIVE 降到 800（active 沒有下限，這是合法操作）⇒ P ＝ 72.9 < 80
+> ⇒ 已是超規格狀態 ⇒ **斷言自己誤報**。證明有前提，斷言就得帶同一個前提。
+
+### 稽核 I1～I4（負控制證明現行稽核對這四格完全不檢查）
+
+動 code 前的負控制：把四格的 `max` 全部篡改成 `999999`，v4.28.0 的 `wfgAuditBounds()`
+仍回 **`ok:true, issues:[]`** —— 寫入點壞掉不會有任何機制叫，與 v4.9.0 的 TX/UI
+端點殘留同型。本版補上 I1（`min` ≡ 唯一來源）／I2（`max` ≡ 唯一來源）／
+I3（`min ≤ max` 且 `min ≥ 10`）／I4（拉霸相容性），**只納入 blanking 兩格**。
+
+### 文案：把「說謊的那句」與「輸入被拒絕」分開
+
+🔴 `wfgRefreshRangeWarning()` 原本直接借用 `wfgValidateTxDclk()` 的 `chk.err`，
+而那幾則是為「打字被拒絕」寫的、結尾都是「已保留原本的值」——
+當成**現況說明**顯示時那句話是假的（值根本沒被保留，是它被上游參數推過界的）。
+
+實測（EM01 變頻，HACTIVE 1920→800，active 不被擋 ⇒ UI 36.45 < 40）：
+
+| | 紅字 |
+|---|---|
+| v4.28.0 | 「EM01 的 TCON UI DCLK 規格下限是 40 MHz（換算成 TX DCLK ＝ 40 MHz），**已保留原本的值**。」← 值明明是 800 |
+| v4.28.1 | 「TCON UI DCLK 36.45 MHz 低於 EM01 規格下限 40 MHz。請提高 Frame Rate 或 HTOTAL／VTOTAL。」 |
+
+新增 4 則 key（三語齊備）：`errBlankMinHard`／`errBlankMinSpec`（硬底線與機種層
+**理由不同、文案分開** —— 硬底線觸發時扯「UI DCLK 會低於規格下限」是假話）、
+`stateUiBelowMin`／`stateUiAboveMax`。
+
+> ⚠ 誠實記錄兩項保留：
+> ① **I4 的單獨鑑別力未證明** —— 負控制（竄改拉霸 `min`）被既有的 H1 先攔截。
+>   I4 在前提成立時已被證明恆真，價值是回歸防護，不是抓現有 bug。
+> ② **`stateUiAboveMax` 未實測觸發** —— 找不到用純使用者操作進到「TX 殘留超過上限」
+>   那個狀態的路徑。它是對稱補上的防禦性程式碼，不是驗過的。
+
+### 驗收（新舊版對照，最終版 code 重跑；探針在 `~/ClaudeData/_wfg_lowbound/`）
+
+| 項目 | v4.28.0（負控制） | v4.28.1 |
+|---|---|---|
+| 硬底線 VBLANK/HBLANK →5 | **沒擋**，值變 5 | 擋，值留 45／280 |
+| 機種層 EM01 變頻 fps33 VBLANK→15 | **沒擋**，UI 40.8375→**39.7485** | 擋，UI **完全不動** |
+| 同上 HBLANK→200 | **沒擋**，UI→**39.3525** | 擋 |
+| 合法值 VBLANK→30／HBLANK→250 | 放行 | 放行，UI 40.293／40.2806 ≥ 40 |
+| `min` 屬性（全機種 × 型態，10 組） | 全部 `1` | 全部 `10`，與獨立重算的期望值全相符 |
+| 稽核負控制 | 篡改全部 `ok=True` | `vblank.min→1`／`hblank.max→999999` **抓到**；`vactive.max` **刻意不報** |
+| 零回歸 VBLANK100/HBLANK400/FPS75 | px 205.32 rx 102.66 tx 102.66 ui 102.66 vt 1180 ht 2320 | **逐值相同** |
+| Vblank 拉霸 min／中／max 三點 | 守恆 | **守恆**，稽核全綠 |
+| **ACTIVE 50 組**（定頻＋變頻 × 5 解析度） | — | **逐值完全相同** |
+| 退路（已違規狀態往上調） | 有 | 有 |
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.28.0 — 2026-08-26 ｜ MINOR ｜ ⚠ 輸出變更
 
 **Frame 參數卡片改成兩個大 Group，並新增「Vblank 模擬拉霸」——拉它的時候

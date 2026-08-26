@@ -686,6 +686,27 @@ var I18N = {
   'wfg.errTotalMax':    { 'zh-TW': '{f} 最高只能到 {max} —— 再高的話 {m} 的 TCON UI DCLK 就會超出規格（Pixel Rate 上限 {px} MHz）。要再往上，請先降低 Frame Rate 或改選其他機種。',
                           'en': '{f} can go up to {max} - any higher and the TCON UI DCLK for {m} would exceed spec (Pixel Rate limit {px} MHz). Lower the Frame Rate first, or pick another model.',
                           'zh-CN': '{f} 最高只能到 {max} —— 再高的话 {m} 的 TCON UI DCLK 就会超出规格（Pixel Rate 上限 {px} MHz）。要再往上，请先降低 Frame Rate 或改选其他机种。' },
+  /* ══ v4.28.1：blanking 兩格的**下限**（Bruce 2026-08-26）════════════════════════
+     兩層下限的理由不同，文案必須分開：硬底線 10 觸發時扯「UI DCLK 低於規格下限」
+     是假話（定頻下機種那一層根本不存在）。{f}=欄位名 {min}=該格下限 {m}=機種 {lo}=規格下限
+     🔴 只有 VBLANK／HBLANK 有這兩則 —— Vactive／Hactive 沒有下限保護。 */
+  'wfg.errBlankMinHard': { 'zh-TW': '{f} 最低只能到 {min}。已保留原本的值。',
+                          'en': '{f} can go down to {min}. The previous value was kept.',
+                          'zh-CN': '{f} 最低只能到 {min}。已保留原本的值。' },
+  'wfg.errBlankMinSpec': { 'zh-TW': '{f} 最低只能到 {min} —— 再低的話 {m} 的 TCON UI DCLK 會低於規格下限 {lo} MHz。已保留原本的值。',
+                          'en': '{f} can go down to {min} - any lower and the TCON UI DCLK for {m} would fall below its {lo} MHz spec minimum. The previous value was kept.',
+                          'zh-CN': '{f} 最低只能到 {min} —— 再低的话 {m} 的 TCON UI DCLK 会低于规格下限 {lo} MHz。已保留原本的值。' },
+  /* ══ v4.28.1：**狀態型**警示的中性版本 ══════════════════════════════════════════
+     🔴 `wfgRefreshRangeWarning()` 原本直接借用 `wfgValidateTxDclk()` 的 `chk.err`，
+     而那幾則是為「打字被拒絕」那條路徑寫的、結尾都是「已保留原本的值」——
+     當成**現況說明**顯示時那句話是假的（值根本沒被保留，是它自己漂過界的）。
+     這兩則只描述現況與該往哪裡調，不談「保留」。{cur}=目前 UI DCLK */
+  'wfg.stateUiBelowMin': { 'zh-TW': 'TCON UI DCLK {cur} MHz 低於 {m} 規格下限 {lo} MHz。請提高 Frame Rate 或 HTOTAL／VTOTAL。',
+                          'en': 'TCON UI DCLK is {cur} MHz, below the {lo} MHz spec minimum for {m}. Raise the Frame Rate or HTOTAL / VTOTAL.',
+                          'zh-CN': 'TCON UI DCLK {cur} MHz 低于 {m} 规格下限 {lo} MHz。请提高 Frame Rate 或 HTOTAL／VTOTAL。' },
+  'wfg.stateUiAboveMax': { 'zh-TW': 'TCON UI DCLK {cur} MHz 高於 {m} 規格上限 {hi} MHz。請降低 Frame Rate 或 HTOTAL／VTOTAL。',
+                          'en': 'TCON UI DCLK is {cur} MHz, above the {hi} MHz spec maximum for {m}. Lower the Frame Rate or HTOTAL / VTOTAL.',
+                          'zh-CN': 'TCON UI DCLK {cur} MHz 高于 {m} 规格上限 {hi} MHz。请降低 Frame Rate 或 HTOTAL／VTOTAL。' },
   /* v4.7.0：NB 機種一定是定頻應用（Bruce 2026-08-23） */
   'wfg.varClockNbTitle': { 'zh-TW': 'Notebook TCON 一定是定頻應用，不能選變頻',
                           'en': 'Notebook TCONs are always fixed-clock; variable clock is not available',
