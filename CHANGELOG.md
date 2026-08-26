@@ -22,6 +22,75 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.28.4 — 2026-08-26 ｜ PATCH
+
+**修：狀態超出機種能力時，VBLANK／HBLANK 的下限保護會整個消失。**
+
+Dispatch 端在 Bruce 的瀏覽器上獨立複驗 v4.28.3 時抓到（他的存檔：**E503、
+1920×1080、fps 144、VBLANK 32、HBLANK 160**）：
+
+```
+#wfg-vblank    min="1"  max="1"     ← 原始碼寫的是 min="10"
+#wfg-hblank    min="1"  max="1"
+wfgFrameBounds()  vblankMin 1、vblankMax 1、hblankMin 1、hblankMax 1
+wfgBlankMins()    vblankMin 10、hblankMin 10      ← 第一層是對的，被第二層夾掉
+wfgAuditBounds()  ok:false，3 條 issue（含「vblank input min 1 低於硬底線 10」）
+```
+
+**根因**：E503 的 Pixel Rate 上限 210 MHz，配 fps 144 ⇒ `vtotalMax = 701`，
+而 VTOTAL 是 1112 ⇒ `vblankMax = 701 − 1080 = −379` → `Math.max(1, …)` 夾成 1
+⇒ v4.28.1 寫的 `vblankMin = Math.min(M.vblankMin, vblankMax)` 把 `max(10, …)`
+夾成 `min(10, 1) = 1`，**下限保護消失**。
+
+**那個夾值當初的用意是防鎖死**（v4.7.0 的教訓：`min > max` 不可以拒絕所有值）。
+但**防鎖死已經由 `wfgBlockIfWorseLow()` 的方向性保證了** —— 它的判定是
+`(next < min) && (next < prev)`，往上調永遠放行。那個夾值是多餘的防護，
+代價卻是「狀態一超規格，保護就沒了」。
+
+**改法**：
+
+1. 拿掉 `vblankMin` / `hblankMin` 的 `Math.min` 夾值，直接用 `wfgBlankMins()` 的值。
+2. `wfgFrameBounds()` 新增 `incompatible` 旗標（`vtMax < VTOTAL || htMax < HTOTAL`）。
+3. 稽核的「`min > max`」那條加上「狀態本身合法」前提 —— 超規格時 `min > max`
+   **是正確的表達**（這格無解，要先降 fps／解析度），不是缺陷。
+   與 v4.28.1 為 I4 立的前提處理一致。
+
+### 驗收（Dispatch 端自行量測，`~/ClaudeData/_wfg_4284/`）
+
+用 `wfgImportConfig()` 忠實複製 Bruce 的狀態（**打字設 fps=144 會被 fpsMax=90
+擋回 60，進不去那個狀態** —— 他的狀態是匯入 code 帶進來的）：
+
+| | v4.28.3 (base) | v4.28.4 (fixed) |
+|---|---|---|
+| `#wfg-vblank` min / max | **1 / 1** | **10** / 1 |
+| `#wfg-hblank` min / max | **1 / 1** | **10** / 1 |
+| `wfgFrameBounds().vblankMin` | 1 | **10** |
+| `incompatible` | （無此欄位） | **true** |
+| 稽核 issue 數 | **3** | **1** |
+| 打 VBLANK=5（低於硬底線） | 擋住（值留 32） | 擋住（值留 32） |
+
+base 那一欄與我在 Bruce 瀏覽器上讀到的數字**一字不差**，包含三條 issue 的內容。
+
+**行為零改變**：打字時的保護本來就在（判定層讀的是 `wfgBlankMins()` 的第一層值，
+不是被夾過的 `wfgFrameBounds()`），base 與 fixed 打 5 都被擋。**這一版修的是
+「bounds 回傳值與稽核的一致性」** —— 讓 DOM 的 `min` 屬性、`wfgFrameBounds()`
+與稽核三者不再互相矛盾。
+
+### 🔴 未解，留給下一輪
+
+超規格狀態下 **VBLANK 往上調也會被擋**（`vblankMax=1`）—— 實測 base 與 fixed
+皆然，打 200 值留在 32。那在演算法上是對的（VBLANK 變大會讓 Pixel Rate 更大、
+更超規），**正確的出路是先降 fps**，但畫面上沒有任何東西告訴使用者這件事。
+剩下的那條稽核 issue（`vb slider max 65535 超過該點輸入格允許的 vblankMax 40921`）
+也屬同一個家族。
+
+**判定依據**：`docs/VERSIONING.md` §1 判定表 —— 操作流程不變、功能不增不減、
+使用者可輸入的值域不變（打字保護 base/fixed 相同）⇒ **PATCH**。
+不標 `⚠ 輸出變更`：同一操作序列的結果逐值相同（驗收表最後一列）。
+R1～R4 皆不適用；未觸及 MAJOR 邊界。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.28.3 — 2026-08-26 ｜ PATCH
 
 **Code group 的外框改用「強調」橘，與其他四個工具 group 區隔。**
