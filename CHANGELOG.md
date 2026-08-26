@@ -22,6 +22,164 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.30.0 — 2026-08-27 ｜ MINOR ｜ ⚠ 輸出變更
+
+**原本的「Frame 參數」一張大卡片拆成四張：系統設定 → 系統模擬 → TCON頻率設定 →
+TCON 其他設定。「系統模擬」用強調橘外框 ＋ 放大字體標示出來，拉霸由淺藍改為橘色。**
+
+Bruce 2026-08-27 的需求（原話節錄）：
+
+> 「System Simulation 的 Group 字體實在太小了，我需要 highlight 這個 Group，讓它很清楚
+> 呈現出跟前面的 System Pixel Rate 卡片設置是不一樣的，字體可以放大一點。
+> 另外，拉霸的顏色也不要用淺藍色，改用比較醒目一點的顏色。我要傳達的目的是：
+> System Pixel Rate 的卡片設定完以後，可以換到 Simulation 的卡片去做實際的變換。
+> 還有，System Pixel Rate 的 Group、System Simulation 的 Group，以及跟下方其他 Group
+> 之間的間距要有，不要整個都黏在一起。Frame 參數這個名詞似乎也不適合這個卡片，
+> 我看把它換成『系統設定』應該會比較好。另外，System Simulation 的這個 group，
+> 我覺得還是把它拉出來，變成獨立的另外一張卡片，就叫系統模擬的卡片，卡片名稱在
+> 繁體中文下，不要有英文，放在『系統設定』的卡片下方。
+> 再來把 DCLK 還有 gate Type / Frame 重複數的這幾個 group 獨立成另外一張卡片，
+> 叫做『TCON頻率設定』」
+
+同日追加（覆蓋上一段對 Gate Type 的安排）：
+
+> 「把 GateType 移到全域共用的那張卡片，那張卡片名稱改成『TCON 其他設定』。
+> 然後把 TOGGLE_FRM_NO 不要放在卡片名稱上面，把它移下來變成另外一個 group，
+> 與 Gate Type 區分開來（Gate Type 是另外一個 group）。」
+
+### 改完長什麼樣
+
+| # | 卡片 | 內容 |
+|---|---|---|
+| 1 | **系統設定**（原「Frame 參數」，`#wfg-frame-card` id 未改） | `System Pixel Rate` Group：V Total／H Total／Frame Rate (Hz) 三個子 Group ＋ Pixel Rate |
+| 2 | **系統模擬**（新，`#wfg-syssim-card`） | Frame Rate／Vblank／RX DCLK 三條拉霸 |
+| 3 | **TCON頻率設定**（新，`#wfg-tconfreq-card`） | `DCLK (MHz)` Group：RX DCLK／TX DCLK／TCON UI DCLK |
+| 4 | **TCON 其他設定**（原「Toggle FRM_NO（全域共用）」，`#wfg-frmno-card` id 未改） | `Gate / Frame` Group ＋ `Toggle FRM_NO（全域共用）` Group（兩個並列、互不包含） |
+
+🔴 **`id` 一個都沒有改**，搬動的是同一批 DOM 節點，`oninput`／欄位順序／值域一律不動 ——
+autosave、匯入匯出、`wfgAuditBounds()` 全部走 `getElementById`，不依賴 DOM 位置。
+唯一跟著改的是 `wfgCaptureUIState()` 裡那份**列舉式**的卡片清單（補上兩張新卡片；
+還原端本來就是照存下來的 key 逐一還原、不必改）。
+
+### 顏色不是憑感覺挑的
+
+**① 拉霸 accent：`#38bdf8`（淺藍）→ `#f97316`（橘）**
+
+同一個左側面板的另一組拉霸 —— `Toggle FRM_NO` 那三條 `.wfg-slider-row input[type=range]`
+—— 的 thumb **本來就是 `#f97316`**（`wfg.html:1167/1171`）；同一張卡片的 checkbox accent
+（1063 行）與輸入框 focus 框（1064／1114 行）也是 `#f97316`。
+⇒ `.wfg-fps-slider` 的 `#38bdf8` 才是**站上唯一的例外**，改掉之後整頁「可操作控制項」
+只剩一個 accent 色，這是**收斂**，不是新增視覺語言。
+
+**與 v4.28.3 Code group 的橘 `#f59e0b` 不衝突** —— 兩者是本頁**今天就已經同時存在**的
+兩個語意層，本版沒有把任一層搬到另一層上：
+
+| 色值 | 語意層 | 現有用處 |
+|---|---|---|
+| `#f59e0b`（v3.30.0 色票的「強調」） | **框**：這一區很重要 | Code group 外框（v4.28.3）、`.wfg-spot-ring`、`.wfg-ack-num` |
+| `#f97316`（站上互動色） | **控制項本體**：這個東西可以動 | focus 框、checkbox、FRM_NO slider thumb、`.wfg-btn-primary`、站名 logo |
+
+🔴 **不分區上色**：Bruce 說的是「拉霸」，沒有限定只有系統模擬那三條。只改一部分等於
+新增一個他沒指名的區別（同頁出現兩種拉霸顏色），依 isp v1.18.1 裁示「改視覺屬性只准動
+被指名的維度」⇒ 五條 `.wfg-fps-slider` 全部一起改。系統模擬的醒目度由卡片外框與標題承擔。
+
+**② 系統模擬卡片的 highlight：外框 `rgba(245,158,11,0.85)`、標題 `#fcd34d`**
+
+外框沿用 **v4.28.3 為 Code group 挑的同一個值**（那一版已逐項排除綠＝完成／藍＝資訊／
+紅＝錯誤，結論是「這一區很重要」只有強調橘對得上），這裡是同一個語意 ⇒ 直接沿用，
+不挑第二個顏色。標題色 `#fcd34d` ＝ `.wfg-ack-item.tone-amber` 的 `--ack-tone-text`。
+
+**③ TCON HTOTAL 改用資訊藍 `#93c5fd`**
+
+它是由 HTOTAL 換算出來的**衍生資訊**、不是可操作項，正落在色票的「藍＝資訊」。
+`#93c5fd` 在本頁已在用（`.wfg-import-filename`、`.wfg-ovl-grp-title`、`.tone-blue`）。
+🔴 只加一個 class、只動 `color` 一個維度；隔壁的 HTOTAL 實測仍是 `rgb(226,232,240)`，一字未動。
+
+### 字級與間距
+
+- 卡片標題 14px → **17px**（只有 `#wfg-syssim-card`）；卡片內群組框標題 9px → **11px**。
+- 🔴 群組框標題是 `position:absolute; top:2px; line-height:1` 的浮貼標籤，字級變大會往下長，
+  所以同步把框的 `padding-top` 加大（`.wfg-field-group` 12→18px、`.wfg-subgroup` 13→18px）。
+  不加就會壓到第一行內容。
+- 卡片之間的間距由既有的 `.wfg-panel { gap: 10px }` 提供（實測四個寬度皆 10px）；
+  卡片**內**兩個並列 Group 之間補 `margin-top: 10px`（`.wfg-field-row` 本身沒有 margin，
+  這正是 Bruce 說「整個都黏在一起」的原因）。
+
+### 「Frame 重複數」為什麼跟著 Gate Type 走（Bruce 這次沒指名，供覆核）
+
+- **它與 Toggle FRM_NO 直接耦合**：`wfgToggleDisplayThreshold(frmNoVal, frameCount)` 與
+  `wfgToggleIsApprox(gpio, frameCount)` 兩支都同時吃 FRM_NO 與 frameCount，畫面上那個
+  「近似」提示（`#wfg-frmno-approx`）就是它們算出來的 —— 放同一張卡片，調 FRM_NO 時看得到它。
+- 它與 Gate Type 也耦合：總行數 ＝ `vtotal × gate 倍率 × frameCount`（`wfgTotalLines()`）。
+- 它與「頻率」毫無關係，留在 TCON頻率設定 說不通。
+- Bruce 指名要分開的是 **Gate Type 與 Toggle FRM_NO**，`Gate / Frame` 這個既有 Group
+  他沒說要拆 ⇒ 依「只動被指名的維度」整組搬、不拆。
+
+### 驗收（四支 headless Chrome 探針，base ＝ `8856f6e`/v4.29.1 乾淨快照，獨立 user-data-dir）
+
+- **四個寬度 × 四張卡片**（390／430／900／1440 px，用 CDP `Emulation.setDeviceMetricsOverride`，
+  不是 `--window-size`）：卡片順序＝系統設定→系統模擬→TCON頻率設定→TCON 其他設定，
+  **橫向溢出 0**，卡片間距全部 10px。
+- **群組標題可見性**：把四張卡片全部展開後，`.wfg-la-group-label` **13 個、未被畫出 0 個**，
+  四個寬度皆同（量 `getComputedStyle` ＋ `getBoundingClientRect` 的實際渲染盒，不是數 DOM）。
+  標題總數 base 與 fixed 都是 13（少了 `System Simulation` 框名、多了 `Toggle FRM_NO` 框名）。
+  🔴 第一輪誤報的「未畫出 2 個」是**卡片預設摺疊**（`#wfg-frmno-card` 在 base 與 fixed 都是
+  h=40 ＝ 只有標題列），不是 ≤900px 那條陷阱 —— 已改成先展開再量。
+- **零回歸**：base vs fixed 同一組操作序列（VACTIVE 1200 → VBLANK 100 → HBLANK 400 →
+  Frame Rate 75 → TX DCLK 100，再加變頻雙向與重整還原），比對 fps／htotal／vtotal／tconHt／
+  hactive／vactive／hblank／vblank／px／rx／tx／ui 共 12 欄 × 8 個取樣點 ⇒ **差異 0 項**。
+- **v4.29.0 雙向連動**：變頻下打 TCON UI DCLK ＝ 120 ⇒ fps 反推 **79.5756**，base 與 fixed 相同。
+- **v4.29.1 還原順序**：QHD 2560×1440 ＋ HBLANK 30 ＋ VBLANK 46 ＋ fps 222 ⇒ 重整後
+  HTOTAL **2590**、VTOTAL 1486、Pixel Rate **854.4203**、RX 427.2101，base 與 fixed 逐值相同。
+- **`wfgAuditBounds()`**：六個取樣點**全綠**（`ok=true`、`issues=[]`）。
+- **聚光燈**：走真實匯入流程（餵 EM01 code bin、只關掉 timing 對話框、留著 ack 對話框），
+  綠框 `rgb(34,197,94)` 實際畫出 **247×92**，`box` 命中的仍是 `TX DCLK` 子群組（**231×76**），
+  **沒有擴大成整張卡片**（fixed 的 `#wfg-tconfreq-card` 只有 316px 高）；base 與 fixed 洞尺寸相同。
+- **摺疊 autosave**：四張卡片各按一次收合 → 重整 ⇒ 四張全部記得住。
+- 🔴 **五個負控制全部抓得到**：
+  ① 關掉 ≤900px 的標題救援選擇器 ⇒ 430px 下 **13 個標題全部消失**（偵測器有鑑別力）；
+  ② 強制隱藏一個標題 ⇒ 抓到；
+  ③ 把拉霸 accent 竄改回 `#38bdf8`、TCON HTOTAL 竄改回 `#e2e8f0` ⇒ 都量得出來；
+  ④ fixed VACTIVE=1201 vs base=1200 ⇒ 比對器抓到 6 個欄位不同（證明「差異 0 項」不是比對器壞掉）；
+  ⑤ 把聚光燈的 `box` 改成 `.wfg-card` ⇒ 洞由 247×92 變成 293×331.5（證明量得出範圍擴大）。
+
+證據（log／JSON／截圖／探針原始碼）：`~/ClaudeData/_wfg_cards/`
+（`shots/panel_{before,after}_{1440,430}.png` 為改前／改後對照）
+
+### 說明頁一併更新（不納入版號機制）
+
+`wfg-guide.html` 原本有 13 處指向「Frame 參數」這張已不存在的卡片，會讓使用者照著找不到。
+本次只做**卡片名稱層級**的機械更名（導覽鈕、章節標題、卡片示意圖、區域提示文字），
+並在左側面板示意圖補上四張卡片。
+⚠ **照實列出：說明頁還有本版之前就存在的過期內容**（例如 §4 的示意圖仍畫「Vtotal／Htotal
+輸入格」，實際自 v3.28.0 起已改為 Vactive／Vblank／Hactive／Hblank，也還沒有拉霸與 DCLK 的
+章節）。那些不是本版造成的，本版**沒有**一併重寫 —— 要補請另外交辦。
+
+### 已知、本版**不動**的事
+
+`wfg.grpSysSim` 這個 i18n key 自本版起無人引用（System Simulation 由 Group 框名升級成卡片標題
+`wfg.cardSysSim`）。key 保留不刪，不會被畫出來。
+
+**判定依據**：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+・**§2 案例 3（改 UI 版面、不動功能）** —— 這是本版唯一可能觸及 MAJOR 的一條
+  （「重排到原本的按鈕找不到了」）。🔴 **Bruce 2026-08-27 明確裁示「不要 Major」**，
+  故不套用該條的 MAJOR 分支；此處照實留下紀錄供追溯。
+  客觀事實面也支持不編 MAJOR：四張卡片**相鄰、順序與原本由上而下的控制項順序完全一致**，
+  每一個控制項的相對前後關係一個都沒變，只是在既有的控制項串流中插入了三個卡片標題；
+  沒有任何功能被移除、沒有東西被收進新的摺疊層（新卡片預設展開）、`id` 全數保留。
+・**案例 1／R3（新增獨立功能）** ⇒ MINOR：四張卡片可**各自獨立收合**，使用者能做的事
+  多了一件（原本 Frame 參數一收就把 DCLK／Gate／拉霸全部一起收掉）。
+・**案例 3 的 PATCH 分支**（配色、文案、間距、控制項位置小移）⇒ PATCH：改名、拉霸換色、
+  TCON HTOTAL 換色、字級、間距。
+・R1／R2／R4 不適用（不是修 bug、不開新波、沒有改起始值）。
+取最高者 ⇒ **MINOR**。
+🔴 取捨供覆核：MAJOR 這條是被 Bruce 直接裁示掉的，不是我判它不成立；若日後回頭看認為
+版面確實需要重新熟悉一次，請以本條紀錄為準理解當時的決定過程。
+`⚠ 輸出變更` 依 R1 的「版面／構圖類」範圍定義標上：卡片數量、卡片高度、拉霸顏色、
+TCON HTOTAL 顏色都改了 —— 拿舊版建立的截圖基線比對會把這些預期內的改變誤報成回歸。
+
+---
+
 ## WFG (wfg) v4.29.1 — 2026-08-27 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修：Hactive 不等於預設 1920 時，重新整理網頁會讓 HBLANK 掉成 1、HTOTAL 變成「1920 ＋ 你的 HBLANK」。**
