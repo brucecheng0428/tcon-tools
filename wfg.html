@@ -2791,7 +2791,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260826wfg4283"></script>
+<script src="common/version.js?v=20260826wfg4284"></script>
 <script src="common/i18n.js?v=20260826wfg4283"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -27362,9 +27362,22 @@ function wfgFrameBounds() {
   var M = wfgBlankMins();
   var vblankMax = Math.max(1, vtMax - (wfgFrame.vactive | 0));
   var hblankMax = Math.max(1, htMax - (wfgFrame.hactive | 0));
-  /* 🔴 下限不得高過上限。`min > max` 代表「這格連 10 都放不下」＝這組 Frame 參數與
-     這顆機種不相容 —— 那種狀態下**不可以拒絕所有值**（v4.7.0 的鎖死教訓），
-     所以讓下限退讓。夾在這裡而不是在寫入點，`wfgFrameBounds()` 才仍是唯一來源。 */
+  /* 🔴 v4.28.4：**下限不再讓步。**
+     v4.28.1 這裡寫了 `vblankMin = Math.min(M.vblankMin, vblankMax)`，用意是
+     「`min > max` 時不可以拒絕所有值（v4.7.0 的鎖死教訓）」。Dispatch 端實測推翻：
+
+       Bruce 的存檔 E503 / 1920×1080 / fps 144 / VBLANK 32 / HBLANK 160
+       fps 144 > fpsMax 90 ⇒ vtMax 701 < VTOTAL 1112
+       ⇒ vblankMax = 701 − 1080 = −379 → 夾成 1
+       ⇒ vblankMin = min(10, 1) = 1   ← **下限保護整個消失**
+
+     防鎖死這件事**已經由 `wfgBlockIfWorseLow()` 的方向性保證**（見下方它的實作：
+     `(next < min) && (next < prev)` —— 往上調永遠放行）。那個夾值是多餘的防護，
+     代價卻是「狀態一超規格，保護就沒了」。
+
+     `min > max` 在超規格狀態下**是正確的表達**：這格無解，要先把 fps／解析度降下來。
+     由畫面上的中性警示負責告知（同 v4.28.1 的 stateUiBelowMin），稽核不重複叫。 */
+  var incompatible = (vtMax < vt) || (htMax < ht);
   return {
     pixelRateMaxMHz: wfgPixelRateMaxMHz(),
     pixelRateMinMHz: wfgPixelRateMinMHz(),
@@ -27378,8 +27391,11 @@ function wfgFrameBounds() {
           B7 那段），留一個沒人用卻看起來很權威的欄位，只會誤導下一個接手的人。 */
     specVtotalMin: M.specVtotalMin,
     specHtotalMin: M.specHtotalMin,
-    vblankMin:  Math.min(M.vblankMin, vblankMax),
-    hblankMin:  Math.min(M.hblankMin, hblankMax),
+    vblankMin:  M.vblankMin,
+    hblankMin:  M.hblankMin,
+    /* v4.28.4：目前 timing 已超出這顆機種的能力（vtMax < VTOTAL 或 htMax < HTOTAL）。
+       稽核用它把「min > max」這一條靜音 —— 那個狀態下 min > max 是正確表達，不是缺陷。 */
+    incompatible: incompatible,
     /* 兩個 blanking 與兩個 active 是「HTOTAL ＝ active + blank」的兩半，
        所以各自的上限就是 total 上限扣掉另一半（至少留 1 給對方）。 */
     hactiveMax: Math.max(1, htMax - hbl),
@@ -27779,7 +27795,11 @@ function wfgAuditBounds() {
     if (!e) { issues.push(p[0] + ' 輸入格不存在'); return; }
     if (!near(num(e.min), p[2])) issues.push(p[0] + ' input min ' + e.min + ' ≠ wfgFrameBounds().' + p[0] + 'Min ' + p[2]);
     if (!near(num(e.max), p[3])) issues.push(p[0] + ' input max ' + e.max + ' ≠ wfgFrameBounds().' + p[0] + 'Max ' + p[3]);
-    if (num(e.min) > num(e.max)) issues.push(p[0] + ' input min > max（' + e.min + ' > ' + e.max + '）');
+    /* v4.28.4：`min > max` 只在**狀態本身合法**時才算缺陷。超規格時（fps 或解析度
+       超出機種能力）它是正確表達 ——「這格無解，先降 fps」，由畫面警示負責告知。
+       與 I4 的前提處理一致（v4.28.1 已為 I4 立過同樣的例外）。 */
+    if (!B.incompatible && num(e.min) > num(e.max))
+      issues.push(p[0] + ' input min > max（' + e.min + ' > ' + e.max + '）');
     if (num(e.min) < WFG_BLANK_HARD_MIN - 1e-9)
       issues.push(p[0] + ' input min ' + e.min + ' 低於硬底線 ' + WFG_BLANK_HARD_MIN);
   });
