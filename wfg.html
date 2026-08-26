@@ -2791,8 +2791,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260826wfg4285"></script>
-<script src="common/i18n.js?v=20260826wfg4283"></script>
+<script src="common/version.js?v=20260826wfg4290"></script>
+<script src="common/i18n.js?v=20260826wfg4290"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — TCON 波形模擬與取樣 ═══════════
@@ -27162,15 +27162,40 @@ function wfgFmtDclk(v) {
 
    `empty` ＝ 下限已經高過上限（例：RX 166.53 的 timing 切到 NB，上限只有 105）。
    這種情況**沒有任何合法值**，不是使用者填錯 —— 是這組 Frame 參數與這顆機種不相容。 */
+/* ══ 🔴 v4.29.0：變頻下**不套 RX 那條下限** —— 那是循環論證 ═════════════════════
+   `uiMin = max(specMin, rx × ratio)` **在定頻下是對的**：RX 由 fps／解析度決定，是
+   **外部給定**的約束，TX 必須跟上。
+
+   **但變頻下 RX 不是外部約束，它是被 TX 決定的**（`wfgClampTconDclk()` 令 `dclk = rxDclk`）
+   ⇒ `rx ≡ tx` ⇒ `txMin = max(specMin/ratio, rx) ≡ tx` ⇒ **任何比當前值小的輸入都會被
+   `wfgValidateTxDclk()` 拒絕**，只能往上、回不去。上一輪已量化（EM01 變頻，逐級調高 fps）：
+
+     | fps | RX ＝ TX | txMin | txMax | **可調寬度** |
+     |----:|--------:|------:|------:|-------------:|
+     |  60 |   74.25 | 74.25 |   432 |     357.7500 |
+     | 349 |431.8875 |431.8875|  432 |   **0.1125** |
+
+   與 v4.7.0 的鎖死 bug 同型，差別是 v4.29.0 讓 TX/UI 在變頻下變成可輸入之後，
+   它會從邊角情況變成常態。
+
+   **自洽性檢查**（不是拍腦袋拿掉）：變頻下 UI 的真正下限應該是「fps 降到 `fpsMin` 時的 UI」，
+   而 `fpsMin` 本身就是由 `pxMinHz = 2 × specMin / ratio` 反推的 ⇒ `UI at fpsMin = specMin`
+   ⇒ 兩者相等，不會打架。（`fpsMin` 的 `ceil` 於本版一併拿掉，見 `wfgFrameBounds()`，
+   否則這個等式只在連續值下成立。）
+
+   🔴 **定頻一字未改。** */
 function wfgDclkLimits() {
   var sp = wfgTconSpec();
   var r  = wfgUiDclkRatio();
   var rx = (isFinite(wfgFrame.rxDclk) && wfgFrame.rxDclk > 0) ? wfgFrame.rxDclk : 0;
-  var uiMin = Math.max(sp.uiDclkMin, rx * r);
+  var isVar = wfgDclkModeIsVar();
+  var rxBinds = !isVar && (rx * r) > sp.uiDclkMin;
+  var uiMin = rxBinds ? Math.max(sp.uiDclkMin, rx * r) : sp.uiDclkMin;
   var uiMax = sp.uiDclkMax;
   return { ratio: r, rx: rx, specMin: sp.uiDclkMin, specMax: sp.uiDclkMax,
+           isVar: isVar,
            uiMin: uiMin, uiMax: uiMax, txMin: uiMin / r, txMax: uiMax / r,
-           rxBinds: (rx * r) > sp.uiDclkMin,     // 下限是被 RX 頂上去的，還是機種規格
+           rxBinds: rxBinds,                     // 下限是被 RX 頂上去的，還是機種規格
            empty: uiMin > uiMax };
 }
 window.wfgDclkLimits = wfgDclkLimits;
@@ -27356,7 +27381,38 @@ function wfgFrameBounds() {
   /* v4.8.0：下限只在變頻時存在（見 wfgPixelRateMinMHz 的推導）。用 ceil —— 下限要**進位**，
      取 floor 會得到一個仍然違規的值。 */
   var pxMinHz = wfgPixelRateMinMHz() * 1e6;
-  var fpsMin = (pxMinHz > 0 && ht > 0 && vt > 0) ? Math.max(1, Math.ceil(pxMinHz / (ht * vt))) : 1;
+  /* ══ 🔴 v4.29.0：`fpsMin`／`fpsMax` **拿掉 ceil／floor**，改回精確的物理邊界 ═══════
+     `fpsMax = pxMaxHz/(HT×VT)` 與「UI ≤ uiMax」是**同一條約束的兩種表達**：
+     UI 設到 `uiDclkMax` 時 `P = 2×uiMax/ratio = pxMax` ⇒ `fps = pxMaxHz/(HT×VT)`。
+     取整只差一個 `floor`，而那個 `floor` 會直接吃掉端點：
+
+       | 機種 | timing | UI 上限 | UI 設到上限時的 fps | 舊 `fpsMax` | 用舊 `fpsMax` 反推回去的 UI |
+       |---|---|---:|---:|---:|---:|
+       | EM01 | 3840×2160 (4320/2220) | 432 | **90.0901** | 90 | **431.568（到不了 432）** |
+       | EM01 | 1920×1080 (2200/1125) | 432 | 349.0909 | 349 | 431.8875 |
+       | E503 | 1920×1080 (2200/1125) | 105 |  84.8485 |  84 | 103.95 |
+
+     ⇒ 只要拿 `fpsMax` 去夾反推出來的 fps，就會重現 Bruce 回報的「TCON UI DCLK 打不到
+     機種上限」。`floor`／`ceil` 是為了 Frame Rate 輸入格／拉霸這種**整數操作**取的，
+     **是顯示層的邊界，不是物理邊界** —— 而 v4.28.0 起 `frameRate` 本來就允許小數。
+
+     🔴 **但取整不能一起從 DOM 拿掉 —— 這是實測打臉之後改的，過程記在這裡。**
+     第一版把精確值直接寫進 Frame Rate 拉霸的 `min`／`max`，驗收當場抓到**變頻回歸**：
+     `<input type=range>` 的 step 格是**以 `min` 為基準**排的，`min` 一變成 32.3232、
+     `step` 仍是 1 ⇒ 可達點整組平移成 32.3232 / 33.3232 / …／348.3232
+     ⇒ **拖到最右端只到 fps 348（舊版是 349）**；RX 拉霸同理（40 / 41.2375 / … / 431.05 → 348）。
+
+     ⇒ 正確的分工是：
+       ・`fpsMin` / `fpsMax`      ＝ **物理邊界**（精確，供反推與檢核用）
+       ・`fpsSliderMin` / `fpsSliderMax` ＝ **整數操作邊界**（`ceil`／`floor`，與舊版逐值相同）
+         —— Frame Rate 輸入格走 `parseInt`、兩條拉霸 `step` 都是 1，**它們吃的就是整數**，
+         所以寫進 DOM 的 `min`／`max`／端點標籤／錯誤訊息一律用這一組。
+     這樣「使用者打得到／拖得到什麼」與舊版**逐值相同**（本版驗收逐項比對過），
+     而「物理上允許到哪裡」不再被顯示層的取整綁架。 */
+  var fpsMin = (pxMinHz > 0 && ht > 0 && vt > 0) ? Math.max(1, pxMinHz / (ht * vt)) : 1;
+  var fpsMax = (ht > 0 && vt > 0) ? Math.max(1, pxMaxHz / (ht * vt)) : 1;
+  var fpsSliderMin = Math.max(1, Math.ceil(fpsMin));    // ＝ v4.28.4 的 fpsMin
+  var fpsSliderMax = Math.max(1, Math.floor(fpsMax));   // ＝ v4.28.4 的 fpsMax
   var hbl = Math.max(1, ht - (wfgFrame.hactive | 0));
   var vbl = Math.max(1, vt - (wfgFrame.vactive | 0));
   var M = wfgBlankMins();
@@ -27381,8 +27437,10 @@ function wfgFrameBounds() {
   return {
     pixelRateMaxMHz: wfgPixelRateMaxMHz(),
     pixelRateMinMHz: wfgPixelRateMinMHz(),
-    fpsMin:     fpsMin,
-    fpsMax:     lim(ht, vt),
+    fpsMin:     fpsMin,          // 物理邊界（精確）
+    fpsMax:     fpsMax,
+    fpsSliderMin: fpsSliderMin,  // 整數操作邊界（＝ v4.28.4 的 fpsMin／fpsMax）
+    fpsSliderMax: fpsSliderMax,
     htotalMax:  htMax,
     vtotalMax:  vtMax,
     /* v4.28.1：blanking 兩格的下限（兩層取較大者，見 wfgBlankMins）。
@@ -27434,8 +27492,10 @@ function wfgSyncFrameBounds() {
      （Bruce：「active 沒有上下限保護」），它們的 HTML `min="1"` 維持原狀。 */
   var setMin = function(id, v) { var e = document.getElementById(id); if (e) e.min = String(v); };
   setMin('wfg-vblank', B.vblankMin); setMin('wfg-hblank', B.hblankMin);
+  /* v4.29.0：這一格走 `parseInt` ⇒ 寫**整數操作邊界**（與 v4.28.4 逐值相同）。
+     物理邊界 `B.fpsMin`／`B.fpsMax` 只給反推與檢核用，不寫進 DOM。 */
   var fr = document.getElementById('wfg-framerate');
-  if (fr) { fr.max = String(B.fpsMax); fr.min = String(B.fpsMin); }
+  if (fr) { fr.max = String(B.fpsSliderMax); fr.min = String(B.fpsSliderMin); }
   /* 滑桿的 max 是「使用者最後一次手動輸入的值」（v3.27.0），但它不得超過機種允許的上限。
      取兩者較小值 —— 滑桿是拖曳操作，Bruce 要求「拖到界就停住」。 */
   var sl = document.getElementById('wfg-framerate-slider');
@@ -27453,13 +27513,14 @@ function wfgSyncFrameBounds() {
 
        `wfgFrameRateSliderMax`／匯出欄位 `frameRateMax` **保留但不再參與滑桿端點計算**：
        拿掉會讓 v4.9.0 以前存的設定檔在舊版打開時失去滑桿上限，屬無謂的破壞。 */
-    var m = B.fpsMax;
-    sl.min = String(B.fpsMin);
+    /* v4.29.0：`step` ＝ 1，端點必須落在整數格上，否則整組可達點會平移（見 wfgFrameBounds）。 */
+    var m = B.fpsSliderMax;
+    sl.min = String(B.fpsSliderMin);
     sl.max = String(m);
     /* v4.8.0：兩端標籤都要跟著動 —— 左邊那個原本硬編 "1"，
        在變頻 + EM01 這種下限 33 的組合下會騙人。 */
     var lbMin = document.getElementById('wfg-framerate-slider-min');
-    if (lbMin) lbMin.textContent = B.fpsMin;
+    if (lbMin) lbMin.textContent = B.fpsSliderMin;
     var lb = document.getElementById('wfg-framerate-slider-max');
     if (lb) lb.textContent = m;
   }
@@ -27486,6 +27547,30 @@ function wfgSyncFrameBounds() {
 }
 window.wfgSyncFrameBounds = wfgSyncFrameBounds;
 var WFG_DCLK_EPS = 1e-6;   // 顯示層是 toFixed(4)，這個容差足以吸收換算的浮點誤差
+/* ══ 🔴 v4.29.0：超出機種能力時，畫面要講出**出路** ═══════════════════════════════
+   Bruce 的存檔（E503 / 1920×1080 / fps 144 / VBLANK 32 / HBLANK 160）實測：
+   `vblankMax = 1` ⇒ VBLANK **往上調也被擋**（打 200，值留 32）。
+   演算法上是對的（VBLANK 變大只會讓 Pixel Rate 更超規），
+   **正確的出路是先降 Frame Rate —— 但畫面上沒有任何東西告訴他。**
+
+   觸發條件用 `wfgFrameBounds().incompatible`（v4.28.4 加的旗標）。
+   它與 `wfgDclkLimits().empty` **可證明等價**，所以不會出現「兩種狀態說不同的話」：
+     empty        ⟺ max(specMin, rx×r) > specMax ⟺ rx×r > specMax ⟺ P > 2×specMax/r ＝ pxMax
+     incompatible ⟺ floor(pxMax/(HT×fps)) < VTOTAL ⟺ pxMax < HT×VTOTAL×fps ＝ P
+   （VTOTAL 是整數 ⇒ `floor(x) < VTOTAL ⟺ x < VTOTAL`。HTOTAL 那半同理。）
+
+   文案沿用 v4.28.1 立的**中性狀態說明**機制（`stateUiBelowMin` 那一套：`wfgShowDclkError`
+   ＋ `kind='range'`，狀態解除自動收掉），不新造第三種樣式。 */
+function wfgOverSpecMsg() {
+  var B = wfgFrameBounds();
+  if (!B.incompatible) return '';
+  return t('wfg.stateOverSpecFps')
+    .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+    /* 使用者的出路是**在 Frame Rate 那一格打一個整數**，所以講整數上限
+       （＝ `fpsSliderMax`），不是講 90.7778 這種他打不進去的物理值。 */
+    .replace(/\{max\}/g, String(B.fpsSliderMax))
+    .replace(/\{cur\}/g, String(wfgFmtFps(wfgFrame.frameRate)));
+}
 /* 兩格共用的檢核。回傳 {ok, err}，err 已翻譯。傳入的一律是 **TX 值**（UI 那格先除以 ratio）。 */
 function wfgValidateTxDclk(tx) {
   var L = wfgDclkLimits();
@@ -27508,7 +27593,10 @@ function wfgValidateTxDclk(tx) {
         .replace(/\{need\}/g, String(wfgFmtDclk(L.rx * L.ratio)))
         .replace(/\{fps\}/g, String(wfgFrame.frameRate | 0)) };
     }
-    return { ok: true, warn: t('wfg.errDclkRangeEmpty')
+    /* v4.29.0：超規格時改講**出路**（先降 Frame Rate）而不是只講「不相容」。
+       `empty ⟺ incompatible` 已於 `wfgOverSpecMsg()` 上方證明，所以這裡實務上一定拿得到
+       新訊息；`|| 舊訊息` 只是萬一等價性被未來的改動打破時的退路，不是雙軌。 */
+    return { ok: true, warn: wfgOverSpecMsg() || t('wfg.errDclkRangeEmpty')
       .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
       .replace(/\{lo\}/g, String(L.specMin)).replace(/\{hi\}/g, String(L.specMax))
       .replace(/\{need\}/g, String(wfgFmtDclk(L.rx * L.ratio))) };
@@ -27576,7 +27664,9 @@ function wfgSliderSnap(v, lo, hi) {
 /* 依目前真值與界限刷新兩條滑桿（位置、範圍、兩端標籤、是否可用）。 */
 function wfgSyncDclkSliders() {
   var L = wfgDclkLimits();
-  var ro = wfgDclkModeIsVar();           // 變頻應用：TX 是衍生值 ⇒ 兩條滑桿都不可拖
+  /* 🔴 v4.29.0：變頻下兩條滑桿也解除 disabled（四個控制項一起解除，見
+     `wfgUpdateUiDclk()`）。只剩「無合法區間」才停用，那是另一回事。 */
+  var ro = false;
   /* ══ 🔴 v4.10.0：區間為空時滑桿端點該長什麼樣 ═════════════════════════════════
      v4.9.0 的寫法是 `if (!bad) { sl.min = …; sl.max = …; }` ——
      **`bad` 時完全跳過寫入**，於是端點停在上一個機種的值（Bruce 2026-08-23 實測：
@@ -27633,7 +27723,9 @@ function wfgSyncDclkSliders() {
   var rs = document.getElementById('wfg-rx-dclk-slider');
   if (rs && B) {
     var step = wfgRxStepMHz();
-    var rxLo = wfgRxFromFps(B.fpsMin), rxHi = wfgRxFromFps(B.fpsMax);
+    /* v4.29.0：由**整數操作邊界**反推（這條拉霸的 `step` 就是 1 Hz 對應的增量，
+       端點必須落在可達點上，否則整組刻度會平移 —— 見 `wfgFrameBounds()` 的實測紀錄）。 */
+    var rxLo = wfgRxFromFps(B.fpsSliderMin), rxHi = wfgRxFromFps(B.fpsSliderMax);
     /* ══ 🔴 v4.28.0：`rxHi > rxLo` 改成 `>=` ══════════════════════════════════
        **這是 v4.9.0 就存在的 bug，不是本版引入的**（v4.27.3 實測重現：切 E503、
        Frame Rate 打 1、VBLANK 打 65535 ⇒ fpsMin === fpsMax === 1 ⇒ 兩端標籤變成
@@ -27723,8 +27815,15 @@ function wfgAuditBounds() {
   if (frI && frS) {
     if (!near(num(frI.min), num(frS.min))) issues.push('fps: input min ' + frI.min + ' ≠ slider min ' + frS.min);
     if (!near(num(frI.max), num(frS.max))) issues.push('fps: input max ' + frI.max + ' ≠ slider max ' + frS.max);
-    if (!near(num(frS.min), B.fpsMin)) issues.push('fps slider min ≠ wfgFrameBounds().fpsMin');
-    if (!near(num(frS.max), B.fpsMax)) issues.push('fps slider max ≠ wfgFrameBounds().fpsMax');
+    /* 🔴 v4.29.0：比對對象改成**整數操作邊界** `fpsSliderMin`／`fpsSliderMax`。
+       這不是把斷言放寬 —— 它是把「輸入格收整數、拉霸 step ＝ 1，所以 DOM 端點必須
+       落在整數格上」這條設計寫成可執行的形式。物理邊界 `fpsMin`／`fpsMax` 刻意不寫進 DOM，
+       所以拿它來比對反而會變成斷言自己說謊。 */
+    if (!near(num(frS.min), B.fpsSliderMin)) issues.push('fps slider min ≠ wfgFrameBounds().fpsSliderMin');
+    if (!near(num(frS.max), B.fpsSliderMax)) issues.push('fps slider max ≠ wfgFrameBounds().fpsSliderMax');
+    /* 整數操作邊界必須真的落在物理邊界內側（ceil/floor 的定義），否則使用者打得到非法值。 */
+    if (B.fpsSliderMin < B.fpsMin - 1e-9) issues.push('fpsSliderMin ' + B.fpsSliderMin + ' 低於物理下限 ' + B.fpsMin);
+    if (B.fpsSliderMax > B.fpsMax + 1e-9) issues.push('fpsSliderMax ' + B.fpsSliderMax + ' 高於物理上限 ' + B.fpsMax);
   }
   /* G：v4.10.1 補 —— **兩端標籤的文字**必須等於該滑桿的 min／max。
      🔴 這一條是負控制逼出來的：只改標籤、不改屬性時，前面 A～F 全部通過，
@@ -27744,8 +27843,9 @@ function wfgAuditBounds() {
   });
   // E：RX 端點由 Frame Rate 區間反推
   if (rxS) {
-    if (!near(num(rxS.min), wfgRxFromFps(B.fpsMin))) issues.push('rx slider min ≠ fpsMin 反推值');
-    if (!near(num(rxS.max), wfgRxFromFps(B.fpsMax))) issues.push('rx slider max ≠ fpsMax 反推值');
+    // v4.29.0：同 F —— 由**整數操作邊界**反推（RX 拉霸的 step 就是 1 Hz 的增量）
+    if (!near(num(rxS.min), wfgRxFromFps(B.fpsSliderMin))) issues.push('rx slider min ≠ fpsSliderMin 反推值');
+    if (!near(num(rxS.max), wfgRxFromFps(B.fpsSliderMax))) issues.push('rx slider max ≠ fpsSliderMax 反推值');
     if (!near(num(rxS.step), wfgRxStepMHz())) issues.push('rx slider step ≠ 1Hz 增量');
   }
   /* ══ 🔴 H：v4.28.0 —— Vblank 模擬拉霸（Bruce 2026-08-26「所有的輸入格、拉棒都要
@@ -27857,6 +27957,27 @@ function wfgAuditBounds() {
         issues.push('vb slider min ' + _VB2.min + ' 低於該點輸入格要求的 vblankMin ' + _inputMinThere);
     }
   }
+  /* ══ 🔴 J：v4.29.0 —— `TX ≥ RX` 這條硬條件寫成斷言，不寫主動夾值 ═══════════════════
+     Bruce 2026-08-26：「TX DCLK 可以增加到比 RX DCLK 來得大，但是不可以比 RX DCLK 來得小。」
+
+     | 情況 | 為什麼不必新增夾值 |
+     |---|---|
+     | **定頻** | `wfgValidateTxDclk()` 用 `L.txMin`，而 `txMin ≥ rx` 已內建 ⇒ `tx < rx` 必被拒（v4.7.0 就有） |
+     | **變頻** | 反推公式 `fps = 2×TX×1e6/(htotalBase×VTOTAL)` 代回正推式恰得 `RX = TX`，**是恆等號** |
+     | **切換瞬間** | `wfgClampTconDclk()` 只把 TX **往上**抬到 RX，結構上製造不出 `TX < RX` |
+
+     變頻下永遠不觸發的夾值 ＝ 假的滿足。斷言擋的是唯一真正的失守點：
+     **反推的分母用錯成 `wfgFrame.htotal`（TX 側）而不是 `htotalBase`（RX 側）** ——
+     那會產生 `TX ≠ RX` 的狀態，而畫面上看不出來。 */
+  var _tx = wfgFrame.dclk, _rx = wfgFrame.rxDclk;
+  if (isFinite(_tx) && isFinite(_rx) && _rx > 0) {
+    if (wfgDclkModeIsVar()) {
+      if (Math.abs(_tx - _rx) > 1e-4)
+        issues.push('變頻下 TX DCLK ' + _tx + ' ≠ RX DCLK ' + _rx + '（反推分母是否誤用 tconHtotal？）');
+    } else if (_tx < _rx - 1e-4) {
+      issues.push('定頻下 TX DCLK ' + _tx + ' < RX DCLK ' + _rx);
+    }
+  }
   return { ok: issues.length === 0, empty: L.empty, model: wfgTconKey(), issues: issues };
 }
 window.wfgAuditBounds = wfgAuditBounds;
@@ -27866,7 +27987,8 @@ window.wfgAuditBounds = wfgAuditBounds;
    所以拖曳過程中的數值與畫面即時、波形重算被合併成一次。
    在這裡另寫一套節流反而會有兩層 debounce 互相打架。 */
 function wfgOnTxDclkSlider(v) {
-  if (wfgDclkModeIsVar()) { wfgSyncDclkSliders(); return; }
+  /* v4.29.0：變頻下不再早退 —— 走與定頻完全同一條路（`wfgOnDclkManualChange()`），
+     反推只在那個唯一收斂點做一次。 */
   var L = wfgDclkLimits();
   var de = document.getElementById('wfg-dclk');
   if (de) de.value = String(wfgFmtDclk(wfgSliderSnap(parseFloat(v), L.txMin, L.txMax)));
@@ -27910,8 +28032,11 @@ function wfgOnRxDclkSlider(v) {
   var B = wfgFrameBounds();
   var fps = Math.round(wfgFpsFromRx(parseFloat(v)));
   /* 端點夾在 Frame Rate 的合法區間內 —— 滑桿的 min/max 本來就是由它反推的，
-     這裡再夾一次是為了程式化呼叫的路徑。 */
-  fps = Math.max(B.fpsMin, Math.min(B.fpsMax, fps));
+     這裡再夾一次是為了程式化呼叫的路徑。
+     🔴 v4.29.0：改用**整數操作邊界** —— 這條路徑的定義（v4.9.0）就是「只停在整數 fps
+     的可達點上」，夾成小數會讓 `wfgOnFrameRateChange()` 的 `parseInt` 立刻把它打回去。
+     這一組與 v4.28.4 的 `fpsMin`／`fpsMax` 逐值相同，可達點一個都沒變。 */
+  fps = Math.max(B.fpsSliderMin, Math.min(B.fpsSliderMax, fps));
   if (!isFinite(fps) || fps < 1) return;
   if (fps === wfgFrame.frameRate) { wfgSyncDclkSliders(); return; }   // 同一格內微動，不重算
   var fr = document.getElementById('wfg-framerate');
@@ -27985,7 +28110,7 @@ function wfgOnVblankSlider(v) {
 }
 window.wfgOnVblankSlider = wfgOnVblankSlider;
 function wfgOnUiDclkSlider(v) {
-  if (wfgDclkModeIsVar()) { wfgSyncDclkSliders(); return; }
+  /* v4.29.0：同 `wfgOnTxDclkSlider()`，變頻下不再早退。 */
   var L = wfgDclkLimits();
   var ue = document.getElementById('wfg-ui-dclk');
   if (ue) ue.value = String(wfgFmtDclk(wfgSliderSnap(parseFloat(v), L.uiMin, L.uiMax)));
@@ -28056,6 +28181,11 @@ function wfgShowDclkError(msg, kind) {
 function wfgRefreshRangeWarning() {
   var el = document.getElementById('wfg-dclk-err');
   if (!el) return;
+  /* 🔴 v4.29.0：超規格狀態優先 —— 它是**上游**的診斷（fps／解析度超過機種能力），
+     比「UI DCLK 超過上限」這個下游症狀更接近使用者該動的地方。變頻下 `empty` 恆為 false
+     （`uiMin ＝ specMin`），只會走到 `stateUiAboveMax` 那一支，所以這一層一定要在外面。 */
+  var _os = wfgOverSpecMsg();
+  if (_os) { wfgShowDclkError(_os, 'range'); return; }
   var chk = wfgValidateTxDclk(wfgFrame.dclk);
   if (chk.warn) { wfgShowDclkError(chk.warn, 'range'); }
   /* 🔴 v4.7.1：**目前值本身超界**也要持續警示，不只 empty。
@@ -28077,9 +28207,11 @@ function wfgUpdateUiDclk() {
   if (inp) {
     // 使用者正在這一格打字時不要覆寫他（與 wfgAckPullFromLive 同一個守則）
     if (document.activeElement !== inp) inp.value = wfgFmtDclk(wfgFrame.dclk * r);
-    var ro = wfgDclkModeIsVar();   // 變頻應用：TX 唯讀 ⇒ UI 也唯讀
-    inp.readOnly = ro;
-    inp.classList.toggle('wfg-input-derived', ro);
+    /* 🔴 v4.29.0：變頻下不再唯讀 —— 這一格從此是 D-Clock ↔ Frame Rate 雙向的**入口**
+       （Bruce 2026-08-26：「要設定的都是 TCON UI DCLK」）。`wfg-input-derived` 也一併
+       拿掉：它的語意是「這是衍生值、你改不了」，現在改得了，留著就是說謊。 */
+    inp.readOnly = false;
+    inp.classList.remove('wfg-input-derived');
   }
   var hint = document.getElementById('wfg-ui-dclk-calc');
   if (hint) hint.textContent = (r === 1) ? '(= TX)' : ('(= TX × ' + r + ')');
@@ -28126,7 +28258,9 @@ function wfgRevertDclkInputs() {
    不像 TX 那一格那樣靜默夾值 —— 因為使用者在 UI 這一格填的是「我在 TCON UI 上看到的數字」，
    把它悄悄改掉會讓他以為自己抄的值被接受了。 */
 function wfgOnUiDclkCommit() {
-  if (wfgDclkModeIsVar()) { wfgUpdateUiDclk(); return; }   // 變頻：唯讀衍生值，任何寫入都不採用
+  /* 🔴 v4.29.0：變頻下不再早退。這一格是 Bruce 指定的入口（「要設定的都是 TCON UI DCLK」），
+     換算成 TX 之後**直接函式呼叫** `wfgOnDclkManualChange()`（不是派發事件）——
+     兩條路徑因此收斂到同一點，反推只做一次，結構上不可能互相觸發成迴圈。 */
   var el = document.getElementById('wfg-ui-dclk');
   if (!el) return;
   var r = wfgUiDclkRatio();
@@ -28260,9 +28394,12 @@ function wfgSyncDclkUi() {
   var isVar = wfgDclkModeIsVar();
   var inp = document.getElementById('wfg-dclk');
   if (inp) {
-    inp.readOnly = isVar;
-    inp.classList.toggle('wfg-input-derived', isVar);
-    inp.value = wfgFrame.dclk;
+    /* 🔴 v4.29.0：變頻下 TX 這一格也解除唯讀（Bruce 明講「反過來去拉 TX DCLK」）。
+       理由與 `wfgUpdateUiDclk()` 那一格相同，兩格必須同時解除 —— 一格能改一格不能改，
+       就會出現「同一個量在兩格有不同可用區間」，那正是 v4.7.0 明令禁止的。 */
+    inp.readOnly = false;
+    inp.classList.remove('wfg-input-derived');
+    inp.value = wfgFrame.dclk;   // 寫入方式一字未改（定頻零回歸）
   }
   document.querySelectorAll('input[name="wfg-dclk-mode"]').forEach(function(r) {
     r.checked = (r.value === (isVar ? 'var' : 'fixed'));
@@ -28371,7 +28508,7 @@ function wfgOnFrameRateChange() {
     document.getElementById('wfg-framerate').value = _prevFps;
     wfgShowDclkError(t('wfg.errFpsMax')
       .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
-      .replace(/\{max\}/g, String(_B.fpsMax))
+      .replace(/\{max\}/g, String(_B.fpsSliderMax))    // v4.29.0：這一格收整數 ⇒ 講整數上限
       .replace(/\{px\}/g, String(wfgFmtDclk(_B.pixelRateMaxMHz))));
     wfgSyncFrameRateSliderValue();
     return;
@@ -28381,7 +28518,7 @@ function wfgOnFrameRateChange() {
     document.getElementById('wfg-framerate').value = _prevFps;
     wfgShowDclkError(t('wfg.errFpsMin')
       .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
-      .replace(/\{min\}/g, String(_B.fpsMin))
+      .replace(/\{min\}/g, String(_B.fpsSliderMin))    // v4.29.0：同上
       .replace(/\{lo\}/g, String(wfgTconSpec().uiDclkMin)));
     wfgSyncFrameRateSliderValue();
     return;
@@ -28445,7 +28582,9 @@ function wfgSyncFrameRateSliderValue() {
   /* 夾值改用 `wfgFrameBounds()` —— 與滑桿的 min/max 同源。
      用 `wfgFrameRateSliderMax` 夾會夾到「使用者上次打的值」，那正是 v4.10.0 漏掉的那半。 */
   var B = wfgFrameBounds();
-  sl.value = Math.max(B.fpsMin, Math.min(B.fpsMax, wfgFrame.frameRate || B.fpsMin));
+  /* v4.29.0：夾在**拉霸自己的**整數端點內（與 v4.28.4 逐值相同）。
+     反推出來的小數 fps 會被夾到端點 —— 那是拉霸的可達點限制，不是真值被改。 */
+  sl.value = Math.max(B.fpsSliderMin, Math.min(B.fpsSliderMax, wfgFrame.frameRate || B.fpsSliderMin));
 }
 function wfgOnFrameRateSlider(v) {
   /* 🔴 v4.10.0：這一行原本是 `Math.min(wfgFrameRateSliderMax, …)` ——
@@ -28458,8 +28597,10 @@ function wfgOnFrameRateSlider(v) {
      是為了程式化呼叫的路徑（與 wfgOnDclkManualChange 對 readOnly 再擋一次同一個道理）。
      🔴 一樣只在「變大」時才夾 —— 往下拖永遠放行。 */
   var _fb = wfgFrameBounds();
-  if (n > _fb.fpsMax && n > wfgFrame.frameRate) n = Math.max(1, _fb.fpsMax);
-  if (n < _fb.fpsMin && n < wfgFrame.frameRate) n = _fb.fpsMin;   // v4.8.0：下限同理
+  /* 🔴 v4.29.0：同 `wfgOnRxDclkSlider()` —— 這條拉霸 step ＝ 1、只走整數 fps，
+     所以夾值要對整數格對齊（ceil/floor 之後與舊版逐值相同）。 */
+  if (n > _fb.fpsSliderMax && n > wfgFrame.frameRate) n = _fb.fpsSliderMax;
+  if (n < _fb.fpsSliderMin && n < wfgFrame.frameRate) n = _fb.fpsSliderMin;   // v4.8.0：下限同理
   if (n === wfgFrame.frameRate) return;
   wfgInvalidateCache();
   wfgFrame.frameRate = n;
@@ -28503,9 +28644,6 @@ window.wfgOnFrameRateSlider = wfgOnFrameRateSlider;
    ⇒ 修法：**接回既有的收斂點**，與 `wfgOnFrameRateChange()`／`wfgOnFrameRateSlider()`
       走一模一樣的兩行。不是新機制，是把漏掉的那一格接回去。 */
 function wfgOnDclkManualChange() {
-  // v3.29.0：變頻應用時這格是唯讀衍生值，任何輸入都不採用（readOnly 已擋住鍵盤，
-  // 這裡再擋一次是為了程式化賦值／自動填表這類繞過 readOnly 的路徑）
-  if (wfgDclkModeIsVar()) { wfgSyncDclkUi(); return; }
   var newDclk = parseFloat(document.getElementById('wfg-dclk').value);
   /* ══ v4.7.0：低於 RX DCLK 一律**擋下**，不再「先套用、重算、再彈回」═══════════
      Bruce 2026-08-23：「TX DCLK 如果調到小於 RX DCLK，它會卡頓一下，再把值改成等於
@@ -28527,6 +28665,59 @@ function wfgOnDclkManualChange() {
   }
   /* v4.7.1：通過檢核不代表沒警示 —— 不相容狀態下 `warn` 要留著（見 wfgValidateTxDclk）。 */
   if (_v.warn) wfgShowDclkError(_v.warn, 'range'); else wfgShowDclkError('');
+  /* ══ 🔴 v4.29.0：變頻應用 —— 設 D-Clock 就是**反過來設 Frame Rate** ═══════════════
+     Bruce 2026-08-26：「如果選擇的是變頻應用，TX DCLK 好像會被 RX DCLK 給限制住而動不了」
+     ＋「要設定的都是 TCON UI DCLK」＋「反過來去拉 TX DCLK」。
+
+     **守恆量（不要與 Vblank 拉霸混用）**
+
+       | 路徑 | 動什麼 | **守什麼** |
+       |---|---|---|
+       | Vblank 拉霸（v4.28.0） | VTOTAL | **Pixel Rate**（fps 反向跟著動） |
+       | **本路徑** | **Pixel Rate** | **HTOTAL／VTOTAL（解析度）** |
+
+     **公式**（正推的反函數，非另立一套）：
+       正推 `RX = htotalBase × VTOTAL × fps / 2 / 1e6`、變頻 `TX ≡ RX`
+       ⇒ 反推 `fps = 2 × TX × 1e6 / (htotalBase × VTOTAL)`
+     驗算：`2 × 432e6 / (4320 × 2220) = 90.0901`（對得上那份 code 檔名裡的 `UD90Hz`）。
+
+     🔴 **分母必須是 `htotalBase`（RX 側），不能是 `wfgFrame.htotal`（＝ `tconHtotal`，TX 側）。**
+     用錯會產生 `TX ≠ RX` 的狀態，而且畫面上看不出來 —— 這一條由 `wfgAuditBounds()`
+     的 J 條（變頻下 `|TX − RX| < ε`）當場抓。
+
+     **`TX ≥ RX` 這條硬條件在本路徑下是恆等號、自動滿足**（不寫主動夾值）：
+     把反推的 fps 代回正推式得 `RX = htotalBase × VTOTAL × fps / 2 / 1e6 = TX`。
+     不是巧合 —— 變頻的定義就是 `TX = RX`，反推公式正是「解 `RX(fps) = TX`」，
+     **反推公式本身就是這條限制的解**。變頻下永遠不觸發的夾值 ＝ 假的滿足，所以改寫成稽核斷言。
+
+     **迴圈怎麼斷**：① 兩格都收斂到本函式，反推只做一次；② `wfgUpdateUiDclk()` 回寫
+     UI 欄位時不派發 `change`／`input`（實測 0 次）；③ `wfgClampTconDclk()` 是**另一條路徑**
+     （RX 自己漲上來把 TX 抬到 RX），不觸發反推；④ 不變點早退（下面那行）。
+     ⑤ 一次收斂不震盪，可算：`UI=432 ⇒ TX=432/ratio ⇒ fps ⇒ P=2×TX×1e6 ⇒ RX=TX ⇒ UI=432` ✔ */
+  if (wfgDclkModeIsVar()) {
+    var _ht = wfgFrame.htotalBase | 0, _vt = wfgFrame.vtotal | 0;
+    var _nextFps = (_ht > 0 && _vt > 0) ? (2 * newDclk * 1e6 / (_ht * _vt)) : NaN;
+    if (!(isFinite(_nextFps) && _nextFps > 0)) { wfgRevertDclkInputs(); return; }
+    /* 不變點早退 —— 沿用 `wfgOnVblankSlider()`／`wfgOnRxDclkSlider()` 既有的寫法。 */
+    if (Math.abs(_nextFps - wfgFrame.frameRate) < 1e-9) { wfgUpdateUiDclk(); return; }
+    wfgInvalidateCache();
+    wfgFrame.frameRate = _nextFps;      // 🔴 存全精度（v4.28.0 裁示的 A 案，同一條規則）
+    var _fr = document.getElementById('wfg-framerate');
+    if (_fr) _fr.value = wfgFmtFps(_nextFps);
+    wfgSyncFrameRateSliderValue();
+    /* 以下與 `wfgOnFrameRateSlider()` 逐行對齊：RX／Pixel Rate 由 `wfgUpdateRxDclk()` 重算，
+       `wfgClampTconDclk()` 在變頻下令 `dclk = rxDclk`（＝ 本次輸入值，經 4 位歸一）。 */
+    wfgUpdateRxDclk();
+    wfgClampTconDclk();
+    wfgRecalcHtotal();
+    wfgUpdateTconHtotal();
+    wfgUpdateDclkLabel();
+    wfgScheduleFrameParamRender();
+    wfgBeginDeferredAnalog();
+    wfgUpdateUiDclk();
+    if (typeof wfgAckPullFromLive === 'function') wfgAckPullFromLive();
+    return;
+  }
   if (newDclk === wfgFrame.dclk) { wfgUpdateUiDclk(); return; }   // 值沒變就不要重算
   wfgInvalidateCache();
   wfgFrame.dclk = newDclk;

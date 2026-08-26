@@ -707,6 +707,14 @@ var I18N = {
   'wfg.stateUiAboveMax': { 'zh-TW': 'TCON UI DCLK {cur} MHz 高於 {m} 規格上限 {hi} MHz。請降低 Frame Rate 或 HTOTAL／VTOTAL。',
                           'en': 'TCON UI DCLK is {cur} MHz, above the {hi} MHz spec maximum for {m}. Lower the Frame Rate or HTOTAL / VTOTAL.',
                           'zh-CN': 'TCON UI DCLK {cur} MHz 高于 {m} 规格上限 {hi} MHz。请降低 Frame Rate 或 HTOTAL／VTOTAL。' },
+  /* ══ 🔴 v4.29.0：目前的 Frame 參數已超出這顆機種的能力 ══════════════════════════
+     取代舊的 `errDclkRangeEmpty` 當作**現況說明**（那一則仍留著當退路）。
+     差別是它講的是使用者該動的那一格與具體數字，而不是「不相容」這個結論：
+     {m}=機種、{max}=這組解析度下的 Frame Rate 上限、{cur}=目前的 Frame Rate。
+     兩句，不談暫存器、不談內部欄位 —— 這是 Bruce 2026-08-26 對文案的明確要求。 */
+  'wfg.stateOverSpecFps': { 'zh-TW': '{m} 這組解析度最高只跑得到 {max} Hz，目前是 {cur} Hz。請先降低 Frame Rate，VBLANK／HBLANK 才調得動。',
+                          'en': 'At this resolution {m} tops out at {max} Hz, but it is currently {cur} Hz. Lower the Frame Rate first — VBLANK / HBLANK stay locked until you do.',
+                          'zh-CN': '{m} 这组分辨率最高只跑得到 {max} Hz，目前是 {cur} Hz。请先降低 Frame Rate，VBLANK／HBLANK 才调得动。' },
   /* v4.7.0：NB 機種一定是定頻應用（Bruce 2026-08-23） */
   'wfg.varClockNbTitle': { 'zh-TW': 'Notebook TCON 一定是定頻應用，不能選變頻',
                           'en': 'Notebook TCONs are always fixed-clock; variable clock is not available',
