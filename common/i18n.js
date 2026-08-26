@@ -102,7 +102,9 @@ var I18N = {
   'home.ispDesc':       { 'zh-TW': '8B9B 編碼、Control Code 產生 iSP 差動訊號波形', 'en': '8B9B encoding + Control Codes → iSP differential waveform', 'zh-CN': '8B9B 编码、Control Code 产生 iSP 差动讯号波形' },
   'home.auxTitle':      { 'zh-TW': 'eDP AUX / DPCD 查詢工具', 'en': 'eDP AUX / DPCD Lookup Tool', 'zh-CN': 'eDP AUX / DPCD 查询工具' },
   'home.auxDesc':       { 'zh-TW': 'AUX Transaction 解碼 & DPCD 暫存器查詢', 'en': 'AUX Transaction Decoder & DPCD Register Lookup', 'zh-CN': 'AUX Transaction 解码 & DPCD 寄存器查询' },
-  'home.wfgTitle':      { 'zh-TW': 'TCON 波形模擬與取樣', 'en': 'TCON Waveform Simulation & Sampling', 'zh-CN': 'TCON 波形仿真与取样' },
+  // v4.30.1（Bruce 2026-08-27）：工具改名為「面板訊號模擬與取樣」（舊名見 CHANGELOG v4.30.1）。
+  // zh-CN 沿用本檔既有的用字慣例：訊號→信号、模擬→仿真（見 home.wfgDesc）。
+  'home.wfgTitle':      { 'zh-TW': '面板訊號模擬與取樣', 'en': 'Panel Signal Simulation & Sampling', 'zh-CN': '面板信号仿真与取样' },
   'home.wfgDesc':       { 'zh-TW': 'Phase Counter 引擎驅動 TCON Timing 信號波形模擬', 'en': 'Phase Counter engine driven TCON timing signal waveform simulator', 'zh-CN': 'Phase Counter 引擎驱动 TCON Timing 信号波形仿真' },
 
   // ── Pattern Generator 畫面產生器 ──
@@ -443,9 +445,12 @@ var I18N = {
     'zh-CN': '原程序此画面硬编码 480 × 800（只画左上角）。此处<b>改用实际画面尺寸</b>绘制整个画面。'
   },
 
-  'wfg.title':        { 'zh-TW': 'TCON 波形模擬與取樣', 'en': 'TCON Waveform Simulation & Sampling', 'zh-CN': 'TCON 波形仿真与取样' },
+  // v4.30.1（Bruce 2026-08-27）：工具名 →「面板訊號模擬與取樣」（與 home.wfgTitle 同步）。
+  'wfg.title':        { 'zh-TW': '面板訊號模擬與取樣', 'en': 'Panel Signal Simulation & Sampling', 'zh-CN': '面板信号仿真与取样' },
   'wfg.subtitle':       { 'zh-TW': 'Phase Counter Timing 信號波形模擬', 'en': 'Phase Counter Timing Signal Waveform Simulator', 'zh-CN': 'Phase Counter Timing 信号波形仿真' },
-  'wfg.modeTcon':       { 'zh-TW': 'TCON Timing 調整練習', 'en': 'TCON Timing Practice', 'zh-CN': 'TCON Timing 调整练习' },
+  // 🔴 v4.30.1（Bruce 2026-08-27）：分頁改名為「面板訊號模擬」（舊名見 CHANGELOG v4.30.1）。
+  // 🔴 這個**沒有**「與取樣」三個字，與上面的 wfg.title 是兩個不同的名稱，不要弄混。
+  'wfg.modeTcon':       { 'zh-TW': '面板訊號模擬', 'en': 'Panel Signal Simulation', 'zh-CN': '面板信号仿真' },
   'wfg.modeLa':         { 'zh-TW': 'LA分析器', 'en': 'LA Analyzer', 'zh-CN': 'LA分析器' },
   'wfg.laGrpPreset':    { 'zh-TW': '預設', 'en': 'Preset', 'zh-CN': '预设' },
   'wfg.laGrpSample':    { 'zh-TW': '取樣', 'en': 'Sample', 'zh-CN': '采样' },

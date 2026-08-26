@@ -22,6 +22,220 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.30.1 — 2026-08-27 ｜ PATCH ｜ ⚠ 輸出變更
+
+**v4.30.0 的收尾修正，七件：工具改名、分頁改名、highlight 改用 rxtx 的亮藍、
+TCON HTOTAL 標籤補上顏色、Pixel Rate 加 highlight ＋ 加大 ＋ 置中、
+TCON頻率設定的拉霸改回淺藍（系統模擬維持橘）。**
+
+> 🔴 **本條目起，這個工具的名字換了**。舊名（`TCON 波形模擬與取樣`／分頁
+> `TCON Timing 調整練習`）只保留在**本版之前的 CHANGELOG 歷史條目**與 git commit 訊息裡 ——
+> 那些是既成紀錄，不回溯改寫（與「不改寫 git 歷史」同一個理由）。
+> 使用者看得到的地方（頁首、`<title>`、og、首頁卡片、說明頁、i18n 三語）已全部換新。
+
+Bruce 2026-08-27 的需求（原話）：
+
+> 「把系統設定的卡片，目前 TCON HTotal 下方的數值有 highlight 不同的顏色，但是
+> 『TCON Htotal』這個字也要跟著一起變成相同的顏色。另外，Pixel Rate 的計算結果也請用
+> highlight 的顏色標示。還有，highlight 的顏色可不可以仿照 RXTX 的分頁？像 RXTX 分頁中
+> highlight 的那個亮藍色就很清楚。另外，Pixel Rate 的計算結果字體再大一點，然後位置擺在
+> 卡片的水平方向正中間。現在是偏左，不夠醒目，我要的是醒目，就像 RX、TX 那樣子。
+> 還有 TCON 頻率設定裡面的水平拉霸，顏色不要用得跟系統模擬一樣是那種橘黃色，用原本的
+> 淺藍色就可以了。最後，這個 TCON Timing 調整練習的 Tab 名稱改為『面板訊號模擬』。
+> 最後，WFG 的標題名稱，改為面板訊號模擬與取樣」
+
+### 一、highlight 的色碼是查出來的，不是調出來的
+
+Bruce 指名「仿照 RXTX 分頁」，所以去 `rxtx.html` 把實際色碼查出來：
+
+| 出處 | 內容 |
+|---|---|
+| `rxtx.html:37` | `.rxtx-result-val { font-size: 15px; font-weight: 700; color: var(--accent); }` |
+| `common/common.css:10` | `--accent: #38bdf8` |
+| 用在哪些元素 | rxtx 四張卡片全部的計算結果：`#rt-lvds-r-fps`／`-px`／`-fpga`／`-tcon`／`-port`／`-1ui`、`#rt-edp-r-rate`／`-std`、`#rt-mls-r`、`#rt-p2p-r`… |
+
+⇒ **`#38bdf8`**，取代 v4.30.0 用的 `#93c5fd`（站上色票的「資訊藍」，比 rxtx 的亮藍暗一階）。
+實作寫 `var(--accent)` 而不是硬編色碼 —— 與 rxtx 綁在同一個來源，之後改一次就兩邊同步。
+
+🔴 **順帶發現並修掉 v4.30.0 的一個遺漏**：那一版只讓 `#wfg-tcon-htotal` 的**數值**變色，
+**標籤沒跟著變**（實測 base 的標籤是 `rgb(148,163,184)`）。Bruce 這次點名的就是這件事。
+
+### 二、Pixel Rate 的標籤要不要一起變色 —— 判斷與理由
+
+Bruce 只說「Pixel Rate 的**計算結果**也請用 highlight 的顏色標示」，沒提標籤。
+但同一段話裡他明示 TCON HTOTAL 的標籤要跟著數值變色。
+
+**結論：取一致，兩格都是「標籤 ＋ 數值同色」。**
+理由：兩格都是同一種東西 —— 卡片裡唯讀的衍生數值。若一格連標籤變色、另一格只有數值變色，
+畫面上會出現一個**他沒有指名的區別**，而使用者會去猜那個區別代表什麼（isp v1.18.1 的裁示
+「改視覺屬性只准動被指名的維度」正是在防這個）。照字面只改數值，反而是自己新增了一個維度。
+
+label 裡的換算註記 `(Ht×Vt×FPS)` 有自己的 `.wfg-dclk-hint { color:#64748b }`，**不受影響**
+（實測改前改後都是 `rgb(100,116,139)`）—— 變色的是「Pixel Rate」四個字，不是整行。
+
+### 三、Pixel Rate 加大與置中的規格也是抄來的
+
+對照組就是 Bruce 指名的 rxtx RX/TX 數值（`rxtx.html:37`）：**`font-weight:700` ＋ `--accent` 色**。
+它「醒目」靠的是這兩項，不是絕對字級。
+
+wfg 這一格原本掛的 `.rxtx-result-val` 這個 class **在 `wfg.html` 裡沒有任何 CSS 規則**
+（只是從 rxtx 抄版型時一起帶過來的空 class），實際落在瀏覽器預設：**16px / 400 / `#e2e8f0`**。
+所以本版：
+
+- `font-weight: 700`、`color: var(--accent)` ← 照抄 rxtx
+- `font-size: 20px` ← 滿足「再大一點」。**20px 是 `wfg.html` 已經在用的既有字級**，不是新造的數字
+- 置中：`.wfg-field-readout` 本來就是 flex ⇒ 加 `justify-content:center`；label 加 `text-align:center`
+
+🔴 只掛在 Pixel Rate 那一格（`.wfg-pixel-rate-field` ＋ `#wfg-pixel-rate`）。
+同卡片的 VTOTAL／HTOTAL、隔壁卡片的 RX DCLK 三個讀數**一字未動**（實測見下方負控制）。
+
+### 四、拉霸顏色：v4.30.0 的判斷被 Bruce 直接推翻
+
+v4.30.0 寫過一段「🔴 不分區上色 …… 只改一部分等於新增一個他沒指名的區別 ⇒ 五條全部一起改」。
+**這一版 Bruce 直接指名要那個區別**：
+
+| 色 | 掛在哪 | 語意 |
+|---|---|---|
+| **橘 `#f97316`** | `#wfg-syssim-card` 底下（3 條：Frame Rate／Vblank／RX DCLK） | **系統模擬 ＝ 來這裡動手**：設定完系統設定卡片之後，實際變換在這裡做 |
+| **淺藍 `var(--accent)`** | 其餘（2 條：TX DCLK／TCON UI DCLK，都在 `#wfg-tconfreq-card`） | **一般控制項**，與站上其他讀值／highlight 同一個 `--accent` |
+
+實作上把**淺藍設成 `.wfg-fps-slider` 的預設**（＝ v4.30.0 之前的原值），橘色降級為
+`#wfg-syssim-card .wfg-fps-slider` 這一條 card-scoped 例外 —— 規則本身就是那句語意，
+不必逐條掛 class，日後往任一張卡片加拉霸都會自動落在正確的顏色。
+
+### 五、改名改到哪些地方
+
+| 檔案 | 處數 | 內容 |
+|---|---|---|
+| `common/i18n.js` | 3 個 key × 3 語 ＝ 9 | `home.wfgTitle`／`wfg.title` →「面板訊號模擬與取樣」；`wfg.modeTcon` →「面板訊號模擬」 |
+| `wfg.html` | 9（6 工具名 ＋ 3 分頁名） | `<title>`、`meta description`、`og:title`、`h1` fallback、兩處區塊註解／分頁鈕 fallback、兩處敘事註解 |
+| `index.html` | 1 | 首頁工具卡片的 fallback 文字 |
+| `wfg-guide.html` | 17 處（13 行） | `<title>`／`meta`／`h1`／內文／UI 示意圖／對照表（說明頁不納入版號機制） |
+| `common/version.js` | 1 | 版號那一行的註解 |
+
+三語對照（zh-CN 沿用本站既有用字：訊號→信号、模擬→仿真）：
+
+| key | zh-TW | zh-CN | en |
+|---|---|---|---|
+| `wfg.title`／`home.wfgTitle` | 面板訊號模擬與取樣 | 面板信号仿真与取样 | Panel Signal Simulation & Sampling |
+| `wfg.modeTcon` | 面板訊號模擬 | 面板信号仿真 | Panel Signal Simulation |
+
+🔴 **這兩個名字很像但不同**：工具名有「與取樣」，分頁名沒有。
+
+### 版號判定
+
+判定依據：逐項套 `docs/VERSIONING.md` §1 判定表與 R1～R4，取最高者 ⇒ **PATCH**。
+①「改 UI 版面、不動功能」的**微調（配色、文案、控制項位置小移）**＝ §2 案例 3 的 PATCH 側，
+本版動到的只有顏色、字級、對齊與名稱，沒有任何按鈕移位或消失；
+② 改名屬「文案」，案例 3 明列在 PATCH；工具入口（首頁卡片、頁首分頁鈕）位置一格未動，
+使用者不需要重新找東西 ⇒ **不觸發 MAJOR**（判定表 MAJOR 的門檻是「原本的按鈕找不到了」，
+不是「標籤上的字換了」）；
+③ R1：TCON HTOTAL 標籤沒跟著變色是 v4.30.0 的遺漏，修它是 PATCH；
+④ R3：使用者能做的事**沒有多一件**（沒有新按鈕、沒有新輸入格）⇒ 不到 MINOR；
+⑤ R4：起始狀態／預設值未變。
+🔴 §1 明示「改動大小不是判準」「不確定一律往低編」—— 本版改了 7 件、動到 5 個檔案，
+但沒有一件讓既有操作失效，所以編 PATCH。
+⚠ 輸出變更：左側面板的顏色、字級與名稱都變了，**拿 v4.30.0 之前的面板截圖當回歸基線會全部對不上**
+（波形 canvas 與匯出檔案的位元組則一字未變）。依 R1 的「版面／構圖類」定義標記。
+
+### 驗收（headless Chrome ＋ CDP，base ＝ `c87b3e9`／v4.30.0 乾淨快照，獨立 user-data-dir，不碰 Bruce 的 Chrome）
+
+**① 顏色（`getComputedStyle`，1440 與 430 兩個寬度結果相同）**
+
+| 元素 | base (v4.30.0) | fixed (v4.30.1) |
+|---|---|---|
+| `#wfg-tcon-htotal` **標籤** | `rgb(148,163,184)` | **`rgb(56,189,248)`** |
+| `#wfg-tcon-htotal` 數值 | `rgb(147,197,253)`（`#93c5fd`） | **`rgb(56,189,248)`**（`#38bdf8` ＝ rxtx `--accent`） |
+| `#wfg-pixel-rate` **標籤** | `rgb(148,163,184)` | **`rgb(56,189,248)`** |
+| `#wfg-pixel-rate` 數值 | `rgb(226,232,240)` | **`rgb(56,189,248)`** |
+| label 內的 `(Ht×Vt×FPS)` 註記 | `rgb(100,116,139)` | `rgb(100,116,139)`（未動） |
+| `#wfg-htotal-val`／`#wfg-vtotal-val`／`#wfg-rx-dclk` | `rgb(226,232,240)` | `rgb(226,232,240)`（**未被指名，一字未動**） |
+
+**② 字級與置中**
+
+| 量測 | base | fixed |
+|---|---|---|
+| `#wfg-pixel-rate` font-size | 16px | **20px** |
+| font-weight | 400 | **700** |
+| `.wfg-field` text-align | `start` | **`center`** |
+| `.wfg-field-readout` justify-content | `normal` | **`center`** |
+| 數值盒中心 − 卡片內容盒中心（1440 / 430） | **−95.52px / −150.02px**（明顯偏左） | **−0.01px / −0.01px**（兩個寬度都正中） |
+
+**③ 拉霸 accent（五條逐一量，附所屬卡片）**
+
+| slider | 卡片 | base | fixed |
+|---|---|---|---|
+| `wfg-framerate-slider` | 系統模擬 | `rgb(249,115,22)` | `rgb(249,115,22)` ← **負控制：沒被一起改掉** |
+| `wfg-vblank-slider` | 系統模擬 | `rgb(249,115,22)` | `rgb(249,115,22)` ← 同上 |
+| `wfg-rx-dclk-slider` | 系統模擬 | `rgb(249,115,22)` | `rgb(249,115,22)` ← 同上 |
+| `wfg-dclk-slider` | TCON頻率設定 | `rgb(249,115,22)` | **`rgb(56,189,248)`** |
+| `wfg-ui-dclk-slider` | TCON頻率設定 | `rgb(249,115,22)` | **`rgb(56,189,248)`** |
+
+**④ 改名（三語，走真實使用者路徑：動頁首的語言下拉並 dispatch `change`）**
+
+| 位置 | zh-TW | zh-CN | en |
+|---|---|---|---|
+| `wfg.html` `<h1>` | 面板訊號模擬與取樣 | 面板信号仿真与取样 | Panel Signal Simulation & Sampling |
+| 分頁鈕 | 面板訊號模擬 | 面板信号仿真 | Panel Signal Simulation |
+| 首頁卡片 | 面板訊號模擬與取樣 | 面板信号仿真与取样 | Panel Signal Simulation & Sampling |
+| `document.title` | 面板訊號模擬與取樣 — TCON FAE專用工具箱 | （同，不隨語言變） | （同） |
+| `wfg-guide.html` `<title>`／`h1` | 面板訊號模擬與取樣 — 使用手冊／面板訊號模擬與取樣 | — | — |
+
+隔壁的 `LA分析器`／`LA Analyzer` 三語**一字未動**（負控制：證明不是整片文字被覆蓋）。
+
+🔴 **第一輪的三語驗證是假的，這裡照實記下**：探針去猜 localStorage 的 key（猜成
+`tconToolsLang`），三個語言全部量到 zh-TW —— 表格會「全部通過」但其實一次都沒切過語言。
+正確的 key 是 `common/common.js:54` 的 `tcon-lang`；重測改成不靠 key，直接動使用者真正會動的
+那個 `#lang-select`。**「三語都對」這句話是重測之後才成立的。**
+
+**⑤ 舊名 grep ＝ 0**
+
+`wfg.html`／`index.html`／`wfg-guide.html`／`la.html`／`rxtx.html`／`calc.html`／`isp.html`／
+`aux.html`／`pattern.html`／`common/i18n.js`／`common/version.js`／`common/common.js`
+搜 `調整練習`｜`调整练习`｜`Timing Practice`｜`TCON 波形模擬與取樣`｜`TCON 波形仿真`｜
+`TCON Waveform Simulation`｜`波形模擬與取樣` ⇒ **0 筆**。
+仍留有舊名的地方只有三處，都是刻意保留：本檔 v4.30.0 以前的歷史條目、git commit 訊息、
+`ARCHITECTURE_PLAN.md`／`legacy-index.html` 這兩份追溯用的舊文件。
+
+**⑥ 零回歸**
+
+同一組操作序列（VACTIVE 1200 → VBLANK 100 → HBLANK 400 → Frame Rate 75 → TX DCLK 100），
+比對 fps／htotal／vtotal／tconHt／hactive／vactive／hblank／vblank／px／rx／tx／ui
+共 **12 欄 × 7 個取樣點 ⇒ 差異 0 項**。
+（第 5 步 TX DCLK 在**定頻**下是衍生值、刻意不吃手打值，base 與 fixed 表現相同。）
+
+**v4.29.1 還原順序**：QHD 2560×1440 ＋ HBLANK 30 ＋ VBLANK 46 ＋ fps 222，寫入後等 autosave
+落地再重整 ⇒ HTOTAL **2590**、VTOTAL **1486**、Pixel Rate **854.4203**、RX **427.2101**，
+base 與 fixed 逐值相同（與 v4.29.1 條目記載的數字一致）。
+
+🔴 **這一項第一輪也是假的**：只等 0.25 秒就重整，autosave 還沒落地，兩邊都掉回預設值 —— 
+「相同」是因為兩邊都沒測到東西。等 2.5 秒之後才是真的在比還原。
+
+**⑦ 七個負控制，全部抓得到**
+
+| # | 竄改 | 結果 |
+|---|---|---|
+| N1 | 把 `#wfg-tconfreq-card` 的拉霸 accent 竄改回 `#f97316` | `rgb(56,189,248)` → `rgb(249,115,22)`，量得出來 |
+| N2 | 把 `#wfg-pixel-rate` 字級竄改成 11px | `20px` → `11px`，量得出來 |
+| N3 | 拿掉 TCON HTOTAL 標籤的 `.wfg-label-info` | `rgb(56,189,248)` → `rgb(148,163,184)`，量得出來 |
+| N4 | fixed 側故意打 VACTIVE=1201（base 是 1200） | 比對器抓到 vactive／vtotal／px／rx／tx／ui **6 欄不同** ⇒「差異 0 項」不是比對器壞掉 |
+| N5 | 把分頁鈕文字竄改成 `XXX` | 讀回 `XXX`，改名偵測器有鑑別力 |
+| N6 | 英文語系下把 `wfg.title` 文字竄改成 `ZZZ` | 讀回 `ZZZ`，i18n 偵測器有鑑別力 |
+| N7 | **完全不編輯**就重整 | 讀回預設值（1920×1080/60），證明 ⑥ 的「還原成功」不是恆真 |
+
+**⑧ 四個寬度截圖**：390／430／900／1440 px，改前／改後左側面板與頁首各一張
+（`Emulation.setDeviceMetricsOverride` ＋ CDP `clip`，**文件座標**，2× 縮放）。
+
+證據（log／`result.json`／`result2.json`／截圖／探針原始碼）：`~/ClaudeData/_wfg_rename/`
+
+### 說明頁一併更新（不納入版號機制）
+
+`wfg-guide.html` 的工具名與模式名全部換新（17 處、13 行）。
+⚠ **照實列出：說明頁仍有本版之前就存在的過期內容**（v4.30.0 條目已列過的 §4 示意圖等），
+本版**沒有**一併重寫 —— 要補請另外交辦。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.30.0 — 2026-08-27 ｜ MINOR ｜ ⚠ 輸出變更
 
 **原本的「Frame 參數」一張大卡片拆成四張：系統設定 → 系統模擬 → TCON頻率設定 →
