@@ -662,6 +662,11 @@ var I18N = {
      `Pixel Rate` 與 `TCON UI DCLK` 兩個詞刻意與 rxtx 分頁用字一致，不另創名詞。 */
   'wfg.pixelRate':      { 'zh-TW': 'Pixel Rate', 'en': 'Pixel Rate', 'zh-CN': 'Pixel Rate' },
   'wfg.pixelRateHint':  { 'zh-TW': '(Ht×Vt×FPS)', 'en': '(Ht x Vt x FPS)', 'zh-CN': '(Ht×Vt×FPS)' },
+  /* v4.31.0：TCON 側的 Pixel Rate ＝ Vt × TCON Ht × FPS（Bruce 2026-08-27 給的公式）。
+     詞彙沿用同一張卡片上已經在用的 `TCON HTOTAL`，不另創名詞；三語同形（皆為技術術語，
+     與 `wfg.pixelRate` / `wfg.uiDclk` 的處理一致）。 */
+  'wfg.tconPixelRate':     { 'zh-TW': 'TCON Pixel Rate', 'en': 'TCON Pixel Rate', 'zh-CN': 'TCON Pixel Rate' },
+  'wfg.tconPixelRateHint': { 'zh-TW': '(Vt×TCON Ht×FPS)', 'en': '(Vt x TCON Ht x FPS)', 'zh-CN': '(Vt×TCON Ht×FPS)' },
   'wfg.rxDclkHint':     { 'zh-TW': '(= Pixel Rate ÷ 2)', 'en': '(= Pixel Rate / 2)',
                           'zh-CN': '(= Pixel Rate ÷ 2)' },
   'wfg.uiDclk':         { 'zh-TW': 'TCON UI DCLK', 'en': 'TCON UI DCLK', 'zh-CN': 'TCON UI DCLK' },

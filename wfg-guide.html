@@ -773,9 +773,23 @@
                   <div class="ui-field"><span class="ui-input">60</span></div>
                 </div>
 
-                <div class="ui-field" style="text-align:center;">
-                  <span class="ui-label" style="color:#38bdf8;">Pixel Rate <span style="color:#64748b;">(Ht×Vt×FPS)</span></span><br>
-                  <span class="ui-val" style="color:#38bdf8; font-size:1.05rem; font-weight:700;">148.5</span>
+                <!-- v4.31.0：Pixel Rate 由「單獨一格、置中、亮藍」改成左右兩欄：
+                     左＝系統端／右＝TCON 內部（亮藍），版位與上面 HTOTAL 那一列對齊。
+                     🔴 左欄沿用本示意圖既有的 `.ui-val`（綠）—— 圖上方的圖例已說明
+                     「綠色數字＝唯讀顯示，實際介面上這些數字是白色的」，和同一張圖裡的
+                     HTOTAL／VTOTAL 用同一種表示法。右欄用亮藍，因為亮藍與實際介面相同。
+                     🔴 兩欄加 flex-end：右欄標籤在窄寬度會折成兩行，不靠下對齊的話
+                     兩個數字會一高一低（實測截圖看得出來），與產品的
+                     `.wfg-field-group .wfg-field { justify-content:flex-end }` 一致。 -->
+                <div class="ui-row2" style="padding:0 8px;">
+                  <div class="ui-field" style="display:flex; flex-direction:column; justify-content:flex-end;">
+                    <span class="ui-label">Pixel Rate <span style="color:#64748b;">(Ht×Vt×FPS)</span></span>
+                    <span class="ui-val" style="font-size:1.05rem;">148.5</span>
+                  </div>
+                  <div class="ui-field" style="display:flex; flex-direction:column; justify-content:flex-end;">
+                    <span class="ui-label" style="color:#38bdf8;">TCON Pixel Rate <span style="color:#64748b;">(Vt×TCON Ht×FPS)</span></span>
+                    <span class="ui-val" style="color:#38bdf8; font-size:1.05rem;">148.5</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -875,14 +889,39 @@
           <li><strong>TX DCLK</strong> 可以手動輸入，但<strong>永遠 ≥ RX DCLK</strong>。<strong>定頻</strong>下改 TX DCLK 不會回頭改 Frame Rate；<strong>變頻</strong>下會（v4.29.0 起雙向連動，見下方專節）。</li>
           <li><strong>TCON UI DCLK</strong> = TX DCLK × 機種係數，<strong>可以手動輸入</strong>，與 TX DCLK <strong>互相連動</strong>（改哪一格另一格都會立刻跟著算好）</li>
           <li><strong>TCON HTOTAL</strong> 與上面那個 HTOTAL <strong>不是同一個數字</strong>，它另外標出來就是要你確認 —— 詳見下方「兩個 HTOTAL 差在哪」</li>
+          <li><strong>TCON Pixel Rate</strong>（v4.31.0 新增）= <strong>VTOTAL × TCON HTOTAL × Frame Rate</strong>，<strong>唯讀</strong>。它和左邊的 Pixel Rate <strong>只差在 Htotal 用哪一個</strong>，所以<strong>把 TX DCLK 往上調它會跟著變大</strong>（左邊那個不會）—— 詳見下方「兩個 Pixel Rate 差在哪」</li>
           <li><strong>Vactive / Hactive</strong> 只影響有效顯示區的位置標示，不影響總時間長度；而且<strong>它們沒有任何下限保護</strong>，輸入多少就是多少</li>
         </ul>
         <div class="callout warn" style="margin-top:12px;">
           <strong>🔴 兩個 HTOTAL 差在哪 —— 為什麼 TCON HTOTAL 被特別標成亮藍色</strong>
           同一個 H Total 框裡有兩個數字，很容易看成重複：<br><br>
           ・<strong>HTOTAL</strong>（左，白字）＝ <strong>系統端</strong>的 Htotal，就是 <code>Hactive + Hblank</code>，是你剛剛自己輸入出來的那個值。它描述的是<strong>面板／系統這一側</strong>一行有多長。<br>
-          ・<strong>TCON HTOTAL</strong>（右，亮藍字）＝ <strong>TCON 內部</strong>實際用的 Htotal。它由左邊那個值再依 <strong>Gate Type</strong> 與 <strong>TX/RX DCLK 的比例</strong>換算而來，兩者<strong>只有在最單純的情況下才會剛好一樣</strong>（Single Gate、TX ＝ RX）。一旦改成 Dual Gate、或把 TX DCLK 拉高，右邊的數字就會和左邊分開。<br><br>
+          ・<strong>TCON HTOTAL</strong>（右，亮藍字）＝ <strong>TCON 內部</strong>實際用的 Htotal。它由左邊那個值依 <strong>TX/RX DCLK 的比例</strong>換算而來：<code>TCON HTOTAL = round(HTOTAL × TX DCLK ÷ RX DCLK)</code>。所以兩者<strong>只有在 TX ＝ RX 時才會剛好一樣</strong>；一旦把 TX DCLK 拉高，右邊的數字就會和左邊分開。<br><br>
+          <span style="color:var(--muted);">🔴 v4.31.0 更正：本頁先前寫「依 <strong>Gate Type</strong> 與 TX/RX 比例換算」，其中 <strong>Gate Type 那半句是錯的</strong>。換算式裡沒有 Gate Type 這一項，實測 Single ⇄ Dual 切換時 TCON HTOTAL 逐值不變（2200 → 2200；另一組 2560×1440@120 Dual、TX 300 亦與公式吻合）。Gate Type 影響的是 Line Buffer 與內部時序推算，<strong>不影響 TCON HTOTAL</strong>。</span><br><br>
           它<strong>不是</strong>另一個要你填的參數，是一個<strong>註明值</strong>：拿去和你手上 TCON 設定檔／官方 UI 上的 HTOTAL 對一下，對得起來才代表這組模擬和真機是同一件事。<strong>這正是它被 highlight 的原因 —— 提醒你「這一格要看一眼」，不是提醒你「這一格要改」。</strong>
+        </div>
+        <div class="callout warn" style="margin-top:12px;">
+          <strong>🔴 兩個 Pixel Rate 差在哪（v4.31.0 起卡片最下方是左右兩欄）</strong>
+          結構和上面那兩個 HTOTAL 完全一樣 —— <strong>左邊白色＝系統端，右邊亮藍＝TCON 內部</strong>，而且就排在 HTOTAL／TCON HTOTAL 的正下方，上下對齊看得出對應關係：<br><br>
+          <!-- 🔴 這裡刻意**不用 <table>／<th>**：本頁全域的 `th` 是橘底，藍字寫上去看不見；
+               而窄欄下表格第一欄會被壓成逐字換行。改用兩塊並排的 flex 卡片，窄螢幕自動落成上下兩塊。 -->
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 10px;">
+            <div style="flex:1 1 220px; min-width:0; border:1px solid #334155; border-radius:6px; padding:8px 10px; background:rgba(255,255,255,0.02);">
+              <div style="color:#e2e8f0; font-weight:700; margin-bottom:4px;">Pixel Rate（左，白）</div>
+              <div style="margin-bottom:4px;"><code>HTOTAL × VTOTAL × Frame Rate</code></div>
+              <div style="color:var(--muted); font-size:.9rem;">・用<strong>系統端</strong>的 HTOTAL<br>・調高 TX DCLK <strong>不會</strong>變<br>・＝ RX DCLK × 2</div>
+            </div>
+            <div style="flex:1 1 220px; min-width:0; border:1px solid rgba(56,189,248,0.45); border-radius:6px; padding:8px 10px; background:rgba(56,189,248,0.06);">
+              <div style="color:#38bdf8; font-weight:700; margin-bottom:4px;">TCON Pixel Rate（右，亮藍）</div>
+              <div style="margin-bottom:4px;"><code>VTOTAL × TCON HTOTAL × Frame Rate</code></div>
+              <div style="color:var(--muted); font-size:.9rem;">・用 <strong>TCON 內部</strong>的 TCON HTOTAL<br>・調高 TX DCLK <strong>會</strong>跟著變大<br>・≈ TX DCLK × 2（差異只來自 TCON HTOTAL 取整數）</div>
+            </div>
+          </div>
+          <strong>兩邊算出來本來就會不一樣，這不是錯</strong>，正是這一版把它們並排列出來的理由。實測一組：<br>
+          <code>2560×1440@120、Hblank 160、Vblank 40、TX DCLK 300</code> ⇒ HTOTAL 2720／TCON HTOTAL 3378 ⇒
+          <span style="color:#e2e8f0;">Pixel Rate <strong>483.072</strong></span> ／
+          <span style="color:#38bdf8;">TCON Pixel Rate <strong>599.9328</strong></span>。<br><br>
+          <strong>什麼時候看哪一個</strong>：要判斷「這組時序對面板／訊號源合不合理」看<strong>左邊</strong>；要和 TCON 設定檔或官方 UI 上的內部頻率對帳，看<strong>右邊</strong>。
         </div>
         <div class="callout warn" style="margin-top:12px;">
           <strong>從 TCON UI 抄 DCLK 之前，先確認機種</strong>
@@ -938,7 +977,7 @@
           <tr>
             <td class="t-name">①</td>
             <td class="t-name">系統設定<br><small style="color:var(--muted);">（原「Frame 參數」）</small></td>
-            <td>Vactive／Vblank／Hactive／Hblank 四格輸入，算出 VTOTAL／HTOTAL／TCON HTOTAL；Frame Rate 輸入格；Pixel Rate 顯示</td>
+            <td>Vactive／Vblank／Hactive／Hblank 四格輸入，算出 VTOTAL／HTOTAL／TCON HTOTAL；Frame Rate 輸入格；最下方 Pixel Rate 與 TCON Pixel Rate 兩欄顯示</td>
             <td><strong>一開始設一次。</strong>這是「這片面板長什麼樣」的規格，設定好之後通常整段分析都不會再動。</td>
           </tr>
           <tr>
@@ -981,14 +1020,15 @@
           </tr>
           <tr>
             <td class="t-name"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#38bdf8;vertical-align:-1px;"></span> 亮藍 <code>#38bdf8</code></td>
-            <td>① 「TCON頻率設定」卡片裡兩條拉霸（TX DCLK／TCON UI DCLK）的滑塊 ── <strong>一般控制項</strong>；<br>② <strong>Pixel Rate</strong> 與 <strong>TCON HTOTAL</strong> 的標籤與數值 ── <strong>唯讀的註明值</strong></td>
+            <td>① 「TCON頻率設定」卡片裡兩條拉霸（TX DCLK／TCON UI DCLK）的滑塊 ── <strong>一般控制項</strong>；<br>② <strong>TCON HTOTAL</strong> 與 <strong>TCON Pixel Rate</strong> 的標籤與數值 ── <strong>TCON 內部實際跑的唯讀註明值</strong><br><span style="color:var(--muted);">🔴 v4.31.0 起亮藍在「系統設定」卡片裡有了單一語意：<strong>它就是 TCON 內部的那個數字</strong>。同一列左邊的系統端數字（HTOTAL／Pixel Rate）一律白色 —— 先前 Pixel Rate 也是亮藍，會讓人以為它和 TCON HTOTAL 是同一側的東西。</span></td>
             <td><strong>「一般控制項，以及要你看一眼的算出來的數字」。</strong>這個藍色和 <a href="rxtx-guide.html">Rx/Tx 頻率計算工具</a>分頁上那些計算結果用的是<strong>同一個色</strong>，所以在兩個工具之間對數字時，看到亮藍色就知道「這是算出來的結果」。</td>
           </tr>
         </tbody>
       </table>
     </div>
     <p style="margin-top:10px; font-size:.9rem; color:var(--muted);">
-      <strong>Pixel Rate 為什麼被放大並置中？</strong> 它是整組系統設定最後濃縮出來的那一個數字，也是判斷「這組參數合不合理」最快的入口。v4.30.1 起它的字級加大、水平置中、標籤與數值同色，做法直接照抄 Rx/Tx 分頁上 RX／TX 那兩個醒目讀數。
+      <strong>Pixel Rate 為什麼被放大？</strong> 它是整組系統設定最後濃縮出來的那一個數字，也是判斷「這組參數合不合理」最快的入口。v4.30.1 起字級加大、標籤與數值同色，做法直接照抄 Rx/Tx 分頁上 RX／TX 那兩個醒目讀數。<br>
+      <strong>v4.31.0 起它不再置中，而是移到左半欄，右半欄新增 TCON Pixel Rate。</strong> 置中的版本只有一個數字，改成兩欄之後左右各佔一半、與上方 HTOTAL／TCON HTOTAL 上下對齊（實測四個欄框的左右緣與中心 x <strong>逐像素相同</strong>），一眼就看得出「左＝系統端、右＝TCON 內部」。字級 20px／字重 700 兩欄一致，維持原本的醒目程度。
     </p>
 
     <h3 id="sec4sim" style="margin:30px 0 10px;">4-3　「系統模擬」的三條拉霸</h3>
@@ -1131,7 +1171,8 @@
           <tr><td class="t-name">HTOTAL</td><td>系統設定</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>＝ Hactive ＋ Hblank</td><td>🔴 <strong>v3.28.0 起是唯讀顯示，不是輸入格</strong>。這是<strong>系統／輸入端</strong>一行的總時脈數。</td></tr>
           <tr><td class="t-name" style="color:#38bdf8;">TCON HTOTAL</td><td>系統設定</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>隨 HTOTAL、Gate Type、TX/RX 比例換算</td><td>🔴 <strong>和左邊的 HTOTAL 不是同一個數字</strong>：這是 <strong>TCON 內部</strong>實際使用的 Htotal，供你和真機比對用。<strong>用亮藍色標出來就是要你看一眼，不是要你改。</strong>詳見上方「兩個 HTOTAL 差在哪」。</td></tr>
           <tr><td class="t-name">Frame Rate (Hz)<br><small style="color:var(--muted);">輸入格</small></td><td>系統設定</td><td><span class="t-type tt-num">數值輸入</span></td><td>≥1，step 1（<strong>只收整數</strong>），預設 60</td><td>畫面更新率。改動時會<strong>同時重算</strong> Pixel Rate、RX DCLK 與 TX DCLK。<span style="color:var(--muted);">拉霸在隔壁的「系統模擬」卡片，輸入格留在這裡。</span></td></tr>
-          <tr><td class="t-name" style="color:#38bdf8;">Pixel Rate (MHz)</td><td>系統設定</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>預設 148.5</td><td>= HTOTAL × VTOTAL × Frame Rate ÷ 10⁶。<strong>不隨 TX DCLK 調整而變</strong>。v4.30.1 起<strong>加大、置中、亮藍色</strong>，是整張卡片最醒目的數字。</td></tr>
+          <tr><td class="t-name">Pixel Rate (MHz)</td><td>系統設定</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>預設 148.5</td><td>= HTOTAL × VTOTAL × Frame Rate ÷ 10⁶。<strong>不隨 TX DCLK 調整而變</strong>。v4.31.0 起在卡片最下方<strong>左半欄、白色字</strong>（先前是置中亮藍）。</td></tr>
+          <tr><td class="t-name" style="color:#38bdf8;">TCON Pixel Rate (MHz)</td><td>系統設定</td><td><span class="t-type tt-out">唯讀顯示</span></td><td>預設 148.5</td><td>🔴 <strong>v4.31.0 新增</strong>。= VTOTAL × <strong>TCON HTOTAL</strong> × Frame Rate ÷ 10⁶，在卡片最下方<strong>右半欄、亮藍字</strong>。和左邊只差在 Htotal 用哪一個，所以<strong>調高 TX DCLK 它會跟著變大</strong>（≈ TX DCLK × 2）。詳見上方「兩個 Pixel Rate 差在哪」。</td></tr>
 
           <tr><td class="t-name">Frame Rate 拉霸</td><td style="color:#fcd34d;">系統模擬</td><td><span class="t-type tt-sld">滑桿</span></td><td>兩端 ＝ 目前機種／解析度真正跑得到的上下限</td><td>直接改 Frame Rate。以<strong>波形區中心為錨</strong>，拖曳時畫面不會跑掉。<strong>允許小數</strong>（反推路徑會產生小數值，拉霸端點與顯示都照實呈現）。</td></tr>
           <tr><td class="t-name">Vblank 拉霸<br><small style="color:var(--muted);">(Pixel Rate 不變)</small></td><td style="color:#fcd34d;">系統模擬</td><td><span class="t-type tt-sld">滑桿</span></td><td>左端 ＝ <strong>拉霸出現當下的 Vblank 值</strong><br>右端 ＝ <strong>65535</strong></td><td>🔴 加大 Vblank，而 <strong>Pixel Rate 與 RX DCLK 逐值不變</strong> —— Frame Rate 等比降下來補回去（所以會出現小數）。<strong>以波形區中心為錨</strong>。左端不會被自己推上去，拉高之後隨時拉得回來。</td></tr>
@@ -3486,7 +3527,7 @@ write -m 05A1 00 FF    // ACT_TYPE = 0
         <p style="color:var(--muted); font-size:.93rem;">顏色是有意義的，不是裝飾：</p>
         <ul style="color:var(--muted); font-size:.93rem;">
           <li><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#f97316;vertical-align:-1px;"></span> <strong>橘</strong> ＝「<strong>系統模擬</strong>」卡片 —— 系統設定設完之後，<strong>要你來動的就是這一張</strong>。卡片外框、放大的標題、三條拉霸的滑塊都是橘的。</li>
-          <li><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#38bdf8;vertical-align:-1px;"></span> <strong>亮藍</strong> ＝ 一般控制項（TCON頻率設定那兩條拉霸），以及<strong>唯讀的註明值</strong>（Pixel Rate、TCON HTOTAL）。這個藍色和 Rx/Tx 頻率計算工具分頁上那些計算結果是同一個色。</li>
+          <li><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#38bdf8;vertical-align:-1px;"></span> <strong>亮藍</strong> ＝ 一般控制項（TCON頻率設定那兩條拉霸），以及<strong>TCON 內部實際跑的唯讀註明值</strong>（TCON HTOTAL、TCON Pixel Rate）。這個藍色和 Rx/Tx 頻率計算工具分頁上那些計算結果是同一個色。<br><span style="color:var(--muted);">🔴 <strong>v4.31.0 起「系統設定」卡片裡的亮藍只代表一件事：TCON 內部的數字。</strong> 同一列左邊的系統端數字（HTOTAL、Pixel Rate）一律白色。先前 Pixel Rate 也是亮藍，和隔壁的 TCON HTOTAL 同色，容易被誤會成同一側的東西。</span></li>
         </ul>
         <p style="color:var(--muted); font-size:.93rem; margin-top:6px;">完整說明見 <a href="#sec4color">4-2</a>。</p>
       </div>

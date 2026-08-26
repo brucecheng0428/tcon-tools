@@ -22,6 +22,100 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.31.0 — 2026-08-27 ｜ MINOR
+
+**「系統設定」卡片最下方的 Pixel Rate 由「單獨一格、置中、亮藍」改成左右兩欄：
+左＝ Pixel Rate（白字）、右＝ **新增的 TCON Pixel Rate**（亮藍字），版位與上一列
+HTOTAL／TCON HTOTAL 逐像素對齊。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+- **R3／判定表「功能增減：新增獨立功能」→ MINOR**：本版之後使用者**多知道一件事** ——
+  TCON 內部實際跑的 Pixel Rate（`VTOTAL × TCON HTOTAL × Frame Rate`）。這是新增的讀數，不是既有讀數的改寫。
+- **判定表「操作流程：位置微調、文案、配色」→ PATCH**：Pixel Rate 由置中改為左半欄、由亮藍改為白色。
+- **R4（起始狀態／預設值）不適用**：沒有任何預設值改變。
+- **不是 MAJOR**：Pixel Rate **沒有被移除也沒有換算方式改變**，仍在同一張卡片的同一列高度、
+  數字逐值相同（實測 4 組參數 base 與 fixed 逐值一致）；沒有任何按鈕消失或流程改變，
+  使用者不需要重新學，也不需要重新確認過去抄下來的數字。§1「改動大小不是判準」——
+  本版就是一個顯示欄位 ＋ 一組配色，工程規模本身不推高級別。
+- **取最高者 ⇒ MINOR**。
+
+不標 `⚠ 輸出變更`：波形數值、匯出 script／xlsx 的位元組內容、canvas 尺寸皆未動
+（實測 base vs fixed 除新增欄位外**逐值零差異**，含 `wfgDclkLimits()` 內部狀態與 canvas 尺寸）。
+改變的只有左側控制面板的版面，不進入任何匯出物。
+
+### Bruce 2026-08-27 的需求（原話）
+
+> 「還有另外一個系統設定那邊的卡片，就是在 WFG 分頁裡面的系統設定卡片。現在 Pixel Rate 跟藍色的
+> T-CON H-Total 都是同一個顏色，這樣子會讓人誤會，所以 Pixel Rate 那邊應該是要用白色的字樣。
+> 那還是把它移到左邊好了，右邊再加入一個 TCON Pixel Rate，這個才用藍色字樣。
+> T-CON Pixel Rate 的計算公式如下：T-CON Pixel Rate = V-Total × T-CON H-Total × Frame Rate。
+> 所以這兩邊算出來會是不一樣的，都列在上面。」
+
+### 一、配色從此有單一語意：亮藍 ＝ TCON 內部
+
+v4.30.1 把 `Pixel Rate` 和 `TCON HTOTAL` 都塗成 `--accent`，兩個不同側的數字同色 —— 這正是 Bruce 說的
+「會讓人誤會」。本版把這張卡片的顏色收斂成一條規則：
+
+| | 左欄 | 右欄 |
+|---|---|---|
+| 上一列 | `HTOTAL` 白 `rgb(226,232,240)` | `TCON HTOTAL` 亮藍 `rgb(56,189,248)` |
+| 本列（新） | `Pixel Rate` 白 | `TCON Pixel Rate` 亮藍 |
+
+**標籤與數值同色**沿用 v4.30.1 已定的規則，所以左欄標籤也一併由亮藍改白（新增
+`.wfg-val-plain` / `.wfg-field label.wfg-label-plain`）。`(Ht×Vt×FPS)` 這類換算註記維持
+`.wfg-dclk-hint` 的灰 `rgb(100,116,139)`，兩欄皆同，實測未受影響。
+
+### 二、對齊做法與理由（為什麼是 `padding: 0 8px` 而不是再包一層框）
+
+上一列 `HTOTAL / TCON HTOTAL` 住在 `.wfg-field-group.wfg-subgroup` 裡（border 1px ＋ padding 7px ＝ 每邊 8px），
+Pixel Rate 這一列則是 `#wfg-sysrate-group` 的**直接**子列、少了那一層。直接放兩個 `flex:1` 欄位，
+左右各外擴 8px，中心線對不齊。
+
+⇒ 新增 `.wfg-pixel-rate-row { padding: 0 8px }`，讓可用寬度與 subgroup 的內容寬相同。
+**不採用「再包一層 subgroup」**，那會多出一個 Bruce 沒要求的邊框。
+
+實測（430px）：四個欄框 `left / right / width / centerX` **完全相同**（53.00 / 246.00 / 193.00 / 149.50
+與 254.00 / 447.00 / 193.00 / 350.50），中心 x 差 **0.00 px**。
+
+### 三、計算接在既有資料流上，沒有第二份換算
+
+`wfgCalcTconPixelRate()` 讀的是 **`wfgFrame.tconHtotal`**，也就是 `#wfg-tcon-htotal` 顯示的
+**同一個變數的同一次寫入**；渲染掛在 `wfgUpdateTconHtotal()` 的最後一行 —— 那是 `tconHtotal` 的
+**唯一寫入點**，而且全庫 13 個
+`wfgUpdateRxDclk() → wfgClampTconDclk() → wfgUpdateTconHtotal()` 序列都以它收尾。
+**結構上不可能出現「TCON HTOTAL 動了、TCON Pixel Rate 沒動」。**
+
+若在這裡自己再乘一次 `dclk/rxDclk`，就會多出一份**沒有 `Math.round`** 的版本，
+畫面會出現「TCON HTOTAL 顯示 2400、但 TCON Pixel Rate 用 2399.87 算」的自我矛盾。
+
+### 四、驗收（headless Chrome ＋ CDP，獨立 profile，log 在 `~/ClaudeData/_wfg_pxrate/`）
+
+| 項目 | 結果 |
+|---|---|
+| **顏色** | 左標籤／左標籤內 span／左數值 = `rgb(226,232,240)`；右三者 = `rgb(56,189,248)`；且分別與同列 `HTOTAL`／`TCON HTOTAL` 同色。字級 20px、字重 700 兩欄一致 |
+| **對齊** | 四個欄框左右緣與中心 x 差 **0.00 px** |
+| **數值（4 組手算比對）** | A 預設 148.5／148.5（相等）；**B TX 拉到 100 ⇒ 148.5／200.0025（不相等）**；**C 2560×1440@120 Dual、TX 300 ⇒ 483.072／599.9328（不相等）**；D 變頻 90／90（相等）。逐值與手算吻合 |
+| **連動（8 個操作）** | TX DCLK ×2、定頻⇄變頻、Frame Rate、Vblank 共 **6 個操作兩者一起變**；Gate Type 切換**兩者皆不變**（見下方更正）。**沒有任何一步只有一邊變**；每一步右欄都仍等於 `Vt×TCON_Ht×FPS` |
+| **三語** | zh-TW／zh-CN／en 三語標籤皆有翻譯；`pgScanKeysAllLangs()` 未翻譯 key **= 0** |
+| **四寬度（390/430/900/1440）** | 文件溢出與卡片內右溢 **base 與 fixed 皆 0.00**；另補測長數值情境（483.072／599.9328）在 390px 下文字寬 80.09／94.39 對欄寬 138.00，**未溢出** |
+| **零回歸** | 4 組參數 × 全部讀數／輸入值／radio／canvas 尺寸／`wfgDclkLimits()`，除新增欄位外 **0 筆差異** |
+| **負控制 4 個** | NC1 把右欄值換成左欄值 → 數值比對器抓到；NC2 右欄改白 → 顏色比對器抓到；NC3 拿掉補償 padding → 對齊比對器量到 4.00px 偏移；NC4 凍結右欄 textContent → 連動偵測器抓到 |
+
+### 五、🔴 順帶更正說明頁一個錯誤的機制描述
+
+`wfg-guide.html` 第 4 章原本寫「TCON HTOTAL 由 HTOTAL 依 **Gate Type** 與 TX/RX DCLK 的比例換算而來」。
+**Gate Type 那半句是錯的**：換算式 `round(htotalBase × dclk / rxDclk)`（`wfgUpdateTconHtotal()`）
+**沒有 Gate Type 這一項**，實測 Single ⇄ Dual 切換時 TCON HTOTAL 逐值不變（2200 → 2200）。
+說明頁已更正並註明。（這也是上表「Gate Type 兩者皆不變」的原因 —— 不是連動壞掉。）
+
+### 六、說明頁 `wfg-guide.html` 同步（不進版）
+
+第 4 章：卡片示意圖改成兩欄；「參數之間的關係」新增 TCON Pixel Rate 一條；
+新增專節 **「🔴 兩個 Pixel Rate 差在哪」**（公式對照表 ＋ 實測數字 ＋ 何時看哪一個）；
+§4-2 顏色語意、FAQ「Pixel Rate 為什麼被放大」、§4 全欄位表（新增 TCON Pixel Rate 一列）一併更新。
+
+---
+
 ## 說明頁 wfg-guide.html 新增第 13 章「把匯出的檔案送進原廠 TCON UI」 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
 
 **Bruce 2026-08-27 交辦**：「在 WFG 分頁 Code 匯出後的 Script 跟 Excel 要如何匯入到原廠 TCON UI 當中」，
