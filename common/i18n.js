@@ -693,9 +693,12 @@ var I18N = {
   'wfg.codeNotSupported': { 'zh-TW': '{m} 目前還沒建置，已取消這次操作。\n目前可用的型號：{list}',
                             'en': '{m} is not built yet, so this operation was cancelled.\nAvailable models: {list}',
                             'zh-CN': '{m} 目前还没建置，已取消这次操作。\n目前可用的型号：{list}' },
-  'wfg.codeImportOk':   { 'zh-TW': '已從 {f} 匯入 {n} 條數位信號。\n{d}',
-                          'en': 'Imported {n} digital signals from {f}.\n{d}',
-                          'zh-CN': '已从 {f} 导入 {n} 条数字信号。\n{d}' },
+  /* 🔴 v4.27.3：Bruce 圈出這一段說「寫這麼多沒有人會看」。原本 {d} 帶著檔案大小／
+     GPO SLOT 檔案偏移／CKS／GATE 型態／FIRST LINE READ／FRM_NO／EN 幾分之幾／
+     三組候選 timing 一整串。全部拿掉，只留一句。檔名本來就另外顯示在上一行。 */
+  'wfg.codeImportOk':   { 'zh-TW': '已匯入 {n} 條數位信號',
+                          'en': 'Imported {n} digital signals',
+                          'zh-CN': '已导入 {n} 条数字信号' },
   'wfg.codeImportFail': { 'zh-TW': '無法解析 {f}：{r}\n未變更任何設定。',
                           'en': 'Cannot parse {f}: {r}\nNothing was changed.',
                           'zh-CN': '无法解析 {f}：{r}\n未变更任何设定。' },
@@ -988,9 +991,9 @@ var I18N = {
                           'en': 'Where: the Frame parameters card on the left → TX DCLK',
                           'zh-CN': '位置：左侧「Frame 参数」卡片 → TX DCLK' },
   /* v4.23.0：這一項的性質變了 —— 從「code 裡沒有、要自己填」變成「code 裡有、已帶入、請確認」。 */
-  'wfg.ackLbName':      { 'zh-TW': 'TCON 內部 Line Buffer 已由 code 的 First Line Read 帶入，請確認',
-                          'en': 'TCON internal Line Buffer came from the code (First Line Read) - please confirm',
-                          'zh-CN': 'TCON 内部 Line Buffer 已由 code 的 First Line Read 带入，请确认' },
+  'wfg.ackLbName':      { 'zh-TW': 'Line Buffer 已由 code 帶入，請確認',
+                          'en': 'Line Buffer came from the code - please confirm',
+                          'zh-CN': 'Line Buffer 已由 code 带入，请确认' },
   'wfg.ackLbWhere':     { 'zh-TW': '位置：上方工具列「TCON」group → Line Buffer / First Line Read',
                           'en': 'Where: the TCON group in the toolbar above → Line Buffer / First Line Read',
                           'zh-CN': '位置：上方工具栏「TCON」group → Line Buffer / First Line Read' },
@@ -1024,9 +1027,9 @@ var I18N = {
                           'zh-CN': '两项都已设定，可以开始编辑' },
   /* ══ v4.25.0：TCON UI DCLK 已由 code 自動帶入時，卡片只剩 Line Buffer 一項 ══════
      標題／提示語都要跟著變成單數，不然會出現「看不到第 1 項卻寫著有 2 項」。 */
-  'wfg.ackTitle1':      { 'zh-TW': '匯入完成 — 有 1 項需要你確認（TCON UI DCLK 已由 code 自動帶入）',
-                          'en': 'Import done - 1 setting needs your confirmation (TCON UI DCLK came from the code)',
-                          'zh-CN': '导入完成 — 有 1 项需要你确认（TCON UI DCLK 已由 code 自动带入）' },
+  'wfg.ackTitle1':      { 'zh-TW': '匯入完成 — 有 1 項需要你確認',
+                          'en': 'Import done - 1 setting needs your confirmation',
+                          'zh-CN': '导入完成 — 有 1 项需要你确认' },
   'wfg.ackHint1':       { 'zh-TW': '這一項填好才能開始編輯', 'en': 'Fill this in to start editing',
                           'zh-CN': '这一项填好才能开始编辑' },
   'wfg.ackHintOk1':     { 'zh-TW': '已確認，可以開始編輯', 'en': 'Confirmed - you can start editing',
