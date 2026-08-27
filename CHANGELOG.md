@@ -66,7 +66,7 @@ canvas 非背景像素 82,349 px（清除前 81,769 px —— 幾乎沒變，因
 **① 清除後所有輸出通道設為不顯示**（`wfgResetToDefault()`）
 `wfgBuildDefaultChannels()` 依出廠規則把前 18 條數位通道設成 `visible=true`，那正是 Bruce 看到的那一排。本版在它之後把 33 條全部 `visible=false`。
 🔴 **刻意不把 `wfgChannels` 清成空陣列**：通道↔GPIO 指派、名稱、顏色全部留著 ⇒ 按一下清單裡的 👁 就加得回來（是「清空畫面」不是「移除功能」，MAJOR 與 PATCH 的分界就在這裡）；而且 `wfgChannels.length` 是 v4.20.0「新增／移除通道」兩顆鈕的計數來源，清成 0 會讓那兩顆鈕進入沒人設計過的狀態。
-`visible` 是繪製端唯一認的欄位（`wfgResizeCanvas()` 的 `sigCount`、`wfgRender()` 的 `visibleChs`、`wfgRenderLabels()` 的 `visMap` 三處都只看它），所以 canvas 高度、波形、左側名稱欄三者天生同步。canvas 不會塌掉 —— `wfgResizeCanvas()` 本來就有 `sigCount = Math.max(sigCount, 1)`。
+`visible` 是繪製端唯一認的欄位（`wfgResizeCanvas()` 的 `sigCount`、`wfgRender()` 的 `visibleChs`、`wfgRenderLabels()` 的 `visMap` 三處都只看它），所以 canvas 高度、波形、左側名稱欄三者天生同步。canvas 不會塌掉 —— `wfgResizeCanvas()` 本來就有 `sigCount = Math.max(sigCount, 1)`。實測清除後 canvas 高度 300 px、非背景像素 **0**，畫面落在**本站原本就有的空白狀態** `#wfg-empty`（「請載入預設或新增信號以開始」，`wfgRender()` 一直都在處理的既有分支），不是一個沒人設計過的新畫面。
 
 **② 內部訊號 6 列一併關掉**（同上）
 走既有唯一入口 `wfgToggleTconInternal(false)`，不直接指派 `wfgTconInternalMode` —— 那支同時負責 `#wfg-linebuf-wrap`（Line Buffer／First Line Read 那幾格）的顯示與 `wfgFlrSync()`，直接改變數會得到「內部列不見了、Line Buffer 格子還在」的混血狀態。
