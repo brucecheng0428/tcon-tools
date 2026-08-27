@@ -3001,8 +3001,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260827wfg4312"></script>
-<script src="common/i18n.js?v=20260827wfg4312"></script>
+<script src="common/version.js?v=20260827wfg4313"></script>
+<script src="common/i18n.js?v=20260827wfg4313"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -19866,6 +19866,31 @@ function wfgUpdateFrmNoApproxHint() {
 window.wfgToggleDisplayThreshold = wfgToggleDisplayThreshold;
 window.wfgUpdateFrmNoApproxHint = wfgUpdateFrmNoApproxHint;
 
+/* ══ v4.31.3：R_DLY 最多能撐過幾個 F 觸發位置（item3 的門檻，唯一的數字來源）════
+   單位是「**F 觸發位置的個數**」，不是 DCLK、也不是 line —— 所以門檻自動跟著
+   一條 line 有幾個 TX DCLK（`htotal`）與 `ACT_TYPE` 走，**沒有寫死任何解析度**。
+
+   數字依據 ＝ Bruce 2026-08-27 的原理描述（逐字）：
+     「item 3 是要**超過下七個觸發 fdly 位置**，才會進到演算法 B，變成 low
+       （不是整個 frame，還是要符合 st_line/sp_line 的範圍）」
+   加上他自己給的算式：`15454 / 1939 ≈ 8 條 line`，而 15454 那一點**波形仍然正常**
+   ⇒ 「撐得過 7 個 F 觸發位置、**碰到第 8 個**才進 B」 ⇒ 常數 ＝ **8**，比較用 `>=`。
+
+   🔴 **不做觀測值校正**（Bruce 2026-08-27 裁示，逐字）：
+     「因為我用實際的 EVB 測那個 LA 擷取到的波形，有可能會因為電壓閾值落差稍微有點
+       偏差，所以還是以公式為準。也就是不用管 15450 到 15460 的這個範圍，你就直接用
+       公式算，也就是用 1939 來算，算到多少就是多少，不用在意這個。」
+   ⇒ 一律用工具自己算出來的 `effHtotal`。他量到的 15454/15455 **不是驗收標準**。
+
+   以他那組 timing（3584+280 / 1440+50 / 144Hz、DCLK 欄 416 ⇒ TCON HTOTAL 3878
+   ⇒ effHtotal 1939）為例，ACT_TYPE=0、F_DLY=0 時門檻 ＝ `8 × 1939 = 15512`。
+
+   〔佐證，不參與計算〕mail 附件那份 `RM80203.PB_BOE_B19_...bin` 的 register 直接解出
+   HACTIVE 3584 ＋ HBLANK 280 ⇒ HTOTAL **3864** ⇒ 若 DCLK 欄不手打 416（讓工具自己算
+   414.5299），TCON HTOTAL ＝ 3864、effHtotal ＝ 1932，門檻就變 `8 × 1932 = 15456`。
+   兩者都由同一條公式產生，差別只在使用者在 DCLK 欄填什麼。 */
+var WFG_RDLY_FALL_SPAN_LIMIT = 8;
+
 function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
   if (!gpio.enable) return [];
 
@@ -20093,10 +20118,11 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       var rFired = false, fFired = false;
       var rDlyVal = 0, fDlyVal = 0;
 
-      /* v4.31.2 item2：**下一個 rising 會把還在路上的 falling 清掉**（Bruce 2026-08-27 實測）。
-         這裡必須在 rising 那一段動到 `rCnt` **之前**先把它抄起來 —— falling 那一段要用它
-         算「下一個 R 觸發條」，而那時 `rCnt` 已經被 rising 那段改過了。 */
+      /* v4.31.2 item2／v4.31.3 item3：兩段各自要用**對方 counter 在本行的值**。
+         必須在下面兩段動到 `rCnt` / `fCnt` **之前**先抄起來 —— rising 那段會把 `rCnt`
+         歸零或 +1，falling 那段讀到的就不是本行的值了（反之亦然）。 */
       var _rCntAtLine = rCnt;
+      var _fCntAtLine = fCnt;
 
       // Check R_PH_CNT == ACT_TYPE → rising edge (set to 1)
       if (rCnt === actType) {
@@ -20107,16 +20133,63 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
           var rExtraLines = htotal > 0 ? Math.floor(rDly / htotal) : 0;
           var rNormDly = htotal > 0 ? rDly % htotal : rDly;
           var rActualLine = line + rExtraLines;
+
+          /* ═══ v4.31.3 item3：R_DLY 拖過第 N 個 F 觸發位置 ⇒ 訊號躺平為 LOW ═════════
+             Bruce 2026-08-27 實測（逐字）：
+               「rdly > fdly，實際情況都跟原始演算法一致，只是有一個情況比較奇怪，
+                 假如 fdly=0，rdly 在 15454 之前的 TCON 實際波形都跟演算法一模一樣，
+                 但一到 15455 就整個訊號躺平（如果 fdly+1，那躺平的條數也會跟著加 1），
+                 變為 low，不再有 pulse」
+               「item 1,2 是要到下一個 rdly 觸發條數就會進到演算法 B，造成訊號變 High
+                 （不是整個 frame，還是要符合 st_line/sp_line 的範圍），而 item 3 是要
+                 超過下七個觸發 fdly 位置，才會進到演算法 B，變成 low」
+             Bruce 2026-08-27 追加裁示：「不用精準到百分之百完全對上，只要不要差太多就好」
+               ⇒ 走「超過門檻就一路 low、不再有 pulse」這個模型（**不是**「再往上脈衝會回來」）。
+
+             🔴 **進入條件與 item2 不同，兩者不可合併成同一個判斷**（Bruce 明確要求）：
+               ・item2（fdly > rdly）：看**下一個（第 1 個）** R 觸發位置
+               ・item3（rdly > fdly）：看**第 N 個** F 觸發位置
+             不對稱是有實測依據的 —— rdly 可以跨過好幾個 falling 仍然打得出脈衝
+             （Bruce：rdly 到 15454 都跟演算法一模一樣），falling 卻一個 rising 就被清掉。
+
+             ── N 為什麼是 8：見 `WFG_RDLY_FALL_SPAN_LIMIT` 的說明 ─────────────
+             🔴 Bruce 2026-08-27 裁示：EVB 上用 LA 量的邊沿有電壓閾值誤差，**以公式為準**，
+                15450~15460 那個區間不是驗收標準。所以這裡一律用工具算出來的 `htotal`，
+                不做任何觀測值校正、也不寫死任何解析度。
+             他那組 timing（DCLK 欄 416 ⇒ TCON HTOTAL 3878 ⇒ effHtotal 1939）、
+             ACT_TYPE=0、F_DLY=0 時，本實作的門檻 ＝ `8 × 1939 = 15512`。
+
+             `F_DLY` 在等號右邊 ⇒ **F_DLY 加 1，門檻自動加 1**，與 Bruce 的第二個觀測
+             點（「如果 fdly+1，那躺平的條數也會跟著加 1」）結構上必然一致，不是湊的。
+
+             範圍：這一段只在 counter 活著、且 `line <= sp` 的區間內執行 ⇒ 天然被
+             ST_LINE / SP_LINE 界定，不會影響 frame 的其他部分（Bruce 兩次強調的
+             「不是整個 frame」）。item2 那個 `_nextRLine <= sp` 的出口**刻意不做對稱版**：
+             他對 item3 的描述是「整個訊號躺平、不再有 pulse」，沒有「到 stop line 才恢復」
+             這一句，而 item2 有。 */
+          var _fPeriod = actType + 1;
+          var _dNextF1 = (actType > 0)
+                ? ((_fCntAtLine === actType) ? _fPeriod : (actType - _fCntAtLine))
+                : 1;
+          if (!(_dNextF1 > 0)) _dNextF1 = _fPeriod;
+          var _dNextFN = _dNextF1 + (WFG_RDLY_FALL_SPAN_LIMIT - 1) * _fPeriod;
+          var _fallKillsRise = (htotal > 0) && (rDly >= _dNextFN * htotal + gpio.f_dly);
+
           // F_ST_SEL: only suppress if transition goes beyond current frame
           if (gpio.f_st_sel && rActualLine >= vtotal) {
             // Transition exceeds frame boundary — suppress under F_ST_SEL
+          } else if (_fallKillsRise) {
+            /* item3：這一筆 rising 已經被拖過第 N 個 F 觸發位置 —— 不落轉態、
+               **不設 rFired**，`level` 維持 0，訊號在 ST_LINE~SP_LINE 之間躺平為 LOW。 */
           } else {
             // If frame just reset to INI_VAL on this line, ensure 1 DCLK gap
             var rPushDly = (frameReset && rActualLine === 0 && rNormDly === 0) ? 1 : rNormDly;
             allTransitions.push({ line: lineOffset + rActualLine, dly: rPushDly, level: 1 });
           }
-          rFired = true;
-          rDlyVal = rDly;
+          if (!_fallKillsRise) {
+            rFired = true;
+            rDlyVal = rDly;
+          }
           if (gateRec) gateRec[line] |= 4;   // v3.24.2：R_PH_CNT 這一格是觸發格
         }
         rCnt = 0;
