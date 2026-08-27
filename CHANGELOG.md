@@ -22,6 +22,141 @@
 
 ---
 
+## 說明頁 wfg-guide.html 第 13 章：把 10 條缺口逐條回查源碼補實，並依 Bruce 裁示改寫流程 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
+
+**上一輪（`1cce24a`）交了 10 條「查不到」的缺口。本輪逐條回 source code 與原廠 exe 表單資源重查，
+其中 6 條其實查得到，已補實；另外依 Bruce 當日四則裁示，把 13-2 的流程與 13-3 的敘事整段改寫。**
+
+### Bruce 2026-08-27 的裁示（原話）
+
+> NB 的 Modify All 在 Data A 還是在 Data B？你要看右側的下拉選單裡面，可以選擇 Data A 還是 Data B，用那個來決定。
+> 這些只要有讀過 source code 就應該知道吧？怎麼會問這個問題？
+
+> 等等，Modify all 應該只有在 I2C 打開後才能用，目前 WFG 的流程，是不會用到原廠 UI 打開 I2C 的情況，所以根本不用寫這個使用說明
+
+> 這個 Excel WFG 分頁也是你這邊做出來的，你這邊做出來的不就是參考 Source Code 那邊的做法？⋯⋯
+> 也就是說，這個 Excel 匯出以後，要到原廠 UI 的 Code Check 分頁再匯入，才能去修改原始 Code 的 GPO Timing 的部分。
+> 第二個，複製完以後就不用按 Flash，因為整套流程不要牽涉到 I2C 或是 Flash 的燒錄，只要存 Code 就好。
+> 第三，這三個模式不是每一個都要更新，而是看我們目前要調整的是哪一個模式，這個由使用者自己決定就好。
+> 而且這跟出貨沒有關係，是 code ensure 切到該模式時，會把這三個模式分頁的值搬進 current，這個是實際的結果。
+
+> 另外根本沒有「出貨」這個動作，為什麼會有出貨？這又不是在賣東西，這是在寫 code。
+> 所以匯出的 script 或是 Excel，目的是要修正 code，跟出貨一點關係都沒有。
+
+### 一、10 條缺口的處置
+
+| # | 缺口 | 處置 | 出處 |
+|---|---|---|---|
+| 1 | `From Current` 之後要不要再燒進 Flash | **結案（Bruce 裁示）** | 不用。整套流程不碰 I2C、不碰 Flash 燒錄，只要存 Code。已加醒目框 |
+| 2 | （前輪已由 Bruce 裁示處理） | — | — |
+| 3 | `Init Three Mode` 做什麼 | **仍是缺口，但描述補精確** | `PopupMenu_System_GPO_Mode_InitThreeMode`／`…InitThreeModeClick`，與四個 `From …` 共用的 `CopyDataClick` **不是同一支**；實際行為在 DFM 與字串池皆無說明字面 |
+| 4 | GPO 模式下拉與 `Real Time GPO Mode` | **補實（預設狀態）**；行為仍是缺口 | DFM：`ComboBox_System_GPO_Mode` `Enabled=False`／`Items=['Normal','200%','133%']`；`Button_System_GPO_Mode_WriteRegister` `Visible=False`；`CheckBox_System_GPO_Mode_RealTime` 無 `Checked` 屬性 ⇒ 預設未勾 |
+| 5 | 跑 script 前怎麼跟 TCON 建立連線 | **已補實** | DFM：`Panel_Main_Top`（`Align=alTop`，H49，不隨分頁切換）上的 `SpeedButton_I2C_Switch`，`Caption='I2C OFF'`，`OnClick=SpeedButton_I2C_SwitchClick`。**不在任何分頁裡** |
+| 6 | 按 `Run` 之後狀態框顯示什麼 | **已補實** | 原廠 exe UTF-16 字串池：`Load Script Finish!!`（偏移 10749954）；緊鄰的 `Path is invalid`（10749864）、`Error!!!`（10749896） |
+| 7 | `Script` 分頁三個子分頁 | **已補實，並更正上一輪的錯誤** | DFM：`TabSheet47='Transform'` **`TabVisible=False`（預設隱藏）**；`TabSheet_Record_Script`、`TabSheet_I2C_CMD_Script` 可見。上一輪寫「同層還有三個子分頁」是錯的 |
+| 8 | `ModelFile → Script`（`TabSheet88`）與 `Script → Load Script` 的差別 | **已補實** | DFM：`TabSheet88` 在 `Model File` → `PageControl18` 之下，`TabVisible=False`；自有 `Button_ModelFile_Script_LoadFile`／`Button_ModelFile_Script_Run`／`Memo_ModelFile_Script`，處理常式 `Button_ModelFile_Script_RunClick` **≠** `Button_Script_RunClick` |
+| 9 | NB 的 `Modify All` 作用在 Data A 還 B | **不寫入頁面（Bruce 裁示：需 I2C，本站流程用不到）** | 查證留存於下方第三節 |
+| 10 | 「切到該模式時會把該組搬進 CURRENT」是推論 | **結案（Bruce 裁示：是實際結果）** | 已改寫成 `code ensure` 逐字版本，並拿掉「出貨」框架 |
+
+### 二、13-2 整段改寫：Excel 就是照官方 `Code Check` 格式做的
+
+**新增一張卡片，把「官方 UI 為什麼認得這份 xlsx」用兩邊的字面證據講清楚。**
+
+官方 `import_checklist()` **不靠欄序、靠第 1 列表頭字串比對**：
+
+| 官方要找的欄名（逐字，含儲存格內換行） | `RomCodeProcessUI.py` | `wfg.html` |
+|---|---|---|
+| `Offset\n(HEX)` | `:27185` | `WFG_NB_XLSX_HEADER[4]`，`:43055` |
+| `TCON\n(內部型號)` `Check Item` `Slave Address\n(HEX)` `Offset-Bytes` `Description Case 0`～`7` | `:27207`–`:27211` | `[0]`–`[3]`、`[14]`–`[21]`，`:43055`／`:43059`–`:43060` |
+| `Default Case` `Case 0 Value\n(HEX)`～`Case 7 Value\n(HEX)` | `:27251`–`:27256` | `[5]`、`[6]`–`[13]`，`:43056`–`:43058` |
+
+**實測驗證**：取實際匯出的 `WFG_GPO_E503_20260827_0703.xlsx`（22 欄 × 68 列），
+用官方同一套 `openpyxl.load_workbook` 讀回，再照 `import_checklist()` 的邏輯逐一比對 ——
+**官方要找的 22 個欄名 22/22 全部命中、未命中 0 個**；依 `Offset\n(HEX)` 欄算出的
+`length_defaultcase = 67`，與表面資料列數一致。
+
+改寫後的 13-2 步驟（八步）：開 code 檔 → 確認右上角 `Data A`／`Data B` 下拉 → `Code Check` 分頁 →
+`Import CheckList` → **看懂 `Code Value` 與 `Case Value` 的差別** → `Modify One` 逐列套用 → `Judge` → `Save AS`。
+
+### 三、為什麼 `Modify All` 從流程裡拿掉（字面證據）
+
+| 元件 | I2C 關（預設） | I2C 開 |
+|---|---|---|
+| `pushButton_38` | **`setVisible(False)`**（`:31336`），此時字面才叫 `Modify All`（`:31338`） | `setVisible(True)`（`:31255`），字面變 `SCRIPT All`（`:31257`） |
+| `pushButton_37` | 可見（全檔無 `setVisible` 呼叫），字面 `Modify One`（`:31340`） | 字面 `SCRIPT One`（`:31259`） |
+| `pushButton_39`（`Judge`） | `setVisible(True)`（`:31342`） | `setVisible(False)`（`:31261`） |
+| `pushButton_19` | 字面 `Import CheckList`（`:31335`） | 字面 `Import SCRIPT`（`:31254`） |
+
+⇒ **標著 `Modify All` 的那顆鈕，使用者永遠看不到**（可見時它一定叫 `SCRIPT All`）。
+進 I2C 模式還必須 `i2c_init_device()` 回傳成功（`i2c_function()` `:30775`），也就是治具要實際接上。
+Bruce 的裁示與源碼完全吻合，該段已從流程移除，改以獨立說明框交代「找不到那顆鈕」的原因。
+
+**`Import CheckList`／`Judge`／`Save AS` 三條路徑全部不碰 I2C**（逐函式確認）：
+`import_checklist()` `:27110` 全函式只有 `:27350`／`:27356` 兩處讀 `i2c_mode`，且只用來切換 UI 顯示；
+`init_update_codecheck_all()` `:8627`–`:8672` 無任何 `i2c`；`read_multi_rom_data_to_value()` `:35050` 只讀
+`list_table_a_data`／`list_table_b_data`；`judge_codecheck()` `:28122`–`:28215` 無 `i2c`；
+`run_save_as()` `:5297`–`:5520` 無 `i2c`。
+
+`data_sel`（右上角紅底 `comboBox_7`，`:3540`–`:3548` ／ `get_data_sel()` `:35450` ／ `set_data_sel()` `:35550`）
+確實是這三顆鈕共同的目標判定：讀值 `:35076`／`:35108`、寫回 `:35375`／`:35407`、
+`Judge` 記結果 `:28162` 起、`Save AS` `:5305` 起。**因為這三顆鈕本站流程真的會用到，故寫入頁面。**
+
+### 四、13-3 改寫：拿掉「出貨」，改用 `code ensure`
+
+- 三組候選的角色描述改為：**`code ensure` 切到某一個模式時，會把該模式分頁的值搬進 CURRENT（實際結果，非推論）**。
+  `code ensure` **逐字保留** —— 在 `RomCodeProcessUI.py`（無 `ensure` 字樣）與原廠 exe 的 UTF-16 字串池中
+  皆查無對應字面，故照 Bruce 原話寫，不自行代換。
+- 「那到底該 copy 到哪一個」改成：**這次要調哪一個模式，由使用者自己決定；不是每一個都要更新**。
+  原本的「三個模式都要改 ⇒ ②～④ 重複三次」整句移除。
+- 「常見錯誤」表原本的「只更新一個模式就出貨」**整條重寫**為「以為『三組都要更新』而去動到不該動的那兩組」。
+- 新增醒目框：**複製完就結束了，不用再按 `Flash R/W` 去燒**。
+- 全檔 `grep -n 出貨 wfg-guide.html`：改前 **1 處**（第 2779 行）、改後 **0 處**。
+  同時掃 `量產`／`產線`／`客戶端`／`交付`／`上線`／`iFancy`：**改前改後皆 0 處**。
+- 第 13 章導言加上一句定調：**「匯出 `.script` 或 `.xlsx` 的目的只有一個：修正 code。」**
+
+### 🔴 順手更正上一條（`1cce24a`）寫錯的三句
+
+**歷史條目不改寫，於此更正；說明頁上的文字已改為正確版本。**
+
+1. 「同層還有 `Transform`／`Record Script`／`I2C_cmd` **三個**子分頁」——
+   `Transform`（`TabSheet47`）**`TabVisible=False`，預設看不到**。
+2. 「`Modify All` 之後的提示⋯⋯」被寫成一般流程的一步 ——
+   該鈕在未開 I2C 時是隱藏的，不屬於本站流程。
+3. 「`Check Item` 名稱寫錯會靜默略過該列」——
+   對 Python 版 `SourceCode_V5.0.4` **不成立**：改 code 走 `change_table_codecheck_item()` `:12171`，
+   由 `Slave Address` 是否含 `3E`（`:12213`）與 `Offset` 欄決定寫哪個位元，`Check Item` 只是顯示文字
+   （其值只在 I2C 的 SCRIPT 分支被當成指令型別讀，`:27728`／`:27859`／`:27958`）。
+   **真正會靜默失敗的是第 1 列的欄名**，說明頁已改成講欄名。
+   （較新的 .NET 版官方工具確實靠 `Check Item` 對回 `.model` 區塊名，該敘述另行標註來源保留。）
+
+### 版號判定
+
+**判定依據**：`docs/VERSIONING.md` **§3「不進版的情況」**——本次改動的檔案只有
+`wfg-guide.html`（＋本 CHANGELOG 條目）；`common/version.js`、`wfg.html`、任何 `common/*.js`
+**一行未動** ⇒ 產品行為、波形、匯出位元組全部不變。
+逐項複核 R1～R4：R1 不適用（沒有修產品的 bug）、R2 不適用（不開新的一波）、
+R3 不適用（使用者能做的事沒有多一件，只是說明變正確、變詳細）、R4 不適用（沒有改任何預設值或起始畫面）。
+⇒ **不進版**，亦不需 bump `?v=`（`common/*.js` 未動）。
+不標 `⚠ 輸出變更`：§2「不算（不標）」明列「純文件、註解、說明頁」。
+
+### 驗收
+
+**① 錨點**：腳本掃全檔 —— `id` 45 個、內部 `href="#…"` 12 個，**斷掉的錨點 0 個**。
+`#tcon-ui`／`#sec13script`／`#sec13xlsx`／`#sec13em01` 皆未動。
+
+**② 標籤平衡**：`#tcon-ui` 整段（28 622 字元）逐標籤配對 —— `div`／`p`／`table`／`ul`／`li`／`tr`／`td`／
+`strong`／`span`／`code`／`h3`／`h4` **全部開閉相等，無不平衡**。
+
+**③ 實際畫面**（headless Chrome，獨立 `user-data-dir`，未碰 Bruce 的 Chrome；本機 `http.server` 供檔）：
+桌機 1280px 下 `#tcon-ui` 高 10 586px，切五段全頁截圖逐段看過
+（`~/ClaudeData/_wfg_guide_gap/shots/ch13_w1280_0..4.png`）—— 新增的三張 callout、
+13-2 八步 steps、13-3 改寫後的表格與常見錯誤表皆正常，無破版、無溢出。
+窄版另外單獨擷取 13-2 的 steps 卡片（`shots/m430_steps13_2.png`）逐步看過，換行正常。
+
+**④ 業務語彙掃描**：如上第四節，`出貨` 由 1 → **0**。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.31.0 — 2026-08-27 ｜ MINOR
 
 **「系統設定」卡片最下方的 Pixel Rate 由「單獨一格、置中、亮藍」改成左右兩欄：
