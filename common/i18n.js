@@ -617,7 +617,10 @@ var I18N = {
   'wfg.presetTitle':    { 'zh-TW': '📋 載入預設', 'en': '📋 Load Preset', 'zh-CN': '📋 载入预设' },
   /* 🔴 v4.30.0：卡片改名（Bruce 2026-08-27：「Frame 參數這個名詞似乎也不適合這個卡片，
      我看把它換成『系統設定』應該會比較好」）。key 與卡片 id 都不動，只換顯示文字。 */
-  'wfg.frameParams':    { 'zh-TW': '系統設定', 'en': 'System Settings', 'zh-CN': '系统设定' },
+  /* v4.34.0：標題加上 `(Pattern Gen)`（Bruce 2026-08-27：「上面的系統設定卡片，在
+     『系統設定』的右邊多加上（Pattern Gen)」）。`Pattern Gen` 是產品名，三語都不翻。
+     key 與卡片 id 都不動，只換顯示文字（同 v4.30.0 那次改名的做法）。 */
+  'wfg.frameParams':    { 'zh-TW': '系統設定 (Pattern Gen)', 'en': 'System Settings (Pattern Gen)', 'zh-CN': '系统设定 (Pattern Gen)' },
   'wfg.frameCount':     { 'zh-TW': 'Frame 重複數', 'en': 'Frame Repeat Count', 'zh-CN': 'Frame 重复数' },
   'wfg.gateType':       { 'zh-TW': 'Gate Type', 'en': 'Gate Type', 'zh-CN': 'Gate Type' },
   /* v3.27.0：Frame 參數卡片的兩個分組框標題 */
@@ -728,6 +731,28 @@ var I18N = {
   'wfg.dclkAutoAdjust': { 'zh-TW': '已換成 {m}：TX DCLK 由 {from} 調整為 {to} MHz，因為 {m} 的 TCON UI DCLK 規格範圍是 {lo}～{hi} MHz。',
                           'en': 'Switched to {m}: TX DCLK adjusted from {from} to {to} MHz, because the TCON UI DCLK spec range for {m} is {lo}-{hi} MHz.',
                           'zh-CN': '已换成 {m}：TX DCLK 由 {from} 调整为 {to} MHz，因为 {m} 的 TCON UI DCLK 规格范围是 {lo}～{hi} MHz。' },
+  /* 🔴 v4.34.0：換機種時 TCON UI DCLK 被夾**而且** Frame Rate 也跟著被拉下來（琥珀告知）。
+     句型刻意與 `uiCapFpsAutoFit`（v4.32.0）／`codeFpsAutoFit`（v4.31.1）一致 ——
+     「Frame Rate 已自動由 A 降為 B，因為……」在站上只有一種說法。
+     {m}=新機種 {fromUi}/{toUi}=TCON UI DCLK 前後值 {from}/{to}=TX 前後值
+     {fpsFrom}/{fpsTo}=Frame Rate 前後值 {hi}=新機種的 UI DCLK 規格上限 */
+  'wfg.tconSwitchAutoAdjust': {
+    'zh-TW': '⚠ 已換成 {m}：TCON UI DCLK 由 {fromUi} 降為 {toUi} MHz（TX {from} → {to} MHz），Frame Rate 也自動由 {fpsFrom} Hz 降為 {fpsTo} Hz —— {m} 的 TCON UI DCLK 上限是 {hi} MHz，Frame Rate 再高就會讓 RX DCLK 超過它。',
+    'en': '⚠ Switched to {m}: TCON UI DCLK lowered from {fromUi} to {toUi} MHz (TX {from} → {to} MHz), and Frame Rate was automatically lowered from {fpsFrom} Hz to {fpsTo} Hz - the TCON UI DCLK limit for {m} is {hi} MHz, and a higher Frame Rate would push RX DCLK past it.',
+    'zh-CN': '⚠ 已换成 {m}：TCON UI DCLK 由 {fromUi} 降为 {toUi} MHz（TX {from} → {to} MHz），Frame Rate 也自动由 {fpsFrom} Hz 降为 {fpsTo} Hz —— {m} 的 TCON UI DCLK 上限是 {hi} MHz，Frame Rate 再高就会让 RX DCLK 超过它。' },
+  /* 🔴 v4.34.0：換機種時 Line Buffer 被夾到新機種的上限（就地提示，貼在 Line Buffer 那一格）。
+     🔴 **NB 與 MNT 分成兩句**：NB 畫面上根本沒有 First Line Read 那一格、MNT 也沒有
+     PRE_BLK_RD_NO 這顆 register，共用一句一定有一半的使用者對不上畫面
+     （v4.24.1 為 `nbSumOverLimit`／`flrOverLimit` 分家時記過同一個教訓）。
+     {m}=新機種 {from}/{to}=Line Buffer 前後值（RX 行）{f}/{t}=換算成 FLR 單位的前後值 */
+  'wfg.lbClampedOnTconChangeNb': {
+    'zh-TW': '已換成 {m}：Line Buffer 由 {from} 條降為 {to} 條（ST_LINE_RD ＝ {t}、PRE_BLK_RD_NO ＝ 0），因為 {m} 只支援到 {to} 條。',
+    'en': 'Switched to {m}: Line Buffer lowered from {from} to {to} lines (ST_LINE_RD = {t}, PRE_BLK_RD_NO = 0), because {m} supports only {to} lines.',
+    'zh-CN': '已换成 {m}：Line Buffer 由 {from} 条降为 {to} 条（ST_LINE_RD ＝ {t}、PRE_BLK_RD_NO ＝ 0），因为 {m} 只支持到 {to} 条。' },
+  'wfg.lbClampedOnTconChange': {
+    'zh-TW': '已換成 {m}：Line Buffer 由 {from} 條降為 {to} 條（First Line Read ＝ {t}），因為 {m} 只支援到 {to} 條。',
+    'en': 'Switched to {m}: Line Buffer lowered from {from} to {to} lines (First Line Read = {t}), because {m} supports only {to} lines.',
+    'zh-CN': '已换成 {m}：Line Buffer 由 {from} 条降为 {to} 条（First Line Read ＝ {t}），因为 {m} 只支持到 {to} 条。' },
   /* ══ v4.7.1：上游參數（Frame Rate／HTOTAL／VTOTAL）的硬上限 ═════════════════
      上限來自機種的 TCON UI DCLK 上限反推：Pixel Rate ≤ 2 × 機種上限 ÷ ratio。
      {m}=機種 {max}=該參數的上限 {px}=Pixel Rate 上限 {f}=欄位名 */

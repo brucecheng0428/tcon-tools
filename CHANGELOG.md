@@ -22,6 +22,163 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.34.0 — 2026-08-28 ｜ MINOR
+
+**左側面板的顏色從此只回答一個問題「這個數字屬於誰」（綠＝系統／Pattern Gen 端、藍＝TCON 端）；系統模擬三支拉霸加上當前值顯示與 −／＋；換機種時 TCON UI DCLK 與 Line Buffer 大變小會自動夾（小變大不動）。**
+
+**判定依據：** `docs/VERSIONING.md` §1 判定表與 R1～R4 **逐項判、取最高者**。
+
+- **§1 判定表**：「操作流程」＝ **多了新按鈕（三支拉霸各兩顆 −／＋），舊的全部在原位**（拉霸本體、兩端 min／max 標籤、拖曳、鍵盤、輸入格一個屬性都沒改）→ MINOR 欄；「既有功能的輸出」＝ 波形數值、匯出檔案位元**零改變**（本版沒有動任何計算式；換機種夾值那兩項見下）；「功能增減」＝ **只增不減**。
+- **R1（修 bug）**：換機種不夾 UI DCLK／Line Buffer 兩項是 bug（Bruce 回報＋headless 實測重現，見下方驗收）→ 本身是 **PATCH**。
+- **R3（使用者能多做一件事）**：可以在拉霸上直接讀到當前值、可以一格一格點 → **MINOR**。
+- **R4（起始狀態／預設值）**：**不適用** —— 預設機種 EM01、預設 fps 60、預設 TX／UI 74.25、預設 VBLANK 45、預設 Line Buffer 6 **全部逐值相同**（`ui_work.json` 的 `t0_init`）。配色屬 §2 案例 3 的「微調（間距、配色、文案）」→ PATCH。
+- 取最高者 → **MINOR**，`v4.33.0` → `v4.34.0`。
+
+**🔴 MAJOR 有認真判過，結論是不編。** 判準是「使用者原本會的操作還在不在、要不要重新確認過去的結果」。① 原本會的操作**全部都在且都在原位**（拉霸拖曳、鍵盤、四格 blanking／active 輸入、TX／UI 打字、五條拉霸、收合行為 —— 沒有任何一個入口移位或消失）；② 過去的結果**不需要重新確認**：波形與匯出一個位元都沒變。**顏色換了要不要算「重新學」？** 不算 —— 顏色本來就沒有承載任何「這一格能不能改」的資訊（能不能改看有沒有輸入框），換色之後每一格的位置、名稱、行為完全一樣，使用者不需要重新找任何東西。依 §1「不確定一律往低編、寫明取捨供覆核」→ 編 MINOR。
+
+**`⚠ 輸出變更` 有判過，結論是不標。** 依 R1 的範圍定義：**數值類**（波形數值、計算結果、匯出檔案位元組）本版零改變；**版面／構圖類**的判準是「用截圖／匯出圖片功能存下來的成果會不會不一樣」—— 本版改的是**左側控制面板**，wfg 的匯出是 `.script`／`.xlsx` 設定檔，波形畫布一個像素都沒動；**同一操作序列不同結果**：只有「換機種」這一條（見下方三、四），而那正是被修掉的 bug，且新舊行為在 CHANGELOG 這裡逐項寫明，不會被回歸流程誤判。⇒ 不標。
+
+### 緣由（Bruce 2026-08-27／08-28，逐字節錄）
+
+> 「現在每一個拉霸只有在最左邊顯示最小值、最右邊顯示最大值，實際的數值還要拉到上面那張卡片才能看到，這樣很不方便。比較好的做法是在拉霸的上面顯示當下的設定值。」
+> 「這些拉霸應該要仿照數位訊號裡面的拉霸設計，在最左邊放一個減號『-』，最右邊放一個加號『+』。」
+> 「上面的系統設定卡片，在『系統設定』的右邊多加上（Pattern Gen)。」
+> 「為了區分是 Pattern Gen 的設定值還是 T-CON 的設定值……都用綠色來呈現……而右邊 T-CON H-Total 及其下數值，以及 T-CON Pixel Rate 及其下數值，則用藍色呈現……T-CON 頻率設定卡片是 A，全部藍色。」
+> 「系統模擬卡片：『系統模擬』的文字、旗下的 Frame Rate、Vblank、RX DCLK 都可以用綠色；外面的框框也用綠色；中間的拉霸也改成綠色；當然，如果系統模擬卡片超規的時候，還是用紅色顯示。」
+> 「假設我現在先選到 T-CON 是 EM01，然後 TXDCLK 是在它的上限 432 MHz。但是我在這個時候切到 E503，它 T-CON UI DCLK 應該要由 432 MHz 被夾到它的最大值 105 MHz……反過來，如果由小變大……我就不用再自己跳到 432 MHz。也就是只有大變小的時候才要去調整它。」
+> 「原本在 EN01 的時候，Line Buffer 會用到 11 條，可是切到 E503 的時候，Line Buffer 應該只能用到 6 條，但這 6 條系統並沒有把它減下來。如果要減下來的話，可以用一個 rule，就是：ST_Line_RD 是 6、PRE_BLK_RD_NO 是 0。因為這不是匯入 code，只是在 WFG 網頁上面去切換 TCON……如果不知道要用 ST_Line_RD 還是 PRE_BLK_RD_NO 的情況下，以 ST_Line_RD 為主。」
+> 「line buffer 的小變大也是一樣，小變大就不要動，大變小才要夾。」
+
+### 一｜系統模擬三支拉霸：框名右邊顯示當前值
+
+新增 `#wfg-framerate-cur`／`#wfg-vblank-cur`／`#wfg-rx-dclk-cur` 三個 span，掛在群組框名文字右邊（＝拉霸正上方那一行）。兩端的 min／max 標籤**原封保留**。
+
+- 🔴 **顯示的是真值，不是拉霸的 `value`**。拉霸的 value 被夾在整數操作邊界上（`wfgSyncFrameRateSliderValue()`），拖 Vblank 守 Pixel Rate 時 fps 是全精度小數 —— 讀拉霸會顯示被夾過的數字，那就是畫面說謊（v4.10.1 用兩端標籤那條換來的教訓）。三個值一律取自唯一真值來源：`wfgFrame.frameRate`／`vtotal − vactive`／`wfgFrame.rxDclk`。
+- 🔴 **寫入點只有一處**：`wfgSyncAllBounds()` 尾端的 `wfgSyncSimReadouts()`。它是本檔既有的收斂點（`wfgUpdateRxDclk()` ／ `wfgUpdateUiDclk()` 都以 `wfgSyncDclkMin()` 收尾，而那一支就是它），所以拖曳／輸入格／匯入 code／載入設定檔／autosave 還原／換機種全部涵蓋，不必在每條路徑各補一次。
+
+### 二｜三支拉霸左右各加一顆 −／＋
+
+沿用**數位訊號那組同一個 class `.wfg-slider-btn`** 與同一支 hold-to-repeat（`wfgAttachHoldRepeat()`），只做兩處本卡片必要的覆寫：尺寸 26×28 → 24×24（左側欄固定 260px，這一列還要塞兩個端點標籤）、顏色橘 → 綠。
+
+🔴 `wfgSimSliderNudge()` **一律走拉霸自己的 `min`／`max`／`step`，再派發 `input` 事件**，不自己呼叫各自的 handler。理由：三支拉霸的 `step` 各不相同而且是動態的（fps 在細格狀態是 0.001、RX 是 `wfgRxStepMHz() × fpsSliderStep`、Vblank 固定 1），抄一份 step 計算等於開第二個真值來源；派發 `input` 讓 inline `oninput` 接手 ⇒ 按鈕與拖曳走**逐字元相同**的路徑，「按鈕行為與拖曳不一致」在結構上不可能發生。到端點時值不變就 return，並把該側按鈕 `disabled`（灰）。
+
+### 三｜🔴 修：換機種時 TCON UI DCLK 沒有被新機種的上限夾住
+
+**根因不是「沒寫夾值」，是判斷點問錯問題。** `wfgApplyTconClassConstraints()` 用 `chk.ok` 決定要不要夾，而 `wfgValidateTxDclk()` 在 `L.empty`（`RX × ratio > 機種上限`）狀態下走的是 v4.31.1 的 `wfgBlockIfWorse(tx, 目前真值, txMax)` —— 換機種時 `tx === 目前真值` ⇒ 恆為 false ⇒ 回 `{ok:true, warn:…}` ⇒ 在函式最上面就 return 了。`ok:true` 在那裡的語意是「**不要拒絕使用者的輸入**」（v4.7.1 為防鎖死而立），不是「這個值合法」。
+
+⇒ 判準換成可直接驗算的一句話：**目前真值有沒有落在新機種的 `[txMin, txMax]` 之外**。夾完之後呼叫 v4.32.0 就存在的 `wfgUiCapAutoFitFrameRate()` 把 fps 降到新 TX 撐得住的值（`TX ≥ RX` 因此由 fps 下降來滿足，不是靠夾成另一個非法值）。
+
+- **零回歸是結構保證不是巧合**：非 `empty` 且 `chk.ok === false` ⇒ 必然超界 ⇒ 需要夾（＝ v4.33.0 的 ① 路徑）；非 `empty` 且 `chk.ok === true` ⇒ 必然在界內 ⇒ 不夾（＝ v4.33.0 的早退）。兩者逐值等價。`wfgUiCapAutoFitFrameRate()` 第一行就是 `if (fps <= cap) return {changed:false}`，而 ① 的定義就是「目前 RX 撐得住新上限」⇒ 必然早退 ⇒ 訊息也照舊是紅色的 `wfg.dclkAutoAdjust`。
+- **「小變大不動」不必另外寫條件**：目前值本來就在新區間內時 `chk.ok` 為真、`needClamp` 為假，整支不會被呼叫到。單向性是判斷式本身的性質。
+- **變頻（③）與匯入路徑（`opts.silentClamp`）一字未改**，維持 v4.33.0 的行為 —— Bruce 明示「這不是匯入 code」。
+- **下限方向**：`max(txMin, …)` 那一半**本來就在**（v4.7.0 起未變）。v4.33.0 把 MNT／NB 的 `uiDclkMin` 統一成 40 之後換機種不可能讓下限變高 ⇒ 實務上不觸發，但邏輯上被涵蓋。
+- 新增 i18n `wfg.tconSwitchAutoAdjust`（三語）：UI DCLK **與** fps 同時被改時用**琥珀**（`kind='note'`，v4.32.0 立的「已經替你調整了」語彙）把兩件事一起講；只有 TX 被夾時**維持紅色的 `wfg.dclkAutoAdjust` 一字未改**。
+
+### 四｜🔴 修：換機種時 Line Buffer 沒有被新機種的上限夾住
+
+新增 `wfgFlrClampToModel()`，排在 `wfgFlrSeedForModel()` **之後**、`wfgFlrSync()` **之前**（排在 seed 之前會夾到還沒拆分的舊值，seed 完又把超界值放回去 —— 實測 EM01 LB 11 → E503 時 seed 把 ST 設成 11）。
+
+- 上限一律是 `wfgFlrMax()` ＝ `wfgLbMax() × mult`。**NB**：`ST_LINE_RD = 上限`、`PRE_BLK_RD_NO = 0`（Bruce 指定的 rule ＋ 他的優先序「以 ST_LINE_RD 為主」）；**MNT**：`First Line Read = 上限`（MNT 沒有 PRE 這顆 register，`reg_pre_blk_rd` 的 description 逐字就是 "Unused."）。
+- 判斷式是 `wfgFirstLineRead > mx`，小變大時恆為偽 ⇒ **單向性是判斷式本身的性質**。
+- 只在「使用者切換機種」這條路徑做（`opts.silentClamp` 排除匯入）。載入設定檔／autosave 還原本來就不經過 `wfgCodeOnTconChange()`（全檔唯一呼叫點是 `#wfg-ui-tcon` 的 onchange、`wfgImpConfirm()`、「連資料一起換過去」按鈕）。
+- 夾了就講：沿用既有的 `_wfgFlrMsg` ／ `#wfg-flr-warn` 就地提示（不另開 alert —— 換機種已經有一則 GPO 夾值 alert）。新增 i18n `wfg.lbClampedOnTconChange` ／ `wfg.lbClampedOnTconChangeNb`（三語，**NB 與 MNT 分兩句**：NB 畫面上沒有 First Line Read 那一格、MNT 沒有 PRE_BLK_RD_NO 這顆 register，共用一句一定有一半的人對不上畫面）。
+- `wfgInvalidateCache()` 的條件加上 `_lbFit.changed` —— FLR 決定波形位移（`wfgLbShift()`）與 SD 預計算。
+
+### 五｜配色：綠＝系統／Pattern Gen 端，藍＝TCON 端
+
+寫法是**卡片層一條預設 ＋ 例外重新掛回**（逐個元素掛 class 要動十幾處 HTML，日後新增欄位又會忘記掛；卡片本身就是語意單位）。
+
+| 卡片 | 元素 | 顏色 |
+|---|---|---|
+| 系統設定 (Pattern Gen) | 標題、四個群組框名、VACTIVE／VBLANK／HACTIVE／HBLANK 標籤與輸入格、VTOTAL／HTOTAL 標籤與數值、Frame Rate 數值、Pixel Rate 標籤與數值 | 綠 `#4ade80` |
+| 同上 | **TCON HTOTAL／TCON Pixel Rate** 的標籤與數值 | 藍 `var(--accent)` |
+| 系統模擬 | 標題、外框、三支拉霸、三個群組框名、三個當前值、六顆 −／＋ | 綠（外框與 `accent-color` 用 `#22c55e`） |
+| 同上 | 超規停住時的 Frame Rate／RX DCLK 拉霸 | 紅 `#ef4444`（v4.31.5／v4.32.0 機制**一字未改**） |
+| TCON頻率設定 | 標題、DCLK 群組框名、RX／TX／TCON UI DCLK 的框名、顯示數值與輸入格數值 | 藍 |
+| TCON 其他設定 | 全部 | **一個字都沒動** |
+
+🔴 **色值全部是站上既有的**（grep 實測）：文字綠 `#4ade80` 已用於 `.wfg-la-status.ok .wfg-la-status-val`、`.wfg-ovl-read .vv`、Gate Line 卡片的 `.wfg-sig-name`；實心／邊框綠 `#22c55e` 已用於 `.wfg-ack-item.done .wfg-ack-num`、LA 設定 checkbox 的 `accent-color`、Gate Line 卡片外框。**文字不用 `#22c55e`**：卡片底色 `--card #1e293b` 上它的對比只有約 3.2:1（小字不足），`#4ade80` 約 7.6:1 —— 站上本來就是「亮綠當字、飽和綠當實心」的分工。
+🔴 **橘色沒有從全站消失**，只是不再用在這兩張卡片：Code group 外框、聚光燈框、輸入框 focus、checkbox 仍然是橘。
+🔴 移除 `.wfg-val-plain` ／ `.wfg-label-plain` 兩條 CSS 與 HTML 上的 class（grep 實測全 repo 只有 Pixel Rate 那一格用過；本版整張卡片變綠之後它們永遠被卡片層蓋掉，留著就是死碼）。
+
+### 六｜系統設定卡片標題加 `(Pattern Gen)`
+
+`wfg.frameParams` 三語都加，`Pattern Gen` 不翻。key 與卡片 `id`（`wfg-frame-card`）**一個字都沒改** —— autosave 的摺疊狀態靠它。
+
+### 驗收（headless Chrome + CDP，獨立 profile，430px；腳本與原始資料在 `~/ClaudeData/_wfg_ui_color/`）
+
+**① 當前值 —— 與真值逐值相同（8 個量測點）**
+
+| 操作 | 當前值顯示 | 真值 |
+|---|---|---|
+| 開頁 | `60 Hz` ／ `45` ／ `74.25 MHz` | 60 ／ 45 ／ 74.25 |
+| 拖 Frame Rate 拉霸 | `45 Hz` | 45 |
+| 拖 Vblank 拉霸到 200 | `39.5508 Hz` ／ `200` | 39.5508 ／ 200 |
+| 拖 RX DCLK 拉霸 | `11 Hz` ／ `15.488 MHz` | 11 ／ 15.488 |
+| Frame Rate 輸入格打字 | 同步 | 同步 |
+| Vblank 輸入格打字 | `60` ／ `13.794 MHz` | 60 ／ 13.794 |
+| 換機種 EM01 → EM02 | 同步 | 同步 |
+
+小數那一列（`39.5508 Hz`）正是「顯示真值而不是拉霸 value」的證據。
+
+**② −／＋ —— 各按 5 次、變化量 ＝ step、到端點停住**
+
+- Frame Rate：11→12→…→16→…→11，`step="1"`，每步剛好 1
+- Vblank：60→…→65→…→60，`step="1"`
+- RX DCLK：13.794→15.048→16.302→17.556→18.81→20.064→…→13.794，`step="1.254"`，每步剛好 1.254
+- 端點：Vblank 拖到 `min` 之後 `dec` 按鈕 `disabled === true`，`.click()` 回 `'disabled'`，值不變（60 → 60）
+
+**③ 配色 —— `getComputedStyle` 逐項讀回，27/27 全中**
+
+`sys.title`／`sys.grpPixel`／`sys.grpVtotal`／`sys.grpHtotal`／`sys.grpFps`／`sys.lblVactive`／`sys.inVactive`／`sys.inVblank`／`sys.inHactive`／`sys.inHblank`／`sys.inFps`／`sys.valVtotal`／`sys.valHtotal`／`sys.valPixel`／`sys.lblPixel`／`sim.title`／`sim.curFps`／`sim.curVb`／`sim.curRx` ＝ `rgb(74, 222, 128)`；
+`sys.valTconHtotal`／`sys.lblTconHtotal`／`sys.valTconPixel`／`tf.title`／`tf.grpDclk`／`tf.valRx`／`tf.inTx`／`tf.inUi` ＝ `rgb(56, 189, 248)`；
+`#wfg-syssim-card` 外框 ＝ `rgba(34, 197, 94, 0.85)`；標題文字 ＝ `'系統設定 (Pattern Gen)'`。
+
+**④ 🔴 超規紅色仍然有效（負控制的重點）**
+
+UI DCLK 設 105 ⇒ 把 fps 拉到拉霸右端 ⇒ `capped = [true, false, true, false, false]`、`accentColor` ＝ `['rgb(239,68,68)', 'rgb(34,197,94)', 'rgb(239,68,68)', 'rgb(56,189,248)', 'rgb(56,189,248)']`（fps／RX 紅，Vblank 綠，TX／UI 藍）；fps 打回 40 ⇒ `capped` 全 false、fps／RX 回到 `rgb(34,197,94)` 綠。**離開自動恢復這條路徑沒有被本版打壞。**
+
+**⑤ 五個負控制**
+
+1. **TCON 其他設定卡片**（base vs work 逐值相同）：標題 `rgb(241,245,249)`、群組框名 `rgb(212,160,23)`、輸入框 `rgb(226,232,240)`
+2. **括號註記**維持灰 `rgb(100,116,139)`（系統設定與 TCON頻率設定各驗一處，base ≡ work）
+3. **拉霸兩端 min／max 標籤**維持灰 `rgb(100,116,139)`（base ≡ work）
+4. **開頁就是紅色**這件事 base 與 work **完全相同**（`capped = [true,false,true,false,false]`）⇒ 那是 v4.31.5 的既有行為（預設 TX＝RX＝74.25），不是本版造成
+5. **`wfgAuditBounds()`** 在 base 與 work 的**每一個量測點**都回 `ok: true, issues: []`
+
+**⑥ 換機種夾值 —— base（`8427508`）先重現、work 再驗證（9 組）**
+
+| 案例 | base（v4.33.0） | work（v4.34.0） |
+|---|---|---|
+| A：EM01 UI 432 → E503 | ui 105、fps 60 ✔（本來就對） | **逐值相同** |
+| B：E503 105 → EM01 | ui 105（不動）✔ | **逐值相同** |
+| F：EM02 420 → E512 | ui 360、tx 180 ✔ | **逐值相同** |
+| G：EM01 432 → EM02 | ui 420、tx 210 ✔ | **逐值相同** |
+| **H：EM01 fps144／UI 432 → E503** | **ui 432、fps 144、empty=true** 🔴 沒夾 | **ui 105、tx 105、fps 84、rx 103.95** ✅ |
+| I：H 之後切回 EM01 | — | **維持 105／84**（小變大不動）✅ |
+| **C：EN01 LB 8 → E503** | **LB 8** 🔴 沒夾 | **LB 6、ST 6、PRE 0** ✅ |
+| **E：EM01 LB 11 → E503** | **LB 11、ST 11** 🔴 沒夾 | **LB 6、ST 6、PRE 0** ✅ |
+| D：E503 LB 6 → EN01 | LB 6 ✔ | **LB 6**（小變大不動）✅ |
+
+H 的訊息（琥珀）：「⚠ 已換成 E503：TCON UI DCLK 由 432 降為 105 MHz（TX 432 → 105 MHz），Frame Rate 也自動由 144 Hz 降為 84 Hz…」；C／E 的訊息：「已換成 E503：Line Buffer 由 8 條降為 6 條（ST_LINE_RD ＝ 6、PRE_BLK_RD_NO ＝ 0）…」。
+
+**⑦ 三語（`tools/scan_untranslated_keys.js` 注入頁面實跑，三種語言各一次）**
+
+- `pgScanKeys()` 三語皆 `pass: true, hits: []` —— 畫面上沒有任何未翻譯的 key 露出來
+- 卡片標題：`系統設定 (Pattern Gen)` ／ `System Settings (Pattern Gen)` ／ `系统设定 (Pattern Gen)`
+- 系統模擬三個框名（含當前值）：`Frame Rate (Hz) 60 Hz`／`Vblank 45 (Pixel Rate 不變 / Pixel Rate held / Pixel Rate 不变)`／`RX DCLK 74.25 MHz (= Pixel Rate ÷ 2 / = Pixel Rate / 2)`
+- 換機種琥珀訊息（EM01 UI 432 ＋ fps 144 → E503 ⇒ `ui 105 / fps 84`、`is-note === true`）三語都完整；Line Buffer 訊息三語都完整
+- 🔴 **踩過一次記在這裡**：驗收腳本第一版把「打 fps 144」排在「設 UI DCLK 432」**之前**，144 被 `wfgBlockIfWorse` 擋下還原成 60（開頁預設 UI 74.25 ⇒ fps 上限就是 60），於是量到的是紅色那條路徑而不是琥珀那條。順序必須是「先設 UI DCLK 再拉 fps」—— 那正是 v4.31.5 起既定的工作流程。
+
+**⑧ 零回歸**
+
+- **v4.29.0 雙向連動**：UI 打 200 ⇒ `[tx, ui] = ['200','200']`；TX 打 150 ⇒ `['150','150']` —— base ≡ work
+- **v4.32.0 上限與 fps 連動**：見 ④（紅色出現／消失）與 ⑥ 的 H
+- **v4.33.0 的 fps 下限與 step**：`wfgAuditBounds()` 的 step 三處同源斷言（v4.33.0 加的）在所有量測點皆通過；−／＋ 讀的是拉霸自己的 `step`，不自算
+- **四個寬度（390／430／900／1440）**各截一張全頁圖，四張卡片都入鏡；三個群組框名的右緣距卡片右緣分別是 −24／−24／−24／−117～−34 px（負值＝在卡片內）⇒ 加了當前值與 −／＋ 之後**沒有溢出**
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.33.0 — 2026-08-27 ｜ MINOR ｜ ⚠ 輸出變更
 
 **TCON UI DCLK 的下限統一成 40 MHz（NB 由 20 更正）；Frame Rate 的下限由 1 Hz 放寬到 0.001 Hz —— 「UI DCLK 拉不到 40」與「Vblank 拉不到 65535」是同一個根因，一起解掉。**
