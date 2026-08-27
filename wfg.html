@@ -3001,8 +3001,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260827wfg4311"></script>
-<script src="common/i18n.js?v=20260827wfg4311"></script>
+<script src="common/version.js?v=20260827wfg4312"></script>
+<script src="common/i18n.js?v=20260827wfg4312"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -20093,6 +20093,11 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
       var rFired = false, fFired = false;
       var rDlyVal = 0, fDlyVal = 0;
 
+      /* v4.31.2 item2：**下一個 rising 會把還在路上的 falling 清掉**（Bruce 2026-08-27 實測）。
+         這裡必須在 rising 那一段動到 `rCnt` **之前**先把它抄起來 —— falling 那一段要用它
+         算「下一個 R 觸發條」，而那時 `rCnt` 已經被 rising 那段改過了。 */
+      var _rCntAtLine = rCnt;
+
       // Check R_PH_CNT == ACT_TYPE → rising edge (set to 1)
       if (rCnt === actType) {
         // Rising only fires if line <= SP_LINE
@@ -20129,6 +20134,40 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
           var fExtraLines = htotal > 0 ? Math.floor(fDly / htotal) : 0;
           var fNormDly = htotal > 0 ? fDly % htotal : fDly;
           var fActualLine = line + fExtraLines;
+
+          /* ═══ v4.31.2 item2：pending falling 被「後面才觸發的 rising」清掉 ═══════════
+             Bruce 2026-08-27 實測（逐字）：
+               「fdly > rdly 且超過一條 line，且**超過了下一條 line 的 rdly** ⇒ 原本演算法
+                 錯誤，會變成都是 High，也就是 rdly 與 fdly 都不會再觸發，直到 stop line
+                 的 fdly 才計算觸發」
+               「（不一定是下一條，如果 rdly 觸發的條數在下下條，就要改到下下條）」
+
+             硬體模型：**set 優先**。falling 被 F_DLY 延遲的期間，只要有一個 rising 邊沿
+             先發生，那個還沒送出的 falling 就被丟掉；而 rising 不會被 falling 清掉
+             （item3 的 rdly > fdly 中間跨了好幾個 falling 仍然打得出脈衝，見 CHANGELOG）。
+
+             ⚠ 這條規則 **v3.20.4 之前存在過**（`fExtraLines >= 1 && fDly > htotal + r_dly`），
+                當時因為「訊號拉高之後永遠不會掉」被判成 bug 而移除。現在 Bruce 實測確認
+                那個「永遠不會掉」正是實機行為。這一版把它加回來，但修掉原版的兩個問題：
+               ① 原版寫死 `htotal`（＝假設下一個 R 觸發一定在下一條）。ACT_TYPE > 0 時
+                  R 每 (ACT_TYPE+1) 條才觸發一次，要用**真正的下一個 R 觸發條**。
+               ② 原版沒有出口，SP_LINE 之後也照樣抑制 → 訊號永遠回不來。實機是
+                  「直到 stop line 的 fdly 才計算觸發」——因為 SP_LINE 之後不再有 rising
+                  可以清掉它（rising 的閘門是 `line <= sp`），所以下面多一條
+                  `_nextRLine <= sp`：**沒有下一個 rising 就不抑制**，最後那一筆 falling
+                  自然落下來。這不是特例，是同一個模型的必然結果。
+
+             下一個 R 觸發條的算法與 rising 那一段的 counter 行為逐字對應：
+               ・`_rCntAtLine === actType` → 這一條自己就是 R 觸發條，下一個在 +(actType+1)
+               ・否則 rCnt 每條 +1，數到 actType 才觸發 → 下一個在 +(actType - rCnt)
+               ・ACT_TYPE = 0 時恆為 +1（退化回原版的 `htotal + r_dly`） */
+          var _dNextR = (actType > 0)
+                ? ((_rCntAtLine === actType) ? (actType + 1) : (actType - _rCntAtLine))
+                : 1;
+          if (!(_dNextR > 0)) _dNextR = actType + 1;
+          var _nextRLine = line + _dNextR;
+          var _riseKillsFall = (_nextRLine <= sp) && (fDly > _dNextR * htotal + gpio.r_dly);
+
           // F_ST_SEL: only suppress if transition goes beyond current frame
           if (gpio.f_st_sel && fActualLine >= vtotal) {
             // Transition exceeds frame boundary — suppress under F_ST_SEL
@@ -20141,7 +20180,12 @@ function wfgCalcGpio(gpio, vtotal, htotal, frameCount) {
              falling 都被丟掉，訊號拉高之後永遠不會掉（實測 st=3 r_dly=1 f_dly=150
              時 line4~8 的 HIGH 佔比 100%，移除後回到 49.25%）。
              這直接牴觸「到 F_DLY 才會將訊號變為 low」。F_DLY 不跨行的組合完全不受
-             影響：f_st_sel 未勾選、DLY 不跨行的 20480 組輸出逐位元組相同。 */
+             影響：f_st_sel 未勾選、DLY 不跨行的 20480 組輸出逐位元組相同。
+             🔴 v4.31.2 依 Bruce 實測把這條規則**帶著上面兩個修正**加回來，見上方註解。 */
+          } else if (_riseKillsFall) {
+            /* item2：這一筆 falling 被下一個 rising 清掉 —— 不落轉態、**不設 fFired**，
+               `level` 維持在 1，訊號整段保持 High。條件與 `line` 有關（靠 `_nextRLine <= sp`），
+               所以不會像 v3.20.4 之前那樣「每一行都丟」而永遠回不來。 */
           } else {
             allTransitions.push({ line: lineOffset + fActualLine, dly: fNormDly, level: 0 });
             fFired = true;
