@@ -1133,11 +1133,14 @@ var I18N = {
   'wfg.ackTitle':       { 'zh-TW': '匯入完成 — 有 2 項需要你確認',
                           'en': 'Import done - 2 settings need your confirmation',
                           'zh-CN': '导入完成 — 有 2 项需要你确认' },
-  'wfg.ackDclkName':    { 'zh-TW': 'TX DCLK 必須手動設定', 'en': 'TX DCLK must be set by hand',
-                          'zh-CN': 'TX DCLK 必须手动设定' },
-  'wfg.ackDclkWhere':   { 'zh-TW': '位置：左側「Frame 參數」卡片 → TX DCLK',
-                          'en': 'Where: the Frame parameters card on the left → TX DCLK',
-                          'zh-CN': '位置：左侧「Frame 参数」卡片 → TX DCLK' },
+  /* 🔴 v4.35.1：主角由 TX DCLK 換成 TCON UI DCLK（Bruce 2026-08-28：「主要的應該是要用
+     『TCON UI DCLK』，那一欄的名稱應該要叫做『TCON UI DCLK』，而下方的輔助說明才是
+     『TX DCLK』」）。換算關係一個字未改，只是誰是主角換了。 */
+  'wfg.ackDclkName':    { 'zh-TW': 'TCON UI DCLK 必須手動設定', 'en': 'TCON UI DCLK must be set by hand',
+                          'zh-CN': 'TCON UI DCLK 必须手动设定' },
+  'wfg.ackDclkWhere':   { 'zh-TW': '位置：左側「Frame 參數」卡片 → TCON UI DCLK',
+                          'en': 'Where: the Frame parameters card on the left → TCON UI DCLK',
+                          'zh-CN': '位置：左侧「Frame 参数」卡片 → TCON UI DCLK' },
   /* v4.23.0：這一項的性質變了 —— 從「code 裡沒有、要自己填」變成「code 裡有、已帶入、請確認」。 */
   'wfg.ackLbName':      { 'zh-TW': 'Line Buffer 已由 code 帶入，請確認',
                           'en': 'Line Buffer came from the code - please confirm',
@@ -1148,9 +1151,10 @@ var I18N = {
   'wfg.ackNow':         { 'zh-TW': '目前值：{v}', 'en': 'Current: {v}', 'zh-CN': '目前值：{v}' },
   'wfg.ackGoto':        { 'zh-TW': '帶我去 →', 'en': 'Take me there →', 'zh-CN': '带我去 →' },
   'wfg.spotBack':       { 'zh-TW': '知道了', 'en': 'Got it', 'zh-CN': '知道了' },
-  'wfg.spotDclk':       { 'zh-TW': '這裡就是 TX DCLK，就在框起來的地方',
-                          'en': 'This is TX DCLK - highlighted here',
-                          'zh-CN': '这里就是 TX DCLK，就在框起来的地方' },
+  /* v4.35.1：綠框改指 TCON UI DCLK（與 ackDclkName 同一輪裁示），文字跟著改。 */
+  'wfg.spotDclk':       { 'zh-TW': '這裡就是 TCON UI DCLK，就在框起來的地方',
+                          'en': 'This is TCON UI DCLK - highlighted here',
+                          'zh-CN': '这里就是 TCON UI DCLK，就在框起来的地方' },
   'wfg.spotLb':         { 'zh-TW': '這裡就是 Line Buffer，就在框起來的地方',
                           'en': 'This is Line Buffer - highlighted here',
                           'zh-CN': '这里就是 Line Buffer，就在框起来的地方' },
@@ -1166,9 +1170,11 @@ var I18N = {
   'wfg.ackErrLb':       { 'zh-TW': 'Line Buffer 必須是 0~{max}、且是 {step} 的倍數',
                           'en': 'Line Buffer must be 0~{max} and a multiple of {step}',
                           'zh-CN': 'Line Buffer 必须是 0~{max}、且是 {step} 的倍数' },
-  'wfg.ackDclkVarMode': { 'zh-TW': '變頻應用：TX DCLK 自動等於 RX DCLK，不需手動設定',
-                          'en': 'Variable-rate mode: TX DCLK follows RX DCLK automatically - nothing to set',
-                          'zh-CN': '变频应用：TX DCLK 自动等于 RX DCLK，不需手动设定' },
+  /* v4.35.1：這一則講的是「變頻下 TX 自動追隨 RX」這個機制本身，主從對調不影響它的正確性；
+     只補一句 UI DCLK 也因此不用手填，避免主角換了之後這句話讀起來像在講另一件事。 */
+  'wfg.ackDclkVarMode': { 'zh-TW': '變頻應用：TX DCLK 自動等於 RX DCLK，TCON UI DCLK 隨之換算，不需手動設定',
+                          'en': 'Variable-rate mode: TX DCLK follows RX DCLK automatically and TCON UI DCLK is derived from it - nothing to set',
+                          'zh-CN': '变频应用：TX DCLK 自动等于 RX DCLK，TCON UI DCLK 随之换算，不需手动设定' },
   'wfg.ackHint':        { 'zh-TW': '兩項都填好才能開始編輯', 'en': 'Fill in both to start editing',
                           'zh-CN': '两项都填好才能开始编辑' },
   'wfg.ackHintOk':      { 'zh-TW': '兩項都已設定，可以開始編輯', 'en': 'Both set - you can start editing',
@@ -1358,9 +1364,11 @@ var I18N = {
                           'zh-CN': '清除全部设定，回到预设值' },
   'wfg.clrTitle':       { 'zh-TW': '要清除全部設定嗎？', 'en': 'Clear everything?',
                           'zh-CN': '要清除全部设定吗？' },
-  'wfg.clrBody':        { 'zh-TW': '波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。\n檢視的中心與倍率保留。',
-                          'en': 'Waveforms, cursors, measurements and import records are all cleared, back to FHD / E503 / 60Hz / Single Gate. The autosave record goes with them and cannot be recovered.\nThe view centre and zoom are kept.',
-                          'zh-CN': '波形、游标、测量与导入记录全部清空，回到 FHD／E503／60Hz／Single Gate。自动存档一并清除，无法复原。\n检视的中心与倍率保留。' },
+  /* 🔴 v4.36.0：第二行由「檢視的中心與倍率保留」改為「波形區會變成空白、檢視回預設」。
+     這行字是使用者按下不可復原的動作之前唯一看得到的說明，內容與行為不符比沒有更糟。 */
+  'wfg.clrBody':        { 'zh-TW': '波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。\n波形區會變成空白（所有通道與內部訊號都不顯示），檢視的中心與倍率回到預設。',
+                          'en': 'Waveforms, cursors, measurements and import records are all cleared, back to FHD / E503 / 60Hz / Single Gate. The autosave record goes with them and cannot be recovered.\nThe waveform area becomes empty (no channels and no internal signals are shown) and the view centre and zoom return to their defaults.',
+                          'zh-CN': '波形、游标、测量与导入记录全部清空，回到 FHD／E503／60Hz／Single Gate。自动存档一并清除，无法复原。\n波形区会变成空白（所有通道与内部信号都不显示），检视的中心与倍率回到预设。' },
   'wfg.clrOk':          { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
   'wfg.clrCancel':      { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
   /* ══ 🔴 v4.35.0：左側「全部收折」按鈕 ═══════════════════════════════════════

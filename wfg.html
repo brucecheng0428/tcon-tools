@@ -248,6 +248,10 @@
                  border: 1px dashed rgba(var(--ack-tone-rgb, 59,130,246), 0.35); }
   /* v4.5.3：「帶我去」按鈕已移除（兩個框改為一開就同時出現），連帶拿掉 .wfg-ack-go 的樣式。 */
   .wfg-ack-row > .wfg-ack-now { flex: 0 0 auto; }
+  /* 🔴 v4.35.1：TX DCLK 那一行是「輔助說明」—— 縮排到與主行的輸入框對齊，
+     間距比主行小，視覺上一眼看得出是附屬於上一行而不是另一個獨立項目。
+     只加這一條新規則，`.wfg-ack-row` 本身一個字未動（另外三個對話框共用它）。 */
+  .wfg-ack-row-sub { margin-top: 5px; padding-left: 18px; opacity: 0.9; }
   .wfg-ack-arrow { color: #64748b; font-size: 13px; }
   /* 🔴 flex 容器裡只寫 width 不夠 —— 站上另有把 input 撐成 100% 的規則，
      第一版實測就被撐滿整列、把 MHz 與「帶我去」擠到下一行（截圖才看得出來）。
@@ -3009,10 +3013,21 @@
           <div class="wfg-ack-num">1</div>
           <div class="wfg-ack-tx">
             <div class="wfg-ack-name" data-i18n="wfg.ackDclkName">TX DCLK 必須手動設定</div>
-            <!-- v4.6.0：兩格並列。左邊是 TX DCLK（真值），右邊是**這份 code 所屬機種**的
-                 TCON UI DCLK —— 使用者剛從那顆 TCON 的 UI 過來，抄到的就是右邊那個數字。
-                 右格不另立驗證路徑：它換算成 TX 之後寫進左格，再走既有的 wfgAckCommit('dclk')，
-                 所以「TX 不可低於 RX」那條錯誤訊息與 Frame 卡片完全同一套。 -->
+            <!-- v4.6.0：兩格。其一是 TX DCLK（真值），其二是**這份 code 所屬機種**的
+                 TCON UI DCLK —— 使用者剛從那顆 TCON 的 UI 過來，抄到的就是 UI 那個數字。
+                 UI 格不另立驗證路徑：它換算成 TX 之後寫進 TX 格，再走既有的 wfgAckCommit('dclk')，
+                 所以「TX 不可低於 RX」那條錯誤訊息與 Frame 卡片完全同一套。
+
+                 ══ 🔴 v4.35.1：主從對調（Bruce 2026-08-28）══════════════════════════
+                 原話：「匯入 code 的時候，會讓我們選擇『TX DCLK』要設多少，這個應該要改成
+                 以『TCON UI DCLK』要設多少為主。所以那一欄的名稱應該要叫做『TCON UI DCLK』，
+                 而下方的輔助說明才是『TX DCLK』。主要的應該是要用『TCON UI DCLK』。」
+
+                 ⇒ **只動呈現的主從，不動換算**：`UI = TX × wfgUiDclkRatio()` 一個字未改，
+                    兩格的雙向連動、夾值、`TX ≥ RX` 的驗證全部走原本那一條路徑。
+                    改的是：① UI 格升為主行（跟在「目前值 →」後面）、② TX 格降到下一行當輔助、
+                    ③「目前值」徽章顯示 UI DCLK（標題說 UI、數字給 TX 會自相矛盾）、
+                    ④ 關係式改成以 UI 起頭。 -->
             <div class="wfg-ack-row">
               <span class="wfg-ack-now" id="wfg-ack-dclk-now"></span>
               <span class="wfg-ack-arrow" aria-hidden="true">→</span>
@@ -3026,17 +3041,23 @@
                    上面那格原本只寫 `TX`、下面只寫 `EM02 UI`，看不出是什麼。
                    下面那格的機種名由 `wfgAckRenderNow()` 依當前機種動態帶入。 -->
               <span class="wfg-ack-pair">
-                <span class="wfg-ack-sub-lbl" id="wfg-ack-tx-lbl">TX DCLK</span>
-                <input type="number" class="wfg-ack-input" id="wfg-ack-dclk-in" step="any" min="0.1"
-                       onblur="wfgAckBlurSettle()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
-                       oninput="wfgAckCommit('dclk')">
-                <span class="wfg-ack-unit">MHz</span>
-              </span>
-              <span class="wfg-ack-pair">
                 <span class="wfg-ack-sub-lbl" id="wfg-ack-ui-lbl">TCON UI DCLK</span>
                 <input type="number" class="wfg-ack-input" id="wfg-ack-ui-in" step="any" min="0.1"
                        onblur="wfgAckOnUiInput();wfgAckBlurSettle()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
                        oninput="wfgAckOnUiInput()">
+                <span class="wfg-ack-unit">MHz</span>
+              </span>
+            </div>
+            <!-- 🔴 v4.35.1：TX DCLK 降為「下方的輔助說明」（Bruce 指定的字面要求）。
+                 **仍然是一個可輸入的格子**，不是唯讀顯示 —— 拿掉輸入能力等於移除一個
+                 既有功能（習慣直接填 TX 的人從此做不到），那會把這一版推到 MAJOR，
+                 而他要的只是「哪一個是主角」。 -->
+            <div class="wfg-ack-row wfg-ack-row-sub">
+              <span class="wfg-ack-pair">
+                <span class="wfg-ack-sub-lbl" id="wfg-ack-tx-lbl">TX DCLK</span>
+                <input type="number" class="wfg-ack-input" id="wfg-ack-dclk-in" step="any" min="0.1"
+                       onblur="wfgAckBlurSettle()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+                       oninput="wfgAckCommit('dclk')">
                 <span class="wfg-ack-unit">MHz</span>
               </span>
             </div>
@@ -3204,7 +3225,7 @@
           <div class="wfg-ack-num">!</div>
           <div class="wfg-ack-tx">
             <div class="wfg-ack-where" style="white-space:pre-wrap" data-i18n="wfg.clrBody">波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。
-檢視的中心與倍率保留。</div>
+波形區會變成空白（所有通道與內部訊號都不顯示），檢視的中心與倍率回到預設。</div>
           </div>
         </div>
       </div>
@@ -3235,8 +3256,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4350"></script>
-<script src="common/i18n.js?v=20260828wfg4350"></script>
+<script src="common/version.js?v=20260828wfg4351"></script>
+<script src="common/i18n.js?v=20260828wfg4351"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -27464,36 +27485,32 @@ function wfgClearAllCursors() {
      ⑤ Code group 的 checksum 清空
      ⑥ Line Buffer／First Line Read **歸零**（原本是回 6）
 
-   🔴 **唯一被指名要保留的是「檢視的中心與倍率」**（Bruce：「檢視的部分（中心和倍率）
-   那就先保留原本的設定」）⇒ 本版**移除**了原本的 `wfgViewStart = 0; wfgViewEnd = …`
-   兩行，改為只在最後 `wfgClampViewToBounds()`。
-   ⚠ 為什麼還是要 clamp：Frame 參數回預設後總 line 數會變，視野若落在新範圍之外，
-      畫面會直接空白 —— 那不是「保留」，是壞掉。clamp 只在超出時才動。 */
+   ══ 🔴 v4.36.0：本版再補兩件（Bruce 2026-08-28 第二輪回報）══════════════════
+
+     ⑦ **波形區的每一列都要不見**（原話：「我不是說清除的時候要把所有通道都不顯示
+        嗎？怎麼我現在在波形區還是看到這麼多波形？雖然沒有變化，但這也是波形顯示
+        啊！」）⇒ 判準是「**那一列還在不在畫面上**」，不是「那一列有沒有變化」。
+        v4.35.0 沒做到：實測 5d0f455 按下清除之後，波形區仍然渲染
+        **18 條通道列 ＋ 6 條內部訊號列**（XSTB／XPOL／VST1／VST2／CK1~CK8／LC／
+        TEND／VS／HS／GPO0／GPO1 ＋ R_PH_CNT／F_PH_CNT／RX DCLK／RX DE／
+        TX DCLK／TX DE），canvas 上的非背景像素 82,349 px。
+        本版兩者都關掉，詳見下方 ⑦-a／⑦-b。
+
+     ⑧ **檢視的中心與倍率改為一併重置**（Bruce：「清除以後，你說中心與倍率會有問題，
+        那就用到都沒有波形的狀態下，看要怎麼用會比較好吧？」＝ 把這件事交給實作判斷）
+        ⇒ v4.35.0 那套「保留中心與倍率」的邏輯（換算 centerSec/zoom 再套回）**整段移除**，
+        改為呼叫 `wfgViewToDefault()`。
+        理由（三條，都不是偏好問題）：
+          ・⑦ 之後波形區是空的，「記住看哪個時間點、放大幾倍」沒有任何東西可看。
+          ・v4.35.0 自己記錄過的那個邊界（清除前 1000 frame、清除後 10 frame ⇒
+            原本的時間點在新時間軸上不存在，只能夾）**從此不存在**，不必再靠夾值兜底。
+          ・「清除 ＝ 回到首次進站的狀態」是本函式一路以來的語意（v4.19.0 的
+            `wfgLsRebuildCkoSlots(false)` 就是用這句話定的）。而首次進站的檢視
+            **就是 `wfgResetView()` 的那組值**（`0 ～ min(100, 總行數)`），
+            不是「全覽」。所以這裡走的是與工具列「重置」鈕**同一支** `wfgViewToDefault()`，
+            不另定一組只有清除才用的值。 */
 function wfgResetToDefault() {
   wfgInvalidateCache();
-  /* 🔴 v4.35.0：先把「檢視」記下來，最後再套回去。
-     Bruce 2026-08-28 指名「檢視的部分（中心和倍率）那就先保留原本的設定」。
-
-     🔴 **記的是使用者看得到的那兩個數字（中心＝秒、倍率＝總長÷可視長），
-        不是內部的 line 座標**。清除會把 Frame 參數整組換掉（VTOTAL、Frame 重複數
-        都會變），line 的絕對長度跟著變 —— 原封不動地留住 `wfgViewStart/End`
-        等於留住一組意義已經不同的數字。這與匯出檔案 v3.21.0 起改寫
-        `view.center` / `view.zoom` 而不寫 `start` / `end` 是同一個理由。
-
-     ⚠ 誠實說明它的邊界：**倍率一定保留得住**（它是比例），
-        **中心則不一定** —— 如果清除前的總時長遠大於清除後（例如原本套的 preset
-        是 1000 個 frame、清除後只剩 10 個），那個時間點在新的時間軸上根本不存在，
-        只能夾到邊界。夾是必要的：不夾會得到一片空白的畫面，那不是「保留」是壞掉。 */
-  var _rdView = null;
-  try {
-    var _tplOld = wfgTimePerLine();
-    var _totOld = wfgTotalLines();
-    var _spanOld = wfgViewEnd - wfgViewStart;
-    if (_tplOld > 0 && _totOld > 0 && _spanOld > 0) {
-      _rdView = { centerSec: ((wfgViewStart + wfgViewEnd) / 2) * _tplOld,
-                  zoom: _totOld / _spanOld };
-    }
-  } catch (e) { _rdView = null; }
   /* ① Frame 參數與機種。
      🔴 機種一定要走 `wfgCodeOnTconChange()` 這條唯一入口，不可以只改
         `wfgFrame.codeTcon` —— 夾值、GPO 清單上下限／COMBO 顯示、DCLK 檢核、
@@ -27555,6 +27572,23 @@ function wfgResetToDefault() {
   wfgLsRebuildCkoSlots(false);
   wfgGpios = WFG_GPIO_NAMES.map(function(n, i) { return wfgMakeGpio(n, i); });
   wfgBuildDefaultChannels();   // v4.19.0：重設＝回到首次進站那一組（33 格、只顯示 18 條數位）
+  /* ⑦-a 🔴 v4.36.0：**波形區的通道列數必須是 0**。
+     `wfgBuildDefaultChannels()` 依出廠規則把前 18 條數位通道設成 `visible=true`
+     （`ch.visible = (i < WFG_DIGITAL_GPIO_COUNT)`），那 18 條就是 Bruce 清除後仍然
+     看得到的那一排 —— 它們沒有變化（GPO 全 disable、波形是平的），但**還畫在畫面上**，
+     依他的判準就不算清掉。
+
+     🔴 做法是把所有通道 `visible=false`，**不是**把 `wfgChannels` 清成空陣列：
+       ・通道↔GPIO 的指派、名稱、顏色全部留著 ⇒ 按一下清單裡的 👁（`wfgToggleChVis()`）
+         就加得回來，是「清空畫面」不是「刪掉功能」（MAJOR 與 MINOR 的分界就在這裡）。
+       ・`wfgChannels.length` 是 v4.20.0「新增／移除通道」兩顆鈕的「n / max 列」計數來源，
+         清成 0 會讓那兩顆鈕進入沒人設計過的狀態。
+       ・`visible` 正是繪製端唯一認的欄位：`window.wfgResizeCanvas()` 的 `sigCount`、
+         `wfgRender()` 的 `visibleChs`、`wfgRenderLabels()` 的 `visMap` 三處都只看它，
+         所以這一行同時決定了 canvas 高度、波形、以及左側名稱欄，不會出現三者不同步。
+       ・canvas 不會塌掉：`wfgResizeCanvas()` 有 `sigCount = Math.max(sigCount, 1)`，
+         時間軸／Line 軸照常畫。 */
+  for (var _rdCi = 0; _rdCi < wfgChannels.length; _rdCi++) wfgChannels[_rdCi].visible = false;
   wfgOverlayCfg = {}; // v3.9.0: 通道整組換掉，疊合群組的 V 軸設定不能留殘值
   // Reset voltage cursors to defaults
   _wfgVoltCursorPerSlot = {};
@@ -27621,19 +27655,30 @@ function wfgResetToDefault() {
   if (_rdFc) _rdFc.value = wfgFrame.frameCount || 10;
   document.querySelectorAll('input[name="wfg-gate"]').forEach(function(r) { r.checked = r.value === wfgFrame.gateType; });
   wfgUpdateDclkLabel();
-  /* 把開頭記下來的「中心（秒）／倍率」用**新的** tpl 與總長度換算回 line 座標。
-     倍率是比例 ⇒ 一定保留得住；中心若在新時間軸上不存在，下一行的 clamp 會夾。 */
-  if (_rdView && _rdView.zoom > 0) {
-    var _tplNew = wfgTimePerLine();
-    var _totNew = wfgTotalLines();
-    if (_tplNew > 0 && _totNew > 0) {
-      var _spanNew = _totNew / _rdView.zoom;
-      var _cLine = _rdView.centerSec / _tplNew;
-      wfgViewStart = _cLine - _spanNew / 2;
-      wfgViewEnd = wfgViewStart + _spanNew;
-    }
-  }
+  /* ⑧ 🔴 v4.36.0：檢視回預設（理由見函式開頭）。位置必須在上面那串 Frame 參數回填
+     **之後** —— `wfgViewToDefault()` 吃的是 `wfgTotalLines()`，那是由 vtotal ×
+     frameCount 算出來的，順序反了會用舊的總長度算出一個馬上就過期的視野。
+     `wfgClampViewToBounds()` 照舊留著：預設值本身不會超界，這一行是防呆不是主邏輯。 */
+  wfgViewToDefault();
   if (typeof wfgClampViewToBounds === 'function') wfgClampViewToBounds();
+  /* ⑦-b 🔴 v4.36.0：內部訊號那 6 列（RX DCLK／RX DE／TX DCLK／TX DE／
+     R_PH_CNT／F_PH_CNT）同樣是「畫在波形區的列」，Bruce 要的是乾淨的波形區
+     ⇒ 一起關掉，否則 ⑦-a 做完畫面上還是留著 6 條。
+
+     🔴 走既有的唯一入口 `wfgToggleTconInternal(false)`，不自己指派 `wfgTconInternalMode`
+        —— 那支同時負責 `#wfg-linebuf-wrap`（Line Buffer／FLR 那幾格）的顯示與
+        `wfgFlrSync()`，直接指派變數會得到「內部列不見了、但 Line Buffer 格子還在」
+        的混血狀態（與 ① 堅持走 `wfgCodeOnTconChange()` 是同一個理由）。
+        勾選框的 checked 要自己先設：那支只讀變數、不回寫 DOM。
+
+     ⚠ 誠實說明可逆性與邊界：使用者把那個勾選框再打勾就整組回來（＝「加得回來」）；
+        但**切到 LA 分頁再切回 TCON**，`wfgUpdateTconInternalVisibility()` 的
+        「首次進 TCON 預設打勾」分支會把它重新打開 —— 那是這個勾選框從以前到現在
+        一直有的行為，本版不改它（改了等於順手變更一個沒被要求的既有行為）。
+        **重整頁面**這條路徑則有被守住，見 `window.wfgImportConfig` 裡 v4.36.0 那段。 */
+  var _rdIntCb = document.getElementById('wfg-tcon-internal-cb');
+  if (_rdIntCb) _rdIntCb.checked = false;
+  if (typeof wfgToggleTconInternal === 'function') wfgToggleTconInternal(false);
   wfgRenderGpioList();
   wfgRenderChannelList();
   wfgRenderTftRow();
@@ -33969,6 +34014,36 @@ function wfgFitAll() {
   wfgRender(); wfgUpdateMinimapViewport();
   _wfgCheckDirtyZoomOut(); // v2.97.19: fit-all is zoom-out → check dirty
 }
+/* ══ 🔴 v4.36.0：「預設檢視」的單一定義 ═══════════════════════════════════════
+   這兩行原本同時散在三個地方（`wfgResetView()`＝工具列「重置」鈕、`wfgLoadPreset()`
+   沒帶 view 的分支、以及 v4.35.0 之前的 `wfgResetToDefault()`）。本版清除也要用到它
+   ⇒ 抽成一支，往後只有一個地方定義「預設檢視是什麼」（同 v3.5.1 抽
+   `wfgClearAllCursors()` 的理由：新增呼叫端時不必記得同步第二份）。
+
+   🔴 **刻意不含 render／不含 wfgMeasUpdate**：`wfgResetToDefault()` 在這之前才剛把
+      右側量測全部清空，若這支順手叫了 `wfgMeasUpdate()`，剛清掉的量測值會立刻被
+      重新填回去 —— 那是「清除完又自己長回來」，最難查的那一種。
+      要畫面的呼叫端自己接 render（`wfgResetView()` 照舊）。 */
+function wfgViewToDefault() {
+  wfgViewStart = 0;
+  wfgViewEnd = Math.min(100, wfgTotalLines());
+  /* 🔴 v4.35.1：兩個「上一次的參考值」必須同時重新取樣，否則設回預設的視野會被
+     它們立刻改掉。實測（先套 `fhd_60hz_sg` preset 再按清除）：`0 ～ 100` 設好之後，
+     下一次 render 走到 `wfgKeepViewTimeWindow()`，它看到 tpl 與 `_wfgViewTplRef`
+     不同（preset 的 2080/89 MHz → 預設的 2200/74.25 MHz），就依「時間跨距不動」
+     把 span 由 100 拉成 101.35 ⇒ 倍率讀數 **111** 而不是全新開頁的 **113**。
+     `wfgKeepViewContentCenter()` 對 VTOTAL 也是同一個機制。
+
+     那兩支本身沒有錯 —— 它們的用途是「使用者改參數時畫面不要跳」。但清除的語意
+     正好相反：**就是要跳回預設**。所以這裡不是改它們的邏輯，而是把它們的參考點
+     重新對齊到清除後的新狀態，讓它們判定成「沒有變化」而不動作。
+     ⚠ 對工具列「重置」鈕（`wfgResetView()`）是無副作用的：那條路徑不動 Frame 參數，
+       tpl 與 vtotal 本來就沒變，重新取樣寫回去的是同一個值。 */
+  var _tplNow = wfgTimePerLine();
+  if (_tplNow > 0) _wfgViewTplRef = _tplNow;
+  var _vtNow = wfgFrame.vtotal | 0;
+  if (_vtNow > 0) _wfgViewVtotalRef = _vtNow;
+}
 function wfgResetView() {
   if (wfgKvdatMode) {
     wfgKvdatTimeStart = wfgKvdatTotalStart;
@@ -33976,8 +34051,7 @@ function wfgResetView() {
     wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
     wfgRender(); wfgUpdateMinimapViewport(); return;
   }
-  wfgViewStart = 0;
-  wfgViewEnd = Math.min(100, wfgTotalLines());
+  wfgViewToDefault();
   wfgMeasUpdate(_wfgLastMouseX, _wfgLastMouseY);
   wfgRender(); wfgUpdateMinimapViewport();
 }
@@ -40370,6 +40444,30 @@ window.wfgImportConfig = function(jsonStr, options) {
   wfgRenderPanelCard();
   wfgRenderChannelList();
   wfgUpdateTconInternalVisibility();
+  /* ══ 🔴 v4.36.0：設定檔明文寫著的 `tconInternalMode` 不可被「預設值」蓋掉 ═══════
+     `wfgUpdateTconInternalVisibility()` 裡有一條「**首次**進 TCON 模式時預設打勾」的
+     分支（`else if (!wfgTconInternalMode) { wfgTconInternalMode = true; }`）。它對
+     「第一次開頁、沒有任何紀錄」是對的，但它不分辨「沒設定過」與「設定過而且是 false」
+     —— 於是上面第 40408 行才剛從 config 讀進來的 `false` 會在下一行被改回 `true`。
+
+     實際後果（v4.36.0 之前一直存在，這一版因為清除要關掉內部列才被逼出來）：
+       ・按「清除」⇒ 內部訊號 6 列消失 ⇒ **重整頁面 ⇒ 6 列全部回來**。
+         autosave 存的是 `tconInternalMode:false`，還原時被這條預設值蓋掉。
+       ・同理，使用者自己把勾選框取消再重整，也一樣會被打勾回去。
+
+     修法是「還原之後把明確存下來的值再宣告一次」，而且走**既有的唯一入口**
+     `wfgToggleTconInternal()` —— 它同時處理 `#wfg-linebuf-wrap` 的顯示與
+     `wfgFlrSync()`，只改 `wfgTconInternalMode` 這個變數會留下不同步的 DOM。
+     🔴 為什麼不直接改 `wfgUpdateTconInternalVisibility()` 那條分支：那支還有
+     「切分頁」「開頁」「離開 kvdat」三個呼叫端，動它等於一次改掉四種情境的行為。
+     只在「有一份明確的設定檔要套用」的這條路徑上收斂，影響面才對得起改動理由。 */
+  if (typeof config.tconInternalMode === 'boolean'
+      && wfgTconInternalMode !== config.tconInternalMode
+      && wfgCurrentMode === 'tcon' && !wfgKvdatMode) {
+    var _icb = document.getElementById('wfg-tcon-internal-cb');
+    if (_icb) _icb.checked = config.tconInternalMode;
+    wfgToggleTconInternal(config.tconInternalMode);
+  }
   wfgResizeAndRender();
 
   // Update cursor buttons
@@ -41168,8 +41266,14 @@ var _wfgAckNowKeyLast = '';
    不加進來的話守衛輪詢就看不出「有東西變了」。 */
 function _wfgAckNowKey() { return String(wfgFrame.dclk) + '|' + String(wfgLineBuffer) + '|' + wfgTconKey(); }
 function wfgAckRenderNow() {
+  /* 🔴 v4.35.1：「目前值」徽章改成顯示 **TCON UI DCLK**（原本是 TX DCLK）。
+     這一項的標題自本版起是「TCON UI DCLK 必須手動設定」，徽章卻給 TX 的數字，
+     在 ratio=2 的機種（EM02／E512）上會差一倍 —— 標題說 UI、數字給 TX，
+     使用者照著徽章填就會錯一半。單位換算走既有的 `wfgUiDclkRatio()`，
+     ratio=1 的機種（EM01／NB 三顆）逐值與 v4.35.1 相同。 */
   var d = document.getElementById('wfg-ack-dclk-now');
-  if (d) d.textContent = t('wfg.ackNow').replace('{v}', String(wfgFrame.dclk) + ' MHz');
+  if (d) d.textContent = t('wfg.ackNow')
+      .replace('{v}', String(wfgFmtDclk(wfgFrame.dclk * wfgUiDclkRatio())) + ' MHz');
   var l = document.getElementById('wfg-ack-lb-now');
   if (l) l.textContent = t('wfg.ackNow').replace('{v}', String(wfgLineBuffer));
   /* v4.6.0：UI 那格的標籤要寫出**是哪一顆 TCON 的 UI** —— 使用者剛從那顆的介面抄完數字，
@@ -41186,11 +41290,15 @@ function wfgAckRenderNow() {
      —— 係數是 codec 表的一格（EM01 1、EM02 2、E512 2、NB 三顆 1），
      日後新增型號只要填那一格，這行字自動就對。
      ratio 為 1 時不印「1 ×」（`1 × TX DCLK = …` 讀起來像有倍率，反而更難懂）。 */
+  /* 🔴 v4.35.1：關係式改成**以 UI 起頭**（`TCON(EM02) UI DCLK = 2 × TX DCLK`），
+     原本是 `2 × TX DCLK = TCON(EM02) UI DCLK`。**同一條等式、左右對調**，
+     係數仍然一律由 `wfgUiDclkRatio()` 產生（EM01 1、EM02 2、E512 2、NB 三顆 1），
+     日後新增型號只要填 codec 表那一格就自動正確。 */
   var rel = document.getElementById('wfg-ack-dclk-rel');
   if (rel) {
     var _r = wfgUiDclkRatio();
-    var _lhs = (_r === 1) ? 'TX DCLK' : (wfgFmtDclk(_r) + ' × TX DCLK');
-    rel.textContent = _lhs + '  =  ' + _uiName;
+    var _rhs = (_r === 1) ? 'TX DCLK' : (wfgFmtDclk(_r) + ' × TX DCLK');
+    rel.textContent = _uiName + '  =  ' + _rhs;
     rel.title = t('wfg.ackRelTitle').replace('{m}', _lbl).replace('{r}', String(_r));
   }
   /* 在 TX 那格打字時，UI 這格要即時跟上（反向由 wfgAckOnUiInput 自己處理）。
@@ -41486,8 +41594,13 @@ var _wfgSpotOn = false, _wfgSpotRaf = 0, _wfgSpotPanels = [];
    使用者看得到一個被打亮的數字框，卻看不到它叫什麼。
    ⇒ 改成往上找 `box` 這個容器（標題與輸入框共同的父層），用它的範圍挖空。
    找不到 `box` 就退回原本只框輸入框的行為，不會壞。 */
+/* 🔴 v4.35.1：綠框由 `#wfg-dclk`（TX DCLK）改指 `#wfg-ui-dclk`（TCON UI DCLK）——
+   對話框裡的主要欄位既然改成 UI，聚光燈就必須指向主畫面上的同一格，否則
+   「卡片說要設 UI、綠框圈的是 TX」會直接互相矛盾。
+   兩格的容器同樣是 `.wfg-field-group.wfg-subgroup`（wfg.html:2145 與 2168），
+   所以 `box` 選擇器一個字不用改。 */
 var WFG_SPOT_TARGETS = [
-  { key: 'dclk',    id: 'wfg-dclk',    ring: 'wfg-spot-ring-dclk',    box: '.wfg-field-group' },
+  { key: 'dclk',    id: 'wfg-ui-dclk', ring: 'wfg-spot-ring-dclk',    box: '.wfg-field-group' },
   { key: 'linebuf', id: 'wfg-linebuf', ring: 'wfg-spot-ring-linebuf', box: '#wfg-linebuf-wrap' }
 ];
 /* ══ 🔴 v4.5.3 修「畫面往下移動、上方顯示區被截掉且回不去」════════════════
@@ -41855,8 +41968,11 @@ function wfgAckShow(fileName, detail, notice) {
   wfgAckStartNowWatch();             // v4.5.4：目前值的守衛輪詢（列舉必漏，見上方註解）
   /* v4.25.0：DCLK 那格藏起來時改把焦點給 Line Buffer —— 對一個 `display:none`
      的輸入框呼叫 focus() 不會有任何效果，使用者會拿到一張沒有焦點的卡片。 */
+  /* 🔴 v4.35.1：焦點由 `di`（TX DCLK）改成 `uii`（TCON UI DCLK）。
+     主角換了、焦點沒換的話，使用者開窗直接打字會打進輔助那一格 —— 值會是對的
+     （兩格連動），但那不是他被告知要填的東西，等於畫面說一套、鍵盤做另一套。 */
   setTimeout(function() {
-    var tgt = _auto ? li : di;
+    var tgt = _auto ? li : (uii || di);
     if (tgt && !tgt.disabled) tgt.focus({ preventScroll: true });
   }, 60);
 }
