@@ -653,10 +653,10 @@ var I18N = {
   'wfg.simFrameRate':   { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
   'wfg.simVblankHint':  { 'zh-TW': '(Pixel Rate 不變)', 'en': '(Pixel Rate held)',
                           'zh-CN': '(Pixel Rate 不变)' },
-  /* v3.29.0：D-Clock 應用型態。定頻＝TX DCLK 固定且 ≥ RX DCLK；變頻＝TX DCLK 恆等於 RX DCLK */
+  /* v3.29.0：DCLK 應用型態。定頻＝TX DCLK 固定且 ≥ RX DCLK；變頻＝TX DCLK 恆等於 RX DCLK */
   'wfg.dclkModeFixed':  { 'zh-TW': '定頻應用', 'en': 'Fixed Clock', 'zh-CN': '定频应用' },
   'wfg.dclkModeVar':    { 'zh-TW': '變頻應用', 'en': 'Variable Clock', 'zh-CN': '变频应用' },
-  /* ══ v4.6.0：D-Clock 三大類 ══════════════════════════════════════════════
+  /* ══ v4.6.0：DCLK 三大類 ══════════════════════════════════════════════
      ① Pixel Rate ＝ Ht × Vt × FPS（恆定）  ② RX / TX DCLK ＝ 各自 Pixel Rate 的一半
      ③ TCON UI DCLK ＝ TX DCLK × 機種係數（EM01 與所有 NB ×1；EM02 / E512 ×2）
      `Pixel Rate` 與 `TCON UI DCLK` 兩個詞刻意與 rxtx 分頁用字一致，不另創名詞。 */
