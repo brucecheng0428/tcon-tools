@@ -2797,6 +2797,13 @@
         <div class="wfg-ack-hd-tx">
           <div class="wfg-ack-title" id="wfg-ack-title" data-i18n="wfg.ackTitle">匯入完成 — 有 2 項需要你確認</div>
           <div class="wfg-ack-sub" id="wfg-ack-sub"></div>
+          <!-- 🔴 v4.31.1：「非看不可」的一行。獨立一個元素而不是接在 `#wfg-ack-sub`
+               後面 —— `.wfg-ack-sub` 沒有 `white-space: pre-wrap`，`\n` 會被摺掉，
+               告知就會黏在檔名後面（實測截圖確認過）。改共用 CSS 會連帶動到
+               tmg／exp／imp／gpord 另外四個對話框，所以只加一條只作用在這個 id 的規則。
+               顏色用站上既有的「強調」橘 `#f59e0b`（CHANGELOG v3.30.0 的色票規則），
+               不引入新的視覺語言。 -->
+          <div class="wfg-ack-sub" id="wfg-ack-notice" style="margin-top:6px;color:#f59e0b"></div>
         </div>
       </div>
       <div class="wfg-ack-bd">
@@ -2994,8 +3001,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260827wfg4310"></script>
-<script src="common/i18n.js?v=20260827wfg4310"></script>
+<script src="common/version.js?v=20260827wfg4311"></script>
+<script src="common/i18n.js?v=20260827wfg4311"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -27437,11 +27444,17 @@ window.wfgDclkLimits = wfgDclkLimits;
      HTOTAL_max    = PxMax / (VTOTAL × FrameRate)      → HACTIVE_max = HTOTAL_max − HBLANK
      VTOTAL_max    = PxMax / (HTOTAL × FrameRate)      → VACTIVE_max = VTOTAL_max − VACTIVE 之外那格
 
-   驗算（HTOTAL 2200 × VTOTAL 1125）：
-     EM01（上限 500、ratio 1）→ PxMax 1000 MHz → FPS_max = 1000e6/2475000 = 404.04 → **404**
-     EM02（上限 500、ratio 2）→ PxMax  500 MHz → FPS_max =  500e6/2475000 = 202.02 → **202**
-     E503（上限 105、ratio 1）→ PxMax  210 MHz → FPS_max =  210e6/2475000 =  84.85 → **84**
-   與 Bruce 給的 Pixel Rate 上限（500／1000／210 MHz）一致。 */
+   驗算（HTOTAL 2200 × VTOTAL 1125 ＝ 2,475,000）：
+
+   🔴 **v4.31.1 更正**：底下這張表原本寫的是 v4.7.1 當時的 `uiDclkMax`（EM01／EM02 都是 500），
+   而 v4.8.0 已經把上限從**類別層級**降到**型號層級**（見 `WFG_TCON_CODECS`：
+   EM01 432、EM02 420、E512 360、NB 三顆 105）。註解沒跟著改，於是這張表整整錯了 9 個版本 ——
+   照它算會以為 EM01 的 FPS 上限是 404，實際是 349。數字一律以型號表為準，這裡只是驗算示範。
+
+     EM01（上限 432、ratio 1）→ PxMax 864 MHz → FPS_max = 864e6/2475000 = 349.09 → **349**
+     EM02（上限 420、ratio 2）→ PxMax 420 MHz → FPS_max = 420e6/2475000 = 169.70 → **169**
+     E512（上限 360、ratio 2）→ PxMax 360 MHz → FPS_max = 360e6/2475000 = 145.45 → **145**
+     NB  （上限 105、ratio 1）→ PxMax 210 MHz → FPS_max = 210e6/2475000 =  84.85 → **84**   */
 function wfgPixelRateMaxMHz() {
   var sp = wfgTconSpec();
   return 2 * sp.uiDclkMax / wfgUiDclkRatio();
@@ -27793,6 +27806,57 @@ function wfgOverSpecMsg() {
     .replace(/\{max\}/g, String(B.fpsSliderMax))
     .replace(/\{cur\}/g, String(wfgFmtFps(wfgFrame.frameRate)));
 }
+/* ══ 🔴 v4.31.1：匯入 code 之後，把 Frame Rate 自動降到這顆機種跑得到的最高值 ══════
+   Bruce 2026-08-27：「應該要把 frame rate 給往下降（就是後面再遇到這個問題時），
+   讓 416 是可以輸入的，這樣子才合理。畢竟 EM01 的最大值是 432 啊！」
+
+   **為什麼非做不可（實測，不是推測）**：匯入 code 會把 HTOTAL／VTOTAL 換成這份 code 的
+   解析度，而 Frame Rate 是上一個狀態留下來的 —— 匯入這條路徑對它**完全沒有檢查**。
+   於是 `P = HT × VT × fps` 可以一口氣衝過機種上限，畫面直接落進 `empty` 狀態。
+   （反過來「先匯入再打 222」不會發生，因為 `wfgOnFrameRateChange()` 的
+   `wfgBlockIfWorse` 從 v4.7.1 起就擋著 —— 上游三格裡**只有匯入這條沒被納管**。）
+
+   base d4e63ad 實測，Bruce 那一份 `3440×1440 144Hz` 的 code：
+     匯入前 1920×1080 @222 ⇒ P 549.45 MHz（EM01 的 fpsMax ＝ 349，合法）
+     匯入後 HT 3864 × VT 1490 @222 ⇒ **P 1278.1339 MHz、RX 639.067**（pxMax 只有 864）
+     ⇒ 匯入卡片與主畫面兩格都顯示 **639.067**，正是他截圖上的數字。
+
+   **降到哪一個值**：`wfgFrameBounds().fpsSliderMax` ＝ `floor(pxMax / (HT × VT))`。
+     ・用**整數**上限而不是精確的 `fpsMax`：Frame Rate 輸入格走 `parseInt`、拉霸 `step` ＝ 1，
+       塞小數進去下一次操作就會被打回整數（v4.29.0 已經為這件事分出兩組邊界）。
+     ・這也正是超規格提示裡那個數字（`wfgOverSpecMsg()` 用的是同一個 `fpsSliderMax`）——
+       畫面叫使用者「降到 150」，工具自己降的就該是同一個 150，不可以兩套。
+   本例：`floor(864e6 / (3864 × 1490))` ＝ `floor(150.0688)` ＝ **150**
+     ⇒ P 863.604 MHz ≤ 864 ⇒ `empty` 解除 ⇒ 兩格的 `max` 回到 432，夾值恢復。
+
+   🔴 **只在匯入 code 這條路徑呼叫**。換機種／匯入設定檔／autosave 還原一律不碰 ——
+   那幾條路徑上 Frame Rate 是使用者**自己剛設定或存下來的值**，靜默改掉它才是錯的；
+   它們維持 v4.29.0 的做法：把出路講出來（`wfgOverSpecMsg()`），由使用者自己決定。
+   v4.28.4 那份 E503/1920×1080/144Hz 的存檔走的就是設定檔匯入，**行為逐值不變**。
+
+   🔴 **絕不碰 H/V ACTIVE**（Bruce 明示那兩格不設限）—— 這一支只寫 `frameRate` 一個欄位。
+
+   回傳 `{changed, from, to}`；呼叫端**必須**把它寫進匯入卡片，不可以靜默改掉使用者的設定。 */
+function wfgCodeAutoFitFrameRate() {
+  var B = wfgFrameBounds();
+  if (!B.incompatible) return { changed: false };          // 沒超規格就不要多事
+  var to = B.fpsSliderMax;
+  var from = wfgFrame.frameRate;
+  /* 連 1 Hz 都跑不動（解析度本身就超過機種能力）⇒ 降 Frame Rate 救不了，
+     不要把它降成 0 或 1 假裝解決了 —— 保持原值，讓 `wfgOverSpecMsg()` 去講實話。 */
+  if (!(isFinite(to) && to >= 1)) return { changed: false, hopeless: true };
+  if (!(isFinite(from) && from > to)) return { changed: false };
+  wfgInvalidateCache();
+  wfgFrame.frameRate = to;
+  var fe = document.getElementById('wfg-framerate');
+  if (fe) fe.value = String(to);
+  /* 與匯入路徑既有的 frameRate 帶入（v4.16.0）用同一支，拉霸端點與值一起收斂。 */
+  if (typeof wfgSetFrameRateSliderMax === 'function') {
+    try { wfgSetFrameRateSliderMax(to); } catch (e) {}
+  }
+  return { changed: true, from: wfgFmtFps(from), to: to };
+}
+window.wfgCodeAutoFitFrameRate = wfgCodeAutoFitFrameRate;
 /* 兩格共用的檢核。回傳 {ok, err}，err 已翻譯。傳入的一律是 **TX 值**（UI 那格先除以 ratio）。 */
 function wfgValidateTxDclk(tx) {
   var L = wfgDclkLimits();
@@ -27814,6 +27878,30 @@ function wfgValidateTxDclk(tx) {
         .replace(/\{hi\}/g, String(L.specMax))
         .replace(/\{need\}/g, String(wfgFmtDclk(L.rx * L.ratio)))
         .replace(/\{fps\}/g, String(wfgFrame.frameRate | 0)) };
+    }
+    /* ══ 🔴 v4.31.1：`empty` 時上限**不可以整個消失** ═════════════════════════════
+       Bruce 2026-08-27：「為什麼 EM01 的 TCON UI DCLK 居然還可以輸入超過 432 的數值？
+       這還是有問題呀，沒有去夾它。」
+
+       實測（base d4e63ad，他那一份 3440×1440 的 code、fps 222）：`empty` 成立之後
+       這一支對**任何** `tx ≥ rx` 一律回 `{ok:true}` ⇒ 打 5000 一路綠燈，真值真的變成 5000。
+       兩個 DOM `max` 屬性也在這個狀態下被移除（`wfgSyncDclkBounds()`／
+       `wfgAckSyncDclkLimits()`，理由是不寫出 min > max），於是**三條輸入路徑一起失守**。
+
+       🔴 修法沿用 v4.7.1 立的方向性原則，**不是把 v4.7.1 的「不可拒絕所有值」推翻**：
+       用 `wfgBlockIfWorse(tx, 目前真值, txMax)` ——「超過機種上限**而且比目前值更大**」
+       才擋。往合法方向移動（例如 5000 → 500）一律放行，退路仍是結構保證。
+
+       持續警示那條路徑（`wfgRefreshRangeWarning()` 拿 `wfgFrame.dclk` 自己來問）
+       **逐值不受影響**：`tx === prev` ⇒ `wfgBlockIfWorse` 恆為 false ⇒ 仍回 `{ok:true, warn}`。 */
+    if (wfgBlockIfWorse(tx, Number(wfgFrame.dclk), L.txMax)) {
+      return { ok: false, err: t('wfg.errDclkSpecMax')
+        .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+        .replace(/\{hi\}/g, String(L.specMax))
+        .replace(/\{t\}/g, String(wfgFmtDclk(L.txMax))),
+        /* 狀態型訊息用**上游**那一則（先降 Frame Rate）—— 與 `wfgRefreshRangeWarning()`
+           的優先序一致，不會出現兩種狀態說不同的話。 */
+        errState: wfgOverSpecMsg() };
     }
     /* v4.29.0：超規格時改講**出路**（先降 Frame Rate）而不是只講「不相容」。
        `empty ⟺ incompatible` 已於 `wfgOverSpecMsg()` 上方證明，所以這裡實務上一定拿得到
@@ -39744,8 +39832,12 @@ function wfgAckBlurSettle() {
   var L = wfgDclkLimits();
   var cur = Number(String(di.value).trim());
   var prev = Number(wfgFrame.dclk);
+  /* 🔴 v4.31.1：上界那一條**不再排除 `empty`**。
+     排除它的後果是：`empty` 下打 5000 被 `wfgAckValidate()` 擋住（不 commit）之後，
+     `worse` 卻算成 false ⇒ 輸入框停在 5000、真值是 639.067，兩者互相矛盾。
+     方向性由 `wfgBlockIfWorse()` 自己保證（往下調一律放行），退路不會因此消失。 */
   var worse = !isFinite(cur) ||
-              (!L.empty && wfgBlockIfWorse(cur, prev, L.txMax)) ||
+              wfgBlockIfWorse(cur, prev, L.txMax) ||
               wfgBlockIfWorseLow(cur, prev, L.empty ? L.rx : L.txMin);
   if (worse) {
     di.value = wfgFrame.dclk;                       // 兩格一起還原，不留下被拒的值
@@ -40267,11 +40359,16 @@ function wfgAckClose() {
   var m = document.getElementById('wfg-ack-mask');
   if (m) m.classList.add('hidden');
 }
-function wfgAckShow(fileName, detail) {
+function wfgAckShow(fileName, detail, notice) {
   var m = document.getElementById('wfg-ack-mask');
-  if (!m) { alert(detail || ''); return; }             // 大聲失敗，不要靜默跳過提醒
+  if (!m) { alert([detail, notice].filter(Boolean).join('\n')); return; }   // 大聲失敗，不要靜默跳過提醒
   var sub = document.getElementById('wfg-ack-sub');
   if (sub) sub.textContent = (fileName ? fileName + '\n' : '') + (detail || '');
+  /* v4.31.1：`notice` ＝「非看不可」的一行（目前只有自動下調 Frame Rate）。
+     🔴 沒有 notice 時要**清空並隱藏**，否則上一次匯入的告知會留在畫面上，
+     變成一則對這一份 code 不成立的訊息（v4.25.0 那條 `display` 每次都設的教訓同型）。 */
+  var nt = document.getElementById('wfg-ack-notice');
+  if (nt) { nt.textContent = notice || ''; nt.style.display = notice ? '' : 'none'; }
   /* ══ 🔴 v4.25.0：DCLK 已自動帶入 ⇒ 整項不顯示，卡片只剩 Line Buffer 一項 ══════
      三處都要改，少一處就會出現「看不到第 1 項卻寫著有 2 項」這種自相矛盾的畫面：
        ① 項目本身 `display:none`
@@ -40539,9 +40636,25 @@ function wfgCodePickFile() {
         wfgCodeApplyToWfg(res);
         wfgCodeSetStatus(f.name, (typeof res.cks === 'number') ? res.cks : -1);
         wfgSetImportedFileName('tcon', f.name);
-        /* v4.3.0：不再用 alert（Bruce：「非常醜陋且只有文字」）。 */
+        /* v4.3.0：不再用 alert（Bruce：「非常醜陋且只有文字」）。
+           ══ 🔴 v4.31.1：`{f}` 與 `{d}` 這兩個 replace **從 v4.27.3 起就是空操作** ═══════
+           v4.27.3 依 Bruce 的指示（「寫這麼多沒有人會看」）把 `wfg.codeImportOk` 的內文
+           整個換成「已匯入 {n} 條數位信號」—— 樣板裡不再有 `{f}` 與 `{d}` 這兩個佔位符，
+           但呼叫端這兩行 replace 沒有一起拿掉。**沒有錯誤、沒有 console 訊息，
+           `res.detail` 就此再也到不了畫面。**（本輪為了讓自動下調 Frame Rate 的告知
+           顯示出來才發現。）兩行**刻意保留**並在此記錄，讓下一個人一眼看得出這是死路。
+
+           ⚠ 連帶失效的還有 `codeBitWidthOver`／`codeNbDclkClamped` 這幾則 ⚠ 警示 ——
+           它們也是掛在 `res.detail` 上。**本版不動它們**：Bruce v4.27.3 要砍的是
+           「檔案大小／檔案偏移／CKS／候選 timing」那一整串資訊性內容，而 `res.detail`
+           至今仍由解析器塞滿那些東西（見各 `parseCode` 的 `det`），直接把 `{d}` 加回去
+           等於把他明講要砍的東西整批放回來。要救那幾則警示得先把資訊性內容與警示拆開，
+           那是另一件事，已在 CHANGELOG 列為待裁示。
+
+           ⇒ 本版另開 `res.notice`：**只放「非看不可」的一行字**，永遠不含資訊性內容。 */
         wfgAckShow(f.name, t('wfg.codeImportOk').replace('{f}', '').replace('{n}', String(res.applied))
-                   .replace('{d}', res.detail || '').trim());
+                   .replace('{d}', res.detail || '').trim(),
+                   res.notice || '');
       }
       var res = parse(null);
       if (!res || !res.ok) { wfgCodeImportFail(f.name, (res && res.reason) || '?'); return; }
@@ -43706,6 +43819,27 @@ function wfgCodeApplyToWfg(res) {
        ——「上一份 NB code 的 panel_mode」不屬於現在這份 MNT code。
        🔴 只**記下來**不拿它去改 Gate Type：Gate Type 的真值仍然是 `RD_MODE`（見上一段）。 */
     wfgNbPanelMode = (typeof res.panelMode === 'number' && res.panelMode >= 0) ? (res.panelMode | 0) : -1;
+    /* ══ 🔴 v4.31.1：新解析度配舊 Frame Rate 超出機種能力 ⇒ 自動把 Frame Rate 降下來 ══
+       Bruce 2026-08-27 指定。推導、實測數字與「為什麼只在這條路徑做」全部寫在
+       `wfgCodeAutoFitFrameRate()` 上方。
+
+       🔴 位置：一定要排在下面那一組 `wfgUpdateRxDclk() / wfgClampTconDclk()` **之前**——
+          RX 是由 fps 算出來的，順序反了就會拿超規格的舊 RX 去夾 code 帶進來的 DCLK
+          （與 v4.25.0 那一段對順序的要求同源）。
+       🔴 也排在 `res.uiDclk` 那一段之前：fps 先降下來 ⇒ RX 變小 ⇒ code 裡的 DCLK
+          更不容易被 clamp 抬走，v4.25.0 那道「回頭確認真的填成功」的檢查才不會誤報。 */
+    var _fpsFit = wfgCodeAutoFitFrameRate();
+    if (_fpsFit.changed) {
+      /* 🔴 不可以靜默改掉使用者的設定 —— 顯示在匯入卡片的副標題。
+         用 `res.notice` 而**不是** `res.detail`：後者從 v4.27.3 起就到不了畫面
+         （`wfg.codeImportOk` 的樣板已無 `{d}`，呼叫端的 replace 變成空操作，
+         詳見 `wfgCodePickFile()` 裡 `wfgAckShow(...)` 上方的說明）。 */
+      res.notice = (res.notice ? res.notice + '\n' : '') +
+                   t('wfg.codeFpsAutoFit')
+                     .replace(/\{m\}/g, (wfgTconCodec() && wfgTconCodec().label) || '')
+                     .replace(/\{from\}/g, String(_fpsFit.from))
+                     .replace(/\{to\}/g, String(_fpsFit.to));
+    }
     /* ══ 🔴 v4.25.0：TCON UI DCLK 從 code 帶進來 ═══════════════════════════════════
        Bruce 2026-08-25：「匯入的時候要直接填寫到 TCON UI 的 DCLK 裡面。」
        填的是 **TX DCLK**（`wfgFrame.dclk`）—— UI DCLK ＝ TX × ratio，NB 三顆 ratio 都是 1，
