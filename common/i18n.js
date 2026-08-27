@@ -1115,6 +1115,11 @@ var I18N = {
     'zh-TW': '⚠ code 裡的 TCON UI DCLK 是 {v} MHz，但套用之後變成 {a} MHz（被 RX DCLK 下限或機種規格夾住）。畫面上的值不是 code 裡的值，請自己確認。',
     'en': '⚠ the code says TCON UI DCLK = {v} MHz but after applying it became {a} MHz (clamped by the RX DCLK floor or the model spec). What you see is not what the code says - please check.',
     'zh-CN': '⚠ code 里的 TCON UI DCLK 是 {v} MHz，但套用之后变成 {a} MHz（被 RX DCLK 下限或机种规格夹住）。画面上的值不是 code 里的值，请自己确认。' },
+  /* v4.31.1：匯入 code 後自動下調 Frame Rate 的告知（不可靜默改掉使用者的設定）。 */
+  'wfg.codeFpsAutoFit': {
+    'zh-TW': '⚠ Frame Rate 已自動從 {from} Hz 降為 {to} Hz —— 這組解析度下 {m} 最高只跑得到 {to} Hz。要用別的值請自己改。',
+    'en': '⚠ Frame Rate was automatically lowered from {from} Hz to {to} Hz - at this resolution {m} tops out at {to} Hz. Change it yourself if you want another value.',
+    'zh-CN': '⚠ Frame Rate 已自动从 {from} Hz 降为 {to} Hz —— 这组分辨率下 {m} 最高只跑得到 {to} Hz。要用别的值请自己改。' },
   'wfg.codeNbDclkWrote': {
     'zh-TW': '本次匯出**有寫回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n寫進去的 register：\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8、GBPLL_N_PSDIV1 = 6、GBPLL_N_PSDIV2 = 9、N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\n這一組是照原廠「AGBSFR 標準化」的寫入序列產生的。原廠標準化另外還會依 EDID 重寫 HBLANK／VBLANK／FR_DET_TH／VBP／PSR VTL —— 本工具沒有 EDID 那一整套輸入，**那些一律不寫**。',
     'en': 'This export DID write TCON UI DCLK back ({m}): {was} → {now} MHz\n\nRegisters written:\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8, GBPLL_N_PSDIV1 = 6, GBPLL_N_PSDIV2 = 9, N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\nThis follows the official "AGBSFR standardize" write sequence. The official flow also rewrites HBLANK / VBLANK / FR_DET_TH / VBP / PSR VTL from the EDID - this tool has no EDID input, so those are NOT written.',
