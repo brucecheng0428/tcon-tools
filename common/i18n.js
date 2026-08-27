@@ -684,6 +684,21 @@ var I18N = {
   'wfg.errTxDclkMin':   { 'zh-TW': 'TX DCLK 不可低於 RX DCLK（{t} MHz）。已保留原本的值。要把 TCON 頻率設得更低，請先把 Frame Rate 降到 {fps} Hz 以下。',
                           'en': 'TX DCLK cannot be lower than RX DCLK ({t} MHz). The previous value was kept. To set a lower TCON clock, first bring the Frame Rate down to {fps} Hz or below.',
                           'zh-CN': 'TX DCLK 不可低于 RX DCLK（{t} MHz）。已保留原本的值。要把 TCON 频率设得更低，请先把 Frame Rate 降到 {fps} Hz 以下。' },
+  /* 🔴 v4.32.0：取代 `errTxDclkMin` 在「非機種規格」那一半的角色。
+     本版起調低 TCON UI DCLK 會把 Frame Rate 一起帶下來（Bruce 2026-08-27 指名的連動），
+     所以「請先把 Frame Rate 降下來」不再是出路 —— fps 已經自己降到底了。
+     這則講的是**真的到底了**：fps 已經是 {fps} Hz，這組解析度撐不住更低的 TCON 頻率。
+     {t}=TX 下限 {ui}=換算成 UI DCLK 的下限 {fps}=fps 的下限 */
+  'wfg.errTxDclkFpsFloor': { 'zh-TW': 'TCON UI DCLK 最低只能到 {ui} MHz（TX DCLK {t} MHz）—— Frame Rate 已經降到下限 {fps} Hz，再低就撐不住這組 HTOTAL／VTOTAL 了。已保留原本的值。要再往下，請先縮小 HTOTAL／VTOTAL。',
+                          'en': 'TCON UI DCLK bottoms out at {ui} MHz (TX DCLK {t} MHz) - the Frame Rate is already at its floor of {fps} Hz, and anything lower cannot sustain this HTOTAL/VTOTAL. The previous value was kept. To go lower, reduce HTOTAL/VTOTAL first.',
+                          'zh-CN': 'TCON UI DCLK 最低只能到 {ui} MHz（TX DCLK {t} MHz）—— Frame Rate 已经降到下限 {fps} Hz，再低就撑不住这组 HTOTAL／VTOTAL 了。已保留原本的值。要再往下，请先缩小 HTOTAL／VTOTAL。' },
+  /* 🔴 v4.32.0：調低 TCON UI DCLK ⇒ Frame Rate 自動跟著降的**告知**（琥珀，不是錯誤）。
+     Bruce 2026-08-27 明示不可以靜默改掉使用者的設定。措辭與 `codeFpsAutoFit`（v4.31.1
+     匯入自動下調）刻意保持同一個句型 —— 同一件事在站上只有一種說法。
+     {from}/{to}=Frame Rate 前後值 {ui}=剛設定的 TCON UI DCLK {tx}=換算成 TX */
+  'wfg.uiCapFpsAutoFit': { 'zh-TW': '⚠ Frame Rate 已自動從 {from} Hz 降為 {to} Hz —— TCON UI DCLK 設成 {ui} MHz（TX {tx} MHz）之後，再高的 Frame Rate 就會超出它。',
+                          'en': '⚠ Frame Rate was automatically lowered from {from} Hz to {to} Hz - with TCON UI DCLK set to {ui} MHz (TX {tx} MHz), anything higher would exceed it.',
+                          'zh-CN': '⚠ Frame Rate 已自动从 {from} Hz 降为 {to} Hz —— TCON UI DCLK 设成 {ui} MHz（TX {tx} MHz）之后，再高的 Frame Rate 就会超出它。' },
   /* 下限／上限來自機種規格。{m}=機種 {lo}/{hi}=該機種的 UI DCLK 規格值 {t}=換算成 TX 的界限 */
   'wfg.errDclkSpecMin': { 'zh-TW': '{m} 的 TCON UI DCLK 規格下限是 {lo} MHz（換算成 TX DCLK ＝ {t} MHz），已保留原本的值。',
                           'en': 'The TCON UI DCLK spec minimum for {m} is {lo} MHz (TX DCLK {t} MHz). The previous value was kept.',

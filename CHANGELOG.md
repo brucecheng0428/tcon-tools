@@ -22,6 +22,83 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.32.0 — 2026-08-27 ｜ MINOR ｜ ⚠ 輸出變更
+
+**「所有數據都不能超過 TX DCLK」兩個方向都做完：變頻應用一樣套 TCON UI DCLK 上限（RX 拉霸也會轉紅）；調低 TCON UI DCLK 時 Frame Rate 自動跟著降。**
+
+**判定依據：** §1 判定表逐欄 ——「操作流程」零改變（沒有新按鈕、沒有任何入口移動或消失，兩張卡片的欄位與拉霸全部在原位）；「功能增減」**多了一件使用者能做的事** —— 「把 TCON UI DCLK 調低、讓 Frame Rate 跟著降下來」在 v4.31.5 為止是**被擋下的**（`wfgValidateTxDclk()` 的 `TX ≥ RX` 那條），本版起做得到；「既有功能的輸出」在**沒有新操作介入時逐值不變**（`uiDclkCap` 預設 `null` ＝ 不加上限，已由 base(17b8e21) 與本版跑同一支探針逐值比對證明）。逐項判：**R1 適用**（v4.31.5 的兩個判斷被 Bruce 推翻，屬修正）→ PATCH ＋ `⚠ 輸出變更`；**R3 適用**（使用者能做的事多了一件）→ **MINOR**；R2 不適用（不開新波）；R4 不適用（新增的 `uiDclkCap` 預設 `null`，起始畫面與所有既有預設值一個字都沒動）。取最高者 → **MINOR**，`v4.31.5` → `v4.32.0`。
+
+**🔴 MAJOR 有認真判過，結論是不編：** 判準是「使用者原本會的操作還在不在、要不要重新確認過去的結果」。① 原本會的操作**全部都在**且都在原位；② 過去的結果**不需要重新確認** —— 定頻六組（EM01 預設／UI 416／UI 432／EM02 400／E512 300／E503）在新舊版的 `fps／TX／UI／RX／Pixel Rate／TCON HTOTAL／blanking／active／兩條拉霸端點與標籤`**全部逐值相同**（驗收 B）；變頻下沒設定過 UI DCLK 時也逐值相同（驗收 A 的 `1_var`）。改變只發生在「使用者主動去設 TCON UI DCLK」之後，而那正是本版新增的能力。依 `docs/VERSIONING.md` §1「不確定一律往低編、寫明取捨供覆核」→ 編 MINOR。
+
+### 緣由（Bruce 2026-08-27，逐字）
+
+> 「第二點，變頻應用還是有上限。也就是說，哪怕滑動 RX DCLK 或是滑動 Frame Rate，使得 RX DCLK 將 TX DCLK 往上推，
+>  但是一旦 TX DCLK 到達 TCON UI DCLK 的上限時，這時候 RX 再往上拉就無法再動，一樣會變紅色。
+>  所以，還是以 TCON UI DCLK 的優先權等級最高。」
+
+> 「關於第三點，如果調低 UI DCLK，必須要讓超過上限的 FPS 跟著往下拉，也就是還是要符合『所有數據都不能超過 TX DCLK』的規則。
+>  另外，不是請使用者自己把 Frame Rate 降下來，而是要做連動：調低 UI DCLK 時，如果 FPS 超過了上限，要跟著將 FPS 一起往下拉。」
+
+### 一｜變頻應用也套 TCON UI DCLK 上限
+
+v4.31.5 判定「變頻套上去是循環論證」。**那個推導本身沒算錯**（變頻下 `wfgClampTconDclk()` 令 `dclk ≡ rxDclk`，拿 `wfgFrame.dclk` 當上限會得到 `cap ≡ 目前 fps`），**錯的是上限的來源**：實機上那顆 TCON 的 UI DCLK 是被設定進去的一個固定值，變頻指的是 TX 跟著 RX 走、不是 TCON 的能力跟著長。
+
+⇒ 新增 `wfgFrame.uiDclkCap` ＝「**使用者主動設定過的** TCON UI DCLK」，變頻的上限讀它、不讀當前值，循環因此斷開。
+
+- **寫入點只有一個**：`wfgOnDclkManualChange()`（TX 格打字／UI 格打字／TX 拉霸／UI 拉霸四條路徑的既有唯一收斂點）。`wfgClampTconDclk()`、Frame Rate／RX／Vblank 三條拉霸、匯入、preset、換機種**都不寫** —— 這就是「TCON 設定這個頻率以後就不會變」的程式表達。
+- **定頻仍讀 `wfgFrame.dclk`，v4.31.5 一字未改**。兩者實質等價，但匯入／preset／換機種時 `wfgClampTconDclk()` 會把 TX 抬上去、兩者分岔；那時改讀 `uiDclkCap` 會比 v4.31.5 更嚴 ⇒ 定頻回歸。
+- **退路是結構保證**：`wfgDclkLimits()` 完全不看 `uiDclkCap`，TX／UI 兩格與兩條拉霸永遠開放到機種規格上限，隨時可以把上限往上設。
+- **RX DCLK 拉霸跟著 Frame Rate 一起轉紅**（Bruce 指名）。狀態沿用 `wfgFrameBounds().fpsAtUiCap`，不另算一份 —— RX 拉霸的端點本來就是由 `fpsSliderMin/Max` 反推的。
+- 預設 `null` ＝ 還沒設定過 ⇒ 不加上限。**預設不可以寫 74.25**：那等於開頁就宣稱「這顆 TCON 被設成 74.25」，切到變頻後 fps 一格都拉不上去。
+- 匯出／匯入：`uiDclkCap` 隨 `wfgFrame` 自動帶走；舊檔沒有這個欄位 → 退回 `null`（**不可以**退回 `dclk × ratio`，舊檔的 `dclk` 可能是被 clamp 抬上去的衍生值）。
+
+### 二｜調低 TCON UI DCLK ⇒ Frame Rate 自動跟著降
+
+新增 `wfgUiCapAutoFitFrameRate()`，掛在 `wfgOnDclkManualChange()` 定頻分支、`wfgFrame.dclk` 賦值之後。
+
+- **不再擋**：`wfgValidateTxDclk()` 拿掉了 `empty` 分支裡的 `tx < RX` 拒絕；`wfgDclkLimits()` 的下限從 `max(specMin, rx × ratio)` 改成 `max(specMin, fps 降到下限時的 UI)`。理由：RX 從本版起會跟著 TX 一起降，不再是「外部給定、TX 必須跟上」的東西 —— 這是 v4.29.0 為變頻拿掉同一條下限時就寫過的推導，Bruce 的裁示讓它在定頻也成立。
+- **降到哪**：`floor(uiFpsMax)`。刻意**不用** `fpsSliderMax`（＝ `min(spec, ui)` 取整）—— 那會把「目前已超出機種規格」這個 v4.28.4 明訂的合法狀態也一起靜默修掉。
+- **只動 `frameRate` 一個欄位**：VBLANK／HBLANK／VACTIVE／HACTIVE／VTOTAL／HTOTAL 一律不碰（驗收逐值比對）。
+- **告知**：既有的 DCLK 訊息列 ＋ 新的 `kind='note'`（琥珀 `#fbbf24`，＝ 隔壁 `.wfg-blank-warn` 的同一個色，不是新色）。紅色留給「你的輸入被拒絕」，琥珀是「已經替你改了，你要知道」。文案 `wfg.uiCapFpsAutoFit`，句型與 v4.31.1 的 `codeFpsAutoFit` 一致。
+- **拖曳時連續跟著降**（走 `input` 事件，與站上所有拉霸一致），不是放手才跳一次 —— 這樣過程中不會出現「已超過上限」的中間狀態，而那正是 Bruce 這條規則要防的。
+- **變頻不需要這一支**：變頻下設 UI DCLK 本來就是反推 fps（v4.29.0），fps 是**直接效果**不是副作用，使用者看得見；再多一則告知只是噪音。這是判斷，列在這裡供覆核。
+- `TX DCLK` 那格的提示從 `(≥RX)` 改成 `(≥實際下限)` —— 下限不再是 RX，繼續寫 RX 就是騙人。
+
+### 三｜順帶修掉兩個被本版翻出來的既有破口
+
+| 問題 | 說明 |
+|---|---|
+| `wfgSyncDclkSliders()` 的 `bad` 判定 | v4.31.5 為止 `bad`（＝滑桿要 disable ＋ 端點涵蓋當前值）是靠 `hi > lo` **碰巧**等價於 `L.empty`。本版把 RX 那一項從 `uiMin` 拿掉之後兩者不再等價 ⇒ 超規格狀態下滑桿沒被 disable、端點也不涵蓋當前值。**驗收當場由 `wfgAuditBounds()` 吐出 4 條 issue**（EM01 UI 416 → 切 E512）。改為明文吃 `L.empty`，超規格狀態的行為與 v4.31.5 逐值相同。 |
+| Frame Rate 整數端點會交叉 | 變頻 ＋ EM01 ＋ UI DCLK 設成 40（＝規格下限）時 `fpsMin ＝ 32.32323`、`fpsMax ＝ 32.32331` —— 物理區間非空但**中間沒有整數**，`ceil` 得 33、`floor` 得 32 ⇒ `slider min > max`（`<input type=range>` 對此無行為保證）。沿用 v4.28.0 處理 RX 拉霸 `fpsMin === fpsMax` 的方式：**端點收斂成同一個點 ＋ 停用拖曳**。定頻結構上走不到（`fpsMin ≡ 1`）。 |
+
+### 驗收（headless Chrome ＋ CDP，獨立 profile，base 17b8e21 與本版跑同一支探針逐值 diff）
+
+| # | 情境 | 結果 |
+|---|---|---|
+| A | 變頻 ＋ EM01 ＋ UI DCLK 416，拉 RX／拉 fps 到底 | 停在 fps 336／RX 415.8，兩條拉霸轉紅；往下拉 60 放行、紅色消失；再往上仍停 336；強推 999 也停 336。base：拉到 349／431.8875、不紅 |
+| B | 定頻六組零回歸 | `fps／TX／UI／RX／Pixel Rate／TCON HTOTAL／blanking／active／兩條拉霸端點與標籤` **全部逐值相同**。差異只有刻意改的 `L.uiMin／txMin／rxBinds`、TX／UI 拉霸左端、以及新的 RX 紅色 |
+| C | 變頻往下拉全程放行 | 336 → 300 → 240 → 180 → 120 → 60 → 33 全部放行，base／fixed 逐值相同 |
+| D | **負控制**：頂到上限時拉 Vblank | Pixel Rate 832、RX 416 **逐值不變**，VACTIVE／HACTIVE 不變，Vblank 拉霸**不轉紅**，base／fixed 逐值相同 |
+| E | UI DCLK 從 416 一路調到 39（定頻） | fps 300→300→282→242→202→161→121→80→48→36→33→32，**每一步都有琥珀告知**，**全程沒有超過 `uiFpsMax` 的中間狀態**，VBLANK／HBLANK／VACTIVE／HACTIVE 逐值不變；39 被規格下限擋下。base：從 350 起**每一步都被擋、值完全不動**（負控制） |
+| E' | 同上（變頻） | ui／tx／rx／fps 與 base **逐值相同**（變頻本來就由反推連動） |
+| F | fps 下限邊界（7680×4320） | UI 一路降到 40 停住，fps 降到 7；**機種規格下限先擋住，fps 碰不到自己的下限 1**。base：從 200 起全被擋、一格都調不下去 |
+| G2 | **負控制**：把 UI DCLK 設回 432（＝機種上限） | 上限回到 349、**兩條拉霸的紅色消失**（`fpsCapByUi` 轉 false）⇒ 紅色是被 cap 驅動的，不是「到端點就亂噴」 |
+| G3 | 換機種 EM01(416) → E512 → EM01 | E512 下 cap 讀成 360（被 `min(cap, specMax)` 夾）、TX／UI 拉霸 disabled 且端點涵蓋當前值；**切回 EM01 仍是 416**（不寫回狀態） |
+| G4 | 匯出／匯入 round-trip | 匯出帶 `uiDclkCap: 416`，匯入後上限 336、轉紅；**把該欄位拿掉（模擬舊檔）匯入 → 無上限、不轉紅** |
+| H | **`uiDclkRatio ＝ 2` 的機種**（EM02 400／E512 300），定頻與變頻各一組 | 定頻：base／fixed 的 `ui／tx／rx／fps／fpsSliderMax` **逐值相同**（只多了 RX 紅色）；調低 UI 時 base 被擋、fixed 連動下調（161→80／121→60）。變頻：EM02 UI 400 ⇒ TX 200 ⇒ 上限 fps **161**（base 是機種規格的 169）並轉紅；E512 UI 300 ⇒ TX 150 ⇒ 上限 **121**（base 145）。`UI ＝ TX × 2` 的換算在兩種型態下都正確 |
+| — | `wfgAuditBounds()` | 上述所有情境、所有步驟 **0 筆稽核失敗** |
+| — | 截圖 | 390／430／900／1440 四個寬度，變頻紅色狀態與定頻琥珀告知各一組，逐張看過 |
+
+**其他：** i18n 新增 `wfg.errTxDclkFpsFloor`／`wfg.uiCapFpsAutoFit`（三語齊備）；`wfg.errTxDclkMin`／`wfg.errDclkEmptyBelowRx` 兩則因規則改變已無呼叫點，保留不刪（舊語系檔相容）。說明頁三份（繁／簡／英）的 4-3、4-5 與控制項總表同步更正 —— v4.31.5 在那裡寫了「變頻不套上限」與「TX 不得低於 RX」，兩句話本版都不再成立。
+
+| 檔案 | 改動 |
+|---|---|
+| `common/version.js`、`wfg.html`／`index.html` 的 `?v=` | `v4.31.5` → `v4.32.0`、`20260827wfg4315` → `20260827wfg4320` |
+
+**順帶核對（Bruce 2026-08-27）：**「印象中應該只有 E512 跟 EM02 不是 1 比 1，其他都是 1 比 1。」逐筆核對 `WFG_TCON_CODECS` 的 `uiDclkRatio` —— EM01 `1`／EM02 `2`／E512 `2`／E503 `1`／E501A `1`／E501B `1`／EN01 `1`，全表 7 顆，**與他的印象完全一致，程式碼未動**。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.31.5 — 2026-08-27 ｜ PATCH ｜ ⚠ 輸出變更
 
 **Frame Rate 的上限改由「使用者當前設定的 TCON UI DCLK」決定；拉霸頂到那個上限時轉紅。**
