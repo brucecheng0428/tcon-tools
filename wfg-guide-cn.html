@@ -1033,8 +1033,9 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
           既不会静默改成界限值，也不会先套用再弹回。<br><br>
           范围由两组限制叠起来：<br>
           ・<strong>TX DCLK ≥ RX DCLK</strong>（一直都有的约束）<br>
-          ・<strong>TCON UI DCLK 的机种规格</strong>：Monitor（EM01／EM02／E512）<code>40 – 500 MHz</code>；
-            Notebook（E501A／E501B／E503／EN01）<code>20 – 105 MHz</code><br>
+          ・<strong>TCON UI DCLK 的机种规格</strong>：<strong>下限一律 40 MHz</strong>（v4.33.0 起不分机种）；
+            上限依机种 —— EM01 <code>432</code>／EM02 <code>420</code>／E512 <code>360</code>／
+            Notebook（E501A／E501B／E503／EN01）<code>105</code> MHz<br>
           两格的界限由同一份计算换算而来，所以不会出现「一格挡下、另一格放行」。<br><br>
           🔴 <strong>超出机种能力时，画面会直接讲出路</strong>，不必自己算要调到多少，例如：<br>
           <span style="color:#fca5a5;">「E503 这组分辨率最高只跑得到 90 Hz，目前是 144 Hz。请先降低 Frame Rate，VBLANK／HBLANK 才调得动。」</span><br>
@@ -1172,7 +1173,7 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
       v4.31.5 为止的做法是<strong>挡下</strong>这个输入、叫你自己先去把 Frame Rate 降下来 —— 本版改成连动，不再挡。<br><br>
       <strong>只有 Frame Rate 会被动到。</strong>V-Blanking／H-Blanking／H-Active／V-Active／分辨率<strong>一个字都不会改</strong>。降到的目标值就是新上限（取整数），不会多降。<br><br>
       <strong>拖滑块时是连续跟着降的</strong>，不是放开手才跳一次 —— 这样过程中不会出现「已经超过上限」的中间状态。<br><br>
-      <strong>那什么时候还是会被挡 —— 两道，取较高者：</strong><br>・<strong>机种规格下限</strong>：EM01／EM02／E512 为 40 MHz，NB 四颗（E501A／E501B／E503／EN01）为 20 MHz。<span style="color:var(--muted);">实测：EM01 ＋ 3584×720（HTOTAL 3864 × VTOTAL 770）、Frame Rate 290 ⇒ UI DCLK 一路调到 40 MHz、Frame Rate 跟着降到 26 Hz 才停住。</span><br>・<strong>Frame Rate 自己的下限（1 Hz）</strong>：Frame Rate 降到 1 就不能再降，此时 <code>UI DCLK 下限 = HTOTAL × VTOTAL ÷ 2 ÷ 10⁶ × 机种系数</code>。<span style="color:var(--muted);">只有 <code>HTOTAL × VTOTAL</code> 大到超过 <code>2 × 机种规格下限 × 10⁶ ÷ 系数</code>（EM01 是 8,000 万）时这一道才会咬住。实测 20280×4050 ＝ 82,134,000 ⇒ 下限变成 41.067 MHz，打 41 会被挡下并说明「Frame Rate 已经降到下限 1 Hz，再低就撑不住这组 HTOTAL／VTOTAL，请先缩小 HTOTAL／VTOTAL」。</span>
+      <strong>那什么时候还是会被挡 —— 两道，取较高者：</strong><br>・<strong>机种规格下限</strong>：<strong>v4.33.0 起一律 40 MHz</strong>（含 NB 四颗 E501A／E501B／E503／EN01，先前写的是 20 MHz）。<span style="color:var(--muted);">实测：EM01 ＋ 3584×720（HTOTAL 3864 × VTOTAL 770）、Frame Rate 290 ⇒ UI DCLK 一路调到 40 MHz、Frame Rate 跟着降到 26 Hz 才停住。</span><br>・<strong>Frame Rate 自己的下限（v4.33.0 起是 <code>0.001 Hz</code>，先前是 1 Hz）</strong>：Frame Rate 降到工具下限就不能再降，此时 <code>UI DCLK 下限 = HTOTAL × VTOTAL × 0.001 ÷ 2 ÷ 10⁶ × 机种系数</code>。<span style="color:var(--muted);">下限缩小 1000 倍之后，这一道要 <code>HTOTAL × VTOTAL</code> 超过 <strong>800 亿</strong>（EM01）才咬得住，实务上等于不会遇到 —— 而先前是 8,000 万，VBLANK 一拉大就会撞到，正是「UI DCLK 调不到 40」的来源。真的撞到时讯息会说「Frame Rate 已经降到工具下限 0.001 Hz，再低就撑不住这组 HTOTAL／VTOTAL，请先缩小 HTOTAL／VTOTAL」。</span>
     </div>
 
     <div class="callout warn" style="margin-top:12px;">
@@ -1285,11 +1286,11 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
           <tr><td class="t-name">Hblank</td><td>系统设定</td><td><span class="t-type tt-num">数值输入</span></td><td>下限 ＝ max(10, 机种反推)，默认 280</td><td>水平空白时钟数。<strong>有下限保护</strong>（见 4-4）。</td></tr>
           <tr><td class="t-name">HTOTAL</td><td>系统设定</td><td><span class="t-type tt-out">只读显示</span></td><td>＝ Hactive ＋ Hblank</td><td>🔴 <strong>这是只读显示，不是输入格</strong>，代表<strong>系统／输入端</strong>一行的总时钟数。</td></tr>
           <tr><td class="t-name" style="color:#38bdf8;">TCON HTOTAL</td><td>系统设定</td><td><span class="t-type tt-out">只读显示</span></td><td>随 HTOTAL、Gate Type、TX/RX 比例换算</td><td>🔴 <strong>和左边的 HTOTAL 不是同一个数字</strong>：这是 <strong>TCON 内部</strong>实际使用的 Htotal，供你和真机比对用。<strong>用亮蓝色标出来就是要你看一眼，不是要你改。</strong>详见上方「两个 HTOTAL 差在哪」。</td></tr>
-          <tr><td class="t-name">Frame Rate (Hz)<br><small style="color:var(--muted);">输入格</small></td><td>系统设定</td><td><span class="t-type tt-num">数值输入</span></td><td>≥1，step 1（<strong>只收整数</strong>），默认 60</td><td>画面刷新率。改动时会<strong>同时重算</strong> Pixel Rate、RX DCLK 与 TX DCLK。<span style="color:var(--muted);">滑块在隔壁的「系统模拟」卡片，输入格留在这里。</span></td></tr>
+          <tr><td class="t-name">Frame Rate (Hz)<br><small style="color:var(--muted);">输入格</small></td><td>系统设定</td><td><span class="t-type tt-num">数值输入</span></td><td>🔴 <strong>v4.33.0 起下限是 <code>0.001 Hz</code>、可收小数</strong>（先前是「≥1、只收整数」）。step 与端点跟着合法区间走：区间里还有整数时 step ＝ 1（与先前逐值相同），整个区间掉到 1 Hz 以下才改成 0.001。默认 60。</td><td>画面刷新率。改动时会<strong>同时重算</strong> Pixel Rate、RX DCLK 与 TX DCLK。<span style="color:var(--muted);">滑块在隔壁的「系统模拟」卡片，输入格留在这里。</span></td></tr>
           <tr><td class="t-name">Pixel Rate (MHz)</td><td>系统设定</td><td><span class="t-type tt-out">只读显示</span></td><td>默认 148.5</td><td>= HTOTAL × VTOTAL × Frame Rate ÷ 10⁶。<strong>不随 TX DCLK 调整而变</strong>。在卡片最下方<strong>左半栏、白色字</strong>。</td></tr>
           <tr><td class="t-name" style="color:#38bdf8;">TCON Pixel Rate (MHz)</td><td>系统设定</td><td><span class="t-type tt-out">只读显示</span></td><td>默认 148.5</td><td>🔴 = VTOTAL × <strong>TCON HTOTAL</strong> × Frame Rate ÷ 10⁶，在卡片最下方<strong>右半栏、亮蓝字</strong>。和左边只差在 Htotal 用哪一个，所以<strong>调高 TX DCLK 它会跟着变大</strong>（≈ TX DCLK × 2）。详见上方「两个 Pixel Rate 差在哪」。</td></tr>
 
-          <tr><td class="t-name">Frame Rate 滑块</td><td style="color:#fcd34d;">系统模拟</td><td><span class="t-type tt-sld">滑块</span></td><td>🔴 右端 ＝ 目前 TCON UI DCLK 换算出来的上限（定频）</td><td>直接改 Frame Rate。<strong>拖到上限会停住并转红</strong>。以<strong>波形区中心为锚</strong>，拖拽时画面不会跑掉。<strong>允许小数</strong>（反推路径会产生小数值，滑块端点与显示都照实呈现）。</td></tr>
+          <tr><td class="t-name">Frame Rate 滑块</td><td style="color:#fcd34d;">系统模拟</td><td><span class="t-type tt-sld">滑块</span></td><td>🔴 右端 ＝ 目前 TCON UI DCLK 换算出来的上限（定频）；左端 ＝ 合法区间的下限，最低到 <code>0.001 Hz</code>（v4.33.0）</td><td>直接改 Frame Rate。<strong>拖到上限会停住并转红</strong>。以<strong>波形区中心为锚</strong>，拖拽时画面不会跑掉。<strong>允许小数</strong>（反推路径会产生小数值，滑块端点与显示都照实呈现）。</td></tr>
           <tr><td class="t-name">Vblank 滑块<br><small style="color:var(--muted);">(Pixel Rate 不变)</small></td><td style="color:#fcd34d;">系统模拟</td><td><span class="t-type tt-sld">滑块</span></td><td>左端 ＝ <strong>滑块出现当下的 Vblank 值</strong><br>右端 ＝ <strong>65535</strong></td><td>🔴 加大 Vblank，而 <strong>Pixel Rate 与 RX DCLK 逐值不变</strong> —— Frame Rate 等比降下来补回去（所以会出现小数）。<strong>以波形区中心为锚</strong>。左端不会被自己推上去，拉高之后随时拉得回来。</td></tr>
           <tr><td class="t-name">RX DCLK 滑块</td><td style="color:#fcd34d;">系统模拟</td><td><span class="t-type tt-sld">滑块</span></td><td>依目前 Frame Rate 上下限换算</td><td>反推 Frame Rate（RX 本身仍是只读衍生值）。只会停在「Frame Rate 对得上整数」的可达点上。</td></tr>
 
@@ -2555,7 +2556,7 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
       <ul style="font-size:.93rem;">
         <li><strong>导入时</strong>：算得出来就直接填进 TCON UI DCLK，而且<strong>导入提醒卡片上的「TCON UI DCLK」那一项会整项消失</strong>，只剩 Line Buffer 要你确认 —— 那一项会消失，就是因为这件事已经帮你做完了。</li>
         <li><strong>导出时</strong>：只有<strong>你真的动过</strong> TCON UI DCLK 才会把对应的寄存器写回清单。「导入 → 什么都不改 → 导出」<strong>一列都不会多写</strong>。</li>
-        <li><strong>算不出来时不会乱填</strong>：型号指纹不符、值超出 NB 的 20～105 MHz 规格、或 code 本身没做过标准化，都会<strong>维持画面上原本的值不动</strong>，并把理由写在导入卡片上、把 DCLK 那一项留着要你自己确认。</li>
+        <li><strong>算不出来时不会乱填</strong>：型号指纹不符、值超出 NB 的 40～105 MHz 规格（下限 v4.33.0 起由 20 改为 40，实测 <code>TCON/Model</code> 底下 359 份 NB 真档没有任何一份落在 20～40，判定结果逐档不变）、或 code 本身没做过标准化，都会<strong>维持画面上原本的值不动</strong>，并把理由写在导入卡片上、把 DCLK 那一项留着要你自己确认。</li>
         <li><strong>🔴 EN01 不做这件事</strong>：目前手上的 EN01 真实文件都没有做过 AGBSFR 标准化，套公式会算出明显偏低的值。<strong>选 EN01 时提醒卡片仍会保留 TCON UI DCLK 那一项</strong>，请照旧自己确认。</li>
       </ul>
       <div class="callout info">

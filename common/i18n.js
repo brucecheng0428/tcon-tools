@@ -688,10 +688,24 @@ var I18N = {
      本版起調低 TCON UI DCLK 會把 Frame Rate 一起帶下來（Bruce 2026-08-27 指名的連動），
      所以「請先把 Frame Rate 降下來」不再是出路 —— fps 已經自己降到底了。
      這則講的是**真的到底了**：fps 已經是 {fps} Hz，這組解析度撐不住更低的 TCON 頻率。
-     {t}=TX 下限 {ui}=換算成 UI DCLK 的下限 {fps}=fps 的下限 */
-  'wfg.errTxDclkFpsFloor': { 'zh-TW': 'TCON UI DCLK 最低只能到 {ui} MHz（TX DCLK {t} MHz）—— Frame Rate 已經降到下限 {fps} Hz，再低就撐不住這組 HTOTAL／VTOTAL 了。已保留原本的值。要再往下，請先縮小 HTOTAL／VTOTAL。',
-                          'en': 'TCON UI DCLK bottoms out at {ui} MHz (TX DCLK {t} MHz) - the Frame Rate is already at its floor of {fps} Hz, and anything lower cannot sustain this HTOTAL/VTOTAL. The previous value was kept. To go lower, reduce HTOTAL/VTOTAL first.',
-                          'zh-CN': 'TCON UI DCLK 最低只能到 {ui} MHz（TX DCLK {t} MHz）—— Frame Rate 已经降到下限 {fps} Hz，再低就撑不住这组 HTOTAL／VTOTAL 了。已保留原本的值。要再往下，请先缩小 HTOTAL／VTOTAL。' },
+     {t}=TX 下限 {ui}=換算成 UI DCLK 的下限 {fps}=fps 的下限
+     🔴 v4.33.0 改文案：舊版硬寫「下限 1 Hz」，而 fps 的下限從本版起是 `WFG_FPS_FLOOR`
+        （0.001 Hz）——「1 Hz」已經不成立。措辭同時改成「工具下限」，因為這個數字不再是
+        物理事實，是工具刻意訂的絕對底線（理由見 `WFG_FPS_FLOOR` 上方的區塊註解）。
+        🔴 觸發條件也跟著鬆了：`uiAtFpsFloor` 縮小 1000 倍 ⇒ 這則訊息從「VBLANK 一拉大
+        就會撞到」變成幾乎撞不到（需要 `HTOTAL × VTOTAL > 8×10¹⁰`）。文案留著是因為
+        `wfgDclkLimits()` 那條下限仍然存在，不是留一句永遠不會出現的話。 */
+  'wfg.errTxDclkFpsFloor': { 'zh-TW': 'TCON UI DCLK 最低只能到 {ui} MHz（TX DCLK {t} MHz）—— Frame Rate 已經降到工具下限 {fps} Hz，再低就撐不住這組 HTOTAL／VTOTAL 了。已保留原本的值。要再往下，請先縮小 HTOTAL／VTOTAL。',
+                          'en': 'TCON UI DCLK bottoms out at {ui} MHz (TX DCLK {t} MHz) - the Frame Rate is already at the tool floor of {fps} Hz, and anything lower cannot sustain this HTOTAL/VTOTAL. The previous value was kept. To go lower, reduce HTOTAL/VTOTAL first.',
+                          'zh-CN': 'TCON UI DCLK 最低只能到 {ui} MHz（TX DCLK {t} MHz）—— Frame Rate 已经降到工具下限 {fps} Hz，再低就撑不住这组 HTOTAL／VTOTAL 了。已保留原本的值。要再往下，请先缩小 HTOTAL／VTOTAL。' },
+  /* 🔴 v4.33.0：Frame Rate 打進小於工具絕對下限的值。
+     Bruce 2026-08-27：「FPS 不會等於 0，但會是一個大於 0 的數。」⇒ 0 與負數要有人擋，
+     而擋下來就要說明白是哪一道在擋 —— 這一道**與機種、與 TCON UI DCLK 都無關**，
+     所以刻意不與 `errFpsMin`（變頻機種下限）共用一則：那則的出路是「換機種／改 timing」，
+     這則沒有出路，就是工具的底。{min}=WFG_FPS_FLOOR */
+  'wfg.errFpsAbsFloor': { 'zh-TW': 'Frame Rate 最低只能到 {min} Hz —— 這是本工具的絕對下限（一個 frame 已經長達 1000 秒），與機種無關。已保留原本的值。',
+                          'en': 'The Frame Rate can go down to {min} Hz - that is this tool\'s absolute floor (one frame already lasts 1000 seconds) and is not model-dependent. The previous value was kept.',
+                          'zh-CN': 'Frame Rate 最低只能到 {min} Hz —— 这是本工具的绝对下限（一个 frame 已经长达 1000 秒），与机种无关。已保留原本的值。' },
   /* 🔴 v4.32.0：調低 TCON UI DCLK ⇒ Frame Rate 自動跟著降的**告知**（琥珀，不是錯誤）。
      Bruce 2026-08-27 明示不可以靜默改掉使用者的設定。措辭與 `codeFpsAutoFit`（v4.31.1
      匯入自動下調）刻意保持同一個句型 —— 同一件事在站上只有一種說法。
