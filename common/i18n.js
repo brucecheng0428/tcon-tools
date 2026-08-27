@@ -677,9 +677,13 @@ var I18N = {
                           'en': 'Enter a number greater than 0; the previous value was kept.',
                           'zh-CN': '请填入大于 0 的数值，已保留原本的值。' },
   /* 下限來自 RX DCLK（TX 永遠 ≥ RX）。{t}=RX DCLK */
-  'wfg.errTxDclkMin':   { 'zh-TW': 'TX DCLK 不可低於 RX DCLK（{t} MHz）。已保留原本的值。',
-                          'en': 'TX DCLK cannot be lower than RX DCLK ({t} MHz). The previous value was kept.',
-                          'zh-CN': 'TX DCLK 不可低于 RX DCLK（{t} MHz）。已保留原本的值。' },
+  /* v4.31.5 補上**出路**：Frame Rate 的上限由 TCON UI DCLK 決定（`errFpsMaxUi`），
+     反過來 TCON UI DCLK 的下限就由 Frame Rate 決定 —— 兩條是同一個不等式 `RX ≤ TX`
+     的兩半。只講「不可低於」而不講「先把 Frame Rate 降到幾」，使用者會以為卡死。
+     {t}=RX DCLK（＝TX 的下限） {fps}=RX 降到 TX 以下所需的 Frame Rate 上限 */
+  'wfg.errTxDclkMin':   { 'zh-TW': 'TX DCLK 不可低於 RX DCLK（{t} MHz）。已保留原本的值。要把 TCON 頻率設得更低，請先把 Frame Rate 降到 {fps} Hz 以下。',
+                          'en': 'TX DCLK cannot be lower than RX DCLK ({t} MHz). The previous value was kept. To set a lower TCON clock, first bring the Frame Rate down to {fps} Hz or below.',
+                          'zh-CN': 'TX DCLK 不可低于 RX DCLK（{t} MHz）。已保留原本的值。要把 TCON 频率设得更低，请先把 Frame Rate 降到 {fps} Hz 以下。' },
   /* 下限／上限來自機種規格。{m}=機種 {lo}/{hi}=該機種的 UI DCLK 規格值 {t}=換算成 TX 的界限 */
   'wfg.errDclkSpecMin': { 'zh-TW': '{m} 的 TCON UI DCLK 規格下限是 {lo} MHz（換算成 TX DCLK ＝ {t} MHz），已保留原本的值。',
                           'en': 'The TCON UI DCLK spec minimum for {m} is {lo} MHz (TX DCLK {t} MHz). The previous value was kept.',
@@ -701,6 +705,14 @@ var I18N = {
   'wfg.errFpsMax':      { 'zh-TW': 'Frame Rate 最高只能到 {max} Hz —— 再高的話 {m} 的 TCON UI DCLK 就會超出規格（Pixel Rate 上限 {px} MHz）。要再往上，請先降低 HTOTAL／VTOTAL 或改選其他機種。',
                           'en': 'Frame Rate can go up to {max} Hz - any higher and the TCON UI DCLK for {m} would exceed spec (Pixel Rate limit {px} MHz). Lower HTOTAL / VTOTAL first, or pick another model.',
                           'zh-CN': 'Frame Rate 最高只能到 {max} Hz —— 再高的话 {m} 的 TCON UI DCLK 就会超出规格（Pixel Rate 上限 {px} MHz）。要再往上，请先降低 HTOTAL／VTOTAL 或改选其他机种。' },
+  /* ══ v4.31.5：擋下 Frame Rate 的是**使用者當前設定的 TCON UI DCLK**（定頻） ═══════
+     與 `errFpsMax`（機種規格）刻意分成兩則：出路不同 —— 這一則的出路是「把 TCON UI DCLK
+     調高」，那一則是「降 HTOTAL／VTOTAL 或換機種」。混成一則會把使用者指去錯的地方。
+     {max}=目前的 fps 上限 {ui}=目前 UI DCLK {tx}=目前 TX DCLK
+     {m}=機種 {hi}=機種 UI DCLK 上限 {smax}=用機種上限算出來的 fps 上限 */
+  'wfg.errFpsMaxUi':    { 'zh-TW': 'Frame Rate 最高只能到 {max} Hz —— 這個上限由目前的 TCON UI DCLK {ui} MHz（TX {tx} MHz）決定。TCON 的頻率設定好之後就不會變，系統再往上送會超出它的能力。要再往上，請先把 TCON UI DCLK 調高（{m} 最高 {hi} MHz，對應 {smax} Hz）。',
+                          'en': 'Frame Rate can go up to {max} Hz - this ceiling comes from the current TCON UI DCLK of {ui} MHz (TX {tx} MHz). Once the TCON clock is configured it does not change, so anything the system sends above it exceeds what the TCON can handle. To go higher, raise the TCON UI DCLK first ({m} tops out at {hi} MHz, which allows {smax} Hz).',
+                          'zh-CN': 'Frame Rate 最高只能到 {max} Hz —— 这个上限由目前的 TCON UI DCLK {ui} MHz（TX {tx} MHz）决定。TCON 的频率设定好之后就不会变，系统再往上送会超出它的能力。要再往上，请先把 TCON UI DCLK 调高（{m} 最高 {hi} MHz，对应 {smax} Hz）。' },
   'wfg.errFpsMin':      { 'zh-TW': '變頻應用下 Frame Rate 最低只能到 {min} Hz —— 再低的話 {m} 的 TCON UI DCLK 會低於規格下限 {lo} MHz。（定頻應用沒有這個限制，因為 TX DCLK 不會跟著降。）',
                           'en': 'In variable-clock mode the Frame Rate can go down to {min} Hz - any lower and the TCON UI DCLK for {m} would fall below its {lo} MHz spec minimum. (Fixed-clock mode has no such limit: TX DCLK does not follow it down.)',
                           'zh-CN': '变频应用下 Frame Rate 最低只能到 {min} Hz —— 再低的话 {m} 的 TCON UI DCLK 会低于规格下限 {lo} MHz。（定频应用没有这个限制，因为 TX DCLK 不会跟着降。）' },

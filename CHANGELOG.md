@@ -22,6 +22,118 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.31.5 — 2026-08-27 ｜ PATCH ｜ ⚠ 輸出變更
+
+**Frame Rate 的上限改由「使用者當前設定的 TCON UI DCLK」決定；拉霸頂到那個上限時轉紅。**
+
+**判定依據：** §1 判定表逐欄 ——「操作流程」零改變（沒有新按鈕、沒有任何入口移動或消失，Frame Rate 拉霸與輸入格都在原位）；「功能增減」不增不減（紅色是既有拉霸的**狀態指示**，不是新控制項）；「既有功能的輸出」屬**修正為原本就該有的行為** —— 舊版在定頻下把 Frame Rate 拉高時，`wfgClampTconDclk()` 會**把 TX／TCON UI DCLK 抬上去**，等於工具替使用者改掉 TCON 的設定，而實機上那顆 TCON 的 DCLK 燒進去之後不會變（Bruce 2026-08-27）⇒ 舊行為模擬的是一個物理上不存在的 TCON。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`（同一組設定在新舊版重跑，定頻下打得到／拖得到的 Frame Rate 範圍會不一樣，舊截圖與舊基線不能直接沿用）；R2 不適用（不開新波）；R3 不適用（使用者能做的事沒有多一件）；R4 不適用（沒動任何預設值或起始畫面 —— 變的是**衍生**出來的上限，不是某個選項的預設值）。取最高者 → **PATCH**，`v4.31.4` → `v4.31.5`。
+
+**🔴 MAJOR 這條有認真想過，結論是不編：** 「打 fps 144 會被擋」確實符合「使用者原本會的操作失效」這句話，但 **`v4.7.1` 做的是同一件事同一型**（那一版把機種 UI DCLK 上限反推成 Frame Rate 的硬上限，原本打得到的 404 從此打不到），編的是 **PATCH ＋ `⚠ 輸出變更`**。差別只在「上限的來源從機種規格換成使用者當前設定」，不是新增一種擋法。另外：舊存檔匯入後**不會失效**（設定檔同時帶 `dclk` 與 `frameRate`，`TX ≥ RX` 仍成立），既有波形／匯出檔案在**同一組參數**下一位元未變。依 `docs/VERSIONING.md` §1 R2-3「不確定一律往低編，並在 `判定依據：` 寫明取捨供覆核」→ 編 PATCH，取捨寫在這裡。
+
+### 緣由（Bruce 2026-08-27，逐字）
+
+> 「在 WFG 裡面，TCON UI DCLK 的優先權是最大的，任何跟它抵觸的都要以它為主。
+>  原因是 TCON 設定這個頻率以後就不會變，系統如果增加頻率超過這個應用會出現畫異。
+>  所以在系統模擬的卡片中，如果 frame rate 可以拉到更高，但超過了 TCON UI DCLK 的設定就應該停止，
+>  而且 frame rate 的拉桿要變成紅色警示，表示不能再往上拉，一切都以 TCON UI DCLK 為主。」
+
+### 公式與連動方向
+
+約束鏈與 v4.7.1／v4.8.0 是**同一條**，只是這次把 `TX` 從「會自動跟上的衍生量」改回「使用者設定的固定量」：
+
+```
+RX = HTOTAL × VTOTAL × fps / 2      TX = TCON UI DCLK ÷ ratio      RX ≤ TX
+⇒ fps ≤ 2 × TX / (HTOTAL × VTOTAL) = (2 × UI ÷ ratio) / (HTOTAL × VTOTAL)
+```
+
+`wfgFrameBounds()` 的 `fpsMax` 從此是 **`min(機種規格反推, 當前 UI DCLK 反推)`**。
+
+**連動方向（Bruce 要求說明）**：**調高 TCON UI DCLK ⇒ Frame Rate 上限跟著變高；調低 ⇒ 跟著變低。** 兩者是同一個不等式的兩半，所以也互為出路 —— 拉霸紅了就去調高 UI DCLK；UI DCLK 調不下去（`TX ≥ RX` 擋著）就先降 Frame Rate。本版一併把 `wfg.errTxDclkMin` 補上後者的出路（原文只說「不可低於 RX DCLK」，沒講該降到幾）。
+
+**🔴 「調低 UI DCLK 導致目前 fps 超過新上限」在結構上不可能發生，不是沒處理**：定頻下 `TX ≥ RX` 是既有的結構保證（`wfgClampTconDclk()` 只往上抬、v4.7.0 的 TX 硬下限只往下擋），而新上限 ＝ `2×TX/(HT×VT) ≥ 2×RX/(HT×VT) = fps`。⇒ 上限**永遠涵蓋當前 fps**，最糟的情況是兩者相等（此時拉霸正好轉紅）。所以既不會靜默改掉使用者的 fps，也不會鎖死。這條寫成 `wfgAuditBounds()` 的 **K1** 斷言，不靠記得。
+
+**🔴 變頻應用不套這條上限（回傳 `Infinity`）**：變頻的定義就是 `TX ≡ RX`，「當前 UI DCLK」不是獨立設定值而是 fps 的函數 ⇒ 套上去會得到 `cap ≡ 目前 fps`，拉霸永遠釘在最右端。**這正是 v4.29.0 已經為下限指認過的循環論證**，同一個陷阱不踩第二次。而且 Bruce 的前提「TCON 設定這個頻率以後就不會變」講的就是定頻。
+
+### 紅色警示
+
+- 色值 `#ef4444` ＝ 站上既有的錯誤色（`.wfg-ack-item.tone-red`、`.wfg-ack-input.bad`、LA 連線失敗 toast、疊合拖曳滿載），不是新造的。
+- **只掛 Frame Rate 一條**；同卡片的 Vblank／RX DCLK 維持橘 `#f97316`（Vblank 拉霸 Pixel Rate 守恆、RX 拉霸端點本來就由 Frame Rate 區間反推，兩條都踩不到這條上限）。
+- **只有「因為 TCON UI DCLK 而停住」才紅**（`fpsCapByUi` 用**嚴格**小於）。頂到**機種規格**上限時維持橘色 —— 紅色的語意是「這個上限是你自己設的，**還有救**」，而機種上限使用者調不動，對它喊紅是誤導；那條路徑既有的 `wfg.errFpsMax` 已經在講該改解析度或換機種。
+- 離開上限自動恢復：class 掛在端點的**唯一寫入點** `wfgSyncFrameBounds()` 上，不另寫「恢復」路徑。
+
+### 改了什麼
+
+| 檔案 | 內容 |
+|---|---|
+| `wfg.html` | 新增 `wfgUiDclkFpsCapHz()`；`wfgFrameBounds()` 的 `fpsMax` 改取 `min(specFpsMax, uiFpsMax)` 並回傳 `specFpsMax`／`uiFpsMax`／`fpsCapByUi`／`fpsAtUiCap`；`wfgSyncFrameBounds()` 切換紅色 class；`wfgOnFrameRateChange()` 依來源分兩則訊息；`wfgValidateTxDclk()` 為 `errTxDclkMin` 補 `{fps}`；`wfgAuditBounds()` 新增 K1～K4；CSS 新增 `#wfg-syssim-card .wfg-fps-slider.wfg-fps-slider-capped` |
+| `common/i18n.js` | 新增 `wfg.errFpsMaxUi`（三語）；`wfg.errTxDclkMin` 補出路句（三語） |
+| `wfg-guide.html` / `-cn` / `-en` | 4-3 表格 Frame Rate 那列的「範圍」欄改寫、新增一個 callout（公式＋336 Hz 實例＋紅色規則＋變頻例外）；4-5 表格「改 Frame Rate 之後 TX／UI DCLK 會不會動」定頻那格改寫；4-6 欄位表兩處 |
+| `common/version.js`、`wfg.html`／`index.html` 的 `?v=` | `v4.31.4` → `v4.31.5`、`20260827wfg4314` → `20260827wfg4315` |
+
+**🔴 只影響 Frame Rate 一個上限。** 同一支 `wfgFrameBounds()` 底下的 `htotalMax`／`vtotalMax`／`vblankMax`／`hblankMax`／`hactiveMax`／`vactiveMax`／`incompatible` **一律仍然只吃機種規格 `pxMaxHz`**，一個字未動（Bruce 明示 H-Active／V-Active「輸入多少就是多少」）。
+
+**v4.28.4（超規格保護）與 v4.31.1（匯入自動下調 fps）不受影響，可證明**：`incompatible ⟺ P > pxMax`；定頻恆有 `TX ≥ RX = P/2` ⇒ `uiCapPx = 2×TX ≥ P > pxMax` ⇒ **超規格狀態下一定是機種規格那一個較小** ⇒ `fpsSliderMax` 逐值等於舊版。所以 `wfgOverSpecMsg()` 與 `wfgCodeAutoFitFrameRate()` 照舊讀 `fpsSliderMax` 就會拿到機種那一個，不需要也不應該另開欄位。下方 D2／D3 以 base 逐值比對坐實。
+
+### 驗收（headless Chrome + CDP，獨立 profile，未碰使用者的 Chrome）
+
+log 與截圖：`~/ClaudeData/_wfg_fpsmax/`。base ＝ `6fa9bf6`（`git archive` 到獨立目錄、另起一個 http server），fixed ＝ 工作區。
+
+**A｜上限正確性（手算 vs 頁面，6 組）** —— 手算式 `(2 × UI ÷ ratio) / (HTOTAL × VTOTAL)`：
+
+| 機種／解析度／UI DCLK | 手算 | 頁面 `fpsMax` | `fpsSliderMax` ＝ input.max ＝ slider.max ＝ 右端標籤 | 稽核 |
+|---|---:|---:|---:|---|
+| **EM01 1920×1080 UI 416（Bruce 的 case）** | **336.1616** | 336.16169697 | **336** | 0 條 |
+| EM01 1920×1080 UI 432（＝規格上限） | 349.0909 | 349.09090909 | 349（`capByUi` **false**，維持橘色） | 0 條 |
+| EM02 1920×1080 UI 200（ratio 2 ⇒ TX 100） | 80.8081 | 80.80816162 | 80 | 0 條 |
+| E503 1920×1080 UI 80（NB） | 64.6465 | 64.64654545 | 64 | 0 條 |
+| EM01 3840×2160（4400×2250）UI 300 | 60.6061 | 60.60608081 | 60（fps 60 ⇒ **紅**） | 0 條 |
+| EM01 1920×1080 **變頻** | —（不套） | 349.09090909 | 349（`uiFpsMax` ＝ Infinity） | 0 條 |
+
+**B｜互動（EM01 1920×1080 UI 416，上限 336）**
+
+| # | 操作（真實滑鼠／鍵盤事件） | 結果 |
+|---|---|---|
+| B1 | 滑鼠拖曳 Frame Rate 拉霸到最右 | fps **336** 停住、`accent-color` **rgb(239,68,68)**、TX/UI 仍是 **416**、RX 415.8、稽核 0 條 |
+| B1 | 再拖一次 | 仍是 336（確認是「停住」不是「慢一點」） |
+| B1 | 在拉霸上按 ← 一格 | fps 335、顏色回 **rgb(249,115,22)** |
+| B1 | 再按 → 一格 | fps 336、又變紅 |
+| B1 | 一路往左拖 | fps **1**（＝ `fpsSliderMin`），**往下永遠放行** |
+| B2 | 輸入格 100 → 在字尾打 `0`（1000） | 真值仍 **100**、輸入格仍 100，訊息 ＝ 新的 `errFpsMaxUi`（指向 TCON UI DCLK，並告知 EM01 最高 432 對應 349 Hz） |
+| B2 | 輸入格 336（上限）→ 打成 3360 | 真值仍 **336** |
+| B2 | 在上限上按 spinner 上鍵 ×3 | 仍 336（DOM `max` 那一半也守住） |
+| B2 | 往下打 120 | 接受，紅色解除 |
+| B3 | UI DCLK 依序打 416／432／300／200／100／74.25／250／432 | 上限逐值 336／349／242／161／80／60／202／349，**每一格都與手算相同**；fps 全程停在 60 沒有被偷偷改；稽核全 0 條 |
+| B4 | 先拉到上限（fps 336、RX 415.8），再打 UI ＝ 300 | 依 v4.7.0 擋下並保留原值，**fps 沒有被動過**；訊息新增出路「請先把 Frame Rate 降到 **242** Hz 以下」（＝ 由**他想設的** 300 MHz 反推，不是由目前值反推） |
+| B4 | 先降 fps 到 150，再打 UI ＝ 300 | 成功，上限跟著降到 242，稽核 0 條 |
+
+**C｜負控制（四個都證明量測有鑑別力）**
+
+| # | 破壞方式 | 觀察到的差異 |
+|---|---|---|
+| C1 | **把上限來源改回機種規格** ＝ 直接跑 base `6fa9bf6` | 同一組操作：base 拖到最右是 **fps 349、橘色、TX 被自動抬到 431.8875**；fixed 是 **fps 336、紅色、TX 仍 416** |
+| C2 | 注入 CSS 把紅色蓋回橘色 | `fpsAtUiCap` 仍 true、class 仍在，但量到的 `accent-color` 變 **rgb(249,115,22)** ⇒ 顏色是真的量出來的，不是從 class 推的 |
+| C3 | 把 Vblank／RX 兩支也加上同一個 class | 兩支確實變紅，且 `wfgAuditBounds()` 報出 **2 條**（`vb slider 不該帶紅色警示 class`、`rx slider…`）⇒ K4 擋得住 |
+| C4 | 拿掉輸入格的 DOM `max` 之後打 2000 | 仍被擋（fps 留 200）⇒ 擋值在 handler 不只在屬性；**同一狀態打 300（< 336）被接受** ⇒ 不是「這格永遠不動」 |
+
+**D｜零回歸（base vs fixed 逐值比對）**
+
+| # | 項目 | base `6fa9bf6` | fixed |
+|---|---|---|---|
+| D1 | **v4.29.0** 變頻雙向連動：EM01 變頻打 TCON UI DCLK ＝ 120 | fps **96.9697**、TX ＝ RX ＝ 120、sliderMax 349、稽核 0 | **逐值相同** |
+| D2 | **v4.28.4** 超規格保護：EM01 UI 432 ＋ fps 144 → 切 E503 | `incompatible` true、`empty` true、VBLANK 輸入格 min/max ＝ **10/1**（下限沒有讓步）、打 VBLANK ＝ 5 仍留 45、稽核 0、拉霸**不紅**（機種規格在擋） | **逐值相同** |
+| D3 | **v4.31.1** 匯入自動下調：在同一個超規格狀態呼叫 `wfgCodeAutoFitFrameRate()` | `{"changed":true,"from":144,"to":84}`、`fpsSliderMax` 84 | **逐值相同**（含之後那 4 條既有的 bounds 未同步 issue，base 也一模一樣 ⇒ 非本版引入） |
+
+> D3 原本想照 v4.31.1 的原始情境構造 `HT 3864 × VT 1490 @222`，**實測構造不出來**：`HACTIVE` 在 fps 222 下會被既有的 `hactiveMax` 擋（3584 > 3179），真實情境走的是 code 匯入（繞過上游檢查）。改用同型的超規格狀態直接呼叫那一支 —— 同一個 guard、同一條演算法，且 base/fixed 可逐值比對。
+
+**E｜四個寬度截圖**（390／430／900／1440，皆有「未到上限的橘」與「到上限的紅」兩張）：四個寬度都是拉到上限前 fps 60／橘、拉到上限後 fps 336／紅，稽核全 0 條。已逐張看過實際畫面：Frame Rate 那條整條變紅、Vblank 與 RX DCLK 兩條仍是橘色，右端標籤 336。
+
+### 開發中被實測打臉、記在這裡免得重犯
+
+1. **`wfgAuditBounds()` 的 K1 第一版斷錯對象。** 原本寫成 `fpsMax < frameRate` 就報錯，D2 的零回歸驗收當場叫出「fpsMax 84.848 低於當前 frameRate 144」。那個狀態是 v4.28.4 明訂**合法**的超規格狀態，`fpsMax = min(spec, ui)` 這時等於 spec，而 spec 低於當前 fps 正是「這組 timing 這顆機種跑不動」的正確表達 —— **是斷言自己壞掉，不是產品壞掉**（同 v4.28.5 為 H4 補前提那一次）。改為只斷 `uiFpsMax`。
+2. **`+1e-4` 的容差不是放水。** `wfgFrame.dclk` 走 `toFixed(4)`，而 `wfgClampTconDclk()` 是把 TX 寫成**已四捨五入的** RX；捨入可能往下 ⇒ 反推回 fps 少掉半個 LSB ⇒ `floor()` 之後整整少 1 Hz（預設 60 會變 59）。1e-4 MHz 換算成 fps 是 `2e2/(HT×VT)`，FHD 是 8e-5 Hz。
+
+---
+
 ## 說明頁 7-4：補上「疊合群組內沒有順序，所以拖動任何一條就是把它拿出來」的設計說明 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
 
 **判定依據：** 只改 `wfg-guide.html` / `wfg-guide-cn.html` / `wfg-guide-en.html` 三份說明頁，各新增一個 `<div class="callout info">`。依 `docs/VERSIONING.md` §3「說明頁不納入版號機制」→ **不進版**。逐項覆核：R1 不適用（不是修 bug，程式行為一行未動）；R2 不適用（沒有任何既有入口消失或移位）；R3 不適用（使用者能做的事不增不減）；R4 不適用（沒動任何預設值）。`wfg.html`、`common/*.js` **零改動** ⇒ 不需 bump `?v=` 快取字串（`tools/check_cache_buster.py` 的觸發條件是改了 `common/*.js`）。
