@@ -11,6 +11,29 @@
   var q = new URLSearchParams(location.search).get('theme');
   document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
 })();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'zh-TW';
+window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 'en': 'wfg-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
 </script>
 <title>面板訊號模擬與取樣 — 使用手冊</title>
 <meta name="description" content="面板訊號模擬與取樣（面板訊號模擬模式）完整使用手冊：每一個輸入欄位、按鈕、顯示內容與輸出格式的詳細說明。">
@@ -165,9 +188,16 @@
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
     padding: 0 24px;
-    overflow-x: auto;
   }
   .nav-inner { display: flex; gap: 2px; max-width: 980px; margin: 0 auto; align-items:center; }
+  /* 20 顆章節鈕比導覽列寬，橫向捲動改由這一層負責（原本是整條 .sticky-nav 在捲）。
+     這樣右邊的搜尋／主題／語言三個控制項才會固定看得到 —— 語言下拉如果要橫捲才找得到，
+     等於沒有。實測 430／900／1440 三個寬度都在畫面內。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
   .nav-btn {
     padding: 13px 13px;
     border: none;
@@ -209,6 +239,35 @@
   .theme-toggle .icon-moon { display: inline; }
   [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
   [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; margin-left: 8px; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
 
   /* === SECTIONS === */
   section { padding: 54px 0; }
@@ -449,26 +508,28 @@
 <!-- ==================== NAV ==================== -->
 <div class="sticky-nav">
   <div class="nav-inner">
-    <button class="nav-btn active" onclick="scrollToSection('#intro')">簡介</button>
-    <button class="nav-btn" onclick="scrollToSection('#quickstart')">快速開始</button>
-    <button class="nav-btn" onclick="scrollToSection('#interface')">介面總覽</button>
-    <button class="nav-btn" onclick="scrollToSection('#frame')">系統設定</button>
-    <button class="nav-btn" onclick="scrollToSection('#frmno')">FRM_NO</button>
-    <button class="nav-btn" onclick="scrollToSection('#digital')">數位信號</button>
-    <button class="nav-btn" onclick="scrollToSection('#analog')">類比信號</button>
-    <button class="nav-btn" onclick="scrollToSection('#channel')">輸出通道</button>
-    <button class="nav-btn" onclick="scrollToSection('#toolbar')">工具列</button>
-    <button class="nav-btn" onclick="scrollToSection('#panels')">右側面板</button>
-    <button class="nav-btn" onclick="scrollToSection('#canvas')">畫布操作</button>
-    <button class="nav-btn" onclick="scrollToSection('#io')">預設與檔案</button>
-    <button class="nav-btn" onclick="scrollToSection('#tcon-ui')">原廠 UI 匯入</button>
-    <button class="nav-btn" onclick="scrollToSection('#la-intro')">LA 簡介</button>
-    <button class="nav-btn" onclick="scrollToSection('#la-acq')">LA 取樣觸發</button>
-    <button class="nav-btn" onclick="scrollToSection('#la-toolbar')">LA 工具列</button>
-    <button class="nav-btn" onclick="scrollToSection('#la-scope')">LA 波形區</button>
-    <button class="nav-btn" onclick="scrollToSection('#la-panels')">LA 面板解碼</button>
-    <button class="nav-btn" onclick="scrollToSection('#la-hw')">LA 硬體連線</button>
-    <button class="nav-btn" onclick="scrollToSection('#faq')">常見問題</button>
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">簡介</button>
+      <button class="nav-btn" onclick="scrollToSection('#quickstart')">快速開始</button>
+      <button class="nav-btn" onclick="scrollToSection('#interface')">介面總覽</button>
+      <button class="nav-btn" onclick="scrollToSection('#frame')">系統設定</button>
+      <button class="nav-btn" onclick="scrollToSection('#frmno')">FRM_NO</button>
+      <button class="nav-btn" onclick="scrollToSection('#digital')">數位信號</button>
+      <button class="nav-btn" onclick="scrollToSection('#analog')">類比信號</button>
+      <button class="nav-btn" onclick="scrollToSection('#channel')">輸出通道</button>
+      <button class="nav-btn" onclick="scrollToSection('#toolbar')">工具列</button>
+      <button class="nav-btn" onclick="scrollToSection('#panels')">右側面板</button>
+      <button class="nav-btn" onclick="scrollToSection('#canvas')">畫布操作</button>
+      <button class="nav-btn" onclick="scrollToSection('#io')">預設與檔案</button>
+      <button class="nav-btn" onclick="scrollToSection('#tcon-ui')">原廠 UI 匯入</button>
+      <button class="nav-btn" onclick="scrollToSection('#la-intro')">LA 簡介</button>
+      <button class="nav-btn" onclick="scrollToSection('#la-acq')">LA 取樣觸發</button>
+      <button class="nav-btn" onclick="scrollToSection('#la-toolbar')">LA 工具列</button>
+      <button class="nav-btn" onclick="scrollToSection('#la-scope')">LA 波形區</button>
+      <button class="nav-btn" onclick="scrollToSection('#la-panels')">LA 面板解碼</button>
+      <button class="nav-btn" onclick="scrollToSection('#la-hw')">LA 硬體連線</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">常見問題</button>
+    </div>
     <div class="search-wrap">
       <input id="ctrl-search" type="search" placeholder="🔍 搜尋控制項…" autocomplete="off">
       <span id="search-count"></span>
@@ -476,6 +537,13 @@
     <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切換亮色／暗色主題" aria-label="切換亮色／暗色主題">
       <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
     </button>
+    <div class="lang-switcher">
+      <select id="lang-select" class="lang-select" aria-label="Language">
+        <option value="zh-TW">繁體中文</option>
+        <option value="zh-CN">简体中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
   </div>
 </div>
 
@@ -3800,6 +3868,24 @@ function syncGuideLinkTheme(theme) {
   });
 }
 syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
 
 // === NAV scroll tracking ===
 function scrollToSection(sel) {

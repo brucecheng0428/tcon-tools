@@ -22,6 +22,42 @@
 
 ---
 
+## 說明頁 wfg-guide.html 三語化：新增 `wfg-guide-cn.html` / `wfg-guide-en.html`，加語言下拉 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
+
+**判定依據：** 依 `docs/VERSIONING.md` §3「純文件、說明頁」不進版。本條主體是新增兩份說明頁與在說明頁上加語言下拉，都在說明頁範圍內。
+
+唯一越界的是**兩處工具頁的入口連結解析**（`index.html` 的 `openGuide()` 多包一層 `guideUrlForLang()`、`wfg.html` 多一支 `wfgSyncGuideLink()`）。逐項判 R1～R4 取最高者的結果：
+
+- 判定表「操作流程」：按鈕位置、外觀、點下去會開說明頁 —— **全部沒變**，不是 MAJOR。
+- 判定表「既有功能的輸出」：繁中使用者（`tcon-lang` 未設或為 `zh-TW`）點下去拿到的仍然是 `wfg-guide.html`，**逐位元組相同**，不是 MAJOR。
+- 判定表「功能增減」：只有在使用者**主動把語言切成簡中／英文之後**，才會導向另一份檔案 —— 這是既有語言設定的延伸生效，不是新增獨立功能。
+- R1 不適用（不是修 bug）；R2 不適用（不開新波）。
+
+**取捨說明（供覆核）：** 若把「說明頁多了兩種語言」視為新增能力，`wfg` 應進 MINOR。這裡依 §1 R2-3「不確定一律往低編」判為不進版，理由是 Bruce 交辦時已明示「說明頁不進版號機制」，且工具頁那兩處改動本身不改變任何既有輸出。**編低了下次可補**；若覆核認為該進 MINOR，下次 `wfg` 進版時在該條目註明即可。
+
+### 架構：每語一份檔案（Bruce 裁示方案 B）
+
+- `wfg-guide.html`（繁中，正本，內容一字未改）／`wfg-guide-cn.html`（简中）／`wfg-guide-en.html`（English）
+- 切語言＝換網址，`#錨點`與 `?theme` 都原樣帶過去
+- 語言記憶沿用工具本體同一個 key：`localStorage['tcon-lang']`（`common/common.js:54`，值域 `zh-TW`／`zh-CN`／`en`）
+- 說明頁 `<head>` 有轉址 IIFE：storage 裡是哪一語就落在哪一份；`?lang=xx` 明示指定優先於 storage 並寫回 storage（供分享深連結）
+- `<html lang>` 三份分別為 `zh-Hant`／`zh-Hans`／`en`
+
+### 版面：導覽列改成內層捲動
+
+原本 20 顆章節鈕撐爆 `.sticky-nav`，整條在橫捲，右邊的搜尋／主題鈕要橫捲才找得到。新增語言下拉之後這件事變成硬傷（**要橫捲才找得到的語言下拉等於沒有**），故把 20 顆鈕包進新的 `.nav-scroll`（`overflow-x:auto`），讓右側控制項固定在畫面內。430／900／1440 三個寬度實測 `lang-select` 的 `inView` 皆為 `true`。
+
+### 驗收（headless Chrome + CDP，獨立 profile，未碰 Bruce 的 Chrome）
+
+- 結構等價：三份 `h1=1 / h2=20 / h3=114`，135 個標題的**層級序列逐一相同**；章節編號 1–20 相同
+- 整檔骨架比對：三份 `tags=11335 ids=46 classes=1206 anchors=32` **完全相同**
+- 錨點：三份 id 集合完全相同，`href#` 12 個 ＋ `scrollToSection` 20 個，**斷 0**；跨語言深連結 `#sec13xlsx` 實測保留且目標 id 存在
+- 禁用詞：三份 `出貨/出货/量產/量产/產線/产线/iFancy/code ensure`（英文版 `shipping/mass production/production line`）全部 **0**；第 13 章範圍內 `I2C` 三份皆 **0**
+- 不翻的原廠 UI 字面：`File IO` 16／`From Current` 10／`Import CheckList` 3／`Modify One` 4／`Judge` 4／`Save AS` 4／`Code Check` 13／`Load Script` 6，三份**次數全部一致**
+- 語言切換實測：6 組跨語言切換、6 組「主頁面設語言→點說明頁」、3 組「只有 localStorage」自動轉址，**全部通過**
+
+---
+
 ## 說明頁 wfg-guide.html 第 13 章：全章清掉 I2C 與 `code ensure`，改正 `.script` 的作用對象與資料流向 — 2026-08-27 ｜ **不進版**（說明頁不納入版號機制）
 
 **接續同日前一條。Bruce 指出三個核心敘述是錯的，本條全部更正。**
