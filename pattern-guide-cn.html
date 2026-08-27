@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'zh-CN';
+window.GUIDE_FILES = { 'zh-TW': 'pattern-guide.html', 'zh-CN': 'pattern-guide-cn.html', 'en': 'pattern-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>Pattern Generator 画面产生器 — 使用手册</title>
+<meta name="description" content="Pattern Generator 画面产生器完整使用手册：测试画面菜单、手动 4×4 sub-pixel 编辑、全画面键盘操作、放大镜、遮罩、导入图片、PNG/BMP 8/10-bit 输出与屏幕缩放检测。">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>Pattern Generator 画面产生器</h1>
+  <p class="subtitle">Sub-pixel 编辑 · 全画面 1:1 平铺 — 完整使用手册。测试画面、4×4 编辑、遮罩、放大镜、输出与屏幕缩放检测的逐项说明。</p>
+  <span class="version">网页工具 · 免安装 · 手机/桌面皆可使用</span>
+  <div class="hero-links">
+    <a href="pattern.html">▶ 打开 Pattern Generator</a>
+    <a href="index.html">⌂ 回到工具首页</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">简介</button>
+      <button class="nav-btn" onclick="scrollToSection('#quickstart')">快速开始</button>
+      <button class="nav-btn" onclick="scrollToSection('#patterns')">测试画面</button>
+      <button class="nav-btn" onclick="scrollToSection('#special')">专属参数</button>
+      <button class="nav-btn" onclick="scrollToSection('#edit')">4×4 编辑</button>
+      <button class="nav-btn" onclick="scrollToSection('#fullscreen')">全画面</button>
+      <button class="nav-btn" onclick="scrollToSection('#magnifier')">放大镜</button>
+      <button class="nav-btn" onclick="scrollToSection('#mask')">遮罩</button>
+      <button class="nav-btn" onclick="scrollToSection('#import')">导入图片</button>
+      <button class="nav-btn" onclick="scrollToSection('#output')">输出另存</button>
+      <button class="nav-btn" onclick="scrollToSection('#screen')">屏幕信息</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">常见问题</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 搜索控件…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换亮色／暗色主题" aria-label="切换亮色／暗色主题">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>工具简介</h2>
+    <p class="section-desc">用浏览器把测试画面推到整个屏幕上，<strong>一个像素对一个像素、不缩放</strong>。也可以自己编一个 4×4 的 sub-pixel 图样平铺满版，或把结果存成 PNG／BMP 给机台用。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>它能做什么</h3>
+        <ul>
+          <li><strong>测试画面</strong> — 内置一整套常用画面（灰阶条、Skip Dot、Line、Checker、Cross Talk、SMPTE…），菜单结构与原程序一致。</li>
+          <li><strong>手动 4×4</strong> — 自己指定 4 列 × 4 pixel × RGB 共 <strong>48 个 sub-pixel</strong> 的灰阶，全画面平铺。</li>
+          <li><strong>遮罩</strong> — 只露出画面的某几等份，其余盖掉（这是本站加的，原程序没有）。</li>
+          <li><strong>另存图片</strong> — 指定分辨率输出 PNG／BMP，可选 8 或 10 bit，存完自动验证像素是否完全一致。</li>
+          <li><strong>放大镜</strong> — 就地放大看 sub-pixel 排列与每一格的数值。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>三个要先知道的事</h3>
+        <ul>
+          <li><strong>首页的预览不是 1:1</strong>——它是把 pattern 放大成 3×3 平铺让你看清楚结构。要看真实比例请进全画面，或用输出区的「1:1 实际像素」。</li>
+          <li><strong>打开时的默认画面是 Horizontal 256</strong>（左到右的白／红／绿／蓝灰阶条），不是空白的手动模式。</li>
+          <li><strong>屏幕缩放会骗人</strong>——系统若不是 100% 缩放，CSS 像素与实际设备像素不一致。第 11 章的屏幕信息卡会直接告诉你目前的比例。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" data-zone-target="zone-desc-pat">
+      <h3>界面总览</h3>
+      <p style="color:var(--muted); font-size:.92rem;">把鼠标移到下图任一区块（手机请点一下），下方会显示该区说明。</p>
+      <div style="border:2px solid #334155; border-radius:10px; overflow:hidden; font-size:.84rem; background:#0f172a; padding:10px; display:flex; flex-direction:column; gap:9px;">
+        <div class="zone" data-zone="p-now" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:#f472b6;">👁 现在显示什么</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+            <span class="ui-chip on">☰ 测试画面</span><span class="ui-chip">🎛️ 手动 4×4</span><span class="ui-chip">▾ Test Pattern Menu</span><span class="ui-chip">⛶ 进入全画面显示</span><span class="ui-chip">🔍</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="p-params" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-cyan);">🎛️ 画面参数 ／ 4×4 编辑区</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:6px;">
+            <span class="ui-chip">1 R</span><span class="ui-chip">2 G</span><span class="ui-chip">3 B</span><span class="ui-chip on">4 White</span><span class="ui-chip">Level 127</span><span class="ui-chip">Space 反相</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(12,1fr); gap:2px; max-width:280px;">
+            <span style="height:12px;background:#f87171"></span><span style="height:12px;background:#4ade80"></span><span style="height:12px;background:#60a5fa"></span>
+            <span style="height:12px;background:#7f1d1d"></span><span style="height:12px;background:#14532d"></span><span style="height:12px;background:#1e3a8a"></span>
+            <span style="height:12px;background:#f87171"></span><span style="height:12px;background:#4ade80"></span><span style="height:12px;background:#60a5fa"></span>
+            <span style="height:12px;background:#7f1d1d"></span><span style="height:12px;background:#14532d"></span><span style="height:12px;background:#1e3a8a"></span>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="p-mask" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-purple);">▦ 遮罩（只露出指定等份）</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">水平／垂直等份 · 交集或联集 · 外缘调整 · 遮罩内容可用另一张画面</div>
+          </div>
+          <div class="zone" data-zone="p-imp" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-amber);">🖼 导入图片</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">PNG／BMP／JPG／GIF／WebP · 不缩放 · 可清除回到测试画面</div>
+          </div>
+        </div>
+        <div class="zone" data-zone="p-out" style="background:#0b1220; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-green);">💾 输出与另存</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+            <span class="ui-chip">1920 × 1080</span><span class="ui-chip">符合窗口 / 1:1</span><span class="ui-chip">PNG / BMP</span><span class="ui-chip">8 / 10 bit</span><span class="ui-chip on">💾 另存图片</span><span class="ui-chip">⬇ 批量导出</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="p-screen" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-blue);">🖥️ 屏幕信息与缩放检测</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">CSS 分辨率 · devicePixelRatio · 推算设备像素 · 多屏幕信息</div>
+        </div>
+      </div>
+      <div id="zone-desc-pat" style="margin-top:14px; padding:14px 18px; background:var(--primary-soft); border:1px solid var(--primary-line); border-radius:8px; font-size:.9rem; min-height:76px;">✦ 把鼠标移到上方任一区域（手机请点一下），这里会显示详细说明。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>快速开始</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>选一张测试画面</h3>
+        <p>按「▾ Test Pattern Menu」，从菜单挑（例如 <strong>Skip 1 Dot ▸ 1V 1H</strong>）。上方预览立刻更新。</p>
+      </div>
+      <div class="step">
+        <h3>调颜色与灰阶</h3>
+        <p>「画面参数」卡的颜色钮 1–8 与 Level 滑块。<strong>这两项就是原程序数字键与上下键在做的事</strong>。</p>
+      </div>
+      <div class="step">
+        <h3>推到整个屏幕</h3>
+        <p>按「⛶ 进入全画面显示」。全画面中一样可以用键盘换画面、调灰阶；控制面板可切左右，按 <code>F</code> 或 <code>Esc</code> 离开。</p>
+      </div>
+      <div class="step">
+        <h3>看 sub-pixel 排列</h3>
+        <p>任何有 pattern 的地方点右上角的 🔍，开放大镜；方向键移动准星，可切 3×3 / 5×5 / 9×9 / 13×13。</p>
+      </div>
+      <div class="step">
+        <h3>需要文件就另存</h3>
+        <p>展开「输出与另存」，填分辨率（或按「用屏幕」）、选 PNG／BMP 与位深度，按「💾 另存图片」。<strong>存完会自动验证输出的像素与画面完全一致</strong>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PATTERNS ==================== -->
+<section id="patterns">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>测试画面与菜单</h2>
+    <p class="section-desc">菜单结构沿用原程序（来源标示为 LCD Test 2010），不另外发明命名。<a href="pattern.html#pattern-card-now">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <h3>完整菜单</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>菜单项目</th><th>子项</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Horizontal</td><td>9 / 64 / 256</td><td>水平灰阶条，数字是阶数。</td></tr>
+            <tr><td class="t-name">Vertical</td><td>9 / 64 / 256</td><td>垂直灰阶条。</td></tr>
+            <tr><td class="t-name">Center</td><td>9 / 64 / 256</td><td>由中央往外的灰阶条。</td></tr>
+            <tr><td class="t-name">Gray Level</td><td>—</td><td>整片单一灰阶，最常用来看 Mura 与亮度均匀性。</td></tr>
+            <tr><td class="t-name">Skip 1 Dot</td><td>1V 1H / 1V 2H</td><td>隔点亮暗，看串扰与充电能力。</td></tr>
+            <tr><td class="t-name">Skip 2 Dot</td><td>2V 1H / 2V 2H / 2V (1+2)H</td><td>隔两点的版本。</td></tr>
+            <tr><td class="t-name">Skip SubPixel</td><td>—</td><td>以 sub-pixel 为单位跳点。</td></tr>
+            <tr><td class="t-name">Horizontal Line</td><td>1 line / 2 line</td><td>横线图样。</td></tr>
+            <tr><td class="t-name">Vertical Line</td><td>1 line / 2 line / Sub Line</td><td>竖线图样，Sub Line 以 sub-pixel 为单位。</td></tr>
+            <tr><td class="t-name">Cross Talk</td><td>—</td><td>外框与内框各自可设色与灰阶，看串扰。专属参数见第 4 章。</td></tr>
+            <tr><td class="t-name">XY Coordinate</td><td>—</td><td>准星定位，全画面时用方向键移动、Space 黑白反相。</td></tr>
+            <tr><td class="t-name">Align Center</td><td>—</td><td>居中对位图。</td></tr>
+            <tr><td class="t-name">Color Test</td><td>—</td><td>色块测试，Space 切版面。</td></tr>
+            <tr><td class="t-name">Flicker</td><td>1 line / 2 line</td><td>闪烁检查用图样。</td></tr>
+            <tr><td class="t-name">Checker</td><td>—</td><td>棋盘格，格数可选 2/4/8/16/32/64/128/256。</td></tr>
+            <tr><td class="t-name">Character</td><td>—</td><td>文字图样。</td></tr>
+            <tr><td class="t-name">LUMINACE</td><td>COMPARE / DIVIDE</td><td>亮度比较与分割。</td></tr>
+            <tr><td class="t-name">Response Time</td><td>—</td><td>两张画面依设定的时间交替，量响应时间。</td></tr>
+            <tr><td class="t-name">Misc Pattern</td><td>SMPTE</td><td>标准彩条。</td></tr>
+            <tr><td class="t-name">Skip 1 Dot 2 Gray</td><td>—</td><td>奇偶行用两组不同的颜色与灰阶。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">菜单同时记录<strong>最近使用的 5 张</strong>，放在最上面，反复切换时不必每次翻菜单。</p>
+    </div>
+
+    <div class="card">
+      <h3>共用参数</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>类型</th><th>选项／默认</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">颜色 1–8</td><td><span class="t-type tt-btn">按钮</span></td><td><code>1 R</code> <code>2 G</code> <code>3 B</code> <code>4 White</code> <code>5 Black</code> <code>6 Cyan</code> <code>7 Magenta</code> <code>8 Yellow</code></td><td>编号直接对应原程序的数字键。<strong>灰阶类画面不吃 5（Black）</strong>——那等于整片黑，没有意义；灰阶条类的 5 则是回到 W/R/G/B 四色模式。</td></tr>
+            <tr><td class="t-name">灰阶 Level</td><td><span class="t-type tt-sld">数值＋滑块</span></td><td>0–255</td><td>目前颜色的亮度。</td></tr>
+            <tr><td class="t-name">上一个／下一个变体</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>在同一组的变体之间循环（例如 Horizontal 的 9 → 64 → 256 → 9）。</td></tr>
+            <tr><td class="t-name">Space 反相</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>亮暗互换（灰阶条类则是渐层方向反过来）。部分画面没有反相的意义，按了不会有反应。</td></tr>
+            <tr><td class="t-name">⇩ 以此为起点手动编辑</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>把目前画面的<strong>重复单元搬进 4×4 编辑区</strong>，接着手动微调。<strong>非周期性的画面（例如灰阶条、SMPTE）没有重复单元</strong>，此钮会停用并说明原因。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SPECIAL ==================== -->
+<section id="special">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>专属参数面板</h2>
+    <p class="section-desc">选到特定画面时，「画面参数」卡会自动多出对应的字段。<a href="pattern.html#pattern-card-params">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>画面</th><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Checker</td><td>Checker 格数（n × n）</td><td>2 / 4 / 8 / 16 / 32 / 64 / 128 / 256。数字越大格子越细。</td></tr>
+            <tr><td class="t-name">Cross Talk</td><td>Outer Color / Outer Level / Inner Color / Inner Level / Inner Width / Height / Left / Top</td><td>外框与内框各自的颜色与灰阶，内框以<strong>像素</strong>指定位置与大小（宽高下限 24 px）。全画面时按 <code>Space</code> 会在「外框色 → 内框色 → 位置 → 大小」四个调整模式之间循环。</td></tr>
+            <tr><td class="t-name">Response Time</td><td>Pattern #1 / #2 的 Color 与 Level、Timming (mSec)、Run</td><td>两张画面依设定的毫秒数交替（16–60000 ms）。<strong>执行中按任意键即中止</strong>。</td></tr>
+            <tr><td class="t-name">Skip 1 Dot 2 Gray</td><td>Pattern #2 Color / Level</td><td>上方共用的颜色与灰阶是 Pattern #1，这里设定的是 Pattern #2（偶数行与奇数行交替）。</td></tr>
+            <tr><td class="t-name">XY Coordinate</td><td>（无字段，仅提示）</td><td>全画面时用方向键移动准星、<code>Space</code> 黑白反相。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== EDIT ==================== -->
+<section id="edit">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>手动 4×4 编辑区</h2>
+    <p class="section-desc">切到「🎛️ 手动 4×4」后使用。编辑的是一个 <strong>4 列 × 4 pixel</strong> 的重复单元，每个 pixel 有 R／G／B 三个 sub-pixel，<strong>总共 48 格</strong>；全画面时这个单元会 1:1 平铺满整个屏幕。<a href="pattern.html#pattern-card-params">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <h3>操作方式</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>操作</th><th>效果</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">点一个格子</td><td>把<strong>目前的灰阶值</strong>套用到该 sub-pixel。所以顺序是：先设灰阶，再点格子。</td></tr>
+            <tr><td class="t-name">按住拖拽</td><td>连续涂刷多格。</td></tr>
+            <tr><td class="t-name">点 L1–L4 标题</td><td>选取<strong>整列</strong>。</td></tr>
+            <tr><td class="t-name">点 px1–px4 标题</td><td>选取<strong>整个 pixel 栏</strong>。</td></tr>
+            <tr><td class="t-name">点 R／G／B 标题</td><td>选取该颜色的所有 sub-pixel。</td></tr>
+            <tr><td class="t-name">选取亮组／暗组</td><td>按下的<strong>当下</strong>扫描 48 格的实际灰阶值：<strong>恰好只有两种</strong>时，较大的那个值是亮组、较小的是暗组（例如暗 L4／亮 L128）。每次改值都会重算。出现<strong>第三种亮度</strong>、或 48 格<strong>只剩一种</strong>时，亮暗之分不成立，这两颗与「亮暗反转」一起停用并显示原因。</td></tr>
+            <tr><td class="t-name">亮暗反转</td><td>两组的值互换。连按两次回到原状。</td></tr>
+            <tr><td class="t-name">全选／取消选取</td><td>字面意思。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <strong>没有选取任何格子时，灰阶操作不会动到任何格子</strong>
+        滑块／数字框／L 快捷／±16 只作用在<strong>已选取</strong>的 sub-pixel 上。未选取时滑块仍可拖动，但它只是在设定「点格子时要涂上去的笔刷值」，画面不会有任何变化。要整片改，先按<strong>全选</strong>。
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>灰阶输入区</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">数值＋滑块</td><td>0–255。这是「接下来要套用的值」。</td></tr>
+            <tr><td class="t-name">L0 / L32 / L64 / L128 / L192 / L255</td><td>常用值的快捷钮。</td></tr>
+            <tr><td class="t-name">−16 / −1 / +1 / +16</td><td>微调。注意它是<strong>对每一个目标格各自加减</strong>，不是把所有格子设成同一个值——原本有高低差的格子会保持相对关系。</td></tr>
+            <tr><td class="t-name">起始样式（菜单快捷）</td><td>一排等同菜单的按钮，按下去把该测试画面的<strong>实际输出</strong>载进编辑格。按完仍停在手动模式，可以继续改。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>快捷的值来自实际输出，不是另一份硬编的表</strong>
+        按快捷等于「选那张测试画面 → 反推它的 4×4 重复单元 → 填进编辑格」，所以不会出现「快捷跟菜单画出来不一样」的情况。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FULLSCREEN ==================== -->
+<section id="fullscreen">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>全画面显示与键盘操作</h2>
+    <p class="section-desc">真正要看画面的地方。进入后 pattern 以 1:1 填满整个屏幕。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>控制面板</h3>
+        <ul>
+          <li>面板可设定<strong>靠左或靠右</strong>（主页的「全画面时控制面板位置」，或面板上的「⇄ 切换面板左右」）。</li>
+          <li>面板内有：测试画面菜单、切换左右、离开全画面、键盘说明与目前画面信息。</li>
+          <li>画面左右边缘是<strong>感应热区</strong>，鼠标移过去面板才出现，平常不挡画面。</li>
+          <li>在全画面上按右键也会开测试画面菜单。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>离开的三种方式</h3>
+        <ul>
+          <li>按 <code>F</code> —— 明确的「离开全画面」，会一并关掉放大镜。</li>
+          <li>按 <code>Esc</code> —— <strong>逐层关闭</strong>：先关菜单 → 再关放大镜 → 再关 1:1 预览 → 最后才离开全画面。</li>
+          <li>面板上的「✕ 离开全画面」。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>键盘对照（全画面中）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>按键</th><th>灰阶类画面</th><th>灰阶条类（Horizontal / Vertical / Center）</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">1 – 8</td><td>切换颜色（不含 5 Black）</td><td>切换颜色，<strong>5 ＝ 回到 W/R/G/B 四色模式</strong>（Center 群不适用）</td></tr>
+            <tr><td class="t-name">↑ / ↓</td><td>灰阶 +1 / −1</td><td>切换变体（9 → 64 → 256）</td></tr>
+            <tr><td class="t-name">Shift ＋ ↑ / ↓</td><td>灰阶 ±16</td><td>—</td></tr>
+            <tr><td class="t-name">← / →</td><td>切换变体</td><td>—</td></tr>
+            <tr><td class="t-name">Home / End</td><td>灰阶跳到 255 / 0</td><td>—</td></tr>
+            <tr><td class="t-name">Space</td><td>反相</td><td>渐层方向反过来</td></tr>
+            <tr><td class="t-name">F</td><td colspan="2">离开全画面</td></tr>
+            <tr><td class="t-name">Esc</td><td colspan="2">逐层关闭（菜单 → 放大镜 → 1:1 预览 → 全画面）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">灰阶值采<strong>环绕</strong>方式：255 再往上会回到 0。Cross Talk 与 XY Coordinate 有各自的按键行为，见第 4 章。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== MAGNIFIER ==================== -->
+<section id="magnifier">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>放大镜</h2>
+    <p class="section-desc">用来确认「屏幕上这一格到底是哪个 sub-pixel、值是多少」。可以在<strong>首页预览、输出预览、全画面</strong>三个地方开启。</p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">🔍 入口</td><td>预览区右上角的圆形徽章，或输出区的「🔍 开启放大镜」按钮。</td></tr>
+            <tr><td class="t-name">范围 3×3 / 5×5 / 9×9 / 13×13</td><td>一次看几个像素。<strong>3×3 只在下方信息栏显示中心格的值；切到 5×5 以上每一格都会标上数值。</strong></td></tr>
+            <tr><td class="t-name">方向键</td><td>移动准星。放大镜开启时，<strong>方向键归放大镜使用</strong>，不会动到 pattern 的灰阶或变体（XY Coordinate 的准星也一样暂停）。</td></tr>
+            <tr><td class="t-name">工具栏</td><td>可用左边的 ⠿ 把整条工具栏拖到别的位置，避免挡住要看的区域。</td></tr>
+            <tr><td class="t-name">关闭</td><td>按 <code>Esc</code>、点工具栏的 ✕、或再点一次进入时用的那个入口。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== MASK ==================== -->
+<section id="mask">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>遮罩（只露出指定等份）</h2>
+    <p class="section-desc">把画面切成 N 等份、只露出你勾的那几份，其余盖掉。<strong>这是本站设计的功能，原程序没有。</strong>卡片默认收起。<a href="pattern.html#pattern-card-mask">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>类型</th><th>范围／默认</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">启用遮罩</td><td><span class="t-type tt-chk">复选框</span></td><td>默认关闭</td><td>关闭时整张卡没有任何作用，标签显示「未启用」。</td></tr>
+            <tr><td class="t-name">水平等份数</td><td><span class="t-type tt-sld">数值＋滑块</span></td><td>数值 1–64、滑块 1–24，默认 6</td><td>把画面左右平分成几份。</td></tr>
+            <tr><td class="t-name">露出哪几等份</td><td><span class="t-type tt-chk">多选标签</span></td><td>—</td><td>可复选，勾起来的才会显示 pattern。</td></tr>
+            <tr><td class="t-name">同时使用垂直等份</td><td><span class="t-type tt-chk">复选框</span></td><td>默认关闭</td><td>开启后多一组垂直的等份数与选择。</td></tr>
+            <tr><td class="t-name">组合方式</td><td><span class="t-type tt-rad">单选钮</span></td><td>交集（默认）／联集</td><td><strong>交集 ＝ 露出矩形</strong>（水平与垂直都被勾到的区域）；<strong>联集 ＝ 露出十字</strong>（任一方向被勾到即露出）。</td></tr>
+            <tr><td class="t-name">露出区外缘调整</td><td><span class="t-type tt-sld">数值＋滑块</span></td><td>±200 px，默认 0</td><td>正值外扩、负值内缩。<strong>作用在整段连续露出区的外缘</strong>，所以露出相邻的两份（例如 2、3）时中间不会出现接缝。</td></tr>
+            <tr><td class="t-name">遮罩内容</td><td><span class="t-type tt-rad">单选钮</span></td><td>单色（默认）／另一个画面</td><td>被盖住的区域要填什么。选「另一个画面」可以做出「左半 Skip Dot、右半 Gray」这种对照画面。</td></tr>
+            <tr><td class="t-name">遮罩颜色／灰阶</td><td><span class="t-type tt-sel">下拉＋数值</span></td><td>—</td><td>单色模式下的填色。</td></tr>
+            <tr><td class="t-name">把颜色与灰阶也套到这张画面</td><td><span class="t-type tt-chk">复选框</span></td><td>默认不勾</td><td>选「另一个画面」时才有。<strong>默认不套用</strong>，让那张画面维持它原本该有的样子。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>典型用法</strong>
+        量某一区的亮度或串扰时，只露出要量的那一份、其余盖成黑色，可以排除周边亮度的干扰；或用「另一个画面」做左右对照，一次拍一张照就能比较两种 pattern。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== IMPORT ==================== -->
+<section id="import">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">9</span>导入图片</h2>
+    <p class="section-desc">有现成的测试图片文件时，直接丢进来用整个屏幕 1:1 显示。卡片默认收起。<a href="pattern.html#pattern-card-import">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">📂 选择图片文件</td><td>PNG／BMP／JPG／GIF／WebP 等浏览器能解的格式都可以。</td></tr>
+            <tr><td class="t-name">图片信息</td><td>导入后显示尺寸等信息，卡片标签也会从「未导入」变成已导入状态。</td></tr>
+            <tr><td class="t-name">失真格式提醒</td><td>导入 JPG 这类<strong>有损压缩</strong>的文件时会出现警告——像素值已经被压缩改过，不适合拿来做严谨的像素级验证。</td></tr>
+            <tr><td class="t-name">✕ 清除导入的图</td><td>回到测试画面。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <strong>导入的图不会被缩放</strong>
+        它以原始尺寸 1:1 显示。图比屏幕小就只占一部分、比屏幕大就会超出——这是刻意的，任何缩放都会改变像素值，使测试失去意义。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== OUTPUT ==================== -->
+<section id="output">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">10</span>输出与另存</h2>
+    <p class="section-desc">把目前画面存成图片文件。卡片默认收起。<a href="pattern.html#pattern-card-out">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <h3>分辨率与预览</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>类型</th><th>范围／默认</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">输出分辨率</td><td><span class="t-type tt-num">数值 ×2</span></td><td>1–16384，默认 1920 × 1080</td><td>以<strong>设备像素</strong>为单位。</td></tr>
+            <tr><td class="t-name">用屏幕</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>一键带入目前屏幕推算出的设备像素。</td></tr>
+            <tr><td class="t-name">常用尺寸</td><td><span class="t-type tt-btn">标签钮</span></td><td>11 组，640×480 – 3840×2160</td><td>鼠标停留会显示长宽比与百万像素数。</td></tr>
+            <tr><td class="t-name">符合窗口／1:1 实际像素</td><td><span class="t-type tt-btn">切换</span></td><td>默认「符合窗口」</td><td>预览的显示方式。<strong>1:1 才是真实比例</strong>，超出范围时可拖拽平移。</td></tr>
+            <tr><td class="t-name">⛶ 用整个屏幕 1:1 查看</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>用整个屏幕以 1:1 查看输出结果（基准是真正的屏幕）。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>格式与位深度</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>选项／默认</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">文件格式</td><td>PNG（默认）／BMP</td><td><strong>两种都是无损、像素值完全相同</strong>。PNG 有压缩、文件小；BMP 不压缩、体积大很多。对方的机台只吃 BMP 时才选 BMP。</td></tr>
+            <tr><td class="t-name">色彩深度</td><td>8 bit（默认）／10 bit</td><td>10 bit 是<strong>给只吃 10-bit 图的机台用的</strong>。画面本身仍以 8 bit 产生，存档时每个通道用 MSB replication 放大到 10 bit（<code>0 → 0</code>、<code>255 → 1023</code>，两端精准）。<strong>它不会凭空生出 8 bit 做不到的阶</strong>。</td></tr>
+            <tr><td class="t-name">文件名</td><td>可编辑，扩展名自动</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>存档、批量与验证</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">💾 另存图片</td><td>依目前设定产生文件并下载。</td></tr>
+            <tr><td class="t-name">📤 分享图片给其他 App</td><td><strong>只有在设备支持文件分享时才会出现</strong>（多半是手机）。分享与下载用的是<strong>同一份文件</strong>，不会为了分享而重新编码。用户取消分享时不会强制退回下载。</td></tr>
+            <tr><td class="t-name">一次导出多个尺寸</td><td>勾选多个尺寸后批量导出。<strong>每个尺寸都以该分辨率原生重画并各自验证</strong>，不是把同一张图缩放成好几份。</td></tr>
+            <tr><td class="t-name">验证结果</td><td>存档后自动把文件<strong>重新解码回来逐像素比对</strong>，显示格式、像素总数、差异数与文件大小。<strong>差异数必须是 0</strong>，且解码出的宽高与设定相同，才算通过。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>为什么要自动验证</strong>
+        测试画面最怕的就是「存出来的文件跟看到的不一样」——浏览器编码、色彩管理、缩放都可能悄悄改掉像素值。这里每存一次就实际解回来比一次，差异不是 0 就直接标红，不必靠人肉眼检查。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SCREEN ==================== -->
+<section id="screen">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">11</span>屏幕信息与缩放检测</h2>
+    <p class="section-desc">只读信息，卡片默认收起。用来回答「我现在看到的到底是不是 1:1」。<a href="pattern.html#pattern-card-screen">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>意义</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">CSS 逻辑分辨率</td><td>浏览器认知的屏幕尺寸。</td></tr>
+            <tr><td class="t-name">devicePixelRatio</td><td>每个 CSS 像素对应几个物理像素。<strong>不是 1 就代表有缩放。</strong></td></tr>
+            <tr><td class="t-name">推算设备像素</td><td>CSS 分辨率 × dPR，也就是真正的面板像素数。输出区的「用屏幕」带入的就是它。</td></tr>
+            <tr><td class="t-name">窗口内部尺寸／可用区域</td><td>目前窗口与扣掉系统栏后的可用范围。</td></tr>
+            <tr><td class="t-name">色彩深度</td><td>浏览器回报的色彩位数。</td></tr>
+            <tr><td class="t-name">屏幕方向</td><td>横向／竖向。</td></tr>
+            <tr><td class="t-name">多屏幕 (isExtended)</td><td>是否有扩展屏幕。</td></tr>
+            <tr><td class="t-name">🔎 获取每台屏幕详细信息</td><td>需要授权，获取后可列出每一台屏幕各自的分辨率与缩放。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout danger">
+        <strong>dPR 不是 1 的时候，「全画面 1:1」也不会是真的 1:1</strong>
+        浏览器画的是 CSS 像素，系统再依缩放比放大到物理像素——这中间一定有插值，sub-pixel 图样就失真了。要做像素级测试，请先把系统显示缩放设为 100%，或改用「另存图片」输出文件给机台显示。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">12</span>常见问题</h2>
+    <p class="section-desc">点问题展开答案。</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>我拉灰阶滑块，画面却没有任何变化？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">因为<strong>当下没有选取任何格子</strong>。灰阶操作只作用在已选取的 sub-pixel 上，没有选取就一格都不动（未选取时滑块只是在设定笔刷值）。要改就先选：点那一格（点格子本身就是套用）、点标题选整列／整栏／整色，按<strong>选取亮组／暗组</strong>，或按<strong>全选</strong>改整片。选取行右侧会标明目前会套用到几格。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>「以此为起点手动编辑」按钮是灰的？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">代表这张画面<strong>不是 4×4 周期性图样</strong>——像灰阶条、SMPTE、Cross Talk 这种整张画面各处都不同的图，没有可以搬进 4×4 编辑格的重复单元。按钮旁边会直接写出原因。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>预览看起来跟实际显示不一样？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">首页的预览是<strong>放大后的 3×3 平铺</strong>，目的是让你看清楚图样结构，本来就不是 1:1。要看真实比例：进「⛶ 全画面显示」，或在输出区切到「1:1 实际像素」／「用整个屏幕 1:1 查看」。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>全画面时方向键没作用？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">两个可能：<strong>放大镜开着</strong>——此时方向键归放大镜移动准星使用，pattern 的方向键功能整个暂停，关掉放大镜即可；或是<strong>焦点停在某个输入框</strong>，点画面空白处再试。另外不同类型的画面，方向键的意义不同（见第 6 章对照表）。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>选 10 bit 输出，画质会变好吗？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">不会。<strong>画面本身仍是 8 bit 产生的</strong>，10 bit 只是存档时把每个通道用 MSB replication 放大（0→0、255→1023），供<strong>只接受 10-bit 图的机台</strong>使用。它不会凭空生出 8 bit 做不到的中间阶。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>存档后的验证显示红色，怎么办？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">红色代表<strong>重新解码回来的像素与画面不完全一致</strong>（差异数不是 0，或宽高不符）。这份文件不适合拿去做像素级测试。可以先改用另一种格式（PNG ↔ BMP）再存一次；若仍失败，请把显示的消息回报，那代表浏览器的编码行为有问题。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>手机上看不到「分享图片」按钮？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">分享钮<strong>只在浏览器确实支持文件分享时才显示</strong>，不支持就完全隐藏，避免按了才失败。此时直接用「💾 另存图片」下载即可，内容完全相同。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Pattern Generator 画面产生器 — 使用手册</strong></p>
+  <p style="margin-top:6px;"><a href="pattern.html">打开工具</a> · <a href="index.html">回到工具首页</a></p>
+  <p style="margin-top:8px; opacity:.65;">本手册随工具功能更新，不纳入工具版本号机制。<br>本工具为工程辅助用途，计算结果仅供参考，实际规格请以正式文件为准。</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="回到顶端">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+const zoneDescriptions = {
+  'p-now': "<strong>现在显示什么</strong><br>两个模式页签：<b>☰ 测试画面</b>（内置菜单）与 <b>🎛️ 手动 4×4</b>（自己编 sub-pixel）。中间的预览是<b>放大后的 3×3 平铺，不是 1:1</b>。下方两颗按钮分别打开测试画面菜单与进入全画面显示，并可预先指定全画面时控制面板要靠左或靠右。右上角的 🔍 开放大镜。",
+  'p-params': "<strong>画面参数／4×4 编辑区</strong><br>测试画面模式下显示颜色 1–8（R/G/B/White/Black/Cyan/Magenta/Yellow）、灰阶 Level 0–255、变体切换与 Space 反相，并依画面自动显示 Checker／Cross Talk／Response Time／Skip 1 Dot 2 Gray 的专属字段。手动模式下是 4 列 × 4 pixel × RGB 共 <b>48 格</b>的编辑区：点格套用目前灰阶、可按标题整列／整栏／整色选取、亮暗组操作（依当下值即时分组，须恰好两种亮度），<b>未选取任何格子时灰阶不会动到任何格子</b>。",
+  'p-mask': "<strong>遮罩（本站设计，原程序没有）</strong><br>把画面平分成 N 等份、只露出勾选的等份。可同时启用垂直等份，并选择<b>交集（露出矩形）或联集（露出十字）</b>。外缘调整作用在整段连续露出区的外缘，所以相邻等份之间不会有接缝。遮住的区域可填单色，也可以改填<b>另一张测试画面</b>做左右对照。",
+  'p-imp': "<strong>导入图片</strong><br>PNG／BMP／JPG／GIF／WebP 等浏览器能解的格式都可以，<b>一律 1:1 显示不缩放</b>（缩放会改变像素值，测试就失去意义）。导入有损格式（例如 JPG）会出现警告。可随时清除回到测试画面。",
+  'p-out': "<strong>输出与另存</strong><br>指定输出分辨率（可一键「用屏幕」或选 11 组常用尺寸），预览可切「符合窗口／1:1 实际像素」。格式 PNG 或 BMP（<b>两者像素值相同</b>，差在压缩与文件大小）、色彩深度 8 或 10 bit（10 bit 用 MSB replication，供只吃 10-bit 图的机台）。支持批量导出多尺寸（各自原生重画），<b>每次存档后都会把文件解码回来逐像素验证，差异必须为 0</b>。",
+  'p-screen': "<strong>屏幕信息与缩放检测</strong><br>列出 CSS 逻辑分辨率、devicePixelRatio、推算设备像素、窗口与可用区域、色彩深度、方向与是否有扩展屏幕，另可授权获取每台屏幕的详细信息。<b>dPR 不是 1 就代表系统有缩放</b>，此时屏幕上的「1:1」并非真的 1:1，做像素级测试前请先把显示缩放设为 100%。",
+};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' 笔符合';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+const keyMap = {
+  '1': ['A1', '#facc15'], '2': ['A2', '#facc15'],
+  '3': ['B1', '#22d3ee'], '4': ['B2', '#22d3ee'],
+  '5': ['C1', '#4ade80'], '6': ['C2', '#4ade80'],
+  '7': ['D1', '#fb923c'], '8': ['D2', '#fb923c'],
+  '9': ['E1', '#c084fc'], '0': ['E2', '#c084fc']
+};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = '按下数字键 <code>' + k + '</code> → 切换光标 <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>。<br>第一次按：光标出现并<strong>跟着鼠标移动</strong>；在画布上按一下鼠标左键即可<strong>钉住</strong>；已钉住时再按同一键会<strong>回到跟随状态</strong>；跟随状态下再按一次才会<strong>移除</strong>该光标。';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>

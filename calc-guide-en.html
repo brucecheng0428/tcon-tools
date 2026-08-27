@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'en';
+window.GUIDE_FILES = { 'zh-TW': 'calc-guide.html', 'zh-CN': 'calc-guide-cn.html', 'en': 'calc-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>mLVDS Multi-chip (Time-division) Skew Calculator - User Guide</title>
+<meta name="description" content="Complete user guide for the mLVDS Multi-chip (Time-division) Skew Calculator: basic parameters, oscilloscope trigger setup, Xn Channel, the A Event B result, the UI cof_cnt boundary values and the Skew reference table, explained item by item.">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>mLVDS Multi-chip (Time-division) Skew Calculator</h1>
+  <p class="subtitle">Oscilloscope A Event B setup & UI cof_cnt boundary calculation - the complete user guide. Every input field, every formula and every result table explained.</p>
+  <span class="version">Web tool · No install · Works on phone and desktop</span>
+  <div class="hero-links">
+    <a href="calc.html">▶ Open the mLVDS Skew Calculator</a>
+    <a href="index.html">⌂ Back to the tool home page</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">Overview</button>
+      <button class="nav-btn" onclick="scrollToSection('#quickstart')">Quick start</button>
+      <button class="nav-btn" onclick="scrollToSection('#basic')">Basic parameters</button>
+      <button class="nav-btn" onclick="scrollToSection('#oscsetup')">Oscilloscope trigger</button>
+      <button class="nav-btn" onclick="scrollToSection('#xn')">Xn Channel</button>
+      <button class="nav-btn" onclick="scrollToSection('#oscresult')">A Event B</button>
+      <button class="nav-btn" onclick="scrollToSection('#cof')">cof_cnt</button>
+      <button class="nav-btn" onclick="scrollToSection('#skew')">Skew steps</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">FAQ</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 Search controls…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Switch light / dark theme" aria-label="Switch light / dark theme">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>About this tool</h2>
+    <p class="section-desc">When several Source Drivers are chained on one Port, each one sits at a different distance from the TCON, so its data arrives at a different time. This tool works out two things: <strong>how to trigger the scope so you can see each driver</strong>, and <strong>what cof_cnt boundary values to set on the TCON</strong>.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>What it solves</h3>
+        <ul>
+          <li><strong>Oscilloscope A Event B setup</strong> - to see the waveform of the 3rd driver, how many CLKs must the B event count? Counting by hand is easy to get off by one, so the tool lists every driver at once.</li>
+          <li><strong>UI cof_cnt boundary</strong> - in time-division (multi-chip) drive, the TCON has to know at which pixel position it hands over to the next driver. Get the boundary wrong and vertical bands of colour difference appear on the screen.</li>
+          <li><strong>Skew step reference</strong> - the step tables for coarse (cksk) and fine adjustment, ready to look up while tuning skew.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Before you start</h3>
+        <ul>
+          <li><strong>This tool has a "Calculate" button</strong> - unlike every other page in the toolbox. It needs the driver count first so it can create the X1…Xn input fields; only once those exist is there anything to calculate.</li>
+          <li><strong>Changing any input collapses the results</strong>, a reminder to press Calculate again so you never mistake stale numbers for fresh ones.</li>
+          <li>"X1 is closest to the TCON" - reverse the numbering direction and the whole set of event values is wrong.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" data-zone-target="zone-desc-calc">
+      <h3>Interface overview</h3>
+      <p style="color:var(--muted); font-size:.92rem;">Hover over any block in the diagram below (tap it on a phone) and its description appears underneath.</p>
+      <div style="border:2px solid #334155; border-radius:10px; overflow:hidden; font-size:.84rem; background:#0f172a; padding:10px; display:flex; flex-direction:column; gap:9px;">
+        <div class="zone" data-zone="c-basic" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--primary);">📐 Basic parameters</strong>
+          <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+            <span class="ui-chip">Hres. 1920 ▾</span><span class="ui-chip">Hactive 1920</span><span class="ui-chip">8 bits</span><span class="ui-chip">3 pairs</span><span class="ui-chip">Single (1)</span><span class="ui-chip on">Drivers 1–8</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="c-osc" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-cyan);">📺 Oscilloscope trigger setup</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">CLK EVENTs from XSTB(TP) rising → mLVDS RST falling · a zoomable trigger diagram sits below</div>
+        </div>
+        <div class="zone" data-zone="c-xn" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-amber);">🟫 Xn Channel (X1 closest to TCON)</strong>
+          <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+            <span class="ui-chip">X1 864</span><span class="ui-chip">Copy to All</span><span class="ui-chip">X2 864</span><span class="ui-chip">X3 864</span>
+          </div>
+        </div>
+        <div style="text-align:center; color:#f97316; font-weight:700;">▼ ▶ Calculate ▼</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="c-oscres" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-blue);">📺 Oscilloscope A Event B setup</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">COF / B event value<br>X1 → 2726, X2 → 5030 …</div>
+          </div>
+          <div class="zone" data-zone="c-cof" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-green);">🔢 UI cof_cnt boundary setup　<span style="font-weight:400;">TCON EM01 ▾</span></strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">cof item / boundary position / boundary value</div>
+          </div>
+        </div>
+        <div class="zone" data-zone="c-skew" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-purple);">📋 Skew reference table</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">cksk lane mapping · coarse 0–15 · fine 0–7 (a static table, it does not change with the calculation)</div>
+        </div>
+      </div>
+      <div id="zone-desc-calc" style="margin-top:14px; padding:14px 18px; background:var(--primary-soft); border:1px solid var(--primary-line); border-radius:8px; font-size:.9rem; min-height:76px;">✦ Hover over any zone above (tap it on a phone) and the details appear here.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>Quick start</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>Fill in the basic parameters</h3>
+        <p>Use the <strong>Hres.</strong> dropdown to fill in Hactive, then check that Driver bits, Driver pairs and Single / Dual Gate all match the actual board.</p>
+      </div>
+      <div class="step">
+        <h3>Choose the driver count</h3>
+        <p>Click a number button (1–8) under "Drivers per Port". <strong>The X1…Xn input fields only appear once you click</strong>, which is why this page needs a calculate button.</p>
+      </div>
+      <div class="step">
+        <h3>Fill in the oscilloscope event count</h3>
+        <p>Measure the number of CLK events between the XSTB(TP) rising edge and the mLVDS RST falling edge, then enter it. Click the diagram to enlarge it and see the trigger definition.</p>
+      </div>
+      <div class="step">
+        <h3>Fill in the channel count of each driver</h3>
+        <p>Once X1 is filled in, the remaining Xn follow it automatically (unless you edited one by hand). Enter them one by one when they differ, or press <strong>Copy to All</strong> to overwrite them all.</p>
+      </div>
+      <div class="step">
+        <h3>Press "▶ Calculate"</h3>
+        <p>You get two tables: on the left the B event value of each driver (for the scope), on the right the cof_cnt boundary values (for the TCON). Switch the TCON model between EM01 and EM02 in the top right corner.</p>
+      </div>
+    </div>
+    <div class="callout warn">
+      <strong>Disappearing results are not a fault</strong>
+      Touch any input field and the result area collapses - those numbers no longer match the current input. Finish editing, then press Calculate again.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== BASIC ==================== -->
+<section id="basic">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>Basic parameters</h2>
+    <p class="section-desc"><a href="calc.html#calc-card-basic">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>Item by item</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Options / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Hres.</td><td><span class="t-type tt-sel">Dropdown</span></td><td>1920 (default) / 2560 / 3440 / 3840</td><td>A shortcut dropdown in the top right corner. Pick a value and it goes straight into Hactive. You can still edit it by hand afterwards.</td></tr>
+            <tr><td class="t-name">Hactive</td><td><span class="t-type tt-num">Number input</span></td><td>Positive integer, default 1920</td><td>Horizontal active pixel count. <strong>It alone decides the cof_cnt boundary values</strong>: the boundaries come from splitting Hactive evenly across the drivers. Enter Htotal (blank included) and every boundary comes out too large.</td></tr>
+            <tr><td class="t-name">Driver bits</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>6 / 8 (default) bits</td><td>Data bit width of the Source Driver. It multiplies straight into the event count.</td></tr>
+            <tr><td class="t-name">Driver pairs</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>3 (default) / 6 pairs</td><td>Data pair count of each driver. It divides into the event count. <strong>With 6 pairs the event count is half of 3 pairs</strong> - the same amount of data goes out over twice as many lines, so it takes half the time.</td></tr>
+            <tr><td class="t-name">Single / Dual Gate</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Single (1) (default) / Dual (2)</td><td>Dual Gate means one line of data is shared by two Gate groups, so <strong>both the event count and the cof boundary are divided by 2 again</strong>. Get this one wrong and both result tables come out off by a factor of two - it is the most common mistake.</td></tr>
+            <tr><td class="t-name">Drivers per Port</td><td><span class="t-type tt-btn">Number buttons 1–8</span></td><td>3 on first load</td><td>How many drivers are chained on one Port. <strong>Clicking creates the X1…Xn input fields</strong>, and it also sets the row count of both result tables.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout danger">
+        <strong>Errors are marked on the field itself</strong>
+        Hactive and Xn must be <strong>positive integers</strong>; the event count may be 0. An invalid field turns red and shows a message, and pressing Calculate scrolls the page to the first bad field. Press Calculate without choosing a driver count and you get a prompt instead.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== OSC SETUP ==================== -->
+<section id="oscsetup">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>Oscilloscope trigger setup</h2>
+    <p class="section-desc">This field is the starting point of the whole calculation. <a href="calc.html#calc-card-osc-setup">→ Open this card in the tool</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>What you measure</h3>
+        <p style="font-size:.93rem;">The full name of the field is "<strong>CLK EVENTs from XSTB(TP) rising to mLVDS RST falling</strong>", which means:</p>
+        <div class="flow">
+          <div class="flow-node" style="background:var(--accent-green);">A: XSTB(TP) rising edge</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node" style="background:var(--accent-cyan);">Count mLVDS CLK edges</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node" style="background:var(--primary);">B: RST falling edge</div>
+        </div>
+        <ul>
+          <li>Set the scope trigger to <strong>A event B</strong> mode</li>
+          <li><strong>A = XSTB(TP) rising edge</strong></li>
+          <li><strong>B = mLVDS CLK, both edges</strong> (both edges count, because mLVDS is DDR)</li>
+        </ul>
+        <p style="font-size:.93rem;">Enter the number you measured. The B event value of every driver after that <strong>counts up from this number</strong>.</p>
+      </div>
+      <div class="card">
+        <h3>Controls</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Control</th><th>Type</th><th>Range / default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">CLK EVENT count</td><td><span class="t-type tt-num">Number input</span></td><td>Integer ≥ 0, default 510</td><td>0 is allowed. This value only affects the B event results; it does not affect the cof_cnt boundary values.</td></tr>
+              <tr><td class="t-name">Trigger diagram</td><td><span class="t-type tt-btn">Clickable image</span></td><td>—</td><td>Click anywhere on the image and it opens full screen.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout info">
+          <strong>You can interact with the enlarged diagram</strong>
+          Zoom with the mouse wheel, hold and drag to pan; on a phone pinch to zoom, drag with one finger, <strong>double-tap to reset</strong>. To close it: the × in the top right corner, the dark area outside the image, or <code>Esc</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== XN ==================== -->
+<section id="xn">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>Xn Channel input</h2>
+    <p class="section-desc">How many channels each driver handles. The number of fields comes from "Drivers per Port" - pick a count and that many fields appear.</p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">X1 Channel</td><td><span class="t-type tt-num">Number input</span></td><td>864</td><td><strong>X1 is the driver closest to the TCON</strong> and the start of the chain. When you change X1, every X2…Xn <strong>you have not edited by hand</strong> follows it to the same value.</td></tr>
+            <tr><td class="t-name">Copy to All</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Forces the value of X1 onto every Xn, <strong>including the ones you edited by hand</strong>, and clears their "edited by hand" mark. You get a prompt if X1 is empty.</td></tr>
+            <tr><td class="t-name">X2 … X8</td><td><span class="t-type tt-num">Number input</span></td><td>864</td><td>Channel count of each driver. <strong>Once you edit a field by hand it stops following X1</strong> - deliberately, so the values you carefully tuned are not wiped out by X1.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>Usually every driver is the same</strong>
+        Drivers on the same Port are normally the same model with the same channel count, so just fill in X1 and let it sync. You only need to edit a single field when <strong>the last driver takes a different number of leftover channels</strong> (the panel width does not divide evenly).
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== OSC RESULT ==================== -->
+<section id="oscresult">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>Result 1: Oscilloscope A Event B setup</h2>
+    <p class="section-desc">Copy these settings onto the scope and you can look at each driver in turn. <a href="calc.html#calc-card-osc-result">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>Formulas</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Target</th><th>B event value</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">X1 (first driver)</td><td><code>floor( floor(X1 × bits ÷ pairs ÷ gate) ÷ 2 ) + Events</code></td><td>First work out how many CLKs the data of one driver occupies, then take <strong>half of it</strong> (that lands in the middle of that driver's data, which is easier to trigger on), and add the starting event count you measured.</td></tr>
+            <tr><td class="t-name">X2 … Xn</td><td><code>floor(Xn × bits ÷ pairs ÷ gate) + previous value</code></td><td>A running sum. Each further driver waits one more driver's worth of data time.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">Every division is <strong>rounded down</strong> (floor), matching the behaviour of the hardware counter.</p>
+      <div class="callout warn">
+        <strong>Two more things to remember when setting up the scope</strong>
+        The red note under the table: <strong>A Trigger = TP (rising)</strong> and <strong>B Trigger = mLVDS CLK (both edges)</strong>. Set B to a single edge and the count comes out off by a factor of two.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== COF ==================== -->
+<section id="cof">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>Result 2: UI cof_cnt boundary setup</h2>
+    <p class="section-desc">The numbers to write into the TCON registers. <a href="calc.html#calc-card-cof">→ Open this card in the tool</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>Where the boundary values come from</h3>
+        <p style="font-size:.93rem;">Boundary <code>i</code> (<code>i</code> runs from 1 to the driver count −1):</p>
+        <p style="font-size:.93rem;"><code>boundary = floor( Hactive ÷ 2 ÷ drivers ÷ gate × i − 1 )</code></p>
+        <ul>
+          <li><code>÷ drivers</code>: split the whole line evenly across the drivers</li>
+          <li><code>÷ 2</code>: count in UI (one UI covers two pixel positions)</li>
+          <li><code>÷ gate</code>: with Dual Gate each group handles only half</li>
+          <li><code>− 1</code>: the counter starts at 0</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>The 2047 in the last row</h3>
+        <p style="font-size:.93rem;">The last driver (<code>Xn, End</code>) and every row beyond the driver count always show a boundary of <strong>2047</strong>. It is not calculated; it is <strong>an end marker meaning "all the way to the end"</strong> - it tells the TCON there is no further boundary in this segment.</p>
+        <div class="callout danger">
+          <strong>EM02 does not halve 2047</strong>
+          It is a sentinel, not a formula result, so it stays 2047 when you switch to EM02. Seeing it unchanged is the correct behaviour.
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Table and controls</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control / field</th><th>Type</th><th>Options</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">TCON</td><td><span class="t-type tt-sel">Dropdown</span></td><td>EM01 (default) / EM02</td><td>Switches the TCON model. <strong>EM01 offers cof1–cof3, EM02 offers cof1–cof7</strong>, and <strong>EM02 boundary = EM01 boundary ÷ 2 (rounded down)</strong>. The switch is immediate; you do not have to press Calculate again.</td></tr>
+            <tr><td class="t-name">cof_cnt item</td><td><span class="t-type tt-sel">Dropdown</span></td><td><code>-</code> or cof1… (depends on the TCON model)</td><td>Picks which cof register this row uses. You can change the mapping yourself.</td></tr>
+            <tr><td class="t-name">Boundary position</td><td><span class="t-type tt-out">Read-only</span></td><td>—</td><td>Shows which two drivers this row sits between, for example <code>X1, X2</code>. The last row is <code>Xn, End</code>, and rows beyond the driver count show <code>-</code>.</td></tr>
+            <tr><td class="t-name">cof_cnt boundary</td><td><span class="t-type tt-out">Read-only</span></td><td>—</td><td>The number highlighted in green is the value to write into the register.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>Change one cof item and the rest follow</strong>
+        Set a row to <code>cof2</code> and the tool makes <strong>the rows below it become cof3, cof4 and so on</strong>, then clears any duplicate name on the other rows to <code>-</code>. That way two rows can never point at the same register. To clear a single row, pick <code>-</code>; that does not trigger the chain.
+      </div>
+      <p style="font-size:.92rem;">The table has as many rows as "the driver count" or "the number of cof registers on that model", <strong>whichever is larger</strong>. So EM02 still fills all 7 rows when the driver count is small (the extra rows show <code>-</code> as the boundary position and 2047 as the value).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SKEW ==================== -->
+<section id="skew">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>Skew reference table</h2>
+    <p class="section-desc">A static reference table. It does not change with the calculation; it sits here so you do not have to open a document while tuning skew. <a href="calc.html#calc-card-skew-ref">→ Open this card in the tool</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>cksk lane mapping</h3>
+        <p style="font-size:.92rem;">Used for "non-split (non-time) adjustment: shift CLK only".</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Code</th><th>Mapping lane</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">la</td><td>lane 0–3</td></tr>
+              <tr><td class="t-name">lb</td><td>lane 8–11</td></tr>
+              <tr><td class="t-name">ra</td><td>lane 4–7</td></tr>
+              <tr><td class="t-name">rb</td><td>lane 12–15</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warn">
+          <strong>The order of lb and ra is easy to get backwards</strong>
+          The table reads <strong>la→0-3, lb→8-11, ra→4-7, rb→12-15</strong>, which is not a continuous run. Pick the wrong code and you shift the clock of a different lane group.
+        </div>
+      </div>
+      <div class="card">
+        <h3>Coarse (cksk)</h3>
+        <p style="font-size:.92rem;">Moves setup time in steps of 1/16 UI.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Step</th><th>Setup Time</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">0</td><td>8/16 UI <strong>(same as step 8)</strong></td></tr>
+              <tr><td class="t-name">1 – 7</td><td>1/16 – 7/16 UI</td></tr>
+              <tr><td class="t-name">8</td><td>8/16 UI <strong>Default</strong></td></tr>
+              <tr><td class="t-name">9 – 15</td><td>9/16 – 15/16 UI</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:.92rem;">Step <code>0</code> is a special case whose value is the same as <code>8</code>; in normal use, adjust up or down from the default of 8. The real time span = the step ratio × 1 UI, and the absolute value of 1 UI can be worked out with the <a href="rxtx-guide.html">Rx/Tx Frequency Calculator</a>.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Fine</h3>
+      <p style="font-size:.92rem;">Used for "split (time) adjustment". The unit is real picoseconds (ps) and does not depend on frequency.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Step</th><th>Offset</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">0</td><td>P2S</td><td>A special step, not a numeric offset.</td></tr>
+            <tr><td class="t-name">1</td><td>−52 ps</td><td rowspan="3">Earlier (advance)</td></tr>
+            <tr><td class="t-name">2</td><td>−31 ps</td></tr>
+            <tr><td class="t-name">3</td><td>−14 ps</td></tr>
+            <tr><td class="t-name">4</td><td>0 ps</td><td><strong>Default</strong>, no offset</td></tr>
+            <tr><td class="t-name">5</td><td>+11 ps</td><td rowspan="3">Later (delay)</td></tr>
+            <tr><td class="t-name">6</td><td>+36 ps</td></tr>
+            <tr><td class="t-name">7</td><td>+59 ps</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>The steps are not evenly spaced</strong>
+        The gaps between −52 / −31 / −14 / 0 / +11 / +36 / +59 are not equal; that is how the circuit is built. So "two steps earlier" and "two steps later" are not symmetric. When tuning, read the ps value directly instead of counting steps.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">9</span>FAQ</h2>
+    <p class="section-desc">Click a question to expand the answer.</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Calculate does nothing, or the page jumps to some field?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">That means <strong>a field failed validation</strong>. The page scrolls to the first red field. Hactive and X1…Xn must be positive integers, and the event count must be 0 or a positive integer. Calculate is also blocked with a prompt if <strong>you did not click "Drivers per Port" first</strong>.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The whole result block vanished after I changed an input?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">That is deliberate. Once an input changes, the numbers already on screen no longer match it, and leaving them there only invites copying the wrong value. Press "▶ Calculate" again. <strong>Exception</strong>: working inside the result area (switching the TCON model, changing a cof item dropdown) does not clear the results, because those change how the results are presented, not the input conditions.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I switched to EM02 and every boundary halved?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Correct. <strong>EM02 boundary = EM01 boundary ÷ 2 (rounded down)</strong>, for example 15 → 7 and 32 → 16. Switch back to EM01 and the original values return; the halving is never applied twice. The one value that never changes is the end marker 2047.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The calculated B event values do not line up on the scope?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Check these in order of likelihood:</p>
+        <ol style="color:var(--muted); font-size:.93rem;">
+          <li><strong>B Trigger is not set to both edges</strong> - a single edge is off by a factor of two.</li>
+          <li><strong>Single / Dual Gate is wrong</strong> - also off by a factor of two across the board.</li>
+          <li><strong>The starting event count is wrong</strong> - A must be the XSTB(TP) rising edge, and you count up to the RST falling edge.</li>
+          <li><strong>X1 points the wrong way</strong> - X1 must be the driver closest to the TCON.</li>
+          <li>Driver bits / pairs do not match the actual board.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I changed X1 but some Xn fields did not follow?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Those fields <strong>were edited by hand</strong>, so the tool no longer overwrites them with X1 and the values you tuned survive. To force them all the same, press <strong>Copy to All</strong>: it overwrites the hand-edited ones too and clears the mark. Selecting the driver count again also resets everything.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I changed one cof item dropdown and the other rows moved on their own?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">This is <strong>sequential chaining</strong>: cof registers must map in order to the boundaries from nearest to farthest, so once you set a row to cof2, the rows below it become cof3, cof4 and so on, and any duplicate name on the other rows is cleared to <code>-</code>. Picking <code>-</code> does not trigger the chain.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>mLVDS Multi-chip (Time-division) Skew Calculator - User Guide</strong></p>
+  <p style="margin-top:6px;"><a href="calc.html">Open the tool</a> · <a href="index.html">Back to the tool home page</a></p>
+  <p style="margin-top:8px; opacity:.65;">This manual follows the tool as it gains features, and is not part of the tool version numbering.<br>The tool is an engineering aid. Treat every calculated result as a reference; follow the official documentation for the real specifications.</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+const zoneDescriptions = {
+  'c-basic': "<strong>Basic parameters</strong><br>The <b>Hres.</b> dropdown in the top right corner fills in Hactive with one click (1920 / 2560 / 3440 / 3840). Driver bits (6/8), Driver pairs (3/6) and Single / Dual Gate scale the event count; click <b>Drivers per Port (1–8)</b> at the bottom first, and the X1…Xn input fields appear below. <b>Get the Gate wrong and both result tables come out off by a factor of two</b>.",
+  'c-osc': "<strong>Oscilloscope trigger setup</strong><br>Enter the number of CLK events you measured between the XSTB(TP) rising edge and the mLVDS RST falling edge (default 510, 0 is allowed). Set the scope to <b>A event B</b>: A = XSTB(TP) rising edge, B = mLVDS CLK <b>both edges</b>. Click the diagram below to enlarge it; it supports wheel and pinch zoom, drag to pan, double-tap to reset and Esc to close.",
+  'c-xn': "<strong>Xn Channel</strong><br>How many channels each Driver handles. <b>X1 is the driver closest to the TCON</b>. When you change X1, every X2…Xn you have not edited by hand follows it automatically; the ones you edited by hand stay as they are. <b>Copy to All</b> forces X1 onto every field and clears the hand-edited mark.",
+  'c-oscres': "<strong>Oscilloscope A Event B setup (result)</strong><br>Lists the B event value to set on the scope, driver by driver. The first one is <code>floor(floor(X1×bits÷pairs÷gate)÷2) + Events</code>, which lands in the middle of that driver's data and is easier to trigger on; each further driver adds one whole driver's worth of data time. The red note under the table repeats the A/B trigger conditions - <b>B must be set to both edges</b>.",
+  'c-cof': "<strong>UI cof_cnt boundary setup (result)</strong><br>The boundary values to write into the TCON registers: <code>floor(Hactive÷2÷drivers÷gate×i − 1)</code>. Switch between <b>EM01 (cof1–3) and EM02 (cof1–7)</b> in the top right corner. <b>The EM02 value = EM01 ÷ 2, rounded down</b>, but the end marker 2047 is never divided. You can change the cof item dropdown; change one row and the rows below it fall into order automatically.",
+  'c-skew': "<strong>Skew reference table</strong><br>A static reference; it does not change with the calculation. On the left is cksk (shift CLK only): lane mapping la→0-3, lb→8-11, ra→4-7, rb→12-15, with coarse steps 0–15 in units of 1/16 UI, default 8. On the right is fine 0–7 for split (time) adjustment: 0 = P2S, 4 = 0 ps (default), and the rest are −52 / −31 / −14 / +11 / +36 / +59 ps. <b>The steps are not evenly spaced</b>.",
+};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' matches';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+const keyMap = {
+  '1': ['A1', '#facc15'], '2': ['A2', '#facc15'],
+  '3': ['B1', '#22d3ee'], '4': ['B2', '#22d3ee'],
+  '5': ['C1', '#4ade80'], '6': ['C2', '#4ade80'],
+  '7': ['D1', '#fb923c'], '8': ['D2', '#fb923c'],
+  '9': ['E1', '#c084fc'], '0': ['E2', '#c084fc']
+};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = 'Press number key <code>' + k + '</code> → toggle cursor <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>.<br>First press: the cursor appears and <strong>follows the mouse</strong>; left-click on the canvas to <strong>pin it</strong>; press the same key again while it is pinned to <strong>go back to following</strong>; press it once more while it is following to <strong>remove</strong> that cursor.';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>

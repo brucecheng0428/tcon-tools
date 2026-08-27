@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'en';
+window.GUIDE_FILES = { 'zh-TW': 'pattern-guide.html', 'zh-CN': 'pattern-guide-cn.html', 'en': 'pattern-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>Pattern Generator - User Guide</title>
+<meta name="description" content="Complete user guide for Pattern Generator: the test pattern menu, manual 4×4 sub-pixel editing, full-screen keyboard control, magnifier, mask, image import, PNG/BMP 8/10-bit output and screen scaling detection.">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>Pattern Generator</h1>
+  <p class="subtitle">Sub-pixel editing · full-screen 1:1 tiling - complete user guide. Test patterns, the 4×4 editor, the mask, the magnifier, output and screen scaling detection, explained item by item.</p>
+  <span class="version">Web tool · No install · Works on phone and desktop</span>
+  <div class="hero-links">
+    <a href="pattern.html">▶ Open Pattern Generator</a>
+    <a href="index.html">⌂ Back to the tool home page</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">Intro</button>
+      <button class="nav-btn" onclick="scrollToSection('#quickstart')">Quick start</button>
+      <button class="nav-btn" onclick="scrollToSection('#patterns')">Test patterns</button>
+      <button class="nav-btn" onclick="scrollToSection('#special')">Special parameters</button>
+      <button class="nav-btn" onclick="scrollToSection('#edit')">4×4 editor</button>
+      <button class="nav-btn" onclick="scrollToSection('#fullscreen')">Full-screen</button>
+      <button class="nav-btn" onclick="scrollToSection('#magnifier')">Magnifier</button>
+      <button class="nav-btn" onclick="scrollToSection('#mask')">Mask</button>
+      <button class="nav-btn" onclick="scrollToSection('#import')">Import image</button>
+      <button class="nav-btn" onclick="scrollToSection('#output')">Output and save</button>
+      <button class="nav-btn" onclick="scrollToSection('#screen')">Screen info</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">FAQ</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 Search controls…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Switch light / dark theme" aria-label="Switch light / dark theme">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>About this tool</h2>
+    <p class="section-desc">Use the browser to push a test pattern across the whole screen, <strong>one pixel to one pixel, no scaling</strong>. You can also build your own 4×4 sub-pixel unit and tile it edge to edge, or save the result as PNG or BMP for test equipment.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>What it does</h3>
+        <ul>
+          <li><strong>Test patterns</strong> — a full set of common patterns is built in (gray bars, Skip Dot, Line, Checker, Cross Talk, SMPTE…), with the same menu structure as the original program.</li>
+          <li><strong>Manual 4×4</strong> — set the gray level of 4 rows × 4 pixels × RGB, <strong>48 sub-pixels</strong> in all, and tile them across the screen.</li>
+          <li><strong>Mask</strong> — reveal only some segments of the screen and cover the rest (this is our addition; the original program has no such feature).</li>
+          <li><strong>Save image</strong> — export PNG or BMP at the resolution you enter, in 8 or 10 bit. The pixels are verified automatically once the file is written.</li>
+          <li><strong>Magnifier</strong> — zoom in on the spot to inspect the sub-pixel layout and the value of every cell.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Three things to know first</h3>
+        <ul>
+          <li><strong>The preview on the main page is not 1:1</strong> - it magnifies the pattern into a 3×3 tiling so you can see the structure clearly. For the real scale, go full-screen or use “1:1 actual pixels” in the output section.</li>
+          <li><strong>The pattern shown at startup is Horizontal 256</strong> (white / red / green / blue gray bars running left to right), not an empty manual mode.</li>
+          <li><strong>Screen scaling will fool you</strong> - if the system is not at 100% scaling, CSS pixels and real device pixels do not match. The screen info card in chapter 11 tells you the current ratio directly.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" data-zone-target="zone-desc-pat">
+      <h3>Interface overview</h3>
+      <p style="color:var(--muted); font-size:.92rem;">Hover over any block in the diagram below (tap it on a phone) and its description appears underneath.</p>
+      <div style="border:2px solid #334155; border-radius:10px; overflow:hidden; font-size:.84rem; background:#0f172a; padding:10px; display:flex; flex-direction:column; gap:9px;">
+        <div class="zone" data-zone="p-now" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:#f472b6;">👁 What Is Showing</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+            <span class="ui-chip on">☰ Test Pattern</span><span class="ui-chip">🎛️ Manual 4×4</span><span class="ui-chip">▾ Test Pattern Menu</span><span class="ui-chip">⛶ Enter full-screen</span><span class="ui-chip">🔍</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="p-params" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-cyan);">🎛️ Pattern Parameters / 4×4 editor</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:6px;">
+            <span class="ui-chip">1 R</span><span class="ui-chip">2 G</span><span class="ui-chip">3 B</span><span class="ui-chip on">4 White</span><span class="ui-chip">Level 127</span><span class="ui-chip">Space: invert</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(12,1fr); gap:2px; max-width:280px;">
+            <span style="height:12px;background:#f87171"></span><span style="height:12px;background:#4ade80"></span><span style="height:12px;background:#60a5fa"></span>
+            <span style="height:12px;background:#7f1d1d"></span><span style="height:12px;background:#14532d"></span><span style="height:12px;background:#1e3a8a"></span>
+            <span style="height:12px;background:#f87171"></span><span style="height:12px;background:#4ade80"></span><span style="height:12px;background:#60a5fa"></span>
+            <span style="height:12px;background:#7f1d1d"></span><span style="height:12px;background:#14532d"></span><span style="height:12px;background:#1e3a8a"></span>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="p-mask" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-purple);">▦ Mask (reveal only selected segments)</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">Horizontal / vertical segments · intersection or union · edge adjust · the mask can be filled with another pattern</div>
+          </div>
+          <div class="zone" data-zone="p-imp" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-amber);">🖼 Import Image</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">PNG / BMP / JPG / GIF / WebP · no scaling · can be cleared to return to the test pattern</div>
+          </div>
+        </div>
+        <div class="zone" data-zone="p-out" style="background:#0b1220; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-green);">💾 Output and Save</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+            <span class="ui-chip">1920 × 1080</span><span class="ui-chip">Fit to box / 1:1</span><span class="ui-chip">PNG / BMP</span><span class="ui-chip">8 / 10 bit</span><span class="ui-chip on">💾 Save image</span><span class="ui-chip">⬇ Batch export</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="p-screen" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-blue);">🖥️ Screen info and scaling detection</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">CSS resolution · devicePixelRatio · derived device pixels · multi-screen info</div>
+        </div>
+      </div>
+      <div id="zone-desc-pat" style="margin-top:14px; padding:14px 18px; background:var(--primary-soft); border:1px solid var(--primary-line); border-radius:8px; font-size:.9rem; min-height:76px;">✦ Hover over any zone above (tap it on a phone) and the details appear here.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>Quick start</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>Pick a test pattern</h3>
+        <p>Press “▾ Test Pattern Menu” and choose from the menu (for example <strong>Skip 1 Dot ▸ 1V 1H</strong>). The preview above updates immediately.</p>
+      </div>
+      <div class="step">
+        <h3>Set the color and gray level</h3>
+        <p>The color buttons 1–8 and the Level slider in the Pattern Parameters card. <strong>These two are what the number keys and the up/down keys do in the original program</strong>.</p>
+      </div>
+      <div class="step">
+        <h3>Push it to the whole screen</h3>
+        <p>Press “⛶ Enter full-screen”. You can still change patterns and gray levels from the keyboard in full-screen. The control panel can sit on either side; press <code>F</code> or <code>Esc</code> to leave.</p>
+      </div>
+      <div class="step">
+        <h3>Inspect the sub-pixel layout</h3>
+        <p>Wherever a pattern is shown, click the 🔍 badge in the top-right corner to open the magnifier. The arrow keys move the crosshair, and the area can be 3×3 / 5×5 / 9×9 / 13×13.</p>
+      </div>
+      <div class="step">
+        <h3>Save a file when you need one</h3>
+        <p>Expand “Output and Save”, enter a resolution (or press “Use screen”), pick PNG or BMP and the bit depth, then press “💾 Save image”. <strong>After saving, the file is verified automatically to be pixel-identical to the pattern</strong>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PATTERNS ==================== -->
+<section id="patterns">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>Test patterns and the menu</h2>
+    <p class="section-desc">The menu structure follows the original program (credited as LCD Test 2010); no new names were invented. <a href="pattern.html#pattern-card-now">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>The full menu</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Menu item</th><th>Sub-item</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Horizontal</td><td>9 / 64 / 256</td><td>Horizontal gray bars; the number is how many steps.</td></tr>
+            <tr><td class="t-name">Vertical</td><td>9 / 64 / 256</td><td>Vertical gray bars.</td></tr>
+            <tr><td class="t-name">Center</td><td>9 / 64 / 256</td><td>Gray bars running outward from the center.</td></tr>
+            <tr><td class="t-name">Gray Level</td><td>—</td><td>One flat gray level over the whole screen; the usual choice for checking Mura and brightness uniformity.</td></tr>
+            <tr><td class="t-name">Skip 1 Dot</td><td>1V 1H / 1V 2H</td><td>Alternating lit and dark dots, for crosstalk and charging ability.</td></tr>
+            <tr><td class="t-name">Skip 2 Dot</td><td>2V 1H / 2V 2H / 2V (1+2)H</td><td>The every-two-dots version.</td></tr>
+            <tr><td class="t-name">Skip SubPixel</td><td>—</td><td>Skips dots at sub-pixel granularity.</td></tr>
+            <tr><td class="t-name">Horizontal Line</td><td>1 line / 2 line</td><td>Horizontal line pattern.</td></tr>
+            <tr><td class="t-name">Vertical Line</td><td>1 line / 2 line / Sub Line</td><td>Vertical line pattern; Sub Line works at sub-pixel granularity.</td></tr>
+            <tr><td class="t-name">Cross Talk</td><td>—</td><td>The outer and inner boxes each take their own color and gray level, for checking crosstalk. See chapter 4 for the special parameters.</td></tr>
+            <tr><td class="t-name">XY Coordinate</td><td>—</td><td>Crosshair positioning; in full-screen, move it with the arrow keys and invert black and white with Space.</td></tr>
+            <tr><td class="t-name">Align Center</td><td>—</td><td>Centered alignment pattern.</td></tr>
+            <tr><td class="t-name">Color Test</td><td>—</td><td>Color patch test; Space switches the layout.</td></tr>
+            <tr><td class="t-name">Flicker</td><td>1 line / 2 line</td><td>Pattern for flicker checks.</td></tr>
+            <tr><td class="t-name">Checker</td><td>—</td><td>Checkerboard; the grid count can be 2/4/8/16/32/64/128/256.</td></tr>
+            <tr><td class="t-name">Character</td><td>—</td><td>Text pattern.</td></tr>
+            <tr><td class="t-name">LUMINACE</td><td>COMPARE / DIVIDE</td><td>Brightness comparison and division.</td></tr>
+            <tr><td class="t-name">Response Time</td><td>—</td><td>Two patterns alternate at the interval you set, for measuring response time.</td></tr>
+            <tr><td class="t-name">Misc Pattern</td><td>SMPTE</td><td>Standard color bars.</td></tr>
+            <tr><td class="t-name">Skip 1 Dot 2 Gray</td><td>—</td><td>Odd and even rows use two different colors and gray levels.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">The menu also keeps <strong>the 5 most recently used</strong> patterns at the top, so you do not have to dig through the menu every time you switch back and forth.</p>
+    </div>
+
+    <div class="card">
+      <h3>Shared parameters</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Options / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Color 1–8</td><td><span class="t-type tt-btn">Button</span></td><td><code>1 R</code> <code>2 G</code> <code>3 B</code> <code>4 White</code> <code>5 Black</code> <code>6 Cyan</code> <code>7 Magenta</code> <code>8 Yellow</code></td><td>The numbers map straight onto the number keys of the original program. <strong>Gray patterns ignore 5 (Black)</strong> - that would be an all-black screen, which is pointless. On gray bar patterns, 5 returns to the four-color W/R/G/B mode.</td></tr>
+            <tr><td class="t-name">Gray level</td><td><span class="t-type tt-sld">Number + slider</span></td><td>0–255</td><td>Brightness of the current color.</td></tr>
+            <tr><td class="t-name">Previous / next variant</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Cycles through the variants of the same group (for example Horizontal 9 → 64 → 256 → 9).</td></tr>
+            <tr><td class="t-name">Space: invert</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Swaps light and dark (on gray bar patterns it reverses the gradient direction). Inverting means nothing on some patterns, so pressing it does nothing there.</td></tr>
+            <tr><td class="t-name">⇩ Edit manually from here</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Copies the current pattern's <strong>repeating unit into the 4×4 editor</strong> so you can fine-tune it by hand. <strong>Non-periodic patterns (gray bars, SMPTE and the like) have no repeating unit</strong>, so the button is disabled and states the reason.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SPECIAL ==================== -->
+<section id="special">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>Special parameter panels</h2>
+    <p class="section-desc">When certain patterns are selected, matching fields appear in the Pattern Parameters card. <a href="pattern.html#pattern-card-params">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Pattern</th><th>Fields</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Checker</td><td>Checker grid (n × n)</td><td>2 / 4 / 8 / 16 / 32 / 64 / 128 / 256. The larger the number, the finer the squares.</td></tr>
+            <tr><td class="t-name">Cross Talk</td><td>Outer Color / Outer Level / Inner Color / Inner Level / Inner Width / Height / Left / Top</td><td>The outer and inner boxes each take their own color and gray level. The inner box position and size are given in <strong>pixels</strong> (minimum width and height 24 px). In full-screen, <code>Space</code> cycles through four adjustment modes: outer color → inner color → position → size.</td></tr>
+            <tr><td class="t-name">Response Time</td><td>Color and Level for Pattern #1 / #2, Timming (mSec), Run</td><td>The two patterns alternate at the interval you set, in milliseconds (16–60000 ms). <strong>Any key stops it while it is running</strong>.</td></tr>
+            <tr><td class="t-name">Skip 1 Dot 2 Gray</td><td>Pattern #2 Color / Level</td><td>The shared color and gray level above are Pattern #1; what you set here is Pattern #2 (alternating with even and odd rows).</td></tr>
+            <tr><td class="t-name">XY Coordinate</td><td>(no fields, note only)</td><td>In full-screen, move the crosshair with the arrow keys and invert black and white with <code>Space</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== EDIT ==================== -->
+<section id="edit">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>The manual 4×4 editor</h2>
+    <p class="section-desc">Available after you switch to “🎛️ Manual 4×4”. What you edit is a repeating unit of <strong>4 rows × 4 pixels</strong>; each pixel has three sub-pixels, R, G and B, so there are <strong>48 cells in all</strong>. In full-screen this unit is tiled 1:1 across the whole screen. <a href="pattern.html#pattern-card-params">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>How to use it</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Action</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Tap a cell</td><td>Applies the <strong>current gray level</strong> to that sub-pixel. So the order is: set the gray level first, then tap the cell.</td></tr>
+            <tr><td class="t-name">Press and drag</td><td>Paints several cells in one stroke.</td></tr>
+            <tr><td class="t-name">Tap an L1–L4 header</td><td>Selects <strong>the whole row</strong>.</td></tr>
+            <tr><td class="t-name">Tap a px1–px4 header</td><td>Selects <strong>the whole pixel column</strong>.</td></tr>
+            <tr><td class="t-name">Tap an R / G / B header</td><td>Selects every sub-pixel of that color.</td></tr>
+            <tr><td class="t-name">Select lit group / dark group</td><td>At <strong>the moment</strong> you press it, the actual gray levels of all 48 cells are scanned. When there are <strong>exactly two</strong>, the larger value is the lit group and the smaller one the dark group (for example dark L4 / lit L128). It is recomputed on every edit. Once <strong>a third level</strong> appears, or the 48 cells have <strong>only one left</strong>, lit and dark no longer make sense, and these two buttons are disabled together with “Swap lit/dark”, with the reason shown.</td></tr>
+            <tr><td class="t-name">Swap lit/dark</td><td>The values of the two groups are exchanged. Press twice to return to the original.</td></tr>
+            <tr><td class="t-name">Select all / Clear</td><td>Exactly what they say.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <strong>With nothing selected, gray level actions do not touch any cell</strong>
+        The slider, the number box, the L shortcuts and ±16 act only on the <strong>selected</strong> sub-pixels. The slider still moves when nothing is selected, but all it does is set the brush value used when you tap a cell; nothing on screen changes. To change everything at once, press <strong>Select all</strong> first.
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Gray level input</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Number + slider</td><td>0–255. This is the value that will be applied next.</td></tr>
+            <tr><td class="t-name">L0 / L32 / L64 / L128 / L192 / L255</td><td>Shortcut buttons for common values.</td></tr>
+            <tr><td class="t-name">−16 / −1 / +1 / +16</td><td>Fine adjustment. Note that it <strong>adds to or subtracts from each target cell individually</strong> rather than setting every cell to the same value - cells that already differ keep their relative difference.</td></tr>
+            <tr><td class="t-name">Starting Pattern (menu shortcuts)</td><td>A row of buttons equivalent to the menu; pressing one loads <strong>what that pattern actually draws</strong> into the editor cells. You stay in manual mode afterwards, so you can keep editing.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>The shortcut values come from what is actually drawn, not from a second hard-coded table</strong>
+        Pressing a shortcut is the same as picking that test pattern, deriving its 4×4 repeating unit and filling the editor cells, so a shortcut can never disagree with what the menu draws.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FULLSCREEN ==================== -->
+<section id="fullscreen">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>Full-screen display and keyboard control</h2>
+    <p class="section-desc">This is where you actually look at the pattern. Once you enter, the pattern fills the whole screen at 1:1.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>Control panel</h3>
+        <ul>
+          <li>The panel can be set to the <strong>left or right</strong> (“Control panel side in full-screen” on the main page, or “⇄ Switch panel side” on the panel itself).</li>
+          <li>The panel holds the test pattern menu, the side switch, the exit button, the keyboard help and details of the current pattern.</li>
+          <li>The left and right edges of the screen are <strong>hot zones</strong>: the panel only appears when the mouse moves there, so it never covers the pattern the rest of the time.</li>
+          <li>Right-clicking in full-screen also opens the test pattern menu.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Three ways to leave</h3>
+        <ul>
+          <li>Press <code>F</code> - an explicit exit from full-screen that also closes the magnifier.</li>
+          <li>Press <code>Esc</code> - it <strong>closes one layer at a time</strong>: the menu first, then the magnifier, then the 1:1 preview, and only then full-screen.</li>
+          <li>The “✕ Exit full-screen” button on the panel.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Keyboard reference (in full-screen)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Gray patterns</th><th>Gray bar patterns (Horizontal / Vertical / Center)</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">1 – 8</td><td>Switch color (5 Black excluded)</td><td>Switch color, <strong>5 = back to the four-color W/R/G/B mode</strong> (does not apply to the Center group)</td></tr>
+            <tr><td class="t-name">↑ / ↓</td><td>Gray level +1 / −1</td><td>Switch variant (9 → 64 → 256)</td></tr>
+            <tr><td class="t-name">Shift ＋ ↑ / ↓</td><td>Gray level ±16</td><td>—</td></tr>
+            <tr><td class="t-name">← / →</td><td>Switch variant</td><td>—</td></tr>
+            <tr><td class="t-name">Home / End</td><td>Jump gray level to 255 / 0</td><td>—</td></tr>
+            <tr><td class="t-name">Space</td><td>Invert</td><td>Reverse the gradient direction</td></tr>
+            <tr><td class="t-name">F</td><td colspan="2">Exit full-screen</td></tr>
+            <tr><td class="t-name">Esc</td><td colspan="2">Close one layer at a time (menu → magnifier → 1:1 preview → full-screen)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">The gray level <strong>wraps around</strong>: going past 255 returns to 0. Cross Talk and XY Coordinate have their own key behavior; see chapter 4.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== MAGNIFIER ==================== -->
+<section id="magnifier">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>Magnifier</h2>
+    <p class="section-desc">Use it to confirm which sub-pixel a given cell on screen is, and what its value is. It can be opened in three places: <strong>the main preview, the output preview and full-screen</strong>.</p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">🔍 entry point</td><td>The round badge in the top-right corner of the preview, or the “🔍 Open magnifier” button in the output section.</td></tr>
+            <tr><td class="t-name">Area 3×3 / 5×5 / 9×9 / 13×13</td><td>How many pixels you see at once. <strong>At 3×3 only the center cell value is shown in the info bar below; from 5×5 up, every cell is labeled with its value.</strong></td></tr>
+            <tr><td class="t-name">Arrow keys</td><td>Move the crosshair. While the magnifier is open, <strong>the arrow keys belong to the magnifier</strong> and do not change the gray level or variant of the pattern (the XY Coordinate crosshair is paused as well).</td></tr>
+            <tr><td class="t-name">Toolbar</td><td>Drag the whole toolbar elsewhere by the ⠿ handle on the left, so it does not cover the area you want to see.</td></tr>
+            <tr><td class="t-name">Closing</td><td>Press <code>Esc</code>, click the ✕ on the toolbar, or click the entry point you came in by once more.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== MASK ==================== -->
+<section id="mask">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>Mask (reveal only selected segments)</h2>
+    <p class="section-desc">Split the screen into N equal segments and reveal only the ones you tick, covering the rest. <strong>This is our own feature; the original program does not have it.</strong> The card is collapsed by default. <a href="pattern.html#pattern-card-mask">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Range / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Enable mask</td><td><span class="t-type tt-chk">Checkbox</span></td><td>Off by default</td><td>When it is off the whole card does nothing, and the card tag reads “Off”.</td></tr>
+            <tr><td class="t-name">Horizontal segments</td><td><span class="t-type tt-sld">Number + slider</span></td><td>Number 1–64, slider 1–24, default 6</td><td>How many equal parts the screen is split into from left to right.</td></tr>
+            <tr><td class="t-name">Which segments to reveal</td><td><span class="t-type tt-chk">Multi-select chips</span></td><td>—</td><td>Multiple choices allowed; only the ticked ones show the pattern.</td></tr>
+            <tr><td class="t-name">Also use vertical segments</td><td><span class="t-type tt-chk">Checkbox</span></td><td>Off by default</td><td>Turning it on adds a second set of vertical segments and their selection.</td></tr>
+            <tr><td class="t-name">How they combine</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Intersection (default) / Union</td><td><strong>Intersection = reveals a rectangle</strong> (the area ticked both horizontally and vertically); <strong>Union = reveals a cross</strong> (ticked in either direction is enough).</td></tr>
+            <tr><td class="t-name">Reveal edge adjust</td><td><span class="t-type tt-sld">Number + slider</span></td><td>±200 px, default 0</td><td>Positive expands, negative shrinks. <strong>It acts on the outer edges of each continuous revealed run</strong>, so revealing two adjacent segments (say 2 and 3) leaves no seam between them.</td></tr>
+            <tr><td class="t-name">Mask content</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Solid color (default) / another pattern</td><td>What fills the covered area. Choosing “another pattern” lets you build side-by-side comparisons such as Skip Dot on the left half and Gray on the right.</td></tr>
+            <tr><td class="t-name">Mask color / gray level</td><td><span class="t-type tt-sel">Dropdown + number</span></td><td>—</td><td>The fill used in solid color mode.</td></tr>
+            <tr><td class="t-name">Apply the color and gray level to this pattern too</td><td><span class="t-type tt-chk">Checkbox</span></td><td>Not ticked by default</td><td>Only available when “another pattern” is chosen. <strong>Off by default</strong>, so that pattern keeps the appearance it is supposed to have.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>Typical use</strong>
+        When measuring the brightness or crosstalk of one area, reveal only that segment and cover the rest in black; surrounding brightness then stays out of the measurement. Or use “another pattern” for a left-right comparison, so a single photo captures both patterns.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== IMPORT ==================== -->
+<section id="import">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">9</span>Import image</h2>
+    <p class="section-desc">If you already have a test image file, drop it in and show it 1:1 across the whole screen. The card is collapsed by default. <a href="pattern.html#pattern-card-import">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">📂 Choose an image file</td><td>Any format the browser can decode works: PNG, BMP, JPG, GIF, WebP.</td></tr>
+            <tr><td class="t-name">Image info</td><td>After the import, the size and other details are shown, and the card tag changes from “None” to the imported state.</td></tr>
+            <tr><td class="t-name">Lossy format warning</td><td>Importing a file that uses <strong>lossy compression</strong>, such as JPG, raises a warning: the pixel values have already been changed by the compression, so the file is not suitable for strict per-pixel verification.</td></tr>
+            <tr><td class="t-name">✕ Clear the imported image</td><td>Returns to the test pattern.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <strong>The imported image is never scaled</strong>
+        It is shown 1:1 at its original size. A smaller image covers only part of the screen; a larger one runs off the edges. That is deliberate: any scaling changes pixel values and makes the test meaningless.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== OUTPUT ==================== -->
+<section id="output">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">10</span>Output and save</h2>
+    <p class="section-desc">Save the current pattern as an image file. The card is collapsed by default. <a href="pattern.html#pattern-card-out">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>Resolution and preview</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Range / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Output resolution</td><td><span class="t-type tt-num">Two numbers</span></td><td>1–16384, default 1920 × 1080</td><td>Given in <strong>device pixels</strong>.</td></tr>
+            <tr><td class="t-name">Use screen</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Fills in the device pixels derived from the current screen in one click.</td></tr>
+            <tr><td class="t-name">Common sizes</td><td><span class="t-type tt-btn">Chip buttons</span></td><td>11 of them, 640×480 – 3840×2160</td><td>Hovering shows the aspect ratio and the megapixel count.</td></tr>
+            <tr><td class="t-name">Fit to box / 1:1 actual pixels</td><td><span class="t-type tt-btn">Toggle</span></td><td>“Fit to box” by default</td><td>How the preview is displayed. <strong>Only 1:1 is the real scale</strong>; drag to pan when it does not fit.</td></tr>
+            <tr><td class="t-name">⛶ Inspect 1:1 on the whole screen</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Inspect the output at 1:1 using the whole screen (the reference is the real screen).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Format and bit depth</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Options / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">File format</td><td>PNG (default) / BMP</td><td><strong>Both are lossless and give identical pixel values</strong>. PNG is compressed, so files are small; BMP is uncompressed and much larger. Choose BMP only when the equipment at the other end accepts nothing else.</td></tr>
+            <tr><td class="t-name">Color depth</td><td>8 bit (default) / 10 bit</td><td>10 bit is <strong>for equipment that only accepts 10-bit images</strong>. The pattern itself is still generated at 8 bit; each channel is expanded to 10 bit by MSB replication when saving (<code>0 → 0</code>, <code>255 → 1023</code>, so both ends map exactly). <strong>It cannot invent levels that 8 bit could not reach</strong>.</td></tr>
+            <tr><td class="t-name">File name</td><td>Editable; the extension is added automatically</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Saving, batch export and verification</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">💾 Save image</td><td>Builds the file from the current settings and downloads it.</td></tr>
+            <tr><td class="t-name">📤 Share image with another app</td><td><strong>It only appears when the device supports file sharing</strong> (usually a phone). Sharing and downloading use <strong>the same file</strong>; nothing is re-encoded for the sake of sharing. If you cancel the share, it does not force a download instead.</td></tr>
+            <tr><td class="t-name">Export several sizes at once</td><td>Tick several sizes and export them in one go. <strong>Every size is drawn natively at that resolution and verified separately</strong> - it is not one image scaled into several.</td></tr>
+            <tr><td class="t-name">Verification result</td><td>After saving, the file is automatically <strong>decoded back and compared pixel by pixel</strong>, and the format, total pixel count, difference count and file size are shown. To pass, <strong>the difference count must be 0</strong> and the decoded width and height must match the settings.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>Why verify automatically</strong>
+        The worst thing that can happen to a test pattern is a saved file that differs from what you saw - browser encoding, color management and scaling can all change pixel values quietly. Here every save is decoded back and compared for real, and anything other than 0 differences is flagged in red, so nobody has to check by eye.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SCREEN ==================== -->
+<section id="screen">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">11</span>Screen info and scaling detection</h2>
+    <p class="section-desc">Read-only information; the card is collapsed by default. It answers the question “is what I am looking at really 1:1”. <a href="pattern.html#pattern-card-screen">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>What it means</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">CSS logical resolution</td><td>The screen size as the browser sees it.</td></tr>
+            <tr><td class="t-name">devicePixelRatio</td><td>How many physical pixels each CSS pixel maps to. <strong>Anything other than 1 means scaling is in effect.</strong></td></tr>
+            <tr><td class="t-name">Derived device pixels</td><td>CSS resolution × dPR, that is, the real panel pixel count. This is what “Use screen” in the output section fills in.</td></tr>
+            <tr><td class="t-name">Window inner size / available area</td><td>The current window, and what is left after the system bars are subtracted.</td></tr>
+            <tr><td class="t-name">Color depth</td><td>The color bit count reported by the browser.</td></tr>
+            <tr><td class="t-name">Orientation</td><td>Landscape or portrait.</td></tr>
+            <tr><td class="t-name">Multi-screen (isExtended)</td><td>Whether an extended screen is present.</td></tr>
+            <tr><td class="t-name">🔎 Get per-screen details</td><td>Requires permission; once granted it lists the resolution and scaling of each screen.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout danger">
+        <strong>When dPR is not 1, even “full-screen 1:1” is not really 1:1</strong>
+        The browser draws CSS pixels and the system then scales them up to physical pixels - interpolation is unavoidable, and the sub-pixel pattern is distorted. For pixel-level testing, set the system display scaling to 100% first, or use “Save image” and show the file on the test equipment instead.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">12</span>FAQ</h2>
+    <p class="section-desc">Click a question to open the answer.</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I move the gray level slider but nothing on screen changes?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Because <strong>nothing is selected right now</strong>. Gray level actions apply only to selected sub-pixels; with nothing selected, no cell moves (the slider merely sets the brush value). Select something first: tap a cell (tapping a cell applies the value directly), tap a header to select a whole row, a whole column or a whole color, press <strong>Select lit group / dark group</strong>, or press <strong>Select all</strong> to change everything. The right-hand side of the selection row states how many cells the value will reach.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The “Edit manually from here” button is grayed out?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">It means this pattern is <strong>not a 4×4 periodic pattern</strong> - gray bars, SMPTE, Cross Talk and other pictures that differ everywhere have no repeating unit to copy into the 4×4 editor. The reason is written next to the button.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The preview looks different from the real display?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">The preview on the main page is <strong>a magnified 3×3 tiling</strong>, meant to make the structure easy to see; it was never 1:1. For the real scale, enter “⛶ Enter full-screen”, or switch the output section to “1:1 actual pixels” or “⛶ Inspect 1:1 on the whole screen”.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The arrow keys do nothing in full-screen?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Two possibilities. Either <strong>the magnifier is open</strong> - the arrow keys then move its crosshair and the pattern arrow-key functions are paused entirely, so close the magnifier; or <strong>the focus is sitting in an input box</strong>, in which case click an empty part of the page and try again. Also, the arrow keys mean different things on different pattern types (see the table in chapter 6).</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Does 10-bit output improve image quality?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">No. <strong>The pattern itself is still generated at 8 bit</strong>; 10 bit only expands each channel by MSB replication when saving (0→0, 255→1023), for <strong>equipment that only accepts 10-bit images</strong>. It cannot invent intermediate levels that 8 bit could not reach.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The verification after saving shows red. What now?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Red means <strong>the pixels decoded back do not match the pattern exactly</strong> (the difference count is not 0, or the width and height are wrong). That file is not suitable for pixel-level testing. Try the other format (PNG ↔ BMP) and save again; if it still fails, report the message shown - it means the browser encoder is misbehaving.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I cannot see the “Share image” button on my phone?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">The share button <strong>only appears when the browser really does support file sharing</strong>; where it is not supported it is hidden completely, so you never press it only to fail. Just use “💾 Save image” to download instead - the content is identical.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Pattern Generator - User Guide</strong></p>
+  <p style="margin-top:6px;"><a href="pattern.html">Open the tool</a> · <a href="index.html">Back to the tool home page</a></p>
+  <p style="margin-top:8px; opacity:.65;">This manual follows the tool as it gains features, and is not part of the tool version numbering.<br>The tool is an engineering aid. Treat every calculated result as a reference; follow the official documentation for the real specifications.</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+const zoneDescriptions = {
+  'p-now': "<strong>What Is Showing</strong><br>Two mode tabs: <b>☰ Test Pattern</b> (the built-in menu) and <b>🎛️ Manual 4×4</b> (edit the sub-pixels yourself). The preview in the middle is <b>a magnified 3×3 tiling, not 1:1</b>. The two buttons below open the test pattern menu and enter full-screen display, and you can set in advance whether the control panel sits on the left or the right in full-screen. The 🔍 in the top-right corner opens the magnifier.",
+  'p-params': "<strong>Pattern Parameters / 4×4 editor</strong><br>In test pattern mode it shows color 1–8 (R/G/B/White/Black/Cyan/Magenta/Yellow), gray Level 0–255, variant switching and Space invert, plus the special fields for Checker / Cross Talk / Response Time / Skip 1 Dot 2 Gray as the pattern requires. In manual mode it is an editor of 4 rows × 4 pixels × RGB, <b>48 cells</b> in all: tap a cell to apply the current gray level, tap a header to select a whole row, a whole column or a whole color, and use the lit/dark group actions (grouped live from the current values; there must be exactly two brightness levels). <b>With nothing selected, gray level actions do not touch any cell</b>.",
+  'p-mask': "<strong>Mask (our own feature, not in the original program)</strong><br>Split the screen into N equal segments and reveal only the ones you tick. Vertical segments can be enabled at the same time, combined as <b>intersection (reveals a rectangle) or union (reveals a cross)</b>. The edge adjust acts on the outer edges of each continuous revealed run, so there is no seam between adjacent segments. The covered area can be filled with a solid color, or with <b>another test pattern</b> for a side-by-side comparison.",
+  'p-imp': "<strong>Import Image</strong><br>Any format the browser can decode works, PNG / BMP / JPG / GIF / WebP included, and <b>the image is always shown 1:1, never scaled</b> (scaling changes pixel values and makes the test meaningless). Importing a lossy format such as JPG raises a warning. You can clear it at any time and return to the test pattern.",
+  'p-out': "<strong>Output and Save</strong><br>Enter the output resolution (press “Use screen” for one click, or pick one of 11 common sizes); the preview can switch between “Fit to box” and “1:1 actual pixels”. The format is PNG or BMP (<b>both give identical pixel values</b>; they differ in compression and file size), and the color depth is 8 or 10 bit (10 bit uses MSB replication, for equipment that only accepts 10-bit images). Batch export of several sizes is supported, each one drawn natively. <b>After every save the file is decoded back and verified pixel by pixel, and the difference must be 0</b>.",
+  'p-screen': "<strong>Screen info and scaling detection</strong><br>Lists the CSS logical resolution, devicePixelRatio, derived device pixels, window and available area, color depth, orientation and whether an extended screen is present. Per-screen details can also be obtained once permission is granted. <b>Anything other than 1 for dPR means the system is scaling</b>, so the “1:1” on screen is not really 1:1. Set the display scaling to 100% before doing any pixel-level testing.",
+};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' matches';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+const keyMap = {
+  '1': ['A1', '#facc15'], '2': ['A2', '#facc15'],
+  '3': ['B1', '#22d3ee'], '4': ['B2', '#22d3ee'],
+  '5': ['C1', '#4ade80'], '6': ['C2', '#4ade80'],
+  '7': ['D1', '#fb923c'], '8': ['D2', '#fb923c'],
+  '9': ['E1', '#c084fc'], '0': ['E2', '#c084fc']
+};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = 'Press number key <code>' + k + '</code> → toggle cursor <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>.<br>First press: the cursor appears and <strong>follows the mouse</strong>; left-click on the canvas to <strong>pin it</strong>; press the same key again while it is pinned to <strong>go back to following</strong>; press it once more while it is following to <strong>remove</strong> that cursor.';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>

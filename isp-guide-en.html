@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'en';
+window.GUIDE_FILES = { 'zh-TW': 'isp-guide.html', 'zh-CN': 'isp-guide-cn.html', 'en': 'isp-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>iSP Waveform Generator - User Guide</title>
+<meta name="description" content="Complete user guide for the iSP Waveform Generator: mode settings, pixel settings, frame structure, iSP REG Setting, the differential waveform and the 9-bit reverse lookup, explained item by item.">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>iSP Waveform Generator</h1>
+  <p class="subtitle">iSP 8B9B encoded differential waveform simulator - complete user guide. Every setting, every control code, every color marker and the reverse lookup explained in detail.</p>
+  <span class="version">Web tool · No install · Works on phone and desktop</span>
+  <div class="hero-links">
+    <a href="isp.html">▶ Open the iSP Waveform Generator</a>
+    <a href="index.html">⌂ Back to the tool home page</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">Intro</button>
+      <button class="nav-btn" onclick="scrollToSection('#quickstart')">Quick start</button>
+      <button class="nav-btn" onclick="scrollToSection('#mode')">Mode Settings</button>
+      <button class="nav-btn" onclick="scrollToSection('#pixel')">Pixel Settings</button>
+      <button class="nav-btn" onclick="scrollToSection('#frame')">Frame Structure</button>
+      <button class="nav-btn" onclick="scrollToSection('#reg')">REG Setting</button>
+      <button class="nav-btn" onclick="scrollToSection('#wave')">Waveform output</button>
+      <button class="nav-btn" onclick="scrollToSection('#reverse')">Reverse lookup</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">FAQ</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 Search controls…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Switch light / dark theme" aria-label="Switch light / dark theme">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>About this tool</h2>
+    <p class="section-desc">Draw the differential waveform that the iSP interface is supposed to produce, so you can compare it directly with what you measure on the scope. It also works the other way round: <strong>type in the 9 bits you measured and the tool tells you which control code or which gray level it is</strong>.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>What it does</h3>
+        <ul>
+          <li><strong>Forward</strong> - set the mode and the pixel values, and it builds the bit sequence for a whole line: BK, BAC, POL, data, EOL, each segment labelled with a color and a name.</li>
+          <li><strong>Reverse</strong> - enter a 9-bit waveform and it matches it against the three possible readings: Command, DLL Data and PLL Data.</li>
+          <li>Every encoding is <strong>8B9B</strong>: 8 bits of data go out as 9 bits, with one lookup table for DLL and one for PLL.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Three things to get straight first</h3>
+        <ul>
+          <li><strong>Bit order is LSB-first</strong>: b0 sits at the far left of the waveform, b8 at the far right. Reverse the hex values from the datasheet before you compare.</li>
+          <li><strong>DLL and PLL differ only in BK</strong>: among the control codes only BK has two different encodings, while BAC / POL / SET / EOL are identical. The data side uses two completely different LUTs.</li>
+          <li><strong>There is no Calculate button</strong>: change any setting and the waveform redraws immediately.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" data-zone-target="zone-desc-isp">
+      <h3>Interface overview</h3>
+      <p style="color:var(--muted); font-size:.92rem;">Hover over any block in the diagram below (tap it on a phone) and its description appears underneath.</p>
+      <div style="border:2px solid #334155; border-radius:10px; overflow:hidden; font-size:.84rem; background:#0f172a; padding:10px; display:flex; flex-direction:column; gap:9px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="i-mode" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-purple);">⚙️ Mode Settings</strong>
+            <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+              <span class="ui-chip on">8 bits</span><span class="ui-chip">1 pair</span><span class="ui-chip">Data: DLL</span><span class="ui-chip">BK: DLL</span><span class="ui-chip">Scrambler Off</span><span class="ui-chip">BKPOL ON</span>
+            </div>
+          </div>
+          <div class="zone" data-zone="i-pixel" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-red);">🎨 Pixel Settings</strong>
+            <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+              <span class="ui-chip">Solid / Increment / Decrement</span><span class="ui-chip" style="color:#ef4444">R 255</span><span class="ui-chip" style="color:#22c55e">G 128</span><span class="ui-chip" style="color:#3b82f6">B 0</span><span class="ui-chip">Pixel 4</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="i-frame" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-amber);">🧱 Frame Structure</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">BK count before BAC 2 · BK count after EOL 2</div>
+          </div>
+          <div class="zone" data-zone="i-reg" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:#e879f9;">🔧 iSP REG Setting　<span style="font-weight:400;">▾ Collapsible</span></strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">Add Setting line · REG count 8–56 · hex input cells</div>
+          </div>
+        </div>
+        <div class="zone" data-zone="i-wave" style="background:#0b1220; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-green);">📈 Differential Waveform</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:6px;">
+            <span class="ui-chip">H-Zoom − 1.0× +</span><span class="ui-chip">Fit</span><span class="ui-chip on">Fullscreen</span>
+          </div>
+          <svg viewBox="0 0 300 40" style="width:100%; height:44px;" aria-hidden="true">
+            <rect x="0" y="0" width="300" height="40" fill="#000"/>
+            <rect x="2" y="2" width="34" height="6" fill="#f97316"/><text x="4" y="7.5" fill="#000" font-size="5">BK</text>
+            <rect x="38" y="2" width="34" height="6" fill="#eab308"/><text x="40" y="7.5" fill="#000" font-size="5">BAC</text>
+            <rect x="74" y="2" width="34" height="6" fill="#06b6d4"/><text x="76" y="7.5" fill="#000" font-size="5">POL+</text>
+            <rect x="110" y="2" width="24" height="6" fill="#ef4444"/><rect x="136" y="2" width="24" height="6" fill="#22c55e"/><rect x="162" y="2" width="24" height="6" fill="#3b82f6"/>
+            <rect x="188" y="2" width="34" height="6" fill="#a855f7"/><text x="190" y="7.5" fill="#000" font-size="5">EOL</text>
+            <rect x="224" y="2" width="34" height="6" fill="#14b8a6"/><text x="226" y="7.5" fill="#000" font-size="5">BKPOL</text>
+            <path d="M2 32 L8 32 L8 16 L14 16 L14 32 L26 32 L26 16 L32 16 L32 32 L44 32 L44 16 L56 16 L56 32 L68 32 L68 16 L80 16 L80 32 L92 32 L92 16 L104 16 L104 32 L116 32 L116 16 L128 16 L128 32 L146 32 L146 16 L158 16 L158 32 L176 32 L176 16 L188 16 L188 32 L200 32 L200 16 L216 16 L216 32 L232 32 L232 16 L244 16 L244 32 L298 32" stroke="#22c55e" stroke-width="1.4" fill="none"/>
+          </svg>
+        </div>
+        <div class="zone" data-zone="i-rev" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-cyan);">🔍 Waveform Reverse Lookup (8-bit)</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">Waveform name search · b0–b8 checkboxes · 0x0__ value · three result lines: Command / DLL Data / PLL Data</div>
+        </div>
+      </div>
+      <div id="zone-desc-isp" style="margin-top:14px; padding:14px 18px; background:var(--primary-soft); border:1px solid var(--primary-line); border-radius:8px; font-size:.9rem; min-height:76px;">✦ Hover over any zone above (tap it on a phone) and the details appear here.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>Quick start</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>Match the mode</h3>
+        <p>First set the four items in Mode Settings to match the real IC: Source Driver Bits, Pair Count, Data Zone Encoding and BK Zone Encoding. <strong>Pick the wrong encoding and the whole bit sequence comes out different</strong>.</p>
+      </div>
+      <div class="step">
+        <h3>Set the pixels to send</h3>
+        <p>Solid Color is the simplest choice: give R/G/B one gray level each and set Pixel Count to 2–4 for now, so the waveform stays short and easy to compare.</p>
+      </div>
+      <div class="step">
+        <h3>Read the waveform and the frame info</h3>
+        <p>Above the waveform you get the segment order of the whole line (<code>BK BAC POL+ R1 G1 B1 … EOL</code>) and the total bit count. Every segment carries a color and a name.</p>
+      </div>
+      <div class="step">
+        <h3>Zoom in to compare</h3>
+        <p>Use the <code>+</code> / <code>−</code> buttons on H-Zoom until single bits are visible, or press <strong>Fullscreen</strong>. Click the Overview below to jump to a position.</p>
+      </div>
+      <div class="step">
+        <h3>Look it up the other way</h3>
+        <p>Measured 9 bits on the scope that you do not recognise? Scroll down to Waveform Reverse Lookup, type the name in the search box or simply tick b0–b8, and the three result lines tell you what it is straight away.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== MODE ==================== -->
+<section id="mode">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>Mode Settings</h2>
+    <p class="section-desc">Six settings decide what bits a given pixel value turns into. <a href="isp.html#isp-card-mode">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Options / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Source Driver Bits</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>6 / 8 (default) bits</td><td>Decides how the data segment is assembled. <strong>8-bit</strong>: each pixel sends three bytes, R, G and B. <strong>6-bit</strong>: each pixel is 18 bits (6 each for R/G/B); once concatenated the stream is <strong>re-sliced into a byte every 8 bits</strong> before encoding, which is why segment labels such as <code>R1+G1</code> span two fields.</td></tr>
+            <tr><td class="t-name">Pair Count</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>1 pair (default) / 2 pair</td><td>With 2 pair the screen shows two waveforms, one above the other (Pair 0 / Pair 1), and the pixel data is handed to the two of them in a cycle of 3 slots (see chapter 4).</td></tr>
+            <tr><td class="t-name">Data Zone Encoding</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>DLL-based (default) / PLL-based</td><td>Which 8B9B lookup table the data segment uses. The two tables are <strong>two completely different mappings</strong>, so the same gray level encodes to different 9 bits.</td></tr>
+            <tr><td class="t-name">BK Zone Encoding</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>DLL-based (default) / PLL-based</td><td><strong>Affects only the BK control code</strong>. The PLL version of BK is an alternating, clock-like pattern for the PLL to lock onto; the DLL version is a different fixed pattern. All the other control codes are the same in both.</td></tr>
+            <tr><td class="t-name">Scrambler</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Off (default) / On</td><td>When it is on, the data is XORed with a key from an LFSR before encoding (this breaks up runs of identical values and lowers EMI). While it is on, the data segments on the waveform are marked as scrambled.</td></tr>
+            <tr><td class="t-name">Initial Key</td><td><span class="t-type tt-txt">Text input</span></td><td>16-bit hex, default <code>FFFF</code></td><td><strong>Only appears when Scrambler is set to On.</strong> It has to match the initial value on the IC side, otherwise the waveforms will not line up.</td></tr>
+            <tr><td class="t-name">BKPOL</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>ON (default) / OFF</td><td>When it is on, a VBK segment is added at the end of the frame: <code>BK · BAC · BKPOL± · BK</code>. This segment <strong>follows EOL and carries no EOL of its own</strong>. Click the BKPOL color block on the waveform to switch it between positive and negative.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>How the Scrambler works</strong>
+        A 16-bit LFSR (Galois form, polynomial <code>x¹⁶+x⁵+x⁴+x³+1</code>) that <strong>advances once per pixel sent</strong>; bit i of each byte is XORed with the matching key bit before it goes into the 8B9B encoder. So the same gray level draws a completely different waveform with the Scrambler on and off - check this item first when things do not match.
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Control codes at a glance (9-bit, LSB-first)</h3>
+      <p style="font-size:.92rem;">The bits in the table below read left to right exactly as they appear on the waveform.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control code</th><th>b0…b8</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">BK（DLL）</td><td><code>1 0 0 0 0 1 1 1 1</code></td><td>Blanking filler code, DLL version.</td></tr>
+            <tr><td class="t-name">BK（PLL）</td><td><code>0 0 1 0 1 0 1 0 1</code></td><td>Blanking filler code, PLL version, with a <strong>clock-like pattern</strong> that makes it easy for the PLL to lock.</td></tr>
+            <tr><td class="t-name">BAC</td><td><code>0 1 1 1 1 0 0 0 0</code></td><td>Command start code; the real command follows it.</td></tr>
+            <tr><td class="t-name">POL+</td><td><code>0 1 1 0 0 1 1 1 1</code></td><td>This line has positive polarity.</td></tr>
+            <tr><td class="t-name">POL−</td><td><code>1 0 0 1 1 0 0 0 0</code></td><td>This line has negative polarity.</td></tr>
+            <tr><td class="t-name">SET</td><td><code>1 0 0 0 0 0 0 1 1</code></td><td>Identifier for the Setting line, followed by the REG data.</td></tr>
+            <tr><td class="t-name">EOL</td><td><code>0 1 1 1 1 1 1 0 0</code></td><td>End of one line.</td></tr>
+            <tr><td class="t-name">BKPOL+</td><td><code>0 1 1 1 0 1 1 1 1</code></td><td>Polarity command for the VBK segment (positive).</td></tr>
+            <tr><td class="t-name">BKPOL−</td><td><code>1 0 0 0 1 0 0 0 0</code></td><td>Polarity command for the VBK segment (negative).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>Positive and negative codes are inverses of each other</strong>
+        Every bit of POL+ and POL−, and of BKPOL+ and BKPOL−, is exactly opposite. The quickest way to tell the polarity apart on the scope is the first bit: <strong>starting with 0 is positive, starting with 1 is negative</strong>.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PIXEL ==================== -->
+<section id="pixel">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>Pixel Settings</h2>
+    <p class="section-desc">The picture content to send. <a href="isp.html#isp-card-pixel">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>Three pixel modes</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Mode</th><th>Control</th><th>Range / default</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Solid Color</td><td>R / G / B Gray Level (slider + value + color block)</td><td>0–255 each; default R255 G128 B0</td><td><strong>The default mode.</strong> Every pixel sends the same RGB set. It is the most direct way to check the encoding of one particular gray level.</td></tr>
+            <tr><td class="t-name">Increment</td><td>Start Gray Level / Step / Repeat sub-pixel count</td><td>Start 0–255 (default 0); Step 1–255 (slider up to 64, default 4); Repeat 1–255 (slider up to 48, default 3)</td><td>The gray level climbs and <strong>stays there once it reaches 255</strong>. Use it to see the encoding of several gray levels at once, or to build a gradient test picture.</td></tr>
+            <tr><td class="t-name">Decrement</td><td>Same as above</td><td>Start defaults to 255; everything else as above</td><td>The gray level falls and <strong>stays there once it reaches 0</strong>.</td></tr>
+            <tr><td class="t-name">Pixel Count</td><td><span class="t-type tt-sld">Slider + value</span></td><td>1–255, default 4</td><td>Shared by all three modes. Remember that <strong>the more pixels, the longer the waveform</strong>, so turn it down while you compare details.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>What "Repeat sub-pixel count" means</strong>
+        It sets <strong>how many consecutive sub-pixels share one gray level</strong> before the value changes. Set it to 3 and you get R = G = B, so the gray level changes once per pixel (a gray gradient); set it to 1 and every sub-pixel differs (a color gradient).
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>How the data is split across 2 pair</h3>
+      <p style="font-size:.92rem;">Each pair is a complete line in its own right (each has its own BK / BAC / POL / EOL); only the <strong>data segment</strong> is split. The cycle is 2 pixels long and has 3 slots:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Slot</th><th>Pair 0</th><th>Pair 1</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Slot 1</td><td>R (pixel 1)</td><td>G (pixel 1)</td></tr>
+            <tr><td class="t-name">Slot 2</td><td>B (pixel 1)</td><td>R (pixel 2)</td></tr>
+            <tr><td class="t-name">Slot 3</td><td>G (pixel 2)</td><td>B (pixel 2)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.92rem;">So <strong>Pair 1 is not "the second half of the pixels"</strong>; it carries the sub-pixels interleaved with Pair 0. Put the two side by side when you measure to see the complete data.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FRAME ==================== -->
+<section id="frame">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>Frame Structure</h2>
+    <p class="section-desc">How many control codes to insert, and the order the whole line is assembled in. <a href="isp.html#isp-card-frame">→ Open this card in the tool</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>Controls</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Control</th><th>Type</th><th>Range / default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">BK count before BAC</td><td><span class="t-type tt-sld">Slider + value</span></td><td>Slider 0–20, value box up to 50; default 2</td><td>How many BKs to pad in front of each command. <strong>The same count is applied separately in all three places: Data line, Setting line and the BKPOL segment.</strong></td></tr>
+              <tr><td class="t-name">BK count after EOL</td><td><span class="t-type tt-sld">Slider + value</span></td><td>Slider 0–20, value box up to 50; default 2</td><td>How many BKs to add after each segment ends. Set it to 0 and the segments butt straight up against each other.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h3>How the whole line is assembled</h3>
+        <p style="font-size:.92rem;">Depending on the settings, the waveform holds up to three segments from top to bottom:</p>
+        <div class="flow" style="flex-direction:column; align-items:stretch;">
+          <div class="flow-node" style="background:var(--accent-blue);">Data line: BK×n · BAC · POL± · data… · EOL · BK×m</div>
+          <span class="flow-arrow">↓</span>
+          <div class="flow-node" style="background:var(--accent-purple);">Setting line (optional): BK×n · BAC · SET · REG0…REGn · EOL · BK×m</div>
+          <span class="flow-arrow">↓</span>
+          <div class="flow-node" style="background:var(--accent-cyan);">BKPOL segment (optional): BK×n · BAC · BKPOL± · BK×m</div>
+        </div>
+        <div class="callout warn">
+          <strong>The BKPOL segment has no EOL</strong>
+          It is the VBK command that follows EOL, and it carries no EOL of its own. Seeing BAC followed straight by BKPOL and then back to BK on the scope is correct, not something missing.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== REG ==================== -->
+<section id="reg">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>iSP REG Setting</h2>
+    <p class="section-desc">Adds an independent Setting line after the Data line to send register contents. <strong>Click the title to collapse</strong> the whole card. <a href="isp.html#isp-reg-card">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>Type</th><th>Range / default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Add Setting line</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Disabled / Enable (Enable by default)</td><td>Choose Enable and the waveform gains a whole extra line: <code>BK · BAC · SET · REG0…REGn · EOL · BK</code>.</td></tr>
+            <tr><td class="t-name">REG Count</td><td><span class="t-type tt-sld">Slider + value</span></td><td>8–56; the slider steps in 8s, the value box adjusts one at a time; default 8</td><td>How many register bytes to send. Changing the count rebuilds the input cells below immediately.</td></tr>
+            <tr><td class="t-name">REG0 … REGn</td><td><span class="t-type tt-txt">Hex input</span></td><td>00–FF, all 00 by default</td><td>Two hex digits per cell; <strong>no need to type <code>0x</code>, either case works</strong>. An invalid entry turns the cell red; leaving the field pads it with a zero and converts it to upper case.</td></tr>
+            <tr><td class="t-name">Copy All</td><td><span class="t-type tt-btn">Button</span></td><td>—</td><td>Sits next to REG0 and copies the REG0 value into every other cell. The quickest way to send one value across the whole set.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>REG data goes through 8B9B too</strong>
+        Each REG byte passes through the Data Zone encoding table (DLL or PLL) into 9 bits, exactly like pixel data, so what you see on the waveform <strong>will not be the two hex digits you typed</strong>. To look it up, use the reverse lookup in chapter 8.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== WAVE ==================== -->
+<section id="wave">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>Differential Waveform</h2>
+    <p class="section-desc">The main output area. <a href="isp.html#isp-card-wave">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>Screen elements</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Element</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Frame info line</td><td><span class="t-type tt-out">read-only</span></td><td>The segment order of the whole line (for example <code>BK BAC POL+ R1 G1 B1 … EOL</code>) and the total bit count. Any setting change updates it immediately.</td></tr>
+            <tr><td class="t-name">H-Zoom　−／+</td><td><span class="t-type tt-btn">Button</span></td><td>Horizontal zoom, <strong>1.4× per press</strong>, range 0.001×–12×. The current factor sits between the two buttons.</td></tr>
+            <tr><td class="t-name">Fit</td><td><span class="t-type tt-btn">Button</span></td><td>Back to 1.00×.</td></tr>
+            <tr><td class="t-name">Fullscreen</td><td><span class="t-type tt-btn">Button</span></td><td>Opens the fullscreen view, which has its own zoom and its own Overview. On a phone you can pinch to zoom.</td></tr>
+            <tr><td class="t-name">The waveform itself</td><td><span class="t-type tt-out">SVG</span></td><td>Black background is 0, the green trace is 1 (D+ high). Each segment carries a color block and a name above it.</td></tr>
+            <tr><td class="t-name">POL± / BKPOL± color blocks</td><td><span class="t-type tt-btn">Clickable</span></td><td><strong>Click the color block to switch between positive and negative</strong>. The two are independent of each other. The waveform and the frame info line follow immediately.</td></tr>
+            <tr><td class="t-name">Overview</td><td><span class="t-type tt-btn">Clickable</span></td><td>A thumbnail of the whole line; the blue box marks where the current view sits. <strong>Click to jump there</strong>; on a phone you can press and drag left or right to move continuously.</td></tr>
+            <tr><td class="t-name">Pair 0 / Pair 1 labels</td><td><span class="t-type tt-out">read-only</span></td><td>Only appears in 2 pair mode; it marks which pair each of the two waveforms belongs to.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Color key</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Color</th><th>Segment</th><th>What it means</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Orange</td><td>BK</td><td>Blanking filler</td></tr>
+            <tr><td class="t-name">Yellow</td><td>BAC</td><td>Command start</td></tr>
+            <tr><td class="t-name">Cyan</td><td>POL+ / POL−</td><td>Polarity of this line</td></tr>
+            <tr><td class="t-name">Red / Green / Blue</td><td>R / G / B</td><td>Pixel data (one byte each in 8-bit mode)</td></tr>
+            <tr><td class="t-name">Dark purple</td><td>Packed byte</td><td>A byte that spans two fields in 6-bit mode, for example <code>R1+G1</code></td></tr>
+            <tr><td class="t-name">Purple</td><td>EOL</td><td>End of a line</td></tr>
+            <tr><td class="t-name">Pink purple</td><td>Setting</td><td>Identifier for the Setting line</td></tr>
+            <tr><td class="t-name">Light pink purple</td><td>REG</td><td>Register data</td></tr>
+            <tr><td class="t-name">Teal</td><td>BKPOL+ / BKPOL−</td><td>Polarity command for the VBK segment</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== REVERSE ==================== -->
+<section id="reverse">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>Waveform Reverse Lookup (8-bit)</h2>
+    <p class="section-desc">Measured 9 bits you cannot read? Type them in and the tool matches them against the control codes and both data tables at once. <a href="isp.html#isp-rev-card">→ Open this card in the tool</a></p>
+
+    <div class="card">
+      <h3>Three ways to enter it</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Method</th><th>Action</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Waveform name search</td><td><span class="t-type tt-txt">Text input</span></td><td>Type <code>BK</code>, <code>BAC</code>, <code>BKPOL+</code>, <code>L0</code>, <code>L255</code>… and pick an entry from the list; <strong>the 9 bits fill in automatically</strong>. Control codes, DLL gray levels and PLL gray levels are all in the index, and entries with the same name are listed separately (BK, for instance, has one DLL entry and one PLL entry).</td></tr>
+            <tr><td class="t-name">Tick b0–b8</td><td><span class="t-type tt-chk">Checkbox</span></td><td>Nine checkboxes below the waveform; ticking one means that bit is 1.</td></tr>
+            <tr><td class="t-name">Click the waveform</td><td><span class="t-type tt-btn">Clickable</span></td><td>Click a bit position on the reverse-lookup waveform to flip it between 0 and 1; the checkboxes follow.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>How to read the result</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Contents</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">9-bit value</td><td>For example <code>0x10F (100001111)</code></td><td>Inside the brackets is the <strong>LSB-first display</strong>, matching the waveform from left to right; the hex outside the brackets is the ordinary numeric form.</td></tr>
+            <tr><td class="t-name">Command</td><td>Name of the matching control code</td><td>Matched against every control code plus the PLL version of BK. Several matches are listed side by side with <code>/</code>. No match shows <code>—</code>.</td></tr>
+            <tr><td class="t-name">DLL Data</td><td>For example <code>L128 (0x80)</code></td><td>Looked up in the DLL table, which gives you the <strong>gray level</strong>.</td></tr>
+            <tr><td class="t-name">PLL Data</td><td>For example <code>L64 (0x40)</code></td><td>Looked up in the PLL table.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <strong>All three lines having a value is normal</strong>
+        The same 9 bits can match a control code and also sit in one of the data tables. To decide what it really is, look at its <strong>position</strong> in the waveform: what follows BAC is a command, what sits between POL and EOL is data. The tool only tells you what the possibilities are.
+      </div>
+      <div class="callout info">
+        <strong>Why it says "8-bit"</strong>
+        The reverse lookup is built on the <strong>byte ↔ 9-bit</strong> mapping, and that mapping has nothing to do with 6-bit or 8-bit mode (6-bit only differs in how the bytes are packed upstream). So the tool works in 6-bit mode just as well; the <code>Lx</code> it returns is simply the packed byte value rather than the gray level of one color.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">9</span>FAQ</h2>
+    <p class="section-desc">Click a question to open the answer.</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The waveform I get does not match what the scope shows?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Work through the likely causes:</p>
+        <ol style="color:var(--muted); font-size:.93rem;">
+          <li><strong>The wrong Data Zone Encoding</strong> (DLL ↔ PLL) - the whole data segment comes out different. This is the most common cause.</li>
+          <li><strong>The Scrambler state does not match</strong>, or the Initial Key differs from the IC side.</li>
+          <li><strong>The wrong BK Zone Encoding</strong> - only the BK segments differ, everything else is right. "Only the blanking is off" points straight at this one.</li>
+          <li><strong>The bit order is being read backwards</strong> - both this tool and the scope are LSB-first (b0 on the left), so hex from the datasheet has to be reversed before you compare.</li>
+          <li>Source Driver Bits or Pair Count does not match the real setup.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Why do segment names turn into things like <code>R1+G1</code> in 6-bit mode?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Because 6-bit data is <strong>not packed one color at a time</strong>. Each pixel is 18 bits (6 each for R/G/B); after concatenation a byte is cut every 8 bits and then 8B9B encoded - so the cut naturally lands in the middle of a color. One byte can therefore hold the back half of R1 and the front half of G1, and the label is written <code>R1+G1</code>. That is the correct packing, not a display error.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>In 2 pair mode, why is Pair 1 not the second half of the data?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">iSP 2 pair is <strong>interleaved</strong>, not cut in half. Over a cycle of 2 pixels, Pair 0 sends R1, B1 and G2 while Pair 1 sends G1, R2 and B2. Put the two side by side to see the complete picture. The table in chapter 4 has the details.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The waveform is too long to make out single bits?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Three ways to fix it: <strong>turn Pixel Count down</strong> (2–4 is enough to read the encoding), zoom in step by step with <strong>H-Zoom +</strong> (1.4× per press, up to 12×), or press <strong>Fullscreen</strong> and zoom there. Press <strong>Fit</strong> to get the whole picture back, and click the Overview below to jump to a particular position.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I filled in REG values, but I cannot see my numbers on the waveform?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">REG data goes through 8B9B encoding as well, so the waveform shows the encoded 9 bits, not the original byte. To check that the encoding is right, type the 9 bits of that segment into Waveform Reverse Lookup and see whether DLL / PLL Data gives back the value you filled in.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>How do I switch POL between positive and negative?</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">No need to hunt through the settings card - <strong>click the POL color block on the waveform</strong> and it swaps between positive and negative. The BKPOL color block works the same way, and the two are independent. After the switch, the frame info line and the whole bit sequence update immediately.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>iSP Waveform Generator - User Guide</strong></p>
+  <p style="margin-top:6px;"><a href="isp.html">Open the tool</a> · <a href="index.html">Back to the tool home page</a></p>
+  <p style="margin-top:8px; opacity:.65;">This manual follows the tool as it gains features, and is not part of the tool version numbering.<br>The tool is an engineering aid. Treat every calculated result as a reference; follow the official documentation for the real specifications.</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+const zoneDescriptions = {
+  'i-mode': "<strong>Mode Settings</strong><br>Source Driver Bits (6/8), Pair Count (1/2), <b>Data Zone Encoding</b> and <b>BK Zone Encoding</b> (DLL / PLL are independent), Scrambler (turning it on adds a 16-bit Initial Key field), BKPOL (turning it on adds <code>BK · BAC · BKPOL± · BK</code> at the end of the frame). <b>DLL and PLL differ by one control code only, BK</b>; for data they use two completely different 8B9B tables.",
+  'i-pixel': "<strong>Pixel Settings</strong><br>Three modes: <b>Solid Color</b> (R/G/B set independently, 0–255 each), <b>Increment</b> and <b>Decrement</b> (Start Gray Level, Step, Repeat sub-pixel count; the value holds once it reaches the top or the bottom). The <b>Pixel Count (1–255)</b> at the bottom is shared by all three modes, and the larger it is the longer the waveform.",
+  'i-frame': "<strong>Frame Structure</strong><br>How many BKs to insert before BAC and after EOL (slider 0–20, value box up to 50, default 2 each). The same count is applied to all three places: Data line, Setting line and the BKPOL segment.",
+  'i-reg': "<strong>iSP REG Setting</strong><br>A collapsible card. Once enabled, an independent Setting line follows the Data line: <code>BK · BAC · SET · REG0…REGn · EOL · BK</code>. REG count is 8–56 and each cell takes two hex digits (no 0x needed, either case works; an invalid entry turns red, and leaving the field pads it with a zero and converts it to upper case). <b>Copy All</b> next to REG0 copies the value into every cell at once.",
+  'i-wave': "<strong>Differential Waveform</strong><br>Black background is 0, the green trace is 1 (D+ high), and every segment carries a color and a name. Above it you get the segment order of the whole line and the total bit count. H-Zoom scales 1.4× per press (0.001×–12×), Fit returns to 1×, and you can open Fullscreen. <b>Click a POL± or BKPOL± color block to switch between positive and negative</b>; click the Overview below to jump to that position.",
+  'i-rev': "<strong>Reverse Lookup</strong><br>Three ways to enter a waveform: search by name (BK / BAC / BKPOL+ / L0–L255; picking one fills the bits in), tick the b0–b8 checkboxes, or click a bit on the waveform to flip it between 0 and 1. The result comes back on three lines at once: <b>Command</b>, <b>DLL Data</b>, <b>PLL Data</b>. Values on all three lines are normal - judge by where it sits in the waveform.",
+};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' matches';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+const keyMap = {
+  '1': ['A1', '#facc15'], '2': ['A2', '#facc15'],
+  '3': ['B1', '#22d3ee'], '4': ['B2', '#22d3ee'],
+  '5': ['C1', '#4ade80'], '6': ['C2', '#4ade80'],
+  '7': ['D1', '#fb923c'], '8': ['D2', '#fb923c'],
+  '9': ['E1', '#c084fc'], '0': ['E2', '#c084fc']
+};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = 'Press number key <code>' + k + '</code> → toggle cursor <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>.<br>First press: the cursor appears and <strong>follows the mouse</strong>; left-click on the canvas to <strong>pin it</strong>; press the same key again while it is pinned to <strong>go back to following</strong>; press it once more while it is following to <strong>remove</strong> that cursor.';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>

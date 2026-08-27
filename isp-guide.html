@@ -11,6 +11,29 @@
   var q = new URLSearchParams(location.search).get('theme');
   document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
 })();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'zh-TW';
+window.GUIDE_FILES = { 'zh-TW': 'isp-guide.html', 'zh-CN': 'isp-guide-cn.html', 'en': 'isp-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
 </script>
 <title>iSP 波形產生器 — 使用手冊</title>
 <meta name="description" content="iSP 波形產生器完整使用手冊：模式設定、像素設定、Frame 結構、iSP REG Setting、差動訊號波形與 9-bit 波形反推的逐項說明。">
@@ -227,6 +250,35 @@
   [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
   [data-theme="light"] .theme-toggle .icon-moon { display: none; }
 
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
   /* === SECTIONS === */
   section { padding: 54px 0; }
   section:nth-child(even) { background: var(--card); }
@@ -256,6 +308,13 @@
   /* === GRID === */
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
   @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
   /* === STEPS === */
@@ -497,6 +556,13 @@
       <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切換亮色／暗色主題" aria-label="切換亮色／暗色主題">
         <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
       </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
     </div>
   </div>
 </div>
@@ -964,6 +1030,25 @@ function syncGuideLinkTheme(theme) {
   });
 }
 syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
 
 // === NAV scroll tracking ===
 /* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。

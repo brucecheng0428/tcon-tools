@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'zh-CN';
+window.GUIDE_FILES = { 'zh-TW': 'aux-guide.html', 'zh-CN': 'aux-guide-cn.html', 'en': 'aux-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>eDP AUX / DPCD 查询工具 — 使用手册</title>
+<meta name="description" content="eDP AUX / DPCD 查询工具完整使用手册：AUX 封包输入与解码、Preamble 规范检查、Manchester II 波形判读、DPCD 寄存器查询与反向搜索、版本差异总览。">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>eDP AUX / DPCD 查询工具</h1>
+  <p class="subtitle">AUX Transaction 解码 & DPCD 寄存器查询 — 完整使用手册。三个分页的每一个字段、每一种提示与波形判读方式。</p>
+  <span class="version">网页工具 · 免安装 · 手机/桌面皆可使用</span>
+  <div class="hero-links">
+    <a href="aux.html">▶ 打开 eDP AUX / DPCD 查询工具</a>
+    <a href="index.html">⌂ 回到工具首页</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">简介</button>
+      <button class="nav-btn" onclick="scrollToSection('#quickstart')">快速开始</button>
+      <button class="nav-btn" onclick="scrollToSection('#decode')">封包输入</button>
+      <button class="nav-btn" onclick="scrollToSection('#preamble')">Preamble</button>
+      <button class="nav-btn" onclick="scrollToSection('#result')">结果与波形</button>
+      <button class="nav-btn" onclick="scrollToSection('#dpcd')">DPCD 查询</button>
+      <button class="nav-btn" onclick="scrollToSection('#verdiff')">版本差异</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">常见问题</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 搜索控件…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换亮色／暗色主题" aria-label="切换亮色／暗色主题">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>工具简介</h2>
+    <p class="section-desc">三件事合成一页：<strong>把 AUX 封包解成人看得懂的内容</strong>、<strong>查 DPCD 寄存器的定义与每个 bit 的意义</strong>、以及<strong>比对不同 eDP／DP 版本之间的差异</strong>。内置 289 个 DPCD 寄存器定义与 326 条版本标注，不必再翻规格书 PDF。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>三个分页</h3>
+        <ul>
+          <li><strong>AUX 解码</strong> — 用菜单组出一笔 Request／Reply，解出它在做什么，并画出对应的 Manchester II 波形。</li>
+          <li><strong>DPCD 查询</strong> — 输入地址（可加上值），列出寄存器名称、读写属性、每个 bit 的意义与该值的解读。也能反过来用关键字搜索。</li>
+          <li><strong>版本差异</strong> — 一张总表列出跨版本才新增／变更的寄存器与 bit。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>两个好用的小地方</h3>
+        <ul>
+          <li><strong>分页会被记住</strong> — 刷新后回到你上次看的那一页；也可以用网址参数直接打开，例如 <code>aux.html?auxTab=dpcd</code>（其他工具链接过来时就是这样指定的）。</li>
+          <li><strong>解码结果里的地址可以点</strong> — Native 交易解出来的目标地址是链接，点一下直接跳到 DPCD 查询分页并带入该地址。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" data-zone-target="zone-desc-aux">
+      <h3>界面总览</h3>
+      <p style="color:var(--muted); font-size:.92rem;">把鼠标移到下图任一区块（手机请点一下），下方会显示该区说明。</p>
+      <div style="border:2px solid #334155; border-radius:10px; overflow:hidden; font-size:.84rem; background:#0f172a; padding:10px; display:flex; flex-direction:column; gap:9px;">
+        <div style="display:flex; gap:0; border-radius:8px; overflow:hidden; border:1px solid #475569;">
+          <div style="flex:1; text-align:center; padding:7px; background:var(--primary); color:#fff; font-weight:700;">AUX 解码</div>
+          <div style="flex:1; text-align:center; padding:7px; background:#1e293b; color:#94a3b8;">DPCD 查询</div>
+          <div style="flex:1; text-align:center; padding:7px; background:#1e293b; color:#94a3b8;">版本差异</div>
+        </div>
+        <div class="zone" data-zone="a-req" style="background:#1e293b; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-cyan);">📡 AUX Transaction 解码（输入）</strong>
+          <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">
+            <span class="ui-chip">Command 9 — Native Read</span><span class="ui-chip">Address 0x00000</span><span class="ui-chip">Length</span><span class="ui-chip">Reply Status</span>
+          </div>
+        </div>
+        <div class="zone" data-zone="a-pre" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-purple);">⚙️ Preamble 设定</strong>
+          <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">系统 Preamble 32 zeros · TCON Reply 32 zeros · 即时比对两组规范范围</div>
+        </div>
+        <div class="zone" data-zone="a-result" style="background:#0b1220; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+          <strong style="color:var(--accent-green);">📊 解码结果 ＋ 📟 AUX 波形</strong>
+          <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap; margin-bottom:6px;">
+            <span class="ui-chip" style="background:#7c3aed;color:#fff">Pre-charge</span><span class="ui-chip" style="background:#8b5cf6;color:#fff">SYNC</span><span class="ui-chip" style="background:#3b82f6;color:#fff">Start</span><span class="ui-chip" style="background:#f97316;color:#fff">Command</span><span class="ui-chip" style="background:#10b981;color:#fff">Address</span><span class="ui-chip" style="background:#eab308;color:#000">Length</span><span class="ui-chip" style="background:#06b6d4;color:#000">Data</span><span class="ui-chip" style="background:#3b82f6;color:#fff">Stop</span>
+          </div>
+          <svg viewBox="0 0 300 26" style="width:100%; height:30px;" aria-hidden="true">
+            <rect x="0" y="0" width="300" height="26" fill="#000"/>
+            <path d="M2 20 L8 20 L8 8 L14 8 L14 20 L20 20 L20 8 L26 8 L26 20 L32 20 L32 8 L38 8 L38 20 L44 20 L44 8 L50 8 L50 20 L56 20 L56 8 L70 8 L70 20 L84 20 L84 8 L96 8 L96 20 L108 20 L108 8 L114 8 L114 20 L126 20 L126 8 L138 8 L138 20 L150 20 L150 8 L162 8 L162 20 L174 20 L174 8 L186 8 L186 20 L198 20 L198 8 L210 8 L210 20 L222 20 L222 8 L234 8 L234 20 L246 20 L246 8 L262 8 L262 20 L298 20" stroke="#34d399" stroke-width="1.4" fill="none"/>
+          </svg>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px;">
+          <div class="zone" data-zone="a-dpcd" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-blue);">📋 DPCD 地址查询 ＋ 🔍 反向搜索</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">版本筛选 · 5 位 hex 滚轮 · 寄存器值 · 关键字搜索</div>
+          </div>
+          <div class="zone" data-zone="a-ver" style="background:#172033; padding:10px 12px; border:1px dashed #475569; border-radius:8px;">
+            <strong style="color:var(--accent-amber);">📊 DPCD 版本差异总览</strong>
+            <div style="margin-top:6px; font-size:.72rem; color:#94a3b8;">14 个功能分区 · 108 条跨版本差异</div>
+          </div>
+        </div>
+      </div>
+      <div id="zone-desc-aux" style="margin-top:14px; padding:14px 18px; background:var(--primary-soft); border:1px solid var(--primary-line); border-radius:8px; font-size:.9rem; min-height:76px;">✦ 把鼠标移到上方任一区域（手机请点一下），这里会显示详细说明。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== QUICKSTART ==================== -->
+<section id="quickstart">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>快速开始</h2>
+    <p class="section-desc">两个最常见的场景。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>场景 A：手上有一笔 AUX 封包</h3>
+        <div class="steps">
+          <div class="step">
+            <h3>选 Command</h3>
+            <p>封包第一个 byte 的高 4 bits 就是 Command。<code>9</code> 是 DPCD 读、<code>8</code> 是 DPCD 写。</p>
+          </div>
+          <div class="step">
+            <h3>转出地址与长度</h3>
+            <p>Address 用五个滚轮转；Length 菜单选的是字段值，<strong>实际 byte 数 ＝ Length ＋ 1</strong>。</p>
+          </div>
+          <div class="step">
+            <h3>（选填）填 Reply</h3>
+            <p>有测到回复就选 Reply Status，Read 交易还可以填回传数据。</p>
+          </div>
+          <div class="step">
+            <h3>按「▶ 解码」</h3>
+            <p>下方出现解码结果与波形。Native 交易的目标地址是链接，<strong>点一下就跳到 DPCD 查询</strong>。</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>场景 B：只想查某个 DPCD</h3>
+        <div class="steps">
+          <div class="step">
+            <h3>切到「DPCD 查询」分页</h3>
+            <p>不知道地址？直接用下面那张「反向搜索」卡输入关键字（例如 <code>LANE_COUNT</code>）。</p>
+          </div>
+          <div class="step">
+            <h3>转出地址</h3>
+            <p>五个滚轮选 hex，<strong>停下约 1 秒会自动查询</strong>，不必按任何按钮。</p>
+          </div>
+          <div class="step">
+            <h3>填上测到的值</h3>
+            <p>有值就填，结果会多出一栏「值」，把每个 bit 的数值直接翻成语义。</p>
+          </div>
+          <div class="step">
+            <h3>需要时再筛版本</h3>
+            <p>上方选规格版本后，不存在于该版本的寄存器／bit 会被标示出来。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== DECODE INPUT ==================== -->
+<section id="decode">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>AUX 解码：封包输入</h2>
+    <p class="section-desc">不必自己拼 hex，用菜单组出来即可，右下方会即时显示组合后的封包。<a href="aux.html?auxTab=decode#aux-card-decode-input">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <h3>AUX Request</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>类型</th><th>选项／默认</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Command</td><td><span class="t-type tt-sel">下拉</span></td><td>8 个选项，默认 <code>9</code></td><td>封包第一个 byte 的高 4 bits。详见下表。</td></tr>
+            <tr><td class="t-name">Address</td><td><span class="t-type tt-sld">滚轮</span></td><td>20-bit，5 位 hex</td><td>五个滚轮各代表一位 hex，用<strong>转的</strong>（鼠标滚轮或手指滑动）而不是打字，避免打错位数。</td></tr>
+            <tr><td class="t-name">Length</td><td><span class="t-type tt-sel">下拉</span></td><td>数据长度字段</td><td>🔴 <strong>实际 byte 数 ＝ Length ＋ 1</strong>。这是 AUX 规范的定义：字段填 0 代表 1 个 byte。解读别人的封包时最容易在这里差一。</td></tr>
+            <tr><td class="t-name">Data</td><td><span class="t-type tt-txt">hex 输入格</span></td><td>每格 1 byte</td><td><strong>只有 Write 类指令才会出现</strong>，格数随 Length 自动增减。</td></tr>
+            <tr><td class="t-name">组合封包预览</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>上面任何一项改动都会即时更新，可直接拿去和测到的 raw bytes 比对。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Command 八个选项</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>值</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">9</td><td>DPCD 读取（Native Read）</td><td><strong>最常见。</strong>读面板的 DPCD 寄存器。</td></tr>
+            <tr><td class="t-name">8</td><td>DPCD 写入（Native Write）</td><td>写 DPCD。解码结果会附上「哪个地址被写入什么值」的对照表。</td></tr>
+            <tr><td class="t-name">1 / 5</td><td>I2C Read（MOT=0 / MOT=1）</td><td>透过 AUX 走 I2C，最典型的用途是读 EDID。</td></tr>
+            <tr><td class="t-name">0 / 4</td><td>I2C Write（MOT=0 / MOT=1）</td><td>同上，方向相反。</td></tr>
+            <tr><td class="t-name">2 / 6</td><td>I2C Write Status（MOT=0 / MOT=1）</td><td>查询前一笔 I2C 写入的状态。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>MOT 是什么</strong>
+        Middle-of-Transaction。<strong>MOT=1 代表这笔之后还有后续</strong>（I2C 不送 STOP，继续同一个交易），<strong>MOT=0 代表这是最后一笔</strong>。读 EDID 时会看到一连串 MOT=1，最后一笔才是 MOT=0。
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>AUX Reply（选填）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>类型</th><th>选项</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Reply Status</td><td><span class="t-type tt-sel">下拉</span></td><td>不填／AUX ACK／AUX NACK／AUX DEFER／I2C NACK／I2C DEFER／自定义输入</td><td>选「自定义输入」可以直接填任意 hex byte（测到怪值时用），旁边的「↩ 列表」按钮可切回下拉。</td></tr>
+            <tr><td class="t-name">Reply Data</td><td><span class="t-type tt-txt">hex 输入格</span></td><td>每格 1 byte</td><td><strong>只有 Read 类指令才会出现</strong>，用来填回传的数据。</td></tr>
+            <tr><td class="t-name">Reply 封包预览</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>即时组合。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <strong>DEFER 不等于失败</strong>
+        DEFER 是「现在还不能回答，请稍后重试」，Source 应该重送。看到零星 DEFER 属正常；<strong>连续大量 DEFER</strong> 才代表面板端有问题。NACK 则是明确拒绝。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PREAMBLE ==================== -->
+<section id="preamble">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>Preamble 设定与规范检查</h2>
+    <p class="section-desc">Preamble 是每一笔 AUX 交易开头的同步信号。数量不足，对方可能同步不上；这一区让你把测到的数量填进去，立刻知道合不合规。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>两个输入</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>控件</th><th>类型</th><th>范围／默认</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">系统 Preamble</td><td><span class="t-type tt-sld">滑块＋数值</span></td><td>0–64，默认 32</td><td>由信号源（Source）送出的 Preamble 总数。</td></tr>
+              <tr><td class="t-name">TCON Reply</td><td><span class="t-type tt-sld">滑块＋数值</span></td><td>0–64，默认 32</td><td>由面板端（Sink）回复时送出的 Preamble 总数。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:.92rem;">两者各自即时检查，结果直接显示在该滑块下方。波形也会同步重画。</p>
+      </div>
+      <div class="card">
+        <h3>规范范围与三种提示</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>规范</th><th>合规范围</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">DP / eDP 1.2 ~ 1.3</td><td>26 – 32</td></tr>
+              <tr><td class="t-name">eDP 1.4 以上</td><td>18 – 24</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>显示</th><th>意义</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">✅ 绿色</td><td>落在该规范范围内。</td></tr>
+              <tr><td class="t-name">🚨 红色</td><td><strong>低于最小值</strong>——这是真的有风险，对方可能来不及同步。</td></tr>
+              <tr><td class="t-name">ℹ️ 灰色</td><td>超出建议最大值，但<strong>功能上仍兼容</strong>，只是比规范建议的多。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout danger">
+      <strong>两组规范会同时显示，因为它们有冲突区间</strong>
+      默认值 32 刚好合 DP/eDP 1.2~1.3、却超出 eDP 1.4+ 的建议上限；反过来 20 合 eDP 1.4+、却不足 1.2~1.3。<strong>要看的是「你这块面板宣告的版本」那一行</strong>，不是两行都要绿。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== RESULT ==================== -->
+<section id="result">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>解码结果与 AUX 波形</h2>
+    <p class="section-desc">按下「▶ 解码」后才会展开。两张卡片在未解码前是淡化状态。</p>
+
+    <div class="card">
+      <h3>解码结果卡</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">Command</td><td>指令名称（中英并列）。</td></tr>
+            <tr><td class="t-name">目标地址</td><td>Native 交易时是<strong>可点击的链接</strong>，点了跳到 DPCD 查询分页并带入该地址；下方另外显示该寄存器的名称。I2C 交易则会尝试比对常见的 I2C 地址（例如 EDID）。</td></tr>
+            <tr><td class="t-name">数据长度</td><td>实际 byte 数，并附上<strong>涵盖的地址范围</strong>（起始 ~ 结束），一次读多个寄存器时特别有用。</td></tr>
+            <tr><td class="t-name">Data</td><td>数据 bytes。Native Write 时<strong>额外产生一张对照表</strong>：哪个地址被写入哪个值。</td></tr>
+            <tr><td class="t-name">Raw bytes</td><td>完整原始字节，可直接与测量结果比对。</td></tr>
+            <tr><td class="t-name">Reply 区</td><td>回复状态的解读；Read 交易会把回传数据一并对照到各个 DPCD 地址。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>AUX 波形卡（Manchester II）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>元素</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">编码规则</td><td><strong>bit 1 ＝ 中点 H→L 跳变、bit 0 ＝ 中点 L→H 跳变</strong>，<strong>1 bit ＝ 1 μs</strong>。Start／Stop 是 <code>HHLL</code> 这种不含中点跳变的特殊样式，所以在波形上一眼就能认出来。</td></tr>
+            <tr><td class="t-name">段落颜色</td><td>Pre-charge（深紫）、SYNC（紫）、Start／Stop（蓝）、Command（橙）、Address（绿）、Length（黄）、Data（青）、Idle（灰）。</td></tr>
+            <tr><td class="t-name">H-Zoom −／+／Fit</td><td>水平缩放与还原，倍率显示在中间。</td></tr>
+            <tr><td class="t-name">全屏</td><td>放大查看，有独立的缩放与 Overview。</td></tr>
+            <tr><td class="t-name">Overview</td><td>整笔交易的缩略图，<strong>点一下跳到该位置</strong>。</td></tr>
+            <tr><td class="t-name">Preamble 警告横幅</td><td>当 Preamble 数量不合规时，会在波形上方出现一条警告，说明是哪一组规范不符。</td></tr>
+            <tr><td class="t-name">异常值标示</td><td>数据段中出现不合常理的 DPCD 值时会被标记出来，提醒你这一笔值得怀疑。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout success">
+        <strong>波形是「应该长这样」的参考</strong>
+        它是依你输入的封包画出来的理想波形，用途是<strong>对照示波器画面</strong>：先确认段落边界对得上，再逐段比对每一个位。实际信号的边缘抖动、pre-charge 长度差异等不在仿真范围内。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== DPCD ==================== -->
+<section id="dpcd">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>DPCD 查询与反向搜索</h2>
+    <p class="section-desc">内置 <strong>289 个寄存器定义</strong>与 <strong>326 条版本标注</strong>。<a href="aux.html?auxTab=dpcd#aux-card-dpcd-input">→ 直接打开工具的这张卡</a></p>
+
+    <div class="card">
+      <h3>查询输入</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控件</th><th>类型</th><th>选项／默认</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">规格版本筛选</td><td><span class="t-type tt-sel">下拉</span></td><td>全部版本（默认）／eDP v1.2–v1.5／DP v1.2–v2.0</td><td>选定版本后，查询结果会标示该寄存器与各 bit 在这个版本<strong>是否存在</strong>。挑错版本查到不存在的功能，是很常见的误判来源。</td></tr>
+            <tr><td class="t-name">DPCD 地址</td><td><span class="t-type tt-sld">滚轮</span></td><td>5 位 hex</td><td>转动滚轮选择，<strong>停下约 1 秒自动查询</strong>，没有查询按钮。</td></tr>
+            <tr><td class="t-name">寄存器值（选填）</td><td><span class="t-type tt-sel">下拉或输入</span></td><td>—</td><td>该地址若有已知的合法值清单，会显示成下拉；也可以选「自定义输入」手动填 hex。填了值，结果表会多一栏把每个 bit 的值翻成语义。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>查询结果包含什么</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>区块</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">标题栏</td><td>寄存器名称 ＋ <strong>读写属性徽章</strong>（RO／RW／W1C）＋ 版本徽章。</td></tr>
+            <tr><td class="t-name">版本不兼容提示</td><td>选了特定版本、而该寄存器需要更新的版本时，会出现橙色警告：<strong>「在你选的版本中可能不存在或为 RESERVED」</strong>。</td></tr>
+            <tr><td class="t-name">地址与名称</td><td>补齐五位的地址、英文名称与中文说明。</td></tr>
+            <tr><td class="t-name">值合法性警告</td><td>你填的值不在该寄存器的合法值清单里时，会列出所有合法值供对照。</td></tr>
+            <tr><td class="t-name">Bit 表</td><td>每个 bit field 一行：<strong>Bit 范围｜英文名称｜中文名称｜值（填了值才有）｜说明</strong>。值字段会把数值翻成语义（例如 <code>0x02 → 4 lanes</code>），非零的 bit 会高亮。不存在于所选版本的 bit 会整行标示。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>反向搜索</h3>
+      <p style="font-size:.92rem;"><a href="aux.html?auxTab=dpcd#aux-card-dpcd-search">→ 直接打开工具的这张卡</a></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>行为</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="t-name">输入门槛</td><td><strong>至少 2 个字符</strong>才开始搜索，停止输入约 0.3 秒后才送出（避免每打一个字就重算）。</td></tr>
+            <tr><td class="t-name">搜索范围</td><td>寄存器名称、说明文字、以及<strong>值的标签</strong>——所以可以直接搜「HBR」「带宽」这种语义词。</td></tr>
+            <tr><td class="t-name">结果操作</td><td>结果分页显示；<strong>点任一条的地址即自动查询</strong>并滚动到结果。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info">
+        <strong>不知道地址时从这里开始</strong>
+        大多数情况你记得的是功能而不是地址（「那个设定 lane 数的寄存器是几号来着」）。搜 <code>LANE_COUNT</code> 比翻规格书快得多。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== VERDIFF ==================== -->
+<section id="verdiff">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>DPCD 版本差异总览</h2>
+    <p class="section-desc">一张表看完「哪些功能是哪个版本才开始有的」。<a href="aux.html?auxTab=verdiff#aux-card-verdiff">→ 直接打开工具的这张卡</a></p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>表格内容</h3>
+        <ul>
+          <li>共 <strong>14 个功能分区</strong>（Receiver Capability、DSC、PSR、FEC…）、<strong>108 条差异</strong>。</li>
+          <li>每一行是：<strong>地址｜bit 或值｜名称｜起始版本徽章</strong>。</li>
+          <li>徽章颜色依版本区分，<code>eDP 1.4+</code> 代表「1.4 版开始才有」。</li>
+          <li>此分页在<strong>第一次点开时才产生表格</strong>，所以初次切换会有极短暂的延迟。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>数据来源版本顺序</h3>
+        <p style="font-size:.92rem;">依规格发布时间排列：</p>
+        <p style="font-size:.92rem;"><code>DP v1.2 → eDP v1.2 → eDP v1.3 → eDP v1.4 → DP v1.3 → eDP v1.4a → eDP v1.4b → DP v1.4a → DP v2.0 → eDP v1.5</code></p>
+        <div class="callout warn">
+          <strong>eDP 与 DP 的版本号不能直接比大小</strong>
+          两条规格线是交错发布的：eDP 1.4 早于 DP 1.3、DP 1.4a 早于 eDP 1.5。判断「这个功能该不该有」时，要看的是<strong>面板宣告的那一条规格线</strong>，不是版本数字谁大。
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>常见问题</h2>
+    <p class="section-desc">点问题展开答案。</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Length 到底要填几？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;"><strong>填的是「实际 byte 数 − 1」</strong>。要读 1 个 byte 就填 0、要读 16 个就填 15。这是 AUX 规范的定义，工具的字段提示也写了同一件事。解码结果那边显示的则是<strong>换算后的实际 byte 数</strong>，两边差 1 是正常的。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>查了某个地址说「找不到」？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">数据库收录 289 个常用寄存器，不是完整的地址空间——RESERVED 区段与极少用到的地址不在其中。先确认位数（要 5 位 hex，例如 <code>00101</code> 而不是 <code>101</code>），再用反向搜索确认名称是否正确。真的没有就代表这个地址目前不在收录范围。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Preamble 两行提示互相矛盾，到底合不合格？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">工具是<strong>同时对两组规范</strong>检查：DP／eDP 1.2~1.3 要 26–32，eDP 1.4 以上要 18–24，两者本来就不重叠。请看你的面板宣告的版本那一行。另外注意：<strong>红色（低于最小值）才是真的有风险</strong>，灰色只是超出建议上限，功能仍兼容。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>解码结果的地址点不动？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">只有 <strong>Native（DPCD）交易</strong>的地址才是链接，因为只有它对应到 DPCD 地址空间。I2C 交易的地址是 I2C 设备地址，工具会改为比对常见设备（例如 EDID），不会跳转。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Reply 一定要填吗？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">不用。Reply 区是选填，只想确认 Request 的内容时把它留在「不填」即可。填了才会多出回复的解读，以及波形中的回复段落。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>刷新之后怎么回到我刚刚看的分页？</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">它已经帮你记住了——分页状态存在浏览器的会话里，刷新后自动回到原分页。要指定打开哪一页也可以直接用网址：<code>aux.html?auxTab=dpcd</code>、<code>?auxTab=verdiff</code>、<code>?auxTab=decode</code>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>eDP AUX / DPCD 查询工具 — 使用手册</strong></p>
+  <p style="margin-top:6px;"><a href="aux.html">打开工具</a> · <a href="index.html">回到工具首页</a></p>
+  <p style="margin-top:8px; opacity:.65;">本手册随工具功能更新，不纳入工具版本号机制。<br>本工具为工程辅助用途，计算结果仅供参考，实际规格请以正式文件为准。</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="回到顶端">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+const zoneDescriptions = {
+  'a-req': "<strong>AUX Transaction 解码（输入区）</strong><br>用菜单组出封包：Command（Native Read/Write、I2C Read/Write、I2C Write Status，含 MOT=0/1）、Address（20-bit 五位 hex 滚轮）、<b>Length（实际 byte 数＝Length＋1）</b>、Write 才出现的 Data 格。下方另有选填的 Reply 区（ACK／NACK／DEFER／I2C NACK／I2C DEFER／自定义 hex）。两区各有即时的封包预览。",
+  'a-pre': "<strong>Preamble 设定</strong><br>分别填入系统（Source）与 TCON（Sink）的 Preamble 数量（0–64，默认 32），工具<b>同时比对两组规范</b>：DP／eDP 1.2~1.3 为 26–32、eDP 1.4 以上为 18–24。绿色＝合规、<b>红色＝低于最小值（真的有风险）</b>、灰色＝超出建议上限但功能仍兼容。",
+  'a-result': "<strong>解码结果与 AUX 波形</strong><br>结果卡列出指令、目标地址（Native 交易可点击跳到 DPCD 查询）、实际数据长度与涵盖地址范围、数据对照表与 raw bytes。波形卡以 Manchester II 画出整笔交易：<b>bit 1＝中点 H→L、bit 0＝中点 L→H、1 bit＝1 μs</b>，Start／Stop 为 HHLL。可 H-Zoom、Fit、全屏，Overview 点一下跳转；Preamble 不合规会出现警告横幅。",
+  'a-dpcd': "<strong>DPCD 查询与反向搜索</strong><br>上方可先选规格版本（eDP v1.2–v1.5／DP v1.2–v2.0）作为兼容性判断基准；地址用五位 hex 滚轮转，<b>停下约 1 秒自动查询</b>；填入寄存器值后，结果的 bit 表会多一栏把数值翻成语义。下方的反向搜索支持名称／说明／值标签，输入 2 个字符以上即开始搜索，点结果即自动查询。",
+  'a-ver': "<strong>DPCD 版本差异总览</strong><br>14 个功能分区、108 条跨版本差异，每列为「地址｜bit 或值｜名称｜起始版本徽章」。数据依规格发布顺序整理（DP 1.2 → eDP 1.2 → … → eDP 1.5）。<b>eDP 与 DP 的版本号不能直接比大小</b>，两条规格线是交错发布的。此分页在第一次点开时才产生表格。",
+};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' 笔符合';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+const keyMap = {
+  '1': ['A1', '#facc15'], '2': ['A2', '#facc15'],
+  '3': ['B1', '#22d3ee'], '4': ['B2', '#22d3ee'],
+  '5': ['C1', '#4ade80'], '6': ['C2', '#4ade80'],
+  '7': ['D1', '#fb923c'], '8': ['D2', '#fb923c'],
+  '9': ['E1', '#c084fc'], '0': ['E2', '#c084fc']
+};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = '按下数字键 <code>' + k + '</code> → 切换光标 <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>。<br>第一次按：光标出现并<strong>跟着鼠标移动</strong>；在画布上按一下鼠标左键即可<strong>钉住</strong>；已钉住时再按同一键会<strong>回到跟随状态</strong>；跟随状态下再按一次才会<strong>移除</strong>该光标。';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>
