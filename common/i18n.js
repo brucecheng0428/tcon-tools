@@ -642,13 +642,19 @@ var I18N = {
   /* ⚠ v4.30.0 起 `wfg.grpSysSim` 已無人引用 —— System Simulation 由「Group 框名」
      升級成獨立卡片的標題（`wfg.cardSysSim`）。key 保留不刪：舊的匯出設定檔／
      外部連結不會用到它，但刪 key 對翻譯檔沒有好處，留著也不會被畫出來。 */
-  'wfg.grpSysSim':      { 'zh-TW': 'System Simulation（系統模擬）', 'en': 'System Simulation',
-                          'zh-CN': 'System Simulation（系统模拟）' },
+  'wfg.grpSysSim':      { 'zh-TW': 'System Behavior Simulation（系統行為模擬）', 'en': 'System Behavior Simulation',
+                          'zh-CN': 'System Behavior Simulation（系统行为模拟）' },
   /* ══ 🔴 v4.30.0：四張卡片的標題（Bruce 2026-08-27）══════════════════════════════
      「卡片名稱在繁體中文下，不要有英文」⇒ 繁中一律不含英文字母，
      唯一例外是 Bruce 自己指定的寫法裡就有 `TCON` 三個字母（「TCON頻率設定」、
      「TCON 其他設定」）—— 照抄不改。英文／簡中語系各自照該語言的慣例。 */
-  'wfg.cardSysSim':     { 'zh-TW': '系統模擬', 'en': 'System Simulation', 'zh-CN': '系统模拟' },
+  /* 🔴 v4.35.0 改名：「系統模擬」→「系統行為模擬」（Bruce 2026-08-28 指定）。
+     簡中沿用站上既有譯法 —— 本檔既有寫的是「系统模拟」不是「系统仿真」，
+     所以是「系统行为模拟」；英文依既有的 `System Simulation` 補一個字。
+     ⚠ 卡片的 `id` 仍是 `wfg-syssim-card`，**不跟著改**：autosave 的摺疊狀態
+     （wfg.html 33813 那份 id 陣列）與橘→綠的 card-scoped CSS 都綁在它上面，
+     改 id 會讓使用者既有的摺疊狀態失效、卡片瞬間掉回未套色的樣子。 */
+  'wfg.cardSysSim':     { 'zh-TW': '系統行為模擬', 'en': 'System Behavior Simulation', 'zh-CN': '系统行为模拟' },
   'wfg.cardTconFreq':   { 'zh-TW': 'TCON頻率設定', 'en': 'TCON Clock Settings',
                           'zh-CN': 'TCON频率设定' },
   'wfg.cardTconMisc':   { 'zh-TW': 'TCON 其他設定', 'en': 'Other TCON Settings',
@@ -1105,6 +1111,22 @@ var I18N = {
     'en': 'The official UI does not re-read after loading a script, so the screen still shows the old timing. Press Read on the GPO tab and the settings you just exported will appear in the "Current" sub-tab.',
     'zh-CN': '官方 UI 导入 Script 之后不会自动重新读取，画面上仍会显示旧的 timing。按下 GPO 分页的 Read，这次导出的设定才会出现在「Current」子分页里。' },
   'wfg.gpoRdOk': { 'zh-TW': '知道了', 'en': 'Got it', 'zh-CN': '知道了' },
+  /* ══ 🔴 v4.34.1：匯出提醒視窗的強調用「比對片語」════════════════════════════
+     Bruce 2026-08-28：兩個重點不夠明顯，要紅字＋大字＋閃爍。
+
+     🔴 **這三個 key 不是要顯示的新文案**，是給 `wfgGpoRdHl()` 拿去在**既有文案裡
+     找位置**用的片語 —— 畫面上一個字都不會多出來。之所以做成 i18n 而不是寫死正則：
+     要被強調的那句話三語各不相同，寫死在 JS 裡等於「只有中文會亮」，
+     而且日後有人改了上面那幾則文案，這裡對不上就會靜默失去強調（不會報錯）。
+     ⚠ 因此：**改動 `gpoRdName` / `gpoRdWhere` / `codeExportCurrentOnly` 時，
+     必須回頭確認下面這幾個片語仍是它們的子字串。**
+     這件事不靠記得：`tools/check_export_warn_highlight.py` 逐語言比對，
+     對不上就 rc=1（與其他三支常設機械檢查同一個用法）。 */
+  'wfg.gpoRdHlRead': { 'zh-TW': 'Read', 'en': 'Read', 'zh-CN': 'Read' },
+  'wfg.gpoRdHlCur': {
+    'zh-TW': '匯出的 script 一律寫入 CURRENT',
+    'en': 'The exported script always writes to CURRENT',
+    'zh-CN': '导出的 script 一律写入 CURRENT' },
   /* 🔴 v4.23.0 改字：Line Buffer **已經**跟著 code 連動了（由 First Line Read 帶入），
      再說「沒有跟著 Code 連動」就是對使用者說謊。改成「需要你確認」，
      兩項各自的說明由 ackDclkName / ackLbName 分別講清楚是哪一種。 */
@@ -1323,6 +1345,35 @@ var I18N = {
   'wfg.copyPlain':      { 'zh-TW': '複製', 'en': 'Copy', 'zh-CN': '复制' },
   'wfg.pastePlain':     { 'zh-TW': '貼上', 'en': 'Paste', 'zh-CN': '粘贴' },
   'wfg.screenshotPlain':{ 'zh-TW': '截圖', 'en': 'Screenshot', 'zh-CN': '截图' },
+  /* ══ 🔴 v4.35.0：波形 group 的第 6 顆按鈕「清除」與它的確認視窗 ═══════════════
+     Bruce 2026-08-28：「在上方的波形 group 裡面再多一個按鈕，就是清除按鈕『Clear』。」
+     它與「預設下拉選回快捷設定」是**同一支實作**（`wfgResetToDefault()`），
+     差別只在這顆按鈕會先跳確認 —— 因為它會連 autosave 一起改寫掉，救不回來。
+     🔴 文案刻意壓到兩句：依 Bruce v4.27.3 裁示「注意事項如果寫這麼多，
+        那就失去了要人家注意的目的了」。要講的只有兩件 ——
+        會變成什麼、什麼救不回來；「檢視保留」是唯一的例外所以附在後面。 */
+  'wfg.clearPlain':     { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
+  'wfg.clearTitle':     { 'zh-TW': '清除全部設定，回到預設值',
+                          'en': 'Clear everything and return to defaults',
+                          'zh-CN': '清除全部设定，回到预设值' },
+  'wfg.clrTitle':       { 'zh-TW': '要清除全部設定嗎？', 'en': 'Clear everything?',
+                          'zh-CN': '要清除全部设定吗？' },
+  'wfg.clrBody':        { 'zh-TW': '波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。\n檢視的中心與倍率保留。',
+                          'en': 'Waveforms, cursors, measurements and import records are all cleared, back to FHD / E503 / 60Hz / Single Gate. The autosave record goes with them and cannot be recovered.\nThe view centre and zoom are kept.',
+                          'zh-CN': '波形、游标、测量与导入记录全部清空，回到 FHD／E503／60Hz／Single Gate。自动存档一并清除，无法复原。\n检视的中心与倍率保留。' },
+  'wfg.clrOk':          { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
+  'wfg.clrCancel':      { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
+  /* ══ 🔴 v4.35.0：左側「全部收折」按鈕 ═══════════════════════════════════════
+     Bruce 2026-08-28（含他自己的兩次更正，以最後一次為準）：
+     「『全部收折』按鈕只保留在左側，右側不用。但是左側按下去以後，連右側欄位
+       也會一起全部收折。」
+     「不要再有『全部展開』的按鈕。……至於收折，只有一個按鈕就是『全部收折』。」
+     ⇒ **單向動作，不是切換**：按鈕文字恆為「全部收折」，全收折狀態下再按一次
+       什麼都不會發生。要展開就自己去點那張卡片。 */
+  'wfg.collapseAll':      { 'zh-TW': '全部收折', 'en': 'Collapse all', 'zh-CN': '全部收折' },
+  'wfg.collapseAllTitle': { 'zh-TW': '收折左右兩側所有卡片',
+                            'en': 'Collapse every card on both sides',
+                            'zh-CN': '收折左右两侧所有卡片' },
   // ─── WFG: Cursor panel ───
   'wfg.cursorTitle':    { 'zh-TW': '時基標尺', 'en': 'Time Base Cursors', 'zh-CN': '时基标尺' },
   /* 類比波形疊合（v3.9.0）。UI 一律用「游標」不是「遊標」（站上既有用字）。 */
