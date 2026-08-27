@@ -22,6 +22,90 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.31.2 — 2026-08-27 ｜ PATCH ｜ ⚠ 輸出變更
+
+**F_DLY 把 falling 推到「下一個 R_DLY 邊沿之後」時，訊號現在會整段維持 High，直到 stop line 的 F_DLY 才掉下來 —— 與實機一致。**（Bruce 2026-08-27 實測回報的 item 2）
+
+Bruce 2026-08-27（逐字）：
+
+> 「fdly > rdly 且超過一條 line（已到下一條 line 範圍），且**未**超過了下一條（不一定是下一條，如果 rdly 觸發的條數在下下條，就要改到下下條）line 的 rdly ⇒ **原本演算法正確**」
+>
+> 「fdly > rdly 且超過一條 line，且**超過了**下一條 line 的 rdly ⇒ **原本演算法錯誤**，會變成都是 High，也就是 rdly 與 fdly 都不會在觸發，直到 stop line 的 fdly 才計算觸發」
+
+判定依據：§1 判定表逐欄 ——「操作流程」零改變（沒有新按鈕、沒有入口移動）；「功能增減」不增不減；「既有功能的輸出」屬**修正為原本就該有的行為**（把模擬器對齊實機量到的行為，不是主動換一套設計）→ PATCH。逐項判：**R1 適用** → PATCH ＋ `⚠ 輸出變更`（同一組設定在新舊版重跑，`F_DLY > 下一個 R 邊沿` 的波形會不一樣，舊截圖／舊基線不能直接沿用）；R2 不適用（不開新波）；R3 不適用（使用者能做的事沒有多一件）；R4 不適用（沒有動任何預設值或起始畫面）。取最高者 → **PATCH**，`v4.31.1` → `v4.31.2`。
+
+`⚠ 輸出變更` 範圍：**只影響「F_DLY 大於『到下一個 R 觸發條為止的距離＋R_DLY』」的訊號**。內建 preset 的 76 個 GPIO 物件在兩組 timing 下都逐位元組不變（見下方五）。
+
+### 一、這條規則 v3.20.4 之前就存在過，當時被當成 bug 拿掉
+
+```js
+} else if (fExtraLines >= 1 && fDly > htotal + gpio.r_dly) {
+  // F_DLY crossed to next line past next line's R_DLY position — suppress
+}
+```
+
+v3.20.4 的移除理由是「條件跟 `line` 無關 → **每一行**的 falling 都被丟掉，訊號拉高之後**永遠不會掉**」，判定它牴觸「到 F_DLY 才會將訊號變為 low」。
+
+🔴 **現在 Bruce 實測確認：那個「拉高之後不會掉」正是實機行為。** 當時的觀察沒有錯，錯的是把它判成 bug。這一版把規則加回來，並修掉原版真正的兩個問題（下面二、三）。
+
+### 二、修正①：不能寫死 `htotal`，要用**真正的下一個 R 觸發條**
+
+Bruce 括號裡那句「不一定是下一條，如果 rdly 觸發的條數在下下條，就要改到下下條」講的就是這件事：`ACT_TYPE > 0` 時 R_PH_CNT 每 `ACT_TYPE+1` 條才數到一次，下一個 rising 不在下一條。
+
+```js
+var _dNextR = (actType > 0)
+      ? ((_rCntAtLine === actType) ? (actType + 1) : (actType - _rCntAtLine))
+      : 1;
+var _riseKillsFall = (_nextRLine <= sp) && (fDly > _dNextR * htotal + gpio.r_dly);
+```
+
+`_rCntAtLine` 必須在 **rising 那一段動到 `rCnt` 之前**抄起來 —— rising 區塊會把 `rCnt` 歸零或 +1，falling 區塊讀到的已經不是本行的值。`ACT_TYPE = 0` 時 `_dNextR` 恆為 1，退化回原版的 `htotal + r_dly`。
+
+### 三、修正②：`_nextRLine <= sp` 才抑制 —— 「直到 stop line 的 fdly」是這條的**必然結果**，不是特例
+
+原版沒有出口，SP_LINE 之後照樣抑制 → 訊號永遠回不來。
+
+模型是「**set 優先**：falling 在 F_DLY 途中被任何一個 rising 邊沿清掉」。rising 的閘門本來就是 `line <= sp`，所以**過了 SP_LINE 就沒有 rising 可以清它**，最後那一筆 falling 自然落下來。實測（`effHtotal=1939, VTOTAL=1490`）：
+
+| 設定 | 理論最後 F 觸發條 | 實際落點 |
+|---|---|---|
+| `AT=0 rdly=100 fdly=2239 st=3 sp=1000` | 1000 | `L1001+300` ✅ |
+| `AT=0 rdly=100 fdly=3000 st=3 sp=1000` | 1000 | `L1001+1061` ✅ |
+| `AT=0 rdly=700 fdly=5000 st=3 sp=600` | 600 | `L602+1122` ✅ |
+| `AT=5 rdly=100 fdly=12000 st=3 sp=1000` | **999**（每 6 條觸發一次） | `L1005+366` ✅ |
+| `AT=1 rdly=50 fdly=4000 st=2 sp=500` | 500 | `L502+122` ✅ |
+
+五組全部落在「最後一個 ≤ SP_LINE 的 F 觸發條 ＋ F_DLY」的位置上，**沒有任何一行是寫死 SP_LINE 的**。
+
+### 四、rising **不會**被 falling 清掉（不對稱，這是刻意的）
+
+同一次回報的 item 3（`rdly > fdly`）裡，R_DLY 可以跨過 7 個 falling 邊沿仍然打得出脈衝（Bruce：`rdly` 到 15454 都跟演算法一模一樣）。所以這條規則**只做 falling 這一邊**，不做對稱版本。item 3 的規則另案處理（未進版，原因見本次回報的問題清單）。
+
+### 五、驗收
+
+**規格掃描（67200 組）**：`effHtotal ∈ {1939, 100}` × `ACT_TYPE/R_PH/F_PH` 6 組 × `ST_LINE` 4 值 × `SP_LINE` 5 值 × `INI_VAL` 4 值 × `F_ST_SEL` 2 值 × `R_DLY` 5 值 × `F_DLY` 7 值。
+
+- 有差異 **10768 組**，**全部**滿足 item 2 的進入條件（存在 `1 ≤ d ≤ ACT_TYPE+1` 使 `F_DLY > d×htotal + R_DLY`）→ **不符合條件的差異 0 組**
+- **結構上不可能觸發 item 2 的 34560 組：輸出改變 0 組**（逐位元組相同）
+
+**item 1 零回歸（6 組，逐位元組與改版前相同）**：
+`AT=0 rdly=100 fdly=1989`、`AT=0 rdly=700 fdly=2539`、`AT=0 rdly=100 fdly=2038`（＝ `1939+99`，差 1 就進 item 2）、`AT=5 rdly=100 fdly=11734`（＝ `6×1939+100`，剛好等於門檻）、`XSTB rdly=1930 fdly=2140`（Bruce `_02` 34WQHD 144Hz 的真實參數）、`vst1 AT=15`。
+
+**內建 preset**：兩組 preset 共 76 個 GPIO 物件，在 `VT=1112/H=1334` 與 Bruce 的 `VT=1490/H=1939` 兩組 timing 下，改版前後**逐位元組全數相同**。
+
+**負向對照（4 個，判準：整段 High 5/5、stop 條 falling 5/5、item 1 零回歸 6/6）**：
+
+| 打斷的修正 | 整段 High | stop 條 falling | item 1 零回歸 |
+|---|---|---|---|
+| N1 `_riseKillsFall` 恆 `false`（等於沒改） | **0/5** | **0/5** | 6/6 |
+| N2 寫死 `htotal`（v3.20.4 之前的寫法） | 5/5 | **0/5** | **5/6** |
+| N3 拿掉 `_nextRLine <= sp` 出口 | 5/5 | **0/5** | 6/6 |
+| N4 `_rCntAtLine` 改成常數 0 | 5/5 | 5/5 | **5/6** |
+
+四個注入全部被抓到，而且各自打在不同的判準上 —— 沒有任何一個判準是「怎麼改都綠」。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.31.1 — 2026-08-27 ｜ PATCH ｜ ⚠ 輸出變更
 
 **匯入 code 之後，Frame Rate 會自動降到這顆機種跑得到的最高值；
