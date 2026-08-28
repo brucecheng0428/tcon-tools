@@ -70,11 +70,18 @@ function cut(src, name) {
 let src;
 try { src = fs.readFileSync(SRC, 'utf8'); } catch (e) { die('讀不到 ' + SRC); }
 
-const NAMES = ['wfgNbDecodeChunk', 'wfgNbEdidFrame', 'wfgNbSane'];
+/* 🔴 v4.37.2 追加 `wfgCodeDecodeIntelHex` / `wfgCodeToImage` / `wfgCodeIsHexName`：
+   Bruce 回報的第二個症狀（「Intel HEX 第 1 行格式不正確」）根本沒走到 `wfgNbSane()`，
+   它死在**解碼器**這一層。原本這支腳本只釘住判定層，等於又只驗了一半。
+   `t()` 是這幾支唯一的外部相依（只用來組錯誤訊息）⇒ 用回傳 key 本身的替身即可，
+   本檢查只看「有沒有拒絕」，不看訊息長什麼樣。 */
+const NAMES = ['wfgNbDecodeChunk', 'wfgNbEdidFrame', 'wfgNbSane',
+               'wfgCodeIsHexName', 'wfgCodeDecodeIntelHex', 'wfgCodeToImage'];
 const sandbox = {};
 try {
   // eslint-disable-next-line no-new-func
-  new Function('exports', NAMES.map(n => cut(src, n)).join('\n') +
+  new Function('exports', 'var t = function (k) { return String(k); };\n' +
+    NAMES.map(n => cut(src, n)).join('\n') +
     '\n' + NAMES.map(n => 'exports.' + n + ' = ' + n + ';').join('\n'))(sandbox);
 } catch (e) { die('抽出來的產品函式跑不起來：' + e.message); }
 for (const n of NAMES) if (typeof sandbox[n] !== 'function') die(n + ' 抽取失敗');
@@ -182,38 +189,93 @@ expect('解析度荒謬（hactive = 100）', judge(buildImage({ hactive: 100 }))
 expect('全 0x00 的 4096 bytes', judge(new Uint8Array(4096)).edid, false);
 expect('全 0xFF 的 4096 bytes', judge(new Uint8Array(4096).fill(0xFF)).edid, false);
 
-/* ③ 選配：拿本機真檔跑（不進版控）。 */
+/* ══ 🔴 v4.37.2 新增：Intel HEX 解碼層 ═══════════════════════════════════════
+   為什麼要另外釘這一層：Bruce 2026-08-28 回報的第二個症狀是
+   **「Intel HEX 第 1 行格式不正確」** —— 它連 `wfgNbSane()` 都沒走到就死了。
+   上面①②只驗判定層，對這一類錯完全沒有鑑別力。**同一個破口的第三次**
+   （① 只驗壞檔被拒 ② 只驗純函式不驗完整路徑 ③ 只驗判定層不驗解碼層），
+   所以這裡把「檔案進來的第一站」也一起釘住。
+
+   兩個真實存在的變體，都由 191 份真檔語料（189 份信件封存 ＋ Bruce 回報的 2 份）
+   實測得出，不是推測：
+     ・**UTF-8 BOM**：11 份帶 BOM（`EF BB BF`），v4.37.1 之前全數被判「第 1 行格式不正確」。
+     ・**只算 data 的 checksum**：同樣那 11 份，整列標準 checksum 算不過，
+       但「只算 data」全數通過；另外 180 份走標準；**沒有任何一份兩種都算不過**。
+   ⇒ BOM 與 data-only checksum 是同一個產生器的兩個特徵。 */
+const S = txt => new Uint8Array(Array.from(txt).map(c => c.charCodeAt(0)));
+const EOF_REC = ':00000001FF\r\n';
+/* 兩列標準 Intel HEX。 */
+const STD_L1 = ':10000000000102030405060708090A0B0C0D0E0F78';
+const STD_L2 = ':080010000102030405060708C4';           // 整列和 &0xFF = 0
+const HEX_STD = STD_L1 + '\r\n' + EOF_REC;
+/* 「只算 data」方言：整列和不為 0，但 data 和的二補數 ＝ cks。
+   第一列**逐位元組取自 Bruce 那份真檔的第 1 行**，第二列是同規則自造的。 */
+const DO_L1 = ':0800000000FFFFFFFFFFFF0006';            // 整列 &0xFF = 8；data 二補數 = 0x06
+const DO_L2 = ':080008000102030405060708DC';            // 整列 &0xFF = 16；data 二補數 = 0xDC
+const HEX_DATAONLY = DO_L1 + '\r\n' + DO_L2 + '\r\n' + EOF_REC;
+
+console.log('');
+console.log('③ Intel HEX 解碼層 —— 必須接受（真檔實際出現的兩種方言）');
+expect('一般的標準 Intel HEX', sandbox.wfgCodeToImage(S(HEX_STD), 'x.hex').ok, true);
+expect('開頭有 UTF-8 BOM（EF BB BF）', sandbox.wfgCodeToImage(S('ï»¿' + HEX_STD), 'x.hex').ok, true);
+expect('checksum 只算 data 的方言', sandbox.wfgCodeToImage(S(HEX_DATAONLY), 'x.hex').ok, true);
+expect('BOM ＋ data-only 同時出現（＝真檔的樣子）',
+  sandbox.wfgCodeToImage(S('ï»¿' + HEX_DATAONLY), 'x.hex').ok, true);
+/* 方言要被認出來，而不是「碰巧過關」。 */
+expect('方言判定：標準檔回報 standard',
+  sandbox.wfgCodeToImage(S(HEX_STD), 'x.hex').cksDialect === 'standard', true);
+expect('方言判定：變體檔回報 data-only',
+  sandbox.wfgCodeToImage(S(HEX_DATAONLY), 'x.hex').cksDialect === 'data-only', true);
+
+console.log('');
+console.log('④ Intel HEX 解碼層 —— 必須拒絕（checksum 還活著）');
+/* 🔴 最關鍵的一項：混合。它是「整檔一致」與「逐列各自擇一」的分水嶺 ——
+   逐列擇一會放行下面這份，整檔一致會擋下來。 */
+expect('🔴 一列 data-only ＋ 一列標準（整檔不一致）',
+  sandbox.wfgCodeToImage(S(DO_L1 + '\r\n' + STD_L2 + '\r\n' + EOF_REC), 'x.hex').ok, false);
+expect('data 被改一個 byte（標準檔）',
+  sandbox.wfgCodeToImage(S(HEX_STD.replace(':1000000000010203', ':1000000000010204')), 'x.hex').ok, false);
+expect('data 被改一個 byte（data-only 檔）',
+  sandbox.wfgCodeToImage(S(HEX_DATAONLY.replace('00FFFFFF', '01FFFFFF')), 'x.hex').ok, false);
+expect('checksum 欄位被改', sandbox.wfgCodeToImage(S(HEX_STD.replace('0F78', '0F79')), 'x.hex').ok, false);
+expect('第 1 行不是冒號開頭', sandbox.wfgCodeToImage(S('X' + HEX_STD), 'x.hex').ok, false);
+expect('列長度與 len 欄位不符', sandbox.wfgCodeToImage(S(':10000000000102030478\r\n' + EOF_REC), 'x.hex').ok, false);
+expect('缺少 EOF 記錄（檔案被截斷）',
+  sandbox.wfgCodeToImage(S(STD_L1 + '\r\n'), 'x.hex').ok, false);
+expect('BOM 之外的位置冒出 EF BB BF',
+  sandbox.wfgCodeToImage(S(HEX_STD.replace(':00000001FF', 'ï»¿:00000001FF')), 'x.hex').ok, false);
+expect('UTF-16 BOM（刻意不支援，要大聲失敗）',
+  sandbox.wfgCodeToImage(new Uint8Array([0xFF, 0xFE, 0x3A, 0x00, 0x31, 0x00]), 'x.hex').ok, false);
+/* .bin 不走解碼器：同一串內容當 .bin 應該原封不動回傳。 */
+expect('.bin 不經過 hex 解碼（原樣回傳）',
+  sandbox.wfgCodeToImage(S('X' + HEX_STD), 'x.bin').ok, true);
+
+/* ⑤ 選配：拿本機真檔跑（不進版控）。
+   🔴 v4.37.2 修正：這一段原本自己寫了一份簡易的 Intel HEX 解碼器 —— 於是它
+   **看不到 BOM 那個 bug**（自己的解碼器不剝 BOM ⇒ 那 11 份真檔解出來長度不對 ⇒
+   被當成「不是 E503 形狀」靜默跳過）。抄一份實作就會有兩份不同步的版本，
+   而且不同步的方向剛好是「檢查看不到產品的缺陷」。改用產品的 `wfgCodeToImage()`。 */
 const REAL = process.env.WFG_NB_CODE_DIR;
 if (REAL && fs.existsSync(REAL)) {
   console.log('');
-  console.log('③ 本機真檔語料：' + REAL);
-  const hexToBytes = txt => {
-    const out = {}; let ext = 0, max = 0;
-    for (const line of txt.split(/\r?\n/)) {
-      if (line[0] !== ':') continue;
-      const b = Buffer.from(line.slice(1), 'hex');
-      const len = b[0], addr = (b[1] << 8) | b[2], typ = b[3];
-      if (typ === 0) { const a = ext * 65536 + addr; for (let i = 0; i < len; i++) { out[a + i] = b[4 + i]; } max = Math.max(max, a + len); }
-      else if (typ === 4) ext = (b[4] << 8) | b[5];
-    }
-    const arr = new Uint8Array(max); for (const k in out) arr[k] = out[k];
-    return arr;
-  };
-  let n = 0, bad = 0;
+  console.log('⑤ 本機真檔語料：' + REAL);
+  let seen = 0, decFail = [], n = 0, bad = 0;
   for (const f of fs.readdirSync(REAL)) {
     const p = path.join(REAL, f);
     if (!fs.statSync(p).isFile()) continue;
-    let bytes;
-    try {
-      bytes = /\.hex$/i.test(f) ? hexToBytes(fs.readFileSync(p, 'latin1')) : new Uint8Array(fs.readFileSync(p));
-    } catch (e) { continue; }
-    if (bytes.length !== E503.size) continue;
-    const r = judge(bytes);
-    if (!r.edid) continue;                    // 不是 E503 形狀，跳過
+    if (!/\.(hex|bin)$/i.test(f)) continue;
+    seen++;
+    const img = sandbox.wfgCodeToImage(new Uint8Array(fs.readFileSync(p)), f);
+    if (!img.ok) { decFail.push(f + ' → ' + String(img.reason).slice(0, 40)); fail++; continue; }
+    if (img.bytes.length !== E503.size) continue;   // 不是 E503 大小，跳過
+    const r = judge(img.bytes);
+    if (!r.edid) continue;                          // 不是 E503 形狀，跳過
     n++;
     if (!r.sane) { bad++; fail++; console.log('  ❌ 誤殺：' + f); }
   }
-  console.log('  E503 形狀的真檔 ' + n + ' 份，被誤殺 ' + bad + ' 份');
+  console.log('  掃到 ' + seen + ' 份；解碼失敗 ' + decFail.length + ' 份；'
+            + 'E503 形狀 ' + n + ' 份，被誤殺 ' + bad + ' 份');
+  decFail.slice(0, 10).forEach(x => console.log('  ❌ 解碼失敗：' + x));
 }
 
 console.log('');

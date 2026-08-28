@@ -3407,8 +3407,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4371"></script>
-<script src="common/i18n.js?v=20260828wfg4371"></script>
+<script src="common/version.js?v=20260828wfg4372"></script>
+<script src="common/i18n.js?v=20260828wfg4372"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -43940,10 +43940,45 @@ function wfgCodeOffLabelAscii(n) {
    🔴 checksum 一律驗；任何一行壞掉就整份拒絕，**不做「盡量讀」**——
    讀進半份 code 再拿去解析 GPO，錯得比讀不到還難發現。 */
 function wfgCodeDecodeIntelHex(buf) {
+  /* ══ 🔴 v4.37.2：先剝掉檔頭的 UTF-8 BOM ═══════════════════════════════════════
+     Bruce 2026-08-28 回報「E503 匯入 code 異常」，畫面上的原文是
+     **「Intel HEX 第 1 行格式不正確」**。真檔（`RM8100x_JDZ_CSOT15.3…AUPI02/03`，
+     各 14864 bytes）開頭是 `EF BB BF 3A 30 38 …` —— 前三個 byte 是 **UTF-8 BOM**，
+     `file(1)` 也判為 `UTF-8 (with BOM) text, with CRLF line terminators`。
+
+     下面那一行是逐 byte `String.fromCharCode`，BOM 會變成 **latin-1 的三個字元
+     `ï»¿`**（看起來是 `ï»¿`），而 `trim()` 不會去掉它們（它們不是
+     JS 認定的空白）⇒ 第 1 行的 `charAt(0)` 是 `ï` 不是 `:` ⇒ 整份被判格式錯誤。
+
+     🔴 **在 bytes 層剝、不在字串層剝**：BOM 是「檔案編碼標記」，本來就是位元組層的
+     事實，判斷條件就是它的定義（EF BB BF），一眼看得懂。字串層要比對的是
+     `ï»¿` 這個「逐 byte 轉換的產物」，它既不是 `﻿` 也不是可讀字元，
+     很容易寫成剝錯東西。
+     🔴 **只剝檔案開頭這一次**：中間任何一行冒出這三個 byte 都是真的壞檔，必須照舊擋下。
+     🔴 行號不受影響：BOM 裡沒有換行，`li + 1` 仍然是使用者看到的行號。
+
+     ── UTF-16 BOM（FF FE / FE FF）刻意**不支援**，而且要大聲失敗 ──────────────
+     UTF-16 的文字檔每個 ASCII 字元佔 2 bytes（`3A 00` 或 `00 3A`），**光剝掉 2 byte 的
+     BOM 沒有用** —— 後面整份都是夾著 NUL 的字串，要真的做 UTF-16 解碼才讀得懂。
+     剝了只會讓它「看起來被支援了」，然後在更後面用更難懂的方式壞掉。
+     手上 189 份 hex 語料沒有任何一份是 UTF-16，沒有素材可以驗，所以**不猜**。
+     但這裡給一則講清楚的訊息（而不是沿用「第 1 行格式不正確」）—— BOM 這次讓人
+     繞了一大圈，同型的問題不該再繞第二次。 */
+  var _st = 0;
+  if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    _st = 3;                                   // UTF-8 BOM：剝掉，其餘照舊
+  } else if (buf.length >= 2 &&
+             ((buf[0] === 0xFF && buf[1] === 0xFE) || (buf[0] === 0xFE && buf[1] === 0xFF))) {
+    return { ok: false, reason: t('wfg.codeErrHexUtf16') };
+  }
   var txt = '';
-  for (var i = 0; i < buf.length; i++) txt += String.fromCharCode(buf[i]);
+  for (var i = _st; i < buf.length; i++) txt += String.fromCharCode(buf[i]);
   var lines = txt.split(/\r?\n/);
-  var map = {}, maxAddr = -1, minAddr = -1, seenEof = false, base = 0, dataLines = 0;
+
+  /* ══ 第一趟：只做「這一列的結構對不對」，把 record 收下來 ═══════════════════════
+     checksum **刻意不在這裡驗** —— 要先看完整份檔才知道它用的是哪一種 checksum
+     方言（見下面第二趟）。逐列邊走邊決定，就會退化成「每一列有兩次機會」。 */
+  var recs = [];
   for (var li = 0; li < lines.length; li++) {
     var ln = lines[li].trim();
     if (!ln) continue;
@@ -43955,22 +43990,88 @@ function wfgCodeDecodeIntelHex(buf) {
       if (!isFinite(v)) return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
       by.push(v);
     }
-    var sum = 0;
-    for (var s = 0; s < by.length; s++) sum += by[s];
-    if ((sum & 0xFF) !== 0) return { ok: false, reason: t('wfg.codeErrHexCks').replace('{n}', String(li + 1)) };
-    var len = by[0], addr = (by[1] << 8) | by[2], typ = by[3];
-    if (by.length !== len + 5) return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
+    if (by.length !== by[0] + 5) return { ok: false, reason: t('wfg.codeErrHexLine').replace('{n}', String(li + 1)) };
+    recs.push({ by: by, line: li + 1 });
+    if (by[3] === 0x01) break;      // EOF：後面就算還有內容也不看（與 v4.37.1 相同）
+  }
+
+  /* ══ 🔴 v4.37.2 第二趟：checksum 方言是**整檔**決定的，不是逐列 ═══════════════════
+     **標準 Intel HEX** 的 checksum 涵蓋整列（len ＋ addr ＋ type ＋ data ＋ cks，
+     總和低位元組為 0）。原廠還有另一種產生器，它的 checksum **只算 data bytes**
+     的二補數，不含 length／address／record type —— 那不符合 Intel HEX 規格，
+     但它就是真實存在、而且 Bruce 手上正在用的檔。
+
+     ── 語料實測（191 份＝189 份信件封存 ＋ Bruce 回報的 2 份）───────────────────
+       ・**180 份**：每一列都符合標準規則。
+       ・**9 + 2 = 11 份**：所有 `type 0`（資料列）都符合 data-only，
+         非資料列（EOF）符合標準。
+       ・**0 份**：兩種規則都湊不出一致的解讀。
+     這 11 份與「帶 UTF-8 BOM」的 11 份**完全是同一批**（大小也一致：語料那 9 份
+     29712 B ⇒ 解出 8192 B、Bruce 那 2 份 14864 B ⇒ 解出 4096 B）
+     ⇒ BOM 與 data-only 是**同一個產生器的兩個特徵**，不是檔案壞掉。
+     逐位元組驗算（Bruce 那份第 1 行 `:0800000000FFFFFFFFFFFF0006`）：
+       整列和 &0xFF = 8（不為 0）；data 和 0xFF×6 = 1530，1530&0xFF = 250，
+       二補數 = 6 = 檔案裡的 `06` ✅
+
+     ── 🔴 為什麼是「整檔一致」而不是「逐列擇一」────────────────────────────────
+     逐列擇一等於**每一列都有兩次機會**，校驗強度直接腰斬，損毀的檔很容易矇混過去。
+     整檔一致則不然：一份標準檔只要有一列的 data 被改壞，標準掃描失敗 ⇒ 改用
+     data-only 重掃 ⇒ 其餘每一列幾乎都不符合 data-only ⇒ 整檔拒絕。
+     **實測的可分辨性**：180 份標準檔共 61697 筆資料列，其中「碰巧也符合 data-only」
+     的只有 241 筆（0.39%）—— 兩種方言區分得很開，不是隨便都能互相冒充。
+
+     ── 🔴 為什麼 data-only 方言下「非資料列」仍用標準規則 ──────────────────────
+     EOF／擴充位址那幾列**沒有 data**（len = 0），data-only 規則套上去會退化成
+     「cks 必須是 0」，而標準的 EOF 是 `:00000001FF`（cks = 0xFF）。實測 Bruce 那份：
+     513 列 ＝ 512 筆資料列（512/512 符合 data-only）＋ 1 筆 EOF（只符合標準）。
+     所以「整份都用 data-only」是解不出來的，正確的描述是
+     **「資料列用 data-only、其餘用標準」**。這一句是量出來的，不是設計出來的。
+
+     ── 錯誤行號回報哪一個 ────────────────────────────────────────────────────
+     兩種方言都失敗時，報的是**標準規則第一個失敗的列** —— 絕大多數檔案是標準的，
+     指向那一列對使用者最有意義。 */
+  var _stdOk = function (r) {
+    var s = 0;
+    for (var k = 0; k < r.by.length; k++) s += r.by[k];
+    return (s & 0xFF) === 0;
+  };
+  var _dataOk = function (r) {
+    var n = r.by[0], s = 0;
+    for (var k = 0; k < n; k++) s += r.by[4 + k];
+    return ((s + r.by[r.by.length - 1]) & 0xFF) === 0;
+  };
+  var _firstStdBad = -1, _allStd = true;
+  for (var ri = 0; ri < recs.length; ri++) {
+    if (!_stdOk(recs[ri])) { _allStd = false; if (_firstStdBad < 0) _firstStdBad = recs[ri].line; }
+  }
+  var cksDialect = 'standard';
+  if (!_allStd) {
+    var _allData = true;
+    for (var rj = 0; rj < recs.length; rj++) {
+      var _r = recs[rj];
+      /* 資料列走 data-only、其餘（EOF／擴充位址）走標準。 */
+      if (!(_r.by[3] === 0x00 ? _dataOk(_r) : _stdOk(_r))) { _allData = false; break; }
+    }
+    if (!_allData) {
+      return { ok: false, reason: t('wfg.codeErrHexCks').replace('{n}', String(_firstStdBad)) };
+    }
+    cksDialect = 'data-only';
+  }
+
+  /* ══ 第三趟：組成映像 ══════════════════════════════════════════════════════ */
+  var map = {}, maxAddr = -1, seenEof = false, base = 0, dataLines = 0;
+  for (var rk = 0; rk < recs.length; rk++) {
+    var rr = recs[rk].by, len = rr[0], addr = (rr[1] << 8) | rr[2], typ = rr[3];
     if (typ === 0x00) {
       dataLines++;
-      for (var k = 0; k < len; k++) {
-        var a = base + addr + k;
-        map[a] = by[4 + k];
+      for (var k2 = 0; k2 < len; k2++) {
+        var a = base + addr + k2;
+        map[a] = rr[4 + k2];
         if (maxAddr < 0 || a > maxAddr) maxAddr = a;
-        if (minAddr < 0 || a < minAddr) minAddr = a;
       }
     } else if (typ === 0x01) { seenEof = true; break; }
-    else if (typ === 0x02) { base = ((by[4] << 8) | by[5]) * 16; }
-    else if (typ === 0x04) { base = ((by[4] << 8) | by[5]) * 65536; }
+    else if (typ === 0x02) { base = ((rr[4] << 8) | rr[5]) * 16; }
+    else if (typ === 0x04) { base = ((rr[4] << 8) | rr[5]) * 65536; }
     /* 其餘 type（03/05 起始位址）對「內容映像」沒有貢獻，略過即可，不視為錯誤。 */
   }
   if (!dataLines || maxAddr < 0) return { ok: false, reason: t('wfg.codeErrHexEmpty') };
@@ -43980,14 +44081,17 @@ function wfgCodeDecodeIntelHex(buf) {
      整份位移。未填到的位元組補 0，與晶片上「沒被寫過」的狀態一致。 */
   var out = new Uint8Array(maxAddr + 1);
   for (var key in map) out[key | 0] = map[key];
-  return { ok: true, bytes: out };
+  /* v4.37.2：`cksDialect` 回出去讓上層有需要時可以標示（目前只有驗收腳本在讀）。
+     刻意**不**拿它去推論任何東西 —— 方言只是「這份檔怎麼算 checksum」，
+     與型號、大小、內容格式沒有因果關係。 */
+  return { ok: true, bytes: out, cksDialect: cksDialect };
 }
 /* codec 的統一入口：回傳 { ok, bytes, srcFormat }。bytes.length 就是「實際內容長度」。 */
 function wfgCodeToImage(buf, fname) {
   if (!wfgCodeIsHexName(fname)) return { ok: true, bytes: buf, srcFormat: 'bin' };
   var r = wfgCodeDecodeIntelHex(buf);
   if (!r.ok) return r;
-  return { ok: true, bytes: r.bytes, srcFormat: 'hex' };
+  return { ok: true, bytes: r.bytes, srcFormat: 'hex', cksDialect: r.cksDialect };
 }
 window.wfgCodeToImage = wfgCodeToImage;
 window.wfgCodeDecodeIntelHex = wfgCodeDecodeIntelHex;
