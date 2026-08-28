@@ -1894,7 +1894,10 @@
         <!-- Preset Selector -->
         <div class="wfg-card wfg-preset-group-card" id="wfg-preset-card">
             <span class="wfg-preset-group-label" data-i18n="wfg.laGrpPreset">預設</span>
-            <select id="wfg-preset-select" class="wfg-preset-select preset-attention" onchange="wfgLoadPresetFromSelect(this)" style="width:100%">
+            <!-- 🔴 v4.37.0：`onfocus` 先把「動之前的值」記下來 —— `change` 事件拿不到舊值，
+                 而選了預設後在類別視窗按「取消」時，下拉必須轉回原本那一項
+                 （不然畫面會停在一個沒有被套用的預設名稱上）。 -->
+            <select id="wfg-preset-select" class="wfg-preset-select preset-attention" onfocus="wfgPresetRemember(this)" onchange="wfgLoadPresetFromSelect(this)" style="width:100%">
               <option value="" data-i18n="wfg.laQuickPresetDefault">快捷設定</option>
               <option value="fhd_60hz_sg">FHD 60Hz Single Gate(LS：Multi CPV)</option>
               <option value="fhd_60hz_sg_ls_dual_cpv">FHD 60Hz Single Gate(LS：Dual CPV)</option>
@@ -3404,8 +3407,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4360"></script>
-<script src="common/i18n.js?v=20260828wfg4360"></script>
+<script src="common/version.js?v=20260828wfg4370"></script>
+<script src="common/i18n.js?v=20260828wfg4370"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -27928,17 +27931,95 @@ window.wfgClrShow = wfgClrShow;
 window.wfgClrCancel = wfgClrCancel;
 window.wfgClrConfirm = wfgClrConfirm;   // 驗收腳本要走與按鈕相同的路徑
 
+/* ══ 🔴 v4.37.0：快捷設定也走五類選擇視窗（Bruce 2026-08-28）════════════════════
+   「其實在左側的預設選單（也就是快捷設定）這邊，當我選擇不同的設定時，其實功能
+     也是匯入波形。所以我需要的是：在點選不同的設定時，也能跳出這個可以分類匯入的
+     視窗，點選以後，也可以依照需求分別匯入所需的部分。」
+
+   🔴 `_wfgPresetPrev` ＝「下拉在使用者動它**之前**的值」。取消時要把下拉轉回去，
+      否則畫面上會停在一個根本沒有被套用的預設名稱上 —— 那是說謊。
+      `change` 事件拿不到舊值，所以在 `focus` 時先記下來（真人操作一定先 focus）。
+      驗收腳本因此也必須先派發 `focus` 再派發 `change` —— 這是刻意的：
+      腳本的操作順序與使用者不同，全綠也不算數。 */
+var _wfgPresetPrev = '';
+function wfgPresetRemember(sel) { _wfgPresetPrev = sel ? sel.value : ''; }
+window.wfgPresetRemember = wfgPresetRemember;
+
 function wfgLoadPresetFromSelect(sel) {
   var key = sel.value;
   if (!key || !WFG_PRESETS[key]) {
+    /* 🔴 「回到快捷設定」placeholder **不跳視窗**：Bruce 已裁示它與工具列「清除」
+       行為一致，而清除是**重置**不是匯入（v4.35.0 定的語意，本版一個字未改）。 */
     if (!key) wfgResetToDefault();
+    _wfgPresetPrev = sel.value;
     return;
   }
-  wfgLoadPreset(key);
-  // Keep the selected preset visible in the dropdown (don't reset to placeholder)
+  /* 🔴 **先問、後套**：視窗開著的時候一個狀態都還沒動，所以「取消 ＝ 什麼都沒發生」
+     是結構上成立的，不是靠事後還原。（先套再問的話，取消就得把整份狀態倒回去，
+     而且中途還會閃一次完整的預設畫面。） */
+  wfgImpSelShow(null, null, {
+    onCancel: function() { sel.value = _wfgPresetPrev; },
+    onApplyCategories: function(selCat) {
+      wfgApplyPresetByCategory(key, selCat);
+      _wfgPresetPrev = sel.value;
+    }
+  });
 }
 
-function wfgLoadPreset(presetName) {
+/* ══ 🔴 v4.37.0：依類別套用快捷設定 ═══════════════════════════════════════════
+   **不另寫第二套部分套用邏輯**（那會與 v4.36.0 的合併規則分岔，而且不會有人發現）。
+   做法是把「這個預設等價的設定檔」生出來，再走 v4.36.0 已經驗過的同一條路：
+   `wfgImpSelMerge()` → `wfgImportConfig()`。
+
+   🔴 **全選時直接呼叫 `wfgLoadPreset(key)`，一個字都不繞路** —— 走的就是 v4.36.0
+      的那一行。零回歸不是靠信心，是靠「根本是同一條路徑」。
+
+   🔴 **「等價的設定檔」只能由 `wfgLoadPreset()` 自己生**：這支函式做的事遠不只把
+      preset 物件抄進來，它還會把 preset **沒有**的欄位重設回出廠值
+      （`panel.gate_rc_mult` / `tft_von` / `tft_voff` / `spx_rc` / `ft_*` / `vcom_*`、
+      `wfgChannels` 整組重建、`wfgOverlayCfg = {}`、`wfgClearAllCursors()`、
+      `dclkMode:'fixed'`、`uiDclkCap:null`…）。這是它的語意 ——
+      v3.5.0 已明文定義：「preset 的語意是『完整定義一組情境』，不是『只覆蓋它有提到的欄位』」。
+      要在別處重寫一份等價轉換，就是把這 200 行抄第二份。
+
+   🔴 `skipFinalRender`：只有在「拿來取狀態」時才用。`wfgLoadPreset()` 尾端的
+      `wfgPrecomputeAnalogAsync()` 在大工作量（>200k line）下會 `await` 讓出，
+      若讓它跑完再被 `wfgImportConfig()` 蓋掉，那份**為預設算的**類比預計算會在之後
+      落地並被蓋上「目前版本」的戳記（`_wfgPrecomputed` / `_wfgPrecomputeVer`）——
+      波形就會是別組參數算出來的。跳過它，讓 `wfgImportConfig()` 用自己的路徑重算。
+
+   🔴 `wfgDtLock`（|Δt| 鎖定）**不在設定檔裡**，而 `wfgClearAllCursors()` 會清掉它。
+      沒勾「量測」時要自己接回去，否則「沒勾的類別維持原值」在這一格會破功。
+      這是我逐一比對 `wfgLoadPreset()` 的所有指派與 `wfgExportConfig()` 的欄位之後，
+      找到的**唯一**一個沒被設定檔涵蓋的狀態。 */
+function wfgApplyPresetByCategory(key, selCat) {
+  if (wfgImpSelAllChecked(selCat)) { wfgLoadPreset(key); return; }
+
+  var cur = window.wfgExportConfig();     // 動作前的完整快照
+  var dtLock = wfgDtLock;                 // 設定檔涵蓋不到的唯一一項
+  var merged;
+  try {
+    wfgLoadPreset(key, { skipFinalRender: true });
+    merged = wfgImpSelMerge(window.wfgExportConfig(), selCat, cur);
+  } catch (e) {
+    /* 失敗 ⇒ 把動作前的狀態整份套回去。這裡與檔案匯入那條的「中止」不同：
+       檔案匯入失敗時什麼都還沒動，這裡已經套了一半，必須主動倒回去。 */
+    console.warn('[wfg] 快捷設定分類套用失敗，已回到動作前的狀態（' + (e && e.message) + '）');
+    try { window.wfgImportConfig(cur); } catch (e2) {}
+    wfgDtLock = dtLock;
+    alert(t('wfg.impsMergeFail'));
+    return;
+  }
+  window.wfgImportConfig(merged);
+  if (!selCat.meas) wfgDtLock = dtLock;
+}
+window.wfgApplyPresetByCategory = wfgApplyPresetByCategory;   // 驗收腳本用
+
+/* opts（v4.37.0 新增，選填）：
+     skipFinalRender: true → 不跑尾端的 `wfgPrecomputeAnalogAsync().then(render)`。
+       只有 `wfgApplyPresetByCategory()` 的「取狀態」用途會傳（理由見該處）。
+       不傳＝與 v4.36.0 逐字相同。 */
+function wfgLoadPreset(presetName, opts) {
   var preset = WFG_PRESETS[presetName];
   if (!preset) return;
   wfgInvalidateCache();
@@ -28179,6 +28260,10 @@ function wfgLoadPreset(presetName) {
      右側「時基標尺」卡片卻永遠是空的（wfgRender/wfgResizeAndRender 都不會刷新這張卡片，
      只有 hover/拖曳/toggle/匯入等路徑才會呼叫它）。對照組：wfgImportConfig() 一直都有呼叫。 */
   wfgUpdateCursorPanel();
+  /* 🔴 v4.37.0：到這一行為止**全部是同步的** —— `wfgApplyPresetByCategory()` 就是靠
+     這一點在同一個 tick 內取完狀態再蓋掉，瀏覽器不會畫出中間那一幀。
+     下面這一行是唯一的非同步尾巴，取狀態時要跳過（理由見 `wfgApplyPresetByCategory()`）。 */
+  if (opts && opts.skipFinalRender) return;
   // Async precompute with progress bar, then render
   wfgPrecomputeAnalogAsync().then(function() { wfgResizeAndRender(); });
 }
@@ -40200,12 +40285,18 @@ function wfgImpSelAnyChecked(sel) {
   return false;
 }
 
-/* 回傳「要餵給 wfgImportConfig() 的設定文字」。全選時回傳的就是傳進來的同一個字串。 */
-function wfgImpSelMerge(incStr, sel) {
+/* 回傳「要餵給 wfgImportConfig() 的設定文字」。全選時回傳的就是傳進來的同一個字串。
+
+   🔴 v4.37.0 新增選填的第三個參數 `curStr`＝「目前狀態的設定文字」。
+   檔案／貼上匯入時不傳，現讀 `wfgExportConfig()`（與 v4.36.0 逐字相同）。
+   **快捷設定那條路一定要傳**：到了呼叫這裡的時候，畫面上的狀態已經是那個預設了
+   （因為「這個預設等價的設定檔」只能由 `wfgLoadPreset()` 自己生），現讀會讀到預設本身，
+   於是「沒勾的類別」會被預設值覆寫成預設值 —— 整個篩選靜默失效而且看起來像全選。 */
+function wfgImpSelMerge(incStr, sel, curStr) {
   if (wfgImpSelAllChecked(sel)) return incStr;   // 🔴 短路：全選 ⇒ 原字串，零重新序列化
 
   var inc = JSON.parse(incStr);
-  var cur = JSON.parse(window.wfgExportConfig());
+  var cur = JSON.parse(curStr != null ? curStr : window.wfgExportConfig());
   var out = JSON.parse(JSON.stringify(inc));
   out.frame = out.frame || {};
 
@@ -40287,19 +40378,39 @@ function wfgImpSelSetAll(v) {
 }
 window.wfgImpSelSetAll = wfgImpSelSetAll;
 
-function wfgImpSelCancel() {
-  /* 取消：**不動任何狀態**（與 `wfgClrCancel()`／`wfgImpCancel()` 同一個承諾）。 */
+/* 只關視窗、清掉待處理項目。**不觸發 onCancel** —— 確認路徑也要關視窗，
+   若共用 `wfgImpSelCancel()` 就會在成功之後還去跑一次「取消要做的事」。 */
+function wfgImpSelClose() {
   var m = document.getElementById('wfg-imps-mask');
   if (m) m.classList.add('hidden');
   _wfgImpSelPending = null;
+}
+
+function wfgImpSelCancel() {
+  /* 取消：**不動任何狀態**（與 `wfgClrCancel()`／`wfgImpCancel()` 同一個承諾）。
+     v4.37.0：快捷設定那條路要把下拉轉回原本的選項，否則畫面會停在一個沒有被套用的
+     預設名稱上 —— 那是說謊，不是小瑕疵。這件事由呼叫端用 `onCancel` 決定。 */
+  var p = _wfgImpSelPending;
+  wfgImpSelClose();
+  if (p && typeof p.onCancel === 'function') p.onCancel();
 }
 window.wfgImpSelCancel = wfgImpSelCancel;
 
 function wfgImpSelConfirm() {
   var p = _wfgImpSelPending;
-  if (!p) { wfgImpSelCancel(); return; }
+  if (!p) { wfgImpSelClose(); return; }
   var sel = wfgImpSelRead();
   if (!wfgImpSelAnyChecked(sel)) return;   // 雙保險（按鈕已停用）
+  /* v4.37.0：快捷設定那條路沒有「現成的設定檔文字」可以合併 ——
+     它的等價設定檔只能由 `wfgLoadPreset()` 跑一次才生得出來（見該處說明）。
+     所以這條路交出去的是**類別勾選結果**，由呼叫端自己完成取狀態＋合併＋套用。
+     合併與套用用的仍然是同一組 `wfgImpSelMerge()` / `wfgImportConfig()`，
+     不是第二套邏輯。 */
+  if (typeof p.onApplyCategories === 'function') {
+    wfgImpSelClose();
+    p.onApplyCategories(sel);
+    return;
+  }
   var merged;
   try {
     merged = wfgImpSelMerge(p.text, sel);
@@ -40308,27 +40419,38 @@ function wfgImpSelConfirm() {
        套用全部比什麼都不做更糟（而且他不會知道）。失敗的方向要倒向他要的那一邊。 */
     console.warn('[wfg] 匯入類別合併失敗，已中止（' + (e && e.message) + '）');
     alert(t('wfg.impsMergeFail'));
-    wfgImpSelCancel();
+    wfgImpSelClose();
     return;
   }
-  wfgImpSelCancel();
+  wfgImpSelClose();
   p.onOk(merged);
 }
 window.wfgImpSelConfirm = wfgImpSelConfirm;
 
-/* 開啟選擇視窗。`onOk(mergedText)` 由呼叫端決定匯入成功後要做什麼
-   （顯示檔名／閃一下貼上鈕）。 */
-function wfgImpSelShow(text, onOk) {
+/* 開啟選擇視窗。兩種用法：
+     ① 檔案／貼上匯入：`wfgImpSelShow(text, onOk)` —— 手上已經有設定檔文字，
+        確認後由這裡合併好再交給 `onOk(mergedText)`。
+     ② 快捷設定：`wfgImpSelShow(null, null, { onApplyCategories, onCancel })` ——
+        設定檔文字要等使用者確認之後才生得出來，所以只把勾選結果交出去。 */
+function wfgImpSelShow(text, onOk, opts) {
+  opts = opts || {};
   var m = document.getElementById('wfg-imps-mask');
   if (!m) {
     /* 🔴 這裡的「大聲失敗」方向與 `wfgClrShow()` **相反，而且是刻意的**：
        清除是不可復原的，視窗不在就寧可什麼都不做；匯入是可復原的（再匯一次就好），
-       視窗不在時退回 v4.35.3 的既有行為（整份匯入）比讓匯入功能整個失效好。 */
+       視窗不在時退回既有行為（整份匯入／整份套用預設）比讓功能整個失效好。 */
     console.warn('[wfg] import category dialog missing; importing everything');
-    onOk(text);
+    if (typeof opts.onApplyCategories === 'function') {
+      var _all = {};
+      for (var _i = 0; _i < WFG_IMPS_KEYS.length; _i++) _all[WFG_IMPS_KEYS[_i]] = true;
+      opts.onApplyCategories(_all);
+    } else if (typeof onOk === 'function') {
+      onOk(text);
+    }
     return;
   }
-  _wfgImpSelPending = { text: text, onOk: onOk };
+  _wfgImpSelPending = { text: text, onOk: onOk,
+                        onApplyCategories: opts.onApplyCategories, onCancel: opts.onCancel };
   wfgImpSelSetAll(true);   // 🔴 每次開啟都回到「全部勾選」（Bruce：預設為全部類型皆勾選）
   m.classList.remove('hidden');
   setTimeout(function() {
