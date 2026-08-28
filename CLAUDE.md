@@ -54,6 +54,7 @@ ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
 | `check_cache_buster.py` | 改了 `common/*.js` 卻沒 bump 引用頁的 `?v=`（實測案例：`pattern.html` 連續三版沒 bump，線上顯示未翻譯的 key） |
 | `scan_untranslated_keys.js` | 畫面上出現未翻譯的 i18n key —— `t(key)` 查不到翻譯會**回傳 key 本身**，靜默失敗，console 不會叫 |
 | `check_line_buffer_half_step.py` | wfg 的 Line Buffer 在 **Single Gate** 下冒出小數（Bruce 2026-08-25：「LineBuffer 出現 .5，只存在 Dual gate 的情況下」）。擋「`.step` 給 0.5 但條件不是 `wfgFlrMult() === 2`」與「寫死的 step 0.5」 |
+| `check_nb_code_import.js` | **NB code 匯入誤殺真檔**。`wfgNbSane()` 的值域判準（R_DLY／F_DLY／ST_LINE／SP_LINE 的大小）從 v4.14.0 起拒收 **18%（32/177）的真實 E503 檔**，而歷次驗收**只驗過「壞檔會被拒絕」、從來沒驗過「真檔會被接受」**。這支把正面那一半釘住：合成語料帶著真檔實際出現過的值（F_DLY=0xFFFF、SP_LINE=16000、R_DLY=50923、ST_LINE=14820）必須通過，同時壞檔仍須被拒。**已進 pre-commit**。拿本機真檔跑：`WFG_NB_CODE_DIR=<dir> node tools/check_nb_code_import.js`（真檔不進版控） |
 
 > 這三支的共同前提：**這些錯在本機測試時都不會出現**，只能靠機械檢查擋，不能靠記得。
 

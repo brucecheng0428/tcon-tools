@@ -3407,8 +3407,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4370"></script>
-<script src="common/i18n.js?v=20260828wfg4370"></script>
+<script src="common/version.js?v=20260828wfg4371"></script>
+<script src="common/i18n.js?v=20260828wfg4371"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -45296,25 +45296,75 @@ function wfgNbEdidFrame(buf, edidOff) {
 window.wfgNbEdidFrame = wfgNbEdidFrame;
 
 /* ── 防呆 ────────────────────────────────────────────────────────────────
-   全部是「物理上不可能」的條件。實測對位址錯位有鑑別力：
-   同一份 E503 檔，delta 改成 0（不加偏移）或 base 偏 8 bytes，解出來是
-   `R_DLY=17408`、`ST_LINE=8224`、`R_DLY=57344` 這類值，五條檢查全不過。 */
+   ⚠ **這段舊註解在 v4.37.1 已部分作廢，逐字保留並在此更正**（改寫原文不是更新，是竄改）：
+
+   原文寫著：「全部是『物理上不可能』的條件。實測對位址錯位有鑑別力：同一份 E503 檔，
+   delta 改成 0（不加偏移）或 base 偏 8 bytes，解出來是 `R_DLY=17408`、`ST_LINE=8224`、
+   `R_DLY=57344` 這類值，五條檢查全不過。」
+
+   🔴 更正一：「物理上不可能」是錯的判斷。R_DLY/F_DLY/ST_LINE/SP_LINE 的**值域檢查**
+      在 177 份真實 E503 檔上誤殺了 32 份（18.1%），詳見下方 v4.37.1 的區塊。已移除。
+   🔴 更正二：位址錯位的鑑別力**變弱了，但沒有消失**（v4.37.1 實測，同一份 E503 檔）：
+        delta=0（不加偏移）→ 仍然拒絕 ✅
+        base+8            → 仍然拒絕 ✅
+        delta=0x80        → **現在會通過**（移除值域檢查之前會被擋）
+      靠的是剩下的「xstb 必須 enable ＋ 至少 4 條 enable」。
+      **這個代價是知情下接受的**：`delta` 是我們自己表裡的常數、不是使用者輸入，
+      寫錯它是編碼錯誤，而編碼錯誤已由 `tools/check_nb_code_import.js` 的合成語料
+      與「177 份真檔全數解得出正確 CKS」這件事擋住；用「誤殺 18% 真檔」去換
+      一個只在我們自己寫錯常數時才用得到的第二道防線，不划算。 */
+/* ══ 🔴 v4.37.1：把「值的大小」從型號判定裡整組移除 ═══════════════════════════════
+   Bruce 2026-08-28 回報：E503 匯入一份真實的 `.hex` 被拒，訊息是
+   「這個檔案的內容不符合 E503 的 GPO 格式，已拒絕匯入（可能不是 E503 的 code）」。
+
+   ── 這不是回歸，是 v4.14.0 起就存在的誤判 ──────────────────────────────────
+   `git log -S` 顯示這一段自 **v4.14.0（16c426f，NB 匯入誕生那一版）**寫下後
+   **一個字都沒有改過**；逐版實跑 `wfgNbParse()`（v4.14.0 / 4.15.0 / 4.16.0 /
+   4.16.2 / 4.17.0 / 4.22.0 / 4.22.2 / 4.23.0 / 4.25.0 / 4.34.0 / 4.35.0 /
+   4.35.3 / 4.36.0 / 4.37.0）**全部拒收同一份檔**。⇒ 沒有任何一版把它改壞。
+
+   ── 被移除的三條判準錯在哪 ────────────────────────────────────────────────
+   舊註解寫著「延遲量是一條 line 內的 DCLK 數」。**這個前提對 E503 不成立。**
+   語料實測（177 份 4096B／EDID 合格的真實 E503 EEPROM 檔，來自信件封存）：
+     ・**32 份（18.1%）被拒**，而且**每一份的原因都只是這三條值域判準**，沒有別的。
+     ・被判超界的 `F_DLY` 值是連續分佈而不是壞掉的指紋：
+       2487 / 4168 / 5500 / 6228 / 6801 / 9366 / 10392 / 10905 / 20264 / 20520 /
+       25409 / 27461 / 28601 / 29884 / 30910 / 31166 / 40815 / 52711 / 53352 /
+       65535（18 份）。
+     ・啟用訊號的實際最大值：R_DLY 50923、F_DLY 65535、ST_LINE 14820、SP_LINE 16382。
+   ⇒ 這些 register 本來就會用到整個值域，**「延遲不會超過一條 line」是我們自己編的**。
+
+   ── 為什麼不是改成「比較寬鬆的上限」──────────────────────────────────────
+   任何新的倍數都是猜的，下一份合法的檔就會被它擋掉（同一個錯再犯一次）。
+   若改成「用 register 位元寬當上限」則是**恆真式**：`wfgNbDecodeChunk()` 讀出來的
+   R_DLY/F_DLY 已經是 16 bit（0~65535）、ST/SP 已經用 `& 0x3F` 遮成 14 bit
+   （E501/E503）或 16 bit（EN01），與 `WFG_GPO_BITS_NB` 完全一致 ——
+   **一個永遠成立的檢查等於沒有檢查**，寫了只會讓人以為還有一道防線。
+
+   ── 拿掉之後靠什麼認型號 ─────────────────────────────────────────────────
+   真正在做型號判別的從來不是這三條，而是前面兩道：
+     ① `m.sizes` 嚴格比對內容長度（E503 = 4096、E501 = 131072…）
+     ② `wfgNbEdidFrame()`：該型號自己的 `edidOff` 上要有 EDID 的 8 byte magic
+        **而且 128 byte checksum 為 0** —— 隨機命中的機率是 2^-72 等級。
+   本函式保留的三條（解析度合理、xstb 必須 enable、至少 4 條 enable）是在
+   ①② 之後再多一層，與「值有多大」無關。交叉餵食測試（E503 檔餵 E501A/E501B/EN01、
+   E501 檔餵 E503、全 0／全 0xFF 的 4096B）在拿掉之後**仍然全數正確拒絕**。
+
+   ── 值太大會怎樣（不會靜默吃進去）──────────────────────────────────────
+   匯入後仍會過 `wfgClampGpiosToModel()`：超出該機種位元寬的值會被夾並**逐項列在
+   匯入卡片上**（v4.15.0 起的既有行為）。R_DLY/F_DLY 在 NB 是 16 bit ⇒ 65535 合法、
+   不會被夾，那就是晶片裡真正的數字。 */
 function wfgNbSane(sig, fr) {
   if (!sig || !sig.length || !fr) return false;
   if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
   if (!(fr.vactive >= 400 && fr.vactive <= 5000)) return false;
   if (!(fr.hblank > 0 && fr.hblank <= 4000)) return false;
   if (!(fr.vblank > 0 && fr.vblank <= 2000)) return false;
-  var ht = fr.hactive + fr.hblank, vt = fr.vactive + fr.vblank;
   var ne = 0;
   for (var i = 0; i < sig.length; i++) {
     var s = sig[i];
     if (!s) continue;
-    if (!s.enable) continue;
-    ne++;
-    if (s.r_dly > ht || s.f_dly > ht) return false;                 // 延遲量是一條 line 內的 DCLK 數
-    if (s.st_line !== 16383 && s.st_line > vt * 3) return false;    // ×3 已涵蓋 tri-gate
-    if (s.sp_line !== 16383 && s.sp_line > vt * 3) return false;
+    if (s.enable) ne++;
   }
   /* xstb 一定要 enable —— 它是 gate driver 的起始訊號，任何一份能開機的 code 都有。 */
   if (!sig[0] || !sig[0].enable) return false;
