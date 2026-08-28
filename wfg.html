@@ -3256,8 +3256,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4351"></script>
-<script src="common/i18n.js?v=20260828wfg4351"></script>
+<script src="common/version.js?v=20260828wfg4352"></script>
+<script src="common/i18n.js?v=20260828wfg4352"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -27485,7 +27485,7 @@ function wfgClearAllCursors() {
      ⑤ Code group 的 checksum 清空
      ⑥ Line Buffer／First Line Read **歸零**（原本是回 6）
 
-   ══ 🔴 v4.36.0：本版再補兩件（Bruce 2026-08-28 第二輪回報）══════════════════
+   ══ 🔴 v4.35.1：本版再補兩件（Bruce 2026-08-28 第二輪回報）══════════════════
 
      ⑦ **波形區的每一列都要不見**（原話：「我不是說清除的時候要把所有通道都不顯示
         嗎？怎麼我現在在波形區還是看到這麼多波形？雖然沒有變化，但這也是波形顯示
@@ -27494,7 +27494,17 @@ function wfgClearAllCursors() {
         **18 條通道列 ＋ 6 條內部訊號列**（XSTB／XPOL／VST1／VST2／CK1~CK8／LC／
         TEND／VS／HS／GPO0／GPO1 ＋ R_PH_CNT／F_PH_CNT／RX DCLK／RX DE／
         TX DCLK／TX DE），canvas 上的非背景像素 82,349 px。
-        本版兩者都關掉，詳見下方 ⑦-a／⑦-b。
+        v4.35.1 兩者都關掉，詳見下方 ⑦-a／⑦-b。
+
+        🔴 **v4.35.2 更正（Bruce 2026-08-28 第三輪裁示）：⑦-b 退回，⑦-a 維持。**
+        原話：「WFG 分頁不管是按清除按鈕、預設選到快捷設定，還是重新整理，
+        TCON 的內部運算核取方塊都要打勾。也就是說，它的預設就是打勾，
+        除非人為去把它關掉。」
+        ⇒ 「內部運算」那 6 列**不屬於** ⑦ 所講的「通道列」：⑦ 針對的是使用者自己
+           指派的數位／類比通道（那 18 條），內部運算列是 TCON 內部時序的解讀輔助，
+           由一個獨立的勾選框控制，其預設值 Bruce 明示為「打勾」。
+        ⇒ **⑦-a（33 條通道全部 visible=false）一位元不動**，清除後數位通道仍是 0 列；
+           改的只有 ⑦-b 那一行。兩者是不同的東西，不得一起改。
 
      ⑧ **檢視的中心與倍率改為一併重置**（Bruce：「清除以後，你說中心與倍率會有問題，
         那就用到都沒有波形的狀態下，看要怎麼用會比較好吧？」＝ 把這件事交給實作判斷）
@@ -27572,7 +27582,7 @@ function wfgResetToDefault() {
   wfgLsRebuildCkoSlots(false);
   wfgGpios = WFG_GPIO_NAMES.map(function(n, i) { return wfgMakeGpio(n, i); });
   wfgBuildDefaultChannels();   // v4.19.0：重設＝回到首次進站那一組（33 格、只顯示 18 條數位）
-  /* ⑦-a 🔴 v4.36.0：**波形區的通道列數必須是 0**。
+  /* ⑦-a 🔴 v4.35.1：**波形區的通道列數必須是 0**。
      `wfgBuildDefaultChannels()` 依出廠規則把前 18 條數位通道設成 `visible=true`
      （`ch.visible = (i < WFG_DIGITAL_GPIO_COUNT)`），那 18 條就是 Bruce 清除後仍然
      看得到的那一排 —— 它們沒有變化（GPO 全 disable、波形是平的），但**還畫在畫面上**，
@@ -27655,30 +27665,43 @@ function wfgResetToDefault() {
   if (_rdFc) _rdFc.value = wfgFrame.frameCount || 10;
   document.querySelectorAll('input[name="wfg-gate"]').forEach(function(r) { r.checked = r.value === wfgFrame.gateType; });
   wfgUpdateDclkLabel();
-  /* ⑧ 🔴 v4.36.0：檢視回預設（理由見函式開頭）。位置必須在上面那串 Frame 參數回填
+  /* ⑧ 🔴 v4.35.1：檢視回預設（理由見函式開頭）。位置必須在上面那串 Frame 參數回填
      **之後** —— `wfgViewToDefault()` 吃的是 `wfgTotalLines()`，那是由 vtotal ×
      frameCount 算出來的，順序反了會用舊的總長度算出一個馬上就過期的視野。
      `wfgClampViewToBounds()` 照舊留著：預設值本身不會超界，這一行是防呆不是主邏輯。 */
   wfgViewToDefault();
   if (typeof wfgClampViewToBounds === 'function') wfgClampViewToBounds();
-  /* ⑦-b 🔴 v4.36.0：內部訊號那 6 列（RX DCLK／RX DE／TX DCLK／TX DE／
-     R_PH_CNT／F_PH_CNT）同樣是「畫在波形區的列」，Bruce 要的是乾淨的波形區
-     ⇒ 一起關掉，否則 ⑦-a 做完畫面上還是留著 6 條。
+  /* ⑦-b 🔴 v4.35.2：「TCON 內部運算」勾選框在清除之後**一律打勾**（Bruce 2026-08-28）。
+     原話：「不管是按清除按鈕、預設選到快捷設定，還是重新整理，TCON 的內部運算
+     核取方塊都要打勾。也就是說，它的預設就是打勾，除非人為去把它關掉。」
 
-     🔴 走既有的唯一入口 `wfgToggleTconInternal(false)`，不自己指派 `wfgTconInternalMode`
+     ── 這一行在 v4.35.1 是 `wfgToggleTconInternal(false)` ──────────────────────
+     v4.35.1 把內部訊號那 6 列一併關掉，理由是「⑦ 要的是乾淨的波形區」。那是把
+     ⑦ 的範圍推得太寬：⑦ 講的是**使用者自己指派的通道**（⑦-a 那 33 條），
+     內部運算列是另一個東西 —— 它有自己的勾選框、自己的預設值，而那個預設值
+     Bruce 明示就是「打勾」。所以本版把 ⑦-b 退回為 `true`，**⑦-a 一位元不動**。
+
+     🔴 為什麼不是「不呼叫就好」：不呼叫會留下一個看不見的分岔 ——
+        清除前若使用者手動關掉過，`wfgTconInternalMode` 就是 false，
+        而 `wfgResetToDefault()` 沒有任何一行會把它改回來
+        （`wfgUpdateTconInternalVisibility()` 那條「進 TCON 預設打勾」分支
+        在本函式的執行路徑上不會被觸發 —— 分頁沒有切換）。
+        結果就是「手動關掉 ⇒ 按清除 ⇒ 還是關著」，違反 Bruce 的第五條驗收。
+        **明確寫 `true` 才是把「清除＝回到預設」這句話真的做到。**
+
+     🔴 走既有的唯一入口 `wfgToggleTconInternal(true)`，不自己指派 `wfgTconInternalMode`
         —— 那支同時負責 `#wfg-linebuf-wrap`（Line Buffer／FLR 那幾格）的顯示與
-        `wfgFlrSync()`，直接指派變數會得到「內部列不見了、但 Line Buffer 格子還在」
+        `wfgFlrSync()`，直接指派變數會得到「內部列回來了、但 Line Buffer 格子還藏著」
         的混血狀態（與 ① 堅持走 `wfgCodeOnTconChange()` 是同一個理由）。
         勾選框的 checked 要自己先設：那支只讀變數、不回寫 DOM。
 
-     ⚠ 誠實說明可逆性與邊界：使用者把那個勾選框再打勾就整組回來（＝「加得回來」）；
-        但**切到 LA 分頁再切回 TCON**，`wfgUpdateTconInternalVisibility()` 的
-        「首次進 TCON 預設打勾」分支會把它重新打開 —— 那是這個勾選框從以前到現在
-        一直有的行為，本版不改它（改了等於順手變更一個沒被要求的既有行為）。
-        **重整頁面**這條路徑則有被守住，見 `window.wfgImportConfig` 裡 v4.36.0 那段。 */
+     ⚠ 本版**不動**「人為關閉 ⇒ 重新整理 ⇒ 維持關閉」那條路徑（`wfgImportConfig`
+        尾端 v4.35.1 那段 if 原封保留）。Bruce 2026-08-28 裁示：預設打勾指的是
+        「清除／選回快捷設定／全新開頁」，人為關閉之後的暫存還原仍照使用者的意思走，
+        匯入設定檔同樣照設定檔明文的值走。 */
   var _rdIntCb = document.getElementById('wfg-tcon-internal-cb');
-  if (_rdIntCb) _rdIntCb.checked = false;
-  if (typeof wfgToggleTconInternal === 'function') wfgToggleTconInternal(false);
+  if (_rdIntCb) _rdIntCb.checked = true;
+  if (typeof wfgToggleTconInternal === 'function') wfgToggleTconInternal(true);
   wfgRenderGpioList();
   wfgRenderChannelList();
   wfgRenderTftRow();
@@ -34014,7 +34037,7 @@ function wfgFitAll() {
   wfgRender(); wfgUpdateMinimapViewport();
   _wfgCheckDirtyZoomOut(); // v2.97.19: fit-all is zoom-out → check dirty
 }
-/* ══ 🔴 v4.36.0：「預設檢視」的單一定義 ═══════════════════════════════════════
+/* ══ 🔴 v4.35.1：「預設檢視」的單一定義 ═══════════════════════════════════════
    這兩行原本同時散在三個地方（`wfgResetView()`＝工具列「重置」鈕、`wfgLoadPreset()`
    沒帶 view 的分支、以及 v4.35.0 之前的 `wfgResetToDefault()`）。本版清除也要用到它
    ⇒ 抽成一支，往後只有一個地方定義「預設檢視是什麼」（同 v3.5.1 抽
@@ -40444,13 +40467,13 @@ window.wfgImportConfig = function(jsonStr, options) {
   wfgRenderPanelCard();
   wfgRenderChannelList();
   wfgUpdateTconInternalVisibility();
-  /* ══ 🔴 v4.36.0：設定檔明文寫著的 `tconInternalMode` 不可被「預設值」蓋掉 ═══════
+  /* ══ 🔴 v4.35.1：設定檔明文寫著的 `tconInternalMode` 不可被「預設值」蓋掉 ═══════
      `wfgUpdateTconInternalVisibility()` 裡有一條「**首次**進 TCON 模式時預設打勾」的
      分支（`else if (!wfgTconInternalMode) { wfgTconInternalMode = true; }`）。它對
      「第一次開頁、沒有任何紀錄」是對的，但它不分辨「沒設定過」與「設定過而且是 false」
      —— 於是上面第 40408 行才剛從 config 讀進來的 `false` 會在下一行被改回 `true`。
 
-     實際後果（v4.36.0 之前一直存在，這一版因為清除要關掉內部列才被逼出來）：
+     實際後果（v4.35.1 之前一直存在，這一版因為清除要關掉內部列才被逼出來）：
        ・按「清除」⇒ 內部訊號 6 列消失 ⇒ **重整頁面 ⇒ 6 列全部回來**。
          autosave 存的是 `tconInternalMode:false`，還原時被這條預設值蓋掉。
        ・同理，使用者自己把勾選框取消再重整，也一樣會被打勾回去。
