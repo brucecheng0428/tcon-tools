@@ -3407,8 +3407,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4372"></script>
-<script src="common/i18n.js?v=20260828wfg4372"></script>
+<script src="common/version.js?v=20260828wfg4373"></script>
+<script src="common/i18n.js?v=20260828wfg4373"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -44063,6 +44063,47 @@ function wfgCodeDecodeIntelHex(buf) {
   for (var rk = 0; rk < recs.length; rk++) {
     var rr = recs[rk].by, len = rr[0], addr = (rr[1] << 8) | rr[2], typ = rr[3];
     if (typ === 0x00) {
+      /* ══ 🔴 v4.37.3：位址上限 —— 擋在配置那塊陣列**之前** ═══════════════════════
+         Bruce 2026-08-28 裁示「要擋掉」。這是 **v4.11.0 就存在**的既有風險，
+         不是後來改壞的：`new Uint8Array(maxAddr + 1)` 的大小完全由檔案內容決定，
+         而 **type-04（extended linear address）** 可以把 base 推到
+         `0xFFFF × 65536 = 4,294,901,760`（約 4 GB）。實測構造出來的結果是
+         **`ok: true`、`content_len: 4294905856`** —— 沒有被擋、還回報成功，
+         在瀏覽器分頁裡多半直接卡死或當掉。
+
+         🔴 **這道閘門的職責不是「判定檔案合不合法」** —— 那是
+         `wfgCodeClassifyMedium()`（EEPROM ≤ 8192／Flash ≥ 131072）與各 codec 的
+         `sizes` 在做的事，而且它們是在**解碼之後**才判得到。這裡要防的是
+         「為了一個註定會被後面拒絕的檔，先去要一塊巨大的記憶體」。
+         所以它可以、也**應該**比真正的合法範圍寬鬆很多 —— 寬鬆才不會誤殺。
+
+         ── 上限怎麼推出來的（不是拍腦袋的魔術數字）──────────────────────────────
+         ① 本工具宣告支援的合法內容長度：
+              `WFG_CODE_EEPROM_MAX` = 8192（EEPROM 上限）
+              `WFG_CODE_FLASH_MIN`  = 131072（Flash **下限**，刻意沒有上限）
+              `WFG_NB_MODELS.e503.sizes` = [4096]、`e501a/e501b.sizes` = [131072]、
+              `en01.sizes` = null（不固定，實測見過 6354 / 4096）
+         ② 實測見過的最大合法映像：hex 語料 191 份解出來最大 **131072**；
+            `.bin` 語料實際見過 **262144**（RM80203 那批）。⇒ 取 **262144** 為基準。
+         ③ 餘裕 **×16 ⇒ 4 MiB（4194304）**。16 倍＝涵蓋 512 KB／1 MB／2 MB／4 MB
+            四個世代（記憶體容量以 2 的冪次成長），足以撐到真的出現更大的 Flash 時
+            再回頭調；而 4 MiB 的 `Uint8Array` 在瀏覽器裡是無感的配置。
+
+         ── type-02（extended segment address）要不要一起擋 ────────────────────
+         **同一道閘門已經涵蓋它**（檢查的是最終位址，不是哪一種 record 設的 base）。
+         而且它**結構上到不了這個上限**：`base = 0xFFFF × 16 = 1,048,560`，
+         加上 `addr` 最大 0xFFFF 與 `len` 最大 255 ⇒ 最高位址 1,114,349 ≈ 1.06 MB
+         < 4 MiB。所以不需要為它另立規則，也不必為它調整上限。
+
+         🔴 **檢查點放在「寫進 map 之前」**：這樣連稀疏的 `map` 都不會被塞進幾百萬個
+         key，更不會走到 `new Uint8Array()`。放在迴圈之後再檢查就失去意義了。 */
+      var _hi = base + addr + (len > 0 ? len - 1 : 0);
+      if (_hi >= WFG_CODE_MAX_IMAGE) {
+        return { ok: false, reason: t('wfg.codeErrHexAddr')
+                   .replace('{n}', String(recs[rk].line))
+                   .replace('{a}', '0x' + _hi.toString(16).toUpperCase())
+                   .replace('{m}', String(WFG_CODE_MAX_IMAGE)) };
+      }
       dataLines++;
       for (var k2 = 0; k2 < len; k2++) {
         var a = base + addr + k2;
@@ -44111,6 +44152,12 @@ window.wfgCodeDecodeIntelHex = wfgCodeDecodeIntelHex;
    NB 的 bank 位置、防呆條件都要等拿到真實素材才寫得出來，現在編出來的只會是猜測。 */
 var WFG_CODE_EEPROM_MAX = 8192;      // 8 KB ＝ 64 Kbit
 var WFG_CODE_FLASH_MIN  = 131072;    // 128 KB
+/* ══ 🔴 v4.37.3：Intel HEX 解碼時的映像大小上限（Bruce 2026-08-28 裁示「要擋掉」）══
+   **不是「檔案合不合法」的判準**（那是上面兩個常數與各 codec `sizes` 的事，而且它們
+   要等解碼完才判得到），而是**「不要為了一個註定會被拒絕的檔去配置一塊巨大的記憶體」**。
+   完整推導與 type-02／type-04 的分析寫在 `wfgCodeDecodeIntelHex()` 內的使用點上。
+   一句話版本：實測見過的最大合法映像 262144 B（`.bin` 語料）× 16 倍世代餘裕 ＝ 4 MiB。 */
+var WFG_CODE_MAX_IMAGE  = 4194304;   // 4 MiB ＝ 262144 × 16
 function wfgCodeClassifyMedium(contentLen, opt) {
   opt = opt || {};
   var emax = isFinite(opt.eepromMax) ? opt.eepromMax : WFG_CODE_EEPROM_MAX;

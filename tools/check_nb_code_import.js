@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════
-   常設機械檢查 ⑤：NB（E501／E503／EN01）code 匯入不得誤殺合法的真檔
+   常設機械檢查：NB（E501／E503／EN01）code 匯入 —— 解碼層＋判定層＋映像上限
    ───────────────────────────────────────────────────────────────────────
    為什麼需要這支（2026-08-28，Bruce 回報 E503 匯入失敗）：
 
@@ -26,13 +26,26 @@
 
    要拿真檔跑（本機、不進版控）：
        WFG_NB_CODE_DIR=/path/to/hex_or_bin  node tools/check_nb_code_import.js
-   會把該目錄下每一份 4096B／EDID 合格的檔案都餵進 `wfgNbSane()`，全部必須通過。
+   會把該目錄下每一份檔案都餵進**產品的** `wfgCodeToImage()`，再對 4096B／EDID
+   合格的那些跑 `wfgNbSane()`，全部必須通過。
+
+   ── 這支涵蓋哪幾層（每一層都是踩過一次才加進來的）─────────────────────────
+     ①② 判定層 `wfgNbSane()`     v4.37.1：值域判準誤殺 18% 的真檔
+     ③④ 解碼層 `wfgCodeToImage()` v4.37.2：UTF-8 BOM ＋ 只算 data 的 checksum 方言
+     ⑤   映像大小上限             v4.37.3：type-04 可把配置推到 ~4 GB
+     ⑥   選配的本機真檔語料
+   🔴 破口的形狀每次都一樣：**只驗了一面**。①只驗「壞檔會被拒絕」沒驗「真檔會被
+   接受」；③只驗判定層沒驗解碼層；⑥ 自己還抄了一份解碼器所以看不見 ② 那個 bug。
+   加東西進來的時候，請同時想「這一項的反面是什麼，有沒有一起驗」。
 
    ── 實作方式：把產品原始碼抽出來在 node 裡跑 ────────────────────────────
-   `wfgNbDecodeChunk()` / `wfgNbEdidFrame()` / `wfgNbSane()` 三支都是**純函式**，
-   不碰 DOM。直接從 `wfg.html` 原始碼切出來 eval —— 這樣驗的是**產品本身**，
-   不是另一份抄過來的副本（抄一份就會有兩份不同步的版本）。也因此不需要 jsdom，
-   與 repo 其他檢查一樣零外部相依。
+   抽出來的六支都是**純函式**、不碰 DOM。直接從 `wfg.html` 原始碼切出來 eval ——
+   這樣驗的是**產品本身**，不是另一份抄過來的副本（抄一份就會有兩份不同步的版本，
+   而且不同步的方向一定是「檢查看不到產品的缺陷」）。常數（`WFG_CODE_MAX_IMAGE`）
+   同理，用 regex 從原始碼讀，不在這裡再寫一次。也因此不需要 jsdom，零外部相依。
+
+   ⚠ 這支**不涵蓋 UI 那幾層**（型號確認框、清除、匯入類別視窗）。那幾層要用
+   jsdom／真瀏覽器驗，不進這裡 —— 為了讓 pre-commit 保持零相依、秒級。
 
    退出碼： 0 = 通過   1 = 有誤殺／有漏放   2 = 檢查本身跑不起來（不當作通過）
    ═══════════════════════════════════════════════════════════════════════ */
@@ -77,12 +90,21 @@ try { src = fs.readFileSync(SRC, 'utf8'); } catch (e) { die('讀不到 ' + SRC);
    本檢查只看「有沒有拒絕」，不看訊息長什麼樣。 */
 const NAMES = ['wfgNbDecodeChunk', 'wfgNbEdidFrame', 'wfgNbSane',
                'wfgCodeIsHexName', 'wfgCodeDecodeIntelHex', 'wfgCodeToImage'];
+/* 🔴 常數也**從產品原始碼讀出來**，不在這裡再寫一份 —— 兩份不同步的方向一定是
+   「檢查看不到產品的缺陷」（v4.37.2 的真檔語料段就是這樣栽的）。 */
+const MAX_IMAGE = (function () {
+  const m = /var\s+WFG_CODE_MAX_IMAGE\s*=\s*(\d+)/.exec(src);
+  if (!m) die('在 wfg.html 找不到 WFG_CODE_MAX_IMAGE');
+  return parseInt(m[1], 10);
+})();
 const sandbox = {};
 try {
   // eslint-disable-next-line no-new-func
-  new Function('exports', 'var t = function (k) { return String(k); };\n' +
+  new Function('exports', 'MAX_IMAGE',
+    'var t = function (k) { return String(k); };\n' +
+    'var WFG_CODE_MAX_IMAGE = MAX_IMAGE;\n' +
     NAMES.map(n => cut(src, n)).join('\n') +
-    '\n' + NAMES.map(n => 'exports.' + n + ' = ' + n + ';').join('\n'))(sandbox);
+    '\n' + NAMES.map(n => 'exports.' + n + ' = ' + n + ';').join('\n'))(sandbox, MAX_IMAGE);
 } catch (e) { die('抽出來的產品函式跑不起來：' + e.message); }
 for (const n of NAMES) if (typeof sandbox[n] !== 'function') die(n + ' 抽取失敗');
 
@@ -250,7 +272,58 @@ expect('UTF-16 BOM（刻意不支援，要大聲失敗）',
 expect('.bin 不經過 hex 解碼（原樣回傳）',
   sandbox.wfgCodeToImage(S('X' + HEX_STD), 'x.bin').ok, true);
 
-/* ⑤ 選配：拿本機真檔跑（不進版控）。
+/* ══ 🔴 v4.37.3：映像大小上限 —— 超大配置要擋在配置之前 ═══════════════════════
+   `new Uint8Array(maxAddr + 1)` 的大小完全由檔案內容決定，而 **type-04** 可以把
+   base 推到 `0xFFFF × 65536 ≈ 4 GB`。v4.37.2 之前實測構造得出 `ok: true` ＋
+   `content_len: 4294905856`，在瀏覽器分頁裡多半直接卡死。
+
+   🔴 **這裡刻意不用 4 GB 當測資** —— 跑檢查本身不該把機器拖垮。用「剛好超過上限
+   一點點」（上限 + 8）就足以證明閘門存在，而且它**配置得起**，所以如果閘門不在，
+   結果會是「接受」而不是「當掉」⇒ 這個測資對「有沒有擋」的鑑別力反而更乾淨。 */
+const REC = (len, addr, typ, data) => {
+  const by = [len, (addr >> 8) & 255, addr & 255, typ].concat(data);
+  let s = 0; for (const v of by) s += v;
+  by.push((256 - (s & 255)) & 255);
+  return ':' + by.map(v => v.toString(16).toUpperCase().padStart(2, '0')).join('');
+};
+const D8 = [1, 2, 3, 4, 5, 6, 7, 8];
+const EXT04 = hi => REC(2, 0, 4, [(hi >> 8) & 255, hi & 255]);
+const EXT02 = hi => REC(2, 0, 2, [(hi >> 8) & 255, hi & 255]);
+const EOFR = REC(0, 0, 1, []);
+const hexOf = body => S(body + '\r\n' + EOFR + '\r\n');
+
+console.log('');
+console.log('⑤ Intel HEX 映像大小上限（目前 ' + MAX_IMAGE + ' bytes ＝ ' + (MAX_IMAGE / 1048576) + ' MiB）');
+{
+  /* 上限 −8：最高位址 = MAX_IMAGE − 1 ⇒ 映像剛好 MAX_IMAGE ⇒ 合法邊界。 */
+  const hiOk = (MAX_IMAGE - 8) >>> 16, loOk = (MAX_IMAGE - 8) & 0xFFFF;
+  const okCase = hexOf(EXT04(hiOk) + '\r\n' + REC(8, loOk, 0, D8));
+  const r1 = sandbox.wfgCodeToImage(okCase, 'x.hex');
+  expect('type-04 推到剛好裝得下（合法邊界）', r1.ok, true);
+  expect('  └ 邊界檔的映像長度正好是上限', r1.ok && r1.bytes.length === MAX_IMAGE, true);
+
+  /* 上限 +0（第一個 byte 就越界）：只超一點點，配置得起 ⇒ 閘門不在就會「接受」。 */
+  const hiBad = MAX_IMAGE >>> 16, loBad = MAX_IMAGE & 0xFFFF;
+  expect('🔴 type-04 超過上限（哪怕只超 1 byte）',
+    sandbox.wfgCodeToImage(hexOf(EXT04(hiBad) + '\r\n' + REC(8, loBad, 0, D8)), 'x.hex').ok, false);
+
+  /* type-02：base = 0xFFFF × 16 = 1,048,560，加 addr 0xFFFF 與 len 255
+     ⇒ 最高 1,114,349 ≈ 1.06 MB，**結構上到不了 4 MiB**。所以它要被接受，
+     而且這一條同時記錄了「為什麼不必為 type-02 另立規則」。 */
+  const t02 = sandbox.wfgCodeToImage(hexOf(EXT02(0xFFFF) + '\r\n' + REC(8, 0xFFF8, 0, D8)), 'x.hex');
+  expect('type-02 推到最大（結構上到不了上限 ⇒ 應接受）', t02.ok, true);
+  expect('  └ type-02 的理論最高位址仍 < 上限',
+    t02.ok && t02.bytes.length < MAX_IMAGE, true);
+
+  /* 合法的 EEPROM／Flash 大小不可以被這道閘門誤殺。 */
+  for (const [nm, n] of [['EEPROM 4096', 4096], ['EEPROM 8192', 8192], ['Flash 131072', 131072], ['Flash 262144', 262144]]) {
+    const hi = (n - 8) >>> 16, lo = (n - 8) & 0xFFFF;
+    expect('合法大小 ' + nm + ' 仍可解碼',
+      sandbox.wfgCodeToImage(hexOf(EXT04(hi) + '\r\n' + REC(8, lo, 0, D8)), 'x.hex').ok, true);
+  }
+}
+
+/* ⑥ 選配：拿本機真檔跑（不進版控）。
    🔴 v4.37.2 修正：這一段原本自己寫了一份簡易的 Intel HEX 解碼器 —— 於是它
    **看不到 BOM 那個 bug**（自己的解碼器不剝 BOM ⇒ 那 11 份真檔解出來長度不對 ⇒
    被當成「不是 E503 形狀」靜默跳過）。抄一份實作就會有兩份不同步的版本，
@@ -258,7 +331,7 @@ expect('.bin 不經過 hex 解碼（原樣回傳）',
 const REAL = process.env.WFG_NB_CODE_DIR;
 if (REAL && fs.existsSync(REAL)) {
   console.log('');
-  console.log('⑤ 本機真檔語料：' + REAL);
+  console.log('⑥ 本機真檔語料：' + REAL);
   let seen = 0, decFail = [], n = 0, bad = 0;
   for (const f of fs.readdirSync(REAL)) {
     const p = path.join(REAL, f);

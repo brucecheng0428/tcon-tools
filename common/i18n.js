@@ -1041,6 +1041,12 @@ var I18N = {
   'wfg.codeErrHexUtf16':{ 'zh-TW': '這個 Intel HEX 檔是 UTF-16 編碼，本工具只讀 ASCII／UTF-8（含 BOM）。請用文字編輯器另存成 UTF-8 之後再匯入。',
                           'en': 'This Intel HEX file is UTF-16 encoded. This tool only reads ASCII / UTF-8 (BOM is fine). Re-save it as UTF-8 in a text editor and import again.',
                           'zh-CN': '这个 Intel HEX 文件是 UTF-16 编码，本工具只读 ASCII／UTF-8（含 BOM）。请用文本编辑器另存为 UTF-8 之后再导入。' },
+  /* 🔴 v4.37.3：位址超出上限。訊息刻意講明是**位址**問題並附上實際數字 ——
+     沿用泛用的「格式不正確」會讓人去查檔案內容、查不出所以然（這一輪的 BOM
+     就是這樣被誤診了一圈）。{n}＝行號、{a}＝算出來的最高位址、{m}＝上限。 */
+  'wfg.codeErrHexAddr': { 'zh-TW': 'Intel HEX 第 {n} 行宣告的位址 {a} 超出本工具支援的範圍（上限 {m} bytes）。這通常代表檔案的位址記錄（type 02／04）不正確，或這不是 TCON 的 code 檔。',
+                          'en': 'The address {a} declared on Intel HEX line {n} is outside the range this tool supports (limit {m} bytes). This usually means the file\'s address records (type 02 / 04) are wrong, or that this is not a TCON code file.',
+                          'zh-CN': 'Intel HEX 第 {n} 行声明的地址 {a} 超出本工具支持的范围（上限 {m} bytes）。这通常代表文件的地址记录（type 02／04）不正确，或这不是 TCON 的 code 文件。' },
   'wfg.codeErrHexNoEof':{ 'zh-TW': 'Intel HEX 檔缺少結束記錄（:00000001FF），可能被截斷',
                           'en': 'the Intel HEX file has no EOF record (:00000001FF) and may be truncated',
                           'zh-CN': 'Intel HEX 档缺少结束记录（:00000001FF），可能被截断' },
