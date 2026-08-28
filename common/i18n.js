@@ -881,9 +881,14 @@ var I18N = {
   'wfg.ovSub':          { 'zh-TW': '目前機種 {m}（{cls}）；{n} 條訊號。欄位上限與 OAX/COMBO 的型態都跟著機種走，換機種會自動重畫。',
                           'en': 'Model {m} ({cls}); {n} signals. Field limits and the OAX/COMBO cell type follow the model and redraw automatically when it changes.',
                           'zh-CN': '目前机种 {m}（{cls}）；{n} 条信号。字段上限与 OAX/COMBO 的型态都跟着机种走，换机种会自动重画。' },
-  'wfg.ovFoot':         { 'zh-TW': '點一列可反白；表格內改值會即時連動到左側的數位訊號卡片與波形。按 Esc、點視窗外或右上 ✕ 關閉。',
-                          'en': 'Click a row to highlight it. Edits here update the digital signal cards and the waveform immediately. Press Esc, click outside, or use ✕ to close.',
-                          'zh-CN': '点一列可反白；表格内改值会即时连动到左侧的数字信号卡片与波形。按 Esc、点视窗外或右上 ✕ 关闭。' },
+  /* 🔴 v4.36.0：這一句指名的是**左側那張卡片**，卡片改名就要跟著改，
+     否則使用者照這句話去找「數位訊號卡片」會找不到。其餘幾處的「數位訊號」
+     （wfg.ovBtnHint 的「18 條數位訊號」、wfg.ovTitle 的「數位訊號總表」、
+     wfg.codeImportOk 的「已匯入 {n} 條數位信號」）指的是**訊號本身**不是卡片，
+     一律不動 —— 改名改的是一張卡片的名字，不是換掉一個詞。 */
+  'wfg.ovFoot':         { 'zh-TW': '點一列可反白；表格內改值會即時連動到左側的 TCON 數位信號卡片與波形。按 Esc、點視窗外或右上 ✕ 關閉。',
+                          'en': 'Click a row to highlight it. Edits here update the TCON Digital Signals card and the waveform immediately. Press Esc, click outside, or use ✕ to close.',
+                          'zh-CN': '点一列可反白；表格内改值会即时连动到左侧的 TCON 数字信号卡片与波形。按 Esc、点视窗外或右上 ✕ 关闭。' },
   'wfg.ovFixed':        { 'zh-TW': '硬體固定', 'en': 'fixed', 'zh-CN': '硬件固定' },
   'wfg.ovNeedToggle':   { 'zh-TW': 'TG_INI_VAL 只在該訊號勾了 Toggle 時有作用',
                           'en': 'TG_INI_VAL only applies when Toggle is checked for this signal',
@@ -1247,7 +1252,14 @@ var I18N = {
   'wfg.codeTriGate':    { 'zh-TW': '⚠ 這份 code 的 reg_rd_mode = {v}（tri-gate），WFG 沒有對應的 GATE TYPE，已維持目前設定不變；行號超出 frame 的訊號會畫不出來。',
                           'en': '⚠ this code has reg_rd_mode = {v} (tri-gate); WFG has no matching GATE TYPE, so it was left unchanged. Signals whose line numbers exceed the frame will not be drawn.',
                           'zh-CN': '⚠ 这份 code 的 reg_rd_mode = {v}（tri-gate），WFG 没有对应的 GATE TYPE，已维持目前设定不变；行号超出 frame 的信号会画不出来。' },
-  'wfg.gpioSources':    { 'zh-TW': '數位信號', 'en': 'Digital Signals', 'zh-CN': '数字信号' },
+  /* 🔴 v4.36.0：卡片名加 `TCON` 前綴（Bruce 2026-08-28：「數位信號也改名叫做
+     TCON 數位信號，這樣才會跟藍色的這個風格全面一致。」）。
+     🔴 **key 不改**（`wfg.gpioSources`）：改 key 要同步改 HTML 的 `data-i18n` 與
+     所有 `t('wfg.gpioSources')` 呼叫端，漏一處就會在畫面上印出 key 本身
+     （`t()` 查不到會回傳 key，靜默失敗）—— 改的是文案不是識別碼。
+     🔴 簡中用「TCON 数字信号」：本檔既有譯法一律是「数字信号」（見 wfg.ovTitle、
+     wfg.groupDigital），不自創第二種寫法。英文同理沿用既有的 "Digital Signals"。 */
+  'wfg.gpioSources':    { 'zh-TW': 'TCON 數位信號', 'en': 'TCON Digital Signals', 'zh-CN': 'TCON 数字信号' },
   'wfg.analogSources':  { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog Signals', 'zh-CN': 'IC 模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '輸出通道', 'en': 'Output Channels', 'zh-CN': '输出通道' },
   'wfg.loadPreset':     { 'zh-TW': '載入預設…', 'en': 'Load Preset…', 'zh-CN': '载入预设…' },
@@ -1364,13 +1376,58 @@ var I18N = {
                           'zh-CN': '清除全部设定，回到预设值' },
   'wfg.clrTitle':       { 'zh-TW': '要清除全部設定嗎？', 'en': 'Clear everything?',
                           'zh-CN': '要清除全部设定吗？' },
-  /* 🔴 v4.36.0：第二行由「檢視的中心與倍率保留」改為「波形區會變成空白、檢視回預設」。
+  /* 🔴 v4.35.1（原本誤寫成 v4.36.0，v4.36.0 更正 —— 與 wfg.html 那 8 處同一個筆誤，
+     那批已在 v4.35.2 改完，這一處漏在 common/i18n.js 裡）：
+     第二行由「檢視的中心與倍率保留」改為「波形區會變成空白、檢視回預設」。
      這行字是使用者按下不可復原的動作之前唯一看得到的說明，內容與行為不符比沒有更糟。 */
   'wfg.clrBody':        { 'zh-TW': '波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。\n波形區會變成空白（所有通道與內部訊號都不顯示），檢視的中心與倍率回到預設。',
                           'en': 'Waveforms, cursors, measurements and import records are all cleared, back to FHD / E503 / 60Hz / Single Gate. The autosave record goes with them and cannot be recovered.\nThe waveform area becomes empty (no channels and no internal signals are shown) and the view centre and zoom return to their defaults.',
                           'zh-CN': '波形、游标、测量与导入记录全部清空，回到 FHD／E503／60Hz／Single Gate。自动存档一并清除，无法复原。\n波形区会变成空白（所有通道与内部信号都不显示），检视的中心与倍率回到预设。' },
   'wfg.clrOk':          { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
   'wfg.clrCancel':      { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
+  /* ══ 🔴 v4.36.0：匯入類別選擇視窗 ═══════════════════════════════════════════
+     Bruce 2026-08-28：「使用者可自由選擇全部匯入、只匯入某一部分或特定幾個部分，
+     包含：(a) 左側系統卡片 (b) 左側 TCON 卡片 (c) 左側顯示卡片 (d) 右側量測卡片
+     (e) 中間波形區。」⇒ 五個分類的名稱**逐字採用他的用詞**，不改寫成別的說法。
+     每一項底下那一行只列「這一類包含哪幾張卡片」，不寫任何提醒或注意事項
+     （v4.27.3 裁示：「注意事項如果寫這麼多，就失去要人家注意的目的了」）。 */
+  'wfg.impsTitle':      { 'zh-TW': '要匯入哪幾類設定？', 'en': 'Which categories to import?',
+                          'zh-CN': '要导入哪几类设定？' },
+  'wfg.impsSub':        { 'zh-TW': '沒有勾的類別維持目前畫面上的設定。',
+                          'en': 'Unchecked categories keep whatever is on screen now.',
+                          'zh-CN': '没有勾的类别维持目前画面上的设定。' },
+  'wfg.impsAll':        { 'zh-TW': '全選', 'en': 'Select all', 'zh-CN': '全选' },
+  'wfg.impsNone':       { 'zh-TW': '取消全選', 'en': 'Clear all', 'zh-CN': '取消全选' },
+  'wfg.impsSys':        { 'zh-TW': '左側系統卡片', 'en': 'System cards (left)',
+                          'zh-CN': '左侧系统卡片' },
+  'wfg.impsSysD':       { 'zh-TW': '系統設定 (Pattern Gen)、系統行為模擬',
+                          'en': 'System Settings (Pattern Gen), System Behavior Simulation',
+                          'zh-CN': '系统设定 (Pattern Gen)、系统行为模拟' },
+  'wfg.impsTcon':       { 'zh-TW': '左側 TCON 卡片', 'en': 'TCON cards (left)',
+                          'zh-CN': '左侧 TCON 卡片' },
+  'wfg.impsTconD':      { 'zh-TW': 'TCON頻率設定、TCON 其他設定、TCON 數位信號，以及工具列 TCON group',
+                          'en': 'TCON Clock Settings, Other TCON Settings, TCON Digital Signals, and the TCON toolbar group',
+                          'zh-CN': 'TCON频率设定、TCON 其他设定、TCON 数字信号，以及工具栏 TCON group' },
+  'wfg.impsDisp':       { 'zh-TW': '左側顯示卡片', 'en': 'Display cards (left)',
+                          'zh-CN': '左侧显示卡片' },
+  'wfg.impsDispD':      { 'zh-TW': 'IC 類比信號、面板類比信號、輸出通道',
+                          'en': 'IC Analog Signals, Panel Analog Signals, Output Channels',
+                          'zh-CN': 'IC 模拟信号、面板模拟信号、输出通道' },
+  'wfg.impsMeas':       { 'zh-TW': '右側量測卡片', 'en': 'Measurement cards (right)',
+                          'zh-CN': '右侧量测卡片' },
+  'wfg.impsMeasD':      { 'zh-TW': '時基標尺、類比垂直設定、脈衝計數',
+                          'en': 'Time Cursors, Analog Vertical Settings, Pulse Count',
+                          'zh-CN': '时基标尺、模拟垂直设定、脉冲计数' },
+  'wfg.impsWave':       { 'zh-TW': '中間波形區', 'en': 'Waveform area (centre)',
+                          'zh-CN': '中间波形区' },
+  'wfg.impsWaveD':      { 'zh-TW': '檢視的中心位置與放大倍率',
+                          'en': 'View centre position and zoom factor',
+                          'zh-CN': '检视的中心位置与放大倍率' },
+  'wfg.impsOk':         { 'zh-TW': '匯入', 'en': 'Import', 'zh-CN': '导入' },
+  'wfg.impsCancel':     { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
+  'wfg.impsMergeFail':  { 'zh-TW': '無法依所選類別合併設定，已中止匯入（目前設定未被更動）。',
+                          'en': 'Could not merge the selected categories; the import was cancelled and nothing changed.',
+                          'zh-CN': '无法依所选类别合并设定，已中止导入（目前设定未被更动）。' },
   /* ══ 🔴 v4.35.0：左側「全部收折」按鈕 ═══════════════════════════════════════
      Bruce 2026-08-28（含他自己的兩次更正，以最後一次為準）：
      「『全部收折』按鈕只保留在左側，右側不用。但是左側按下去以後，連右側欄位
