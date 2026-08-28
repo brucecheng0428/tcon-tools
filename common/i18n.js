@@ -1035,6 +1035,12 @@ var I18N = {
                           'zh-CN': 'Intel HEX 第 {n} 行 checksum 不符' },
   'wfg.codeErrHexEmpty':{ 'zh-TW': 'Intel HEX 檔裡沒有任何資料記錄', 'en': 'the Intel HEX file contains no data records',
                           'zh-CN': 'Intel HEX 档里没有任何数据记录' },
+  /* 🔴 v4.37.2：UTF-16 的 Intel HEX **刻意不支援**（理由見 wfgCodeDecodeIntelHex()）。
+     訊息要講清楚是「編碼」而不是「格式」，否則使用者會去查檔案內容，查不出所以然
+     —— 這次的 UTF-8 BOM 就讓人繞了一大圈。UTF-8 BOM 已支援，所以順帶指出解法。 */
+  'wfg.codeErrHexUtf16':{ 'zh-TW': '這個 Intel HEX 檔是 UTF-16 編碼，本工具只讀 ASCII／UTF-8（含 BOM）。請用文字編輯器另存成 UTF-8 之後再匯入。',
+                          'en': 'This Intel HEX file is UTF-16 encoded. This tool only reads ASCII / UTF-8 (BOM is fine). Re-save it as UTF-8 in a text editor and import again.',
+                          'zh-CN': '这个 Intel HEX 文件是 UTF-16 编码，本工具只读 ASCII／UTF-8（含 BOM）。请用文本编辑器另存为 UTF-8 之后再导入。' },
   'wfg.codeErrHexNoEof':{ 'zh-TW': 'Intel HEX 檔缺少結束記錄（:00000001FF），可能被截斷',
                           'en': 'the Intel HEX file has no EOF record (:00000001FF) and may be truncated',
                           'zh-CN': 'Intel HEX 档缺少结束记录（:00000001FF），可能被截断' },
