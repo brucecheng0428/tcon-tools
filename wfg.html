@@ -3256,8 +3256,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4352"></script>
-<script src="common/i18n.js?v=20260828wfg4352"></script>
+<script src="common/version.js?v=20260828wfg4353"></script>
+<script src="common/i18n.js?v=20260828wfg4353"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -32261,7 +32261,15 @@ function wfgOnChannelChange(chIdx, field, value) {
       }
     }
   }
-  else if (field === 'visible') ch.visible = !!value;
+  /* 🔴 v4.35.3：`visible` 這條路徑與 `wfgToggleChVis()` 同一個死角 —— 把一條指到
+     虛擬類比 slot 的通道設成可見，若那個 slot 的 `enable` 還是 false，繪製端會
+     照樣跳過它。這裡目前沒有 UI 呼叫端（清單上的 👁 走 `wfgToggleChVis()`），
+     但 `window.wfgOnChannelChange` 是對外公開的 API，兩條路徑不該有不同結果。
+     說明見 `wfgEnsureVirtualSlotEnabled()` 上方。 */
+  else if (field === 'visible') {
+    ch.visible = !!value;
+    if (ch.visible) wfgEnsureVirtualSlotEnabled(ch.gpioIdx);
+  }
   wfgRenderChannelList();
   wfgRenderLabels();
   wfgResizeAndRender();
@@ -33762,9 +33770,55 @@ function wfgMoveChannel(fromIdx, toIdx, insertBefore) {
 }
 window.wfgMoveChannel = wfgMoveChannel;
 
+/* ══ 🔴 v4.35.3：虛擬類比 slot 的 `enable` 是「畫得出來」的先決條件 ═══════════
+   繪製端（`wfgRender()` 蒐集 visibleChs、`wfgRenderLabels()` 的 visMap、
+   `window.wfgResizeCanvas()` 的 sigCount）三處**一致**地跳過
+   `waveform_type && !enable` 的 slot。而虛擬類比信號卡片**刻意不提供 ENABLE
+   勾選框**（見 `wfgRenderGpioList()` 的「Virtual analog slots: no ENABLE
+   checkbox (always active)」）—— 也就是說使用者在 UI 上**沒有任何入口**可以把
+   它打開。兩者對上就是死角：`visible=true` 但 `enable=false` ⇒ 眼睛是開的、
+   波形永遠不出現，而且畫面上沒有第二個開關可以救。
+
+   v3.17.5 已經在 `wfgOnChannelChange(field='gpioIdx')` 補過一次（使用者用下拉
+   *重新指派* 到 SD1 時打開 enable），但那只堵住其中一條路徑。**另一條路徑
+   ——「通道早就指到 SD1，使用者只是按下 👁」—— 一直沒有補**：
+   `wfgToggleChVis()` 從頭到尾只翻 `ch.visible` 一個欄位。
+
+   出廠狀態剛好就落在這條沒補的路徑上：
+     ・`wfgMakeGpio()` 的 `enable: false`（wfg.html:3718）
+     ・`wfgLsSyncChannels()` 把 SD1 指派給一格通道，`visible` 綁 `gpio.enable` ⇒ false
+     ・`wfgLsRebuildCkoSlots(false)`（首次進站／清除）讓 CKO／GATE／SPX 也 enable=false
+   ⇒ **SD1／CKO*／G／Vpix 這些列，只要使用者是用 👁 打開的，全部都畫不出來。**
+   v4.35.1 的清除把 33 條全設 `visible=false`，等於把所有人推到「只能用 👁 打開」
+   這條路徑上，這個既有死角才變成每天都會踩到。
+
+   修法：抽一支 `wfgEnsureVirtualSlotEnabled()`，**與 v3.17.5 那段完全同一套動作**
+   （打開 enable → `wfgInvalidateCache()`（enable 屬結構性改動）→ 重繪 GPIO 清單
+   讓類比設定卡片出現），由 `wfgToggleChVis()` 與 `wfgOnChannelChange` 兩條路徑
+   共用。不新增第二套判斷，也不去動繪製端那三處的過濾條件 —— 那個條件本身是對的
+   （被停用的訊號不該佔一列），錯的是「沒有入口把它啟用」。
+   🔴 只在**打開**的方向作用：關閉時不去改 enable，否則按一下 👁 關掉 SD1 會連帶
+      把類比設定卡片一起收走，那是把「隱藏一列」變成「停用一個訊號源」。 */
+function wfgEnsureVirtualSlotEnabled(gpioIdx) {
+  if (typeof gpioIdx !== 'number' || gpioIdx < 0 || gpioIdx >= wfgGpios.length) return false;
+  if (!wfgIsVirtualAnalogIdx(gpioIdx)) return false;
+  var g = wfgGpios[gpioIdx];
+  if (!g || !g.waveform_type || g.enable) return false;
+  g.enable = true;
+  wfgInvalidateCache();   // enable 屬結構性改動，比照 wfgOnGpioChange() 的 isStructural 分支全清
+  /* 不傳 focusIdx —— 避免頁面自動捲離輸出通道清單，讓使用者可以連續打開好幾條。
+     （與 v3.17.5 在 wfgOnChannelChange 的處理一致。） */
+  if (typeof wfgRenderGpioList === 'function') wfgRenderGpioList();
+  return true;
+}
+window.wfgEnsureVirtualSlotEnabled = wfgEnsureVirtualSlotEnabled;
+
 function wfgToggleChVis(idx) {
   if (idx < 0 || idx >= wfgChannels.length) return;
-  wfgChannels[idx].visible = !wfgChannels[idx].visible;
+  var _tch = wfgChannels[idx];
+  _tch.visible = !_tch.visible;
+  // 🔴 v4.35.3：見上方說明 —— 只有「打開」時才需要保證來源 slot 是啟用的。
+  if (_tch.visible) wfgEnsureVirtualSlotEnabled(_tch.gpioIdx);
   wfgRenderChannelList();
   wfgRenderLabels();
   wfgResizeAndRender();
