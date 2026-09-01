@@ -2586,6 +2586,18 @@
                   <input type="number" id="wfg-nb-preblkrd" value="0" min="0" max="63" step="1" title="PRE_BLK_RD_NO" data-i18n-title="wfg.nbPreBlkRdTitle" style="width:48px;padding:2px 4px;font-size:11px;color:var(--accent);background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnNbPreBlkRdChange(this.value)">
                 </label>
               </span>
+              <!-- ══ 🔴 v4.38.0：TX DE Offset（Bruce 2026-09-01）════════════════════
+                   「多加一個『TX DE Offset』的輸入數值：單位 DCLK（介面上可以不用寫出
+                     DCLK）、數值範圍 0 到 511、預設值 32 DCLK。」
+                   🔴 **不分機種都顯示**（MNT／NB 皆有）——它是波形顯示層的平移量，
+                      不是任何一顆 register，沒有型號差異。可見性只服從「TCON 內部運算」
+                      那個勾選框，與 Line Buffer 同一個開關（收斂在 wfgFlrSync()）。
+                   🔴 `min`/`max` 寫死 0/511：這兩個界線是 Bruce 直接指定的常數，
+                      不隨機種／gate type 變動，因此**不需要**像 `#wfg-flr` 那樣由 JS 改寫。 -->
+              <label id="wfg-txde-off-wrap" style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--accent);white-space:nowrap;">
+                <span data-i18n="wfg.txDeOffset">TX DE Offset:</span>
+                <input type="number" id="wfg-txde-off" value="32" min="0" max="511" step="1" data-i18n-title="wfg.txDeOffsetTitle" style="width:52px;padding:2px 4px;font-size:11px;color:var(--accent);background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnTxDeOffsetChange(this.value)">
+              </label>
               <!-- 夾值／超界警示。🔴 刻意做成常駐文字而不是一次性 alert ——
                    「目前值本身超界」是一個持續狀態，跳一次就消失的訊息表達不了它。 -->
               <span id="wfg-flr-warn" style="display:none;font-size:11px;color:#f87171;white-space:normal;max-width:420px;"></span>
@@ -3407,8 +3419,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260828wfg4373"></script>
-<script src="common/i18n.js?v=20260828wfg4373"></script>
+<script src="common/version.js?v=20260901wfg4380"></script>
+<script src="common/i18n.js?v=20260901wfg4380"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -7406,6 +7418,47 @@ function wfgNbCap(which, otherVal, curVal) {
 /* 波形位移（檢視行）。全檔**唯一**的來源 —— 舊式 `isDual ? wfgLineBuffer*2 : wfgLineBuffer`
    已全部改呼叫這一支，不得再出現第二份寫法。 */
 function wfgLbShift() { return wfgFirstLineRead | 0; }
+/* ══ 🔴 v4.38.0：TX DE Offset（Bruce 2026-09-01）═══════════════════════════════
+   「波形區的『TX DE』起始值原本是從每一條 Line 的 DCLK 為 0 的位置開始。
+     如果設定為 32，它會 shift 32 格，也就是起始值變成在 32 DCLK 的位置，
+     結束位置也比原本多加 32 DCLK。」
+
+   ⇒ 語意是**整段平移**：起點 ＋offset、終點 ＋offset，**寬度一位元未變**。
+      寬度仍然是 `txDeWidthDclk = Hactive / (2 × gateCount)`，這條式子完全沒動。
+
+   ── 單位與座標 ──────────────────────────────────────────────────────────
+   使用者輸入的單位是 **TX DCLK**（UI 上不寫單位，Bruce 指定）。
+   繪圖／量測／游標全部用「檢視行（view line）」當座標，1 行 ＝ `dclkPerLine` 個 TX DCLK，
+   所以換算只有一條：**offsetLines ＝ offset ÷ dclkPerLine**。這一支是全檔唯一的換算點，
+   任何要平移 TX DE 的地方都呼叫它，不得自己再除一次（同 `wfgLbShift()` 的單一來源原則）。
+
+   🔴 **`dclkPerLine` 必須由呼叫端傳進來**，不在這裡自己算：
+      繪圖用的是 `wfgDrawInternalRows()` 的參數、量測用的是 `htotal/2`（single）或
+      `htotal/4`（dual）、游標用的是 `p.dclkPerLine`。三者在正常狀態下相等，但它們
+      各自有自己的來源與時序，在這裡另算一份等於多開一個會漂移的真值。
+
+   🔴 **與 `wfgLbShift()` 是兩件不同的事，刻意不合併**：
+      `wfgLbShift()` 是**整行**的位移（單位＝行，改變的是「第 N 筆資料出現在第幾行」，
+      連帶 D0/D1 標籤與 SD 取樣都跟著移）；本值是**行內**的位移（單位＝ DCLK，
+      只把 TX DE 這條方波在時間軸上整段挪動，資料索引一個都沒變）。
+
+   🔴 **本版不動 SD／Subpixel 取樣**：`wfgAnalogLValueForLine()` 那條路徑吃的是
+      `dataIdx = lineInFrame − lbShift`（行級），與行內位移無關，本版一行未改。
+      Bruce 的需求只寫「波形區的 TX DE 起始值」，不擴張到取樣層。
+
+   範圍 0～511、預設 32，皆由 Bruce 2026-09-01 指定。 */
+const WFG_TXDE_OFF_MIN = 0;
+const WFG_TXDE_OFF_MAX = 511;
+const WFG_TXDE_OFF_DEFAULT = 32;
+let wfgTxDeOffset = WFG_TXDE_OFF_DEFAULT;   // 單位：TX DCLK
+function wfgTxDeOffLines(dclkPerLine) {
+  return (dclkPerLine > 0) ? ((wfgTxDeOffset | 0) / dclkPerLine) : 0;
+}
+window.wfgTxDeOffLines = wfgTxDeOffLines;
+/* 🔴 wfg 的 JS 全在 IIFE 內，驗收腳本讀不到 `wfgTxDeOffset` 本身 ⇒ 開一個 getter。
+   刻意**只給 getter 不給 setter**：寫入一律走 `wfgOnTxDeOffsetChange()`，
+   否則腳本可以繞過夾值，測到的就不是使用者走得到的那條路徑。 */
+window.wfgTxDeOffsetGet = function() { return wfgTxDeOffset | 0; };
 /* NB 的 ST_LINE_RD。🔴 v4.24.0 起這是**獨立真值**，不再由 FLR 減 PRE 推出來。 */
 function wfgNbStLineRd() { return Math.max(0, wfgNbStLine | 0); }
 window.wfgLbShift = wfgLbShift;
@@ -20029,6 +20082,14 @@ function wfgFlrSync() {
   var nbW = document.getElementById('wfg-nbflr-wrap');
   if (flW) flW.style.display = (on && !isNb) ? 'flex' : 'none';
   if (nbW) nbW.style.display = (on && isNb) ? 'flex' : 'none';
+  /* 🔴 v4.38.0：TX DE Offset 掛在同一個收斂點 —— 它**不分機種**（MNT／NB 都有），
+     所以只看 `on`，不看 `isNb`。放在這裡而不是 wfgToggleTconInternal()：
+     匯入、preset、切機種也都會經過本函式，寫在這裡才不會漏掉其中一條路徑。 */
+  var toW = document.getElementById('wfg-txde-off-wrap');
+  if (toW) toW.style.display = on ? 'flex' : 'none';
+  /* 值也一併寫回（同 `#wfg-flr` 的 activeElement 守衛：使用者正在打字時不要動他的欄位）。 */
+  var toEl = document.getElementById('wfg-txde-off');
+  if (toEl && document.activeElement !== toEl) toEl.value = String(wfgTxDeOffset | 0);
   /* 警示：目前值超界（政策③）優先於剛剛被夾的訊息（政策①②）—— 前者是持續狀態。
      🔴 v4.24.1：NB 的正常編輯路徑**已經不可能**走到超界（總和被夾住了），
         剩下唯一會超界的來源是「匯入的 code／設定檔本身就超界」與「換機種／換 gate type
@@ -20089,6 +20150,41 @@ function wfgOnFirstLineReadChange(val) {
   wfgFlrAfterChange();
 }
 window.wfgOnFirstLineReadChange = wfgOnFirstLineReadChange;
+/* ══ 🔴 v4.38.0：TX DE Offset 的唯一寫入口 ═══════════════════════════════════════
+   夾值政策沿用 v3.19.1「加上下限一定要留退路」：超界 ⇒ 夾到界線，**並且把畫面
+   回寫成實際採用的值**（v4.26.2 的教訓：欄位停在被拒的數字比靜默夾值更糟，
+   使用者會照著螢幕上那個沒生效的數字判讀）。
+
+   🔴 空字串直接 return、不當成 0：這是 `oninput` 事件，使用者要把 32 改成 511
+   必然會經過「全選刪掉」那一瞬間。把空字串當 0 會讓波形在打字途中跳一下，
+   而且游標會被輸入框重新定位（本站已經在別的欄位上吃過這個虧）。 */
+function wfgOnTxDeOffsetChange(val) {
+  var s = String(val == null ? '' : val).trim();
+  if (s === '') return;
+  var n = parseInt(s, 10);
+  if (!isFinite(n)) return;
+  var c = Math.min(WFG_TXDE_OFF_MAX, Math.max(WFG_TXDE_OFF_MIN, n));
+  wfgTxDeOffset = c;
+  var el = document.getElementById('wfg-txde-off');
+  if (el && c !== n) el.value = String(c);   // 只有真的被夾才回寫，不干擾正常打字
+  wfgTxDeOffAfterChange();
+}
+window.wfgOnTxDeOffsetChange = wfgOnTxDeOffsetChange;
+/* 改動之後的收尾。
+   🔴 **刻意不呼叫 `wfgInvalidateCache()`**：那支清的是類比通道的預計算（SD 電壓／
+      transitions），而本值一行都沒有進到那條路徑（見宣告處說明：SD 取樣吃的是
+      `dataIdx = lineInFrame − lbShift`，行級，與行內位移無關）。多清一次快取不會
+      「比較安全」，只會讓「這個值到底影響了什麼」變得說不清楚。
+   量測讀數的重算走既有機制：`wfgCursorTimingSig()` 已把本值納入簽章，
+   `wfgRender()` 開頭的 `wfgRefreshMeasurementsIfTimingChanged()` 會偵測到並重跑。 */
+function wfgTxDeOffAfterChange() {
+  wfgRender();
+  /* 🔴 明確存檔。`wfgRender()` 裡那個 `wfgAutoSave()` 是有條件的（只有電壓游標被夾時才跑），
+     不能當成「改完就會存」。它自帶 500 ms debounce，連打不會灌爆 localStorage。
+     ⚠ 隔壁的 Line Buffer／FLR 走的 `wfgFlrAfterChange()` **沒有**這一行 —— 本版
+     刻意不順手替它補上：那會改到既有欄位的行為，不在這次的需求範圍內。 */
+  if (typeof wfgAutoSave === 'function') wfgAutoSave();
+}
 /* ══ 🔴 v4.24.0：NB 的兩格 —— 各自獨立，兩格都可自由輸入 ══════════════════════
    Bruce 2026-08-25：「這兩個參數只要有輸入數值就可以改變，反而 Line buffer 變成是唯讀。」
    ⇒ 只有正向：FLR = ST_LINE_RD + PRE_BLK_RD_NO，Line Buffer = FLR ÷ mult。
@@ -21427,6 +21523,8 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
   var rxDeFrac = rxDclkPerLine > 0 ? rxDeWidthDclk / rxDclkPerLine : 0;
   var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
+  /* v4.38.0：TX DE 的行內平移量（檢視行）。🔴 只加在起訖兩端，`txDeFrac`（＝寬度）一位元未改。 */
+  var txDeOff = wfgTxDeOffLines(dclkPerLine);
 
   // Line Buffer shift: in Dual Gate mode, shift is doubled
   var lbShift = wfgLbShift();   // v4.23.0：位移＝FLR（輸出行）。舊式 isDual?LB*2:LB 已收斂到這一支
@@ -21601,21 +21699,26 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
   var _txFills = [];
   var _txLabels = [];
   var vactiveView2 = isDual ? vactive * 2 : vactive;
-  for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+  /* 🔴 v4.38.0：整段平移之後，「第 ln 條 line 的 TX DE」被畫在 `ln + txDeOff` 的位置。
+     所以掃描起點要往前退 `ceil(txDeOff)` 條 —— 否則畫面最左邊會少掉一段，
+     那一段的來源 line 已經在 `firstVisLine` 之前了。終點不必往後延：`ln > lastVisLine`
+     的內容平移後只會更靠右，本來就在視野外。 */
+  var _txScanFrom = Math.max(0, firstVisLine - Math.ceil(txDeOff));
+  for (var ln = _txScanFrom; ln <= lastVisLine; ln++) {
     var lineInFrame = ln % vtotalView;
     var dataIdx = lineInFrame - lbShift;
     if (dataIdx < 0 || dataIdx >= vactiveView2) {
-      var xL3 = Math.max(drawX0, lineToX(ln));
-      var xR3 = Math.min(w, lineToX(ln + 1));
+      var xL3 = Math.max(drawX0, lineToX(ln + txDeOff));
+      var xR3 = Math.min(w, lineToX(ln + 1 + txDeOff));
       if (xR3 > drawX0 && xL3 < w) {
         ctx.moveTo(xL3, txLow);
         ctx.lineTo(xR3, txLow);
       }
       continue;
     }
-    var xLS = lineToX(ln);
-    var xDEEnd = lineToX(ln + txDeFrac);
-    var xLE = lineToX(ln + 1);
+    var xLS = lineToX(ln + txDeOff);
+    var xDEEnd = lineToX(ln + txDeOff + txDeFrac);
+    var xLE = lineToX(ln + 1 + txDeOff);
     var xA = Math.max(drawX0, xLS);
     var xB = Math.min(w, xDEEnd);
     var xC = Math.min(w, xLE);
@@ -21878,6 +21981,7 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
     // TCON group
     var txDeWidthDclk = hactive / (2 * gateCount);
     var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
+    var txDeOff = wfgTxDeOffLines(dclkPerLine);   // v4.38.0：同上，只平移不改寬度
     var lbShift = wfgLbShift();   // v4.23.0：位移＝FLR（輸出行）。舊式 isDual?LB*2:LB 已收斂到這一支
 
     // Draw DCLK ticks
@@ -21899,18 +22003,22 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
       var _ptxFills = [];
       var _ptxLabels = [];
       var vactiveView2 = isDual ? vactive * 2 : vactive;
-      for (var ln = firstVisLine; ln <= lastVisLine; ln++) {
+      /* 🔴 v4.38.0：與非 promoted 那份完全同一條規則（掃描起點往前退 ceil(txDeOff)）。
+         兩份程式碼刻意保持逐行對應 —— 只改其中一份，就會出現「把 TCON group 拖到
+         通道區之後平移量不一樣」這種只有跨路徑測試才抓得到的分岔。 */
+      var _ptxScanFrom = Math.max(0, firstVisLine - Math.ceil(txDeOff));
+      for (var ln = _ptxScanFrom; ln <= lastVisLine; ln++) {
         var lineInFrame = ln % vtotalView;
         var dataIdx = lineInFrame - lbShift;
         if (dataIdx < 0 || dataIdx >= vactiveView2) {
-          var xL3 = Math.max(drawX0, lineToX(ln));
-          var xR3 = Math.min(w, lineToX(ln + 1));
+          var xL3 = Math.max(drawX0, lineToX(ln + txDeOff));
+          var xR3 = Math.min(w, lineToX(ln + 1 + txDeOff));
           if (xR3 > drawX0 && xL3 < w) { ctx.moveTo(xL3, txLow); ctx.lineTo(xR3, txLow); }
           continue;
         }
-        var xLS = lineToX(ln);
-        var xDEEnd = lineToX(ln + txDeFrac);
-        var xLE = lineToX(ln + 1);
+        var xLS = lineToX(ln + txDeOff);
+        var xDEEnd = lineToX(ln + txDeOff + txDeFrac);
+        var xLE = lineToX(ln + 1 + txDeOff);
         var xA = Math.max(drawX0, xLS);
         var xB = Math.min(w, xDEEnd);
         var xC = Math.min(w, xLE);
@@ -27721,6 +27829,13 @@ function wfgResetToDefault() {
   wfgNbDclkImported = null;
   _wfgAckDclkFromCode = false;
   wfgFlrApply(0, {});   /* v4.35.0：歸零（原本是 6 * wfgFlrMult()），理由見上方 */
+  /* 🔴 v4.38.0：TX DE Offset 回到 **32**，不是 0 —— 「清除」的語意是「回到預設值」，
+     而 Bruce 2026-09-01 指定的預設值就是 32 DCLK。這裡不跟著上面的 Line Buffer 歸零：
+     那是另一個參數、另一次裁示（v4.35.0），兩者沒有連動關係。
+     指派完要同步畫面，否則欄位會停在使用者清除前的數字（v4.24.0 那次的教訓）。 */
+  wfgTxDeOffset = WFG_TXDE_OFF_DEFAULT;
+  var _rstTxOff = document.getElementById('wfg-txde-off');
+  if (_rstTxOff) _rstTxOff.value = String(WFG_TXDE_OFF_DEFAULT);
   // Reset LS global to defaults
   wfgLsGlobal = { mode: 'individual', phase: 12, vgh: 30, vgl: -10,   // v4.19.0：phase 預設 12
     curvature_rise: 127, curvature_fall: 127,
@@ -35373,6 +35488,7 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
   var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
   var rxDeFrac = rxDclkPerLine > 0 ? rxDeWidthDclk / rxDclkPerLine : 0;
   var txDeFrac = dclkPerLine > 0 ? txDeWidthDclk / dclkPerLine : 0;
+  var txDeOff = wfgTxDeOffLines(dclkPerLine);   // v4.38.0
   var rxViewLinesPerData = isDual ? 2 : 1;
 
   // Helper: line to X pixel
@@ -35436,8 +35552,17 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
     } // close RX DE active else
   } else {
     // ── TX DE ──
+    /* ══ 🔴 v4.38.0：整段平移之後，這一段整個改在「未平移座標」裡算 ═══════════
+       TX DE 佔的是 [ln + off, ln+1 + off]，所以「滑鼠落在哪一條 line 的 DE 上」
+       要用 `mouseLinePos − off` 去判；算完之後再把 off 加回三條邊（見本分支末端）。
+
+       🔴 為什麼不是「照舊算完再整體加 off」就好 —— 因為 `intLine` 與 `txDataIdx`
+          （＝落在 active 還是 blank）本身就會判錯：off 夠大時，滑鼠指著的那一段
+          DE 其實來自**上一條** line。少了這個換算，游標停在交界處就會讀到隔壁的值。 */
+    var txMouseLinePos = mouseLinePos - txDeOff;
+    var txLineInFrame = ((txMouseLinePos % vtotalView) + vtotalView) % vtotalView;
     var vactiveView = isDual ? vactive * 2 : vactive;
-    var intLine = Math.floor(lineInFrame);
+    var intLine = Math.floor(txLineInFrame);
     var txDataIdx = intLine - lbShift;
     if (txDataIdx < 0 || txDataIdx >= vactiveView) {
       // Vblank region: compute blanking block edges
@@ -35449,7 +35574,7 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
         wfgRender();
         return;
       }
-      var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
+      var frameBase = Math.floor(txMouseLinePos / vtotalView) * vtotalView;   // v4.38.0：未平移座標
       var firstActiveViewLine = lbShift;
       var lastActiveViewLine = lbShift + vactiveView - 1;
       if (txDataIdx < 0) {
@@ -35465,12 +35590,12 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
       curLevel = 0;
     } else {
     // Active TX DE line
-    var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
+    var frameBase = Math.floor(txMouseLinePos / vtotalView) * vtotalView;   // v4.38.0：未平移座標
     var lineStart = frameBase + intLine;
     var deRise = lineStart;
     var deFall = lineStart + txDeFrac;
     var nextLineStart = lineStart + 1; // next data line
-    var fracInLine = mouseLinePos - lineStart;
+    var fracInLine = txMouseLinePos - lineStart;   // v4.38.0：同上
     if (fracInLine >= 0 && fracInLine < txDeFrac) {
       curLevel = 1;
       leftEdge = deRise;
@@ -35485,6 +35610,14 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
       rightEdge2 = nextLineStart + txDeFrac;
     }
     } // close TX DE active else
+    /* 🔴 v4.38.0：上面全部在未平移座標裡算完，這裡一次把平移量加回去。
+       三條邊同加同一個常數 ⇒ **脈寬與週期一位元不變**（差值抵消），
+       改變的只有「A1 @ 幾秒」這種絕對位置讀數 —— 這正是平移應有的性質。 */
+    if (txDeOff !== 0) {
+      if (leftEdge !== null) leftEdge += txDeOff;
+      if (rightEdge !== null) rightEdge += txDeOff;
+      if (rightEdge2 !== null) rightEdge2 += txDeOff;
+    }
   }
 
   if (leftEdge === null || rightEdge === null) { wfgMeasClear(); return; }
@@ -36446,10 +36579,15 @@ function wfgCursorSnapTime(rawTime, cx, p) {
       // TX DE params
       var _txDeWidthDclk = _hactive / (2 * _gateCount);
       var _txDeFrac = p.dclkPerLine > 0 ? _txDeWidthDclk / p.dclkPerLine : 0;
+      var _txDeOff = wfgTxDeOffLines(p.dclkPerLine);   // v4.38.0
       var _lbShift = wfgLbShift();   // v4.23.0：位移＝FLR（輸出行）
       var _vactiveView = _isDual ? _vactive * 2 : _vactive;
 
-      var _firstVis = Math.max(0, Math.floor(wfgViewStart));
+      /* 🔴 v4.38.0：起點往前退 ceil(txDeOff) —— 平移後落在視野最左邊的那個 TX DE 邊緣，
+         它的來源 line 可能已經在 `_firstVis` 之前。多掃的那幾條對 RX DE 無害：
+         它們平移量為 0、必定落在視野左外，距離遠遠超過 `snapThresholdPx`，
+         不可能成為 best（吸附是取最近者，不是取第一個命中者）。 */
+      var _firstVis = Math.max(0, Math.floor(wfgViewStart) - Math.ceil(_txDeOff));
       var _lastVis = Math.min(wfgTotalLines() - 1, Math.ceil(wfgViewEnd));
 
       for (var _ln = _firstVis; _ln <= _lastVis; _ln++) {
@@ -36480,13 +36618,13 @@ function wfgCursorSnapTime(rawTime, cx, p) {
         // ── TX DE edges ──
         var _txDataIdx = _lif - _lbShift;
         if (_txDataIdx >= 0 && _txDataIdx < _vactiveView && _txDeFrac > 0) {
-          // Rising edge at line start
-          var _txRiseTime = _ln * p.timePerLine;
+          // Rising edge at line start (v4.38.0: + TX DE Offset)
+          var _txRiseTime = (_ln + _txDeOff) * p.timePerLine;
           var _txRiseX = wfgCursorTimeToX(_txRiseTime, p);
           var _txRDist = Math.abs(_txRiseX - cx);
           if (_txRDist < snapThresholdPx && _txRDist < bestDist) { bestDist = _txRDist; bestTime = _txRiseTime; bestAnchor = wfgCursorMakeDeAnchor('txde', 'r', _ln); }
-          // Falling edge at line + txDeFrac
-          var _txFallTime = (_ln + _txDeFrac) * p.timePerLine;
+          // Falling edge at line + txDeOff + txDeFrac
+          var _txFallTime = (_ln + _txDeOff + _txDeFrac) * p.timePerLine;
           var _txFallX = wfgCursorTimeToX(_txFallTime, p);
           var _txFDist = Math.abs(_txFallX - cx);
           if (_txFDist < snapThresholdPx && _txFDist < bestDist) { bestDist = _txFDist; bestTime = _txFallTime; bestAnchor = wfgCursorMakeDeAnchor('txde', 'f', _ln); }
@@ -36617,8 +36755,12 @@ function wfgCursorResolveAnchor(anchor) {
       frac = (anchor.edge === 'r') ? 0 : (anchor.edge === 'f2' ? (rxDeFrac - 1) : rxDeFrac);
     } else {
       var gateCount = isDual ? 2 : 1;
-      frac = (anchor.edge === 'r') ? 0
-           : (p.dclkPerLine > 0 ? (wfgFrame.hactive / (2 * gateCount)) / p.dclkPerLine : 0);
+      /* 🔴 v4.38.0：兩個邊緣都要加平移量 —— 錨記的是「TX DE 的上升／下降緣」這個
+         結構身分，它的**實際位置**本來就跟著 offset 走。少加的話，改 offset 之後
+         波形移了、貼在上面的游標卻留在原地（v3.26.4／v3.26.5 那一輪的同型缺口）。 */
+      frac = wfgTxDeOffLines(p.dclkPerLine)
+           + ((anchor.edge === 'r') ? 0
+             : (p.dclkPerLine > 0 ? (wfgFrame.hactive / (2 * gateCount)) / p.dclkPerLine : 0));
     }
     return { time: (ln + frac) * p.timePerLine, anchor: wfgCursorCloneAnchor(anchor) };
   }
@@ -36640,7 +36782,11 @@ var _wfgCursorAnchorSig = '';
 var _wfgCursorAnchorRebuildPending = false;
 function wfgCursorTimingSig() {
   return _wfgTransitionCacheSerial + '|' + wfgTimePerLine() + '|' + (wfgKvdatMode ? 'k' : 'p')
-       + '|' + (wfgTconInternalMode ? 'i' : '-');
+       + '|' + (wfgTconInternalMode ? 'i' : '-')
+       /* 🔴 v4.38.0：TX DE Offset 一改，TX DE 的上升／下降緣位置就變了 ⇒ 貼在那些邊緣上的
+          游標與量測讀數必須跟著重算。這裡不加的話，症狀會與 v3.26.5 那次一模一樣：
+          波形移了、但 `A1 @ …` 與 hover 卡的五個值全部停在舊的。 */
+       + '|' + (wfgTxDeOffset | 0);
 }
 /* ══ v3.26.5：替「沒有錨」的游標補建錨 ═══════════════════════════════════════
    🔴 v3.26.4 的缺口（Bruce 2026-08-21 線上實測抓到）：
@@ -36714,11 +36860,12 @@ function wfgCursorRebuildAnchorAtTime(time) {
     var rxDclkPerLine = isDual ? wfgFrame.htotalBase / 4 : wfgFrame.htotalBase / 2;
     var rxDeFrac = rxDclkPerLine > 0 ? (wfgFrame.hactive / 2) / rxDclkPerLine : 0;
     var txDeFrac = (wfgFrame.hactive / (2 * (isDual ? 2 : 1))) / p.dclkPerLine;
+    var txDeOff = wfgTxDeOffLines(p.dclkPerLine);   // v4.38.0：TX DE 兩個邊緣都平移
     var deCand = [
       { kind: 'rxde', edge: 'r', pos: ln },
       { kind: 'rxde', edge: 'f', pos: ln + rxDeFrac },
-      { kind: 'txde', edge: 'r', pos: ln },
-      { kind: 'txde', edge: 'f', pos: ln + txDeFrac }
+      { kind: 'txde', edge: 'r', pos: ln + txDeOff },
+      { kind: 'txde', edge: 'f', pos: ln + txDeOff + txDeFrac }
     ];
     for (var di = 0; di < deCand.length; di++) {
       var dd = Math.abs(deCand[di].pos - targetLine);
@@ -40174,6 +40321,10 @@ window.wfgExportConfig = function() {
        等於把 v4.23.0 那條被移除的回推規則又偷偷寫進檔案格式裡。直接存兩個數字。 */
     nbStLineRd: wfgNbStLineRd(),
     nbPanelMode: wfgNbPanelMode,
+    /* v4.38.0：TX DE 的行內平移量（單位＝ TX DCLK，0～511）。
+       🔴 存原始 DCLK 數而不是換算後的行數：行數是 `offset ÷ dclkPerLine` 的衍生量，
+          換一組 timing 同一個行數就不是同一件事（與 v3.23.1 拿掉 `view.line` 同一個理由）。 */
+    txDeOffset: wfgTxDeOffset | 0,
     currentMode: wfgCurrentMode,
     pulseItems: wfgPulseItems.map(function(p) {
       return { chIdx: p.chIdx, range: p.range, mode: p.mode, expanded: p.expanded };
@@ -40256,7 +40407,9 @@ var WFG_IMPS_KEYS = ['sys', 'tcon', 'disp', 'meas', 'wave'];
 var WFG_IMPS_TOP = {
   sys:  ['vblank', 'hblank', 'frameRateMax', 'vblankSimMin'],
   tcon: ['tconInternalMode', 'promotedRx', 'promotedTcon', 'irOrder',
-         'lineBuffer', 'firstLineRead', 'nbPreBlkRd', 'nbStLineRd', 'nbPanelMode'],
+         'lineBuffer', 'firstLineRead', 'nbPreBlkRd', 'nbStLineRd', 'nbPanelMode',
+         /* v4.38.0：TX DE Offset 的輸入框就長在 TCON group 裡，歸「TCON」這一類。 */
+         'txDeOffset'],
   /* 🔴 `overlayGroups` 歸「顯示」而不是「量測」：它的 `id` 來自 `channels[].ovlId`。
      編輯它的卡片（類比垂直設定）確實在右側，但**群組本身是輸出通道卡片建立的**，
      拆開就會出現「有 vdiv 設定卻沒有對應群組」的 dangling id。 */
@@ -40975,7 +41128,17 @@ window.wfgImportConfig = function(jsonStr, options) {
   }
   var lbWrap = document.getElementById('wfg-linebuf-wrap');
   if (lbWrap) lbWrap.style.display = wfgTconInternalMode ? 'flex' : 'none';
-  wfgFlrSync();
+  /* ══ v4.38.0：TX DE Offset ══════════════════════════════════════════════════
+     🔴 **舊設定檔（沒有這個欄位）一律回到預設值 32，不是 0。**
+        理由：`WFG_TXDE_OFF_DEFAULT` 是這個選項唯一的預設值 —— 開新頁是 32、
+        按「清除」是 32。匯入舊檔若給 0，同一個選項就會有兩個預設值，
+        而且是看不出來的那一種（畫面顯示 0，使用者以為那是檔案裡存的值）。
+     ⚠ 代價講清楚：v4.37.3 以前存的設定檔，用本版匯入後 TX DE 會右移 32 DCLK。
+        這與「開頁預設就是 32」是同一件事，不是額外的例外。 */
+  var _cfgTxOff = (typeof config.txDeOffset === 'number' && isFinite(config.txDeOffset))
+    ? (config.txDeOffset | 0) : WFG_TXDE_OFF_DEFAULT;
+  wfgTxDeOffset = Math.min(WFG_TXDE_OFF_MAX, Math.max(WFG_TXDE_OFF_MIN, _cfgTxOff));
+  wfgFlrSync();   /* ← 這一支同時把 #wfg-txde-off 的值與可見性一起寫回畫面 */
 
   // ── Mode ──
   // v3.0.1: 匯入設定檔已明確指定所有參數，切到 TCON 時不該再觸發 autosave 自動還原，
