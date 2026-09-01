@@ -1292,6 +1292,11 @@ var I18N = {
   'wfg.frameRate':      { 'zh-TW': 'Frame Rate (Hz)', 'en': 'Frame Rate (Hz)', 'zh-CN': 'Frame Rate (Hz)' },
   'wfg.tconInternal':   { 'zh-TW': 'TCON 內部運算', 'en': 'TCON Internal', 'zh-CN': 'TCON 内部运算' },
   'wfg.lineBuffer':     { 'zh-TW': 'Line Buffer:', 'en': 'Line Buffer:', 'zh-CN': 'Line Buffer:' },
+  /* ── v4.38.0：TX DE Offset（行內平移，單位＝ TX DCLK；UI 上刻意不寫單位，Bruce 指定）── */
+  'wfg.txDeOffset':     { 'zh-TW': 'TX DE Offset:', 'en': 'TX DE Offset:', 'zh-CN': 'TX DE Offset:' },
+  'wfg.txDeOffsetTitle':{ 'zh-TW': 'TX DE Offset（單位：TX DCLK，0～511，預設 32）＝ TX DE 在每一條 Line 內的平移量。\n設 32 ⇒ 起始位置由 DCLK 0 移到 DCLK 32，結束位置同樣 ＋32 ⇒ **脈寬不變**。\n只影響 TX DE 這一條波形，不影響資料索引（D0/D1…）與 SD 取樣。',
+                          'en': 'TX DE Offset (unit: TX DCLK, 0-511, default 32) = intra-line shift of TX DE.\nSet 32 => start moves from DCLK 0 to DCLK 32, end also +32 => pulse width unchanged.\nAffects only the TX DE waveform; data indices (D0/D1...) and SD sampling are untouched.',
+                          'zh-CN': 'TX DE Offset（单位：TX DCLK，0～511，预设 32）＝ TX DE 在每一条 Line 内的平移量。\n设 32 ⇒ 起始位置由 DCLK 0 移到 DCLK 32，结束位置同样 ＋32 ⇒ **脉宽不变**。\n只影响 TX DE 这一条波形，不影响数据索引（D0/D1…）与 SD 取样。' },
   /* ── v4.23.0：First Line Read（MNT）／ ST_LINE_RD ＋ PRE_BLK_RD_NO（NB）── */
   'wfg.firstLineRead':  { 'zh-TW': 'First Line Read:', 'en': 'First Line Read:', 'zh-CN': 'First Line Read:' },
   'wfg.flrTitle':       { 'zh-TW': 'First Line Read（reg_st_line_rd）＝ 波形位移的輸出行數。\nSingle Gate：＝ Line Buffer；Dual Gate：＝ Line Buffer × 2（可為奇數 ⇒ Line Buffer 出現 .5）',
