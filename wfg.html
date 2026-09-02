@@ -3570,8 +3570,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260902wfg4412"></script>
-<script src="common/i18n.js?v=20260902wfg4412"></script>
+<script src="common/version.js?v=20260902wfg4413"></script>
+<script src="common/i18n.js?v=20260902wfg4413"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -3628,8 +3628,6 @@ var wfgLsGlobal = {
   vce_ck_idx: 4,        // GPIO index of VCE clock (default CK1)
   cond_phase: 8,        // Condensed phase count: 4/6/8 (how many CKH outputs participate)
   cond_interval: 'none', // 'none' = no time interval (back-to-back), 'some' = some time interval
-  cond_line_mode: '1line', // '1line' = 1-line CKHs, '2line' = 2-line CKHs
-  cond_2line_type: 'type1', // 'type1' = adjacent pairs, 'type2' = interleaved pairs
   // Dual CPV mode: two CPV clock sources
   cpv1_ck_idx: 4,       // GPIO index of CPV1 (default CK1)
   cpv2_ck_idx: 5,       // GPIO index of CPV2 (default CK2)
@@ -4596,7 +4594,7 @@ const WFG_PRESETS = {
       {"name":"cko5","waveform_type":2,"enable":true,"analog_config":{"voltage_min":-10,"voltage_max":30,"curvature_rise":127,"curvature_fall":127,"source_ck_idx":8,"cko_index":4,"showCursors":false}},
       {"name":"cko6","waveform_type":2,"enable":true,"analog_config":{"voltage_min":-10,"voltage_max":30,"curvature_rise":127,"curvature_fall":127,"source_ck_idx":9,"cko_index":5,"showCursors":false}}
     ],
-    lsGlobal: { mode: 'dual_cpv', phase: 12, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cond_line_mode: '1line', cond_2line_type: 'type1', cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge: 'falling' },
+    lsGlobal: { mode: 'dual_cpv', phase: 12, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge: 'falling' },
     lineBuffer: 4,
     channels: [
       {"name":"VST1","gpioIdx":2,"color":"#FF00FF","visible":true},
@@ -24259,172 +24257,101 @@ function _wfgLsBuildIndividualEvents(ac, allGpioTransitions, effHtotal, effVtota
   return events;
 }
 
-// ── Condensed mode: 1 VCE → N CKOs (AUO-S302.11 spec) ──
-// VCE clock edges are decoded sequentially to CKO outputs in round-robin.
-// Supports configurable phase count (4/6/8), clocks interval (none/some),
-// line mode (1-line/2-line), and 2-line pairing type (Type1/Type2).
-//
-// 1-line mode: each VCE rising edge triggers one CKO group.
-// 2-line mode: each VCE rising edge triggers two CKOs simultaneously.
-//   Type1 (adjacent): CKH1=CKH2, CKH3=CKH4, CKH5=CKH6, CKH7=CKH8
-//   Type2 (interleaved): CKH1=CKH3, CKH2=CKH4, CKH5=CKH7, CKH6=CKH8
-//
-// No Time Interval: CKH pulse width ≈ VCE period (back-to-back, falling edge = next rising edge)
-// Some Time Interval: CKH pulse width ≈ 50% of VCE period (gap between pulses)
+/* ── Condensed mode（一進多出）：1 VCE → N CKO ────────────────────────────────
+   🔴 v4.41.3 依 Bruce 2026-09-02 的規格重寫。**舊版的模型是錯的**（不是參數錯，
+      是「CKO 寬度怎麼決定」這件事整個搞錯了）。
+
+   規格（Bruce 原話）：
+     ・一進多出要先決定它是幾 face 的。**8-face ⇒ CKO 的 clock 寬度 High 4 條、Low 4 條；
+       6-face ⇒ High 3 條、Low 3 條**（＝ face 數的一半）。
+     ・**背靠背**（No Time Interval）：CKO 的 Rising 參考 VCE 的 Rising，
+       CKO 的 Falling **也**參考 VCE 的 Rising。
+     ・**有間隔**（Some Time Interval）：CKO 的 Rising 參考 VCE 的 Rising，
+       CKO 的 Falling 參考 VCE 的 **Falling**。
+     ・「4 條 line」是**以 VCE 週期為單位**在講，不是絕對 line 數 —— Bruce 2026-09-02
+       補充：「同理，二進多出或是四進多出的，也都不是看 Line，而是看 CPV 對應的週期」。
+       所以實作是「往後數 phase/2 個 VCE 邊緣」，不是「往後數 phase/2 條 line」。
+
+   實作 ＝ 把 VCE 的邊緣在**每個 frame 內重新編號**，然後：
+     CKO_i 的 rising  ＝ 編號 n ≡ i            (mod phase) 的 VCE rising
+     CKO_i 的 falling ＝ 編號 n ≡ i + phase/2  (mod phase) 的 VCE rising（背靠背）
+                                               或 VCE falling（有間隔）
+   於是 High ＝ phase/2 個 VCE 週期、Low ＝ phase/2 個 VCE 週期，寬度由 face 數決定。
+
+   🔴 **編號按 frame 內重新起算**，這一點同時解掉舊版的兩個 bug：
+     ① 舊版的 round-robin 計數跨 frame 一路累加、從不歸零。實測 VCE 每 frame 181 個
+        rising、phase ＝ 8、**181 mod 8 ＝ 5** ⇒ 每個 frame 的起始 slot 是
+        [0, 5, 2, 7, 4, 1, 6, 3, …]，**8 個 frame 才回到 0**。拿 frame 1 當基準逐值
+        比對 frame 2~9：**8 個 frame 有 7 個不同**，每個 frame 約 342~368 / 1112 行
+        不一樣，**最大差 40 V ＝ VGH−VGL 全幅**。
+        Bruce：「它每個 frame 都會是一樣的啊，怎麼會是 8 個 frame 才循環一次？」
+     ② 舊版的計數從 **build window 的起點**算起，而 build window 會隨視窗縮放改變
+        ⇒ 同一條 CKO 在不同縮放下可能畫出相位不同的波形。
+     這與 `_wfgLsBuildCpvPairEvents()` 的 "Counter resets to 0 at each frame boundary
+     (STV reset)." 是同一個設計 —— dual_cpv／quad_cpv 一直都有，只有 condensed 漏掉。
+
+   🔴 給後人的提醒：**就算 VCE 每 frame 的邊緣數剛好是 phase 的倍數、相位「自己」對得
+      回來，那也是脆弱的巧合** —— 使用者改 `st_line`／`sp_line`／`act_type` 隨時會破。
+      真實 GOA 是靠 STV／VSYNC 重置 shift register，不是靠 CK 數字剛好整除。
+      更一般的教訓：**數據成立不等於物理成立，拿到規律要先問它為什麼存在。**
+      （v4.41.2 的 CHANGELOG 曾據此寫「condensed 沒有 frame 對齊的週期」，那個結論
+       的成因正是這個 bug 加上當時偵測判準太嚴，**不是物理上不存在**。）
+
+   ⚠ **待 Bruce 裁示**：「有間隔」的 falling 目前取編號 `i + phase/2` 的 VCE falling。
+      若原意是「目標 rising **前面**那一個 falling」（＝ `i + phase/2 - 1`），
+      只要改 `_fallOffset` 這一個數字，其他一行都不必動。 */
 function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
   var vceCkIdx = wfgLsGlobal.vce_ck_idx;
   if (vceCkIdx < 0 || vceCkIdx >= wfgGpios.length) return [];
   var condPhase = wfgLsGlobal.cond_phase || 8;
   var condInterval = wfgLsGlobal.cond_interval || 'none';
-  var condLineMode = wfgLsGlobal.cond_line_mode || '1line';
-  var cond2lineType = wfgLsGlobal.cond_2line_type || 'type1';
 
-  // If ckoIndex >= condPhase, this CKO doesn't participate in condensed output
+  // 這條 CKO 不在 face 數之內 ⇒ 不參與一進多出的輸出（沿用舊版語意）
   if (ckoIndex >= condPhase) return [];
+
+  var halfPhase = condPhase >> 1;      // 8-face → 4；6-face → 3；4-face → 2
+  if (halfPhase < 1) halfPhase = 1;
+  var _fallOffset = halfPhase;         // ⚠ 見上方「待 Bruce 裁示」
 
   var pad = Math.max(effVtotal, 100);
   var extStart = Math.max(0, viewStartLine - pad);
   var extEnd = viewEndLine + pad;
+  /* 🔴 起點必須對齊 frame 邊界，否則第一個 frame 的邊緣編號會從中間算起 ——
+     那正是舊版 bug ② 的來源（結果隨 build window 起點變動）。 */
+  if (effVtotal > 0) extStart = Math.floor(extStart / effVtotal) * effVtotal;
   var oax = wfgGetOaxForRange(vceCkIdx, allGpioTransitions, effHtotal, extStart, extEnd);
   var trans = oax ? oax.transitions : [];
   var vgh = wfgLsGlobal.vgh;
   var vgl = wfgLsGlobal.vgl;
 
-  // Build 2-line pairing map: for each CKO index, which round-robin slot triggers it?
-  // In 1-line mode: slot i triggers CKO i (direct mapping)
-  // In 2-line mode: two CKOs share each slot, so fewer VCE edges needed per round
-  var slotsPerRound, mySlots;
-  if (condLineMode === '2line') {
-    // Build pairing groups
-    // Type1: (0,1), (2,3), (4,5), (6,7) — adjacent pairs
-    // Type2: (0,2), (1,3), (4,6), (5,7) — interleaved pairs
-    slotsPerRound = Math.ceil(condPhase / 2);
-    mySlots = [];
-    for (var si = 0; si < slotsPerRound; si++) {
-      var member0, member1;
-      if (cond2lineType === 'type2') {
-        // Type2 interleaved: slot 0→(0,2), slot 1→(1,3), slot 2→(4,6), slot 3→(5,7)
-        var halfPhase = Math.floor(condPhase / 2);
-        if (si < Math.ceil(halfPhase / 1)) {
-          // For 8-phase: slots 0,1,2,3 → pairs (0,2),(1,3),(4,6),(5,7)
-          // Pattern: first half slots pair with offset, second half same
-          if (si < 2) {
-            member0 = si;           // 0 or 1
-            member1 = si + 2;       // 2 or 3
-          } else {
-            member0 = si * 2 - 2 + 2; // slot2→4, slot3→5 ... actually let's use lookup
-            member0 = (si - 2) + 4;
-            member1 = (si - 2) + 6;
-          }
-        }
-        // Simpler approach: build the full pairing table for Type2
-        // 8-phase Type2: CKH1=CKH3, CKH2=CKH4, CKH5=CKH7, CKH6=CKH8
-        // → pairs: (0,2), (1,3), (4,6), (5,7) → 4 slots
-        // 6-phase Type2: CKH1=CKH3, CKH2=CKH4, CKH5=? → (0,2), (1,3), (4,?)
-        // 4-phase Type2: CKH1=CKH3, CKH2=CKH4 → (0,2), (1,3)
-      } else {
-        // Type1 adjacent: slot 0→(0,1), slot 1→(2,3), slot 2→(4,5), slot 3→(6,7)
-        member0 = si * 2;
-        member1 = si * 2 + 1;
-      }
-      if (ckoIndex === member0 || (member1 < condPhase && ckoIndex === member1)) {
-        mySlots.push(si);
-      }
-    }
-  } else {
-    // 1-line mode: each CKO has its own slot
-    slotsPerRound = condPhase;
-    mySlots = [ckoIndex];
-  }
+  var riseSlot = ckoIndex % condPhase;
+  var fallSlot = (ckoIndex + _fallOffset) % condPhase;
+  var fallOnRising = (condInterval !== 'some');   // 背靠背 ⇒ falling 也看 VCE rising
 
-  // Rebuild pairing for Type2 using a cleaner lookup table approach
-  if (condLineMode === '2line' && cond2lineType === 'type2') {
-    // Type2 pairing: CKH1=CKH3, CKH2=CKH4, CKH5=CKH7, CKH6=CKH8
-    // General pattern for N-phase: group first half and second half separately
-    // Each group: interleave by pairing i with i + groupSize/2
-    // 8-phase: group1(0-3): (0,2),(1,3); group2(4-7): (4,6),(5,7) → 4 slots total
-    // 6-phase: group1(0-2): (0,2),(1,?); group2(3-5): (3,5),(4,?) → needs careful handling
-    // 4-phase: group1(0-3): (0,2),(1,3) → 2 slots
-    var type2Pairs = [];
-    if (condPhase === 8) {
-      type2Pairs = [[0,2],[1,3],[4,6],[5,7]];
-    } else if (condPhase === 6) {
-      type2Pairs = [[0,2],[1,3],[4,5]]; // last pair is adjacent since only 6
-    } else if (condPhase === 4) {
-      type2Pairs = [[0,2],[1,3]];
-    }
-    slotsPerRound = type2Pairs.length;
-    mySlots = [];
-    for (var tp = 0; tp < type2Pairs.length; tp++) {
-      if (ckoIndex === type2Pairs[tp][0] || ckoIndex === type2Pairs[tp][1]) {
-        mySlots.push(tp);
-      }
-    }
-  }
-
-  if (mySlots.length === 0) return [];
-
-  // Walk VCE rising edges as triggers for round-robin slot assignment
-  // Each VCE rising edge → next slot fires (CKO charges to VGH)
-  // Pulse end determined by interval mode:
-  //   No interval: pulse ends at next VCE rising edge (back-to-back)
-  //   Some interval: pulse ends at VCE falling edge (≈50% duty)
   var events = [];
-  var currentSlot = 0; // which round-robin slot fires on next VCE rising edge
-  var prevLevelC = oax ? oax.initLevel : 0;
-  var risingEdges = []; // collect all rising edge lineX positions
-
-  // First pass: collect all real VCE rising edges
+  var prevLevel = oax ? oax.initLevel : 0;
+  var riseFrame = -1, riseN = 0;
+  var fallFrame = -1, fallN = 0;
   for (var i = 0; i < trans.length; i++) {
     var tr = trans[i];
-    var isRealEdge = (tr.level !== prevLevelC);
-    prevLevelC = tr.level;
-    if (!isRealEdge) continue;
-    var fracDly = effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0;
-    var lineX = tr.line + fracDly;
+    // 只認真正的邊緣：週期邊界的重複宣告（level 沒變）不計入編號，
+    // 否則相位會被那些假邊緣推移（與 _wfgLsBuildCpvPairEvents 的 isRealEdge 同一考量）
+    if (tr.level === prevLevel) continue;
+    prevLevel = tr.level;
+    var lineX = tr.line + (effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0);
+    var f = (effVtotal > 0) ? Math.floor(tr.line / effVtotal) : 0;
     if (tr.level === 1) {
-      risingEdges.push({ lineX: lineX, slot: currentSlot });
-      currentSlot = (currentSlot + 1) % slotsPerRound;
-    }
-  }
-
-  // Second pass: for each rising edge assigned to our slot, generate charge/discharge events
-  for (var re = 0; re < risingEdges.length; re++) {
-    var edge = risingEdges[re];
-    var isMySlot = false;
-    for (var ms = 0; ms < mySlots.length; ms++) {
-      if (edge.slot === mySlots[ms]) { isMySlot = true; break; }
-    }
-    if (!isMySlot) continue;
-
-    // Charge event at this VCE rising edge
-    events.push({ lineX: edge.lineX, vTarget: vgh });
-
-    // Discharge event depends on interval mode
-    if (condInterval === 'some') {
-      // Some time interval: pulse width ≈ 50% of VCE period
-      // Discharge at midpoint between this edge and next edge
-      var nextEdgeLineX;
-      if (re + 1 < risingEdges.length) {
-        nextEdgeLineX = risingEdges[re + 1].lineX;
-      } else {
-        // Estimate from previous spacing
-        nextEdgeLineX = edge.lineX + (re > 0 ? (edge.lineX - risingEdges[re - 1].lineX) : 1);
-      }
-      var pulseEnd = edge.lineX + (nextEdgeLineX - edge.lineX) * 0.5;
-      events.push({ lineX: pulseEnd, vTarget: vgl });
+      if (f !== riseFrame) { riseN = 0; riseFrame = f; }
+      var rn = riseN++;
+      if (rn % condPhase === riseSlot) events.push({ lineX: lineX, vTarget: vgh });
+      if (fallOnRising && rn % condPhase === fallSlot) events.push({ lineX: lineX, vTarget: vgl });
     } else {
-      // No time interval: pulse ends at next VCE rising edge (back-to-back)
-      // Find the next rising edge (regardless of slot) as discharge point
-      if (re + 1 < risingEdges.length) {
-        events.push({ lineX: risingEdges[re + 1].lineX, vTarget: vgl });
-      } else {
-        // Last edge — estimate discharge
-        var prevSpacing = (re > 0) ? (edge.lineX - risingEdges[re - 1].lineX) : 1;
-        events.push({ lineX: edge.lineX + prevSpacing, vTarget: vgl });
-      }
+      if (f !== fallFrame) { fallN = 0; fallFrame = f; }
+      var fn = fallN++;
+      if (!fallOnRising && fn % condPhase === fallSlot) events.push({ lineX: lineX, vTarget: vgl });
     }
   }
+  events.sort(function (a, b) { return a.lineX - b.lineX; });
   return events;
 }
 
@@ -28528,7 +28455,7 @@ function wfgResetToDefault() {
   wfgLsGlobal = { mode: 'individual', phase: 12, vgh: 30, vgl: -10,   // v4.19.0：phase 預設 12
     curvature_rise: 127, curvature_fall: 127,
     ck_sources: WFG_CK_SOURCES_DEFAULT.slice(),
-    vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cond_line_mode: '1line', cond_2line_type: 'type1',
+    vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none',
     cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7, cpv_trig_edge: 'falling' };
   /* 🔴 v4.19.0：改成 `false`。重設的語意就是「回到首次進站那個狀態」，
      而首次進站是 `wfgLsRebuildCkoSlots(false)` ⇒ 類比／面板 slot 的 enable 為 false
@@ -33412,20 +33339,7 @@ function wfgRenderLsGlobalPanel() {
       + '<option value="some"' + (g.cond_interval === 'some' ? ' selected' : '') + '>' + t('wfg.lsCondIntervalSome') + '</option>'
       + '</select></div>';
     // CKHs Line Mode
-    h += '<div class="wfg-field"><label>' + t('wfg.lsCondLineMode') + '</label>'
-      + '<select onchange="wfgOnLsGlobalChange(\'cond_line_mode\',this.value)" style="width:100%">'
-      + '<option value="1line"' + (g.cond_line_mode === '1line' ? ' selected' : '') + '>' + t('wfg.lsCondLineMode1') + '</option>'
-      + '<option value="2line"' + (g.cond_line_mode === '2line' ? ' selected' : '') + '>' + t('wfg.lsCondLineMode2') + '</option>'
-      + '</select></div>';
-    // 2-line Type (only visible in 2-line mode)
-    if (g.cond_line_mode === '2line') {
-      h += '<div class="wfg-field"><label>' + t('wfg.lsCond2lineType') + '</label>'
-        + '<select onchange="wfgOnLsGlobalChange(\'cond_2line_type\',this.value)" style="width:100%">'
-        + '<option value="type1"' + (g.cond_2line_type === 'type1' ? ' selected' : '') + '>' + t('wfg.lsCond2lineType1') + '</option>'
-        + '<option value="type2"' + (g.cond_2line_type === 'type2' ? ' selected' : '') + '>' + t('wfg.lsCond2lineType2') + '</option>'
-        + '</select></div>';
-    }
-  } else if (g.mode === 'dual_cpv') {
+      } else if (g.mode === 'dual_cpv') {
     h += '<div class="wfg-gpio-grid-2">'
       + '<div class="wfg-field"><label>' + t('wfg.lsCpv1Source') + '</label>'
       + '<select onchange="wfgOnLsGlobalChange(\'cpv1_ck_idx\',this.value)" style="width:100%">';
@@ -33603,13 +33517,6 @@ function wfgOnLsGlobalChange(field, value) {
     wfgLsGlobal.cond_phase = parseInt(value) || 8;
   } else if (field === 'cond_interval') {
     wfgLsGlobal.cond_interval = value;
-  } else if (field === 'cond_line_mode') {
-    wfgLsGlobal.cond_line_mode = value;
-    // Re-render to show/hide 2-line type selector
-    wfgRenderGpioList();
-    wfgRenderChannelList();
-  } else if (field === 'cond_2line_type') {
-    wfgLsGlobal.cond_2line_type = value;
   }
   // Gate slot mirrors the LS globals (VGH/VGL/RC/CK source)
   wfgSyncGateGpio();

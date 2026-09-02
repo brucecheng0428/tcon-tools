@@ -22,6 +22,83 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.41.3 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
+
+**修正一進多出（condensed）的 Level Shifter 模型 —— CKO 寬度由 face 數決定**
+
+**Bruce 2026-09-02（領域知識指正）：**「一進多出的 Level Shifter 行為是錯的。首先，一進多出要先決定它是幾 face 的：如果是 8-face，代表這個 CKO 的 clock 寬度 High 是 4 條 line，Low 是 4 條 line；如果是 6-face，代表 CKO 的寬度 High 是 3 條 line，Low 是 3 條 line。而一進多出的情況，又分背靠背跟有間隔……背靠背的 CK：CKO 的 Rising 參考 VCE 的 Rising，CKO 的 Falling 也參考 VCE 的 Rising。有間隔：CKO 的 Rising 參考 VCE 的 Rising，CKO 的 Falling 參考 VCE 的 Falling。最後下面的 CKHS LINE MODE 跟 2LINE 配對方式，這個可以移除，這個用不到。」
+
+補充裁示：「**同理，二進多出或是四進多出的，也都不是看 Line，而是看 CPV 對應的週期**」——「4 條 line」是以 **VCE 週期為單位**在講，不是絕對 line 數。
+
+### 改了什麼
+
+`_wfgLsBuildCondensedEvents()` 整支依規格重寫。把 VCE 的邊緣在**每個 frame 內重新編號**，然後：
+
+```
+CKO_i 的 rising  ＝ 編號 n ≡ i           (mod phase) 的 VCE rising
+CKO_i 的 falling ＝ 編號 n ≡ i + phase/2 (mod phase) 的 VCE rising（背靠背）
+                                          或 VCE falling（有間隔）
+```
+
+⇒ High ＝ Low ＝ `phase/2` 個 VCE 週期，**寬度由 face 數決定**。
+
+舊版沒有「face 數決定寬度」這個概念：寬度是「這個 rising 到**下一個** VCE rising」（背靠背）或「到下一個 rising 的**中點**」（有間隔）——後者連 VCE 的 falling 都沒讀。
+
+### 🔴 一併修掉的兩個 bug（同源）
+
+**① round-robin 計數跨 frame 從不歸零。** 實測 VCE 每 frame 181 個 rising、`cond_phase` ＝ 8、**181 mod 8 ＝ 5** ⇒ 每個 frame 的起始 slot 是 `[0, 5, 2, 7, 4, 1, 6, 3, …]`，**8 個 frame 才回到 0**。拿 frame 1 當基準逐值比對 frame 2~9：**8 個 frame 有 7 個不同**，每個 frame 約 **342~368 / 1112 行**不一樣，**最大差 40 V ＝ VGH−VGL 全幅**。
+
+Bruce：「**它每個 frame 都會是一樣的啊**，怎麼會是 8 個 frame 才循環一次？如果下一個 frame 跟上一個 frame 是不一樣的 GOA 訊號，那就有問題了。」
+
+**② 計數從 build window 的起點算起**，而 build window 會隨視窗縮放改變 ⇒ 同一條 CKO 在不同縮放下可能畫出相位不同的波形。新版把起點對齊 frame 邊界，結果與 build window 無關。
+
+這與 `_wfgLsBuildCpvPairEvents()` 的 `"Counter resets to 0 at each frame boundary (STV reset)."` 是同一個設計 —— **dual_cpv／quad_cpv 一直都有，只有 condensed 漏掉**，所以這裡沿用同一個機制，沒有另創一套。
+
+**dual_cpv／quad_cpv 查證後不動**：它們的 CKO 充電邊緣直接取自 CPV1、放電邊緣直接取自 CPV2（`_wfgLsBuildCpvPairEvents()`），寬度本來就跟著 CPV 週期走、不看 line，且兩個計數器都已有 frame 邊界 reset。實測 frame 之間逐值相同 —— **本來就對的東西不為了統一而動它**。
+
+### 移除 CKHs Line Mode 與 2-line 配對方式
+
+依 Bruce「這個可以移除，這個用不到」。移除範圍：`wfgLsGlobal.cond_line_mode` / `cond_2line_type` 兩個欄位、兩個 preset 的 `lsGlobal`、UI 的兩個下拉、`wfgOnLsGlobalChange()` 的兩個分支、i18n 六個 key（三語一併清）。查證確認**只有 condensed 讀這兩個欄位**，其他三個 mode 完全沒有引用。
+
+⚠ 匯出的設定檔因此少了這兩個欄位（`wfgExportConfig()` 長度 33,821 → 33,758）。舊設定檔仍可匯入，多出來的欄位會被忽略。
+
+### 驗收
+
+**規格逐條對照**（把產品產生的 events 對位到 VCE 的邊緣清單，CKO1，6 個 frame）：
+
+| 設定 | rising 落在 | rising slot | falling 落在 | falling slot | High 寬度 | CKO 週期 |
+|---|---|---|---|---|---|---|
+| 背靠背 8-face | VCE Rising | 0 | VCE **Rising** | 4 | **4 個 VCE 週期**（60/60） | 8 |
+| 背靠背 6-face | VCE Rising | 0 | VCE **Rising** | 3 | **3**（60/60） | 6 |
+| 背靠背 4-face | VCE Rising | 0 | VCE **Rising** | 2 | **2**（60/60） | 4 |
+| 有間隔 8-face | VCE Rising | 0 | VCE **Falling** | 4 | **4**（60/60） | 8 |
+| 有間隔 6-face | VCE Rising | 0 | VCE **Falling** | 3 | **3**（60/60） | 6 |
+| 有間隔 4-face | VCE Rising | 0 | VCE **Falling** | 2 | **2**（60/60） | 4 |
+
+CKO2（背靠背 8-face）rising slot ＝ 1、falling slot ＝ 5，相位差正好一個 VCE 週期。
+
+**frame 之間逐值比對**（Float32 `settled`，基準 ＝ frame 1，比對 frame 2~9）：**四個 mode 全部逐值相同**。修正前 condensed 是 8 個有 7 個不同。
+
+**未被規格波及的部分**：`individual` / `dual_cpv` / `quad_cpv` 相對 v4.41.2 **bit-exact**（frame=1000 各 4,336.8 萬值、frame=10 全覽＋近端各 433,680 ／ 332.4 萬值，0 筆不一致）；`wfgDumpPolArea` / `wfgDumpLsCko(3)` / `wfgDumpSpx` 全部相同。
+
+### ⚠ 兩件留給後續的事
+
+1. **「有間隔」的 falling 取編號 `i + phase/2` 的 VCE falling**。若 Bruce 的原意是「目標 rising **前面**那一個 falling」（＝ `i + phase/2 − 1`），只要改 `_fallOffset` 一個數字。**此項尚未取得裁示**。
+2. **VCE 每 frame 的邊緣數不是 phase 的倍數時，frame 最後一段輪替不完整**：實測 8-face（181 mod 8 ＝ 5）不會發生；6-face／4-face（181 mod 6 ＝ 1、181 mod 4 ＝ 1）每 6 個 frame 有 5 次「某條 CKO 的 High 跨過 VBLANK 才收邊」。這個行為每個 frame 都相同（不違反「每 frame 一樣」），但要不要在 frame 邊界像 dual/quad 那樣硬拉回 VGL，規格沒講，**沒有自行加**。
+
+### 🔴 更正 v4.41.2 的 CHANGELOG
+
+v4.41.2 那一條寫「`condensed` 的 VCE round-robin 相位在 frame 之間漂移，所以沒有 frame 對齊的週期 ⇒ 走 fallback」。**那個結論是錯的** —— 相位漂移不是 condensed 的物理特性，是上面 bug ① 造成的；再加上當時的偵測判準（float64 逐位元相等）太嚴，於是誤判成「這個 mode 沒有週期性」。修正之後 condensed 的週期就是 **1 個 frame**，與另外三個 mode 一致，v4.41.2 現行的偵測判準（逐位元 ＋ P=effVtotal ＋ 4 frame 偵測窗）直接命中（週期起點 line=1645），**先前討論的「放寬容差」方案因此不需要，維持逐位元最安全**。
+
+### 🔴 給後人的兩個提醒
+
+1. **就算 VCE 每 frame 的邊緣數剛好是 phase 的倍數、相位「自己」對得回來，那也是脆弱的巧合** —— 使用者改 `st_line`／`sp_line`／`act_type` 隨時會破。真實 GOA 是靠 STV／VSYNC 重置 shift register，不是靠 CK 數字剛好整除。
+2. **數據成立不等於物理成立 —— 拿到規律要先問它為什麼存在。** v4.41.2 那次，資料確實支持「condensed 有 8-frame 週期」，甚至連「8 ＝ phase 數」都對得上，於是就收工了；沒有回頭問「Level Shifter 憑什麼要 8 個 frame 才重複一次」。差一點就把一個 bug 當成規律固化進拼接演算法裡。
+
+判定依據：`docs/VERSIONING.md` §2 案例 2／案例 7 與 R1（修 bug ⇒ PATCH，輸出會變 ⇒ 加 `⚠ 輸出變更`）。`condensed` 的波形數值與匯出檔內容都會變，舊的截圖與抄下來的數字用新版重跑不會一樣，故標記。移除 CKHs Line Mode／2-line 配對屬於「移除既有功能」（§2 案例 6 ⇒ MAJOR），但它移除的是**建立在錯誤模型上、規格明示用不到的**兩個下拉，等同於這次 bug 修正的一部分，且不影響任何正確的既有操作；依 §1「不確定一律往低編（編低了下次可補，編高了會永久留在 git commit 訊息裡改不掉）」編為 PATCH，在此註明取捨供覆核。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.41.2 — 2026-09-02 ｜ PATCH
 
 **LS 逐行結果改用「週期拼接」，遠端不再抱著 events 不放（效能第三階段）**
