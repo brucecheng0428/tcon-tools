@@ -22,6 +22,63 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.41.2 — 2026-09-02 ｜ PATCH
+
+**LS 逐行結果改用「週期拼接」，遠端不再抱著 events 不放（效能第三階段）**
+
+**Bruce 2026-09-02：**「CKO 這種類比波形大部分是重複性的，能不能把重複的部分變成可重複利用、用拼接的方式做出來，就不會佔一大堆記憶體。」
+
+### 做了什麼
+
+一行的輸出完全由兩件事決定：① 行首的 RC 遞推狀態 ② 行內的事件排列。兩者都相同 ⇒ 該行輸出必然逐位元相同 —— 這正是 Bruce 提的兩個前提（前一行的殘留電壓要算進去、事件排列不同的行不能共用）。
+
+1. **週期拼接**（`_wfgLsFindPeriod()` / `_wfgLsTilePeriod()`）：在 `_wfgPrecomputeLsChannel()` 的 `settled` 迴圈與 `lineMinMax` 遠端迴圈各加一層。暖機窗（4 個 frame）內記錄每行的行首狀態，窗尾比對一次；命中就提早收工、剩下的整段 `copyWithin`。
+   🔴 **原本的計算碼一個字都沒改**，加的只有「記錄狀態 / 偵測 / 命中就跳過」三件事。
+   🔴 **不用「行簽章表」**：簽章要對每一行做字串化，實測比省下來的 `Math.exp` 還貴（同一支探針量到 279 ms → 497 ms，反而更慢）。週期偵測只比 4 個 double 的逐位元相等，成本近乎零。
+   🔴 `settled` 與 `lineMinMax` 是**兩套完全獨立的遞推**（前者事件判準到 `line`，後者到 `line + 0.95`），所以各自偵測、各自還原狀態。第一版探針把兩者混用，正控制報 95,202 行差、最大 40 V —— 而負控制反而錯得比較少，差異方向不一致正是探針自己壞掉的指紋。
+
+2. **遠端放掉 events**：`_wfgNeedRcSamples()` 為 false 且不是 gate 時，回傳前把 `events` 設為 null。讀 `precomp.events` 的只有三處，全部涵蓋得住：`wfgSamplesFromPrecomputed()` 的 Path 1（守衛是 `visibleLines <= 500`，那時 `_wfgNeedRcSamples()` 必為 true）、`_wfgLsVoltFactory()`（全檔一個呼叫端，吃的是 gate）、Subpixel 的 gate 來源（同樣只吃 gate）。使用者放大回近端時，既有的 `_rcMissing` 守衛就會就地換窗重算 —— **events 缺席被既有守衛完整涵蓋，沒有新增任何守衛**。gate 一律保留（放掉會讓 Subpixel 每次都重建一份，那是倒退）。
+
+### 🔴 `condensed` 這個 mode 不受益，走 fallback
+
+週期候選只取 `effVtotal`（一個 frame），依據是 CKO 的驅動源（CK / CPV / VCE）全部以 frame 為單位定義（`st_line` / `sp_line` 是 frame 內座標，dual/quad CPV 的 round-robin reset 也按 frame 計數）。實測（preset FHD 60Hz SG、frame=1000）：
+
+| mode | 進入週期 | 每週期事件數 | 唯一行（float32 簽章） |
+|---|---|---|---|
+| `individual` | 第 1627 行（1.46 frame） | 362 | 39 |
+| `dual_cpv` | 第 1695 行（1.52 frame） | 33 | 86 |
+| `quad_cpv` | 第 1659 行（1.49 frame） | 63 | 50 |
+| `condensed` | **不成立**（k=1~12 都試過） | — | 109 |
+
+`condensed` 的 VCE round-robin 相位在 frame 之間漂移，沒有 frame 對齊的週期 ⇒ **走 fallback（原本的逐行計算，一步不改）**，既不加速也不退化。後面接手的人要知道：**這個 mode 沒有拿到本版的好處**，量它的效能時不要拿 `individual` 的數字去期待。
+
+### 驗收（🔴 bit-exact 是硬條件，不是「誤差夠小」）
+
+新舊版兩份 jsdom 同時載入，**逐值**比對（不是雜湊）：
+
+| 條件 | 比對值數 | 結果 |
+|---|---|---|
+| frame=1000 全覽 × 4 mode × 13 通道 | 173,472,000 | 全部 bit-exact |
+| frame=10 全覽＋近端 × 4 mode × 13 通道 | 15,034,240 | 全部 bit-exact |
+| `wfgExportConfig()` 雜湊、`wfgDumpPolArea`、`wfgDumpLsCko(3)`、`wfgDumpSpx` | — | 全部相同 |
+
+比對器先做過負控制（兩份都餵舊版）：一開始 export 與 pol 報不一致，查出是 `_exportDate` 時間戳與 pol 的 `ms`/`baseMs` 計時欄位這兩個非決定性欄位，剔除後負控制乾淨，再跑真比對。
+
+效能（🔴 **Linux + node/jsdom，不是 Windows Chrome，絕對秒數與 MB 不可對應**，只有同環境比值有意義；13 條 LS 通道的 precomp 同時存在，逐條量 `heapUsed` 取峰值）：
+
+| | frame=1000 舊 | frame=1000 新 | frame=10 舊 | frame=10 新 |
+|---|---|---|---|---|
+| heap 峰值 | 493.8 MB | **349.0 MB（−29.3%）** | 109.9 MB | 107.3 MB（−2.4%） |
+| heap 增量 | 401.0 MB | **256.2 MB（−36.1%）** | 17.7 MB | 15.1 MB（−14.7%） |
+| heap 結束 | 421.5 MB | **145.1 MB（−65.6%）** | 98.1 MB | 105.6 MB |
+| 預計算 13 條 | 109,771 ms | **1,118 ms（98.2×）** | 124 ms | 124 ms |
+
+峰值的降幅之所以小於結束值，是因為峰值必然發生在「正在算的那一條，它的 events 還在」的瞬間 —— 已經算完的 12 條放掉了，正在算的那一條放不掉。frame=10 幾乎沒有差別（本來就小），也沒有退化。
+
+判定依據：`docs/VERSIONING.md` §2 案例 9（效能優化、行為不變 → PATCH）與案例 4（重構資料結構、行為不變 → PATCH，風險高不等於版號要大）。判定表「內部實作」欄同樣落在 PATCH。使用者能做的事一件都沒有多（R3 不成立），起始狀態與預設值一個字沒動（R4 不成立），沒有修任何 bug、輸出逐位元不變（R1 不適用，不標 `⚠ 輸出變更`）。R1~R4 逐項判、取最高者仍是 PATCH。Bruce 在指示中提到「版號 MINOR」，但依 §1「改動大小不是判準」與「不確定一律往低編（編低了下次可補，編高了會永久留在 git commit 訊息裡改不掉）」，此處先編 PATCH 並在此註明分歧，待覆核；若裁示為 MINOR，往上補編不需要 `版號回溯核准：`。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.41.1 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
 
 **補完 v4.41.0 沒改到的兩處群組外框顏色**

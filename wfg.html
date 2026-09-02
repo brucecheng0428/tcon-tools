@@ -3570,8 +3570,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260902wfg4411"></script>
-<script src="common/i18n.js?v=20260902wfg4411"></script>
+<script src="common/version.js?v=20260902wfg4412"></script>
+<script src="common/i18n.js?v=20260902wfg4412"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -5206,6 +5206,76 @@ var WFG_RC_SAMPLES_LPP_MAX = 4;
    🔴 這個常數是自適應的：curvature 拉到 255 時 tau ≈ 2 line，一行內的取樣點全都
       進不到 20 個 tau ⇒ 截斷不生效、自動退回逐點計算，正確性不依賴參數設定。 */
 var WFG_RC_CONVERGED_TAU = 20;
+
+/* ══ 🔴 v4.41.2：LS 逐行結果的「週期拼接」 ═══════════════════════════════════
+   Bruce 2026-09-02：「CKO 這種類比波形大部分是重複性的，能不能把重複的部分變成
+   可重複利用、用拼接的方式做出來，就不會佔一大堆記憶體。」
+
+   一行的輸出完全由兩件事決定：① 行首的 RC 遞推狀態 ② 行內的事件排列。
+   兩者都相同 ⇒ 該行的輸出必然逐位元相同 —— 這正是 Bruce 提的兩個前提
+   （前一行的殘留電壓要算進去、事件排列不同的行不能共用）。
+
+   🔴 **不用「行簽章表」，用「週期偵測」**：簽章要對每一行做字串化，實測比省下來的
+      `Math.exp` 還貴（探針量到 279ms → 497ms，反而更慢）。週期偵測只在暖機窗內
+      比對狀態（4 個 double 的逐位元比較），命中之後整段 `copyWithin`，成本近乎零。
+
+   🔴 **週期候選只取 `effVtotal`（一個 frame）**，不做通用自相關搜尋。依據：CKO 的
+      驅動源（CK / CPV / VCE）全部以 frame 為單位定義（`st_line` / `sp_line` 是
+      frame 內座標，dual/quad CPV 的 round-robin reset 也按 frame 計數）——
+      **frame 是結構上唯一保證的週期候選**。實測（preset FHD 60Hz SG、frame=1000）：
+
+        | mode        | 進入週期 | 每週期事件數 | 唯一行（float32 簽章） |
+        |-------------|---------|-----------|--------------------|
+        | individual  | 第 1627 行（1.46 frame） | 362 | 39 |
+        | dual_cpv    | 第 1695 行（1.52 frame） | 33  | 86 |
+        | quad_cpv    | 第 1659 行（1.49 frame） | 63  | 50 |
+        | condensed   | **不成立**（k=1~12 都試過） | —   | 109 |
+
+      `condensed` 的 VCE round-robin 相位在 frame 之間漂移，所以沒有 frame 對齊的
+      週期 ⇒ **走 fallback（原本的逐行計算，一步不改）**，不退化也不加速。
+
+   🔴 **bit-exact 是硬條件**：判準是狀態的**逐位元相等**（`!==` 比較 float64），
+      不是「差得夠小」。狀態相同 ⇒ 後續每一次 `Math.exp` 的輸入完全相同 ⇒ 輸出
+      完全相同。回歸驗證見 `_tmp_probe_reuse2.js` 的正控制（settled 與 lineMinMax
+      各 0 筆不一致）。
+
+   偵測窗 = 4 個 frame。實測三個成立的 mode 都在 1.6 個 frame 內進入週期，留 4 個
+   frame 是為了讓「週期起點」有兩個 frame 的餘裕；再大只是白算（找不到就是找不到）。 */
+var WFG_LS_PERIOD_DET_FRAMES = 4;
+
+/* 在狀態記錄陣列 stA（每行 4 個 double）裡找最小的 s，使得 [s, s+P) 與 [s-P, s)
+   的每一行狀態都**逐位元相同**。回傳 s；找不到回傳 -1。
+   先比 s 這一行（O(1)）不同就跳過，所以平均是 O(n) 而不是 O(n×P)。 */
+function _wfgLsFindPeriod(stA, n, P) {
+  if (!(P > 0) || n < P * 2) return -1;
+  for (var s = P; s + P <= n; s++) {
+    var a0 = s * 4, b0 = (s - P) * 4;
+    if (stA[a0] !== stA[b0] || stA[a0 + 1] !== stA[b0 + 1] ||
+        stA[a0 + 2] !== stA[b0 + 2] || stA[a0 + 3] !== stA[b0 + 3]) continue;
+    var ok = true;
+    for (var r = 1; r < P; r++) {
+      var a = (s + r) * 4, b = (s + r - P) * 4;
+      if (stA[a] !== stA[b] || stA[a + 1] !== stA[b + 1] ||
+          stA[a + 2] !== stA[b + 2] || stA[a + 3] !== stA[b + 3]) { ok = false; break; }
+    }
+    if (ok) return s;
+  }
+  return -1;
+}
+
+/* 把 [base0, base0+P) 這一個週期往右鋪滿 [from, to)。stride = 每行佔幾個元素。
+   週期起點不一定對齊 from，所以第一段可能只鋪半個週期。 */
+function _wfgLsTilePeriod(arr, base0, P, from, to, stride) {
+  var pos = from;
+  while (pos < to) {
+    var off = ((pos - base0) % P);
+    var n = P - off;
+    if (pos + n > to) n = to - pos;
+    arr.copyWithin(pos * stride, (base0 + off) * stride, (base0 + off + n) * stride);
+    pos += n;
+  }
+}
+
 function _wfgNeedRcSamples() {
   try {
     var cv = document.getElementById('wfg-canvas');
@@ -5788,8 +5858,26 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var baseV = voltage;
   var ei = 0;
 
-  for (var _r = 0; _r < winLen; _r++) {
+  /* v4.41.2 週期拼接（見 _wfgLsFindPeriod 上方的整段說明）。
+     🔴 下面那個 for 迴圈的「計算」部分一個字都沒改 —— 加的只有
+        ① 偵測窗內記錄行首狀態 ② 窗尾做一次偵測 ③ 命中就提早收工改用 copyWithin。
+     偵測窗涵蓋不到兩個 frame，或整段本來就不比偵測窗長 ⇒ 不啟用（全算也很便宜）。 */
+  var _perP = (effVtotal > 0) ? (effVtotal | 0) : 0;
+  var _perDet = (_perP > 0) ? Math.min(winLen, _perP * WFG_LS_PERIOD_DET_FRAMES) : 0;
+  var _perOn = (_perP > 0) && (_perDet >= _perP * 2) && (winLen > _perDet);
+  var _perSt = _perOn ? new Float64Array(_perDet * 4) : null;
+  var _perEi = _perOn ? new Int32Array(_perDet) : null;
+  var _perL0 = -1;
+  var _perLim = winLen;
+
+  for (var _r = 0; _r < _perLim; _r++) {
     var line = base + _r;
+    if (_perSt && _r < _perDet) {
+      var _pss = _r * 4;
+      _perSt[_pss] = curTarget; _perSt[_pss + 1] = baseV;
+      _perSt[_pss + 2] = line - lastEventX; _perSt[_pss + 3] = curRcTau;
+      _perEi[_r] = ei;
+    }
     // Process events at or before this line
     while (ei < events.length && events[ei].lineX <= line) {
       var ev = events[ei];
@@ -5811,6 +5899,24 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     } else {
       settled[_r] = (Math.abs(curTarget - baseV) < 0.0001) ? curTarget : baseV;
     }
+    if (_perSt && _r === _perDet - 1) {
+      _perL0 = _wfgLsFindPeriod(_perSt, _perDet, _perP);
+      if (_perL0 >= 0) _perLim = _r + 1;   // 剩下的交給 copyWithin
+    }
+  }
+  if (_perL0 >= 0) {
+    var _perBase0 = _perL0 - _perP;
+    _wfgLsTilePeriod(settled, _perBase0, _perP, _perDet, winLen, 1);
+    /* 遞推狀態要停在「rel = winLen」該有的位置上。LS 的 _lazyExtend 目前沒有任何
+       消費者（全檔只有 SD 的那一份被 _wfgSdLValuePerFrame 讀），但不留錯值。 */
+    var _perEndOff = _perBase0 + ((winLen - _perBase0) % _perP);
+    var _pes = _perEndOff * 4;
+    curTarget = _perSt[_pes];
+    baseV = _perSt[_pes + 1];
+    voltage = baseV;
+    lastEventX = (base + winLen) - _perSt[_pes + 2];
+    curRcTau = _perSt[_pes + 3];
+    ei = _perEi[_perEndOff] + ((winLen - _perEndOff) / _perP) * (_perEi[_perL0] - _perEi[_perBase0]);
   }
 
   // ── Precompute RC sub-line samples from events for zero-compute band rendering ──
@@ -5904,8 +6010,26 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     }
     return (Math.abs(_rsTarget - _rsBaseV) < 0.0001) ? _rsTarget : _rsBaseV;
   };
+  /* v4.41.2 週期拼接第二處。`lineMinMax` 的 `_rs*` 是**與 settled 完全獨立的另一套
+     遞推**（事件判準到 tail = line+0.95，settled 只到 line），所以必須各自偵測、
+     各自還原 —— 兩者混用是第一版探針踩過的坑（正控制報 95,202 行差、最大 40V）。 */
+  var _perSt2 = _perOn ? new Float64Array(_perDet * 4) : null;
+  var _perEi2 = _perOn ? new Int32Array(_perDet) : null;
+  var _perL02 = -1;
   for (var _rsRel = 0; _rsRel < winLen; _rsRel++) {
     var _rsLine = base + _rsRel;
+    if (_perSt2) {
+      if (_rsRel === _perDet) {
+        _perL02 = _wfgLsFindPeriod(_perSt2, _perDet, _perP);
+        if (_perL02 >= 0) break;          // 剩下的交給 copyWithin
+      }
+      if (_rsRel < _perDet) {
+        var _ps2 = _rsRel * 4;
+        _perSt2[_ps2] = _rsTarget; _perSt2[_ps2 + 1] = _rsBaseV;
+        _perSt2[_ps2 + 2] = _rsLine - _rsLastX; _perSt2[_ps2 + 3] = _rsTau;
+        _perEi2[_rsRel] = _rsEi;
+      }
+    }
     var _rsTail = _rsLine + _rsTailF;
     var _rsMin, _rsMax, _v;
     // 快速路徑：整行沒有事件 ⇒ 單調段，極值只在兩端；已收斂則兩端都等於 curTarget
@@ -5945,7 +6069,33 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     lineMinMax[_rsRel * 2] = _rsMin;
     lineMinMax[_rsRel * 2 + 1] = _rsMax;
   }
+  if (_perL02 >= 0) {
+    var _perBase02 = _perL02 - _perP;
+    _wfgLsTilePeriod(lineMinMax, _perBase02, _perP, _perDet, winLen, 2);
+    var _perEndOff2 = _perBase02 + ((winLen - _perBase02) % _perP);
+    var _pes2 = _perEndOff2 * 4;
+    _rsTarget = _perSt2[_pes2];
+    _rsBaseV = _perSt2[_pes2 + 1];
+    _rsV = _rsBaseV;
+    _rsLastX = (base + winLen) - _perSt2[_pes2 + 2];
+    _rsTau = _perSt2[_pes2 + 3];
+    _rsEi = _perEi2[_perEndOff2] + ((winLen - _perEndOff2) / _perP) * (_perEi2[_perL02] - _perEi2[_perBase02]);
   }
+  }
+
+  /* v4.41.2：遠端（rcSamples 已經是 null）且不是 gate ⇒ events 可以放掉。
+     🔴 為什麼安全：
+       ① 讀 `precomp.events` 的只有三處 —— `wfgSamplesFromPrecomputed()` 的 Path 1
+          （守衛是 `visibleLines <= 500`，那時 lpp < 1 ⇒ `_wfgNeedRcSamples()` 必為
+          true ⇒ 本段根本不會走到）、`_wfgLsVoltFactory()`（全檔只有一個呼叫端，
+          吃的是 **gate** 的 precomp）、Subpixel 的 gate 來源（同樣只吃 gate）。
+       ② 使用者放大回近端時，既有的 `_rcMissing` 守衛（`!precomp.rcSamples &&
+          _wfgNeedRcSamples()`）就會就地換窗重算，那一次 `_needRc` 為 true ⇒
+          events 與 rcSamples 一起回來。**events 缺席被既有守衛完整涵蓋，不必新增。**
+       ③ gate 一律保留：`_wfgPrecomputeSpxChannel()` 用 `gateSrc.events` 判斷要不要
+          自己重建一份，放掉會讓它每次都重建 —— 那是效能倒退，不是節省。
+     實測（frame=1000、12 條 CKO）：events 物件 434 萬個 ≈ 267 MB，是這裡的大宗。 */
+  if (!_needRc && !(ac && ac.is_gate)) events = null;
 
   return { settled: settled, events: events, totalLines: totalLines, effVtotal: effVtotal,
     rcTauRise: RC_TAU_RISE, rcTauFall: RC_TAU_FALL,
