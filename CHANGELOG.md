@@ -22,6 +22,36 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.41.6 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
+
+**補完 v4.41.5 明載「本版不涵蓋」的那五個入口**
+
+v4.41.5 修的是 `wfgResizeAndRender` 那條根因。當時實測確認**另有五個入口也存不下來、但成因不同**，並在該條目寫明不涵蓋。本版把它們補齊：
+
+| 入口 | 原本為什麼存不下來 |
+|---|---|
+| `wfgZoomIn` / `wfgZoomOut` / `wfgFitAll` | 直接呼叫 `wfgRender()`，從來就沒有存檔呼叫 |
+| 時間游標開關 `wfgToggleCursor()` | 同上 |
+| 脈衝計數 新增／刪除／收合／改欄位 | 同上（`wfgPulseAdd` / `Del` / `Toggle` / `Change`，只修新增會變成一半好一半壞，四支一起補） |
+| −／+ 微調鈕 7 支 | 程式化寫 `input.value` 後**直接呼叫 handler**，沒有派發 `input`／`change` ⇒ `#page-wfg` 上的委派存檔收不到 |
+
+修法：這 15 處各補一行 `wfgAutoSave()`（本檔既有寫法，全檔已有約 20 處）。它自帶 500 ms debounce，成本只有一次 `clearTimeout` ＋ `setTimeout`。
+
+🔴 **為什麼微調鈕沒有改用 `wfgSimSliderNudge()` 的 `dispatchEvent` 寫法**（那才是結構上更好的解，讓按鈕與拖曳走逐字元相同的路徑）：**它對其中三支不是行為中性的**，而本版的驗收條件是波形逐值不變。
+- `wfgSliderNudge()` → 拉霸的 `oninput` 會多套一層 `wfgGpoRangeGuard()`，改過去等於順帶改變它接受哪些值。
+- `wfgGateRcNudge()` / `wfgSpxRcNudge()` → 有 ×1000 與 `wfgFmtGateRcMult()` 的值域／格式映射，兩條路徑的寫法不同。
+另外四支（`wfgAnalogSliderNudge` / `wfgLsGlobalSliderNudge` / `wfgFrmNoNudge` / `wfgGateNudge`）改過去確實等價，但**七支只改四支會留下兩種寫法**，比統一補 `wfgAutoSave()` 更糟。轉成 `dispatchEvent` 留作獨立的重構條目，屆時要連 guard 與格式映射一起處理。
+
+**順帶澄清（不是 bug）**：v4.41.5 回報時提到「GPIO 卡片的 `ACT_TYPE`／`R_PH`／`ST_LINE`／`ENABLE` 也被標紅、疑似假陽性」。本版把等待視窗從 620 ms 拉到 4000 ms 重測：ENABLE 勾選框、ACT_TYPE 拉霸、R_PH 數字格、ST_LINE 拉霸在 **620／1200／2500／4000 ms 四個時點全部一致**。**確認是掃描腳本的假陽性**（每輪重新匯入基準狀態時 GPIO 清單被重建、元素參照失效），產品沒有問題。
+
+### ⚠ 輸出變更
+
+這幾個操作之後重整，得到的狀態與舊版不同（舊版會退回上一次被存下來的狀態）。舊結果本身是 bug 產物，但依 R1 的範圍定義（同一操作序列得到不同結果）仍須標記。**波形數值一位元未變** —— 實測 canvas 全部繪圖呼叫雜湊比對，預設狀態 1789 筆、`fhd_60hz_sg` 6936 筆，修前修後雜湊相同。
+
+判定依據：`docs/VERSIONING.md` §1 判定表「既有功能的輸出 ＝ 修正為原本就該有的行為」→ PATCH；§2 案例 2（改一個 bug）→ PATCH；R1 → PATCH ＋ `⚠ 輸出變更`。逐項取最高者仍為 PATCH。功能沒有增減、按鈕沒有移位、既有操作全部照舊，不觸及 MINOR／MAJOR。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.41.5 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
 
 **自動存檔漏了一整條路徑：「意圖包一層、實作寫成重寫一份」**
