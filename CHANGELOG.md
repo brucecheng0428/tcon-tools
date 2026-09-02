@@ -22,6 +22,52 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.41.4 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
+
+**補完 v4.41.3 留的那一項：「有間隔」的 falling 邊緣序號**
+
+**Bruce 2026-09-02（裁示 v4.41.3 的待確認項）：**「如果是有間隔的話，一樣以 8 phase 為例：**CKO Rising 是第一個 VCE 的 Rising，可是 CKO Falling 則是第四個 VCE 的 Falling**。」
+
+⇒ 0-based 偏移是 `phase/2 − 1`，不是 v4.41.3 暫定的 `phase/2`。只改 `_fallOffset` 一個運算式，**背靠背那條路徑一行都沒動**。
+
+與背靠背相差的那一段（第 `phase/2` 個 VCE 的 falling → 第 `phase/2 + 1` 個 VCE 的 rising）**就是間隔**，也就是 VCE 自己的 Low 時間。
+
+### 🔴 不變量（Bruce 2026-09-02）：有間隔的 Duty 絕對不會大於 50%
+
+**背靠背 ＝ 恰好 50%；有間隔 ＝ 一定 < 50%。任何一格 ≥ 50% 就是做錯了。** 這條寫進了 `_wfgLsBuildCondensedEvents()` 的註解，改動那一段之前要先確認它還成立。
+
+結構上成立、不需要執行時檢查：`_fallOffset` 比背靠背小一個 VCE 週期，而 falling 落在該週期的 falling（必定早於下一個 rising），所以 High 嚴格短於 50%。**刻意不加 runtime 斷言** —— 這支函式每次換窗都會跑，結構保證已經足夠，加檢查只是在熱路徑上多做白工。
+
+### 驗收
+
+**Duty 逐格實測**（High 寬度 ÷ CKO 週期，兩者都用絕對 line 量，不靠推導；preset 的 VCE 是 High 2 line／Low 4 line）：
+
+| face | 背靠背 duty | 有間隔 duty | 判定 |
+|---|---|---|---|
+| 8-face | **50.0000 %** | **41.6667 %** | 通過 |
+| 6-face | **50.0000 %** | **38.8889 %** | 通過 |
+| 4-face | **50.0000 %** | **33.3333 %** | 通過 |
+
+**邊緣落點**（CKO1，6 個 frame，每格 40/40 一致）：
+
+| 設定 | rising | falling | High 寬度 |
+|---|---|---|---|
+| 有間隔 8-face | VCE **Rising** 第 1 個（slot 0） | VCE **Falling** 第 **4** 個（slot 3） | 3 個 VCE 週期＝20 line |
+| 有間隔 6-face | VCE Rising 第 1 個（slot 0） | VCE Falling 第 3 個（slot 2） | 2 個週期＝14 line |
+| 有間隔 4-face | VCE Rising 第 1 個（slot 0） | VCE Falling 第 2 個（slot 1） | 1 個週期＝8 line |
+
+8-face 那一列與 Bruce 的描述逐字對得上：rising 第 1 個 VCE 的 rising、falling 第 4 個 VCE 的 falling。
+
+**間隔量**：8/6/4-face 的 High 寬度從背靠背的 24／18／12 line 縮到 20／14／8 line，**間隔一律 4 line ＝ VCE 自己的 Low 時間**，與 Bruce 的描述吻合，且三格都 > 0（不是零、不是負）。
+
+**沒被波及的部分**：相對 v4.41.3（`dc8c993`）**全部 bit-exact**（frame=10 全覽＋近端、四個 mode × 13 通道，共 1,503 萬值，0 筆不一致，含 `condensed` 的背靠背路徑、export 雜湊與三個 dump）。相對 v4.41.2（`8c9c72b`）則是 `individual`／`dual_cpv`／`quad_cpv` bit-exact，只有 `condensed` 與 export 依規格改變。
+
+**frame 之間逐值相同**：四個 mode ＋ condensed 的兩種 interval 全部通過。
+
+判定依據：`docs/VERSIONING.md` §2 案例 2／案例 7 與 R1（修正為應有行為 ⇒ PATCH；`condensed` 有間隔模式的波形數值會變 ⇒ 加 `⚠ 輸出變更`）。本版只動 `_fallOffset` 一個運算式與註解，沒有新增或移除任何使用者可見的功能（R3／R4 均不適用）。與 v4.41.3 同屬一天內同一功能的連續修補，但 v4.41.3 的 CHANGELOG 已明載「待裁示」且該版輸出與本版不同，故另編一版而非併入，以免 CHANGELOG 與 git 歷史對不上。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.41.3 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
 
 **修正一進多出（condensed）的 Level Shifter 模型 —— CKO 寬度由 face 數決定**
