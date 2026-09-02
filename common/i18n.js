@@ -1274,6 +1274,22 @@ var I18N = {
   'wfg.gpioSources':    { 'zh-TW': 'TCON 數位信號', 'en': 'TCON Digital Signals', 'zh-CN': 'TCON 数字信号' },
   'wfg.analogSources':  { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog Signals', 'zh-CN': 'IC 模拟信号' },
   'wfg.outputChannels': { 'zh-TW': '輸出通道', 'en': 'Output Channels', 'zh-CN': '输出通道' },
+  /* 🔴 v4.42.0：輸出通道卡片上方的三大類顯示切換。
+     用字刻意**逐字沿用它們對應的卡片標題**（`wfg.gpioSources`／`wfg.analogSources`／
+     `wfg.panelSignals`）—— 按鈕與卡片講的是同一批訊號，兩處字面不同只會讓人以為
+     是兩件事。（站上既有用字是「信號」不是「訊號」，這裡跟著站上走，不另起一套。） */
+  'wfg.chCatDig':       { 'zh-TW': 'TCON 數位信號', 'en': 'TCON Digital', 'zh-CN': 'TCON 数字信号' },
+  'wfg.chCatIc':        { 'zh-TW': 'IC 類比信號', 'en': 'IC Analog', 'zh-CN': 'IC 模拟信号' },
+  'wfg.chCatPanel':     { 'zh-TW': '面板類比信號', 'en': 'Panel Analog', 'zh-CN': '面板模拟信号' },
+  'wfg.chCatDigTitle':  { 'zh-TW': '按一下全部顯示、再按一下全部隱藏。只含這份 code 有勾選 ENABLE 的數位信號。',
+                          'en': 'Click to show all, click again to hide all. Only digital signals with ENABLE checked in this code.',
+                          'zh-CN': '按一下全部显示、再按一下全部隐藏。只含这份 code 有勾选 ENABLE 的数字信号。' },
+  'wfg.chCatIcTitle':   { 'zh-TW': '按一下全部顯示、再按一下全部隱藏。CKO 的條數由 GOA Phase 決定（例：8 phase 只有 CKO1～CKO8）。',
+                          'en': 'Click to show all, click again to hide all. The number of CKOs follows GOA Phase (e.g. 8 phase gives CKO1–CKO8 only).',
+                          'zh-CN': '按一下全部显示、再按一下全部隐藏。CKO 的条数由 GOA Phase 决定（例：8 phase 只有 CKO1～CKO8）。' },
+  'wfg.chCatPanelTitle':{ 'zh-TW': '按一下全部顯示、再按一下全部隱藏（Gate Line、Subpixel 電壓）。',
+                          'en': 'Click to show all, click again to hide all (Gate Line, Subpixel voltage).',
+                          'zh-CN': '按一下全部显示、再按一下全部隐藏（Gate Line、Subpixel 电压）。' },
   'wfg.loadPreset':     { 'zh-TW': '載入預設…', 'en': 'Load Preset…', 'zh-CN': '载入预设…' },
   'wfg.fitAll':         { 'zh-TW': '📏 全覽', 'en': '📏 Fit All', 'zh-CN': '📏 全览' },
   'wfg.fitAllPlain':    { 'zh-TW': '全覽', 'en': 'Fit All', 'zh-CN': '全览' },
@@ -1454,11 +1470,19 @@ var I18N = {
   'wfg.impsTconD':      { 'zh-TW': 'TCON頻率設定、TCON 其他設定、TCON 數位信號，以及工具列 TCON group',
                           'en': 'TCON Clock Settings, Other TCON Settings, TCON Digital Signals, and the TCON toolbar group',
                           'zh-CN': 'TCON频率设定、TCON 其他设定、TCON 数字信号，以及工具栏 TCON group' },
-  'wfg.impsDisp':       { 'zh-TW': '左側顯示卡片', 'en': 'Display cards (left)',
-                          'zh-CN': '左侧显示卡片' },
-  'wfg.impsDispD':      { 'zh-TW': 'IC 類比信號、面板類比信號、輸出通道',
-                          'en': 'IC Analog Signals, Panel Analog Signals, Output Channels',
-                          'zh-CN': 'IC 模拟信号、面板模拟信号、输出通道' },
+  /* 🔴 v4.42.0：原本的單一類別 `wfg.impsDisp`（「左側顯示卡片」）拆成下面兩條。
+     Bruce 2026-09-02：「左側要再細分拆開成兩張卡…匯入分類的選項要跟著這個新的拆法走。」
+     舊的 impsDisp／impsDispD 已無任何引用，本版一併移除，避免留下兩套說法。 */
+  'wfg.impsAnlg':       { 'zh-TW': '左側類比訊號卡片', 'en': 'Analog signal cards (left)',
+                          'zh-CN': '左侧模拟信号卡片' },
+  'wfg.impsAnlgD':      { 'zh-TW': 'IC 類比信號、面板類比信號',
+                          'en': 'IC Analog Signals, Panel Analog Signals',
+                          'zh-CN': 'IC 模拟信号、面板模拟信号' },
+  'wfg.impsChan':       { 'zh-TW': '左側輸出通道卡片', 'en': 'Output channel card (left)',
+                          'zh-CN': '左侧输出通道卡片' },
+  'wfg.impsChanD':      { 'zh-TW': '輸出通道、類比疊合群組',
+                          'en': 'Output Channels, analog overlay groups',
+                          'zh-CN': '输出通道、模拟叠合群组' },
   'wfg.impsMeas':       { 'zh-TW': '右側量測卡片', 'en': 'Measurement cards (right)',
                           'zh-CN': '右侧量测卡片' },
   'wfg.impsMeasD':      { 'zh-TW': '時基標尺、類比垂直設定、脈衝計數',
