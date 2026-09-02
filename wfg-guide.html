@@ -2209,6 +2209,7 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
             <tr><td class="t-name">Line Buffer</td><td><span class="t-type tt-num">數值輸入</span><br><small style="color:var(--muted);">（NB 為唯讀）</small></td><td>全部機種</td><td>行緩衝深度，單位是<strong>輸入（RX）資料行</strong>。上限依機種而定（見下表）。<strong>MNT 可直接輸入；NB 是唯讀的衍生值</strong>（灰底、改不動），真值在它右邊那兩格。</td></tr>
             <tr><td class="t-name">First Line Read</td><td><span class="t-type tt-num">數值輸入</span></td><td><strong>只有 MNT</strong><br>（EM01／EM02／E512）</td><td>官方 EM01 工具上寫的就是「First Line read」。單位是<strong>輸出（TX）行</strong>，也就是 <strong>TX DE 相對 RX DE 往後推幾條 line</strong> —— 波形上看到的位移量就是這個數字。與 Line Buffer 雙向連動。</td></tr>
             <tr><td class="t-name">ST_LINE_RD<br>PRE_BLK_RD_NO</td><td><span class="t-type tt-num">數值輸入 × 2</span></td><td><strong>只有 NB</strong><br>（E501A／E501B／E503／EN01）</td><td><strong>NB 的 TCON 沒有「First Line Read」這個東西</strong>，取而代之的是這兩顆暫存器，<strong>兩者相加</strong>才是第一筆資料出來的位置。<code>PRE_BLK_RD_NO</code> 是前面的 dummy 行數（實際上 0～6 都出現過，不是固定值），<code>ST_LINE_RD</code> 是資料本身的延遲。兩格都可以自由輸入。<span style="color:var(--muted);">EN01 的官方名稱是 <code>START_LINE_RD</code>／<code>PRE_BLK_DATA</code>，匯出的清單裡會照它自己的名字寫。</span></td></tr>
+            <tr id="sec6txdeoff"><td class="t-name">TX DE Offset</td><td><span class="t-type tt-num">數值輸入</span><br><small style="color:var(--muted);">（右邊有一顆表格圖示按鈕）</small></td><td>全部機種<br>（MNT／NB 都有）</td><td>把 <code>TX DE</code> 這一條波形在<strong>每一條 line 之內</strong>整段往後挪，單位是 <strong>TX DCLK</strong>（欄位上不重複寫單位）。範圍 <code>0</code>～<code>511</code>，<strong>預設 0</strong>（＝不平移）。起點與終點一起移動，所以<strong>脈寬不變</strong>。<strong>只動 TX DE 這一條線</strong> —— <code>RX DE</code>、資料索引（D0／D1…）與 SD／Subpixel 取樣<strong>一個都不受影響</strong>。與 <code>First Line Read</code> 的分工見下方說明。</td></tr>
           </tbody>
         </table>
       </div>
@@ -2260,6 +2261,39 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
         <strong>MNT：打超過上限時，欄位會顯示<em>實際採用的值</em>，不會停在你打的那個數字</strong>
         MNT 三顆（EM01／EM02／E512）的 <code>First Line Read</code> 與 <code>Line Buffer</code> 兩格有上限。在格子裡打一個超過上限的數字（例如打 99、上限是 22），<strong>畫面上會直接變成 22</strong>，也就是內部真正採用的那個值。<br>
         <span style="color:var(--muted);">🔴 <strong>格子裡看到的數字，就是波形實際用的那個數字</strong>，不會出現「格子寫 99、波形卻用 22 畫」的落差。</span>
+      </div>
+
+      <div class="callout info" id="sec6txdeoffnote">
+        <strong>TX DE Offset：行<em>內</em>的平移，和 First Line Read（行<em>級</em>）是兩件不同的事</strong>
+        ・<code>First Line Read</code>／<code>Line Buffer</code> 動的是<strong>行</strong>：第 N 筆資料從第幾條 line 出來，D0／D1 標籤與 SD 取樣都會跟著移。<br>
+        ・<code>TX DE Offset</code> 動的是<strong>一條 line 之內的位置</strong>：只把 TX DE 這條方波沿時間軸整段挪動，<strong>資料索引一個都沒變</strong>。<br><br>
+        例：填 <code>32</code> ⇒ 起始位置由該行的 DCLK 0 移到 DCLK 32，結束位置同樣 ＋32 ⇒ <strong>脈寬不變</strong>。<br>
+        打超過 <code>0～511</code> 時會<strong>夾到界線，並把欄位回寫成實際採用的那個值</strong>（與 Line Buffer 同一個原則：<strong>格子裡看到的數字就是波形用的數字</strong>）。<br>
+        <span style="color:var(--muted);">🔴 <strong>預設值從 v4.39.0 起是 <code>0</code></strong>（v4.38.0 剛做出來時是 32）。v4.37.3 以前存的設定檔裡沒有這個欄位，匯入時一律以 <code>0</code> 帶入 —— 那些舊檔重畫出來會與當初存檔時完全一樣。</span>
+      </div>
+
+      <div class="callout warn">
+        <strong>欄位右邊那顆表格圖示 ▦ ＝ 建議值對照表（不是問號，按下去不會離開這一頁）</strong>
+        <code>TX DE Offset</code> 欄位右邊有一顆<strong>表格圖示</strong>的小按鈕，按下去會<strong>原地跳出一個浮動視窗</strong>，依 <strong>TCON ／ H resolution ／ Tx I/F ／ Gate Type</strong> 列出建議值。<strong>點任何一個數字就直接帶進上面的欄位</strong>，目前正在用的那一格會被標起來；<strong>套用之後視窗不會關</strong>，方便一格一格比較。<br>
+        <span style="color:var(--muted);">為什麼不用問號：頁首的「?」是<strong>整個網頁的使用說明</strong>（會換頁），這一顆講的是<strong>單一欄位的內容</strong>（原地開視窗），刻意用不同的圖示區隔開。</span><br><br>
+        <strong>⚠ 視窗最上方那一行警告要看：「這些只是粗略的測試值」</strong><br>
+        實際上<strong>仍要以實際波形為主</strong>。表中的數字只是起手參考，<strong>不能取代量測</strong>。<br><br>
+        目前收錄的 7 列（<strong>除 E503 之外 Single Gate 與 Dual Gate 同值</strong>，所以合併成一格）：
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>TCON</th><th>H resolution</th><th>Tx I/F</th><th>TX DE Offset</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">EM01</td><td><code>3840</code></td><td>iSP</td><td><code>100</code><small style="color:var(--muted);">（single／dual 同值）</small></td></tr>
+              <tr><td class="t-name">EM01</td><td><code>2560</code></td><td>iSP</td><td><code>100</code><small style="color:var(--muted);">（single／dual 同值）</small></td></tr>
+              <tr><td class="t-name">EM01</td><td><code>2560</code></td><td>mLVDS</td><td><code>40</code><small style="color:var(--muted);">（single／dual 同值）</small></td></tr>
+              <tr><td class="t-name">EM01</td><td><code>1920</code></td><td>mLVDS</td><td><code>40</code><small style="color:var(--muted);">（single／dual 同值）</small></td></tr>
+              <tr><td class="t-name">EM02</td><td><code>2560</code></td><td>mLVDS</td><td><code>20</code><small style="color:var(--muted);">（single／dual 同值）</small></td></tr>
+              <tr><td class="t-name">EM02</td><td><code>1920</code></td><td>mLVDS</td><td><code>10</code><small style="color:var(--muted);">（single／dual 同值）</small></td></tr>
+              <tr><td class="t-name">E503</td><td><code>1920</code></td><td>iSP</td><td>single <code>60</code>／dual <code>30</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <span style="color:var(--muted);">這份表格與工具內視窗是同一組數字；<strong>有出入時以工具內的視窗為準</strong>（工具那邊是程式裡的單一常數表直接生成的）。</span>
       </div>
 
       <div class="callout info">

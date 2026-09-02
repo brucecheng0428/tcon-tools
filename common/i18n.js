@@ -25,6 +25,8 @@ var I18N = {
   'common.errorPosInt': { 'zh-TW': '請輸入正整數', 'en': 'Please enter a positive integer', 'zh-CN': '请输入正整数' },
   'common.errorNonNeg': { 'zh-TW': '請輸入正整數（或 0）', 'en': 'Please enter a non-negative integer', 'zh-CN': '请输入正整数（或 0）' },
   'common.default':     { 'zh-TW': '預設', 'en': 'Default', 'zh-CN': '默认' },
+  /* 頁首「?」按鈕的 tooltip／aria-label（六個分頁共用，走 data-i18n-aria 同時寫 title 與 aria-label） */
+  'common.helpBtn':     { 'zh-TW': '使用說明', 'en': 'User Guide', 'zh-CN': '使用说明' },
 
   'calc.title':         { 'zh-TW': 'mLVDS 分顆(分時) Skew 計算工具', 'en': 'mLVDS Multi-chip (Time-division) Skew Calculator', 'zh-CN': 'mLVDS 分颗(分时) Skew 计算工具' },
   'calc.subtitle':      { 'zh-TW': '示波器設定 & UI cof_cnt 分界值計算', 'en': 'Oscilloscope setup & UI cof_cnt boundary calculation', 'zh-CN': '示波器设定 & UI cof_cnt 分界值计算' },
