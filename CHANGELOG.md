@@ -22,6 +22,85 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.41.0 — 2026-09-02 ｜ MINOR ｜ ⚠ 輸出變更
+
+**兩件事：波形區上方的固定區改成跟著「還留在上面的有哪些」動態增減；四條內部列的配色接回 v4.34.0 已定的顏色語意**
+
+**Bruce 2026-09-02（原話）：**
+
+> A.「RX DE 跟 TX DE 這兩個也固定在波形區上方。但因為這兩個波形是可以拖曳往下移的，所以當往下移的時候，固定區就縮減到沒有往下移的部分。也就是假設我把 TX DE 往下移，固定區就變成 R_PH_CNT、F_PH_CNT 跟 RX DE 這三個；如果我把 RX DE 也往下移，固定區就剩兩個；如果我再把 TX DE 移回上面，固定區又回到三個，以此類推。」
+> B.「原本的 RX DE 它是藍色的，但是因為它屬於系統端，所以我想要跟左邊卡片欄位的配色一致（也就是跟系統有關的亮綠色，跟左邊的卡片一樣）。」＋ TX DE 亮藍、R_PH_CNT 亮藍、F_PH_CNT 暗藍、右側數字比照同色、數字達 ACT_TYPE 時上霧綠下霧紅、「滑鼠指標指到波形上的 F_DLY，也改成同樣配色的霧紅色」。
+
+**判定依據：** 依 `docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者 → **MINOR**。
+
+- **R3（新增能力）**：命中 → **MINOR**。這一版之後使用者多了一件原本做不到的事 —— RX／TX 兩組也能釘在波形區頂端（v4.40.0 為止固定區恆為 R_PH_CNT + F_PH_CNT 兩列）。既有的欄位、按鈕、拖曳流程一個都沒有移位或消失。
+- **§2 案例 3（改 UI 版面、不動功能）**：配色屬於「微調」那一欄 → PATCH。取較高者後不影響結論。
+- **`⚠ 輸出變更`**：命中兩項 —— (1) 四條內部列與其數字的顏色變了；(2) 固定區高度隨成員增減而變（四組都在上面時 176px → 名稱欄 186px）。依 §4 C3 的範圍定義，「用截圖功能存下的成果，新舊版拿同一組設定重跑會長得不一樣」⇒ 要標。
+- **不是 MAJOR**：沒有任何功能被移除、沒有入口移位，使用者原本會的操作全部照舊。
+
+### 1. 固定區成員動態增減
+
+改動只有兩處，**沒有新增任何狀態**：內部區總共就 4 個群組（`WFG_IR_GROUPS` ＝ RX、TX、R_PH_CNT、F_PH_CNT），而「被拖到下面」早就有現成的表示法 `_wfgPromotedRx >= 0` / `_wfgPromotedTcon >= 0`，`wfgIrRowYFiltered()` 與 `wfgRenderLabels()` 的迴圈**本來就在 `continue` 掉它們**。
+
+- `wfgTconStickyTopH()`：原本硬查 `_wfgIrOrder.indexOf(4)`／`indexOf(5)` 且**要求兩者都在前兩列**（那個假設等價於「固定區永遠只有兩列」，RX/TX 也能進固定區之後就不成立）。改成用新的 `wfgIrLastPinnedRowIdx()` 掃出**最後一個沒被 promoted 的顯示列**，取它的底部。四組全被拖走時退回 Time + Line。
+- `wfgRenderLabels()`：內部列先累積到 `_irHtml`，迴圈結束後一次寫進 `html` 與 `stickyHtml`。
+  🔴 v3.25.0 那行 `if (_isFixed) stickyHtml += _irItemHtml` 只補了固定列，而群組外框 `<div class="wfg-ir-group-border">` **從頭到尾只寫進 `html`** —— 照抄那一行會讓固定區裡的 RX/TX 少一圈外框。改成整段一起寫，沿用 v4.39.0 的同一個思路：**兩邊本來就是同一段字串，不是兩份實作**。
+
+#### 🔴 順帶修掉的一個既有座標不一致
+
+`.wfg-ir-group-border` 有 1.5px border ＋ 1px margin ＋ 1px padding（實測每組 5px），這是**名稱欄獨有的裝飾，canvas 上沒有**。v4.40.0 為止固定區只有 R_PH_CNT／F_PH_CNT（沒有外框）所以 canvas 高度與名稱欄高度恰好相等，RX/TX 進固定區之後才暴露：**canvas 176px vs 名稱欄 186px**，而覆蓋層 `#wfg-tcon-sticky-labels` 是 `overflow:hidden` ⇒ TX 群組框的下緣連同 10px 被切掉（正是 Bruce 在 v4.39.0 回報過的同型症狀）。
+
+修法是讓覆蓋層的高度改由**名稱欄自己的內容**決定（新增 `_wfgStickyLabelH`，在 `wfgRenderLabels()` 量一次存起來），canvas 複製高度維持 canvas 座標。
+🔴 這**不是** v4.39.0 說的「兩套座標各自為政」的反例：v4.39.0 修的是「canvas 有、DOM 漏掉」的 2px（兩邊都該有，所以補），這裡是「DOM 有、canvas 天生沒有」的裝飾（補過去反而會多複製 10px 像素、露出下一列頂端）。度量不同的東西，本來就該各用各的尺。
+⚠ **不能用 `scrollHeight`**（第一版踩過）：它的下限是 `clientHeight`，而 clientHeight 來自上一輪寫進去的 `style.height` ⇒ 固定區「變多」時量得到、「變少」時量不到（實測拖走 TX 後內容只剩 143px，`scrollHeight` 仍回報 187）。改量最後一個子元素的 `bottom` 相對容器 `top`，與 `style.height`／`overflow` 都無關，而且含群組外框的 margin。
+
+### 2. 配色：接回 v4.34.0 的顏色語意
+
+v4.34.0 由 Bruce 自己定下（本檔 1183 行）：**綠 ＝ 系統端／Pattern Gen 端**、**藍 `--accent` ＝ TCON 端**、紅 `#ef4444` ＝ 錯誤／警示。這一版不是新配一套顏色，是把這四列接回那套語意 —— RX 是訊號進 TCON 之前（綠），TX 與 PH_CNT 是 TCON 內部運算（藍）。橘在那套語意裡本來就沒有位置，於這四列整組退場（但**沒有從全站消失**：Code group 框、聚光燈、輸入框 focus 仍是橘）。
+
+| 元素 | v4.40.0 | v4.41.0 | 站上出處 |
+|---|---|---|---|
+| RX DCLK／RX DE | `#38bdf8` | **`#4ade80`** | 文字綠：系統模擬卡片標題／`.wfg-la-status.ok`／Gate Line 卡片 |
+| TX DCLK／TX DE | `#f97316` | **`#38bdf8`** | `--accent`（`common/common.css:10`） |
+| R_PH_CNT（含 R_DLY 標籤） | `#4ade80` | **`#38bdf8`** | 同上 |
+| F_PH_CNT | `#fb923c` | **`#3b82f6`** | `.wfg-ack-item.tone-blue` 的 `--ack-tone`（站上藍 tone 的實心色） |
+| 數到 ACT_TYPE 的格子底（R） | 跟著線條色 | **固定 `#4ade80` @0.25** | 維持原本的霧綠 |
+| 數到 ACT_TYPE 的格子底（F） | 跟著線條色 | **`#ef4444` @0.25** | `.wfg-ack-item.tone-red` 的 `--ack-tone` |
+| **F_DLY** 標籤與箭頭 | `#fb923c` | **`#ef4444`** | 同上 |
+
+🔴 **trigger 底色必須與線條色脫鉤**：原本是 `ctx.fillStyle = color` 加 `globalAlpha 0.25`，所以「霧綠」只是 `rph` 的 25% —— R_PH_CNT 一改藍，霧綠就會跟著變霧藍。新增 `wfgDrawPhCntRow()` 的第 20 個參數 `trigBg`（不傳則退回 `color` ＝ 舊行為），並以常數 `WFG_PHCNT_TRIG_BG` 集中；**刻意不拿既有的 `gateSel` 參數兼差判顏色**，那會把兩件事綁死。
+
+⚠ **`R_DLY` 這一項 Bruce 沒有指定**：他只說了 F_DLY 改霧紅。這裡讓 R_DLY 跟著 R_PH_CNT 走亮藍，是我們補的預設值，寫在 `WFG_DLY_LABEL_COLORS`，要改只動那一行。
+⚠ 暗藍若要換：改 `WFG_INTERNAL_COLORS.fph` 一個常數即可（全檔 20 處使用都從這裡讀）。備案是 `#0ea5e9`（較亮）或 `#075985`（很暗，目前是 LA decode badge 底色）。
+
+### 3. 驗收（操作式驗證，不是宣稱）
+
+**固定區成員**（1600×1000，preset `fhd_60hz_sg`）—— **走真實拖曳**（`Input.dispatchMouseEvent` 的 press／move×8／release，非直接改狀態）：
+
+| 狀態 | 固定區成員 | `--tcon-sticky-h` | 覆蓋層 bottom | 固定區最後一員 bottom | 首個可見通道 top |
+|---|---|---|---|---|---|
+| 初始（四組都在上面） | R_PH_CNT, F_PH_CNT, RX DCLK, RX DE, TX DCLK, TX DE | 176px | 405 | 405 | 406 |
+| 拖走 TX | R_PH_CNT, F_PH_CNT, RX DCLK, RX DE | 139px | 363 | 363 | 364 |
+| 再拖走 RX | R_PH_CNT, F_PH_CNT | 102px | 321 | 321 | 321 |
+| 把 RX 拖回上面 | R_PH_CNT, F_PH_CNT, RX DCLK, RX DE | 139px | 363 | 363 | 364 |
+
+**v4.39.0 的 2px 對齊復驗**：四個狀態全部滿足「覆蓋層 bottom == 固定區最後一員 bottom（逐值相等）」且「覆蓋層 bottom ≤ 首個可見通道 top」。只剩 R_PH_CNT/F_PH_CNT 的那個狀態量到 102px ＝ 與 v4.39.0 修好之後同值，沒有回歸。另以匯入設定的路徑跑過同樣四個狀態＋復原，結果一致。
+捲到底（scrollTop 1335／2272）後固定區仍完整釘住六列、群組外框未被截斷。
+
+**配色**（canvas 像素逐值比對，非目測）：
+
+| 項目 | 理論值 | 實測 |
+|---|---|---|
+| R_PH_CNT 達 ACT_TYPE 的格底 | `#4ade80` @0.25 疊在 `13,17,23` ＝ (28.25, 68.25, 49.25) | **(29, 69, 49)** |
+| F_PH_CNT 達 ACT_TYPE 的格底 | `#ef4444` @0.25 疊在 `13,17,23` ＝ (69.5, 29.75, 34.25) | **(70, 30, 34)** |
+| R_PH_CNT 數字 | `#38bdf8` | **(56, 189, 248)** |
+| F_PH_CNT 數字 | `#3b82f6` | **(59, 130, 246)** |
+| 名稱欄 computed color | 綠／藍／亮藍／暗藍 | RX＝`rgb(74,222,128)`、TX＝`rgb(56,189,248)`、R_PH_CNT＝`rgb(56,189,248)`、F_PH_CNT＝`rgb(59,130,246)` |
+
+**F_DLY 霧紅**：hover 前 `#ef4444` 系像素 **0**（負控制乾淨 —— 第一版把 VST2 的純紅 `#FF0000` 也算了進去，收窄到 r∈(200,255)、g/b∈(50,95) 才排除），hover 到 CK2 後 **91**，可明確歸因。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.40.0 — 2026-09-02 ｜ MINOR ｜ ⚠ 輸出變更
 
 **兩件事：把 LOD 下推到類比預計算層（首次全覽 61.5 秒 → 14.5 秒）；兩個快捷設定的 frame 數改 10，並把開頁視野／游標從「寫死的絕對座標」改成由 frame 索引推導**

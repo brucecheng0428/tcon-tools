@@ -3565,8 +3565,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260902wfg4400"></script>
-<script src="common/i18n.js?v=20260902wfg4400"></script>
+<script src="common/version.js?v=20260902wfg4410"></script>
+<script src="common/i18n.js?v=20260902wfg4410"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -7801,7 +7801,41 @@ function wfgIrGroupOf(ri) {
   }
   return -1;
 }
-const WFG_INTERNAL_COLORS = { rxde: '#38bdf8', txde: '#f97316', rph: '#4ade80', fph: '#fb923c' };
+/* ══ 🔴 v4.41.0：內部列配色改站上既有語意（Bruce 2026-09-02）════════════════════
+   「原本的 RX DE 它是藍色的，但是因為它屬於系統端，所以我想要跟左邊卡片欄位的配色
+     一致（也就是跟系統有關的亮綠色，跟左邊的卡片一樣）。」
+
+   這一版**不是新配一套顏色**，是把這四列接回 v4.34.0 由 Bruce 自己定下的語意
+   （本檔 1183 行）：
+     ・**綠 ＝ 系統端／Pattern Gen 端** → RX（訊號進 TCON 之前）＝ `#4ade80`
+     ・**藍 `--accent` ＝ TCON 端**     → TX 與 R_PH_CNT（TCON 內部運算）＝ `#38bdf8`
+   橘（`#f97316` / `#fb923c`）在那套語意裡本來就沒有位置，於這四列整組退場
+   —— 但**沒有從全站消失**（Code group 框、聚光燈、輸入框 focus 仍是橘）。
+
+   四個值全部是站上既有色票，一個都不是新造的：
+     ・`#4ade80` 文字綠 —— 系統模擬卡片標題／`.wfg-la-status.ok`／Gate Line 卡片
+     ・`#38bdf8` ＝ `--accent`（`common/common.css:10`）
+     ・`#3b82f6` ＝ `.wfg-ack-item.tone-blue` 的 `--ack-tone`（站上藍 tone 的實心色，
+       也用於 `.wfg-spot-ring.tone-blue`）。比 `#38bdf8` 深且飽和，剛好構成亮／暗一組。
+   ⚠ 暗藍若要換，備案是 `#0ea5e9`（較亮）或 `#075985`（很暗，目前是 LA decode badge
+     的底色）—— 改這一個常數即可，全檔 20 處使用都從這裡讀。 */
+const WFG_INTERNAL_COLORS = { rxde: '#4ade80', txde: '#38bdf8', rph: '#38bdf8', fph: '#3b82f6' };
+/* ══ 🔴 v4.41.0：PH_CNT「數到 ACT_TYPE」那一格的底色，與線條色**脫鉤** ═══════════
+   Bruce：「數字達到 ACT_TYPE 時，格子背景：上方（R_PH_CNT）維持原本的霧綠，
+            下方（F_PH_CNT）改為霧紅。」
+
+   🔴 這一格的底色原本是 `ctx.fillStyle = color`（＝線條色）加 `globalAlpha 0.25`，
+      所以「霧綠」只是 `rph` 的 25%。R_PH_CNT 一改藍，霧綠就會跟著變霧藍 ——
+      要維持霧綠就必須把底色拆成獨立的一組值，不能再跟著線條色跑。
+   `#ef4444` 是站上既有的錯誤／警示紅（`.wfg-ack-item.tone-red` 的 `--ack-tone`、
+   `.wfg-hl-key`，v4.34.0 明文列為第三個語意色），不自創。 */
+const WFG_PHCNT_TRIG_BG = { rise: '#4ade80', fall: '#ef4444' };
+/* v4.41.0：波形上 R_DLY／F_DLY 標籤與箭頭的顏色。
+   🔴 F_DLY 改霧紅是 Bruce 指定的（「滑鼠指標指到波形上的 F_DLY，也改成同樣配色的
+      霧紅色」，與上面那組 trigger 底色同一個紅）。
+   ⚠ **R_DLY 他沒有指定** —— 這裡讓它跟著 R_PH_CNT 走亮藍，是我們補的預設值，
+      不是他的指示。要改只動這一行。 */
+const WFG_DLY_LABEL_COLORS = { rise: WFG_INTERNAL_COLORS.rph, fall: WFG_PHCNT_TRIG_BG.fall };
 
 /* 判定「這是點一下、還是拖曳」的位移門檻（px，v3.10.0）。滑鼠按下到放開之間
    位移沒超過這個值就當點擊 —— 手指／滑鼠都很難做到 0 位移。 */
@@ -22224,9 +22258,9 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
           _phGate = wfgPhGateCombined(ch.gpioIdx, _wfgTransitionCache.transitions);
         }
         // Draw R_PH_CNT
-        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, false, _phGate, 0);
+        wfgDrawPhCntRow(ctx, rphY, rowH, WFG_INTERNAL_COLORS.rph, gpio.r_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, false, _phGate, 0, WFG_PHCNT_TRIG_BG.rise);
         // Draw F_PH_CNT（Toggle 時改畫 bit 值，計數器來源仍是 R_PH）
-        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.toggle ? gpio.r_ph : gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, !!gpio.toggle, _phGate, 1);
+        wfgDrawPhCntRow(ctx, fphY, rowH, WFG_INTERNAL_COLORS.fph, gpio.toggle ? gpio.r_ph : gpio.f_ph, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, _phNoPulse, _phMask, !!gpio.toggle, _phGate, 1, WFG_PHCNT_TRIG_BG.fall);
       }
     }
   }
@@ -22560,7 +22594,11 @@ function wfgDrawDclkRow(ctx, y, rowH, dclkPerLine, color, drawX0, w, firstVisLin
    「收尾未關閉脈衝」例外誤套到 rising 上 —— SP_LINE=5 時因此把 R_PH_CNT 開放到
    line 18、F_PH_CNT 開放到 line 20，而那兩行的邊緣其實被 `line <= sp` 擋掉了，
    還被畫成觸發格。整段已刪除，改由上游投影。 */
-function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight, toggleMask, isBitRow, phGate, gateSel) {
+/* v4.41.0：多一個 `trigBg` —— 「數到 ACT_TYPE」那一格的底色。
+   🔴 刻意是**參數**而不是在函式內依 `gateSel` 判：`gateSel` 有自己的語意（phGate 的
+      閘門選擇），拿它兼差判顏色會讓兩件事綁死，日後改其中一個必然波及另一個。
+   不傳就退回 `color`（＝ v4.40.0 以前的行為），所以這個參數是可選的。 */
+function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vtotalView, firstVisLine, lastVisLine, lineToX, drawX0, w, forceNonHighlight, toggleMask, isBitRow, phGate, gateSel, trigBg) {
   ctx.textAlign = 'center';
   var textY = y + rowH / 2 + 3;
   var cycle = actType + 1;
@@ -22642,8 +22680,9 @@ function wfgDrawPhCntRow(ctx, y, rowH, color, iniPh, actType, stLine, spLine, vt
       ctx.fillText(counterVal.toString(), (clampL + clampR) / 2, textY);
     } else if (isTrigger) {
       // Highlight + triggered: colored bg + bold (no save/restore for perf)
+      // v4.41.0：底色改吃 trigBg（上霧綠／下霧紅），文字仍是線條色 —— 兩者已脫鉤
       ctx.globalAlpha = 0.25;
-      ctx.fillStyle = color;
+      ctx.fillStyle = trigBg || color;
       ctx.fillRect(clampL, y, clampR - clampL, rowH);
       ctx.globalAlpha = 1;
       ctx.fillStyle = color;
@@ -25246,19 +25285,48 @@ function _wfgTconClearStickyTimeAxis() {
 
    ・水平方向天生不會脫鉤：複製的是**同一張 canvas 的同一段畫素**，1:1 貼上，
      所以左右捲動／改倍率時欄位與波形必然逐格對齊，沒有第二套座標換算。
-   ・R_PH_CNT / F_PH_CNT 恆在內部列的最前兩列：`WFG_IR_FIXED_GROUPS` 在拖曳
-     （startIrDrag 直接 return）與設定檔匯入（_fixedRows.concat）兩處都強制了。
-     這裡仍加一道防禦：萬一不在最前兩列就只釘 Time + Line，不要釘到不相干的列。 */
+   ══ 🔴 v4.41.0：固定區成員改成「內部區目前還留在上面的全部」════════════════════
+   Bruce 2026-09-02：「RX DE 跟 TX DE 這兩個也固定在波形區上方。但因為這兩個波形是
+   可以拖曳往下移的，所以當往下移的時候，固定區就縮減到沒有往下移的部分。……如果我
+   再把 TX DE 移回上面，固定區又回到三個，以此類推。」
+
+   🔴 **沒有新增任何狀態**：內部區總共就 4 個群組（`WFG_IR_GROUPS` ＝ RX、TX、
+      R_PH_CNT、F_PH_CNT），而「被拖到下面」早就有現成的表示法 ——
+      `_wfgPromotedRx >= 0` / `_wfgPromotedTcon >= 0`。`wfgIrRowYFiltered()` 與
+      `wfgRenderLabels()` 的迴圈**本來就在 continue 掉它們**。所以「還留在上面的有
+      哪些」＝「這個迴圈沒有 continue 掉的那些」，一個新變數都不需要。
+
+   ⚠ v3.25.0 原本的寫法（硬查 `indexOf(4)`／`indexOf(5)` 且要求兩者都在前兩列）在
+     RX/TX 也能進固定區之後就不成立了 —— 那個假設等價於「固定區永遠只有兩列」。
+     改成掃出**最後一個沒被 promoted 的顯示列**，取它的底部。R_PH_CNT / F_PH_CNT
+     仍然恆在最前兩列（`WFG_IR_FIXED_GROUPS` 在拖曳與匯入兩處都強制），只是這支
+     函式不再依賴那件事。 */
 function wfgTconStickyTopH() {
   if (wfgKvdatMode) return WFG_TIME_H;              // kvdat 沒有 Line / PH_CNT 列，維持原本 30
   if (!wfgTconInternalMode) return WFG_AXIS_H;      // Time(30) + Line(22) + 2px 分隔 = 54
-  var i0 = _wfgIrOrder.indexOf(4), i1 = _wfgIrOrder.indexOf(5);   // 4 = R_PH_CNT, 5 = F_PH_CNT
-  if (i0 < 0 || i1 < 0 || i0 > 1 || i1 > 1) return WFG_AXIS_H;
-  // 第 2 顯示列（index 1）的底部 ＝ 兩列都涵蓋進來，含列下方的分隔線
-  return WFG_AXIS_H + wfgIrRowYFiltered(1) + wfgIrRowH(_wfgIrOrder[1]) + WFG_INTERNAL_ROW_GAP;
+  var last = wfgIrLastPinnedRowIdx();
+  if (last < 0) return WFG_AXIS_H;                  // 四組全被拖走 → 只剩 Time + Line
+  // 最後一個留在上面的顯示列的底部（含列下方的分隔線）
+  return WFG_AXIS_H + wfgIrRowYFiltered(last) + wfgIrRowH(_wfgIrOrder[last]) + WFG_INTERNAL_ROW_GAP;
+}
+/* v4.41.0：內部區裡「還留在上面」的最後一個顯示列的 index（`_wfgIrOrder` 的索引）。
+   全部被拖走時回 -1。判斷條件與 `wfgIrRowYFiltered()`／`wfgRenderLabels()` 的
+   迴圈**逐字相同** —— 三處必須同進退，不然固定區的高度會與內容對不上。 */
+function wfgIrLastPinnedRowIdx() {
+  var last = -1;
+  for (var i = 0; i < _wfgIrOrder.length; i++) {
+    var grp = wfgIrGroupOf(_wfgIrOrder[i]);
+    if (grp === 0 && _wfgPromotedRx >= 0) continue;
+    if (grp === 1 && _wfgPromotedTcon >= 0) continue;
+    last = i;
+  }
+  return last;
 }
 
 var _wfgTconStickyHSet = -1;   // 已寫進 CSS 變數的值，避免每幀都動 style
+/* v4.41.0：固定區「名稱欄」那一份的內容實際高度（px）。由 wfgRenderLabels() 在重建
+   名稱欄時量一次存起來，0 ＝ 還沒量過／沒有內容，此時退回 canvas 高度。 */
+var _wfgStickyLabelH = 0;
 // v2.97.371: TCON sticky 時間軸 — 複製主 canvas 頂部（v3.25.0 起高度由 wfgTconStickyTopH() 決定）
 function _wfgTconRenderStickyTimeAxis() {
   var sCanvas = document.getElementById('wfg-tcon-time-axis-canvas');
@@ -25286,7 +25354,9 @@ function _wfgTconRenderStickyTimeAxis() {
     /* kvdat 沒有 Line / PH_CNT 列，名稱欄要收起來，否則會在時間軸左側留一塊
        空的深色方塊（wfgRenderKvdatLabels 是另一支函式，不會寫這個容器）。 */
     if (wfgKvdatMode) sLab.innerHTML = '';
-    sLab.style.height = axisH + 'px';
+    /* v4.41.0：用名稱欄自己量到的內容高度（見 wfgRenderLabels 那段說明）。
+       量不到就退回 canvas 高度 ＝ v4.40.0 以前的行為。 */
+    sLab.style.height = ((_wfgStickyLabelH > 0 && sLab.innerHTML) ? _wfgStickyLabelH : axisH) + 'px';
     sLab.style.display = sLab.innerHTML ? 'block' : 'none';
   }
 }
@@ -26668,6 +26738,17 @@ function wfgRenderLabels() {
         { text: 'R_PH_CNT', color: WFG_INTERNAL_COLORS.rph, pl: '6px', fs: '9px' },
         { text: 'F_PH_CNT', color: WFG_INTERNAL_COLORS.fph, pl: '6px', fs: '9px' }
       ];
+      /* ══ 🔴 v4.41.0：內部列改成「整段一起進兩邊」════════════════════════════════
+         v3.25.0 只把固定列（`if (_isFixed) stickyHtml += _irItemHtml`）補進固定區，
+         於是 RX/TX 就算留在上面也不會出現在頂端那一欄；而且群組外框
+         `<div class="wfg-ir-group-border">` 從頭到尾只寫進 `html`，直接照抄那一行
+         會讓固定區裡的 RX/TX **少一圈藍框**，與底下的真身長得不一樣。
+
+         做法是把整段內部列先累積到 `_irHtml`，迴圈結束後一次寫進 `html` 與
+         `stickyHtml` —— 沿用 v4.39.0 那 2px 修正的同一個思路：**兩邊本來就是同一段
+         字串，不是兩份實作**，所以不可能漂移。被拖到下面的群組已經在迴圈開頭
+         `continue` 掉了，天生不會進固定區。 */
+      var _irHtml = '';
       // Build group order from _wfgIrOrder, group rows and wrap in border divs
       var _grpSeen = {};
       for (var _iri = 0; _iri < WFG_INTERNAL_ROWS; _iri++) {
@@ -26681,15 +26762,13 @@ function wfgRenderLabels() {
         // Open group border div at first member of group 0 or 1
         if ((_grp === 0 || _grp === 1) && !_grpSeen[_grp]) {
           var _borderCls = _grp === 0 ? 'wfg-ir-group-rx' : 'wfg-ir-group-tcon';
-          html += '<div class="wfg-ir-group-border ' + _borderCls + '" data-ir-group-border="' + _grp + '">';
+          _irHtml += '<div class="wfg-ir-group-border ' + _borderCls + '" data-ir-group-border="' + _grp + '">';
           _grpSeen[_grp] = true;
         }
         var _isFixed = WFG_IR_FIXED_GROUPS.indexOf(_grp) >= 0;
         var _cursor = _isFixed ? 'default' : 'grab';
         var _irItemHtml = '<div class="wfg-ir-label" data-ir-idx="' + _logRow + '" data-ir-group="' + _grp + '" data-ir-fixed="' + (_isFixed ? '1' : '0') + '" style="height:' + _irH + 'px;display:flex;align-items:center;padding-left:' + _lb.pl + ';font-size:' + _lb.fs + ';color:' + _lb.color + ';white-space:nowrap;cursor:' + _cursor + ';user-select:none;">' + _lb.text + '</div>';
-        html += _irItemHtml;
-        // v3.25.0: 固定列（R_PH_CNT / F_PH_CNT）同時進頂端釘住的那一欄
-        if (_isFixed) stickyHtml += _irItemHtml;
+        _irHtml += _irItemHtml;
         // Close group border div after last member
         if (_grp === 0 || _grp === 1) {
           var _grpMembers = WFG_IR_GROUPS[_grp];
@@ -26697,9 +26776,12 @@ function wfgRenderLabels() {
           for (var _nextI = _iri + 1; _nextI < WFG_INTERNAL_ROWS; _nextI++) {
             if (wfgIrGroupOf(_wfgIrOrder[_nextI]) === _grp) { _isLast = false; break; }
           }
-          if (_isLast) html += '</div>';
+          if (_isLast) _irHtml += '</div>';
         }
       }
+      /* v4.41.0：同一段字串寫進兩邊 —— 固定區的成員因此天生等於「內部區還留著的」。 */
+      html += _irHtml;
+      stickyHtml += _irHtml;
     }
   } else {
     html += '<div style="height:' + WFG_AXIS_H + 'px"></div>';
@@ -26757,6 +26839,35 @@ function wfgRenderLabels() {
      那個容器是 pointer-events:none，所以這些節點不會搶走 #wfg-labels 的拖曳／點擊。 */
   var _sLab = document.getElementById('wfg-tcon-sticky-labels');
   if (_sLab && _sLab.innerHTML !== stickyHtml) _sLab.innerHTML = stickyHtml;
+  /* ══ 🔴 v4.41.0：覆蓋層的高度改由**名稱欄自己的內容**決定 ════════════════════════
+     canvas 座標（`wfgTconStickyTopH()`）與名稱欄 DOM 的高度本來就不該相等：
+     RX/TX 的群組外框 `.wfg-ir-group-border`（1.5px border ＋ 1px margin ＋ 1px
+     padding，實測每組 5px）是**名稱欄獨有的裝飾，canvas 上沒有這個東西**。
+     v4.40.0 之前固定區只有 R_PH_CNT / F_PH_CNT（沒有外框）所以兩者恰好相等，
+     RX/TX 進固定區之後才暴露出來 —— 實測 1600×900、四組都在上面：
+     canvas 176px vs 名稱欄 186px，沿用 canvas 值會把 TX 群組框的下緣連同 10px 切掉
+     （`#wfg-tcon-sticky-labels` 是 `overflow:hidden`）。
+
+     🔴 這**不是** v4.39.0 那個「兩套座標各自為政」的反例。v4.39.0 修的是
+        「canvas 有、DOM 漏掉」的 2px（那 2px 兩邊都該有，所以要補）；這裡是
+        「DOM 有、canvas 天生沒有」的裝飾（canvas 不畫外框，補過去反而會多複製
+        10px 像素、露出下一列的頂端）。度量不同的東西，本來就該各用各的尺。
+     🔴 量一次就存起來：`scrollHeight` 會觸發 reflow，而
+        `_wfgTconRenderStickyTimeAxis()` 是每次 render 都跑的。這裡是名稱欄重建
+        （只在佈局變動時跑）才量，不把成本帶進 render loop。
+     🔴 **不能用 `scrollHeight`**（第一版就是踩這個）：`scrollHeight` 的下限是
+        `clientHeight`，而 clientHeight 來自上一輪寫進去的 `style.height`。
+        於是固定區「變多」時量得到、「變少」時量不到 —— 實測拖走 TX 之後
+        內容只剩 143px，`scrollHeight` 卻仍回報 187，覆蓋層就一直停在最大的那個高度。
+        改量**最後一個子元素的 bottom 相對容器 top**：這是佈局結果，與
+        `style.height`／`overflow` 都無關，而且**含群組外框的 margin**
+        （`getBoundingClientRect()` 的高度不含 margin，子元素高度相加會少 3px）。 */
+  if (_sLab && _sLab.lastElementChild) {
+    _wfgStickyLabelH = Math.ceil(_sLab.lastElementChild.getBoundingClientRect().bottom
+                               - _sLab.getBoundingClientRect().top);
+  } else {
+    _wfgStickyLabelH = 0;
+  }
   var rowH = WFG_ROW_H + WFG_ROW_GAP;
   // Analog channels (waveform_type !== 0) get a taller row so the curve has
   // headroom; digital labels keep the standard 48px height.
@@ -36788,7 +36899,8 @@ function wfgMeasDrawArrow(ctx) {
        v3.26.0：DLY=0 時 drawUniArrow 會畫單一圓點並回傳 true，文字仍照常顯示；
        文字改對齊 x1（＝起算點／圓點所在），否則 DLY=0 時 (x1+x2)/2 剛好壓在圓點上。 */
     function drawDlyLabel(arr, isRising) {
-      var color = isRising ? WFG_INTERNAL_COLORS.rph : WFG_INTERNAL_COLORS.fph;
+      // v4.41.0：F_DLY 改霧紅（Bruce 指定），R_DLY 跟著 R_PH_CNT 走亮藍（我們補的預設）
+      var color = isRising ? WFG_DLY_LABEL_COLORS.rise : WFG_DLY_LABEL_COLORS.fall;
       if (!drawUniArrow(arr.x1, arr.x2, arr.y, color, arr._dlyVal)) return;
       ctx.fillStyle = color;
       ctx.font = 'bold 12px sans-serif';
