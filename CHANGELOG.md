@@ -22,6 +22,157 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.43.0 — 2026-09-03 ｜ MINOR ｜ ⚠ 輸出變更
+
+**Level Shifter 新增 Terminate 訊號，一進多出另加 STV 訊號選單**
+
+Bruce 2026-09-02 口述的 **F**（原話全文見 `_ref/wfg_待辦需求_20260902.md` F 節），2026-09-03 補裁示 STV 的對應與範圍。
+
+解的問題：VBlanking 期間 CKO 維持 High、一路連到下一個 frame。
+🔴 **這不是靠「在 frame 邊界硬拉回」解的** —— 那個做法 Bruce 先前已明確否決（「LS 不認得 frame 邊界，他只看 VCE」）。Terminate 是**用一個真實訊號**收邊，讀的是使用者選定那條 GPIO 的實際邊緣，所以與那條裁示不衝突；本版也**沒有新增任何 frame 邊界 clamp**。
+
+### 行為
+
+1. **Terminate 下拉選單**，選項＝18 條數位訊號。只看它的 **Rising Edge**（Falling 一律不看）。
+2. Rising 之後把殘存的 High 壓成 Low，且**持續有效**——期間 CKO 不能正常輸出。
+3. 解除點＝**下一個 frame 的 STV Rising**，到此才 reset、恢復正常輸出。
+
+| 模式 | Terminate 選單 | 預設 | STV 選單 |
+|---|---|---|---|
+| 一進多出（condensed） | 只有訊號清單，**沒有「不使用」** | **TEND** | **有**，預設 **VST1** |
+| 其他三個模式 | 訊號清單 ＋ 最上面「不使用」 | **不使用** | **不出現**（沿用既有 `f × Vtotal` frame 邊界當解除點） |
+
+「一定要」在結構上就不給關掉的入口，而不是給了再擋。切換模式**保留使用者選過的訊號**：`term_gpio_idx`（選到哪一條）與 `term_enabled`（用不用）分兩個欄位存，選「不使用」只翻後者。
+
+### 🔴 STV ＝ VST1 的查證依據（Bruce 2026-09-03 親自裁示）
+
+先查證再實作，查不到就停下來問，沒有自行挑一個：
+
+| 查證 | 結果 |
+|---|---|
+| 專案的 18 條數位訊號（`WFG_GPIO_NAMES`） | `xstb, xpol, vst1, vst2, ck1~ck8, LC, tend, vs, hs, gpo0, gpo1` —— **沒有叫 `stv` 的訊號** |
+| `wfg.html` 裡的 "STV" | 只出現在**註解**，一律被當成 frame 起點的同義詞（`_wfgLsBuildCpvPairEvents()`：「at every STV rising edge (frame start)」，實作是 `f × Vtotal`，不讀任何訊號） |
+| vault `tcon_docs/issue_db.md:464` | 「LS output **STV 與 TEND 接反**」⇒ STV 與 TEND 是**兩條不同的實體訊號** |
+| vault `Model Card/G140EA14.md` | 「原理圖 STV1 實際是 TEND，STV2 才是 STV」⇒ 同上，且 STV 屬 STV1/STV2（＝ VST1/VST2）那一族 |
+| vault `issue_db.md` G173ED02 案 | 把 `LOCK / STV / XSTB` 列為三條各自量測的訊號 ⇒ **可排除 XSTB** |
+
+⇒ 收斂到 **VST1 與 VST2 兩個候選**，沒有任何證據能再往下切一刀，因此停下來回報。**Bruce 2026-09-03 裁示：「STV 對應的就是 VST1」**，並要求比照 Terminate 做成可選的下拉選單、預設 VST1、只在一進多出使用。
+
+**TEND 則是既有訊號、不需新建**（`gpioIdx = 13`）。內建 preset `fhd_60hz_sg`（vtotal 1112 / vactive 1080）給它的設定是 `st_line 1090, sp_line 1090, act_type 2` ＝ **VBlanking 區單發一個 pulse**，與 Bruce 原話「通常是在 VBlanking 區會打一個 pulse」逐字吻合。
+
+### 版號
+
+**判定依據：** 依 `docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者 → **MINOR**（命中 R3／§2 案例 1「新增獨立功能」與 R4「起始狀態改變但不影響既有操作」，兩者皆為 MINOR）。逐項如下。
+
+- **R3／§2 案例 1（新增獨立功能）**：命中 → **MINOR**。使用者多了兩件原本做不到的事：(1) 指定一條 Terminate 訊號來收 VBlanking 的殘存 High；(2) 在一進多出裡指定「下一個 frame」由哪一條訊號的 rising 決定。
+- **R4（起始狀態／預設值改變）**：condensed 的 Terminate 預設就是啟用的（TEND）⇒ 起始狀態變了。R4 明文：**不影響既有操作 → MINOR**。逐項確認：沒有任何功能被移除、沒有任何控制項移位（兩個新選單加在 LS 全域設定卡的既有欄位之後）、四個模式與原本的所有欄位一字未動。
+- **R1**：本版不是修 bug，是新增能力 ⇒ 不適用。
+- **不是 MAJOR，取捨寫明供覆核**：判定表 MAJOR 那格有一條「既有功能的輸出**主動改變**（設計上決定不一樣）」——condensed 的預設輸出確實是設計上決定要改的，這一格是本版離 MAJOR 最近的地方。編成 MINOR 的理由是 §1 的一句話判準與 R2 補充 4：判準是「**使用者原本會的操作還在不在、要不要重新學**」，而本版**沒有一個操作失效、沒有一個入口移位**，使用者要重新確認的只有「condensed 的 VBlanking 段」這一個局部，而且那正是他自己要求要改的行為。依 R2 補充 3「不確定一律往低編」編為 MINOR。**Bruce 交辦時亦已指定 MINOR。**
+- **`⚠ 輸出變更`**：命中「數值類」與「同一操作序列得到不同結果」——一進多出模式下，v4.42.0 建立的波形基線（截圖、匯出、逐值）在 VBlanking 段不再成立。**其他三個模式在預設「不使用」下逐位元組不變**（下方有實測）。
+- **快取字串**：改了 `common/i18n.js` 與 `common/version.js` ⇒ `wfg.html` 與 `index.html` 的 `?v=` 一併 bump 為 `20260903wfg4430`（`tools/check_cache_buster.py` 通過）。
+
+### 實作
+
+| 位置 | 內容 |
+|---|---|
+| `wfgLsGlobal` | 新增 `term_gpio_idx`(13) / `term_enabled`(false) / `stv_gpio_idx`(2) 三欄；`lsGlobal` 是整份深拷貝匯出、逐鍵合併匯入 ⇒ 存檔與 round-trip 自動涵蓋 |
+| `_wfgLsTermActive()` | condensed 恆 true；其他三模式看 `term_enabled` |
+| `_wfgLsRisingEdgesOf()` | 走 `wfgGetOaxForRange()`（不是直接讀 `cache.transitions[gi]`）⇒ COMBO 合成訊號的成分邊緣也看得到；並濾掉 level 沒變的假邊緣 |
+| `_wfgLsTermWindows()` | 每個 Terminate rising 開一個窗，終點＝下一個 STV rising（嚴格大於）；已在窗內的 rising 不另開窗 |
+| `_wfgLsApplyTerminate()` | 丟掉窗內事件 ＋ 在窗起點補一個 falling（只在當下是 High 時）。單趟 merge，輸出仍已排序 |
+| `_wfgLsBuildEvents()` | 🔴 套在**四個 mode 的 builder 之後、`_wfgLsApplyGateMask()` 之前** —— Gate 實體上看到的就是被 terminate 過的 CKO。未生效時**整支不呼叫** |
+| `_wfgBuildAnalogDeps()` | 生效時把 Terminate（與 condensed 的 STV）加進 LS 的相依集合，否則改 TEND/VST1 的 timing 不會讓 LS 失效重算（v3.18.0 漏 cpv3/cpv4 就是這個災情） |
+
+**刻意保留 `_reset` 事件不丟**：它與 Terminate 是兩套獨立機制，而且 `_wfgLsApplyGateMask()` 靠它清 `prevHigh`（2026-08-25 那次 Gate 序號整排位移的修正）。丟掉等於在「有開 Terminate」時把那個修正偷偷退回去。
+
+### 開發過程抓到並修掉的一個 bug
+
+**在一進多出裡挑訊號，會順手把其他三個模式的 Terminate 也打開。** 第一版的 `term_sel` handler 只要收到合法索引就設 `term_enabled = true`；但一進多出根本不看這個旗標，打開的唯一效果是「使用者只是在一進多出換了條訊號，切到 dual_cpv 卻發現 Terminate 自己被啟用了」，違反「其他模式預設都是不用」。UI 驗收腳本實測抓到（condensed 選 XPOL → 切 dual_cpv，選單停在 XPOL 而不是「不使用」），改成只有非 condensed 才翻旗標。
+
+### 驗收（jsdom + 產品原始碼，走使用者真正的操作路徑：preset 下拉 → `#wfg-imps-ok` → LS 卡片下拉）
+
+| 案 | 內容 | 結果 |
+|---|---|---|
+| A | UI：選單存在／預設值／「不使用」有無／切模式記憶 | **22/22** |
+| B | 波形逐值：壓低區間、窗起點收邊、恢復點、換 STV | **11/11** |
+| C | 對 v4.42.0 的回歸＋負控制 | **6/6** |
+| D | duty 不變量、frame 逐值相同、canvas 繪圖呼叫雜湊 | **19/19** |
+| E | 鑑別力：解除點真的由 STV 決定、其他三模式的可選用路徑、匯出入 round-trip | **17/17** |
+| F | Gate 沒有被拖下水 | **8/8** |
+
+**逐值證據（preset `fhd_60hz_sg`，condensed 8-face 背靠背，Terminate=TEND、STV=VST1）**
+
+獨立地基取自 `wfgDumpGpioEdges()`（走 `wfgCalcGpio`，與 LS 事件產生器**沒有共用程式碼**）：
+
+```
+TEND(gpio13) rising lineX = 1090.6372, 2202.6372, 3314.6372
+VST1(gpio2)  rising lineX =    2.6372, 1114.6372, 2226.6372
+⇒ 壓低區間 [1090.6372, 1114.6372)、[2202.6372, 2226.6372)，各跨 24 line
+```
+
+窗起點的收邊（`wfgDumpLsCko()`）：**CKO2/3/4/5 各被壓成 Low，其餘 8 條本來就是 Low、沒有多補事件**。
+恢復點：`CKO1@1115.6372`、`CKO1@2227.6372` —— 都不早於 STV rising。
+
+逐 CKO 差異（v4.42.0 → v4.43.0）：
+
+| CKO | 差異 |
+|---|---|
+| CKO2 | 多了 falling `1090.637 2202.637 3314.637`；多了 rising `1121.637 2233.637 3345.637`（舊版一路 High 跨過 VBLANK，那幾個 rising 是冗餘事件不計數；壓低後才成為真正的 rising） |
+| CKO3 | 同型，rising `1127.637 …` |
+| CKO4 | 同型，rising `1133.637 …` |
+| CKO5 | falling 由 `1115.637`（下一個 frame 才收）提前到 `1090.637`（TEND 當下收） |
+| CKO1、CKO6～CKO12 | **無差異** |
+
+**🔴 負控制（偵測器有沒有鑑別力）**
+第一版的斷言寫成「壓低區間內沒有 CKO rising」，拿去量 v4.42.0 得到 **0** —— VBlanking 本來就沒有 VCE 邊緣，這條斷言對「CKO 卡在 High」完全沒有鑑別力，全綠不算數。改成量**準位**之後：
+
+| | 壓低區間內量到 High 的取樣點 |
+|---|---|
+| v4.42.0（沒有 Terminate） | **24**（CKO2/3/4/5 各 3 個取樣點 × 2 個窗） |
+| v4.43.0 | **0** |
+
+**解除點真的由 STV 決定**（B 案那組「VST1→VST2」只差 2 line、落在沒有 VCE 邊緣的 VBlanking，輸出看不出差別，證明力不足，因此另做一組落在 active 區的）：
+
+| 設定 | frame0 active 區(10~1080) 量到 High 的取樣點 | 區內 CKO 邊緣數 |
+|---|---|---|
+| Terminate=VST1(line 2)、STV=TEND(line 1090) | **0** / 2568 | **0** |
+| **只把 STV 換成 CK1(line 3)** | **851** / 2568 | **354** |
+
+**不變量（在 Terminate 未觸發的區間內量）**
+
+| face | 背靠背 | 有間隔 |
+|---|---|---|
+| 8 | 50.0000 %（172 樣本，全等） | 41.6667 % |
+| 6 | 50.0000 %（174 樣本，全等） | 38.8889 % |
+| 4 | 50.0000 %（176 樣本，全等） | 33.3333 % |
+
+**其他三個模式 bit-exact（相對 v4.42.0）**
+
+| mode | CKO 邊緣逐值 sha256-16 | canvas 繪圖呼叫（呼叫數／sha256-16） |
+|---|---|---|
+| individual | `c436c8de3dc87c95` 兩版相同 | 7683／`56a47cadb6c7440a` 兩版相同 |
+| dual_cpv | `074faf239eba509e` 兩版相同 | 3875／`35152ce6c7d0dd51` 兩版相同 |
+| quad_cpv | `2f7d262f4022c9d9` 兩版相同 | 4207／`4ae5b554fcd3c9b6` 兩版相同 |
+| condensed | `070e5119…` vs `2a4df486…` **不同** | 4438／`fc16c204…` vs `c93a9d35…` **不同**（＝本版要做的） |
+
+**frame 之間逐值相同**（把 frame N 的邊緣減去 N × Vtotal 後比對 frame1 vs frame2）：四個 mode 全部相同 —— individual `8cd664f7cdf03d62`、condensed `df44ca41e6f6774e`、dual_cpv `840b5bde479f2e8d`、quad_cpv `e05f0051b4c8041c`。
+
+**其他三模式手動開啟 Terminate 確實生效**（不是擺設）：
+
+| mode | 不使用 → active 區 High 取樣點 | 開啟(Terminate=VST1) | 改回「不使用」 |
+|---|---|---|---|
+| individual | 856 | **0** | 逐值回到原狀 |
+| dual_cpv | 35 | **0** | 逐值回到原狀 |
+| quad_cpv | 71 | **0** | 逐值回到原狀 |
+
+**Gate**：`wfgDebugGate(3)` 四個 mode 的 `ok` 全為 `true`，其他三模式的 rows 與 v4.42.0 逐值相同；condensed 開著 Terminate 時 Gate 的 pulse 序號驗證仍然成立（rows 亦與舊版相同 —— Gate Line 1 的 pulse 在 frame 前段，不在壓低窗內）。
+
+**匯出／匯入 round-trip**：`term_gpio_idx=15 / stv_gpio_idx=3` 匯出後匯入完整還原，畫面上的兩個選單也跟著更新。
+
+**不在本版範圍**：Terminate 的說明頁（`wfg-guide*.html`）文件——說明頁不納入版號機制，另行處理。
+
+---
+
 ## 開發工具：pre-commit 的 node 偵測不再只靠 PATH — 2026-09-03 ｜ **不進版**（只改 `tools/hooks/pre-commit`，產品端零改動）
 
 **判定依據：** 依 `docs/VERSIONING.md` §3 不進版清單（「只改 `docs/`、`CHANGELOG.md`、註解」與雜務類）。本次唯一改動的檔案是 `tools/hooks/pre-commit` —— 它是**開發端的 git hook，不會被部署、使用者連下載都下載不到**。逐項覆核 R1～R4，取最高者仍是「不進版」：

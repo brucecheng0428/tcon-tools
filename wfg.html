@@ -3646,8 +3646,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260902wfg4420"></script>
-<script src="common/i18n.js?v=20260902wfg4420"></script>
+<script src="common/version.js?v=20260903wfg4430"></script>
+<script src="common/i18n.js?v=20260903wfg4430"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -3711,7 +3711,26 @@ var wfgLsGlobal = {
   // 奇數組沿用 cpv1/cpv2（與二進多出同一組欄位）→ 兩種模式互切時奇數組設定不會遺失。
   cpv3_ck_idx: 6,       // GPIO index of CPV3 (default CK3)
   cpv4_ck_idx: 7,       // GPIO index of CPV4 (default CK4)
-  cpv_trig_edge: 'falling' // 'falling' (G2595E) or 'rising' (G2790B) — 二進／四進共用同一個設定
+  cpv_trig_edge: 'falling', // 'falling' (G2595E) or 'rising' (G2790B) — 二進／四進共用同一個設定
+  /* ══ v4.43.0：Terminate ／ STV（Bruce 2026-09-02 提出、2026-09-03 裁示）═══════
+     解的問題：VBlanking 期間 CKO 維持 High、一路連到下一個 frame。
+     Terminate 是**用一個真實訊號**收邊 —— 與「不准在 frame 邊界硬拉回」那條裁示
+     不衝突（見 `_wfgLsBuildCondensedEvents()` 的長註解②）。
+
+     🔴 兩個欄位分開存，才做得到 Bruce 要的「切模式保留選過的訊號」：
+       `term_gpio_idx` ＝ 選到哪一條（永遠是合法的 0~17，**不會被寫成 -1**）
+       `term_enabled`  ＝ 用不用（一進多出恆為 true，看 `_wfgLsTermActive()`）
+     使用者在其他模式選「不使用」只翻 `term_enabled`，`term_gpio_idx` 原封不動，
+     切回一進多出就沿用他選過的那一條；沒選過才是預設的 TEND。
+
+     STV ＝ VST1（gpioIdx 2），Bruce 2026-09-03 親自裁示。查證依據見 CHANGELOG：
+     專案 18 條數位訊號裡沒有叫 `stv` 的，程式碼註解一律把 STV 當 frame 起點，
+     vault 的 issue_db 與 Model Card 則證實 STV 與 TEND 是兩條不同的實體訊號。
+     🔴 STV 選單**只在一進多出出現／生效**；其他三個模式的 frame reset 仍是既有的
+     `f × effVtotal` 約定，本欄位不去碰它。 */
+  term_gpio_idx: 13,    // Terminate 訊號的 gpioIdx（預設 TEND ＝ 13）
+  term_enabled: false,  // 其他三模式預設不使用；一進多出忽略本欄位、恆為啟用
+  stv_gpio_idx: 2       // STV 訊號的 gpioIdx（預設 VST1 ＝ 2）— 只有 condensed 讀它
 };
 const WFG_LS_GOA_PHASES = [4, 6, 8, 10, 12, 14, 16];
 
@@ -4980,6 +4999,18 @@ function _wfgBuildAnalogDeps() {
           var cpv4Idx = wfgLsGlobal.cpv4_ck_idx;
           if (cpv3Idx != null && cpv3Idx >= 0) deps.add(cpv3Idx);
           if (cpv4Idx != null && cpv4Idx >= 0) deps.add(cpv4Idx);
+          /* v4.43.0：Terminate 生效時，LS 還多吃 Terminate 那條訊號；一進多出另外
+             再吃 STV 那條。🔴 漏掉的話，改 TEND／VST1 的 st_line／r_dly 不會讓 LS
+             失效重算，波形會靜默停在舊值（v3.18.0 漏 cpv3/cpv4 就是這個災情）。
+             只在生效時才加：沒生效就沒有這條相依，不必為它多做失效。 */
+          if (typeof _wfgLsTermActive === 'function' && _wfgLsTermActive()) {
+            var termIdx = wfgLsGlobal.term_gpio_idx;
+            if (termIdx != null && termIdx >= 0) deps.add(termIdx | 0);
+            if (wfgLsGlobal.mode === 'condensed') {
+              var stvIdx = wfgLsGlobal.stv_gpio_idx;
+              if (stvIdx != null && stvIdx >= 0) deps.add(stvIdx | 0);
+            }
+          }
         }
       }
     }
@@ -24236,6 +24267,17 @@ function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effV
     events = _wfgLsBuildIndividualEvents(ac, allTrans, effHtotal, effVtotal, buildStart, endLine, buildLpp);
   }
   if (!events) events = [];
+  /* ══ v4.43.0：Terminate 收邊 ═══════════════════════════════════════════════
+     🔴 位置很重要：套在**四個 mode 的 builder 之後、`_wfgLsApplyGateMask()` 之前**。
+        理由是實體上 Gate 看到的就是被 terminate 過的 CKO，不是原始 CKO；
+        擺在 mask 之後等於讓 Gate 讀到一條實際上不存在的波形。
+     🔴 `_wfgLsTermActive()` 為 false 時**整支不呼叫** —— 其他三個模式的預設
+        （term_enabled = false）因此與 v4.42.0 逐位元組相同。 */
+  if (_wfgLsTermActive(mode)) {
+    var _pT0 = _wfgPerfEnabled ? performance.now() : 0;
+    events = _wfgLsApplyTerminate(events, ac, mode, allTrans, effHtotal, effVtotal, buildStart, endLine);
+    if (_wfgPerfEnabled) _wfgPerfLast.termMask = performance.now() - _pT0;
+  }
   if (_wfgPerfEnabled && isGate) _wfgPerfLast.gateBuild = performance.now() - _pB0;
   if (isGate) {
     var _pM0 = _wfgPerfEnabled ? performance.now() : 0;
@@ -24246,6 +24288,159 @@ function _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effV
     }
   }
   return events;
+}
+
+/* ═══ v4.43.0：Terminate 訊號（Bruce 2026-09-02 提出、2026-09-03 裁示）═══════════
+
+   ── 解的問題 ──────────────────────────────────────────────────────────────
+   VBlanking 期間 CKO 維持 High、一路連到下一個 frame。
+   🔴 這**不是**靠「在 frame 邊界硬拉回」解的 —— 那個做法 Bruce 早就否決過
+   （「LS 不認得 frame 邊界，他只看 VCE」，見 `_wfgLsBuildCondensedEvents()` 註解②）。
+   Terminate 是**用一個真實的數位訊號**收邊，所以與那條裁示不衝突：這裡讀的是使用者
+   選定那條 GPIO 的實際邊緣，frame 邊界只在「其他三個模式沒有 STV 選單」時才當退路。
+
+   ── Bruce 原話（`_ref/wfg_待辦需求_20260902.md` F 節）─────────────────────
+   「只要這個訊號拉 High 的波形**由 Rising 開始算**，就會把這些殘存的 High 準位變成
+     Low 準位，直到下一個 frame（**下一個 frame 的定義會看 STV 的 Rising 決定**），
+     才把『terminate 清空 CKO』的這個機制 reset。…但他**只看 Terminate 的 Rising Edge**。」
+
+   ⇒ 行為拆成四條，逐條對應下面的程式：
+     ① 觸發＝Terminate 的 **rising**（falling 一律不看）
+     ② 觸發當下若 CKO 還是 High → 在該點壓成 Low
+     ③ 壓低狀態**持續有效**：期間所有正常的充放電事件一律不輸出
+     ④ 解除＝**下一個 STV rising**（嚴格大於觸發點）；到此才恢復正常輸出
+
+   ── 為什麼要獨立成一個 pass，而不是塞進四個 builder ─────────────────────
+   四個 mode 都要能用（Bruce：一進多出一定要、其他三個可選用）。塞進 builder 等於
+   同一段邏輯抄四份，之後改一次就會漏三處 —— `_wfgLsBuildCpvPairEvents()` 抽共用
+   核心（v3.18.0）走的就是這個原則。
+
+   ── 🔴 不變量：Terminate 未觸發的區間，波形一位元不變 ─────────────────────
+   本 pass **只做「丟掉窗內事件」與「在窗起點補一個 falling」**，窗外的事件原封不動
+   往下傳。所以 condensed 的 duty 不變量（背靠背恰 50%／有間隔 < 50%）在未觸發的
+   區間仍然成立 —— 驗收腳本就是在窗外量 duty。 */
+
+// Terminate 是否生效：一進多出恆為 true（Bruce：「一進多出是一定要的」），
+// 其他三個模式看使用者有沒有在下拉選單裡選訊號（預設「不使用」）。
+function _wfgLsTermActive(mode) {
+  var m = mode || wfgLsGlobal.mode;
+  if (m === 'condensed') return true;
+  return !!wfgLsGlobal.term_enabled;
+}
+
+/* 取一條數位訊號在 [lo, hi] 內的 **rising** 邊緣位置（單位＝lineX，與 events 同一座標）。
+   🔴 走 `wfgGetOaxForRange()` 而不是直接讀 `cache.transitions[gi]` —— OAX（COMBO）
+      合成出來的訊號，成分訊號貢獻的邊緣只有前者看得到。2026-08-21 那次
+      「繪製畫得出來、吸附卻吸不到」就是兩邊讀不同來源造成的，不要再犯。
+   🔴 只認真正的邊緣：週期邊界的重複宣告（level 沒變）要跳過，否則同一個 rising 會
+      被數兩次 —— 與 `_wfgLsBuildCondensedEvents()` / `_wfgLsBuildCpvPairEvents()`
+      的 isRealEdge 是同一個考量。 */
+function _wfgLsRisingEdgesOf(gpioIdx, allGpioTransitions, effHtotal, lo, hi) {
+  if (!(gpioIdx >= 0) || gpioIdx >= wfgGpios.length) return [];
+  var oax = wfgGetOaxForRange(gpioIdx, allGpioTransitions, effHtotal, lo, hi);
+  var trans = oax ? oax.transitions : [];
+  var prev = oax ? oax.initLevel : 0;
+  var out = [];
+  for (var i = 0; i < trans.length; i++) {
+    var tr = trans[i];
+    if (tr.level === prev) continue;      // 假邊緣
+    prev = tr.level;
+    if (tr.level !== 1) continue;         // ① 只看 rising
+    out.push(tr.line + (effHtotal > 0 ? (tr.dly || 0) / effHtotal : 0));
+  }
+  return out;
+}
+
+/* 算出「壓低區間」清單。每個 Terminate rising 開一個窗，窗的終點＝**下一個** STV rising。
+   已經在窗內的 Terminate rising 不另開新窗（③ 壓低狀態持續有效，重複觸發沒有額外效果）。
+
+   🔴 STV 來源分兩種，這是 Bruce 2026-09-03 的裁示：
+     ・condensed：讀 `stv_gpio_idx` 這條真實訊號的 rising（預設 VST1）。
+     ・其他三個模式：**沒有 STV 選單**，沿用既有的 `f × effVtotal` frame 邊界約定
+       （`_wfgLsBuildCpvPairEvents()` 的 "Counter resets to 0 at each frame boundary
+       (STV reset)." 用的就是它）。這裡只是「借用」那個約定當解除點，
+       **沒有改動它們原本的 frame reset 機制**。 */
+function _wfgLsTermWindows(mode, allGpioTransitions, effHtotal, effVtotal, lo, hi) {
+  var termIdx = (wfgLsGlobal.term_gpio_idx != null) ? (wfgLsGlobal.term_gpio_idx | 0) : -1;
+  if (!(termIdx >= 0)) return [];
+  var termRises = _wfgLsRisingEdgesOf(termIdx, allGpioTransitions, effHtotal, lo, hi);
+  if (!termRises.length) return [];
+
+  var stvRises;
+  if (mode === 'condensed') {
+    var stvIdx = (wfgLsGlobal.stv_gpio_idx != null) ? (wfgLsGlobal.stv_gpio_idx | 0) : -1;
+    stvRises = _wfgLsRisingEdgesOf(stvIdx, allGpioTransitions, effHtotal, lo, hi);
+  } else {
+    stvRises = [];
+    if (effVtotal > 0) {
+      var f0 = Math.floor(lo / effVtotal), f1 = Math.ceil(hi / effVtotal) + 1;
+      for (var f = f0; f <= f1; f++) stvRises.push(f * effVtotal);
+    }
+  }
+  /* STV 一條都沒有（例如使用者把 STV 指到一條沒開的訊號）⇒ 沒有解除點。
+     此時**不開任何窗**：寧可什麼都不做，也不要做出一條被永久壓低、看起來像壞掉的
+     CKO —— 那會讓使用者以為是波形算錯，而不是選錯訊號。 */
+  if (!stvRises.length) return [];
+
+  var wins = [];
+  var si = 0;
+  for (var i = 0; i < termRises.length; i++) {
+    var tR = termRises[i];
+    if (wins.length && tR < wins[wins.length - 1].end) continue;   // ③ 已在窗內
+    while (si < stvRises.length && stvRises[si] <= tR) si++;        // ④ 嚴格大於
+    if (si >= stvRises.length) break;   // 這個範圍內找不到解除點 → 不開窗（同上理由）
+    wins.push({ start: tR, end: stvRises[si], _opened: false });
+  }
+  return wins;
+}
+
+/* 把壓低區間套到事件序列上。輸出仍然是**已排序**的事件陣列（不必再 sort）：
+   窗的起點遞增、事件本身遞增，兩者交錯 merge 即可。
+
+   🔴 `_reset` 事件（`_wfgLsBuildCpvPairEvents()` 產生的 frame 硬重置）**保留不丟**。
+      它與 Terminate 是兩套獨立機制，而且 `_wfgLsApplyGateMask()` 靠它清 `prevHigh`
+      （2026-08-25 那次 gate 序號整排位移就是漏清造成的）。丟掉它等於把那個修正
+      在「有開 Terminate」時偷偷退回去。 */
+function _wfgLsApplyTerminate(events, ac, mode, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
+  if (!events || !events.length) return events;
+  var pad = Math.max(effVtotal, 100);
+  var lo = Math.max(0, viewStartLine - pad);
+  var hi = viewEndLine + pad;
+  var wins = _wfgLsTermWindows(mode, allGpioTransitions, effHtotal, effVtotal, lo, hi);
+  if (!wins.length) return events;
+
+  /* 判 High／Low 的門檻與 `_wfgLsApplyGateMask()` 用同一套（ac 的電壓上下限），
+     不要另外去讀 wfgLsGlobal.vgh/vgl —— gate slot 的 ac 才是它自己那一組。 */
+  var mid = (ac && ac.voltage_max != null && ac.voltage_min != null)
+              ? (ac.voltage_max + ac.voltage_min) / 2
+              : (wfgLsGlobal.vgh + wfgLsGlobal.vgl) / 2;
+  var vgl = (ac && ac.voltage_min != null) ? ac.voltage_min : wfgLsGlobal.vgl;
+
+  var out = [];
+  var wi = 0;
+  var high = false;
+  function _openWin(w) {
+    if (w._opened) return;
+    w._opened = true;
+    // ② 觸發當下還是 High → 在觸發點壓成 Low；本來就 Low 就什麼都不補
+    if (high) { out.push({ lineX: w.start, vTarget: vgl, _term: true }); high = false; }
+  }
+  for (var i = 0; i < events.length; i++) {
+    var ev = events[i];
+    // 先把所有起點已經到（或已整段結束）的窗依序開掉／關掉，順序才不會亂
+    while (wi < wins.length && wins[wi].start <= ev.lineX) {
+      _openWin(wins[wi]);
+      if (wins[wi].end <= ev.lineX) wi++; else break;
+    }
+    var inWin = (wi < wins.length && wins[wi]._opened
+                 && ev.lineX >= wins[wi].start && ev.lineX < wins[wi].end);
+    if (inWin && !ev._reset) continue;   // ③ 窗內：正常輸出一律不發
+    out.push(ev);
+    if (!ev._reset) high = (ev.vTarget >= mid); else high = false;
+  }
+  // 最後一個事件之後才開始的窗：仍要把殘存的 High 收掉
+  while (wi < wins.length) { _openWin(wins[wi]); wi++; }
+  return out;
 }
 
 // ─── Gate output mask ───
@@ -28585,7 +28780,10 @@ function wfgResetToDefault() {
     curvature_rise: 127, curvature_fall: 127,
     ck_sources: WFG_CK_SOURCES_DEFAULT.slice(),
     vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none',
-    cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7, cpv_trig_edge: 'falling' };
+    cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7, cpv_trig_edge: 'falling',
+    /* v4.43.0：重設＝回到首次進站的狀態，所以 Terminate 回到 TEND ＋ 其他模式不使用、
+       STV 回到 VST1（與檔案頂端 `wfgLsGlobal` 的初值逐欄相同）。 */
+    term_gpio_idx: 13, term_enabled: false, stv_gpio_idx: 2 };
   /* 🔴 v4.19.0：改成 `false`。重設的語意就是「回到首次進站那個狀態」，
      而首次進站是 `wfgLsRebuildCkoSlots(false)` ⇒ 類比／面板 slot 的 enable 為 false
      ⇒ 通道不顯示。兩條路徑要一致，否則「重設」之後畫面會比剛打開時多出一堆波形。 */
@@ -33524,6 +33722,43 @@ function wfgRenderLsGlobalPanel() {
       + '<option value="rising"' + (g.cpv_trig_edge === 'rising' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigRising') + '</option>'
       + '</select></div>';
   }
+
+  /* ══ v4.43.0：Terminate ／ STV 選單（Bruce 2026-09-03 裁示的呈現方式）═════════
+     Terminate：**用同一個下拉選單承載「用不用」與「用哪一個」**，不另外加勾選框。
+       ・一進多出 → 只有訊號清單，**沒有「不使用」** ——「一定要」在結構上就不給關掉的
+         入口，而不是給了再擋（Bruce 2026-09-02 已確認「可以，這樣很好」）。
+       ・其他三個模式 → 清單最上面多一個「不使用」，預設停在它。
+       選「不使用」只翻 `term_enabled`，選過的訊號記在 `term_gpio_idx` 不動 ⇒ 切模式來回
+       不會被重設。
+     STV：🔴 **只在一進多出出現**（Bruce 2026-09-03：「只在這個一進多出的模式下才需要用」），
+       所以連「不使用」都不給 —— 其他模式根本不顯示這個控制項。 */
+  var _isCond = (g.mode === 'condensed');
+  var _termIdx = (g.term_gpio_idx != null) ? (g.term_gpio_idx | 0) : 13;
+  var _termOn = _isCond || !!g.term_enabled;
+  h += '<div class="wfg-field" style="margin-top:8px"><label>' + t('wfg.lsTermSignal') + '</label>'
+    + '<select id="wfg-ls-term-sel" onchange="wfgOnLsGlobalChange(\'term_sel\',this.value)" style="width:100%">';
+  if (!_isCond) {
+    h += '<option value="-1"' + (_termOn ? '' : ' selected') + '>' + t('wfg.lsTermNone') + '</option>';
+  }
+  for (var _ti = 0; _ti < WFG_DIGITAL_GPIO_COUNT; _ti++) {
+    h += '<option value="' + _ti + '"' + ((_termOn && _termIdx === _ti) ? ' selected' : '') + '>'
+       + (WFG_GPIO_NAMES[_ti] || ('GPIO ' + _ti)).toUpperCase() + '</option>';
+  }
+  h += '</select></div>';
+  h += '<div style="font-size:10px;color:#64748b;margin:-4px 0 8px">' + t('wfg.lsTermHint') + '</div>';
+
+  if (_isCond) {
+    var _stvIdx = (g.stv_gpio_idx != null) ? (g.stv_gpio_idx | 0) : 2;
+    h += '<div class="wfg-field"><label>' + t('wfg.lsStvSignal') + '</label>'
+      + '<select id="wfg-ls-stv-sel" onchange="wfgOnLsGlobalChange(\'stv_gpio_idx\',this.value)" style="width:100%">';
+    for (var _si = 0; _si < WFG_DIGITAL_GPIO_COUNT; _si++) {
+      h += '<option value="' + _si + '"' + (_stvIdx === _si ? ' selected' : '') + '>'
+         + (WFG_GPIO_NAMES[_si] || ('GPIO ' + _si)).toUpperCase() + '</option>';
+    }
+    h += '</select></div>';
+    h += '<div style="font-size:10px;color:#64748b;margin:-4px 0 8px">' + t('wfg.lsStvHint') + '</div>';
+  }
+
   // Individual mode: CK sources moved here from per-CKO cards
   if (g.mode === 'individual') {
     h += '<div style="margin-top:8px;font-size:11px;color:#94a3b8;margin-bottom:6px">' + t('wfg.lsCkPerCko') + '</div>';
@@ -33653,6 +33888,28 @@ function wfgOnLsGlobalChange(field, value) {
     wfgLsGlobal.cond_phase = parseInt(value) || 8;
   } else if (field === 'cond_interval') {
     wfgLsGlobal.cond_interval = value;
+  } else if (field === 'term_sel') {
+    /* v4.43.0：選單同時承載「用不用」與「用哪一個」。
+       🔴 選「不使用」(-1) 時**只翻 term_enabled，不去動 term_gpio_idx** ——
+          記住使用者選過的那一條，切回一進多出才沿用得到（Bruce 2026-09-02 指定）。 */
+    var _tv = parseInt(value, 10);
+    if (_tv >= 0 && _tv < WFG_DIGITAL_GPIO_COUNT) {
+      wfgLsGlobal.term_gpio_idx = _tv;
+      /* 🔴 在一進多出裡挑訊號**不可以順手打開 term_enabled** —— 一進多出根本不看這個
+         旗標（`_wfgLsTermActive()` 對它直接回 true），打開的唯一效果是「使用者只是在
+         一進多出換了條訊號，切到其他三個模式卻發現 Terminate 自己被啟用了」。
+         那不是他要求的行為，也違反「其他模式預設都是不用」。
+         實測抓到：condensed 選 XPOL → 切 dual_cpv，選單停在 XPOL 而不是「不使用」。 */
+      if (wfgLsGlobal.mode !== 'condensed') wfgLsGlobal.term_enabled = true;
+    } else {
+      wfgLsGlobal.term_enabled = false;
+    }
+    // 換 Terminate 來源＝換 LS 的相依 GPIO，相依表要重建（理由同上面的 CPV 來源）
+    _wfgAnalogDeps = {};
+  } else if (field === 'stv_gpio_idx') {
+    var _sv = parseInt(value, 10);
+    if (_sv >= 0 && _sv < WFG_DIGITAL_GPIO_COUNT) wfgLsGlobal.stv_gpio_idx = _sv;
+    _wfgAnalogDeps = {};
   }
   // Gate slot mirrors the LS globals (VGH/VGL/RC/CK source)
   wfgSyncGateGpio();
