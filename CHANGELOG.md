@@ -66,6 +66,25 @@
 
 判定依據：`docs/VERSIONING.md` §2 案例 2／案例 7 與 R1（修正為應有行為 ⇒ PATCH；`condensed` 有間隔模式的波形數值會變 ⇒ 加 `⚠ 輸出變更`）。本版只動 `_fallOffset` 一個運算式與註解，沒有新增或移除任何使用者可見的功能（R3／R4 均不適用）。與 v4.41.3 同屬一天內同一功能的連續修補，但 v4.41.3 的 CHANGELOG 已明載「待裁示」且該版輸出與本版不同，故另編一版而非併入，以免 CHANGELOG 與 git 歷史對不上。
 
+### 📌 補充：CKO 跨 VBLANK 收邊是正確行為，**不准加 clamp**（2026-09-02，不進版）
+
+v4.41.3 曾把「6-face／4-face 時某條 CKO 的 High 跨過 VBLANK 才收邊」列為待處理項。**Bruce 2026-09-02 裁示：維持現狀，不要加任何 frame 邊界的拉回／截斷處理。**
+
+> 「這個跨 V-blanking 到下一個 frame 的行為，**並不影響 frame 的重複性。請不要在 frame 的邊界硬拉回去，因為這不是 Level Shifter 的行為。他不理解什麼是邊界、什麼是 frame 的邊界，他只看 VCE。**」
+
+**兩件事並存，不矛盾** —— 這是本段存在的理由，避免後人看到「跨 VBLANK」以為是 bug 又去修：
+
+| | 管什麼 | 由誰決定 |
+|---|---|---|
+| **相位計數在 frame 起點重置** | 下一個 frame **從哪個相位開始數** | 實體的 **STV／VSYNC reset**（`_wfgLsBuildCpvPairEvents()` 既有註解：`"Counter resets to 0 at each frame boundary (STV reset)."`）。這是「每個 frame 一模一樣」的來源 |
+| **波形不在 frame 邊界被拉回** | 已經拉高的準位**什麼時候放掉** | 只看 **VCE**。VCE 每 frame 的邊緣數不是相位數的倍數時（preset 下 181 mod 6 ＝ 1、181 mod 4 ＝ 1），frame 末段輪替本來就不完整，CKO 維持 High 跨過 VBLANK 到下一個 frame 才收邊 —— **正確行為** |
+
+兩者互不干涉：前者只影響「從第幾號開始數」，後者只影響「哪個 VCE 邊緣讓它收邊」。所以「每個 frame 逐值相同」與「有 CKO 跨 VBLANK」可以同時成立，實測也確實同時成立。
+
+**讀 code 確認（未改任何邏輯）**：`_wfgLsBuildCondensedEvents()` 內沒有任何 `_reset` 事件、clamp、trim 或「frame 結束補一個 falling」的處理，events 一律只依編號條件產生；frame 內重新編號只影響 `riseN`／`fallN` 兩個計數器。下游 `_wfgLsBuildEvents()` 也只有 `is_gate` 為真時才會再套 `_wfgLsApplyGateMask()`，condensed 不經過。⇒ 那條跨 VBLANK 的 CKO 確實是**自然延續到下一個 frame 才收邊，沒有被任何地方截斷**。
+
+（本次只改註解與 CHANGELOG，依 §3「只改 `docs/`、`CHANGELOG.md`、註解」不進版號。）
+
 ---
 
 ## TCON 波形模擬與取樣 (wfg) v4.41.3 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
