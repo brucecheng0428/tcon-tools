@@ -3626,7 +3626,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260903help"></script>
+<script src="common/version.js?v=20260903wfg4432"></script>
 <script src="common/i18n.js?v=20260903help"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5911,10 +5911,11 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
 // 就地覆寫同一個 precomp 物件（保持物件 identity，呼叫端不必改）。
 
 // ─── LS channel precomputation (v2.95.0: viewport-lazy with computeExtent) ───
-function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, winStart) {
+function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, totalLines, computeExtent, winStart, _forceFullEvents) {
   // computeExtent: 算到第 computeExtent 行（exclusive，絕對行號）
   // winStart:      這一段**可信**的起點（絕對行號）。函式自行往前多算 warm 行暖機。
   //                不傳＝0＝與 v4.5.5 之前的前綴式完全相同。
+  // _forceFullEvents: 內部用（v4.43.2 events 截斷失敗後的重試），外部呼叫端不要傳。
   if (!computeExtent || computeExtent > totalLines) computeExtent = totalLines;
   var _warm = _wfgWarmLines(effVtotal, 'ls');
   var validFrom = Math.max(0, Math.min((winStart | 0), computeExtent - 1));
@@ -5925,10 +5926,44 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   var ckoIndex = (ac.cko_index != null) ? ac.cko_index : 0;
   var numCko = wfgLsGlobal.phase;
 
-  // Get LS events for range [base, computeExtent)
+  /* v4.41.2 週期拼接的參數（原本宣告在 settled 迴圈前面，v4.43.2 提前到這裡 ——
+     events 要截斷到哪一行由 `_perDet` 決定，所以必須先算出來）。
+     偵測窗涵蓋不到兩個 frame，或整段本來就不比偵測窗長 ⇒ 不啟用（全算也很便宜）。 */
+  var _perP = (effVtotal > 0) ? (effVtotal | 0) : 0;
+  var _perDet = (_perP > 0) ? Math.min(winLen, _perP * WFG_LS_PERIOD_DET_FRAMES) : 0;
+  var _perOn = (_perP > 0) && (_perDet >= _perP * 2) && (winLen > _perDet);
+
+  /* ══ 🔴 v4.43.2：只建「真的會被讀到」的那一段 events ═══════════════════════
+     v4.41.2 的週期拼接命中之後，兩條逐行迴圈都在 `rel = _perDet`（偵測窗 4 frame）
+     就收工，後面全部交給 `copyWithin` —— **它們一次都不會再讀 events**。
+     但 `_wfgLsBuildEvents()` 照樣按整個視窗把事件全建出來。
+
+     實測（FHD 60Hz SG／一進一出／frame=1000／全覽，13 條 LS 通道）：
+       建出 4,346,012 個事件物件，兩條迴圈實際消費 17,396 個 ＝ **0.40%**。
+       單條 CKO 362,001 建、1,449 用；建置時間 641 ms → 截斷後 4 ms。
+
+     🔴 為什麼可以直接截斷（前綴相等性）：`_wfgLsBuildEvents(base, K)` 與
+        `_wfgLsBuildEvents(base, computeExtent)` 在 lineX < K-1 的區間逐值相同。
+        四個 mode × 全部通道 × 23,348 筆逐值比對，不一致 **0 筆**
+        （`_tmp_probe_p1_prefix.js`）。理由也是結構性的：四個 builder 都以
+        frame 對齊的 buildStart 起算、逐邊緣往後產生，endLine 只決定「產到哪裡停」。
+
+     🔴 為什麼不必擔心下游：截斷的**唯一**條件就是既有的
+        「events 反正會被丟掉」那一條（`!_needRc && !is_gate`，見函式尾端）。
+        近端（會留 rcSamples／`wfgSamplesFromPrecomputed()` Path 1 要讀 events）
+        與 gate（`_wfgLsVoltFactory()`、Subpixel 要讀）**一律全建**，一個字不改。
+
+     🔴 偵測失敗怎麼辦：`_perL0` / `_perL02` 任一為 -1 ⇒ 手上的 events 不夠用 ⇒
+        **整支重跑一次、這次全建**（`_forceFullEvents`）。代價是白算 4 個 frame
+        （winLen 的 0.4%）。condensed 模式沒有 frame 對齊的週期，走的就是這條路。 */
+  var _needRc = _wfgNeedRcSamples();
+  var _evTrunc = _perOn && !_forceFullEvents && !_needRc && !(ac && ac.is_gate);
+  var _evEnd = _evTrunc ? Math.min(computeExtent, base + _perDet + 2) : computeExtent;
+
+  // Get LS events for range [base, _evEnd)
   // 事件產生器自己還會再往前撐開 pad（round-robin 與跨界脈衝需要），所以拿到的事件
   // 必然涵蓋 base 之前一小段 —— 那正好當作 RC 遞推的暖機輸入。
-  var events = _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, base, computeExtent, 0.001);
+  var events = _wfgLsBuildEvents(ac, ckoIndex, numCko, mode, allTrans, effHtotal, effVtotal, base, _evEnd, 0.001);
   if (!events) events = [];
 
   // RC params
@@ -5950,10 +5985,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   /* v4.41.2 週期拼接（見 _wfgLsFindPeriod 上方的整段說明）。
      🔴 下面那個 for 迴圈的「計算」部分一個字都沒改 —— 加的只有
         ① 偵測窗內記錄行首狀態 ② 窗尾做一次偵測 ③ 命中就提早收工改用 copyWithin。
-     偵測窗涵蓋不到兩個 frame，或整段本來就不比偵測窗長 ⇒ 不啟用（全算也很便宜）。 */
-  var _perP = (effVtotal > 0) ? (effVtotal | 0) : 0;
-  var _perDet = (_perP > 0) ? Math.min(winLen, _perP * WFG_LS_PERIOD_DET_FRAMES) : 0;
-  var _perOn = (_perP > 0) && (_perDet >= _perP * 2) && (winLen > _perDet);
+     `_perP` / `_perDet` / `_perOn` 已在函式前段算好（v4.43.2 events 截斷需要）。 */
   var _perSt = _perOn ? new Float64Array(_perDet * 4) : null;
   var _perEi = _perOn ? new Int32Array(_perDet) : null;
   var _perL0 = -1;
@@ -5991,6 +6023,9 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     if (_perSt && _r === _perDet - 1) {
       _perL0 = _wfgLsFindPeriod(_perSt, _perDet, _perP);
       if (_perL0 >= 0) _perLim = _r + 1;   // 剩下的交給 copyWithin
+      // v4.43.2：events 被截斷過而週期沒命中 ⇒ 這一輪的結果反正要丟掉重跑，
+      // 不必再往下算（往下算也只會拿到不完整的 events，是錯的）。
+      else if (_evTrunc) _perLim = _r + 1;
     }
   }
   if (_perL0 >= 0) {
@@ -6013,7 +6048,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   /* v4.27.2：只有近端（lpp <= WFG_RC_SAMPLES_LPP_MAX）才留下 rcSamples。
      下面那個雙層迴圈**一步都沒改**，改的只有「要不要把每一點存進陣列」。
      lineMinMax 照樣由同一個掃描算出來，所以遠端的 band 一位元不變。 */
-  var _needRc = _wfgNeedRcSamples();
+  // `_needRc` 已在函式前段取得（v4.43.2：events 截斷條件要用），這裡不重複查詢。
   var rcSamples = _needRc ? new Float32Array(winLen * RC_PTS) : null;
   var lineMinMax = new Float32Array(winLen * 2);
   var _rsV = ac.voltage_min, _rsTarget = _rsV, _rsTau = RC_TAU_RISE;
@@ -6111,6 +6146,7 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
       if (_rsRel === _perDet) {
         _perL02 = _wfgLsFindPeriod(_perSt2, _perDet, _perP);
         if (_perL02 >= 0) break;          // 剩下的交給 copyWithin
+        if (_evTrunc) break;              // v4.43.2：要重跑了，不必再往下算（理由同 settled 迴圈）
       }
       if (_rsRel < _perDet) {
         var _ps2 = _rsRel * 4;
@@ -6170,6 +6206,15 @@ function _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     _rsTau = _perSt2[_pes2 + 3];
     _rsEi = _perEi2[_perEndOff2] + ((winLen - _perEndOff2) / _perP) * (_perEi2[_perL02] - _perEi2[_perBase02]);
   }
+  }
+
+  /* 🔴 v4.43.2：events 被截斷過、但週期拼接沒有兩條都命中 ⇒ 手上的 events 不足以
+     算完整個視窗 ⇒ **丟掉這一輪、全建 events 重跑**。此時上面兩條迴圈都已在
+     `rel = _perDet` 主動收工，白算的只有 4 個 frame（winLen 的 0.4%）。
+     重跑那一次 `_forceFullEvents = true` ⇒ `_evTrunc` 必為 false ⇒ 不會再遞迴。 */
+  if (_evTrunc && !(_perL0 >= 0 && _perL02 >= 0)) {
+    return _wfgPrecomputeLsChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal,
+      totalLines, computeExtent, winStart, true);
   }
 
   /* v4.41.2：遠端（rcSamples 已經是 null）且不是 gate ⇒ events 可以放掉。
