@@ -113,6 +113,70 @@ Bruce 2026-09-03 口述（原話全文見 `_ref/wfg_待辦需求_20260902.md` **
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.43.2 — 2026-09-03 ｜ PATCH
+
+**效能：LS 預計算不再建出「永遠不會被讀」的 99.6% 事件物件**
+
+### 問題
+
+v4.41.2 的週期拼接命中之後，`_wfgPrecomputeLsChannel()` 的兩條逐行迴圈都在 `rel = _perDet`（偵測窗 4 個 frame）就收工，剩下的整段交給 `copyWithin` —— **它們一次都不會再讀 `events`**。但 `_wfgLsBuildEvents()` 照樣按整個視窗把事件全部建出來。
+
+實測（FHD 60Hz Single Gate ／ 一進一出 Multi-CPV ／ frame=1000 ／ 全覽，13 條 LS 通道，`_tmp_probe_p1_diag.js`）：
+
+| | 每條 CKO | 13 條合計 |
+|---|---|---|
+| `_wfgLsBuildEvents()` 建出的事件物件 | 362,001 | 4,346,012 |
+| 兩條迴圈實際消費到的 | 1,449 | 17,396 |
+| **利用率** | **0.40%** | **0.40%** |
+
+週期在第 1,626～1,630 行命中（各通道略有差異），迴圈停在 `rel = 4,448`。
+
+### 改法
+
+`_wfgPrecomputeLsChannel()` 把 `_perP` / `_perDet` / `_perOn` 提前到函式前段算，然後只建 `[base, base + _perDet + 2)` 這一段 events。
+
+- **截斷條件 ＝ 既有的「events 反正會被丟掉」那一條**（`_perOn && !_needRc && !is_gate`，就是函式尾端 `events = null` 的同一組條件）。近端（要留 `rcSamples`、`wfgSamplesFromPrecomputed()` Path 1 要讀 events）與 gate（`_wfgLsVoltFactory()`、Subpixel 要讀）**一律全建，一個字不改** ⇒ 三個 `precomp.events` 讀取點完全碰不到。
+- **偵測失敗（`_perL0` 或 `_perL02` 為 -1）⇒ 帶 `_forceFullEvents` 重跑一次、全建。** 此時兩條迴圈都已在 `rel = _perDet` 主動收工，白算的只有 4 個 frame（winLen 的 0.4%）。`condensed` 模式沒有 frame 對齊的週期（v4.41.2 已記載），走的就是這條路。
+
+**為什麼可以直接截斷 —— 前綴相等性（`_tmp_probe_p1_prefix.js`）**：`_wfgLsBuildEvents(base, K)` 與 `_wfgLsBuildEvents(base, computeExtent)` 在 `lineX < K-1` 的區間逐值相同。四個 mode × 全部 LS 通道 × 共 23,348 筆事件（`lineX` / `vTarget` / `_reset` / `_term` 四個欄位逐一比對），**不一致 0 筆**。結構上的理由：四個 builder 都以 frame 對齊的 `buildStart` 起算、逐邊緣往後產生，`endLine` 只決定「產到哪裡停」。
+
+### 實測（Linux headless jsdom，`_tmp_verify_p4.js`）
+
+🔴 **絕對秒數與 MB 不可對應到 Windows Chrome**，只有同環境的比值有意義。
+
+| 情境（全覽） | precomp 舊→新 | render 舊→新 | **peak heapUsed 舊→新** | peak rss 舊→新 |
+|---|---|---|---|---|
+| individual f1000 | 1301→**493** ms (−62.1%) | 2642→1940 ms | 370.3→**267.0** MB (**−27.9%**) | 1002.4→887.8 MB (−11.4%) |
+| dual_cpv f1000 | 795→**475** ms (−40.3%) | 1863→1822 ms | 337.4→**260.7** MB (**−22.7%**) | 977.1→861.6 MB (−11.8%) |
+| quad_cpv f1000 | 862→**411** ms (−52.3%) | 1823→1943 ms | 348.1→**267.5** MB (**−23.2%**) | 983.0→870.1 MB (−11.5%) |
+| condensed f1000 | 751→625 ms (−16.8%) | 2098→1942 ms | 237.0→238.8 MB (+0.8%) | 897.7→843.8 MB (−6.0%) |
+| individual f10 | 53→49 ms | 135→106 ms | 141.5→137.7 MB (−2.7%) | 334.6→336.9 MB |
+| condensed f10 | 42→53 ms | 127→130 ms | 107.3→106.5 MB | 308.4→309.4 MB |
+| dual_cpv f10 | 49→41 ms | 116→110 ms | 112.6→110.5 MB | 308.5→308.6 MB |
+| quad_cpv f10 | 64→57 ms | 189→143 ms | 115.7→113.7 MB | 311.2→311.5 MB |
+
+`condensed` 的 +0.8% 是重跑路徑的成本，落在量測雜訊裡；f10 兩端的時間差同樣是雜訊（同一格重跑會互有高低）。
+
+🔴 **`peak arrayBuffers` 完全沒有改善（484 MB，±0.2%）—— 這是誠實的限制，不是遺漏。** `process.memoryUsage().heapUsed` **不含 ArrayBuffer 的 backing store**，events 物件算在 heapUsed 裡、`Float32Array` 算在 arrayBuffers 裡。本版動的是前者。後者的構成已定位：每條 LS 通道 `settled`（winLen×4B ＝ 4.45 MB）＋ `lineMinMax`（×2 ＝ 8.90 MB）＋ `minMaxPyramid`（≈8.90 MB）＝ **22.2 MB × 13 條 ≈ 289 MB**，全部是 O(視窗行數) 而與畫布寬度無關。下一階段處理。
+
+### 驗收：逐值不變
+
+| 項目 | 結果 |
+|---|---|
+| 情境 | 4 個 mode × frame ∈ {10, 1000} × 全覽 ＝ **8 組** |
+| `settled` / `lineMinMax` / `rcSamples` | 全部通道逐位元 sha256 **相同** |
+| `wfgExportConfig()`（剔除 `_exportDate`） | 8/8 相同 |
+| `wfgGpios` / `analog_config` | 8/8 相同 |
+| `wfgDumpPolArea()`（剔除 `ms`/`baseMs`/`calcCount`） | 8/8 相同 |
+| `wfgDumpLsCko(3)` | 8/8 相同 |
+| canvas 全部繪圖呼叫（含引數，逐筆錄音） | 16,204～36,844 筆／組，8/8 **相同** |
+
+🔴 **空白對照先做過**：第一版的 `exportCfg` 與 `polArea` 指紋拿同一個舊版跑兩次就已經不同（`_exportDate` 是 `new Date().toISOString()`；`polArea` 帶 `ms`/`baseMs`/`calcCount`）—— 那兩個指紋當時的鑑別力是 **0**，會永遠報「不同」。剔除易變欄位後重跑空白對照，6 項指紋 + 全部陣列指紋**全等**，才拿它們當證據。（順帶一個自壞指紋：`wfgExportConfig()` 回傳的是**字串**不是物件，套 `JSON.stringify` 的 replacer 無效，第一次修正等於沒修。）
+
+判定依據：§2 案例 9「效能優化、行為不變 → PATCH」＋ §1 判定表「內部實作 → 效能（**行為零改變**）」。使用者能做的事一件都沒有多 ⇒ 不是 MINOR；既有操作零移位、零移除 ⇒ 不是 MAJOR。不標 `⚠ 輸出變更`：8 組情境的波形陣列、匯出字串、量測 dump 與全部繪圖呼叫皆逐值相同。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.43.1 — 2026-09-03 ｜ PATCH
 
 **說明按鈕樣式搬到 common.css、tooltip 接上 i18n；`wfg-guide*.html` 補上欠了五版的 TX DE Offset 說明**
