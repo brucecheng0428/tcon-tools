@@ -3570,8 +3570,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260902wfg4413"></script>
-<script src="common/i18n.js?v=20260902wfg4413"></script>
+<script src="common/version.js?v=20260902wfg4414"></script>
+<script src="common/i18n.js?v=20260902wfg4414"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -24274,8 +24274,8 @@ function _wfgLsBuildIndividualEvents(ac, allGpioTransitions, effHtotal, effVtota
 
    實作 ＝ 把 VCE 的邊緣在**每個 frame 內重新編號**，然後：
      CKO_i 的 rising  ＝ 編號 n ≡ i            (mod phase) 的 VCE rising
-     CKO_i 的 falling ＝ 編號 n ≡ i + phase/2  (mod phase) 的 VCE rising（背靠背）
-                                               或 VCE falling（有間隔）
+     CKO_i 的 falling ＝ 編號 n ≡ i + phase/2      (mod phase) 的 VCE rising（背靠背）
+                        或 n ≡ i + phase/2 - 1  (mod phase) 的 VCE falling（有間隔）
    於是 High ＝ phase/2 個 VCE 週期、Low ＝ phase/2 個 VCE 週期，寬度由 face 數決定。
 
    🔴 **編號按 frame 內重新起算**，這一點同時解掉舊版的兩個 bug：
@@ -24297,9 +24297,11 @@ function _wfgLsBuildIndividualEvents(ac, allGpioTransitions, effHtotal, effVtota
       （v4.41.2 的 CHANGELOG 曾據此寫「condensed 沒有 frame 對齊的週期」，那個結論
        的成因正是這個 bug 加上當時偵測判準太嚴，**不是物理上不存在**。）
 
-   ⚠ **待 Bruce 裁示**：「有間隔」的 falling 目前取編號 `i + phase/2` 的 VCE falling。
-      若原意是「目標 rising **前面**那一個 falling」（＝ `i + phase/2 - 1`），
-      只要改 `_fallOffset` 這一個數字，其他一行都不必動。 */
+   有間隔的 falling 序號（Bruce 2026-09-02 補充裁示）：「一樣以 8 phase 為例：**CKO
+   Rising 是第一個 VCE 的 Rising，可是 CKO Falling 則是第四個 VCE 的 Falling**」
+   ⇒ 0-based 偏移是 `phase/2 - 1`，不是 `phase/2`。與背靠背（偏移 `phase/2`、落在
+   rising 上）相差的那一段，正好是「第 phase/2 個 VCE 的 falling → 第 phase/2 + 1 個
+   VCE 的 rising」＝ **VCE 自己的 Low 時間，那就是間隔**。 */
 function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
   var vceCkIdx = wfgLsGlobal.vce_ck_idx;
   if (vceCkIdx < 0 || vceCkIdx >= wfgGpios.length) return [];
@@ -24311,7 +24313,30 @@ function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHto
 
   var halfPhase = condPhase >> 1;      // 8-face → 4；6-face → 3；4-face → 2
   if (halfPhase < 1) halfPhase = 1;
-  var _fallOffset = halfPhase;         // ⚠ 見上方「待 Bruce 裁示」
+  var fallOnRising = (condInterval !== 'some');   // 背靠背 ⇒ falling 也看 VCE rising
+  /* 🔴 falling 的邊緣序號（Bruce 2026-09-02 裁示）：
+       ・背靠背：「falling 對第 phase/2 + 1 個 VCE 的 **rising**」⇒ 0-based 偏移 phase/2
+       ・有間隔：「CKO Rising 是第一個 VCE 的 Rising，可是 CKO Falling 則是**第四個 VCE
+                  的 Falling**」（8-phase）⇒ 0-based 偏移 phase/2 − 1
+     兩者相差的正是「第 phase/2 個 VCE 的 falling → 第 phase/2 + 1 個 VCE 的 rising」
+     這一段 —— **那一段就是間隔**，也就是 VCE 自己的 Low 時間。 */
+  var _fallOffset = fallOnRising ? halfPhase : (halfPhase - 1);
+  if (_fallOffset < 0) _fallOffset = 0;
+  /* 🔴 **不變量（Bruce 2026-09-02）：「有間隔的話，Duty 絕對不會大於 50%。」**
+     背靠背 ＝ 恰好 50%（High 佔 phase/2 個 VCE 週期、CKO 週期 phase 個）；
+     有間隔 ＝ 一定 < 50%，因為 falling 提早到「前一個 VCE 的 falling」，
+     少掉的正是 VCE 自己的 Low 那一段。
+
+     這是**結構上成立**的，不必在執行時檢查：`_fallOffset` 比背靠背小 1 個 VCE 週期，
+     而 falling 落在該週期的 falling（必定早於下一個 rising）⇒ High 嚴格短於 50%。
+     實測（preset FHD 60Hz SG，VCE High 2 line／Low 4 line）：
+       8-face 背靠背 50.0000%／有間隔 41.6667%
+       6-face 背靠背 50.0000%／有間隔 38.8889%
+       4-face 背靠背 50.0000%／有間隔 33.3333%
+     🔴 改動這一段之前先確認這個不變量還成立 —— 任何一格 ≥ 50% 就是做錯了。
+        驗收腳本 `_tmp_verify_condspec.js` 會逐格量出 duty 並斷言。
+     （刻意不加 runtime 斷言：這支函式在每次換窗都會跑，而上面那個結構保證已經足夠，
+       加檢查只會在熱路徑上多做白工。） */
 
   var pad = Math.max(effVtotal, 100);
   var extStart = Math.max(0, viewStartLine - pad);
@@ -24326,7 +24351,6 @@ function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHto
 
   var riseSlot = ckoIndex % condPhase;
   var fallSlot = (ckoIndex + _fallOffset) % condPhase;
-  var fallOnRising = (condInterval !== 'some');   // 背靠背 ⇒ falling 也看 VCE rising
 
   var events = [];
   var prevLevel = oax ? oax.initLevel : 0;
