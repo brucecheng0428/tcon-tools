@@ -1294,9 +1294,38 @@ var I18N = {
   'wfg.lineBuffer':     { 'zh-TW': 'Line Buffer:', 'en': 'Line Buffer:', 'zh-CN': 'Line Buffer:' },
   /* ── v4.38.0：TX DE Offset（行內平移，單位＝ TX DCLK；UI 上刻意不寫單位，Bruce 指定）── */
   'wfg.txDeOffset':     { 'zh-TW': 'TX DE Offset:', 'en': 'TX DE Offset:', 'zh-CN': 'TX DE Offset:' },
-  'wfg.txDeOffsetTitle':{ 'zh-TW': 'TX DE Offset（單位：TX DCLK，0～511，預設 32）＝ TX DE 在每一條 Line 內的平移量。\n設 32 ⇒ 起始位置由 DCLK 0 移到 DCLK 32，結束位置同樣 ＋32 ⇒ **脈寬不變**。\n只影響 TX DE 這一條波形，不影響資料索引（D0/D1…）與 SD 取樣。',
-                          'en': 'TX DE Offset (unit: TX DCLK, 0-511, default 32) = intra-line shift of TX DE.\nSet 32 => start moves from DCLK 0 to DCLK 32, end also +32 => pulse width unchanged.\nAffects only the TX DE waveform; data indices (D0/D1...) and SD sampling are untouched.',
-                          'zh-CN': 'TX DE Offset（单位：TX DCLK，0～511，预设 32）＝ TX DE 在每一条 Line 内的平移量。\n设 32 ⇒ 起始位置由 DCLK 0 移到 DCLK 32，结束位置同样 ＋32 ⇒ **脉宽不变**。\n只影响 TX DE 这一条波形，不影响数据索引（D0/D1…）与 SD 取样。' },
+  /* 🔴 v4.39.0：預設值由 32 改為 0（Bruce 2026-09-02），三語的說明文字一併更新 ——
+     tooltip 寫著舊預設值等於文件說謊，比沒寫還糟。舉例仍用 32 這個數字（它是一個
+     具體的位移量，用來解釋「起訖同時 +32、脈寬不變」最直觀）。 */
+  'wfg.txDeOffsetTitle':{ 'zh-TW': 'TX DE Offset（單位：TX DCLK，0～511，預設 0）＝ TX DE 在每一條 Line 內的平移量。\n設 32 ⇒ 起始位置由 DCLK 0 移到 DCLK 32，結束位置同樣 ＋32 ⇒ **脈寬不變**。\n只影響 TX DE 這一條波形，不影響資料索引（D0/D1…）與 SD 取樣。',
+                          'en': 'TX DE Offset (unit: TX DCLK, 0-511, default 0) = intra-line shift of TX DE.\nSet 32 => start moves from DCLK 0 to DCLK 32, end also +32 => pulse width unchanged.\nAffects only the TX DE waveform; data indices (D0/D1...) and SD sampling are untouched.',
+                          'zh-CN': 'TX DE Offset（单位：TX DCLK，0～511，预设 0）＝ TX DE 在每一条 Line 内的平移量。\n设 32 ⇒ 起始位置由 DCLK 0 移到 DCLK 32，结束位置同样 ＋32 ⇒ **脉宽不变**。\n只影响 TX DE 这一条波形，不影响数据索引（D0/D1…）与 SD 取样。' },
+  /* ── 🔴 v4.39.0：TX DE Offset 建議值對照表（Bruce 2026-09-02）──────────────────
+     表格內的 TCON 型號／解析度／介面名稱都是識別字，三語一致、不翻譯；
+     只有欄位標題、gate type 標註與說明文字有語言差異。 */
+  'wfg.txDeRefBtnTitle':{ 'zh-TW': 'TX DE Offset 建議值對照表（依 TCON／H resolution／Tx I/F／Gate Type）',
+                          'en': 'TX DE Offset reference table (by TCON / H resolution / Tx I/F / Gate Type)',
+                          'zh-CN': 'TX DE Offset 建议值对照表（依 TCON／H resolution／Tx I/F／Gate Type）' },
+  'wfg.txDeRefTitle':   { 'zh-TW': 'TX DE Offset 建議值對照表', 'en': 'TX DE Offset reference table', 'zh-CN': 'TX DE Offset 建议值对照表' },
+  'wfg.txDeRefSub':     { 'zh-TW': '點任一個數值即可直接帶入上方的 TX DE Offset 欄位。',
+                          'en': 'Click any value to load it straight into the TX DE Offset field above.',
+                          'zh-CN': '点任一个数值即可直接带入上方的 TX DE Offset 字段。' },
+  'wfg.txDeRefWarnName':{ 'zh-TW': '這些只是粗略的測試值', 'en': 'These are rough test values only', 'zh-CN': '这些只是粗略的测试值' },
+  'wfg.txDeRefWarnBody':{ 'zh-TW': '實際上仍要以實際波形為主。表中的數字僅供起手參考，不能取代量測。',
+                          'en': 'The actual waveform always takes precedence. Treat these numbers as a starting point, not a substitute for measurement.',
+                          'zh-CN': '实际上仍要以实际波形为主。表中的数字仅供起手参考，不能取代量测。' },
+  'wfg.txDeRefColTcon': { 'zh-TW': 'TCON', 'en': 'TCON', 'zh-CN': 'TCON' },
+  'wfg.txDeRefColH':    { 'zh-TW': 'H resolution', 'en': 'H resolution', 'zh-CN': 'H resolution' },
+  'wfg.txDeRefColItf':  { 'zh-TW': 'Tx I/F', 'en': 'Tx I/F', 'zh-CN': 'Tx I/F' },
+  'wfg.txDeRefColVal':  { 'zh-TW': 'TX DE Offset', 'en': 'TX DE Offset', 'zh-CN': 'TX DE Offset' },
+  'wfg.txDeRefBoth':    { 'zh-TW': 'single／dual 同值', 'en': 'single / dual (same)', 'zh-CN': 'single／dual 同值' },
+  'wfg.txDeRefSingle':  { 'zh-TW': 'single', 'en': 'single', 'zh-CN': 'single' },
+  'wfg.txDeRefDual':    { 'zh-TW': 'dual', 'en': 'dual', 'zh-CN': 'dual' },
+  'wfg.txDeRefNote':    { 'zh-TW': '除 E503 之外，Single Gate 與 Dual Gate 同值，故合併為一格；E503 的兩種 Gate Type 分開列出。',
+                          'en': 'Except for E503, single gate and dual gate share the same value, so they are merged into one cell; E503 lists both gate types separately.',
+                          'zh-CN': '除 E503 之外，Single Gate 与 Dual Gate 同值，故合并为一格；E503 的两种 Gate Type 分开列出。' },
+  'wfg.txDeRefCur':     { 'zh-TW': '目前值：', 'en': 'Current: ', 'zh-CN': '当前值：' },
+  'wfg.txDeRefClose':   { 'zh-TW': '關閉', 'en': 'Close', 'zh-CN': '关闭' },
   /* ── v4.23.0：First Line Read（MNT）／ ST_LINE_RD ＋ PRE_BLK_RD_NO（NB）── */
   'wfg.firstLineRead':  { 'zh-TW': 'First Line Read:', 'en': 'First Line Read:', 'zh-CN': 'First Line Read:' },
   'wfg.flrTitle':       { 'zh-TW': 'First Line Read（reg_st_line_rd）＝ 波形位移的輸出行數。\nSingle Gate：＝ Line Buffer；Dual Gate：＝ Line Buffer × 2（可為奇數 ⇒ Line Buffer 出現 .5）',
