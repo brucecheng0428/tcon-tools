@@ -2207,6 +2207,7 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
             <tr><td class="t-name">Line Buffer</td><td><span class="t-type tt-num">Number input</span><br><small style="color:var(--muted);">(read-only on NB)</small></td><td>All models</td><td>Line buffer depth, counted in <strong>input (RX) data lines</strong>. The limit depends on the model (see the table below). <strong>MNT lets you type into it; on NB it is a read-only derived value</strong> (gray, cannot be edited), and the real values live in the two fields to its right.</td></tr>
             <tr><td class="t-name">First Line Read</td><td><span class="t-type tt-num">Number input</span></td><td><strong>MNT only</strong><br>(EM01 / EM02 / E512)</td><td>The official EM01 tool spells it "First Line read". The unit is <strong>output (TX) lines</strong>, that is, <strong>how many lines TX DE is pushed back relative to RX DE</strong> - the shift you see on the waveform is exactly this number. It is linked both ways with Line Buffer.</td></tr>
             <tr><td class="t-name">ST_LINE_RD<br>PRE_BLK_RD_NO</td><td><span class="t-type tt-num">Number input × 2</span></td><td><strong>NB only</strong><br>(E501A / E501B / E503 / EN01)</td><td><strong>An NB TCON has no such thing as "First Line Read"</strong>. These two registers take its place, and it is <strong>their sum</strong> that gives the position where the first data comes out. <code>PRE_BLK_RD_NO</code> is the number of dummy lines in front (values from 0 to 6 have all been seen in real files, so it is not fixed), and <code>ST_LINE_RD</code> is the delay of the data itself. Both fields accept free input. <span style="color:var(--muted);">On EN01 the official names are <code>START_LINE_RD</code> / <code>PRE_BLK_DATA</code>, and the exported list uses those names.</span></td></tr>
+            <tr id="sec6txdeoff"><td class="t-name">TX DE Offset</td><td><span class="t-type tt-num">Number input</span><br><small style="color:var(--muted);">(with a table-icon button next to it)</small></td><td>All models<br>(both MNT and NB)</td><td>Shifts the <code>TX DE</code> waveform <strong>within each line</strong>, in units of <strong>TX DCLK</strong> (the unit is not repeated in the field). Range <code>0</code>–<code>511</code>, <strong>default 0</strong> (no shift). The start and the end move together, so the <strong>pulse width does not change</strong>. It <strong>only moves the TX DE trace</strong> — <code>RX DE</code>, the data indices (D0 / D1 …) and SD / sub-pixel sampling are <strong>all unaffected</strong>. See below for how it differs from <code>First Line Read</code>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -2258,6 +2259,39 @@ window.GUIDE_FILES = { 'zh-TW': 'wfg-guide.html', 'zh-CN': 'wfg-guide-cn.html', 
         <strong>MNT: type past the limit and the field shows <em>the value actually used</em>, not the number you typed</strong>
         On the three MNT models (EM01 / EM02 / E512), both <code>First Line Read</code> and <code>Line Buffer</code> have upper limits. Type a number past the limit into the field (say you type 99 and the limit is 22) and <strong>the field turns straight into 22</strong>, the value really used inside.<br>
         <span style="color:var(--muted);">🔴 That way the number on screen is always the number the waveform is drawn with - you never end up thinking you set 99 while the tool is using 22.</span>
+      </div>
+
+      <div class="callout info" id="sec6txdeoffnote">
+        <strong>TX DE Offset shifts <em>within</em> a line; First Line Read shifts <em>whole lines</em> — two different things</strong>
+        ・<code>First Line Read</code> / <code>Line Buffer</code> move <strong>lines</strong>: which line the Nth piece of data comes out on. The D0 / D1 labels and SD sampling move with it.<br>
+        ・<code>TX DE Offset</code> moves <strong>the position inside one line</strong>: it slides the TX DE square wave along the time axis and <strong>changes no data index at all</strong>.<br><br>
+        Example: enter <code>32</code> and the rising edge moves from DCLK 0 to DCLK 32 of that line; the falling edge moves by the same +32, so the <strong>pulse width is unchanged</strong>.<br>
+        Values outside <code>0–511</code> are <strong>clamped, and the field is written back to the value actually used</strong> (same principle as Line Buffer: <strong>the number you see in the box is the number the waveform uses</strong>).<br>
+        <span style="color:var(--muted);">🔴 <strong>The default has been <code>0</code> since v4.39.0</strong> (it was 32 when the field first appeared in v4.38.0). Config files saved before v4.37.3 do not contain this field at all, so importing one always falls back to <code>0</code> — those old files redraw exactly as they looked when they were saved.</span>
+      </div>
+
+      <div class="callout warn">
+        <strong>The table icon ▦ next to the field = reference table (not a question mark; it does not leave this page)</strong>
+        There is a small <strong>table-icon</strong> button to the right of the <code>TX DE Offset</code> field. Pressing it opens a <strong>floating window in place</strong> listing suggested values by <strong>TCON / H resolution / Tx I/F / Gate Type</strong>. <strong>Click any number and it goes straight into the field above</strong>; the cell matching the current value is highlighted, and the <strong>window stays open after you apply</strong> so you can compare one cell against the next.<br>
+        <span style="color:var(--muted);">Why not a question mark: the "?" in the page header is the <strong>user guide for the whole site</strong> (it navigates away), while this button is about the <strong>contents of one single field</strong> (it opens in place). The icons are deliberately different.</span><br><br>
+        <strong>⚠ Read the warning line at the top of that window: "These are rough test values only"</strong><br>
+        <strong>The real waveform always takes precedence.</strong> The numbers in the table are a starting point and <strong>are not a substitute for measurement</strong>.<br><br>
+        The seven rows currently included (<strong>Single Gate and Dual Gate share the same value except on E503</strong>, so they are merged into one cell):
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>TCON</th><th>H resolution</th><th>Tx I/F</th><th>TX DE Offset</th></tr></thead>
+            <tbody>
+              <tr><td class="t-name">EM01</td><td><code>3840</code></td><td>iSP</td><td><code>100</code><small style="color:var(--muted);"> (single / dual same)</small></td></tr>
+              <tr><td class="t-name">EM01</td><td><code>2560</code></td><td>iSP</td><td><code>100</code><small style="color:var(--muted);"> (single / dual same)</small></td></tr>
+              <tr><td class="t-name">EM01</td><td><code>2560</code></td><td>mLVDS</td><td><code>40</code><small style="color:var(--muted);"> (single / dual same)</small></td></tr>
+              <tr><td class="t-name">EM01</td><td><code>1920</code></td><td>mLVDS</td><td><code>40</code><small style="color:var(--muted);"> (single / dual same)</small></td></tr>
+              <tr><td class="t-name">EM02</td><td><code>2560</code></td><td>mLVDS</td><td><code>20</code><small style="color:var(--muted);"> (single / dual same)</small></td></tr>
+              <tr><td class="t-name">EM02</td><td><code>1920</code></td><td>mLVDS</td><td><code>10</code><small style="color:var(--muted);"> (single / dual same)</small></td></tr>
+              <tr><td class="t-name">E503</td><td><code>1920</code></td><td>iSP</td><td>single <code>60</code> / dual <code>30</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <span style="color:var(--muted);">This table carries the same numbers as the in-tool window; <strong>if they ever disagree, the in-tool window wins</strong> (it is generated straight from the single constant table in the code).</span>
       </div>
 
       <div class="callout info">
