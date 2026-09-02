@@ -22,6 +22,59 @@
 
 ---
 
+## 開發工具：pre-commit 的 node 偵測不再只靠 PATH — 2026-09-03 ｜ **不進版**（只改 `tools/hooks/pre-commit`，產品端零改動）
+
+**判定依據：** 依 `docs/VERSIONING.md` §3 不進版清單（「只改 `docs/`、`CHANGELOG.md`、註解」與雜務類）。本次唯一改動的檔案是 `tools/hooks/pre-commit` —— 它是**開發端的 git hook，不會被部署、使用者連下載都下載不到**。逐項覆核 R1～R4，取最高者仍是「不進版」：
+
+- **R1（修 bug 即使輸出會變仍算 PATCH）**：本次確實是修一個 bug，但壞掉的是**開發流程的閘門**，不是任何工具的行為。六個工具頁、`common/*.js`、`common/version.js` **零改動**，任何使用者的任何一次操作、任何一個數字、任何一張截圖都不會有差別 ⇒ 不適用，也不需要 `⚠ 輸出變更`。
+- **R2（波次）**：沒有任何既有入口消失或移位 ⇒ 不適用。
+- **R3（分階段交付）**：使用者能做的事不增不減 ⇒ 不適用。
+- **R4（起始狀態／預設值）**：沒動任何預設值 ⇒ 不適用。
+- **快取字串**：`tools/check_cache_buster.py` 的觸發條件是改了 `common/*.js`；本次沒動，因此不需 bump 任何頁面的 `?v=`。
+
+（本項是 v4.42.0 條目裡列為「不在本版範圍」的 **G**。）
+
+### 根因：不是「這台 Mac 沒裝 node」，是偵測方式太脆弱
+
+先前的結論「host 沒有 node ⇒ pre-commit 直接中止」是**錯的事實**。本次實測推翻：
+
+| 量測 | 結果 |
+|---|---|
+| `/Users/brucembp2020/.local/node/bin/node -v` | **`v24.14.1`**（node 確實存在，npm/npx 同目錄） |
+| `env -i PATH=/usr/bin:/bin sh -c 'command -v node'` | 找不到 |
+| `/bin/zsh -lc 'command -v node'` | 找不到 |
+| `/bin/zsh -lic 'command -v node'` | 找不到 |
+
+⇒ node **裝了，但不在任何 shell 的 PATH 上**，只能用絕對路徑呼叫。舊版第 61 行只有 `command -v node` 這一條路，於是印出「🛑 找不到 node」，被讀成「沒安裝」，NB code 匯入檢查等於長期停擺。
+
+> 🔴 修正一則更早的說法：Bruce 交辦時寫「登入 shell（`/bin/zsh -lc`）找得到」。實測 `-lc` 與 `-lic` **兩種都找不到**（`~/.zshrc`／`~/.profile` 根本不存在）。結論方向不變 —— 反而更說明「絕對路徑候選清單」是必要的，靠登入 shell 也救不回來。
+
+### 修法：只放寬「偵測」，不放寬「判定」
+
+`command -v node` 失敗時，依序試以下絕對路徑，第一個 `-x` 通過的就用它跑 `check_nb_code_import.js`：
+
+1. `$HOME/.local/node/bin/node`（本機實際所在；`HOME` 在 `env -i` 下可能是空的，另用 `id -un` 推一份 `/Users/<user>` 補上）
+2. `/opt/homebrew/bin/node`
+3. `/usr/local/bin/node`
+4. `/opt/local/bin/node`
+
+🔴 **全部候選都找不到時，維持原本的中止行為**，並把試過哪些路徑印出來。**沒有改成「找不到就當通過」** —— 那正是本檔上方 rc=2 那一段（2026-08-12）親手否決掉的做法：檢查失效時不當作通過。
+
+### 驗證（實測，含正負控制）
+
+| # | 情境 | 結果 |
+|---|---|---|
+| A1 | `env -i PATH=/usr/bin:/bin` 跑偵測區塊 | `picked=[/Users/brucembp2020/.local/node/bin/node]` |
+| A2 | `env -i PATH=/usr/bin:/bin` 跑**整支 hook** | 版號檢查 OK、NB 檢查跑完，`rc=0`（修正前這裡會中止） |
+| B1 | node 在 PATH 上，跑偵測區塊 | 同樣挑到那支 node（走 `command -v` 分支，行為不變） |
+| B2 | node 在 PATH 上，跑整支 hook | `rc=0`，與修正前一致 |
+| C | 四條候選路徑全換成不存在的路徑（模擬真的沒裝） | 印「🛑 找不到 node…（檢查失效不當作通過）」，`rc=1` **仍會中止** |
+| D | 舊版行為對照：`env -i` 下只用 `command -v node` | `OLD_NOTFOUND` —— 重現了「被誤讀成沒安裝」的那一步 |
+| 正控制 | `env -i` 下直接跑 `check_nb_code_import.js` | 逐條印出斷言並「✅ 全部通過」⇒ A2 的 `rc=0` 是真的跑過，不是空轉 |
+| 負控制 | 把 `NBCHK` 換成必定 `exit 1` 的假腳本 | hook 印出失敗內容並中止（`rc=1`）⇒ 這條路徑確實有鑑別力 |
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.42.0 — 2026-09-02 ｜ MINOR ｜ ⚠ 輸出變更
 
 **輸出通道三大類顯示切換、匯入分類拆成「類比訊號／輸出通道」、系統卡片外觀一致化、PH_CNT 觸發格改藍**

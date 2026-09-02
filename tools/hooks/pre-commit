@@ -58,12 +58,40 @@ if [ ! -f "$NBCHK" ]; then
   echo "🛑 找不到 $NBCHK —— NB code 匯入檢查無法執行，commit 已中止。"
   exit 1
 fi
-if ! command -v node >/dev/null 2>&1; then
+# 🔴 2026-09-03 修正：node 的偵測不能只靠 PATH。
+#   舊版只有 `command -v node` 這一條路。實測（Bruce 2026-09-02 提出、本次複驗）：
+#   這台 Mac **有** node —— `v24.14.1`，位在 `$HOME/.local/node/bin/node`，
+#   但它**不在 PATH 上**（`/bin/zsh -lc` 與 `/bin/zsh -lic` 兩種登入 shell
+#   `command -v node` 都是空的），而 git hook 的執行情境 PATH 又常被剝到只剩
+#   `/usr/bin:/bin`（實測 `env -i PATH=/usr/bin:/bin sh -c 'command -v node'` 找不到）。
+#   於是這裡印出「找不到 node」，被誤讀成「這台機器沒裝 node」，
+#   NB code 匯入檢查等於長期停擺 —— 是**偵測太脆弱**，不是環境缺東西。
+#
+#   ⚠ 只放寬**偵測**，不放寬**判定**：候選路徑全部找不到時，維持原本的中止行為。
+#     「找不到就當通過」正是本檔上面 rc=2 那一段親手否決掉的做法，不重蹈覆轍。
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+else
+  # HOME 在被剝乾淨的環境（env -i）下可能是空的，另外用 id -un 推一份，兩條都試。
+  _home="${HOME:-}"
+  [ -z "$_home" ] && _home="/Users/$(id -un 2>/dev/null)"
+  for _cand in "$_home/.local/node/bin/node" \
+               /opt/homebrew/bin/node \
+               /usr/local/bin/node \
+               /opt/local/bin/node; do
+    if [ -x "$_cand" ]; then NODE_BIN="$_cand"; break; fi
+  done
+fi
+if [ -z "$NODE_BIN" ]; then
   # 與上面 rc=2 同一個原則：檢查跑不起來時**不當作通過**。
   echo "🛑 找不到 node —— NB code 匯入檢查跑不起來，commit 已中止（檢查失效不當作通過）。"
+  echo "   已試過：PATH（command -v node）、\$HOME/.local/node/bin/node、"
+  echo "           /opt/homebrew/bin/node、/usr/local/bin/node、/opt/local/bin/node。"
+  echo "   node 若裝在別處，把該路徑加進本檔的候選清單（不要改成「找不到就放行」）。"
   exit 1
 fi
-node "$NBCHK" > /tmp/wfg_nbchk.$$ 2>&1
+"$NODE_BIN" "$NBCHK" > /tmp/wfg_nbchk.$$ 2>&1
 nbrc=$?
 if [ $nbrc -ne 0 ]; then
   cat /tmp/wfg_nbchk.$$
