@@ -3570,8 +3570,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260902wfg4414"></script>
-<script src="common/i18n.js?v=20260902wfg4414"></script>
+<script src="common/version.js?v=20260902wfg4415"></script>
+<script src="common/i18n.js?v=20260902wfg4415"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -4630,7 +4630,11 @@ const WFG_PRESETS = {
                       0.0005545917603004824, 0.0005587940074907038] },
     tconInternalMode: true,
     promotedRx: -1,
-    promotedTcon: 0,
+    /* 🔴 v4.41.5：原本是 `0` ＝ 一載入這個預設，TX DCLK／TX DE 就被推出固定區、
+       跟著波形區上下捲動，而 RX 留在上面 —— 正是 Bruce 2026-09-02 回報的畫面。
+       經 Bruce 裁示「不是刻意的」，改回 -1（＝留在固定區），與隔壁 preset 一致。
+       兩個 preset 的 `irOrder` 本來就都是 [4,5,0,1,2,3]，改完內部列版面完全相同。 */
+    promotedTcon: -1,
     irOrder: [4,5,0,1,2,3],
     currentMode: 'tcon',
     pulseItems: [],
@@ -40090,12 +40094,50 @@ function wfgInitMinimap() {
   }
 }
 
-// Patch: after normal render, also update minimap
+/* ══ 🔴 v4.41.5：這裡原本是「意圖包一層、實作卻是重寫一份」════════════════════
+   `_origWfgResizeAndRender` 從 commit bf7b1dd（還在 legacy-index.html 的年代）就被
+   存下來，**卻從來沒有任何一行程式用過它** —— 那個沒人用的變數就是意圖的化石：
+   本來要包一層，最後寫成把原版整支換掉。
+
+   被換掉的原版（見上方 `let wfgResizeAndRender`）尾端有三個呼叫，於是全部靜默失效：
+     ・`wfgUpdateOverlayCard()`      v3.9.0 加的（100ebd1）
+     ・`wfgOverlayRefreshPulse()`    v3.9.0 加的
+     ・`wfgAutoSave()`               在 wfg.html 拆頁時（4647a36）就已經在原版裡
+
+   🔴 **這三行從加進去的那一刻起就沒跑過**：v3.9.0 是把它們加到一支「已經被取代掉」
+      的函式上。所以不是「後來被改壞」，而是「加在沒人呼叫的那一份上」。
+
+   ── 使用者看到的症狀（Bruce 2026-09-02 回報）─────────────────────────────
+   「TX DE 應該要在上方固定不動區……我刻意把它移回不動區是可以定住的，但只要一
+     重新整理網頁，它又跳到不動區外面。」
+   拖曳結束的 `endDrag()` 收尾就只有 `wfgRenderLabels(); wfgResizeAndRender();`，
+   它把 `_wfgPromotedTcon` 設回 -1 之後**沒有任何存檔動作** ⇒ localStorage 停在舊值
+   ⇒ 重整後又跳出固定區。實測（jsdom，起點兩邊同步 `{rx:4,tcon:2}`）：
+     動作後 記憶體 `{rx:-1,tcon:-1}` / localStorage 仍是 `{rx:4,tcon:2}`（等 900ms）。
+
+   ── 為什麼 Bruce 長期「有時候複現不出來」──────────────────────────────
+   `#page-wfg` 上掛著 input/change 委派存檔，而存檔是**完整快照**。只要拖曳之後又
+   碰過任何一個輸入格，掉了的狀態就整包被補存回去。**只有「拖曳是重整前的最後一個
+   動作」時才會顯現。**
+
+   ── 為什麼可以直接包一層（不會變成畫兩次）────────────────────────────
+   `_origWfgResizeAndRender` 是在第 40103 行**取代之前**捕捉的，所以它就是上方那支
+   原版：`wfgResizeCanvas()／wfgRender()` 各只做一次。包一層之後總共仍然只渲染一次，
+   多出來的只有那三個呼叫本身。
+
+   ── 效能：為什麼多這三個呼叫不會拖慢互動 ──────────────────────────────
+   逐一查過全部 27 個 `wfgResizeAndRender()` 呼叫點，**沒有一個在連續互動路徑上**：
+   全是離散的單次操作（切換、拖曳結束、清除、載入預設、通道增／刪／移、匯入設定檔、
+   匯入 code、開頁初始化，另有兩支 `wfgBench*` 量測用）。唯一在拖曳過程中的
+   `moveInternalReorder()`（27370）也被 `targetSlot !== currentSlot` 擋著，只有真的
+   換位時才跑，而那一路本來就已經 `wfgRenderLabels()` ＋ 整張重繪。
+   🔴 特別確認過：**縮放／平移不走這裡** —— `wfgZoomIn()`／`wfgZoomOut()`／`wfgFitAll()`
+      是直接呼叫 `wfgRender(); wfgUpdateMinimapViewport();`，與本函式無關，
+      所以本次修改對縮放的每幀成本是**零影響**。 */
 var _origWfgResizeAndRender = wfgResizeAndRender;
 
 function wfgResizeAndRenderWithMinimap() {
-  if (typeof window.wfgResizeCanvas === 'function') window.wfgResizeCanvas();
-  else wfgRender();
+  _origWfgResizeAndRender();
   wfgRenderMinimap();
   wfgUpdateMinimapViewport();
 }

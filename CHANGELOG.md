@@ -22,6 +22,60 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.41.5 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
+
+**自動存檔漏了一整條路徑：「意圖包一層、實作寫成重寫一份」**
+
+**Bruce 2026-09-02 回報：**「波形區的 TX DE，它預設的狀態應該是要在上方固定不動區。可是我現在看起來，應該只有 RX DE 有在固定不動區，而 TX DE 會跟著上下移動波形區而移動……**重新整理就會變回這種狀態。雖然我刻意把 TX DE 移到不動區是可以定住的，但只要一重新整理網頁，它又跳到不動區外面。**」
+
+這條線索是從他更早的一個問題追下來的：「有沒有什麼可能會**只存到部分、有些設定沒存到**呢？因為我**之前就有看到過這種情況，可是有時候又複現不出來**。」
+
+### 根因
+
+`wfgResizeAndRender` 有兩份：
+
+| | 位置 | 尾端做的事 |
+|---|---|---|
+| 原版 | `let wfgResizeAndRender = function()` | render ＋ `wfgUpdateOverlayCard()` ＋ `wfgOverlayRefreshPulse()` ＋ **`wfgAutoSave()`** |
+| 取代版 | `wfgResizeAndRenderWithMinimap()` | render ＋ minimap 兩件事，**三個呼叫全沒有** |
+
+取代版旁邊存了一個 `var _origWfgResizeAndRender = wfgResizeAndRender;` —— **全檔沒有任何一行用過它**。那個沒人用的變數就是意圖的化石：本來要「包一層」，最後寫成「把原版整支換掉」。
+
+🔴 **這三行從加進去的那一刻起就沒跑過。** `wfgUpdateOverlayCard()` / `wfgOverlayRefreshPulse()` 是 v3.9.0（commit `100ebd1`）加的，而取代版早在 `bf7b1dd`（legacy-index.html 年代）就存在；`wfgAutoSave()` 在 wfg.html 拆頁時（`4647a36`）就已經在原版裡。所以不是「後來被改壞」，是**加在一支已經沒人呼叫的函式上**。
+
+### 影響範圍
+
+全檔 **27 個** `wfgResizeAndRender()` 呼叫點，凡是「只靠它收尾」的操作，改動一律不會進 localStorage —— 全部是離散的單次操作：內部訊號群組拖曳 promote／demote（＝ Bruce 這次回報的 TX DE）、通道眼睛 `wfgToggleChVis()`、通道增／刪／移、TCON 內部運算開關、清除、載入預設、匯入設定檔／code、開頁初始化。修正後實測已全部跟上。
+
+🔴 **另有五個入口也存不下來，但那是另一個獨立的原因，本版不涵蓋**（修完之後重測仍然是壞的，所以不能算在這條根因裡）：`wfgZoomIn()` / `wfgZoomOut()` / `wfgFitAll()`（直接呼叫 `wfgRender()`，從來就沒有存檔呼叫）、`wfgToggleCursorBtn()`、`wfgPulseAdd()`、以及除 `wfgSimSliderNudge()` 以外的 −／+ 微調鈕（它們是程式化寫入 `input.value` 後直接呼叫 handler，沒有派發 `input`／`change`，所以委派存檔收不到；`wfgSimSliderNudge()` 有 `dispatchEvent` 所以沒事）。另立條目處理。
+
+### 為什麼「有時候複現不出來」
+
+`#page-wfg` 上掛著 input／change 委派存檔，而存檔寫的是 `wfgExportConfig()` 的**完整快照**。所以只要在上述操作之後又碰過任何一個輸入格，掉了的狀態就會整包被補存回去 —— **只有「這類操作是重整前的最後一個動作」時才會顯現**。實測對照：拖曳後 localStorage 停在舊值，隨手改一格 `#wfg-vactive` 之後立刻變成正確值。
+
+### 修法
+
+取代版改成真的包一層：`_origWfgResizeAndRender()` ＋ minimap 兩件事。
+
+- **不會變成畫兩次**：`_origWfgResizeAndRender` 是在取代**之前**捕捉的，本身只渲染一次；包起來之後總共仍是一次，多的只有那三個呼叫本身。
+- **不影響互動效能**：27 個呼叫點全部是離散的單次操作，唯一在拖曳過程中的 `moveInternalReorder()` 被 `targetSlot !== currentSlot` 擋著，只有真的換位才跑。**縮放／平移不走這裡**（`wfgZoomIn/Out/FitAll` 直接呼叫 `wfgRender()`），對縮放成本零影響。
+  實測（jsdom，錄下 canvas 每一個繪圖呼叫）：修前修後同一操作都是 **1213 個繪圖呼叫**（沒有多畫一次）；耗時三輪對照 HEAD 53.0／42.0／30.3 ms、本版 45.5／41.3／29.3 ms，本版皆不慢於修前。
+
+### 一併修：快捷設定的資料錯誤
+
+`fhd_60hz_sg_ls_dual_cpv`（FHD 60Hz Single Gate(LS：Dual CPV)）的 `promotedTcon` 內建 `0`，等於一載入這個預設，TX DCLK／TX DE 就被推出固定區，而 RX 留在上面 —— 正是 Bruce 看到的畫面。經 Bruce 裁示「不是刻意的」，改為 `-1`。兩個 preset 的 `irOrder` 本來就都是 `[4,5,0,1,2,3]`，改完內部列版面完全一致。只改資料，不動邏輯。另一個 preset `fhd_60hz_sg` 已經是 `-1`，不需要改。
+
+### ⚠ 輸出變更
+
+1. 套用 `FHD 60Hz Single Gate(LS：Dual CPV)` 之後，TX DCLK／TX DE 兩列從波形區移回頂端固定區 ⇒ **固定區高度與可視版面改變**，用這個預設存下來的截圖新舊版會不一樣。
+2. 上述那幾個操作之後重整，得到的狀態與舊版不同（舊版會退回上一次被存下來的狀態）。舊結果本身是 bug 產物，但依 R1 的範圍定義（同一操作序列得到不同結果）仍須標記，避免回歸比對誤判。
+3. **波形數值本身一位元未變** —— 實測：錄下 canvas 全部繪圖呼叫（含引數與當下的 fill／stroke／lineWidth）比對雜湊，預設狀態 1789 筆、`fhd_60hz_sg` 6936 筆，修前修後**雜湊完全相同**。`fhd_60hz_sg_ls_dual_cpv` 依上述第 1 點刻意不同。
+
+判定依據：`docs/VERSIONING.md` §1 判定表「既有功能的輸出 ＝ 修正為原本就該有的行為」→ PATCH；§2 案例 2（改一個 bug）→ PATCH；R1（修 bug 即使畫面會變仍是 PATCH，但要標 `⚠ 輸出變更`）→ PATCH ＋ 標記。逐項取最高者仍為 PATCH。
+🔴 **與 R4 的取捨（供覆核）**：R4 管的是「起始狀態／預設值改變」，字面上涵蓋 preset 的 `promotedTcon`，若套 R4 會判 MINOR。但 §1 判定表把「**主動改變**（設計上決定不一樣）」與「**修正為原本就該有的行為**」分得很清楚，而 Bruce 已明示這個值「不是刻意的」⇒ 屬於修正而非設計選擇，故不套 R4。依 R2-3「不確定一律往低編」，編 PATCH 並在此寫明取捨。功能沒有增減、按鈕沒有移位、既有操作全部照舊，不觸及 MAJOR。
+
+---
+
 ## TCON 波形模擬與取樣 (wfg) v4.41.4 — 2026-09-02 ｜ PATCH ｜ ⚠ 輸出變更
 
 **補完 v4.41.3 留的那一項：「有間隔」的 falling 邊緣序號**
