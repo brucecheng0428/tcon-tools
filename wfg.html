@@ -24278,6 +24278,25 @@ function _wfgLsBuildIndividualEvents(ac, allGpioTransitions, effHtotal, effVtota
                         或 n ≡ i + phase/2 - 1  (mod phase) 的 VCE falling（有間隔）
    於是 High ＝ phase/2 個 VCE 週期、Low ＝ phase/2 個 VCE 週期，寬度由 face 數決定。
 
+   ── 🔴 兩件事並存，不矛盾（Bruce 2026-09-02 裁示）──────────────────────────
+   ① **相位計數在 frame 起點重置** —— 對應實體的 **STV／VSYNC reset**（`_wfgLsBuildCpvPairEvents()`
+      的既有註解就是這樣寫的："Counter resets to 0 at each frame boundary (STV reset)."）。
+      這是「每個 frame 一模一樣」的來源。
+   ② **但波形本身不在 frame 邊界被拉回。** VCE 每個 frame 的邊緣數不是相位數的倍數時
+      （preset 下 181 mod 6 ＝ 1、181 mod 4 ＝ 1），frame 末段的輪替本來就不完整，
+      某條 CKO 會**維持 High 跨過 VBLANK、到下一個 frame 才收邊**。
+
+   Bruce 原話：「這個跨 V-blanking 到下一個 frame 的行為，**並不影響 frame 的重複性。
+   請不要在 frame 的邊界硬拉回去，因為這不是 Level Shifter 的行為。他不理解什麼是邊界、
+   什麼是 frame 的邊界，他只看 VCE。**」
+
+   ⇒ **這不是 bug，不准加 clamp／截斷／補一個 falling 收邊。** 看到「CKO 跨 VBLANK」
+      不要動它。①管的是「下一個 frame 從哪個相位開始數」（那是 STV 的事），
+      ②管的是「已經拉高的準位什麼時候放掉」（那是 VCE 的事）—— 兩者互不干涉。
+      實作上也確實分離：編號重置只影響 `riseN`／`fallN`，events 一律照編號條件產生，
+      整支函式沒有任何 frame 邊界的收邊邏輯，下游 `_wfgLsBuildEvents()` 也只有
+      `is_gate` 才會再套 mask／trim。
+
    🔴 **編號按 frame 內重新起算**，這一點同時解掉舊版的兩個 bug：
      ① 舊版的 round-robin 計數跨 frame 一路累加、從不歸零。實測 VCE 每 frame 181 個
         rising、phase ＝ 8、**181 mod 8 ＝ 5** ⇒ 每個 frame 的起始 slot 是
