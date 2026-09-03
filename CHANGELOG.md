@@ -22,6 +22,97 @@
 
 ---
 
+## TCON 波形模擬與取樣 (wfg) v4.43.3 — 2026-09-03 ｜ PATCH ｜ ⚠ 輸出變更
+
+**SD1：過期的 TX DE 資料不准被 latch（資料時效性）**
+
+判定依據：`docs/VERSIONING.md` §1 判定表「既有功能的輸出 → 修正為原本就該有的行為」＝ PATCH；R1（修 bug 即使畫面會變仍算 PATCH，但要標 `⚠ 輸出變更`）。R2 不適用（非新波）、R3 不適用（使用者沒有多能做一件事）、R4 不適用（起始狀態與預設值未動）。四項逐項判、取最高者 → **PATCH**。輸出確實會變（見下方差異範圍），故標 `⚠ 輸出變更`。
+
+### Bruce 2026-09-03 回報
+
+> 「當我的 XPOL 一直是 LOW 的狀態（每個 frame 都是 LOW），這時候 SD1 我把它設定為遞增的灰階模式。匯入波形以後，你可以看到在 A1 cursor 跟 A2 cursor 中間的這段 SD1，怎麼會異常地往下掉？」
+
+重現設定：`vtotal 1260 / vactive 1200 / htotal 2354`、`XPOL` 全 0（恆負極性）、`SD1` gray_mode = 遞增、8-bit、負軌 0～5.5V、gamma 2.8、`Line Buffer = FLR = 7`、`XSTB st_line 6 / sp_line 148 / r_dly 1078 / f_dly 1200`。
+
+實測（jsdom 逐值探針，每行 20 點）：每個 frame 的 **第一根 XSTB falling（frame line 7）** 把 SD1 從保持住的 **負極性 L30 ＝ 3.859757 V** 一口氣拉到 **0.000861 V**（＝負軌底 `neg_gamma_min`），**掉幅 3.8589 V、寬度整整一行**，下一行才跳到負極性 L0 ＝ 5.4991 V。frame 1/2/3/4/5 各發生一次。
+
+### 根因（不是極性、不是索引越界）
+
+`_wfgPrecomputeSdChannel()` 把「沒有新 TX DE data」的行填成 `holdL = wfgAnalogLValueForLine(effVactive - 1)` —— 假設 ramp 一定跑完，拿最後一行的 L 當保持值（遞增模式 ⇒ L255 ⇒ 負軌 0V），**然後照樣讓 XSTB latch 它**。「維持前值」從來沒有被實作。
+
+Bruce 給的物理規則（原話）：
+
+> 「第一根的 XSTB 因為前面沒有 data，可是實際上在上一個 frame 的最後一筆 data 是 L255，所以它才把 L255 當作是它的 data 輸出……可是這筆 Data 並不是一打完馬上就遇到一個 XSTB 去 latch 住這個資料，它已經隔了很長一段時間……如果某一筆 Data 打出以後，後面超過了一條 line 都沒有出現 XSTB，那之後再出現 XSTB 就不看最後的那一筆 Data，而是繼續 keep 前面的 SD1 狀態。」
+>
+> 「更精準的說是 XSTB 的 Rising 是在做 Latch TX_DE 的資料，XSTB 的 Falling 是把 Latch 的數位資料轉成類比電壓輸出，也就是 SD1 的 Output。」
+
+⇒ `holdL` 這個**值**是對的（上一筆真的打出來的 data 就是 D(effVactive−1)）；錯的是它**放到過期了還能被 latch**。
+
+觸發鏈（實測，`_tmp_probe_sd1_dip.js` / `_tmp_probe_edge_roles.js`）：`f_dly 1200 > effHtotal 1177` ⇒ `xstbDataOffset = 1` ⇒ 第一根 falling（abs 5047.0195）對應的 **rising 在 abs 5046.9159 ＝ frame line 6** ⇒ 該行 `dataIdx = 6 − 7 = −1`，往回找最近一筆真正打出的 data 是前一 frame 的 line 1206 ⇒ **age = 60 line** ⇒ 舊碼照樣 latch `holdL = L255`。
+
+**三個負控制各打斷鏈上一環，dip 皆消失**（證明因果鏈成立，不是巧合）：
+
+| 控制 | 改動 | lif 7 latch | 結果 |
+|---|---|---|---|
+| `flr0` | FLR 7→0（來源行變成有 data） | L1 | 無 dip |
+| `fdly1000` | f_dly 1200→1000（offset 1→0） | L0 | 無 dip |
+| `grayfixed` | gray_mode→fixed L30（holdL 等於每行 L） | L30 | 完全平坦 |
+
+### 判準
+
+`age` ＝ 這筆 data 打出後已經放了幾條 line（本行剛打出 ⇒ 0）。**age ≤ 1 有效，age > 1 失效**（嚴格大於，對應原話的「超過了一條 line」）。
+
+🔴 `age` **不把 XSTB 自己的跨行延遲 `xstbDataOffset` 算進去**。本案 offset = 1，也就是每一根正常 falling 都落在資料行的下一行；把 offset 算進 age 的話正常 latch 的 age 就是 1.0195 line、全部被判失效，SD1 會變成一條死線 —— 與「lif 8 之後 L0/L1/L2… 是正常的」直接牴觸。offset 是「什麼時候去看」，不是「資料放了多久」。
+
+**現行實作已經把 latch 與輸出分開，本次不需要擴大改動**（先查證再動）：探針逐根驗過 `dataLineInFrame` 恆等於該根 XSTB **rising 所在的行**（8/8 命中），而電壓轉態的 RC 起點用的是 **falling** 的位置（`_wfgSdVoltageAt()` 的 `frac >= xstbFracPerLine`）；極性取樣自 v2.97.477 起也已經是用 rising。所以「以 rising 起算 age」直接查來源行的旗標即可。
+
+### 改了什麼
+
+1. `_wfgPrecomputeSdChannel()`：新增 `dataAgePerFrame[]`（環繞回掃求得，不套公式，`lbShift + effVactive` 越過 frame 尾的退化設定也成立）與 `stalePerFrame[] = age > 1`；主迴圈遇到 stale 就**不更新 `lastTarget`**。
+2. `_wfgSdGrayFracAt()`：往回找 latch 時同步跳過 stale 的 latch。不改這裡就會出現「電壓停在 L30、ΔV/feedthrough 卻報 L255」的靜默不一致 —— 比原本這個 bug 更難查。
+3. `wfgComputeSourceDriverSamples()`（同一份 holdL 邏輯的**第二份拷貝**，render fallback 與 `wfgPulseCountAnalog()` 的來源）：`targetForData()` 標記 `stale`，事件串排序後統一 carry-forward。用 carry-forward 而不是「不 emit 事件」，是為了不動事件的數量與 `lineX` 分佈（那會連帶改變下游取樣密度，等於順手改一堆與本 bug 無關的東西）。
+4. `tgtV0` 起始猜測改成往回找最近一個有 data 的來源行。🔴 **這一項在數值上是恆等變換、一位元都不會變**（往回找到的必然是 `lbShift + effVactive − 1`，其 L 依定義等於 holdL）；保留它只是把條件寫成明示的，不要當成修好了什麼。
+
+### ⚠ 輸出變更的範圍（逐值量測，不是宣稱）
+
+**只有「XSTB 停掉超過一條 line 之後又出現」的那一根會變。** 正常每行都有 XSTB 時，Vblank 第一行 age = 1 照樣 latch `holdL`，而那個值本來就等於前一次 latch 的值；age ≥ 2 的後續行被拒收，維持的也是同一個值 ⇒ 輸出零變化。
+
+本設定檔 frame 1～5、每行 20 點共 **23,260 個取樣點**，基線 vs 本版：
+
+- 差異點 **280 個（1.20%）**，構成 **5 個連續區段**，每個 frame 各一段。
+- 每段 **56 點 ＝ 2.80 line**，起點 Δ = −0.9287 V、終點 Δ = −0.000001 V（RC 尾巴指數收斂）。
+- 每段的**第一個差異點都落在該 frame 的 line 7、且在該根 falling（frac 0.01954）之後的第一個取樣點**（frac 0.05）—— 差異嚴格開始於過期 latch 之後，之前一點都沒有。
+- 差異集合 ⊆ 事先算出的 stale latch 行集合 `S = {1267, 2527, 3787, 5047, 6307}`（每 frame 一個，基線與本版算出的 S 完全相同）＋ 其 RC 尾巴。
+- **空白對照**：基線自己跑兩次 → 差異 0 點（證明上述差異不是探針雜訊）。
+
+### 驗收（五條斷言，逐值）
+
+| 斷言 | 基線 v4.43.2 | 本版 v4.43.3 |
+|---|---|---|
+| A1 之前平坦（frame4 line −20～+6，540 點） | min = max = 3.859757 ✔ | min = max = 3.859757 ✔ |
+| **A1 那一行（line 7，20 點）** | min **0.000861** / max 3.859757，latch **L255** ✘ | **min = max = 3.859757，latch L30** ✔ |
+| A2（line 8）轉到負極性 L0 | 5.499146，latch L0 | 5.499745，latch L0 ✔ |
+| A2 之後遞增（L0→L30，31 個轉態點） | 兩版**逐一相同** | 兩版**逐一相同** ✔ |
+| XSTB 停掉後（line 151～1250，22,000 點） | min = max = 3.859757、L30 | min = max = 3.859757、L30 ✔ |
+
+### 零回歸
+
+| 項目 | 結果 |
+|---|---|
+| preset `fhd_60hz_sg`（lbShift 4、offset 0、8292 次繪圖呼叫） | 繪圖呼叫雜湊**逐值相同** ✔ |
+| preset `fhd_60hz_sg_ls_dual_cpv`（7912 次） | 繪圖呼叫雜湊**逐值相同** ✔ |
+| LS 四模式 `individual` / `condensed` / `dual_cpv` / `quad_cpv` | 四個雜湊**全部逐值相同** ✔ |
+| frame 之間逐值一致（本設定檔 frame 2/3/4 vs frame 1） | max\|Δ\| = 0.0 ✔ |
+| **正控制**（本設定檔 A1 附近視野的繪圖呼叫雜湊） | 基線 1424 次 vs 本版 1362 次、**雜湊不同** ✔ —— 證明上面那些「相同」不是比對器壞掉 |
+
+### 已知的既有偏差（本次**不動**，只記錄）
+
+`wfgComputeSourceDriverSamples()` 的 `dataIdx` 直接用 **falling 所在的行**算，沒有套 `xstbDataOffset`；`_wfgPrecomputeSdChannel()` 有套（＝回到 rising 那一行）。兩者在 `f_dly` 跨行時取到的來源行會差一行。這是 v4.43.3 之前就存在的偏差，與本次修的 bug 無關；擴大改動會讓回歸範圍失控，要修請另開一版。
+
+另：`xstbDataOffset = floor(f_dly / effHtotal)`，嚴格說應是 `floor(f_dly / effHtotal) − floor(r_dly / effHtotal)`。本案 `floor(1078 / 1177) = 0` 所以兩者相等；`r_dly` 本身就跨行時會少扣。同樣不在本次範圍。
+
+---
+
 ## 全分頁 — 六個分頁頁內補上說明按鈕、說明頁三語補完 — 2026-09-03
 
 Bruce 2026-09-03 口述（原話全文見 `_ref/wfg_待辦需求_20260902.md` **H** 節）：

@@ -3626,7 +3626,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260903wfg4432"></script>
+<script src="common/version.js?v=20260903wfg4433"></script>
 <script src="common/i18n.js?v=20260903help"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5708,13 +5708,80 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   // ＝該行行首（frac=0）的 XPOL 準位，當 XPOL 在行中間轉態時會晚一行才反映。
   var polPerLine = new Uint8Array(winLen);
 
+  /* ══ 🔴 v4.43.3：資料時效性 —— 過期的 data 不准被 latch ═════════════════════
+     Bruce 2026-09-03 回報：XPOL 恆 LOW（全負極性）＋ SD1 遞增灰階時，每個 frame 的
+     **第一根 XSTB falling** 會讓 SD1 從保持住的準位（該例 L30 ＝ 3.8598V）一口氣掉到
+     負軌底 0V，一行之後才跳到 L0（5.5V）。實測掉幅 3.859V、寬度整整一行、每 frame 一次。
+
+     ── 他給的物理規則（原話）────────────────────────────────────────────
+       「第一根的 XSTB 因為前面沒有 data，可是實際上在上一個 frame 的最後一筆 data
+         是 L255，所以它才把 L255 當作是它的 data 輸出……可是這筆 Data 並不是一打完
+         馬上就遇到一個 XSTB 去 latch 住這個資料，它已經隔了很長一段時間，所以對第一
+         根 XSTB 來講，前面其實是空的，並沒有接收 Data 的指令，它不會把它給收進來。
+         ……如果某一筆 Data 打出以後，後面超過了一條 line 都沒有出現 XSTB，那之後再
+         出現 XSTB 就不看最後的那一筆 Data，而是繼續 keep 前面的 SD1 狀態。」
+
+     ⇒ 這是**資料時效性**規則，不是「索引越界」規則。`holdL` 這個**值**是對的（上一筆
+       真的打出來的 data 就是 D(effVactive-1)）；錯的是它**不該還能被 latch**。
+
+     ── 判準（邊界，2026-09-03 定案）──────────────────────────────────────
+       age ＝「這筆 data 打出後已經放了幾條 line」（本行剛打出 ⇒ 0）。
+       **age ≤ 1 有效，age > 1 失效**（嚴格大於，對應原話的「超過了一條 line」）。
+
+       🔴 age **不把 XSTB 自己的跨行延遲 `xstbDataOffset` 算進去**。本案
+          f_dly 1200 > effHtotal 1177 ⇒ offset = 1，也就是**每一根**正常 falling 都落在
+          資料行的下一行；把 offset 算進 age 的話正常 latch 的 age 就是 1.0195 line、
+          全部被判失效，SD1 會變成一條死線 —— 與 Bruce「lif 8 之後 L0/L1/L2… 是正常的」
+          直接牴觸。offset 是「什麼時候去看」，不是「資料放了多久」。
+
+       零回歸的來源：XSTB 每行都打時，Vblank 第一行 age=1 照樣 latch 到 holdL，而那個值
+       本來就等於前一次 latch 的值；age≥2 的後續行被拒收，維持的也是同一個值 ⇒ 輸出
+       逐值不變。只有「XSTB 停掉一段時間後又出現」才會生效。
+
+     ── 本案的計算 ────────────────────────────────────────────────────
+       lif 7 那根：來源行 = 7 − offset(1) = frame line 6；往回找最近一筆真正打出的
+       data 是前一 frame 的 line 1206（= lbShift 7 + vactive 1200 − 1）。
+       age = 6 − 1206 + 1260 = 60 line ≫ 1 ⇒ 失效 ⇒ 不 latch ⇒ 維持 3.8598V ✔
+       lif 8 那根：來源行 7、dataIdx 0、age 0 ⇒ latch L0 ✔
+
+     ── 實作 ─────────────────────────────────────────────────────────
+     `dataAgePerFrame[]` 用環繞回掃求得（不套公式，`lbShift + effVactive` 越過 frame 尾
+     這種退化設定也成立）；`stalePerFrame[] = age > 1`。latch 時遇到 stale 就**跳過**，
+     `lastTarget` 原封不動。`lValuePerFrame[]` 一位元未動 —— 它仍是初始猜測與
+     `_wfgSdGrayFracAt()` 的值來源，真正決定要不要轉態的是 stale 旗標。
+     🔴 `_wfgSdGrayFracAt()` 必須同步跳過（見該函式），否則會出現「電壓停在 L30、
+        ΔV/feedthrough 卻報 L255」的靜默不一致 —— 比原本這個 bug 更難查。
+     🔴 `wfgComputeSourceDriverSamples()` 有同一份 holdL 邏輯的**第二份拷貝**，一併
+        修正，兩條路徑不得走岔。 */
   // L value per frame line
   var maxL = wfgAnalogMaxL(ac);
   var holdL = wfgAnalogLValueForLine(effVactive - 1, ac, effVactive);
   var lValuePerFrame = new Uint16Array(effVtotal);
+  var noDataPerFrame = new Uint8Array(effVtotal);   // 1 = 這一行沒有新的 TX DE data
   for (var lf = 0; lf < effVtotal; lf++) {
     var dataIdx = lf - lbShiftSD;
-    lValuePerFrame[lf] = (dataIdx < 0 || dataIdx >= effVactive) ? holdL : wfgAnalogLValueForLine(dataIdx, ac, effVactive);
+    var _noData = (dataIdx < 0 || dataIdx >= effVactive);
+    noDataPerFrame[lf] = _noData ? 1 : 0;
+    lValuePerFrame[lf] = _noData ? holdL : wfgAnalogLValueForLine(dataIdx, ac, effVactive);
+  }
+  /* dataAgePerFrame[lf]＝這一行的來源資料已經放了幾條 line（0 ＝ 本行剛打出）。
+     環繞回掃：從有 data 的行往後推，每多一行 +1；整個 frame 都沒有 data（極端設定）
+     時全部視為 0，規則等於不啟用（不讓它把整條通道打死）。 */
+  var dataAgePerFrame = new Uint32Array(effVtotal);
+  var stalePerFrame = new Uint8Array(effVtotal);
+  var _anyData = false;
+  for (var _ad = 0; _ad < effVtotal; _ad++) { if (!noDataPerFrame[_ad]) { _anyData = true; break; } }
+  if (_anyData) {
+    // 掃兩圈：第一圈把 age 帶過 frame 邊界，第二圈才是定值
+    var _age = 0;
+    for (var _p2 = 0; _p2 < effVtotal * 2; _p2++) {
+      var _lf2 = _p2 % effVtotal;
+      _age = noDataPerFrame[_lf2] ? (_age + 1) : 0;
+      if (_p2 >= effVtotal) {
+        dataAgePerFrame[_lf2] = _age;
+        stalePerFrame[_lf2] = (_age > 1) ? 1 : 0;
+      }
+    }
   }
 
   // Voltage lookup table: [pol=0][L=0..maxL], [pol=1][L=0..maxL]
@@ -5814,7 +5881,18 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   //         讓 RC 遞推把這個猜測沖掉 —— 誤差隨行數指數收斂，實測見 CHANGELOG。
   var pol0 = polPerLine[0];
   var dataLine0 = ((base % effVtotal) - xstbDataOffset + effVtotal) % effVtotal;
-  var lVal0 = lValuePerFrame[dataLine0];
+  /* v4.43.3：起始猜測改成往回找最近一個**有 data** 的來源行，不再直接吃 holdL。
+     🔴 誠實記錄：這在**數值上是恆等變換**，一位元都不會變 —— 因為往回找到的那一行
+        必然是 `lbShift + effVactive - 1`，而它的 L 依定義就等於 holdL。實測 base 與
+        本版在此設定下 tgtV0 完全相同。保留它的理由是把「起始值來自真實資料行」寫成
+        程式碼裡的明示條件，而不是依賴 holdL 剛好等於它；holdL 的定義哪天改了，
+        這裡不會跟著錯。**不要把這一段當成修好了什麼。**
+     全都是無 data 行（極端設定）時退回 holdL，與舊版同。 */
+  var _dl0 = dataLine0;
+  for (var _s0 = 0; _s0 < effVtotal && noDataPerFrame[_dl0]; _s0++) {
+    _dl0 = (_dl0 - 1 + effVtotal) % effVtotal;
+  }
+  var lVal0 = noDataPerFrame[_dl0] ? holdL : lValuePerFrame[_dl0];
   var tgtV0 = voltLut[pol0 * lutStride + lVal0];
   var lastTarget = tgtV0;
 
@@ -5829,8 +5907,15 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     if (xstbPerLine[_r]) {
       // XSTB has falling edge → latch data (v2.97.19: 跨行偏移修正)
       var dataLineInFrame = (lineInFrame - xstbDataOffset + effVtotal) % effVtotal;
-      var lVal = lValuePerFrame[dataLineInFrame];
-      lastTarget = voltLut[pol * lutStride + lVal];
+      /* v4.43.3：`dataLineInFrame` 就是**這根 XSTB rising 所在的那一行**
+          （xstbDataOffset = falling 比 rising 晚了幾個整行，減掉就回到 rising 行；
+          已用探針逐根驗過恆等，見 CHANGELOG v4.43.3）。所以「以 rising 起算 age」
+          直接查這一行的 stale 旗標即可。過期 ⇒ 不 latch ⇒ lastTarget 原封不動，
+          後續的 falling 自然也就不會把它輸出（電壓維持前值）。 */
+      if (!stalePerFrame[dataLineInFrame]) {
+        var lVal = lValuePerFrame[dataLineInFrame];
+        lastTarget = voltLut[pol * lutStride + lVal];
+      }
     }
     target[_r] = lastTarget;
     if (lastTarget === prevV) {
@@ -5895,6 +5980,7 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
     // 呼叫端走岔。
     _lazyExtend: { expRise: expRise, expFall: expFall, voltLut: voltLut,
       lutStride: lutStride, lValuePerFrame: lValuePerFrame, effVtotal: effVtotal,
+      noDataPerFrame: noDataPerFrame, stalePerFrame: stalePerFrame,   // v4.43.3：_wfgSdGrayFracAt() 要用同一份旗標
       polForLine: polForLine,
       xstbIdx: xstbIdx, allTrans: allTrans, effHtotal: effHtotal,
       xstbAllTransitions: xstbAllTransitions, xstbInitLevel: xstbInitLevel,
@@ -6417,17 +6503,28 @@ function _wfgSdGrayFracAt(p, lineX) {
   if (L < b) { L = b; frac = 0; }
   if (L >= ext) { L = ext - 1; frac = 1; }
   if (L < b) return null;
+  var eff = le.effVtotal || 1;
+  var off = le.xstbDataOffset || 0;
+  var nd = le.noDataPerFrame, st = le.stalePerFrame;   // v4.43.3
+  // 某一行（相對索引 r）的 XSTB rising 落在哪一個來源行（＝該行的 falling 會輸出的那筆）
+  function _srcLF(r) { return (((b + r) % eff) - off + eff) % eff; }
   // 本行的 XSTB↓ 已經過去 → 用本行 latch 的資料；否則延續前一行。
   // 對應 _wfgSdVoltageAt 的 target[L]（frac >= dly）／target[L-1] 兩個分支；
   // 往回略過沒有 falling 的行，等價於 target[] 對那些行沿用前值的語意。
+  // 🔴 v4.43.3：**資料已過期（stale）的 latch 同樣要略過** —— 主迴圈已改成那種
+  //    rising 不 latch，這裡不跟著跳就會回報「電壓停在前值、灰階卻報 holdL」。
   var latR = (p.xstbPerLine[L - b] && frac >= p.xstbFracPerLine[L - b]) ? (L - b) : (L - b - 1);
-  while (latR >= 0 && !p.xstbPerLine[latR]) latR--;
-  var eff = le.effVtotal || 1;
-  var off = le.xstbDataOffset || 0;
+  while (latR >= 0 && (!p.xstbPerLine[latR] || (st && st[_srcLF(latR)]))) latR--;
   var dataLF, polAt;
   if (latR < 0) {
-    // 視窗內還沒有任何 latch 發生過 → 與 _wfgPrecomputeSdChannel 的初始行同一組值
+    // 視窗內還沒有任何有效 latch → 與 _wfgPrecomputeSdChannel 的初始行同一組值：
+    // 從 base 的來源行往回找最近一個有 data 的行（找不到才退回原本那一行）。
     dataLF = ((b % eff) - off + eff) % eff;
+    if (nd) {
+      var _d0 = dataLF;
+      for (var _s = 0; _s < eff && nd[_d0]; _s++) _d0 = (_d0 - 1 + eff) % eff;
+      if (!nd[_d0]) dataLF = _d0;
+    }
     polAt = b + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[0] : 0);
   } else {
     var lat = b + latR;   // 絕對行號
@@ -23645,12 +23742,31 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
   //   lineX  = XPOL 取樣位置（v2.97.477 起＝該 latch 之前最近的 XSTB↑，
   //            不再是 XSTB↓ 本身的位置）。
   //   When dataIdx < 0 (TX DE not started) or dataIdx >= effVactive (Vblank),
-  //   SD holds the last received data from the previous frame (holdL).
+  //   SD holds the last received data — 見下方 stale 旗標與事件串的 carry-forward。
+  /* 🔴 v4.43.3：資料時效性（與 `_wfgPrecomputeSdChannel()` 同一條規則，兩條路徑不得
+     走岔）。`holdL` 這個**值**是對的（上一筆真的打出來的 data 就是 D(effVactive-1)），
+     錯的是它**放到過期了還能被 latch**。age ＝ 這筆 data 已經放了幾條 line：
+       dataIdx 落在 [0, effVactive)  → age 0（本行剛打出）
+       dataIdx >= effVactive（Vblank）→ age = dataIdx − (effVactive − 1)
+       dataIdx < 0（frame 頭）        → age = dataIdx + effVtotal − (effVactive − 1)
+     判準 **age > 1 才失效**（原話「超過了一條 line」），所以 XSTB 每行都打時
+     Vblank 第一行 age=1 照樣 latch holdL、值與前一次相同 ⇒ 輸出零變化。
+
+     為什麼只在這裡標記、不在這裡決定：這條路徑是**事件式**的，「不轉態」需要知道前
+     一個事件的值，本函式看不到 —— 真正的維持前值在事件串排序後統一 carry-forward
+     （見下方 v4.43.3 那一段）。 */
   function targetForData(dataIdx, lineX) {
+    var _age;
+    if (dataIdx >= 0 && dataIdx < effVactive) _age = 0;
+    else if (dataIdx >= effVactive) _age = dataIdx - (effVactive - 1);
+    else _age = dataIdx + effVtotal - (effVactive - 1);
+    if (!(_age > 0)) _age = 0;   // effVactive >= effVtotal（無 blanking）等退化設定
+    var stale = (_age > 1);
     var lValue = (dataIdx < 0 || dataIdx >= effVactive) ? holdL : wfgAnalogLValueForLine(dataIdx, ac, effVactive);
     var grayFrac = maxL > 0 ? lValue / maxL : 0;
     var pol = xpolLookup(lineX);
-    return { vTarget: wfgAnalogTargetVoltageWithPol(grayFrac, pol, ac), pol: pol, lValue: lValue };
+    return { vTarget: wfgAnalogTargetVoltageWithPol(grayFrac, pol, ac), pol: pol,
+             lValue: lValue, stale: stale };
   }
 
   // ── Build event list (latch instants) with adaptive detail ──
@@ -23736,12 +23852,12 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
       if (lo < activeStart && lo <= hi) {
         var lineX_h = lo + xstbFracDly;
         var t_h = targetForData(-1, lo + xstbPolFracDly);
-        events.push({ lineX: lineX_h, vTarget: t_h.vTarget, pol: t_h.pol, lValue: t_h.lValue });
+        events.push({ lineX: lineX_h, vTarget: t_h.vTarget, pol: t_h.pol, lValue: t_h.lValue, stale: t_h.stale });
         // End of hold region
         if (activeStart - 1 <= hi && activeStart - 1 > lo) {
           var lineX_he = activeStart - 1 + xstbFracDly;
           var t_he = targetForData(-1, activeStart - 1 + xstbPolFracDly);
-          events.push({ lineX: lineX_he, vTarget: t_he.vTarget, pol: t_he.pol, lValue: t_he.lValue });
+          events.push({ lineX: lineX_he, vTarget: t_he.vTarget, pol: t_he.pol, lValue: t_he.lValue, stale: t_he.stale });
         }
       }
 
@@ -23760,14 +23876,14 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
           var lineInFrame_a = ((aL % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_a = lineInFrame_a - lbShiftSD;
           var t_a = targetForData(dataIdx_a, aL + xstbPolFracDly);
-          events.push({ lineX: lineX_a, vTarget: t_a.vTarget, pol: t_a.pol, lValue: t_a.lValue });
+          events.push({ lineX: lineX_a, vTarget: t_a.vTarget, pol: t_a.pol, lValue: t_a.lValue, stale: t_a.stale });
           // Emit event at line aL+1 (captures per-line alternation)
           if (aL + 1 <= actHi) {
             var lineX_b = aL + 1 + xstbFracDly;
             var lineInFrame_b = (((aL + 1) % effVtotal) + effVtotal) % effVtotal;
             var dataIdx_b = lineInFrame_b - lbShiftSD;
             var t_b = targetForData(dataIdx_b, aL + 1 + xstbPolFracDly);
-            events.push({ lineX: lineX_b, vTarget: t_b.vTarget, pol: t_b.pol, lValue: t_b.lValue });
+            events.push({ lineX: lineX_b, vTarget: t_b.vTarget, pol: t_b.pol, lValue: t_b.lValue, stale: t_b.stale });
           }
         }
         // Always emit last active line
@@ -23777,7 +23893,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
           var lineInFrame_al = ((actHi % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_al = lineInFrame_al - lbShiftSD;
           var t_al = targetForData(dataIdx_al, actHi + xstbPolFracDly);
-          events.push({ lineX: lineX_al, vTarget: t_al.vTarget, pol: t_al.pol, lValue: t_al.lValue });
+          events.push({ lineX: lineX_al, vTarget: t_al.vTarget, pol: t_al.pol, lValue: t_al.lValue, stale: t_al.stale });
         }
       }
 
@@ -23789,13 +23905,13 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
         var lineInFrame_v = ((vbLo % effVtotal) + effVtotal) % effVtotal;
         var dataIdx_v = lineInFrame_v - lbShiftSD;
         var t_v = targetForData(dataIdx_v, vbLo + xstbPolFracDly);
-        events.push({ lineX: lineX_v, vTarget: t_v.vTarget, pol: t_v.pol, lValue: t_v.lValue });
+        events.push({ lineX: lineX_v, vTarget: t_v.vTarget, pol: t_v.pol, lValue: t_v.lValue, stale: t_v.stale });
         if (vbHi > vbLo) {
           var lineX_ve = vbHi + xstbFracDly;
           var lineInFrame_ve = ((vbHi % effVtotal) + effVtotal) % effVtotal;
           var dataIdx_ve = lineInFrame_ve - lbShiftSD;
           var t_ve = targetForData(dataIdx_ve, vbHi + xstbPolFracDly);
-          events.push({ lineX: lineX_ve, vTarget: t_ve.vTarget, pol: t_ve.pol, lValue: t_ve.lValue });
+          events.push({ lineX: lineX_ve, vTarget: t_ve.vTarget, pol: t_ve.pol, lValue: t_ve.lValue, stale: t_ve.stale });
         }
       }
     }
@@ -23825,7 +23941,7 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
         // v2.97.477: 極性在 XSTB rising 取樣（電壓仍在 falling 才輸出，故 lineX 不變）
         var polX = (_dpLastRiseAbs != null && _dpLastRiseAbs <= lineX) ? _dpLastRiseAbs : lineX;
         var t = targetForData(dataIdx, polX);
-        events.push({ lineX: lineX, vTarget: t.vTarget, pol: t.pol, lValue: t.lValue });
+        events.push({ lineX: lineX, vTarget: t.vTarget, pol: t.pol, lValue: t.lValue, stale: t.stale });
       }
     } else {
       var firstLine = Math.floor(extStart);
@@ -23835,8 +23951,40 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
         var dataIdxF = lineInFrameF - lbShiftSD;
         var lineXF = L;
         var tF = targetForData(dataIdxF, lineXF);
-        events.push({ lineX: lineXF, vTarget: tF.vTarget, pol: tF.pol, lValue: tF.lValue });
+        events.push({ lineX: lineXF, vTarget: tF.vTarget, pol: tF.pol, lValue: tF.lValue, stale: tF.stale });
       }
+    }
+  }
+
+  /* ══ 🔴 v4.43.3：過期（stale）資料的事件 carry-forward（＝「維持前值」）═════════
+     這一段是 `_wfgPrecomputeSdChannel()` 主迴圈「資料過期就不更新 lastTarget」在
+     事件式路徑上的對應物。**兩條路徑不得走岔**（本函式是 render fallback 與
+     `wfgPulseCountAnalog()` 的來源；主繪製走 precompute）。
+
+     ⚠ 已知的既有差異（本次**不動**，只記錄）：本路徑的 `dataIdx` 直接用 falling 所在
+     的行算，沒有套 `xstbDataOffset`；precompute 路徑有套（＝回到 rising 那一行）。
+     兩者在 f_dly 跨行時取到的來源行會差一行。這是 v4.43.3 之前就存在的偏差，與本次
+     修的 bug 無關，擴大改動會讓回歸範圍失控 —— 要修請另開一版。
+
+     為什麼是 carry-forward 而不是「不 emit 事件」：不 emit 會改變事件的**數量與
+     lineX 分佈**，下游 `_wfgSampleSdFromEvents()` 的取樣密度與 span 都跟著變，等於
+     順手改了一堆與本 bug 無關的東西。carry-forward 只動 vTarget/lValue/pol 三個欄位，
+     事件結構一位元未變。
+
+     為什麼不能在 `targetForData()` 裡「往回找最近一個有 data 的來源行」：那算出來
+     一律是 `lbShiftSD + effVactive - 1` ⇒ 又回到 holdL。真正的保持值取決於
+     **XSTB 最後一次真的打在哪裡**（本例 sp_line=148 ⇒ L30），那是事件串的執行期
+     性質，不是每行的靜態性質。
+
+     開頭那一段還沒有前驅事件時退回 holdL（與舊版同）：呼叫端的取樣範圍至少 padding
+     一個 frame（見 26441／41023 的 extStart），真的整段沒有有效 latch 才會走到。 */
+  var _cfV = null, _cfL = null, _cfP = null;
+  for (var _cf = 0; _cf < events.length; _cf++) {
+    var _e = events[_cf];
+    if (_e.stale) {
+      if (_cfV !== null) { _e.vTarget = _cfV; _e.lValue = _cfL; _e.pol = _cfP; }
+    } else {
+      _cfV = _e.vTarget; _cfL = _e.lValue; _cfP = _e.pol;
     }
   }
 
