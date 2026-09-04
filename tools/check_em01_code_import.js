@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════
-   常設機械檢查：EM01 code 匯入 —— 真檔必須被接受，假檔仍須被拒絕
+   常設機械檢查：MNT（EM01／EM02／E512）code 匯入 —— 真檔必須被接受，假檔仍須被拒絕
    ───────────────────────────────────────────────────────────────────────
+   🔴 檔名沿用 `check_em01_code_import.js`（v4.43.4 建立時只涵蓋 EM01）。
+      v4.43.5 起 **EM02 與 E512 也在這支裡**（段落 ⑤⑥⑦）—— 因為 v4.43.4 只修了 EM01，
+      同一條「行號不得超過 VTOTAL×3」在 `wfgE512Sane()` 原封不動地留著，
+      正好示範了「只修被回報的那一顆」會漏掉什麼。
+
    為什麼需要這支（2026-09-04，Bruce 回報 EM01 匯入失敗）：
 
    `wfgEm01Sane()` 是「這份檔是不是 EM01」的最後一道判定。v4.11.0 寫它的時候
@@ -107,9 +112,11 @@ try { src = fs.readFileSync(SRC, 'utf8'); } catch (e) { die('讀不到 ' + SRC);
 
 const NAMES = ['wfgGpoDecodeAt', 'wfgEm01Frame', 'wfgEm01Sane',
                'wfgEm01SlotHapVal', 'wfgEm01SlotValid',
+               'wfgEm02Sane', 'wfgE512Frame', 'wfgE512Sane',
                'wfgCodeIsHexName', 'wfgCodeDecodeIntelHex', 'wfgCodeToImage',
                'wfgCodeClassifyMedium', 'wfgCodeLoadImage'];
 const VARS = ['WFG_EM02_SIGS', 'WFG_EM01_LAYOUT',
+              'WFG_E512_BASE1', 'WFG_E512_BASE2',
               'WFG_CODE_EEPROM_MAX', 'WFG_CODE_FLASH_MIN', 'WFG_CODE_MAX_IMAGE'];
 
 const sandbox = {};
@@ -213,6 +220,14 @@ expect('f_dly = 2140 > htotal 2080（FHD320 兩份真檔的殘留樣板值）',
 expect('只有 3 條 enable（MCUv0079 那批真檔）',
   judge(buildImage({ enableCount: 3 })), true);
 expect('全部欄位都在常見範圍的一般檔案', judge(buildImage()), true);
+/* 🔴 v4.43.5：frame 的**上界**（C9）。`reg_tmg_hres/vres/hblk/vblk` 全部是 12 bit
+   ⇒ 值域上緣是 4095。舊版的 `hblank <= 4000`／`vblank <= 2000` 會把值域內的合法值擋掉，
+   而 `hactive <= 8000`／`vactive <= 5000` 根本到不了（恆真式）。下面兩條同時是
+   「上界已移除」的證明與「下界仍在」的對照。 */
+expect('hblank = 4095（reg_tmg_hblk 12 bit 的值域上緣）',
+  judge(buildImage({ hblank: 4095 })), true);
+expect('vblank = 4095（reg_tmg_vblk 12 bit 的值域上緣）',
+  judge(buildImage({ vblank: 4095 })), true);
 
 console.log('');
 console.log('② 必須拒絕 —— 型號判別不可以因為①而失效');
@@ -277,16 +292,155 @@ console.log('④ slot 驗證器與 CURRENT 驗證器不可以再有兩套標準'
   b[s + 2] = val & 0xFF; b[s + 3] = (val >> 8) & 0x1F;
   expect('同一份資料：CURRENT 驗證器接受', judge(b), true);
   expect('同一份資料：slot 驗證器接受', sandbox.wfgEm01SlotValid(b, s), true);
+  /* 🔴 v4.43.5（C10）：slot 的 `reg_hap` 是 14 bit（0～16383）、`reg_val` 是 13 bit
+     （0～8191）。舊版的 8000／5000 上界會把值域內的合法值擋掉，那兩個數字沒有出處。
+     下界（600／200）保留 —— 沒燒的 slot 是整片 0x00／0xFF，靠下界擋掉。 */
+  const setHapVal = (buf, hap, val) => {
+    buf[s + 0] = hap & 0xFF; buf[s + 1] = (hap >> 8) & 0x3F;
+    buf[s + 2] = val & 0xFF; buf[s + 3] = (val >> 8) & 0x1F;
+  };
+  const b2 = b.slice(); setHapVal(b2, 16383, 8191);
+  expect('slot reg_hap = 16383 / reg_val = 8191（各自位元寬的值域上緣）',
+    sandbox.wfgEm01SlotValid(b2, s), true);
+  const b3 = b.slice(); setHapVal(b3, 0, 0);
+  expect('slot reg_hap = 0 / reg_val = 0（沒燒的 slot）⇒ 仍須拒絕',
+    sandbox.wfgEm01SlotValid(b3, s), false);
 }
 
-/* ⑤ 選配：拿本機真檔跑（不進版控）。
+/* ══════════════════════════════════════════════════════════════════════════
+   ⑤⑥ v4.43.5：EM02 與 E512 也一起釘住
+   ──────────────────────────────────────────────────────────────────────────
+   v4.43.4 只修了 EM01，但同一條「行號不得超過 VTOTAL×3」在 `wfgE512Sane()` 也在，
+   而且 E512 那邊還多兩條同型的（`r_dly/f_dly > htotal`、`ne >= 4`）與一個魔術數字
+   （`xstb.sp_line > 100`，EM02 也有同一條）。v4.43.5 一併移除。
+
+   這裡**直接測 `wfgE512Sane()` / `wfgEm02Sane()` 這兩支判定函式**，不繞完整 parser：
+   E512 的完整 parser 要湊 checksum、EM02 要湊「16 候選恰好一個命中」，
+   合成那些東西會讓測資本身變成另一份需要維護的實作 —— 而**要釘住的是判定條件**。
+   ══════════════════════════════════════════════════════════════════════════ */
+const E512_B1 = sandbox.WFG_E512_BASE1, E512_B2 = sandbox.WFG_E512_BASE2;
+function e512SigOff(i) {
+  return (i === 0) ? (E512_B1 + 0xA0) : (i === 1) ? (E512_B1 + 0xB0) : (E512_B2 + 16 * (i - 2));
+}
+/* 合成一份 E512 的 GPO 區。預設值刻意取自**原廠預設 EEPROM 映像**
+   `e512a1_eeprom_default.bin`（1920×1080 + hblank 280 + vblank 90 ⇒ ht 2200 / vt 1170），
+   包含它那組會被舊規則判超界的 ck2 / ck3 延遲。 */
+function buildE512(opt) {
+  opt = opt || {};
+  const b = new Uint8Array(4096);
+  const ha = opt.hactive != null ? opt.hactive : 1920;
+  const va = opt.vactive != null ? opt.vactive : 1080;
+  const hb = opt.hblank != null ? opt.hblank : 280;
+  const vb = opt.vblank != null ? opt.vblank : 90;
+  b[2] = ha & 0xFF;
+  b[3] = ((ha >> 8) & 0x0F) | ((va & 0x0F) << 4);
+  b[4] = (va >> 4) & 0xFF;
+  b[5] = hb & 0xFF;
+  b[6] = ((hb >> 8) & 0x0F) | ((vb & 0x0F) << 4);
+  b[7] = (vb >> 4) & 0xFF;
+  /* 原廠預設映像的 6 條 enable：xstb / xpol / vst1 / ck1 / ck2 / ck3。 */
+  const base = {
+    0:  { enable: 1, st_line: 8,    sp_line: 16383, r_dly: 1936, f_dly: 1984 },
+    1:  { enable: 1, toggle: 1, st_line: 2176, sp_line: 2176, r_dly: 0, f_dly: 0 },
+    2:  { enable: 1, st_line: 9,    sp_line: 9,     r_dly: 960,  f_dly: 960 },
+    4:  { enable: 1, st_line: 9,    sp_line: 16383, r_dly: 1920, f_dly: 1952 },
+    5:  { enable: 1, st_line: 9,    sp_line: 2168,  r_dly: 1984, f_dly: 3968 },
+    6:  { enable: 1, st_line: 9,    sp_line: 2168,  r_dly: 3840, f_dly: 4096 },
+    12: { enable: 0, toggle: 1 }                                   // lc：EM02 那條結構判準要用
+  };
+  const sigs = Object.assign({}, base, opt.sigs || {});
+  for (let i = 0; i < 18; i++) {
+    const o = e512SigOff(i), c = sigs[i] || {};
+    const en = c.enable != null ? c.enable : 0;
+    b[o + 0] = (en << 7) | ((c.toggle ? 1 : 0) << 6);
+    const st = c.st_line || 0, sp = c.sp_line || 0, rd = c.r_dly || 0, fd = c.f_dly || 0;
+    b[o + 4] = st & 0xFF; b[o + 5] = (st >> 8) & 0x3F;
+    b[o + 6] = sp & 0xFF; b[o + 7] = (sp >> 8) & 0x3F;
+    b[o + 8] = rd & 0xFF; b[o + 9] = (rd >> 8) & 0xFF;
+    b[o + 10] = fd & 0xFF; b[o + 11] = (fd >> 8) & 0xFF;
+  }
+  return b;
+}
+function judgeE512(b) {
+  const fr = sandbox.wfgE512Frame(b);
+  const sig = sandbox.wfgGpoDecodeAt(b, E512_B1, E512_B2);
+  return !!sandbox.wfgE512Sane(sig, fr);
+}
+function judgeEm02(b) {
+  const sig = sandbox.wfgGpoDecodeAt(b, E512_B1, E512_B2);
+  return !!sandbox.wfgEm02Sane(sig);
+}
+
+console.log('');
+console.log('⑤ E512：必須接受 —— 原廠預設 EEPROM 映像的實際數值（v4.43.4 以前被拒）');
+/* 🔴 這幾組數字**不是編的**：逐項取自 `TCON_UI/E512/04.EEPROM/.../e512a1_eeprom_default.bin`
+   （另有 `case4.bin`、`allzero.bin` 三個檔名、五份實體，內容同一組 GPO）。 */
+expect('原廠預設映像整組（ck2 f_dly 3968、ck3 r/f 3840/4096，ht 只有 2200）',
+  judgeE512(buildE512()), true);
+expect('f_dly = 3968 > htotal 2200（延遲跨到第二條 line）',
+  judgeE512(buildE512({ sigs: { 5: { enable: 1, st_line: 9, sp_line: 2168, r_dly: 1984, f_dly: 3968 } } })), true);
+expect('r_dly = 65535（reg_r_dly_* 是 16 bit，值域上緣）',
+  judgeE512(buildE512({ sigs: { 5: { enable: 1, st_line: 9, sp_line: 2168, r_dly: 65535, f_dly: 0 } } })), true);
+expect('sp_line = 16383（Init h3FFF；xstb 與 ck1 在原廠映像裡就是這個值）',
+  judgeE512(buildE512()), true);
+expect('sp_line = 9139（> vt×3 = 3510，與 EM01 那份真檔同型）',
+  judgeE512(buildE512({ sigs: { 4: { enable: 1, st_line: 9, sp_line: 9139, r_dly: 0, f_dly: 0 } } })), true);
+expect('xstb.sp_line = 50（舊規則要求 > 100，那個 100 沒有出處）',
+  judgeE512(buildE512({ sigs: { 0: { enable: 1, st_line: 8, sp_line: 50, r_dly: 0, f_dly: 0 } } })), true);
+expect('只有 2 條 enable（xstb + vst1，舊規則要求 >= 4）', (function () {
+  const s = {}; for (let i = 0; i < 18; i++) if (i !== 0 && i !== 2) s[i] = { enable: 0 };
+  return judgeE512(buildE512({ sigs: s }));
+})(), true);
+
+console.log('');
+console.log('⑥ E512：必須拒絕 —— 結構條件仍然是唯一的鑑別力來源');
+expect('xstb 沒有 enable',
+  judgeE512(buildE512({ sigs: { 0: { enable: 0 } } })), false);
+expect('vst1 沒有 enable',
+  judgeE512(buildE512({ sigs: { 2: { enable: 0 } } })), false);
+expect('某條訊號的 byte0 bit2（unused2）被設起來', (function () {
+  const b = buildE512(); b[e512SigOff(4)] |= 0x04; return judgeE512(b);
+})(), false);
+expect('解析度荒謬（hactive = 100）', judgeE512(buildE512({ hactive: 100 })), false);
+expect('vactive 荒謬（= 2）', judgeE512(buildE512({ vactive: 2 })), false);
+expect('hblank = 0', judgeE512(buildE512({ hblank: 0 })), false);
+expect('vblank = 0', judgeE512(buildE512({ vblank: 0 })), false);
+expect('全 0x00', judgeE512(new Uint8Array(4096)), false);
+expect('全 0xFF', judgeE512(new Uint8Array(4096).fill(0xFF)), false);
+
+console.log('');
+console.log('⑦ EM02：`xstb.sp_line > 100` 移除，四條結構判準一個都不准少');
+expect('xstb.sp_line = 50 也要接受（那個 100 沒有出處）', (function () {
+  const b = buildE512({ sigs: { 0: { enable: 1, st_line: 8, sp_line: 50 }, 12: { enable: 1, toggle: 1 } } });
+  return judgeEm02(b);
+})(), true);
+/* 🔴 下面四條是 EM02 真正的鑑別力（實測：拿掉會讓全庫 em02 接受集合 +124 −31）。
+   任何人想「順手也清掉」，會先被這四條擋下。 */
+expect('🔴 xstb 必須 enable', (function () {
+  const b = buildE512({ sigs: { 0: { enable: 0 }, 12: { enable: 1, toggle: 1 } } });
+  return judgeEm02(b);
+})(), false);
+expect('🔴 xpol 必須是 toggle', (function () {
+  const b = buildE512({ sigs: { 1: { enable: 1, toggle: 0 }, 12: { enable: 1, toggle: 1 } } });
+  return judgeEm02(b);
+})(), false);
+expect('🔴 vst1 必須 enable', (function () {
+  const b = buildE512({ sigs: { 2: { enable: 0 }, 12: { enable: 1, toggle: 1 } } });
+  return judgeEm02(b);
+})(), false);
+expect('🔴 lc 必須是 toggle', (function () {
+  const b = buildE512({ sigs: { 12: { enable: 1, toggle: 0 } } });
+  return judgeEm02(b);
+})(), false);
+
+/* ⑧ 選配：拿本機真檔跑（不進版控）。
    判準刻意寫得保守 —— 只挑「一望即知就是 EM01」的檔（frame 解得出合理值、
    全部未用位元乾淨、至少一條 enable），那些**必須**被 `wfgEm01Sane()` 接受。
    這樣不需要在腳本裡重寫一份型號判別，也不會把別家 IC 的檔算進分母。 */
 const REAL = process.env.WFG_EM01_CODE_DIR;
 if (REAL && fs.existsSync(REAL)) {
   console.log('');
-  console.log('⑤ 本機真檔語料：' + REAL);
+  console.log('⑧ 本機真檔語料：' + REAL);
   let seen = 0, shaped = 0, bad = 0;
   for (const f of fs.readdirSync(REAL)) {
     const p = path.join(REAL, f);
@@ -315,5 +469,5 @@ if (REAL && fs.existsSync(REAL)) {
 
 console.log('');
 if (fail) { console.log('🛑 有 ' + fail + ' 項不通過。'); process.exit(1); }
-console.log('✅ 全部通過：真實 EM01 code 的行號值不會被判成「不是這顆」，型號判別仍然有效。');
+console.log('✅ 全部通過：真實 MNT（EM01／EM02／E512）code 的欄位值不會被判成「不是這顆」，型號判別仍然有效。');
 process.exit(0);

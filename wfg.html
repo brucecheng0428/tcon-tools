@@ -3626,7 +3626,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260904wfg4434"></script>
+<script src="common/version.js?v=20260904wfg4435"></script>
 <script src="common/i18n.js?v=20260903help"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -44978,15 +44978,21 @@ function wfgGpoDecodeAt(buf, base1, base2) {
   }
   return out;
 }
-/* 防呆：五條全部來自 Excel 的欄位定義，不是憑感覺挑的。
-   實測對 offset 錯位有鑑別力（15 個錯誤候選 × 117 檔 = 0 假陽性）。 */
+/* 防呆：四條**結構**條件全部來自 Excel 的欄位定義，不是憑感覺挑的。
+   實測對 offset 錯位有鑑別力（15 個錯誤候選 × 117 檔 = 0 假陽性），
+   而且是這四條在撐 —— 拿掉 `xpol.toggle`／`lc.toggle` 會讓 16 候選變歧義
+   （實測 em02 接受集合 **+124 −31**）。**這四條不准動。**
+
+   🔴 v4.43.5 移除第五條 `by.xstb.sp_line > 100`：那個 100 沒有出處
+   （`reg_sp_line_xstb` 是 14 bit、Init h3FFF，規格沒有下界）。
+   `~/TCON` 全庫 742 份 .bin 實測，移除後接受集合**完全不變** ＝ 零鑑別力。
+   留著的壞處是讓人以為那裡還有一道防線。 */
 function wfgEm02Sane(sig) {
   if (!sig) return false;
   var by = {};
   for (var i = 0; i < sig.length; i++) by[sig[i].name] = sig[i];
   return !!(by.xstb && by.xstb.enable && by.xpol && by.xpol.toggle &&
-            by.vst1 && by.vst1.enable && by.lc && by.lc.toggle &&
-            by.xstb.sp_line > 100);
+            by.vst1 && by.vst1.enable && by.lc && by.lc.toggle);
 }
 function wfgEm02Candidates() {
   var out = [];
@@ -45367,20 +45373,46 @@ function wfgE512Frame(buf) {
     vblank:  ((buf[6] >> 4) & 0x0F) | (buf[7] << 4)
   };
 }
-/* 防呆：全部是「物理上不可能」的條件，不是憑感覺挑的門檻。
-   實測 104 份 RM80020 樣本：99 份通過；被擋下的 5 份是 3 份聯詠 NT712xx ＋ 1 份 Himax
-   HX8861 ＋ 1 份 E512 舊檔。交叉測試：EM02 的檔用這支解 → 拒絕；
-   E512 的檔用 EM02 那組 16 候選解 → 104 份**沒有一份**出現「恰好一個候選命中」。 */
+/* 防呆：原本宣稱「全部是物理上不可能的條件」。**那句話是錯的**，v4.43.5 逐條查證後
+   把沒有規格依據的四條移除（`docs/` 無此規範，依據來自 `e512_register_bank_final.xls`）。
+
+   ── v4.43.5 移除的四條（C3～C5、C7，另含 frame 上界 C9）────────────────────
+   ① `r_dly > ht || f_dly > ht`（註解寫「延遲量是一條 line 內的 DCLK 數」）
+      🔴 **這個前提 v4.37.1 已經在 NB 判定為錯並移除，這裡是同一條規則的殘留。**
+      `reg_r_dly_*` / `reg_f_dly_*` 是 **16 bit**（Init h790 / h7C0），規格沒有
+      「不得超過 HTOTAL」的條款。實測誤殺 **5 份官方 E512 檔**，其中兩份是
+      `E512_.../04.EEPROM/.../e512a1_eeprom_default.bin` ＝ **原廠預設 EEPROM 映像**：
+      frame 1920×1080 ＋ hblank 280 ＋ vblank 90（ht 2200 / vt 1170）、6 條 enable，
+      卡在 `ck2 r/f ＝ 1984/3968`、`ck3 ＝ 3840/4096` —— 那是 CK 相位刻意延到
+      **第二條 line**（2×2200 ＝ 4400 之內），結構完全自洽，不是解析錯位。
+   ② `st_line > vt*3` / ③ `sp_line > vt*3`：`reg_st_line_*` / `reg_sp_line_*` 都是
+      **14 bit**、`reg_sp_line_*` 的 Init 就是 **h3FFF**（＝那 5 份檔的 xstb/ck1 實際值）。
+      與 v4.43.4 在 EM01 移除的是同一條規則；「對 16383 開特例」本身就是
+      「整段值域合法」的自證（詳見 `wfgEm01Sane()` 上方）。
+   ④ `xstb.sp_line > 100` 的魔術數字 100：無出處。
+   ⑤ `ne >= 4`：無出處。EM01 早就因為真檔只有 3 條 enable 而放寬到 `>= 1`，這裡沒跟上。
+
+   ── 鑑別力量測（`~/TCON` 全庫 742 份 .bin × 7 個 codec，非抽樣）────────────
+   逐條移除後接受集合的變化：①**e512 +5**（就是上面那 5 份官方檔）；②③④⑤ **完全不變**
+   ＝ 零鑑別力。全部一起移除的結果與①單獨移除**完全相同**（無交互作用），
+   其餘六個 codec 一位元未變、非 E512 誤收維持 0。
+
+   ── 留下來的才是真正在做型號判別的（實測，不准動）───────────────────────
+   ・`xstb.enable` ＋ `vst1.enable` ＋ `unused2`：拿掉 `xpol.toggle`／`lc.toggle`
+     這類結構條件會讓 EM02 的 16 候選變歧義（實測 em02 接受集合 +124 −31）。
+   ・frame 值域的**下界**（600／400／>0／>0）：語料裡別家 IC 的檔解出來是 `255×2`，
+     全靠下界擋掉。**上界**（8000／5000）則是恆真式 —— `reg_tmg_hres`／`reg_tmg_vres`
+     都是 **12 bit（max 4095）**，永遠到不了 8000／5000 ⇒ 假防線，一併移除。
+     `hblank <= 4000` / `vblank <= 2000` 不是恆真式，但實測同樣零鑑別力。 */
 function wfgE512Sane(sig, fr) {
   if (!sig || !fr) return false;
-  if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
-  if (!(fr.vactive >= 400 && fr.vactive <= 5000)) return false;
-  if (!(fr.hblank > 0 && fr.hblank <= 4000)) return false;
-  if (!(fr.vblank > 0 && fr.vblank <= 2000)) return false;
-  var ht = fr.hactive + fr.hblank, vt = fr.vactive + fr.vblank;
+  if (!(fr.hactive >= 600)) return false;
+  if (!(fr.vactive >= 400)) return false;
+  if (!(fr.hblank > 0)) return false;
+  if (!(fr.vblank > 0)) return false;
   var by = {};
   for (var i = 0; i < sig.length; i++) by[sig[i].name] = sig[i];
-  if (!(by.xstb && by.xstb.enable && by.xstb.sp_line > 100)) return false;
+  if (!(by.xstb && by.xstb.enable)) return false;
   if (!(by.vst1 && by.vst1.enable)) return false;
   var ne = 0;
   for (var j = 0; j < sig.length; j++) {
@@ -45388,11 +45420,8 @@ function wfgE512Sane(sig, fr) {
     if (sg.unused2) return false;              // byte0 bit2 在 register bank 上是 unused
     if (!sg.enable) continue;
     ne++;
-    if (sg.r_dly > ht || sg.f_dly > ht) return false;      // 延遲量是一條 line 內的 DCLK 數
-    if (sg.st_line !== 16383 && sg.st_line > vt * 3) return false;  // ×3 已涵蓋 tri-gate
-    if (sg.sp_line !== 16383 && sg.sp_line > vt * 3) return false;
   }
-  return ne >= 4;
+  return ne >= 1;
 }
 function wfgE512ParseBin(buf, fname) {
   if (!buf || buf.length < 3000) return { ok: false, reason: t('wfg.codeErrTooSmall') };
@@ -45935,8 +45964,12 @@ function wfgEm01SlotValid(buf, s) {
   if (buf[s + 0xC2] & 0x8E) return false;
   for (var k = 1; k <= 9; k++) if (buf[s + 0xC2 + k] & 0x88) return false;
   var hv = wfgEm01SlotHapVal(buf, s);
-  if (!(hv.hap >= 600 && hv.hap <= 8000)) return false;
-  if (!(hv.val >= 200 && hv.val <= 5000)) return false;
+  /* 🔴 v4.43.5：上界移除。`reg_hap` 是 14 bit（Init hF00 ＝ 3840）、`reg_val` 是
+     13 bit（Init h870 ＝ 2160）—— 這兩個上界**不是恆真式**（值域到 16383／8191），
+     但 8000／5000 這兩個數字沒有任何出處，而且全庫 742 份 .bin 實測零鑑別力。
+     下界保留：沒燒的 slot 是整片 0x00／0xFF，靠下界擋掉。 */
+  if (!(hv.hap >= 600)) return false;
+  if (!(hv.val >= 200)) return false;
   var sig = wfgGpoDecodeAt(buf, s, s + 0x100);
   if (!sig) return false;
   var ne = 0;
@@ -46021,10 +46054,16 @@ function wfgEm01Frame(buf) {
      `tools/check_em01_code_import.js` 釘住（已進 pre-commit）。 */
 function wfgEm01Sane(buf, L, sig, fr) {
   if (!sig || !fr) return false;
-  if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
-  if (!(fr.vactive >= 400 && fr.vactive <= 5000)) return false;
-  if (!(fr.hblank > 0 && fr.hblank <= 4000)) return false;
-  if (!(fr.vblank > 0 && fr.vblank <= 2000)) return false;
+  /* 🔴 v4.43.5：只留**下界**。上界被拿掉的理由是它們是**恆真式**：
+     `reg_tmg_hres`／`reg_tmg_vres`／`reg_tmg_hblk`／`reg_tmg_vblk` 在
+     `(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx` 的 `sys` 分頁全部是
+     **12 bit（max 4095）**，`hactive <= 8000` 與 `vactive <= 5000` 永遠成立 ⇒ 假防線。
+     （`hblank <= 4000` / `vblank <= 2000` 不是恆真式，但全庫 742 份實測零鑑別力。）
+     下界是真的在擋東西：語料裡的 NB／別家 IC 檔在這個位移解出來是 `255×2`。 */
+  if (!(fr.hactive >= 600)) return false;
+  if (!(fr.vactive >= 400)) return false;
+  if (!(fr.hblank > 0)) return false;
+  if (!(fr.vblank > 0)) return false;
   /* bit8 打包位元組的未用位元：0x C2 只有 bit0/4/5/6 有定義；0xC3~0xCB 只有 bit0~2、4~6。 */
   if (buf[L.base1 + 0xC2] & 0x8E) return false;
   for (var k = 1; k <= 9; k++) if (buf[L.base1 + 0xC2 + k] & 0x88) return false;
@@ -47086,12 +47125,26 @@ window.wfgNbEdidFrame = wfgNbEdidFrame;
    匯入後仍會過 `wfgClampGpiosToModel()`：超出該機種位元寬的值會被夾並**逐項列在
    匯入卡片上**（v4.15.0 起的既有行為）。R_DLY/F_DLY 在 NB 是 16 bit ⇒ 65535 合法、
    不會被夾，那就是晶片裡真正的數字。 */
+/* ══ 🔴 v4.43.5：再拿掉兩件沒有依據的東西（`ne >= 4` 與 frame 上界）══════════
+   ① `ne >= 4`：沒有出處。**EM01 早在 v4.11.0 就因為真檔只有 3 條 enable 而用 `>= 1`**
+      （見 `wfgEm01Sane()` 上方那批 MCUv0079 檔），NB 這裡一直沒跟上。
+      實測 `~/TCON` 全庫 742 份 .bin：改成 `>= 1` 後接受集合**完全不變** ＝ 零鑑別力。
+   ② frame 的**上界**：這裡的 fr 來自 **EDID 的 detailed timing**，四個欄位都是
+      12 bit（高 4 bit 在 `d+4`／`d+7` 的 nibble）⇒ 最大 4095，
+      `hactive <= 8000`、`vactive <= 5000` **永遠成立** ＝ 恆真式、假防線。
+      `hblank <= 4000` / `vblank <= 2000` 不是恆真式，但實測同樣零鑑別力。
+   下界（600／400／>0／>0）保留 —— 它擋掉別家 IC 的檔（解出來多半是 `255×2`）。
+
+   🔴 這一支真正在做型號判別的仍然是前面兩道，與本函式的內容無關：
+     ① `m.sizes` 嚴格比對內容長度（E503 = 4096、E501 = 131072…）
+     ② `wfgNbEdidFrame()`：EDID 的 8 byte magic **＋ 128 byte checksum 為 0**
+        —— 隨機命中是 2^-72 等級。 */
 function wfgNbSane(sig, fr) {
   if (!sig || !sig.length || !fr) return false;
-  if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
-  if (!(fr.vactive >= 400 && fr.vactive <= 5000)) return false;
-  if (!(fr.hblank > 0 && fr.hblank <= 4000)) return false;
-  if (!(fr.vblank > 0 && fr.vblank <= 2000)) return false;
+  if (!(fr.hactive >= 600)) return false;
+  if (!(fr.vactive >= 400)) return false;
+  if (!(fr.hblank > 0)) return false;
+  if (!(fr.vblank > 0)) return false;
   var ne = 0;
   for (var i = 0; i < sig.length; i++) {
     var s = sig[i];
@@ -47100,7 +47153,7 @@ function wfgNbSane(sig, fr) {
   }
   /* xstb 一定要 enable —— 它是 gate driver 的起始訊號，任何一份能開機的 code 都有。 */
   if (!sig[0] || !sig[0].enable) return false;
-  return ne >= 4;
+  return ne >= 1;
 }
 
 /* ── 匯出：Check List / SCRIPT 欄位定義 ──────────────────────────────────

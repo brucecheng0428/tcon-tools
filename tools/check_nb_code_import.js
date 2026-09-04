@@ -203,8 +203,21 @@ expect('EDID checksum 不對', (function () {
 expect('XSTB 沒有 enable', (function () {
   const b = buildImage(); b[E503.fileOff(0)] &= 0x7F; return judge(b).sane;
 })(), false);
-expect('只有 3 條訊號 enable（需 ≥ 4）', (function () {
+/* 🔴 v4.43.5：這一條**從「必須拒絕」翻面成「必須接受」**，刻意留在②這一段並保留
+   原本的措辭，好讓 git blame 看得出它翻過面。`ne >= 4` 沒有出處 ——
+   **EM01 早在 v4.11.0 就因為真檔只有 3 條 enable 而用 `>= 1`**（那批 MCUv0079 檔），
+   NB 這裡一直沒跟上。全庫 742 份 .bin 實測：改成 `>= 1` 後接受集合完全不變 ＝ 零鑑別力。
+   真正在做型號判別的是 `m.sizes` 與 EDID magic ＋ checksum（下面兩條）。 */
+expect('只有 3 條訊號 enable（v4.43.5 起應接受；`ne >= 4` 已移除）', (function () {
   const s = {}; for (let i = 0; i < E503.sigCount; i++) s[i] = { enable: i < 3 ? 1 : 0 };
+  return judge(buildImage({ sigs: s })).sane;
+})(), true);
+expect('只有 xstb 一條 enable（下限是 >= 1）', (function () {
+  const s = {}; for (let i = 0; i < E503.sigCount; i++) s[i] = { enable: i === 0 ? 1 : 0 };
+  return judge(buildImage({ sigs: s })).sane;
+})(), true);
+expect('一條都沒有 enable（xstb 也沒有）⇒ 仍須拒絕', (function () {
+  const s = {}; for (let i = 0; i < E503.sigCount; i++) s[i] = { enable: 0 };
   return judge(buildImage({ sigs: s })).sane;
 })(), false);
 expect('解析度荒謬（hactive = 100）', judge(buildImage({ hactive: 100 })).sane, false);
