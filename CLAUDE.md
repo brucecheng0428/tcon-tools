@@ -55,8 +55,10 @@ ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
 | `scan_untranslated_keys.js` | 畫面上出現未翻譯的 i18n key —— `t(key)` 查不到翻譯會**回傳 key 本身**，靜默失敗，console 不會叫 |
 | `check_line_buffer_half_step.py` | wfg 的 Line Buffer 在 **Single Gate** 下冒出小數（Bruce 2026-08-25：「LineBuffer 出現 .5，只存在 Dual gate 的情況下」）。擋「`.step` 給 0.5 但條件不是 `wfgFlrMult() === 2`」與「寫死的 step 0.5」 |
 | `check_nb_code_import.js` | **NB code 匯入誤殺真檔**。`wfgNbSane()` 的值域判準（R_DLY／F_DLY／ST_LINE／SP_LINE 的大小）從 v4.14.0 起拒收 **18%（32/177）的真實 E503 檔**，而歷次驗收**只驗過「壞檔會被拒絕」、從來沒驗過「真檔會被接受」**。這支把正面那一半釘住：合成語料帶著真檔實際出現過的值（F_DLY=0xFFFF、SP_LINE=16000、R_DLY=50923、ST_LINE=14820）必須通過，同時壞檔仍須被拒。**已進 pre-commit**。拿本機真檔跑：`WFG_NB_CODE_DIR=<dir> node tools/check_nb_code_import.js`（真檔不進版控） |
+| `check_em01_code_import.js` | **EM01 code 匯入誤殺真檔（同一類錯的第二次）**。`wfgEm01Sane()` 的「ST/SP LINE ≤ VTOTAL×3」沒有規格依據 —— register bank 上這兩個欄位都是 **14 bit**、`reg_sp_line_*` 的 **Init 就是 0x3FFF**，而原本的寫法**對 16383 開特例**＝已經承認超界合法，卻只放行那一個數字。Bruce 2026-09-04 的 CSOT FHD280Hz 真檔（`xstb.sp_line = 9139`、vt = 1100）因此被拒。這支釘住正面那一半，並多釘一條 **CURRENT 與 slot 兩支驗證器不得再有兩套標準**。**已進 pre-commit**。拿本機真檔跑：`WFG_EM01_CODE_DIR=<dir> node tools/check_em01_code_import.js`（真檔不進版控） |
 
-> 這三支的共同前提：**這些錯在本機測試時都不會出現**，只能靠機械檢查擋，不能靠記得。
+> 這幾支的共同前提：**這些錯在本機測試時都不會出現**，只能靠機械檢查擋，不能靠記得。
+> 🔴 其中 `check_nb_code_import.js` 與 `check_em01_code_import.js` 是**同一個破口的兩次**：判準只驗過「壞檔會被拒絕」。新增任何 sanity check 之前，先問「這一條的反面是什麼、有沒有一起驗」。
 
 ## 公開面：去商標化
 

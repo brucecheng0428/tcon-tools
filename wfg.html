@@ -3626,7 +3626,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260903wfg4433"></script>
+<script src="common/version.js?v=20260904wfg4434"></script>
 <script src="common/i18n.js?v=20260903help"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -45983,7 +45983,42 @@ function wfgEm01Frame(buf) {
      ・「至少要有 N 條 enable」—— 5 個真實 Flash 檔（檔名帶 MCUv0079 的那批）
        暫存器映像裡只有 3 條 enable。同一顆面板的前一版（DisplayOK02）是 14 條，
        兩版的差異區段正好只有「GPO 區 ＋ 0x10000 起的 MCU 韌體區」。
-       ⇒ 那是檔案內容本身如此，門檻設 4 會把合法檔擋掉。只擋「一條都沒有」。 */
+       ⇒ 那是檔案內容本身如此，門檻設 4 會把合法檔擋掉。只擋「一條都沒有」。
+
+   ── 🔴 v4.43.4：第三條也移除 ——「ST_LINE／SP_LINE 不得超過 VTOTAL×3」 ──────────
+   Bruce 2026-09-04 回報：一份真實的 EM01 Flash code（CSOT 23.8" FHD 280Hz，
+   CURRENT 與 Normal slot 兩份副本都是 `xstb.sp_line = 9139`、vt ＝ 1100）
+   被判「不符合 EM01 Flash 的 GPO 格式」。
+
+   **這條規則沒有規格依據。** `(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`
+   `rt8_tcon_1`：`reg_st_line_xstb` Low h00A4／High h00A5 **Bits 14 [13:0]**、Init h8；
+   `reg_sp_line_xstb` Low h00A6／High h00A7 **Bits 14 [13:0]**、**Init h3FFF**。
+   欄位就是 0～16383，規格沒有任何「不得超過 VTOTAL」的條款。
+
+   🔴 **關鍵論證：對 16383 開特例本身就是自證。** 原本的寫法用 `!== 16383` 放行單一數值 ——
+   那等於已經承認「sp_line 超出畫面是合法狀態」（16383 正是這個欄位的**出廠預設值**，
+   而它對任何 vt < 5461 的面板都超過 vt×3）。既然超界合法，就不該只放行一個數字，
+   把 3301～16382 這一整段同樣合法的值判成「不是這顆的 code」。
+
+   ── 佐證（三項，彼此獨立）────────────────────────────────────────────────
+     ① 檔內 GPO bank 有兩份副本（CURRENT 0x0500、Normal slot 0x35600），**都是 9139**
+        ⇒ 不是位元翻轉、不是單點損毀。
+     ② 同一份資料在 `wfgEm01SlotValid()`（slot 驗證器）**過得了** —— 那支根本沒有這條
+        行號上限。同一支程式對同一種資料兩套標準，本身就說明它是走樣的啟發式。
+     ③ 其餘欄位完全自洽：ck1 st/sp ＝ 3/1088、ck2 ＝ 7/1092、lc ＝ 1095/1095（皆貼著
+        vt ＝ 1100），frame 1920×1080＋hb 465＋vb 20 ⇒ ht 2385 × vt 1100 × 280 Hz
+        ＝ 734.58 MHz，與檔名的 `FHD280Hz` 相符 ⇒ bank 位移抓對了。
+
+   ── 拿掉之後鑑別力有沒有掉（實測，非推論）────────────────────────────────
+   `~/TCON` 全庫 **674 份 .bin** × 七個 codec 跑「有這兩條 vs 沒有」：
+     ・`st_line` 那條：接受集合**完全不變**（零鑑別力，一個檔都沒擋到過）。
+     ・`sp_line` 那條：接受集合只**多 1 份** ＝ 上述那份被誤殺的真檔；非 EM01 誤收
+       維持 **0**。
+   真正的鑑別力全部來自留下來的四項：frame 值域**下界**、bit8 未用位元、
+   rt8_tcon_3 ext1~8 未用位元、`unused2`（它們擋掉語料裡全部 NB／別家 IC 的檔）。
+   ⇒ 這與 v4.37.1 拿掉 `wfgNbSane()` 值域判準是**同一類錯的第二次**：判準只驗過
+     「壞檔會被拒」，從沒驗過「真檔會被接受」。正面那一半由
+     `tools/check_em01_code_import.js` 釘住（已進 pre-commit）。 */
 function wfgEm01Sane(buf, L, sig, fr) {
   if (!sig || !fr) return false;
   if (!(fr.hactive >= 600 && fr.hactive <= 8000)) return false;
@@ -46000,14 +46035,15 @@ function wfgEm01Sane(buf, L, sig, fr) {
     if ((buf[L.base3 + 16 * e] >> 2) & 1) return false;          // byte0 bit2 unused
     if (buf[L.base3 + 16 * e + 0x0F] & 0xF8) return false;       // +0xF bit3~7 unused
   }
-  var vt = fr.vactive + fr.vblank, ne = 0;
+  /* 🔴 v4.43.4：這個迴圈只剩「未用位元」與「至少一條 enable」。
+     ST_LINE／SP_LINE 的大小**不參與型號判定**（理由見上方區塊）——
+     它們是 14 bit 的暫存器，整個 0～16383 都是合法值。 */
+  var ne = 0;
   for (var i = 0; i < sig.length; i++) {
     var s = sig[i];
     if (s.unused2) return false;                                  // byte0 bit2 unused
     if (!s.enable) continue;
     ne++;
-    if (s.st_line !== 16383 && s.st_line > vt * 3) return false;  // ×3 已涵蓋 tri-gate
-    if (s.sp_line !== 16383 && s.sp_line > vt * 3) return false;
   }
   return ne >= 1;
 }
