@@ -104,4 +104,29 @@ if [ $nbrc -ne 0 ]; then
 fi
 rm -f /tmp/wfg_nbchk.$$
 
+# ══ 🔴 2026-09-04 新增：EM01 code 匯入不得誤殺真檔（v4.43.4）══════════════════
+#   同一類錯的**第二次**：`wfgEm01Sane()` 的「ST/SP LINE ≤ VTOTAL×3」沒有規格依據
+#   （register bank：這兩個欄位都是 14 bit、`reg_sp_line_*` 的 Init 就是 0x3FFF），
+#   而歷次驗收同樣**只驗過「壞檔會被拒絕」、從沒驗過「真檔會被接受」**。
+#   NB 那支（上面）與這支（下面）合起來，把兩顆類別的正面那一半都釘住。
+#   一樣是純函式檢查（直接從 wfg.html 抽產品原始碼），零外部相依、跑完不到一秒。
+EMCHK="$REPO/tools/check_em01_code_import.js"
+if [ ! -f "$EMCHK" ]; then
+  echo "🛑 找不到 $EMCHK —— EM01 code 匯入檢查無法執行，commit 已中止。"
+  exit 1
+fi
+"$NODE_BIN" "$EMCHK" > /tmp/wfg_emchk.$$ 2>&1
+emrc=$?
+if [ $emrc -ne 0 ]; then
+  cat /tmp/wfg_emchk.$$
+  rm -f /tmp/wfg_emchk.$$
+  echo ""
+  echo "🛑 EM01 code 匯入判定不合規，commit 已中止。"
+  echo "   ①「必須接受」那幾條失敗 ＝ 有人把行號值域判準加回 wfgEm01Sane()，真檔又會被誤殺。"
+  echo "   ②「必須拒絕」那幾條失敗 ＝ 型號判別被削弱了（未用位元／frame 下界那幾條是唯一的鑑別力來源）。"
+  echo "   ④ 失敗 ＝ CURRENT 與 slot 兩支驗證器又變成兩套標準。"
+  exit 1
+fi
+rm -f /tmp/wfg_emchk.$$
+
 exit 0
