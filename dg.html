@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260906dg100">
+<link rel="stylesheet" href="common/common.css?v=20260906dg110">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -102,6 +102,24 @@
   .dg-legend span { display: inline-flex; align-items: center; gap: 4px; }
   .dg-legend i { width: 14px; height: 2.5px; border-radius: 2px; display: inline-block; }
 
+  .dg-badge {
+    display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+    padding: 1px 6px; border-radius: 4px; vertical-align: middle; margin-left: 5px;
+    background: #334155; color: #cbd5e1;
+  }
+  .dg-badge.guess  { background: #78350f; color: #fcd34d; }
+  .dg-badge.manual { background: #1e40af; color: #bfdbfe; }
+  .dg-badge.unknown{ background: #7f1d1d; color: #fca5a5; }
+
+  .dg-fmt {
+    margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+    border: 1.5px solid #0d9488; background: #042f2a;
+    font-size: 11.5px; line-height: 1.65; color: #5eead4;
+  }
+  .dg-fmt b { color: #99f6e4; }
+  .dg-fmt.warn { border-color: var(--warn); background: #2a1a05; color: #fcd34d; }
+  .dg-fmt.err  { border-color: #7f1d1d; background: #2a0f0f; color: #fca5a5; }
+
   .dg-round-badge {
     display: inline-block; background: #6d28d9; color: #fff; font-size: 11px; font-weight: 700;
     padding: 2px 9px; border-radius: 999px; letter-spacing: .3px;
@@ -149,7 +167,7 @@
       <div class="dg-sep">位元深度</div>
       <div class="dg-grid3">
         <div class="field" style="margin-bottom:0">
-          <label>Source Driver</label>
+          <label>Source Driver <span class="dg-badge" id="dg-sd-badge">預設</span></label>
           <select id="dg-sd" class="dg-sel">
             <option value="6" selected>6 bit</option>
             <option value="8">8 bit</option>
@@ -202,6 +220,7 @@
         <b>驅動上限碼 =（2<sup>SD</sup> − 1）× 2<sup>內容深度 − SD</sup></b>，是 Source Driver 實際打得出來的最大碼，
         同時也是縮放時的箝制上限。主表之後另外補一筆，值為 <b>2<sup>內容深度</sup> − 1</b>，所以輸出長度是 N + 1。
       </div>
+      <div class="dg-note" id="dg-sd-basis" style="display:none"></div>
       <div class="dg-note warn" id="dg-mn-warn" style="display:none">
         <b>⚠ M ≠ N</b>：目標陣列長度（N）與量測曲線長度（M）不相等時，反查一律以量測曲線的實際長度為準，
         目標陣列超出的部分沿用最後一個可用的目標值。這個組合<b>尚未經實機驗證</b>。
@@ -241,10 +260,13 @@
       <div class="dg-sep">④ 本輪起始 LUT<span class="dg-round-badge" id="dg-round-badge">第 1 輪</span></div>
       <textarea id="dg-in-lut" class="dg-ta" spellcheck="false" placeholder="留空 = 使用 Default（灰階 × 2^(內容深度−8)，RGB 三通道相同）。&#10;第 2 輪起請貼上上一輪產出的 RGB LUT：每行 R G B（或 Index R G B）。"></textarea>
       <div class="dg-btnrow">
+        <button class="dg-btn primary" id="dg-btn-import">匯入 LUT 檔（.xlsx）</button>
         <button class="dg-btn" id="dg-btn-default">填入 Default LUT</button>
         <button class="dg-btn" id="dg-btn-sample">載入範例資料</button>
         <button class="dg-btn" id="dg-btn-clear">清空</button>
       </div>
+      <input type="file" id="dg-file-lut" accept=".xlsx" style="display:none">
+      <div class="dg-fmt" id="dg-fmt-box" style="display:none"></div>
 
       <div class="dg-note">
         <b>反查的橫軸是「該通道當時實際送出的驅動碼」，不是灰階索引。</b>
@@ -265,10 +287,14 @@
     <div class="card-header"><span class="icon">📤</span><span>輸出 RGB Digital Gamma LUT</span></div>
     <div class="card-body">
       <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-xlsx">下載 Excel（.xlsx）</button>
+        <button class="dg-btn primary" id="dg-btn-lutfile">下載 LUT 檔（寫回 TCON 用）</button>
         <button class="dg-btn" id="dg-btn-copy">一鍵複製 RGB</button>
+      </div>
+      <div class="dg-btnrow">
+        <button class="dg-btn" id="dg-btn-xlsx">下載完整報告（.xlsx）</button>
         <button class="dg-btn" id="dg-btn-next">以此結果開始下一輪</button>
       </div>
+      <div class="dg-fmt" id="dg-out-fmt-box" style="display:none"></div>
       <div class="dg-table-wrap"><table class="dg-table" id="dg-lut-table"><thead><tr><th>Idx</th><th>R</th><th>G</th><th>B</th></tr></thead><tbody></tbody></table></div>
       <div class="dg-note">主表是索引 0 ～ N−1；索引 N 是表尾補的一筆，值為 <code>2^內容深度 − 1</code>，
         與主表最後一筆（驅動上限碼）不是同一個數。</div>
@@ -337,8 +363,8 @@
   <a href="index.html" class="back-btn-footer">← 返回首頁</a>
 </div>
 
-<script src="common/version.js?v=20260906dg100"></script>
-<script src="common/i18n.js?v=20260906dg100"></script>
+<script src="common/version.js?v=20260906dg110"></script>
+<script src="common/i18n.js?v=20260906dg110"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -689,7 +715,7 @@
     while (n > 0) { m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; }
     return s;
   }
-  function dgSheetXml(rows) {
+  function dgSheetXml(rows, merges) {
     var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
     for (var ri = 0; ri < rows.length; ri++) {
@@ -703,7 +729,13 @@
       }
       if (cells) x += '<row r="' + (ri + 1) + '">' + cells + '</row>';
     }
-    return x + '</sheetData></worksheet>';
+    x += '</sheetData>';
+    if (merges && merges.length) {
+      x += '<mergeCells count="' + merges.length + '">';
+      merges.forEach(function (m) { x += '<mergeCell ref="' + dgXe(m) + '"/>'; });
+      x += '</mergeCells>';
+    }
+    return x + '</worksheet>';
   }
   function dgBuildXlsx(sheets) {
     var ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -750,9 +782,252 @@
       { name: 'xl/styles.xml', data: dgUtf8(styles) }
     ];
     sheets.forEach(function (sh, i) {
-      files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: dgUtf8(dgSheetXml(sh.rows)) });
+      files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: dgUtf8(dgSheetXml(sh.rows, sh.merges)) });
     });
     return dgZip(files);
+  }
+
+  // ═══ LUT 檔案 I/O：匯入時辨識格式並記住，匯出時原樣跟隨 ═══════════════
+  // 使用者全程不需要知道自己用的是哪一種格式，也不需要選。
+
+  // ZIP 解壓：只讀 central directory，支援 store(0) 與 deflate(8)。
+  function dgInflateRaw(u8) {
+    if (typeof DecompressionStream === 'undefined') {
+      return Promise.reject(new Error('這個瀏覽器不支援解壓縮（DecompressionStream），請改用貼上的方式提供 LUT。'));
+    }
+    var ds = new DecompressionStream('deflate-raw');
+    var w = ds.writable.getWriter();
+    w.write(u8); w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
+  }
+
+  function dgUnzip(buf) {
+    var u8 = new Uint8Array(buf);
+    var dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    var eocd = -1;
+    for (var i = u8.length - 22; i >= 0 && i >= u8.length - 66000; i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) return Promise.reject(new Error('這不是有效的 xlsx 檔（找不到 ZIP 結尾）。'));
+    var count = dv.getUint16(eocd + 10, true);
+    var cdOff = dv.getUint32(eocd + 16, true);
+    var jobs = [], p = cdOff;
+    for (var k = 0; k < count; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) return Promise.reject(new Error('這不是有效的 xlsx 檔（目錄結構損壞）。'));
+      var method = dv.getUint16(p + 10, true);
+      var compSize = dv.getUint32(p + 20, true);
+      var nameLen = dv.getUint16(p + 28, true);
+      var extraLen = dv.getUint16(p + 30, true);
+      var cmtLen = dv.getUint16(p + 32, true);
+      var lOff = dv.getUint32(p + 42, true);
+      var name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen));
+      var lNameLen = dv.getUint16(lOff + 26, true);
+      var lExtraLen = dv.getUint16(lOff + 28, true);
+      var start = lOff + 30 + lNameLen + lExtraLen;
+      jobs.push({ name: name, method: method, data: u8.subarray(start, start + compSize) });
+      p += 46 + nameLen + extraLen + cmtLen;
+    }
+    var out = {};
+    return jobs.reduce(function (chain, j) {
+      return chain.then(function () {
+        if (j.method === 0) { out[j.name] = j.data; return null; }
+        if (j.method !== 8) throw new Error('xlsx 內部使用了不支援的壓縮方式（' + j.method + '）。');
+        return dgInflateRaw(j.data).then(function (d) { out[j.name] = d; });
+      });
+    }, Promise.resolve()).then(function () { return out; });
+  }
+
+  function dgXmlDoc(u8) {
+    return new DOMParser().parseFromString(new TextDecoder().decode(u8), 'application/xml');
+  }
+  function dgRefToRC(ref) {
+    var m = /^([A-Z]+)(\d+)$/.exec(ref);
+    if (!m) return null;
+    var col = 0;
+    for (var i = 0; i < m[1].length; i++) col = col * 26 + (m[1].charCodeAt(i) - 64);
+    return { r: parseInt(m[2], 10), c: col };
+  }
+
+  // 讀出第一個工作表：儲存格值與型別、工作表名稱、合併範圍
+  function dgReadWorkbook(files) {
+    if (!files['xl/workbook.xml']) throw new Error('xlsx 缺少必要的內部檔案：xl/workbook.xml');
+    var wbDoc = dgXmlDoc(files['xl/workbook.xml']);
+    var sheetEls = wbDoc.getElementsByTagName('sheet');
+    if (!sheetEls.length) throw new Error('這個 xlsx 沒有任何工作表。');
+    var sheetName = sheetEls[0].getAttribute('name');
+
+    var shared = [];
+    if (files['xl/sharedStrings.xml']) {
+      var sis = dgXmlDoc(files['xl/sharedStrings.xml']).getElementsByTagName('si');
+      for (var i = 0; i < sis.length; i++) {
+        var ts = sis[i].getElementsByTagName('t'), s = '';
+        for (var j = 0; j < ts.length; j++) s += ts[j].textContent;
+        shared.push(s);
+      }
+    }
+
+    var shPath = 'xl/worksheets/sheet1.xml';
+    if (!files[shPath]) {
+      for (var key in files) { if (/^xl\/worksheets\/.*\.xml$/.test(key)) { shPath = key; break; } }
+    }
+    if (!files[shPath]) throw new Error('xlsx 裡找不到工作表內容。');
+    var shDoc = dgXmlDoc(files[shPath]);
+    var cells = {}, maxRow = 0, maxCol = 0;
+    var cs = shDoc.getElementsByTagName('c');
+    for (var n = 0; n < cs.length; n++) {
+      var c = cs[n], rc = dgRefToRC(c.getAttribute('r') || '');
+      if (!rc) continue;
+      var t = c.getAttribute('t') || 'n', val = null, type = 'n', el;
+      if (t === 's') {
+        el = c.getElementsByTagName('v')[0];
+        val = el ? (shared[parseInt(el.textContent, 10)] || '') : ''; type = 's';
+      } else if (t === 'inlineStr') {
+        el = c.getElementsByTagName('is')[0];
+        val = el ? el.textContent : ''; type = 's';
+      } else if (t === 'str') {
+        el = c.getElementsByTagName('v')[0];
+        val = el ? el.textContent : ''; type = 's';
+      } else {
+        el = c.getElementsByTagName('v')[0];
+        if (!el || el.textContent === '') continue;
+        val = Number(el.textContent); type = 'n';
+      }
+      cells[rc.r + ',' + rc.c] = { v: val, t: type };
+      if (rc.r > maxRow) maxRow = rc.r;
+      if (rc.c > maxCol) maxCol = rc.c;
+    }
+    var merges = [];
+    var ms = shDoc.getElementsByTagName('mergeCell');
+    for (var q = 0; q < ms.length; q++) merges.push(ms[q].getAttribute('ref'));
+    return { sheetName: sheetName, cells: cells, merges: merges, maxRow: maxRow, maxCol: maxCol };
+  }
+
+  function dgCellV(sheet, r, c) { var x = sheet.cells[r + ',' + c]; return x ? x.v : null; }
+  function dgIsNum(x) { return typeof x === 'number' && isFinite(x); }
+
+  // 由工作表內容辨識格式並取出 LUT。回傳的 fmt 就是匯出時要跟隨的那份描述。
+  function dgDetectLut(sheet) {
+    var notes = [];
+    var dataStart = -1;
+    for (var r = 1; r <= Math.min(sheet.maxRow, 20); r++) {
+      if (dgCellV(sheet, r, 1) === 0 && dgIsNum(dgCellV(sheet, r, 2)) && dgIsNum(dgCellV(sheet, r, 3)) && dgIsNum(dgCellV(sheet, r, 4))) {
+        dataStart = r; break;
+      }
+    }
+    if (dataStart < 0) throw new Error('在這個檔案裡找不到 LUT 資料（需要索引欄從 0 開始，後面接 R、G、B 三欄數字）。');
+
+    var rows = [], expect = 0;
+    for (var rr = dataStart; rr <= sheet.maxRow; rr++) {
+      if (dgCellV(sheet, rr, 1) !== expect) break;
+      var a = dgCellV(sheet, rr, 2), b = dgCellV(sheet, rr, 3), d = dgCellV(sheet, rr, 4);
+      if (!dgIsNum(a) || !dgIsNum(b) || !dgIsNum(d)) break;
+      rows.push([a, b, d]);
+      expect++;
+    }
+    if (rows.length < 16) throw new Error('LUT 資料只讀到 ' + rows.length + ' 筆，太少，無法辨識。');
+
+    var headerRow = dataStart - 1;
+    var headerCols = null, headerFirst = null, titleRow = 0, titleText = null;
+    if (headerRow >= 1) {
+      var h1 = dgCellV(sheet, headerRow, 1);
+      if (typeof h1 === 'string' && h1) {
+        headerFirst = h1;
+        headerCols = [h1, dgCellV(sheet, headerRow, 2), dgCellV(sheet, headerRow, 3), dgCellV(sheet, headerRow, 4)];
+      }
+    }
+    if (headerRow >= 2) {
+      for (var tr = 1; tr < headerRow && !titleRow; tr++) {
+        for (var tc = 1; tc <= 4; tc++) {
+          var tv = dgCellV(sheet, tr, tc);
+          if (typeof tv === 'string' && tv) { titleRow = tr; titleText = tv; break; }
+        }
+      }
+    }
+    if (!headerCols) notes.push('這個檔案沒有表頭列，匯出時也不會加表頭。');
+
+    var maxV = 0;
+    rows.forEach(function (v) { for (var c = 0; c < 3; c++) if (v[c] > maxV) maxV = v[c]; });
+    var hw = Math.ceil(Math.log(maxV + 1) / Math.LN2);
+    if (hw < 8) hw = 8;
+    if (hw > 14) throw new Error('LUT 內容最大值 ' + maxV + ' 超出支援範圍（最多 14 bit）。');
+    var full = Math.pow(2, hw) - 1;
+
+    var last = rows[rows.length - 1];
+    var hasTail = rows.length > 1 && last[0] === full && last[1] === full && last[2] === full;
+    var entries = hasTail ? rows.length - 1 : rows.length;
+    var mainLast = rows[entries - 1];
+
+    // Source Driver：推定值，不是從檔案讀到的規格
+    var cap = Math.max(mainLast[0], mainLast[1], mainLast[2]);
+    var gap = Math.pow(2, hw) - cap;
+    var lg = Math.log(gap) / Math.LN2;
+    var sd = null, sdOk = false;
+    if (gap > 0 && Math.abs(lg - Math.round(lg)) < 1e-9) {
+      var cand = hw - Math.round(lg);
+      if (cand === 6 || cand === 8 || cand === 10) { sd = cand; sdOk = true; }
+    }
+    var sdBasis = sdOk
+      ? ('依主表末筆 cap = ' + cap + '、內容深度 ' + hw + ' bit 推定：cap =（2^' + sd + '−1）×2^' + (hw - sd) + '。')
+      : ('無法推定：主表末筆 cap = ' + cap + ' 不是（2^SD−1）×2^(' + hw + '−SD) 的形式（SD 限 6／8／10）。');
+
+    var fmt = {
+      sheetName: sheet.sheetName,
+      titleRow: titleRow, titleText: titleText,
+      merges: sheet.merges.slice(),
+      headerRow: headerCols ? headerRow : 0,
+      headerCols: headerCols,
+      headerFirst: headerFirst,
+      entries: entries, hasTail: hasTail, hw: hw, cap: cap,
+      sd: sd, sdOk: sdOk, sdBasis: sdBasis, source: 'file'
+    };
+    fmt.label = (headerFirst || '無表頭') + ' 型／' + hw + ' bit／主表 ' + entries + ' 筆'
+      + (hasTail ? '＋附加末筆' : '（無附加末筆）') + '／工作表「' + sheet.sheetName + '」';
+    return { fmt: fmt, lut: rows.slice(0, entries), notes: notes };
+  }
+
+  // 沒有匯入檔可跟隨時：由（Source Driver, 內容深度）推定輸出格式。
+  // 這組對應是從現有 LUT 檔實測歸納的，不是規格；推不出來就不硬猜。
+  function dgFmtFromBits(sd, hw) {
+    var m = null;
+    if (sd === 8 && hw === 12) m = { sheetName: 'LUT', first: 'Index', title: true };
+    else if (sd === 6 && hw === 10) m = { sheetName: 'DG_10bit', first: 'Index', title: true };
+    else if (sd === 8 && hw === 10) m = { sheetName: 'RGB', first: 'Level', title: false };
+    if (!m) return null;
+    return {
+      sheetName: m.sheetName,
+      titleRow: m.title ? 1 : 0, titleText: m.title ? 'DG' : null,
+      merges: m.title ? ['B1:D1'] : [],
+      headerRow: m.title ? 2 : 1,
+      headerCols: [m.first, 'R', 'G', 'B'],
+      headerFirst: m.first,
+      entries: 256, hasTail: m.title, hw: hw, cap: (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd),
+      sd: sd, sdOk: true, source: 'bits',
+      label: m.first + ' 型／' + hw + ' bit／主表 256 筆' + (m.title ? '＋附加末筆' : '（無附加末筆）')
+        + '／工作表「' + m.sheetName + '」（依 SD ' + sd + ' bit、內容深度 ' + hw + ' bit 推定）'
+    };
+  }
+
+  // 依格式把 LUT 組回列陣列
+  function dgLutRowsForFmt(fmt, lut) {
+    var rows = [], full = Math.pow(2, fmt.hw) - 1;
+    var nRow = Math.max(fmt.titleRow, fmt.headerRow);
+    for (var i = 0; i < nRow; i++) rows.push([null, null, null, null]);
+    if (fmt.titleRow) {
+      var t = [null, null, null, null];
+      t[1] = fmt.titleText;
+      rows[fmt.titleRow - 1] = t;
+    }
+    if (fmt.headerRow) rows[fmt.headerRow - 1] = fmt.headerCols.slice();
+    for (var k = 0; k < fmt.entries; k++) {
+      var v = lut[k] || [0, 0, 0];
+      rows.push([k, v[0], v[1], v[2]]);
+    }
+    if (fmt.hasTail) rows.push([fmt.entries, full, full, full]);
+    return rows;
+  }
+
+  function dgBuildLutXlsx(fmt, lut) {
+    return dgBuildXlsx([{ name: fmt.sheetName, rows: dgLutRowsForFmt(fmt, lut), merges: fmt.merges }]);
   }
 
   // ─── 把一次計算的結果組成三個工作表 ────────────────────────────────────
@@ -1019,6 +1294,118 @@
     dgSetStatus('dg-status', 'Default LUT 已填入：灰階 × 2^(' + c.hw + '−8) = ×' + step + '，上限箝制於 驅動上限碼 = ' + cap + '。', 'ok');
   }
 
+  // ─── 匯入 LUT 檔：辨識格式 → 帶入設定 → 填進起始 LUT ────────────────────
+  var dgImportedFmt = null;      // 匯入時記住的格式，一路帶到匯出
+  var dgSdUserSet = false;       // 使用者手動改過 Source Driver 就不再被自動推導蓋掉
+  var dgSdBasisText = '';
+
+  function dgSetSdBadge(state, text) {
+    var b = $('dg-sd-badge');
+    b.className = 'dg-badge' + (state ? ' ' + state : '');
+    b.textContent = text;
+    var box = $('dg-sd-basis');
+    if (dgSdBasisText) { box.style.display = ''; box.innerHTML = dgSdBasisText; }
+    else box.style.display = 'none';
+    $('dg-sd').classList.toggle('has-error', state === 'unknown');
+  }
+
+  function dgRefreshSdBadge() {
+    if (dgSdUserSet) dgSetSdBadge('manual', '手動指定');
+    else if (dgImportedFmt && dgImportedFmt.source === 'file' && dgImportedFmt.sdOk) dgSetSdBadge('guess', '推定值');
+    else if (dgImportedFmt && dgImportedFmt.source === 'file' && !dgImportedFmt.sdOk) dgSetSdBadge('unknown', '無法推定，請選擇');
+    else dgSetSdBadge('', '預設');
+  }
+
+  // 匯出要用哪一份格式：匯入過就跟隨匯入的；沒有就由（SD, 內容深度）推定。
+  function dgOutFmt() {
+    if (dgImportedFmt) return dgImportedFmt;
+    var c = dgReadCfg();
+    return dgFmtFromBits(c.sd, c.hw);
+  }
+
+  function dgRenderOutFmt() {
+    var box = $('dg-out-fmt-box'), f = dgOutFmt();
+    box.style.display = '';
+    if (!f) {
+      var c = dgReadCfg();
+      box.className = 'dg-fmt warn';
+      box.innerHTML = '<b>下載 LUT 檔：目前無法決定輸出格式。</b><br>'
+        + '沒有匯入過 LUT 檔，而目前的 Source Driver ' + c.sd + ' bit ＋ 內容深度 ' + c.hw
+        + ' bit 沒有對應的已知格式。<br>請匯入一份該 TCON 的 LUT 檔（匯出就會照它的格式），或把上方兩個位元深度改成已知組合。';
+      return;
+    }
+    box.className = 'dg-fmt';
+    box.innerHTML = '<b>下載 LUT 檔會用這個格式：</b>' + f.label
+      + (f.source === 'file' ? '<br>（跟隨你匯入的那個檔，欄位、工作表名稱、有無末筆都一樣，可以直接寫回去。）'
+        : '<br>（沒有匯入過檔案，這是依位元深度推定的格式。匯入一份實際的 LUT 檔會更保險。）');
+  }
+
+  function dgApplyImportedFmt(det, fileName) {
+    var f = det.fmt;
+    dgImportedFmt = f;
+    $('dg-hw').value = String(f.hw);
+    $('dg-entry').value = (f.entries === 1024) ? '1024' : '256';
+    if (!dgSdUserSet && f.sdOk) $('dg-sd').value = String(f.sd);
+    dgSdBasisText = '<b>Source Driver 是推定值，不是從檔案讀到的規格。</b>' + f.sdBasis
+      + '<br>推定成立的前提是<b>至少一個通道的末筆仍停在上限</b>；三個通道都被壓過就推不出來。'
+      + '不對就直接改上面的選單，改過之後不會再被自動推導蓋回去。';
+    dgSyncDerived();
+    dgRefreshSdBadge();
+
+    $('dg-in-lut').value = det.lut.map(function (r, i) {
+      return i + ' ' + r[0] + ' ' + r[1] + ' ' + r[2];
+    }).join('\n');
+
+    var box = $('dg-fmt-box');
+    box.style.display = '';
+    box.className = 'dg-fmt' + (f.sdOk ? '' : ' warn');
+    box.innerHTML = '<b>已辨識：</b>' + f.label + '<br>'
+      + '<b>檔案：</b>' + dgXe(fileName) + '　<b>已帶入：</b>內容深度 ' + f.hw + ' bit、主表 ' + f.entries + ' 筆'
+      + (f.sdOk ? ('、Source Driver ' + f.sd + ' bit（推定）') : '')
+      + (f.sdOk ? '' : '<br><b>⚠ Source Driver 無法推定，請自己在上面選一個</b>（6／8／10 bit）。' + f.sdBasis)
+      + (det.notes.length ? '<br>' + det.notes.join('<br>') : '')
+      + '<br>之後按「下載 LUT 檔」會用<b>同一個格式</b>輸出，可以直接寫回去。';
+    dgRenderOutFmt();
+    dgSetStatus('dg-status', '已匯入 LUT 檔：' + fileName + '\n' + f.label
+      + '\n下一步：把這一輪的光學量測貼進上面②，然後按「計算」。', 'ok');
+  }
+
+  function dgImportLutFile(file) {
+    if (!file) return;
+    dgSetStatus('dg-status', '正在讀取 ' + file.name + '…', '');
+    var fr = new FileReader();
+    fr.onerror = function () { dgSetStatus('dg-status', '讀不到這個檔案。請確認檔案沒有被其他程式鎖住。', 'err'); };
+    fr.onload = function () {
+      dgUnzip(fr.result)
+        .then(function (files) { return dgDetectLut(dgReadWorkbook(files)); })
+        .then(function (det) { dgApplyImportedFmt(det, file.name); })
+        .catch(function (e) {
+          $('dg-fmt-box').style.display = '';
+          $('dg-fmt-box').className = 'dg-fmt err';
+          $('dg-fmt-box').innerHTML = '<b>這個檔案認不出來：</b>' + dgXe(e.message)
+            + '<br>本頁支援的是「索引欄從 0 開始、後面接 R／G／B 三欄」的 LUT 表，'
+            + '表頭可以在第 1 或第 2 列（Index 或 Level 皆可），有沒有附加末筆都可以。'
+            + '<br>認不出來時的替代作法：在 Excel 裡選取 R、G、B 三欄貼進上面的輸入框，一樣算得動。';
+          dgSetStatus('dg-status', '匯入失敗：' + e.message, 'err');
+        });
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  function dgDownloadLutXlsx() {
+    if (!lastLut) { dgSetStatus('dg-status', '還沒有結果可下載，請先按「計算」。', 'err'); return; }
+    var f = dgOutFmt();
+    if (!f) { dgRenderOutFmt(); dgSetStatus('dg-status', '無法決定輸出格式，請看下方說明。', 'err'); return; }
+    var bytes = dgBuildLutXlsx(f, lastLut);
+    var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'DG_LUT_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.xlsx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    dgSetStatus('dg-status', '已產生 LUT 檔（' + f.label + '）。\n這個檔的格式跟你匯入的那一份一樣，可以直接寫回 TCON。', 'ok');
+  }
+
   function dgDoCalc() {
     try {
       var cfg = dgReadCfg();
@@ -1123,13 +1510,28 @@
   // ─── 啟動 ──────────────────────────────────────────────────────────────
   function dgInit() {
     ['dg-sd', 'dg-hw', 'dg-entry'].forEach(function (id) {
-      $(id).addEventListener('change', dgSyncDerived);
+      $(id).addEventListener('change', function () { dgSyncDerived(); dgRenderOutFmt(); });
     });
+    $('dg-sd').addEventListener('change', function () {
+      dgSdUserSet = true;
+      dgSdBasisText = '<b>Source Driver 由你手動指定為 ' + $('dg-sd').value
+        + ' bit</b>，之後匯入 LUT 檔也不會再被自動推導蓋掉。';
+      dgRefreshSdBadge();
+    });
+    $('dg-btn-import').addEventListener('click', function () { $('dg-file-lut').click(); });
+    $('dg-file-lut').addEventListener('change', function (e) {
+      dgImportLutFile(e.target.files && e.target.files[0]);
+      e.target.value = '';
+    });
+    $('dg-btn-lutfile').addEventListener('click', dgDownloadLutXlsx);
     $('dg-btn-sample').addEventListener('click', dgLoadSample);
     $('dg-btn-default').addEventListener('click', dgFillDefault);
     $('dg-btn-clear').addEventListener('click', function () {
       ['dg-in-prim', 'dg-in-gray', 'dg-in-white', 'dg-in-lut'].forEach(function (id) { $(id).value = ''; });
       roundNo = 1; $('dg-round-badge').textContent = '第 1 輪';
+      dgImportedFmt = null; dgSdBasisText = '';
+      $('dg-fmt-box').style.display = 'none';
+      dgRefreshSdBadge(); dgRenderOutFmt();
       dgSetStatus('dg-status', '已清空。', '');
     });
     $('dg-btn-calc').addEventListener('click', dgDoCalc);
@@ -1139,6 +1541,8 @@
     $('dg-btn-verify').addEventListener('click', function () { dgVerify(false); });
     $('dg-btn-negctrl').addEventListener('click', function () { dgVerify(true); });
     dgSyncDerived();
+    dgRefreshSdBadge();
+    dgRenderOutFmt();
     dgDrawCharts(null);
   }
 
@@ -1153,7 +1557,13 @@
     targetCurve: dgTargetCurve,
     buildXlsx: dgBuildXlsx,
     workbookRows: dgWorkbookRows,
-    lutTsv: dgLutTsv
+    lutTsv: dgLutTsv,
+    unzip: dgUnzip,
+    readWorkbook: dgReadWorkbook,
+    detectLut: dgDetectLut,
+    fmtFromBits: dgFmtFromBits,
+    lutRowsForFmt: dgLutRowsForFmt,
+    buildLutXlsx: dgBuildLutXlsx
   };
 })();
 </script>
