@@ -5,11 +5,12 @@
    ═══════════════════════════════════════════════════════════════ */
 
 var TOOL_VERSIONS = {
-  app:     'v1.90.2',      // 首頁 app 總版號
+  app:     'v1.91.0',      // 首頁 app 總版號
   rxtx:    'v1.13.0',      // Rx/Tx 頻率計算工具
   calc:    'v1.6.0',       // mLVDS Skew 計算工具
   isp:     'v1.20.0',      // iSP 波形產生器
   aux:     'v2.4.0',       // eDP AUX / DPCD 查詢工具
   wfg:     'v4.43.5',     // 面板訊號模擬與取樣
-  pattern: 'v3.6.0'        // Pattern Generator 畫面產生器
+  pattern: 'v3.6.0',       // Pattern Generator 畫面產生器
+  dg:      'v1.0.0'        // Digital Gamma 迭代校正
 };
