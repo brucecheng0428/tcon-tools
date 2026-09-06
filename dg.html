@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260906dg131">
+<link rel="stylesheet" href="common/common.css?v=20260906dg140">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -138,8 +138,12 @@
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding: 10px 12px; background: #1e293b; border-bottom: 1px solid #334155;
   }
-  .dg-modal-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+  .dg-modal-title {
+    font-size: 13.5px; font-weight: 700; color: var(--text);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .dg-modal-close {
+    flex: 0 0 auto;                       /* 標題再長也不能把關閉鈕擠出畫面 */
     padding: 6px 12px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 700;
     border: 1.5px solid var(--border); background: #0f172a; color: var(--text-sub);
   }
@@ -183,6 +187,16 @@
   .dg-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: 11px; color: var(--text-sub); }
   .dg-legend span { display: inline-flex; align-items: center; gap: 4px; }
   .dg-legend i { width: 14px; height: 2.5px; border-radius: 2px; display: inline-block; }
+
+  /* 圖表放大檢視：沿用表格那顆 ⤢ 的外觀，互動方式保持一致 */
+  .dg-svg-wrap { cursor: zoom-in; }
+  .dg-modal.dg-modal-chart .dg-modal-box { max-width: 1200px; }
+  .dg-zoom-hint { font-size: 11.5px; color: var(--text-sub); line-height: 1.5; margin-bottom: 8px; text-transform: none; }
+  .dg-zoom-scroll {
+    overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--border); border-radius: 8px; background: #0a1628; padding: 6px;
+  }
+  .dg-zoom-canvas svg { display: block; width: 100%; height: auto; }
 
   /* 快捷預設：沿用其他分頁的視覺（左上角小標籤 ＋ 橘色脈動邊框） */
   .dg-preset-card {
@@ -439,7 +453,7 @@
     <div class="card-header"><span class="icon">📈</span><span>光學確認圖表</span></div>
     <div class="card-body">
 
-      <div class="dg-sep">圖一　Gamma curve — 相對亮度</div>
+      <div class="dg-sep">圖一　Gamma curve — 相對亮度<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart1">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-chart1"></div>
       <div class="dg-legend">
         <span><i style="background:#64748b"></i>γ=2.0</span>
@@ -448,7 +462,7 @@
         <span><i style="background:#38bdf8"></i>實測</span>
       </div>
 
-      <div class="dg-sep">圖二　Gamma curve — 逐階 Gamma 值</div>
+      <div class="dg-sep">圖二　Gamma curve — 逐階 Gamma 值<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart2">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-chart2"></div>
       <div class="dg-legend">
         <span><i style="background:#64748b"></i>2.0 / 2.4</span>
@@ -456,7 +470,7 @@
         <span><i style="background:#38bdf8"></i>實測</span>
       </div>
 
-      <div class="dg-sep">圖三　色溫</div>
+      <div class="dg-sep">圖三　色溫<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart3">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-chart3"></div>
       <div class="dg-legend">
         <span><i style="background:#64748b"></i>上限 / 下限</span>
@@ -464,7 +478,7 @@
         <span><i style="background:#38bdf8"></i>實測</span>
       </div>
 
-      <div class="dg-sep">圖四　LUT 內容值（R／G／B）</div>
+      <div class="dg-sep">圖四　LUT 內容值（R／G／B）<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart4">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-chart4"></div>
       <div class="dg-legend">
         <span><i style="background:#f87171"></i>R</span>
@@ -520,8 +534,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260906dg131"></script>
-<script src="common/i18n.js?v=20260906dg131"></script>
+<script src="common/version.js?v=20260906dg140"></script>
+<script src="common/i18n.js?v=20260906dg140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -782,8 +796,26 @@
   }
 
   // ─── 圖表（手寫 SVG，不依賴外部函式庫）────────────────────────────────
+  // 每張圖最後一次的繪圖參數。放大檢視用同一份資料重繪，不做第二份資料。
+  var DG_CHART_LAST = {};
+
+  // SVG 沒有 measureText，圖例底框要自己估字寬：CJK 約一個字高，半形約 0.56。
+  function dgTextW(t, size) {
+    var w = 0;
+    for (var i = 0; i < t.length; i++) w += (t.charCodeAt(i) > 0x2e7f ? 1 : 0.56) * size;
+    return w;
+  }
+
+  // opt.big：放大檢視。格線變密、字級加大、實測線補資料點、圖例畫進圖裡。
+  // 尺寸與格線數走 opt，原本頁面內的四個呼叫點不帶這些欄位 → 維持 640×260、4 格。
   function dgChart(host, series, opt) {
-    var W = 640, H = 260, ml = 52, mr = 12, mt = 12, mb = 28;
+    if (!host) return;
+    if (host.id && host.id !== 'dg-zoom-canvas') DG_CHART_LAST[host.id] = { series: series, opt: opt };
+    var big = !!opt.big;
+    var W = opt.W || 640, H = opt.H || 260;
+    var ml = big ? 76 : 52, mr = big ? 18 : 12, mt = big ? 14 : 12, mb = big ? 46 : 28;
+    var fs = big ? 14 : 10;
+    var nx = opt.nx || (big ? 8 : 4), ny = opt.ny || (big ? 8 : 4);
     var pw = W - ml - mr, ph = H - mt - mb;
     var xmin = opt.xmin, xmax = opt.xmax, ymin = opt.ymin, ymax = opt.ymax;
     function px(x) { return ml + (x - xmin) / (xmax - xmin) * pw; }
@@ -791,20 +823,21 @@
     var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
     s += '<rect x="' + ml + '" y="' + mt + '" width="' + pw + '" height="' + ph + '" fill="#0f172a" stroke="#334155"/>';
     var k, gy, gx;
-    for (k = 0; k <= 4; k++) {
-      gy = ymin + (ymax - ymin) * k / 4;
+    for (k = 0; k <= ny; k++) {
+      gy = ymin + (ymax - ymin) * k / ny;
       s += '<line x1="' + ml + '" y1="' + py(gy).toFixed(1) + '" x2="' + (ml + pw) + '" y2="' + py(gy).toFixed(1) + '" stroke="#1e293b"/>';
-      s += '<text x="' + (ml - 6) + '" y="' + (py(gy) + 3.5).toFixed(1) + '" fill="#64748b" font-size="10" text-anchor="end">' + opt.yfmt(gy) + '</text>';
+      s += '<text x="' + (ml - 6) + '" y="' + (py(gy) + fs * 0.35).toFixed(1) + '" fill="#64748b" font-size="' + fs + '" text-anchor="end">' + opt.yfmt(gy) + '</text>';
     }
-    for (k = 0; k <= 4; k++) {
-      gx = xmin + (xmax - xmin) * k / 4;
+    for (k = 0; k <= nx; k++) {
+      gx = xmin + (xmax - xmin) * k / nx;
       s += '<line x1="' + px(gx).toFixed(1) + '" y1="' + mt + '" x2="' + px(gx).toFixed(1) + '" y2="' + (mt + ph) + '" stroke="#1e293b"/>';
-      s += '<text x="' + px(gx).toFixed(1) + '" y="' + (H - 9) + '" fill="#64748b" font-size="10" text-anchor="middle">' + Math.round(gx) + '</text>';
+      // 非放大時的刻度基線沿用原本的 H−9，讓縮圖與前一版逐字元相同（避免無謂的版面變更）
+      s += '<text x="' + px(gx).toFixed(1) + '" y="' + (big ? (mt + ph + fs + 6) : (H - 9)) + '" fill="#64748b" font-size="' + fs + '" text-anchor="middle">' + Math.round(gx) + '</text>';
     }
     series.forEach(function (se) {
-      var pts = [];
-      for (var i = 0; i < se.y.length; i++) {
-        var yv = se.y[i];
+      var pts = [], i, yv;
+      for (i = 0; i < se.y.length; i++) {
+        yv = se.y[i];
         if (yv === null || !isFinite(yv)) continue;
         pts.push(px(se.x[i]).toFixed(1) + ',' + py(Math.max(ymin, Math.min(ymax, yv))).toFixed(1));
       }
@@ -812,10 +845,89 @@
       s += '<polyline fill="none" stroke="' + se.color + '" stroke-width="' + (se.w || 1.6) + '"'
         + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '')
         + ' points="' + pts.join(' ') + '"/>';
+      // 放大時才畫資料點，而且只畫實測那幾條（se.dots）—— 縮圖上 256 點會糊成一片。
+      if (big && se.dots) {
+        var step = Math.max(1, Math.round(se.y.length / 64));
+        for (i = 0; i < se.y.length; i += step) {
+          yv = se.y[i];
+          if (yv === null || !isFinite(yv)) continue;
+          s += '<circle cx="' + px(se.x[i]).toFixed(1) + '" cy="' + py(Math.max(ymin, Math.min(ymax, yv))).toFixed(1)
+            + '" r="2.6" fill="' + se.color + '"/>';
+        }
+      }
     });
-    s += '<text x="' + (ml + pw / 2) + '" y="' + (H - 1) + '" fill="#475569" font-size="9" text-anchor="middle">' + opt.xlabel + '</text>';
+    if (big) {
+      var named = series.filter(function (se) { return !!se.name; });
+      if (named.length) {
+        var tw = 0;
+        named.forEach(function (se) { tw = Math.max(tw, dgTextW(se.name, fs)); });
+        var boxW = Math.ceil(tw) + 46, boxH = named.length * (fs + 9) + 10;
+        var bx = ml + pw - boxW - 10, by = mt + 10;
+        s += '<rect x="' + bx + '" y="' + by + '" width="' + boxW + '" height="' + boxH + '" rx="6" fill="#0b1a30" fill-opacity="0.88" stroke="#334155"/>';
+        named.forEach(function (se, i) {
+          var ly = by + 14 + i * (fs + 9);
+          s += '<line x1="' + (bx + 9) + '" y1="' + ly + '" x2="' + (bx + 30) + '" y2="' + ly + '" stroke="' + se.color
+            + '" stroke-width="' + (se.w || 1.6) + '"' + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '') + '/>';
+          s += '<text x="' + (bx + 36) + '" y="' + (ly + fs * 0.36).toFixed(1) + '" fill="#cbd5e1" font-size="' + fs + '">' + dgXe(se.name) + '</text>';
+        });
+      }
+    }
+    s += '<text x="' + (ml + pw / 2) + '" y="' + (H - (big ? 8 : 1)) + '" fill="#475569" font-size="' + (big ? fs : 9) + '" text-anchor="middle">' + dgXe(opt.xlabel) + '</text>';
     s += '</svg>';
     host.innerHTML = s;
+    // 放大視窗開著時，重算會即時反映到大圖（不必關掉再開）。
+    if (!big && DG_ZOOM_CHART && DG_ZOOM_CHART === host.id) dgChartZoomRefresh();
+  }
+
+  // ─── 圖表放大檢視 ─────────────────────────────────────────────────────
+  // 沿用輸入表格那個浮動視窗外殼；差別是圖表用放大參數「重繪」，不搬 DOM
+  // （SVG 是每次重算就整份換掉的，搬走原件會讓下一次重算畫到看不見的地方）。
+  var DG_ZOOM_CHART = null;
+  var DG_CHART_TITLE = {
+    'dg-chart1': '圖一　Gamma curve — 相對亮度',
+    'dg-chart2': '圖二　Gamma curve — 逐階 Gamma 值',
+    'dg-chart3': '圖三　色溫',
+    'dg-chart4': '圖四　LUT 內容值（R／G／B）'
+  };
+  function dgChartZoomOpen(hostId) {
+    if (!DG_CHART_LAST[hostId]) return false;      // 還沒畫過就沒有東西可放大
+    DG_ZOOM_CHART = hostId;
+    $('dg-modal-title').textContent = DG_CHART_TITLE[hostId] || '圖表';
+    var body = $('dg-modal-body');
+    body.innerHTML = '';
+    var hint = document.createElement('div');
+    hint.className = 'dg-zoom-hint';
+    hint.textContent = '圖比畫面寬的時候可以左右滑動看細節。橫著拿手機看得更完整。';
+    var scroller = document.createElement('div');
+    scroller.className = 'dg-zoom-scroll';
+    var canvas = document.createElement('div');
+    canvas.className = 'dg-zoom-canvas';
+    canvas.id = 'dg-zoom-canvas';
+    scroller.appendChild(canvas);
+    body.appendChild(hint);
+    body.appendChild(scroller);
+    $('dg-modal').classList.add('dg-modal-chart');
+    $('dg-modal').classList.add('open');
+    dgChartZoomRefresh();
+    return true;
+  }
+  function dgChartZoomRefresh() {
+    var c = DG_CHART_LAST[DG_ZOOM_CHART], host = $('dg-zoom-canvas');
+    if (!c || !host) return;
+    var avail = (host.parentNode && host.parentNode.clientWidth) || 0;
+    var W = Math.max(920, avail - 4);                       // 手機比這窄 → 橫向捲動去看細節
+    var maxH = Math.max(300, Math.round((window.innerHeight || 720) * 0.6));
+    var H = Math.min(maxH, Math.round(W * 0.52));
+    host.style.width = W + 'px';
+    var o = {}, k;
+    for (k in c.opt) if (Object.prototype.hasOwnProperty.call(c.opt, k)) o[k] = c.opt[k];
+    o.big = true; o.W = W; o.H = H;
+    dgChart(host, c.series, o);
+  }
+  function dgChartZoomClose() {
+    DG_ZOOM_CHART = null;
+    $('dg-modal').classList.remove('dg-modal-chart');
+    $('dg-modal-body').innerHTML = '';
   }
 
   // ─── 純 JS 的 xlsx 產生器（zip + XML，零外部相依）──────────────────────
@@ -1499,25 +1611,25 @@
     }
     function std(g) { return xs.map(function (i) { return Math.pow(i / (M - 1), g); }); }
     dgChart($('dg-chart1'), [
-      { x: xs, y: std(2.0), color: '#64748b', dash: '4 3' },
-      { x: xs, y: std(2.4), color: '#64748b', dash: '4 3' },
-      { x: xs, y: std(2.2), color: '#fbbf24', w: 1.4 },
-      { x: xs, y: rel, color: '#38bdf8', w: 2 }
+      { x: xs, y: std(2.0), color: '#64748b', dash: '4 3', name: 'γ=2.0' },
+      { x: xs, y: std(2.4), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
+      { x: xs, y: std(2.2), color: '#fbbf24', w: 1.4, name: 'γ=2.2' },
+      { x: xs, y: rel, color: '#38bdf8', w: 2, name: '實測', dots: true }
     ], { xmin: 0, xmax: M - 1, ymin: 0, ymax: 1, xlabel: 'Gray', yfmt: function (v) { return (v * 100).toFixed(0) + '%'; } });
 
     dgChart($('dg-chart2'), [
-      { x: xs, y: xs.map(function () { return 2.0; }), color: '#64748b', dash: '4 3' },
-      { x: xs, y: xs.map(function () { return 2.4; }), color: '#64748b', dash: '4 3' },
-      { x: xs, y: xs.map(function () { return 2.2; }), color: '#fbbf24', w: 1.4 },
-      { x: xs, y: gam, color: '#38bdf8', w: 2 }
+      { x: xs, y: xs.map(function () { return 2.0; }), color: '#64748b', dash: '4 3', name: '2.0' },
+      { x: xs, y: xs.map(function () { return 2.4; }), color: '#64748b', dash: '4 3', name: '2.4' },
+      { x: xs, y: xs.map(function () { return 2.2; }), color: '#fbbf24', w: 1.4, name: '2.2' },
+      { x: xs, y: gam, color: '#38bdf8', w: 2, name: '實測', dots: true }
     ], { xmin: 0, xmax: M - 1, ymin: 1.6, ymax: 2.8, xlabel: 'Gray', yfmt: function (v) { return v.toFixed(2); } });
 
     var cmin = 4000, cmax = 9000;
     dgChart($('dg-chart3'), [
-      { x: xs, y: xs.map(function () { return 5500; }), color: '#64748b', dash: '4 3' },
-      { x: xs, y: xs.map(function () { return 4500; }), color: '#64748b', dash: '4 3' },
-      { x: xs, y: xs.map(function () { return 5000; }), color: '#fbbf24', w: 1.4 },
-      { x: xs, y: cct, color: '#38bdf8', w: 2 }
+      { x: xs, y: xs.map(function () { return 5500; }), color: '#64748b', dash: '4 3', name: '上限 5500K' },
+      { x: xs, y: xs.map(function () { return 4500; }), color: '#64748b', dash: '4 3', name: '下限 4500K' },
+      { x: xs, y: xs.map(function () { return 5000; }), color: '#fbbf24', w: 1.4, name: '中心 5000K' },
+      { x: xs, y: cct, color: '#38bdf8', w: 2, name: '實測', dots: true }
     ], { xmin: 0, xmax: M - 1, ymin: cmin, ymax: cmax, xlabel: 'Gray', yfmt: function (v) { return Math.round(v); } });
 
     var tb = $('dg-chart-table').querySelector('tbody'), h = '';
@@ -1548,10 +1660,10 @@
       ref.push(i === n - 1 ? maxOut : Math.min(i * step, capHW));   // Default（等距）當對照
     }
     dgChart(host, [
-      { x: xs, y: ref, color: '#64748b', dash: '4 3', w: 1.2 },
-      { x: xs, y: ch[0], color: '#f87171', w: 1.8 },
-      { x: xs, y: ch[1], color: '#4ade80', w: 1.8 },
-      { x: xs, y: ch[2], color: '#60a5fa', w: 1.8 }
+      { x: xs, y: ref, color: '#64748b', dash: '4 3', w: 1.2, name: 'Default（等距）' },
+      { x: xs, y: ch[0], color: '#f87171', w: 1.8, name: 'R' },
+      { x: xs, y: ch[1], color: '#4ade80', w: 1.8, name: 'G' },
+      { x: xs, y: ch[2], color: '#60a5fa', w: 1.8, name: 'B' }
     ], {
       xmin: 0, xmax: n - 1, ymin: 0, ymax: maxOut,
       xlabel: 'Gray（索引）　縱軸＝LUT 內容值（' + hw + ' bit，0 ～ ' + maxOut + '）',
@@ -1853,6 +1965,7 @@
   }
 
   function dgGridOpenModal(g) {
+    if (DG_ZOOM_CHART) dgChartZoomClose();      // 同一個外殼，先把圖表那份收乾淨
     $('dg-modal-title').textContent = g.spec.title;
     g.zoomBtn.style.display = 'none';           // 已經在放大視窗裡了，不需要再一顆
     $('dg-modal-body').appendChild(g.wrap);     // 搬進去，不複製
@@ -1867,6 +1980,16 @@
     }
     DG_MODAL_GRID = null;
     $('dg-modal').classList.remove('open');
+  }
+
+  // 浮動視窗現在有兩種內容（表格／圖表），關閉走同一個入口分派。
+  function dgModalClose() {
+    if (DG_ZOOM_CHART) {
+      dgChartZoomClose();
+      $('dg-modal').classList.remove('open');
+      return;
+    }
+    dgGridCloseModal();
   }
 
   // 攔截 textarea 的 value setter：任何既有寫入路徑都會自動反映到表格
@@ -1928,9 +2051,9 @@
         + '<br><code>B&nbsp;&nbsp;55.854554&nbsp;&nbsp;19.881069&nbsp;&nbsp;326.45790</code>'
     });
     [gray, lut, prim].forEach(dgGridHook);
-    $('dg-modal-close').addEventListener('click', dgGridCloseModal);
-    $('dg-modal').addEventListener('click', function (e) { if (e.target === $('dg-modal')) dgGridCloseModal(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dgGridCloseModal(); });
+    $('dg-modal-close').addEventListener('click', dgModalClose);
+    $('dg-modal').addEventListener('click', function (e) { if (e.target === $('dg-modal')) dgModalClose(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dgModalClose(); });
   }
 
   // ─── 匯入 LUT 檔：辨識格式 → 帶入設定 → 填進起始 LUT ────────────────────
@@ -2262,6 +2385,22 @@
     $('dg-btn-next').addEventListener('click', dgNextRound);
     $('dg-btn-verify').addEventListener('click', function () { dgVerify(false); });
     $('dg-btn-negctrl').addEventListener('click', function () { dgVerify(true); });
+
+    // 圖表放大：⤢ 鈕，或直接點圖本身（手機上手指戳圖比找按鈕直覺）
+    Array.prototype.forEach.call(document.querySelectorAll('.dg-chart-zoom'), function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        dgChartZoomOpen(btn.getAttribute('data-chart'));
+      });
+    });
+    ['dg-chart1', 'dg-chart2', 'dg-chart3', 'dg-chart4'].forEach(function (id) {
+      var w = $(id);
+      if (w) w.addEventListener('click', function () { dgChartZoomOpen(id); });
+    });
+    window.addEventListener('resize', function () { if (DG_ZOOM_CHART) dgChartZoomRefresh(); });
+    window.addEventListener('orientationchange', function () {
+      if (DG_ZOOM_CHART) setTimeout(dgChartZoomRefresh, 250);   // 轉向後版面才會定下來
+    });
     dgSyncDerived();
     dgRefreshSdBadge();
     dgRenderOutFmt();
@@ -2287,6 +2426,10 @@
     readSheets: dgReadSheets,
     parseOptical: dgParseOptical,
     drawLutChart: dgDrawLutChart,
+    chartZoomOpen: dgChartZoomOpen,
+    chartZoomClose: dgChartZoomClose,
+    chartZoomWhich: function () { return DG_ZOOM_CHART; },
+    chartLastKeys: function () { return Object.keys(DG_CHART_LAST); },
     detectLut: dgDetectLut,
     fmtFromBits: dgFmtFromBits,
     lutRowsForFmt: dgLutRowsForFmt,
