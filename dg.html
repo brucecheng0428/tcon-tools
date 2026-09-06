@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260906dg110">
+<link rel="stylesheet" href="common/common.css?v=20260906dg120">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -102,6 +102,30 @@
   .dg-legend span { display: inline-flex; align-items: center; gap: 4px; }
   .dg-legend i { width: 14px; height: 2.5px; border-radius: 2px; display: inline-block; }
 
+  /* 快捷預設：沿用其他分頁的視覺（左上角小標籤 ＋ 橘色脈動邊框） */
+  .dg-preset-card {
+    position: relative; padding: 14px 10px 10px; margin-bottom: 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .dg-preset-label {
+    position: absolute; top: 3px; left: 9px; font-size: 9px; font-weight: 600;
+    color: #d4a017; letter-spacing: .3px; line-height: 1; pointer-events: none; user-select: none;
+  }
+  .dg-preset-select {
+    width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 13px;
+    color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 6px;
+    transition: box-shadow .3s, border-color .3s, background .3s;
+  }
+  .dg-preset-select option { background: #1e293b; color: #c9d1d9; }
+  .dg-preset-select.preset-attention {
+    border-color: #f59e0b; background: linear-gradient(135deg, #1e293b 0%, #2a1f0a 100%);
+    animation: dgPresetPulse 2s ease-in-out infinite;
+  }
+  @keyframes dgPresetPulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(245,158,11,.3), 0 0 8px rgba(245,158,11,.1); }
+    50%      { box-shadow: 0 0 8px rgba(245,158,11,.6), 0 0 16px rgba(245,158,11,.25); }
+  }
+
   .dg-badge {
     display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
     padding: 1px 6px; border-radius: 4px; vertical-align: middle; margin-left: 5px;
@@ -158,6 +182,15 @@
 </div>
 
 <div class="container">
+
+  <!-- ══ 快捷預設（比照其他分頁：卡片左上角小標籤 ＋ 橘色脈動下拉）══════ -->
+  <div class="card dg-preset-card" id="dg-preset-card">
+    <span class="dg-preset-label">預設</span>
+    <select id="dg-preset-select" class="dg-preset-select preset-attention">
+      <option value="">快捷設定</option>
+      <option value="sampleA">內建實測資料組 A（載入即完整算出）</option>
+    </select>
+  </div>
 
   <!-- ══ 卡片 1：位元深度與目標設定 ══════════════════════ -->
   <div class="card dg-setup" id="dg-card-setup">
@@ -248,25 +281,40 @@
     <div class="card-header"><span class="icon">📥</span><span>輸入資料</span></div>
     <div class="card-body">
 
-      <div class="dg-sep">① 三個純色端點（XYZ）</div>
-      <textarea id="dg-in-prim" class="dg-ta" spellcheck="false" placeholder="每行一色，順序 R / G / B，欄位以空白或逗號分隔：&#10;X Y Z&#10;X Y Z&#10;X Y Z"></textarea>
+      <div class="dg-sep">① 匯入檔案</div>
+      <div class="dg-btnrow">
+        <button class="dg-btn primary" id="dg-btn-import">匯入量測檔或 LUT 檔（.xlsx）</button>
+      </div>
+      <input type="file" id="dg-file-lut" accept=".xlsx" style="display:none">
+      <div class="dg-fmt" id="dg-fmt-box" style="display:none"></div>
+      <div class="dg-note">
+        <b>一個按鈕吃兩種檔，不必先分類。</b>光學量測檔會帶入灰階掃描、目標白點，
+        <b>檔案裡若含 R／G／B 純色量測就連純色端點一起帶入</b>；LUT 檔會帶入本輪起始 LUT 並記住格式，
+        算完之後用同一個格式輸出。同一個檔兩種內容都有時（例如上一輪從本頁存下來的完整報告），兩邊會一起帶入。
+      </div>
 
-      <div class="dg-sep">② 白色灰階掃描（Gray、x、y、Y）</div>
-      <textarea id="dg-in-gray" class="dg-ta" spellcheck="false" placeholder="每行一階：Gray x y Y&#10;可再多兩個選填欄：Gray x y Y T uv（T＝色溫、uv＝duv，有給就原樣寫進匯出檔）"></textarea>
+      <div class="dg-sep">② 白色灰階掃描（Gray、x、y、Y）<span class="dg-badge" id="dg-gray-badge" style="display:none">來自匯入檔案</span></div>
+      <textarea id="dg-in-gray" class="dg-ta" spellcheck="false" placeholder="每行一階：Gray x y Y&#10;可再多兩個選填欄：Gray x y Y T uv（T＝色溫、uv＝duv，有給就原樣寫進匯出檔）&#10;&#10;範例（前三行）：&#10;0 0.259411 0.280897 0.185343&#10;1 0.259939 0.280858 0.187655&#10;2 0.259990 0.282467 0.192436"></textarea>
 
-      <div class="dg-sep">③ 目標白點（x、y、Lv）</div>
+      <div class="dg-sep">③ 目標白點（x、y、Lv）<span class="dg-badge" id="dg-white-badge" style="display:none">來自匯入檔案</span></div>
       <input type="text" id="dg-in-white" placeholder="x y Lv（可再加第 4 欄 CCT，例：0.302566 0.330295 324.815 7060.31）">
 
-      <div class="dg-sep">④ 本輪起始 LUT<span class="dg-round-badge" id="dg-round-badge">第 1 輪</span></div>
+      <div class="dg-sep">④ 本輪起始 LUT<span class="dg-round-badge" id="dg-round-badge">第 1 輪</span><span class="dg-badge" id="dg-lut-badge" style="display:none">來自匯入檔案</span></div>
       <textarea id="dg-in-lut" class="dg-ta" spellcheck="false" placeholder="留空 = 使用 Default（灰階 × 2^(內容深度−8)，RGB 三通道相同）。&#10;第 2 輪起請貼上上一輪產出的 RGB LUT：每行 R G B（或 Index R G B）。"></textarea>
       <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-import">匯入 LUT 檔（.xlsx）</button>
         <button class="dg-btn" id="dg-btn-default">填入 Default LUT</button>
         <button class="dg-btn" id="dg-btn-sample">載入範例資料</button>
         <button class="dg-btn" id="dg-btn-clear">清空</button>
       </div>
-      <input type="file" id="dg-file-lut" accept=".xlsx" style="display:none">
-      <div class="dg-fmt" id="dg-fmt-box" style="display:none"></div>
+
+      <div class="dg-sep">⑤ 三個純色端點（XYZ）<span class="dg-badge" id="dg-prim-badge">需要手動輸入</span></div>
+      <div class="dg-fmt warn" id="dg-prim-help">
+        <b>這一段量測檔裡沒有，需要你補。</b>校正色溫要知道面板三原色各自的座標 ——
+        亮度只有一個數，推不出色度的兩個自由度，所以沒有捷徑。<br>
+        <b>怎麼量：</b>到量測軟體的 <b>Basic Measurement → Measure → Pure Pattern</b>，把 <b>R、G、B 一起勾選</b>
+        （預設只勾 W），重量一次就會有這三筆；之後匯入那個檔，這裡會自動帶入，不必再貼。
+      </div>
+      <textarea id="dg-in-prim" class="dg-ta" spellcheck="false" placeholder="每行一色，順序 R / G / B，欄位以空白或逗號分隔（X Y Z）。&#10;&#10;範例：&#10;122.03388 60.492365 2.46232&#10;116.99040 241.74305 28.36041&#10;55.854554 19.881069 326.45790"></textarea>
 
       <div class="dg-note">
         <b>反查的橫軸是「該通道當時實際送出的驅動碼」，不是灰階索引。</b>
@@ -331,6 +379,19 @@
         <span><i style="background:#38bdf8"></i>實測</span>
       </div>
 
+      <div class="dg-sep">圖四　LUT 內容值（R／G／B）</div>
+      <div class="dg-svg-wrap" id="dg-chart4"></div>
+      <div class="dg-legend">
+        <span><i style="background:#f87171"></i>R</span>
+        <span><i style="background:#4ade80"></i>G</span>
+        <span><i style="background:#60a5fa"></i>B</span>
+        <span><i style="background:#64748b"></i>Default（等距）</span>
+      </div>
+      <div class="dg-note" id="dg-chart4-note">
+        縱軸範圍隨 LUT 內容深度自動調整（0 ～ 2^內容深度 − 1）。
+        <b>Default 表三條會完全重合</b>；校正過的表三條會分開，分得越開代表三通道被拉得越不一樣。
+      </div>
+
       <div class="dg-sep">圖表資料表</div>
       <div class="dg-table-wrap"><table class="dg-table" id="dg-chart-table"><thead><tr><th>Gray</th><th>Lv</th><th>相對亮度</th><th>Gamma</th><th>x</th><th>y</th><th>CCT (K)</th></tr></thead><tbody></tbody></table></div>
 
@@ -363,8 +424,8 @@
   <a href="index.html" class="back-btn-footer">← 返回首頁</a>
 </div>
 
-<script src="common/version.js?v=20260906dg110"></script>
-<script src="common/i18n.js?v=20260906dg110"></script>
+<script src="common/version.js?v=20260906dg120"></script>
+<script src="common/i18n.js?v=20260906dg120"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -848,13 +909,24 @@
     return { r: parseInt(m[2], 10), c: col };
   }
 
-  // 讀出第一個工作表：儲存格值與型別、工作表名稱、合併範圍
-  function dgReadWorkbook(files) {
+  // 讀出全部工作表：儲存格值與型別、工作表名稱、合併範圍（依 workbook 裡的順序）
+  function dgReadSheets(files) {
     if (!files['xl/workbook.xml']) throw new Error('xlsx 缺少必要的內部檔案：xl/workbook.xml');
     var wbDoc = dgXmlDoc(files['xl/workbook.xml']);
     var sheetEls = wbDoc.getElementsByTagName('sheet');
     if (!sheetEls.length) throw new Error('這個 xlsx 沒有任何工作表。');
-    var sheetName = sheetEls[0].getAttribute('name');
+
+    // r:id → 內部路徑（不能假設 sheet1.xml 就是第一個工作表）
+    var relMap = {};
+    if (files['xl/_rels/workbook.xml.rels']) {
+      var rels = dgXmlDoc(files['xl/_rels/workbook.xml.rels']).getElementsByTagName('Relationship');
+      for (var ri = 0; ri < rels.length; ri++) {
+        var tgt = rels[ri].getAttribute('Target') || '';
+        if (tgt.charAt(0) === '/') tgt = tgt.slice(1);
+        else if (tgt.indexOf('xl/') !== 0) tgt = 'xl/' + tgt.replace(/^\.\//, '');
+        relMap[rels[ri].getAttribute('Id')] = tgt;
+      }
+    }
 
     var shared = [];
     if (files['xl/sharedStrings.xml']) {
@@ -866,41 +938,50 @@
       }
     }
 
-    var shPath = 'xl/worksheets/sheet1.xml';
-    if (!files[shPath]) {
-      for (var key in files) { if (/^xl\/worksheets\/.*\.xml$/.test(key)) { shPath = key; break; } }
-    }
-    if (!files[shPath]) throw new Error('xlsx 裡找不到工作表內容。');
-    var shDoc = dgXmlDoc(files[shPath]);
-    var cells = {}, maxRow = 0, maxCol = 0;
-    var cs = shDoc.getElementsByTagName('c');
-    for (var n = 0; n < cs.length; n++) {
-      var c = cs[n], rc = dgRefToRC(c.getAttribute('r') || '');
-      if (!rc) continue;
-      var t = c.getAttribute('t') || 'n', val = null, type = 'n', el;
-      if (t === 's') {
-        el = c.getElementsByTagName('v')[0];
-        val = el ? (shared[parseInt(el.textContent, 10)] || '') : ''; type = 's';
-      } else if (t === 'inlineStr') {
-        el = c.getElementsByTagName('is')[0];
-        val = el ? el.textContent : ''; type = 's';
-      } else if (t === 'str') {
-        el = c.getElementsByTagName('v')[0];
-        val = el ? el.textContent : ''; type = 's';
-      } else {
-        el = c.getElementsByTagName('v')[0];
-        if (!el || el.textContent === '') continue;
-        val = Number(el.textContent); type = 'n';
+    var fallback = [];
+    for (var key in files) { if (/^xl\/worksheets\/.*\.xml$/.test(key)) fallback.push(key); }
+    fallback.sort();
+
+    var out = [];
+    for (var si = 0; si < sheetEls.length; si++) {
+      var rid = sheetEls[si].getAttribute('r:id') || sheetEls[si].getAttribute('id');
+      var shPath = relMap[rid] || fallback[si];
+      if (!shPath || !files[shPath]) continue;
+      var shDoc = dgXmlDoc(files[shPath]);
+      var cells = {}, maxRow = 0, maxCol = 0;
+      var cs = shDoc.getElementsByTagName('c');
+      for (var n = 0; n < cs.length; n++) {
+        var c = cs[n], rc = dgRefToRC(c.getAttribute('r') || '');
+        if (!rc) continue;
+        var t = c.getAttribute('t') || 'n', val = null, type = 'n', el;
+        if (t === 's') {
+          el = c.getElementsByTagName('v')[0];
+          val = el ? (shared[parseInt(el.textContent, 10)] || '') : ''; type = 's';
+        } else if (t === 'inlineStr') {
+          el = c.getElementsByTagName('is')[0];
+          val = el ? el.textContent : ''; type = 's';
+        } else if (t === 'str') {
+          el = c.getElementsByTagName('v')[0];
+          val = el ? el.textContent : ''; type = 's';
+        } else {
+          el = c.getElementsByTagName('v')[0];
+          if (!el || el.textContent === '') continue;
+          val = Number(el.textContent); type = 'n';
+        }
+        cells[rc.r + ',' + rc.c] = { v: val, t: type };
+        if (rc.r > maxRow) maxRow = rc.r;
+        if (rc.c > maxCol) maxCol = rc.c;
       }
-      cells[rc.r + ',' + rc.c] = { v: val, t: type };
-      if (rc.r > maxRow) maxRow = rc.r;
-      if (rc.c > maxCol) maxCol = rc.c;
+      var merges = [];
+      var ms = shDoc.getElementsByTagName('mergeCell');
+      for (var q = 0; q < ms.length; q++) merges.push(ms[q].getAttribute('ref'));
+      out.push({ sheetName: sheetEls[si].getAttribute('name'), cells: cells, merges: merges, maxRow: maxRow, maxCol: maxCol });
     }
-    var merges = [];
-    var ms = shDoc.getElementsByTagName('mergeCell');
-    for (var q = 0; q < ms.length; q++) merges.push(ms[q].getAttribute('ref'));
-    return { sheetName: sheetName, cells: cells, merges: merges, maxRow: maxRow, maxCol: maxCol };
+    if (!out.length) throw new Error('xlsx 裡找不到工作表內容。');
+    return out;
   }
+
+  function dgReadWorkbook(files) { return dgReadSheets(files)[0]; }
 
   function dgCellV(sheet, r, c) { var x = sheet.cells[r + ',' + c]; return x ? x.v : null; }
   function dgIsNum(x) { return typeof x === 'number' && isFinite(x); }
@@ -983,6 +1064,133 @@
     fmt.label = (headerFirst || '無表頭') + ' 型／' + hw + ' bit／主表 ' + entries + ' 筆'
       + (hasTail ? '＋附加末筆' : '（無附加末筆）') + '／工作表「' + sheet.sheetName + '」';
     return { fmt: fmt, lut: rows.slice(0, entries), notes: notes };
+  }
+
+  // ─── 光學量測檔：把量到的東西一次帶進來 ────────────────────────────────
+  // 支援兩種實際會拿到的檔：
+  //   A 型｜三個工作表（LUT／量測原始值／設定），純色端點就在原始值表的前三列。
+  //   B 型｜單一工作表，逐階一列：Gray、W_x、W_y、W_Y…，後面接 R_／G_／B_ 各自的 x、y、Y。
+  //        只勾白色量測時，R_／G_／B_ 三組會整欄是 −1，代表這個檔沒有純色端點。
+  function dgHeaderIndex(sheet, row) {
+    var idx = {};
+    for (var c = 1; c <= sheet.maxCol; c++) {
+      var v = dgCellV(sheet, row, c);
+      if (typeof v === 'string' && v) idx[v.trim()] = c;
+    }
+    return idx;
+  }
+
+  function dgParseOpticalA(sheets) {
+    // 找「A 欄前三列是 r／g／b，且表頭有 x、y、Y」的工作表
+    for (var s = 0; s < sheets.length; s++) {
+      var sh = sheets[s], h = dgHeaderIndex(sh, 1);
+      if (!(h.x && h.y && h.Y)) continue;
+      var tag = [1, 2, 3].map(function (k) {
+        var v = dgCellV(sh, k + 1, 1);
+        return (typeof v === 'string') ? v.trim().toLowerCase() : '';
+      });
+      if (tag[0] !== 'r' || tag[1] !== 'g' || tag[2] !== 'b') continue;
+
+      var prim = {};
+      var keys = ['r', 'g', 'b'];
+      for (var k = 0; k < 3; k++) {
+        var row = k + 2;
+        // X／Y／Z 欄若在就直接用（同一列的 x、y、Y 是同一組量測的另一種表示）
+        var hx = h.X, hz = h.Z;
+        if (hx && hz) {
+          prim[keys[k]] = [dgCellV(sh, row, hx), dgCellV(sh, row, hx + 1), dgCellV(sh, row, hz)];
+        } else {
+          prim[keys[k]] = dgXyYtoXYZ(dgCellV(sh, row, h.x), dgCellV(sh, row, h.y), dgCellV(sh, row, h.Y));
+        }
+        if (!prim[keys[k]].every(dgIsNum)) return null;
+      }
+
+      var rows = [];
+      for (var r = 5; r <= sh.maxRow; r++) {
+        var g = dgCellV(sh, r, 1);
+        if (!dgIsNum(g)) continue;
+        var x = dgCellV(sh, r, h.x), y = dgCellV(sh, r, h.y), Y = dgCellV(sh, r, h.Y);
+        if (!dgIsNum(x) || !dgIsNum(y) || !dgIsNum(Y)) continue;
+        rows.push({ g: g, x: x, y: y, Y: Y, T: h.T ? dgCellV(sh, r, h.T) : null, uv: h.uv ? dgCellV(sh, r, h.uv) : null });
+      }
+      if (rows.length < 16) continue;
+      rows.sort(function (a, b) { return a.g - b.g; });   // 檔案是由高到低寫的，這裡一律排成 0 → 最高階
+
+      // 目標白點：設定表裡的白點優先，沒有就用最高階的量測值
+      var white = null;
+      for (var p = 0; p < sheets.length; p++) {
+        var ps = sheets[p], hit = 0;
+        for (var pr = 1; pr <= Math.min(ps.maxRow, 60); pr++) {
+          var lab = dgCellV(ps, pr, 1);
+          if (typeof lab === 'string' && /^white point w$/i.test(lab.trim())) { hit = pr; break; }
+        }
+        if (!hit) continue;
+        var got = {};
+        for (var q = hit + 1; q <= Math.min(hit + 6, ps.maxRow); q++) {
+          var kk = dgCellV(ps, q, 1), vv = dgCellV(ps, q, 2);
+          if (typeof kk === 'string' && dgIsNum(vv)) got[kk.trim().toLowerCase()] = vv;
+        }
+        if (dgIsNum(got.x) && dgIsNum(got.y) && dgIsNum(got.lv)) {
+          white = [got.x, got.y, got.lv, dgIsNum(got.cct) ? got.cct : null];
+          break;
+        }
+      }
+      var top = rows[rows.length - 1];
+      if (!white) white = [top.x, top.y, top.Y, dgIsNum(top.T) && top.T > 0 ? top.T : null];
+      return { kind: 'A', prim: prim, hasPrim: true, rows: rows, white: white, sheetName: sh.sheetName };
+    }
+    return null;
+  }
+
+  function dgParseOpticalB(sheets) {
+    for (var s = 0; s < sheets.length; s++) {
+      var sh = sheets[s], h = dgHeaderIndex(sh, 1);
+      if (!(h.Gray && h.W_x && h.W_y && h.W_Y)) continue;
+      var rows = [];
+      for (var r = 2; r <= sh.maxRow; r++) {
+        var g = dgCellV(sh, r, h.Gray);
+        if (!dgIsNum(g)) continue;                       // 末列可能是時間戳之類的文字
+        var x = dgCellV(sh, r, h.W_x), y = dgCellV(sh, r, h.W_y), Y = dgCellV(sh, r, h.W_Y);
+        if (!dgIsNum(x) || !dgIsNum(y) || !dgIsNum(Y)) continue;
+        rows.push({
+          g: g, x: x, y: y, Y: Y,
+          T: h.W_T ? dgCellV(sh, r, h.W_T) : null,
+          uv: h.W_duv ? dgCellV(sh, r, h.W_duv) : null
+        });
+      }
+      if (rows.length < 16) continue;
+      rows.sort(function (a, b) { return a.g - b.g; });
+
+      // 純色端點：取三個通道各自最高階那一列；整欄都是 −1 就代表這個檔只量了白色
+      var prim = null, hasPrim = false;
+      if (h.R_x && h.G_x && h.B_x) {
+        var pick = {}, ok = true;
+        [['r', 'R_x', 'R_y', 'R_Y'], ['g', 'G_x', 'G_y', 'G_Y'], ['b', 'B_x', 'B_y', 'B_Y']].forEach(function (spec) {
+          if (!ok) return;
+          var best = null;
+          for (var rr = 2; rr <= sh.maxRow; rr++) {
+            var gg = dgCellV(sh, rr, h.Gray);
+            var xx = dgCellV(sh, rr, h[spec[1]]), yy = dgCellV(sh, rr, h[spec[2]]), YY = dgCellV(sh, rr, h[spec[3]]);
+            if (!dgIsNum(gg) || !dgIsNum(xx) || !dgIsNum(yy) || !dgIsNum(YY)) continue;
+            if (xx <= 0 || yy <= 0 || YY <= 0) continue;   // −1 ＝ 這一格沒有量
+            if (!best || gg > best.g) best = { g: gg, x: xx, y: yy, Y: YY };
+          }
+          if (!best) { ok = false; return; }
+          pick[spec[0]] = dgXyYtoXYZ(best.x, best.y, best.Y);
+        });
+        if (ok) { prim = pick; hasPrim = true; }
+      }
+      var top = rows[rows.length - 1];
+      return {
+        kind: 'B', prim: prim, hasPrim: hasPrim, rows: rows, sheetName: sh.sheetName,
+        white: [top.x, top.y, top.Y, dgIsNum(top.T) && top.T > 0 ? top.T : null]
+      };
+    }
+    return null;
+  }
+
+  function dgParseOptical(sheets) {
+    return dgParseOpticalA(sheets) || dgParseOpticalB(sheets);
   }
 
   // 沒有匯入檔可跟隨時：由（Source Driver, 內容深度）推定輸出格式。
@@ -1225,6 +1433,44 @@
     tb.innerHTML = h;
   }
 
+  // ─── 圖四：LUT 內容值（R／G／B 三條）──────────────────────────────────
+  // 縱軸 0 ～ 2^內容深度 − 1；Default 表三條完全重合，校正過的表會分開。
+  function dgDrawLutChart(lut, hw, sd) {
+    var host = $('dg-chart4');
+    if (!host) return;
+    if (!lut || !lut.length) {
+      dgChart(host, [], { xmin: 0, xmax: 255, ymin: 0, ymax: Math.pow(2, hw) - 1, xlabel: 'Gray（索引）', yfmt: function (v) { return Math.round(v); } });
+      return;
+    }
+    var maxOut = Math.pow(2, hw) - 1;
+    var n = lut.length, xs = [], ch = [[], [], []], ref = [];
+    var step = Math.pow(2, hw - 8);
+    var capHW = (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd);
+    for (var i = 0; i < n; i++) {
+      xs.push(i);
+      for (var c = 0; c < 3; c++) ch[c].push(lut[i][c]);
+      ref.push(i === n - 1 ? maxOut : Math.min(i * step, capHW));   // Default（等距）當對照
+    }
+    dgChart(host, [
+      { x: xs, y: ref, color: '#64748b', dash: '4 3', w: 1.2 },
+      { x: xs, y: ch[0], color: '#f87171', w: 1.8 },
+      { x: xs, y: ch[1], color: '#4ade80', w: 1.8 },
+      { x: xs, y: ch[2], color: '#60a5fa', w: 1.8 }
+    ], {
+      xmin: 0, xmax: n - 1, ymin: 0, ymax: maxOut,
+      xlabel: 'Gray（索引）　縱軸＝LUT 內容值（' + hw + ' bit，0 ～ ' + maxOut + '）',
+      yfmt: function (v) { return Math.round(v); }
+    });
+    var spread = 0;
+    for (i = 0; i < n; i++) {
+      var mx = Math.max(lut[i][0], lut[i][1], lut[i][2]), mn = Math.min(lut[i][0], lut[i][1], lut[i][2]);
+      if (mx - mn > spread) spread = mx - mn;
+    }
+    $('dg-chart4-note').innerHTML = '縱軸範圍隨 LUT 內容深度自動調整（0 ～ ' + maxOut + '）。'
+      + '灰色虛線是 Default（等距）表，供對照。<br><b>目前這張表三通道的最大落差＝' + spread + '</b>'
+      + (spread === 0 ? '（三條完全重合 ＝ 還是 Default 表）。' : '（落差越大代表三通道被拉得越不一樣）。');
+  }
+
   // ─── 從畫面取資料 ──────────────────────────────────────────────────────
   function dgGatherData(cfg) {
     var prim = dgParseRows($('dg-in-prim').value);
@@ -1277,8 +1523,25 @@
     $('dg-in-white').value = s.targetWhite.join(' ') + ' ' + s.props.W[3];
     $('dg-in-lut').value = '';
     $('dg-round-badge').textContent = '第 1 輪';
+    dgSetPrimSource(true);
+    dgShowBadge('dg-gray-badge', true);
+    dgShowBadge('dg-white-badge', true);
+    dgShowBadge('dg-lut-badge', false);
+    $('dg-prim-badge').textContent = '來自內建範例';
     dgSyncDerived();
     dgSetStatus('dg-status', '已載入範例資料（' + s.name + '）。按「計算」即可算出對應的 LUT。', 'ok');
+  }
+
+  // 快捷預設：一鍵載入並直接算完，讓人第一眼就看到完整結果（含圖表）
+  function dgApplyPreset(v) {
+    if (!v) return;
+    if (v === 'sampleA') {
+      dgLoadSample();
+      dgDoCalc();
+      $('dg-preset-select').classList.remove('preset-attention');
+      var card = $('dg-card-result');
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   function dgFillDefault() {
@@ -1340,7 +1603,7 @@
         : '<br>（沒有匯入過檔案，這是依位元深度推定的格式。匯入一份實際的 LUT 檔會更保險。）');
   }
 
-  function dgApplyImportedFmt(det, fileName) {
+  function dgApplyImportedFmt(det, fileName, quiet) {
     var f = det.fmt;
     dgImportedFmt = f;
     $('dg-hw').value = String(f.hw);
@@ -1356,6 +1619,8 @@
       return i + ' ' + r[0] + ' ' + r[1] + ' ' + r[2];
     }).join('\n');
 
+    dgRenderOutFmt();
+    if (quiet) return;   // 由 dgRenderImportBox() 統一報告這次匯入帶進來的所有東西
     var box = $('dg-fmt-box');
     box.style.display = '';
     box.className = 'dg-fmt' + (f.sdOk ? '' : ' warn');
@@ -1365,31 +1630,105 @@
       + (f.sdOk ? '' : '<br><b>⚠ Source Driver 無法推定，請自己在上面選一個</b>（6／8／10 bit）。' + f.sdBasis)
       + (det.notes.length ? '<br>' + det.notes.join('<br>') : '')
       + '<br>之後按「下載 LUT 檔」會用<b>同一個格式</b>輸出，可以直接寫回去。';
-    dgRenderOutFmt();
     dgSetStatus('dg-status', '已匯入 LUT 檔：' + fileName + '\n' + f.label
       + '\n下一步：把這一輪的光學量測貼進上面②，然後按「計算」。', 'ok');
   }
 
-  function dgImportLutFile(file) {
+  // 純色端點：有帶入就收起說明並標綠，沒有就展開「怎麼量」並標橘
+  function dgSetPrimSource(fromFile) {
+    var b = $('dg-prim-badge');
+    b.className = 'dg-badge' + (fromFile ? ' manual' : ' guess');
+    b.textContent = fromFile ? '來自匯入檔案' : '需要手動輸入';
+    $('dg-prim-help').style.display = fromFile ? 'none' : '';
+  }
+  function dgShowBadge(id, on) {
+    var e = $(id);
+    if (e) e.style.display = on ? '' : 'none';
+  }
+
+  // 把光學量測檔的內容鋪進畫面
+  function dgApplyOptical(opt) {
+    $('dg-in-gray').value = opt.rows.map(function (r) {
+      var s = r.g + ' ' + r.x + ' ' + r.y + ' ' + r.Y;
+      if (dgIsNum(r.T)) s += ' ' + r.T + (dgIsNum(r.uv) ? ' ' + r.uv : '');
+      return s;
+    }).join('\n');
+    dgShowBadge('dg-gray-badge', true);
+
+    var w = opt.white;
+    $('dg-in-white').value = w[0] + ' ' + w[1] + ' ' + w[2] + (dgIsNum(w[3]) ? ' ' + w[3] : '');
+    dgShowBadge('dg-white-badge', true);
+
+    if (opt.hasPrim) {
+      $('dg-in-prim').value = ['r', 'g', 'b'].map(function (k) { return opt.prim[k].join(' '); }).join('\n');
+      dgSetPrimSource(true);
+    } else {
+      dgSetPrimSource(false);
+    }
+    // 量測長度反過來決定 Source Driver 的合理值：1024 階只可能是 10 bit 驅動
+    if (!dgSdUserSet && opt.rows.length >= 1024) $('dg-sd').value = '10';
+  }
+
+  function dgImportFile(file) {
     if (!file) return;
     dgSetStatus('dg-status', '正在讀取 ' + file.name + '…', '');
     var fr = new FileReader();
     fr.onerror = function () { dgSetStatus('dg-status', '讀不到這個檔案。請確認檔案沒有被其他程式鎖住。', 'err'); };
     fr.onload = function () {
-      dgUnzip(fr.result)
-        .then(function (files) { return dgDetectLut(dgReadWorkbook(files)); })
-        .then(function (det) { dgApplyImportedFmt(det, file.name); })
-        .catch(function (e) {
-          $('dg-fmt-box').style.display = '';
-          $('dg-fmt-box').className = 'dg-fmt err';
-          $('dg-fmt-box').innerHTML = '<b>這個檔案認不出來：</b>' + dgXe(e.message)
-            + '<br>本頁支援的是「索引欄從 0 開始、後面接 R／G／B 三欄」的 LUT 表，'
-            + '表頭可以在第 1 或第 2 列（Index 或 Level 皆可），有沒有附加末筆都可以。'
-            + '<br>認不出來時的替代作法：在 Excel 裡選取 R、G、B 三欄貼進上面的輸入框，一樣算得動。';
-          dgSetStatus('dg-status', '匯入失敗：' + e.message, 'err');
-        });
+      dgUnzip(fr.result).then(function (files) {
+        var sheets = dgReadSheets(files);
+        var opt = null, det = null, lutErr = null;
+        try { opt = dgParseOptical(sheets); } catch (e) { opt = null; }
+        // 光學資料所在的那個工作表不再拿去當 LUT 表（逐階 x／y／Y 也長得像四欄數字）
+        for (var i = 0; i < sheets.length; i++) {
+          if (opt && sheets[i].sheetName === opt.sheetName) continue;
+          try { det = dgDetectLut(sheets[i]); break; } catch (e) { lutErr = e.message; }
+        }
+        if (!opt && !det) throw new Error(lutErr || '這個檔案裡既沒有認得出來的 LUT 表，也沒有認得出來的光學量測資料。');
+
+        var got = [];
+        if (opt) { dgApplyOptical(opt); got.push('光學量測'); }
+        if (det) { dgApplyImportedFmt(det, file.name, true); got.push('LUT 表'); dgShowBadge('dg-lut-badge', true); }
+        dgRenderImportBox(file.name, opt, det);
+        dgSetStatus('dg-status', '已匯入 ' + file.name + '（' + got.join(' ＋ ') + '）。\n'
+          + (opt && !opt.hasPrim
+            ? '⚠ 這個檔沒有 R／G／B 純色量測，請看下方⑤補上純色端點，或重量一次把 R、G、B 一起勾選。'
+            : '下一步：直接按「計算」。'), opt && !opt.hasPrim ? '' : 'ok');
+      }).catch(function (e) {
+        $('dg-fmt-box').style.display = '';
+        $('dg-fmt-box').className = 'dg-fmt err';
+        $('dg-fmt-box').innerHTML = '<b>這個檔案認不出來：</b>' + dgXe(e.message)
+          + '<br><b>本頁吃得下的兩種檔：</b><br>'
+          + '· <b>LUT 表</b>：索引欄從 0 開始、後面接 R／G／B 三欄；表頭在第 1 或第 2 列都可以，有沒有附加末筆都可以。<br>'
+          + '· <b>光學量測檔</b>：逐階一列（Gray、x、y、Y…），或是含「量測原始值＋設定」兩張表的完整報告。<br>'
+          + '認不出來時的替代作法：在 Excel 裡選取整塊資料，貼進下面對應的輸入框，一樣算得動。';
+        dgSetStatus('dg-status', '匯入失敗：' + e.message, 'err');
+      });
     };
     fr.readAsArrayBuffer(file);
+  }
+
+  function dgRenderImportBox(fileName, opt, det) {
+    var box = $('dg-fmt-box');
+    box.style.display = '';
+    box.className = 'dg-fmt' + ((opt && !opt.hasPrim) || (det && !det.fmt.sdOk) ? ' warn' : '');
+    var h = '<b>已匯入：</b>' + dgXe(fileName);
+    if (opt) {
+      h += '<br><b>光學量測</b>：灰階 ' + opt.rows.length + ' 階（Gray ' + opt.rows[0].g + ' ～ '
+        + opt.rows[opt.rows.length - 1].g + '）、目標白點 x=' + (+opt.white[0]).toFixed(6)
+        + ' y=' + (+opt.white[1]).toFixed(6) + ' Lv=' + (+opt.white[2]).toFixed(3)
+        + (dgIsNum(opt.white[3]) ? '（CCT ' + Math.round(opt.white[3]) + 'K）' : '');
+      h += opt.hasPrim
+        ? '<br><b>純色端點</b>：R／G／B 三筆已從檔案帶入，不必手動貼。'
+        : '<br><b>⚠ 純色端點</b>：這個檔只量了白色（R／G／B 三組是空的），要你手動補 —— 見下方⑤。';
+    }
+    if (det) {
+      var f = det.fmt;
+      h += '<br><b>LUT 表</b>：' + f.label
+        + (f.sdOk ? '；Source Driver ' + f.sd + ' bit（推定）' : '；<b>⚠ Source Driver 無法推定，請自己選</b>')
+        + '<br>算完按「下載 LUT 檔」會用<b>同一個格式</b>輸出，可以直接寫回去。';
+    }
+    box.innerHTML = h;
   }
 
   function dgDownloadLutXlsx() {
@@ -1415,6 +1754,7 @@
       lastCtx = { cfg: cfg, data: data, res: res };
       dgFillLutTable(res.lut);
       dgDrawCharts(data.grayxyY);
+      dgDrawLutChart(res.lut, cfg.hw, cfg.sd);
       dgSetStatus('dg-status',
         '計算完成。\n輸出 ' + res.lut.length + ' 筆（主表 ' + cfg.N + ' ＋ 附加 1）\n'
         + '驅動上限碼 = ' + res.driveCeil + '　附加末筆 = ' + (Math.pow(2, cfg.lutbit) - 1) + '\n'
@@ -1503,7 +1843,7 @@
       dgSetStatus('dg-verify-status', msg, bad > 0 ? 'ok' : 'err');
     } else {
       dgSetStatus('dg-verify-status', msg + (bad === 0 ? '\n\n✔ 逐值完全一致。' : '\n\n✘ 有差異。'), bad === 0 ? 'ok' : 'err');
-      if (bad === 0) { lastLut = res.lut; dgFillLutTable(res.lut); dgDrawCharts(s.grayxyY); }
+      if (bad === 0) { lastLut = res.lut; dgFillLutTable(res.lut); dgDrawCharts(s.grayxyY); dgDrawLutChart(res.lut, cfg.hw, cfg.sd); }
     }
   }
 
@@ -1520,9 +1860,10 @@
     });
     $('dg-btn-import').addEventListener('click', function () { $('dg-file-lut').click(); });
     $('dg-file-lut').addEventListener('change', function (e) {
-      dgImportLutFile(e.target.files && e.target.files[0]);
+      dgImportFile(e.target.files && e.target.files[0]);
       e.target.value = '';
     });
+    $('dg-preset-select').addEventListener('change', function () { dgApplyPreset(this.value); });
     $('dg-btn-lutfile').addEventListener('click', dgDownloadLutXlsx);
     $('dg-btn-sample').addEventListener('click', dgLoadSample);
     $('dg-btn-default').addEventListener('click', dgFillDefault);
@@ -1531,6 +1872,10 @@
       roundNo = 1; $('dg-round-badge').textContent = '第 1 輪';
       dgImportedFmt = null; dgSdBasisText = '';
       $('dg-fmt-box').style.display = 'none';
+      dgShowBadge('dg-gray-badge', false);
+      dgShowBadge('dg-white-badge', false);
+      dgShowBadge('dg-lut-badge', false);
+      dgSetPrimSource(false);
       dgRefreshSdBadge(); dgRenderOutFmt();
       dgSetStatus('dg-status', '已清空。', '');
     });
@@ -1543,7 +1888,9 @@
     dgSyncDerived();
     dgRefreshSdBadge();
     dgRenderOutFmt();
+    dgSetPrimSource(false);
     dgDrawCharts(null);
+    dgDrawLutChart(null, dgReadCfg().hw, dgReadCfg().sd);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', dgInit);
@@ -1560,6 +1907,9 @@
     lutTsv: dgLutTsv,
     unzip: dgUnzip,
     readWorkbook: dgReadWorkbook,
+    readSheets: dgReadSheets,
+    parseOptical: dgParseOptical,
+    drawLutChart: dgDrawLutChart,
     detectLut: dgDetectLut,
     fmtFromBits: dgFmtFromBits,
     lutRowsForFmt: dgLutRowsForFmt,
