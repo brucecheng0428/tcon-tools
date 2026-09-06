@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260906dg130">
+<link rel="stylesheet" href="common/common.css?v=20260906dg131">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -108,6 +108,13 @@
     font-weight: 600; font-size: 11px; border-right: 1px solid #334155;
   }
   table.dg-grid td { text-align: right; color: var(--text); }
+  /* 沒有額外列標題欄的表格：第一個資料欄（索引）本身就釘在左邊，橫捲時仍看得到是哪一階 */
+  table.dg-grid thead th.dg-head-idx { left: 0; z-index: 4; text-align: left; }
+  table.dg-grid td.dg-cell-idx {
+    position: sticky; left: 0; z-index: 2; background: #16233a; color: #94a3b8;
+    font-weight: 600; text-align: left; border-right: 1px solid #334155;
+  }
+  table.dg-grid tbody tr:nth-child(even) td.dg-cell-idx { background: #132034; }
   table.dg-grid td:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: #0c1a2e; }
   table.dg-grid td.dg-cell-r { color: #f87171; }
   table.dg-grid td.dg-cell-g { color: #4ade80; }
@@ -513,8 +520,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260906dg130"></script>
-<script src="common/i18n.js?v=20260906dg130"></script>
+<script src="common/version.js?v=20260906dg131"></script>
+<script src="common/i18n.js?v=20260906dg131"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -1694,11 +1701,17 @@
     table.className = 'dg-grid';
     var thead = document.createElement('thead');
     var htr = document.createElement('tr');
-    var th0 = document.createElement('th');
-    th0.innerHTML = spec.rowHeader;
-    htr.appendChild(th0);
-    spec.cols.forEach(function (c) {
+    // 🔴 只有「列標題不在資料裡」的表格才需要額外一欄（純色端點的 R／G／B）。
+    //    灰階與 LUT 的第一個資料欄本身就是索引，再加一欄會變成同一個數字並排兩次
+    //    （Bruce 2026-09-06 實際看到）。那兩張表改成把第一個資料欄釘在左邊。
+    if (spec.rowHeader) {
+      var th0 = document.createElement('th');
+      th0.innerHTML = spec.rowHeader;
+      htr.appendChild(th0);
+    }
+    spec.cols.forEach(function (c, i) {
       var th = document.createElement('th');
+      if (!spec.rowHeader && i === 0) th.className = 'dg-head-idx';
       th.innerHTML = c.label + (c.sub ? '<small>' + c.sub + '</small>' : '');
       htr.appendChild(th);
     });
@@ -1795,10 +1808,12 @@
     var frag = document.createDocumentFragment();
     for (var r = 0; r < n; r++) {
       var tr = document.createElement('tr');
-      var th = document.createElement('th');
-      th.textContent = sp.fixedRowLabels ? sp.fixedRowLabels[r]
-        : (sp.rowLabel ? sp.rowLabel(rows[r], r) : String(r));
-      tr.appendChild(th);
+      if (sp.rowHeader) {
+        var th = document.createElement('th');
+        th.textContent = sp.fixedRowLabels ? sp.fixedRowLabels[r]
+          : (sp.rowLabel ? sp.rowLabel(rows[r], r) : String(r));
+        tr.appendChild(th);
+      }
       for (var c = 0; c < sp.cols.length; c++) {
         var td = document.createElement('td');
         td.contentEditable = 'true';
@@ -1806,6 +1821,7 @@
         td.setAttribute('data-r', r);
         td.setAttribute('data-c', c);
         if (sp.cols[c].cls) td.className = sp.cols[c].cls;
+        if (!sp.rowHeader && c === 0) td.className = ((td.className ? td.className + ' ' : '') + 'dg-cell-idx');
         var v = rows[r] ? rows[r][c] : '';
         td.textContent = dgGridShort(v);
         if (td.textContent !== String(v === undefined || v === null ? '' : v)) td.title = v;
@@ -1867,8 +1883,7 @@
   function dgGridsInit() {
     var gray = dgGrid({
       host: 'dg-grid-gray', ta: 'dg-in-gray', title: '白色灰階掃描',
-      rowHeader: '第幾階<small>Gray</small>',
-      rowLabel: function (row, i) { return (row && row[0] !== undefined) ? row[0] : i; },
+      rowHeader: null,          // 第一個資料欄就是 Gray，不需要再標一次
       cols: [
         { label: 'Gray', sub: '灰階值' },
         { label: '色度 x', sub: '小寫 x' },
@@ -1886,8 +1901,7 @@
     });
     var lut = dgGrid({
       host: 'dg-grid-lut', ta: 'dg-in-lut', title: '本輪起始 LUT',
-      rowHeader: '第幾筆<small>Index</small>',
-      rowLabel: function (row, i) { return (row && row[0] !== undefined) ? row[0] : i; },
+      rowHeader: null,          // 第一個資料欄就是 Index，不需要再標一次
       cols: [
         { label: 'Index', sub: '索引' },
         { label: 'R', sub: '紅通道', cls: 'dg-cell-r' },
