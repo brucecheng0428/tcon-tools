@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260906dg141">
+<link rel="stylesheet" href="common/common.css?v=20260906dg142">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -191,8 +191,15 @@
   /* 圖表放大檢視：沿用表格那顆 ⤢ 的外觀，互動方式保持一致 */
   /* position:relative —— 選取框與滑鼠提示是它的子元素，用絕對定位貼在圖上。
      touch-action:pan-y —— 直向留給頁面捲動，橫向手勢讓給框選，兩者才不會打架。 */
-  .dg-svg-wrap, .dg-zoom-canvas { position: relative; touch-action: pan-y; }
-  .dg-svg-wrap { cursor: crosshair; }
+  .dg-svg-wrap, .dg-zoom-canvas { position: relative; }
+  .dg-svg-wrap { cursor: crosshair; touch-action: pan-y; }
+  /* v1.4.2 放大視窗：單指平移與雙指縮放都要自己處理，所有觸控手勢都不讓給瀏覽器。
+     游標三態（Bruce 2026-09-06 裁示）：平常是一般箭頭 —— 這個狀態的職責是
+     「指到哪就顯示那一點的數值」，用 grab 會讓人以為只能拖不能讀；按住 Shift 變十字
+     準星（要拉框）；手抓只在真的按著左鍵拖的當下出現，放開就回到箭頭。 */
+  .dg-zoom-canvas { cursor: default; touch-action: none; }
+  .dg-zoom-canvas.dg-shift { cursor: crosshair; }
+  .dg-zoom-canvas.dg-panning { cursor: grabbing; }
   .dg-selbox {
     position: absolute; display: none; pointer-events: none; z-index: 4;
     border: 1.5px solid #38bdf8; background: rgba(56, 189, 248, 0.18); border-radius: 2px;
@@ -218,11 +225,28 @@
   .dg-zoom-range { font-size: 11.5px; color: var(--text-sub); text-transform: none; }
   .dg-modal.dg-modal-chart .dg-modal-box { max-width: 1200px; }
   .dg-zoom-hint { font-size: 11.5px; color: var(--text-sub); line-height: 1.5; margin-bottom: 8px; text-transform: none; }
+  /* v1.4.2：畫布寬度＝容器寬度，永遠不會產生瀏覽器捲軸（overflow:hidden）。
+     右側與下方永久保留 11px 的溝槽給自繪捲軸 —— 常駐保留而不是出現時才擠出來，
+     捲軸現身時才不會把畫布擠窄、觸發一次無謂的重繪。 */
   .dg-zoom-scroll {
-    overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
-    border: 1px solid var(--border); border-radius: 8px; background: #0a1628; padding: 6px;
+    position: relative; overflow: hidden;
+    border: 1px solid var(--border); border-radius: 8px; background: #0a1628;
+    padding: 6px 17px 17px 6px;
   }
   .dg-zoom-canvas svg { display: block; width: 100%; height: auto; }
+  /* 自繪捲軸：只在縮放後才建出來（未縮放時 DOM 裡根本沒有這兩個元素） */
+  .dg-zoom-hbar, .dg-zoom-vbar {
+    position: absolute; z-index: 5; background: #14243c; border-radius: 6px;
+    touch-action: none; cursor: pointer;
+  }
+  .dg-zoom-hbar { left: 6px; right: 17px; bottom: 4px; height: 10px; }
+  .dg-zoom-vbar { top: 6px; bottom: 17px; right: 4px; width: 10px; }
+  .dg-zoom-hbar > i, .dg-zoom-vbar > i {
+    position: absolute; display: block; background: #38bdf8; opacity: 0.8; border-radius: 6px;
+  }
+  /* 縮到 1/500 時滑塊只剩 0.2%，不給下限就會整個看不見 */
+  .dg-zoom-hbar > i { top: 0; bottom: 0; min-width: 16px; }
+  .dg-zoom-vbar > i { left: 0; right: 0; min-height: 16px; }
 
   /* 快捷預設：沿用其他分頁的視覺（左上角小標籤 ＋ 橘色脈動邊框） */
   .dg-preset-card {
@@ -560,8 +584,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260906dg141"></script>
-<script src="common/i18n.js?v=20260906dg141"></script>
+<script src="common/version.js?v=20260906dg142"></script>
+<script src="common/i18n.js?v=20260906dg142"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -992,9 +1016,12 @@
 
     var hint = document.createElement('div');
     hint.className = 'dg-zoom-hint';
-    hint.textContent = '在圖上拖出一個範圍就會放大那一段（手機用手指左右拖）。滑過任一點會顯示該點的數值。圖比畫面寬時可以左右滑動。';
+    hint.textContent = '滾輪上下滾＝以滑鼠位置為中心放大／縮小；放大後按住左鍵可以拖曳平移。'
+      + '按住 Shift 拖曳則是拉出方框、放大那一區。手機：單指拖曳平移、雙指開合縮放。'
+      + '滑過任一點會顯示該點的數值。';
     var scroller = document.createElement('div');
     scroller.className = 'dg-zoom-scroll';
+    scroller.id = 'dg-zoom-scroll';
     var canvas = document.createElement('div');
     canvas.className = 'dg-zoom-canvas';
     canvas.id = 'dg-zoom-canvas';
@@ -1005,18 +1032,23 @@
     $('dg-modal').classList.add('dg-modal-chart');
     $('dg-modal').classList.add('open');
     dgChartZoomRefresh();
-    dgBindChartInteract(canvas, 'dg-zoom-canvas', hostId, true);
+    if (DG_ZOOM_UNBIND) { DG_ZOOM_UNBIND(); DG_ZOOM_UNBIND = null; }
+    DG_ZOOM_UNBIND = dgBindChartInteract(canvas, 'dg-zoom-canvas', hostId, true);
     return true;
   }
+  var DG_ZOOM_UNBIND = null;
 
   function dgChartZoomRefresh() {
     var c = DG_CHART_LAST[DG_ZOOM_CHART], host = $('dg-zoom-canvas');
     if (!c || !host) return;
-    var avail = (host.parentNode && host.parentNode.clientWidth) || 0;
-    var W = Math.max(920, avail - 4);                       // 手機比這窄 → 橫向捲動去看細節
+    /* v1.4.2：畫布寬度＝容器寬度。v1.4.1 寫的是 Math.max(920, avail - 4)，視窗比 920 窄
+       時就會撐出一條橫向捲軸 —— 捲軸只該由「放大」產生，不該由畫布尺寸產生。
+       SVG 是 viewBox + width:100%，W 只決定內部座標與長寬比，畫面上一律等比縮到容器寬。 */
+    var avail = host.clientWidth || ((host.parentNode && host.parentNode.clientWidth) || 0) - 23;
+    var W = Math.max(360, avail);
     var maxH = Math.max(300, Math.round((window.innerHeight || 720) * 0.6));
     var H = Math.min(maxH, Math.round(W * 0.52));
-    host.style.width = W + 'px';
+    host.style.width = '';                                  // 不再強制寬度（就是它產生捲軸的）
     var o = {}, k;
     for (k in c.opt) if (Object.prototype.hasOwnProperty.call(c.opt, k)) o[k] = c.opt[k];
     o.big = true; o.W = W; o.H = H;
@@ -1027,6 +1059,148 @@
     }
     dgChart(host, c.series, o);
     dgZoomBarSync();
+    dgZoomScrollSync();
+    dgZoomCursorSync();
+  }
+
+  // ─── v1.4.2：完整範圍／目前範圍／是否處於縮放 ─────────────────────────
+  // 完整範圍就是四個呼叫點餵給 dgChart() 的 opt（縮放不會改到 DG_CHART_LAST）
+  function dgFullRange(hostId) {
+    var c = DG_CHART_LAST[hostId];
+    if (!c || !c.opt) return null;
+    var o = c.opt;
+    if (!isFinite(o.xmin) || !isFinite(o.xmax) || !isFinite(o.ymin) || !isFinite(o.ymax)) return null;
+    return { xmin: o.xmin, xmax: o.xmax, ymin: o.ymin, ymax: o.ymax };
+  }
+  function dgViewCur(hostId) {
+    var t = dgViewTop(hostId);
+    if (t) return { xmin: t.xmin, xmax: t.xmax, ymin: t.ymin, ymax: t.ymax };
+    return dgFullRange(hostId);
+  }
+  function dgIsZoomed(hostId) {
+    var f = dgFullRange(hostId), v = dgViewTop(hostId);
+    if (!f || !v) return false;
+    return (v.xmax - v.xmin) < (f.xmax - f.xmin) * 0.999
+        || (v.ymax - v.ymin) < (f.ymax - f.ymin) * 0.999;
+  }
+
+  /* 滾輪／拖曳／捲軸共用的落點。
+     ① 夾制：跨距不得超過完整範圍（縮不出去），也不得小於完整範圍的 1/500
+        （沿用 v1.4.1 框選那條防呆，同一個上限只留一份）；位置夾在完整範圍內。
+     ② 堆疊：連續滾輪與拖曳只佔「一層」（src:'nav'），否則滾一格就 push 一層，
+        「上一層」會變成要按幾十次才回得去。Shift 框選仍然各自成層（src:'box'）。
+     ③ 縮回完整範圍就把整個堆疊清掉 ＝ 等同按了「還原」，捲軸也跟著消失。 */
+  function dgNavApply(hostId, r) {
+    var f = dgFullRange(hostId);
+    if (!f) return;
+    var fxs = f.xmax - f.xmin, fys = f.ymax - f.ymin;
+    if (!(fxs > 0) || !(fys > 0)) return;
+    var xs = Math.min(fxs, Math.max(fxs / 500, r.xmax - r.xmin));
+    var ys = Math.min(fys, Math.max(fys / 500, r.ymax - r.ymin));
+    var v = DG_VIEW[hostId] || (DG_VIEW[hostId] = []);
+    if (xs >= fxs * 0.999 && ys >= fys * 0.999) { v.length = 0; return; }
+    var x0 = Math.max(f.xmin, Math.min(f.xmax - xs, r.xmin));
+    var y0 = Math.max(f.ymin, Math.min(f.ymax - ys, r.ymin));
+    var nr = { xmin: x0, xmax: x0 + xs, ymin: y0, ymax: y0 + ys, src: 'nav' };
+    var top = v.length ? v[v.length - 1] : null;
+    if (top && top.src === 'nav') v[v.length - 1] = nr; else v.push(nr);
+  }
+
+  /* 錨點縮放 —— 規則照抄 wfg.html 主波形 canvas 的 wheel（L36166〜36209）：
+     factor = deltaY > 0 ? 1.2 : 0.8、以指標所在的比例 frac 為錨、rAF 節流。
+     wfg 只有時間軸一個維度，這裡 X／Y 同時套用同一個 factor。
+     「錨點」＝指標下的資料座標在縮放前後停在同一個像素位置（邊界夾制時除外）。 */
+  function dgZoomAtPoint(hostId, pt, factor) {
+    var g = pt.g;
+    if (!g || !(g.pw > 0) || !(g.ph > 0)) return;
+    var fx = Math.max(0, Math.min(1, (pt.sx - g.ml) / g.pw));
+    var fy = Math.max(0, Math.min(1, (g.mt + g.ph - pt.sy) / g.ph));
+    var xs = g.xmax - g.xmin, ys = g.ymax - g.ymin;
+    var ax = g.xmin + xs * fx, ay = g.ymin + ys * fy;
+    var nxs = xs * factor, nys = ys * factor;
+    dgNavApply(hostId, {
+      xmin: ax - nxs * fx, xmax: ax - nxs * fx + nxs,
+      ymin: ay - nys * fy, ymax: ay - nys * fy + nys
+    });
+  }
+
+  /* 拖曳平移 —— 規則照抄 wfg.html 的 drag pan（L36305〜36353）：
+     位移一律從「按下當時」算起（wfg 的 wfgDragStartView + dLines），不是逐幀累加，
+     這樣拖出邊界再拖回來才會回到原位；換算式同樣是 -(dx / 繪圖寬) × 目前跨距。
+     Y 軸是 wfg 沒有的（它垂直方向是捲容器），依 py() 的反向對應取 +(dy / 繪圖高) × 跨距。 */
+  function dgPanFromStart(hostId, g, startView, dsx, dsy) {
+    if (!g || !(g.pw > 0) || !(g.ph > 0) || !startView) return;
+    var dx = -(dsx / g.pw) * (startView.xmax - startView.xmin);
+    var dy = (dsy / g.ph) * (startView.ymax - startView.ymin);
+    dgNavApply(hostId, {
+      xmin: startView.xmin + dx, xmax: startView.xmax + dx,
+      ymin: startView.ymin + dy, ymax: startView.ymax + dy
+    });
+  }
+
+  // 捲軸：縮放後才建元素，回到完整範圍就整個移除（未縮放時 DOM 裡沒有捲軸元素）
+  function dgZoomScrollSync() {
+    var box = $('dg-zoom-scroll');
+    if (!box) return;
+    var f = dgFullRange(DG_ZOOM_CHART), v = dgViewCur(DG_ZOOM_CHART);
+    var hb = box.querySelector(':scope > .dg-zoom-hbar');
+    var vb = box.querySelector(':scope > .dg-zoom-vbar');
+    if (!f || !v || !dgIsZoomed(DG_ZOOM_CHART)) {
+      if (hb) box.removeChild(hb);
+      if (vb) box.removeChild(vb);
+      return;
+    }
+    if (!hb) { hb = document.createElement('div'); hb.className = 'dg-zoom-hbar'; hb.appendChild(document.createElement('i')); box.appendChild(hb); dgBindZoomScrollDrag(hb, 'x'); }
+    if (!vb) { vb = document.createElement('div'); vb.className = 'dg-zoom-vbar'; vb.appendChild(document.createElement('i')); box.appendChild(vb); dgBindZoomScrollDrag(vb, 'y'); }
+    var fxs = f.xmax - f.xmin, fys = f.ymax - f.ymin;
+    var hx = (v.xmin - f.xmin) / fxs, hw = (v.xmax - v.xmin) / fxs;
+    var vy = (f.ymax - v.ymax) / fys, vh = (v.ymax - v.ymin) / fys;   // 上＝大值
+    var hi = hb.firstChild, vi = vb.firstChild;
+    hi.style.left = (hx * 100).toFixed(3) + '%';
+    hi.style.width = (hw * 100).toFixed(3) + '%';
+    vi.style.top = (vy * 100).toFixed(3) + '%';
+    vi.style.height = (vh * 100).toFixed(3) + '%';
+    hb.setAttribute('data-frac', hx.toFixed(4) + ',' + hw.toFixed(4));
+    vb.setAttribute('data-frac', vy.toFixed(4) + ',' + vh.toFixed(4));
+  }
+
+  /* 捲軸可以直接拖 —— 圖上已經能拖曳平移了，捲軸再做成純指示器反而讓人一直想拖它。
+     做法是把按下的位置當成「新的可視範圍中心」，跨距不變，因此不需要另外抓握把。 */
+  function dgBindZoomScrollDrag(bar, axis) {
+    var on = false;
+    function apply(e) {
+      var f = dgFullRange(DG_ZOOM_CHART), v = dgViewCur(DG_ZOOM_CHART);
+      if (!f || !v) return;
+      var r = bar.getBoundingClientRect();
+      if (axis === 'x') {
+        var fr = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+        var sp = v.xmax - v.xmin, c = f.xmin + (f.xmax - f.xmin) * fr;
+        dgNavApply(DG_ZOOM_CHART, { xmin: c - sp / 2, xmax: c + sp / 2, ymin: v.ymin, ymax: v.ymax });
+      } else {
+        var fy = Math.max(0, Math.min(1, (e.clientY - r.top) / Math.max(1, r.height)));
+        var sy = v.ymax - v.ymin, cy = f.ymax - (f.ymax - f.ymin) * fy;
+        dgNavApply(DG_ZOOM_CHART, { xmin: v.xmin, xmax: v.xmax, ymin: cy - sy / 2, ymax: cy + sy / 2 });
+      }
+      dgChartZoomRefresh();
+    }
+    bar.addEventListener('pointerdown', function (e) {
+      on = true;
+      try { bar.setPointerCapture(e.pointerId); } catch (_) { }
+      apply(e); e.preventDefault();
+    });
+    bar.addEventListener('pointermove', function (e) { if (on) apply(e); });
+    bar.addEventListener('pointerup', function () { on = false; });
+    bar.addEventListener('pointercancel', function () { on = false; });
+  }
+
+  /* 游標：只同步「按住 Shift ＝ 十字準星」這一態。
+     手抓（grabbing）不在這裡管 —— 它只在真的按著左鍵拖的當下由 pointerdown 掛上，
+     hover 一律維持一般箭頭，因為 hover 的職責是顯示數值提示框。 */
+  var DG_SHIFT_DOWN = false;
+  function dgZoomCursorSync() {
+    var host = $('dg-zoom-canvas');
+    if (!host) return;
+    if (DG_SHIFT_DOWN) host.classList.add('dg-shift'); else host.classList.remove('dg-shift');
   }
 
   // 工具列狀態：沒縮放時兩顆鈕都停用，並顯示目前看到的範圍
@@ -1049,6 +1223,7 @@
   function dgChartZoomClose() {
     // 關掉就把縮放層數丟掉：下次打開一律從完整範圍開始，不會有「怎麼一開就是窄的」的困惑
     if (DG_ZOOM_CHART) DG_VIEW[DG_ZOOM_CHART] = [];
+    if (DG_ZOOM_UNBIND) { DG_ZOOM_UNBIND(); DG_ZOOM_UNBIND = null; }
     DG_ZOOM_CHART = null;
     $('dg-modal').classList.remove('dg-modal-chart');
     $('dg-modal-body').innerHTML = '';
@@ -1128,11 +1303,24 @@
     return { index: xs[best], rows: lines };
   }
 
-  // 綁一次就好：縮圖與放大圖共用同一套手勢
+  // rAF 節流：拖曳／滾輪每一次事件都重畫整份 SVG 會卡，一幀最多重畫一次
+  function dgRaf(fn) {
+    return (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(fn) : setTimeout(fn, 16);
+  }
+
+  /* 綁一次就好：縮圖與放大圖共用同一套手勢。
+     v1.4.2 的模式判定（Bruce 2026-09-06 裁示）：
+       · 縮圖（!big）：維持 v1.4.1 —— 拖曳＝框選、單擊＝打開放大檢視。
+       · 放大視窗 ＋ 按住 Shift：框選（v1.4.1 的功能原封不動，只是改成要按 Shift）。
+       · 放大視窗 ＋ 沒按 Shift：拖曳平移，手感照 wfg 的拖行區。
+     未放大時平移會被 dgNavApply 夾成無位移（沒有東西可以拖），此時也不掛手抓游標。 */
   function dgBindChartInteract(el, geomKey, dataKey, big) {
     if (!el || el.getAttribute('data-dg-bound') === '1') return;
     el.setAttribute('data-dg-bound', '1');
     var down = null, dragging = false;
+    var wheelRaf = 0, wheelAccum = 0, wheelPt = null;
+    var moveRaf = 0, moveEv = null;
+    var touches = {}, pinch = null;
 
     function clampToPlot(pt) {
       var g = pt.g;
@@ -1146,19 +1334,113 @@
     function boxEl() { return dgEnsureChild(el, 'dg-selbox'); }
     function hideBox() { var b = el.querySelector(':scope > .dg-selbox'); if (b) b.style.display = 'none'; }
 
+    // ── v1.4.2：滾輪縮放（只在放大視窗；縮圖上不攔滾輪，頁面照常捲動）──
+    el.addEventListener('wheel', function (e) {
+      if (!big) return;
+      var pt = dgPtToData(geomKey, el, e.clientX, e.clientY);
+      if (!pt || !pt.inPlot) return;
+      e.preventDefault();
+      wheelPt = pt;
+      wheelAccum += (e.deltaY || 0);
+      if (wheelRaf) return;                       // 已排程，這一幀只做一次
+      wheelRaf = dgRaf(function () {
+        wheelRaf = 0;
+        var dy = wheelAccum; wheelAccum = 0;
+        if (!dy || !wheelPt) return;
+        dgTipHide(el);
+        dgZoomAtPoint(dataKey, wheelPt, dy > 0 ? 1.2 : 0.8);   // 同 wfg：往下滾＝縮小
+        dgChartZoomRefresh();
+      });
+    }, { passive: false });
+
+    // 兩指：記錄每一根手指，湊滿兩根就進 pinch（單指仍走下面的平移）
+    function pinchStart() {
+      var ids = Object.keys(touches);
+      if (ids.length < 2) return;
+      var a = touches[ids[0]], b = touches[ids[1]];
+      var pa = dgPtToData(geomKey, el, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      if (!pa) return;
+      pinch = {
+        dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+        view: dgViewCur(dataKey), g: pa.g, sx: pa.sx, sy: pa.sy
+      };
+      down = null; dragging = false; hideBox();
+    }
+    function pinchMove() {
+      var ids = Object.keys(touches);
+      if (!pinch || ids.length < 2) return;
+      var a = touches[ids[0]], b = touches[ids[1]];
+      var d = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+      var scale = pinch.dist / d;                 // 同 wfg：撐開＝跨距變小＝放大
+      var g = pinch.g, v = pinch.view;
+      if (!g || !v) return;
+      var fx = Math.max(0, Math.min(1, (pinch.sx - g.ml) / g.pw));
+      var fy = Math.max(0, Math.min(1, (g.mt + g.ph - pinch.sy) / g.ph));
+      var ax = v.xmin + (v.xmax - v.xmin) * fx, ay = v.ymin + (v.ymax - v.ymin) * fy;
+      var nxs = (v.xmax - v.xmin) * scale, nys = (v.ymax - v.ymin) * scale;
+      dgNavApply(dataKey, {
+        xmin: ax - nxs * fx, xmax: ax - nxs * fx + nxs,
+        ymin: ay - nys * fy, ymax: ay - nys * fy + nys
+      });
+      dgChartZoomRefresh();
+    }
+
     el.addEventListener('pointerdown', function (e) {
       var pt = dgPtToData(geomKey, el, e.clientX, e.clientY);
       if (!pt || !pt.inPlot) { down = null; return; }
-      down = { pt: pt, clientX: e.clientX, clientY: e.clientY, type: e.pointerType };
+      if (e.pointerType === 'touch') {
+        touches[e.pointerId] = { x: e.clientX, y: e.clientY };
+        if (big && Object.keys(touches).length >= 2) { pinchStart(); return; }
+      }
+      /* 模式在按下的當下決定，中途放開 Shift 不會換模式 —— 換模式會讓已經拖到一半的
+         那一段忽然變成另一件事，使用者看到的是「圖自己跳了一下」。 */
+      var boxMode = !big || e.shiftKey;
+      down = {
+        pt: pt, clientX: e.clientX, clientY: e.clientY, type: e.pointerType,
+        boxMode: boxMode, view: dgViewCur(dataKey)
+      };
       dragging = false;
       dgTipHide(el);
+      if (!boxMode && dgIsZoomed(dataKey)) el.classList.add('dg-panning');
+      if (!boxMode) {
+        // 平移要一路跟到容器外面才不會拖到一半斷掉
+        try { if (el.setPointerCapture) el.setPointerCapture(e.pointerId); } catch (_) { }
+        e.preventDefault();
+      }
     });
 
+    // hover：沒在拖的時候顯示提示框（縮放／平移後座標由 DG_CHART_GEOM 重新換算，自然正確）
     el.addEventListener('pointermove', function (e) {
-      if (!down) { dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY); return; }
+      if (down || pinch) return;
+      dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY);
+    });
+
+    /* 拖曳過程掛在 window 上：setPointerCapture 在部分環境沒有實作，
+       只綁在 el 上會讓指標一離開圖就斷掉。 */
+    function onWinMove(e) {
+      if (e.pointerType === 'touch' && touches[e.pointerId]) {
+        touches[e.pointerId] = { x: e.clientX, y: e.clientY };
+        if (pinch) { e.preventDefault && e.preventDefault(); pinchMove(); return; }
+      }
+      if (!down) return;
       var dx = Math.abs(e.clientX - down.clientX), dy = Math.abs(e.clientY - down.clientY);
       if (!dragging && dx < 6 && dy < 6) return;
       dragging = true;
+      if (!down.boxMode) {
+        // ── 平移：rAF 節流，每幀重畫一次（軸刻度與格線跟著重算）──
+        moveEv = { clientX: e.clientX, clientY: e.clientY };
+        if (moveRaf) return;
+        moveRaf = dgRaf(function () {
+          moveRaf = 0;
+          if (!down || !moveEv) return;
+          var np = dgPtToData(geomKey, el, moveEv.clientX, moveEv.clientY);
+          if (!np) return;
+          dgPanFromStart(dataKey, np.g, down.view, np.sx - down.pt.sx, np.sy - down.pt.sy);
+          dgChartZoomRefresh();
+        });
+        return;
+      }
+      // ── 框選（Shift）：與 v1.4.1 相同 ──
       var pt = dgPtToData(geomKey, el, e.clientX, e.clientY);
       if (!pt) return;
       var a = clampToPlot(down.pt), b = clampToPlot(pt);
@@ -1173,13 +1455,31 @@
       box.style.display = 'block';
       box.style.left = x0 + 'px'; box.style.width = Math.max(1, x1 - x0) + 'px';
       box.style.top = y0 + 'px'; box.style.height = Math.max(1, y1 - y0) + 'px';
-    });
+    }
+    window.addEventListener('pointermove', onWinMove);
 
     function finish(e) {
+      if (e && e.pointerType === 'touch' && touches[e.pointerId]) delete touches[e.pointerId];
+      if (pinch) { if (Object.keys(touches).length < 2) pinch = null; return; }
       if (!down) return;
       var wasDragging = dragging, start = down;
       down = null; dragging = false;
+      moveEv = null;
       hideBox();
+      el.classList.remove('dg-panning');
+      if (!start.boxMode) {
+        // 平移結束：最後補一次（rAF 可能還沒跑到），沒真的拖動就當成點一下顯示數值
+        if (wasDragging) {
+          var lp = dgPtToData(geomKey, el, e.clientX, e.clientY);
+          if (lp) {
+            dgPanFromStart(dataKey, lp.g, start.view, lp.sx - start.pt.sx, lp.sy - start.pt.sy);
+            dgChartZoomRefresh();
+          }
+        } else {
+          dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY);
+        }
+        return;
+      }
       if (!wasDragging) {
         // 沒有拖曳：縮圖上是「打開放大檢視」，放大圖上是「顯示這一點的數值」（手機用）
         if (!big) dgChartZoomOpen(dataKey);
@@ -1197,7 +1497,8 @@
       // 資料上也不容許縮到比整體範圍的 1/500 還窄。
       if (Math.abs(e.clientX - start.clientX) < 12) return;
       if (!(nxmax - nxmin > (g.xmax - g.xmin) / 500) || !(nymax - nymin > (g.ymax - g.ymin) / 500)) return;
-      var r = { xmin: nxmin, xmax: nxmax, ymin: nymin, ymax: nymax };
+      // src:'box' —— 框選各自成一層，不會被後續的滾輪／拖曳就地覆蓋掉（見 dgNavApply）
+      var r = { xmin: nxmin, xmax: nxmax, ymin: nymin, ymax: nymax, src: 'box' };
       if (big) {
         dgViewPush(dataKey, r);
         dgChartZoomRefresh();
@@ -1207,9 +1508,26 @@
         dgChartZoomOpen(dataKey);
       }
     }
-    el.addEventListener('pointerup', finish);
-    el.addEventListener('pointercancel', function () { down = null; dragging = false; hideBox(); });
-    el.addEventListener('pointerleave', function () { down = null; dragging = false; hideBox(); dgTipHide(el); });
+    // 收尾掛 window：拖到圖外面放開仍然要收得到（pointerup 不會冒泡回 el）
+    function onWinCancel(e) {
+      if (e && e.pointerType === 'touch') delete touches[e.pointerId];
+      pinch = null; down = null; dragging = false; moveEv = null;
+      hideBox(); el.classList.remove('dg-panning');
+    }
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', onWinCancel);
+    // 只在「沒有正在拖」時才收掉提示框；拖曳中離開不能中斷（平移本來就會拖出圖外）
+    el.addEventListener('pointerleave', function () {
+      if (down || pinch) return;
+      hideBox(); dgTipHide(el);
+    });
+    /* 放大視窗的畫布每次開啟都是新建的，window 上這三個聽者不解掉會一直疊上去
+       （每開一次多三個，而且抓著已經被丟棄的 DOM）。回傳解綁函式給 dgChartZoomClose。 */
+    return function () {
+      window.removeEventListener('pointermove', onWinMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', onWinCancel);
+    };
   }
 
   // ─── 純 JS 的 xlsx 產生器（zip + XML，零外部相依）──────────────────────
@@ -2697,6 +3015,19 @@
       var w = $(id);
       if (w) dgBindChartInteract(w, id, id, false);
     });
+    /* v1.4.2：按住 Shift 時游標要看得出來現在是「要框選」而不是「要拖曳」。
+       用 keydown/keyup 追而不是每次 pointermove 讀 e.shiftKey —— 使用者常常是
+       先把滑鼠放到位、再按 Shift，那時候沒有 pointer 事件可以讀。
+       blur 時一併復位：切走視窗再回來，keyup 是收不到的。 */
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Shift' && !DG_SHIFT_DOWN) { DG_SHIFT_DOWN = true; dgZoomCursorSync(); }
+    });
+    window.addEventListener('keyup', function (e) {
+      if (e.key === 'Shift' && DG_SHIFT_DOWN) { DG_SHIFT_DOWN = false; dgZoomCursorSync(); }
+    });
+    window.addEventListener('blur', function () {
+      if (DG_SHIFT_DOWN) { DG_SHIFT_DOWN = false; dgZoomCursorSync(); }
+    });
     window.addEventListener('resize', function () { if (DG_ZOOM_CHART) dgChartZoomRefresh(); });
     window.addEventListener('orientationchange', function () {
       if (DG_ZOOM_CHART) setTimeout(dgChartZoomRefresh, 250);   // 轉向後版面才會定下來
@@ -2732,6 +3063,8 @@
     chartLastKeys: function () { return Object.keys(DG_CHART_LAST); },
     chartGeom: function (k) { return DG_CHART_GEOM[k]; },
     viewStack: function (k) { return (DG_VIEW[k] || []).slice(); },
+    fullRange: dgFullRange,          // v1.4.2 驗證用
+    isZoomed: dgIsZoomed,
     tipShow: dgTipShow,
     detectLut: dgDetectLut,
     fmtFromBits: dgFmtFromBits,
