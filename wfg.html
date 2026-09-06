@@ -3626,7 +3626,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260904wfg4435"></script>
+<script src="common/version.js?v=20260906wfg4436"></script>
 <script src="common/i18n.js?v=20260903help"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5894,28 +5894,73 @@ function _wfgPrecomputeSdChannel(gpioIdx, gpio, allTrans, effHtotal, effVtotal, 
   }
   var lVal0 = noDataPerFrame[_dl0] ? holdL : lValuePerFrame[_dl0];
   var tgtV0 = voltLut[pol0 * lutStride + lVal0];
+  /* 🔴 v4.43.6：把「保持住的灰階」與「當下的極性」拆成兩個狀態。
+     `lastL` 只有真正 latch 到新資料時才更新；極性每一行都重新取 `polPerLine[_r]`。
+     舊版把兩者綁在同一個 `lastTarget`（電壓）裡，見下方主迴圈的說明。 */
+  var lastL = lVal0;
   var lastTarget = tgtV0;
 
   settled[0] = lastTarget;
   target[0] = lastTarget;
   var prevV = lastTarget;
 
-  // Main loop: only update target when xstbPerLine[line] is 1
+  /* ══ 🔴 v4.43.6：輸出更新時刻與「極性／位準」的分工（時序模型修正）═══════════
+     Bruce 2026-09-06 定案的規則（他的原話，這就是規格）：
+       「現在 XPOL 等於不看，TX DE 也不看。但是它要翻轉，還是需要有 XSTB 在，因為只有
+         在 XSTB 的 falling，輸出才會改變。要是沒有 XSTB，輸出是不可以改變的，對吧？
+         也就是沒有 TX DE 的情況下，只要有 XSTB falling，還是要改變 SD1 的極性。」
+
+     ── 三條規則 ──────────────────────────────────────────────────────────
+       R1  SD1 的輸出**只在 XSTB falling 更新**。沒有 falling ⇒ 位準與極性都不動。
+       R2  每一根 falling 當下，**極性一律取當時的 XPOL**，與 TX DE 有無無關。
+       R3  TX DE 只決定「有沒有新資料」⇒ 只影響**位準**。沒有新資料就沿用前一個位準。
+           **TX DE 不得用來 gate 極性。**
+     ⇒ VBK 區（有 XSTB、無 TX DE）：位準 keep、極性照樣跟著 XPOL 翻。
+
+     ── 舊版錯在哪（實際讀碼確認，不是照抄推測）──────────────────────────
+     舊版只有一個狀態變數 `lastTarget`，而它已經是查完表的**電壓**（＝極性與灰階合成
+     後的結果）。它的更新條件是 `xstbPerLine[_r] && !stalePerFrame[dataLineInFrame]`
+     —— 也就是**極性被綁在「有沒有新資料」底下一起 gate 掉**。VBK 區資料一律過期
+     （age > 1，v4.43.3 的時效規則）⇒ 整段不更新 ⇒ 極性凍住，一直到下一個 frame 第一
+     根「有新資料」的 falling 才翻，看起來就是「翻轉跑到了下一幀頭」。
+     根因不在 XPOL 的取樣點（那在 v2.97.477 已經處理成 XSTB rising），而在**更新條件
+     把 R2 和 R3 混成同一個判斷**。
+
+     ── 這一版怎麼改 ──────────────────────────────────────────────────────
+     把狀態拆成 `lastL`（保持住的灰階）與極性兩件事：
+       * `if (xstbPerLine[_r])` 這一層＝R1，維持不變（沒有 falling 就整個不動）。
+       * 進到這一層之後，`stalePerFrame[]` 只再 gate `lastL`＝R3。
+       * `lastTarget` 在**每一根 falling** 都用當下的 `polPerLine[_r]` 重查＝R2。
+
+     🔴 為什麼作用區（有 TX DE）一位元都不會變：那裡每一行都有 falling 且未過期，
+        舊版算的是 `voltLut[pol * lutStride + lValuePerFrame[dataLineInFrame]]`，
+        新版是 `voltLut[polPerLine[_r] * lutStride + lastL]` 而此時
+        `lastL === lValuePerFrame[dataLineInFrame]`、`pol === polPerLine[_r]` ⇒ 同式。
+        差異只出現在「有 falling 但沒有新資料」的行 —— 正是要改的那一格。
+     🔴 「沒有 falling」的行刻意**不動**（R1）。初版曾經改成每行都重取極性，那會讓
+        XSTB 停掉的區段也跟著翻，違反 R1，已退掉。
+
+     極性取樣點沿用 v2.97.477 既有的 `polPerLine[]`（該 falling 之前最近的 XSTB
+     rising），這一版不動它。
+
+     🔴 另外兩條路徑必須同步（不得走岔）：
+        `_wfgSdGrayFracAt()`（ΔV/feedthrough 讀的極性）與
+        `wfgComputeSourceDriverSamples()` 的 stale carry-forward（事件式 fallback）。 */
+  // Main loop: 只有 XSTB falling 會更新輸出；其中位準再受「有沒有新資料」gate，極性不受
   for (var _r = 1; _r < winLen; _r++) {
     var lineInFrame = (base + _r) % effVtotal;
     var pol = polPerLine[_r];
     if (xstbPerLine[_r]) {
-      // XSTB has falling edge → latch data (v2.97.19: 跨行偏移修正)
+      // XSTB has falling edge → 輸出更新（v2.97.19: 跨行偏移修正）
       var dataLineInFrame = (lineInFrame - xstbDataOffset + effVtotal) % effVtotal;
       /* v4.43.3：`dataLineInFrame` 就是**這根 XSTB rising 所在的那一行**
           （xstbDataOffset = falling 比 rising 晚了幾個整行，減掉就回到 rising 行；
           已用探針逐根驗過恆等，見 CHANGELOG v4.43.3）。所以「以 rising 起算 age」
-          直接查這一行的 stale 旗標即可。過期 ⇒ 不 latch ⇒ lastTarget 原封不動，
-          後續的 falling 自然也就不會把它輸出（電壓維持前值）。 */
+          直接查這一行的 stale 旗標即可。過期 ⇒ 灰階不更新（R3）。 */
       if (!stalePerFrame[dataLineInFrame]) {
-        var lVal = lValuePerFrame[dataLineInFrame];
-        lastTarget = voltLut[pol * lutStride + lVal];
+        lastL = lValuePerFrame[dataLineInFrame];
       }
+      lastTarget = voltLut[pol * lutStride + lastL];   // v4.43.6：R2 —— 極性每根 falling 都重取
     }
     target[_r] = lastTarget;
     if (lastTarget === prevV) {
@@ -6513,9 +6558,20 @@ function _wfgSdGrayFracAt(p, lineX) {
   // 往回略過沒有 falling 的行，等價於 target[] 對那些行沿用前值的語意。
   // 🔴 v4.43.3：**資料已過期（stale）的 latch 同樣要略過** —— 主迴圈已改成那種
   //    rising 不 latch，這裡不跟著跳就會回報「電壓停在前值、灰階卻報 holdL」。
-  var latR = (p.xstbPerLine[L - b] && frac >= p.xstbFracPerLine[L - b]) ? (L - b) : (L - b - 1);
+  /* 🔴 v4.43.6：**灰階**與**極性**的來源行不再是同一行（與主迴圈同一條規則）。
+       極性 → 最近一根 **XSTB falling**（polR：往回只略過「沒有 falling」的行，
+              **不看** stale —— 過期只 gate 灰階，不 gate 極性）
+       灰階 → 最近一次**有新資料**的 falling（latR：再往回略過 stale 的行）
+     起點 `outR` 的取法與 `_wfgSdVoltageAt()` 的 `target[L]`（frac >= dly）／
+     `target[L-1]` 兩個分支同源，才不會對到別行。 */
+  var outR = (p.xstbPerLine[L - b] && frac >= p.xstbFracPerLine[L - b]) ? (L - b) : (L - b - 1);
+  var polR = outR;
+  while (polR >= 0 && !p.xstbPerLine[polR]) polR--;
+  var latR = polR;
   while (latR >= 0 && (!p.xstbPerLine[latR] || (st && st[_srcLF(latR)]))) latR--;
-  var dataLF, polAt;
+  var _polIdx = (polR >= 0) ? polR : 0;
+  var polAt = (b + _polIdx) + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[_polIdx] : 0);
+  var dataLF;
   if (latR < 0) {
     // 視窗內還沒有任何有效 latch → 與 _wfgPrecomputeSdChannel 的初始行同一組值：
     // 從 base 的來源行往回找最近一個有 data 的行（找不到才退回原本那一行）。
@@ -6525,11 +6581,9 @@ function _wfgSdGrayFracAt(p, lineX) {
       for (var _s = 0; _s < eff && nd[_d0]; _s++) _d0 = (_d0 - 1 + eff) % eff;
       if (!nd[_d0]) dataLF = _d0;
     }
-    polAt = b + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[0] : 0);
   } else {
     var lat = b + latR;   // 絕對行號
     dataLF = ((lat % eff) - off + eff) % eff;
-    polAt = lat + (p.xstbPolFracPerLine ? p.xstbPolFracPerLine[latR] : 0);
   }
   var lVal = le.lValuePerFrame[dataLF] || 0;
   var maxL = le.lutStride ? (le.lutStride - 1) : 255;
@@ -23978,13 +24032,28 @@ function wfgComputeSourceDriverSamples(gpio, allGpioTransitions, effHtotal, effV
 
      開頭那一段還沒有前驅事件時退回 holdL（與舊版同）：呼叫端的取樣範圍至少 padding
      一個 frame（見 26441／41023 的 extStart），真的整段沒有有效 latch 才會走到。 */
-  var _cfV = null, _cfL = null, _cfP = null;
+  /* 🔴 v4.43.6：carry-forward 只帶**灰階**，不帶極性。
+     事件本身就是「一根 XSTB falling」（detailed path 一根一個），所以留在事件上的
+     `pol` 就是 R2 要的「這根 falling 當下的 XPOL」。過期只代表沒有新資料 ⇒ 只把
+     `lValue` 沿用前一筆（R3），`vTarget` 用「前一筆的灰階 ＋ 本根自己的極性」重算。
+     舊版連 `pol` 一起 carry ⇒ 極性被 TX DE gate 掉，與 `_wfgPrecomputeSdChannel()`
+     舊版同一個毛病；兩條路徑必須同時改，否則走岔。
+     ⚠ 兩個既有限制，本次**不動**（改了會連帶動到事件數量與下游取樣密度／span）：
+       ① 快速路徑（LOD 遠景）在 VBK 只發兩個事件（區間頭尾），XPOL 若在區間中間翻轉
+          不會產生事件。近景 detailed 路徑每一根 falling 都有事件，不受影響。
+       ② `fallingCount === 0`（整段沒有 XSTB）時走的是「每行一個事件」的退化分支，
+          等於假設每行都有 falling —— 與 R1「沒有 falling 就不更新」不一致。真正繪製
+          走的是 `_wfgPrecomputeSdChannel()`，那條在沒有 falling 時整段凍住（R1 成立）。 */
+  var _cfL = null;
   for (var _cf = 0; _cf < events.length; _cf++) {
     var _e = events[_cf];
     if (_e.stale) {
-      if (_cfV !== null) { _e.vTarget = _cfV; _e.lValue = _cfL; _e.pol = _cfP; }
+      if (_cfL !== null) {
+        _e.lValue = _cfL;
+        _e.vTarget = wfgAnalogTargetVoltageWithPol(maxL > 0 ? _cfL / maxL : 0, _e.pol, ac);
+      }
     } else {
-      _cfV = _e.vTarget; _cfL = _e.lValue; _cfP = _e.pol;
+      _cfL = _e.lValue;
     }
   }
 
