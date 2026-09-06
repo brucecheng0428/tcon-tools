@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260906dg143">
+<link rel="stylesheet" href="common/common.css?v=20260906dg144">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -549,7 +549,14 @@
       </div>
       <div class="dg-slot-list" id="dg-slot-list"></div>
       <div class="dg-btnrow">
+        <button class="dg-btn primary" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
         <button class="dg-btn" id="dg-btn-slot-clear">清空全部</button>
+      </div>
+      <div class="dg-note">
+        <b>匯出檔的格式對齊既有的光學確認 Excel</b>，只是把組數從 5 擴到 10。
+        <b>公式是活的</b>（相對亮度、逐階 Gamma、色溫上下限都寫成 Excel 公式，不是算好的數字），
+        <b>三張圖是原生 Excel 圖表</b>（指到儲存格，不是圖片）—— 所以在 Excel 裡改一個亮度值，圖會跟著動。
+        沒用到的組別欄位、公式、圖表數列一樣都在，只是資料空白。<b>B 欄記著每一組的原始 Excel 檔名。</b>
       </div>
       <div class="dg-status" id="dg-slot-status">還沒有任何光學量測組。</div>
     </div>
@@ -644,8 +651,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260906dg143"></script>
-<script src="common/i18n.js?v=20260906dg143"></script>
+<script src="common/version.js?v=20260906dg144"></script>
+<script src="common/i18n.js?v=20260906dg144"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -1678,6 +1685,373 @@
     }
     return x + '</worksheet>';
   }
+  /* ═══ v1.4.4：多組光學比較 xlsx ═══════════════════════════════════════
+     版面、公式、數字格式、欄寬、圖表結構都照 docs/dg_optical_xlsx_format.md
+     解析出來的參考格式，組數由 5 擴到 10。三個要點：
+       · 公式是**活的 `<f>`**，而且**不寫 `<v>`** —— 檔案裡根本沒有算好的值，
+         開檔時由 Excel／LibreOffice 自己算。
+       · 三張圖是**原生 scatterChart**（`<c:numRef><c:f>` 指到儲存格），不是圖片。
+       · 沒用到的組別**照參考檔的作法**：欄位、公式、數列全部都在，只是資料空白。
+     ─────────────────────────────────────────────────────────────────── */
+  var DG_OPT_SHEETNAME = '光學比較';
+  var DG_OPT_ROW1 = 4;                     // 資料第一列（1 起算）
+  var DG_OPT_N = 10;                       // 組數
+  // 欄位起點（0 起算）。配置說明見 docs/dg_optical_xlsx_format.md §五。
+  var DG_OPT_C = {
+    gray1: 0, file: 1, lum: 2,                        // A ／ B ／ C…L
+    gray2: 13, hi: 14, mid: 15, lo: 16, cct: 17,      // N ／ O P Q ／ R…AA
+    gray3: 28, std: 29, rel: 32,                      // AC ／ AD…AF ／ AG…AP
+    gamRef: 43, gam: 46                               // AR…AT ／ AU…BD
+  };
+  var DG_OPT_LAST = DG_OPT_C.gam + DG_OPT_N - 1;      // BD
+  // 圖上的線色：三條參考線 ＋ 10 組（與畫面上那 10 色同一組，去掉 #）
+  var DG_OPT_REFCLR = ['A6A6A6', 'A6A6A6', 'ED7D31'];
+
+  function dgOptCn(i) { return dgColName(i); }        // 0→A
+  function dgOptRef(col, row) { return dgOptCn(col) + row; }
+  function dgOptAbs(col, row) { return '$' + dgOptCn(col) + '$' + row; }
+
+  /* 工作表。cells 是稀疏的 {r: {c: {v|f, s}}}，只寫有東西的格。 */
+  function dgOptSheetXml(slots, nRow, gmax) {
+    var C = DG_OPT_C, R0 = DG_OPT_ROW1, RL = R0 + nRow - 1, i, k, r;
+    var cells = {};
+    function put(row, col, o) { (cells[row] = cells[row] || {})[col] = o; }
+    function name(k) { return (slots[k] && slots[k].name) ? slots[k].name : ('第 ' + (k + 1) + ' 組'); }
+
+    // 第 1 列：大標題
+    put(1, 0, { v: '光學量測多組比較', s: 6 });
+    // 第 2 列：區塊標題
+    put(2, C.lum, { v: '亮度', s: 1 });
+    put(2, C.hi, { v: '色溫基準', s: 1 });
+    put(2, C.cct, { v: '色溫', s: 1 });
+    put(2, C.std, { v: '標準 Gamma', s: 1 });
+    put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）', s: 1 });
+    put(2, C.gamRef, { v: '標準 Gamma', s: 1 });
+    put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）', s: 1 });
+    // 第 3 列：欄表頭
+    put(3, C.gray1, { v: 'Gray', s: 1 });
+    put(3, C.file, { v: '原始檔名', s: 1 });
+    put(3, C.gray2, { v: 'Gray', s: 1 });
+    put(3, C.hi, { v: '上限', s: 1 });
+    put(3, C.mid, { v: '中心', s: 1 });
+    put(3, C.lo, { v: '下限', s: 1 });
+    put(3, C.gray3, { v: 'Gray', s: 1 });
+    for (i = 0; i < 3; i++) {
+      put(3, C.std + i, { v: [2, 2.2, 2.4][i], s: 1 });
+      put(3, C.gamRef + i, { v: [2, 2.2, 2.4][i], s: 1 });
+    }
+    for (k = 0; k < DG_OPT_N; k++) {
+      put(3, C.lum + k, { v: name(k), s: 1 });
+      put(3, C.cct + k, { v: name(k), s: 1 });
+      put(3, C.rel + k, { v: name(k), s: 1 });
+      put(3, C.gam + k, { v: name(k), s: 1 });
+    }
+    // B4～B13：每一組匯入時的原始 Excel 檔名（Bruce 指定的追溯欄位；參考檔沒有這一欄）
+    for (k = 0; k < DG_OPT_N; k++) {
+      put(R0 + k, C.file, { v: (slots[k] && slots[k].file) ? slots[k].file : '', s: 0 });
+    }
+
+    // 每一組的量測值：以該組自己的 Gray 值對應到列，對不上的列留空
+    var lum = [], cct = [];
+    for (k = 0; k < DG_OPT_N; k++) {
+      lum[k] = {}; cct[k] = {};
+      if (!slots[k]) continue;
+      slots[k].rows.forEach(function (row) {
+        if (!isFinite(row.g)) return;
+        lum[k][row.g] = row.Y;
+        cct[k][row.g] = dgCCT(row.x, row.y);
+      });
+    }
+
+    for (i = 0; i < nRow; i++) {
+      r = R0 + i;
+      var g = i;                                     // Gray ＝ 0 … gmax
+      put(r, C.gray1, { v: g, s: 0 });
+      put(r, C.gray2, { v: g, s: 0 });
+      put(r, C.gray3, { v: g, s: 0 });
+      // 色溫的三條基準線：第一列是本體，其餘列一路參照回第一列（照參考檔的寫法）
+      if (i === 0) {
+        put(r, C.hi, { f: dgOptRef(C.mid, r) + '+500', s: 3 });
+        put(r, C.mid, { v: 5000, s: 3 });
+        put(r, C.lo, { f: dgOptRef(C.mid, r) + '-500', s: 3 });
+      } else {
+        put(r, C.hi, { f: dgOptCn(C.hi) + '$' + R0, s: 3 });
+        put(r, C.mid, { f: dgOptCn(C.mid) + '$' + R0, s: 3 });
+        put(r, C.lo, { f: dgOptCn(C.lo) + '$' + R0, s: 3 });
+      }
+      // 標準 Gamma 曲線
+      for (k = 0; k < 3; k++) {
+        put(r, C.std + k, {
+          f: '(' + dgOptRef(C.gray3, r) + '/' + dgOptCn(C.gray3) + '$' + RL + ')^' + [2, 2.2, 2.4][k], s: 5
+        });
+        put(r, C.gamRef + k, { v: [2, 2.2, 2.4][k], s: 4 });
+      }
+      for (k = 0; k < DG_OPT_N; k++) {
+        var Lc = C.lum + k, Rc = C.rel + k;
+        if (lum[k][g] !== undefined) put(r, Lc, { v: lum[k][g], s: 0 });
+        if (cct[k][g] !== undefined) put(r, C.cct + k, { v: cct[k][g], s: 3 });
+        // 公式一律寫滿 10 組 —— 沒資料的組會是 #DIV/0!，這正是參考檔的長相
+        put(r, Rc, {
+          f: '(' + dgOptRef(Lc, r) + '-' + dgOptCn(Lc) + '$' + R0 + ')/('
+            + dgOptCn(Lc) + '$' + RL + '-' + dgOptCn(Lc) + '$' + R0 + ')', s: 2
+        });
+        put(r, C.gam + k, {
+          f: 'IFERROR(LOG(' + dgOptRef(Rc, r) + ')/LOG($' + dgOptCn(C.gray3) + r + '/' + gmax + '),2.2)', s: 4
+        });
+      }
+    }
+
+    // ── 組出 XML ──
+    var cols = '<cols>'
+      + '<col min="1" max="1" width="7.875" customWidth="1"/>'
+      + '<col min="2" max="2" width="34" customWidth="1"/>'                       // 原始檔名要看得到
+      + '<col min="3" max="' + (C.lum + DG_OPT_N) + '" width="12.5" customWidth="1"/>'
+      + '<col min="' + (C.gray2 + 1) + '" max="' + (C.cct + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
+      + '<col min="' + (C.gray3 + 1) + '" max="' + (C.rel + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
+      + '<col min="' + (C.gamRef + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
+      + '</cols>';
+
+    var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+      + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<dimension ref="A1:' + dgOptCn(DG_OPT_LAST) + RL + '"/>'
+      + '<sheetViews><sheetView tabSelected="1" workbookViewId="0"/></sheetViews>'
+      + '<sheetFormatPr defaultColWidth="7.875" defaultRowHeight="14.25"/>'
+      + cols + '<sheetData>';
+    Object.keys(cells).map(Number).sort(function (a, b) { return a - b; }).forEach(function (rr) {
+      var row = cells[rr], cs = '';
+      Object.keys(row).map(Number).sort(function (a, b) { return a - b; }).forEach(function (cc) {
+        var o = row[cc], ref = dgOptRef(cc, rr), sa = o.s ? ' s="' + o.s + '"' : '';
+        if (o.f != null) { cs += '<c r="' + ref + '"' + sa + '><f>' + dgXe(o.f) + '</f></c>'; return; }
+        if (o.v === '' || o.v == null) { cs += '<c r="' + ref + '"' + sa + '/>'; return; }
+        if (typeof o.v === 'number' && isFinite(o.v)) cs += '<c r="' + ref + '"' + sa + '><v>' + o.v + '</v></c>';
+        else cs += '<c r="' + ref + '"' + sa + ' t="inlineStr"><is><t xml:space="preserve">' + dgXe(o.v) + '</t></is></c>';
+      });
+      if (cs) x += '<row r="' + rr + '">' + cs + '</row>';
+    });
+    x += '</sheetData>';
+    var mg = [
+      'A1:' + dgOptCn(DG_OPT_LAST) + '1',
+      dgOptCn(C.lum) + '2:' + dgOptCn(C.lum + DG_OPT_N - 1) + '2',
+      dgOptCn(C.hi) + '2:' + dgOptCn(C.lo) + '2',
+      dgOptCn(C.cct) + '2:' + dgOptCn(C.cct + DG_OPT_N - 1) + '2',
+      dgOptCn(C.std) + '2:' + dgOptCn(C.std + 2) + '2',
+      dgOptCn(C.rel) + '2:' + dgOptCn(C.rel + DG_OPT_N - 1) + '2',
+      dgOptCn(C.gamRef) + '2:' + dgOptCn(C.gamRef + 2) + '2',
+      dgOptCn(C.gam) + '2:' + dgOptCn(C.gam + DG_OPT_N - 1) + '2'
+    ];
+    x += '<mergeCells count="' + mg.length + '">'
+      + mg.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>';
+    x += '<drawing r:id="rId1"/></worksheet>';
+    return x;
+  }
+
+  /* 一張原生 scatterChart。o = { title, axIdX, axIdY, xRef, xTitle, series:[{txRef,valRef,color,width}],
+     yMin, yMax, yFmt, xMax } —— 結構逐節對照參考檔的 chart1（見 docs 筆記 §四）。
+     刻意不寫 <c:numCache>／<c:strCache>：schema 上是 optional，開檔時自己算。 */
+  function dgOptChartXml(o) {
+    var s = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"'
+      + ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+      + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<c:date1904 val="0"/><c:lang val="zh-TW"/><c:roundedCorners val="0"/>'
+      + '<c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr/></a:pPr>'
+      + '<a:r><a:rPr lang="zh-TW"/><a:t>' + dgXe(o.title) + '</a:t></a:r></a:p></c:rich></c:tx>'
+      + '<c:layout/><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>'
+      + '<c:plotArea><c:layout/><c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>';
+    o.series.forEach(function (se, i) {
+      s += '<c:ser><c:idx val="' + i + '"/><c:order val="' + i + '"/>'
+        + '<c:tx><c:strRef><c:f>' + dgXe(se.txRef) + '</c:f></c:strRef></c:tx>'
+        + '<c:spPr><a:ln w="' + (se.width || 12700) + '"><a:solidFill><a:srgbClr val="' + se.color + '"/></a:solidFill>'
+        + (se.dash ? '<a:prstDash val="dash"/>' : '') + '</a:ln></c:spPr>'
+        + '<c:marker><c:symbol val="none"/></c:marker>'
+        + '<c:xVal><c:numRef><c:f>' + dgXe(o.xRef) + '</c:f></c:numRef></c:xVal>'
+        + '<c:yVal><c:numRef><c:f>' + dgXe(se.valRef) + '</c:f></c:numRef></c:yVal>'
+        + '<c:smooth val="0"/></c:ser>';
+    });
+    s += '<c:axId val="' + o.axIdX + '"/><c:axId val="' + o.axIdY + '"/></c:scatterChart>'
+      + '<c:valAx><c:axId val="' + o.axIdX + '"/><c:scaling><c:orientation val="minMax"/>'
+      + '<c:max val="' + o.xMax + '"/><c:min val="0"/></c:scaling><c:delete val="0"/><c:axPos val="b"/>'
+      + '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr/></a:pPr>'
+      + '<a:r><a:rPr lang="en-US"/><a:t>Gray</a:t></a:r></a:p></c:rich></c:tx><c:layout/><c:overlay val="0"/></c:title>'
+      + '<c:numFmt formatCode="General" sourceLinked="1"/><c:majorTickMark val="none"/>'
+      + '<c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>'
+      + '<c:crossAx val="' + o.axIdY + '"/><c:crosses val="autoZero"/><c:crossBetween val="midCat"/></c:valAx>'
+      + '<c:valAx><c:axId val="' + o.axIdY + '"/><c:scaling><c:orientation val="minMax"/>'
+      + (o.yMax != null ? '<c:max val="' + o.yMax + '"/>' : '')
+      + (o.yMin != null ? '<c:min val="' + o.yMin + '"/>' : '')
+      + '</c:scaling><c:delete val="0"/><c:axPos val="l"/>'
+      + '<c:majorGridlines/><c:numFmt formatCode="' + dgXe(o.yFmt) + '" sourceLinked="0"/>'
+      + '<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>'
+      + '<c:crossAx val="' + o.axIdX + '"/><c:crosses val="autoZero"/><c:crossBetween val="midCat"/></c:valAx>'
+      + '</c:plotArea><c:legend><c:legendPos val="r"/><c:layout/><c:overlay val="0"/></c:legend>'
+      + '<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>';
+    return s;
+  }
+
+  // 三張圖在工作表上的位置（照參考檔：都靠右、上下排開）
+  function dgOptDrawingXml(n) {
+    var s = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"'
+      + ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">';
+    for (var i = 0; i < n; i++) {
+      s += '<xdr:twoCellAnchor>'
+        + '<xdr:from><xdr:col>' + (DG_OPT_LAST + 2) + '</xdr:col><xdr:colOff>0</xdr:colOff>'
+        + '<xdr:row>' + (2 + i * 22) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>'
+        + '<xdr:to><xdr:col>' + (DG_OPT_LAST + 13) + '</xdr:col><xdr:colOff>0</xdr:colOff>'
+        + '<xdr:row>' + (21 + i * 22) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
+        + '<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr>'
+        + '<xdr:cNvPr id="' + (i + 2) + '" name="Chart ' + (i + 1) + '"/>'
+        + '<xdr:cNvGraphicFramePr><a:graphicFrameLocks/></xdr:cNvGraphicFramePr></xdr:nvGraphicFramePr>'
+        + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
+        + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+        + '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"'
+        + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+        + ' r:id="rId' + (i + 1) + '"/></a:graphicData></a:graphic></xdr:graphicFrame>'
+        + '<xdr:clientData/></xdr:twoCellAnchor>';
+    }
+    return s + '</xdr:wsDr>';
+  }
+
+  function dgOptStylesXml() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      + '<numFmts count="3">'
+      + '<numFmt numFmtId="176" formatCode="0.0_);[Red]\\(0.0\\)"/>'
+      + '<numFmt numFmtId="177" formatCode="0.0_ "/>'
+      + '<numFmt numFmtId="179" formatCode="0.000%"/>'
+      + '</numFmts>'
+      + '<fonts count="3">'
+      + '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+      + '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+      + '<font><b/><sz val="14"/><name val="Calibri"/><family val="2"/></font>'
+      + '</fonts>'
+      + '<fills count="2"><fill><patternFill patternType="none"/></fill>'
+      + '<fill><patternFill patternType="gray125"/></fill></fills>'
+      + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+      + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+      + '<cellXfs count="7">'
+      + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+      + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+      + '<xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+      + '<xf numFmtId="176" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+      + '<xf numFmtId="177" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+      + '<xf numFmtId="179" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+      + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+      + '</cellXfs>'
+      + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+      + '<dxfs count="0"/>'
+      + '<tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>'
+      + '</styleSheet>';
+  }
+
+  /* slots：dgSlotAdd() 存下來的那個陣列（0～10 個）。少於 10 組時後面留空，
+     但欄位、公式、圖表數列照樣寫滿 10 組。 */
+  function dgBuildOpticalXlsx(slots, slotColors) {
+    slots = (slots || []).slice(0, DG_OPT_N);
+    var C = DG_OPT_C, R0 = DG_OPT_ROW1, k;
+    // 資料列數：所有組的最大灰階 ＋ 1；一組都沒有時仍產生 256 列的空表
+    var gmax = 0;
+    slots.forEach(function (s) {
+      s.rows.forEach(function (r) { if (isFinite(r.g) && r.g > gmax) gmax = r.g; });
+    });
+    if (gmax < 1) gmax = 255;
+    var nRow = gmax + 1, RL = R0 + nRow - 1;
+    var SH = DG_OPT_SHEETNAME;
+    function ref(col) { return SH + '!' + dgOptAbs(col, R0) + ':' + dgOptAbs(col, RL); }
+    function hdr(col) { return SH + '!' + dgOptAbs(col, 3); }
+    function group(base) {
+      var out = [];
+      for (k = 0; k < DG_OPT_N; k++) {
+        out.push({
+          txRef: hdr(base + k), valRef: ref(base + k),
+          color: (slotColors && slotColors[k] ? String(slotColors[k]).replace('#', '') : '4472C4'),
+          width: 19050
+        });
+      }
+      return out;
+    }
+    function refs(base, names) {
+      return names.map(function (_, i) {
+        return { txRef: hdr(base + i), valRef: ref(base + i), color: DG_OPT_REFCLR[i], width: 12700, dash: i !== 2 };
+      });
+    }
+
+    var charts = [
+      dgOptChartXml({
+        title: 'Gamma curve — 相對亮度', axIdX: 111111111, axIdY: 111111112,
+        xRef: ref(C.gray3), xMax: gmax, yMin: 0, yMax: 1, yFmt: '0%',
+        series: refs(C.std, [0, 0, 0]).concat(group(C.rel))
+      }),
+      dgOptChartXml({
+        title: 'Gamma curve — 逐階 Gamma 值', axIdX: 222222221, axIdY: 222222222,
+        xRef: ref(C.gray3), xMax: gmax, yMin: 1.6, yMax: 2.8, yFmt: '0.0',
+        series: refs(C.gamRef, [0, 0, 0]).concat(group(C.gam))
+      }),
+      dgOptChartXml({
+        title: '色溫', axIdX: 333333331, axIdY: 333333332,
+        xRef: ref(C.gray2), xMax: gmax, yMin: 4000, yMax: 9000, yFmt: '#,##0',
+        series: [
+          { txRef: hdr(C.hi), valRef: ref(C.hi), color: DG_OPT_REFCLR[0], width: 12700, dash: true },
+          { txRef: hdr(C.mid), valRef: ref(C.mid), color: DG_OPT_REFCLR[2], width: 12700 },
+          { txRef: hdr(C.lo), valRef: ref(C.lo), color: DG_OPT_REFCLR[1], width: 12700, dash: true }
+        ].concat(group(C.cct))
+      })
+    ];
+
+    var ct ='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>';
+    charts.forEach(function (_, i) {
+      ct += '<Override PartName="/xl/charts/chart' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>';
+    });
+    ct += '</Types>';
+
+    var files = [
+      { name: '[Content_Types].xml', data: dgUtf8(ct) },
+      {
+        name: '_rels/.rels', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+      },
+      {
+        name: 'xl/workbook.xml', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+          + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+          + '<sheets><sheet name="' + dgXe(SH) + '" sheetId="1" r:id="rId1"/></sheets>'
+          + '<calcPr fullCalcOnLoad="1"/></workbook>')
+      },
+      {
+        name: 'xl/_rels/workbook.xml.rels', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+          + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+          + '</Relationships>')
+      },
+      { name: 'xl/styles.xml', data: dgUtf8(dgOptStylesXml()) },
+      { name: 'xl/worksheets/sheet1.xml', data: dgUtf8(dgOptSheetXml(slots, nRow, gmax)) },
+      {
+        name: 'xl/worksheets/_rels/sheet1.xml.rels', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>')
+      },
+      { name: 'xl/drawings/drawing1.xml', data: dgUtf8(dgOptDrawingXml(charts.length)) }
+    ];
+    var drels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">';
+    charts.forEach(function (c, i) {
+      files.push({ name: 'xl/charts/chart' + (i + 1) + '.xml', data: dgUtf8(c) });
+      drels += '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart' + (i + 1) + '.xml"/>';
+    });
+    files.push({ name: 'xl/drawings/_rels/drawing1.xml.rels', data: dgUtf8(drels + '</Relationships>') });
+    return dgZip(files);
+  }
+
   function dgBuildXlsx(sheets) {
     var ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -2428,6 +2802,32 @@
       dgSlotRender();
       dgRenderCharts();
     });
+  }
+
+  // v1.4.4：把目前這些組匯出成多組比較 xlsx
+  function dgSlotExportXlsx() {
+    if (!DG_SLOTS.length) {
+      var e = $('dg-slot-status');
+      e.className = 'dg-status err';
+      e.textContent = '還沒有任何光學量測組，沒有東西可以匯出。\n先用②那顆匯入鈕匯入一份含光學量測的檔案。';
+      return;
+    }
+    var colors = [];
+    for (var i = 0; i < DG_OPT_N; i++) colors.push(dgSlotColor(i));
+    var bytes = dgBuildOpticalXlsx(DG_SLOTS.map(function (s, i) {
+      return { name: dgSlotDisplayName(i), file: s.file, rows: s.rows };
+    }), colors);
+    var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'DG_光學比較_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.xlsx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    var st = $('dg-slot-status');
+    st.className = 'dg-status ok';
+    st.textContent = '已匯出多組比較 Excel：' + DG_SLOTS.length + ' 組有資料，其餘 '
+      + (DG_OPT_N - DG_SLOTS.length) + ' 組欄位與公式保留、資料空白。\n'
+      + '公式是活的（在 Excel 裡改亮度，相對亮度／Gamma／圖表都會跟著重算）；三張圖是原生 Excel 圖表。';
   }
 
   function dgSlotClearAll() {
@@ -3288,6 +3688,7 @@
       if (!DG_SLOTS.length) { dgSlotStatus(); return; }
       dgSlotClearAll();
     });
+    $('dg-btn-slot-xlsx').addEventListener('click', dgSlotExportXlsx);
     ['dg-sd', 'dg-hw', 'dg-entry'].forEach(function (id) {
       $(id).addEventListener('change', function () { dgSyncDerived(); dgRenderOutFmt(); });
     });
@@ -3399,7 +3800,13 @@
       });
     },
     slotMax: function () { return DG_SLOT_MAX; },
-    slotColor: dgSlotColor
+    slotColor: dgSlotColor,
+    // v1.4.4 驗證用
+    buildOpticalXlsx: dgBuildOpticalXlsx,
+    optSheetName: function () { return DG_OPT_SHEETNAME; },
+    optCols: function () { return DG_OPT_C; },
+    optColName: dgOptCn,
+    slotRaw: function () { return DG_SLOTS; }
   };
 })();
 </script>
