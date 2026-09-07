@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260907dg160">
+<link rel="stylesheet" href="common/common.css?v=20260907dg170">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -397,11 +397,6 @@
   .dg-fmt.warn { border-color: var(--warn); background: #2a1a05; color: #fcd34d; }
   .dg-fmt.err  { border-color: #7f1d1d; background: #2a0f0f; color: #fca5a5; }
 
-  .dg-round-badge {
-    display: inline-block; background: #6d28d9; color: #fff; font-size: 11px; font-weight: 700;
-    padding: 2px 9px; border-radius: 999px; letter-spacing: .3px;
-  }
-
   /* ─── v1.4.3：光學量測組（最多 10 組）───────────────────────────────── */
   .dg-slots .card-header { background: #1d4ed8; }
   .dg-slot-list { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -487,6 +482,39 @@
   <div class="card dg-setup" id="dg-card-setup">
     <div class="card-header"><span class="icon">⚙️</span><span>位元深度與目標設定</span></div>
     <div class="card-body">
+
+      <div class="dg-sep">輸出格式（寫回 TCON 用）</div>
+      <div class="dg-grid3">
+        <div class="field" style="margin-bottom:0">
+          <label>目標 TCON <span class="dg-badge" id="dg-tcon-badge">未指定</span></label>
+          <select id="dg-tcon" class="dg-sel">
+            <option value="" selected>不指定（沿用匯入檔／依位元深度推定）</option>
+            <optgroup label="Monitor（10 / 12 bit 可選）">
+              <option value="EM01">EM01（Monitor）</option>
+              <option value="EM02">EM02（Monitor）</option>
+              <option value="E512">E512（Monitor）</option>
+            </optgroup>
+            <optgroup label="NB（目前只見到 10 bit）">
+              <option value="E501">E501（NB）</option>
+              <option value="E503">E503（NB）</option>
+              <option value="EN01">EN01（NB）</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>LUT 輸出深度</label>
+          <select id="dg-outbit" class="dg-sel">
+            <option value="" selected>跟隨內容深度</option>
+            <option value="10">10 bit</option>
+            <option value="12">12 bit</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>下載檔主表筆數</label>
+          <div class="dg-derived-val" id="dg-d-entries" style="padding-top:8px">256</div>
+        </div>
+      </div>
+      <div class="dg-note" id="dg-tcon-basis"></div>
 
       <div class="dg-sep">位元深度</div>
       <div class="dg-grid3">
@@ -624,7 +652,6 @@
         <div class="dg-part-head">
           <span class="dg-part-no">第 1 部分</span>
           <span class="dg-part-title">RGB 的 LUT</span>
-          <span class="dg-round-badge" id="dg-round-badge">第 1 輪</span>
           <span class="dg-badge unknown" id="dg-lut-badge">未提供</span>
         </div>
         <div class="dg-part-body">
@@ -632,9 +659,9 @@
             <b>這是什麼：</b>量測第 2 部分那些白階時，<b>面板裡當下實際生效的那張 RGB LUT</b>。
             反查的橫軸是「該通道當時真正送出的驅動碼」，不是灰階索引，所以少了它就沒有橫軸、算不出來。
             <br><b>從哪來：</b>第一輪校正是用原廠 UI 做的，那一輪的 LUT 就在手上 ——
-            匯入該 TCON 的 <b>LUT 檔</b>；或者上一輪是在本頁算的，按結果區的
-            <b>「以此結果開始下一輪」</b>就會自動填進來。面板裡放的是出廠等距表時，按下面的
-            <b>「填入 Default LUT」</b>。
+            匯入該 TCON 的 <b>LUT 檔</b>；上一輪是在本頁算的，就在結果區按
+            <b>「一鍵複製 RGB」</b>（只複製主表 0 ～ N−1，正好是這裡要的範圍），
+            再貼進下面的表格。面板裡放的是出廠等距表時，按下面的 <b>「填入 Default LUT」</b>。
             <br><b>什麼時候需要：</b><b>每一輪都要</b>，而且必須是<b>這一輪量測當下</b>那張，不能沿用更早的。
           </div>
           <textarea id="dg-in-lut" class="dg-ta" spellcheck="false" style="display:none"></textarea>
@@ -749,12 +776,15 @@
       </div>
       <div class="dg-btnrow">
         <button class="dg-btn" id="dg-btn-xlsx">下載完整報告（.xlsx）</button>
-        <button class="dg-btn" id="dg-btn-next">以此結果開始下一輪</button>
       </div>
       <div class="dg-fmt" id="dg-out-fmt-box" style="display:none"></div>
       <div class="dg-table-wrap"><table class="dg-table" id="dg-lut-table"><thead><tr><th>Idx</th><th>R</th><th>G</th><th>B</th></tr></thead><tbody></tbody></table></div>
-      <div class="dg-note">主表是索引 0 ～ N−1；索引 N 是表尾補的一筆，值為 <code>2^內容深度 − 1</code>，
-        與主表最後一筆（驅動上限碼）不是同一個數。</div>
+      <div class="dg-note">下面這張表與「一鍵複製 RGB」都<b>只給主表索引 0 ～ N−1</b>。
+        索引 N 的附加末筆（值 <code>2^輸出深度 − 1</code>，與主表最後一筆的驅動上限碼不是同一個數）
+        <b>只寫進下載的 LUT 檔</b>，而且要不要寫由選到的 TCON 格式決定。
+        <br><b>要跑下一輪就按「一鍵複製 RGB」</b>，貼進第 1 部分的表格，再配上<b>這一輪重新量到的</b>白灰階。
+        （原本的「以此結果開始下一輪」按鈕已移除：它會讓新 LUT 配到舊量測而畫面上仍顯示三份齊備，
+        算得出來但沒有意義。改成手動複製貼上，每一輪都被迫重新湊齊三份輸入。）</div>
     </div>
   </div>
 
@@ -873,8 +903,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260907dg160"></script>
-<script src="common/i18n.js?v=20260907dg160"></script>
+<script src="common/version.js?v=20260907dg170"></script>
+<script src="common/i18n.js?v=20260907dg170"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -1032,20 +1062,29 @@
     }
   }
 
+  /* ─── 位元深度轉換（v1.7.0 從 dgFinalise 抽出，實作一字未改）──────────────
+     from → to：trunc(v × 2^(to−from))，再夾到 2^to − 1。
+     抽出來的唯一理由是「匯出端要換深度時走同一條路」，不要出現第二套換算。
+     可逆性：10→12 是 ×4，12→10 是 ÷4 取整 ⇒ 10→12→10 回到原值；
+     12→10→12 會丟掉低 2 bit，不可逆。這一點畫面上有寫明。 */
+  function dgScaleDepth(rows, from, to) {
+    if (from === to) return rows.map(function (r) { return r.slice(); });
+    var scale = Math.pow(2, to - from), maxOut = Math.pow(2, to) - 1;
+    return rows.map(function (r) {
+      return r.map(function (x) { var t = Math.trunc(x * scale); return (t > maxOut) ? maxOut : t; });
+    });
+  }
+
   // ─── 收尾：修表 → 轉輸出深度 → 覆寫主表末筆 → 再修一次 → 表尾補一筆 ────
   function dgFinalise(v, sd, hw, lutbit, mode, driveCeil, log) {
     var capHW = (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd);
-    var scale = Math.pow(2, lutbit - hw);
     var maxOut = Math.pow(2, lutbit) - 1;
     var N = v.length;
     dgRefineLo(v, capHW, log);
     dgRefineHi(v, log);
-    for (var i = 1; i < N; i++) {
-      for (var c = 0; c < 3; c++) {
-        var t = Math.trunc(v[i][c] * scale);
-        v[i][c] = (t > maxOut) ? maxOut : t;
-      }
-    }
+    // 索引 0 不參與縮放（原本的迴圈就是從 1 開始，這裡逐字保留）
+    var scaled = dgScaleDepth(v, hw, lutbit);
+    for (var i = 1; i < N; i++) v[i] = scaled[i];
     if (mode === 0 || mode === 1) v[N - 1] = [driveCeil, driveCeil, driveCeil];
     log.push('2nd Check LUT Inverse');
     dgRefineHi(v, log);
@@ -2839,14 +2878,123 @@
     return dgParseOpticalA(sheets) || dgParseOpticalB(sheets);
   }
 
-  // 沒有匯入檔可跟隨時：由（Source Driver, 內容深度）推定輸出格式。
+  /* ─── v1.7.0：輸出格式改由「目標 TCON」決定 ─────────────────────────────
+     原本只有「(Source Driver, 內容深度) → 格式」這條推定路徑，問題是同一顆
+     TCON 的 SD 與 LUT 深度都是暫存器設定、隨機種而變，用它們反推型號一定會撞。
+
+     🔴「工作表名是綁型號還是綁位元深度？」實測答案是**兩者都有**，不能一概而論：
+
+     · EM01：該顆的 TCON UI 工具（v0.3.66，檔內偏移 0xB1_1BB2 附近）寫 DG LUT 的
+       那段 Excel COM 字串是「Workbooks/Add → Sheets/Item → Name → LUT」，
+       整段**只有一個工作表名**，後面接 Range A1:D1027（1024 筆）與 A1:D259（256 筆）
+       兩種範圍、以及 Range B1:D1 Merge。⇒ EM01 不分深度，一律叫 LUT。
+
+     · EM02 / E512：兩顆的工具（EM02 v0.4.4 偏移 0x1AA8_xxx／E512 V2.1.11 偏移 0x6FD_xxx）
+       同一段是「Name → DG_10bit ／ Name → DG_12bit」兩個名字並排在同一個
+       字串區塊裡，後面同樣接 Range A1:D259、Range B1:D1 Merge。
+       ⇒ 這兩顆是**隨輸出深度換工作表名**。已由真檔佐證：某 MNT 機種的
+       EM02 DG 檔工作表就是 DG_12bit（259 列、索引 0~256、末筆 4095、主表末筆 4032），
+       另一機種的 E512 DG 檔是 DG_10bit（259 列、末筆 1023、主表末筆 1008）。
+
+     · NB 這一族（E501／E503／EN01）走另一套：單一工作表 RGB、表頭 Level/R/G/B
+       在第 1 列、沒有標題列、也沒有附加末筆（真檔主表末筆就是驅動上限碼）。
+       兩份真檔佐證：某 NB 15.6" E501 機種與另一客戶的 DGM RGB 表，皆為 257 列、
+       索引 0~255、末筆 1008。
+
+     所以 sheet 是一個「吃深度」的函式，不是一個字串；而 Source Driver 深度
+     一律**不**由型號決定（實測 E501 真檔是 SD6、EM01 樣本是 SD8），維持由使用者選／由檔案推定。 */
+
+  var DG_TCON_STYLE = {
+    index: {
+      titleRow: 1, titleText: 'DG', merges: ['B1:D1'],
+      headerRow: 2, headerCols: ['Index', 'R', 'G', 'B'], hasTail: true,
+      desc: '第 1 列標題「DG」（B1:D1 合併）、第 2 列表頭 Index／R／G／B，主表之後<b>多一筆</b>索引 N 的附加末筆（值 2^深度 − 1）'
+    },
+    level: {
+      titleRow: 0, titleText: null, merges: [],
+      headerRow: 1, headerCols: ['Level', 'R', 'G', 'B'], hasTail: false,
+      desc: '沒有標題列，第 1 列就是表頭 Level／R／G／B，主表結束就結束、<b>沒有</b>附加末筆'
+    }
+  };
+
+  var DG_TCON = {
+    EM01: {
+      group: 'monitor', depths: [10, 12], style: 'index',
+      sheet: function () { return 'LUT'; },
+      evid: '工具字串',
+      basis: '依該顆 TCON UI 工具內寫 DG LUT 的 Excel 指令字串：工作表名只有一個「LUT」，'
+        + '不隨輸出深度改變；後面接 A1:D1027（1024 筆）與 A1:D259（256 筆）兩種範圍與 B1:D1 合併。'
+    },
+    EM02: {
+      group: 'monitor', depths: [10, 12], style: 'index',
+      sheet: function (hw) { return 'DG_' + hw + 'bit'; },
+      evid: '工具字串＋真檔',
+      basis: '依該顆 TCON UI 工具內的 Excel 指令字串：「Name → DG_10bit ／ Name → DG_12bit」兩個名字'
+        + '並排在同一段，後接 Range A1:D259 與 B1:D1 合併 ⇒ 工作表名隨深度改變。'
+        + '真檔佐證：本機一台 MNT 機種的 EM02 DG 檔即為 DG_12bit、259 列、索引 0~256、末筆 4095。'
+    },
+    E512: {
+      group: 'monitor', depths: [10, 12], style: 'index',
+      sheet: function (hw) { return 'DG_' + hw + 'bit'; },
+      evid: '工具字串＋真檔',
+      basis: '與 EM02 同一段 Excel 指令字串（該顆的工具內容相同）：DG_10bit ／ DG_12bit 隨深度換名，'
+        + 'Range A1:D259、B1:D1 合併。真檔佐證：本機一台 MNT 機種的 DG 檔為 DG_10bit、259 列、末筆 1023。'
+    },
+    E501: {
+      group: 'nb', depths: [10], style: 'level',
+      sheet: function () { return 'RGB'; },
+      evid: '真檔',
+      basis: '依真檔歸納（<b>非規格</b>）：本機一台 NB 15.6" 機種的 DGM RGB 表，工作表 RGB、'
+        + '第 1 列表頭 Level／R／G／B、257 列、索引 0~255、末筆 1008（＝驅動上限碼，沒有附加末筆）。'
+        + '在該顆的工具二進位檔裡找不到對應的 Excel 寫檔字串，所以只有檔案證據、沒有程式碼證據。'
+    },
+    E503: {
+      group: 'nb', depths: [10], style: 'level',
+      sheet: function () { return 'RGB'; },
+      evid: '真檔',
+      basis: '依真檔歸納（<b>非規格</b>）：工作表 RGB、第 1 列表頭 Level／R／G／B、256 筆索引 0~255、'
+        + '沒有附加末筆。與同族其他型號的真檔結構一致。未找到對應的工具寫檔字串。'
+    },
+    EN01: {
+      group: 'nb', depths: [10], style: 'level',
+      sheet: function () { return 'RGB'; },
+      evid: '真檔',
+      basis: '依真檔歸納（<b>非規格</b>）：與同族其他型號共用同一份 RGB 表結構（Level 表頭、'
+        + '256 筆索引 0~255、無附加末筆）。未找到對應的工具寫檔字串。'
+    }
+  };
+
+  function dgTconDepths(key) {
+    var t = DG_TCON[key];
+    return t ? t.depths.slice() : [8, 9, 10, 11, 12, 13, 14];
+  }
+
+  // 依「目標 TCON ＋ 輸出深度 ＋ 主表筆數」組出輸出格式。
+  function dgFmtFromTcon(key, sd, hw, entries) {
+    var t = DG_TCON[key];
+    if (!t) return null;
+    var st = DG_TCON_STYLE[t.style], n = entries || 256, name = t.sheet(hw);
+    return {
+      sheetName: name,
+      titleRow: st.titleRow, titleText: st.titleText, merges: st.merges.slice(),
+      headerRow: st.headerRow, headerCols: st.headerCols.slice(), headerFirst: st.headerCols[0],
+      entries: n, hasTail: st.hasTail, hw: hw,
+      cap: (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd),
+      sd: sd, sdOk: true, source: 'tcon', tcon: key, evid: t.evid,
+      label: key + '／' + hw + ' bit／工作表「' + name + '」／主表 ' + n + ' 筆'
+        + (st.hasTail ? '＋附加末筆（共 ' + (n + 1) + ' 筆）' : '（無附加末筆）')
+    };
+  }
+
+  // 沒有選 TCON、也沒有匯入檔可跟隨時：由（Source Driver, 內容深度）推定輸出格式。
   // 這組對應是從現有 LUT 檔實測歸納的，不是規格；推不出來就不硬猜。
-  function dgFmtFromBits(sd, hw) {
+  function dgFmtFromBits(sd, hw, entries) {
     var m = null;
     if (sd === 8 && hw === 12) m = { sheetName: 'LUT', first: 'Index', title: true };
     else if (sd === 6 && hw === 10) m = { sheetName: 'DG_10bit', first: 'Index', title: true };
     else if (sd === 8 && hw === 10) m = { sheetName: 'RGB', first: 'Level', title: false };
     if (!m) return null;
+    var n = entries || 256;
     return {
       sheetName: m.sheetName,
       titleRow: m.title ? 1 : 0, titleText: m.title ? 'DG' : null,
@@ -2854,9 +3002,9 @@
       headerRow: m.title ? 2 : 1,
       headerCols: [m.first, 'R', 'G', 'B'],
       headerFirst: m.first,
-      entries: 256, hasTail: m.title, hw: hw, cap: (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd),
+      entries: n, hasTail: m.title, hw: hw, cap: (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd),
       sd: sd, sdOk: true, source: 'bits',
-      label: m.first + ' 型／' + hw + ' bit／主表 256 筆' + (m.title ? '＋附加末筆' : '（無附加末筆）')
+      label: m.first + ' 型／' + hw + ' bit／主表 ' + n + ' 筆' + (m.title ? '＋附加末筆' : '（無附加末筆）')
         + '／工作表「' + m.sheetName + '」（依 SD ' + sd + ' bit、內容深度 ' + hw + ' bit 推定）'
     };
   }
@@ -3416,7 +3564,10 @@
     var inCodes = null;
     var lutTxt = $('dg-in-lut').value.trim();
     if (lutTxt) {
-      var rows = dgParseRows(lutTxt);
+      // v1.7.0：跳過整行都不是數字的列（「一鍵複製 RGB」帶的 Index/RLUT/GLUT/BLUT 表頭）
+      var rows = dgParseRows(lutTxt).filter(function (r) {
+        return r.some(function (x) { return isFinite(x); });
+      });
       inCodes = rows.map(function (r) { return (r.length >= 4) ? [r[1], r[2], r[3]] : [r[0], r[1], r[2]]; });
       if (inCodes.length < grayXYZ.length) throw new Error('第 1 部分的 LUT 筆數（' + inCodes.length + '）少於白灰階量測筆數（' + grayXYZ.length + '）。');
     }
@@ -3444,7 +3595,6 @@
       return i + ' ' + v[0] + ' ' + v[1] + ' ' + v[2] + ' ' + s.grayT[i] + ' ' + s.grayUV[i];
     }).join('\n');
     $('dg-in-white').value = s.targetWhite.join(' ') + ' ' + s.props.W[3];
-    $('dg-round-badge').textContent = '第 1 輪';
     DG_SRC.gray = { kind: 'sample', name: s.name };
     DG_SRC.prim = { kind: 'sample', name: s.name };
     dgSyncDerived();
@@ -3736,6 +3886,11 @@
     var block = String(text).replace(/\r/g, '').split('\n')
       .filter(function (l, i, a) { return l !== '' || i < a.length - 1; })
       .map(function (l) { return l.split(/\t/).length > 1 ? l.split(/\t/) : l.trim().split(/[\s,;]+/); });
+    /* v1.7.0：整行都不是數字的第一列＝表頭，丟掉。
+       「一鍵複製 RGB」複製出來的第一行就是 Index／RLUT／GLUT／BLUT（那是為了貼進 Excel 好認欄位），
+       從 Excel 圈一整塊來貼也常常會連表頭一起帶。不丟掉的話整份資料會往下錯開一列，
+       而且錯得很安靜 —— 表格上看起來滿滿的、計算鈕也會亮。 */
+    while (block.length > 1 && !block[0].some(function (v) { return isFinite(parseFloat(v)); })) block.shift();
     var maxRows = g.spec.fixedRowLabels ? g.spec.fixedRowLabels.length : Infinity;
     var wrote = false;
     for (var i = 0; i < block.length; i++) {
@@ -3967,7 +4122,7 @@
       ],
       hint: '量測當下面板裡實際生效的那張表。<b>必填</b> —— 沒有它就沒有反查的橫軸。',
       emptyHtml: '<b>還沒有資料，計算會被擋下。</b>匯入 LUT 檔（或含 LUT 表的量測檔）會自動填滿；'
-        + '上一輪是在本頁算的，按結果區「以此結果開始下一輪」也會填進來。'
+        + '上一輪是在本頁算的，就在結果區按「一鍵複製 RGB」再貼進這張表格。'
         + '<br>面板裡放的是出廠等距表時，按下面的「填入 Default LUT」（灰階 × 2^(內容深度−8)，RGB 三通道相同）。'
     });
     var prim = dgGrid({
@@ -4030,28 +4185,110 @@
     else dgSetSdBadge('', '預設');
   }
 
-  // 匯出要用哪一份格式：匯入過就跟隨匯入的；沒有就由（SD, 內容深度）推定。
+  /* ─── v1.7.0：輸出深度 ────────────────────────────────────────────────
+     空字串＝跟隨「LUT 內容深度」（維持 v1.6.0 的行為）；選了數字就換算過去。 */
+  function dgOutBit() {
+    var el = $('dg-outbit');
+    var v = el ? parseInt(el.value, 10) : NaN;
+    return isFinite(v) ? v : dgReadCfg().hw;
+  }
+  function dgTconKey() {
+    var el = $('dg-tcon');
+    return el ? el.value : '';
+  }
+
+  /* 輸出深度選單要跟著 TCON 開關：NB 這一族目前只見到 10 bit，12 bit 直接停用。
+     但**不留死路**——停用的選項旁邊講清楚為什麼，而且「跟隨內容深度」永遠開著，
+     真的遇到 12 bit 的 NB 時，把上面的「LUT 內容深度」改成 12 bit 就出得去。 */
+  function dgSyncOutBitOptions() {
+    var key = dgTconKey(), allow = dgTconDepths(key), sel = $('dg-outbit');
+    if (!sel) return;
+    Array.prototype.forEach.call(sel.options, function (o) {
+      if (!o.value) { o.disabled = false; return; }
+      var d = parseInt(o.value, 10);
+      var ok = allow.indexOf(d) >= 0;
+      o.disabled = !ok;
+      o.textContent = d + ' bit' + (ok ? '' : '（此型號目前沒有這個深度的實例）');
+    });
+    if (sel.selectedOptions && sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = '';
+    else if (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].disabled) sel.value = '';
+  }
+
+  function dgRenderTconBasis() {
+    var key = dgTconKey(), box = $('dg-tcon-basis'), badge = $('dg-tcon-badge');
+    if (!box) return;
+    if (!key) {
+      if (badge) { badge.className = 'dg-badge'; badge.textContent = '未指定'; }
+      box.className = 'dg-note';
+      box.innerHTML = '<b>沒有指定 TCON。</b>下載 LUT 檔會沿用你匯入的那個檔的格式；'
+        + '沒有匯入過就依（Source Driver, 內容深度）推定，推不出來就不讓你下載。'
+        + '<br>選一顆 TCON 之後，工作表名稱、表頭、有沒有附加末筆會直接照那顆的格式產生。';
+      return;
+    }
+    var t = DG_TCON[key], st = DG_TCON_STYLE[t.style];
+    if (badge) {
+      badge.className = 'dg-badge ' + (t.evid === '真檔' ? 'guess' : 'manual');
+      badge.textContent = t.evid;
+    }
+    box.className = 'dg-note' + (t.evid === '真檔' ? ' warn' : '');
+    box.innerHTML = '<b>' + key + '（' + (t.group === 'nb' ? 'NB' : 'Monitor') + '）的 LUT 檔長這樣：</b>'
+      + st.desc + '；工作表名稱「' + t.sheet(dgOutBit()) + '」。'
+      + '<br><b>格式依據（' + t.evid + '）：</b>' + t.basis
+      + '<br>' + (t.depths.length > 1
+        ? '<b>輸出深度：</b>這顆的 LUT 深度是暫存器設定，10 bit 與 12 bit 都合法，右邊自己選。'
+        : '<b>輸出深度：</b>目前手上這一族只見過 10 bit 的檔，所以 12 bit 停用。'
+          + '若真的遇到 12 bit 的機種，把上面的「LUT 內容深度」改成 12 bit、輸出深度留「跟隨內容深度」即可繞過。')
+      + '<br>⚠ 上面這些是<b>樣本與工具字串歸納</b>，不是規格書。寫回 TCON 前請自己再核對一次。';
+  }
+
+  // 匯出要用哪一份格式：選了 TCON 就照 TCON；否則匯入過就跟隨匯入的；再否則由（SD, 內容深度）推定。
   function dgOutFmt() {
-    if (dgImportedFmt) return dgImportedFmt;
-    var c = dgReadCfg();
-    return dgFmtFromBits(c.sd, c.hw);
+    var c = dgReadCfg(), hw = dgOutBit(), key = dgTconKey();
+    if (key) return dgFmtFromTcon(key, c.sd, hw, c.N);
+    if (dgImportedFmt) {
+      var f = dgImportedFmt;
+      if (hw === f.hw && c.N === f.entries) return f;
+      var g = {}; for (var k in f) if (Object.prototype.hasOwnProperty.call(f, k)) g[k] = f[k];
+      g.hw = hw; g.entries = c.N;
+      g.cap = (Math.pow(2, c.sd) - 1) * Math.pow(2, hw - c.sd);
+      g.label = f.label + '　→ 改以 ' + hw + ' bit／主表 ' + c.N + ' 筆輸出';
+      return g;
+    }
+    return dgFmtFromBits(c.sd, hw, c.N);
   }
 
   function dgRenderOutFmt() {
-    var box = $('dg-out-fmt-box'), f = dgOutFmt();
+    var box = $('dg-out-fmt-box'), f = dgOutFmt(), c = dgReadCfg();
+    var ent = $('dg-d-entries');
+    if (ent) ent.textContent = f ? f.entries + (f.hasTail ? ' ＋末筆' : '') : '—';
     box.style.display = '';
     if (!f) {
-      var c = dgReadCfg();
       box.className = 'dg-fmt warn';
       box.innerHTML = '<b>下載 LUT 檔：目前無法決定輸出格式。</b><br>'
-        + '沒有匯入過 LUT 檔，而目前的 Source Driver ' + c.sd + ' bit ＋ 內容深度 ' + c.hw
-        + ' bit 沒有對應的已知格式。<br>請匯入一份該 TCON 的 LUT 檔（匯出就會照它的格式），或把上方兩個位元深度改成已知組合。';
+        + '沒有指定目標 TCON、也沒有匯入過 LUT 檔，而目前的 Source Driver ' + c.sd + ' bit ＋ 輸出深度 '
+        + dgOutBit() + ' bit 沒有對應的已知格式。<br>'
+        + '請在上面<b>選一顆目標 TCON</b>（最直接），或匯入一份該 TCON 的 LUT 檔，或把位元深度改成已知組合。';
       return;
     }
+    var from = lastCtx ? lastCtx.cfg.hw : c.hw, to = f.hw;
     box.className = 'dg-fmt';
     box.innerHTML = '<b>下載 LUT 檔會用這個格式：</b>' + f.label
-      + (f.source === 'file' ? '<br>（跟隨你匯入的那個檔，欄位、工作表名稱、有無末筆都一樣，可以直接寫回去。）'
-        : '<br>（沒有匯入過檔案，這是依位元深度推定的格式。匯入一份實際的 LUT 檔會更保險。）');
+      + (f.source === 'tcon'
+        ? '<br>（依你選的目標 TCON 產生：工作表名稱、表頭、有無附加末筆都照那顆的格式。格式依據見上方設定卡片。）'
+        : f.source === 'file'
+          ? '<br>（跟隨你匯入的那個檔，欄位、工作表名稱、有無末筆都一樣，可以直接寫回去。）'
+          : '<br>（沒有指定 TCON、也沒有匯入過檔案，這是依位元深度推定的格式。選一顆 TCON 會更保險。）')
+      + (from !== to
+        ? '<br><b>⚠ 深度換算：</b>算出來的是 ' + from + ' bit，下載時會換成 ' + to + ' bit（'
+          + (to > from ? '×2^' + (to - from) : '÷2^' + (from - to) + ' 取整') + '）。'
+          + (to > from
+            ? '往上是純位移，' + to + ' bit 再換回 ' + from + ' bit 會回到原值。'
+            : '往下會丟掉低 ' + (from - to) + ' 個 bit，<b>換回去不會回到原值</b>。')
+        : '')
+      + '<br>下方表格與「一鍵複製 RGB」只給<b>主表 0 ～ ' + (f.entries - 1) + '</b>；'
+      + (f.hasTail
+        ? '索引 ' + f.entries + ' 的附加末筆<b>只寫進下載的檔案</b>，不進表格也不進剪貼簿。'
+        : '這個格式本來就沒有附加末筆。');
   }
 
   function dgApplyImportedFmt(det, fileName, quiet) {
@@ -4071,7 +4308,7 @@
     }).join('\n');
     dgSetSrc('lut', { kind: 'file', name: fileName || '' });
 
-    dgRenderOutFmt();
+    dgRefreshOutputs();
     if (quiet) return;   // 由 dgRenderImportBox() 統一報告這次匯入帶進來的所有東西
     var box = $('dg-fmt-box');
     box.style.display = '';
@@ -4098,8 +4335,8 @@
       card: 'dg-part-lut', badge: 'dg-lut-badge', src: 'dg-src-lut',
       name: '第 1 部分：RGB 的 LUT',
       how: '匯入該 TCON 的 LUT 檔（或含 LUT 表的 <span class="dg-fname">RaydiumCCT_…</span>）、'
-        + '按第 1 部分裡的「填入 Default LUT」，或在結果區按「以此結果開始下一輪」。',
-      howText: '匯入 LUT 檔、按「填入 Default LUT」，或從結果區按「以此結果開始下一輪」。'
+        + '按第 1 部分裡的「填入 Default LUT」，或把上一輪的結果用結果區的「一鍵複製 RGB」貼進來。',
+      howText: '匯入 LUT 檔、按「填入 Default LUT」，或把上一輪結果用「一鍵複製 RGB」貼進來。'
     },
     gray: {
       card: 'dg-part-gray', badge: 'dg-gray-badge', src: 'dg-src-gray',
@@ -4143,10 +4380,6 @@
     }
     if (s.kind === 'sample') {
       return { cls: 'ready', text: '來自內建範例' + ed, src: '來源：內建範例資料（' + dgXe(s.name || '') + '）。' };
-    }
-    if (s.kind === 'round') {
-      return { cls: 'ready', text: '沿用上一輪結果' + ed,
-        src: '來源：上一輪在本頁算出來的 LUT（按「以此結果開始下一輪」帶入）。' };
     }
     return { cls: 'manual', text: '手動輸入', src: '來源：手動輸入／貼上。' };
   }
@@ -4297,11 +4530,31 @@
     box.innerHTML = h;
   }
 
+  /* ─── v1.7.0：主表（不含附加末筆）＋ 已套用輸出深度 ────────────────────
+     🔴 表格顯示與一鍵複製一律只到主表最後一筆（N = 256 時就是 0 ～ 255）。
+        索引 N 的附加末筆是「寫進檔案給 TCON 吃」的東西，不是使用者要抄的資料，
+        以前一起顯示／一起複製會讓人多貼一行。
+        下載的檔案**不受這條影響** —— 有沒有那一筆完全由選到的 TCON 格式決定。 */
+  function dgOutLutBody() {
+    if (!lastLut) return null;
+    var body = lastLut.slice(0, lastLut.length - 1);
+    var from = lastCtx ? lastCtx.cfg.hw : dgReadCfg().hw;
+    return dgScaleDepth(body, from, dgOutBit());
+  }
+
+  // 輸出深度／目標 TCON 改動後，表格與格式框要跟著重畫（結果本身不重算）
+  function dgRefreshOutputs() {
+    dgSyncOutBitOptions();
+    dgRenderTconBasis();
+    dgRenderOutFmt();
+    if (lastLut) dgFillLutTable(dgOutLutBody());
+  }
+
   function dgDownloadLutXlsx() {
     if (!lastLut) { dgSetStatus('dg-status', '還沒有結果可下載，請先按「計算」。', 'err'); return; }
     var f = dgOutFmt();
     if (!f) { dgRenderOutFmt(); dgSetStatus('dg-status', '無法決定輸出格式，請看下方說明。', 'err'); return; }
-    var bytes = dgBuildLutXlsx(f, lastLut);
+    var bytes = dgBuildLutXlsx(f, dgOutLutBody());
     var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -4327,11 +4580,13 @@
       var res = dgCompute(cfg, data);
       lastLut = res.lut;
       lastCtx = { cfg: cfg, data: data, res: res };
-      dgFillLutTable(res.lut);
+      dgRenderOutFmt();
+      dgFillLutTable(dgOutLutBody());   // v1.7.0：表格只給主表，且套用輸出深度
       dgDrawCharts(data.grayxyY);
       dgDrawLutChart(res.lut, cfg.hw, cfg.sd);
       dgSetStatus('dg-status',
-        '計算完成。\n輸出 ' + res.lut.length + ' 筆（主表 ' + cfg.N + ' ＋ 附加 1）\n'
+        '計算完成。\n主表 ' + cfg.N + ' 筆（索引 0 ～ ' + (cfg.N - 1) + '）＋ 附加末筆 1 筆，內部共 ' + res.lut.length + ' 筆\n'
+        + '下方表格與「一鍵複製 RGB」只給主表；附加末筆只會出現在下載的 LUT 檔（且由 TCON 格式決定要不要寫）\n'
         + '驅動上限碼 = ' + res.driveCeil + '　附加末筆 = ' + (Math.pow(2, cfg.lutbit) - 1) + '\n'
         + '修表事件 ' + res.log.filter(function (l) { return l.indexOf('Gray ') === 0; }).length + ' 筆\n'
         + '第 1 部分的 LUT：' + dgPartBadgeInfo('lut').text
@@ -4358,28 +4613,23 @@
 
   function dgCopyLut() {
     if (!lastLut) { dgSetStatus('dg-status', '還沒有結果可複製，請先按「計算」。', 'err'); return; }
-    var tsv = dgLutTsv(lastLut);
+    var body = dgOutLutBody();          // v1.7.0：只給主表，不含附加末筆
+    var tsv = dgLutTsv(body);
     dgCopyText(tsv).then(function () {
-      dgSetStatus('dg-status', '✔ 已複製 ' + lastLut.length + ' 列（含標題共 ' + (lastLut.length + 1)
-        + ' 列）到剪貼簿，tab 分隔。直接貼進 Excel 會自動分成 Index / R / G / B 四欄。', 'ok');
+      dgSetStatus('dg-status', '✔ 已複製主表 ' + body.length + ' 列（索引 0 ～ ' + (body.length - 1)
+        + '，含標題共 ' + (body.length + 1) + ' 列）到剪貼簿，tab 分隔，深度 ' + dgOutBit() + ' bit。\n'
+        + '索引 ' + body.length + ' 的附加末筆沒有複製 —— 它只屬於下載的 LUT 檔，而且要不要寫由 TCON 格式決定。\n'
+        + '要跑下一輪就把這份貼進第 1 部分的表格，再配上這一輪重新量到的白灰階。', 'ok');
     }).catch(function (e) {
       dgSetStatus('dg-status', '複製失敗：' + e.message + '\n（瀏覽器可能要求先與頁面互動，或此頁不是從 https / localhost 開啟）', 'err');
     });
   }
 
-  var roundNo = 1;
-  function dgNextRound() {
-    if (!lastLut) { dgSetStatus('dg-status', '還沒有結果，無法開始下一輪。', 'err'); return; }
-    var body = lastLut.slice(0, lastLut.length - 1);   // 附加末筆不參與下一輪
-    $('dg-in-lut').value = body.map(function (r, i) { return i + ' ' + r[0] + ' ' + r[1] + ' ' + r[2]; }).join('\n');
-    dgSetSrc('lut', { kind: 'round' });
-    roundNo++;
-    $('dg-round-badge').textContent = '第 ' + roundNo + ' 輪';
-    dgSetStatus('dg-status',
-      '已把本輪 LUT 填入第 1 部分。\n下一步：把這張表寫進 TCON、重新量一次白灰階，'
-      + '再把新的量測檔匯進來（第 2 部分會被換掉，第 3 部分沿用原本那組端點），然後按計算。\n'
-      + '（第 1 部分已非 Default，RGB 三通道不同 —— 反插值會以各通道自己的驅動碼為橫軸。）', 'ok');
-  }
+  /* v1.7.0：「以此結果開始下一輪」已移除（Bruce 2026-09-07 裁示）。
+     它按下去之後第 1 部分是新 LUT、第 2 部分還是舊量測，三份輸入卻都算「有」、
+     計算鈕照樣可按 —— 使用者略過提示直接算，就是新表配舊量測，結果沒有意義。
+     它省下的只有「搬 N 行並去掉附加末筆」，而「一鍵複製 RGB」改成只給主表之後
+     正好就是下一輪起始 LUT 需要的範圍，複製貼上已完全取代。 */
 
   // ─── 自我驗證 ──────────────────────────────────────────────────────────
   function dgVerify(mutate) {
@@ -4421,7 +4671,13 @@
       dgSetStatus('dg-verify-status', msg, bad > 0 ? 'ok' : 'err');
     } else {
       dgSetStatus('dg-verify-status', msg + (bad === 0 ? '\n\n✔ 逐值完全一致。' : '\n\n✘ 有差異。'), bad === 0 ? 'ok' : 'err');
-      if (bad === 0) { lastLut = res.lut; dgFillLutTable(res.lut); dgDrawCharts(s.grayxyY); dgDrawLutChart(res.lut, cfg.hw, cfg.sd); }
+      if (bad === 0) {
+        lastLut = res.lut;
+        lastCtx = { cfg: cfg, data: data, res: res };
+        dgRenderOutFmt();
+        dgFillLutTable(dgOutLutBody());
+        dgDrawCharts(s.grayxyY); dgDrawLutChart(res.lut, cfg.hw, cfg.sd);
+      }
     }
   }
 
@@ -4436,7 +4692,11 @@
     });
     $('dg-btn-slot-xlsx').addEventListener('click', dgSlotExportXlsx);
     ['dg-sd', 'dg-hw', 'dg-entry'].forEach(function (id) {
-      $(id).addEventListener('change', function () { dgSyncDerived(); dgRenderOutFmt(); });
+      $(id).addEventListener('change', function () { dgSyncDerived(); dgRefreshOutputs(); });
+    });
+    ['dg-tcon', 'dg-outbit'].forEach(function (id) {
+      var el = $(id);
+      if (el) el.addEventListener('change', dgRefreshOutputs);
     });
     $('dg-sd').addEventListener('change', function () {
       dgSdUserSet = true;
@@ -4460,18 +4720,16 @@
     $('dg-btn-default').addEventListener('click', dgFillDefault);
     $('dg-btn-clear').addEventListener('click', function () {
       ['dg-in-prim', 'dg-in-gray', 'dg-in-white', 'dg-in-lut'].forEach(function (id) { $(id).value = ''; });
-      roundNo = 1; $('dg-round-badge').textContent = '第 1 輪';
       dgImportedFmt = null; dgSdBasisText = '';
       $('dg-fmt-box').style.display = 'none';
       DG_SRC = { lut: null, gray: null, prim: null };
       dgRefreshReady();
-      dgRefreshSdBadge(); dgRenderOutFmt();
+      dgRefreshSdBadge(); dgRefreshOutputs();
       dgSetStatus('dg-status', '已清空。三個部分都回到「未提供」，計算鈕會停用到三份資料補齊為止。', '');
     });
     $('dg-btn-calc').addEventListener('click', dgDoCalc);
     $('dg-btn-xlsx').addEventListener('click', dgDownloadXlsx);
     $('dg-btn-copy').addEventListener('click', dgCopyLut);
-    $('dg-btn-next').addEventListener('click', dgNextRound);
     $('dg-btn-verify').addEventListener('click', function () { dgVerify(false); });
     $('dg-btn-negctrl').addEventListener('click', function () { dgVerify(true); });
 
@@ -4506,7 +4764,7 @@
     });
     dgSyncDerived();
     dgRefreshSdBadge();
-    dgRenderOutFmt();
+    dgRefreshOutputs();
     dgRefreshReady();
     dgDrawCharts(null);
     dgDrawLutChart(null, dgReadCfg().hw, dgReadCfg().sd);
@@ -4524,6 +4782,16 @@
     buildXlsx: dgBuildXlsx,
     workbookRows: dgWorkbookRows,
     lutTsv: dgLutTsv,
+    // v1.7.0 驗證用：輸出格式與深度換算
+    fmtFromTcon: dgFmtFromTcon,
+    tconTable: function () { return DG_TCON; },
+    tconStyles: function () { return DG_TCON_STYLE; },
+    scaleDepth: dgScaleDepth,
+    outFmt: function () { return dgOutFmt(); },
+    outBit: function () { return dgOutBit(); },
+    outLutBody: function () { return dgOutLutBody(); },
+    lastLutRaw: function () { return lastLut ? lastLut.map(function (r) { return r.slice(); }) : null; },
+    buildLutXlsx: dgBuildLutXlsx,
     unzip: dgUnzip,
     readWorkbook: dgReadWorkbook,
     readSheets: dgReadSheets,
