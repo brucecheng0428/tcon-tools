@@ -1529,7 +1529,7 @@ var I18N = {
   /* v3.5.0: 卡片空狀態提示 —— 原本沒有游標時是一片空白，無法區分「沒有游標」與「功能壞了」。
      術語沿用既有 i18n 的寫法（laCursorDtHint 內文一律用英文 cursor，不譯）。 */
   'wfg.cursorEmpty':    { 'zh-TW': '尚未建立 cursor（按 1～0 建立）', 'en': 'No cursors yet (press 1–0 to add)', 'zh-CN': '尚未建立 cursor（按 1～0 建立）' },
-  'wfg.laCursorDtHint':  { 'zh-TW': '輸入數值後按 Enter：編號 1 的 cursor 固定不動，編號 2 的 cursor 移動到間隔等於此值處（依目前顯示單位）。預設沿用 2 目前所在的一側；前面加 − 或 + 可指定把 2 放到 1 的左側或右側', 'en': 'Type a number and press Enter: cursor 1 stays put, cursor 2 moves so the gap equals this value (in the unit shown). It keeps the side cursor 2 is currently on; prefix with − or + to force cursor 2 to the left or right of cursor 1', 'zh-CN': '输入数值后按 Enter：编号 1 的 cursor 固定不动，编号 2 的 cursor 移动到间隔等于此值处（依当前显示单位）。默认沿用 2 当前所在的一侧；前面加 − 或 + 可指定把 2 放到 1 的左侧或右侧' },
+  'wfg.laCursorDtHint':  { 'zh-TW': '輸入數值後按 Enter：編號 1 的 cursor 固定不動，編號 2 的 cursor 移動到間隔等於此值處（依目前顯示單位）。編號 2 沿著它目前所在的那一側移動 —— 改大就離編號 1 更遠，改小就更靠近', 'en': 'Type a number and press Enter: cursor 1 stays put, cursor 2 moves so the gap equals this value (in the unit shown). Cursor 2 moves along the side it is currently on — a larger value takes it further from cursor 1, a smaller one brings it closer', 'zh-CN': '输入数值后按 Enter：编号 1 的 cursor 固定不动，编号 2 的 cursor 移动到间隔等于此值处（依当前显示单位）。编号 2 沿着它当前所在的那一侧移动 —— 改大就离编号 1 更远，改小就更靠近' },
   // ─── WFG: Pulse counter ───
   'wfg.pulseTitle':     { 'zh-TW': '脈衝計數', 'en': 'Pulse Counter', 'zh-CN': '脉冲计数' },
   'wfg.pulseAdd':       { 'zh-TW': '新增計數項目', 'en': 'Add counter', 'zh-CN': '新增计数项目' },
