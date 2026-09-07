@@ -447,20 +447,16 @@
   .dg-req.bad  { border: 1.5px solid var(--warn); background: #2a1a05; color: #fcd34d; }
   .dg-req.good { border: 1.5px solid #0d9488; background: #042f2a; color: #5eead4; }
 
-  /* ─── v1.12.0：輸出卡片還不能用的時候，整張明顯灰掉 ───────────────────
-     🔴 刻意不隱藏整張卡片（Bruce 給的三個選項裡選這個）：卡片消失會讓人
-        以為功能不見了、回頭找。灰掉＋一行說明「卡在哪」才是看得懂的狀態。
-     這只是外觀。真正的閘門在 dgDownloadLutXlsx()／dgCopyLut()／dgDownloadXlsx()
-     開頭那三個 `if (!lastLut/lastCtx) return;` —— 繞過 disabled 也產不出東西。 */
-  .card.dg-locked .card-body { opacity: .45; filter: grayscale(1); }
-  .card.dg-locked .card-header { background: #475569; }
-  .card.dg-locked .dg-out-gate { opacity: 1; filter: none; }
-  .dg-out-gate {
-    margin-bottom: 10px; padding: 9px 11px; border-radius: 8px;
-    border: 1.5px solid var(--warn); background: #2a1a05; color: #fcd34d;
-    font-size: 11.5px; line-height: 1.7; text-transform: none;
-  }
-  .dg-out-gate.dg-hidden { display: none; }
+  /* ─── v1.14.0：沒有結果時，輸出卡片整張不顯示 ─────────────────────────────
+     取代 v1.12.0 的 `.dg-locked`（整張灰掉 ＋ 一行黃框寫「卡在哪」）。
+     Bruce 2026-09-07 第二次裁示：「還沒有開始計算的時候，下面的卡片是不會顯示產出
+     的。這樣會不會更簡潔？」—— 灰掉的卡片還在那裡，仍然要人去讀那行黃框；不顯示
+     就沒有東西要讀，這才是「不用閱讀太多文字就知道該怎麼做」。
+     v1.12.0 的 `.dg-locked` 樣式與 `#dg-out-gate` 那一行黃框都已一併移除（全檔不再
+     有任何一處用到，留著就是死碼）。
+     這只是外觀。真正的閘門在 dgDoCalc() 與 dgDownloadLutXlsx()／dgCopyLut()／
+     dgDownloadXlsx() 開頭那幾個 return —— 看不見不等於擋得住，兩者都要。 */
+  .card.dg-out-hidden { display: none; }
   .dg-req ul { margin: 6px 0 0; padding-left: 17px; }
   .dg-req li { margin-bottom: 4px; }
   .dg-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -530,6 +526,18 @@
     margin-left: auto; border-color: rgba(255, 255, 255, .55);
     background: rgba(0, 0, 0, .28); color: #fde68a;
   }
+  /* v1.14.0：第 1 部分二選一視窗裡的兩個選項區塊 */
+  .dg-lut-opt {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 11px 11px; margin-bottom: 12px; background: #131c2c;
+  }
+  .dg-lut-opt:last-child { margin-bottom: 0; }
+  .dg-lut-opt-title {
+    font-size: 13px; font-weight: 700; color: var(--text);
+    margin-bottom: 7px; line-height: 1.5;
+  }
+  .dg-lut-opt .dg-btnrow { margin-top: 9px; }
+
   .dg-modal-body .dg-note, .dg-modal-body .dg-fmt { margin-top: 0; margin-bottom: 10px; }
   .dg-modal-body .dg-note:last-child, .dg-modal-body .dg-fmt:last-child { margin-bottom: 0; }
   .dg-modal-body .dg-info-src { display: block; }
@@ -760,7 +768,7 @@
         每一部分有自己的匯入鈕，<b>按第幾部分的鈕就是在補第幾份</b>；
         每個部分自己的徽章會顯示它是從哪一份檔進來的。
         <br>· <b>LUT 檔</b>（TCON 的表，例如 <span class="dg-fname">EM02_DG_LUT.xlsx</span>）：<b>只填第 1 部分</b>，
-        並記住格式，算完用同一個格式輸出。手上沒有檔時，第 1 部分還有「Default LUT（DG_EN 關閉時的表）」可按。
+        並記住格式，算完用同一個格式輸出。手上沒有檔時，第 1 部分的「① 設定 RGB 的 LUT」裡有「這片面板第一次調 Digital Gamma」那條路（用 Default 等距表，不需要檔案）。
         <br>· <b>白灰階量測檔</b>（<span class="dg-fname">RaydiumGamma_…</span>，只量白階）：<b>只填第 2 部分</b>。
         <br>· <b>CCT 檔</b>（含 R／G／B 純色量測）：<b>只填第 3 部分</b>，而且<b>只取三個端點的 X／Y／Z</b>。
       </div>
@@ -769,7 +777,7 @@
         因為<b>本頁不做第一輪</b>。CCT 檔裡的那張 LUT 是<b>它自己那份 Rawdata 算出來的輸出</b>，
         而那份 Rawdata 又是<b>產生那張 LUT 之前</b>的舊量測 —— 兩者之間隔著一次「燒進面板」。
         拿它們互配等於用這次的輸出配這次的輸入，實測 771 個值裡有 754 個不對。
-        本頁要的是<b>面板裡現在那張表</b>（第 1 部分：匯入 LUT 檔或按 Default LUT）
+        本頁要的是<b>面板裡現在那張表</b>（第 1 部分：按「① 設定 RGB 的 LUT」二選一）
         ＋<b>在那張表之下重新量到的白灰階</b>（第 2 部分：匯入量測檔）。
         所以錯的資料<b>根本不讓它進來</b>，而不是進來之後再擋。
         R／G／B 三個端點則是面板本身的特性，不會因為換了一張 LUT 就變，所以 CCT 檔的這一部分照收。
@@ -819,8 +827,10 @@
             反查的橫軸是「該通道當時真正送出的驅動碼」，不是灰階索引，所以少了它就沒有橫軸、算不出來。
             <br><b>從哪來（只有這三條路）：</b>
             <br>· 面板裡放的是<b>出廠等距表</b>（也就是 <b>DG 功能關閉</b>、<code>DG_EN</code> 沒開的狀態）
-            —— 按下面的 <b>「Default LUT（DG_EN 關閉時的表）」</b>。第一輪的起點通常就是這個。
-            <br>· 面板裡放的是<b>某一張已經燒進去的表</b> —— 匯入該 TCON 的 <b>LUT 檔</b>
+            —— 按下面的 <b>「① 設定 RGB 的 LUT」</b>，在跳出的視窗裡選<b>「這片面板第一次調 Digital Gamma」</b>。
+            第一輪的起點通常就是這個。
+            <br>· 面板裡放的是<b>某一張已經燒進去的表</b> —— 同一顆按鈕，視窗裡選
+            <b>「已經調過，這是下一輪迭代校正」</b>，匯入該 TCON 的 <b>LUT 檔</b>
             （<span class="dg-fname">EM02_DG_LUT.xlsx</span> 這一種）。
             <br>· 上一輪是<b>在本頁算的</b> —— 到結果區按 <b>「一鍵複製 RGB」</b>
             （只複製主表 0 ～ N−1，正好是這裡要的範圍），再貼進下面的表格。
@@ -832,12 +842,19 @@
           </div>
           <textarea id="dg-in-lut" class="dg-ta" spellcheck="false" style="display:none"></textarea>
           <div id="dg-grid-lut"></div>
+          <!-- ══ v1.14.0：原本的「① 匯入 LUT 檔」與「Default LUT」兩顆合併成一顆 ══════
+               Bruce 2026-09-07：「按鍵原本有『匯入 LUT 檔』跟『Default LUT』這兩個按鈕，
+               可以再更簡易一點……按下去以後會跳出一個浮動視窗，詢問這是需要迭代的
+               Digital Gamma 校正、第一次量測的，還是面板調整的第一次調整 Digital Gamma。」
+               名稱刻意不叫「匯入檔案／匯入資料」—— 兩條路裡有一條（第一次調）根本不匯入
+               任何檔案，用「匯入」當招牌會讓人以為非得找一個檔不可。改用「設定」涵蓋兩條路。
+               🔴 兩顆原按鈕是**節點原樣搬進浮動視窗**（見本檔下方 #dg-modal-lut），
+                  id 一個都沒改（dg-btn-imp-lut／dg-btn-default），事件與行為完全照舊。 -->
           <div class="dg-btnrow dg-part-import">
-            <button class="dg-btn dg-btn-imp" id="dg-btn-imp-lut">① 匯入 LUT 檔（.xlsx）</button>
-            <button class="dg-btn" id="dg-btn-default" title="DG 功能關閉（DG_EN = 0）時面板走的就是這張等距表">Default LUT（DG_EN 關閉時的表）</button>
+            <button class="dg-btn dg-btn-imp" id="dg-btn-lut-setup">① 設定 RGB 的 LUT</button>
             <button class="dg-btn dg-btn-clr" id="dg-btn-clr-lut" title="只清掉第 1 部分，另外兩部分不動">清空第 1 部分</button>
           </div>
-          <div class="dg-imp-hint">兩條路二選一：有那張表就匯入 LUT 檔；面板還沒開 DG（<code>DG_EN</code> 關閉）就按右邊那顆等距表。</div>
+          <div class="dg-imp-hint">按下去會先問「這片面板是第一次調，還是已經調過要再跑一輪」，選了就走對應的那條路。</div>
           <div class="dg-part-src" id="dg-src-lut"></div>
         </div>
       </div>
@@ -1043,15 +1060,26 @@
         多輪收斂就是這樣跑：算表 → 寫進 TCON → 重新量白階 → 把新的白階與<b>剛寫進去的那張表</b>一起餵回來，
         反覆到滿意為止。純色端點沿用先前那一組即可。
         <br><b>第一輪的起點</b>：面板還沒開 DG（<code>DG_EN</code> 關閉）時走的是等距表，
-        所以第 1 部分按「Default LUT（DG_EN 關閉時的表）」，第 2 部分匯入這個狀態下量到的白灰階。
+        所以第 1 部分按「① 設定 RGB 的 LUT」→ 選「第一次調」，第 2 部分匯入這個狀態下量到的白灰階。
       </div>
       </div>
 
       <div class="dg-req" id="dg-req"></div>
 
+      <!-- v1.14.0：「計算」鈕留在原位（Bruce 2026-09-07 第二次裁示）。
+           一度打算把它搬進「輸出」卡片，但輸出卡片改成「沒算過就整張不顯示」之後，
+           搬進去它會跟著消失、變成按不到 —— 所以維持在輸入卡片底部不動。 -->
+      <!-- v1.14.0：「載入範例資料」鈕移除（Bruce 2026-09-07：「那就拿掉，因為要載入
+           範例資料，其實在預設的快捷設定裡面就可以做到了，根本就不需要那個按鈕。」）
+           🔴 只拿掉按鈕與它的事件綁定，`dgLoadSample()` 這支函式本體留著 ——
+              頁面頂端的「快捷設定」選到範例那一項時走的就是它（dgApplyPreset →
+              dgLoadSample → dgDoCalc）。內建資料 DG_SAMPLE 另外還被 ⚠ 視窗裡的
+              「自我驗證」與 dgApi.sample() 用到，都與這顆按鈕無關。 -->
       <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-calc">計算 RGB Digital Gamma LUT</button>
-        <button class="dg-btn" id="dg-btn-sample">載入範例資料</button>
+        <!-- v1.14.0：文案由「計算 RGB Digital Gamma LUT」改為「開始計算新的 RGB LUT」。
+             這一頁本身就是 Digital Gamma 工具，按鈕上再放 DG 是冗字；重點是「新的」——
+             用來對比第 1 部分匯進來的那張舊 LUT，也與下載鈕的「下載新產出…」語彙一致。 -->
+        <button class="dg-btn primary" id="dg-btn-calc">開始計算新的 RGB LUT</button>
         <button class="dg-btn" id="dg-btn-clear">清空</button>
       </div>
       <div class="dg-status" id="dg-status">尚未計算。</div>
@@ -1059,13 +1087,26 @@
   </div>
 
   <!-- ══ 卡片 3：結果 LUT ══════════════════════════════ -->
-  <div class="card dg-result" id="dg-card-result">
+  <!-- v1.14.0：初始就掛著 dg-out-hidden ＝ 一進來就是不顯示的。
+       之後由 dgSyncOutCard() 依 lastLut 有沒有東西來開關這個 class。 -->
+  <div class="card dg-result dg-out-hidden" id="dg-card-result">
     <div class="card-header"><span class="icon">📤</span><span>輸出 RGB Digital Gamma LUT</span><button type="button" class="dg-info-btn" data-info="dg-info-out,dg-info-verify-live" data-info-title="輸出 — 表格範圍與自我驗證" aria-label="說明" title="說明">⚠</button></div>
     <div class="card-body">
-      <!-- v1.12.0：還沒有結果時，這一行寫清楚卡在哪；有結果就整行收起來 -->
-      <div class="dg-out-gate" id="dg-out-gate"></div>
+      <!-- ══ v1.14.0：整張卡片改成「沒有結果就不顯示」═══════════════════════════
+           Bruce 2026-09-07：「在 CALC 的網頁裡面，有一個要按一下『開始計算』，下面的
+           卡片才會產出。也可以採用這種形式：還沒有開始計算的時候，下面的卡片是不會
+           顯示產出的。這樣會不會更簡潔？」
+           取代 v1.12.0 的 `.dg-locked` 灰掉機制 —— 灰掉的卡片仍然要人去讀那一行黃框
+           才知道卡在哪，等於還是在讀文字；不顯示就沒有東西要讀。
+           連帶移除：`.dg-locked` 在本卡片上的樣式、`#dg-out-gate` 那一行「還缺 N 份」
+           的黃框（使用者根本看不到這張卡片，那段文字沒有讀者）。
+           🔴 **邏輯層的守衛一條都沒動**（看不見不等於擋得住）：
+              · dgDoCalc() 開頭 dgMissingParts() 有缺就 return（v1.5.0 起）
+              · dgDownloadLutXlsx()／dgCopyLut()／dgDownloadXlsx() 開頭的
+                `if (!lastLut/!lastCtx) return`（v1.12.0 起）
+              程式化 click、強制解除 disabled 都走同一條路，一樣產不出東西。 -->
       <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-lutfile" disabled>下載 LUT 檔（寫回 TCON 用）</button>
+        <button class="dg-btn primary" id="dg-btn-lutfile" disabled>下載新產出 RGB LUT 檔（回 TCON 用）</button>
         <button class="dg-btn" id="dg-btn-copy" disabled>一鍵複製 RGB</button>
       </div>
       <div class="dg-btnrow">
@@ -1078,10 +1119,9 @@
            Bruce 2026-09-07 裁示的分家判準：圖一二三畫的是**匯入的量測**（＝輸入），
            圖四與資料表畫的是**算出來的結果**（＝輸出）。節點原樣搬移，繪製與放大檢視
            的程式碼未改。
-           🔴 已知的連帶效果：這張卡片在還沒有結果時會掛 .dg-locked（v1.12.0 的閘門）
-              整個 card-body 灰掉，所以這兩塊在按下「計算」之前也是灰的。圖四本來就要
-              有結果才畫得出來；圖表資料表在「只匯入、還沒算」時會是有內容但灰掉的狀態。
-              這是閘門的既有行為，不另外開特例（要不要開由 Bruce 決定）。 -->
+           🔴 v1.14.0 更新這段連帶效果：這張卡片在還沒有結果時是**整張不顯示**
+              （原本是 v1.12.0 的 .dg-locked 灰掉），所以圖四在按下「計算」之前根本
+              不在畫面上 —— 它本來就要有結果才畫得出來，這樣反而更一致。 -->
       <div class="dg-sep">圖四　LUT 內容值（R／G／B）<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart4">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-chart4"></div>
       <div class="dg-legend">
@@ -1155,7 +1195,7 @@
         在「Digital Gamma 校正」分頁每匯入一份<b>白灰階量測檔</b>就自動存成一組，最多 10 組。
         勾選「顯示」的組會疊到<b>本分頁下方的圖一、圖二、圖三</b>上一起比較。
         <b>名稱可以直接點下去改</b>；下面那行是匯入時的原始 Excel 檔名，固定不可改 —— 這一欄是日後追溯用的。<br>
-        <b>⚠ 這些組只拿來看，不參與計算。</b>「計算 RGB Digital Gamma LUT」永遠只吃校正分頁第 1、2、3 部分那一份資料，
+        <b>⚠ 這些組只拿來看，不參與計算。</b>「開始計算新的 RGB LUT」永遠只吃校正分頁第 1、2、3 部分那一份資料，
         載入幾組、勾選幾組都不會改變計算結果。
         <br>v1.8.0 起，會存成組的<b>只有第 2 部分匯入的白灰階量測檔</b> —— CCT 檔在本頁只提供三個純色端點，
         它的 Rawdata 不進計算、也不進比較。
@@ -1240,6 +1280,63 @@
   </div>
 </div>
 
+<!-- ══ v1.14.0：第 1 部分「設定 RGB 的 LUT」的二選一浮動視窗 ═══════════════
+     再開一個外殼（不是共用 #dg-modal-info）：說明視窗會把真節點搬進搬出，
+     這裡放的是**帶真按鈕的區塊**，兩者共用一個殼遲早會互相把對方的節點清掉。
+     🔴 視窗裡那兩顆就是原本長在第 1 部分的按鈕本體，id 沒有改：
+        · dg-btn-default   ← 原「Default LUT（DG_EN 關閉時的表）」
+        · dg-btn-imp-lut   ← 原「① 匯入 LUT 檔（.xlsx）」
+        事件在 init 裡是按 id 綁的，節點搬到哪裡都照樣生效，行為零改變。 -->
+<div class="dg-modal" id="dg-modal-lut">
+  <div class="dg-modal-box">
+    <div class="dg-modal-bar">
+      <span class="dg-modal-title" id="dg-modal-lut-title">設定 RGB 的 LUT</span>
+      <button class="dg-modal-close" id="dg-modal-lut-close">關閉</button>
+    </div>
+    <div class="dg-modal-body">
+      <!-- ══ 這個視窗刻意做成「多步」而不是「一次性兩顆鈕」═══════════════════
+           每一層詢問 ＝ 一個 .dg-lut-step，同一時間只顯示一個，由 dgLutModalStep()
+           依 data-step 切換、標題直接取自該層的 data-title。
+           🔴 為什麼現在就這樣做：Bruce 2026-09-07 已預告下一版要加**第二層詢問**
+              —— 匯進來的 LUT 若三通道一模一樣（沒調過色溫），要再問「只調 Gamma」
+              還是「也調色溫」。做成一次性結構的話，那一版就得整個重寫。
+           📌 下一版要加第二層時，只要動三個地方（不必改本層、不必改按鈕的既有事件）：
+              1. 在本 .dg-modal-body 裡再加一個 `<div class="dg-lut-step" data-step="tone"
+                 data-title="…" style="display:none">`，放那兩個選項。
+              2. 在匯入／填表完成的收尾處，把 `dgLutModalClose()` 換成
+                 `dgLutModalStep('tone')`（視窗不關、換一層），判斷條件就是
+                 「LUT 三通道是否逐列相同」＋ 第 3 部分 X／Y／Z 那一組。
+              3. 在 init 裡替第二層的按鈕綁事件，收尾一樣呼叫 dgLutModalClose()。
+           ⚠ 第二層詢問與「只調 Gamma 不管色溫」整個模式，v1.14.0 一律沒有實作。 -->
+      <div class="dg-lut-step" data-step="path" data-title="設定 RGB 的 LUT — 這一輪是哪一種？">
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title">這片面板<b>第一次</b>調 Digital Gamma</div>
+          <div class="dg-note">
+            面板裡還沒有校正過的表，走的是出廠<b>等距表</b>。這條路<b>不需要任何檔案</b>。
+            <br><b>🔴 請先在 TCON 把 <code>DG_EN</code> 關掉</b>（<code>DG_EN</code> = 0），
+            再去量第 2 部分的白灰階 —— 量的當下 DG 沒關掉的話，面板裡實際生效的就不是這張等距表，
+            這條路會給錯答案。
+          </div>
+          <div class="dg-btnrow">
+            <button class="dg-btn" id="dg-btn-default" title="DG 功能關閉（DG_EN = 0）時面板走的就是這張等距表">Default LUT（DG_EN 關閉時的表）</button>
+          </div>
+        </div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>已經調過</b>，這是下一輪迭代校正</div>
+          <div class="dg-note">
+            面板裡放的是上一輪寫進去的那張表 —— 匯入<b>那一張</b> LUT 檔
+            （<span class="dg-fname">EM02_DG_LUT.xlsx</span> 這一種 Excel）。
+            <br>🔴 必須是<b>這一輪量白灰階時面板裡實際生效</b>的那張，不能沿用更早的。
+          </div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-imp-lut">匯入 LUT 檔（.xlsx）</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- v1.8.0 說明浮動視窗：與表格／圖表那一個分開，兩者不會互相搶外殼 -->
 <div class="dg-modal" id="dg-modal-info">
   <div class="dg-modal-box">
@@ -1251,8 +1348,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260907dg1130"></script>
-<script src="common/i18n.js?v=20260907dg1130"></script>
+<script src="common/version.js?v=20260907dg1140"></script>
+<script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -4011,13 +4108,25 @@
       return;
     }
     var maxOut = Math.pow(2, hw) - 1;
-    var n = lut.length, xs = [], ch = [[], [], []], ref = [];
+    /* ─── v1.14.0：圖四不畫索引 N 的附加末筆（Bruce 2026-09-07）─────────────
+       「圖4的圖表橫座標應該只到 255 才對，256 那是假的資料，所以不要到 256。」
+       那一筆是 dgFinalise() 在主表尾巴補的 [maxOut, maxOut, maxOut]（滿刻度），
+       是寫檔格式上的東西，不是量出來、也不是算曲線算出來的點 —— 畫進去只會在
+       最右邊多一根假的直上，並把橫軸撐到 256。
+       🔴 這裡只改「畫」。下載的 LUT 檔要不要寫那一筆，仍然完全由選到的 TCON
+          格式決定（v1.7.0 的 dgOutFmt().hasTail），本次一個位元都沒碰；表格與
+          「一鍵複製 RGB」原本就只給主表（dgOutLutBody()），也不受影響。
+       lut.length <= 1 時沒有可切的東西，原樣畫（防呆，正常流程不會發生）。 */
+    var n = lut.length > 1 ? lut.length - 1 : lut.length;
+    var xs = [], ch = [[], [], []], ref = [];
     var step = Math.pow(2, hw - 8);
     var capHW = (Math.pow(2, sd) - 1) * Math.pow(2, hw - sd);
     for (var i = 0; i < n; i++) {
       xs.push(i);
       for (var c = 0; c < 3; c++) ch[c].push(lut[i][c]);
-      ref.push(i === n - 1 ? maxOut : Math.min(i * step, capHW));   // Default（等距）當對照
+      // Default（等距）對照：原本 i === n-1 那個 maxOut 特例就是為了附加末筆而設的，
+      // 末筆不畫了，這條對照線在主表範圍內一律是 min(i×step, 驅動上限碼)。
+      ref.push(Math.min(i * step, capHW));
     }
     dgChart(host, [
       { x: xs, y: ref, color: '#64748b', dash: '4 3', w: 1.2, name: 'Default（等距）' },
@@ -4127,11 +4236,14 @@
      🔴 第 2 部分連目標白點一起清 —— dgPartFilled('gray') 本來就是「白階 且 白點」，
         只清一半會留下半套狀態（徽章說未提供、白點卻還掛著上一輪的數字）。
      欄位怎麼清、狀態怎麼更新，一律走 dgClearAll() 用的同一批函式，不另寫一套。
-     ⚠ 只動被指名的那一部分：結果表與已算出的 LUT 不碰（那不是三個部分之一）。 */
+     🔴 v1.14.0 改掉這裡原本「結果表與已算出的 LUT 不碰」的作法（作廢規則第 2 條）：
+        輸出卡片改成「出現 ＝ 這就是目前輸入算出來的結果」之後，清掉一份輸入卻留著
+        上一份結果，那張卡片就是在騙人。改為一併作廢、卡片收起來。 */
   var DG_CLR_FIELDS = { lut: ['dg-in-lut'], gray: ['dg-in-gray', 'dg-in-white'], prim: ['dg-in-prim'] };
   function dgClearPart(part) {
     DG_CLR_FIELDS[part].forEach(function (id) { $(id).value = ''; });
     DG_SRC[part] = null;
+    dgInvalidateResult();   // v1.14.0：作廢規則第 2 條
     if (part === 'lut') {
       dgImportedFmt = null; dgSdBasisText = '';
       dgRefreshSdBadge(); dgRefreshOutputs();
@@ -4164,6 +4276,7 @@
   }
 
   function dgFillDefault() {
+    dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     var c = dgReadCfg();
     var step = Math.pow(2, c.hw - 8);
     var cap = (Math.pow(2, c.sd) - 1) * Math.pow(2, c.hw - c.sd);
@@ -4668,9 +4781,11 @@
         { label: 'B', sub: '藍通道', cls: 'dg-cell-b' }
       ],
       hint: '量測當下面板裡實際生效的那張表。<b>必填</b> —— 沒有它就沒有反查的橫軸。',
+      // v1.14.0：前兩條路都收進「① 設定 RGB 的 LUT」那顆的浮動視窗，文案跟著改
       emptyHtml: '<b>還沒有資料，計算會被擋下。</b>下面三條路擇一：'
-        + '<br>· 有那張表 → 按<b>「① 匯入 LUT 檔」</b>'
-        + '<br>· 面板還沒開 DG（<code>DG_EN</code> 關閉）→ 按<b>「Default LUT」</b>那顆'
+        + '<br>· 按<b>「① 設定 RGB 的 LUT」</b> → 選<b>「這片面板第一次調 Digital Gamma」</b>'
+        + '（面板還沒開 DG、<code>DG_EN</code> 關閉時走的等距表）'
+        + '<br>· 按<b>「① 設定 RGB 的 LUT」</b> → 選<b>「已經調過，這是下一輪迭代校正」</b>，匯入那張 LUT 檔'
         + '<br>· 上一輪在本頁算的 → 結果區按「一鍵複製 RGB」再貼進這張表格'
     });
     var prim = dgGrid({
@@ -4709,6 +4824,8 @@
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       // 說明視窗是另一個外殼，Escape 兩個都要收（開著哪一個就收哪一個）
+      // v1.14.0：第 1 部分的二選一視窗是第三個外殼，一併收
+      if ($('dg-modal-lut').classList.contains('open')) { dgLutModalClose(); return; }
       if ($('dg-modal-info').classList.contains('open')) { dgInfoClose(); return; }
       dgModalClose();
     });
@@ -4843,6 +4960,7 @@
   }
 
   function dgApplyImportedFmt(det, fileName, quiet) {
+    dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     var f = det.fmt;
     dgImportedFmt = f;
     $('dg-hw').value = String(f.hw);
@@ -4885,10 +5003,12 @@
     lut: {
       card: 'dg-part-lut', badge: 'dg-lut-badge', src: 'dg-src-lut',
       name: '第 1 部分：RGB 的 LUT',
-      how: '按第 1 部分的「① 匯入 LUT 檔」帶入該 TCON 的表（<span class="dg-fname">EM02_DG_LUT.xlsx</span> 這一種）、'
-        + '按旁邊的「Default LUT（DG_EN 關閉時的表）」，或把上一輪的結果用結果區的「一鍵複製 RGB」貼進來。'
+      // v1.14.0：兩條路都改由「① 設定 RGB 的 LUT」那顆的浮動視窗進去
+      how: '按第 1 部分的「① 設定 RGB 的 LUT」，在跳出的視窗裡二選一：<b>第一次調</b>就用 Default 等距表'
+        + '（要先在 TCON 把 <code>DG_EN</code> 關掉）、<b>已經調過</b>就匯入該 TCON 的表'
+        + '（<span class="dg-fname">EM02_DG_LUT.xlsx</span> 這一種）。也可以把上一輪的結果用結果區的「一鍵複製 RGB」貼進來。'
         + '<b>不能用 CCT 檔裡那張 LUT</b>（它是那份檔自己的輸出，不是量測當下面板裡的表）。',
-      howText: '按「① 匯入 LUT 檔」、按「Default LUT（DG_EN 關閉時的表）」，或把上一輪結果用「一鍵複製 RGB」貼進來。'
+      howText: '按「① 設定 RGB 的 LUT」在視窗裡二選一（第一次調 → Default 等距表／已經調過 → 匯入 LUT 檔），或把上一輪結果用「一鍵複製 RGB」貼進來。'
     },
     gray: {
       card: 'dg-part-gray', badge: 'dg-gray-badge', src: 'dg-src-gray',
@@ -4986,31 +5106,60 @@
       }
     }
     if (btn) btn.disabled = missing.length > 0;
-    dgSyncOutGate();   // v1.12.0：輸入一變，輸出卡片的閘門就要跟著重算
+    /* v1.12.0：輸入一變，輸出卡片就要跟著重算。
+       v1.14.0 加上作廢規則第 5 條（兜底）：三份變成不齊時，手上那份結果一定不再
+       對應目前輸入 —— 直接作廢，卡片收起來，不留一張顯示舊結果的卡片。 */
+    if (missing.length && lastLut) dgInvalidateResult();
+    else dgSyncOutCard();
   }
 
   function dgSetSrc(part, src) { DG_SRC[part] = src || null; dgRefreshReady(); }
 
-  /* ─── v1.12.0：輸出卡片的就緒閘門（Bruce 2026-09-07）──────────────────
-     三顆輸出鈕要的都是同一個東西：**已經算出來的結果**（lastLut／lastCtx）。
-     所以判準就是「有沒有結果」，而不是另外再定義一套條件。
-     沒有結果時：卡片灰掉、三顆鈕真的 disabled、一行寫清楚卡在哪。 */
-  function dgSyncOutGate() {
-    var ready = !!lastLut;
-    var card = $('dg-card-result'), gate = $('dg-out-gate');
-    if (card) card.classList.toggle('dg-locked', !ready);
+  /* ─── v1.14.0：輸出卡片改成「有結果才出現」（Bruce 2026-09-07 第二次裁示）─────
+     取代 v1.12.0 的 `.dg-locked` 灰掉機制。灰掉的卡片還在畫面上，使用者仍得讀那行
+     黃框才知道卡在哪 —— 等於還是在讀文字。沒有結果就整張不顯示，就沒有東西要讀。
+
+     顯示的判準只有一個：**`lastLut` 有沒有東西**，也就是「有沒有一份算出來的結果」。
+     不另外把「三份齊不齊」寫進顯示條件 —— 那是 lastLut 存不存在的上游，
+     由下面 dgInvalidateResult() 那條作廢規則負責，兩邊各管一件事。
+
+     🔴 顯示與否純粹是外觀。真正的閘門一條都沒動：
+        · dgDoCalc() 開頭 dgMissingParts() 有缺就 return（v1.5.0 起）
+        · dgDownloadLutXlsx()／dgCopyLut()／dgDownloadXlsx() 開頭的
+          `if (!lastLut/!lastCtx) return`（v1.12.0 起）
+        看不見不等於擋得住，兩者都要。 */
+  function dgSyncOutCard() {
+    var hasResult = !!lastLut;
+    var card = $('dg-card-result');
+    if (card) card.classList.toggle('dg-out-hidden', !hasResult);
     ['dg-btn-lutfile', 'dg-btn-copy', 'dg-btn-xlsx'].forEach(function (id) {
-      var b = $(id); if (b) b.disabled = !ready;
+      var b = $(id); if (b) b.disabled = !hasResult;
     });
-    if (!gate) return;
-    gate.classList.toggle('dg-hidden', ready);
-    if (ready) { gate.innerHTML = ''; return; }
-    var miss = dgMissingParts();
-    gate.innerHTML = miss.length
-      ? ('<b>⚠ 還不能輸出：</b>上面的輸入還缺 ' + miss.length + ' 份 —— '
-        + miss.map(function (p) { return '<b>' + DG_PART_NO[p] + '</b>'; }).join('、')
-        + '。補齊之後按「計算」，這張卡片就會亮起來。')
-      : '<b>⚠ 還不能輸出：</b>三份輸入都齊了，但<b>還沒按「計算」</b>。按了才會有可以下載的結果。';
+  }
+
+  /* ─── v1.14.0：結果作廢（＝輸出卡片收起來）────────────────────────────────
+     Bruce：「資料被改動或被清空、導致結果不再對應目前輸入時，輸出卡片要跟著收起來。」
+     我認定「結果失效」的條件，逐條列在這裡供覆核：
+       1. 全部清空（dgClearAll，含快捷設定選回空白項）—— 原本就會把 lastLut 歸零。
+       2. 清掉三個部分裡的任何一個（dgClearPart，v1.11.0 的三顆分部清空鈕）。
+          🔴 這一條改掉了 v1.11.0 當時「結果表與已算出的 LUT 不碰」的作法：卡片會
+             顯示的年代那樣還說得過去（灰掉的舊結果看得出是舊的），現在卡片是「出現
+             ＝ 這就是目前輸入的結果」，留著舊的等於騙人。
+       3. 由「匯入檔案／Default LUT／即時量測／載入範例」寫入任何一個部分 ——
+          輸入換了，舊結果當然不對應。
+       4. 手動改「目標白點」那一欄 —— 它是純 input，沒有走表格那條 400 ms 自動重算，
+          不作廢就會永遠停在舊結果上。
+       5. 兜底：三份輸入變成不齊（dgRefreshReady 尾端）。手動編輯格子把資料刪光就是
+          這一條接手的。
+     **不作廢的一種**：手動編輯三個表格裡的格子。那條路上 v1.x 既有的 400 ms 自動
+     重算會就地把結果換成對應新輸入的值（dgGridFlush → `if (lastLut) dgDoCalc()`），
+     結果一直是對應目前輸入的，沒有失效可言。 */
+  function dgInvalidateResult() {
+    if (!lastLut && !lastCtx) { dgSyncOutCard(); return; }
+    lastLut = null; lastCtx = null;
+    dgFillLutTable(null);
+    dgDrawLutChart(null, dgReadCfg().hw, dgReadCfg().sd);
+    dgSyncOutCard();
   }
 
   // 使用者親手改過格子：來源不換掉（他改的還是那份匯入的資料），但標記出來
@@ -5035,6 +5184,7 @@
   /* 第 3 部分：只從 CCT 檔取三個純色端點。
      v1.12.0：第三個參數是來源種類（預設 'file'），即時量測走同一條路徑填資料。 */
   function dgApplyPrim(opt, fileName, srcKind) {
+    dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     $('dg-in-prim').value = ['r', 'g', 'b'].map(function (k) { return opt.prim[k].join(' '); }).join('\n');
     DG_SRC.prim = { kind: srcKind || 'file', name: fileName || '' };
     dgRefreshReady();
@@ -5083,6 +5233,7 @@
      v1.10.0：第三個參數是來源種類（預設 'file'）。即時量測走同一條路徑填資料，
      只有徽章與來源那一行不同 —— 資料怎麼進第 2 部分只有這一份實作。 */
   function dgApplyGray(opt, fileName, srcKind) {
+    dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     $('dg-in-gray').value = opt.rows.map(function (r) {
       var s = r.g + ' ' + r.x + ' ' + r.y + ' ' + r.Y;
       if (dgIsNum(r.T)) s += ' ' + r.T + (dgIsNum(r.uv) ? ' ' + r.uv : '');
@@ -5234,7 +5385,7 @@
       h += '<br><b>純色端點</b>：R／G／B 三筆的 X／Y／Z 已帶入第 3 部分。'
         + '<br><b>這個檔的 LUT 表與白灰階沒有收</b> —— 那張 LUT 是本檔 Rawdata 算出來的輸出，'
         + 'Rawdata 又是產生它之前的舊量測，在本頁的流程裡兩者都不是下一輪要的東西。'
-        + '第 1 部分請匯入 LUT 檔或按「Default LUT（DG_EN 關閉時的表）」，第 2 部分請匯入這一輪重新量到的白灰階。';
+        + '第 1 部分請按「① 設定 RGB 的 LUT」在視窗裡二選一，第 2 部分請匯入這一輪重新量到的白灰階。';
     } else if (kind === 'gray') {
       h += '<br><b>白灰階</b>：' + opt.rows.length + ' 階（Gray ' + opt.rows[0].g + ' ～ '
         + opt.rows[opt.rows.length - 1].g + '）、目標白點 x=' + (+opt.white[0]).toFixed(6)
@@ -5306,7 +5457,7 @@
       var res = dgCompute(cfg, data);
       lastLut = res.lut;
       lastCtx = { cfg: cfg, data: data, res: res };
-      dgSyncOutGate();                  // v1.12.0：有結果了，輸出卡片解鎖
+      dgSyncOutCard();                  // v1.14.0：有結果了，輸出卡片這時才出現
       dgRenderOutFmt();
       dgFillLutTable(dgOutLutBody());   // v1.7.0：表格只給主表，且套用輸出深度
       dgDrawCharts(data.grayxyY);
@@ -5401,7 +5552,7 @@
       if (bad === 0) {
         lastLut = res.lut;
         lastCtx = { cfg: cfg, data: data, res: res };
-        dgSyncOutGate();                // v1.12.0：自我驗證算出結果時同樣解鎖
+        dgSyncOutCard();                // v1.14.0：自我驗證算出結果時同樣讓卡片出現
         dgRenderOutFmt();
         dgFillLutTable(dgOutLutBody());
         dgDrawCharts(s.grayxyY); dgDrawLutChart(res.lut, cfg.hw, cfg.sd);
@@ -5423,6 +5574,31 @@
         這種區塊掛 class `dg-info-live`，開視窗時把**真的節點**搬進去、關的時候搬回原位
         （原位留一個隱形的佔位節點，才知道要放回哪裡）。 */
   var DG_INFO_MOVED = [];
+
+  /* ─── v1.14.0：第 1 部分「設定 RGB 的 LUT」的詢問視窗 ────────────────────
+     自己的外殼，不與說明視窗（#dg-modal-info）共用 —— 說明視窗會把真節點搬進搬出，
+     這裡放的是帶真按鈕的區塊，共用一個殼遲早會互相把對方的節點清掉。
+     **多步結構**：視窗裡可以有多個 .dg-lut-step，同一時間只顯示一個。目前只有
+     data-step="path" 這一層；下一版的第二層詢問（三通道相同時再問「只調 Gamma／
+     也調色溫」）就是在這裡多掛一個 step，切換靠 dgLutModalStep()，不必改本層。 */
+  function dgLutModalStep(step) {
+    var shown = null;
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#dg-modal-lut .dg-lut-step'), function (s) {
+        var on = s.getAttribute('data-step') === step;
+        s.style.display = on ? '' : 'none';
+        if (on) shown = s;
+      });
+    var t = $('dg-modal-lut-title');
+    if (t && shown) t.textContent = shown.getAttribute('data-title') || '設定 RGB 的 LUT';
+    return !!shown;
+  }
+  function dgLutModalOpen(step) {
+    var m = $('dg-modal-lut'); if (!m) return;
+    dgLutModalStep(step || 'path');
+    m.classList.add('open');
+  }
+  function dgLutModalClose() { var m = $('dg-modal-lut'); if (m) m.classList.remove('open'); }
 
   function dgInfoOpen(ids, title) {
     if (!ids) return;
@@ -5522,6 +5698,9 @@
     // 目標白點是純 input，沒有走表格那條 value setter，狀態要自己接
     $('dg-in-white').addEventListener('input', function () {
       dgMarkEdited('gray');
+      // v1.14.0：作廢規則第 4 條。目標白點是純 input，沒有走三個表格那條 400 ms
+      // 自動重算，不在這裡作廢的話，改了白點畫面上還會停在上一次算出來的結果。
+      dgInvalidateResult();
       dgRefreshReady();
       // v1.9.0：動態模式的色溫基準就是這一欄算出來的，改了要立刻反映在圖三與圖例上
       dgRenderCharts();
@@ -5585,8 +5764,22 @@
     });
     $('dg-preset-select').addEventListener('change', function () { dgApplyPreset(this.value); });
     $('dg-btn-lutfile').addEventListener('click', dgDownloadLutXlsx);
-    $('dg-btn-sample').addEventListener('click', dgLoadSample);
     $('dg-btn-default').addEventListener('click', dgFillDefault);
+    /* ─── v1.14.0：第 1 部分的二選一浮動視窗 ────────────────────────────────
+       視窗裡那兩顆就是原本的按鈕本體，行為的事件在別處（上一行與匯入鈕那個迴圈）
+       已經綁好了；這裡只多綁「按完就把視窗收掉」，選項視窗留著會擋住後面的畫面。 */
+    // 🔴 一定要包一層：addEventListener 會把 Event 當第一個參數傳進去，
+    //    直接掛 dgLutModalOpen 會變成 dgLutModalOpen(MouseEvent) → 找不到那一層。
+    $('dg-btn-lut-setup').addEventListener('click', function () { dgLutModalOpen('path'); });
+    $('dg-modal-lut-close').addEventListener('click', dgLutModalClose);
+    $('dg-modal-lut').addEventListener('click', function (e) {
+      if (e.target === $('dg-modal-lut')) dgLutModalClose();   // 點視窗外的暗色區域也關掉
+    });
+    /* 這一層選完就收工。下一版要接第二層詢問時，把這兩行換成
+       「先判斷 LUT 三通道是否相同 → 相同就 dgLutModalStep('tone') 換一層、
+         不同就 dgLutModalClose()」即可，兩顆鈕原本的行為事件都不用動。 */
+    $('dg-btn-default').addEventListener('click', dgLutModalClose);
+    $('dg-btn-imp-lut').addEventListener('click', dgLutModalClose);
     $('dg-btn-clear').addEventListener('click', function () { dgClearAll('button'); });
     // v1.11.0：三個部分各自的清空鈕
     [['dg-btn-clr-lut', 'lut'], ['dg-btn-clr-gray', 'gray'], ['dg-btn-clr-prim', 'prim']]
