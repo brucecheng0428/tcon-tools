@@ -500,6 +500,11 @@
   /* v1.10.0：第 2 部分的第二個入口 —— 不是匯入檔案，所以配色與匯入鈕分開 */
   .dg-btn.dg-btn-live { background: #7c3aed; border-color: #7c3aed; color: #fff; }
   .dg-btn.dg-btn-live:active { background: #6d28d9; }
+  /* v1.11.0：每個部分自己的清空鈕。不撐滿 —— 它是次要動作，不該跟匯入鈕一樣大 */
+  .dg-part-import .dg-btn.dg-btn-clr {
+    flex: 0 1 auto; background: #3f2233; border-color: #7f1d1d; color: #fca5a5;
+  }
+  .dg-part-import .dg-btn.dg-btn-clr:active { background: #501b28; }
   .dg-imp-hint {
     margin-top: 6px; font-size: 10.5px; line-height: 1.55; color: #64748b; text-transform: none;
   }
@@ -787,6 +792,7 @@
           <div class="dg-btnrow dg-part-import">
             <button class="dg-btn dg-btn-imp" id="dg-btn-imp-lut">① 匯入 LUT 檔（.xlsx）</button>
             <button class="dg-btn" id="dg-btn-default" title="DG 功能關閉（DG_EN = 0）時面板走的就是這張等距表">Default LUT（DG_EN 關閉時的表）</button>
+            <button class="dg-btn dg-btn-clr" id="dg-btn-clr-lut" title="只清掉第 1 部分，另外兩部分不動">清空第 1 部分</button>
           </div>
           <div class="dg-imp-hint">兩條路二選一：有那張表就匯入 LUT 檔；面板還沒開 DG（<code>DG_EN</code> 關閉）就按右邊那顆等距表。</div>
           <div class="dg-part-src" id="dg-src-lut"></div>
@@ -822,9 +828,10 @@
           <div class="dg-btnrow dg-part-import">
             <button class="dg-btn dg-btn-imp" id="dg-btn-imp-gray">② 匯入白灰階量測檔（.xlsx）</button>
             <button class="dg-btn dg-btn-live" id="dg-btn-live-gray">即時量測</button>
+            <button class="dg-btn dg-btn-clr" id="dg-btn-clr-gray" title="白灰階與目標白點一起清掉，另外兩部分不動">清空第 2 部分（含目標白點）</button>
           </div>
           <div class="dg-imp-hint">量測工具存出來的 <span class="dg-fname">RaydiumGamma_…</span>；匯入當下下方的光學確認圖表就會畫出這條曲線。
-            <br>「即時量測」會另開一個分頁，把它拖到要量的那台螢幕上，對準中心的紅圈放探頭，按右上角開始；量完資料會自動回填到這裡。</div>
+            <br>「即時量測」會另開一個分頁，把它拖到要量的那台螢幕上，<b>按那一頁右上角的「全螢幕」</b>（不是全螢幕就不讓你開始 —— 紅圈的位置會被網址列擠歪），對準中心的紅圈放探頭，再按「開始量測」；量完資料會自動回填到這裡。中途要停就按那一頁的紅色「停止」，停掉的那一次不會回填。</div>
           <div class="dg-part-src" id="dg-src-gray"></div>
         </div>
       </div>
@@ -896,6 +903,7 @@
           <div class="dg-fmt warn" id="dg-prim-err" style="display:none"></div>
           <div class="dg-btnrow dg-part-import">
             <button class="dg-btn dg-btn-imp" id="dg-btn-imp-prim">③ 匯入 CCT 檔（.xlsx）</button>
+            <button class="dg-btn dg-btn-clr" id="dg-btn-clr-prim" title="只清掉第 3 部分，另外兩部分不動">清空第 3 部分</button>
           </div>
           <div class="dg-imp-hint">只從 CCT 檔取 R／G／B 三個端點的 X／Y／Z，該檔的 LUT 表與白灰階一律不收。</div>
           <div class="dg-part-src" id="dg-src-prim"></div>
@@ -1154,8 +1162,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260907dg1100"></script>
-<script src="common/i18n.js?v=20260907dg1100"></script>
+<script src="common/version.js?v=20260907dg1110"></script>
+<script src="common/i18n.js?v=20260907dg1110"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -3993,9 +4001,57 @@
     dgSetStatus('dg-status', '已載入範例資料（' + s.name + '）。第 1 部分已同時填入 Default LUT，按「計算」即可算出對應的 LUT。', 'ok');
   }
 
+  /* 清空：三個部分的欄位、來源、結果、圖表、結果表全部歸零。
+     v1.11.0 從「清空」鈕的處理器裡抽出來成為具名函式 —— 內容一行未改，
+     只是多了第二個呼叫端（快捷設定選回空值）。two callers, one implementation。 */
+  function dgClearAll(from) {
+    ['dg-in-prim', 'dg-in-gray', 'dg-in-white', 'dg-in-lut'].forEach(function (id) { $(id).value = ''; });
+    dgImportedFmt = null; dgSdBasisText = '';
+    $('dg-fmt-box').style.display = 'none';
+    DG_SRC = { lut: null, gray: null, prim: null };
+    lastLut = null; lastCtx = null;
+    dgRefreshReady();
+    dgRefreshSdBadge(); dgRefreshOutputs();
+    // v1.8.0：第 2 部分匯入時就會畫圖，清空當然也要把圖收掉，否則畫面上會留著已經沒有來源的曲線
+    dgDrawCharts(null);
+    dgDrawLutChart(null, dgReadCfg().hw, dgReadCfg().sd);
+    dgFillLutTable(null);
+    dgSetStatus('dg-status', '已清空。三個部分都回到「未提供」，計算鈕會停用到三份資料補齊為止。'
+      + (from === 'preset' ? '\n（你把快捷設定選回了最上面那個空白項目 —— 那就是「清乾淨重來一輪」。'
+        + '現在可以直接按第 2 部分的「即時量測」重新連一次。）' : ''), '');
+  }
+
+  /* v1.11.0：只清一個部分（Bruce 2026-09-07）。
+     🔴 第 2 部分連目標白點一起清 —— dgPartFilled('gray') 本來就是「白階 且 白點」，
+        只清一半會留下半套狀態（徽章說未提供、白點卻還掛著上一輪的數字）。
+     欄位怎麼清、狀態怎麼更新，一律走 dgClearAll() 用的同一批函式，不另寫一套。
+     ⚠ 只動被指名的那一部分：結果表與已算出的 LUT 不碰（那不是三個部分之一）。 */
+  var DG_CLR_FIELDS = { lut: ['dg-in-lut'], gray: ['dg-in-gray', 'dg-in-white'], prim: ['dg-in-prim'] };
+  function dgClearPart(part) {
+    DG_CLR_FIELDS[part].forEach(function (id) { $(id).value = ''; });
+    DG_SRC[part] = null;
+    if (part === 'lut') {
+      dgImportedFmt = null; dgSdBasisText = '';
+      dgRefreshSdBadge(); dgRefreshOutputs();
+    }
+    // v1.8.0 的理由照舊：沒有來源的曲線不該留在圖上
+    if (part === 'gray') dgDrawCharts(null);
+    dgRefreshReady();
+    var miss = dgMissingParts();
+    dgSetStatus('dg-status', '已清空 ' + DG_PART_NO[part] + '（'
+      + (part === 'gray' ? '白灰階與目標白點都清掉了' : '另外兩個部分沒有動') + '）。\n'
+      + (miss.length
+        ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、')
+          + '。計算鈕會停用到補齊為止。')
+        : '三份都還在，可以計算。'), '');
+  }
+
   // 快捷預設：一鍵載入並直接算完，讓人第一眼就看到完整結果（含圖表）
   function dgApplyPreset(v) {
-    if (!v) return;
+    /* v1.11.0：選回最上面那個空白的「快捷設定」＝ 全部清空（Bruce 2026-09-07）。
+       用意是「清乾淨、重新來一輪」—— 清完就能直接再按「即時量測」重連一次。
+       🔴 走的是「清空」鈕同一支 dgClearAll()，不另寫一套，否則兩邊遲早會不一致。 */
+    if (!v) { dgClearAll('preset'); return; }
     if (v === 'sampleA') {
       dgLoadSample();
       dgDoCalc();
@@ -4896,6 +4952,18 @@
     var top = rs[rs.length - 1];
     dgApplyGray({ rows: rs, white: [top.x, top.y, top.Y] }, label || '', 'live');
 
+    /* v1.11.0：他人在量測那一頁，切回來時要一眼看到「資料真的進來了」。
+       徽章要點開才注意得到，所以借用匯入檔案那個同一個可見方框（dg-fmt-box），
+       不另做一套通知元件。 */
+    var box = $('dg-fmt-box');
+    box.style.display = '';
+    box.className = 'dg-fmt';
+    box.innerHTML = '<b>✔ 即時量測的資料已經自動帶入第 2 部分。</b>'
+      + '<br><b>白灰階</b>：' + rs.length + ' 筆（L' + rs[0].g + ' ～ L' + top.g + '）'
+      + '　<b>目標白點</b>：x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6) + ' Lv=' + top.Y.toFixed(3)
+      + '<br>色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出；duv 儀器沒有回傳，留空。'
+      + '光學確認圖表已經畫出這條曲線。<b>量測那個分頁可以關掉了。</b>';
+
     var miss = dgMissingParts();
     dgSetStatus('dg-status', '已從「即時量測」分頁帶入第 2 部分：白灰階 ' + rs.length + ' 階（Gray '
       + rs[0].g + ' ～ ' + top.g + '）＋ 目標白點 x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6)
@@ -5314,20 +5382,13 @@
     $('dg-btn-lutfile').addEventListener('click', dgDownloadLutXlsx);
     $('dg-btn-sample').addEventListener('click', dgLoadSample);
     $('dg-btn-default').addEventListener('click', dgFillDefault);
-    $('dg-btn-clear').addEventListener('click', function () {
-      ['dg-in-prim', 'dg-in-gray', 'dg-in-white', 'dg-in-lut'].forEach(function (id) { $(id).value = ''; });
-      dgImportedFmt = null; dgSdBasisText = '';
-      $('dg-fmt-box').style.display = 'none';
-      DG_SRC = { lut: null, gray: null, prim: null };
-      lastLut = null; lastCtx = null;
-      dgRefreshReady();
-      dgRefreshSdBadge(); dgRefreshOutputs();
-      // v1.8.0：第 2 部分匯入時就會畫圖，清空當然也要把圖收掉，否則畫面上會留著已經沒有來源的曲線
-      dgDrawCharts(null);
-      dgDrawLutChart(null, dgReadCfg().hw, dgReadCfg().sd);
-      dgFillLutTable(null);
-      dgSetStatus('dg-status', '已清空。三個部分都回到「未提供」，計算鈕會停用到三份資料補齊為止。', '');
-    });
+    $('dg-btn-clear').addEventListener('click', function () { dgClearAll('button'); });
+    // v1.11.0：三個部分各自的清空鈕
+    [['dg-btn-clr-lut', 'lut'], ['dg-btn-clr-gray', 'gray'], ['dg-btn-clr-prim', 'prim']]
+      .forEach(function (p) {
+        var b = $(p[0]);
+        if (b) b.addEventListener('click', function () { dgClearPart(p[1]); });
+      });
     $('dg-btn-calc').addEventListener('click', dgDoCalc);
     $('dg-btn-xlsx').addEventListener('click', dgDownloadXlsx);
     $('dg-btn-copy').addEventListener('click', dgCopyLut);

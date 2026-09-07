@@ -48,8 +48,44 @@
     padding: 12px 20px; font-size: 17px; font-weight: 700; cursor: pointer;
   }
   #dgm-start:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
-  #dgm-prog { margin-top: 8px; font: 700 15px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-  #dgm-prog small { display: block; font-weight: 400; font-size: 11.5px; color: #94a3b8; }
+  /* v1.11.0：全螢幕鈕。跟「開始量測」同一列，量測前才用得到 */
+  #dgm-fs {
+    background: #0e7490; color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 16px; font-size: 15px; font-weight: 700; cursor: pointer; margin-right: 8px;
+  }
+  #dgm-fs:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+  /* v1.11.0：停止鈕。🔴 獨立一顆、量測中才出現，而且跟開始鈕不同列不同色 ——
+     如果讓開始鈕就地變成停止鈕，連點兩下開始就會直接把自己按停。 */
+  #dgm-stop {
+    display: block; margin-top: 8px; margin-left: auto;
+    background: #dc2626; color: #fff; border: 0; border-radius: 10px;
+    padding: 11px 20px; font-size: 16px; font-weight: 700; cursor: pointer;
+  }
+  #dgm-stop.dgm-hidden { display: none; }
+  /* v1.11.0：量完（或停止／失敗）之後的關閉視窗鈕 */
+  #dgm-close {
+    display: block; margin-top: 8px; margin-left: auto;
+    background: #475569; color: #fff; border: 0; border-radius: 10px;
+    padding: 11px 20px; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  #dgm-close.dgm-hidden { display: none; }
+  #dgm-close.dgm-primary { background: #16a34a; }
+  /* v1.11.0：量完之後最顯眼的一句話 —— 資料到哪去了。就貼在關閉鈕上面。 */
+  #dgm-done {
+    margin-top: 10px; padding: 9px 11px; border: 1px solid #16a34a; border-radius: 8px;
+    background: rgba(22, 163, 74, .18); color: #bbf7d0; font-size: 13px; line-height: 1.6;
+    text-align: left; max-width: 26vw; font-weight: 700;
+  }
+  #dgm-done.dgm-hidden { display: none; }
+  #dgm-prog { margin-top: 8px; font: 700 22px/1.35 ui-monospace, Menlo, Consolas, monospace; }
+  #dgm-prog small { display: block; font-weight: 400; font-size: 12px; color: #94a3b8; }
+  /* v1.11.0：沒全螢幕時的閘門說明。紅框，講清楚為什麼擋、怎麼辦 */
+  #dgm-gate {
+    margin-top: 8px; padding: 8px 10px; border: 1px solid #dc2626; border-radius: 8px;
+    background: rgba(220, 38, 38, .16); color: #fecaca; font-size: 12px; line-height: 1.55;
+    text-align: left; max-width: 26vw;
+  }
+  #dgm-gate.dgm-hidden { display: none; }
 
   /* ── 中心紅圈：讓探頭對準螢幕正中心 ──────────────────────────────────
      🔴 量測一開始就整個拿掉（display:none）。探頭正下方留著紅色圖案
@@ -101,21 +137,29 @@
   <div class="dgm-row"><span class="dgm-k">目前灰階值</span><span class="dgm-v" id="dgm-gray">128</span></div>
   <div class="dgm-row"><span class="dgm-k">Frame rate（瀏覽器實測）</span><span class="dgm-v" id="dgm-fps">—</span></div>
   <div class="dgm-row"><span class="dgm-k">畫面更新率（儀器 MVS）</span><span class="dgm-v" id="dgm-mvs">—</span></div>
+  <div class="dgm-row"><span class="dgm-k">全螢幕</span><span class="dgm-v" id="dgm-fsstate">—</span></div>
   <div class="dgm-src">上面那個 Frame rate 是本頁用 requestAnimationFrame 數出來的；
     下面那個是量測儀自己偵測到的畫面更新率。兩個來源不同，不一定會一樣。</div>
 </div>
 
-<!-- 右上角：開始量測 ＋ 進度 -->
+<!-- 右上角：全螢幕 ＋ 開始量測 ＋ 停止 ＋ 進度 -->
 <div class="dgm-corner" id="dgm-right">
-  <button id="dgm-start">開始量測</button>
+  <div>
+    <button id="dgm-fs">全螢幕</button><button id="dgm-start" disabled>開始量測</button>
+  </div>
+  <button id="dgm-stop" class="dgm-hidden">■ 停止</button>
+  <div id="dgm-done" class="dgm-hidden"></div>
+  <button id="dgm-close" class="dgm-hidden">關閉這個分頁</button>
   <div id="dgm-prog"></div>
+  <div id="dgm-gate"></div>
   <div id="dgm-msg">按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）→ 逐階掃 0～255。</div>
 </div>
 
 <!-- 中心紅圈：對位用，量測一開始就消失 -->
 <div id="dgm-ring"><i class="r1"></i><i class="r2"></i><b></b><u></u><s></s></div>
 
-<div id="dgm-hint">把這個分頁拖到要量的那台螢幕上（建議按 F11 全螢幕），探頭對準中央紅圈的正中心。</div>
+<div id="dgm-hint">把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），
+  再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。</div>
 
 <div id="dgm-log"></div>
 
@@ -146,6 +190,39 @@
   var DGM_SETTLE_MS = 500;
 
   var DGM_STEPS = 256;          // 0 ～ 255。DG 第 2 部分要的就是這個長度，不做成可選。
+
+  /* ═══ v1.11.0：進度顯示 ══════════════════════════════════════════════════
+     兩個改動，都是 Bruce 2026-09-07 指定的：
+     ① 進度用**實際灰階** L0 ～ L255 表示，不再寫「第 n / 256 階」。
+     ② 時間改成**已跑多久（正數累計）**，不再估「剩餘約 X 分 Y 秒」。
+
+     🔴 為什麼把剩餘時間整個拿掉而不是把它估準（實測根因，見 CHANGELOG）：
+        原本的 `per = 已用時間 / 已完成階數` 是**累積平均**，而每一階的耗時
+        並不是定值 —— FSC,3（AUTO）在暗階會自動拉長積分時間，L0 慢、L255 快，
+        是一路遞減的。用累積平均去乘剩餘階數，會一開始就高估，然後在整輪裡
+        把高估的部分吐回去 ⇒ 顯示的秒數掉得比真實時間快（Bruce：「跳秒跳得太快」）。
+        再怎麼平滑，估計值終究是估計值；**已用時間是實測值，不會亂跳也不會騙人**。
+     時間源用 performance.now()（單調），不用 Date.now()（會被系統校時往回拉）。 */
+  var scanT0 = 0;               // 本次量測的起點（performance.now()）
+  var scanTimer = null;         // 每秒重畫一次，讓時間在等待中也是活的
+  var progLabel = '準備中';      // 上面那行：準備中 → L0 … L255
+
+  function fmtDur(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var mm = Math.floor(s / 60), ss = s % 60;
+    return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+  function elapsedMs() { return scanT0 ? (performance.now() - scanT0) : 0; }
+  function renderProg() {
+    $('dgm-prog').innerHTML = progLabel + '<small>已跑 ' + fmtDur(elapsedMs()) + '</small>';
+  }
+  function progStart() {
+    scanT0 = performance.now(); progLabel = '準備中';
+    renderProg();
+    if (scanTimer) clearInterval(scanTimer);
+    scanTimer = setInterval(renderProg, 1000);
+  }
+  function progStop() { if (scanTimer) { clearInterval(scanTimer); scanTimer = null; } }
 
   // ── 畫面 ────────────────────────────────────────────────────────────────
   function setGray(g) {
@@ -183,6 +260,18 @@
   function painted() {
     return new Promise(function (r) {
       requestAnimationFrame(function () { requestAnimationFrame(function () { r(); }); });
+    });
+  }
+
+  /* v1.11.0：可被中止的等待。停止鈕與「離開全螢幕」都要能馬上生效，
+     不能讓使用者按了停止還要等這一階的 500 ms 或倒數的 5 秒跑完。
+     （已經送出去的 MES,1／ZRC 仍要等儀器回應或逾時 —— 序列埠沒有取消這回事，
+     所以停止是「在目前這一步結束後生效」，畫面上會這樣寫。）*/
+  var abortWake = null;
+  function waitOrAbort(ms) {
+    return new Promise(function (r) {
+      var t = setTimeout(function () { abortWake = null; r(); }, ms);
+      abortWake = function () { clearTimeout(t); abortWake = null; r(); };
     });
   }
 
@@ -247,13 +336,102 @@
     try { await port.close(); } catch (e) {}
   }
 
+  /* ═══ v1.11.0：全螢幕閘門 ════════════════════════════════════════════════
+     🔴 沒全螢幕的時候，中央紅圈的位置不是螢幕的正中心 —— 瀏覽器視窗上面
+        還有網址列與分頁列，下面可能有工作列，畫面被往下擠。使用者照著紅圈
+        擺探頭，量到的就不是他以為的那一點。所以不是提醒，是**擋下來**。
+     🔴 閘門有兩層，缺一不可：
+        ① 按鈕 disabled —— 給人看的
+        ② start 處理器一進來就再判一次 —— 給程式看的。
+           繞過 disabled、或用 dispatchEvent 直接派事件，一樣進不去。 */
+  function isFs() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement
+      || document.mozFullScreenElement || document.msFullscreenElement);
+  }
+  var GATE_TEXT = '<b>還沒有全螢幕，所以「開始量測」是關著的。</b>'
+    + '不是全螢幕時，網址列與分頁列會把畫面往下擠，<b>中央紅圈的位置就不是螢幕的正中心</b>，'
+    + '照著它擺探頭會量到錯的位置。<br><b>怎麼辦：</b>按左邊那顆「全螢幕」（或鍵盤 F11），'
+    + '進去之後這顆鈕就會自己打開。';
+
+  function syncFs() {
+    var fs = isFs();
+    $('dgm-fsstate').textContent = fs ? '是' : '否（不能量測）';
+    $('dgm-fsstate').style.color = fs ? '#4ade80' : '#f87171';
+    $('dgm-fs').disabled = fs;
+    $('dgm-fs').textContent = fs ? '已全螢幕' : '全螢幕';
+    // 量測中不去動開始鈕的 disabled（那是量測迴圈在管的）
+    if (!running) $('dgm-start').disabled = !fs;
+    $('dgm-gate').innerHTML = fs ? '' : GATE_TEXT;
+    $('dgm-gate').classList.toggle('dgm-hidden', fs);
+    // 量測中掉出全螢幕 ＝ 畫面幾何變了，探頭對到的不再是原本那一點，本次作廢
+    if (running && !fs) abort('量測中離開了全螢幕');
+  }
+  ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
+    .forEach(function (ev) { document.addEventListener(ev, syncFs); });
+
+  $('dgm-fs').addEventListener('click', function () {
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+    if (!req) { msg('這個瀏覽器不支援全螢幕 API，請直接按鍵盤 F11。', 'err'); return; }
+    // 必須由使用者手勢觸發，所以只能放在 click 裡
+    var p = req.call(el);
+    if (p && p.catch) p.catch(function (e) {
+      msg('進不了全螢幕：' + e.message + '\n請直接按鍵盤 F11。', 'err');
+    });
+  });
+
   // ── 量測 ────────────────────────────────────────────────────────────────
   var running = false;
+  var aborted = null;          // 非 null ＝ 本次被中止，字串是原因
+  var lastStep = 0;            // 中止時已經量到幾筆（0 ＝ 還沒開始掃）
+  var lastGray = null;         // 中止時停在哪一個實際灰階（null ＝ 還沒進掃描）
+  var finished = false;        // 跑完一輪（不管成功或失敗）＝ 可以關掉這個分頁了
+
+  /* v1.11.0：關閉這個分頁。
+     🔴 成功、停止、失敗**三種終止狀態都給這顆**：這個分頁除了量測沒有別的用途，
+        跑完之後留著就是佔一個分頁；失敗與停止時更沒有理由留。
+        它不會擋住重跑 —— 「重新量測」就在旁邊，而且序列埠的授權是綁 origin 的，
+        關掉再開一樣拿得回來（getPorts() 仍會列出）。 */
+  $('dgm-close').addEventListener('click', function () {
+    window.close();
+    // 不是由程式開啟的分頁，close() 會被瀏覽器忽略；那就明說，不要讓他以為壞了
+    setTimeout(function () {
+      msg('瀏覽器不讓程式關掉這個分頁（通常是因為它不是由 DG 頁開出來的）。\n'
+        + '請直接按分頁上的 ✕ 關掉。', 'err');
+    }, 300);
+  });
+
+  /* 🔴 停止 ＝ 放棄本次，**不回傳部分資料**。
+     DG 第 2 部分要的是完整 256 階；半套資料灌進去，後面的反查與收斂會錯得很安靜
+     （筆數對不上不會有人發現，只會算出一張錯的表）。所以寧可整批丟掉重來。 */
+  function abort(reason) {
+    if (!running || aborted) return;
+    aborted = reason;
+    if (abortWake) abortWake();          // 把正在等的 sleep 立刻叫醒
+    $('dgm-stop').disabled = true;
+    $('dgm-stop').textContent = '停止中…';
+    msg('正在停止（' + reason + '）…\n序列埠沒有「取消」這回事，會在目前這一步結束後停下來。', 'err');
+  }
+  $('dgm-stop').addEventListener('click', function () { abort('你按了停止'); });
 
   $('dgm-start').addEventListener('click', async function () {
     if (running) return;
+    // 🔴 閘門第二層：邏輯層。繞過 disabled 也進不去。
+    if (!isFs()) {
+      msg('還沒有全螢幕，不能開始量測。\n先按左邊那顆「全螢幕」（或鍵盤 F11）。', 'err');
+      syncFs();
+      return;
+    }
     running = true;
+    aborted = null; lastStep = 0; lastGray = null; finished = false;
     $('dgm-start').disabled = true;
+    $('dgm-stop').disabled = false;
+    $('dgm-stop').textContent = '■ 停止';
+    $('dgm-stop').classList.remove('dgm-hidden');
+    $('dgm-close').classList.add('dgm-hidden');
+    $('dgm-close').classList.remove('dgm-primary');
+    $('dgm-done').classList.add('dgm-hidden');
+    progStart();
 
     // 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
     $('dgm-ring').classList.add('dgm-hidden');
@@ -261,12 +439,42 @@
 
     try { await run(); }
     catch (e) { msg('出錯了：' + e.message, 'err'); log('例外：' + e.message, 'e'); }
-    running = false;
-    $('dgm-start').disabled = false;
+    running = false; finished = true;
+    progStop();
+    $('dgm-stop').classList.add('dgm-hidden');
     $('dgm-start').textContent = '重新量測';
+    $('dgm-start').disabled = !isFs();     // 停止後可以直接再按一次；掉出全螢幕就仍然關著
+    $('dgm-close').classList.remove('dgm-hidden');
+    if (aborted) {
+      setGray(128);
+      msg('已停止（' + aborted + '）。本次量到 ' + lastStep + ' 筆'
+        + (lastGray === null ? '（還沒進到逐階掃描）' : '，停在 L' + lastGray)
+        + '，已跑 ' + fmtDur(elapsedMs()) + '。\n'
+        + '🔴 這次的資料不會回填 DG —— 第 2 部分要的是完整 L0 ～ L' + (DGM_STEPS - 1) + '，'
+        + '半套資料灌進去只會讓後面的計算錯得很安靜，所以整批丟掉。\n'
+        + '序列埠沒有關掉，直接按「重新量測」就能再跑一次，不必重選埠、也不用重整頁面。', 'err');
+      $('dgm-prog').innerHTML = '已停止'
+        + '<small>' + (lastGray === null ? '尚未進入掃描' : '停在 L' + lastGray)
+        + '　已跑 ' + fmtDur(elapsedMs()) + '　未回填</small>';
+    }
   });
 
+  // 供驗證用的唯讀觀測點（比照 dg.html 的 window.dgApi）。只有 getter，改不動任何狀態。
+  window.dgmProbe = {
+    running: function () { return running; },
+    aborted: function () { return aborted; },
+    lastStep: function () { return lastStep; },
+    lastGray: function () { return lastGray; },
+    finished: function () { return finished; },
+    elapsedMs: elapsedMs,
+    isFullscreen: isFs,
+    portOpen: function () { return !!(port && port.readable); },
+    steps: function () { return DGM_STEPS; }
+  };
+
   async function run() {
+    // 閘門第三層：run() 自己也不信任呼叫端（將來若多一條啟動路徑，這裡照樣擋）
+    if (!isFs()) { msg('還沒有全螢幕，不能開始量測。', 'err'); return; }
     if (!('serial' in navigator)) {
       msg('這個瀏覽器不支援 Web Serial，請改用 Chrome 或 Edge。', 'err'); return;
     }
@@ -274,6 +482,7 @@
     // 1. 取埠：先看已授權的，沒有才跳選單
     msg('連線中…');
     var ports = await navigator.serial.getPorts();
+    if (aborted) return;
     if (ports.length) port = ports[0];
     else {
       msg('請在清單裡選量測儀對應的序列埠。');
@@ -287,17 +496,23 @@
         msg('埠打不開：' + e.message + '\n多半是原廠軟體還開著佔住它。', 'err'); return;
       }
     }
-    keepReading = true; rxBuf = ''; readLoop();
-    log('埠已開啟 38400', 'o');
+    /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
+       這裡要防的是重複起第二個 readLoop（兩個 reader 搶同一個 stream）。 */
+    rxBuf = '';
+    if (!keepReading) { keepReading = true; readLoop(); log('埠已開啟 38400', 'o'); }
+    else log('沿用上一次已經開著的埠', 'o');
+    if (aborted) return;
 
     // 2. 初始化
     for (var i = 0; i < INIT.length; i++) {
       msg('設定中… ' + (i + 1) + '/' + INIT.length + '：' + INIT[i][1]);
       var r = await cmd(INIT[i][0], 6000);
+      if (aborted) return;
       if (r === null) { msg('沒有回應，卡在 ' + INIT[i][0] + '。', 'err'); await closePort(); return; }
       if (/^ER/.test(r) && INIT[i][0] === 'SCS,3') {
         log('UNIVERSAL 被拒，退回 INTERNAL 60Hz', 'e');
         r = await cmd('SCS,4,60.00', 6000);
+        if (aborted) return;
       }
       if (/^ER/.test(r || '')) { msg('機器回錯誤 ' + r + '（' + INIT[i][0] + '）', 'err'); await closePort(); return; }
     }
@@ -306,6 +521,7 @@
     msg('偵測畫面更新率…');
     for (var k = 0; k < HZ_GUESS.length; k++) {
       var mv = await cmd('MVS,' + HZ_GUESS[k], 8000);
+      if (aborted) return;
       if (mv && /^OK/.test(mv)) {
         var hz = parseFloat(mv.split(',')[1]);
         if (!isNaN(hz)) { $('dgm-mvs').textContent = hz.toFixed(2) + ' Hz'; break; }
@@ -316,24 +532,30 @@
     // 3. 零校正
     msg('零校正中 —— 請蓋上遮光蓋，約十秒別動。');
     var z = await cmd('ZRC', 40000);
+    if (aborted) return;
     if (z === null || /^ER/.test(z)) {
       msg('零校正失敗：' + (z || '逾時') + '\n確認遮光蓋有蓋好，再按一次。', 'err');
       await closePort(); return;
     }
     for (var s = 5; s > 0; s--) {
       msg('請打開遮光蓋、把探頭對準畫面中心。\n' + s + ' 秒後開始逐階掃描。');
-      await sleep(1000);
+      await waitOrAbort(1000);
+      if (aborted) return;
     }
 
     // 4. 逐階量測
-    var rows = [], bad = 0, t0 = performance.now();
-    msg('量測中，請不要動探頭。');
+    var rows = [], bad = 0;
+    msg('量測中，請不要動探頭。要中止就按上面的紅色「停止」。');
     for (var g = 0; g < DGM_STEPS; g++) {
       setGray(g);
+      progLabel = 'L' + g; renderProg();   // 進度＝正在量的那一階的實際灰階
       await painted();
-      await sleep(DGM_SETTLE_MS);
+      if (aborted) return;
+      await waitOrAbort(DGM_SETTLE_MS);
+      if (aborted) return;
 
       var res = await cmd('MES,1', 20000);
+      if (aborted) return;
       if (res === null || /^ER/.test(res)) {
         if (++bad >= 3) { msg('連續三階量測失敗（' + (res || '逾時') + '），停在 Gray ' + g + '。', 'err'); break; }
         g--; continue;                       // 同一階重試
@@ -347,12 +569,9 @@
         g--; continue;
       }
       rows.push([g, x, y, lv]);
-
-      var done = g + 1, per = (performance.now() - t0) / done;
-      var left = Math.round(per * (DGM_STEPS - done) / 1000);
-      $('dgm-prog').innerHTML = '第 ' + done + ' / ' + DGM_STEPS + ' 階'
-        + '<small>剩餘約 ' + Math.floor(left / 60) + ' 分 ' + (left % 60) + ' 秒</small>';
+      lastStep = rows.length; lastGray = g;
     }
+    if (aborted) return;
 
     await closePort();
     setGray(128);
@@ -367,10 +586,24 @@
     window.opener.postMessage(
       { type: 'dg-measure-result', label: '即時量測 ' + new Date().toLocaleString(), rows: rows },
       DGM_TARGET_ORIGIN);
-    $('dgm-prog').innerHTML = '完成 ' + rows.length + ' / ' + DGM_STEPS + ' 階';
-    msg('已經把 ' + rows.length + ' 階量測結果送回 DG 分頁的第 2 部分（含目標白點）。\n'
-      + '這一頁可以關掉了。', 'ok');
+    $('dgm-prog').innerHTML = '完成'
+      + '<small>L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0] + '　共 ' + rows.length + ' 筆'
+      + '　總共跑了 ' + fmtDur(elapsedMs()) + '</small>';
+    $('dgm-close').classList.add('dgm-primary');
+    // v1.11.0：資料到哪去了要講白話，就寫在關閉鈕上面那一格
+    $('dgm-done').innerHTML = '✔ 已導入 DG 第 2 部分'
+      + '<div style="font-weight:400;font-size:12px;margin-top:3px">'
+      + '白灰階 ' + rows.length + ' 筆（L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0] + '）'
+      + '＋ 目標白點，已經<b>自動填進</b>DG 分頁的第 2 部分，不用你手動搬。'
+      + '<br>切回 DG 那個分頁就看得到。這一頁可以關掉了。</div>';
+    $('dgm-done').classList.remove('dgm-hidden');
+    msg('已導入 DG 第 2 部分：' + rows.length + ' 筆（L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0]
+      + '）＋ 目標白點，已自動填進 DG 分頁，不用手動搬。\n'
+      + '這一頁可以關掉了 —— 按下面的「關閉這個分頁」。', 'ok');
   }
+
+  // 起始狀態：開始鈕的開關、全螢幕狀態列、閘門說明都由這一支決定，不另寫一份
+  syncFs();
 })();
 </script>
 </body>
