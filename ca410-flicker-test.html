@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CA-410 Flicker 一鍵測試 v0.7</title>
+<title>CA-410 Flicker 一鍵測試 v0.8</title>
 <style>
   :root{color-scheme:dark}
   body{margin:0;padding:16px;background:#0b1220;color:#e2e8f0;
@@ -38,7 +38,7 @@
 </style>
 </head>
 <body>
-<h1>CA-410 Flicker 一鍵測試<span class="ver">v0.7</span></h1>
+<h1>CA-410 Flicker 一鍵測試<span class="ver">v0.8</span></h1>
 <div class="sub">按下去就會自己跑完。中途只有一件事要你做：聽到提示時把遮光蓋打開、對準畫面。</div>
 
 <button class="big" id="go">開始測試</button>
@@ -54,7 +54,9 @@
   <div class="box"><div class="k">亮度 Lv（cd/m²）</div><div class="v" id="v-lv">—</div></div>
   <div class="box"><div class="k">取樣（筆 / 每秒）</div><div class="v dim" id="v-n">—</div></div>
   <div class="box"><div class="k">畫面更新率（Hz）</div><div class="v" id="v-hz">—</div></div>
+  <div class="box"><div class="k">第 7 欄（核對用）</div><div class="v dim" id="v-c7">—</div></div>
 </div>
+<div class="sub" style="margin:-6px 0 14px">FMA 取的是回應的<b>第 8 欄</b>。旁邊那個第 7 欄放著給你比對——如果原廠讀到 5% 時是第 7 欄接近，而不是 FMA 那格，跟我說，我把欄位換過來。</div>
 
 <canvas id="cv"></canvas>
 <canvas id="cw" style="height:240px"></canvas>
@@ -112,7 +114,7 @@ async function readLoop(){
   }catch(e){ if(keepReading) log('讀取中斷：'+e.message,'err'); }
 }
 
-// v0.7：同步改 UNIVERSAL（讓儀器自己適應畫面頻率，不再寫死 60Hz）、速度改 AUTO
+// v0.8：同步改 UNIVERSAL（讓儀器自己適應畫面頻率，不再寫死 60Hz）、速度改 AUTO
 const INIT=[
   ['COM,1','建立通訊'],
   ['SCS,3','同步 UNIVERSAL（自動適應畫面頻率）'],
@@ -207,11 +209,15 @@ async function run(){
     if(r===null){ stage('量測逾時','已取得 '+samples.length+' 筆','err'); break; }
     if(/^ER/.test(r)){ if(++bad>=3){ stage('量測回錯誤 '+r,'連續三次，停止','err'); break; } continue; }
     bad=0;
+    // 回應格式：OK00,P1,狀態,x,y,Lv,[第7欄],[第8欄=FMA]
+    // FMA 是調變振幅百分比、物理上不會是負的；第 7 欄實測會在 0 附近正負跳動，
+    // 且 JEITA 模式下第 8 欄會變成 -99999999（無效標記），所以 FMA 是第 8 欄。
     const p=r.split(',');
-    const fma=parseFloat(p[6]), lv=parseFloat(p[5]);
+    const fma=parseFloat(p[7]), lv=parseFloat(p[5]), c7=parseFloat(p[6]);
     if(isNaN(fma)) continue;
     if(!samples.length) log('第一筆完整回應：'+r,'info');
-    samples.push({t:(performance.now()-t0)/1000,fma:fma,lv:lv});
+    if(!isNaN(c7)) $('v-c7').textContent=c7.toFixed(3);
+    samples.push({t:(performance.now()-t0)/1000,fma:fma,lv:lv,c7:c7});
     drawFMA(); stats();
     stage('量測中…','已取得 '+samples.length+' 筆，剩 '+Math.max(0,10-Math.round((performance.now()-t0)/1000))+' 秒');
   }
@@ -312,7 +318,7 @@ window.addEventListener('resize',()=>{drawFMA();drawWave();});
 
 $('btn-copy').onclick=()=>navigator.clipboard.writeText(logEl.innerText).then(()=>log('已複製','ok'));
 $('btn-csv').onclick=()=>{
-  const rows=[['time_s','FMA_percent','Lv']].concat(samples.map(s=>[s.t.toFixed(4),s.fma,s.lv]));
+  const rows=[['time_s','FMA_percent','Lv','col7']].concat(samples.map(s=>[s.t.toFixed(4),s.fma,s.lv,s.c7]));
   if(wave.length){ rows.push([],['waveform_index','value']); wave.forEach((v,i)=>rows.push([i,v])); }
   const blob=new Blob([rows.map(r=>r.join(',')).join('\n')],{type:'text/csv'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
