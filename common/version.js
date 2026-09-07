@@ -12,5 +12,5 @@ var TOOL_VERSIONS = {
   aux:     'v2.4.0',       // eDP AUX / DPCD 查詢工具
   wfg:     'v4.44.1',     // 面板訊號模擬與取樣
   pattern: 'v3.6.0',       // Pattern Generator 畫面產生器
-  dg:      'v1.9.0'        // Digital Gamma 迭代校正
+  dg:      'v1.10.0'       // Digital Gamma 迭代校正
 };
