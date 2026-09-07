@@ -439,13 +439,12 @@
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
 
-  /* 齊備檢查：計算鈕被停用時，出口就寫在這一欄裡 */
-  .dg-req {
-    margin-top: 12px; padding: 9px 11px; border-radius: 8px;
-    font-size: 11.5px; line-height: 1.7; text-transform: none;
+  /* v1.16.0：`.dg-req`（輸入卡片底部那塊「還不能計算／三份都齊了」黃綠框）整組移除。
+     它是首屏最大一塊文字，正是 Bruce 2026-09-08 說的「不要一大堆說明文字在上面，
+     沒有人會看」。取代它的是計算鈕旁邊這一行最短提示（只講缺哪幾份，不講怎麼補）。 */
+  .dg-calc-miss {
+    font-size: 11px; line-height: 1.6; color: #fcd34d; text-transform: none; text-align: center;
   }
-  .dg-req.bad  { border: 1.5px solid var(--warn); background: #2a1a05; color: #fcd34d; }
-  .dg-req.good { border: 1.5px solid #0d9488; background: #042f2a; color: #5eead4; }
 
   /* ─── v1.14.0：沒有結果時，輸出卡片整張不顯示 ─────────────────────────────
      取代 v1.12.0 的 `.dg-locked`（整張灰掉 ＋ 一行黃框寫「卡在哪」）。
@@ -457,8 +456,6 @@
      這只是外觀。真正的閘門在 dgDoCalc() 與 dgDownloadLutXlsx()／dgCopyLut()／
      dgDownloadXlsx() 開頭那幾個 return —— 看不見不等於擋得住，兩者都要。 */
   .card.dg-out-hidden { display: none; }
-  .dg-req ul { margin: 6px 0 0; padding-left: 17px; }
-  .dg-req li { margin-bottom: 4px; }
   .dg-btn:disabled { opacity: .5; cursor: not-allowed; }
   .dg-btn.primary:disabled { background: #334155; border-color: #475569; color: #94a3b8; }
 
@@ -1121,7 +1118,6 @@
       </div>
       </div>
 
-      <div class="dg-req" id="dg-req"></div>
 
       <!-- ══ v1.15.0：「計算」鈕已搬出這張卡片 ═══════════════════════════════
            Bruce 2026-09-08：「『開始計算新的 RGB lookup table』應該不要合併在輸入資料
@@ -1133,8 +1129,10 @@
            v1.14.0 那個「搬進輸出卡片會跟著消失」的顧慮不適用：新位置在輸出卡片**外面**，
            輸出卡片藏起來時它照樣在。
            🔴 留在這張卡片裡的是「清空」與 `#dg-status`（三個部分共用的狀態列，
-              dgClearAll／dgClearPart／dgLoadSample 都往它寫），以及 `#dg-req` 那個
-              「還缺幾份」的方框 —— 這些講的都是**輸入**的狀態，不是計算這個動作。 -->
+              dgClearAll／dgClearPart／dgLoadSample 都往它寫）—— 它講的是**輸入**的
+              狀態，不是計算這個動作。
+           v1.16.0：`#dg-req`（「還缺幾份」那個方框）已整塊移除，改由計算鈕旁的
+           `#dg-calc-miss` 一行小字承接，見下方 `.dg-calc-act`。 -->
       <!-- v1.14.0：「載入範例資料」鈕移除（Bruce 2026-09-07：「那就拿掉，因為要載入
            範例資料，其實在預設的快捷設定裡面就可以做到了，根本就不需要那個按鈕。」）
            🔴 只拿掉按鈕與它的事件綁定，`dgLoadSample()` 這支函式本體留著 ——
@@ -1161,6 +1159,11 @@
   <div class="dg-calc-act" id="dg-calc-act">
     <div class="dg-calc-arrow" aria-hidden="true">▼</div>
     <button class="dg-btn primary" id="dg-btn-calc">開始計算新的 RGB LUT</button>
+    <!-- v1.16.0：取代 #dg-req 的最短提示。只講**缺哪幾份**，不講怎麼補
+         （怎麼補在各部分的設定視窗與 ⚠ 說明裡，那才是使用者要做選擇的時機）。
+         齊備時整行不顯示 —— 沒有東西要讀就是最好的狀態。
+         同一份資訊也寫進計算鈕的 title：桌機 hover 得到，手機看這一行。 -->
+    <div class="dg-calc-miss" id="dg-calc-miss" style="display:none"></div>
   </div>
 
   <!-- ══ 卡片 3：結果 LUT ══════════════════════════════ -->
@@ -5405,7 +5408,14 @@
       if (card) card.className = 'dg-part ' + (ok ? 'ready' : 'missing');
       if (badge) { badge.className = 'dg-badge ' + b.cls; badge.textContent = b.text; }
       if (src) { src.innerHTML = b.src; src.style.display = b.src ? '' : 'none'; }
-      if (!ok) missing.push(m);
+      /* v1.16.0：改收 part key（`p`）而不是 meta 物件。
+         這個陣列原本唯一的消費者是已經移除的 `#dg-req`（它要 `m.name` 與 `m.how`）；
+         現在只需要「缺幾份」與「哪幾號」，用 key 直接查 DG_PART_NO 最短。
+         🔴 `DG_PART_META[*].how` 本身**不是死碼、沒有移除**：匯入的檔案內容與按的
+            那顆鈕不符時，`dgShowFmt()` 會用 `DG_PART_META[want].how` 告訴使用者
+            那一部分到底要什麼（本檔下方，直接用 key 取，不經過這個陣列）。
+            `howText` 也還有兩個呼叫端（同一處的純文字版、`dgDoCalc()` 被擋下時的狀態列）。 */
+      if (!ok) missing.push(p);
     });
     /* v1.16.0：原本這裡有兩行在控制 `#dg-prim-help`（第 3 部分那個「還沒有這三筆」
        黃框）的顯示。那塊已整個移除（Bruce 2026-09-08：「連按鈕上方的那個也要拿掉」），
@@ -5423,21 +5433,32 @@
       wb.className = 'dg-badge ' + (wok ? 'ready' : 'unknown');
       wb.textContent = wok ? '已帶入' : '未提供';
     }
-    var box = $('dg-req'), btn = $('dg-btn-calc');
-    if (box) {
-      if (missing.length) {
-        box.className = 'dg-req bad';
-        box.innerHTML = '<b>⚠ 還不能計算：三份資料裡缺 ' + missing.length + ' 份。</b>'
-          + '一輪迭代要同時知道「面板裡現在是哪張表」「在那張表之下量到的白灰階」「三原色端點」，少一項就無解。'
-          + '<ul><li>' + missing.map(function (m) { return '<b>' + m.name + '</b> —— ' + m.how; }).join('</li><li>') + '</li></ul>';
-      } else {
-        box.className = 'dg-req good';
-        box.innerHTML = '<b>✔ 三份資料都齊了，可以計算。</b>'
-          + '再確認一次：第 2 部分的白階，是不是在第 1 部分那張 LUT 之下量到的？'
-          + '這兩者必須是同一個時間點的面板狀態，配錯了算出來的表不會收斂。';
-      }
+    /* ─── v1.16.0：`#dg-req` 那塊方框移除，換成計算鈕旁的一行最短提示 ─────────
+       Bruce 2026-09-08：「不要一大堆說明文字在上面，沒有人會看。」
+       🔴 移除前逐一確認過「使用者還知道缺什麼」，訊號有三層、一層都沒少：
+         1. **每個部分自己的徽章**（未提供／已帶入／來源）—— dgRefreshReady() 上面
+            那個迴圈維護，看得出是哪一部分還缺。填了一半的情形也蓋得到：第 2 部分
+            另有「目標白點」徽章，第 3 部分換算不出來時 `#dg-prim-err` 會講原因。
+         2. **計算鈕 disabled**（下一行，一個字都沒動）。
+         3. **真的按下去** → `dgDoCalc()` 開頭的守衛把「缺 N 份 ＋ 每一份怎麼補」
+            寫進 `#dg-status`（用 `DG_PART_META[p].howText`）。這比方框更即時。
+       這一行小字是為了第 2 層：光是 disabled，手機上沒有 hover，使用者不知道
+       為什麼按不動。所以只補「缺哪幾份」，怎麼補仍留給第 3 層與各部分的視窗。 */
+    var miss1 = $('dg-calc-miss'), btn = $('dg-btn-calc');
+    var missTxt = missing.length
+      ? ('還缺 ' + missing.length + ' 份：'
+         + missing.map(function (p) { return DG_PART_NO[p]; }).join('、'))
+      : '';
+    if (miss1) {
+      miss1.textContent = missTxt;
+      miss1.style.display = missTxt ? '' : 'none';
     }
-    if (btn) btn.disabled = missing.length > 0;
+    if (btn) {
+      btn.disabled = missing.length > 0;
+      // 桌機 hover 得到的同一句話。齊備時不留舊字串。
+      if (missTxt) btn.title = missTxt + '（三份資料齊了才能計算）';
+      else btn.removeAttribute('title');
+    }
     /* v1.12.0：輸入一變，輸出卡片就要跟著重算。
        v1.14.0 加上作廢規則第 5 條（兜底）：三份變成不齊時，手上那份結果一定不再
        對應目前輸入 —— 直接作廢，卡片收起來，不留一張顯示舊結果的卡片。 */
