@@ -56,11 +56,20 @@
     <button id="btn-close" class="sec" disabled>關閉</button>
   </div>
   <div class="row" style="margin-top:8px">
-    送出 <input type="text" id="cmd" value="" placeholder="留空＝只送換行">
-    <select id="eol"><option value="cr">CR</option><option value="crlf" selected>CR+LF</option><option value="lf">LF</option><option value="none">不加</option></select>
+    送出 <input type="text" id="cmd" value="COM,1" placeholder="例：COM,1">
+    <select id="eol"><option value="cr" selected>CR</option><option value="crlf">CR+LF</option><option value="lf">LF</option><option value="none">不加</option></select>
     <button id="btn-send" disabled>送出</button>
   </div>
-  <div class="sub" style="margin:8px 0 0">先什麼都不填直接按送出，看機器有沒有任何回應。有回應就代表這條路通了。</div>
+  <div class="sub" style="margin:8px 0 4px"><b>結尾符號只能用 CR。</b>官方通訊規格書 1.2.1 節明訂指令必須以 CR 結尾，多送一個 LF 會被判為格式錯誤而回 <code>ER10</code>（Command error）。</div>
+  <div class="row" style="margin-top:8px">
+    快捷
+    <button class="sec q" data-cmd="COM,1" disabled>COM,1 開始通訊</button>
+    <button class="sec q" data-cmd="IDO" disabled>IDO 型號序號</button>
+    <button class="sec q" data-cmd="MES,1" disabled>MES,1 量測</button>
+    <button class="sec q" data-cmd="STR" disabled>STR 讀設定</button>
+    <button class="sec q" data-cmd="COM,0" disabled>COM,0 結束</button>
+  </div>
+  <div class="sub" style="margin:8px 0 0">正常順序是先 <code>COM,1</code>（應回 <code>OK00</code>），再做其他事，最後 <code>COM,0</code>。<code>MES,1</code> 的回應長得像 <code>OK00,P1,0,0.327…,0.419…,4.807…</code>，依序是探頭、狀態、然後是量到的數值。</div>
 </div>
 
 <div class="card">
@@ -138,6 +147,7 @@ $('btn-open').onclick = async () => {
     await port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
     log('埠已開啟，鮑率 ' + baud + '。', 'ok');
     $('btn-open').disabled = true; $('btn-close').disabled = false; $('btn-send').disabled = false;
+    document.querySelectorAll('button.q').forEach(b => b.disabled = false);
     keepReading = true;
     readLoop();
   }catch(e){
@@ -166,20 +176,23 @@ async function readLoop(){
   }catch(e){ if(keepReading) log('讀取中斷：' + e.message, 'err'); }
 }
 
-$('btn-send').onclick = async () => {
+async function sendText(text){
   if(!port || !port.writable){ log('埠還沒開。', 'err'); return; }
   const eolMap = { cr:'\r', crlf:'\r\n', lf:'\n', none:'' };
-  const payload = $('cmd').value + eolMap[$('eol').value];
+  const payload = text + eolMap[$('eol').value];
   const bytes = new TextEncoder().encode(payload);
   try{
     const w = port.writable.getWriter();
     await w.write(bytes);
     w.releaseLock();
     log('已送出 ' + bytes.length + ' bytes：' + JSON.stringify(payload), 'info');
-    log('  等 3 秒看有沒有回應…', 'dim');
-    setTimeout(() => log('  （若上面沒有出現「收到」，代表這個鮑率或指令不對，換一個再試）', 'dim'), 3000);
   }catch(e){ log('送出失敗：' + e.message, 'err'); }
-};
+}
+
+$('btn-send').onclick = () => sendText($('cmd').value);
+document.querySelectorAll('button.q').forEach(b => {
+  b.onclick = () => { const c = b.getAttribute('data-cmd'); $('cmd').value = c; sendText(c); };
+});
 
 $('btn-close').onclick = async () => {
   keepReading = false;
