@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CA-410 Flicker 即時波形 v0.4</title>
+<title>CA-410 Flicker 即時波形 v0.5</title>
 <style>
   :root{color-scheme:dark}
   body{margin:0;padding:16px;background:#0b1220;color:#e2e8f0;
@@ -35,7 +35,7 @@
 </style>
 </head>
 <body>
-<h1>CA-410 Flicker 即時波形<span class="ver">v0.4</span></h1>
+<h1>CA-410 Flicker 即時波形<span class="ver">v0.5</span></h1>
 <div class="sub">橫軸時間、縱軸 FMA（%）。FMA 越大代表閃爍越嚴重。</div>
 
 <div class="card">
@@ -80,6 +80,32 @@
 </div>
 
 <div class="card">
+  <h2>④ 波形量測（WDR）—— 真正的時間軸亮度波形</h2>
+  <div class="row">
+    感測器 <select id="w-sensor"><option value="0" selected>XYZ</option><option value="1">Flicker</option></select>
+    自動 <select id="w-auto"><option value="0" selected>OFF（最短間隔）</option><option value="1">ON（跟同步頻率）</option></select>
+    樣本數 <select id="w-n">
+      <option value="6">64</option><option value="7">128</option><option value="8">256</option>
+      <option value="9">512</option><option value="10" selected>1024</option><option value="11">2048</option>
+      <option value="12">4096</option><option value="13">8192</option></select>
+    間隔 <input type="number" id="w-int" value="1" min="1" max="100" style="width:70px">
+    受光 <select id="w-recv"><option value="0">X</option><option value="1" selected>Y（建議）</option><option value="2">Z</option></select>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button class="go" id="btn-wave" disabled>擷取一次波形</button>
+    <button class="sec" id="btn-wcsv" disabled>匯出波形 CSV</button>
+    <span class="dim" id="w-info"></span>
+  </div>
+  <canvas id="cw" style="height:300px;margin-top:10px"></canvas>
+  <div class="note">
+    <b>這一區是探索性質的，請對照紀錄裡的原始回應再採信數字。</b>
+    官方 PDF 我只抓到前半部，<code>WDR</code> 的確切回傳格式那一節不在裡面，所以這裡的解析是用實際回應反推的：
+    先送 <code>WCS</code> 設條件、再送 <code>MES,1</code> 觸發，然後從 <code>WDR,1,0</code> 開始一塊一塊取，把 <code>OK00,P1,</code> 後面的數值串起來，遇到錯誤、空白或 −999 就停。
+    每一塊的原始字串都會完整印在紀錄裡，如果切法不對，從那些字串就看得出來。
+  </div>
+</div>
+
+<div class="card">
   <h2>紀錄</h2>
   <div id="log"></div>
   <div class="row" style="margin-top:8px">
@@ -89,7 +115,7 @@
 </div>
 
 <script>
-const VERSION='v0.4';
+const VERSION='v0.5';
 const $=id=>document.getElementById(id);
 const logEl=$('log');
 function log(m,c){const d=document.createElement('div');if(c)d.className=c;
@@ -144,7 +170,7 @@ $('btn-open').onclick=async()=>{
   try{
     await port.open({baudRate:Number($('baud').value),dataBits:8,stopBits:1,parity:'none'});
     log('埠已開啟。','ok');
-    $('btn-open').disabled=true;$('btn-close').disabled=false;$('btn-init').disabled=false;
+    $('btn-open').disabled=true;$('btn-close').disabled=false;$('btn-init').disabled=false;$('btn-wave').disabled=false;
     keepReading=true;rxBuf='';readLoop();
   }catch(e){
     log('開啟失敗：'+e.message,'err');
@@ -290,6 +316,85 @@ $('btn-csv').onclick=()=>{
   a.click();
   log('已匯出 '+samples.length+' 筆。','ok');
 };
+/* ───── 波形量測（WDR）───── */
+let wave=[], waveMeta='';
+$('btn-wave').onclick=async()=>{
+  if(running){ log('請先停止即時量測再擷取波形。','warn'); return; }
+  $('btn-wave').disabled=true;
+  wave=[];
+  const s=$('w-sensor').value, a=$('w-auto').value, n=$('w-n').value,
+        iv=$('w-int').value, rc=$('w-recv').value;
+  const wcs='WCS,'+s+','+a+','+n+','+iv+','+rc;
+  log('──── 波形量測開始 ────','info');
+  let r=await sendCmd(wcs,10000);
+  log(wcs+' → '+(r===null?'逾時':r), /^OK/.test(r||'')?'ok':'err');
+  if(r===null||/^ER/.test(r)){ $('btn-wave').disabled=false; return; }
+
+  r=await sendCmd('WCR,'+s,8000);
+  log('WCR,'+s+' → '+(r===null?'逾時':r),'dim');
+
+  r=await sendCmd('MES,1',25000);
+  log('MES,1 → '+(r===null?'逾時':r), /^OK/.test(r||'')?'ok':'err');
+  if(r===null||/^ER/.test(r)){ $('btn-wave').disabled=false; return; }
+
+  for(let blk=0; blk<80; blk++){
+    const cmd='WDR,1,'+blk;
+    const res=await sendCmd(cmd,15000);
+    if(res===null){ log(cmd+' 逾時，停止取塊。','warn'); break; }
+    log(cmd+' → '+res.slice(0,150)+(res.length>150?' …（共 '+res.length+' 字）':''),'dim');
+    if(/^ER/.test(res)){ if(blk===0) log('第一塊就回錯誤，格式可能不是這樣。','err'); break; }
+    const parts=res.split(',');
+    const vals=parts.slice(2).map(Number).filter(v=>!isNaN(v));
+    if(!vals.length){ log('這一塊沒有數值，停止。','dim'); break; }
+    let stop=false;
+    for(const v of vals){ if(v<=-999){ stop=true; break; } wave.push(v); }
+    if(stop){ log('遇到結束標記，共取得 '+wave.length+' 點。','ok'); break; }
+  }
+  waveMeta=wcs;
+  $('w-info').textContent=wave.length ? ('共 '+wave.length+' 點　條件 '+wcs) : '沒有取到資料';
+  log('──── 波形量測結束，'+wave.length+' 點 ────','info');
+  drawWave();
+  $('btn-wcsv').disabled=!wave.length;
+  $('btn-wave').disabled=false;
+};
+
+function drawWave(){
+  const cv=$('cw'), dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth,H=cv.clientHeight;
+  if(cv.width!==W*dpr||cv.height!==H*dpr){cv.width=W*dpr;cv.height=H*dpr;}
+  const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  const L=64,R=12,T=14,B=28,w=W-L-R,h=H-T-B;
+  g.font='11px ui-monospace,Menlo,monospace';
+  g.strokeStyle='#1e2d4d'; g.strokeRect(L,T,w,h);
+  if(!wave.length){ g.fillStyle='#64748b'; g.fillText('尚無波形資料',L+8,T+18); return; }
+  let y0=Math.min(...wave), y1=Math.max(...wave);
+  const pad=Math.max((y1-y0)*0.12,1e-9); y0-=pad; y1+=pad;
+  const X=i=>L+i/(wave.length-1||1)*w, Y=v=>T+h-(v-y0)/(y1-y0)*h;
+  for(let i=0;i<=4;i++){
+    const yy=T+h*i/4, val=y1-(y1-y0)*i/4;
+    g.strokeStyle='#16233d'; g.beginPath(); g.moveTo(L,yy); g.lineTo(L+w,yy); g.stroke();
+    g.fillStyle='#64748b'; g.textAlign='right'; g.fillText(val.toPrecision(5),L-6,yy+4);
+  }
+  g.textAlign='center';
+  for(let i=0;i<=4;i++){
+    const xx=L+w*i/4, idx=Math.round((wave.length-1)*i/4);
+    g.strokeStyle='#16233d'; g.beginPath(); g.moveTo(xx,T); g.lineTo(xx,T+h); g.stroke();
+    g.fillStyle='#64748b'; g.fillText('#'+idx,xx,T+h+15);
+  }
+  g.strokeStyle='#a78bfa'; g.lineWidth=1.4; g.beginPath();
+  wave.forEach((v,i)=>{ const px=X(i),py=Y(v); i?g.lineTo(px,py):g.moveTo(px,py); });
+  g.stroke();
+  g.fillStyle='#94a3b8'; g.textAlign='left'; g.fillText('取樣點（依序）',L+4,T+11);
+}
+window.addEventListener('resize',drawWave);
+$('btn-wcsv').onclick=()=>{
+  const rows=[['index','value'],...wave.map((v,i)=>[i,v])];
+  const blob=new Blob(['# '+waveMeta+'\n'+rows.map(r=>r.join(',')).join('\n')],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='waveform_'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'')+'.csv'; a.click();
+  log('已匯出波形 '+wave.length+' 點。','ok');
+};
+
 $('btn-copy').onclick=()=>navigator.clipboard.writeText(logEl.innerText).then(()=>log('已複製。','ok'));
 $('btn-clearlog').onclick=()=>logEl.innerHTML='';
 draw();
