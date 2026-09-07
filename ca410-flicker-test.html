@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CA-410 Flicker 一鍵測試 v0.6</title>
+<title>CA-410 Flicker 一鍵測試 v0.7</title>
 <style>
   :root{color-scheme:dark}
   body{margin:0;padding:16px;background:#0b1220;color:#e2e8f0;
@@ -38,7 +38,7 @@
 </style>
 </head>
 <body>
-<h1>CA-410 Flicker 一鍵測試<span class="ver">v0.6</span></h1>
+<h1>CA-410 Flicker 一鍵測試<span class="ver">v0.7</span></h1>
 <div class="sub">按下去就會自己跑完。中途只有一件事要你做：聽到提示時把遮光蓋打開、對準畫面。</div>
 
 <button class="big" id="go">開始測試</button>
@@ -53,6 +53,7 @@
   <div class="box"><div class="k">FMA 最大（%）</div><div class="v bad" id="v-max">—</div></div>
   <div class="box"><div class="k">亮度 Lv（cd/m²）</div><div class="v" id="v-lv">—</div></div>
   <div class="box"><div class="k">取樣（筆 / 每秒）</div><div class="v dim" id="v-n">—</div></div>
+  <div class="box"><div class="k">畫面更新率（Hz）</div><div class="v" id="v-hz">—</div></div>
 </div>
 
 <canvas id="cv"></canvas>
@@ -111,10 +112,11 @@ async function readLoop(){
   }catch(e){ if(keepReading) log('讀取中斷：'+e.message,'err'); }
 }
 
+// v0.7：同步改 UNIVERSAL（讓儀器自己適應畫面頻率，不再寫死 60Hz）、速度改 AUTO
 const INIT=[
   ['COM,1','建立通訊'],
-  ['SCS,4,60.00','同步 60Hz'],
-  ['FSC,1','量測速度 FAST'],
+  ['SCS,3','同步 UNIVERSAL（自動適應畫面頻率）'],
+  ['FSC,3','量測速度 AUTO'],
   ['OPR,1','選探頭 P1'],
   ['MMS,0','色彩＋閃爍'],
   ['FMS,0','FMA 法'],
@@ -122,6 +124,8 @@ const INIT=[
   ['MCH,0','校正通道 0'],
   ['LUS,1','單位 cd/m²']
 ];
+// MVS 要給一個設計值，它在 ±2Hz 內偵測。掃一輪常見更新率。
+const HZ_GUESS=[60,75,90,100,120,144,165,180,200,240];
 
 $('go').onclick=async()=>{
   $('go').disabled=true;
@@ -161,10 +165,28 @@ async function run(){
   for(let i=0;i<INIT.length;i++){
     const [c,why]=INIT[i];
     stage('設定中… '+(i+1)+'/'+INIT.length, why);
-    const r=await cmd(c,6000);
+    let r=await cmd(c,6000);
     if(r===null){ stage('沒有回應','卡在 '+c+'。機器可能沒開、或鮑率不是 38400。','err'); return; }
-    if(/^ER/.test(r)){ stage('機器回錯誤 '+r, c+' 被拒絕。','err'); return; }
+    if(/^ER/.test(r) && c==='SCS,3'){
+      log('UNIVERSAL 被拒，退回 INTERNAL 60Hz（這台可能不支援 UNIVERSAL）','warn');
+      r=await cmd('SCS,4,60.00',6000);
+    }
+    if(/^ER/.test(r||'')){ stage('機器回錯誤 '+r, c+' 被拒絕。','err'); return; }
   }
+
+  // 3.5 偵測畫面更新率（只是回報給人看，不影響 UNIVERSAL 同步）
+  stage('偵測畫面更新率…','逐一試常見的更新率，找出畫面實際是幾 Hz');
+  let hz=null;
+  for(const guess of HZ_GUESS){
+    const r=await cmd('MVS,'+guess,8000);
+    if(r===null) continue;
+    if(/^OK/.test(r)){
+      const v=parseFloat(r.split(',')[1]);
+      if(!isNaN(v)){ hz=v; break; }
+    }
+  }
+  if(hz!==null){ $('v-hz').textContent=hz.toFixed(2); log('偵測到畫面更新率 '+hz+' Hz','ok'); }
+  else{ $('v-hz').textContent='測不到'; log('MVS 掃過一輪都沒抓到，可能畫面是靜態的或不在常見更新率內。','warn'); }
 
   // 4. 零校正
   stage('零校正中，請蓋上遮光蓋','大約十秒，蓋著別動');
