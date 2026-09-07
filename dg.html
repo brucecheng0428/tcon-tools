@@ -462,6 +462,29 @@
   .dg-btn:disabled { opacity: .5; cursor: not-allowed; }
   .dg-btn.primary:disabled { background: #334155; border-color: #475569; color: #94a3b8; }
 
+  /* ─── v1.15.0：獨立的「開始計算」動作 ─────────────────────────────────────
+     Bruce 2026-09-08：計算鈕「應該要獨立出來，成為一個跟任何卡片都沒有關係的獨立
+     按鈕」。所以這一塊**刻意不套 `.card`**，也刻意不長得像卡片：
+       · 沒有 `--card` 底色、沒有外框、沒有 12px 圓角的卡片殼、沒有藍色標題列
+       · 上下留白比卡片間距大（22px vs 12px），視覺上就是兩張卡片之間的一道分水嶺
+       · 一顆置中的大鈕，寬度上限 340px，不像卡片內的按鈕列那樣撐滿整條
+     ▼ 那個小箭頭指向下方（按了就會在下面長出「輸出」卡片），是純裝飾，aria-hidden。 */
+  .dg-calc-act {
+    margin: 22px 0; padding: 0; background: none; border: 0; box-shadow: none;
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+  }
+  .dg-calc-arrow { font-size: 12px; line-height: 1; color: #475569; letter-spacing: 4px; }
+  .dg-calc-act > .dg-btn {
+    flex: 0 0 auto; width: 100%; max-width: 340px;
+    padding: 15px 18px; font-size: 15.5px; border-radius: 11px;
+    box-shadow: 0 5px 16px rgba(37, 99, 235, 0.35);
+  }
+  .dg-calc-act > .dg-btn:disabled { box-shadow: none; cursor: not-allowed; }
+
+  /* 計算鈕搬走之後，「清空」是這一列唯一的按鈕。`.dg-btn` 的 `flex:1 1 auto` 會讓它
+     撐滿整條 —— 一顆全寬的「清空」比它該有的份量大太多，所以這一列不讓它長大。 */
+  .dg-clearrow .dg-btn { flex: 0 1 auto; min-width: 120px; }
+
   .dg-fmt {
     margin-top: 10px; padding: 8px 10px; border-radius: 8px;
     border: 1.5px solid #0d9488; background: #042f2a;
@@ -628,7 +651,7 @@
     <span class="dg-preset-label">預設</span>
     <select id="dg-preset-select" class="dg-preset-select preset-attention">
       <option value="">快捷設定</option>
-      <option value="sampleA">內建實測資料組 A（載入即完整算出）</option>
+      <option value="sampleA">內建實測資料組 A</option>
     </select>
   </div>
 
@@ -1066,31 +1089,51 @@
 
       <div class="dg-req" id="dg-req"></div>
 
-      <!-- v1.14.0：「計算」鈕留在原位（Bruce 2026-09-07 第二次裁示）。
-           一度打算把它搬進「輸出」卡片，但輸出卡片改成「沒算過就整張不顯示」之後，
-           搬進去它會跟著消失、變成按不到 —— 所以維持在輸入卡片底部不動。 -->
+      <!-- ══ v1.15.0：「計算」鈕已搬出這張卡片 ═══════════════════════════════
+           Bruce 2026-09-08：「『開始計算新的 RGB lookup table』應該不要合併在輸入資料
+           的這個卡片裡面，應該要獨立出來，成為一個跟任何卡片都沒有關係的獨立按鈕，
+           按了以後才會出現『輸出 RGB Digital Gamma LUT』。」
+           節點搬到本卡片與「輸出」卡片之間的 `.dg-calc-act`（見下方），**id 未改**
+           （`dg-btn-calc`），事件與 dgRefreshReady() 的 disabled 控制都是按 id 走的，
+           行為零改變。
+           v1.14.0 那個「搬進輸出卡片會跟著消失」的顧慮不適用：新位置在輸出卡片**外面**，
+           輸出卡片藏起來時它照樣在。
+           🔴 留在這張卡片裡的是「清空」與 `#dg-status`（三個部分共用的狀態列，
+              dgClearAll／dgClearPart／dgLoadSample 都往它寫），以及 `#dg-req` 那個
+              「還缺幾份」的方框 —— 這些講的都是**輸入**的狀態，不是計算這個動作。 -->
       <!-- v1.14.0：「載入範例資料」鈕移除（Bruce 2026-09-07：「那就拿掉，因為要載入
            範例資料，其實在預設的快捷設定裡面就可以做到了，根本就不需要那個按鈕。」）
            🔴 只拿掉按鈕與它的事件綁定，`dgLoadSample()` 這支函式本體留著 ——
-              頁面頂端的「快捷設定」選到範例那一項時走的就是它（dgApplyPreset →
-              dgLoadSample → dgDoCalc）。內建資料 DG_SAMPLE 另外還被 ⚠ 視窗裡的
-              「自我驗證」與 dgApi.sample() 用到，都與這顆按鈕無關。 -->
-      <div class="dg-btnrow">
-        <!-- v1.14.0：文案由「計算 RGB Digital Gamma LUT」改為「開始計算新的 RGB LUT」。
-             這一頁本身就是 Digital Gamma 工具，按鈕上再放 DG 是冗字；重點是「新的」——
-             用來對比第 1 部分匯進來的那張舊 LUT，也與下載鈕的「下載新產出…」語彙一致。 -->
-        <button class="dg-btn primary" id="dg-btn-calc">開始計算新的 RGB LUT</button>
+              頁面頂端的「快捷設定」選到範例那一項時走的就是它。
+              v1.15.0 起這條鏈只到 dgApplyPreset → dgLoadSample 為止，**不再接
+              dgDoCalc**（Bruce 2026-09-08：載完要停在計算鈕前面）。
+              內建資料 DG_SAMPLE 另外還被 dgApi.sample() 用到，與這顆按鈕無關。 -->
+      <div class="dg-btnrow dg-clearrow">
         <button class="dg-btn" id="dg-btn-clear">清空</button>
       </div>
       <div class="dg-status" id="dg-status">尚未計算。</div>
     </div>
   </div>
 
+  <!-- ══ v1.15.0：獨立的「開始計算」動作（不屬於任何卡片）══════════════════════
+       刻意**不包在 `.card` 裡**：它不是某一張卡片的一部分，而是「輸入」與「輸出」
+       之間的那一下動作。所以沒有卡片底色、沒有卡片外框、沒有卡片標題列，只有一顆
+       置中的大鈕，上下各留白 —— 視覺上就是兩張卡片中間的一道分水嶺。
+       文案沿用 v1.14.0：這一頁本身就是 Digital Gamma 工具，按鈕上再放 DG 是冗字；
+       重點是「新的」—— 用來對比第 1 部分那張舊 LUT，也與下載鈕的「下載新產出…」一致。
+       🔴 邏輯層的閘門一條都沒動：disabled 由 dgRefreshReady() 依 dgMissingParts() 給，
+          而 dgDoCalc() 開頭「有缺就 return」（v1.5.0 起）照舊 —— 強制解除 disabled
+          再程式化 click，一樣產不出東西。 -->
+  <div class="dg-calc-act" id="dg-calc-act">
+    <div class="dg-calc-arrow" aria-hidden="true">▼</div>
+    <button class="dg-btn primary" id="dg-btn-calc">開始計算新的 RGB LUT</button>
+  </div>
+
   <!-- ══ 卡片 3：結果 LUT ══════════════════════════════ -->
   <!-- v1.14.0：初始就掛著 dg-out-hidden ＝ 一進來就是不顯示的。
        之後由 dgSyncOutCard() 依 lastLut 有沒有東西來開關這個 class。 -->
   <div class="card dg-result dg-out-hidden" id="dg-card-result">
-    <div class="card-header"><span class="icon">📤</span><span>輸出 RGB Digital Gamma LUT</span><button type="button" class="dg-info-btn" data-info="dg-info-out,dg-info-verify-live" data-info-title="輸出 — 表格範圍與自我驗證" aria-label="說明" title="說明">⚠</button></div>
+    <div class="card-header"><span class="icon">📤</span><span>輸出 RGB Digital Gamma LUT</span><button type="button" class="dg-info-btn" data-info="dg-info-out" data-info-title="輸出 — 表格範圍" aria-label="說明" title="說明">⚠</button></div>
     <div class="card-body">
       <!-- ══ v1.14.0：整張卡片改成「沒有結果就不顯示」═══════════════════════════
            Bruce 2026-09-07：「在 CALC 的網頁裡面，有一個要按一下『開始計算』，下面的
@@ -1159,25 +1202,16 @@
          · 圖四（LUT 內容值）與圖表資料表畫的是算出來的結果 → 搬進「輸出」卡片
        拆完這張卡片只會剩一個空殼，所以整張移除，不留殘骸。 -->
 
-  <!-- ══ v1.12.0：原本的「自我驗證」卡片（卡片 5）從主畫面移除 ══════════════
-       Bruce 2026-09-07：「使用者要越簡單越好。」它的價值在「懷疑結果不對時自我
-       檢查」，屬於罕見情境；真正在守這件事的是每次改版跑的驗證腳本，不是使用者
-       按那顆鈕。**功能不刪、只移出動線** —— 整塊搬進「輸出」卡片的 ⚠ 浮動視窗。
-       🔴 這一塊是**節點被搬進視窗**（不是複製 innerHTML），所以按鈕上的事件仍在。
-          標記用的是 dg-info-live 這個 class，見 dgInfoOpen()。 -->
-  <div class="dg-info-src dg-info-live" id="dg-info-verify-live">
-    <div class="dg-sep">自我驗證</div>
-    <div class="dg-note">
-      內建一組實測資料（純色端點、256 階白階量測、設定，以及這組資料對應的已知正確 RGB LUT）。
-      按下按鈕會用本頁的演算法重算並逐值比對 <b>257 × 3 = 771</b> 個輸出。<br>
-      旁邊的負控制會故意改掉一個設定 —— 那一次<b>必須</b>出現不合，否則代表這個比對沒有鑑別力、不能採信。
-    </div>
-    <div class="dg-btnrow">
-      <button class="dg-btn ok" id="dg-btn-verify">執行逐值比對</button>
-      <button class="dg-btn" id="dg-btn-negctrl">負控制（故意改設定，應該要不合）</button>
-    </div>
-    <div class="dg-status" id="dg-verify-status">尚未執行。</div>
-  </div>
+  <!-- ══ v1.15.0：原本擺在這裡的那塊逐值比對除錯區（v1.12.0 收進 ⚠ 視窗）已整個移除 ══
+       Bruce 2026-09-08 裁示：使用者不會用到，不管怎麼樣都不該出現在產品裡；要私下用
+       是開發端自己的事。v1.12.0 那個「收進浮動視窗」的折衷一併作廢 —— 他要的是
+       **不存在**，不是「收起來」。
+       🔴 這份檔案裡不再留任何相關的 id、按鈕、狀態列與文案（他指定 grep 要為 0），
+          完整的移除清單與理由寫在 `CHANGELOG.md` 的 dg v1.15.0 條目。
+       🔴 `DG_SAMPLE` 留著 —— 它是**資料**不是那塊 UI：頁面頂端的快捷設定
+          （dgApplyPreset → dgLoadSample）與 `dgApi.sample()` 都要用。
+       逐值比對這件事本身沒有消失，改由改版時跑的驗證腳本負責（走 `window.dgApi`
+       的純函式，不需要畫面上有按鈕）。 -->
 
 </div><!-- /#dg-main-content -->
 
@@ -1348,7 +1382,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260907dg1140"></script>
+<script src="common/version.js?v=20260908dg1150"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4260,7 +4294,13 @@
         : '三份都還在，可以計算。'), '');
   }
 
-  // 快捷預設：一鍵載入並直接算完，讓人第一眼就看到完整結果（含圖表）
+  /* 快捷預設：把內建那組實測資料填進三個部分。
+     🔴 v1.15.0 起**不再自動計算**（Bruce 2026-09-08：「因為我想用這組 data 來測試前面
+        輸入的數據。都輸入完整以後，應該是要停在『開始計算新的 RGB LUT table』。」
+        選項後面那個括號註記也一併拿掉了。）
+        填完之後的畫面狀態，與他自己手動把三份資料備齊完全一樣：三個部分都是「已提供」、
+        計算鈕解除 disabled、**輸出卡片仍然不顯示**、`lastLut` 仍為 null。
+        本頁只有這一個快捷項目（另一個是空字串＝清空），沒有第二處會自動計算。 */
   function dgApplyPreset(v) {
     /* v1.11.0：選回最上面那個空白的「快捷設定」＝ 全部清空（Bruce 2026-09-07）。
        用意是「清乾淨、重新來一輪」—— 清完就能直接再按「即時量測」重連一次。
@@ -4268,10 +4308,11 @@
     if (!v) { dgClearAll('preset'); return; }
     if (v === 'sampleA') {
       dgLoadSample();
-      dgDoCalc();
       $('dg-preset-select').classList.remove('preset-attention');
-      var card = $('dg-card-result');
-      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      /* 捲到那顆獨立的計算鈕 —— 他的原話就是「應該是要停在『開始計算新的 RGB LUT』」。
+         捲到輸出卡片是 v1.14.0 以前的作法，現在那張卡片還不存在（沒算過就不顯示）。 */
+      var act = $('dg-calc-act');
+      if (act && act.scrollIntoView) act.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }
 
@@ -5509,57 +5550,6 @@
      它省下的只有「搬 N 行並去掉附加末筆」，而「一鍵複製 RGB」改成只給主表之後
      正好就是下一輪起始 LUT 需要的範圍，複製貼上已完全取代。 */
 
-  // ─── 自我驗證 ──────────────────────────────────────────────────────────
-  function dgVerify(mutate) {
-    var s = DG_SAMPLE;
-    if (!s) { dgSetStatus('dg-verify-status', '內建樣本未載入。', 'err'); return; }
-    var cfg = {
-      sd: s.sd, hw: s.hw, lutbit: s.hw, N: s.n, M: 256,
-      gamma: s.gamma, mode: s.mode, round: 'round',
-      turnGray: s.turnGray, removeL0: s.removeL0
-    };
-    var label = '基準設定';
-    if (mutate) { cfg.round = 'floor'; label = '負控制：取整方式改成 Floor'; }
-    var data = {
-      prim: s.prim,
-      grayXYZ: s.grayXYZ, grayxyY: s.grayxyY,
-      targetWhite: s.targetWhite, inCodes: null
-    };
-    var res;
-    try { res = dgCompute(cfg, data); }
-    catch (e) { dgSetStatus('dg-verify-status', '錯誤：' + e.message, 'err'); return; }
-
-    var exp = s.expectLUT, bad = 0, maxErr = 0, first = [];
-    for (var i = 0; i < exp.length; i++) {
-      for (var c = 0; c < 3; c++) {
-        var d = Math.abs(res.lut[i][c] - exp[i][c]);
-        if (d) {
-          bad++; if (d > maxErr) maxErr = d;
-          if (first.length < 6) first.push('idx=' + i + ' ' + 'RGB'[c] + ' 算出=' + res.lut[i][c] + ' 應為=' + exp[i][c]);
-        }
-      }
-    }
-    var total = exp.length * 3;
-    var msg = label + '\n比對 ' + total + ' 個值：不合 ' + bad + ' 個，最大差 ' + maxErr;
-    if (first.length) msg += '\n' + first.join('\n');
-    if (mutate) {
-      msg += '\n\n' + (bad > 0
-        ? '✔ 負控制有鑑別力：改了設定就對不上，代表比對不是恆真。'
-        : '✘ 負控制失效：改了設定竟然還全對，這個比對沒有鑑別力，不可採信。');
-      dgSetStatus('dg-verify-status', msg, bad > 0 ? 'ok' : 'err');
-    } else {
-      dgSetStatus('dg-verify-status', msg + (bad === 0 ? '\n\n✔ 逐值完全一致。' : '\n\n✘ 有差異。'), bad === 0 ? 'ok' : 'err');
-      if (bad === 0) {
-        lastLut = res.lut;
-        lastCtx = { cfg: cfg, data: data, res: res };
-        dgSyncOutCard();                // v1.14.0：自我驗證算出結果時同樣讓卡片出現
-        dgRenderOutFmt();
-        dgFillLutTable(dgOutLutBody());
-        dgDrawCharts(s.grayxyY); dgDrawLutChart(res.lut, cfg.hw, cfg.sd);
-      }
-    }
-  }
-
   // ─── 啟動 ──────────────────────────────────────────────────────────────
   /* ─── v1.8.0：說明浮動視窗 ─────────────────────────────────────────────
      🔴 內容<b>不複製一份</b>：直接把頁面上那個 display:none 區塊的 innerHTML 搬進視窗。
@@ -5569,10 +5559,13 @@
         留著的元素（清單、按鈕列）隔開時就會用到。 */
   /* v1.12.0：多一條「搬節點」的路。
      🔴 純說明的區塊照舊複製 innerHTML（複製最安全，原處不會變空）。
-        但帶著**真按鈕**的區塊（自我驗證）不能複製 —— 複製出來的按鈕沒有事件監聽器，
-        而且會產生重複的 id，`$('dg-verify-status')` 會抓到錯的那一個。
+        但帶著**真按鈕**的區塊不能複製 —— 複製出來的按鈕沒有事件監聽器，而且會產生
+        重複的 id，`$('...')` 會抓到錯的那一個。
         這種區塊掛 class `dg-info-live`，開視窗時把**真的節點**搬進去、關的時候搬回原位
-        （原位留一個隱形的佔位節點，才知道要放回哪裡）。 */
+        （原位留一個隱形的佔位節點，才知道要放回哪裡）。
+     🔴 v1.15.0 起**沒有任何區塊掛著 `dg-info-live`**（唯一用它的那塊已整個移除），
+        這條路目前零呼叫。機制留著是因為它是通用的、與被移除的那塊無關；哪天又有
+        帶真按鈕的說明區塊就會再用到。要不要一併清掉由 Bruce 決定。 */
   var DG_INFO_MOVED = [];
 
   /* ─── v1.14.0：第 1 部分「設定 RGB 的 LUT」的詢問視窗 ────────────────────
@@ -5790,8 +5783,6 @@
     $('dg-btn-calc').addEventListener('click', dgDoCalc);
     $('dg-btn-xlsx').addEventListener('click', dgDownloadXlsx);
     $('dg-btn-copy').addEventListener('click', dgCopyLut);
-    $('dg-btn-verify').addEventListener('click', function () { dgVerify(false); });
-    $('dg-btn-negctrl').addEventListener('click', function () { dgVerify(true); });
 
     // 圖表放大：⤢ 鈕，或直接點圖本身（手機上手指戳圖比找按鈕直覺）
     Array.prototype.forEach.call(document.querySelectorAll('.dg-chart-zoom'), function (btn) {
