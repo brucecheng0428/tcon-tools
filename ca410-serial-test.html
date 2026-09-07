@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CA-410 連線測試</title>
+<style>
+  :root{color-scheme:dark}
+  body{margin:0;padding:16px;background:#0b1220;color:#e2e8f0;
+       font:14px/1.6 -apple-system,"PingFang TC","Noto Sans TC",sans-serif}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#94a3b8;font-size:12px;margin-bottom:14px}
+  .card{background:#111c33;border:1px solid #1e2d4d;border-radius:10px;padding:14px;margin-bottom:12px}
+  .card h2{font-size:14px;margin:0 0 10px;color:#7dd3fc}
+  button{background:#2563eb;color:#fff;border:0;border-radius:7px;padding:9px 14px;
+         font-size:14px;cursor:pointer;margin:0 6px 6px 0}
+  button.sec{background:#334155}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  select,input{background:#0b1220;color:#e2e8f0;border:1px solid #334155;
+               border-radius:6px;padding:7px 9px;font-size:14px;margin:0 6px 6px 0}
+  input[type=text]{width:190px;font-family:ui-monospace,Menlo,monospace}
+  #log{background:#050b16;border:1px solid #1e2d4d;border-radius:8px;padding:10px;
+       height:300px;overflow:auto;font:12px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .ok{color:#4ade80}.err{color:#f87171}.info{color:#7dd3fc}.dim{color:#64748b}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+  code{background:#0b1220;padding:1px 5px;border-radius:4px;color:#fbbf24}
+</style>
+</head>
+<body>
+<h1>CA-410 連線測試</h1>
+<div class="sub">只做一件事：確認瀏覽器能不能透過 Web Serial 看到並打開 CA-410 的虛擬序列埠。不會寫入任何設定。</div>
+
+<div class="card">
+  <h2>① 環境檢查</h2>
+  <div id="env" class="dim">檢查中…</div>
+</div>
+
+<div class="card">
+  <h2>② 選擇序列埠</h2>
+  <div class="row">
+    <button id="btn-req">選擇序列埠…</button>
+    <button id="btn-list" class="sec">列出已授權的埠</button>
+  </div>
+  <div class="sub" style="margin:8px 0 0">按下後會跳出系統的埠清單。CA-410 在 macOS 通常顯示為 usbmodem 開頭，在 Windows 是某個 COM 編號。<b>原廠 UI 必須先關掉</b>，否則埠會被它佔住。</div>
+</div>
+
+<div class="card">
+  <h2>③ 開啟並測試</h2>
+  <div class="row">
+    鮑率
+    <select id="baud">
+      <option>9600</option><option selected>38400</option>
+      <option>19200</option><option>57600</option><option>115200</option>
+    </select>
+    <button id="btn-open" disabled>開啟</button>
+    <button id="btn-close" class="sec" disabled>關閉</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    送出 <input type="text" id="cmd" value="" placeholder="留空＝只送換行">
+    <select id="eol"><option value="cr">CR</option><option value="crlf" selected>CR+LF</option><option value="lf">LF</option><option value="none">不加</option></select>
+    <button id="btn-send" disabled>送出</button>
+  </div>
+  <div class="sub" style="margin:8px 0 0">先什麼都不填直接按送出，看機器有沒有任何回應。有回應就代表這條路通了。</div>
+</div>
+
+<div class="card">
+  <h2>紀錄</h2>
+  <div id="log"></div>
+  <div class="row" style="margin-top:8px">
+    <button class="sec" id="btn-copy">複製全部紀錄</button>
+    <button class="sec" id="btn-clear">清空</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const logEl = $('log');
+function log(msg, cls){
+  const t = new Date().toTimeString().slice(0,8);
+  const d = document.createElement('div');
+  if(cls) d.className = cls;
+  d.textContent = '[' + t + '] ' + msg;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function hex(bytes){
+  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join(' ');
+}
+function ascii(bytes){
+  return Array.from(bytes).map(b => (b>=32 && b<127) ? String.fromCharCode(b) : '·').join('');
+}
+
+// ① 環境
+(function(){
+  const bits = [];
+  bits.push('瀏覽器：' + navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
+  bits.push('安全內容 (isSecureContext)：' + (window.isSecureContext ? '是' : '否 ← Web Serial 需要 HTTPS 或 localhost'));
+  bits.push('navigator.serial：' + ('serial' in navigator ? '有，這個瀏覽器支援 Web Serial' : '沒有 ← 這個瀏覽器不支援，請用 Chrome 或 Edge'));
+  $('env').innerHTML = bits.join('<br>');
+  $('env').className = ('serial' in navigator && window.isSecureContext) ? 'ok' : 'err';
+  if(!('serial' in navigator)) $('btn-req').disabled = true;
+})();
+
+let port = null, reader = null, keepReading = false;
+
+function describe(p){
+  const i = p.getInfo ? p.getInfo() : {};
+  const v = i.usbVendorId, d = i.usbProductId;
+  return (v!==undefined ? 'USB vendorId=0x' + v.toString(16).padStart(4,'0') +
+          ' productId=0x' + d.toString(16).padStart(4,'0') : '（沒有 USB 識別碼，可能是內建序列埠）');
+}
+
+$('btn-req').onclick = async () => {
+  try{
+    log('跳出系統埠清單…', 'info');
+    port = await navigator.serial.requestPort();
+    log('已選擇一個埠：' + describe(port), 'ok');
+    $('btn-open').disabled = false;
+  }catch(e){
+    log('沒有選到埠：' + e.name + ' — ' + e.message, 'err');
+  }
+};
+
+$('btn-list').onclick = async () => {
+  try{
+    const ports = await navigator.serial.getPorts();
+    if(!ports.length){ log('目前沒有已授權的埠（第一次使用要先按上面那顆選擇）', 'dim'); return; }
+    log('已授權的埠共 ' + ports.length + ' 個：', 'info');
+    ports.forEach((p,i) => log('  ' + (i+1) + '. ' + describe(p)));
+    if(!port){ port = ports[0]; $('btn-open').disabled = false; log('已自動選用第 1 個。', 'dim'); }
+  }catch(e){ log('列舉失敗：' + e.message, 'err'); }
+};
+
+$('btn-open').onclick = async () => {
+  if(!port){ log('還沒選埠。', 'err'); return; }
+  const baud = Number($('baud').value);
+  try{
+    await port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
+    log('埠已開啟，鮑率 ' + baud + '。', 'ok');
+    $('btn-open').disabled = true; $('btn-close').disabled = false; $('btn-send').disabled = false;
+    keepReading = true;
+    readLoop();
+  }catch(e){
+    log('開啟失敗：' + e.name + ' — ' + e.message, 'err');
+    if(/in use|already open|Failed to open/i.test(e.message))
+      log('這個訊息通常代表埠被別的程式佔著。請確認原廠 UI 已經完全關閉（含背景常駐）。', 'info');
+  }
+};
+
+async function readLoop(){
+  try{
+    while(port.readable && keepReading){
+      reader = port.readable.getReader();
+      try{
+        while(true){
+          const {value, done} = await reader.read();
+          if(done) break;
+          if(value && value.length){
+            log('收到 ' + value.length + ' bytes', 'ok');
+            log('  HEX  ' + hex(value));
+            log('  文字 ' + ascii(value));
+          }
+        }
+      } finally { reader.releaseLock(); }
+    }
+  }catch(e){ if(keepReading) log('讀取中斷：' + e.message, 'err'); }
+}
+
+$('btn-send').onclick = async () => {
+  if(!port || !port.writable){ log('埠還沒開。', 'err'); return; }
+  const eolMap = { cr:'\r', crlf:'\r\n', lf:'\n', none:'' };
+  const payload = $('cmd').value + eolMap[$('eol').value];
+  const bytes = new TextEncoder().encode(payload);
+  try{
+    const w = port.writable.getWriter();
+    await w.write(bytes);
+    w.releaseLock();
+    log('已送出 ' + bytes.length + ' bytes：' + JSON.stringify(payload), 'info');
+    log('  等 3 秒看有沒有回應…', 'dim');
+    setTimeout(() => log('  （若上面沒有出現「收到」，代表這個鮑率或指令不對，換一個再試）', 'dim'), 3000);
+  }catch(e){ log('送出失敗：' + e.message, 'err'); }
+};
+
+$('btn-close').onclick = async () => {
+  keepReading = false;
+  try{ if(reader) await reader.cancel(); }catch(e){}
+  try{ await port.close(); log('埠已關閉。', 'info'); }catch(e){ log('關閉失敗：' + e.message, 'err'); }
+  $('btn-open').disabled = false; $('btn-close').disabled = true; $('btn-send').disabled = true;
+};
+
+$('btn-copy').onclick = () => {
+  navigator.clipboard.writeText(logEl.innerText).then(
+    () => log('紀錄已複製到剪貼簿。', 'ok'),
+    () => log('複製失敗，請自行選取。', 'err'));
+};
+$('btn-clear').onclick = () => { logEl.innerHTML = ''; };
+</script>
+</body>
+</html>
