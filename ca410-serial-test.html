@@ -3,32 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CA-410 連線測試</title>
+<title>CA-410 連線測試 v0.3</title>
 <style>
   :root{color-scheme:dark}
   body{margin:0;padding:16px;background:#0b1220;color:#e2e8f0;
        font:14px/1.6 -apple-system,"PingFang TC","Noto Sans TC",sans-serif}
   h1{font-size:18px;margin:0 0 4px}
+  .ver{display:inline-block;background:#a78bfa;color:#2e1065;font-size:11px;font-weight:700;
+       padding:2px 7px;border-radius:5px;vertical-align:middle;margin-left:6px;letter-spacing:0}
   .sub{color:#94a3b8;font-size:12px;margin-bottom:14px}
   .card{background:#111c33;border:1px solid #1e2d4d;border-radius:10px;padding:14px;margin-bottom:12px}
   .card h2{font-size:14px;margin:0 0 10px;color:#7dd3fc}
   button{background:#2563eb;color:#fff;border:0;border-radius:7px;padding:9px 14px;
          font-size:14px;cursor:pointer;margin:0 6px 6px 0}
   button.sec{background:#334155}
+  button.go{background:#16a34a}
   button:disabled{opacity:.4;cursor:not-allowed}
   select,input{background:#0b1220;color:#e2e8f0;border:1px solid #334155;
                border-radius:6px;padding:7px 9px;font-size:14px;margin:0 6px 6px 0}
   input[type=text]{width:190px;font-family:ui-monospace,Menlo,monospace}
   #log{background:#050b16;border:1px solid #1e2d4d;border-radius:8px;padding:10px;
-       height:300px;overflow:auto;font:12px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap}
-  .ok{color:#4ade80}.err{color:#f87171}.info{color:#7dd3fc}.dim{color:#64748b}
+       height:320px;overflow:auto;font:12px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .ok{color:#4ade80}.err{color:#f87171}.info{color:#7dd3fc}.dim{color:#64748b}.warn{color:#fbbf24}
   .row{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
   code{background:#0b1220;padding:1px 5px;border-radius:4px;color:#fbbf24}
+  .note{border-left:3px solid #fbbf24;padding:6px 10px;margin:8px 0 0;background:#1a1608;
+        font-size:12px;color:#fde68a;border-radius:0 6px 6px 0}
 </style>
 </head>
 <body>
-<h1>CA-410 連線測試</h1>
-<div class="sub">只做一件事：確認瀏覽器能不能透過 Web Serial 看到並打開 CA-410 的虛擬序列埠。不會寫入任何設定。</div>
+<h1>CA-410 連線測試<span class="ver" id="ver">v0.3</span></h1>
+<div class="sub">確認瀏覽器能不能透過 Web Serial 控制 CA-410。只做連線與量測，不會改機器的校正資料。</div>
 
 <div class="card">
   <h2>① 環境檢查</h2>
@@ -41,7 +46,7 @@
     <button id="btn-req">選擇序列埠…</button>
     <button id="btn-list" class="sec">列出已授權的埠</button>
   </div>
-  <div class="sub" style="margin:8px 0 0">按下後會跳出系統的埠清單。CA-410 在 macOS 通常顯示為 usbmodem 開頭，在 Windows 是某個 COM 編號。<b>原廠 UI 必須先關掉</b>，否則埠會被它佔住。</div>
+  <div class="sub" style="margin:8px 0 0">CA-410 在 Windows 是某個 COM 編號，macOS 是 usbmodem 開頭。<b>原廠 UI 必須先關掉</b>，否則埠會被它佔住。</div>
 </div>
 
 <div class="card">
@@ -55,21 +60,34 @@
     <button id="btn-open" disabled>開啟</button>
     <button id="btn-close" class="sec" disabled>關閉</button>
   </div>
-  <div class="row" style="margin-top:8px">
+
+  <div class="row" style="margin-top:10px">
+    <button class="go" id="btn-seq" disabled>▶ 照官方順序跑一次（含量測）</button>
+  </div>
+  <div class="note">
+    這顆會依序送出官方通訊規格書 2.1 節的完整範例序列，每一步等機器回應才送下一步：<br>
+    <code>COM,1</code> → <code>SCS,4,60.00</code> → <code>FSC,1</code> → <code>OPR,1</code> → <code>MMS,0</code> → <code>FMS,0</code> → <code>MDS,0</code> → <code>MCH,0</code> → <code>LUS,1</code> → <code>ZRC</code> → <code>MES,1</code> → <code>COM,0</code><br>
+    其中 <code>ZRC</code> 是零校正，做之前請把探頭的遮光蓋蓋上；量測 <code>MES,1</code> 時再打開對準畫面。
+  </div>
+
+  <div class="row" style="margin-top:12px">
     送出 <input type="text" id="cmd" value="COM,1" placeholder="例：COM,1">
     <select id="eol"><option value="cr" selected>CR</option><option value="crlf">CR+LF</option><option value="lf">LF</option><option value="none">不加</option></select>
     <button id="btn-send" disabled>送出</button>
   </div>
-  <div class="sub" style="margin:8px 0 4px"><b>結尾符號只能用 CR。</b>官方通訊規格書 1.2.1 節明訂指令必須以 CR 結尾，多送一個 LF 會被判為格式錯誤而回 <code>ER10</code>（Command error）。</div>
+  <div class="sub" style="margin:8px 0 4px"><b>結尾符號只能用 CR。</b>規格書 1.2.1 節明訂指令必須以 CR 結尾，多送一個 LF 會被判為格式錯誤而回 <code>ER10</code>。</div>
+
   <div class="row" style="margin-top:8px">
     快捷
-    <button class="sec q" data-cmd="COM,1" disabled>COM,1 開始通訊</button>
-    <button class="sec q" data-cmd="IDO" disabled>IDO 型號序號</button>
+    <button class="sec q" data-cmd="COM,1" disabled>COM,1 開始</button>
+    <button class="sec q" data-cmd="OPR,1" disabled>OPR,1 選探頭</button>
+    <button class="sec q" data-cmd="MDS,0" disabled>MDS,0 xyLv</button>
+    <button class="sec q" data-cmd="ZRC" disabled>ZRC 零校正</button>
     <button class="sec q" data-cmd="MES,1" disabled>MES,1 量測</button>
-    <button class="sec q" data-cmd="STR" disabled>STR 讀設定</button>
+    <button class="sec q" data-cmd="IDO" disabled>IDO 型號</button>
     <button class="sec q" data-cmd="COM,0" disabled>COM,0 結束</button>
   </div>
-  <div class="sub" style="margin:8px 0 0">正常順序是先 <code>COM,1</code>（應回 <code>OK00</code>），再做其他事，最後 <code>COM,0</code>。<code>MES,1</code> 的回應長得像 <code>OK00,P1,0,0.327…,0.419…,4.807…</code>，依序是探頭、狀態、然後是量到的數值。</div>
+  <div class="sub" style="margin:8px 0 0"><code>MES,1</code> 之前一定要先做過 <code>OPR,1</code>（指定輸出探頭）和 <code>ZRC</code>（零校正），少了任何一步都會回 <code>ER10</code>。</div>
 </div>
 
 <div class="card">
@@ -82,6 +100,7 @@
 </div>
 
 <script>
+const VERSION = 'v0.3';
 const $ = id => document.getElementById(id);
 const logEl = $('log');
 function log(msg, cls){
@@ -92,53 +111,54 @@ function log(msg, cls){
   logEl.appendChild(d);
   logEl.scrollTop = logEl.scrollHeight;
 }
-function hex(bytes){
-  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join(' ');
-}
-function ascii(bytes){
-  return Array.from(bytes).map(b => (b>=32 && b<127) ? String.fromCharCode(b) : '·').join('');
-}
+const hex = b => Array.from(b).map(x => x.toString(16).padStart(2,'0')).join(' ');
+const ascii = b => Array.from(b).map(x => (x>=32 && x<127) ? String.fromCharCode(x) : '·').join('');
 
-// ① 環境
 (function(){
   const bits = [];
+  bits.push('頁面版本：' + VERSION);
   bits.push('瀏覽器：' + navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
-  bits.push('安全內容 (isSecureContext)：' + (window.isSecureContext ? '是' : '否 ← Web Serial 需要 HTTPS 或 localhost'));
-  bits.push('navigator.serial：' + ('serial' in navigator ? '有，這個瀏覽器支援 Web Serial' : '沒有 ← 這個瀏覽器不支援，請用 Chrome 或 Edge'));
+  bits.push('安全內容：' + (window.isSecureContext ? '是' : '否 ← Web Serial 需要 HTTPS 或 localhost'));
+  bits.push('navigator.serial：' + ('serial' in navigator ? '有' : '沒有 ← 請改用 Chrome 或 Edge'));
   $('env').innerHTML = bits.join('<br>');
   $('env').className = ('serial' in navigator && window.isSecureContext) ? 'ok' : 'err';
   if(!('serial' in navigator)) $('btn-req').disabled = true;
 })();
 
 let port = null, reader = null, keepReading = false;
+let rxBuf = '';                 // 累積到 CR 為止
+let pending = null;             // {resolve, timer}
 
 function describe(p){
   const i = p.getInfo ? p.getInfo() : {};
-  const v = i.usbVendorId, d = i.usbProductId;
-  return (v!==undefined ? 'USB vendorId=0x' + v.toString(16).padStart(4,'0') +
-          ' productId=0x' + d.toString(16).padStart(4,'0') : '（沒有 USB 識別碼，可能是內建序列埠）');
+  return (i.usbVendorId !== undefined)
+    ? 'USB vendorId=0x' + i.usbVendorId.toString(16).padStart(4,'0') +
+      ' productId=0x' + i.usbProductId.toString(16).padStart(4,'0')
+    : '（沒有 USB 識別碼）';
 }
 
 $('btn-req').onclick = async () => {
   try{
-    log('跳出系統埠清單…', 'info');
     port = await navigator.serial.requestPort();
     log('已選擇一個埠：' + describe(port), 'ok');
     $('btn-open').disabled = false;
-  }catch(e){
-    log('沒有選到埠：' + e.name + ' — ' + e.message, 'err');
-  }
+  }catch(e){ log('沒有選到埠：' + e.name + ' — ' + e.message, 'err'); }
 };
 
 $('btn-list').onclick = async () => {
   try{
     const ports = await navigator.serial.getPorts();
-    if(!ports.length){ log('目前沒有已授權的埠（第一次使用要先按上面那顆選擇）', 'dim'); return; }
-    log('已授權的埠共 ' + ports.length + ' 個：', 'info');
+    if(!ports.length){ log('目前沒有已授權的埠。', 'dim'); return; }
     ports.forEach((p,i) => log('  ' + (i+1) + '. ' + describe(p)));
     if(!port){ port = ports[0]; $('btn-open').disabled = false; log('已自動選用第 1 個。', 'dim'); }
   }catch(e){ log('列舉失敗：' + e.message, 'err'); }
 };
+
+function setBusy(on){
+  document.querySelectorAll('button.q').forEach(b => b.disabled = on);
+  $('btn-send').disabled = on;
+  $('btn-seq').disabled = on;
+}
 
 $('btn-open').onclick = async () => {
   if(!port){ log('還沒選埠。', 'err'); return; }
@@ -146,14 +166,14 @@ $('btn-open').onclick = async () => {
   try{
     await port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
     log('埠已開啟，鮑率 ' + baud + '。', 'ok');
-    $('btn-open').disabled = true; $('btn-close').disabled = false; $('btn-send').disabled = false;
-    document.querySelectorAll('button.q').forEach(b => b.disabled = false);
-    keepReading = true;
+    $('btn-open').disabled = true; $('btn-close').disabled = false;
+    setBusy(false);
+    keepReading = true; rxBuf = '';
     readLoop();
   }catch(e){
     log('開啟失敗：' + e.name + ' — ' + e.message, 'err');
     if(/in use|already open|Failed to open/i.test(e.message))
-      log('這個訊息通常代表埠被別的程式佔著。請確認原廠 UI 已經完全關閉（含背景常駐）。', 'info');
+      log('這通常代表埠被別的程式佔著，請確認原廠 UI 已完全關閉。', 'info');
   }
 };
 
@@ -165,10 +185,14 @@ async function readLoop(){
         while(true){
           const {value, done} = await reader.read();
           if(done) break;
-          if(value && value.length){
-            log('收到 ' + value.length + ' bytes', 'ok');
-            log('  HEX  ' + hex(value));
-            log('  文字 ' + ascii(value));
+          if(!value || !value.length) continue;
+          log('收到 ' + value.length + ' bytes　HEX ' + hex(value) + '　文字 ' + ascii(value), 'ok');
+          rxBuf += new TextDecoder().decode(value);
+          let i;
+          while((i = rxBuf.indexOf('\r')) >= 0){
+            const line = rxBuf.slice(0, i);
+            rxBuf = rxBuf.slice(i + 1);
+            if(pending){ const p = pending; pending = null; clearTimeout(p.timer); p.resolve(line); }
           }
         }
       } finally { reader.releaseLock(); }
@@ -176,17 +200,21 @@ async function readLoop(){
   }catch(e){ if(keepReading) log('讀取中斷：' + e.message, 'err'); }
 }
 
-async function sendText(text){
-  if(!port || !port.writable){ log('埠還沒開。', 'err'); return; }
+async function sendText(text, waitMs){
+  if(!port || !port.writable){ log('埠還沒開。', 'err'); return null; }
   const eolMap = { cr:'\r', crlf:'\r\n', lf:'\n', none:'' };
   const payload = text + eolMap[$('eol').value];
   const bytes = new TextEncoder().encode(payload);
+  const wait = new Promise(res => {
+    pending = { resolve: res, timer: setTimeout(() => { pending = null; res(null); }, waitMs || 5000) };
+  });
   try{
     const w = port.writable.getWriter();
     await w.write(bytes);
     w.releaseLock();
-    log('已送出 ' + bytes.length + ' bytes：' + JSON.stringify(payload), 'info');
-  }catch(e){ log('送出失敗：' + e.message, 'err'); }
+    log('送出 ' + JSON.stringify(payload), 'info');
+  }catch(e){ log('送出失敗：' + e.message, 'err'); pending = null; return null; }
+  return wait;
 }
 
 $('btn-send').onclick = () => sendText($('cmd').value);
@@ -194,17 +222,55 @@ document.querySelectorAll('button.q').forEach(b => {
   b.onclick = () => { const c = b.getAttribute('data-cmd'); $('cmd').value = c; sendText(c); };
 });
 
+const SEQ = [
+  ['COM,1',       '開始通訊'],
+  ['SCS,4,60.00', '同步模式 INTERNAL、60Hz'],
+  ['FSC,1',       '量測速度 FAST'],
+  ['OPR,1',       '輸出探頭設為 P1'],
+  ['MMS,0',       '色彩與閃爍同時量測'],
+  ['FMS,0',       '閃爍方法 FMA'],
+  ['MDS,0',       '顯示 x、y、Lv'],
+  ['MCH,0',       '校正通道 CH00'],
+  ['LUS,1',       '亮度單位 cd/m²'],
+  ['ZRC',         '零校正（請先蓋上遮光蓋）', 30000],
+  ['MES,1',       '執行量測', 20000],
+  ['COM,0',       '結束通訊']
+];
+
+$('btn-seq').onclick = async () => {
+  setBusy(true);
+  log('──── 開始跑官方序列（共 ' + SEQ.length + ' 步）────', 'info');
+  for(let i=0;i<SEQ.length;i++){
+    const [cmd, why, to] = SEQ[i];
+    log('第 ' + (i+1) + '/' + SEQ.length + ' 步：' + cmd + '　（' + why + '）', 'info');
+    const res = await sendText(cmd, to || 5000);
+    if(res === null){
+      log('沒有等到回應就逾時了，序列中止在第 ' + (i+1) + ' 步。', 'err');
+      break;
+    }
+    if(/^ER/.test(res)){
+      log('機器回了錯誤 ' + res + '，序列中止在第 ' + (i+1) + ' 步。', 'err');
+      log('ER10 = 指令錯誤或前置步驟沒做；ER20 之類請對照規格書。', 'warn');
+      break;
+    }
+    log('　OK：' + res, 'ok');
+    await new Promise(r => setTimeout(r, 120));
+  }
+  log('──── 序列結束 ────', 'info');
+  setBusy(false);
+};
+
 $('btn-close').onclick = async () => {
   keepReading = false;
   try{ if(reader) await reader.cancel(); }catch(e){}
   try{ await port.close(); log('埠已關閉。', 'info'); }catch(e){ log('關閉失敗：' + e.message, 'err'); }
-  $('btn-open').disabled = false; $('btn-close').disabled = true; $('btn-send').disabled = true;
+  $('btn-open').disabled = false; $('btn-close').disabled = true;
+  setBusy(true);
 };
 
 $('btn-copy').onclick = () => {
   navigator.clipboard.writeText(logEl.innerText).then(
-    () => log('紀錄已複製到剪貼簿。', 'ok'),
-    () => log('複製失敗，請自行選取。', 'err'));
+    () => log('紀錄已複製。', 'ok'), () => log('複製失敗，請自行選取。', 'err'));
 };
 $('btn-clear').onclick = () => { logEl.innerHTML = ''; };
 </script>
