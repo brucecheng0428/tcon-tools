@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260907dg180">
+<link rel="stylesheet" href="common/common.css?v=20260907dg190">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -19,6 +19,41 @@
   .dg-result .card-header { background: #047857; }
   .dg-chart  .card-header { background: #92400e; }
   .dg-verify .card-header { background: #9f1239; }
+  .dg-cmp   .card-header { background: #1d4ed8; }
+
+  /* ─── v1.9.0：分頁列 ───────────────────────────────
+     照抄 wfg.html 的 LA 分頁機制（`.wfg-mode-tabs` / `.wfg-mode-tab`，wfg.html:101-104
+     與 wfg.html:1128-1131 的手機版換行），只把強調色由 wfg 的橘 #f97316 換成 dg 的紫 #a78bfa。
+     刻意不另創一套：同一個工具箱裡「分頁」應該長得一樣，使用者在 wfg 學會的東西直接沿用。 */
+  .dg-mode-tabs {
+    display: flex; gap: 0; flex: 0 1 auto; margin: 0 0 0 auto; width: fit-content;
+    background: #1e293b; border-radius: 8px; overflow: hidden; border: 1px solid #334155;
+  }
+  .dg-mode-tab {
+    flex: 0 1 auto; padding: 7px 11px; font-size: 12px; font-weight: 600;
+    color: #94a3b8; background: transparent; border: none; cursor: pointer;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .dg-mode-tab.active { color: #a78bfa; background: #0f172a; }
+  .dg-mode-tab:hover:not(.active) { color: #e2e8f0; }
+  /* 手機／窄視窗：分頁列自己換到第二列。common.css 的 .subpage-header 在 ≤480px 已經是
+     flex-wrap: wrap，481～640px 這一段要自己補，否則分頁列會把標題擠成一條線。 */
+  @media (max-width: 640px) {
+    .header.subpage-header { flex-wrap: wrap; }
+    .header.subpage-header .dg-mode-tabs { order: 10; flex: 0 0 100%; justify-content: center; margin: 6px 0 0; }
+  }
+
+  /* ─── v1.9.0：色溫基準模式（圖三專用的一小排選項）─────────── */
+  .dg-cctbase {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    margin: 0 0 8px; padding: 7px 10px;
+    background: rgba(167,139,250,0.08); border: 1px solid rgba(167,139,250,0.25); border-radius: 8px;
+  }
+  .dg-cctbase-label { font-size: 11.5px; font-weight: 700; color: var(--text-sub); }
+  .dg-cctbase label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .dg-cctbase-now { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #fbbf24; }
+  .dg-cctbase-now.undet { color: #f87171; }
+  .dg-cctbase-note { margin: 0 0 8px; }
 
   /* 🔴 這裡不可以用 text-transform: uppercase。
      這一頁的欄位名稱裡，大小寫本身就是意義：小寫 x／y 是色度座標、大寫 Y 是亮度，
@@ -481,6 +516,26 @@
     .container { max-width: 1200px; padding: 20px 32px 0; }
   }
 </style>
+<!-- v1.9.0：開檔時就把「上次停在哪一個分頁」套上去，避免先閃一下主頁再跳過去。
+     作法與 wfg.html:14-30 相同 —— 在 head 裡先 document.write 一段覆蓋用的 style，
+     真正的狀態切換仍然由 dgInit() 呼叫 dgSwitchMode() 完成（這裡只管畫面不要閃）。 -->
+<script>
+(function () {
+  try {
+    var p = new URLSearchParams(location.search);
+    var m = p.get('dgMode') || p.get('mode') || '';
+    var h = (location.hash || '').replace('#', '');
+    if (!m && (h === 'cmp' || h === 'dg-cmp')) m = 'cmp';
+    if (!m) m = sessionStorage.getItem('dg_active_mode') || '';
+    if (m === 'cmp') {
+      document.write('<style id="ss-dg-mode-hint">#dg-main-content{display:none!important}'
+        + '#dg-cmp-content{display:block!important}'
+        + '#dg-mode-tabs [data-mode=main]{color:#94a3b8!important;background:transparent!important}'
+        + '#dg-mode-tabs [data-mode=cmp]{color:#a78bfa!important;background:#0f172a!important}</style>');
+    }
+  } catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text">下拉刷新</span></div>
@@ -489,6 +544,12 @@
   <a href="index.html" class="back-btn">← 返回首頁</a>
   <h1><svg width="22" height="18" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M2 20 C10 20 14 14 18 8 C21 3.5 25 2 28 2" stroke="#a78bfa" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M2 20 L28 20 M2 20 L2 2" stroke="#a78bfa" stroke-width="1.2" opacity="0.45" stroke-linecap="round"/></svg><span>Digital Gamma 迭代校正</span> <span style="display:inline-block;background:#a78bfa;color:#2e1065;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="dg"></span></h1>
   <p>由光學量測反算 RGB Digital Gamma LUT，支援非 Default 起點的多輪收斂</p>
+  <!-- v1.9.0：分頁列。機制與 wfg.html 的 LA 分頁相同（wfg.html:1955-1958）：兩個 content 容器切 display，
+       不做路由；哪一頁是目前這一頁由 sessionStorage 記著，重整後回到同一頁。 -->
+  <div class="dg-mode-tabs" id="dg-mode-tabs">
+    <button type="button" class="dg-mode-tab active" data-mode="main" onclick="dgSwitchMode('main')">Digital Gamma 校正</button>
+    <button type="button" class="dg-mode-tab" data-mode="cmp" onclick="dgSwitchMode('cmp')">光學資料比較</button>
+  </div>
   <div class="lang-switcher">
     <select id="lang-select" class="lang-select" aria-label="Language">
       <option value="zh-TW">繁體中文</option>
@@ -499,6 +560,9 @@
 </div>
 
 <div class="container">
+
+<!-- ══════════ 分頁一：Digital Gamma 校正（原本的計算流程）══════════ -->
+<div id="dg-main-content">
 
   <!-- ══ 快捷預設（比照其他分頁：卡片左上角小標籤 ＋ 橘色脈動下拉）══════ -->
   <div class="card dg-preset-card" id="dg-preset-card">
@@ -878,42 +942,19 @@
     </div>
   </div>
 
-  <!-- ══ 卡片 3.5：光學量測組（v1.4.3）═══════════════════ -->
-  <div class="card dg-slots" id="dg-card-slots">
-    <div class="card-header"><span class="icon">🗂</span><span>光學量測組（最多 10 組比較）</span><button type="button" class="dg-info-btn" data-info="dg-info-slots,dg-info-slots2" data-info-title="光學量測組 — 說明" aria-label="說明" title="說明">⚠</button></div>
-    <div class="card-body">
-      <div class="dg-info-src" id="dg-info-slots">
-      <div class="dg-note">
-        每匯入一份<b>含光學量測的檔案</b>就自動存成一組，最多 10 組。
-        勾選「顯示」的組會疊到<b>圖一、圖二、圖三</b>上一起比較（圖四畫的是 LUT 內容值，與光學量測無關，不疊）。
-        <b>名稱可以直接點下去改</b>；下面那行是匯入時的原始 Excel 檔名，固定不可改 —— 這一欄是日後追溯用的。<br>
-        <b>⚠ 這些組只拿來看，不參與計算。</b>「計算 RGB Digital Gamma LUT」永遠只吃上面第 1、2、3 部分那一份資料，
-        載入幾組、勾選幾組都不會改變計算結果。
-        <br>v1.8.0 起，會存成組的<b>只有第 2 部分匯入的白灰階量測檔</b> —— CCT 檔在本頁只提供三個純色端點，
-        它的 Rawdata 不進計算、也不進比較。
-      </div>
-      </div>
-      <div class="dg-slot-list" id="dg-slot-list"></div>
-      <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
-        <button class="dg-btn" id="dg-btn-slot-clear">清空全部</button>
-      </div>
-      <div class="dg-info-src" id="dg-info-slots2">
-      <div class="dg-note">
-        <b>匯出檔的格式對齊既有的光學確認 Excel</b>，只是把組數從 5 擴到 10。
-        <b>公式是活的</b>（相對亮度、逐階 Gamma、色溫上下限都寫成 Excel 公式，不是算好的數字），
-        <b>三張圖是原生 Excel 圖表</b>（指到儲存格，不是圖片）—— 所以在 Excel 裡改一個亮度值，圖會跟著動。
-        沒用到的組別欄位、公式、圖表數列一樣都在，只是資料空白。<b>B 欄記著每一組的原始 Excel 檔名。</b>
-      </div>
-      </div>
-      <div class="dg-status" id="dg-slot-status">還沒有任何光學量測組。</div>
-    </div>
-  </div>
+  <!-- 🔴 v1.9.0：原本在這個位置的「光學量測組（最多 10 組比較）」卡片**整張搬到**
+       「光學資料比較」分頁（本檔下方 #dg-cmp-content），主頁不留第二份。
+       留一份在主頁的話，兩邊的勾選狀態與清單就會各講各的 —— 搬家不是複製。 -->
 
   <!-- ══ 卡片 4：圖表 ══════════════════════════════════ -->
   <div class="card dg-chart" id="dg-card-chart">
     <div class="card-header"><span class="icon">📈</span><span>光學確認圖表</span><button type="button" class="dg-info-btn" data-info="dg-info-chart" data-info-title="光學確認圖表 — 各欄怎麼算的" aria-label="說明" title="說明">⚠</button></div>
     <div class="card-body">
+
+      <div class="dg-note">
+        v1.9.0 起，這張卡片<b>只畫目前這一輪的那一份</b>（第 2 部分匯入或按下計算的那一份）。
+        要把多份量測疊在一起比較，請切到頁首的<b>「光學資料比較」</b>分頁。
+      </div>
 
       <div class="dg-sep">圖一　Gamma curve — 相對亮度<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart1">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-chart1"></div>
@@ -922,7 +963,6 @@
         <span><i style="background:#fbbf24"></i>γ=2.2</span>
         <span><i style="background:#64748b"></i>γ=2.4</span>
         <span><i style="background:#38bdf8"></i>實測</span>
-        <span class="dg-legend-slots" id="dg-legend-slots-1"></span>
       </div>
 
       <div class="dg-sep">圖二　Gamma curve — 逐階 Gamma 值<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart2">⤢ 放大檢視</button></div>
@@ -931,16 +971,24 @@
         <span><i style="background:#64748b"></i>γ=2.0 / γ=2.4</span>
         <span><i style="background:#fbbf24"></i>γ=2.2</span>
         <span><i style="background:#38bdf8"></i>實測</span>
-        <span class="dg-legend-slots" id="dg-legend-slots-2"></span>
       </div>
 
       <div class="dg-sep">圖三　色溫<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart3">⤢ 放大檢視</button></div>
+      <!-- v1.9.0：色溫基準線的兩種模式。這一排與「光學資料比較」分頁那一排是**同一個變數**
+           （DG_CCT_MODE）的兩個顯示器，不是兩份狀態 —— 任何一邊改動都會即時同步另一邊。 -->
+      <div class="dg-cctbase" id="dg-cctbase-main">
+        <span class="dg-cctbase-label">色溫基準</span>
+        <label><input type="radio" name="dg-cctmode-main" value="dynamic" checked>跟著目標白點（動態）</label>
+        <label><input type="radio" name="dg-cctmode-main" value="fixed6500">固定 6500K</label>
+        <span class="dg-cctbase-now" id="dg-cctbase-now-main"></span>
+      </div>
+      <div class="dg-note warn dg-cctbase-note" id="dg-cctbase-note-main" style="display:none"></div>
       <div class="dg-svg-wrap" id="dg-chart3"></div>
-      <div class="dg-legend">
-        <span><i style="background:#64748b"></i>上限 / 下限</span>
-        <span><i style="background:#fbbf24"></i>中心</span>
+      <div class="dg-legend" id="dg-legend-3">
+        <!-- 三條基準線的圖例文字由 dgCctModeSync() 依當下模式產生（要顯示實際採用的 K 值），
+             沒有基準線時整段留空 —— 不留一個看起來有效的名稱在那裡。 -->
+        <span class="dg-legend-slots" id="dg-legend-3-ref"></span>
         <span><i style="background:#38bdf8"></i>實測</span>
-        <span class="dg-legend-slots" id="dg-legend-slots-3"></span>
       </div>
 
       <div class="dg-sep">圖四　LUT 內容值（R／G／B）<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart4">⤢ 放大檢視</button></div>
@@ -989,6 +1037,93 @@
     </div>
   </div>
 
+</div><!-- /#dg-main-content -->
+
+<!-- ══════════ 分頁二：光學資料比較（v1.9.0）══════════════════════
+     10 組資料載入 ＋ 圖一、圖二、圖三。圖四（LUT 內容值）刻意不做 —— 它畫的是
+     LUT 檔本身的內容，與光學量測無關，疊在一起沒有意義（Bruce 2026-09-07 明示不做）。 -->
+<div id="dg-cmp-content" style="display:none">
+
+  <!-- ══ 卡片 A：光學量測組（v1.4.3 起在主頁，v1.9.0 整張搬到本分頁）═══ -->
+  <div class="card dg-slots" id="dg-card-slots">
+    <div class="card-header"><span class="icon">🗂</span><span>光學量測組（最多 10 組比較）</span><button type="button" class="dg-info-btn" data-info="dg-info-slots,dg-info-slots2" data-info-title="光學量測組 — 說明" aria-label="說明" title="說明">⚠</button></div>
+    <div class="card-body">
+      <div class="dg-info-src" id="dg-info-slots">
+      <div class="dg-note">
+        在「Digital Gamma 校正」分頁每匯入一份<b>白灰階量測檔</b>就自動存成一組，最多 10 組。
+        勾選「顯示」的組會疊到<b>本分頁下方的圖一、圖二、圖三</b>上一起比較。
+        <b>名稱可以直接點下去改</b>；下面那行是匯入時的原始 Excel 檔名，固定不可改 —— 這一欄是日後追溯用的。<br>
+        <b>⚠ 這些組只拿來看，不參與計算。</b>「計算 RGB Digital Gamma LUT」永遠只吃校正分頁第 1、2、3 部分那一份資料，
+        載入幾組、勾選幾組都不會改變計算結果。
+        <br>v1.8.0 起，會存成組的<b>只有第 2 部分匯入的白灰階量測檔</b> —— CCT 檔在本頁只提供三個純色端點，
+        它的 Rawdata 不進計算、也不進比較。
+        <br>v1.9.0 起，多組比較只在本分頁；校正分頁的圖表只畫當下那一輪，兩邊不再互相蓋。
+      </div>
+      </div>
+      <div class="dg-slot-list" id="dg-slot-list"></div>
+      <div class="dg-btnrow">
+        <button class="dg-btn primary" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
+        <button class="dg-btn" id="dg-btn-slot-clear">清空全部</button>
+      </div>
+      <div class="dg-info-src" id="dg-info-slots2">
+      <div class="dg-note">
+        <b>匯出檔的格式對齊既有的光學確認 Excel</b>，只是把組數從 5 擴到 10。
+        <b>公式是活的</b>（相對亮度、逐階 Gamma、色溫上下限都寫成 Excel 公式，不是算好的數字），
+        <b>三張圖是原生 Excel 圖表</b>（指到儲存格，不是圖片）—— 所以在 Excel 裡改一個亮度值，圖會跟著動。
+        沒用到的組別欄位、公式、圖表數列一樣都在，只是資料空白。<b>B 欄記著每一組的原始 Excel 檔名。</b>
+        <br>匯出檔的<b>色溫基準</b>用的就是下面那一排選到的模式，與畫面上看到的同一個值。
+      </div>
+      </div>
+      <div class="dg-status" id="dg-slot-status">還沒有任何光學量測組。</div>
+    </div>
+  </div>
+
+  <!-- ══ 卡片 B：比較圖表（圖一二三；圖四不做）═══════════════ -->
+  <div class="card dg-cmp" id="dg-card-cmp-chart">
+    <div class="card-header"><span class="icon">📊</span><span>多組比較圖表（圖一、圖二、圖三）</span></div>
+    <div class="card-body">
+
+      <div class="dg-note">
+        這裡畫的是上面<b>勾選「顯示」</b>的那幾組。沒有勾任何一組時三張圖是空的。
+        <b>圖四不在本分頁</b> —— 它畫的是 LUT 檔本身的內容值，與光學量測無關，疊起來沒有意義。
+      </div>
+
+      <div class="dg-sep">圖一　Gamma curve — 相對亮度<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-cmp-chart1">⤢ 放大檢視</button></div>
+      <div class="dg-svg-wrap" id="dg-cmp-chart1"></div>
+      <div class="dg-legend">
+        <span><i style="background:#64748b"></i>γ=2.0</span>
+        <span><i style="background:#fbbf24"></i>γ=2.2</span>
+        <span><i style="background:#64748b"></i>γ=2.4</span>
+        <span class="dg-legend-slots" id="dg-legend-slots-1"></span>
+      </div>
+
+      <div class="dg-sep">圖二　Gamma curve — 逐階 Gamma 值<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-cmp-chart2">⤢ 放大檢視</button></div>
+      <div class="dg-svg-wrap" id="dg-cmp-chart2"></div>
+      <div class="dg-legend">
+        <span><i style="background:#64748b"></i>γ=2.0 / γ=2.4</span>
+        <span><i style="background:#fbbf24"></i>γ=2.2</span>
+        <span class="dg-legend-slots" id="dg-legend-slots-2"></span>
+      </div>
+
+      <div class="dg-sep">圖三　色溫<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-cmp-chart3">⤢ 放大檢視</button></div>
+      <div class="dg-cctbase" id="dg-cctbase-cmp">
+        <span class="dg-cctbase-label">色溫基準</span>
+        <label><input type="radio" name="dg-cctmode-cmp" value="dynamic" checked>跟著目標白點（動態）</label>
+        <label><input type="radio" name="dg-cctmode-cmp" value="fixed6500">固定 6500K</label>
+        <span class="dg-cctbase-now" id="dg-cctbase-now-cmp"></span>
+      </div>
+      <div class="dg-note warn dg-cctbase-note" id="dg-cctbase-note-cmp" style="display:none"></div>
+      <div class="dg-svg-wrap" id="dg-cmp-chart3"></div>
+      <div class="dg-legend" id="dg-legend-cmp-3">
+        <span class="dg-legend-slots" id="dg-legend-cmp-3-ref"></span>
+        <span class="dg-legend-slots" id="dg-legend-slots-3"></span>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /#dg-cmp-content -->
+
   <a href="index.html" class="back-btn-footer">← 返回首頁</a>
 </div>
 
@@ -1014,8 +1149,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260907dg180"></script>
-<script src="common/i18n.js?v=20260907dg180"></script>
+<script src="common/version.js?v=20260907dg190"></script>
+<script src="common/i18n.js?v=20260907dg190"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -1487,7 +1622,11 @@
     'dg-chart1': '圖一　Gamma curve — 相對亮度',
     'dg-chart2': '圖二　Gamma curve — 逐階 Gamma 值',
     'dg-chart3': '圖三　色溫',
-    'dg-chart4': '圖四　LUT 內容值（R／G／B）'
+    'dg-chart4': '圖四　LUT 內容值（R／G／B）',
+    // v1.9.0：「光學資料比較」分頁的三張圖
+    'dg-cmp-chart1': '光學資料比較　圖一　Gamma curve — 相對亮度',
+    'dg-cmp-chart2': '光學資料比較　圖二　Gamma curve — 逐階 Gamma 值',
+    'dg-cmp-chart3': '光學資料比較　圖三　色溫'
   };
   // 每張圖的縮放堆疊。堆疊頂端＝目前看到的範圍；空的＝完整範圍。
   // 用堆疊而不是單一範圍，是為了「上一層」能一層一層退回去。
@@ -2250,7 +2389,10 @@
   function dgOptAbs(col, row) { return '$' + dgOptCn(col) + '$' + row; }
 
   /* 工作表。cells 是稀疏的 {r: {c: {v|f, s}}}，只寫有東西的格。 */
-  function dgOptSheetXml(slots, nRow, gmax) {
+  function dgOptSheetXml(slots, nRow, gmax, base) {
+    /* v1.9.0：色溫基準改由 dgCctBase() 決定，與畫面同一個來源（原本這裡寫死 5000）。
+       base 沒傳就當場問一次，讓 dgApi 直接呼叫這一支時行為一致。 */
+    base = base || dgCctBase();
     var C = DG_OPT_C, R0 = DG_OPT_ROW1, RL = R0 + nRow - 1, i, k, r;
     var cells = {};
     function put(row, col, o) { (cells[row] = cells[row] || {})[col] = o; }
@@ -2311,15 +2453,21 @@
       put(r, C.gray1, { v: g, s: 0 });
       put(r, C.gray2, { v: g, s: 0 });
       put(r, C.gray3, { v: g, s: 0 });
-      // 色溫的三條基準線：第一列是本體，其餘列一路參照回第一列（照參考檔的寫法）
-      if (i === 0) {
-        put(r, C.hi, { f: dgOptRef(C.mid, r) + '+500', s: 3 });
-        put(r, C.mid, { v: 5000, s: 3 });
-        put(r, C.lo, { f: dgOptRef(C.mid, r) + '-500', s: 3 });
-      } else {
-        put(r, C.hi, { f: dgOptCn(C.hi) + '$' + R0, s: 3 });
-        put(r, C.mid, { f: dgOptCn(C.mid) + '$' + R0, s: 3 });
-        put(r, C.lo, { f: dgOptCn(C.lo) + '$' + R0, s: 3 });
+      /* 色溫的三條基準線：第一列是本體，其餘列一路參照回第一列（結構照參考檔，未改），
+         只有中心值由 base 決定。
+         🔴 動態模式而目標白點取不到時（base.ok === false）：這三欄**整組不寫**。
+            不可以只留空中心格 —— 上下限是 `=中心+500`／`=中心-500`，中心空著會算出
+            500 與 −500，那才是真正會騙人的數字。 */
+      if (base.ok) {
+        if (i === 0) {
+          put(r, C.hi, { f: dgOptRef(C.mid, r) + '+500', s: 3 });
+          put(r, C.mid, { v: base.center, s: 3 });
+          put(r, C.lo, { f: dgOptRef(C.mid, r) + '-500', s: 3 });
+        } else {
+          put(r, C.hi, { f: dgOptCn(C.hi) + '$' + R0, s: 3 });
+          put(r, C.mid, { f: dgOptCn(C.mid) + '$' + R0, s: 3 });
+          put(r, C.lo, { f: dgOptCn(C.lo) + '$' + R0, s: 3 });
+        }
       }
       // 標準 Gamma 曲線
       for (k = 0; k < 3; k++) {
@@ -2489,8 +2637,10 @@
 
   /* slots：dgSlotAdd() 存下來的那個陣列（0～10 個）。少於 10 組時後面留空，
      但欄位、公式、圖表數列照樣寫滿 10 組。 */
-  function dgBuildOpticalXlsx(slots, slotColors) {
+  function dgBuildOpticalXlsx(slots, slotColors, base) {
     slots = (slots || []).slice(0, DG_OPT_N);
+    // v1.9.0：色溫基準與畫面同一個來源，主頁改了匯出不可能還停在舊值
+    base = base || dgCctBase();
     var C = DG_OPT_C, R0 = DG_OPT_ROW1, k;
     // 資料列數：所有組的最大灰階 ＋ 1；一組都沒有時仍產生 256 列的空表
     var gmax = 0;
@@ -2532,7 +2682,10 @@
       }),
       dgOptChartXml({
         title: '色溫', axIdX: 333333331, axIdY: 333333332,
-        xRef: ref(C.gray2), xMax: gmax, yMin: 4000, yMax: 9000, yFmt: '#,##0',
+        // 縱軸與畫面同一條規則：預設 4000～9000，基準線落在窗外時才往外撐
+        xRef: ref(C.gray2), xMax: gmax,
+        yMin: base.ok ? Math.min(4000, base.lo) : 4000,
+        yMax: base.ok ? Math.max(9000, base.hi) : 9000, yFmt: '#,##0',
         series: [
           { txRef: hdr(C.hi), valRef: ref(C.hi), color: DG_OPT_REFCLR[0], width: 12700, dash: true },
           { txRef: hdr(C.mid), valRef: ref(C.mid), color: DG_OPT_REFCLR[2], width: 12700 },
@@ -2576,7 +2729,7 @@
           + '</Relationships>')
       },
       { name: 'xl/styles.xml', data: dgUtf8(dgOptStylesXml()) },
-      { name: 'xl/worksheets/sheet1.xml', data: dgUtf8(dgOptSheetXml(slots, nRow, gmax)) },
+      { name: 'xl/worksheets/sheet1.xml', data: dgUtf8(dgOptSheetXml(slots, nRow, gmax, base)) },
       {
         name: 'xl/worksheets/_rels/sheet1.xml.rels', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
           + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -3371,7 +3524,8 @@
     if (ae && ae.getAttribute && ae.getAttribute('data-dg-slot') != null && host.contains(ae)) { dgSlotStatus(); return; }
     if (!DG_SLOTS.length) {
       host.innerHTML = '<div class="dg-slot-empty">還沒有任何光學量測組。'
-        + '<b>匯入一份含光學量測的檔案</b>（輸入資料卡片最上面那顆匯入鈕）就會自動存成第 1 組。</div>';
+        + '到<b>「Digital Gamma 校正」分頁</b>按第 2 部分的<b>「② 匯入白灰階量測檔（.xlsx）」</b>，'
+        + '匯進來的那一份就會自動存成第 1 組。</div>';
       dgSlotStatus();
       return;
     }
@@ -3466,9 +3620,10 @@
     }
     var colors = [];
     for (var i = 0; i < DG_OPT_N; i++) colors.push(dgSlotColor(i));
+    var base = dgCctBase();
     var bytes = dgBuildOpticalXlsx(DG_SLOTS.map(function (s, i) {
       return { name: dgSlotDisplayName(i), file: s.file, rows: s.rows };
-    }), colors);
+    }), colors, base);
     var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -3476,10 +3631,15 @@
     a.click();
     URL.revokeObjectURL(a.href);
     var st = $('dg-slot-status');
-    st.className = 'dg-status ok';
+    st.className = 'dg-status' + (base.ok ? ' ok' : ' err');
     st.textContent = '已匯出多組比較 Excel：' + DG_SLOTS.length + ' 組有資料，其餘 '
       + (DG_OPT_N - DG_SLOTS.length) + ' 組欄位與公式保留、資料空白。\n'
-      + '公式是活的（在 Excel 裡改亮度，相對亮度／Gamma／圖表都會跟著重算）；三張圖是原生 Excel 圖表。';
+      + '公式是活的（在 Excel 裡改亮度，相對亮度／Gamma／圖表都會跟著重算）；三張圖是原生 Excel 圖表。\n'
+      + (base.ok
+        ? ('色溫基準＝' + (base.mode === 'fixed6500' ? '固定 6500K' : '跟著目標白點（動態）')
+          + '：中心 ' + dgCctLbl(base.center) + 'K、上限 ' + dgCctLbl(base.hi) + 'K、下限 ' + dgCctLbl(base.lo) + 'K，與畫面上的圖三相同。')
+        : '⚠ 色溫基準未定（動態模式但取不到目標白點）：匯出檔的「色溫基準」三欄（上限／中心／下限）整組留空，'
+          + '不會填任何預設值。要有基準線請先帶入目標白點，或改選「固定 6500K」後重新匯出。');
   }
 
   function dgSlotClearAll() {
@@ -3511,8 +3671,8 @@
   /* 把圖一二三清空。只在「本來就畫過」時才動手 —— 起始狀態下三張圖從沒畫過，
      這裡不去碰它們，畫面就與 v1.4.2 完全一樣。
      會走到這裡的唯一情境：使用者沒算過任何東西、只匯入光學組看，然後又把組全部取消勾選或刪光。 */
-  function dgClearCharts123() {
-    ['dg-chart1', 'dg-chart2', 'dg-chart3'].forEach(function (id) {
+  function dgClearCharts123(ids) {
+    (ids || ['dg-chart1', 'dg-chart2', 'dg-chart3']).forEach(function (id) {
       if (!DG_CHART_LAST[id]) return;
       if (DG_ZOOM_CHART === id) dgChartZoomClose();
       var e = $(id);
@@ -3533,75 +3693,167 @@
     dgRenderCharts();
   }
 
-  /* 圖一二三 ＝ 主資料 ＋ 勾選的光學組。
-     兩邊都沒有東西時什麼都不畫、也不動圖表資料表 —— 與 v1.4.2 的 `if (!grayxyY…) return;`
-     行為一致，所以起始畫面不變。 */
-  function dgRenderCharts() {
-    dgSlotLegendSync();
-    var main = dgLastGrayxyY;
-    var vis = dgVisibleSlots();
-    if ((!main || !main.length) && !vis.length) { dgClearCharts123(); return; }
+  /* ─── v1.9.0：色溫基準線 ────────────────────────────────────────────
+     v1.8.0 以前這裡（以及匯出的 xlsx）寫死 5000／±500。來源已查明：那只是
+     `光學確認_20250114.xlsx` 當時採用的值（該檔 J4=5000、I4=J4+500、K4=J4−500），
+     **不是任何標準**。依 Bruce 2026-09-07 裁示改成兩種模式，5000 這個常數完全移除。
 
-    var mainC = null;
-    if (main && main.length) {
-      mainC = dgCurveOf(main.map(function (v, i) { return { g: i, x: v[0], y: v[1], Y: v[2] }; }));
+     🔴 動態模式下拿不到目標白點時，**不退回任何預設值**。三條基準線整組不畫、
+        圖例留空、旁邊出一段紅色說明。畫一條看起來有效、實際是猜的線，比沒有線更糟。 */
+  var DG_CCT_MODE = 'dynamic';        // 'dynamic'（預設）｜ 'fixed6500'
+
+  /* 目標白點的 CCT。第 4 欄（匯入時就會帶進來）有值就用它；缺值就用 dgCCT(x, y)
+     由前兩欄算 —— 那支函式本頁本來就有，圖三的實測曲線用的也是它。 */
+  function dgTargetCCT() {
+    var e = $('dg-in-white');
+    if (!e) return null;
+    var w = dgParseRows(String(e.value || ''))[0];
+    if (!w) return null;
+    if (w.length >= 4 && isFinite(w[3]) && w[3] > 0) return w[3];
+    if (w.length >= 2 && isFinite(w[0]) && isFinite(w[1])) {
+      var t = dgCCT(w[0], w[1]);
+      if (isFinite(t) && t > 0) return t;
     }
-    var slotC = vis.map(function (o) { return { i: o.i, curve: dgCurveOf(o.s.rows) }; });
+    return null;
+  }
 
-    // 橫軸上限：主資料與所有可見組取最大。沒有勾任何組時＝主資料的 M−1（與 v1.4.2 相同）。
-    var xmax = mainC ? (mainC.M - 1) : 0;
-    slotC.forEach(function (o) {
+  // 單一來源：畫面、圖例、xlsx 匯出三邊都問這一支，不可能各講各的。
+  function dgCctBase() {
+    if (DG_CCT_MODE === 'fixed6500') return { mode: 'fixed6500', ok: true, center: 6500, hi: 7000, lo: 6000 };
+    var t = dgTargetCCT();
+    if (t === null) return { mode: 'dynamic', ok: false, center: null, hi: null, lo: null };
+    return { mode: 'dynamic', ok: true, center: t, hi: t + 500, lo: t - 500 };
+  }
+  function dgCctLbl(v) { return String(Math.round(v)); }
+
+  /* 兩排 radio（主頁一排、比較分頁一排）是同一個 DG_CCT_MODE 的兩個顯示器，不是兩份狀態：
+     這一支永遠把兩排一起寫成變數目前的值，所以不可能分岔。 */
+  function dgCctModeSync() {
+    var base = dgCctBase();
+    ['main', 'cmp'].forEach(function (which) {
+      var box = $('dg-cctbase-' + which);
+      if (box) {
+        Array.prototype.forEach.call(box.querySelectorAll('input[type=radio]'), function (r) {
+          r.checked = (r.value === DG_CCT_MODE);
+        });
+      }
+      var now = $('dg-cctbase-now-' + which);
+      if (now) {
+        now.className = 'dg-cctbase-now' + (base.ok ? '' : ' undet');
+        now.textContent = base.ok
+          ? ('目前基準：中心 ' + dgCctLbl(base.center) + 'K／上限 ' + dgCctLbl(base.hi) + 'K／下限 ' + dgCctLbl(base.lo) + 'K')
+          : '目前基準：未定 —— 圖三不畫基準線';
+      }
+      var note = $('dg-cctbase-note-' + which);
+      if (note) {
+        /* 這一段只在「這一頁的圖三真的有東西可畫」時才出現。整頁空白時沒有任何曲線，
+           也就沒有東西會被誤讀成有效基準線，跳一塊紅字出來只是嚇人。
+           「目前基準」那一欄則一律顯示（它是狀態，不是警告）。 */
+        var hasData = (which === 'main')
+          ? !!(dgLastGrayxyY && dgLastGrayxyY.length)
+          : dgVisibleSlots().length > 0;
+        if (base.ok || !hasData) { note.style.display = 'none'; note.innerHTML = ''; }
+        else {
+          note.style.display = '';
+          note.innerHTML = '<b>圖三目前沒有基準線，也沒有用任何預設值頂替。</b>'
+            + '「跟著目標白點（動態）」要拿第 2 部分帶入的<b>目標白點</b>當中心，而現在取不到 ——'
+            + '目標白點的第 4 欄（CCT）與 x、y 都沒有可用的數值。<br>'
+            + '補法二選一：到「Digital Gamma 校正」分頁匯入白灰階量測檔（或自己填目標白點），'
+            + '或把上面改選「固定 6500K」。';
+        }
+      }
+      var leg = $(which === 'main' ? 'dg-legend-3-ref' : 'dg-legend-cmp-3-ref');
+      if (leg) {
+        leg.innerHTML = base.ok
+          ? ('<span><i style="background:#64748b"></i>上限 ' + dgCctLbl(base.hi) + 'K</span>'
+            + '<span><i style="background:#fbbf24"></i>中心 ' + dgCctLbl(base.center) + 'K</span>'
+            + '<span><i style="background:#64748b"></i>下限 ' + dgCctLbl(base.lo) + 'K</span>')
+          : '';
+      }
+    });
+  }
+
+  function dgSetCctMode(m) {
+    if (m !== 'dynamic' && m !== 'fixed6500') return;
+    if (m === DG_CCT_MODE) { dgCctModeSync(); return; }
+    DG_CCT_MODE = m;
+    dgRenderCharts();
+  }
+
+  /* 圖一二三的畫法。v1.9.0 從原本的 dgRenderCharts() 抽出來，主頁與比較分頁共用同一份，
+     差別只有「吃哪些曲線、畫到哪三個 host」。抽出來的目的就是不讓兩頁的畫法各自演化。
+       curves: [{ curve, color, name, w, dots }]
+     回傳有沒有真的畫（沒有任何曲線時回 false，呼叫端負責清圖）。 */
+  function dgDrawTriple(hostIds, curves) {
+    var xmax = 0;
+    curves.forEach(function (o) {
       var last = o.curve.xs[o.curve.xs.length - 1];
       if (isFinite(last) && last > xmax) xmax = last;
     });
-    if (!(xmax > 0)) return;
+    if (!(xmax > 0)) return false;
 
-    // 參考線的 x：0 ～ xmax 的整數列。沒有勾組時就等於 mainC.xs（主資料的 xs 就是 0…M−1）。
     var xs = [], i;
     for (i = 0; i <= xmax; i++) xs.push(i);
     function std(g) { return xs.map(function (v) { return Math.pow(v / xmax, g); }); }
-    function slotSeries(key, w) {
-      return slotC.map(function (o) {
-        return { x: o.curve.xs, y: o.curve[key], color: dgSlotColor(o.i), w: w || 1.5, name: dgSlotDisplayName(o.i) };
+    function flat(v) { return xs.map(function () { return v; }); }
+    function ser(key) {
+      return curves.map(function (o) {
+        return { x: o.curve.xs, y: o.curve[key], color: o.color, w: o.w || 1.5, name: o.name, dots: !!o.dots };
       });
     }
 
-    dgChart($('dg-chart1'), [
+    /* 🔴 v1.9.0：三張圖的「中心線」一律黃色虛線（Bruce 2026-09-07）。
+       上下限那兩條維持原樣（灰色 dash '4 3'），顏色也維持 #fbbf24。 */
+    dgChart($(hostIds[0]), [
       { x: xs, y: std(2.0), color: '#64748b', dash: '4 3', name: 'γ=2.0' },
       { x: xs, y: std(2.4), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
-      { x: xs, y: std(2.2), color: '#fbbf24', w: 1.4, name: 'γ=2.2' }
-    ].concat(mainC ? [{ x: mainC.xs, y: mainC.rel, color: '#38bdf8', w: 2, name: '實測', dots: true }] : [])
-      .concat(slotSeries('rel')), {
+      { x: xs, y: std(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
+    ].concat(ser('rel')), {
       xmin: 0, xmax: xmax, ymin: 0, ymax: 1, xlabel: 'Gray',
       yfmt: function (v, span) { return (v * 100).toFixed(span < 0.05 ? 2 : (span < 0.5 ? 1 : 0)) + '%'; },
       tip: { x: '灰階', y: '相對亮度', fmt: function (v) { return (v * 100).toFixed(2) + '%'; } }
     });
 
-    dgChart($('dg-chart2'), [
-      { x: xs, y: xs.map(function () { return 2.0; }), color: '#64748b', dash: '4 3', name: 'γ=2.0' },
-      { x: xs, y: xs.map(function () { return 2.4; }), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
-      { x: xs, y: xs.map(function () { return 2.2; }), color: '#fbbf24', w: 1.4, name: 'γ=2.2' }
-    ].concat(mainC ? [{ x: mainC.xs, y: mainC.gam, color: '#38bdf8', w: 2, name: '實測', dots: true }] : [])
-      .concat(slotSeries('gam')), {
+    dgChart($(hostIds[1]), [
+      { x: xs, y: flat(2.0), color: '#64748b', dash: '4 3', name: 'γ=2.0' },
+      { x: xs, y: flat(2.4), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
+      { x: xs, y: flat(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
+    ].concat(ser('gam')), {
       xmin: 0, xmax: xmax, ymin: 1.6, ymax: 2.8, xlabel: 'Gray',
       yfmt: function (v, span) { return v.toFixed(span < 0.2 ? 3 : 2); },
       tip: { x: '灰階', y: 'Gamma', fmt: function (v) { return v.toFixed(3); } }
     });
 
+    var base = dgCctBase();
+    var refs = base.ok ? [
+      { x: xs, y: flat(base.hi), color: '#64748b', dash: '4 3', name: '上限 ' + dgCctLbl(base.hi) + 'K' },
+      { x: xs, y: flat(base.lo), color: '#64748b', dash: '4 3', name: '下限 ' + dgCctLbl(base.lo) + 'K' },
+      { x: xs, y: flat(base.center), color: '#fbbf24', dash: '4 3', w: 1.4, name: '中心 ' + dgCctLbl(base.center) + 'K' }
+    ] : [];
+    /* 縱軸原本寫死 4000～9000（配合寫死的中心 5000）。中心變成動態之後，基準線可能整組
+       落在視窗外＝看不見的基準線，與「沒有基準線」在畫面上分不出來。所以只在必要時往外撐，
+       不必要時維持 4000～9000（固定 6500K 與舊有的資料範圍都在裡面，畫面不變）。 */
     var cmin = 4000, cmax = 9000;
-    dgChart($('dg-chart3'), [
-      { x: xs, y: xs.map(function () { return 5500; }), color: '#64748b', dash: '4 3', name: '上限 5500K' },
-      { x: xs, y: xs.map(function () { return 4500; }), color: '#64748b', dash: '4 3', name: '下限 4500K' },
-      { x: xs, y: xs.map(function () { return 5000; }), color: '#fbbf24', w: 1.4, name: '中心 5000K' }
-    ].concat(mainC ? [{ x: mainC.xs, y: mainC.cct, color: '#38bdf8', w: 2, name: '實測', dots: true }] : [])
-      .concat(slotSeries('cct')), {
+    if (base.ok) { cmin = Math.min(cmin, base.lo); cmax = Math.max(cmax, base.hi); }
+    dgChart($(hostIds[2]), refs.concat(ser('cct')), {
       xmin: 0, xmax: xmax, ymin: cmin, ymax: cmax, xlabel: 'Gray',
       yfmt: function (v, span) { return span < 200 ? v.toFixed(1) : String(Math.round(v)); },
       tip: { x: '灰階', y: '色溫', fmt: function (v) { return Math.round(v) + 'K'; } }
     });
+    return true;
+  }
+
+  var DG_MAIN_CHARTS = ['dg-chart1', 'dg-chart2', 'dg-chart3'];
+  var DG_CMP_CHARTS = ['dg-cmp-chart1', 'dg-cmp-chart2', 'dg-cmp-chart3'];
+
+  /* 主頁的圖一二三：**只畫當下這一輪那一份**（v1.9.0 起不再疊光學組）。 */
+  function dgRenderMainCharts() {
+    var main = dgLastGrayxyY;
+    if (!main || !main.length) { dgClearCharts123(DG_MAIN_CHARTS); return; }
+    var mainC = dgCurveOf(main.map(function (v, i) { return { g: i, x: v[0], y: v[1], Y: v[2] }; }));
+    if (!dgDrawTriple(DG_MAIN_CHARTS, [{ curve: mainC, color: '#38bdf8', w: 2, name: '實測', dots: true }])) return;
 
     // 圖表資料表只列主資料（光學組是比較用的，各自的逐階數值不塞進這張表）
-    if (!mainC) return;
     var tb = $('dg-chart-table').querySelector('tbody'), h = '';
     for (var k = 0; k < mainC.M; k++) {
       h += '<tr><td>' + k + '</td><td>' + mainC.lv[k].toFixed(4) + '</td><td>' + (mainC.rel[k] * 100).toFixed(4) + '%</td><td>'
@@ -3609,6 +3861,25 @@
         + mainC.yy[k].toFixed(5) + '</td><td>' + Math.round(mainC.cct[k]) + '</td></tr>';
     }
     tb.innerHTML = h;
+  }
+
+  /* 「光學資料比較」分頁的圖一二三：只畫勾選「顯示」的光學組。 */
+  function dgRenderCmpCharts() {
+    var vis = dgVisibleSlots();
+    if (!vis.length) { dgClearCharts123(DG_CMP_CHARTS); return; }
+    dgDrawTriple(DG_CMP_CHARTS, vis.map(function (o) {
+      return { curve: dgCurveOf(o.s.rows), color: dgSlotColor(o.i), name: dgSlotDisplayName(o.i) };
+    }));
+  }
+
+  /* 只重畫「目前看得到的那一頁」。另一頁在 dgSwitchMode() 切過去的當下一定會重畫，
+     所以不可能停在舊資料上；而畫一張圖表不便宜（實測 jsdom 下每次匯入多 ~1.5 秒，
+     真實瀏覽器較快但一樣是白做的工），沒必要為看不見的東西付這筆。 */
+  function dgRenderCharts() {
+    dgSlotLegendSync();
+    dgCctModeSync();
+    if (DG_MODE === 'cmp') dgRenderCmpCharts();
+    else dgRenderMainCharts();
   }
 
   // ─── 圖四：LUT 內容值（R／G／B 三條）──────────────────────────────────
@@ -3713,6 +3984,7 @@
     // v1.5.0：第 1 部分現在是必填。範例組本來是靠「留空 ＝ Default」跑的，
     // 這裡改成明確填入 Default 表 —— 兩者餵給演算法的驅動碼逐值相同，只是不再靠留空。
     dgFillDefault();
+    dgCctModeSync();   // v1.9.0：目標白點換了，色溫基準的顯示要跟上
     dgSetStatus('dg-status', '已載入範例資料（' + s.name + '）。第 1 部分已同時填入 Default LUT，按「計算」即可算出對應的 LUT。', 'ok');
   }
 
@@ -4879,10 +5151,46 @@
     $('dg-modal-info-body').innerHTML = '';
   }
 
+  /* ─── v1.9.0：分頁切換 ────────────────────────────────────────────────
+     機制與 wfg.html 的 wfgSwitchMode() 相同（wfg.html:8933-8952）：只切兩個 content
+     容器的 display、同步 tab 的 active class、把目前這一頁記進 sessionStorage。
+     沒有路由、沒有第二份狀態 —— DG_SLOTS 與 DG_CCT_MODE 都是同一份，切分頁不動它們。 */
+  var DG_MODE = 'main';
+
+  function dgSwitchMode(mode) {
+    if (mode !== 'main' && mode !== 'cmp') mode = 'main';
+    DG_MODE = mode;
+    try { sessionStorage.setItem('dg_active_mode', mode); } catch (e) {}
+    // head 裡那段防閃爍的 style 只在載入當下有用；真的切過分頁之後它會擋住 display，要拿掉
+    var hint = document.getElementById('ss-dg-mode-hint');
+    if (hint && hint.parentNode) hint.parentNode.removeChild(hint);
+    Array.prototype.forEach.call(document.querySelectorAll('#dg-mode-tabs .dg-mode-tab'), function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
+    });
+    var m = $('dg-main-content'), c = $('dg-cmp-content');
+    if (m) m.style.display = mode === 'main' ? '' : 'none';
+    if (c) c.style.display = mode === 'cmp' ? '' : 'none';
+    /* 切到比較分頁時重畫一次：display:none 期間 dgChart 照樣把 SVG 寫進去（不依賴版面），
+       但放大檢視／游標提示用的幾何（DG_CHART_GEOM）是量出來的，藏著的時候量不準。
+       重畫一次讓幾何以真正的可見尺寸重算。 */
+    if (mode === 'cmp') dgRenderCmpCharts();
+    else dgRenderMainCharts();
+  }
+  window.dgSwitchMode = dgSwitchMode;
+
   function dgInit() {
     dgGridsInit();
     dgSlotBind();
     dgSlotRender();
+    // 色溫基準：兩排 radio 寫同一個變數（見 dgCctModeSync 的說明）
+    ['dg-cctbase-main', 'dg-cctbase-cmp'].forEach(function (id) {
+      var box = $(id);
+      if (!box) return;
+      box.addEventListener('change', function (e) {
+        var r = e.target;
+        if (r && r.type === 'radio') dgSetCctMode(r.value);
+      });
+    });
     $('dg-btn-slot-clear').addEventListener('click', function () {
       if (!DG_SLOTS.length) { dgSlotStatus(); return; }
       dgSlotClearAll();
@@ -4905,6 +5213,8 @@
     $('dg-in-white').addEventListener('input', function () {
       dgMarkEdited('gray');
       dgRefreshReady();
+      // v1.9.0：動態模式的色溫基準就是這一欄算出來的，改了要立刻反映在圖三與圖例上
+      dgRenderCharts();
     });
     /* v1.8.0：三顆匯入鈕，各自長在自己那個部分裡（DOM 順序就是第 1／2／3 部分）。
        共用同一個隱藏的 file input —— 按下哪一顆只記在 DG_IMP_WANT 裡供回報用，
@@ -4962,7 +5272,8 @@
       });
     });
     // 縮圖：點一下＝開放大檢視；拖出一個範圍＝開放大檢視並直接跳到那一段；滑過＝顯示數值
-    ['dg-chart1', 'dg-chart2', 'dg-chart3', 'dg-chart4'].forEach(function (id) {
+    ['dg-chart1', 'dg-chart2', 'dg-chart3', 'dg-chart4',
+     'dg-cmp-chart1', 'dg-cmp-chart2', 'dg-cmp-chart3'].forEach(function (id) {
       var w = $(id);
       if (w) dgBindChartInteract(w, id, id, false);
     });
@@ -4989,6 +5300,14 @@
     dgRefreshReady();
     dgDrawCharts(null);
     dgDrawLutChart(null, dgReadCfg().hw, dgReadCfg().sd);
+    dgCctModeSync();
+    // v1.9.0：回到上次停在的分頁（head 那段 style 只負責不要閃，真正的狀態在這裡定案）
+    var savedMode = '';
+    try { savedMode = sessionStorage.getItem('dg_active_mode') || ''; } catch (e) {}
+    var qs = new URLSearchParams(location.search);
+    var qm = qs.get('dgMode') || qs.get('mode') || '';
+    var hm = (location.hash || '').replace('#', '');
+    dgSwitchMode(qm || ((hm === 'cmp' || hm === 'dg-cmp') ? 'cmp' : '') || savedMode || 'main');
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', dgInit);
@@ -5054,7 +5373,26 @@
     srcOf: function (p) { var s = DG_SRC[p]; return s ? { kind: s.kind, name: s.name || '', edited: !!s.edited } : null; },
     infoOpen: dgInfoOpen,
     infoClose: dgInfoClose,
-    lastGray: function () { return dgLastGrayxyY ? dgLastGrayxyY.length : 0; }
+    lastGray: function () { return dgLastGrayxyY ? dgLastGrayxyY.length : 0; },
+    // v1.9.0 驗證用
+    mode: function () { return DG_MODE; },
+    switchMode: dgSwitchMode,
+    cctMode: function () { return DG_CCT_MODE; },
+    setCctMode: dgSetCctMode,
+    cctBase: dgCctBase,
+    targetCCT: dgTargetCCT,
+    // 三張圖最後一次的 series 設定（唯讀副本；「有沒有 dash、什麼顏色」直接讀這裡）
+    chartSeries: function (id) {
+      var c = DG_CHART_LAST[id];
+      if (!c) return null;
+      return c.series.map(function (s) {
+        return { name: s.name, color: s.color, dash: s.dash || null, w: s.w || null, n: s.y ? s.y.length : 0, y0: s.y ? s.y[0] : null };
+      });
+    },
+    chartOpt: function (id) {
+      var c = DG_CHART_LAST[id];
+      return c ? { xmin: c.opt.xmin, xmax: c.opt.xmax, ymin: c.opt.ymin, ymax: c.opt.ymax } : null;
+    }
   };
 })();
 </script>
