@@ -3626,8 +3626,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260906wfg4436"></script>
-<script src="common/i18n.js?v=20260903help"></script>
+<script src="common/version.js?v=20260907wfg4440"></script>
+<script src="common/i18n.js?v=20260907wfg4440"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -4862,7 +4862,8 @@ var wfgCursors = [
 var WFG_CURSOR_COLORS = {A:'#facc15',B:'#22d3ee',C:'#4ade80',D:'#fb923c',E:'#c084fc'};
 var WFG_CURSOR_KEYS = {'1':0,'2':1,'3':2,'4':3,'5':4,'6':5,'7':6,'8':7,'9':8,'0':9};
 /* v2.97.468: 主波形版 |Δt| 輸入後的「持續鎖定」狀態（鏡像 LA 版 wfgLaDtLock）。
-   key = group letter 'A'..'E'，value = { earlyIdx, lateIdx, dt(精確秒) }。 */
+   key = group letter 'A'..'E'，value = { baseIdx, moveIdx, dt(精確秒，有號) }。
+   v4.44.0: baseIdx 恆為編號 1、moveIdx 恆為編號 2；dt 有號（編號2 − 編號1）。 */
 var wfgDtLock = {};
 var _wfgCursorMouseTime = null;
 var _wfgCursorAnimRaf = 0;
@@ -8972,8 +8973,9 @@ var wfgLaCursorMoving = [false, false, false, false, false, false, false, false,
 var wfgLaCursorPos = [null, null, null, null, null, null, null, null, null, null];
 var wfgLaCursorAnchors = [null, null, null, null, null, null, null, null, null, null];
 /* v2.97.468: |Δt| 輸入後的「持續鎖定」狀態。key = group letter 'A'..'E'，
-   value = { earlyIdx, lateIdx, dt(精確秒，浮點不量化) }。
-   鎖定期間每次 render 由 wfgLaApplyDtLock() 重算 late.pos = early.pos + dt，
+   value = { baseIdx, moveIdx, dt(精確秒，浮點不量化，有號) }。
+   v4.44.0: baseIdx 恆為編號 1、moveIdx 恆為編號 2；dt 有號（編號2 − 編號1）。
+   鎖定期間每次 render 由 wfgLaApplyDtLock() 重算 編號2.pos = 編號1.pos + dt，
    使卡片 |Δt| 恆等於使用者輸入值，不隨基準貼邊 snap 而漂移。 */
 var wfgLaDtLock = {};
 var wfgLaCursorKeys = { '1':0, '2':1, '3':2, '4':3, '5':4, '6':5, '7':6, '8':7, '9':8, '0':9 };
@@ -12477,7 +12479,8 @@ function wfgLaUpdateMeasure(cfg, visibleEdges) {
       var both = wfgLaCursorActive[i1] && wfgLaCursorActive[i2] && wfgLaCursorPos[i1] != null && wfgLaCursorPos[i2] != null;
       /* v2.97.468: 鎖定中的 group 直接顯示鎖定的精確 dt（不用兩量化位置相減），恆等於輸入值 */
       var _lockG = wfgLaDtLock[String.fromCharCode(65 + gi)];
-      var dt = both ? (_lockG ? _lockG.dt : Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1])) : 0;
+      /* v4.44.0: lock.dt 改存有號值（編號2 − 編號1），顯示欄位是 |Δt| ⇒ 取絕對值 */
+      var dt = both ? (_lockG ? Math.abs(_lockG.dt) : Math.abs(wfgLaCursorPos[i2] - wfgLaCursorPos[i1])) : 0;
       var color = wfgLaCursorColors[i1];
       if (!wfgLaCursorActive[i1] && !wfgLaCursorActive[i2]) continue;
       /* v2.97.465: both 時把 X 改成可輸入框（正實數、Enter 生效、移動較晚的 cursor）。
@@ -13109,8 +13112,15 @@ function wfgLaCursorDtInputKey(e, group) {
 }
 window.wfgLaCursorDtInputKey = wfgLaCursorDtInputKey;
 
-/* v2.97.465: 依輸入的 |Δt|（以目前顯示單位解讀）移動「較晚（時間較大）」的 cursor，
-   固定「較早（時間較小）」的 cursor 當基準；正實數才生效，非正數/非法一律不移動。 */
+/* v2.97.465 起：依輸入的 |Δt|（以目前顯示單位解讀）移動其中一支 cursor。
+   🔴 v4.44.0（Bruce 2026-09-07）：判定基準由「畫面上的左右位置」改成「游標編號」——
+   **編號 1（i1）恆為固定基準，編號 2（i2）恆為被移動的那一支**，不再比較兩者時間大小
+   取 early/late。這樣「1 放右邊、2 放左邊」就能做出「右邊固定、左邊往左右跑」的量法。
+   方向（正負號）：
+     - 沒有明確打正負號 → 沿用 2 目前所在的一側（2 在左就仍在左、在右就仍在右），
+       只改距離；輸入變大 → 2 往外跑，輸入變小 → 2 往 1 靠近。
+     - 明確打 `-`／`+` → 強制把 2 放到 1 的左／右側，**允許 2 跨過 1**（不夾制、不對調）。
+   數值大小仍取絕對值；0／非法一律不移動。 */
 function wfgLaCursorApplyDtInput(group, inputEl) {
   var gi = ['A','B','C','D','E'].indexOf(String(group || '').toUpperCase());
   if (gi < 0) return;
@@ -13120,48 +13130,55 @@ function wfgLaCursorApplyDtInput(group, inputEl) {
     wfgLaRenderScope();
     return;
   }
-  var val = inputEl ? parseFloat(inputEl.value) : NaN;
+  /* v4.44.0: 正負號要看「使用者實際打了什麼」，parseFloat 之後就分不出 5 與 +5，
+     所以正負號從原始字串判、數值大小另外取絕對值。 */
+  var rawTxt = inputEl ? String(inputEl.value) : '';
+  var val = inputEl ? parseFloat(rawTxt) : NaN;
   var unitNs = inputEl ? parseFloat(inputEl.getAttribute('data-unitns')) : NaN;
   if (!isFinite(unitNs) || unitNs <= 0) unitNs = 1;
-  /* 非正數 / 非法輸入 → 不移動，還原顯示 */
-  if (!isFinite(val) || val <= 0) {
+  /* 0 / 非法輸入 → 不移動，還原顯示（負值不再視為非法，見上方註解） */
+  if (!isFinite(val) || Math.abs(val) <= 0) {
     wfgLaRenderScope();
     return;
   }
   /* v2.97.468: 鎖定間隔用「精確浮點秒」，不再 Math.round 到 ns，消除 ±1 取樣週期抖動。
      仍要求對應 ≥ 0.5ns（低於此顯示精度無法表達）。 */
-  var dtRawNs = val * unitNs;
+  var dtRawNs = Math.abs(val) * unitNs;
   if (!(dtRawNs >= 0.5)) {
     wfgLaRenderScope();
     return;
   }
   var dtSec = dtRawNs / 1e9;
-  /* 基準 = 較早（時間較小）者；移動 = 較晚者。位置相等時預設移動 i2 使其變晚 */
-  var earlyIdx = (wfgLaCursorPos[i1] <= wfgLaCursorPos[i2]) ? i1 : i2;
-  var lateIdx = (earlyIdx === i1) ? i2 : i1;
-  /* v2.97.468: 建立「持續鎖定」——late 恆等於 early + dt（精確浮點）。
-     不 clamp late 到資料範圍：維持 X 恆定優先（基準貼邊隨訊號晃時 late 即時跟隨，
-     若 early+dt 超界則 late 落在畫面外，屬預期取捨）。 */
-  wfgLaDtLock[String.fromCharCode(65 + gi)] = { earlyIdx: earlyIdx, lateIdx: lateIdx, dt: dtSec };
-  wfgLaCursorPos[lateIdx] = wfgLaCursorPos[earlyIdx] + dtSec;
-  wfgLaCursorAnchors[lateIdx] = null; /* late 鎖在 early+dt，不綁 edge anchor */
-  wfgLaCursorMoving[lateIdx] = false;
-  wfgLaCursorSelected = lateIdx;
+  /* v4.44.0: 基準恆為 i1（編號 1）、被移動者恆為 i2（編號 2）。
+     方向：有明打正負號就照打的；沒打就沿用 2 目前所在的一側（相等時視為右側）。 */
+  var _signM = /^\s*([+-])/.exec(rawTxt);
+  var _sign = _signM ? (_signM[1] === '-' ? -1 : 1)
+                     : ((wfgLaCursorPos[i2] < wfgLaCursorPos[i1]) ? -1 : 1);
+  var dtSigned = _sign * dtSec;
+  /* v2.97.468: 建立「持續鎖定」——編號 2 恆等於 編號 1 + 有號 dt（精確浮點）。
+     不 clamp 到資料範圍：維持 Δt 恆定優先（基準貼邊隨訊號晃時 2 即時跟隨，
+     若超界則 2 落在畫面外，屬預期取捨）。 */
+  wfgLaDtLock[String.fromCharCode(65 + gi)] = { baseIdx: i1, moveIdx: i2, dt: dtSigned };
+  wfgLaCursorPos[i2] = wfgLaCursorPos[i1] + dtSigned;
+  wfgLaCursorAnchors[i2] = null; /* 編號 2 鎖在 編號 1 + dt，不綁 edge anchor */
+  wfgLaCursorMoving[i2] = false;
+  wfgLaCursorSelected = i2;
   if (inputEl) inputEl.blur();
   wfgLaUpdateCursorButtons();
   wfgLaRenderScope(); /* 重建卡片：X 依鎖定值顯示、Y 頻率同步更新 */
 }
 window.wfgLaCursorApplyDtInput = wfgLaCursorApplyDtInput;
 
-/* v2.97.468: 每次 render 前套用 |Δt| 鎖定——重算 late.pos = early.pos + dt（精確），
-   使基準（early，可貼邊隨訊號左右晃）移動時，被鎖 cursor 即時跟隨、卡片 X 恆定。
-   自檢失效（任一支不再 active / late 被改為 moving 跟隨 / 基準無位置）→ 自動解除鎖定。 */
+/* v2.97.468: 每次 render 前套用 |Δt| 鎖定——重算 編號2.pos = 編號1.pos + dt（精確有號），
+   使基準（編號 1，可貼邊隨訊號左右晃）移動時，被鎖 cursor 即時跟隨、卡片 Δt 恆定。
+   自檢失效（任一支不再 active / 編號 2 被改為 moving 跟隨 / 基準無位置）→ 自動解除鎖定。
+   v4.44.0: 欄位由 earlyIdx/lateIdx 改為 baseIdx/moveIdx，dt 改存有號值。 */
 function wfgLaApplyDtLock() {
   for (var gi = 0; gi < 5; gi++) {
     var g = String.fromCharCode(65 + gi);
     var lock = wfgLaDtLock[g];
     if (!lock) continue;
-    var e = lock.earlyIdx, l = lock.lateIdx;
+    var e = lock.baseIdx, l = lock.moveIdx;
     if (!wfgLaCursorActive[e] || !wfgLaCursorActive[l] || wfgLaCursorMoving[l] || wfgLaCursorPos[e] == null) {
       delete wfgLaDtLock[g];
       continue;
@@ -38631,8 +38648,11 @@ function wfgCursorDataTimeBounds() {
   return { min: 0, max: maxT };
 }
 
-/* 依輸入的 |Δt|（以目前顯示單位解讀）移動「較晚」的 cursor，固定「較早」者當基準；
-   正實數才生效，非正數/非法一律不移動；超界 clamp 到資料範圍。（鏡像 wfgLaCursorApplyDtInput） */
+/* 依輸入的 |Δt|（以目前顯示單位解讀）移動其中一支 cursor。（鏡像 wfgLaCursorApplyDtInput）
+   🔴 v4.44.0（Bruce 2026-09-07）：判定基準由「畫面上的左右位置」改成「游標編號」——
+   **編號 1（c1）恆為固定基準，編號 2（c2）恆為被移動的那一支**，不再比時間大小取 early/late。
+   方向（正負號）：沒明打正負號 → 沿用 2 目前所在的一側；明打 `-`／`+` → 強制放到 1 的左／右側
+   （**允許 2 跨過 1**，不夾制、不對調）。數值取絕對值；0／非法一律不移動。 */
 function wfgCursorApplyDtInput(group, inputEl) {
   var gi = ['A','B','C','D','E'].indexOf(String(group || '').toUpperCase());
   if (gi < 0) return;
@@ -38642,35 +38662,41 @@ function wfgCursorApplyDtInput(group, inputEl) {
     wfgUpdateCursorPanel();
     return;
   }
-  var val = inputEl ? parseFloat(inputEl.value) : NaN;
+  /* v4.44.0: 正負號要看「使用者實際打了什麼」，parseFloat 之後就分不出 5 與 +5，
+     所以正負號從原始字串判、數值大小另外取絕對值。 */
+  var rawTxt = inputEl ? String(inputEl.value) : '';
+  var val = inputEl ? parseFloat(rawTxt) : NaN;
   var unitNs = inputEl ? parseFloat(inputEl.getAttribute('data-unitns')) : NaN;
   if (!isFinite(unitNs) || unitNs <= 0) unitNs = 1;
-  /* 非正數 / 非法輸入 → 不移動，還原顯示 */
-  if (!isFinite(val) || val <= 0) {
+  /* 0 / 非法輸入 → 不移動，還原顯示（負值不再視為非法，見上方註解） */
+  if (!isFinite(val) || Math.abs(val) <= 0) {
     wfgUpdateCursorPanel();
     return;
   }
   /* v2.97.468: 鎖定間隔用「精確浮點秒」，不再 Math.round 到 ns，消除 ±取樣週期抖動；
      仍要求對應 ≥ 0.5ns（低於此顯示精度無法表達）。 */
-  var dtRawNs = val * unitNs;
+  var dtRawNs = Math.abs(val) * unitNs;
   if (!(dtRawNs >= 0.5)) {
     wfgUpdateCursorPanel();
     return;
   }
   var dtSec = dtRawNs / 1e9;
-  /* 基準 = 較早（時間較小）者；移動 = 較晚者。位置相等時預設移動 c2 使其變晚 */
+  /* v4.44.0: 基準恆為 i1（編號 1）、被移動者恆為 i2（編號 2）。
+     方向：有明打正負號就照打的；沒打就沿用 2 目前所在的一側（相等時視為右側）。 */
   var i1 = gi * 2, i2 = gi * 2 + 1;
-  var earlyIdx = (c1.time <= c2.time) ? i1 : i2;
-  var lateIdx = (earlyIdx === i1) ? i2 : i1;
-  /* v2.97.468: 建立「持續鎖定」——late 恆等於 early + dt（精確浮點）。
-     不 clamp late 到資料範圍：維持 X 恆定優先（基準貼邊隨訊號晃時 late 即時跟隨）。 */
-  wfgDtLock[String.fromCharCode(65 + gi)] = { earlyIdx: earlyIdx, lateIdx: lateIdx, dt: dtSec };
-  wfgCursors[lateIdx].time = wfgCursors[earlyIdx].time + dtSec;
+  var _signM = /^\s*([+-])/.exec(rawTxt);
+  var _sign = _signM ? (_signM[1] === '-' ? -1 : 1)
+                     : ((c2.time < c1.time) ? -1 : 1);
+  var dtSigned = _sign * dtSec;
+  /* v2.97.468: 建立「持續鎖定」——編號 2 恆等於 編號 1 + 有號 dt（精確浮點）。
+     不 clamp 到資料範圍：維持 Δt 恆定優先（基準貼邊隨訊號晃時 2 即時跟隨）。 */
+  wfgDtLock[String.fromCharCode(65 + gi)] = { baseIdx: i1, moveIdx: i2, dt: dtSigned };
+  wfgCursors[i2].time = wfgCursors[i1].time + dtSigned;
   /* v3.26.4：被鎖的那一支改由「基準 ＋ dt」決定位置，不再貼附任何邊緣
-     （鏡像 LA 的 wfgLaCursorAnchors[lateIdx] = null）。基準那一支的 anchor 不動。 */
-  wfgCursors[lateIdx].anchor = null;
-  wfgCursors[lateIdx].anchorReason = 'dt-locked';   // v3.26.6
-  wfgCursors[lateIdx].moving = false; /* 手動定位 → 固定態 */
+     （鏡像 LA 的 wfgLaCursorAnchors[i2] = null）。基準那一支的 anchor 不動。 */
+  wfgCursors[i2].anchor = null;
+  wfgCursors[i2].anchorReason = 'dt-locked';   // v3.26.6
+  wfgCursors[i2].moving = false; /* 手動定位 → 固定態 */
   if (inputEl) inputEl.blur();
   wfgUpdateCursorBtns();
   wfgUpdateCursorPanel(); /* 重建卡片：X 依鎖定值顯示、頻率同步更新 */
@@ -38686,7 +38712,7 @@ function wfgApplyDtLock() {
     var g = String.fromCharCode(65 + gi);
     var lock = wfgDtLock[g];
     if (!lock) continue;
-    var e = wfgCursors[lock.earlyIdx], l = wfgCursors[lock.lateIdx];
+    var e = wfgCursors[lock.baseIdx], l = wfgCursors[lock.moveIdx];  /* v4.44.0 欄位改名 */
     if (!e || !l || !e.active || !l.active || l.moving || e.time == null) {
       delete wfgDtLock[g];
       continue;
@@ -38745,7 +38771,8 @@ function wfgUpdateCursorPanel() {
     if (c1.active && c2.active && c1.time !== null && c2.time !== null) {
       /* v2.97.468: 鎖定中的 group 直接顯示鎖定的精確 dt，恆等於輸入值、不漂移 */
       var _lockG = wfgDtLock[g];
-      var delta = _lockG ? _lockG.dt : Math.abs(c2.time - c1.time);
+      /* v4.44.0: lock.dt 改存有號值（編號2 − 編號1），顯示欄位是 |Δt| ⇒ 取絕對值 */
+      var delta = _lockG ? Math.abs(_lockG.dt) : Math.abs(c2.time - c1.time);
       /* v2.97.467: 把 X 改成可輸入框（正實數、Enter 生效、移動較晚的 cursor），並補頻率顯示。 */
       var dtParts = wfgLaCursorDurationParts(delta);
       var dtInput = '<input type="text" inputmode="decimal" class="wfg-cursor-dt-input"' +
