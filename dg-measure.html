@@ -134,7 +134,7 @@
 <!-- 左上角：解析度、目前灰階值、Frame rate -->
 <div class="dgm-corner" id="dgm-info">
   <div class="dgm-row"><span class="dgm-k">螢幕解析度</span><span class="dgm-v" id="dgm-res">—</span></div>
-  <div class="dgm-row"><span class="dgm-k">目前灰階值</span><span class="dgm-v" id="dgm-gray">128</span></div>
+  <div class="dgm-row"><span class="dgm-k" id="dgm-gray-k">目前灰階值</span><span class="dgm-v" id="dgm-gray">128</span></div>
   <div class="dgm-row"><span class="dgm-k">Frame rate（瀏覽器實測）</span><span class="dgm-v" id="dgm-fps">—</span></div>
   <div class="dgm-row"><span class="dgm-k">畫面更新率（儀器 MVS）</span><span class="dgm-v" id="dgm-mvs">—</span></div>
   <div class="dgm-row"><span class="dgm-k">全螢幕</span><span class="dgm-v" id="dgm-fsstate">—</span></div>
@@ -189,7 +189,29 @@
      一鍵測試不該讓使用者去猜一個他無從判斷的數字。 */
   var DGM_SETTLE_MS = 500;
 
-  var DGM_STEPS = 256;          // 0 ～ 255。DG 第 2 部分要的就是這個長度，不做成可選。
+  /* ═══ v1.12.0：兩種量測模式 ═══════════════════════════════════════════
+     · gray（預設）＝ DG 第 2 部分：白灰階 L0 ～ L255，256 階
+     · prim        ＝ DG 第 3 部分：R／G／B 三個純色 pattern，3 步
+     由 URL 的 ?mode=prim 決定，**不是 UI 選項** —— 使用者是從 DG 頁哪一顆鈕
+     進來的，就已經表達了他要量哪一種，不必再讓他選一次。
+     兩種模式共用同一套：全螢幕閘門、停止、關閉分頁、已跑時間、初始化序列。
+     🔴 純色也走 MDS,0（x, y, Lv）：跟灰階同一組初始化，回應欄位也同一組，
+        重用最多、風險最低。DG 第 3 部分本來就收 x／y／Lv 這一組寫法，
+        由 dg.html 用它自己的 dgXyYtoXYZ() 換算成 XYZ 存起來 —— 換算的責任
+        留在原本就負責換算的那一頁，量測頁只回報它真的量到的東西。 */
+  var DGM_MODE = (function () {
+    try { return (new URLSearchParams(location.search).get('mode') === 'prim') ? 'prim' : 'gray'; }
+    catch (e) { return 'gray'; }
+  })();
+
+  // prim 模式的三步：[代號, 顯示名, RGB]
+  var DGM_PRIMS = [
+    ['r', '純紅 R', [255, 0, 0]],
+    ['g', '純綠 G', [0, 255, 0]],
+    ['b', '純藍 B', [0, 0, 255]]
+  ];
+
+  var DGM_STEPS = (DGM_MODE === 'prim') ? DGM_PRIMS.length : 256;   // 不做成可選
 
   /* ═══ v1.11.0：進度顯示 ══════════════════════════════════════════════════
      兩個改動，都是 Bruce 2026-09-07 指定的：
@@ -225,10 +247,11 @@
   function progStop() { if (scanTimer) { clearInterval(scanTimer); scanTimer = null; } }
 
   // ── 畫面 ────────────────────────────────────────────────────────────────
-  function setGray(g) {
-    document.body.style.background = 'rgb(' + g + ',' + g + ',' + g + ')';
-    $('dgm-gray').textContent = String(g);
+  function setFill(r, g, b, label) {
+    document.body.style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
+    $('dgm-gray').textContent = label;
   }
+  function setGray(g) { setFill(g, g, g, String(g)); }
   function msg(t, cls) { $('dgm-msg').textContent = t; $('dgm-msg').className = cls || ''; }
   function log(t, cls) {
     var el = $('dgm-log'); el.style.display = 'block';
@@ -448,13 +471,15 @@
     if (aborted) {
       setGray(128);
       msg('已停止（' + aborted + '）。本次量到 ' + lastStep + ' 筆'
-        + (lastGray === null ? '（還沒進到逐階掃描）' : '，停在 L' + lastGray)
+        + (lastGray === null ? '（還沒進到量測）' : '，停在 ' + lastGray)
         + '，已跑 ' + fmtDur(elapsedMs()) + '。\n'
-        + '🔴 這次的資料不會回填 DG —— 第 2 部分要的是完整 L0 ～ L' + (DGM_STEPS - 1) + '，'
+        + '🔴 這次的資料不會回填 DG —— '
+        + (DGM_MODE === 'prim' ? 'DG 第 3 部分要的是 R／G／B 三筆都到齊，'
+          : 'DG 第 2 部分要的是完整 L0 ～ L' + (DGM_STEPS - 1) + '，')
         + '半套資料灌進去只會讓後面的計算錯得很安靜，所以整批丟掉。\n'
         + '序列埠沒有關掉，直接按「重新量測」就能再跑一次，不必重選埠、也不用重整頁面。', 'err');
       $('dgm-prog').innerHTML = '已停止'
-        + '<small>' + (lastGray === null ? '尚未進入掃描' : '停在 L' + lastGray)
+        + '<small>' + (lastGray === null ? '尚未開始量測' : '停在 ' + lastGray)
         + '　已跑 ' + fmtDur(elapsedMs()) + '　未回填</small>';
     }
   });
@@ -543,12 +568,22 @@
       if (aborted) return;
     }
 
-    // 4. 逐階量測
+    // 4. 逐階（或逐色）量測。兩種模式只差「畫面填什麼」與「回報的第一欄是什麼」。
     var rows = [], bad = 0;
     msg('量測中，請不要動探頭。要中止就按上面的紅色「停止」。');
     for (var g = 0; g < DGM_STEPS; g++) {
-      setGray(g);
-      progLabel = 'L' + g; renderProg();   // 進度＝正在量的那一階的實際灰階
+      var key;
+      if (DGM_MODE === 'prim') {
+        var pc = DGM_PRIMS[g];
+        key = pc[0];
+        setFill(pc[2][0], pc[2][1], pc[2][2], pc[1]);
+        progLabel = pc[1];
+      } else {
+        key = g;
+        setGray(g);
+        progLabel = 'L' + g;                 // 進度＝正在量的那一階的實際灰階
+      }
+      renderProg();
       await painted();
       if (aborted) return;
       await waitOrAbort(DGM_SETTLE_MS);
@@ -557,19 +592,19 @@
       var res = await cmd('MES,1', 20000);
       if (aborted) return;
       if (res === null || /^ER/.test(res)) {
-        if (++bad >= 3) { msg('連續三階量測失敗（' + (res || '逾時') + '），停在 Gray ' + g + '。', 'err'); break; }
-        g--; continue;                       // 同一階重試
+        if (++bad >= 3) { msg('連續三次量測失敗（' + (res || '逾時') + '），停在 ' + progLabel + '。', 'err'); break; }
+        g--; continue;                       // 同一步重試
       }
       bad = 0;
       // OK00,P1,狀態,x,y,Lv,…　→　x=索引3、y=索引4、Lv=索引5
       var p = res.split(',');
       var x = parseFloat(p[3]), y = parseFloat(p[4]), lv = parseFloat(p[5]);
       if (isNaN(x) || isNaN(y) || isNaN(lv)) {
-        if (++bad >= 3) { msg('回應解不出 x／y／Lv，停在 Gray ' + g + '。\n' + res, 'err'); break; }
+        if (++bad >= 3) { msg('回應解不出 x／y／Lv，停在 ' + progLabel + '。\n' + res, 'err'); break; }
         g--; continue;
       }
-      rows.push([g, x, y, lv]);
-      lastStep = rows.length; lastGray = g;
+      rows.push([key, x, y, lv]);
+      lastStep = rows.length; lastGray = progLabel;
     }
     if (aborted) return;
 
@@ -577,29 +612,51 @@
     setGray(128);
 
     // 5. 回傳給 DG 主視窗
-    if (rows.length < 2) { msg('只量到 ' + rows.length + ' 階，沒有回傳。', 'err'); return; }
+    // prim 要三筆都到齊才有意義（少一個端點就湊不出色彩矩陣）；gray 沿用原本的門檻
+    var need = (DGM_MODE === 'prim') ? DGM_PRIMS.length : 2;
+    if (rows.length < need) {
+      msg('只量到 ' + rows.length + ' 筆（需要 ' + need + ' 筆），沒有回傳。', 'err'); return;
+    }
     if (!window.opener || window.opener.closed) {
       msg('量到 ' + rows.length + ' 階，但找不到 DG 那個分頁（可能已經被關掉）。\n'
         + '請回到 DG 頁重新按「即時量測」再量一次。', 'err');
       return;
     }
     window.opener.postMessage(
-      { type: 'dg-measure-result', label: '即時量測 ' + new Date().toLocaleString(), rows: rows },
+      { type: 'dg-measure-result', mode: DGM_MODE, label: '即時量測',
+        at: new Date().toLocaleString(), rows: rows },
       DGM_TARGET_ORIGIN);
+    var span = (DGM_MODE === 'prim')
+      ? 'R／G／B 三個純色端點'
+      : ('L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0]);
+    var partNo = (DGM_MODE === 'prim') ? '第 3 部分' : '第 2 部分';
+    var what = (DGM_MODE === 'prim')
+      ? ('純色端點 ' + rows.length + ' 筆（' + span + '）')
+      : ('白灰階 ' + rows.length + ' 筆（' + span + '）＋ 目標白點');
+
     $('dgm-prog').innerHTML = '完成'
-      + '<small>L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0] + '　共 ' + rows.length + ' 筆'
+      + '<small>' + span + '　共 ' + rows.length + ' 筆'
       + '　總共跑了 ' + fmtDur(elapsedMs()) + '</small>';
     $('dgm-close').classList.add('dgm-primary');
     // v1.11.0：資料到哪去了要講白話，就寫在關閉鈕上面那一格
-    $('dgm-done').innerHTML = '✔ 已導入 DG 第 2 部分'
+    $('dgm-done').innerHTML = '✔ 已導入 DG ' + partNo
       + '<div style="font-weight:400;font-size:12px;margin-top:3px">'
-      + '白灰階 ' + rows.length + ' 筆（L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0] + '）'
-      + '＋ 目標白點，已經<b>自動填進</b>DG 分頁的第 2 部分，不用你手動搬。'
+      + what + '，已經<b>自動填進</b>DG 分頁的' + partNo + '，不用你手動搬。'
       + '<br>切回 DG 那個分頁就看得到。這一頁可以關掉了。</div>';
     $('dgm-done').classList.remove('dgm-hidden');
-    msg('已導入 DG 第 2 部分：' + rows.length + ' 筆（L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0]
-      + '）＋ 目標白點，已自動填進 DG 分頁，不用手動搬。\n'
+    msg('已導入 DG ' + partNo + '：' + what + '，已自動填進 DG 分頁，不用手動搬。\n'
       + '這一頁可以關掉了 —— 按下面的「關閉這個分頁」。', 'ok');
+  }
+
+  // v1.12.0：prim 模式只換標籤與文案，流程與閘門完全共用
+  if (DGM_MODE === 'prim') {
+    document.title = '即時量測（RGB 純色）— DG — TCON FAE專用工具箱';
+    $('dgm-gray-k').textContent = '目前純色';
+    setFill(128, 128, 128, '—');
+    $('dgm-msg').textContent = '按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）'
+      + '→ 依序顯示純紅、純綠、純藍三個滿版畫面，各量一次。';
+    $('dgm-hint').innerHTML = '把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），'
+      + '再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。';
   }
 
   // 起始狀態：開始鈕的開關、全螢幕狀態列、閘門說明都由這一支決定，不另寫一份
