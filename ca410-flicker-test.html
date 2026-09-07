@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CA-410 Flicker 一鍵測試 v0.9</title>
+<title>CA-410 Flicker 一鍵測試 v0.10</title>
 <style>
   :root{color-scheme:dark}
   body{margin:0;padding:16px;background:#0b1220;color:#e2e8f0;
@@ -38,7 +38,7 @@
 </style>
 </head>
 <body>
-<h1>CA-410 Flicker 一鍵測試<span class="ver">v0.9</span></h1>
+<h1>CA-410 Flicker 一鍵測試<span class="ver">v0.10</span></h1>
 <div class="sub">按下去就會自己跑完。中途只有一件事要你做：聽到提示時把遮光蓋打開、對準畫面。</div>
 
 <button class="big" id="go">開始測試</button>
@@ -59,7 +59,6 @@
 <div class="sub" style="margin:-6px 0 14px">FMA 取的是回應的<b>第 8 欄</b>。旁邊那個第 7 欄放著給你比對——如果原廠讀到 5% 時是第 7 欄接近，而不是 FMA 那格，跟我說，我把欄位換過來。</div>
 
 <canvas id="cv"></canvas>
-<canvas id="cw" style="height:240px"></canvas>
 
 <details>
   <summary>詳細紀錄（出問題時打開，把這裡拍給我）</summary>
@@ -79,7 +78,7 @@ function stage(now,det,cls){
 }
 
 let port=null,reader=null,keepReading=false,rxBuf='',pending=null;
-let samples=[],wave=[],t0=0;
+let samples=[],t0=0;
 let measuring=false;          // 量測迴圈是否在跑
 const WIN=10;                 // 趨勢圖固定顯示最近幾秒（像示波器的時基）
 const YMIN_SPAN=10;           // 縱軸至少到 10%，超過就跟著資料長
@@ -135,9 +134,9 @@ const HZ_GUESS=[60,75,90,100,120,144,165,180,200,240];
 $('go').onclick=async()=>{
   if(measuring){ measuring=false; $('go').textContent='停止中…'; $('go').disabled=true; return; }
   $('go').disabled=true;
-  samples=[]; wave=[]; logEl.innerHTML='';
+  samples=[]; logEl.innerHTML='';
   ['v-avg','v-max','v-lv','v-n'].forEach(i=>$(i).textContent='—');
-  drawFMA(); drawWave();
+  drawFMA();
   try{ await run(); }
   catch(e){ stage('出錯了','' + e.message,'err'); log('例外：'+e.message,'err'); }
   measuring=false;
@@ -236,11 +235,7 @@ async function run(){
   measuring=false;
   stats();
 
-  // 7. 波形（失敗不影響前面的結果）
-  stage('擷取波形中…','這一段是額外的，失敗也不影響上面的數字');
-  await grabWave();
-
-  // 8. 收工
+  // 7. 收工
   await cmd('COM,0',5000);
   keepReading=false;
   try{ if(reader) await reader.cancel(); }catch(e){}
@@ -250,24 +245,6 @@ async function run(){
   else stage('沒有取到資料','詳細紀錄裡有每一步的原始回應，把那裡拍給我。','err');
 }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-
-async function grabWave(){
-  const r=await cmd('WCS,0,0,10,1,1',10000);
-  if(r===null||/^ER/.test(r)){ log('WCS 被拒或逾時，跳過波形。','warn'); return; }
-  const m=await cmd('MES,1',25000);
-  if(m===null||/^ER/.test(m)){ log('波形前的量測失敗，跳過。','warn'); return; }
-  for(let b=0;b<80;b++){
-    const res=await cmd('WDR,1,'+b,15000);
-    if(res===null||/^ER/.test(res)) break;
-    const vals=res.split(',').slice(2).map(Number).filter(v=>!isNaN(v));
-    if(!vals.length) break;
-    let stop=false;
-    for(const v of vals){ if(v<=-999){stop=true;break;} wave.push(v); }
-    if(stop) break;
-  }
-  log('波形取得 '+wave.length+' 點','ok');
-  drawWave();
-}
 
 function stats(){
   if(!samples.length) return;
@@ -322,28 +299,16 @@ function drawFMA(){
   vis.forEach((s,i)=>{const px=L+(s.t-x0)/WIN*w,py=T+h-(s.fma-y0)/(y1-y0)*h;i?g.lineTo(px,py):g.moveTo(px,py);});
   g.stroke();
 }
-function drawWave(){
-  const cv=$('cw'),{g,W,H,L,R,T,B}=frame(cv),w=W-L-R,h=H-T-B;
-  if(!wave.length){g.strokeStyle='#1e2d4d';g.strokeRect(L,T,w,h);
-    g.fillStyle='#64748b';g.font='12px sans-serif';g.fillText('亮度波形（WDR）會顯示在這裡，取不到就是空的',L+10,T+22);return;}
-  let y0=Math.min(...wave),y1=Math.max(...wave);
-  const pad=Math.max((y1-y0)*0.15,1e-9);y0-=pad;y1+=pad;
-  axes(g,L,T,w,h,y0,y1,'點','亮度波形',f=>'#'+Math.round((wave.length-1)*f));
-  g.strokeStyle='#a78bfa';g.lineWidth=1.5;g.beginPath();
-  wave.forEach((v,i)=>{const px=L+i/(wave.length-1||1)*w,py=T+h-(v-y0)/(y1-y0)*h;i?g.lineTo(px,py):g.moveTo(px,py);});
-  g.stroke();
-}
-window.addEventListener('resize',()=>{drawFMA();drawWave();});
+window.addEventListener('resize',()=>{drawFMA();});
 
 $('btn-copy').onclick=()=>navigator.clipboard.writeText(logEl.innerText).then(()=>log('已複製','ok'));
 $('btn-csv').onclick=()=>{
   const rows=[['time_s','FMA_percent','Lv','col7']].concat(samples.map(s=>[s.t.toFixed(4),s.fma,s.lv,s.c7]));
-  if(wave.length){ rows.push([],['waveform_index','value']); wave.forEach((v,i)=>rows.push([i,v])); }
   const blob=new Blob([rows.map(r=>r.join(',')).join('\n')],{type:'text/csv'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='flicker_'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'')+'.csv';a.click();
 };
-drawFMA(); drawWave();
+drawFMA();
 </script>
 </body>
 </html>
