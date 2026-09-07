@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>即時量測 — DG — TCON FAE專用工具箱</title>
+<style>
+  /* ═══════════════════════════════════════════════════════════════════════
+     即時量測分頁（DG 第 2 部分的第二個輸入管道）
+
+     這一頁本身就是量測用的畫面：整個背景就是要量的那一階灰。
+     🔴 所以版面只有一條規則 —— 中央那一塊永遠是純灰階。
+        資訊與進度一律貼在四個角落，不准跨進中央的安全區。
+     ═══════════════════════════════════════════════════════════════════════ */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden;
+    /* 起始就給一階中灰，讓使用者對位時看到的是實際會量到的那種畫面 */
+    background: rgb(128, 128, 128);
+    font: 14px/1.55 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    color: #fff; -webkit-font-smoothing: antialiased;
+  }
+
+  /* 角落面板：max-width 綁在 30vw／30vh，中央 40% × 40% 一定空著 */
+  .dgm-corner {
+    position: fixed; z-index: 10;
+    max-width: 30vw; max-height: 30vh; overflow: hidden;
+    background: rgba(0, 0, 0, .72); color: #fff;
+    border: 1px solid rgba(255, 255, 255, .22); border-radius: 10px;
+    padding: 10px 13px;
+  }
+  #dgm-info { top: 14px; left: 14px; }
+  #dgm-right { top: 14px; right: 14px; text-align: right; }
+
+  .dgm-row { display: flex; gap: 10px; justify-content: space-between; white-space: nowrap; }
+  .dgm-k { color: #94a3b8; font-size: 12px; }
+  .dgm-v { font: 700 14px/1.55 ui-monospace, Menlo, Consolas, monospace; }
+  .dgm-src { color: #64748b; font-size: 10.5px; margin: 6px 0 2px; }
+  #dgm-msg { margin-top: 8px; font-size: 12px; color: #7dd3fc; white-space: pre-wrap;
+             max-width: 26vw; text-align: left; }
+  #dgm-msg.err { color: #f87171; }
+  #dgm-msg.ok  { color: #4ade80; }
+
+  #dgm-start {
+    background: #16a34a; color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 20px; font-size: 17px; font-weight: 700; cursor: pointer;
+  }
+  #dgm-start:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+  #dgm-prog { margin-top: 8px; font: 700 15px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  #dgm-prog small { display: block; font-weight: 400; font-size: 11.5px; color: #94a3b8; }
+
+  /* ── 中心紅圈：讓探頭對準螢幕正中心 ──────────────────────────────────
+     🔴 量測一開始就整個拿掉（display:none）。探頭正下方留著紅色圖案
+        會直接污染讀值 —— 這不是美觀問題，是量到的數字會錯。 */
+  #dgm-ring {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 240px; height: 240px; z-index: 5; pointer-events: none;
+  }
+  #dgm-ring.dgm-hidden { display: none; }
+  #dgm-ring i {
+    position: absolute; display: block; background: none;
+    border: 3px solid #ff0000; border-radius: 50%;
+  }
+  #dgm-ring .r1 { inset: 0; }
+  #dgm-ring .r2 { inset: 84px; border-width: 2px; }
+  #dgm-ring b, #dgm-ring u {
+    position: absolute; background: #ff0000; left: 50%; top: 50%;
+  }
+  #dgm-ring b { width: 2px; height: 240px; margin-left: -1px; margin-top: -120px; }
+  #dgm-ring u { width: 240px; height: 2px; margin-left: -120px; margin-top: -1px; }
+  #dgm-ring s {
+    position: absolute; left: 50%; top: 50%; width: 10px; height: 10px;
+    margin: -5px 0 0 -5px; background: #ff0000; border-radius: 50%;
+  }
+  #dgm-hint {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6;
+    background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: 10px; padding: 9px 14px; font-size: 12.5px; color: #cbd5e1;
+    max-width: 70vw; text-align: center;
+  }
+  #dgm-hint.dgm-hidden { display: none; }
+
+  #dgm-log {
+    position: fixed; left: 14px; bottom: 14px; z-index: 10;
+    max-width: 30vw; max-height: 26vh; overflow: auto;
+    background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: 10px; padding: 8px 11px;
+    font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #94a3b8;
+    white-space: pre-wrap; display: none;
+  }
+  #dgm-log .e { color: #f87171; } #dgm-log .o { color: #4ade80; }
+</style>
+</head>
+<body>
+
+<!-- 左上角：解析度、目前灰階值、Frame rate -->
+<div class="dgm-corner" id="dgm-info">
+  <div class="dgm-row"><span class="dgm-k">螢幕解析度</span><span class="dgm-v" id="dgm-res">—</span></div>
+  <div class="dgm-row"><span class="dgm-k">目前灰階值</span><span class="dgm-v" id="dgm-gray">128</span></div>
+  <div class="dgm-row"><span class="dgm-k">Frame rate（瀏覽器實測）</span><span class="dgm-v" id="dgm-fps">—</span></div>
+  <div class="dgm-row"><span class="dgm-k">畫面更新率（儀器 MVS）</span><span class="dgm-v" id="dgm-mvs">—</span></div>
+  <div class="dgm-src">上面那個 Frame rate 是本頁用 requestAnimationFrame 數出來的；
+    下面那個是量測儀自己偵測到的畫面更新率。兩個來源不同，不一定會一樣。</div>
+</div>
+
+<!-- 右上角：開始量測 ＋ 進度 -->
+<div class="dgm-corner" id="dgm-right">
+  <button id="dgm-start">開始量測</button>
+  <div id="dgm-prog"></div>
+  <div id="dgm-msg">按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）→ 逐階掃 0～255。</div>
+</div>
+
+<!-- 中心紅圈：對位用，量測一開始就消失 -->
+<div id="dgm-ring"><i class="r1"></i><i class="r2"></i><b></b><u></u><s></s></div>
+
+<div id="dgm-hint">把這個分頁拖到要量的那台螢幕上（建議按 F11 全螢幕），探頭對準中央紅圈的正中心。</div>
+
+<div id="dgm-log"></div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ═══ 回傳對象 ══════════════════════════════════════════════════════════
+     🔴 targetOrigin 不用 '*'。本頁與 dg.html 一定同源（同一個目錄下的兩個檔），
+        所以直接用自己的 origin 就是明確指定。file:// 開啟時 location.origin
+        會是字串 'null'（不是合法 URL、postMessage 會丟 SyntaxError），
+        這種情況退回 '/' —— 它的意思是「限本視窗的來源」，一樣不是萬用字元。 */
+  var DGM_TARGET_ORIGIN =
+    (location.origin && location.origin !== 'null') ? location.origin : '/';
+
+  /* ═══ 每一階切換之後等多久才量 ══════════════════════════════════════════
+     取 500 ms。理由：
+       · 面板本身的 Gray-to-Gray 響應在 60 Hz 下不過幾個 frame（< 50 ms），
+         真正慢的是 TCON 的 overdrive／FRC 收斂與背光迴路穩定，那是數十到
+         上百 ms 等級；
+       · 儀器這一端 FSC,3（AUTO）會依亮度自動延長積分時間，暗階時一次積分
+         就可能吃掉一百多 ms，取樣窗必須整段落在畫面已經穩定之後；
+       · 500 ms 在 60 Hz 下是 30 個 frame，上面兩項都涵蓋得住，
+         256 階總共也只多花約 2 分鐘。
+     原廠量測軟體同樣有這個等待時間設定；這裡不做成 UI 選項，
+     一鍵測試不該讓使用者去猜一個他無從判斷的數字。 */
+  var DGM_SETTLE_MS = 500;
+
+  var DGM_STEPS = 256;          // 0 ～ 255。DG 第 2 部分要的就是這個長度，不做成可選。
+
+  // ── 畫面 ────────────────────────────────────────────────────────────────
+  function setGray(g) {
+    document.body.style.background = 'rgb(' + g + ',' + g + ',' + g + ')';
+    $('dgm-gray').textContent = String(g);
+  }
+  function msg(t, cls) { $('dgm-msg').textContent = t; $('dgm-msg').className = cls || ''; }
+  function log(t, cls) {
+    var el = $('dgm-log'); el.style.display = 'block';
+    var d = document.createElement('div'); if (cls) d.className = cls;
+    d.textContent = '[' + new Date().toTimeString().slice(0, 8) + '] ' + t;
+    el.appendChild(d); el.scrollTop = el.scrollHeight;
+  }
+  function showRes() {
+    $('dgm-res').textContent = screen.width + ' × ' + screen.height
+      + (window.devicePixelRatio && window.devicePixelRatio !== 1
+        ? ' @' + window.devicePixelRatio + 'x' : '');
+  }
+  showRes();
+  window.addEventListener('resize', showRes);
+
+  // Frame rate：用 requestAnimationFrame 實測，不寫死
+  var fpsN = 0, fpsT = performance.now();
+  (function tick(now) {
+    fpsN++;
+    if (now - fpsT >= 1000) {
+      $('dgm-fps').textContent = (fpsN * 1000 / (now - fpsT)).toFixed(1) + ' Hz';
+      fpsN = 0; fpsT = now;
+    }
+    requestAnimationFrame(tick);
+  })(performance.now());
+
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  // 等畫面真的被畫出去：連續兩個 rAF 才確定上一次的填色已經上到畫面
+  function painted() {
+    return new Promise(function (r) {
+      requestAnimationFrame(function () { requestAnimationFrame(function () { r(); }); });
+    });
+  }
+
+  // ── 序列埠 ──────────────────────────────────────────────────────────────
+  var port = null, reader = null, keepReading = false, rxBuf = '', pending = null;
+
+  async function cmd(text, waitMs) {
+    if (!port || !port.writable) return null;
+    var wait = new Promise(function (res) {
+      pending = { resolve: res, timer: setTimeout(function () { pending = null; res(null); }, waitMs || 5000) };
+    });
+    try {
+      var w = port.writable.getWriter();
+      // 🔴 結尾只能是 CR（0x0D）。多送一個 LF 會回 ER10。
+      await w.write(new TextEncoder().encode(text + '\r'));
+      w.releaseLock();
+    } catch (e) { log('送出失敗 ' + text + '：' + e.message, 'e'); pending = null; return null; }
+    var r = await wait;
+    log(text + '  →  ' + (r === null ? '（逾時）' : r), r === null ? 'e' : (/^ER/.test(r) ? 'e' : ''));
+    return r;
+  }
+
+  // 回應是分段到達的，累積到 CR 才算一筆
+  async function readLoop() {
+    try {
+      while (port.readable && keepReading) {
+        reader = port.readable.getReader();
+        try {
+          while (true) {
+            var rd = await reader.read();
+            if (rd.done) break;
+            if (!rd.value || !rd.value.length) continue;
+            rxBuf += new TextDecoder().decode(rd.value);
+            var i;
+            while ((i = rxBuf.indexOf('\r')) >= 0) {
+              var line = rxBuf.slice(0, i); rxBuf = rxBuf.slice(i + 1);
+              if (pending) { var p = pending; pending = null; clearTimeout(p.timer); p.resolve(line); }
+            }
+          }
+        } finally { reader.releaseLock(); }
+      }
+    } catch (e) { if (keepReading) log('讀取中斷：' + e.message, 'e'); }
+  }
+
+  var INIT = [
+    ['COM,1', '建立通訊'],
+    ['SCS,3', '同步 UNIVERSAL'],
+    ['FSC,3', '量測速度 AUTO'],
+    ['OPR,1', '選探頭 P1'],
+    ['MMS,0', '色彩＋閃爍'],
+    ['FMS,0', 'FMA 法'],
+    ['MDS,0', 'x, y, Lv 模式'],
+    ['MCH,0', '校正通道 0'],
+    ['LUS,1', '單位 cd/m²']
+  ];
+  var HZ_GUESS = [60, 75, 90, 100, 120, 144, 165, 180, 200, 240];
+
+  async function closePort() {
+    try { await cmd('COM,0', 3000); } catch (e) {}
+    keepReading = false;
+    try { if (reader) await reader.cancel(); } catch (e) {}
+    try { await port.close(); } catch (e) {}
+  }
+
+  // ── 量測 ────────────────────────────────────────────────────────────────
+  var running = false;
+
+  $('dgm-start').addEventListener('click', async function () {
+    if (running) return;
+    running = true;
+    $('dgm-start').disabled = true;
+
+    // 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
+    $('dgm-ring').classList.add('dgm-hidden');
+    $('dgm-hint').classList.add('dgm-hidden');
+
+    try { await run(); }
+    catch (e) { msg('出錯了：' + e.message, 'err'); log('例外：' + e.message, 'e'); }
+    running = false;
+    $('dgm-start').disabled = false;
+    $('dgm-start').textContent = '重新量測';
+  });
+
+  async function run() {
+    if (!('serial' in navigator)) {
+      msg('這個瀏覽器不支援 Web Serial，請改用 Chrome 或 Edge。', 'err'); return;
+    }
+
+    // 1. 取埠：先看已授權的，沒有才跳選單
+    msg('連線中…');
+    var ports = await navigator.serial.getPorts();
+    if (ports.length) port = ports[0];
+    else {
+      msg('請在清單裡選量測儀對應的序列埠。');
+      try { port = await navigator.serial.requestPort(); }
+      catch (e) { msg('沒有選埠（取消了，或清單裡沒有）。確認原廠軟體已關閉、線有插好。', 'err'); return; }
+    }
+    try {
+      if (!port.readable) await port.open({ baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' });
+    } catch (e) {
+      if (!/already open/i.test(e.message)) {
+        msg('埠打不開：' + e.message + '\n多半是原廠軟體還開著佔住它。', 'err'); return;
+      }
+    }
+    keepReading = true; rxBuf = ''; readLoop();
+    log('埠已開啟 38400', 'o');
+
+    // 2. 初始化
+    for (var i = 0; i < INIT.length; i++) {
+      msg('設定中… ' + (i + 1) + '/' + INIT.length + '：' + INIT[i][1]);
+      var r = await cmd(INIT[i][0], 6000);
+      if (r === null) { msg('沒有回應，卡在 ' + INIT[i][0] + '。', 'err'); await closePort(); return; }
+      if (/^ER/.test(r) && INIT[i][0] === 'SCS,3') {
+        log('UNIVERSAL 被拒，退回 INTERNAL 60Hz', 'e');
+        r = await cmd('SCS,4,60.00', 6000);
+      }
+      if (/^ER/.test(r || '')) { msg('機器回錯誤 ' + r + '（' + INIT[i][0] + '）', 'err'); await closePort(); return; }
+    }
+
+    // 2.5 順便向儀器問畫面更新率（跟左上角那個 rAF 實測值分開標示）
+    msg('偵測畫面更新率…');
+    for (var k = 0; k < HZ_GUESS.length; k++) {
+      var mv = await cmd('MVS,' + HZ_GUESS[k], 8000);
+      if (mv && /^OK/.test(mv)) {
+        var hz = parseFloat(mv.split(',')[1]);
+        if (!isNaN(hz)) { $('dgm-mvs').textContent = hz.toFixed(2) + ' Hz'; break; }
+      }
+    }
+    if ($('dgm-mvs').textContent === '—') $('dgm-mvs').textContent = '測不到';
+
+    // 3. 零校正
+    msg('零校正中 —— 請蓋上遮光蓋，約十秒別動。');
+    var z = await cmd('ZRC', 40000);
+    if (z === null || /^ER/.test(z)) {
+      msg('零校正失敗：' + (z || '逾時') + '\n確認遮光蓋有蓋好，再按一次。', 'err');
+      await closePort(); return;
+    }
+    for (var s = 5; s > 0; s--) {
+      msg('請打開遮光蓋、把探頭對準畫面中心。\n' + s + ' 秒後開始逐階掃描。');
+      await sleep(1000);
+    }
+
+    // 4. 逐階量測
+    var rows = [], bad = 0, t0 = performance.now();
+    msg('量測中，請不要動探頭。');
+    for (var g = 0; g < DGM_STEPS; g++) {
+      setGray(g);
+      await painted();
+      await sleep(DGM_SETTLE_MS);
+
+      var res = await cmd('MES,1', 20000);
+      if (res === null || /^ER/.test(res)) {
+        if (++bad >= 3) { msg('連續三階量測失敗（' + (res || '逾時') + '），停在 Gray ' + g + '。', 'err'); break; }
+        g--; continue;                       // 同一階重試
+      }
+      bad = 0;
+      // OK00,P1,狀態,x,y,Lv,…　→　x=索引3、y=索引4、Lv=索引5
+      var p = res.split(',');
+      var x = parseFloat(p[3]), y = parseFloat(p[4]), lv = parseFloat(p[5]);
+      if (isNaN(x) || isNaN(y) || isNaN(lv)) {
+        if (++bad >= 3) { msg('回應解不出 x／y／Lv，停在 Gray ' + g + '。\n' + res, 'err'); break; }
+        g--; continue;
+      }
+      rows.push([g, x, y, lv]);
+
+      var done = g + 1, per = (performance.now() - t0) / done;
+      var left = Math.round(per * (DGM_STEPS - done) / 1000);
+      $('dgm-prog').innerHTML = '第 ' + done + ' / ' + DGM_STEPS + ' 階'
+        + '<small>剩餘約 ' + Math.floor(left / 60) + ' 分 ' + (left % 60) + ' 秒</small>';
+    }
+
+    await closePort();
+    setGray(128);
+
+    // 5. 回傳給 DG 主視窗
+    if (rows.length < 2) { msg('只量到 ' + rows.length + ' 階，沒有回傳。', 'err'); return; }
+    if (!window.opener || window.opener.closed) {
+      msg('量到 ' + rows.length + ' 階，但找不到 DG 那個分頁（可能已經被關掉）。\n'
+        + '請回到 DG 頁重新按「即時量測」再量一次。', 'err');
+      return;
+    }
+    window.opener.postMessage(
+      { type: 'dg-measure-result', label: '即時量測 ' + new Date().toLocaleString(), rows: rows },
+      DGM_TARGET_ORIGIN);
+    $('dgm-prog').innerHTML = '完成 ' + rows.length + ' / ' + DGM_STEPS + ' 階';
+    msg('已經把 ' + rows.length + ' 階量測結果送回 DG 分頁的第 2 部分（含目標白點）。\n'
+      + '這一頁可以關掉了。', 'ok');
+  }
+})();
+</script>
+</body>
+</html>

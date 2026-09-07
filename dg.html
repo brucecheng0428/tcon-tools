@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
-<link rel="stylesheet" href="common/common.css?v=20260907dg190">
+<link rel="stylesheet" href="common/common.css?v=20260907dg1100">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -497,6 +497,9 @@
   .dg-part-import .dg-btn { flex: 1 1 160px; }
   .dg-btn.dg-btn-imp { background: #0e7490; border-color: #0e7490; color: #fff; }
   .dg-btn.dg-btn-imp:active { background: #155e75; }
+  /* v1.10.0：第 2 部分的第二個入口 —— 不是匯入檔案，所以配色與匯入鈕分開 */
+  .dg-btn.dg-btn-live { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+  .dg-btn.dg-btn-live:active { background: #6d28d9; }
   .dg-imp-hint {
     margin-top: 6px; font-size: 10.5px; line-height: 1.55; color: #64748b; text-transform: none;
   }
@@ -818,8 +821,10 @@
           <input type="text" id="dg-in-white" placeholder="x y Lv（可再加第 4 欄 CCT，例：0.302566 0.330295 324.815 7060.31）">
           <div class="dg-btnrow dg-part-import">
             <button class="dg-btn dg-btn-imp" id="dg-btn-imp-gray">② 匯入白灰階量測檔（.xlsx）</button>
+            <button class="dg-btn dg-btn-live" id="dg-btn-live-gray">即時量測</button>
           </div>
-          <div class="dg-imp-hint">量測工具存出來的 <span class="dg-fname">RaydiumGamma_…</span>；匯入當下下方的光學確認圖表就會畫出這條曲線。</div>
+          <div class="dg-imp-hint">量測工具存出來的 <span class="dg-fname">RaydiumGamma_…</span>；匯入當下下方的光學確認圖表就會畫出這條曲線。
+            <br>「即時量測」會另開一個分頁，把它拖到要量的那台螢幕上，對準中心的紅圈放探頭，按右上角開始；量完資料會自動回填到這裡。</div>
           <div class="dg-part-src" id="dg-src-gray"></div>
         </div>
       </div>
@@ -1149,8 +1154,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260907wfg4441"></script>
-<script src="common/i18n.js?v=20260907wfg4441"></script>
+<script src="common/version.js?v=20260907dg1100"></script>
+<script src="common/i18n.js?v=20260907dg1100"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -4772,6 +4777,12 @@
     if (s.kind === 'sample') {
       return { cls: 'ready', text: '來自內建範例' + ed, src: '來源：內建範例資料（' + dgXe(s.name || '') + '）。' };
     }
+    // v1.10.0：即時量測分頁回傳的資料，沒有經過任何檔案
+    if (s.kind === 'live') {
+      return { cls: 'ready', text: '即時量測' + ed,
+        src: '來源：<b>即時量測</b>' + (s.name ? '（' + dgXe(s.name) + '）' : '')
+          + ' —— 由「即時量測」分頁逐階量到後直接帶回來的，沒有中間的檔案。' };
+    }
     return { cls: 'manual', text: '手動輸入', src: '來源：手動輸入／貼上。' };
   }
 
@@ -4844,8 +4855,10 @@
     dgRefreshReady();
   }
 
-  // 第 2 部分：白灰階 ＋ 目標白點。v1.8.0：匯入當下就把這條曲線畫到光學確認圖表上。
-  function dgApplyGray(opt, fileName) {
+  /* 第 2 部分：白灰階 ＋ 目標白點。v1.8.0：匯入當下就把這條曲線畫到光學確認圖表上。
+     v1.10.0：第三個參數是來源種類（預設 'file'）。即時量測走同一條路徑填資料，
+     只有徽章與來源那一行不同 —— 資料怎麼進第 2 部分只有這一份實作。 */
+  function dgApplyGray(opt, fileName, srcKind) {
     $('dg-in-gray').value = opt.rows.map(function (r) {
       var s = r.g + ' ' + r.x + ' ' + r.y + ' ' + r.Y;
       if (dgIsNum(r.T)) s += ' ' + r.T + (dgIsNum(r.uv) ? ' ' + r.uv : '');
@@ -4854,13 +4867,45 @@
 
     var w = opt.white;
     $('dg-in-white').value = w[0] + ' ' + w[1] + ' ' + w[2] + (dgIsNum(w[3]) ? ' ' + w[3] : '');
-    DG_SRC.gray = { kind: 'file', name: fileName || '' };
+    DG_SRC.gray = { kind: srcKind || 'file', name: fileName || '' };
 
     // 量測長度反過來決定 Source Driver 的合理值：1024 階只可能是 10 bit 驅動
     if (!dgSdUserSet && opt.rows.length >= 1024) $('dg-sd').value = '10';
     dgRefreshReady();
     // 還沒算過也要看得到曲線 —— 光學確認本來就該在按計算之前先看一眼
     dgDrawCharts(opt.rows.map(function (r) { return [r.x, r.y, r.Y]; }));
+  }
+
+  /* ─── v1.10.0：即時量測分頁回傳的逐階資料 ──────────────────────────────
+     量測頁只送它真的量到的東西（Gray、x、y、Y），衍生欄一律在這一頁算：
+       · 色溫 T ＝ dgCCT(x, y)，跟匯入檔缺第 5 欄時走的是同一條路
+       · duv 沒有可靠來源 —— 儀器在 MDS,0（x,y,Lv）下不回傳，所以留空，不填假值
+     目標白點取最高階那一筆的 x、y、Lv（三欄），第 4 欄 CCT 不自己補：
+     dgGatherData 缺第 4 欄時本來就會用 dgCCT 算，多填一欄不會多出任何資訊。 */
+  function dgApplyLiveRows(rows, label) {
+    var rs = rows.filter(function (r) {
+      return r && r.length >= 4 && [0, 1, 2, 3].every(function (i) { return isFinite(r[i]); });
+    }).map(function (r) {
+      return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3], T: dgCCT(+r[1], +r[2]) };
+    }).sort(function (a, b) { return a.g - b.g; });
+
+    if (rs.length < 2) {
+      dgSetStatus('dg-status', '即時量測分頁送回來的資料不足（只有 ' + rs.length + ' 筆有效），沒有帶入。', 'err');
+      return;
+    }
+    var top = rs[rs.length - 1];
+    dgApplyGray({ rows: rs, white: [top.x, top.y, top.Y] }, label || '', 'live');
+
+    var miss = dgMissingParts();
+    dgSetStatus('dg-status', '已從「即時量測」分頁帶入第 2 部分：白灰階 ' + rs.length + ' 階（Gray '
+      + rs[0].g + ' ～ ' + top.g + '）＋ 目標白點 x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6)
+      + ' Lv=' + top.Y.toFixed(3) + '。\n'
+      + '色溫 T 由本頁的 dgCCT(x, y) 算出；duv 儀器沒有回傳，留空。\n'
+      + '光學確認圖表已經畫出這條曲線。量測分頁可以關掉了。\n'
+      + (miss.length
+        ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
+        : '三份都齊了，下一步：按「計算」。'),
+      miss.length ? '' : 'ok');
   }
 
   var DG_IMP_WANT = null;   // 使用者按的是哪一顆匯入鈕；只用來回報，不影響資料怎麼分流
@@ -5227,6 +5272,31 @@
     $('dg-file-lut').addEventListener('change', function (e) {
       dgImportFile(e.target.files && e.target.files[0]);
       e.target.value = '';
+    });
+
+    /* ─── v1.10.0：即時量測 ────────────────────────────────────────────────
+       開一個「新分頁」（不是彈出小視窗）—— 使用者要能把它拖到外接螢幕上，
+       小視窗在多數瀏覽器裡拖不出主視窗所在的螢幕。 */
+    var dgLiveWin = null;
+    var b = $('dg-btn-live-gray');
+    if (b) b.addEventListener('click', function () {
+      dgLiveWin = window.open('dg-measure.html', '_blank');
+      if (!dgLiveWin) {
+        dgSetStatus('dg-status', '瀏覽器把新分頁擋掉了。請允許本站開新分頁後再按一次「即時量測」。', 'err');
+        return;
+      }
+      dgSetStatus('dg-status', '已開啟「即時量測」分頁。\n'
+        + '把那個分頁拖到要量的那台螢幕、按 F11 全螢幕，探頭對準中心的紅圈，再按右上角的「開始量測」。\n'
+        + '量完資料會自動回到這一頁的第 2 部分，不用手動搬。', '');
+    });
+
+    /* 量測頁把結果送回來。🔴 只收同源、且格式對得上的訊息 —— origin 是明確比對，
+       量測頁那一端送出時也不用 '*'。 */
+    window.addEventListener('message', function (e) {
+      if (e.origin !== window.location.origin) return;
+      var d = e.data;
+      if (!d || d.type !== 'dg-measure-result' || !d.rows || !d.rows.length) return;
+      dgApplyLiveRows(d.rows, d.label);
     });
 
     // v1.8.0：說明浮動視窗。內容直接取自頁面上那些 display:none 的區塊，不維護第二份文字。
