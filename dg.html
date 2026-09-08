@@ -1769,7 +1769,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1210"></script>
+<script src="common/version.js?v=20260908dg1211"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3249,7 +3249,13 @@
         lum[k][row.g] = row.Y;
         /* v1.19.0：從多組比較檔載回來的組帶的是色溫本身（檔案格式裡沒有色度 x／y），
            這裡優先用它，再匯出一次才會與上一次逐值相同。一般組沒有 T，照舊用 dgCCT()。 */
-        cct[k][row.g] = dgIsNum(row.T) ? row.T : dgCCT(row.x, row.y);
+        /* 🔴 v1.21.1：x／y 不是數字就**不寫這一格**（留空，與參考檔「整欄沒資料」的長相一致）。
+           原本無條件退回 dgCCT(x, y)，而多組比較檔的 x／y 一路是 null，JS 把 null 當 0，
+           dgCCT(0, 0) 是定值 2021.28K —— 匯出的檔案會被寫進 256 個 2021，再匯入回來就
+           變成「真的有量到色溫」，錯誤會一路被洗白。 */
+        var Tv = dgIsNum(row.T) ? row.T
+          : ((dgIsNum(row.x) && dgIsNum(row.y)) ? dgCCT(row.x, row.y) : null);
+        if (Tv !== null) cct[k][row.g] = Tv;
       });
     }
 
@@ -4753,9 +4759,13 @@
     var room = DG_SLOT_MAX - before;
     var take = room > 0 ? gs.slice(0, room) : [];
     var skipped = gs.slice(take.length);
-    var noCct = 0;
+    /* v1.21.1：把「缺色溫」分成兩種講 —— 部分列缺（圖三那幾段斷開）與**整組都沒有**
+       （圖三根本畫不出這一組）。原本兩種都只寫「那些列的圖三會斷開」，而實際上
+       整組沒有色溫時畫出來的是一條 2021K 的假水平線，說明與畫面兩邊都不對。 */
+    var noCct = 0, allNo = [];
     take.forEach(function (g, k) {
       if (g.noCct) noCct++;
+      if (g.noCct >= g.rows.length) allNo.push(dgSlotNormalizeText(g.name) || ('檔內第 ' + (k + 1) + ' 組'));
       DG_SLOTS.push({
         name: '', file: g.file || fileName,
         rows: g.rows, hasPrim: false, show: true,
@@ -4776,7 +4786,12 @@
         : ('已經有 ' + before + ' 組（上限 ' + DG_SLOT_MAX + '），這個檔裡的 '
            + gs.length + ' 組一組都放不下。'))
       + note
-      + (noCct ? '\n（其中 ' + noCct + ' 組有缺色溫的列，那些列的圖三會斷開。）' : '')
+      + (allNo.length
+        ? ('\n⚠ 這個檔的色溫欄是空的：' + allNo.join('、') + ' 整組沒有色溫資料，'
+           + '圖三畫不出' + (allNo.length > 1 ? '這幾組' : '這一組') + '（圖一、圖二照畫）。')
+        : '')
+      + (noCct > allNo.length
+        ? ('\n（另有 ' + (noCct - allNo.length) + ' 組只有部分列缺色溫，那些列的圖三會斷開。）') : '')
       + (skipped.length
         ? '\n\u26a0 檔裡還有 ' + skipped.length + ' 組超過上限沒有匯入（詳見跳出的視窗）。' : '')
       + (take.length
@@ -4964,8 +4979,14 @@
       rel.push(r);
       gam.push(i === 0 ? null : (i === M - 1 ? null : Math.log(r) / Math.log(xs[i] / rows[M - 1].g)));
       xx.push(rows[i].x); yy.push(rows[i].y);
-      // v1.19.0：與 dgOptSheetXml() 同一條退路 —— 有現成的色溫就用它，沒有才由 x／y 算。
-      cct.push(dgIsNum(rows[i].T) ? rows[i].T : dgCCT(rows[i].x, rows[i].y));
+      /* v1.19.0：與 dgOptSheetXml() 同一條退路 —— 有現成的色溫就用它，沒有才由 x／y 算。
+         🔴 v1.21.1：**x／y 要是數字才算得下去**。多組比較檔的格式裡沒有色度欄（匯入時
+            存的 noXY 旗標講的就是這件事），x、y 一路是 null；JS 的 null 在算術裡當 0，
+            dgCCT(0, 0) 恆等於 2021.28K —— 「這一階沒有色溫」因此被畫成一條看起來很像
+            量測結果的水平線（Bruce 2026-09-08 回報：色溫 L0～L255 全部固定 2021）。
+            缺值就推 null，圖三那一段斷開，不拿一個算得出來的數字頂替。 */
+      cct.push(dgIsNum(rows[i].T) ? rows[i].T
+        : ((dgIsNum(rows[i].x) && dgIsNum(rows[i].y)) ? dgCCT(rows[i].x, rows[i].y) : null));
     }
     return { M: M, xs: xs, rel: rel, gam: gam, cct: cct, xx: xx, yy: yy, lv: lv };
   }
@@ -5008,6 +5029,10 @@
      不能列出一條沒有畫的線。所以 dgRenderCharts() 改成**先畫、再同步文字**。 */
   var DG_CCT_REFS_ON = false;
   var DG_CCT_DATA_RANGE = null;
+  /* v1.21.1：這一次畫的組裡，**一個有效色溫值都沒有**的是哪幾組（畫在哪一頁）。
+     由 dgDrawTriple() 寫、dgCctModeSync() 讀 —— 圖三上什麼都沒畫時，畫面自己說不出
+     「是資料沒有」還是「工具壞了」。 */
+  var DG_CCT_MISS = { which: 'cmp', names: [] };
   /* v1.21.0：圖二同一套 —— 這一次有沒有畫 γ 參考線、量測 gamma 的主體範圍、畫在哪一頁。 */
   var DG_GAM_REFS_ON = true;
   var DG_GAM_BULK = null;
@@ -5063,27 +5088,41 @@
         var hasData = (which === 'main')
           ? !!(dgLastGrayxyY && dgLastGrayxyY.length)
           : dgVisibleSlots().length > 0;
+        /* v1.21.1：「這幾組根本沒有色溫資料」與下面那兩種說明是**兩件不同的事**，
+           兩件都可能同時成立，所以各自組字串、最後接起來一起顯示。
+           missHtml 是空字串時，底下這段的行為與 v1.21.0 逐字相同。 */
+        var missHtml = '';
+        if (hasData && DG_CCT_MISS.which === which && DG_CCT_MISS.names.length) {
+          var mn = DG_CCT_MISS.names;
+          missHtml = '<b>圖三畫不出' + (mn.length > 1 ? ('這 ' + mn.length + ' 組') : '這一組') + '：'
+            + dgXe(mn.join('、')) + '</b> —— 它們的來源<b>沒有色溫資料</b>'
+            + '（多組比較 xlsx 的色溫欄整欄是空的；這個檔案格式裡也沒有色度 x／y 可以回推）。'
+            + '<b>這不是算錯，是沒有東西可以算</b> —— 圖一、圖二照畫。'
+            + '要看色溫曲線，請匯入色溫欄有填值的光學確認檔。';
+        }
+        var mainHtml = '';
         if (base.ok && !DG_CCT_REFS_ON && hasData && DG_CCT_DATA_RANGE) {
           /* v1.20.0：目標白點算出來的基準線離這份量測太遠（兩段完全沒有交集）。
              畫進去只會把量測曲線壓成貼著軸線的一條 —— 那正是「圖三看不到色溫曲線」的成因，
              所以這次不畫基準線，改在這裡講清楚為什麼。 */
-          note.style.display = '';
-          note.innerHTML = '<b>圖三這一次沒有畫基準線</b>（量測曲線照畫）。'
+          mainHtml = '<b>圖三這一次沒有畫基準線</b>（量測曲線照畫）。'
             + '目標白點的色溫是 <b>' + dgCctLbl(base.center) + 'K</b>，而畫面上這幾組量測到的色溫是 <b>'
             + dgCctLbl(DG_CCT_DATA_RANGE.lo) + ' ～ ' + dgCctLbl(DG_CCT_DATA_RANGE.hi)
             + 'K</b>，兩段完全沒有交集。把基準線畫進去會把縱軸撐開好幾倍，'
             + '<b>量測曲線會被壓成貼著軸線的一條、看起來就像沒有曲線</b>，所以這次以量測資料為準。<br>'
             + '要一起看規格窗口：確認「Digital Gamma 校正」分頁第 2 部分的<b>目標白點</b>是不是這份量測的白點，'
             + '或把上面改選「固定 6500K」。';
-        } else if (base.ok || !hasData) { note.style.display = 'none'; note.innerHTML = ''; }
+        } else if (base.ok || !hasData) { mainHtml = ''; }
         else {
-          note.style.display = '';
-          note.innerHTML = '<b>圖三目前沒有基準線，也沒有用任何預設值頂替。</b>'
+          mainHtml = '<b>圖三目前沒有基準線，也沒有用任何預設值頂替。</b>'
             + '「跟著目標白點（動態）」要拿第 2 部分帶入的<b>目標白點</b>當中心，而現在取不到 ——'
             + '目標白點的第 4 欄（CCT）與 x、y 都沒有可用的數值。<br>'
             + '補法二選一：到「Digital Gamma 校正」分頁按第 2 部分的「② 設定白灰階亮度」帶入一份量測（或自己填目標白點），'
             + '或把上面改選「固定 6500K」。';
         }
+        var html = missHtml + ((missHtml && mainHtml) ? '<br><br>' : '') + mainHtml;
+        note.style.display = html ? '' : 'none';
+        note.innerHTML = html;
       }
       var leg = $(which === 'main' ? 'dg-legend-3-ref' : 'dg-legend-cmp-3-ref');
       if (leg) {
@@ -5273,8 +5312,16 @@
     /* v1.21.0：改走共用的 dgAxisFit()。參數選得與 v1.20.0 **逐項等價**：
        robust=false（完整 min／max）、minPad=100、ref＝基準線區間（沒有基準就傳 null）、
        退路＝沒有任何有限色溫值時的 4000～9000（基準線有效就一併涵蓋，同 v1.20.0）。 */
-    var cctAll = [];
-    curves.forEach(function (o) { cctAll = cctAll.concat(o.curve.cct); });
+    /* v1.21.1：順手記下「整條色溫都算不出來」的組 —— 它們在圖三上什麼都不會畫，
+       畫面上與「工具壞了」分不出來，所以要在圖三上面那段說明講清楚是資料沒有。 */
+    var cctAll = [], cctMiss = [];
+    curves.forEach(function (o) {
+      cctAll = cctAll.concat(o.curve.cct);
+      var any = false;
+      for (var ci = 0; ci < o.curve.cct.length; ci++) { if (dgIsNum(o.curve.cct[ci])) { any = true; break; } }
+      if (!any) cctMiss.push(o.name);
+    });
+    DG_CCT_MISS = { which: (hostIds[0] === 'dg-chart1') ? 'main' : 'cmp', names: cctMiss };
     var a3 = dgAxisFit(cctAll,
       base.ok ? { lo: base.lo, hi: base.hi } : null,
       base.ok ? { lo: Math.min(4000, base.lo), hi: Math.max(9000, base.hi) } : { lo: 4000, hi: 9000 },
@@ -5326,7 +5373,9 @@
     for (var k = 0; k < mainC.M; k++) {
       h += '<tr><td>' + k + '</td><td>' + mainC.lv[k].toFixed(4) + '</td><td>' + (mainC.rel[k] * 100).toFixed(4) + '%</td><td>'
         + (mainC.gam[k] === null || !isFinite(mainC.gam[k]) ? '—' : mainC.gam[k].toFixed(4)) + '</td><td>' + mainC.xx[k].toFixed(5) + '</td><td>'
-        + mainC.yy[k].toFixed(5) + '</td><td>' + Math.round(mainC.cct[k]) + '</td></tr>';
+        + mainC.yy[k].toFixed(5) + '</td><td>'
+        // v1.21.1：色溫算不出來時這一格與 Gamma 那一格同樣寫「—」，不寫 Math.round(null) ＝ 0
+        + (dgIsNum(mainC.cct[k]) ? Math.round(mainC.cct[k]) : '—') + '</td></tr>';
     }
     tb.innerHTML = h;
   }
