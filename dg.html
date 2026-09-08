@@ -1124,10 +1124,10 @@
                   v1.6.0 的互斥邏輯（dgPrimCellRO／dgPrimCellWrite）一個字都沒動。 -->
           <!-- v1.17.0：只調 Gamma 模式下這一部分本次用不到。預設 display:none，
                所以「沒有資料時只看得到編號＋名稱＋⚠＋設定鈕＋清空鈕」那條規則不受影響。 -->
-          <div class="dg-note dg-part-na-note" id="dg-prim-na" style="display:none">
-            本次<b>不需要</b>這一部分 —— 第 1 部分選了「<b>只調 Gamma、不調色溫</b>」，
-            三通道權重相同，用不到純色端點。要改回去就按第 1 部分的「① 設定 RGB 的 LUT」。
-          </div>
+          <!-- v1.22.0：文字改由 dgPrimNaSync() 依**進到只調 Gamma 的原因**產生。
+               原本寫死「第 1 部分選了…」，但 v1.22.0 起還有第二種原因（第 2 部分的資料
+               沒有色度 x／y ⇒ 強制），那時候使用者根本沒有選過，寫死的那句是假的。 -->
+          <div class="dg-note dg-part-na-note" id="dg-prim-na" style="display:none"></div>
           <div id="dg-prim-tablewrap" style="display:none">
             <div class="dg-prim-modenote" id="dg-prim-modenote"></div>
             <textarea id="dg-in-prim" class="dg-ta" spellcheck="false" style="display:none"></textarea>
@@ -1784,7 +1784,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1220"></script>
+<script src="common/version.js?v=20260908dg1221"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -6694,6 +6694,28 @@
     return (DG_TONE === 'gamma' && dgLutTriEqual()) ? 'gamma' : 'cct';
   }
 
+  /* 為什麼會在只調 Gamma 模式：'noxy' ＝ 資料沒有色度、被強制；'chosen' ＝ 使用者選的。
+     🔴 畫面上的說明必須跟真正的原因一致 —— 被強制時寫「第 1 部分選了只調 Gamma」是假的
+        （使用者沒有選過），寫「三通道權重相同」也是假的（那時 LUT 可能三通道不同）。 */
+  function dgToneReason() {
+    if (dgToneMode() !== 'gamma') return null;
+    return dgGrayHasXY() ? 'chosen' : 'noxy';
+  }
+
+  function dgPrimNaSync() {
+    var e = $('dg-prim-na');
+    if (!e) return;
+    var why = dgToneReason();
+    if (!why) { e.innerHTML = ''; return; }
+    e.innerHTML = (why === 'noxy')
+      ? ('本次<b>不需要</b>這一部分 —— 第 2 部分那份資料<b>沒有色度 x／y</b>'
+        + '（「光學確認」格式裡沒有這一欄），只能<b>強制走「只調 Gamma、不調色溫」</b>，'
+        + '而那個模式只用亮度 Y 反查、用不到純色端點。'
+        + '<br>要連色溫一起調，第 2 部分請改用有 x／y 的白灰階量測檔或「即時量測」。')
+      : ('本次<b>不需要</b>這一部分 —— 第 1 部分選了「<b>只調 Gamma、不調色溫</b>」，'
+        + '三通道權重相同，用不到純色端點。要改回去就按第 1 部分的「① 設定 RGB 的 LUT」。');
+  }
+
   /* 各模式需要哪幾個部分。只調 Gamma 不需要第 3 部分（純色端點只用在 XYZ→RGB 分解，
      而這個模式根本不做分解）。🔴 這是**閘門本身**，不是外觀 ——
      計算鈕的 disabled 與 dgDoCalc() 開頭的守衛都是讀 dgMissingParts()，改這一處就兩邊都對。 */
@@ -6772,6 +6794,7 @@
        🔴 資料不清掉：使用者切回「也調色溫」時要原封不動回來。 */
     var na = (dgToneMode() === 'gamma') ? 'prim' : null;
     var naBox = $('dg-prim-na');
+    dgPrimNaSync();          // v1.22.0：文字要跟「為什麼進到這個模式」一致
     if (naBox) naBox.style.display = na ? '' : 'none';
     DG_PARTS.forEach(function (p) {
       var m = DG_PART_META[p], ok = dgPartFilled(p), b = dgPartBadgeInfo(p);
@@ -7267,8 +7290,13 @@
         + '驅動上限碼 = ' + res.driveCeil + '　附加末筆 = ' + (Math.pow(2, cfg.lutbit) - 1) + '\n'
         + '修表事件 ' + res.log.filter(function (l) { return l.indexOf('Gray ') === 0; }).length + ' 筆\n'
         + '第 1 部分的 LUT：' + dgPartBadgeInfo('lut').text
+        /* v1.22.0：這一行要說對「為什麼是只調 Gamma」。原本寫死「三通道逐列相同」——
+           被強制的那條路上 LUT 可能三通道不同，寫死就是在畫面上講一句假話。 */
         + (tone === 'gamma'
-          ? '（三通道逐列相同 → 本次是「只調 Gamma、不調色溫」：只用亮度 Y 反查，R／G／B 套同一組碼，沒有用到第 3 部分）'
+          ? (dgToneReason() === 'noxy'
+            ? '（第 2 部分沒有色度 x／y → 本次強制「只調 Gamma、不調色溫」：只用亮度 Y 反查，'
+              + '反查橫軸取 G 通道，R／B 套同一組碼，沒有用到第 3 部分）'
+            : '（三通道逐列相同 → 本次是「只調 Gamma、不調色溫」：只用亮度 Y 反查，R／G／B 套同一組碼，沒有用到第 3 部分）')
           : '（以各通道自己的驅動碼為反查橫軸）'),
         'ok');
     } catch (e) {
@@ -7854,6 +7882,7 @@
     tonePicked: function () { return DG_TONE; },        // 使用者選了什麼
     toneMode: function () { return dgToneMode(); },     // 真正生效的是什麼
     grayHasXY: function () { return dgGrayHasXY(); },   // v1.22.0 驗證用（唯讀）
+    toneReason: function () { return dgToneReason(); }, // 'noxy'（被強制）｜'chosen'（使用者選的）
     computeGammaOnly: dgComputeGammaOnly,
     gatherData: function (cfg, opt) { return dgGatherData(cfg, opt); },
     readCfg: function () { return dgReadCfg(); }
