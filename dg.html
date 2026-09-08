@@ -1614,6 +1614,21 @@
           <button class="dg-btn dg-btn-clr" id="dg-btn-gray-pick-back">← 回上一層</button>
         </div>
       </div>
+      <!-- ══ v1.22.0：第三層 —— 匯進來的是「光學確認」xlsx，而且裡面不只一組 ═════════
+           沿用 v1.14.0 的 .dg-lut-step 多步機制，**不另開新視窗**（Bruce 2026-09-08）。
+           與上面那一層（從光學資料比較挑一組）刻意分開：那一層挑的是**清單裡已有的組**，
+           這一層挑的是**這一次匯入的這個檔裡的欄**，兩者的來源與生命週期不同。 -->
+      <div class="dg-lut-step" data-step="optpick" data-title="這個檔裡有好幾組 — 挑一組進第 2 部分" style="display:none">
+        <div class="dg-note">
+          這是<b>「光學確認」格式</b>的檔：一欄一組，只有 <b>Gray</b>、<b>亮度</b>、<b>色溫</b>，
+          <b>沒有色度 x／y</b>。
+          <br>點一組就會<b>覆蓋</b>第 2 部分現在的白灰階與目標白點，而且這一輪會<b>強制只調 Gamma、不調色溫</b>。
+        </div>
+        <div class="dg-pick-list" id="dg-gray-optpick-list"></div>
+        <div class="dg-btnrow">
+          <button class="dg-btn dg-btn-clr" id="dg-btn-gray-optpick-back">← 回上一層</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1769,7 +1784,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1211"></script>
+<script src="common/version.js?v=20260908dg1220"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -2098,11 +2113,24 @@
     var tgt = dgTargetCurve(cfg.N, cfg.gamma, Y0, tw[2], cfg.removeL0, x0, y0, tw[0], tw[1], cfg.turnGray);
     var Tar = tgt.map(function (p) { var t = p[2] / normY; return [t, t, t]; });
 
-    // ③ 反查驅動碼 —— 呼叫既有的 dgInvInterp()。橫軸取第 1 部分起始碼的任一通道（三通道相同）。
+    /* ③ 反查驅動碼 —— 呼叫既有的 dgInvInterp()。橫軸取第 1 部分起始碼的 **G 通道**。
+       v1.17.0 原本寫 `[0]`（R），註解是「三通道相同、取任一個」。當時的唯一入口
+       dgToneMode() 確實由 dgLutTriEqual() 把關 ⇒ inCodes[j][0] === inCodes[j][1]，
+       **這一改在既有路徑上逐值相同、不是輸出變更**。
+
+       v1.22.0 起多了第二個入口：量測資料沒有色度 x／y 時強制進本模式，而那時候第 1 部分
+       的 LUT **可能三通道不同**（上一輪調過色溫），`[0]` 與 `[1]` 就不再相等。
+       依 Bruce 2026-09-08 裁示取 **G**：G 對亮度的貢獻最大（CIE Y 的權重最高），
+       用它當「驅動碼 → 白亮度」這條曲線的橫軸最貼近實測。
+       🔴 下面 f.push([code, code, code]) 本來就把三通道套同一組碼 ⇒ **R、B 的 LUT 會
+          變成跟 G 一樣**，正是裁示要的行為，不另寫一套。
+       ⚠ 代價要講明白：三通道原本不同時，這等於**放棄上一輪的色溫調校**（色度會跑掉），
+          而且實測的 Y(code) 是在「R、G、B 各走各的碼」之下量到的，拿 G 當單一橫軸是近似。
+          所以載入這種資料時一定要跳視窗告訴使用者（dgNoteOpen，見 dgGrayNoXYNote）。 */
     var step = Math.pow(2, cfg.hw - 8);
     var capHW = (Math.pow(2, cfg.sd) - 1) * Math.pow(2, cfg.hw - cfg.sd);
     var codes = [];
-    for (var j = 0; j < M; j++) codes.push(data.inCodes ? data.inCodes[j][0] : Math.min(j * step, capHW));
+    for (var j = 0; j < M; j++) codes.push(data.inCodes ? data.inCodes[j][1] : Math.min(j * step, capHW));
     var F = Ori.map(function (o) { return o[0]; });
 
     var f = [], i;
@@ -4133,12 +4161,20 @@
         p ? p.xyY[0] : xyz[0] / sxyz, p ? p.xyY[1] : xyz[1] / sxyz, p ? p.xyY[2] : xyz[1],
         p ? p.T : -1, p ? p.uv : -1, xyz[0], xyz[1], xyz[2]]);
     }
+    /* v1.22.0：只調 Gamma 模式的資料來源可能沒有色度 x／y（「光學確認」xlsx）。
+       那時 x／y／X／Z 與由它們算出來的色溫都是 NaN／null —— 這些格子**留空**，
+       不寫 NaN。xlsx 的數值格寫進 NaN 會產生一個 Excel 判為損毀的檔，
+       而寫 dgCCT(NaN, NaN) 或 0 都是在填一個算不出來的假值。
+       亮度 Y（第 7 欄）與 XYZ 的 Y（第 11 欄）一律有值，那是本模式唯一真正用到的量。 */
+    function num(v) { return isFinite(v) ? v : ''; }
     for (i = M - 1; i >= 0; i--) {
       var g = data.grayxyY[i], X = data.grayXYZ[i];
-      raw.push([i, i, i, i, g[0], g[1], g[2],
-        (data.grayT && data.grayT[i] !== undefined) ? data.grayT[i] : dgCCT(g[0], g[1]),
+      var Tv = (data.grayT && data.grayT[i] !== undefined && data.grayT[i] !== null)
+        ? data.grayT[i] : ((isFinite(g[0]) && isFinite(g[1])) ? dgCCT(g[0], g[1]) : null);
+      raw.push([i, i, i, i, num(g[0]), num(g[1]), num(g[2]),
+        (Tv === null ? '' : num(Tv)),
         (data.grayUV && data.grayUV[i] !== undefined) ? data.grayUV[i] : '',
-        X[0], X[1], X[2]]);
+        num(X[0]), num(X[1]), num(X[2])]);
     }
 
     // Properties
@@ -4149,10 +4185,13 @@
     put(2, 0, 'Max W Lv'); put(2, 1, 'Maximum');
     put(3, 0, 'Target RGB'); put(3, 1, mt.targetRGB ? mt.targetRGB[0] : M - 1); put(3, 2, mt.targetRGB ? mt.targetRGB[1] : M - 1); put(3, 3, mt.targetRGB ? mt.targetRGB[2] : M - 1);
     put(5, 0, 'White Point W');
-    put(6, 0, 'Lv'); put(6, 1, data.targetWhite[2]);
-    put(7, 0, 'x'); put(7, 1, data.targetWhite[0]);
-    put(8, 0, 'y'); put(8, 1, data.targetWhite[1]);
-    put(9, 0, 'CCT'); put(9, 1, (mt.whiteCCT !== undefined && mt.whiteCCT !== null) ? mt.whiteCCT : dgCCT(data.targetWhite[0], data.targetWhite[1]));
+    // v1.22.0：同上 —— 目標白點的 x／y 缺值時這三格留空，不寫 NaN、也不用 dgCCT 補一個假值
+    var tw0 = data.targetWhite[0], tw1 = data.targetWhite[1];
+    put(6, 0, 'Lv'); put(6, 1, num(data.targetWhite[2]));
+    put(7, 0, 'x'); put(7, 1, num(tw0));
+    put(8, 0, 'y'); put(8, 1, num(tw1));
+    put(9, 0, 'CCT'); put(9, 1, (mt.whiteCCT !== undefined && mt.whiteCCT !== null) ? mt.whiteCCT
+      : ((isFinite(tw0) && isFinite(tw1)) ? dgCCT(tw0, tw1) : ''));
     var pnames = ['White Point Red', 'White Point Green', 'White Point Blue'];
     for (c = 0; c < 3; c++) {
       var base = 11 + c * 5, pp = data.primFull ? data.primFull[pk[c]] : null;
@@ -4186,7 +4225,11 @@
     for (i = 0; i < N; i++) {
       var t = res.target[i], rel = (t[2] - res.target[0][2]) / (res.target[N - 1][2] - res.target[0][2]);
       var lg = (i === 0 || i === N - 1) ? 0 : Math.log(rel) / Math.log(i / (N - 1));
-      put(1 + i, 9, i); put(1 + i, 10, t[0]); put(1 + i, 11, t[1]); put(1 + i, 12, t[2]);
+      /* v1.22.0：Target 的 x／y 兩欄（K、L）在只調 Gamma＋來源沒有色度時是 NaN ——
+         dgTargetCurve() 的 x0／y0／xT／yT 全部來自量測的色度，沒有就算不出來。
+         🔴 實測到的：不守這一條，匯出的 Properties 表會有 **512 個 NaN 格**
+         （256 列 × 兩欄）。Y 欄（M）不受影響，那才是本模式真正用到的。 */
+      put(1 + i, 9, i); put(1 + i, 10, num(t[0])); put(1 + i, 11, num(t[1])); put(1 + i, 12, t[2]);
       put(1 + i, 13, isFinite(lg) ? lg : 0);
       put(1 + i, 19, i);
       put(1 + i, 20, res.Ori[Math.min(i, res.Ori.length - 1)][0]);
@@ -4310,7 +4353,22 @@
     DG_SLOTS.push({
       name: '',
       file: String(fileName || ''),        // 原始 Excel 檔名，固定不可改
-      rows: opt.rows.map(function (r) { return { g: +r.g, x: +r.x, y: +r.y, Y: +r.Y }; }),
+      /* 🔴 v1.22.0：**不可以寫 `+r.x`**。`+null` 是 `0`、`+undefined` 是 `NaN` ——
+         沒有色度的來源（「光學確認」xlsx）進到這裡會被悄悄變成 x=0、y=0，
+         而 dgCCT(0, 0) 恆等於 2021.28K：匯出的比較 xlsx 會被寫進 256 個 2021，
+         再匯入回來就變成「真的有量到色溫」。這正是 v1.21.1 在 dgCurveOf()／
+         dgOptSheetXml() 修掉的那個坑，只是它藏在**這一條轉換**裡沒被一起找出來
+         （v1.20.0 的 dgSlotLoadCompare 是直接 push、沒經過這裡，所以當時沒踩到）。
+         缺值一律留 null，讓下游的 dgIsNum() 守衛判得出來。
+         色溫 T 一併留著：來源本來就有量到的色溫，不該在這一層被丟掉再用 x／y 回推。 */
+      rows: opt.rows.map(function (r) {
+        return {
+          g: +r.g, Y: +r.Y,
+          x: dgIsNum(r.x) ? +r.x : null,
+          y: dgIsNum(r.y) ? +r.y : null,
+          T: dgIsNum(r.T) ? +r.T : null
+        };
+      }),
       hasPrim: !!opt.hasPrim,
       show: true
     });
@@ -4541,11 +4599,23 @@
 
   /* 把 g／x／y／Y 四欄的純數字列轉成組要用的 rows。第 2 部分的輸入框（不管資料是
      檔案、即時量測還是手貼進去的）與這裡是同一個格式，所以三條路共用這一支。 */
+  /* 🔴 v1.22.0：**x／y 缺值照收**（存 null，不是 0、也不是 NaN）。
+     原本四欄一律要求 isFinite，來自「光學確認」xlsx 的白灰階（那個格式沒有色度欄）
+     會被整份濾成 0 列，第 2 部分那顆「轉出到光學資料比較」等於對這種資料不能用 ——
+     而多組比較 xlsx 的匯出本來就只寫 Gray／亮度／色溫三樣，缺 x／y 一點都不妨礙。
+     Gray 與亮度 Y 仍然硬性要求是數字：少了它們這一列根本沒有內容。
+     存 null 是為了讓 dgOptSheetXml() 的 dgIsNum() 守衛（v1.21.1）判得出「這一組沒有色度」，
+     而不是拿 dgCCT(0, 0) ＝ 2021K 去填一整欄假色溫。 */
   function dgSlotRowsFromText(text) {
     return dgParseRows(String(text || '')).filter(function (r) {
-      return r.length >= 4 && r.slice(0, 4).every(function (v) { return isFinite(v); });
+      return r.length >= 4 && isFinite(r[0]) && isFinite(r[3]);
     }).map(function (r) {
-      return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3] };
+      return {
+        g: +r[0], Y: +r[3],
+        x: isFinite(r[1]) ? +r[1] : null,
+        y: isFinite(r[2]) ? +r[2] : null,
+        T: (r.length >= 5 && isFinite(r[4])) ? +r[4] : null
+      };
     }).sort(function (a, b) { return a.g - b.g; });
   }
 
@@ -4900,15 +4970,17 @@
     }
     var rows = s.rows.slice().sort(function (a, b) { return a.g - b.g; });
     var top = rows[rows.length - 1];
-    /* v1.19.0：從多組比較檔載回來的組沒有色度 x／y（那個檔案格式裡從來就沒有這一欄）。
-       目標白點要 x／y，硬灌會變成 NaN 一路傳進計算 —— 明講擋下來，不做半套。 */
-    if (!dgIsNum(top.x) || !dgIsNum(top.y)) {
-      dgSetStatus('dg-status', '第 ' + (i + 1) + ' 組是從「多組比較 xlsx」載回來的，'
-        + '那個檔案格式裡沒有色度 x／y，只有亮度與色溫。\n'
-        + '它可以疊在比較圖上看，但不能當第 2 部分的計算輸入（目標白點需要 x／y）。\n'
-        + '要拿它算，請改用原始的白灰階量測檔。', 'err');
-      return false;
-    }
+    /* ─── v1.22.0：v1.19.0 的那道擋**拆掉** ─────────────────────────────────
+       原本在這裡擋下「沒有色度 x／y 的組」，理由是「目標白點要 x／y，硬灌會變成
+       NaN 一路傳進計算」。那個理由在當時成立 —— 當時**沒有任何機制**阻止這種資料
+       走進 dgCompute()（也調色溫那條路要拿 XYZ 去拆色彩矩陣）。
+
+       v1.22.0 補上了那個機制：dgToneMode() 只要 dgGrayHasXY() 為 false 就**強制**
+       回 'gamma'，而 dgComputeGammaOnly() 只用亮度 Y，NaN 進不了計算。
+       於是這道擋從「防護」變成「擋過頭」：使用者手上明明有一份算得動的資料卻用不了。
+       🔴 **判斷只有一套**：這裡不再自己判 x／y 決定收不收，收與不收一律由
+          dgToneMode()／dgGrayHasXY() 決定，與第 2 部分匯入「光學確認」xlsx 同一條判準。 */
+    var noXY = !dgIsNum(top.x) || !dgIsNum(top.y);
     var label = dgSlotDisplayName(i) + (s.file ? '\uff08' + s.file + '\uff09' : '');
     dgApplyGray({ rows: rows, white: [top.x, top.y, top.Y] }, label, 'slot');
 
@@ -4919,20 +4991,114 @@
       + '<br><b>組別</b>：' + dgXe(dgSlotDisplayName(i))
       + (s.file ? '　<b>來源</b>：' + dgXe(s.file) : '')
       + '<br><b>白灰階</b>：' + rows.length + ' 筆（L' + rows[0].g + ' \uff5e L' + top.g + '）'
-      + '　<b>目標白點</b>：x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6) + ' Lv=' + top.Y.toFixed(3)
+      + '　<b>目標白點</b>：' + dgWhiteLbl(top)
       + '<br>目標白點取的是這一組最高階那一列（與「即時量測」同一個規則）；'
-      + '色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出。'
+      + (noXY
+        ? '<b>這一組沒有色度 x／y</b> ⇒ 本次<b>強制只調 Gamma、不調色溫</b>（詳見跳出的視窗）。'
+        : '色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出。')
       + '<b>那一組本身留在比較分頁，沒有被移走。</b>';
+
+    if (noXY) dgGrayNoXYNote('「光學資料比較」的' + dgSlotDisplayName(i), rows.length, rows[0].g, top.g);
 
     var miss = dgMissingParts();
     dgSetStatus('dg-status', '已從「光學資料比較」帶入第 2 部分：'
       + dgSlotDisplayName(i) + '，白灰階 ' + rows.length + ' 階（Gray ' + rows[0].g + ' \uff5e ' + top.g + '）'
-      + '＋ 目標白點 x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6) + ' Lv=' + top.Y.toFixed(3) + '。\n'
+      + '＋ 目標白點 ' + dgWhiteLbl(top) + '。\n'
+      + (noXY ? '⚠ 這一組沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫。\n' : '')
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
         : '三份都齊了，下一步：按「計算」。'),
       miss.length ? '' : 'ok');
     return true;
+  }
+
+  /* ═══ v1.22.0：第 2 部分收「光學確認」xlsx ═══════════════════════════════════
+     Bruce 2026-09-08：「這個光學確認 Excel 本來就該跟第 2 部分互相匯入匯出、通用。」
+
+     ── 這個格式到底有什麼（三份真檔逐格查證，不是憑印象）─────────────────────
+       A 欄 Gray 0～255｜B～F 各組**亮度**（＝ Lv，cd/m²）｜G 空｜H Gray｜
+       I／J／K 色溫上限／中心／下限（公式）｜L～P 各組**色溫**｜其餘全是公式欄。
+       **整份檔沒有任何色度 x／y 欄**，也沒有任何 x／y／Lv 的欄名。
+     ── 為什麼不另寫 parser ──────────────────────────────────────────────
+       比較分頁的 dgOptLayout()／dgOptParseCompareSheet() 認的就是這個版面
+       （它們本來就是照這個參考檔寫的，不寫死欄號、不寫死組數）。這裡**整支重用**，
+       只是終點換成第 2 部分而不是比較清單。 */
+  var DG_GRAY_OPT = null;      // 這一次匯進來的光學確認檔：{ file, groups[] }
+
+  function dgGrayOptPickRender() {
+    var host = $('dg-gray-optpick-list');
+    if (!host || !DG_GRAY_OPT) return;
+    var gs = DG_GRAY_OPT.groups, h = '';
+    for (var i = 0; i < gs.length; i++) {
+      var g = gs[i], top = g.rows[g.rows.length - 1];
+      var nCct = g.rows.length - g.noCct;
+      h += '<button type="button" class="dg-pick-row" data-dg-optpick="' + i + '">'
+        + '<span class="dg-pick-no" style="background:' + dgSlotColor(i) + '">' + (i + 1) + '</span>'
+        + '<span class="dg-pick-main">'
+        + '<span class="dg-pick-name">' + dgXe(g.name || ('第 ' + (i + 1) + ' 組')) + '</span>'
+        + '<span class="dg-pick-sub">' + g.rows.length + ' 階（L' + g.rows[0].g + ' ～ L' + top.g + '）'
+        + '　最高階亮度 ' + top.Y.toFixed(3) + '　色溫 ' + (nCct ? (nCct + ' 階有值') : '整欄空白')
+        + '</span></span></button>';
+    }
+    host.innerHTML = h;
+  }
+
+  /* 把挑中的那一組灌進第 2 部分。
+     🔴 目標白點取**最高階那一列**（與 dgApplyLiveRows()／dgGrayFromSlot() 同一個規則），
+        只是這裡只有 Lv 沒有 x／y，第 4 欄的 CCT 若檔裡有就一起帶（dgTargetCCT() 會優先用它）。 */
+  function dgGrayApplyOptGroup(k) {
+    if (!DG_GRAY_OPT || !DG_GRAY_OPT.groups[k]) return false;
+    var g = DG_GRAY_OPT.groups[k], rows = g.rows;
+    var top = rows[rows.length - 1];
+    var many = DG_GRAY_OPT.groups.length > 1;
+    var label = DG_GRAY_OPT.file + (many ? '（' + (g.name || ('第 ' + (k + 1) + ' 組')) + '）' : '');
+    dgApplyGray({ rows: rows, white: [null, null, top.Y, dgIsNum(top.T) ? top.T : null] }, label, 'file');
+
+    /* 與既有「白灰階量測檔」那條路一樣，同時存成一組（純比較用，不參與計算）——
+       這也正是「匯出方向」的既有通路：存成組之後，比較分頁那顆
+       「匯出多組比較（.xlsx）」寫出來的就是同一個光學確認版面。 */
+    var slotNo = 0;
+    if (dgSlotFindSame(rows) < 0 && DG_SLOTS.length < DG_SLOT_MAX) {
+      slotNo = dgSlotAdd({ rows: rows, hasPrim: false }, label);
+    }
+
+    var box = $('dg-fmt-box');
+    box.style.display = '';
+    box.className = 'dg-fmt warn';
+    box.innerHTML = '<b>已匯入：</b>' + dgXe(DG_GRAY_OPT.file)
+      + '<br><b>判定：</b>光學確認格式（一欄一組：Gray／亮度／色溫，<b>沒有色度 x／y</b>）'
+      + ' ⇒ 只填 <b>第 2 部分</b>'
+      + (many ? '<br><b>選用的組</b>：' + dgXe(g.name || ('第 ' + (k + 1) + ' 組'))
+                + '（這個檔裡共 ' + DG_GRAY_OPT.groups.length + ' 組有資料）' : '')
+      + '<br><b>白灰階</b>：' + rows.length + ' 階（Gray ' + rows[0].g + ' ～ ' + top.g + '）'
+      + '　<b>目標白點</b>：' + dgWhiteLbl(top)
+      + '<br><b>⚠ 這份資料只能調 Gamma、不能調色溫</b>（詳見跳出的視窗）。'
+      + (slotNo ? '<br><b>已存成第 ' + slotNo + ' 組</b>（下方「光學量測組」卡片），'
+                  + '要再寫回這個格式就用比較分頁的「匯出多組比較（.xlsx）」。' : '');
+
+    dgGrayNoXYNote(label, rows.length, rows[0].g, top.g);
+
+    var miss = dgMissingParts();
+    dgSetStatus('dg-status', '已匯入 ' + DG_GRAY_OPT.file + '\n'
+      + '這個檔是「光學確認格式」，只填了第 2 部分：白灰階 ' + rows.length + ' 階 ＋ 目標白點。\n'
+      + '⚠ 這個格式沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫，第 3 部分本次不需要。\n'
+      + (miss.length
+        ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
+        : '需要的資料都齊了，下一步：按「計算」。'), miss.length ? '' : 'ok');
+    return true;
+  }
+
+  /* 匯入分流的入口：認出是光學確認格式就走這裡。一組直接進，多組跳第三層讓人挑。 */
+  function dgGrayFromOpticalSheet(sheet, fileName) {
+    var res = dgOptParseCompareSheet(sheet);
+    if (!res.groups.length) {
+      throw new Error('這個檔是光學確認格式（表頭列第 ' + (res.layout ? res.layout.hdrRow : '?')
+        + ' 列、' + (res.layout ? res.layout.n : 0) + ' 個組別欄位），但每一組的亮度欄都是空的，沒有資料可以帶入。');
+    }
+    DG_GRAY_OPT = { file: fileName, groups: res.groups };
+    if (res.groups.length === 1) { dgGrayApplyOptGroup(0); return; }
+    dgGrayOptPickRender();
+    dgStepModalOpen('dg-modal-gray', 'optpick');
   }
 
   /* 第 2 部分那個視窗裡兩個新選項的顯示條件（沒有東西可選就不要給選項）。 */
@@ -5372,8 +5538,11 @@
     var tb = $('dg-chart-table').querySelector('tbody'), h = '';
     for (var k = 0; k < mainC.M; k++) {
       h += '<tr><td>' + k + '</td><td>' + mainC.lv[k].toFixed(4) + '</td><td>' + (mainC.rel[k] * 100).toFixed(4) + '%</td><td>'
-        + (mainC.gam[k] === null || !isFinite(mainC.gam[k]) ? '—' : mainC.gam[k].toFixed(4)) + '</td><td>' + mainC.xx[k].toFixed(5) + '</td><td>'
-        + mainC.yy[k].toFixed(5) + '</td><td>'
+        + (mainC.gam[k] === null || !isFinite(mainC.gam[k]) ? '—' : mainC.gam[k].toFixed(4)) + '</td><td>'
+        // v1.22.0：來源沒有色度 x／y 時（「光學確認」xlsx）這兩格與 Gamma／色溫同樣寫「—」，
+        // 不寫 NaN.toFixed(5) ＝ 字串 "NaN"
+        + (dgIsNum(mainC.xx[k]) ? mainC.xx[k].toFixed(5) : '—') + '</td><td>'
+        + (dgIsNum(mainC.yy[k]) ? mainC.yy[k].toFixed(5) : '—') + '</td><td>'
         // v1.21.1：色溫算不出來時這一格與 Gamma 那一格同樣寫「—」，不寫 Math.round(null) ＝ 0
         + (dgIsNum(mainC.cct[k]) ? Math.round(mainC.cct[k]) : '—') + '</td></tr>';
     }
@@ -5512,7 +5681,11 @@
       var x = r[1], y = r[2], Y = r[3];
       grayxyY.push([x, y, Y]);
       grayXYZ.push(dgXyYtoXYZ(x, y, Y));
-      grayT.push(r.length >= 5 && isFinite(r[4]) ? r[4] : dgCCT(x, y));
+      /* v1.22.0：x／y 不是數字就**沒有色溫可以算**，推 null 而不是 dgCCT(NaN, NaN)。
+         與 dgCurveOf()（v1.21.1）、dgOptSheetXml()（v1.21.1）同一條退路：
+         有現成的色溫用它，沒有就由 x／y 算，兩者都沒有就留空、不頂替。 */
+      grayT.push(r.length >= 5 && isFinite(r[4]) ? r[4]
+        : ((isFinite(x) && isFinite(y)) ? dgCCT(x, y) : null));
       grayUV.push(r.length >= 6 && isFinite(r[5]) ? r[5] : '');
     });
 
@@ -6490,7 +6663,36 @@
   var DG_TONE = 'cct';
   var DG_TONE_ASKED = false;   // 這一份 LUT 內容問過了沒（避免每次編輯格子都跳視窗）
 
-  function dgToneMode() { return (DG_TONE === 'gamma' && dgLutTriEqual()) ? 'gamma' : 'cct'; }
+  /* ─── v1.22.0：第 2 部分手上這份資料到底有沒有色度 x／y ────────────────────
+     判的是**內容**（與 dgLutTriEqual() 同一條原則），不是使用者走了哪一條路：
+       · 量測軟體的白灰階檔、即時量測 ⇒ 每一列都有 x／y ⇒ true
+       · 「光學確認」xlsx ⇒ 整個格式沒有這一欄 ⇒ false
+     🔴 **沒有資料時回 true**：那時候沒有東西可以反對，模式仍由 LUT 內容與使用者的
+        選擇決定。回 false 會讓一個空白的頁面被強制鎖進只調 Gamma 模式。
+     🔴 要求**每一列都有**，不是「有一列有就算有」：dgGatherData() 會逐列
+        dgXyYtoXYZ(x, y, Y)，只要有一列缺就會有 NaN 流進 dgCompute() 的色彩矩陣。 */
+  function dgGrayHasXY() {
+    var g = dgParseRows($('dg-in-gray').value);
+    if (!g.length) return true;
+    for (var i = 0; i < g.length; i++) {
+      if (!(g[i].length >= 3 && isFinite(g[i][1]) && isFinite(g[i][2]))) return false;
+    }
+    var w = dgParseRows($('dg-in-white').value)[0];
+    if (!w) return true;                       // 白點還沒填 ⇒ 由 dgPartFilled 去擋，不在這裡判
+    return w.length >= 2 && isFinite(w[0]) && isFinite(w[1]);
+  }
+
+  /* 🔴 v1.22.0：**資料沒有色度就只能調 Gamma**，這一條排在最前面，而且不看使用者選了什麼。
+     理由是物理的，不是偏好：「也調色溫」那條路（dgCompute）要把每一階的 XYZ 用純色端點
+     的色彩矩陣拆成 R／G／B 三個強度，沒有 x／y 就沒有 XYZ，整條路算不下去。
+     Bruce 2026-09-08 裁示：「如果確實沒有 x、y：要明確提醒使用者這份資料只能調 Gamma、
+     不能調色溫，並且套用既有的只調 Gamma 規則」。這裡就是那個「強制」的唯一實作點 ——
+     dgMissingParts()、dgRefreshReady()、dgDoCalc()、dgPartsSyncVisible() 全都讀這一支，
+     改這一處四個地方同時生效，不會出現「畫面說只調 Gamma、算的時候卻走色溫」。 */
+  function dgToneMode() {
+    if (!dgGrayHasXY()) return 'gamma';
+    return (DG_TONE === 'gamma' && dgLutTriEqual()) ? 'gamma' : 'cct';
+  }
 
   /* 各模式需要哪幾個部分。只調 Gamma 不需要第 3 部分（純色端點只用在 XYZ→RGB 分解，
      而這個模式根本不做分解）。🔴 這是**閘門本身**，不是外觀 ——
@@ -6509,6 +6711,10 @@
      🔴 只在「使用者剛剛設定完第 1 部分」的那幾個點呼叫，不掛在 dgRefreshReady()
         —— 那支會被 init、每次輸入、每次匯入呼叫幾十次，掛上去等於隨機跳視窗。 */
   function dgToneAfterLutSet() {
+    /* v1.22.0：第 2 部分手上這份資料沒有色度時**不要問** —— dgToneMode() 已經強制
+       回 'gamma'，「也調色溫」根本不是一個選得動的答案，問了只會讓人以為有得選。
+       提醒由 dgGrayNoXYNote() 那個視窗負責（守 Bruce 的「一個視窗講完」）。 */
+    if (!dgGrayHasXY()) { dgRefreshReady(); return false; }
     if (!dgLutTriEqual()) { dgToneReset(); dgRefreshReady(); return false; }
     if (DG_TONE_ASKED) { dgRefreshReady(); return false; }
     DG_TONE_ASKED = true;
@@ -6756,16 +6962,61 @@
   /* 第 2 部分：白灰階 ＋ 目標白點。v1.8.0：匯入當下就把這條曲線畫到光學確認圖表上。
      v1.10.0：第三個參數是來源種類（預設 'file'）。即時量測走同一條路徑填資料，
      只有徽章與來源那一行不同 —— 資料怎麼進第 2 部分只有這一份實作。 */
+  /* ─── v1.22.0：白灰階的 x／y 缺值怎麼寫進輸入框 ──────────────────────────
+     「光學確認」xlsx 這個格式**沒有色度 x／y**（三份真檔逐格查證，見 CHANGELOG）。
+     輸入框是純文字、`dgParseRows()` 以 /[\s,;\t]+/ 切欄且**會把連續空白吃掉** ——
+     中間那兩欄若留白，`0    289.75` 會被切成兩欄，dgGatherData() 立刻以
+     「每行至少需要 4 欄」擋掉。所以缺值一律寫成一個看得見的佔位符：
+       · 表格裡顯示成 `-`，使用者一眼看得出「這一格檔案裡沒有」
+       · `Number('-')` ⇒ NaN，下游一律用 isFinite／dgIsNum 判
+     🔴 **不可以寫 0**：`dgCCT(0, 0)` 恆等於 2021.28K，那正是 v1.21.1 剛修掉的
+        「色溫被畫成一條假的水平線」。缺值必須長得像缺值。 */
+  var DG_NOXY = '-';
+  function dgXyCell(v) { return dgIsNum(v) ? v : DG_NOXY; }
+
+  // 目標白點那一行的顯示文字。沒有色度時只寫 Lv，不寫 NaN.toFixed(6) ＝ 字串 "NaN"。
+  function dgWhiteLbl(w) {
+    return (dgIsNum(w.x) && dgIsNum(w.y))
+      ? ('x=' + w.x.toFixed(6) + ' y=' + w.y.toFixed(6) + ' Lv=' + w.Y.toFixed(3))
+      : ('Lv=' + w.Y.toFixed(3) + '（這份資料沒有色度 x／y）');
+  }
+
+  /* ─── v1.22.0：沒有色度時的**唯一**一個提醒視窗 ────────────────────────────
+     Bruce 2026-09-08：「如果確實沒有 x、y：要明確提醒使用者這份資料只能調 Gamma、
+     不能調色溫」＋「提醒要用浮動視窗講清楚，不是塞一段說明文字在頁面上。
+     守極簡：一個視窗講完。」
+     🔴 所以載入這種資料的**兩條路**（第 2 部分匯入光學確認 xlsx、從光學資料比較挑一組）
+        共用這一支，不各寫一段文案；頁面上不另外長出任何常駐說明區塊。 */
+  function dgGrayNoXYNote(srcLabel, n, g0, gN) {
+    dgNoteOpen('這份資料只能調 Gamma，不能調色溫',
+      '<div class="dg-note">'
+      + '已帶入第 2 部分：<b>' + dgXe(srcLabel) + '</b>，白灰階 <b>' + n + ' 階</b>'
+      + '（L' + g0 + ' ～ L' + gN + '）。'
+      + '<br><br><b>這份資料只有亮度，沒有色度 x／y。</b>'
+      + '「也調色溫」那條路要把每一階的亮度用三個純色端點拆成 R／G／B 三個強度，'
+      + '沒有 x／y 就沒有 XYZ，那條路算不下去 —— 所以本次<b>強制走「只調 Gamma、不調色溫」</b>，'
+      + '這個模式只用<b>亮度 Y</b> 反查驅動碼。'
+      + '<br><br><b>算出來的 LUT，R、G、B 三個通道會是同一組值</b>'
+      + '（反查的橫軸取第 1 部分 LUT 的 <b>G</b> 通道 —— G 對亮度的貢獻最大）。'
+      + '<br>⚠ 如果第 1 部分那張 LUT 原本<b>三通道不一樣</b>（上一輪調過色溫），'
+      + '這一輪算完會把 R、B 拉成跟 G 一樣，<b>等於放棄上一輪的色溫調校</b>，面板的色度會跑掉。'
+      + '要保住色溫，請改用有 x／y 的白灰階量測檔（檔名長 <span class="dg-fname">RaydiumGamma_…</span>）'
+      + '或「即時量測」重量一次。'
+      + '<br><br>畫面上會跟著變的地方：<b>第 3 部分</b>標成「本次不需要」（只調 Gamma 用不到純色端點）、'
+      + '<b>圖三（色溫）</b>與圖表資料表的 x／y 欄沒有資料的地方寫「—」。'
+      + '</div>');
+  }
+
   function dgApplyGray(opt, fileName, srcKind) {
     dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     $('dg-in-gray').value = opt.rows.map(function (r) {
-      var s = r.g + ' ' + r.x + ' ' + r.y + ' ' + r.Y;
+      var s = r.g + ' ' + dgXyCell(r.x) + ' ' + dgXyCell(r.y) + ' ' + r.Y;
       if (dgIsNum(r.T)) s += ' ' + r.T + (dgIsNum(r.uv) ? ' ' + r.uv : '');
       return s;
     }).join('\n');
 
     var w = opt.white;
-    $('dg-in-white').value = w[0] + ' ' + w[1] + ' ' + w[2] + (dgIsNum(w[3]) ? ' ' + w[3] : '');
+    $('dg-in-white').value = dgXyCell(w[0]) + ' ' + dgXyCell(w[1]) + ' ' + w[2] + (dgIsNum(w[3]) ? ' ' + w[3] : '');
     DG_SRC.gray = { kind: srcKind || 'file', name: fileName || '' };
 
     // 量測長度反過來決定 Source Driver 的合理值：1024 階只可能是 10 bit 驅動
@@ -6831,6 +7082,14 @@
     fr.onload = function () {
       dgUnzip(fr.result).then(function (files) {
         var sheets = dgReadSheets(files);
+        /* 🔴 v1.22.0：先問「是不是光學確認格式」。這個判準（dgOptFindCompareSheet）與
+           比較分頁的匯入**是同一支**，不另立一套規則；而且必須排在 dgParseOptical()
+           之前 —— 兩者互斥（光學確認檔的第 1 列只有一格大標題，dgParseOpticalA／B 要的
+           x／y／Y 或 W_x／W_y／W_Y 表頭一個都對不上），先問哪一個都不會誤判，
+           但先問這一支，認不出來時才會落到下面那句「三種檔」的說明。 */
+        var cmpSheet = dgOptFindCompareSheet(sheets);
+        if (cmpSheet) { dgGrayFromOpticalSheet(cmpSheet, file.name); return; }
+
         var opt = null, det = null, lutErr = null, kind = null;
         try { opt = dgParseOptical(sheets); } catch (e) { opt = null; }
         if (opt) {
@@ -6889,7 +7148,10 @@
         $('dg-fmt-box').style.display = '';
         $('dg-fmt-box').className = 'dg-fmt err';
         $('dg-fmt-box').innerHTML = '<b>這個檔案認不出來：</b>' + dgXe(e.message)
-          + '<br><b>本頁吃得下的三種檔（各填一個部分）：</b><br>'
+          // v1.22.0：多了第四種（光學確認格式）
+          + '<br><b>本頁吃得下的四種檔（各填一個部分）：</b><br>'
+          + '· <b>光學確認檔</b> → 第 2 部分：A 欄 Gray、右邊一欄一組的亮度、再右邊一欄一組的色溫'
+          + '（<b>這個格式沒有色度 x／y</b>，匯進來只能調 Gamma、不能調色溫）。<br>'
           + '· <b>LUT 檔</b> → 第 1 部分：索引欄從 0 開始、後面接 R／G／B 三欄；表頭在第 1 或第 2 列都可以，有沒有附加末筆都可以。<br>'
           + '· <b>白灰階量測檔</b> → 第 2 部分：逐階一列（Gray、x、y、Y…），或是含「量測原始值＋設定」兩張表的完整報告。<br>'
           + '· <b>CCT 檔</b> → 第 3 部分：量測原始值表的前三列是 r／g／b 三個純色。<br>'
@@ -7246,6 +7508,20 @@
       dgStepModalClose('dg-modal-gray');
       dgGrayFromSlot(i);
     });
+    /* v1.22.0：光學確認檔的多組挑選。與上面那一組事件刻意分開（不同的 data 屬性、
+       不同的資料來源），但走的是同一個視窗、同一套 .dg-lut-step 切層機制。 */
+    $('dg-btn-gray-optpick-back').addEventListener('click', function () {
+      dgGraySyncModalOpts();
+      dgStepModalStep('dg-modal-gray', 'path');
+    });
+    $('dg-gray-optpick-list').addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-dg-optpick]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-dg-optpick'));
+      if (!isFinite(i) || !DG_GRAY_OPT || !DG_GRAY_OPT.groups[i]) return;
+      dgStepModalClose('dg-modal-gray');
+      dgGrayApplyOptGroup(i);
+    });
     ['dg-sd', 'dg-hw', 'dg-entry'].forEach(function (id) {
       $(id).addEventListener('change', function () { dgSyncDerived(); dgRefreshOutputs(); });
     });
@@ -7356,7 +7632,10 @@
        那才是這時候還可以改的決定（來源已經有了）。要換來源就按第二層裡的
        「← 重新設定第 1 部分的 LUT」回到第一層。其餘情況照舊開在第一層。 */
     $('dg-btn-lut-setup').addEventListener('click', function () {
-      dgLutModalOpen(dgLutTriEqual() ? 'tone' : 'path');
+      /* v1.22.0：第 2 部分的資料沒有色度時，第二層那個「只調 Gamma／也調色溫」的
+         詢問已經沒有意義（dgToneMode() 強制回 'gamma'，另一個選項選了也不會生效）——
+         直接開在第一層，不給一個選了沒有用的選項。 */
+      dgLutModalOpen((dgLutTriEqual() && dgGrayHasXY()) ? 'tone' : 'path');
     });
     $('dg-btn-tone-back').addEventListener('click', function () { dgLutModalStep('path'); });
     $('dg-modal-lut-close').addEventListener('click', dgLutModalClose);
@@ -7574,6 +7853,7 @@
     lutInCodes: function () { var r = dgLutInCodes(); return r ? r.map(function (x) { return x.slice(); }) : null; },
     tonePicked: function () { return DG_TONE; },        // 使用者選了什麼
     toneMode: function () { return dgToneMode(); },     // 真正生效的是什麼
+    grayHasXY: function () { return dgGrayHasXY(); },   // v1.22.0 驗證用（唯讀）
     computeGammaOnly: dgComputeGammaOnly,
     gatherData: function (cfg, opt) { return dgGatherData(cfg, opt); },
     readCfg: function () { return dgReadCfg(); }
