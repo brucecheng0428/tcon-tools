@@ -1595,7 +1595,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1223"></script>
+<script src="common/version.js?v=20260908dg1230"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4987,9 +4987,27 @@
   // 主資料（本輪要拿去計算的那一份）最後一次畫圖用的量測。
   // 光學組的勾選變動要能重畫，所以留一份；null ＝ 還沒算過。
   var dgLastGrayxyY = null;
+  /* ─── v1.23.0：**檔案裡直接量到的色溫**（與 dgLastGrayxyY 同索引）──────────
+     Bruce 2026-09-08：「（第 2 部分匯入光學確認檔時把檔內色溫一起帶進來）可以，
+     這樣子更完整。」
 
-  function dgDrawCharts(grayxyY) {
+     🔴 這是一個**獨立的欄位**，不是 x／y 的替代品，理由逐條寫在這裡供覆核：
+       · 「光學確認」xlsx 這個格式**只有色溫、沒有色度 x／y**（三份真檔逐格查證）。
+         色溫是一維、色度是二維 —— **由色溫反推 x／y 會憑空造出等色溫線上的任意點**，
+         那正是 v1.21.1 那個「2021K 假曲線」的同型錯誤。所以這裡只往**顯示**走，
+         一個位元都不會流回 x／y。
+       · 因此**計算側一個字都沒改**：dgGrayHasXY()／dgToneMode() 的「沒有 x／y ⇒
+         強制只調 Gamma」照舊。**有色溫可以看 ≠ 可以調色溫。**
+       · 資料來源標得出來：圖三上面那段說明會寫「這條是量測值直接畫的，不是由色度推得」
+         （dgCctModeSync 的 directHtml）。
+     null ＝ 這一份沒有這種來源（一般量測檔就是這一種，走原本 dgCCT(x, y) 那條）。 */
+  var dgLastGrayTdirect = null;
+
+  function dgDrawCharts(grayxyY, grayTdirect) {
     dgLastGrayxyY = (grayxyY && grayxyY.length) ? grayxyY : null;
+    /* 長度對不上就整份不要 —— 逐階對齊靠的是索引，對不齊的來源寧可不畫。 */
+    dgLastGrayTdirect = (dgLastGrayxyY && grayTdirect && grayTdirect.length === dgLastGrayxyY.length)
+      ? grayTdirect : null;
     dgRenderCharts();
   }
 
@@ -5010,6 +5028,10 @@
      由 dgDrawTriple() 寫、dgCctModeSync() 讀 —— 圖三上什麼都沒畫時，畫面自己說不出
      「是資料沒有」還是「工具壞了」。 */
   var DG_CCT_MISS = { which: 'cmp', names: [] };
+  /* v1.23.0：主頁圖三這一次有幾階的色溫是**檔案裡直接量到的**（不是由 x／y 算的）。
+     由 dgRenderMainCharts() 寫、dgCctModeSync() 讀 —— 曲線的來源必須說得出來，
+     不然畫面上這條線與「由色度算出來的」長得一模一樣。0 ＝ 這一次沒有這種來源。 */
+  var DG_CCT_DIRECT_MAIN = 0;
   /* v1.21.0：圖二同一套 —— 這一次有沒有畫 γ 參考線、量測 gamma 的主體範圍、畫在哪一頁。 */
   var DG_GAM_REFS_ON = true;
   var DG_GAM_BULK = null;
@@ -5097,7 +5119,18 @@
             + '補法二選一：到「Digital Gamma 校正」分頁按第 2 部分的「② 設定白灰階亮度」帶入一份量測（或自己填目標白點），'
             + '或把上面改選「固定 6500K」。';
         }
-        var html = missHtml + ((missHtml && mainHtml) ? '<br><br>' : '') + mainHtml;
+        /* ─── v1.23.0：這條色溫曲線是哪裡來的 ────────────────────────────
+           畫面上「量測值直接畫的」與「由 x／y 算出來的」長得一模一樣，不講就分不出來。
+           🔴 同時把界線講明白：能看色溫**不代表**能調色溫 —— 調色溫要的是二維的色度，
+              這份資料只有一維的色溫，工具**不會**用色溫去反推 x／y。 */
+        var directHtml = '';
+        if (which === 'main' && hasData && DG_CCT_DIRECT_MAIN) {
+          directHtml = '<b>圖三這條色溫曲線是檔案裡<span class="dg-fname">量測到的色溫值</span>直接畫的</b>'
+            + '（' + DG_CCT_DIRECT_MAIN + ' 階），<b>不是由色度 x／y 算出來的</b>。'
+            + '這份資料沒有色度 ⇒ <b>本次仍然只調 Gamma、不調色溫</b>：調色溫要的是二維的色度，'
+            + '色溫只有一維，本工具<b>不會</b>拿色溫去回推 x／y。';
+        }
+        var html = [missHtml, directHtml, mainHtml].filter(function (s) { return !!s; }).join('<br><br>');
         note.style.display = html ? '' : 'none';
         note.innerHTML = html;
       }
@@ -5339,8 +5372,22 @@
 
   function dgRenderMainCharts() {
     var main = dgLastGrayxyY;
-    if (!main || !main.length) { dgClearCharts123(DG_MAIN_CHARTS); dgClearChartTable(); return; }
-    var mainC = dgCurveOf(main.map(function (v, i) { return { g: i, x: v[0], y: v[1], Y: v[2] }; }));
+    // v1.23.0：沒有主資料就沒有「直接色溫」可言，旗標歸零，不沿用上一輪
+    if (!main || !main.length) { DG_CCT_DIRECT_MAIN = 0; dgClearCharts123(DG_MAIN_CHARTS); dgClearChartTable(); return; }
+    /* ─── v1.23.0：沒有色度可算的那幾階，改用檔內量到的色溫 ────────────────
+       🔴 **只有在這一階算不出色度色溫時才用**（`!dgIsNum(x) || !dgIsNum(y)`）。
+          有 x／y 的來源一律不設 T，走的還是 dgCurveOf() 裡原本那條 dgCCT(x, y)，
+          與 v1.22.3 **逐值相同** —— 一般量測檔的 Rawdata 本來就帶著一欄 T
+          （dgParseOpticalA/B 的 `h.T`），若無條件優先用它，圖三會從「x／y 算的」
+          悄悄換成「檔案寫的」，那是動到了原本那條路。 */
+    var Td = dgLastGrayTdirect;
+    var nDirect = 0;
+    var mainC = dgCurveOf(main.map(function (v, i) {
+      var row = { g: i, x: v[0], y: v[1], Y: v[2] };
+      if (!(dgIsNum(v[0]) && dgIsNum(v[1])) && Td && dgIsNum(Td[i])) { row.T = Td[i]; nDirect++; }
+      return row;
+    }));
+    DG_CCT_DIRECT_MAIN = nDirect;
     // v1.20.0：第 2 部分這一條也是量測資料，同樣要有資料點（不只做 Bruce 點名的比較分頁）。
     // 它只有一條，取形狀表的第一個（圓）—— 與 v1.19.0 放大時畫的圓點一致。
     if (!dgDrawTriple(DG_MAIN_CHARTS, [{ curve: mainC, color: '#38bdf8', w: 2, name: '實測', mark: dgMarkShape(0) }])) return;
@@ -6816,7 +6863,10 @@
       '<div class="dg-note">'
       + '已帶入第 2 部分：<b>' + dgXe(srcLabel) + '</b>，<b>' + n + ' 階</b>'
       + '（L' + g0 + ' ～ L' + gN + '）。'
-      + '<br><br>這份資料<b>只有亮度、沒有色度 x／y</b> ⇒ 本次<b>強制只調 Gamma、不調色溫</b>，'
+      /* v1.23.0：原本寫「只有亮度」。光學確認檔**還有一欄量測色溫**（v1.23.0 起圖三
+         會把它畫出來），再說「只有亮度」就是在畫面上講一句假話。判準沒有變：
+         擋的是**沒有色度 x／y**，不是「除了亮度什麼都沒有」。 */
+      + '<br><br>這份資料<b>沒有色度 x／y</b> ⇒ 本次<b>強制只調 Gamma、不調色溫</b>，'
       + '算出來的 LUT <b>R、G、B 三個通道會是同一組值</b>。'
       + '<br><br>⚠ 第 1 部分那張 LUT 若原本<b>三通道不一樣</b>（上一輪調過色溫），'
       + '這一輪會把 R、B 拉成跟 G 一樣，<b>等於放棄上一輪的色溫調校</b>。'
@@ -6840,7 +6890,14 @@
     if (!dgSdUserSet && opt.rows.length >= 1024) $('dg-sd').value = '10';
     dgRefreshReady();
     // 還沒算過也要看得到曲線 —— 光學確認本來就該在按計算之前先看一眼
-    dgDrawCharts(opt.rows.map(function (r) { return [r.x, r.y, r.Y]; }));
+    /* v1.23.0：第二個引數＝**檔案裡直接量到的色溫**，與第一個引數同索引。
+       這一份資料本來就在 opt.rows[].T 裡（上面那幾行已經把它寫進輸入框的第 5 欄了），
+       只是 v1.22.3 以前在這裡被丟掉，圖三因此拿不到 —— 那正是「匯入光學確認檔後
+       第 2 部分圖三是空的」的成因。缺值推 null，不頂替。 */
+    dgDrawCharts(
+      opt.rows.map(function (r) { return [r.x, r.y, r.Y]; }),
+      opt.rows.map(function (r) { return dgIsNum(r.T) ? r.T : null; })
+    );
   }
 
   /* ─── v1.10.0：即時量測分頁回傳的逐階資料 ──────────────────────────────
@@ -7076,7 +7133,10 @@
       dgSyncOutCard();                  // v1.14.0：有結果了，輸出卡片這時才出現
       dgRenderOutFmt();
       dgFillLutTable(dgOutLutBody());   // v1.7.0：表格只給主表，且套用輸出深度
-      dgDrawCharts(data.grayxyY);
+      /* v1.23.0：算完重畫時同樣把檔內色溫帶過去。data.grayT 的第一順位就是輸入框
+         第 5 欄（dgGatherData），也就是匯入時寫進去的那一欄；沒有色度的來源就靠它。
+         有 x／y 的來源這一份不會被用到（dgRenderMainCharts 的條件），逐值不變。 */
+      dgDrawCharts(data.grayxyY, data.grayT);
       dgDrawLutChart(res.lut, cfg.hw, cfg.sd);
       dgSetStatus('dg-status',
         '計算完成。\n主表 ' + cfg.N + ' 筆（索引 0 ～ ' + (cfg.N - 1) + '）＋ 附加末筆 1 筆，內部共 ' + res.lut.length + ' 筆\n'
@@ -7665,6 +7725,17 @@
       return c.series.map(function (s) {
         return { name: s.name, color: s.color, dash: s.dash || null, w: s.w || null, n: s.y ? s.y.length : 0, y0: s.y ? s.y[0] : null };
       });
+    },
+    /* v1.23.0 驗證用（唯讀副本）：某一條數列的完整 y 值。
+       chartSeries 只給長度與首值，而「圖三畫的色溫與檔案裡那一欄逐值相符」
+       要比的是整條 256 個值。 */
+    chartSeriesY: function (id, name) {
+      var c = DG_CHART_LAST[id];
+      if (!c) return null;
+      for (var i = 0; i < c.series.length; i++) {
+        if (c.series[i].name === name) return (c.series[i].y || []).slice();
+      }
+      return null;
     },
     chartOpt: function (id) {
       var c = DG_CHART_LAST[id];
