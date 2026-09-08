@@ -413,9 +413,19 @@
   }
   .dg-part.ready   { border-color: #0d9488; }
   .dg-part.missing { border-color: #7f1d1d; }
-  /* v1.17.0：只調 Gamma 模式下的第 3 部分 —— 本次用不到，灰掉但不隱藏整塊
-     （設定鈕要留著，使用者才能改回「也調色溫」）。 */
+  /* v1.17.0：只調 Gamma 模式下的第 3 部分 —— 本次用不到，灰掉。
+     v1.23.1 起整塊隱藏（.dg-part-off），這條配色只在極短的過渡狀態看得到，
+     保留是因為 `na` 這個狀態語意（徽章、外框）與「藏不藏」是兩件事。 */
   .dg-part.na      { border-color: #334155; opacity: .6; }
+  /* ─── v1.23.1：只調 Gamma 模式下第 3 部分整塊不顯示 ──────────────────────
+     Bruce 2026-09-08：「沒有 XYZ 就調不了色溫，調不了色溫留著第 3 部分沒有意義；
+     要調色溫的入口在第 2 部分（重新匯入有 x／y 的檔或即時量測），第 3 部分自然
+     會回來。」⇒ 留在畫面上只是噪音。
+     🔴 只藏不清：DOM 節點、輸入框內容、DG_SRC 來源全部原封不動，切回「也調色溫」
+        時由 dgRefreshReady() 照常重算徽章與來源行，內容逐字元回來。
+     🔴 用 display:none 而不是 visibility/opacity —— `.dg-part` 有 margin-top:12px，
+        只有 display:none 會連同外距一起收掉，不會留下空白帶。 */
+  .dg-part.dg-part-off { display: none; }
   .dg-part-head {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     padding: 8px 10px; background: #14243c; border-bottom: 1px solid #334155;
@@ -1035,6 +1045,10 @@
           <!-- v1.22.0：文字改由 dgPrimNaSync() 依**進到只調 Gamma 的原因**產生。
                原本寫死「第 1 部分選了…」，但 v1.22.0 起還有第二種原因（第 2 部分的資料
                沒有色度 x／y ⇒ 強制），那時候使用者根本沒有選過，寫死的那句是假的。 -->
+          <!-- 🔴 v1.23.1 起這一塊在畫面上**看不到**：只調 Gamma 模式下整張卡片
+               （#dg-part-prim）已由 `.dg-part-off` 收起，這個框只會出現在被收起的
+               卡片裡面。刻意不移除 —— na 狀態機（徽章／來源行／不進 missing）原封不動
+               是本次的硬性要求，把它拆掉就動到了「既有行為」。 -->
           <div class="dg-note dg-part-na-note" id="dg-prim-na" style="display:none"></div>
           <div id="dg-prim-tablewrap" style="display:none">
             <div class="dg-prim-modenote" id="dg-prim-modenote"></div>
@@ -1595,7 +1609,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1230"></script>
+<script src="common/version.js?v=20260908dg1231"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -6639,7 +6653,11 @@
     var missing = [];
     /* v1.17.0：只調 Gamma 模式下第 3 部分本次用不到 —— 標成「本次不需要」、灰掉、
        表格收起來，而且**不進 missing**（Bruce：「不可以擋住計算」）。
-       🔴 資料不清掉：使用者切回「也調色溫」時要原封不動回來。 */
+       v1.23.1：改成**整塊不顯示**（`.dg-part-off`）。灰掉的卡片還在畫面上，等於留一塊
+       這一輪碰不得也用不到的噪音；要調色溫的入口在第 2 部分（換一份有 x／y 的資料
+       或即時量測），不在這裡，所以藏起來不會讓任何人找不到路。
+       🔴 資料不清掉：使用者切回「也調色溫」時要原封不動回來。徽章與來源行照樣在
+          下面那個迴圈重算，藏起來的期間狀態機一個字都沒少。 */
     var na = (dgToneMode() === 'gamma') ? 'prim' : null;
     var naBox = $('dg-prim-na');
     dgPrimNaSync();          // v1.22.0：文字要跟「為什麼進到這個模式」一致
@@ -6648,11 +6666,13 @@
       var m = DG_PART_META[p], ok = dgPartFilled(p), b = dgPartBadgeInfo(p);
       var card = $(m.card), badge = $(m.badge), src = $(m.src);
       if (p === na) {
-        if (card) card.className = 'dg-part na';
+        // v1.23.1：`dg-part-off` 讓整張卡片不顯示；`na` 的狀態語意保留不動
+        if (card) card.className = 'dg-part na dg-part-off';
         if (badge) { badge.className = 'dg-badge na'; badge.textContent = '本次不需要'; }
         if (src) { src.innerHTML = b.src; src.style.display = b.src ? '' : 'none'; }
         return;   // 不進 missing
       }
+      // 🔴 這一行同時把 `dg-part-off` 拿掉 ＝ 切回「也調色溫」時卡片自己回來
       if (card) card.className = 'dg-part ' + (ok ? 'ready' : 'missing');
       if (badge) { badge.className = 'dg-badge ' + b.cls; badge.textContent = b.text; }
       if (src) { src.innerHTML = b.src; src.style.display = b.src ? '' : 'none'; }
@@ -6871,6 +6891,8 @@
       + '<br><br>⚠ 第 1 部分那張 LUT 若原本<b>三通道不一樣</b>（上一輪調過色溫），'
       + '這一輪會把 R、B 拉成跟 G 一樣，<b>等於放棄上一輪的色溫調校</b>。'
       + '<br>要保住色溫：第 2 部分改用有 x／y 的量測檔（<span class="dg-fname">RaydiumGamma_…</span>）或「即時量測」。'
+      /* v1.23.1：只補這一句，不解釋為什麼（Bruce：「做什麼要留、為什麼不用解釋」）。 */
+      + '<br><br><b>第 3 部分</b>這輪用不到，已收起。'
       + '</div>');
   }
 
