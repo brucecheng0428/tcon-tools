@@ -512,13 +512,26 @@
   .dg-slot-show input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
   .dg-slot-show span { font-size: 10.5px; color: var(--text-sub); text-transform: none; }
   .dg-slot-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-  /* 名稱：可編輯（抄波形工具那一頁的通道名） */
-  .dg-slot-name[contenteditable] {
-    font-size: 13px; font-weight: 600; color: var(--text); outline: none; cursor: text;
-    text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    user-select: text; -webkit-user-select: text; border-radius: 3px; padding: 0 2px;
+  /* ─── v1.18.0：拖曳排序＋名稱輸入框，逐條照抄波形工具的輸出通道列 ────────────
+     來源：wfg.html 的 `.wfg-ch-row` / `.wfg-drag-handle` / `.wfg-ch-name`
+     （CSS 在 wfg.html:1709-1717，行為在 wfgAttachChannelDragHandlers()）。
+     只換前綴與寬度，把手符號、拖放指示線的顏色與粗細、拖曳中的 opacity 全部沿用，
+     使用者在兩個分頁看到的是同一套東西。 */
+  .dg-slot-row.dg-slot-drag-above { box-shadow: inset 0 2px 0 0 #f97316; }
+  .dg-slot-row.dg-slot-drag-below { box-shadow: inset 0 -2px 0 0 #f97316; }
+  .dg-slot-row.dg-slot-dragging { opacity: 0.4; }
+  .dg-slot-drag {
+    flex: 0 0 auto; cursor: grab; color: #64748b; font-size: 14px; padding: 0 2px;
+    user-select: none; -webkit-user-select: none; touch-action: none;
   }
-  .dg-slot-name[contenteditable]:focus { background: #111827; color: #fff; box-shadow: inset 0 -1px #9ca3af; }
+  .dg-slot-drag:active { cursor: grabbing; }
+  /* 名稱：文字輸入框（與波形工具的通道名同一種控制項；原本是 contenteditable） */
+  .dg-slot-name {
+    width: 100%; min-width: 0; box-sizing: border-box;
+    font-size: 12.5px; font-weight: 600; color: #e2e8f0; text-transform: none;
+    background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 3px 5px;
+  }
+  .dg-slot-name:focus { outline: none; border-color: var(--primary); background: #111827; color: #fff; }
   /* 原始檔名：只讀，不可編輯 —— 這一欄是追溯用的，改掉就失去意義 */
   .dg-slot-file {
     font-size: 10.5px; color: #64748b; text-transform: none;
@@ -531,6 +544,22 @@
   }
   .dg-slot-del:active { background: #7f1d1d; color: #fca5a5; }
   .dg-slot-empty { padding: 14px 10px; font-size: 11.5px; color: var(--text-sub); line-height: 1.6; text-transform: none; }
+  /* v1.18.0：「從光學資料比較挑一組灌回第 2 部分」那一層的清單。一列一組，整列可按。 */
+  .dg-pick-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .dg-pick-row {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 9px 10px; background: #0f172a; border: none; border-bottom: 1px solid var(--border);
+    color: var(--text); font: inherit; cursor: pointer;
+  }
+  .dg-pick-row:last-child { border-bottom: none; }
+  .dg-pick-row:hover { background: #16233b; }
+  .dg-pick-no {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; color: #0b1220;
+    font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+  }
+  .dg-pick-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .dg-pick-name { font-size: 13px; font-weight: 600; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dg-pick-sub { font-size: 10.5px; color: #64748b; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* 圖例裡的光學組區塊：用 contents 讓內部的 span 直接參與外層 flex 排版 */
   .dg-legend-slots { display: contents; }
 
@@ -1274,9 +1303,12 @@
     <div class="card-body">
       <div class="dg-info-src" id="dg-info-slots">
       <div class="dg-note">
-        在「Digital Gamma 校正」分頁每匯入一份<b>白灰階量測檔</b>就自動存成一組，最多 10 組。
+        最多 10 組，來源有三種：本卡片的<b>「＋ 新增一組」</b>（讀檔匯入／當場即時量測）、
+        在「Digital Gamma 校正」分頁第 2 部分按<b>「轉出到光學資料比較」</b>、
+        以及在該分頁匯入白灰階量測檔時<b>自動存成一組</b>。
         勾選「顯示」的組會疊到<b>本分頁下方的圖一、圖二、圖三</b>上一起比較。
-        <b>名稱可以直接點下去改</b>；下面那行是匯入時的原始 Excel 檔名，固定不可改 —— 這一欄是日後追溯用的。<br>
+        <b>名稱可以直接點下去改</b>，<b>左邊的 ⠿ 可以拖曳調整順序</b>（與波形工具的輸出通道同一套操作）；
+        下面那行是這一組的來源，固定不可改 —— 這一欄是日後追溯用的。<br>
         <b>⚠ 這些組只拿來看，不參與計算。</b>「開始計算新的 RGB LUT」永遠只吃校正分頁第 1、2、3 部分那一份資料，
         載入幾組、勾選幾組都不會改變計算結果。
         <br>v1.8.0 起，會存成組的<b>只有第 2 部分匯入的白灰階量測檔</b> —— CCT 檔在本頁只提供三個純色端點，
@@ -1284,9 +1316,14 @@
         <br>v1.9.0 起，多組比較只在本分頁；校正分頁的圖表只畫當下那一輪，兩邊不再互相蓋。
       </div>
       </div>
+      <!-- v1.18.0：本分頁自己的檔案輸入。**刻意與第 2 部分那個 #dg-file-lut 分開** ——
+           那一個的 change 綁的是 dgImportFile()，會寫進第 1／2／3 部分；本分頁的匯入
+           只加一組、不碰計算資料，共用同一個 input 會讓兩條路互相污染。 -->
+      <input type="file" id="dg-file-slot" accept=".xlsx" style="display:none">
       <div class="dg-slot-list" id="dg-slot-list"></div>
       <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
+        <button class="dg-btn primary" id="dg-btn-slot-new">＋ 新增一組</button>
+        <button class="dg-btn" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
         <button class="dg-btn" id="dg-btn-slot-clear">清空全部</button>
       </div>
       <div class="dg-info-src" id="dg-info-slots2">
@@ -1538,6 +1575,97 @@
             <button class="dg-btn" id="dg-btn-gray-manual">手動貼上／填寫</button>
           </div>
         </div>
+        <!-- ══ v1.18.0：第 2 部分 ⇄ 光學資料比較，雙向 ═════════════════════════════
+             Bruce 2026-09-08：「兩邊互為輸入輸出。第 2 部分的設定入口，選項要包含
+             『從光學資料比較匯入』」＋「在第 2 部分的卡片上……提供一個『轉出到光學資料
+             比較分頁』的入口」。
+             🔴 兩個入口都收進這個既有視窗，第 2 部分卡片上**不多加任何按鈕** ——
+                極簡原則是「要選擇時跳浮動視窗，不要一排按鈕」，而這顆「② 設定白灰階亮度」
+                本來就是第 2 部分所有資料來源的唯一入口，多出來的兩條路屬於同一件事。
+             🔴 兩個區塊都是**條件顯示**（dgGraySyncModalOpts()）：
+                · 沒有任何光學量測組 ⇒ 不顯示「從光學資料比較拿一組」
+                · 第 2 部分手上沒有資料 ⇒ 不顯示「轉出到光學資料比較」
+                沒有東西可選就不要給選項，這是本頁「沒資料不顯示」的同一條規則。 -->
+        <div class="dg-lut-opt" id="dg-gray-opt-fromslot" style="display:none">
+          <div class="dg-lut-opt-title"><b>已經在「光學資料比較」裡了</b> —— 挑一組拿回來算</div>
+          <div class="dg-note">
+            把該組逐階的 <b>x</b>、<b>y</b>、<b>Y</b> 灌回第 2 部分當本輪的計算輸入。
+            <b>目標白點</b>取該組最高階那一列（與即時量測那條路同一個規則）。
+            <br>🔴 這會<b>覆蓋</b>第 2 部分目前的資料；那一組本身留在比較分頁不動。
+          </div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-gray-fromslot">從光學資料比較挑一組</button>
+          </div>
+        </div>
+        <div class="dg-lut-opt" id="dg-gray-opt-toslot" style="display:none">
+          <div class="dg-lut-opt-title"><b>手上這一份要留著比較</b> —— 轉出成一組</div>
+          <div class="dg-note">
+            把第 2 部分現在這一份白灰階存成「光學資料比較」的一組。
+            <b>即時量測</b>與<b>手動貼上</b>的結果也走這條路（它們不經過檔案，不會自己存成組）。
+            <br>第 2 部分的資料原封不動，計算結果不受影響。
+          </div>
+          <div class="dg-btnrow">
+            <button class="dg-btn" id="dg-btn-gray-toslot">轉出到光學資料比較</button>
+          </div>
+        </div>
+      </div>
+      <!-- 第二層：挑一組。用的是 v1.14.0 就預留好的 .dg-lut-step 多步機制，不另開視窗。 -->
+      <div class="dg-lut-step" data-step="pick" data-title="從光學資料比較挑一組 — 灌回第 2 部分" style="display:none">
+        <div class="dg-note">
+          點下去就會<b>覆蓋</b>第 2 部分現在的白灰階與目標白點。那一組本身留在比較分頁，不會被移走。
+        </div>
+        <div class="dg-pick-list" id="dg-gray-pick-list"></div>
+        <div class="dg-btnrow">
+          <button class="dg-btn dg-btn-clr" id="dg-btn-gray-pick-back">← 回上一層</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ v1.18.0：光學資料比較分頁「＋ 新增一組」的二選一浮動視窗 ═══════════════
+     Bruce 2026-09-08：「比較分頁的資料則有三種來源：直接讀檔匯入、從第 2 部分轉出、
+     在比較分頁直接即時量測。」第三種（從第 2 部分轉出）的入口長在第 2 部分那邊，
+     所以本視窗只有兩個選項。
+     🔴 這兩條路**都只加一組**，不寫第 1／2／3 部分任何一個輸入框 ——
+        「不會有人在比較分頁匯個檔就把計算資料被偷偷換掉」（Bruce 明示）。
+        要灌回第 2 部分一律走第 2 部分那個視窗裡的「從光學資料比較挑一組」。
+     🔴 即時量測**沿用第 2 部分同一套**：同一個 dg-measure.html、同一個 postMessage
+        協議（`dg-measure-result`）、同一支 window.open 包裝。差別只有一個變數
+        DG_LIVE_DEST 記著「這一次是誰按的」，量測頁那一端一個字都沒改。 -->
+<div class="dg-modal" id="dg-modal-slot">
+  <div class="dg-modal-box">
+    <div class="dg-modal-bar">
+      <span class="dg-modal-title" id="dg-modal-slot-title">新增一組光學量測</span>
+      <button class="dg-modal-close" id="dg-modal-slot-close">關閉</button>
+    </div>
+    <div class="dg-modal-body">
+      <div class="dg-lut-step" data-step="path" data-title="新增一組光學量測 — 這一組從哪來？">
+        <div class="dg-note">
+          這裡加進來的組<b>只拿來比較，不參與計算</b>。第 1、2、3 部分完全不會被動到。
+        </div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>已經量好了</b>，匯入量測檔</div>
+          <div class="dg-note">
+            量測軟體存出來的白灰階檔（檔名長 <span class="dg-fname">RaydiumGamma_…</span>）。
+            <br>🔴 <b>CCT 檔不收</b> —— 它那份 Rawdata 是產生該檔那張 LUT <b>之前</b>的舊量測，
+            與其他組不是同一個基準，疊在一起比會得到錯的結論（判準與第 2 部分同一條）。
+          </div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-slot-imp">匯入光學量測檔（.xlsx）</button>
+          </div>
+        </div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>現在當場量</b>（即時量測）</div>
+          <div class="dg-note">
+            另開一個量測分頁，把它拖到要量的那台螢幕、按那一頁的「全螢幕」，
+            探頭對準中央紅圈，按「開始量測」就會逐階掃 L0 ～ L255。
+            量完<b>直接成為新的一組</b>，不會動到第 2 部分。
+          </div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-live" id="dg-btn-slot-live">即時量測</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1645,7 +1773,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1170"></script>
+<script src="common/version.js?v=20260908dg1180"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4123,27 +4251,162 @@
     if (ae && ae.getAttribute && ae.getAttribute('data-dg-slot') != null && host.contains(ae)) { dgSlotStatus(); return; }
     if (!DG_SLOTS.length) {
       host.innerHTML = '<div class="dg-slot-empty">還沒有任何光學量測組。'
-        + '到<b>「Digital Gamma 校正」分頁</b>按第 2 部分的<b>「② 設定白灰階亮度」</b>\u2192 選「匯入量測檔」，'
-        + '匯進來的那一份就會自動存成第 1 組。</div>';
+        + '按下面的<b>「＋ 新增一組」</b>讀檔匯入或當場即時量測；'
+        + '也可以到<b>「Digital Gamma 校正」分頁</b>第 2 部分按<b>「轉出到光學資料比較」</b>。</div>';
       dgSlotStatus();
       return;
     }
     var h = '';
     for (var i = 0; i < DG_SLOTS.length; i++) {
       var s = DG_SLOTS[i];
-      h += '<div class="dg-slot-row" data-dg-slot-row="' + i + '">'
+      /* v1.18.0：把手與名稱輸入框照抄 wfg.html:35189-35205 的 `.wfg-ch-row`
+         （\u2833 把手 ＋ `<input class="wfg-ch-name">`）。名稱由 contenteditable 換成
+         input：**互動不變**（點一下就能打字、Enter 或移開焦點就生效），換的是控制項
+         種類，為的是與波形工具那一頁完全一致。 */
+      h += '<div class="dg-slot-row" data-dg-slot-row="' + i + '" draggable="true">'
+        + '<span class="dg-slot-drag" data-dg-slot-drag="' + i + '" title="拖曳調整順序">\u2833</span>'
         + '<span class="dg-slot-no" style="background:' + dgSlotColor(i) + '">' + (i + 1) + '</span>'
         + '<label class="dg-slot-show"><input type="checkbox" data-dg-slot-cb="' + i + '"' + (s.show ? ' checked' : '') + '><span>顯示</span></label>'
         + '<span class="dg-slot-main">'
-        + '<span class="dg-slot-name" contenteditable="true" spellcheck="false" data-dg-slot="' + i + '">' + dgXe(dgSlotDisplayName(i)) + '</span>'
-        + '<span class="dg-slot-file" title="' + dgXe(s.file || '（無檔名）') + '">' + dgXe(s.file || '（無檔名）') + '</span>'
+        + '<input class="dg-slot-name" type="text" spellcheck="false" data-dg-slot="' + i + '" value="' + dgXe(dgSlotDisplayName(i)) + '">'
+        + '<span class="dg-slot-file" title="' + dgXe(s.file || '（無來源）') + '">' + dgXe(s.file || '（無來源）') + '</span>'
         + '</span>'
         + '<span class="dg-slot-n">' + s.rows.length + ' 階</span>'
-        + '<button type="button" class="dg-slot-del" data-dg-slot-del="' + i + '" title="刪除這一組">✕</button>'
+        + '<button type="button" class="dg-slot-del" data-dg-slot-del="' + i + '" title="刪除這一組">\u2715</button>'
         + '</div>';
     }
     host.innerHTML = h;
+    dgSlotAttachDrag(host);
     dgSlotStatus();
+  }
+
+  /* \u2500\u2500\u2500 v1.18.0：拖曳排序 \u2500\u2500\u2500\u2500
+     實作逐條照抄 wfg.html 的 wfgAttachChannelDragHandlers()（wfg.html:35262-35363）
+     與 wfgMoveChannel()（wfg.html:35365-35379）：桌機用 HTML5 DnD、手機用 touch ＋
+     ghost 節點，插入位置一律由「游標在該列上半還是下半」決定。只換前綴與要重畫的東西。
+
+     🔴 顏色跟著**編號**走，不跟著資料走（dgSlotColor(i) 吃的是索引）—— 這是 v1.4.3
+        以來的既有設計：刪掉中間一組時後面遞補也是同樣的行為，而且匯出的 xlsx 用的是
+        同一支函式，畫面與檔案不會分岔。拖曳之後「第 3 組」仍然是第 3 個顏色。 */
+  var DG_SLOT_DRAG_FROM = -1;
+  function dgSlotDragClear(host) {
+    Array.prototype.forEach.call(
+      host.querySelectorAll('.dg-slot-drag-above,.dg-slot-drag-below'), function (el) {
+        el.classList.remove('dg-slot-drag-above', 'dg-slot-drag-below');
+      });
+  }
+  function dgSlotDragMark(row, clientY) {
+    row.classList.remove('dg-slot-drag-above', 'dg-slot-drag-below');
+    var rect = row.getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) row.classList.add('dg-slot-drag-above');
+    else row.classList.add('dg-slot-drag-below');
+  }
+  function dgSlotAttachDrag(host) {
+    Array.prototype.forEach.call(host.querySelectorAll('.dg-slot-row'), function (row) {
+      var handle = row.querySelector('.dg-slot-drag');
+
+      row.addEventListener('dragstart', function (e) {
+        DG_SLOT_DRAG_FROM = parseInt(row.getAttribute('data-dg-slot-row'), 10);
+        row.classList.add('dg-slot-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(DG_SLOT_DRAG_FROM));
+      });
+      row.addEventListener('dragend', function () {
+        row.classList.remove('dg-slot-dragging');
+        DG_SLOT_DRAG_FROM = -1;
+        dgSlotDragClear(host);
+      });
+      row.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        dgSlotDragMark(row, e.clientY);
+      });
+      row.addEventListener('dragleave', function () {
+        row.classList.remove('dg-slot-drag-above', 'dg-slot-drag-below');
+      });
+      row.addEventListener('drop', function (e) {
+        e.preventDefault();
+        row.classList.remove('dg-slot-drag-above', 'dg-slot-drag-below');
+        var from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        var to = parseInt(row.getAttribute('data-dg-slot-row'), 10);
+        if (isNaN(from) || isNaN(to) || from === to) return;
+        var rect = row.getBoundingClientRect();
+        dgSlotMove(from, to, e.clientY < rect.top + rect.height / 2);
+      });
+
+      if (!handle) return;
+      handle.addEventListener('touchstart', function (e) {
+        e.preventDefault();
+        DG_SLOT_DRAG_FROM = parseInt(row.getAttribute('data-dg-slot-row'), 10);
+        row.classList.add('dg-slot-dragging');
+        var tc = e.touches[0];
+        var clone = row.cloneNode(true);
+        clone.id = 'dg-slot-drag-ghost';
+        clone.style.cssText = 'position:fixed;left:0;top:0;width:' + row.offsetWidth
+          + 'px;opacity:0.7;pointer-events:none;z-index:9999;background:#1e293b;'
+          + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);';
+        clone.style.transform = 'translate(' + tc.clientX + 'px,' + (tc.clientY - 20) + 'px)';
+        document.body.appendChild(clone);
+
+        function rowAt(x, y) {
+          var el = document.elementFromPoint(x, y);
+          return (el && el.closest) ? el.closest('.dg-slot-row') : null;
+        }
+        function onMove(e2) {
+          var t2 = e2.touches[0];
+          clone.style.transform = 'translate(' + t2.clientX + 'px,' + (t2.clientY - 20) + 'px)';
+          dgSlotDragClear(host);
+          var tr = rowAt(t2.clientX, t2.clientY);
+          if (tr && tr.getAttribute('data-dg-slot-row') != null) dgSlotDragMark(tr, t2.clientY);
+        }
+        function onEnd(e2) {
+          document.removeEventListener('touchmove', onMove);
+          document.removeEventListener('touchend', onEnd);
+          var g = document.getElementById('dg-slot-drag-ghost');
+          if (g) g.remove();
+          row.classList.remove('dg-slot-dragging');
+          dgSlotDragClear(host);
+          var t2 = e2.changedTouches[0];
+          var tr = rowAt(t2.clientX, t2.clientY);
+          if (tr && tr.getAttribute('data-dg-slot-row') != null) {
+            var to = parseInt(tr.getAttribute('data-dg-slot-row'), 10);
+            var from = DG_SLOT_DRAG_FROM;
+            if (!isNaN(from) && !isNaN(to) && from !== to) {
+              var rect = tr.getBoundingClientRect();
+              dgSlotMove(from, to, t2.clientY < rect.top + rect.height / 2);
+            }
+          }
+          DG_SLOT_DRAG_FROM = -1;
+        }
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onEnd);
+      }, { passive: false });
+    });
+  }
+
+  // 搬移演算法與 wfgMoveChannel() 逐行相同（splice 出來之後 toIdx 要不要退一格）。
+  function dgSlotMove(fromIdx, toIdx, insertBefore) {
+    if (fromIdx < 0 || fromIdx >= DG_SLOTS.length) return;
+    if (toIdx < 0 || toIdx >= DG_SLOTS.length) return;
+    /* 🔴 dgSlotRender() 開頭有一道「正在編輯名稱就不要重建」的守衛（v1.4.3，防止打字打到
+       一半 innerHTML 重建把游標與未提交的字洗掉）。它判的是 document.activeElement ——
+       焦點還在某個名稱輸入框時，**這裡的重畫會被整個吞掉**：資料換了順序、圖例也換了，
+       畫面上那份清單卻停在舊順序。
+       實機拖曳時 mousedown 會先讓輸入框失焦，所以正常操作碰不到；但「碰不到」不等於
+       「不存在」（v1.18.0 的自動化實測就踩到了，圖例已更新、清單沒更新）。
+       重新排序不是打字，先主動收掉焦點再重畫 —— 守衛的用意（保護正在輸入的內容）不受影響，
+       因為 focusout 會先把當下那格的名稱正規化入庫。 */
+    var ae = document.activeElement;
+    if (ae && ae.getAttribute && ae.getAttribute('data-dg-slot') != null && ae.blur) ae.blur();
+    var item = DG_SLOTS.splice(fromIdx, 1)[0];
+    var at = toIdx;
+    if (fromIdx < toIdx) at--;
+    if (!insertBefore) at++;
+    if (at < 0) at = 0;
+    if (at > DG_SLOTS.length) at = DG_SLOTS.length;
+    DG_SLOTS.splice(at, 0, item);
+    dgSlotRender();
+    dgRenderCharts();
   }
 
   // 圖例：三張圖各自在既有圖例後面接上目前顯示中的組
@@ -4161,6 +4424,12 @@
        input    ── 邊打邊同步進資料，但不重建自己的 DOM（重建就會失焦）
        focusout ── 正規化後入庫、重建清單、重畫圖
        keydown  ── Enter 收工（preventDefault 擋掉換行，然後 blur） */
+  /* v1.18.0：名稱控制項由 contenteditable 換成 `<input>`（照 wfg 的通道名），
+     取值的屬性跟著換。抽成一支是為了不要在兩個監聽器裡各寫一次判斷。 */
+  function dgSlotNameOf(el) {
+    return (el && typeof el.value === 'string') ? el.value : (el ? el.textContent : '');
+  }
+
   function dgSlotBind() {
     var host = $('dg-slot-list');
     if (!host || host._dgSlotBound) return;
@@ -4171,7 +4440,7 @@
       if (!el) return;
       var i = Number(el.getAttribute('data-dg-slot'));
       if (!isFinite(i) || !DG_SLOTS[i]) return;
-      DG_SLOTS[i].name = el.textContent;
+      DG_SLOTS[i].name = dgSlotNameOf(el);
       dgRenderCharts();
     });
     host.addEventListener('focusout', function (e) {
@@ -4179,7 +4448,18 @@
       if (!el) return;
       var i = Number(el.getAttribute('data-dg-slot'));
       if (!isFinite(i) || !DG_SLOTS[i]) return;
-      dgSlotStoreName(i, el.textContent);
+      var prev = DG_SLOTS[i].name;
+      dgSlotStoreName(i, dgSlotNameOf(el));
+      /* 🔴 v1.18.0：名字**沒有真的變**就不要重建整份清單。
+         focusout 最常見的觸發不是「改完名字」，而是「使用者去點別的東西」——
+         其中一個就是拖曳把手：mousedown 會先讓輸入框失焦，如果這裡無條件
+         innerHTML 重建，剛剛按下去的那一列會在 dragstart 之前就被換成新節點，
+         整個拖曳手勢等於落在一個已經脫離文件的元素上。
+         判準是「正規化後的值」與「畫面上顯示的值」都沒變 —— 兩者都沒變就沒有東西要重畫。 */
+      if (DG_SLOTS[i].name === prev && dgSlotNameOf(el) === dgSlotDisplayName(i)) {
+        dgSlotStatus();
+        return;
+      }
       dgSlotRender();
       dgRenderCharts();
     });
@@ -4245,6 +4525,221 @@
     DG_SLOTS.length = 0;
     dgSlotRender();
     dgRenderCharts();
+  }
+
+  /* \u2550\u2550\u2550 v1.18.0：光學量測組的三個新來源 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+     Bruce 2026-09-08：「比較分頁的資料有三種來源：直接讀檔匯入、從第 2 部分轉出、
+     在比較分頁直接即時量測」＋「第 2 部分的設定入口，選項要包含『從光學資料比較匯入』」。
+
+     🔴 方向是明確分開的，這是 Bruce 的定調，不是我推的：
+        · 比較分頁的**讀檔匯入**與**即時量測**：只加組，**一個字都不寫進第 1／2／3 部分**。
+          （「不會有人在比較分頁匯個檔就把計算資料被偷偷換掉」）
+        · 要進第 2 部分一律走 dgGrayFromSlot()，由使用者在第 2 部分那個視窗主動挑。
+     🔴 這一整段**沒有碰 dgCompute()**，也沒有碰 dgGatherData()。 */
+
+  /* 第 2 部分現在這一份資料的來源標籤，寫進組的 file 欄（追溯用）。
+     檔案來源就寫檔名（與 v1.4.3 匯入自動存組時完全一樣）；即時量測／手動貼上沒有檔案，
+     寫一段帶括號的描述 —— 括號是刻意的，讓人一眼看出「這一格不是檔名」。 */
+  function dgSlotSourceLabel() {
+    var s = DG_SRC.gray;
+    if (!s) return '（手動輸入）';
+    if (s.kind === 'file') return String(s.name || '');
+    if (s.kind === 'live') return '（即時量測' + (s.name ? ' ' + s.name : '') + '）';
+    if (s.kind === 'sample') return '（內建範例' + (s.name ? ' ' + s.name : '') + '）';
+    if (s.kind === 'slot') return String(s.name || '（光學資料比較）');
+    return '（手動輸入）';
+  }
+
+  /* 兩份逐階資料是不是同一份。用來擋「匯入檔已經自動存成一組，使用者又按一次轉出」
+     這個必然會遇到的重複 —— 不擋的話畫面上會出現兩條完全重疊的曲線。
+     ⚠ 這一條是我自行判斷加的（Bruce 的原話沒有提到），已在回報中點名請覆核。 */
+  function dgSlotSameRows(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].g !== b[i].g || a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].Y !== b[i].Y) return false;
+    }
+    return true;
+  }
+  function dgSlotFindSame(rows) {
+    for (var i = 0; i < DG_SLOTS.length; i++) if (dgSlotSameRows(DG_SLOTS[i].rows, rows)) return i;
+    return -1;
+  }
+  // 「第 3 組」／「第 3 組「量測後」」—— 名稱是預設值時不要疊字
+  function dgSlotRefName(i) {
+    var n = dgSlotDisplayName(i), d = dgSlotDefaultName(i);
+    return (n === d) ? d : (d + '\u300c' + n + '\u300d');
+  }
+
+  /* 把 g／x／y／Y 四欄的純數字列轉成組要用的 rows。第 2 部分的輸入框（不管資料是
+     檔案、即時量測還是手貼進去的）與這裡是同一個格式，所以三條路共用這一支。 */
+  function dgSlotRowsFromText(text) {
+    return dgParseRows(String(text || '')).filter(function (r) {
+      return r.length >= 4 && r.slice(0, 4).every(function (v) { return isFinite(v); });
+    }).map(function (r) {
+      return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3] };
+    }).sort(function (a, b) { return a.g - b.g; });
+  }
+
+  /* \u2500\u2500 來源一：第 2 部分 \u2192 轉出成一組 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+  function dgSlotAddFromPart2() {
+    var rows = dgSlotRowsFromText($('dg-in-gray').value);
+    if (rows.length < 2) {
+      dgSetStatus('dg-status', '第 2 部分現在沒有可以轉出的白灰階資料（至少要 2 階）。', 'err');
+      return 0;
+    }
+    var same = dgSlotFindSame(rows);
+    if (same >= 0) {
+      dgSetStatus('dg-status', '這一份與' + dgSlotRefName(same)
+        + '逐值相同，沒有重複新增。\n到「光學資料比較」分頁就能看到它。', '');
+      return 0;
+    }
+    if (DG_SLOTS.length >= DG_SLOT_MAX) {
+      dgSetStatus('dg-status', '光學量測組已滿 ' + DG_SLOT_MAX + ' 組，沒有轉出。'
+        + '\n到「光學資料比較」分頁刪掉其中一組再試一次。', 'err');
+      return 0;
+    }
+    var no = dgSlotAdd({ rows: rows, hasPrim: false }, dgSlotSourceLabel());
+    dgSetStatus('dg-status', '已把第 2 部分這一份（' + rows.length + ' 階）轉出成「光學資料比較」的第 '
+      + no + ' 組。\n第 2 部分的資料原封不動，計算結果不受影響。'
+      + '\n到「光學資料比較」分頁可以改名、拖曳排序、勾選要不要疊在圖上。', 'ok');
+    return no;
+  }
+
+  /* \u2500\u2500 來源二：比較分頁直接讀檔 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+     判「是不是 CCT 檔」用的是 opt.hasPrim，與 dgImportFile() 分流時**同一個判準**，
+     不另立一套規則。CCT 檔的白灰階在本頁一律不收（v1.8.0 起的既有決定）。 */
+  function dgSlotImportFile(file) {
+    if (!file) return;
+    if (DG_SLOTS.length >= DG_SLOT_MAX) {
+      dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限）。要再加請先刪掉其中一組。', 'err');
+      return;
+    }
+    dgSetStatus('dg-slot-status', '正在讀取 ' + file.name + '\u2026', '');
+    var fr = new FileReader();
+    fr.onerror = function () {
+      dgSetStatus('dg-slot-status', '讀不到這個檔案。請確認檔案沒有被其他程式鎖住。', 'err');
+    };
+    fr.onload = function () {
+      dgUnzip(fr.result).then(function (files) {
+        var opt = null;
+        try { opt = dgParseOptical(dgReadSheets(files)); } catch (e) { opt = null; }
+        if (!opt) throw new Error('這個檔裡沒有認得出來的光學量測資料（要的是逐階的 Gray／x／y／Y）。');
+        if (opt.hasPrim) {
+          throw new Error('這是 CCT 檔（含 R／G／B 純色量測），本分頁不收它的白灰階。\n'
+            + '它那份 Rawdata 是產生該檔那張 LUT「之前」的舊量測，與其他組不是同一個基準，'
+            + '疊在一起比會得到錯的結論。要比較請用白灰階量測檔（RaydiumGamma_\u2026）。');
+        }
+        var rows = opt.rows.map(function (r) { return { g: +r.g, x: +r.x, y: +r.y, Y: +r.Y }; });
+        var same = dgSlotFindSame(rows);
+        if (same >= 0) {
+          dgSetStatus('dg-slot-status', '這一份與' + dgSlotRefName(same)
+            + '逐值相同，沒有重複新增。', '');
+          return;
+        }
+        var no = dgSlotAdd({ rows: opt.rows, hasPrim: false }, file.name);
+        dgSetStatus('dg-slot-status', '已加入第 ' + no + ' 組：' + file.name
+          + '\n' + opt.rows.length + ' 階。**第 1、2、3 部分完全沒有被動到**\u2014\u2014'
+          + '要拿它當計算輸入，請到「Digital Gamma 校正」分頁第 2 部分選「從光學資料比較挑一組」。', 'ok');
+      }).catch(function (err) {
+        dgSetStatus('dg-slot-status', '匯入失敗：' + (err && err.message ? err.message : err), 'err');
+      });
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  /* \u2500\u2500 來源三：比較分頁當場即時量測 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+     rows 的格式與 dgApplyLiveRows() 收到的完全一樣（量測頁只送 g／x／y／Y 四欄），
+     所以過濾與排序照抄那一支，只是終點換成 dgSlotAdd() 而不是第 2 部分的輸入框。 */
+  function dgSlotAddFromLive(rows, at) {
+    var rs = (rows || []).filter(function (r) {
+      return r && r.length >= 4 && [0, 1, 2, 3].every(function (k) { return isFinite(r[k]); });
+    }).map(function (r) {
+      return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3] };
+    }).sort(function (a, b) { return a.g - b.g; });
+
+    if (rs.length < 2) {
+      dgSetStatus('dg-slot-status', '即時量測分頁送回來的資料不足（只有 ' + rs.length + ' 筆有效），沒有加進來。', 'err');
+      return 0;
+    }
+    if (DG_SLOTS.length >= DG_SLOT_MAX) {
+      dgSetStatus('dg-slot-status', '光學量測組已滿 ' + DG_SLOT_MAX + ' 組，這一次量到的沒有存進來。'
+        + '\n先刪掉其中一組再量一次。', 'err');
+      return 0;
+    }
+    var label = '（即時量測' + (at ? ' ' + at : '') + '）';
+    var no = dgSlotAdd({ rows: rs, hasPrim: false }, label);
+    dgSetStatus('dg-slot-status', '即時量測完成，已成為第 ' + no + ' 組：'
+      + rs.length + ' 筆（L' + rs[0].g + ' \uff5e L' + rs[rs.length - 1].g + '）。\n'
+      + '第 1、2、3 部分完全沒有被動到。要拿它當計算輸入，請到「Digital Gamma 校正」分頁'
+      + '第 2 部分選「從光學資料比較挑一組」。\n量測那個分頁可以關掉了。', 'ok');
+    return no;
+  }
+
+  /* \u2500\u2500 反向：挑一組灌回第 2 部分 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+     🔴 目標白點取**最高階那一列**的 x／y／Lv \u2014\u2014 與 dgApplyLiveRows() 完全同一個規則，
+        不另訂一套。組裡沒有存色溫 T（dgSlotAdd 只留 g／x／y／Y），缺第 4 欄時
+        dgGatherData() 本來就會用 dgCCT() 算，與即時量測那條路的處境一模一樣。 */
+  function dgGrayFromSlot(i) {
+    var s = DG_SLOTS[i];
+    if (!s || !s.rows || s.rows.length < 2) {
+      dgSetStatus('dg-status', '這一組的資料不足（至少要 2 階），沒有帶入。', 'err');
+      return false;
+    }
+    var rows = s.rows.slice().sort(function (a, b) { return a.g - b.g; });
+    var top = rows[rows.length - 1];
+    var label = dgSlotDisplayName(i) + (s.file ? '\uff08' + s.file + '\uff09' : '');
+    dgApplyGray({ rows: rows, white: [top.x, top.y, top.Y] }, label, 'slot');
+
+    var box = $('dg-fmt-box');
+    box.style.display = '';
+    box.className = 'dg-fmt';
+    box.innerHTML = '<b>\u2714 已從「光學資料比較」把第 ' + (i + 1) + ' 組帶入第 2 部分。</b>'
+      + '<br><b>組別</b>：' + dgXe(dgSlotDisplayName(i))
+      + (s.file ? '　<b>來源</b>：' + dgXe(s.file) : '')
+      + '<br><b>白灰階</b>：' + rows.length + ' 筆（L' + rows[0].g + ' \uff5e L' + top.g + '）'
+      + '　<b>目標白點</b>：x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6) + ' Lv=' + top.Y.toFixed(3)
+      + '<br>目標白點取的是這一組最高階那一列（與「即時量測」同一個規則）；'
+      + '色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出。'
+      + '<b>那一組本身留在比較分頁，沒有被移走。</b>';
+
+    var miss = dgMissingParts();
+    dgSetStatus('dg-status', '已從「光學資料比較」帶入第 2 部分：'
+      + dgSlotDisplayName(i) + '，白灰階 ' + rows.length + ' 階（Gray ' + rows[0].g + ' \uff5e ' + top.g + '）'
+      + '＋ 目標白點 x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6) + ' Lv=' + top.Y.toFixed(3) + '。\n'
+      + (miss.length
+        ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
+        : '三份都齊了，下一步：按「計算」。'),
+      miss.length ? '' : 'ok');
+    return true;
+  }
+
+  /* 第 2 部分那個視窗裡兩個新選項的顯示條件（沒有東西可選就不要給選項）。 */
+  function dgGraySyncModalOpts() {
+    var a = $('dg-gray-opt-fromslot');
+    if (a) a.style.display = DG_SLOTS.length ? '' : 'none';
+    var b = $('dg-gray-opt-toslot');
+    if (b) b.style.display = dgPartFilled('gray') ? '' : 'none';
+  }
+
+  /* 第二層「挑一組」的清單。整列可按，資訊與比較分頁那張清單同一組欄位。 */
+  function dgGrayPickRender() {
+    var host = $('dg-gray-pick-list');
+    if (!host) return;
+    if (!DG_SLOTS.length) {
+      host.innerHTML = '<div class="dg-slot-empty">目前沒有任何光學量測組。</div>';
+      return;
+    }
+    var h = '';
+    for (var i = 0; i < DG_SLOTS.length; i++) {
+      var s = DG_SLOTS[i];
+      h += '<button type="button" class="dg-pick-row" data-dg-pick="' + i + '">'
+        + '<span class="dg-pick-no" style="background:' + dgSlotColor(i) + '">' + (i + 1) + '</span>'
+        + '<span class="dg-pick-main">'
+        + '<span class="dg-pick-name">' + dgXe(dgSlotDisplayName(i)) + '</span>'
+        + '<span class="dg-pick-sub">' + dgXe(s.file || '（無來源）') + '　' + s.rows.length + ' 階</span>'
+        + '</span></button>';
+    }
+    host.innerHTML = h;
   }
 
   /* 由一組逐階量測（g、x、y、Y）算出圖一二三要用的四條數列。
@@ -5346,7 +5841,8 @@
       // 說明視窗是另一個外殼，Escape 兩個都要收（開著哪一個就收哪一個）
       // v1.14.0：第 1 部分的二選一視窗是第三個外殼，一併收
       // v1.16.0：第 2、3 部分的設定視窗是第四、第五個外殼，一併收
-      var stepModals = ['dg-modal-lut', 'dg-modal-gray', 'dg-modal-prim'];
+      // v1.18.0：比較分頁的「新增一組」是第六個外殼，一併收
+      var stepModals = ['dg-modal-lut', 'dg-modal-gray', 'dg-modal-prim', 'dg-modal-slot'];
       for (var i = 0; i < stepModals.length; i++) {
         var sm = $(stepModals[i]);
         if (sm && sm.classList.contains('open')) { dgStepModalClose(stepModals[i]); return; }
@@ -5623,6 +6119,13 @@
     }
     if (s.kind === 'sample') {
       return { cls: 'ready', text: '來自內建範例' + ed, src: '來源：內建範例資料（' + dgXe(s.name || '') + '）。' };
+    }
+    /* v1.18.0：從「光學資料比較」挑一組灌回來的。徽章沿用 ready 那一組樣式 ——
+       它跟匯入檔一樣是「有一份確定的資料在這裡」，不是手動輸入也不是即時量測。 */
+    if (s.kind === 'slot') {
+      return { cls: 'ready', text: '來自光學資料比較' + ed,
+        src: '來源：<b>光學資料比較</b>的' + (s.name ? '「' + dgXe(s.name) + '」' : '其中一組')
+          + ' —— 目標白點取該組最高階那一列。那一組本身留在比較分頁，沒有被移走。' };
     }
     /* v1.10.0：即時量測分頁回傳的資料，沒有經過任何檔案。
        v1.12.0：來源與量測時間改成 highlight —— 這一行是 10.5px 的灰字，
@@ -6157,7 +6660,8 @@
   var DG_STEP_MODAL_FALLBACK = {
     'dg-modal-lut': '設定 RGB 的 LUT',
     'dg-modal-gray': '設定白灰階亮度',
-    'dg-modal-prim': '設定 RGB 純色 Pattern'
+    'dg-modal-prim': '設定 RGB 純色 Pattern',
+    'dg-modal-slot': '新增一組光學量測'      // v1.18.0
   };
   function dgStepModalStep(id, step) {
     var shown = null;
@@ -6264,6 +6768,49 @@
       dgSlotClearAll();
     });
     $('dg-btn-slot-xlsx').addEventListener('click', dgSlotExportXlsx);
+
+    /* ─── v1.18.0：比較分頁「＋ 新增一組」與它的二選一視窗 ─────────────────── */
+    $('dg-btn-slot-new').addEventListener('click', function () {
+      if (DG_SLOTS.length >= DG_SLOT_MAX) {
+        dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限）。要再加請先刪掉其中一組。', 'err');
+        return;
+      }
+      dgStepModalOpen('dg-modal-slot', 'path');
+    });
+    $('dg-modal-slot-close').addEventListener('click', function () { dgStepModalClose('dg-modal-slot'); });
+    $('dg-modal-slot').addEventListener('click', function (e) {
+      if (e.target === $('dg-modal-slot')) dgStepModalClose('dg-modal-slot');
+    });
+    $('dg-btn-slot-imp').addEventListener('click', function () {
+      dgStepModalClose('dg-modal-slot');
+      $('dg-file-slot').click();
+    });
+    $('dg-file-slot').addEventListener('change', function (e) {
+      dgSlotImportFile(e.target.files && e.target.files[0]);
+      e.target.value = '';
+    });
+
+    /* ─── v1.18.0：第 2 部分 ⇄ 比較分頁的雙向入口 ──────────────────────────── */
+    $('dg-btn-gray-toslot').addEventListener('click', function () {
+      dgStepModalClose('dg-modal-gray');
+      dgSlotAddFromPart2();
+    });
+    $('dg-btn-gray-fromslot').addEventListener('click', function () {
+      dgGrayPickRender();
+      dgStepModalStep('dg-modal-gray', 'pick');
+    });
+    $('dg-btn-gray-pick-back').addEventListener('click', function () {
+      dgGraySyncModalOpts();
+      dgStepModalStep('dg-modal-gray', 'path');
+    });
+    $('dg-gray-pick-list').addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-dg-pick]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-dg-pick'));
+      if (!isFinite(i) || !DG_SLOTS[i]) return;
+      dgStepModalClose('dg-modal-gray');
+      dgGrayFromSlot(i);
+    });
     ['dg-sd', 'dg-hw', 'dg-entry'].forEach(function (id) {
       $(id).addEventListener('change', function () { dgSyncDerived(); dgRefreshOutputs(); });
     });
@@ -6304,21 +6851,37 @@
        開一個「新分頁」（不是彈出小視窗）—— 使用者要能把它拖到外接螢幕上，
        小視窗在多數瀏覽器裡拖不出主視窗所在的螢幕。 */
     var dgLiveWin = null;
-    // v1.12.0：第 2 部分量白灰階、第 3 部分量 RGB 三純色，同一個量測頁、由 ?mode= 決定
-    [['dg-btn-live-gray', '', '第 2 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」'],
-     ['dg-btn-live-prim', '?mode=prim', '第 3 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」；它會依序顯示純紅、純綠、純藍三個滿版畫面']]
+    /* v1.12.0：第 2 部分量白灰階、第 3 部分量 RGB 三純色，同一個量測頁、由 ?mode= 決定。
+       ─── v1.18.0：比較分頁也能發起即時量測 ─────────────────────────────────
+       Bruce 2026-09-08：「光學資料比較分頁本身也要能直接發起即時量測，量完直接成為
+       一組。沿用第 2 部分既有的即時量測流程與元件，不要重寫一套。」
+       🔴 做法是**只加一個變數**：DG_LIVE_DEST 記住「這一次是誰按的」。
+          `dg-measure.html`、postMessage 協議（type / mode / rows / at）、window.open
+          這條路一個字都沒改 —— 量測頁那一端完全不知道有這回事。
+          分流放在收訊息那一端：mode==='prim' 仍走第 3 部分（那一顆只有第 3 部分有），
+          其餘依 DG_LIVE_DEST 決定進第 2 部分還是變成一組。
+       🔴 同一時間只會有一個量測分頁（dgLiveWin 本來就是單一變數），所以「最後按的
+          那一顆」就是目的地，不需要為此做多重狀態。 */
+    var DG_LIVE_DEST = 'gray';   // 'gray'（第 2 部分）｜'prim'（第 3 部分）｜'slot'（比較分頁新增一組）
+    [['dg-btn-live-gray', '', '第 2 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'gray', 'dg-status'],
+     ['dg-btn-live-prim', '?mode=prim', '第 3 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」；它會依序顯示純紅、純綠、純藍三個滿版畫面', 'prim', 'dg-status'],
+     ['dg-btn-slot-live', '', '光學資料比較（新增一組）', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'slot', 'dg-slot-status']]
       .forEach(function (p) {
         var b = $(p[0]);
         if (!b) return;
         b.addEventListener('click', function () {
+          DG_LIVE_DEST = p[4];
           dgLiveWin = window.open('dg-measure.html' + p[1], '_blank');
           if (!dgLiveWin) {
-            dgSetStatus('dg-status', '瀏覽器把新分頁擋掉了。請允許本站開新分頁後再按一次「即時量測」。', 'err');
+            dgSetStatus(p[5], '瀏覽器把新分頁擋掉了。請允許本站開新分頁後再按一次「即時量測」。', 'err');
             return;
           }
-          dgSetStatus('dg-status', '已開啟「即時量測」分頁（' + p[2] + '）。\n'
+          if (p[4] === 'slot') dgStepModalClose('dg-modal-slot');
+          dgSetStatus(p[5], '已開啟「即時量測」分頁（' + p[2] + '）。\n'
             + '把那個分頁拖到要量的那台螢幕、按它右上角的「全螢幕」，' + p[3] + '。\n'
-            + '量完資料會自動回到這一頁的' + p[2] + '，不用手動搬。', '');
+            + (p[4] === 'slot'
+              ? '量完會直接成為「光學資料比較」的新一組，第 1、2、3 部分不會被動到。'
+              : ('量完資料會自動回到這一頁的' + p[2] + '，不用手動搬。')), '');
         });
       });
 
@@ -6329,7 +6892,9 @@
       var d = e.data;
       if (!d || d.type !== 'dg-measure-result' || !d.rows || !d.rows.length) return;
       // mode 缺席時當灰階（v1.11.0 以前的量測頁沒有這個欄位）
-      if (d.mode === 'prim') dgApplyLivePrim(d.rows, d.at || d.label);
+      if (d.mode === 'prim') { dgApplyLivePrim(d.rows, d.at || d.label); return; }
+      // v1.18.0：白灰階量完要進哪裡，由「是誰按的即時量測」決定（見 DG_LIVE_DEST）
+      if (DG_LIVE_DEST === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label);
       else dgApplyLiveRows(d.rows, d.at || d.label);
     });
 
@@ -6387,7 +6952,10 @@
        做法與第 1 部分完全相同（同一支泛用的 dgStepModal*）。視窗裡那兩顆就是原本的
        按鈕本體，行為的事件在上面那兩個迴圈裡（匯入鈕迴圈、即時量測鈕迴圈）已經綁好，
        這裡只多綁「按完就把視窗收掉」。 */
-    $('dg-btn-gray-setup').addEventListener('click', function () { dgStepModalOpen('dg-modal-gray', 'path'); });
+    $('dg-btn-gray-setup').addEventListener('click', function () {
+      dgGraySyncModalOpts();   // v1.18.0：沒有組就不顯示「從比較挑一組」；第 2 部分沒資料就不顯示「轉出」
+      dgStepModalOpen('dg-modal-gray', 'path');
+    });
     $('dg-modal-gray-close').addEventListener('click', function () { dgStepModalClose('dg-modal-gray'); });
     $('dg-modal-gray').addEventListener('click', function (e) {
       if (e.target === $('dg-modal-gray')) dgStepModalClose('dg-modal-gray');
@@ -6526,6 +7094,12 @@
     },
     slotMax: function () { return DG_SLOT_MAX; },
     slotColor: dgSlotColor,
+    // v1.18.0 驗證用（唯讀／既有路徑的薄包裝，畫面行為不經過這裡）
+    slotMove: dgSlotMove,
+    slotAddFromPart2: dgSlotAddFromPart2,
+    grayFromSlot: dgGrayFromSlot,
+    stepModalStep: dgStepModalStep,
+    stepModalClose: dgStepModalClose,
     // v1.4.4 驗證用
     buildOpticalXlsx: dgBuildOpticalXlsx,
     optSheetName: function () { return DG_OPT_SHEETNAME; },
