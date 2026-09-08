@@ -1000,9 +1000,11 @@
             <div class="dg-chart3up-cell">
               <div class="dg-sep">圖二　Gamma curve — 逐階 Gamma 值<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-chart2">⤢ 放大檢視</button></div>
               <div class="dg-svg-wrap" id="dg-chart2"></div>
+              <!-- v1.21.0：γ 參考線與量測主體完全沒有交集時，這裡說明為什麼這次不畫
+                   （結構與圖三的 #dg-cctbase-note-* 相同，由 dgGamNoteSync() 填） -->
+              <div class="dg-note warn dg-cctbase-note" id="dg-gam-note-main" style="display:none"></div>
               <div class="dg-legend">
-                <span><i style="background:#64748b"></i>γ=2.0 / γ=2.4</span>
-                <span><i style="background:#fbbf24"></i>γ=2.2</span>
+                <span class="dg-legend-slots" id="dg-legend-gam-ref-main"><span><i style="background:#64748b"></i>γ=2.0 / γ=2.4</span><span><i style="background:#fbbf24"></i>γ=2.2</span></span>
                 <span><svg class="dg-leg-mk" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="#38bdf8" stroke-width="2"/><circle cx="11" cy="5" r="3" fill="#38bdf8"/></svg>實測</span>
               </div>
             </div>
@@ -1352,9 +1354,10 @@
 
       <div class="dg-sep">圖二　Gamma curve — 逐階 Gamma 值<button type="button" class="dg-grid-zoom dg-chart-zoom" data-chart="dg-cmp-chart2">⤢ 放大檢視</button></div>
       <div class="dg-svg-wrap" id="dg-cmp-chart2"></div>
+      <!-- v1.21.0：同主分頁，由 dgGamNoteSync() 填 -->
+      <div class="dg-note warn dg-cctbase-note" id="dg-gam-note-cmp" style="display:none"></div>
       <div class="dg-legend">
-        <span><i style="background:#64748b"></i>γ=2.0 / γ=2.4</span>
-        <span><i style="background:#fbbf24"></i>γ=2.2</span>
+        <span class="dg-legend-slots" id="dg-legend-gam-ref-cmp"><span><i style="background:#64748b"></i>γ=2.0 / γ=2.4</span><span><i style="background:#fbbf24"></i>γ=2.2</span></span>
         <span class="dg-legend-slots" id="dg-legend-slots-2"></span>
       </div>
 
@@ -1766,7 +1769,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260908dg1200"></script>
+<script src="common/version.js?v=20260908dg1210"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4673,6 +4676,32 @@
     return { groups: groups, empty: empty, layout: L };
   }
 
+  /* ── v1.21.0：「有東西沒進來」統一走這一個視窗 ────────────
+     Bruce 2026-09-08 原話：「超過十組的話，超過的部分不會匯入進來，**但要跳出視窗警告**，
+     讓使用者知道這件事情」。
+     v1.20.0 只有「部分放得下」那一種情況會跳視窗；**清單剛好滿 10 組時**「＋ 新增資料」
+     根本不開視窗（v1.4.3 起的入口防呆），使用者看到的是狀態列一行字 —— 那也是「超過」，
+     照需求就該跳視窗。本版把那道入口防呆拿掉：滿載時照常按得進去、選得了檔，
+     由這一支統一說明「已經滿了、這個檔的哪些沒有被加入」。
+     🔴 **不保留只有狀態列的那條路**：三個入口（多組檔、單組檔、即時量測）滿載時
+        一律走這個視窗。狀態列仍然照寫，但它是紀錄，不是唯一的告知管道。 */
+  function dgSlotSkipNote(fileName, total, before, added, skipped) {
+    var one = (total === 1);
+    var title = added
+      ? ('有 ' + skipped.length + ' 組沒有匯入')
+      : (one ? '這個檔沒有匯入' : ('這個檔的 ' + skipped.length + ' 組都沒有匯入'));
+    dgNoteOpen(title,
+      '<div class="dg-note">'
+      + '「' + dgXe(fileName) + '」' + (one ? '是<b>一組</b>資料' : ('裡有 <b>' + total + ' 組</b>'))
+      + '；匯入前清單上已經有 <b>' + before + ' 組</b>，上限 <b>' + DG_SLOT_MAX + ' 組</b>，'
+      + '所以只加得進 <b>' + added + ' 組</b>（現在共 ' + DG_SLOTS.length + ' 組）。<br><br>'
+      + '沒有匯入的' + (one ? '' : ('這 ' + skipped.length + ' 組')) + '：<b>'
+      + skipped.map(function (t) { return dgXe(t); }).join('、')
+      + '</b><br><br>要把' + (one ? '它' : '它們') + '也放進來，'
+      + '請先刪掉清單上不需要的組，再匯入一次這個檔。'
+      + '</div>');
+  }
+
   /* ── v1.20.0：追加時的組名去衝突 ────────────────
      檔裡的組名有兩種，要分開處理：
        · **預設名**（「第 k 組」，k 就是它在那個檔裡的位置）＝ 這一組其實沒有被取名。
@@ -4756,17 +4785,10 @@
         : ''),
       skipped.length ? 'err' : 'ok');
     if (skipped.length) {
-      dgNoteOpen('有 ' + skipped.length + ' 組沒有匯入',
-        '<div class="dg-note">'
-        + '「' + dgXe(fileName) + '」裡有 <b>' + gs.length + ' 組</b>；匯入前清單上已經有 <b>'
-        + before + ' 組</b>，上限 <b>' + DG_SLOT_MAX + ' 組</b>，所以只加得進 <b>'
-        + take.length + ' 組</b>（現在共 ' + DG_SLOTS.length + ' 組）。<br><br>'
-        + '沒有匯入的 ' + skipped.length + ' 組：<b>'
-        + skipped.map(function (g, j) {
-            return dgXe(dgSlotNormalizeText(g.name) || ('檔內第 ' + (take.length + j + 1) + ' 組'));
-          }).join('、')
-        + '</b><br><br>要把它們也放進來，請先刪掉清單上不需要的組，再匯入一次這個檔。'
-        + '</div>');
+      dgSlotSkipNote(fileName, gs.length, before, take.length,
+        skipped.map(function (g, j) {
+          return dgSlotNormalizeText(g.name) || ('檔內第 ' + (take.length + j + 1) + ' 組');
+        }));
     }
     return take.length;
   }
@@ -4786,7 +4808,9 @@
         var cmp = dgOptFindCompareSheet(sheets);
         if (cmp) { dgSlotLoadCompare(cmp, file.name); return; }
         if (DG_SLOTS.length >= DG_SLOT_MAX) {
-          dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限）。要再加請先刪掉其中一組。', 'err');
+          // v1.21.0：滿載也要跳視窗（同上面 dgSlotSkipNote 的理由），不再只有狀態列
+          dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限），這個檔沒有匯入。', 'err');
+          dgSlotSkipNote(file.name, 1, DG_SLOTS.length, 0, [file.name]);
           return;
         }
         var opt = null;
@@ -4830,8 +4854,14 @@
       return 0;
     }
     if (DG_SLOTS.length >= DG_SLOT_MAX) {
+      // v1.21.0：滿載也要跳視窗，不再只有狀態列
       dgSetStatus('dg-slot-status', '光學量測組已滿 ' + DG_SLOT_MAX + ' 組，這一次量到的沒有存進來。'
         + '\n先刪掉其中一組再量一次。', 'err');
+      dgNoteOpen('這次量到的沒有存進來',
+        '<div class="dg-note">清單上已經有 <b>' + DG_SLOTS.length + ' 組</b>，'
+        + '已達上限 <b>' + DG_SLOT_MAX + ' 組</b>，所以這一次即時量測到的 <b>'
+        + rs.length + ' 筆</b>（L' + rs[0].g + ' ～ L' + rs[rs.length - 1].g + '）<b>沒有存進來</b>。'
+        + '<br><br>要留它請先刪掉清單上不需要的組，再量一次。</div>');
       return 0;
     }
     var label = '（即時量測' + (at ? ' ' + at : '') + '）';
@@ -4978,6 +5008,10 @@
      不能列出一條沒有畫的線。所以 dgRenderCharts() 改成**先畫、再同步文字**。 */
   var DG_CCT_REFS_ON = false;
   var DG_CCT_DATA_RANGE = null;
+  /* v1.21.0：圖二同一套 —— 這一次有沒有畫 γ 參考線、量測 gamma 的主體範圍、畫在哪一頁。 */
+  var DG_GAM_REFS_ON = true;
+  var DG_GAM_BULK = null;
+  var DG_GAM_WHICH = 'main';
 
   /* 目標白點的 CCT。第 4 欄（匯入時就會帶進來）有值就用它；缺值就用 dgCCT(x, y)
      由前兩欄算 —— 那支函式本頁本來就有，圖三的實測曲線用的也是它。 */
@@ -5063,11 +5097,80 @@
     });
   }
 
+  /* v1.21.0：圖二的參考線圖例與說明。與圖三那一套同構 ——
+     **圖例不能列出畫面上沒有畫的線**，所以由 dgDrawTriple() 寫旗標、這裡讀。
+     只動「這一次畫的是哪一頁」的那一組；另一頁在 dgSwitchMode() 切過去時會重畫。 */
+  function dgGamNoteSync() {
+    ['main', 'cmp'].forEach(function (w) {
+      var on = (w === DG_GAM_WHICH) ? DG_GAM_REFS_ON : true;
+      var ref = $('dg-legend-gam-ref-' + w);
+      if (ref) ref.style.display = on ? '' : 'none';
+      var note = $('dg-gam-note-' + w);
+      if (!note) return;
+      if (on || !DG_GAM_BULK) { note.style.display = 'none'; note.innerHTML = ''; return; }
+      note.style.display = '';
+      note.innerHTML = '<b>圖二這一次沒有畫 γ=2.0／2.2／2.4 參考線</b>（量測曲線照畫）。'
+        + '畫面上這幾組量到的 Gamma 主體是 <b>' + DG_GAM_BULK.lo.toFixed(2) + ' ～ '
+        + DG_GAM_BULK.hi.toFixed(2) + '</b>，與參考線那段 <b>1.6 ～ 2.8</b> 完全沒有交集。'
+        + '把參考線畫進去會把縱軸撐開好幾倍，<b>量測曲線會被壓成貼著軸線的一條、看起來就像沒有曲線</b>，'
+        + '所以這次以量測資料為準。<br>'
+        + '這通常代表這幾組的 Gamma 明顯偏離 2.2，值得先確認量測本身或面板設定。';
+    });
+  }
+
   function dgSetCctMode(m) {
     if (m !== 'dynamic' && m !== 'fixed6500') return;
     if (m === DG_CCT_MODE) { dgCctModeSync(); return; }
     DG_CCT_MODE = m;
     dgRenderCharts();
+  }
+
+  /* ─── v1.21.0：縱軸擬合器 ──────────────────────────────────
+     v1.20.0 為了修「圖三看不到色溫曲線」寫了一段「縱軸一定要涵蓋量測資料」的邏輯。
+     圖二（逐階 Gamma）的縱軸同樣是寫死的 1.6～2.8，同一個病，所以把那段抽成一支共用。
+
+     vals   要畫的量測值（含 null／NaN 也沒關係，這裡會濾掉）
+     ref    參考線區間 {lo,hi}，沒有就傳 null
+     def    完全沒有有限值時的退路 {lo,hi}
+     minPad 最小邊距（資料幾乎是一條水平線時，不要把縱軸擠成零跨距）
+     robust true ⇒ 用 5%／95% 百分位當主體，false ⇒ 用完整 min／max
+
+     🔴 robust 為什麼要分兩種、而不是統一：
+       · **圖三（色溫）用完整 min／max**：每一個點都是量測儀器真的量到的色溫，暗階衝到
+         一萬多 K 也是真的，砍掉端點就看不到那一段。
+       · **圖二（Gamma）用百分位**：gam = log(rel) / log(g / gmax)，越靠近最高階分母越接近
+         0，值由數值噪音主導 —— 那不是量測值，是公式在端點的退化。實測
+         `02_RaydiumGamma_20260612161900390.xlsx`：254 個有效值裡 min 是 **−0.0005**、
+         max 2.536，但 5%～95% 百分位是 **2.083～2.493**。用完整 min／max 會把縱軸從
+         0 拉到 2.54，真正要看的 2.1～2.5 只剩 18% 圖高 —— 比現行的 1.6～2.8（37%）更糟。
+
+     回傳 { min, max, refs, bulk }；refs=false ＝ 參考線與資料主體完全沒有交集，
+     呼叫端應該**不要畫參考線**（畫出來只會是壓在邊界上的假線）。 */
+  function dgAxisFit(vals, ref, def, minPad, robust) {
+    var v = [], i;
+    for (i = 0; i < vals.length; i++) {
+      if (vals[i] !== null && isFinite(vals[i])) v.push(vals[i]);
+    }
+    if (!v.length) return { min: def.lo, max: def.hi, refs: true, bulk: null };
+    v.sort(function (a, b) { return a - b; });
+    var lo, hi;
+    if (robust && v.length >= 20) {
+      lo = v[Math.floor(v.length * 0.05)];
+      hi = v[Math.min(v.length - 1, Math.ceil(v.length * 0.95))];
+    } else {
+      lo = v[0]; hi = v[v.length - 1];
+    }
+    if (!(hi > lo)) { lo -= minPad; hi += minPad; }
+    var pad = Math.max(minPad, (hi - lo) * 0.05);
+    var dlo = lo - pad, dhi = hi + pad;
+    if (!ref) return { min: dlo, max: dhi, refs: false, bulk: { lo: lo, hi: hi } };
+    var touch = (ref.lo <= dhi && ref.hi >= dlo);
+    return {
+      min: touch ? Math.min(dlo, ref.lo) : dlo,
+      max: touch ? Math.max(dhi, ref.hi) : dhi,
+      refs: touch,
+      bulk: { lo: lo, hi: hi }
+    };
   }
 
   /* 圖一二三的畫法。v1.9.0 從原本的 dgRenderCharts() 抽出來，主頁與比較分頁共用同一份，
@@ -5094,22 +5197,54 @@
 
     /* 🔴 v1.9.0：三張圖的「中心線」一律黃色虛線（Bruce 2026-09-07）。
        上下限那兩條維持原樣（灰色 dash '4 3'），顏色也維持 #fbbf24。 */
+
+    /* ─── v1.21.0：圖一的縱軸 ────────────────────────────────
+       🔴 **圖一不套 dgAxisFit()，這是查證後的決定，不是漏掉的。**
+       rel = (Y − Y0) / (Ymax − Y0)：端點依定義恆等於 0 與 1，中間值正常情況下必落在
+       0～1 之間。縱軸 0～1 **在定義上就涵蓋資料**，不是「剛好寫死了一個數字」。
+       實測兩份真檔：`光學確認_20250114.xlsx` 0 個點在框外；
+       `02_RaydiumGamma_…xlsx` 1 個點超出，超出量 4e-6 ＝ 圖高的 0.0004%。
+       套百分位反而會把 0% 與 100% 這兩個端點切掉，等於把定義上的滿刻度弄丟。
+       但量測若非單調（高階亮度反而比最高階高），rel 會真的 > 1 而被夾在上緣看不見。
+       所以只保留一道**單向的**保險：溢出超過 1%（0.01）才把框往那一邊撐開，
+       溢出在 1% 以內維持 0～1，畫面與 v1.20.0 逐字相同。 */
+    var relAll = [];
+    curves.forEach(function (o) { relAll = relAll.concat(o.curve.rel); });
+    var r1 = { lo: 0, hi: 1 };
+    relAll.forEach(function (v) {
+      if (v === null || !isFinite(v)) return;
+      if (v < -0.01 && v < r1.lo) r1.lo = v;
+      if (v > 1.01 && v > r1.hi) r1.hi = v;
+    });
     dgChart($(hostIds[0]), [
       { x: xs, y: std(2.0), color: '#64748b', dash: '4 3', name: 'γ=2.0' },
       { x: xs, y: std(2.4), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
       { x: xs, y: std(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
     ].concat(ser('rel')), {
-      xmin: 0, xmax: xmax, ymin: 0, ymax: 1, xlabel: 'Gray',
+      xmin: 0, xmax: xmax, ymin: r1.lo, ymax: r1.hi, xlabel: 'Gray',
       yfmt: function (v, span) { return (v * 100).toFixed(span < 0.05 ? 2 : (span < 0.5 ? 1 : 0)) + '%'; },
       tip: { x: '灰階', y: '相對亮度', fmt: function (v) { return (v * 100).toFixed(2) + '%'; } }
     });
 
-    dgChart($(hostIds[1]), [
+    /* ─── v1.21.0：圖二縱軸也套同一條規則 ──────────────────────
+       原本寫死 1.6～2.8，只有那三條 γ 參考線的值域，量測資料完全不參與 ——
+       和 v1.20.0 修掉的圖三是同一個病：**gamma 主體整段落在 1.6～2.8 外的面板，
+       曲線會被夾在上／下邊界，畫面上與「沒有曲線」分不出來**。
+       實測（兩份真檔）主體都落在框內，所以正常情況下縱軸仍然是 1.6～2.8、畫面不變；
+       這一段是替「gamma 明顯偏離 2.2 的面板」補的保險。 */
+    var gamAll = [];
+    curves.forEach(function (o) { gamAll = gamAll.concat(o.curve.gam); });
+    var a2 = dgAxisFit(gamAll, { lo: 1.6, hi: 2.8 }, { lo: 1.6, hi: 2.8 }, 0.05, true);
+    DG_GAM_REFS_ON = a2.refs;
+    DG_GAM_BULK = a2.bulk;
+    DG_GAM_WHICH = (hostIds[0] === 'dg-chart1') ? 'main' : 'cmp';
+    var gref = a2.refs ? [
       { x: xs, y: flat(2.0), color: '#64748b', dash: '4 3', name: 'γ=2.0' },
       { x: xs, y: flat(2.4), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
       { x: xs, y: flat(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
-    ].concat(ser('gam')), {
-      xmin: 0, xmax: xmax, ymin: 1.6, ymax: 2.8, xlabel: 'Gray',
+    ] : [];
+    dgChart($(hostIds[1]), gref.concat(ser('gam')), {
+      xmin: 0, xmax: xmax, ymin: a2.min, ymax: a2.max, xlabel: 'Gray',
       yfmt: function (v, span) { return v.toFixed(span < 0.2 ? 3 : 2); },
       tip: { x: '灰階', y: 'Gamma', fmt: function (v) { return v.toFixed(3); } }
     });
@@ -5135,27 +5270,19 @@
             量級，此時**不撐大縱軸、也不畫那三條線**（畫出來只會是壓在邊界上的假線），
             改在圖三上面那段說明講清楚。
          ③ 一組有限的色溫值都沒有 ⇒ 維持 4000～9000（與 v1.19.0 相同）。 */
-    var cmin = 4000, cmax = 9000;
-    var dlo = Infinity, dhi = -Infinity;
-    curves.forEach(function (o) {
-      o.curve.cct.forEach(function (v) {
-        if (v === null || !isFinite(v)) return;
-        if (v < dlo) dlo = v;
-        if (v > dhi) dhi = v;
-      });
-    });
-    var hasCct = dlo <= dhi;
-    var useRefs = base.ok;
-    if (hasCct) {
-      var pad = Math.max(100, (dhi - dlo) * 0.05);
-      cmin = dlo - pad; cmax = dhi + pad;
-      useRefs = base.ok && (base.lo <= cmax && base.hi >= cmin);
-      if (useRefs) { cmin = Math.min(cmin, base.lo); cmax = Math.max(cmax, base.hi); }
-    } else if (base.ok) {
-      cmin = Math.min(cmin, base.lo); cmax = Math.max(cmax, base.hi);
-    }
+    /* v1.21.0：改走共用的 dgAxisFit()。參數選得與 v1.20.0 **逐項等價**：
+       robust=false（完整 min／max）、minPad=100、ref＝基準線區間（沒有基準就傳 null）、
+       退路＝沒有任何有限色溫值時的 4000～9000（基準線有效就一併涵蓋，同 v1.20.0）。 */
+    var cctAll = [];
+    curves.forEach(function (o) { cctAll = cctAll.concat(o.curve.cct); });
+    var a3 = dgAxisFit(cctAll,
+      base.ok ? { lo: base.lo, hi: base.hi } : null,
+      base.ok ? { lo: Math.min(4000, base.lo), hi: Math.max(9000, base.hi) } : { lo: 4000, hi: 9000 },
+      100, false);
+    var cmin = a3.min, cmax = a3.max;
+    var useRefs = base.ok && a3.refs;
     DG_CCT_REFS_ON = !!useRefs;
-    DG_CCT_DATA_RANGE = hasCct ? { lo: dlo, hi: dhi } : null;
+    DG_CCT_DATA_RANGE = a3.bulk;
     var refs = useRefs ? [
       { x: xs, y: flat(base.hi), color: '#64748b', dash: '4 3', name: '上限 ' + dgCctLbl(base.hi) + 'K' },
       { x: xs, y: flat(base.lo), color: '#64748b', dash: '4 3', name: '下限 ' + dgCctLbl(base.lo) + 'K' },
@@ -5223,10 +5350,13 @@
        圖三的基準線在 v1.20.0 起可能因為離量測資料太遠而不畫（見 dgDrawTriple），
        那個決定只有畫的時候才知道；先同步文字就會列出一條畫面上根本沒有的線。
        這兩支都只讀狀態、不互相依賴，換順序不改變其他任何行為。 */
+    // v1.21.0：旗標每次重畫前先歸零，沒畫成的時候不會沿用上一輪的判斷
+    DG_GAM_REFS_ON = true; DG_GAM_BULK = null;
     if (DG_MODE === 'cmp') dgRenderCmpCharts();
     else dgRenderMainCharts();
     dgSlotLegendSync();
     dgCctModeSync();
+    dgGamNoteSync();
   }
 
   // ─── 圖四：LUT 內容值（R／G／B 三條）──────────────────────────────────
@@ -7026,11 +7156,11 @@
     $('dg-btn-slot-xlsx').addEventListener('click', dgSlotExportXlsx);
 
     /* ─── v1.18.0：比較分頁「＋ 新增資料」與它的二選一視窗 ─────────────────── */
+    /* v1.21.0：**滿載時不再擋在入口**。原本這裡有一道
+       `if (DG_SLOTS.length >= DG_SLOT_MAX) { 寫狀態列; return; }`，
+       結果是「按了沒反應、只有底下一行紅字」—— 而 Bruce 要的是「超過的部分不會匯入，
+       但要跳出視窗警告」。滿載照常開得了視窗、選得了檔，由 dgSlotSkipNote() 說明。 */
     $('dg-btn-slot-new').addEventListener('click', function () {
-      if (DG_SLOTS.length >= DG_SLOT_MAX) {
-        dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限）。要再加請先刪掉其中一組。', 'err');
-        return;
-      }
       dgStepModalOpen('dg-modal-slot', 'path');
     });
     $('dg-modal-slot-close').addEventListener('click', function () { dgStepModalClose('dg-modal-slot'); });
