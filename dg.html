@@ -1276,9 +1276,12 @@
                🔴 所以決策**不再是自動彈出的視窗**，改成卡片裡看得見的兩顆按鈕：
                   他自己看完圖，自己決定什麼時候按。
                有確認量測才顯示（沒資料的東西不顯示，本頁既有紀律）。 -->
+          <!-- v1.26.0：只留一顆。原本旁邊還有一顆「這樣就好」，已移除 ——
+               **不繼續迭代是預設狀態，不需要用一顆按鈕來表達「我不做事」**；
+               那顆鈕唯一真正做的事是捲到輸出卡片，那是導覽方便，不該包裝成一個
+               決策選項，反而讓人以為非得二選一。 -->
           <div class="dg-btnrow dg-conf-decide" id="dg-conf-decide" style="display:none">
             <button class="dg-btn primary" id="dg-btn-next-round">進行下一輪</button>
-            <button class="dg-btn" id="dg-btn-next-no">這樣就好</button>
           </div>
           <div class="dg-btnrow dg-part-import">
             <button class="dg-btn dg-btn-imp" id="dg-btn-conf-setup">④ 確認結果</button>
@@ -1775,6 +1778,36 @@
   </div>
 </div>
 
+<!-- ══ v1.26.0：第 2 部分有新資料進來 → 問要不要同步記錄到「光學資料比較」═══════
+     Bruce 2026-09-09：「只要遇到第 2 部分有新的資料匯入，就要跳出視窗詢問使用者
+     是否要同步記錄到『光學資料比較』頁面，使用者可以選擇是否要記錄。」
+     🔴 一個視窗只問這一件事。組名是**預設值**，記錄之後在比較分頁照樣可以改。 -->
+<div class="dg-modal" id="dg-modal-rec">
+  <div class="dg-modal-box">
+    <div class="dg-modal-bar">
+      <span class="dg-modal-title" id="dg-modal-rec-title">要記錄到「光學資料比較」嗎？</span>
+      <button class="dg-modal-close" id="dg-modal-rec-close">關閉</button>
+    </div>
+    <div class="dg-modal-body">
+      <div class="dg-lut-step" data-step="ask" data-title="要記錄到「光學資料比較」嗎？">
+        <div class="dg-note" id="dg-rec-info"></div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>記錄成一組</b></div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-rec-yes">記錄成一組</button>
+          </div>
+        </div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>不記錄</b></div>
+          <div class="dg-btnrow">
+            <button class="dg-btn" id="dg-btn-rec-no">不記錄</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="dg-modal" id="dg-modal-info">
   <div class="dg-modal-box">
     <div class="dg-modal-bar">
@@ -1785,7 +1818,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260909dg1251"></script>
+<script src="common/version.js?v=20260909dg1260"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4353,6 +4386,11 @@
     if (DG_SLOTS.length >= DG_SLOT_MAX) return 0;
     DG_SLOTS.push({
       name: '',
+      /* 🔴 v1.26.0：這個名字是**使用者自己取的**、還是系統給的預設？
+         進到下一輪時要把「系統給的輪數名」改成新的輪數，但**使用者改過的名字不能動**。
+         用明確的旗標記錄，**不可以拿「名字看起來像不像預設值」去猜** ——
+         使用者剛好打出一樣的字就會誤判（Bruce 2026-09-09 明示）。 */
+      nameIsUserSet: false,
       file: String(fileName || ''),        // 原始 Excel 檔名，固定不可改
       /* 🔴 v1.22.0：**不可以寫 `+r.x`**。`+null` 是 `0`、`+undefined` 是 `NaN` ——
          沒有色度的來源（「光學確認」xlsx）進到這裡會被悄悄變成 x=0、y=0，
@@ -4478,6 +4516,7 @@
       if (!isFinite(i) || !DG_SLOTS[i]) return;
       var prev = DG_SLOTS[i].name;
       dgSlotStoreName(i, dgSlotNameOf(el));
+      DG_SLOTS[i].nameIsUserSet = true;   // v1.26.0：他親手改的，之後輪數換了也不准動
       /* 🔴 v1.18.0：名字**沒有真的變**就不要重建整份清單。
          focusout 最常見的觸發不是「改完名字」，而是「使用者去點別的東西」——
          其中一個就是拖曳把手：mousedown 會先讓輸入框失焦，如果這裡無條件
@@ -4639,8 +4678,12 @@
       return 0;
     }
     var no = dgSlotAdd({ rows: rows, hasPrim: false }, dgSlotSourceLabel());
+    /* v1.26.0：組名預設用輪數，與「跳視窗詢問」那條路同一個規則、同一個狀態來源
+       （DG_ROUND）。這一顆鈕就是 Bruce 說的「使用者選擇同步到光學資料比較」，
+       只是他是主動按的、不是被問的 —— 沒有理由兩邊叫不一樣的名字。 */
+    if (no) { dgSlotStoreName(no - 1, dgSlotUniqueName(dgRoundName(DG_ROUND), no - 1)); dgSlotRender(); }
     dgSetStatus('dg-status', '已把第 2 部分這一份（' + rows.length + ' 階）轉出成「光學資料比較」的第 '
-      + no + ' 組。\n第 2 部分的資料原封不動，計算結果不受影響。'
+      + no + ' 組（' + dgSlotDisplayName(no - 1) + '）。\n第 2 部分的資料原封不動，計算結果不受影響。'
       + '\n到「光學資料比較」分頁可以改名、勾選要不要疊在圖上。', 'ok');
     return no;
   }
@@ -4845,7 +4888,12 @@
       // k ＝ 它在**檔裡**的位置；idx ＝ 它在**清單裡**的新位置。追加時兩者不相等。
       var idx = DG_SLOTS.length - 1, raw = dgSlotNormalizeText(g.name);
       if (dgSlotIsDefaultName(raw, k)) DG_SLOTS[idx].name = '';
-      else dgSlotStoreName(idx, dgSlotUniqueName(raw, idx));
+      else {
+        dgSlotStoreName(idx, dgSlotUniqueName(raw, idx));
+        /* v1.26.0：名字是**檔案裡帶來的**，不是我們這一版給的輪數預設 ⇒ 不准被輪數改名蓋掉。
+           （只有 dgRecAnswer() 那條路寫進去的才算「系統預設」。） */
+        DG_SLOTS[idx].nameIsUserSet = true;
+      }
     });
     dgSlotRender();
     dgRenderCharts();
@@ -4999,17 +5047,31 @@
         : '色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出。')
       + '<b>那一組本身留在比較分頁，沒有被移走。</b>';
 
-    if (noXY) dgGrayNoXYNote('「光學資料比較」的' + dgSlotDisplayName(i), rows.length, rows[0].g, top.g);
-
+    /* v1.26.0：這條路也叫 dgGrayRecordAsk()，**不開特例**。
+       它必然被「內容重複」那道守衛擋下（資料本來就來自比較分頁的某一組），
+       所以實際上不會跳視窗，只會在狀態列補一句「那邊已經有了」。
+       判準是內容、不是路徑 —— 換句話說，如果使用者先挑一組回來、又把它刪掉，
+       這條路就會問，而那時候問是對的。 */
     var miss = dgMissingParts();
-    dgSetStatus('dg-status', '已從「光學資料比較」帶入第 2 部分：'
+    var msg = '已從「光學資料比較」帶入第 2 部分：'
       + dgSlotDisplayName(i) + '，白灰階 ' + rows.length + ' 階（Gray ' + rows[0].g + ' \uff5e ' + top.g + '）'
       + '＋ 目標白點 ' + dgWhiteLbl(top) + '。\n'
       + (noXY ? '⚠ 這一組沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫。\n' : '')
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
-        : '三份都齊了，下一步：按「計算」。'),
-      miss.length ? '' : 'ok');
+        : '三份都齊了，下一步：按「計算」。');
+    dgSetStatus('dg-status', msg, miss.length ? '' : 'ok');
+
+    function askRec() {
+      dgGrayRecordAsk(rows, label, dgRoundName(DG_ROUND), function () {
+        if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
+      });
+    }
+    if (noXY) {
+      dgGrayNoXYNote('「光學資料比較」的' + dgSlotDisplayName(i), rows.length, rows[0].g, top.g, askRec);
+    } else {
+      askRec();
+    }
     return true;
   }
 
@@ -5055,14 +5117,9 @@
     var label = DG_GRAY_OPT.file + (many ? '（' + (g.name || ('第 ' + (k + 1) + ' 組')) + '）' : '');
     dgApplyGray({ rows: rows, white: [null, null, top.Y, dgIsNum(top.T) ? top.T : null] }, label, 'file');
 
-    /* 與既有「白灰階量測檔」那條路一樣，同時存成一組（純比較用，不參與計算）——
-       這也正是「匯出方向」的既有通路：存成組之後，比較分頁那顆
-       「匯出多組比較（.xlsx）」寫出來的就是同一個光學確認版面。 */
-    var slotNo = 0;
-    if (dgSlotFindSame(rows) < 0 && DG_SLOTS.length < DG_SLOT_MAX) {
-      slotNo = dgSlotAdd({ rows: rows, hasPrim: false }, label);
-    }
-
+    /* v1.26.0：這裡原本也是**不問就自動存成一組**（v1.22.0）。同 dgImportFile 的
+       白灰階那一條，改成由 dgGrayRecordAsk() 問過再存 —— 「匯出方向」的通路沒有變
+       （記錄之後，比較分頁那顆「匯出多組比較（.xlsx）」寫出來的就是同一個版面）。 */
     var box = $('dg-fmt-box');
     box.style.display = '';
     box.className = 'dg-fmt warn';
@@ -5073,19 +5130,25 @@
                 + '（這個檔裡共 ' + DG_GRAY_OPT.groups.length + ' 組有資料）' : '')
       + '<br><b>白灰階</b>：' + rows.length + ' 階（Gray ' + rows[0].g + ' ～ ' + top.g + '）'
       + '　<b>目標白點</b>：' + dgWhiteLbl(top)
-      + '<br><b>⚠ 這份資料只能調 Gamma、不能調色溫</b>（詳見跳出的視窗）。'
-      + (slotNo ? '<br><b>已存成第 ' + slotNo + ' 組</b>（下方「光學量測組」卡片），'
-                  + '要再寫回這個格式就用比較分頁的「匯出多組比較（.xlsx）」。' : '');
-
-    dgGrayNoXYNote(label, rows.length, rows[0].g, top.g);
+      + '<br><b>⚠ 這份資料只能調 Gamma、不能調色溫</b>（詳見跳出的視窗）。';
 
     var miss = dgMissingParts();
-    dgSetStatus('dg-status', '已匯入 ' + DG_GRAY_OPT.file + '\n'
+    var msg = '已匯入 ' + DG_GRAY_OPT.file + '\n'
       + '這個檔是「光學確認格式」，只填了第 2 部分：白灰階 ' + rows.length + ' 階 ＋ 目標白點。\n'
       + '⚠ 這個格式沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫，第 3 部分本次不需要。\n'
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
-        : '需要的資料都齊了，下一步：按「計算」。'), miss.length ? '' : 'ok');
+        : '需要的資料都齊了，下一步：按「計算」。');
+    dgSetStatus('dg-status', msg, miss.length ? '' : 'ok');
+
+    /* 🔴 這條路上有**兩件事**要告訴使用者：①這份資料只能調 Gamma ②要不要記錄到比較分頁。
+       v1.26.0 起改成**串起來**（前一個關掉才問下一個），不讓兩個視窗疊在一起
+       —— Bruce 的紀律是「一個視窗解決一件事」，不是「一次丟兩個視窗」。 */
+    dgGrayNoXYNote(label, rows.length, rows[0].g, top.g, function () {
+      dgGrayRecordAsk(rows, label, dgRoundName(DG_ROUND), function () {
+        if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
+      });
+    });
     return true;
   }
 
@@ -5877,6 +5940,10 @@
     DG_CONF_ASKED = false;
     DG_ROUND = 1;           // v1.25.0：清空 ＝ 重新開始一輪迭代 ⇒ 輪數歸零（唯一的歸零出口）
     dgRoundSync();
+    // v1.26.0：第 2 部分空了 ⇒ 下次手動填滿要再問一次「要不要記錄」
+    DG_GRAY_MANUAL_DONE = false;
+    if (DG_GRAY_MANUAL_T) { clearTimeout(DG_GRAY_MANUAL_T); DG_GRAY_MANUAL_T = null; }
+    dgStepModalClose('dg-modal-rec');
     dgImportedFmt = null; dgSdBasisText = '';
     $('dg-fmt-box').style.display = 'none';
     DG_SRC = { lut: null, gray: null, prim: null };
@@ -5915,7 +5982,12 @@
       dgRefreshSdBadge(); dgRefreshOutputs();
     }
     // v1.8.0 的理由照舊：沒有來源的曲線不該留在圖上
-    if (part === 'gray') dgDrawCharts(null);
+    if (part === 'gray') {
+      dgDrawCharts(null);
+      // v1.26.0：第 2 部分空了 ⇒ 下次手動填滿要再問一次「要不要記錄」
+      DG_GRAY_MANUAL_DONE = false;
+      if (DG_GRAY_MANUAL_T) { clearTimeout(DG_GRAY_MANUAL_T); DG_GRAY_MANUAL_T = null; }
+    }
     dgRefreshReady();
     var miss = dgMissingParts();
     dgSetStatus('dg-status', '已清空 ' + DG_PART_NO[part] + '（'
@@ -6157,6 +6229,9 @@
           LUT 變成三通道不同時 dgToneAfterLutSet() 會 dgToneReset()，
           把 ASKED 放掉 —— 之後若又貼回一份三通道相同的表，會再問一次。 */
     if (g.spec.ta === 'dg-in-lut') dgToneAfterLutSet();
+    /* v1.26.0：手動貼上／填寫也是「第 2 部分有新資料」的一條路。
+       取齊備的上升緣、再延遲 900 ms —— 打字途中每按一鍵都跳視窗是不能用的。 */
+    if (g.spec.ta === 'dg-in-gray') dgGrayManualMaybeAsk();
     if (g.timer) clearTimeout(g.timer);
     g.timer = setTimeout(function () { if (lastLut) dgDoCalc(); }, 400);
   }
@@ -6571,6 +6646,11 @@
       // v1.16.0：第 2、3 部分的設定視窗是第四、第五個外殼，一併收
       // v1.18.0：比較分頁的「新增資料」是第六個外殼，一併收
       // v1.24.0：第 4 部分的「確認結果」是第七個外殼，一併收
+      /* v1.26.0：「要不要記錄」是第八個外殼，但它**不能只是關掉** ——
+         關掉 ＝ 不記錄，而且在等它的那條自動流程要接著跑（dgRecAnswer 會執行 done）。
+         所以排在最前面、走它自己的收尾，不進下面那個通用迴圈。 */
+      var rec = $('dg-modal-rec');
+      if (rec && rec.classList.contains('open')) { dgRecAnswer(false); return; }
       var stepModals = ['dg-modal-lut', 'dg-modal-gray', 'dg-modal-prim', 'dg-modal-slot', 'dg-modal-conf'];
       for (var i = 0; i < stepModals.length; i++) {
         var sm = $(stepModals[i]);
@@ -7166,7 +7246,7 @@
      守極簡：一個視窗講完。」
      🔴 所以載入這種資料的**兩條路**（第 2 部分匯入光學確認 xlsx、從光學資料比較挑一組）
         共用這一支，不各寫一段文案；頁面上不另外長出任何常駐說明區塊。 */
-  function dgGrayNoXYNote(srcLabel, n, g0, gN) {
+  function dgGrayNoXYNote(srcLabel, n, g0, gN, done) {
     dgNoteOpen('這份資料只能調 Gamma，不能調色溫',
       '<div class="dg-note">'
       + '已帶入第 2 部分：<b>' + dgXe(srcLabel) + '</b>，<b>' + n + ' 階</b>'
@@ -7181,7 +7261,131 @@
       + '<br>要保住色溫：第 2 部分改用有 x／y 的量測檔（<span class="dg-fname">RaydiumGamma_…</span>）或「即時量測」。'
       /* v1.23.1：只補這一句，不解釋為什麼（Bruce：「做什麼要留、為什麼不用解釋」）。 */
       + '<br><br><b>第 3 部分</b>這輪用不到，已收起。'
-      + '</div>');
+      + '</div>', done);
+  }
+
+  /* ═══ v1.26.0：第 2 部分有新資料 → 問要不要同步記錄到「光學資料比較」════════════
+     Bruce 2026-09-09：「只要遇到第 2 部分有新的資料匯入，就要跳出視窗詢問使用者是否要
+     同步記錄到『光學資料比較』頁面，使用者可以選擇是否要記錄。」
+     ＋「同步過去的曲線名稱預設就寫『第二輪』，進到第三輪又選擇同步，標題就寫『第三輪』。」
+
+     🔴 **這一版把「自動存成一組」改成「問過才存」**。v1.4.3 起，匯入白灰階量測檔
+        與匯入光學確認檔這兩條路是**不問就自動存**的；那不符合「使用者可以選擇」，
+        所以改由這一支統一處理 —— 六條進資料的路徑都叫它，不各寫一套。
+
+     🔴 **兩種情況不問**（不是漏掉，是問了也沒有意義）：
+        ① 逐值相同的組已經在比較分頁裡了（dgSlotFindSame）。「從光學資料比較挑一組
+           拿回來算」這條路必然落在這裡 —— 資料本來就來自比較分頁，再問一次「要不要
+           記錄到比較分頁」，唯一可能的答案是「已經有了」。這一條是**內容驅動**的，
+           不是為那條路開的特例：任何來源只要內容重複都一樣不問。
+        ② 已經滿 10 組（DG_SLOT_MAX）。沒有位置可以放，問了也存不進去。
+        兩種情況都不是靜默的：理由寫進 DG_REC_NOTE，由呼叫端接到狀態列後面。
+
+     🔴 組名預設值讀 **DG_ROUND**（v1.25.0 的輪數，唯一狀態來源），不是檔名、也不另外
+        數一份。撞名沿用既有的 dgSlotUniqueName()，不另寫一套。 */
+  var DG_REC = null;          // 這一次要問的：{ rows, label, done, name }
+  var DG_REC_NOTE = '';       // 「為什麼沒問」的理由，給呼叫端接在狀態列後面
+
+  function dgGrayRecordAsk(rows, label, baseName, done) {
+    DG_REC_NOTE = '';
+    function fin(no) { DG_REC = null; if (done) done(no || 0); }
+    if (!rows || rows.length < 2) { fin(0); return; }
+    var same = dgSlotFindSame(rows);
+    if (same >= 0) {
+      DG_REC_NOTE = '這一份與「光學資料比較」的' + dgSlotRefName(same)
+        + '逐值相同，那邊已經有了，沒有再問要不要記錄。';
+      fin(0); return;
+    }
+    if (DG_SLOTS.length >= DG_SLOT_MAX) {
+      DG_REC_NOTE = '⚠ 光學量測組已滿 ' + DG_SLOT_MAX + ' 組，沒有問要不要記錄。'
+        + '要記錄請先到「光學資料比較」分頁刪掉其中一組。';
+      fin(0); return;
+    }
+    var top = rows[rows.length - 1];
+    /* 組名預設值：第 2 部分那次就寫輪數（「第二輪」），第 4 部分那次多兩個字（「第二輪確認」）。
+       🔴 為什麼要分得出來：同一輪會有**兩份**量測 —— 第 2 部分那份是這一輪的**起點**
+          （寫進 TCON 之前量的），第 4 部分那份是這一輪的**結果**（寫進去之後量的）。
+          在比較分頁疊圖時，這兩條的意義完全不同，名字一樣就分不出誰是誰。
+          「確認」兩個字直接對應卡片名稱「第 4 部分：確認結果」，不必再解釋。
+       base 是**沒有去重過**的原始名字：真正寫進組裡時會再跑一次 dgSlotUniqueName()，
+       因為從問到答之間組數可能又變了。 */
+    var base = baseName || dgRoundName(DG_ROUND);
+    DG_REC = { rows: rows, label: label || '', done: done, base: base,
+               name: dgSlotUniqueName(base, DG_SLOTS.length) };
+    var info = $('dg-rec-info');
+    if (info) {
+      info.innerHTML = '第 2 部分剛換成這一份：<b>' + dgXe(DG_REC.label || '（手動填寫）') + '</b>'
+        + '　' + rows.length + ' 階（L' + rows[0].g + ' ～ L' + top.g + '）'
+        + '<br>組名預設<b>' + dgXe(DG_REC.name) + '</b>，記錄之後在比較分頁可以自己改。';
+    }
+    dgStepModalOpen('dg-modal-rec', 'ask');
+  }
+
+  /* 回答（記錄／不記錄／直接關掉都走這一支）。
+     🔴 關掉視窗 ＝ 不記錄，但 `done` **一定要照樣執行** —— 迭代那條路在等它接著計算，
+        不執行的話按 Escape 就會把整個自動流程卡住。 */
+  function dgRecAnswer(record) {
+    var r = DG_REC;
+    DG_REC = null;
+    dgStepModalClose('dg-modal-rec');
+    var no = 0;
+    if (r && record) {
+      no = dgSlotAdd({ rows: r.rows, hasPrim: false }, r.label);
+      if (no) {
+        // 撞名規則沿用既有的 dgSlotUniqueName()；名字是在新增之後才寫得進去（要有索引）
+        dgSlotStoreName(no - 1, dgSlotUniqueName(r.base, no - 1));
+        /* 🔴 這是**系統給的預設名**，不是使用者取的 —— 旗標維持 false，
+           之後進到下一輪時 dgSlotRetitleRound() 才有資格把它改成新的輪數。 */
+        DG_SLOTS[no - 1].nameIsUserSet = false;
+        dgSlotRender();
+        dgRenderCharts();
+      }
+    }
+    DG_REC_NOTE = r
+      ? (no ? ('已記錄到「光學資料比較」的第 ' + no + ' 組（' + dgSlotDisplayName(no - 1) + '）。')
+            : '沒有記錄到「光學資料比較」。')
+      : '';
+    if (r && r.done) r.done(no);
+  }
+
+  /* ─── v1.26.0：進到下一輪時，把「第 4 部分那次已經記錄過的那一組」改成新的輪數 ───
+     Bruce 2026-09-09：「進到第二輪之後，第 2 部分不要再問一次是否加入比較 —— 那份資料
+     就是第 4 部分那份，已經記錄過了。而是把第 4 部分當初加進比較分頁的那一組，名稱自動
+     改成『第二輪』。例外：如果使用者當初自己改過那組的名稱，就不要動它。」
+     🔴 判準是 `nameIsUserSet` 這個**明確旗標**，不是「名字長得像不像預設值」——
+        後者在使用者剛好打出一樣的字時會誤判（他明示不可以用猜的）。
+     回傳 true ＝ 真的改了名；false ＝ 使用者改過名字，保留不動。 */
+  function dgSlotRetitleRound(i, round) {
+    var sl = DG_SLOTS[i];
+    if (!sl) return false;
+    if (sl.nameIsUserSet) return false;
+    dgSlotStoreName(i, dgSlotUniqueName(dgRoundName(round), DG_SLOTS.length));
+    sl.nameIsUserSet = false;   // 改完仍然是「系統給的預設」，下一輪還可以再改
+    dgSlotRender();
+    dgRenderCharts();
+    return true;
+  }
+
+  /* 手動貼上／填寫這條路：沒有「匯入完成」這個事件，只有一連串的格子編輯。
+     判準取**齊備的上升緣**（第 2 部分從不齊變成齊的那一刻），而且延遲 900 ms ——
+     使用者還在打字時每按一鍵都跳視窗是不能用的。
+     齊備之後再改格子不會再問（那是修改，不是「新的資料」）；被清空或被別條路整份
+     換掉時旗標會放掉，下次手動填滿會再問一次。 */
+  var DG_GRAY_MANUAL_DONE = false;
+  var DG_GRAY_MANUAL_T = null;
+  function dgGrayManualMaybeAsk() {
+    if (DG_GRAY_MANUAL_T) clearTimeout(DG_GRAY_MANUAL_T);
+    if (!dgPartFilled('gray')) { DG_GRAY_MANUAL_DONE = false; return; }
+    if (DG_GRAY_MANUAL_DONE) return;
+    DG_GRAY_MANUAL_T = setTimeout(function () {
+      DG_GRAY_MANUAL_T = null;
+      if (!dgPartFilled('gray') || DG_GRAY_MANUAL_DONE) return;
+      DG_GRAY_MANUAL_DONE = true;
+      var rows = dgSlotRowsFromText($('dg-in-gray').value);
+      dgGrayRecordAsk(rows, '（手動填寫）', dgRoundName(DG_ROUND), function () {
+        if (DG_REC_NOTE) dgSetStatus('dg-status', DG_REC_NOTE, '');
+      });
+    }, 900);
   }
 
   function dgApplyGray(opt, fileName, srcKind) {
@@ -7198,6 +7402,11 @@
 
     // 量測長度反過來決定 Source Driver 的合理值：1024 階只可能是 10 bit 驅動
     if (!dgSdUserSet && opt.rows.length >= 1024) $('dg-sd').value = '10';
+    /* v1.26.0：這一份是外部來源整份寫進來的，該問的由那條路自己問（每個呼叫端都接了
+       dgGrayRecordAsk）。把手動那條路的旗標標成「已處理」，之後使用者微調格子不會
+       再被問一次 —— 那是修改，不是新的資料。 */
+    DG_GRAY_MANUAL_DONE = true;
+    if (DG_GRAY_MANUAL_T) { clearTimeout(DG_GRAY_MANUAL_T); DG_GRAY_MANUAL_T = null; }
     dgRefreshReady();
     // 還沒算過也要看得到曲線 —— 光學確認本來就該在按計算之前先看一眼
     /* v1.23.0：第二個引數＝**檔案裡直接量到的色溫**，與第一個引數同索引。
@@ -7243,15 +7452,19 @@
       + '光學確認圖表已經畫出這條曲線。<b>量測那個分頁可以關掉了。</b>';
 
     var miss = dgMissingParts();
-    dgSetStatus('dg-status', '已從「即時量測」分頁帶入第 2 部分：白灰階 ' + rs.length + ' 階（Gray '
+    var msg = '已從「即時量測」分頁帶入第 2 部分：白灰階 ' + rs.length + ' 階（Gray '
       + rs[0].g + ' ～ ' + top.g + '）＋ 目標白點 x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6)
       + ' Lv=' + top.Y.toFixed(3) + '。\n'
       + '色溫 T 由本頁的 dgCCT(x, y) 算出；duv 儀器沒有回傳，留空。\n'
       + '光學確認圖表已經畫出這條曲線。量測分頁可以關掉了。\n'
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
-        : '三份都齊了，下一步：按「計算」。'),
-      miss.length ? '' : 'ok');
+        : '三份都齊了，下一步：按「計算」。');
+    dgSetStatus('dg-status', msg, miss.length ? '' : 'ok');
+    // v1.26.0：即時量測也是「第 2 部分有新資料」的一條路
+    dgGrayRecordAsk(rs, label || '（即時量測）', dgRoundName(DG_ROUND), function () {
+      if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
+    });
   }
 
   /* ═══ v1.24.0：第 4 部分「確認結果」════════════════════════════════════════
@@ -7382,6 +7595,22 @@
       var cr = card.getBoundingClientRect();
       window.scrollTo({ top: Math.max(0, cr.top + window.pageYOffset - 60), behavior: 'smooth' });
     }
+    /* ─── v1.26.0：第 4 部分這一份也要問要不要記錄 ────────────────────────────
+       Bruce 2026-09-09：「**所有量測的結果**都還是要有選項詢問使用者，要不要加入
+       比較的分頁。」第 4 部分那次確認量測就是其中一份。
+       🔴 **這個視窗與 v1.25.1 修掉的那個不一樣**，不是同一個錯：
+          v1.25.0 彈的是「要不要進行第二輪」—— 那個問題**必須看圖才答得出來**，
+          蓋住圖等於問了一個他答不了的問題。
+          這裡問的是「要不要留一份到比較分頁」—— **不需要看圖**，一秒答完，
+          關掉之後圖就在眼前（上面已經捲好了）。
+       🔴 「要不要進行第二輪」仍然**不是視窗**，是卡片上那顆按鈕，一個字都沒改回去。
+       這一份的預設組名多兩個字（「第一輪確認」），與第 2 部分那次分得開。 */
+    dgGrayRecordAsk(rs, DG_P4.label, dgRoundName(DG_ROUND) + '確認', function () {
+      if (DG_REC_NOTE) {
+        dgConfSetStatus('已帶入第 4 部分的確認量測：' + rs.length + ' 階（Gray ' + rs[0].g + ' ～ ' + top.g + '）。\n'
+          + '有沒有達到目標請自己看圖判斷 —— 本頁不做這個判斷。\n' + DG_REC_NOTE, 'ok');
+      }
+    });
     return true;
   }
 
@@ -7501,69 +7730,91 @@
     // ⑤ 第 2 部分：填入第 4 部分那次確認量測（走既有的唯一寫入點）
     dgApplyGray({ rows: p4.rows, white: p4.white }, p4.label, p4.kind);
 
-    /* 這份資料若沒有色度 x／y，模式會被強制切成只調 Gamma —— 那等於放棄色溫調校，
-       使用者必須知道。**只在模式真的因此改變時**才跳這個既有的提醒視窗
-       （本來就是 gamma 的話什麼都沒變，不必打斷）。 */
-    var toneAfter = dgToneMode();
-    if (toneBefore === 'cct' && toneAfter === 'gamma' && !dgGrayHasXY()) {
+    /* ⑥ 這一份在第 4 部分就已經被問過了（v1.26.0 起）。所以這裡**不再問第二次**，
+       改成把當初記錄的那一組改名成新的輪數（Bruce 2026-09-09 的規則 1、2）。
+       三種情形各自的走法，逐條對應他點名要驗的三個情境：
+         · 當初加入了、名字是系統給的預設  ⇒ 改名成「第二輪」，不問
+         · 當初加入了、**使用者自己改過名** ⇒ 什麼都不動，也不問（規則 3）
+         · 當初**沒有**加入比較            ⇒ 這份還沒被記錄過，照 D 的規則問一次
+       前兩種靠 dgSlotFindSame() 認得出來（內容驅動，與其他路徑同一條判準）。 */
+    function afterRecord() {
+      var miss = dgMissingParts();
+      if (!miss.length) {
+        dgDoCalc();
+        /* 🔴 **接在計算結果前面，不覆寫它** —— dgDoCalc() 寫的那段（主表筆數、驅動上限碼、
+           修表事件、走的是哪一條演算法）是既有資訊，蓋掉就等於這一輪少了那些數字。
+           計算失敗時不接（那時狀態列是紅色的錯誤訊息，前面掛一句「已自動開始」是假的）。 */
+        var st = $('dg-status');
+        if (lastLut && st) {
+          st.textContent = dgRoundName(DG_ROUND) + '已自動開始。\n'
+            + '第 1 部分＝' + dgRoundName(prevRound) + '算出來的那張 LUT（與「一鍵複製 RGB」逐值相同）。\n'
+            + '第 2 部分＝第 4 部分那次確認量測（' + (p4.label || '未命名') + '，' + p4.rows.length + ' 階）。\n'
+            + '第 3 部分的純色端點沿用，沒有動。\n'
+            + (DG_REC_NOTE ? (DG_REC_NOTE + '\n') : '') + '\n' + st.textContent;
+        }
+      } else {
+        dgSetStatus('dg-status', dgRoundName(DG_ROUND) + '的第 1、2 部分已自動帶入，但還缺 '
+          + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、')
+          + '，補齊後按「開始計算新的 RGB LUT」。'
+          + (DG_REC_NOTE ? ('\n' + DG_REC_NOTE) : ''), '');
+      }
+
+      /* ⑧ 最後才捲回第 1 部分。
+         🔴 v1.25.1：這一步原本排在計算**之前**，而「進行下一輪」那顆鈕在第 4 部分卡片裡
+            （頁面底部）—— 從那裡發動的平滑捲動會被緊接著的大量版面變動（第 2 部分重畫
+            三張圖＋資料表、第 4 部分整塊收起、輸出卡片重畫）打斷，實測停在
+            `#dg-part-lut` 上緣往上 2338px，完全沒有捲回去。
+            v1.25.0 之所以沒踩到，只是因為當時那顆鈕在浮動視窗裡（position:fixed），
+            按下去時頁面還停在上半部、捲動距離短 —— 那時的「有捲回去」是碰巧成立的。
+         🔴 **不要用 requestAnimationFrame 排這一步**：頁面在背景／隱藏狀態下 rAF 會被
+            餓死（既有教訓），那樣捲動就永遠不會發生。
+         所以：先試平滑（正常情況下看得到畫面往上帶），400 ms 後**回頭檢查有沒有真的到位**，
+         沒到就直接跳過去。**「捲回第 1 部分」是規格，動畫不是。**
+         🔴 仍然用 window.scrollTo 不用 scrollIntoView —— 後者會連 overflow:hidden 的
+            祖先一起捲，而且使用者捲不回來（既有教訓，v3.x 在 wfg 踩過）。 */
+      var scrollTop = function () {
+        var p1 = $('dg-part-lut');
+        if (!p1 || !p1.getBoundingClientRect) return null;
+        return Math.max(0, p1.getBoundingClientRect().top + window.pageYOffset - 90);
+      };
+      var t0 = scrollTop();
+      if (t0 !== null) window.scrollTo({ top: t0, behavior: 'smooth' });
+      setTimeout(function () {
+        var p1 = $('dg-part-lut');
+        if (!p1 || !p1.getBoundingClientRect) return;
+        var tp = p1.getBoundingClientRect().top;
+        if (tp < -120 || tp > window.innerHeight - 120) {
+          var t1 = scrollTop();
+          if (t1 !== null) window.scrollTo(0, t1);   // 沒到位就直接跳
+        }
+      }, 400);
+    }
+
+    /* 已經記錄過 ⇒ 改名，不再問；沒記錄過 ⇒ 問一次。 */
+    function renameOrAsk() {
+      DG_REC_NOTE = '';
+      var hit = dgSlotFindSame(p4.rows);
+      if (hit >= 0) {
+        var renamed = dgSlotRetitleRound(hit, DG_ROUND);
+        DG_REC_NOTE = renamed
+          ? ('「光學資料比較」裡那一組已改名為「' + dgSlotDisplayName(hit) + '」（原本是系統給的預設名）。')
+          : ('「光學資料比較」裡那一組（' + dgSlotDisplayName(hit) + '）是你自己取的名字，保留不動。');
+        afterRecord();
+        return;
+      }
+      // 第 4 部分那次選了「不記錄」⇒ 這份還沒進過比較分頁，照 D 的規則問一次
+      dgGrayRecordAsk(p4.rows, p4.label, dgRoundName(DG_ROUND), afterRecord);
+    }
+
+    /* Ａ：這份資料若沒有色度 x／y，模式會被強制切成只調 Gamma —— 那等於放棄色溫調校，
+       使用者必須知道。**只在模式真的因此改變時**才跳（本來就是 gamma 就什麼都沒變）。
+       🔴 與下一個視窗**串起來**（前一個關掉才輪到後一個），不讓兩個視窗疊在一起。 */
+    if (toneBefore === 'cct' && dgToneMode() === 'gamma' && !dgGrayHasXY()) {
       dgGrayNoXYNote(p4.label || '第 4 部分的確認量測', p4.rows.length,
-        p4.rows[0].g, p4.rows[p4.rows.length - 1].g);
-    }
-
-    // ⑥⑦ 齊備就直接算（缺件由 dgDoCalc() 自己的守衛擋，這裡不重寫一套判斷）
-    var miss = dgMissingParts();
-    if (!miss.length) {
-      dgDoCalc();
-      /* 🔴 **接在計算結果前面，不覆寫它** —— dgDoCalc() 寫的那段（主表筆數、驅動上限碼、
-         修表事件、走的是哪一條演算法）是既有資訊，蓋掉就等於這一輪少了那些數字。
-         計算失敗時不接（那時狀態列是紅色的錯誤訊息，前面掛一句「已自動開始」是假的）。 */
-      var st = $('dg-status');
-      if (lastLut && st) {
-        st.textContent = dgRoundName(DG_ROUND) + '已自動開始。\n'
-          + '第 1 部分＝' + dgRoundName(prevRound) + '算出來的那張 LUT（與「一鍵複製 RGB」逐值相同）。\n'
-          + '第 2 部分＝第 4 部分那次確認量測（' + (p4.label || '未命名') + '，' + p4.rows.length + ' 階）。\n'
-          + '第 3 部分的純色端點沿用，沒有動。\n\n' + st.textContent;
-      }
+        p4.rows[0].g, p4.rows[p4.rows.length - 1].g, renameOrAsk);
     } else {
-      dgSetStatus('dg-status', dgRoundName(DG_ROUND) + '的第 1、2 部分已自動帶入，但還缺 '
-        + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、')
-        + '，補齊後按「開始計算新的 RGB LUT」。', '');
+      renameOrAsk();
     }
-
-    /* ⑧ 最後才捲回第 1 部分。
-       🔴 v1.25.1：這一步原本排在計算**之前**，而 v1.25.0 起「進行下一輪」那顆鈕是在
-          第 4 部分卡片裡（頁面底部）—— 從那裡發動的平滑捲動會被緊接著的大量版面變動
-          （第 2 部分重畫三張圖＋資料表、第 4 部分整塊收起、輸出卡片重畫）打斷，
-          實測停在 `#dg-part-lut` 上緣往下 2338px 的地方，完全沒有捲回去。
-          v1.25.0 之所以沒踩到，只是因為當時那顆鈕在**浮動視窗**裡（position:fixed），
-          按下去時頁面還停在上半部，捲動距離短。
-       修法：等版面全部定下來再捲，並用 requestAnimationFrame 排到下一次繪製之後。
-       🔴 仍然用 window.scrollTo 不用 scrollIntoView —— 後者會連 overflow:hidden 的
-          祖先一起捲，而且使用者捲不回來（既有教訓，v3.x 在 wfg 踩過）。 */
-    /* 🔴 **不要用 requestAnimationFrame 排這一步**：頁面在背景／隱藏狀態下 rAF 會被
-       餓死（既有教訓，Chrome 分頁預設 hidden 時 rAF 整個不跑），那樣捲動就永遠不會發生。
-       🔴 而且**平滑捲動本身也可能整段不生效**：實測（headless、真實 Chrome）從頁面底部
-          的「進行下一輪」按下去，`behavior:'smooth'` 那一次完全沒有移動，
-          `#dg-part-lut` 停在視窗上緣往上 2338px —— 平滑捲動是靠逐幀動畫做的，
-          幀被節流或被緊接著的大量版面變動打斷，它就只是安靜地什麼都沒發生。
-       所以：先試平滑（正常情況下他看得到畫面往上帶），400 ms 後**檢查有沒有真的到位**，
-       沒到就直接跳過去。「捲回第 1 部分」是規格，動畫不是。 */
-    var scrollTop = function () {
-      var p1 = $('dg-part-lut');
-      if (!p1 || !p1.getBoundingClientRect) return null;
-      return Math.max(0, p1.getBoundingClientRect().top + window.pageYOffset - 90);
-    };
-    var t0 = scrollTop();
-    if (t0 !== null) window.scrollTo({ top: t0, behavior: 'smooth' });
-    setTimeout(function () {
-      var p1 = $('dg-part-lut');
-      if (!p1 || !p1.getBoundingClientRect) return;
-      var top = p1.getBoundingClientRect().top;
-      if (top < -120 || top > window.innerHeight - 120) {
-        var t1 = scrollTop();
-        if (t1 !== null) window.scrollTo(0, t1);   // 沒到位就直接跳
-      }
-    }, 400);
     return true;
   }
 
@@ -7624,19 +7875,22 @@
         }
         if (!kind) throw new Error(lutErr || '這個檔案裡既沒有認得出來的 LUT 表，也沒有認得出來的光學量測資料。');
 
-        var slotNo = 0, filled;
+        var filled;
         if (kind === 'prim') {
           dgApplyPrim(opt, file.name);
           filled = '第 3 部分：R／G／B 三個端點的 X／Y／Z';
         } else if (kind === 'gray') {
           dgApplyGray(opt, file.name);
-          slotNo = dgSlotAdd(opt, file.name);   // v1.4.3：同時存成一組（純比較用，不影響計算）
+          /* v1.26.0：v1.4.3 起這裡是**不問就自動存成一組**。Bruce 2026-09-09 要求
+             改成「跳視窗詢問使用者是否要記錄」，所以自動存拿掉，改在狀態列寫完之後
+             由 dgGrayRecordAsk() 問（見本函式尾端）。dgRenderImportBox() 的 slotNo
+             參數一併移除（沒有讀者了，留著就是死碼）。 */
           filled = '第 2 部分：白灰階 ' + opt.rows.length + ' 階 ＋ 目標白點';
         } else {
           dgApplyImportedFmt(det, file.name, true);
           filled = '第 1 部分：RGB 的 LUT（' + det.fmt.label + '）';
         }
-        dgRenderImportBox(file.name, kind, opt, det, slotNo, want);
+        dgRenderImportBox(file.name, kind, opt, det, want);
 
         var miss = dgMissingParts();
         var msg = '已匯入 ' + file.name + '\n這個檔是「' + DG_FILE_KIND[kind].name + '」，只填了 ' + filled + '。\n';
@@ -7644,9 +7898,6 @@
           msg += '同一個檔裡的 LUT 表與白灰階沒有收（它們是上一輪的輸出與更早的量測，配起來不會收斂）。\n';
         }
         if (kind === 'gray') {
-          msg += slotNo
-            ? ('這份量測同時存成「第 ' + slotNo + ' 組」，可以在下方「光學量測組」卡片改名、勾選要不要疊在圖上。\n')
-            : ('⚠ 光學量測組已滿 ' + DG_SLOT_MAX + ' 組，這一份沒有存成組（計算照常，不受影響）。\n');
           msg += '光學確認圖表已經畫出這條曲線，不必等按計算。\n';
         }
         if (want && want !== kind) {
@@ -7666,6 +7917,15 @@
         if (kind === 'lut') {
           DG_TONE_ASKED = false;    // 第 1 部分被整份換掉了 ⇒ 重問
           dgToneAfterLutSet();
+        }
+        /* v1.26.0：第 2 部分進了新資料 ⇒ 問要不要同步記錄到「光學資料比較」。
+           放在狀態列寫完之後（同 v1.17.0 那一條的理由：視窗不要蓋住剛寫好的訊息），
+           答完再把結果接在狀態列後面。 */
+        if (kind === 'gray') {
+          dgGrayRecordAsk(opt.rows, file.name, dgRoundName(DG_ROUND), function () {
+            if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE,
+              (want && want !== kind) || miss.length ? '' : 'ok');
+          });
         }
       }).catch(function (e) {
         // v1.24.0：第 4 部分的匯入失敗訊息寫在第 4 部分自己那一行，不去動輸入卡片的狀態列
@@ -7693,10 +7953,12 @@
     lut:  { name: 'TCON 的 LUT 檔', part: 'lut' }
   };
 
-  function dgRenderImportBox(fileName, kind, opt, det, slotNo, want) {
+  function dgRenderImportBox(fileName, kind, opt, det, want) {
     var box = $('dg-fmt-box');
-    var warn = (want && want !== kind) || (det && !det.fmt.sdOk)
-      || (kind === 'gray' && !slotNo);
+    /* v1.26.0：`kind === 'gray' && !slotNo` 這一項與 slotNo 參數一起拿掉 —— 它原本的意思是
+       「自動存組失敗（已滿）」，而這一版起白灰階檔**本來就不會自動存**，
+       要不要記錄是使用者在跳出來的視窗裡決定的。留著會讓每一次正常匯入都變成黃框。 */
+    var warn = (want && want !== kind) || (det && !det.fmt.sdOk);
     box.style.display = '';
     box.className = 'dg-fmt' + (warn ? ' warn' : '');
     var h = '<b>已匯入：</b>' + dgXe(fileName)
@@ -7712,9 +7974,8 @@
         + opt.rows[opt.rows.length - 1].g + '）、目標白點 x=' + (+opt.white[0]).toFixed(6)
         + ' y=' + (+opt.white[1]).toFixed(6) + ' Lv=' + (+opt.white[2]).toFixed(3)
         + (dgIsNum(opt.white[3]) ? '（CCT ' + Math.round(opt.white[3]) + 'K）' : '');
-      h += slotNo
-        ? ('<br><b>已存成第 ' + slotNo + ' 組</b>（見下方「光學量測組」卡片；純比較用，不參與計算），光學確認圖表已同時畫出這條曲線。')
-        : ('<br><b>⚠ 光學量測組已滿 ' + DG_SLOT_MAX + ' 組</b>，這一份沒有存成組。要留下來比較的話，先到下方卡片刪掉一組再重新匯入。');
+      // v1.26.0：要不要留一份到「光學資料比較」由跳出來的視窗決定，這裡不再預告結果
+      h += '<br>光學確認圖表已同時畫出這條曲線。';
     } else {
       var f = det.fmt;
       h += '<br><b>LUT 表</b>：' + f.label
@@ -7886,7 +8147,8 @@
     'dg-modal-gray': '設定白灰階亮度',
     'dg-modal-prim': '設定 RGB 純色 Pattern',
     'dg-modal-slot': '新增光學量測資料',     // v1.18.0
-    'dg-modal-conf': '確認結果'             // v1.24.0
+    'dg-modal-conf': '確認結果',            // v1.24.0
+    'dg-modal-rec': '要記錄到「光學資料比較」嗎？'   // v1.26.0
   };
   function dgStepModalStep(id, step) {
     var shown = null;
@@ -7940,14 +8202,22 @@
      不再綁任何事件。
      它只寫 innerHTML、不搬真節點；若說明視窗正開著且搬過真節點，先讓它照原路
      dgInfoClose() 收乾淨，否則那些節點會被 innerHTML 洗掉、回不了原位。 */
-  function dgNoteOpen(title, html) {
+  /* v1.26.0：多一個**關掉之後**要做的事（`done`）。
+     🔴 為什麼需要：這一版起，同一條路上可能既要提醒「這份資料沒有色度」、又要問
+        「要不要記錄到比較分頁」。兩個視窗同時 open 會疊在一起，使用者一次被問兩件事
+        —— 所以改成**串起來**：前一個關掉才輪到後一個。
+     🔴 `DG_NOTE_DONE` 一定要在上面那行 dgInfoClose() **之後**才設：那一行是為了把
+        說明視窗搬進去的真節點放回原位，它自己會走 dgInfoClose()，先設就會被立刻觸發。 */
+  var DG_NOTE_DONE = null;
+  function dgNoteOpen(title, html, done) {
     var m = $('dg-modal-info');
-    if (!m) return;
+    if (!m) { if (done) done(); return; }
     if (DG_INFO_MOVED.length) dgInfoClose();
     var body = $('dg-modal-info-body');
     body.innerHTML = html;
     body.scrollTop = 0;
     $('dg-modal-info-title').textContent = title || '提醒';
+    DG_NOTE_DONE = done || null;
     m.classList.add('open');
   }
 
@@ -7962,6 +8232,11 @@
     });
     DG_INFO_MOVED = [];
     $('dg-modal-info-body').innerHTML = '';
+    /* v1.26.0：關閉鈕／點暗色區／Escape 三條路都走這裡，所以接力點只要放這一個地方。
+       先取出再歸零，`done` 裡若又開了一個提醒視窗才不會把自己的收尾洗掉。 */
+    var d = DG_NOTE_DONE;
+    DG_NOTE_DONE = null;
+    if (d) d();
   }
 
   /* ─── v1.9.0：分頁切換 ────────────────────────────────────────────────
@@ -8089,6 +8364,8 @@
       dgRefreshReady();
       // v1.9.0：動態模式的色溫基準就是這一欄算出來的，改了要立刻反映在圖三與圖例上
       dgRenderCharts();
+      // v1.26.0：目標白點是第 2 部分齊備的另一半，手填完這一欄才算「填寫完成」
+      dgGrayManualMaybeAsk();
     });
     /* v1.8.0：三顆匯入鈕，各自長在自己那個部分裡（DOM 順序就是第 1／2／3 部分）。
        共用同一個隱藏的 file input —— 按下哪一顆只記在 DG_IMP_WANT 裡供回報用，
@@ -8291,18 +8568,16 @@
     $('dg-btn-clr-conf').addEventListener('click', dgConfClear);
     // v1.25.0：看完曲線之後那一個決定
     $('dg-btn-next-round').addEventListener('click', dgNextRound);
-    /* 「這樣就好」＝ 這一輪的結果就是最終的，下一步是把它寫回 TCON。
-       所以捲到輸出卡片（下載／複製都在那裡），不藏任何東西、也不改任何狀態 ——
-       他隨時可以改變主意再按「進行下一輪」。 */
-    $('dg-btn-next-no').addEventListener('click', function () {
-      var out = $('dg-card-result');
-      if (out && out.getBoundingClientRect) {
-        var r = out.getBoundingClientRect();
-        window.scrollTo({ top: Math.max(0, r.top + window.pageYOffset - 60), behavior: 'smooth' });
-      }
-      dgConfSetStatus('好，' + dgRoundName(DG_ROUND) + '就到這裡。\n'
-        + '新的 LUT 在「輸出 RGB Digital Gamma LUT」卡片，下載或一鍵複製都在那裡。\n'
-        + '改變主意的話，上面那顆「進行' + dgRoundName(DG_ROUND + 1) + '」還在。', 'ok');
+
+    /* ─── v1.26.0：「要不要記錄到光學資料比較」───────────────────────────────
+       🔴 四條關閉路徑（記錄／不記錄／關閉鈕／點暗色區）全部走 dgRecAnswer()，
+          因為每一條都必須執行 done —— 迭代那條路在等它接著計算。
+          Escape 那一條在上面的 keydown 處理器裡（同樣走 dgRecAnswer(false)）。 */
+    $('dg-btn-rec-yes').addEventListener('click', function () { dgRecAnswer(true); });
+    $('dg-btn-rec-no').addEventListener('click', function () { dgRecAnswer(false); });
+    $('dg-modal-rec-close').addEventListener('click', function () { dgRecAnswer(false); });
+    $('dg-modal-rec').addEventListener('click', function (e) {
+      if (e.target === $('dg-modal-rec')) dgRecAnswer(false);
     });
 
     $('dg-btn-clear').addEventListener('click', function () { dgClearAll('button'); });
@@ -8500,6 +8775,19 @@
     whiteText: function () { return $('dg-in-white').value; },
     primText: function () { return $('dg-in-prim').value; },
     copyLutTsv: function () { var b = dgOutLutBody(); return b ? dgLutTsv(b) : null; },
+    // v1.26.0 驗證用（唯讀／既有路徑的薄包裝）
+    recPending: function () { return DG_REC ? { n: DG_REC.rows.length, label: DG_REC.label, name: DG_REC.name } : null; },
+    recNote: function () { return DG_REC_NOTE; },
+    recAnswer: dgRecAnswer,
+    slotNames: function () { return DG_SLOTS.map(function (s, i) { return dgSlotDisplayName(i); }); },
+    slotNameFlags: function () { return DG_SLOTS.map(function (s) { return !!s.nameIsUserSet; }); },
+    slotSetName: function (i, v) {   // 模擬使用者在比較分頁改名（走與畫面同一支）
+      if (!DG_SLOTS[i]) return false;
+      dgSlotStoreName(i, v); DG_SLOTS[i].nameIsUserSet = true; dgSlotRender(); return true;
+    },
+    slotRows: function (i) {
+      return DG_SLOTS[i] ? DG_SLOTS[i].rows.map(function (r) { return { g: r.g, x: r.x, y: r.y, Y: r.Y, T: r.T }; }) : null;
+    },
     computeGammaOnly: dgComputeGammaOnly,
     gatherData: function (cfg, opt) { return dgGatherData(cfg, opt); },
     readCfg: function () { return dgReadCfg(); }
