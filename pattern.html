@@ -753,8 +753,8 @@
            塞進 #pg-pat-ctrl 或 #pg-edit-block 任何一邊都會在另一種模式下消失。 -->
       <div class="pg-sub" id="pg-colswap">
       <div class="pg-nudge" style="grid-template-columns:repeat(2,1fr);margin-top:0">
-      <button class="pg-mini" id="pg-cs-sub" aria-pressed="false" data-i18n="pat.csSub" data-i18n-title="pat.csSubTip">Subpixel 奇偶互換 1↔2</button>
-      <button class="pg-mini" id="pg-cs-px"  aria-pressed="false" data-i18n="pat.csPx"  data-i18n-title="pat.csPxTip">Pixel 奇偶互換 123↔456</button>
+      <button class="pg-mini" id="pg-cs-sub" aria-pressed="false" data-i18n="pat.csSub" data-i18n-title="pat.csSubTip">Subpixel 奇偶互換</button>
+      <button class="pg-mini" id="pg-cs-px"  aria-pressed="false" data-i18n="pat.csPx"  data-i18n-title="pat.csPxTip">Pixel 奇偶互換</button>
       </div>
       </div>
 
@@ -1221,8 +1221,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260909pat380"></script>
-<script src="common/i18n.js?v=20260909pat380"></script>
+<script src="common/version.js?v=20260909pat381"></script>
+<script src="common/i18n.js?v=20260909pat381"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1609,13 +1609,25 @@
     // 亮／暗組在這裡重算 —— 每一條會改到 pgLevels 的路徑（點格子、拉霸、±、亮暗反轉、
     // 載入畫面）最後都會走到 pgPaintCells，把重算掛在這裡就不會有漏掉的路徑。
     pgRebuildGroups();
+    // v3.8.1：編輯格也要即時反映欄位互換（Bruce 2026-09-09：「在畫面參數那邊按了這個
+    // 按鈕以後，能看到即時的變化」）。做法是**只改呈現、不動 pgLevels** ——
+    // 格子上顯示的是「顯示欄 (p,c) 對應到的原始格」的值。原始資料完全沒被碰過，
+    // 所以「切回來要知道原本長什麼樣」自動成立，不需要快照，也不會有還原不乾淨的風險。
+    //
+    // 🔴 底色的通道 (c) 用**格子自己的**，不跟著換：螢幕上第 1 欄的實體 subpixel
+    //    永遠是紅色，互換換的是寫進那一欄的灰階值，不是那一欄的物理顏色。
+    //    這與全畫面 canvas 的行為完全一致。
+    //
+    // pgSel / pgGrpLit 存的都是**原始座標**（資料座標），所以查詢時一樣要先換算。
+    // 換算後的效果是：畫面上顯示為 hi 的那格就會被標成亮組，看到什麼就是什麼。
     document.querySelectorAll('#pg-rows .pg-cell').forEach(function(cell){
       var r = +cell.getAttribute('data-r'), p = +cell.getAttribute('data-p'), c = +cell.getAttribute('data-c');
-      var v = pgLevels[r][p][c];
+      var s = pgCsSrc(p, c);
+      var v = pgLevels[r][s.p][s.c];
       cell.style.background = pgCellColor(c, v);
       cell.textContent = v;
-      if (pgSel[key(r,p,c)]) cell.classList.add('sel'); else cell.classList.remove('sel');
-      if (pgGrpLit[key(r,p,c)]) cell.classList.add('grp-lit'); else cell.classList.remove('grp-lit');
+      if (pgSel[key(r,s.p,s.c)]) cell.classList.add('sel'); else cell.classList.remove('sel');
+      if (pgGrpLit[key(r,s.p,s.c)]) cell.classList.add('grp-lit'); else cell.classList.remove('grp-lit');
     });
     document.getElementById('pg-selcount').textContent = selCount();
     pgSyncSelTarget();
@@ -1679,11 +1691,17 @@
     pgSyncPatternUI();
     pgSyncGrid();
   }
+  // 🔴 v3.8.1 欄位互換開啟時的編輯語意（Bruce 2026-09-09 待確認的那一題）：
+  //    傳進來的 (p,c) 是**使用者看到的那一格**，寫入的目標先經 pgCsSrc() 換算成原始格。
+  //    效果 ＝ 所見即所得：使用者點畫面上第 j 欄、填 v，畫面上第 j 欄就會變成 v。
+  //    另一種可能的語意是「寫到原始位置」，那會造成「點這一欄、卻是另一欄變了」，
+  //    在畫面上無法解釋，所以不採用。兩顆都關時 pgCsSrc 是恆等，行為與從前完全相同。
   function pgPaintCell(r, p, c, additive){
     pgLeavePattern();
-    pgLevels[r][p][c] = pgCurrentLevel();
+    var s = pgCsSrc(p, c);
+    pgLevels[r][s.p][s.c] = pgCurrentLevel();
     if (!additive) pgSel = {};       // 單點：選取集合換成這一格
-    pgSel[key(r,p,c)] = true;        // 保留選取 → 之後可用滑桿即時微調同一格
+    pgSel[key(r,s.p,s.c)] = true;    // 保留選取 → 之後可用滑桿即時微調同一格
     pgPaintCells();
     pgRenderPreview();
     pgRenderFill();
@@ -2193,28 +2211,61 @@
     ctx.putImageData(img, 0, 0);
   }
 
-  // 手動 4×4 的**放大**預覽沒辦法在放大後的裝置像素上做欄位互換（那會去換到放大後的
-  // 子欄）。所以先把 4×4 單元丟進一張 4×4 的離屏 canvas，交給**同一支** pgSwapColsApply
-  // 處理再讀回來 —— 刻意不另外寫一份「4×4 版的置換邏輯」，兩套一定會分岔
-  //（CLAUDE.md 已記錄過同一個破口）。單元寬 4 pixel＝12 欄，2 與 6 都整除，
-  //  不會踩到湊不滿一組的邊界。
-  var pgCsUnitCv = null;
+  // ─── 一個週期（4 pixel ＝ 12 欄）的「顯示欄 → 原始欄」對應表 ──────────────
+  //
+  //  為什麼需要它：手動 4×4 的**放大**預覽與編輯格都不能在放大後的裝置像素上做互換
+  //  （那會去換到放大後的子欄）；而編輯格還要能把使用者點下去的位置反查回原始資料。
+  //  兩者需要的都是同一張 12 欄的對應表。
+  //
+  //  🔴 這張表**不是另外寫一套置換邏輯**，而是把「欄索引 0..11 當成像素值」丟進
+  //  **同一支** pgSwapColsApply 跑一次再讀回來。pgSwapColsApply 做的是
+  //  `dest[j] = src[f(j)]`，餵 src[j] = j 進去，讀出來的 dest[j] 就是 f(j) 本身。
+  //  欄索引最大 11 < 256，塞得進 8-bit 通道，不會失真。
+  //  ⇒ 產品裡永遠只有一份置換規則，編輯格與畫布不可能分岔（CLAUDE.md 記錄過
+  //    「同一件事兩套實作必分岔」這個破口，這裡刻意不再開一次）。
+  //
+  //  單元寬 4 pixel ＝ 12 欄，2 與 6 都整除，不會踩到「湊不滿一組」的邊界。
+  var pgCsMapCv = null;
+  var pgCsMapCache = { key: '', map: null };
+  function pgCsColMap(){
+    var k = pgColSwap.sub + '/' + pgColSwap.px, j;
+    if (pgCsMapCache.key === k && pgCsMapCache.map) return pgCsMapCache.map;
+    var m = [];
+    if (!pgColSwapOn()) {
+      for (j = 0; j < NPX * 3; j++) m.push(j);            // 恆等
+    } else {
+      if (!pgCsMapCv) pgCsMapCv = document.createElement('canvas');
+      pgCsMapCv.width = NPX; pgCsMapCv.height = 1;
+      var x = pgCsMapCv.getContext('2d', { alpha: false, willReadFrequently: true });
+      var im = x.createImageData(NPX, 1), dd = im.data, p, o;
+      for (p = 0; p < NPX; p++) {
+        o = p * 4;
+        dd[o] = p * 3; dd[o+1] = p * 3 + 1; dd[o+2] = p * 3 + 2; dd[o+3] = 255;
+      }
+      x.putImageData(im, 0, 0);
+      pgSwapColsApply(x, NPX, 1);
+      var out = x.getImageData(0, 0, NPX, 1).data;
+      for (j = 0; j < NPX * 3; j++) m.push(out[((j / 3) | 0) * 4 + (j % 3)]);
+    }
+    pgCsMapCache = { key: k, map: m };
+    return m;
+  }
+  // 顯示格 (p,c) ⇒ 原始資料格 (p,c)。兩顆都關時是恆等。
+  function pgCsSrc(p, c){
+    var j = pgCsColMap()[p * 3 + c];
+    return { p: (j / 3) | 0, c: j % 3 };
+  }
+  // 依對應表產生「顯示用」的 4×4 值。原始的 pgLevels 一個位元組都沒被改。
   function pgSwappedLevels(){
     if (!pgColSwapOn()) return pgLevels;
-    if (!pgCsUnitCv) pgCsUnitCv = document.createElement('canvas');
-    pgCsUnitCv.width = NPX; pgCsUnitCv.height = NROW;
-    var x = pgCsUnitCv.getContext('2d', { alpha: false });
-    var im = x.createImageData(NPX, NROW), dd = im.data, r, p, o;
-    for (r = 0; r < NROW; r++) for (p = 0; p < NPX; p++) {
-      o = (r * NPX + p) * 4;
-      dd[o] = pgLevels[r][p][0]; dd[o+1] = pgLevels[r][p][1]; dd[o+2] = pgLevels[r][p][2]; dd[o+3] = 255;
-    }
-    x.putImageData(im, 0, 0);
-    pgSwapColsApply(x, NPX, NROW);
-    var out = x.getImageData(0, 0, NPX, NROW).data, res = [];
+    var m = pgCsColMap(), res = [], r, p, c;
     for (r = 0; r < NROW; r++) {
       var rowArr = [];
-      for (p = 0; p < NPX; p++) { o = (r * NPX + p) * 4; rowArr.push([out[o], out[o+1], out[o+2]]); }
+      for (p = 0; p < NPX; p++) {
+        var trip = [];
+        for (c = 0; c < 3; c++) { var j = m[p * 3 + c]; trip.push(pgLevels[r][(j / 3) | 0][j % 3]); }
+        rowArr.push(trip);
+      }
       res.push(rowArr);
     }
     return res;
@@ -4139,13 +4190,17 @@
     return [
       { key: 'fs',     el: document.getElementById('pg-fs-canvas'),
         live: function(){ var o = document.getElementById('pg-fs'); return o && o.classList.contains('on'); },
-        // 匯入圖模式讀解碼後的原始像素，不讀螢幕上那張（它有置中偏移與平移）
-        src:  function(){ return (pgMode === 'image' && pgImport.canvas) ? pgImport.canvas
-                                                                        : document.getElementById('pg-fs-canvas'); },
+        // 匯入圖模式讀解碼後的原始像素，不讀螢幕上那張（它有置中偏移與平移）。
+        // 🔴 v3.8.1 例外：欄位互換開著時**不能**走這條捷徑 —— 解碼後的原圖沒有經過
+        //    欄位重新對應，放大鏡會報出與螢幕上不一樣的值（放大鏡的用途正是讀出
+        //    精確的 subpixel 數值，報錯值比不報更糟）。此時改讀螢幕那張並用同一組
+        //    座標，寧可看到置中黑邊，也不要讀到與畫面不符的數字。
+        src:  function(){ return (pgMode === 'image' && pgImport.canvas && !pgColSwapOn())
+                                 ? pgImport.canvas : document.getElementById('pg-fs-canvas'); },
         map:  function(cx, cy, r, el){
                 var d = window.devicePixelRatio || 1;
                 var x = Math.floor((cx - r.left) * d), y = Math.floor((cy - r.top) * d);
-                if (pgMode === 'image' && pgImport.canvas) {
+                if (pgMode === 'image' && pgImport.canvas && !pgColSwapOn()) {
                   var W = el.width, H = el.height, iw = pgImport.canvas.width, ih = pgImport.canvas.height;
                   var ox = iw < W ? Math.floor((W - iw) / 2) : -Math.min(Math.max(0, iw - W), Math.max(0, pgImport.pan.x));
                   var oy = ih < H ? Math.floor((H - ih) / 2) : -Math.min(Math.max(0, ih - H), Math.max(0, pgImport.pan.y));
@@ -4178,15 +4233,18 @@
       { key: 'home',   el: document.getElementById('pg-preview'),
         live: function(){ return true; },
         src:  function(){
-                if (pgMode === 'image' && pgImport.canvas) return pgImport.canvas;
+                if (pgMode === 'image' && pgImport.canvas && !pgColSwapOn()) return pgImport.canvas;
                 if (pgMode === 'subpixel') {                  // 真實來源就是 4×4 編輯器的值
+                  // 🔴 v3.8.1：取 pgSwappedLevels() 而不是 pgLevels —— 放大鏡讀到的必須
+                  //    與畫面上顯示的一致。兩顆都關時 pgSwappedLevels() 直接回傳 pgLevels。
+                  var LVm = pgSwappedLevels();
                   var c = document.createElement('canvas'); c.width = NPX; c.height = NROW;
                   var x = c.getContext('2d', { alpha: false });
                   var img = x.createImageData(NPX, NROW), d = img.data;
                   for (var r2 = 0; r2 < NROW; r2++) for (var p = 0; p < NPX; p++) {
                     var o = (r2 * NPX + p) * 4;
-                    d[o] = pgLevels[r2][p][0]; d[o+1] = pgLevels[r2][p][1];
-                    d[o+2] = pgLevels[r2][p][2]; d[o+3] = 255;
+                    d[o] = LVm[r2][p][0]; d[o+1] = LVm[r2][p][1];
+                    d[o+2] = LVm[r2][p][2]; d[o+3] = 255;
                   }
                   x.putImageData(img, 0, 0);
                   return c;
@@ -4203,7 +4261,7 @@
                   return { x: Math.floor(px / devScale) % NPX, y: Math.floor(py / devScale) % NROW };
                 }
                 var t3 = pgTargetSize();
-                if (pgMode === 'image' && pgImport.canvas) {
+                if (pgMode === 'image' && pgImport.canvas && !pgColSwapOn()) {
                   // 預覽是把「畫面」縮小顯示，圖在畫面裡是 1:1 置中／平移的，
                   // 所以要先換算回畫面座標，再扣掉置中偏移與平移量，才是圖上的真實像素
                   var fx = px * t3.W / Math.max(1, el.width), fy = py * t3.H / Math.max(1, el.height);
@@ -5391,6 +5449,9 @@
     function pgCsToggle(which){
       pgColSwap[which] = pgColSwap[which] ? 0 : 1;
       pgCsSync();
+      // 🔴 pgPaintCells() 不可漏：編輯格是 DOM，不會因為 canvas 重畫就跟著更新。
+      //    v3.8.0 就是漏了這一支，所以「畫面參數那邊按了沒有即時變化」（Bruce 回報）。
+      pgPaintCells();
       pgRenderPreview(); pgRenderFill(); pgOutUpdate();
     }
     if (byId('pg-cs-sub')) byId('pg-cs-sub').addEventListener('click', function(){ pgCsToggle('sub'); });
@@ -5545,8 +5606,12 @@
       var el = document.elementFromPoint(e.clientX, e.clientY);
       var cell = cellOf(el);
       if (!cell) return;
-      var k = key(+cell.getAttribute('data-r'), +cell.getAttribute('data-p'), +cell.getAttribute('data-c'));
-      if (pgSel[k] && pgLevels[+cell.getAttribute('data-r')][+cell.getAttribute('data-p')][+cell.getAttribute('data-c')] === pgCurrentLevel()) return;
+      // 座標換算與 pgPaintCell 同一條規則（顯示格 → 原始格），否則拖曳經過時的
+      // 「這一格已經是目標值就跳過」會查到別格，塗刷會出現漏格或重複寫入。
+      var dr = +cell.getAttribute('data-r');
+      var ds = pgCsSrc(+cell.getAttribute('data-p'), +cell.getAttribute('data-c'));
+      var k = key(dr, ds.p, ds.c);
+      if (pgSel[k] && pgLevels[dr][ds.p][ds.c] === pgCurrentLevel()) return;
       paintFrom(cell, true);               // 拖曳經過：累加進選取集合
     });
     ['pointerup','pointercancel','pointerleave'].forEach(function(ev){
@@ -5572,7 +5637,11 @@
       var lab = e.target.closest('.pg-pxlabel');
       if (!lab) return;
       var p = +lab.getAttribute('data-px'), list = [];
-      for (var r = 0; r < NROW; r++) for (var c = 0; c < 3; c++) list.push(key(r,p,c));
+      // v3.8.1：標題選的是**畫面上**那一個 px 的三欄 ⇒ 要換算回原始格（見 pgCsSrc）
+      for (var r = 0; r < NROW; r++) for (var c = 0; c < 3; c++) {
+        var s = pgCsSrc(p, c);
+        list.push(key(r, s.p, s.c));
+      }
       pgSelectSet(list);
       pgPaintCells();
     });
@@ -5583,8 +5652,8 @@
       var c = +h.getAttribute('data-ch');
       var grp = h.parentElement;
       var p = Array.prototype.indexOf.call(grp.parentElement.querySelectorAll('.pg-pxgroup'), grp);
-      var list = [];
-      for (var r = 0; r < NROW; r++) list.push(key(r,p,c));
+      var list = [], s2 = pgCsSrc(p, c);          // v3.8.1：畫面上的那一欄 ⇒ 原始格
+      for (var r = 0; r < NROW; r++) list.push(key(r, s2.p, s2.c));
       pgSelectSet(list);
       pgPaintCells();
     });
