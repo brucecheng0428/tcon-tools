@@ -199,10 +199,31 @@
         重用最多、風險最低。DG 第 3 部分本來就收 x／y／Lv 這一組寫法，
         由 dg.html 用它自己的 dgXyYtoXYZ() 換算成 XYZ 存起來 —— 換算的責任
         留在原本就負責換算的那一頁，量測頁只回報它真的量到的東西。 */
-  var DGM_MODE = (function () {
-    try { return (new URLSearchParams(location.search).get('mode') === 'prim') ? 'prim' : 'gray'; }
-    catch (e) { return 'gray'; }
+  /* ─── v1.26.1：模式不再是「開頁時就定死」───────────────────────────────
+     使用者會把這個分頁拖到要量的那台面板上。他在 DG 頁換一個入口再按一次
+     「即時量測」時，不該再開一個新分頁 —— 那等於白費他拖曳的功夫。
+     所以 DG 頁改成**重用這個分頁**，用 postMessage（'dg-measure-task'）通知
+     它換一個量測任務；本頁不重新導航（重新導航 ＝ 重新載入，視窗可能被搬回
+     預設位置，跟開新的一樣糟）。
+     🔴 因此 DGM_MODE／DGM_STEPS 從「常數」變成「可被換掉的目前任務」。
+        換任務的入口只有 dgmSetTask() 一支，且**只在沒有量測在跑的時候**才會
+        真的換過去（見 dgmApplyTask）—— 半套資料算到新任務頭上是資料正確性
+        問題，不是介面問題。 */
+  var DGM_QS = (function () {
+    try { return new URLSearchParams(location.search); }
+    catch (e) { return { get: function () { return null; } }; }
   })();
+  var DGM_MODE = (DGM_QS.get('mode') === 'prim') ? 'prim' : 'gray';
+  /* 任務編號：DG 頁每按一次「即時量測」就 +1，回傳結果時原封帶回去。
+     用途是讓 DG 頁能認出「這批資料是哪一次按鈕要的」，不會把上一個入口的
+     資料算到新的入口頭上（開頁時由 ?task= 帶進來，換任務時由訊息更新）。 */
+  var DGM_TASK = (function () {
+    var n = parseInt(DGM_QS.get('task'), 10);
+    return isNaN(n) ? 0 : n;
+  })();
+  // 本次載入的身分證（驗證用；重新載入一定會變，換任務不會變）
+  var DGM_LOAD_ID = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
+  var dgmSwitchCount = 0;
 
   // prim 模式的三步：[代號, 顯示名, RGB]
   var DGM_PRIMS = [
@@ -482,6 +503,10 @@
         + '<small>' + (lastGray === null ? '尚未開始量測' : '停在 ' + lastGray)
         + '　已跑 ' + fmtDur(elapsedMs()) + '　未回填</small>';
     }
+    /* v1.26.1：量測中被主控頁換任務 —— 等到這裡（run() 真的收工、running 已經
+       是 false）才套用。在量測迴圈還在跑的時候換模式，會讓那一輪的畫面與資料
+       對不上；而且上面那一段「已停止」的文字要先寫完，才輪到新任務覆蓋它。 */
+    if (pendingTask) { var nt = pendingTask; pendingTask = null; dgmSetTask(nt); }
   });
 
   // 供驗證用的唯讀觀測點（比照 dg.html 的 window.dgApi）。只有 getter，改不動任何狀態。
@@ -494,7 +519,15 @@
     elapsedMs: elapsedMs,
     isFullscreen: isFs,
     portOpen: function () { return !!(port && port.readable); },
-    steps: function () { return DGM_STEPS; }
+    steps: function () { return DGM_STEPS; },
+    // v1.26.1 驗證用：目前是哪一個任務，以及本頁「這一次載入」的身分證。
+    // 🔴 loadId 是在本 script 執行時產生的，只要頁面重新載入過就一定會變 ——
+    //    用它才能證明「重用視窗時本頁沒有被重載」（＝序列埠連線沒有被打斷），
+    //    而不是靠嘴巴說沒重載。
+    mode: function () { return DGM_MODE; },
+    task: function () { return DGM_TASK; },
+    loadId: function () { return DGM_LOAD_ID; },
+    taskSwitches: function () { return dgmSwitchCount; }
   };
 
   async function run() {
@@ -623,7 +656,8 @@
       return;
     }
     window.opener.postMessage(
-      { type: 'dg-measure-result', mode: DGM_MODE, label: '即時量測',
+      // v1.26.1：帶回任務編號 —— DG 頁靠它認出「這批資料是哪一次按鈕要的」
+      { type: 'dg-measure-result', mode: DGM_MODE, label: '即時量測', task: DGM_TASK,
         at: new Date().toLocaleString(), rows: rows },
       DGM_TARGET_ORIGIN);
     var span = (DGM_MODE === 'prim')
@@ -648,18 +682,109 @@
       + '這一頁可以關掉了 —— 按下面的「關閉這個分頁」。', 'ok');
   }
 
-  // v1.12.0：prim 模式只換標籤與文案，流程與閘門完全共用
-  if (DGM_MODE === 'prim') {
-    document.title = '即時量測（RGB 純色）— DG — TCON FAE專用工具箱';
-    $('dgm-gray-k').textContent = '目前純色';
-    setFill(128, 128, 128, '—');
-    $('dgm-msg').textContent = '按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）'
-      + '→ 依序顯示純紅、純綠、純藍三個滿版畫面，各量一次。';
-    $('dgm-hint').innerHTML = '把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），'
-      + '再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。';
+  /* v1.26.1：右上角那塊是 .dgm-corner，**max-height: 30vh 且 overflow: hidden**。
+     實測（1280×860 視窗、prim 模式）：全螢幕閘門的紅框 ＋ 模式說明本來就已經
+     用掉幾乎整個高度，我原本在 #dgm-msg 前面多加一行「已切到第 X 部分」，
+     結果把「依序顯示純紅、純綠、純藍…」那一行擠出可視範圍、被裁掉。
+     🔴 所以換任務的提示**不放在 #dgm-msg**（那一格沒有多的高度可用），
+        改放底部置中的 #dgm-hint —— 它沒有高度上限、字更大、而且本來就是
+        「現在該做什麼」那一條。#dgm-msg 維持與「直接用該模式開新頁」一字不差。 */
+  var DGM_HINT_BASE = $('dgm-hint').innerHTML;
+
+  /* v1.12.0：prim 模式只換標籤與文案，流程與閘門完全共用。
+     v1.26.1：抽成函式 —— 換任務時兩個方向都要走得回去，不能只有「進 prim」這一條。
+     🔴 #dgm-hint 兩種模式的文字**本來就一模一樣**（只差原始碼裡的換行），
+        所以不放進來；放進來只會多一份要同步維護的重複文字。 */
+  function dgmApplyModeUi() {
+    if (DGM_MODE === 'prim') {
+      document.title = '即時量測（RGB 純色）— DG — TCON FAE專用工具箱';
+      $('dgm-gray-k').textContent = '目前純色';
+      setFill(128, 128, 128, '—');
+      $('dgm-msg').textContent = '按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）'
+        + '→ 依序顯示純紅、純綠、純藍三個滿版畫面，各量一次。';
+    } else {
+      document.title = '即時量測 — DG — TCON FAE專用工具箱';
+      $('dgm-gray-k').textContent = '目前灰階值';
+      setGray(128);
+      $('dgm-msg').textContent = '按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）'
+        + '→ 逐階掃 0～255。';
+    }
+    $('dgm-msg').className = '';
   }
 
+  /* ═══ v1.26.1：換一個量測任務（不重新載入本頁）═══════════════════════════
+     🔴 為什麼一定要清狀態：使用者可能在第 2 部分量到一半改去按第 3 部分。
+        若不清，上一輪的 aborted／lastStep／進度計時器會殘留，畫面會拿上一個
+        任務的數字說話；更嚴重的是若讓 run() 邊跑邊被換掉模式，那一輪量到的
+        半套資料就會被算到新入口頭上。所以：
+          · 量測正在跑 → 先 abort（abort 之後 run() 一定在中途 return，
+            **不會 postMessage**，所以舊資料絕不會外流），把新任務排隊，
+            等那一輪真的收工再套用（見 dgm-start 的處理器結尾）。
+          · 沒在跑 → 立刻套用。
+     🔴 序列埠（port / keepReading / readLoop）刻意**不動** —— 它不帶任何量測
+        資料，留著才不用叫使用者重選一次埠，這與原本「停止後直接重新量測」
+        沿用同一個埠是同一個道理。 */
+  var pendingTask = null;
+
+  function dgmSetTask(t) {
+    DGM_MODE = (t.mode === 'prim') ? 'prim' : 'gray';
+    DGM_STEPS = (DGM_MODE === 'prim') ? DGM_PRIMS.length : 256;
+    DGM_TASK = (typeof t.task === 'number') ? t.task : DGM_TASK;
+
+    // ① 上一輪的殘留狀態一律歸零
+    aborted = null; lastStep = 0; lastGray = null; finished = false;
+    progStop(); scanT0 = 0; progLabel = '準備中';
+    rxBuf = '';
+    if (pending) { clearTimeout(pending.timer); pending.resolve(null); pending = null; }
+    $('dgm-prog').innerHTML = '';
+
+    // ② 畫面回到「還沒開始量」的樣子
+    $('dgm-ring').classList.remove('dgm-hidden');
+    $('dgm-hint').classList.remove('dgm-hidden');
+    $('dgm-done').classList.add('dgm-hidden');
+    $('dgm-done').innerHTML = '';
+    $('dgm-close').classList.add('dgm-hidden');
+    $('dgm-close').classList.remove('dgm-primary');
+    $('dgm-stop').classList.add('dgm-hidden');
+    $('dgm-start').textContent = '開始量測';
+
+    // ③ 換文案，再讓 syncFs() 決定開始鈕的開關（全螢幕沒掉就仍然可以直接按）
+    dgmApplyModeUi();
+    syncFs();
+
+    dgmSwitchCount++;
+    // dest 是訊息帶進來的字串，寫進 innerHTML 之前一律跳脫（來源同源不代表可以不跳脫）
+    var where = String(t.dest || '').replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+    log('主控頁切換量測任務' + (where ? '：' + where : '') + '（' + DGM_MODE + '）', 'o');
+    $('dgm-hint').innerHTML =
+      '<b style="color:#4ade80">DG 頁已把這個分頁切到'
+      + (where ? '「' + where + '」' : '新的任務') + '的量測（這個分頁沒有重開，'
+      + '你擺的位置與儀器連線都維持原樣）。</b><br>' + DGM_HINT_BASE;
+  }
+
+  function dgmApplyTask(t) {
+    if (running) {
+      pendingTask = t;
+      abort('主控頁換到別的量測任務');
+      return;
+    }
+    dgmSetTask(t);
+  }
+
+  /* 只收同源、且格式對得上的訊息；來源還要真的是開這一頁的那個視窗。
+     （file:// 之下 origin 會是 'null'，那條路本來就走不通，見上面 DGM_TARGET_ORIGIN） */
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    if (window.opener && e.source !== window.opener) return;
+    var d = e.data;
+    if (!d || d.type !== 'dg-measure-task') return;
+    dgmApplyTask(d);
+  });
+
   // 起始狀態：開始鈕的開關、全螢幕狀態列、閘門說明都由這一支決定，不另寫一份
+  dgmApplyModeUi();
   syncFs();
 })();
 </script>
