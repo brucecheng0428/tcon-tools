@@ -1008,9 +1008,11 @@ var I18N = {
                           'en': '🔴 Some fields in this code exceed the register width of this model and were clamped (this suggests the width table may be wrong - please report): {s}',
                           'zh-CN': '🔴 这份 code 有字段超出本机种的寄存器位宽，已夹到上限（这代表位宽判断可能有误，请回报）：{s}' },
   /* ══ v4.14.0：NB（E501／E503／EN01）codec ══════════════════════════════════ */
-  'wfg.codeErrNbSize':  { 'zh-TW': '{m} 的 code 只有 {s} bytes 這一種大小，這個檔案的實際內容是 {n} bytes。\n多半是型號選錯了（E503 是 4096、E501 是 131072），已取消匯入。',
-                          'en': 'A {m} code image is always {s} bytes, but this file holds {n} bytes of content.\nThe model is most likely wrong (E503 is 4096, E501 is 131072); import cancelled.',
-                          'zh-CN': '{m} 的 code 只有 {s} bytes 这一种大小，这个档案的实际内容是 {n} bytes。\n多半是型号选错了（E503 是 4096、E501 是 131072），已取消导入。' },
+  /* v4.44.2：E503 起有 4096／8192 兩種合法大小 ⇒ 原文「只有 {s} bytes 這一種大小」
+     與括號裡的「E503 是 4096」都已經不成立，三語一併改成不預設只有一個值的講法。 */
+  'wfg.codeErrNbSize':  { 'zh-TW': '{m} 的 code 合法大小是 {s} bytes，這個檔案的實際內容是 {n} bytes。\n多半是型號選錯了（E503 是 4096 或 8192、E501 是 131072），已取消匯入。',
+                          'en': 'A {m} code image must be {s} bytes, but this file holds {n} bytes of content.\nThe model is most likely wrong (E503 is 4096 or 8192, E501 is 131072); import cancelled.',
+                          'zh-CN': '{m} 的 code 合法大小是 {s} bytes，这个档案的实际内容是 {n} bytes。\n多半是型号选错了（E503 是 4096 或 8192、E501 是 131072），已取消导入。' },
   'wfg.codeErrNbHeader':{ 'zh-TW': '{m} 的 Dynamic Header 解不出來（檔案 0x100 起的 Header 表 checksum 不符，或一個有效區段都沒有）。\n這份檔案可能不是 EEPROM 格式的 {m} code，已取消匯入。',
                           'en': 'Cannot read the {m} dynamic header (the header table at file offset 0x100 fails its checksum, or contains no enabled section).\nThis may not be an EEPROM-format {m} code; import cancelled.',
                           'zh-CN': '{m} 的 Dynamic Header 解不出来（档案 0x100 起的 Header 表 checksum 不符，或一个有效区段都没有）。\n这份档案可能不是 EEPROM 格式的 {m} code，已取消导入。' },

@@ -3626,8 +3626,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260907dg1130"></script>
-<script src="common/i18n.js?v=20260907dg1130"></script>
+<script src="common/version.js?v=20260909wfg4442"></script>
+<script src="common/i18n.js?v=20260909wfg4442"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -45741,7 +45741,8 @@ function wfgCodeDecodeIntelHex(buf) {
          ① 本工具宣告支援的合法內容長度：
               `WFG_CODE_EEPROM_MAX` = 8192（EEPROM 上限）
               `WFG_CODE_FLASH_MIN`  = 131072（Flash **下限**，刻意沒有上限）
-              `WFG_NB_MODELS.e503.sizes` = [4096]、`e501a/e501b.sizes` = [131072]、
+              `WFG_NB_MODELS.e503.sizes` = [4096, 8192]（v4.44.2 起，見 `WFG_CODE_EEPROM_SIZES`）、
+              `e501a/e501b.sizes` = [131072]、
               `en01.sizes` = null（不固定，實測見過 6354 / 4096）
          ② 實測見過的最大合法映像：hex 語料 191 份解出來最大 **131072**；
             `.bin` 語料實際見過 **262144**（RM80203 那批）。⇒ 取 **262144** 為基準。
@@ -45812,6 +45813,35 @@ window.wfgCodeDecodeIntelHex = wfgCodeDecodeIntelHex;
    NB 的 bank 位置、防呆條件都要等拿到真實素材才寫得出來，現在編出來的只會是猜測。 */
 var WFG_CODE_EEPROM_MAX = 8192;      // 8 KB ＝ 64 Kbit
 var WFG_CODE_FLASH_MIN  = 131072;    // 128 KB
+/* ══ 🔴 v4.44.2：EEPROM 的合法「內容長度」清單 —— 4 KB 與 8 KB 兩種 ══════════
+   Bruce 2026-09-09：「EEPROM 不只要能 Load 4K，也要能 Load 8K Bytes。所有 T-CON
+   會用到 EEPROM 的地方，都要能支援 4K 與 8K 這兩個 size。」
+
+   🔴 **這一行的存在，是為了讓「4096」不再被任何一顆型號各寫一份。**
+   v4.14.0 的 `WFG_NB_MODELS.e503.sizes = [4096]` 就是那樣寫的，而**同一份原始碼的
+   上一段（`wfgCodeLoadImage()` 的註解，v4.11.0）早就寫著**「NB 的 bin 有 4 KB 與
+   8 KB 兩種，兩者都 ≤ 8192 ⇒ 都是 EEPROM，這條規則涵蓋得到」——
+   共用層說涵蓋得到，型號表卻把 8 KB 那一半關掉了。**註解是對的，是實作偏離了註解。**
+
+   ── 為什麼是「明確設定的清單」而不是「凡 ≤ 8192 一律放行」──────────────────
+   `sizes` 的職責**不是**「EEPROM 有多大」，而是「這份檔是不是這一顆的 code」——
+   它是型號選錯時唯一擋得住的那道閘（E501 是 Flash 131072、E503 是 EEPROM）。
+   改成「凡是共用層判為 eeprom 就放行」會把它變成一道**沒有鑑別力**的閘：
+   `~/TCON` 全庫實測有 6 份解出來只有 **2048 bytes** 的 hex、以及 31／32 bytes 的殘檔，
+   那些都 ≤ 8192，會一起被放進來然後在後面解出垃圾。⇒ 維持**枚舉**，只是把枚舉
+   從「各型號各寫一份 4096」收斂成這一個共用常數。
+
+   ── 8 KB 為什麼**不需要**改任何位移／分頁／校驗（實測，不是類推）──────────
+   `~/TCON` 的 `Temp/code/acc_4k_8k/` 有一組**對照檔**：同一顆 NB、同一份 code 的
+   4 KB 版與 8 KB 版（檔名只差 `_8k`）。逐位元組比對：
+     ・**前 4096 bytes 兩份完全相同（4096/4096），零差異。**
+     ・8 KB 版只是在後面多接 4096 bytes；wfg 讀的暫存器區（fileOff 0x100～0x5D3）
+       與 EDID（fileOff 0）**整段都在前 4 KB 之內**，一個位移都不用動。
+     ・全檔位元組累加（wfg 顯示的 CKS）對兩種大小都與原廠檔名裡的值相符：
+         4 KB 版 0x41249、8 KB 版 0x65A43、另一份 8 KB 0x6F844 —— 三份全中。
+   ⇒ 8 KB 是**同一版面的延長**，不是重新配置。這也是本版只動這一個清單、
+     不去碰 `map.delta`／`edidOff`／checksum 的依據。 */
+var WFG_CODE_EEPROM_SIZES = [4096, 8192];
 /* ══ 🔴 v4.37.3：Intel HEX 解碼時的映像大小上限（Bruce 2026-08-28 裁示「要擋掉」）══
    **不是「檔案合不合法」的判準**（那是上面兩個常數與各 codec `sizes` 的事，而且它們
    要等解碼完才判得到），而是**「不要為了一個註定會被拒絕的檔去配置一塊巨大的記憶體」**。
@@ -46615,7 +46645,11 @@ var WFG_NB_MODELS = {
       /* 顯示精度依各自的官方 UI：`E503AgbsfrViewModel::ComputeDCLK` 取 `Math.Round(…, 3)`。 */
       round: 3
     },
-    sizes: [4096]
+    /* 🔴 v4.44.2：由 `[4096]` 改為共用的 `WFG_CODE_EEPROM_SIZES`（＝ 4096 / 8192）。
+       完整依據（含 4K/8K 對照檔的逐位元組實測）寫在該常數上方。
+       這裡刻意**引用共用常數而不是再寫一次數字** —— 下一顆 EEPROM 型號要支援
+       兩種大小時，不會又出現一份自己的 `[4096]`。 */
+    sizes: WFG_CODE_EEPROM_SIZES
   },
   /* ══ 🔴 v4.26.0：`e501` 拆成 `e501a`（RM81010）／`e501b`（RM81011）═══════════════
      兩列**只有 `tconName` 與 `dclk` 不同**，其餘逐項相同（見 `WFG_TCON_CODECS.e501a`
@@ -47200,7 +47234,7 @@ window.wfgNbEdidFrame = wfgNbEdidFrame;
 
    ── 拿掉之後靠什麼認型號 ─────────────────────────────────────────────────
    真正在做型號判別的從來不是這三條，而是前面兩道：
-     ① `m.sizes` 嚴格比對內容長度（E503 = 4096、E501 = 131072…）
+     ① `m.sizes` 嚴格比對內容長度（E503 = 4096／8192、E501 = 131072…）
      ② `wfgNbEdidFrame()`：該型號自己的 `edidOff` 上要有 EDID 的 8 byte magic
         **而且 128 byte checksum 為 0** —— 隨機命中的機率是 2^-72 等級。
    本函式保留的三條（解析度合理、xstb 必須 enable、至少 4 條 enable）是在
@@ -47222,7 +47256,7 @@ window.wfgNbEdidFrame = wfgNbEdidFrame;
    下界（600／400／>0／>0）保留 —— 它擋掉別家 IC 的檔（解出來多半是 `255×2`）。
 
    🔴 這一支真正在做型號判別的仍然是前面兩道，與本函式的內容無關：
-     ① `m.sizes` 嚴格比對內容長度（E503 = 4096、E501 = 131072…）
+     ① `m.sizes` 嚴格比對內容長度（E503 = 4096／8192、E501 = 131072…）
      ② `wfgNbEdidFrame()`：EDID 的 8 byte magic **＋ 128 byte checksum 為 0**
         —— 隨機命中是 2^-72 等級。 */
 function wfgNbSane(sig, fr) {
