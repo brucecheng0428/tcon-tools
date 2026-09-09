@@ -99,13 +99,24 @@
      🔴 22px 是本面板最大的字級（周邊：說明 12px、數值 14px、按鈕 16px），
         Bruce 要的是「一眼看得到現在在哪一步」，不是一行小灰字。
      :empty 時整個不佔位 —— 沒帶名稱進來（例如直接打開這一頁）不留孤兒間距。 */
+  /* 標頭：上面是步驟名稱（第 N 部分），下面是這一次量什麼（白灰階亮度／RGB 純色 Pattern）。
+     兩行包在同一個容器裡，分隔線畫在容器上 —— 不然「有沒有第二行」會讓線的位置跳來跳去。 */
+  #dgm-head {
+    margin: 0 0 9px; padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, .18);
+    max-width: 26vw; text-align: right;
+  }
+  #dgm-head.dgm-hidden { display: none; }
   #dgm-step {
     font: 700 22px/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-    color: #e2e8f0; margin: 0 0 9px; padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, .18);
-    max-width: 26vw; text-align: right; word-break: break-word;
+    color: #e2e8f0; word-break: break-word;
   }
-  #dgm-step:empty { display: none; }
+  /* v1.27.1：量測內容。輔助資訊，比步驟名稱小一級，但仍要一眼看得到（16px vs 周邊 12／14）。 */
+  #dgm-what {
+    font: 600 16px/1.35 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    color: #7dd3fc; margin-top: 2px; word-break: break-word;
+  }
+  #dgm-what:empty { display: none; }
   /* v1.26.2：原本這裡有「關閉這個分頁」鈕（#dgm-close）與量完後的說明框（#dgm-done）。
      兩個都拿掉了 —— 理由見下面 run() 收尾處的註解。量完只留一句話，寫在 #dgm-msg。 */
   #dgm-prog { margin-top: 8px; font: 700 22px/1.35 ui-monospace, Menlo, Consolas, monospace; }
@@ -128,6 +139,15 @@
   }
   #dgm-gate.dgm-hidden { display: none; }
   #dgm-gate:empty { display: none; }
+  /* v1.27.1：F11 全螢幕下按 ESC 時的提示（見下方 keydown 處理器的實測說明）。
+     放底部說明區，全螢幕下也看得見；一句話，不解釋。 */
+  #dgm-esc {
+    padding: 9px 16px; border: 1px solid #f59e0b; border-radius: 10px;
+    background: rgba(0, 0, 0, .82); color: #fcd34d;
+    font: 700 15px/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    text-align: center;
+  }
+  #dgm-esc.dgm-hidden { display: none; }
 
   /* ── 中心紅圈：讓探頭對準螢幕正中心 ──────────────────────────────────
      🔴 量測一開始就整個拿掉（display:none）。探頭正下方留著紅色圖案
@@ -188,7 +208,10 @@
   <!-- v1.27.0：這一次量的是 DG 的哪一個步驟。🔴 放**最上面**是刻意的 ——
        .dgm-corner 是 max-height:30vh + overflow:hidden，裁的是**下面**，
        放在第一個位置才不會變成第一個被裁掉的東西。 -->
-  <div id="dgm-step"></div>
+  <div id="dgm-head" class="dgm-hidden">
+    <div id="dgm-step"></div>
+    <div id="dgm-what"></div>
+  </div>
   <div>
     <button id="dgm-fs">全螢幕</button><button id="dgm-start" disabled>開始量測</button>
   </div>
@@ -203,6 +226,7 @@
 <!-- v1.27.0：底部說明區。全螢幕閘門的說明（紅框）從右上角面板搬到這裡 ——
      它是「為什麼擋、怎麼辦」的說明，不是狀態；留在面板裡會把面板撐到被裁。 -->
 <div id="dgm-bottom">
+  <div id="dgm-esc" class="dgm-hidden">請按 F11 離開全螢幕</div>
   <div id="dgm-gate" class="dgm-hidden"></div>
   <div id="dgm-hint">把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），
     再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。</div>
@@ -283,9 +307,19 @@
   var DGM_DEST = (function () {
     try { return DGM_QS.get('dest') || ''; } catch (e) { return ''; }
   })();
+  /* v1.27.1：這一次量的是什麼（白灰階亮度／RGB 純色 Pattern）。
+     🔴 跟步驟名稱一樣**由 DG 頁決定用詞**，走同一條路（?what= 與訊息的 what 欄位），
+        不是本頁看著 DGM_MODE 自己造字 —— 那兩個詞是 DG 頁第 2／第 3 部分卡片上的
+        既有用語，兩邊各寫一份遲早會不一致。 */
+  var DGM_WHAT = (function () {
+    try { return DGM_QS.get('what') || ''; } catch (e) { return ''; }
+  })();
   function dgmRenderStep() {
     // textContent：名稱是訊息／網址帶進來的字串，不進 innerHTML
     $('dgm-step').textContent = DGM_DEST || '';
+    $('dgm-what').textContent = DGM_WHAT || '';
+    // 兩行都沒有東西時整個標頭不佔位（例如直接打開這一頁），不留孤兒間距與分隔線
+    $('dgm-head').classList.toggle('dgm-hidden', !(DGM_DEST || DGM_WHAT));
   }
 
   // prim 模式的三步：[代號, 顯示名, RGB]
@@ -566,6 +600,39 @@
   }
   window.addEventListener('resize', syncFs);
 
+  /* ═══ v1.27.1：F11 全螢幕下按 ESC ═══════════════════════════════════════
+     Bruce 2026-09-09：「用 F11 進全螢幕時，只能再按一次 F11 退出，按 ESC 沒用；
+     用畫面上那顆鈕（Fullscreen API）進去的話 ESC 就可以退出。希望 F11 也能用 ESC。」
+
+     🔴 **做不到，這是瀏覽器限制**。F11 是瀏覽器 chrome 層級的狀態，網頁無權控制。
+        四條路全部實測過（`_tmp_dg1271/probe10_f11esc.py`，Chrome 153／macOS）：
+
+     | 試法 | 結果 |
+     |---|---|
+     | `document.exitFullscreen()` | **rejected：`TypeError — Document not active`**，視窗狀態一格未動 |
+     | `requestFullscreen()` → `exitFullscreen()` | 進得去元素全螢幕（innerH 900、screenY 0），退出後**回到 F11**（812／88），不是回到視窗 |
+     | 對子元素做同一手法 | 同上，仍在 F11 |
+     | 合成 F11 KeyboardEvent 派給 document／window／html／body | `isTrusted:false`，dispatch 回報成功但**視窗毫無變化** |
+
+     對照組：API 全螢幕下送真的 ESC → 確實退出（812/88 → 773/860/40）。
+     ⇒ 差別是真的，不是偵測不到。
+
+     **所以做次佳方案**：實測顯示 F11 狀態下**頁面收得到 ESC 的 keydown**（escSeen=1），
+     那就在使用者按 ESC 的當下，把「該按哪一個鍵」直接寫在畫面上。一句話，不解釋。
+     🔴 只在「F11 那種全螢幕」才顯示 —— API 全螢幕的 ESC 本來就有效，跳提示是多餘的。
+        分辨方式：isFs() 為真但 document.fullscreenElement 是 null ＝ 這是 F11 那一種。 */
+  var escTimer = null;
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' && e.keyCode !== 27) return;
+    if (!isFs() || document.fullscreenElement) return;   // 只管 F11 那一種
+    $('dgm-esc').classList.remove('dgm-hidden');
+    if (escTimer) clearTimeout(escTimer);
+    escTimer = setTimeout(function () {
+      $('dgm-esc').classList.add('dgm-hidden');
+      escTimer = null;
+    }, 4000);
+  });
+
   $('dgm-fs').addEventListener('click', function () {
     var el = document.documentElement;
     var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
@@ -677,6 +744,11 @@
     task: function () { return DGM_TASK; },
     dest: function () { return DGM_DEST; },                                  // v1.27.0 驗證用
     stepText: function () { return $('dgm-step').textContent; },             // v1.27.0 驗證用
+    what: function () { return DGM_WHAT; },                                  // v1.27.1 驗證用
+    escHintShown: function () {                                              // v1.27.1 驗證用
+      return !$('dgm-esc').classList.contains('dgm-hidden') && !!$('dgm-esc').offsetParent;
+    },
+    whatText: function () { return $('dgm-what').textContent; },             // v1.27.1 驗證用
     loadId: function () { return DGM_LOAD_ID; },
     taskSwitches: function () { return dgmSwitchCount; }
   };
@@ -893,6 +965,7 @@
     /* v1.27.0：🔴 步驟名稱一定要跟著換 —— 換了任務卻還顯示上一個步驟的名字，
        比不顯示更糟（使用者會照著錯的步驟去擺探頭）。 */
     DGM_DEST = String(t.dest || '');
+    DGM_WHAT = String(t.what || '');   // v1.27.1：量測內容跟步驟名稱同一條更新路徑
 
     // ① 上一輪的殘留狀態一律歸零
     aborted = null; lastStep = 0; lastGray = null; finished = false;
