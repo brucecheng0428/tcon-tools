@@ -284,6 +284,78 @@ var I18N = {
   'pat.wmZoomNot100':   { 'zh-TW': '⚠ 瀏覽器縮放看起來不是 100%，請按 Ctrl/⌘ + 0 重設後再重新整理。', 'en': '⚠ Browser zoom does not look like 100%. Press Ctrl/⌘ + 0 to reset, then reload.', 'zh-CN': '⚠ 浏览器缩放看起来不是 100%，请按 Ctrl/⌘ + 0 重设后再刷新。' },
   'pat.wmDenied':       { 'zh-TW': '無法取得（{e}）。可能是使用者拒絕授權、或頁面非 HTTPS 安全來源。', 'en': 'Unavailable ({e}). Permission may have been denied, or the page is not a secure (HTTPS) context.', 'zh-CN': '无法获取（{e}）。可能是用户拒绝授权、或页面非 HTTPS 安全来源。' },
 
+  // ── 縮放警示（pattern v3.7.0）──────────────────────────────
+  'pat.lblBrowserZoom': { 'zh-TW': '瀏覽器頁面縮放', 'en': 'Browser page zoom', 'zh-CN': '浏览器页面缩放' },
+  'pat.lblBaseDpr':     { 'zh-TW': '扣除縮放後的 dPR', 'en': 'dPR excluding page zoom', 'zh-CN': '扣除缩放后的 dPR' },
+  'pat.zwUnknown':      { 'zh-TW': '無法判定', 'en': 'Undetermined', 'zh-CN': '无法判定' },
+  'pat.zwTitle': {
+    'zh-TW': '⚠ 這個畫面不是 100%',
+    'en': '⚠ This display is not at 100%',
+    'zh-CN': '⚠ 这个画面不是 100%'
+  },
+  'pat.zwMsgZoom': {
+    'zh-TW': '偵測到<b>瀏覽器頁面縮放 {z}</b>。',
+    'en': 'Detected <b>browser page zoom {z}</b>.',
+    'zh-CN': '侦测到<b>浏览器页面缩放 {z}</b>。'
+  },
+  'pat.zwMsgOs': {
+    'zh-TW': '偵測到<b>系統顯示縮放</b>：1 個 CSS 像素對應 <b>{d}</b> 個實體像素，不是整數。',
+    'en': 'Detected <b>OS display scaling</b>: one CSS pixel maps to <b>{d}</b> physical pixels, which is not an integer.',
+    'zh-CN': '侦测到<b>系统显示缩放</b>：1 个 CSS 像素对应 <b>{d}</b> 个物理像素，不是整数。'
+  },
+  'pat.zwMsgPinch': {
+    'zh-TW': '偵測到<b>頁面被雙指縮放（pinch zoom）{v} 倍</b>。',
+    'en': 'Detected <b>pinch zoom at {v}×</b>.',
+    'zh-CN': '侦测到<b>页面被双指缩放（pinch zoom）{v} 倍</b>。'
+  },
+  'pat.zwWhy': {
+    'zh-TW': '此時畫面上的每一個 pattern 像素<b>無法保證對應 1 個實體像素</b>，會被重新取樣。本工具是拿來做 sub-pixel（次像素）精確度確認的，<b>任何偏移或失真都不能接受</b>，請先改回實際真實的 100% 再繼續。',
+    'en': 'In this state each pattern pixel is <b>not guaranteed to map to exactly one physical pixel</b> and will be resampled. This tool is used for sub-pixel accuracy work, where <b>no offset or distortion is acceptable</b>. Please return to a true 100% before continuing.',
+    'zh-CN': '此时画面上的每一个 pattern 像素<b>无法保证对应 1 个物理像素</b>，会被重新采样。本工具是拿来做 sub-pixel（次像素）精确度确认的，<b>任何偏移或失真都不能接受</b>，请先改回实际真实的 100% 再继续。'
+  },
+  'pat.zwRead': {
+    'zh-TW': 'outerWidth ÷ innerWidth = {raw} → 瀏覽器縮放 {z}<br>devicePixelRatio = {dpr} → 扣除瀏覽器縮放後 = {base}',
+    'en': 'outerWidth ÷ innerWidth = {raw} → page zoom {z}<br>devicePixelRatio = {dpr} → excluding page zoom = {base}',
+    'zh-CN': 'outerWidth ÷ innerWidth = {raw} → 浏览器缩放 {z}<br>devicePixelRatio = {dpr} → 扣除浏览器缩放后 = {base}'
+  },
+  'pat.zwHow': {
+    'zh-TW': '<b>怎麼改回實際真實的 100%</b><ul>' +
+      '<li><b>瀏覽器縮放</b>：按 <b>Ctrl / ⌘ + 0</b> 重設為 100%。</li>' +
+      '<li><b>系統顯示縮放</b>：Windows →「設定 › 系統 › 顯示器 › 縮放」改為 <b>100%</b>；macOS →「系統設定 › 顯示器」選<b>預設值</b>。改完建議重新整理本頁。</li>' +
+      '<li>兩者都要，缺一都不算 100%。改好之後這個提示會自動消失。</li></ul>',
+    'en': '<b>How to get back to a true 100%</b><ul>' +
+      '<li><b>Browser zoom</b>: press <b>Ctrl / ⌘ + 0</b> to reset to 100%.</li>' +
+      '<li><b>OS display scaling</b>: Windows → Settings › System › Display › Scale, set to <b>100%</b>; macOS → System Settings › Displays, choose <b>Default</b>. Reloading this page afterwards is recommended.</li>' +
+      '<li>Both are required — neither alone counts as 100%. This warning clears itself once they are correct.</li></ul>',
+    'zh-CN': '<b>怎么改回实际真实的 100%</b><ul>' +
+      '<li><b>浏览器缩放</b>：按 <b>Ctrl / ⌘ + 0</b> 重设为 100%。</li>' +
+      '<li><b>系统显示缩放</b>：Windows →「设置 › 系统 › 显示器 › 缩放」改为 <b>100%</b>；macOS →「系统设置 › 显示器」选<b>默认值</b>。改完建议刷新本页。</li>' +
+      '<li>两者都要，缺一都不算 100%。改好之后这个提示会自动消失。</li></ul>'
+  },
+  'pat.zwClose': {
+    'zh-TW': '我知道了，關閉這個視窗',
+    'en': 'Got it — close this dialog',
+    'zh-CN': '我知道了，关闭这个窗口'
+  },
+  'pat.zwFoot': {
+    'zh-TW': '關閉後畫面邊緣的<b>橘色呼吸燈仍會持續提示</b>，直到倍率回到 100%。若你確定這是誤判，關掉即可繼續使用。',
+    'en': 'After closing, the <b>orange breathing border stays</b> until the scale returns to 100%. If you are sure this is a false alarm, just close it and carry on.',
+    'zh-CN': '关闭后画面边缘的<b>橙色呼吸灯仍会持续提示</b>，直到倍率回到 100%。若你确定这是误判，关掉即可继续使用。'
+  },
+  'pat.zwBarZoom': {
+    'zh-TW': '⚠ 畫面不是 100%（偵測到瀏覽器縮放 {z}）— 點這裡看怎麼改回來',
+    'en': '⚠ Display is not at 100% (browser zoom {z}) — tap here for how to fix it',
+    'zh-CN': '⚠ 画面不是 100%（侦测到浏览器缩放 {z}）— 点这里看怎么改回来'
+  },
+  'pat.zwBarOther': {
+    'zh-TW': '⚠ 畫面不是實際真實的 100%（系統顯示縮放）— 點這裡看怎麼改回來',
+    'en': '⚠ Display is not at a true 100% (OS display scaling) — tap here for how to fix it',
+    'zh-CN': '⚠ 画面不是实际真实的 100%（系统显示缩放）— 点这里看怎么改回来'
+  },
+  'pat.zwTitlePrefix': {
+    'zh-TW': '⚠ 非 100% — ', 'en': '⚠ Not 100% — ', 'zh-CN': '⚠ 非 100% — '
+  },
+
   'pat.editorCard':     { 'zh-TW': 'Sub-pixel 編輯（4 px × 4 列）', 'en': 'Sub-pixel Editor (4 px × 4 rows)', 'zh-CN': 'Sub-pixel 编辑（4 px × 4 列）' },
   'pat.selected':       { 'zh-TW': '已選取', 'en': 'Selected', 'zh-CN': '已选取' },
   'pat.subpxUnit':      { 'zh-TW': '個 sub-pixel', 'en': 'sub-pixel(s)', 'zh-CN': '个 sub-pixel' },
