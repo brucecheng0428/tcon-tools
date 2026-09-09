@@ -1818,7 +1818,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260909dg1260"></script>
+<script src="common/version.js?v=20260909dg1261"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -8267,6 +8267,20 @@
   }
   window.dgSwitchMode = dgSwitchMode;
 
+  /* ─── 即時量測分頁的狀態（v1.26.1 由 dgInit() 內提到這一層）────────────────
+     提上來的唯一理由是**可驗證**：window.dgApi 在 dgInit() 外面，看不到函式內
+     的區域變數，「量測分頁還在不在／目前第幾號任務」就沒有辦法從外部量到。
+     語意與生命週期完全沒變，仍然只有下面那個按鈕迴圈與訊息處理器會動它。 */
+  var dgLiveWin = null;        // 量測分頁的視窗參照（null ＝ 從沒開過）
+  var dgLiveTaskId = 0;        // 每按一次「即時量測」+1
+  var DG_LIVE_TASKS = {};      // 任務編號 → 當初是哪個入口按的
+  // v1.24.0：多一個目的地 'conf'（第 4 部分的確認量測）
+  var DG_LIVE_DEST = 'gray';   // 'gray'（第 2 部分）｜'prim'（第 3 部分）｜'slot'（比較分頁新增資料）｜'conf'（第 4 部分）
+  /* 🔴 視窗還在不在只看 win.closed（瀏覽器維護的事實）：參照從沒建立過（null）
+     與建立過但已被關掉（closed）兩種都算「不在」，不用 try/catch 猜、也不用
+     計時器推測。 */
+  function dgLiveAlive() { return !!(dgLiveWin && !dgLiveWin.closed); }
+
   function dgInit() {
     dgGridsInit();
     dgSlotBind();
@@ -8383,7 +8397,9 @@
     /* ─── v1.10.0：即時量測 ────────────────────────────────────────────────
        開一個「新分頁」（不是彈出小視窗）—— 使用者要能把它拖到外接螢幕上，
        小視窗在多數瀏覽器裡拖不出主視窗所在的螢幕。 */
-    var dgLiveWin = null;
+    /* 🔴 dgLiveWin／dgLiveTaskId／DG_LIVE_TASKS／DG_LIVE_DEST／dgLiveAlive()
+       的宣告在 dgInit() 外面（見上方），這裡只使用不重新宣告 ——
+       在這裡再寫一次 var 會產生一個遮蔽外層的區域變數，外部就量不到了。 */
     /* v1.12.0：第 2 部分量白灰階、第 3 部分量 RGB 三純色，同一個量測頁、由 ?mode= 決定。
        ─── v1.18.0：比較分頁也能發起即時量測 ─────────────────────────────────
        Bruce 2026-09-08：「光學資料比較分頁本身也要能直接發起即時量測，量完直接成為
@@ -8394,9 +8410,29 @@
           分流放在收訊息那一端：mode==='prim' 仍走第 3 部分（那一顆只有第 3 部分有），
           其餘依 DG_LIVE_DEST 決定進第 2 部分還是變成一組。
        🔴 同一時間只會有一個量測分頁（dgLiveWin 本來就是單一變數），所以「最後按的
-          那一顆」就是目的地，不需要為此做多重狀態。 */
-    // v1.24.0：多一個目的地 'conf'（第 4 部分的確認量測）
-    var DG_LIVE_DEST = 'gray';   // 'gray'（第 2 部分）｜'prim'（第 3 部分）｜'slot'（比較分頁新增資料）｜'conf'（第 4 部分）
+          那一顆」就是目的地，不需要為此做多重狀態。
+          （v1.26.1 更正：分頁改成重複使用之後，「最後按的那一顆」在**切換的前一刻
+          已經送出、晚一步才到**的那一批資料上不再成立，所以另外帶了任務編號；
+          分流機制本身仍然是這一套 DG_LIVE_DEST，沒有第二套。） */
+    /* ─── v1.26.1：同一個量測分頁重複使用，不再每按一次就開一個 ──────────────
+       Bruce 2026-09-09：「使用者通常會把那個量測網頁拖到要量測的面板上。到別的
+       步驟再按一次即時量測，又跳出一個新網頁，流程不對。」
+       🔴 根因是這一行的 '_blank'：window.open(url, '_blank') 每次都開一個新的。
+       🔴 為什麼不能「重新導向同一個視窗」（window.open(url, 名字) 或 win.location）：
+          ① 重新導向 ＝ 頁面重載，瀏覽器可能把它搬回預設位置與大小 ——
+             使用者拖到面板上的那一步就白做了，比開新視窗更糟；
+          ② 量測頁是用 navigator.serial 直接連量測儀的，**連線活在那個分頁裡**。
+             頁面一重載，序列埠連線就斷，等於每換一個步驟都要重連一次儀器。
+          所以唯一同時保住「位置不跳」與「連線不斷」的做法是：**留住視窗參照，
+          用 postMessage 通知它換任務，頁面完全不重載。**
+       🔴 判斷視窗還在不在只看 win.closed（瀏覽器維護的事實），不用 try/catch 猜、
+          也不用計時器推測；參照從沒建立過（null）與建立過但已被關掉（closed）
+          兩種都算「不在」，一律開新的。
+       🔴 任務編號 dgLiveTaskId：每按一次 +1，開頁時走 ?task=、重用時走訊息，
+          量測頁回傳結果時原封帶回來。用途是資料正確性 —— 量到一半的舊任務被
+          切掉時不會有資料回來，而萬一有一批「切換前就已經送出」的結果晚到，
+          它帶的編號對不上目前這一次，就會回到它自己當初的入口，不會被算到新
+          入口頭上。 */
     [['dg-btn-live-gray', '', '第 2 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'gray', 'dg-status'],
      ['dg-btn-live-prim', '?mode=prim', '第 3 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」；它會依序顯示純紅、純綠、純藍三個滿版畫面', 'prim', 'dg-status'],
      ['dg-btn-slot-live', '', '光學資料比較（新增資料）', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'slot', 'dg-slot-status'],
@@ -8410,18 +8446,37 @@
           : function (m, c) { dgSetStatus(p[5], m, c); };
         b.addEventListener('click', function () {
           DG_LIVE_DEST = p[4];
-          dgLiveWin = window.open('dg-measure.html' + p[1], '_blank');
-          if (!dgLiveWin) {
-            say('瀏覽器把新分頁擋掉了。請允許本站開新分頁後再按一次「即時量測」。', 'err');
-            return;
+          var mode = (p[4] === 'prim') ? 'prim' : 'gray';
+          var task = ++dgLiveTaskId;
+          DG_LIVE_TASKS[task] = p[4];
+          var reused = dgLiveAlive();
+
+          if (reused) {
+            // 重用：只送訊息，不重新導航、不改視窗大小位置。focus() 只搶焦點。
+            dgLiveWin.postMessage(
+              { type: 'dg-measure-task', task: task, mode: mode, dest: p[2] },
+              window.location.origin);
+            try { dgLiveWin.focus(); } catch (e) {}
+          } else {
+            var url = 'dg-measure.html' + p[1] + (p[1] ? '&' : '?') + 'task=' + task;
+            dgLiveWin = window.open(url, '_blank');
+            if (!dgLiveWin) {
+              say('瀏覽器把新分頁擋掉了。請允許本站開新分頁後再按一次「即時量測」。', 'err');
+              return;
+            }
           }
           if (p[4] === 'slot') dgStepModalClose('dg-modal-slot');
           if (p[4] === 'conf') dgStepModalClose('dg-modal-conf');
-          say('已開啟「即時量測」分頁（' + p[2] + '）。\n'
-            + '把那個分頁拖到要量的那台螢幕、按它右上角的「全螢幕」，' + p[3] + '。\n'
-            + (p[4] === 'slot'
-              ? '量完會直接成為「光學資料比較」的新一組，第 1、2、3 部分不會被動到。'
-              : ('量完資料會自動回到這一頁的' + p[2] + '，不用手動搬。')), '');
+          var tail = (p[4] === 'slot')
+            ? '量完會直接成為「光學資料比較」的新一組，第 1、2、3 部分不會被動到。'
+            : ('量完資料會自動回到這一頁的' + p[2] + '，不用手動搬。');
+          say(reused
+            ? ('已把原本那個「即時量測」分頁切到' + p[2] + '，沒有另外開新的 —— '
+              + '你把它拖到哪台螢幕、它跟儀器的連線，都維持原樣。\n'
+              + '切過去那個分頁，' + p[3] + '。\n' + tail)
+            : ('已開啟「即時量測」分頁（' + p[2] + '）。\n'
+              + '把那個分頁拖到要量的那台螢幕、按它右上角的「全螢幕」，' + p[3] + '。\n'
+              + tail), '');
         });
       });
 
@@ -8431,11 +8486,15 @@
       if (e.origin !== window.location.origin) return;
       var d = e.data;
       if (!d || d.type !== 'dg-measure-result' || !d.rows || !d.rows.length) return;
+      /* v1.26.1：一批資料屬於「當初要它的那一次按鈕」，不是「現在最後按的那一顆」。
+         正常情形兩者本來就是同一個（換任務會先把量測中止掉，不會有資料回來），
+         這一行擋的是那個窄縫：結果在切換的前一刻就送出、晚一步才到。 */
+      var dest = DG_LIVE_TASKS[d.task] || DG_LIVE_DEST;
       // mode 缺席時當灰階（v1.11.0 以前的量測頁沒有這個欄位）
       if (d.mode === 'prim') { dgApplyLivePrim(d.rows, d.at || d.label); return; }
       // v1.18.0：白灰階量完要進哪裡，由「是誰按的即時量測」決定（見 DG_LIVE_DEST）
-      if (DG_LIVE_DEST === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label);
-      else if (DG_LIVE_DEST === 'conf') dgConfApplyLive(d.rows, d.at || d.label);   // v1.24.0
+      if (dest === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label);
+      else if (dest === 'conf') dgConfApplyLive(d.rows, d.at || d.label);   // v1.24.0
       else dgApplyLiveRows(d.rows, d.at || d.label);
     });
 
@@ -8648,6 +8707,12 @@
 
   // 供驗證腳本使用（不暴露內部狀態，只暴露純函式與樣本）
   window.dgApi = {
+    // v1.26.1 驗證用（唯讀）：量測分頁還在不在、目前是第幾號任務、每一號任務屬於哪個入口
+    liveWinAlive: function () { return dgLiveAlive(); },
+    liveWinRef: function () { return !!dgLiveWin; },
+    liveTaskId: function () { return dgLiveTaskId; },
+    liveDest: function () { return DG_LIVE_DEST; },
+    liveTasks: function () { var o = {}; for (var k in DG_LIVE_TASKS) o[k] = DG_LIVE_TASKS[k]; return o; },
     compute: dgCompute,
     sample: function () { return DG_SAMPLE; },
     invInterp: dgInvInterp,
