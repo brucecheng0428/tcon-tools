@@ -370,8 +370,8 @@ var I18N = {
                           'zh-CN': '把亮组 L{l} 与暗组 L{d} 的灰阶值互换；连按两次回到原状' },
   'pat.selLitTip':      { 'zh-TW': '選取目前較亮的 L{v}（{n} 格）', 'en': 'Select the brighter level L{v} ({n} cells)', 'zh-CN': '选取目前较亮的 L{v}（{n} 格）' },
   /* v3.8.0 欄位互換（顯示階段的整數欄位重排，三種模式一體適用） */
-  'pat.csSub':          { 'zh-TW': 'Subpixel 奇偶互換 1↔2', 'en': 'Subpixel odd/even swap 1↔2', 'zh-CN': 'Subpixel 奇偶互换 1↔2' },
-  'pat.csPx':           { 'zh-TW': 'Pixel 奇偶互換 123↔456', 'en': 'Pixel odd/even swap 123↔456', 'zh-CN': 'Pixel 奇偶互换 123↔456' },
+  'pat.csSub':          { 'zh-TW': 'Subpixel 奇偶互換', 'en': 'Subpixel odd/even swap', 'zh-CN': 'Subpixel 奇偶互换' },
+  'pat.csPx':           { 'zh-TW': 'Pixel 奇偶互換', 'en': 'Pixel odd/even swap', 'zh-CN': 'Pixel 奇偶互换' },
   'pat.csSubTip':       { 'zh-TW': '相鄰兩個 subpixel 欄兩兩對調：欄 1↔2、3↔4、5↔6…。最右邊湊不成一對的那一欄保持原樣。兩顆都開時的管線順序固定為「先 Pixel、後 Subpixel」，與按下的先後無關',
                           'en': 'Swap adjacent subpixel columns in pairs: 1↔2, 3↔4, 5↔6… A trailing column with no partner is left untouched. With both buttons on, the pipeline order is fixed as Pixel first, then Subpixel, regardless of which was pressed first',
                           'zh-CN': '相邻两个 subpixel 栏两两对调：栏 1↔2、3↔4、5↔6…。最右边凑不成一对的那一栏保持原样。两颗都开时的管线顺序固定为「先 Pixel、后 Subpixel」，与按下的先后无关' },
