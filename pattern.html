@@ -747,6 +747,17 @@
   <div class="card pg-params" id="pattern-card-params">
     <div class="card-header"><span class="icon">🎛️</span><span data-i18n="pat.paramsCard">畫面參數</span></div>
     <div class="card-body">
+
+      <!-- v3.8.0 欄位互換 —— 放在模式專屬區塊「之外」的理由：
+           這兩顆是顯示階段的整數欄位重排，測試畫面／手動 4×4／匯入圖片三種模式一體適用，
+           塞進 #pg-pat-ctrl 或 #pg-edit-block 任何一邊都會在另一種模式下消失。 -->
+      <div class="pg-sub" id="pg-colswap">
+      <div class="pg-nudge" style="grid-template-columns:repeat(2,1fr);margin-top:0">
+      <button class="pg-mini" id="pg-cs-sub" aria-pressed="false" data-i18n="pat.csSub" data-i18n-title="pat.csSubTip">Subpixel 奇偶互換 1↔2</button>
+      <button class="pg-mini" id="pg-cs-px"  aria-pressed="false" data-i18n="pat.csPx"  data-i18n-title="pat.csPxTip">Pixel 奇偶互換 123↔456</button>
+      </div>
+      </div>
+
       <div id="pg-pat-ctrl" style="display:none">
       <div class="pg-sub">
       <label data-i18n="pat.patColor">顏色（對應原程式數字鍵 1–8）</label>
@@ -1210,8 +1221,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260909pat370"></script>
-<script src="common/i18n.js?v=20260909pat370"></script>
+<script src="common/version.js?v=20260909pat380"></script>
+<script src="common/i18n.js?v=20260909pat380"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1251,7 +1262,7 @@
     };
     setTxt('pg-css-res', (s.width || 0) + ' × ' + (s.height || 0) + ' ' + t('pat.cssPxUnit'));
     setTxt('pg-dpr', pgFmtNum(dpr));
-    setTxt('pg-dev-res', Math.round((s.width||0)*dpr) + ' × ' + Math.round((s.height||0)*dpr), 'warn');
+    // 推算裝置像素改由 pgZwSync() 更新（本函式最後就會呼叫它），理由見 pgZwSync 裡的註解。
     setTxt('pg-inner', window.innerWidth + ' × ' + window.innerHeight, 'muted');
     setTxt('pg-avail', (s.availWidth||0) + ' × ' + (s.availHeight||0), 'muted');
     setTxt('pg-color', (s.colorDepth != null ? s.colorDepth + ' bit' : '—'), 'muted');
@@ -1389,7 +1400,7 @@
     // 簽章：狀態換到「另一個」不是 100% 的值時，關掉過的浮動視窗要重新彈出來
     var sig = bad ? (p.zoom.toFixed(4) + '/' + Math.round(p.base * 1000) + '/' + p.vv.toFixed(3)) : '';
 
-    // 螢幕資訊卡的兩個讀數（不論有沒有警示都更新）
+    // 螢幕資訊卡的三個讀數（不論有沒有警示都更新）
     var zv = document.getElementById('pg-zoom-val');
     if (zv) {
       zv.textContent = p.reliable ? pgZwPct(p.zoom) : t('pat.zwUnknown');
@@ -1399,6 +1410,33 @@
     if (bv) {
       bv.textContent = pgFmtNum(Math.round(p.base * 10000) / 10000);
       bv.className = 'pg-info-val' + (p.osBad ? ' warn' : ' ok');
+    }
+    // 🔴 v3.8.0 修正「推算裝置像素」——兩個獨立的錯，一起修：
+    //
+    // ① 係數用錯：舊式是 screen.width × devicePixelRatio。screen.width 回報的是
+    //    「瀏覽器縮放 100% 時的 CSS 像素」，**不隨頁面縮放改變**（v3.7.0 的實測表：
+    //    90%／125%／150% 時 screen 都還是 1440×900）；而 dPR ＝ 顯示器縮放 × 頁面縮放。
+    //    相乘等於把頁面縮放算進去，可是 screen.width 裡根本沒有它。
+    //    實例：Retina(dsf 2) ＋ 瀏覽器 90% ⇒ screen.width 1440、dPR 1.8 ⇒ 舊式 2592，
+    //    實際是 2880。正確係數是「扣掉頁面縮放之後的 dPR」＝ base ＝ dPR ÷ zoom。
+    //    縮放偵測不可靠時 pgZoomProbe() 會把 zoom 壓成 1 ⇒ base === dPR ⇒ 退回舊行為。
+    //
+    // ② 更新時機用錯（實測 2026-09-09 重現）：這個讀數原本寫在 pgRefreshScreenInfo()
+    //    裡，而它只在 resize／dPR 改變時跑。**全螢幕進出的那一瞬間 outerWidth 與
+    //    innerWidth 會短暫不一致**，resize 監聽剛好在那一刻跑進來：
+    //      進場：inner 已是 1440、outer 還是 1200 ⇒ 比值 0.833 ⇒ 對到檔位 0.8
+    //            ⇒ base 2/0.8 = 2.5 ⇒ 顯示 3600×2250
+    //      離場：inner 1200、outer 還是 1440 ⇒ 比值 1.2 ⇒ 對到檔位 1.25
+    //            ⇒ base 2/1.25 = 1.6 ⇒ 顯示 2304×1440
+    //    寫進去之後**再也不會更新**（100% 下按 Cmd+0 不產生任何事件），錯值就一直掛著。
+    //    旁邊那兩個讀數沒事，是因為它們由 setInterval(pgZwSync, 1000) 每秒重算。
+    //    ⇒ 把這一個也搬進 pgZwSync，三個由同一支 pgZoomProbe() 產生的數字**一起更新**，
+    //      瞬時值就只會存在一秒內，不會變成永久殘值。
+    var sc = window.screen || {};
+    var dv = document.getElementById('pg-dev-res');
+    if (dv) {
+      dv.textContent = Math.round((sc.width || 0) * p.base) + ' × ' + Math.round((sc.height || 0) * p.base);
+      dv.className = 'pg-info-val warn';
     }
 
     var glow  = document.getElementById('pg-zw-glow');
@@ -1949,6 +1987,7 @@
       ctxI.imageSmoothingEnabled = false;
       pgDrawImport(ctxI, Wi, Hi);
       pgApplyMask(ctxI, Wi, Hi);
+      pgSwapColsApply(ctxI, Wi, Hi);
       return;
     }
     if (pgMode === 'pattern') {
@@ -1973,6 +2012,7 @@
         pgDrawPattern(ctxP, Wp, Hp);      // 非週期圖：照原樣重畫整張，才看得到全貌
       }
       pgApplyMask(ctxP, Wp, Hp);
+      pgSwapColsApply(ctxP, Wp, Hp);
       return;
     }
     var tiles = 3;
@@ -1989,14 +2029,17 @@
     ctx.imageSmoothingEnabled = false;
     var img = ctx.createImageData(W, H);
     var d = img.data;
+    // v3.8.0：這條路徑是**放大**顯示，不能在放大後的裝置像素上做欄位互換
+    //（那會去換到放大後的子欄）。改成先把 4×4 單元交給同一支 pgSwapColsApply 換好再放大。
+    var LV = pgSwappedLevels();
     for (var y = 0; y < H; y++) {
       var pr = Math.floor(y / devScale) % NROW;
       for (var x = 0; x < W; x++) {
         var pp = Math.floor(x / devScale) % NPX;
         var o = (y * W + x) * 4;
-        d[o]   = pgLevels[pr][pp][0];
-        d[o+1] = pgLevels[pr][pp][1];
-        d[o+2] = pgLevels[pr][pp][2];
+        d[o]   = LV[pr][pp][0];
+        d[o+1] = LV[pr][pp][1];
+        d[o+2] = LV[pr][pp][2];
         d[o+3] = 255;
       }
     }
@@ -2031,20 +2074,25 @@
     var ctx = cv.getContext('2d', { alpha: false });
     ctx.imageSmoothingEnabled = false;
     // 測試畫面模式：整張畫面由 pattern 引擎繪製（非 4×4 平鋪）
+    // v3.8.0：欄位互換是整個畫面最後一道顯示階段的重排，所以放在遮罩之後 ——
+    // 遮罩疊上去的內容也一起參與重排，語意才是「螢幕上這張圖的欄位重新對應」。
     if (pgMode === 'image') {
       pgDrawImport(ctx, W, H);
       pgApplyMask(ctx, W, H);          // 遮罩可以疊在匯入的圖上
+      pgSwapColsApply(ctx, W, H);
       pgUpdateFsInfo();
       return;
     }
     if (pgMode === 'pattern') {
       pgDrawPattern(ctx, W, H);
       pgApplyMask(ctx, W, H);
+      pgSwapColsApply(ctx, W, H);
       pgUpdateFsInfo();
       return;
     }
     pgTileLevels(ctx, W, H);
     pgApplyMask(ctx, W, H);
+    pgSwapColsApply(ctx, W, H);
     pgUpdateFsInfo();
   }
 
@@ -2069,6 +2117,107 @@
       d.set(tmpl.subarray(t0, t0 + rowBytes), y * rowBytes);
     }
     ctx.putImageData(img, 0, 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  v3.8.0 欄位互換（Subpixel 奇偶互換／Pixel 奇偶互換）
+  //
+  //  「欄」＝ 螢幕最左邊起算的 subpixel 欄（1-based）：欄 1 = px1.R、欄 2 = px1.G、
+  //  欄 3 = px1.B、欄 4 = px2.R…（見 pgTileLevels 的 RGB byte 順序）。
+  //
+  //  規格（Bruce 2026-09-09 確認）：
+  //    Subpixel 奇偶互換 = 相鄰兩欄兩兩對調：1↔2、3↔4、5↔6、7↔8…
+  //      ⇒ R G B R G B R G B → G R R B B G（欄 1..6 對照見 CHANGELOG）
+  //    Pixel 奇偶互換     = 三欄一組整組對調：(1,2,3)↔(4,5,6)、(7,8,9)↔(10,11,12)…
+  //
+  //  🔴 為什麼只能是整數欄位重新對應：本工具的用途是次像素精確度確認，任何縮放／位移／
+  //     濾鏡都會重新取樣。這裡做的是 ImageData 上的 byte 對調，**不產生任何新的數值**，
+  //     每一欄仍然是原本某一欄的原值，因此不可能有灰邊或半像素位移。
+  //
+  //  🔴 兩顆都開時的順序：兩個置換**不可交換**（S∘P ≠ P∘S，12 欄實算可驗）。因此管線順序
+  //     必須固定，才能滿足「不是後按的蓋掉先按的」。這裡固定為 **先 Pixel（粗）、後 Subpixel
+  //     （細）**：先把整個 pixel 重排好，再對重排後的欄流做相鄰兩欄對調。狀態只看兩個
+  //     boolean，與使用者按下的先後完全無關。
+  //
+  //  🔴 湊不滿一組的邊界（Bruce 2026-09-09 指定要自行決定並說明）：**保持原樣，不做任何事**。
+  //     總欄數 = W×3。Subpixel 需要成對 ⇒ W 為奇數時最後一欄（最右 pixel 的 B）沒有對象；
+  //     Pixel 需要成雙 ⇒ W 為奇數時最右邊那個 pixel 沒有對象。
+  //     其他候選做法都會製造視覺假象：繞回去跟第一欄換 → 把畫面最右邊的內容搬到最左邊，
+  //     憑空生出一條不存在的邊界；補黑／丟棄 → 憑空生出一條原本不存在的暗欄。
+  //     「保持原樣」是唯一不虛構任何資料的選項，代價只有最右邊 1 欄（Subpixel）或
+  //     3 欄（Pixel）維持原值，而且是可預期、可解釋的。
+  //
+  //  ⚠ 兩顆都關 → 這支函式在第一行就 return，一個位元組都不碰，行為與 v3.7.0 完全相同。
+  //     只有開啟時才會對 canvas 做 getImageData（會讓該 canvas 失去 GPU 加速，這是
+  //     已知代價；pgApplyMask 在有遮罩時本來就會做同一件事）。
+  // ═══════════════════════════════════════════════════════════════
+  var pgColSwap = { sub: 0, px: 0 };
+  function pgColSwapOn(){ return !!(pgColSwap.sub || pgColSwap.px); }
+
+  function pgSwapColsApply(ctx, W, H){
+    if (!pgColSwapOn() || W < 1 || H < 1) return;
+    var img = ctx.getImageData(0, 0, W, H);
+    var d = img.data, rowBytes = W * 4, y, b, q;
+
+    // ① Pixel 層（粗）：整個 pixel 的 4 bytes 對調 → 用 Uint32 一次搬完。
+    //    W 為奇數時最後一個 pixel（q = W-1）沒有配對對象，迴圈條件 q+1 < W 天然跳過它。
+    if (pgColSwap.px && W >= 2) {
+      var u32 = new Uint32Array(d.buffer);
+      for (y = 0; y < H; y++) {
+        var row = y * W;
+        for (q = 0; q + 1 < W; q += 2) {
+          var tw = u32[row + q]; u32[row + q] = u32[row + q + 1]; u32[row + q + 1] = tw;
+        }
+      }
+    }
+
+    // ② Subpixel 層（細）：欄 j 與欄 j+1 對調，j = 0,2,4,…（0-based）。
+    //    每 2 個 pixel = 6 欄剛好是一個完整循環，展開後不必逐欄算 j/3 與 j%3：
+    //      欄(0,1) = p0.R ↔ p0.G   欄(2,3) = p0.B ↔ p1.R   欄(4,5) = p1.G ↔ p1.B
+    //    W 為奇數時剩下最右邊 1 個 pixel，它的三欄是 (3W-3, 3W-2, 3W-1)；3W-3 = 3(W-1)
+    //    在 W 為奇數時是偶數 ⇒ (3W-3, 3W-2) 仍是完整的一對（R↔G），只有 3W-1（B）落單。
+    if (pgColSwap.sub) {
+      for (y = 0; y < H; y++) {
+        b = y * rowBytes;
+        for (q = 0; q + 1 < W; q += 2) {
+          var o = b + q * 4, t1;
+          t1 = d[o];     d[o]     = d[o + 1]; d[o + 1] = t1;   // p0.R ↔ p0.G
+          t1 = d[o + 2]; d[o + 2] = d[o + 4]; d[o + 4] = t1;   // p0.B ↔ p1.R
+          t1 = d[o + 5]; d[o + 5] = d[o + 6]; d[o + 6] = t1;   // p1.G ↔ p1.B
+        }
+        if (W & 1) {                       // 落單的最右 pixel：R↔G 仍成對，B 保持原樣
+          var oe = b + (W - 1) * 4, te = d[oe]; d[oe] = d[oe + 1]; d[oe + 1] = te;
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // 手動 4×4 的**放大**預覽沒辦法在放大後的裝置像素上做欄位互換（那會去換到放大後的
+  // 子欄）。所以先把 4×4 單元丟進一張 4×4 的離屏 canvas，交給**同一支** pgSwapColsApply
+  // 處理再讀回來 —— 刻意不另外寫一份「4×4 版的置換邏輯」，兩套一定會分岔
+  //（CLAUDE.md 已記錄過同一個破口）。單元寬 4 pixel＝12 欄，2 與 6 都整除，
+  //  不會踩到湊不滿一組的邊界。
+  var pgCsUnitCv = null;
+  function pgSwappedLevels(){
+    if (!pgColSwapOn()) return pgLevels;
+    if (!pgCsUnitCv) pgCsUnitCv = document.createElement('canvas');
+    pgCsUnitCv.width = NPX; pgCsUnitCv.height = NROW;
+    var x = pgCsUnitCv.getContext('2d', { alpha: false });
+    var im = x.createImageData(NPX, NROW), dd = im.data, r, p, o;
+    for (r = 0; r < NROW; r++) for (p = 0; p < NPX; p++) {
+      o = (r * NPX + p) * 4;
+      dd[o] = pgLevels[r][p][0]; dd[o+1] = pgLevels[r][p][1]; dd[o+2] = pgLevels[r][p][2]; dd[o+3] = 255;
+    }
+    x.putImageData(im, 0, 0);
+    pgSwapColsApply(x, NPX, NROW);
+    var out = x.getImageData(0, 0, NPX, NROW).data, res = [];
+    for (r = 0; r < NROW; r++) {
+      var rowArr = [];
+      for (p = 0; p < NPX; p++) { o = (r * NPX + p) * 4; rowArr.push([out[o], out[o+1], out[o+2]]); }
+      res.push(rowArr);
+    }
+    return res;
   }
 
   function pgUpdateFsInfo(){
@@ -3087,6 +3236,9 @@
       else                           pgTileLevels(ctx, W, H);
       // 遮罩要畫進去（左上角資訊框不畫 —— 它是 DOM 元素，離屏 canvas 天生不含它）
       if (opts.mask !== false) pgApplyMask(ctx, W, H);
+      // v3.8.0：欄位互換也要進檔案 —— 存出去的圖就是要拿去面板上放的，
+      // 螢幕看到的與存下來的不能是兩張圖。順序與 pgRenderFill 一致（遮罩之後）。
+      pgSwapColsApply(ctx, W, H);
     } finally {
       pgSizeOverride = prev;
     }
@@ -3683,6 +3835,7 @@
                Object.keys(pgMask.hSel).join(','), pgMask.vOn, pgMask.vN,
                Object.keys(pgMask.vSel).join(','), pgMask.combine, pgMask.pad,
                pgMask.fill, pgMask.colorIdx, pgMask.level, pgMask.patId,
+               pgColSwap.sub, pgColSwap.px,     // v3.8.0：不進 key 的話換了欄還是拿到舊的快取
                pgMode === 'subpixel' ? JSON.stringify(pgLevels) : ''].join('|');
     if (pgPrevCache.key !== key) {
       pgPrevCache = { key: key, canvas: pgRenderToSize(sz.W, sz.H).canvas };
@@ -5222,6 +5375,27 @@
     if (byId('pg-pat-inv'))  byId('pg-pat-inv').addEventListener('click', function(){ pgPat.invert = pgPat.invert ? 0 : 1; pgRenderPreview(); pgRenderFill(); pgSyncGridSoon(); });
     if (byId('pg-pat-prev')) byId('pg-pat-prev').addEventListener('click', function(){ pgCycleVariant(-1); });
     if (byId('pg-pat-next')) byId('pg-pat-next').addEventListener('click', function(){ pgCycleVariant(1); });
+
+    // ── v3.8.0：欄位互換兩顆開關 ──
+    // 狀態只是兩個 boolean，管線順序固定在 pgSwapColsApply 裡，所以「先按哪一顆」
+    // 完全不影響結果。刻意**不**呼叫 pgLeavePattern()：這是顯示階段的重排，
+    // 不改任何格值，也就沒有理由把使用者從測試畫面踢回手動 4×4。
+    function pgCsSync(){
+      [['pg-cs-sub', pgColSwap.sub], ['pg-cs-px', pgColSwap.px]].forEach(function(a){
+        var el = byId(a[0]);
+        if (!el) return;
+        el.classList.toggle('on', !!a[1]);
+        el.setAttribute('aria-pressed', a[1] ? 'true' : 'false');
+      });
+    }
+    function pgCsToggle(which){
+      pgColSwap[which] = pgColSwap[which] ? 0 : 1;
+      pgCsSync();
+      pgRenderPreview(); pgRenderFill(); pgOutUpdate();
+    }
+    if (byId('pg-cs-sub')) byId('pg-cs-sub').addEventListener('click', function(){ pgCsToggle('sub'); });
+    if (byId('pg-cs-px'))  byId('pg-cs-px').addEventListener('click',  function(){ pgCsToggle('px'); });
+    pgCsSync();
 
     // ── v2.0.0：模式分頁鈕 ──
     // 「手動 4×4」＝ 切回 sub-pixel 編輯；「測試畫面」＝ 開選單挑一張
