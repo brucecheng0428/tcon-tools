@@ -62,21 +62,8 @@
     padding: 11px 20px; font-size: 16px; font-weight: 700; cursor: pointer;
   }
   #dgm-stop.dgm-hidden { display: none; }
-  /* v1.11.0：量完（或停止／失敗）之後的關閉視窗鈕 */
-  #dgm-close {
-    display: block; margin-top: 8px; margin-left: auto;
-    background: #475569; color: #fff; border: 0; border-radius: 10px;
-    padding: 11px 20px; font-size: 15px; font-weight: 700; cursor: pointer;
-  }
-  #dgm-close.dgm-hidden { display: none; }
-  #dgm-close.dgm-primary { background: #16a34a; }
-  /* v1.11.0：量完之後最顯眼的一句話 —— 資料到哪去了。就貼在關閉鈕上面。 */
-  #dgm-done {
-    margin-top: 10px; padding: 9px 11px; border: 1px solid #16a34a; border-radius: 8px;
-    background: rgba(22, 163, 74, .18); color: #bbf7d0; font-size: 13px; line-height: 1.6;
-    text-align: left; max-width: 26vw; font-weight: 700;
-  }
-  #dgm-done.dgm-hidden { display: none; }
+  /* v1.26.2：原本這裡有「關閉這個分頁」鈕（#dgm-close）與量完後的說明框（#dgm-done）。
+     兩個都拿掉了 —— 理由見下面 run() 收尾處的註解。量完只留一句話，寫在 #dgm-msg。 */
   #dgm-prog { margin-top: 8px; font: 700 22px/1.35 ui-monospace, Menlo, Consolas, monospace; }
   #dgm-prog small { display: block; font-weight: 400; font-size: 12px; color: #94a3b8; }
   /* v1.11.0：沒全螢幕時的閘門說明。紅框，講清楚為什麼擋、怎麼辦 */
@@ -148,8 +135,6 @@
     <button id="dgm-fs">全螢幕</button><button id="dgm-start" disabled>開始量測</button>
   </div>
   <button id="dgm-stop" class="dgm-hidden">■ 停止</button>
-  <div id="dgm-done" class="dgm-hidden"></div>
-  <button id="dgm-close" class="dgm-hidden">關閉這個分頁</button>
   <div id="dgm-prog"></div>
   <div id="dgm-gate"></div>
   <div id="dgm-msg">按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）→ 逐階掃 0～255。</div>
@@ -194,7 +179,7 @@
      · prim        ＝ DG 第 3 部分：R／G／B 三個純色 pattern，3 步
      由 URL 的 ?mode=prim 決定，**不是 UI 選項** —— 使用者是從 DG 頁哪一顆鈕
      進來的，就已經表達了他要量哪一種，不必再讓他選一次。
-     兩種模式共用同一套：全螢幕閘門、停止、關閉分頁、已跑時間、初始化序列。
+     兩種模式共用同一套：全螢幕閘門、停止、已跑時間、初始化序列。
      🔴 純色也走 MDS,0（x, y, Lv）：跟灰階同一組初始化，回應欄位也同一組，
         重用最多、風險最低。DG 第 3 部分本來就收 x／y／Lv 這一組寫法，
         由 dg.html 用它自己的 dgXyYtoXYZ() 換算成 XYZ 存起來 —— 換算的責任
@@ -429,21 +414,17 @@
   var aborted = null;          // 非 null ＝ 本次被中止，字串是原因
   var lastStep = 0;            // 中止時已經量到幾筆（0 ＝ 還沒開始掃）
   var lastGray = null;         // 中止時停在哪一個實際灰階（null ＝ 還沒進掃描）
-  var finished = false;        // 跑完一輪（不管成功或失敗）＝ 可以關掉這個分頁了
+  var finished = false;        // 跑完一輪（不管成功或失敗）
 
-  /* v1.11.0：關閉這個分頁。
-     🔴 成功、停止、失敗**三種終止狀態都給這顆**：這個分頁除了量測沒有別的用途，
-        跑完之後留著就是佔一個分頁；失敗與停止時更沒有理由留。
-        它不會擋住重跑 —— 「重新量測」就在旁邊，而且序列埠的授權是綁 origin 的，
-        關掉再開一樣拿得回來（getPorts() 仍會列出）。 */
-  $('dgm-close').addEventListener('click', function () {
-    window.close();
-    // 不是由程式開啟的分頁，close() 會被瀏覽器忽略；那就明說，不要讓他以為壞了
-    setTimeout(function () {
-      msg('瀏覽器不讓程式關掉這個分頁（通常是因為它不是由 DG 頁開出來的）。\n'
-        + '請直接按分頁上的 ✕ 關掉。', 'err');
-    }, 300);
-  });
+  /* ─── v1.26.2：「關閉這個分頁」鈕（與量完後那個說明框）已移除 ─────────────
+     Bruce 2026-09-09：「量測頁量完之後會秀出『關閉這個分頁』的選項，使用者不知道
+     後面還會重用這個分頁，看到就會去按。一關掉，之後每個入口都得重新開、重新設定、
+     重新連儀器，等於 v1.26.1 白做。」
+     🔴 這顆鈕在 v1.11.0 的前提是「這個分頁量完就沒用了」。v1.26.1 之後這個前提
+        不成立了 —— 它要被下一個入口重用，而且**序列埠連線活在這個分頁裡**，
+        關掉就要重連。前提沒了，鈕就不該留。
+     🔴 也不改成「勸他別關」的文字：真的想關的人退出全螢幕按瀏覽器的 ✕ 就好，
+        那是瀏覽器本來就有的，不需要我們給一顆鈕，也不需要我們解釋。 */
 
   /* 🔴 停止 ＝ 放棄本次，**不回傳部分資料**。
      DG 第 2 部分要的是完整 256 階；半套資料灌進去，後面的反查與收斂會錯得很安靜
@@ -472,9 +453,6 @@
     $('dgm-stop').disabled = false;
     $('dgm-stop').textContent = '■ 停止';
     $('dgm-stop').classList.remove('dgm-hidden');
-    $('dgm-close').classList.add('dgm-hidden');
-    $('dgm-close').classList.remove('dgm-primary');
-    $('dgm-done').classList.add('dgm-hidden');
     progStart();
 
     // 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
@@ -488,7 +466,6 @@
     $('dgm-stop').classList.add('dgm-hidden');
     $('dgm-start').textContent = '重新量測';
     $('dgm-start').disabled = !isFs();     // 停止後可以直接再按一次；掉出全螢幕就仍然關著
-    $('dgm-close').classList.remove('dgm-hidden');
     if (aborted) {
       setGray(128);
       msg('已停止（' + aborted + '）。本次量到 ' + lastStep + ' 筆'
@@ -664,22 +641,13 @@
       ? 'R／G／B 三個純色端點'
       : ('L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0]);
     var partNo = (DGM_MODE === 'prim') ? '第 3 部分' : '第 2 部分';
-    var what = (DGM_MODE === 'prim')
-      ? ('純色端點 ' + rows.length + ' 筆（' + span + '）')
-      : ('白灰階 ' + rows.length + ' 筆（' + span + '）＋ 目標白點');
 
     $('dgm-prog').innerHTML = '完成'
       + '<small>' + span + '　共 ' + rows.length + ' 筆'
       + '　總共跑了 ' + fmtDur(elapsedMs()) + '</small>';
-    $('dgm-close').classList.add('dgm-primary');
-    // v1.11.0：資料到哪去了要講白話，就寫在關閉鈕上面那一格
-    $('dgm-done').innerHTML = '✔ 已導入 DG ' + partNo
-      + '<div style="font-weight:400;font-size:12px;margin-top:3px">'
-      + what + '，已經<b>自動填進</b>DG 分頁的' + partNo + '，不用你手動搬。'
-      + '<br>切回 DG 那個分頁就看得到。這一頁可以關掉了。</div>';
-    $('dgm-done').classList.remove('dgm-hidden');
-    msg('已導入 DG ' + partNo + '：' + what + '，已自動填進 DG 分頁，不用手動搬。\n'
-      + '這一頁可以關掉了 —— 按下面的「關閉這個分頁」。', 'ok');
+    /* v1.26.2：量完只留這一句 —— 這一輪完成了、資料已經回到哪裡。
+       不解釋、也不提關掉分頁（原本的 #dgm-done 說明框與「關閉這個分頁」鈕已移除）。 */
+    msg('✔ 已完成：' + rows.length + ' 筆已回到 DG 的' + partNo + '。', 'ok');
   }
 
   /* v1.26.1：右上角那塊是 .dgm-corner，**max-height: 30vh 且 overflow: hidden**。
@@ -741,10 +709,6 @@
     // ② 畫面回到「還沒開始量」的樣子
     $('dgm-ring').classList.remove('dgm-hidden');
     $('dgm-hint').classList.remove('dgm-hidden');
-    $('dgm-done').classList.add('dgm-hidden');
-    $('dgm-done').innerHTML = '';
-    $('dgm-close').classList.add('dgm-hidden');
-    $('dgm-close').classList.remove('dgm-primary');
     $('dgm-stop').classList.add('dgm-hidden');
     $('dgm-start').textContent = '開始量測';
 
