@@ -336,6 +336,63 @@ console.log('⑤ Intel HEX 映像大小上限（目前 ' + MAX_IMAGE + ' bytes �
   }
 }
 
+/* ══ 🔴 ⑦ v4.44.2：EEPROM 的 4 KB／8 KB 兩種大小都必須進得來 ═══════════════════
+   為什麼要釘住這一條：`WFG_NB_MODELS.e503.sizes` 從 v4.14.0 到 v4.44.1 一直是
+   `[4096]`，而**同一份原始碼的共用層註解（v4.11.0）早就寫著**「NB 的 bin 有 4 KB
+   與 8 KB 兩種，兩者都 ≤ 8192 ⇒ 都是 EEPROM」。共用層說涵蓋得到、型號表卻把 8 KB
+   關掉了，而歷次驗收**沒有任何一份 8 KB 語料**，所以九個版本都沒人發現。
+   這一段把「兩種大小都收得進來」與「大小門檻仍然擋得住不合法的長度」一起釘住。
+
+   ⚠ 這裡不呼叫 `wfgNbParse()`（它牽進 DCLK／i18n 一大串相依，會讓 pre-commit
+     從純函式檢查變成半個瀏覽器）。改為直接讀產品的 `sizes` 設定 ＋ 驗「同一份
+     內容放在 4096 與 8192 兩種長度下，解析結果必須完全一樣」——
+     後者才是「8 KB 只是同一版面的延長」這個結論的可機械檢驗形式。 */
+{
+  console.log('');
+  console.log('⑦ EEPROM 4 KB／8 KB 雙尺寸（v4.44.2）');
+
+  /* 從產品原始碼把 e503 的 `sizes` 解出來（值可能是字面陣列，也可能是共用常數名）。 */
+  const E503_SIZES = (function () {
+    const mi = src.indexOf('var WFG_NB_MODELS');
+    if (mi < 0) die('找不到 WFG_NB_MODELS');
+    const seg = src.slice(mi, src.indexOf('e501a:', mi));   // e503 那一段
+    const m = /\n\s*sizes:\s*([^\n,]+)/.exec(seg);
+    if (!m) die('在 WFG_NB_MODELS.e503 找不到 sizes');
+    const v = m[1].trim().replace(/,$/, '');
+    if (/^\[/.test(v)) return JSON.parse(v.replace(/\s+/g, ''));
+    const mv = new RegExp('var\\s+' + v + '\\s*=\\s*(\\[[^\\]]*\\])').exec(src);
+    if (!mv) die('sizes 指向 ' + v + '，但找不到它的定義');
+    return JSON.parse(mv[1].replace(/\s+/g, ''));
+  })();
+  console.log('  （產品目前宣告的 E503 合法內容長度：' + E503_SIZES.join(' / ') + '）');
+
+  expect('E503 接受 4096（既有行為，不可掉）', E503_SIZES.indexOf(4096) >= 0, true);
+  expect('E503 接受 8192（本版新增）', E503_SIZES.indexOf(8192) >= 0, true);
+  /* 🔴 反面：不可以放寬成「凡是 ≤ WFG_CODE_EEPROM_MAX 都收」。全庫實測有 2048 B
+     與 31／32 B 的殘檔，那些一旦放進來只會在後面解出垃圾。 */
+  expect('🔴 不接受 2048（放寬成「凡 ≤ 8192」就會破功）', E503_SIZES.indexOf(2048) >= 0, false);
+  expect('🔴 不接受 131072（Flash 檔餵 EEPROM 型號仍須被擋）',
+    E503_SIZES.indexOf(131072) >= 0, false);
+
+  /* 版面與大小無關：同一份內容，補到 8192 之後每一條訊號、EDID 都必須解出相同的值。
+     依據是 `~/TCON/Temp/code/acc_4k_8k/` 那組 4K/8K 對照檔 —— 前 4096 bytes 逐位元組
+     相同、8K 只是在後面多接 4096 bytes。這裡用合成映像重現同一個結構。 */
+  const img4 = buildImage({});
+  const img8 = new Uint8Array(8192);
+  img8.set(img4, 0);
+  for (let i = 4096; i < 8192; i++) img8[i] = (i * 31) & 0xFF;   // 後半塞非零內容
+  const r4 = judge(img4), r8 = judge(img8);
+  expect('4096 映像通過（正控制）', r4.edid && r4.sane, true);
+  expect('補成 8192 之後仍通過', r8.edid && r8.sane, true);
+  expect('4096 與 8192 解出來的 frame 完全相同',
+    JSON.stringify(r4.frame) === JSON.stringify(r8.frame), true);
+  /* 負控制：把**前 4 KB** 的 XSTB enable 清掉，8192 版一樣必須被拒 ——
+     否則上面那條「補到 8192 仍通過」可能只是因為判定根本沒在看內容。 */
+  const bad8 = new Uint8Array(8192);
+  bad8.set(buildImage({ sigs: { 0: { enable: 0 } } }), 0);
+  expect('🔴 負控制：8192 版但 XSTB 沒 enable ⇒ 仍須拒絕', judge(bad8).sane, false);
+}
+
 /* ⑥ 選配：拿本機真檔跑（不進版控）。
    🔴 v4.37.2 修正：這一段原本自己寫了一份簡易的 Intel HEX 解碼器 —— 於是它
    **看不到 BOM 那個 bug**（自己的解碼器不剝 BOM ⇒ 那 11 份真檔解出來長度不對 ⇒
@@ -353,7 +410,10 @@ if (REAL && fs.existsSync(REAL)) {
     seen++;
     const img = sandbox.wfgCodeToImage(new Uint8Array(fs.readFileSync(p)), f);
     if (!img.ok) { decFail.push(f + ' → ' + String(img.reason).slice(0, 40)); fail++; continue; }
-    if (img.bytes.length !== E503.size) continue;   // 不是 E503 大小，跳過
+    /* 🔴 v4.44.2：這一行原本寫死 `!== E503.size`（＝ 4096），於是**真檔語料裡的
+       8 KB EEPROM 從來沒有被這支檢查看過一眼** —— 正是 `sizes:[4096]` 能活九個版本
+       的原因之一。改成 4096／8192 兩種都掃。 */
+    if (img.bytes.length !== 4096 && img.bytes.length !== 8192) continue;
     const r = judge(img.bytes);
     if (!r.edid) continue;                          // 不是 E503 形狀，跳過
     n++;
