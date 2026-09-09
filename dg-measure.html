@@ -32,7 +32,40 @@
     padding: 10px 13px;
   }
   #dgm-info { top: 14px; left: 14px; }
-  #dgm-right { top: 14px; right: 14px; text-align: right; }
+  /* ─── v1.27.0：右上角面板不再裁掉東西 ───────────────────────────────────
+     問題（v1.26.2 實測）：退出全螢幕時，閘門紅框 130px 一回來就把內容撐到
+     302 > 194，最下面那一行被 max-height:30vh 的 overflow:hidden 裁掉。
+     🔴 不採「把 max-height 調大」：那個上限是這個面板不會長到蓋住量測畫面的
+        唯一保證，調大等於把問題換一個地方發作。
+     改採兩件事：
+     ① **說明性內容搬出面板**。閘門那段「為什麼擋、怎麼辦」是說明，不是狀態，
+        已移到底部提示列（#dgm-hint 那一區，沒有高度上限、字更大、置中）。
+        面板只留**狀態與控制**：步驟名稱、按鈕、進度、一行訊息。
+     ② 面板改 flex 直排，除了 #dgm-msg 之外全部 flex:0 0 auto（不准被壓）。
+        #dgm-msg 是唯一長度不可控的一項（錯誤訊息可長可短），讓它成為唯一
+        會縮、且縮到底時自己捲動的區塊 —— 空間再不夠也不會有東西被無聲切掉。
+     優先序（空間不足時誰先讓）：訊息 ＞ 進度 ＞ 按鈕 ＞ 步驟名稱。
+     步驟名稱排第一個位置、按鈕緊接其後，兩者永遠看得到。 */
+  #dgm-right {
+    top: 14px; right: 14px; text-align: right;
+    display: flex; flex-direction: column; align-items: stretch;
+    /* ③ 高度上限從 30vh 放寬到 40vh，**只放寬這一個面板**（左上角資訊面板維持 30vh）。
+       🔴 這不是「調大了事」，是把上限接回它真正要保護的東西：
+          量測點在**畫面正中央**，而這個面板靠右、寬度上限 30vw ⇒ 它的左緣永遠
+          在 70vw 之後，**水平方向就已經不可能碰到中央 40% 的量測區**。
+          真正由 max-height 保護的只是「不要長成一整條」，40vh 的下緣約在 0.42H，
+          仍在畫面垂直中線之上，中央紅圈（±120px）與探頭位置都不會被蓋到。
+       單靠這一條並不能解決問題（實測：光放寬到 40vh，某些視窗高度仍會不夠），
+       所以它是跟上面 ① ② 一起用的，不是替代品。 */
+    max-height: 40vh;
+  }
+  #dgm-right > * { flex: 0 0 auto; }
+  /* #dgm-msg 是最後的緩衝：真的擠不下時由它縮並自己捲動。
+     🔴 但**不准縮到看不見** —— min-height 綁一行的高度。
+        第一版沒有這一條，結果是「面板 scrollHeight ≤ clientHeight」成立、
+        但成立的方式是把完成訊息壓成 2px（截圖當場抓到）：
+        沒有溢出，只是重要的字被壓沒了，比溢出更難發現。 */
+  #dgm-right > #dgm-msg { flex: 0 1 auto; min-height: 1.6em; overflow-y: auto; }
 
   .dgm-row { display: flex; gap: 10px; justify-content: space-between; white-space: nowrap; }
   .dgm-k { color: #94a3b8; font-size: 12px; }
@@ -62,17 +95,39 @@
     padding: 11px 20px; font-size: 16px; font-weight: 700; cursor: pointer;
   }
   #dgm-stop.dgm-hidden { display: none; }
+  /* v1.27.0：這一次量的是 DG 的哪一個步驟。名稱直接沿用 DG 頁那組字串，不另立新名字。
+     🔴 22px 是本面板最大的字級（周邊：說明 12px、數值 14px、按鈕 16px），
+        Bruce 要的是「一眼看得到現在在哪一步」，不是一行小灰字。
+     :empty 時整個不佔位 —— 沒帶名稱進來（例如直接打開這一頁）不留孤兒間距。 */
+  #dgm-step {
+    font: 700 22px/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    color: #e2e8f0; margin: 0 0 9px; padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, .18);
+    max-width: 26vw; text-align: right; word-break: break-word;
+  }
+  #dgm-step:empty { display: none; }
   /* v1.26.2：原本這裡有「關閉這個分頁」鈕（#dgm-close）與量完後的說明框（#dgm-done）。
      兩個都拿掉了 —— 理由見下面 run() 收尾處的註解。量完只留一句話，寫在 #dgm-msg。 */
   #dgm-prog { margin-top: 8px; font: 700 22px/1.35 ui-monospace, Menlo, Consolas, monospace; }
   #dgm-prog small { display: block; font-weight: 400; font-size: 12px; color: #94a3b8; }
-  /* v1.11.0：沒全螢幕時的閘門說明。紅框，講清楚為什麼擋、怎麼辦 */
+  /* v1.11.0：沒全螢幕時的閘門說明。紅框，講清楚為什麼擋、怎麼辦。
+     v1.27.0：從右上角面板**搬到底部**（就在提示列上方）。它是說明不是狀態，
+     而且它 130px 的高度正是把面板撐爆、害最後一行被裁掉的元凶。
+     底部這一區沒有高度上限，字也放得下。 */
+  /* 底部說明區：閘門紅框在上、操作提示在下，用同一個容器直排，
+     免得兩塊各自 position:fixed 在行數變多時互相疊到。 */
+  #dgm-bottom {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 7;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    max-width: 70vw; pointer-events: none;
+  }
   #dgm-gate {
-    margin-top: 8px; padding: 8px 10px; border: 1px solid #dc2626; border-radius: 8px;
-    background: rgba(220, 38, 38, .16); color: #fecaca; font-size: 12px; line-height: 1.55;
-    text-align: left; max-width: 26vw;
+    padding: 9px 14px; border: 1px solid #dc2626; border-radius: 10px;
+    background: rgba(0, 0, 0, .78); color: #fecaca; font-size: 12.5px; line-height: 1.6;
+    text-align: center;
   }
   #dgm-gate.dgm-hidden { display: none; }
+  #dgm-gate:empty { display: none; }
 
   /* ── 中心紅圈：讓探頭對準螢幕正中心 ──────────────────────────────────
      🔴 量測一開始就整個拿掉（display:none）。探頭正下方留著紅色圖案
@@ -98,10 +153,9 @@
     margin: -5px 0 0 -5px; background: #ff0000; border-radius: 50%;
   }
   #dgm-hint {
-    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6;
     background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
     border-radius: 10px; padding: 9px 14px; font-size: 12.5px; color: #cbd5e1;
-    max-width: 70vw; text-align: center;
+    text-align: center;
   }
   #dgm-hint.dgm-hidden { display: none; }
 
@@ -129,22 +183,30 @@
     下面那個是量測儀自己偵測到的畫面更新率。兩個來源不同，不一定會一樣。</div>
 </div>
 
-<!-- 右上角：全螢幕 ＋ 開始量測 ＋ 停止 ＋ 進度 -->
+<!-- 右上角：步驟名稱 ＋ 全螢幕 ＋ 開始量測 ＋ 停止 ＋ 進度 -->
 <div class="dgm-corner" id="dgm-right">
+  <!-- v1.27.0：這一次量的是 DG 的哪一個步驟。🔴 放**最上面**是刻意的 ——
+       .dgm-corner 是 max-height:30vh + overflow:hidden，裁的是**下面**，
+       放在第一個位置才不會變成第一個被裁掉的東西。 -->
+  <div id="dgm-step"></div>
   <div>
     <button id="dgm-fs">全螢幕</button><button id="dgm-start" disabled>開始量測</button>
   </div>
   <button id="dgm-stop" class="dgm-hidden">■ 停止</button>
   <div id="dgm-prog"></div>
-  <div id="dgm-gate"></div>
   <div id="dgm-msg">按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）→ 逐階掃 0～255。</div>
 </div>
 
 <!-- 中心紅圈：對位用，量測一開始就消失 -->
 <div id="dgm-ring"><i class="r1"></i><i class="r2"></i><b></b><u></u><s></s></div>
 
-<div id="dgm-hint">把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），
-  再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。</div>
+<!-- v1.27.0：底部說明區。全螢幕閘門的說明（紅框）從右上角面板搬到這裡 ——
+     它是「為什麼擋、怎麼辦」的說明，不是狀態；留在面板裡會把面板撐到被裁。 -->
+<div id="dgm-bottom">
+  <div id="dgm-gate" class="dgm-hidden"></div>
+  <div id="dgm-hint">把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），
+    再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。</div>
+</div>
 
 <div id="dgm-log"></div>
 
@@ -209,6 +271,22 @@
   // 本次載入的身分證（驗證用；重新載入一定會變，換任務不會變）
   var DGM_LOAD_ID = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
   var dgmSwitchCount = 0;
+
+  /* ─── v1.27.0：這一次量的是 DG 的哪一個步驟 ─────────────────────────────
+     Bruce 2026-09-09：「量測頁上要顯示這次量測是哪一個步驟的名稱，讓使用者知道
+     現在在什麼階段。字要大、要清楚。」
+     🔴 名稱**不由本頁決定**：DG 頁那個按鈕迴圈的 p[2] 就是主頁面在用的步驟稱呼
+        （第 2 部分／第 3 部分／光學資料比較（新增資料）／第 4 部分（確認結果）），
+        原封傳過來。本頁自己造一份名字，遲早會跟主頁面對不上。
+     傳法沿用既有的兩條路：開新頁走 ?dest=、重用換任務走 dg-measure-task 的 dest 欄位
+     —— 沒有第三條路。 */
+  var DGM_DEST = (function () {
+    try { return DGM_QS.get('dest') || ''; } catch (e) { return ''; }
+  })();
+  function dgmRenderStep() {
+    // textContent：名稱是訊息／網址帶進來的字串，不進 innerHTML
+    $('dgm-step').textContent = DGM_DEST || '';
+  }
 
   // prim 模式的三步：[代號, 顯示名, RGB]
   var DGM_PRIMS = [
@@ -307,6 +385,48 @@
   // ── 序列埠 ──────────────────────────────────────────────────────────────
   var port = null, reader = null, keepReading = false, rxBuf = '', pending = null;
 
+  /* ═══ v1.27.0：量測儀連不上的時候，講人話 ═══════════════════════════════
+     Bruce 2026-09-09：「要預設各種情況，例如同時開著 CA-S40 原廠軟體在搶同一個
+     USB port，這時候要顯示出來提醒使用者注意；或是根本就沒有接 USB，也要有回饋。」
+
+     🔴 判斷依據是**哪一個動作失敗**，不是例外的名字。理由：
+        Web Serial 規格裡，requestPort() 在「使用者取消」與「一個可選的裝置都
+        沒有」兩種情況下**都是 NotFoundError**，API 分不出來；而 open() 打不開
+        （被別的程式佔住、被作業系統鎖住…）規格寫的是 NetworkError，但各家實作
+        的字串與邊界不完全一致。把提示綁在「哪一步失敗」上，不管瀏覽器丟什麼名字
+        都仍然是對的話；名字只拿來做加值判斷（權限被擋）。
+     🔴 原始錯誤字串只寫進左下角的 log，不丟給使用者看。 */
+  function dgmErrName(e) {
+    return (e && (e.name || '')) + '';
+  }
+  // 一步一句，不解釋。
+  var DGM_ERR = {
+    unsupported: '這個瀏覽器不能連量測儀 —— 請改用 Chrome 或 Edge 開這一頁。',
+    // 取消與「一台都沒有」在 API 上同一種錯誤，所以這句話兩種情況都要成立
+    noPort:      '沒有選到量測儀 —— 確認 USB 線已接上量測儀，再按一次「開始量測」。',
+    denied:      '瀏覽器擋下了序列埠存取 —— 請在網址列的權限設定裡允許，再按一次。',
+    busy:        '量測儀打不開 —— 多半是 CA-S40 原廠軟體還開著佔住它，請先關掉 CA-S40 再按一次。',
+    lost:        '量測儀斷線了 —— 接回 USB 後按「重新量測」'
+  };
+
+  /* 量測進行中掉線：一律走既有的 abort（＝這一輪作廢、**不回傳半套資料**）。
+     兩條偵測路徑都要有，因為兩者都可能先發生：
+       ① navigator.serial 的 disconnect 事件（裝置被拔掉）
+       ② 讀／寫時丟例外（被別的程式搶走、驅動掉了） */
+  function dgmLost(whereLog) {
+    log('連線中斷（' + whereLog + '）', 'e');
+    if (running && !aborted) abort(DGM_ERR.lost);
+  }
+  if (navigator.serial && navigator.serial.addEventListener) {
+    navigator.serial.addEventListener('disconnect', function (e) {
+      /* 事件帶的 port 在不同版本分別放在 e.port 與 e.target；兩個都取。
+         🔴 取不到就不動作 —— 寧可漏報也不要把「別台 USB 裝置被拔掉」誤判成
+            我們這一台而把使用者正在跑的量測砍掉。讀／寫那條路仍然接得住。 */
+      var p = (e && (e.port || e.target)) || null;
+      if (p && port && p === port) dgmLost('disconnect 事件');
+    });
+  }
+
   async function cmd(text, waitMs) {
     if (!port || !port.writable) return null;
     var wait = new Promise(function (res) {
@@ -317,7 +437,13 @@
       // 🔴 結尾只能是 CR（0x0D）。多送一個 LF 會回 ER10。
       await w.write(new TextEncoder().encode(text + '\r'));
       w.releaseLock();
-    } catch (e) { log('送出失敗 ' + text + '：' + e.message, 'e'); pending = null; return null; }
+    } catch (e) {
+      // v1.27.0：寫不進去 ＝ 連線沒了。原始字串進 log，使用者看到的是那一句人話。
+      log('送出失敗 ' + text + '：' + e.message, 'e');
+      pending = null;
+      dgmLost('寫入失敗 ' + text);
+      return null;
+    }
     var r = await wait;
     log(text + '  →  ' + (r === null ? '（逾時）' : r), r === null ? 'e' : (/^ER/.test(r) ? 'e' : ''));
     return r;
@@ -342,7 +468,9 @@
           }
         } finally { reader.releaseLock(); }
       }
-    } catch (e) { if (keepReading) log('讀取中斷：' + e.message, 'e'); }
+    } catch (e) {
+      if (keepReading) { log('讀取中斷：' + e.message, 'e'); dgmLost('讀取中斷'); }
+    }
   }
 
   var INIT = [
@@ -373,9 +501,37 @@
         ① 按鈕 disabled —— 給人看的
         ② start 處理器一進來就再判一次 —— 給程式看的。
            繞過 disabled、或用 dispatchEvent 直接派事件，一樣進不去。 */
+  /* ─── v1.27.0：F11（瀏覽器層級全螢幕）也要算 ─────────────────────────────
+     Bruce 2026-09-09：「使用者自己按全螢幕快捷鍵（例如 F11）時，網頁也要偵測得到。」
+
+     🔴 實測（Chrome 153 / macOS，一般分頁，`_tmp_dg1270/probe7_fsprobe.py`）：
+
+     | 狀態 | fullscreenElement | fullscreenchange | display-mode: fullscreen | innerH/outerH |
+     |---|---|---|---|---|
+     | 一般視窗 | false | — | false | 773 / 860 |
+     | **瀏覽器層級全螢幕（F11）** | **false** | **完全不觸發** | **true**（且有 change 事件） | 812 / 812 |
+     | Fullscreen API 全螢幕 | true | 觸發 | true | 900 / 900 |
+     | 視窗最大化（不是全螢幕） | false | — | **false** | 783 / 870 |
+
+     結論（都是量出來的，不是推測的）：
+     ① **只監聽 `fullscreenchange` 對 F11 完全無效** —— 那一欄實測是 0 次。
+     ② `matchMedia('(display-mode: fullscreen)')` **兩種全螢幕都為 true、都會發
+        change 事件，而且最大化時正確地為 false** ⇒ 這是唯一一條兩種都涵蓋的路。
+     ③ **尺寸判斷不可靠，所以不用**：macOS 在瀏覽器層級全螢幕時 `screen.height`
+        仍是 900、但 `innerHeight/outerHeight` 是 812（`screenY` 還是 88，選單列
+        那一段不算進來），`outerHeight === screen.height` 直接不成立；而**最大化**
+        時 `outerHeight（870）=== screen.availHeight（870）`，用尺寸反而會把「最大化」
+        誤判成全螢幕。外接螢幕、縮放、多螢幕不同解析度只會讓它更糟。
+
+     🔴 兩條路徑**收斂成這一支** —— 閘門、start 處理器、run() 一律只讀 isFs()，
+        沒有第二個地方各判各的。
+     ⚠ 已知限制（如實寫）：瀏覽器若不支援 display-mode 媒體查詢，就只剩 API 那條，
+        F11 偵測不到（會保守地判成「不是全螢幕」＝擋住量測，不會放行髒資料）。 */
+  var DGM_MQ_FS = (window.matchMedia && window.matchMedia('(display-mode: fullscreen)')) || null;
   function isFs() {
-    return !!(document.fullscreenElement || document.webkitFullscreenElement
-      || document.mozFullScreenElement || document.msFullscreenElement);
+    if (document.fullscreenElement || document.webkitFullscreenElement
+      || document.mozFullScreenElement || document.msFullscreenElement) return true;
+    return !!(DGM_MQ_FS && DGM_MQ_FS.matches);
   }
   var GATE_TEXT = '<b>還沒有全螢幕，所以「開始量測」是關著的。</b>'
     + '不是全螢幕時，網址列與分頁列會把畫面往下擠，<b>中央紅圈的位置就不是螢幕的正中心</b>，'
@@ -392,11 +548,23 @@
     if (!running) $('dgm-start').disabled = !fs;
     $('dgm-gate').innerHTML = fs ? '' : GATE_TEXT;
     $('dgm-gate').classList.toggle('dgm-hidden', fs);
-    // 量測中掉出全螢幕 ＝ 畫面幾何變了，探頭對到的不再是原本那一點，本次作廢
+    /* 量測中掉出全螢幕 ＝ 畫面幾何變了，探頭對到的不再是原本那一點，本次作廢。
+       v1.27.0：這一條現在對 **F11 退出**也成立 —— 因為 isFs() 認得 display-mode，
+       而下面三種事件裡的 mq change／resize 會在 F11 進出時把這一支叫起來。 */
     if (running && !fs) abort('量測中離開了全螢幕');
   }
+  /* v1.27.0：三條觸發路徑，缺一不可，但全部只呼叫同一支 syncFs()：
+     ① fullscreenchange（＋各家前綴）—— Fullscreen API 那一條
+     ② display-mode 媒體查詢的 change —— **F11 唯一會發的通知**
+     ③ resize —— 保底。實測 F11 進出各會發 4 次 resize；萬一某個瀏覽器不支援 ②，
+        還有這一條能把狀態拉回來，不必等使用者去按才發現。 */
   ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
     .forEach(function (ev) { document.addEventListener(ev, syncFs); });
+  if (DGM_MQ_FS) {
+    if (DGM_MQ_FS.addEventListener) DGM_MQ_FS.addEventListener('change', syncFs);
+    else if (DGM_MQ_FS.addListener) DGM_MQ_FS.addListener(syncFs);   // 舊版 Safari
+  }
+  window.addEventListener('resize', syncFs);
 
   $('dgm-fs').addEventListener('click', function () {
     var el = document.documentElement;
@@ -495,6 +663,10 @@
     finished: function () { return finished; },
     elapsedMs: elapsedMs,
     isFullscreen: isFs,
+    // v1.27.0 驗證用：兩條偵測路徑各自的原始值（收斂前），以及閘門的實際狀態
+    fsApi: function () { return !!document.fullscreenElement; },
+    fsDisplayMode: function () { return !!(DGM_MQ_FS && DGM_MQ_FS.matches); },
+    gateBlocked: function () { return !!$('dgm-start').disabled; },
     portOpen: function () { return !!(port && port.readable); },
     steps: function () { return DGM_STEPS; },
     // v1.26.1 驗證用：目前是哪一個任務，以及本頁「這一次載入」的身分證。
@@ -503,6 +675,8 @@
     //    而不是靠嘴巴說沒重載。
     mode: function () { return DGM_MODE; },
     task: function () { return DGM_TASK; },
+    dest: function () { return DGM_DEST; },                                  // v1.27.0 驗證用
+    stepText: function () { return $('dgm-step').textContent; },             // v1.27.0 驗證用
     loadId: function () { return DGM_LOAD_ID; },
     taskSwitches: function () { return dgmSwitchCount; }
   };
@@ -510,25 +684,43 @@
   async function run() {
     // 閘門第三層：run() 自己也不信任呼叫端（將來若多一條啟動路徑，這裡照樣擋）
     if (!isFs()) { msg('還沒有全螢幕，不能開始量測。', 'err'); return; }
-    if (!('serial' in navigator)) {
-      msg('這個瀏覽器不支援 Web Serial，請改用 Chrome 或 Edge。', 'err'); return;
-    }
+    /* v1.27.0：用 `!navigator.serial` 而不是 `'serial' in navigator` ——
+       後者只看屬性在不在，值是 undefined 時仍然為真，等於沒擋到。 */
+    if (!navigator.serial) { msg(DGM_ERR.unsupported, 'err'); return; }
 
     // 1. 取埠：先看已授權的，沒有才跳選單
     msg('連線中…');
-    var ports = await navigator.serial.getPorts();
+    var ports = [];
+    try { ports = await navigator.serial.getPorts(); }
+    catch (e) {
+      log('getPorts 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
+      msg(DGM_ERR.noPort, 'err'); return;
+    }
     if (aborted) return;
     if (ports.length) port = ports[0];
     else {
       msg('請在清單裡選量測儀對應的序列埠。');
       try { port = await navigator.serial.requestPort(); }
-      catch (e) { msg('沒有選埠（取消了，或清單裡沒有）。確認原廠軟體已關閉、線有插好。', 'err'); return; }
+      catch (e) {
+        /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
+           分不出來 —— 所以這句話寫成兩種情況都成立的樣子，不猜是哪一種。
+           SecurityError 是另一回事（權限被政策擋掉），那個分得出來。 */
+        log('requestPort 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
+        msg(dgmErrName(e) === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.noPort, 'err');
+        return;
+      }
     }
     try {
       if (!port.readable) await port.open({ baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' });
     } catch (e) {
-      if (!/already open/i.test(e.message)) {
-        msg('埠打不開：' + e.message + '\n多半是原廠軟體還開著佔住它。', 'err'); return;
+      /* 「已經開著」不是錯誤（停止之後再按一次就會走到這裡），其餘一律是打不開。
+         打不開最常見的原因就是 Bruce 點名的那個：CA-S40 原廠軟體還開著佔住埠
+         —— 序列埠同一時間只能被一個程式開啟。 */
+      var nm = dgmErrName(e);
+      if (nm !== 'InvalidStateError' && !/already open/i.test((e && e.message) || '')) {
+        log('open 失敗：' + nm + ' ' + (e && e.message), 'e');
+        msg(nm === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.busy, 'err');
+        return;
       }
     }
     /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
@@ -698,6 +890,9 @@
     DGM_MODE = (t.mode === 'prim') ? 'prim' : 'gray';
     DGM_STEPS = (DGM_MODE === 'prim') ? DGM_PRIMS.length : 256;
     DGM_TASK = (typeof t.task === 'number') ? t.task : DGM_TASK;
+    /* v1.27.0：🔴 步驟名稱一定要跟著換 —— 換了任務卻還顯示上一個步驟的名字，
+       比不顯示更糟（使用者會照著錯的步驟去擺探頭）。 */
+    DGM_DEST = String(t.dest || '');
 
     // ① 上一輪的殘留狀態一律歸零
     aborted = null; lastStep = 0; lastGray = null; finished = false;
@@ -714,6 +909,7 @@
 
     // ③ 換文案，再讓 syncFs() 決定開始鈕的開關（全螢幕沒掉就仍然可以直接按）
     dgmApplyModeUi();
+    dgmRenderStep();
     syncFs();
 
     dgmSwitchCount++;
@@ -749,6 +945,7 @@
 
   // 起始狀態：開始鈕的開關、全螢幕狀態列、閘門說明都由這一支決定，不另寫一份
   dgmApplyModeUi();
+  dgmRenderStep();
   syncFs();
 })();
 </script>
