@@ -1408,6 +1408,8 @@ var I18N = {
   'wfg.zoomOutTitle':   { 'zh-TW': '縮小', 'en': 'Zoom Out', 'zh-CN': '缩小' },
   'wfg.fitAllTitle':    { 'zh-TW': '全覽', 'en': 'Fit All', 'zh-CN': '全览' },
   'wfg.resetTitle':     { 'zh-TW': '重置', 'en': 'Reset', 'zh-CN': '重置' },
+  // v4.45.0: 滾輪微調切換（面板訊號模擬 / LA 兩個分頁共用同一個狀態）
+  'wfg.wheelFineTitle': { 'zh-TW': '滾輪微調：每次滾動的縮放幅度縮為 1/3', 'en': 'Fine wheel zoom: 1/3 of the normal step per notch', 'zh-CN': '滚轮微调：每次滚动的缩放幅度缩为 1/3' },
   // v3.21.0: 檢視 group — 中心 / 倍率 直接輸入
   'wfg.viewCenter':     { 'zh-TW': '中心', 'en': 'Center', 'zh-CN': '中心' },
   'wfg.viewCenterTitle':{ 'zh-TW': '波形區中心位置（絕對時間，秒；與上方時間軸同一個讀數）', 'en': 'Waveform view center position (absolute time in seconds, same reading as the time axis above)', 'zh-CN': '波形区中心位置（绝对时间，秒；与上方时间轴同一个读数）' },

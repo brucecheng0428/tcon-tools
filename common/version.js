@@ -10,7 +10,7 @@ var TOOL_VERSIONS = {
   calc:    'v1.6.0',       // mLVDS Skew 計算工具
   isp:     'v1.20.0',      // iSP 波形產生器
   aux:     'v2.4.0',       // eDP AUX / DPCD 查詢工具
-  wfg:     'v4.44.2',     // 面板訊號模擬與取樣
+  wfg:     'v4.45.0',     // 面板訊號模擬與取樣
   pattern: 'v3.6.0',       // Pattern Generator 畫面產生器
   dg:      'v1.27.2'       // Digital Gamma 迭代校正
 };
