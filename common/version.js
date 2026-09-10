@@ -9,7 +9,7 @@ var TOOL_VERSIONS = {
   rxtx:    'v1.13.0',      // Rx/Tx 頻率計算工具
   calc:    'v1.6.0',       // mLVDS Skew 計算工具
   isp:     'v1.20.0',      // iSP 波形產生器
-  aux:     'v2.5.3',     // eDP AUX / DPCD 查詢工具
+  aux:     'v2.5.4',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.46.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.1',       // Pattern Generator 畫面產生器
   dg:      'v1.28.1'       // Digital Gamma 迭代校正
