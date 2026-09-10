@@ -222,8 +222,8 @@
   .aux-free-addr.has-error { border-color: #ef4444; }
   /* ─── 位址不在 DPCD 資料庫（規範未定義）：滾輪組與輸入框的外框改警示紅 ─── */
   /* 顏色一律取既有的 --error(#f87171)；半透明底色是同一顏色的 rgba 展開，未新增色碼 */
-  #aux-dpcd-addr-wheels.addr-unknown .hex-drum { border-color: var(--error); }
-  #aux-dpcd-addr-wheels.addr-unknown .hex-drum-highlight {
+  .hex-picker-group.addr-unknown .hex-drum { border-color: var(--error); }
+  .hex-picker-group.addr-unknown .hex-drum-highlight {
     border-color: var(--error);
     background: rgba(248, 113, 113, 0.18);
     box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.3);
@@ -818,10 +818,10 @@
   </div>
 </div><!-- /page-aux -->
 
-<script src="common/version.js?v=20260910aux280"></script>
+<script src="common/version.js?v=20260910aux290"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="data/dpcd-db.js?v=20260910aux280"></script>
+<script src="data/dpcd-db.js?v=20260910aux290"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -1238,10 +1238,13 @@ window.auxSwitchTab = function(tab) {
   document.getElementById('aux-tab-decode').style.display = tab === 'decode' ? 'block' : 'none';
   document.getElementById('aux-tab-verdiff').style.display = tab === 'verdiff' ? 'block' : 'none';
   if (tab === 'verdiff' && !window._verdiffRendered) { auxRenderVerdiffTable(); window._verdiffRendered = true; }
-  // 切回 DPCD 分頁時重算一次外框警示（純讀取 + toggle class，不觸發查詢）
+  // 切回分頁時重算一次外框警示（純讀取 + toggle class，不觸發查詢）
   if (tab === 'dpcd' && typeof auxDpcdSyncAddrWarn === 'function'
       && typeof auxGetAddrFromWheels === 'function') {
     auxDpcdSyncAddrWarn(auxGetAddrFromWheels());
+  }
+  if (tab === 'decode' && typeof auxDecodeSyncAddrWarn === 'function') {
+    auxDecodeSyncAddrWarn();
   }
   // 記住目前 tab，重整後還原
   try { sessionStorage.setItem('aux_active_tab', tab); } catch(e) {}
@@ -1494,15 +1497,46 @@ function auxRwLabel(rw) {
 }
 
 // ─── DPCD 查詢邏輯 ───
-// ─── 位址未定義的外框警示（唯一判定點：DPCD_DB 查不到 = 規範未定義）───
-// 只作用於「DPCD 查詢」分頁。AUX 解碼分頁刻意不套用，理由見 CHANGELOG v2.8.0。
-function auxDpcdSyncAddrWarn(addrStr) {
+// ─── 位址未定義的外框警示 ───
+// 🔴 唯一判定點。兩個分頁共用，三條改位址路徑（滾輪／打字 Enter／▼▲）也共用。
+// 排除條件全部有專案內既有依據，不自行發明：
+//   1. isNativeReq === false（I2C-over-AUX）：依 AUX_REQ_CMD[cmd].isNative（產品既有的請求型別判斷，
+//      auxDecodeRequest 也是用它決定要不要拿 DPCD_DB 對照）。此時位址是 I2C 裝置位址，
+//      拿 DPCD 資料庫去查本來就沒有意義 ⇒ 一律不標紅。
+//   2. F0000h–FFFFFh 廠商自訂區：依 data/dpcd-db.js 的 "F0000" 條目
+//      （VENDOR_SPECIFIC_FIELD_START，說明明載「此範圍 F0000h-FFFFFh 為晶片廠商自定義的 DPCD 空間…
+//      VESA 規範不做任何限制」）。規範本來就不定義，標紅是假警報。
+var AUX_VENDOR_LO = 0xF0000, AUX_VENDOR_HI = 0xFFFFF;   // 依據同上
+
+function auxAddrIsUndefined(addrStr, isNativeReq) {
+  if (isNativeReq === false) return false;
   var addr = String(addrStr || '').toUpperCase().replace(/^0X/i, '').padStart(5, '0');
-  var unknown = !DPCD_DB[addr];
-  var w = document.getElementById('aux-dpcd-addr-wheels');
-  var f = document.getElementById('aux-dpcd-addr-free');
+  var n = parseInt(addr, 16);
+  if (isFinite(n) && n >= AUX_VENDOR_LO && n <= AUX_VENDOR_HI) return false;
+  return !DPCD_DB[addr];
+}
+
+function _auxToggleAddrWarn(wheelsId, freeId, unknown) {
+  var w = document.getElementById(wheelsId);
+  var f = document.getElementById(freeId);
   if (w) w.classList.toggle('addr-unknown', unknown);
   if (f) f.classList.toggle('addr-unknown', unknown);
+}
+
+// DPCD 查詢分頁：該分頁本來就只查 DPCD，等同 Native
+function auxDpcdSyncAddrWarn(addrStr) {
+  _auxToggleAddrWarn('aux-dpcd-addr-wheels', 'aux-dpcd-addr-free',
+                     auxAddrIsUndefined(addrStr, true));
+}
+
+// AUX 解碼分頁：請求型別取自產品既有的 auxIsNativeCmd()
+// （與解碼結果採用的 AUX_REQ_CMD[cmd].isNative 一致：0x8/0x9 為 Native，其餘 I2C-over-AUX）
+function auxDecodeSyncAddrWarn() {
+  var sel = document.getElementById('aux-req-cmd');
+  if (!sel) return;
+  var isNative = auxIsNativeCmd(sel.value);
+  _auxToggleAddrWarn('aux-decode-addr-wheels', 'aux-decode-addr-free',
+                     auxAddrIsUndefined(auxGetDecodeAddrFromWheels(), isNative));
 }
 
 function auxLookupDPCD(addrStr, valStr) {
@@ -2126,6 +2160,8 @@ window.auxOnReqChange = function() {
   auxOnRepChange();
   // 更新封包預覽
   auxUpdateReqRaw();
+  // 位址未定義的外框警示（Command 或位址一改就重算；I2C-over-AUX 一律不標紅）
+  auxDecodeSyncAddrWarn();
 };
 
 // 更新 Reply 狀態下拉選項
@@ -4996,6 +5032,7 @@ function auxInitAll() {
   // 初始化 val combo box 狀態（drum init 不觸發 onChange，需手動設定初始地址的 combo 狀態）
   auxUpdateValCombo(auxGetAddrFromWheels());
   auxDpcdSyncAddrWarn(auxGetAddrFromWheels());   // 初始狀態的外框顏色
+  auxDecodeSyncAddrWarn();
   // 還原 URL params / sessionStorage tab
   if (typeof window.auxApplyUrlParams === 'function') window.auxApplyUrlParams();
 }
