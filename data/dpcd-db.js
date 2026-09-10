@@ -418,7 +418,7 @@ var DPCD_DB = Object.assign({},
     rw: 0,
     d: "此暫存器報告 Sink 是否支援 ALPM（Advanced Link Power Management，進階連結電源管理）。ALPM 可在靜態畫面時降低主連結功耗，是 eDP 面板省電的關鍵功能之一。",
     b: [
-      { r: "0", n: "ALPM_CAP", d: "0 = 不支援 ALPM。1 = 支援 ALPM。" }
+      { r: "0", n: "ALPM_CAP", v: {"0": "不支援 ALPM", "1": "支援 ALPM"}, d: "0 = 不支援 ALPM。1 = 支援 ALPM。" }
     ]
   },
   "0002F": {
@@ -427,7 +427,7 @@ var DPCD_DB = Object.assign({},
     rw: 0,
     d: "此暫存器報告 Sink 是否支援 AUX Frame Sync。AUX Frame Sync 允許 Source 透過 AUX 通道同步 Sink 端的更新時序。",
     b: [
-      { r: "0", n: "AUX_FRAME_SYNC_CAP", d: "0 = 不支援 AUX Frame Sync。1 = 支援 AUX Frame Sync。" }
+      { r: "0", n: "AUX_FRAME_SYNC_CAP", v: {"0": "不支援 AUX Frame Sync", "1": "支援 AUX Frame Sync"}, d: "0 = 不支援 AUX Frame Sync。1 = 支援 AUX Frame Sync。" }
     ]
   },
   "00030": { n: "RESERVED", c: "保留", rw: 0, d: "保留位址 00030h~0005Fh，規格未定義。部分廠商可能在此放私有功能，但非標準。", b: [] },
@@ -2077,14 +2077,14 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "詳細描述 eDP 面板的背光控制能力。只有當 00701h bit 0 (TCON_BACKLIGHT_ADJUSTMENT_CAPABLE) 為 1 時，此暫存器各 bit 才有意義。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x01, s: 0, n: "BACKLIGHT_BRIGHTNESS_PWM_PIN_CAPABLE", d: "1 = 支援透過 BL_PWM_DIM eDP 連接器 pin 調整背光亮度。若 bit 1 為 0，此 bit 必須為 1。" },
-      { m: 0x02, s: 1, n: "BACKLIGHT_BRIGHTNESS_AUX_SET_CAPABLE", d: "1 = 支援透過 AUX 設定背光亮度（DPCD 00722h/00723h）。若 bit 0 為 0，此 bit 必須為 1。" },
-      { m: 0x04, s: 2, n: "BACKLIGHT_BRIGHTNESS_BYTE_COUNT", d: "0 = 1-byte 亮度設定（僅用 00722h MSB）。1 = 2-byte 亮度設定（00722h MSB + 00723h LSB）。僅當 bit 1 為 1 時有效。" },
-      { m: 0x08, s: 3, n: "BACKLIGHT_AUX_PWM_PRODUCT_CAPABLE", d: "1 = 支�� AUX × PWM 乘積模式（00721h bits 1:0 = 11）。若 bit 0 或 bit 1 為 0，此 bit 必須為 0。" },
-      { m: 0x10, s: 4, n: "BACKLIGHT_FREQ_PWM_PIN_PASSTHRU_CAPABLE", d: "1 = 支援將 BL_PWM_DIM pin 的 PWM 頻率直接傳遞���背光電流源。透過 00721h bit 2 啟用。若 bit 0 為 0，此 bit 必須為 0。" },
-      { m: 0x20, s: 5, n: "BACKLIGHT_FREQ_AUX_SET_CAPABLE", d: "1 = 支援透過 AUX 設定背光 PWM 頻率（EDP_BACKLIGHT_FREQ_SET 暫存器 00728h）。" },
-      { m: 0x40, s: 6, n: "DYNAMIC_BACKLIGHT_CAPABLE", d: "1 = 支援動態背光控制，透過 00721h bit 4 DYNAMIC_BACKLIGHT_ENABLE 啟用。亮度範圍由 00732h/00733h 設定。" },
-      { m: 0x80, s: 7, n: "VBLANK_BACKLIGHT_UPDATE_CAPABLE", d: "0 = 面板僅能即時套用新設定。1 = 支援在下一個 VBLANK 期間套用所有背光新設定，透過 00720h bit 7 控制。" }
+      { m: 0x01, s: 0, n: "BACKLIGHT_BRIGHTNESS_PWM_PIN_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援透過 BL_PWM_DIM pin 調整背光亮度"}, d: "1 = 支援透過 BL_PWM_DIM eDP 連接器 pin 調整背光亮度。若 bit 1 為 0，此 bit 必須為 1。" },
+      { m: 0x02, s: 1, n: "BACKLIGHT_BRIGHTNESS_AUX_SET_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援透過 AUX 設定背光亮度（00722h/00723h）"}, d: "1 = 支援透過 AUX 設定背光亮度（DPCD 00722h/00723h）。若 bit 0 為 0，此 bit 必須為 1。" },
+      { m: 0x04, s: 2, n: "BACKLIGHT_BRIGHTNESS_BYTE_COUNT", v: {"0": "1-byte 亮度設定（僅用 00722h MSB）", "1": "2-byte 亮度設定（00722h MSB + 00723h LSB）"}, d: "0 = 1-byte 亮度設定（僅用 00722h MSB）。1 = 2-byte 亮度設定（00722h MSB + 00723h LSB）。僅當 bit 1 為 1 時有效。" },
+      { m: 0x08, s: 3, n: "BACKLIGHT_AUX_PWM_PRODUCT_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 AUX × PWM 乘積模式（00721h bits 1:0 = 11）"}, d: "1 = 支�� AUX × PWM 乘積模式（00721h bits 1:0 = 11）。若 bit 0 或 bit 1 為 0，此 bit 必須為 0。" },
+      { m: 0x10, s: 4, n: "BACKLIGHT_FREQ_PWM_PIN_PASSTHRU_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援將 BL_PWM_DIM pin 的 PWM 頻率直接傳遞給背光電流源（00721h bit 2 啟用）"}, d: "1 = 支援將 BL_PWM_DIM pin 的 PWM 頻率直接傳遞���背光電流源。透過 00721h bit 2 啟用。若 bit 0 為 0，此 bit 必須為 0。" },
+      { m: 0x20, s: 5, n: "BACKLIGHT_FREQ_AUX_SET_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援透過 AUX 設定背光 PWM 頻率（00728h）"}, d: "1 = 支援透過 AUX 設定背光 PWM 頻率（EDP_BACKLIGHT_FREQ_SET 暫存器 00728h）。" },
+      { m: 0x40, s: 6, n: "DYNAMIC_BACKLIGHT_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援動態背光控制（00721h bit 4 啟用，範圍由 00732h/00733h 設定）"}, d: "1 = 支援動態背光控制，透過 00721h bit 4 DYNAMIC_BACKLIGHT_ENABLE 啟用。亮度範圍由 00732h/00733h 設定。" },
+      { m: 0x80, s: 7, n: "VBLANK_BACKLIGHT_UPDATE_CAPABLE", v: {"0": "面板僅能即時套用新設定", "1": "支援在下一個 VBLANK 期間套用所有背光新設定（00720h bit 7 控制）"}, d: "0 = 面板僅能即時套用新設定。1 = 支援在下一個 VBLANK 期間套用所有背光新設定，透過 00720h bit 7 控制。" }
     ]
   },
   "00703": {
@@ -2093,7 +2093,7 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "eDP 面板的通用功能宣告暫存器（第二組）。來源：eDP v1.4b Table 10-4。注意：eDP v1.4b 此暫存器只定義 bit 0，其餘 RESERVED。",
     b: [
-      { m: 0x01, s: 0, n: "OVERDRIVE_ENGINE_ENABLED", d: "1 = Sink 具有 LCD Overdrive 功能（加速液晶響應速度，減少拖影）。" },
+      { m: 0x01, s: 0, n: "OVERDRIVE_ENGINE_ENABLED", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "Sink 具有 LCD Overdrive 功能"}, d: "1 = Sink 具有 LCD Overdrive 功能（加速液晶響應速度，減少拖影）。" },
       { m: 0xFE, s: 1, n: "RESERVED", d: "保留位元，讀回 0。" }
     ]
   },
@@ -2151,8 +2151,8 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Sink 裝置數量的 ESI（Event Status Indicator）版本，功能等同 00200h 的 SINK_COUNT，但位於 ESI 區域。ESI 區域的優點是支援 IRQ_HPD + ClearOnRead 機制，Source 讀取後自動清除中斷。DP 1.2+ 建議 Source 改用 ESI 區域讀取狀態。",
     b: [
-      { m: 0x3F, s: 0, n: "SINK_COUNT", d: "目前連接的 Sink 數量（0-63）。對於 SST（單串流）模式，通常為 1。MST 模式下可能大於 1。值為 0 表示無 Sink 連接。" },
-      { m: 0x40, s: 6, n: "CP_READY", d: "內容保護就緒。1 = HDCP 認證已準備好。" },
+      { m: 0x3F, s: 0, n: "SINK_COUNT", u: "目前連接的 Sink 數量（0-63）；0 = 無 Sink 連接，SST 單串流模式通常為 1，MST 模式下可能大於 1", d: "目前連接的 Sink 數量（0-63）。對於 SST（單串流）模式，通常為 1。MST 模式下可能大於 1。值為 0 表示無 Sink 連接。" },
+      { m: 0x40, s: 6, n: "CP_READY", v: {"0": "HDCP 認證尚未準備好（規格只定義 1 的意義）", "1": "HDCP 認證已準備好"}, d: "內容保護就緒。1 = HDCP 認證已準備好。" },
       { m: 0x80, s: 7, n: "RESERVED", d: "保留位元。" }
     ]
   },
@@ -2162,13 +2162,13 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "裝置服務中斷的 ESI 版本，功能等同 00201h。當 Sink 有事件需要通知 Source 時，對應的 bit 會被設為 1。Source 收到 IRQ_HPD 短脈衝後，應讀取此暫存器判斷中斷原因。",
     b: [
-      { m: 0x01, s: 0, n: "REMOTE_CONTROL_COMMAND_PENDING", d: "1 = 有遙控器指令待處理（用於 CEC 轉 DP 的場景）。" },
-      { m: 0x02, s: 1, n: "AUTOMATED_TEST_REQUEST", d: "1 = Sink 請求執行自動化測試（Compliance Testing 用）。Source 必須讀取 00218h 的測試請求暫存器來回應。" },
-      { m: 0x04, s: 2, n: "CP_IRQ", d: "1 = 內容保護（HDCP）事件。可能是 HDCP 認證失敗、需要重新認證等。除錯 HDCP 問題時要關注此 bit。" },
-      { m: 0x08, s: 3, n: "MCCS_IRQ", d: "1 = MCCS（Monitor Control Command Set）中斷。用於 DDC/CI 控制場景。" },
-      { m: 0x10, s: 4, n: "DOWN_REP_MSG_RDY", d: "1 = 下行回覆訊息已備妥。MST 模式下，Source 的 Sideband MSG 回覆已準備好可讀取。" },
-      { m: 0x20, s: 5, n: "UP_REQ_MSG_RDY", d: "1 = 上行請求訊息已備妥。MST 模式下，Branch/Sink 有 Sideband MSG 請求待處理。" },
-      { m: 0x40, s: 6, n: "SINK_SPECIFIC_IRQ", d: "1 = Sink 特定中斷（廠商自定義的事件）。" },
+      { m: 0x01, s: 0, n: "REMOTE_CONTROL_COMMAND_PENDING", v: {"0": "無此中斷", "1": "有遙控器指令待處理"}, d: "1 = 有遙控器指令待處理（用於 CEC 轉 DP 的場景）。" },
+      { m: 0x02, s: 1, n: "AUTOMATED_TEST_REQUEST", v: {"0": "無此中斷", "1": "Sink 請求執行自動化測試，Source 必須讀 00218h 回應"}, d: "1 = Sink 請求執行自動化測試（Compliance Testing 用）。Source 必須讀取 00218h 的測試請求暫存器來回應。" },
+      { m: 0x04, s: 2, n: "CP_IRQ", v: {"0": "無此中斷", "1": "內容保護（HDCP）事件（認證失敗、需重新認證等）"}, d: "1 = 內容保護（HDCP）事件。可能是 HDCP 認證失敗、需要重新認證等。除錯 HDCP 問題時要關注此 bit。" },
+      { m: 0x08, s: 3, n: "MCCS_IRQ", v: {"0": "無此中斷", "1": "MCCS（Monitor Control Command Set）中斷"}, d: "1 = MCCS（Monitor Control Command Set）中斷。用於 DDC/CI 控制場景。" },
+      { m: 0x10, s: 4, n: "DOWN_REP_MSG_RDY", v: {"0": "無此中斷", "1": "下行回覆訊息已備妥（MST）"}, d: "1 = 下行回覆訊息已備妥。MST 模式下，Source 的 Sideband MSG 回覆已準備好可讀取。" },
+      { m: 0x20, s: 5, n: "UP_REQ_MSG_RDY", v: {"0": "無此中斷", "1": "上行請求訊息已備妥（MST）"}, d: "1 = 上行請求訊息已備妥。MST 模式下，Branch/Sink 有 Sideband MSG 請求待處理。" },
+      { m: 0x40, s: 6, n: "SINK_SPECIFIC_IRQ", v: {"0": "無此中斷", "1": "Sink 特定中斷（廠商自定義事件）"}, d: "1 = Sink 特定中斷（廠商自定義的事件）。" },
       { m: 0x80, s: 7, n: "RESERVED", d: "保留。" }
     ]
   },
@@ -2178,11 +2178,11 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "連結層級的中斷向量，用於通知 Source 連結狀態發生變化。這是 DP 1.2+ 新增的 ESI 區域暫存器，提供更細緻的連結狀態變化通知。",
     b: [
-      { m: 0x01, s: 0, n: "RX_CAP_CHANGED", d: "1 = Sink 的接收能力已變更。可能是因為熱插拔後 EDID 改變，或 Sink 韌體更新後能力宣告改變。Source 應重新讀取 DPCD Capability 區域。" },
-      { m: 0x02, s: 1, n: "LINK_STATUS_CHANGED", d: "1 = 連結狀態已變更。可能是 Lane 失鎖、CR/EQ 失敗等。Source 應讀取 0200Ch-0200Fh 的 Lane Status 確認狀況，必要時重新做 Link Training。" },
-      { m: 0x04, s: 2, n: "STREAM_STATUS_CHANGED", d: "1 = 串流狀態已變更。MST 模式下某個串流的狀態改變。" },
-      { m: 0x08, s: 3, n: "HDMI_LINK_STATUS_CHANGED", d: "1 = HDMI 連結狀態已變更（用於 DP-to-HDMI 的 Branch 裝置）。" },
-      { m: 0x10, s: 4, n: "CONNECTED_OFF_ENTRY_REQUESTED", d: "1 = Sink 請求進入 Connected-OFF 狀態（深度省電）。" }
+      { m: 0x01, s: 0, n: "RX_CAP_CHANGED", v: {"0": "無此事件", "1": "Sink 的接收能力已變更，Source 應重讀 DPCD Capability 區域"}, d: "1 = Sink 的接收能力已變更。可能是因為熱插拔後 EDID 改變，或 Sink 韌體更新後能力宣告改變。Source 應重新讀取 DPCD Capability 區域。" },
+      { m: 0x02, s: 1, n: "LINK_STATUS_CHANGED", v: {"0": "無此事件", "1": "連結狀態已變更，Source 應讀 0200Ch-0200Fh 確認，必要時重做 Link Training"}, d: "1 = 連結狀態已變更。可能是 Lane 失鎖、CR/EQ 失敗等。Source 應讀取 0200Ch-0200Fh 的 Lane Status 確認狀況，必要時重新做 Link Training。" },
+      { m: 0x04, s: 2, n: "STREAM_STATUS_CHANGED", v: {"0": "無此事件", "1": "串流狀態已變更（MST）"}, d: "1 = 串流狀態已變更。MST 模式下某個串流的狀態改變。" },
+      { m: 0x08, s: 3, n: "HDMI_LINK_STATUS_CHANGED", v: {"0": "無此事件", "1": "HDMI 連結狀態已變更（DP-to-HDMI Branch）"}, d: "1 = HDMI 連結狀態已變更（用於 DP-to-HDMI 的 Branch 裝置）。" },
+      { m: 0x10, s: 4, n: "CONNECTED_OFF_ENTRY_REQUESTED", v: {"0": "無此事件", "1": "Sink 請求進入 Connected-OFF 狀態（深度省電）"}, d: "1 = Sink 請求進入 Connected-OFF 狀態（深度省電）。" }
     ]
   },
   "02006": {
@@ -2191,9 +2191,9 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Panel Self-Refresh（面板自我刷新）的錯誤狀態暫存器。PSR 是 eDP 的重要省電技術——當畫面靜止時，Source 停止送影像，由 TCON 的 Frame Buffer 自行刷新面板。此暫存器記錄 PSR 運作中發生的錯誤。除錯 PSR 問題時必看。",
     b: [
-      { m: 0x01, s: 0, n: "LINK_CRC_ERROR", d: "1 = PSR 期間偵測到 Link CRC 錯誤。表示從 Frame Buffer 刷新面板時資料有誤。可能是 TCON 內部記憶體問題。" },
-      { m: 0x02, s: 1, n: "RFB_STORAGE_ERROR", d: "1 = Remote Frame Buffer 儲存錯誤。TCON 的 Frame Buffer 寫入失敗或資料損毀。嚴重錯誤，通常表示 TCON 硬體問題。" },
-      { m: 0x04, s: 2, n: "VSC_SDP_UNCORRECTABLE_ERROR", d: "1 = VSC（Video Stream Configuration）SDP 封包無法修正的錯誤。PSR 進入/退出時使用 VSC SDP 通知 Sink，如果封包損毀會導致 PSR 狀態機異常。" }
+      { m: 0x01, s: 0, n: "LINK_CRC_ERROR", v: {"0": "未發生", "1": "PSR 期間偵測到 Link CRC 錯誤（從 Frame Buffer 刷新面板時資料有誤）"}, d: "1 = PSR 期間偵測到 Link CRC 錯誤。表示從 Frame Buffer 刷新面板時資料有誤。可能是 TCON 內部記憶體問題。" },
+      { m: 0x02, s: 1, n: "RFB_STORAGE_ERROR", v: {"0": "未發生", "1": "Remote Frame Buffer 儲存錯誤（TCON Frame Buffer 寫入失敗或資料損毀）"}, d: "1 = Remote Frame Buffer 儲存錯誤。TCON 的 Frame Buffer 寫入失敗或資料損毀。嚴重錯誤，通常表示 TCON 硬體問題。" },
+      { m: 0x04, s: 2, n: "VSC_SDP_UNCORRECTABLE_ERROR", v: {"0": "未發生", "1": "VSC SDP 封包無法修正的錯誤"}, d: "1 = VSC（Video Stream Configuration）SDP 封包無法修正的錯誤。PSR 進入/退出時使用 VSC SDP 通知 Sink，如果封包損毀會導致 PSR 狀態機異常。" }
     ]
   },
   "02007": {
@@ -2202,10 +2202,10 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "PSR 事件狀態暫存器。記錄 PSR 狀態的轉換事件。Source 透過 IRQ_HPD + 讀取此暫存器來追蹤 PSR 的狀態變化。",
     b: [
-      { m: 0x01, s: 0, n: "PSR_CAP_CHANGE", d: "1 = PSR 能力已變更。Sink 的 PSR 支援能力發生改變（罕見情況）。" },
-      { m: 0x02, s: 1, n: "PSR_STATE_CHANGE", d: "1 = PSR 狀態已變更。Sink 的 PSR 狀態機從一個狀態轉換到另一個狀態（例如從 Active 進入 PSR、或從 PSR 退出到 Active）。配合 02008h 讀取目前狀態。" },
-      { m: 0x04, s: 2, n: "PSR_SELF_UPDATE", d: "1 = Sink 自行觸發了 PSR 更新（Self Update）。表示 TCON 主動刷新了 Frame Buffer 的內容。" },
-      { m: 0x08, s: 3, n: "PSR2_SU_CRC_ERROR_EVENT", d: "1 = PSR2 Selective Update CRC 錯誤事件。PSR2 的局部更新資料 CRC 校驗失敗。" }
+      { m: 0x01, s: 0, n: "PSR_CAP_CHANGE", v: {"0": "未發生", "1": "PSR 能力已變更"}, d: "1 = PSR 能力已變更。Sink 的 PSR 支援能力發生改變（罕見情況）。" },
+      { m: 0x02, s: 1, n: "PSR_STATE_CHANGE", v: {"0": "未發生", "1": "PSR 狀態已變更（配合 02008h 讀目前狀態）"}, d: "1 = PSR 狀態已變更。Sink 的 PSR 狀態機從一個狀態轉換到另一個狀態（例如從 Active 進入 PSR、或從 PSR 退出到 Active）。配合 02008h 讀取目前狀態。" },
+      { m: 0x04, s: 2, n: "PSR_SELF_UPDATE", v: {"0": "未發生", "1": "Sink 自行觸發了 PSR 更新（Self Update）"}, d: "1 = Sink 自行觸發了 PSR 更新（Self Update）。表示 TCON 主動刷新了 Frame Buffer 的內容。" },
+      { m: 0x08, s: 3, n: "PSR2_SU_CRC_ERROR_EVENT", v: {"0": "未發生", "1": "PSR2 Selective Update CRC 錯誤事件"}, d: "1 = PSR2 Selective Update CRC 錯誤事件。PSR2 的局部更新資料 CRC 校驗失敗。" }
     ]
   },
   "02008": {
@@ -2214,9 +2214,9 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "【關鍵暫存器】PSR 狀態機的當前狀態。這是除錯 PSR 最重要的暫存器——直接告訴你面板目前處於 PSR 流程的哪個階段。除錯 PSR 閃爍、殘影、喚醒延遲等問題時，持續輪詢此暫存器可追蹤狀態機的行為。",
     b: [
-      { m: 0x07, s: 0, n: "PSR_STATE", d: "PSR 狀態機。000 = Inactive（PSR 未啟用）；001 = Transition to PSR Active（正在進入 PSR）；010 = PSR Active, Display from RFB（PSR 啟用中，面板從 Frame Buffer 自行刷新）；011 = Transition to PSR Active, Capture & Display（正在擷取最後一幀並顯示）；100 = PSR Active, Sink Self Refresh（PSR 啟用，Sink 自我刷新中）；101 = Transition to Inactive（正在退出 PSR）；110 = PSR2 Selective Update Active（PSR2 局部更新模式啟用）；111 = Reserved。正常的 PSR 循環為：0→1→2→(畫面變動)→5→0。" },
-      { m: 0x08, s: 3, n: "PSR_CRC_VERIFICATION", d: "1 = PSR CRC 驗證功能啟用中。用於確認 Frame Buffer 資料完整性。" },
-      { m: 0x10, s: 4, n: "PSR_FRAME_CAPTURE_INDICATION", d: "1 = Sink 正在擷取畫面到 Frame Buffer。" }
+      { m: 0x07, s: 0, n: "PSR_STATE", v: {"0b000": "Inactive（PSR 未啟用）", "0b001": "Transition to PSR Active（正在進入 PSR）", "0b010": "PSR Active, Display from RFB（面板從 Frame Buffer 自行刷新）", "0b011": "Transition to PSR Active, Capture & Display（正在擷取最後一幀並顯示）", "0b100": "PSR Active, Sink Self Refresh（Sink 自我刷新中）", "0b101": "Transition to Inactive（正在退出 PSR）", "0b110": "PSR2 Selective Update Active（PSR2 局部更新模式啟用）", "0b111": "Reserved"}, d: "PSR 狀態機。000 = Inactive（PSR 未啟用）；001 = Transition to PSR Active（正在進入 PSR）；010 = PSR Active, Display from RFB（PSR 啟用中，面板從 Frame Buffer 自行刷新）；011 = Transition to PSR Active, Capture & Display（正在擷取最後一幀並顯示）；100 = PSR Active, Sink Self Refresh（PSR 啟用，Sink 自我刷新中）；101 = Transition to Inactive（正在退出 PSR）；110 = PSR2 Selective Update Active（PSR2 局部更新模式啟用）；111 = Reserved。正常的 PSR 循環為：0→1→2→(畫面變動)→5→0。" },
+      { m: 0x08, s: 3, n: "PSR_CRC_VERIFICATION", v: {"0": "未啟用", "1": "PSR CRC 驗證功能啟用中"}, d: "1 = PSR CRC 驗證功能啟用中。用於確認 Frame Buffer 資料完整性。" },
+      { m: 0x10, s: 4, n: "PSR_FRAME_CAPTURE_INDICATION", v: {"0": "未在擷取", "1": "Sink 正在擷取畫面到 Frame Buffer"}, d: "1 = Sink 正在擷取畫面到 Frame Buffer。" }
     ]
   },
   "0200C": {
@@ -2225,13 +2225,13 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Lane 0 和 Lane 1 的連結狀態，ESI 版本（鏡像 00202h）。DP 1.2+ 建議改用 ESI 區域讀取。功能與 00202h 完全相同。連結是否穩定，看這個暫存器就知道。",
     b: [
-      { m: 0x01, s: 0, n: "LANE0_CR_DONE", d: "Lane 0 Clock Recovery 完成。1 = Lane 0 的時脈恢復成功。Link Training 第一階段的目標。" },
-      { m: 0x02, s: 1, n: "LANE0_CHANNEL_EQ_DONE", d: "Lane 0 Channel EQ 完成。1 = Lane 0 的等化訓練成功。Link Training 第二階段的目標。" },
-      { m: 0x04, s: 2, n: "LANE0_SYMBOL_LOCKED", d: "Lane 0 Symbol Lock。1 = Lane 0 的符號同步鎖定。表示資料流穩定解碼中。" },
+      { m: 0x01, s: 0, n: "LANE0_CR_DONE", v: {"0": "Lane 0 時脈恢復未完成", "1": "Lane 0 時脈恢復成功"}, d: "Lane 0 Clock Recovery 完成。1 = Lane 0 的時脈恢復成功。Link Training 第一階段的目標。" },
+      { m: 0x02, s: 1, n: "LANE0_CHANNEL_EQ_DONE", v: {"0": "Lane 0 等化訓練未完成", "1": "Lane 0 等化訓練成功"}, d: "Lane 0 Channel EQ 完成。1 = Lane 0 的等化訓練成功。Link Training 第二階段的目標。" },
+      { m: 0x04, s: 2, n: "LANE0_SYMBOL_LOCKED", v: {"0": "Lane 0 符號未鎖定", "1": "Lane 0 符號同步鎖定"}, d: "Lane 0 Symbol Lock。1 = Lane 0 的符號同步鎖定。表示資料流穩定解碼中。" },
       { m: 0x08, s: 3, n: "RESERVED_L0", d: "保留。" },
-      { m: 0x10, s: 4, n: "LANE1_CR_DONE", d: "Lane 1 Clock Recovery 完成。" },
-      { m: 0x20, s: 5, n: "LANE1_CHANNEL_EQ_DONE", d: "Lane 1 Channel EQ 完成。" },
-      { m: 0x40, s: 6, n: "LANE1_SYMBOL_LOCKED", d: "Lane 1 Symbol Lock。" },
+      { m: 0x10, s: 4, n: "LANE1_CR_DONE", v: {"0": "Lane 1 時脈恢復未完成", "1": "Lane 1 時脈恢復成功"}, d: "Lane 1 Clock Recovery 完成。" },
+      { m: 0x20, s: 5, n: "LANE1_CHANNEL_EQ_DONE", v: {"0": "Lane 1 等化訓練未完成", "1": "Lane 1 等化訓練成功"}, d: "Lane 1 Channel EQ 完成。" },
+      { m: 0x40, s: 6, n: "LANE1_SYMBOL_LOCKED", v: {"0": "Lane 1 符號未鎖定", "1": "Lane 1 符號同步鎖定"}, d: "Lane 1 Symbol Lock。" },
       { m: 0x80, s: 7, n: "RESERVED_L1", d: "保留。" }
     ]
   },
@@ -2257,10 +2257,10 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "所有 Lane 的對齊狀態與更新旗標，ESI 版本（鏡像 00204h）。",
     b: [
-      { m: 0x01, s: 0, n: "INTERLANE_ALIGN_DONE", d: "Lane 間對齊完成。1 = 所有使用中的 Lane 之間的 skew 對齊已完成。多 Lane 配置下，各 Lane 的資料到達時間可能有微小差異（skew），此 bit 確認已補償完畢。" },
-      { m: 0x02, s: 1, n: "POST_LT_ADJ_REQ_IN_PROGRESS", d: "1 = Link Training 後的調整請求進行中。Sink 認為目前的訓練參數可以微調。" },
-      { m: 0x40, s: 6, n: "DOWNSTREAM_PORT_STATUS_CHANGED", d: "1 = 下游埠狀態已變更。Branch 裝置的下游連接狀態改變（例如下游 Sink 被拔除）。" },
-      { m: 0x80, s: 7, n: "LINK_STATUS_UPDATED", d: "1 = 連結狀態已更新。此為旗標位元，表示 0200Ch-0200Dh 的 Lane Status 有新的更新。Source 讀取後此 bit 會被清除。" }
+      { m: 0x01, s: 0, n: "INTERLANE_ALIGN_DONE", v: {"0": "Lane 間 skew 對齊未完成", "1": "所有使用中的 Lane 之間 skew 對齊已完成"}, d: "Lane 間對齊完成。1 = 所有使用中的 Lane 之間的 skew 對齊已完成。多 Lane 配置下，各 Lane 的資料到達時間可能有微小差異（skew），此 bit 確認已補償完畢。" },
+      { m: 0x02, s: 1, n: "POST_LT_ADJ_REQ_IN_PROGRESS", v: {"0": "無進行中的調整請求", "1": "Link Training 後的調整請求進行中"}, d: "1 = Link Training 後的調整請求進行中。Sink 認為目前的訓練參數可以微調。" },
+      { m: 0x40, s: 6, n: "DOWNSTREAM_PORT_STATUS_CHANGED", v: {"0": "未變更", "1": "下游埠狀態已變更"}, d: "1 = 下游埠狀態已變更。Branch 裝置的下游連接狀態改變（例如下游 Sink 被拔除）。" },
+      { m: 0x80, s: 7, n: "LINK_STATUS_UPDATED", v: {"0": "無新的更新", "1": "0200Ch-0200Dh 的 Lane Status 有新的更新（讀取後會被清除）"}, d: "1 = 連結狀態已更新。此為旗標位元，表示 0200Ch-0200Dh 的 Lane Status 有新的更新。Source 讀取後此 bit 會被清除。" }
     ]
   },
   "0200F": {
@@ -2269,8 +2269,8 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Sink 裝置的狀態資訊，ESI 版本（鏡像 00205h）。",
     b: [
-      { m: 0x01, s: 0, n: "RECEIVE_PORT_0_STATUS", d: "接收埠 0 狀態。1 = 接收埠 0 正在同步（有接收到有效的影像串流）；0 = 未同步。這是確認 Sink 是否收到影像的最直接指標。" },
-      { m: 0x02, s: 1, n: "RECEIVE_PORT_1_STATUS", d: "接收埠 1 狀態。1 = 接收埠 1 正在同步。僅多埠 Sink 才有意義。" }
+      { m: 0x01, s: 0, n: "RECEIVE_PORT_0_STATUS", v: {"0": "接收埠 0 未同步", "1": "接收埠 0 正在同步（有收到有效的影像串流）"}, d: "接收埠 0 狀態。1 = 接收埠 0 正在同步（有接收到有效的影像串流）；0 = 未同步。這是確認 Sink 是否收到影像的最直接指標。" },
+      { m: 0x02, s: 1, n: "RECEIVE_PORT_1_STATUS", v: {"0": "接收埠 1 未同步", "1": "接收埠 1 正在同步"}, d: "接收埠 1 狀態。1 = 接收埠 1 正在同步。僅多埠 Sink 才有意義。" }
     ]
   },
 
@@ -2300,14 +2300,14 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Sink（DPRX）支援的進階功能列舉。DP 1.4+ 新增的暫存器，集中列出 Sink 支援的各項新功能。這是了解 Sink 能力的重要參考。",
     b: [
-      { m: 0x01, s: 0, n: "GTC_CAP", d: "1 = 支援 Global Time Code。GTC 用於音視頻同步，確保多個裝置之間的時間基準一致。" },
-      { m: 0x02, s: 1, n: "SST_SPLIT_SDP_CAP", d: "1 = 支援 SST Split SDP（Secondary Data Packet 分割）。允許將 SDP 封包分割到多個 blanking 區間傳送。" },
-      { m: 0x04, s: 2, n: "AV_SYNC_CAP", d: "1 = 支援 AV（Audio/Video）同步功能。Sink 可處理 Source 的 AV 同步資訊。" },
-      { m: 0x08, s: 3, n: "VSC_SDP_EXT_FOR_COLORIMETRY_SUPPORTED", d: "1 = 支援 VSC SDP 擴展色彩資訊。這是 DP 1.4 傳遞 HDR Metadata 和廣色域資訊（如 BT.2020）的關鍵能力。如果此 bit 為 0，表示 Sink 不支援透過 VSC SDP 接收色彩格式資訊，HDR 可能無法正常運作。" },
-      { m: 0x10, s: 4, n: "VSC_EXT_VESA_SDP_SUPPORTED", d: "1 = 支援 VESA 定義的 VSC 擴展 SDP。" },
-      { m: 0x20, s: 5, n: "VSC_EXT_VESA_SDP_CHAINING_SUPPORTED", d: "1 = 支援 VSC 擴展 SDP 鏈接（多個 SDP 串接傳送）。" },
-      { m: 0x40, s: 6, n: "VSC_EXT_CEA_SDP_SUPPORTED", d: "1 = 支援 CEA 定義的 VSC 擴展 SDP（如 HDR10 Metadata）。" },
-      { m: 0x80, s: 7, n: "VSC_EXT_CEA_SDP_CHAINING_SUPPORTED", d: "1 = 支援 CEA VSC 擴展 SDP 鏈接。" }
+      { m: 0x01, s: 0, n: "GTC_CAP", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 Global Time Code（音視頻同步時間基準）"}, d: "1 = 支援 Global Time Code。GTC 用於音視頻同步，確保多個裝置之間的時間基準一致。" },
+      { m: 0x02, s: 1, n: "SST_SPLIT_SDP_CAP", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 SST Split SDP（SDP 封包分割到多個 blanking 區間）"}, d: "1 = 支援 SST Split SDP（Secondary Data Packet 分割）。允許將 SDP 封包分割到多個 blanking 區間傳送。" },
+      { m: 0x04, s: 2, n: "AV_SYNC_CAP", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 AV 同步功能"}, d: "1 = 支援 AV（Audio/Video）同步功能。Sink 可處理 Source 的 AV 同步資訊。" },
+      { m: 0x08, s: 3, n: "VSC_SDP_EXT_FOR_COLORIMETRY_SUPPORTED", v: {"0": "不支援透過 VSC SDP 接收色彩格式資訊，HDR 可能無法正常運作", "1": "支援 VSC SDP 擴展色彩資訊（DP 1.4 傳遞 HDR Metadata 與廣色域的關鍵能力）"}, d: "1 = 支援 VSC SDP 擴展色彩資訊。這是 DP 1.4 傳遞 HDR Metadata 和廣色域資訊（如 BT.2020）的關鍵能力。如果此 bit 為 0，表示 Sink 不支援透過 VSC SDP 接收色彩格式資訊，HDR 可能無法正常運作。" },
+      { m: 0x10, s: 4, n: "VSC_EXT_VESA_SDP_SUPPORTED", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 VESA 定義的 VSC 擴展 SDP"}, d: "1 = 支援 VESA 定義的 VSC 擴展 SDP。" },
+      { m: 0x20, s: 5, n: "VSC_EXT_VESA_SDP_CHAINING_SUPPORTED", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 VSC 擴展 SDP 鏈接"}, d: "1 = 支援 VSC 擴展 SDP 鏈接（多個 SDP 串接傳送）。" },
+      { m: 0x40, s: 6, n: "VSC_EXT_CEA_SDP_SUPPORTED", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 CEA 定義的 VSC 擴展 SDP（如 HDR10 Metadata）"}, d: "1 = 支援 CEA 定義的 VSC 擴展 SDP（如 HDR10 Metadata）。" },
+      { m: 0x80, s: 7, n: "VSC_EXT_CEA_SDP_CHAINING_SUPPORTED", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 CEA VSC 擴展 SDP 鏈接"}, d: "1 = 支援 CEA VSC 擴展 SDP 鏈接。" }
     ]
   },
 
@@ -2778,8 +2778,8 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "eDP v1.4 新增。定義面板支援的獨立可控 1D 背光區域數量。值 = 區域數 - 1，0 代表該方向不支援區域背光。兩方向都非零時支援 2D 區域背光。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x0F, s: 0, n: "X_REGION_CAP", d: "水平方向可獨立控制的背光區域數 - 1。0 = 不支援水平區域背光。區域由左至右編號。" },
-      { m: 0xF0, s: 4, n: "Y_REGION_CAP", d: "垂直方向可獨立控制的背光區域數 - 1。0 = 不支援垂直區域背光。區域由上至下編號。兩方向都非零時，總區域數 = (X+1)×(Y+1)。" }
+      { m: 0x0F, s: 0, n: "X_REGION_CAP", u: "水平方向可獨立控制的背光區域數 - 1；0 = 不支援水平區域背光，區域由左至右編號", d: "水平方向可獨立控制的背光區域數 - 1。0 = 不支援水平區域背光。區域由左至右編號。" },
+      { m: 0xF0, s: 4, n: "Y_REGION_CAP", u: "垂直方向可獨立控制的背光區域數 - 1；0 = 不支援垂直區域背光，區域由上至下編號；兩方向都非零時總區域數 = (X+1)×(Y+1)", d: "垂直方向可獨立控制的背光區域數 - 1。0 = 不支援垂直區域背光。區域由上至下編號。兩方向都非零時，總區域數 = (X+1)×(Y+1)。" }
     ]
   },
   "00724": {
@@ -2818,7 +2818,7 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "eDP 背光控制狀態暫存器。回報背光運作狀態。來源：eDP v1.4b Table 10-4。",
     b: [
-      { m: 0x01, s: 0, n: "FAULT_CONDITION", d: "0 = 正常運作。1 = 背光故障，無法正常運作。故障狀態持續直到面板斷電再重上電（移除並重新施加 LCD_VCC 和 BL_PWR）。背光故障不會產生 IRQ_HPD。" }
+      { m: 0x01, s: 0, n: "FAULT_CONDITION", v: {"0": "正常運作", "1": "背光故障，無法正常運作（需移除並重新施加 LCD_VCC 與 BL_PWR 才會解除；不會產生 IRQ_HPD）"}, d: "0 = 正常運作。1 = 背光故障，無法正常運作。故障狀態持續直到面板斷電再重上電（移除並重新施加 LCD_VCC 和 BL_PWR）。背光故障不會產生 IRQ_HPD。" }
     ]
   },
   "00728": {
@@ -2990,8 +2990,8 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "PSR 退出後的同步延遲狀態暫存器。eDP v1.4b 新增。回報 Sink 上次 PSR 退出後需要幾個 frame 才能完成同步，以及重新進入 PSR 的最小 frame 數。",
     b: [
-      {r:"3:0", n:"LAST_ACTUAL_SYNCHRONIZATION_LATENCY_IN_SINK", d:"0h = PSR 退出後第 1 個 frame 即完成同步。1h = 第 2 個 frame。2h = 第 3 個。3h = 第 4 個。7h = 第 8 個。8h = 超過 8 個 frame。eDP v1.4b 新增。"},
-      {r:"7:4", n:"Minimum Frame Count for PSR Reentry", d:"0h = 已在第 1 個 frame 完成同步。1h = 第 2 個。2h = 第 3 個。3h = 第 4 個。7h = 第 8 個。8h = 超過 8 個 frame。eDP v1.4b 新增。"}
+      {r:"3:0", n:"LAST_ACTUAL_SYNCHRONIZATION_LATENCY_IN_SINK", v: {"0": "PSR 退出後第 1 個 frame 即完成同步", "1": "第 2 個 frame", "2": "第 3 個 frame", "3": "第 4 個 frame", "4": "第 5 個 frame", "5": "第 6 個 frame", "6": "第 7 個 frame", "7": "第 8 個 frame", "8": "超過 8 個 frame"}, d:"0h = PSR 退出後第 1 個 frame 即完成同步。1h = 第 2 個 frame。2h = 第 3 個。3h = 第 4 個。7h = 第 8 個。8h = 超過 8 個 frame。eDP v1.4b 新增。"},
+      {r:"7:4", n:"Minimum Frame Count for PSR Reentry", v: {"0": "已在第 1 個 frame 完成同步", "1": "第 2 個 frame", "2": "第 3 個 frame", "3": "第 4 個 frame", "4": "第 5 個 frame", "5": "第 6 個 frame", "6": "第 7 個 frame", "7": "第 8 個 frame", "8": "超過 8 個 frame"}, d:"0h = 已在第 1 個 frame 完成同步。1h = 第 2 個。2h = 第 3 個。3h = 第 4 個。7h = 第 8 個。8h = 超過 8 個 frame。eDP v1.4b 新增。"}
     ]
   },
   "02202": {
