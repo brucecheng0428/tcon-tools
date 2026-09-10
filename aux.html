@@ -207,6 +207,19 @@
     display: inline-block; font-size: 11px; color: #10b981; font-weight: 600;
     margin-left: 8px; vertical-align: middle;
   }
+  /* ─── 位址自由輸入格（滾輪下方）─── */
+  .aux-free-addr {
+    width: 100%; max-width: 220px; margin-top: 6px;
+    padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 14px; color: var(--text); background: #0f172a; font-family: monospace;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .aux-free-addr::placeholder { text-transform: none; letter-spacing: normal; font-size: 12px; }
+  .aux-free-addr:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px rgba(56,189,248,0.2); }
+  .aux-free-addr.has-error { border-color: #ef4444; }
+  .aux-free-err {
+    display: none; font-size: 11px; color: #ef4444; margin-top: 3px; line-height: 1.5;
+  }
   @media (max-width: 480px) {
     .aux-struct-grid { grid-template-columns: 80px 1fr; gap: 6px 8px; }
     .aux-struct-label { font-size: 11px; }
@@ -565,6 +578,8 @@
                 <input type="hidden" id="aux-decode-addr-d0" value="0">
               </div>
               <div class="aux-struct-hint" data-i18n="aux.addrHint">20-bit 位址（5 位 hex），轉動滾輪選擇</div>
+              <input type="text" id="aux-decode-addr-free" class="aux-free-addr" autocomplete="off" spellcheck="false" enterkeyhint="go" onkeydown="auxFreeAddrKey(event,'decode')">
+              <div id="aux-decode-addr-free-err" class="aux-free-err"></div>
             </div>
 
             <span class="aux-struct-label">Length</span>
@@ -733,6 +748,8 @@
               <input type="hidden" id="aux-addr-d0" value="0">
             </div>
             <div class="field-hint" data-i18n="aux.dpcdAddrHint">轉動滾輪選擇 5 位 hex 地址，停下 1 秒自動查詢</div>
+            <input type="text" id="aux-dpcd-addr-free" class="aux-free-addr" autocomplete="off" spellcheck="false" enterkeyhint="go" onkeydown="auxFreeAddrKey(event,'dpcd')">
+            <div id="aux-dpcd-addr-free-err" class="aux-free-err"></div>
           </div>
           <div class="field">
             <label data-i18n="aux.dpcdValLabel">暫存器值 (HEX)（選填）</label>
@@ -778,10 +795,10 @@
   </div>
 </div><!-- /page-aux -->
 
-<script src="common/version.js?v=20260910aux254"></script>
+<script src="common/version.js?v=20260910aux260"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="data/dpcd-db.js?v=20260910aux254"></script>
+<script src="data/dpcd-db.js?v=20260910aux260"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -1327,6 +1344,18 @@ function _tAux(key, vars) {
   var lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh-TW';
   var d = {
     'queryResult':     { 'zh-TW': '查詢結果',          'zh-CN': '查询结果',          'en': 'Query Result' },
+    'freeAddrPh':      { 'zh-TW': '或直接輸入 hex，Enter 送出',
+                         'zh-CN': '或直接输入 hex，Enter 送出',
+                         'en':    'or type hex directly, press Enter' },
+    'freeErrEmpty':    { 'zh-TW': '請輸入 1~5 位十六進位位址',
+                         'zh-CN': '请输入 1~5 位十六进位地址',
+                         'en':    'Enter a 1–5 digit hex address' },
+    'freeErrChar':     { 'zh-TW': '只能輸入 0-9 / A-F（可加 0x 前綴或 h 結尾）',
+                         'zh-CN': '只能输入 0-9 / A-F（可加 0x 前缀或 h 结尾）',
+                         'en':    'Hex digits 0-9 / A-F only (optional 0x prefix or h suffix)' },
+    'freeErrLong':     { 'zh-TW': '位址最多 5 位十六進位',
+                         'zh-CN': '地址最多 5 位十六进位',
+                         'en':    'Address is at most 5 hex digits' },
     'addr':            { 'zh-TW': '位址',              'zh-CN': '地址',              'en': 'Address' },
     'name':            { 'zh-TW': '名稱',              'zh-CN': '名称',              'en': 'Name' },
     'descTitle':       { 'zh-TW': '📝 說明',           'zh-CN': '📝 说明',           'en': '📝 Description' },
@@ -2943,6 +2972,7 @@ function _dpcdAddrOnChange() {
 
 // ─── 初始化所有 drum picker ───
 function initAllHexDrums() {
+  if (typeof window.auxFreeAddrSyncI18n === 'function') window.auxFreeAddrSyncI18n();
   // DPCD 查詢地址 drums
   var dpcdContainer = document.getElementById('aux-dpcd-addr-wheels');
   if (dpcdContainer) {
@@ -3014,6 +3044,79 @@ function auxSetDecodeAddrWheels(addrStr) {
 
 window.auxGetDecodeAddrFromWheels = auxGetDecodeAddrFromWheels;
 window.auxSetDecodeAddrWheels = auxSetDecodeAddrWheels;
+
+// ─── 位址自由輸入格（兩個分頁共用同一支解析）───
+// 接受 1~5 位十六進位，大小寫皆可，容忍前後空白、0x 前綴、h 結尾；自動左補 0 到 5 位。
+// 回傳 { ok:true, addr:'000EF' } 或 { ok:false, err:'freeErrXxx' }
+function auxParseFreeAddr(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return { ok: false, err: 'freeErrEmpty' };
+  s = s.replace(/^0[xX]/, '').replace(/[hH]$/, '').trim();
+  if (!s) return { ok: false, err: 'freeErrEmpty' };
+  if (!/^[0-9a-fA-F]+$/.test(s)) return { ok: false, err: 'freeErrChar' };
+  if (s.length > 5) return { ok: false, err: 'freeErrLong' };
+  return { ok: true, addr: s.toUpperCase().padStart(5, '0') };
+}
+window.auxParseFreeAddr = auxParseFreeAddr;
+
+var AUX_FREE_ADDR_TARGETS = {
+  dpcd:   { input: 'aux-dpcd-addr-free',   err: 'aux-dpcd-addr-free-err' },
+  decode: { input: 'aux-decode-addr-free', err: 'aux-decode-addr-free-err' }
+};
+
+function auxFreeAddrShowErr(which, key) {
+  var t = AUX_FREE_ADDR_TARGETS[which];
+  if (!t) return;
+  var inp = document.getElementById(t.input);
+  var box = document.getElementById(t.err);
+  if (inp) inp.classList.toggle('has-error', !!key);
+  if (box) {
+    box.textContent = key ? _tAux(key) : '';
+    box.style.display = key ? 'block' : 'none';
+    if (key) box.dataset.errKey = key; else delete box.dataset.errKey;
+  }
+}
+
+// 送出：解析 → 套用到既有滾輪 → 走既有 onChange 路徑（與轉動滾輪完全同一條路）
+window.auxFreeAddrSubmit = function(which) {
+  var t = AUX_FREE_ADDR_TARGETS[which];
+  if (!t) return;
+  var inp = document.getElementById(t.input);
+  if (!inp) return;
+  var r = auxParseFreeAddr(inp.value);
+  if (!r.ok) { auxFreeAddrShowErr(which, r.err); return; }
+  auxFreeAddrShowErr(which, '');
+  inp.value = r.addr;   // 回填補零後的實際生效值
+  if (which === 'dpcd') {
+    auxSetAddrWheels(r.addr);
+    _dpcdAddrOnChange();
+  } else {
+    auxSetDecodeAddrWheels(r.addr);
+    window.auxOnReqChange();
+  }
+};
+
+window.auxFreeAddrKey = function(e, which) {
+  if (e && (e.key === 'Enter' || e.keyCode === 13)) {
+    e.preventDefault();
+    window.auxFreeAddrSubmit(which);
+  } else {
+    auxFreeAddrShowErr(which, '');   // 重新輸入即清掉舊錯誤
+  }
+};
+
+// placeholder 依語言更新（文字放在 aux.html 內的 _tAux 字典，不動 common/i18n.js）
+window.auxFreeAddrSyncI18n = function() {
+  var ph = _tAux('freeAddrPh');
+  Object.keys(AUX_FREE_ADDR_TARGETS).forEach(function(k) {
+    var inp = document.getElementById(AUX_FREE_ADDR_TARGETS[k].input);
+    if (inp) inp.placeholder = ph;
+    var box = document.getElementById(AUX_FREE_ADDR_TARGETS[k].err);
+    if (box && box.style.display === 'block' && box.dataset.errKey) {
+      box.textContent = _tAux(box.dataset.errKey);
+    }
+  });
+};
 
 // ─── 值 combo box 管理 ───
 function auxUpdateValCombo(addrStr) {
@@ -3291,6 +3394,8 @@ window.auxGetCurrentVal = auxGetCurrentVal;
 
 // ─── 語言切換回呼：重新渲染搜尋結果 + 查詢結果 ───
 window._onLangChange = function(lang) {
+  // 0) 位址自由輸入格的 placeholder / 錯誤訊息
+  if (typeof window.auxFreeAddrSyncI18n === 'function') window.auxFreeAddrSyncI18n();
   // 1) 反向搜尋結果
   if (typeof auxDpcdSearchRerender === 'function') auxDpcdSearchRerender();
   // 2) DPCD 查詢結果卡片
