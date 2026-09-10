@@ -84,9 +84,13 @@ def main():
         rev = sys.argv[sys.argv.index('--rev') + 1]
 
     changed = changed_files(rev)
-    common_changed = [f for f in changed if f.startswith('common/') and f.endswith('.js')]
+    # data/*.js 是同一個破口：aux.html 用 <script src="data/dpcd-db.js?v=…"> 惰性載入
+    # DPCD 資料庫，改了資料卻沒 bump，線上就會拿新版 aux.html 配舊版資料 ——
+    # 新引擎讀不到新欄位，畫面靜默少東西，本機測試一樣看不出來。（2026-09-10 補入）
+    common_changed = [f for f in changed
+                      if (f.startswith('common/') or f.startswith('data/')) and f.endswith('.js')]
     if not common_changed:
-        print('通過：本次沒有改動 common/*.js，無需 bump cache buster。')
+        print('通過：本次沒有改動 common/*.js 或 data/*.js，無需 bump cache buster。')
         return 0
 
     # 🔴 兩邊都要取自「同一個檢查對象」：檢查某個 commit 時，現值必須讀該 commit
