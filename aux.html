@@ -778,10 +778,10 @@
   </div>
 </div><!-- /page-aux -->
 
-<script src="common/version.js?v=20260910aux252"></script>
+<script src="common/version.js?v=20260910aux253"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="data/dpcd-db.js?v=20260910aux252"></script>
+<script src="data/dpcd-db.js?v=20260910aux253"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -1668,21 +1668,13 @@ var DPCD_SUMMARIZE = {
   "00104": function(v) { return auxSummarizeLaneSet(v, 1); },
   "00105": function(v) { return auxSummarizeLaneSet(v, 2); },
   "00106": function(v) { return auxSummarizeLaneSet(v, 3); },
-  // 🔴 v2.5.2 依 Bruce 2026-09-10 的裁定改寫（權威來源：Linux kernel include/drm/display/drm_dp.h，
-  //    即本專案 dpcd_version_final.json 的 evidence 欄位一直引用的那一份）：
-  //      #define DP_DOWNSPREAD_CTRL 0x107
-  //      # define DP_SPREAD_AMP_0_5            (1 << 4)  ⇒ SSC 在 bit 4
-  //      # define DP_MSA_TIMING_PAR_IGNORE_EN  (1 << 7)  ⇒ MSA 在 bit 7
-  //    兩條都與本庫 b[] 完全一致（b[] 說 [4] SPREAD_AMP、[7] MSA_TIMING_PAR_IGNORE_EN）；
-  //    dp-aux-dpcd skill 的「[3:0] SPREAD_AMP、bit 5 MSA」判定為錯，skill 已同步更正。
-  //    ⚠ 兩處變更：① MSA 子句在 v2.5.1 因兩來源互斥而移除，現依裁定用 bit 7 補回；
-  //               ② SSC 原本讀 bit 0（抄自 skill 的 [3:0] 說法），改讀 bit 4 —— 這是 v2.5.1 漏掉的同型錯。
-  //    詳見 docs/dpcd_edp_conflict_resolution_20260910.md。
+  // 🔴 v2.5.1 移除了「MSA timing 被忽略」子句：它讀 bit 4，而兩個來源都不認為 MSA 在 bit 4
+  //    （本庫 b[] 說 bit 7、dp-aux-dpcd skill 說 bit 5）。00107h 整個暫存器的位元配置
+  //    兩來源互斥，已列入 docs/dpcd_edp_7xx_conflict_resolution.md 的「待外部佐證」清單，
+  //    在取得依據之前不動它。SSC 一欄維持 v2.5.0 以前的既有行為（讀 bit 0），同樣不動。
   "00107": function(v) {
-    var ssc = (v >> 4) & 1, msa = (v >> 7) & 1;
-    return (ssc ? "展頻 SSC 已開啟（最高 0.5% 下展頻）。" : "展頻 SSC 未開啟。")
-         + (msa ? "Sink 可忽略 MSA timing 參數（面板使用自己的內部 timing）。"
-                : "MSA timing 參數有效，Sink 須依照 Source 送出的 MSA。");
+    var ssc = v & 1;
+    return ssc ? "展頻 SSC 已開啟。" : "展頻 SSC 未開啟。";
   },
   "0010A": function(v) {
     // 🔴 舊版的 bit 2「EDID 暫存器模式」**兩個來源都不支持**：
