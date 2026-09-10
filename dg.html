@@ -40,7 +40,18 @@
      flex-wrap: wrap，481～640px 這一段要自己補，否則分頁列會把標題擠成一條線。 */
   @media (max-width: 640px) {
     .header.subpage-header { flex-wrap: wrap; }
-    .header.subpage-header .dg-mode-tabs { order: 10; flex: 0 0 100%; justify-content: center; margin: 6px 0 0; }
+    /* v1.31.0：多了第三顆分頁之後，三顆的寬度總和在很窄的視窗會超過外框。
+       外框是 overflow: hidden，超出去不會捲、只會被**裁掉**（實測 375px：
+       內容 354.03px、外框內寬 349px ⇒ 最後一顆右邊被裁 2.52px）。
+       flex-wrap 讓它在真的塞不下時換行而不是被裁；塞得下時完全沒有作用
+       （量過 375／414／640／900 四個寬度，換行前後幾何逐值相同）。 */
+    .header.subpage-header .dg-mode-tabs { order: 10; flex: 0 0 100%; justify-content: center; margin: 6px 0 0; flex-wrap: wrap; }
+  }
+  /* 沿用本頁既有的 420px 斷點（.dg-grid3 也用這一個）：把左右內距由 11px 收到 8px，
+     三顆就回到一行（總和 336.03px ≤ 349px）。字級不動 —— 分頁列的字級要與
+     wfg／aux 的分頁列一致，那是使用者跨分頁認得出「這是分頁列」的依據。 */
+  @media (max-width: 420px) {
+    .dg-mode-tab { padding-left: 8px; padding-right: 8px; }
   }
 
   /* ─── v1.9.0：色溫基準模式（圖三專用的一小排選項）─────────── */
@@ -667,11 +678,13 @@
     var h = (location.hash || '').replace('#', '');
     if (!m && (h === 'cmp' || h === 'dg-cmp')) m = 'cmp';
     if (!m) m = sessionStorage.getItem('dg_active_mode') || '';
-    if (m === 'cmp') {
+    /* v1.31.0：第三個分頁（conv）走**同一套**，只是換一個容器 id ——
+       兩個分頁時是寫死的兩行，三個以後改成由 m 算出來，不另開第二套機制。 */
+    if (m === 'cmp' || m === 'conv') {
       document.write('<style id="ss-dg-mode-hint">#dg-main-content{display:none!important}'
-        + '#dg-cmp-content{display:block!important}'
+        + '#dg-' + m + '-content{display:block!important}'
         + '#dg-mode-tabs [data-mode=main]{color:#94a3b8!important;background:transparent!important}'
-        + '#dg-mode-tabs [data-mode=cmp]{color:#a78bfa!important;background:#0f172a!important}</style>');
+        + '#dg-mode-tabs [data-mode=' + m + ']{color:#a78bfa!important;background:#0f172a!important}</style>');
     }
   } catch (e) {}
 })();
@@ -689,6 +702,7 @@
   <div class="dg-mode-tabs" id="dg-mode-tabs">
     <button type="button" class="dg-mode-tab active" data-mode="main" onclick="dgSwitchMode('main')">Digital Gamma 校正</button>
     <button type="button" class="dg-mode-tab" data-mode="cmp" onclick="dgSwitchMode('cmp')">光學資料比較</button>
+    <button type="button" class="dg-mode-tab" data-mode="conv" onclick="dgSwitchMode('conv')">RGB LUT 深度轉換</button>
   </div>
   <div class="lang-switcher">
     <select id="lang-select" class="lang-select" aria-label="Language">
@@ -1411,6 +1425,60 @@
 
 </div><!-- /#dg-cmp-content -->
 
+<!-- ══════════ 分頁三：RGB LUT 深度轉換（v1.31.0）════════════════════════
+     Bruce 2026-09-11：「丟一張表進去、拿一張表出來，完全不需要量測資料，
+     也不可以影響校正分頁的任何狀態。」
+     🔴 與校正分頁**完全脫鉤**：自己的 file input（#dg-file-conv）、自己的狀態
+        （DG_CV），不讀也不寫第 1／2／3 部分、dgImportedFmt、lastLut 任何一個。
+        分開一支 input 的理由與 v1.18.0 的 #dg-file-slot 相同 —— #dg-file-lut 的
+        change 綁的是 dgImportFile()，共用會把資料灌進校正流程。
+     🔴 解析走既有的 dgDetectLut()、換算走既有的 dgScaleDepth()、輸出走既有的
+        dgLutRowsForFmt()／dgBuildXlsx()，一套都沒有另寫。 -->
+<div id="dg-conv-content" style="display:none">
+
+  <div class="card dg-input" id="dg-card-conv">
+    <div class="card-header"><span class="icon">🔁</span><span>RGB LUT 深度轉換</span></div>
+    <div class="card-body">
+
+      <input type="file" id="dg-file-conv" accept=".xlsx" style="display:none">
+      <div class="dg-btnrow">
+        <button class="dg-btn dg-btn-imp" id="dg-btn-conv-imp">匯入 RGB LUT 檔<span class="dg-nowrap">（<span class="dg-fname">.xlsx</span>）</span></button>
+      </div>
+
+      <div class="dg-derived">
+        <div class="dg-derived-item">
+          <div class="dg-derived-label">檔案深度</div>
+          <div class="dg-derived-val" id="dg-conv-from">—</div>
+        </div>
+        <div class="dg-derived-item">
+          <div class="dg-derived-label">主表筆數</div>
+          <div class="dg-derived-val" id="dg-conv-entries">—</div>
+        </div>
+      </div>
+
+      <div class="field" style="margin:12px 0 0">
+        <label>目標深度</label>
+        <select id="dg-conv-to" class="dg-sel">
+          <option value="9">9 bit</option>
+          <option value="10" selected>10 bit</option>
+          <option value="11">11 bit</option>
+          <option value="12">12 bit</option>
+        </select>
+      </div>
+
+      <div class="dg-fmt" id="dg-conv-fmt" style="display:none"></div>
+
+      <div class="dg-btnrow">
+        <button class="dg-btn primary" id="dg-btn-conv-dl" disabled>下載轉換後的 LUT（.xlsx）</button>
+      </div>
+
+      <div class="dg-status" id="dg-conv-status">還沒有匯入 LUT 檔。</div>
+
+    </div>
+  </div>
+
+</div><!-- /#dg-conv-content -->
+
   <a href="index.html" class="back-btn-footer">← 返回首頁</a>
 </div>
 
@@ -1824,7 +1892,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260911dg1300"></script>
+<script src="common/version.js?v=20260911dg1310"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -8454,6 +8522,109 @@
     if (d) d();
   }
 
+  /* ═══ v1.31.0：分頁三 —— RGB LUT 深度轉換 ═══════════════════════════════
+     一張表進、一張表出。不需要目標 TCON、Source Driver、FRC、量測資料。
+     🔴 整段與校正路徑零交集：只讀寫 DG_CV 與 #dg-conv-* 這幾個元素，
+        dgCompute()／dgGatherData()／lastLut／dgImportedFmt 一個都沒碰。
+     🔴 為什麼是位移法：驅動上限碼是（2^SD−1）×2^FRC，本來就不等於 2^深度−1，
+        碼的意義是**階數**不是滿刻度百分比。比例法（×(2^to−1)/(2^from−1)）會把
+        階數變成非整數倍，是錯的。位移＝既有的 dgScaleDepth()，不另寫一套。 */
+  var DG_CV = null;      // { fmt, lut, name }：匯進來的那一張表。null ＝ 還沒匯入
+
+  function dgConvTo() {
+    var v = parseInt($('dg-conv-to').value, 10);
+    return (v === 9 || v === 10 || v === 11 || v === 12) ? v : 10;
+  }
+
+  /* 輸出格式 ＝ 匯入檔那一份，只換深度。
+     🔴 深度在 fmt 裡只長在 `hw` 上：dgLutRowsForFmt() 的附加末筆用 2^hw−1，
+        工作表名／標題／表頭／有無末筆全部與深度無關 ⇒ 只改這一個欄位。
+        （`cap` 只進 label，不參與產檔，這裡一併照新深度重算，免得標籤說謊。） */
+  function dgConvFmt(to) {
+    var f = DG_CV.fmt, o = {}, k;
+    for (k in f) if (Object.prototype.hasOwnProperty.call(f, k)) o[k] = f[k];
+    o.hw = to;
+    o.merges = f.merges ? f.merges.slice() : [];
+    o.headerCols = f.headerCols ? f.headerCols.slice() : f.headerCols;
+    o.cap = null;
+    o.label = (f.headerFirst || '無表頭') + ' 型／' + to + ' bit／主表 ' + f.entries + ' 筆'
+      + (f.hasTail ? '＋附加末筆' : '（無附加末筆）') + '／工作表「' + f.sheetName + '」';
+    return o;
+  }
+
+  function dgConvRenderNote() {
+    var box = $('dg-conv-fmt');
+    if (!DG_CV) { box.style.display = 'none'; box.innerHTML = ''; box.className = 'dg-fmt'; return; }
+    var from = DG_CV.fmt.hw, to = dgConvTo(), d = Math.abs(to - from);
+    box.style.display = '';
+    box.className = 'dg-fmt';
+    var h = '<b>下載的檔會用這個格式：</b>' + dgConvFmt(to).label
+      + '<br>（工作表名稱、表頭、有無附加末筆都跟你匯入的那個檔一樣。）';
+    /* 🔴 用語沿用 dgRenderOutFmt() 那兩句（v1.30.0 已是最短版本），不另創詞彙：
+       往上＝低位恆為 0；往下＝丟掉位元。往下這一邊另外講「不可逆」（Bruce 2026-09-11），
+       因為這個分頁的用途就是來回轉，而校正流程那一邊只會往一個方向轉一次。 */
+    if (to > from) {
+      h += '<br><b>⚠ 換算 ' + from + ' → ' + to + ' bit：</b>低 ' + d + ' 位恆為 0，'
+        + (d === 1 ? '奇數碼是假的。' : '只有 ' + Math.pow(2, d) + ' 的倍數是真的。');
+    } else if (to < from) {
+      h += '<br><b>⚠ 換算 ' + from + ' → ' + to + ' bit：</b>丟掉低 ' + d + ' 位，'
+        + '不可逆（再轉回 ' + from + ' bit 不等於原表）。';
+    }
+    box.innerHTML = h;
+  }
+
+  function dgConvClear(msg, cls) {
+    DG_CV = null;
+    $('dg-conv-from').textContent = '—';
+    $('dg-conv-entries').textContent = '—';
+    $('dg-btn-conv-dl').disabled = true;
+    dgConvRenderNote();
+    dgSetStatus('dg-conv-status', msg, cls || '');
+  }
+
+  function dgConvImport(file) {
+    if (!file) return;
+    dgSetStatus('dg-conv-status', '正在讀取 ' + file.name + '…', '');
+    var fr = new FileReader();
+    fr.onerror = function () {
+      dgConvClear('讀不到這個檔案。請確認檔案沒有被其他程式鎖住。', 'err');
+    };
+    fr.onload = function () {
+      dgUnzip(fr.result).then(function (files) {
+        var sheets = dgReadSheets(files), det = null, err = null;
+        for (var i = 0; i < sheets.length; i++) {
+          try { det = dgDetectLut(sheets[i]); break; } catch (e) { err = e.message; }
+        }
+        if (!det) throw new Error(err || '這個檔案裡找不到認得出來的 LUT 表。');
+        DG_CV = { fmt: det.fmt, lut: det.lut, name: file.name };
+        $('dg-conv-from').textContent = det.fmt.hw + ' bit';
+        $('dg-conv-entries').textContent = det.fmt.entries + (det.fmt.hasTail ? ' ＋末筆' : '');
+        $('dg-btn-conv-dl').disabled = false;
+        dgConvRenderNote();
+        dgSetStatus('dg-conv-status', '已匯入 ' + file.name + '\n' + det.fmt.label
+          + '\n選好目標深度後按「下載轉換後的 LUT」。', 'ok');
+      }).catch(function (e) {
+        dgConvClear(e && e.message ? e.message : String(e), 'err');
+      });
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  function dgConvDownload() {
+    if (!DG_CV) { dgSetStatus('dg-conv-status', '還沒有匯入 LUT 檔。', 'err'); return; }
+    var from = DG_CV.fmt.hw, to = dgConvTo(), f = dgConvFmt(to);
+    var lut = dgScaleDepth(DG_CV.lut, from, to);
+    var bytes = dgBuildLutXlsx(f, lut);
+    var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    // 命名沿用 dgDownloadLutXlsx()：DG_LUT_<YYYYMMDD>.xlsx
+    a.download = 'DG_LUT_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.xlsx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    dgSetStatus('dg-conv-status', '已產生 ' + from + ' → ' + to + ' bit 的 LUT 檔（' + f.label + '）。', 'ok');
+  }
+
   /* ─── v1.9.0：分頁切換 ────────────────────────────────────────────────
      機制與 wfg.html 的 wfgSwitchMode() 相同（wfg.html:8933-8952）：只切兩個 content
      容器的 display、同步 tab 的 active class、把目前這一頁記進 sessionStorage。
@@ -8461,7 +8632,8 @@
   var DG_MODE = 'main';
 
   function dgSwitchMode(mode) {
-    if (mode !== 'main' && mode !== 'cmp') mode = 'main';
+    // v1.31.0：多一個 'conv'（RGB LUT 深度轉換）
+    if (mode !== 'main' && mode !== 'cmp' && mode !== 'conv') mode = 'main';
     DG_MODE = mode;
     try { sessionStorage.setItem('dg_active_mode', mode); } catch (e) {}
     // head 裡那段防閃爍的 style 只在載入當下有用；真的切過分頁之後它會擋住 display，要拿掉
@@ -8470,15 +8642,18 @@
     Array.prototype.forEach.call(document.querySelectorAll('#dg-mode-tabs .dg-mode-tab'), function (btn) {
       btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
     });
-    var m = $('dg-main-content'), c = $('dg-cmp-content');
+    var m = $('dg-main-content'), c = $('dg-cmp-content'), v = $('dg-conv-content');
     if (m) m.style.display = mode === 'main' ? '' : 'none';
     if (c) c.style.display = mode === 'cmp' ? '' : 'none';
+    if (v) v.style.display = mode === 'conv' ? '' : 'none';
     /* 切到比較分頁時重畫一次：display:none 期間 dgChart 照樣把 SVG 寫進去（不依賴版面），
        但放大檢視／游標提示用的幾何（DG_CHART_GEOM）是量出來的，藏著的時候量不準。
        重畫一次讓幾何以真正的可見尺寸重算。 */
     // v1.24.0：切回主分頁時第 4 部分那三張圖也要跟著重量幾何（同一個理由）
+    /* v1.31.0：'conv' 分頁沒有任何圖表，兩邊都不必重畫 —— 這裡改成明示 'main'，
+       否則切到 conv 會走進 else 去量藏起來的主分頁幾何（那正是要避開的事）。 */
     if (mode === 'cmp') dgRenderCmpCharts();
-    else { dgRenderMainSide(); dgConfLegendSync(); }
+    else if (mode === 'main') { dgRenderMainSide(); dgConfLegendSync(); }
   }
   window.dgSwitchMode = dgSwitchMode;
 
@@ -8630,6 +8805,16 @@
       dgImportFile(e.target.files && e.target.files[0]);
       e.target.value = '';
     });
+
+    /* v1.31.0：分頁三。自己的匯入鈕、自己的 file input、自己的下載鈕 ——
+       與上面那條完全分開，兩條路不共用任何一個元素或變數。 */
+    $('dg-btn-conv-imp').addEventListener('click', function () { $('dg-file-conv').click(); });
+    $('dg-file-conv').addEventListener('change', function (e) {
+      dgConvImport(e.target.files && e.target.files[0]);
+      e.target.value = '';
+    });
+    $('dg-conv-to').addEventListener('change', dgConvRenderNote);
+    $('dg-btn-conv-dl').addEventListener('click', dgConvDownload);
 
     /* ─── v1.10.0：即時量測 ────────────────────────────────────────────────
        第一次會開一個「新分頁」（不是彈出小視窗）—— 使用者要能把它拖到外接螢幕上，
@@ -8973,6 +9158,12 @@
     liveWinRef: function () { return !!dgLiveWin; },
     liveTaskId: function () { return dgLiveTaskId; },
     liveDest: function () { return DG_LIVE_DEST; },
+    /* v1.31.0 驗證用（唯讀）：分頁三匯進來的是什麼。DG_CV 在 dgInit() 外面，
+       但它是 IIFE 內的區域變數，外部量不到 —— 開一個唯讀窗口，不給寫入口。 */
+    convState: function () {
+      return DG_CV ? { hw: DG_CV.fmt.hw, entries: DG_CV.fmt.entries, hasTail: DG_CV.fmt.hasTail,
+        sheetName: DG_CV.fmt.sheetName, name: DG_CV.name, lut: DG_CV.lut.map(function (r) { return r.slice(); }) } : null;
+    },
     liveTasks: function () { var o = {}; for (var k in DG_LIVE_TASKS) o[k] = DG_LIVE_TASKS[k]; return o; },
     compute: dgCompute,
     sample: function () { return DG_SAMPLE; },
