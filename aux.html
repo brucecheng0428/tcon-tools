@@ -208,8 +208,11 @@
     margin-left: 8px; vertical-align: middle;
   }
   /* ─── 位址自由輸入格（滾輪下方）─── */
+  .aux-free-addr-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .aux-free-addr-row .isp-btn-sm { flex: 0 0 auto; padding: 7px 10px; }
+  .aux-free-addr-row .isp-btn-sm:disabled { opacity: 0.35; cursor: default; }
   .aux-free-addr {
-    width: 100%; max-width: 220px; margin-top: 6px;
+    width: 100%; max-width: 160px;
     padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px;
     font-size: 14px; color: var(--text); background: #0f172a; font-family: monospace;
     text-transform: uppercase; letter-spacing: 1px;
@@ -578,7 +581,11 @@
                 <input type="hidden" id="aux-decode-addr-d0" value="0">
               </div>
               <div class="aux-struct-hint" data-i18n="aux.addrHint">20-bit 位址（5 位 hex），轉動滾輪選擇</div>
-              <input type="text" id="aux-decode-addr-free" class="aux-free-addr" autocomplete="off" spellcheck="false" enterkeyhint="go" onkeydown="auxFreeAddrKey(event,'decode')">
+              <div class="aux-free-addr-row">
+                <input type="text" id="aux-decode-addr-free" class="aux-free-addr" autocomplete="off" spellcheck="false" enterkeyhint="go" onkeydown="auxFreeAddrKey(event,'decode')">
+                <button type="button" class="isp-btn-sm" id="aux-decode-addr-dn" onclick="auxFreeAddrStep('decode',-1)">▼</button>
+                <button type="button" class="isp-btn-sm" id="aux-decode-addr-up" onclick="auxFreeAddrStep('decode',1)">▲</button>
+              </div>
               <div id="aux-decode-addr-free-err" class="aux-free-err"></div>
             </div>
 
@@ -748,7 +755,11 @@
               <input type="hidden" id="aux-addr-d0" value="0">
             </div>
             <div class="field-hint" data-i18n="aux.dpcdAddrHint">轉動滾輪選擇 5 位 hex 地址，停下 1 秒自動查詢</div>
-            <input type="text" id="aux-dpcd-addr-free" class="aux-free-addr" autocomplete="off" spellcheck="false" enterkeyhint="go" onkeydown="auxFreeAddrKey(event,'dpcd')">
+            <div class="aux-free-addr-row">
+              <input type="text" id="aux-dpcd-addr-free" class="aux-free-addr" autocomplete="off" spellcheck="false" enterkeyhint="go" onkeydown="auxFreeAddrKey(event,'dpcd')">
+              <button type="button" class="isp-btn-sm" id="aux-dpcd-addr-dn" onclick="auxFreeAddrStep('dpcd',-1)">▼</button>
+              <button type="button" class="isp-btn-sm" id="aux-dpcd-addr-up" onclick="auxFreeAddrStep('dpcd',1)">▲</button>
+            </div>
             <div id="aux-dpcd-addr-free-err" class="aux-free-err"></div>
           </div>
           <div class="field">
@@ -795,10 +806,10 @@
   </div>
 </div><!-- /page-aux -->
 
-<script src="common/version.js?v=20260910aux260"></script>
+<script src="common/version.js?v=20260910aux270"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="data/dpcd-db.js?v=20260910aux260"></script>
+<script src="data/dpcd-db.js?v=20260910aux270"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -1356,6 +1367,8 @@ function _tAux(key, vars) {
     'freeErrLong':     { 'zh-TW': '位址最多 5 位十六進位',
                          'zh-CN': '地址最多 5 位十六进位',
                          'en':    'Address is at most 5 hex digits' },
+    'freeStepUp':      { 'zh-TW': '位址 +1', 'zh-CN': '地址 +1', 'en': 'Address +1' },
+    'freeStepDn':      { 'zh-TW': '位址 −1', 'zh-CN': '地址 −1', 'en': 'Address −1' },
     'addr':            { 'zh-TW': '位址',              'zh-CN': '地址',              'en': 'Address' },
     'name':            { 'zh-TW': '名稱',              'zh-CN': '名称',              'en': 'Name' },
     'descTitle':       { 'zh-TW': '📝 說明',           'zh-CN': '📝 说明',           'en': '📝 Description' },
@@ -2968,6 +2981,7 @@ function _dpcdAddrOnChange() {
   var addr = auxGetAddrFromWheels();
   auxUpdateValCombo(addr);
   auxLookupDPCD(addr, auxGetCurrentVal());
+  if (typeof auxFreeAddrSyncStepBtns === 'function') auxFreeAddrSyncStepBtns('dpcd');
 }
 
 // ─── 初始化所有 drum picker ───
@@ -2990,9 +3004,11 @@ function initAllHexDrums() {
     decodeDrums.forEach(function(drum) {
       createHexPicker(drum, function() {
         auxOnReqChange();
+        if (typeof auxFreeAddrSyncStepBtns === 'function') auxFreeAddrSyncStepBtns('decode');
       });
     });
   }
+  if (typeof auxFreeAddrInit === 'function') auxFreeAddrInit();
 }
 
 // ─── 地址滾輪輔助函式 ───
@@ -3059,9 +3075,15 @@ function auxParseFreeAddr(raw) {
 }
 window.auxParseFreeAddr = auxParseFreeAddr;
 
+var AUX_FREE_ADDR_MAX = 0xFFFFF;   // 5 位十六進位，00000 ~ FFFFF
+
 var AUX_FREE_ADDR_TARGETS = {
-  dpcd:   { input: 'aux-dpcd-addr-free',   err: 'aux-dpcd-addr-free-err' },
-  decode: { input: 'aux-decode-addr-free', err: 'aux-decode-addr-free-err' }
+  dpcd:   { input: 'aux-dpcd-addr-free',   err: 'aux-dpcd-addr-free-err',
+            up: 'aux-dpcd-addr-up',   dn: 'aux-dpcd-addr-dn',
+            getWheels: function() { return auxGetAddrFromWheels(); } },
+  decode: { input: 'aux-decode-addr-free', err: 'aux-decode-addr-free-err',
+            up: 'aux-decode-addr-up', dn: 'aux-decode-addr-dn',
+            getWheels: function() { return auxGetDecodeAddrFromWheels(); } }
 };
 
 function auxFreeAddrShowErr(which, key) {
@@ -3094,16 +3116,80 @@ window.auxFreeAddrSubmit = function(which) {
     auxSetDecodeAddrWheels(r.addr);
     window.auxOnReqChange();
   }
+  auxFreeAddrSyncStepBtns(which);
 };
 
 window.auxFreeAddrKey = function(e, which) {
-  if (e && (e.key === 'Enter' || e.keyCode === 13)) {
+  if (!e) return;
+  if (e.key === 'Enter' || e.keyCode === 13) {
     e.preventDefault();
     window.auxFreeAddrSubmit(which);
+  } else if (e.key === 'ArrowUp' || e.keyCode === 38) {
+    e.preventDefault();                    // 不讓游標跳到字串開頭
+    window.auxFreeAddrStep(which, 1);
+  } else if (e.key === 'ArrowDown' || e.keyCode === 40) {
+    e.preventDefault();
+    window.auxFreeAddrStep(which, -1);
   } else {
     auxFreeAddrShowErr(which, '');   // 重新輸入即清掉舊錯誤
   }
 };
+
+// ─── 目前的基準位址 ───
+// 輸入框空白 → 以滾輪上的實際位址為基準（使用者沒指定，按了要有反應）
+// 輸入框可解析 → 以它為基準（含 0x／h／位數不足）
+// 輸入框不可解析 → 回傳 null，由呼叫端顯示錯誤，位址不動（打錯字不要靜默丟棄）
+function auxFreeAddrBasis(which) {
+  var t = AUX_FREE_ADDR_TARGETS[which];
+  var inp = t ? document.getElementById(t.input) : null;
+  if (!inp) return null;
+  if (!String(inp.value).trim()) return { ok: true, addr: t.getWheels(), fromWheels: true };
+  var r = auxParseFreeAddr(inp.value);
+  return r.ok ? { ok: true, addr: r.addr, fromWheels: false } : r;
+}
+
+// ▲／▼：以 1 為單位做十六進位加減（進位由整數運算保證：0x70F + 1 = 0x710）
+window.auxFreeAddrStep = function(which, delta) {
+  var t = AUX_FREE_ADDR_TARGETS[which];
+  if (!t) return;
+  var inp = document.getElementById(t.input);
+  if (!inp) return;
+  var b = auxFreeAddrBasis(which);
+  if (!b || !b.ok) { auxFreeAddrShowErr(which, (b && b.err) || 'freeErrChar'); return; }
+  auxFreeAddrShowErr(which, '');
+  var n = parseInt(b.addr, 16);
+  if (!isFinite(n)) n = 0;
+  var next = n + delta;
+  if (next < 0 || next > AUX_FREE_ADDR_MAX) return;   // 停在邊界，不繞回
+  inp.value = next.toString(16).toUpperCase().padStart(5, '0');
+  window.auxFreeAddrSubmit(which);   // 與打字 Enter 完全同一條路徑
+};
+
+// 邊界時把對應方向的按鈕停用（00000 不能再減、FFFFF 不能再加）
+function auxFreeAddrSyncStepBtns(which) {
+  var t = AUX_FREE_ADDR_TARGETS[which];
+  if (!t) return;
+  var up = document.getElementById(t.up), dn = document.getElementById(t.dn);
+  if (!up || !dn) return;
+  var b = auxFreeAddrBasis(which);
+  if (!b || !b.ok) { up.disabled = false; dn.disabled = false; return; }
+  var n = parseInt(b.addr, 16);
+  if (!isFinite(n)) { up.disabled = false; dn.disabled = false; return; }
+  up.disabled = (n >= AUX_FREE_ADDR_MAX);
+  dn.disabled = (n <= 0);
+}
+window.auxFreeAddrSyncStepBtns = function() {
+  Object.keys(AUX_FREE_ADDR_TARGETS).forEach(auxFreeAddrSyncStepBtns);
+};
+
+function auxFreeAddrInit() {
+  Object.keys(AUX_FREE_ADDR_TARGETS).forEach(function(which) {
+    var t = AUX_FREE_ADDR_TARGETS[which];
+    var inp = document.getElementById(t.input);
+    if (inp) inp.addEventListener('input', function() { auxFreeAddrSyncStepBtns(which); });
+    auxFreeAddrSyncStepBtns(which);
+  });
+}
 
 // placeholder 依語言更新（文字放在 aux.html 內的 _tAux 字典，不動 common/i18n.js）
 window.auxFreeAddrSyncI18n = function() {
@@ -3111,6 +3197,11 @@ window.auxFreeAddrSyncI18n = function() {
   Object.keys(AUX_FREE_ADDR_TARGETS).forEach(function(k) {
     var inp = document.getElementById(AUX_FREE_ADDR_TARGETS[k].input);
     if (inp) inp.placeholder = ph;
+    // 圖示按鈕無可見文字，補 aria-label / title（不佔版面）
+    var up = document.getElementById(AUX_FREE_ADDR_TARGETS[k].up);
+    var dn = document.getElementById(AUX_FREE_ADDR_TARGETS[k].dn);
+    if (up) { up.setAttribute('aria-label', _tAux('freeStepUp')); up.title = _tAux('freeStepUp'); }
+    if (dn) { dn.setAttribute('aria-label', _tAux('freeStepDn')); dn.title = _tAux('freeStepDn'); }
     var box = document.getElementById(AUX_FREE_ADDR_TARGETS[k].err);
     if (box && box.style.display === 'block' && box.dataset.errKey) {
       box.textContent = _tAux(box.dataset.errKey);
