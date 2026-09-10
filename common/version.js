@@ -11,6 +11,6 @@ var TOOL_VERSIONS = {
   isp:     'v1.20.0',      // iSP 波形產生器
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.46.0',     // 面板訊號模擬與取樣
-  pattern: 'v3.8.1',       // Pattern Generator 畫面產生器
+  pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.29.0'       // Digital Gamma 迭代校正
 };
