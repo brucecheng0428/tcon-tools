@@ -7,7 +7,7 @@
 <title>即時量測 — DG — TCON FAE專用工具箱</title>
 <!-- v1.30.0：縮放判準的單一來源。與 pattern.html 用的是同一支，不另寫第二套判準。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common），只多這一個相依。 -->
-<script src="common/zoomprobe.js?v=20260911dg1300"></script>
+<script src="common/zoomprobe.js?v=20260911dg1320"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -119,6 +119,56 @@
              max-width: 26vw; text-align: left; }
   #dgm-msg.err { color: #f87171; }
   #dgm-msg.ok  { color: #4ade80; }
+
+  /* ═══ v1.32.0：儀器連線狀態按鈕 ═════════════════════════════════════════
+     🔴 按鈕的形式與語意**照抄 wfg.html 的 .wfg-la-link-btn**（v2.97.451／453／461），
+        不自創第二套：電源符號(⏻)圓底圖示、OFF＝圓底融入面板背景（熄滅）、
+        ON＝亮綠圓底＋白色圖示、busy＝黃底閃爍（防連點），狀態走 aria-pressed。
+        **僅桌面顯示**（min-width: 901px）—— 與 wfg 同一條理由：Web Serial
+        只有桌面版 Chrome／Edge 有。
+     與 wfg 唯一的差別是尺寸吃 --dgm-k（本頁所有東西都吃，見最上面那段說明）；
+     形狀、顏色、三個狀態一個字都沒改。 */
+  .dgm-linkrow { align-items: center; gap: calc(10px * var(--dgm-k)); }
+  .dgm-link-btn { display: none; }
+  @media (min-width: 901px) {
+    .dgm-link-btn {
+      box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+      height: calc(26px * var(--dgm-k)); width: calc(26px * var(--dgm-k));
+      padding: 0; border: none; background: transparent; cursor: pointer;
+    }
+    /* OFF 態：圓底不填色 ＋ 極淡內描邊 ⇒ 融入面板背景，看起來是熄滅的 */
+    .dgm-link-icon {
+      flex: 0 0 auto; aspect-ratio: 1;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: calc(26px * var(--dgm-k)); height: calc(26px * var(--dgm-k)); border-radius: 50%;
+      background: transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+      transition: background .2s, box-shadow .2s;
+    }
+    .dgm-link-icon svg {
+      width: calc(15px * var(--dgm-k)); height: calc(15px * var(--dgm-k)); display: block;
+      fill: none; stroke: #64748b; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+      transition: stroke .2s;
+    }
+    .dgm-link-btn:hover .dgm-link-icon { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28); }
+    /* on：已取得連線（序列埠已開）→ 亮綠圓底 ＋ 白色電源圖示 */
+    .dgm-link-btn.on .dgm-link-icon {
+      background: #22c55e;
+      box-shadow: 0 0 calc(8px * var(--dgm-k)) rgba(34, 197, 94, .9), inset 0 0 0 1px rgba(255, 255, 255, .25);
+    }
+    .dgm-link-btn.on .dgm-link-icon svg { stroke: #ffffff; }
+    /* busy：連線／釋放進行中 → 黃色圓底閃爍，避免使用者連點 */
+    .dgm-link-btn.busy { cursor: progress; }
+    .dgm-link-btn.busy .dgm-link-icon {
+      background: #facc15; box-shadow: 0 0 calc(6px * var(--dgm-k)) rgba(250, 204, 21, .85);
+      animation: dgmLinkBlink .8s ease-in-out infinite;
+    }
+    .dgm-link-btn.busy .dgm-link-icon svg { stroke: #3a2e00; }
+    /* 量測進行中不准斷線（見 syncFs）：看得到、但按不動 */
+    .dgm-link-btn:disabled { cursor: not-allowed; opacity: .45; }
+    .dgm-link-btn:disabled:hover .dgm-link-icon { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+  }
+  @keyframes dgmLinkBlink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .dgm-link-btn.busy .dgm-link-icon { animation: none; } }
 
   #dgm-start {
     background: #16a34a; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
@@ -385,6 +435,14 @@
     <div id="dgm-step"></div>
     <div id="dgm-what"></div>
   </div>
+  <!-- v1.32.0：儀器連線狀態按鈕（兼狀態燈）。
+       🔴 放在步驟名稱之後、按鈕列之前 —— 「先連上儀器 → 才輪到全螢幕與開始量測」
+          是實際的操作順序，版面順序照著走。
+       🔴 樣式／狀態語意照抄 wfg LA 那一顆（見上面 CSS 那段），僅桌面顯示。 -->
+  <div class="dgm-row dgm-linkrow">
+    <span class="dgm-k">儀器連線</span>
+    <button type="button" id="dgm-link" class="dgm-link-btn" aria-pressed="false" title="連線 on/off"><span class="dgm-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5 L12 12"></path><path d="M7.05 6.55 a7 7 0 1 0 9.9 0"></path></svg></span></button>
+  </div>
   <div>
     <button id="dgm-fs">全螢幕</button><button id="dgm-start" disabled>開始量測</button>
   </div>
@@ -402,7 +460,9 @@
   <div id="dgm-esc" class="dgm-hidden">按 F11 離開全螢幕</div>
   <div id="dgm-gate" class="dgm-hidden"></div>
   <!-- v1.30.0：只留「要做什麼」的四步，理由全刪（原文 66 字 → 26 字）。 -->
-  <div id="dgm-hint">拖到要量的螢幕 → 按「全螢幕」 → 探頭對準紅圈中心 → 按「開始量測」</div>
+  <!-- v1.32.0：多一步「按 ⏻ 連線」—— 沒連線就按不了「開始量測」，
+       這一行是唯一的操作順序說明，缺了那一步使用者會撞在關著的按鈕上。 -->
+  <div id="dgm-hint">拖到要量的螢幕 → 按「全螢幕」 → 按 ⏻ 連線 → 探頭對準紅圈中心 → 按「開始量測」</div>
 </div>
 
 <!-- v1.30.0：警示層。呼吸燈一條、視窗一個，兩種狀況共用（見 CSS 那段說明） -->
@@ -601,6 +661,7 @@
 
   // ── 序列埠 ──────────────────────────────────────────────────────────────
   var port = null, reader = null, keepReading = false, rxBuf = '', pending = null;
+  var readLoopRunning = false;   // v1.32.0：readLoop 這支 async 迴圈目前在不在跑（見 readLoop）
 
   /* ═══ v1.27.0：量測儀連不上的時候，講人話 ═══════════════════════════════
      Bruce 2026-09-09：「要預設各種情況，例如同時開著 CA-S40 原廠軟體在搶同一個
@@ -626,6 +687,17 @@
     lost:        '量測儀斷線 —— 接回 USB 後按「重新量測」。'
   };
 
+  /* ═══ v1.32.0：儀器連線狀態 ═════════════════════════════════════════════
+     本頁只支援 **CA-410**（Web Serial）—— 這是唯一有實機、有協議、Bruce 已用真機
+     驗過的那一台。其他機型見 CHANGELOG v1.32.0 的說明。 */
+  var dgmLinkActive = false;              // 本工具目前是否握有儀器連線
+  var dgmLinkBusy = false;                // 連線／釋放進行中（防連點）
+
+  /* 沒連線時底部紅框要顯示的那一句（Bruce 指定的用字）。
+     🔴 與全螢幕那一句（DGM_FS_DO）**放在同一個紅框裡**，不另開第二個框、
+        也不另跳視窗 —— 沿用 v1.30.0 定下的合併呈現規則。 */
+  var DGM_LINK_DO = '請接上光學儀器';
+
   /* 量測進行中掉線：一律走既有的 abort（＝這一輪作廢、**不回傳半套資料**）。
      兩條偵測路徑都要有，因為兩者都可能先發生：
        ① navigator.serial 的 disconnect 事件（裝置被拔掉）
@@ -633,6 +705,10 @@
   function dgmLost(whereLog) {
     log('連線中斷（' + whereLog + '）', 'e');
     if (running && !aborted) abort(DGM_ERR.lost);
+    /* v1.32.0：掉線 ＝ 連線沒了，狀態燈要滅、閘門要重新擋住。
+       🔴 這一支是**唯一**的「連線消失」出口（disconnect 事件與讀／寫失敗都收斂
+          到這裡），所以燈與閘門只要掛在這裡就不會有漏網的路徑。 */
+    if (dgmLinkActive) dgmSetLink(false);
   }
   if (navigator.serial && navigator.serial.addEventListener) {
     navigator.serial.addEventListener('disconnect', function (e) {
@@ -668,6 +744,16 @@
 
   // 回應是分段到達的，累積到 CR 才算一筆
   async function readLoop() {
+    /* v1.32.0：readLoop 到底還在不在跑，要有一個**直接**的答案。
+       🔴 原本用 `!keepReading` 當「要不要起一個新的 readLoop」的判準，那是間接的：
+          埠被拔掉時，這支迴圈的條件 `port.readable` 變成 null 而自己結束，
+          但 keepReading 仍然是 true（只有 closePort() 會把它設回 false）
+          ⇒ 下一次連線時判準說「還在跑」，於是不重起 —— 實際上沒有任何 reader，
+          之後每一道指令都會逾時。（v1.32.0 的連線鈕讓這條路變得容易走到：
+          實測 probe1 的 N6c，斷線後重新連上時 readers 沒有增加。）
+       用 readLoopRunning 之後，正常流程的判斷結果與從前**完全一樣**
+       （跑著就不重起、closePort 之後就重起），只有上面那個壞掉的情況會不同。 */
+    readLoopRunning = true;
     try {
       while (port.readable && keepReading) {
         reader = port.readable.getReader();
@@ -687,6 +773,8 @@
       }
     } catch (e) {
       if (keepReading) { log('讀取中斷：' + e.message, 'e'); dgmLost('讀取中斷'); }
+    } finally {
+      readLoopRunning = false;
     }
   }
 
@@ -754,7 +842,21 @@
      依 Bruce 2026-09-11「只要告訴要怎麼做就好」砍成一句要做的事。
      🔴 這句話與警示視窗第二行是**同一個常數**，不是兩份各寫各的。 */
   var DGM_FS_DO = '按「全螢幕」或 F11';
-  var GATE_TEXT = DGM_FS_DO;
+
+  /* ═══ v1.32.0：開始量測的閘門收斂成這一支 ═══════════════════════════════
+     Bruce 2026-09-11：「沒接上儀器時不讓按開始量測，並註明請接上光學儀器。」
+
+     🔴 **判定點只有這一支**。原本閘門只看全螢幕（`!fs`），現在多了「有沒有連線」，
+        但仍然只有一個地方在判 —— 按鈕的 disabled、底部紅框的內容、
+        start 處理器的第二層、run() 的第三層，全部讀這一支的結果，沒有第二份判準。
+     🔴 呈現只有**一個紅框**：兩條同時成立就是同一個框裡兩行，不疊第二個框、
+        不跳第二個視窗（沿用 v1.30.0 定下的合併規則）。 */
+  function dgmGateLines() {
+    var L = [];
+    if (!isFs()) L.push(DGM_FS_DO);
+    if (!dgmLinkActive) L.push(DGM_LINK_DO);
+    return L;
+  }
 
   function syncFs() {
     var fs = isFs();
@@ -762,10 +864,17 @@
     $('dgm-fsstate').style.color = fs ? '#4ade80' : '#f87171';
     $('dgm-fs').disabled = fs;
     $('dgm-fs').textContent = fs ? '已全螢幕' : '全螢幕';
+    var gate = dgmGateLines();
     // 量測中不去動開始鈕的 disabled（那是量測迴圈在管的）
-    if (!running) $('dgm-start').disabled = !fs;
-    $('dgm-gate').innerHTML = fs ? '' : GATE_TEXT;
-    $('dgm-gate').classList.toggle('dgm-hidden', fs);
+    if (!running) $('dgm-start').disabled = gate.length > 0;
+    /* 全部是本檔內的常數字串（DGM_FS_DO／DGM_LINK_DO），沒有外來輸入，
+       所以這裡用 innerHTML 接 <br> 是安全的；要接外來字串一律走 textContent。 */
+    $('dgm-gate').innerHTML = gate.join('<br>');
+    $('dgm-gate').classList.toggle('dgm-hidden', gate.length === 0);
+    /* v1.32.0：量測進行中不准斷線 —— 中途 close 埠會讓那一輪的資料半途而廢，
+       而「放棄這一輪」本來就有「停止」那顆鈕在管，不需要第二個入口。 */
+    $('dgm-link').disabled = running;
+    dgmRenderLink();
     /* 量測中掉出全螢幕 ＝ 畫面幾何變了，探頭對到的不再是原本那一點，本次作廢。
        v1.27.0：這一條現在對 **F11 退出**也成立 —— 因為 isFs() 認得 display-mode，
        而下面三種事件裡的 mq change／resize 會在 F11 進出時把這一支叫起來。 */
@@ -787,6 +896,122 @@
     else if (DGM_MQ_FS.addListener) DGM_MQ_FS.addListener(syncFs);   // 舊版 Safari
   }
   window.addEventListener('resize', syncFs);
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     v1.32.0：連線層
+     ───────────────────────────────────────────────────────────────────────
+     對外只有 dgmLinkOn()／dgmLinkOff() 兩個入口，狀態只有 dgmLinkActive 一個
+     布林 —— 按鈕、狀態燈、閘門都讀同一個值。
+
+     🔴 **擴充點**：真正碰硬體的兩支動作被收在 DGM_LINK 這個物件裡
+        （`name` / `on()` / `off()`）。將來若要支援別台儀器（走別的匯流排），
+        做法是**多一個同介面的物件並換掉 dgmLink**，不是在這裡長出 if/else 分支。
+        本版只有 CA-410 一個實作，也只有它被指到 —— 不留任何沒人呼叫的分支。
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  /* 狀態燈：形式與語意照抄 wfg LA 的 wfgLaRenderLinkButton()。
+     on ＝ 已握有連線（且不在忙）；busy ＝ 連線／釋放中；其餘 ＝ 熄滅。 */
+  function dgmRenderLink() {
+    var b = $('dgm-link');
+    if (!b) return;
+    b.classList.toggle('on', !!dgmLinkActive && !dgmLinkBusy);
+    b.classList.toggle('busy', !!dgmLinkBusy);
+    b.setAttribute('aria-pressed', dgmLinkActive ? 'true' : 'false');
+    b.title = (dgmLinkActive ? '已連線 ' : '未連線 ') + dgmLink.name + '（點一下切換）';
+  }
+  function dgmSetLink(v) {
+    dgmLinkActive = !!v;
+    syncFs();          // 🔴 燈與閘門是同一個狀態的兩個面，只從這裡一起更新
+  }
+
+  // ── CA-410：序列埠 ──────────────────────────────────────────────────────
+  /* 🔴 這一支是把 v1.31.0 的 run() 步驟 1（取埠 → 開埠 → 起 readLoop）**原封搬出來**
+     的，一個判斷、一個參數、一句訊息都沒改。搬出來的理由只有一個：連線這件事現在
+     由 ⏻ 那顆鈕負責，run() 不該是唯一入口。
+     run() 仍然呼叫同一支（見下方 run() 步驟 1）—— 所以「上一輪跑完 closePort() 把埠
+     關掉、使用者再按重新量測」這條路，走的還是與從前一模一樣的程式碼。 */
+  async function dgmSerialOn() {
+    if (!navigator.serial) { msg(DGM_ERR.unsupported, 'err'); return false; }
+    var ports = [];
+    try { ports = await navigator.serial.getPorts(); }
+    catch (e) {
+      log('getPorts 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
+      msg(DGM_ERR.noPort, 'err'); return false;
+    }
+    if (ports.length) port = ports[0];
+    else {
+      msg('請選量測儀的序列埠。');
+      try { port = await navigator.serial.requestPort(); }
+      catch (e) {
+        /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
+           分不出來 —— 所以這句話寫成兩種情況都成立的樣子，不猜是哪一種。
+           SecurityError 是另一回事（權限被政策擋掉），那個分得出來。 */
+        log('requestPort 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
+        msg(dgmErrName(e) === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.noPort, 'err');
+        return false;
+      }
+    }
+    try {
+      if (!port.readable) await port.open({ baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' });
+    } catch (e) {
+      /* 「已經開著」不是錯誤（停止之後再按一次就會走到這裡），其餘一律是打不開。
+         打不開最常見的原因就是 Bruce 點名的那個：CA-S40 原廠軟體還開著佔住埠
+         —— 序列埠同一時間只能被一個程式開啟。 */
+      var nm = dgmErrName(e);
+      if (nm !== 'InvalidStateError' && !/already open/i.test((e && e.message) || '')) {
+        log('open 失敗：' + nm + ' ' + (e && e.message), 'e');
+        msg(nm === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.busy, 'err');
+        return false;
+      }
+    }
+    /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
+       這裡要防的是重複起第二個 readLoop（兩個 reader 搶同一個 stream）。
+       v1.32.0：判準從 `!keepReading` 換成 `!readLoopRunning`（理由見 readLoop 那段）。 */
+    rxBuf = '';
+    if (!readLoopRunning) { keepReading = true; readLoop(); log('埠已開啟 38400', 'o'); }
+    else log('沿用上一次已經開著的埠', 'o');
+    return true;
+  }
+
+  /* CA-410 釋放：走既有的 closePort()（COM,0 → 取消 reader → close），
+     不另寫一套關法 —— 那支就是本頁量完之後在用的收尾程序。 */
+  async function dgmSerialOff() {
+    if (port) await closePort();
+  }
+
+  /* 目前唯一的連線實作。換別台儀器時整包換掉這個物件，不在呼叫端長分支。 */
+  var DGM_LINK_CA410 = { name: 'CA-410', on: dgmSerialOn, off: dgmSerialOff };
+  var dgmLink = DGM_LINK_CA410;
+
+  async function dgmLinkOn() {
+    if (dgmLinkBusy || dgmLinkActive) return;
+    dgmLinkBusy = true; dgmRenderLink();
+    var ok = false;
+    try { ok = await dgmLink.on(); }
+    catch (e) { log('連線例外：' + (e && e.message), 'e'); ok = false; }
+    dgmLinkBusy = false;
+    dgmSetLink(ok);                        // 🔴 失敗絕不假亮綠（照抄 wfg 那一條）
+    /* 連上了就把訊息列收回預設那一句（清掉上一次失敗留下的紅字）。
+       🔴 這裡**刻意不寫「已連線」那種狀態句**：狀態的唯一出口是那顆燈與閘門，
+          訊息列再寫一次，等於同一個狀態有兩個來源 —— 實測就抓到過：按 OFF 之後
+          燈滅了、閘門擋回來了，訊息列卻還停在綠色的「已連線…」（見截圖
+          `_tmp_dg1320/shots/shot_5_both_gates.png` 的第一版）。 */
+    if (ok) dgmMsgDefault();
+  }
+
+  async function dgmLinkOff() {
+    if (dgmLinkBusy) return;
+    dgmLinkBusy = true; dgmRenderLink();
+    try { await dgmLink.off(); }
+    catch (e) { log('釋放時出錯：' + (e && e.message), 'e'); }
+    dgmLinkBusy = false;
+    dgmSetLink(false);
+  }
+
+  $('dgm-link').addEventListener('click', function () {
+    if (dgmLinkBusy) return;               // 連點忽略
+    if (dgmLinkActive) dgmLinkOff(); else dgmLinkOn();
+  });
 
   /* ═══ v1.30.0：兩個面板隨解析度自適應 ═══════════════════════════════════
      曲線與上下限的依據寫在最上面那段 CSS 註解裡（--dgm-k）。這裡只負責算出來。
@@ -957,8 +1182,10 @@
   $('dgm-start').addEventListener('click', async function () {
     if (running) return;
     // 🔴 閘門第二層：邏輯層。繞過 disabled 也進不去。
-    if (!isFs()) {
-      msg('先' + DGM_FS_DO + '。', 'err');
+    // v1.32.0：讀 dgmGateLines()（全螢幕／連線／這台儀器能不能量），不自己判一次。
+    var gate = dgmGateLines();
+    if (gate.length) {
+      msg(gate.join('\n'), 'err');
       syncFs();
       return;
     }
@@ -983,7 +1210,13 @@
     dgmWarnSync();          // v1.30.0：量完（或中止）之後警示要立刻回來，不必等輪詢
     $('dgm-stop').classList.add('dgm-hidden');
     $('dgm-start').textContent = '重新量測';
-    $('dgm-start').disabled = !isFs();     // 停止後可以直接再按一次；掉出全螢幕就仍然關著
+    /* 停止後可以直接再按一次；掉出全螢幕、或連線掉了，就仍然關著。
+       v1.32.0：原本這裡是 `$('dgm-start').disabled = !isFs();` —— **只手動拉回一個控制項**。
+       🔴 改成整支 syncFs()：現在受 running 影響的不只開始鈕，還有連線鈕（量測中鎖住）
+          與閘門紅框。實測（probe3 的第 ② 項）漏掉這一支的後果是：量完一輪之後
+          連線鈕永遠是 disabled，斷線後再也連不回來。
+          手動一項一項拉回去這種寫法本身就是破口，收斂成一支才不會再漏。 */
+    syncFs();
     if (aborted) {
       setGray(128);
       /* v1.30.0：原本這裡有 3 行、共 138 字（含「為什麼半套資料不能用」的整段理由）。
@@ -1041,56 +1274,37 @@
     glowOn: function () { return $('dgm-warn-glow').classList.contains('on'); },
     modalOn: function () { return $('dgm-warn-modal').classList.contains('on'); },
     warnDo: function () { return $('dgm-warn-do').textContent; },
-    warnDo2: function () { return $('dgm-warn-do2').textContent; }
+    warnDo2: function () { return $('dgm-warn-do2').textContent; },
+    // v1.32.0 驗證用：連線狀態、閘門的實際內容、狀態燈的實際 class／aria
+    linkActive: function () { return dgmLinkActive; },
+    linkBusy: function () { return dgmLinkBusy; },
+    linkName: function () { return dgmLink.name; },
+    gateLines: function () { return dgmGateLines(); },
+    gateText: function () { return $('dgm-gate').textContent; },
+    gateBoxes: function () {   // 🔴 合併呈現的驗證點：紅框永遠只有一個
+      return document.querySelectorAll('#dgm-gate').length;
+    },
+    linkBtnClass: function () { return $('dgm-link').className; },
+    linkBtnPressed: function () { return $('dgm-link').getAttribute('aria-pressed'); }
   };
 
   async function run() {
-    // 閘門第三層：run() 自己也不信任呼叫端（將來若多一條啟動路徑，這裡照樣擋）
-    if (!isFs()) { msg('先' + DGM_FS_DO + '。', 'err'); return; }
+    /* 閘門第三層：run() 自己也不信任呼叫端（將來若多一條啟動路徑，這裡照樣擋）。
+       v1.32.0：同樣讀 dgmGateLines() —— 全螢幕與連線兩條一起擋，不自己判一次。 */
+    var gate0 = dgmGateLines();
+    if (gate0.length) { msg(gate0.join('\n'), 'err'); return; }
     /* v1.27.0：用 `!navigator.serial` 而不是 `'serial' in navigator` ——
        後者只看屬性在不在，值是 undefined 時仍然為真，等於沒擋到。 */
     if (!navigator.serial) { msg(DGM_ERR.unsupported, 'err'); return; }
 
-    // 1. 取埠：先看已授權的，沒有才跳選單
+    /* 1. 把序列埠接回可用狀態。
+       v1.32.0：這一段原本就寫在這裡（取埠 → 開埠 → 起 readLoop），現在搬進
+       dgmSerialOn()，run() 呼叫同一支 —— 程式碼與順序完全沒動。
+       🔴 為什麼連線之後這裡還要再叫一次：上一輪跑完時 closePort() 會把埠關掉
+          （COM,0 → close 是既有的收尾程序），使用者按「重新量測」時埠是關的，
+          要用同一組參數重開。埠還開著時這一支走的是「沿用上一次已經開著的埠」。 */
     msg('連線中…');
-    var ports = [];
-    try { ports = await navigator.serial.getPorts(); }
-    catch (e) {
-      log('getPorts 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
-      msg(DGM_ERR.noPort, 'err'); return;
-    }
-    if (aborted) return;
-    if (ports.length) port = ports[0];
-    else {
-      msg('請選量測儀的序列埠。');
-      try { port = await navigator.serial.requestPort(); }
-      catch (e) {
-        /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
-           分不出來 —— 所以這句話寫成兩種情況都成立的樣子，不猜是哪一種。
-           SecurityError 是另一回事（權限被政策擋掉），那個分得出來。 */
-        log('requestPort 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
-        msg(dgmErrName(e) === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.noPort, 'err');
-        return;
-      }
-    }
-    try {
-      if (!port.readable) await port.open({ baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' });
-    } catch (e) {
-      /* 「已經開著」不是錯誤（停止之後再按一次就會走到這裡），其餘一律是打不開。
-         打不開最常見的原因就是 Bruce 點名的那個：CA-S40 原廠軟體還開著佔住埠
-         —— 序列埠同一時間只能被一個程式開啟。 */
-      var nm = dgmErrName(e);
-      if (nm !== 'InvalidStateError' && !/already open/i.test((e && e.message) || '')) {
-        log('open 失敗：' + nm + ' ' + (e && e.message), 'e');
-        msg(nm === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.busy, 'err');
-        return;
-      }
-    }
-    /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
-       這裡要防的是重複起第二個 readLoop（兩個 reader 搶同一個 stream）。 */
-    rxBuf = '';
-    if (!keepReading) { keepReading = true; readLoop(); log('埠已開啟 38400', 'o'); }
-    else log('沿用上一次已經開著的埠', 'o');
+    if (!(await dgmSerialOn())) { dgmSetLink(false); return; }
     if (aborted) return;
 
     // 2. 初始化
@@ -1219,19 +1433,26 @@
      v1.26.1：抽成函式 —— 換任務時兩個方向都要走得回去，不能只有「進 prim」這一條。
      🔴 #dgm-hint 兩種模式的文字**本來就一模一樣**（只差原始碼裡的換行），
         所以不放進來；放進來只會多一份要同步維護的重複文字。 */
+  /* v1.32.0：訊息列的預設那一句抽成一支（原本只寫在 dgmApplyModeUi 裡）。
+     連線成功時也要用到它，兩邊各寫一份遲早會不一致。字串一字未改。 */
+  function dgmMsgDefault() {
+    $('dgm-msg').textContent = (DGM_MODE === 'prim')
+      ? '連線 → 初始化 → 零校正（蓋遮光蓋）→ 量紅、綠、藍。'
+      : '連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。';
+    $('dgm-msg').className = '';
+  }
+
   function dgmApplyModeUi() {
     if (DGM_MODE === 'prim') {
       document.title = '即時量測（RGB 純色）— DG — TCON FAE專用工具箱';
       $('dgm-gray-k').textContent = '目前純色';
       setFill(128, 128, 128, '—');
-      $('dgm-msg').textContent = '連線 → 初始化 → 零校正（蓋遮光蓋）→ 量紅、綠、藍。';
     } else {
       document.title = '即時量測 — DG — TCON FAE專用工具箱';
       $('dgm-gray-k').textContent = '目前灰階值';
       setGray(128);
-      $('dgm-msg').textContent = '連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。';
     }
-    $('dgm-msg').className = '';
+    dgmMsgDefault();
   }
 
   /* ═══ v1.26.1：換一個量測任務（不重新載入本頁）═══════════════════════════
