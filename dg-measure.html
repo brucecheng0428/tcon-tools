@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
 <title>即時量測 — DG — TCON FAE專用工具箱</title>
+<!-- v1.30.0：縮放判準的單一來源。與 pattern.html 用的是同一支，不另寫第二套判準。
+     🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common），只多這一個相依。 -->
+<script src="common/zoomprobe.js?v=20260911dg1300"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -23,15 +26,52 @@
     color: #fff; -webkit-font-smoothing: antialiased;
   }
 
+  /* ═══ v1.30.0：左上／右上兩個面板隨解析度自適應 ═════════════════════════
+     Bruce 2026-09-11：「右上角、左上角要隨螢幕解析度變化，4K 這種高解析度下字
+     還是那麼小會看不清楚；解析度越高比例放越大，越低就越小，字體也要跟著改。」
+
+     ── 縮放係數（唯一來源：JS 的 dgmScaleSync() 寫進 --dgm-k）──────────────
+         k = clamp(1, min(W / 1920, H / 1080), 2)
+
+     🔴 為什麼是「除以 1920×1080」而不是隨便挑一個係數：
+        同一台實體螢幕，解析度加倍 ⇒ 1 個 CSS px 的實體尺寸減半 ⇒ 22px 的字在
+        4K 上只有 1080p 上的一半大。字要維持「看起來一樣大」，係數就必須正比於
+        解析度 —— 這不是美感取捨，是把物理尺寸還原回去。
+        取 min(W/1920, H/1080) 而不是只看高度：超寬或很扁的視窗下，兩個維度誰
+        比較緊就由誰決定，面板才不會在矮視窗上長得太高。
+
+     🔴 下限 k ≥ 1（依據：字級）
+        本面板最小的字是 12px（.dgm-k 標籤、#dgm-msg、#dgm-prog small）。
+        k < 1 會把它壓到 12px 以下 —— Bruce 的硬性限制①「不要讓使用者因為字太小
+        而看不到」。12px 是這一頁現行、已經驗收過的最小字級，不再往下。
+        副作用（刻意的）：1280×720 與 1920×1080 兩檔 k 都是 1 ⇒ 與改版前**逐 px 相同**，
+        這兩個解析度零回歸。
+
+     🔴 上限 k ≤ 2（依據：只到實測過的最高一檔）
+        2.0 對應 3840×2160，是本次實測的最高解析度。再往上（5K／8K）沒有實機、
+        沒有實測，不外推。
+        另外還有一道更硬的上限，不受 k 影響：`.dgm-corner` 的 max-width:30vw 與
+        max-height:30vh（右上角 40vh）—— 這是 Bruce 硬性限制②「不要讓視窗因為
+        解析度而佔滿整個螢幕」的機械保證，本次一個字都沒動。
+        因為 k 與視窗尺寸同比例成長，面板占畫面的**百分比在四種解析度下是同一個數**，
+        30vw/30vh 這條線在任何 k 下都不會比今天更接近。
+
+     🔴 中央對準圈與十字（#dgm-ring，240px 七圈＋360px 十字）**刻意不隨 k 縮放**。
+        它是拿來對實體探頭口徑的靶，半徑就是實體尺寸本身；跟著螢幕解析度放大，
+        探頭就對不上了。這與既有的「水平方向 30vw 保護中央量測區」是同一條規則的
+        兩面：面板只准往角落長，靶不動。 */
+  :root { --dgm-k: 1; }
+
   /* 角落面板：max-width 綁在 30vw／30vh，中央 40% × 40% 一定空著 */
   .dgm-corner {
     position: fixed; z-index: 10;
     max-width: 30vw; max-height: 30vh; overflow: hidden;
     background: rgba(0, 0, 0, .72); color: #fff;
-    border: 1px solid rgba(255, 255, 255, .22); border-radius: 10px;
-    padding: 10px 13px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: calc(10px * var(--dgm-k));
+    padding: calc(10px * var(--dgm-k)) calc(13px * var(--dgm-k));
   }
-  #dgm-info { top: 14px; left: 14px; }
+  #dgm-info { top: calc(14px * var(--dgm-k)); left: calc(14px * var(--dgm-k)); }
   /* ─── v1.27.0：右上角面板不再裁掉東西 ───────────────────────────────────
      問題（v1.26.2 實測）：退出全螢幕時，閘門紅框 130px 一回來就把內容撐到
      302 > 194，最下面那一行被 max-height:30vh 的 overflow:hidden 裁掉。
@@ -47,7 +87,7 @@
      優先序（空間不足時誰先讓）：訊息 ＞ 進度 ＞ 按鈕 ＞ 步驟名稱。
      步驟名稱排第一個位置、按鈕緊接其後，兩者永遠看得到。 */
   #dgm-right {
-    top: 14px; right: 14px; text-align: right;
+    top: calc(14px * var(--dgm-k)); right: calc(14px * var(--dgm-k)); text-align: right;
     display: flex; flex-direction: column; align-items: stretch;
     /* ③ 高度上限從 30vh 放寬到 40vh，**只放寬這一個面板**（左上角資訊面板維持 30vh）。
        🔴 這不是「調大了事」，是把上限接回它真正要保護的東西：
@@ -71,32 +111,36 @@
         沒有溢出，只是重要的字被壓沒了，比溢出更難發現。 */
   #dgm-right > #dgm-msg { flex: 0 1 auto; min-height: 1.6em; overflow-y: auto; }
 
-  .dgm-row { display: flex; gap: 10px; justify-content: space-between; white-space: nowrap; }
-  .dgm-k { color: #94a3b8; font-size: 12px; }
-  .dgm-v { font: 700 14px/1.55 ui-monospace, Menlo, Consolas, monospace; }
-  .dgm-src { color: #64748b; font-size: 10.5px; margin: 6px 0 2px; }
-  #dgm-msg { margin-top: 8px; font-size: 12px; color: #7dd3fc; white-space: pre-wrap;
+  .dgm-row { display: flex; gap: calc(10px * var(--dgm-k)); justify-content: space-between; white-space: nowrap; }
+  .dgm-k { color: #94a3b8; font-size: calc(12px * var(--dgm-k)); }
+  .dgm-v { font: 700 calc(14px * var(--dgm-k))/1.55 ui-monospace, Menlo, Consolas, monospace; }
+  #dgm-msg { margin-top: calc(8px * var(--dgm-k)); font-size: calc(12px * var(--dgm-k));
+             color: #7dd3fc; white-space: pre-wrap;
              max-width: 26vw; text-align: left; }
   #dgm-msg.err { color: #f87171; }
   #dgm-msg.ok  { color: #4ade80; }
 
   #dgm-start {
-    background: #16a34a; color: #fff; border: 0; border-radius: 10px;
-    padding: 12px 20px; font-size: 17px; font-weight: 700; cursor: pointer;
+    background: #16a34a; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
+    padding: calc(12px * var(--dgm-k)) calc(20px * var(--dgm-k));
+    font-size: calc(17px * var(--dgm-k)); font-weight: 700; cursor: pointer;
   }
   #dgm-start:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   /* v1.11.0：全螢幕鈕。跟「開始量測」同一列，量測前才用得到 */
   #dgm-fs {
-    background: #0e7490; color: #fff; border: 0; border-radius: 10px;
-    padding: 12px 16px; font-size: 15px; font-weight: 700; cursor: pointer; margin-right: 8px;
+    background: #0e7490; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
+    padding: calc(12px * var(--dgm-k)) calc(16px * var(--dgm-k));
+    font-size: calc(15px * var(--dgm-k)); font-weight: 700; cursor: pointer;
+    margin-right: calc(8px * var(--dgm-k));
   }
   #dgm-fs:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   /* v1.11.0：停止鈕。🔴 獨立一顆、量測中才出現，而且跟開始鈕不同列不同色 ——
      如果讓開始鈕就地變成停止鈕，連點兩下開始就會直接把自己按停。 */
   #dgm-stop {
-    display: block; margin-top: 8px; margin-left: auto;
-    background: #dc2626; color: #fff; border: 0; border-radius: 10px;
-    padding: 11px 20px; font-size: 16px; font-weight: 700; cursor: pointer;
+    display: block; margin-top: calc(8px * var(--dgm-k)); margin-left: auto;
+    background: #dc2626; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
+    padding: calc(11px * var(--dgm-k)) calc(20px * var(--dgm-k));
+    font-size: calc(16px * var(--dgm-k)); font-weight: 700; cursor: pointer;
   }
   #dgm-stop.dgm-hidden { display: none; }
   /* v1.27.0：這一次量的是 DG 的哪一個步驟。名稱直接沿用 DG 頁那組字串，不另立新名字。
@@ -106,39 +150,49 @@
   /* 標頭：上面是步驟名稱（第 N 部分），下面是這一次量什麼（白灰階亮度／RGB 純色 Pattern）。
      兩行包在同一個容器裡，分隔線畫在容器上 —— 不然「有沒有第二行」會讓線的位置跳來跳去。 */
   #dgm-head {
-    margin: 0 0 9px; padding-bottom: 8px;
+    margin: 0 0 calc(9px * var(--dgm-k)); padding-bottom: calc(8px * var(--dgm-k));
     border-bottom: 1px solid rgba(255, 255, 255, .18);
     max-width: 26vw; text-align: right;
   }
   #dgm-head.dgm-hidden { display: none; }
   #dgm-step {
-    font: 700 22px/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    font: 700 calc(22px * var(--dgm-k))/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
     color: #e2e8f0; word-break: break-word;
   }
   /* v1.27.1：量測內容。輔助資訊，比步驟名稱小一級，但仍要一眼看得到（16px vs 周邊 12／14）。 */
   #dgm-what {
-    font: 600 16px/1.35 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-    color: #7dd3fc; margin-top: 2px; word-break: break-word;
+    font: 600 calc(16px * var(--dgm-k))/1.35 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    color: #7dd3fc; margin-top: calc(2px * var(--dgm-k)); word-break: break-word;
   }
   #dgm-what:empty { display: none; }
   /* v1.26.2：原本這裡有「關閉這個分頁」鈕（#dgm-close）與量完後的說明框（#dgm-done）。
      兩個都拿掉了 —— 理由見下面 run() 收尾處的註解。量完只留一句話，寫在 #dgm-msg。 */
-  #dgm-prog { margin-top: 8px; font: 700 22px/1.35 ui-monospace, Menlo, Consolas, monospace; }
-  #dgm-prog small { display: block; font-weight: 400; font-size: 12px; color: #94a3b8; }
+  #dgm-prog { margin-top: calc(8px * var(--dgm-k));
+              font: 700 calc(22px * var(--dgm-k))/1.35 ui-monospace, Menlo, Consolas, monospace; }
+  #dgm-prog small { display: block; font-weight: 400; font-size: calc(12px * var(--dgm-k)); color: #94a3b8; }
   /* v1.11.0：沒全螢幕時的閘門說明。紅框，講清楚為什麼擋、怎麼辦。
      v1.27.0：從右上角面板**搬到底部**（就在提示列上方）。它是說明不是狀態，
      而且它 130px 的高度正是把面板撐爆、害最後一行被裁掉的元凶。
      底部這一區沒有高度上限，字也放得下。 */
   /* 底部說明區：閘門紅框在上、操作提示在下，用同一個容器直排，
      免得兩塊各自 position:fixed 在行數變多時互相疊到。 */
+  /* v1.30.0：底部這一區也吃 --dgm-k。
+     🔴 這一條是我在 Bruce 原話（他只點名「右上角與左上角」）之外多做的一格，
+        理由是實測 4K 截圖看到的結果：兩個角落的字放大之後，**整個畫面唯一還看不清楚
+        的字就剩下這一塊**，而它偏偏是「下一步該做什麼」與全螢幕警示所在的地方，
+        留著不放大會直接違背他訂的硬性限制①（不要讓使用者因為字太小而看不到）。
+        已在回報中列明，若他認為不該動，把這幾行的 var(--dgm-k) 拿掉即可還原。 */
   #dgm-bottom {
-    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 7;
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    position: fixed; left: 50%; bottom: calc(22px * var(--dgm-k));
+    transform: translateX(-50%); z-index: 7;
+    display: flex; flex-direction: column; align-items: center; gap: calc(8px * var(--dgm-k));
     max-width: 70vw; pointer-events: none;
   }
   #dgm-gate {
-    padding: 9px 14px; border: 1px solid #dc2626; border-radius: 10px;
-    background: rgba(0, 0, 0, .78); color: #fecaca; font-size: 12.5px; line-height: 1.6;
+    padding: calc(9px * var(--dgm-k)) calc(14px * var(--dgm-k));
+    border: 1px solid #dc2626; border-radius: calc(10px * var(--dgm-k));
+    background: rgba(0, 0, 0, .78); color: #fecaca;
+    font-size: calc(12.5px * var(--dgm-k)); line-height: 1.6;
     text-align: center;
   }
   #dgm-gate.dgm-hidden { display: none; }
@@ -146,12 +200,77 @@
   /* v1.27.1：F11 全螢幕下按 ESC 時的提示（見下方 keydown 處理器的實測說明）。
      放底部說明區，全螢幕下也看得見；一句話，不解釋。 */
   #dgm-esc {
-    padding: 9px 16px; border: 1px solid #f59e0b; border-radius: 10px;
+    padding: calc(9px * var(--dgm-k)) calc(16px * var(--dgm-k));
+    border: 1px solid #f59e0b; border-radius: calc(10px * var(--dgm-k));
     background: rgba(0, 0, 0, .82); color: #fcd34d;
-    font: 700 15px/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    font: 700 calc(15px * var(--dgm-k))/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
     text-align: center;
   }
   #dgm-esc.dgm-hidden { display: none; }
+
+  /* ═══ v1.30.0：畫面不是 1:1／沒有全螢幕的警示 ══════════════════════════
+     判準與呈現形式**沿用 pattern.html v3.7.0／v3.8.1 那一套**，不另立第二套：
+       · 判準：common/zoomprobe.js（原本內嵌在 pattern.html，v3.8.2 抽出來共用）
+       · 呈現：邊緣橘色呼吸燈 ＋ 可關閉的全畫面提示視窗（樣式照抄，見下方註記）
+     🔴 只有**文字**不照抄 —— 依 Bruce 2026-09-11「警告文字越精簡越好，不用解釋，
+        只要告訴要怎麼做就好」，本頁的警示文字是重寫的最短版本。
+
+     🔴 只有**一條**呼吸燈、**一個**視窗：兩種狀況（沒全螢幕／不是 100%）同時成立
+        時不疊兩層框、不跳兩個視窗，視窗裡多一行字而已。
+
+     🔴 量測進行中一律不顯示（見 JS 的 dgmWarnSync）：視窗會蓋住整個畫面，
+        直接毀掉量測；呼吸燈是會變化的橘光，畫面在量測時必須是純灰階。
+        這與「量測一開始就把中心紅圈整個拿掉」是同一條規則。 */
+
+  /* (1) 邊緣橘色呼吸燈 —— 樣式照抄 pattern.html 的 #pg-zw-glow（同源，改要一起改）*/
+  #dgm-warn-glow {
+    position: fixed; inset: 0; z-index: 2147483200;
+    display: none; pointer-events: none;
+    /* 光暈的粗細也吃 --dgm-k：4K 上 7px 的邊只有 1080p 上的一半粗，會看不見 */
+    box-shadow:
+      inset 0 0 0 calc(7px * var(--dgm-k)) rgba(249,115,22,.98),
+      inset 0 0 calc(34px * var(--dgm-k)) calc(10px * var(--dgm-k)) rgba(249,115,22,.55);
+    animation: dgmWarnBreathe 1.6s ease-in-out infinite;
+  }
+  #dgm-warn-glow.on { display: block; }
+  @keyframes dgmWarnBreathe {
+    0%, 100% { opacity: .32; }
+    50%      { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #dgm-warn-glow { animation: none; opacity: .95; }
+  }
+
+  /* (2) 提示視窗 —— 🔴 一定可以關掉（誤判時不能把人鎖死），同 pattern */
+  #dgm-warn-modal {
+    position: fixed; inset: 0; z-index: 2147483100;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(2,6,23,.90); padding: calc(18px * var(--dgm-k));
+  }
+  #dgm-warn-modal.on { display: flex; }
+  .dgm-warn-box {
+    width: min(calc(460px * var(--dgm-k)), 100%);
+    background: #1e293b; color: #e2e8f0;
+    border: calc(2.5px * var(--dgm-k)) solid #f97316; border-radius: calc(14px * var(--dgm-k));
+    padding: calc(20px * var(--dgm-k)) calc(20px * var(--dgm-k)) calc(16px * var(--dgm-k));
+    text-align: center;
+    box-shadow: 0 0 0 calc(4px * var(--dgm-k)) rgba(249,115,22,.22), 0 18px 50px rgba(0,0,0,.7);
+  }
+  #dgm-warn-do {
+    font-size: calc(20px * var(--dgm-k)); font-weight: 900; color: #fdba74; line-height: 1.45;
+  }
+  /* 第二行只在「兩種狀況同時成立」時才有內容；:empty 時整行不佔位 */
+  #dgm-warn-do2 { font-size: calc(20px * var(--dgm-k)); font-weight: 900; color: #fdba74;
+                  line-height: 1.45; margin-top: calc(6px * var(--dgm-k)); }
+  #dgm-warn-do2:empty { display: none; }
+  #dgm-warn-close {
+    margin-top: calc(16px * var(--dgm-k)); width: 100%;
+    padding: calc(11px * var(--dgm-k)) calc(12px * var(--dgm-k));
+    border-radius: calc(9px * var(--dgm-k)); cursor: pointer;
+    background: #f97316; color: #1c0a00; border: none;
+    font-size: calc(14px * var(--dgm-k)); font-weight: 800; font-family: inherit;
+  }
+  #dgm-warn-close:hover { background: #fb923c; }
 
   /* ── 中心紅圈：讓探頭對準螢幕正中心 ──────────────────────────────────
      🔴 量測一開始就整個拿掉（display:none）。探頭正下方留著紅色圖案
@@ -226,7 +345,9 @@
   }
   #dgm-hint {
     background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
-    border-radius: 10px; padding: 9px 14px; font-size: 12.5px; color: #cbd5e1;
+    border-radius: calc(10px * var(--dgm-k));
+    padding: calc(9px * var(--dgm-k)) calc(14px * var(--dgm-k));
+    font-size: calc(12.5px * var(--dgm-k)); color: #cbd5e1;
     text-align: center;
   }
   #dgm-hint.dgm-hidden { display: none; }
@@ -244,15 +365,15 @@
 </head>
 <body>
 
-<!-- 左上角：解析度、目前灰階值、Frame rate -->
+<!-- 左上角：解析度、目前灰階值、Frame rate
+     v1.30.0：原本最下面那段 62 字的 .dgm-src（解釋兩個更新率為什麼會不一樣）已移除
+     —— 那是「為什麼」，兩個欄位的括號註記已經把來源講完了。 -->
 <div class="dgm-corner" id="dgm-info">
-  <div class="dgm-row"><span class="dgm-k">螢幕解析度</span><span class="dgm-v" id="dgm-res">—</span></div>
+  <div class="dgm-row"><span class="dgm-k">解析度</span><span class="dgm-v" id="dgm-res">—</span></div>
   <div class="dgm-row"><span class="dgm-k" id="dgm-gray-k">目前灰階值</span><span class="dgm-v" id="dgm-gray">128</span></div>
-  <div class="dgm-row"><span class="dgm-k">Frame rate（瀏覽器實測）</span><span class="dgm-v" id="dgm-fps">—</span></div>
-  <div class="dgm-row"><span class="dgm-k">畫面更新率（儀器 MVS）</span><span class="dgm-v" id="dgm-mvs">—</span></div>
+  <div class="dgm-row"><span class="dgm-k">Frame rate（瀏覽器）</span><span class="dgm-v" id="dgm-fps">—</span></div>
+  <div class="dgm-row"><span class="dgm-k">更新率（儀器）</span><span class="dgm-v" id="dgm-mvs">—</span></div>
   <div class="dgm-row"><span class="dgm-k">全螢幕</span><span class="dgm-v" id="dgm-fsstate">—</span></div>
-  <div class="dgm-src">上面那個 Frame rate 是本頁用 requestAnimationFrame 數出來的；
-    下面那個是量測儀自己偵測到的畫面更新率。兩個來源不同，不一定會一樣。</div>
 </div>
 
 <!-- 右上角：步驟名稱 ＋ 全螢幕 ＋ 開始量測 ＋ 停止 ＋ 進度 -->
@@ -269,7 +390,7 @@
   </div>
   <button id="dgm-stop" class="dgm-hidden">■ 停止</button>
   <div id="dgm-prog"></div>
-  <div id="dgm-msg">按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）→ 逐階掃 0～255。</div>
+  <div id="dgm-msg">連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。</div>
 </div>
 
 <!-- 中心紅圈：對位用，量測一開始就消失 -->
@@ -278,10 +399,20 @@
 <!-- v1.27.0：底部說明區。全螢幕閘門的說明（紅框）從右上角面板搬到這裡 ——
      它是「為什麼擋、怎麼辦」的說明，不是狀態；留在面板裡會把面板撐到被裁。 -->
 <div id="dgm-bottom">
-  <div id="dgm-esc" class="dgm-hidden">請按 F11 離開全螢幕</div>
+  <div id="dgm-esc" class="dgm-hidden">按 F11 離開全螢幕</div>
   <div id="dgm-gate" class="dgm-hidden"></div>
-  <div id="dgm-hint">把這個分頁拖到要量的那台螢幕上，<b>按右上角的「全螢幕」</b>（或鍵盤 F11），
-    再讓探頭對準中央紅圈的正中心。<b>不是全螢幕就不能開始量測</b> —— 紅圈的位置會被網址列擠歪。</div>
+  <!-- v1.30.0：只留「要做什麼」的四步，理由全刪（原文 66 字 → 26 字）。 -->
+  <div id="dgm-hint">拖到要量的螢幕 → 按「全螢幕」 → 探頭對準紅圈中心 → 按「開始量測」</div>
+</div>
+
+<!-- v1.30.0：警示層。呼吸燈一條、視窗一個，兩種狀況共用（見 CSS 那段說明） -->
+<div id="dgm-warn-glow" aria-hidden="true"></div>
+<div id="dgm-warn-modal" role="alertdialog" aria-modal="true" aria-labelledby="dgm-warn-do">
+  <div class="dgm-warn-box">
+    <div id="dgm-warn-do">—</div>
+    <div id="dgm-warn-do2"></div>
+    <button id="dgm-warn-close">知道了</button>
+  </div>
 </div>
 
 <div id="dgm-log"></div>
@@ -485,14 +616,14 @@
   function dgmErrName(e) {
     return (e && (e.name || '')) + '';
   }
-  // 一步一句，不解釋。
+  // v1.30.0：一句話講「要做什麼」，不解釋為什麼。
   var DGM_ERR = {
-    unsupported: '這個瀏覽器不能連量測儀 —— 請改用 Chrome 或 Edge 開這一頁。',
+    unsupported: '請改用 Chrome 或 Edge。',
     // 取消與「一台都沒有」在 API 上同一種錯誤，所以這句話兩種情況都要成立
-    noPort:      '沒有選到量測儀 —— 確認 USB 線已接上量測儀，再按一次「開始量測」。',
-    denied:      '瀏覽器擋下了序列埠存取 —— 請在網址列的權限設定裡允許，再按一次。',
-    busy:        '量測儀打不開 —— 多半是 CA-S40 原廠軟體還開著佔住它，請先關掉 CA-S40 再按一次。',
-    lost:        '量測儀斷線了 —— 接回 USB 後按「重新量測」'
+    noPort:      '沒選到量測儀 —— 接上 USB 再按一次。',
+    denied:      '在網址列權限裡允許序列埠，再按一次。',
+    busy:        '量測儀被佔用 —— 關掉 CA-S40 再按一次。',
+    lost:        '量測儀斷線 —— 接回 USB 後按「重新量測」。'
   };
 
   /* 量測進行中掉線：一律走既有的 abort（＝這一輪作廢、**不回傳半套資料**）。
@@ -619,14 +750,15 @@
       || document.mozFullScreenElement || document.msFullscreenElement) return true;
     return !!(DGM_MQ_FS && DGM_MQ_FS.matches);
   }
-  var GATE_TEXT = '<b>還沒有全螢幕，所以「開始量測」是關著的。</b>'
-    + '不是全螢幕時，網址列與分頁列會把畫面往下擠，<b>中央紅圈的位置就不是螢幕的正中心</b>，'
-    + '照著它擺探頭會量到錯的位置。<br><b>怎麼辦：</b>按左邊那顆「全螢幕」（或鍵盤 F11），'
-    + '進去之後這顆鈕就會自己打開。';
+  /* v1.30.0：原本這裡是一段 96 字的說明（為什麼擋、會發生什麼事、怎麼辦）。
+     依 Bruce 2026-09-11「只要告訴要怎麼做就好」砍成一句要做的事。
+     🔴 這句話與警示視窗第二行是**同一個常數**，不是兩份各寫各的。 */
+  var DGM_FS_DO = '按「全螢幕」或 F11';
+  var GATE_TEXT = DGM_FS_DO;
 
   function syncFs() {
     var fs = isFs();
-    $('dgm-fsstate').textContent = fs ? '是' : '否（不能量測）';
+    $('dgm-fsstate').textContent = fs ? '是' : '否';
     $('dgm-fsstate').style.color = fs ? '#4ade80' : '#f87171';
     $('dgm-fs').disabled = fs;
     $('dgm-fs').textContent = fs ? '已全螢幕' : '全螢幕';
@@ -638,6 +770,10 @@
        v1.27.0：這一條現在對 **F11 退出**也成立 —— 因為 isFs() 認得 display-mode，
        而下面三種事件裡的 mq change／resize 會在 F11 進出時把這一支叫起來。 */
     if (running && !fs) abort('量測中離開了全螢幕');
+    /* v1.30.0：🔴 全螢幕的判定點仍然只有 isFs() 這一支。警示層不自己判一次，
+       由這裡把結果推過去 —— 「未全螢幕就擋住開始量測」與「未全螢幕就亮呼吸燈」
+       是同一個狀態，不能有兩個來源。 */
+    dgmWarnSync();
   }
   /* v1.27.0：三條觸發路徑，缺一不可，但全部只呼叫同一支 syncFs()：
      ① fullscreenchange（＋各家前綴）—— Fullscreen API 那一條
@@ -651,6 +787,97 @@
     else if (DGM_MQ_FS.addListener) DGM_MQ_FS.addListener(syncFs);   // 舊版 Safari
   }
   window.addEventListener('resize', syncFs);
+
+  /* ═══ v1.30.0：兩個面板隨解析度自適應 ═══════════════════════════════════
+     曲線與上下限的依據寫在最上面那段 CSS 註解裡（--dgm-k）。這裡只負責算出來。
+     🔴 用 viewport（innerWidth/innerHeight）不用 screen.width：量測時本來就強制
+        全螢幕，兩者一致；而沒全螢幕時使用者看到的是視窗，面板該配合的是視窗。 */
+  var DGM_K_MIN = 1, DGM_K_MAX = 2;
+  var DGM_K_REF_W = 1920, DGM_K_REF_H = 1080;
+  function dgmScale() {
+    var w = window.innerWidth || DGM_K_REF_W, h = window.innerHeight || DGM_K_REF_H;
+    var k = Math.min(w / DGM_K_REF_W, h / DGM_K_REF_H);
+    if (!isFinite(k) || k <= 0) k = 1;
+    return Math.max(DGM_K_MIN, Math.min(DGM_K_MAX, k));
+  }
+  function dgmScaleSync() {
+    document.documentElement.style.setProperty('--dgm-k', String(dgmScale()));
+  }
+  window.addEventListener('resize', dgmScaleSync);
+  dgmScaleSync();
+
+  /* ═══ v1.30.0：警示層（畫面不是 1:1／沒有全螢幕）═════════════════════════
+     判準：
+       ① 沒有全螢幕 —— **沿用既有的 isFs()**，不另寫一份（見 syncFs 結尾）
+       ② 畫面不是 1:1 —— common/zoomprobe.js（與 pattern.html 同一支）
+     呈現（Bruce 2026-09-11：「越精簡越好，不用解釋，只要告訴要怎麼做」）：
+       · 呼吸燈：①或②任一成立就亮，**只有一條**，兩者同時成立也不疊第二條。
+       · 提示視窗：只有②會彈（①已經有底部那一行紅字 ＋ 開始鈕是關著的，
+         再彈一個視窗就是同一件事講兩次）。兩者同時成立時，視窗多一行寫①，
+         仍然只有一個視窗。
+       · 視窗可以關掉（誤判時不能把人鎖死）；狀態換成另一個值時會重新彈出來。
+     🔴 量測進行中一律不顯示：視窗會蓋住整個量測畫面，呼吸燈是會變化的橘光，
+        而量測時畫面必須是純灰階 —— 跟「量測一開始就把中心紅圈拿掉」同一條規則。 */
+  function dgmZoom() {
+    // 載不到 common/zoomprobe.js 時：寧可不報，也不要自己在這裡補一套判準。
+    return (typeof window.tconZoomProbe === 'function') ? window.tconZoomProbe() : null;
+  }
+  var dgmWarnDismissed = '';   // 被使用者關掉的那個狀態的簽章
+  var dgmWarnSig = '';         // 目前狀態的簽章
+
+  function dgmWarnSync() {
+    var glow = $('dgm-warn-glow'), modal = $('dgm-warn-modal');
+    if (!glow || !modal) return;
+
+    // 量測中：兩者都不顯示（理由見上）
+    if (running) {
+      glow.classList.remove('on');
+      modal.classList.remove('on');
+      return;
+    }
+
+    var fsBad = !isFs();
+    var p = dgmZoom();
+    var zoomBad = !!(p && (p.zoomBad || p.osBad || p.pinchBad));
+
+    glow.classList.toggle('on', fsBad || zoomBad);
+
+    if (!zoomBad) {
+      modal.classList.remove('on');
+      dgmWarnSig = ''; dgmWarnDismissed = '';
+      return;
+    }
+
+    // 一句話，只講要做什麼。三種成因對應三個不同的動作，所以分開講。
+    var doText = p.zoomBad ? '瀏覽器縮放改回 100%（Ctrl+0 / ⌘0）'
+               : p.osBad   ? '系統顯示縮放改回 100%'
+                           : '畫面縮放改回原大小';
+    $('dgm-warn-do').textContent = doText;
+    // 第二行只在「同時沒有全螢幕」時才有東西；:empty 時整行不佔位
+    $('dgm-warn-do2').textContent = fsBad ? DGM_FS_DO : '';
+
+    /* 簽章：狀態換成**另一個**不對的值時，先前按過的「知道了」不再適用，視窗要重新彈。
+       🔴 簽章一定要用**數值**組（照 pattern 的 pgZwSync 那一行），不能用上面那句
+          doText —— 本頁的文案刻意不帶百分比（Bruce 要最短），125% 與 150% 的
+          doText 一字不差，用它當簽章的結果是「關掉之後改成 150% 也不會再彈」。
+          （實測抓到：verify_B2 的第 ⑨ 項，第一版就是這樣寫的。） */
+    var sig = p.zoom.toFixed(4) + '/' + Math.round(p.base * 1000) + '/'
+            + p.vv.toFixed(3) + '/' + (fsBad ? '1' : '0');
+    if (sig !== dgmWarnSig) { dgmWarnSig = sig; dgmWarnDismissed = ''; }
+    modal.classList.toggle('on', dgmWarnDismissed !== sig);
+  }
+  $('dgm-warn-close').addEventListener('click', function () {
+    dgmWarnDismissed = dgmWarnSig;
+    $('dgm-warn-modal').classList.remove('on');   // 呼吸燈刻意保留
+  });
+  /* 即時反映：縮放與視窗大小改變都會發 resize；visualViewport 管雙指縮放；
+     每秒輪詢是保底（讀幾個屬性，成本可忽略）——與 pattern 的做法相同。 */
+  window.addEventListener('resize', dgmWarnSync);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', dgmWarnSync);
+    window.visualViewport.addEventListener('scroll', dgmWarnSync);
+  }
+  setInterval(dgmWarnSync, 1000);
 
   /* ═══ v1.27.1：F11 全螢幕下按 ESC ═══════════════════════════════════════
      Bruce 2026-09-09：「用 F11 進全螢幕時，只能再按一次 F11 退出，按 ESC 沒用；
@@ -688,11 +915,12 @@
   $('dgm-fs').addEventListener('click', function () {
     var el = document.documentElement;
     var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
-    if (!req) { msg('這個瀏覽器不支援全螢幕 API，請直接按鍵盤 F11。', 'err'); return; }
+    if (!req) { msg('請按 F11。', 'err'); return; }
     // 必須由使用者手勢觸發，所以只能放在 click 裡
     var p = req.call(el);
     if (p && p.catch) p.catch(function (e) {
-      msg('進不了全螢幕：' + e.message + '\n請直接按鍵盤 F11。', 'err');
+      log('requestFullscreen 失敗：' + e.message, 'e');   // 原始字串只進 log
+      msg('進不了全螢幕，請按 F11。', 'err');
     });
   });
 
@@ -722,7 +950,7 @@
     if (abortWake) abortWake();          // 把正在等的 sleep 立刻叫醒
     $('dgm-stop').disabled = true;
     $('dgm-stop').textContent = '停止中…';
-    msg('正在停止（' + reason + '）…\n序列埠沒有「取消」這回事，會在目前這一步結束後停下來。', 'err');
+    msg('停止中（' + reason + '）—— 會在這一步結束後停下。', 'err');
   }
   $('dgm-stop').addEventListener('click', function () { abort('你按了停止'); });
 
@@ -730,7 +958,7 @@
     if (running) return;
     // 🔴 閘門第二層：邏輯層。繞過 disabled 也進不去。
     if (!isFs()) {
-      msg('還沒有全螢幕，不能開始量測。\n先按左邊那顆「全螢幕」（或鍵盤 F11）。', 'err');
+      msg('先' + DGM_FS_DO + '。', 'err');
       syncFs();
       return;
     }
@@ -745,24 +973,25 @@
     // 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
     $('dgm-ring').classList.add('dgm-hidden');
     $('dgm-hint').classList.add('dgm-hidden');
+    // v1.30.0：同一個理由 —— 呼吸燈（會變化的橘光）與警示視窗也一併收起來。
+    dgmWarnSync();
 
     try { await run(); }
     catch (e) { msg('出錯了：' + e.message, 'err'); log('例外：' + e.message, 'e'); }
     running = false; finished = true;
     progStop();
+    dgmWarnSync();          // v1.30.0：量完（或中止）之後警示要立刻回來，不必等輪詢
     $('dgm-stop').classList.add('dgm-hidden');
     $('dgm-start').textContent = '重新量測';
     $('dgm-start').disabled = !isFs();     // 停止後可以直接再按一次；掉出全螢幕就仍然關著
     if (aborted) {
       setGray(128);
-      msg('已停止（' + aborted + '）。本次量到 ' + lastStep + ' 筆'
-        + (lastGray === null ? '（還沒進到量測）' : '，停在 ' + lastGray)
-        + '，已跑 ' + fmtDur(elapsedMs()) + '。\n'
-        + '🔴 這次的資料不會回填 DG —— '
-        + (DGM_MODE === 'prim' ? 'DG 第 3 部分要的是 R／G／B 三筆都到齊，'
-          : 'DG 第 2 部分要的是完整 L0 ～ L' + (DGM_STEPS - 1) + '，')
-        + '半套資料灌進去只會讓後面的計算錯得很安靜，所以整批丟掉。\n'
-        + '序列埠沒有關掉，直接按「重新量測」就能再跑一次，不必重選埠、也不用重整頁面。', 'err');
+      /* v1.30.0：原本這裡有 3 行、共 138 字（含「為什麼半套資料不能用」的整段理由）。
+         留「發生了什麼、下一步按哪裡」，理由刪掉 —— 那段理由寫在下面 abort() 的
+         程式碼註解裡，看得到的人是維護者，不是量測中的使用者。 */
+      msg('已停止（' + aborted + '）：量到 ' + lastStep + ' 筆'
+        + (lastGray === null ? '' : '，停在 ' + lastGray)
+        + '，已跑 ' + fmtDur(elapsedMs()) + '。\n資料未回填，按「重新量測」重跑。', 'err');
       $('dgm-prog').innerHTML = '已停止'
         + '<small>' + (lastGray === null ? '尚未開始量測' : '停在 ' + lastGray)
         + '　已跑 ' + fmtDur(elapsedMs()) + '　未回填</small>';
@@ -802,12 +1031,22 @@
     },
     whatText: function () { return $('dgm-what').textContent; },             // v1.27.1 驗證用
     loadId: function () { return DGM_LOAD_ID; },
-    taskSwitches: function () { return dgmSwitchCount; }
+    taskSwitches: function () { return dgmSwitchCount; },
+    // v1.30.0 驗證用：自適應係數與警示層的實際狀態（只有 getter，改不動任何東西）
+    scaleK: function () { return dgmScale(); },
+    scaleVar: function () {
+      return getComputedStyle(document.documentElement).getPropertyValue('--dgm-k').trim();
+    },
+    zoomProbe: dgmZoom,
+    glowOn: function () { return $('dgm-warn-glow').classList.contains('on'); },
+    modalOn: function () { return $('dgm-warn-modal').classList.contains('on'); },
+    warnDo: function () { return $('dgm-warn-do').textContent; },
+    warnDo2: function () { return $('dgm-warn-do2').textContent; }
   };
 
   async function run() {
     // 閘門第三層：run() 自己也不信任呼叫端（將來若多一條啟動路徑，這裡照樣擋）
-    if (!isFs()) { msg('還沒有全螢幕，不能開始量測。', 'err'); return; }
+    if (!isFs()) { msg('先' + DGM_FS_DO + '。', 'err'); return; }
     /* v1.27.0：用 `!navigator.serial` 而不是 `'serial' in navigator` ——
        後者只看屬性在不在，值是 undefined 時仍然為真，等於沒擋到。 */
     if (!navigator.serial) { msg(DGM_ERR.unsupported, 'err'); return; }
@@ -823,7 +1062,7 @@
     if (aborted) return;
     if (ports.length) port = ports[0];
     else {
-      msg('請在清單裡選量測儀對應的序列埠。');
+      msg('請選量測儀的序列埠。');
       try { port = await navigator.serial.requestPort(); }
       catch (e) {
         /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
@@ -856,7 +1095,7 @@
 
     // 2. 初始化
     for (var i = 0; i < INIT.length; i++) {
-      msg('設定中… ' + (i + 1) + '/' + INIT.length + '：' + INIT[i][1]);
+      msg('設定中 ' + (i + 1) + '/' + INIT.length + '：' + INIT[i][1]);
       var r = await cmd(INIT[i][0], 6000);
       if (aborted) return;
       if (r === null) { msg('沒有回應，卡在 ' + INIT[i][0] + '。', 'err'); await closePort(); return; }
@@ -881,22 +1120,22 @@
     if ($('dgm-mvs').textContent === '—') $('dgm-mvs').textContent = '測不到';
 
     // 3. 零校正
-    msg('零校正中 —— 請蓋上遮光蓋，約十秒別動。');
+    msg('零校正中 —— 蓋上遮光蓋，十秒別動。');
     var z = await cmd('ZRC', 40000);
     if (aborted) return;
     if (z === null || /^ER/.test(z)) {
-      msg('零校正失敗：' + (z || '逾時') + '\n確認遮光蓋有蓋好，再按一次。', 'err');
+      msg('零校正失敗（' + (z || '逾時') + '）—— 蓋好遮光蓋再按一次。', 'err');
       await closePort(); return;
     }
     for (var s = 5; s > 0; s--) {
-      msg('請打開遮光蓋、把探頭對準畫面中心。\n' + s + ' 秒後開始逐階掃描。');
+      msg('打開遮光蓋，探頭對準中心。' + s + ' 秒後開始。');
       await waitOrAbort(1000);
       if (aborted) return;
     }
 
     // 4. 逐階（或逐色）量測。兩種模式只差「畫面填什麼」與「回報的第一欄是什麼」。
     var rows = [], bad = 0;
-    msg('量測中，請不要動探頭。要中止就按上面的紅色「停止」。');
+    msg('量測中，別動探頭。');
     for (var g = 0; g < DGM_STEPS; g++) {
       var key;
       if (DGM_MODE === 'prim') {
@@ -926,7 +1165,9 @@
       var p = res.split(',');
       var x = parseFloat(p[3]), y = parseFloat(p[4]), lv = parseFloat(p[5]);
       if (isNaN(x) || isNaN(y) || isNaN(lv)) {
-        if (++bad >= 3) { msg('回應解不出 x／y／Lv，停在 ' + progLabel + '。\n' + res, 'err'); break; }
+        // 原始回應只進左下角 log（那是給維護者看的），畫面上只留一句
+        if (++bad >= 3) { log('解不出的回應：' + res, 'e');
+                          msg('回應解不出 x／y／Lv，停在 ' + progLabel + '。', 'err'); break; }
         g--; continue;
       }
       rows.push([key, x, y, lv]);
@@ -944,8 +1185,7 @@
       msg('只量到 ' + rows.length + ' 筆（需要 ' + need + ' 筆），沒有回傳。', 'err'); return;
     }
     if (!window.opener || window.opener.closed) {
-      msg('量到 ' + rows.length + ' 階，但找不到 DG 那個分頁（可能已經被關掉）。\n'
-        + '請回到 DG 頁重新按「即時量測」再量一次。', 'err');
+      msg('找不到 DG 分頁 —— 回 DG 頁重新按「即時量測」。', 'err');
       return;
     }
     window.opener.postMessage(
@@ -984,14 +1224,12 @@
       document.title = '即時量測（RGB 純色）— DG — TCON FAE專用工具箱';
       $('dgm-gray-k').textContent = '目前純色';
       setFill(128, 128, 128, '—');
-      $('dgm-msg').textContent = '按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）'
-        + '→ 依序顯示純紅、純綠、純藍三個滿版畫面，各量一次。';
+      $('dgm-msg').textContent = '連線 → 初始化 → 零校正（蓋遮光蓋）→ 量紅、綠、藍。';
     } else {
       document.title = '即時量測 — DG — TCON FAE專用工具箱';
       $('dgm-gray-k').textContent = '目前灰階值';
       setGray(128);
-      $('dgm-msg').textContent = '按「開始量測」會依序：連線 → 初始化 → 零校正（要蓋遮光蓋）'
-        + '→ 逐階掃 0～255。';
+      $('dgm-msg').textContent = '連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。';
     }
     $('dgm-msg').className = '';
   }
@@ -1043,10 +1281,11 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
     log('主控頁切換量測任務' + (where ? '：' + where : '') + '（' + DGM_MODE + '）', 'o');
+    /* v1.30.0：括號裡那段（「這個分頁沒有重開，你擺的位置與儀器連線都維持原樣」）
+       是解釋，砍掉 —— 位置與連線本來就沒動，使用者看畫面就知道。 */
     $('dgm-hint').innerHTML =
-      '<b style="color:#4ade80">DG 頁已把這個分頁切到'
-      + (where ? '「' + where + '」' : '新的任務') + '的量測（這個分頁沒有重開，'
-      + '你擺的位置與儀器連線都維持原樣）。</b><br>' + DGM_HINT_BASE;
+      '<b style="color:#4ade80">已切到'
+      + (where ? '「' + where + '」' : '新的任務') + '</b><br>' + DGM_HINT_BASE;
   }
 
   function dgmApplyTask(t) {
