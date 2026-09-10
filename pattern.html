@@ -1221,8 +1221,10 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20260909pat381"></script>
-<script src="common/i18n.js?v=20260909pat381"></script>
+<script src="common/version.js?v=20260911pat382"></script>
+<script src="common/i18n.js?v=20260911pat382"></script>
+<!-- v3.8.2：縮放判準的單一來源（原本內嵌在本頁，dg-measure.html 也要用同一份） -->
+<script src="common/zoomprobe.js?v=20260911pat382"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
@@ -1325,35 +1327,16 @@
   // 🔴 反向縮放（CSS transform / zoom 抵銷）刻意不做：本工具的用途是次像素精確度，
   //    任何重新取樣都會讓圖樣失真，糊掉的圖樣比縮放錯誤更糟（Bruce 2026-09-09 裁示）。
 
-  var PG_ZW_STEPS = [1/4, 1/3, 1/2, 2/3, 3/4, 4/5, 9/10, 1, 11/10, 5/4, 3/2, 7/4, 2, 5/2, 3, 4, 5];
   var pgZwDismissed = '';        // 已被使用者關掉的那個狀態的簽章
   var pgZwLastSig   = null;      // 上一次同步時的簽章（用來判斷狀態有沒有變）
   var PG_DOC_TITLE  = document.title;
 
+  /* v3.8.2：判準本體搬到 common/zoomprobe.js（**一字未改**，含那張實測表格）。
+     搬出去的唯一理由是 dg-measure.html 要用同一組判準 —— 判準有兩份就一定會分岔。
+     這裡只留一層委派：本頁的呈現（i18n 文案、視窗、橫幅、螢幕資訊卡讀數）全部不動。
+     🔴 同源標記：common/zoomprobe.js ←→ 本函式，改判準只准改 common 那一份。 */
   function pgZoomProbe(){
-    var dpr = window.devicePixelRatio || 1;
-    var iw  = window.innerWidth || 0, ow = window.outerWidth || 0;
-    var raw = (iw > 0 && ow > 0) ? (ow / iw) : 1;
-    // 對到瀏覽器的離散縮放檔位。
-    // |raw - 1| <= 0.05 一律當成 100%：視窗邊框寬度會混進 outerWidth，這個容差用來吸收它。
-    // 縮放檔位最小的一格差距是 ±10%，5% 容差不會把 110%／90% 誤判成 100%。
-    var zoom = 1, bestD = Infinity;
-    for (var i = 0; i < PG_ZW_STEPS.length; i++) {
-      var d = Math.abs(raw - PG_ZW_STEPS[i]);
-      if (d < bestD) { bestD = d; zoom = PG_ZW_STEPS[i]; }
-    }
-    // 不像任何檔位（例如某些瀏覽器的 outerWidth 不可靠）→ 寧可漏報，也不誤報
-    var reliable = (bestD <= 0.06);
-    if (Math.abs(raw - 1) <= 0.05) { zoom = 1; reliable = true; }
-    if (!reliable) zoom = 1;
-    var base = dpr / zoom;
-    var vv = (window.visualViewport && window.visualViewport.scale) || 1;
-    return {
-      dpr: dpr, raw: raw, zoom: zoom, base: base, vv: vv, reliable: reliable,
-      zoomBad:  reliable && Math.abs(zoom - 1) > 1e-6,
-      osBad:    Math.abs(base - Math.round(base)) > 0.02,
-      pinchBad: Math.abs(vv - 1) > 0.01
-    };
+    return window.tconZoomProbe();
   }
 
   function pgZwHost(){
