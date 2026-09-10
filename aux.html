@@ -103,6 +103,7 @@
     padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #ef4444; font-weight: 600;
   }
   .aux-anomaly { color: #ef4444; font-weight: 600; }
+  .aux-summary-nomap { color: var(--text-sub); }
   .aux-combo-back {
     display: inline-block; margin-left: 6px; padding: 6px 10px; border: 1.5px solid var(--border);
     border-radius: 8px; background: transparent; color: var(--accent); font-size: 12px;
@@ -777,10 +778,10 @@
   </div>
 </div><!-- /page-aux -->
 
-<script src="common/version.js?v=20260907dg1130"></script>
+<script src="common/version.js?v=20260910aux250"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="data/dpcd-db.js?v=200"></script>
+<script src="data/dpcd-db.js?v=20260910aux250"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -1331,6 +1332,17 @@ function _tAux(key, vars) {
     'descTitle':       { 'zh-TW': '📝 說明',           'zh-CN': '📝 说明',           'en': '📝 Description' },
     'inputVal':        { 'zh-TW': '輸入值',             'zh-CN': '输入值',            'en': 'Input Value' },
     'summaryTitle':    { 'zh-TW': '📊 總結',            'zh-CN': '📊 总结',           'en': '📊 Summary' },
+    'sumSep':          { 'zh-TW': '；',                'zh-CN': '；',                'en': '; ' },
+    'sumDecoded':      { 'zh-TW': '此值代表：',          'zh-CN': '此值代表：',          'en': 'This value means: ' },
+    'sumUndef':        { 'zh-TW': '⚠ 下列欄位的值不在已定義範圍（未定義／保留值）：',
+                         'zh-CN': '⚠ 下列字段的值不在已定义范围（未定义／保留值）：',
+                         'en':    '⚠ The following fields hold values outside the defined range (undefined/reserved): ' },
+    'sumRsvdNonZero':  { 'zh-TW': '⚠ 下列保留欄位不為 0（規格要求保留位寫 0，讀到非 0 通常代表新版規格已定義該欄位或讀取異常）：',
+                         'zh-CN': '⚠ 下列保留字段不为 0（规格要求保留位写 0，读到非 0 通常代表新版规格已定义该字段或读取异常）：',
+                         'en':    '⚠ The following reserved fields are non-zero (the spec requires reserved bits to be 0; a non-zero read usually means a newer spec defines the field, or a read error): ' },
+    'sumNoMap':        { 'zh-TW': '本工具尚無下列欄位的權威值定義，請查規格書：',
+                         'zh-CN': '本工具尚无下列字段的权威值定义，请查规格书：',
+                         'en':    'No authoritative value definition available for the following fields; consult the spec: ' },
     'bitName':         { 'zh-TW': '英文名稱',            'zh-CN': '英文名称',          'en': 'Name' },
     'bitCname':        { 'zh-TW': '中文名稱',            'zh-CN': '中文名称',          'en': 'Chinese Name' },
     'value':           { 'zh-TW': '值',               'zh-CN': '值',               'en': 'Value' },
@@ -1547,8 +1559,9 @@ function auxLookupDPCD(addrStr, valStr) {
   }
 
   // ─── 總結區塊 ───
-  if (hasVal && DPCD_SUMMARIZE[addr]) {
-    var summary = DPCD_SUMMARIZE[addr](val);
+  // 手寫總結優先；沒有手寫總結的位址才交給資料驅動的自動總結引擎
+  if (hasVal) {
+    var summary = DPCD_SUMMARIZE[addr] ? DPCD_SUMMARIZE[addr](val) : auxDpcdAutoSummary(entry, val);
     if (summary) {
       html += '<div class="aux-summary-block"><div class="aux-summary-title">' + _tAux('summaryTitle') + '</div><div class="aux-summary-text">' + summary + '</div></div>';
     }
@@ -1753,6 +1766,68 @@ var DPCD_SUMMARIZE = {
     if (v === 0) return W("Extended 速率為 0，可能不支援 Extended Capability 或讀取異常。");
     if (!rateMap[v]) return W("0x" + v.toString(16).toUpperCase() + " 不是已知速率值。");
     return "Extended 最大速率：" + rateMap[v] + "。如果與 00001h 不同，以此為準。";
+  },
+
+  // ═══ A 類：整個 byte 有明確值語意、原本只寫在說明文字裡的位址 ═══
+  // 語意來源一律是該位址 DPCD_DB 的 d 說明欄（既有資料），不另行推測。
+
+  // 00074h PSR2_SU_Y_GRANULARITY — d：「表示 SU 區域的最小垂直像素行數。值為 0 表示不限制。」
+  "00074": function(v) {
+    if (v === 0) return "PSR2 Selective Update 垂直方向不限制粒度。";
+    return "PSR2 Selective Update 的最小垂直粒度：" + v + " 行。";
+  },
+  // 000B2h SU_X_GRANULARITY[7:0] — d：「0000h = 無額外 X 粒度要求，僅受標準限制…」（16-bit 與 000B3h 合併）
+  "000B2": function(v) {
+    return "SU X 粒度低 8-bit = 0x" + v.toString(16).toUpperCase().padStart(2, '0') +
+      "。需與 000B3h（高 8-bit）合併為 16-bit 才是完整粒度；16-bit 全為 0000h 代表無額外 X 粒度要求（僅受標準限制：起始 X 需能被 16 整除、矩形寬度需能被 4 整除）。";
+  },
+  // 000B4h SU_Y_GRANULARITY — d：「00h/01h = 1 行、02h = 2 行、04h = 4 行、08h = 8 行、10h = 16 行。」
+  "000B4": function(v) {
+    var m = { 0x00: "1 行", 0x01: "1 行", 0x02: "2 行", 0x04: "4 行", 0x08: "8 行", 0x10: "16 行" };
+    if (!m[v]) return W("0x" + v.toString(16).toUpperCase().padStart(2, '0') +
+      " 不在 eDP v1.5 為此欄位定義的值（00h/01h/02h/04h/08h/10h）之內，屬未定義／保留值。");
+    return "SU Y 粒度：" + m[v] + "（Selective Update 網格在垂直方向的最小單位）。";
+  },
+  // 00330h ALPM Sink Device Power Management State — d：「0=未知、1=ACTIVE…7=OFF」
+  "00330": function(v) {
+    var m = {
+      0: "未知（Sink 未回報）", 1: "ACTIVE（正常運作）", 2: "ACTIVE_NOSTREAM（無串流但仍活躍）",
+      3: "STANDBY（待機）", 4: "FW_STANDBY（韌體待機）", 5: "SLEEP（睡眠）",
+      6: "FW_SLEEP（韌體睡眠）", 7: "OFF（關閉）"
+    };
+    if (!(v in m)) return W("0x" + v.toString(16).toUpperCase().padStart(2, '0') +
+      " 超出本暫存器已定義的狀態值（0～7），屬未定義／保留值。");
+    return "Sink 目前的 ALPM 電源管理狀態：" + m[v] + "。";
+  },
+  // 003F0h Early Scanline SDP for PSR2 — d：「0 = 預設…1 = 支援…2 = 不支援 Early Scanline SDP 但…」
+  "003F0": function(v) {
+    var m = {
+      0: "預設值：不支援 PSR2 Early Scanline。若 Hblank &lt; 100ns 則停用 PSR2 改用 PSR1。",
+      1: "支援 PSR2 Early Scanline SDP。若 Hblank &lt; 100ns 則啟用 PSR2 搭配 Early Scanline SDP。",
+      2: "不支援 Early Scanline SDP，但 VSC SDP 設定時間要求小於 100ns。若 Hblank &lt; 100ns 則不使用 Early Scanline 功能、直接啟用 PSR2。"
+    };
+    if (!(v in m)) return W("0x" + v.toString(16).toUpperCase().padStart(2, '0') +
+      " 不在本暫存器已定義的值（0／1／2）之內，屬未定義／保留值。");
+    return m[v];
+  },
+  // 00700h EDP_DPCD_REV — d：「版本對應：01h = eDP v1.1、02h = eDP v1.2 … 06h = eDP v1.5」
+  //                        「此欄位僅在 eDP 面板中有意義（外接 DP 螢幕此欄位通常為 00h）」
+  "00700": function(v) {
+    var m = { 0x01: "eDP v1.1", 0x02: "eDP v1.2", 0x03: "eDP v1.3", 0x04: "eDP v1.4", 0x05: "eDP v1.4b", 0x06: "eDP v1.5" };
+    if (v === 0x00) return "此欄位為 00h。此欄位僅在 eDP 面板中有意義，外接 DP 螢幕通常回報 00h。";
+    if (!m[v]) return W("0x" + v.toString(16).toUpperCase().padStart(2, '0') +
+      " 不在已定義的 eDP 版本值（01h～06h）之內，屬未定義／保留值。");
+    return "此面板的 eDP DPCD 版本：" + m[v] + "。" +
+      (v >= 0x04 ? " PSR 自 v1.3 起、PSR2 自 v1.4 起支援。" :
+       v >= 0x03 ? " PSR 自 v1.3 起支援；PSR2 需 v1.4 以上。" : " 尚不支援 PSR（PSR 自 v1.3 起）。");
+  },
+  // 02209h BUFFER_SIZE_0 — d：「接收端口 0 緩衝區大小 = (值+1) × 32 bytes/Lane，最大 8 KB/Lane。」
+  "02209": function(v) {
+    return "接收端口 0 緩衝區大小：(" + v + "+1) × 32 = " + ((v + 1) * 32) + " bytes/Lane。";
+  },
+  // 0220Bh BUFFER_SIZE_1 — 同上公式，作用於接收端口 1
+  "0220B": function(v) {
+    return "接收端口 1 緩衝區大小：(" + v + "+1) × 32 = " + ((v + 1) * 32) + " bytes/Lane。";
   }
 };
 
@@ -1774,6 +1849,73 @@ function auxExtractBits(val, range) {
     const bit = parseInt(range);
     return (val >>> bit) & 1;
   }
+}
+
+// ═══════════ 自動總結引擎（資料驅動）═══════════
+// 設計原則（不可違反）：
+//  1. 手寫的 DPCD_SUMMARIZE 一律優先，本引擎只在該位址「沒有」手寫總結時才啟用
+//     → 既有已有總結的位址逐字元不變
+//  2. 所有語意只來自 DPCD_DB 既有的 b[].v 值對照表，不對沒有對照的欄位下任何判斷
+//     → 不發明暫存器語意
+//  3. 值落在已定義枚舉之外，明講「未定義／保留」，不留空白
+//  4. 整個暫存器一個可解碼欄位都沒有時回傳空字串（維持原狀，不製造無意義的總結）
+
+// 由 b 項目算出 bit range 字串（支援 r/range 與 m/s 兩種格式，與位元表渲染同一套規則）
+function auxDpcdBitRange(b) {
+  var rng = b.r || b.range || '';
+  if (!rng && typeof b.m !== 'undefined') {
+    var shift = b.s || 0, hi = shift, lo = shift, m = b.m >> shift;
+    while (m > 1) { hi++; m >>= 1; }
+    rng = (hi > lo) ? hi + ':' + lo : String(lo);
+  }
+  return rng;
+}
+// 取出該欄位在 val 下的數值
+function auxDpcdBitVal(b, val) {
+  if (typeof b.m !== 'undefined') return (val & b.m) >>> (b.s || 0);
+  return auxExtractBits(val, auxDpcdBitRange(b));
+}
+// 值對照查表（key 格式與位元表渲染完全相同，避免兩處標準不一致）
+function auxDpcdLookupVal(map, bv) {
+  if (!map) return null;
+  var hx = bv.toString(16).toUpperCase(), hp = hx.padStart(2, '0');
+  return map[hx] || map[hp] || map[hx.toLowerCase()] || map[hp.toLowerCase()]
+    || map['0x' + hp] || map['0x' + hp.toLowerCase()] || map['0x' + hx] || map['0x' + hx.toLowerCase()]
+    || map[String(bv)]
+    || map['0b' + bv.toString(2).padStart(2, '0')] || map['0b' + bv.toString(2).padStart(3, '0')]
+    || map['0b' + bv.toString(2).padStart(4, '0')] || map['0b' + bv.toString(2)]
+    || null;
+}
+// 主引擎：逐欄位解碼後組成一句總結
+function auxDpcdAutoSummary(entry, val) {
+  var bitsArr = entry.b || entry.bits || [];
+  if (!bitsArr.length) return '';
+  var decoded = [], undef = [], nomap = [], rsvd = [];
+  bitsArr.forEach(function(b) {
+    var rng = auxDpcdBitRange(b);
+    var bv = auxDpcdBitVal(b, val);
+    var nm = b.n || b.name || ('bit ' + rng);
+    var map = b.v || b.values || null;
+    // 空的 v:{} 等同「沒有值對照」，不可當成「有定義但沒對到」
+    var hasMap = !!(map && Object.keys(map).length > 0);
+    var hit = hasMap ? auxDpcdLookupVal(map, bv) : null;
+    var vh = '0x' + bv.toString(16).toUpperCase();
+    var item = nm + '[' + rng + '] = ' + vh;
+    if (hit) { decoded.push(nm + ' = ' + _dbD(hit)); return; }
+    // 保留欄位：為 0 是正常狀態，不必列入總結；不為 0 才值得提醒
+    if (/^(reserved|rsvd)/i.test(nm)) { if (bv !== 0) rsvd.push(item); return; }
+    // 數值型欄位（非枚舉）：b.u 帶的是該欄位的單位／意義，文字取自該位址既有的 d 說明欄
+    if (b.u) { decoded.push(nm + ' = ' + bv + '（' + _dbD(b.u) + '）'); return; }
+    if (hasMap) undef.push(item); else nomap.push(item);
+  });
+  if (!decoded.length && !undef.length) return '';   // 沒有任何值對照可用 → 維持原狀
+  var _sep = _tAux('sumSep');
+  var out = '';
+  if (decoded.length) out += _tAux('sumDecoded') + decoded.join(_sep) + '。';
+  if (undef.length) out += ' <span class="aux-anomaly">' + _tAux('sumUndef') + undef.join(_sep) + '</span>';
+  if (rsvd.length) out += ' <span class="aux-anomaly">' + _tAux('sumRsvdNonZero') + rsvd.join(_sep) + '</span>';
+  if (nomap.length) out += ' <span class="aux-summary-nomap">' + _tAux('sumNoMap') + nomap.join(_sep) + '</span>';
+  return out;
 }
 
 // ─── AUX 解碼：結構化輸入邏輯 ───

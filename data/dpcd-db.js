@@ -402,16 +402,16 @@ var DPCD_DB = Object.assign({},
       }}
     ]
   },
-  "00024": { n: "AUD_DEC_LAT_7_0", c: "音訊解碼延遲 [7:0]", rw: 0, d: "最差情況音訊解碼延遲低位元組（以 AG_FACTOR 為單位）。來源：DP v1.4a。", b: [{ r: "7:0", n: "AUD_DEC_LAT_7_0", c: "音訊解碼延遲 [7:0]", v: {} }] },
-  "00025": { n: "AUD_DEC_LAT_15_8", c: "音訊解碼延遲 [15:8]", rw: 0, d: "最差情況音訊解碼延遲高位元組。", b: [{ r: "7:0", n: "AUD_DEC_LAT_15_8", c: "音訊解碼延遲 [15:8]", v: {} }] },
-  "00026": { n: "AUD_PP_LAT_7_0", c: "音訊後處理延遲 [7:0]", rw: 0, d: "最差情況音訊後處理延遲低位元組（以 AG_FACTOR 為單位）。", b: [{ r: "7:0", n: "AUD_PP_LAT_7_0", c: "音訊後處理延遲 [7:0]", v: {} }] },
-  "00027": { n: "AUD_PP_LAT_15_8", c: "音訊後處理延遲 [15:8]", rw: 0, d: "最差情況音訊後處理延遲高位元組。", b: [{ r: "7:0", n: "AUD_PP_LAT_15_8", c: "音訊後處理延遲 [15:8]", v: {} }] },
-  "00028": { n: "VID_INTER_LAT", c: "視訊交錯延遲", rw: 0, d: "最差情況交錯模式視訊延遲（以 VG_FACTOR 為單位）。", b: [{ r: "7:0", n: "VID_INTER_LAT", c: "交錯視訊延遲", v: {} }] },
-  "00029": { n: "VID_PROG_LAT", c: "視訊漸進延遲", rw: 0, d: "最差情況漸進掃描模式視訊延遲（以 VG_FACTOR 為單位）。", b: [{ r: "7:0", n: "VID_PROG_LAT", c: "漸進視訊延遲", v: {} }] },
-  "0002A": { n: "REP_LAT", c: "Repeater 延遲", rw: 0, d: "Repeater/Branch 裝置接收並轉發 DP 串流至下游的延遲，以 10μs 為單位。", b: [{ r: "7:0", n: "REP_LAT", c: "轉發延遲", v: {} }] },
-  "0002B": { n: "AUD_DEL_INS_7_0", c: "音訊延遲插入 [7:0]", rw: 0, d: "Sink 可在音訊路徑中插入的最大額外延遲（1μs 單位）低位元組。最低需支援 5ms。", b: [{ r: "7:0", n: "AUD_DEL_INS_7_0", c: "延遲插入 [7:0]", v: {} }] },
-  "0002C": { n: "AUD_DEL_INS_15_8", c: "音訊延遲插入 [15:8]", rw: 0, d: "音訊延遲插入 bits 15:8。", b: [{ r: "7:0", n: "AUD_DEL_INS_15_8", c: "延遲插入 [15:8]", v: {} }] },
-  "0002D": { n: "AUD_DEL_INS_23_16", c: "音訊延遲插入 [23:16]", rw: 0, d: "音訊延遲插入 bits 23:16。", b: [{ r: "7:0", n: "AUD_DEL_INS_23_16", c: "延遲插入 [23:16]", v: {} }] },
+  "00024": { n: "AUD_DEC_LAT_7_0", c: "音訊解碼延遲 [7:0]", rw: 0, d: "最差情況音訊解碼延遲低位元組（以 AG_FACTOR 為單位）。來源：DP v1.4a。", b: [{ r: "7:0", n: "AUD_DEC_LAT_7_0", u: "最差情況音訊解碼延遲低位元組，單位 AG_FACTOR；需與 00025h 合併為 16-bit", c: "音訊解碼延遲 [7:0]", v: {} }] },
+  "00025": { n: "AUD_DEC_LAT_15_8", c: "音訊解碼延遲 [15:8]", rw: 0, d: "最差情況音訊解碼延遲高位元組。", b: [{ r: "7:0", n: "AUD_DEC_LAT_15_8", u: "最差情況音訊解碼延遲高位元組；需與 00024h 合併為 16-bit", c: "音訊解碼延遲 [15:8]", v: {} }] },
+  "00026": { n: "AUD_PP_LAT_7_0", c: "音訊後處理延遲 [7:0]", rw: 0, d: "最差情況音訊後處理延遲低位元組（以 AG_FACTOR 為單位）。", b: [{ r: "7:0", n: "AUD_PP_LAT_7_0", u: "最差情況音訊後處理延遲低位元組，單位 AG_FACTOR；需與 00027h 合併為 16-bit", c: "音訊後處理延遲 [7:0]", v: {} }] },
+  "00027": { n: "AUD_PP_LAT_15_8", c: "音訊後處理延遲 [15:8]", rw: 0, d: "最差情況音訊後處理延遲高位元組。", b: [{ r: "7:0", n: "AUD_PP_LAT_15_8", u: "最差情況音訊後處理延遲高位元組；需與 00026h 合併為 16-bit", c: "音訊後處理延遲 [15:8]", v: {} }] },
+  "00028": { n: "VID_INTER_LAT", c: "視訊交錯延遲", rw: 0, d: "最差情況交錯模式視訊延遲（以 VG_FACTOR 為單位）。", b: [{ r: "7:0", n: "VID_INTER_LAT", u: "最差情況交錯掃描模式視訊延遲，單位 VG_FACTOR", c: "交錯視訊延遲", v: {} }] },
+  "00029": { n: "VID_PROG_LAT", c: "視訊漸進延遲", rw: 0, d: "最差情況漸進掃描模式視訊延遲（以 VG_FACTOR 為單位）。", b: [{ r: "7:0", n: "VID_PROG_LAT", u: "最差情況漸進掃描模式視訊延遲，單位 VG_FACTOR", c: "漸進視訊延遲", v: {} }] },
+  "0002A": { n: "REP_LAT", c: "Repeater 延遲", rw: 0, d: "Repeater/Branch 裝置接收並轉發 DP 串流至下游的延遲，以 10μs 為單位。", b: [{ r: "7:0", n: "REP_LAT", u: "Repeater/Branch 接收並轉發 DP 串流至下游的延遲，單位 10μs", c: "轉發延遲", v: {} }] },
+  "0002B": { n: "AUD_DEL_INS_7_0", c: "音訊延遲插入 [7:0]", rw: 0, d: "Sink 可在音訊路徑中插入的最大額外延遲（1μs 單位）低位元組。最低需支援 5ms。", b: [{ r: "7:0", n: "AUD_DEL_INS_7_0", u: "Sink 可在音訊路徑插入的最大額外延遲低位元組，單位 1μs；最低需支援 5ms", c: "延遲插入 [7:0]", v: {} }] },
+  "0002C": { n: "AUD_DEL_INS_15_8", c: "音訊延遲插入 [15:8]", rw: 0, d: "音訊延遲插入 bits 15:8。", b: [{ r: "7:0", n: "AUD_DEL_INS_15_8", u: "音訊延遲插入 bits 15:8，單位 1μs", c: "延遲插入 [15:8]", v: {} }] },
+  "0002D": { n: "AUD_DEL_INS_23_16", c: "音訊延遲插入 [23:16]", rw: 0, d: "音訊延遲插入 bits 23:16。", b: [{ r: "7:0", n: "AUD_DEL_INS_23_16", u: "音訊延遲插入 bits 23:16，單位 1μs", c: "延遲插入 [23:16]", v: {} }] },
   "0002E": {
     n: "RECEIVER_ADVANCED_LINK_POWER_MANAGEMENT_CAPABILITIES",
     c: "接收端進階低功耗管理能力",
@@ -555,7 +555,7 @@ var DPCD_DB = Object.assign({},
     rw: 0,
     d: "DSC 解壓器支援的最大 bits_per_pixel 值低 8 位元（U6.4 格式）。DP 標準中此暫存器為 RESERVED（讀 0），eDP v1.4a 及更高版本定義此欄位。與 00068h 組合為 10-bit 值。來源：DP v1.4a Table 2-163。",
     b: [
-      { r: "7:0", n: "MAX_BITS_PER_PIXEL_7:0", c: "最大 BPP [7:0]", v: {} }
+      { r: "7:0", n: "MAX_BITS_PER_PIXEL_7:0", u: "DSC 最大 bits_per_pixel 低 8 位元；需與 00068h 合併為 10-bit U6.4 格式", c: "最大 BPP [7:0]", v: {} }
     ]
   },
   "00068": {
@@ -565,7 +565,7 @@ var DPCD_DB = Object.assign({},
     d: "DSC 解壓器支援的最大 bits_per_pixel 值高 2 位元。與 00067h 組合為 10-bit U6.4 格式值。來源：DP v1.4a Table 2-163。",
     b: [
       { r: "7:2", n: "RESERVED", c: "保留位元", v: {} },
-      { r: "1:0", n: "MAX_BITS_PER_PIXEL_9:8", c: "最大 BPP [9:8]", v: {} }
+      { r: "1:0", n: "MAX_BITS_PER_PIXEL_9:8", u: "DSC 最大 bits_per_pixel 高 2 位元；需與 00067h 合併為 10-bit U6.4 格式", c: "最大 BPP [9:8]", v: {} }
     ]
   },
 
@@ -1562,7 +1562,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 0 的 Symbol Error 計數器低 8 位元。與 00211h（高位元組）合併成 15-bit 計數器。這是判斷連結品質的關鍵指標。正常運作時應該為 0 或極小值；若持續累積，代表訊號品質有問題（走線過長、阻抗不匹配、EMI 干擾等）。除錯時先讀高位元組再讀低位元組，兩者一起看。",
   b: [
-    { r:"7:0", n:"SYM_ERR_COUNT_LANE0_7_0", c:"Lane 0 錯誤計數 [7:0]", v:{}}
+    { r:"7:0", n:"SYM_ERR_COUNT_LANE0_7_0", u: "Lane 0 Symbol Error 計數器低 8 位元；需與 00211h 合併為 15-bit 計數", c:"Lane 0 錯誤計數 [7:0]", v:{}}
   ]
 },
 
@@ -1572,7 +1572,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 0 的 Symbol Error 計數器高位元。Bit 7 為溢位旗標，若為 1 表示計數器已溢位（錯誤太多）。Bit 6:0 為計數高位元。完整值 = [6:0] << 8 | 低位元組。",
   b: [
-    { r:"6:0", n:"SYM_ERR_COUNT_LANE0_14_8", c:"Lane 0 錯誤計數 [14:8]", v:{}},
+    { r:"6:0", n:"SYM_ERR_COUNT_LANE0_14_8", u: "Lane 0 Symbol Error 計數器高 7 位元；完整值 = [6:0] << 8 | 00210h 低位元組", c:"Lane 0 錯誤計數 [14:8]", v:{}},
     { r:"7", n:"SYM_ERR_COUNT_OVERFLOW", c:"計數器溢位", v:{
       "0":"未溢位", "1":"已溢位（錯誤數超過 32767，訊號品質非常差）"
     }}
@@ -1585,7 +1585,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 1 的 Symbol Error 計數器低 8 位元，格式同 00210h。",
   b: [
-    { r:"7:0", n:"SYM_ERR_COUNT_LANE1_7_0", c:"Lane 1 錯誤計數 [7:0]", v:{}}
+    { r:"7:0", n:"SYM_ERR_COUNT_LANE1_7_0", u: "Lane 1 Symbol Error 計數器低 8 位元；需與 00213h 合併為 15-bit 計數", c:"Lane 1 錯誤計數 [7:0]", v:{}}
   ]
 },
 
@@ -1595,7 +1595,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 1 的 Symbol Error 計數器高位元，格式同 00211h。",
   b: [
-    { r:"6:0", n:"SYM_ERR_COUNT_LANE1_14_8", c:"Lane 1 錯誤計數 [14:8]", v:{}},
+    { r:"6:0", n:"SYM_ERR_COUNT_LANE1_14_8", u: "Lane 1 Symbol Error 計數器高 7 位元；完整值 = [6:0] << 8 | 00212h 低位元組", c:"Lane 1 錯誤計數 [14:8]", v:{}},
     { r:"7", n:"SYM_ERR_COUNT_OVERFLOW", c:"計數器溢位", v:{"0":"未溢位","1":"已溢位"}}
   ]
 },
@@ -1606,7 +1606,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 2 的 Symbol Error 計數器低 8 位元，僅 4-Lane 配置下有效。",
   b: [
-    { r:"7:0", n:"SYM_ERR_COUNT_LANE2_7_0", c:"Lane 2 錯誤計數 [7:0]", v:{}}
+    { r:"7:0", n:"SYM_ERR_COUNT_LANE2_7_0", u: "Lane 2 Symbol Error 計數器低 8 位元；需與 00215h 合併為 15-bit 計數（僅 4-Lane 配置有效）", c:"Lane 2 錯誤計數 [7:0]", v:{}}
   ]
 },
 
@@ -1616,7 +1616,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 2 的 Symbol Error 計數器高位元。",
   b: [
-    { r:"6:0", n:"SYM_ERR_COUNT_LANE2_14_8", c:"Lane 2 錯誤計數 [14:8]", v:{}},
+    { r:"6:0", n:"SYM_ERR_COUNT_LANE2_14_8", u: "Lane 2 Symbol Error 計數器高 7 位元；完整值 = [6:0] << 8 | 00214h 低位元組", c:"Lane 2 錯誤計數 [14:8]", v:{}},
     { r:"7", n:"SYM_ERR_COUNT_OVERFLOW", c:"計數器溢位", v:{"0":"未溢位","1":"已溢位"}}
   ]
 },
@@ -1627,7 +1627,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 3 的 Symbol Error 計數器低 8 位元，僅 4-Lane 配置下有效。",
   b: [
-    { r:"7:0", n:"SYM_ERR_COUNT_LANE3_7_0", c:"Lane 3 錯誤計數 [7:0]", v:{}}
+    { r:"7:0", n:"SYM_ERR_COUNT_LANE3_7_0", u: "Lane 3 Symbol Error 計數器低 8 位元；需與 00217h 合併為 15-bit 計數（僅 4-Lane 配置有效）", c:"Lane 3 錯誤計數 [7:0]", v:{}}
   ]
 },
 
@@ -1637,7 +1637,7 @@ var DPCD_DB = Object.assign({},
   rw: 0,
   d: "Lane 3 的 Symbol Error 計數器高位元。",
   b: [
-    { r:"6:0", n:"SYM_ERR_COUNT_LANE3_14_8", c:"Lane 3 錯誤計數 [14:8]", v:{}},
+    { r:"6:0", n:"SYM_ERR_COUNT_LANE3_14_8", u: "Lane 3 Symbol Error 計數器高 7 位元；完整值 = [6:0] << 8 | 00216h 低位元組", c:"Lane 3 錯誤計數 [14:8]", v:{}},
     { r:"7", n:"SYM_ERR_COUNT_OVERFLOW", c:"計數器溢位", v:{"0":"未溢位","1":"已溢位"}}
   ]
 },
@@ -2051,6 +2051,7 @@ var DPCD_DB = Object.assign({},
     n: "EDP_DPCD_REV",
     c: "eDP DPCD 版本號",
     rw: 1,
+    vv: [{v:0x00,l:"00h — 非 eDP 面板／未回報"},{v:0x01,l:"01h — eDP v1.1"},{v:0x02,l:"02h — eDP v1.2"},{v:0x03,l:"03h — eDP v1.3"},{v:0x04,l:"04h — eDP v1.4"},{v:0x05,l:"05h — eDP v1.4b"},{v:0x06,l:"06h — eDP v1.5"}],
     d: "eDP 專屬的 DPCD 版本號，用來識別面板支援的 eDP 規格版本。此欄位僅在 eDP 面板中有意義（外接 DP 螢幕此欄位通常為 00h）。版本對應：01h = eDP v1.1、02h = eDP v1.2、03h = eDP v1.3、04h = eDP v1.4、05h = eDP v1.4b、06h = eDP v1.5。不同版本支援的功能差異大，例如 PSR 從 v1.3 開始、PSR2 從 v1.4 開始。FAE 除錯 eDP 面板時，第一步就是讀這個暫存器確認面板的 eDP 版本。",
     b: []
   },
@@ -2332,6 +2333,7 @@ var DPCD_DB = Object.assign({},
     n: "SU_Y_GRANULARITY",
     c: "SU Y 粒度",
     rw: 1,
+    vv: [{v:0x00,l:"00h — 1 行"},{v:0x01,l:"01h — 1 行"},{v:0x02,l:"02h — 2 行"},{v:0x04,l:"04h — 4 行"},{v:0x08,l:"08h — 8 行"},{v:0x10,l:"10h — 16 行"}],
     d: "設定 Selective Update 網格在垂直方向的粒度。00h/01h = 1 行、02h = 2 行、04h = 4 行、08h = 8 行、10h = 16 行。eDP v1.5 新增。",
     b: []
   },
@@ -2344,7 +2346,7 @@ var DPCD_DB = Object.assign({},
       {r:"7", n:"PRECODING_DISABLE", d:"0 = Pre-coding 已啟用（預設）。1 = Pre-coding 已停用。DP v1.4 新增。", v:{"00":"Pre-coding 已啟用（預設）", "01":"Pre-coding 已停用"}},
       {r:"6", n:"AGGREGATED_ENABLED_LANES_ERRORS", d:"0 = 未啟用。LANE_DEC_SELECT 欄位（bit 5:4）指定回報的 Lane。1 = 已啟用。FEC_ERROR_COUNT 暫存器（DPCD 00281h/00282h）回報的錯誤類型由 FEC_ERROR_COUNT_SEL 欄位（bit 3:1）選定，數值為所有啟用 Lane 的總和。LANE_DEC_SELECT 欄位被忽略。DP v1.4 新增。", v:{"00":"未啟用，LANE_DEC_SELECT 指定回報 Lane", "01":"已啟用，錯誤數為所有啟用 Lane 總和"}},
       {r:"5:4", n:"FEC_ERROR_LANE_SEL", d:"00 = Lane 0。01 = Lane 1。10 = Lane 2。11 = Lane 3。DP v1.4 新增。", v:{"00":"Lane 0", "01":"Lane 1", "10":"Lane 2", "11":"Lane 3"}},
-      {r:"3:1", n:"FEC_ERROR_COUNT_SEL", d:"000 = FEC_ERROR_COUNT_DIS（停用）。001 = 未校正區塊錯誤計數。010 = 已校正區塊錯誤計數。011 = 位元錯誤計數。DP v1.4 新增。"},
+      {r:"3:1", n:"FEC_ERROR_COUNT_SEL", v: {"0b000":"FEC_ERROR_COUNT_DIS（停用錯誤計數）","0b001":"未校正區塊錯誤計數","0b010":"已校正區塊錯誤計數","0b011":"位元錯誤計數"}, d:"000 = FEC_ERROR_COUNT_DIS（停用）。001 = 未校正區塊錯誤計數。010 = 已校正區塊錯誤計數。011 = 位元錯誤計數。DP v1.4 新增。"},
       {r:"0", n:"FEC_READY", d:"0 = 未就緒。Source 須先設定此 bit 為 1 並啟動 Link Training 後才能開始 FEC 編碼。1 = 已就緒。Source 可直接開始 FEC 編碼而無需重新 Link Training。DP v1.4 新增。", v:{"00":"未就緒，須先啟動 Link Training", "01":"已就緒，可直接開始 FEC 編碼"}}
     ]
   },
@@ -2438,6 +2440,7 @@ var DPCD_DB = Object.assign({},
     n: "ALPM Sink Device Power Management State",
     c: "ALPM Sink 電源管理狀態",
     rw: 1,
+    vv: [{v:0x00,l:"00h — 未知"},{v:0x01,l:"01h — ACTIVE（正常運作）"},{v:0x02,l:"02h — ACTIVE_NOSTREAM（無串流但仍活躍）"},{v:0x03,l:"03h — STANDBY（待機）"},{v:0x04,l:"04h — FW_STANDBY（韌體待機）"},{v:0x05,l:"05h — SLEEP（睡眠）"},{v:0x06,l:"06h — FW_SLEEP（韌體睡眠）"},{v:0x07,l:"07h — OFF（關閉）"}],
     d: "ALPM（Advanced Link Power Management）Sink 端裝置電源管理狀態暫存器。回報 Sink 目前所處的電源狀態：0=未知、1=ACTIVE（正常運作）、2=ACTIVE_NOSTREAM（無串流但仍活躍）、3=STANDBY（待機）、4=FW_STANDBY（韌體待機）、5=SLEEP（睡眠）、6=FW_SLEEP（韌體睡眠）、7=OFF（關閉）。除錯 PSR/ALPM 省電問題時可讀取此暫存器確認面板電源狀態。",
     b: []
   },
@@ -2702,6 +2705,7 @@ var DPCD_DB = Object.assign({},
     n: "Early Scanline SDP for PSR2",
     c: "PSR2 Early Scanline SDP 支援",
     rw: 1,
+    vv: [{v:0x00,l:"00h — 不支援 Early Scanline（預設）"},{v:0x01,l:"01h — 支援 PSR2 Early Scanline SDP"},{v:0x02,l:"02h — 不支援 Early Scanline，但 VSC SDP 設定時間 < 100ns"}],
     d: "PSR2 早期掃描線 SDP 功能支援暫存器。0 = 預設，不支援 PSR2 Early Scanline，若 Hblank < 100ns 則停用 PSR2 改用 PSR1。1 = 支援 PSR2 Early Scanline SDP，若 Hblank < 100ns 則啟用 PSR2 搭配 Early Scanline SDP。2 = 不支援 Early Scanline SDP 但 VSC SDP 設定時間要求小於 100ns，若 Hblank < 100ns 則不使用 Early Scanline 功能直接啟用 PSR2。",
     b: []
   },
@@ -2876,7 +2880,7 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Dynamic Backlight Control 的最小亮度設定值。bits 4:0 定義 DBC 可降低的最低亮度等級。0 = 最暗，31 = 最亮上限。來源：eDP v1.4b Table 10-4。",
     b: [
-      { r: "4:0", n: "DBC_MINIMUM_BRIGHTNESS", c: "DBC 最小亮度", v: {} },
+      { r: "4:0", n: "DBC_MINIMUM_BRIGHTNESS", u: "DBC 可降低的最低亮度等級，0 = 最暗，31 = 最亮上限", c: "DBC 最小亮度", v: {} },
       { r: "7:5", n: "RESERVED", c: "保留", v: {} }
     ]
   },
@@ -2886,7 +2890,7 @@ var DPCD_DB = Object.assign({},
     rw: 1,
     d: "Dynamic Backlight Control 的最大亮度設定值。bits 4:0 定義 DBC 可提升的最高亮度等級。來源：eDP v1.4b Table 10-4。",
     b: [
-      { r: "4:0", n: "DBC_MAXIMUM_BRIGHTNESS", c: "DBC 最大亮度", v: {} },
+      { r: "4:0", n: "DBC_MAXIMUM_BRIGHTNESS", u: "DBC 可提升的最高亮度等級（0～31）", c: "DBC 最大亮度", v: {} },
       { r: "7:5", n: "RESERVED", c: "保留", v: {} }
     ]
   },
@@ -3022,7 +3026,7 @@ var DPCD_DB = Object.assign({},
     b: [
       {r:"7", n:"OUI_support", d:"0 = 不支援 OUI。1 = 支援 OUI。eDP v1.5 新增。", v:{"00":"不支援", "01":"支援"}},
       {r:"6", n:"MSA_TIMING_PAR_IGNORED", d:"0 = Sink 需要 MSA 時序參數。1 = Sink 可不靠 MSA 時序參數渲染影像。eDP v1.5 新增。", v:{"00":"需要 MSA", "01":"可忽略 MSA"}},
-      {r:"3:0", n:"DWN_STRM_PORT_COUNT", d:"下游端口數量。0h = 無下游端口。"}
+      {r:"3:0", n:"DWN_STRM_PORT_COUNT", u: "下游端口數量，0 = 無下游端口", d:"下游端口數量。0h = 無下游端口。"}
     ]
   },
   "02208": {
@@ -3083,7 +3087,7 @@ var DPCD_DB = Object.assign({},
     d: "延伸接收端能力欄位中的訓練間隔暫存器。結構同 0000Eh。bit 7 的 EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT 非常重要。",
     b: [
       {r:"7", n:"EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT", d:"0 = 不存在。1 = 延伸能力欄位存在於 DPCD 02200h-022FFh。DP v1.4 更新。", v:{"00":"不存在", "01":"存在"}},
-      {r:"6:0", n:"TRAINING_AUX_RD_INTERVAL", d:"00h = CR 階段 100us / EQ 階段 400us。01h = 兩階段皆 4ms。02h = 8ms。03h = 12ms。04h = 16ms。DP v1.4 更新。"}
+      {r:"6:0", n:"TRAINING_AUX_RD_INTERVAL", v:{"00":"CR 階段 100us / EQ 階段 400us","01":"兩階段皆 4ms","02":"兩階段皆 8ms","03":"兩階段皆 12ms","04":"兩階段皆 16ms"}, d:"00h = CR 階段 100us / EQ 階段 400us。01h = 兩階段皆 4ms。02h = 8ms。03h = 12ms。04h = 16ms。DP v1.4 更新。"}
     ]
   },
   "0220F": {
