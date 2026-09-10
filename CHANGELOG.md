@@ -22,6 +22,52 @@
 
 ---
 
+## eDP AUX / DPCD 查詢工具 (aux) v2.5.1 — 2026-09-10 ｜ PATCH ⚠ 輸出變更
+
+**🔴 修正 DPCD 總結的位元切片錯誤。Bruce 實測回報：`00206h` 值 `11` 的總結寫成 Lane 0 「VS=1、PE=2」，但 PE 不可能是 2，正確是 0。**
+
+**重現**（jsdom 走真正的 `auxLookupDPCD()`，Bruce 給的條件一字不改）：`00206h` = `0x11` 舊版總結輸出「Lane 0 要求：VS=1 PE=2。Lane 1 要求：VS=0。」，而**同一頁下方的位元表同時顯示 `[3:2] PRE_EMPHASIS_LANE0 = 0`** —— 總結與位元表互相矛盾，位元表是對的。
+
+**根因**：`aux.html` 的 `"00206"` 手寫總結寫成 `pe0 = (v >> 3) & 3`，取的是 **bits 4:3**；`ADJUST_REQUEST_LANE0_1` 的 PE Lane0 在 **bits 3:2**。`0x11 = 0b0001_0001` 的 bits 4:3 = `0b10` = 2，正好產生 Bruce 看到的值。錯誤來源是把 **`TRAINING_LANEx_SET`（00103h～00106h）的位元配置**（VS[1:0]／MAX_SWING[2]／**PE[4:3]**／MAX_PE[5]）抄到了 **`ADJUST_REQUEST`**（VS0[1:0]／**PE0[3:2]**／VS1[5:4]／PE1[7:6]）上 —— 兩者長得像但 PE 的位置差一位。`auxSummarizeLaneSet()`（給 00103h～00106h 用）的 `(v>>3)&3` 本身是**正確的**，不要一起改。
+同一支函式還有第二、三個錯：Lane 1 印的是 `(v >> 6) & 3`（那是 **PE1**）卻標成 **VS**，而且 Lane 1 的 PE 根本沒印。`"00207"` 三個錯完全相同。
+
+**徹查同型錯誤**（Bruce 要求，全庫掃描非抽樣，四道檢查）：
+1. **通用切片器 round-trip**：資料庫裡寬度 ≥ 2 bits 的欄位共 **174 個**，每個欄位塞遍所有可能值、各做「其餘位元為 0」與「其餘位元為 1」兩種背景（抓遮罩過寬），共 **28,248 次已知輸入→已知輸出**比對 ⇒ **0 筆不符**。`auxExtractBits()` 與 mask/shift 兩條路徑都正確。
+2. **m/s 遮罩自洽**（`m >> s` 必須是連續全 1、`m` 的低 s 位元必須為 0）⇒ **0 筆不符**。
+3. **同一位址內欄位範圍重疊** ⇒ **0 筆**。
+4. **37 支手寫總結的位元運算 vs 該位址位元表** ⇒ 抓到 **6 筆**（下方逐筆處置）。
+
+> 檢查器本身也修過兩次假陽性，兩次都用「把已知正確的函式餵進去」發現：① 非貪婪正則碰到 `"00103": function(v) { return f(v,0); },` 這種一行函式會吃進後面好幾個位址的程式碼（產生 00103h/00160h 三筆假陽性）；② `v & 2`／`v & 4` 是「測第 k 個 bit」不是「取低 w 位元」，第一版把 `v & 2` 算成範圍 [1:0]，讓完全正確的 `00201h` 冒出 6 筆假陽性。**先確認檢查器不會冤枉正確的程式碼，才有資格用它的紅字**。
+
+**本版修正的 5 個位址**：
+- `00206h` / `00207h`：PE 改讀 bits 3:2；Lane 1／Lane 3 補上正確的 VS（bits 5:4）與 PE（bits 7:6）；「已達最大值」的警示原本只看 Lane 0／Lane 2，一併涵蓋另一條 Lane。
+- `00071h` PSR_CAPABILITIES：兩個子句都錯。bit 0 是 `LINK_TRAINING_ON_EXIT`（舊版寫成「支援 Y 座標局部更新」）；`SU_GRANULARITY_REQUIRED` 在 **bit 3**（舊版讀 bit 1，那是 `PSR_SETUP_TIME_LOW` 的一部分）。依據：`dp-aux-dpcd` skill 0x00071 位元表，與本庫 `b[]` 宣告一致。
+- `00107h` DOWNSPREAD_CTRL：移除「MSA timing 被忽略」這個子句 —— 它讀 bit 4，而**兩個來源都不認為 MSA 在 bit 4**（本庫 `b[]` 說 bit 7、skill 說 bit 5）。無法判定哪邊對，依規矩不自行選邊，移除無依據的宣稱。
+- `0010Ah` eDP_CONFIGURATION_SET：移除「EDID 暫存器模式」子句 —— 它讀 bit 2，本庫與 skill **都**說 bit 2 是 RESERVED。
+
+**驗證**：
+- 已知輸入→已知輸出：`00206h`／`00207h` 各 256 個值共 **512 次**，期望值由規格位元配置**獨立算出**（不引用產品程式碼）⇒ **0 筆不符**。Bruce 的條件 `00206h = 0x11` ⇒ 「Lane 0 要求：VS=1 PE=0。Lane 1 要求：VS=1 PE=0。」
+- 回歸（隔離比對，`data/dpcd-db.js` 兩邊都用 HEAD，只換 `aux.html`）：37 個既有總結位址 ×256 值 = **9,472 次**，輸出有變的**恰好只有上述 5 個位址**，非預期變動 **0**、預期會變卻沒變 **0**。正控制：竄改一個字元後偵測到 5 筆差異 ⇒ 探針有鑑別力。
+
+**⚠ 輸出變更的範圍**：`00071h`（全部 256 值）、`00206h`／`00207h`（全部 256 值）、`00107h`（bit 4 = 1 的 128 個值）、`0010Ah`（bit 2 = 1 的 128 個值）。過去從這五個位址抄下來的判讀結論，用新版重跑會不一樣 —— **舊的是錯的**。
+
+判定依據：`docs/VERSIONING.md` §1 R1 —— 「修 bug 即使畫面會變，仍算 PATCH，但要在 CHANGELOG 標 `⚠ 輸出變更`」。本次是把解碼修回規格本來就該有的行為，不是主動改設計；操作流程零變動、沒有新增或移除任何功能（R3 的問句「使用者能做的事有沒有多一件？」＝ 沒有，只是原本錯的變成對的）；R2、R4 不適用。逐項取最高者 ⇒ **PATCH ＋ `⚠ 輸出變更`**。
+
+**🔴 待 Bruce 裁示：兩個來源對位元配置不一致的 6 個位址**（`dp-aux-dpcd` skill vs `data/dpcd-db.js`，兩邊互斥，**未自行選邊，資料維持原狀**）：
+
+| 位址 | `data/dpcd-db.js` | `dp-aux-dpcd` skill |
+|---|---|---|
+| `00102h` | `[3:0]` TRAINING_PATTERN_SELECT | `[1:0]` TRAINING_PATTERN_SELECT ＋ `[3:2]` LINK_QUAL_PATTERN_EN |
+| `00107h` | `[3:0]` RESERVED、`[4]` SPREAD_AMP、`[7]` MSA_TIMING_PAR_IGNORE_EN | `[3:0]` SPREAD_AMP、`[5]` MSA_TIMING_PAR_IGNORE_EN |
+| `0010Ah` | `[1]` RESERVED、`[7]` PANEL_SELF_TEST_ENABLE | `[1]` FRAMING_CHANGE_ENABLE、`[3]` PANEL_SELF_TEST_ENABLE |
+| `00701h` | bit1 BACKLIGHT_PIN_ENABLE_CAPABLE、bit2 BACKLIGHT_AUX_ENABLE_CAPABLE、bit5 FRC_ENABLE_CAPABLE、bit6 COLOR_ENGINE_CAPABLE（註明 eDP v1.4b Table 10-4） | bit1 BACKLIGHT_AUX_ENABLE_CAP、bit2 PANEL_LUMINANCE_CONTROL_CAP、bit5 EDP_OVERDRIVE_ENGINE_ENABLED、bit6 PANEL_IDLE_ACTIVE_FRAME_LOCK_CAP |
+| `00720h` | bit1 BLACK_VIDEO_ENABLE、bit2 FRC_ENABLE、bit3 COLOR_ENGINE_ENABLE | bit1 BLACK_FRAME_INSERT、bit2 PANEL_SELF_TEST_ENABLE、bit3 OVERDRIVE_ENABLE |
+| `00721h` | bits1:0 = 00 BL_PWM_DIM pin／01 面板預設／10 AUX／11 PWM×AUX 乘積 | bits1:0 = 00 面板韌體／01 AUX／10 外部 PWM／11 保留 |
+
+> 可供判斷的**間接**證據（不是規格本身，所以不足以據此改資料）：`dpcd-db.js` 的 eDP 007xx 區塊在 `00701h ↔ 00702h ↔ 00703h ↔ 00704h ↔ 00720h ↔ 00721h` 六個暫存器之間**互相指名對方的 bit 編號且完全對得上**（例如 00702h bit 3 寫「支援 AUX × PWM 乘積模式（00721h bits 1:0 = 11）」，與 00721h 自己的定義吻合），並標註來源為 eDP v1.4b Table 10-4；skill 的版本沒有任何交叉引用。手上沒有 VESA 規格原文，**依規矩不自行選邊**。
+
+---
+
 ## eDP AUX / DPCD 查詢工具 (aux) v2.5.0 — 2026-09-10 ｜ MINOR
 
 **DPCD 查詢的「總結」卡片從 37 個位址擴大到 127 個，並讓總結逐值反映使用者輸入的那個值。**（Bruce 指出 700h 明明有 `01`/`02` 這種確定的值定義，最下面卻沒有像 000h 一樣給出總結，只寫在說明文字裡。徹查後這不是 700h 一個位址的問題。）
