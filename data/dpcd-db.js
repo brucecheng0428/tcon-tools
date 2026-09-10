@@ -2060,15 +2060,17 @@ var DPCD_DB = Object.assign({},
     c: "eDP 通用能力 1",
     rw: 1,
     d: "eDP 面板的通用功能宣告暫存器（第一組）。每個 bit 代表面板是否支援某項 eDP 功能。這是了解面板能力的關鍵暫存器。來源：eDP v1.4b Table 10-4。",
+    // 位元配置出處：Linux kernel include/drm/display/drm_dp.h 的 DP_EDP_GENERAL_CAP_1 (0x701) 底下八個巨集，
+    // 與本表逐 bit 相同。裁定紀錄見 docs/dpcd_edp_conflict_resolution_20260910.md §3.1。
     b: [
-      { m: 0x01, s: 0, n: "TCON_BACKLIGHT_ADJUSTMENT_CAPABLE", d: "0 = BL_PWM_DIM pin 直接控制背光（TCON 被旁路）。1 = TCON 具有背光亮度和/或 PWM 頻率控制能力。詳見 00702h。" },
-      { m: 0x02, s: 1, n: "BACKLIGHT_PIN_ENABLE_CAPABLE", d: "1 = 支援透過 BL_ENABLE eDP 連接器 pin 啟用背光。若 bit 2 為 0，此 bit 必須為 1。" },
-      { m: 0x04, s: 2, n: "BACKLIGHT_AUX_ENABLE_CAPABLE", d: "1 = 支援透過 AUX 通道啟用背光（00720h bit 0 BACKLIGHT_ENABLE）。若 bit 1 為 0，此 bit 必須為 1。" },
-      { m: 0x08, s: 3, n: "PANEL_SELF_TEST_PIN_ENABLE_CAPABLE", d: "1 = 支援 LCD_Self_Test eDP 連接器 pin 啟用面板自測。" },
-      { m: 0x10, s: 4, n: "PANEL_SELF_TEST_AUX_ENABLE_CAPABLE", d: "1 = 支援透過 AUX 啟用面板自測（0010Ah bit 7 PANEL_SELF_TEST_ENABLE）。" },
-      { m: 0x20, s: 5, n: "FRC_ENABLE_CAPABLE", d: "1 = 支援 FRC（Frame Rate Control），透過 00720h bit 2 控制。" },
-      { m: 0x40, s: 6, n: "COLOR_ENGINE_CAPABLE", d: "1 = Sink 具有色彩引擎能力，透過 00720h bit 3 COLOR_ENGINE_ENABLE 控制。" },
-      { m: 0x80, s: 7, n: "SET_POWER_CAPABLE", d: "0 = SET_POWER_STATE（00600h bits 2:0）對面板無效。1 = 可透過 SET_POWER_STATE 控制面板電源。若支援 PSR 則此 bit 必須為 1。" }
+      { m: 0x01, s: 0, n: "TCON_BACKLIGHT_ADJUSTMENT_CAPABLE", v: {"0": "BL_PWM_DIM pin 直接控制背光（TCON 被旁路）", "1": "TCON 具有背光亮度和/或 PWM 頻率控制能力（詳見 00702h）"}, d: "0 = BL_PWM_DIM pin 直接控制背光（TCON 被旁路）。1 = TCON 具有背光亮度和/或 PWM 頻率控制能力。詳見 00702h。" },
+      { m: 0x02, s: 1, n: "BACKLIGHT_PIN_ENABLE_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援透過 BL_ENABLE eDP 連接器 pin 啟用背光"}, d: "1 = 支援透過 BL_ENABLE eDP 連接器 pin 啟用背光。若 bit 2 為 0，此 bit 必須為 1。" },
+      { m: 0x04, s: 2, n: "BACKLIGHT_AUX_ENABLE_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援透過 AUX 通道啟用背光（00720h bit 0）"}, d: "1 = 支援透過 AUX 通道啟用背光（00720h bit 0 BACKLIGHT_ENABLE）。若 bit 1 為 0，此 bit 必須為 1。" },
+      { m: 0x08, s: 3, n: "PANEL_SELF_TEST_PIN_ENABLE_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 LCD_Self_Test pin 啟用面板自測"}, d: "1 = 支援 LCD_Self_Test eDP 連接器 pin 啟用面板自測。" },
+      { m: 0x10, s: 4, n: "PANEL_SELF_TEST_AUX_ENABLE_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援透過 AUX 啟用面板自測（0010Ah bit 7）"}, d: "1 = 支援透過 AUX 啟用面板自測（0010Ah bit 7 PANEL_SELF_TEST_ENABLE）。" },
+      { m: 0x20, s: 5, n: "FRC_ENABLE_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "支援 FRC（Frame Rate Control），透過 00720h bit 2 控制"}, d: "1 = 支援 FRC（Frame Rate Control），透過 00720h bit 2 控制。" },
+      { m: 0x40, s: 6, n: "COLOR_ENGINE_CAPABLE", v: {"0": "未宣告此能力（規格只定義 1 的意義）", "1": "Sink 具有色彩引擎能力，透過 00720h bit 3 控制"}, d: "1 = Sink 具有色彩引擎能力，透過 00720h bit 3 COLOR_ENGINE_ENABLE 控制。" },
+      { m: 0x80, s: 7, n: "SET_POWER_CAPABLE", v: {"0": "SET_POWER_STATE（00600h bits 2:0）對面板無效", "1": "可透過 SET_POWER_STATE 控制面板電源"}, d: "0 = SET_POWER_STATE（00600h bits 2:0）對面板無效。1 = 可透過 SET_POWER_STATE 控制面板電源。若支援 PSR 則此 bit 必須為 1。" }
     ]
   },
   "00702": {
@@ -2102,13 +2104,15 @@ var DPCD_DB = Object.assign({},
     c: "eDP 顯示控制",
     rw: 2,
     d: "eDP 面板的即時顯示控制暫存器。Source 透過寫入此暫存器來控制背光開關和畫面顯示。這是 eDP 除錯的關鍵暫存器——如果面板有收到影像但背光沒開，畫面就是全黑的。來源：eDP v1.4b Table 10-4。",
+    // 位元配置出處：drm_dp.h 的 DP_EDP_DISPLAY_CONTROL_REGISTER (0x720) 底下五個巨集，與本表逐 bit 相同。
+    // 裁定紀錄見 docs/dpcd_edp_conflict_resolution_20260910.md §3.5。
     b: [
-      { m: 0x01, s: 0, n: "BACKLIGHT_ENABLE", d: "背光啟用開關。1 = 開啟背光；0 = 關閉背光。寫入被忽略若 00701h bit 2 (BACKLIGHT_AUX_ENABLE_CAPABLE) 為 0。Power-on 預設 = 0。如果 Link Training OK 但畫面全黑，先檢查這個 bit。" },
-      { m: 0x02, s: 1, n: "BLACK_VIDEO_ENABLE", d: "1 = 啟用黑畫面（覆蓋輸入影像資料）；0 = 正常顯示。Power-on 預設 = 0。" },
-      { m: 0x04, s: 2, n: "FRC_ENABLE", d: "1 = 啟用 2-bit FRC（Frame Rate Control）從 TCON 輸出到 Column Driver。寫入被忽略若 00701h bit 5 (FRC_ENABLE_CAPABLE) 為 0。Power-on 預設 = 0。" },
-      { m: 0x08, s: 3, n: "COLOR_ENGINE_ENABLE", d: "1 = 啟用 Sink 裝置的色彩引擎功能。寫入被忽略若 00701h bit 6 (COLOR_ENGINE_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x01, s: 0, n: "BACKLIGHT_ENABLE", v: {"0": "關閉背光（Power-on 預設）", "1": "開啟背光"}, d: "背光啟用開關。1 = 開啟背光；0 = 關閉背光。寫入被忽略若 00701h bit 2 (BACKLIGHT_AUX_ENABLE_CAPABLE) 為 0。Power-on 預設 = 0。如果 Link Training OK 但畫面全黑，先檢查這個 bit。" },
+      { m: 0x02, s: 1, n: "BLACK_VIDEO_ENABLE", v: {"0": "正常顯示（Power-on 預設）", "1": "啟用黑畫面（覆蓋輸入影像資料）"}, d: "1 = 啟用黑畫面（覆蓋輸入影像資料）；0 = 正常顯示。Power-on 預設 = 0。" },
+      { m: 0x04, s: 2, n: "FRC_ENABLE", v: {"0": "未啟用（Power-on 預設）", "1": "啟用 2-bit FRC 從 TCON 輸出到 Column Driver"}, d: "1 = 啟用 2-bit FRC（Frame Rate Control）從 TCON 輸出到 Column Driver。寫入被忽略若 00701h bit 5 (FRC_ENABLE_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x08, s: 3, n: "COLOR_ENGINE_ENABLE", v: {"0": "未啟用（Power-on 預設）", "1": "啟用 Sink 裝置的色彩引擎功能"}, d: "1 = 啟用 Sink 裝置的色彩引擎功能。寫入被忽略若 00701h bit 6 (COLOR_ENGINE_CAPABLE) 為 0。Power-on 預設 = 0。" },
       { m: 0x70, s: 4, n: "RESERVED", d: "保留位元（bits 6:4），讀回 0。" },
-      { m: 0x80, s: 7, n: "VBLANK_BACKLIGHT_UPDATE_ENABLE", d: "1 = 面板在下一個 VBLANK 開始時套用所有背光新設定。寫入被忽略若 00702h bit 7 (VBLANK_BACKLIGHT_UPDATE_CAPABLE) 為 0。Power-on 預設 = 0（即時更新）。" }
+      { m: 0x80, s: 7, n: "VBLANK_BACKLIGHT_UPDATE_ENABLE", v: {"0": "即時更新（Power-on 預設）", "1": "面板在下一個 VBLANK 開始時套用所有背光新設定"}, d: "1 = 面板在下一個 VBLANK 開始時套用所有背光新設定。寫入被忽略若 00702h bit 7 (VBLANK_BACKLIGHT_UPDATE_CAPABLE) 為 0。Power-on 預設 = 0（即時更新）。" }
     ]
   },
   "00721": {
@@ -2116,13 +2120,17 @@ var DPCD_DB = Object.assign({},
     c: "eDP 背光模式設定",
     rw: 2,
     d: "設定 eDP 背光控制的工作模式。決定背光亮度的控制來源和行為。只有當 00701h bit 0 (TCON_BACKLIGHT_ADJUSTMENT_CAPABLE) 為 1 時寫入才有效。來源：eDP v1.4b Table 10-4。",
+    // 位元配置出處：drm_dp.h 的 DP_EDP_BACKLIGHT_MODE_SET_REGISTER (0x721)。四個模式值分別是
+    // MODE_PWM(0)／MODE_PRESET(1)／MODE_DPCD(2)／MODE_PRODUCT(3) —— 🔴 AUX（DPCD）控制是 10 不是 01。
+    // 旁證：DPCD_VERSION_DIFF_ARBITRATION.md L171-173 引用 eDP v1.4b p235，bit5/bit6 與本表一致。
+    // 裁定紀錄見 docs/dpcd_edp_conflict_resolution_20260910.md §3.2。
     b: [
-      { m: 0x03, s: 0, n: "BACKLIGHT_BRIGHTNESS_CONTROL_MODE", d: "背光亮度控制模式。00 = 由 BL_PWM_DIM pin 控制；01 = 面板預設亮度等級；10 = 由 AUX 暫存器控制（00722h/00723h）；11 = PWM × AUX 乘積模式。Power-on 預設：若 00702h bit 0 為 1 則 00，否則 01。" },
-      { m: 0x04, s: 2, n: "BACKLIGHT_FREQ_PWM_PIN_PASSTHRU_ENABLE", d: "1 = 啟用 BL_PWM_DIM pin 頻率直通到背光電流源。僅當 bits 1:0 = 00 時適用。寫入被忽略若 00702h bit 4 為 0 或 bit 3 為 1。Power-on 預設 = 0。" },
-      { m: 0x08, s: 3, n: "BACKLIGHT_FREQ_AUX_SET_ENABLE", d: "1 = 透過 EDP_BACKLIGHT_FREQ_SET（00728h）控制背光頻率。覆蓋 bit 2 設定。寫入被忽略若 00702h bit 5 (BACKLIGHT_FREQ_AUX_SET_CAPABLE) 為 0。Power-on 預設 = 0。" },
-      { m: 0x10, s: 4, n: "DYNAMIC_BACKLIGHT_ENABLE", d: "1 = 啟用動態背光功能。亮度範圍由 00732h/00733h 設定。寫入被忽略若 00702h bit 6 (DYNAMIC_BACKLIGHT_CAPABLE) 為 0。Power-on 預設 = 0。" },
-      { m: 0x20, s: 5, n: "REGIONAL_BACKLIGHT_ENABLE", d: "1 = 啟用區域背光功能（eDP v1.4 新增）。清為 0 時區域背光暫存器���影響亮度。Power-on 預設 = 0。若 00704h 報告無區域背光支援則此 bit 被忽略。" },
-      { m: 0x40, s: 6, n: "UPDATE_REGION_BRIGHTNESS", d: "0 = 區域亮度值可更改但 Sink 不使用新值。1 = 所有更新立即生效（或依 00720h bit 7 在 VBLANK 生效）。Sink 完成更新後清為 0。" },
+      { m: 0x03, s: 0, n: "BACKLIGHT_BRIGHTNESS_CONTROL_MODE", v: {"0b00": "由 BL_PWM_DIM pin 控制", "0b01": "面板預設亮度等級", "0b10": "由 AUX 暫存器控制（00722h/00723h）", "0b11": "PWM × AUX 乘積模式"}, d: "背光亮度控制模式。00 = 由 BL_PWM_DIM pin 控制；01 = 面板預設亮度等級；10 = 由 AUX 暫存器控制（00722h/00723h）；11 = PWM × AUX 乘積模式。Power-on 預設：若 00702h bit 0 為 1 則 00，否則 01。" },
+      { m: 0x04, s: 2, n: "BACKLIGHT_FREQ_PWM_PIN_PASSTHRU_ENABLE", v: {"0": "未啟用（Power-on 預設）", "1": "啟用 BL_PWM_DIM pin 頻率直通到背光電流源（僅當 bits 1:0 = 00 時適用）"}, d: "1 = 啟用 BL_PWM_DIM pin 頻率直通到背光電流源。僅當 bits 1:0 = 00 時適用。寫入被忽略若 00702h bit 4 為 0 或 bit 3 為 1。Power-on 預設 = 0。" },
+      { m: 0x08, s: 3, n: "BACKLIGHT_FREQ_AUX_SET_ENABLE", v: {"0": "未啟用（Power-on 預設）", "1": "透過 00728h 控制背光頻率（覆蓋 bit 2 設定）"}, d: "1 = 透過 EDP_BACKLIGHT_FREQ_SET（00728h）控制背光頻率。覆蓋 bit 2 設定。寫入被忽略若 00702h bit 5 (BACKLIGHT_FREQ_AUX_SET_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x10, s: 4, n: "DYNAMIC_BACKLIGHT_ENABLE", v: {"0": "未啟用（Power-on 預設）", "1": "啟用動態背光功能（範圍由 00732h/00733h 設定）"}, d: "1 = 啟用動態背光功能。亮度範圍由 00732h/00733h 設定。寫入被忽略若 00702h bit 6 (DYNAMIC_BACKLIGHT_CAPABLE) 為 0。Power-on 預設 = 0。" },
+      { m: 0x20, s: 5, n: "REGIONAL_BACKLIGHT_ENABLE", v: {"0": "未啟用（Power-on 預設），區域背光暫存器不影響亮度", "1": "啟用區域背光功能（eDP v1.4 新增）"}, d: "1 = 啟用區域背光功能（eDP v1.4 新增）。清為 0 時區域背光暫存器���影響亮度。Power-on 預設 = 0。若 00704h 報告無區域背光支援則此 bit 被忽略。" },
+      { m: 0x40, s: 6, n: "UPDATE_REGION_BRIGHTNESS", v: {"0": "區域亮度值可更改但 Sink 不使用新值", "1": "所有更新立即生效（或依 00720h bit 7 在 VBLANK 生效）"}, d: "0 = 區域亮度值可更改但 Sink 不使用新值。1 = 所有更新立即生效（或依 00720h bit 7 在 VBLANK 生效）。Sink 完成更新後清為 0。" },
       { m: 0x80, s: 7, n: "RESERVED", d: "保留，讀回 0。" }
     ]
   },
