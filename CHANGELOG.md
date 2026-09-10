@@ -22,6 +22,56 @@
 
 ---
 
+## eDP AUX / DPCD 查詢工具 (aux) v2.10.0 — 2026-09-10 ｜ MINOR
+
+**上下調整改成「滑鼠移上去才出現」的輸入框內建 spinner（比照 `wfg.html` 的 Vactive 那類輸入格），並加上長按連續增減 —— 參數照抄專案既有的 `wfgAttachHoldRepeat()`：220ms 起始延遲、45ms 重複間隔、無加速。**
+
+依 Bruce 2026-09-10 的兩則指示：①v2.7.0 那種固定顯示的 ▼▲ 形式不對，要像 wfg「系統設定」那些輸入格 ②長按要能快速連續增減。
+
+判定依據：`docs/VERSIONING.md` §1 判定表逐項判，取最高者為 MINOR。
+・**操作流程**：v2.7.0 的兩顆常駐按鈕改為輸入框內建、hover 才顯示。乍看像「原本的按鈕找不到了」＝MAJOR，但 **v2.7.0／v2.8.0／v2.9.0 都還沒 push，線上使用者手上的仍是 v2.5.4**，從線上版看這整批都是新增的東西，沒有任何使用者既有的操作因此失效。§1「改動大小不是判準」＋「不確定一律往低編」⇒ MINOR。（若 Bruce 認為該編 MAJOR，請裁示，我不自行進 MAJOR。）
+・**功能增減**：新增長按連續增減（MINOR：新增獨立功能）。
+・**既有功能的輸出**：查詢結果與封包預覽逐字元不變；打字 Enter、滾輪、v2.9.0 的紅框判定全部不受影響（下方有證據）。
+
+### 形式：照抄 wfg 的 Vactive
+
+先查證 `wfg.html` 的 Vactive 實際是什麼：`<input type="number" id="wfg-vactive" min="1" max="6500">`（wfg.html 約 2043 行）—— 是**原生 number spinner**，該頁沒有對 `.wfg-field input[type=number]` 隱藏 spinner（只有 `.wfg-slider-row` 與 cursor-dt 那兩處隱藏），所以在桌面 Chrome 上就是「hover 才出現上下箭頭」。
+
+位址是 5 位十六進位，**不能**用 `type="number"`（只吃十進位、也不收 A-F），所以：**外觀與互動照抄、值的加減仍走自己的十六進位邏輯**。照抄的部分是實測值而不是我拍的：以 CDP 把 Vactive 的原生 spinner 放大 8 倍拍下來量得整組約 **15×14px**、貼輸入框右內側、上下兩半緊貼無間距、淺灰底＋深色三角、游標維持 `default`。aux 這兩格照同一組數字做（每半 15×7）。
+
+**觸控裝置**：原生 spinner 在手機上根本不渲染（wfg 的 Vactive 在手機也沒有箭頭），若照抄就會變成「完全按不到」。所以 `@media (hover: none)` 下改為**常駐顯示並放大一級**（20×11），這是為了可用性而刻意偏離、不是漏做。
+
+### 長按：照抄 wfgAttachHoldRepeat()
+
+專案內**已有**這套實作：`wfg.html` 的 `wfgAttachHoldRepeat()`（約 33845 行），`wfg.html` 1202 行的註解還明講「hold-to-repeat（`wfgAttachHoldRepeat()`），不自創第二套樣式或行為」。參數與事件組合整套沿用：
+
+| 項目 | 值 | 來源 |
+|---|---|---|
+| 起始延遲 | **220ms** | `wfgAttachHoldRepeat()` 的 `setTimeout(..., 220)` |
+| 重複間隔 | **45ms** | 同上 `setInterval(doClick, 45)` |
+| 加速曲線 | **沒有**（固定間隔） | 同上，該實作沒有任何加速 |
+| 事件 | mousedown／mouseup／mouseleave／touchstart(`preventDefault`)／touchend／touchcancel，快速輕觸時手動補 `click()` | 同上 |
+
+多加的兩條（wfg 原版沒有，理由寫在程式碼旁）：**①按鈕被邊界停用時主動停止**（否則撞到 `FFFFF` 會空轉）**②視窗失焦／頁面隱藏時停止**（Bruce 明確要求；殘留的 interval 會變成「按一下就一路狂飆」）。
+
+另外實測了 Vactive 的**原生** spinner 長按 3 秒：Chrome 對它的重複在本次量測中**沒有生效**（值 1080 → 1080，增量 0），所以「照抄原生」在這裡沒有可抄的數字；採用專案自己那套是唯一有依據的選擇。
+
+### 驗證（全本機，host headless Chrome + CDP，共 80 項有效斷言，0 失敗）
+
+- **長按 3 秒兩邊對照**：wfg 的 `.wfg-slider-btn`（Gate 條數那格）＝ **+63**；aux 的 ▲＝ **+62**（兩個分頁都是），差 1 次在容差內（同一組 220/45 參數，理論值 `(3000−220)/45 ≈ 61` 次重複再加放開時的 click）。原生 Vactive spinner ＝ **+0**（見上）。
+- **加速確認**：長按逐秒量增量 `[17, 22, 23]` —— 第 1 秒少 17 是因為前 220ms 是延遲期，第 2、3 秒（22／23）相近 ⇒ 確實**沒有**加速曲線，與照抄的實作相符。
+- **可逆性**：長按 ▲ 3 秒（`00700`→`0073E`）再長按 ▼ 3 秒回到 `00700`，兩個分頁都是；上下對稱。
+- **邊界**：從 `FFFFB` 長按 ▲ 2 秒停在 `FFFFF`；從 `00004` 長按 ▼ 2 秒停在 `00000` —— 停住、不繞回、不空轉。
+- **停止**：放開後、滑鼠移出後、視窗 `blur` 後，各再等 1 秒，值都不再變動。觸控端另驗 `touchend` 與 `touchcancel`。
+- **hover 行為**（真實滑鼠事件，兩個分頁）：未 hover 時 `opacity:0` 且 `pointer-events:none`；hover 輸入框後 `opacity:1` 且可點，真實點擊 ▲／▼ 各 ±1；滑鼠移開又隱藏。幾何斷言為 15×7。
+- **觸控**（`setDeviceMetricsOverride` + `setTouchEmulationEnabled`）：箭頭常駐、觸控目標 20×11；長按 1.5 秒連續 +28／−28（對稱）；快速輕觸只 +1；放開與 `touchcancel` 後停止。
+  註：前一輪探針的觸控段用 `setEmulatedMedia hover:none`，實測**不會**讓 `@media (hover:none)` 生效、也沒開觸控模擬 ⇒ `touchStart` 根本沒派發，症狀長得跟「產品長按壞掉」一模一樣。是探針自壞，已改用正確方法重驗。
+- **十六進位逐例**（兩個分頁各 8 例）：`70F`+1→`00710`、`7FF`+1→`00800`、`00FF`+1→`00100`、`710`−1→`0070F`、`700`−1→`006FF`、`0FFFF`+1→`10000`、`FFFFE`+1→`FFFFF`、`00001`−1→`00000`；ArrowUp／ArrowDown 仍等同按鈕。
+- **零回歸**：與 v2.9.0 原檔比對，打字 Enter 的查詢結果 HTML 逐字元相同；滾輪仍會改變位址；v2.9.0 的紅框判定（`00206` 藍／`0DEAD` 紅／`F0001` 藍／decode I2C 不變紅）全部維持。
+- **外觀對照截圖**：wfg Vactive 與 aux 自由輸入格各拍 hover／非 hover 放大 8 倍圖，以及手機版 375px 全頁截圖，已實際看過畫面確認。
+
+---
+
 ## eDP AUX / DPCD 查詢工具 (aux) v2.9.0 — 2026-09-10 ｜ MINOR
 
 **外框警示擴到 AUX 解碼分頁；同時排除兩種「本來就會用到」的情況：I2C-over-AUX 的請求、以及 F0000h–FFFFFh 廠商自訂區。**
