@@ -220,6 +220,18 @@
   .aux-free-addr::placeholder { text-transform: none; letter-spacing: normal; font-size: 12px; }
   .aux-free-addr:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px rgba(56,189,248,0.2); }
   .aux-free-addr.has-error { border-color: #ef4444; }
+  /* ─── 位址不在 DPCD 資料庫（規範未定義）：滾輪組與輸入框的外框改警示紅 ─── */
+  /* 顏色一律取既有的 --error(#f87171)；半透明底色是同一顏色的 rgba 展開，未新增色碼 */
+  #aux-dpcd-addr-wheels.addr-unknown .hex-drum { border-color: var(--error); }
+  #aux-dpcd-addr-wheels.addr-unknown .hex-drum-highlight {
+    border-color: var(--error);
+    background: rgba(248, 113, 113, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.3);
+  }
+  .aux-free-addr.addr-unknown { border-color: var(--error); }
+  .aux-free-addr.addr-unknown:focus {
+    border-color: var(--error); box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.2);
+  }
   .aux-free-err {
     display: none; font-size: 11px; color: #ef4444; margin-top: 3px; line-height: 1.5;
   }
@@ -806,10 +818,10 @@
   </div>
 </div><!-- /page-aux -->
 
-<script src="common/version.js?v=20260910aux270"></script>
+<script src="common/version.js?v=20260910aux280"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="data/dpcd-db.js?v=20260910aux270"></script>
+<script src="data/dpcd-db.js?v=20260910aux280"></script>
 <script>
 // ═══════════ eDP AUX / DPCD 查詢工具 ═══════════
 (function(){
@@ -1226,6 +1238,11 @@ window.auxSwitchTab = function(tab) {
   document.getElementById('aux-tab-decode').style.display = tab === 'decode' ? 'block' : 'none';
   document.getElementById('aux-tab-verdiff').style.display = tab === 'verdiff' ? 'block' : 'none';
   if (tab === 'verdiff' && !window._verdiffRendered) { auxRenderVerdiffTable(); window._verdiffRendered = true; }
+  // 切回 DPCD 分頁時重算一次外框警示（純讀取 + toggle class，不觸發查詢）
+  if (tab === 'dpcd' && typeof auxDpcdSyncAddrWarn === 'function'
+      && typeof auxGetAddrFromWheels === 'function') {
+    auxDpcdSyncAddrWarn(auxGetAddrFromWheels());
+  }
   // 記住目前 tab，重整後還原
   try { sessionStorage.setItem('aux_active_tab', tab); } catch(e) {}
 };
@@ -1477,6 +1494,17 @@ function auxRwLabel(rw) {
 }
 
 // ─── DPCD 查詢邏輯 ───
+// ─── 位址未定義的外框警示（唯一判定點：DPCD_DB 查不到 = 規範未定義）───
+// 只作用於「DPCD 查詢」分頁。AUX 解碼分頁刻意不套用，理由見 CHANGELOG v2.8.0。
+function auxDpcdSyncAddrWarn(addrStr) {
+  var addr = String(addrStr || '').toUpperCase().replace(/^0X/i, '').padStart(5, '0');
+  var unknown = !DPCD_DB[addr];
+  var w = document.getElementById('aux-dpcd-addr-wheels');
+  var f = document.getElementById('aux-dpcd-addr-free');
+  if (w) w.classList.toggle('addr-unknown', unknown);
+  if (f) f.classList.toggle('addr-unknown', unknown);
+}
+
 function auxLookupDPCD(addrStr, valStr) {
   const resultCard = document.getElementById('aux-dpcd-result');
   const resultBody = document.getElementById('aux-dpcd-result-body');
@@ -1485,6 +1513,7 @@ function auxLookupDPCD(addrStr, valStr) {
   // 補齊到 5 位
   const addr = addrStr.toUpperCase().replace(/^0X/i,'').padStart(5,'0');
   const entry = DPCD_DB[addr];
+  auxDpcdSyncAddrWarn(addr);   // 每一條改位址的路徑最後都會走到這裡
   if (!entry) {
     resultCard.style.display = 'block';
     resultTitle.textContent = _tAux('queryResult');
@@ -4966,6 +4995,7 @@ function auxInitAll() {
   auxWaveRender();
   // 初始化 val combo box 狀態（drum init 不觸發 onChange，需手動設定初始地址的 combo 狀態）
   auxUpdateValCombo(auxGetAddrFromWheels());
+  auxDpcdSyncAddrWarn(auxGetAddrFromWheels());   // 初始狀態的外框顏色
   // 還原 URL params / sessionStorage tab
   if (typeof window.auxApplyUrlParams === 'function') window.auxApplyUrlParams();
 }
