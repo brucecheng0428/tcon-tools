@@ -22,6 +22,71 @@
 
 ---
 
+## 全螢幕變因對照測試頁 (fstest) v1.0.0 — 2026-09-11 ｜ 新分頁（臨時診斷頁，定位完即刪）
+
+**新檔 `fstest.html`，不登記在首頁，要用直接打網址。** 它存在的唯一理由是定位「同一台機器上 `pattern.html` 進得去全螢幕、`dg-measure.html` 進不去」這件事。**這頁將來要刪掉**，所以它為什麼存在必須寫在這裡，後人才看得懂。
+
+判定依據：`docs/VERSIONING.md` §2 案例 12「新增一個獨立的新分頁 → 該分頁 **v1.0.0**」，`tools/version_bump_check.py` 對新工具不判級別（「是新工具，本檢查不判級別」分支），故本條目不宣告 MAJOR/MINOR/PATCH。R1～R4 逐項再走一次全部不適用：R1 不是修 bug（沒有任何既有行為被更正）；R2 不開波、沒有也不需要 MAJOR 裁示；R3 使用者在這個工具箱裡「能做的事」沒有多一件（這頁是診斷用，不是 FAE 計算工具，首頁也沒有入口）；R4 沒有動到任何既有頁面的起始狀態。**案例 12 的後半「首頁 `app` 進 MINOR」刻意不套用**：首頁一個字都沒改、沒有新入口，登記上去反而會動到既有檔案（`index.html` ＋ `app` 版號 ＋ cache buster），與「不動任何既有檔案」衝突。取捨寫在這裡供覆核。
+
+cache buster：`fstest.html` **不載任何 `common/*.js`**（刻意自給自足，避免「頁面載了什麼」變成另一個變因），所以沒有該頁要 bump 的 `?v=`；也沒有任何頁面有 `data-tool-version="fstest"`，`tools/check_cache_buster.py` 因此只列提醒、不擋（實跑結果見下方驗證）。
+
+### 現場的對照事實（不是推測）
+
+Bruce 的 Windows 10 小筆電、Chrome 152、外接螢幕、視窗最大化，同一個站台：
+
+| 頁面 | 全螢幕 | 寫法 |
+|---|---|---|
+| `pattern.html` | ✅ 進得去 | 對 **overlay 元素** `requestFullscreen({ navigationUI: 'hide' })` |
+| `dg-measure.html` | ❌ 進不去 | 對 **`document.documentElement`**、**不帶 options** |
+
+dg-measure v1.38.0 的現場 log 原文（23:04:05）：
+`✕ requestFullscreen() 失敗 · name=TypeError · message=not granted ｜ fullscreenEnabled=true · userActivation isActive=false · hasBeenActive=true · screen 1920x1080 · outer 1920x1032 / inner 1920x911 · 由 window.open 開出來的：true · 距上一次 click（dgm-fs）1 ms`
+
+已排除：不是瀏覽器／機器（同一台 YouTube 全螢幕正常）；不是 Permissions Policy（`fullscreenEnabled=true` 正是反映它）；不是整個站台（同 origin 的 pattern.html 可以）；不是「一定要滑鼠」（鍵盤 Tab ＋ Enter 也失敗）。
+
+### 🔴 v1.38.0 的觀測設計瑕疵（這一條是教訓，要記住）
+
+那行 `isActive=false` **不能當證據**：它是在 `requestFullscreen()` 的 **catch 回呼裡**讀的，而 transient activation 在呼叫當下就已被消耗、或因這次失敗而結束 —— **失敗後讀到 false 是必然，零鑑別力**。「距上一次 click 1 ms」同理，量到的是 catch 執行的時刻，不是呼叫的時刻。一個對所有情況都回同一個值的欄位，放在 log 裡比沒有更糟：它看起來像證據。
+
+本頁的做法：每次呼叫取樣**三個時點** —— ① 進入 handler 第一行、② `req.call()` 的前一行（中間不准插任何程式碼）、③ 成功／失敗回呼當下。①→② 看我們自己的前置程式碼有沒有把手勢用掉，②→③ 看它是不是被這次呼叫消耗的。驗證腳本的 **M9 突變**就是把「呼叫前」改成在呼叫之後才讀（＝ v1.38.0 那個寫法），斷言必須因此變紅 —— 這個瑕疵從此被機械釘住。
+
+### 這頁測什麼
+
+①～④：把兩頁之間的兩項差異拆開，一次只動一個變因（對象 `documentElement`／overlay × 有無 `navigationUI: 'hide'`）。🔴 故意**不**直接把 dg-measure 改成 pattern 的寫法：照抄就算好了也分不出是哪一項在起作用，而且可能兩項都不是。
+⑤⑥：**只讀不做**，什麼 API 都不呼叫，只印按下那一刻的 `userActivation`。⑤ 只掛 click；⑥ 同時掛 click 與 keydown(Enter/Space)，兩條路徑各印一行並標明是哪一條（keydown 裡**絕不** preventDefault，否則原生的 Enter→click 會被吃掉，正好毀掉要對照的那條路徑）。
+頂端固定顯示 `fullscreenEnabled`、三時點的 `userActivation`、`screen`、`inner/outerWidth`、`!!window.opener`、`isSecureContext`、完整 `userAgent`；另有「複製結果」一鍵把畫面上每一行原字串帶回來（做法沿用 dg-measure v1.38.0 那顆「複製 log」，含 `execCommand` 退路）。
+
+### 🔴 建置途中這頁就被降級了（如實記錄）
+
+Bruce 在本頁完成後給出精確重現步驟：**「在全螢幕下按『重選儀器』，它就會跳離全螢幕，這時候就再也進不了全螢幕」**，而且**把 Chrome 整個關掉重開就又可以**。⇒ 根因已經定位到「顯示序列埠選擇器（`requestPort()` 的瀏覽器層級對話框）會把頁面踢出全螢幕，而該頁面此後落入無法再進全螢幕的狀態」，與本頁要拆的那兩個變因無關。
+
+⚠ 這**不是 v1.38.0 造成的**：「中斷連線」自 v1.34.0 就常駐，而「連線」第一次用本來就會跳選擇器 ⇒ 舊版同樣會踩到。
+
+本頁因此從「找變因」降級為「修復前後的對照量測」，**留著但不再擴充**（依 Bruce 指示）。
+
+### 這一段機械可查證（repo 內可複驗，不是印象）
+
+- `dg-measure.html` 裡 `exitFullscreen` 的**唯一呼叫點**在 `dgm-fs` 的 `'api'` 分支（L1596，使用者自己按全螢幕鈕時）。`requestPort()` 的兩條路徑（L1271 `dgmSerialOn`、L1357 `dgmSerialPick`）上**沒有任何**退出全螢幕的呼叫 ⇒ 「按重選儀器就跳離全螢幕」是**瀏覽器自己做的**，不是我們的程式碼。
+- `dgm-fs` 的 click 路徑在呼叫 `requestFullscreen()` 之前只有：capture 階段那支只記時戳的監聽器（L704，只讀 `performance.now()` 與 `e.target.id`）、`running` 旗標、`dgmFsKind()`→`isFs()`（只讀 `fullscreenElement` 與 `matchMedia().matches`），以及屬性查詢。全程同步、沒有 `await`／`setTimeout`，**沒有任何會消耗 transient activation 的 API** ⇒「我們自己把手勢用掉了」這條可以排除。（`clipboard.writeText` 只在 `dgm-log-copy`、`requestPort` 只在 `dgm-link`／`dgm-pick`，與 `dgm-fs` 不同路徑。）
+
+### 尚未查證的部分（不編機制）
+
+「Chrome 顯示 device chooser 時對全螢幕做了什麼、為什麼退出後就再也進不去」——**本任務全程禁用連網／瀏覽器工具，無法查 Chromium 原始碼或 Fullscreen 規格原文，所以這一層沒有依據，標為未查證**。目前手上只有 Bruce 的行為實證（跳離 → 再也進不去 → 重開瀏覽器就好）。
+
+### 驗證
+
+`_tmp_fstest/verify.js`（不進版控）：jsdom ＋ 假的 Fullscreen API／`userActivation`，**80 條斷言全通過**。涵蓋四顆鈕各自的呼叫對象與 options（逐一比對 `this` 與 `argc`）、三時點 activation（呼叫前 true → 回呼當下 false）、三種錯誤型別的 `name`／`message` 原字串、耗時、失敗後舞台收回（不卡在全螢幕）、再按一次會退出、⑤⑥ 完全不呼叫 fullscreen API、⑥ 的 keydown 不 preventDefault、複製鈕兩條路徑、頁面沒有在 document／window 上掛任何鍵盤監聽（①～④ 的鍵盤路徑全原生）。
+
+**負控制 12 個突變全部被抓到**（M1 拿掉 ② 的 options、M2 換掉 ③ 的對象、M3 不印 `name`、M4 失敗後不收舞台、M5 複製漏掉環境事實、M6 已在全螢幕仍重複 request、M7 掛一個攔鍵盤的 handler、M8 不印耗時、**M9 把「呼叫前」改成呼叫後才讀**、M10 探針順手呼叫 request、M11 keydown 做 preventDefault、M12 不標觸發路徑），證明斷言不是恆真。
+
+`tools/version_bump_check.py --worktree`：`fstest 是新工具，本檢查不判級別`、其餘工具無變動 → 通過。`tools/check_cache_buster.py`：無 must、只有提醒 → 通過。
+
+### 刪除這頁時要做三件事
+
+1. 刪 `fstest.html`；2. 移除 `common/version.js` 的 `fstest` 那一行；3. 在 CHANGELOG 記一筆「已刪除，根因是 ○○」，把結論留下來 —— 不然這一整段考證會跟著檔案一起消失。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.38.0 — 2026-09-11 ｜ MINOR ｜ ⚠ 輸出變更
 
 **即時量測頁多了一組連線診斷 log、一顆「複製 log」、一顆「重選儀器」按鈕。** 起因：同事的 Windows 上原廠 PQTool 接 CA-410 連得起來，這個網頁連不上（PQTool 那次連開都沒開過）。**根因還不知道** —— 這一版的目的是「下次測試時一眼看得出卡在哪一步」，不是修 bug。
