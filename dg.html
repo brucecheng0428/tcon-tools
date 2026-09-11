@@ -1456,6 +1456,16 @@
         </div>
       </div>
 
+      <!-- v1.33.0：附加末筆要不要跟著出（預設跟匯入檔走，見 dgConvImport()）。
+           樣式沿用同一張卡片的 `.field` ＋ `.dg-sel`，沒有新增任何 CSS。 -->
+      <div class="field" style="margin:12px 0 0">
+        <label>附加末筆</label>
+        <select id="dg-conv-tail" class="dg-sel">
+          <option value="1" selected>有</option>
+          <option value="0">無</option>
+        </select>
+      </div>
+
       <div class="field" style="margin:12px 0 0">
         <label>目標深度</label>
         <select id="dg-conv-to" class="dg-sel">
@@ -1892,7 +1902,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260911dg1320"></script>
+<script src="common/version.js?v=20260911dg1330"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -8536,19 +8546,27 @@
     return (v === 9 || v === 10 || v === 11 || v === 12) ? v : 10;
   }
 
-  /* 輸出格式 ＝ 匯入檔那一份，只換深度。
+  /* v1.33.0：附加末筆要不要出，由使用者的選擇決定（預設值在匯入時依檔案寫進這個
+     選單，見 dgConvImport()）。這裡只讀選單目前的值 —— 選單的值本身就是「使用者
+     現在要什麼」，不必另外記一個「有沒有被改過」的旗標。 */
+  function dgConvTail() { return $('dg-conv-tail').value === '1'; }
+
+  /* 輸出格式 ＝ 匯入檔那一份，只換深度、外加末筆的有無。
      🔴 深度在 fmt 裡只長在 `hw` 上：dgLutRowsForFmt() 的附加末筆用 2^hw−1，
-        工作表名／標題／表頭／有無末筆全部與深度無關 ⇒ 只改這一個欄位。
+        工作表名／標題／表頭全部與深度無關 ⇒ 深度只改這一個欄位。
+        末筆的**值**照舊由 `hw` 決定（2^輸出深度−1，v1.29.0 已確認），這一版只改
+        「要不要有這一筆」（`hasTail`），值的算法一字未動。
         （`cap` 只進 label，不參與產檔，這裡一併照新深度重算，免得標籤說謊。） */
   function dgConvFmt(to) {
     var f = DG_CV.fmt, o = {}, k;
     for (k in f) if (Object.prototype.hasOwnProperty.call(f, k)) o[k] = f[k];
     o.hw = to;
+    o.hasTail = dgConvTail();
     o.merges = f.merges ? f.merges.slice() : [];
     o.headerCols = f.headerCols ? f.headerCols.slice() : f.headerCols;
     o.cap = null;
     o.label = (f.headerFirst || '無表頭') + ' 型／' + to + ' bit／主表 ' + f.entries + ' 筆'
-      + (f.hasTail ? '＋附加末筆' : '（無附加末筆）') + '／工作表「' + f.sheetName + '」';
+      + (o.hasTail ? '＋附加末筆' : '（無附加末筆）') + '／工作表「' + f.sheetName + '」';
     return o;
   }
 
@@ -8558,8 +8576,10 @@
     var from = DG_CV.fmt.hw, to = dgConvTo(), d = Math.abs(to - from);
     box.style.display = '';
     box.className = 'dg-fmt';
+    /* v1.33.0：末筆的有無已經可以被使用者改掉，這句話不能再說它跟匯入檔一樣
+       （上面那一行 label 會照實際要輸出的內容寫）。 */
     var h = '<b>下載的檔會用這個格式：</b>' + dgConvFmt(to).label
-      + '<br>（工作表名稱、表頭、有無附加末筆都跟你匯入的那個檔一樣。）';
+      + '<br>（工作表名稱、表頭跟你匯入的那個檔一樣。）';
     /* 🔴 用語沿用 dgRenderOutFmt() 那兩句（v1.30.0 已是最短版本），不另創詞彙：
        往上＝低位恆為 0；往下＝丟掉位元。往下這一邊另外講「不可逆」（Bruce 2026-09-11），
        因為這個分頁的用途就是來回轉，而校正流程那一邊只會往一個方向轉一次。 */
@@ -8599,6 +8619,11 @@
         DG_CV = { fmt: det.fmt, lut: det.lut, name: file.name };
         $('dg-conv-from').textContent = det.fmt.hw + ' bit';
         $('dg-conv-entries').textContent = det.fmt.entries + (det.fmt.hasTail ? ' ＋末筆' : '');
+        /* 🔴 v1.33.0：每次匯入都無條件把選單寫成這個檔的事實（dgDetectLut() 判出來的
+           det.fmt.hasTail）。因為預設值是在「匯入」這個事件上寫一次，不是在下載時
+           才去讀，所以使用者上一次的手動選擇天然不會黏住下一個檔 —— 不需要另外維護
+           「有沒有被改過」的旗標，也就沒有那個旗標忘了歸零的可能。 */
+        $('dg-conv-tail').value = det.fmt.hasTail ? '1' : '0';
         $('dg-btn-conv-dl').disabled = false;
         dgConvRenderNote();
         dgSetStatus('dg-conv-status', '已匯入 ' + file.name + '\n' + det.fmt.label
@@ -8814,6 +8839,7 @@
       e.target.value = '';
     });
     $('dg-conv-to').addEventListener('change', dgConvRenderNote);
+    $('dg-conv-tail').addEventListener('change', dgConvRenderNote);   // v1.33.0
     $('dg-btn-conv-dl').addEventListener('click', dgConvDownload);
 
     /* ─── v1.10.0：即時量測 ────────────────────────────────────────────────
