@@ -22,6 +22,72 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.38.0 — 2026-09-11 ｜ MINOR ｜ ⚠ 輸出變更
+
+**即時量測頁多了一組連線診斷 log、一顆「複製 log」、一顆「重選儀器」按鈕。** 起因：同事的 Windows 上原廠 PQTool 接 CA-410 連得起來，這個網頁連不上（PQTool 那次連開都沒開過）。**根因還不知道** —— 這一版的目的是「下次測試時一眼看得出卡在哪一步」，不是修 bug。
+
+判定依據：`docs/VERSIONING.md` §1 判定表「功能增減 ＝ 新增獨立功能」→ MINOR；案例 1（新增一個完整功能）同判。逐項再走一次 R1～R4 取最高者：R1 不適用（不是修 bug，沒有任何既有行為被更正）；R2 不適用（不開新波，也沒有取得任何 MAJOR 裁示）；R3 ⇒ MINOR（使用者確實多能做兩件事：把連線過程複製回傳、自己指定要用哪一個序列埠）；R4 ⇒ MINOR（左下角 log 視窗從「有事才出現」變成「開頁就有」＝ 起始狀態改變，但沒有任何按鈕移位或功能移除，主按鈕仍在最右邊原位）。取最高 ⇒ **MINOR**。**沒有判到 MAJOR**：既有的三顆鈕、連線流程、量測流程、回傳資料一個字都沒動（機械比對見下方驗證）。
+
+### 為什麼是「整合進原本的 log 視窗」而不是另開一個
+
+Bruce 給了兩個做法擇一。取整合，理由三條（不是偏好）：
+
+1. 要分辨的幾種狀況，判準全在**先後順序**上（`getPorts()` 之後才輪到 `requestPort()`、`open()` 過了才輪到第一個位元組）。拆兩個視窗 ＝ 兩條時間軸，貼回來沒有人接得回去。
+2. 交付物是同事貼回來的那一段文字。一顆「複製 log」只複製得到一個視窗，拆兩個就會只帶回一半，而缺的那一半正好是要拿來判斷的。
+3. 「一眼看得出來」靠的是字級差（量測行 11px vs 連線行 **15px**）與固定前綴（▶／★／✔／✕），在同一個視窗裡就已經成立。
+
+### log 記下哪些事實（每一筆都帶毫秒級時戳）
+
+| 時機 | 內容 |
+|---|---|
+| 開頁 | `navigator.serial` 在不在、`isSecureContext`、完整網址、**完整 `userAgent` 原字串**（不自行判斷是哪一種瀏覽器） |
+| 按連線 | 距上一次 click 幾毫秒；`getPorts()` 回幾個、**每一個的 `getInfo()`**（VID／PID 十六進位與十進位各印一次） |
+| 分岔 | **走的是哪一條路**：既有授權（直接用 `[0]`、不跳選擇視窗）還是 `requestPort()`；最後選中的是哪一個 |
+| `requestPort()` 之前 | `navigator.userActivation` 的 `isActive`／`hasBeenActive`，以及距 click 幾毫秒 |
+| 失敗 | `e.name` **與** `e.message` 原字串（`getPorts`／`requestPort`／`open`／寫入／全螢幕，五處都是） |
+| 開埠後 | `open()` 的完整參數、**送出的第一個位元組（hex）**、**第一筆回應或逾時** |
+| 每一步 | 耗時（毫秒） |
+
+四種假設因此分得開（四段 log 原文與交叉比對見 `_tmp_dg1380/`）：不支援 ⇒ `navigator.serial：不存在`；被政策擋 ⇒ `name=SecurityError`；埠被佔住 ⇒ `open() 失敗 · name=NetworkError`；沒有 COM port ⇒ `getPorts() 回 0 個` ＋ `name=NotFoundError`。
+
+⚠ **API 分不出來的那一個，如實寫在 log 裡**：`requestPort()` 的「使用者按取消」與「清單裡一台都沒有」規格上都是 `NotFoundError`，所以那一行直接寫「請問現場：選擇視窗裡有沒有東西？」，不猜。
+
+### 「重選儀器」是**新增的第二條路**，不是改寫第一條
+
+現行 `dgmSerialOn()` 是「`getPorts()` 不是空的就直接用 `ports[0]`」，使用者永遠沒有機會自己選。新入口強制走 `requestPort()`。
+
+- 🔴 原路徑**一個字都沒動** —— 根因還不知道，不能在這一版就改掉 Bruce 電腦上已經能動的那條路。
+- 新路徑把 `requestPort()` 排在**第一個 `await`**（transient user activation 有時效），釋放舊埠排在選完之後。
+- ⚠ 已知限制，如實寫：選完之後按「開始量測」，`run()` 仍會呼叫 `dgmSerialOn()`，那一支仍然是「非空就用 `[0]`」。若這台電腦授權過多個埠而你挑的不是 `[0]`，量測用的會是 `[0]` —— 這時 log 會印「你剛才用『重選儀器』挑的不是這一個」。**要不要改那條路，等現場 log 回來由 Bruce 決定。**
+
+### 順帶查證（Dispatch 2026-09-11 要求，本版不修）
+
+`getPorts()` 回的是**這個來源先前已被授權過的所有序列埠**，不是「CA-410 那一個」；清單非空就用 `[0]`，而且**不會跳出選擇視窗**。這個讀法**正確**。實測（`probe_scenarios.js` 的 `wrongfirst`）：授權清單放兩個、第 0 個是別的 USB-Serial（VID 0x1A86）時，產品確實靜靜地開了那一個、`requestPortCalls` 為 0。log 的「★ 走『既有授權』這條路 ⇒ VID …」那一行就是證實或推翻它的依據。
+
+### 全螢幕失敗也印型別
+
+Bruce 在另一台 Windows 小筆電（Chrome ＋ 外接螢幕）連按七次全失敗，舊 log 只留下 `requestFullscreen 失敗：not granted` —— **沒有型別就分不出是哪一種**。`requestFullscreen` 與 `exitFullscreen` 兩處的 catch 現在同時印 `e.name`＋`e.message`，並附一組最小事實：`document.fullscreenEnabled`、`userActivation`、`screen`／`outer`／`inner` 尺寸、是不是 `window.open` 開出來的。依 MDN，Permissions Policy 擋掉時 reject 的是 **`TypeError`**（與使用者手勢無關），所以只有 `TypeError` 那一行會附政策那句；`NotAllowedError` 附的是手勢／視窗狀態那句。**全螢幕的判斷邏輯（`dgmFsKind()`、三態分支、按鈕停用條件）一個字都沒動。**
+
+### ⚠ 輸出變更的範圍（只有畫面，沒有資料）
+
+左下角 log 視窗：① 開頁就出現（原本是有事才出現）② 連線相關行 15px ③ 視窗上限由 30vw／26vh 放寬為 38vw／34vh ④ 多一顆「複製 log」⑤ 按鈕列多一顆「重選儀器」（字數依 30vw 寬度預算算過：四字 86px 放得下、六字 112px 會把主按鈕擠到第二列）。**拿舊版截圖當基線的流程要知道這件事**，所以標。
+
+**量測資料與線上位元組完全沒變**：prim 模式端到端實測，`TX` 15 筆逐位元組相同、指令序列相同、回傳 payload 相同（剔除天生不可重現的 `at` 時戳）；gray 模式 256 階同樣逐位元組相同。
+
+### 驗證（jsdom ＋ 假 `navigator.serial`，腳本在 `_tmp_dg1380/`）
+
+- `probe_scenarios.js` —— 六個情境各跑一次，**指紋交叉比對**：四種假設的指紋各自只在自己那一欄命中，另外三欄全部落空（分得開）。
+- `probe_pick_copy.js` —— 新入口：`requestPortCalls=1`／`getPortsCalls=0`（確認走的不是原路徑）、`open()` 參數與原路徑同一組；**複製 log 的內容與畫面逐字元相同**（1572 字元）；沒有 `navigator.clipboard` 時退回 `execCommand`，內容同樣一致；`execCommand` 回 false 時按鈕老實顯示「複製失敗」。負控制：只授權一個埠時不出現那句警示（否則那句話等於恆真）。
+- `probe_fs.js` —— `TypeError` 與 `NotAllowedError` 兩種各驗一次；負控制：基準版 v1.37.0 對同一個失敗**確實印不出型別**。
+- `probe_nodelta.js` —— 把 `dgmSerialOn`／`dgmSerialOff`／`closePort`／`readLoop`／`cmd`／`run`／`dgmLost`／`dgmLinkOn`／`dgmLinkOff`／全螢幕鈕與連線鈕兩個處理器，去註解、併行、濾掉觀測敘述後**逐字元比對**：全部相同。五個負控制（改 baudRate、改 `ports.length` 判斷、改訊息常數、改全螢幕三態分支、改停用條件）全部被抓到。
+- `probe_regress.js` —— 零回歸，見上。
+
+🔴 **這一版的驗證是 jsdom，不是真機**：它能證明「產品端送了什麼位元組、什麼情況會走哪一條路、log 印了什麼」，**證明不了**任何真實硬體與真實 Chrome 的行為（真機時序、Chrome 實際丟哪一種例外、選擇視窗長什麼樣）。那些一律標**未驗證**，要靠下週現場那一份 log。
+
+🔴 **版面沒有用像素截圖驗證**（本次禁用瀏覽器類工具，jsdom 也沒有排版引擎）：字級 15px／11px 是 `getComputedStyle` 量到的、按鈕寬度是按 CSS 數值算出來的，但「四顆鈕在 1280 寬會不會換行」只有算式沒有截圖。依既有規則（視覺改動要看實際畫面）這一項**標未驗證**，下次能開瀏覽器時補一張。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.37.0 — 2026-09-11 ｜ MINOR ｜ ⚠ 輸出變更
 
 **索引欄由大到小寫的 LUT 檔也收得下了。** Bruce 2026-09-11：「每一種格式都要可以支援正掃跟反掃。」
