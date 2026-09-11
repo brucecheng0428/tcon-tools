@@ -105,7 +105,55 @@
     border-radius: calc(10 * var(--dgm-u));
     padding: calc(10 * var(--dgm-u)) calc(13 * var(--dgm-u));
   }
-  #dgm-info { top: calc(14 * var(--dgm-u)); left: calc(14 * var(--dgm-u)); }
+  /* ═══ v1.42.0：左上角面板與右上角**一模一樣大**，字級再放大 ═══════════════
+     Bruce 2026-09-12：「左上角顯示解析度那些資訊的視窗，也把它做得跟右上角那個
+     視窗一模一樣大，這個字體也可以再放大。」
+
+     ── 實測起點（Bruce 的 Windows Chrome，視窗 1920×855，v1.41.0）────────────
+       #dgm-info   11,11   131 × 104   6.84% × 12.12%   字級 14px
+       #dgm-right  1610,11 299 × 140  15.58% × 16.42%   字級 14px
+       #dgm-log    11,704  299 × 140  15.58% × 16.42%   字級 8.7px
+     ⇒ 左上角只有右上角的 44% 寬、74% 高。
+
+     🔴 尺寸來源：**吃 v1.41.0 既有的 --dgm-right-w／--dgm-right-h**，不另算一份。
+        那組變數由 dgmSyncRightRect() 的 ResizeObserver 同步 #dgm-right 的實際矩形，
+        log 已經在吃它了 ⇒ 三個面板同一個來源，日後不會各自漂移。
+        （fallback 同樣是 --dgm-panel-w／--dgm-panel-h，與 log 那邊一致。）
+
+     🔴 用 width／height（不是 max-）—— Bruce 要的是「一模一樣大」，不是「不超過」。
+        因此 .dgm-corner 基底那兩個上限（max-width: 30vw、max-height: 30vh）
+        在這一個元素上必須解掉，否則 30vh 會在 #dgm-right 長到 30vh 以上時
+        把左上角夾住，兩者就**不再相同**（#dgm-right 的上限是 40vh，比 30vh 大）。
+        解掉不會失控：來源本身已經被 #dgm-right 自己的 30vw／40vh 限住。
+
+     🔴 `overflow-y: auto`（基底是 overflow: hidden）：面板高度現在由**別人**決定，
+        而 #dgm-right 的高度會隨狀態變動（#dgm-head 在直接打開這一頁時是
+        dgm-hidden，少 ~69 基準px）。高度縮下去時，五行資訊要嘛捲、要嘛被無聲
+        切掉 —— v1.27.0 為 #dgm-msg 立的規矩就是「空間再不夠也不會有東西被無聲
+        切掉」，這裡沿用同一條。
+        ⚠ 已知取捨（誠實列出）：極端情況（直接打開本頁、沒有步驟名稱、訊息只有
+          一行）下 #dgm-right 約 141 基準px，而五行在新字級下要 ~155 基準px
+          ⇒ 那個狀態會出現捲軸。正常工作路徑（從 DG 頁按「即時量測」進來，
+          有步驟名稱）是 ~210 基準px，餘裕 55 基準px。
+
+     🔴 字級 .dgm-v 14 → **17**、.dgm-k 12 → **15**（1.21／1.25 倍），
+        **只 scope 在 #dgm-info 內**，不動 .dgm-k／.dgm-v 的基底規則 ——
+        基底的 .dgm-k 現在也被 #dgm-right 裡的「切換後等待」那一列用到，
+        全域改會把 #dgm-right 一起撐高，而它正是另外兩塊面板的尺寸來源。
+        數字是算出來的：行高 = 字級 × 1.55，五行 ＋ padding 20 ＋ 邊框
+        ⇒ 17 基準px 需要 5×26.4＋22.5 ≈ 155 基準px（在 210 之內）；
+          19 基準px 需要 170，也還放得下，但餘裕從 55 掉到 40，
+          而上面那個「沒有步驟名稱」的退化狀態會更早出現捲軸 ⇒ 取 17。
+        兩者都吃 --dgm-u，沒有裸 px。 */
+  #dgm-info {
+    top: calc(14 * var(--dgm-u)); left: calc(14 * var(--dgm-u));
+    width: var(--dgm-right-w, var(--dgm-panel-w));
+    height: var(--dgm-right-h, var(--dgm-panel-h));
+    max-width: none; max-height: none;
+    overflow-y: auto;
+  }
+  #dgm-info .dgm-k { font-size: calc(15 * var(--dgm-u)); }
+  #dgm-info .dgm-v { font-size: calc(17 * var(--dgm-u)); }
   /* ─── v1.27.0：右上角面板不再裁掉東西 ───────────────────────────────────
      問題（v1.26.2 實測）：退出全螢幕時，閘門紅框 130px 一回來就把內容撐到
      302 > 194，最下面那一行被 max-height:30vh 的 overflow:hidden 裁掉。
@@ -214,6 +262,62 @@
     margin-right: calc(8 * var(--dgm-u));
   }
   #dgm-pick:disabled { background: #1e293b; color: #64748b; cursor: not-allowed; }
+  /* ═══ v1.42.0：切換後等待時間的下拉選單 ═════════════════════════════════
+     Bruce 2026-09-12：「每一階換完畫面之後、送出量測指令之前的等待時間，
+     要讓使用者自己選。」
+
+     🔴 為什麼在 #dgm-right 而不是別的角落（三個候選逐一對照）：
+        · #dgm-right 自 v1.27.0 起的職責就寫死是「**狀態與控制**」，說明性內容
+          一律被搬到底部 —— 這是一個控制項，它的家就在這裡。而且它要被使用者
+          在「按開始量測之前」設定，跟那顆鈕放在同一塊，操作序列是連續的。
+        · #dgm-info（左上）是**唯讀讀數**（解析度／灰階／兩個更新率／全螢幕），
+          五行全是 .dgm-k ＋ .dgm-v。放一個可改的控制項進去，等於把那一塊
+          「看的」與「動的」混在一起，正是 v1.27.0 花一整版切開的東西。
+        · #dgm-bottom（底部）是 `pointer-events: none` —— 它**物理上按不到**，
+          而且那一區依 v1.30.0 定義是「要做什麼」的說明，不是控制。
+        · 右下角無主：要新開第五塊面板。為了一個下拉選單多一塊面板、多一組
+          尺寸上限、多一條「不准侵入中央」的證明，代價遠大於收益。
+
+     🔴 位置在按鈕列**之後**、#dgm-prog 之前，這是算過的不是隨手插的：
+        `.dgm-corner` 是 `overflow: hidden`，裁的是**下面**；而 #dgm-right 的
+        子元素除了 #dgm-msg 全是 `flex: 0 0 auto`。
+        · 插在按鈕列**之前** ⇒ 四顆鈕整列往下位移，肌肉記憶（v1.38.0 特別
+          保住的「主按鈕在最右邊那個位置」）連帶被破壞。
+        · 插在按鈕列**之後** ⇒ 標頭與按鈕列的 y 一格未動，被往下推的是
+          #dgm-prog 與 #dgm-msg，而 #dgm-msg 本來就是 v1.27.0 指定的
+          「空間不足時唯一會縮、且縮到底時自己捲動」的那一格。
+        優先序（v1.27.0 原文「訊息 ＞ 進度 ＞ 按鈕 ＞ 步驟名稱」）因此完全維持，
+        本控制項插在「按鈕」與「進度」之間，不動前兩名。
+
+     🔴 與 v1.41.0 那條 log 尺寸連動的關係（這一版一定會動到它，如實列出）：
+        log 的上限是 `--dgm-right-w/h` ＝ #dgm-right 的**實際矩形**。
+        本版讓 #dgm-right 多一列 ⇒ 它的**高度**變高 ⇒ `--dgm-right-h` 變大
+        ⇒ log 的 max-height 跟著變大（1534×903 實測基準：右上 176 → 約 210，
+        log 的上限同步從 176 變成約 210）。
+        · **Bruce 要的那個不變量沒有被破壞**：他要的是「log 不要比右上角那個
+          視窗來得大」，那是一條**相對**關係。log 變大的唯一原因是它的參考物
+          變大，兩者仍然滿足 log ≤ 右上。這是綁實際矩形（而不是綁 40vh 這種
+          宣告上限）換來的性質：參考物一動，上限自己跟著對。
+        · **寬度不變**：#dgm-right 的寬度由最寬的那個子元素決定，也就是那一列
+          四顆鈕（v1.38.0 算過，1280 寬時約 358px 的預算幾乎用滿）。本列是
+          「五個字的標籤 ＋ 一個 70 基準px 上下的選單」，遠窄於按鈕列
+          ⇒ `--dgm-right-w` 不動 ⇒ log 的 max-width 不動。（這一條是可量的，
+          已列入 dgmProbe.rects() 給主機端真 Chrome 驗。）
+        · **沒有侵入中央**：log 貼左下、上限約 210 基準px ⇒ 它的上緣在
+          H − 224 基準px（1080 下 y ≈ 856），仍遠在畫面垂直中線（540）之下。
+
+     🔴 尺寸全部吃 --dgm-u，一個裸 px 都沒有（v1.41.0 才剛把這個面板家族的
+        裸 px 清完，不在這一版又製造新的）。唯一的例外沿用既有那一條：
+        1px hairline 邊框刻意不等比（理由見本檔開頭 --dgm-u 那段）。 */
+  #dgm-settle-row { margin-top: calc(8 * var(--dgm-u)); align-items: center; }
+  #dgm-settle {
+    background: #334155; color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, .25); border-radius: calc(7 * var(--dgm-u));
+    padding: calc(3 * var(--dgm-u)) calc(8 * var(--dgm-u));
+    font-family: inherit; font-size: calc(13 * var(--dgm-u)); font-weight: 700;
+    line-height: 1.3; cursor: pointer;
+  }
+  #dgm-settle:disabled { background: #1e293b; color: #64748b; cursor: not-allowed; }
   /* v1.11.0 的獨立停止鈕（#dgm-stop）已於 v1.34.0 併入上面那顆主要動作按鈕。
      🔴 v1.11.0 當時把它獨立出來的理由白紙黑字寫著「如果讓開始鈕就地變成停止鈕，
         連點兩下開始就會直接把自己按停」—— 這個風險是真的，實測也重現得到
@@ -474,7 +578,7 @@
            那塊的 2.05 倍，Bruce 要的「不要比它大」根本沒被擋住。
            量到的事實是 log 高 307 vs 右上 176（超出 74%），所以要綁的是
            **實際高度**，不是宣告上限。
-        🔴 實際矩形 CSS 量不到（沒有 element query），由 dgmSyncLogCap() 用
+        🔴 實際矩形 CSS 量不到（沒有 element query），由 dgmSyncRightRect() 用
            ResizeObserver 寫進 --dgm-right-w／--dgm-right-h。右上角的高度會隨
            狀態文字多寡變動，所以是持續同步，不是寫死 176。
         🔴 fallback 是 --dgm-panel-w／--dgm-panel-h：JS 還沒跑或環境沒有
@@ -552,8 +656,18 @@
        🔴 主按鈕保持在最右邊那個原本的位置不動（肌肉記憶）。
        🔴 HTML 裡的初始值寫的是「一載入必然成立」的那一種（未全螢幕、未連線、
           未量測）；真正的值仍由 dgmRenderBtns() 給，這裡只是不讓它閃一下。 -->
-  <div>
+  <!-- v1.42.0：這一列多了一個 id（dgm-btnrow）。🔴 **只是量測用的錨點**，
+       沒有任何 CSS 規則或 JS 讀它以外的行為 —— 它存在的唯一理由是讓
+       dgmProbe.rects() 能證明「按鈕列的 y 沒有因為下面多一列而位移」。 -->
+  <div id="dgm-btnrow">
     <button id="dgm-fs">全螢幕</button><button id="dgm-link">連線</button><button id="dgm-pick">重選儀器</button><button id="dgm-start" disabled>開始量測</button>
+  </div>
+  <!-- v1.42.0：切換後等待時間。位置與理由見 CSS #dgm-settle-row 那段。
+       🔴 <option> 由 JS 依 DGM_SETTLE_CHOICES 產生（單一來源），這裡刻意留空 ——
+          本檔的 <script> 是 body 結尾的同步腳本，首次繪製之前就跑完了，不會閃。
+          寫死在 HTML 會讓「允許值」有兩份，遲早跟驗證那一份不一致。 -->
+  <div class="dgm-row" id="dgm-settle-row">
+    <span class="dgm-k">切換後等待</span><select id="dgm-settle"></select>
   </div>
   <div id="dgm-prog"></div>
   <div id="dgm-msg">連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。</div>
@@ -611,9 +725,91 @@
          就可能吃掉一百多 ms，取樣窗必須整段落在畫面已經穩定之後；
        · 500 ms 在 60 Hz 下是 30 個 frame，上面兩項都涵蓋得住，
          256 階總共也只多花約 2 分鐘。
-     原廠量測軟體同樣有這個等待時間設定；這裡不做成 UI 選項，
-     一鍵測試不該讓使用者去猜一個他無從判斷的數字。 */
-  var DGM_SETTLE_MS = 500;
+     ═══ v1.42.0：改成使用者可選（原本這裡寫著「不做成 UI 選項」）═══════════
+     Bruce 2026-09-12：「每一階換完畫面之後、送出量測指令之前的等待時間，
+     要讓使用者自己選。」
+
+     🔴 原本那句「不做成 UI 選項，一鍵測試不該讓使用者去猜一個他無從判斷的
+        數字」已經**撤銷**，不是被繞過。撤銷的理由是它的前提被推翻了：
+        前提是「使用者無從判斷」，而原廠 CA-S40 的 Gamma Measurement Mode
+        那一列就長這樣 ——
+            Tones: [16 ▾]   Wait: [ 1 ] × 100 msec   [Start]
+        原廠把它交給使用者，代表這是量測者本來就在調的參數（不同面板的
+        overdrive／FRC 收斂時間差很多），不是憑空猜。上面那三條「為什麼 500」
+        的理由一條都沒有失效，它們現在是**預設值**的依據，不是唯一值的依據。
+
+     🔴 級距與值域對齊原廠的形狀、但不照抄它的輸入法：原廠是「倍數 × 100 msec」
+        兩格，我們做成**直接顯示 ms 的下拉選單**一格（Bruce 一貫要求「使用上要
+        簡單無腦」）。100～700、級距 100 ⇒ 七個選項，涵蓋原廠 1～7 倍那一段。
+     🔴 預設仍是 500 —— 與 v1.41.0 的常數同值，所以**不碰這個選單的人，
+        整輪送給儀器的位元組與 v1.41.0 逐位元組相同**（這是本版零回歸的主證據）。
+     🔴 **`Tones`（量測階數）沒有做。** 原廠那一列有它，Bruce 這次沒有要求，
+        所以本版一個字都不碰 —— 階數仍由 DGM_MODE 決定（gray 256／prim 3）。
+        這是刻意畫的範圍界線，不是漏掉。 */
+  var DGM_SETTLE_DEFAULT = 500;
+  /* 允許值的**唯一來源**：下拉選單的 <option> 由它產生，dgmSettleMs() 的驗證
+     也讀它。兩份清單遲早不一致，所以只留一份。
+     🔴 這裡用白名單是安全的，與「加數值門檻誤殺真檔」那一類錯**不同**：
+        那一類的值域來自外部檔案（我們無權定義合法範圍）；這一份是我們自己
+        產生的封閉列舉，而且對不上時的出路是**退回預設值**，不是拒絕動作。 */
+  var DGM_SETTLE_CHOICES = [100, 200, 300, 400, 500, 600, 700];
+
+  /* 這一輪量測**實際**在用的那個值（latch）。
+     ═══ 為什麼要 latch，而不是讓迴圈每一階去讀選單 ═════════════════════════
+     Bruce 的兩條要求放在一起看，答案只有這一個：
+       ① 「量測進行中不可改」（與量測中停用連線類按鈕同一條規則）
+       ② 「繞過 disabled 直接改也不能影響正在跑的那一輪」
+     ①由 dgmRenderBtns() 的 disabled 擋住正常路徑；但 disabled 只是 UI，
+     DevTools 一行就能改掉，所以②要求的是**資料正確性**層面的保護。
+     latch 同時滿足兩者：這一輪用的是按下「開始量測」那一刻的值，之後選單
+     被怎麼動都與這一輪無關 —— 一輪量測橫跨 256 階、前後用不同等待時間得到
+     的曲線是一份混血資料，錯得很安靜（跟「半套資料不回傳」是同一個理由）。
+
+     ═══ 「改了卻不知道有沒有生效」為什麼不會發生 ═══════════════════════════
+     生效時機 ＝ **下一次按「開始量測」**。而量測中選單是停用的
+     ⇒ 正常路徑下「畫面上顯示的值」與「這一輪在用的值」**不可能不一致**，
+        因為能改的時候沒有在跑，在跑的時候改不了。
+     另外每一輪開跑時把實際採用值寫進左下角 log（比照 dgmRingClear() 記遲滯
+     的既有做法）⇒ 事後回看也有紀錄，不必靠記憶。
+
+     ═══ 不用 localStorage（已 grep 確認既有做法）═══════════════════════════
+     本檔 localStorage 出現 0 次；dg.html 的兩次都是註解，白紙黑字寫著
+     「不引入 localStorage：本頁從來沒有用過（全庫 grep = 0），重整歸零是既有
+     設計。Bruce 若要跨重整保留，那是另一個決定，不在這一版自作主張。」
+     🔴 而 Bruce 這次點名的情境**根本不需要儲存**：v1.26.1 起 DG 頁是用
+        postMessage **重用**這個分頁（不重新導航），換入口走的是 dgmSetTask()
+        —— 那一支不碰這個選單（它只重設 aborted／lastStep／progress／模式 UI），
+        所以使用者選過的值在整個工作階段內原樣留著。
+     真正會遺失的只有「手動重新整理頁面」，而那正是 dg.html 已經決定的
+     「重整歸零」。要跨重整保留是另一個決定，這一版不自作主張。 */
+  var dgmSettleUsedMs = DGM_SETTLE_DEFAULT;
+
+  /* 選單的 <option>：唯一來源是 DGM_SETTLE_CHOICES。 */
+  (function () {
+    var sel = $('dgm-settle'); if (!sel) return;
+    DGM_SETTLE_CHOICES.forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = String(v);
+      o.textContent = v + ' ms';
+      if (v === DGM_SETTLE_DEFAULT) o.selected = true;
+      sel.appendChild(o);
+    });
+  })();
+
+  /* 目前選到的值（已驗證）。對不上允許值時退回預設 —— 不擋動作、不丟例外。 */
+  function dgmSettleMs() {
+    var sel = $('dgm-settle');
+    var v = sel ? parseInt(sel.value, 10) : NaN;
+    return (DGM_SETTLE_CHOICES.indexOf(v) >= 0) ? v : DGM_SETTLE_DEFAULT;
+  }
+  /* 改了就留一行紀錄。🔴 這個 handler **不改任何狀態**（沒有 latch、沒有重繪）：
+     生效時機是下一次按「開始量測」，在這裡偷偷套用到正在跑的那一輪就違反
+     上面②。log() 是宣告式函式（會提升），這裡呼叫得到。 */
+  if ($('dgm-settle')) {
+    $('dgm-settle').addEventListener('change', function () {
+      log('切換後等待改為 ' + dgmSettleMs() + ' ms（下一次「開始量測」起生效）');
+    });
+  }
 
   /* ═══ v1.12.0：兩種量測模式 ═══════════════════════════════════════════
      · gray（預設）＝ DG 第 2 部分：白灰階 L0 ～ L255，256 階
@@ -1330,6 +1526,19 @@
        （dgmPrepChooser），不是被擋住。 */
     var pk = $('dgm-pick');
     if (pk) pk.disabled = running || dgmLinkBusy;
+    /* ── ②c 切換後等待（v1.42.0）──────────────────────────────────────────
+       🔴 條件是 **running 一項**，不是照抄上面兩顆的 `running || dgmLinkBusy`。
+          上面那個 dgmLinkBusy 是**連線動作自己的防連點**（連線／中斷／重選都在
+          碰同一個埠）；這個選單跟序列埠毫無關係，連線進行中把它一起關掉是
+          抄形狀不抄理由，只會讓使用者在等連線的那幾秒莫名其妙按不動。
+       🔴 但 disabled 只是 UI 那一層。真正保證「繞過它也影響不到正在跑的那一輪」
+          的是 dgmStart() 裡的 latch（見 dgmSettleUsedMs 那段）——
+          兩層各自獨立，不是同一條防線寫兩次。
+       🔴 這裡是它**唯一**的開關設定點。v1.32.0 的教訓（「手動拉回一個控制項」
+          本身就是破口）就是量測結束時只手動拉回主按鈕、漏掉連線鈕；所以新控制項
+          一律掛在這一支裡，由 syncFs() → dgmRenderBtns() 這條唯一的路復原。 */
+    var sw = $('dgm-settle');
+    if (sw) sw.disabled = !!running;
     /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
        Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
        所以讓他自己決定就好。」
@@ -1694,13 +1903,26 @@
   /* ═══ v1.41.0：log 面板的尺寸上限 ＝ 右上角面板的實際矩形 ═════════════════
      Bruce 2026-09-12：「大小可以 follow 右上角的大小，不要比右上角第二部分的
      那個視窗來得大。」
+
+     ═══ v1.42.0：這一支現在是**三個面板**的尺寸來源（函式從 dgmSyncLogCap 改名）
+     ───────────────────────────────────────────────────────────────────────
+     #dgm-right（主）─ 內容決定大小，只被 30vw／40vh 這兩個既有上限限住
+       ├─ #dgm-log  （從）max-width／max-height ＝ 這兩個變數（v1.41.0）
+       └─ #dgm-info （從）width／height       ＝ 這兩個變數（v1.42.0）
+     🔴 **#dgm-right 本身這一版沒有加任何尺寸宣告** —— 它仍然是內容決定。
+        v1.42.0 多一列（切換後等待）⇒ 它變高約 33 基準px ⇒ 另外兩塊**一起**變高
+        同樣的量。這是「一個主、兩個從」的必然後果，不是副作用失控：
+        改成把 #dgm-right 釘成固定尺寸才會出問題 —— 那需要一個手工維護的常數去
+        追按鈕列與訊息列的實際高度，正是 v1.39.0 ③ 被推翻的那種寫法。
+     🔴 不會遞迴：ResizeObserver 只觀察 #dgm-right，而 #dgm-right 的大小不受
+        #dgm-log／#dgm-info 影響（三者都是 position: fixed，互不撐開）。
      🔴 為什麼一定要 JS：CSS 沒有 element query，量不到另一個元素的實際大小。
         而**宣告上限不能代替實際大小** —— Windows Chrome 1534×903 實測，右上角
         的實際矩形是 377×176，它的宣告上限 40vh 卻是 361。拿上限去比，log 可以
         長到右上角那塊的 2.05 倍，「不要比它大」等於沒擋。
      🔴 右上角的高度會隨狀態文字多寡變動 ⇒ 必須持續同步，不能寫死一個數字。
      🔴 不會遞迴：這兩個變數只有 #dgm-log 讀，#dgm-log 的尺寸不影響 #dgm-right。 */
-  function dgmSyncLogCap() {
+  function dgmSyncRightRect() {
     var el = $('dgm-right'); if (!el) return;
     var r = el.getBoundingClientRect();
     if (!(r.width > 0 && r.height > 0)) return;   // 還沒排版完就不要寫進 0
@@ -1709,12 +1931,12 @@
     s.setProperty('--dgm-right-h', r.height + 'px');
   }
   if (typeof ResizeObserver === 'function') {
-    new ResizeObserver(dgmSyncLogCap).observe($('dgm-right'));
+    new ResizeObserver(dgmSyncRightRect).observe($('dgm-right'));
   } else {
     // 沒有 ResizeObserver 的環境：退回 resize 事件；再不行就用 CSS 的 fallback 值。
-    window.addEventListener('resize', dgmSyncLogCap);
+    window.addEventListener('resize', dgmSyncRightRect);
   }
-  dgmSyncLogCap();
+  dgmSyncRightRect();
 
   /* ═══ v1.30.0：警示層（畫面不是 1:1／沒有全螢幕）═════════════════════════
      判準：
@@ -1925,7 +2147,7 @@
             比較保守。都沒有就退回 60 Hz，並夾在 [24, 480] Hz：rAF 在分頁被切到
             背景時會被節流到 1 Hz 左右，不夾會算出好幾秒的假遲滯。
        ② 面板本身的 Gray-to-Gray 響應 DGM_GTG_MS = 50 ms。
-          這**不是新數字**：DGM_SETTLE_MS 那段註解裡既有的「面板 GTG 在 60 Hz 下
+          這**不是新數字**：DGM_SETTLE_DEFAULT 那段註解裡既有的「面板 GTG 在 60 Hz 下
           不過幾個 frame（< 50 ms）」就是它的來源，這裡只是把同一個上界拿出來用。
           🔴 GTG 是**絕對時間**，不隨更新率縮放，所以它是加項不是乘項 ——
              寫成「再等幾個週期」在 240 Hz 下會憑空縮水成 12 ms。
@@ -1997,6 +2219,12 @@
     aborted = null; lastStep = 0; lastGray = null; finished = false;
     dgmRunStartedAt = Date.now();        // v1.34.0：忽略窗從這一刻起算
     dgmFirstTxAt = 0; dgmFirstMesAt = 0; dgmRingGoneAt = 0;   // v1.35.0：時序證據歸零
+    /* 🔴 v1.42.0：latch 切換後等待時間。這一刻之後選單怎麼動都與這一輪無關。
+       位置刻意在 `running = true` **之後**：這樣「已經在跑」那條路（函式開頭
+       `if (running) return;`）不可能重新 latch 一次。 */
+    dgmSettleUsedMs = dgmSettleMs();
+    log('切換後等待 ' + dgmSettleUsedMs + ' ms'
+      + (dgmSettleUsedMs === DGM_SETTLE_DEFAULT ? '（預設）' : '（使用者選的）'));
     /* 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
        v1.35.0：不再在這裡手動 add class —— 圓圈綁 running，由 dgmRenderBtns()
        一起處理（底部提示同一條路）。同一顆鈕也在這裡就地變成「■ 停止」。 */
@@ -2092,7 +2320,15 @@
           回傳的是 getBoundingClientRect()，含 border，與 CSS 的 border-box 一致。 */
     rects: function () {
       var W = window.innerWidth, H = window.innerHeight, out = {};
-      ['dgm-info', 'dgm-right', 'dgm-log', 'dgm-bottom'].forEach(function (id) {
+      /* v1.42.0 新增後三個：新控制項本體、它那一列、以及按鈕列。
+         🔴 沙箱沒有排版引擎（getBoundingClientRect 全回 0），**新控制項的實際
+            矩形在這裡量不到**，一律由主機端真 Chrome 讀這一支。要驗的是三件事：
+            ① #dgm-settle 的實際矩形與字級隨視窗等比（佔比恆定，本檔 --dgm-u 那條）
+            ② #dgm-right 的**寬度沒有變**（⇒ log 的 max-width 未受影響），
+               高度變高多少（⇒ log 的 max-height 連帶變多少，如實呈現）
+            ③ 按鈕列的 y 沒有位移（肌肉記憶沒被破壞），且 settle 列在它下面 */
+      ['dgm-info', 'dgm-right', 'dgm-log', 'dgm-bottom',
+       'dgm-settle', 'dgm-settle-row', 'dgm-btnrow'].forEach(function (id) {
         var el = $(id); if (!el) { out[id] = null; return; }
         var r = el.getBoundingClientRect();
         var cs = getComputedStyle(el);
@@ -2106,10 +2342,34 @@
         };
       });
       out._viewport = { W: W, H: H, dpr: window.devicePixelRatio, u: dgmScale() };
-      /* log 的上限是不是真的綁在右上角的實際矩形上 */
+      /* log 與左上角面板的尺寸是不是真的綁在右上角的實際矩形上 */
       var cs = getComputedStyle(document.documentElement);
       out._logCap = { w: cs.getPropertyValue('--dgm-right-w').trim(),
                       h: cs.getPropertyValue('--dgm-right-h').trim() };
+      /* ═══ v1.42.0：左上＝右上「一模一樣大」的機械斷言 ═══════════════════
+         🔴 比的是**實際矩形**（getBoundingClientRect），不是宣告值 ——
+            v1.41.0 的教訓就是「拿宣告上限去比等於沒擋」。
+         🔴 判準是**完全相同**，不是「差不多」。容許值取 0.5 CSS px 只為了
+            吸收瀏覽器的子像素排版（同一個 px 值算兩次也可能差 1/64），
+            不是給「差一點點」開後門。 */
+      out._sameSize = (function () {
+        var a = out['dgm-info'], b = out['dgm-right'];
+        if (!a || !b) return null;
+        return { dw: +(a.w - b.w).toFixed(2), dh: +(a.h - b.h).toFixed(2),
+                 same: Math.abs(a.w - b.w) <= 0.5 && Math.abs(a.h - b.h) <= 0.5 };
+      })();
+      /* 三個面板的**內文**字級（面板本身的 fontSize 是繼承來的 14px，
+         量它等於什麼都沒量）。🔴 log 那兩格刻意沒有下限（Bruce 2026-09-12：
+         「平常不太會看的，按複製 Log 貼到其他地方也可以」）⇒ 純比例，不加 max()。 */
+      out._fonts = (function () {
+        function fz(sel) { var e = document.querySelector(sel); return e ? getComputedStyle(e).fontSize : null; }
+        return {
+          infoK: fz('#dgm-info .dgm-k'), infoV: fz('#dgm-info .dgm-v'),
+          settleK: fz('#dgm-settle-row .dgm-k'), settle: fz('#dgm-settle'),
+          step: fz('#dgm-step'), msg: fz('#dgm-msg'),
+          logSmall: fz('#dgm-log div:not(.lk)'), logBig: fz('#dgm-log div.lk')
+        };
+      })();
       return out;
     },
     zoomProbe: dgmZoom,
@@ -2195,7 +2455,30 @@
     pickText: function () { return $('dgm-pick').textContent; },
     pickDisabled: function () { return !!$('dgm-pick').disabled; },
     pickedPort: function () { return dgmPickedPort ? dgmPortInfo(dgmPickedPort) : null; },
-    linkPick: dgmLinkPick
+    linkPick: dgmLinkPick,
+    /* ═══ v1.42.0 驗證用：切換後等待時間 ═══════════════════════════════════
+       🔴 全部是 getter，**刻意不提供 setter**。驗證腳本要改就改真的 DOM
+          （`el.value = '100'` ＋ dispatch change），走使用者真正走的那條路；
+          給一支 setSettle() 等於讓探針走一條使用者沒有的捷徑，那種全綠不算數。
+       🔴 三個值要分得開，缺一不可：
+            settleRaw    ＝ DOM 上的原始字串（繞過 disabled 直接塞的髒值看得到）
+            settleMs     ＝ 驗證過的「目前選到的值」（＝下一輪會用的）
+            settleUsedMs ＝ **這一輪 latch 住的值**（正在跑的那一輪真的在用的）
+          只看 settleMs 的斷言對「繞過 disabled」那一條是零鑑別力 —— 它會跟著變。 */
+    settleRaw: function () { var e = $('dgm-settle'); return e ? e.value : null; },
+    settleMs: dgmSettleMs,
+    settleUsedMs: function () { return dgmSettleUsedMs; },
+    settleDefault: function () { return DGM_SETTLE_DEFAULT; },
+    settleChoices: function () { return DGM_SETTLE_CHOICES.slice(); },
+    settleDisabled: function () { var e = $('dgm-settle'); return !!(e && e.disabled); },
+    settleOptions: function () {
+      var os = $('dgm-settle') ? $('dgm-settle').options : [], out = [], i;
+      for (i = 0; i < os.length; i++) out.push({ v: os[i].value, t: os[i].textContent });
+      return out;
+    },
+    settleFontPx: function () {
+      var e = $('dgm-settle'); return e ? getComputedStyle(e).fontSize : null;
+    }
   };
 
   async function run() {
@@ -2276,7 +2559,8 @@
       renderProg();
       await painted();
       if (aborted) return;
-      await waitOrAbort(DGM_SETTLE_MS);
+      /* v1.42.0：讀 latch 的那一份，不是現在選單上的值（見 dgmSettleUsedMs 那段）。 */
+      await waitOrAbort(dgmSettleUsedMs);
       if (aborted) return;
 
       var res = await cmd('MES,1', 20000);
