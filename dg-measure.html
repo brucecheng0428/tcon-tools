@@ -1065,32 +1065,93 @@
      🔴 這句話與警示視窗第二行是**同一個常數**，不是兩份各寫各的。 */
   var DGM_FS_DO = '按「全螢幕」或 F11';
 
-  /* ═══ v1.39.0：全螢幕下不准跳序列埠選擇器 ═══════════════════════════════
-     Bruce 2026-09-11 實測重現步驟：「在全螢幕下按重選儀器，它就會跳離全螢幕，
-     這時候就再也連不上去（＝再也進不了全螢幕）」，而且**把 Chrome 整個關掉
-     重開就又可以**。
+  /* ═══ v1.40.0：🔴 v1.39.0 的「全螢幕下停用連線」是錯的，已整條移除 ═══════
+     Bruce 2026-09-11：「我按了全螢幕以後，連線、重選儀器、開始量測都不能按，
+     那請問我要全螢幕幹嘛？」
 
-     🔴 決定性的第二條事實（Bruce，Windows）：**在全螢幕下按下去，連 COM port
-        的選擇視窗都不會跳出來。** ⇒ 全螢幕下這顆鈕本來就是無效的：它只做到
-        「把使用者踢出全螢幕」，然後什麼也沒發生。停用它**沒有犧牲任何功能**，
-        不是在權衡便利性。（macOS 對照：chooser 會出現、只是很快自己消失，
-        而且之後還能回到全螢幕。）
+     **死鎖**：未連線就進全螢幕 ⇒ 連線被停用 ⇒ 永遠連不上 ⇒ 開始量測也因未連線
+     而停用 ⇒ 全螢幕裡什麼都做不了。走 F11 進來的人更慘：那一態的「關閉全螢幕」
+     鈕本來就是停用的（v1.35.0 三態設計），連退出都要自己想辦法。
 
-     🔴 「中斷連線」不在此列：它只做 closePort()，**不會呼叫 requestPort()、
-        不會跳 chooser**（查證：`dgmLinkOff()` 全文）。它必須一直可用 ——
-        那是 v1.34.0 把它做成常駐鈕的理由（要能與原廠 UI 來回切換）。
-     🔴 「連線」在此列：`dgmSerialOn()` 在 getPorts() 為空時會跳 chooser，而
-        **按下去的當下還不知道會不會跳**（要 await getPorts() 才知道），
-        所以無法只擋會跳的那一半。既有流程本來就是「先連線 → 再全螢幕 →
-        再量測」（底部提示條就是這個順序），全螢幕下停用連線不影響正常路徑。
-     ⚠ 假設（**待現場 log 驗證，不是已證實**）：同事那台「連不上」可能就是
-        這條 —— 他第一次用，必定走 chooser 那條路；全螢幕下 chooser 不出現，
-        畫面只會說「沒選到量測儀」，於是看起來像儀器壞了或工具壞了。 */
-  var DGM_FS_CHOOSER_DO = '請先退出全螢幕';
+     ⇒ v1.40.0 改成**可控退出**（原本的方案 A）：會跳 chooser 的那一刻，若是
+        API 型全螢幕就**我們自己先 exitFullscreen()**（退出是可控的、log 記得到），
+        再往下呼叫 requestPort()；做完提示使用者按一次「全螢幕」回去。
+
+     為什麼 A 現在優於 B（先前否決 A 的理由不成立了）—— 比最壞情況：
+       · A 最壞 ＝ 退出後仍回不去全螢幕 ⇒ 按 F11 或重開瀏覽器，**與現況相同**。
+       · B ＝ **一定**死鎖。
+     「最壞情況等於現況」勝過「必定卡死」。
+
+     🔴 擋的範圍縮到最小，只剩一種：**F11 型全螢幕**。它退不掉（v1.27.1 四條路
+        實測），硬跳 chooser 會被瀏覽器強制踢出、然後落入 Windows 那個回不去的
+        狀態。這一態擋不構成死鎖 —— 使用者手上有 F11 這條明確出路。
+     🔴 而且擋與退出都放在「**真的要跳 chooser 的那一點**」，不是放在按鈕或
+        handler 入口：`dgmSerialOn()` 在有既有授權時根本不需要 chooser，放前面
+        就會把「不需要選擇視窗的連線」也一起擋掉 —— 那是 v1.39.0 同一個錯的翻版。
+     ═════════════════════════════════════════════════════════════════════════
+
+     ⚠ 以下是 v1.39.0 當時查到、仍然成立的事實（留著，這是判斷的依據）：
+     Bruce 實測重現步驟：「在全螢幕下按重選儀器，它就會跳離全螢幕，這時候就再也
+     連不上去（＝再也進不了全螢幕）」，而且**把 Chrome 整個關掉重開就又可以**。
+     決定性第二條（Windows）：**全螢幕下按下去，連 COM port 的選擇視窗都不會
+     跳出來。** macOS 對照：chooser 會出現、很快自己消失，之後還能回到全螢幕。
+
+     🔴 「中斷連線」從頭到尾都不在管制範圍：它只做 closePort()，**不會呼叫
+        requestPort()、不會跳 chooser**（查證：`dgmLinkOff()` 全文）。
+        它必須一直可用 —— v1.34.0 把它做成常駐鈕的理由。 */
+  var DGM_F11_CHOOSER_DO = '請先按 F11 退出全螢幕。';
+  var DGM_FS_BACK_DO = '請按「全螢幕」回到全螢幕。';
   /* 寫進連線 log 的已知後果。放在呼叫 requestPort() 之前，看 log 的人才不會把
      後面那一連串全螢幕失敗當成另一個 bug。 */
   var DGM_LK_CHOOSER_WARN = '⚠ 接著會跳出選擇視窗：已知它會讓這個頁面離開全螢幕，'
     + '之後 requestFullscreen() 會一直失敗（重開瀏覽器才復原）；全螢幕下它甚至不會出現';
+
+  /* ═══ v1.40.0：跳 chooser 前的可控退出（單一判定點）═══════════════════════
+     回傳 true ＝ 可以往下呼叫 requestPort()；false ＝ 這次不呼叫（已給出路）。
+     🔴 這一支是**唯一**處理「chooser 與全螢幕衝突」的地方。兩條會跳 chooser 的
+        路徑（dgmSerialOn 的無授權分支、dgmSerialPick）都呼叫它，不各判一份。 */
+  var dgmFsLeftForChooser = false;      // 這一輪有沒有為了 chooser 退出過全螢幕
+  async function dgmPrepChooser() {
+    var kind = dgmFsKind();
+    if (kind === 'none') return true;
+    if (kind === 'f11') {
+      /* F11 退不掉（v1.27.1 實測四條路全部失敗）⇒ 絕不硬跳：跳了會被瀏覽器踢出
+         全螢幕，而那正是「之後再也進不了全螢幕」的入口。出路是 F11 本身。 */
+      lk('✕ F11 型全螢幕 ⇒ 不呼叫 requestPort()（F11 退不掉，硬跳會被踢出且回不去）', 'e');
+      msg(DGM_F11_CHOOSER_DO, 'err');
+      return false;
+    }
+    // API 型全螢幕：自己退出，退出就是可控的、而且 log 記得到
+    lk('▶ 即將跳出選擇視窗 ⇒ 先自己退出全螢幕（可控退出）', 'i');
+    var ex = document.exitFullscreen || document.webkitExitFullscreen
+      || document.mozCancelFullScreen || document.msExitFullscreen;
+    if (!ex) {
+      lk('✕ 這個瀏覽器沒有 exitFullscreen() ⇒ 不硬跳', 'e');
+      msg(DGM_F11_CHOOSER_DO, 'err');
+      return false;
+    }
+    try {
+      await ex.call(document);
+      dgmFsLeftForChooser = true;
+      lk('　　已退出全螢幕（' + dgmFsKind() + '）', 'o');
+      return true;
+    } catch (e) {
+      /* 退不出去就不硬跳 —— 出路是畫面上那顆「關閉全螢幕」（API 態下它可按）。 */
+      lk('✕ exitFullscreen() 失敗 · name=' + dgmErrName(e) + ' · message=' + dgmErrMsg(e)
+        + ' ⇒ 不硬跳 requestPort()', 'e');
+      msg('請按「關閉全螢幕」再試一次。', 'err');
+      return false;
+    }
+  }
+  /* 動作結束後的下一步：回全螢幕。只有真的退出過才說。
+     （底部紅框此時也會自己出現「按「全螢幕」或 F11」那一行 —— 兩者不衝突，
+       訊息區講的是這一次動作的下一步，紅框講的是量測的前置條件。） */
+  function dgmFsBackHint(ok) {
+    if (!dgmFsLeftForChooser) return;
+    dgmFsLeftForChooser = false;
+    if (ok) msg(DGM_FS_BACK_DO);
+    else lk('　　（剛才為了選擇視窗退出了全螢幕，回去請按「全螢幕」）', 'i');
+  }
 
   /* ═══ v1.32.0：開始量測的閘門收斂成這一支 ═══════════════════════════════
      Bruce 2026-09-11：「沒接上儀器時不讓按開始量測，並註明請接上光學儀器。」
@@ -1103,11 +1164,10 @@
   function dgmGateLines() {
     var L = [];
     if (!isFs()) L.push(DGM_FS_DO);
-    /* v1.39.0：全螢幕下「連線」是停用的（會跳 chooser，而且在全螢幕下連跳都不跳），
-       所以這一行要講的不是「請接上光學儀器」而是「先退出全螢幕」——
-       否則紅框叫他去連線、鈕卻按不下去，那是 v1.32.0 那個可用性 bug 的形狀。
-       🔴 這個紅框是全螢幕下唯一看得到的提示位置，所以出路寫在這裡，不另開視窗。 */
-    if (!dgmLinkActive) L.push(isFs() ? DGM_FS_CHOOSER_DO : DGM_LINK_DO);
+    /* v1.40.0：回到 v1.38.0 的寫法。v1.39.0 曾在全螢幕下把這一行改寫成
+       「請先退出全螢幕」，那是配合當時「全螢幕下停用連線」而來的 —— 那個停用
+       造成死鎖、已整條移除，所以這句話也必須跟著回去，不留與行為不符的文字。 */
+    if (!dgmLinkActive) L.push(DGM_LINK_DO);
     return L;
   }
 
@@ -1179,31 +1239,23 @@
        v1.35.0（Bruce 指定）：同一個狀態的兩面必須在同一顆鈕上。
        量測中停用但**仍然看得見** —— 量到一半切斷會留半套資料，要斷先按停止。
        這條規則是 v1.34.0 定的，一個字沒改。 */
-    /* v1.39.0：全螢幕下會跳 chooser 的動作一律停用（理由見 DGM_FS_CHOOSER_DO
-       上面那段）。判定沿用既有的 isFs()（API 與 F11 兩種都算），不新增狀態。 */
-    var fsBlock = isFs();
+    /* v1.40.0：v1.39.0 在這裡加的「全螢幕下停用」整條移除（死鎖，見上面那段）。
+       開關條件回到 v1.38.0：只看 running 與 dgmLinkBusy。 */
     var u = $('dgm-link');
     if (u) {
       u.textContent = dgmLinkBusy ? (dgmLinkActive ? '中斷中…' : '連線中…')
         : (dgmLinkActive ? '中斷連線' : '連線');
-      /* 🔴 只擋「連線」那一面。「中斷連線」不跳 chooser ⇒ 全螢幕下照常可用，
-            這是 v1.34.0 的裁示，v1.39.0 一個字都不動它。 */
-      var linkBlocked = !dgmLinkActive && fsBlock;
-      u.disabled = running || dgmLinkBusy || linkBlocked;
-      u.title = linkBlocked ? DGM_FS_CHOOSER_DO : '';
+      u.disabled = running || dgmLinkBusy;
     }
     /* ── ②b 重新選擇儀器（v1.38.0）────────────────────────────────────
        🔴 開關條件與連線鈕**同一條**（量測中／忙碌中停用），不自己判一份。
           文字是固定的：它只有一個動作，沒有第二面。
        🔴 它**不受 dgmLinkActive 影響** —— 已經連上了才更需要換一個埠重選，
           那正是這顆鈕存在的理由。 */
-    /* v1.39.0：再多一條「全螢幕下停用」—— 它一定會呼叫 requestPort()。
-       title 只在「純粹因為全螢幕」被擋時才寫，否則會對量測中那一態說錯話。 */
+    /* v1.40.0：同上，「全螢幕下停用」整條移除。全螢幕下按它會走可控退出
+       （dgmPrepChooser），不是被擋住。 */
     var pk = $('dgm-pick');
-    if (pk) {
-      pk.disabled = running || dgmLinkBusy || fsBlock;
-      pk.title = (fsBlock && !running && !dgmLinkBusy) ? DGM_FS_CHOOSER_DO : '';
-    }
+    if (pk) pk.disabled = running || dgmLinkBusy;
     /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
        Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
        所以讓他自己決定就好。」
@@ -1335,13 +1387,15 @@
          記下來 —— 這一版只記錄，呼叫位置一個字都沒動。 */
       lk('沒有既有授權 ⇒ 呼叫 requestPort()（瀏覽器會跳出選擇視窗）');
       lk('　　' + dgmActivation() + ' · ' + dgmSinceClick());
-      /* v1.39.0 純觀測（不改控制流）：呼叫當下是不是在全螢幕。
-         ⚠ 鑑別力有界：v1.39.0 的閘門已經擋住全螢幕下的這條路，所以正常情況
-            這一行**恆為 none** —— 它的用途不是證明「同事在全螢幕下按的」，而是
-            閘門的自我稽核：一旦印出 api／f11，就表示 isFs() 判錯或閘門有漏。
-            （舊版快取的使用者回傳的 log 則仍可能印出 api／f11。） */
-      lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
       lk('　　' + DGM_LK_CHOOSER_WARN, 'i');
+      /* v1.40.0：跳 chooser 之前先處理全螢幕（API 型 ⇒ 可控退出；F11 ⇒ 不跳）。
+         🔴 位置就是這裡：這一行之前才確定「真的需要選擇視窗」。 */
+      if (!await dgmPrepChooser()) return false;
+      /* v1.39.0 起的純觀測（不改控制流）：**呼叫當下**是不是在全螢幕。
+         放在 dgmPrepChooser() 之後才有意義 —— 印的是真正呼叫那一刻的狀態。
+         正常情況恆為 none；印出 api／f11 就表示可控退出那一段有漏，
+         這一行因此也是那一段的自我稽核。 */
+      lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
       try { port = await navigator.serial.requestPort(); }
       catch (e) {
         /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
@@ -1427,9 +1481,10 @@
       msg(DGM_ERR.unsupported, 'err'); return false;
     }
     lk('　　' + dgmActivation() + ' · ' + dgmSinceClick());
-    // v1.39.0 純觀測（同 dgmSerialOn 那一處，鑑別力的界限也一樣）
-    lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
     lk('　　' + DGM_LK_CHOOSER_WARN, 'i');
+    // v1.40.0：同 dgmSerialOn 那一處，走同一支可控退出，不各判一份
+    if (!await dgmPrepChooser()) return false;
+    lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
     var picked = null;
     try { picked = await navigator.serial.requestPort(); }
     catch (e) {
@@ -1488,6 +1543,8 @@
           燈滅了、閘門擋回來了，訊息列卻還停在綠色的「已連線…」（見截圖
           `_tmp_dg1320/shots/shot_5_both_gates.png` 的第一版）。 */
     if (ok) dgmMsgDefault();
+    // v1.40.0：同 dgmLinkPick()，退出過全螢幕就告訴他怎麼回去（在 dgmMsgDefault 之後）
+    dgmFsBackHint(ok);
   }
 
   /* v1.34.0：主動中斷連線。v1.32.0 的 dgmLinkOff() 原封回來，
@@ -1511,9 +1568,9 @@
         把自己按停」，這顆鈕的兩面都不會造成不可逆的損失（連上再斷、斷了再連）。 */
   $('dgm-link').addEventListener('click', function () {
     if (running || dgmLinkBusy) return;
-    /* v1.39.0 第二層閘門（給程式看的）：繞過 disabled 也絕不讓 chooser 被呼叫。
-       🔴 只擋「連線」那一面 —— 中斷連線在全螢幕下照常可用。 */
-    if (!dgmLinkActive && isFs()) { msg(DGM_FS_CHOOSER_DO + '。', 'err'); return; }
+    /* 🔴 v1.40.0：v1.39.0 在這裡加的閘門已移除（它造成死鎖）。全螢幕與 chooser
+       的衝突改由 dgmPrepChooser() 在「真的要跳選擇視窗的那一點」處理 —— 放在
+       這裡會把「有既有授權、根本不需要選擇視窗」的連線也一起擋掉。 */
     if (dgmLinkActive) dgmLinkOff(); else dgmLinkOn();
   });
 
@@ -1530,11 +1587,13 @@
     dgmLinkBusy = false;
     dgmSetLink(ok);
     if (ok) dgmMsgDefault();
+    /* v1.40.0：若剛才為了選擇視窗退出過全螢幕，最後一句話就是「怎麼回去」。
+       🔴 必須在 dgmMsgDefault() 之後，否則會被它蓋掉。 */
+    dgmFsBackHint(ok);
   }
   $('dgm-pick').addEventListener('click', function () {
     if (running || dgmLinkBusy) return;
-    // v1.39.0 第二層閘門：同上。這顆一定會 requestPort()，全螢幕下一律不做。
-    if (isFs()) { msg(DGM_FS_CHOOSER_DO + '。', 'err'); return; }
+    // v1.40.0：閘門已移除（同上）。這顆一定會 requestPort() ⇒ 由 dgmPrepChooser() 處理。
     dgmLinkPick();
   });
 
