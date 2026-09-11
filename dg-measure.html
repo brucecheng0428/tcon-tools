@@ -26,52 +26,86 @@
     color: #fff; -webkit-font-smoothing: antialiased;
   }
 
-  /* ═══ v1.30.0：左上／右上兩個面板隨解析度自適應 ═════════════════════════
-     Bruce 2026-09-11：「右上角、左上角要隨螢幕解析度變化，4K 這種高解析度下字
-     還是那麼小會看不清楚；解析度越高比例放越大，越低就越小，字體也要跟著改。」
+  /* ═══ v1.41.0：三個面板的螢幕佔比固定（取代 v1.30.0 的 --dgm-k）═══════════
+     Bruce 2026-09-12：「我希望在螢幕比例放大或縮小的情況下，左上、右上跟左下這
+     三個顯示視窗在螢幕的占比都要維持固定，不要因為放大就跟著變大、縮小就跟著
+     變小，比例要跟現在完全一模一樣。字體可能也要跟著改變，例如你在放大的時候
+     比例維持不變，所以字體可能要跟著縮小。」
 
-     ── 縮放係數（唯一來源：JS 的 dgmScaleSync() 寫進 --dgm-k）──────────────
-         k = clamp(1, min(W / 1920, H / 1080), 2)
+     ── 新的基準單位（唯一來源，純 CSS，不再經過 JS）────────────────────────
+         --dgm-u ＝ 1 個「基準 px」的實際長度
+                  ＝ min(W / 1920, H / 1080) CSS px
+                  ＝ min(1vw / 19.2, 1vh / 10.8)        （1vw ＝ W/100 CSS px）
 
-     🔴 為什麼是「除以 1920×1080」而不是隨便挑一個係數：
-        同一台實體螢幕，解析度加倍 ⇒ 1 個 CSS px 的實體尺寸減半 ⇒ 22px 的字在
-        4K 上只有 1080p 上的一半大。字要維持「看起來一樣大」，係數就必須正比於
-        解析度 —— 這不是美感取捨，是把物理尺寸還原回去。
-        取 min(W/1920, H/1080) 而不是只看高度：超寬或很扁的視窗下，兩個維度誰
-        比較緊就由誰決定，面板才不會在矮視窗上長得太高。
+     所有尺寸從 `calc(N px * k)` 改寫成 `calc(N * var(--dgm-u))`：
+     N 的數字一個都沒改，改的只是「N 的單位是什麼」——
+       舊：N 是 CSS px，再乘一個被夾住的倍率
+       新：N 是「基準畫面上的 px」，1920×1080＠100% 下 1 基準px ＝ 1 CSS px
 
-     🔴 下限 k ≥ 1（依據：字級）
-        本面板最小的字是 12px（.dgm-k 標籤、#dgm-msg、#dgm-prog small）。
-        k < 1 會把它壓到 12px 以下 —— Bruce 的硬性限制①「不要讓使用者因為字太小
-        而看不到」。12px 是這一頁現行、已經驗收過的最小字級，不再往下。
-        副作用（刻意的）：1280×720 與 1920×1080 兩檔 k 都是 1 ⇒ 與改版前**逐 px 相同**，
-        這兩個解析度零回歸。
+     🔴 為什麼 v1.30.0 的 clamp(1, …, 2) 非拿掉不可（這是本版的核心）
+        「佔比固定」的數學意思是：把視窗兩邊同乘 λ，所有長度也必須同乘 λ。
+        也就是 f(λW, λH) ＝ λ·f(W, H) —— f 必須是**一次齊次**函數。
+        min(W/1920, H/1080) 是一次齊次的 ✔；但只要外面套上 clamp，在被夾住的
+        區間裡 f 變成常數（零次齊次）⇒ 佔比立刻隨視窗變動。
+        **下限／上限與佔比恆定在數學上互斥，不是取捨不夠細膩的問題。**
+        實測對照（舊版 k 被夾住的那幾檔，就是 Bruce 看到的症狀）：
+          · 瀏覽器縮放 125%（1920 實體 ⇒ viewport 1536）：k 本應 0.8 被夾成 1
+            ⇒ 面板實體尺寸變成 1.25 倍 ＝ 「放大就跟著變大」
+          · 1280×800：k 本應 0.667 被夾成 1 ⇒ 佔比比基準大 1.5 倍
+          · 5K 以上：k 本應 >2 被夾成 2 ⇒ 佔比縮水
 
-     🔴 上限 k ≤ 2（依據：只到實測過的最高一檔）
-        2.0 對應 3840×2160，是本次實測的最高解析度。再往上（5K／8K）沒有實機、
-        沒有實測，不外推。
-        另外還有一道更硬的上限，不受 k 影響：`.dgm-corner` 的 max-width:30vw 與
-        max-height:30vh（右上角 40vh）—— 這是 Bruce 硬性限制②「不要讓視窗因為
-        解析度而佔滿整個螢幕」的機械保證，本次一個字都沒動。
-        因為 k 與視窗尺寸同比例成長，面板占畫面的**百分比在四種解析度下是同一個數**，
-        30vw/30vh 這條線在任何 k 下都不會比今天更接近。
+     🔴 v1.30.0 當初的需求（「4K 這種高解析度下字還是那麼小會看不清楚」）
+        在新做法下**仍然成立，而且成立得更徹底**：
+          · 4K 螢幕、OS 縮放 100%（viewport 3840×2160 CSS px）
+            u ＝ min(2, 2) ＝ 2 ⇒ 12 基準px 的字 ＝ 24 CSS px ＝ 24 實體 px。
+            同尺寸 1080p 上是 12 實體 px，但 1080p 的 1 實體 px 有兩倍大
+            ⇒ **物理尺寸相同**，不會變小。
+          · 4K 螢幕、OS 縮放 200%（viewport 1920×1080 CSS px、dPR＝2）
+            u ＝ 1 ⇒ 12 CSS px ＝ 24 實體 px，同上。
+          · 5K／8K：舊版被上限 2 夾住會開始變小，新版沒有上限 ⇒ 一路成立。
+        原因是 vw/vh 量的是**CSS px 的可用數量**，而瀏覽器縮放與 OS 顯示縮放
+        都會反映在這個數量上 —— 佔比固定與「物理尺寸固定」在同一台螢幕上是
+        同一件事，所以 v1.30.0 的需求是新規則的推論，不是被犧牲的對象。
 
-     🔴 中央對準圈與十字（#dgm-ring，240px 七圈＋360px 十字）**刻意不隨 k 縮放**。
-        它是拿來對實體探頭口徑的靶，半徑就是實體尺寸本身；跟著螢幕解析度放大，
-        探頭就對不上了。這與既有的「水平方向 30vw 保護中央量測區」是同一條規則的
-        兩面：面板只准往角落長，靶不動。 */
-  :root { --dgm-k: 1; }
+     🔴 代價（誠實列出，不假裝沒有）：下限沒了 ⇒ 很小的視窗下字會小於 12px。
+        800×600 時 u ＝ 0.4167 ⇒ 最小的字剩 5 px。
+        取捨依據：這一頁的工作情境是**全螢幕量測**（不全螢幕根本按不了開始），
+        視窗＝整片螢幕，不會落在那種尺寸；而 Bruce 這次把「比例完全一模一樣」
+        訂成硬需求，上面已論證它與任何下限互斥。若日後要回頭救小視窗，
+        正確的做法是**只對字級**另外加 max(...)，不是把 u 整個夾住。
+
+     🔴 三個面板用同一套判準：左上 #dgm-info、右上 #dgm-right、左下 #dgm-log
+        全部只吃 --dgm-u 與下面兩個共用上限變數，不另立第二套（本檔既有規矩）。
+
+     🔴 中央對準圈與十字（#dgm-ring，240px 七圈＋360px 十字）**刻意不隨縮放**。
+        它是拿來對實體探頭口徑的靶，半徑就是實體尺寸本身；跟著螢幕放大，
+        探頭就對不上了。這與「面板只准往角落長」是同一條規則的兩面：靶不動。
+
+     🔴 1px 的 hairline 邊框（.dgm-corner／#dgm-head／#dgm-log）**刻意不等比**。
+        它佔畫面寬 1/1920 ＝ 0.05%，遠小於任何有意義的誤差；而等比之後在低
+        解析度會掉到 0.5px 被瀏覽器抹掉、邊框時有時無。這是本版唯一刻意保留
+        的非等比項，已列入驗證報告的已知例外。 */
+  :root {
+    --dgm-u: min(1vw / 19.2, 1vh / 10.8);
+    /* 角落面板的尺寸上限。🔴 三個面板共用**同一組**變數 —— Bruce 2026-09-12
+       「大小可以 follow 右上角的大小，不要比右上角第二部分的那個視窗來得大」。
+       寫成變數而不是三處各寫一組數字，是因為「兩邊遲早不一致」不是假設，
+       v1.38.0（log 自己一組 38vw/34vh）與 v1.39.0（又換成 380px×k）已經發生過兩次。
+       vw／vh 本身就是佔比，天然滿足本版的佔比恆定要求。 */
+    --dgm-panel-w: 30vw;   /* 寬上限：左上／右上／左下三者共用 */
+    --dgm-panel-h: 40vh;   /* 高上限：右上（v1.27.0 放寬的那一個）與左下共用 */
+  }
 
   /* 角落面板：max-width 綁在 30vw／30vh，中央 40% × 40% 一定空著 */
   .dgm-corner {
     position: fixed; z-index: 10;
-    max-width: 30vw; max-height: 30vh; overflow: hidden;
+    max-width: var(--dgm-panel-w); max-height: 30vh; overflow: hidden;
     background: rgba(0, 0, 0, .72); color: #fff;
     border: 1px solid rgba(255, 255, 255, .22);
-    border-radius: calc(10px * var(--dgm-k));
-    padding: calc(10px * var(--dgm-k)) calc(13px * var(--dgm-k));
+    border-radius: calc(10 * var(--dgm-u));
+    padding: calc(10 * var(--dgm-u)) calc(13 * var(--dgm-u));
   }
-  #dgm-info { top: calc(14px * var(--dgm-k)); left: calc(14px * var(--dgm-k)); }
+  #dgm-info { top: calc(14 * var(--dgm-u)); left: calc(14 * var(--dgm-u)); }
   /* ─── v1.27.0：右上角面板不再裁掉東西 ───────────────────────────────────
      問題（v1.26.2 實測）：退出全螢幕時，閘門紅框 130px 一回來就把內容撐到
      302 > 194，最下面那一行被 max-height:30vh 的 overflow:hidden 裁掉。
@@ -87,7 +121,7 @@
      優先序（空間不足時誰先讓）：訊息 ＞ 進度 ＞ 按鈕 ＞ 步驟名稱。
      步驟名稱排第一個位置、按鈕緊接其後，兩者永遠看得到。 */
   #dgm-right {
-    top: calc(14px * var(--dgm-k)); right: calc(14px * var(--dgm-k)); text-align: right;
+    top: calc(14 * var(--dgm-u)); right: calc(14 * var(--dgm-u)); text-align: right;
     display: flex; flex-direction: column; align-items: stretch;
     /* ③ 高度上限從 30vh 放寬到 40vh，**只放寬這一個面板**（左上角資訊面板維持 30vh）。
        🔴 這不是「調大了事」，是把上限接回它真正要保護的東西：
@@ -100,8 +134,10 @@
            強制全螢幕，這個條件必定成立。更窄的視窗下最外兩圈與十字端點會被
            這塊面板蓋掉一段 —— 依 Bruce 2026-09-10 裁示，被裁成不完整可接受。）
        單靠這一條並不能解決問題（實測：光放寬到 40vh，某些視窗高度仍會不夠），
-       所以它是跟上面 ① ② 一起用的，不是替代品。 */
-    max-height: 40vh;
+       所以它是跟上面 ① ② 一起用的，不是替代品。
+       v1.41.0：數值不變，改成讀 --dgm-panel-h —— 這一格現在同時是左下 log 面板的
+       高度上限來源（Bruce：「不要比右上角第二部分的那個視窗來得大」）。 */
+    max-height: var(--dgm-panel-h);
   }
   #dgm-right > * { flex: 0 0 auto; }
   /* #dgm-msg 是最後的緩衝：真的擠不下時由它縮並自己捲動。
@@ -111,10 +147,10 @@
         沒有溢出，只是重要的字被壓沒了，比溢出更難發現。 */
   #dgm-right > #dgm-msg { flex: 0 1 auto; min-height: 1.6em; overflow-y: auto; }
 
-  .dgm-row { display: flex; gap: calc(10px * var(--dgm-k)); justify-content: space-between; white-space: nowrap; }
-  .dgm-k { color: #94a3b8; font-size: calc(12px * var(--dgm-k)); }
-  .dgm-v { font: 700 calc(14px * var(--dgm-k))/1.55 ui-monospace, Menlo, Consolas, monospace; }
-  #dgm-msg { margin-top: calc(8px * var(--dgm-k)); font-size: calc(12px * var(--dgm-k));
+  .dgm-row { display: flex; gap: calc(10 * var(--dgm-u)); justify-content: space-between; white-space: nowrap; }
+  .dgm-k { color: #94a3b8; font-size: calc(12 * var(--dgm-u)); }
+  .dgm-v { font: 700 calc(14 * var(--dgm-u))/1.55 ui-monospace, Menlo, Consolas, monospace; }
+  #dgm-msg { margin-top: calc(8 * var(--dgm-u)); font-size: calc(12 * var(--dgm-u));
              color: #7dd3fc; white-space: pre-wrap;
              max-width: 26vw; text-align: left; }
   #dgm-msg.err { color: #f87171; }
@@ -137,9 +173,9 @@
         變大變小本身就是誤觸來源。停止態的紅色沿用 v1.11.0 #dgm-stop 的 #dc2626，
         沒有新配色。 */
   #dgm-start {
-    background: #16a34a; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
-    padding: calc(12px * var(--dgm-k)) calc(20px * var(--dgm-k));
-    font-size: calc(17px * var(--dgm-k)); font-weight: 700; cursor: pointer;
+    background: #16a34a; color: #fff; border: 0; border-radius: calc(10 * var(--dgm-u));
+    padding: calc(12 * var(--dgm-u)) calc(20 * var(--dgm-u));
+    font-size: calc(17 * var(--dgm-u)); font-weight: 700; cursor: pointer;
   }
   #dgm-start:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   /* 量測中：同一顆變成停止（紅色沿用原本那顆獨立停止鈕的 #dc2626） */
@@ -153,10 +189,10 @@
      v1.35.0：id 由 `dgm-unlink` 改為 `dgm-link` —— 它現在管「連線」與「中斷連線」
      兩面，叫 unlink 會與實際功能不符。樣式一個字沒動。 */
   #dgm-fs, #dgm-link {
-    background: #0e7490; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
-    padding: calc(12px * var(--dgm-k)) calc(16px * var(--dgm-k));
-    font-size: calc(15px * var(--dgm-k)); font-weight: 700; cursor: pointer;
-    margin-right: calc(8px * var(--dgm-k));
+    background: #0e7490; color: #fff; border: 0; border-radius: calc(10 * var(--dgm-u));
+    padding: calc(12 * var(--dgm-u)) calc(16 * var(--dgm-u));
+    font-size: calc(15 * var(--dgm-u)); font-weight: 700; cursor: pointer;
+    margin-right: calc(8 * var(--dgm-u));
   }
   #dgm-fs:disabled, #dgm-link:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   /* ═══ v1.38.0：「重新選擇儀器」──────────────────────────────────────────
@@ -172,10 +208,10 @@
         ⚠ 這是算出來的，**沒有用像素截圖驗證過**（本次禁用瀏覽器類工具）。 */
   #dgm-pick {
     background: #334155; color: #e2e8f0;
-    border: 1px solid rgba(255, 255, 255, .25); border-radius: calc(10px * var(--dgm-k));
-    padding: calc(10px * var(--dgm-k)) calc(12px * var(--dgm-k));
-    font-size: calc(13px * var(--dgm-k)); font-weight: 700; cursor: pointer;
-    margin-right: calc(8px * var(--dgm-k));
+    border: 1px solid rgba(255, 255, 255, .25); border-radius: calc(10 * var(--dgm-u));
+    padding: calc(10 * var(--dgm-u)) calc(12 * var(--dgm-u));
+    font-size: calc(13 * var(--dgm-u)); font-weight: 700; cursor: pointer;
+    margin-right: calc(8 * var(--dgm-u));
   }
   #dgm-pick:disabled { background: #1e293b; color: #64748b; cursor: not-allowed; }
   /* v1.11.0 的獨立停止鈕（#dgm-stop）已於 v1.34.0 併入上面那顆主要動作按鈕。
@@ -190,49 +226,49 @@
   /* 標頭：上面是步驟名稱（第 N 部分），下面是這一次量什麼（白灰階亮度／RGB 純色 Pattern）。
      兩行包在同一個容器裡，分隔線畫在容器上 —— 不然「有沒有第二行」會讓線的位置跳來跳去。 */
   #dgm-head {
-    margin: 0 0 calc(9px * var(--dgm-k)); padding-bottom: calc(8px * var(--dgm-k));
+    margin: 0 0 calc(9 * var(--dgm-u)); padding-bottom: calc(8 * var(--dgm-u));
     border-bottom: 1px solid rgba(255, 255, 255, .18);
     max-width: 26vw; text-align: right;
   }
   #dgm-head.dgm-hidden { display: none; }
   #dgm-step {
-    font: 700 calc(22px * var(--dgm-k))/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    font: 700 calc(22 * var(--dgm-u))/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
     color: #e2e8f0; word-break: break-word;
   }
   /* v1.27.1：量測內容。輔助資訊，比步驟名稱小一級，但仍要一眼看得到（16px vs 周邊 12／14）。 */
   #dgm-what {
-    font: 600 calc(16px * var(--dgm-k))/1.35 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-    color: #7dd3fc; margin-top: calc(2px * var(--dgm-k)); word-break: break-word;
+    font: 600 calc(16 * var(--dgm-u))/1.35 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    color: #7dd3fc; margin-top: calc(2 * var(--dgm-u)); word-break: break-word;
   }
   #dgm-what:empty { display: none; }
   /* v1.26.2：原本這裡有「關閉這個分頁」鈕（#dgm-close）與量完後的說明框（#dgm-done）。
      兩個都拿掉了 —— 理由見下面 run() 收尾處的註解。量完只留一句話，寫在 #dgm-msg。 */
-  #dgm-prog { margin-top: calc(8px * var(--dgm-k));
-              font: 700 calc(22px * var(--dgm-k))/1.35 ui-monospace, Menlo, Consolas, monospace; }
-  #dgm-prog small { display: block; font-weight: 400; font-size: calc(12px * var(--dgm-k)); color: #94a3b8; }
+  #dgm-prog { margin-top: calc(8 * var(--dgm-u));
+              font: 700 calc(22 * var(--dgm-u))/1.35 ui-monospace, Menlo, Consolas, monospace; }
+  #dgm-prog small { display: block; font-weight: 400; font-size: calc(12 * var(--dgm-u)); color: #94a3b8; }
   /* v1.11.0：沒全螢幕時的閘門說明。紅框，講清楚為什麼擋、怎麼辦。
      v1.27.0：從右上角面板**搬到底部**（就在提示列上方）。它是說明不是狀態，
      而且它 130px 的高度正是把面板撐爆、害最後一行被裁掉的元凶。
      底部這一區沒有高度上限，字也放得下。 */
   /* 底部說明區：閘門紅框在上、操作提示在下，用同一個容器直排，
      免得兩塊各自 position:fixed 在行數變多時互相疊到。 */
-  /* v1.30.0：底部這一區也吃 --dgm-k。
+  /* v1.30.0：底部這一區也吃基準單位（v1.41.0 起是 --dgm-u）。
      🔴 這一條是我在 Bruce 原話（他只點名「右上角與左上角」）之外多做的一格，
         理由是實測 4K 截圖看到的結果：兩個角落的字放大之後，**整個畫面唯一還看不清楚
         的字就剩下這一塊**，而它偏偏是「下一步該做什麼」與全螢幕警示所在的地方，
         留著不放大會直接違背他訂的硬性限制①（不要讓使用者因為字太小而看不到）。
-        已在回報中列明，若他認為不該動，把這幾行的 var(--dgm-k) 拿掉即可還原。 */
+        已在回報中列明，若他認為不該動，把這幾行的 var(--dgm-u) 拿掉即可還原。 */
   #dgm-bottom {
-    position: fixed; left: 50%; bottom: calc(22px * var(--dgm-k));
+    position: fixed; left: 50%; bottom: calc(22 * var(--dgm-u));
     transform: translateX(-50%); z-index: 7;
-    display: flex; flex-direction: column; align-items: center; gap: calc(8px * var(--dgm-k));
+    display: flex; flex-direction: column; align-items: center; gap: calc(8 * var(--dgm-u));
     max-width: 70vw; pointer-events: none;
   }
   #dgm-gate {
-    padding: calc(9px * var(--dgm-k)) calc(14px * var(--dgm-k));
-    border: 1px solid #dc2626; border-radius: calc(10px * var(--dgm-k));
+    padding: calc(9 * var(--dgm-u)) calc(14 * var(--dgm-u));
+    border: 1px solid #dc2626; border-radius: calc(10 * var(--dgm-u));
     background: rgba(0, 0, 0, .78); color: #fecaca;
-    font-size: calc(12.5px * var(--dgm-k)); line-height: 1.6;
+    font-size: calc(12.5 * var(--dgm-u)); line-height: 1.6;
     text-align: center;
   }
   #dgm-gate.dgm-hidden { display: none; }
@@ -240,10 +276,10 @@
   /* v1.27.1：F11 全螢幕下按 ESC 時的提示（見下方 keydown 處理器的實測說明）。
      放底部說明區，全螢幕下也看得見；一句話，不解釋。 */
   #dgm-esc {
-    padding: calc(9px * var(--dgm-k)) calc(16px * var(--dgm-k));
-    border: 1px solid #f59e0b; border-radius: calc(10px * var(--dgm-k));
+    padding: calc(9 * var(--dgm-u)) calc(16 * var(--dgm-u));
+    border: 1px solid #f59e0b; border-radius: calc(10 * var(--dgm-u));
     background: rgba(0, 0, 0, .82); color: #fcd34d;
-    font: 700 calc(15px * var(--dgm-k))/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    font: 700 calc(15 * var(--dgm-u))/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
     text-align: center;
   }
   #dgm-esc.dgm-hidden { display: none; }
@@ -266,10 +302,10 @@
   #dgm-warn-glow {
     position: fixed; inset: 0; z-index: 2147483200;
     display: none; pointer-events: none;
-    /* 光暈的粗細也吃 --dgm-k：4K 上 7px 的邊只有 1080p 上的一半粗，會看不見 */
+    /* 光暈的粗細也吃基準單位：4K 上 7px 的邊只有 1080p 上的一半粗，會看不見 */
     box-shadow:
-      inset 0 0 0 calc(7px * var(--dgm-k)) rgba(249,115,22,.98),
-      inset 0 0 calc(34px * var(--dgm-k)) calc(10px * var(--dgm-k)) rgba(249,115,22,.55);
+      inset 0 0 0 calc(7 * var(--dgm-u)) rgba(249,115,22,.98),
+      inset 0 0 calc(34 * var(--dgm-u)) calc(10 * var(--dgm-u)) rgba(249,115,22,.55);
     animation: dgmWarnBreathe 1.6s ease-in-out infinite;
   }
   #dgm-warn-glow.on { display: block; }
@@ -285,30 +321,30 @@
   #dgm-warn-modal {
     position: fixed; inset: 0; z-index: 2147483100;
     display: none; align-items: center; justify-content: center;
-    background: rgba(2,6,23,.90); padding: calc(18px * var(--dgm-k));
+    background: rgba(2,6,23,.90); padding: calc(18 * var(--dgm-u));
   }
   #dgm-warn-modal.on { display: flex; }
   .dgm-warn-box {
-    width: min(calc(460px * var(--dgm-k)), 100%);
+    width: min(calc(460 * var(--dgm-u)), 100%);
     background: #1e293b; color: #e2e8f0;
-    border: calc(2.5px * var(--dgm-k)) solid #f97316; border-radius: calc(14px * var(--dgm-k));
-    padding: calc(20px * var(--dgm-k)) calc(20px * var(--dgm-k)) calc(16px * var(--dgm-k));
+    border: calc(2.5 * var(--dgm-u)) solid #f97316; border-radius: calc(14 * var(--dgm-u));
+    padding: calc(20 * var(--dgm-u)) calc(20 * var(--dgm-u)) calc(16 * var(--dgm-u));
     text-align: center;
-    box-shadow: 0 0 0 calc(4px * var(--dgm-k)) rgba(249,115,22,.22), 0 18px 50px rgba(0,0,0,.7);
+    box-shadow: 0 0 0 calc(4 * var(--dgm-u)) rgba(249,115,22,.22), 0 18px 50px rgba(0,0,0,.7);
   }
   #dgm-warn-do {
-    font-size: calc(20px * var(--dgm-k)); font-weight: 900; color: #fdba74; line-height: 1.45;
+    font-size: calc(20 * var(--dgm-u)); font-weight: 900; color: #fdba74; line-height: 1.45;
   }
   /* 第二行只在「兩種狀況同時成立」時才有內容；:empty 時整行不佔位 */
-  #dgm-warn-do2 { font-size: calc(20px * var(--dgm-k)); font-weight: 900; color: #fdba74;
-                  line-height: 1.45; margin-top: calc(6px * var(--dgm-k)); }
+  #dgm-warn-do2 { font-size: calc(20 * var(--dgm-u)); font-weight: 900; color: #fdba74;
+                  line-height: 1.45; margin-top: calc(6 * var(--dgm-u)); }
   #dgm-warn-do2:empty { display: none; }
   #dgm-warn-close {
-    margin-top: calc(16px * var(--dgm-k)); width: 100%;
-    padding: calc(11px * var(--dgm-k)) calc(12px * var(--dgm-k));
-    border-radius: calc(9px * var(--dgm-k)); cursor: pointer;
+    margin-top: calc(16 * var(--dgm-u)); width: 100%;
+    padding: calc(11 * var(--dgm-u)) calc(12 * var(--dgm-u));
+    border-radius: calc(9 * var(--dgm-u)); cursor: pointer;
     background: #f97316; color: #1c0a00; border: none;
-    font-size: calc(14px * var(--dgm-k)); font-weight: 800; font-family: inherit;
+    font-size: calc(14 * var(--dgm-u)); font-weight: 800; font-family: inherit;
   }
   #dgm-warn-close:hover { background: #fb923c; }
 
@@ -385,9 +421,9 @@
   }
   #dgm-hint {
     background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
-    border-radius: calc(10px * var(--dgm-k));
-    padding: calc(9px * var(--dgm-k)) calc(14px * var(--dgm-k));
-    font-size: calc(12.5px * var(--dgm-k)); color: #cbd5e1;
+    border-radius: calc(10 * var(--dgm-u));
+    padding: calc(9 * var(--dgm-u)) calc(14 * var(--dgm-u));
+    font-size: calc(12.5 * var(--dgm-u)); color: #cbd5e1;
     text-align: center;
   }
   #dgm-hint.dgm-hidden { display: none; }
@@ -408,23 +444,58 @@
         ⇒ JS 一行未改，複製路徑零風險。取捨：長行會在面板裡折成多行（變高），
           但面板有 max-height ＋ overflow:auto，捲動即可。
 
-     ① `max-width` 38vw → `calc(380px * var(--dgm-k))`：窄一半，且改用**與左上／
-        右上兩個角落面板同一套係數** --dgm-k，不另立第二套判準。
+     ① `max-width` 38vw → 窄一半，且改用與左上／右上同一套判準，不另立第二套。
      ② `overflow-wrap: anywhere` ＋ `word-break: break-word`：長 token 在面板寬度
         內折行，不再往外撐、也不溢出。
-     ③ `bottom` 14px → `calc(168px * var(--dgm-k))`：把面板整塊抬到底部提示列
-        **上方**，兩者因此在垂直方向互斥 —— 不必依賴水平是否錯開（底部那一列是
-        `left:50%` 置中、寬度隨內容，水平一定會有交集）。
-        餘裕的算法（全部是 --dgm-k 的線性式，可覆核）：底部列 bottom 22k ＋
-        gate 最多 2 行（dgmGateLines() 最多 push 兩次）58k＋2 ＋ gap 8k ＋
-        #dgm-esc 39k＋2 ＝ **107k＋4 < 168k**，k 放大時兩邊等比，關係不變。 */
+     ③ `bottom` 14px → 把面板整塊抬到底部提示列上方。
+        🔴 **③ 已於 v1.41.0 撤銷，見下。①② 保留。**
+
+     ═══ v1.41.0：撤銷 ③，log 貼回左下角 ══════════════════════════════════
+     Bruce 2026-09-12：「問題解決了，但是 log 視窗它怎麼沒有貼在左下角？」
+
+     🔴 v1.39.0 的 ③（把面板往上推 168 個基準px）錯在哪：
+        它為了避開底部提示列，**動的是面板的位置**。位置是使用者看得到、也有
+        期待的東西 —— 四個角落的面板就該在四個角落，這是這一頁從第一版就有的
+        版面規則（本檔開頭那段「資訊與進度一律貼在四個角落」）。
+        結果是面板浮在畫面左側中間偏下，不在任何一個角，Bruce 一眼就看出來了。
+        而且那個算式本身還很脆：它要「底部列最多長到 107k＋4」這個前提成立，
+        一旦 gate 的行數、字級或提示文案變動，推高的量就得重算 —— 用一個
+        需要人工維護的常數去追另一塊會變的高度，遲早對不上。
+     🔴 正確做法是**限制高度**，不是搬位置：面板本來就有 `overflow: auto`，
+        高度撞到上限就內部捲動。位置回到左下角，`bottom` 與左上角面板的 `top`
+        同值（14 基準px）、`left` 與它的 `left` 同值 ⇒ 兩個面板的邊距對稱。
+
+     ④ v1.41.0：`max-width`／`max-height` 綁到右上角面板的**實際矩形**
+        （Bruce：「大小可以 follow 右上角的大小，不要比右上角第二部分的那個
+        視窗來得大」）。
+        🔴 這裡**不能用 --dgm-panel-w／--dgm-panel-h**（它們是 30vw／40vh 的
+           「上限」）。Windows Chrome 1534×903 實測：右上角面板的實際矩形是
+           377×176，而 40vh ＝ 361 —— 拿上限去比，log 可以長到 361 高，是右上角
+           那塊的 2.05 倍，Bruce 要的「不要比它大」根本沒被擋住。
+           量到的事實是 log 高 307 vs 右上 176（超出 74%），所以要綁的是
+           **實際高度**，不是宣告上限。
+        🔴 實際矩形 CSS 量不到（沒有 element query），由 dgmSyncLogCap() 用
+           ResizeObserver 寫進 --dgm-right-w／--dgm-right-h。右上角的高度會隨
+           狀態文字多寡變動，所以是持續同步，不是寫死 176。
+        🔴 fallback 是 --dgm-panel-w／--dgm-panel-h：JS 還沒跑或環境沒有
+           ResizeObserver 時退回宣告上限，不會變成無上限。
+        🔴 被壓小之後仍然拿得到全部內容：面板 `overflow:auto` 自己捲動，
+           「複製 log」鈕是 `position:sticky` 釘在第一列 ⇒ 捲到哪都按得到。
+           （不設額外下限是刻意的：右上角面板永遠至少有一整列按鈕，
+             不會塌成 0；設下限就等於又把「不比它大」這條打破。）
+     ⑤ v1.41.0：本面板內的所有尺寸（圓角、padding、字級、複製鈕）原本全是
+        **裸 px、一個都沒吃縮放係數** —— 這是它在 4K 上字特別小、跟另外兩個
+        面板比例對不上的直接原因。本版一併接上 --dgm-u。
+        字級的兩個數字（量測行 11、連線行 15）與 v1.38.0 完全相同，只是單位
+        從 CSS px 變成基準px ⇒ 在 1920×1080＠100% 下逐 px 相同。 */
   #dgm-log {
-    position: fixed; left: 14px; bottom: calc(168px * var(--dgm-k)); z-index: 10;
-    max-width: calc(380px * var(--dgm-k)); max-height: 34vh; overflow: auto;
+    position: fixed; left: calc(14 * var(--dgm-u)); bottom: calc(14 * var(--dgm-u)); z-index: 10;
+    max-width: var(--dgm-right-w, var(--dgm-panel-w));
+    max-height: var(--dgm-right-h, var(--dgm-panel-h)); overflow: auto;
     overflow-wrap: anywhere; word-break: break-word;
     background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
-    border-radius: 10px; padding: 8px 11px;
-    font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #94a3b8;
+    border-radius: calc(10 * var(--dgm-u)); padding: calc(8 * var(--dgm-u)) calc(11 * var(--dgm-u));
+    font: calc(11 * var(--dgm-u))/1.5 ui-monospace, Menlo, Consolas, monospace; color: #94a3b8;
     white-space: pre-wrap; display: none;
   }
   #dgm-log .e { color: #f87171; } #dgm-log .o { color: #4ade80; }
@@ -434,17 +505,20 @@
      11px → 15px（1.36 倍）＋ 每行固定前綴（▶／★／✔／✕）。差一級字級才叫
      「一眼看到」，差 1～2px 只是「找得到」。量測那些行維持 11px 不動，
      兩者放在同一個視窗裡才會形成對比。 */
-  #dgm-log .lk { font-size: 15px; line-height: 1.45; color: #e2e8f0; margin: 3px 0; }
+  #dgm-log .lk { font-size: calc(15 * var(--dgm-u)); line-height: 1.45; color: #e2e8f0;
+                 margin: calc(3 * var(--dgm-u)) 0; }
   #dgm-log .lk.e { color: #fca5a5; }   /* 失敗 */
   #dgm-log .lk.o { color: #86efac; }   /* 成功 */
   #dgm-log .lk.i { color: #fcd34d; }   /* 要注意，但不是錯（例如走了哪一條路） */
   /* 「複製 log」：sticky 在第一列，捲到哪都按得到。
      這顆鈕是這一版真正的交付物 —— 沒有它，同事測完現場什麼都帶不回來。 */
   #dgm-log-copy {
-    position: sticky; top: 0; z-index: 1; display: block; margin: 0 0 6px auto;
+    position: sticky; top: 0; z-index: 1; display: block;
+    margin: 0 0 calc(6 * var(--dgm-u)) auto;
     background: #1e293b; color: #e2e8f0; border: 1px solid rgba(255, 255, 255, .28);
-    border-radius: 7px; padding: 4px 10px; cursor: pointer;
-    font-family: inherit; font-size: 12px; line-height: 1.3;
+    border-radius: calc(7 * var(--dgm-u)); padding: calc(4 * var(--dgm-u)) calc(10 * var(--dgm-u));
+    cursor: pointer;
+    font-family: inherit; font-size: calc(12 * var(--dgm-u)); line-height: 1.3;
   }
   #dgm-log-copy:active { background: #475569; }
 </style>
@@ -1597,23 +1671,50 @@
     dgmLinkPick();
   });
 
-  /* ═══ v1.30.0：兩個面板隨解析度自適應 ═══════════════════════════════════
-     曲線與上下限的依據寫在最上面那段 CSS 註解裡（--dgm-k）。這裡只負責算出來。
-     🔴 用 viewport（innerWidth/innerHeight）不用 screen.width：量測時本來就強制
-        全螢幕，兩者一致；而沒全螢幕時使用者看到的是視窗，面板該配合的是視窗。 */
-  var DGM_K_MIN = 1, DGM_K_MAX = 2;
-  var DGM_K_REF_W = 1920, DGM_K_REF_H = 1080;
+  /* ═══ v1.41.0：基準單位改由 CSS 自己算，JS 退出這條路徑 ═════════════════
+     v1.30.0 是「JS 算出 k → 寫進 --dgm-k → CSS 乘上去」。v1.41.0 的 --dgm-u 是
+     純 CSS 的 `min(1vw / 19.2, 1vh / 10.8)`（定義與依據見最上面那段 CSS 註解），
+     所以：
+       🔴 `dgmScaleSync()` 與那個 resize listener **整個移除**，不留死碼。
+          附帶修掉一個舊做法的固有缺陷：resize 事件是排版之後才發，視窗拖動時
+          面板會晚一幀才跟上；CSS 的 vw/vh 在同一次排版就已是新值。
+       🔴 `dgmScale()` **保留但改掉語意**：它現在是「JS 獨立算一次同一條公式」，
+          唯一用途是給下面的驗證 hook 當**交叉驗證**用（JS 算的 vs CSS 算的
+          必須相等）。產品的顯示一個 px 都不再經過它。
+     用 viewport（innerWidth/innerHeight）不用 screen.width 的理由同 v1.30.0：
+     量測時強制全螢幕、兩者一致；沒全螢幕時使用者看到的是視窗。 */
+  var DGM_U_REF_W = 1920, DGM_U_REF_H = 1080;
   function dgmScale() {
-    var w = window.innerWidth || DGM_K_REF_W, h = window.innerHeight || DGM_K_REF_H;
-    var k = Math.min(w / DGM_K_REF_W, h / DGM_K_REF_H);
-    if (!isFinite(k) || k <= 0) k = 1;
-    return Math.max(DGM_K_MIN, Math.min(DGM_K_MAX, k));
+    var w = window.innerWidth || DGM_U_REF_W, h = window.innerHeight || DGM_U_REF_H;
+    var u = Math.min(w / DGM_U_REF_W, h / DGM_U_REF_H);
+    if (!isFinite(u) || u <= 0) u = 1;
+    return u;   // 🔴 v1.41.0 起沒有 clamp：任何上下限都會破壞佔比恆定（見 CSS 註解）
   }
-  function dgmScaleSync() {
-    document.documentElement.style.setProperty('--dgm-k', String(dgmScale()));
+
+  /* ═══ v1.41.0：log 面板的尺寸上限 ＝ 右上角面板的實際矩形 ═════════════════
+     Bruce 2026-09-12：「大小可以 follow 右上角的大小，不要比右上角第二部分的
+     那個視窗來得大。」
+     🔴 為什麼一定要 JS：CSS 沒有 element query，量不到另一個元素的實際大小。
+        而**宣告上限不能代替實際大小** —— Windows Chrome 1534×903 實測，右上角
+        的實際矩形是 377×176，它的宣告上限 40vh 卻是 361。拿上限去比，log 可以
+        長到右上角那塊的 2.05 倍，「不要比它大」等於沒擋。
+     🔴 右上角的高度會隨狀態文字多寡變動 ⇒ 必須持續同步，不能寫死一個數字。
+     🔴 不會遞迴：這兩個變數只有 #dgm-log 讀，#dgm-log 的尺寸不影響 #dgm-right。 */
+  function dgmSyncLogCap() {
+    var el = $('dgm-right'); if (!el) return;
+    var r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return;   // 還沒排版完就不要寫進 0
+    var s = document.documentElement.style;
+    s.setProperty('--dgm-right-w', r.width + 'px');
+    s.setProperty('--dgm-right-h', r.height + 'px');
   }
-  window.addEventListener('resize', dgmScaleSync);
-  dgmScaleSync();
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(dgmSyncLogCap).observe($('dgm-right'));
+  } else {
+    // 沒有 ResizeObserver 的環境：退回 resize 事件；再不行就用 CSS 的 fallback 值。
+    window.addEventListener('resize', dgmSyncLogCap);
+  }
+  dgmSyncLogCap();
 
   /* ═══ v1.30.0：警示層（畫面不是 1:1／沒有全螢幕）═════════════════════════
      判準：
@@ -1971,9 +2072,45 @@
     loadId: function () { return DGM_LOAD_ID; },
     taskSwitches: function () { return dgmSwitchCount; },
     // v1.30.0 驗證用：自適應係數與警示層的實際狀態（只有 getter，改不動任何東西）
+    // v1.41.0：scaleK 是 JS 獨立算的基準單位；scaleU 是 CSS 實際解析出來的長度。
+    //   🔴 兩者要相等才算對得上 —— 這是「JS 與 CSS 沒有各寫一套判準」的機械證據。
+    //   scaleU 回傳的是 computed 之後的長度字串（例如 "2px"），不是原始表達式。
     scaleK: function () { return dgmScale(); },
+    scaleU: function () {
+      var p = document.createElement('div');
+      p.style.cssText = 'position:fixed;left:-9999px;top:0;width:calc(100 * var(--dgm-u));';
+      document.body.appendChild(p);
+      var w = p.getBoundingClientRect().width / 100;
+      p.remove();
+      return w;
+    },
     scaleVar: function () {
-      return getComputedStyle(document.documentElement).getPropertyValue('--dgm-k').trim();
+      return getComputedStyle(document.documentElement).getPropertyValue('--dgm-u').trim();
+    },
+    /* v1.41.0 驗證用：三個面板 ＋ 底部區塊的**實際矩形與佔比**，一次取完。
+       🔴 這是給主機端真 Chrome 量用的 —— 沙箱沒有排版引擎，佔比只能在這裡量。
+          回傳的是 getBoundingClientRect()，含 border，與 CSS 的 border-box 一致。 */
+    rects: function () {
+      var W = window.innerWidth, H = window.innerHeight, out = {};
+      ['dgm-info', 'dgm-right', 'dgm-log', 'dgm-bottom'].forEach(function (id) {
+        var el = $(id); if (!el) { out[id] = null; return; }
+        var r = el.getBoundingClientRect();
+        var cs = getComputedStyle(el);
+        out[id] = {
+          x: +r.x.toFixed(2), y: +r.y.toFixed(2),
+          w: +r.width.toFixed(2), h: +r.height.toFixed(2),
+          pctW: +(r.width / W * 100).toFixed(4), pctH: +(r.height / H * 100).toFixed(4),
+          leftPct: +(r.left / W * 100).toFixed(4), rightPct: +(r.right / W * 100).toFixed(4),
+          gapBottomPct: +((H - r.bottom) / H * 100).toFixed(4),
+          fontSize: cs.fontSize, visible: !!el.offsetParent || cs.position === 'fixed'
+        };
+      });
+      out._viewport = { W: W, H: H, dpr: window.devicePixelRatio, u: dgmScale() };
+      /* log 的上限是不是真的綁在右上角的實際矩形上 */
+      var cs = getComputedStyle(document.documentElement);
+      out._logCap = { w: cs.getPropertyValue('--dgm-right-w').trim(),
+                      h: cs.getPropertyValue('--dgm-right-h').trim() };
+      return out;
     },
     zoomProbe: dgmZoom,
     glowOn: function () { return $('dgm-warn-glow').classList.contains('on'); },
