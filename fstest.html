@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>全螢幕變因對照測試（臨時診斷頁）</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  fstest.html — 全螢幕變因對照測試（臨時診斷頁，問題定位完就刪）
+  ───────────────────────────────────────────────────────────────────────────
+  為什麼有這一頁（現場實測到的對照事實，不是推測）
+
+  Bruce 在一台 Windows 10 小筆電（Chrome 152，外接螢幕，視窗最大化）上實測，
+  同一台機器、同一個 Chrome、同一個站台：
+
+    · pattern.html    ✅ 進得去全螢幕 —— 對 **overlay 元素** 呼叫
+                         requestFullscreen({ navigationUI: 'hide' })
+    · dg-measure.html ❌ 進不去      —— 對 **document.documentElement** 呼叫
+                         requestFullscreen()，**不帶任何 options**
+
+  dg-measure v1.38.0 的現場 log 原文（2026-09-11 23:04）：
+    ✕ requestFullscreen() 失敗 · name=TypeError · message=not granted
+      fullscreenEnabled=true · userActivation isActive=false · hasBeenActive=true
+      · screen 1920x1080 · outer 1920x1032 / inner 1920x911
+      · 由 window.open 開出來的：true · 距上一次 click（dgm-fs）1 ms
+
+  已排除的：
+    · 不是瀏覽器／機器的問題 —— 同一台同一個 Chrome 上 YouTube 全螢幕正常。
+    · 不是 Permissions Policy —— fullscreenEnabled=true 正是反映它允不允許。
+    · 不是整個站台被擋       —— 同 origin 的 pattern.html 可以。
+    · 不是「一定要滑鼠」     —— 鍵盤 Tab ＋ Enter（必定帶 transient activation）
+                                一樣失敗。而這一條與「沒有手勢」互相矛盾，
+                                ⇒ **根因未定**，這頁就是為了把變因拆開來量。
+
+  ───────────────────────────────────────────────────────────────────────────
+  🔴 這頁要避開 v1.38.0 的觀測設計瑕疵（Bruce 2026-09-11 指出）
+
+  v1.38.0 那行 `isActive=false` **不能當證據**：它是在 requestFullscreen() 的
+  **catch 回呼裡**讀的，而 transient activation 在呼叫當下就已經被消耗、或因
+  這次失敗而結束 —— 失敗後讀到 false 是必然，零鑑別力。「距上一次 click 1 ms」
+  同理，量到的是 catch 執行的時刻，不是呼叫的時刻。
+
+  所以本頁每一次呼叫都取樣**三個時點**，並且 `呼叫前` 那一次就寫在
+  `req.call()` 的前一行，中間不准插任何其他程式碼：
+      ① 進入 handler 的第一行   ← 使用者剛按下，還沒做任何事
+      ② 呼叫 requestFullscreen 的前一行
+      ③ 成功／失敗回呼當下
+  ①→② 看我們自己的前置程式碼有沒有把手勢用掉；②→③ 看它是被這次呼叫消耗掉的。
+
+  ───────────────────────────────────────────────────────────────────────────
+  這頁測什麼
+
+  ①②③④：把 pattern 與 dg-measure 之間的兩項差異拆開，一次只動一個變因
+      · 要求全螢幕的對象：document.documentElement ／ overlay 元素
+      · 有沒有帶 { navigationUI: 'hide' }
+    🔴 故意不改 dg-measure.html —— 直接照抄 pattern 的寫法就算好了，也分不出
+       是哪一項在起作用，而且可能兩項都不是。
+
+  ⑤⑥：**只讀不做**，什麼 API 都不呼叫，只印按下那一刻的 userActivation。
+    這是目前最關鍵、卻還沒有人量過的那個數字：在這台機器、這個站台上，
+    一次普通的點擊到底有沒有產生 transient activation。
+      ⑤ 只掛 click（純原生路徑）
+      ⑥ 同時掛 click 與 keydown(Enter/Space)，兩條路徑各印一行、標明是哪一條
+        🔴 keydown 裡**絕不** preventDefault／stopPropagation —— 那會把原生的
+           Enter→click 吃掉，正好毀掉要對照的那條路徑。
+
+  這頁刻意自給自足：不載 common/*.js、不載 i18n、沒有任何外部資源，避免
+  「頁面載了什麼」本身變成另一個變因。
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0;
+    --muted:#94a3b8; --ok:#34d399; --bad:#f87171; --blue:#3b82f6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei",
+                "PingFang TC",sans-serif;
+    font-size:15px; line-height:1.6; padding:12px;
+  }
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:19px;margin:4px 0 6px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:12px;margin-bottom:12px}
+  .card h2{font-size:14px;margin:0 0 8px;color:#93c5fd;letter-spacing:.3px}
+  #fst-env div{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+               font-size:12px;line-height:1.55;word-break:break-all;color:#cbd5e1}
+  #fst-env div.hdr{color:var(--blue)}
+  button{font-family:inherit;color:inherit}
+  .bigbtn{
+    display:block;width:100%;min-height:62px;margin:0 0 10px;
+    background:#1d4ed8;border:1px solid #3b82f6;border-radius:10px;
+    color:#fff;font-size:16px;font-weight:600;cursor:pointer;
+    padding:10px 12px;text-align:left;
+  }
+  .bigbtn:hover{background:#2563eb}
+  .bigbtn:focus-visible{outline:3px solid #fbbf24;outline-offset:2px}
+  .bigbtn small{display:block;font-weight:400;font-size:12.5px;color:#dbeafe;
+                font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+                margin-top:4px}
+  /* ⑤⑥ 是「只讀不做」，換個顏色，避免與會真的呼叫 API 的四顆混在一起 */
+  .bigbtn.probe{background:#6d28d9;border-color:#8b5cf6}
+  .bigbtn.probe:hover{background:#7c3aed}
+  .bigbtn.probe small{color:#ede9fe}
+  .minibtn{background:#334155;border:1px solid #475569;border-radius:8px;
+           padding:7px 14px;font-size:13.5px;cursor:pointer}
+  .minibtn:hover{background:#3f4d63}
+  #fst-log{max-height:46vh;overflow:auto;margin-top:8px}
+  #fst-log div{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+               font-size:12.5px;line-height:1.6;word-break:break-all;
+               padding:2px 0;border-bottom:1px dashed #2b3a52}
+  #fst-log div.ok{color:var(--ok)}
+  #fst-log div.bad{color:var(--bad)}
+  #fst-log div.evt{color:var(--muted)}
+  #fst-log div.probe{color:#c4b5fd}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .note{color:var(--muted);font-size:12.5px}
+  .warn{color:#fcd34d;font-size:12.5px}
+  /* 全螢幕舞台：①② 是對 documentElement 要求全螢幕，它以 fixed 蓋滿視窗；
+     ③④ 是對它自己要求全螢幕。兩種情形下畫面都長一樣，才看得出差別只在 API。 */
+  #fst-stage{display:none}
+  #fst-stage.on{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    position:fixed;left:0;top:0;width:100%;height:100%;z-index:99999;
+    background:#064e3b;color:#ecfdf5;text-align:center;gap:18px;padding:20px;
+  }
+  #fst-stage .big{font-size:min(8vw,44px);font-weight:800;letter-spacing:1px}
+  #fst-stage .which{font-size:min(4.5vw,20px);color:#a7f3d0;
+                    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #fst-stage .how{font-size:min(4vw,17px);color:#d1fae5}
+  #fst-stage-exit{background:#ecfdf5;color:#064e3b;border:0;border-radius:12px;
+                  font-size:18px;font-weight:700;padding:14px 26px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>全螢幕變因對照測試</h1>
+  <p class="sub">
+    臨時診斷頁（<code>fstest.html</code>）。同一台機器上 <code>pattern.html</code>
+    進得去全螢幕、<code>dg-measure.html</code> 進不去（<code>TypeError / not granted</code>），
+    兩頁之間有兩項差異：<b>要求全螢幕的對象</b>與<b>有沒有帶 navigationUI</b>。
+    ①～④ 把 2×2 四種組合各做一次；⑤⑥ 什麼都不呼叫，只量一次點擊有沒有產生
+    transient activation。問題定位完這頁就會刪掉。
+  </p>
+
+  <div class="card">
+    <h2>環境事實（呼叫前那一刻）</h2>
+    <div id="fst-env"></div>
+  </div>
+
+  <div class="card">
+    <h2>①～④ 四種組合（滑鼠點擊或鍵盤 Tab ＋ Enter 都可以）</h2>
+    <button class="bigbtn" id="fst-b1" type="button">① documentElement，不帶 options
+      <small>document.documentElement.requestFullscreen()</small></button>
+    <button class="bigbtn" id="fst-b2" type="button">② documentElement ＋ navigationUI:'hide'
+      <small>document.documentElement.requestFullscreen({ navigationUI: 'hide' })</small></button>
+    <button class="bigbtn" id="fst-b3" type="button">③ overlay 元素，不帶 options
+      <small>overlayDiv.requestFullscreen()</small></button>
+    <button class="bigbtn" id="fst-b4" type="button">④ overlay 元素 ＋ navigationUI:'hide'
+      <small>overlayDiv.requestFullscreen({ navigationUI: 'hide' })</small></button>
+    <p class="note">
+      成功時會出現整片深綠色畫面，按 <b>Esc</b>、點畫面上的退出鈕、或<b>再按一次任一顆測試鈕</b>
+      都能退出 —— 不會卡在全螢幕裡出不來，可以連著把四顆按完。
+    </p>
+    <p class="warn">
+      每一行結果都會印三個時點的 <code>userActivation</code>：進入 handler → 呼叫前一行 → 回呼當下。
+      只看回呼當下的值是沒有意義的（失敗後本來就會是 false）。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>⑤⑥ 只讀不做（不呼叫任何 API，只量 transient activation）</h2>
+    <button class="bigbtn probe" id="fst-b5" type="button">⑤ 只讀不做（只掛 click）
+      <small>印出此刻 navigator.userActivation.isActive / hasBeenActive</small></button>
+    <button class="bigbtn probe" id="fst-b6" type="button">⑥ 只讀不做（click ＋ keydown 兩條路徑）
+      <small>用 Tab 移到這顆再按 Enter／Space：keydown 與原生 click 會各印一行</small></button>
+    <p class="note">
+      這兩顆不呼叫 requestFullscreen，也不呼叫任何其他會消耗手勢的 API，
+      所以印出來的值就是「按下那一刻本來的樣子」。⑥ 的 keydown 不做
+      preventDefault，因此按 Enter 會看到 <b>兩行</b>（先 keydown、再原生轉出的 click）。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>結果</h2>
+    <div class="row">
+      <button class="minibtn" id="fst-copy" type="button">複製結果</button>
+      <span class="note">複製的就是下面這幾行加上上面那塊環境事實，原字串不加工。</span>
+    </div>
+    <div id="fst-log"></div>
+  </div>
+
+</div>
+
+<!-- ③④ 要求全螢幕的對象就是這個 div -->
+<div id="fst-stage">
+  <div class="big">✅ 已進入全螢幕</div>
+  <div class="which" id="fst-stage-which"></div>
+  <div class="how">按 Esc 可退出，或點下面這顆鈕</div>
+  <button id="fst-stage-exit" type="button">退出全螢幕</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* 🔴 本頁唯一的鍵盤監聽掛在 ⑥ 那顆按鈕上（Enter/Space），而且**不** preventDefault、
+     **不** stopPropagation。①～④ 的鍵盤路徑完全是瀏覽器原生的 <button> 啟動行為
+     （Enter → click），中間沒有任何自己的處理器 —— 「鍵盤 Tab ＋ Enter 也失敗」是
+     這次的關鍵線索，那條路徑必須保持乾淨。Esc 退出全螢幕同樣交給瀏覽器原生行為。 */
+
+  function $(id) { return document.getElementById(id); }
+
+  var CASES = [
+    { id: 'fst-b1', no: '①', target: 'doc', opts: false,
+      label: 'documentElement，不帶 options',
+      code: 'document.documentElement.requestFullscreen()' },
+    { id: 'fst-b2', no: '②', target: 'doc', opts: true,
+      label: "documentElement ＋ navigationUI:'hide'",
+      code: "document.documentElement.requestFullscreen({ navigationUI: 'hide' })" },
+    { id: 'fst-b3', no: '③', target: 'ov', opts: false,
+      label: 'overlay 元素，不帶 options',
+      code: 'overlayDiv.requestFullscreen()' },
+    { id: 'fst-b4', no: '④', target: 'ov', opts: true,
+      label: "overlay 元素 ＋ navigationUI:'hide'",
+      code: "overlayDiv.requestFullscreen({ navigationUI: 'hide' })" }
+  ];
+
+  // ── 小工具 ────────────────────────────────────────────────────────────────
+  function fstStamp() {
+    var d = new Date(), p = function (n, w) {
+      n = String(n); while (n.length < (w || 2)) n = '0' + n; return n;
+    };
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
+      + '.' + p(d.getMilliseconds(), 3);
+  }
+  function fstMs(t0) { return Math.round(performance.now() - t0); }
+  /* 錯誤物件的 name／message 一律取**原字串**，不分類、不改寫 —— 分類是看結果的人
+     的事，程式自作聰明會把真正的線索蓋掉（dg-measure v1.38.0 同一條教訓）。 */
+  function fstErrName(e) {
+    if (!e) return '(沒有錯誤物件)';
+    return (e.name || (e.constructor && e.constructor.name) || typeof e) + '';
+  }
+  function fstErrMsg(e) {
+    if (!e) return '(沒有錯誤物件)';
+    if (typeof e === 'string') return e;
+    return (e.message === undefined ? String(e) : String(e.message));
+  }
+  function fstElDesc(el) {
+    if (!el) return 'null';
+    if (el === document.documentElement) return 'HTML（documentElement）';
+    return (el.tagName || '?') + (el.id ? '#' + el.id : '');
+  }
+  function fstFsEl() {
+    return document.fullscreenElement || document.webkitFullscreenElement
+      || document.mozFullScreenElement || document.msFullscreenElement || null;
+  }
+
+  /* ═══ userActivation 取樣 ════════════════════════════════════════════════
+     🔴 這支必須是**純讀取**，不碰 DOM、不呼叫任何其他 API，這樣才可以安全地擺在
+        requestFullscreen() 的前一行而不影響被測對象。 */
+  function fstAct() {
+    var ua = navigator.userActivation;
+    if (!ua) return null;
+    return { a: ua.isActive, h: ua.hasBeenActive };
+  }
+  function fstActStr(o) {
+    return o ? ('isActive=' + o.a + '/hasBeenActive=' + o.h)
+             : '(此瀏覽器沒有 navigator.userActivation)';
+  }
+  /* 三個時點串成一行。只有這樣才分得出「本來就沒有」與「被消耗掉」。 */
+  function fstActTrail(enter, pre, post) {
+    return 'activation：進入 handler ' + fstActStr(enter)
+      + ' → 呼叫前 ' + fstActStr(pre)
+      + ' → 回呼當下 ' + fstActStr(post);
+  }
+
+  // ── 環境事實面板 ──────────────────────────────────────────────────────────
+  /* act 帶進來時就用它（＝「呼叫前那一刻」的快照），不另外重讀 —— 面板與結果行
+     顯示的必須是同一次取樣，否則兩邊對不上又會變成第二個觀測瑕疵。 */
+  function fstSnap(tag, act) {
+    var o = (act === undefined) ? fstAct() : act;
+    var lines = [
+      ['hdr', '取樣時機：' + tag + '　（' + fstStamp() + '）'],
+      ['', 'document.fullscreenEnabled = ' + document.fullscreenEnabled],
+      ['', 'navigator.userActivation.isActive = ' + (o ? o.a : '(沒有這個 API)')],
+      ['', 'navigator.userActivation.hasBeenActive = ' + (o ? o.h : '(沒有這個 API)')],
+      ['', 'window.screen.width × height = '
+            + (window.screen ? (screen.width + ' × ' + screen.height) : '(沒有 screen)')],
+      ['', 'window.innerWidth / outerWidth = '
+            + window.innerWidth + ' / ' + window.outerWidth],
+      ['', '!!window.opener = ' + (!!window.opener)],
+      ['', 'isSecureContext = ' + window.isSecureContext],
+      ['', 'navigator.userAgent = ' + navigator.userAgent]
+    ];
+    var box = $('fst-env'), i, d;
+    box.textContent = '';
+    for (i = 0; i < lines.length; i++) {
+      d = document.createElement('div');
+      if (lines[i][0]) d.className = lines[i][0];
+      d.textContent = lines[i][1];
+      box.appendChild(d);
+    }
+    return 'fullscreenEnabled=' + document.fullscreenEnabled;
+  }
+
+  // ── 結果行 ────────────────────────────────────────────────────────────────
+  function fstLine(txt, cls) {
+    var box = $('fst-log'), d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = '[' + fstStamp() + '] ' + txt;
+    box.appendChild(d);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ── 全螢幕舞台 ────────────────────────────────────────────────────────────
+  function fstStage(on, which) {
+    var st = $('fst-stage');
+    if (on) { $('fst-stage-which').textContent = which || ''; st.classList.add('on'); }
+    else st.classList.remove('on');
+  }
+
+  // ── 退出 ──────────────────────────────────────────────────────────────────
+  function fstExit(why) {
+    var ex = document.exitFullscreen || document.webkitExitFullscreen
+      || document.mozCancelFullScreen || document.msExitFullscreen;
+    if (!ex) {
+      fstLine('✕ 此瀏覽器沒有 exitFullscreen() —— 請按 Esc 或 F11', 'bad');
+      return;
+    }
+    var t0 = performance.now(), p;
+    try { p = ex.call(document); }
+    catch (e) {
+      fstLine('✕ exitFullscreen() 同步丟出 · name=' + fstErrName(e)
+        + ' · message=' + fstErrMsg(e) + ' · 耗時 ' + fstMs(t0) + ' ms', 'bad');
+      return;
+    }
+    if (p && p.then) {
+      p.then(function () {
+        fstLine('↩ 已退出全螢幕（' + why + '）· 耗時 ' + fstMs(t0) + ' ms', 'evt');
+      }, function (e) {
+        fstLine('✕ exitFullscreen() 失敗 · name=' + fstErrName(e)
+          + ' · message=' + fstErrMsg(e) + ' · 耗時 ' + fstMs(t0) + ' ms', 'bad');
+      });
+    } else {
+      fstLine('↩ exitFullscreen() 已呼叫（舊式 API，沒有 promise）（' + why + '）', 'evt');
+    }
+  }
+
+  // ── 一次測試（①～④）──────────────────────────────────────────────────────
+  function fstRun(c) {
+    var actEnter = fstAct();                 // ① 進入 handler 的第一行
+    var tag = c.no + ' ' + c.label;
+
+    /* 已經在 API 全螢幕裡 → 這一下當成「再按一次退出」，不重複 request。
+       這樣測試者可以連著把六顆按完，不會卡在全螢幕裡出不來。
+       🔴 F11 那種全螢幕（fullscreenElement 為 null）不走這條：那正是要測的情境。 */
+    if (fstFsEl()) {
+      fstSnap('按下 ' + c.no + '（此時已在全螢幕 ⇒ 本次當退出）', actEnter);
+      fstExit('再按一次 ' + c.no);
+      return;
+    }
+
+    var el = (c.target === 'doc') ? document.documentElement : $('fst-stage');
+    var req = el.requestFullscreen || el.webkitRequestFullscreen
+      || el.mozRequestFullScreen || el.msRequestFullscreen;
+    var via = el.requestFullscreen ? 'requestFullscreen'
+      : (el.webkitRequestFullscreen ? 'webkitRequestFullscreen'
+        : (el.mozRequestFullScreen ? 'mozRequestFullScreen' : 'msRequestFullscreen'));
+    if (!req) {
+      fstSnap('按下 ' + c.no + '（此瀏覽器沒有 requestFullscreen）', actEnter);
+      fstLine('✕ ' + tag + ' → 這個瀏覽器上該元素沒有任何 requestFullscreen 方法', 'bad');
+      return;
+    }
+    // ③④ 要對 overlay 要求全螢幕，它必須先是顯示狀態（display:none 的元素進不去）
+    fstStage(true, c.code);
+
+    /* 🔴 以下三行不准插入任何其他程式碼：讀值 → 計時 → 呼叫。
+          v1.38.0 的瑕疵就是只在 catch 回呼裡讀，那時候手勢已經沒了。 */
+    var actPre = fstAct();                   // ② 呼叫的前一行
+    var t0 = performance.now();
+    var p, threw = null;
+    try { p = c.opts ? req.call(el, { navigationUI: 'hide' }) : req.call(el); }
+    catch (e) { threw = e; }
+
+    var head = tag + ' · 對象=' + fstElDesc(el) + ' · via=' + via;
+    var env = fstSnap('按下 ' + c.no + ' 之後、呼叫 requestFullscreen 之前', actPre);
+
+    if (threw) {
+      fstStage(false);
+      fstLine('✕ ' + head + ' → 同步丟出 · name=' + fstErrName(threw)
+        + ' · message=' + fstErrMsg(threw) + ' · 耗時 ' + fstMs(t0) + ' ms'
+        + '　｜ ' + env + ' · ' + fstActTrail(actEnter, actPre, fstAct()), 'bad');
+      return;
+    }
+    if (p && p.then) {
+      p.then(function () {
+        fstLine('✅ ' + head + ' → 成功 · 耗時 ' + fstMs(t0) + ' ms'
+          + ' · fullscreenElement=' + fstElDesc(fstFsEl())
+          + '　｜ ' + env + ' · ' + fstActTrail(actEnter, actPre, fstAct()), 'ok');
+      }, function (e) {
+        fstStage(false);
+        fstLine('✕ ' + head + ' → 失敗 · name=' + fstErrName(e)
+          + ' · message=' + fstErrMsg(e) + ' · 耗時 ' + fstMs(t0) + ' ms'
+          + '　｜ ' + env + ' · ' + fstActTrail(actEnter, actPre, fstAct()), 'bad');
+      });
+    } else {
+      /* 舊式 API 不回 promise，成敗只能看 fullscreenchange／fullscreenerror 事件 */
+      fstLine('… ' + head + ' → 已呼叫，但沒有回傳 promise（舊式 API）'
+        + ' · 耗時 ' + fstMs(t0) + ' ms'
+        + '　｜ ' + env + ' · ' + fstActTrail(actEnter, actPre, fstAct()), 'evt');
+    }
+  }
+
+  // ── ⑤⑥ 只讀不做 ──────────────────────────────────────────────────────────
+  /* 🔴 這支函式**第一行**就把值讀走，而且全程不呼叫任何會消耗手勢的 API。
+        它要回答的是：在這台機器、這個站台上，一次普通的點擊到底有沒有產生
+        transient activation —— 這個數字目前還沒有人量過。 */
+  function fstProbe(no, how, ev) {
+    var act = fstAct();
+    var trusted = ev ? (' · isTrusted=' + ev.isTrusted) : '';
+    var keyinfo = (ev && ev.type === 'keydown') ? (" · key='" + ev.key + "'") : '';
+    fstSnap('按下 ' + no + '（' + how + '，只讀不做）', act);
+    fstLine('◉ ' + no + ' 只讀不做 · 觸發路徑=' + how + keyinfo + trusted
+      + ' · ' + fstActStr(act)
+      + ' · fullscreenEnabled=' + document.fullscreenEnabled, 'probe');
+  }
+
+  // ── 複製結果 ──────────────────────────────────────────────────────────────
+  /* 做法沿用 dg-measure.html v1.38.0 那顆「複製 log」：複製的內容就是畫面上那幾行，
+     並且一定要有 execCommand 退路 —— 出問題的現場很可能正好沒有
+     navigator.clipboard（http:// 或舊瀏覽器），複製鈕不能在最需要它的時候是死的。 */
+  function fstCopyText() {
+    var out = [], i, ds;
+    ds = $('fst-env').querySelectorAll('div');
+    for (i = 0; i < ds.length; i++) out.push(ds[i].textContent);
+    out.push('');
+    ds = $('fst-log').querySelectorAll('div');
+    for (i = 0; i < ds.length; i++) out.push(ds[i].textContent);
+    return out.join('\n');
+  }
+  function fstCopyFallback(txt) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select(); if (ta.setSelectionRange) ta.setSelectionRange(0, txt.length);
+      var ok = !!(document.execCommand && document.execCommand('copy'));
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+  function fstCopyDone(ok) {
+    var b = $('fst-copy');
+    b.textContent = ok ? '已複製' : '複製失敗';
+    setTimeout(function () { b.textContent = '複製結果'; }, 1500);
+  }
+  function fstCopy() {
+    var txt = fstCopyText();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(
+        function () { fstCopyDone(true); },
+        function () { fstCopyDone(fstCopyFallback(txt)); });
+    } else fstCopyDone(fstCopyFallback(txt));
+  }
+
+  // ── 綁定 ──────────────────────────────────────────────────────────────────
+  (function bind() {
+    var i;
+    for (i = 0; i < CASES.length; i++) {
+      (function (c) {
+        $(c.id).addEventListener('click', function () { fstRun(c); });
+      })(CASES[i]);
+    }
+    // ⑤：只有 click，純原生路徑
+    $('fst-b5').addEventListener('click', function (e) { fstProbe('⑤', 'click', e); });
+    // ⑥：click 與 keydown 兩條路徑各印一行。🔴 不 preventDefault，否則原生的
+    //    Enter→click 會被吃掉，就看不到要對照的那一條了。
+    $('fst-b6').addEventListener('click', function (e) { fstProbe('⑥', 'click', e); });
+    $('fst-b6').addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+      fstProbe('⑥', 'keydown', e);
+    });
+    $('fst-copy').addEventListener('click', fstCopy);
+    $('fst-stage-exit').addEventListener('click', function () { fstExit('點退出鈕'); });
+  })();
+
+  ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange',
+   'MSFullscreenChange'].forEach(function (evt) {
+    document.addEventListener(evt, function () {
+      var el = fstFsEl();
+      fstLine('· ' + evt + '：fullscreenElement = ' + fstElDesc(el)
+        + ' · innerWidth/outerWidth = ' + window.innerWidth + '/' + window.outerWidth, 'evt');
+      if (!el) fstStage(false);
+    });
+  });
+  ['fullscreenerror', 'webkitfullscreenerror', 'mozfullscreenerror',
+   'MSFullscreenError'].forEach(function (evt) {
+    document.addEventListener(evt, function () {
+      fstStage(false);
+      fstLine('✕ ' + evt + ' 事件 —— 瀏覽器拒絕，且這條路沒有 promise 可帶原因', 'bad');
+    });
+  });
+
+  // 開頁先把環境記下來一次，當作「什麼都還沒按」的基準
+  fstSnap('開頁時（尚未按任何按鈕）');
+  fstLine('頁面就緒。①～④ 各測一次全螢幕；⑤⑥ 只量 activation、不呼叫任何 API。', 'evt');
+})();
+</script>
+</body>
+</html>
