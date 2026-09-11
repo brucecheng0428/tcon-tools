@@ -869,7 +869,9 @@
     <div class="card-header"><span class="icon">📥</span><span>輸入資料</span><button type="button" class="dg-info-btn" data-info="dg-info-input" data-info-title="輸入資料 — 三份資料與檔案怎麼挑" aria-label="說明" title="說明">⚠</button></div>
     <div class="card-body">
 
-      <input type="file" id="dg-file-lut" accept=".xlsx" style="display:none">
+      <!-- v1.36.0：多一種 .csv（CA-410 原廠 UI 匯出的量測檔）。#dg-file-conv 不加 ——
+           那個分頁收的是 LUT 檔，CA-410 CSV 裡沒有 LUT。 -->
+      <input type="file" id="dg-file-lut" accept=".xlsx,.csv" style="display:none">
       <div class="dg-fmt" id="dg-fmt-box" style="display:none"></div>
 
       <div class="dg-info-src" id="dg-info-input">
@@ -1360,7 +1362,7 @@
       <!-- v1.18.0：本分頁自己的檔案輸入。**刻意與第 2 部分那個 #dg-file-lut 分開** ——
            那一個的 change 綁的是 dgImportFile()，會寫進第 1／2／3 部分；本分頁的匯入
            只進比較清單、不碰計算資料，共用同一個 input 會讓兩條路互相污染。 -->
-      <input type="file" id="dg-file-slot" accept=".xlsx" style="display:none">
+      <input type="file" id="dg-file-slot" accept=".xlsx,.csv" style="display:none">
       <div class="dg-slot-list" id="dg-slot-list"></div>
       <div class="dg-btnrow">
         <button class="dg-btn primary" id="dg-btn-slot-new">＋ 新增資料</button>
@@ -1902,7 +1904,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260911dg1350"></script>
+<script src="common/version.js?v=20260911dg1360"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4100,6 +4102,171 @@
     return dgParseOpticalA(sheets) || dgParseOpticalB(sheets);
   }
 
+  /* ─── v1.36.0：CA-410 原廠 UI 匯出的 CSV（`CA410_GammaMeasData_*.csv`）─────────
+     這是**第五種**吃得下的檔，也是第一種不是 xlsx 的。它與上面兩支 xlsx 解析器
+     的關係是「同一個契約、不同來源」：回傳的物件形狀與 dgParseOpticalA／B 完全
+     一樣（rows／white／prim／hasPrim），所以 dgApplyGray／dgApplyPrim／dgConfApply／
+     dgSlotAdd 以下一行都不用改，dgCompute() 更是碰不到。
+
+     檔案結構（兩份真檔逐列解剖，2026-09-11）：
+       第 0 列  `Date,2026/09/11`
+       第 1 列  摘要表頭 17 欄，接 256 列摘要資料
+       之後四段，固定順序 Red → Green → Blue → White，每段三列起手：
+         ① 只有一格的純色名標籤列  ② 20 欄表頭  ③ 256 列資料（Tone 0→255 正掃）
+       只量白的檔（`…_W.csv`）裡 R／G／B 三段只有標籤與表頭、資料 0 列。
+
+     🔴 **摘要段一欄都不取。** 它全是衍生量，用檔案自身數值驗出的恆等式：
+        `Red/Green/Blue/White` 欄 ＝ (Y(t)−Y(0))/(Y(255)−Y(0))（扣掉黑階的正規化亮度），
+        `W_Δx` ＝ x(t)−x(255)（Δy／Δz 同理，z＝1−x−y）。資訊全部包含在下面的色段裡，
+        取它只會多一條會腐爛的路徑。
+
+     🔴 色段的 `Lv(cd/m²)` 欄與 `Y` 欄**逐值相同**（四段 ×256 列，差恆為 0），
+        `x`／`y` 與 X／Y／Z 也自洽（|x − X/(X+Y+Z)| ≤ 5.6e-16）。所以白灰階取
+        x／y／Lv，純色端點直接取 X／Y／Z —— 不必自己換算，也不必二選一。
+
+     🔴 `Tcp`／`duv` 在飽和純色是字串 `----`（真檔：Red 段 223 列、Blue 段 248 列）。
+        `dgCa410Num()` 一律把它當缺值回 null，**不可以 parseFloat 後當 0** ——
+        理由與 DG_NOXY 那條一樣：`dgCCT(0,0)` 恆等於 2021.28K，會畫出一條假的色溫線。 */
+  function dgCa410Num(s) {
+    if (s == null) return null;
+    s = String(s).trim();
+    if (!s || s === '----') return null;
+    var v = Number(s);
+    return isFinite(v) ? v : null;
+  }
+
+  function dgCsvSplit(line) {
+    var out = [], cur = '', q = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line.charAt(i);
+      if (q) {
+        if (ch === '"') { if (line.charAt(i + 1) === '"') { cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ',') { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out;
+  }
+
+  /* ArrayBuffer → 文字。🔴 有 ZIP magic（PK\x03\x04）就直接回 null ——
+     嗅探的第一關就把所有 xlsx 擋在外面，既有格式連文字解碼都不會經過。 */
+  function dgCa410Text(buf) {
+    var u8 = new Uint8Array(buf);
+    if (u8.length < 8) return null;
+    if (u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 0x03 && u8[3] === 0x04) return null;
+    var s;
+    try { s = new TextDecoder('utf-8').decode(u8); } catch (e) { return null; }
+    if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);   // 真檔是 UTF-8 with BOM
+    return s;
+  }
+
+  /* 第二關：檔案裡要有一列是 CA-410 的**色段**表頭（Tone 起頭、含 ErrCode、含 Lv／x／y）。
+     🔴 這裡**不可以只掃開頭幾列**：真檔的第 1 列是摘要表頭（`Tone,Red,Green,Blue,White,…`），
+        色段表頭要到第 260 列（`…_W.csv`）才出現。第一版寫成「前 40 列」，三個真檔
+        全部嗅不出來、原樣落回 dgUnzip() 報「找不到 ZIP 結尾」—— 症狀跟沒實作一模一樣。
+     上限 20000 列純粹防呆（真檔 527／1295 列）。 */
+  function dgCa410Looks(lines) {
+    for (var i = 0; i < Math.min(lines.length, 20000); i++) {
+      var f = dgCsvSplit(lines[i]).map(function (x) { return x.trim(); });
+      if (f.length < 15 || f[0] !== 'Tone') continue;
+      if (f.indexOf('ErrCode') < 0) continue;
+      var hasLv = f.some(function (x) { return /^Lv/.test(x); });
+      if (hasLv && f.indexOf('x') >= 0 && f.indexOf('y') >= 0) return true;
+    }
+    return false;
+  }
+
+  var DG_CA410_SEG = { red: 'r', green: 'g', blue: 'b', white: 'w' };
+
+  function dgParseCa410Csv(text) {
+    var lines = String(text || '').split(/\r\n|\n|\r/);
+    if (!dgCa410Looks(lines)) return null;
+
+    var segs = { r: [], g: [], b: [], w: [] }, cur = null, h = null, errs = {}, errN = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var f = dgCsvSplit(lines[i]);
+      var only = f.length === 1 ? String(f[0]).trim().toLowerCase() : '';
+      if (only && DG_CA410_SEG[only]) { cur = DG_CA410_SEG[only]; h = null; continue; }
+      if (!cur) continue;                                  // 摘要段（cur 還沒被設起來）整段略過
+      var f0 = String(f[0] || '').trim();
+      if (!h) {
+        // 大小寫要分：`X` 與 `x` 是不同欄；`Lv(cd/m²)` 用前綴對
+        if (f0 !== 'Tone') continue;
+        h = {};
+        for (var c = 0; c < f.length; c++) {
+          var k = String(f[c]).trim();
+          if (/^Lv/.test(k)) k = 'Lv';
+          if (k && !(k in h)) h[k] = c;
+        }
+        continue;
+      }
+      var g = dgCa410Num(f0);
+      if (g === null) { if (f0 === '') { h = null; cur = null; } continue; }  // 空行＝段落結束
+      var row = {
+        g: g,
+        X: h.X != null ? dgCa410Num(f[h.X]) : null,
+        Y: h.Y != null ? dgCa410Num(f[h.Y]) : null,
+        Z: h.Z != null ? dgCa410Num(f[h.Z]) : null,
+        x: h.x != null ? dgCa410Num(f[h.x]) : null,
+        y: h.y != null ? dgCa410Num(f[h.y]) : null,
+        Lv: h.Lv != null ? dgCa410Num(f[h.Lv]) : null,
+        T: h.Tcp != null ? dgCa410Num(f[h.Tcp]) : null,
+        uv: h.duv != null ? dgCa410Num(f[h.duv]) : null
+      };
+      var ec = h.ErrCode != null ? dgCa410Num(f[h.ErrCode]) : null;
+      if (dgIsNum(ec) && ec !== 0) { errN++; errs[ec] = (errs[ec] || 0) + 1; }
+      segs[cur].push(row);
+    }
+
+    // 白灰階：White 段。Lv 與 Y 逐值相同，取 Lv（它就是檔案給的亮度欄）
+    var rows = segs.w.filter(function (r) {
+      return dgIsNum(r.x) && dgIsNum(r.y) && dgIsNum(r.Lv);
+    }).map(function (r) {
+      return { g: r.g, x: r.x, y: r.y, Y: r.Lv, T: dgIsNum(r.T) ? r.T : null, uv: dgIsNum(r.uv) ? r.uv : null };
+    }).sort(function (a, b) { return a.g - b.g; });
+    if (rows.length < 16) rows = [];
+
+    // 純色端點：三段各取「Tone 最高且 X／Y／Z 都有值」那一列的 X／Y／Z
+    var prim = {}, hasPrim = true;
+    ['r', 'g', 'b'].forEach(function (k) {
+      var best = null;
+      segs[k].forEach(function (r) {
+        if (!dgIsNum(r.X) || !dgIsNum(r.Y) || !dgIsNum(r.Z)) return;
+        if (r.Y <= 0) return;
+        if (!best || r.g > best.g) best = r;
+      });
+      if (!best) { hasPrim = false; return; }
+      prim[k] = [best.X, best.Y, best.Z];
+    });
+    if (!hasPrim) prim = null;
+
+    if (!rows.length && !hasPrim) return null;
+    var top = rows.length ? rows[rows.length - 1] : null;
+    return {
+      kind: 'CSV', sheetName: 'CA-410 CSV',
+      rows: rows, hasPrim: hasPrim, prim: prim,
+      white: top ? [top.x, top.y, top.Y, dgIsNum(top.T) && top.T > 0 ? top.T : null] : null,
+      errN: errN, errCodes: errs
+    };
+  }
+
+  /* 嗅探入口：兩關都過才回物件，任何一關不過一律回 null，
+     呼叫端就原樣落回 dgUnzip() —— 既有 xlsx 路徑一個位元組都不會被改讀。 */
+  function dgSniffCa410(buf) {
+    var t = dgCa410Text(buf);
+    if (t === null) return null;
+    try { return dgParseCa410Csv(t); } catch (e) { return null; }
+  }
+
+  // ErrCode 摘要（手冊：1＝校正通道用了別支探棒、2＝零校正後內溫變化 ≥6°C、4＝亮度低於可量範圍，其餘為組合）
+  function dgCa410ErrNote(csv) {
+    if (!csv || !csv.errN) return '';
+    var ks = Object.keys(csv.errCodes).sort(function (a, b) { return a - b; });
+    return '⚠ 這個檔有 ' + csv.errN + ' 列的 ErrCode 不是 0（代碼 ' + ks.join('、') + '）。資料照收，數值請自行斟酌。';
+  }
+
   /* ─── v1.7.0：輸出格式改由「目標 TCON」決定 ─────────────────────────────
      原本只有「(Source Driver, 內容深度) → 格式」這條推定路徑，問題是同一顆
      TCON 的 SD 與 LUT 深度都是暫存器設定、隨機種而變，用它們反推型號一定會撞。
@@ -5046,6 +5213,34 @@
       dgSetStatus('dg-slot-status', '讀不到這個檔案。請確認檔案沒有被其他程式鎖住。', 'err');
     };
     fr.onload = function () {
+      /* v1.36.0：CA-410 CSV。這個分頁收的是「一組白灰階曲線」，所以只取 White 段；
+         檔案裡的 R／G／B 段在這裡沒有用途（比較分頁比的是灰階曲線），一律不碰。 */
+      var csv = null;
+      try { csv = dgSniffCa410(fr.result); } catch (e) { csv = null; }
+      if (csv) {
+        if (!csv.rows.length) {
+          dgSetStatus('dg-slot-status', '這個檔是 CA-410 的量測 CSV，但沒有白階（White 段）的逐階資料。', 'err');
+          return;
+        }
+        if (DG_SLOTS.length >= DG_SLOT_MAX) {
+          dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限），這個檔沒有匯入。', 'err');
+          dgSlotSkipNote(file.name, 1, DG_SLOTS.length, 0, [file.name]);
+          return;
+        }
+        var crows = csv.rows.map(function (r) { return { g: +r.g, x: +r.x, y: +r.y, Y: +r.Y }; });
+        var csame = dgSlotFindSame(crows);
+        if (csame >= 0) {
+          dgSetStatus('dg-slot-status', '這一份與' + dgSlotRefName(csame) + '逐值相同，沒有重複新增。', '');
+          return;
+        }
+        var cno = dgSlotAdd({ rows: csv.rows, hasPrim: false }, file.name);
+        var cnote = dgCa410ErrNote(csv);
+        dgSetStatus('dg-slot-status', '已加入第 ' + cno + ' 組：' + file.name
+          + '\n' + csv.rows.length + ' 階。**第 1、2、3 部分完全沒有被動到**——'
+          + '要拿它當計算輸入，請到「Digital Gamma 校正」分頁第 2 部分選「從光學資料比較挑一組」。'
+          + (cnote ? '\n' + cnote : ''), 'ok');
+        return;
+      }
       dgUnzip(fr.result).then(function (files) {
         var sheets = dgReadSheets(files);
         /* v1.19.0：先問「是不是本工具匯出的多組比較檔」。三個辨識碼都對才走整批那條路；
@@ -7280,6 +7475,12 @@
         src: '來源：<b>' + dgXe(s.name || '上一輪') + '</b>在本頁算出來的 LUT'
           + ' —— 由第 4 部分「進行下一輪」自動帶入，與「一鍵複製 RGB」的內容逐值相同。' };
     }
+    /* v1.36.0：第 3 部分的這一份是「第 2 部分匯入 CA-410 CSV 時一併帶進來的」。
+       要看得出來它不是在第 3 部分自己匯的 —— 第 3 部分再匯一次就會蓋掉它。 */
+    if (s.kind === 'from2') {
+      return { cls: 'ready', text: '來自第 2 部分匯入' + ed,
+        src: '來源：第 2 部分匯入的 <b>' + dgXe(s.name || '') + '</b>（同一次量測）。' };
+    }
     /* v1.18.0：從「光學資料比較」挑一組灌回來的。徽章沿用 ready 那一組樣式 ——
        它跟匯入檔一樣是「有一份確定的資料在這裡」，不是手動輸入也不是即時量測。 */
     if (s.kind === 'slot') {
@@ -8141,6 +8342,108 @@
   var DG_IMP_DEST = 'parts';
   var DG_PART_NO = { lut: '第 1 部分', gray: '第 2 部分', prim: '第 3 部分' };
 
+  /* ─── v1.36.0：CA-410 CSV 的分流 ────────────────────────────────────────────
+     🔴 這條路的規則與 xlsx 那條**刻意不同**，Bruce 2026-09-11 裁示：
+        「如果我在第二部分匯入，我就是要看 Gamma 值；我在第三部分匯入，我就是要看
+         X、Y、Z 三個 RGB 的數據。」「如果我在第二部分就匯入的話，代表第二部分就是
+         這次要量測的資訊，所以 X、Y、Z 也可以直接參考到第三部分。」
+
+     ⇒ ① 用途由**使用者從哪一顆鈕進來**決定（DG_IMP_WANT），不由檔案內容決定。
+        ② 從第 2 部分進來且檔案有 R／G／B 段 ⇒ 純色端點一併帶進第 3 部分。
+        ③ 第 3 部分之後若自己再匯一次，那一次覆蓋掉帶入的（後寫的贏，本來就是）。
+
+     🔴 **只有這個格式適用。** xlsx 那條路的 `kind = opt.hasPrim ? 'prim' : 'gray'`
+        一個字都沒動 —— 它背後那條 v1.4.3 的保護（CCT 檔裡的 Rawdata 是產生該檔那張
+        LUT「之前」的舊量測，與本輪白灰階不同基準）對那種檔仍然成立。
+        CA-410 CSV 可以跨填的理由只有一個：**它的 R／G／B／W 四段是同一次連續量測**
+        （同檔同日、四段各 256 階、同一組 Sync Mode／Meas Speed／Averaging Times），
+        不是兩個時間點的東西湊在一起。理由不成立的檔就不該套這條規則。 */
+  function dgImportCa410(csv, fileName, want, dest) {
+    var note = dgCa410ErrNote(csv);
+
+    // 第 4 部分：只收白灰階（與 xlsx 那條路同一個限制）
+    if (dest === 'conf') {
+      if (!csv.rows.length) {
+        dgConfSetStatus('這個檔是 CA-410 的量測 CSV，但裡面沒有白階（White 段）的逐階資料 —— '
+          + '第 4 部分要的就是它。', 'err');
+        return;
+      }
+      if (dgConfApply(csv.rows, fileName, 'file') && note) {
+        dgConfSetStatus($('dg-conf-status').textContent + '\n' + note, 'ok');
+      }
+      return;
+    }
+
+    var toPrim = (want === 'prim') && csv.hasPrim;
+    if (!toPrim && !csv.rows.length) {
+      var why = (want === 'prim')
+        ? 'R／G／B 三段都是空的（這份只量了白），第 3 部分要的三個純色端點不在裡面。'
+        : 'White 段沒有逐階資料，第 2 部分要的白灰階不在裡面。';
+      $('dg-fmt-box').style.display = '';
+      $('dg-fmt-box').className = 'dg-fmt err';
+      $('dg-fmt-box').innerHTML = '<b>這個 CA-410 CSV 收不了：</b>' + dgXe(why);
+      dgSetStatus('dg-status', '匯入失敗：' + why, 'err');
+      return;
+    }
+
+    var kind = toPrim ? 'prim' : 'gray', filled = [], alsoPrim = false;
+    if (toPrim) {
+      dgApplyPrim(csv, fileName);
+      filled.push('第 3 部分：R／G／B 三個端點的 X／Y／Z');
+    } else {
+      dgApplyGray(csv, fileName);
+      filled.push('第 2 部分：白灰階 ' + csv.rows.length + ' 階 ＋ 目標白點');
+      if (csv.hasPrim) {
+        dgApplyPrim(csv, fileName, 'from2');
+        filled.push('第 3 部分：R／G／B 三個端點的 X／Y／Z（同一個檔的同一次量測）');
+        alsoPrim = true;
+      }
+    }
+
+    var box = $('dg-fmt-box');
+    box.style.display = '';
+    var warn = (want && want !== kind && !(alsoPrim && want === 'prim'));
+    box.className = 'dg-fmt' + (warn ? ' warn' : '');
+    var h = '<b>已匯入：</b>' + dgXe(fileName)
+      + '<br><b>判定：</b>CA-410 量測 CSV ⇒ 填 <b>' + filled.map(function (s) { return s.split('：')[0]; }).join('、') + '</b>';
+    if (kind === 'gray') {
+      h += '<br><b>白灰階</b>：' + csv.rows.length + ' 階（Gray ' + csv.rows[0].g + ' ～ '
+        + csv.rows[csv.rows.length - 1].g + '）、目標白點 x=' + (+csv.white[0]).toFixed(6)
+        + ' y=' + (+csv.white[1]).toFixed(6) + ' Lv=' + (+csv.white[2]).toFixed(3)
+        + (dgIsNum(csv.white[3]) ? '（CCT ' + Math.round(csv.white[3]) + 'K）' : '');
+    }
+    if (toPrim || alsoPrim) {
+      h += '<br><b>純色端點</b>：' + ['r', 'g', 'b'].map(function (k) {
+        return k.toUpperCase() + ' X=' + csv.prim[k][0].toFixed(5)
+          + ' Y=' + csv.prim[k][1].toFixed(5) + ' Z=' + csv.prim[k][2].toFixed(5);
+      }).join('　');
+    }
+    if (warn) {
+      h += '<br><b>⚠ 你按的是「' + DG_PART_NO[want] + '」的匯入鈕</b>，但這個檔填的是 '
+        + DG_PART_NO[kind] + '。' + DG_PART_META[want].how;
+    }
+    if (note) h += '<br>' + dgXe(note);
+    box.innerHTML = h;
+
+    var miss = dgMissingParts();
+    var msg = '已匯入 ' + fileName + '\n這個檔是「CA-410 量測 CSV」，填了 ' + filled.join('、') + '。\n';
+    if (alsoPrim) msg += '第 3 部分不必再匯一次；要換成別的量測，直接在第 3 部分再匯入就會蓋掉這一份。\n';
+    if (warn) msg += '⚠ 你按的是「' + DG_PART_NO[want] + '」的匯入鈕。'
+      + DG_PART_NO[want] + '要的是：' + DG_PART_META[want].howText + '\n';
+    if (note) msg += note + '\n';
+    msg += miss.length
+      ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
+      : '三份都齊了，下一步：按「計算」。';
+    dgSetStatus('dg-status', msg, warn || miss.length ? '' : 'ok');
+
+    // 與 xlsx 那條路同一個規則：第 2 部分進了新資料就問要不要留一份到比較分頁
+    if (kind === 'gray') {
+      dgGrayRecordAsk(csv.rows, fileName, dgRoundName(DG_ROUND), function () {
+        if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, warn || miss.length ? '' : 'ok');
+      });
+    }
+  }
+
   function dgImportFile(file) {
     if (!file) return;
     var want = DG_IMP_WANT;
@@ -8154,6 +8457,11 @@
       else dgSetStatus('dg-status', '讀不到這個檔案。請確認檔案沒有被其他程式鎖住。', 'err');
     };
     fr.onload = function () {
+      /* v1.36.0：先嗅 CA-410 CSV。兩關（無 ZIP magic ＋ 對得上 CA-410 表頭）都過才
+         走新路；嗅不出來回 null，原樣落回下面的 dgUnzip()，既有 xlsx 完全不受影響。 */
+      var csv = null;
+      try { csv = dgSniffCa410(fr.result); } catch (e) { csv = null; }
+      if (csv) { dgImportCa410(csv, file.name, want, dest); return; }
       dgUnzip(fr.result).then(function (files) {
         var sheets = dgReadSheets(files);
         /* ─── v1.24.0：這一次是第 4 部分要的確認量測 ────────────────────────────
@@ -8249,8 +8557,11 @@
         $('dg-fmt-box').style.display = '';
         $('dg-fmt-box').className = 'dg-fmt err';
         $('dg-fmt-box').innerHTML = '<b>這個檔案認不出來：</b>' + dgXe(e.message)
-          // v1.22.0：多了第四種（光學確認格式）
-          + '<br><b>本頁吃得下的四種檔（各填一個部分）：</b><br>'
+          // v1.22.0：多了第四種（光學確認格式）／v1.36.0：第五種（CA-410 CSV）
+          + '<br><b>本頁吃得下的五種檔（各填一個部分）：</b><br>'
+          + '· <b>CA-410 量測 CSV</b>（<span class="dg-fname">CA410_GammaMeasData_….csv</span>）'
+          + ' → 從第 2 部分的鈕匯入就填白灰階（有 R／G／B 段時一併帶進第 3 部分）；'
+          + '從第 3 部分的鈕匯入就只填三個純色端點。<br>'
           + '· <b>光學確認檔</b> → 第 2 部分：A 欄 Gray、右邊一欄一組的亮度、再右邊一欄一組的色溫'
           + '（<b>這個格式沒有色度 x／y</b>，匯進來只能調 Gamma、不能調色溫）。<br>'
           + '· <b>LUT 檔</b> → 第 1 部分：索引欄從 0 開始、後面接 R／G／B 三欄；表頭在第 1 或第 2 列都可以，有沒有附加末筆都可以。<br>'
@@ -9246,6 +9557,8 @@
     readWorkbook: dgReadWorkbook,
     readSheets: dgReadSheets,
     parseOptical: dgParseOptical,
+    parseCa410Csv: dgParseCa410Csv,   // v1.36.0 驗證用（唯讀，畫面行為不經過這裡）
+    sniffCa410: dgSniffCa410,
     drawLutChart: dgDrawLutChart,
     chartZoomOpen: dgChartZoomOpen,
     chartZoomClose: dgChartZoomClose,
