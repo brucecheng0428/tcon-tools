@@ -1902,7 +1902,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260911dg1330"></script>
+<script src="common/version.js?v=20260911dg1331"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -7122,6 +7122,7 @@
   var DG_PART_META = {
     lut: {
       card: 'dg-part-lut', badge: 'dg-lut-badge', src: 'dg-src-lut',
+      btn: 'dg-btn-lut-setup',          // v1.33.1：已設定就把這顆的視覺權重降下來
       name: '第 1 部分：RGB 的 LUT',
       // v1.14.0：兩條路都改由「① 設定 RGB 的 LUT」那顆的浮動視窗進去
       how: '按第 1 部分的「① 設定 RGB 的 LUT」，視窗裡三選一：<b>第一次調</b>用出廠等距表'
@@ -7132,6 +7133,7 @@
     },
     gray: {
       card: 'dg-part-gray', badge: 'dg-gray-badge', src: 'dg-src-gray',
+      btn: 'dg-btn-gray-setup',         // v1.33.1
       name: '第 2 部分：白灰階亮度（含目標白點）',
       how: '按第 2 部分的「② 設定白灰階亮度」，視窗裡選一條路：匯入 <span class="dg-fname">RaydiumGamma_…</span>'
         + '（必須是在第 1 部分那張 LUT 之下量到的）、即時量測，或手動貼上。<b>CCT 檔的白灰階不收。</b>',
@@ -7139,6 +7141,7 @@
     },
     prim: {
       card: 'dg-part-prim', badge: 'dg-prim-badge', src: 'dg-src-prim',
+      btn: 'dg-btn-prim-setup',         // v1.33.1
       name: '第 3 部分：RGB 純色 Pattern（三個端點）',
       how: '按第 3 部分的「③ 設定 RGB 純色 Pattern」，視窗裡三選一：匯入 <span class="dg-fname">RaydiumCCT_…</span>'
         + '（量測時 R／G／B 要一起勾）、即時量測，或手動輸入。端點可以沿用，不必每輪重量。',
@@ -7296,6 +7299,23 @@
     return { cls: 'manual', text: '手動輸入', src: '來源：手動輸入／貼上。' };
   }
 
+  /* ─── v1.33.1：設定鈕的視覺權重 ───────────────────────────────────────────
+     Bruce 2026-09-11：「已經設定過之後，按鈕要變成暗灰色，以比較不明顯的方式呈現，
+     但仍然可以按。」用意是一眼看出下一顆該按哪一個。
+
+     🔴 **不可以變成不能按**：這裡只換 class，沒有 `disabled`、沒有攔截點擊。
+     🔴 判定沿用 `dgPartFilled()`（＝徽章、外框、缺件清單、計算鈕閘門用的同一支），
+        沒有第二套判準。呼叫點只有 dgRefreshReady() 這個唯一的狀態入口，所以資料
+        填進去或被清空時外觀自動跟著走，不必在每個匯入／清空的路徑上各補一次。
+     🔴 樣式沿用既有慣例、**沒有新增任何 CSS**：拿掉 `.dg-btn-imp`（青底 #0e7490）
+        就退回 `.dg-btn` 本身的暗灰（底 #1e293b、邊框 var(--border)、字 var(--text-sub））
+        —— 那正是同一批視窗裡次要按鈕（「手動貼上／填寫」等）一直在用的樣子。 */
+  function dgPartBtnSync(part, filled) {
+    var m = DG_PART_META[part], b = m && m.btn ? $(m.btn) : null;
+    if (!b) return;
+    b.className = 'dg-btn' + (filled ? '' : ' dg-btn-imp');
+  }
+
   // 唯一的狀態更新入口：徽章、外框、來源行、缺件清單、計算鈕的啟用與否
   function dgRefreshReady() {
     var missing = [];
@@ -7312,6 +7332,10 @@
     if (naBox) naBox.style.display = na ? '' : 'none';
     DG_PARTS.forEach(function (p) {
       var m = DG_PART_META[p], ok = dgPartFilled(p), b = dgPartBadgeInfo(p);
+      /* v1.33.1：放在 `na` 的提前 return **之前** —— 第 3 部分在只調 Gamma 模式下
+         整塊藏起來（v1.23.1），藏著的期間外觀無所謂，但切回「也調色溫」時卡片是
+         原地回來的、不重建，按鈕的 class 必須已經是對的，不能停在藏起來之前那一刻。 */
+      dgPartBtnSync(p, ok);
       // 匯入的起始 LUT 被量化到可達碼時，掛在既有的來源行後面（不另開區塊）
       if (p === 'lut' && b.src) b.src += dgLutAlignNote();
       var card = $(m.card), badge = $(m.badge), src = $(m.src);
