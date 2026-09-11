@@ -1904,7 +1904,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260911dg1360"></script>
+<script src="common/version.js?v=20260911dg1370"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3896,24 +3896,55 @@
   function dgIsNum(x) { return typeof x === 'number' && isFinite(x); }
 
   // 由工作表內容辨識格式並取出 LUT。回傳的 fmt 就是匯出時要跟隨的那份描述。
+  /* ─── v1.37.0：索引欄由大到小寫的檔也要收 ────────────────────────────────
+     Bruce 2026-09-11：「每一種格式都要可以支援正掃跟反掃。」量測那三支解析器
+     （dgParseOpticalA／B／dgParseCa410Csv）本來就一律 `rows.sort(a.g - b.g)`，
+     遞增遞減都吃得下；**只有這一支不是** —— 它用「索引欄必須等於 expect，從 0 往上數」
+     同時當**資料定位**與**格式判準**，所以遞減寫的檔連 dataStart 都找不到，
+     整份被退成「在這個檔案裡找不到 LUT 資料」（四種 DG LUT 檔實測皆然）。
+
+     🔴 做法刻意選**純追加**：正序那一段一個字都沒改，只有在它**已經失敗、原本就要 throw**
+        的情況下才試第二條路。所以任何現行收得下的檔，走的仍是逐字元相同的那條路，
+        不可能因為這一版而改變行為。
+     🔴 反序的判準與正序**對稱**，不是放寬：正序要求「從 0 開始、逐格 +1」，
+        反序就要求「逐格 −1、一路數到 0」。少了「必須收在 0」這條，任何一段遞減的
+        數字欄都會被當成 LUT。
+     🔴 不另外加提示文字：正序反序讀出來的 `rows`／`fmt`／`notes` 完全相同，
+        使用者看到的畫面因此也逐字元相同 —— 與量測那三支「靜靜排好」的慣例一致。 */
   function dgDetectLut(sheet) {
     var notes = [];
-    var dataStart = -1;
+    var dataStart = -1, desc = false;
     for (var r = 1; r <= Math.min(sheet.maxRow, 20); r++) {
       if (dgCellV(sheet, r, 1) === 0 && dgIsNum(dgCellV(sheet, r, 2)) && dgIsNum(dgCellV(sheet, r, 3)) && dgIsNum(dgCellV(sheet, r, 4))) {
         dataStart = r; break;
       }
     }
+    if (dataStart < 0) {
+      // 反序：從某個整數索引起逐格 −1，且**必須收在 0**、長度夠（與正序的 16 筆同一條線）
+      for (var r2 = 1; r2 <= Math.min(sheet.maxRow, 20); r2++) {
+        var i0 = dgCellV(sheet, r2, 1);
+        if (!dgIsNum(i0) || i0 < 15 || i0 !== Math.round(i0)) continue;
+        if (!dgIsNum(dgCellV(sheet, r2, 2)) || !dgIsNum(dgCellV(sheet, r2, 3)) || !dgIsNum(dgCellV(sheet, r2, 4))) continue;
+        var ex = i0, cnt = 0;
+        for (var rr2 = r2; rr2 <= sheet.maxRow; rr2++) {
+          if (dgCellV(sheet, rr2, 1) !== ex) break;
+          if (!dgIsNum(dgCellV(sheet, rr2, 2)) || !dgIsNum(dgCellV(sheet, rr2, 3)) || !dgIsNum(dgCellV(sheet, rr2, 4))) break;
+          cnt++; ex--;
+        }
+        if (ex === -1 && cnt >= 16) { dataStart = r2; desc = true; break; }   // ex 退到 −1 ＝ 最後一筆正好是 0
+      }
+    }
     if (dataStart < 0) throw new Error('在這個檔案裡找不到 LUT 資料（需要索引欄從 0 開始，後面接 R、G、B 三欄數字）。');
 
-    var rows = [], expect = 0;
+    var rows = [], expect = desc ? dgCellV(sheet, dataStart, 1) : 0, step = desc ? -1 : 1;
     for (var rr = dataStart; rr <= sheet.maxRow; rr++) {
       if (dgCellV(sheet, rr, 1) !== expect) break;
       var a = dgCellV(sheet, rr, 2), b = dgCellV(sheet, rr, 3), d = dgCellV(sheet, rr, 4);
       if (!dgIsNum(a) || !dgIsNum(b) || !dgIsNum(d)) break;
       rows.push([a, b, d]);
-      expect++;
+      expect += step;
     }
+    if (desc) rows.reverse();   // 一律交出 0 → 最高階，底下每一行都不必知道檔案是怎麼寫的
     if (rows.length < 16) throw new Error('LUT 資料只讀到 ' + rows.length + ' 筆，太少，無法辨識。');
 
     var headerRow = dataStart - 1;
