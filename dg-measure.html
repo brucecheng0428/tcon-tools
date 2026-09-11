@@ -120,19 +120,20 @@
   #dgm-msg.err { color: #f87171; }
   #dgm-msg.ok  { color: #4ade80; }
 
-  /* ═══ v1.34.0：主要動作按鈕（四態合一）═══════════════════════════════════
-     Bruce 2026-09-11 回報 v1.32.0 的可用性 bug：「開始量測按不下去，後來才發現那顆
-     『儀器連線』按鈕實在太小、太不明顯」。裁示：**在原本「開始量測」的位置做成
-     連線開關，連上之後那顆才變成「開始量測」**；「停止」也併進同一顆。
+  /* ═══ v1.35.0：主按鈕只管「動作」，連線／中斷連線是另一顆 ═══════════════
+     Bruce 2026-09-11（第二則）：「既然連線都獨立出來了，那『連線』跟『中斷連線』
+     應該一直都是同一顆按鈕，不要混在『開始量測』裡面，這樣才不會混亂。」
+     —— v1.34.0 把**同一個狀態的兩面拆到兩顆鈕**（連線在主按鈕、中斷連線在旁邊），
+     語意不一致，這一版修掉。職責重新切乾淨，兩顆各管一件事：
 
-     所以現在**主要動作只有一顆**，依狀態變身（文字由 dgmRenderMain() 給）：
-       未連線 → 連線 ／ 已連線未量測 → 開始量測（或重新量測）／ 量測中 → ■ 停止
-       掉線 → 自動變回「連線」（走既有的 dgmLost()，沒有第二個判定點）
-     🔴 v1.32.0 那顆 26px 的 ⏻ 鈕（`.dgm-link-*` 整組樣式）已移除，不留死碼 ——
-        它同時兼「連線」與「中斷連線」，而且小到使用者根本沒看見，這正是這次
-        可用性 bug 的成因。兩個動作拆開：連線在主按鈕（權重最高）、中斷連線是
-        旁邊常駐的次要鈕（見 #dgm-unlink）。
-     🔴 幾何（padding／font-size／圓角）四態**完全相同**，只換底色：按鈕在游標底下
+       #dgm-link （次要，常駐）  未連線 → 「連線」／已連線 → 「中斷連線」／量測中 → 停用但可見
+       #dgm-start（主要，最右）  「開始量測」／「重新量測」／量測中「■ 停止」／未連線 → 停用
+
+     🔴 主按鈕**不再出現「連線」字樣**（四種文字全在 dgmRenderBtns() 裡，可 grep 驗證）。
+        未連線時它是關著的，理由由底部紅框那一行說（DGM_LINK_DO，v1.32.0 既有那句）。
+     🔴 v1.32.0 那顆 26px 的 ⏻ 鈕已於 v1.34.0 移除，不留死碼 —— 它小到使用者根本
+        沒看見，正是當初那個可用性 bug 的成因。連線鈕現在是看得清楚的文字鈕。
+     🔴 幾何（padding／font-size／圓角）各態**完全相同**，只換底色：按鈕在游標底下
         變大變小本身就是誤觸來源。停止態的紅色沿用 v1.11.0 #dgm-stop 的 #dc2626，
         沒有新配色。 */
   #dgm-start {
@@ -145,17 +146,19 @@
   #dgm-start.dgm-stop { background: #dc2626; }
   #dgm-start.dgm-stop:disabled { background: #334155; }
   /* v1.11.0：全螢幕鈕。跟「開始量測」同一列，量測前才用得到
-     v1.34.0：「中斷連線」沿用**同一條規則**（次要動作這一層），不另外配色、
+     v1.34.0：連線鈕沿用**同一條規則**（次要動作這一層），不另外配色、
      不另外訂尺寸 —— 兩顆的視覺權重一致，都低於主按鈕（17px／較大 padding）
      但字級 15px 仍然一眼看得到。Bruce 2026-09-11：切回原廠光學 UI 是高頻動作，
-     不可以再做成 v1.32.0 那種 26px 的小圖示。 */
-  #dgm-fs, #dgm-unlink {
+     不可以再做成 v1.32.0 那種 26px 的小圖示。
+     v1.35.0：id 由 `dgm-unlink` 改為 `dgm-link` —— 它現在管「連線」與「中斷連線」
+     兩面，叫 unlink 會與實際功能不符。樣式一個字沒動。 */
+  #dgm-fs, #dgm-link {
     background: #0e7490; color: #fff; border: 0; border-radius: calc(10px * var(--dgm-k));
     padding: calc(12px * var(--dgm-k)) calc(16px * var(--dgm-k));
     font-size: calc(15px * var(--dgm-k)); font-weight: 700; cursor: pointer;
     margin-right: calc(8px * var(--dgm-k));
   }
-  #dgm-fs:disabled, #dgm-unlink:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+  #dgm-fs:disabled, #dgm-link:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   /* v1.11.0 的獨立停止鈕（#dgm-stop）已於 v1.34.0 併入上面那顆主要動作按鈕。
      🔴 v1.11.0 當時把它獨立出來的理由白紙黑字寫著「如果讓開始鈕就地變成停止鈕，
         連點兩下開始就會直接把自己按停」—— 這個風險是真的，實測也重現得到
@@ -403,16 +406,15 @@
     <div id="dgm-step"></div>
     <div id="dgm-what"></div>
   </div>
-  <!-- v1.34.0：主要動作只有 #dgm-start 這一顆，文字依狀態變身（連線／開始量測／
-       重新量測／■ 停止），由 dgmRenderMain() 決定。v1.32.0 的 ⏻ 小鈕與 v1.11.0 的
-       獨立停止鈕都已移除 —— 同一件事不留第二個入口。
-       初始文字寫「連線」是因為一載入必然是未連線；真正的值仍由 dgmRenderMain() 給。 -->
-  <!-- v1.34.0：「中斷連線」常駐在主按鈕左邊 —— Bruce 會在本頁與原廠光學 UI
-       之間來回切換量測，每切一次都要把序列埠還回去（同一時間只能有一個程式開埠），
-       所以它是高頻動作，必須一直看得到、不隨狀態隱藏。
-       🔴 主按鈕保持在最右邊那個原本的位置不動（肌肉記憶）。 -->
+  <!-- v1.35.0：三顆鈕、三件事，文字與開關全部由 dgmRenderBtns() 決定：
+         #dgm-fs    全螢幕 ⇄ 關閉全螢幕（F11 那一種退不掉，見該處說明）
+         #dgm-link  連線 ⇄ 中斷連線（常駐可見；量測中停用）
+         #dgm-start 開始量測／重新量測／■ 停止（未連線時停用）
+       🔴 主按鈕保持在最右邊那個原本的位置不動（肌肉記憶）。
+       🔴 HTML 裡的初始值寫的是「一載入必然成立」的那一種（未全螢幕、未連線、
+          未量測）；真正的值仍由 dgmRenderBtns() 給，這裡只是不讓它閃一下。 -->
   <div>
-    <button id="dgm-fs">全螢幕</button><button id="dgm-unlink" disabled>中斷連線</button><button id="dgm-start">連線</button>
+    <button id="dgm-fs">全螢幕</button><button id="dgm-link">連線</button><button id="dgm-start" disabled>開始量測</button>
   </div>
   <div id="dgm-prog"></div>
   <div id="dgm-msg">連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。</div>
@@ -598,11 +600,15 @@
   window.addEventListener('resize', showRes);
 
   // Frame rate：用 requestAnimationFrame 實測，不寫死
+  /* v1.35.0：實測值另外留一份**數字**（原本只寫進 DOM 字串）。
+     開始量測前的遲滯要用它換算畫面週期 —— 從 textContent 反解字串是自找麻煩。 */
+  var dgmFpsHz = 0;
   var fpsN = 0, fpsT = performance.now();
   (function tick(now) {
     fpsN++;
     if (now - fpsT >= 1000) {
-      $('dgm-fps').textContent = (fpsN * 1000 / (now - fpsT)).toFixed(1) + ' Hz';
+      dgmFpsHz = fpsN * 1000 / (now - fpsT);
+      $('dgm-fps').textContent = dgmFpsHz.toFixed(1) + ' Hz';
       fpsN = 0; fpsT = now;
     }
     requestAnimationFrame(tick);
@@ -689,8 +695,15 @@
     });
   }
 
+  /* v1.35.0：時序證據。這一輪「第一個真的寫進序列埠的位元組」與「第一道 MES,1」
+     各記一次 —— 要證明的是「紅圈離開畫面**之後**才開始跟儀器講話」，
+     而唯一有意義的時間點是位元組真的送出去的那一刻，不是 DOM 屬性改掉的那一刻。 */
+  var dgmFirstTxAt = 0, dgmFirstMesAt = 0;
+
   async function cmd(text, waitMs) {
     if (!port || !port.writable) return null;
+    if (!dgmFirstTxAt) dgmFirstTxAt = performance.now();
+    if (!dgmFirstMesAt && text === 'MES,1') dgmFirstMesAt = performance.now();
     var wait = new Promise(function (res) {
       pending = { resolve: res, timer: setTimeout(function () { pending = null; res(null); }, waitMs || 5000) };
     });
@@ -827,62 +840,91 @@
     return L;
   }
 
-  /* ═══ v1.34.0：紅框只顯示「主按鈕沒有在承擔」的那幾條 ═══════════════════
-     判定點仍然只有 dgmGateLines() 一支（閘門三層讀的都是它）；這裡只決定**顯示**。
-     🔴 為什麼要濾掉連線那一條：主按鈕在未連線時**本身就寫著「連線」**，
-        紅框再寫一次「請接上光學儀器」＝同一件事講兩次，正是 Bruce 一路在砍的東西。
-        全螢幕那一條沒有任何按鈕在承擔（「全螢幕」鈕是另一顆、而且它不是主要動作），
-        所以留著。
-     三種狀態的優先順序（回報裡寫明的那一條）：
-       ① 未連線（不管有沒有全螢幕）→ 主按鈕＝連線，**可按**（連線不需要全螢幕），
-          紅框只剩全螢幕那一行（若缺）。
-       ② 已連線、未全螢幕 → 主按鈕＝開始量測但關著，紅框＝全螢幕那一行。
-       ③ 兩者都齊 → 紅框整個收起來，主按鈕＝開始量測（可按）。
-     ⇒ 永遠只有一個紅框、最多一行，不疊框、不跳第二個視窗（沿用 v1.30.0）。 */
-  function dgmGateShown() {
-    return dgmGateLines().filter(function (t) { return t !== DGM_LINK_DO; });
-  }
+  /* ═══ v1.35.0：紅框回到「閘門有幾條就顯示幾條」═══════════════════════════
+     v1.34.0 曾把連線那一條從紅框裡濾掉，理由是「主按鈕本身就寫著『連線』」。
+     這一版主按鈕不再承擔連線語意（它在未連線時是關著的「開始量測」），那個理由
+     不成立了 ⇒ 濾鏡整支拿掉，顯示與判定重新是同一份（dgmGateLines()）。
+     ⇒ 永遠只有一個紅框，最多兩行，不疊框、不跳第二個視窗（沿用 v1.30.0）。 */
 
-  /* ═══ v1.34.0：主要動作按鈕的狀態機 ═════════════════════════════════════
+  /* ═══ v1.35.0：三顆按鈕的狀態機 ═════════════════════════════════════════
      🔴 狀態**全部是既有的**：running（量測中）、dgmLinkActive（連線）、
-        dgmLinkBusy（連線中）、aborted（停止中）、finished（跑過一輪）。
-        沒有為了這顆鈕新增任何狀態變數，所以不會出現「按鈕說 A、程式想 B」。 */
+        dgmLinkBusy（連線／釋放進行中）、aborted（停止中）、finished（跑過一輪）、
+        isFs()／document.fullscreenElement（全螢幕與它的型別）。
+        沒有為了按鈕新增任何狀態變數，所以不會出現「按鈕說 A、程式想 B」。
+     🔴 三顆鈕 ＋ 中心圓圈全部在**同一支**裡算完：它們是同一組狀態的不同面，
+        分開寫必然有一面會忘記更新（v1.34.0 圓圈沒回來就是這樣來的）。 */
   function dgmMainMode() {
-    if (running) return 'stop';
-    if (!dgmLinkActive) return 'link';
-    return 'start';
+    return running ? 'stop' : 'start';
   }
 
-  function dgmRenderMain() {
+  /* 全螢幕有兩種，能不能用網頁退出完全不同（v1.27.1 已四條路實測）：
+       'api' —— 頁面自己 requestFullscreen() 進去的，exitFullscreen() 退得掉
+       'f11' —— 瀏覽器 chrome 層級，**網頁無權退出**
+       'none'—— 不在全螢幕 */
+  function dgmFsKind() {
+    if (!isFs()) return 'none';
+    return (document.fullscreenElement || document.webkitFullscreenElement
+      || document.mozFullScreenElement || document.msFullscreenElement) ? 'api' : 'f11';
+  }
+
+  function dgmRenderBtns() {
+    /* ── ① 主按鈕：只管動作 ────────────────────────────────────────────── */
     var b = $('dgm-start');
-    if (!b) return;
-    var m = dgmMainMode(), txt, dis;
-    if (m === 'stop') { txt = aborted ? '停止中…' : '■ 停止'; dis = !!aborted; }
-    else if (m === 'link') { txt = dgmLinkBusy ? '連線中…' : '連線'; dis = !!dgmLinkBusy; }
-    else { txt = finished ? '重新量測' : '開始量測'; dis = dgmGateLines().length > 0 || dgmLinkBusy; }
-    b.textContent = txt;
-    b.classList.toggle('dgm-stop', m === 'stop');
-    b.disabled = dis;
-    /* v1.34.0：「中斷連線」**一直看得到**，只有能不能按會變（Bruce 指定）：
-       未連線 ＝ 沒有東西可斷；量測中 ＝ 要斷線請先按停止（不留半套資料）；
-       連線／釋放進行中 ＝ 防連點。同一支函式管兩顆鈕，狀態不會各走各的。 */
-    var u = $('dgm-unlink');
-    if (u) u.disabled = running || dgmLinkBusy || !dgmLinkActive;
+    if (b) {
+      var m = dgmMainMode(), txt, dis;
+      if (m === 'stop') { txt = aborted ? '停止中…' : '■ 停止'; dis = !!aborted; }
+      else { txt = finished ? '重新量測' : '開始量測'; dis = dgmGateLines().length > 0 || dgmLinkBusy; }
+      b.textContent = txt;
+      b.classList.toggle('dgm-stop', m === 'stop');
+      b.disabled = dis;
+    }
+    /* ── ② 連線鈕：同一顆管連線與中斷連線 ──────────────────────────────
+       v1.35.0（Bruce 指定）：同一個狀態的兩面必須在同一顆鈕上。
+       量測中停用但**仍然看得見** —— 量到一半切斷會留半套資料，要斷先按停止。
+       這條規則是 v1.34.0 定的，一個字沒改。 */
+    var u = $('dgm-link');
+    if (u) {
+      u.textContent = dgmLinkBusy ? (dgmLinkActive ? '中斷中…' : '連線中…')
+        : (dgmLinkActive ? '中斷連線' : '連線');
+      u.disabled = running || dgmLinkBusy;
+    }
+    /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
+       Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
+       所以讓他自己決定就好。」
+       🔴 F11 進來的那一種**退不掉**（v1.27.1 四條路實測，結論寫在下面的
+          keydown 處理器裡）。所以那一態的鈕是**停用 ＋ 文字直接寫正確做法**，
+          不是「寫著關閉全螢幕、按下去卻只跳一句話」—— 後者就是假裝退得掉，
+          而「按鈕看起來能按、按了卻沒事」正是 v1.32.0 那個可用性 bug 的形狀。
+       🔴 量測中停用：退出全螢幕會讓這一輪作廢（見 syncFs 結尾的 abort），
+          與「中斷連線」量測中停用是同一條規則、同一個理由。要退請先按停止。 */
+    var f = $('dgm-fs');
+    if (f) {
+      var k = dgmFsKind();
+      f.textContent = k === 'none' ? '全螢幕' : (k === 'api' ? '關閉全螢幕' : '按 F11 離開');
+      f.disabled = running || k === 'f11';
+    }
+    /* ── ④ 中心圓圈與底部提示：只有量測中不顯示 ────────────────────────
+       Bruce 2026-09-11（第二則）：「只要沒在量測，中心的瞄準圓圈就該顯示 ——
+       包含未連線、已連線待命、中斷連線之後、停止之後。只有量測進行中才消失。」
+       🔴 v1.34.0 以前這兩行是在 dgmStart() 手動 add、**只在 dgmSetTask()
+          （主控頁換任務）裡 remove** ⇒ 停止後、量完後、中斷連線後圓圈都回不來。
+          改成從 running 推導，就沒有「哪一條路忘了復原」這回事。
+       🔴 復原**不套遲滯**（Bruce 指定）：遲滯是為了不讓探頭讀到紅色，
+          消失要慢一點才安全，出現不需要。 */
+    $('dgm-ring').classList.toggle('dgm-hidden', !!running);
+    $('dgm-hint').classList.toggle('dgm-hidden', !!running);
   }
 
   function syncFs() {
     var fs = isFs();
     $('dgm-fsstate').textContent = fs ? '是' : '否';
     $('dgm-fsstate').style.color = fs ? '#4ade80' : '#f87171';
-    $('dgm-fs').disabled = fs;
-    $('dgm-fs').textContent = fs ? '已全螢幕' : '全螢幕';
-    /* v1.34.0：按鈕的文字與 disabled 全部收斂到 dgmRenderMain()（含量測中的停止態）
-       —— 原本這裡是「量測中不碰開始鈕、另外手動拉連線鈕」兩段各管一半。 */
-    dgmRenderMain();
-    /* 全部是本檔內的常數字串（DGM_FS_DO），沒有外來輸入，所以這裡用 innerHTML
-       接 <br> 是安全的；要接外來字串一律走 textContent。
-       v1.34.0：顯示用 dgmGateShown()（連線那一條由主按鈕自己承擔，見上面）。 */
-    var shown = dgmGateShown();
+    /* v1.35.0：三顆鈕（含全螢幕鈕的文字與開關）與圓圈全部收斂到 dgmRenderBtns()。
+       原本這裡手寫 `$('dgm-fs').disabled = fs;` 兩行，是「一項一項手動拉」的寫法。 */
+    dgmRenderBtns();
+    /* 全部是本檔內的常數字串（DGM_FS_DO／DGM_LINK_DO），沒有外來輸入，所以這裡用
+       innerHTML 接 <br> 是安全的；要接外來字串一律走 textContent。 */
+    var shown = dgmGateLines();
     $('dgm-gate').innerHTML = shown.join('<br>');
     $('dgm-gate').classList.toggle('dgm-hidden', shown.length === 0);
     /* 量測中掉出全螢幕 ＝ 畫面幾何變了，探頭對到的不再是原本那一點，本次作廢。
@@ -994,7 +1036,7 @@
 
   async function dgmLinkOn() {
     if (dgmLinkBusy || dgmLinkActive) return;
-    dgmLinkBusy = true; dgmRenderMain();   // v1.34.0：忙碌狀態顯示在主按鈕上（「連線中…」）
+    dgmLinkBusy = true; dgmRenderBtns();   // v1.35.0：忙碌狀態顯示在連線鈕上（「連線中…」）
     var ok = false;
     try { ok = await dgmLink.on(); }
     catch (e) { log('連線例外：' + (e && e.message), 'e'); ok = false; }
@@ -1008,12 +1050,12 @@
     if (ok) dgmMsgDefault();
   }
 
-  /* v1.34.0：主動中斷連線（「中斷連線」鈕）。v1.32.0 的 dgmLinkOff() 原封回來，
-     只把 dgmRenderLink() 換成 dgmRenderMain()（那顆燈已經不存在）。
+  /* v1.34.0：主動中斷連線。v1.32.0 的 dgmLinkOff() 原封回來，
+     只把 dgmRenderLink() 換成這一版的 dgmRenderBtns()（那顆燈已經不存在）。
      🔴 量測中不走這裡：閘門在按鈕的 disabled 與下面的處理器裡各擋一次。 */
   async function dgmLinkOff() {
     if (dgmLinkBusy) return;
-    dgmLinkBusy = true; dgmRenderMain();
+    dgmLinkBusy = true; dgmRenderBtns();
     try { await dgmLink.off(); }
     catch (e) { log('釋放時出錯：' + (e && e.message), 'e'); }
     dgmLinkBusy = false;
@@ -1021,13 +1063,15 @@
     msg('已中斷連線，序列埠已釋放。');
   }
 
-  $('dgm-unlink').addEventListener('click', function () {
-    /* 🔴 第二層閘門（給程式看的）：量測中／未連線／忙碌中一律不動作。
-       量測中不自動「先停止再斷線」是刻意的 —— 量到一半切斷會留下半套資料，
-       而「放棄這一輪」已經在主按鈕上（■ 停止）。要斷線就先按停止。
-       （這一條已在回報中點名，若 Bruce 要改成自動停止再斷線再改。） */
-    if (running || dgmLinkBusy || !dgmLinkActive) return;
-    dgmLinkOff();
+  /* ═══ v1.35.0：連線鈕的點擊分派（同一顆鈕的兩面）═════════════════════════
+     🔴 第二層閘門（給程式看的）：量測中／忙碌中一律不動作，繞過 disabled 也一樣。
+     量測中不自動「先停止再斷線」是刻意的 —— 量到一半切斷會留下半套資料，
+     而「放棄這一輪」已經在主按鈕上（■ 停止）。要斷線就先按停止。
+     🔴 這顆鈕**不套** DGM_STOP_ARM_MS 那個忽略窗：那一個是為了防「連點兩下開始
+        把自己按停」，這顆鈕的兩面都不會造成不可逆的損失（連上再斷、斷了再連）。 */
+  $('dgm-link').addEventListener('click', function () {
+    if (running || dgmLinkBusy) return;
+    if (dgmLinkActive) dgmLinkOff(); else dgmLinkOn();
   });
 
   /* ═══ v1.30.0：兩個面板隨解析度自適應 ═══════════════════════════════════
@@ -1154,7 +1198,29 @@
     }, 4000);
   });
 
+  /* ═══ v1.35.0：全螢幕鈕改成雙向切換 ═════════════════════════════════════
+     Bruce 2026-09-11（第三則）：同一顆鈕負責開啟與關閉全螢幕。
+     🔴 三種情形，**只有一種退得掉**，判別走 dgmFsKind()（單一判定點）：
+       'none' → requestFullscreen()（原本那一段，一個字沒動）
+       'api'  → exitFullscreen()，退得掉
+       'f11'  → **退不掉**（上面那張實測表）。按鈕在這一態是停用的，根本按不到；
+                這裡再擋一次是給程式看的第二層 —— 絕不呼叫一個一定會 reject 的 API
+                去假裝有在做事。 */
   $('dgm-fs').addEventListener('click', function () {
+    if (running) return;                     // 與連線鈕同一條規則：量測中不動全螢幕
+    var kind = dgmFsKind();
+    if (kind === 'f11') return;              // 退不掉就不假裝
+    if (kind === 'api') {
+      var ex = document.exitFullscreen || document.webkitExitFullscreen
+        || document.mozCancelFullScreen || document.msExitFullscreen;
+      if (!ex) { msg('這個瀏覽器退不出全螢幕，請按 F11。', 'err'); return; }
+      var pe = ex.call(document);
+      if (pe && pe.catch) pe.catch(function (e) {
+        log('exitFullscreen 失敗：' + e.message, 'e');
+        msg('退不出全螢幕，請按 F11。', 'err');
+      });
+      return;
+    }
     var el = document.documentElement;
     var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
     if (!req) { msg('請按 F11。', 'err'); return; }
@@ -1190,12 +1256,13 @@
     if (!running || aborted) return;
     aborted = reason;
     if (abortWake) abortWake();          // 把正在等的 sleep 立刻叫醒
-    dgmRenderMain();                     // v1.34.0：同一顆主按鈕轉成「停止中…」並關起來
+    dgmRenderBtns();                     // v1.34.0：同一顆主按鈕轉成「停止中…」並關起來
     msg('停止中（' + reason + '）—— 會在這一步結束後停下。', 'err');
   }
 
-  /* ═══ v1.34.0：主按鈕的點擊分派 ═════════════════════════════════════════
-     一顆鈕、四種狀態，動作由 dgmMainMode() 決定，沒有第二個判斷點。 */
+  /* ═══ v1.35.0：主按鈕的點擊分派 ═════════════════════════════════════════
+     一顆鈕、兩種動作（開始／停止），由 dgmMainMode() 決定，沒有第二個判斷點。
+     🔴 v1.34.0 的第三種（連線）已經搬到 #dgm-link —— 主按鈕不再碰連線。 */
   var dgmRunStartedAt = 0;               // 這一輪量測是什麼時候開始的（防連點用）
   /* 🔴 為什麼需要這個忽略窗：v1.11.0 把停止鈕獨立出來的理由就是
         「連點兩下開始就會直接把自己按停」。合併之後這個風險是真的 ——
@@ -1208,9 +1275,70 @@
      🔴 只擋「剛進入量測」這一瞬間，不是每次點擊都要等 —— 500ms 之後按停止立刻生效。 */
   var DGM_STOP_ARM_MS = 500;
 
+  /* ═══ v1.35.0：開始量測前的遲滯（等紅圈真的離開畫面）═════════════════════
+     Bruce 2026-09-11（第二則）：「量的時候不要有機會量到那個紅色圓圈，要有一些
+     遲滯，等它消失以後才開始量。」—— 這是量測正確性問題，不是介面問題。
+
+     順序（不可對調）：隱藏圓圈 → 確認那一張畫面已經送出去 → 等 → 才送第一個位元組。
+
+     🔴 遲滯長度**不是拍腦袋的數字**，由兩項相加，兩項各自有來源：
+
+       ① N 個畫面週期，N = DGM_RING_FRAMES = 2，週期取自**實測**的更新率：
+          · 第 1 個週期：painted() 只保證「這一張已經交給合成器」，顯示器把它掃出去
+            還要一個完整的畫面週期。
+          · 第 2 個週期：rAF 的呈現時機與 vsync 的對齊有 ±1 frame 的不確定性
+            （painted() 用兩個 rAF 已經是保守做法，但規格沒有保證 present 完成）。
+          · 更新率來源：`dgmFpsHz`（本頁 rAF 實測，左上角那個數字）與 `dgmMvsHz`
+            （儀器 MVS 回報的畫面更新率，上一輪量到的）**取較小者** —— 週期較長者
+            比較保守。都沒有就退回 60 Hz，並夾在 [24, 480] Hz：rAF 在分頁被切到
+            背景時會被節流到 1 Hz 左右，不夾會算出好幾秒的假遲滯。
+       ② 面板本身的 Gray-to-Gray 響應 DGM_GTG_MS = 50 ms。
+          這**不是新數字**：DGM_SETTLE_MS 那段註解裡既有的「面板 GTG 在 60 Hz 下
+          不過幾個 frame（< 50 ms）」就是它的來源，這裡只是把同一個上界拿出來用。
+          🔴 GTG 是**絕對時間**，不隨更新率縮放，所以它是加項不是乘項 ——
+             寫成「再等幾個週期」在 240 Hz 下會憑空縮水成 12 ms。
+
+     ⇒ 60 Hz：2 × 16.67 + 50 ≈ 83 ms　120 Hz：67 ms　240 Hz：58 ms
+
+     🔴 這段遲滯只作用在**開始**。停止／中斷／退出全螢幕之後圓圈是立刻回來的
+        （dgmRenderBtns() 是同步的），Bruce 指定不套遲滯。
+     🔴 實際成本接近零：run() 的第一件事是開埠與初始化，本來就要好幾秒才會走到
+        第一道 MES,1。加這一段是為了讓「順序正確」變成程式碼保證的事實，
+        而不是碰巧被後面那些等待掩蓋掉。 */
+  var DGM_RING_FRAMES = 2;
+  var DGM_GTG_MS = 50;
+  var DGM_HZ_MIN = 24, DGM_HZ_MAX = 480;
+  var dgmMvsHz = 0;                      // 儀器回報的畫面更新率（run() 的步驟 2.5 寫入）
+  var dgmRingGoneAt = 0;                 // 圓圈確定已經不在畫面上的時刻（驗證用）
+  /* 🔴 這一輪**實際**等了多久、用的是哪一個更新率，當場記下來。
+     不記的話，事後再呼叫一次 dgmRingClearMs() 拿到的是**當下**的更新率算出來的值，
+     跟這一輪真的等的那個數字不是同一個東西（實測：驗證腳本因此誤判）。 */
+  var dgmRingClearUsedMs = 0, dgmHzUsed = 0;
+
+  function dgmHz() {
+    var c = [];
+    if (dgmFpsHz > 0) c.push(dgmFpsHz);
+    if (dgmMvsHz > 0) c.push(dgmMvsHz);
+    var hz = c.length ? Math.min.apply(null, c) : 60;
+    return Math.max(DGM_HZ_MIN, Math.min(DGM_HZ_MAX, hz));
+  }
+  function dgmRingClearMs() {
+    return Math.ceil(DGM_RING_FRAMES * 1000 / dgmHz()) + DGM_GTG_MS;
+  }
+  async function dgmRingClear() {
+    /* painted() ＝ 連續兩個 rAF，是本檔既有的「上一次的填色已經上到畫面」判準
+       （量測迴圈每一階都在用同一支）。這裡用同一支，不另訂一套。 */
+    await painted();
+    dgmRingGoneAt = performance.now();
+    dgmHzUsed = dgmHz();
+    dgmRingClearUsedMs = dgmRingClearMs();
+    log('開始遲滯 ' + dgmRingClearUsedMs + ' ms（' + DGM_RING_FRAMES + ' 個畫面週期 @'
+      + dgmHzUsed.toFixed(1) + ' Hz ＋ ' + DGM_GTG_MS + ' ms GTG）');
+    await waitOrAbort(dgmRingClearUsedMs);
+  }
+
   $('dgm-start').addEventListener('click', function () {
     var m = dgmMainMode();
-    if (m === 'link') { dgmLinkOn(); return; }          // busy 由 dgmLinkOn() 自己擋
     if (m === 'stop') {
       var dt = Date.now() - dgmRunStartedAt;
       if (dt < DGM_STOP_ARM_MS) {
@@ -1236,14 +1364,17 @@
     running = true;
     aborted = null; lastStep = 0; lastGray = null; finished = false;
     dgmRunStartedAt = Date.now();        // v1.34.0：忽略窗從這一刻起算
-    dgmRenderMain();                     // v1.34.0：同一顆鈕就地變成「■ 停止」
+    dgmFirstTxAt = 0; dgmFirstMesAt = 0; dgmRingGoneAt = 0;   // v1.35.0：時序證據歸零
+    /* 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
+       v1.35.0：不再在這裡手動 add class —— 圓圈綁 running，由 dgmRenderBtns()
+       一起處理（底部提示同一條路）。同一顆鈕也在這裡就地變成「■ 停止」。 */
+    dgmRenderBtns();
     progStart();
-
-    // 🔴 第一件事：紅圈消失。探頭底下不能有紅色。
-    $('dgm-ring').classList.add('dgm-hidden');
-    $('dgm-hint').classList.add('dgm-hidden');
     // v1.30.0：同一個理由 —— 呼吸燈（會變化的橘光）與警示視窗也一併收起來。
     dgmWarnSync();
+
+    // 🔴 v1.35.0：遲滯 —— 等紅圈真的離開畫面，才讓 run() 送出第一個位元組。
+    await dgmRingClear();
 
     try { await run(); }
     catch (e) { msg('出錯了：' + e.message, 'err'); log('例外：' + e.message, 'e'); }
@@ -1255,8 +1386,10 @@
        🔴 改成整支 syncFs()：受 running 影響的東西不只一個。實測（probe3 的第 ② 項）
           漏掉這一支的後果是：量完一輪之後控制項卡在 disabled，再也回不來。
           手動一項一項拉回去這種寫法本身就是破口，收斂成一支才不會再漏。
-       v1.34.0：按鈕的文字（重新量測／連線）也一併由 syncFs() → dgmRenderMain() 決定，
-          這裡不再手動寫 textContent —— 否則掉線之後會停在「重新量測」而不是「連線」。 */
+       v1.34.0：按鈕的文字也一併由 syncFs() → dgmRenderBtns() 決定，這裡不再手動寫
+          textContent —— 否則掉線之後會停在「重新量測」而不是關著的狀態。
+       v1.35.0：**中心圓圈與底部提示也在那一支裡**（綁 running）⇒ 這一行同時就是
+          「停止後／量完後圓圈立刻回來」的復原點，不必也不可以另外再寫一份。 */
     syncFs();
     if (aborted) {
       setGray(128);
@@ -1325,13 +1458,49 @@
     gateBoxes: function () {   // 🔴 合併呈現的驗證點：紅框永遠只有一個
       return document.querySelectorAll('#dgm-gate').length;
     },
-    gateShown: function () { return dgmGateShown(); },                       // v1.34.0
-    // v1.34.0 驗證用：常駐的「中斷連線」鈕
-    unlinkDisabled: function () { return !!$('dgm-unlink').disabled; },
-    unlinkVisible: function () {
-      var e = $('dgm-unlink'), c = getComputedStyle(e), r = e.getBoundingClientRect();
+    // v1.35.0 驗證用：常駐的連線鈕（連線 ⇄ 中斷連線）
+    linkText: function () { return $('dgm-link').textContent; },
+    linkDisabled: function () { return !!$('dgm-link').disabled; },
+    linkVisible: function () {
+      var e = $('dgm-link'), c = getComputedStyle(e), r = e.getBoundingClientRect();
       return c.display !== 'none' && c.visibility === 'visible' && r.width > 0 && r.height > 0;
     },
+    // v1.35.0 驗證用：全螢幕鈕（雙向切換）與全螢幕的型別
+    fsText: function () { return $('dgm-fs').textContent; },
+    fsDisabled: function () { return !!$('dgm-fs').disabled; },
+    fsKind: dgmFsKind,
+    /* v1.35.0 驗證用：中心圓圈。
+       🔴 這裡**故意不提供命中測試** —— #dgm-ring 整組是 `pointer-events: none`，
+          elementsFromPoint 根本不會回傳它，寫出來會是一支永遠回 0 的假探針
+          （第一版真的這樣寫，被截圖像素當場抓到：畫面上有 1656 個紅點、
+          「命中測試」卻說 0）。
+       🔴 畫面上到底有沒有紅色，唯一有效的證據是**截圖取像素**，那是驗證腳本的事。
+          產品這邊只提供「有沒有被排版與繪製」這種它真的知道的事實：
+          checkVisibility() 涵蓋 display／visibility／opacity／content-visibility，
+          比只看 class 強，但仍然不等於像素。 */
+    ringHiddenClass: function () { return $('dgm-ring').classList.contains('dgm-hidden'); },
+    ringShown: function () {
+      var e = $('dgm-ring');
+      if (e.checkVisibility) return e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+      var c = getComputedStyle(e);
+      return c.display !== 'none' && c.visibility !== 'hidden';
+    },
+    ringRect: function () {
+      var r = $('dgm-ring').getBoundingClientRect();
+      return { w: +r.width.toFixed(1), h: +r.height.toFixed(1) };
+    },
+    // v1.35.0 驗證用：遲滯的三個時間點與它的組成（都是原始數字，不是結論）
+    hz: dgmHz,
+    fpsHz: function () { return dgmFpsHz; },
+    mvsHz: function () { return dgmMvsHz; },
+    ringClearMs: dgmRingClearMs,
+    ringClearUsedMs: function () { return dgmRingClearUsedMs; },   // 這一輪實際等的毫秒數
+    hzUsed: function () { return dgmHzUsed; },                     // 算它時用的更新率
+    ringFrames: function () { return DGM_RING_FRAMES; },
+    gtgMs: function () { return DGM_GTG_MS; },
+    ringGoneAt: function () { return dgmRingGoneAt; },
+    firstTxAt: function () { return dgmFirstTxAt; },
+    firstMesAt: function () { return dgmFirstMesAt; },
     readLoopRunning: function () { return readLoopRunning; },
     // v1.34.0 驗證用：合一之後那顆主按鈕的狀態、文字、開關（讀的是真的 DOM）
     mainMode: function () { return dgmMainMode(); },
@@ -1381,7 +1550,8 @@
       if (aborted) return;
       if (mv && /^OK/.test(mv)) {
         var hz = parseFloat(mv.split(',')[1]);
-        if (!isNaN(hz)) { $('dgm-mvs').textContent = hz.toFixed(2) + ' Hz'; break; }
+        // v1.35.0：數值另外留一份 —— 下一輪開始量測前的遲滯要拿它算畫面週期
+        if (!isNaN(hz)) { dgmMvsHz = hz; $('dgm-mvs').textContent = hz.toFixed(2) + ' Hz'; break; }
       }
     }
     if ($('dgm-mvs').textContent === '—') $('dgm-mvs').textContent = '測不到';
@@ -1538,12 +1708,13 @@
     if (pending) { clearTimeout(pending.timer); pending.resolve(null); pending = null; }
     $('dgm-prog').innerHTML = '';
 
-    // ② 畫面回到「還沒開始量」的樣子
-    $('dgm-ring').classList.remove('dgm-hidden');
-    $('dgm-hint').classList.remove('dgm-hidden');
-    /* v1.34.0：主按鈕的文字不在這裡寫死 —— 上面已經把 finished 歸零，
-       文字由下面那一支 syncFs() → dgmRenderMain() 依當下狀態決定
-       （還連著就是「開始量測」、掉線了就是「連線」）。 */
+    /* ② 畫面回到「還沒開始量」的樣子
+       v1.35.0：圓圈與底部提示原本在這裡手動 remove class ——
+       🔴 而這裡是它們**唯一**的復原點，所以停止後／量完後／中斷連線後都回不來
+          （沒有人會來換任務）。改成綁 running 之後由 dgmRenderBtns() 一起處理，
+          這一段就不必也不可以再寫一份，否則又會變成兩個來源。
+       主按鈕的文字同理不在這裡寫死 —— 上面已經把 finished 歸零，
+       文字由下面那一支 syncFs() → dgmRenderBtns() 依當下狀態決定。 */
     dgmApplyModeUi();
     dgmRenderStep();
     syncFs();
