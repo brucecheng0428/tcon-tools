@@ -94,6 +94,18 @@
        vw／vh 本身就是佔比，天然滿足本版的佔比恆定要求。 */
     --dgm-panel-w: 30vw;   /* 寬上限：左上／右上／左下三者共用 */
     --dgm-panel-h: 40vh;   /* 高上限：右上（v1.27.0 放寬的那一個）與左下共用 */
+
+    /* ═══ v1.43.0：左上角面板「一列最多能用多少字級」的上界 ═══════════════
+       這一格是**溢出不可能發生**的來源（見下方 #dgm-info .dgm-v 的說明）：
+
+         可用內容高 ＝ --dgm-right-h − 上下 padding(20 基準px) − 上下框線(2px)
+         一列的高度上界 ＝ 可用內容高 ÷ 5（五列資訊）
+         字級上界 ＝ 一列的高度上界 ÷ 1.55（.dgm-v 的行高倍率，來自它的 font 簡寫）
+
+       🔴 2px 是既有的 1px hairline 例外（本檔開頭 --dgm-u 那段已列明它刻意不等比），
+          這裡是**扣掉一條真實存在的 1px 邊框**，不是新開一個裸 px 的尺寸決定。
+       🔴 fallback 仍是 --dgm-panel-h，與 #dgm-info／#dgm-log 的尺寸 fallback 同一個。 */
+    --dgm-info-fit: calc((var(--dgm-right-h, var(--dgm-panel-h)) - 20 * var(--dgm-u) - 2px) / 5 / 1.55);
   }
 
   /* 角落面板：max-width 綁在 30vw／30vh，中央 40% × 40% 一定空著 */
@@ -152,8 +164,70 @@
     max-width: none; max-height: none;
     overflow-y: auto;
   }
-  #dgm-info .dgm-k { font-size: calc(15 * var(--dgm-u)); }
-  #dgm-info .dgm-v { font-size: calc(17 * var(--dgm-u)); }
+  /* ═══ v1.43.0：左上角的字再放大（框變大了字要跟著變大）═══════════════════
+     Bruce 2026-09-12：「這次的版本左上角的視窗變大了，可是為什麼文字不跟著一起
+     變大？我要的就是文字變大，這樣看起來比較清楚啊。」
+
+     ── v1.42.0 為什麼不夠（他量到的數字，不是感覺）────────────────────────
+       面板 165×130 → **410×213**（寬 2.49 倍、高 1.64 倍）
+       字級   13/15 →   15/17     （約 1.15 倍）
+     ⇒ 框長大、字相對縮小，下面整片留白。實際留白量：
+        五列內容高 ＝ 5 × 1.55 × 17 ＝ 131.75，＋ padding 20 ＋ 框線 2 ＝ 153.75
+        面板高被綁成 213.375 ⇒ **59.6px 是空的**（28%）。
+
+     ── 字級的推導（判準：五列要填滿 213px）────────────────────────────────
+       量測條件：真 Chrome、全螢幕 1920×1080 ⇒ --dgm-u ＝ min(1, 1) ＝ 1，
+       所以此處「基準px」與「CSS px」數值相同，推導可以直接對照他的實測值。
+
+         可用內容高 ＝ 213.375 − 20（padding）− 2（框線）＝ 191.375
+         一列        ＝ 191.375 ÷ 5                      ＝  38.275
+         .dgm-v 字級 ＝  38.275 ÷ 1.55（行高倍率）       ＝  24.69
+       ⇒ 取 **24**（.dgm-v）：5 × 1.55 × 24 ＝ 186，＋22 ＝ 208 ≤ 213.375，
+         餘裕 5.4px（2.8%）。取 26 會變成 223.5 > 213.375 ⇒ 溢出，所以 24 是上限。
+       ⇒ .dgm-k 取 **21**：沿用 v1.42.0 的「標籤略小」比例（15/17 ＝ 0.882，
+         21/24 ＝ 0.875，實質同一個比例）。
+         🔴 k 必須小於 v，否則列高會由 k 決定、上面那條推導就不成立：
+            1.55 × 21 ＝ 32.55 < 1.55 × 24 ＝ 37.2 ✔
+
+     ── 寬度不會換行（Bruce 指定以最長那一列為準）────────────────────────
+       可用內容寬 ＝ 410.36 − 26（padding）− 2（框線）＝ 382.36
+       模型：CJK 每字 ＝ 1em；-apple-system 的拉丁字母平均 ≈ 0.48em；
+             ui-monospace 每字 ＝ 0.6em；`.dgm-row` 的 gap ＝ 10 基準px。
+       🔴 這個模型先拿 v1.41.0 的實測值校準過（誤差 0.4%）：
+          高 ＝ 5×1.55×14＋22 ＝ 130.5 vs 他量到 130；
+          寬 ＝ 118（標籤）＋10＋8.4（值「—」）＋28 ＝ 136.4 vs 他量到 165−28 ＝ 137。
+       各列在新字級下的寬度：
+         | 列                  | 標籤@21            | 值@24（mono）        | 合計 |
+         | 解析度              | 3×21 ＝ 63         | 「3840 × 2160 @2x」15字 ＝ 216 | 289 |
+         | 目前灰階值          | 5×21 ＝ 105        | 「128」3字 ＝ 43      | 158 |
+         | **Frame rate（瀏覽器）** | 10×10.1＋5×21 ＝ 206 | 「144.0 Hz」8字 ＝ 115 | **331** |
+         | 更新率（儀器）      | 7×21 ＝ 147        | 「60.00 Hz」8字 ＝ 115 | 272 |
+         | 全螢幕              | 3×21 ＝ 63         | 「否」1字 ＝ 14        | 87  |
+       最長的就是他點名的那一列：**331 ≤ 382.36**，餘裕 51px（13.4%）。
+       即使拉丁字寬估錯 15%（206 → 222），合計 347 仍然放得下。
+
+     ── 🔴 溢出為什麼不可能發生（不是「算過應該夠」，是結構上擋住）─────────
+       字級寫成 `min(固定目標, --dgm-info-fit)`：
+         · 正常狀態（--dgm-right-h ＝ 213.375）⇒ fit ＝ 24.69 ⇒ 取 **24**（目標值）
+         · 面板變矮時（例如直接打開這一頁、#dgm-head 是 dgm-hidden，約 141px）
+           ⇒ fit ＝ (141−22)/5/1.55 ＝ 15.35 ⇒ 取 **15.35**，五列仍然剛好放得下
+       也就是說**五列的總高恆等於 min(208, 可用高) ≤ 可用高**，
+       與 --dgm-right-h 是多少無關 ⇒ 垂直方向沒有任何溢出的可能。
+       這同時處理掉 v1.42.0 那個「面板矮的時候會出現捲軸」的已知取捨。
+
+     ── ⚠ 一個誠實的副作用（與 Bruce 2026-09-12 觀察到的過渡有關）────────
+       他實測「載入瞬間 info/log 是 377×143、right 已經是 410×213，約一秒後才一致」
+       —— ResizeObserver 的同步不是同步生效的。在那一秒內 --dgm-right-h ＝ 143
+       ⇒ 本版的字級會先是 15.6px，收斂後才跳到 24px，**看得到字長大一次**。
+       取捨依據：他把「不可溢出」訂成硬需求，而這個過渡他明說這一版不用改。
+       不加下限是刻意的 —— 加了下限就等於在面板矮於 154px 時重新打開溢出的門
+       （「加上下限一定要留退路、只擋變更糟的方向」這條在這裡指向不加）。
+       若他寧可要「字級恆定、過渡那一秒改成出現捲軸」，把 min() 拿掉即可還原。
+
+     🔴 **只動左上角**：#dgm-right 與 #dgm-log 的字級一個字都沒改
+        （Bruce 只說左上角；需求保真，不順手一起改）。已機械斷言，見驗證 F3/F4。 */
+  #dgm-info .dgm-k { font-size: min(calc(21 * var(--dgm-u)), calc(var(--dgm-info-fit) * 0.875)); }
+  #dgm-info .dgm-v { font-size: min(calc(24 * var(--dgm-u)), var(--dgm-info-fit)); }
   /* ─── v1.27.0：右上角面板不再裁掉東西 ───────────────────────────────────
      問題（v1.26.2 實測）：退出全螢幕時，閘門紅框 130px 一回來就把內容撐到
      302 > 194，最下面那一行被 max-height:30vh 的 overflow:hidden 裁掉。
@@ -2357,6 +2431,74 @@
         if (!a || !b) return null;
         return { dw: +(a.w - b.w).toFixed(2), dh: +(a.h - b.h).toFixed(2),
                  same: Math.abs(a.w - b.w) <= 0.5 && Math.abs(a.h - b.h) <= 0.5 };
+      })();
+      /* ═══ v1.43.0：左上角**每一列**的矩形 ═══════════════════════════════
+         Bruce 2026-09-12：「請實際驗證『五列都完整顯示、沒有被裁切』，並在
+         dgmProbe.rects() 回傳每一列的矩形讓我在主機端複驗。」
+
+         🔴 這裡回傳的是**原始數字**與三個直接可查的判斷，不是結論：
+            ① inside  —— 這一列的矩形完全落在面板的 padding box 之內
+                          （上下左右四邊各自比較，不是只看高度總和）
+            ② oneLine —— 列高 ÷ 單行高度 ≈ 1，用來抓「換行」這種溢出
+                          （Bruce 點名「寬度以最長那一列為準不可換行」）
+            ③ 面板層的 scrollHeight/clientHeight 與 scrollWidth/clientWidth
+                       —— 捲軸存在與否的直接證據，跟逐列判斷互為交叉驗證
+         🔴 為什麼不能只看 scrollHeight ≤ clientHeight：v1.27.0 實測過一次
+            「沒有溢出，但成立的方式是把字壓成 2px」。所以逐列的實際高度也要回。 */
+      out._infoRows = (function () {
+        var box = $('dgm-info'); if (!box) return null;
+        var bcs = getComputedStyle(box), brect = box.getBoundingClientRect();
+        var bt = parseFloat(bcs.borderTopWidth) || 0, bl = parseFloat(bcs.borderLeftWidth) || 0;
+        var pt = parseFloat(bcs.paddingTop) || 0, pb = parseFloat(bcs.paddingBottom) || 0;
+        var pl = parseFloat(bcs.paddingLeft) || 0, pr = parseFloat(bcs.paddingRight) || 0;
+        /* padding box（內容可用區）的絕對座標。🔴 用 clientWidth/Height 扣 padding
+           算內容高，這樣捲動時也不會被 scrollTop 影響判斷。 */
+        var cTop = brect.top + bt + pt, cLeft = brect.left + bl + pl;
+        var cW = box.clientWidth - pl - pr, cH = box.clientHeight - pt - pb;
+        var rows = box.querySelectorAll('.dgm-row'), list = [], i, allIn = true, allOne = true;
+        for (i = 0; i < rows.length; i++) {
+          var r = rows[i].getBoundingClientRect();
+          var kEl = rows[i].querySelector('.dgm-k'), vEl = rows[i].querySelector('.dgm-v');
+          var vcs = vEl ? getComputedStyle(vEl) : null;
+          /* 單行高度 ＝ .dgm-v 的 used line-height（行高倍率來自它的 font 簡寫）。
+             lineHeight 在 computed 之後是 px 字串；'normal' 時退回字級 × 1.2。 */
+          var lh = vcs ? (parseFloat(vcs.lineHeight) || parseFloat(vcs.fontSize) * 1.2) : 0;
+          var inside = (r.top >= cTop - 0.5) && (r.bottom <= cTop + cH + 0.5)
+                    && (r.left >= cLeft - 0.5) && (r.right <= cLeft + cW + 0.5);
+          var lines = lh > 0 ? r.height / lh : 0;
+          var oneLine = lh > 0 && Math.abs(lines - 1) <= 0.12;
+          if (!inside) allIn = false;
+          if (!oneLine) allOne = false;
+          list.push({
+            i: i,
+            k: kEl ? kEl.textContent : null, v: vEl ? vEl.textContent : null,
+            y: +r.y.toFixed(2), h: +r.height.toFixed(2),
+            left: +r.left.toFixed(2), right: +r.right.toFixed(2), w: +r.width.toFixed(2),
+            kW: kEl ? +kEl.getBoundingClientRect().width.toFixed(2) : null,
+            vW: vEl ? +vEl.getBoundingClientRect().width.toFixed(2) : null,
+            kFont: kEl ? getComputedStyle(kEl).fontSize : null,
+            vFont: vcs ? vcs.fontSize : null,
+            lineH: +lh.toFixed(2), lines: +lines.toFixed(3),
+            inside: inside, oneLine: oneLine
+          });
+        }
+        var used = list.length ? (list[list.length - 1].y + list[list.length - 1].h
+                                  - list[0].y) : 0;
+        return {
+          n: list.length, rows: list,
+          contentBox: { w: +cW.toFixed(2), h: +cH.toFixed(2) },
+          usedH: +used.toFixed(2), fillPct: cH > 0 ? +(100 * used / cH).toFixed(2) : null,
+          scrollH: box.scrollHeight, clientH: box.clientHeight,
+          scrollW: box.scrollWidth, clientW: box.clientWidth,
+          vScroll: box.scrollHeight > box.clientHeight + 0.5,
+          hScroll: box.scrollWidth > box.clientWidth + 0.5,
+          fitVar: getComputedStyle(document.documentElement)
+                    .getPropertyValue('--dgm-info-fit').trim(),
+          /* 🔴 通過的定義：五列都在、每列都在框內、每列都只有一行、兩個方向都沒有捲軸 */
+          ok: list.length === 5 && allIn && allOne
+              && box.scrollHeight <= box.clientHeight + 0.5
+              && box.scrollWidth <= box.clientWidth + 0.5
+        };
       })();
       /* 三個面板的**內文**字級（面板本身的 fontSize 是繼承來的 14px，
          量它等於什麼都沒量）。🔴 log 那兩格刻意沒有下限（Bruce 2026-09-12：
