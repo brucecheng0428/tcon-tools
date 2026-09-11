@@ -395,9 +395,33 @@
   /* v1.38.0：寬高各放大一級（30vw/26vh → 38vw/34vh）。理由只有一個 ——
      連線行的字級從 11px 變成 15px，同樣的行數需要更多空間；量測那些 11px 的行
      一個字都沒改。38vw 從左緣算起仍然遠離中央安全區（50vw），沒有侵入量測畫面。 */
+  /* ═══ v1.39.0：log 面板縮窄、並與底部提示列垂直分離 ═════════════════════
+     Bruce 2026-09-11：「那個 Log 的視窗太寬了，可以窄一點，不要擋到大部分的畫面。」
+     起因：v1.38.0 的診斷行帶完整網址與完整 UA，`white-space: pre-wrap` 不會斷
+     沒有空白的長 token ⇒ 面板被撐到 max-width（38vw ＝ 1920 上的 729px），
+     而且行數一多就壓到底部那條操作提示。
+
+     🔴 **只改顯示，不改複製出來的內容。** 這裡刻意用 CSS 換行（不是截字串）：
+        DOM 的 textContent 一個字都沒變 ⇒ `dgmCopyLog()`（逐行讀 textContent）
+        複製到的仍是完整原字串（完整 UA、完整網址、完整 error message）。
+        那一整段就是要貼回來對帳的東西，缺一個字就失去意義。
+        ⇒ JS 一行未改，複製路徑零風險。取捨：長行會在面板裡折成多行（變高），
+          但面板有 max-height ＋ overflow:auto，捲動即可。
+
+     ① `max-width` 38vw → `calc(380px * var(--dgm-k))`：窄一半，且改用**與左上／
+        右上兩個角落面板同一套係數** --dgm-k，不另立第二套判準。
+     ② `overflow-wrap: anywhere` ＋ `word-break: break-word`：長 token 在面板寬度
+        內折行，不再往外撐、也不溢出。
+     ③ `bottom` 14px → `calc(168px * var(--dgm-k))`：把面板整塊抬到底部提示列
+        **上方**，兩者因此在垂直方向互斥 —— 不必依賴水平是否錯開（底部那一列是
+        `left:50%` 置中、寬度隨內容，水平一定會有交集）。
+        餘裕的算法（全部是 --dgm-k 的線性式，可覆核）：底部列 bottom 22k ＋
+        gate 最多 2 行（dgmGateLines() 最多 push 兩次）58k＋2 ＋ gap 8k ＋
+        #dgm-esc 39k＋2 ＝ **107k＋4 < 168k**，k 放大時兩邊等比，關係不變。 */
   #dgm-log {
-    position: fixed; left: 14px; bottom: 14px; z-index: 10;
-    max-width: 38vw; max-height: 34vh; overflow: auto;
+    position: fixed; left: 14px; bottom: calc(168px * var(--dgm-k)); z-index: 10;
+    max-width: calc(380px * var(--dgm-k)); max-height: 34vh; overflow: auto;
+    overflow-wrap: anywhere; word-break: break-word;
     background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
     border-radius: 10px; padding: 8px 11px;
     font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #94a3b8;
@@ -1041,6 +1065,33 @@
      🔴 這句話與警示視窗第二行是**同一個常數**，不是兩份各寫各的。 */
   var DGM_FS_DO = '按「全螢幕」或 F11';
 
+  /* ═══ v1.39.0：全螢幕下不准跳序列埠選擇器 ═══════════════════════════════
+     Bruce 2026-09-11 實測重現步驟：「在全螢幕下按重選儀器，它就會跳離全螢幕，
+     這時候就再也連不上去（＝再也進不了全螢幕）」，而且**把 Chrome 整個關掉
+     重開就又可以**。
+
+     🔴 決定性的第二條事實（Bruce，Windows）：**在全螢幕下按下去，連 COM port
+        的選擇視窗都不會跳出來。** ⇒ 全螢幕下這顆鈕本來就是無效的：它只做到
+        「把使用者踢出全螢幕」，然後什麼也沒發生。停用它**沒有犧牲任何功能**，
+        不是在權衡便利性。（macOS 對照：chooser 會出現、只是很快自己消失，
+        而且之後還能回到全螢幕。）
+
+     🔴 「中斷連線」不在此列：它只做 closePort()，**不會呼叫 requestPort()、
+        不會跳 chooser**（查證：`dgmLinkOff()` 全文）。它必須一直可用 ——
+        那是 v1.34.0 把它做成常駐鈕的理由（要能與原廠 UI 來回切換）。
+     🔴 「連線」在此列：`dgmSerialOn()` 在 getPorts() 為空時會跳 chooser，而
+        **按下去的當下還不知道會不會跳**（要 await getPorts() 才知道），
+        所以無法只擋會跳的那一半。既有流程本來就是「先連線 → 再全螢幕 →
+        再量測」（底部提示條就是這個順序），全螢幕下停用連線不影響正常路徑。
+     ⚠ 假設（**待現場 log 驗證，不是已證實**）：同事那台「連不上」可能就是
+        這條 —— 他第一次用，必定走 chooser 那條路；全螢幕下 chooser 不出現，
+        畫面只會說「沒選到量測儀」，於是看起來像儀器壞了或工具壞了。 */
+  var DGM_FS_CHOOSER_DO = '請先退出全螢幕';
+  /* 寫進連線 log 的已知後果。放在呼叫 requestPort() 之前，看 log 的人才不會把
+     後面那一連串全螢幕失敗當成另一個 bug。 */
+  var DGM_LK_CHOOSER_WARN = '⚠ 接著會跳出選擇視窗：已知它會讓這個頁面離開全螢幕，'
+    + '之後 requestFullscreen() 會一直失敗（重開瀏覽器才復原）；全螢幕下它甚至不會出現';
+
   /* ═══ v1.32.0：開始量測的閘門收斂成這一支 ═══════════════════════════════
      Bruce 2026-09-11：「沒接上儀器時不讓按開始量測，並註明請接上光學儀器。」
 
@@ -1052,7 +1103,11 @@
   function dgmGateLines() {
     var L = [];
     if (!isFs()) L.push(DGM_FS_DO);
-    if (!dgmLinkActive) L.push(DGM_LINK_DO);
+    /* v1.39.0：全螢幕下「連線」是停用的（會跳 chooser，而且在全螢幕下連跳都不跳），
+       所以這一行要講的不是「請接上光學儀器」而是「先退出全螢幕」——
+       否則紅框叫他去連線、鈕卻按不下去，那是 v1.32.0 那個可用性 bug 的形狀。
+       🔴 這個紅框是全螢幕下唯一看得到的提示位置，所以出路寫在這裡，不另開視窗。 */
+    if (!dgmLinkActive) L.push(isFs() ? DGM_FS_CHOOSER_DO : DGM_LINK_DO);
     return L;
   }
 
@@ -1124,19 +1179,31 @@
        v1.35.0（Bruce 指定）：同一個狀態的兩面必須在同一顆鈕上。
        量測中停用但**仍然看得見** —— 量到一半切斷會留半套資料，要斷先按停止。
        這條規則是 v1.34.0 定的，一個字沒改。 */
+    /* v1.39.0：全螢幕下會跳 chooser 的動作一律停用（理由見 DGM_FS_CHOOSER_DO
+       上面那段）。判定沿用既有的 isFs()（API 與 F11 兩種都算），不新增狀態。 */
+    var fsBlock = isFs();
     var u = $('dgm-link');
     if (u) {
       u.textContent = dgmLinkBusy ? (dgmLinkActive ? '中斷中…' : '連線中…')
         : (dgmLinkActive ? '中斷連線' : '連線');
-      u.disabled = running || dgmLinkBusy;
+      /* 🔴 只擋「連線」那一面。「中斷連線」不跳 chooser ⇒ 全螢幕下照常可用，
+            這是 v1.34.0 的裁示，v1.39.0 一個字都不動它。 */
+      var linkBlocked = !dgmLinkActive && fsBlock;
+      u.disabled = running || dgmLinkBusy || linkBlocked;
+      u.title = linkBlocked ? DGM_FS_CHOOSER_DO : '';
     }
     /* ── ②b 重新選擇儀器（v1.38.0）────────────────────────────────────
        🔴 開關條件與連線鈕**同一條**（量測中／忙碌中停用），不自己判一份。
           文字是固定的：它只有一個動作，沒有第二面。
        🔴 它**不受 dgmLinkActive 影響** —— 已經連上了才更需要換一個埠重選，
           那正是這顆鈕存在的理由。 */
+    /* v1.39.0：再多一條「全螢幕下停用」—— 它一定會呼叫 requestPort()。
+       title 只在「純粹因為全螢幕」被擋時才寫，否則會對量測中那一態說錯話。 */
     var pk = $('dgm-pick');
-    if (pk) pk.disabled = running || dgmLinkBusy;
+    if (pk) {
+      pk.disabled = running || dgmLinkBusy || fsBlock;
+      pk.title = (fsBlock && !running && !dgmLinkBusy) ? DGM_FS_CHOOSER_DO : '';
+    }
     /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
        Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
        所以讓他自己決定就好。」
@@ -1268,6 +1335,13 @@
          記下來 —— 這一版只記錄，呼叫位置一個字都沒動。 */
       lk('沒有既有授權 ⇒ 呼叫 requestPort()（瀏覽器會跳出選擇視窗）');
       lk('　　' + dgmActivation() + ' · ' + dgmSinceClick());
+      /* v1.39.0 純觀測（不改控制流）：呼叫當下是不是在全螢幕。
+         ⚠ 鑑別力有界：v1.39.0 的閘門已經擋住全螢幕下的這條路，所以正常情況
+            這一行**恆為 none** —— 它的用途不是證明「同事在全螢幕下按的」，而是
+            閘門的自我稽核：一旦印出 api／f11，就表示 isFs() 判錯或閘門有漏。
+            （舊版快取的使用者回傳的 log 則仍可能印出 api／f11。） */
+      lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
+      lk('　　' + DGM_LK_CHOOSER_WARN, 'i');
       try { port = await navigator.serial.requestPort(); }
       catch (e) {
         /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
@@ -1353,6 +1427,9 @@
       msg(DGM_ERR.unsupported, 'err'); return false;
     }
     lk('　　' + dgmActivation() + ' · ' + dgmSinceClick());
+    // v1.39.0 純觀測（同 dgmSerialOn 那一處，鑑別力的界限也一樣）
+    lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
+    lk('　　' + DGM_LK_CHOOSER_WARN, 'i');
     var picked = null;
     try { picked = await navigator.serial.requestPort(); }
     catch (e) {
@@ -1434,6 +1511,9 @@
         把自己按停」，這顆鈕的兩面都不會造成不可逆的損失（連上再斷、斷了再連）。 */
   $('dgm-link').addEventListener('click', function () {
     if (running || dgmLinkBusy) return;
+    /* v1.39.0 第二層閘門（給程式看的）：繞過 disabled 也絕不讓 chooser 被呼叫。
+       🔴 只擋「連線」那一面 —— 中斷連線在全螢幕下照常可用。 */
+    if (!dgmLinkActive && isFs()) { msg(DGM_FS_CHOOSER_DO + '。', 'err'); return; }
     if (dgmLinkActive) dgmLinkOff(); else dgmLinkOn();
   });
 
@@ -1453,6 +1533,8 @@
   }
   $('dgm-pick').addEventListener('click', function () {
     if (running || dgmLinkBusy) return;
+    // v1.39.0 第二層閘門：同上。這顆一定會 requestPort()，全螢幕下一律不做。
+    if (isFs()) { msg(DGM_FS_CHOOSER_DO + '。', 'err'); return; }
     dgmLinkPick();
   });
 
@@ -1616,7 +1698,9 @@
       lk('✕ requestFullscreen() 失敗 · name=' + dgmErrName(e) + ' · message=' + dgmErrMsg(e)
         + dgmWhyFs(dgmErrName(e)) + '　｜ ' + dgmFsEnv(), 'e');
       log('requestFullscreen 失敗：' + e.message, 'e');   // 原始字串只進 log
-      msg('進不了全螢幕，請按 F11。', 'err');
+      /* v1.39.0：加上「重開瀏覽器」—— 跳過序列埠選擇器之後這個頁面會一直失敗，
+         現場唯一實測有效的解法就是重開瀏覽器（Bruce 2026-09-11）。只講怎麼做。 */
+      msg('請按 F11，或重開瀏覽器。', 'err');
     });
   });
 
