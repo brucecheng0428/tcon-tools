@@ -1680,9 +1680,10 @@
            與上面那一層（從光學資料比較挑一組）刻意分開：那一層挑的是**清單裡已有的組**，
            這一層挑的是**這一次匯入的這個檔裡的欄**，兩者的來源與生命週期不同。 -->
       <div class="dg-lut-step" data-step="optpick" data-title="這個檔裡有好幾組 — 挑一組進第 2 部分" style="display:none">
-        <div class="dg-note">
-          點一組就會<b>覆蓋</b>第 2 部分現在的資料；這個格式沒有色度 x／y，本輪會<b>強制只調 Gamma</b>。
-        </div>
+        <!-- 🔴 v1.44.0：後半句原本寫死「這個格式沒有色度 x／y，本輪會強制只調 Gamma」。
+             v1.44.0 起本工具匯出的多組比較檔會帶色度 x／y 區塊，同一個視窗會收到兩種資料，
+             寫死就會說謊。改由 dgGrayOptPickRender() 依**這一批組實際有沒有色度**填。 -->
+        <div class="dg-note" id="dg-gray-optpick-note"></div>
         <div class="dg-pick-list" id="dg-gray-optpick-list"></div>
         <div class="dg-btnrow">
           <button class="dg-btn dg-btn-clr" id="dg-btn-gray-optpick-back">← 回上一層</button>
@@ -1904,7 +1905,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260912dg1430"></script>
+<script src="common/version.js?v=20260912dg1440"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3320,17 +3321,71 @@
   /* v1.19.0：這兩個字串同時是「匯出時寫進去的」與「匯入時據以辨識的」。
      🔴 刻意抽成常數：辨識碼若在匯出端與匯入端各寫一份，改了一邊就會靜默認不出自己的檔。 */
   var DG_OPT_TITLE = '光學量測多組比較';
+  /* 🔴 v1.44.0 起**匯出不再寫這一欄**（Bruce 2026-09-12：「『原始檔名』那一欄很奇怪」）。
+     常數保留的唯一理由是**匯入端還要認得它** —— v1.43.0 以前匯出的檔 B 欄就是它，
+     那些檔還在使用者手上，仍然必須完整載得回來。刪掉常數＝舊檔的組名與來源全掉。 */
   var DG_OPT_FILEHDR = '原始檔名';
+  /* v1.44.0：來源／時間戳搬到這個工作表（Bruce 2026-09-12 裁示：「用另外一個分頁去呈現，
+     不要混合在資料裡面。這樣子資料可以跟原始 Excel 的設計格式通用，不要互相干擾」）。 */
+  var DG_OPT_SRCSHEET = '資料來源';
+  /* v1.44.0：新增的兩個區塊標題。🔴 這兩個字串同時是「匯出寫進去的」與「匯入據以定位的」，
+     照 DG_OPT_FILEHDR 的前例抽成常數 —— 兩端各寫一份，改了一邊就會靜默認不出自己的檔。 */
+  var DG_OPT_XHDR = '色度 x';
+  var DG_OPT_YHDR = '色度 y';
+  /* v1.44.0：純色端點（第 3 部分那三行）也存進檔案。
+     🔴 **存的是 XYZ，不是 x／y／Lv** —— 第 3 部分的 #dg-in-prim 本來就是 XYZ 三行，
+        存同一個形狀就少一次 dgXyYtoXYZ() 換算，也就少一個誤差來源。
+     版面沿用既有慣例：一個「量」一個區塊、區塊內一欄一組；R／G／B 三個通道
+     則落在**資料列的前三列**，由 DG_OPT_PRIMHDR 那一欄標出是哪一列。
+     這樣三個區塊（X／Y／Z）就把 3×3 九個數全部裝下，不必開九個區塊。 */
+  var DG_OPT_PRIMHDR = '純色端點';
+  var DG_OPT_PRIMLBL = 'RGB';
+  var DG_OPT_PXHDR = '純色端點 X';
+  var DG_OPT_PYHDR = '純色端點 Y';
+  var DG_OPT_PZHDR = '純色端點 Z';
+  var DG_OPT_PRIMKEYS = ['r', 'g', 'b'];
   var DG_OPT_ROW1 = 4;                     // 資料第一列（1 起算）
   var DG_OPT_N = 10;                       // 組數
-  // 欄位起點（0 起算）。配置說明見 docs/dg_optical_xlsx_format.md §五。
-  var DG_OPT_C = {
-    gray1: 0, file: 1, lum: 2,                        // A ／ B ／ C…L
-    gray2: 13, hi: 14, mid: 15, lo: 16, cct: 17,      // N ／ O P Q ／ R…AA
-    gray3: 28, std: 29, rel: 32,                      // AC ／ AD…AF ／ AG…AP
-    gamRef: 43, gam: 46                               // AR…AT ／ AU…BD
-  };
-  var DG_OPT_LAST = DG_OPT_C.gam + DG_OPT_N - 1;      // BD
+  /* 欄位起點（0 起算）。配置說明見 docs/dg_optical_xlsx_format.md §五。
+     ── v1.44.0 的兩處變動 ─────────────────────────────────────────────
+       ① 拿掉 `file`（B 欄），它右邊的每一個區塊**整段左移一欄**，區塊之間原本的
+          一欄空白間隔逐一保留 —— 資料區因此從 B 欄開始，與原廠「光學確認 xlsx」
+          的 A=Gray、B 起為各組亮度**對得起來**。
+       ② 尾端新增 `cx`／`cy` 兩個區塊（各 10 組）。排在既有區塊之後、不插隊，
+          所以既有區塊的欄號只受 ① 影響。 */
+  /* 🔴 v1.44.0：欄號**一律由 DG_OPT_N 推導**，不寫死。
+     Bruce 2026-09-12：「萬一後面我這邊再擴充，從 10 組變到 12 組或是多少組，
+     你都可以抓到相對應的數據。」判準：**把 DG_OPT_N 改成 12，整份 xlsx 的區塊、
+     公式參照、圖表 series 全部自動跟著移，不需要改第二個地方。**
+     硬編欄號做不到這件事 —— 只要漏改一個常數，兩個區塊就會互相覆蓋，而那種錯
+     在本機開檔時看起來只是「欄位怪怪的」，不會有任何錯誤訊息。
+
+     版面節奏照既有慣例：每個「多組區塊」後面留一欄空白當分隔；三欄一組的
+     上限／中心／下限與標準 Gamma **不留空**（v1.4.4 起就是這樣，維持不動）。 */
+  var DG_OPT_C = (function () {
+    var N = DG_OPT_N, c = 0, C = {};
+    function fix(n) { var at = c; c += n; return at; }        // 固定寬度，不留空欄
+    function grp() { var at = c; c += N + 1; return at; }     // N 組 ＋ 1 欄空白
+    C.gray1 = fix(1);
+    C.lum = grp();
+    C.gray2 = fix(1);
+    C.hi = fix(1); C.mid = fix(1); C.lo = fix(1);
+    C.cct = grp();
+    C.gray3 = fix(1);
+    C.std = fix(3);
+    C.rel = grp();
+    C.gamRef = fix(3);
+    C.gam = grp();
+    C.cx = grp();
+    C.cy = grp();
+    /* 純色端點：R／G／B 落在**資料列的前三列**、X／Y／Z 各一個區塊 ⇒ 每組 3 欄，
+       不是 9 欄。標示欄（哪一列是 R/G/B）單獨一欄，後面留一欄空白。 */
+    C.primLbl = fix(2);
+    C.primX = grp(); C.primY = grp(); C.primZ = grp();
+    return C;
+  })();
+  // 最後一欄：primZ 那一段的最後一組（grp() 多留的那一欄空白不算在版面內）
+  var DG_OPT_LAST = DG_OPT_C.primZ + DG_OPT_N - 1;
   // 圖上的線色：三條參考線 ＋ 10 組（與畫面上那 10 色同一組，去掉 #）
   var DG_OPT_REFCLR = ['A6A6A6', 'A6A6A6', 'ED7D31'];
   // 三條標準 Gamma 參考線的圖例文字，與畫面上圖一的圖例逐字相同
@@ -3360,10 +3415,18 @@
     put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）', s: 1 });
     put(2, C.gamRef, { v: '標準 Gamma', s: 1 });
     put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）', s: 1 });
+    /* v1.44.0：量 Gamma 時儀器本來就一併量到色度 x／y（即時量測與 CA-410 CSV 都有），
+       原本只有亮度與色溫落進檔案裡，那兩欄等於被丟掉。這兩個區塊把它們也存下來。 */
+    put(2, C.cx, { v: DG_OPT_XHDR, s: 1 });
+    put(2, C.cy, { v: DG_OPT_YHDR, s: 1 });
+    put(2, C.primLbl, { v: DG_OPT_PRIMHDR, s: 1 });
+    put(2, C.primX, { v: DG_OPT_PXHDR, s: 1 });
+    put(2, C.primY, { v: DG_OPT_PYHDR, s: 1 });
+    put(2, C.primZ, { v: DG_OPT_PZHDR, s: 1 });
     // 第 3 列：欄表頭
     put(3, C.gray1, { v: 'Gray', s: 1 });
-    put(3, C.file, { v: DG_OPT_FILEHDR, s: 1 });
     put(3, C.gray2, { v: 'Gray', s: 1 });
+    put(3, C.primLbl, { v: DG_OPT_PRIMLBL, s: 1 });
     put(3, C.hi, { v: '上限', s: 1 });
     put(3, C.mid, { v: '中心', s: 1 });
     put(3, C.lo, { v: '下限', s: 1 });
@@ -3381,20 +3444,50 @@
       put(3, C.cct + k, { v: name(k), s: 1 });
       put(3, C.rel + k, { v: name(k), s: 1 });
       put(3, C.gam + k, { v: name(k), s: 1 });
+      put(3, C.cx + k, { v: name(k), s: 1 });
+      put(3, C.cy + k, { v: name(k), s: 1 });
+      put(3, C.primX + k, { v: name(k), s: 1 });
+      put(3, C.primY + k, { v: name(k), s: 1 });
+      put(3, C.primZ + k, { v: name(k), s: 1 });
     }
-    // B4～B13：每一組匯入時的原始 Excel 檔名（Bruce 指定的追溯欄位；參考檔沒有這一欄）
+    /* v1.44.0：純色端點的 R／G／B 各佔一列（資料列的前三列），標示欄寫出是哪一個。
+       🔴 標示欄**無條件寫**（就算沒有任何一組帶純色端點）—— 它是版面的一部分，
+          讀檔那一端也靠它定位列（dgOptLayout 的 primRow）。資料格則是有才寫。 */
+    DG_OPT_PRIMKEYS.forEach(function (ch, j) {
+      put(R0 + j, C.primLbl, { v: ch.toUpperCase(), s: 1 });
+    });
     for (k = 0; k < DG_OPT_N; k++) {
-      put(R0 + k, C.file, { v: (slots[k] && slots[k].file) ? slots[k].file : '', s: 0 });
+      var pm = slots[k] && slots[k].prim;
+      if (!pm) continue;
+      DG_OPT_PRIMKEYS.forEach(function (ch, j) {
+        var v = pm[ch];
+        if (!v || v.length < 3) return;
+        /* 🔴 逐值檢查再寫，缺值留白 —— 不可以塞 0。0 在 XYZ 裡是合法數字，
+           寫進去之後匯入端無從分辨「真的量到 0」與「沒量」。 */
+        [C.primX, C.primY, C.primZ].forEach(function (col, d) {
+          if (dgIsNum(v[d])) put(R0 + j, col + k, { v: +v[d], s: 0 });
+        });
+      });
     }
+    /* 🔴 v1.44.0：原本 B4～B13 寫「每一組匯入時的原始 Excel 檔名」，整份資料區因此被
+       往右推一欄，與原廠格式對不起來。這一段**整段移除**，來源改寫進 DG_OPT_SRCSHEET
+       那個工作表（dgOptSrcSheetXml）。**組名仍然只存在主表第 3 列的表頭** —— 來源表
+       那一欄是給人對照用的，不是第二份權威（見 dgOptParseSrcSheet 的註解）。 */
 
     // 每一組的量測值：以該組自己的 Gray 值對應到列，對不上的列留空
-    var lum = [], cct = [];
+    var lum = [], cct = [], cx = [], cy = [];
     for (k = 0; k < DG_OPT_N; k++) {
-      lum[k] = {}; cct[k] = {};
+      lum[k] = {}; cct[k] = {}; cx[k] = {}; cy[k] = {};
       if (!slots[k]) continue;
       slots[k].rows.forEach(function (row) {
         if (!isFinite(row.g)) return;
         lum[k][row.g] = row.Y;
+        /* 🔴 v1.44.0：**不是數字就不寫這一格**（留空白），與下面色溫那一段同一條規則。
+           不可以退回 0：`+null` 會變成 0，而 dgCCT(0, 0) 是定值 2021.28K —— 檔案裡
+           會出現「真的有量到色度」的假資料，再匯入回來就一路被洗白。本檔 v1.21.1
+           已經在色溫那一欄踩過這個坑一次，這裡不重蹈。 */
+        if (dgIsNum(row.x)) cx[k][row.g] = row.x;
+        if (dgIsNum(row.y)) cy[k][row.g] = row.y;
         /* v1.19.0：從多組比較檔載回來的組帶的是色溫本身（檔案格式裡沒有色度 x／y），
            這裡優先用它，再匯出一次才會與上一次逐值相同。一般組沒有 T，照舊用 dgCCT()。 */
         /* 🔴 v1.21.1：x／y 不是數字就**不寫這一格**（留空，與參考檔「整欄沒資料」的長相一致）。
@@ -3440,6 +3533,8 @@
         var Lc = C.lum + k, Rc = C.rel + k;
         if (lum[k][g] !== undefined) put(r, Lc, { v: lum[k][g], s: 0 });
         if (cct[k][g] !== undefined) put(r, C.cct + k, { v: cct[k][g], s: 3 });
+        if (cx[k][g] !== undefined) put(r, C.cx + k, { v: cx[k][g], s: 0 });
+        if (cy[k][g] !== undefined) put(r, C.cy + k, { v: cy[k][g], s: 0 });
         // 公式一律寫滿 10 組 —— 沒資料的組會是 #DIV/0!，這正是參考檔的長相
         put(r, Rc, {
           f: '(' + dgOptRef(Lc, r) + '-' + dgOptCn(Lc) + '$' + R0 + ')/('
@@ -3452,13 +3547,18 @@
     }
 
     // ── 組出 XML ──
+    /* v1.44.0：`min`／`max` 是 1 起算的欄號，而 C.* 是 0 起算 ⇒ 一律 +1。
+       原本第二段那個寬 34 的「原始檔名」欄已經沒有了，整串跟著往左收一欄；
+       色度 x／y 兩個新區塊接在最後一段。 */
     var cols = '<cols>'
       + '<col min="1" max="1" width="7.875" customWidth="1"/>'
-      + '<col min="2" max="2" width="34" customWidth="1"/>'                       // 原始檔名要看得到
-      + '<col min="3" max="' + (C.lum + DG_OPT_N) + '" width="12.5" customWidth="1"/>'
+      + '<col min="' + (C.lum + 1) + '" max="' + (C.lum + DG_OPT_N) + '" width="12.5" customWidth="1"/>'
       + '<col min="' + (C.gray2 + 1) + '" max="' + (C.cct + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
       + '<col min="' + (C.gray3 + 1) + '" max="' + (C.rel + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
-      + '<col min="' + (C.gamRef + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
+      + '<col min="' + (C.gamRef + 1) + '" max="' + (C.gam + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
+      + '<col min="' + (C.cx + 1) + '" max="' + (C.cy + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
+      + '<col min="' + (C.primLbl + 1) + '" max="' + (C.primLbl + 1) + '" width="9" customWidth="1"/>'
+      + '<col min="' + (C.primX + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
       + '</cols>';
 
     var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -3488,12 +3588,77 @@
       dgOptCn(C.std) + '2:' + dgOptCn(C.std + 2) + '2',
       dgOptCn(C.rel) + '2:' + dgOptCn(C.rel + DG_OPT_N - 1) + '2',
       dgOptCn(C.gamRef) + '2:' + dgOptCn(C.gamRef + 2) + '2',
-      dgOptCn(C.gam) + '2:' + dgOptCn(C.gam + DG_OPT_N - 1) + '2'
+      dgOptCn(C.gam) + '2:' + dgOptCn(C.gam + DG_OPT_N - 1) + '2',
+      dgOptCn(C.cx) + '2:' + dgOptCn(C.cx + DG_OPT_N - 1) + '2',
+      dgOptCn(C.cy) + '2:' + dgOptCn(C.cy + DG_OPT_N - 1) + '2',
+      dgOptCn(C.primX) + '2:' + dgOptCn(C.primX + DG_OPT_N - 1) + '2',
+      dgOptCn(C.primY) + '2:' + dgOptCn(C.primY + DG_OPT_N - 1) + '2',
+      dgOptCn(C.primZ) + '2:' + dgOptCn(C.primZ + DG_OPT_N - 1) + '2'
     ];
     x += '<mergeCells count="' + mg.length + '">'
       + mg.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>';
     x += '<drawing r:id="rId1"/></worksheet>';
     return x;
+  }
+
+  /* ═══ v1.44.0：「資料來源」工作表 ══════════════════════════════════════════
+     Bruce 2026-09-12：「把來源資料的時間戳記用另外一個分頁去呈現，不要混合在資料
+     裡面。這樣子的好處是資料可以跟原始 Excel 的設計格式通用，不要互相干擾。」
+
+     🔴 **權威只有一邊**：組名的唯一權威是**主表第 3 列的表頭**（那裡同時是三張原生
+        圖表 `<c:tx><c:strRef>` 指到的圖例文字）。這張表的「組名」欄是**對照用的副本**，
+        匯入時一個字都不讀（見 dgOptParseSrcSheet）。兩邊都寫又各自解讀，遲早不一致。
+     🔴 **只寫真的有資料的組**：主表為了保住公式與圖表數列，沒用到的組欄位照樣寫滿；
+        這張表沒有那個包袱，空列只會讓人以為「有一組叫『第 8 組』但來源不明」。
+     版面刻意與主表同構（第 1 列大標題、第 3 列表頭、第 4 列起資料），讓匯入端可以
+     沿用「A 欄是數字的那一段就是資料列」這條既有規則。 */
+  var DG_OPT_SRC_TITLE = '各組資料來源';
+  var DG_OPT_SRC_HDRS = ['組序', '組名', '來源／時間戳', '筆數'];
+
+  function dgOptSrcSheetXml(slots) {
+    var R0 = DG_OPT_ROW1, rows = [], k;
+    for (k = 0; k < DG_OPT_N; k++) {
+      if (!slots[k] || !slots[k].rows || !slots[k].rows.length) continue;
+      rows.push({
+        no: k + 1,
+        name: slots[k].name || ('第 ' + (k + 1) + ' 組'),
+        src: slots[k].file || '',
+        n: slots[k].rows.length
+      });
+    }
+    var cells = {};
+    function put(row, col, o) { (cells[row] = cells[row] || {})[col] = o; }
+    put(1, 0, { v: DG_OPT_SRC_TITLE, s: 6 });
+    put(2, 0, { v: '「組序」對應主表「' + DG_OPT_SHEETNAME + '」第 3 列由左往右第幾組；組名以主表為準。', s: 0 });
+    for (k = 0; k < DG_OPT_SRC_HDRS.length; k++) put(3, k, { v: DG_OPT_SRC_HDRS[k], s: 1 });
+    rows.forEach(function (o, i) {
+      var r = R0 + i;
+      put(r, 0, { v: o.no, s: 0 });
+      put(r, 1, { v: o.name, s: 0 });
+      put(r, 2, { v: o.src, s: 0 });
+      put(r, 3, { v: o.n, s: 0 });
+    });
+
+    var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      + '<dimension ref="A1:D' + (R0 + Math.max(rows.length, 1) - 1) + '"/>'
+      + '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+      + '<sheetFormatPr defaultColWidth="7.875" defaultRowHeight="14.25"/>'
+      + '<cols><col min="1" max="1" width="7.875" customWidth="1"/>'
+      + '<col min="2" max="2" width="24" customWidth="1"/>'
+      + '<col min="3" max="3" width="44" customWidth="1"/>'
+      + '<col min="4" max="4" width="9" customWidth="1"/></cols><sheetData>';
+    Object.keys(cells).map(Number).sort(function (a, b) { return a - b; }).forEach(function (rr) {
+      var row = cells[rr], cs = '';
+      Object.keys(row).map(Number).sort(function (a, b) { return a - b; }).forEach(function (cc) {
+        var o = row[cc], ref = dgOptRef(cc, rr), sa = o.s ? ' s="' + o.s + '"' : '';
+        if (o.v === '' || o.v == null) { cs += '<c r="' + ref + '"' + sa + '/>'; return; }
+        if (typeof o.v === 'number' && isFinite(o.v)) cs += '<c r="' + ref + '"' + sa + '><v>' + o.v + '</v></c>';
+        else cs += '<c r="' + ref + '"' + sa + ' t="inlineStr"><is><t xml:space="preserve">' + dgXe(o.v) + '</t></is></c>';
+      });
+      if (cs) x += '<row r="' + rr + '">' + cs + '</row>';
+    });
+    return x + '</sheetData><mergeCells count="1"><mergeCell ref="A2:D2"/></mergeCells></worksheet>';
   }
 
   /* 一張原生 scatterChart。o = { title, axIdX, axIdY, xRef, xTitle, series:[{txRef,valRef,color,width}],
@@ -3660,6 +3825,7 @@
       + '<Default Extension="xml" ContentType="application/xml"/>'
       + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
       + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
       + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
       + '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>';
     charts.forEach(function (_, i) {
@@ -3678,7 +3844,11 @@
         name: 'xl/workbook.xml', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
           + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
           + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-          + '<sheets><sheet name="' + dgXe(SH) + '" sheetId="1" r:id="rId1"/></sheets>'
+          /* 🔴 v1.44.0：資料表**仍然排第一個**（sheetId 1、tabSelected）。開檔時看到的
+             要是資料，不是來源清單；而且 dgOptFindCompareSheet() 是逐張試、先中先贏，
+             順序換掉不會壞，但沒有理由讓使用者多按一次分頁。 */
+          + '<sheets><sheet name="' + dgXe(SH) + '" sheetId="1" r:id="rId1"/>'
+          + '<sheet name="' + dgXe(DG_OPT_SRCSHEET) + '" sheetId="2" r:id="rId3"/></sheets>'
           + '<calcPr fullCalcOnLoad="1"/></workbook>')
       },
       {
@@ -3686,10 +3856,12 @@
           + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
           + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
           + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+          + '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
           + '</Relationships>')
       },
       { name: 'xl/styles.xml', data: dgUtf8(dgOptStylesXml()) },
       { name: 'xl/worksheets/sheet1.xml', data: dgUtf8(dgOptSheetXml(slots, nRow, gmax, base)) },
+      { name: 'xl/worksheets/sheet2.xml', data: dgUtf8(dgOptSrcSheetXml(slots)) },
       {
         name: 'xl/worksheets/_rels/sheet1.xml.rels', data: dgUtf8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
           + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -4683,6 +4855,22 @@
     DG_SLOTS[i].name = dgSlotIsDefaultName(text, i) ? '' : text;
   }
 
+  /* v1.44.0：把第 3 部分現在的內容讀成 {r,g,b} 三組 XYZ（與 dgApplyPrim 的入參同形）。
+     🔴 **九個數都要是數字才回東西**，缺一個就回 null —— 與 dgOptParseCompareSheet()
+        讀純色端點那一段同一條規則（給一半比不給更糟）。
+     🔴 純讀取：不碰 #dg-in-prim，也不呼叫 dgRefreshReady()。 */
+  function dgReadPrim() {
+    var rs = dgParseRows($('dg-in-prim').value);
+    if (rs.length < 3) return null;
+    var out = {};
+    for (var i = 0; i < 3; i++) {
+      var r = rs[i];
+      if (!r || r.length < 3 || !isFinite(r[0]) || !isFinite(r[1]) || !isFinite(r[2])) return null;
+      out[DG_OPT_PRIMKEYS[i]] = [+r[0], +r[1], +r[2]];
+    }
+    return out;
+  }
+
   function dgVisibleSlots() {
     var out = [];
     for (var i = 0; i < DG_SLOTS.length; i++) if (DG_SLOTS[i].show) out.push({ i: i, s: DG_SLOTS[i] });
@@ -4865,6 +5053,18 @@
     });
   }
 
+  /* v1.44.0：把「目前的 DG_SLOTS → 位元組」抽成一支。
+     🔴 目的是**讓驗證走的是產品自己的那條路**：匯出鈕與 dgApi 的驗證出口都呼叫這裡，
+        不會出現「測試自己組一份 slots 陣列、與按鈕組的不一樣」那種假通過。
+        組名一律取 dgSlotDisplayName(i)（＝畫面上看到的那個），不是 raw 的 s.name。 */
+  function dgSlotExportBytes(base) {
+    var colors = [], i;
+    for (i = 0; i < DG_OPT_N; i++) colors.push(dgSlotColor(i));
+    return dgBuildOpticalXlsx(DG_SLOTS.map(function (s, k) {
+      return { name: dgSlotDisplayName(k), file: s.file, rows: s.rows, prim: s.prim || null };
+    }), colors, base || dgCctBase());
+  }
+
   // v1.4.4：把目前這些組匯出成多組比較 xlsx
   function dgSlotExportXlsx() {
     if (!DG_SLOTS.length) {
@@ -4873,12 +5073,8 @@
       e.textContent = '還沒有任何光學量測組，沒有東西可以匯出。\n先用輸入資料卡片最上面那顆匯入鈕匯入一份含光學量測的檔案。';
       return;
     }
-    var colors = [];
-    for (var i = 0; i < DG_OPT_N; i++) colors.push(dgSlotColor(i));
     var base = dgCctBase();
-    var bytes = dgBuildOpticalXlsx(DG_SLOTS.map(function (s, i) {
-      return { name: dgSlotDisplayName(i), file: s.file, rows: s.rows };
-    }), colors, base);
+    var bytes = dgSlotExportBytes(base);
     var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -4987,6 +5183,12 @@
       return 0;
     }
     var no = dgSlotAdd({ rows: rows, hasPrim: false }, dgSlotSourceLabel());
+    /* 🔴 v1.44.0：第 3 部分現在有純色端點的話，一起帶進這一組。
+       理由：這一顆鈕的語意是「把我這一輪量到的存起來」，而純色端點就是這一輪的一部分；
+       不帶走的話，匯出的 Excel 裡純色端點區塊永遠是空的，下次匯入回來還得再量一次。
+       🔴 **只讀不寫**：dgReadPrim() 讀的是 #dg-in-prim 現在的字面內容，
+          第 1、2、3 部分一個欄位都沒有被改動。 */
+    if (no) DG_SLOTS[no - 1].prim = dgReadPrim();
     /* v1.26.0：組名預設用輪數，與「跳視窗詢問」那條路同一個規則、同一個狀態來源
        （DG_ROUND）。這一顆鈕就是 Bruce 說的「使用者選擇同步到光學資料比較」，
        只是他是主動按的、不是被問的 —— 沒有理由兩邊叫不一樣的名字。 */
@@ -5006,10 +5208,17 @@
        · **組名與順序本來就在檔裡** \u2014\u2014 第 3 列的四個區塊（亮度／色溫／相對亮度／逐階
          Gamma）各自寫著各組名稱，順序就是畫面順序；B4\uff5eB13 是各組的原始檔名。
          所以**不必為了存名稱新增任何欄位**，匯出格式一個位元組都不用動。
-       · 🔴 **檔案格式裡沒有色度 x／y**（參考檔 `光學確認_20250114.xlsx` 就沒有，這一欄
-         從來不存在）。載回來的組只有 Gray／亮度／色溫三樣。三張比較圖要的正好就是這三樣
-         （圖一相對亮度、圖二逐階 Gamma、圖三色溫），所以**圖完全一致**；但這種組不能拿去
-         當第 2 部分的計算輸入（那裡要 x／y 算目標白點），dgGrayFromSlot() 有擋。
+
+     ── v1.44.0 起這一段的界線變了（原本寫的是「這個格式沒有色度 x／y」）──────
+       · **原廠的**「光學確認」xlsx 確實沒有色度欄（三份真檔逐格查證，這一欄從來不存在），
+         從它載回來的組仍然只有 Gray／亮度／色溫三樣 —— 三張比較圖要的正好就是這三樣，
+         所以**圖完全一致**。
+       · **本工具 v1.44.0 起匯出的**檔多了色度 x／y 與純色端點 XYZ 兩類區塊，載回來的組
+         因此可能是完整的（能當第 2 部分的計算輸入、色溫可調、第 3 部分一併還原）。
+       🔴 所以判「這一組能做什麼」一律看**資料本身有沒有那幾欄**（dgOptGroupHasXY／
+          dgGrayHasXY），**不看它是哪一種檔**。
+       · 來源／時間戳在 v1.43.0 以前寫在主表 B 欄（「原始檔名」），v1.44.0 起搬到
+         DG_OPT_SRCSHEET 那個工作表；**兩種都要讀得回來**（dgOptParseCompareSheet）。
 
      辨識碼三個一起看（工作表名 ＋ A1 大標題 ＋ B3 表頭），三個都對才算數。
      只對一個就收，等於把任何一份湊巧同名的檔當成自己的檔載進來。 */
@@ -5034,6 +5243,30 @@
     var v = dgCellV(sheet, r, c);
     return (typeof v === 'string') ? v.trim() : '';
   }
+  /* v1.44.0：一段「連續的組別表頭」＝ 從 c 起往右，遇到 stop 字或（已收過之後的）空欄就停。
+     這段邏輯本來就寫在下面兩處、逐字相同，抽出來讓色度 x／y 兩個新區塊直接重用，
+     不另立第三套規則。 */
+  function dgOptHdrRun(sheet, hr, c, stop) {
+    var out = [], t;
+    for (; c <= sheet.maxCol; c++) {
+      t = dgOptHdrText(sheet, hr, c);
+      if (!t) { if (out.length) break; else continue; }
+      if (stop[t]) break;
+      out.push({ c: c, name: t });
+    }
+    return out;
+  }
+  /* v1.44.0：色度 x／y 區塊靠**區塊標題列**（表頭列的上一列）的常數字串定位，
+     組欄再由表頭列的連續表頭決定 —— 與亮度／色溫同一套規則，只是起點不同。
+     🔴 這是**純追加**：v1.43.0 以前的檔與原廠檔都沒有這兩個區塊 ⇒ 找不到 ⇒ 回空陣列
+        ⇒ 下游 x／y 一律 null，與改版前逐字相同的行為。 */
+  function dgOptFindBlock(sheet, hr, title, stop) {
+    if (hr < 2) return [];
+    for (var c = 1; c <= sheet.maxCol; c++) {
+      if (dgOptHdrText(sheet, hr - 1, c) === title) return dgOptHdrRun(sheet, hr, c, stop);
+    }
+    return [];
+  }
   function dgOptLayout(sheet) {
     var hr = dgOptHdrRow(sheet);
     if (hr < 0) return null;
@@ -5041,7 +5274,13 @@
     // ① 亮度組欄
     var lum = [], fileCol = 0;
     c = 2;
-    if (dgOptHdrText(sheet, hr, c) === DG_OPT_HDRS.file) { fileCol = c; c++; }
+    /* 🔴 v1.44.0 加的第二個條件（`資料列第一格不是數字`）不是放寬，是**縮窄**：
+       v1.43.0 以前的檔 B4 一定是檔名字串或空白（寫入時走 inlineStr，讀回來是字串）；
+       v1.44.0 起 B 欄是第 1 組的亮度 ⇒ B4 是數字。少了這一條，使用者只要把第 1 組
+       取名叫「原始檔名」，新格式的第 1 組就會被整欄當成檔名欄跳過。
+       舊檔不受影響：它的 B4 不可能是數字。 */
+    if (dgOptHdrText(sheet, hr, c) === DG_OPT_HDRS.file
+        && !dgIsNum(dgCellV(sheet, hr + 1, c))) { fileCol = c; c++; }
     for (; c <= sheet.maxCol; c++) {
       t = dgOptHdrText(sheet, hr, c);
       if (!t) { if (lum.length) break; else continue; }
@@ -5063,11 +5302,38 @@
       }
     }
     if (!lum.length || !cct.length) return null;
-    // ③ 資料列：表頭列下面、A 欄是數字的那一段
+    // ③ v1.44.0：色度 x／y（沒有就是空陣列，不影響 n）
+    var cx = dgOptFindBlock(sheet, hr, DG_OPT_XHDR, stop);
+    var cy = dgOptFindBlock(sheet, hr, DG_OPT_YHDR, stop);
+    // ④ v1.44.0：純色端點 X／Y／Z 三個區塊
+    var px = dgOptFindBlock(sheet, hr, DG_OPT_PXHDR, stop);
+    var py = dgOptFindBlock(sheet, hr, DG_OPT_PYHDR, stop);
+    var pz = dgOptFindBlock(sheet, hr, DG_OPT_PZHDR, stop);
+    // ⑤ 資料列：表頭列下面、A 欄是數字的那一段
     var r0 = hr + 1, rN = r0;
     while (rN <= sheet.maxRow && dgIsNum(dgCellV(sheet, rN, 1))) rN++;
     if (rN - r0 < 2) return null;
-    return { hdrRow: hr, fileCol: fileCol, lum: lum, cct: cct,
+    /* ⑥ v1.44.0：純色端點的 R／G／B 各在哪一列 —— 由標示欄的內容決定，**不假設是前三列**。
+       🔴 標示欄自己也靠表頭文字找（第 3 列寫 DG_OPT_PRIMLBL），不寫死欄號。
+          找不到標示欄 ⇒ primRow 為 null ⇒ 純色端點整段不還原（寧可不給，不給錯的）。 */
+    var primRow = null, lc = 0;
+    if (px.length) {
+      for (c = 1; c <= sheet.maxCol; c++) {
+        if (dgOptHdrText(sheet, hr, c) === DG_OPT_PRIMLBL) { lc = c; break; }
+      }
+      if (lc) {
+        primRow = {};
+        for (var rr = r0; rr <= rN - 1; rr++) {
+          var lab = dgOptHdrText(sheet, rr, lc).toLowerCase();
+          if (DG_OPT_PRIMKEYS.indexOf(lab) >= 0 && primRow[lab] === undefined) primRow[lab] = rr;
+        }
+        if (DG_OPT_PRIMKEYS.some(function (k2) { return primRow[k2] === undefined; })) primRow = null;
+      }
+    }
+    /* 🔴 n 仍然只由亮度與色溫決定 —— 色度與純色端點是**附加欄**，缺了不該讓組數變少，
+       多了（理論上不會）也不該讓組數變多。 */
+    return { hdrRow: hr, fileCol: fileCol, lum: lum, cct: cct, cx: cx, cy: cy,
+             px: px, py: py, pz: pz, primLblCol: lc, primRow: primRow,
              n: Math.min(lum.length, cct.length), row0: r0, rowN: rN - 1 };
   }
   function dgOptIsCompareSheet(sheet) { return !!sheet && !!dgOptLayout(sheet); }
@@ -5080,29 +5346,93 @@
      🔴 只讀常數欄：Gray（A）、各組亮度、各組色溫。相對亮度與逐階 Gamma 是公式欄，
         一格都不碰 —— 那些是由亮度算出來的，讀它等於把同一份資料讀兩次。
      空組（表頭在、整欄沒資料）跳過並回報，不塞空值進來。 */
-  function dgOptParseCompareSheet(sheet) {
+  /* v1.44.0：srcMap ＝ dgOptParseSrcSheet() 讀出來的「組序 → 來源」。
+     只有新格式（來源在另一個工作表）會用到；舊格式走 L.fileCol，原廠檔兩者皆無 ⇒ ''。 */
+  function dgOptParseCompareSheet(sheet, srcMap) {
     var L = dgOptLayout(sheet);
     if (!L) return { groups: [], empty: [], layout: null };
     var groups = [], empty = [], k, r;
     for (k = 0; k < L.n; k++) {
       var rows = [], noCct = 0;
+      /* v1.44.0：這兩個區塊是選配的 —— 沒有就整組 null（原廠檔與 v1.43.0 以前的檔）。
+         🔴 這裡取的是**第 k 組的欄**，不是「第 k 欄」：組欄清單由表頭推導，欄號不連續
+            （中間隔著空欄）時照樣對得上。 */
+      var xc = (L.cx && L.cx[k]) ? L.cx[k].c : 0;
+      var yc = (L.cy && L.cy[k]) ? L.cy[k].c : 0;
       for (r = L.row0; r <= L.rowN; r++) {
         var g = dgCellV(sheet, r, 1), Y = dgCellV(sheet, r, L.lum[k].c);
         if (!dgIsNum(g) || !dgIsNum(Y)) continue;
         var T = dgCellV(sheet, r, L.cct[k].c);
         if (!dgIsNum(T)) noCct++;
-        // x／y 這個格式裡沒有 —— 留 null 而不是塞 0，讓下游一眼看得出「這一組沒有色度」
-        rows.push({ g: +g, x: null, y: null, Y: +Y, T: dgIsNum(T) ? +T : null });
+        /* 🔴 缺色度一律 null，**不塞 0**：0 會被 dgCCT(0, 0) 吃成定值 2021.28K，
+           也會讓 dgGrayHasXY() 誤判成「這份資料有色度」。留 null 讓下游一眼看得出來。 */
+        var xv = xc ? dgCellV(sheet, r, xc) : null;
+        var yv = yc ? dgCellV(sheet, r, yc) : null;
+        rows.push({
+          g: +g, x: dgIsNum(xv) ? +xv : null, y: dgIsNum(yv) ? +yv : null,
+          Y: +Y, T: dgIsNum(T) ? +T : null
+        });
       }
       if (rows.length < 2) { empty.push(L.lum[k].name || ('第 ' + (k + 1) + ' 欄')); continue; }
       rows.sort(function (a, b) { return a.g - b.g; });
+      /* v1.44.0：純色端點。形狀與第 3 部分的 #dg-in-prim 相同（{r,g,b} 各三個 XYZ）。
+         🔴 **九個數全部到齊才算數**：少一個就整組不給。第 3 部分是 dgCompute() 拆
+            色彩矩陣的輸入，缺一個數就是一列 NaN —— 給一半比不給更糟。 */
+      var prim = null;
+      if (L.primRow && L.px[k] && L.py[k] && L.pz[k]) {
+        var pk = {}, ok = true;
+        DG_OPT_PRIMKEYS.forEach(function (ch) {
+          var rr2 = L.primRow[ch];
+          var trio = [L.px[k].c, L.py[k].c, L.pz[k].c].map(function (cc) { return dgCellV(sheet, rr2, cc); });
+          if (!trio.every(dgIsNum)) { ok = false; return; }
+          pk[ch] = trio.map(Number);
+        });
+        if (ok) prim = pk;
+      }
       groups.push({
+        prim: prim,
         name: L.lum[k].name,
-        file: L.fileCol ? String(dgCellV(sheet, L.row0 + k, L.fileCol) || '') : '',
+        /* 來源有兩種放法，**優先序是「檔案裡真的有哪一種」**，不是版本推測：
+             · 舊格式（v1.43.0 以前）：主表 B 欄，第 k 組寫在第 row0+k 列
+             · 新格式（v1.44.0 起）：另一個工作表，依組序對應（srcMap 的 key 是 1 起算） */
+        file: L.fileCol ? String(dgCellV(sheet, L.row0 + k, L.fileCol) || '')
+                        : ((srcMap && srcMap[k + 1]) || ''),
         rows: rows, noCct: noCct
       });
     }
     return { groups: groups, empty: empty, layout: L };
+  }
+
+  /* ── v1.44.0：讀「資料來源」工作表 ─────────────────────────────────
+     🔴 **只讀「來源／時間戳」那一欄**。組名那一欄在這裡是給人對照用的副本，
+        權威在主表第 3 列表頭（dgOptSrcSheetXml 的註解講的是同一件事）。讀了它
+        就等於有兩個名稱來源，改名之後兩邊不一致時無從仲裁。
+     🔴 認欄位一律靠表頭文字，不寫死欄號 —— 與 dgOptLayout() 同一條紀律。 */
+  function dgOptParseSrcSheet(sheets) {
+    if (!sheets || !sheets.length) return null;
+    var i, sh = null;
+    for (i = 0; i < sheets.length; i++) {
+      if (sheets[i] && sheets[i].sheetName === DG_OPT_SRCSHEET) { sh = sheets[i]; break; }
+    }
+    if (!sh) return null;
+    var hr = -1, noCol = 0, srcCol = 0, r, c;
+    for (r = 1; r <= Math.min(sh.maxRow, 8) && hr < 0; r++) {
+      for (c = 1; c <= sh.maxCol; c++) {
+        var t = dgOptHdrText(sh, r, c);
+        if (t === DG_OPT_SRC_HDRS[0]) noCol = c;
+        if (t === DG_OPT_SRC_HDRS[2]) srcCol = c;
+      }
+      if (noCol && srcCol) hr = r; else { noCol = 0; srcCol = 0; }
+    }
+    if (hr < 0) return null;
+    var map = {};
+    for (r = hr + 1; r <= sh.maxRow; r++) {
+      var no = dgCellV(sh, r, noCol);
+      if (!dgIsNum(no)) continue;
+      var v = dgCellV(sh, r, srcCol);
+      map[+no] = (v == null) ? '' : String(v);
+    }
+    return map;
   }
 
   /* ── v1.21.0：「有東西沒進來」統一走這一個視窗 ────────────
@@ -5164,8 +5494,8 @@
      會擋在畫面上的提示）。只有一層、沒有確認步驟、沒有第二顆按鈕。
      另外：**這條路仍然不經過 dgSlotFindSame() 的逐值去重**。去重是為了「同一個檔連按兩次
      匯入」設計的，套到整批載入會把剛匯出的那一份整批擋掉（round-trip 必然逐值相同）。 */
-  function dgSlotLoadCompare(sheet, fileName) {
-    var res = dgOptParseCompareSheet(sheet), gs = res.groups, L = res.layout;
+  function dgSlotLoadCompare(sheet, fileName, sheets) {
+    var res = dgOptParseCompareSheet(sheet, dgOptParseSrcSheet(sheets)), gs = res.groups, L = res.layout;
     var note = res.empty.length
       ? ('\n（' + res.empty.length + ' 個組別欄位有表頭但整欄沒有量測值，已跳過：'
          + res.empty.join('、') + '）') : '';
@@ -5186,13 +5516,23 @@
        （圖三根本畫不出這一組）。原本兩種都只寫「那些列的圖三會斷開」，而實際上
        整組沒有色溫時畫出來的是一條 2021K 的假水平線，說明與畫面兩邊都不對。 */
     var noCct = 0, allNo = [];
+    // v1.44.0：這一批裡有幾組帶了色度 x／y（判準與 dgGrayHasXY() 一致：每一列都要有）
+    var nXY = take.filter(dgOptGroupHasXY).length;
     take.forEach(function (g, k) {
       if (g.noCct) noCct++;
       if (g.noCct >= g.rows.length) allNo.push(dgSlotNormalizeText(g.name) || ('檔內第 ' + (k + 1) + ' 組'));
       DG_SLOTS.push({
         name: '', file: g.file || fileName,
         rows: g.rows, hasPrim: false, show: true,
-        noXY: true              // 這一組沒有色度 x／y（這個檔案格式裡本來就沒有這一欄）
+        /* v1.44.0：檔裡帶了純色端點就一起收下（沒有就是 null）。
+           🔴 `hasPrim` 是**另一件事** —— 它指的是「這個檔是 CCT 檔」那條分流，
+              比較分頁一律不收，維持 false，不要把兩個概念混在一起。 */
+        prim: g.prim || null,
+        /* 🔴 v1.44.0：這個旗標原本寫死 true（「這個檔案格式裡本來就沒有這一欄」）。
+           v1.44.0 起匯出會寫色度 x／y 區塊，所以**改成看資料本身** —— 與
+           dgGrayHasXY()／dgGrayFromSlot() 同一條判準：每一列都要有 x 與 y 才算有。
+           原廠檔與 v1.43.0 以前的檔讀不到那兩個區塊 ⇒ 仍然是 true，行為不變。 */
+        noXY: !g.rows.every(function (r) { return dgIsNum(r.x) && dgIsNum(r.y); })
       });
       // k ＝ 它在**檔裡**的位置；idx ＝ 它在**清單裡**的新位置。追加時兩者不相等。
       var idx = DG_SLOTS.length - 1, raw = dgSlotNormalizeText(g.name);
@@ -5223,8 +5563,19 @@
       + (skipped.length
         ? '\n\u26a0 檔裡還有 ' + skipped.length + ' 組超過上限沒有匯入（詳見跳出的視窗）。' : '')
       + (take.length
-        ? '\n\u26a0 這個檔案格式裡沒有色度 x／y，載回來的組只有 Gray／亮度／色溫 \u2014\u2014 '
-          + '三張比較圖要的就是這三樣，所以圖與匯出前一致；但這些組不能拿去當第 2 部分的計算輸入。'
+        /* 🔴 v1.44.0：這一段原本無條件寫死「這個檔案格式裡沒有色度 x／y」。v1.44.0 起
+           本工具匯出的檔帶色度 x／y 區塊，而原廠檔與 v1.43.0 以前的檔沒有 ——
+           同一句話對兩種檔一真一假，改成依**這一批載進來的組實際有幾組帶色度**來寫。 */
+        ? ('\n' + (nXY === take.length
+          ? ('✓ 這個檔帶了色度 x／y（' + take.length + ' 組都有）—— '
+             + '三張比較圖照畫，而且這些組可以直接拿去當第 2 部分的計算輸入（色溫可調）。')
+          : (nXY === 0
+            ? ('\u26a0 這個檔案裡沒有色度 x／y，載回來的組只有 Gray／亮度／色溫 \u2014\u2014 '
+               + '三張比較圖要的就是這三樣，所以圖與匯出前一致；但這些組拿去當第 2 部分的'
+               + '計算輸入時會被強制只調 Gamma。')
+            : ('\u26a0 這個檔裡 ' + nXY + ' 組帶了色度 x／y、其餘 ' + (take.length - nXY)
+               + ' 組沒有 \u2014\u2014 三張比較圖都照畫；沒有色度的那幾組拿去當第 2 部分的'
+               + '計算輸入時會被強制只調 Gamma。'))))
         : ''),
       skipped.length ? 'err' : 'ok');
     if (skipped.length) {
@@ -5277,7 +5628,7 @@
         /* v1.19.0：先問「是不是本工具匯出的多組比較檔」。三個辨識碼都對才走整批那條路；
            不是的話一個字都不動，照舊走下面單組白灰階量測檔那條路。 */
         var cmp = dgOptFindCompareSheet(sheets);
-        if (cmp) { dgSlotLoadCompare(cmp, file.name); return; }
+        if (cmp) { dgSlotLoadCompare(cmp, file.name, sheets); return; }
         if (DG_SLOTS.length >= DG_SLOT_MAX) {
           // v1.21.0：滿載也要跳視窗（同上面 dgSlotSkipNote 的理由），不再只有狀態列
           dgSetStatus('dg-slot-status', '已經有 ' + DG_SLOT_MAX + ' 組了（上限），這個檔沒有匯入。', 'err');
@@ -5369,6 +5720,9 @@
     var noXY = !dgIsNum(top.x) || !dgIsNum(top.y);
     var label = dgSlotDisplayName(i) + (s.file ? '\uff08' + s.file + '\uff09' : '');
     dgApplyGray({ rows: rows, white: [top.x, top.y, top.Y] }, label, 'slot');
+    /* \ud83d\udd34 v1.44.0\uff1a\u9019\u4e00\u7d44\u5e36\u4e86\u7d14\u8272\u7aef\u9ede\u5c31\u4e00\u4f75\u9084\u539f\u5230\u7b2c 3 \u90e8\u5206\uff08\u8207 dgGrayApplyOptGroup \u540c\u4e00\u689d\u8def\uff09\u3002
+       \u7b2c 3 \u90e8\u5206\u7684\u8a2d\u5b9a\u9215\u7167\u6a23\u6309\u5f97\u4e0b\u53bb\uff0c\u4f7f\u7528\u8005\u96a8\u6642\u53ef\u4ee5\u91cd\u65b0\u91cf\u3001\u8986\u84cb\u6389\u9019\u88e1\u586b\u9032\u53bb\u7684\u503c\u3002 */
+    if (s.prim) dgApplyPrim({ prim: s.prim }, label, 'slot');
 
     var box = $('dg-fmt-box');
     box.style.display = '';
@@ -5382,7 +5736,9 @@
       + (noXY
         ? '<b>這一組沒有色度 x／y</b> ⇒ 本次<b>強制只調 Gamma、不調色溫</b>（詳見跳出的視窗）。'
         : '色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出。')
-      + '<b>那一組本身留在比較分頁，沒有被移走。</b>';
+      // v1.44.0：純色端點在不在，一句話講完，不加解釋
+      + '<br><b>純色端點</b>：' + (s.prim ? '已一併帶入第 3 部分。' : '這份資料沒有，第 3 部分仍需另外量。')
+      + '<br><b>那一組本身留在比較分頁，沒有被移走。</b>';
 
     /* v1.26.0：這條路也叫 dgGrayRecordAsk()，**不開特例**。
        它必然被「內容重複」那道守衛擋下（資料本來就來自比較分頁的某一組），
@@ -5425,10 +5781,30 @@
        只是終點換成第 2 部分而不是比較清單。 */
   var DG_GRAY_OPT = null;      // 這一次匯進來的光學確認檔：{ file, groups[] }
 
+  /* v1.44.0：一組資料到底算不算「有色度」—— 這條判準在三個地方要一致
+     （挑組視窗的說明、dgGrayApplyOptGroup 的分流、清單上的小字），抽成一支。
+     🔴 與 dgGrayHasXY() 同一條規則：**每一列都要有 x 與 y**。 */
+  function dgOptGroupHasXY(g) {
+    return !!g && !!g.rows && g.rows.length > 0
+      && g.rows.every(function (r) { return dgIsNum(r.x) && dgIsNum(r.y); });
+  }
+
   function dgGrayOptPickRender() {
     var host = $('dg-gray-optpick-list');
     if (!host || !DG_GRAY_OPT) return;
     var gs = DG_GRAY_OPT.groups, h = '';
+    /* v1.44.0：說明文字依這一批組實際的情況寫，三種都要講得對：全有、全無、混在一起。 */
+    var note = $('dg-gray-optpick-note');
+    if (note) {
+      var nXY = gs.filter(dgOptGroupHasXY).length;
+      note.innerHTML = '點一組就會<b>覆蓋</b>第 2 部分現在的資料；'
+        + (nXY === gs.length
+          ? '這個檔的每一組都帶了色度 x／y ⇒ <b>色溫可調</b>。'
+          : (nXY === 0
+            ? '這個檔沒有色度 x／y，本輪會<b>強制只調 Gamma</b>。'
+            : ('這個檔裡 ' + nXY + ' 組帶了色度 x／y（色溫可調）、其餘 ' + (gs.length - nXY)
+               + ' 組沒有（挑到那些會<b>強制只調 Gamma</b>）。')));
+    }
     for (var i = 0; i < gs.length; i++) {
       var g = gs[i], top = g.rows[g.rows.length - 1];
       var nCct = g.rows.length - g.noCct;
@@ -5438,6 +5814,8 @@
         + '<span class="dg-pick-name">' + dgXe(g.name || ('第 ' + (i + 1) + ' 組')) + '</span>'
         + '<span class="dg-pick-sub">' + g.rows.length + ' 階（L' + g.rows[0].g + ' ～ L' + top.g + '）'
         + '　最高階亮度 ' + top.Y.toFixed(3) + '　色溫 ' + (nCct ? (nCct + ' 階有值') : '整欄空白')
+        // v1.44.0：挑之前就看得出這一組能不能調色溫，不用挑下去才知道
+        + '　色度 ' + (dgOptGroupHasXY(g) ? 'x／y 齊全' : '無')
         + '</span></span></button>';
     }
     host.innerHTML = h;
@@ -5445,34 +5823,69 @@
 
   /* 把挑中的那一組灌進第 2 部分。
      🔴 目標白點取**最高階那一列**（與 dgApplyLiveRows()／dgGrayFromSlot() 同一個規則），
-        只是這裡只有 Lv 沒有 x／y，第 4 欄的 CCT 若檔裡有就一起帶（dgTargetCCT() 會優先用它）。 */
+        第 4 欄的 CCT 若檔裡有就一起帶（dgTargetCCT() 會優先用它）。
+
+     ── v1.44.0：色度 x／y 不再寫死成「沒有」 ──────────────────────────────
+       v1.22.0 寫這一支時，這條路只可能收到原廠「光學確認」xlsx —— 那個格式**本身**
+       就沒有色度欄，所以白點的 x／y 寫死 null、提示文字寫死「只能調 Gamma」都是對的。
+       v1.44.0 起我們自己匯出的多組比較檔會帶色度 x／y 區塊，同一條路就會收到兩種資料，
+       寫死的那兩個假設因此不再成立。
+
+     🔴 **判定看資料、不看格式**（Bruce 2026-09-12 明示）：`hasXY` 由這一組的 rows 與
+        最高階那一列實際有沒有 x／y 決定，不看檔名、不看是哪一種檔。
+     🔴 **計算側一個字都沒改**：能不能調色溫的唯一判定點仍然是 dgToneMode() 開頭那句
+        `if (!dgGrayHasXY()) return 'gamma';`，而 dgGrayHasXY() 讀的是 #dg-in-gray／
+        #dg-in-white 的實際內容。這裡要做的只是**把真的有的 x／y 餵進去**，不是新增
+        一套「可以調色溫的條件」—— 那個條件早就存在。 */
   function dgGrayApplyOptGroup(k) {
     if (!DG_GRAY_OPT || !DG_GRAY_OPT.groups[k]) return false;
     var g = DG_GRAY_OPT.groups[k], rows = g.rows;
     var top = rows[rows.length - 1];
     var many = DG_GRAY_OPT.groups.length > 1;
     var label = DG_GRAY_OPT.file + (many ? '（' + (g.name || ('第 ' + (k + 1) + ' 組')) + '）' : '');
-    dgApplyGray({ rows: rows, white: [null, null, top.Y, dgIsNum(top.T) ? top.T : null] }, label, 'file');
+    /* 🔴 與 dgGrayHasXY() 同一條判準：**每一列都要有**，不是「有一列有就算有」
+       （dgOptGroupHasXY 就是那一條，挑組視窗的說明也讀它 —— 不開第二套）。
+       dgGatherData() 會逐列 dgXyYtoXYZ(x, y, Y)，缺一列就有 NaN 流進色彩矩陣；
+       少了 every 這一半，一份只有最高階帶色度的檔會被放行進色溫路徑然後算出垃圾。 */
+    var hasXY = dgOptGroupHasXY(g);
+    dgApplyGray({
+      rows: rows,
+      white: hasXY ? [top.x, top.y, top.Y, dgIsNum(top.T) ? top.T : null]
+                   : [null, null, top.Y, dgIsNum(top.T) ? top.T : null]
+    }, label, 'file');
+    /* 🔴 v1.44.0：這一組帶了純色端點就一併還原到第 3 部分。
+       走的是**既有的 dgApplyPrim()**，不另寫一條寫入路徑。
+       🔴 **沒有動任何按鈕的可用性**：第 3 部分的設定鈕在填與不填兩種狀態下都照樣按得下去
+          （v1.33.1 的行為是「變暗但可按」），使用者隨時可以重新量、覆蓋掉這裡填進去的值。 */
+    if (g.prim) dgApplyPrim({ prim: g.prim }, label, 'file');
 
     /* v1.26.0：這裡原本也是**不問就自動存成一組**（v1.22.0）。同 dgImportFile 的
        白灰階那一條，改成由 dgGrayRecordAsk() 問過再存 —— 「匯出方向」的通路沒有變
        （記錄之後，比較分頁那顆「匯出多組比較（.xlsx）」寫出來的就是同一個版面）。 */
     var box = $('dg-fmt-box');
     box.style.display = '';
-    box.className = 'dg-fmt warn';
+    box.className = hasXY ? 'dg-fmt' : 'dg-fmt warn';
     box.innerHTML = '<b>已匯入：</b>' + dgXe(DG_GRAY_OPT.file)
-      + '<br><b>判定：</b>光學確認格式（一欄一組：Gray／亮度／色溫，<b>沒有色度 x／y</b>）'
+      + '<br><b>判定：</b>光學確認格式（一欄一組：Gray／亮度／色溫'
+      + (hasXY ? '／<b>色度 x、y</b>' : '，<b>沒有色度 x／y</b>') + '）'
       + ' ⇒ 只填 <b>第 2 部分</b>'
       + (many ? '<br><b>選用的組</b>：' + dgXe(g.name || ('第 ' + (k + 1) + ' 組'))
                 + '（這個檔裡共 ' + DG_GRAY_OPT.groups.length + ' 組有資料）' : '')
       + '<br><b>白灰階</b>：' + rows.length + ' 階（Gray ' + rows[0].g + ' ～ ' + top.g + '）'
       + '　<b>目標白點</b>：' + dgWhiteLbl(top)
-      + '<br><b>⚠ 這份資料只能調 Gamma、不能調色溫</b>（詳見跳出的視窗）。';
+      + (hasXY
+        ? '<br>這一組帶了色度 x／y ⇒ <b>色溫可調</b>（要不要調仍由第 1 部分的選擇與 LUT 內容決定）。'
+        : '<br><b>⚠ 這份資料只能調 Gamma、不能調色溫</b>（詳見跳出的視窗）。')
+      // v1.44.0：純色端點在不在，一句話講完，不加解釋
+      + (g.prim ? '<br><b>純色端點</b>：已一併帶入第 3 部分。'
+                : '<br><b>純色端點</b>：這份資料沒有，第 3 部分仍需另外量。');
 
     var miss = dgMissingParts();
     var msg = '已匯入 ' + DG_GRAY_OPT.file + '\n'
       + '這個檔是「光學確認格式」，只填了第 2 部分：白灰階 ' + rows.length + ' 階 ＋ 目標白點。\n'
-      + '⚠ 這個格式沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫，第 3 部分本次不需要。\n'
+      + (hasXY
+        ? '這一組帶了色度 x／y ⇒ 色溫可調（第 3 部分是否需要由模式決定）。\n'
+        : '⚠ 這個格式沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫，第 3 部分本次不需要。\n')
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
         : '需要的資料都齊了，下一步：按「計算」。');
@@ -5480,18 +5893,22 @@
 
     /* 🔴 這條路上有**兩件事**要告訴使用者：①這份資料只能調 Gamma ②要不要記錄到比較分頁。
        v1.26.0 起改成**串起來**（前一個關掉才問下一個），不讓兩個視窗疊在一起
-       —— Bruce 的紀律是「一個視窗解決一件事」，不是「一次丟兩個視窗」。 */
-    dgGrayNoXYNote(label, rows.length, rows[0].g, top.g, function () {
+       —— Bruce 的紀律是「一個視窗解決一件事」，不是「一次丟兩個視窗」。
+       🔴 v1.44.0：①只在真的沒有色度時才存在。有色度時直接問②，**不補一個「好消息視窗」**
+          —— 沒有東西要警告就不該擋在畫面上。 */
+    function askRec() {
       dgGrayRecordAsk(rows, label, dgRoundName(DG_ROUND), function () {
         if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
       });
-    });
+    }
+    if (hasXY) askRec();
+    else dgGrayNoXYNote(label, rows.length, rows[0].g, top.g, askRec);
     return true;
   }
 
   /* 匯入分流的入口：認出是光學確認格式就走這裡。一組直接進，多組跳第三層讓人挑。 */
-  function dgGrayFromOpticalSheet(sheet, fileName) {
-    var res = dgOptParseCompareSheet(sheet);
+  function dgGrayFromOpticalSheet(sheet, fileName, sheets) {
+    var res = dgOptParseCompareSheet(sheet, dgOptParseSrcSheet(sheets));
     if (!res.groups.length) {
       throw new Error('這個檔是光學確認格式（表頭列第 ' + (res.layout ? res.layout.hdrRow : '?')
         + ' 列、' + (res.layout ? res.layout.n : 0) + ' 個組別欄位），但每一組的亮度欄都是空的，沒有資料可以帶入。');
@@ -5685,7 +6102,10 @@
           var mn = DG_CCT_MISS.names;
           missHtml = '<b>圖三畫不出' + (mn.length > 1 ? ('這 ' + mn.length + ' 組') : '這一組') + '：'
             + dgXe(mn.join('、')) + '</b> —— 它們的來源<b>沒有色溫資料</b>'
-            + '（多組比較 xlsx 的色溫欄整欄是空的；這個檔案格式裡也沒有色度 x／y 可以回推）。'
+            /* v1.44.0：措辭從「這個檔案格式裡也沒有色度」改成「這一組也沒有色度」——
+               v1.44.0 起同一個格式可以有色度也可以沒有，講格式會對一半的檔說謊。
+               （條件本身沒變：色溫欄整欄空 ⇒ 匯出時 T 與 x／y 都沒得寫，兩者必然同時缺。） */
+            + '（多組比較 xlsx 的色溫欄整欄是空的；這幾組也沒有色度 x／y 可以回推）。'
             + '<b>這不是算錯，是沒有東西可以算</b> —— 圖一、圖二照畫。'
             + '要看色溫曲線，請匯入色溫欄有填值的光學確認檔。';
         }
@@ -8203,8 +8623,8 @@
     host.innerHTML = h;
   }
 
-  function dgConfFromOpticalSheet(sheet, fileName) {
-    var res = dgOptParseCompareSheet(sheet);
+  function dgConfFromOpticalSheet(sheet, fileName, sheets) {
+    var res = dgOptParseCompareSheet(sheet, dgOptParseSrcSheet(sheets));
     if (!res.groups.length) {
       throw new Error('這個檔是光學確認格式，但每一組的亮度欄都是空的，沒有資料可以帶入。');
     }
@@ -8501,7 +8921,7 @@
            CCT 檔（hasPrim）與 LUT 檔在這條路上直接擋掉 —— 它們不是「重新量到的 Gamma 曲線」。 */
         if (dest === 'conf') {
           var cs = dgOptFindCompareSheet(sheets);
-          if (cs) { dgConfFromOpticalSheet(cs, file.name); return; }
+          if (cs) { dgConfFromOpticalSheet(cs, file.name, sheets); return; }
           var co = null;
           try { co = dgParseOptical(sheets); } catch (e2) { co = null; }
           if (!co || co.hasPrim) {
@@ -8517,7 +8937,7 @@
            x／y／Y 或 W_x／W_y／W_Y 表頭一個都對不上），先問哪一個都不會誤判，
            但先問這一支，認不出來時才會落到下面那句「三種檔」的說明。 */
         var cmpSheet = dgOptFindCompareSheet(sheets);
-        if (cmpSheet) { dgGrayFromOpticalSheet(cmpSheet, file.name); return; }
+        if (cmpSheet) { dgGrayFromOpticalSheet(cmpSheet, file.name, sheets); return; }
 
         var opt = null, det = null, lutErr = null, kind = null;
         try { opt = dgParseOptical(sheets); } catch (e) { opt = null; }
@@ -8593,8 +9013,12 @@
           + '· <b>CA-410 量測 CSV</b>（<span class="dg-fname">CA410_GammaMeasData_….csv</span>）'
           + ' → 從第 2 部分的鈕匯入就填白灰階（有 R／G／B 段時一併帶進第 3 部分）；'
           + '從第 3 部分的鈕匯入就只填三個純色端點。<br>'
+          /* 🔴 v1.44.0：後半句原本寫死「這個格式沒有色度 x／y，匯進來只能調 Gamma」。
+             原廠的光學確認檔確實沒有，但本工具 v1.44.0 起匯出的多組比較檔**有**色度
+             x／y 區塊，而兩者走的是同一支解析器 ⇒ 寫死就會對一半的檔說謊。 */
           + '· <b>光學確認檔</b> → 第 2 部分：A 欄 Gray、右邊一欄一組的亮度、再右邊一欄一組的色溫'
-          + '（<b>這個格式沒有色度 x／y</b>，匯進來只能調 Gamma、不能調色溫）。<br>'
+          + '（原廠這個格式<b>沒有色度 x／y</b> ⇒ 匯進來只能調 Gamma；本工具匯出的多組比較檔'
+          + '<b>帶色度 x／y</b> ⇒ 色溫可調）。<br>'
           + '· <b>LUT 檔</b> → 第 1 部分：索引欄從 0 開始、後面接 R／G／B 三欄；表頭在第 1 或第 2 列都可以，有沒有附加末筆都可以。<br>'
           + '· <b>白灰階量測檔</b> → 第 2 部分：逐階一列（Gray、x、y、Y…），或是含「量測原始值＋設定」兩張表的完整報告。<br>'
           + '· <b>CCT 檔</b> → 第 3 部分：量測原始值表的前三列是 r／g／b 三個純色。<br>'
@@ -9625,6 +10049,11 @@
     stepModalClose: dgStepModalClose,
     // v1.4.4 驗證用
     buildOpticalXlsx: dgBuildOpticalXlsx,
+    /* v1.44.0 驗證用：走**匯出鈕自己那條路**產出位元組（dgSlotExportXlsx 只是把它包成
+       Blob 下載）。測試自己組 slots 陣列會與按鈕不一致，那種通過不算數。 */
+    slotExportBytes: function () { return dgSlotExportBytes(); },
+    // v1.44.0 驗證用（唯讀）：某一組的色度齊不齊，與畫面上的判定同一支
+    slotHasXY: function (i) { return DG_SLOTS[i] ? dgOptGroupHasXY(DG_SLOTS[i]) : null; },
     optSheetName: function () { return DG_OPT_SHEETNAME; },
     optCols: function () { return DG_OPT_C; },
     optColName: dgOptCn,
