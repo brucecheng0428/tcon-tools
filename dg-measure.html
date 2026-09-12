@@ -8,6 +8,16 @@
 <!-- v1.30.0：縮放判準的單一來源。與 pattern.html 用的是同一支，不另寫第二套判準。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common），只多這一個相依。 -->
 <script src="common/zoomprobe.js?v=20260911dg1320"></script>
+<!-- ═══ v1.46.0：版號的唯一來源 ═══════════════════════════════════════════
+     Bruce 2026-09-13（v1.45.0 上線後連兩次回報「即時量測沒有多量三個純色」，
+     實測儀器收到 259 次 MES ＝ 功能正常）：真因是 v1.26.1 起的**分頁重用** ——
+     dg.html 只要 dgLiveWin 還活著就只發 dg-measure-task 換任務、不 navigate，
+     所以這個分頁載入的永遠是「開啟當時」那一版，而畫面上**連版號都沒有**，
+     使用者沒有任何線索可以察覺自己在跑舊碼。
+     🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
+        硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
+     🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
+<script src="common/version.js?v=20260913dg1460"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -699,6 +709,37 @@
     font-family: inherit; font-size: calc(12 * var(--dgm-u)); line-height: 1.3;
   }
   #dgm-log-copy:active { background: #475569; }
+
+  /* ═══ v1.46.0：右下角的版號徽章 ═════════════════════════════════════════
+     🔴 位置＝**右下角**，是四個角落裡唯一還空著的那一個：
+        左上 #dgm-info、右上 #dgm-right、左下 #dgm-log、下方置中 #dgm-bottom。
+        本檔開頭那條版面規則（「中央那一塊永遠是純灰階，資訊一律貼在四個角落」）
+        因此原封不動 —— 中央安全區沒有多一個像素被佔用。
+        水平驗算：徽章右緣貼齊 `right: 14u`，寬度上限綁 --dgm-right-w（＝右上角
+        面板的實際寬，30vw 以內）⇒ 左緣永遠在 0.7W 之後；中央對位圖形最外緣是
+        十字端點 180 CSS px ⇒ `0.5W + 180 < 0.7W` 在 W ≥ 900 時成立，而量測本來
+        就強制全螢幕。垂直方向它與左下角的 log 同高、各據一角，不會互相蓋到。
+     🔴 尺寸全部吃 --dgm-u，**沒有裸 px**（唯一的例外是 1px hairline 邊框，
+        與 .dgm-corner／#dgm-log 的既有慣例一致、刻意不等比）。
+     🔴 顏色與底色沿用 #dgm-log 那一套（rgba(0,0,0,.72) ＋ 22% 白框），
+        不另立第五種面板樣式。字級取 12 基準px：比 log 的量測行（11）大一級、
+        比它的連線行（15）小 —— 它是「隨時可查、但不搶戲」的識別資訊。
+     🔴 pointer-events: none —— 它只是標示，不該吃到任何點擊。 */
+  #dgm-ver {
+    position: fixed; right: calc(14 * var(--dgm-u)); bottom: calc(14 * var(--dgm-u));
+    z-index: 10; pointer-events: none;
+    max-width: var(--dgm-right-w, var(--dgm-panel-w));
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    background: rgba(0, 0, 0, .72); border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: calc(10 * var(--dgm-u));
+    padding: calc(5 * var(--dgm-u)) calc(11 * var(--dgm-u));
+    font: calc(12 * var(--dgm-u))/1.5 ui-monospace, Menlo, Consolas, monospace;
+    color: #cbd5e1;
+  }
+  #dgm-ver .dgm-ver-k {
+    color: #94a3b8; font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    margin-right: calc(6 * var(--dgm-u));
+  }
 </style>
 </head>
 <body>
@@ -777,6 +818,11 @@
      所以行的順序不受影響（驗證腳本取文字時只取 div，不會把鈕的字算進去）。 -->
 <div id="dgm-log"><button id="dgm-log-copy" type="button">複製 log</button></div>
 
+<!-- v1.46.0：右下角版號。文字由 JS 從 TOOL_VERSIONS.dg 填入（見上方 <head> 的說明），
+     這裡刻意留空 —— 寫一個佔位版號在 HTML 裡，就等於多了一個會過期的第二來源。
+     本檔的 <script> 是 body 結尾的同步腳本，首次繪製之前就跑完了，不會閃一下。 -->
+<div id="dgm-ver"><span class="dgm-ver-k">量測頁</span><span id="dgm-ver-v"></span></div>
+
 <script>
 (function () {
   'use strict';
@@ -789,6 +835,36 @@
         這種情況退回 '/' —— 它的意思是「限本視窗的來源」，一樣不是萬用字元。 */
   var DGM_TARGET_ORIGIN =
     (location.origin && location.origin !== 'null') ? location.origin : '/';
+
+  /* ═══ v1.46.0：本頁的版號（畫面上顯示一份、握手回報同一份）══════════════
+     🔴 **同一個變數餵兩個出口**，不各讀一次 —— 畫面寫 A、回報寫 B 的話，
+        使用者看到的版號與主控頁比對到的版號就可能不一致，而這一版的整個
+        目的就是「讓兩邊對得上」。
+     🔴 version.js 沒載進來時給空字串（不是隨便編一個）。空字串在主控頁那端
+        會判成「對不上」⇒ 走提示那條路。方向是刻意的：寧可多提示一次要人關分頁，
+        也不要因為讀不到版號就默認「你是新的」——那正是 v1.45.0 事故的形狀。 */
+  var DGM_VERSION =
+    (typeof TOOL_VERSIONS === 'object' && TOOL_VERSIONS && TOOL_VERSIONS.dg)
+      ? String(TOOL_VERSIONS.dg) : '';
+  $('dgm-ver-v').textContent = DGM_VERSION || '版號讀取失敗';
+
+  /* 回報自己的版號給主控頁。只在收到 dg-measure-task 時回一次（見檔尾的處理器）。
+     🔴 taskId 原封帶回去 —— 主控頁靠它認出「這是我剛剛那一次問的回答」，
+        而不是上一次換任務的回音。
+     🔴 running 帶的是**收到訊息當下**的值（處理器會在 dgmApplyTask 之前呼叫本支，
+        而 dgmApplyTask 會把跑到一半的那一輪 abort 掉）⇒ 它的語意是
+        「你切過來的時候我正在量」，主控頁據此決定那一輪不要打擾。 */
+  function dgmPostHello(taskId) {
+    if (!window.opener || window.opener.closed) return;
+    try {
+      window.opener.postMessage(
+        { type: 'dg-measure-hello', version: DGM_VERSION, task: taskId, running: !!running },
+        DGM_TARGET_ORIGIN);
+    } catch (err) {
+      /* 對方已經不在／送不出去：不做任何事。主控頁那端有超時，
+         收不到回報本來就會被當成「舊版」處理，這裡不需要也不應該補救。 */
+    }
+  }
 
   /* ═══ 每一階切換之後等多久才量 ══════════════════════════════════════════
      取 500 ms。理由：
@@ -2927,6 +3003,12 @@
     if (window.opener && e.source !== window.opener) return;
     var d = e.data;
     if (!d || d.type !== 'dg-measure-task') return;
+    /* v1.46.0：先回報版號，再套用任務。🔴 順序是刻意的，兩個理由：
+         ① dgmApplyTask() 會把跑到一半的那一輪 abort 掉。要讓 running 的語意是
+            「你切過來的時候我正在量」，就必須在它之前讀。
+         ② 回報走在任何 DOM 工作之前 ⇒ 主控頁量到的往返時間是這條路的下限，
+            不會把我們自己的重繪算進超時預算裡。 */
+    dgmPostHello(d.task);
     dgmApplyTask(d);
   });
 
