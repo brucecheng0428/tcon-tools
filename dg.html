@@ -1905,7 +1905,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260912dg1440"></script>
+<script src="common/version.js?v=20260912dg1441"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3580,23 +3580,35 @@
       if (cs) x += '<row r="' + rr + '">' + cs + '</row>';
     });
     x += '</sheetData>';
-    var mg = [
-      'A1:' + dgOptCn(DG_OPT_LAST) + '1',
-      dgOptCn(C.lum) + '2:' + dgOptCn(C.lum + DG_OPT_N - 1) + '2',
-      dgOptCn(C.hi) + '2:' + dgOptCn(C.lo) + '2',
-      dgOptCn(C.cct) + '2:' + dgOptCn(C.cct + DG_OPT_N - 1) + '2',
-      dgOptCn(C.std) + '2:' + dgOptCn(C.std + 2) + '2',
-      dgOptCn(C.rel) + '2:' + dgOptCn(C.rel + DG_OPT_N - 1) + '2',
-      dgOptCn(C.gamRef) + '2:' + dgOptCn(C.gamRef + 2) + '2',
-      dgOptCn(C.gam) + '2:' + dgOptCn(C.gam + DG_OPT_N - 1) + '2',
-      dgOptCn(C.cx) + '2:' + dgOptCn(C.cx + DG_OPT_N - 1) + '2',
-      dgOptCn(C.cy) + '2:' + dgOptCn(C.cy + DG_OPT_N - 1) + '2',
-      dgOptCn(C.primX) + '2:' + dgOptCn(C.primX + DG_OPT_N - 1) + '2',
-      dgOptCn(C.primY) + '2:' + dgOptCn(C.primY + DG_OPT_N - 1) + '2',
-      dgOptCn(C.primZ) + '2:' + dgOptCn(C.primZ + DG_OPT_N - 1) + '2'
-    ];
-    x += '<mergeCells count="' + mg.length + '">'
-      + mg.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>';
+    /* 🔴 v1.44.1：**單格的 mergeCell 不可以寫出去**。`<mergeCell ref="B2:B2"/>` 會讓
+       Excel 判定檔案損毀並跳「已修復」；LibreOffice 也會抱怨。
+       以前 DG_OPT_N 寫死 10，九個多組區塊恆 ≥2 欄，所以這個洞碰不到；
+       v1.44.0 起組數是可調的，**DG_OPT_N = 1 就會一次產生九個單格 merge**（實測）。
+       這一支只在真的跨欄時才收，from === to 直接丟掉（那一格本來就不需要 merge）。 */
+    var mg = [];
+    function mrg(from, to, row) {
+      var a = dgOptCn(from), b = dgOptCn(to);
+      if (from >= to) return;                 // 單格（或反向）⇒ 不寫
+      mg.push(a + row + ':' + b + row);
+    }
+    mrg(0, DG_OPT_LAST, 1);
+    mrg(C.lum, C.lum + DG_OPT_N - 1, 2);
+    mrg(C.hi, C.lo, 2);
+    mrg(C.cct, C.cct + DG_OPT_N - 1, 2);
+    mrg(C.std, C.std + 2, 2);
+    mrg(C.rel, C.rel + DG_OPT_N - 1, 2);
+    mrg(C.gamRef, C.gamRef + 2, 2);
+    mrg(C.gam, C.gam + DG_OPT_N - 1, 2);
+    mrg(C.cx, C.cx + DG_OPT_N - 1, 2);
+    mrg(C.cy, C.cy + DG_OPT_N - 1, 2);
+    mrg(C.primX, C.primX + DG_OPT_N - 1, 2);
+    mrg(C.primY, C.primY + DG_OPT_N - 1, 2);
+    mrg(C.primZ, C.primZ + DG_OPT_N - 1, 2);
+    /* mergeCells 元素本身在沒有任何 merge 時不可以寫成空的（schema 要求 count ≥ 1）。 */
+    if (mg.length) {
+      x += '<mergeCells count="' + mg.length + '">'
+        + mg.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>';
+    }
     x += '<drawing r:id="rId1"/></worksheet>';
     return x;
   }
