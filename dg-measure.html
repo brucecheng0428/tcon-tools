@@ -2726,6 +2726,52 @@
     }
     if (aborted) return;
 
+    /* ═══ v1.45.0：白灰階掃完之後，接著量三個純色端點 ═══════════════════════
+       Bruce 2026-09-12：「不管是在哪個分頁的即時量測，像是 Digital Gamma 校正
+       或是光學資料比較，這些即時量測都應該要加上大 X、大 Y、大 Z。」
+       大 X／Y／Z 是 DG 頁由**純色**的 x／y／Lv 經 dgXyYtoXYZ() 換算出來的，
+       所以要多的不是欄位、是三次量測 —— 與 prim 模式量的是同一組東西、同一套
+       指令（MES,1）、同一份初始化，只差畫面填什麼。
+       🔴 **不給開關**：256 階都量了，這三步約 7 秒；多一個選項只是讓人多想一件事。
+       🔴 **三步失敗不連坐**：白灰階那 256 階是使用者花好幾分鐘量的，純色缺了就當
+          沒有量過 —— rows 照常回傳，prim 欄位送 null，由 DG 頁說明第 3 部分仍需
+          自行量測。把整輪作廢等於拿使用者的幾分鐘去賠三秒鐘的失敗。
+       🔴 只在 gray 模式做。prim 模式（第 3 部分自己那條）一個字都不動 —— 它本來
+          就是這三步，再接一次等於量六次。 */
+    var primRows = null;
+    if (DGM_MODE === 'gray' && rows.length >= 2) {
+      msg('接著量三個純色，別動探頭。');
+      var pr = [], pbad = 0;
+      for (var q = 0; q < DGM_PRIMS.length; q++) {
+        var pc2 = DGM_PRIMS[q];
+        setFill(pc2[2][0], pc2[2][1], pc2[2][2], pc2[1]);
+        progLabel = pc2[1];
+        renderProg();
+        await painted();
+        if (aborted) return;
+        await waitOrAbort(dgmSettleUsedMs);   // 與白灰階同一個 latch，不另外給一套
+        if (aborted) return;
+        var pres = await cmd('MES,1', 20000);
+        if (aborted) return;
+        var pp = (pres === null || /^ER/.test(pres)) ? null : pres.split(',');
+        var pxv = pp ? parseFloat(pp[3]) : NaN,
+            pyv = pp ? parseFloat(pp[4]) : NaN,
+            plv = pp ? parseFloat(pp[5]) : NaN;
+        if (isNaN(pxv) || isNaN(pyv) || isNaN(plv)) {
+          // 重試規則與白灰階那一圈一模一樣：同一步重來，連三次不成才放棄
+          if (++pbad >= 3) {
+            log('純色量測連續三次失敗（' + (pres || '逾時') + '），停在 ' + progLabel
+              + '；白灰階照常回傳。', 'e');
+            pr = null; break;
+          }
+          q--; continue;
+        }
+        pbad = 0;
+        pr.push([pc2[0], pxv, pyv, plv]);
+      }
+      primRows = (pr && pr.length === DGM_PRIMS.length) ? pr : null;
+    }
+
     await closePort();
     setGray(128);
 
@@ -2739,10 +2785,21 @@
       msg('找不到 DG 分頁 —— 回 DG 頁重新按「即時量測」。', 'err');
       return;
     }
+    /* v1.45.0：這一輪跑了多久。🔴 **取自畫面右上角那個計時器的同一個來源**
+       （scanT0／elapsedMs()），不另起第二套計時 —— 兩套遲早會各講各的。
+       讀一次、同時餵給回傳與下面的「總共跑了」，兩邊必然一致。 */
+    var durMs = Math.round(elapsedMs());
     window.opener.postMessage(
       // v1.26.1：帶回任務編號 —— DG 頁靠它認出「這批資料是哪一次按鈕要的」
+      /* 🔴 v1.45.0 新增的三個欄位都是**加在既有訊息上**：rows 的形狀沒動、
+            mode 的語意沒動（gray 仍然是 gray，否則 DG 頁會誤走 dgApplyLivePrim）。
+            舊版 DG 頁讀不到這三個欄位 ⇒ 自動忽略，行為與 v1.44.x 完全相同。
+          · prim     ＝ R／G／B 三個端點的 [key, x, y, Lv]（沒量齊就是 null）
+          · durMs    ＝ 這一輪的總耗時（毫秒）
+          · settleMs ＝ 這一輪實際用的換階等待（latch 的那一份，不是選單現值） */
       { type: 'dg-measure-result', mode: DGM_MODE, label: '即時量測', task: DGM_TASK,
-        at: new Date().toLocaleString(), rows: rows },
+        at: new Date().toLocaleString(), rows: rows,
+        prim: primRows, durMs: durMs, settleMs: dgmSettleUsedMs },
       DGM_TARGET_ORIGIN);
     var span = (DGM_MODE === 'prim')
       ? 'R／G／B 三個純色端點'
@@ -2751,10 +2808,15 @@
 
     $('dgm-prog').innerHTML = '完成'
       + '<small>' + span + '　共 ' + rows.length + ' 筆'
-      + '　總共跑了 ' + fmtDur(elapsedMs()) + '</small>';
+      + '　總共跑了 ' + fmtDur(durMs) + '</small>';
     /* v1.26.2：量完只留這一句 —— 這一輪完成了、資料已經回到哪裡。
        不解釋、也不提關掉分頁（原本的 #dgm-done 說明框與「關閉這個分頁」鈕已移除）。 */
-    msg('✔ 已完成：' + rows.length + ' 筆已回到 DG 的' + partNo + '。', 'ok');
+    /* v1.45.0：gray 這一條多接一句純色的下場（成功／沒量齊）。
+       🔴 沒量齊時**要講出使用者接下來該做什麼**，不能只說失敗。 */
+    var primNote = (DGM_MODE !== 'gray') ? ''
+      : (primRows ? '　純色 R／G／B 也已一併回到第 3 部分。'
+                  : '　純色三步沒有量齊，第 3 部分仍需自行量測。');
+    msg('✔ 已完成：' + rows.length + ' 筆已回到 DG 的' + partNo + '。' + primNote, 'ok');
   }
 
   /* v1.26.1：右上角那塊是 .dgm-corner，**max-height: 30vh 且 overflow: hidden**。
@@ -2775,7 +2837,10 @@
   function dgmMsgDefault() {
     $('dgm-msg').textContent = (DGM_MODE === 'prim')
       ? '連線 → 初始化 → 零校正（蓋遮光蓋）→ 量紅、綠、藍。'
-      : '連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。';
+      /* v1.45.0：gray 這一條多了尾巴的三個純色（見 run() 裡那段）。
+         🔴 文案在**開始之前**就要講完整條流程 —— 掃完 L255 畫面忽然轉紅，
+            使用者若不知道還有這一段，會以為機器出錯或程式卡住。 */
+      : '連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255 → 量紅、綠、藍。';
     $('dgm-msg').className = '';
   }
 

@@ -1905,7 +1905,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260912dg1441"></script>
+<script src="common/version.js?v=20260912dg1450"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3625,7 +3625,11 @@
      版面刻意與主表同構（第 1 列大標題、第 3 列表頭、第 4 列起資料），讓匯入端可以
      沿用「A 欄是數字的那一段就是資料列」這條既有規則。 */
   var DG_OPT_SRC_TITLE = '各組資料來源';
-  var DG_OPT_SRC_HDRS = ['組序', '組名', '來源／時間戳', '筆數'];
+  /* v1.45.0：後面兩欄是新增的（Bruce 2026-09-12「一併記錄下來」）。
+     🔴 耗時的單位寫**秒**、小數三位 —— 毫秒對讀表的人不友善，而 ms/1000 再乘回去
+        是精確的（Math.round 收掉浮點尾數），round-trip 不會掉值。
+     🔴 欄名一旦定案就是匯入端的定位依據（表頭文字定位，不寫死欄號），不要隨手改字。 */
+  var DG_OPT_SRC_HDRS = ['組序', '組名', '來源／時間戳', '筆數', '量測耗時(秒)', '換階等待(ms)'];
 
   function dgOptSrcSheetXml(slots) {
     var R0 = DG_OPT_ROW1, rows = [], k;
@@ -3635,7 +3639,10 @@
         no: k + 1,
         name: slots[k].name || ('第 ' + (k + 1) + ' 組'),
         src: slots[k].file || '',
-        n: slots[k].rows.length
+        n: slots[k].rows.length,
+        // 沒有值就寫 ''（空格子），不要寫 0 —— 0 秒與「沒量過」是兩件事
+        dur: dgIsNum(slots[k].durMs) ? (Math.round(+slots[k].durMs) / 1000) : '',
+        settle: dgIsNum(slots[k].settleMs) ? Math.round(+slots[k].settleMs) : ''
       });
     }
     var cells = {};
@@ -3649,17 +3656,21 @@
       put(r, 1, { v: o.name, s: 0 });
       put(r, 2, { v: o.src, s: 0 });
       put(r, 3, { v: o.n, s: 0 });
+      put(r, 4, { v: o.dur, s: 0 });        // v1.45.0
+      put(r, 5, { v: o.settle, s: 0 });     // v1.45.0
     });
 
     var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-      + '<dimension ref="A1:D' + (R0 + Math.max(rows.length, 1) - 1) + '"/>'
+      + '<dimension ref="A1:F' + (R0 + Math.max(rows.length, 1) - 1) + '"/>'
       + '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
       + '<sheetFormatPr defaultColWidth="7.875" defaultRowHeight="14.25"/>'
       + '<cols><col min="1" max="1" width="7.875" customWidth="1"/>'
       + '<col min="2" max="2" width="24" customWidth="1"/>'
       + '<col min="3" max="3" width="44" customWidth="1"/>'
-      + '<col min="4" max="4" width="9" customWidth="1"/></cols><sheetData>';
+      + '<col min="4" max="4" width="9" customWidth="1"/>'
+      + '<col min="5" max="5" width="13" customWidth="1"/>'
+      + '<col min="6" max="6" width="15" customWidth="1"/></cols><sheetData>';
     Object.keys(cells).map(Number).sort(function (a, b) { return a - b; }).forEach(function (rr) {
       var row = cells[rr], cs = '';
       Object.keys(row).map(Number).sort(function (a, b) { return a - b; }).forEach(function (cc) {
@@ -3670,7 +3681,7 @@
       });
       if (cs) x += '<row r="' + rr + '">' + cs + '</row>';
     });
-    return x + '</sheetData><mergeCells count="1"><mergeCell ref="A2:D2"/></mergeCells></worksheet>';
+    return x + '</sheetData><mergeCells count="1"><mergeCell ref="A2:F2"/></mergeCells></worksheet>';
   }
 
   /* 一張原生 scatterChart。o = { title, axIdX, axIdY, xRef, xTitle, series:[{txRef,valRef,color,width}],
@@ -4889,6 +4900,27 @@
     return out;
   }
 
+  /* ═══ v1.45.0：量測耗時與換階等待 ═════════════════════════════════════════
+     Bruce 2026-09-12：「資料來源、時間戳記，除了時間戳記以外，請包含總共花費多少
+     時間量測這一次的 Gamma，還有設定的間隔是多少 milliseconds，這些一併記錄下來。
+     那在網頁上面，只顯示時間戳記跟量測費時就好了。」
+     ⇒ 兩個值都存進組裡、都寫進 Excel 的「資料來源」工作表；**畫面上只出現耗時**，
+       換階等待一律不上畫面（它是量測條件，不是量測結果，看了也不會影響判讀）。
+     🔴 兩個欄位一律容忍 null：從檔案匯入的舊組（v1.44.x 產的檔只有四欄）、
+        手動貼上的組、原廠檔的組都沒有這兩個值，下游一律用 dgIsNum() 判。 */
+  function dgFmtDur(ms) {
+    if (!dgIsNum(ms) || ms < 0) return '';
+    var s = Math.floor(ms / 1000), mm = Math.floor(s / 60), ss = s % 60;
+    return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+  /* 組別列那一行顯示什麼：來源字樣 ＋（有的話）量測耗時。
+     🔴 **只有這兩樣**。換階等待不進這一支，所以它不可能出現在畫面上。 */
+  function dgSlotSrcText(s) {
+    var t = (s && s.file) ? String(s.file) : '（無來源）';
+    var d = s ? dgFmtDur(s.durMs) : '';
+    return d ? (t + '　' + d) : t;
+  }
+
   // 匯入一份含光學量測的檔案 → 存進下一個空槽。滿了回傳 0，成功回傳組別編號（1 起算）。
   function dgSlotAdd(opt, fileName) {
     if (!opt || !opt.rows || !opt.rows.length) return 0;
@@ -4918,6 +4950,10 @@
         };
       }),
       hasPrim: !!opt.hasPrim,
+      /* v1.45.0：量測耗時（毫秒）與換階等待（毫秒）。只有即時量測那三條路會帶，
+         其餘來源一律 null —— 不猜、不補預設值。 */
+      durMs: dgIsNum(opt.durMs) ? +opt.durMs : null,
+      settleMs: dgIsNum(opt.settleMs) ? +opt.settleMs : null,
       show: true
     });
     dgSlotRender();
@@ -4964,7 +5000,8 @@
         + '<label class="dg-slot-show"><input type="checkbox" data-dg-slot-cb="' + i + '"' + (s.show ? ' checked' : '') + '><span>顯示</span></label>'
         + '<span class="dg-slot-main">'
         + '<input class="dg-slot-name" type="text" spellcheck="false" data-dg-slot="' + i + '" value="' + dgXe(dgSlotDisplayName(i)) + '">'
-        + '<span class="dg-slot-file" title="' + dgXe(s.file || '（無來源）') + '">' + dgXe(s.file || '（無來源）') + '</span>'
+        // v1.45.0：來源字樣後面接量測耗時（沒有就只有來源）。換階等待不在這裡，見 dgSlotSrcText()
+        + '<span class="dg-slot-file" title="' + dgXe(dgSlotSrcText(s)) + '">' + dgXe(dgSlotSrcText(s)) + '</span>'
         + '</span>'
         + '<span class="dg-slot-n">' + s.rows.length + ' 階</span>'
         + '<button type="button" class="dg-slot-del" data-dg-slot-del="' + i + '" title="刪除這一組">\u2715</button>'
@@ -5073,7 +5110,10 @@
     var colors = [], i;
     for (i = 0; i < DG_OPT_N; i++) colors.push(dgSlotColor(i));
     return dgBuildOpticalXlsx(DG_SLOTS.map(function (s, k) {
-      return { name: dgSlotDisplayName(k), file: s.file, rows: s.rows, prim: s.prim || null };
+      return { name: dgSlotDisplayName(k), file: s.file, rows: s.rows, prim: s.prim || null,
+               // v1.45.0：兩個新欄位一路帶到「資料來源」工作表（沒有就 null，格子留空）
+               durMs: dgIsNum(s.durMs) ? +s.durMs : null,
+               settleMs: dgIsNum(s.settleMs) ? +s.settleMs : null };
     }), colors, base || dgCctBase());
   }
 
@@ -5194,7 +5234,11 @@
         + '\n到「光學資料比較」分頁刪掉其中一組再試一次。', 'err');
       return 0;
     }
-    var no = dgSlotAdd({ rows: rows, hasPrim: false }, dgSlotSourceLabel());
+    /* v1.45.0：第 2 部分這一份若是即時量測來的，耗時／換階等待跟著轉出去
+       （DG_GRAY_META；換成別的來源時 dgApplyGray() 已經把它清成 null）。 */
+    var m2 = DG_GRAY_META || {};
+    var no = dgSlotAdd({ rows: rows, hasPrim: false,
+                         durMs: m2.durMs, settleMs: m2.settleMs }, dgSlotSourceLabel());
     /* 🔴 v1.44.0：第 3 部分現在有純色端點的話，一起帶進這一組。
        理由：這一顆鈕的語意是「把我這一輪量到的存起來」，而純色端點就是這一輪的一部分；
        不帶走的話，匯出的 Excel 裡純色端點區塊永遠是空的，下次匯入回來還得再量一次。
@@ -5408,7 +5452,11 @@
              · 舊格式（v1.43.0 以前）：主表 B 欄，第 k 組寫在第 row0+k 列
              · 新格式（v1.44.0 起）：另一個工作表，依組序對應（srcMap 的 key 是 1 起算） */
         file: L.fileCol ? String(dgCellV(sheet, L.row0 + k, L.fileCol) || '')
-                        : ((srcMap && srcMap[k + 1]) || ''),
+                        : ((srcMap && srcMap[k + 1] && srcMap[k + 1].src) || ''),
+        /* v1.45.0：耗時與換階等待只存在於新格式的來源工作表。舊格式（主表 B 欄）
+           與原廠檔都沒有這兩個值 ⇒ null。 */
+        durMs: (srcMap && srcMap[k + 1] && dgIsNum(srcMap[k + 1].durMs)) ? srcMap[k + 1].durMs : null,
+        settleMs: (srcMap && srcMap[k + 1] && dgIsNum(srcMap[k + 1].settleMs)) ? srcMap[k + 1].settleMs : null,
         rows: rows, noCct: noCct
       });
     }
@@ -5427,14 +5475,20 @@
       if (sheets[i] && sheets[i].sheetName === DG_OPT_SRCSHEET) { sh = sheets[i]; break; }
     }
     if (!sh) return null;
-    var hr = -1, noCol = 0, srcCol = 0, r, c;
+    /* v1.45.0：耗時與換階等待兩欄是**選配**的。
+       🔴 定位條件仍然只要求「組序 ＋ 來源／時間戳」兩欄找得到 —— v1.44.x 產的舊檔
+          只有四欄，若把新欄位也列為必要條件，那些檔會整張表讀不到、連來源都掉。
+          有就讀、沒有就 null，這是這一版相容性的全部。 */
+    var hr = -1, noCol = 0, srcCol = 0, durCol = 0, setCol = 0, r, c;
     for (r = 1; r <= Math.min(sh.maxRow, 8) && hr < 0; r++) {
       for (c = 1; c <= sh.maxCol; c++) {
         var t = dgOptHdrText(sh, r, c);
         if (t === DG_OPT_SRC_HDRS[0]) noCol = c;
         if (t === DG_OPT_SRC_HDRS[2]) srcCol = c;
+        if (t === DG_OPT_SRC_HDRS[4]) durCol = c;
+        if (t === DG_OPT_SRC_HDRS[5]) setCol = c;
       }
-      if (noCol && srcCol) hr = r; else { noCol = 0; srcCol = 0; }
+      if (noCol && srcCol) hr = r; else { noCol = 0; srcCol = 0; durCol = 0; setCol = 0; }
     }
     if (hr < 0) return null;
     var map = {};
@@ -5442,7 +5496,14 @@
       var no = dgCellV(sh, r, noCol);
       if (!dgIsNum(no)) continue;
       var v = dgCellV(sh, r, srcCol);
-      map[+no] = (v == null) ? '' : String(v);
+      // 寫出去是秒，讀回來換算成毫秒（Math.round 收掉 222.48*1000 那種浮點尾數）
+      var dv = durCol ? dgCellV(sh, r, durCol) : null;
+      var sv = setCol ? dgCellV(sh, r, setCol) : null;
+      map[+no] = {
+        src: (v == null) ? '' : String(v),
+        durMs: dgIsNum(dv) ? Math.round(+dv * 1000) : null,
+        settleMs: dgIsNum(sv) ? Math.round(+sv) : null
+      };
     }
     return map;
   }
@@ -5540,6 +5601,9 @@
            🔴 `hasPrim` 是**另一件事** —— 它指的是「這個檔是 CCT 檔」那條分流，
               比較分頁一律不收，維持 false，不要把兩個概念混在一起。 */
         prim: g.prim || null,
+        // v1.45.0：來源工作表裡的耗時／換階等待（舊檔沒有這兩欄 ⇒ null）
+        durMs: dgIsNum(g.durMs) ? g.durMs : null,
+        settleMs: dgIsNum(g.settleMs) ? g.settleMs : null,
         /* 🔴 v1.44.0：這個旗標原本寫死 true（「這個檔案格式裡本來就沒有這一欄」）。
            v1.44.0 起匯出會寫色度 x／y 區塊，所以**改成看資料本身** —— 與
            dgGrayHasXY()／dgGrayFromSlot() 同一條判準：每一列都要有 x 與 y 才算有。
@@ -5676,7 +5740,9 @@
   /* \u2500\u2500 來源三：比較分頁當場即時量測 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
      rows 的格式與 dgApplyLiveRows() 收到的完全一樣（量測頁只送 g／x／y／Y 四欄），
      所以過濾與排序照抄那一支，只是終點換成 dgSlotAdd() 而不是第 2 部分的輸入框。 */
-  function dgSlotAddFromLive(rows, at) {
+  /* v1.45.0：meta ＝ { prim, durMs, settleMs }。 */
+  function dgSlotAddFromLive(rows, at, meta) {
+    meta = meta || {};
     var rs = (rows || []).filter(function (r) {
       return r && r.length >= 4 && [0, 1, 2, 3].every(function (k) { return isFinite(r[k]); });
     }).map(function (r) {
@@ -5699,10 +5765,27 @@
       return 0;
     }
     var label = '（即時量測' + (at ? ' ' + at : '') + '）';
-    var no = dgSlotAdd({ rows: rs, hasPrim: false }, label);
+    var no = dgSlotAdd({ rows: rs, hasPrim: false,
+                         durMs: meta.durMs, settleMs: meta.settleMs }, label);   // v1.45.0
+    /* ═══ v1.45.0：純色端點 ══════════════════════════
+       兩件事，缺一不可：
+       ① **存進這一組**（s.prim）—— 它是這一輪量到的東西，匯出 Excel、或在第 2 部分
+          挑這一組回去時（dgGrayFromSlot 既有那條路）都要用得到。
+       ② **同時填進第 3 部分** —— Bruce 2026-09-12：「不管是在哪個分頁的即時量測…
+          都應該要加上大 X、大 Y、大 Z」、「如果是我們自己量完，不用產生 Excel，
+          就可以直接解鎖第三部分」。
+       🔴 ② 會動到第 3 部分，與本卡片原本那句「第 1、2、3 部分完全沒有被動到」相牴觸
+          —— 所以**那句話一併改掉**，不留一句與行為對不上的保證。第 1、2 部分仍然
+          一個欄位都沒有動。 */
+    if (no) DG_SLOTS[no - 1].prim = dgLivePrimToXYZ(meta.prim);
+    var primNote = dgApplyGrayTailPrim(meta.prim, at);
+    if (no) dgSlotRender();   // prim 是 dgSlotAdd 之後才寫進去的，重畫一次
     dgSetStatus('dg-slot-status', '即時量測完成，已成為第 ' + no + ' 組：'
       + rs.length + ' 筆（L' + rs[0].g + ' \uff5e L' + rs[rs.length - 1].g + '）。\n'
-      + '第 1、2、3 部分完全沒有被動到。要拿它當計算輸入，請到「Digital Gamma 校正」分頁'
+      + (primNote
+        ? '純色端點已存進這一組，並帶入校正分頁的第 3 部分。第 1、2 部分沒有被動到。\n'
+        : '這一輪沒有帶回純色端點，第 3 部分仍需自行量測。第 1、2 部分沒有被動到。\n')
+      + '要拿它當計算輸入，請到「Digital Gamma 校正」分頁'
       + '第 2 部分選「從光學資料比較挑一組」。', 'ok');
     return no;
   }
@@ -5732,6 +5815,11 @@
     var noXY = !dgIsNum(top.x) || !dgIsNum(top.y);
     var label = dgSlotDisplayName(i) + (s.file ? '\uff08' + s.file + '\uff09' : '');
     dgApplyGray({ rows: rows, white: [top.x, top.y, top.Y] }, label, 'slot');
+    /* v1.45.0：這一組身上的量測耗時／換階等待跟著回到第 2 部分（dgApplyGray 剛清空）。
+       🔴 少了這一行，「量測 → 存成組 → 挑回第 2 部分 → 再轉出」會把耗時弄丟。 */
+    DG_GRAY_META = (dgIsNum(s.durMs) || dgIsNum(s.settleMs))
+      ? { durMs: dgIsNum(s.durMs) ? s.durMs : null, settleMs: dgIsNum(s.settleMs) ? s.settleMs : null }
+      : null;
     /* \ud83d\udd34 v1.44.0\uff1a\u9019\u4e00\u7d44\u5e36\u4e86\u7d14\u8272\u7aef\u9ede\u5c31\u4e00\u4f75\u9084\u539f\u5230\u7b2c 3 \u90e8\u5206\uff08\u8207 dgGrayApplyOptGroup \u540c\u4e00\u689d\u8def\uff09\u3002
        \u7b2c 3 \u90e8\u5206\u7684\u8a2d\u5b9a\u9215\u7167\u6a23\u6309\u5f97\u4e0b\u53bb\uff0c\u4f7f\u7528\u8005\u96a8\u6642\u53ef\u4ee5\u91cd\u65b0\u91cf\u3001\u8986\u84cb\u6389\u9019\u88e1\u586b\u9032\u53bb\u7684\u503c\u3002 */
     if (s.prim) dgApplyPrim({ prim: s.prim }, label, 'slot');
@@ -8164,7 +8252,12 @@
      換算成 XYZ 的責任留在本頁 —— `dgXyYtoXYZ()` 就是使用者手填 x／y／Lv 那一側
      走的同一支函式，所以「量到的」與「手填的」在儲存層完全等價，
      第 3 部分表格右半的 x／y／Lv 欄會原樣把量到的數字顯示回來。 */
-  function dgApplyLivePrim(rows, at) {
+  /* v1.45.0：把量測頁送回來的純色列（[key, x, y, Lv]）換成 {r,g,b} 三組 XYZ。
+     🔴 抽成一支的理由：v1.45.0 起白灰階那一輪也會回傳純色端點（gray 模式尾巴的
+        三步），於是同一份換算有兩個呼叫端。換算只能有一份實作，否則兩條路遲早
+        算出不一樣的 XYZ。**內容一字未改**，只是從 dgApplyLivePrim 裡搬出來。
+     三筆齊了才回傳物件；少一筆回 null（缺一個端點就湊不出色彩矩陣）。 */
+  function dgLivePrimToXYZ(rows) {
     var byKey = {};
     (rows || []).forEach(function (r) {
       if (!r || r.length < 4) return;
@@ -8173,6 +8266,22 @@
       if (!isFinite(r[1]) || !isFinite(r[2]) || !isFinite(r[3])) return;
       byKey[k] = dgXyYtoXYZ(+r[1], +r[2], +r[3]);
     });
+    return (byKey.r && byKey.g && byKey.b) ? byKey : null;
+  }
+
+  /* v1.45.0：白灰階那一輪尾巴帶回來的純色端點 → 第 3 部分。
+     🔴 走的是**既有的 dgApplyPrim()**，與 CCT 檔匯入、prim 模式即時量測同一條寫入路徑；
+        不另開一條，也不動第 1、2 部分。
+     回傳一小段給呼叫端接在自己的說明後面（三個入口各自的文案不同，這裡不搶著寫）。 */
+  function dgApplyGrayTailPrim(primRows, at) {
+    var xyz = dgLivePrimToXYZ(primRows);
+    if (!xyz) return '';
+    dgApplyPrim({ prim: xyz }, at || '', 'live');
+    return '純色 R／G／B 三個端點也一併帶入第 3 部分（大 X／Y／Z 由 dgXyYtoXYZ() 換算）。';
+  }
+
+  function dgApplyLivePrim(rows, at) {
+    var byKey = dgLivePrimToXYZ(rows) || {};
     if (!byKey.r || !byKey.g || !byKey.b) {
       dgSetStatus('dg-status', '即時量測分頁送回來的純色端點不齊（需要 R、G、B 三筆），沒有帶入。', 'err');
       return;
@@ -8266,7 +8375,9 @@
   var DG_REC = null;          // 這一次要問的：{ rows, label, done, name }
   var DG_REC_NOTE = '';       // 「為什麼沒問」的理由，給呼叫端接在狀態列後面
 
-  function dgGrayRecordAsk(rows, label, baseName, done) {
+  /* v1.45.0：meta ＝ { durMs, settleMs }（只有即時量測那兩條路會帶，其餘 undefined）。
+     它跟著這一份資料一路走到 dgSlotAdd()，組裡才會有耗時可顯示、可匯出。 */
+  function dgGrayRecordAsk(rows, label, baseName, done, meta) {
     DG_REC_NOTE = '';
     function fin(no) { DG_REC = null; if (done) done(no || 0); }
     if (!rows || rows.length < 2) { fin(0); return; }
@@ -8291,6 +8402,7 @@
        因為從問到答之間組數可能又變了。 */
     var base = baseName || dgRoundName(DG_ROUND);
     DG_REC = { rows: rows, label: label || '', done: done, base: base,
+               meta: meta || null,                                   // v1.45.0
                name: dgSlotUniqueName(base, DG_SLOTS.length) };
     var info = $('dg-rec-info');
     if (info) {
@@ -8310,7 +8422,10 @@
     dgStepModalClose('dg-modal-rec');
     var no = 0;
     if (r && record) {
-      no = dgSlotAdd({ rows: r.rows, hasPrim: false }, r.label);
+      // v1.45.0：耗時／換階等待跟著這一份資料進到組裡（不是即時量測來的就是 null）
+      no = dgSlotAdd({ rows: r.rows, hasPrim: false,
+                       durMs: r.meta ? r.meta.durMs : null,
+                       settleMs: r.meta ? r.meta.settleMs : null }, r.label);
       if (no) {
         // 撞名規則沿用既有的 dgSlotUniqueName()；名字是在新增之後才寫得進去（要有索引）
         dgSlotStoreName(no - 1, dgSlotUniqueName(r.base, no - 1));
@@ -8368,7 +8483,16 @@
     }, 900);
   }
 
+  /* ─── v1.45.0：第 2 部分**現在這一份**的量測耗時／換階等待 ────────────────
+     只有即時量測那一條會有值。放在這裡（而不是四散在各呼叫端）的理由：
+     第 2 部分的內容被任何來源整份換掉時，這兩個值就跟著失效 —— 由唯一的寫入口
+     dgApplyGray() 一律歸零，需要它的那一條（dgApplyLiveRows）寫完再補上。
+     🔴 **不可以用「上一次量測的值」當預設**：使用者可能量完之後改匯入一份檔，
+        那份檔的耗時不是上一次那個數字，是「沒有」。 */
+  var DG_GRAY_META = null;
+
   function dgApplyGray(opt, fileName, srcKind) {
+    DG_GRAY_META = null;
     dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     $('dg-in-gray').value = opt.rows.map(function (r) {
       var s = r.g + ' ' + dgXyCell(r.x) + ' ' + dgXyCell(r.y) + ' ' + r.Y;
@@ -8405,7 +8529,9 @@
        · duv 沒有可靠來源 —— 儀器在 MDS,0（x,y,Lv）下不回傳，所以留空，不填假值
      目標白點取最高階那一筆的 x、y、Lv（三欄），第 4 欄 CCT 不自己補：
      dgGatherData 缺第 4 欄時本來就會用 dgCCT 算，多填一欄不會多出任何資訊。 */
-  function dgApplyLiveRows(rows, label) {
+  /* v1.45.0：meta ＝ { prim, durMs, settleMs }（量測頁新增的三個欄位，都可能缺）。 */
+  function dgApplyLiveRows(rows, label, meta) {
+    meta = meta || {};
     var rs = rows.filter(function (r) {
       return r && r.length >= 4 && [0, 1, 2, 3].every(function (i) { return isFinite(r[i]); });
     }).map(function (r) {
@@ -8418,6 +8544,12 @@
     }
     var top = rs[rs.length - 1];
     dgApplyGray({ rows: rs, white: [top.x, top.y, top.Y] }, label || '', 'live');
+    /* v1.45.0：這一份是即時量測來的 ⇒ 把耗時／換階等待記在第 2 部分身上
+       （dgApplyGray 剛剛把它清成 null，所以一定要在它之後寫）。
+       之後「轉出到光學資料比較」或被問「要不要記錄」時，這兩個值跟著過去。 */
+    DG_GRAY_META = { durMs: meta.durMs, settleMs: meta.settleMs };
+    // v1.45.0：白灰階之後的三個純色端點 → 第 3 部分（沒量齊就是空字串，什麼都不做）
+    var primNote = dgApplyGrayTailPrim(meta.prim, label);
 
     /* v1.11.0：他人在量測那一頁，切回來時要一眼看到「資料真的進來了」。
        徽章要點開才注意得到，所以借用匯入檔案那個同一個可見方框（dg-fmt-box），
@@ -8429,7 +8561,11 @@
       + '<br><b>白灰階</b>：' + rs.length + ' 筆（L' + rs[0].g + ' ～ L' + top.g + '）'
       + '　<b>目標白點</b>：x=' + top.x.toFixed(6) + ' y=' + top.y.toFixed(6) + ' Lv=' + top.Y.toFixed(3)
       + '<br>色溫 T 由本頁的 <code>dgCCT(x, y)</code> 算出；duv 儀器沒有回傳，留空。'
-      + '光學確認圖表已經畫出這條曲線。';
+      + '光學確認圖表已經畫出這條曲線。'
+      /* v1.45.0：純色端點有沒有跟著回來，一句話講完。
+         🔴 沒回來時**要講使用者接下來該做什麼**（第 3 部分自己量），不能只說沒有。 */
+      + (primNote ? ('<br><b>✔ ' + primNote + '</b>')
+                  : '<br>這一輪沒有帶回純色端點，<b>第 3 部分仍需自行量測</b>。');
 
     var miss = dgMissingParts();
     var msg = '已從「即時量測」分頁帶入第 2 部分：白灰階 ' + rs.length + ' 階（Gray '
@@ -8437,6 +8573,8 @@
       + ' Lv=' + top.Y.toFixed(3) + '。\n'
       + '色溫 T 由本頁的 dgCCT(x, y) 算出；duv 儀器沒有回傳，留空。\n'
       + '光學確認圖表已經畫出這條曲線。\n'
+      // v1.45.0
+      + (primNote ? (primNote + '\n') : '這一輪沒有帶回純色端點，第 3 部分仍需自行量測。\n')
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
         : '三份都齊了，下一步：按「計算」。');
@@ -8444,7 +8582,7 @@
     // v1.26.0：即時量測也是「第 2 部分有新資料」的一條路
     dgGrayRecordAsk(rs, label || '（即時量測）', dgRoundName(DG_ROUND), function () {
       if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
-    });
+    }, DG_GRAY_META);   // v1.45.0
   }
 
   /* ═══ v1.24.0：第 4 部分「確認結果」════════════════════════════════════════
@@ -8543,7 +8681,8 @@
   }
 
   /* 唯一的寫入點：三條來源（匯入量測檔／匯入光學確認檔／即時量測）都走這裡。 */
-  function dgConfApply(rows, label, kind) {
+  /* v1.45.0：meta ＝ { durMs, settleMs }（只有即時量測那一條會帶）。 */
+  function dgConfApply(rows, label, kind, meta) {
     var rs = (rows || []).slice().sort(function (a, b) { return a.g - b.g; });
     if (rs.length < 2) {
       dgConfSetStatus('這一份確認量測的資料不足（至少要 2 階），沒有帶入。', 'err');
@@ -8586,11 +8725,11 @@
        🔴 「要不要進行第二輪」仍然**不是視窗**，是卡片上那顆按鈕，一個字都沒改回去。
        這一份的預設組名多兩個字（「第一輪確認」），與第 2 部分那次分得開。 */
     dgGrayRecordAsk(rs, DG_P4.label, dgRoundName(DG_ROUND) + '確認', function () {
-      if (DG_REC_NOTE) {
+      if (DG_REC_NOTE) {   // v1.45.0：meta 見本函式最後一個參數
         dgConfSetStatus('已帶入第 4 部分的確認量測：' + rs.length + ' 階（Gray ' + rs[0].g + ' ～ ' + top.g + '）。\n'
           + '有沒有達到目標請自己看圖判斷 —— 本頁不做這個判斷。\n' + DG_REC_NOTE, 'ok');
       }
-    });
+    }, meta || null);
     return true;
   }
 
@@ -8604,14 +8743,25 @@
     if (b) b.textContent = '進行' + dgRoundName(DG_ROUND + 1);
   }
 
-  function dgConfApplyLive(rows, at) {
+  /* v1.45.0：meta ＝ { prim, durMs, settleMs }。 */
+  function dgConfApplyLive(rows, at, meta) {
+    meta = meta || {};
     var rs = (rows || []).filter(function (r) {
       return r && r.length >= 4 && [0, 1, 2, 3].every(function (i) { return isFinite(r[i]); });
     }).map(function (r) {
       return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3], T: dgCCT(+r[1], +r[2]) };
     });
-    if (!dgConfApply(rs, '（即時量測' + (at ? ' ' + at : '') + '）', 'live')) return;
+    /* v1.45.0：第 4 部分這一輪也是「我們自己量的」⇒ 純色端點同樣帶進第 3 部分。
+       🔴 第 4 部分本身**一個欄位都沒有多**（它不是計算輸入）；多的是第 3 部分。
+       🔴 **順序不能反**：dgApplyPrim() 會叫 dgInvalidateResult()，而那一支會
+          dgConfReset() 把第 4 部分整個清掉（既有設計：輸入變了，結果與確認都作廢）。
+          先寫第 3 部分、再寫第 4 部分，第 4 部分才留得住。
+          實測：反過來寫時 dgApi.p4() 回 null —— 這一條是探針抓到的，不是看碼看出來的。 */
+    var primNote = dgApplyGrayTailPrim(meta.prim, at);
+    if (!dgConfApply(rs, '（即時量測' + (at ? ' ' + at : '') + '）', 'live',
+                     { durMs: meta.durMs, settleMs: meta.settleMs })) return;
     dgConfSetStatus('已從「即時量測」分頁帶入第 4 部分：' + rs.length + ' 階。\n'
+      + (primNote ? (primNote + '\n') : '這一輪沒有帶回純色端點，第 3 部分仍需自行量測。\n')
       + '有沒有達到目標請自己看圖判斷 —— 本頁不做這個判斷。', 'ok');
   }
 
@@ -9766,10 +9916,20 @@
       var dest = DG_LIVE_TASKS[d.task] || DG_LIVE_DEST;
       // mode 缺席時當灰階（v1.11.0 以前的量測頁沒有這個欄位）
       if (d.mode === 'prim') { dgApplyLivePrim(d.rows, d.at || d.label); return; }
+      /* ─── v1.45.0：白灰階那一輪多帶回來的三個欄位 ──────────────────────────
+         量測頁（v1.45.0 起）在 gray 模式掃完 L255 之後會再量純紅／綠／藍三步，
+         並回報這一輪的總耗時與當時的換階等待。三個欄位都是**加在既有訊息上**，
+         舊量測頁不會有 ⇒ 這裡一律容忍 undefined，三個入口自己判要不要用。 */
+      var meta = {
+        prim: d.prim || null,
+        // 🔴 用 dgIsNum 不用 isFinite：isFinite(null) 是 true，會把「沒有」變成 0
+        durMs: dgIsNum(d.durMs) ? d.durMs : null,
+        settleMs: dgIsNum(d.settleMs) ? d.settleMs : null
+      };
       // v1.18.0：白灰階量完要進哪裡，由「是誰按的即時量測」決定（見 DG_LIVE_DEST）
-      if (dest === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label);
-      else if (dest === 'conf') dgConfApplyLive(d.rows, d.at || d.label);   // v1.24.0
-      else dgApplyLiveRows(d.rows, d.at || d.label);
+      if (dest === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label, meta);
+      else if (dest === 'conf') dgConfApplyLive(d.rows, d.at || d.label, meta);   // v1.24.0
+      else dgApplyLiveRows(d.rows, d.at || d.label, meta);
     });
 
     // v1.8.0：說明浮動視窗。內容直接取自頁面上那些 display:none 的區塊，不維護第二份文字。
@@ -10070,6 +10230,16 @@
     optCols: function () { return DG_OPT_C; },
     optColName: dgOptCn,
     slotRaw: function () { return DG_SLOTS; },
+    /* v1.45.0 驗證用（唯讀）：組的量測耗時／換階等待，以及**畫面上那一行的字**。
+       🔴 slotSrcText 讀的就是 dgSlotRender() 寫進 .dg-slot-file 的同一支 ——
+          「間隔不上畫面」這條斷言必須對著畫面真的那串字，不是對著資料。 */
+    slotTiming: function (i) {
+      var s = DG_SLOTS[i];
+      return s ? { durMs: dgIsNum(s.durMs) ? s.durMs : null,
+                   settleMs: dgIsNum(s.settleMs) ? s.settleMs : null } : null;
+    },
+    slotSrcText: function (i) { return DG_SLOTS[i] ? dgSlotSrcText(DG_SLOTS[i]) : null; },
+    grayMeta: function () { return DG_GRAY_META ? { durMs: DG_GRAY_META.durMs, settleMs: DG_GRAY_META.settleMs } : null; },
     // v1.8.0 驗證用
     partFilled: function (p) { return dgPartFilled(p); },
     missingParts: function () { return dgMissingParts(); },
