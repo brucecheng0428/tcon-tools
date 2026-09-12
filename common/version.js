@@ -12,7 +12,7 @@ var TOOL_VERSIONS = {
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.46.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
-  dg:      'v1.45.0',      // Digital Gamma 迭代校正
+  dg:      'v1.46.0',      // Digital Gamma 迭代校正
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）

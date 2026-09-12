@@ -1905,7 +1905,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260912dg1450"></script>
+<script src="common/version.js?v=20260913dg1460"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -9659,6 +9659,101 @@
         不是照入口數量猜的。 */
   var DG_LIVE_WHAT = { gray: '白灰階亮度', prim: 'RGB 純色 Pattern' };
 
+  /* ═══ v1.46.0：重用量測分頁時比對它的版號 ═══════════════════════════════
+     ── 事故（Bruce 2026-09-13，連兩次回報、外加我一輪假 serial 實測才定位）──
+       v1.45.0 上線後他回報「即時量測沒有多量三個純色」，而儀器實際收到的 MES
+       共 259 次（256 灰階 ＋ 3 純色）⇒ 程式沒壞。壞的是**他跑的不是那一版**：
+       v1.26.1 起，只要 dgLiveWin 還活著，這裡就**只發 dg-measure-task 換任務、
+       不 navigate**（那是刻意的，為了保住儀器連線與全螢幕，見下方那大段說明）。
+       所以那個分頁載入的永遠是「開啟當時」那一版，而它畫面上連版號都沒有
+       ⇒ 使用者沒有任何線索可以察覺。這一版補的就是那條線索。
+
+     ── 做法 ────────────────────────────────────────────────────────────────
+       換任務的訊息送出後，量測頁（v1.46.0 起）會回一則 `dg-measure-hello`
+       帶自己的版號。收到就比對；**在超時之內沒收到就當成舊版**。
+     🔴 「沒回報就當它是對的」是不行的 —— 使用者手上那個分頁正是舊版、正是
+        不會回報的那一個，那樣寫等於這個功能對唯一需要它的人完全無效。
+     🔴 提示**只是文字**，寫在本頁的狀態列。不關他的分頁、不改它的 location、
+        不搶焦點、也不送任何東西過去叫它做事 —— 那個分頁可能正握著儀器連線、
+        可能在全螢幕（Bruce 會在本工具與原廠 UI 之間來回切）。要不要關由他決定。
+
+     ── 超時值怎麼定的（1500 ms）─────────────────────────────────────────────
+       ① 下限（必須大於真實往返）：同源 postMessage 的回覆是排進對方 event loop
+          的一個 task，**不是 timer** ⇒ Chrome 對背景分頁的 timer 節流
+          （1 s／1 min 量級）與 rAF 停擺都管不到它。量測頁那一端的回覆又寫在
+          處理器的第一行、在任何 DOM 工作之前（見 dg-measure.html 該處）。
+          🔴 產品端的處理延遲實測（jsdom、20 次）：**中位數 0.16 ms、最大 1.66 ms**。
+             量到的是「訊息進到量測頁 → 它把回報交出來」，也就是我們自己寫的那
+             一段；**真 Chrome 的跨分頁排程沒有量到**（本次全程禁用瀏覽器類工具），
+             所以下面 ② 的餘裕不是靠這個數字撐的，是靠節流量級撐的。
+       ② 保守上界（「它還活著、只是慢」能慢到多少）：這一頁能想到最粗的節流
+          量級是 1000 ms（Chrome intensive throttling 的 timer 量子）。即使
+          哪天 task queue 也被同一個量級拖住，1500 ms ＝ 1.5 倍餘裕仍涵蓋得住。
+       ③ 上限（不能久到沒用）：提示要在使用者切過去操作之前就定案。切分頁 ＋
+          擺探頭 ＋ 按鈕，人這一側最快也是數秒級，1.5 s 遠在它之前。
+       ⇒ 三條夾出來的區間是 [~0 ms, 數秒]，取 1500 ms —— 比量到的處理延遲大三個
+         數量級、比最粗的已知節流量級大 50%、比人的反應快一個數量級。
+       🔴 猜錯的代價是**不對稱的**，這也是取值偏保守的理由：多提示一次，代價是
+          使用者白關一個分頁、重連一次儀器；少提示一次，代價就是 v1.45.0 那次
+          （兩輪來回＋一輪實測才知道跑的是舊碼）。
+       🔴 這個數字**不是**「感覺差不多」；若日後量到有環境的往返超過它，
+          該做的是把量到的數字寫進上面 ① 重新推，不是直接把數字調大。 */
+  var DG_LIVE_VER_TIMEOUT_MS = 1500;
+  /* 本頁自己的版號。與量測頁同一個來源（common/version.js 的 TOOL_VERSIONS.dg），
+     兩邊都不硬編 —— 硬編就是兩個來源，正好是這一版要修的那個病。 */
+  var DG_SELF_VER =
+    (typeof TOOL_VERSIONS === 'object' && TOOL_VERSIONS && TOOL_VERSIONS.dg)
+      ? String(TOOL_VERSIONS.dg) : '';
+  var dgLiveVerTimer = null;   // 等回報的計時器（null ＝ 沒有在等）
+  var dgLiveVerTask = 0;       // 正在等哪一號任務的回報（0 ＝ 沒有在等）
+  var dgLiveVerSay = null;     // 該把提示寫到哪一條狀態列（就是按下去那顆鈕的那一條）
+
+  /* 文案：極簡、只講怎麼做。不解釋原因（Bruce 一貫要求）。 */
+  var DG_LIVE_VER_MSG = '請關掉那個量測分頁，再按一次即時量測。';
+
+  /* 🔴 提示一律排到「目前這一輪處理結束之後」才寫進狀態列。
+     驗證當場抓到的：把回報改成同步送達（壓力測試那一檔）時，提示會在
+     按鈕處理器**還沒跑完**的時候就寫出去，然後被處理器結尾那句
+     「量測分頁已切換到第 N 部分…」整個蓋掉 ⇒ 明明判出是舊版卻什麼都沒顯示。
+     真瀏覽器的 postMessage 一定是非同步、現實中不會這樣，但**正確性不該押在
+     「它一定比較慢」上面**（同一個押注在 dgLiveVerAsk 的順序上已經錯過一次）。 */
+  function dgLiveVerWarn(say) {
+    if (!say) return;
+    setTimeout(function () { say(DG_LIVE_VER_MSG, 'err'); }, 0);
+  }
+
+  function dgLiveVerClear() {
+    if (dgLiveVerTimer) { clearTimeout(dgLiveVerTimer); dgLiveVerTimer = null; }
+    var say = dgLiveVerSay;
+    dgLiveVerSay = null; dgLiveVerTask = 0;
+    return say;
+  }
+
+  /* 重用分頁時呼叫：開始等這一號任務的版號回報。 */
+  function dgLiveVerAsk(task, say) {
+    dgLiveVerClear();            // 上一次還在等就作廢，永遠只等最後那一次
+    dgLiveVerTask = task; dgLiveVerSay = say;
+    dgLiveVerTimer = setTimeout(function () {
+      dgLiveVerTimer = null;
+      var s = dgLiveVerClear();
+      // 超時 ＝ 那個分頁不會回報 ＝ 它是還沒有握手能力的舊版（見上面 🔴）
+      dgLiveVerWarn(s);
+    }, DG_LIVE_VER_TIMEOUT_MS);
+  }
+
+  /* 收到版號回報。 */
+  function dgLiveVerHello(d) {
+    // 不是我們正在等的那一次（例如上一次換任務的回音晚到）⇒ 不動任何狀態
+    if (!dgLiveVerTask || d.task !== dgLiveVerTask) return;
+    var say = dgLiveVerClear();
+    /* 🔴 切過去的當下它正在量 ⇒ 這一輪不提示。
+       （Bruce：量測進行中不可跳提示，會干擾。） */
+    if (d.running) return;
+    // 版號一致 ⇒ 完全靜默。正常情形下這是唯一會走到的分支。
+    if (String(d.version || '') === DG_SELF_VER) return;
+    dgLiveVerWarn(say);
+  }
+
   function dgInit() {
     dgGridsInit();
     dgSlotBind();
@@ -9869,6 +9964,14 @@
                     ① 量測頁右上角那個**大字步驟名稱**會當場換掉（他人就在全螢幕裡，
                        這是唯一看得到的線索）＋ 底部提示列的綠字切換說明；
                     ② DG 這一頁的狀態列明講「已切到第 N 部分，請切過去那個分頁操作」。 */
+            /* v1.46.0：先架好「在等哪一號任務的版號回報」，**再**送訊息。
+               🔴 順序是刻意的，而且是驗證當場抓到的：反過來寫的話，只要回報在
+                  postMessage 回來之前就送達，dgLiveVerTask 還是 0 ⇒ 回報被丟掉
+                  ⇒ 明明是新版也照樣跳提示。真瀏覽器的 postMessage 一定是非同步、
+                  現實中不會這樣，但**正確性不該押在「它一定比較慢」上面**。
+               🔴 **只在重用這條路問** —— 開新分頁那條路載到的必然是這一次取回來
+                  的檔，沒有比對的對象。 */
+            dgLiveVerAsk(task, say);
             dgLiveWin.postMessage(
               { type: 'dg-measure-task', task: task, mode: mode, dest: p[2],
                 what: DG_LIVE_WHAT[mode] },
@@ -9909,6 +10012,13 @@
     window.addEventListener('message', function (e) {
       if (e.origin !== window.location.origin) return;
       var d = e.data;
+      /* v1.46.0：版號回報。🔴 來源必須真的是我們手上那個量測分頁 ——
+         同源的別的分頁也送得出這個型別的訊息，那不該影響這裡的判定。 */
+      if (d && d.type === 'dg-measure-hello') {
+        if (dgLiveWin && e.source !== dgLiveWin) return;
+        dgLiveVerHello(d);
+        return;
+      }
       if (!d || d.type !== 'dg-measure-result' || !d.rows || !d.rows.length) return;
       /* v1.26.1：一批資料屬於「當初要它的那一次按鈕」，不是「現在最後按的那一顆」。
          正常情形兩者本來就是同一個（換任務會先把量測中止掉，不會有資料回來），
