@@ -1905,7 +1905,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1460"></script>
+<script src="common/version.js?v=20260913dg1470"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -9980,9 +9980,32 @@
             /* v1.27.0：開新頁時把**步驟名稱**一起帶過去（重用那條路是走上面那則
                訊息的 dest 欄位）。🔴 名稱就是 p[2] —— 主頁面在用的那組字，
                量測頁不自己造一份，否則兩邊遲早對不上。 */
+            /* ═══ v1.47.0：網址帶版號，繞過 HTML 快取 ═════════════════════
+               這條網址本來**沒有 `?v=`**，而 GitHub Pages 給 HTML 的是
+               `max-age=600` ⇒ 部署後十分鐘內，使用者照 v1.46.0 的提示
+               「關掉那個量測分頁，再按一次即時量測」，瀏覽器仍可能直接拿
+               快取裡的舊 dg-measure.html —— 提示照做了卻沒有效果。
+               （common/*.js 一直都有 `?v=`，缺的只有這個 HTML 本身。）
+
+               🔴 參數名選 `v`：
+                 · 避開既有的四個 —— `mode`（p[1] 帶進來的）、`task`、
+                   `dest`、`what`。已 grep 量測頁的 DGM_QS.get()，它只讀
+                   這四個，`v` 不與任何一個相撞。
+                 · 與全站 cache buster 的既有慣例同名（common/*.js 的 `?v=`）。
+               🔴 量測頁**刻意不讀它**：它的唯一用途是讓瀏覽器把這當成另一個
+                  URL。要做版本一致性檢查，v1.46.0 的 postMessage 握手已經在
+                  做，而且那一條在**重用分頁**時也成立 —— 網址參數只在開新頁
+                  時存在，拿它當第二套判準會多一個只覆蓋一半情況的來源。
+               🔴 值取 DG_SELF_VER（common/version.js 的單一來源），不硬編。
+                  version.js 沒載進來時它是空字串，網址就退回沒有版號那樣
+                  ——只是少一層快取繞過，不會壞掉。
+               🔴 **不影響分頁重用**：重用與否由 dgLiveAlive() 判斷，它讀的是
+                  dgLiveWin 這個物件參照（活著且沒關掉），從來不比對網址。
+                  這一整段只在 else 分支（＝沒有可重用的分頁）才會執行。 */
             var url = 'dg-measure.html' + p[1] + (p[1] ? '&' : '?') + 'task=' + task
               + '&dest=' + encodeURIComponent(p[2])
-              + '&what=' + encodeURIComponent(DG_LIVE_WHAT[mode]);
+              + '&what=' + encodeURIComponent(DG_LIVE_WHAT[mode])
+              + '&v=' + encodeURIComponent(DG_SELF_VER);
             dgLiveWin = window.open(url, '_blank');
             if (!dgLiveWin) {
               say('瀏覽器把新分頁擋掉了。請允許本站開新分頁後再按一次「即時量測」。', 'err');
