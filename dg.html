@@ -316,22 +316,35 @@
   .dg-svg-wrap, .dg-zoom-canvas { position: relative; }
   .dg-svg-wrap { cursor: crosshair; touch-action: pan-y; }
   /* v1.4.2 放大視窗：單指平移與雙指縮放都要自己處理，所有觸控手勢都不讓給瀏覽器。
-     游標三態（Bruce 2026-09-06 裁示）：平常是一般箭頭 —— 這個狀態的職責是
+     游標（Bruce 2026-09-06 裁示）：**還沒放大**時是一般箭頭 —— 這個狀態的職責是
      「指到哪就顯示那一點的數值」，用 grab 會讓人以為只能拖不能讀；按住 Shift 變十字
-     準星（要拉框）；手抓只在真的按著左鍵拖的當下出現，放開就回到箭頭。 */
+     準星（要拉框）；手抓只在真的按著左鍵拖的當下出現，放開就收掉。
+     放大之後的預設游標見下一條 .dg-zoomed（v1.57.0 起是十字準星）。 */
   .dg-zoom-canvas { cursor: default; touch-action: none; }
-  /* v1.54.0：**放大之後**（＝真的有東西可以拖）滑過繪圖區就換成手抓
-     （Bruce 2026-09-13：「當我在放大的時候，我還可以點選滑鼠左鍵變成抓取的圖示，
-     可以移動圖表」）。沒放大時維持箭頭 —— 那個狀態拖不動任何東西，畫成手抓是騙人的。
-     這一條刻意排在 .dg-shift 之前：同為兩個 class 的選擇器、特異性相同，後寫的贏，
-     所以按住 Shift（要拉框）仍然是十字準星。 */
-  .dg-zoom-canvas.dg-grab { cursor: grab; }
+  /* v1.54.0 讓「放大之後滑過繪圖區」變成手抓（class 當時叫 dg-grab）。
+     🔴 v1.57.0 推翻那個值、保留那個條件 —— Bruce 2026-09-14：
+        「在放大以後，怎麼滑鼠移進去會變成手爪的圖案？這裡應該還是需要十字的圖案，
+         只有在滑鼠左鍵按下去的時候，才需要變成手爪。要不然現在這樣的話，我在勾選
+         『哪一個 Curve 要顯示、哪一個不要顯示』的時候會對不準，因為它一直都是手爪圖案。」
+        手爪沒有尖端，指不出「現在瞄在哪一點」；v1.55.0 把圖例做成可勾選之後，
+        這個缺點從「不方便讀值」升級成「勾不到想勾的那一列」。
+        十字準星的交叉點就是作用點，讀值、框選、瞄圖例三件事都靠它。
+     class 跟著改名 dg-grab → dg-zoomed：它表達的是「放大狀態下的繪圖區」這個**條件**
+     （見 pointermove 裡的 dgIsZoomed 判定），不再是某一個游標長相，名字留著會誤導下一個人。
+     排在 .dg-shift 之前的理由不變（特異性相同、後寫的贏），現在兩者同值，順序無害。 */
+  .dg-zoom-canvas.dg-zoomed { cursor: crosshair; }
   .dg-zoom-canvas.dg-shift { cursor: crosshair; }
+  /* 手抓只出現在「真的按著左鍵」的當下（平移＝dg-panning，搬圖例＝dg-leg-drag），
+     放開就回到上面那兩條。整個繪圖區沒有任何一條規則會畫出沒按下的 grab。 */
   .dg-zoom-canvas.dg-panning { cursor: grabbing; }
   /* v1.4.7 圖例可拖曳。這兩條刻意放在 .dg-shift 之後，讓「壓在圖例上」蓋過
      「按住 Shift」——圖例那一塊拉框沒有意義，而按著 Shift 又想把圖例挪開是合理的。
-     游標的例外只發生在圖例矩形上，一般繪圖區仍然是箭頭（那裡的職責是顯示數值）。 */
-  .dg-zoom-canvas.dg-leg-hover { cursor: grab; }
+     🔴 v1.57.0 把 hover 從 grab 改成 pointer。圖例現在的主要互動是**點**（v1.55.0 的
+        核取方塊），拖曳是次要；pointer 明說「這裡是點的、不是畫的」，與繪圖區的十字
+        一眼可分。不依列細分（可勾的列 pointer、參考線列與邊框 grab）是刻意的 ——
+        列高只有 fs+9≈21px、列與列幾乎無縫，游標會在兩種長相之間抖動，那是另一種
+        「對不準」。拖曳行為本身一個字未改，只是不再用游標宣告它。 */
+  .dg-zoom-canvas.dg-leg-hover { cursor: pointer; }
   .dg-zoom-canvas.dg-leg-drag { cursor: grabbing; }
   /* 滑到圖例上時外框亮起來 —— 純 CSS 選 SVG 內部的那個 rect，不必為了 hover 重畫整張圖 */
   .dg-zoom-canvas.dg-leg-hover .dg-legend-box { stroke: #38bdf8; }
@@ -2047,7 +2060,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260914dg1560"></script>
+<script src="common/version.js?v=20260914dg1570"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3809,18 +3822,20 @@
     // hover：沒在拖的時候顯示提示框（縮放／平移後座標由 DG_CHART_GEOM 重新換算，自然正確）
     el.addEventListener('pointermove', function (e) {
       if (down || pinch) return;
-      // v1.4.7：滑到圖例上就換成可抓取的游標（只換游標，提示框的既有行為不動）
+      // v1.4.7：滑到圖例上就換游標（v1.57.0 起是 pointer；只換游標，提示框的既有行為不動）
       if (big) {
         var hp = dgPtToData(geomKey, el, e.clientX, e.clientY);
         var onLeg = !!(hp && dgHitLegend(hp));
         if (onLeg) el.classList.add('dg-leg-hover');
         else el.classList.remove('dg-leg-hover');
-        /* v1.54.0 需求四：放大之後滑過繪圖區，游標變成「可抓取」。
-           🔴 條件是 dgIsZoomed() ——「有東西可以拖」才畫手抓。沒放大時 dgNavApply()
-              會把平移夾成零位移，這時候顯示手抓是在承諾一個做不到的操作。
-           圖例上（要搬圖例）與縱軸的那兩個標籤／Auto 鈕上不套，各自有各自的游標。 */
-        if (hp && hp.inPlot && !onLeg && !dgHitYUi(e.target) && dgIsZoomed(dataKey)) el.classList.add('dg-grab');
-        else el.classList.remove('dg-grab');
+        /* v1.54.0 需求四：標記「放大之後滑過繪圖區」這個狀態。
+           🔴 條件是 dgIsZoomed() ——「有東西可以拖」才需要另一種游標。沒放大時
+              dgNavApply() 會把平移夾成零位移，這時候換游標是在承諾一個做不到的操作。
+           🔴 v1.57.0：這個 class 掛上去之後畫的是**十字準星**不是手抓（見上面 CSS
+              的 .dg-zoomed），class 也跟著改名 —— 條件沒變，變的是它長什麼樣子。
+           圖例上（要搬／要勾）與縱軸的那兩個標籤／Auto 鈕上不套，各自有各自的游標。 */
+        if (hp && hp.inPlot && !onLeg && !dgHitYUi(e.target) && dgIsZoomed(dataKey)) el.classList.add('dg-zoomed');
+        else el.classList.remove('dg-zoomed');
       }
       // v1.50.0：虛線與曲線指認吃 dgTipShow() 回傳的吸附結果（同一筆資料，不各算各的）
       dgCmpHover(el, geomKey, dataKey, dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY), e.clientX, e.clientY);
@@ -3981,7 +3996,7 @@
     el.addEventListener('pointerleave', function () {
       if (down || pinch) return;
       el.classList.remove('dg-leg-hover');
-      el.classList.remove('dg-grab');       // v1.54.0：離開圖表就把手抓游標收掉
+      el.classList.remove('dg-zoomed');     // v1.54.0：離開圖表就把放大態的游標收掉
       hideBox(); dgTipHide(el);
       // v1.50.0：滑鼠離開圖表要乾淨還原 —— 虛線消失、圖例外框移除、線寬復原
       dgCmpHoverClear(el, geomKey, dataKey);
