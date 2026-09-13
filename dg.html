@@ -1968,7 +1968,36 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1520"></script>
+<!-- v1.53.0：通用光學格式偵測的確認視窗。
+     🔴 Bruce 指定「判讀結果一定要顯示給使用者確認，不可以默默吃進去」。
+     版型照抄 #dg-modal-rec（兩選一），不另造一套；關掉／Escape ＝ 不收。 -->
+<div class="dg-modal" id="dg-modal-uni">
+  <div class="dg-modal-box">
+    <div class="dg-modal-bar">
+      <span class="dg-modal-title" id="dg-modal-uni-title">這個檔不是已知格式，請確認判讀</span>
+      <button class="dg-modal-close" id="dg-modal-uni-close">關閉</button>
+    </div>
+    <div class="dg-modal-body">
+      <div class="dg-lut-step" data-step="ask" data-title="這個檔不是已知格式，請確認判讀">
+        <div id="dg-uni-info"></div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>就是這樣</b></div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-uni-yes">就是這樣，收進來</button>
+          </div>
+        </div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b>不對</b></div>
+          <div class="dg-btnrow">
+            <button class="dg-btn" id="dg-btn-uni-no">不對，不要收</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="common/version.js?v=20260913dg1530"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -5332,6 +5361,655 @@
     return '⚠ 這個檔有 ' + csv.errN + ' 列的 ErrCode 不是 0（代碼 ' + ks.join('、') + '）。資料照收，數值請自行斟酌。';
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     v1.53.0：通用光學格式偵測（第六條路，純追加）
+     ───────────────────────────────────────────────────────────────────────
+     Bruce 2026-09-13：「所有光學量測的數據可能有不同的格式、不同的 Excel，但只要
+     它都是 L0 到 L255，而且有光學亮度的數據……不論是有小 x、小 y，或是只有亮度，
+     都可以用我們這套系統吃進來，而不用只限於某些格式。系統要能自動去找亮度資訊、
+     小 x 小 y 資訊，以及 RGB 純色 pattern 的大 X 大 Y 大 Z 資訊。」
+
+     ── 這一條的立場 ──────────────────────────────────────────────────────
+     🔴 **不靠「認得這個檔名／這個表頭」吃檔，靠資料本身的數值特徵與物理恆等式。**
+        表頭一個字都不參與判定 —— 英文、日文、完全空白都一樣收得下。
+     🔴 **純追加，不取代。** 既有五條（dgParseOpticalA／B／dgParseCa410Csv／
+        dgOptParseCompareSheet／dgDetectLut）維持原樣、優先使用；本支只在它們
+        **全部都認不出來**、原本就要 throw 的那一步才啟動。所以任何現行收得下的檔，
+        走的仍是逐字元相同的那條路。
+     🔴 **判讀結果一律跳視窗給使用者確認**（dgUniAsk），不默默吃進去。
+     🔴 **信心不足寧可不收**，並說明缺什麼 —— 不硬猜一個。
+
+     ── 門檻的依據（全部從 13 份真實語料量出來，不是拍腦袋）──────────────────
+     量測腳本 `_tmp_dg1530/`（measure_stats.js／measure_gamma.js／measure_lut_risk.js）。
+
+     ① 恆等式容忍度 1e-4
+        正解殘差：CCT 檔 Rawdata 259 列 **恆為 0**；CA-410 CSV 1280 列 **≤ 5.55e-16**。
+        最接近的錯配（X,Y,Z 寫成 Y,X,Z）殘差 **0.0290**；其餘錯配 0.061～0.200。
+        ⇒ 1e-4 對正解有 1.8e11 倍餘裕、對最近的錯配有 290 倍餘裕。
+        為什麼不取 1e-12：要容許檔案把 x／y **顯示成小數第 4 位**（捨入 ≤ 5e-5）。
+
+     ② 單調性門檻 1%（單次下降 ÷ 全距）
+        27 組真實資料實測：19 組 0 次下降，7 組 1 次（幅度 4.67e-5～1.13e-4），
+        2 組 2 次（幅度 **2.00e-4**，最大值）。⇒ 門檻 1e-2 有 **50 倍餘裕**。
+
+     ③ γ 窗 [1.5, 3.5]
+        24 組真實光學語料的中段 γ 中位數落在 **2.135～2.489**；
+        真實 LUT 檔的 R／G／B 欄（EM01／EM02／E512／E503／CCT 內的 LUT 分頁，共 15 欄）
+        落在 **0.847～1.215**；線性序號 1.000；帶 ±0.5% 雜訊的線性序號 0.995。
+        ⇒ 兩群之間有 **0.92 的空隙**，門檻 1.5 落在空隙裡。
+        🔴 **這一條是經驗先驗，不是物理恆等式**（Bruce 2026-09-13 已知情並裁示採用）。
+           代價：**會拒收一份真的接近線性的亮度量測**。這是刻意的取捨 —— 序號與亮度
+           兩者都單調遞增，沒有 γ 窗就分不開。所以被它擋下時**訊息一定要寫明原因**，
+           使用者才不會以為工具壞了（dgUniLumWhyNot）。
+
+     ④ 色度成對：x+y 的**全距** > 1e-3，且兩欄**各自**的全距也 > 1e-3
+        🔴 佔比類欄位的破綻**不是「和 < 1」而是「和是常數」**（兩欄佔比和恆為 1）。
+        實測 5 份有色度的真檔，**檔內** x+y 全距 0.0954～0.1292 ⇒ 門檻 1e-3 有 95 倍餘裕。
+        各欄全距實測：x 0.0454～0.0546、y 0.0502～0.0747 ⇒ 同樣有 45 倍以上餘裕。
+
+     ⑥ 色度多義時的裁決：dgCCT(a,b) 與檔案自己的色溫欄，中位相對差 ≤ 2%
+        🔴 實作時才發現的坑：**duv 欄也會通過上面④的硬條件**（它落在 0～1、與 x 或 y
+           相加 < 1、和也不是常數）。實測 3 份真檔的 duv 全為正，(x,duv)／(y,duv)
+           兩組都成立 ⇒ 光靠④會判成「多義」，色度就收不進來。
+        實測中位相對差：**正解 (x,y) 1.02e-4～3.99e-4**；
+        錯配 (x,duv) 0.203～0.326、(y,duv) **0.118**～0.175（最接近的一種）。
+        ⇒ 門檻 2% 對正解有 **50 倍**餘裕、對最接近的錯配有 **5.9 倍**餘裕。
+        這一條用的是既有的 dgCCT()，不另寫一套。
+
+     ⑤ 色溫 1e3～2e4（Bruce 指定的量級）。實測真檔 6216～17263，全部在內。
+     ═══════════════════════════════════════════════════════════════════════ */
+  var DG_UNI_IDENT_TOL = 1e-4;     // ① 恆等式
+  var DG_UNI_DROP_FRAC = 1e-2;     // ② 單調性：單次下降 ÷ 全距
+  var DG_UNI_GAMMA_LO = 1.5;       // ③ γ 窗下界
+  var DG_UNI_GAMMA_HI = 3.5;       // ③ γ 窗上界
+  var DG_UNI_SUMSPAN = 1e-3;       // ④ x+y 全距下限（擋佔比欄）
+  var DG_UNI_XYSUM_EPS = 1e-6;     // ④ x+y < 1 的嚴格度（z = 1−x−y > 0）
+  var DG_UNI_CCT_LO = 1e3;         // ⑤
+  var DG_UNI_CCT_HI = 2e4;         // ⑤
+  var DG_UNI_CCT_FIT = 0.02;       // ⑥ 色度多義時用色溫欄裁決的容忍度
+  var DG_UNI_AFFINE = 1e-9;        // 「完全仿射」＝二階差 ÷ 全距（序號）
+  var DG_UNI_MINROWS = 16;         // 與既有三支解析器同一條線
+  /* 驗證用的正控制計數器：13 份真實語料匯入時這個數必須**維持 0**
+     （否則「回歸全綠」有可能只是因為本支根本沒被叫到 —— 那不算驗過）。 */
+  var DG_UNI_HITS = 0;
+
+  // 每一欄最長的**連續數值段**。不看表頭、不假設資料從第幾列開始。
+  function dgUniColRuns(sheet) {
+    var out = [], c, r, s, n, bestS, bestN;
+    for (c = 1; c <= sheet.maxCol; c++) {
+      bestS = 0; bestN = 0; s = 0; n = 0;
+      for (r = 1; r <= sheet.maxRow; r++) {
+        if (dgIsNum(dgCellV(sheet, r, c))) {
+          if (!n) s = r;
+          n++;
+          if (n > bestN) { bestN = n; bestS = s; }
+        } else n = 0;
+      }
+      out.push({ c: c, r0: bestS, r1: bestS + bestN - 1, n: bestN });
+    }
+    return out;
+  }
+
+  /* 一欄的數值特徵。vs 已依灰階升冪排好。 */
+  function dgUniColStat(vs) {
+    var n = vs.length, i, mn = Infinity, mx = -Infinity, allInt = true, nonNeg = true;
+    for (i = 0; i < n; i++) {
+      if (vs[i] < mn) mn = vs[i];
+      if (vs[i] > mx) mx = vs[i];
+      if (vs[i] !== Math.round(vs[i])) allInt = false;
+      if (vs[i] < 0) nonNeg = false;
+    }
+    var span = mx - mn, d2 = 0, drop = 0, d;
+    for (i = 2; i < n; i++) { d = Math.abs(vs[i] - 2 * vs[i - 1] + vs[i - 2]); if (d > d2) d2 = d; }
+    for (i = 1; i < n; i++) { d = vs[i - 1] - vs[i]; if (d > drop) drop = d; }
+    return {
+      n: n, min: mn, max: mx, span: span, allInt: allInt, nonNeg: nonNeg,
+      first: vs[0], last: vs[n - 1],
+      constant: !(span > 0),
+      // 完全仿射 ＝ 二階差全為 0 ⇒ 序號，不是量測（真實量測的 d2/span 實測 ~4e-5）
+      affine: (span > 0) && (d2 / span) <= DG_UNI_AFFINE,
+      dropFrac: (span > 0) ? drop / span : 0
+    };
+  }
+
+  /* 中段 γ：**沿用既有的 dgCurveOf()**，不另寫一套算法（兩份算式並存遲早分岔）。
+     取相對亮度落在 5%～95% 那一段的中位數 —— 兩端會因黑階與正規化而發散。 */
+  function dgUniGamma(gs, vs) {
+    var rows = [], i;
+    for (i = 0; i < gs.length; i++) rows.push({ g: gs[i], x: null, y: null, Y: vs[i], T: null });
+    var c = dgCurveOf(rows), arr = [];
+    for (i = 0; i < c.M; i++) {
+      if (c.gam[i] === null || !isFinite(c.gam[i])) continue;
+      if (c.rel[i] < 0.05 || c.rel[i] > 0.95) continue;
+      arr.push(c.gam[i]);
+    }
+    if (!arr.length) return null;
+    arr.sort(function (a, b) { return a - b; });
+    return arr[arr.length >> 1];
+  }
+
+  /* 亮度判定。回傳 null ＝ 是亮度；回傳字串 ＝ 不是，字串就是**給使用者看的原因**。
+     🔴 每一條不合格都要有一句話，因為 γ 窗會擋掉合法的線性亮度檔（見上面 ③）。 */
+  function dgUniLumWhyNot(st, gam) {
+    if (!st.nonNeg) return '有負值';
+    if (st.constant) return '整欄同一個值';
+    if (st.affine) return '完全線性，像序號';
+    if (st.dropFrac > DG_UNI_DROP_FRAC) {
+      return '中途大幅下降（最大 ' + (st.dropFrac * 100).toFixed(1) + '% 全距），不像亮度曲線';
+    }
+    /* 🔴 **兩端也要對**：只看「每一步掉多少」擋不住一條慢慢往下走的欄。
+       實測（NC4 的負控制語料）一欄 0.65−a 從 0.35 緩降到 0.30，每一步只掉
+       0.4% 全距 ⇒ 上面那條整條放行；接著 dgCurveOf() 會把它**正規化成遞增**
+       （分母是負的），連 γ 都算成 1.7 落在窗內 —— 一條遞減的欄就這樣被當成亮度。
+       所以補上「最高階必須最亮、最低階必須最暗」：這是亮度對灰階單調遞增的定義，
+       而且與 dgCurveOf() 拿 rows[0] 當 Y0、rows[M−1] 當 Ymax 的前提一致。
+       容忍度沿用同一條 1%（真實語料的兩端偏差實測為 0）。 */
+    if (st.span > 0) {
+      if (st.max - st.last > DG_UNI_DROP_FRAC * st.span) return '最高階不是最亮的，不像亮度曲線';
+      if (st.first - st.min > DG_UNI_DROP_FRAC * st.span) return '最低階不是最暗的，不像亮度曲線';
+    }
+    if (gam === null) return '算不出 Gamma';
+    if (gam < DG_UNI_GAMMA_LO) {
+      return '像線性（γ=' + gam.toFixed(2) + '），不像 Gamma 曲線';
+    }
+    if (gam > DG_UNI_GAMMA_HI) {
+      return 'Gamma 太陡（γ=' + gam.toFixed(2) + '）';
+    }
+    return null;
+  }
+
+  /* 色度成對：a、b 兩欄是不是同一組 x／y。
+     全是硬條件（色度座標的定義），不是經驗值。 */
+  function dgUniXyPair(va, vb) {
+    var n = va.length, i, s, mn = Infinity, mx = -Infinity;
+    for (i = 0; i < n; i++) {
+      if (!(va[i] > 0 && va[i] < 1)) return false;      // 0 < x < 1
+      if (!(vb[i] > 0 && vb[i] < 1)) return false;      // 0 < y < 1
+      s = va[i] + vb[i];
+      if (!(s < 1 - DG_UNI_XYSUM_EPS)) return false;    // z = 1−x−y > 0
+      if (s < mn) mn = s;
+      if (s > mx) mx = s;
+    }
+    // 🔴 和是常數 ⇒ 佔比欄，不是色度（這一條比「和 < 1」硬得多）
+    return (mx - mn) > DG_UNI_SUMSPAN;
+  }
+
+  /* ─── 哪一欄是 x、哪一欄是 y ─────────────────────────────────────────────
+     這**是全案唯一用到表頭文字的地方**，而且立場很清楚：
+     🔴 表頭**永遠不是閘門** —— 沒有任何一欄因為表頭而被收下或被拒絕。它只在
+        「這一對已經通過所有硬條件、確定是色度」之後，決定兩者的先後。
+        所以英文／日文／完全空白的檔一個字都不受影響（落回欄位位置那條退路）。
+     🔴 為什麼需要它：實測 U1（欄位順序打亂、寫成 y 在左 x 在右）沒有任何硬條件
+        分得出先後 —— dgCCT(x,y) 與 dgCCT(y,x) 都算得出「看起來合理」的色溫
+        （D65 實算 6505 K vs 5683 K），色度值域也對稱。剩下的只有表頭。
+     判準：字串裡**只有 x 沒有 y**⇒ 這欄是 x；只有 y 沒有 x ⇒ 這欄是 y。
+     （涵蓋 `x`／`CIEx`／`W_x`／`色度x`／`Chromaticity x`；`xy` 這種兩者都有的不算數。）
+     兩欄都判不出來 ⇒ 退回「左邊那欄是 x」的表格慣例，並在確認視窗標明依據。 */
+  function dgUniHdrTag(v) {
+    if (typeof v !== 'string' || !v) return 0;
+    var s = v.toLowerCase();
+    var hx = s.indexOf('x') >= 0, hy = s.indexOf('y') >= 0;
+    if (hx && !hy) return 1;        // 這一欄是 x
+    if (hy && !hx) return 2;        // 這一欄是 y
+    return 0;
+  }
+  function dgUniXyOrder(b, a1, a2) {
+    /* 表頭列不能寫死成「資料起始列的前一列」：資料段上面可能還夾著別的列
+       （實測 U7 的三列純色端點就夾在表頭與灰階資料之間，前一列是端點列不是表頭）。
+       🔴 往上找**兩欄同時都有文字**的那一列才算表頭 —— 只看單一欄會撿到不相干的
+          標籤（例如 `Max` 裡有 x、`Y avg` 裡有 y），反而把先後判反。
+          上限 20 列純粹防呆。 */
+    var top = Math.max(1, b.gray.r0 - 20);
+    for (var r = b.gray.r0 - 1; r >= top; r--) {
+      var v1 = dgCellV(b.sheet, r, a1.c), v2 = dgCellV(b.sheet, r, a2.c);
+      if (typeof v1 !== 'string' || !v1 || typeof v2 !== 'string' || !v2) continue;
+      var t1 = dgUniHdrTag(v1), t2 = dgUniHdrTag(v2);
+      if (t1 === 1 && t2 === 2) return [a1, a2, 'hdr'];
+      if (t1 === 2 && t2 === 1) return [a2, a1, 'hdr'];
+      break;                        // 找到表頭列了但判不出來 ⇒ 不再往上找
+    }
+    return [a1, a2, 'pos'];         // 退路：左邊那欄當 x
+  }
+
+  /* 色度多義時的裁決：這一對算出來的色溫，與檔案自己的色溫欄差多少（中位相對差）。
+     用既有的 dgCCT()，不另寫一套。回 NaN ＝ 算不動、無法裁決。 */
+  function dgUniCctFit(va, vb, vt) {
+    var d = [], i, t;
+    for (i = 0; i < vt.length; i++) {
+      t = dgCCT(va[i], vb[i]);
+      if (isFinite(t) && vt[i] > 0) d.push(Math.abs(t - vt[i]) / vt[i]);
+    }
+    if (!d.length) return NaN;
+    d.sort(function (p, q) { return p - q; });
+    return d[d.length >> 1];
+  }
+
+  /* XYZ 三欄的恆等式驗證（dgXyYtoXYZ 的定義，dg.html:1949 的反向）。
+     每一列都要過，錯一列就整組否決。🔴 沒有 x／y／Lv 可比對就不判 XYZ。 */
+  function dgUniXyzOk(X, Y, Z, xs, ys, Ls) {
+    var n = X.length, i, S;
+    for (i = 0; i < n; i++) {
+      if (!(X[i] >= 0 && Y[i] >= 0 && Z[i] >= 0)) return false;
+      S = X[i] + Y[i] + Z[i];
+      if (!(S > 0)) return false;
+      if (Math.abs(xs[i] - X[i] / S) > DG_UNI_IDENT_TOL) return false;
+      if (Math.abs(ys[i] - Y[i] / S) > DG_UNI_IDENT_TOL) return false;
+      if (Math.abs(Ls[i] - Y[i]) > DG_UNI_IDENT_TOL * Math.max(1, Math.abs(Ls[i]))) return false;
+    }
+    return true;
+  }
+
+  /* ─── 掃一張工作表 → 區塊清單 ────────────────────────────────────────────
+     🔴 **以 Gray 欄當錨點切區塊，不假設「一張表＝一組」。**
+        實證：`光學確認_20250114.xlsx` 一張表裡就有 3 個 Gray 欄（A 欄亮度區、
+        H 欄色溫區、T 欄 Gamma 區）。假設一表一組就會把三個區的欄混在一起判。
+     🔴 Gray 欄的判定**沿用既有的 dgGrayScan()**（Bruce 指定），不另寫一套 ——
+        位元深度、完整性、2ⁿ−1 這三件事因此與 v1.51.0／v1.52.0 完全同一個判準。 */
+  function dgUniScanSheet(sheet) {
+    var runs = dgUniColRuns(sheet), i, j, k;
+
+    // ① 找 Gray 欄
+    var anchors = [];
+    for (i = 0; i < runs.length; i++) {
+      var ru = runs[i];
+      if (ru.n < DG_UNI_MINROWS) continue;
+      var gr = [];
+      for (j = ru.r0; j <= ru.r1; j++) gr.push({ g: dgCellV(sheet, j, ru.c) });
+      var sc = dgGrayScan(gr);
+      if (!sc.ok) continue;
+      anchors.push({ c: ru.c, r0: ru.r0, r1: ru.r1, bits: sc.bits, n: sc.n });
+    }
+    if (!anchors.length) return [];
+
+    /* ② 每一個非錨點欄，歸給**它左邊最近的那個 Gray 欄**；左邊沒有錨點的歸給第一個。
+       🔴 不能寫成「錨點只往右吃」：實測 U1（欄位順序打亂、Gray 在最後一欄）那種檔
+          錨點右邊一欄都沒有，整份會被判成「找不到灰階欄」。
+       🔴 這條規則同時涵蓋「光學確認」那種一表三個錨點的版面（每個錨點吃自己右邊那一段），
+          與「只有一個錨點」的一般情形（整張表都歸它，錨點在最左或最右都一樣）。 */
+    var owner = [], isAnchor = {};
+    for (k = 0; k < anchors.length; k++) isAnchor[anchors[k].c] = 1;
+    for (var cc = 1; cc <= sheet.maxCol; cc++) {
+      var own = 0;
+      for (k = 0; k < anchors.length; k++) if (anchors[k].c < cc) own = k;
+      owner[cc] = own;
+    }
+    var blocks = [];
+    for (k = 0; k < anchors.length; k++) {
+      var a = anchors[k];
+
+      // 依灰階升冪排好的列順序（原檔可能由高到低寫，dgGrayScan 不管順序）
+      var ord = [];
+      for (j = a.r0; j <= a.r1; j++) ord.push({ r: j, g: dgCellV(sheet, j, a.c) });
+      ord.sort(function (p, q) { return p.g - q.g; });
+      var gs = ord.map(function (o) { return o.g; });
+
+      // ③ 收齊「整段都有數字」的候選欄
+      var cols = [];
+      for (var c = 1; c <= sheet.maxCol; c++) {
+        // 🔴 所有錨點欄都要跳過，不是只跳自己那一欄（別的錨點欄照 owner 會落進來）
+        if (isAnchor[c] || owner[c] !== k) continue;
+        var vs = [], ok = true;
+        for (j = 0; j < ord.length; j++) {
+          var v = dgCellV(sheet, ord[j].r, c);
+          if (!dgIsNum(v)) { ok = false; break; }
+          vs.push(v);
+        }
+        if (!ok) continue;
+        var st = dgUniColStat(vs);
+        cols.push({ c: c, vs: vs, st: st, gam: st.constant ? null : dgUniGamma(gs, vs), role: null, why: null });
+      }
+      if (!cols.length) continue;
+      blocks.push({ sheet: sheet, sheetName: sheet.sheetName, gray: a, gs: gs, ord: ord, cols: cols,
+                    // 表頭列＝資料起始列的前一列。**只拿來排 x／y 的先後**，見 dgUniXyOrder()
+                    hdrRow: a.r0 - 1,
+                    x: null, y: null, lum: [], T: null, xyz: null, prim: null });
+    }
+    return blocks;
+  }
+
+  /* ─── 一個區塊內的裁決 ───────────────────────────────────────────────────
+     由硬到軟，先判的把欄位「吃掉」，後判的看不到：
+       ① 色度成對（硬）→ x／y          ② XYZ 恆等式（硬）
+       ③ 亮度                          ④ 色溫
+     🔴 **一個區塊裡有多個亮度欄 ⇒ 那是多組資料（一欄一組），不是衝突。**
+        這正好對上「光學確認」檔 1#～5# 五欄的語意。序號欄不會混進來（被 γ 窗擋掉）。 */
+  function dgUniResolve(b) {
+    var cols = b.cols, i, j;
+
+    /* ⓪ 色溫**候選**（只看值域，尚未定案）。要先算，因為色度多義時拿它來裁決。 */
+    var tCand = [];
+    for (i = 0; i < cols.length; i++) {
+      if (cols[i].st.constant) continue;
+      if (cols[i].st.min >= DG_UNI_CCT_LO && cols[i].st.max <= DG_UNI_CCT_HI) tCand.push(cols[i]);
+    }
+
+    /* ① 色度成對。硬條件：兩欄都在 (0,1)、相加 < 1、和非常數，
+       且**兩欄各自的全距**都 > DG_UNI_SUMSPAN（近乎常數的欄帶不了色度資訊）。 */
+    var pairs = [];
+    for (i = 0; i < cols.length; i++) {
+      if (cols[i].st.span <= DG_UNI_SUMSPAN) continue;
+      for (j = i + 1; j < cols.length; j++) {
+        if (cols[j].st.span <= DG_UNI_SUMSPAN) continue;
+        if (dgUniXyPair(cols[i].vs, cols[j].vs)) pairs.push([i, j]);
+      }
+    }
+    if (pairs.length > 1 && tCand.length) {
+      /* 🔴 多義的真實來源是 **duv 欄**（實測 3 份真檔的 duv 全為正，(x,duv)／(y,duv)
+         也通過①）。拿檔案自己的色溫欄裁決：正解的中位相對差 1.02e-4～3.99e-4，
+         最接近的錯配 0.118 ⇒ 2% 這條線兩邊都很乾淨。 */
+      var fit = pairs.filter(function (p) {
+        for (var k = 0; k < tCand.length; k++) {
+          if (tCand[k] === cols[p[0]] || tCand[k] === cols[p[1]]) continue;
+          var f = dgUniCctFit(cols[p[0]].vs, cols[p[1]].vs, tCand[k].vs);
+          if (isFinite(f) && f <= DG_UNI_CCT_FIT) return true;
+        }
+        return false;
+      });
+      if (fit.length === 1) pairs = fit;
+      else if (fit.length > 1) pairs = fit;      // 仍多義，下面照樣不收
+    }
+    if (pairs.length === 1) {
+      var ord2 = dgUniXyOrder(b, cols[pairs[0][0]], cols[pairs[0][1]]);
+      b.x = ord2[0]; b.y = ord2[1]; b.xyBy = ord2[2];
+    } else if (pairs.length > 1) {
+      // 多義 ⇒ **色度不收**（Bruce：信心不足寧可不收，不硬挑一組）
+      b.xyAmbig = pairs.length;
+    }
+    if (b.x) { b.x.role = 'x'; b.y.role = 'y'; }
+
+    /* ② 亮度**候選**（先不定案）。未被 ① 吃掉的欄逐一判。 */
+    var lumCand = [];
+    for (i = 0; i < cols.length; i++) {
+      if (cols[i].role) continue;
+      var why = dgUniLumWhyNot(cols[i].st, cols[i].gam);
+      if (why === null) lumCand.push(cols[i]);
+      else cols[i].why = why;
+    }
+
+    /* ③ XYZ：恆等式是最硬的一條，所以**排在亮度定案之前**。
+       🔴 實作時才發現的坑：X／Y／Z 三欄自己也是單調的 Gamma 形狀（X ∝ Lv），
+          **它們統統會通過亮度判準**。先定案亮度就會把一個檔判成 4 組（實測 U7
+          判成 3 組），XYZ 那一段也永遠走不到（它要求「亮度恰好一欄」）。
+       🔴 要有 x／y 與一個亮度候選才判得動 —— 沒有就是在猜 ⇒ 不判。 */
+    if (b.x && lumCand.length) {
+      var xs = b.x.vs, ys = b.y.vs;
+      var free = [];
+      for (i = 0; i < cols.length; i++) if (!cols[i].role) free.push(cols[i]);
+      var hit = null;
+      for (var li = 0; li < lumCand.length && !hit; li++) {
+        var Ls = lumCand[li].vs;
+        /* Y 候選要先過「Y ≟ Lv」這一關，三重迴圈才收得住
+           （實測拿 X 冒充 Y 的相對殘差 0.0864，遠大於 1e-4）。 */
+        var yc = [];
+        for (i = 0; i < free.length; i++) {
+          if (free[i] === lumCand[li]) continue;
+          var vv = free[i].vs, same = true;
+          for (j = 0; j < vv.length; j++) {
+            if (Math.abs(vv[j] - Ls[j]) > DG_UNI_IDENT_TOL * Math.max(1, Math.abs(Ls[j]))) { same = false; break; }
+          }
+          if (same) yc.push(free[i]);
+        }
+        for (var q = 0; q < yc.length && !hit; q++) {
+          for (i = 0; i < free.length && !hit; i++) {
+            if (free[i] === yc[q] || free[i] === lumCand[li]) continue;
+            for (j = 0; j < free.length && !hit; j++) {
+              if (free[j] === yc[q] || free[j] === free[i] || free[j] === lumCand[li]) continue;
+              if (dgUniXyzOk(free[i].vs, yc[q].vs, free[j].vs, xs, ys, Ls)) {
+                hit = { X: free[i], Y: yc[q], Z: free[j], L: lumCand[li] };
+              }
+            }
+          }
+        }
+      }
+      if (hit) {
+        b.xyz = [hit.X, hit.Y, hit.Z];
+        hit.X.role = 'X'; hit.Y.role = 'Y'; hit.Z.role = 'Z';
+        hit.X.why = hit.Y.why = hit.Z.why = null;
+        // 這三欄不再是亮度候選；對上恆等式的那一欄就是 Lv
+        lumCand = lumCand.filter(function (c2) { return !c2.role; });
+      }
+    }
+
+    // ④ 亮度定案：沒有被 ③ 吃掉的候選欄，一欄一組
+    for (i = 0; i < lumCand.length; i++) { lumCand[i].role = 'lum'; b.lum.push(lumCand[i]); }
+
+    // ④ 色溫：剩下的欄裡，整段落在 1e3～2e4 的第一欄
+    for (i = 0; i < cols.length; i++) {
+      if (cols[i].role || cols[i].st.constant) continue;
+      if (cols[i].st.min >= DG_UNI_CCT_LO && cols[i].st.max <= DG_UNI_CCT_HI) {
+        cols[i].role = 'T'; cols[i].why = null; b.T = cols[i];
+        break;
+      }
+    }
+    /* 色溫覆核（軟）：有 x／y 就用既有的 dgCCT() 對一次（同 ⑥ 的 2% 門檻）。
+       判錯只影響圖三，所以不拿它當拒收條件，只影響確認視窗上的字樣。 */
+    if (b.T && b.x) {
+      var f2 = dgUniCctFit(b.x.vs, b.y.vs, b.T.vs);
+      b.Tchecked = isFinite(f2) && f2 <= DG_UNI_CCT_FIT;
+    }
+    return b;
+  }
+
+  /* ─── 純色端點：Gray 資料段**以外**的三列 ────────────────────────────────
+     Bruce 指名要能自動找到「RGB 純色 pattern 的大 X 大 Y 大 Z」。
+     🔴 **不靠 r／g／b 三個字**（表頭可能是空白或別種語言），靠物理：
+        任何 RGB 顯示器的三個原色在 CIE 色度圖上構成一個三角形，
+        **R 的 x 最大、G 的 y 最大、B 的 y 最小**。三者必須同時成立才採用，
+        否則就是在猜 ⇒ 不收。
+     🔴 剛好三列才收。不是三列（0 列、2 列、5 列…）一律不收。 */
+  function dgUniPrim(b) {
+    if (!b.x || !b.lum.length) return null;
+    var sh = b.sheet, inRange = {}, i;
+    for (i = 0; i < b.ord.length; i++) inRange[b.ord[i].r] = 1;
+    var cand = [];
+    for (var r = 1; r <= sh.maxRow; r++) {
+      if (inRange[r]) continue;
+      var xv = dgCellV(sh, r, b.x.c), yv = dgCellV(sh, r, b.y.c), Lv = dgCellV(sh, r, b.lum[0].c);
+      if (!dgIsNum(xv) || !dgIsNum(yv) || !dgIsNum(Lv)) continue;
+      if (!(xv > 0 && xv < 1 && yv > 0 && yv < 1 && xv + yv < 1 - DG_UNI_XYSUM_EPS)) continue;
+      if (!(Lv > 0)) continue;
+      var o = { r: r, x: xv, y: yv, Y: Lv };
+      // 同一列若有通過恆等式的 XYZ 三欄，直接讀，不必換算（少一個誤差來源）
+      if (b.xyz) {
+        var X = dgCellV(sh, r, b.xyz[0].c), Y2 = dgCellV(sh, r, b.xyz[1].c), Z = dgCellV(sh, r, b.xyz[2].c);
+        if (dgIsNum(X) && dgIsNum(Y2) && dgIsNum(Z) && X + Y2 + Z > 0) o.XYZ = [X, Y2, Z];
+      }
+      cand.push(o);
+    }
+    if (cand.length !== 3) return null;
+    var byX = cand.slice().sort(function (p, q) { return q.x - p.x; });
+    var byY = cand.slice().sort(function (p, q) { return q.y - p.y; });
+    var R = byX[0], G = byY[0], B = byY[2];
+    if (R === G || G === B || R === B) return null;      // 三者必須互異
+    if (byX[0] === byY[0]) return null;                  // x 最大與 y 最大是同一列 ⇒ 不是 RGB 三角形
+    var out = {};
+    [['r', R], ['g', G], ['b', B]].forEach(function (p) {
+      out[p[0]] = p[1].XYZ ? p[1].XYZ.slice() : dgXyYtoXYZ(p[1].x, p[1].y, p[1].Y);
+    });
+    if (!['r', 'g', 'b'].every(function (k) { return out[k].every(dgIsNum); })) return null;
+    return { prim: out, rows: { r: R, g: G, b: B }, fromXYZ: !!R.XYZ };
+  }
+
+  /* ─── 整個活頁簿 ─────────────────────────────────────────────────────────
+     多分頁的分辨與合併（Bruce 2026-09-13 核可的判準）：
+       · 有亮度欄的區塊 ＝ **完整區塊**；沒有亮度、但有色度的 ＝ **半區塊**
+       · 完整區塊 ≥ 2 ⇒ 每個各自是一組（或多組），**不合併**
+       · 完整區塊 ＝ 1 且有半區塊 ⇒ **橫向合併**，靠**兩邊的 Gray 欄對齊**
+       · 完整區塊 ＝ 0 ⇒ 不收
+     🔴 判準寫在**區塊**層級而不是分頁層級 —— 一頁一個區塊時兩者等價，而一頁多區塊
+        （光學確認那種版面）只有區塊層級答得出來。
+     🔴 合併的前提：兩邊的灰階集合**完全相同**（同樣是 {0…n−1} 且 n 相同）。
+        不同 ⇒ 不合併，只收亮度，並在確認視窗寫明。
+     🔴 完整區塊有**多個**亮度欄時不合併色度 —— 色度該配哪一欄是猜的。 */
+  function dgUniDetect(sheets) {
+    var blocks = [], i, j;
+    for (i = 0; i < sheets.length; i++) {
+      var bs = dgUniScanSheet(sheets[i]);
+      for (j = 0; j < bs.length; j++) blocks.push(dgUniResolve(bs[j]));
+    }
+    if (!blocks.length) return { ok: false, reason: 'nogray', blocks: [] };
+
+    var full = blocks.filter(function (b) { return b.lum.length > 0; });
+    var half = blocks.filter(function (b) { return b.lum.length === 0 && b.x; });
+    if (!full.length) return { ok: false, reason: 'nolum', blocks: blocks };
+
+    // 橫向合併：完整區塊恰好 1 個、亮度欄恰好 1 欄、半區塊裡恰好 1 個灰階對得上
+    var merged = null, mergeNote = null;
+    if (full.length === 1 && !full[0].x && half.length) {
+      if (full[0].lum.length !== 1) {
+        mergeNote = '這一份有 ' + full[0].lum.length + ' 欄亮度，色度該配哪一欄判不出來 ⇒ 色度沒有帶入。';
+      } else {
+        var fit = half.filter(function (h) {
+          if (h.gs.length !== full[0].gs.length) return false;
+          for (var k = 0; k < h.gs.length; k++) if (h.gs[k] !== full[0].gs[k]) return false;
+          return true;
+        });
+        if (fit.length === 1) merged = fit[0];
+        else if (fit.length > 1) mergeNote = '有 ' + fit.length + ' 處色度的灰階都對得上，判不出該用哪一處 ⇒ 色度沒有帶入。';
+        else mergeNote = '色度那一份的灰階與亮度這一份對不起來 ⇒ 色度沒有帶入。';
+      }
+    }
+
+    // 組：每個完整區塊的每一欄亮度各一組
+    var groups = [];
+    for (i = 0; i < full.length; i++) {
+      var b = full[i];
+      var xcol = b.x, ycol = b.y, src = b;
+      if (!xcol && merged && b === full[0]) { xcol = merged.x; ycol = merged.y; src = merged; }
+      var pm = dgUniPrim(b);
+      for (j = 0; j < b.lum.length; j++) {
+        var rows = [], k;
+        for (k = 0; k < b.gs.length; k++) {
+          rows.push({
+            g: b.gs[k],
+            x: xcol ? xcol.vs[k] : null,
+            y: ycol ? ycol.vs[k] : null,
+            Y: b.lum[j].vs[k],
+            T: b.T ? b.T.vs[k] : null,
+            uv: null
+          });
+        }
+        groups.push({
+          rows: rows, block: b, lumCol: b.lum[j], xCol: xcol, yCol: ycol, xFrom: src,
+          bits: b.gray.bits, sheetName: b.sheetName,
+          // 🔴 純色端點只掛在**第一欄亮度**那一組（三列端點是整個區塊共用的，不是每欄一份）
+          prim: (j === 0 && pm) ? pm.prim : null, primInfo: (j === 0 && pm) ? pm : null
+        });
+      }
+    }
+    return { ok: true, blocks: blocks, full: full, half: half, groups: groups,
+             merged: merged, mergeNote: mergeNote };
+  }
+
+  /* ─── 判讀結果 → 給使用者看的極簡清單 ────────────────────────────────────
+     Bruce 指定「極簡、不寫解釋句，但要能一眼看出判讀對不對」。
+     每一行 ＝ 欄位 ＋ 判成什麼 ＋ 一句話依據。 */
+  var DG_UNI_ROLE = { x: '小 x', y: '小 y', lum: '亮度', T: '色溫', X: '大 X', Y: '大 Y', Z: '大 Z' };
+  function dgUniReportLines(det) {
+    var out = [], i, j;
+    det.blocks.forEach(function (b) {
+      var head = '工作表「' + b.sheetName + '」　' + dgOptCn(b.gray.c - 1) + ' 欄 Gray　'
+        + b.gs.length + ' 階（' + dgBitsLabel(b.gray.bits) + '）';
+      var used = [], skip = [];
+      for (i = 0; i < b.cols.length; i++) {
+        var c = b.cols[i], nm = dgOptCn(c.c - 1) + ' 欄';
+        if (c.role === 'lum') {
+          used.push(nm + '　亮度　單調遞增，γ=' + (c.gam === null ? '—' : c.gam.toFixed(2)));
+        } else if (c.role === 'x') {
+          used.push(nm + '　小 x　0<v<1，與 ' + dgOptCn(b.y.c - 1) + ' 欄相加 <1 且非常數');
+        } else if (c.role === 'y') {
+          // 🔴 x／y 的先後是怎麼定的，一定要講 —— 「依欄位位置」那條是推定，要覆核
+          used.push(nm + '　小 y　' + (b.xyBy === 'hdr' ? 'x／y 先後依表頭字樣'
+            : '⚠ x／y 先後依欄位位置推定，請覆核'));
+        } else if (c.role === 'T') {
+          used.push(nm + '　色溫　' + Math.round(c.st.min) + '～' + Math.round(c.st.max) + ' K'
+            + (b.Tchecked ? '（與 x／y 算出的吻合）' : ''));
+        } else if (c.role === 'X' || c.role === 'Y' || c.role === 'Z') {
+          used.push(nm + '　' + DG_UNI_ROLE[c.role] + '　通過 x=X/(X+Y+Z) 恆等式');
+        } else if (c.why) {
+          skip.push(nm + '　' + c.why);
+        }
+      }
+      out.push({ head: head, used: used, skip: skip });
+    });
+    return out;
+  }
+
+  function dgUniReportHtml(det, fileName) {
+    var h = '<div class="dg-note"><b>' + dgXe(fileName) + '</b> 不是已知格式。'
+      + '我用數值特徵判讀成這樣：</div>';
+    dgUniReportLines(det).forEach(function (blk) {
+      h += '<div class="dg-lut-opt"><div class="dg-lut-opt-title"><b>' + dgXe(blk.head) + '</b></div>';
+      if (blk.used.length) {
+        h += '<div class="dg-note">' + blk.used.map(dgXe).join('<br>') + '</div>';
+      }
+      if (blk.skip.length) {
+        h += '<div class="dg-note" style="opacity:.72">沒有採用<br>' + blk.skip.map(dgXe).join('<br>') + '</div>';
+      }
+      h += '</div>';
+    });
+    var tail = [];
+    det.blocks.forEach(function (b) {
+      if (b.xyAmbig) {
+        tail.push('工作表「' + b.sheetName + '」有 ' + b.xyAmbig
+          + ' 組欄都像色度，判不出是哪一組 ⇒ 色度沒有帶入。');
+      }
+    });
+    if (det.merged) {
+      tail.push('色度取自工作表「' + det.merged.sheetName + '」，靠 Gray 逐階對齊。');
+    }
+    if (det.mergeNote) tail.push(det.mergeNote);
+    if (det.groups.length > 1) tail.push('判成 ' + det.groups.length + ' 組。');
+    var pg = det.groups.filter(function (g) { return g.prim; });
+    if (pg.length) {
+      tail.push('純色端點 R／G／B 各一列（' + (pg[0].primInfo.fromXYZ ? '直接讀大 X／Y／Z' : '由 x／y／Lv 換算') + '）。');
+    }
+    if (tail.length) h += '<div class="dg-note">' + tail.map(dgXe).join('<br>') + '</div>';
+    return h;
+  }
+
+  /* 不收的時候給的話。🔴 一定要說明**缺什麼**，不是只說「認不出來」。 */
+  function dgUniFailMsg(det) {
+    if (!det || det.reason === 'nogray') {
+      return '這個檔裡找不到合格的灰階欄。' + DG_GRAY_NEED + '。';
+    }
+    // nolum：找到灰階了，但沒有一欄像亮度 —— 把被排除的理由一起講
+    var why = [];
+    (det.blocks || []).forEach(function (b) {
+      b.cols.forEach(function (c) {
+        if (c.why) why.push(dgOptCn(c.c - 1) + ' 欄：' + c.why);
+      });
+    });
+    return '這個檔有合格的灰階欄，但沒有任何一欄像亮度，所以沒有匯入。'
+      + (why.length ? '\n' + why.slice(0, 12).join('\n') : '');
+  }
+
+  /* 確認視窗。🔴 Bruce 指定：判讀結果**一定要顯示給使用者確認**，不可以默默吃進去。
+     關掉視窗／Escape ＝ 不收（與 dg-modal-rec 同一套慣例）。 */
+  var DG_UNI_ASK = null;
+  function dgUniAsk(det, fileName, done) {
+    var body = $('dg-uni-info');
+    if (!body) { done(false); return; }        // 沒有這個外殼就不收（不默默吃進去）
+    body.innerHTML = dgUniReportHtml(det, fileName);
+    DG_UNI_ASK = { done: done };
+    dgStepModalOpen('dg-modal-uni', 'ask');
+  }
+  function dgUniAnswer(take) {
+    var a = DG_UNI_ASK;
+    DG_UNI_ASK = null;
+    dgStepModalClose('dg-modal-uni');
+    if (a && a.done) a.done(!!take);
+  }
+
+  /* 入口：既有五條全部認不出來時才叫這一支。
+     回 null ＝ 這一支也認不出來（呼叫端照原樣 throw 既有的訊息）。 */
+  function dgUniParse(sheets) {
+    var det;
+    try { det = dgUniDetect(sheets); } catch (e) { return null; }
+    DG_UNI_HITS++;
+    return det;
+  }
+
   /* ─── v1.7.0：輸出格式改由「目標 TCON」決定 ─────────────────────────────
      原本只有「(Source Driver, 內容深度) → 格式」這條推定路徑，問題是同一顆
      TCON 的 SD 與 LUT 深度都是暫存器設定、隨機種而變，用它們反推型號一定會撞。
@@ -6754,7 +7432,13 @@
         }
         var opt = null;
         try { opt = dgParseOptical(sheets); } catch (e) { opt = null; }
-        if (!opt) throw new Error('這個檔裡沒有認得出來的光學量測資料（要的是逐階的 Gray／x／y／Y）。');
+        /* ─── v1.53.0：既有路徑全部認不出來 ⇒ 換通用偵測試一次 ────────────────
+           🔴 插在**原本就要 throw** 的那一行之前，所以任何現行收得下的檔一律走不到
+              這裡，行為不可能改變。認不出來時原樣落回下面那句既有的錯誤訊息。
+           🔴 純色端點在這個分頁**不使用**（比較分頁比的是白灰階曲線）——
+              與 CA-410 那條路同一個慣例（dg.html:6710「檔案裡的 R／G／B 段在這裡
+              沒有用途」）。CCT xlsx 仍被上面那條 opt.hasPrim 擋著，一個字沒動。 */
+        if (!opt) { dgUniSlotImport(sheets, file.name); return; }
         if (opt.hasPrim) {
           throw new Error('這是 CCT 檔（含 R／G／B 純色量測），本分頁不收它的白灰階。\n'
             + '它那份 Rawdata 是產生該檔那張 LUT「之前」的舊量測，與其他組不是同一個基準，'
@@ -6777,6 +7461,51 @@
       });
     };
     fr.readAsArrayBuffer(file);
+  }
+
+  /* ─── v1.53.0：通用偵測 → 比較分頁 ──────────────────────────────────────
+     既有路徑全部認不出來時才會走到這裡。三種結局：
+       ① 連通用偵測也認不出來 ⇒ **原樣寫既有那句錯誤訊息**，後面再補一行缺什麼
+       ② 認出來了 ⇒ **跳視窗給使用者確認**（不默默吃進去），答「不對」就不收
+       ③ 確認之後照既有路徑加組（dgSlotFindSame 去重、dgSlotAdd 的閘門都照走） */
+  var DG_UNI_NOXY = '這個檔裡沒有認得出來的光學量測資料（要的是逐階的 Gray／x／y／Y）。';
+  function dgUniSlotImport(sheets, fileName) {
+    var det = dgUniParse(sheets);
+    if (!det || !det.ok) {
+      var why = det ? dgUniFailMsg(det) : '';
+      dgSetStatus('dg-slot-status', '匯入失敗：' + DG_UNI_NOXY + (why ? '\n' + why : ''), 'err');
+      if (why) dgNoteOpen('這份資料沒有匯入', '<div class="dg-note">' + dgXe(why).replace(/\n/g, '<br>') + '</div>');
+      return;
+    }
+    dgUniAsk(det, fileName, function (take) {
+      if (!take) {
+        dgSetStatus('dg-slot-status', '判讀沒有被採用，' + fileName + ' 沒有匯入。', '');
+        return;
+      }
+      var added = [], skipped = 0, dup = 0;
+      det.groups.forEach(function (g, i) {
+        if (DG_SLOTS.length >= DG_SLOT_MAX) { skipped++; return; }
+        var rows = g.rows.map(function (r) { return { g: +r.g, x: r.x, y: r.y, Y: +r.Y }; });
+        if (dgSlotFindSame(rows) >= 0) { dup++; return; }
+        /* 🔴 走**既有的 dgSlotAdd()**，所以 v1.51.0 的完整性閘門與 v1.52.0 的
+           位元深度一致性照樣把關，這一條路沒有自己的一套規則。 */
+        var no = dgSlotAdd({ rows: g.rows, hasPrim: false }, fileName
+          + (det.groups.length > 1 ? '（' + (g.sheetName || '') + ' 第 ' + (i + 1) + ' 組）' : ''));
+        if (no) added.push(no); else skipped++;
+      });
+      if (!added.length) {
+        dgSetStatus('dg-slot-status', dup ? '這一份與現有的組逐值相同，沒有重複新增。'
+          : (fileName + ' 沒有匯入。'), dup ? '' : 'err');
+        return;
+      }
+      dgSetStatus('dg-slot-status', '已加入第 ' + added.join('、') + ' 組：' + fileName
+        + '\n' + det.groups[0].rows.length + ' 階（判讀方式已由你確認）。'
+        + '**第 1、2、3 部分完全沒有被動到**——'
+        + '要拿它當計算輸入，請到「Digital Gamma 校正」分頁第 2 部分選「從光學資料比較挑一組」。'
+        + (dup ? '\n其中 ' + dup + ' 組與現有的逐值相同，沒有重複新增。' : '')
+        + (skipped ? '\n有 ' + skipped + ' 組沒有加進來（已滿 ' + DG_SLOT_MAX + ' 組或被閘門擋下）。' : ''),
+        'ok');
+    });
   }
 
   /* \u2500\u2500 來源三：比較分頁當場即時量測 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -8635,6 +9364,10 @@
          所以排在最前面、走它自己的收尾，不進下面那個通用迴圈。 */
       var rec = $('dg-modal-rec');
       if (rec && rec.classList.contains('open')) { dgRecAnswer(false); return; }
+      /* v1.53.0：通用偵測的確認視窗是第九個外殼，理由與上面那一條完全相同 ——
+         關掉 ＝ 不收，而且在等它的那條匯入流程要接著跑（dgUniAnswer 會執行 done）。 */
+      var uni = $('dg-modal-uni');
+      if (uni && uni.classList.contains('open')) { dgUniAnswer(false); return; }
       var stepModals = ['dg-modal-lut', 'dg-modal-gray', 'dg-modal-prim', 'dg-modal-slot', 'dg-modal-conf'];
       for (var i = 0; i < stepModals.length; i++) {
         var sm = $(stepModals[i]);
@@ -10057,7 +10790,7 @@
     return true;
   }
 
-  var DG_IMP_WANT = null;   // 使用者按的是哪一顆匯入鈕；只用來回報，不影響資料怎麼分流
+  var DG_IMP_WANT = null;   // 使用者按的是哪一顆匯入鈕（v1.53.0 起，'gray' 會讓通用偵測排在 dgDetectLut 之前；其餘情況仍只用來回報）
   /* v1.24.0：這一次匯入要送去哪裡。'parts' ＝ 既有的三個部分（依檔案內容分流，一個字未改）；
      'conf' ＝ 第 4 部分的確認量測。🔴 只有第 4 部分那顆鈕會把它設成 'conf'，
      而且**用完立刻歸位**，不可能殘留影響下一次匯入。 */
@@ -10210,14 +10943,43 @@
         var cmpSheet = dgOptFindCompareSheet(sheets);
         if (cmpSheet) { dgGrayFromOpticalSheet(cmpSheet, file.name, sheets); return; }
 
-        var opt = null, det = null, lutErr = null, kind = null;
+        var opt = null, det = null, lutErr = null, kind = null, uni = null;
         try { opt = dgParseOptical(sheets); } catch (e) { opt = null; }
         if (opt) {
           kind = opt.hasPrim ? 'prim' : 'gray';
         } else {
+          /* ═══ v1.53.0：使用者按的是第 2 部分的鈕 ⇒ 先問通用偵測 ═══════════════
+             🔴 實作時才發現的形狀衝突：**「索引 0…n−1 ＋ 三欄數字」同時符合 LUT
+                與光學量測**。實測一份最單純的光學檔（Gray／Lv／x／y 四欄）會被
+                dgDetectLut() 判成「9 bit LUT、主表 256 筆」—— 它先跑，通用偵測
+                因此永遠輪不到。這不是本版造成的，是本版才第一次踩到。
+             🔴 兩者只有**使用者**知道要哪一個，而畫面上他已經講了：他按的是哪一顆
+                部分的匯入鈕（DG_IMP_WANT）。既有程式本來就用這個欄位提醒
+                「你按的是第 X 部分，但這個檔填的是第 Y 部分」，這裡只是把同一個
+                意圖再往前用一步，不是新發明的規則。
+             🔴 **對真的 LUT 檔沒有影響**：γ 窗會把它退回（實測四份真檔的 R／G／B 欄
+                γ 落在 0.847～1.215），原樣落回下面的 dgDetectLut()。
+                `want` 不是 'gray' 時這一段根本不執行。 */
+          if (want === 'gray') {
+            uni = dgUniParse(sheets);
+            if (uni && uni.ok) { dgUniPartsImport(uni, file.name, want); return; }
+          }
           for (var i = 0; i < sheets.length; i++) {
             try { det = dgDetectLut(sheets[i]); kind = 'lut'; break; } catch (e) { lutErr = e.message; }
           }
+        }
+        /* ─── v1.53.0：既有四條全部認不出來 ⇒ 換通用偵測試一次 ────────────────
+           🔴 **必須排在 dgDetectLut() 之後**：LUT 檔就是「索引 0…n−1 ＋ 三欄單調遞增
+              數字」，形狀與光學資料極像（實測四份真檔的 R／G／B 欄 γ 落在 0.847～1.215，
+              會被 γ 窗擋掉 —— 但不該把安全寄託在門檻上，順序本身先把它排除掉）。
+           🔴 `nogray`（連合格的灰階欄都沒有）⇒ **不換訊息**，原樣落回下面那句既有的
+              「既沒有 LUT 也沒有光學量測資料」，因為那種檔本來就不是光學檔。
+              只有 `nolum`（灰階有、亮度沒有）才換成講得出缺什麼的那一句。 */
+        if (!kind) {
+          // 🔴 上面 want === 'gray' 那一段可能已經問過了，不重複問（計數器會多一次）
+          if (!uni) uni = dgUniParse(sheets);
+          if (uni && uni.ok) { dgUniPartsImport(uni, file.name, want); return; }
+          if (uni && uni.reason === 'nolum') throw new Error(dgUniFailMsg(uni));
         }
         if (!kind) throw new Error(lutErr || '這個檔案裡既沒有認得出來的 LUT 表，也沒有認得出來的光學量測資料。');
 
@@ -10298,6 +11060,71 @@
       });
     };
     fr.readAsArrayBuffer(file);
+  }
+
+  /* ─── v1.53.0：通用偵測 → 第 1／2／3 部分 ────────────────────────────────
+     🔴 一律先跳確認視窗（Bruce：不可以默默吃進去），答「不對」就一個欄位都不寫。
+     🔴 寫入一律走**既有的 dgApplyGray()／dgApplyPrim()**，不另開寫入路徑 ——
+        所以 v1.51.0 的完整性閘門、v1.52.0 的 SD 自動帶入、圖表重畫全部照舊。
+     🔴 收尾（判定框、狀態列、沒有色度的提醒、要不要記錄到比較分頁）照抄
+        dgGrayApplyOptGroup() 那條路的順序與慣例，不自創一套。 */
+  function dgUniPartsImport(det, fileName, want) {
+    dgUniAsk(det, fileName, function (take) {
+      if (!take) {
+        dgSetStatus('dg-status', '判讀沒有被採用，' + fileName + ' 沒有匯入。', '');
+        return;
+      }
+      var g = det.groups[0], rows = g.rows, top = rows[rows.length - 1];
+      // 與既有判準同一支：**每一列都要有** x／y 才算有色度
+      var hasXY = dgOptGroupHasXY(g);
+      dgApplyGray({
+        rows: rows,
+        white: hasXY ? [top.x, top.y, top.Y, dgIsNum(top.T) ? top.T : null]
+                     : [null, null, top.Y, dgIsNum(top.T) ? top.T : null]
+      }, fileName, 'file');
+      var filled = '第 2 部分：白灰階 ' + rows.length + ' 階 ＋ 目標白點';
+      if (g.prim) {
+        dgApplyPrim({ prim: g.prim }, fileName, 'file');
+        filled += '、第 3 部分：R／G／B 三個端點的 X／Y／Z';
+      }
+
+      var box = $('dg-fmt-box');
+      box.style.display = '';
+      box.className = hasXY ? 'dg-fmt' : 'dg-fmt warn';
+      box.innerHTML = '<b>已匯入：</b>' + dgXe(fileName)
+        + '<br><b>判定：</b>不是已知格式，由數值特徵判讀（你已在視窗裡確認過）'
+        + '<br>' + dgUniReportHtml(det, fileName)
+        + '<br><b>白灰階</b>：' + rows.length + ' 階（Gray ' + rows[0].g + ' ～ ' + top.g + '）'
+        + '　<b>目標白點</b>：' + dgWhiteLbl(top)
+        + (g.prim ? '<br><b>純色端點</b>：已一併帶入第 3 部分。' : '')
+        + (det.groups.length > 1
+          ? '<br><b>⚠ 這個檔判出 ' + det.groups.length + ' 組，第 1／2／3 部分只收得下一組 ⇒ 只帶入第 1 組。</b>'
+            + '要全部留下來，請改從「光學資料比較」分頁匯入。'
+          : '');
+
+      var miss = dgMissingParts();
+      var msg = '已匯入 ' + fileName + '\n'
+        + '這個檔不是已知格式，由數值特徵判讀後填了 ' + filled + '。\n'
+        + (hasXY ? '這一份帶了色度 x／y ⇒ 色溫可調。\n'
+                 : '⚠ 這一份沒有色度 x／y ⇒ 本次強制只調 Gamma、不調色溫。\n')
+        + (det.groups.length > 1 ? '這個檔判出 ' + det.groups.length + ' 組，只帶入第 1 組。\n' : '')
+        + (want && want !== 'gray'
+          ? '⚠ 你按的是「' + DG_PART_NO[want] + '」的匯入鈕，但這個檔填的是 ' + DG_PART_NO.gray + '。\n' : '')
+        + (miss.length
+          ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
+          : '需要的資料都齊了，下一步：按「計算」。');
+      var cls = (miss.length || (want && want !== 'gray')) ? '' : 'ok';
+      dgSetStatus('dg-status', msg, cls);
+
+      // 同 dgGrayApplyOptGroup()：兩件事**串起來**問，不讓兩個視窗疊在一起
+      function askRec() {
+        dgGrayRecordAsk(rows, fileName, dgRoundName(DG_ROUND), function () {
+          if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, cls);
+        });
+      }
+      if (hasXY) askRec();
+      else dgGrayNoXYNote(fileName, rows.length, rows[0].g, top.g, askRec);
+    });
   }
 
   var DG_FILE_KIND = {
@@ -10517,7 +11344,8 @@
     'dg-modal-prim': '設定 RGB 純色 Pattern',
     'dg-modal-slot': '新增光學量測資料',     // v1.18.0
     'dg-modal-conf': '確認結果',            // v1.24.0
-    'dg-modal-rec': '要記錄到「光學資料比較」嗎？'   // v1.26.0
+    'dg-modal-rec': '要記錄到「光學資料比較」嗎？',  // v1.26.0
+    'dg-modal-uni': '這個檔不是已知格式，請確認判讀'  // v1.53.0
   };
   function dgStepModalStep(id, step) {
     var shown = null;
@@ -11563,7 +12391,10 @@
     });
     /* v1.8.0：三顆匯入鈕，各自長在自己那個部分裡（DOM 順序就是第 1／2／3 部分）。
        共用同一個隱藏的 file input —— 按下哪一顆只記在 DG_IMP_WANT 裡供回報用，
-       資料要填到哪一部分一律由檔案內容決定，按錯鈕不會把錯的東西放進來。 */
+       資料要填到哪一部分一律由檔案內容決定，按錯鈕不會把錯的東西放進來。
+       🔴 v1.53.0 補一個例外：按「第 2 部分」那一顆時，通用偵測排在 dgDetectLut 之前
+          —— 因為「索引 ＋ 三欄數字」這個形狀 LUT 與光學量測**都符合**，只有使用者
+          分得出來，而他按的那顆鈕就是他的答案。其餘兩顆鈕的行為一個字都沒變。 */
     [['dg-btn-imp-lut', 'lut'], ['dg-btn-imp-gray', 'gray'], ['dg-btn-imp-prim', 'prim']]
       .forEach(function (p) {
         var b = $(p[0]);
@@ -11901,6 +12732,15 @@
     $('dg-modal-rec').addEventListener('click', function (e) {
       if (e.target === $('dg-modal-rec')) dgRecAnswer(false);
     });
+    /* v1.53.0：通用偵測的確認視窗，四條路（兩顆鈕、關閉鈕、點暗色區）全部走
+       dgUniAnswer —— 理由與上面那一組相同：每一條都必須執行 done，
+       否則按 Escape／點暗色區就會把整條匯入流程卡在半路。 */
+    $('dg-btn-uni-yes').addEventListener('click', function () { dgUniAnswer(true); });
+    $('dg-btn-uni-no').addEventListener('click', function () { dgUniAnswer(false); });
+    $('dg-modal-uni-close').addEventListener('click', function () { dgUniAnswer(false); });
+    $('dg-modal-uni').addEventListener('click', function (e) {
+      if (e.target === $('dg-modal-uni')) dgUniAnswer(false);
+    });
 
     $('dg-btn-clear').addEventListener('click', function () { dgClearAll('button'); });
     // v1.11.0：三個部分各自的清空鈕
@@ -12147,6 +12987,22 @@
     grayScanMsg: dgGrayScanMsg,
     /* v1.52.0：門檻常數改成「最低位元深度」（原本是 grayMinSteps ＝ 最低階數）。
        另外三個出口是一致性檢查用的：這一輪的基準深度、深度字樣、不一致的訊息。 */
+    /* ═══ v1.53.0 驗證用（唯讀純函式／計數器）═══════════════════════════════
+       🔴 `uniHits` 是**正控制**：13 份真實語料匯入時它必須維持 0，否則「回歸全綠」
+          有可能只是因為通用偵測根本沒被叫到 —— 那不算驗過。 */
+    uniHits: function () { return DG_UNI_HITS; },
+    uniResetHits: function () { DG_UNI_HITS = 0; },
+    uniDetect: dgUniDetect,
+    uniReportLines: dgUniReportLines,
+    uniFailMsg: dgUniFailMsg,
+    uniAnswer: dgUniAnswer,
+    uniAsking: function () { var m = $('dg-modal-uni'); return !!(m && m.classList.contains('open')); },
+    uniInfoText: function () { var e = $('dg-uni-info'); return e ? e.textContent : ''; },
+    uniThresholds: function () {
+      return { identTol: DG_UNI_IDENT_TOL, dropFrac: DG_UNI_DROP_FRAC,
+               gammaLo: DG_UNI_GAMMA_LO, gammaHi: DG_UNI_GAMMA_HI,
+               sumSpan: DG_UNI_SUMSPAN, cctFit: DG_UNI_CCT_FIT };
+    },
     grayMinBits: function () { return DG_GRAY_MIN_BITS; },
     slotRefBits: dgSlotRefBits,
     bitsLabel: dgBitsLabel,
