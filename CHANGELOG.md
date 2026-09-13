@@ -22,6 +22,94 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.48.0 — 2026-09-13 ｜ MINOR ⚠ 輸出變更
+
+Bruce 2026-09-13：「在這個 DG 網頁需要重新整理的時候，要**先保留在網頁上面已經量測的所有數據**，避免不小心按到重新整理，之前量測的所有數據就灰飛煙滅⋯⋯就很像是 **WFG 重新整理的時候要保留所有設定跟波形**，是一樣的道理。」
+
+### 沿用 wfg 的哪一套（Bruce 指名不要在同一個專案裡發明第二套做法）
+
+| 面向 | wfg 的做法（行號） | 本頁 |
+|---|---|---|
+| 媒介 | `localStorage` 單一 key `tcon-wfg-autosave`（wfg.html:36129） | `localStorage` 單一 key `tcon-dg-autosave` |
+| 外層 | `{config, ui, _ts}` wrapper，版本辨識在 `config._format === 'tcon-wfg-config'`（8853） | `{_format, _v, _ts, fields, state, slots, p4, conv}` |
+| 讀取 | `wfgReadAutoSavedTconState()`（8826-8858）：不可讀／JSON 壞／缺欄位／`_format` 不對 ⇒ `console.warn` ＋ 回傳 null ＝「當作沒有存檔」 | `dgAsRead()` 照抄這條，並把驗證擴大到**每一列數值** |
+| 寫入 | debounce 500 ms ＋ `try/catch`（36133-36147） | debounce 800 ms ＋ `try/catch`（單次快照大一個量級） |
+| 還原期間 | `_wfgAutoSaveEnabled = false` 擋住「還原途中又被存回去」 | `_dgAsEnabled` |
+| 清除 | `wfgAutoSaveNow()`（36238-36252）：清除要立刻反映到儲存，不能等 debounce | `dgAsClear()` 先 `clearTimeout` 再 `removeItem` |
+
+**刻意與 wfg 不同的三處**：① 還原後會講話（wfg v3.6.0 起完全靜默；Bruce 這次指名「狀態列要明講已還原上一次的資料⋯⋯使用者才分得出這是我上次的資料還是網頁怪怪的」）；② 清除是一顆看得見的鈕（wfg 的入口是「快捷選單設回 placeholder」這個間接動作）；③ 配額寫不進去會說一聲（wfg 是靜默 `catch(e){}`）。
+
+### 保留範圍（完整清單）
+
+**畫面欄位**（13 個，**通掃 `#dg-main-content`／`#dg-cmp-content`／`#dg-conv-content` 裡所有帶 `dg-` id 的 input／select／textarea，不列舉**）：`dg-preset-select`／`dg-tcon`／`dg-outbit`／`dg-sd`／`dg-frc`／`dg-entry`／`dg-gamma`／`dg-in-lut`／`dg-in-gray`／`dg-in-white`／`dg-in-prim`／`dg-conv-tail`／`dg-conv-to`。file input 一律排除（FileList 不可序列化，且瀏覽器禁止程式設它的 value）。
+
+**內部狀態**：`dgFrcOverride`、FRC 徽章三字串（`dgSetFrcState` 是命令式的，全檔沒有任何函式能把它推回來 —— 這是唯一沒有重算路徑的顯示狀態，只能旁路記錄）、`dgSdUserSet`、`dgSdBasisText`、`dgImportedFmt`、`DG_SRC`、`DG_TONE`／`DG_TONE_ASKED`、`DG_MANUAL_OPEN`、`DG_PRIM_MODE`／`DG_PRIM_XYL`、`DG_GRAY_META`、`DG_GRAY_MANUAL_DONE`、`DG_ROUND`、`DG_CONF_ASKED`、`DG_CCT_MODE`。
+
+**十組光學資料**（每組 10 欄）：`name`／`nameIsUserSet`／`file`／`hasPrim`／`show`／`prim`（v1.44.0）／`durMs`／`settleMs`（v1.45.0）／`noXY`／`rows`。**第 4 部分**：`label`／`kind`／`rows`（`white` 是 rows 末列推出來的，不另存）。**轉換分頁**：`DG_CV` 的 `name`／`fmt`／`lut`。
+
+**不存（衍生，還原後重算）**：`lastLut`／`lastCtx`、`DG_GRIDS[*].rows`（三個 textarea 是唯一真相，`dgGridHook` 的 setter 會自己重建表格）、`dgLastGrayxyY`／`dgLastGrayTdirect`、`DG_CONF_FLAGS`、`DG_PRIM_ERR`、所有徽章／來源行／`#dg-src-*`／推導值格子／狀態文字。
+
+**🔴 絕對不存**：`dgLiveWin`（window 參照）、`dgLiveTaskId`／`DG_LIVE_TASKS`／`DG_LIVE_DEST`／`dgLiveVerTask`（綁定一個已經不存在的量測分頁）、`dgLiveVerTimer`／`DG_GRAY_MANUAL_T`／`DG_GRIDS[*].timer`（setTimeout id）、`dgLiveVerSay`／`DG_NOTE_DONE`／`DG_REC.done`（函式參照）、`DG_GRIDS`／`DG_MODAL_GRID`／`DG_INFO_MOVED`（DOM 節點）。快照是**白名單式**（逐欄挑），這些不是「記得排除」，是根本沒有路徑進得來。
+
+### 🔴 結果不是存下來的，是用「算它當下的那組設定」重跑出來的
+
+`hasResult` 只是一個布林；結果本身由還原後重跑 `dgDoCalc()` 產生（`dgCompute()` 是純函式，輸出必然逐值相同）。但「同一組輸入」不等於「使用者最後停在的那一組」：`#dg-gamma`／`#dg-sd`／`#dg-frc`／`#dg-entry`／`#dg-outbit`／`#dg-tcon` 這六個改了**不會**作廢結果、也不會觸發重算（既有設計），所以「算完（γ=2.20）之後又把 Gamma 改成 2.35、但沒有再按計算」是完全合法的狀態。
+
+**這一條是驗證抓到的，不是看碼想出來的**：第一版拿最後的設定重跑，`lastLut` 第 1 列由 `[14,2,1]` 變成 `[12,1,1]` —— 等於重整偷偷改掉了他手上的結果。修法是在 `dgDoCalc()` 成功時記下當下的設定（`dgAsResultFields`），還原時先切回去跑、跑完再切回使用者最後的那一組。
+
+### 容量：先算再選（實測，非拍腦袋）
+
+數值全部取自本檔內建樣本 `DG_SAMPLE` 的真實 16 位浮點量測值（`0.2594114935114732` 這種），不是編出來的短數字。
+
+| 情境 | 字元數 | UTF-16 | 佔 5 MB |
+|---|---|---|---|
+| 典型：2 組 × 256 階 | 89,118（實跑） | 0.17 MB | 3.4% |
+| 常見上限：10 組 × 256 階 | 240,116 | 0.46 MB | 9.2% |
+| **最壞：10 組 × 1024 階**（SD 10 bit、LUT Entry 1024） | **949,706** | **1.81 MB** | **36.2%** |
+
+最壞情況的組成：十組 rows 745,201 ＋ `#dg-in-gray` 93,437 ＋ 第 4 部分 74,283 ＋ `conv` 17,750 ＋ `#dg-in-lut` 15,374 ＋ `state` 1,146。
+
+**rows 一律用扁平陣列 `[g,Y,x,y,T]` 而不是物件**：1024 列 74,223 vs 94,703 字元，**省 21.6%**；改用物件式最壞會到 2.24 MB（多 8.6 個百分點）。🔴 理由是**配額由整個 origin 共用** —— `brucecheng0428.github.io` 上還住著 wfg 的 `tcon-wfg-autosave`、`wfg-la-settings`、LA 的韌體包記錄，不能吃掉一半。
+
+**為什麼不用 IndexedDB**：① 1.81 MB 在 localStorage 的能力範圍內；② IndexedDB 是非同步的，而 `dgInit()` 的還原是同步流程，改非同步會讓「還原到一半使用者已經在打字」變成新的競態來源；③ Bruce 指名沿用 wfg 那一套，wfg 用的是 localStorage。
+
+### 寫入失敗（配額）：不刪舊的、不靜默、不擋住使用者
+
+`setItem` 失敗**不做 `removeItem`** —— 失敗要倒向「少做一件事」，不是倒向「多毀一份資料」（使用者上一次成功保存的完整快照還在那裡）。改為在橫幅講一聲「這一次沒能自動保存⋯⋯現在重新整理只會還原到上一次成功保存的那一份」，只說一次不洗版。這一支只被 debounce 的 timer 呼叫，拋不出去、擋不住任何輸入。
+
+### 儲存時機
+
+debounce 800 ms ＋「與上次寫入的字串相同就不寫」（大量「畫面重算但資料沒變」的呼叫因此零 IO）。掛點**不列舉按鈕**（wfg.html:36136-36159 那份 `collapsedCards` 列舉清單漏過兩次，v4.30.0 漏兩張卡、v4.35.0 又漏兩張），改成：三個容器的 `input`／`change` 事件委派（使用者的所有輸入，含動態產生的表格格子）＋ 五支中央同步函式（程式化寫入的匯流點：`dgRefreshReady`／`dgRenderCharts`／`dgConfSync`／`dgRoundSync`／`dgConvRenderNote`）。
+
+### 清空出口
+
+橫幅上的「清除保存並重新開始」：`clearTimeout` pending 的 debounce → `removeItem` → 欄位套回 **`dgInit()` 開頭拍的出廠快照**（不是列舉一張預設值表）→ `dgClearAll()` ＋ `dgSlotClearAll()` ＋ `dgConvClear()`。**不寫回一份空白快照**（wfg 的 `wfgAutoSaveNow` 要寫回是因為它必須留住檢視中心與倍率，本頁沒有這種欄位）。
+
+### 驗證（jsdom，全程未連網、未開瀏覽器）
+
+| 題目 | 結果 | 負控制（改壞了要變紅） |
+|---|---|---|
+| 端到端：載入範例 → 真的匯入一份 LUT xlsx → 計算 → 轉出第 1 組 → 匯入一份**帶 prim／durMs／settleMs** 的比較 xlsx 成第 2 組 → 改掉其中一組曲線名 → 改 TCON／輸出深度／Gamma → 第 4 部分帶入 → 轉換分頁匯入並改目標深度 → **重新載入** | **77/77** 逐值相同（含 `lastLut` 257 列、十組每一筆數值、改過的名稱、`nameIsUserSet` 旗標、`durMs=415300`／`settleMs=300`／`prim`、四個部分的原字串、所有徽章與來源行、圖表 DOM 長度）＋「已還原」訊息在橫幅與狀態列各出現一次 | B 不還原組名 → 4 紅；J 丟掉 durMs／settleMs → 4 紅；K 丟掉 prim → 1 紅；C 拿掉「用算結果當下的設定重跑」→ `lastLut`／`outLutBody` 2 紅 |
+| 清空出口：還原後**先改一個欄位製造 pending 的 debounce**、再按清除 → 等過 800 ms → 重整 | **與「空 localStorage 開新頁」的快照逐值相同**，且不顯示「已還原」 | D 清除時不 `clearTimeout` → 2 紅（正是 wfg v4.35.0 那個時序坑） |
+| 格式不符：19 種壞法（非 JSON／外層是陣列／`_format` 是別的工具的／`_v` 是舊版本／缺 `fields`／缺某個資料欄位／`tone` 是沒見過的值／`primXyl` 長度不對／`round` 是字串／`slots` 不是陣列／超過 10 組／某列少一欄／某列的 Y 是字串／某組 rows 空／p4 只有 1 階／p4 某列的 x 是物件／`conv.lut` 某列不是三個數字／`conv.fmt` 缺 hw／`importedFmt` 形狀不對） | **每一種都是「畫面＝乾淨初始狀態」逐值相同、不是半殘**；沒有 `console.error`；`console` 有一行說明；不會謊稱已還原 | A 改成「盡力還原」→ **33 紅** |
+| 配額爆掉（注入 `QuotaExceededError`） | 使用者當下的操作完全不受影響（Gamma 改得動、算得出結果、十組一個位元沒動）；橫幅警示樣式並說得出是哪一種失敗；**上一份存檔原封不動**，重整後還原到的是它（Gamma 2.35 而非失敗那次的 2.71） | E 失敗時順手刪舊的 → 4 紅；F 失敗時靜默 → 3 紅 |
+| 不存不該存的 | 白名單：頂層／`state`／每一組／`p4`／`conv` 的 key 集合逐一相等；黑名單掃 128 個 key 零命中；還原後 `liveWinRef`／`liveWinAlive` 為 false、`liveTaskId` 為 0、`liveDest` 回 `gray`、任務對照表空、`recPending` 為 null | 注入式正控制：人工塞 `dgLiveWin`／`timer`／`port` 三個 key，偵測器剛好抓 3 個 |
+| 零回歸 | `dgCompute()` md5 `f82908027bd6f04b3a6d2445054767ba`（2686 字元）不變；另 24 支既有函式與 HEAD 逐字相同；**同一操作序列跑完，HEAD 版與本版的畫面與所有唯讀狀態逐值相同（112/112）**，含三條匯出路徑的位元組 md5 與量測入口狀態 | H 動 `dgCompute` 一個字元 → 2 紅；I 動組別來源那一行的全形空白 → 1 紅 |
+
+🔴 **誠實記錄一個被負控制打臉的宣稱**：我原本在註解寫「第 4 部分不放最後會被 `dgInvalidateResult` 清掉」，突變體 G（把它搬到最前面）跑端到端**77 條全過** —— 因為那條路需要 `lastLut` 非 null，而還原一開始它必然是 null。已把註解改成實際成立的理由（不讓正確性依賴「lastLut 這時剛好是 null」這個巧合）。
+
+🔴 **一個已知的、不影響畫面的差異**：`#dg-frc-basis` 在「曾經有過說明、後來被隱藏」時，DOM 裡會殘留看不見的舊文字（`dgSetFrcState` 在 note 為空時只設 `display:none`、不清 `innerHTML`，既有行為，本版一字未動）；還原出來的是乾淨的空字串。兩者 `display` 都是 `none`，畫面完全相同。驗證腳本因此對 `display:none` 的元素只比 `display` 與 class。
+
+### 一併更正兩處會誤導的既有註解
+
+`DG_ROUND` 上方的「🔴 **不引入 localStorage**：本頁從來沒有用過（全庫 grep = 0）⋯⋯Bruce 若要跨重整保留，那是另一個決定」—— 這一條由 Bruce 本次裁示推翻，原文劃掉保留（看得出是被裁示改掉的，不是漏掉的）。圖三縱軸那段 v1.20.0 的實測紀錄裡「重新整理就沒了、曲線又出現」也補了一行更正：那條路徑自本版起不存在，要重現該情形改按「清除保存並重新開始」。
+
+判定依據：`VERSIONING.md` R1～R4 逐項判、取最高者。**§1 判定表「功能增減：新增獨立功能」⇒ MINOR**（多了自動保存／還原與一個清除入口）。**R3**「這一版之後使用者能多做一件事？」—— 能在重整後接續上一次的工作 ⇒ **MINOR**。**R4**（起始狀態改變：有存檔時開頁看到的是上次的資料）—— 不影響任何既有操作：沒有按鈕移位、沒有功能移除、所有既有入口都在原位、清空鈕照常，⇒ **MINOR**。**R1** 不適用（不是修 bug）。**R2** 不適用（非新波）。逐項取最高 ⇒ **MINOR**。
+🔴 **曾對照判定表「既有功能的輸出：主動改變 ⇒ MAJOR」那一格，判為不成立，取捨如下供覆核**：`dgCompute()` 一行未動（md5 相同），同一組輸入算出來的東西逐值不變（零回歸 112/112 已證）；使用者不需要重新學任何操作，也不需要重新確認過去的結果。改變的只有「開頁時看到什麼」，那是 R4 明文規定不觸發 MAJOR 的那一類。依 R2 補充 3「不確定一律往低編」，取 MINOR。**若 Bruce 認為「重整不再歸零」足以要求使用者重新熟悉一次，請裁示改判 MAJOR，我不自升。**
+標 `⚠ 輸出變更` 的理由（範圍限定）：**乾淨瀏覽器 profile 下與 HEAD 逐值相同**（零回歸已證），但本版起本頁會在 `localStorage` 留下 `tcon-dg-autosave`。後續的自動化回歸／截圖比對若重用同一個 profile，第二次開頁就會帶著上一次的狀態 —— **每個 case 前必須 `localStorage.clear()`**。這正是 `⚠ 輸出變更` 作為「回歸基線斷點標記」要保護的情形，寧可標了說明範圍，也不要漏標讓人把預期內的改變誤報成回歸。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.47.0 — 2026-09-13 ｜ MINOR ⚠ 輸出變更
 
 Bruce 2026-09-13：「即時量測選了 100 ms 等待之後，**前段每一階還是慢了大約 1 秒，後段才變快**。」三件事，都不大。
