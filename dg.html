@@ -1394,7 +1394,7 @@
     <div class="card-body">
       <div class="dg-info-src" id="dg-info-slots">
       <div class="dg-note">
-        最多 10 組。來源三種：本卡片<b>「＋ 新增資料」</b>、校正分頁第 2 部分按<b>「轉出到光學資料比較」</b>、
+        最多 10 組。來源三種：本卡片<b>「<span class="dg-slot-new-name">＋ 匯入或量測</span>」</b>、校正分頁第 2 部分按<b>「轉出到光學資料比較」</b>、
         在該分頁匯入白灰階量測檔時自動存成一組。
         <br><b>名稱點下去可以改</b>；勾「顯示」的組會疊到下方圖一、圖二、圖三上比較。
         <br><b>⚠ 這些組只拿來看，不參與計算。</b>
@@ -1406,7 +1406,10 @@
       <input type="file" id="dg-file-slot" accept=".xlsx,.csv" style="display:none">
       <div class="dg-slot-list" id="dg-slot-list"></div>
       <div class="dg-btnrow">
-        <button class="dg-btn primary" id="dg-btn-slot-new">＋ 新增資料</button>
+        <!-- v1.49.0 改名為「＋ 匯入或量測」。這裡的字只是首屏 fallback，
+             啟動時由 dgSlotSyncLabels() 依 DG_SLOT_NEW_LABEL 覆寫（單一來源）。
+             🔴 id 不動 —— 改了會動到事件綁定與既有驗證腳本，沒有好處。 -->
+        <button class="dg-btn primary" id="dg-btn-slot-new">＋ 匯入或量測</button>
         <button class="dg-btn" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
         <button class="dg-btn" id="dg-btn-slot-clear">清空全部</button>
       </div>
@@ -1734,7 +1737,7 @@
   </div>
 </div>
 
-<!-- ══ v1.18.0：光學資料比較分頁「＋ 新增資料」的二選一浮動視窗 ═══════════════
+<!-- ══ v1.18.0：光學資料比較分頁「＋ 匯入或量測」的二選一浮動視窗 ═══════════════
      Bruce 2026-09-08：「比較分頁的資料則有三種來源：直接讀檔匯入、從第 2 部分轉出、
      在比較分頁直接即時量測。」第三種（從第 2 部分轉出）的入口長在第 2 部分那邊，
      所以本視窗只有兩個選項。
@@ -1759,7 +1762,13 @@
         <div class="dg-lut-opt">
           <div class="dg-lut-opt-title"><b>已經量好了</b>（CCT 檔不收）</div>
           <div class="dg-btnrow">
-            <button class="dg-btn dg-btn-imp" id="dg-btn-slot-imp">匯入光學量測檔<span class="dg-nowrap">（<span class="dg-fname">RaydiumGamma_….xlsx</span>）</span></button>
+            <!-- v1.49.0：括號裡原本只列 RaydiumGamma_….xlsx 一種，但這個入口實際收三種
+                 （dgSlotImportFile 逐條查證：dgSniffCa410 → CA-410 CSV／dgOptFindCompareSheet
+                 → 本工具匯出的多組比較檔／dgParseOptical → 原廠白灰階量測檔）。
+                 🔴 少列的那一種正好是 DG_光學比較_….xlsx —— 使用者因此不知道自己匯出過的
+                    檔可以再匯回來用網頁看。用**檔名**當提示，不寫解釋句。
+                 每個檔名各自 dg-nowrap，檔名之間可以斷行（手機 480px 放得下）。 -->
+            <button class="dg-btn dg-btn-imp" id="dg-btn-slot-imp">匯入光學量測檔<span class="dg-fname">（<span class="dg-nowrap">RaydiumGamma_….xlsx</span>、<span class="dg-nowrap">DG_光學比較_….xlsx</span>、<span class="dg-nowrap">CA-410 .csv</span>）</span></button>
           </div>
         </div>
         <div class="dg-lut-opt">
@@ -1946,7 +1955,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1480"></script>
+<script src="common/version.js?v=20260913dg1490"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3417,7 +3426,16 @@
     C.rel = grp();
     C.gamRef = fix(3);
     C.gam = grp();
+    /* 🔴 v1.49.0：gray4／gray5 是**補上原廠早就有的規則**，不是新發明。
+       原廠光學確認 xlsx 本身就有三個 Gray（gray1／gray2／gray3），擺在亮度、
+       色溫基準、標準 Gamma 前面當索引 —— 規則是「主要區塊前面放一個 Gray 當索引」。
+       v1.44.0 新增的 cx／cy 兩個區塊當時沒跟上這條規則，這裡補齊。
+       🔴 原廠那三個一個都不動（動了就不相容原廠檔）。
+       🔴 純色端點**刻意不加** —— 它的索引是 R／G／B 不是灰階，primLbl 那一欄
+          已經在做索引的事，設計上本來就一致，不是漏掉。 */
+    C.gray4 = fix(1);
     C.cx = grp();
+    C.gray5 = fix(1);
     C.cy = grp();
     /* 純色端點：R／G／B 落在**資料列的前三列**、X／Y／Z 各一個區塊 ⇒ 每組 3 欄，
        不是 9 欄。標示欄（哪一列是 R/G/B）單獨一欄，後面留一欄空白。 */
@@ -3429,6 +3447,47 @@
   var DG_OPT_LAST = DG_OPT_C.primZ + DG_OPT_N - 1;
   // 圖上的線色：三條參考線 ＋ 10 組（與畫面上那 10 色同一組，去掉 #）
   var DG_OPT_REFCLR = ['A6A6A6', 'A6A6A6', 'ED7D31'];
+
+  /* ═══ v1.49.0：表頭底色 ═════════════════════════════════════════════════
+     Bruce 2026-09-13：「表格有點太單調。有沒有辦法用 title 來區分？亮度那邊是一個
+     顏色（**我指的只是表頭喔**）、色溫基準一個顏色…這樣子的話會比較容易看。」
+
+     🔴 **只有表頭**（第 2 列的區塊標題、第 3 列的欄表頭、以及各區塊自己的 Gray
+        索引欄表頭）。資料列一個格子都不上色 —— 這是 Bruce 點名的界線。
+        注意第 R0+0…R0+2 列的 primLbl 那三格寫著 R／G／B，它們在**資料列**上，
+        沿用原本的 s=1（粗體、無底色），不要因為「看起來像表頭」就順手上色。
+
+     選色的三條約束（`_tmp_dg1490/pick*.js` 實際掃出來的，不是憑感覺挑）：
+       ① 淡色底 ＋ 黑粗體字，最低對比 11.8:1（WCAG AA 只要 4.5:1）。
+       ② 彼此分得出來：相鄰區塊配對的**最小 CIE Lab ΔE ＝ 35.6**。
+          指派是窮舉 9! 種排法、最大化「相鄰配對的最小 ΔE」挑出來的。
+       ③ 🔴 不與圖表那十條曲線色（DG_SLOT_COLORS）與三條參考線色（DG_OPT_REFCLR）
+          衝突，否則使用者會以為表頭顏色跟某一組曲線有對應關係。
+          **這條的判準要分兩類** —— 單一個 RGB 距離門檻在這裡沒有判別力：
+            · 近乎無彩的曲線色（d4d4d8 第 10 組、A6A6A6 參考線）沒有色相，任何「淡」
+              的顏色在距離上都會靠近它 ⇒ 判別靠**彩度**：表頭色彩度一律 ≥ 35，
+              有明確色相，不可能被當成一條灰線。
+            · 有彩的曲線色 ⇒ 判別靠 Lab ΔE，實際最小值 35.4。
+     色碼集中在這一張表，不要散落在各處（Bruce 明確要求）。 */
+  var DG_OPT_HDRCLR = {
+    lum:      'FCE3CA',   // 亮度
+    cctRef:   'AFC1F8',   // 色溫基準（上限／中心／下限）
+    cct:      'FCD9D9',   // 色溫
+    stdGamma: 'FBF4AD',   // 標準 Gamma（std 與 gamRef 兩段同一個顏色 —— 同一件事）
+    rel:      'D9F0FC',   // Gamma curve（圖一：相對亮度）
+    gam:      'FCD9F0',   // Gamma curve（圖二：逐階 Gamma）
+    cx:       'F1FDD8',   // 色度 x
+    cy:       'DED3FD',   // 色度 y
+    prim:     'D9FCED'    // 純色端點（標示欄 ＋ X／Y／Z 三段）
+  };
+  /* 樣式索引：cellXfs 的前 7 個（0…6）是既有的，一個都不動；上色表頭接在後面。
+     dgOptHdrStyle(key) → 那個區塊的表頭樣式 s 值。 */
+  var DG_OPT_HDRKEYS = ['lum', 'cctRef', 'cct', 'stdGamma', 'rel', 'gam', 'cx', 'cy', 'prim'];
+  var DG_OPT_XF_BASE = 7;                   // 既有 cellXfs 有 7 個（0…6）
+  function dgOptHdrStyle(key) {
+    var i = DG_OPT_HDRKEYS.indexOf(key);
+    return i < 0 ? 1 : (DG_OPT_XF_BASE + i);
+  }
   // 三條標準 Gamma 參考線的圖例文字，與畫面上圖一的圖例逐字相同
   var DG_OPT_GAMLBL = ['γ=2.0', 'γ=2.2', 'γ=2.4'];
 
@@ -3448,48 +3507,57 @@
 
     // 第 1 列：大標題
     put(1, 0, { v: DG_OPT_TITLE, s: 6 });
+    /* v1.49.0：`S` 取代原本一律寫死的 s: 1 —— 每個區塊的表頭用自己的底色（見
+       DG_OPT_HDRCLR）。🔴 只有表頭，資料格一律不經過這一支。 */
+    var S = dgOptHdrStyle;
     // 第 2 列：區塊標題
-    put(2, C.lum, { v: '亮度', s: 1 });
-    put(2, C.hi, { v: '色溫基準', s: 1 });
-    put(2, C.cct, { v: '色溫', s: 1 });
-    put(2, C.std, { v: '標準 Gamma', s: 1 });
-    put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）', s: 1 });
-    put(2, C.gamRef, { v: '標準 Gamma', s: 1 });
-    put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）', s: 1 });
+    put(2, C.lum, { v: '亮度', s: S('lum') });
+    put(2, C.hi, { v: '色溫基準', s: S('cctRef') });
+    put(2, C.cct, { v: '色溫', s: S('cct') });
+    put(2, C.std, { v: '標準 Gamma', s: S('stdGamma') });
+    put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）', s: S('rel') });
+    put(2, C.gamRef, { v: '標準 Gamma', s: S('stdGamma') });
+    put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）', s: S('gam') });
     /* v1.44.0：量 Gamma 時儀器本來就一併量到色度 x／y（即時量測與 CA-410 CSV 都有），
        原本只有亮度與色溫落進檔案裡，那兩欄等於被丟掉。這兩個區塊把它們也存下來。 */
-    put(2, C.cx, { v: DG_OPT_XHDR, s: 1 });
-    put(2, C.cy, { v: DG_OPT_YHDR, s: 1 });
-    put(2, C.primLbl, { v: DG_OPT_PRIMHDR, s: 1 });
-    put(2, C.primX, { v: DG_OPT_PXHDR, s: 1 });
-    put(2, C.primY, { v: DG_OPT_PYHDR, s: 1 });
-    put(2, C.primZ, { v: DG_OPT_PZHDR, s: 1 });
-    // 第 3 列：欄表頭
-    put(3, C.gray1, { v: 'Gray', s: 1 });
-    put(3, C.gray2, { v: 'Gray', s: 1 });
-    put(3, C.primLbl, { v: DG_OPT_PRIMLBL, s: 1 });
-    put(3, C.hi, { v: '上限', s: 1 });
-    put(3, C.mid, { v: '中心', s: 1 });
-    put(3, C.lo, { v: '下限', s: 1 });
-    put(3, C.gray3, { v: 'Gray', s: 1 });
+    put(2, C.cx, { v: DG_OPT_XHDR, s: S('cx') });
+    put(2, C.cy, { v: DG_OPT_YHDR, s: S('cy') });
+    put(2, C.primLbl, { v: DG_OPT_PRIMHDR, s: S('prim') });
+    put(2, C.primX, { v: DG_OPT_PXHDR, s: S('prim') });
+    put(2, C.primY, { v: DG_OPT_PYHDR, s: S('prim') });
+    put(2, C.primZ, { v: DG_OPT_PZHDR, s: S('prim') });
+    /* 第 3 列：欄表頭。
+       🔴 v1.49.0：Gray 索引欄的表頭跟著**它所索引的那個區塊**上色 —— 這條顏色關係
+          就是「這個 Gray 是給誰用的」的答案，不必另外寫字說明。
+          gray2 服務的是它右邊緊鄰的色溫基準、gray3 服務標準 Gamma（沿用原廠版面
+          「Gray 在區塊左邊」的既有語意，一欄都沒有搬動）。 */
+    put(3, C.gray1, { v: 'Gray', s: S('lum') });
+    put(3, C.gray2, { v: 'Gray', s: S('cctRef') });
+    put(3, C.gray3, { v: 'Gray', s: S('stdGamma') });
+    put(3, C.gray4, { v: 'Gray', s: S('cx') });      // v1.49.0 新增：色度 x 的索引
+    put(3, C.gray5, { v: 'Gray', s: S('cy') });      // v1.49.0 新增：色度 y 的索引
+    put(3, C.primLbl, { v: DG_OPT_PRIMLBL, s: S('prim') });
+    put(3, C.hi, { v: '上限', s: S('cctRef') });
+    put(3, C.mid, { v: '中心', s: S('cctRef') });
+    put(3, C.lo, { v: '下限', s: S('cctRef') });
     /* v1.4.5：這兩排表頭同時是圖一／圖二三條參考線的圖例文字（`<c:ser><c:tx><c:strRef>`
        就指到這幾格）。原本寫的是**數值** 2／2.2／2.4，開檔後圖例就變成「2」「2.2」「2.4」，
        跟畫面上的「γ=2.0／γ=2.2／γ=2.4」對不起來。改寫成文字，與畫面一致。
        注意：下面 C.std／C.gamRef 的公式用的是寫死的指數，不參照這幾格，改文字不影響計算。 */
     for (i = 0; i < 3; i++) {
-      put(3, C.std + i, { v: DG_OPT_GAMLBL[i], s: 1 });
-      put(3, C.gamRef + i, { v: DG_OPT_GAMLBL[i], s: 1 });
+      put(3, C.std + i, { v: DG_OPT_GAMLBL[i], s: S('stdGamma') });
+      put(3, C.gamRef + i, { v: DG_OPT_GAMLBL[i], s: S('stdGamma') });
     }
     for (k = 0; k < DG_OPT_N; k++) {
-      put(3, C.lum + k, { v: name(k), s: 1 });
-      put(3, C.cct + k, { v: name(k), s: 1 });
-      put(3, C.rel + k, { v: name(k), s: 1 });
-      put(3, C.gam + k, { v: name(k), s: 1 });
-      put(3, C.cx + k, { v: name(k), s: 1 });
-      put(3, C.cy + k, { v: name(k), s: 1 });
-      put(3, C.primX + k, { v: name(k), s: 1 });
-      put(3, C.primY + k, { v: name(k), s: 1 });
-      put(3, C.primZ + k, { v: name(k), s: 1 });
+      put(3, C.lum + k, { v: name(k), s: S('lum') });
+      put(3, C.cct + k, { v: name(k), s: S('cct') });
+      put(3, C.rel + k, { v: name(k), s: S('rel') });
+      put(3, C.gam + k, { v: name(k), s: S('gam') });
+      put(3, C.cx + k, { v: name(k), s: S('cx') });
+      put(3, C.cy + k, { v: name(k), s: S('cy') });
+      put(3, C.primX + k, { v: name(k), s: S('prim') });
+      put(3, C.primY + k, { v: name(k), s: S('prim') });
+      put(3, C.primZ + k, { v: name(k), s: S('prim') });
     }
     /* v1.44.0：純色端點的 R／G／B 各佔一列（資料列的前三列），標示欄寫出是哪一個。
        🔴 標示欄**無條件寫**（就算沒有任何一組帶純色端點）—— 它是版面的一部分，
@@ -3547,6 +3615,9 @@
       put(r, C.gray1, { v: g, s: 0 });
       put(r, C.gray2, { v: g, s: 0 });
       put(r, C.gray3, { v: g, s: 0 });
+      // v1.49.0：色度 x／y 各自的索引欄，值與另外三個 Gray 逐列相同（0 … gmax）
+      put(r, C.gray4, { v: g, s: 0 });
+      put(r, C.gray5, { v: g, s: 0 });
       /* 色溫的三條基準線：第一列是本體，其餘列一路參照回第一列（結構照參考檔，未改），
          只有中心值由 base 決定。
          🔴 動態模式而目標白點取不到時（base.ok === false）：這三欄**整組不寫**。
@@ -3597,7 +3668,10 @@
       + '<col min="' + (C.gray2 + 1) + '" max="' + (C.cct + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
       + '<col min="' + (C.gray3 + 1) + '" max="' + (C.rel + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
       + '<col min="' + (C.gamRef + 1) + '" max="' + (C.gam + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
-      + '<col min="' + (C.cx + 1) + '" max="' + (C.cy + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
+      /* v1.49.0：起點由 C.cx 改成 C.gray4 —— 與 gray2／gray3 那兩段同一個慣例
+         （欄寬範圍從該段的 Gray 索引欄起算），新加的兩個 Gray 才不會漏掉寬度設定。
+         這一段跨過中間的 gray5，它同樣拿到 10.25，與其他 Gray 欄一致。 */
+      + '<col min="' + (C.gray4 + 1) + '" max="' + (C.cy + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
       + '<col min="' + (C.primLbl + 1) + '" max="' + (C.primLbl + 1) + '" width="9" customWidth="1"/>'
       + '<col min="' + (C.primX + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
       + '</cols>';
@@ -3606,7 +3680,18 @@
       + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
       + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
       + '<dimension ref="A1:' + dgOptCn(DG_OPT_LAST) + RL + '"/>'
-      + '<sheetViews><sheetView tabSelected="1" workbookViewId="0"/></sheetViews>'
+      /* 🔴 v1.49.0：凍結前 3 列。Bruce 2026-09-13：「我希望第三列以上可以做到『分割』
+         跟『凍結視窗』，讓我在滑鼠滾輪往下捲的時候，第三列以上都還是 keep 在最上方。」
+         · `ySplit="3"` ＋ `topLeftCell="A4"` ⇒ 第 1～3 列（大標題／區塊標題／欄表頭）固定。
+         · 🔴 **只凍列、不凍欄**（不寫 xSplit）—— 他只說第三列以上，而這份表很寬
+           （primZ 那一段在 DG_OPT_LAST，10 組時已到第 90 幾欄），鎖住 A 欄反而擋路。
+         · activePane 因此是 `bottomLeft`（只有水平分割線時 OOXML 規定的窗格名）；
+           寫成 `bottomRight` Excel 會把它當成有 xSplit，開檔後連 A 欄一起鎖住。
+         · `state="frozen"` 才是「凍結」；不寫或寫 `split` 會變成可拖曳的分割線。 */
+      + '<sheetViews><sheetView tabSelected="1" workbookViewId="0">'
+      + '<pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/>'
+      + '<selection pane="bottomLeft" activeCell="A4" sqref="A4"/>'
+      + '</sheetView></sheetViews>'
       + '<sheetFormatPr defaultColWidth="7.875" defaultRowHeight="14.25"/>'
       + cols + '<sheetData>';
     Object.keys(cells).map(Number).sort(function (a, b) { return a - b; }).forEach(function (rr) {
@@ -3768,7 +3853,18 @@
     return s;
   }
 
-  // 三張圖在工作表上的位置（照參考檔：都靠右、上下排開）
+  /* 三張圖在工作表上的位置（照參考檔：都靠右、上下排開）。
+     🔴 v1.49.0：整批往下移一列。Bruce 2026-09-13：「Gamma 的圖表可以再往下移一點，
+        不要在第三列以上。」理由是上面那個凍結窗格 —— 圖一原本的 from row 是 2
+        （xdr 的 col／row 都是 **0 起算**，2 ⇒ 第 3 列），正好落在凍結區裡，
+        凍結之後它會永遠卡在畫面頂端擋路。改成 3（⇒ 第 4 列）就在捲動區的第一列。
+     位置逐值（0 起算）：
+        圖 i：from (DG_OPT_LAST+2, 3+i*22) → to (DG_OPT_LAST+13, 22+i*22)
+        · 列：圖一 3…22、圖二 25…44、圖三 47…66 —— 彼此不重疊（22<25、44<47）。
+        · 欄：一律從 DG_OPT_LAST+2 起，而資料區最後一欄是 DG_OPT_LAST ⇒ 中間還隔著
+          一欄空白，**矩形與資料區完全無交集**，列向與資料列重疊不構成壓欄位。
+        · 🔴 欄號由 DG_OPT_LAST 推導 ⇒ DG_OPT_N 改成別的值時圖表自己會跟著移，
+          v1.44.0 建立的組數彈性在這裡沒有退化。 */
   function dgOptDrawingXml(n) {
     var s = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"'
@@ -3776,9 +3872,9 @@
     for (var i = 0; i < n; i++) {
       s += '<xdr:twoCellAnchor>'
         + '<xdr:from><xdr:col>' + (DG_OPT_LAST + 2) + '</xdr:col><xdr:colOff>0</xdr:colOff>'
-        + '<xdr:row>' + (2 + i * 22) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>'
+        + '<xdr:row>' + (3 + i * 22) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>'
         + '<xdr:to><xdr:col>' + (DG_OPT_LAST + 13) + '</xdr:col><xdr:colOff>0</xdr:colOff>'
-        + '<xdr:row>' + (21 + i * 22) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
+        + '<xdr:row>' + (22 + i * 22) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
         + '<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr>'
         + '<xdr:cNvPr id="' + (i + 2) + '" name="Chart ' + (i + 1) + '"/>'
         + '<xdr:cNvGraphicFramePr><a:graphicFrameLocks/></xdr:cNvGraphicFramePr></xdr:nvGraphicFramePr>'
@@ -3793,6 +3889,22 @@
   }
 
   function dgOptStylesXml() {
+    /* v1.49.0：表頭底色。
+       🔴 fillId 0／1 是 OOXML 規定的保留位（none 與 gray125），使用者色一律從 2 起算；
+          寫在 0／1 會被 Excel 忽略（不是報錯，是靜默不上色）。
+       🔴 既有的 7 個 cellXfs（0…6）**一個都不動**，新樣式接在後面 —— 資料格與
+          DG_OPT_SRCSHEET 那張表都還在用它們，動了就是全檔位移。 */
+    var fills = '<fills count="' + (2 + DG_OPT_HDRKEYS.length) + '">'
+      + '<fill><patternFill patternType="none"/></fill>'
+      + '<fill><patternFill patternType="gray125"/></fill>'
+      + DG_OPT_HDRKEYS.map(function (k) {
+        return '<fill><patternFill patternType="solid">'
+          + '<fgColor rgb="FF' + DG_OPT_HDRCLR[k] + '"/><bgColor indexed="64"/></patternFill></fill>';
+      }).join('') + '</fills>';
+    var hdrXfs = DG_OPT_HDRKEYS.map(function (k, i) {
+      return '<xf numFmtId="0" fontId="1" fillId="' + (2 + i) + '" borderId="0" xfId="0"'
+        + ' applyFont="1" applyFill="1"/>';
+    }).join('');
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
       + '<numFmts count="3">'
@@ -3805,11 +3917,10 @@
       + '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
       + '<font><b/><sz val="14"/><name val="Calibri"/><family val="2"/></font>'
       + '</fonts>'
-      + '<fills count="2"><fill><patternFill patternType="none"/></fill>'
-      + '<fill><patternFill patternType="gray125"/></fill></fills>'
+      + fills
       + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
       + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-      + '<cellXfs count="7">'
+      + '<cellXfs count="' + (DG_OPT_XF_BASE + DG_OPT_HDRKEYS.length) + '">'
       + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
       + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
       + '<xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
@@ -3817,6 +3928,7 @@
       + '<xf numFmtId="177" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
       + '<xf numFmtId="179" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
       + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+      + hdrXfs
       + '</cellXfs>'
       + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
       + '<dxfs count="0"/>'
@@ -4896,6 +5008,24 @@
   ];
   var DG_SLOTS = [];
 
+  /* ═══ v1.49.0：「＋ 新增資料」改名為「＋ 匯入或量測」 ════════════════════
+     Bruce 2026-09-13：「按鈕的名稱，要讓人家一看就知道這裡可以匯入舊的資料。」
+     這顆鈕按下去本來就是二選一（讀檔／當場量），名稱直接把兩條路講出來；「匯入」
+     是本工具一貫用詞（其他入口都是「匯入光學量測檔」「匯入 CCT 檔」），不在這裡
+     另造「讀檔」這種第二套講法。
+
+     🔴 **名稱只有這一個來源。** 按鈕本體、卡片說明、空狀態提示三處原本各自寫死同
+        一串字，改名時漏掉任何一處，畫面上就會出現「說明叫你按 A、按鈕卻叫 B」。
+        HTML 裡先寫好同樣的字當首屏 fallback（避免閃爍），啟動時由 dgSlotSyncLabels()
+        用這個常數覆寫按鈕與每一個 .dg-slot-new-name，兩邊不可能再分岔。 */
+  var DG_SLOT_NEW_LABEL = '＋ 匯入或量測';
+  function dgSlotSyncLabels() {
+    var b = $('dg-btn-slot-new');
+    if (b) b.textContent = DG_SLOT_NEW_LABEL;
+    var ns = document.querySelectorAll('.dg-slot-new-name');
+    for (var i = 0; i < ns.length; i++) ns[i].textContent = DG_SLOT_NEW_LABEL;
+  }
+
   function dgSlotColor(i) { return DG_SLOT_COLORS[i % DG_SLOT_COLORS.length]; }
 
   /* 名稱處理照抄 wfg.html 的通道名（wfgLaDefaultChannelName / wfgLaIsDefaultChannelName /
@@ -5024,7 +5154,7 @@
     if (ae && ae.getAttribute && ae.getAttribute('data-dg-slot') != null && host.contains(ae)) { dgSlotStatus(); return; }
     if (!DG_SLOTS.length) {
       host.innerHTML = '<div class="dg-slot-empty">還沒有任何光學量測組。'
-        + '按下面的<b>「＋ 新增資料」</b>讀檔匯入或當場即時量測；'
+        + '按下面的<b>「<span class="dg-slot-new-name">' + DG_SLOT_NEW_LABEL + '</span>」</b>讀檔匯入或當場即時量測；'
         + '也可以到<b>「Digital Gamma 校正」分頁</b>第 2 部分按<b>「轉出到光學資料比較」</b>。</div>';
       dgSlotStatus();
       return;
@@ -5552,7 +5682,7 @@
   /* ── v1.21.0：「有東西沒進來」統一走這一個視窗 ────────────
      Bruce 2026-09-08 原話：「超過十組的話，超過的部分不會匯入進來，**但要跳出視窗警告**，
      讓使用者知道這件事情」。
-     v1.20.0 只有「部分放得下」那一種情況會跳視窗；**清單剛好滿 10 組時**「＋ 新增資料」
+     v1.20.0 只有「部分放得下」那一種情況會跳視窗；**清單剛好滿 10 組時**「＋ 匯入或量測」
      根本不開視窗（v1.4.3 起的入口防呆），使用者看到的是狀態列一行字 —— 那也是「超過」，
      照需求就該跳視窗。本版把那道入口防呆拿掉：滿載時照常按得進去、選得了檔，
      由這一支統一說明「已經滿了、這個檔的哪些沒有被加入」。
@@ -7611,7 +7741,7 @@
       // 說明視窗是另一個外殼，Escape 兩個都要收（開著哪一個就收哪一個）
       // v1.14.0：第 1 部分的二選一視窗是第三個外殼，一併收
       // v1.16.0：第 2、3 部分的設定視窗是第四、第五個外殼，一併收
-      // v1.18.0：比較分頁的「新增資料」是第六個外殼，一併收
+      // v1.18.0：比較分頁的「＋ 匯入或量測」是第六個外殼，一併收
       // v1.24.0：第 4 部分的「確認結果」是第七個外殼，一併收
       /* v1.26.0：「要不要記錄」是第八個外殼，但它**不能只是關掉** ——
          關掉 ＝ 不記錄，而且在等它的那條自動流程要接著跑（dgRecAnswer 會執行 done）。
@@ -9726,7 +9856,7 @@
   var dgLiveTaskId = 0;        // 每按一次「即時量測」+1
   var DG_LIVE_TASKS = {};      // 任務編號 → 當初是哪個入口按的
   // v1.24.0：多一個目的地 'conf'（第 4 部分的確認量測）
-  var DG_LIVE_DEST = 'gray';   // 'gray'（第 2 部分）｜'prim'（第 3 部分）｜'slot'（比較分頁新增資料）｜'conf'（第 4 部分）
+  var DG_LIVE_DEST = 'gray';   // 'gray'（第 2 部分）｜'prim'（第 3 部分）｜'slot'（比較分頁「＋ 匯入或量測」）｜'conf'（第 4 部分）
   /* 🔴 視窗還在不在只看 win.closed（瀏覽器維護的事實）：參照從沒建立過（null）
      與建立過但已被關掉（closed）兩種都算「不在」，不用 try/catch 猜、也不用
      計時器推測。 */
@@ -10381,6 +10511,10 @@
        也不會漏（列舉式清單漏了不會有人發現，這是 wfg collapsedCards 兩次的教訓）。 */
     _dgAsFactory = dgAsSnapFields();
     dgGridsInit();
+    /* v1.49.0：按鈕與說明裡的「＋ 匯入或量測」一律由 DG_SLOT_NEW_LABEL 覆寫一次。
+       🔴 要在 dgSlotRender() **之前** —— 空狀態那段 HTML 是 render 當場組出來的，
+          它用的是同一個常數，但卡片說明與按鈕本體是靜態 HTML，得靠這一支對齊。 */
+    dgSlotSyncLabels();
     dgSlotBind();
     dgSlotRender();
     // 色溫基準：兩排 radio 寫同一個變數（見 dgCctModeSync 的說明）
@@ -10398,7 +10532,7 @@
     });
     $('dg-btn-slot-xlsx').addEventListener('click', dgSlotExportXlsx);
 
-    /* ─── v1.18.0：比較分頁「＋ 新增資料」與它的二選一視窗 ─────────────────── */
+    /* ─── v1.18.0：比較分頁「＋ 匯入或量測」與它的二選一視窗 ─────────────────── */
     /* v1.21.0：**滿載時不再擋在入口**。原本這裡有一道
        `if (DG_SLOTS.length >= DG_SLOT_MAX) { 寫狀態列; return; }`，
        結果是「按了沒反應、只有底下一行紅字」—— 而 Bruce 要的是「超過的部分不會匯入，
@@ -10555,7 +10689,7 @@
           入口頭上。 */
     [['dg-btn-live-gray', '', '第 2 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'gray', 'dg-status'],
      ['dg-btn-live-prim', '?mode=prim', '第 3 部分', '探頭對準中心的紅圈，再按右上角的「開始量測」；它會依序顯示純紅、純綠、純藍三個滿版畫面', 'prim', 'dg-status'],
-     ['dg-btn-slot-live', '', '光學資料比較（新增資料）', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'slot', 'dg-slot-status'],
+     ['dg-btn-slot-live', '', '光學資料比較（匯入或量測）', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'slot', 'dg-slot-status'],
      ['dg-btn-conf-live', '', '第 4 部分（確認結果）', '探頭對準中心的紅圈，再按右上角的「開始量測」', 'conf', 'dg-conf-status']]
       .forEach(function (p) {
         var b = $(p[0]);
