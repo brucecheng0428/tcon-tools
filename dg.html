@@ -320,6 +320,12 @@
      「指到哪就顯示那一點的數值」，用 grab 會讓人以為只能拖不能讀；按住 Shift 變十字
      準星（要拉框）；手抓只在真的按著左鍵拖的當下出現，放開就回到箭頭。 */
   .dg-zoom-canvas { cursor: default; touch-action: none; }
+  /* v1.54.0：**放大之後**（＝真的有東西可以拖）滑過繪圖區就換成手抓
+     （Bruce 2026-09-13：「當我在放大的時候，我還可以點選滑鼠左鍵變成抓取的圖示，
+     可以移動圖表」）。沒放大時維持箭頭 —— 那個狀態拖不動任何東西，畫成手抓是騙人的。
+     這一條刻意排在 .dg-shift 之前：同為兩個 class 的選擇器、特異性相同，後寫的贏，
+     所以按住 Shift（要拉框）仍然是十字準星。 */
+  .dg-zoom-canvas.dg-grab { cursor: grab; }
   .dg-zoom-canvas.dg-shift { cursor: crosshair; }
   .dg-zoom-canvas.dg-panning { cursor: grabbing; }
   /* v1.4.7 圖例可拖曳。這兩條刻意放在 .dg-shift 之後，讓「壓在圖例上」蓋過
@@ -356,6 +362,30 @@
   .dg-tip-row { display: flex; align-items: center; gap: 7px; line-height: 1.55; }
   .dg-tip-row i { width: 13px; height: 2.5px; border-radius: 2px; flex: 0 0 auto; }
   .dg-tip-row b { margin-left: auto; padding-left: 10px; font-variant-numeric: tabular-nums; }
+  /* v1.54.0：游標旁那塊即時提示框裡，「目前指認到的那一條」也要框起來。
+     🔴 樣式與底下那排 HTML 圖例的 .dg-leg-hi **逐項相同**（同色、同粗、同 offset、
+        同圓角）—— Bruce 2026-09-13：「圖例上用藍框框住…在圖例上面還不夠，還需要
+        也在滑鼠旁邊出現的即時圖例上面也要有」，兩邊視覺一致才是同一件事。
+     outline 不佔版面（不像 border 會把那一列撐開），提示框的高度因此不變。 */
+  .dg-tip-row.dg-tip-hi {
+    outline: 1.5px solid #38bdf8; outline-offset: 2px; border-radius: 4px;
+  }
+  /* v1.54.0：縱軸上下限「點一下就改」的輸入框。它是 el（.dg-svg-wrap／.dg-zoom-canvas，
+     兩者都 position:relative）的絕對定位子元素，與 .dg-tip／.dg-selbox 同一套做法。 */
+  .dg-yedit-box {
+    position: absolute; z-index: 7; display: flex; flex-direction: column; gap: 3px;
+  }
+  .dg-yedit-input {
+    width: 100%; box-sizing: border-box; padding: 3px 5px; border-radius: 5px;
+    border: 1.5px solid #38bdf8; background: #0b1a30; color: #e2e8f0;
+    font: inherit; font-size: 12px; text-align: right;
+  }
+  .dg-yedit-msg {
+    display: none; max-width: 230px; padding: 4px 6px; border-radius: 5px;
+    background: #3f1d1d; border: 1px solid #b91c1c; color: #fecaca;
+    font-size: 11px; line-height: 1.45; white-space: normal; text-transform: none;
+  }
+  .dg-yedit-msg.on { display: block; }
   .dg-zoom-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dg-zoom-btn {
     flex: 0 0 auto; padding: 5px 10px; border-radius: 7px; cursor: pointer;
@@ -1997,7 +2027,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1530"></script>
+<script src="common/version.js?v=20260913dg1540"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -2487,6 +2517,55 @@
       + dgMarkSvg(shape, 11, 5, 3, color) + '</svg>';
   }
 
+  /* ═══ v1.54.0：縱軸手動上下限 ═══════════════════════════════════════════════
+     DG_YMAN[圖表 id] = { min, max }。只有使用者**自己動手改過**才會有值；
+     沒有這個鍵就是自動（dgAxisFit 擬合）。
+     🔴 掛在「來源圖的 id」上，不是放大畫布的 id —— 縮圖與放大視窗看的是同一條縱軸，
+        兩份狀態一定會走偏。
+     🔴 只活在這次開著的頁面裡（不進 autosave）。理由：它是「我現在要盯著看這一段」
+        的臨時視角，不是資料；存進去會讓下一次開頁莫名其妙卡在一個窄範圍，而那時
+        使用者早就忘記自己改過。要回到自動一律按圖上的 Auto。 */
+  var DG_YMAN = {};
+
+  /* 現在這張圖的縱軸算不算「手動」。兩種都算：
+       ① 使用者改過上下限（DG_YMAN 有值）
+       ② 放大／拖曳之後，可視範圍的 Y 已經不等於完整範圍（需求四：平移等同手動調整）
+     ② 的比較容許 1e-6 × 跨距的誤差 —— 那是同一串浮點運算來回之後的殘差
+     （繪圖區高約 220 單位 ⇒ 1e-6 跨距 ≈ 2e-4 單位，遠小於一個像素），
+     不是「差多少才算改過」的門檻。 */
+  function dgYIsManual(key, ymin, ymax) {
+    if (!key) return false;
+    if (DG_YMAN[key]) return true;
+    var f = dgFullRange(key);
+    if (!f) return false;
+    var sp = f.ymax - f.ymin;
+    if (!(sp > 0)) return false;
+    return Math.abs(ymin - f.ymin) > sp * 1e-6 || Math.abs(ymax - f.ymax) > sp * 1e-6;
+  }
+
+  /* 重畫一張圖（縮圖必畫；它正開在放大視窗裡的話，大圖也一起）。
+     餵回去的是 DG_CHART_LAST 裡那份**自動值的 opt**，手動值由 dgChart() 自己套上去，
+     所以連按幾次也不會把手動值一層一層疊進 opt 裡。 */
+  function dgYRedraw(key) {
+    var c = DG_CHART_LAST[key], host = $(key);
+    if (c && host) dgChart(host, c.series, c.opt);
+    if (DG_ZOOM_CHART === key) dgChartZoomRefresh();
+  }
+
+  /* 按下 Auto：清掉手動值，並把縮放堆疊裡每一層的 Y 拉回完整範圍。
+     🔴 X 不動 —— 使用者按的是縱軸的 Auto，把他好不容易放大的橫軸一起收掉是多做的。
+     🔴 每一層都改，不是只改最上層：只改頂層的話，按「上一層」會退回一個 Y 還停在
+        舊手動範圍的視角，那個狀態沒有任何入口可以說明它從哪來。 */
+  function dgYAutoReset(key) {
+    if (!key) return;
+    delete DG_YMAN[key];
+    var f = dgFullRange(key), v = DG_VIEW[key], i;
+    if (f && v && v.length) {
+      for (i = 0; i < v.length; i++) { v[i].ymin = f.ymin; v[i].ymax = f.ymax; }
+    }
+    dgYRedraw(key);
+  }
+
   function dgChart(host, series, opt) {
     if (!host) return;
     if (host.id && host.id !== 'dg-zoom-canvas') DG_CHART_LAST[host.id] = { series: series, opt: opt };
@@ -2497,6 +2576,20 @@
     var nx = opt.nx || (big ? 8 : 4), ny = opt.ny || (big ? 8 : 4);
     var pw = W - ml - mr, ph = H - mt - mb;
     var xmin = opt.xmin, xmax = opt.xmax, ymin = opt.ymin, ymax = opt.ymax;
+    /* ─── v1.54.0：縱軸手動上下限 ─────────────────────────────────────────
+       DG_YMAN[key] 有值就蓋掉呼叫端算出來的 ymin／ymax。
+       🔴 **存進 DG_CHART_LAST 的 opt 仍然是自動擬合的那一份，一個欄位都不改** ——
+          「按 Auto 回到 dgAxisFit 的值」要有東西可以回，那份自動值就是它。
+          對外（放大檢視的「完整範圍」）則由 dgFullRange() 負責把手動值套上去，
+          所以兩邊看到的完整範圍是一致的。
+       🔴 opt.clipPlot ＝ 這一次畫的是「放大／平移之後的可視範圍」（只有
+          dgChartZoomRefresh() 在有 view 時會設）。那時候的 ymin／ymax 本來就是從
+          完整範圍推出來的，再套一次手動值會把可視範圍彈回去。
+       放大畫布的 key 取 DG_ZOOM_CHART —— 它的 host.id 是 'dg-zoom-canvas'，
+       狀態一律掛在來源圖的 id 上（縮圖與放大視窗共用同一份手動值）。 */
+    var ymanKey = (host.id === 'dg-zoom-canvas') ? DG_ZOOM_CHART : (host.id || null);
+    var yman = ymanKey ? DG_YMAN[ymanKey] : null;
+    if (yman && !opt.clipPlot) { ymin = yman.min; ymax = yman.max; }
     var xspan = xmax - xmin, yspan = ymax - ymin;
     /* 縮放過的圖走「幾何裁切」：折線的頂點多帶到範圍外的鄰點，超出繪圖區的部分由
        clipPath 遮掉，不從資料上砍點。
@@ -2520,11 +2613,29 @@
     }
     var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
     s += '<rect x="' + ml + '" y="' + mt + '" width="' + pw + '" height="' + ph + '" fill="#0f172a" stroke="#334155"/>';
-    var k, gy, gx;
+    var k, gy, gx, ylab, yend;
+    var ypct = false;
     for (k = 0; k <= ny; k++) {
       gy = ymin + yspan * k / ny;
       s += '<line x1="' + ml + '" y1="' + py(gy).toFixed(1) + '" x2="' + (ml + pw) + '" y2="' + py(gy).toFixed(1) + '" stroke="#1e293b"/>';
-      s += '<text x="' + (ml - 6) + '" y="' + (py(gy) + fs * 0.35).toFixed(1) + '" fill="#64748b" font-size="' + fs + '" text-anchor="end">' + opt.yfmt(gy, yspan) + '</text>';
+      /* v1.54.0：最上／最下那兩個刻度標籤 ＝ 縱軸的上限與下限，點一下就能改
+         （需求二）。做法是掛 data-dg-yend，點擊由 dgBindChartInteract() 的委派
+         接走 —— SVG 每次重算都是全新的節點，綁在節點上的聽者會跟著被丟掉。
+         `<title>` 是原生 SVG 提示，滑上去就看得到「可以點」，不必另外畫圖示。
+         中間那幾格一個字都沒變。 */
+      ylab = opt.yfmt(gy, yspan);
+      if (/%\s*$/.test(String(ylab))) ypct = true;
+      yend = (k === 0) ? 'min' : (k === ny ? 'max' : '');
+      s += '<text x="' + (ml - 6) + '" y="' + (py(gy) + fs * 0.35).toFixed(1) + '" fill="'
+        + (yend ? '#94a3b8' : '#64748b') + '" font-size="' + fs + '" text-anchor="end"'
+        /* 🔴 data-dg-ytxt ＝ 這個標籤「純粹的數字文字」。
+           輸入框的預設值一定要讀它，**不能讀 textContent** —— 底下那個 <title>
+           是 <text> 的子節點，textContent 會把提示文字一起串進來，
+           使用者一點下去就看到「2.80點一下可直接修改縱軸上限」（實測，stageY 抓到的）。 */
+        + (yend ? ' class="dg-yedit" data-dg-yend="' + yend + '" data-dg-ytxt="' + dgXe(ylab) + '" style="cursor:pointer"' : '') + '>'
+        + ylab
+        + (yend ? '<title>點一下可直接修改縱軸' + (yend === 'max' ? '上限' : '下限') + '</title>' : '')
+        + '</text>';
     }
     /* ─── X 軸刻度 ───────────────────────────────────────────────────────────
        v1.50.0 需求二（**只有 opt.cmp ＝「光學資料比較」那三張**）：X 是灰階，
@@ -2565,6 +2676,11 @@
     if (host.id && DG_CHART_GEOM[host.id]) {
       // v1.50.0 探針出口：這一次真的標出去的刻度文字（驗「全是整數、沒有小數點」用）
       DG_CHART_GEOM[host.id].xticks = xticks.map(function (t) { return t.txt; });
+      /* v1.54.0：這張圖的縱軸刻度是不是用百分比寫的（圖一是）。
+         使用者在輸入框裡看到的就是刻度文字本身，所以「80」在百分比軸上必須解讀成
+         80% ＝ 0.8，不能當成 80。判定直接看 yfmt 實際吐出來的字串結尾，
+         不是把哪張圖是百分比寫死在另一個地方（寫死＝兩邊遲早不一致）。 */
+      DG_CHART_GEOM[host.id].ypct = ypct;
     }
     // 幾何裁切時要畫的索引範圍：範圍內的點，左右各多帶一個範圍外的鄰點。
     // x 是自變數且單調遞增，所以界線只看 x：lo ＝ 最後一個 x ≤ xmin 的點（沒有就取 0），
@@ -2578,11 +2694,23 @@
       if (hi < lo) hi = lo;
       return { lo: lo, hi: hi };
     }
-    if (clipPlot) {
-      s += '<defs><clipPath id="' + clipId + '"><rect x="' + ml + '" y="' + mt
-        + '" width="' + pw + '" height="' + ph + '"/></clipPath></defs>'
-        + '<g clip-path="url(#' + clipId + ')">';
-    }
+    /* ─── v1.54.0：Y 方向一律「裁切」，不再「夾制」───────────────────────────
+       🔴 這是在修一個**顯示錯誤的資料**的 bug，不是視覺調整。
+       v1.53.0 以前只有放大過的圖（clipPlot）走裁切，沒放大的圖走
+       `Math.max(ymin, Math.min(ymax, yv))` —— 那是把超出上下界的點**搬到邊界上**，
+       畫面上因此出現一條貼著邊界的水平線。Bruce 2026-09-13：
+         「目前的 Curve 如果低於最小值，例如 253、254、255 這三個點，它們的 Gamma
+          都已經低於 1.45（可能是 1.2、1.1、1.0）…它會把值全部鎖定在 1.45 秀在
+          Curve 圖上面，這樣就不對了。」
+       夾制等於在圖上畫出**資料裡不存在的數值**；裁切只是看不到，值一個都沒動。
+       上面 L2573 那條註解（「Y 方向不夾也不斷」）本來就是對的，錯的是實作。
+       🔴 clipPath 只罩折線。資料點標記**改用資料層過濾**（範圍外直接不畫，見下面），
+          所以不放進裁切群組 —— 放進去的話，正好落在上／下限上的那些點（圖一的
+          0% 與 100% 依定義一定在邊界上）會被切掉一半，那是把「合法的點」也削掉。
+       X 方向的行為一個字都沒改：clipPlot 時多帶左右鄰點靠裁切收尾，沒縮放時仍然
+       在範圍外斷段。 */
+    s += '<defs><clipPath id="' + clipId + '"><rect x="' + ml + '" y="' + mt
+      + '" width="' + pw + '" height="' + ph + '"/></clipPath></defs>';
     series.forEach(function (se, seI) {
       var segs = [], cur = [], i, yv, xv, out;
       if (clipPlot) {
@@ -2605,10 +2733,13 @@
             if (yv !== null && isFinite(yv) && cur.length) { segs.push(cur); cur = []; }
             continue;
           }
-          cur.push(px(xv).toFixed(1) + ',' + py(Math.max(ymin, Math.min(ymax, yv))).toFixed(1));
+          // v1.54.0：不再夾制 —— 真實座標畫下去，超出繪圖區的部分由 clipPath 收
+          cur.push(px(xv).toFixed(1) + ',' + py(yv).toFixed(1));
         }
       }
       if (cur.length) segs.push(cur);
+      // v1.54.0：折線包在裁切群組裡（逐條包，維持「線 → 標記 → 下一條線」的原本疊層順序）
+      if (segs.length) s += '<g clip-path="url(#' + clipId + ')">';
       segs.forEach(function (pts) {
         if (pts.length < 1) return;
         /* v1.50.0：data-dg-si ＝ 這條折線屬於 series 裡的第幾條。
@@ -2620,6 +2751,7 @@
           + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '')
           + ' points="' + pts.join(' ') + '"/>';
       });
+      if (segs.length) s += '</g>';
       /* v1.20.0：資料點標記。有 se.mark 才畫（＝實測數列），**縮圖與放大都畫**
          —— v1.19.0 以前只有放大才畫，使用者在主畫面上看不出量到哪幾階。
 
@@ -2638,7 +2770,10 @@
           yv = se.y[i]; xv = se.x[i];
           // 只畫可視範圍內的點（折線多帶的那兩個鄰點不畫，否則標記會跑到軸外面）
           if (yv === null || !isFinite(yv) || xv < xmin || xv > xmax) continue;
-          if (clipPlot && (yv < ymin || yv > ymax)) continue;
+          /* v1.54.0：**所有圖**都一樣 —— 落在縱軸範圍外的點就是不畫。
+             原本沒縮放時會把它畫在邊界上（下面那個 Math.max/Math.min），
+             那等於在圖上放一個實際量測裡沒有的點。 */
+          if (yv < ymin || yv > ymax) continue;
           idxs.push(i);
         }
         var mr = big ? 3.2 : 2.4;
@@ -2648,13 +2783,11 @@
         for (kk = 0; kk < idxs.length; kk += step) picks.push(idxs[kk]);
         if (idxs.length && picks[picks.length - 1] !== idxs[idxs.length - 1]) picks.push(idxs[idxs.length - 1]);
         picks.forEach(function (ii) {
-          var vy = se.y[ii];
-          s += dgMarkSvg(se.mark, px(se.x[ii]),
-                         py(clipPlot ? vy : Math.max(ymin, Math.min(ymax, vy))), mr, se.color);
+          // v1.54.0：idxs 已經把範圍外的點濾掉，這裡畫的一定在框內 ⇒ 直接用真值
+          s += dgMarkSvg(se.mark, px(se.x[ii]), py(se.y[ii]), mr, se.color);
         });
       }
     });
-    if (clipPlot) s += '</g>';
     if (big) {
       /* v1.50.0：由 `series.filter()` 改成同時記下**每一條在 series 裡的原索引** ——
          需求三要把「圖例的第幾列」對回「圖上的第幾條線」，而 filter 之後索引就對不回去了。
@@ -2698,6 +2831,31 @@
         });
         if (host.id && DG_CHART_GEOM[host.id]) DG_CHART_GEOM[host.id].legendRows = legRows;
       }
+    }
+    /* ─── v1.54.0：縱軸模式指示 ＋ Auto 鈕（需求三）───────────────────────────
+       畫在繪圖區**左上角**：圖例佔右上角，而這幾張圖的曲線（gamma、相對亮度、LUT）
+       在左上角都是空的，遮不到資料。
+       兩態：
+         · 自動（dgAxisFit 的擬合值）＝ 暗色、沒有外框，點下去沒有事情可做。
+         · 手動（使用者改過上下限，或放大後把 Y 拖離了完整範圍）＝ 藍框、亮字，
+           點下去回到自動擬合並清掉手動狀態。
+       🔴 「按 Auto 之後會變成什麼」必須看得見，所以兩態都畫出來 —— 只在手動時才
+          出現的話，使用者無從知道現在這張圖到底是不是自動的。 */
+    if (ymanKey) {
+      var yAuManual = dgYIsManual(ymanKey, ymin, ymax);
+      var yAuTxt = yAuManual ? 'Y 手動 ⟲ Auto' : 'Y 自動';
+      var yAuW = Math.ceil(dgTextW(yAuTxt, fs)) + 14, yAuH = fs + 8;
+      var yAuX = ml + 6, yAuY = mt + 6;
+      s += '<g data-dg-yauto="' + (yAuManual ? '1' : '0') + '"'
+        + (yAuManual ? ' style="cursor:pointer"' : '') + '>'
+        + '<rect x="' + yAuX + '" y="' + yAuY + '" width="' + yAuW + '" height="' + yAuH
+        + '" rx="4" fill="#0b1a30" fill-opacity="' + (yAuManual ? '0.9' : '0.55')
+        + '" stroke="' + (yAuManual ? '#38bdf8' : '#1e293b') + '"/>'
+        + '<text x="' + (yAuX + yAuW / 2) + '" y="' + (yAuY + yAuH / 2 + fs * 0.36).toFixed(1)
+        + '" fill="' + (yAuManual ? '#93c5fd' : '#475569') + '" font-size="' + fs
+        + '" text-anchor="middle">' + yAuTxt + '</text>'
+        + '<title>' + (yAuManual ? '縱軸目前不是自動擬合的範圍（手動輸入過，或縮放／平移過），點一下回到自動擬合' : '縱軸目前是自動擬合（點縱軸上／下限的數字就能改成手動）')
+        + '</title></g>';
     }
     s += '<text x="' + (ml + pw / 2) + '" y="' + (H - (big ? 8 : 1)) + '" fill="#475569" font-size="' + (big ? fs : 9) + '" text-anchor="middle">' + dgXe(opt.xlabel) + '</text>';
     s += '</svg>';
@@ -2762,7 +2920,10 @@
     hint.textContent = '滾輪上下滾＝以滑鼠位置為中心放大／縮小；放大後按住左鍵可以拖曳平移。'
       + '按住 Shift 拖曳則是拉出方框、放大那一區。手機：單指拖曳平移、雙指開合縮放。'
       + '滑過任一點會顯示該點的數值。'
-      + '右上角那塊圖例擋到線的話，直接把它拖到別的位置（雙擊圖例可放回右上角）。';
+      + '右上角那塊圖例擋到線的話，直接把它拖到別的位置（雙擊圖例可放回右上角）。'
+      // v1.54.0：需求二／三的入口要講出來，不然沒有人會去點座標軸上的數字
+      + '縱軸的上限／下限數字可以直接點下去改（Enter 套用、Esc 取消）；'
+      + '左上角的「Y 手動 ⟲ Auto」按一下就回到自動範圍。';
     var scroller = document.createElement('div');
     scroller.className = 'dg-zoom-scroll';
     scroller.id = 'dg-zoom-scroll';
@@ -2816,6 +2977,14 @@
     if (!c || !c.opt) return null;
     var o = c.opt;
     if (!isFinite(o.xmin) || !isFinite(o.xmax) || !isFinite(o.ymin) || !isFinite(o.ymax)) return null;
+    /* v1.54.0：手動上下限就是這張圖的「完整範圍」。
+       🔴 DG_CHART_LAST 存的 opt 一律是自動擬合值（按 Auto 要有東西可以回），
+          所以手動值在這裡套 —— 「還原」「上一層」「捲軸」「夾制」全部讀這一支，
+          少套一處就會出現「畫面寫 1.0～2.8、按還原卻跳回 1.45～2.8」。 */
+    var m = DG_YMAN[hostId];
+    if (m && isFinite(m.min) && isFinite(m.max) && m.max > m.min) {
+      return { xmin: o.xmin, xmax: o.xmax, ymin: m.min, ymax: m.max };
+    }
     return { xmin: o.xmin, xmax: o.xmax, ymin: o.ymin, ymax: o.ymax };
   }
   function dgViewCur(hostId) {
@@ -2977,6 +3146,10 @@
     }
     // 關掉就把縮放層數丟掉：下次打開一律從完整範圍開始，不會有「怎麼一開就是窄的」的困惑
     if (DG_ZOOM_CHART) DG_VIEW[DG_ZOOM_CHART] = [];
+    /* v1.54.0：縱軸輸入框開著就一起收掉（它是放大畫布的子元素，畫布馬上要被清空）。
+       🔴 手動範圍 DG_YMAN **不清** —— 它是使用者明講的設定，不是縮放那種臨時視角；
+          關視窗就被偷偷還原的話，縮圖上的範圍會莫名其妙跳回去。要還原請按 Auto。 */
+    dgYEditClose();
     if (DG_ZOOM_UNBIND) { DG_ZOOM_UNBIND(); DG_ZOOM_UNBIND = null; }
     DG_ZOOM_CHART = null;
     $('dg-modal').classList.remove('dg-modal-chart');
@@ -3031,6 +3204,119 @@
   function dgTipHide(el) {
     var t = el.querySelector(':scope > .dg-tip');
     if (t) t.style.display = 'none';
+  }
+
+  /* ═══ v1.54.0：點縱軸上／下限就地改（需求二）═══════════════════════════════
+     整頁同時只開一個輸入框（DG_YEDIT 記著它），不然在縮圖上開一個、又去大圖上開
+     一個，兩邊會各自套一次。 */
+  var DG_YEDIT = null;
+
+  function dgYEditClose() {
+    if (DG_YEDIT && DG_YEDIT.box && DG_YEDIT.box.parentNode) {
+      DG_YEDIT.box.parentNode.removeChild(DG_YEDIT.box);
+    }
+    DG_YEDIT = null;
+  }
+
+  /* 把輸入框裡的字轉成縱軸的值。
+     pct ＝ 這張圖的刻度是用百分比寫的（圖一）。使用者看到的刻度就是「80%」，
+     所以不管他打不打那個 %，都照百分比解讀 —— 同一個畫面上的同一個數字不能有兩種意思。
+     回傳 null ＝ 不是數字（呼叫端負責顯示訊息，不可以靜默吃掉）。 */
+  function dgYParseNum(txt, pct) {
+    var t = String(txt == null ? '' : txt).replace(/[\s,]/g, '').replace(/[％%]$/, '');
+    if (t === '' || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return null;
+    var v = Number(t);
+    if (!isFinite(v)) return null;
+    return pct ? v / 100 : v;
+  }
+
+  /* 開輸入框。which ＝ 'min' / 'max'，labEl ＝ 被點到的那個 <text>（拿它的文字當預設值，
+     使用者看到什麼就改什麼）。
+     位置貼在該標籤所在的高度；量不到版面時（沒有排版引擎的驗證環境）退到左上角，
+     功能不受影響 —— 位置是裝飾，套用與否由輸入內容決定。 */
+  function dgYEditOpen(el, geomKey, dataKey, which, labEl) {
+    var g = DG_CHART_GEOM[geomKey], svg = el.querySelector('svg');
+    if (!g || !svg) return null;
+    dgYEditClose();
+    var box = document.createElement('div');
+    box.className = 'dg-yedit-box';
+    box.setAttribute('data-dg-yedit', which);
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'dg-yedit-input';
+    // 見上面 data-dg-ytxt 那段：textContent 會把 <title> 的提示文字一起帶進來
+    inp.value = labEl ? String((labEl.getAttribute && labEl.getAttribute('data-dg-ytxt'))
+      || labEl.textContent || '') : '';
+    var msg = document.createElement('div');
+    msg.className = 'dg-yedit-msg';
+    box.appendChild(inp);
+    box.appendChild(msg);
+    el.appendChild(box);
+
+    var svgR = svg.getBoundingClientRect(), er = el.getBoundingClientRect();
+    if (svgR.width && svgR.height) {
+      var kx = svgR.width / g.W, ky = svgR.height / g.H;
+      var sy = (which === 'max') ? g.mt : (g.mt + g.ph);
+      box.style.left = Math.max(0, (svgR.left - er.left) + 2) + 'px';
+      box.style.top = Math.max(0, (svgR.top - er.top) + sy * ky - 12) + 'px';
+      box.style.width = Math.max(54, (g.ml - 8) * kx) + 'px';
+    } else {
+      box.style.left = '2px'; box.style.top = '2px'; box.style.width = '90px';
+    }
+    DG_YEDIT = { box: box, input: inp, msg: msg, el: el, geomKey: geomKey, dataKey: dataKey, which: which };
+    /* Enter／失焦＝套用，Esc＝取消。聽者掛在 input 自己身上就好 ——
+       這塊 box 是每次開啟才建的，關掉時整個移除，不會留下孤兒聽者。 */
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); dgYEditApply(); }
+      else if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); dgYEditClose(); }
+      e.stopPropagation();
+    });
+    inp.addEventListener('blur', function () { dgYEditApply(); });
+    // 在輸入框上按滑鼠不該被下面的圖表手勢接走（那會馬上把框關掉或開始拖曳）
+    inp.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    try { inp.focus(); inp.select(); } catch (_) { }
+    return DG_YEDIT;
+  }
+
+  /* 套用。回傳 true ＝ 已套用並關閉；false ＝ 沒套用，輸入框留著、訊息顯示出來。
+     🔴 兩條拒絕路徑都**不是拍腦袋的門檻**：
+        · 不是數字 ⇒ 沒有值可以拿來畫。
+        · min ≥ max ⇒ yspan ≤ 0，py() 會除以 0，整張圖變 NaN 畫不出來。這是程式的
+          硬性前提，不是「我覺得太窄」。
+     🔴 被擋下之後使用者做得到什麼：輸入框原樣留著、他打的字還在、底下寫明哪裡不行，
+        直接改數字再按 Enter 就好；不想改就按 Esc（或點別的地方後再按 Esc）復原。
+        **不強制搶回焦點** —— 搶焦點會變成關不掉的陷阱。 */
+  function dgYEditApply() {
+    var E = DG_YEDIT;
+    if (!E) return false;
+    var g = DG_CHART_GEOM[E.geomKey];
+    if (!g) { dgYEditClose(); return false; }
+    var v = dgYParseNum(E.input.value, !!g.ypct);
+    function bad(t) { E.msg.textContent = t; E.msg.className = 'dg-yedit-msg on'; return false; }
+    if (v === null) {
+      return bad('「' + E.input.value + '」不是數字，沒有套用。請輸入數字'
+        + (g.ypct ? '（這張圖的縱軸是百分比，例如 120 ＝ 120%）' : '') + '，或按 Esc 取消。');
+    }
+    var nmin = (E.which === 'min') ? v : g.ymin;
+    var nmax = (E.which === 'max') ? v : g.ymax;
+    if (!(nmax > nmin)) {
+      return bad('最小值必須小於最大值（改完會變成 ' + dgYNumTxt(nmin, g.ypct) + ' ～ '
+        + dgYNumTxt(nmax, g.ypct) + '），沒有套用。請改一個數字，或按 Esc 取消。');
+    }
+    var key = E.dataKey;
+    DG_YMAN[key] = { min: nmin, max: nmax };
+    /* 縮放堆疊裡每一層的 Y 一起換成新範圍：使用者剛剛打的就是他要看的範圍，
+       留著舊的 Y 會讓畫面立刻跑掉、跟他打的數字對不上。X（他放大的那一段）不動。 */
+    var st = DG_VIEW[key], i;
+    if (st && st.length) { for (i = 0; i < st.length; i++) { st[i].ymin = nmin; st[i].ymax = nmax; } }
+    dgYEditClose();
+    dgYRedraw(key);
+    return true;
+  }
+
+  // 訊息裡把值寫回使用者看得懂的樣子（百分比軸就寫成百分比）
+  function dgYNumTxt(v, pct) {
+    return pct ? (v * 100).toFixed(2) + '%' : String(+v.toFixed(6));
   }
 
   /* ═══ v1.50.0：「光學資料比較」三張圖的吸附虛線／曲線指認 ═════════════════════
@@ -3138,6 +3424,18 @@
         break;
       }
     }
+    /* ═══ v1.54.0 需求五：游標旁那塊即時提示框裡也要有同一個藍框 ═════════════
+       Bruce 2026-09-13：「圖例上用藍框框住滑鼠指標指到的 curve，在圖例上面還不夠，
+       還需要也在滑鼠旁邊出現的即時圖例上面也要有。」
+       🔴 對應靠 data-dg-si（提示框那一列記的是 c.series 的索引，與這裡的 si 同一個
+          座標系），不是靠「第幾列」—— 提示框只列有名字的線，列號與 series 索引不同。
+       🔴 提示框是 el 的子元素、每次 hover 重建，所以 class 不會殘留；這裡仍然先
+          全部清掉再加，避免 dgTipShow() 沒重建（滑鼠沒離開、只換了指認的線）時留兩個框。 */
+    var tipRows = el.querySelectorAll('.dg-tip-row[data-dg-si]');
+    for (i = 0; i < tipRows.length; i++) {
+      if (si >= 0 && Number(tipRows[i].getAttribute('data-dg-si')) === si) tipRows[i].classList.add('dg-tip-hi');
+      else tipRows[i].classList.remove('dg-tip-hi');
+    }
     // 縮圖底下那排 HTML 圖例（三張圖共用同一份 DOM 清單，用組別編號對）
     var c = DG_CHART_LAST[dataKey];
     var slot = (si >= 0 && c && c.series[si] && c.series[si].slot !== undefined) ? c.series[si].slot : null;
@@ -3172,7 +3470,12 @@
     var c = DG_CHART_LAST[dataKey];
     var pt = dgPtToData(geomKey, el, clientX, clientY);
     if (!c || !pt || !pt.inPlot) { dgTipHide(el); return null; }
-    var series = c.series.filter(function (se) { return !!se.name; });
+    /* v1.54.0：改成同時留下「這一列是 c.series 裡的第幾條」。
+       原本是 `c.series.filter(...)`，filter 之後索引就對不回去了，而需求五要把
+       dgHiPick() 指認到的那一條（用的是 c.series 的索引）框起來。
+       列的順序、內容、產出的 HTML 文字一個字都沒變，只多了一個 data-dg-si。 */
+    var series = [], seIdx = [];
+    c.series.forEach(function (se, si) { if (se.name) { series.push(se); seIdx.push(si); } });
     if (!series.length) { dgTipHide(el); return null; }
 
     // 最近的資料點：以第一條線的 x 陣列為準
@@ -3200,7 +3503,7 @@
     /* v1.4.3：各條線的 x 陣列不再保證是同一份（光學組可能是 1024 階、主資料 256 階），
        所以每條線各自反查自己最近的那一點。x 陣列與基準同一份時走 best，
        結果與 v1.4.2 逐值相同。 */
-    series.forEach(function (se) {
+    series.forEach(function (se, li) {
       var idx = best;
       if (se.x && se.x !== xs) {
         var bd2 = Infinity, j;
@@ -3212,8 +3515,8 @@
       }
       var v = (idx >= 0) ? se.y[idx] : null;
       var txt = (v === null || v === undefined || !isFinite(v)) ? '—' : fmt(v);
-      lines.push({ name: se.name, color: se.color, txt: txt });
-      html += '<div class="dg-tip-row"><i style="background:' + se.color + '"></i>'
+      lines.push({ name: se.name, color: se.color, txt: txt, si: seIdx[li] });
+      html += '<div class="dg-tip-row" data-dg-si="' + seIdx[li] + '"><i style="background:' + se.color + '"></i>'
         + dgXe(se.name) + '<b>' + dgXe(txt) + '</b></div>';
     });
     var tip = dgEnsureChild(el, 'dg-tip');
@@ -3263,6 +3566,31 @@
     }
     function boxEl() { return dgEnsureChild(el, 'dg-selbox'); }
     function hideBox() { var b = el.querySelector(':scope > .dg-selbox'); if (b) b.style.display = 'none'; }
+
+    /* v1.54.0：按在「縱軸上下限標籤」或「Auto 鈕」上的時候，圖表手勢全部讓開。
+       不讓開的話，縮圖上點 Auto 鈕會連帶打開放大檢視（它在繪圖區裡面，pointerup
+       走的是「沒拖曳＝打開放大檢視」那條路），放大視窗裡則會開始平移。
+       用 closest() 而不是比對座標：這兩個東西是 SVG 節點，節點自己就知道是不是它。 */
+    function dgHitYUi(t) {
+      return !!(t && t.closest && t.closest('[data-dg-yend],[data-dg-yauto],.dg-yedit-box'));
+    }
+    /* 點擊委派：SVG 每次重算都是全新節點，聽者只能掛在容器上。 */
+    el.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var lab = t.closest('[data-dg-yend]');
+      if (lab) {
+        e.stopPropagation(); e.preventDefault();
+        dgYEditOpen(el, geomKey, dataKey, lab.getAttribute('data-dg-yend'), lab);
+        return;
+      }
+      var chip = t.closest('[data-dg-yauto]');
+      if (chip) {
+        e.stopPropagation(); e.preventDefault();
+        // 已經是自動就沒有事情可做（鈕本身也畫成暗的）
+        if (chip.getAttribute('data-dg-yauto') === '1') dgYAutoReset(dataKey);
+      }
+    });
 
     // ── v1.4.2：滾輪縮放（只在放大視窗；縮圖上不攔滾輪，頁面照常捲動）──
     el.addEventListener('wheel', function (e) {
@@ -3319,6 +3647,8 @@
     }
 
     el.addEventListener('pointerdown', function (e) {
+      // v1.54.0：縱軸上下限／Auto 鈕／輸入框上的按壓不進手勢判定（見 dgHitYUi）
+      if (dgHitYUi(e.target)) { down = null; return; }
       var pt = dgPtToData(geomKey, el, e.clientX, e.clientY);
       if (!pt || !pt.inPlot) { down = null; return; }
       if (e.pointerType === 'touch') {
@@ -3367,8 +3697,15 @@
       // v1.4.7：滑到圖例上就換成可抓取的游標（只換游標，提示框的既有行為不動）
       if (big) {
         var hp = dgPtToData(geomKey, el, e.clientX, e.clientY);
-        if (hp && dgHitLegend(hp)) el.classList.add('dg-leg-hover');
+        var onLeg = !!(hp && dgHitLegend(hp));
+        if (onLeg) el.classList.add('dg-leg-hover');
         else el.classList.remove('dg-leg-hover');
+        /* v1.54.0 需求四：放大之後滑過繪圖區，游標變成「可抓取」。
+           🔴 條件是 dgIsZoomed() ——「有東西可以拖」才畫手抓。沒放大時 dgNavApply()
+              會把平移夾成零位移，這時候顯示手抓是在承諾一個做不到的操作。
+           圖例上（要搬圖例）與縱軸的那兩個標籤／Auto 鈕上不套，各自有各自的游標。 */
+        if (hp && hp.inPlot && !onLeg && !dgHitYUi(e.target) && dgIsZoomed(dataKey)) el.classList.add('dg-grab');
+        else el.classList.remove('dg-grab');
       }
       // v1.50.0：虛線與曲線指認吃 dgTipShow() 回傳的吸附結果（同一筆資料，不各算各的）
       dgCmpHover(el, geomKey, dataKey, dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY), e.clientX, e.clientY);
@@ -3521,6 +3858,7 @@
     el.addEventListener('pointerleave', function () {
       if (down || pinch) return;
       el.classList.remove('dg-leg-hover');
+      el.classList.remove('dg-grab');       // v1.54.0：離開圖表就把手抓游標收掉
       hideBox(); dgTipHide(el);
       // v1.50.0：滑鼠離開圖表要乾淨還原 —— 虛線消失、圖例外框移除、線寬復原
       dgCmpHoverClear(el, geomKey, dataKey);
@@ -7867,6 +8205,8 @@
       delete DG_CHART_GEOM[id];
       delete DG_VIEW[id];
       delete DG_LEGEND_POS[id];
+      // v1.54.0：圖都清掉了，手動縱軸範圍跟著清（與 DG_VIEW／DG_LEGEND_POS 同一個道理）
+      delete DG_YMAN[id];
     });
   }
 
@@ -12955,6 +13295,16 @@
     snapX: function (id, dataX) { var c = DG_CHART_LAST[id]; if (!c) return null; var i = dgSnapIndex(c, dataX); return i < 0 ? null : c.series[0].x[i]; },
     hiPick: function (id, snapX, dataY) { var c = DG_CHART_LAST[id]; return c ? dgHiPick(c, snapX, dataY) : -1; },
     seriesSlot: function (id) { var c = DG_CHART_LAST[id]; return c ? c.series.map(function (s) { return (s.slot === undefined) ? null : s.slot; }) : null; },
+    /* ═══ v1.54.0 驗證用（唯讀）═══════════════════════════════════════════════
+       畫面行為不讀這裡；這幾個出口只是把「縱軸現在是自動還是手動、範圍多少」
+       攤出來，讓探針不必從 SVG 字串反推。 */
+    yMan: function (id) { var m = DG_YMAN[id]; return m ? { min: m.min, max: m.max } : null; },
+    yAuto: function (id) { var c = DG_CHART_LAST[id]; return c ? { min: c.opt.ymin, max: c.opt.ymax } : null; },
+    yFull: dgFullRange,
+    yGeom: function (k) { var g = DG_CHART_GEOM[k]; return g ? { ymin: g.ymin, ymax: g.ymax, ml: g.ml, mt: g.mt, pw: g.pw, ph: g.ph, W: g.W, H: g.H, ypct: !!g.ypct } : null; },
+    yIsManual: function (id, k) { var g = DG_CHART_GEOM[k || id]; return g ? dgYIsManual(id, g.ymin, g.ymax) : null; },
+    yEditOpen: function () { return DG_YEDIT ? { which: DG_YEDIT.which, dataKey: DG_YEDIT.dataKey, value: DG_YEDIT.input.value, msg: DG_YEDIT.msg.textContent, msgOn: /\bon\b/.test(DG_YEDIT.msg.className) } : null; },
+    viewTop: function (id) { var t = dgViewTop(id); return t ? { xmin: t.xmin, xmax: t.xmax, ymin: t.ymin, ymax: t.ymax, src: t.src } : null; },
     isCmpChart: dgIsCmpChart,
     slotMax: function () { return DG_SLOT_MAX; },
     slotColor: dgSlotColor,
