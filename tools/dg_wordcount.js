@@ -31,7 +31,7 @@ function add(group, name, total, note, opt) {
 var MODALS = [
   ['dg-modal-lut', '① 設定 RGB 的 LUT'],
   ['dg-modal-gray', '② 設定白灰階亮度'],
-  ['dg-modal-slot', '光學比較：新增資料'],
+  ['dg-modal-slot', '光學比較：匯入或量測'],
   ['dg-modal-prim', '③ 設定 RGB 純色 Pattern']
 ];
 MODALS.forEach(function (m) {
