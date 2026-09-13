@@ -333,6 +333,19 @@
     position: absolute; display: none; pointer-events: none; z-index: 4;
     border: 1.5px solid #38bdf8; background: rgba(56, 189, 248, 0.18); border-radius: 2px;
   }
+  /* ─── v1.50.0：吸附垂直虛線（只有「光學資料比較」那三張圖）────────────────
+     做成 el 的絕對定位子元素，與 .dg-selbox／.dg-tip 同一套 —— 不進 SVG 內部，
+     滑鼠一動就不必重畫整份 SVG（重畫一次是 256 階 × N 條線的字串重組）。
+     虛線樣式照 wfg.html 主波形的時間游標（ctx.setLineDash([6, 4])）換算成 CSS。 */
+  .dg-xcursor {
+    position: absolute; display: none; pointer-events: none; z-index: 5;
+    width: 0; border-left: 1px dashed #94a3b8;
+  }
+  /* v1.50.0：滑鼠指到某一條曲線時，底下那排 HTML 圖例對應項目加外框。
+     🔴 **不閃爍**（Bruce 要的是「一眼確認指到哪一筆」，閃爍會一直把視線拉走）。 */
+  .dg-legend-slots > span.dg-leg-hi {
+    outline: 1.5px solid #38bdf8; outline-offset: 2px; border-radius: 4px;
+  }
   .dg-tip {
     position: absolute; display: none; pointer-events: none; z-index: 6;
     background: #0b1a30; border: 1.5px solid #334155; border-radius: 8px;
@@ -1955,7 +1968,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1490"></script>
+<script src="common/version.js?v=20260913dg1500"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -2471,7 +2484,9 @@
       DG_CHART_GEOM[host.id] = {
         W: W, H: H, ml: ml, mt: mt, pw: pw, ph: ph,
         xmin: xmin, xmax: xmax, ymin: ymin, ymax: ymax, big: big,
-        legend: null                                   // v1.4.7：圖例矩形（SVG 座標），沒畫圖例就維持 null
+        legend: null,                                  // v1.4.7：圖例矩形（SVG 座標），沒畫圖例就維持 null
+        legendRows: null,                              // v1.50.0：圖例每一列的矩形＋它對應 series 的第幾條
+        xticks: null                                   // v1.50.0：這一次標出去的 X 刻度文字（探針出口）
       };
     }
     var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
@@ -2482,11 +2497,45 @@
       s += '<line x1="' + ml + '" y1="' + py(gy).toFixed(1) + '" x2="' + (ml + pw) + '" y2="' + py(gy).toFixed(1) + '" stroke="#1e293b"/>';
       s += '<text x="' + (ml - 6) + '" y="' + (py(gy) + fs * 0.35).toFixed(1) + '" fill="#64748b" font-size="' + fs + '" text-anchor="end">' + opt.yfmt(gy, yspan) + '</text>';
     }
-    for (k = 0; k <= nx; k++) {
-      gx = xmin + xspan * k / nx;
-      s += '<line x1="' + px(gx).toFixed(1) + '" y1="' + mt + '" x2="' + px(gx).toFixed(1) + '" y2="' + (mt + ph) + '" stroke="#1e293b"/>';
+    /* ─── X 軸刻度 ───────────────────────────────────────────────────────────
+       v1.50.0 需求二（**只有 opt.cmp ＝「光學資料比較」那三張**）：X 是灰階，
+       是整數，刻度就只標整數。Bruce 2026-09-13：「水平座標就不要顯示這些小數點，
+       而是最左邊顯示 169、最右邊顯示 170 這樣就好了。這樣就會知道我們現在移動的這個
+       範圍內沒有實際的灰階座標值，而是在這個範圍之內。」
+
+       🔴 刻度線**畫在那個整數真正的位置上**，不是「等距切 nx 段再把標籤四捨五入」。
+          舊做法在放大後會出現「線在 191.25、字寫 191」這種對不上的情形；灰階是離散的，
+          刻度線落在實際存在的灰階上才有意義。代價是縮圖的刻度由 0／64／128／191／255
+          變成 0／64／128／192／255（見 CHANGELOG 的 ⚠ 輸出變更）。
+       🔴 可視範圍內一個整數都沒有時**仍然要有兩個刻度**：左端 floor(xmin)、
+          右端 ceil(xmax) —— 它的用途就是告訴使用者「你卡在這兩階之間，這裡沒有資料」。
+       opt.cmp 沒開時逐字元與前一版相同（主頁三張圖、圖四、第 4 部分都走這一條）。 */
+    var xticks = [], xti, xtLo, xtHi, xtStep;
+    if (opt.cmp) {
+      xtLo = Math.ceil(xmin - 1e-9); xtHi = Math.floor(xmax + 1e-9);
+      if (xtHi >= xtLo) {
+        xtStep = Math.max(1, Math.ceil((xtHi - xtLo + 1) / Math.max(1, nx)));
+        for (xti = xtLo; xti <= xtHi; xti += xtStep) xticks.push({ sx: px(xti), txt: String(xti) });
+        // 整除不盡時尾端會少一格，最後一個整數一律補上
+        if (xticks.length && xticks[xticks.length - 1].txt !== String(xtHi)) xticks.push({ sx: px(xtHi), txt: String(xtHi) });
+      } else {
+        xticks.push({ sx: ml, txt: String(Math.floor(xmin)) });
+        xticks.push({ sx: ml + pw, txt: String(Math.ceil(xmax)) });
+      }
+    } else {
+      for (k = 0; k <= nx; k++) {
+        gx = xmin + xspan * k / nx;
+        xticks.push({ sx: px(gx), txt: dgXTick(gx, xspan) });
+      }
+    }
+    xticks.forEach(function (t) {
+      s += '<line x1="' + t.sx.toFixed(1) + '" y1="' + mt + '" x2="' + t.sx.toFixed(1) + '" y2="' + (mt + ph) + '" stroke="#1e293b"/>';
       // 非放大時的刻度基線沿用原本的 H−9，讓縮圖與前一版逐字元相同（避免無謂的版面變更）
-      s += '<text x="' + px(gx).toFixed(1) + '" y="' + (big ? (mt + ph + fs + 6) : (H - 9)) + '" fill="#64748b" font-size="' + fs + '" text-anchor="middle">' + dgXTick(gx, xspan) + '</text>';
+      s += '<text x="' + t.sx.toFixed(1) + '" y="' + (big ? (mt + ph + fs + 6) : (H - 9)) + '" fill="#64748b" font-size="' + fs + '" text-anchor="middle">' + t.txt + '</text>';
+    });
+    if (host.id && DG_CHART_GEOM[host.id]) {
+      // v1.50.0 探針出口：這一次真的標出去的刻度文字（驗「全是整數、沒有小數點」用）
+      DG_CHART_GEOM[host.id].xticks = xticks.map(function (t) { return t.txt; });
     }
     // 幾何裁切時要畫的索引範圍：範圍內的點，左右各多帶一個範圍外的鄰點。
     // x 是自變數且單調遞增，所以界線只看 x：lo ＝ 最後一個 x ≤ xmin 的點（沒有就取 0），
@@ -2505,7 +2554,7 @@
         + '" width="' + pw + '" height="' + ph + '"/></clipPath></defs>'
         + '<g clip-path="url(#' + clipId + ')">';
     }
-    series.forEach(function (se) {
+    series.forEach(function (se, seI) {
       var segs = [], cur = [], i, yv, xv, out;
       if (clipPlot) {
         var sp = clipSpan(se.x);
@@ -2533,7 +2582,12 @@
       if (cur.length) segs.push(cur);
       segs.forEach(function (pts) {
         if (pts.length < 1) return;
+        /* v1.50.0：data-dg-si ＝ 這條折線屬於 series 裡的第幾條。
+           🔴 只有 opt.cmp 那三張圖會帶，主頁三張圖／圖四／第 4 部分的 SVG 字串
+              因此與前一版**逐字元相同**。用途是需求三「指到哪條線就把那條加粗」——
+              加粗要能只改那一條的 stroke-width，不重畫整份 SVG，就必須認得出節點。 */
         s += '<polyline fill="none" stroke="' + se.color + '" stroke-width="' + (se.w || 1.6) + '"'
+          + (opt.cmp ? ' data-dg-si="' + seI + '"' : '')
           + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '')
           + ' points="' + pts.join(' ') + '"/>';
       });
@@ -2573,10 +2627,14 @@
     });
     if (clipPlot) s += '</g>';
     if (big) {
-      var named = series.filter(function (se) { return !!se.name; });
+      /* v1.50.0：由 `series.filter()` 改成同時記下**每一條在 series 裡的原索引** ——
+         需求三要把「圖例的第幾列」對回「圖上的第幾條線」，而 filter 之後索引就對不回去了。
+         產出的字串一個字元都沒有變（下面仍然照同樣的順序、同樣的欄位畫）。 */
+      var named = [];
+      series.forEach(function (se, si) { if (se.name) named.push({ se: se, si: si }); });
       if (named.length) {
         var tw = 0;
-        named.forEach(function (se) { tw = Math.max(tw, dgTextW(se.name, fs)); });
+        named.forEach(function (o) { tw = Math.max(tw, dgTextW(o.se.name, fs)); });
         var boxW = Math.ceil(tw) + 46, boxH = named.length * (fs + 9) + 10;
         /* v1.4.7：位置改由 opt.legendPos（分數座標）決定，並夾制在繪圖區內 ——
            整塊圖例都必須看得見，拖不到圖外面去。沒拖過的圖 legendPos 是 null，
@@ -2596,14 +2654,20 @@
         // 拖曳當下讓圖例更透明，看得到底下要放到哪裡；放開就回到原本的濃度
         s += '<rect class="dg-legend-box" x="' + bx + '" y="' + by + '" width="' + boxW + '" height="' + boxH
           + '" rx="6" fill="#0b1a30" fill-opacity="' + (opt.legendDrag ? '0.45' : '0.88') + '" stroke="#334155"/>';
-        named.forEach(function (se, i) {
+        var legRows = [];
+        named.forEach(function (o, i) {
+          var se = o.se;
           var ly = by + 14 + i * (fs + 9);
           s += '<line x1="' + (bx + 9) + '" y1="' + ly + '" x2="' + (bx + 30) + '" y2="' + ly + '" stroke="' + se.color
             + '" stroke-width="' + (se.w || 1.6) + '"' + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '') + '/>';
           // v1.20.0：有資料點的那幾條，圖例的線段中間也要有形狀，才對得回圖上那一條
           if (se.mark) s += dgMarkSvg(se.mark, bx + 19.5, ly, 3.2, se.color);
           s += '<text x="' + (bx + 36) + '" y="' + (ly + fs * 0.36).toFixed(1) + '" fill="#cbd5e1" font-size="' + fs + '">' + dgXe(se.name) + '</text>';
+          /* v1.50.0：這一列的外框矩形（SVG 內部座標）。需求三的 highlight 直接拿它
+             append 一個 rect 上去，不必為了 hover 重畫整份 SVG。 */
+          legRows.push({ si: o.si, x: bx + 4, y: ly - (fs + 9) / 2 - 1, w: boxW - 8, h: fs + 9 });
         });
+        if (host.id && DG_CHART_GEOM[host.id]) DG_CHART_GEOM[host.id].legendRows = legRows;
       }
     }
     s += '<text x="' + (ml + pw / 2) + '" y="' + (H - (big ? 8 : 1)) + '" fill="#475569" font-size="' + (big ? fs : 9) + '" text-anchor="middle">' + dgXe(opt.xlabel) + '</text>';
@@ -2874,6 +2938,14 @@
   }
 
   function dgChartZoomClose() {
+    /* v1.50.0：HTML 圖例的 highlight 是**整頁共用的 DOM**（縮圖與放大視窗指到同一批
+       span），視窗關掉時 pointerleave 不一定收得到 ⇒ 這裡明確清乾淨，
+       不然關掉之後底下那排圖例會留著一個框。 */
+    if (DG_ZOOM_CHART) {
+      DG_XCUR[DG_ZOOM_CHART] = null;
+      var legs = document.querySelectorAll('[data-dg-slot-leg]');
+      for (var li = 0; li < legs.length; li++) legs[li].classList.remove('dg-leg-hi');
+    }
     // 關掉就把縮放層數丟掉：下次打開一律從完整範圍開始，不會有「怎麼一開就是窄的」的困惑
     if (DG_ZOOM_CHART) DG_VIEW[DG_ZOOM_CHART] = [];
     if (DG_ZOOM_UNBIND) { DG_ZOOM_UNBIND(); DG_ZOOM_UNBIND = null; }
@@ -2932,6 +3004,141 @@
     if (t) t.style.display = 'none';
   }
 
+  /* ═══ v1.50.0：「光學資料比較」三張圖的吸附虛線／曲線指認 ═════════════════════
+     Bruce 2026-09-13 的四項需求裡的一、三。**只作用在這三張圖**（他明說 Digital Gamma
+     校正那一頁只有一組、沒有圖層問題，不用動），所以每一條路都先過 dgIsCmpChart()。 */
+  function dgIsCmpChart(id) { return DG_CMP_CHARTS.indexOf(id) >= 0; }
+
+  /* 吸附：滑鼠的資料座標 → 最近的資料節點索引。
+     🔴 **全域**掃，不看可視範圍 —— 需求一第 3 條（放大到兩階之間時虛線仍然要在）。
+     🔴 基準陣列與提示框同一份（`c.series[0].x`），所以兩者不可能指到不同的階。
+        沒有參考線時 series[0] 就是第一條量測曲線，它的 xs 直接來自量測檔的 Gray 欄。 */
+  function dgSnapIndex(c, dataX) {
+    var xs = (c && c.series && c.series[0]) ? c.series[0].x : null;
+    if (!xs || !xs.length) return -1;
+    var best = -1, bestD = Infinity, i, d;
+    for (i = 0; i < xs.length; i++) {
+      d = Math.abs(xs[i] - dataX);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  /* 每張圖最後一次的吸附／指認結果。**探針出口**：我的環境沒有排版引擎，量不到虛線的
+     實際像素，所以把可觀測的狀態（吸到哪一階、虛線有沒有被夾到邊界、指認到第幾條線）
+     原樣留在這裡，由主機端真 Chrome 覆核。畫面行為不讀這份資料。 */
+  var DG_XCUR = {};
+
+  function dgXCurHide(el, dataKey) {
+    var n = el.querySelector(':scope > .dg-xcursor');
+    if (n) n.style.display = 'none';
+    if (dataKey) DG_XCUR[dataKey] = null;
+  }
+
+  /* 畫虛線。snapX ＝ 吸附到的**資料座標**（不是滑鼠座標）。
+     🔴 夾制：資料點落在可視範圍外時，線畫在繪圖區的左／右邊界上 —— 不是不畫。 */
+  function dgXCurShow(el, geomKey, dataKey, snapX) {
+    var g = DG_CHART_GEOM[geomKey], svg = el.querySelector('svg');
+    if (!g || !svg || !(g.xmax > g.xmin) || !(g.pw > 0)) return null;
+    var svgR = svg.getBoundingClientRect(), er = el.getBoundingClientRect();
+    if (!svgR.width || !svgR.height) return null;
+    var raw = g.ml + (snapX - g.xmin) / (g.xmax - g.xmin) * g.pw;
+    var sx = Math.max(g.ml, Math.min(g.ml + g.pw, raw));
+    var kx = svgR.width / g.W, ky = svgR.height / g.H;
+    var n = dgEnsureChild(el, 'dg-xcursor');
+    n.style.left = (sx * kx + (svgR.left - er.left)).toFixed(2) + 'px';
+    n.style.top = (g.mt * ky + (svgR.top - er.top)).toFixed(2) + 'px';
+    n.style.height = (g.ph * ky).toFixed(2) + 'px';
+    n.style.display = 'block';
+    n.setAttribute('data-dg-snap-x', String(snapX));
+    var st = { x: snapX, sx: sx, clampedLeft: raw < g.ml - 1e-9, clampedRight: raw > g.ml + g.pw + 1e-9, si: -1, slot: null };
+    DG_XCUR[dataKey] = st;
+    return st;
+  }
+
+  /* 需求三的判定：虛線決定 X（哪一階），**游標的 Y 決定哪一條線** ——
+     在那一階上比較各條曲線的 Y 值，取最接近游標的那一條。
+     🔴 只比「量測組」那幾條（se.slot 有值）。γ 參考線與色溫上下限是灰／黃虛線，
+        不是 Bruce 講的「兩筆資料顏色太接近、肉眼分不出來」的對象。
+     🔴 **不設距離門檻**：他說的是「取最接近的那一條」，沒有說離太遠就不指認。
+        自己加一條他沒講的規則，就是把需求放寬（CLAUDE.md 記過這個教訓）。 */
+  function dgHiPick(c, snapX, dataY) {
+    var best = -1, bestD = Infinity;
+    c.series.forEach(function (se, si) {
+      if (se.slot === null || se.slot === undefined) return;
+      if (!se.x || !se.x.length) return;
+      var idx = -1, bd = Infinity, j, d;
+      for (j = 0; j < se.x.length; j++) { d = Math.abs(se.x[j] - snapX); if (d < bd) { bd = d; idx = j; } }
+      var v = (idx >= 0) ? se.y[idx] : null;
+      if (v === null || v === undefined || !isFinite(v)) return;
+      d = Math.abs(v - dataY);
+      if (d < bestD) { bestD = d; best = si; }
+    });
+    return best;
+  }
+
+  /* 套用 highlight：圖上那條線加粗 ＋ 圖例對應項目加外框（兩邊一起指認）。
+     si < 0 ＝ 全部還原。
+     🔴 線寬的原值記在節點自己的 data-dg-w0 上再讀回來，**不用常數猜**
+        —— se.w 有 1.4／1.5／1.6／2 四種值，猜一個就會在還原時把某幾條改細或改粗。 */
+  function dgHiApply(el, geomKey, dataKey, si) {
+    var svg = el.querySelector('svg');
+    if (!svg) return;
+    var pls = svg.querySelectorAll('polyline[data-dg-si]'), i, p, w0;
+    for (i = 0; i < pls.length; i++) {
+      p = pls[i];
+      w0 = p.getAttribute('data-dg-w0');
+      if (w0 === null) { w0 = p.getAttribute('stroke-width'); p.setAttribute('data-dg-w0', w0); }
+      p.setAttribute('stroke-width',
+        (si >= 0 && Number(p.getAttribute('data-dg-si')) === si) ? String(+(Number(w0) * 2.4).toFixed(2)) : w0);
+    }
+    // 放大檢視裡那塊 SVG 圖例的外框（縮圖沒有畫圖例，legendRows 是 null ⇒ 這一段跳過）
+    var old = svg.querySelector('.dg-hi-box');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var g = DG_CHART_GEOM[geomKey], rows = g ? g.legendRows : null;
+    if (si >= 0 && rows) {
+      for (i = 0; i < rows.length; i++) {
+        if (rows[i].si !== si) continue;
+        var r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        r.setAttribute('class', 'dg-hi-box');
+        r.setAttribute('x', String(rows[i].x)); r.setAttribute('y', String(rows[i].y));
+        r.setAttribute('width', String(rows[i].w)); r.setAttribute('height', String(rows[i].h));
+        r.setAttribute('rx', '3'); r.setAttribute('fill', 'none');
+        r.setAttribute('stroke', '#38bdf8'); r.setAttribute('stroke-width', '1.5');
+        svg.appendChild(r);
+        break;
+      }
+    }
+    // 縮圖底下那排 HTML 圖例（三張圖共用同一份 DOM 清單，用組別編號對）
+    var c = DG_CHART_LAST[dataKey];
+    var slot = (si >= 0 && c && c.series[si] && c.series[si].slot !== undefined) ? c.series[si].slot : null;
+    var legs = document.querySelectorAll('[data-dg-slot-leg]');
+    for (i = 0; i < legs.length; i++) {
+      if (slot !== null && Number(legs[i].getAttribute('data-dg-slot-leg')) === slot) legs[i].classList.add('dg-leg-hi');
+      else legs[i].classList.remove('dg-leg-hi');
+    }
+    if (DG_XCUR[dataKey]) { DG_XCUR[dataKey].si = si; DG_XCUR[dataKey].slot = slot; }
+  }
+
+  /* hover 的單一入口。tipRes ＝ dgTipShow() 的回傳值 —— 虛線的 X **直接取它算出來的
+     那個值**，不另外再算一次，所以「提示框的 X 與虛線的 X 是同一個」是結構上保證的，
+     不是靠兩邊寫一樣的式子。 */
+  function dgCmpHover(el, geomKey, dataKey, tipRes, clientX, clientY) {
+    if (!dgIsCmpChart(dataKey)) return;
+    var c = DG_CHART_LAST[dataKey];
+    if (!tipRes || !c) { dgCmpHoverClear(el, geomKey, dataKey); return; }
+    var pt = dgPtToData(geomKey, el, clientX, clientY);
+    if (!pt) { dgCmpHoverClear(el, geomKey, dataKey); return; }
+    dgXCurShow(el, geomKey, dataKey, tipRes.index);
+    dgHiApply(el, geomKey, dataKey, dgHiPick(c, tipRes.index, pt.y));
+  }
+
+  function dgCmpHoverClear(el, geomKey, dataKey) {
+    if (!dgIsCmpChart(dataKey)) return;
+    dgXCurHide(el, dataKey);
+    dgHiApply(el, geomKey, dataKey, -1);
+  }
+
   function dgTipShow(el, geomKey, dataKey, clientX, clientY) {
     var c = DG_CHART_LAST[dataKey];
     var pt = dgPtToData(geomKey, el, clientX, clientY);
@@ -2939,12 +3146,21 @@
     var series = c.series.filter(function (se) { return !!se.name; });
     if (!series.length) { dgTipHide(el); return null; }
 
-    // 最近的資料點：以第一條線的 x 陣列為準，且只找目前範圍內的點
+    // 最近的資料點：以第一條線的 x 陣列為準
     var xs = c.series[0].x, best = -1, bestD = Infinity, i, d;
-    for (i = 0; i < xs.length; i++) {
-      if (xs[i] < pt.g.xmin || xs[i] > pt.g.xmax) continue;
-      d = Math.abs(xs[i] - pt.x);
-      if (d < bestD) { bestD = d; best = i; }
+    if (dgIsCmpChart(dataKey)) {
+      /* 🔴 v1.50.0 需求一：比較分頁改成**全域找最近**，不再限制在可視範圍內。
+         Bruce 2026-09-13 明確否決了「範圍內沒有資料點就不顯示」：放大到 169.2～169.8
+         這種兩階之間的範圍時，虛線與提示框仍然要指著 169 或 170（看游標靠哪邊），
+         畫出來的位置再夾到繪圖區邊界上（見 dgXCurShow）。 */
+      best = dgSnapIndex(c, pt.x);
+    } else {
+      // 主頁／第 4 部分維持 v1.49.0 的「只找目前範圍內的點」，一個字未動
+      for (i = 0; i < xs.length; i++) {
+        if (xs[i] < pt.g.xmin || xs[i] > pt.g.xmax) continue;
+        d = Math.abs(xs[i] - pt.x);
+        if (d < bestD) { bestD = d; best = i; }
+      }
     }
     if (best < 0) { dgTipHide(el); return null; }
 
@@ -3033,6 +3249,7 @@
         var dy = wheelAccum; wheelAccum = 0;
         if (!dy || !wheelPt) return;
         dgTipHide(el);
+        dgCmpHoverClear(el, geomKey, dataKey);   // v1.50.0：範圍要換了，舊的虛線位置不再成立
         dgZoomAtPoint(dataKey, wheelPt, dy > 0 ? 1.2 : 0.8);   // 同 wfg：往下滾＝縮小
         dgChartZoomRefresh();
       });
@@ -3090,6 +3307,7 @@
         };
         dragging = false;
         dgTipHide(el);
+        dgCmpHoverClear(el, geomKey, dataKey);
         DG_LEGEND_DRAGGING = true;
         el.classList.add('dg-leg-drag');
         try { if (el.setPointerCapture) el.setPointerCapture(e.pointerId); } catch (_) { }
@@ -3105,6 +3323,7 @@
       };
       dragging = false;
       dgTipHide(el);
+      dgCmpHoverClear(el, geomKey, dataKey);
       if (!boxMode && dgIsZoomed(dataKey)) el.classList.add('dg-panning');
       if (!boxMode) {
         // 平移要一路跟到容器外面才不會拖到一半斷掉
@@ -3122,7 +3341,8 @@
         if (hp && dgHitLegend(hp)) el.classList.add('dg-leg-hover');
         else el.classList.remove('dg-leg-hover');
       }
-      dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY);
+      // v1.50.0：虛線與曲線指認吃 dgTipShow() 回傳的吸附結果（同一筆資料，不各算各的）
+      dgCmpHover(el, geomKey, dataKey, dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY), e.clientX, e.clientY);
     });
 
     /* 雙擊圖例＝放回預設的右上角。圖例被搬走之後沒有別的還原入口，而工具列的「還原」
@@ -3222,14 +3442,14 @@
             dgChartZoomRefresh();
           }
         } else {
-          dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY);
+          dgCmpHover(el, geomKey, dataKey, dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY), e.clientX, e.clientY);
         }
         return;
       }
       if (!wasDragging) {
         // 沒有拖曳：縮圖上是「打開放大檢視」，放大圖上是「顯示這一點的數值」（手機用）
         if (!big) dgChartZoomOpen(dataKey);
-        else dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY);
+        else dgCmpHover(el, geomKey, dataKey, dgTipShow(el, geomKey, dataKey, e.clientX, e.clientY), e.clientX, e.clientY);
         return;
       }
       var pt = dgPtToData(geomKey, el, e.clientX, e.clientY);
@@ -3273,6 +3493,8 @@
       if (down || pinch) return;
       el.classList.remove('dg-leg-hover');
       hideBox(); dgTipHide(el);
+      // v1.50.0：滑鼠離開圖表要乾淨還原 —— 虛線消失、圖例外框移除、線寬復原
+      dgCmpHoverClear(el, geomKey, dataKey);
     });
     /* 放大視窗的畫布每次開啟都是新建的，window 上這三個聽者不解掉會一直疊上去
        （每開一次多三個，而且抓著已經被丟棄的 DOM）。回傳解綁函式給 dgChartZoomClose。 */
@@ -5071,6 +5293,37 @@
     return out;
   }
 
+  /* ═══ v1.50.0：圖層順序（最後打勾的畫在最上層）══════════════════════════════
+     Bruce 2026-09-13：「想讓特定的 Curve 出現在最上層，做法是在『顯示』旁邊的核取方塊
+     先取消、再打勾一次。」
+     🔴 **這是新功能，不是修 bug** —— v1.49.0 的 dgVisibleSlots() 純按陣列索引出貨，
+        根本沒有「最後打勾的排最後」這回事（已向他查證並回報）。
+
+     做法：每一組帶一個遞增序號 z ＝「最後一次被打勾／被建立的時刻」，畫圖時依 z 由小到大
+     排，後畫的蓋在上面 ⇒ 最後打勾的在最上層。
+     🔴 **編號與顏色一個字都沒有動。** 排序只發生在「畫的先後」這一件事上；
+        回傳的物件仍然帶著原本的陣列索引 o.i，而顏色走的是 dgSlotColor(o.i)、
+        形狀走 dgMarkShape(o.i)、名稱走 dgSlotDisplayName(o.i)，三支都吃 o.i。
+        （v1.18.1 拿掉拖曳排序就是因為「重排會換色」，那個坑這裡不會再踩一次。）
+     🔴 沒有 z 的組（v1.49.0 以前的存檔、任何新增路徑）在 dgSlotZSync() 裡**依陣列索引
+        補上遞增的 z** ⇒ 預設順序與 v1.49.0 逐項相同，不會因為升版就換一個樣子。 */
+  var DG_SLOT_Z = 0;
+  function dgSlotZSync() {
+    var i;
+    // 先讓計數器越過所有既有的 z（還原進來的值可能比計數器大），再補沒有 z 的
+    for (i = 0; i < DG_SLOTS.length; i++) if (dgIsNum(DG_SLOTS[i].z) && DG_SLOTS[i].z > DG_SLOT_Z) DG_SLOT_Z = DG_SLOTS[i].z;
+    for (i = 0; i < DG_SLOTS.length; i++) if (!dgIsNum(DG_SLOTS[i].z)) DG_SLOTS[i].z = ++DG_SLOT_Z;
+  }
+  function dgSlotTouchZ(i) {
+    dgSlotZSync();
+    if (DG_SLOTS[i]) DG_SLOTS[i].z = ++DG_SLOT_Z;
+  }
+  // 畫圖／圖例用的順序：z 小的先畫（在下層），z 相同（理論上不會發生）時退回編號
+  function dgVisibleSlotsZ() {
+    dgSlotZSync();
+    return dgVisibleSlots().sort(function (a, b) { return (a.s.z - b.s.z) || (a.i - b.i); });
+  }
+
   /* ═══ v1.45.0：量測耗時與換階等待 ═════════════════════════════════════════
      Bruce 2026-09-12：「資料來源、時間戳記，除了時間戳記以外，請包含總共花費多少
      時間量測這一次的 Gamma，還有設定的間隔是多少 milliseconds，這些一併記錄下來。
@@ -5193,8 +5446,12 @@
 
   // 圖例：三張圖各自在既有圖例後面接上目前顯示中的組
   function dgSlotLegendSync() {
-    var h = dgVisibleSlots().map(function (o) {
-      return '<span>' + dgLegMark(dgSlotColor(o.i), dgMarkShape(o.i))
+    /* v1.50.0：順序改用 dgVisibleSlotsZ()，與圖上的繪製先後、以及放大檢視裡那塊 SVG
+       圖例（它天生就照 series 順序列）三邊一致 —— 不然同一頁上會有兩份順序不同的圖例。
+       data-dg-slot-leg ＝ 組別編號（0 起算），需求三的 highlight 靠它把「圖上第幾條線」
+       對回「圖例哪一項」。**顏色／形狀／名稱仍然全部吃 o.i，一個字未動。** */
+    var h = dgVisibleSlotsZ().map(function (o) {
+      return '<span data-dg-slot-leg="' + o.i + '">' + dgLegMark(dgSlotColor(o.i), dgMarkShape(o.i))
         + dgXe(dgSlotDisplayName(o.i)) + '</span>';
     }).join('');
     ['dg-legend-slots-1', 'dg-legend-slots-2', 'dg-legend-slots-3'].forEach(function (id) {
@@ -5259,6 +5516,9 @@
       var i = Number(cb.getAttribute('data-dg-slot-cb'));
       if (!isFinite(i) || !DG_SLOTS[i]) return;
       DG_SLOTS[i].show = !!cb.checked;
+      /* v1.50.0：**打勾**才推到最上層；取消打勾不動 z（不然「取消再打勾」會變成兩次操作
+         同一個效果，而他要的是「最後打勾的那一次」決定順序）。 */
+      if (DG_SLOTS[i].show) dgSlotTouchZ(i);
       dgSlotStatus();
       dgRenderCharts();
     });
@@ -6521,9 +6781,15 @@
     function flat(v) { return xs.map(function () { return v; }); }
     function ser(key) {
       return curves.map(function (o) {
-        return { x: o.curve.xs, y: o.curve[key], color: o.color, w: o.w || 1.5, name: o.name, mark: o.mark || null };
+        return { x: o.curve.xs, y: o.curve[key], color: o.color, w: o.w || 1.5, name: o.name, mark: o.mark || null,
+                 // v1.50.0：組別編號。主頁／第 4 部分沒有組的概念 ⇒ null（需求三只認有編號的那幾條）
+                 slot: (o.slot === undefined || o.slot === null) ? null : o.slot };
       });
     }
+    /* v1.50.0：這一次畫的是不是「光學資料比較」那三張。
+       這個旗標同時決定兩件只作用在該分頁的事：X 軸刻度只標整數（需求二）、
+       折線帶 data-dg-si（需求三要認得出節點）。其餘頁面的 SVG 字串逐字元不變。 */
+    var isCmp = (hostIds[0] === 'dg-cmp-chart1');
 
     /* 🔴 v1.9.0：三張圖的「中心線」一律黃色虛線（Bruce 2026-09-07）。
        上下限那兩條維持原樣（灰色 dash '4 3'），顏色也維持 #fbbf24。 */
@@ -6551,7 +6817,7 @@
       { x: xs, y: std(2.4), color: '#64748b', dash: '4 3', name: 'γ=2.4' },
       { x: xs, y: std(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
     ].concat(ser('rel')), {
-      xmin: 0, xmax: xmax, ymin: r1.lo, ymax: r1.hi, xlabel: 'Gray',
+      xmin: 0, xmax: xmax, ymin: r1.lo, ymax: r1.hi, xlabel: 'Gray', cmp: isCmp,
       yfmt: function (v, span) { return (v * 100).toFixed(span < 0.05 ? 2 : (span < 0.5 ? 1 : 0)) + '%'; },
       tip: { x: '灰階', y: '相對亮度', fmt: function (v) { return (v * 100).toFixed(2) + '%'; } }
     });
@@ -6574,7 +6840,7 @@
       { x: xs, y: flat(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
     ] : [];
     dgChart($(hostIds[1]), gref.concat(ser('gam')), {
-      xmin: 0, xmax: xmax, ymin: a2.min, ymax: a2.max, xlabel: 'Gray',
+      xmin: 0, xmax: xmax, ymin: a2.min, ymax: a2.max, xlabel: 'Gray', cmp: isCmp,
       yfmt: function (v, span) { return v.toFixed(span < 0.2 ? 3 : 2); },
       tip: { x: '灰階', y: 'Gamma', fmt: function (v) { return v.toFixed(3); } }
     });
@@ -6632,7 +6898,7 @@
       { x: xs, y: flat(base.center), color: '#fbbf24', dash: '4 3', w: 1.4, name: '中心 ' + dgCctLbl(base.center) + 'K' }
     ] : [];
     dgChart($(hostIds[2]), refs.concat(ser('cct')), {
-      xmin: 0, xmax: xmax, ymin: cmin, ymax: cmax, xlabel: 'Gray',
+      xmin: 0, xmax: xmax, ymin: cmin, ymax: cmax, xlabel: 'Gray', cmp: isCmp,
       yfmt: function (v, span) { return span < 200 ? v.toFixed(1) : String(Math.round(v)); },
       tip: { x: '灰階', y: '色溫', fmt: function (v) { return Math.round(v) + 'K'; } }
     });
@@ -6695,12 +6961,14 @@
 
   /* 「光學資料比較」分頁的圖一二三：只畫勾選「顯示」的光學組。 */
   function dgRenderCmpCharts() {
-    var vis = dgVisibleSlots();
+    // v1.50.0：順序＝「最後打勾的排最後（＝畫在最上層）」。編號與顏色不受影響，見 dgVisibleSlotsZ()
+    var vis = dgVisibleSlotsZ();
     if (!vis.length) { dgClearCharts123(DG_CMP_CHARTS); return; }
     dgDrawTriple(DG_CMP_CHARTS, vis.map(function (o) {
       // 形狀與顏色吃同一個清單索引 o.i，所以同一組在三張圖上形狀一致、也與它的顏色成對。
+      // v1.50.0：slot ＝ 組別編號，一路帶進 series，需求三要靠它把曲線對回圖例那一項。
       return { curve: dgCurveOf(o.s.rows), color: dgSlotColor(o.i), name: dgSlotDisplayName(o.i),
-               mark: dgMarkShape(o.i) };
+               mark: dgMarkShape(o.i), slot: o.i };
     }));
   }
 
@@ -10130,6 +10398,9 @@
 
   // ── 拍一份完整快照（白名單式）────────────────────────────────────────────
   function dgAsSnapshot() {
+    /* v1.50.0：先把圖層序號補齊再拍快照 —— 不然「剛新增一組、還沒碰過任何東西」
+       那一次的快照會少掉 z，重整後順序得靠補值重來一次。這一支是冪等的。 */
+    dgSlotZSync();
     return {
       _format: DG_AS_FORMAT,
       _v: DG_AS_VER,
@@ -10172,6 +10443,15 @@
           prim: s.prim || null,
           durMs: dgIsNum(s.durMs) ? s.durMs : null,
           settleMs: dgIsNum(s.settleMs) ? s.settleMs : null,
+          /* ─── v1.50.0：圖層序號（需求四要跨重整還原，不然重整一次順序就亂掉）───
+             🔴 **DG_AS_VER 刻意沒有 +1**，理由寫在這裡供覆核：
+               · 這是**純新增的選填欄位**，舊存檔沒有它 ⇒ 還原後由 dgSlotZSync() 依陣列
+                 索引補值 ⇒ 順序與 v1.49.0 **逐項相同**。沒有任何舊欄位被重新解讀。
+               · +1 的實際後果是「升到 v1.50.0 的那一刻，使用者已經存著的十組全部被丟掉」
+                 —— 那正是 v1.48.0 這整套機制要防的事。
+             這一條與 DG_AS_VER 註解裡的「結構一改就 +1」有張力，已在 CHANGELOG 標明，
+             請 Bruce 覆核；若他要求從嚴，改成 +1 只是一行。 */
+          z: dgIsNum(s.z) ? s.z : null,
           // noXY 只有 dgSlotLoadCompare 那條路會寫、全檔零讀取；照存不推導（見 CLAUDE.md 的教訓）
           noXY: (typeof s.noXY === 'boolean') ? s.noXY : null,
           rows: dgAsEncRows(s.rows)
@@ -10333,8 +10613,11 @@
         show: !!s.show
       };
       if (typeof s.noXY === 'boolean') o.noXY = s.noXY;
+      // v1.50.0：圖層序號。舊存檔沒有這一欄 ⇒ 不設，交給 dgSlotZSync() 依索引補（＝v1.49.0 的順序）
+      if (dgIsNum(s.z)) o.z = s.z;
       DG_SLOTS.push(o);
     });
+    dgSlotZSync();
 
     // ⑦ 轉換分頁。🔴 不走 dgConvImport()：它要 File 物件（已經還原不了），
     //    而且它會無條件把 #dg-conv-tail 寫成檔案的事實、蓋掉使用者自己選的值。
@@ -11157,9 +11440,28 @@
     // v1.4.3 驗證用：唯讀快照，改它不會影響頁面
     slots: function () {
       return DG_SLOTS.map(function (s, i) {
-        return { no: i + 1, name: dgSlotDisplayName(i), rawName: s.name, file: s.file, n: s.rows.length, show: !!s.show };
+        return { no: i + 1, name: dgSlotDisplayName(i), rawName: s.name, file: s.file, n: s.rows.length, show: !!s.show,
+                 // v1.50.0 驗證用：圖層序號（越大越上層）
+                 z: dgIsNum(s.z) ? s.z : null, color: dgSlotColor(i) };
       });
     },
+    /* ═══ v1.50.0 驗證用（唯讀）═══════════════════════════════════════════════
+       ⚠ 我的環境沒有排版引擎，**虛線與外框的實際像素位置量不到**。
+         這幾個出口把可觀測的狀態原樣攤出來，由主機端真 Chrome 覆核。
+         畫面行為一律不讀這裡。 */
+    // 目前的繪製順序（＝圖層由下到上）：回傳組別編號陣列。需求四的斷言對著它。
+    visibleOrder: function () { return dgVisibleSlotsZ().map(function (o) { return o.i; }); },
+    // 某一張圖最後一次 hover 的吸附結果：{ x 吸到哪一階, sx SVG 內部座標,
+    // clampedLeft/Right 有沒有被夾到繪圖區邊界, si 指認到 series 第幾條, slot 對應組別編號 }
+    xcur: function (id) { var v = DG_XCUR[id]; return v ? { x: v.x, sx: v.sx, clampedLeft: v.clampedLeft, clampedRight: v.clampedRight, si: v.si, slot: v.slot } : null; },
+    // 這一次真的標出去的 X 刻度文字（需求二的斷言對著它，不是對著格線數）
+    xticks: function (k) { var g = DG_CHART_GEOM[k]; return g && g.xticks ? g.xticks.slice() : null; },
+    // 吸附／指認的純函式，可以不碰 DOM 直接餵座標驗規則
+    snapIndex: function (id, dataX) { var c = DG_CHART_LAST[id]; return c ? dgSnapIndex(c, dataX) : -1; },
+    snapX: function (id, dataX) { var c = DG_CHART_LAST[id]; if (!c) return null; var i = dgSnapIndex(c, dataX); return i < 0 ? null : c.series[0].x[i]; },
+    hiPick: function (id, snapX, dataY) { var c = DG_CHART_LAST[id]; return c ? dgHiPick(c, snapX, dataY) : -1; },
+    seriesSlot: function (id) { var c = DG_CHART_LAST[id]; return c ? c.series.map(function (s) { return (s.slot === undefined) ? null : s.slot; }) : null; },
+    isCmpChart: dgIsCmpChart,
     slotMax: function () { return DG_SLOT_MAX; },
     slotColor: dgSlotColor,
     // v1.20.0 驗證用（唯讀）：形狀對照，以及某一組算出來的四條數列（診斷圖三用）
