@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260913dg1490"></script>
+<script src="common/version.js?v=20260914dg1560"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -393,15 +393,18 @@
      🔴 尺寸全部吃 --dgm-u，一個裸 px 都沒有（v1.41.0 才剛把這個面板家族的
         裸 px 清完，不在這一版又製造新的）。唯一的例外沿用既有那一條：
         1px hairline 邊框刻意不等比（理由見本檔開頭 --dgm-u 那段）。 */
-  #dgm-settle-row { margin-top: calc(8 * var(--dgm-u)); align-items: center; }
-  #dgm-settle {
+  /* v1.56.0：連線參數模式那一列**沿用同一組規則**（選擇器多一個 id，樣式一個字沒改）。
+     🔴 刻意不複製一份 `#dgm-mode { … }`：兩份遲早會不一致，而這兩個選單在視覺上
+        本來就該是同一種東西（右上角面板裡的下拉設定）。 */
+  #dgm-settle-row, #dgm-mode-row { margin-top: calc(8 * var(--dgm-u)); align-items: center; }
+  #dgm-settle, #dgm-mode {
     background: #334155; color: #e2e8f0;
     border: 1px solid rgba(255, 255, 255, .25); border-radius: calc(7 * var(--dgm-u));
     padding: calc(3 * var(--dgm-u)) calc(8 * var(--dgm-u));
     font-family: inherit; font-size: calc(13 * var(--dgm-u)); font-weight: 700;
     line-height: 1.3; cursor: pointer;
   }
-  #dgm-settle:disabled { background: #1e293b; color: #64748b; cursor: not-allowed; }
+  #dgm-settle:disabled, #dgm-mode:disabled { background: #1e293b; color: #64748b; cursor: not-allowed; }
   /* v1.11.0 的獨立停止鈕（#dgm-stop）已於 v1.34.0 併入上面那顆主要動作按鈕。
      🔴 v1.11.0 當時把它獨立出來的理由白紙黑字寫著「如果讓開始鈕就地變成停止鈕，
         連點兩下開始就會直接把自己按停」—— 這個風險是真的，實測也重現得到
@@ -784,6 +787,12 @@
   <div class="dgm-row" id="dgm-settle-row">
     <span class="dgm-k">切換後等待</span><select id="dgm-settle"></select>
   </div>
+  <!-- v1.56.0：序列埠通訊參數模式。<option> 同樣由 JS 依 DGM_SERIAL_MODES 產生
+       （單一來源，理由同上一列）。這一列存在的理由寫在 JS 那一段：真機行為我們
+       在開發機上驗不了，現場遇到問題要能自己切，不必等改版。 -->
+  <div class="dgm-row" id="dgm-mode-row">
+    <span class="dgm-k">連線參數</span><select id="dgm-mode"></select>
+  </div>
   <div id="dgm-prog"></div>
   <div id="dgm-msg">連線 → 初始化 → 零校正（蓋遮光蓋）→ 掃 L0～L255。</div>
 </div>
@@ -977,6 +986,81 @@
       log('切換後等待改為 ' + dgmSettleMs() + ' ms（下一次「開始量測」起生效）');
     });
   }
+
+  /* ═══ v1.56.0：序列埠通訊參數模式（自動／規格 7E2／相容 8N1）═══════════════
+     ───────────────────────────────────────────────────────────────────────
+     為什麼要有這個選單（不是「多做一個開關比較保險」那種理由）：
+     **真機行為在開發機上驗不了** —— 這裡沒有 CA-410。規格模式（7E2＋RTS/CTS）
+     是照原廠通訊規格 §1.1.1 寫的，但「某台電腦的 USB CDC 驅動吃不吃這一組」
+     只有現場知道。自動模式已經有退回機制，可是退回的判準是我訂的；萬一判錯
+     （例如規格模式其實是好的、卻被握手誤判成壞的，或反過來），現場必須有
+     一個**不必等我改版**就能繞過去的出口。這個選單就是那個出口。
+
+     ═══ 為什麼這一個要跨重整保留，而「切換後等待」不必 ═════════════════════
+     v1.42.0 在上面白紙黑字寫過「本檔不用 localStorage、重整歸零是既有設計」，
+     所以這裡是**明確的例外，不是把那條規則推翻**。兩者的差別是可觀測的：
+       · 切換後等待：選錯了下一輪就看得出來（曲線照跑、時間變長／變短），
+         而且 v1.26.1 起換任務不重載頁面 ⇒ 一個工作階段內本來就留著。
+       · 連線參數：選錯了的症狀是**連不上**或**偶發亂碼**。真的需要切到非預設值
+         的人，是現場那台機器壞掉的人；他每重整一次就要重選一次，等於這個出口
+         在最需要它的時候最難用。
+     🔴 範圍嚴格限制在**這一個 key**：`DGM_LS_SERIAL_MODE`。沒有順手把切換後等待
+        也存進去 —— 那是另一個決定，仍然由 Bruce 決定，不在這一版自作主張。
+     🔴 localStorage 在無痕／被政策關掉／配額滿時**會丟例外**，所以讀寫兩側都
+        包 try/catch，失敗就退回預設值並在 log 留一行，絕不讓它擋住連線。 */
+  var DGM_SERIAL_MODES = ['auto', 'spec', 'legacy'];
+  var DGM_SERIAL_MODE_DEFAULT = 'auto';
+  var DGM_SERIAL_MODE_TEXT = {
+    auto:   '自動（先試規格）',
+    spec:   '規格 7E2',
+    legacy: '相容 8N1'
+  };
+  var DGM_LS_SERIAL_MODE = 'dgm.serialMode';
+
+  /* 存起來的那一個值。對不上允許值（舊版留下的、被人手改壞的）一律當成沒有。 */
+  function dgmSerialModeSaved() {
+    var v = null;
+    try { v = localStorage.getItem(DGM_LS_SERIAL_MODE); } catch (e) { return null; }
+    return (DGM_SERIAL_MODES.indexOf(v) >= 0) ? v : null;
+  }
+  function dgmSerialModeSave(v) {
+    try { localStorage.setItem(DGM_LS_SERIAL_MODE, v); return true; }
+    catch (e) { return false; }
+  }
+  /* 目前選到的值（已驗證）。對不上時退回預設 —— 不擋動作、不丟例外。
+     🔴 唯一來源是 DOM 上的那個選單，跟 dgmSettleMs() 同一個形狀。 */
+  function dgmSerialMode() {
+    var sel = $('dgm-mode');
+    var v = sel ? sel.value : DGM_SERIAL_MODE_DEFAULT;
+    return (DGM_SERIAL_MODES.indexOf(v) >= 0) ? v : DGM_SERIAL_MODE_DEFAULT;
+  }
+  function dgmSerialModeText(m) {
+    return DGM_SERIAL_MODE_TEXT[m] || String(m);
+  }
+
+  /* 選單的 <option> ＋ 還原上次選的值。單一來源是 DGM_SERIAL_MODES。 */
+  (function () {
+    var sel = $('dgm-mode'); if (!sel) return;
+    var saved = dgmSerialModeSaved();
+    DGM_SERIAL_MODES.forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = v;
+      o.textContent = DGM_SERIAL_MODE_TEXT[v];
+      if (v === (saved || DGM_SERIAL_MODE_DEFAULT)) o.selected = true;
+      sel.appendChild(o);
+    });
+    /* 🔴 這一行**不是**「順手記一下」：它是還原那條路唯一的痕跡。還原失敗
+       （localStorage 讀不到、值被改壞）與「使用者本來就選預設」在畫面上長得
+       一模一樣，只有 log 分得出來。log() 是宣告式函式（會提升），這裡叫得到。 */
+    log('連線參數模式：' + dgmSerialModeText(dgmSerialMode())
+      + (saved ? '（沿用上次選的）' : '（預設）'));
+    sel.addEventListener('change', function () {
+      var v = dgmSerialMode();
+      var ok = dgmSerialModeSave(v);
+      log('連線參數模式改為 ' + dgmSerialModeText(v) + '（下一次「連線」起生效）'
+        + (ok ? '' : '　⚠ 存不起來，重整後會回到預設'), ok ? '' : 'e');
+    });
+  })();
 
   /* ═══ v1.12.0：兩種量測模式 ═══════════════════════════════════════════
      · gray（預設）＝ DG 第 2 部分：白灰階 L0 ～ L255，256 階
@@ -1366,7 +1450,141 @@
     return out.join(' ');
   }
 
-  async function cmd(text, waitMs) {
+  /* ═══════════════════════════════════════════════════════════════════════
+     v1.56.0：開埠參數 —— 依原廠通訊規格，但留一條退回舊參數的路
+     ───────────────────────────────────────────────────────────────────────
+     🔴 事實（原廠《CA-410 Communication Specifications》v1.08 §1.1.1 USB、
+        §1.1.2 RS-232C，兩節逐字相同）：
+
+          Baud rate     38400
+          Data length   7 bit
+          Parity        Even
+          Stop bit      2 bit
+          Flow control  Hardware (RTS/CTS)
+
+        v1.55.0 以前這一頁開埠用的是 **38400 8N1、無流量控制**，與規格不符。
+
+     🔴 推導出來的症狀（**尚未在真機上證實**，這裡如實寫）：ASCII 只用低 7 位，
+        第 8 位在 7E2 下是同位元。用 8N1 送出時第 8 位恆為 0；對方按偶同位檢查，
+        低 7 位含**奇數**個 1 的字元就會同位元錯誤，含偶數個 1 的則正確
+        ⇒ 大部分正常、偶發亂碼。現場 log 出現過 `ER50`，而規格 §4 的錯誤碼表裡
+        **沒有 ER50**（只有 ER10/20/21/22/31/32/51/91/99），與「位元被打亂」一致。
+
+     🔴 **為什麼不是直接換掉就收工**：Bruce 這台用 8N1 是「大致可用」的。若 7E2
+        或硬體流控在某些機器／某些 USB CDC 驅動上開不起來，換完就是從「大致可用」
+        變成「完全不能用」—— 那比現況更糟。所以做成兩段式（見 dgmOpenPort）。
+
+     🔴 欄位名與值域的依據（不是憑印象寫的）：
+        · W3C Web Serial 的 IDL（https://wicg.github.io/serial/）：
+          `enum ParityType { "none", "even", "odd" };`
+          `enum FlowControlType { "none", "hardware" };`
+          `SerialOptions { baudRate; dataBits: 7|8; stopBits: 1|2; parity; bufferSize; flowControl; }`
+          （本機以 `@types/w3c-web-serial` 的 index.d.ts 逐行核對過）
+        · 本機 Chrome 153 的 framework 二進位裡，`SerialOptions` 的字典成員字串
+          確認為 `baudRate / dataBits / stopBits / parity / bufferSize / flowControl`，
+          且 `FlowControlType`／`ParityType` 兩個 enum 型別名都在 —— 欄位名拼錯
+          會被靜默忽略（字典成員不認得就當沒給），所以這一條要查證，不能憑記憶。
+     ═══════════════════════════════════════════════════════════════════════ */
+  var DGM_PORT_SPEC = { baudRate: 38400, dataBits: 7, stopBits: 2, parity: 'even', flowControl: 'hardware' };
+  /* 🔴 逐值等於 v1.55.0 那兩行寫死的參數。它是**退路**，不是新做的東西 ——
+     所以一個字都不准「順手改好一點」。 */
+  var DGM_PORT_LEGACY = { baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' };
+
+  /* ═══ v1.56.0：逾時的推導（🔴 不是拍腦袋的數字）═══════════════════════════
+     來源是原廠規格 **§1.3 Timeout Duration** 那張表。表裡把一次量測的逾時拆成
+       （一次量測時間 × 重試次數 A ＋ 重試總時間 ＋ 計算時間）× 重試次數 B
+        × 平均次數 ＋ **communication time**
+     而 Color／FMA／JEITA 三列的 **communication time 一律是 1.5 秒**。
+     那一項就是原廠自己為「主機↔儀器來回一趟」編的預算，與量測本身無關
+     ⇒ 凡是**不含量測動作**的指令，它的上限就是這 1.5 秒。
+
+     位元層對照（證明 1.5 秒不是貼著邊的數字）：38400 bps、7E2 的框架是
+     1 起始 ＋ 7 資料 ＋ 1 同位 ＋ 2 停止 ＝ 11 bit/字元 ⇒ 約 3490 字元/秒。
+     握手那一來一回總共不到 50 個字元 ⇒ 線上時間約 **14 ms**。
+     也就是說 1.5 秒裡有 99% 是留給作業系統排程與 USB CDC 緩衝的餘裕。 */
+  var DGM_SPEC_COMM_MS = 1500;          // 規格 §1.3 的 communication time
+  var DGM_WRITE_MS = DGM_SPEC_COMM_MS;  // 單次寫入上限＝一趟通訊的預算（見下方 🔴）
+  var DGM_HS_MS = DGM_SPEC_COMM_MS * 2; // 握手等回應：一來一回 ⇒ 兩個預算 ＝ 3000 ms
+  /* open() 與 close() 不是協定動作（規格沒有一個字管得到它們），所以**不自己編
+     一個新數字**，改用本頁**既有的**兩個上限：
+       · open  ← run() 裡每一道 INIT 指令的 6000 ms（既有、Bruce 用過的值）
+       · close ← closePort() 裡 `cmd('COM,0', 3000)` 的 3000 ms（既有） */
+  var DGM_OPEN_MS = 6000;
+  var DGM_CLOSE_MS = 3000;
+
+  /* 握手指令：規格 §3.3.1.3 **BPR**〔Get Baud Rate between Host and Device〕。
+     🔴 為什麼是它：
+       ① **唯讀**。規格原文只說 "This command gets the baud rate"，不設定任何東西
+          ⇒ 符合「不可用會改變儀器設定的指令」。（對照：`COM,1` 會切遠端模式、
+          `FSC`／`SCS`／`MCH` 全是設定類，`ZRC`／`MES` 會動到量測，全部不合格。）
+       ② **不必先建立通訊**。§3.3.1.1 原文：「Communications are possible with the
+          CA-410 without using this command and in the remote OFF status.」
+          ⇒ 探頭在 remote OFF 也答得出來，握手不必先破壞現狀。
+       ③ 回應**可驗證**：格式是「錯誤碼,鮑率」，例如 `OK00,38400`。
+          它查的正好就是通訊層那一件事，不是隨便挑一個會回 OK 的指令。
+       ④ 規格 §3.1 的清單裡 BPS／BPR 兩列都同時列出 DP 與 **P（探頭）** 的值域
+          ⇒ 探頭支援這道指令，不是只有資料處理器才有。
+     🔴 判準寫得嚴：只有「OKxx,三到六位數字」才算聽得懂。ER10（指令錯誤）
+        雖然也證明對方收到了東西，但**同位元被打亂時同樣可能回 ER10**
+        ⇒ 拿它當通過條件就是自廢武功。 */
+  var DGM_HS_CMD = 'BPR';
+  var DGM_HS_OK = /^OK\d\d,\d{3,6}$/;
+
+  /* 這一次真正開成功的是哪一種。null ＝ 還沒開過／已經關掉。
+     🔴 它是**事實紀錄**，不是設定：設定在選單上（dgmSerialMode()），
+        這一個是「實際發生了什麼」。log 與驗證都讀這一個。 */
+  var dgmPortModeUsed = null;
+
+  function dgmModeLabel(which) {
+    if (which === 'spec') return '規格模式（7E2 ＋ RTS/CTS）';
+    if (which === 'legacy') return '相容模式（8N1，無流量控制）';
+    return '（不明）';
+  }
+  /* 🔴 v1.56.0：log 印的是**傳進 open() 的那個物件**，不是寫死的字串。
+     v1.55.0 那兩行寫死「baudRate 38400 · dataBits 8 · stopBits 1 · parity none」
+     —— 參數一改，它就變成假訊息，而假訊息正是 log 最不該做的事。
+     `flowControl` 沒給的時候印出「未指定」而不是空白：Web Serial 的預設值是
+     "none"，但「我沒指定」與「我指定成 none」是兩件事，log 要分得出來。 */
+  function dgmOptsText(o) {
+    return 'baudRate ' + o.baudRate
+      + ' · dataBits ' + o.dataBits
+      + ' · stopBits ' + o.stopBits
+      + ' · parity ' + o.parity
+      + ' · flowControl ' + (('flowControl' in o) ? o.flowControl : '未指定（Web Serial 預設 none）');
+  }
+
+  /* ═══ v1.56.0：有上限的等待 ═════════════════════════════════════════════
+     🔴 **這不是取消，是「不再等」。** Promise 沒有取消這回事：逾時之後，底下那個
+        `write()`／`open()`／`close()` 仍然可能永遠不 resolve。這一支要保證的是
+        **呼叫端拿得回控制權**，使用者不會按下去就卡住、什麼都不能按。
+        真正該擔心的那一個情境就是它存在的理由：硬體流量控制下，對方沒有拉起
+        CTS 時 `write()` 可能永遠不會 resolve。
+     🔴 回傳值刻意不丟例外：三種結局（成功／失敗／逾時）呼叫端都要分得開，
+        用 try/catch 會把「逾時」與「丟例外」混成同一條路。 */
+  function dgmRace(p, ms, label) {
+    return new Promise(function (res) {
+      var done = false;
+      var to = setTimeout(function () {
+        if (done) return; done = true;
+        res({ ok: false, timeout: true, label: label });
+      }, ms);
+      Promise.resolve(p).then(
+        function (v) { if (done) return; done = true; clearTimeout(to); res({ ok: true, v: v, label: label }); },
+        function (e) { if (done) return; done = true; clearTimeout(to); res({ ok: false, e: e, label: label }); }
+      );
+    });
+  }
+  // 同步就丟例外的呼叫（例如 port 已經不見了）也要走同一條路，不要漏到外面
+  function dgmTry(fn) {
+    try { return Promise.resolve(fn()); } catch (e) { return Promise.reject(e); }
+  }
+  function dgmRaceText(r, ms) {
+    if (r.ok) return '回來了';
+    if (r.timeout) return '⚠ 逾時（' + ms + ' ms）—— 不再等，繼續往下收拾';
+    return '丟例外 · name=' + dgmErrName(r.e) + ' · message=' + dgmErrMsg(r.e);
+  }
+
+  async function cmd(text, waitMs, opt) {
     if (!port || !port.writable) return null;
     // v1.38.0 觀測：在既有旗標被設定**之前**先讀一次，才問得出「這是不是第一個」
     var isFirstTx = !dgmFirstTxAt;
@@ -1377,8 +1595,33 @@
     });
     try {
       var w = port.writable.getWriter();
+      /* ═══ v1.56.0：寫入加逾時保護 ═══════════════════════════════════════
+         🔴 這是硬體流量控制帶進來的**新風險**，必須擋在這裡：RTS/CTS 下，
+            對方沒有拉起 CTS 時 `write()` 可能**永遠不會 resolve**。v1.55.0 這一行
+            是裸 `await`，一旦遇到就是整個 UI 卡死（按鈕還在，但每一顆都要等這個
+            await 回來）—— 那正是「比現況更糟」的那個情境。
+         🔴 上限的依據見 DGM_WRITE_MS 上方那段：規格 §1.3 的 communication time
+            1.5 秒。對照物理值：這一行最長不到 20 個字元，38400 7E2 下約 6 ms。
+         🔴 逾時之後**不 releaseLock()**：那一筆 write 還掛在上面，放鎖只會讓
+            下一個 getWriter() 拿到一個狀態不明的 writer。正確收拾是把整個埠
+            硬關掉（dgmHardClose），呼叫端會做。 */
       // 🔴 結尾只能是 CR（0x0D）。多送一個 LF 會回 ER10。
-      await w.write(new TextEncoder().encode(text + '\r'));
+      var wr = await dgmRace(dgmTry(function () {
+        return w.write(new TextEncoder().encode(text + '\r'));
+      }), DGM_WRITE_MS, 'write()');
+      if (!wr.ok) {
+        lk('✕ 寫入序列埠' + (wr.timeout ? '逾時' : '失敗') + '（' + text + '）· '
+          + dgmRaceText(wr, DGM_WRITE_MS), 'e');
+        log('送出' + (wr.timeout ? '逾時' : '失敗') + ' ' + text
+          + (wr.timeout ? '（' + DGM_WRITE_MS + ' ms）' : '：' + dgmErrMsg(wr.e)), 'e');
+        if (!wr.timeout) { try { w.releaseLock(); } catch (e2) {} }
+        if (pending) { clearTimeout(pending.timer); pending = null; }
+        /* quiet ＝ 呼叫端自己會收拾（目前只有 v1.56.0 的握手）。
+           🔴 不能讓握手失敗走 dgmLost() —— 那一支在量測中會 abort 整輪，
+              而「重新量測」時的握手失敗本來就該退回相容模式繼續，不是作廢。 */
+        if (!(opt && opt.quiet)) dgmLost('寫入' + (wr.timeout ? '逾時' : '失敗') + ' ' + text);
+        return null;
+      }
       w.releaseLock();
       // v1.38.0 觀測：開埠之後真的送出去的第一個位元組（Bruce 指定要記）
       if (isFirstTx) lk('✔ 送出第一個位元組：' + dgmHexOf(text + '\r') + '　＝「' + text + '」＋CR', 'o');
@@ -1387,8 +1630,10 @@
       lk('✕ 寫入序列埠失敗（' + text + '）· name=' + dgmErrName(e) + ' · message=' + dgmErrMsg(e), 'e');
       // v1.27.0：寫不進去 ＝ 連線沒了。原始字串進 log，使用者看到的是那一句人話。
       log('送出失敗 ' + text + '：' + e.message, 'e');
+      if (pending) { clearTimeout(pending.timer); }   // v1.56.0：定時器也要收掉，不只把參照設成 null
       pending = null;
-      dgmLost('寫入失敗 ' + text);
+      // v1.56.0：quiet 的理由同上面那一處（握手失敗由呼叫端收拾，不走 dgmLost）
+      if (!(opt && opt.quiet)) dgmLost('寫入失敗 ' + text);
       return null;
     }
     var r = await wait;
@@ -1484,6 +1729,163 @@
     keepReading = false;
     try { if (reader) await reader.cancel(); } catch (e) {}
     try { await port.close(); } catch (e) {}
+    dgmPortModeUsed = null;   // v1.56.0：埠關了，「實際用的是哪一種」就不再成立
+  }
+
+  /* ═══ v1.56.0：硬關閉 —— 收拾「開錯參數」的那條路 ═══════════════════════
+     🔴 **不可以用 closePort()**：它的第一件事是 `cmd('COM,0', 3000)`，那是一次
+        **寫入**，而寫入正是硬體流量控制下可能永遠掛住的那個動作。用它來收拾
+        「流控把我們卡住了」等於拿同一把刀再捅自己一次。
+     🔴 也因此這裡**不送任何指令**：這條路上我們對通訊層的信任已經破產了，
+        再送東西沒有意義（而且 remote 狀態本來就還沒開，見 BPR 那段 §3.3.1.1）。
+     🔴 每一步都包 dgmRace：`reader.cancel()` 與 `port.close()` 在埠壞掉時同樣
+        可能不回來。收拾的路徑自己卡住，是最糟的一種 —— 使用者會看到「連線中…」
+        永遠停在那裡。
+     🔴 最後那一段等待不是為了好看：重開埠時的判準是 `!readLoopRunning`
+        （v1.32.0 定的），如果上一支 readLoop 還沒收工就重開，新的那一次
+        **不會起 reader**，之後每一道指令都會逾時 —— 那個 bug v1.32.0 修過一次，
+        不要在這裡用新的方式再造一個。上限 1 秒，等不到就照實印出來。 */
+  async function dgmHardClose(why) {
+    lk('　　收拾：硬關閉序列埠（不送 COM,0，理由見程式碼註解）· ' + why);
+    keepReading = false;
+    if (reader) {
+      var rc = await dgmRace(dgmTry(function () { return reader.cancel(); }), DGM_CLOSE_MS, 'reader.cancel()');
+      lk('　　reader.cancel() ' + dgmRaceText(rc, DGM_CLOSE_MS), rc.ok ? '' : 'e');
+    }
+    var pc = await dgmRace(dgmTry(function () { return port.close(); }), DGM_CLOSE_MS, 'port.close()');
+    lk('　　port.close() ' + dgmRaceText(pc, DGM_CLOSE_MS), pc.ok ? '' : 'e');
+    for (var i = 0; i < 100 && readLoopRunning; i++) {
+      await new Promise(function (r) { setTimeout(r, 10); });
+    }
+    lk('　　readLoop ' + (readLoopRunning ? '⚠ 等了 1 秒仍在跑（放棄等待）' : '已停'),
+      readLoopRunning ? 'e' : '');
+    dgmPortModeUsed = null;
+    rxBuf = '';
+  }
+
+  /* ═══ v1.56.0：規格模式握手 ═════════════════════════════════════════════
+     「open() 沒丟例外」只證明**作業系統**接受了這組參數，完全不證明**儀器**
+     聽得懂 —— 同位元設定不合，位元照樣進得去驅動，錯要到對方解碼時才出現。
+     所以規格模式一定要再問一句話。選 BPR 的四條理由見 DGM_HS_CMD 那段。 */
+  async function dgmHandshake() {
+    lk('　　握手：送「' + DGM_HS_CMD + '」（規格 §3.3.1.3，唯讀查詢，不動儀器任何設定）'
+      + '· 最多等 ' + DGM_HS_MS + ' ms');
+    var r = await cmd(DGM_HS_CMD, DGM_HS_MS, { quiet: true });
+    if (r === null) {
+      lk('　　✕ 握手沒有回應（等滿 ' + DGM_HS_MS + ' ms）', 'e');
+      return { ok: false, why: '逾時 ' + DGM_HS_MS + ' ms' };
+    }
+    if (!DGM_HS_OK.test(r)) {
+      lk('　　✕ 握手回應不合法：「' + r + '」（期望 OKxx,<鮑率>）', 'e');
+      return { ok: false, why: '回應不合法「' + r + '」' };
+    }
+    lk('　　✔ 握手回「' + r + '」⇒ 對方聽得懂，規格模式成立', 'o');
+    return { ok: true, r: r };
+  }
+
+  /* 這兩句是**退回時唯一會被現場看到的痕跡**，所以抽成常數：訊息與判斷分開，
+     驗證腳本比對的是同一份字串，不是我在兩個地方各寫一次。 */
+  var DGM_LK_FELLBACK = '⚠⚠ 已退回相容模式（8N1，無流量控制）—— 與原廠規格 §1.1.1'
+    + '（38400 / 7 bit / Even / 2 stop / RTS-CTS）不符，可能偶發亂碼。'
+    + '若現場出現看不懂的回應或 ER50 這種規格表上沒有的錯誤碼，這一行就是原因。';
+  var DGM_LK_LEGACY_FORCED = '⚠ 相容模式（8N1，無流量控制）是「連線參數」選單指定的'
+    + ' —— 與原廠規格 §1.1.1 不符，可能偶發亂碼。要照規格走請把選單切回「自動」或「規格 7E2」。';
+  var DGM_LK_SPEC_FORCED = '⚠ 規格模式握手沒過，但「連線參數」選單指定了「規格 7E2」'
+    + ' ⇒ **不自動退回**（強制就是強制）。埠仍然開著。若接下來一直沒有回應，'
+    + '請把選單切成「自動」或「相容 8N1」再連一次。';
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     v1.56.0：兩段式開埠（這一版的主體）
+     ───────────────────────────────────────────────────────────────────────
+     自動模式的流程：
+       ① 用**規格參數**（7E2 ＋ RTS/CTS）open()
+       ② 開得起來 ⇒ 送一道唯讀查詢（BPR），在有上限的時間內要收到合法回應
+       ③ 任何一步失敗（open 丟例外／open 逾時／握手逾時／回應不合法）
+          ⇒ 硬關閉 ⇒ 用**舊參數**（8N1）重開，並在 log 明顯標示已退回
+       ④ 兩段都失敗才回報連線失敗
+     🔴 退回那一段**不做握手** —— 它就是 v1.55.0 的行為逐字不變。在它上面加
+        新的通過條件，等於讓「現況」也可能失敗，那正是這一版要避免的事。
+     🔴 三種模式共用這一支，差別只在 `order` 這個陣列：
+          auto   ['spec','legacy']   spec   ['spec']   legacy   ['legacy']
+        沒有為了三個模式長出三條控制流 —— 那種寫法遲早只有一條被測到。
+     ═══════════════════════════════════════════════════════════════════════ */
+  async function dgmOpenPort() {
+    /* v1.55.0 的 `if (!port.readable) await port.open(...)` 那半句在這裡：
+       埠已經開著就一個字都不動（停止之後再按一次、run() 第二次呼叫都走這條）。 */
+    if (port.readable) {
+      lk('呼叫前 port.readable ＝ 有（已經開著）⇒ 不重開，沿用現有的埠 · '
+        + (dgmPortModeUsed ? dgmModeLabel(dgmPortModeUsed) : '模式不明（不是這一頁開的）'));
+      log('沿用上一次已經開著的埠', 'o');
+      return true;
+    }
+    var want = dgmSerialMode();
+    var order = (want === 'spec') ? ['spec'] : (want === 'legacy') ? ['legacy'] : ['spec', 'legacy'];
+    lk('連線參數模式：' + dgmSerialModeText(want) + ' ⇒ 這次要試的順序 [' + order.join(' → ') + ']');
+    for (var i = 0; i < order.length; i++) {
+      var which = order[i];
+      var opts = (which === 'spec') ? DGM_PORT_SPEC : DGM_PORT_LEGACY;
+      var last = (i === order.length - 1);
+      /* 🔴 v1.56.0：這一行就是 v1.55.0 L1892／L1988 那兩行寫死字串的替身。
+         印的是**這一次真的要傳給 open() 的那個物件**，外加這次是哪一種模式。 */
+      lk('open() 參數：' + dgmOptsText(opts) + '　⇐ ' + dgmModeLabel(which)
+        + '（呼叫前 port.readable ＝ null（還沒開））');
+      var r = await dgmRace(dgmTry(function () { return port.open(opts); }), DGM_OPEN_MS, 'open()');
+      if (!r.ok) {
+        var nm = r.timeout ? '' : dgmErrName(r.e);
+        /* 「已經開著」不是錯誤（停止之後再按一次就會走到這裡），其餘一律是打不開。
+           打不開最常見的原因就是 Bruce 點名的那個：CA-S40 原廠軟體還開著佔住埠
+           —— 序列埠同一時間只能被一個程式開啟。 */
+        if (!r.timeout && nm !== 'InvalidStateError' && !/already open/i.test(dgmErrMsg(r.e))) {
+          lk('✕ open() 失敗（' + dgmModeLabel(which) + '）· ' + dgmRaceText(r, DGM_OPEN_MS)
+            + dgmWhyOpen(nm), 'e');
+          log('open 失敗：' + nm + ' ' + dgmErrMsg(r.e), 'e');
+          if (last) {
+            msg(nm === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.busy, 'err');
+            return false;
+          }
+          await dgmHardClose('open() 失敗（' + dgmModeLabel(which) + '）');
+          continue;
+        }
+        if (r.timeout) {
+          lk('✕ open() ' + dgmRaceText(r, DGM_OPEN_MS) + '（' + dgmModeLabel(which) + '）', 'e');
+          log('open 逾時（' + DGM_OPEN_MS + ' ms）', 'e');
+          if (last) { msg(DGM_ERR.busy, 'err'); return false; }
+          await dgmHardClose('open() 逾時（' + dgmModeLabel(which) + '）');
+          continue;
+        }
+        // v1.38.0 觀測：這條路原本就是「不算失敗、繼續往下走」，只是從來沒有留下痕跡
+        lk('open() 回 ' + nm + ' ⇒ 視為「已經開著」，繼續', 'o');
+      }
+      /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
+         這裡要防的是重複起第二個 readLoop（兩個 reader 搶同一個 stream）。
+         v1.32.0：判準從 `!keepReading` 換成 `!readLoopRunning`（理由見 readLoop 那段）。 */
+      rxBuf = '';
+      if (!readLoopRunning) { keepReading = true; readLoop(); }
+      dgmPortModeUsed = which;
+      if (which === 'spec') {
+        var hs = await dgmHandshake();
+        if (!hs.ok) {
+          if (last) {
+            /* 只會是 want === 'spec'（使用者強制）。強制就不自動退回，但要吵。 */
+            lk(DGM_LK_SPEC_FORCED, 'e');
+            log('規格模式握手沒過（' + hs.why + '），但使用者指定強制規格模式', 'e');
+            return true;
+          }
+          lk('✕ 規格模式握手沒過（' + hs.why + '）⇒ 退回相容模式', 'e');
+          await dgmHardClose('握手沒過');
+          continue;
+        }
+      }
+      lk('✔ 埠可用 · ' + dgmModeLabel(which) + ' · ' + dgmOptsText(opts)
+        + ' · readLoop ' + (readLoopRunning ? '執行中' : '沒有在跑'), 'o');
+      log('埠已開啟 ' + (which === 'spec' ? '38400 7E2 ＋RTS/CTS' : '38400 8N1'), 'o');
+      if (which === 'legacy') {
+        lk(want === 'legacy' ? DGM_LK_LEGACY_FORCED : DGM_LK_FELLBACK, 'e');
+        log(want === 'legacy' ? '相容模式（使用者指定）' : '已退回相容模式 8N1，與原廠規格不符', 'e');
+      }
+      return true;
+    }
+    return false;
   }
 
   /* ═══ v1.11.0：全螢幕閘門 ════════════════════════════════════════════════
@@ -1735,6 +2137,17 @@
           一律掛在這一支裡，由 syncFs() → dgmRenderBtns() 這條唯一的路復原。 */
     var sw = $('dgm-settle');
     if (sw) sw.disabled = !!running;
+    /* ── ②d 連線參數（v1.56.0）────────────────────────────────────────────
+       🔴 條件是 `running || dgmLinkBusy`，**與上面那個「切換後等待」刻意不同**。
+          上面那一段講得很清楚：dgmLinkBusy 是「連線動作自己的防連點」，而切換後
+          等待跟序列埠毫無關係，所以它不套。這一個相反 —— 它決定的**正是連線動作
+          要用的參數**：連線進行中把它改掉，log 印的那一組與正在跑的那一組就會
+          對不上，而這一版的重點之一就是「log 要說實話」。
+       🔴 一樣只是 UI 那一層。真正的保護是 dgmOpenPort() 一進去就把 dgmSerialMode()
+          讀成區域變數 `want`，那一次開埠從頭到尾只認它 —— 繞過 disabled 直接改
+          DOM，也影響不到已經在跑的那一次連線。 */
+    var pm = $('dgm-mode');
+    if (pm) pm.disabled = !!(running || dgmLinkBusy);
     /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
        Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
        所以讓他自己決定就好。」
@@ -1888,33 +2301,14 @@
       }
       lk('★ 在選擇視窗裡選了：' + dgmPortInfo(port) + ms(), 'i');
     }
-    try {
-      lk('open() 參數：baudRate 38400 · dataBits 8 · stopBits 1 · parity none'
-        + '（呼叫前 port.readable ＝ ' + (port.readable ? '有（已經開著）' : 'null（還沒開）') + '）');
-      if (!port.readable) await port.open({ baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' });
-    } catch (e) {
-      /* 「已經開著」不是錯誤（停止之後再按一次就會走到這裡），其餘一律是打不開。
-         打不開最常見的原因就是 Bruce 點名的那個：CA-S40 原廠軟體還開著佔住埠
-         —— 序列埠同一時間只能被一個程式開啟。 */
-      var nm = dgmErrName(e);
-      if (nm !== 'InvalidStateError' && !/already open/i.test((e && e.message) || '')) {
-        lk('✕ open() 失敗 · name=' + nm + ' · message=' + dgmErrMsg(e) + ms()
-          + dgmWhyOpen(nm), 'e');
-        log('open 失敗：' + nm + ' ' + (e && e.message), 'e');
-        msg(nm === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.busy, 'err');
-        return false;
-      }
-      // v1.38.0 觀測：這條路原本就是「不算失敗、繼續往下走」，只是從來沒有留下痕跡
-      lk('open() 回 ' + nm + ' ⇒ 視為「已經開著」，繼續' + ms(), 'o');
-    }
-    /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
-       這裡要防的是重複起第二個 readLoop（兩個 reader 搶同一個 stream）。
-       v1.32.0：判準從 `!keepReading` 換成 `!readLoopRunning`（理由見 readLoop 那段）。 */
-    rxBuf = '';
-    if (!readLoopRunning) { keepReading = true; readLoop(); log('埠已開啟 38400', 'o'); }
-    else log('沿用上一次已經開著的埠', 'o');
-    lk('✔ 埠可用（38400 8N1）· readLoop ' + (readLoopRunning ? '執行中' : '沒有在跑')
-      + ' · 最後用的是 ' + dgmPortInfo(port) + ms(), 'o');
+    /* ═══ v1.56.0：開埠整段搬進 dgmOpenPort() ═══════════════════════════════
+       v1.38.0 當時在下面那一支（dgmSerialPick）寫著「參數與上面那一支刻意寫成
+       同一組值，不抽成共用常數的原因：抽出去就得改動 dgmSerialOn() 那一行，
+       而這一版的邊界是那一支一個字都不動」。**那個邊界這一版不成立了**：
+       這次兩支都必須改，於是「兩處是否一致」就不該再靠驗證腳本去比對兩份字面，
+       直接收斂成同一支函式，讓它在結構上不可能不一致。 */
+    if (!(await dgmOpenPort())) return false;
+    lk('　　（連線路徑結束）最後用的是 ' + dgmPortInfo(port) + ms(), 'o');
     return true;
   }
 
@@ -1981,26 +2375,11 @@
       lk('　　釋放完成' + ms());
     }
     port = picked;
-    /* 🔴 參數與上面那一支**刻意寫成同一組值**（38400 8N1）。不抽成共用常數的原因：
-       抽出去就得改動 dgmSerialOn() 那一行，而這一版的邊界是那一支一個字都不動。
-       兩處是否一致，由驗證腳本逐字比對（不是靠人記得）。 */
-    try {
-      lk('open() 參數：baudRate 38400 · dataBits 8 · stopBits 1 · parity none'
-        + '（呼叫前 port.readable ＝ ' + (port.readable ? '有（已經開著）' : 'null（還沒開）') + '）');
-      if (!port.readable) await port.open({ baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' });
-    } catch (e) {
-      var nm = dgmErrName(e);
-      if (nm !== 'InvalidStateError' && !/already open/i.test((e && e.message) || '')) {
-        lk('✕ open() 失敗 · name=' + nm + ' · message=' + dgmErrMsg(e) + ms() + dgmWhyOpen(nm), 'e');
-        msg(nm === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.busy, 'err');
-        return false;
-      }
-      lk('open() 回 ' + nm + ' ⇒ 視為「已經開著」，繼續' + ms(), 'o');
-    }
-    rxBuf = '';
-    if (!readLoopRunning) { keepReading = true; readLoop(); }
-    lk('✔ 埠可用（38400 8N1）· readLoop ' + (readLoopRunning ? '執行中' : '沒有在跑')
-      + ' · 這一次用的是 ' + dgmPortInfo(port) + ms(), 'o');
+    /* v1.56.0：與 dgmSerialOn() 走**同一支** dgmOpenPort()（兩段式開埠）。
+       🔴 這正是 v1.38.0 註記「兩處是否一致由驗證腳本逐字比對」那個問題的正解 ——
+          不用比對了，因為只剩一份。 */
+    if (!(await dgmOpenPort())) return false;
+    lk('　　（重選儀器路徑結束）這一次用的是 ' + dgmPortInfo(port) + ms(), 'o');
     return true;
   }
 
@@ -2742,6 +3121,38 @@
     },
     settleFontPx: function () {
       var e = $('dgm-settle'); return e ? getComputedStyle(e).fontSize : null;
+    },
+    /* ═══ v1.56.0 驗證用：序列埠通訊參數 ═══════════════════════════════════
+       🔴 全部是 getter，**刻意不提供 setter**（理由同上面那一段）。要改模式就改
+          真的 DOM（`el.value = 'legacy'` ＋ dispatch change），走使用者真正走的
+          那條路。
+       🔴 更重要的一條：**「傳給 open() 的到底是什麼」不在這裡驗。** 這裡回的是
+          產品自己記下來的東西，拿它當證據等於問嫌犯自己有沒有犯案。唯一有鑑別力
+          的觀測點是**假序列埠收到的那個 options 物件**（它在產品外面）。
+          下面這幾支的用途只有兩個：把常數攤出來給斷言比對（例如「規格模式那一組
+          就是規格書寫的那五個值」），以及讓「退回路徑到底走了沒」有一個不必解析
+          中文 log 的答案。 */
+    serialModeRaw: function () { var e = $('dgm-mode'); return e ? e.value : null; },
+    serialMode: dgmSerialMode,
+    serialModeSaved: dgmSerialModeSaved,
+    serialModeDefault: function () { return DGM_SERIAL_MODE_DEFAULT; },
+    serialModeChoices: function () { return DGM_SERIAL_MODES.slice(); },
+    serialModeDisabled: function () { var e = $('dgm-mode'); return !!(e && e.disabled); },
+    serialModeOptions: function () {
+      var os = $('dgm-mode') ? $('dgm-mode').options : [], out = [], i;
+      for (i = 0; i < os.length; i++) out.push({ v: os[i].value, t: os[i].textContent });
+      return out;
+    },
+    serialModeLsKey: function () { return DGM_LS_SERIAL_MODE; },
+    portOptsSpec: function () { return JSON.parse(JSON.stringify(DGM_PORT_SPEC)); },
+    portOptsLegacy: function () { return JSON.parse(JSON.stringify(DGM_PORT_LEGACY)); },
+    portModeUsed: function () { return dgmPortModeUsed; },
+    hsCmd: function () { return DGM_HS_CMD; },
+    timeouts: function () {
+      return {
+        comm: DGM_SPEC_COMM_MS, write: DGM_WRITE_MS, hs: DGM_HS_MS,
+        open: DGM_OPEN_MS, close: DGM_CLOSE_MS
+      };
     }
   };
 
