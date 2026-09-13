@@ -1968,7 +1968,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1501"></script>
+<script src="common/version.js?v=20260913dg1510"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3602,19 +3602,59 @@
   var DG_OPT_SRCSHEET = '資料來源';
   /* v1.44.0：新增的兩個區塊標題。🔴 這兩個字串同時是「匯出寫進去的」與「匯入據以定位的」，
      照 DG_OPT_FILEHDR 的前例抽成常數 —— 兩端各寫一份，改了一邊就會靜默認不出自己的檔。 */
-  var DG_OPT_XHDR = '色度 x';
-  var DG_OPT_YHDR = '色度 y';
+  /* 🔴 v1.51.0：**區塊標題一律附單位**（Bruce 2026-09-13：「在匯出 Excel 的標題上面，
+     像是『亮度』，可以右邊再多一個括號，標明它的單位是什麼。其他欄位也是一樣都要有單位」，
+     後補「不只我列出的這些，全部都要一併考量。出發點就是，其他人拿到這份 Excel，
+     都知道要怎麼自己加入數據」）。格式統一為 `原標題（單位）`，無因次的量寫「無單位」
+     並註明它是什麼（例如 CIE 1931、γ 指數）。
+
+     🔴 **這些常數同時是匯入端的定位依據**，改字面 ⇒ 舊檔（標題沒單位）或新檔必壞一邊。
+        解法不是前綴／包含比對（「純色端點」會吃掉「純色端點 X」），而是
+        **剝掉尾端括號後做相等比對**（dgOptBare）——「裸標題」新舊檔一致，
+        且不同區塊的裸標題兩兩互異，結構上不可能互相吃掉。詳見 dgOptBare()。 */
+  var DG_OPT_XHDR = '色度 x（CIE 1931，無單位）';
+  var DG_OPT_YHDR = '色度 y（CIE 1931，無單位）';
   /* v1.44.0：純色端點（第 3 部分那三行）也存進檔案。
      🔴 **存的是 XYZ，不是 x／y／Lv** —— 第 3 部分的 #dg-in-prim 本來就是 XYZ 三行，
         存同一個形狀就少一次 dgXyYtoXYZ() 換算，也就少一個誤差來源。
      版面沿用既有慣例：一個「量」一個區塊、區塊內一欄一組；R／G／B 三個通道
      則落在**資料列的前三列**，由 DG_OPT_PRIMHDR 那一欄標出是哪一列。
      這樣三個區塊（X／Y／Z）就把 3×3 九個數全部裝下，不必開九個區塊。 */
-  var DG_OPT_PRIMHDR = '純色端點';
+  var DG_OPT_PRIMHDR = '純色端點（R／G／B 標示，無單位）';
+  /* 🔴 `RGB` 這一欄的**第 3 列表頭不加單位**：它不是一個量，是「這一列是哪一個通道」的
+     標示，單位欄位在它上面那格（DG_OPT_PRIMHDR）已經講清楚。維持原字面還有一個好處 ——
+     舊檔／新檔的這一格逐字相同，primRow 的定位完全不受本版影響。 */
   var DG_OPT_PRIMLBL = 'RGB';
-  var DG_OPT_PXHDR = '純色端點 X';
-  var DG_OPT_PYHDR = '純色端點 Y';
-  var DG_OPT_PZHDR = '純色端點 Z';
+  /* 三刺激值 X／Y／Z 與亮度同尺度（Y 恰為亮度）⇒ 單位同為 cd/m²。 */
+  var DG_OPT_PXHDR = '純色端點 X（cd/m²）';
+  var DG_OPT_PYHDR = '純色端點 Y（cd/m²）';
+  var DG_OPT_PZHDR = '純色端點 Z（cd/m²）';
+  /* ═══ v1.51.0：其餘區塊標題與固定欄表頭（原本散寫在 dgOptSheetXml 的 put() 裡）═══
+     抽成常數的理由與上面那幾個相同：**標題文字是版面契約的一部分**，散寫在產檔函式裡
+     等於沒有單一來源，日後改字時很難確認匯入端有沒有跟著。 */
+  var DG_OPT_H = {
+    lum:    '亮度（cd/m²）',
+    cctRef: '色溫基準（K）',
+    cct:    '色溫（K）',
+    /* 🔴 兩個區塊都叫「標準 Gamma」，但**值不是同一個量** —— 這是逐格查證出來的，
+       不是沿用直覺：
+         · C.std   ＝ `(Gray/Gray_max)^γ`，numFmt 179 ＝ `0.000%` ⇒ 它是**相對亮度**，
+                     是圖一的三條參考線。
+         · C.gamRef＝ 常數 2／2.2／2.4，numFmt 177 ＝ `0.0` ⇒ 它才是 **γ 指數本身**，
+                     是圖二的三條參考線。
+       所以兩者的單位標示不同。Bruce 給的對照表把這兩個併成一條「標準 Gamma → 無單位
+       （γ 指數）」，對 C.std 而言是錯的（它是百分比）—— 這裡照查證結果標。 */
+    std:    '標準 Gamma（相對亮度 %）',
+    gamRef: '標準 Gamma（γ 指數，無單位）',
+    rel:    'Gamma curve（圖一：相對亮度 %）',
+    gam:    'Gamma curve（圖二：逐階 Gamma，無單位）',
+    /* 🔴 Gray 寫「灰階」而**不寫「0～255」**：資料列是 0…gmax，而 gmax 由實際量到的
+       最高階決定（10bit 面板、或只量到一半的資料都不是 255）。寫死 0～255 會說謊。 */
+    gray:   'Gray（灰階）',
+    hi:     '上限（K）',
+    mid:    '中心（K）',
+    lo:     '下限（K）'
+  };
   var DG_OPT_PRIMKEYS = ['r', 'g', 'b'];
   var DG_OPT_ROW1 = 4;                     // 資料第一列（1 起算）
   var DG_OPT_N = 10;                       // 組數
@@ -3645,23 +3685,38 @@
     var N = DG_OPT_N, c = 0, C = {};
     function fix(n) { var at = c; c += n; return at; }        // 固定寬度
     function grp() { var at = c; c += N; return at; }         // N 組，不留空白欄
+    /* ═══ v1.51.0：Gray 索引欄的規則統一 ═══════════════════════════════════════
+       Bruce 2026-09-13：「為什麼有些包含 Gray，有些沒有包含 Gray？請安排一個統一的
+       邏輯，要嘛就全部都有，要嘛就全部都沒有（只有最左邊的有），或者只要有一個我
+       可以接受的固定邏輯也可以。」
+
+       採「**每個以灰階為索引的區塊前面各放一個**」。理由（提給 Bruce、他沒有反對）：
+         · 這份表 N=10 時已經寬到 DA 欄以外，捲到右邊時若沒有 Gray，就不知道在看第幾階。
+         · 原廠光學確認 xlsx 本來就是這個精神（亮度、色溫基準、標準 Gamma 前各一個），
+           只是沒做到底。本版把它做完，不是另立一套規則。
+
+       v1.49.0 已經補了 gray4／gray5（色度 x／y）。本版補齊剩下的四個：
+         gray6 → 色溫｜gray7 → Gamma curve 圖一｜gray8 → 標準 Gamma(γ)｜gray9 → 圖二
+
+       🔴 **純色端點那一組是明示的例外，不是漏掉**：它的索引是 R／G／B 三個通道，
+          不是灰階 —— 資料只有三列，硬塞一個 0／1／2 的 Gray 只會讓人以為那是灰階 0、1、2。
+          `primLbl`（DG_OPT_PRIMHDR）那一欄已經在做索引的事，設計上本來就一致。
+       🔴 原廠那三個（gray1／gray2／gray3）的位置一欄都不動（動了就不相容原廠檔）。 */
     C.gray1 = fix(1);
     C.lum = grp();
     C.gray2 = fix(1);
     C.hi = fix(1); C.mid = fix(1); C.lo = fix(1);
+    C.gray6 = fix(1);          // v1.51.0 新增：色溫的索引
     C.cct = grp();
     C.gray3 = fix(1);
     C.std = fix(3);
+    C.gray7 = fix(1);          // v1.51.0 新增：Gamma curve（圖一）的索引
     C.rel = grp();
+    C.gray8 = fix(1);          // v1.51.0 新增：標準 Gamma（γ 指數）的索引
     C.gamRef = fix(3);
+    C.gray9 = fix(1);          // v1.51.0 新增：Gamma curve（圖二）的索引
     C.gam = grp();
-    /* 🔴 v1.49.0：gray4／gray5 是**補上原廠早就有的規則**，不是新發明。
-       原廠光學確認 xlsx 本身就有三個 Gray（gray1／gray2／gray3），擺在亮度、
-       色溫基準、標準 Gamma 前面當索引 —— 規則是「主要區塊前面放一個 Gray 當索引」。
-       v1.44.0 新增的 cx／cy 兩個區塊當時沒跟上這條規則，這裡補齊。
-       🔴 原廠那三個一個都不動（動了就不相容原廠檔）。
-       🔴 純色端點**刻意不加** —— 它的索引是 R／G／B 不是灰階，primLbl 那一欄
-          已經在做索引的事，設計上本來就一致，不是漏掉。 */
+    /* 🔴 v1.49.0：gray4／gray5 是**補上原廠早就有的規則**，不是新發明。 */
     C.gray4 = fix(1);
     C.cx = grp();
     C.gray5 = fix(1);
@@ -3673,6 +3728,14 @@
     C.primX = grp(); C.primY = grp(); C.primZ = grp();
     return C;
   })();
+  /* v1.51.0：九個 Gray 索引欄的**單一來源**。表頭列、資料列、樣式群組、欄寬四處都讀它，
+     不要在各處各列一次 —— v1.49.0 加 gray4／gray5 時就是四處各補一次，漏一處不會報錯，
+     只會在檔案裡出現一欄空白的索引。
+     🔴 順序＝版面由左到右（只是為了讀起來順，程式不依賴順序）。 */
+  function DG_OPT_GRAYS(C) {
+    C = C || DG_OPT_C;
+    return [C.gray1, C.gray2, C.gray6, C.gray3, C.gray7, C.gray8, C.gray9, C.gray4, C.gray5];
+  }
   // 最後一欄：primZ 那一段的最後一組
   var DG_OPT_LAST = DG_OPT_C.primZ + DG_OPT_N - 1;
   // 圖上的線色：三條參考線 ＋ 10 組（與畫面上那 10 色同一組，去掉 #）
@@ -3734,12 +3797,16 @@
       { s: C.lum,     n: N, g: 'd0',    b: 0 },   // ┘
       { s: C.gray2,   n: 1, g: 'index', b: 1 },   // ┐色溫基準（上限／中心／下限）
       { s: C.hi,      n: 3, g: 'd176',  b: 0 },   // ┘
-      { s: C.cct,     n: N, g: 'd176',  b: 1 },   //  色溫
-      { s: C.gray3,   n: 1, g: 'index', b: 1 },   // ┐標準 Gamma
+      { s: C.gray6,   n: 1, g: 'index', b: 1 },   // ┐色溫（v1.51.0 新增索引欄）
+      { s: C.cct,     n: N, g: 'd176',  b: 0 },   // ┘
+      { s: C.gray3,   n: 1, g: 'index', b: 1 },   // ┐標準 Gamma（相對亮度）
       { s: C.std,     n: 3, g: 'd179',  b: 0 },   // ┘
-      { s: C.rel,     n: N, g: 'd9',    b: 1 },   //  Gamma curve（圖一：相對亮度）
-      { s: C.gamRef,  n: 3, g: 'd177',  b: 1 },   //  標準 Gamma（圖二的參考線）
-      { s: C.gam,     n: N, g: 'd177',  b: 1 },   //  Gamma curve（圖二：逐階 Gamma）
+      { s: C.gray7,   n: 1, g: 'index', b: 1 },   // ┐Gamma curve 圖一（v1.51.0 新增索引欄）
+      { s: C.rel,     n: N, g: 'd9',    b: 0 },   // ┘
+      { s: C.gray8,   n: 1, g: 'index', b: 1 },   // ┐標準 Gamma γ 指數（v1.51.0 新增索引欄）
+      { s: C.gamRef,  n: 3, g: 'd177',  b: 0 },   // ┘
+      { s: C.gray9,   n: 1, g: 'index', b: 1 },   // ┐Gamma curve 圖二（v1.51.0 新增索引欄）
+      { s: C.gam,     n: N, g: 'd177',  b: 0 },   // ┘
       { s: C.gray4,   n: 1, g: 'index', b: 1 },   // ┐色度 x
       { s: C.cx,      n: N, g: 'd0',    b: 0 },   // ┘
       { s: C.gray5,   n: 1, g: 'index', b: 1 },   // ┐色度 y
@@ -3839,13 +3906,14 @@
     // 第 1 列：大標題
     put(1, 0, { v: DG_OPT_TITLE });
     // 第 2 列：區塊標題
-    put(2, C.lum, { v: '亮度' });
-    put(2, C.hi, { v: '色溫基準' });
-    put(2, C.cct, { v: '色溫' });
-    put(2, C.std, { v: '標準 Gamma' });
-    put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）' });
-    put(2, C.gamRef, { v: '標準 Gamma' });
-    put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）' });
+    /* v1.51.0：標題文字一律取自 DG_OPT_H／DG_OPT_*HDR 常數（單一來源），不在這裡寫字面。 */
+    put(2, C.lum, { v: DG_OPT_H.lum });
+    put(2, C.hi, { v: DG_OPT_H.cctRef });
+    put(2, C.cct, { v: DG_OPT_H.cct });
+    put(2, C.std, { v: DG_OPT_H.std });
+    put(2, C.rel, { v: DG_OPT_H.rel });
+    put(2, C.gamRef, { v: DG_OPT_H.gamRef });
+    put(2, C.gam, { v: DG_OPT_H.gam });
     /* v1.44.0：量 Gamma 時儀器本來就一併量到色度 x／y（即時量測與 CA-410 CSV 都有），
        原本只有亮度與色溫落進檔案裡，那兩欄等於被丟掉。這兩個區塊把它們也存下來。 */
     put(2, C.cx, { v: DG_OPT_XHDR });
@@ -3859,15 +3927,12 @@
           就是「這個 Gray 是給誰用的」的答案，不必另外寫字說明。
           gray2 服務的是它右邊緊鄰的色溫基準、gray3 服務標準 Gamma（沿用原廠版面
           「Gray 在區塊左邊」的既有語意，一欄都沒有搬動）。 */
-    put(3, C.gray1, { v: 'Gray' });
-    put(3, C.gray2, { v: 'Gray' });
-    put(3, C.gray3, { v: 'Gray' });
-    put(3, C.gray4, { v: 'Gray' });      // v1.49.0 新增：色度 x 的索引
-    put(3, C.gray5, { v: 'Gray' });      // v1.49.0 新增：色度 y 的索引
+    /* v1.51.0：九個 Gray 索引欄一次寫完（DG_OPT_GRAYS 是單一來源，見那一段註解）。 */
+    DG_OPT_GRAYS(C).forEach(function (col) { put(3, col, { v: DG_OPT_H.gray }); });
     put(3, C.primLbl, { v: DG_OPT_PRIMLBL });
-    put(3, C.hi, { v: '上限' });
-    put(3, C.mid, { v: '中心' });
-    put(3, C.lo, { v: '下限' });
+    put(3, C.hi, { v: DG_OPT_H.hi });
+    put(3, C.mid, { v: DG_OPT_H.mid });
+    put(3, C.lo, { v: DG_OPT_H.lo });
     /* v1.4.5：這兩排表頭同時是圖一／圖二三條參考線的圖例文字（`<c:ser><c:tx><c:strRef>`
        就指到這幾格）。原本寫的是**數值** 2／2.2／2.4，開檔後圖例就變成「2」「2.2」「2.4」，
        跟畫面上的「γ=2.0／γ=2.2／γ=2.4」對不起來。改寫成文字，與畫面一致。
@@ -3940,12 +4005,8 @@
     for (i = 0; i < nRow; i++) {
       r = R0 + i;
       var g = i;                                     // Gray ＝ 0 … gmax
-      put(r, C.gray1, { v: g });
-      put(r, C.gray2, { v: g });
-      put(r, C.gray3, { v: g });
-      // v1.49.0：色度 x／y 各自的索引欄，值與另外三個 Gray 逐列相同（0 … gmax）
-      put(r, C.gray4, { v: g });
-      put(r, C.gray5, { v: g });
+      // v1.51.0：九個索引欄逐列同值（0 … gmax），由 DG_OPT_GRAYS 一次寫完
+      DG_OPT_GRAYS(C).forEach(function (col) { put(r, col, { v: g }); });
       /* 色溫的三條基準線：第一列是本體，其餘列一路參照回第一列（結構照參考檔，未改），
          只有中心值由 base 決定。
          🔴 動態模式而目標白點取不到時（base.ok === false）：這三欄**整組不寫**。
@@ -4011,9 +4072,12 @@
        原本那六段（每段各自跳過中間的空白欄）collapse 成一段。
        `primLbl` 原本寬 9 的特例一併取消 —— 它現在要裝「純色端點」四個中文字而且
        不再有 merge 可以借位，寬 9 會被切掉；與其他欄同為 10.25。
-       第 1 欄（gray1）維持 7.875、亮度那一段維持 12.5（欄名最長），兩者都沒動。 */
+       第 1 欄（gray1）維持 7.875、亮度那一段維持 12.5（欄名最長），兩者都沒動。
+       🔴 v1.51.0：第 1 欄由 7.875 改成 10.25 —— Gray 的表頭從 `Gray` 變成
+          `Gray（灰階）`，7.875 裝不下會被右邊那一欄蓋住。改完之後**九個 Gray 欄同寬**，
+          與本版「索引欄規則統一」是同一件事。 */
     var cols = '<cols>'
-      + '<col min="1" max="1" width="7.875" customWidth="1"/>'
+      + '<col min="1" max="1" width="10.25" customWidth="1"/>'
       + '<col min="' + (C.lum + 1) + '" max="' + (C.lum + DG_OPT_N) + '" width="12.5" customWidth="1"/>'
       + '<col min="' + (C.gray2 + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
       + '</cols>';
@@ -4100,7 +4164,13 @@
      🔴 耗時的單位寫**秒**、小數三位 —— 毫秒對讀表的人不友善，而 ms/1000 再乘回去
         是精確的（Math.round 收掉浮點尾數），round-trip 不會掉值。
      🔴 欄名一旦定案就是匯入端的定位依據（表頭文字定位，不寫死欄號），不要隨手改字。 */
-  var DG_OPT_SRC_HDRS = ['組序', '組名', '來源／時間戳', '筆數', '量測耗時(秒)', '換階等待(ms)'];
+  /* 🔴 v1.51.0：這六欄也一併標單位（Bruce：「全部都要一併考量」，並點名這張表）。
+     沒有物理單位的三欄（組序／組名／來源）標的是「要填什麼」，因為判準是
+     「一個沒看過這個工具的人，光看表頭就知道每一欄要填什麼」，不只是物理單位。
+     🔴 舊檔相容靠 dgOptBare()：`量測耗時(秒)`（半形括號）與 `量測耗時（秒）`（全形）
+        剝掉尾端括號後同為 `量測耗時` ⇒ v1.44.x／v1.45.x 的檔照樣讀得回來。 */
+  var DG_OPT_SRC_HDRS = ['組序（第幾組）', '組名（文字）', '來源／時間戳（文字）',
+                         '筆數（階數）', '量測耗時（秒）', '換階等待（毫秒 ms）'];
 
   function dgOptSrcSheetXml(slots) {
     var R0 = DG_OPT_ROW1, rows = [], k;
@@ -4136,12 +4206,13 @@
       + '<dimension ref="A1:F' + (R0 + Math.max(rows.length, 1) - 1) + '"/>'
       + '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
       + '<sheetFormatPr defaultColWidth="7.875" defaultRowHeight="14.25"/>'
-      + '<cols><col min="1" max="1" width="7.875" customWidth="1"/>'
+      /* v1.51.0：六個表頭都變長了（加了單位），欄寬跟著放大，否則表頭會被右邊那欄蓋住。 */
+      + '<cols><col min="1" max="1" width="14" customWidth="1"/>'
       + '<col min="2" max="2" width="24" customWidth="1"/>'
       + '<col min="3" max="3" width="44" customWidth="1"/>'
-      + '<col min="4" max="4" width="9" customWidth="1"/>'
-      + '<col min="5" max="5" width="13" customWidth="1"/>'
-      + '<col min="6" max="6" width="15" customWidth="1"/></cols><sheetData>';
+      + '<col min="4" max="4" width="13" customWidth="1"/>'
+      + '<col min="5" max="5" width="15" customWidth="1"/>'
+      + '<col min="6" max="6" width="19" customWidth="1"/></cols><sheetData>';
     Object.keys(cells).map(Number).sort(function (a, b) { return a - b; }).forEach(function (rr) {
       var row = cells[rr], cs = '';
       Object.keys(row).map(Number).sort(function (a, b) { return a - b; }).forEach(function (cc) {
@@ -4366,6 +4437,32 @@
     if (gmax < 1) gmax = 255;
     var nRow = gmax + 1, RL = R0 + nRow - 1;
     var SH = DG_OPT_SHEETNAME;
+
+    /* ═══ v1.51.0：圖二的縱軸改成跟著資料走 ════════════════════════════════════
+       在此之前這裡寫死 `yMin: 1.6, yMax: 2.8`。**畫面上的圖二從 v1.21.0 起就已經會跟著
+       資料調整了**（dgDrawTriple 的 a2），只有匯出的這一張還停在固定值 ⇒ gamma 主體
+       落在 1.6～2.8 之外的面板，匯出的 Excel 圖上曲線會被切掉，與畫面對不起來。
+
+       🔴 **沿用畫面那一支 dgAxisFit()，不另寫第二套算法**，四個參數與畫面逐項相同：
+          ref／def 都是 {1.6, 2.8}、minPad 0.05、robust=true（5%～95% 百分位）。
+       🔴 逐階 Gamma 值也走畫面同一支 **dgCurveOf()**（就是三張圖的資料來源），
+          不在這裡重算一次 log(rel)/log(g/gmax)。
+
+       ── 一個誠實的差異，寫在這裡供覆核 ──────────────────────────────
+       畫面上的圖二只畫**勾選「顯示」**的那幾組（dgVisibleSlotsZ），而匯出的圖二畫的是
+       **檔案裡全部 N 組**（`group(C.gam)` 一條都不少）。所以這裡餵進 dgAxisFit 的是
+       `slots` 全部，不是可見的那幾組 —— 否則被取消勾選的那幾組在 Excel 圖上會被切掉，
+       正是本次要修的那個病。**全部組都勾選顯示時（預設狀態）兩者逐值相同。**
+
+       🔴 Excel 公式在**端點**算出來的是 2.2（`IFERROR(...,2.2)`：第一列 LOG(0) 錯誤、
+          最後一列分母 LOG(1)=0），而 dgCurveOf() 在端點給 null（被 dgAxisFit 濾掉）。
+          2.2 恆落在任何涵蓋 1.6～2.8 的窗內，也落在百分位主體附近 ⇒ 不會被切掉。 */
+    var gamAll = [];
+    slots.forEach(function (s) {
+      if (!s || !s.rows || s.rows.length < 2) return;
+      gamAll = gamAll.concat(dgCurveOf(s.rows).gam);
+    });
+    var gamAx = dgAxisFit(gamAll, { lo: 1.6, hi: 2.8 }, { lo: 1.6, hi: 2.8 }, 0.05, true);
     function ref(col) { return SH + '!' + dgOptAbs(col, R0) + ':' + dgOptAbs(col, RL); }
     function hdr(col) { return SH + '!' + dgOptAbs(col, 3); }
     function group(base) {
@@ -4393,7 +4490,8 @@
       }),
       dgOptChartXml({
         title: 'Gamma curve — 逐階 Gamma 值', axIdX: 222222221, axIdY: 222222222,
-        xRef: ref(C.gray3), xMax: gmax, yMin: 1.6, yMax: 2.8, yFmt: '0.0',
+        // v1.51.0：縱軸與畫面同一支 dgAxisFit()（見上面 gamAx 那一段）
+        xRef: ref(C.gray3), xMax: gmax, yMin: gamAx.min, yMax: gamAx.max, yFmt: '0.0',
         series: refs(C.gamRef, [0, 0, 0]).concat(group(C.gam))
       }),
       dgOptChartXml({
@@ -4658,6 +4756,73 @@
   function dgCellV(sheet, r, c) { var x = sheet.cells[r + ',' + c]; return x ? x.v : null; }
   function dgIsNum(x) { return typeof x === 'number' && isFinite(x); }
 
+  /* ═══ v1.51.0：光學量測必須是「完整的一段灰階」═══════════════════════════════
+     Bruce 2026-09-13：「**不會有考慮跳號的問題。也就是說，匯入的資料一定要有 L0 到
+     L255 的光學量測。在第二部分或者是光學比較分頁，都是要完整的 8-bit（L0 到 L255）。
+     如果是只有 L0 到 L63（6-bit）的排序，要跳出警示說這個沒辦法支援。**」
+
+     判準（三條，缺一不可）：
+       ① 灰階集合恰為 {0, 1, …, n−1} —— 不跳號、不重複、從 0 起算
+       ② n ≥ 256
+       ③ 每一個灰階都是非負整數
+
+     🔴 ② 寫「**≥ 256**」而不是「**＝ 256**」，這是查證後的決定，不是放寬：
+        `dgApplyGray()` 裡有一行 `if (!dgSdUserSet && opt.rows.length >= 1024)
+        $('dg-sd').value = '10';` —— **1024 階（10 bit 驅動）的量測是既有的、明文支援
+        的能力**。寫成「＝ 256」會把它一起擋掉，那是回歸。
+        Bruce 的關切是「**不足**」（6 bit 只有 64 階），不是「更多」。
+        ⇒ 64／128 階被擋、256 與 1024 階照收，兩邊的需求同時滿足。
+        這一條請 Bruce 覆核：若他要的就是「**恰好** 256」，把 `>=` 改成 `===` 即可，
+        但那會同時關掉 1024 階那條路。
+
+     🔴 **不擋手動輸入**：第 2 部分的文字框（使用者自己貼資料）不經過這道閘。
+        Bruce 的原話是「**匯入的**資料一定要有 L0 到 L255」，而手動貼一段資料試算是
+        另一回事；把它也擋掉等於拿掉一個沒人要求拿掉的能力。 */
+  var DG_GRAY_MIN_STEPS = 256;
+  function dgGrayScan(rows) {
+    var n = (rows && rows.length) || 0, set = {}, dup = null, bad = null, i, g;
+    for (i = 0; i < n; i++) {
+      g = rows[i] && rows[i].g;
+      if (!dgIsNum(g) || g < 0 || g !== Math.round(g)) { if (bad === null) bad = g; continue; }
+      if (set[g]) { if (dup === null) dup = g; } else set[g] = 1;
+    }
+    var miss = null;
+    for (i = 0; i < n; i++) if (!set[i]) { miss = i; break; }
+    // 推定位元數：只有 n 恰為 2 的冪次時才給（其餘情況寫 null，不硬湊一個數字出來）
+    var lg = Math.log(n) / Math.LN2, bits = (n > 0 && Math.abs(lg - Math.round(lg)) < 1e-9) ? Math.round(lg) : null;
+    return {
+      ok: (bad === null && dup === null && miss === null && n >= DG_GRAY_MIN_STEPS),
+      n: n, bits: bits, dup: dup, miss: miss, bad: bad
+    };
+  }
+  /* 訊息：Bruce 指定「極簡、不解釋」，而且**實際階數與推定位元數要從檔案算出來**，
+     不可以寫死。四種不合格情形各一句。 */
+  function dgGrayScanMsg(sc) {
+    if (sc.bad !== null) {
+      return '這個檔的灰階欄有不是非負整數的值（' + sc.bad + '），本工具需要完整的 L0～L255（256 階）。';
+    }
+    if (sc.dup !== null) {
+      return '這個檔的灰階有重複（L' + sc.dup + '），本工具需要完整的 L0～L255（256 階），每階各一筆。';
+    }
+    if (sc.miss !== null) {
+      return '這個檔的灰階不完整（共 ' + sc.n + ' 筆，缺 L' + sc.miss + '），本工具需要完整的 L0～L255（256 階）。';
+    }
+    return '這個檔只有 ' + sc.n + ' 階' + (sc.bits ? '（' + sc.bits + '-bit）' : '')
+      + '，本工具需要完整的 ' + DG_GRAY_MIN_STEPS + ' 階（8-bit）。';
+  }
+  /* 閘門：不合格就跳視窗 ＋ 寫狀態列，回 false。
+     🔴 跳視窗是 Bruce 指定的（「要跳出視窗警告」的既有慣例，同 dgSlotSkipNote）——
+        狀態列那行字容易被整個略過。 */
+  function dgGrayGate(rows, what, statusId) {
+    var sc = dgGrayScan(rows);
+    if (sc.ok) return true;
+    var msg = dgGrayScanMsg(sc);
+    if (statusId && $(statusId)) dgSetStatus(statusId, what + '沒有匯入。\n' + msg, 'err');
+    dgNoteOpen('這份資料沒有匯入',
+      '<div class="dg-note">' + dgXe(what) + '<b>沒有匯入</b>。<br><br>' + dgXe(msg) + '</div>');
+    return false;
+  }
+
   // 由工作表內容辨識格式並取出 LUT。回傳的 fmt 就是匯出時要跟隨的那份描述。
   /* ─── v1.37.0：索引欄由大到小寫的檔也要收 ────────────────────────────────
      Bruce 2026-09-11：「每一種格式都要可以支援正掃跟反掃。」量測那三支解析器
@@ -4674,41 +4839,92 @@
         數字欄都會被當成 LUT。
      🔴 不另外加提示文字：正序反序讀出來的 `rows`／`fmt`／`notes` 完全相同，
         使用者看到的畫面因此也逐字元相同 —— 與量測那三支「靜靜排好」的慣例一致。 */
+  /* ═══ v1.51.0：索引順序改用「照索引值排序」，末筆先抽離 ═════════════════════
+     Bruce 2026-09-13：「**L256 的那個是例外，屬於特殊案例。一般的光學量測資料是不會有
+     L256 的，所以要把 L256 這個多加的排除，不要加入排序。如果要保留原本的 Excel，
+     等於排序完以後，最後再把 L256 加上去，看有沒有這個需求才需要加。**」
+
+     v1.37.0 的反序支援是「逐格 −1 且必須收在 0」——它把**索引的排列方式**同時當成
+     資料定位與格式判準，所以：
+       · 只認**嚴格遞增**或**嚴格遞減**，認不得亂序；
+       · 每多一種順序就要多寫一條判準（v1.37.0 寫了第二條，亂序還要第三條）。
+
+     本版換成一條：**收列時只要求「索引是沒出現過的非負整數 ＋ R／G／B 三欄是數字」**，
+     收完之後
+       ① 先把**附加末筆**抽出來（判準沿用既有的 `三值皆等於 full`，一字未改），
+       ② 其餘**照索引值排序**（`a.i − b.i`）——遞增／遞減／亂序全部涵蓋，
+       ③ 最後再把末筆接回去。
+     🔴 「原本有沒有末筆」仍完全由既有判斷決定 —— **沒有就不加，不會無中生有**。
+
+     🔴 放寬收列條件必須有對應的收緊，否則「任何一段整數 ＋ 三欄數字」都會被當成 LUT。
+        收緊就是**完整性檢查**：收到的索引集合必須**恰好是 {0, 1, …, n−1}**
+        （不跳號、不重複、涵蓋 0）。原本「逐格 ±1 且收在 0」保證的正是這件事，
+        改寫之後這個保證一點都沒有放掉，只是不再要求它們**依序出現**。
+     🔴 起點掃描**維持兩段式**，第一段（index === 0）與 v1.36.0 以前逐字相同 ——
+        正序檔（四種真檔全部是正序）走的仍是原本那條路，dataStart 不可能改變。 */
   function dgDetectLut(sheet) {
     var notes = [];
-    var dataStart = -1, desc = false;
+    var dataStart = -1;
     for (var r = 1; r <= Math.min(sheet.maxRow, 20); r++) {
       if (dgCellV(sheet, r, 1) === 0 && dgIsNum(dgCellV(sheet, r, 2)) && dgIsNum(dgCellV(sheet, r, 3)) && dgIsNum(dgCellV(sheet, r, 4))) {
         dataStart = r; break;
       }
     }
     if (dataStart < 0) {
-      // 反序：從某個整數索引起逐格 −1，且**必須收在 0**、長度夠（與正序的 16 筆同一條線）
+      /* 非正序：起點是第一列「非負整數索引 ＋ 三欄數字」。
+         🔴 `i0 >= 15` 沿用 v1.37.0 的下限（與「至少 16 筆」同一條線），擋掉表格上方
+            偶爾出現的零星數字列。 */
       for (var r2 = 1; r2 <= Math.min(sheet.maxRow, 20); r2++) {
         var i0 = dgCellV(sheet, r2, 1);
         if (!dgIsNum(i0) || i0 < 15 || i0 !== Math.round(i0)) continue;
         if (!dgIsNum(dgCellV(sheet, r2, 2)) || !dgIsNum(dgCellV(sheet, r2, 3)) || !dgIsNum(dgCellV(sheet, r2, 4))) continue;
-        var ex = i0, cnt = 0;
-        for (var rr2 = r2; rr2 <= sheet.maxRow; rr2++) {
-          if (dgCellV(sheet, rr2, 1) !== ex) break;
-          if (!dgIsNum(dgCellV(sheet, rr2, 2)) || !dgIsNum(dgCellV(sheet, rr2, 3)) || !dgIsNum(dgCellV(sheet, rr2, 4))) break;
-          cnt++; ex--;
-        }
-        if (ex === -1 && cnt >= 16) { dataStart = r2; desc = true; break; }   // ex 退到 −1 ＝ 最後一筆正好是 0
+        dataStart = r2; break;
       }
     }
     if (dataStart < 0) throw new Error('在這個檔案裡找不到 LUT 資料（需要索引欄從 0 開始，後面接 R、G、B 三欄數字）。');
 
-    var rows = [], expect = desc ? dgCellV(sheet, dataStart, 1) : 0, step = desc ? -1 : 1;
+    // ── 收列：保留索引（舊版只留 [R,G,B]，所以只能靠出現順序推索引） ──
+    var arr = [], seen = {};
     for (var rr = dataStart; rr <= sheet.maxRow; rr++) {
-      if (dgCellV(sheet, rr, 1) !== expect) break;
+      var ix = dgCellV(sheet, rr, 1);
+      if (!dgIsNum(ix) || ix < 0 || ix !== Math.round(ix) || seen[ix]) break;
       var a = dgCellV(sheet, rr, 2), b = dgCellV(sheet, rr, 3), d = dgCellV(sheet, rr, 4);
       if (!dgIsNum(a) || !dgIsNum(b) || !dgIsNum(d)) break;
-      rows.push([a, b, d]);
-      expect += step;
+      seen[ix] = 1;
+      arr.push({ i: ix, v: [a, b, d] });
     }
-    if (desc) rows.reverse();   // 一律交出 0 → 最高階，底下每一行都不必知道檔案是怎麼寫的
-    if (rows.length < 16) throw new Error('LUT 資料只讀到 ' + rows.length + ' 筆，太少，無法辨識。');
+    if (arr.length < 16) throw new Error('LUT 資料只讀到 ' + arr.length + ' 筆，太少，無法辨識。');
+    /* 完整性：索引集合必須恰為 {0 … n−1}。`seen` 沒有重複（收列時就擋了），
+       所以只要「每一個 0…n−1 都出現過」就等價於集合相等。 */
+    for (var ci = 0; ci < arr.length; ci++) {
+      if (!seen[ci]) {
+        throw new Error('LUT 索引欄不完整：讀到 ' + arr.length + ' 筆，但缺少索引 ' + ci
+          + '。索引必須是 0 到 ' + (arr.length - 1) + ' 的完整一段（順序不拘、不可跳號或重複）。');
+      }
+    }
+
+    /* ── 值域：與順序無關，所以在排序之前就能算（末筆的判準要用到 full） ── */
+    var maxV0 = 0;
+    arr.forEach(function (o) { for (var c = 0; c < 3; c++) if (o.v[c] > maxV0) maxV0 = o.v[c]; });
+    var hw0 = Math.ceil(Math.log(maxV0 + 1) / Math.LN2);
+    if (hw0 < 8) hw0 = 8;
+    if (hw0 > 14) throw new Error('LUT 內容最大值 ' + maxV0 + ' 超出支援範圍（最多 14 bit）。');
+    var full0 = Math.pow(2, hw0) - 1;
+
+    /* ── ① 抽末筆 → ② 排序其餘 → ③ 接回（Bruce 2026-09-13 指定的順序） ──
+       末筆＝**索引最大**的那一筆（就是 L256 那一筆），且三值皆為 full。
+       🔴 判準只有「三值皆 full」這一條，與 v1.36.0 以前**逐字相同** —— 沒有改成
+          「索引必須等於 256」之類的新規則，所以既有檔的 hasTail 判定不可能改變。 */
+    var mxAt = 0;
+    for (var mi = 1; mi < arr.length; mi++) if (arr[mi].i > arr[mxAt].i) mxAt = mi;
+    var tail = null;
+    if (arr.length > 1) {
+      var tv = arr[mxAt].v;
+      if (tv[0] === full0 && tv[1] === full0 && tv[2] === full0) tail = arr.splice(mxAt, 1)[0];
+    }
+    arr.sort(function (p, q) { return p.i - q.i; });     // ← 末筆不在裡面，不參與排序
+    if (tail) arr.push(tail);                            // ← 有才接回，沒有就不加
+    var rows = arr.map(function (o) { return o.v; });
 
     var headerRow = dataStart - 1;
     var headerCols = null, headerFirst = null, titleRow = 0, titleText = null;
@@ -4729,15 +4945,11 @@
     }
     if (!headerCols) notes.push('這個檔案沒有表頭列，匯出時也不會加表頭。');
 
-    var maxV = 0;
-    rows.forEach(function (v) { for (var c = 0; c < 3; c++) if (v[c] > maxV) maxV = v[c]; });
-    var hw = Math.ceil(Math.log(maxV + 1) / Math.LN2);
-    if (hw < 8) hw = 8;
-    if (hw > 14) throw new Error('LUT 內容最大值 ' + maxV + ' 超出支援範圍（最多 14 bit）。');
-    var full = Math.pow(2, hw) - 1;
-
-    var last = rows[rows.length - 1];
-    var hasTail = rows.length > 1 && last[0] === full && last[1] === full && last[2] === full;
+    /* v1.51.0：maxV／hw／full 已在排序之前算好（末筆的判準要用），這裡沿用同一組值，
+       不重算 —— 兩份算式並存遲早會分岔。變數名維持 maxV／hw／full，底下每一行不必改。 */
+    var maxV = maxV0, hw = hw0, full = full0;
+    // v1.51.0：hasTail 直接來自「有沒有抽出末筆」，不再從排序後的 rows 反推一次
+    var hasTail = !!tail;
     var entries = hasTail ? rows.length - 1 : rows.length;
     var mainLast = rows[entries - 1];
 
@@ -5542,6 +5754,14 @@
   function dgSlotAdd(opt, fileName) {
     if (!opt || !opt.rows || !opt.rows.length) return 0;
     if (DG_SLOTS.length >= DG_SLOT_MAX) return 0;
+    /* 🔴 v1.51.0：光學量測完整性閘門（比較分頁這一側的**共同關卡**）。
+       四條來源（檔案匯入、CA-410 CSV、即時量測、從第 2 部分轉出）全部經過這裡，
+       所以擋在這一層就不會漏；唯一不走這裡的是「多組比較檔」（dgSlotLoadCompare
+       直接 push，見那一支自己的閘）與 autosave 還原（設計上就不重跑匯入檢查）。
+       🔴 與既有的兩道寬鬆門檻不打架：上面那兩行（`!rows.length`、`已滿 10 組`）
+          管的是「有沒有東西」與「裝不裝得下」，本條管的是「這份量測完不完整」，
+          三件事互斥，判斷順序不影響任何一條的結果。 */
+    if (!dgGrayGate(opt.rows, '「' + String(fileName || '這一份資料') + '」', 'dg-slot-status')) return 0;
     DG_SLOTS.push({
       name: '',
       /* 🔴 v1.26.0：這個名字是**使用者自己取的**、還是系統給的預設？
@@ -5863,6 +6083,8 @@
     var m2 = DG_GRAY_META || {};
     var no = dgSlotAdd({ rows: rows, hasPrim: false,
                          durMs: m2.durMs, settleMs: m2.settleMs }, dgSlotSourceLabel());
+    // 🔴 v1.51.0：同上 —— 沒加成就不要寫「已把…轉出成第 0 組」，也不要動第 3 部分
+    if (!no) return 0;
     /* 🔴 v1.44.0：第 3 部分現在有純色端點的話，一起帶進這一組。
        理由：這一顆鈕的語意是「把我這一輪量到的存起來」，而純色端點就是這一輪的一部分；
        不帶走的話，匯出的 Excel 裡純色端點區塊永遠是空的，下次匯入回來還得再量一次。
@@ -5904,6 +6126,34 @@
      只對一個就收，等於把任何一份湊巧同名的檔當成自己的檔載進來。 */
   var DG_OPT_HDRS = { gray: 'Gray', file: DG_OPT_FILEHDR, hi: '上限', mid: '中心', lo: '下限' };
 
+  /* ═══ v1.51.0：表頭比對一律先剝掉「尾端的括號註記」═══════════════════════════
+     本版起匯出端的每一個標題後面都掛著單位（`亮度（cd/m²）`、`Gray（灰階）`…）。
+     匯入端過去是**字面相等比對**，所以只要標題改了，舊檔與新檔必壞一邊。
+
+     🔴 **為什麼不是前綴／包含比對**（這是 Bruce 點名的誤匹配風險）：
+        · 包含比對：「亮度」含在「相對亮度」裡、「純色端點」含在「純色端點 X」裡
+          ⇒ 由左往右掃時先撞到誰就吃誰，兩個區塊會互相吃掉。
+        · 前綴比對：「純色端點」仍然是「純色端點 X」的前綴，同樣會吃掉。
+        改用**剝尾端括號之後做相等比對**：
+          `純色端點（R／G／B 標示，無單位）` → `純色端點`
+          `純色端點 X（cd/m²）`              → `純色端點 X`
+        兩者**不相等** ⇒ 結構上不可能互相吃掉，順序對調也一樣（負控制釘住）。
+        同理 `亮度（cd/m²）` → `亮度`，`Gamma curve（圖一：相對亮度 %）` → `Gamma curve`。
+
+     規則只有一條：**去掉字串最尾端那一組成對括號及其內容**（全形或半形皆可），
+     中間的括號一律保留（`Gamma curve（圖一：…）` 只有一組尾端括號，剝完剩 `Gamma curve`）。
+     🔴 只剝**一層**：不遞迴，否則 `某某（甲）（乙）` 會被剝到剩 `某某`，超出需要。
+
+     這一支同時解掉全形／半形括號的差異：舊檔的 `量測耗時(秒)` 與新檔的 `量測耗時（秒）`
+     剝完都是 `量測耗時`，不必為了相容再另寫一條特例。 */
+  function dgOptBare(t) {
+    var s = (t == null) ? '' : String(t).trim();
+    return s.replace(/[（(][^（()）]*[）)]$/, '').trim();
+  }
+  /* 表頭比對的唯一入口：讀出來的格子文字 vs 期望的標題常數，兩邊都先剝尾端括號。
+     🔴 兩邊都剝是必要的：常數本身（DG_OPT_XHDR 等）現在也帶單位。 */
+  function dgOptHdrIs(text, title) { return dgOptBare(text) === dgOptBare(title); }
+
   /* 認版面：完全由第 3 列（表頭列）推導，**不寫死欄號、不寫死組數**。
      兩種檔的表頭列長得一模一樣，差別只在我們多一欄「原始檔名」、組數 5 vs 10：
 
@@ -5915,7 +6165,8 @@
      「下限」右邊那一段。組數由這兩段的長度決定。 */
   function dgOptHdrRow(sheet) {
     for (var r = 1; r <= Math.min(sheet.maxRow, 8); r++) {
-      if (String(dgCellV(sheet, r, 1) || '').trim() === DG_OPT_HDRS.gray) return r;
+      // v1.51.0：新檔的 A 欄表頭是 `Gray（灰階）`，舊檔／原廠檔是 `Gray` ⇒ 剝括號後相等
+      if (dgOptHdrIs(dgCellV(sheet, r, 1), DG_OPT_HDRS.gray)) return r;
     }
     return -1;
   }
@@ -5958,7 +6209,9 @@
       if (c > start && hr >= 2 && dgOptHdrText(sheet, hr - 1, c)) break;
       t = dgOptHdrText(sheet, hr, c);
       if (!t) { if (out.length) break; else continue; }
-      if (stop[t]) break;
+      // v1.51.0：stop 字典一律查**裸標題**（`上限（K）` → `上限`），新舊檔同一條路
+      if (stop[dgOptBare(t)]) break;
+      // 🔴 收進去的是**原文** t，不是裸標題 —— 這一格是使用者取的組名，一個字都不能剝
       out.push({ c: c, name: t });
     }
     return out;
@@ -5970,7 +6223,8 @@
   function dgOptFindBlock(sheet, hr, title, stop) {
     if (hr < 2) return [];
     for (var c = 1; c <= sheet.maxCol; c++) {
-      if (dgOptHdrText(sheet, hr - 1, c) === title) return dgOptHdrRun(sheet, hr, c, stop, c);
+      // v1.51.0：裸標題相等比對 —— 「純色端點」≠「純色端點 X」，兩個區塊不會互相吃掉
+      if (dgOptHdrIs(dgOptHdrText(sheet, hr - 1, c), title)) return dgOptHdrRun(sheet, hr, c, stop, c);
     }
     return [];
   }
@@ -5986,25 +6240,37 @@
        v1.44.0 起 B 欄是第 1 組的亮度 ⇒ B4 是數字。少了這一條，使用者只要把第 1 組
        取名叫「原始檔名」，新格式的第 1 組就會被整欄當成檔名欄跳過。
        舊檔不受影響：它的 B4 不可能是數字。 */
-    if (dgOptHdrText(sheet, hr, c) === DG_OPT_HDRS.file
+    if (dgOptHdrIs(dgOptHdrText(sheet, hr, c), DG_OPT_HDRS.file)
         && !dgIsNum(dgCellV(sheet, hr + 1, c))) { fileCol = c; c++; }
     for (; c <= sheet.maxCol; c++) {
       t = dgOptHdrText(sheet, hr, c);
       if (!t) { if (lum.length) break; else continue; }
-      if (stop[t]) break;
+      if (stop[dgOptBare(t)]) break;
       lum.push({ c: c, name: t });
     }
     // ② 色溫組欄：「下限」右邊那一段
     var loCol = -1;
     for (c = 2; c <= sheet.maxCol; c++) {
-      if (dgOptHdrText(sheet, hr, c) === DG_OPT_HDRS.lo) { loCol = c; break; }
+      if (dgOptHdrIs(dgOptHdrText(sheet, hr, c), DG_OPT_HDRS.lo)) { loCol = c; break; }
     }
     var cct = [];
     if (loCol > 0) {
       for (c = loCol + 1; c <= sheet.maxCol; c++) {
         t = dgOptHdrText(sheet, hr, c);
         if (!t) { if (cct.length) break; else continue; }
-        if (stop[t]) break;
+        /* 🔴 v1.51.0：色溫區塊前面**新增了一個 Gray 索引欄**（`C.gray6`），而 `Gray`
+           是 stop 字 ⇒ 照舊寫法會在第一欄就 break、cct 恆空 ⇒ `!cct.length` ⇒
+           **整份新檔認不出來**（連自己剛匯出的檔都載不回來）。
+           所以放行「**還沒收到任何一組之前的前導 Gray**」，其餘 stop 字照舊立刻 break。
+           🔴 條件寫得很窄（只有 Gray、且只在 out 還空的時候），不是把 stop 整個放寬：
+              使用者若把第一組取名叫「上限」，行為與改版前完全相同（break）。
+           🔴 對舊檔／原廠檔零影響：原廠檔「下限」右邊直接是組名；v1.50.0 以前的檔
+              右邊是空白欄（走 `!t` 那條 continue）；v1.50.1 的檔右邊直接是第 1 組。 */
+        var bare = dgOptBare(t);
+        if (stop[bare]) {
+          if (cct.length || bare !== DG_OPT_HDRS.gray) break;
+          continue;
+        }
         cct.push({ c: c, name: t });
       }
     }
@@ -6026,7 +6292,8 @@
     var primRow = null, lc = 0;
     if (px.length) {
       for (c = 1; c <= sheet.maxCol; c++) {
-        if (dgOptHdrText(sheet, hr, c) === DG_OPT_PRIMLBL) { lc = c; break; }
+        // v1.51.0：這一格新舊檔逐字相同（'RGB'，刻意不加單位），比對仍走同一支
+        if (dgOptHdrIs(dgOptHdrText(sheet, hr, c), DG_OPT_PRIMLBL)) { lc = c; break; }
       }
       if (lc) {
         primRow = {};
@@ -6133,11 +6400,13 @@
     var hr = -1, noCol = 0, srcCol = 0, durCol = 0, setCol = 0, r, c;
     for (r = 1; r <= Math.min(sh.maxRow, 8) && hr < 0; r++) {
       for (c = 1; c <= sh.maxCol; c++) {
+        /* v1.51.0：裸標題比對 —— 新檔 `組序（第幾組）`、舊檔 `組序` 剝完同為 `組序`；
+           `量測耗時(秒)`（半形）與 `量測耗時（秒）`（全形）同為 `量測耗時`。 */
         var t = dgOptHdrText(sh, r, c);
-        if (t === DG_OPT_SRC_HDRS[0]) noCol = c;
-        if (t === DG_OPT_SRC_HDRS[2]) srcCol = c;
-        if (t === DG_OPT_SRC_HDRS[4]) durCol = c;
-        if (t === DG_OPT_SRC_HDRS[5]) setCol = c;
+        if (dgOptHdrIs(t, DG_OPT_SRC_HDRS[0])) noCol = c;
+        if (dgOptHdrIs(t, DG_OPT_SRC_HDRS[2])) srcCol = c;
+        if (dgOptHdrIs(t, DG_OPT_SRC_HDRS[4])) durCol = c;
+        if (dgOptHdrIs(t, DG_OPT_SRC_HDRS[5])) setCol = c;
       }
       if (noCol && srcCol) hr = r; else { noCol = 0; srcCol = 0; durCol = 0; setCol = 0; }
     }
@@ -6220,13 +6489,38 @@
      匯入」設計的，套到整批載入會把剛匯出的那一份整批擋掉（round-trip 必然逐值相同）。 */
   function dgSlotLoadCompare(sheet, fileName, sheets) {
     var res = dgOptParseCompareSheet(sheet, dgOptParseSrcSheet(sheets)), gs = res.groups, L = res.layout;
+    /* ═══ v1.51.0：完整性閘門（多組比較檔這一條路自己的） ═════════════════════
+       這一支**不經過 dgSlotAdd()**（直接 push，v1.20.0 起就是如此），所以要自己擋。
+       🔴 **逐組判、不是整檔判**：一個檔十組，其中一組被使用者在 Excel 裡刪了幾列，
+          沒有理由連帶把另外九組完整的也退掉。做法沿用這一支既有的 `res.empty`
+          （有表頭但整欄沒資料 ⇒ 跳過並在狀態列列出）—— 同一條路、同一種告知方式，
+          不另立第二套。
+       🔴 這個取捨請 Bruce 覆核：Bruce 說的是「不要部分匯入」，我理解成「不要把一組
+          的一半灌進來」，而不是「一個檔裡只要有一組不合格就整檔退掉」。 */
+    var badGrp = [];
+    gs = gs.filter(function (g, k) {
+      var sc = dgGrayScan(g.rows);
+      if (sc.ok) return true;
+      badGrp.push((dgSlotNormalizeText(g.name) || ('檔內第 ' + (k + 1) + ' 組')) + '：' + dgGrayScanMsg(sc));
+      return false;
+    });
     var note = res.empty.length
       ? ('\n（' + res.empty.length + ' 個組別欄位有表頭但整欄沒有量測值，已跳過：'
          + res.empty.join('、') + '）') : '';
+    if (badGrp.length) {
+      note += '\n（' + badGrp.length + ' 組的灰階不是完整的 L0～L255，已跳過）';
+      dgNoteOpen('有 ' + badGrp.length + ' 組沒有匯入',
+        '<div class="dg-note">「' + dgXe(fileName) + '」裡有 <b>' + badGrp.length
+        + ' 組</b>的灰階不是完整的 L0～L255（256 階），<b>沒有匯入</b>：<br><br>'
+        + badGrp.map(function (t) { return dgXe(t); }).join('<br>') + '</div>');
+    }
     if (!gs.length) {
+      /* v1.51.0：全部被完整性閘門擋下時，原本那句「沒有任何一組有量測值」是錯的
+         —— 它們有量測值，只是不完整。兩種情形分開講。 */
       dgSetStatus('dg-slot-status', '這個檔看得出是多組光學比較的版面（表頭列第 '
-        + L.hdrRow + ' 列、' + L.n + ' 個組別欄位），但**沒有任何一組有量測值**，沒有載入任何東西。'
-        + note, 'err');
+        + L.hdrRow + ' 列、' + L.n + ' 個組別欄位），但'
+        + (badGrp.length ? '**沒有任何一組的灰階是完整的 L0～L255**' : '**沒有任何一組有量測值**')
+        + '，沒有載入任何東西。' + note, 'err');
       return 0;
     }
     /* room ＝ 還裝得下幾組。take 是 gs 的**前綴**，所以檔內原本的組順序完整保留；
@@ -6343,6 +6637,11 @@
           return;
         }
         var cno = dgSlotAdd({ rows: csv.rows, hasPrim: false }, file.name);
+        /* 🔴 v1.51.0：`dgSlotAdd()` 回 0 ＝ 沒有加進去（本版起多了「完整性閘門」這個
+           理由）。不提前 return 的話，底下會寫出「**已加入第 0 組**」這種自打嘴巴的
+           狀態列 —— 實測就是這樣（`_tmp_dg1510/_probe_csv64.js` 第一版）。
+           擋下的原因由 dgGrayGate() 自己寫進狀態列並跳視窗，這裡不重複。 */
+        if (!cno) return;
         var cnote = dgCa410ErrNote(csv);
         dgSetStatus('dg-slot-status', '已加入第 ' + cno + ' 組：' + file.name
           + '\n' + csv.rows.length + ' 階。**第 1、2、3 部分完全沒有被動到**——'
@@ -6378,6 +6677,7 @@
           return;
         }
         var no = dgSlotAdd({ rows: opt.rows, hasPrim: false }, file.name);
+        if (!no) return;                 // v1.51.0：同上（被完整性閘門擋下時不要寫「已加入第 0 組」）
         dgSetStatus('dg-slot-status', '已加入第 ' + no + ' 組：' + file.name
           + '\n' + opt.rows.length + ' 階。**第 1、2、3 部分完全沒有被動到**\u2014\u2014'
           + '要拿它當計算輸入，請到「Digital Gamma 校正」分頁第 2 部分選「從光學資料比較挑一組」。', 'ok');
@@ -6418,6 +6718,11 @@
     var label = '（即時量測' + (at ? ' ' + at : '') + '）';
     var no = dgSlotAdd({ rows: rs, hasPrim: false,
                          durMs: meta.durMs, settleMs: meta.settleMs }, label);   // v1.45.0
+    /* 🔴 v1.51.0：被完整性閘門擋下時就在這裡收手 —— 不可以繼續往下寫「即時量測完成，
+       已成為第 0 組」，也不可以去動第 3 部分（dgApplyGrayTailPrim）。
+       這條路正常跑完一定是 256 階（dg-measure 的 DGM_STEPS 寫死 256、abort 不回傳
+       部分資料），所以這一段是防呆，不是常態路徑。 */
+    if (!no) return 0;
     /* ═══ v1.45.0：純色端點 ══════════════════════════
        兩件事，缺一不可：
        ① **存進這一組**（s.prim）—— 它是這一輪量到的東西，匯出 Excel、或在第 2 部分
@@ -9172,6 +9477,11 @@
   var DG_GRAY_META = null;
 
   function dgApplyGray(opt, fileName, srcKind) {
+    /* 🔴 v1.51.0：第 2 部分這一側的**共同關卡**。六條來源（光學檔匯入、CA-410 CSV、
+       即時量測、從比較分頁挑一組、第 4 部分帶入）全部經過這裡。
+       🔴 擋下時**一個欄位都不寫** —— Bruce 指定「不要部分匯入」。放在函式第一行
+          就是為了這件事：底下第一件事就是覆寫 #dg-in-gray，寫下去就回不來了。 */
+    if (!dgGrayGate(opt && opt.rows, '「' + String(fileName || '這一份資料') + '」', 'dg-status')) return;
     DG_GRAY_META = null;
     dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
     $('dg-in-gray').value = opt.rows.map(function (r) {
@@ -10605,7 +10915,18 @@
         if (r[k] !== null && !dgIsNum(r[k])) throw new Error(what + ' 第 ' + i + ' 列第 ' + k + ' 欄既不是 null 也不是數字');
       }
       return r;
-    });
+    })
+    /* 🔴 v1.51.0：**補上排序**（Bruce 2026-09-13 要我判斷要不要補，這是判斷與理由）。
+       實測（`_tmp_dg1510/stageO_order.js` O5）：目前存進 localStorage 的 rows
+       **本來就已經排好**，所以不排也不會出事 —— 但那是「碰巧安全」，靠的是
+       「所有寫入路徑都已排序」這個**沒有任何機械保證**的不變式。
+       補的理由有三條，成本是一行：
+         ① localStorage 與頁面同源、可被使用者或另一個分頁改動，不是受信任輸入；
+         ② 這一支同時餵 slot 與第 4 部分兩條路，任何一條日後新增寫入點都可能破功；
+         ③ 已排序的再排一次是 no-op ⇒ **現況行為逐值不變**（O5 的正控制釘住）。
+       🔴 用 `slice()` 先複製：`a.map()` 已經回傳新陣列，這裡的 sort 不會回頭改到
+          呼叫端傳進來的那個陣列。 */
+    .sort(function (p, q) { return p[0] - q[0]; });
   }
   // 🔴 兩種 rows 的**物件鍵順序刻意各自維持原樣**（slot 照 dgSlotAdd、p4 照 dgConfApplyLive），
   //    這樣 dgApi 的唯讀快照與重整前逐欄同形，驗證腳本比對得出來。
@@ -11700,9 +12021,30 @@
     // v1.44.0 驗證用（唯讀）：某一組的色度齊不齊，與畫面上的判定同一支
     slotHasXY: function (i) { return DG_SLOTS[i] ? dgOptGroupHasXY(DG_SLOTS[i]) : null; },
     optSheetName: function () { return DG_OPT_SHEETNAME; },
+    // v1.51.0 驗證用（唯讀純函式）：匯出圖二的縱軸就是拿它算的，與畫面同一支
+    axisFit: dgAxisFit,
+    curveOf: dgCurveOf,
+    optBare: dgOptBare,
+    // v1.51.0 驗證用（唯讀純函式）：誤匹配的負控制直接餵合成工作表給它
+    optLayout: dgOptLayout,
+    // v1.51.0 驗證用（唯讀純函式）：光學量測完整性閘門的判定與訊息
+    grayScan: dgGrayScan,
+    // v1.51.0 驗證用（唯讀純函式）：autosave 還原的 rows 解碼（含本版補上的排序）
+    asDecRows: dgAsDecRows,
+    grayScanMsg: dgGrayScanMsg,
+    grayMinSteps: function () { return DG_GRAY_MIN_STEPS; },
+    optHdrs: function () {
+      return { H: DG_OPT_H, x: DG_OPT_XHDR, y: DG_OPT_YHDR, primHdr: DG_OPT_PRIMHDR,
+               primLbl: DG_OPT_PRIMLBL, px: DG_OPT_PXHDR, py: DG_OPT_PYHDR, pz: DG_OPT_PZHDR,
+               src: DG_OPT_SRC_HDRS.slice(), grays: DG_OPT_GRAYS(), last: DG_OPT_LAST };
+    },
     optCols: function () { return DG_OPT_C; },
     optColName: dgOptCn,
     slotRaw: function () { return DG_SLOTS; },
+    /* v1.51.0 驗證用：重畫清單。排序驗證要造**十組**語料，而組別列（含名稱輸入框）
+       只有 dgSlotRender() 跑過才存在 —— 少了這個出口，探針就得自己造輸入框，
+       那等於繞過使用者真正改名的那條路。 */
+    slotRender: function () { dgSlotRender(); dgRenderCharts(); },
     /* v1.45.0 驗證用（唯讀）：組的量測耗時／換階等待，以及**畫面上那一行的字**。
        🔴 slotSrcText 讀的就是 dgSlotRender() 寫進 .dg-slot-file 的同一支 ——
           「間隔不上畫面」這條斷言必須對著畫面真的那串字，不是對著資料。 */
