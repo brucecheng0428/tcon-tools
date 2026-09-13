@@ -1968,7 +1968,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1500"></script>
+<script src="common/version.js?v=20260913dg1501"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -3632,12 +3632,19 @@
      硬編欄號做不到這件事 —— 只要漏改一個常數，兩個區塊就會互相覆蓋，而那種錯
      在本機開檔時看起來只是「欄位怪怪的」，不會有任何錯誤訊息。
 
-     版面節奏照既有慣例：每個「多組區塊」後面留一欄空白當分隔；三欄一組的
-     上限／中心／下限與標準 Gamma **不留空**（v1.4.4 起就是這樣，維持不動）。 */
+     🔴 v1.50.1：**區塊之間不再留空白欄**。Bruce 2026-09-13：「不同的資料跟不同資料
+        之間，其實可以用框線去隔開……像是『純色端點 RGB』跟右邊的『純色端點 X』，
+        再跟『純色端點 Y』『純色端點 Z』這些，其實都可以用寬線來區分，**不用都用
+        空白的欄位來區分**。」
+        ⇒ `grp()` 由「N ＋ 1」改成「N」，`primLbl` 由 fix(2) 改成 fix(1)。
+        分隔改由 `DG_OPT_BLOCKS` 標出的區塊左邊界畫 **medium 框線**達成（見下）。
+        🔴 這一改會讓右邊每一個區塊整段左移，**匯入端因此不能再靠空白欄當區塊終止條件**
+           —— `dgOptHdrRun()` 一併補了「區塊標題列出現新標題即停」，不補會讓
+           色度 y／純色端點 X／Y 吃進右邊區塊的組名（實測會變成 2N 組）。 */
   var DG_OPT_C = (function () {
     var N = DG_OPT_N, c = 0, C = {};
-    function fix(n) { var at = c; c += n; return at; }        // 固定寬度，不留空欄
-    function grp() { var at = c; c += N + 1; return at; }     // N 組 ＋ 1 欄空白
+    function fix(n) { var at = c; c += n; return at; }        // 固定寬度
+    function grp() { var at = c; c += N; return at; }         // N 組，不留空白欄
     C.gray1 = fix(1);
     C.lum = grp();
     C.gray2 = fix(1);
@@ -3660,55 +3667,155 @@
     C.gray5 = fix(1);
     C.cy = grp();
     /* 純色端點：R／G／B 落在**資料列的前三列**、X／Y／Z 各一個區塊 ⇒ 每組 3 欄，
-       不是 9 欄。標示欄（哪一列是 R/G/B）單獨一欄，後面留一欄空白。 */
-    C.primLbl = fix(2);
+       不是 9 欄。標示欄（哪一列是 R/G/B）單獨一欄 —— v1.50.1 起不再留尾隨空白欄
+       （Bruce 點名的那一組：「純色端點 RGB」跟右邊的「純色端點 X」改用粗線分）。 */
+    C.primLbl = fix(1);
     C.primX = grp(); C.primY = grp(); C.primZ = grp();
     return C;
   })();
-  // 最後一欄：primZ 那一段的最後一組（grp() 多留的那一欄空白不算在版面內）
+  // 最後一欄：primZ 那一段的最後一組
   var DG_OPT_LAST = DG_OPT_C.primZ + DG_OPT_N - 1;
   // 圖上的線色：三條參考線 ＋ 10 組（與畫面上那 10 色同一組，去掉 #）
   var DG_OPT_REFCLR = ['A6A6A6', 'A6A6A6', 'ED7D31'];
 
-  /* ═══ v1.49.0：表頭底色 ═════════════════════════════════════════════════
-     Bruce 2026-09-13：「表格有點太單調。有沒有辦法用 title 來區分？亮度那邊是一個
-     顏色（**我指的只是表頭喔**）、色溫基準一個顏色…這樣子的話會比較容易看。」
+  /* ═══ v1.50.1：單一色系的深淺階層 ══════════════════════════════════════════
+     Bruce 2026-09-13（看過 v1.49.0 的實體檔之後）：「這個風格還是不夠精簡俐落的感覺，
+     再改一下風格吧。」接著指了公司內部一份參考檔（`…(SA19_SA111)…` 的 `Jacky` 分頁），
+     逐格讀出它的樣式給他看之後他說「對，就是這種，類似這種」。
 
-     🔴 **只有表頭**（第 2 列的區塊標題、第 3 列的欄表頭、以及各區塊自己的 Gray
-        索引欄表頭）。資料列一個格子都不上色 —— 這是 Bruce 點名的界線。
-        注意第 R0+0…R0+2 列的 primLbl 那三格寫著 R／G／B，它們在**資料列**上，
-        沿用原本的 s=1（粗體、無底色），不要因為「看起來像表頭」就順手上色。
+     那份參考檔逐格讀出來的樣式（openpyxl，不是憑描述）：
+       R1 大標題   1F4E78 深藍底／16pt 粗體／置中／**無框線**
+       R2 摘要列   D9EAF7 淡藍底／11pt 粗體／置中／**無框線**
+       R4 表頭     305496 中藍底／11pt 粗體／置中／**四邊 thin**
+       R5+ 第一欄  EAF2F8 極淡藍底／10.5pt 粗體／四邊 thin
+       R5+ 其餘    **無底色**／10.5pt／四邊 thin
 
-     選色的三條約束（`_tmp_dg1490/pick*.js` 實際掃出來的，不是憑感覺挑）：
-       ① 淡色底 ＋ 黑粗體字，最低對比 11.8:1（WCAG AA 只要 4.5:1）。
-       ② 彼此分得出來：相鄰區塊配對的**最小 CIE Lab ΔE ＝ 35.6**。
-          指派是窮舉 9! 種排法、最大化「相鄰配對的最小 ΔE」挑出來的。
-       ③ 🔴 不與圖表那十條曲線色（DG_SLOT_COLORS）與三條參考線色（DG_OPT_REFCLR）
-          衝突，否則使用者會以為表頭顏色跟某一組曲線有對應關係。
-          **這條的判準要分兩類** —— 單一個 RGB 距離門檻在這裡沒有判別力：
-            · 近乎無彩的曲線色（d4d4d8 第 10 組、A6A6A6 參考線）沒有色相，任何「淡」
-              的顏色在距離上都會靠近它 ⇒ 判別靠**彩度**：表頭色彩度一律 ≥ 35，
-              有明確色相，不可能被當成一條灰線。
-            · 有彩的曲線色 ⇒ 判別靠 Lab ΔE，實際最小值 35.4。
-     色碼集中在這一張表，不要散落在各處（Bruce 明確要求）。 */
-  var DG_OPT_HDRCLR = {
-    lum:      'FCE3CA',   // 亮度
-    cctRef:   'AFC1F8',   // 色溫基準（上限／中心／下限）
-    cct:      'FCD9D9',   // 色溫
-    stdGamma: 'FBF4AD',   // 標準 Gamma（std 與 gamRef 兩段同一個顏色 —— 同一件事）
-    rel:      'D9F0FC',   // Gamma curve（圖一：相對亮度）
-    gam:      'FCD9F0',   // Gamma curve（圖二：逐階 Gamma）
-    cx:       'F1FDD8',   // 色度 x
-    cy:       'DED3FD',   // 色度 y
-    prim:     'D9FCED'    // 純色端點（標示欄 ＋ X／Y／Z 三段）
+     「精簡俐落」的實質是四件事，v1.49.0 一件都沒做到：
+       ① **同一色系的深淺階層**，不是每個區塊換一個色相。v1.49.0 是橘一塊、紫一塊、
+          粉一塊、黃一塊 —— 九個互不相干的色相，那正是 Bruce 嫌雜的原因。
+       ② **標題區無框線、表格區有細框線** —— 用「有沒有框線」分出說明層與資料層。
+       ③ **字級有階層**：大標題 > 區塊標題 > 欄表頭／資料。v1.49.0 全部 11pt。
+       ④ **資料區幾乎不上色**，只有最左邊的識別欄（我們的 Gray 索引欄）一層極淡底。
+
+     🔴 v1.49.0 的界線照舊：**資料列除了 Gray 索引欄，一個格子都不上色**
+        （Bruce 原話「我指的只是表頭喔」，以及後來補的「gray 的欄位也用顏色，方便跟
+        資料欄位來區分」）。`primLbl` 那一欄的 R／G／B 在資料列上、**不是** Gray
+        索引欄 ⇒ 維持粗體無底色，不順手上色（v1.49.0 就寫過這個判斷，本版不推翻）。
+
+     🔴 區塊之間改用**框線**與留白分，不再靠顏色不同 —— 所以 v1.49.0 那張九色表
+        （`DG_OPT_HDRCLR`）整張刪除，色碼收斂成下面四階一張表。
+        也因此不再需要「表頭色不可與十條曲線色撞色」那套約束（`_tmp_dg1490/pick*.js`
+        窮舉出來的那組指派一併作廢）：四階全是藍色系的深淺，語意上明確是「版面層級」
+        而不是「某一組曲線」，不存在被誤認成曲線色的問題。 */
+  var DG_OPT_PAL = {
+    title:  '1F4E78',      // 第 1 階（最深）：第 1 列大標題底，白字
+    block:  '305496',      // 第 2 階：第 2 列區塊標題底，白字
+    colhdr: 'D9EAF7',      // 第 3 階：第 3 列欄表頭底，深藍字
+    index:  'EAF2F8',      // 第 4 階（最淡）：Gray 索引欄的資料格
+    thin:   'B4C6E7',      // 表格區的細框線（同色系，比 colhdr 深一階）
+    med:    '305496'       // 區塊邊界的粗框線（＝ block，同一個深藍）
   };
-  /* 樣式索引：cellXfs 的前 7 個（0…6）是既有的，一個都不動；上色表頭接在後面。
-     dgOptHdrStyle(key) → 那個區塊的表頭樣式 s 值。 */
-  var DG_OPT_HDRKEYS = ['lum', 'cctRef', 'cct', 'stdGamma', 'rel', 'gam', 'cx', 'cy', 'prim'];
-  var DG_OPT_XF_BASE = 7;                   // 既有 cellXfs 有 7 個（0…6）
-  function dgOptHdrStyle(key) {
-    var i = DG_OPT_HDRKEYS.indexOf(key);
-    return i < 0 ? 1 : (DG_OPT_XF_BASE + i);
+  /* 字級階層（pt）。大標題 16 > 區塊標題 12 > 欄表頭／資料 10.5；
+     粗體用在大標題／區塊標題／欄表頭／索引欄，資料列常規體 —— 字重也是階層的一部分。 */
+  var DG_OPT_FSZ = { title: 16, block: 12, body: 10.5 };
+  // 前三列的列高，與字級階層對齊（不設的話 16pt 字會被 14.25 的預設列高切到）
+  var DG_OPT_ROWHT = { 1: 24, 2: 19.5, 3: 16.5 };
+
+  /* ═══ 區塊表：由 DG_OPT_C 推導，**不寫死任何欄號** ═══════════════════════════
+       s 區塊起始欄（0 起算）｜n 欄數｜g 資料列的樣式群組｜b 是否為區塊左邊界（粗線）
+     `b: 0` 的那幾筆是「同一個區塊的後半段」：Gray 索引欄與它服務的資料區塊算同一塊
+     （亮度／色溫基準／標準 Gamma／色度 x／色度 y），所以粗線畫在 Gray 的左邊、
+     Gray 與資料之間是細線。「這個 Gray 是給誰用的」這個資訊在 v1.49.0 是用
+     「同一個底色」表達的，本版改用「同一個粗線框」表達 —— 資訊沒有丟。 */
+  function dgOptBlocks() {
+    var C = DG_OPT_C, N = DG_OPT_N;
+    return [
+      { s: C.gray1,   n: 1, g: 'index', b: 1 },   // ┐亮度
+      { s: C.lum,     n: N, g: 'd0',    b: 0 },   // ┘
+      { s: C.gray2,   n: 1, g: 'index', b: 1 },   // ┐色溫基準（上限／中心／下限）
+      { s: C.hi,      n: 3, g: 'd176',  b: 0 },   // ┘
+      { s: C.cct,     n: N, g: 'd176',  b: 1 },   //  色溫
+      { s: C.gray3,   n: 1, g: 'index', b: 1 },   // ┐標準 Gamma
+      { s: C.std,     n: 3, g: 'd179',  b: 0 },   // ┘
+      { s: C.rel,     n: N, g: 'd9',    b: 1 },   //  Gamma curve（圖一：相對亮度）
+      { s: C.gamRef,  n: 3, g: 'd177',  b: 1 },   //  標準 Gamma（圖二的參考線）
+      { s: C.gam,     n: N, g: 'd177',  b: 1 },   //  Gamma curve（圖二：逐階 Gamma）
+      { s: C.gray4,   n: 1, g: 'index', b: 1 },   // ┐色度 x
+      { s: C.cx,      n: N, g: 'd0',    b: 0 },   // ┘
+      { s: C.gray5,   n: 1, g: 'index', b: 1 },   // ┐色度 y
+      { s: C.cy,      n: N, g: 'd0',    b: 0 },   // ┘
+      { s: C.primLbl, n: 1, g: 'lbl',   b: 1 },   //  純色端點（R／G／B 標示欄）
+      { s: C.primX,   n: N, g: 'd0',    b: 1 },   //  純色端點 X
+      { s: C.primY,   n: N, g: 'd0',    b: 1 },   //  純色端點 Y
+      { s: C.primZ,   n: N, g: 'd0',    b: 1 }    //  純色端點 Z
+    ];
+  }
+  /* 逐欄中介表：meta[col] = { g, b }。
+     🔴 **自帶完整性檢查**：0…DG_OPT_LAST 每一欄都必須被剛好一個區塊蓋到。
+        沒蓋到／重疊／超出右緣都直接 throw ——
+        · 「有人動了 DG_OPT_C 卻忘了補這張表」會在產檔那一刻爆，不是在本機開檔時
+          看起來「框線怪怪的」然後靜默出貨（v1.49.0 以前的樣式散在各處，正是這種錯）。
+        · 也順便擋住「某個區塊硬編欄號」：硬編之後起點對不上 DG_OPT_C，
+          覆蓋範圍必然出現破洞或重疊，兩條檢查至少中一條。
+     memo 一次 —— DG_OPT_C／DG_OPT_N 在載入後就不會變，但**不在載入時就算**：
+     載入時 throw 會讓整個 dg.html 掛掉（連無關的功能一起死），改成產檔時才爆。 */
+  var _dgOptMeta = null;
+  function dgOptMeta() {
+    if (_dgOptMeta) return _dgOptMeta;
+    var meta = [], i, dup = [];
+    dgOptBlocks().forEach(function (bk) {
+      for (i = 0; i < bk.n; i++) {
+        var c = bk.s + i;
+        if (meta[c]) dup.push(c);
+        meta[c] = { g: bk.g, b: (i === 0 && bk.b) ? 1 : 0 };
+      }
+    });
+    if (dup.length) throw new Error('DG_OPT 版面重疊的欄：' + dup.slice(0, 20).join(','));
+    var miss = [];
+    for (i = 0; i <= DG_OPT_LAST; i++) if (!meta[i]) miss.push(i);
+    if (miss.length) throw new Error('DG_OPT 版面沒蓋到的欄：' + miss.slice(0, 20).join(','));
+    if (meta.length !== DG_OPT_LAST + 1) {
+      throw new Error('DG_OPT 版面超出右緣：' + meta.length + ' vs ' + (DG_OPT_LAST + 1));
+    }
+    _dgOptMeta = meta;
+    return meta;
+  }
+
+  /* ═══ 樣式索引 ═════════════════════════════════════════════════════════════
+     cellXfs 前 7 個（0…6）是既有的，**一個都不動** —— DG_OPT_SRCSHEET 那張工作表
+     還在用 s=0／1／6（而且它刻意不套本版的框線與底色：它是說明性的小表，
+     Bruce 在 v1.49.0 就裁示過那張表不跟主表一起處理）。主表的格子從 7 起算：
+       7                大標題（無框線）
+       8 + gi*4 + v     九個樣式群組 × 四種框線變體
+                        （v: 0=細框、1=細+左粗、2=細+右粗、3=細+左右粗）
+     borderId／fillId／fontId 的實際內容寫在 dgOptStylesXml()，兩邊由同一組常數推導。 */
+  var DG_OPT_GRPS = ['block', 'colhdr', 'index', 'lbl', 'd0', 'd9', 'd176', 'd177', 'd179'];
+  var DG_OPT_XF_TITLE = 7;
+  var DG_OPT_XF_G0 = 8;
+  var DG_OPT_XF_COUNT = DG_OPT_XF_G0 + DG_OPT_GRPS.length * 4;
+  /* 某一欄該用哪一種框線變體：細框線打底、區塊左邊界加左粗線、版面最右緣加右粗線。
+     🔴 右緣那一條是必要的：最後一欄如果只有細線，整張表看起來像被截斷。
+        N=1 時 primZ 那一欄同時是區塊左邊界與最右緣 ⇒ 需要「左右都粗」這個第四種變體。 */
+  function dgOptBv(col) {
+    var m = dgOptMeta()[col], v = 0;
+    if (m && m.b) v += 1;
+    if (col === DG_OPT_LAST) v += 2;
+    return v;
+  }
+  function dgOptXf(grp, col) {
+    var gi = DG_OPT_GRPS.indexOf(grp);
+    if (gi < 0) throw new Error('未知樣式群組：' + grp);
+    return DG_OPT_XF_G0 + gi * 4 + dgOptBv(col);
+  }
+  /* (列, 欄) → s 值。這一支是**主表唯一決定樣式的地方**。
+     v1.49.0 是把配色散在幾十個 `put(…, { s: S('lum') })` 裡，改一次風格就得逐處追，
+     而漏掉一處在畫面上只是「有一格顏色不一樣」，不會有任何錯誤訊息。
+       第 1 列 大標題｜第 2 列 區塊標題｜第 3 列 欄表頭｜第 4 列起 依 dgOptMeta() */
+  function dgOptCellXf(row, col) {
+    if (row === 1) return DG_OPT_XF_TITLE;
+    if (row === 2) return dgOptXf('block', col);
+    if (row === 3) return dgOptXf('colhdr', col);
+    return dgOptXf(dgOptMeta()[col].g, col);
   }
   // 三條標準 Gamma 參考線的圖例文字，與畫面上圖一的圖例逐字相同
   var DG_OPT_GAMLBL = ['γ=2.0', 'γ=2.2', 'γ=2.4'];
@@ -3727,65 +3834,64 @@
     function put(row, col, o) { (cells[row] = cells[row] || {})[col] = o; }
     function name(k) { return (slots[k] && slots[k].name) ? slots[k].name : ('第 ' + (k + 1) + ' 組'); }
 
+    /* 🔴 v1.50.1：這一支的 put() **一律不帶 s** —— 樣式由函式尾端的
+       「樣式後處理」依 (列, 欄) 統一決定（dgOptCellXf）。理由見 DG_OPT_GRPS 那一段。 */
     // 第 1 列：大標題
-    put(1, 0, { v: DG_OPT_TITLE, s: 6 });
-    /* v1.49.0：`S` 取代原本一律寫死的 s: 1 —— 每個區塊的表頭用自己的底色（見
-       DG_OPT_HDRCLR）。🔴 只有表頭，資料格一律不經過這一支。 */
-    var S = dgOptHdrStyle;
+    put(1, 0, { v: DG_OPT_TITLE });
     // 第 2 列：區塊標題
-    put(2, C.lum, { v: '亮度', s: S('lum') });
-    put(2, C.hi, { v: '色溫基準', s: S('cctRef') });
-    put(2, C.cct, { v: '色溫', s: S('cct') });
-    put(2, C.std, { v: '標準 Gamma', s: S('stdGamma') });
-    put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）', s: S('rel') });
-    put(2, C.gamRef, { v: '標準 Gamma', s: S('stdGamma') });
-    put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）', s: S('gam') });
+    put(2, C.lum, { v: '亮度' });
+    put(2, C.hi, { v: '色溫基準' });
+    put(2, C.cct, { v: '色溫' });
+    put(2, C.std, { v: '標準 Gamma' });
+    put(2, C.rel, { v: 'Gamma curve（圖一：相對亮度）' });
+    put(2, C.gamRef, { v: '標準 Gamma' });
+    put(2, C.gam, { v: 'Gamma curve（圖二：逐階 Gamma）' });
     /* v1.44.0：量 Gamma 時儀器本來就一併量到色度 x／y（即時量測與 CA-410 CSV 都有），
        原本只有亮度與色溫落進檔案裡，那兩欄等於被丟掉。這兩個區塊把它們也存下來。 */
-    put(2, C.cx, { v: DG_OPT_XHDR, s: S('cx') });
-    put(2, C.cy, { v: DG_OPT_YHDR, s: S('cy') });
-    put(2, C.primLbl, { v: DG_OPT_PRIMHDR, s: S('prim') });
-    put(2, C.primX, { v: DG_OPT_PXHDR, s: S('prim') });
-    put(2, C.primY, { v: DG_OPT_PYHDR, s: S('prim') });
-    put(2, C.primZ, { v: DG_OPT_PZHDR, s: S('prim') });
+    put(2, C.cx, { v: DG_OPT_XHDR });
+    put(2, C.cy, { v: DG_OPT_YHDR });
+    put(2, C.primLbl, { v: DG_OPT_PRIMHDR });
+    put(2, C.primX, { v: DG_OPT_PXHDR });
+    put(2, C.primY, { v: DG_OPT_PYHDR });
+    put(2, C.primZ, { v: DG_OPT_PZHDR });
     /* 第 3 列：欄表頭。
        🔴 v1.49.0：Gray 索引欄的表頭跟著**它所索引的那個區塊**上色 —— 這條顏色關係
           就是「這個 Gray 是給誰用的」的答案，不必另外寫字說明。
           gray2 服務的是它右邊緊鄰的色溫基準、gray3 服務標準 Gamma（沿用原廠版面
           「Gray 在區塊左邊」的既有語意，一欄都沒有搬動）。 */
-    put(3, C.gray1, { v: 'Gray', s: S('lum') });
-    put(3, C.gray2, { v: 'Gray', s: S('cctRef') });
-    put(3, C.gray3, { v: 'Gray', s: S('stdGamma') });
-    put(3, C.gray4, { v: 'Gray', s: S('cx') });      // v1.49.0 新增：色度 x 的索引
-    put(3, C.gray5, { v: 'Gray', s: S('cy') });      // v1.49.0 新增：色度 y 的索引
-    put(3, C.primLbl, { v: DG_OPT_PRIMLBL, s: S('prim') });
-    put(3, C.hi, { v: '上限', s: S('cctRef') });
-    put(3, C.mid, { v: '中心', s: S('cctRef') });
-    put(3, C.lo, { v: '下限', s: S('cctRef') });
+    put(3, C.gray1, { v: 'Gray' });
+    put(3, C.gray2, { v: 'Gray' });
+    put(3, C.gray3, { v: 'Gray' });
+    put(3, C.gray4, { v: 'Gray' });      // v1.49.0 新增：色度 x 的索引
+    put(3, C.gray5, { v: 'Gray' });      // v1.49.0 新增：色度 y 的索引
+    put(3, C.primLbl, { v: DG_OPT_PRIMLBL });
+    put(3, C.hi, { v: '上限' });
+    put(3, C.mid, { v: '中心' });
+    put(3, C.lo, { v: '下限' });
     /* v1.4.5：這兩排表頭同時是圖一／圖二三條參考線的圖例文字（`<c:ser><c:tx><c:strRef>`
        就指到這幾格）。原本寫的是**數值** 2／2.2／2.4，開檔後圖例就變成「2」「2.2」「2.4」，
        跟畫面上的「γ=2.0／γ=2.2／γ=2.4」對不起來。改寫成文字，與畫面一致。
        注意：下面 C.std／C.gamRef 的公式用的是寫死的指數，不參照這幾格，改文字不影響計算。 */
     for (i = 0; i < 3; i++) {
-      put(3, C.std + i, { v: DG_OPT_GAMLBL[i], s: S('stdGamma') });
-      put(3, C.gamRef + i, { v: DG_OPT_GAMLBL[i], s: S('stdGamma') });
+      put(3, C.std + i, { v: DG_OPT_GAMLBL[i] });
+      put(3, C.gamRef + i, { v: DG_OPT_GAMLBL[i] });
     }
     for (k = 0; k < DG_OPT_N; k++) {
-      put(3, C.lum + k, { v: name(k), s: S('lum') });
-      put(3, C.cct + k, { v: name(k), s: S('cct') });
-      put(3, C.rel + k, { v: name(k), s: S('rel') });
-      put(3, C.gam + k, { v: name(k), s: S('gam') });
-      put(3, C.cx + k, { v: name(k), s: S('cx') });
-      put(3, C.cy + k, { v: name(k), s: S('cy') });
-      put(3, C.primX + k, { v: name(k), s: S('prim') });
-      put(3, C.primY + k, { v: name(k), s: S('prim') });
-      put(3, C.primZ + k, { v: name(k), s: S('prim') });
+      put(3, C.lum + k, { v: name(k) });
+      put(3, C.cct + k, { v: name(k) });
+      put(3, C.rel + k, { v: name(k) });
+      put(3, C.gam + k, { v: name(k) });
+      put(3, C.cx + k, { v: name(k) });
+      put(3, C.cy + k, { v: name(k) });
+      put(3, C.primX + k, { v: name(k) });
+      put(3, C.primY + k, { v: name(k) });
+      put(3, C.primZ + k, { v: name(k) });
     }
     /* v1.44.0：純色端點的 R／G／B 各佔一列（資料列的前三列），標示欄寫出是哪一個。
        🔴 標示欄**無條件寫**（就算沒有任何一組帶純色端點）—— 它是版面的一部分，
           讀檔那一端也靠它定位列（dgOptLayout 的 primRow）。資料格則是有才寫。 */
     DG_OPT_PRIMKEYS.forEach(function (ch, j) {
-      put(R0 + j, C.primLbl, { v: ch.toUpperCase(), s: 1 });
+      put(R0 + j, C.primLbl, { v: ch.toUpperCase() });
     });
     for (k = 0; k < DG_OPT_N; k++) {
       var pm = slots[k] && slots[k].prim;
@@ -3796,7 +3902,7 @@
         /* 🔴 逐值檢查再寫，缺值留白 —— 不可以塞 0。0 在 XYZ 裡是合法數字，
            寫進去之後匯入端無從分辨「真的量到 0」與「沒量」。 */
         [C.primX, C.primY, C.primZ].forEach(function (col, d) {
-          if (dgIsNum(v[d])) put(R0 + j, col + k, { v: +v[d], s: 0 });
+          if (dgIsNum(v[d])) put(R0 + j, col + k, { v: +v[d] });
         });
       });
     }
@@ -3834,12 +3940,12 @@
     for (i = 0; i < nRow; i++) {
       r = R0 + i;
       var g = i;                                     // Gray ＝ 0 … gmax
-      put(r, C.gray1, { v: g, s: 0 });
-      put(r, C.gray2, { v: g, s: 0 });
-      put(r, C.gray3, { v: g, s: 0 });
+      put(r, C.gray1, { v: g });
+      put(r, C.gray2, { v: g });
+      put(r, C.gray3, { v: g });
       // v1.49.0：色度 x／y 各自的索引欄，值與另外三個 Gray 逐列相同（0 … gmax）
-      put(r, C.gray4, { v: g, s: 0 });
-      put(r, C.gray5, { v: g, s: 0 });
+      put(r, C.gray4, { v: g });
+      put(r, C.gray5, { v: g });
       /* 色溫的三條基準線：第一列是本體，其餘列一路參照回第一列（結構照參考檔，未改），
          只有中心值由 base 決定。
          🔴 動態模式而目標白點取不到時（base.ok === false）：這三欄**整組不寫**。
@@ -3847,36 +3953,53 @@
             500 與 −500，那才是真正會騙人的數字。 */
       if (base.ok) {
         if (i === 0) {
-          put(r, C.hi, { f: dgOptRef(C.mid, r) + '+500', s: 3 });
-          put(r, C.mid, { v: base.center, s: 3 });
-          put(r, C.lo, { f: dgOptRef(C.mid, r) + '-500', s: 3 });
+          put(r, C.hi, { f: dgOptRef(C.mid, r) + '+500' });
+          put(r, C.mid, { v: base.center });
+          put(r, C.lo, { f: dgOptRef(C.mid, r) + '-500' });
         } else {
-          put(r, C.hi, { f: dgOptCn(C.hi) + '$' + R0, s: 3 });
-          put(r, C.mid, { f: dgOptCn(C.mid) + '$' + R0, s: 3 });
-          put(r, C.lo, { f: dgOptCn(C.lo) + '$' + R0, s: 3 });
+          put(r, C.hi, { f: dgOptCn(C.hi) + '$' + R0 });
+          put(r, C.mid, { f: dgOptCn(C.mid) + '$' + R0 });
+          put(r, C.lo, { f: dgOptCn(C.lo) + '$' + R0 });
         }
       }
       // 標準 Gamma 曲線
       for (k = 0; k < 3; k++) {
         put(r, C.std + k, {
-          f: '(' + dgOptRef(C.gray3, r) + '/' + dgOptCn(C.gray3) + '$' + RL + ')^' + [2, 2.2, 2.4][k], s: 5
+          f: '(' + dgOptRef(C.gray3, r) + '/' + dgOptCn(C.gray3) + '$' + RL + ')^' + [2, 2.2, 2.4][k]
         });
-        put(r, C.gamRef + k, { v: [2, 2.2, 2.4][k], s: 4 });
+        put(r, C.gamRef + k, { v: [2, 2.2, 2.4][k] });
       }
       for (k = 0; k < DG_OPT_N; k++) {
         var Lc = C.lum + k, Rc = C.rel + k;
-        if (lum[k][g] !== undefined) put(r, Lc, { v: lum[k][g], s: 0 });
-        if (cct[k][g] !== undefined) put(r, C.cct + k, { v: cct[k][g], s: 3 });
-        if (cx[k][g] !== undefined) put(r, C.cx + k, { v: cx[k][g], s: 0 });
-        if (cy[k][g] !== undefined) put(r, C.cy + k, { v: cy[k][g], s: 0 });
+        if (lum[k][g] !== undefined) put(r, Lc, { v: lum[k][g] });
+        if (cct[k][g] !== undefined) put(r, C.cct + k, { v: cct[k][g] });
+        if (cx[k][g] !== undefined) put(r, C.cx + k, { v: cx[k][g] });
+        if (cy[k][g] !== undefined) put(r, C.cy + k, { v: cy[k][g] });
         // 公式一律寫滿 10 組 —— 沒資料的組會是 #DIV/0!，這正是參考檔的長相
         put(r, Rc, {
           f: '(' + dgOptRef(Lc, r) + '-' + dgOptCn(Lc) + '$' + R0 + ')/('
-            + dgOptCn(Lc) + '$' + RL + '-' + dgOptCn(Lc) + '$' + R0 + ')', s: 2
+            + dgOptCn(Lc) + '$' + RL + '-' + dgOptCn(Lc) + '$' + R0 + ')'
         });
         put(r, C.gam + k, {
-          f: 'IFERROR(LOG(' + dgOptRef(Rc, r) + ')/LOG($' + dgOptCn(C.gray3) + r + '/' + gmax + '),2.2)', s: 4
+          f: 'IFERROR(LOG(' + dgOptRef(Rc, r) + ')/LOG($' + dgOptCn(C.gray3) + r + '/' + gmax + '),2.2)'
         });
+      }
+    }
+
+    /* ═══ v1.50.1：樣式後處理 ══════════════════════════════════════════════
+       🔴 樣式一律在這裡決定，上面每個 put() 都不帶 s。
+       🔴 同時**把版面內每一欄都補成有格子**（沒值的寫成 `<c r s/>`，不是寫 0）：
+          框線是畫在格子上的，缺一個格子就缺一段線，整張表的格線會斷斷續續。
+          空的 `<c r s/>` 沒有 `<v>` ⇒ 匯入端 dgCellV() 讀回 undefined，
+          與 v1.50.0 的「留白」完全等價（相容性由 harness 的 C1／C3 釘住）。
+       🔴 只補到 DG_OPT_LAST，**不碰 DG_OPT_LAST+1 那一欄** —— 那一欄是刻意留白的
+          緩衝，三張圖從 DG_OPT_LAST+2 起錨定。 */
+    for (r = 1; r <= RL; r++) {
+      if (r > 3 && r < R0) continue;                  // 版面上沒有這種列（R0 恆為 4）
+      var rowCells = cells[r] = cells[r] || {};
+      for (i = 0; i <= DG_OPT_LAST; i++) {
+        if (rowCells[i]) rowCells[i].s = dgOptCellXf(r, i);
+        else rowCells[i] = { v: '', s: dgOptCellXf(r, i) };
       }
     }
 
@@ -3884,18 +4007,15 @@
     /* v1.44.0：`min`／`max` 是 1 起算的欄號，而 C.* 是 0 起算 ⇒ 一律 +1。
        原本第二段那個寬 34 的「原始檔名」欄已經沒有了，整串跟著往左收一欄；
        色度 x／y 兩個新區塊接在最後一段。 */
+    /* 🔴 v1.50.1：區塊之間的空白欄拿掉之後，`gray2` 到版面右緣是**連續**的，
+       原本那六段（每段各自跳過中間的空白欄）collapse 成一段。
+       `primLbl` 原本寬 9 的特例一併取消 —— 它現在要裝「純色端點」四個中文字而且
+       不再有 merge 可以借位，寬 9 會被切掉；與其他欄同為 10.25。
+       第 1 欄（gray1）維持 7.875、亮度那一段維持 12.5（欄名最長），兩者都沒動。 */
     var cols = '<cols>'
       + '<col min="1" max="1" width="7.875" customWidth="1"/>'
       + '<col min="' + (C.lum + 1) + '" max="' + (C.lum + DG_OPT_N) + '" width="12.5" customWidth="1"/>'
-      + '<col min="' + (C.gray2 + 1) + '" max="' + (C.cct + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
-      + '<col min="' + (C.gray3 + 1) + '" max="' + (C.rel + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
-      + '<col min="' + (C.gamRef + 1) + '" max="' + (C.gam + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
-      /* v1.49.0：起點由 C.cx 改成 C.gray4 —— 與 gray2／gray3 那兩段同一個慣例
-         （欄寬範圍從該段的 Gray 索引欄起算），新加的兩個 Gray 才不會漏掉寬度設定。
-         這一段跨過中間的 gray5，它同樣拿到 10.25，與其他 Gray 欄一致。 */
-      + '<col min="' + (C.gray4 + 1) + '" max="' + (C.cy + DG_OPT_N) + '" width="10.25" customWidth="1"/>'
-      + '<col min="' + (C.primLbl + 1) + '" max="' + (C.primLbl + 1) + '" width="9" customWidth="1"/>'
-      + '<col min="' + (C.primX + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
+      + '<col min="' + (C.gray2 + 1) + '" max="' + (DG_OPT_LAST + 1) + '" width="10.25" customWidth="1"/>'
       + '</cols>';
 
     var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -3925,7 +4045,10 @@
         if (typeof o.v === 'number' && isFinite(o.v)) cs += '<c r="' + ref + '"' + sa + '><v>' + o.v + '</v></c>';
         else cs += '<c r="' + ref + '"' + sa + ' t="inlineStr"><is><t xml:space="preserve">' + dgXe(o.v) + '</t></is></c>';
       });
-      if (cs) x += '<row r="' + rr + '">' + cs + '</row>';
+      // v1.50.1：前三列的列高與字級階層對齊（16pt 字塞不進 14.25 的預設列高）
+      var ht = DG_OPT_ROWHT[rr];
+      if (cs) x += '<row r="' + rr + '"' + (ht ? ' ht="' + ht + '" customHeight="1"' : '')
+        + '>' + cs + '</row>';
     });
     x += '</sheetData>';
     /* 🔴 v1.44.1：**單格的 mergeCell 不可以寫出去**。`<mergeCell ref="B2:B2"/>` 會讓
@@ -4111,22 +4234,93 @@
   }
 
   function dgOptStylesXml() {
-    /* v1.49.0：表頭底色。
+    /* v1.50.1：單一色系四階（DG_OPT_PAL）＋ 字級階層（DG_OPT_FSZ）＋ 框線分層。
        🔴 fillId 0／1 是 OOXML 規定的保留位（none 與 gray125），使用者色一律從 2 起算；
           寫在 0／1 會被 Excel 忽略（不是報錯，是靜默不上色）。
-       🔴 既有的 7 個 cellXfs（0…6）**一個都不動**，新樣式接在後面 —— 資料格與
-          DG_OPT_SRCSHEET 那張表都還在用它們，動了就是全檔位移。 */
-    var fills = '<fills count="' + (2 + DG_OPT_HDRKEYS.length) + '">'
+       🔴 borderId 0 必須維持「無框線」、既有的 7 個 cellXfs（0…6）**一個都不動**
+          —— DG_OPT_SRCSHEET 那張工作表還在用 s=0／1／6，動了就是全檔位移。
+       🔴 fontId 0／1／2（11／11 粗／14 粗）同理不動，本版新增的接在 3 之後。 */
+    var P = DG_OPT_PAL, F = DG_OPT_FSZ;
+    function solid(rgb) {
+      return '<fill><patternFill patternType="solid"><fgColor rgb="FF' + rgb
+        + '"/><bgColor indexed="64"/></patternFill></fill>';
+    }
+    // fillId：0 none｜1 gray125（保留位）｜2 title｜3 block｜4 colhdr｜5 index
+    var FILL = { none: 0, title: 2, block: 3, colhdr: 4, index: 5 };
+    var fills = '<fills count="6">'
       + '<fill><patternFill patternType="none"/></fill>'
       + '<fill><patternFill patternType="gray125"/></fill>'
-      + DG_OPT_HDRKEYS.map(function (k) {
-        return '<fill><patternFill patternType="solid">'
-          + '<fgColor rgb="FF' + DG_OPT_HDRCLR[k] + '"/><bgColor indexed="64"/></patternFill></fill>';
-      }).join('') + '</fills>';
-    var hdrXfs = DG_OPT_HDRKEYS.map(function (k, i) {
-      return '<xf numFmtId="0" fontId="1" fillId="' + (2 + i) + '" borderId="0" xfId="0"'
-        + ' applyFont="1" applyFill="1"/>';
-    }).join('');
+      + solid(P.title) + solid(P.block) + solid(P.colhdr) + solid(P.index)
+      + '</fills>';
+
+    /* fontId：0…2 既有；3 資料（常規 10.5）｜4 索引欄（粗 10.5）｜5 欄表頭（粗 10.5 深藍字）
+                     ｜6 區塊標題（粗 12 白字）｜7 大標題（粗 16 白字）
+       🔴 字重也是階層的一部分：資料列是**唯一**的常規體。 */
+    var FONT = { data: 3, idx: 4, colhdr: 5, block: 6, title: 7 };
+    function fnt(b, sz, clr) {
+      return '<font>' + (b ? '<b/>' : '') + '<sz val="' + sz + '"/>'
+        + (clr ? '<color rgb="FF' + clr + '"/>' : '')
+        + '<name val="Calibri"/><family val="2"/></font>';
+    }
+    var fonts = '<fonts count="8">'
+      + fnt(0, 11, '') + fnt(1, 11, '') + fnt(1, 14, '')
+      + fnt(0, F.body, '') + fnt(1, F.body, '') + fnt(1, F.body, P.title)
+      + fnt(1, F.block, 'FFFFFF') + fnt(1, F.title, 'FFFFFF')
+      + '</fonts>';
+
+    /* borderId：0 無框線（保留給既有 0…6）｜1 細框｜2 細+左粗｜3 細+右粗｜4 細+左右粗。
+       🔴 1…4 的順序必須是 dgOptBv() 回傳值（0…3）＋1 —— 兩邊都靠這個偏移對齊，
+          順序寫錯不會報錯，只會讓粗線畫在別的欄上。 */
+    var TH = '<color rgb="FF' + P.thin + '"/>', MD = '<color rgb="FF' + P.med + '"/>';
+    function bd(lm, rm) {
+      return '<border>'
+        + '<left style="' + (lm ? 'medium' : 'thin') + '">' + (lm ? MD : TH) + '</left>'
+        + '<right style="' + (rm ? 'medium' : 'thin') + '">' + (rm ? MD : TH) + '</right>'
+        + '<top style="thin">' + TH + '</top>'
+        + '<bottom style="thin">' + TH + '</bottom>'
+        + '<diagonal/></border>';
+    }
+    var borders = '<borders count="5">'
+      + '<border><left/><right/><top/><bottom/><diagonal/></border>'
+      + bd(0, 0) + bd(1, 0) + bd(0, 1) + bd(1, 1)
+      + '</borders>';
+
+    /* 九個樣式群組的 (numFmtId, fontId, fillId)。順序由 DG_OPT_GRPS 決定，這裡只查表。
+       🔴 numFmtId 是從 v1.50.0 的逐格 s 值搬過來的，逐項對照：
+          d0=0（general：Gray／亮度／色度 x／y／純色端點 XYZ，原 s=0）
+          d9=9（0%：相對亮度，原 s=2）        d176（0.0_);[Red](0.0)：色溫與三條基準線，原 s=3）
+          d177（0.0_ ：逐階 Gamma 與 gamRef，原 s=4）  d179（0.000%：標準 Gamma，原 s=5）
+          lbl=general（R／G／B 標示，原 s=1 粗體無底色 ⇒ 粗體無底色照舊）
+       harness 的 Stage F 逐區塊把新檔的 numFmtId 與 v1.50.0 舊檔對過，不是靠這段註解。 */
+    var GSPEC = {
+      block:  { nf: 0,   f: FONT.block,  fi: FILL.block },
+      colhdr: { nf: 0,   f: FONT.colhdr, fi: FILL.colhdr },
+      index:  { nf: 0,   f: FONT.idx,    fi: FILL.index },
+      lbl:    { nf: 0,   f: FONT.idx,    fi: FILL.none },
+      d0:     { nf: 0,   f: FONT.data,   fi: FILL.none },
+      d9:     { nf: 9,   f: FONT.data,   fi: FILL.none },
+      d176:   { nf: 176, f: FONT.data,   fi: FILL.none },
+      d177:   { nf: 177, f: FONT.data,   fi: FILL.none },
+      d179:   { nf: 179, f: FONT.data,   fi: FILL.none }
+    };
+    var AL = '<alignment horizontal="center" vertical="center"/>';
+    /* 🔴 大標題**靠左**，不跟著參考檔置中。
+       參考檔那張表只有十幾欄，置中就在畫面中央；我們這張 N=10 時已經 105 欄，
+       A1 的 merge 橫跨整個版面 ⇒ 置中會把標題推到第 50 幾欄，**開檔第一眼看不到**
+       （實測：soffice 轉 PDF 第 1 頁的深藍色標題列整條是空的）。
+       v1.50.0 的 s=6 沒寫 alignment ⇒ 字串預設靠左 ⇒ 這裡維持靠左，行為同前。 */
+    var ALL = '<alignment horizontal="left" vertical="center"/>';
+    var grpXfs = '';
+    DG_OPT_GRPS.forEach(function (g) {
+      var sp = GSPEC[g];
+      if (!sp) throw new Error('DG_OPT_GRPS 有沒定義樣式的群組：' + g);
+      for (var v = 0; v < 4; v++) {
+        grpXfs += '<xf numFmtId="' + sp.nf + '" fontId="' + sp.f + '" fillId="' + sp.fi + '"'
+          + ' borderId="' + (1 + v) + '" xfId="0" applyNumberFormat="1" applyFont="1"'
+          + ' applyFill="1" applyBorder="1" applyAlignment="1">' + AL + '</xf>';
+      }
+    });
+
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
       + '<numFmts count="3">'
@@ -4134,15 +4328,10 @@
       + '<numFmt numFmtId="177" formatCode="0.0_ "/>'
       + '<numFmt numFmtId="179" formatCode="0.000%"/>'
       + '</numFmts>'
-      + '<fonts count="3">'
-      + '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
-      + '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
-      + '<font><b/><sz val="14"/><name val="Calibri"/><family val="2"/></font>'
-      + '</fonts>'
-      + fills
-      + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+      + fonts + fills + borders
       + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-      + '<cellXfs count="' + (DG_OPT_XF_BASE + DG_OPT_HDRKEYS.length) + '">'
+      + '<cellXfs count="' + DG_OPT_XF_COUNT + '">'
+      /* ── 0…6：既有，一個都不動（DG_OPT_SRCSHEET 在用） ── */
       + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
       + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
       + '<xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
@@ -4150,7 +4339,11 @@
       + '<xf numFmtId="177" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
       + '<xf numFmtId="179" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
       + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
-      + hdrXfs
+      /* ── 7：大標題。🔴 borderId 0 ＝ 無框線，這是「說明層 vs 資料層」的分野 ── */
+      + '<xf numFmtId="0" fontId="' + FONT.title + '" fillId="' + FILL.title + '"'
+      + ' borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">' + ALL + '</xf>'
+      /* ── 8 起：九個群組 × 四種框線變體 ── */
+      + grpXfs
       + '</cellXfs>'
       + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
       + '<dxfs count="0"/>'
@@ -5732,10 +5925,37 @@
   }
   /* v1.44.0：一段「連續的組別表頭」＝ 從 c 起往右，遇到 stop 字或（已收過之後的）空欄就停。
      這段邏輯本來就寫在下面兩處、逐字相同，抽出來讓色度 x／y 兩個新區塊直接重用，
-     不另立第三套規則。 */
-  function dgOptHdrRun(sheet, hr, c, stop) {
+     不另立第三套規則。
+
+     🔴 v1.50.1 新增第三個終止條件：「**區塊標題列（hr-1）出現新的非空標題**」。
+        原因是匯出端從 v1.50.1 起不再於區塊之間留空白欄（改用粗框線分隔），
+        「空欄」因此不再是可靠的邊界。實測（`_tmp_dg1501/stage_hdrrun.py` 把兩個版本
+        對著新舊檔各跑一次，N=10）少了這一條的 run 長度：
+          區塊        應有  舊寫法
+          色度 x       10    10
+          色度 y       10    41  ← 吃進 primLbl（第 3 列寫「RGB」，不是 stop 字）＋ 右邊三段
+          純色端點 X   10    30  ← 吃進 primY／primZ（組名與自己**逐字相同**，不是 stop 字）
+          純色端點 Y   10    20
+          純色端點 Z   10    10
+        區塊標題是結構上的分界，與有沒有空白欄無關，所以拿它當邊界。
+     🔴 **誠實記錄：這是防呆，不是在修一個看得到的 bug。** 下游
+        （dgOptParseCompareSheet）只取 `L.cy[k]`／`L.px[k]` 的 `k < L.n`，而 `L.n` 由亮度
+        與色溫兩段決定（那兩段被 'Gray' 這個 stop 字擋住、恆為 N），所以溢出的尾巴
+        今天不會被讀到 —— 實測把這一條拿掉，新檔匯入的結果與有這一條**逐值相同**
+        （`_tmp_dg1501/_m9.js`）。留著它的理由是「區塊的 run 長度」不該是一個
+        碰巧沒人讀所以錯了也沒關係的量。
+     🔴 `start` 是這一段的起點欄：**起點自己頭上一定有標題**（dgOptFindBlock 就是靠它
+        找到起點的），所以 `c > start` 才判，否則第一欄就會立刻 break、每個區塊都回空。
+     🔴 對**舊檔與原廠檔完全無影響**：
+          · 舊檔（v1.44.x～v1.50.0）區塊之間還有空白欄，一定先撞到 `!t` 那一條 ⇒ 逐字同前。
+          · 原廠光學確認 xlsx 沒有色度／純色端點區塊 ⇒ dgOptFindBlock 找不到標題就回 []，
+            這一支根本不會被呼叫到（亮度／色溫兩段走的是 dgOptLayout 裡另外兩個
+            inline 迴圈，本版**一個字都沒動**）。 */
+  function dgOptHdrRun(sheet, hr, c, stop, start) {
     var out = [], t;
+    if (start === undefined) start = c;
     for (; c <= sheet.maxCol; c++) {
+      if (c > start && hr >= 2 && dgOptHdrText(sheet, hr - 1, c)) break;
       t = dgOptHdrText(sheet, hr, c);
       if (!t) { if (out.length) break; else continue; }
       if (stop[t]) break;
@@ -5750,7 +5970,7 @@
   function dgOptFindBlock(sheet, hr, title, stop) {
     if (hr < 2) return [];
     for (var c = 1; c <= sheet.maxCol; c++) {
-      if (dgOptHdrText(sheet, hr - 1, c) === title) return dgOptHdrRun(sheet, hr, c, stop);
+      if (dgOptHdrText(sheet, hr - 1, c) === title) return dgOptHdrRun(sheet, hr, c, stop, c);
     }
     return [];
   }
