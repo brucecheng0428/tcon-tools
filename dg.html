@@ -352,6 +352,24 @@
   .dg-legend-slots > span.dg-leg-hi {
     outline: 1.5px solid #38bdf8; outline-offset: 2px; border-radius: 4px;
   }
+  /* ─── v1.55.0：圖例上直接勾選「要不要顯示這一條 curve」──────────────────────
+     Bruce 2026-09-13：「我需要在圖一、圖二、圖三的圖表圖例上面，直接有『要不要顯示
+     這個 curve』的核取方塊可以勾選。要不然每次都還要退出以後，再到最上方去勾選
+     要顯示的 curve。」
+     🔴 圖例因此改成列出**全部**組別，不是只列勾選中的那幾組 —— 只列可見的話，
+        一取消勾選那一列就從圖例上消失，使用者被迫回到最上方重勾，正好是他抱怨的
+        那一件事，等於功能沒做成還多繞一圈。
+     未勾選的樣子：整列降透明度 ＋ 名稱加刪除線。**位置不動**（列順序照組別編號，
+     見 dgSlotLegendSync），原地點回來就好。
+     🔴 外層仍然是 `<span data-dg-slot-leg>`，上面那條 .dg-leg-hi 的選擇器
+        （`.dg-legend-slots > span.dg-leg-hi`）因此完全不受影響，藍框行為不退化。 */
+  .dg-leg-lab { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .dg-leg-lab > input[type=checkbox] {
+    width: 13px; height: 13px; margin: 0; flex: 0 0 auto;
+    accent-color: var(--primary); cursor: pointer;
+  }
+  .dg-legend-slots > span.dg-leg-off { opacity: 0.45; }
+  .dg-legend-slots > span.dg-leg-off .dg-leg-name { text-decoration: line-through; }
   .dg-tip {
     position: absolute; display: none; pointer-events: none; z-index: 6;
     background: #0b1a30; border: 1.5px solid #334155; border-radius: 8px;
@@ -1473,7 +1491,9 @@
     <div class="card-body">
 
       <div class="dg-note">
-        這裡畫的是上面<b>勾選「顯示」</b>的那幾組。沒有勾任何一組時三張圖是空的。
+        這裡畫的是上面<b>勾選「顯示」</b>的那幾組。<b>圖例上也可以直接勾</b>（v1.55.0）——
+        圖例列出全部組別，未勾選的那一列會變淡並留在原地，點一下就畫回來，不必回到上面那份清單；
+        放大檢視裡那塊圖例同樣可以點。一組都沒勾時三張圖只剩座標軸與參考線。
         <b>圖四不在本分頁</b> —— 它畫的是 LUT 檔本身的內容值，與光學量測無關，疊起來沒有意義。
       </div>
 
@@ -2027,7 +2047,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1540"></script>
+<script src="common/version.js?v=20260913dg1550"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -2793,11 +2813,34 @@
          需求三要把「圖例的第幾列」對回「圖上的第幾條線」，而 filter 之後索引就對不回去了。
          產出的字串一個字元都沒有變（下面仍然照同樣的順序、同樣的欄位畫）。 */
       var named = [];
-      series.forEach(function (se, si) { if (se.name) named.push({ se: se, si: si }); });
+      /* ═══ v1.55.0：圖例列 ＝ 參考線那幾列 ＋ **全部**組別（含未勾選的）═══════════
+         🔴 未勾選的組**不在 series 裡**（series 只有畫得出來的那幾條），由呼叫端
+            用 opt.legendOff 另外遞進來；它們的 si 給 -1，永遠不會被 dgHiApply 的
+            highlight 命中（那一支比對的是 series 索引）。
+         🔴 列順序：參考線維持原本的先後，**組別那幾列一律照組別編號遞增排**，
+            刻意與 v1.50.0 的 z 序脫鉤。理由是這些列現在要被點：順序跟著 z 跳的話，
+            點完一列它就換到別的位置、游標底下變成另一組。繪圖的先後一個字沒改
+            （仍是 dgVisibleSlotsZ()，「最後打勾的畫在最上層」）。
+         🔴 **沒有任何組別列時（主分頁、第 4 部分、圖四）refRows 保持 series 原序、
+            slotRows 為空 ⇒ named 與 v1.54.0 逐項相同**，那幾頁的 SVG 字串不變。 */
+      var refRows = [], slotRows = [];
+      series.forEach(function (se, si) {
+        if (!se.name) return;
+        var sl = (se.slot === undefined || se.slot === null) ? null : se.slot;
+        (sl === null ? refRows : slotRows).push({ se: se, si: si, slot: sl, off: false });
+      });
+      (opt.legendOff || []).forEach(function (o) {
+        slotRows.push({ se: { name: o.name, color: o.color, mark: o.mark, w: 1.5 }, si: -1, slot: o.slot, off: true });
+      });
+      slotRows.sort(function (a, b) { return a.slot - b.slot; });
+      named = refRows.concat(slotRows);
       if (named.length) {
         var tw = 0;
         named.forEach(function (o) { tw = Math.max(tw, dgTextW(o.se.name, fs)); });
-        var boxW = Math.ceil(tw) + 46, boxH = named.length * (fs + 9) + 10;
+        /* v1.55.0：有組別列才騰出核取方塊那一欄的寬度。**一列都沒有時 cbW ＝ 0
+           ⇒ boxW 與列內每一個座標都與 v1.54.0 逐值相同**（主分頁、第 4 部分、圖四）。 */
+        var cbW = slotRows.length ? 15 : 0;
+        var boxW = Math.ceil(tw) + 46 + cbW, boxH = named.length * (fs + 9) + 10;
         /* v1.4.7：位置改由 opt.legendPos（分數座標）決定，並夾制在繪圖區內 ——
            整塊圖例都必須看得見，拖不到圖外面去。沒拖過的圖 legendPos 是 null，
            走原本的右上角公式，畫出來的字串與 v1.4.6 相同（除了新增的 class）。 */
@@ -2820,14 +2863,40 @@
         named.forEach(function (o, i) {
           var se = o.se;
           var ly = by + 14 + i * (fs + 9);
-          s += '<line x1="' + (bx + 9) + '" y1="' + ly + '" x2="' + (bx + 30) + '" y2="' + ly + '" stroke="' + se.color
-            + '" stroke-width="' + (se.w || 1.6) + '"' + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '') + '/>';
+          /* v1.55.0：組別那幾列前面畫一個核取方塊。cbW ＝ 0 時（沒有組別列）
+             底下每一個 x 都退回 v1.54.0 的原值，字串逐字元相同。 */
+          if (o.slot !== null) {
+            s += '<rect x="' + (bx + 7) + '" y="' + (ly - 5) + '" width="10" height="10" rx="2" fill="'
+              + (o.off ? '#0f172a' : '#2563eb') + '" stroke="' + (o.off ? '#64748b' : '#2563eb') + '" stroke-width="1.2"/>';
+            if (!o.off) {
+              s += '<path d="M' + (bx + 9.4) + ' ' + ly + 'l1.9 2.1 3.4 -4.2" fill="none" stroke="#ffffff"'
+                + ' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>';
+            }
+          }
+          // v1.55.0：未勾選的那幾列整列調淡，看得出來是關掉的（但列還在原地，點得回來）
+          var dim = o.off ? ' opacity="0.4"' : '';
+          s += '<line x1="' + (bx + 9 + cbW) + '" y1="' + ly + '" x2="' + (bx + 30 + cbW) + '" y2="' + ly + '" stroke="' + se.color
+            + '" stroke-width="' + (se.w || 1.6) + '"' + (se.dash ? ' stroke-dasharray="' + se.dash + '"' : '') + dim + '/>';
           // v1.20.0：有資料點的那幾條，圖例的線段中間也要有形狀，才對得回圖上那一條
-          if (se.mark) s += dgMarkSvg(se.mark, bx + 19.5, ly, 3.2, se.color);
-          s += '<text x="' + (bx + 36) + '" y="' + (ly + fs * 0.36).toFixed(1) + '" fill="#cbd5e1" font-size="' + fs + '">' + dgXe(se.name) + '</text>';
+          if (se.mark) {
+            s += o.off
+              ? '<g opacity="0.4">' + dgMarkSvg(se.mark, bx + 19.5 + cbW, ly, 3.2, se.color) + '</g>'
+              : dgMarkSvg(se.mark, bx + 19.5 + cbW, ly, 3.2, se.color);
+          }
+          s += '<text x="' + (bx + 36 + cbW) + '" y="' + (ly + fs * 0.36).toFixed(1) + '" fill="'
+            + (o.off ? '#64748b' : '#cbd5e1') + '" font-size="' + fs + '">' + dgXe(se.name) + '</text>';
+          // 未勾選：名稱加刪除線（與底下那排 HTML 圖例的 .dg-leg-off 同一個語彙）
+          if (o.off) {
+            s += '<line x1="' + (bx + 36 + cbW) + '" y1="' + ly + '" x2="'
+              + (bx + 36 + cbW + Math.ceil(dgTextW(se.name, fs))) + '" y2="' + ly
+              + '" stroke="#64748b" stroke-width="1"/>';
+          }
           /* v1.50.0：這一列的外框矩形（SVG 內部座標）。需求三的 highlight 直接拿它
-             append 一個 rect 上去，不必為了 hover 重畫整份 SVG。 */
-          legRows.push({ si: o.si, x: bx + 4, y: ly - (fs + 9) / 2 - 1, w: boxW - 8, h: fs + 9 });
+             append 一個 rect 上去，不必為了 hover 重畫整份 SVG。
+             v1.55.0：多記 slot 與 off —— 點擊判定（dgLegendRowAt）靠 slot 認出
+             「這一列是不是可以勾的組」，參考線那幾列 slot 是 null，點下去沒有事情發生。 */
+          legRows.push({ si: o.si, x: bx + 4, y: ly - (fs + 9) / 2 - 1, w: boxW - 8, h: fs + 9,
+                         slot: o.slot, off: !!o.off });
         });
         if (host.id && DG_CHART_GEOM[host.id]) DG_CHART_GEOM[host.id].legendRows = legRows;
       }
@@ -2920,7 +2989,9 @@
     hint.textContent = '滾輪上下滾＝以滑鼠位置為中心放大／縮小；放大後按住左鍵可以拖曳平移。'
       + '按住 Shift 拖曳則是拉出方框、放大那一區。手機：單指拖曳平移、雙指開合縮放。'
       + '滑過任一點會顯示該點的數值。'
-      + '右上角那塊圖例擋到線的話，直接把它拖到別的位置（雙擊圖例可放回右上角）。'
+      + '右上角那塊圖例擋到線的話，直接把它拖到別的位置（雙擊圖例的參考線那幾列可放回右上角）。'
+      // v1.55.0：圖例上直接勾選，不必退出放大檢視再回到最上方那份清單
+      + '圖例裡每一組前面的方塊點一下就切換要不要畫那一條；取消之後那一列會留在原地變淡，再點一下就畫回來。'
       // v1.54.0：需求二／三的入口要講出來，不然沒有人會去點座標軸上的數字
       + '縱軸的上限／下限數字可以直接點下去改（Enter 套用、Esc 取消）；'
       + '左上角的「Y 手動 ⟲ Auto」按一下就回到自動範圍。';
@@ -3184,6 +3255,22 @@
     return pt.sx >= L.x && pt.sx <= L.x + L.w && pt.sy >= L.y && pt.sy <= L.y + L.h;
   }
 
+  /* v1.55.0：SVG 內部座標落在圖例的哪一「可勾選的組別列」上（沒有就 null）。
+     🔴 只認 slot 不是 null 的列 —— 參考線（γ=2.0／2.2／2.4、色溫基準）那幾列
+        沒有對應的組，點下去不該有任何事情發生。
+     比對用的是 DG_CHART_GEOM 裡記下來的矩形（畫的時候算的那一份），不去問 DOM
+     節點的位置：圖例是 SVG 內部元素，每次重繪都是全新的節點。 */
+  function dgLegendRowAt(geomKey, sx, sy) {
+    var g = DG_CHART_GEOM[geomKey], rows = g ? g.legendRows : null, i, r;
+    if (!rows) return null;
+    for (i = 0; i < rows.length; i++) {
+      r = rows[i];
+      if (r.slot === null || r.slot === undefined) continue;
+      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) return r;
+    }
+    return null;
+  }
+
   /* 搬圖例：位移一律從「按下當時」算起（與平移同一個作法），拖出邊界再拖回來才會回到原位。
      夾制與 dgChart 裡畫圖例時那一份同式，兩邊必須一致，否則會出現「狀態說在這、畫出來在那」。 */
   function dgLegendMoveTo(hostId, g, start, dsx, dsy) {
@@ -3193,6 +3280,34 @@
     var x = Math.max(g.ml, Math.min(maxX, L.x0 + dsx));
     var y = Math.max(g.mt, Math.min(maxY, L.y0 + dsy));
     DG_LEGEND_POS[hostId] = { fx: (x - g.ml) / g.pw, fy: (y - g.mt) / g.ph };
+  }
+
+  /* ═══ v1.55.0：在放大檢視的 SVG 圖例上點一下 ＝ 切換這一組要不要顯示 ══════════
+     Bruce 的痛點是「每次都還要退出（放大檢視）以後，再到最上方去勾選」，所以這件事
+     必須在**不關掉放大檢視**的情況下做得到。
+
+     🔴 與既有的「搬圖例」共存的判準 —— 兩個條件都成立才算點擊：
+       ① 這一次手勢**不算拖曳**。門檻沿用本檔既有的那一個：onWinMove() 裡
+          `if (!dragging && dx < 6 && dy < 6) return;` —— 6px 是平移、框選、搬圖例
+          三者共用的手勢起始門檻（v1.4.1 以來）。沿用它而不是另外訂一個數字，
+          好處是「不算拖曳」與「算點擊」是同一個判準的兩面，中間不會出現
+          「既沒搬到圖例、也沒被當成點擊」的死區。呼叫端傳進來的 wasDragging 就是它。
+       ② 按下與放開**落在同一列**。按在第 3 列、滑到第 5 列才放開，是使用者改變了
+          主意，不該把第 5 列關掉。
+     🔴 e.detail > 1（雙擊的第二下）不算 —— 雙擊會連來兩個 pointerup，不擋的話
+        一次雙擊等於勾了又取消，畫面看起來「沒反應」。
+     回傳 true ＝ 這一下已經被當成勾選處理完（含重畫），呼叫端不要再重畫。 */
+  function dgLegendClickToggle(geomKey, el, start, e) {
+    if (!e || !start || !start.pt) return false;
+    if (e.detail > 1) return false;
+    var r0 = dgLegendRowAt(geomKey, start.pt.sx, start.pt.sy);
+    if (!r0) return false;
+    var up = dgPtToData(geomKey, el, e.clientX, e.clientY);
+    var r1 = up ? dgLegendRowAt(geomKey, up.sx, up.sy) : null;
+    if (!r1 || r1.slot !== r0.slot) return false;
+    if (!DG_SLOTS[r0.slot]) return false;
+    dgSlotSetShow(r0.slot, !DG_SLOTS[r0.slot].show);
+    return true;
   }
 
   function dgEnsureChild(el, cls) {
@@ -3717,6 +3832,10 @@
       if (!big || !DG_LEGEND_POS[dataKey]) return;
       var pt = dgPtToData(geomKey, el, e.clientX, e.clientY);
       if (!pt || !dgHitLegend(pt)) return;
+      /* v1.55.0：雙擊落在**可勾選的組別列**上時不還原位置 —— 那一塊已經改成勾選區，
+         同一個手勢不可以同時是兩件事。參考線那幾列與圖例的邊緣仍然是「雙擊還原位置」，
+         主分頁／第 4 部分的圖例整塊都是參考線列 ⇒ 那幾頁的既有行為一個字未變。 */
+      if (dgLegendRowAt(geomKey, pt.sx, pt.sy)) return;
       delete DG_LEGEND_POS[dataKey];
       e.preventDefault();
       dgChartZoomRefresh();
@@ -3795,6 +3914,10 @@
         if (wasDragging) {
           var lg = dgPtToData(geomKey, el, e.clientX, e.clientY);
           if (lg) dgLegendMoveTo(dataKey, lg.g, start, lg.sx - start.pt.sx, lg.sy - start.pt.sy);
+        } else if (dgLegendClickToggle(geomKey, el, start, e)) {
+          /* v1.55.0：這一下被當成「勾選／取消這一組」。dgSlotSetShow() 已經重畫過
+             縮圖與這張大圖，這裡不可以再 refresh 一次（會拿到同一份、白做一次）。 */
+          return;
         }
         dgChartZoomRefresh();
         return;
@@ -6935,19 +7058,82 @@
         也是同樣行為，匯出的 xlsx 用同一支 dgSlotColor()，畫面與檔案不會分岔）。
         本版**沒有**改動顏色綁定，只是拿掉了唯一會主動觸發重排的入口。 */
 
-  // 圖例：三張圖各自在既有圖例後面接上目前顯示中的組
+  /* ═══ v1.55.0：勾選狀態的**單一入口**（三處共用）════════════════════════════
+     最上方的組別列、三張圖底下的 HTML 圖例、放大檢視裡那塊 SVG 圖例 —— 三處全部
+     呼叫這一支。所以「三向同步」是結構上保證的，不是三邊各寫一次同樣的邏輯。
+     🔴 z 的規則與 v1.50.0 **逐字相同**：`show` 變成 true 就推到最上層，取消不動 z。
+     🔴 最上方那一列**不用 dgSlotRender() 重建**，只把核取方塊的 checked 改掉：
+        重建會把正在編輯的名稱輸入框換成新節點（那正是 dgSlotRender 自己那道
+        activeElement 守衛在防的事），而這裡要改的只有一個布林值。 */
+  function dgSlotSetShow(i, on) {
+    if (!isFinite(i) || !DG_SLOTS[i]) return;
+    DG_SLOTS[i].show = !!on;
+    if (DG_SLOTS[i].show) dgSlotTouchZ(i);
+    dgSlotShowSyncTop();
+    dgSlotStatus();
+    dgRenderCharts();            // 三張圖 ＋ HTML 圖例（dgSlotLegendSync 在它裡面）
+    /* 放大檢視正開著比較分頁那三張圖之一時，大圖與那塊 SVG 圖例也要跟著換 ——
+       dgRenderCharts() 只畫縮圖。dgChartZoomRefresh() 讀的 DG_CHART_LAST 剛剛
+       才被重寫過，所以拿到的就是新的那一份。 */
+    if (DG_ZOOM_CHART && DG_CMP_CHARTS.indexOf(DG_ZOOM_CHART) >= 0) dgChartZoomRefresh();
+  }
+
+  // 最上方組別列那一排核取方塊的狀態同步（只改 checked，不重建 DOM）
+  function dgSlotShowSyncTop() {
+    var host = $('dg-slot-list');
+    if (!host) return;
+    var cbs = host.querySelectorAll('[data-dg-slot-cb]'), k, j;
+    for (k = 0; k < cbs.length; k++) {
+      j = Number(cbs[k].getAttribute('data-dg-slot-cb'));
+      if (DG_SLOTS[j]) cbs[k].checked = !!DG_SLOTS[j].show;
+    }
+  }
+
+  // 圖例：三張圖各自在既有圖例後面接上**全部**的組（每一列自己帶核取方塊）
   function dgSlotLegendSync() {
-    /* v1.50.0：順序改用 dgVisibleSlotsZ()，與圖上的繪製先後、以及放大檢視裡那塊 SVG
-       圖例（它天生就照 series 順序列）三邊一致 —— 不然同一頁上會有兩份順序不同的圖例。
+    /* v1.50.0：順序曾改用 dgVisibleSlotsZ()，與圖上的繪製先後、以及放大檢視裡那塊
+       SVG 圖例三邊一致。
+       🔴 v1.55.0 改成**列出全部組別、照組別編號遞增排**，兩個改動都是必要的：
+         · 列出全部：只列可見的話，使用者一取消勾選那一列就消失，再也勾不回來 ——
+           被迫回到最上方，正是這一版要解決的那件事。
+         · 照編號排：這些列現在要被點。順序跟著 z 跳的話，點完一列它就換到別的位置、
+           游標底下變成另一組，連點兩次會關掉兩個不同的東西。而編號、顏色、形狀
+           本來就綁組別索引（dgSlotColor(i)／dgMarkShape(i)／dgSlotDisplayName(i)），
+           照編號排 ⇒ 圖例的順序與最上方那份組別列一致，兩處對得起來。
+       🔴 **繪製順序一個字都沒改** —— 圖上畫的先後仍然是 dgVisibleSlotsZ()
+          （「最後打勾的畫在最上層」，v1.50.0 的需求四）。這裡改的只有「圖例列怎麼排」。
        data-dg-slot-leg ＝ 組別編號（0 起算），需求三的 highlight 靠它把「圖上第幾條線」
-       對回「圖例哪一項」。**顏色／形狀／名稱仍然全部吃 o.i，一個字未動。** */
-    var h = dgVisibleSlotsZ().map(function (o) {
-      return '<span data-dg-slot-leg="' + o.i + '">' + dgLegMark(dgSlotColor(o.i), dgMarkShape(o.i))
-        + dgXe(dgSlotDisplayName(o.i)) + '</span>';
+       對回「圖例哪一項」；它仍然掛在最外層那個 `<span>` 上，`.dg-legend-slots >
+       span.dg-leg-hi` 那條選擇器因此照舊命中。**顏色／形狀／名稱仍然全部吃 i。** */
+    var h = DG_SLOTS.map(function (s, i) {
+      return '<span class="dg-leg-item' + (s.show ? '' : ' dg-leg-off') + '" data-dg-slot-leg="' + i + '">'
+        + '<label class="dg-leg-lab" title="'
+        + (s.show ? '取消勾選：這一條就不畫在圖上（圖例這一列留在原地，點回來就會再出現）'
+                  : '勾選：把這一條畫回圖上（會畫在最上層）') + '">'
+        + '<input type="checkbox" data-dg-leg-cb="' + i + '"' + (s.show ? ' checked' : '') + '>'
+        + dgLegMark(dgSlotColor(i), dgMarkShape(i))
+        + '<span class="dg-leg-name">' + dgXe(dgSlotDisplayName(i)) + '</span>'
+        + '</label></span>';
     }).join('');
     ['dg-legend-slots-1', 'dg-legend-slots-2', 'dg-legend-slots-3'].forEach(function (id) {
       var e = $(id);
-      if (e) e.innerHTML = h;
+      if (!e) return;
+      e.innerHTML = h;
+      dgLegCbBind(e);
+    });
+  }
+
+  /* 圖例核取方塊的事件：委派在三個容器上（容器本身固定、只有 innerHTML 被換）。
+     整列可點是靠 `<label>` 包住 checkbox —— 原生行為，不必自己算命中範圍。
+     HTML 圖例不可拖曳（拖曳只發生在放大檢視的 SVG 圖例上），所以這裡沒有手勢衝突。
+     這個 change 會冒泡到 #dg-cmp-content，自動保存的既有掛點因此照常收到。 */
+  function dgLegCbBind(host) {
+    if (!host || host._dgLegBound) return;
+    host._dgLegBound = true;
+    host.addEventListener('change', function (ev) {
+      var cb = ev.target;
+      if (!cb || !cb.getAttribute || cb.getAttribute('data-dg-leg-cb') == null) return;
+      dgSlotSetShow(Number(cb.getAttribute('data-dg-leg-cb')), !!cb.checked);
     });
   }
 
@@ -7006,12 +7192,11 @@
       if (!cb || !cb.getAttribute || cb.getAttribute('data-dg-slot-cb') == null) return;
       var i = Number(cb.getAttribute('data-dg-slot-cb'));
       if (!isFinite(i) || !DG_SLOTS[i]) return;
-      DG_SLOTS[i].show = !!cb.checked;
       /* v1.50.0：**打勾**才推到最上層；取消打勾不動 z（不然「取消再打勾」會變成兩次操作
-         同一個效果，而他要的是「最後打勾的那一次」決定順序）。 */
-      if (DG_SLOTS[i].show) dgSlotTouchZ(i);
-      dgSlotStatus();
-      dgRenderCharts();
+         同一個效果，而他要的是「最後打勾的那一次」決定順序）。
+         v1.55.0：這段邏輯搬進 dgSlotSetShow()，三個入口共用同一支（同步靠結構保證）。
+         行為逐字相同 —— 那一支裡的 z 規則就是上面這兩行。 */
+      dgSlotSetShow(i, cb.checked);
     });
     host.addEventListener('click', function (e) {
       var b = e.target && e.target.closest ? e.target.closest('[data-dg-slot-del]') : null;
@@ -8455,11 +8640,23 @@
      差別只有「吃哪些曲線、畫到哪三個 host」。抽出來的目的就是不讓兩頁的畫法各自演化。
        curves: [{ curve, color, name, w, mark }]（mark ＝ dgMarkShape() 給的形狀名）
      回傳有沒有真的畫（沒有任何曲線時回 false，呼叫端負責清圖）。 */
-  function dgDrawTriple(hostIds, curves) {
+  /* v1.55.0：第三個引數 legendOff ＝「要列進圖例、但這一次不畫」的那幾組
+     （＝未勾選的）。只有兩個用途：撐出 X 軸的 xmax、以及在圖例上占一列。
+     🔴 縱軸擬合（relAll／gamAll／cctAll）與「這幾組沒有色溫」那段說明（cctMiss）
+        **一律只看 curves**（＝畫得出來的那幾條）。未勾選的組不該把縱軸撐開 ——
+        那會讓「取消勾選」變成「圖的縱軸忽然換了一個範圍」。
+     🔴 沒有 legendOff 時（主分頁、第 4 部分）這一支的行為與 v1.54.0 逐項相同。 */
+  function dgDrawTriple(hostIds, curves, legendOff) {
     var xmax = 0;
     curves.forEach(function (o) {
       var last = o.curve.xs[o.curve.xs.length - 1];
       if (isFinite(last) && last > xmax) xmax = last;
+    });
+    /* 一組都沒勾的時候 curves 是空的，xmax 只能由未勾選的那幾組給 —— 不給的話
+       這一支會 return false，三張圖被清掉、放大檢視被關掉，使用者就沒有地方把
+       曲線點回來了（那正是本版要避免的死路）。 */
+    (legendOff || []).forEach(function (o) {
+      if (isFinite(o.xmax) && o.xmax > xmax) xmax = o.xmax;
     });
     if (!(xmax > 0)) return false;
 
@@ -8506,6 +8703,7 @@
       { x: xs, y: std(2.2), color: '#fbbf24', dash: '4 3', w: 1.4, name: 'γ=2.2' }
     ].concat(ser('rel')), {
       xmin: 0, xmax: xmax, ymin: r1.lo, ymax: r1.hi, xlabel: 'Gray', cmp: isCmp,
+      legendOff: legendOff || null,          // v1.55.0：圖例要列、但這一次不畫的那幾組
       yfmt: function (v, span) { return (v * 100).toFixed(span < 0.05 ? 2 : (span < 0.5 ? 1 : 0)) + '%'; },
       tip: { x: '灰階', y: '相對亮度', fmt: function (v) { return (v * 100).toFixed(2) + '%'; } }
     });
@@ -8529,6 +8727,7 @@
     ] : [];
     dgChart($(hostIds[1]), gref.concat(ser('gam')), {
       xmin: 0, xmax: xmax, ymin: a2.min, ymax: a2.max, xlabel: 'Gray', cmp: isCmp,
+      legendOff: legendOff || null,          // v1.55.0：同圖一
       yfmt: function (v, span) { return v.toFixed(span < 0.2 ? 3 : 2); },
       tip: { x: '灰階', y: 'Gamma', fmt: function (v) { return v.toFixed(3); } }
     });
@@ -8587,6 +8786,7 @@
     ] : [];
     dgChart($(hostIds[2]), refs.concat(ser('cct')), {
       xmin: 0, xmax: xmax, ymin: cmin, ymax: cmax, xlabel: 'Gray', cmp: isCmp,
+      legendOff: legendOff || null,          // v1.55.0：同圖一
       yfmt: function (v, span) { return span < 200 ? v.toFixed(1) : String(Math.round(v)); },
       tip: { x: '灰階', y: '色溫', fmt: function (v) { return Math.round(v) + 'K'; } }
     });
@@ -8651,13 +8851,30 @@
   function dgRenderCmpCharts() {
     // v1.50.0：順序＝「最後打勾的排最後（＝畫在最上層）」。編號與顏色不受影響，見 dgVisibleSlotsZ()
     var vis = dgVisibleSlotsZ();
-    if (!vis.length) { dgClearCharts123(DG_CMP_CHARTS); return; }
+    /* ═══ v1.55.0：「一組都沒勾」不再等於「沒有東西可畫」═══════════════════════
+       圖例現在列出全部組別，所以三張圖必須照畫（剩下參考線 ＋ 一份整份未勾選的
+       圖例），使用者才有地方把曲線點回來。
+       🔴 這是「取消勾選之後回得去」的另一半，不補就是一條死路：v1.54.0 走到
+          dgClearCharts123(DG_CMP_CHARTS) 會連帶 dgChartZoomClose() —— 在放大檢視裡
+          取消最後一組，整個放大視窗會被關掉，人又被丟回最上方那份清單。
+       真的一組都沒有（DG_SLOTS 是空的）才是清空，那時候本來就沒有圖例可列。 */
+    if (!DG_SLOTS.length) { dgClearCharts123(DG_CMP_CHARTS); return; }
+    /* 未勾選的那幾組：只送名稱／顏色／形狀／編號與 xmax 進圖例。
+       🔴 xmax 走 dgCurveOf(...).xs 的最後一階，**與可見那幾組同一支**，不另外從
+          rows 自己挑一個「最大的 g」——兩套算法遲早會分岔。 */
+    var off = [], i, c;
+    for (i = 0; i < DG_SLOTS.length; i++) {
+      if (DG_SLOTS[i].show) continue;
+      c = dgCurveOf(DG_SLOTS[i].rows);
+      off.push({ name: dgSlotDisplayName(i), color: dgSlotColor(i), mark: dgMarkShape(i), slot: i,
+                 xmax: (c.xs && c.xs.length) ? c.xs[c.xs.length - 1] : 0 });
+    }
     dgDrawTriple(DG_CMP_CHARTS, vis.map(function (o) {
       // 形狀與顏色吃同一個清單索引 o.i，所以同一組在三張圖上形狀一致、也與它的顏色成對。
       // v1.50.0：slot ＝ 組別編號，一路帶進 series，需求三要靠它把曲線對回圖例那一項。
       return { curve: dgCurveOf(o.s.rows), color: dgSlotColor(o.i), name: dgSlotDisplayName(o.i),
                mark: dgMarkShape(o.i), slot: o.i };
-    }));
+    }), off);
   }
 
   /* ═══ v1.24.0：第 4 部分「確認結果」的圖一二三 ══════════════════════════════
