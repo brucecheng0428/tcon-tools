@@ -1968,7 +1968,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260913dg1510"></script>
+<script src="common/version.js?v=20260913dg1520"></script>
 <script src="common/i18n.js?v=20260907dg1140"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -4756,69 +4756,128 @@
   function dgCellV(sheet, r, c) { var x = sheet.cells[r + ',' + c]; return x ? x.v : null; }
   function dgIsNum(x) { return typeof x === 'number' && isFinite(x); }
 
-  /* ═══ v1.51.0：光學量測必須是「完整的一段灰階」═══════════════════════════════
-     Bruce 2026-09-13：「**不會有考慮跳號的問題。也就是說，匯入的資料一定要有 L0 到
-     L255 的光學量測。在第二部分或者是光學比較分頁，都是要完整的 8-bit（L0 到 L255）。
-     如果是只有 L0 到 L63（6-bit）的排序，要跳出警示說這個沒辦法支援。**」
+  /* ═══ v1.52.0：光學量測必須是「完整的一段灰階」，位元深度不限、但同一輪要一致 ═══
+     v1.51.0 原本的判準是「完整 ＋ 至少 256 階」。Bruce 看到那一版的回報之後改了設計
+     （2026-09-13）：「**因為的確有 10-bit 的需求……量測的這一組資料可能有 Gray 0 到
+     255，另外一組資料可能是 Gray 0 到 1023，那這樣子要怎麼樣有共用性？你要規劃一下，
+     如果可以規劃出來，那其實 6-bit 也可以（也就是 0 到 63 也可以支援）。或者是同一組
+     比較裡面，假設這次的 10 組有一個限制，就是比較都要同樣的 bit 數……這樣子都要一致
+     會比較好用，管控上應該會比較容易管控。**」
 
-     判準（三條，缺一不可）：
-       ① 灰階集合恰為 {0, 1, …, n−1} —— 不跳號、不重複、從 0 起算
-       ② n ≥ 256
-       ③ 每一個灰階都是非負整數
+     ⇒ 判準改成兩層：
 
-     🔴 ② 寫「**≥ 256**」而不是「**＝ 256**」，這是查證後的決定，不是放寬：
-        `dgApplyGray()` 裡有一行 `if (!dgSdUserSet && opt.rows.length >= 1024)
-        $('dg-sd').value = '10';` —— **1024 階（10 bit 驅動）的量測是既有的、明文支援
-        的能力**。寫成「＝ 256」會把它一起擋掉，那是回歸。
-        Bruce 的關切是「**不足**」（6 bit 只有 64 階），不是「更多」。
-        ⇒ 64／128 階被擋、256 與 1024 階照收，兩邊的需求同時滿足。
-        這一條請 Bruce 覆核：若他要的就是「**恰好** 256」，把 `>=` 改成 `===` 即可，
-        但那會同時關掉 1024 階那條路。
+     ── 第一層｜這一份資料本身合不合格（本函式 dgGrayScan）────────────────────
+       ① 每一個灰階都是**非負整數**
+       ② **不重複**
+       ③ 灰階集合**恰為 {0, 1, …, n−1}**（從 0 起算、不跳號）
+       ④ **n 是 2 的冪次** ⇒ 最大灰階恰為 2ⁿ−1
+     🔴 ④ 刻意寫成「n 是 2 的冪次」而**不是列一張 {64, 256, 1024, 4096} 的清單**
+        （Bruce 指定「不寫死清單」）。因為 ③ 已經保證集合是 {0…n−1}，所以
+        「最大值 ＝ 2ᵏ−1」與「n ＝ 2ᵏ」是**同一個條件**，不是兩套判斷。
+        ⇒ 63／255／1023／4095 自動成立，以後出現新的位元深度也自動成立；
+          最大值 100（n=101）這種非 2ᵏ−1 的檔則被擋下。
+     🔴 ③ 仍然要求**完整不跳號**（Bruce 已明確裁示不做跳號、不做內插）。
+
+     🔴 **一個誠實的邊界，寫在這裡供 Bruce 覆核**：照上面的判準，n=2（只有 L0／L1，
+        「1-bit」）與 n=4（「2-bit」）也會判成合格。規劃裡沒有給下限，我**不自行加一個**
+        —— 加下限就等於回去寫死清單，而且 v1.51.0 之前這道閘根本不存在（任何階數都收），
+        所以「不加下限」不會比長期基準線更寬。若 Bruce 要設下限（例如至少 6-bit），
+        把 `DG_GRAY_MIN_BITS` 從 1 改成 6 即可，其餘一個字都不用動。
+
+     ── 第二層｜同一輪比較必須同一個位元深度（dgSlotRefBits ＋ dgGrayGate 的 refBits）──
+       · 光學資料比較分頁**清空時**沒有既定深度；**第一個進來的**（匯入或即時量測都算）
+         決定這一輪的深度。
+       · 之後每一個進來的都必須**相同深度**，不同就擋，並跳視窗說明。
+       · 按「清空」之後重置，可以換成別的位元深度重新開始。
+     🔴 「這一輪的深度」**不另外存一個狀態變數**，一律當場從 `DG_SLOTS[0]` 推出來。
+        理由：多存一份就會有兩個真相，而且 autosave（v1.48.0）還原的是 DG_SLOTS ——
+        深度跟著它走，重整之後一致性自然還在，不需要為它多存／多驗一個欄位。
+     🔴 **第 2 部分只有一組**（第 1／2／3 部分是單一份計算輸入），所以那一側不做一致性
+        檢查，只驗第一層。
 
      🔴 **不擋手動輸入**：第 2 部分的文字框（使用者自己貼資料）不經過這道閘。
         Bruce 的原話是「**匯入的**資料一定要有 L0 到 L255」，而手動貼一段資料試算是
         另一回事；把它也擋掉等於拿掉一個沒人要求拿掉的能力。 */
-  var DG_GRAY_MIN_STEPS = 256;
+  var DG_GRAY_MIN_BITS = 1;
+  // 位元深度 ⇒ 「8-bit（0～255）」這種人看得懂的字樣。數字一律算出來，不寫死。
+  function dgBitsLabel(bits) {
+    return bits + '-bit（0～' + (Math.pow(2, bits) - 1) + '）';
+  }
   function dgGrayScan(rows) {
-    var n = (rows && rows.length) || 0, set = {}, dup = null, bad = null, i, g;
+    var n = (rows && rows.length) || 0, set = {}, dup = null, bad = null, i, g, max = null;
     for (i = 0; i < n; i++) {
       g = rows[i] && rows[i].g;
       if (!dgIsNum(g) || g < 0 || g !== Math.round(g)) { if (bad === null) bad = g; continue; }
+      if (max === null || g > max) max = g;
       if (set[g]) { if (dup === null) dup = g; } else set[g] = 1;
     }
     var miss = null;
     for (i = 0; i < n; i++) if (!set[i]) { miss = i; break; }
-    // 推定位元數：只有 n 恰為 2 的冪次時才給（其餘情況寫 null，不硬湊一個數字出來）
-    var lg = Math.log(n) / Math.LN2, bits = (n > 0 && Math.abs(lg - Math.round(lg)) < 1e-9) ? Math.round(lg) : null;
+    // 完整 ＝ 沒有壞值、沒有重複、集合恰為 {0…n−1}（⇒ 此時 max 必等於 n−1）
+    var complete = (bad === null && dup === null && miss === null && n > 0);
+    /* 是不是 2 的冪次：用位元運算，**不用 log 再比浮點誤差**（n 最大只有幾千，
+       位元運算是精確判定，沒有「1e-9 容忍度」這種需要解釋的東西）。 */
+    var pow2 = (n > 0 && (n & (n - 1)) === 0);
+    var bits = pow2 ? Math.round(Math.log(n) / Math.LN2) : null;
     return {
-      ok: (bad === null && dup === null && miss === null && n >= DG_GRAY_MIN_STEPS),
-      n: n, bits: bits, dup: dup, miss: miss, bad: bad
+      // 🔴 ok ＝ 完整 ＋ 2 的冪次 ＋ 位元深度不低於下限（下限預設 1 ＝ 實質不設限）
+      ok: (complete && pow2 && bits >= DG_GRAY_MIN_BITS),
+      n: n, max: max, bits: (complete && pow2) ? bits : null,
+      pow2: pow2, complete: complete, dup: dup, miss: miss, bad: bad
     };
   }
-  /* 訊息：Bruce 指定「極簡、不解釋」，而且**實際階數與推定位元數要從檔案算出來**，
-     不可以寫死。四種不合格情形各一句。 */
+  /* 訊息：Bruce 指定「極簡、不解釋」，而且**實際階數／最大值／位元深度要從檔案算出來**，
+     不可以寫死。四種不合格情形各一句。
+     🔴 v1.52.0：把原本每一句尾巴寫死的「完整的 L0～L255（256 階）」全部拆掉 ——
+        現在支援任何位元深度，寫死 255 就是說謊。 */
+  var DG_GRAY_NEED = '本工具需要完整的一段灰階（從 L0 起算、不跳號，最大灰階必須是 2ⁿ−1，例如 L63／L255／L1023）';
   function dgGrayScanMsg(sc) {
     if (sc.bad !== null) {
-      return '這個檔的灰階欄有不是非負整數的值（' + sc.bad + '），本工具需要完整的 L0～L255（256 階）。';
+      return '這個檔的灰階欄有不是非負整數的值（' + sc.bad + '），' + DG_GRAY_NEED + '。';
     }
     if (sc.dup !== null) {
-      return '這個檔的灰階有重複（L' + sc.dup + '），本工具需要完整的 L0～L255（256 階），每階各一筆。';
+      return '這個檔的灰階有重複（L' + sc.dup + '），' + DG_GRAY_NEED + '，每階各一筆。';
     }
     if (sc.miss !== null) {
-      return '這個檔的灰階不完整（共 ' + sc.n + ' 筆，缺 L' + sc.miss + '），本工具需要完整的 L0～L255（256 階）。';
+      return '這個檔的灰階不完整（共 ' + sc.n + ' 筆，缺 L' + sc.miss + '），' + DG_GRAY_NEED + '。';
     }
-    return '這個檔只有 ' + sc.n + ' 階' + (sc.bits ? '（' + sc.bits + '-bit）' : '')
-      + '，本工具需要完整的 ' + DG_GRAY_MIN_STEPS + ' 階（8-bit）。';
+    if (!sc.pow2) {
+      return '這個檔的最大灰階是 L' + sc.max + '（共 ' + sc.n + ' 階），不是 2ⁿ−1，'
+        + '判不出它是幾 bit 的量測。' + DG_GRAY_NEED + '。';
+    }
+    // 只剩「位元深度低於下限」這一種（DG_GRAY_MIN_BITS 預設 1 ⇒ 正常情況下走不到這裡）
+    return '這個檔是 ' + dgBitsLabel(sc.bits) + '，低於本工具目前接受的最低位元深度（'
+      + dgBitsLabel(DG_GRAY_MIN_BITS) + '）。';
+  }
+  /* 這一輪比較的基準位元深度：由**清單上第一組**決定，清單空的就是「還沒有基準」。
+     🔴 不存狀態、當場算 —— 理由見上面那段。清單非空時每一組的深度依定義都相同
+        （後進來的都被這道閘擋過），所以取第 0 組即可。 */
+  function dgSlotRefBits() {
+    if (!DG_SLOTS.length) return null;
+    var sc = dgGrayScan(DG_SLOTS[0].rows);
+    return sc.bits;
+  }
+  // 深度不一致的說明句。Bruce 指定「直接講事實」，兩邊的數字都從資料算出來。
+  function dgGrayBitsMsg(refBits, newBits) {
+    return '目前這組是 ' + dgBitsLabel(refBits) + '，這個檔是 ' + dgBitsLabel(newBits) + '。'
+      + '同一輪比較必須是同一個位元深度。要換成別的位元深度，請先按「清空全部」。';
   }
   /* 閘門：不合格就跳視窗 ＋ 寫狀態列，回 false。
+     refBits 給數字 ⇒ 一併檢查「與這一輪的基準深度相同」；給 null／不給 ⇒ 只驗第一層。
      🔴 跳視窗是 Bruce 指定的（「要跳出視窗警告」的既有慣例，同 dgSlotSkipNote）——
         狀態列那行字容易被整個略過。 */
-  function dgGrayGate(rows, what, statusId) {
+  function dgGrayGate(rows, what, statusId, refBits) {
     var sc = dgGrayScan(rows);
-    if (sc.ok) return true;
-    var msg = dgGrayScanMsg(sc);
+    var msg = null, title = '這份資料沒有匯入';
+    if (!sc.ok) {
+      msg = dgGrayScanMsg(sc);
+    } else if (dgIsNum(refBits) && sc.bits !== refBits) {
+      msg = dgGrayBitsMsg(refBits, sc.bits);
+      title = '位元深度不一致，沒有匯入';
+    }
+    if (msg === null) return true;
     if (statusId && $(statusId)) dgSetStatus(statusId, what + '沒有匯入。\n' + msg, 'err');
-    dgNoteOpen('這份資料沒有匯入',
+    dgNoteOpen(title,
       '<div class="dg-note">' + dgXe(what) + '<b>沒有匯入</b>。<br><br>' + dgXe(msg) + '</div>');
     return false;
   }
@@ -5760,8 +5819,11 @@
        直接 push，見那一支自己的閘）與 autosave 還原（設計上就不重跑匯入檢查）。
        🔴 與既有的兩道寬鬆門檻不打架：上面那兩行（`!rows.length`、`已滿 10 組`）
           管的是「有沒有東西」與「裝不裝得下」，本條管的是「這份量測完不完整」，
-          三件事互斥，判斷順序不影響任何一條的結果。 */
-    if (!dgGrayGate(opt.rows, '「' + String(fileName || '這一份資料') + '」', 'dg-slot-status')) return 0;
+          三件事互斥，判斷順序不影響任何一條的結果。
+       🔴 v1.52.0：第四個引數 ＝ **這一輪的基準位元深度**（清單空的時候是 null ⇒
+          這一份就是決定深度的那一個）。四條來源全部經過這裡 ⇒ 一致性檢查也是一次到位，
+          **即時量測那條路（dgSlotAddFromLive）同樣被它管到**。 */
+    if (!dgGrayGate(opt.rows, '「' + String(fileName || '這一份資料') + '」', 'dg-slot-status', dgSlotRefBits())) return 0;
     DG_SLOTS.push({
       name: '',
       /* 🔴 v1.26.0：這個名字是**使用者自己取的**、還是系統給的預設？
@@ -6496,33 +6558,62 @@
           （有表頭但整欄沒資料 ⇒ 跳過並在狀態列列出）—— 同一條路、同一種告知方式，
           不另立第二套。
        🔴 這個取捨請 Bruce 覆核：Bruce 說的是「不要部分匯入」，我理解成「不要把一組
-          的一半灌進來」，而不是「一個檔裡只要有一組不合格就整檔退掉」。 */
-    var badGrp = [];
+          的一半灌進來」，而不是「一個檔裡只要有一組不合格就整檔退掉」。
+
+       ═══ v1.52.0：同一輪的位元深度要一致（這一條路自己的） ══════════════════
+       基準深度的決定順序與 dgSlotAdd() 那一條完全相同：
+         ① 清單上已經有組 ⇒ 用它的深度（dgSlotRefBits）；
+         ② 清單是空的 ⇒ **檔裡第一個通過完整性檢查的組**決定深度，其餘組跟它比。
+       🔴 ② 取「第一個**通過**的組」而不是「檔裡第 1 組」：第 1 組可能本身就不完整、
+          已經被上面那一道擋掉，拿它當基準等於用一個不存在的深度去擋掉全部。
+       🔴 take 是 gs 的**前綴**（見下面 room 那段），所以第一個通過的組一定真的會被加
+          進來；room ＝ 0 時一組都不加，基準是誰都不影響結果。
+       🔴 兩種退件**分開記**（badGrp ＝ 不完整、bitGrp ＝ 深度不一致），訊息才講得出
+          真正的原因 —— 混在一起就會對著深度不一致的組說「灰階不完整」，那是假話。 */
+    var badGrp = [], bitGrp = [], refBits = dgSlotRefBits();
     gs = gs.filter(function (g, k) {
+      var who = dgSlotNormalizeText(g.name) || ('檔內第 ' + (k + 1) + ' 組');
       var sc = dgGrayScan(g.rows);
-      if (sc.ok) return true;
-      badGrp.push((dgSlotNormalizeText(g.name) || ('檔內第 ' + (k + 1) + ' 組')) + '：' + dgGrayScanMsg(sc));
-      return false;
+      if (!sc.ok) { badGrp.push(who + '：' + dgGrayScanMsg(sc)); return false; }
+      if (refBits === null) { refBits = sc.bits; return true; }
+      if (sc.bits !== refBits) { bitGrp.push(who + '：' + dgBitsLabel(sc.bits)); return false; }
+      return true;
     });
     var note = res.empty.length
       ? ('\n（' + res.empty.length + ' 個組別欄位有表頭但整欄沒有量測值，已跳過：'
          + res.empty.join('、') + '）') : '';
+    /* v1.52.0：訊息裡不再寫死「L0～L255（256 階）」—— 支援任何位元深度之後那句是假話。
+       不完整與深度不一致**各跳一個視窗**、各在狀態列留一句，因為兩者的處理方式不同：
+       前者要回去補量測，後者只要先按「清空全部」。 */
     if (badGrp.length) {
-      note += '\n（' + badGrp.length + ' 組的灰階不是完整的 L0～L255，已跳過）';
+      note += '\n（' + badGrp.length + ' 組的灰階不是完整的一段，已跳過）';
       dgNoteOpen('有 ' + badGrp.length + ' 組沒有匯入',
         '<div class="dg-note">「' + dgXe(fileName) + '」裡有 <b>' + badGrp.length
-        + ' 組</b>的灰階不是完整的 L0～L255（256 階），<b>沒有匯入</b>：<br><br>'
+        + ' 組</b>的灰階不是完整的一段（從 L0 起算、不跳號，最大灰階必須是 2ⁿ−1），'
+        + '<b>沒有匯入</b>：<br><br>'
         + badGrp.map(function (t) { return dgXe(t); }).join('<br>') + '</div>');
+    }
+    if (bitGrp.length) {
+      note += '\n（' + bitGrp.length + ' 組的位元深度與這一輪不同（'
+        + dgBitsLabel(refBits) + '），已跳過）';
+      dgNoteOpen('有 ' + bitGrp.length + ' 組的位元深度不一致，沒有匯入',
+        '<div class="dg-note">這一輪比較是 <b>' + dgXe(dgBitsLabel(refBits)) + '</b>，'
+        + '「' + dgXe(fileName) + '」裡有 <b>' + bitGrp.length + ' 組</b>不是這個深度，'
+        + '<b>沒有匯入</b>：<br><br>'
+        + bitGrp.map(function (t) { return dgXe(t); }).join('<br>')
+        + '<br><br>同一輪比較必須是同一個位元深度。要換成別的位元深度，請先按「清空全部」。</div>');
     }
     if (!gs.length) {
       /* v1.51.0：全部被完整性閘門擋下時，原本那句「沒有任何一組有量測值」是錯的
-         —— 它們有量測值，只是不完整。兩種情形分開講。 */
+         —— 它們有量測值，只是不完整。三種情形分開講（v1.52.0 多了深度不一致）。 */
       dgSetStatus('dg-slot-status', '這個檔看得出是多組光學比較的版面（表頭列第 '
         + L.hdrRow + ' 列、' + L.n + ' 個組別欄位），但'
-        + (badGrp.length ? '**沒有任何一組的灰階是完整的 L0～L255**' : '**沒有任何一組有量測值**')
+        + (badGrp.length ? '**沒有任何一組的灰階是完整的一段**'
+           : (bitGrp.length ? '**沒有任何一組的位元深度與這一輪相同**' : '**沒有任何一組有量測值**'))
         + '，沒有載入任何東西。' + note, 'err');
       return 0;
     }
+
     /* room ＝ 還裝得下幾組。take 是 gs 的**前綴**，所以檔內原本的組順序完整保留；
        skipped 是裝不下而丟掉的那一段。room 可能是 0（清單已滿），此時 take 空、
        一組都不加，但視窗照樣要跳 —— 使用者仍然需要知道這次匯入等於沒發生。 */
@@ -6721,7 +6812,10 @@
     /* 🔴 v1.51.0：被完整性閘門擋下時就在這裡收手 —— 不可以繼續往下寫「即時量測完成，
        已成為第 0 組」，也不可以去動第 3 部分（dgApplyGrayTailPrim）。
        這條路正常跑完一定是 256 階（dg-measure 的 DGM_STEPS 寫死 256、abort 不回傳
-       部分資料），所以這一段是防呆，不是常態路徑。 */
+       部分資料）⇒ 完整性那一半是防呆。
+       🔴 v1.52.0 起**一致性那一半是常態路徑**：這一輪是 6-bit／10-bit 時，即時量測送回
+          的 256 階會被擋下（規劃：「即時量測那條路也要納入一致性」）。所以這個 return
+          從「防呆」升級成真的會走到的分支。 */
     if (!no) return 0;
     /* ═══ v1.45.0：純色端點 ══════════════════════════
        兩件事，缺一不可：
@@ -9481,6 +9575,8 @@
        即時量測、從比較分頁挑一組、第 4 部分帶入）全部經過這裡。
        🔴 擋下時**一個欄位都不寫** —— Bruce 指定「不要部分匯入」。放在函式第一行
           就是為了這件事：底下第一件事就是覆寫 #dg-in-gray，寫下去就回不來了。 */
+    /* 🔴 v1.52.0：第 2 部分**不做一致性檢查** —— 它只有一組（第 1／2／3 部分是單一份
+       計算輸入），所以第四個引數刻意不給。規劃第三條就是這個意思。 */
     if (!dgGrayGate(opt && opt.rows, '「' + String(fileName || '這一份資料') + '」', 'dg-status')) return;
     DG_GRAY_META = null;
     dgInvalidateResult();   // v1.14.0：作廢規則第 3 條（輸入被外部來源寫入）
@@ -9494,8 +9590,25 @@
     $('dg-in-white').value = dgXyCell(w[0]) + ' ' + dgXyCell(w[1]) + ' ' + w[2] + (dgIsNum(w[3]) ? ' ' + w[3] : '');
     DG_SRC.gray = { kind: srcKind || 'file', name: fileName || '' };
 
-    // 量測長度反過來決定 Source Driver 的合理值：1024 階只可能是 10 bit 驅動
-    if (!dgSdUserSet && opt.rows.length >= 1024) $('dg-sd').value = '10';
+    /* ═══ v1.52.0：Source Driver 的自動帶入接回「同一個位元深度來源」═════════════
+       原本這一行是 `opt.rows.length >= 1024`，與閘門的位元深度判定**各自判一套**——
+       規劃第四條要修掉的就是這個（會出現「閘門說是 10-bit、SD 卻沒跟著設」的不一致）。
+       現在深度一律來自 dgGrayScan()：閘門剛剛才用它判過，所以這裡 `gsc.ok` 恆真、
+       `gsc.bits` 必定是數字，**不會有第二套判斷**。
+
+       政策（哪些深度才自動帶入）與偵測（深度是多少）分開，政策維持原樣：
+         · 選單只有 6／8／10 bit ⇒ 只在**選單真的有那個選項**時才帶入。
+         · 只在 bits ≥ 10 時帶入 —— 8-bit 的光學量測**推不出驅動位元數**（8-bit 量測
+           可以量在 10-bit 驅動上），原本 256 階不動 SD 就是這個道理，這一條沒有改。
+       ⇒ 1024 階：與原本逐字同結果（SD ← 10）。6／8-bit：同樣不動 SD。
+       🔴 **一個誠實的差異**：4096 階（12-bit）在 v1.51.0 的閘門下會通過，然後被那行
+          `>= 1024` 設成 SD=10 —— 那是錯的推論（12-bit 量測不是 10-bit 驅動）。本版起
+          它不再動 SD（選單沒有 12 bit 這個選項）。這條路現實中沒有語料，記在這裡備查。 */
+    var gsc = dgGrayScan(opt.rows);
+    if (!dgSdUserSet && dgIsNum(gsc.bits) && gsc.bits >= 10
+        && $('dg-sd').querySelector('option[value="' + gsc.bits + '"]')) {
+      $('dg-sd').value = String(gsc.bits);
+    }
     /* v1.26.0：這一份是外部來源整份寫進來的，該問的由那條路自己問（每個呼叫端都接了
        dgGrayRecordAsk）。把手動那條路的旗標標成「已處理」，之後使用者微調格子不會
        再被問一次 —— 那是修改，不是新的資料。 */
@@ -12032,7 +12145,12 @@
     // v1.51.0 驗證用（唯讀純函式）：autosave 還原的 rows 解碼（含本版補上的排序）
     asDecRows: dgAsDecRows,
     grayScanMsg: dgGrayScanMsg,
-    grayMinSteps: function () { return DG_GRAY_MIN_STEPS; },
+    /* v1.52.0：門檻常數改成「最低位元深度」（原本是 grayMinSteps ＝ 最低階數）。
+       另外三個出口是一致性檢查用的：這一輪的基準深度、深度字樣、不一致的訊息。 */
+    grayMinBits: function () { return DG_GRAY_MIN_BITS; },
+    slotRefBits: dgSlotRefBits,
+    bitsLabel: dgBitsLabel,
+    grayBitsMsg: dgGrayBitsMsg,
     optHdrs: function () {
       return { H: DG_OPT_H, x: DG_OPT_XHDR, y: DG_OPT_YHDR, primHdr: DG_OPT_PRIMHDR,
                primLbl: DG_OPT_PRIMLBL, px: DG_OPT_PXHDR, py: DG_OPT_PYHDR, pz: DG_OPT_PZHDR,
