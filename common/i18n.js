@@ -659,21 +659,27 @@ var I18N = {
   'wfg.laFwImportFailed': { 'zh-TW': 'Firmware 匯入失敗：{msg}', 'en': 'Firmware import failed: {msg}', 'zh-CN': 'Firmware 导入失败：{msg}' },
   'wfg.laFwImportStatusFail': { 'zh-TW': 'firmware 匯入失敗', 'en': 'firmware import failed', 'zh-CN': 'firmware 导入失败' },
   'wfg.laGuideTitle':   { 'zh-TW': '需要裝置支援檔案', 'en': 'Device Support Files Required', 'zh-CN': '需要设备支持文件' },
-  /* v2.97.472: 檔案包改版為 la-device-support-pack-v4.zip（中性檔名；MCU fw 依 USB PID、bitstream 依 EEPROM magic 自動選檔） */
-  'wfg.laGuideStep1':   { 'zh-TW': '若還沒有裝置支援包「la-device-support-pack-v4.zip」，請聯絡 Bruce 協助提供。', 'en': 'If you do not have the device support pack "la-device-support-pack-v4.zip" yet, please contact Bruce for assistance.', 'zh-CN': '若还没有设备支持包「la-device-support-pack-v4.zip」，请联络 Bruce 协助提供。' },
-  'wfg.laGuideStep2':   { 'zh-TW': '下載完成後回到這裡匯入 zip。匯入成功後會自動接續剛剛的單次/循環流程。', 'en': 'After download, come back here to import the zip. Once imported, the previous single/repeat flow will resume automatically.', 'zh-CN': '下载完成后回到这里导入 zip。导入成功后会自动接续刚刚的单次/循环流程。' },
+  /* v2.97.472: 檔案包改版為 la-device-support-pack-v4.zip（中性檔名；MCU fw 依 USB PID、bitstream 依 EEPROM magic 自動選檔）
+     v4.47.0: 支援包已隨網頁一起發佈，開啟這個引導就會自動取得，步驟改寫為「不用手動拿檔案」 */
+  'wfg.laGuideStep1':   { 'zh-TW': '裝置支援包已隨本網頁一起發佈，開啟這個視窗就會自動取得並存進此瀏覽器，不需要另外索取檔案。', 'en': 'The device support pack ships with this page: opening this dialog fetches it automatically and stores it in this browser. No separate file is needed.', 'zh-CN': '设备支持包已随本网页一起发布，开启这个视窗就会自动取得并存进此浏览器，不需要另外索取文件。' },
+  'wfg.laGuideStep2':   { 'zh-TW': '若自動取得失敗（例如離線），請按「匯入 zip 檔案包」手動選擇 la-device-support-pack-v4.zip。完成後都會自動接續剛剛的單次/循環流程。', 'en': 'If the automatic fetch fails (offline, for example), use "Import zip Package" and pick la-device-support-pack-v4.zip manually. Either way the previous single/repeat flow resumes automatically.', 'zh-CN': '若自动取得失败（例如离线），请按「导入 zip 文件包」手动选择 la-device-support-pack-v4.zip。完成后都会自动接续刚刚的单次/循环流程。' },
   'wfg.laGuideOpenDownload': { 'zh-TW': '開啟下載頁', 'en': 'Open Download Page', 'zh-CN': '开启下载页' },
   'wfg.laGuideImportZip': { 'zh-TW': '匯入 zip 檔案包', 'en': 'Import zip Package', 'zh-CN': '导入 zip 文件包' },
   'wfg.laGuideLater':   { 'zh-TW': '稍後再說', 'en': 'Later', 'zh-CN': '稍后再说' },
   'wfg.laGuideSecurityNote': { 'zh-TW': '瀏覽器安全限制下，網頁不能直接記住或讀取 Windows 下載路徑；但匯入後會把檔案內容存在此瀏覽器內。', 'en': 'Due to browser security restrictions, the page cannot remember or access your download path; however, imported file contents are stored in this browser.', 'zh-CN': '浏览器安全限制下，网页不能直接记住或读取 Windows 下载路径；但导入后会把文件内容存在此浏览器内。' },
   'wfg.laGuidePackageTitle': { 'zh-TW': 'WebUSB 檔案包準備', 'en': 'WebUSB Package Preparation', 'zh-CN': 'WebUSB 文件包准备' },
   'wfg.laGuideAlreadyImported': { 'zh-TW': '已匯入過檔案包：{name}。若更換電腦或瀏覽器資料被清除，請重新匯入 zip。', 'en': 'Previously imported package: {name}. Re-import the zip if you changed computers or browser data was cleared.', 'zh-CN': '已导入过文件包：{name}。若更换电脑或浏览器数据被清除，请重新导入 zip。' },
-  'wfg.laGuideFirstTime': { 'zh-TW': '第一次使用只需要完成一次。匯入後檔案會存在這台電腦的瀏覽器內，之後按單次/循環會直接使用，不需要再下載。', 'en': 'One-time setup. After import, the files are stored in this browser. Single/Repeat captures will use them directly without re-downloading.', 'zh-CN': '第一次使用只需要完成一次。导入后文件会存在这台电脑的浏览器内，之后按单次/循环会直接使用，不需要再下载。' },
-  /* v2.97.448 改動1：原「開啟下載頁」改為聯絡 Bruce 對話框 */
-  'wfg.laGuideContactBruce': { 'zh-TW': '取得韌體檔案（聯絡 Bruce）', 'en': 'Get Firmware File (Contact Bruce)', 'zh-CN': '取得固件文件（联络 Bruce）' },
-  'wfg.laContactTitle': { 'zh-TW': '需聯絡 Bruce 協助', 'en': 'Please Contact Bruce for Assistance', 'zh-CN': '需联络 Bruce 协助' },
-  'wfg.laContactBody': { 'zh-TW': '如需要 WebUSB 裝置支援包「la-device-support-pack-v4.zip」，請聯絡 Bruce 協助提供。取得檔案後，回到上一個視窗按「匯入 zip 檔案包」即可完成設定。', 'en': 'To obtain the WebUSB device support pack "la-device-support-pack-v4.zip", please contact Bruce for assistance. Once you have the file, return to the previous dialog and click “Import zip Package” to finish setup.', 'zh-CN': '如需要 WebUSB 设备支持包「la-device-support-pack-v4.zip」，请联络 Bruce 协助提供。取得文件后，回到上一个视窗按「导入 zip 文件包」即可完成设定。' },
-  'wfg.laContactClose': { 'zh-TW': '我知道了', 'en': 'Got it', 'zh-CN': '我知道了' },
+  'wfg.laGuideFirstTime': { 'zh-TW': '第一次使用只需要完成一次。取得後檔案會存在這台電腦的瀏覽器內，之後按單次/循環會直接使用，不會再抓一次。', 'en': 'One-time setup. Once fetched, the files stay in this browser; Single/Repeat captures use them directly and never fetch again.', 'zh-CN': '第一次使用只需要完成一次。取得后文件会存在这台电脑的浏览器内，之后按单次/循环会直接使用，不会再抓一次。' },
+  /* v4.47.0: 原「聯絡 Bruce」按鈕改為同源自動取得（失敗時按鈕文字換成「重新自動取得」） */
+  'wfg.laGuideAutoFetch': { 'zh-TW': '自動取得韌體檔案', 'en': 'Fetch Firmware Automatically', 'zh-CN': '自动取得固件文件' },
+  'wfg.laGuideAutoFetchRetry': { 'zh-TW': '重新自動取得', 'en': 'Retry Automatic Fetch', 'zh-CN': '重新自动取得' },
+  'wfg.laFetchStart': { 'zh-TW': '正在自動取得裝置支援包（約 1.5 MB）…', 'en': 'Fetching the device support pack (about 1.5 MB)…', 'zh-CN': '正在自动取得设备支持包（约 1.5 MB）…' },
+  'wfg.laFetchProgress': { 'zh-TW': '正在自動取得裝置支援包… {done} KB / {total} KB', 'en': 'Fetching the device support pack… {done} KB / {total} KB', 'zh-CN': '正在自动取得设备支持包… {done} KB / {total} KB' },
+  'wfg.laFetchVerify': { 'zh-TW': '下載完成，正在驗證並存入此瀏覽器…', 'en': 'Download complete; verifying and storing in this browser…', 'zh-CN': '下载完成，正在验证并存入此浏览器…' },
+  'wfg.laFetchDone': { 'zh-TW': '裝置支援包已自動取得並存入此瀏覽器。', 'en': 'The device support pack has been fetched and stored in this browser.', 'zh-CN': '设备支持包已自动取得并存入此浏览器。' },
+  'wfg.laFetchAlready': { 'zh-TW': '此瀏覽器內已經有裝置支援包，不重新取得。', 'en': 'This browser already has the device support pack; not fetching again.', 'zh-CN': '此浏览器内已经有设备支持包，不重新取得。' },
+  'wfg.laFetchFail': { 'zh-TW': '自動取得失敗（{msg}）。請改按「匯入 zip 檔案包」手動選擇 la-device-support-pack-v4.zip；若手邊沒有這個檔案，請向 Bruce 索取。', 'en': 'Automatic fetch failed ({msg}). Use "Import zip Package" and pick la-device-support-pack-v4.zip manually; if you do not have that file, ask Bruce for it.', 'zh-CN': '自动取得失败（{msg}）。请改按「导入 zip 文件包」手动选择 la-device-support-pack-v4.zip；若手边没有这个文件，请向 Bruce 索取。' },
+  'wfg.laFetchStatusFail': { 'zh-TW': '檔案包自動取得失敗；請改用匯入 zip', 'en': 'Automatic package fetch failed; please import the zip instead', 'zh-CN': '文件包自动取得失败；请改用导入 zip' },
   /* v2.97.472: 匯入舊版包時的辨識提示（v1 單 blob／v2 multipack／v3 舊檔名，各自指名 v4 新檔名；文字一律中性） */
   'wfg.laLegacyPackageWarn': { 'zh-TW': '注意：此為舊版檔案包，部分裝置可能無法使用。請改匯入新版「la-device-support-pack-v4.zip」。', 'en': 'Note: this is an older package and may not support all devices. Please import the new "la-device-support-pack-v4.zip" instead.', 'zh-CN': '注意：此为旧版文件包，部分装置可能无法使用。请改导入新版「la-device-support-pack-v4.zip」。' },
   'wfg.laV2PackageWarn': { 'zh-TW': '注意：此為舊版檔案包，部分裝置可能無法使用。請改匯入新版「la-device-support-pack-v4.zip」。', 'en': 'Note: this is an older package and may not support all devices. Please import the new "la-device-support-pack-v4.zip" instead.', 'zh-CN': '注意：此为旧版文件包，部分装置可能无法使用。请改导入新版「la-device-support-pack-v4.zip」。' },

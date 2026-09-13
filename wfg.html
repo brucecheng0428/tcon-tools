@@ -3637,8 +3637,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260909wfg4460"></script>
-<script src="common/i18n.js?v=20260909wfg4460"></script>
+<script src="common/version.js?v=20260914wfg4470"></script>
+<script src="common/i18n.js?v=20260914wfg4470"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -9246,7 +9246,15 @@ var WFG_LA_QUICK_PRESETS = [
     decodeExpanded: true
   }
 ];
-var WFG_LA_PACKAGE_URL = 'https://218.161.24.173:5001/d/s/188EhAhjqJZwkZgaxNjMy89pxroSous8/DYvcvXiNKZb-WiD_oY2_qLtpr8fcUiTr-57iA8IjtLA0';
+/* v4.47.0: 裝置支援包改為隨網頁一起發佈，用同源相對路徑按需取得。
+   - 同源 ⇒ 一般 HTTP GET，沒有 CORS 問題；GitHub Pages 是靜態站，直接當檔案送。
+   - 只在「LA 檔案包引導」真的開啟（＝使用者要用 LA 且瀏覽器內沒有韌體）時才抓，
+     不在開頁時抓，避免每個開 wfg 的人都付這 1.5 MB。
+   - 取得後照既有 zip 匯入路徑驗證（manifest + 每檔 size + SHA256）再存進 IndexedDB。
+   舊的 NAS 分享連結（WFG_LA_PACKAGE_URL）與「請聯絡 Bruce」對話框一併移除。 */
+var WFG_LA_BUILTIN_PACKAGE_URL = 'data/la-device-support-pack-v4.zip';
+var WFG_LA_BUILTIN_PACKAGE_NAME = 'la-device-support-pack-v4.zip';
+var wfgLaBuiltinFetchBusy = false;
 
 function wfgLaInit() {
   if (!wfgLaInitialized) {
@@ -13825,8 +13833,10 @@ function wfgLaOpenPackageGuide(mode) {
           '<li>' + t('wfg.laGuideStep1') + '</li>',
           '<li>' + t('wfg.laGuideStep2') + '</li>',
         '</ol>',
+        /* v4.47.0: 自動取得的狀態列（進行中／成功／失敗都顯示在這裡） */
+        '<div class="wfg-la-guide-note" id="wfg-la-guide-fetch-status" style="display:none"></div>',
         '<div class="wfg-la-guide-actions">',
-          '<button class="wfg-btn wfg-btn-primary" type="button" data-step="download" onclick="wfgLaOpenContactBruce()">' + t('wfg.laGuideContactBruce') + '</button>',
+          '<button class="wfg-btn wfg-btn-primary" type="button" data-step="download" id="wfg-la-guide-fetch-btn" onclick="wfgLaFetchBuiltinPackage()">' + t('wfg.laGuideAutoFetch') + '</button>',
           '<button class="wfg-btn wfg-btn-primary" type="button" data-step="import" onclick="document.getElementById(&quot;wfg-la-package-input&quot;).click()">' + t('wfg.laGuideImportZip') + '</button>',
           '<button class="wfg-btn wfg-btn-secondary" type="button" onclick="wfgLaClosePackageGuide()">' + t('wfg.laGuideLater') + '</button>',
         '</div>',
@@ -13838,8 +13848,83 @@ function wfgLaOpenPackageGuide(mode) {
   document.body.appendChild(modal);
   wfgLaSyncBackdropHeight(modal);
   wfgLaBindCloseButton(modal, wfgLaClosePackageGuide);
+  /* v4.47.0: 引導一打開就自動去取得裝置支援包（使用者零操作）。
+     只在「瀏覽器內確實沒有韌體」時才抓 —— 手動叫出這個引導來重新匯入的情況不重抓。
+     失敗不會變成死路：狀態列會寫明原因並要求改用下面那顆「匯入 zip 檔案包」。 */
+  wfgLaHasStoredFirmwarePackage().then(function(has) {
+    if (has) return;
+    if (!document.getElementById('wfg-la-guide-backdrop')) return;
+    wfgLaFetchBuiltinPackage();
+  }).catch(function() {});
 }
 window.wfgLaOpenPackageGuide = wfgLaOpenPackageGuide;
+
+/* v4.47.0: 自動取得的狀態列 —— state: 'busy' | 'ok' | 'err' */
+function wfgLaSetFetchStatus(state, text) {
+  var el = document.getElementById('wfg-la-guide-fetch-status');
+  if (!el) return;
+  el.style.display = '';
+  el.textContent = text;
+  el.style.color = state === 'err' ? '#f87171' : (state === 'ok' ? '#22c55e' : '');
+}
+
+/* v4.47.0: 從同源相對路徑取得裝置支援包，走既有 zip 驗證/存入路徑。
+   🔴 退路：任何一步失敗（離線／404／檔案損壞／SHA256 不符）都只是把狀態列轉紅，
+   「匯入 zip 檔案包」那顆按鈕原位不動、照常可用，這顆自己也會變成「重新自動取得」。 */
+async function wfgLaFetchBuiltinPackage() {
+  if (wfgLaBuiltinFetchBusy) return false;
+  var btn = document.getElementById('wfg-la-guide-fetch-btn');
+  wfgLaBuiltinFetchBusy = true;
+  if (btn) btn.disabled = true;
+  try {
+    if (await wfgLaHasStoredFirmwarePackage()) {
+      wfgLaSetFetchStatus('ok', t('wfg.laFetchAlready'));
+      return true;
+    }
+    wfgLaSetFetchStatus('busy', t('wfg.laFetchStart'));
+    var res = await fetch(WFG_LA_BUILTIN_PACKAGE_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var total = Number(res.headers.get('content-length') || 0);
+    var zipBytes;
+    if (res.body && typeof res.body.getReader === 'function') {
+      var reader = res.body.getReader();
+      var chunks = [];
+      var got = 0;
+      while (true) {
+        var step = await reader.read();
+        if (step.done) break;
+        chunks.push(step.value);
+        got += step.value.length;
+        wfgLaSetFetchStatus('busy', t('wfg.laFetchProgress', {
+          done: Math.round(got / 1024),
+          total: total ? Math.round(total / 1024) : '?'
+        }));
+      }
+      zipBytes = new Uint8Array(got);
+      var pos = 0;
+      for (var ci = 0; ci < chunks.length; ci++) { zipBytes.set(chunks[ci], pos); pos += chunks[ci].length; }
+    } else {
+      zipBytes = new Uint8Array(await res.arrayBuffer());
+    }
+    if (!zipBytes.byteLength) throw new Error('downloaded file is empty');
+    wfgLaSetFetchStatus('busy', t('wfg.laFetchVerify'));
+    await wfgLaImportPackageBytes(zipBytes, WFG_LA_BUILTIN_PACKAGE_NAME, 'auto');
+    wfgLaSetFetchStatus('ok', t('wfg.laFetchDone'));
+    return true;
+  } catch (e) {
+    var msg = (e && e.message ? e.message : String(e));
+    wfgLaSetFetchStatus('err', t('wfg.laFetchFail', { msg: msg }));
+    if (btn) btn.textContent = t('wfg.laGuideAutoFetchRetry');
+    var log = document.getElementById('wfg-la-log');
+    if (log) log.textContent = t('wfg.laFetchFail', { msg: msg });
+    wfgLaSetStatus('wfg-la-status-device', 'err', t('wfg.laFetchStatusFail'));
+    return false;
+  } finally {
+    wfgLaBuiltinFetchBusy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+window.wfgLaFetchBuiltinPackage = wfgLaFetchBuiltinPackage;
 
 function wfgLaClosePackageGuide() {
   var modal = document.getElementById('wfg-la-guide-backdrop');
@@ -13912,44 +13997,11 @@ function wfgLaHideReconnectProgress(delay) {
   }, Math.max(0, Number(delay) || 0));
 }
 
-/* v2.97.448 改動1：原本自動連 NAS 下載 zip，改為彈出「需聯絡 Bruce 協助」對話框。
-   不再開啟 WFG_LA_PACKAGE_URL（NAS 分享連結）。匯入 zip 功能保留不動（另一顆按鈕）。 */
-function wfgLaOpenContactBruce() {
-  var old = document.getElementById('wfg-la-contact-backdrop');
-  if (old) old.remove();
-  var modal = document.createElement('div');
-  modal.id = 'wfg-la-contact-backdrop';
-  modal.className = 'wfg-la-guide-backdrop show';
-  modal.innerHTML = [
-    '<div class="wfg-la-guide-dialog download-opened" role="dialog" aria-modal="true" aria-labelledby="wfg-la-contact-title">',
-      '<div class="wfg-la-guide-head">',
-        '<div class="wfg-la-guide-title" id="wfg-la-contact-title">' + t('wfg.laContactTitle') + '</div>',
-        '<button class="wfg-la-guide-close" type="button" onclick="wfgLaCloseContactBruce()">×</button>',
-      '</div>',
-      '<div class="wfg-la-guide-body">',
-        '<div class="wfg-la-guide-note">' + t('wfg.laContactBody') + '</div>',
-        '<div class="wfg-la-guide-actions">',
-          '<button class="wfg-btn wfg-btn-secondary" type="button" onclick="wfgLaCloseContactBruce()">' + t('wfg.laContactClose') + '</button>',
-        '</div>',
-      '</div>',
-    '</div>'
-  ].join('');
-  wfgLaBindBackdropClose(modal, wfgLaCloseContactBruce);
-  document.body.appendChild(modal);
-  wfgLaSyncBackdropHeight(modal);
-  wfgLaBindCloseButton(modal, wfgLaCloseContactBruce);
-}
-window.wfgLaOpenContactBruce = wfgLaOpenContactBruce;
-
-function wfgLaCloseContactBruce() {
-  var modal = document.getElementById('wfg-la-contact-backdrop');
-  if (modal) modal.remove();
-}
-window.wfgLaCloseContactBruce = wfgLaCloseContactBruce;
-
-/* 保留舊函式名為相容 alias，導向聯絡 Bruce 對話框（不再連 NAS） */
+/* v4.47.0: 「請聯絡 Bruce」對話框整條移除（v2.97.448 加的）。
+   取而代之的是同源自動取得（wfgLaFetchBuiltinPackage），失敗時退回「匯入 zip 檔案包」。
+   保留舊函式名為相容 alias，導向檔案包引導（引導本身會自動取得）。 */
 function wfgLaOpenPackageDownload() {
-  wfgLaOpenContactBruce();
+  wfgLaOpenPackageGuide('');
 }
 window.wfgLaOpenPackageDownload = wfgLaOpenPackageDownload;
 
@@ -14246,10 +14298,21 @@ async function wfgLaImportPackageZip(input) {
   var file = input && input.files && input.files[0];
   if (input) input.value = '';
   if (!file) return;
+  var zipBytes = new Uint8Array(await file.arrayBuffer());
+  return wfgLaImportPackageBytes(zipBytes, file.name, 'manual');
+}
+window.wfgLaImportPackageZip = wfgLaImportPackageZip;
+
+/* v4.47.0: 把原本只吃 <input type=file> 的匯入邏輯抽成「吃 bytes」，
+   讓「手動匯入 zip」與「自動取得」走同一條驗證（manifest + 每檔 size + SHA256）與存入路徑。
+   source: 'manual' = 使用者自己選檔；'auto' = 從同源相對路徑取得。
+   auto 失敗時 throw 給呼叫端（由狀態列顯示並保留匯入退路）；manual 失敗維持原本只寫 log 的行為。 */
+async function wfgLaImportPackageBytes(zipBytes, displayName, source) {
   var log = document.getElementById('wfg-la-log');
-  var lines = ['WebUSB package import', 'zip=' + wfgLaNeutralText(file.name) + ' bytes=' + file.size];
+  var isAuto = source === 'auto';
+  var lines = [isAuto ? 'WebUSB package auto-fetch' : 'WebUSB package import',
+    'zip=' + wfgLaNeutralText(displayName || '') + ' bytes=' + zipBytes.byteLength];
   try {
-    var zipBytes = new Uint8Array(await file.arrayBuffer());
     var files = await wfgLaUnzipPackage(zipBytes);
     var manifestBytes = wfgLaFindPackageFile(files, 'manifest.json');
     if (!manifestBytes) throw new Error('zip 內找不到 manifest.json');
@@ -14367,11 +14430,11 @@ async function wfgLaImportPackageZip(input) {
       lines.push(legacyWarn);
       try { window.alert(legacyWarn); } catch (eAlert) {}
     }
-    try { localStorage.setItem('wfgLaPackageFileName', file.name); } catch (e) {}
+    try { localStorage.setItem('wfgLaPackageFileName', displayName || WFG_LA_BUILTIN_PACKAGE_NAME); } catch (e) {}
     lines.push('');
     lines.push('Starting WebUSB initialization...');
     if (log) log.textContent = lines.join('\n');
-    wfgLaSetStatus('wfg-la-status-device', 'ok', 'WebUSB 檔案包已匯入');
+    wfgLaSetStatus('wfg-la-status-device', 'ok', isAuto ? 'WebUSB 檔案包已自動取得' : 'WebUSB 檔案包已匯入');
     wfgLaClosePackageGuide();
     var initOk = await wfgLaInitHardwareFromStoredFirmware();
     if (!initOk) {
@@ -14384,13 +14447,17 @@ async function wfgLaImportPackageZip(input) {
       wfgLaSetAcqMode(mode);
       wfgLaStartCapture();
     }
+    return true;
   } catch (e) {
     lines.push('Import failed: ' + (e && e.message ? e.message : e));
     if (log) log.textContent = lines.join('\n');
-    wfgLaSetStatus('wfg-la-status-device', 'err', 'WebUSB 檔案包匯入失敗');
+    wfgLaSetStatus('wfg-la-status-device', 'err', isAuto ? 'WebUSB 檔案包自動取得失敗' : 'WebUSB 檔案包匯入失敗');
+    /* auto 路徑要讓呼叫端知道失敗，才能把退路（改用匯入 zip）講給使用者聽 */
+    if (isAuto) throw e;
+    return false;
   }
 }
-window.wfgLaImportPackageZip = wfgLaImportPackageZip;
+window.wfgLaImportPackageBytes = wfgLaImportPackageBytes;
 
 async function wfgLaEnsureStoredFirmware(kind) {
   var record = await wfgLaLoadFirmware(kind);
