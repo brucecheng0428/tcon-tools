@@ -22,6 +22,69 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.47.0 — 2026-09-14 ｜ MINOR
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| R3（多一件能做的事） | LA 的裝置支援包改成隨網頁一起發佈、開啟檔案包引導就自動取得並存進瀏覽器。使用者**多了一件能做的事**：不必再向 Bruce 索取 zip、不必手動匯入就能用 LA | **MINOR** |
+| §2 案例 1（新增完整功能） | 同上：新增「自動取得」這條路，既有的「匯入 zip 檔案包」按鈕位置、行為、驗證邏輯一字未改 | MINOR |
+| R4（起始狀態／預設值） | 檔案包引導打開時的起始狀態變了（原本靜靜等按鈕，現在自動開始取得）。不移除任何功能、不移動任何入口 | MINOR |
+| §2 案例 6（移除既有功能） | 「請聯絡 Bruce」對話框移除。它不是一項能力，是「這裡沒有檔案給你」的告示；真正的取得路徑（匯入 zip）原位保留，且新增的自動取得完全覆蓋它原本要告知的事 | 不觸發 MAJOR |
+| R1（修 bug） | 無。既有功能沒有壞掉要修 | — |
+| R2（開新的一波） | 無。沒有取得、也沒有要求 MAJOR 裁示 | — |
+
+取最高者 ⇒ **MINOR**。
+
+> 🔴 **判定取捨（供覆核）**：唯一可能往上判的是 §2 案例 6（移除既有功能 → MAJOR）。我判定不觸發，理由是那顆按鈕**位置沒動、用途沒變**（都是「取得韌體檔案」），變的只是按下去會不會真的拿到檔案 —— 使用者不需要重新找東西，過去存下來的波形、匯出檔、已匯入的韌體也都不需要重新確認。依 §1「不確定一律往低編」，落在 **MINOR**，不涉及 MAJOR，無需核准欄位。
+
+### 這一版做了什麼
+
+**LA 的韌體不用再手動要、手動匯入了。**
+
+- 裝置支援包 `la-device-support-pack-v4.zip`（1,571,265 bytes）進版控，放在 `data/`，與 Bruce 手上那一份**逐位元組相同**（SHA-256 `b3a533d6f1d1ad08691f3ad8a71555b8283f0509670c3317d99d7d798180c82d`）—— 自動取得與手動匯入拿到的是同一個檔，可以對帳。
+- 打開 LA 的「WebUSB 檔案包準備」引導時，若這個瀏覽器裡還沒有韌體，網頁會自己去 `data/la-device-support-pack-v4.zip` 抓（同源相對路徑、一般 HTTP GET，GitHub Pages 靜態站直送，沒有 CORS 問題），下載時顯示 KB 進度，抓完照**既有**的 zip 驗證路徑（manifest ＋ 每個檔的 size ＋ SHA256）驗過再寫進 IndexedDB，接著自動接續原本的單次／循環擷取。
+- **不在開頁時抓**：只有真的要用 LA 且瀏覽器內沒有韌體時才抓，不讓每個開 wfg 的人都付這 1.5 MB。**已經有了就不重抓**：`wfgLaHasStoredFirmwarePackage()` 為真時整條 fetch 不會發出。
+- 「請聯絡 Bruce」對話框（v2.97.448 加的）與 NAS 分享連結常數 `WFG_LA_PACKAGE_URL` 一併移除 —— 原始碼裡不再留內部 NAS 位址。
+
+**🔴 退路（自動取得失敗之後，使用者下一步做得到什麼）**
+
+離線、404、檔案損壞、SHA256 不符——任何一步失敗都只會把引導裡的狀態列轉紅，寫明「自動取得失敗（原因）。請改按『匯入 zip 檔案包』手動選擇 la-device-support-pack-v4.zip；若手邊沒有這個檔案，請向 Bruce 索取。」那顆「匯入 zip 檔案包」按鈕**位置、行為一字未動**，就是今天唯一的那條路，一步都沒少；自動取得那顆自己則變成「重新自動取得」，網路恢復後可再試。不會變成死路。
+
+### 內部改動
+
+- `wfgLaImportPackageZip(input)` 拆成「取 bytes」＋ `wfgLaImportPackageBytes(bytes, name, source)`，讓手動匯入與自動取得**走同一套**解壓、manifest 判版（v4/v3/v2/legacy）、size/SHA256 驗證與 IndexedDB 存入邏輯，不另開第二套。
+- 新增 `wfgLaFetchBuiltinPackage()`（掛 `window`），常數 `WFG_LA_BUILTIN_PACKAGE_URL` / `WFG_LA_BUILTIN_PACKAGE_NAME`。
+- i18n 新增 `wfg.laGuideAutoFetch` / `laGuideAutoFetchRetry` / `laFetchStart` / `laFetchProgress` / `laFetchVerify` / `laFetchDone` / `laFetchAlready` / `laFetchFail` / `laFetchStatusFail`（三語齊備）；改寫 `laGuideStep1` / `laGuideStep2` / `laGuideFirstTime`；移除 `laGuideContactBruce` / `laContactTitle` / `laContactBody` / `laContactClose`。
+- 單檔匯入路徑的 FX2 64 KiB 上限檢查（`wfgLaImportFirmwareFile`）未動，實測仍會擋。
+
+### 為什麼是整包 zip，不是拆成個別檔案
+
+包內 19 個檔（5 個 MCU 韌體 ＋ 13 個 FPGA bitstream ＋ manifest），解壓後 3,652,930 bytes，壓縮後 1,571,265 bytes。
+
+- **拆檔沒有比較省**：解壓後是壓縮後的 2.3 倍，而 `.bin` 走 HTTP 不會再被壓一次；整包一次 GET 1.5 MB，拆檔要 19 個請求共 3.5 MB。
+- **「只放需要的兩個檔」做不到**：要哪一顆 MCU 韌體由 USB PID 決定、要哪一顆 bitstream 由 EEPROM magic 決定，都是**接上硬體當下**才知道的；網頁事先不知道使用者手上是哪一台。砍檔＝砍掉支援的機型。
+- **維持與手動匯入同一個檔**：進 repo 的就是 Bruce 發出去的那一份，不重新打包，SHA-256 對得上，也不必為了拆檔重算 manifest。
+- 不用 base64 內嵌進 `wfg.html`：會讓每個開頁的人都付這 1.5 MB，且 base64 再膨脹約 33%。
+
+### 驗證（本機 headless Chrome ＋ 本機 http.server，同源 127.0.0.1）
+
+探針把 `wfg.html` 用 iframe 開在同一個 origin，走使用者真正的入口（`wfgLaOpenPackageGuide()`），只讀 `window.*`、DOM 與 IndexedDB 這三種使用者那一側也看得到的量。
+
+| 項 | 做法 | 實際結果 |
+|---|---|---|
+| 乾淨瀏覽器整條路徑 | 全新 user-data-dir（`indexedDB.databases()` 確認 DB 不存在）→ 載入 wfg.html → 開檔案包引導 → 自動取得 | IndexedDB 由 0 筆變 **19 筆**（`fx2` ＋ `fx2:01a1/01a2/01a3/01a4/03a1` ＋ 13 筆 `fpga:*`）；**逐筆 size 與 SHA-256 對照 zip 內原檔重算的值，19 筆全部相同、zip 內沒有任何 bin 漏掉**；resource timing 顯示該 zip 抓了 1 次、`encodedBodySize=1571265`；`localStorage.wfgLaPackageFileName = la-device-support-pack-v4.zip` |
+| 失敗路徑 | server 對 `/data/la-device-support-pack-v4.zip` 回 404 | 狀態列轉紅：「自動取得失敗（HTTP 404）。請改按『匯入 zip 檔案包』…」；IndexedDB 仍 0 筆；那顆按鈕文字變「重新自動取得」且未 disabled；「匯入 zip 檔案包」按鈕仍在、`onclick` 仍指向同一個 `#wfg-la-package-input`。接著用該 input 的 `change` 事件走完手動匯入 → **19 筆全到、SHA-256 全對** |
+| 不重抓 | 同一個 profile 第二次載入並再開引導 | server 端該次的請求記錄 **0 筆**、頁面 resource timing **0 筆**；IndexedDB 仍是那 19 筆（伺服器一律 `Cache-Control: no-store`，所以這個 0 不是 HTTP 快取擋掉的） |
+| 🔴 負控制 | 同一支探針跑 HEAD（v4.46.0） | 版本徽章 `v4.46.0`、`wfgLaFetchBuiltinPackage` 為 `undefined`、`wfgLaOpenContactBruce` 仍是 `function`、無 `#wfg-la-guide-fetch-status` 元素、開引導等 20 秒後 IndexedDB 仍 0 筆、該 zip 的請求 0 筆 ⇒ **「自動取得成功」這條在舊版是紅的**，斷言有鑑別力 |
+| FX2 64 KiB 上限 | 用 `#wfg-la-fw-input` 的 `change` 事件送 65,537 bytes | 被擋：IndexedDB **0 筆**、裝置列顯示「裝置連線錯誤」。正控制：同一條路徑送 1,024 bytes → **寫入 1 筆 `fx2`**、裝置列「裝置已連接」 ⇒ 不是整條路徑壞掉 |
+| 不退化 | 切 TCON 分頁、改 Frame Rate、切 LA 分頁 | 主波形 canvas 599×1050 有墨跡 221,674 px／502 色；Frame Rate 60 → 30（輸入框值與「30 Hz」標籤都跟著變），畫面重畫成 141,248 px／1,124 色（**有變**，不是恆等式）；LA canvas 924×596 墨跡 399,241 px；全程無 JS 例外（只有 Chrome 良性的 ResizeObserver loop 警告） |
+
+**探針自己踩到、修掉的兩個自壞**（記在這裡，因為兩者的症狀都跟「產品壞了」長得一模一樣）：① 用 wrapper 包 `win.fetch` 來數請求，wrapper 定義在探針那一頁，害相對路徑改用探針的 base URL 解析 → 打成 `/_tmp_wfg_la/data/…zip` → HTTP 404；② 探針先用 `indexedDB.open(name)` 讀 DB，對不存在的 DB 會建一個沒有任何 object store 的 v1，wfg 之後 `open(name, 1)` 不再觸發 `onupgradeneeded`，產品於是報「object stores was not found」。兩者都改成不介入的觀測（resource timing、`indexedDB.databases()` 預檢）後才拿到可信的數字。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.57.0 — 2026-09-14 ｜ MINOR
 
 判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
