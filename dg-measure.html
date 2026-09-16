@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260914dg1560"></script>
+<script src="common/version.js?v=20260917dg1572"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -1354,8 +1354,23 @@
   }
 
   // ── 序列埠 ──────────────────────────────────────────────────────────────
-  var port = null, reader = null, keepReading = false, rxBuf = '', pending = null;
-  var readLoopRunning = false;   // v1.32.0：readLoop 這支 async 迴圈目前在不在跑（見 readLoop）
+  /* ═══ v1.58.0：序列通道收進一個物件（transport 重構）═══════════════════
+     🔴 這一版對使用者**行為零改變**，是純機械改名：原本六個裸全域收進
+        dgmSerialCh。為什麼非做不可 —— `pending` 是**全域單槽**，第二條通道
+        （I2C 治具）接上來之後，兩條通道的回應會互相覆寫。
+     🔴 單槽本身沒有錯（CA-410 是一問一答協定，不需要佇列）；錯的是
+        「單槽被兩條通道共用」。所以這一版改的是**歸屬**，不是資料結構
+        —— 刻意不順手改成佇列，那會動到既有的通訊時序。
+     🔴 驗收：重構前後各跑一輪 256 階（假 CA-410 夾具 `_tmp_dg_i2c/harness.js`），
+        rows／prim／指令序列逐筆 diff = 0。 */
+  var dgmSerialCh = {
+    port: null,
+    reader: null,
+    keepReading: false,
+    rxBuf: '',
+    pending: null,           // 一問一答的單槽 —— 現在屬於這條通道，不再是全域
+    readLoopRunning: false   // v1.32.0：readLoop 這支 async 迴圈目前在不在跑（見 readLoop）
+  };
 
   /* ═══ v1.27.0：量測儀連不上的時候，講人話 ═══════════════════════════════
      Bruce 2026-09-09：「要預設各種情況，例如同時開著 CA-S40 原廠軟體在搶同一個
@@ -1406,8 +1421,8 @@
   /* ═══ v1.32.0：儀器連線狀態 ═════════════════════════════════════════════
      本頁只支援 **CA-410**（Web Serial）—— 這是唯一有實機、有協議、Bruce 已用真機
      驗過的那一台。其他機型見 CHANGELOG v1.32.0 的說明。 */
-  var dgmLinkActive = false;              // 本工具目前是否握有儀器連線
-  var dgmLinkBusy = false;                // 連線／釋放進行中（防連點）
+  var dgmSerialLinkActive = false;        // 本工具目前是否握有儀器連線
+  var dgmSerialLinkBusy = false;          // 連線／釋放進行中（防連點）
 
   /* 沒連線時底部紅框要顯示的那一句（Bruce 指定的用字）。
      🔴 與全螢幕那一句（DGM_FS_DO）**放在同一個紅框裡**，不另開第二個框、
@@ -1418,14 +1433,21 @@
      兩條偵測路徑都要有，因為兩者都可能先發生：
        ① navigator.serial 的 disconnect 事件（裝置被拔掉）
        ② 讀／寫時丟例外（被別的程式搶走、驅動掉了） */
-  function dgmLost(whereLog) {
+  /* 🔴 v1.58.0：量測中止的共用收尾。兩條通道掉線時要做的「這一輪作廢」
+     是同一件事，抽出來才不會出現「I2C 掉線把量測停了、儀器那條卻沒停」
+     這種各做各的。**判斷與訊息一個字沒動**，只是換了一個名字住。 */
+  function dgmAbortMeasure(reason) {
+    if (running && !aborted) abort(reason);
+  }
+
+  function dgmSerialLost(whereLog) {
     lk('✕ 連線中斷（' + whereLog + '）', 'e');   // v1.38.0 觀測
     log('連線中斷（' + whereLog + '）', 'e');
-    if (running && !aborted) abort(DGM_ERR.lost);
+    dgmAbortMeasure(DGM_ERR.lost);
     /* v1.32.0：掉線 ＝ 連線沒了，狀態燈要滅、閘門要重新擋住。
        🔴 這一支是**唯一**的「連線消失」出口（disconnect 事件與讀／寫失敗都收斂
           到這裡），所以燈與閘門只要掛在這裡就不會有漏網的路徑。 */
-    if (dgmLinkActive) dgmSetLink(false);
+    if (dgmSerialLinkActive) dgmSetLink(false);
   }
   if (navigator.serial && navigator.serial.addEventListener) {
     navigator.serial.addEventListener('disconnect', function (e) {
@@ -1433,7 +1455,7 @@
          🔴 取不到就不動作 —— 寧可漏報也不要把「別台 USB 裝置被拔掉」誤判成
             我們這一台而把使用者正在跑的量測砍掉。讀／寫那條路仍然接得住。 */
       var p = (e && (e.port || e.target)) || null;
-      if (p && port && p === port) dgmLost('disconnect 事件');
+      if (p && dgmSerialCh.port && p === dgmSerialCh.port) dgmSerialLost('disconnect 事件');
     });
   }
 
@@ -1585,16 +1607,16 @@
   }
 
   async function cmd(text, waitMs, opt) {
-    if (!port || !port.writable) return null;
+    if (!dgmSerialCh.port || !dgmSerialCh.port.writable) return null;
     // v1.38.0 觀測：在既有旗標被設定**之前**先讀一次，才問得出「這是不是第一個」
     var isFirstTx = !dgmFirstTxAt;
     if (!dgmFirstTxAt) dgmFirstTxAt = performance.now();
     if (!dgmFirstMesAt && text === 'MES,1') dgmFirstMesAt = performance.now();
     var wait = new Promise(function (res) {
-      pending = { resolve: res, timer: setTimeout(function () { pending = null; res(null); }, waitMs || 5000) };
+      dgmSerialCh.pending = { resolve: res, timer: setTimeout(function () { dgmSerialCh.pending = null; res(null); }, waitMs || 5000) };
     });
     try {
-      var w = port.writable.getWriter();
+      var w = dgmSerialCh.port.writable.getWriter();
       /* ═══ v1.56.0：寫入加逾時保護 ═══════════════════════════════════════
          🔴 這是硬體流量控制帶進來的**新風險**，必須擋在這裡：RTS/CTS 下，
             對方沒有拉起 CTS 時 `write()` 可能**永遠不會 resolve**。v1.55.0 這一行
@@ -1615,11 +1637,11 @@
         log('送出' + (wr.timeout ? '逾時' : '失敗') + ' ' + text
           + (wr.timeout ? '（' + DGM_WRITE_MS + ' ms）' : '：' + dgmErrMsg(wr.e)), 'e');
         if (!wr.timeout) { try { w.releaseLock(); } catch (e2) {} }
-        if (pending) { clearTimeout(pending.timer); pending = null; }
+        if (dgmSerialCh.pending) { clearTimeout(dgmSerialCh.pending.timer); dgmSerialCh.pending = null; }
         /* quiet ＝ 呼叫端自己會收拾（目前只有 v1.56.0 的握手）。
            🔴 不能讓握手失敗走 dgmLost() —— 那一支在量測中會 abort 整輪，
               而「重新量測」時的握手失敗本來就該退回相容模式繼續，不是作廢。 */
-        if (!(opt && opt.quiet)) dgmLost('寫入' + (wr.timeout ? '逾時' : '失敗') + ' ' + text);
+        if (!(opt && opt.quiet)) dgmSerialLost('寫入' + (wr.timeout ? '逾時' : '失敗') + ' ' + text);
         return null;
       }
       w.releaseLock();
@@ -1630,10 +1652,10 @@
       lk('✕ 寫入序列埠失敗（' + text + '）· name=' + dgmErrName(e) + ' · message=' + dgmErrMsg(e), 'e');
       // v1.27.0：寫不進去 ＝ 連線沒了。原始字串進 log，使用者看到的是那一句人話。
       log('送出失敗 ' + text + '：' + e.message, 'e');
-      if (pending) { clearTimeout(pending.timer); }   // v1.56.0：定時器也要收掉，不只把參照設成 null
-      pending = null;
+      if (dgmSerialCh.pending) { clearTimeout(dgmSerialCh.pending.timer); }   // v1.56.0：定時器也要收掉，不只把參照設成 null
+      dgmSerialCh.pending = null;
       // v1.56.0：quiet 的理由同上面那一處（握手失敗由呼叫端收拾，不走 dgmLost）
-      if (!(opt && opt.quiet)) dgmLost('寫入失敗 ' + text);
+      if (!(opt && opt.quiet)) dgmSerialLost('寫入失敗 ' + text);
       return null;
     }
     var r = await wait;
@@ -1658,28 +1680,28 @@
           實測 probe1 的 N6c，斷線後重新連上時 readers 沒有增加。）
        用 readLoopRunning 之後，正常流程的判斷結果與從前**完全一樣**
        （跑著就不重起、closePort 之後就重起），只有上面那個壞掉的情況會不同。 */
-    readLoopRunning = true;
+    dgmSerialCh.readLoopRunning = true;
     try {
-      while (port.readable && keepReading) {
-        reader = port.readable.getReader();
+      while (dgmSerialCh.port.readable && dgmSerialCh.keepReading) {
+        dgmSerialCh.reader = dgmSerialCh.port.readable.getReader();
         try {
           while (true) {
-            var rd = await reader.read();
+            var rd = await dgmSerialCh.reader.read();
             if (rd.done) break;
             if (!rd.value || !rd.value.length) continue;
-            rxBuf += new TextDecoder().decode(rd.value);
+            dgmSerialCh.rxBuf += new TextDecoder().decode(rd.value);
             var i;
-            while ((i = rxBuf.indexOf('\r')) >= 0) {
-              var line = rxBuf.slice(0, i); rxBuf = rxBuf.slice(i + 1);
-              if (pending) { var p = pending; pending = null; clearTimeout(p.timer); p.resolve(line); }
+            while ((i = dgmSerialCh.rxBuf.indexOf('\r')) >= 0) {
+              var line = dgmSerialCh.rxBuf.slice(0, i); dgmSerialCh.rxBuf = dgmSerialCh.rxBuf.slice(i + 1);
+              if (dgmSerialCh.pending) { var p = dgmSerialCh.pending; dgmSerialCh.pending = null; clearTimeout(p.timer); p.resolve(line); }
             }
           }
-        } finally { reader.releaseLock(); }
+        } finally { dgmSerialCh.reader.releaseLock(); }
       }
     } catch (e) {
-      if (keepReading) { log('讀取中斷：' + e.message, 'e'); dgmLost('讀取中斷'); }
+      if (dgmSerialCh.keepReading) { log('讀取中斷：' + e.message, 'e'); dgmSerialLost('讀取中斷'); }
     } finally {
-      readLoopRunning = false;
+      dgmSerialCh.readLoopRunning = false;
     }
   }
 
@@ -1726,9 +1748,9 @@
 
   async function closePort() {
     try { await cmd('COM,0', 3000); } catch (e) {}
-    keepReading = false;
-    try { if (reader) await reader.cancel(); } catch (e) {}
-    try { await port.close(); } catch (e) {}
+    dgmSerialCh.keepReading = false;
+    try { if (dgmSerialCh.reader) await dgmSerialCh.reader.cancel(); } catch (e) {}
+    try { await dgmSerialCh.port.close(); } catch (e) {}
     dgmPortModeUsed = null;   // v1.56.0：埠關了，「實際用的是哪一種」就不再成立
   }
 
@@ -1747,20 +1769,20 @@
         不要在這裡用新的方式再造一個。上限 1 秒，等不到就照實印出來。 */
   async function dgmHardClose(why) {
     lk('　　收拾：硬關閉序列埠（不送 COM,0，理由見程式碼註解）· ' + why);
-    keepReading = false;
-    if (reader) {
-      var rc = await dgmRace(dgmTry(function () { return reader.cancel(); }), DGM_CLOSE_MS, 'reader.cancel()');
+    dgmSerialCh.keepReading = false;
+    if (dgmSerialCh.reader) {
+      var rc = await dgmRace(dgmTry(function () { return dgmSerialCh.reader.cancel(); }), DGM_CLOSE_MS, 'reader.cancel()');
       lk('　　reader.cancel() ' + dgmRaceText(rc, DGM_CLOSE_MS), rc.ok ? '' : 'e');
     }
-    var pc = await dgmRace(dgmTry(function () { return port.close(); }), DGM_CLOSE_MS, 'port.close()');
+    var pc = await dgmRace(dgmTry(function () { return dgmSerialCh.port.close(); }), DGM_CLOSE_MS, 'port.close()');
     lk('　　port.close() ' + dgmRaceText(pc, DGM_CLOSE_MS), pc.ok ? '' : 'e');
-    for (var i = 0; i < 100 && readLoopRunning; i++) {
+    for (var i = 0; i < 100 && dgmSerialCh.readLoopRunning; i++) {
       await new Promise(function (r) { setTimeout(r, 10); });
     }
-    lk('　　readLoop ' + (readLoopRunning ? '⚠ 等了 1 秒仍在跑（放棄等待）' : '已停'),
-      readLoopRunning ? 'e' : '');
+    lk('　　readLoop ' + (dgmSerialCh.readLoopRunning ? '⚠ 等了 1 秒仍在跑（放棄等待）' : '已停'),
+      dgmSerialCh.readLoopRunning ? 'e' : '');
     dgmPortModeUsed = null;
-    rxBuf = '';
+    dgmSerialCh.rxBuf = '';
   }
 
   /* ═══ v1.56.0：規格模式握手 ═════════════════════════════════════════════
@@ -1812,7 +1834,7 @@
   async function dgmOpenPort() {
     /* v1.55.0 的 `if (!port.readable) await port.open(...)` 那半句在這裡：
        埠已經開著就一個字都不動（停止之後再按一次、run() 第二次呼叫都走這條）。 */
-    if (port.readable) {
+    if (dgmSerialCh.port.readable) {
       lk('呼叫前 port.readable ＝ 有（已經開著）⇒ 不重開，沿用現有的埠 · '
         + (dgmPortModeUsed ? dgmModeLabel(dgmPortModeUsed) : '模式不明（不是這一頁開的）'));
       log('沿用上一次已經開著的埠', 'o');
@@ -1829,7 +1851,7 @@
          印的是**這一次真的要傳給 open() 的那個物件**，外加這次是哪一種模式。 */
       lk('open() 參數：' + dgmOptsText(opts) + '　⇐ ' + dgmModeLabel(which)
         + '（呼叫前 port.readable ＝ null（還沒開））');
-      var r = await dgmRace(dgmTry(function () { return port.open(opts); }), DGM_OPEN_MS, 'open()');
+      var r = await dgmRace(dgmTry(function () { return dgmSerialCh.port.open(opts); }), DGM_OPEN_MS, 'open()');
       if (!r.ok) {
         var nm = r.timeout ? '' : dgmErrName(r.e);
         /* 「已經開著」不是錯誤（停止之後再按一次就會走到這裡），其餘一律是打不開。
@@ -1859,8 +1881,8 @@
       /* v1.11.0：停止時**不關埠**，所以再按一次時埠往往還開著、readLoop 也還在跑。
          這裡要防的是重複起第二個 readLoop（兩個 reader 搶同一個 stream）。
          v1.32.0：判準從 `!keepReading` 換成 `!readLoopRunning`（理由見 readLoop 那段）。 */
-      rxBuf = '';
-      if (!readLoopRunning) { keepReading = true; readLoop(); }
+      dgmSerialCh.rxBuf = '';
+      if (!dgmSerialCh.readLoopRunning) { dgmSerialCh.keepReading = true; readLoop(); }
       dgmPortModeUsed = which;
       if (which === 'spec') {
         var hs = await dgmHandshake();
@@ -1877,7 +1899,7 @@
         }
       }
       lk('✔ 埠可用 · ' + dgmModeLabel(which) + ' · ' + dgmOptsText(opts)
-        + ' · readLoop ' + (readLoopRunning ? '執行中' : '沒有在跑'), 'o');
+        + ' · readLoop ' + (dgmSerialCh.readLoopRunning ? '執行中' : '沒有在跑'), 'o');
       log('埠已開啟 ' + (which === 'spec' ? '38400 7E2 ＋RTS/CTS' : '38400 8N1'), 'o');
       if (which === 'legacy') {
         lk(want === 'legacy' ? DGM_LK_LEGACY_FORCED : DGM_LK_FELLBACK, 'e');
@@ -2035,7 +2057,7 @@
     /* v1.40.0：回到 v1.38.0 的寫法。v1.39.0 曾在全螢幕下把這一行改寫成
        「請先退出全螢幕」，那是配合當時「全螢幕下停用連線」而來的 —— 那個停用
        造成死鎖、已整條移除，所以這句話也必須跟著回去，不留與行為不符的文字。 */
-    if (!dgmLinkActive) L.push(DGM_LINK_DO);
+    if (!dgmSerialLinkActive) L.push(DGM_LINK_DO);
     return L;
   }
 
@@ -2098,7 +2120,7 @@
     if (b) {
       var m = dgmMainMode(), txt, dis;
       if (m === 'stop') { txt = aborted ? '停止中…' : '■ 停止'; dis = !!aborted; }
-      else { txt = finished ? '重新量測' : '開始量測'; dis = dgmGateLines().length > 0 || dgmLinkBusy; }
+      else { txt = finished ? '重新量測' : '開始量測'; dis = dgmGateLines().length > 0 || dgmSerialLinkBusy; }
       b.textContent = txt;
       b.classList.toggle('dgm-stop', m === 'stop');
       b.disabled = dis;
@@ -2111,9 +2133,9 @@
        開關條件回到 v1.38.0：只看 running 與 dgmLinkBusy。 */
     var u = $('dgm-link');
     if (u) {
-      u.textContent = dgmLinkBusy ? (dgmLinkActive ? '中斷中…' : '連線中…')
-        : (dgmLinkActive ? '中斷連線' : '連線');
-      u.disabled = running || dgmLinkBusy;
+      u.textContent = dgmSerialLinkBusy ? (dgmSerialLinkActive ? '中斷中…' : '連線中…')
+        : (dgmSerialLinkActive ? '中斷連線' : '連線');
+      u.disabled = running || dgmSerialLinkBusy;
     }
     /* ── ②b 重新選擇儀器（v1.38.0）────────────────────────────────────
        🔴 開關條件與連線鈕**同一條**（量測中／忙碌中停用），不自己判一份。
@@ -2123,7 +2145,7 @@
     /* v1.40.0：同上，「全螢幕下停用」整條移除。全螢幕下按它會走可控退出
        （dgmPrepChooser），不是被擋住。 */
     var pk = $('dgm-pick');
-    if (pk) pk.disabled = running || dgmLinkBusy;
+    if (pk) pk.disabled = running || dgmSerialLinkBusy;
     /* ── ②c 切換後等待（v1.42.0）──────────────────────────────────────────
        🔴 條件是 **running 一項**，不是照抄上面兩顆的 `running || dgmLinkBusy`。
           上面那個 dgmLinkBusy 是**連線動作自己的防連點**（連線／中斷／重選都在
@@ -2147,7 +2169,7 @@
           讀成區域變數 `want`，那一次開埠從頭到尾只認它 —— 繞過 disabled 直接改
           DOM，也影響不到已經在跑的那一次連線。 */
     var pm = $('dgm-mode');
-    if (pm) pm.disabled = !!(running || dgmLinkBusy);
+    if (pm) pm.disabled = !!(running || dgmSerialLinkBusy);
     /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
        Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
        所以讓他自己決定就好。」
@@ -2228,7 +2250,7 @@
   /* v1.34.0：原本這裡有一支 dgmRenderLink()（⏻ 那顆燈的 on／busy／aria-pressed）。
      那顆鈕已移除，狀態改由主按鈕的文字呈現 ⇒ 整支刪掉，不留死碼。 */
   function dgmSetLink(v) {
-    dgmLinkActive = !!v;
+    dgmSerialLinkActive = !!v;
     syncFs();          // 🔴 按鈕與閘門是同一個狀態的兩個面，只從這裡一起更新
   }
 
@@ -2260,15 +2282,15 @@
     lk('getPorts() 回 ' + ports.length + ' 個（＝這個網址先前已授權過的埠）' + ms());
     for (var pi = 0; pi < ports.length; pi++) lk('　　[' + pi + '] ' + dgmPortInfo(ports[pi]));
     if (ports.length) {
-      port = ports[0];
+      dgmSerialCh.port = ports[0];
       /* 🔴 v1.38.0 觀測（Dispatch 2026-09-11 要查證的那一點）：`getPorts()` 給的是
          「這個來源先前已被授權過的**所有**埠」，不是「量測儀那一個」。清單非空就
          直接用 [0]、而且**不會跳出選擇視窗** —— 若這台電腦以前授權過別的
          USB-Serial 裝置，選中的可能根本不是量測儀。
          本版只把事實印出來（走了哪條路、選中誰），**不改這條路** ——
          要不要改，等拿到現場 log 再由 Bruce 決定。要自己挑，走「重選儀器」。 */
-      lk('★ 走「既有授權」這條路：直接用 [0]，不跳選擇視窗 ⇒ ' + dgmPortInfo(port), 'i');
-      if (dgmPickedPort && port !== dgmPickedPort) {
+      lk('★ 走「既有授權」這條路：直接用 [0]，不跳選擇視窗 ⇒ ' + dgmPortInfo(dgmSerialCh.port), 'i');
+      if (dgmPickedPort && dgmSerialCh.port !== dgmPickedPort) {
         lk('★ 注意：你剛才用「重選儀器」挑的不是這一個，這一輪用的是 [0]', 'i');
       }
     }
@@ -2288,7 +2310,7 @@
          正常情況恆為 none；印出 api／f11 就表示可控退出那一段有漏，
          這一行因此也是那一段的自我稽核。 */
       lk('　　呼叫 requestPort() 當下的全螢幕狀態：' + dgmFsKind());
-      try { port = await navigator.serial.requestPort(); }
+      try { dgmSerialCh.port = await navigator.serial.requestPort(); }
       catch (e) {
         /* 🔴 使用者按取消、與「一台可選的裝置都沒有」，規格上**都是 NotFoundError**，
            分不出來 —— 所以這句話寫成兩種情況都成立的樣子，不猜是哪一種。
@@ -2299,7 +2321,7 @@
         msg(dgmErrName(e) === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.noPort, 'err');
         return false;
       }
-      lk('★ 在選擇視窗裡選了：' + dgmPortInfo(port) + ms(), 'i');
+      lk('★ 在選擇視窗裡選了：' + dgmPortInfo(dgmSerialCh.port) + ms(), 'i');
     }
     /* ═══ v1.56.0：開埠整段搬進 dgmOpenPort() ═══════════════════════════════
        v1.38.0 當時在下面那一支（dgmSerialPick）寫著「參數與上面那一支刻意寫成
@@ -2308,7 +2330,7 @@
        這次兩支都必須改，於是「兩處是否一致」就不該再靠驗證腳本去比對兩份字面，
        直接收斂成同一支函式，讓它在結構上不可能不一致。 */
     if (!(await dgmOpenPort())) return false;
-    lk('　　（連線路徑結束）最後用的是 ' + dgmPortInfo(port) + ms(), 'o');
+    lk('　　（連線路徑結束）最後用的是 ' + dgmPortInfo(dgmSerialCh.port) + ms(), 'o');
     return true;
   }
 
@@ -2318,9 +2340,9 @@
         （close ＋ 停掉 read loop），原廠光學 UI 才接得回去 —— 這正是 Bruce
         要這顆鈕的目的，不能只把旗標設成 false 了事。 */
   async function dgmSerialOff() {
-    lk('▶ 中斷連線 ⇒ closePort()（COM,0 → 取消 reader → close）· port ' + (port ? '有' : 'null'));
-    if (port) await closePort();
-    lk('✔ closePort() 回來了 · readLoop ' + (readLoopRunning ? '仍在跑' : '已停'), 'o');
+    lk('▶ 中斷連線 ⇒ closePort()（COM,0 → 取消 reader → close）· port ' + (dgmSerialCh.port ? '有' : 'null'));
+    if (dgmSerialCh.port) await closePort();
+    lk('✔ closePort() 回來了 · readLoop ' + (dgmSerialCh.readLoopRunning ? '仍在跑' : '已停'), 'o');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -2369,17 +2391,17 @@
     dgmPickedPort = picked;
     lk('★ 選到：' + dgmPortInfo(picked) + ms(), 'i');
     /* 舊埠要先放掉，否則兩個埠各有一個 readLoop。走的是既有的 closePort()。 */
-    if (port && port !== picked) {
+    if (dgmSerialCh.port && dgmSerialCh.port !== picked) {
       lk('先釋放上一個埠（closePort）');
       try { await closePort(); } catch (e) { lk('釋放時出錯：' + dgmErrMsg(e), 'e'); }
       lk('　　釋放完成' + ms());
     }
-    port = picked;
+    dgmSerialCh.port = picked;
     /* v1.56.0：與 dgmSerialOn() 走**同一支** dgmOpenPort()（兩段式開埠）。
        🔴 這正是 v1.38.0 註記「兩處是否一致由驗證腳本逐字比對」那個問題的正解 ——
           不用比對了，因為只剩一份。 */
     if (!(await dgmOpenPort())) return false;
-    lk('　　（重選儀器路徑結束）這一次用的是 ' + dgmPortInfo(port) + ms(), 'o');
+    lk('　　（重選儀器路徑結束）這一次用的是 ' + dgmPortInfo(dgmSerialCh.port) + ms(), 'o');
     return true;
   }
 
@@ -2388,12 +2410,12 @@
   var dgmLink = DGM_LINK_CA410;
 
   async function dgmLinkOn() {
-    if (dgmLinkBusy || dgmLinkActive) return;
-    dgmLinkBusy = true; dgmRenderBtns();   // v1.35.0：忙碌狀態顯示在連線鈕上（「連線中…」）
+    if (dgmSerialLinkBusy || dgmSerialLinkActive) return;
+    dgmSerialLinkBusy = true; dgmRenderBtns();   // v1.35.0：忙碌狀態顯示在連線鈕上（「連線中…」）
     var ok = false;
     try { ok = await dgmLink.on(); }
     catch (e) { log('連線例外：' + (e && e.message), 'e'); ok = false; }
-    dgmLinkBusy = false;
+    dgmSerialLinkBusy = false;
     dgmSetLink(ok);                        // 🔴 失敗絕不假亮綠（照抄 wfg 那一條）
     /* 連上了就把訊息列收回預設那一句（清掉上一次失敗留下的紅字）。
        🔴 這裡**刻意不寫「已連線」那種狀態句**：狀態的唯一出口是主按鈕與閘門，
@@ -2409,11 +2431,11 @@
      只把 dgmRenderLink() 換成這一版的 dgmRenderBtns()（那顆燈已經不存在）。
      🔴 量測中不走這裡：閘門在按鈕的 disabled 與下面的處理器裡各擋一次。 */
   async function dgmLinkOff() {
-    if (dgmLinkBusy) return;
-    dgmLinkBusy = true; dgmRenderBtns();
+    if (dgmSerialLinkBusy) return;
+    dgmSerialLinkBusy = true; dgmRenderBtns();
     try { await dgmLink.off(); }
     catch (e) { log('釋放時出錯：' + (e && e.message), 'e'); }
-    dgmLinkBusy = false;
+    dgmSerialLinkBusy = false;
     dgmSetLink(false);
     msg('已中斷連線，序列埠已釋放。');
   }
@@ -2425,11 +2447,11 @@
      🔴 這顆鈕**不套** DGM_STOP_ARM_MS 那個忽略窗：那一個是為了防「連點兩下開始
         把自己按停」，這顆鈕的兩面都不會造成不可逆的損失（連上再斷、斷了再連）。 */
   $('dgm-link').addEventListener('click', function () {
-    if (running || dgmLinkBusy) return;
+    if (running || dgmSerialLinkBusy) return;
     /* 🔴 v1.40.0：v1.39.0 在這裡加的閘門已移除（它造成死鎖）。全螢幕與 chooser
        的衝突改由 dgmPrepChooser() 在「真的要跳選擇視窗的那一點」處理 —— 放在
        這裡會把「有既有授權、根本不需要選擇視窗」的連線也一起擋掉。 */
-    if (dgmLinkActive) dgmLinkOff(); else dgmLinkOn();
+    if (dgmSerialLinkActive) dgmLinkOff(); else dgmLinkOn();
   });
 
   /* ═══ v1.38.0：「重新選擇儀器」的點擊分派 ═══════════════════════════════
@@ -2437,12 +2459,12 @@
      換成 dgmSerialPick()。🔴 失敗一樣絕不假亮綠。
      🔴 第二層閘門同上：量測中／忙碌中一律不動作，繞過 disabled 也一樣。 */
   async function dgmLinkPick() {
-    if (dgmLinkBusy || running) return;
-    dgmLinkBusy = true; dgmRenderBtns();
+    if (dgmSerialLinkBusy || running) return;
+    dgmSerialLinkBusy = true; dgmRenderBtns();
     var ok = false;
     try { ok = await dgmSerialPick(); }
     catch (e) { lk('✕ 重新選擇時丟例外：' + dgmErrMsg(e), 'e'); ok = false; }
-    dgmLinkBusy = false;
+    dgmSerialLinkBusy = false;
     dgmSetLink(ok);
     if (ok) dgmMsgDefault();
     /* v1.40.0：若剛才為了選擇視窗退出過全螢幕，最後一句話就是「怎麼回去」。
@@ -2450,7 +2472,7 @@
     dgmFsBackHint(ok);
   }
   $('dgm-pick').addEventListener('click', function () {
-    if (running || dgmLinkBusy) return;
+    if (running || dgmSerialLinkBusy) return;
     // v1.40.0：閘門已移除（同上）。這顆一定會 requestPort() ⇒ 由 dgmPrepChooser() 處理。
     dgmLinkPick();
   });
@@ -2857,7 +2879,7 @@
     fsApi: function () { return !!document.fullscreenElement; },
     fsDisplayMode: function () { return !!(DGM_MQ_FS && DGM_MQ_FS.matches); },
     gateBlocked: function () { return !!$('dgm-start').disabled; },
-    portOpen: function () { return !!(port && port.readable); },
+    portOpen: function () { return !!(dgmSerialCh.port && dgmSerialCh.port.readable); },
     steps: function () { return DGM_STEPS; },
     // v1.26.1 驗證用：目前是哪一個任務，以及本頁「這一次載入」的身分證。
     // 🔴 loadId 是在本 script 執行時產生的，只要頁面重新載入過就一定會變 ——
@@ -3021,8 +3043,8 @@
     warnDo: function () { return $('dgm-warn-do').textContent; },
     warnDo2: function () { return $('dgm-warn-do2').textContent; },
     // v1.32.0 驗證用：連線狀態、閘門的實際內容、狀態燈的實際 class／aria
-    linkActive: function () { return dgmLinkActive; },
-    linkBusy: function () { return dgmLinkBusy; },
+    linkActive: function () { return dgmSerialLinkActive; },
+    linkBusy: function () { return dgmSerialLinkBusy; },
     linkName: function () { return dgmLink.name; },
     gateLines: function () { return dgmGateLines(); },
     gateText: function () { return $('dgm-gate').textContent; },
@@ -3072,7 +3094,7 @@
     ringGoneAt: function () { return dgmRingGoneAt; },
     firstTxAt: function () { return dgmFirstTxAt; },
     firstMesAt: function () { return dgmFirstMesAt; },
-    readLoopRunning: function () { return readLoopRunning; },
+    readLoopRunning: function () { return dgmSerialCh.readLoopRunning; },
     // v1.34.0 驗證用：合一之後那顆主按鈕的狀態、文字、開關（讀的是真的 DOM）
     mainMode: function () { return dgmMainMode(); },
     mainText: function () { return $('dgm-start').textContent; },
@@ -3416,8 +3438,8 @@
     // ① 上一輪的殘留狀態一律歸零
     aborted = null; lastStep = 0; lastGray = null; finished = false;
     progStop(); scanT0 = 0; progLabel = '準備中';
-    rxBuf = '';
-    if (pending) { clearTimeout(pending.timer); pending.resolve(null); pending = null; }
+    dgmSerialCh.rxBuf = '';
+    if (dgmSerialCh.pending) { clearTimeout(dgmSerialCh.pending.timer); dgmSerialCh.pending.resolve(null); dgmSerialCh.pending = null; }
     $('dgm-prog').innerHTML = '';
 
     /* ② 畫面回到「還沒開始量」的樣子
