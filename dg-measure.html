@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260917dg1580"></script>
+<script src="common/version.js?v=20260917dg1590"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -822,6 +822,37 @@
   #dgm-i2c-out { font-family: ui-monospace, 'SF Mono', Consolas, monospace; font-size: 12px;
                  white-space: pre-wrap; background: #060b14; border: 1px solid #1e293b;
                  border-radius: 7px; padding: 8px; max-height: 26vh; overflow: auto; color: #a5b4fc; }
+
+  /* ═══ v1.59.0：出圖方式確認卡 ══════════════════════════════════════════
+     沿用 v1.30.0 警示視窗的視覺（同一種暗底卡片），不新造第二套。 */
+  #dgm-src-card {
+    position: fixed; inset: 0; z-index: 100003; display: flex;
+    align-items: center; justify-content: center; background: rgba(2, 6, 18, .78);
+    font: 14px/1.6 -apple-system, 'SF Pro Text', sans-serif;
+  }
+  #dgm-src-card.dgm-hidden { display: none; }
+  #dgm-src-card .dgm-src-box {
+    width: min(560px, 92vw); max-height: 88vh; overflow: auto;
+    background: #0b1220; color: #e2e8f0; border: 1px solid #334155;
+    border-radius: 14px; padding: 18px 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, .65);
+  }
+  #dgm-src-card h3 { margin: 0 0 10px; font-size: 17px; color: #f1f5f9; }
+  #dgm-src-card .dgm-src-q { margin: 14px 0 4px; color: #7dd3fc; font-weight: 700; }
+  #dgm-src-card .dgm-src-need { color: #fbbf24; font-size: 12px; font-weight: 400; }
+  #dgm-src-card .dgm-src-opt { display: block; margin: 5px 0; padding: 7px 10px;
+    border: 1px solid #263349; border-radius: 9px; cursor: pointer; }
+  #dgm-src-card .dgm-src-opt small { color: #94a3b8; }
+  #dgm-src-card .dgm-src-opt:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+  #dgm-src-card .dgm-src-note { margin: 6px 0 0; font-size: 12px; color: #94a3b8; }
+  #dgm-src-card .dgm-src-why { margin: 6px 0 0; font-size: 13px; color: #fbbf24; }
+  #dgm-src-card .dgm-src-sum { margin: 14px 0 6px; padding: 8px 10px; border-radius: 8px;
+    background: #111c33; color: #a5f3fc; font-weight: 700; }
+  #dgm-src-card .dgm-src-actions { margin: 6px 0 0; text-align: right; }
+  #dgm-src-card button { border: 0; border-radius: 9px; padding: 9px 16px;
+    font-size: 15px; font-weight: 700; cursor: pointer; margin-left: 8px; }
+  #dgm-src-cancel { background: #334155; color: #e2e8f0; }
+  #dgm-src-go { background: #16a34a; color: #fff; }
+  #dgm-src-go:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -835,6 +866,9 @@
   <div class="dgm-row"><span class="dgm-k">Frame rate（瀏覽器）</span><span class="dgm-v" id="dgm-fps">—</span></div>
   <div class="dgm-row"><span class="dgm-k">更新率（儀器）</span><span class="dgm-v" id="dgm-mvs">—</span></div>
   <div class="dgm-row"><span class="dgm-k">全螢幕</span><span class="dgm-v" id="dgm-fsstate">—</span></div>
+  <!-- v1.59.0：這一輪走哪一條出圖路徑。🔴 全螢幕色塊蓋住畫面之後，
+       右上角面板是唯一還看得到的東西 —— 這一行是使用者判斷自己在哪一條的唯一依據。 -->
+  <div class="dgm-row"><span class="dgm-k">出圖</span><span class="dgm-v" id="dgm-src-v">電腦</span></div>
 </div>
 
 <!-- 右上角：步驟名稱 ＋ 全螢幕 ＋ 開始量測 ＋ 停止 ＋ 進度 -->
@@ -906,6 +940,31 @@
     <div id="dgm-warn-do">—</div>
     <div id="dgm-warn-do2"></div>
     <button id="dgm-warn-close">知道了</button>
+  </div>
+</div>
+
+<!-- ═══ v1.59.0：出圖方式確認卡 ═══════════════════════════════════════════════
+     🔴 只有在 I2C 已連線時才出現（見 JS 那段的兩條理由）。沒有治具的人，
+        按下「開始量測」的流程與 v1.58.x 逐步相同，一個新步驟都沒有多。 -->
+<div id="dgm-src-card" class="dgm-hidden" role="dialog" aria-modal="true" aria-labelledby="dgm-src-title">
+  <div class="dgm-src-box">
+    <h3 id="dgm-src-title">這一次要用哪一種方式出圖？</h3>
+
+    <p class="dgm-src-q">這一台是：<span class="dgm-src-need">必選</span></p>
+    <label class="dgm-src-opt"><input type="radio" name="dgm-src-kind" id="dgm-src-monitor"> <b>Monitor</b></label>
+    <label class="dgm-src-opt"><input type="radio" name="dgm-src-kind" id="dgm-src-nb"> <b>NB／筆電</b></label>
+    <p class="dgm-src-note">機種類型<b>無法自動偵測</b> —— <code>CheckICID_EM01AX</code> 與 <code>CheckICID_VM01AX</code> 的判別條件逐字相同，IC ID 表分不出 Monitor／NB。所以這一題只能你來答。</p>
+
+    <p class="dgm-src-q">出圖方式：</p>
+    <label class="dgm-src-opt"><input type="radio" name="dgm-src-way" id="dgm-src-pc" checked> <b>電腦出圖（PC 模式）</b><br><small>任何面板都適用。畫面由這台電腦顯示。</small></label>
+    <label class="dgm-src-opt"><input type="radio" name="dgm-src-way" id="dgm-src-i2c" disabled> <b>TCON 內部 Pattern（I2C）</b><br><small>僅限 Monitor TCON。需要 I2C 治具已連線且 IC 已識別。</small></label>
+    <p id="dgm-src-why" class="dgm-src-why"></p>
+
+    <p id="dgm-src-sum" class="dgm-src-sum">—</p>
+    <p class="dgm-src-actions">
+      <button id="dgm-src-cancel" type="button">取消</button>
+      <button id="dgm-src-go" type="button" disabled>開始量測</button>
+    </p>
   </div>
 </div>
 
@@ -1326,11 +1385,35 @@
   function progStop() { if (scanTimer) { clearInterval(scanTimer); scanTimer = null; } }
 
   // ── 畫面 ────────────────────────────────────────────────────────────────
+  /* ═══ v1.59.0：兩條出圖路徑的收斂點 ═══════════════════════════════════
+     🔴 這個位置不是我挑的，是原廠挑的 —— `ICCommonFunction.SetPatternRGB`
+        的 switch 第一個 case 就是 `TCONChip.PC`、其餘走 I2C，而上層的量測
+        迴圈完全不知道底下走哪一條。本頁對應的就是這一支。
+     🔴 這一支的六個呼叫點**一個字都沒改**（它們仍然只是「把畫面換成這個顏色」）。
+     🔴 回傳一律是 Promise：PC 那條是已 resolve 的（行為與從前逐步相同），
+        I2C 那條要等 5 個 byte 真的寫進 TCON 才算數。 */
   function setFill(r, g, b, label) {
-    document.body.style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
     $('dgm-gray').textContent = label;
+    return dgmPatternSource.setRGB(r, g, b, label);
   }
-  function setGray(g) { setFill(g, g, g, String(g)); }
+  function setGray(g) { return setFill(g, g, g, String(g)); }
+
+  /* 量測迴圈用這一支：出圖失敗要**被看見**（PC 模式永遠成立，所以行為不變）。 */
+  async function dgmPaint(r, g, b, label) {
+    try { await setFill(r, g, b, label); return true; }
+    catch (e) {
+      log('出圖失敗（' + dgmPatternSource.name + '）：' + dgmErrMsg(e), 'e');
+      msg('出圖失敗：' + dgmErrMsg(e), 'err');
+      return false;
+    }
+  }
+  /* 非量測路徑（待命灰、換任務、量完收尾）用這一支：那幾處本來就只是「順手把
+     畫面擺回去」，不是資料來源，失敗只寫 log，不影響控制流。 */
+  function setFillQuiet(r, g, b, label) {
+    var p = setFill(r, g, b, label);
+    if (p && p['catch']) p['catch'](function (e) { log('出圖失敗（非量測路徑）：' + dgmErrMsg(e), 'e'); });
+  }
+  function setGrayQuiet(g) { setFillQuiet(g, g, g, String(g)); }
   function msg(t, cls) { $('dgm-msg').textContent = t; $('dgm-msg').className = cls || ''; }
   function log(t, cls) {
     var el = $('dgm-log'); el.style.display = 'block';
@@ -2216,6 +2299,11 @@
        「請先退出全螢幕」，那是配合當時「全螢幕下停用連線」而來的 —— 那個停用
        造成死鎖、已整條移除，所以這句話也必須跟著回去，不留與行為不符的文字。 */
     if (!dgmSerialLinkActive) L.push(DGM_LINK_DO);
+    /* v1.59.0：第三行。L2032 當初就是設計成「閘門條件收斂成陣列」，所以加一行
+       不必動按鈕、紅框、start 處理器、run() 任何一處 —— 它們全都讀這一支。
+       🔴 正常情況走不到（I2C 斷線時出圖來源會自動退回 PC），它是最後一道保險。 */
+    if (typeof dgmPatternSource !== 'undefined' && dgmPatternSource
+      && dgmPatternSource.id === 'i2c' && !DGM_PS_I2C.isReady()) L.push(DGM_I2C_DO);
     return L;
   }
 
@@ -2360,6 +2448,7 @@
        🔴 量測一開始就把實測面板關掉：那時候畫面上不能有任何東西（探頭正對中心）。 */
     dgmI2cRender();
     if (running) dgmI2cPanel(false);
+    dgmPsRender();          // v1.59.0：常駐的「出圖」標籤同樣掛在這條唯一的路上
   }
 
   function syncFs() {
@@ -2880,7 +2969,14 @@
 
   function dgmI2cSetLink(v) {
     dgmI2cLinkActive = !!v;
-    if (!dgmI2cLinkActive) { dgmI2cIc = null; dgmI2cIdRaw = null; }
+    if (!dgmI2cLinkActive) {
+      dgmI2cIc = null; dgmI2cIdRaw = null;
+      /* v1.59.0：I2C 沒了就退回 PC 出圖 —— 不留一個指向已斷通道的出圖來源。
+         🔴 這一行同時是「量測中拔掉 I2C」那條路的收尾：dgmI2cLost() 會先
+            dgmAbortMeasure()，這裡把來源換回去，下一輪就不會卡在壞掉的那條。 */
+      if (typeof dgmPatternSource !== 'undefined' && dgmPatternSource
+        && dgmPatternSource.id === 'i2c') { dgmPatternSource = DGM_PS_PC; dgmPsRender(); }
+    }
     dgmI2cRender();
     syncFs();          // 閘門與燈是同一個狀態的兩面，只從這條路一起更新
   }
@@ -3389,6 +3485,132 @@
     idRaw: function () { return dgmI2cIdRaw ? dgmI2cIdRaw.slice() : null; }
   };
 
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     v1.59.0：出圖來源（pattern source）—— 兩條路的收斂點
+     ───────────────────────────────────────────────────────────────────────
+     🔴 **這個位置不是我挑的，是原廠挑的。** `ICCommonFunction.SetPatternRGB`
+        （`decompiled/RaydiumTCONIPTool.IC/ICCommonFunction.cs` L2548–2612）的
+        switch 第一個 case 就是 `TCONChip.PC`（`TCONChip` enum 的第一個成員
+        `PC = 0`），其餘七顆 IC 各自走 I2C —— **兩條路共用同一個量測迴圈**，
+        上層（`CCTForm.cs` L1123／L1139）只呼叫 `ICFlag.SetPatternRGB(...)`，
+        完全不知道底下走哪一條。
+
+        本頁對應的收斂點就是 `setFill()`（原本只有一行
+        `document.body.style.background = ...`）。所以「兩條路並存」的改動量
+        小得出乎意料：`setFill` 的六個呼叫點**一個字都沒改**。
+
+     🔴 **不做分頁、不做 URL 路由。** 兩條路的操作流程完全相同（同一套引導、
+        同一套初始化、同一套量測迴圈），差的只有「畫面由誰出」。分成兩頁等於
+        把整條流程複製一份，遲早只有一條被測到。
+
+     🔴 `end()` 必須掛在**所有**離開路徑上（正常結束／使用者中止／例外／
+        關分頁），否則 TCON 會留在 pattern 模式 —— 對應原廠 `CCTForm.cs` L1188
+        的 `SetAgingMode(false)`。
+     ═══════════════════════════════════════════════════════════════════════ */
+  var DGM_PS_PC = {
+    id: 'pc',
+    name: '電腦出圖',
+    short: '電腦',
+    /* 就是 v1.58.x 以前 setFill() 的那一行，一個字沒動 */
+    setRGB: function (r, g, b) { document.body.style.background = 'rgb(' + r + ',' + g + ',' + b + ')'; },
+    begin: function () { return Promise.resolve(); },
+    end: function () { return Promise.resolve(); },
+    isReady: function () { return true; }
+  };
+
+  var DGM_PS_I2C = {
+    id: 'i2c',
+    name: 'TCON 內部 Pattern（I2C）',
+    short: 'TCON(I2C)',
+    /* 🔴 螢幕**留黑**：I2C 模式下探頭對的是 TCON 驅動的那片面板，電腦螢幕
+       不是量測對象。把電腦畫面也一起變色只會讓人分不清自己在量哪一個。 */
+    setRGB: function (r, g, b) {
+      document.body.style.background = '#000';
+      return dgmI2cSetRgb12(dgmI2cTo12(r), dgmI2cTo12(g), dgmI2cTo12(b));
+    },
+    begin: function () { return dgmI2cEnterPattern(); },
+    end: function () { return dgmI2cLeavePattern(); },
+    isReady: function () { return !!(dgmI2cLinkActive && dgmI2cIc && dgmI2cIc.patternOk); }
+  };
+
+  var dgmPatternSource = DGM_PS_PC;
+
+  /* 🔴 常駐標籤（報告2 §2.1 的第 1 處，三處缺一不可）：全螢幕色塊蓋住整個畫面
+     之後，右上角面板就是唯一還看得到的東西 —— 這一行是使用者判斷「這一輪是
+     哪一條路」的唯一依據，不能只靠 I2C 那顆燈（它只表示連線有沒有）。 */
+  function dgmPsRender() {
+    var e = $('dgm-src-v');
+    if (e) e.textContent = dgmPatternSource.short;
+  }
+  function dgmPsSet(src) {
+    dgmPatternSource = src || DGM_PS_PC;
+    dgmPsRender();
+    syncFs();
+  }
+
+  /* ═══ 出圖方式確認卡 ═════════════════════════════════════════════════════
+     Bruce 裁示：**不記住 Monitor／NB 的選擇**（他原話：「不要沿用 monitor 還是
+     NB 的選擇，它不是跟著電腦走的」）⇒ 不開第二個 localStorage 破例，連
+     「只記上次用過 I2C」的折衷案也不採用。這裡沒有任何持久化。
+
+     🔴 **只有在 I2C 已連線時才出現這張卡。** 這是刻意的取捨，理由有二：
+        ① 沒有治具的人（＝目前所有既有使用者）按下「開始量測」的流程**逐步
+           不變**，一個新步驟都沒有多 —— 既有操作沒有失效，所以這一版是 MINOR
+           而不是 MAJOR。
+        ② 「這一台是 Monitor 還是 NB」這個問題只有在 I2C 真的可用時才有意義；
+           治具沒接的時候問它，是拿一個沒有後果的問題去擋住每一次量測。
+     🔴 Monitor／NB **無預設**（必選）。這是低頻、高後果的選擇：一次量測選一次，
+        但選錯整批數據作廢。給預設值等於替使用者做了一個可能是錯的判斷。 */
+  var DGM_SRC_NB_WHY = 'NB TCON 不支援 I2C 出圖，請用電腦出圖';
+  var DGM_SRC_NOLINK_WHY = '需先按右上角的 I2C 連線鈕';
+  var DGM_SRC_UNKNOWN_WHY = '這顆 IC 的 ID 不在已知表內（或本版未支援），只允許讀';
+  var dgmSrcConfirmed = false;      // 🔴 用掉就作廢：下一輪要再選一次
+  var dgmSrcKind = null;            // 'monitor' | 'nb' | null（無預設）
+  var dgmSrcPick = 'pc';            // 卡片上目前選到的出圖方式
+
+  function dgmSrcCardShow() {
+    dgmSrcKind = null;
+    dgmSrcPick = 'pc';
+    var c = $('dgm-src-card');
+    if (c) c.classList.remove('dgm-hidden');
+    dgmSrcCardSync();
+  }
+  function dgmSrcCardHide() {
+    var c = $('dgm-src-card');
+    if (c) c.classList.add('dgm-hidden');
+  }
+  /* 一支把卡片上所有狀態算完的函式（同一組狀態的不同面，分開寫必然有一面會忘） */
+  function dgmSrcCardSync() {
+    var i2cReady = DGM_PS_I2C.isReady();
+    var why = '';
+    if (!dgmI2cLinkActive) why = DGM_SRC_NOLINK_WHY;
+    else if (!i2cReady) why = DGM_SRC_UNKNOWN_WHY;
+    if (dgmSrcKind === 'nb') why = DGM_SRC_NB_WHY;
+    var allow = i2cReady && dgmSrcKind === 'monitor';
+    if (!allow && dgmSrcPick === 'i2c') dgmSrcPick = 'pc';
+
+    var ri = $('dgm-src-i2c');
+    if (ri) { ri.disabled = !allow; ri.checked = (dgmSrcPick === 'i2c'); }
+    var rp = $('dgm-src-pc');
+    if (rp) rp.checked = (dgmSrcPick === 'pc');
+    /* 🔴 常駐一行說明，不是 tooltip —— tooltip 在觸控裝置上根本看不到 */
+    var w = $('dgm-src-why');
+    if (w) { w.textContent = why; w.style.display = why ? '' : 'none'; }
+    var km = $('dgm-src-monitor'), kn = $('dgm-src-nb');
+    if (km) km.checked = (dgmSrcKind === 'monitor');
+    if (kn) kn.checked = (dgmSrcKind === 'nb');
+    var go = $('dgm-src-go');
+    if (go) go.disabled = !dgmSrcKind;        // Monitor／NB 沒答就不能開始
+    var s = $('dgm-src-sum');
+    if (s) {
+      s.textContent = dgmSrcKind
+        ? ('這一輪：' + (dgmSrcKind === 'monitor' ? 'Monitor' : 'NB／筆電') + ' · 出圖＝'
+          + (dgmSrcPick === 'i2c' ? DGM_PS_I2C.name : DGM_PS_PC.name))
+        : '請先回答「這一台是 Monitor 還是 NB」';
+    }
+  }
+
   /* 目前唯一的連線實作。換別台儀器時整包換掉這個物件，不在呼叫端長分支。 */
   var DGM_LINK_CA410 = { name: 'CA-410', on: dgmSerialOn, off: dgmSerialOff };
   var dgmLink = DGM_LINK_CA410;
@@ -3455,6 +3677,57 @@
        🔴 必須在 dgmMsgDefault() 之後，否則會被它蓋掉。 */
     dgmFsBackHint(ok);
   }
+  /* ═══ v1.59.0：確認卡的接線 ══════════════════════════════════════════ */
+  (function dgmSrcWire() {
+    var sync = function () { dgmSrcCardSync(); };
+    $('dgm-src-monitor').addEventListener('change', function () { dgmSrcKind = 'monitor'; sync(); });
+    $('dgm-src-nb').addEventListener('change', function () { dgmSrcKind = 'nb'; sync(); });
+    $('dgm-src-pc').addEventListener('change', function () { dgmSrcPick = 'pc'; sync(); });
+    $('dgm-src-i2c').addEventListener('change', function () { dgmSrcPick = 'i2c'; sync(); });
+    /* 點了反白的那一項：給一次 toast 重述同一句話（tooltip 在觸控裝置看不到） */
+    $('dgm-src-i2c').addEventListener('click', function () {
+      if (this.disabled) dgmI2cToast($('dgm-src-why').textContent || DGM_SRC_NB_WHY, 'warn');
+    });
+    $('dgm-src-cancel').addEventListener('click', function () { dgmSrcCardHide(); });
+    $('dgm-src-go').addEventListener('click', function () {
+      if (!dgmSrcKind) return;
+      dgmPsSet(dgmSrcPick === 'i2c' ? DGM_PS_I2C : DGM_PS_PC);
+      log('這一輪：' + (dgmSrcKind === 'monitor' ? 'Monitor' : 'NB／筆電')
+        + ' · 出圖＝' + dgmPatternSource.name);
+      dgmSrcCardHide();
+      dgmSrcConfirmed = true;
+      dgmStart();
+    });
+  })();
+
+  /* 🔴 關分頁／重新整理也要還原 —— 不還原的話 TCON 會留在 pattern 模式。
+     unload 不等 Promise，所以這裡只能「盡力送出那一筆」，不能保證送得到；
+     真正的保證在 dgmStart() 的離場點。 */
+  window.addEventListener('pagehide', function () {
+    try { if (dgmPatternSource && dgmPatternSource.id === 'i2c') dgmPatternSource.end(); } catch (e) {}
+  });
+
+  /* 驗證用（同樣只有 getter 與純函式，沒有 setter） */
+  window.dgmSrcProbe = {
+    sourceId: function () { return dgmPatternSource.id; },
+    sourceName: function () { return dgmPatternSource.name; },
+    label: function () { var e = $('dgm-src-v'); return e ? e.textContent : null; },
+    cardOpen: function () { var e = $('dgm-src-card'); return !!(e && !e.classList.contains('dgm-hidden')); },
+    kind: function () { return dgmSrcKind; },
+    pick: function () { return dgmSrcPick; },
+    confirmed: function () { return dgmSrcConfirmed; },
+    goDisabled: function () { return !!$('dgm-src-go').disabled; },
+    i2cOptDisabled: function () { return !!$('dgm-src-i2c').disabled; },
+    whyText: function () { return $('dgm-src-why').textContent; },
+    whyVisible: function () { return $('dgm-src-why').style.display !== 'none'; },
+    sumText: function () { return $('dgm-src-sum').textContent; },
+    i2cReady: function () { return DGM_PS_I2C.isReady(); },
+    gateLines: function () { return dgmGateLines(); },
+    /* 🔴 沒有 setter：要改選項就改真的 DOM（click ＋ dispatch change），
+       走使用者真正走的那條路。給捷徑等於讓「全綠」失去意義。 */
+    showCard: dgmSrcCardShow
+  };
+
   $('dgm-pick').addEventListener('click', function () {
     if (running || dgmSerialLinkBusy) return;
     // v1.40.0：閘門已移除（同上）。這顆一定會 requestPort() ⇒ 由 dgmPrepChooser() 處理。
@@ -3796,6 +4069,14 @@
       syncFs();
       return;
     }
+    /* ═══ v1.59.0：出圖方式確認卡 ═════════════════════════════════════════
+       🔴 **只有 I2C 已連線時才擋。** 沒有治具的人（＝目前所有既有使用者）按下
+          「開始量測」的流程與 v1.58.x **逐步相同**，一個新步驟都沒有多 ——
+          既有操作沒有失效，這也是這一版判 MINOR 而不是 MAJOR 的依據。
+       🔴 確認過就作廢（dgmSrcConfirmed 在下面立刻歸零）：一次量測選一次，
+          不記住、不沿用（Bruce：「它不是跟著電腦走的」）。 */
+    if (dgmI2cLinkActive && !dgmSrcConfirmed) { dgmSrcCardShow(); return; }
+    dgmSrcConfirmed = false;
     running = true;
     aborted = null; lastStep = 0; lastGray = null; finished = false;
     dgmRunStartedAt = Date.now();        // v1.34.0：忽略窗從這一刻起算
@@ -3819,6 +4100,15 @@
 
     try { await run(); }
     catch (e) { msg('出錯了：' + e.message, 'err'); log('例外：' + e.message, 'e'); }
+    /* ═══ v1.59.0：出圖來源離場（對應原廠 CCTForm.cs L1188 的 SetAgingMode(false)）
+       🔴 這裡是 run() **唯一**的離場點（正常結束、使用者中止、例外都會走到
+          這一行），所以 end() 掛在這裡就不會有漏網的路徑 —— 與 v1.32.0 把
+          「連線消失」收斂成一支是同一條道理。
+       🔴 PC 模式是 no-op。 */
+    if (dgmPatternSource.id !== 'pc') {
+      try { await dgmPatternSource.end(); }
+      catch (e) { log('離開 ' + dgmPatternSource.name + ' 時出錯：' + dgmErrMsg(e), 'e'); }
+    }
     running = false; finished = true;
     progStop();
     dgmWarnSync();          // v1.30.0：量完（或中止）之後警示要立刻回來，不必等輪詢
@@ -3833,7 +4123,7 @@
           「停止後／量完後圓圈立刻回來」的復原點，不必也不可以另外再寫一份。 */
     syncFs();
     if (aborted) {
-      setGray(128);
+      setGrayQuiet(128);
       /* v1.30.0：原本這裡有 3 行、共 138 字（含「為什麼半套資料不能用」的整段理由）。
          留「發生了什麼、下一步按哪裡」，理由刪掉 —— 那段理由寫在下面 abort() 的
          程式碼註解裡，看得到的人是維護者，不是量測中的使用者。 */
@@ -4181,6 +4471,28 @@
     if (!(await dgmSerialOn())) { dgmSetLink(false); return; }
     if (aborted) return;
 
+    /* ═══ v1.59.0：出圖來源進場 ═══════════════════════════════════════════
+       對應原廠 `CCTForm.cs` L996–999 的 `ICFlag.SetAgingMode(true)`。
+       🔴 位置刻意在「儀器連上之後、初始化之前」：失敗就整輪不跑，不要等使用者
+          蓋完遮光蓋、等完 40 秒零校正，才發現 TCON 根本沒進 pattern 模式。
+       🔴 PC 模式下這一段是 no-op（isReady 恆真、begin 立刻 resolve）
+          ⇒ 既有那條路的時序逐步不變。 */
+    if (!dgmPatternSource.isReady()) {
+      msg('出圖來源還沒準備好（' + dgmPatternSource.name + '）。', 'err');
+      log('出圖來源 isReady() 為 false：' + dgmPatternSource.name, 'e');
+      return;
+    }
+    if (dgmPatternSource.id !== 'pc') {
+      msg('進入 ' + dgmPatternSource.name + '…');
+      try { await dgmPatternSource.begin(); }
+      catch (e) {
+        msg('進入 ' + dgmPatternSource.name + ' 失敗：' + dgmErrMsg(e), 'err');
+        log('begin() 失敗：' + dgmErrMsg(e), 'e');
+        return;
+      }
+      if (aborted) return;
+    }
+
     // 2. 初始化
     for (var i = 0; i < INIT.length; i++) {
       msg('設定中 ' + (i + 1) + '/' + INIT.length + '：' + INIT[i][1]);
@@ -4230,11 +4542,11 @@
       if (DGM_MODE === 'prim') {
         var pc = DGM_PRIMS[g];
         key = pc[0];
-        setFill(pc[2][0], pc[2][1], pc[2][2], pc[1]);
+        if (!(await dgmPaint(pc[2][0], pc[2][1], pc[2][2], pc[1]))) break;
         progLabel = pc[1];
       } else {
         key = g;
-        setGray(g);
+        if (!(await dgmPaint(g, g, g, String(g)))) break;
         progLabel = 'L' + g;                 // 進度＝正在量的那一階的實際灰階
       }
       renderProg();
@@ -4283,7 +4595,7 @@
       var pr = [], pbad = 0;
       for (var q = 0; q < DGM_PRIMS.length; q++) {
         var pc2 = DGM_PRIMS[q];
-        setFill(pc2[2][0], pc2[2][1], pc2[2][2], pc2[1]);
+        if (!(await dgmPaint(pc2[2][0], pc2[2][1], pc2[2][2], pc2[1]))) { pr = null; break; }
         progLabel = pc2[1];
         renderProg();
         await painted();
@@ -4312,7 +4624,7 @@
     }
 
     await closePort();
-    setGray(128);
+    setGrayQuiet(128);
 
     // 5. 回傳給 DG 主視窗
     // prim 要三筆都到齊才有意義（少一個端點就湊不出色彩矩陣）；gray 沿用原本的門檻
@@ -4387,11 +4699,11 @@
     if (DGM_MODE === 'prim') {
       document.title = '即時量測（RGB 純色）— DG — TCON FAE專用工具箱';
       $('dgm-gray-k').textContent = '目前純色';
-      setFill(128, 128, 128, '—');
+      setFillQuiet(128, 128, 128, '—');
     } else {
       document.title = '即時量測 — DG — TCON FAE專用工具箱';
       $('dgm-gray-k').textContent = '目前灰階值';
-      setGray(128);
+      setGrayQuiet(128);
     }
     dgmMsgDefault();
   }

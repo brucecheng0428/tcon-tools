@@ -193,6 +193,51 @@ ok(P.panelOpen() === false, '實測面板初始是收起來的');
 ok(P.linkActive() === false && P.linkBusy() === false, '初始未連線、不忙碌');
 ok(P.ic() === null && P.idRaw() === null, '初始沒有 IC、沒有 ID');
 
+console.log('── 9. 出圖來源與確認卡（v1.59.0）──────────────────────────');
+const S2 = dom.window.dgmSrcProbe;
+ok(!!S2, 'window.dgmSrcProbe 存在');
+if (S2) {
+  eq(S2.sourceId(), 'pc', '預設出圖來源是 PC（共通路徑，選錯的後果最小）');
+  eq(S2.label(), '電腦', '右上角常駐標籤預設「電腦」');
+  ok(S2.i2cReady() === false, '沒有治具 ⇒ I2C 出圖 isReady() 為 false');
+  ok(S2.cardOpen() === false, '確認卡預設是收起來的');
+  eq(S2.gateLines(), ['按「全螢幕」或 F11', '請接上光學儀器'],
+    '閘門只有既有那兩行（沒選 I2C 就不會多出第三行）');
+
+  /* 🔴 走使用者真正走的那條路：改真的 DOM ＋ dispatch change，不用捷徑 */
+  const doc = dom.window.document;
+  const fire = (id) => {
+    const e = doc.getElementById(id);
+    e.checked = true;
+    e.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  };
+  S2.showCard();
+  ok(S2.cardOpen() === true, 'showCard() 之後卡片打開');
+  ok(S2.kind() === null, '🔴 Monitor／NB 無預設（必選）');
+  ok(S2.goDisabled() === true, '沒答 Monitor／NB 之前「開始量測」是關著的');
+  ok(S2.i2cOptDisabled() === true, '沒連 I2C ⇒ I2C 選項反白');
+  ok(S2.whyVisible() === true && /I2C 連線鈕/.test(S2.whyText()),
+    '反白的理由是**常駐一行說明**，不是 tooltip', S2.whyText());
+
+  fire('dgm-src-nb');
+  eq(S2.kind(), 'nb', '選了 NB');
+  ok(S2.goDisabled() === false, '答完 Monitor／NB 之後才能按「開始量測」');
+  ok(S2.i2cOptDisabled() === true, 'NB ⇒ I2C 選項仍然反白');
+  ok(/NB TCON 不支援/.test(S2.whyText()), 'NB 的理由要明說「NB TCON 不支援 I2C 出圖」', S2.whyText());
+  ok(/NB/.test(S2.sumText()) && /電腦出圖/.test(S2.sumText()), '摘要那一行說得出這一輪是什麼', S2.sumText());
+
+  fire('dgm-src-monitor');
+  eq(S2.kind(), 'monitor', '改選 Monitor');
+  ok(S2.i2cOptDisabled() === true, 'Monitor 但沒連 I2C ⇒ 仍然反白（連線是另一個條件）');
+  ok(/I2C 連線鈕/.test(S2.whyText()), 'Monitor 未連線時的理由換成「需先按 I2C 連線鈕」', S2.whyText());
+  eq(S2.pick(), 'pc', '出圖方式仍然停在 PC（反白的那一項選不進去）');
+
+  doc.getElementById('dgm-src-cancel').click();
+  ok(S2.cardOpen() === false, '取消之後卡片收起來');
+  ok(S2.confirmed() === false, '🔴 取消不會留下「已確認」狀態');
+  eq(S2.sourceId(), 'pc', '取消之後出圖來源沒有被改掉');
+}
+
 console.log('');
 console.log(fail === 0 ? ('✅ 全部通過：' + pass + ' 項') : ('🔴 不通過：' + fail + ' 項失敗 / 共 ' + (pass + fail) + ' 項'));
 process.exit(fail === 0 ? 0 : 1);
