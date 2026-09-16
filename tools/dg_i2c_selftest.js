@@ -32,6 +32,7 @@ html = html.replace(/<script src="([^"]+)"><\/script>/g, (m, src) => {
   return fs.existsSync(f) ? '<script>\n' + fs.readFileSync(f, 'utf8') + '\n</script>' : '<script></script>';
 });
 
+const pageErrors = [];
 const dom = new JSDOM(html, {
   url: 'https://example.invalid/dg-measure.html',
   runScripts: 'dangerously',
@@ -40,6 +41,7 @@ const dom = new JSDOM(html, {
     win.TextEncoder = TextEncoder;
     win.TextDecoder = TextDecoder;
     win.navigator.serial = { getPorts: () => Promise.resolve([]), requestPort: () => Promise.reject(new Error('n/a')), addEventListener() {} };
+    win.addEventListener('error', e => pageErrors.push(e.message));
   }
 });
 
@@ -236,6 +238,31 @@ if (S2) {
   ok(S2.cardOpen() === false, '取消之後卡片收起來');
   ok(S2.confirmed() === false, '🔴 取消不會留下「已確認」狀態');
   eq(S2.sourceId(), 'pc', '取消之後出圖來源沒有被改掉');
+}
+
+console.log('── 10. 實測主控台的互動（走真的 click）────────────────────');
+{
+  const d = dom.window.document;
+  ok(pageErrors.length === 0, '頁面載入沒有任何 JS 例外', JSON.stringify(pageErrors));
+  ok(P.panelOpen() === false, '面板初始是收起來的');
+  d.getElementById('dgm-i2c-open').click();
+  ok(P.panelOpen() === true, '按「實測」之後面板打開');
+  ok(d.getElementById('dgm-i2c-probe').disabled === true, '未連線 ⇒「讀四個觀測點」停用');
+  ['dgm-i2c-enter', 'dgm-i2c-white', 'dgm-i2c-mid', 'dgm-i2c-black', 'dgm-i2c-restore'].forEach(id => {
+    ok(d.getElementById(id).disabled === true,
+      id + ' 未連線時停用（🔴 寫入類一律要求「已連線 ＋ IC 已識別 ＋ 這顆 IC 的出圖路徑驗過」）');
+  });
+  eq(d.getElementById('dgm-i2c-slave').options.length, 4, 'slave 下拉 4 個選項');
+  eq(d.getElementById('dgm-i2c-ch').options.length, 2, '通道下拉 A／B');
+  eq(d.getElementById('dgm-i2c-ack').options.length, 3, 'ACK 判讀 3 個選項');
+  ok(d.getElementById('dgm-i2c-out').textContent.length > 0, '原始交易 log 區有初始文字');
+  /* 三個觀測點的欄位要真的在表上，而且初始是「還沒讀」 */
+  ['dgm-i2c-v-id', 'dgm-i2c-v-agm', 'dgm-i2c-v-ag', 'dgm-i2c-v-ptg', 'dgm-i2c-v-agen'].forEach(id => {
+    const e = d.getElementById(id);
+    ok(!!e && e.textContent === '—' && /\bna\b/.test(e.className), id + ' 初始是「還沒讀」');
+  });
+  d.getElementById('dgm-i2c-close').click();
+  ok(P.panelOpen() === false, '按「關閉」之後面板收起');
 }
 
 console.log('');
