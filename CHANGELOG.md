@@ -22,6 +22,56 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.58.0 — 2026-09-17 ｜ MINOR
+
+**即時量測頁多一條通道：WebUSB ＋ FTDI MPSSE 直驅小黑治具的 TCON I2C，外加一顆連線開關與一頁實測主控台。既有的 PC 出圖路徑一個字都沒動。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| §2 案例 5（新增一整組新來源） | 多一條 I2C 通道：連線開關、IC 識別、觀測點讀取、實測主控台 | **MINOR** |
+| R3（多一件能做的事） | 多了「用 I2C 讀 TCON 暫存器、把 TCON 打進固定 pattern 模式」這件事 | **MINOR** |
+| §1 判定表「既有功能的輸出」 | 不變。CA-410 那條路的 rows 逐筆相同（下方有數字） | — |
+| R4（起始狀態／預設值） | 右上角面板多一列「TCON I2C」。**沒有任何既有控制項移位**：它排在「連線參數」那一列之後，按鈕列（`#dgm-btnrow`）在它上面，主按鈕仍在原處 | MINOR（併入上面那一項） |
+| §2 案例 6（移除既有功能） | 無 | — |
+| R2（開新的一波） | 無。不涉及 MAJOR，無需核准欄位 | — |
+
+取最高者 ⇒ **MINOR**。
+
+> 🔴 **判定取捨（供覆核）**：`⚠ 輸出變更` **沒有標** —— 既有的 PC 出圖與量測迴圈一行未改，同一組設定跑出來的 rows 逐筆相同（重構回歸夾具的數字見下）。
+> 🔴 新的那一列刻意**不擠進 `#dgm-btnrow`**：那一列的寬度預算 v1.38.0 就算過（1280 寬時內寬 358px，四顆鈕已用掉 349px），塞第五顆會換行、把主按鈕推到第二列 ＝ 肌肉記憶失效。
+
+### 這一版做了什麼
+
+| 件 | 內容 |
+|---|---|
+| WebUSB ＋ MPSSE | FTDI 的 `SIO_RESET`／`SET_FLOW`／`SET_LATENCY`／`SET_BITMODE` 四道 vendor control request，接著 MPSSE 設定（`0x8A` 關除 5、`0x97` 關 adaptive、**`0x8D` 停用 3-phase**、**`0x9E 07 00` drive-only-zero**、`0x85` 關 loopback、`0x86` 除數 **199** ＝ 150 kHz）。參數逐項照抄 PQ Tool 給 libMPSSE 的值（依 Bruce 2026-09-16 裁示：規範來源＝PQ Tool，不從 FTDI 文件自行推導） |
+| I2C 交易 | 寫 ＝ START＋slave(W)＋regHi＋regLo＋data＋STOP；讀 ＝ 位址段不下 STOP、**repeated start** 後再讀（對應 `xCtrl_I2C_App.cs` 的 options 7／0x17 與 9／0x19＋11） |
+| 🔴 位址白名單 | **只准寫 `0x1200–0x12FF`（ptg bank）**，檢查的是整段（`addr … addr+len-1`），擋在組裝指令之前、在任何 IC 判斷之前。這是唯一一條**不依賴 IC 判斷正確**的防線 —— EM01AX 與 VM01AX 的 IC ID 撞號，NB 誤選 I2C 時擋得住的只有它 |
+| 連線開關 | 狀態機照抄 `wfg.html` LA 分頁那顆（唯一渲染出口、claim 失敗絕不假亮綠、失敗要 close 殘留 handle、OFF 迴圈 close 到 `opened === false`、2 秒 heartbeat）。**多一格橘燈＝「連得上但 IC 認不出來」**，wfg 沒有這一格，因為這裡「能連上 ≠ 可以安全地寫」 |
+| 連線測試只讀不寫 | 連上第一件事是讀 `0xFF00` 三個 byte 並顯示**原始值**，讓使用者自己核對 —— 網頁不裝作分得出 EM01 與 VM01 |
+| 實測主控台 | 報告2 §1.10 那份 15 分鐘步驟整合成一頁：一鍵讀四個觀測點（**`0xFF00` IC ID、`0xFFC5` bit1 ＝ AGMODE 實際準位、`0xE801` bit0 ＝ TCON 內部認定的 aging_en、`0x1200` 與 `0x1268` 原值**）、進 pattern 模式、全白／中灰／全黑、寫回原值、複製所有讀值。原始收送 byte 全部印出來 |
+| per-IC 表連 bit 一起存 | 報告2 §1.5c 的陷阱：`reg_gpi_agmode` 在 EM01 與 EM02 上**絕對位址剛好都是 `0x02ED`，bit 配置卻差一位**。所以觀測點一律是 `{addr, bit}`，不准只存位址。**出圖只開放 EM01A1**，其餘 IC 只到「認得出來」為止（R4：逐顆實機驗過才加） |
+
+### 驗收
+
+**✅ 驗到的（有數字）**
+
+1. `tools/dg_i2c_selftest.js`（新增，jsdom 載真的頁面、對真的產品函式下斷言）：**80 項全部通過**。涵蓋 —— 位址白名單的**正面與反面**（界外 6 種、跨界 2 種、髒值 5 種要被擋；範圍內 256 個位址、1~5 byte、實際會用到的五個位址要全部放行）、12-bit 封裝 8 組（含「全白的第 5 個 byte 是 `0x0F` 不是 `0xFF`」）、MPSSE 序列（讀 3 byte ＝ 4 個 ACK、repeated start 中間沒有 STOP、前兩個 ACK 最後一個 NACK、`0x87` 結尾）、參數（150 kHz／除數 199／latency 1／四個 slave）、IC 表（含「除了 EM01A1 一律不允許出圖」與「每個位元型觀測點都要有 bit」）、按鈕六個狀態、ACK 判讀模式。
+   > 🔴 白名單這一段**正反兩面都驗**，是刻意的：`check_nb_code_import.js` 與 `check_em01_code_import.js` 那兩次破口的共同根因就是「只驗過壞的會被擋下，從來沒驗過好的會被放行」。
+2. CA-410 既有路徑零回歸：`tools/dg_measure_regression.js` 在 v1.57.1（本波之前）與本版各跑一輪完整 256 階，**rows 差異 0 / 256**、prim 相同、指令序列相同（272 道）、log 303 行差異 0 行、`port.open()` 參數相同。
+
+**🔴 沒有驗到的（如實寫，不假裝）**
+
+- **USB 那一段與 TCON 那一段，一次都沒跑過** —— 手上沒有治具，也沒有板子。`controlTransferOut`／`transferIn`／MPSSE 是否真的進得去模式、I2C 波形對不對、TCON 會不會回應，**全部未經實機驗證**。
+- 連線按鈕六個狀態的**畫面**沒有截圖（狀態機本身有單元測試，但「橘色長什麼樣」要有硬體才看得到）。
+- ACK 位元對齊（bit0 還是 bit7）**文件講不死、沒有硬體驗不出來**。所以做成可切換的下拉（預設 bit0，另有 bit7 與「不檢查」），原始 byte 一律進 log —— 沿用 v1.56.0「連線參數」那一列的先例：現場對不上就自己切，不必等改版。
+- 治具到底是 FT2232D 還是 FT2232H（報告2 R2）仍未釐清。D 的 MPSSE 不支援 `0x8D`／`0x9E` 這幾道 H 系列指令 ⇒ 若板上真是 D，同步檢查會過但設定會失敗。**麻煩拍一張治具晶片絲印。**
+- Windows 需要 Zadig 把 FTDI 換成 WinUSB、macOS 的 `AppleUSBFTDI.dext` 會搶 —— 這兩件本版沒處理，只在失敗訊息裡講。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.57.2 — 2026-09-17 ｜ PATCH
 
 **即時量測頁（`dg-measure.html`）的通訊層重構：六個裸全域收進 `dgmSerialCh`，`dgmLost()` 拆出 `dgmAbortMeasure()`。使用者行為零改變。**
