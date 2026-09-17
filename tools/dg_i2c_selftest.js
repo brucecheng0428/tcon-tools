@@ -347,14 +347,19 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   {
     const panel = d.getElementById('dgm-i2c-panel');
     const t = panel ? panel.textContent : '';
-    ok(/1234/.test(t), '面板寫出解壓密碼 1234');
     ok(/SmartScreen/.test(t), '面板如實寫出 SmartScreen');
     ok(/未經實機驗證/.test(t), '面板如實標明 helper 未經實機驗證');
     ok(/仍要執行/.test(t), '面板寫出 SmartScreen 的「仍要執行」那一步');
     /* 狀態字母對照表要涵蓋 D 與 F（v1.2.0：DLL 已包進 zip、ftd2xx 相依另成 F） */
     ok(/ftd2xx/.test(t), '狀態表列出 ftd2xx 相依（F）這一種');
     ok(/libMPSSE\.dll/.test(t), '狀態表提到 libMPSSE.dll');
-    ok(/三個檔|libMPSSE\.dll/.test(t) && /1234/.test(t), '面板說明解壓後是三個檔＋密碼 1234');
+    /* v1.3.0：T（暫存目錄執行）這一列要在，且流程強調「整包解壓到資料夾」 */
+    ok(/暫存|壓縮檔預覽/.test(t), '狀態表列出 T（在壓縮檔預覽／暫存目錄直接跑 exe）這一種');
+    ok(/整包解壓到一個資料夾|整包解壓/.test(t), '流程強調整包解壓到資料夾');
+    /* v1.3.0：主下載改不加密，頁面不應把「密碼 1234」當作解壓步驟 */
+    const dlHref = (d.getElementById('dgm-i2c-helper-dl') || {}).getAttribute ? d.getElementById('dgm-i2c-helper-dl').getAttribute('href') : '';
+    ok(/dg-helper-v1\.3\.0\.zip$/.test(dlHref), '下載連結指向 v1.3.0 zip', dlHref);
+    ok(/v1\.3\.0/.test(meta.zip), 'helperMeta.zip 指向 v1.3.0');
   }
   d.getElementById('dgm-i2c-close').click();
   } else {

@@ -22,6 +22,36 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.64.0 — 2026-09-17 ｜ MINOR
+
+**helper 升到 v1.3.0：新增狀態碼 T（偵測到 exe 在暫存／解壓預覽目錄執行 → dll 沒跟出來，這極可能就是 Bruce 出 D 的真因）；主下載改不加密 zip（少一步輸入密碼）；下載區文案砍到「下載 → 整包解壓到資料夾 → 雙擊 exe」三行。**
+
+背景：Bruce 2026-09-17 要求「DLL 包在壓縮包裡（v1.2.0 已做）、重新確認一次、流程再簡單一點」。研判 v1.2.0 之後若仍出 D，最可能的真因是**在檔案總管的壓縮檔預覽視窗裡直接雙擊 exe** —— Windows 只把 exe 單獨解到 `%TEMP%` 執行，同包的 `libMPSSE.dll` 留在壓縮檔裡沒跟出來，於是「找不到」。這比再擴充搜尋路徑更治本。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| §2 案例 5／R3（多一件能做的事、多一種可辨識狀態） | helper 新增 T 狀態碼與暫存目錄偵測 | **MINOR** |
+| §2 案例 11（文案）／打包 | 主下載改不加密、文案砍到三行、狀態表加 T 列 | PATCH |
+| R1（輸出變更） | 量測輸出不變：CA-410 回歸 rows 0/256（基準＝已提交的 v1.63.0）。不標 `⚠ 輸出變更` | — |
+| §2 案例 6（移除） | 無移除。加密版改為「需要才給」，不是拿掉能力 | — |
+
+判定取捨：與前三版同屬「把 helper 這條路做好用」的同一批，取 **MINOR**；**不確定往低編的話接近 PATCH**（對網頁使用者能做的事沒變），在此寫明供覆核。
+
+helper v1.3.0 的改動（版本記在 `tools/dg-helper/dg_helper_version.h`）：
+- **狀態碼 T**：啟動時比對 exe 所在目錄與 `GetTempPath()`（前綴相符）＋常見解壓暫存特徵（`\Temp\`、`Rar$`、`\7z`、`AppData\Local\Temp` 等）。命中且 dll 找不到時印 **T**（不印 D），訊息直接叫使用者「整包解壓到資料夾再從那裡跑」。搜尋過的路徑與是否 temp 都寫進 `dg-helper.log`。
+- **不加密 zip**：主下載 `dg-helper-v1.3.0.zip` 用一般 deflate，Windows 內建可解、不必輸入密碼。加密版改為需要時再提供（密碼原本就印在頁面上＝無機密性，只多一步）。
+- 下載區文案精簡為三行流程；狀態字母表新增 T 列並置頂於 D 之前。
+
+> 🔴 語言仍是原生 C（非 C# net472）。
+>
+> 🔴 **未經實機驗證**：T 偵測在真機各種解壓工具下的命中、不加密 zip 的下載端行為、狀態碼在真機的判定、D2XX／I2C，全部沒有 Windows／FTDI 硬體可驗。已驗（附數字，Bruce 要求「重新確認一次」）：zip 用**一般解壓（無密碼）**解出**三個檔**（exe 239,616／html 354,483／dll 48,109 bytes）；exe PE `0x014c`／32-bit、dll PE `0x014c`；打包的 dll 與 `Release V1.5.0/libMPSSE.dll` **逐位元組相同（`cmp` YES）**、SHA256 `916584d…62ad2`；console 字串純 ASCII（註解外非 ASCII = 0）；`test_proto.c` 32/32；self-contained 頁 jsdom 載入 0 錯誤、無外部 script 相依；`dg_i2c_selftest.js` 167 項全過；CA-410 回歸 rows 0/256。
+
+驗收：helper v1.3.0 zip SHA256 `ffda7d620292c34f6f2421cfbae0fa238eec70c7d6ac461a9d113b9d7a6f966d`、exe SHA256 `81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba`、內含 libMPSSE.dll SHA256 `916584dffeaa0e072a7364b1eb896520f233ac5c70c24919e623893ae6362ad2`。舊 `data/dg-helper-v1.2.0.zip` 一併移除。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.63.0 — 2026-09-17 ｜ MINOR
 
 **helper 升到 v1.2.0：`libMPSSE.dll` 直接包進加密 zip（解壓後三個檔即可雙擊，不必去 PQ Tool 搬 DLL）；DLL 搜尋範圍大幅擴充（registry Uninstall／Program Files／使用者資料夾／PATH／env）並逐路徑寫進 log；DLL 三種失敗分成不同狀態碼（D 檔不存在／F 相依 ftd2xx 缺／X 位元數不合）。網頁端同步更新下載（三檔說明、狀態表新增 F 列）與 SHA。**
