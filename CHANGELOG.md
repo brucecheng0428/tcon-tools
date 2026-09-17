@@ -22,6 +22,34 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.61.0 — 2026-09-17 ｜ MINOR
+
+**新增「透過本機 helper 連線」這條 I2C 通道，並在實測面板放上 helper 的下載入口、SHA256 與如實的首次執行說明（含 SmartScreen 那兩下）。原本的 WebUSB 那條保留為備援，未移除。**
+
+背景：2026-09-17 四輪可行性報告的結論 —— 瀏覽器直接用 WebUSB 連現有 FTDI 治具，在 Windows 上因 interface 綁在 FTDI 自己的驅動（D2XX）而 claim 不到，且**不換驅動就無解**（報告3 §1）。補上那條「電話線」的唯一辦法是在本機跑一支小程式當橋：`網頁 ──WebSocket(127.0.0.1)──> dg-helper ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON`。本版把網頁端接上這條路。helper 本體在 `tools/dg-helper/`，發佈形式是 `data/dg-helper-v1.0.0.zip`（7z AES、密碼 1234）。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| §2 案例 5（新增一整組新來源）／R3（多一件能做的事） | 新增 helper（WebSocket）傳輸與「透過 helper 連線」按鈕、helper 下載入口 | **MINOR** |
+| §2 案例 11（文案） | 面板新增 helper 說明、首次執行（SmartScreen）步驟、SHA256 核對 | PATCH |
+| §2 案例 6（移除既有功能） | 🔴 **逐項確認：WebUSB 那條沒有移除**，仍在原位（「I2C OFF」按鈕），只是多半連不上。移除與否等 Bruce 裁示，本版不動 ⇒ 不適用 | — |
+| §2 案例 3（改 UI 版面、不動功能） | 三個下拉、四顆出圖鈕、量測迴圈位置全不變 | — |
+| R1（修 bug／輸出變更） | 量測輸出完全不變：CA-410 回歸 rows 0/256（`tools/dg_measure_regression.js`）。不標 `⚠ 輸出變更` | — |
+| R4（起始狀態／預設值改變） | 開頁預設 transport 仍是 'usb'，起始畫面不變 | — |
+| R2（開新的一波） | 無。不涉及 MAJOR，無需核准欄位 | — |
+
+判定取捨：本版**只增不改**（新增第二條連線路徑＋下載區），既有的 WebUSB 連線、CA-410 量測、出圖流程一律照舊 ⇒ 取最高者為 **MINOR**。改動規模不是判準（`docs/VERSIONING.md` §1 明文）；helper 本體雖是一支新程式，但對本頁使用者而言就是「多一個連線選項」。
+
+> 🔴 **與前輪定案的偏離（已回報 Bruce 供覆核）**：前四輪報告定案 helper 用 **C# net472** 寫。實際動手發現交付環境（macOS/Linux、無 Visual Studio／mono／dotnet、沙箱連不到 Microsoft／Mono／Debian 套件庫）**編不出 C# net472**。依 Bruce 指示「編不出來就立刻回報，不要硬做」，改用**原生 C ＋ zig 交叉編譯**：產出 32 位元 PE（machine `0x014c`，實測），且**完全不依賴 .NET Framework**，比原方案更少前提。硬條件（必須 32 位元才載得動 x86 的 libMPSSE.dll）不變。詳見 `tools/dg-helper/README.md`。
+
+> 🔴 **未經實機驗證**：helper 的 D2XX 連線、libMPSSE 呼叫、實際 I2C 通訊，以及網頁端的 WebSocket 客戶端在真機上的行為，全部沒有 Windows／FTDI 硬體可驗。已驗的：helper 協定純函式（`tools/dg-helper/test_proto.c` 32/32，含 RFC6455 握手向量、位址白名單、Origin 白名單）、PE header／檔案大小／SHA256、zip 用 1234 能解開、網頁 `tools/dg_i2c_selftest.js` 全過、CA-410 回歸 rows 0/256。面板文案已如實寫明「helper 這條路本身未經實機驗證」與 SmartScreen 擋不掉這件事。
+
+驗收：見 v1.61.0 回報。helper zip SHA256 `64ce393838ab00e7813e13225a65bad4062ae7f171707c0d0f59a0cee33f07b2`、exe SHA256 `17a46818c0451c94fb24febe86ecca1fe0dab78e5985e64f7e41d81440f112cc`。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.60.1 — 2026-09-17 ｜ PATCH
 
 **去商標化：v1.60.0 在三處使用者可見文字與本檔寫進了邏輯分析儀的原廠軟體名稱，改成中性代號。**
