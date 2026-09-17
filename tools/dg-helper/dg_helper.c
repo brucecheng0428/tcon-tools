@@ -118,11 +118,29 @@ static int  g_dllDepMissing = 0;     /* file existed but LoadLibrary failed with
 static char g_jigState = 'J';        /* 'J' none, 'U' found-but-open-failed, 'K' ok */
 static int  g_browserOk = 0;
 static int  g_bindOk = 0;
+static int  g_runningFromTemp = 0;   /* exe is executing from a temp/extraction dir -> T */
 
 static void exe_dir(char* out, int cap) {
     char exe[MAX_PATH]; GetModuleFileNameA(NULL, exe, sizeof(exe));
     char* slash = strrchr(exe, '\\'); if (slash) *(slash + 1) = 0; else exe[0] = 0;
     snprintf(out, cap, "%s", exe);
+}
+/* Detect running from a temp / archive-preview extraction folder. The classic
+   trap: double-clicking the exe INSIDE the zip preview makes Windows extract
+   only the exe to %TEMP% and run it there -> the bundled libMPSSE.dll stays in
+   the archive -> "not found" (which we must NOT report as plain D). */
+static void detect_temp_dir(void) {
+    char lower[MAX_PATH]; snprintf(lower, sizeof(lower), "%s", g_exeDir);
+    for (char* p = lower; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+    char tmp[MAX_PATH]; DWORD n = GetTempPathA(sizeof(tmp), tmp);
+    if (n > 0 && n < sizeof(tmp)) { for (char* p = tmp; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+        if (strstr(lower, tmp) == lower) g_runningFromTemp = 1; }
+    /* archive-tool extraction markers, in case %TEMP% differs */
+    if (strstr(lower, "\\temp\\") || strstr(lower, "\\tmp\\") ||
+        strstr(lower, "\\appdata\\local\\temp") || strstr(lower, "\\windows\\temp") ||
+        strstr(lower, "rar$") || strstr(lower, "\\7z") || strstr(lower, "temp\\") ||
+        strstr(lower, "\\inetcache\\") || strstr(lower, "bnz.") )
+        g_runningFromTemp = 1;
 }
 
 /* ===========================================================================
@@ -471,6 +489,7 @@ int main(int argc, char** argv){
 
     SetConsoleOutputCP(65001);   /* extra insurance; output is ASCII anyway */
     exe_dir(g_exeDir, sizeof(g_exeDir));
+    detect_temp_dir();
     { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%sdg-helper.log",g_exeDir); g_log=fopen(lp,"wb"); }
 
     logline("==================================================");
@@ -482,6 +501,7 @@ int main(int argc, char** argv){
 
     diag_os();
     diag_bits();
+    logline("  run dir   : %s%s", g_exeDir, g_runningFromTemp ? "  <- TEMP/extraction dir (letter T: extract the whole zip to a real folder first)" : "");
     g_dllOk = locate_and_load_dll();
     diag_dll();
     diag_ftdi();
@@ -514,6 +534,7 @@ int main(int argc, char** argv){
        > J no jig > U jig held by PQ Tool > B browser not opened > G good.   */
     char code; const char *meaning, *todo;
     if(!g_bindOk){ code='P'; meaning="port 127.0.0.1 is busy"; todo="Another dg-helper is already running. Close it, then start this one again."; }
+    else if(!g_dllOk && !g_dllFound && g_runningFromTemp){ code='T'; meaning="you ran the exe from inside the zip (a temp folder), so the bundled libMPSSE.dll got left behind"; todo="Close this. EXTRACT the whole zip to a real folder (e.g. Desktop), then double-click dg-helper.exe there."; }
     else if(!g_dllOk && !g_dllFound){ code='D'; meaning="libMPSSE.dll not found"; todo="It normally ships next to this exe. If you moved the exe out, copy libMPSSE.dll back beside it (or run the exe from the folder you unzipped)."; }
     else if(!g_dllOk && g_dllDepMissing){ code='F'; meaning="libMPSSE.dll found, but its ftd2xx.dll (FTDI driver) is missing"; todo="Install the FTDI D2XX driver, or just run the original PQ Tool once; that puts ftd2xx.dll on the system. Then start this program again."; }
     else if(!g_dllOk){ code='X'; meaning="wrong libMPSSE.dll (bitness/corrupt)"; todo="Use the 32-bit libMPSSE.dll from your PQ Tool 'Release V1.5.0' folder."; }
