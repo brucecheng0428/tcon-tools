@@ -6,30 +6,52 @@
 網頁 ──WebSocket(127.0.0.1)──> dg-helper.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
 ```
 
-## 使用者流程（v1.1.0，Bruce 2026-09-17 回饋後）
+## 使用者流程（v1.2.0，Bruce 2026-09-17 回饋後）
 
-1. 下載加密 zip → 用密碼 **1234** 解壓（得到 `dg-helper.exe` ＋ `dg-measure.html`，放同一資料夾）
+1. 下載加密 zip → 用密碼 **1234** 解壓（得到**三個檔**：`dg-helper.exe`＋`dg-measure.html`＋`libMPSSE.dll`，放同一資料夾）
 2. 雙擊 `dg-helper.exe`（SmartScreen「其他資訊 → 仍要執行」兩下）
 3. helper **自己打開預設瀏覽器** `http://127.0.0.1:8899`，量測頁由 helper 自己端出來、**自動連好** —— 不必按任何連線鈕
 4. 要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）
+
+> **v1.2.0：`libMPSSE.dll` 直接包進 zip**（Bruce 2026-09-17 裁示）。原本不隨附是顧慮
+> FTDI 二進位再散布授權＋去商標化，但這是公司內部工具、加密壓縮、用的人本來就有
+> PQ Tool —— 把不確定的顧慮放大成阻礙、讓使用者搬檔案是錯的取捨。改為附上。
+> `ftd2xx.dll` **不附**：它隨 FTDI 驅動裝進系統，跑得動 PQ Tool 就一定有；缺它時
+> 狀態碼是 **F**（與「檔案不存在」的 **D** 分開）。
 
 **Console 全英文**（Windows console 中文會亂碼）。黑視窗最後一行是**單一大寫狀態字母**，詳細英文寫進 exe 旁的 `dg-helper.log`。
 
 | 字母 | 意思 | 處置 |
 |---|---|---|
 | **G** | all good | 已開已連，直接用 |
-| **D** | libMPSSE.dll not found | 把 PQ Tool `Release V1.5.0` 的 `libMPSSE.dll`＋`ftd2xx.dll` 複製到 exe 旁，重跑 |
-| **X** | wrong libMPSSE.dll（位元數不合／損壞） | 換 32 位元的 `libMPSSE.dll` |
+| **D** | libMPSSE.dll 檔不存在 | 它本來就跟 exe 一起在 zip 裡；若你把 exe 搬出來了，把 `libMPSSE.dll` 放回 exe 旁（或直接在解壓的資料夾裡跑） |
+| **F** | 找到 libMPSSE.dll 但相依的 ftd2xx.dll 載不到 | 裝 FTDI D2XX 驅動，或先跑一次原廠 PQ Tool（會把 ftd2xx.dll 裝進系統），重跑 |
+| **X** | libMPSSE.dll 載得起來但不對（位元數不合／損壞） | 換 32 位元的 `libMPSSE.dll` |
 | **J** | FTDI jig not found | 插上治具（USB／電源），重跑 |
 | **U** | jig in use | 關掉原廠 PQ Tool／AUX GUI，重跑 |
 | **P** | port 127.0.0.1 busy | 已有一個 helper 在跑，關掉再開 |
 | **B** | browser did not open | 自己開 `http://127.0.0.1:8899` |
 
 字母刻意避開易混淆的 I／O／L／0／1。失敗時視窗不關（P 會等 Enter，其餘因為 server 還在跑所以視窗自然留著）。
+🔴 **D／F／X 三種 DLL 失敗分成不同字母**：D＝檔案根本不存在、F＝檔案在但相依的 ftd2xx 載不到、X＝檔案在也載得起來但不是對的（exports 缺）。`SetDllDirectory()` 在載入前把 DLL 所在目錄加進搜尋路徑，讓 ftd2xx.dll 能從系統解析。
+
+## DLL 搜尋順序（v1.2.0）
+
+`libMPSSE.dll` 已包進 zip，正常情況同目錄第一順位就命中。但搜尋邏輯保留（使用者自己拆開放、或未來換版的退路），且**逐條路徑寫進 `dg-helper.log`**：
+
+1. 環境變數 `DG_HELPER_DLL_DIR`（進階使用者明路）
+2. exe 所在目錄
+3. 目前工作目錄
+4. 選填的 `dg-helper.ini`（單行＝資料夾）
+5. 登錄檔 Uninstall 鍵（HKLM 64/32-bit view、HKCU）比對 DisplayName 含 Raydium／PQ，取 InstallLocation
+6. `Program Files`／`Program Files (x86)` 底下名字像 Raydium/PQ/TCON 的資料夾（限深度，不全碟掃）
+7. 使用者 `Desktop`／`Downloads`／`Documents` 底下同上
+8. `PATH` 上每個目錄
+9. 相對 `.\Release V1.5.0`、`..\Release V1.5.0`（退路，放最後）
 
 ## 自我診斷（寫進 dg-helper.log，全英文）
 
-OS 版本、行程是否 32-bit、`libMPSSE.dll` 找到與否＋完整路徑、FTDI 裝置列舉（幾顆、VID/PID/desc）、channel 0 開得起來與否（分辨 J／U）、port 綁定、瀏覽器是否自動開起來。每項 `OK` / `FAIL:<reason>`。
+OS 版本、行程是否 32-bit、**搜尋過的每一條路徑**＋命中與否、`libMPSSE.dll` 完整路徑、FTDI 裝置列舉（幾顆、VID/PID/desc）、channel 0 開得起來與否（分辨 J／U）、port 綁定、瀏覽器是否自動開起來。每項 `OK` / `FAIL:<reason>`。
 
 ## 為什麼是原生 C，不是 C#（net472）
 
@@ -105,10 +127,11 @@ I2C 序列（照抄 PQ Tool 反組譯 `xCtrl_FTDI_I2C.cs` / `xCtrl_I2C_App.cs`�
 
 ## 相依 DLL
 
-`libMPSSE.dll`（x86，48,109 bytes）與它相依的 `ftd2xx.dll`。**不隨附**（FTDI
-二進位再散布 ＋ 去商標化規定）。helper 啟動時**自動**去找使用者電腦上已有的那顆：
-exe 同目錄 → 選填的 `dg-helper.ini`（單行＝資料夾路徑）→ 幾個常見 PQ Tool 相對
-路徑。都找不到就在狀態字母印 **D**，並在 `dg-helper.log` 寫清楚要把 DLL 放哪。
-（v1.1.0 起**不再用 console stdin 問路徑** —— 那是多一步，改成用狀態碼＋log 指路。）
-會用這工具的人一定有 PQ Tool，所以不是額外負擔。`ftd2xx.dll` 由已安裝的 FTDI
-驅動從系統解析。
+`libMPSSE.dll`（x86，48,109 bytes，PE machine `0x014c`，SHA256
+`916584dffeaa0e072a7364b1eb896520f233ac5c70c24919e623893ae6362ad2`）**v1.2.0 起
+直接包進加密 zip**，來源＝`Release V1.5.0/libMPSSE.dll`。打包腳本從主機端的 PQ
+Tool 資料夾讀它（不進版控成 repo 裡的裸檔 —— git-tracked＝公開，只放進加密 zip）。
+
+`ftd2xx.dll`（libMPSSE 的相依）**不隨附**：它隨 FTDI D2XX 驅動裝進系統，跑得動 PQ
+Tool 就一定有；缺它時 helper 印狀態碼 **F**（與「libMPSSE.dll 檔不存在」的 **D** 分開）。
+載入前 `SetDllDirectory()` 把 DLL 所在目錄加進搜尋路徑，讓 ftd2xx.dll 從系統解析。

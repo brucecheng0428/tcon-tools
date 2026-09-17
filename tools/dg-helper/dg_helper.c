@@ -113,6 +113,8 @@ static void logline(const char* fmt, ...) {
 }
 /* status-letter state */
 static int  g_dllLoadedButBad = 0;   /* saw LoadLibrary success but procs missing -> X */
+static int  g_dllFound = 0;          /* libMPSSE.dll FILE existed somewhere (even if load failed) */
+static int  g_dllDepMissing = 0;     /* file existed but LoadLibrary failed with MOD_NOT_FOUND (ftd2xx?) */
 static char g_jigState = 'J';        /* 'J' none, 'U' found-but-open-failed, 'K' ok */
 static int  g_browserOk = 0;
 static int  g_bindOk = 0;
@@ -126,12 +128,37 @@ static void exe_dir(char* out, int cap) {
 /* ===========================================================================
  * DLL locate & load (auto only, no interactive prompt)
  * =========================================================================== */
-static int try_load_from(const char* dir) {
-    char path[MAX_PATH];
-    if (dir && dir[0]) { snprintf(path, sizeof(path), "%slibMPSSE.dll", dir); SetDllDirectoryA(dir); }
-    else snprintf(path, sizeof(path), "libMPSSE.dll");
-    HMODULE h = LoadLibraryA(path);
-    if (!h) return 0;   /* not present / could not load image here -> try next path */
+/* normalise a dir to end with a single backslash */
+static void ensure_slash(char* d) {
+    int n=(int)strlen(d); if (n>0 && d[n-1]!='\\' && n<MAX_PATH-1) { d[n]='\\'; d[n+1]=0; }
+}
+static int dir_has_dll(const char* dir) {
+    char p[MAX_PATH]; snprintf(p,sizeof(p),"%slibMPSSE.dll",dir);
+    DWORD a=GetFileAttributesA(p); return (a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_DIRECTORY));
+}
+static int case_contains(const char* hay, const char* needle) {
+    if(!hay||!needle) return 0; size_t nl=strlen(needle);
+    for(const char* p=hay; *p; p++){ size_t i=0; for(; i<nl; i++){ char a=p[i]; if(!a) return 0; char b=needle[i];
+        if(a>='A'&&a<='Z') a+=32; if(b>='A'&&b<='Z') b+=32; if(a!=b) break; } if(i==nl) return 1; }
+    return 0;
+}
+/* try ONE directory: log it, and if libMPSSE.dll is there, attempt to load it.
+   returns 1 on full success (procs resolved). */
+static int try_dir(const char* dirIn) {
+    if (!dirIn || !dirIn[0]) return 0;
+    char dir[MAX_PATH]; snprintf(dir,sizeof(dir),"%s",dirIn); ensure_slash(dir);
+    if (!dir_has_dll(dir)) { logline("  search: %-60s  (no libMPSSE.dll)", dir); return 0; }
+    g_dllFound = 1;
+    char full[MAX_PATH]; snprintf(full,sizeof(full),"%slibMPSSE.dll",dir);
+    SetDllDirectoryA(dir);                       /* so its ftd2xx.dll dependency resolves too */
+    HMODULE h = LoadLibraryA(full);
+    if (!h) {
+        DWORD e = GetLastError();
+        if (e == ERROR_MOD_NOT_FOUND /*126*/) { g_dllDepMissing = 1;
+            logline("  search: %-60s  FOUND but LoadLibrary failed 126 (a dependency like ftd2xx.dll is missing next to it)", dir); }
+        else logline("  search: %-60s  FOUND but LoadLibrary failed (err=%lu)", dir, e);
+        return 0;
+    }
     p_Init=(PFN_Init)GetProcAddress(h,"Init_libMPSSE");
     p_Cleanup=(PFN_Cleanup)GetProcAddress(h,"Cleanup_libMPSSE");
     p_GetNum=(PFN_GetNum)GetProcAddress(h,"I2C_GetNumChannels");
@@ -142,29 +169,100 @@ static int try_load_from(const char* dir) {
     p_Read=(PFN_Read)GetProcAddress(h,"I2C_DeviceRead");
     p_ChanInfo=(PFN_ChanInfo)GetProcAddress(h,"I2C_GetChannelInfo");
     if (!p_GetNum||!p_Open||!p_Close||!p_Init2||!p_Write||!p_Read) {
-        /* the DLL loaded but the I2C_* exports are missing -> wrong/corrupt DLL
-           (or, most likely here, a bitness mismatch that still mapped) -> 'X' */
-        g_dllLoadedButBad = 1; return 0;
+        g_dllLoadedButBad = 1;
+        logline("  search: %-60s  FOUND & loaded but I2C_* exports missing (wrong/32-64 bit mismatch)", dir);
+        return 0;
     }
-    snprintf(g_dllPath, sizeof(g_dllPath), "%s", path);
+    snprintf(g_dllPath, sizeof(g_dllPath), "%s", full);
+    logline("  search: %-60s  OK (loaded)", dir);
     return 1;
 }
-/* read dg-helper.ini next to exe (one line = libMPSSE folder), optional */
-static int read_ini_dir(char* out, int cap) {
-    char ip[MAX_PATH]; snprintf(ip, sizeof(ip), "%sdg-helper.ini", g_exeDir);
-    FILE* f = fopen(ip, "rb"); if (!f) return 0;
-    if (!fgets(out, cap, f)) { fclose(f); return 0; } fclose(f);
-    int n = (int)strlen(out); while (n>0 && (out[n-1]=='\n'||out[n-1]=='\r'||out[n-1]==' ')) out[--n]=0;
-    /* ensure trailing backslash */
-    n = (int)strlen(out); if (n>0 && out[n-1] != '\\' && n < cap-1) { out[n]='\\'; out[n+1]=0; }
-    return out[0] ? 1 : 0;
+/* enumerate a root's immediate children; for those whose name looks like a
+   Raydium/PQ/TCON folder, try that child and its immediate subfolders (so a
+   "...\\Raydium\\Release V1.5.0" gets reached). Bounded: no full-disk walk. */
+static int scan_keyword_root(const char* root) {
+    char pat[MAX_PATH]; snprintf(pat,sizeof(pat),"%s\\*",root);
+    WIN32_FIND_DATAA fd; HANDLE hf=FindFirstFileA(pat,&fd);
+    if (hf==INVALID_HANDLE_VALUE) return 0;
+    static const char* kw[]={"raydium","pq ","pqtool","pq_tool","pqadjust","adjustment","tcon","gamma","libmpsse",NULL};
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (fd.cFileName[0]=='.') continue;
+        int match=0; for(int i=0;kw[i];i++) if(case_contains(fd.cFileName,kw[i])){match=1;break;}
+        if (!match) continue;
+        char sub[MAX_PATH]; snprintf(sub,sizeof(sub),"%s\\%s",root,fd.cFileName);
+        if (try_dir(sub)) { FindClose(hf); return 1; }
+        /* one level deeper (e.g. Release V1.5.0 under it) */
+        char pat2[MAX_PATH]; snprintf(pat2,sizeof(pat2),"%s\\*",sub);
+        WIN32_FIND_DATAA fd2; HANDLE hf2=FindFirstFileA(pat2,&fd2);
+        if (hf2!=INVALID_HANDLE_VALUE) {
+            do {
+                if (!(fd2.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                if (fd2.cFileName[0]=='.') continue;
+                char sub2[MAX_PATH]; snprintf(sub2,sizeof(sub2),"%s\\%s",sub,fd2.cFileName);
+                if (try_dir(sub2)) { FindClose(hf2); FindClose(hf); return 1; }
+            } while (FindNextFileA(hf2,&fd2));
+            FindClose(hf2);
+        }
+    } while (FindNextFileA(hf,&fd));
+    FindClose(hf);
+    return 0;
+}
+/* registry Uninstall scan: find PQ Tool's InstallLocation */
+static int scan_uninstall_view(HKEY hive, REGSAM view) {
+    HKEY h; if (RegOpenKeyExA(hive,"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",0,KEY_READ|view,&h)!=ERROR_SUCCESS) return 0;
+    char sub[256]; DWORD i=0, sz;
+    for (;;) {
+        sz=sizeof(sub); if (RegEnumKeyExA(h,i++,sub,&sz,NULL,NULL,NULL,NULL)!=ERROR_SUCCESS) break;
+        HKEY k; if (RegOpenKeyExA(h,sub,0,KEY_READ|view,&k)!=ERROR_SUCCESS) continue;
+        char name[512]={0}, loc[MAX_PATH]={0}; DWORD nl=sizeof(name), ll=sizeof(loc), t;
+        RegQueryValueExA(k,"DisplayName",NULL,&t,(BYTE*)name,&nl);
+        int match = case_contains(name,"raydium")||case_contains(name,"pq adjustment")||case_contains(name,"pq tool");
+        if (match && RegQueryValueExA(k,"InstallLocation",NULL,&t,(BYTE*)loc,&ll)==ERROR_SUCCESS && loc[0]) {
+            logline("  registry: \"%s\" -> %s", name, loc);
+            if (try_dir(loc)) { RegCloseKey(k); RegCloseKey(h); return 1; }
+            char rel[MAX_PATH]; snprintf(rel,sizeof(rel),"%s\\Release V1.5.0",loc);
+            if (try_dir(rel)) { RegCloseKey(k); RegCloseKey(h); return 1; }
+            if (scan_keyword_root(loc)) { RegCloseKey(k); RegCloseKey(h); return 1; }
+        }
+        RegCloseKey(k);
+    }
+    RegCloseKey(h); return 0;
 }
 static int locate_and_load_dll(void) {
-    char dir[MAX_PATH];
-    if (try_load_from(g_exeDir)) return 1;                 /* next to exe */
-    if (read_ini_dir(dir, sizeof(dir)) && try_load_from(dir)) return 1;
-    const char* cand[] = { ".\\Release V1.5.0\\", "..\\Release V1.5.0\\", NULL };
-    for (int i=0; cand[i]; i++) if (try_load_from(cand[i])) return 1;
+    char buf[MAX_PATH];
+    logline("Looking for libMPSSE.dll (order: env, exe dir, cwd, ini, registry, Program Files, user folders, PATH):");
+    /* 1. explicit override for power users */
+    if (GetEnvironmentVariableA("DG_HELPER_DLL_DIR", buf, sizeof(buf)) && buf[0] && try_dir(buf)) return 1;
+    /* 2. next to the exe */
+    if (try_dir(g_exeDir)) return 1;
+    /* 3. current working directory */
+    if (GetCurrentDirectoryA(sizeof(buf), buf) && try_dir(buf)) return 1;
+    /* 4. optional dg-helper.ini (one line = folder) */
+    { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%sdg-helper.ini",g_exeDir);
+      FILE* f=fopen(ip,"rb"); if(f){ if(fgets(buf,sizeof(buf),f)){ int n=(int)strlen(buf);
+        while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'||buf[n-1]==' ')) buf[--n]=0;
+        if(buf[0] && try_dir(buf)){ fclose(f); return 1; } } fclose(f); } }
+    /* 5. registry Uninstall (both bitness views, HKLM then HKCU) */
+    if (scan_uninstall_view(HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY)) return 1;
+    if (scan_uninstall_view(HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY)) return 1;
+    if (scan_uninstall_view(HKEY_CURRENT_USER,  KEY_WOW64_32KEY)) return 1;
+    /* 6. Program Files / Program Files (x86): scan folders whose name looks like PQ Tool */
+    { const char* envs[]={"ProgramW6432","ProgramFiles","ProgramFiles(x86)",NULL};
+      for(int i=0;envs[i];i++){ if(GetEnvironmentVariableA(envs[i],buf,sizeof(buf))&&buf[0]&&scan_keyword_root(buf)) return 1; } }
+    /* 7. common manual locations under the user profile */
+    { char up[MAX_PATH]; if(GetEnvironmentVariableA("USERPROFILE",up,sizeof(up))&&up[0]){
+        const char* subs[]={"Desktop","Downloads","Documents",NULL};
+        for(int i=0;subs[i];i++){ snprintf(buf,sizeof(buf),"%s\\%s",up,subs[i]);
+            if(try_dir(buf)) return 1; if(scan_keyword_root(buf)) return 1; } } }
+    /* 8. every directory on PATH */
+    { DWORD need=GetEnvironmentVariableA("PATH",NULL,0);
+      if(need){ char* path=(char*)malloc(need+1); if(path){ GetEnvironmentVariableA("PATH",path,need+1);
+        char* ctx=NULL; for(char* tok=strtok_s(path,";",&ctx); tok; tok=strtok_s(NULL,";",&ctx)) if(tok[0]&&try_dir(tok)){ free(path); return 1; }
+        free(path); } } }
+    /* 9. legacy relative fall-backs (kept last) */
+    if (try_dir(".\\Release V1.5.0")) return 1;
+    if (try_dir("..\\Release V1.5.0")) return 1;
     return 0;
 }
 
@@ -187,13 +285,13 @@ static void diag_bits(void) {
             (sizeof(void*)==4) ? "OK " : "FAIL", (int)(sizeof(void*)*8), (int)sizeof(void*));
 }
 static void diag_dll(void) {
-    if (g_dllOk) logline("  libMPSSE  : OK  loaded from %s", g_dllPath);
-    else {
-        logline("  libMPSSE  : FAIL: libMPSSE.dll not found.");
-        logline("              Searched: exe folder, dg-helper.ini, .\\Release V1.5.0, ..\\Release V1.5.0");
-        logline("              Fix: put libMPSSE.dll (and its ftd2xx.dll) next to dg-helper.exe,");
-        logline("                   or create dg-helper.ini next to the exe with one line = the PQ Tool Release folder.");
-    }
+    if (g_dllOk) { logline("  libMPSSE  : OK  loaded from %s", g_dllPath); return; }
+    if (!g_dllFound)
+        logline("  libMPSSE  : FAIL: libMPSSE.dll not found in any searched location (letter D). It ships next to this exe; if you moved the exe, copy the dll back beside it.");
+    else if (g_dllDepMissing)
+        logline("  libMPSSE  : FAIL: libMPSSE.dll present but LoadLibrary failed with a missing dependency (letter F). ftd2xx.dll (the FTDI D2XX driver) is not on this system. Install the FTDI driver or run PQ Tool once.");
+    else
+        logline("  libMPSSE  : FAIL: libMPSSE.dll present but its I2C_* exports are missing (letter X). Wrong or 64-bit dll; use the 32-bit one.");
 }
 static void diag_ftdi(void) {
     g_jigState = 'J';
@@ -416,8 +514,9 @@ int main(int argc, char** argv){
        > J no jig > U jig held by PQ Tool > B browser not opened > G good.   */
     char code; const char *meaning, *todo;
     if(!g_bindOk){ code='P'; meaning="port 127.0.0.1 is busy"; todo="Another dg-helper is already running. Close it, then start this one again."; }
-    else if(!g_dllOk && g_dllLoadedButBad){ code='X'; meaning="wrong libMPSSE.dll (bitness/corrupt)"; todo="Replace libMPSSE.dll with the 32-bit one from your PQ Tool Release folder."; }
-    else if(!g_dllOk){ code='D'; meaning="libMPSSE.dll not found"; todo="Copy libMPSSE.dll + ftd2xx.dll from your PQ Tool 'Release V1.5.0' folder next to this exe, then restart."; }
+    else if(!g_dllOk && !g_dllFound){ code='D'; meaning="libMPSSE.dll not found"; todo="It normally ships next to this exe. If you moved the exe out, copy libMPSSE.dll back beside it (or run the exe from the folder you unzipped)."; }
+    else if(!g_dllOk && g_dllDepMissing){ code='F'; meaning="libMPSSE.dll found, but its ftd2xx.dll (FTDI driver) is missing"; todo="Install the FTDI D2XX driver, or just run the original PQ Tool once; that puts ftd2xx.dll on the system. Then start this program again."; }
+    else if(!g_dllOk){ code='X'; meaning="wrong libMPSSE.dll (bitness/corrupt)"; todo="Use the 32-bit libMPSSE.dll from your PQ Tool 'Release V1.5.0' folder."; }
     else if(g_jigState=='J'){ code='J'; meaning="FTDI jig not found"; todo="Plug in the I2C jig (check USB and power), then start this program again."; }
     else if(g_jigState=='U'){ code='U'; meaning="jig is in use"; todo="Close the original PQ Tool / AUX GUI (it is holding the jig), then start this program again."; }
     else if(!g_browserOk){ code='B'; meaning="browser did not open"; todo="Open this address in Chrome yourself:  "; }
