@@ -322,6 +322,16 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   ok(/^[0-9a-f]{64}$/.test(meta.exeSha), 'helper exe SHA256 是 64 碼十六進位', meta.exeSha);
   ok(meta.zipSha !== meta.exeSha, 'zip 與 exe 的 SHA256 不同（不是複製貼上）');
   ok(/^data\/dg-helper-.*\.zip$/.test(meta.zip), 'helper 下載指向 data/ 的 zip', meta.zip);
+  ok(/^v\d+\.\d+\.\d+$/.test(meta.ver), 'helper 版本字串格式正確', meta.ver);
+  /* loopback 自動連線判斷（v1.62.0）：只在本機 host 觸發，GitHub Pages 不動 */
+  if (typeof P.isLoopback === 'function') {
+    ok(P.isLoopback('127.0.0.1') === true, 'isLoopback 認得 127.0.0.1');
+    ok(P.isLoopback('localhost') === true, 'isLoopback 認得 localhost');
+    ok(P.isLoopback('brucecheng0428.github.io') === false, 'isLoopback 對 GitHub Pages 回 false（既有行為不變）');
+    ok(P.isLoopback('example.invalid') === false, 'isLoopback 對其他網域回 false');
+  } else {
+    ok(false, 'P.isLoopback 不存在（v1.62.0 自動連線判斷沒接上）');
+  }
   /* DOM：連線鈕、狀態、下載連結、SHA 欄位、密碼 1234、SmartScreen 說明 */
   d.getElementById('dgm-i2c-open').click();
   ok(!!d.getElementById('dgm-i2c-ws'), '「透過 helper 連線」按鈕在 DOM 上');

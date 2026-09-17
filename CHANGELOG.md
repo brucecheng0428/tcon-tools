@@ -22,6 +22,40 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.62.0 — 2026-09-17 ｜ MINOR
+
+**helper 升到 v1.1.0：console 全英文、自己端量測頁並自動開瀏覽器（使用者不必再按連線）、啟動自我診斷寫 `dg-helper.log` 並在黑視窗印單一大寫狀態字母。網頁端新增「helper 自端網頁時自動連線」，並改寫下載區為更少的步驟＋狀態字母對照表。**
+
+背景：Bruce 2026-09-17 實測 v1.0.0 的三個回饋 ——（1）黑視窗中文亂碼、要求「不應該用中文」；（2）步驟太複雜、試過仍失敗；（3）不方便拍照，log 要「一個英文字母就知道什麼問題」。三項全部照做。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| §2 案例 5／R3（多一件能做的事） | 網頁新增「由 helper 從 127.0.0.1 端出來時自動開面板＋自動連線」（`dgmI2cIsLoopback` 守門，只在 loopback 觸發） | **MINOR** |
+| §2 案例 11（文案） | 下載區改寫：四步流程、狀態字母對照表、SmartScreen 兩下如實寫明 | PATCH |
+| R1（修 bug／輸出變更） | 量測輸出完全不變：CA-410 回歸 rows 0/256（比對基準＝已提交的 v1.61.0）。不標 `⚠ 輸出變更` | — |
+| R4（起始狀態） | GitHub Pages 上開頁行為完全不變（loopback 才自動連線）；預設 transport 仍 'usb' | — |
+| §2 案例 6（移除） | 無移除。WebUSB 仍在，helper 手動連線鈕仍在 | — |
+| R2（開新的一波） | 無。不涉及 MAJOR | — |
+
+判定取捨：既有操作（GitHub Pages 上的手動連線、CA-410 量測、出圖）一律照舊，只在「由本機 helper 端出來」這個新情境多一個自動連線行為 ⇒ 取最高者 **MINOR**。
+
+helper v1.1.0 的改動（不在 `common/version.js`，版本記在 `tools/dg-helper/dg_helper_version.h` 與此處）：
+- **console 全英文**（實測：原始碼註解外 0 個非 ASCII 字元；Windows console 中文亂碼問題消除）。另設 `SetConsoleOutputCP(65001)` 當附加保險。
+- **自端網頁＋自動開瀏覽器**：helper 綁 `127.0.0.1:8899` 後 `ShellExecute` 開預設瀏覽器；`GET /` 回傳 exe 旁的 `dg-measure.html`（zip 內附一份 self-contained 版，已 inline `zoomprobe.js`＋`version.js`）。同源 http，Bruce 前輪實測 `isSecureContext:true`、Web Serial 可用 ⇒ CA-410 那條不受影響。
+- **單字母狀態碼**（黑視窗最後一行）：G 正常／D 找不到 DLL／X DLL 不對／J 沒治具／U 治具被佔／P port 被佔／B 瀏覽器沒開。避開易混淆字母。失敗不關視窗。
+- **自我診斷** 寫 `dg-helper.log`（全英文）：OS、32-bit、DLL 路徑、FTDI 列舉、channel 0 開得起來與否（分辨 J／U）、bind、瀏覽器。
+- 打包形式改為 **exe ＋ self-contained `dg-measure.html`** 兩檔一起壓（密碼 1234）。頁面更新時 exe 雜湊不變 ⇒ 不必重過 SmartScreen。
+
+> 🔴 語言仍是原生 C（非 C# net472，理由見 v1.61.0 條目與 `tools/dg-helper/README.md`）。
+>
+> 🔴 **未經實機驗證**：helper 的 console 實際顯示、自動開瀏覽器、D2XX／libMPSSE／I2C、狀態字母在真機的判定，全部沒有 Windows／FTDI 硬體可驗。已驗（附數字）：exe PE machine `0x014c`、32-bit、234,496 bytes；console 字串純 ASCII（註解外非 ASCII = 0）；`tools/dg-helper/test_proto.c` 32/32；self-contained 頁在 jsdom 載入 0 錯誤、無外部 script 相依；zip 用 1234 能解出兩檔、錯密碼被拒；`dg_i2c_selftest.js` 162 項全過；CA-410 回歸 rows 0/256。
+
+驗收：helper v1.1.0 zip SHA256 `49fdf195f5d33926924913a580e20230265ccab8498aceb457d66016621096c0`、exe SHA256 `d26a0aa43cc69fe60e3862224e8a302ebe1af115c19642b5e8142c3c938812a0`。舊 `data/dg-helper-v1.0.0.zip` 一併移除。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.61.0 — 2026-09-17 ｜ MINOR
 
 **新增「透過本機 helper 連線」這條 I2C 通道，並在實測面板放上 helper 的下載入口、SHA256 與如實的首次執行說明（含 SmartScreen 那兩下）。原本的 WebUSB 那條保留為備援，未移除。**
