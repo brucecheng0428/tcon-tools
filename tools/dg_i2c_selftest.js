@@ -135,7 +135,12 @@ console.log('── 4. FTDI／MPSSE 參數要與 PQ Tool 一致 ─────�
 eq(P.clockHz(), 150000, 'I2C clock 150 kHz（PQ Tool 預設，Bruce 從未改過）');
 eq(P.divisor(), 199, '0x86 除數 199 ＝ 60MHz/(150k×2)−1（3-phase 已停用，不再 ×1.5）');
 eq(P.latency(), 1, 'LatencyTimer 1（PQ Tool 給的值，照抄不改）');
-eq(P.slaves(), [0x68, 0x69, 0x60, 0x61], '掃描的四個 7-bit slave address');
+/* 🔴 v1.60.0：順序改成照抄 PQ Tool 的 CheckICID_*（`ICCommonFunction.cs` L234–247
+   等七段一致）：96 → 97 → 104 → 105。順序本身就是被驗的東西，不是隨手排的。 */
+eq(P.slaves(), [0x60, 0x61, 0x68, 0x69],
+  '掃描順序 ＝ PQ Tool CheckICID 的 96→97→104→105');
+eq(P.iface(), 0,
+  '通道寫死 Interface 0（PQ Tool 的 _I2CChannel 恆為 0，I2CSettingForm.cs L141/L196/L273）');
 
 console.log('── 5. IC ID 表（含撞號這件事本身）─────────────────────────');
 eq(P.matchIc([0x01, 0xEF, 0xA5]).key, 'EM01A1', '01 EF Ax ⇒ EM01A1（低四位不比對）');
@@ -182,11 +187,24 @@ ok(S(true, true, 'EM01A1', false).busy && !S(true, true, 'EM01A1', false).on,
 ok(S(false, false, null, true).disabled, '量測中：按鈕停用');
 ok(!S(false, false, null, false).disabled, '沒量測：按鈕可按');
 
-console.log('── 7. ACK 判讀模式 ────────────────────────────────────────');
-eq(P.ackModes(), ['bit0', 'bit7', 'ignore'], '三種判讀模式');
-eq(P.ackMode(), 'bit0', '預設 bit0');
-ok(P.isAck(0x00) === true, 'bit0 模式：0x00 ⇒ ACK');
-ok(P.isAck(0x01) === false, 'bit0 模式：0x01 ⇒ NACK');
+console.log('── 7. ACK 判讀（v1.60.0 收斂成單一判準）───────────────────');
+/* 🔴 這一節釘的是「不必知道 MPSSE 把 1-bit 讀取靠哪一端對齊，判準也成立」。
+   兩種對齊之下 ACK 都是 bit0 與 bit7 皆為 0 ⇒ 遮罩 0x81。
+   反面也要驗：兩種 NACK 表示法都必須被擋下來 —— 這正是 check_nb_code_import
+   那三次教訓（只驗壞檔被拒、沒驗真檔被收）的反向版本。 */
+eq(P.ackMask(), 0x81, 'ACK 遮罩 0x81 ＝ bit7（靠左）｜bit0（靠右）');
+ok(P.isAck(0x00) === true, '0x00 ⇒ ACK（兩種對齊都是這個值）');
+ok(P.isAck(0x01) === false, '0x01 ⇒ NACK（靠右對齊）');
+ok(P.isAck(0x80) === false, '0x80 ⇒ NACK（靠左對齊）');
+ok(P.isAck(0x81) === false, '0x81 ⇒ NACK');
+ok(P.isAck(0x7E) === true, '0x7E ⇒ ACK（中間位元是殘留，不看）');
+ok(/ACK$/.test(P.ackNote(0x00)), '0x00 的說明講 ACK', P.ackNote(0x00));
+ok(/靠左/.test(P.ackNote(0x80)), '0x80 的說明要指出是靠左對齊', P.ackNote(0x80));
+ok(/靠右/.test(P.ackNote(0x01)), '0x01 的說明要指出是靠右對齊', P.ackNote(0x01));
+ok(/不在預期/.test(P.ackNote(0x81)), '0x81 這種不該出現的值要大聲講', P.ackNote(0x81));
+/* 三個選項不再存在 —— 收斂掉的東西要有測試釘住，否則會被下一次改動悄悄加回來 */
+ok(typeof P.ackMode === 'undefined' && typeof P.ackModes === 'undefined',
+  'ACK 判讀不再是可切換的模式（getter 已移除）');
 
 console.log('── 8. 按鈕與面板真的在 DOM 上 ─────────────────────────────');
 ok(P.btnText() === 'I2C OFF', '初始按鈕文字 I2C OFF', '得到 ' + P.btnText());
@@ -252,9 +270,34 @@ console.log('── 10. 實測主控台的互動（走真的 click）───�
     ok(d.getElementById(id).disabled === true,
       id + ' 未連線時停用（🔴 寫入類一律要求「已連線 ＋ IC 已識別 ＋ 這顆 IC 的出圖路徑驗過」）');
   });
-  eq(d.getElementById('dgm-i2c-slave').options.length, 4, 'slave 下拉 4 個選項');
-  eq(d.getElementById('dgm-i2c-ch').options.length, 2, '通道下拉 A／B');
-  eq(d.getElementById('dgm-i2c-ack').options.length, 3, 'ACK 判讀 3 個選項');
+  /* 🔴 v1.60.0：三個下拉收斂掉了。這裡驗的是「真的不見了」＋「改成唯讀的一行」
+     —— 只驗新的東西在、不驗舊的東西不在，等於沒擋住回頭路。 */
+  ['dgm-i2c-slave', 'dgm-i2c-ch', 'dgm-i2c-ack'].forEach(id => {
+    ok(d.getElementById(id) === null, id + ' 下拉已移除（不再讓使用者選）');
+  });
+  {
+    const fx = d.getElementById('dgm-i2c-fixed');
+    ok(!!fx, '改成唯讀的「目前設定」欄位');
+    ok(/Interface 0/.test(fx.textContent), '「目前設定」寫出 Interface 0', fx.textContent);
+    ok(/0x60→0x61→0x68→0x69/.test(fx.textContent), '「目前設定」寫出 slave 掃描順序', fx.textContent);
+    ok(/ACK 遮罩 0x81/.test(fx.textContent), '「目前設定」寫出 ACK 遮罩', fx.textContent);
+  }
+  /* 錯誤文案：舊的那句錯指引不可以再出現在 claim 失敗的說明裡 */
+  /* 註解裡保留這句是刻意的（要寫清楚它為什麼錯），所以先把註解剝掉再驗。 */
+  {
+    const noComment = html.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
+    ok(!/請先關掉原廠 PQ Tool 再試/.test(noComment),
+      '舊的錯誤指引「請先關掉原廠 PQ Tool 再試」已從程式與畫面移除（註解裡的說明不算）');
+  }
+  ok(/驅動/.test(P.claimHelp()), 'claim 失敗說明要講到驅動層', P.claimHelp());
+  ok(/別的程式|其他程式|原廠 PQ Tool/.test(P.claimHelp()), 'claim 失敗說明也要保留「真的被程式佔用」那一種', P.claimHelp());
+  /* 🔴 Bruce 的直覺是「驅動有裝就該能用」，文案要正面回答這一點，
+     否則他會一直往「是不是驅動沒裝好」的方向找。 */
+  ok(/驅動裝得好好的|驅動沒裝/.test(P.claimHelp()),
+    'claim 失敗說明要講清楚「驅動有裝 ≠ 網頁碰得到」', P.claimHelp());
+  ok(/三條路|WebUSB/.test(P.claimHelp()), 'claim 失敗說明要指出瀏覽器只有那三個 API', P.claimHelp());
+  /* 四個平台分支都要說得出話，不能有一條回傳空字串 */
+  ok(P.claimHelp().length > 80, 'claim 失敗說明不是空的');
   ok(d.getElementById('dgm-i2c-out').textContent.length > 0, '原始交易 log 區有初始文字');
   /* 三個觀測點的欄位要真的在表上，而且初始是「還沒讀」 */
   ['dgm-i2c-v-id', 'dgm-i2c-v-agm', 'dgm-i2c-v-ag', 'dgm-i2c-v-ptg', 'dgm-i2c-v-agen'].forEach(id => {
