@@ -13,7 +13,7 @@ OUT="${1:-$DIR/dg-helper.exe}"
 "$ZIG" cc -target x86-windows-gnu -O2 \
     "$DIR/dg_helper.c" \
     -o "$OUT" \
-    -lws2_32 -lkernel32 \
+    -lws2_32 -lkernel32 -lshell32 \
     -Wl,--subsystem,console
 
 echo "built: $OUT"

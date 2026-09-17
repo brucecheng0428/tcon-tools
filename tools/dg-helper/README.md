@@ -6,6 +6,31 @@
 網頁 ──WebSocket(127.0.0.1)──> dg-helper.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
 ```
 
+## 使用者流程（v1.1.0，Bruce 2026-09-17 回饋後）
+
+1. 下載加密 zip → 用密碼 **1234** 解壓（得到 `dg-helper.exe` ＋ `dg-measure.html`，放同一資料夾）
+2. 雙擊 `dg-helper.exe`（SmartScreen「其他資訊 → 仍要執行」兩下）
+3. helper **自己打開預設瀏覽器** `http://127.0.0.1:8899`，量測頁由 helper 自己端出來、**自動連好** —— 不必按任何連線鈕
+4. 要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）
+
+**Console 全英文**（Windows console 中文會亂碼）。黑視窗最後一行是**單一大寫狀態字母**，詳細英文寫進 exe 旁的 `dg-helper.log`。
+
+| 字母 | 意思 | 處置 |
+|---|---|---|
+| **G** | all good | 已開已連，直接用 |
+| **D** | libMPSSE.dll not found | 把 PQ Tool `Release V1.5.0` 的 `libMPSSE.dll`＋`ftd2xx.dll` 複製到 exe 旁，重跑 |
+| **X** | wrong libMPSSE.dll（位元數不合／損壞） | 換 32 位元的 `libMPSSE.dll` |
+| **J** | FTDI jig not found | 插上治具（USB／電源），重跑 |
+| **U** | jig in use | 關掉原廠 PQ Tool／AUX GUI，重跑 |
+| **P** | port 127.0.0.1 busy | 已有一個 helper 在跑，關掉再開 |
+| **B** | browser did not open | 自己開 `http://127.0.0.1:8899` |
+
+字母刻意避開易混淆的 I／O／L／0／1。失敗時視窗不關（P 會等 Enter，其餘因為 server 還在跑所以視窗自然留著）。
+
+## 自我診斷（寫進 dg-helper.log，全英文）
+
+OS 版本、行程是否 32-bit、`libMPSSE.dll` 找到與否＋完整路徑、FTDI 裝置列舉（幾顆、VID/PID/desc）、channel 0 開得起來與否（分辨 J／U）、port 綁定、瀏覽器是否自動開起來。每項 `OK` / `FAIL:<reason>`。
+
 ## 為什麼是原生 C，不是 C#（net472）
 
 前輪報告定案要用 C# net472、32 位元、framework-dependent。實際動手才發現：
@@ -81,7 +106,9 @@ I2C 序列（照抄 PQ Tool 反組譯 `xCtrl_FTDI_I2C.cs` / `xCtrl_I2C_App.cs`�
 ## 相依 DLL
 
 `libMPSSE.dll`（x86，48,109 bytes）與它相依的 `ftd2xx.dll`。**不隨附**（FTDI
-二進位再散布 ＋ 去商標化規定）。helper 啟動時去找使用者電腦上已有的那顆：
-exe 同目錄 → `dg-helper.ini` 記住的路徑 → 幾個常見 PQ Tool 相對路徑 → 都找不到
-才在 console 問一次。會用這工具的人一定有 PQ Tool，所以不是額外負擔。
-`ftd2xx.dll` 由已安裝的 FTDI 驅動從系統解析。
+二進位再散布 ＋ 去商標化規定）。helper 啟動時**自動**去找使用者電腦上已有的那顆：
+exe 同目錄 → 選填的 `dg-helper.ini`（單行＝資料夾路徑）→ 幾個常見 PQ Tool 相對
+路徑。都找不到就在狀態字母印 **D**，並在 `dg-helper.log` 寫清楚要把 DLL 放哪。
+（v1.1.0 起**不再用 console stdin 問路徑** —— 那是多一步，改成用狀態碼＋log 指路。）
+會用這工具的人一定有 PQ Tool，所以不是額外負擔。`ftd2xx.dll` 由已安裝的 FTDI
+驅動從系統解析。
