@@ -308,6 +308,46 @@ console.log('── 10. 實測主控台的互動（走真的 click）───�
   ok(P.panelOpen() === false, '按「關閉」之後面板收起');
 }
 
+/* ── 11. helper（WebSocket）傳輸與下載入口（v1.61.0）──────────────────── */
+console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）───────────────');
+{
+  const d = dom.window.document;
+  if (typeof P.transport === 'function') {
+  ok(P.transport() === 'usb', '開頁預設 transport 是 usb（起始狀態不變，R4）');
+  ok(P.hasWsFns() === true, 'ws 連線／讀／寫／掃描辨識四個函式都在');
+  ok(/^ws:\/\/127\.0\.0\.1:\d+\/ws$/.test(P.wsUrl()), 'helper WebSocket URL 綁 loopback', P.wsUrl());
+  ok(P.helperNeedProto() === 1, '本頁需要的 helper 協定版本 = 1');
+  const meta = P.helperMeta();
+  ok(/^[0-9a-f]{64}$/.test(meta.zipSha), 'helper zip SHA256 是 64 碼十六進位', meta.zipSha);
+  ok(/^[0-9a-f]{64}$/.test(meta.exeSha), 'helper exe SHA256 是 64 碼十六進位', meta.exeSha);
+  ok(meta.zipSha !== meta.exeSha, 'zip 與 exe 的 SHA256 不同（不是複製貼上）');
+  ok(/^data\/dg-helper-.*\.zip$/.test(meta.zip), 'helper 下載指向 data/ 的 zip', meta.zip);
+  /* DOM：連線鈕、狀態、下載連結、SHA 欄位、密碼 1234、SmartScreen 說明 */
+  d.getElementById('dgm-i2c-open').click();
+  ok(!!d.getElementById('dgm-i2c-ws'), '「透過 helper 連線」按鈕在 DOM 上');
+  ok(!!d.getElementById('dgm-i2c-ws-state'), 'helper 狀態欄在 DOM 上');
+  {
+    const dl = d.getElementById('dgm-i2c-helper-dl');
+    ok(!!dl && /dg-helper-.*\.zip$/.test(dl.getAttribute('href')), '下載連結指向 helper zip', dl && dl.getAttribute('href'));
+    const zs = d.getElementById('dgm-i2c-helper-zipsha');
+    ok(!!zs && zs.textContent === meta.zipSha, '下載區顯示 zip SHA256');
+    const es = d.getElementById('dgm-i2c-helper-exesha');
+    ok(!!es && es.textContent === meta.exeSha, '下載區顯示 exe SHA256');
+  }
+  {
+    const panel = d.getElementById('dgm-i2c-panel');
+    const t = panel ? panel.textContent : '';
+    ok(/1234/.test(t), '面板寫出解壓密碼 1234');
+    ok(/SmartScreen/.test(t), '面板如實寫出 SmartScreen');
+    ok(/未經實機驗證/.test(t), '面板如實標明 helper 未經實機驗證');
+    ok(/仍要執行/.test(t), '面板寫出 SmartScreen 的「仍要執行」那一步');
+  }
+  d.getElementById('dgm-i2c-close').click();
+  } else {
+    ok(false, 'window.dgmI2cProbe.transport 不存在（v1.61.0 的 ws 探針沒接上？）');
+  }
+}
+
 console.log('');
 console.log(fail === 0 ? ('✅ 全部通過：' + pass + ' 項') : ('🔴 不通過：' + fail + ' 項失敗 / 共 ' + (pass + fail) + ' 項'));
 process.exit(fail === 0 ? 0 : 1);
