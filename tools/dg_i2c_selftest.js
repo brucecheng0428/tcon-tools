@@ -351,6 +351,10 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
     ok(/SmartScreen/.test(t), '面板如實寫出 SmartScreen');
     ok(/未經實機驗證/.test(t), '面板如實標明 helper 未經實機驗證');
     ok(/仍要執行/.test(t), '面板寫出 SmartScreen 的「仍要執行」那一步');
+    /* 狀態字母對照表要涵蓋 D 與 F（v1.2.0：DLL 已包進 zip、ftd2xx 相依另成 F） */
+    ok(/ftd2xx/.test(t), '狀態表列出 ftd2xx 相依（F）這一種');
+    ok(/libMPSSE\.dll/.test(t), '狀態表提到 libMPSSE.dll');
+    ok(/三個檔|libMPSSE\.dll/.test(t) && /1234/.test(t), '面板說明解壓後是三個檔＋密碼 1234');
   }
   d.getElementById('dgm-i2c-close').click();
   } else {

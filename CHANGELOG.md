@@ -22,6 +22,37 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.63.0 — 2026-09-17 ｜ MINOR
+
+**helper 升到 v1.2.0：`libMPSSE.dll` 直接包進加密 zip（解壓後三個檔即可雙擊，不必去 PQ Tool 搬 DLL）；DLL 搜尋範圍大幅擴充（registry Uninstall／Program Files／使用者資料夾／PATH／env）並逐路徑寫進 log；DLL 三種失敗分成不同狀態碼（D 檔不存在／F 相依 ftd2xx 缺／X 位元數不合）。網頁端同步更新下載（三檔說明、狀態表新增 F 列）與 SHA。**
+
+背景：Bruce 2026-09-17 實測 v1.1.0 回報狀態碼 **D**（找不到 `libMPSSE.dll`）—— v1.1.0 只找 exe 同目錄／ini／相對 `Release V1.5.0`，命不中他的 PQ Tool 安裝位置。Bruce 直接問「為何不把 DLL 包在壓縮包裡」，並裁示改為附上。三件事一起做：包 DLL、擴充搜尋、拆分 DLL 失敗的狀態碼。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| §2 案例 11（文案）＋ 打包內容 | DLL 包進 zip、下載說明改三檔、狀態表加 F 列、SHA 更新 | PATCH |
+| §2 案例 3／R1 | helper 內部搜尋強化、狀態碼拆分（使用者可觀察到的只有「更容易變 G」與多一個 F 字母） | PATCH |
+| §2 案例 5／R3（多一件能做的事） | 對網頁使用者：能力與 v1.62.0 相同（一樣是下載 helper→自動連線）。**嚴格說本版偏 PATCH**，但下載物件內容與狀態語彙有實質擴充，且沿用 v1.61/1.62 一路的 MINOR 級距 | 取 **MINOR** |
+| §2 案例 6（移除） | 無移除。WebUSB、手動連線鈕、既有搜尋退路都在 | — |
+| R1（輸出變更） | 量測輸出不變：CA-410 回歸 rows 0/256（基準＝已提交的 v1.62.0）。不標 `⚠ 輸出變更` | — |
+
+判定取捨：**不確定往低編的話這版接近 PATCH**（對網頁使用者能做的事沒變），但「下載物件從 2 檔變 3 檔、狀態語彙新增 F、SHA 全換」對下載端與診斷是實質變化，且與前兩版同屬「把 helper 這條路做起來」的同一批 MINOR，故編 **MINOR**。在此寫明取捨供覆核 —— 若要改判 PATCH 我照辦。
+
+helper v1.2.0 的改動（版本記在 `tools/dg-helper/dg_helper_version.h`）：
+- **`libMPSSE.dll` 包進 zip**（來源 `Release V1.5.0`，x86／`0x014c`／48,109 bytes／SHA256 `916584d…62ad2`）。`ftd2xx.dll` 不附（系統隨 FTDI 驅動提供）。裸 DLL **不進版控**，只放進加密 zip。
+- **搜尋順序**：env `DG_HELPER_DLL_DIR` → exe 目錄 → cwd → `dg-helper.ini` → registry Uninstall（HKLM 64/32 view、HKCU 比對 Raydium/PQ 的 InstallLocation）→ Program Files(‑x86) 關鍵字資料夾（限深度）→ 使用者 Desktop/Downloads/Documents → PATH → 相對 `Release V1.5.0`。**每一條路徑寫進 `dg-helper.log`**。
+- **DLL 失敗三分**：`D` 檔不存在／`F` 檔在但 `LoadLibrary` 因相依缺失（`ERROR_MOD_NOT_FOUND`，多半是 ftd2xx）而失敗／`X` 載得起來但 `I2C_*` exports 缺（位元數不合）。載入前 `SetDllDirectory()` 讓 ftd2xx 從系統解析。
+
+> 🔴 語言仍是原生 C（非 C# net472，理由見 v1.61.0 條目與 README）。
+>
+> 🔴 **未經實機驗證**：DLL 搜尋在真機各位置的命中、`SetDllDirectory` 對 ftd2xx 的解析、狀態碼在真機的判定、D2XX／I2C，全部沒有 Windows／FTDI 硬體可驗。已驗（附數字）：exe PE `0x014c`／32-bit／238,592 bytes；打包 DLL 為 `0x014c`／48,109 bytes；zip 用 1234 解出**三個檔**、錯密碼被拒、exe 與 dll 的 SHA256 與原始一致；console 字串純 ASCII（註解外非 ASCII = 0）；`test_proto.c` 32/32；self-contained 頁 jsdom 載入 0 錯誤、無外部 script 相依；`dg_i2c_selftest.js` 165 項全過；CA-410 回歸 rows 0/256。
+
+驗收：helper v1.2.0 zip SHA256 `4c39d3ec8d5e3743a88d50d9c0a2cea0a0026f736c22b3e5c998685aeb9af07d`、exe SHA256 `28a1b655e315513f32af5677bc579e95b6ab6be9cb56bdc6e54ccdf89e9d20ae`、內含 libMPSSE.dll SHA256 `916584dffeaa0e072a7364b1eb896520f233ac5c70c24919e623893ae6362ad2`。舊 `data/dg-helper-v1.1.0.zip` 一併移除。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.62.0 — 2026-09-17 ｜ MINOR
 
 **helper 升到 v1.1.0：console 全英文、自己端量測頁並自動開瀏覽器（使用者不必再按連線）、啟動自我診斷寫 `dg-helper.log` 並在黑視窗印單一大寫狀態字母。網頁端新增「helper 自端網頁時自動連線」，並改寫下載區為更少的步驟＋狀態字母對照表。**
