@@ -426,19 +426,87 @@ static int ws_recv_text(SOCKET c, char* out, int cap){
     if(opcode!=0x1){ out[0]=0; return 0; }
     return (int)len;
 }
-static void handle_command(SOCKET c, const char* json){
+/* ═══════════════════════════════════════════════════════════════════════════
+ * client 表與 I2C channel 的擁有權（v1.5.0）
+ * ---------------------------------------------------------------------------
+ * 🔴 為什麼要有這一節（Bruce 2026-09-18 回報「helper 一按下就被 dg 的網頁佔住」）：
+ *    v1.4.x 的伺服迴圈是**單連線阻塞式** —— accept 一個連線就進 serve_ws，
+ *    卡在 recv 迴圈直到對方斷線。所以只要 dg-measure 的 WebSocket 還開著，
+ *    helper 連「把 i2c.html 這個檔案送出去」都做不到（HTTP 請求卡在 backlog），
+ *    使用者看到的就是「另一頁打不開＝被佔住」。
+ *    真正的修法有兩層，缺一不可：
+ *      ① 連線模型：改用 select() 多路複用，任何時候都還能 accept 新連線
+ *      ② 資源模型：I2C channel 同時只有一個 client 持有，而且**講出來**
+ *         （busy 要回一個明確的錯誤型別，並讓對方可以主動「接手」）
+ * ========================================================================== */
+#define MAX_CLIENTS 8
+typedef struct { SOCKET s; int used; int isWs; } Client;
+static Client g_cl[MAX_CLIENTS];
+static int    g_ownerIdx = -1;      /* 持有 I2C channel 的 client；-1＝沒人 */
+
+static int cl_add(SOCKET s){
+    for(int i=0;i<MAX_CLIENTS;i++) if(!g_cl[i].used){
+        g_cl[i].s=s; g_cl[i].used=1; g_cl[i].isWs=0; return i; }
+    return -1;
+}
+/* 丟掉一個 client。🔴 它若是持有者就**一定**要放掉 I2C channel ——
+   不放的話 helper 會一直握著治具，下一個頁面（與原廠 PQ Tool）都開不起來。 */
+static void cl_drop(int i){
+    if(i<0||i>=MAX_CLIENTS||!g_cl[i].used) return;
+    if(g_ownerIdx==i){
+        logline("[ws] owner #%d disconnected -> releasing I2C channel", i);
+        i2c_close();
+        g_ownerIdx=-1;
+    }
+    closesocket(g_cl[i].s);
+    g_cl[i].used=0; g_cl[i].isWs=0; g_cl[i].s=INVALID_SOCKET;
+}
+
+static void handle_command(int idx, const char* json){
+    SOCKET c=g_cl[idx].s;
     char type[24]={0}; if(!dgh_json_type(json,type,sizeof(type))) return;
     long id=dgh_json_int(json,"id",0);
     char rep[8192];
     if(strcmp(type,"open")==0){
         uint32_t hz=(uint32_t)dgh_json_int(json,"clockHz",150000);
+        /* 已經被別的頁面持有：**不靜默失敗、不靜默排隊**，回一個可判別的
+           錯誤型別（busy=true），頁面據此顯示「已被另一個頁面佔用」＋接手鈕。 */
+        if(g_ownerIdx>=0 && g_ownerIdx!=idx){
+            int takeover=(int)dgh_json_int(json,"takeover",0);
+            if(!takeover){
+                snprintf(rep,sizeof(rep),
+                    "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"busy\":true,"
+                    "\"err\":\"I2C channel is held by another page\"}", id);
+                logline("[cmd] open from #%d -> BUSY (owner is #%d)", idx, g_ownerIdx);
+                ws_send_text(c,rep); return;
+            }
+            /* 接手：先通知舊持有者，再關掉它的連線。關連線而不是只送訊息，是因為
+               既有的 dg-measure 不認得新的 `taken` 型別，但它**認得 onclose**
+               （走 dgmI2cLost 這條已經測過的路），這樣兩邊都會得到正確結果。 */
+            logline("[cmd] open from #%d -> TAKEOVER from #%d", idx, g_ownerIdx);
+            ws_send_text(g_cl[g_ownerIdx].s,
+                "{\"type\":\"taken\",\"err\":\"another page took over the I2C channel\"}");
+            cl_drop(g_ownerIdx);
+        }
         int ok=i2c_open(hz);
+        if(ok) g_ownerIdx=idx;
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":%s,\"channels\":%u%s}",
                  id, ok?"true":"false", g_numChannels, g_dllOk?"":",\"err\":\"libMPSSE not loaded\"");
-        logline("[cmd] open -> %s (channels=%u)", ok?"OK":"FAIL", g_numChannels);
+        logline("[cmd] open from #%d -> %s (channels=%u)", idx, ok?"OK":"FAIL", g_numChannels);
         ws_send_text(c,rep); return;
     }
-    if(strcmp(type,"close")==0){ i2c_close(); snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"close\",\"ok\":true}",id); ws_send_text(c,rep); return; }
+    if(strcmp(type,"close")==0){
+        if(g_ownerIdx==idx){ i2c_close(); g_ownerIdx=-1; logline("[cmd] close from #%d -> released", idx); }
+        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"close\",\"ok\":true}",id); ws_send_text(c,rep); return; }
+    /* 讀寫一律要求「你是持有者」。只看 g_opened 不夠：那樣另一個頁面會在
+       不知情的狀況下操作別人開的 channel，錯得很安靜。 */
+    if((strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0)
+       && g_ownerIdx!=idx){
+        snprintf(rep,sizeof(rep),
+            "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,"
+            "\"err\":\"this page does not hold the I2C channel\"}", id, type);
+        ws_send_text(c,rep); return;
+    }
     if(strcmp(type,"read")==0){
         uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x60);
         uint32_t addr=(uint32_t)dgh_json_int(json,"addr",0);
@@ -498,22 +566,23 @@ static void handle_command(SOCKET c, const char* json){
         ws_send_text(c,rep); return;
     }
 }
-static void serve_ws(SOCKET c, const char* req){
+/* 只做握手，**不再進 recv 迴圈**（迴圈搬到 main 的 select 那裡）。
+   🔴 v1.4.x 就是因為這個函式一路阻塞到對方斷線，helper 在 dg 連著的時候
+      連第二個 HTTP 請求都 accept 不到。回傳 1＝升級成功。 */
+static int ws_upgrade(SOCKET c, const char* req){
     const char* k=strstr(req,"Sec-WebSocket-Key:"); if(!k) k=strstr(req,"sec-websocket-key:");
-    if(!k){ const char* r="HTTP/1.1 400 Bad Request\r\n\r\n"; send_all(c,r,(int)strlen(r)); return; }
+    if(!k){ const char* r="HTTP/1.1 400 Bad Request\r\n\r\n"; send_all(c,r,(int)strlen(r)); return 0; }
     k+=18; while(*k==' ') k++;
     char key[128]; int i=0; while(*k&&*k!='\r'&&*k!='\n'&&i<100) key[i++]=*k++; key[i]=0;
-    if(!dgh_origin_allowed(req)){ const char* r="HTTP/1.1 403 Forbidden\r\n\r\norigin not allowed"; send_all(c,r,(int)strlen(r)); logline("[ws] refused: origin not allowed"); return; }
+    if(!dgh_origin_allowed(req)){ const char* r="HTTP/1.1 403 Forbidden\r\n\r\norigin not allowed"; send_all(c,r,(int)strlen(r)); logline("[ws] refused: origin not allowed"); return 0; }
     char acc[64]; dgh_ws_accept(key,acc);
     char resp[256]; snprintf(resp,sizeof(resp),"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",acc);
-    if(!send_all(c,resp,(int)strlen(resp))) return;
-    logline("[ws] client connected");
-    char hello[160]; snprintf(hello,sizeof(hello),"{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s}",DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false");
+    if(!send_all(c,resp,(int)strlen(resp))) return 0;
+    char hello[200]; snprintf(hello,sizeof(hello),
+        "{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"busy\":%s}",
+        DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false", (g_ownerIdx>=0)?"true":"false");
     ws_send_text(c,hello);
-    char msg[8192];
-    for(;;){ int n=ws_recv_text(c,msg,sizeof(msg)); if(n<0) break; if(n>0) handle_command(c,msg); }
-    logline("[ws] client disconnected, releasing I2C");
-    i2c_close();
+    return 1;
 }
 
 /* ===========================================================================
@@ -543,9 +612,59 @@ static void serve_404(SOCKET c, const char* what){
    Access gate. Serving the exe's own folder fixes that once, for every future
    page, instead of re-shipping the exe each time a page is added.
    "/" still maps to dg-measure.html, so the dg flow is unchanged.             */
+/* ── v1.5.0：內建的極簡入口頁（"/"）─────────────────────────────────────────
+   🔴 為什麼不是直接開 dg-measure.html（v1.4.x 的做法）：那一頁一載入就自動連
+      helper 並開 I2C channel，於是 helper 一啟動 channel 就被 dg 拿走，
+      使用者想測 i2c.html 時搶不到（Bruce 2026-09-18 實測回報）。
+      入口頁**自己不碰 I2C**，誰被點誰才持有 —— 兩個工具因此不會互搶。
+   只列出真的存在於 exe 旁的頁面，避免按下去 404。刻意做到極簡：沒有 script、
+   沒有外部相依，就是兩顆連結按鈕，不讓它變成第三個要維護的東西。         */
+static void serve_landing(SOCKET c){
+    char body[3072]; int o=0;
+    o+=snprintf(body+o,sizeof(body)-o,
+        "<!doctype html><meta charset=utf-8><title>dg-helper</title>"
+        "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+        "<body style='margin:0;background:#0f172a;color:#e2e8f0;font:15px/1.6 -apple-system,\"PingFang TC\",\"Noto Sans TC\",sans-serif'>"
+        "<div style='max-width:560px;margin:0 auto;padding:32px 20px'>"
+        "<h1 style='font-size:19px;margin:0 0 4px'>dg-helper 已在執行</h1>"
+        "<p style='color:#94a3b8;font-size:13px;margin:0 0 22px'>helper %s · proto %d — 選一個工具開始。</p>",
+        DG_HELPER_VERSION, DG_HELPER_PROTO);
+    struct { const char* file; const char* title; const char* desc; const char* color; } items[] = {
+        { "dg-measure.html", "DG 光學量測",   "Digital Gamma 迭代校正的即時量測畫面", "#a78bfa" },
+        { "i2c.html",        "I2C 讀寫測試",  "任意 slave／offset 寬度 0-1-2-4 byte 讀寫，16×16 dump", "#38bdf8" },
+    };
+    int shown=0;
+    for(unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++){
+        char p[MAX_PATH]; snprintf(p,sizeof(p),"%s%s",g_exeDir,items[i].file);
+        DWORD a=GetFileAttributesA(p);
+        if(a==INVALID_FILE_ATTRIBUTES || (a&FILE_ATTRIBUTE_DIRECTORY)) continue;
+        shown++;
+        o+=snprintf(body+o,sizeof(body)-o,
+            "<a href='/%s' style='display:block;text-decoration:none;color:inherit;background:#1e293b;"
+            "border:1px solid #334155;border-left:4px solid %s;border-radius:10px;padding:14px 16px;margin-bottom:12px'>"
+            "<div style='font-size:16px;font-weight:700'>%s <span style='float:right;color:#64748b'>&rsaquo;</span></div>"
+            "<div style='font-size:12.5px;color:#94a3b8;margin-top:2px'>%s</div></a>",
+            items[i].file, items[i].color, items[i].title, items[i].desc);
+    }
+    if(!shown)
+        o+=snprintf(body+o,sizeof(body)-o,
+            "<p style='color:#fca5a5'>exe 旁邊找不到任何工具頁（dg-measure.html／i2c.html）。"
+            "請把整包解壓到同一個資料夾再從那裡執行。</p>");
+    o+=snprintf(body+o,sizeof(body)-o,
+        "<p style='color:#94a3b8;font-size:12.5px;border-top:1px solid #334155;padding-top:14px;margin-top:20px'>"
+        "🔴 同一時間<b>只有一個頁面</b>能握著 I2C 治具。另一頁要用時會顯示「已被另一個頁面佔用」，"
+        "按該頁的<b>接手</b>即可搶過來（原本那頁會被斷線，跟原廠 PQ Tool 擇一使用是同一個道理）。"
+        "分頁關掉就會自動釋放。</p></div></body>");
+    char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", o);
+    send_all(c,hdr,hl); send_all(c,body,o);
+    logline("[http] 200 / (landing, %d tools listed)", shown);
+}
+
 static void serve_page(SOCKET c, const char* req){
     char name[160];
     if(!dgh_req_filename(req,name,sizeof(name))){ serve_404(c,"(request target rejected)"); logline("[http] rejected request target"); return; }
+    if(!name[0]){ serve_landing(c); return; }   /* "/" -> 內建入口頁 */
     const char* mime=dgh_mime_for(name);
     if(!mime){ serve_404(c,"That file type is not served."); logline("[http] 404 (type) %s", name); return; }
     char path[MAX_PATH]; snprintf(path,sizeof(path),"%s%s",g_exeDir,name);
@@ -651,19 +770,13 @@ int main(int argc, char** argv){
     else          printf("   What to do: %s\n", todo);
     printf("   (Full English details are in dg-helper.log, next to this program.)\n");
     if(code!='G') printf("   Report just this letter:  %c\n", code);
-    /* v1.4.0: list the other tool pages that are actually sitting next to the
-       exe, so the user does not have to know a URL by heart. */
+    /* v1.5.0: the browser lands on the built-in menu, which is what lets the
+       two tool pages coexist instead of racing for the I2C channel. */
     if(g_bindOk){
-        static const char* pages[]={"i2c.html",NULL};
-        int shown=0;
-        for(int i=0;pages[i];i++){
-            char p[MAX_PATH]; snprintf(p,sizeof(p),"%s%s",g_exeDir,pages[i]);
-            DWORD a=GetFileAttributesA(p);
-            if(a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_DIRECTORY)){
-                if(!shown){ printf("--------------------------------------------------\n"); shown=1; }
-                printf("   Also available:  http://127.0.0.1:%d/%s\n", port, pages[i]);
-            }
-        }
+        printf("--------------------------------------------------\n");
+        printf("   Menu:  http://127.0.0.1:%d/   (pick DG or I2C there)\n", port);
+        printf("   Only ONE page holds the I2C jig at a time; the other page\n");
+        printf("   can take it over with its \"take over\" button.\n");
     }
     printf("==================================================\n");
     fflush(stdout);
@@ -677,15 +790,53 @@ int main(int argc, char** argv){
         return 1;
     }
 
+    /* ═══ v1.5.0：select() 多路複用的伺服迴圈 ═══════════════════════════════
+       取代 v1.4.x 那個「accept 一個就阻塞到它斷線」的迴圈。那個寫法在只有
+       一個頁面時看不出問題，但只要 dg-measure 的 WebSocket 開著，helper 就
+       再也 accept 不到任何連線 —— 連把 i2c.html 這個檔案送出去都做不到。
+       單執行緒 ＋ select 同時解掉兩件事：
+         · 隨時都還能 accept（第二個頁面至少載得進來）
+         · I2C 呼叫天然序列化，不需要為了多執行緒再加一層鎖              */
+    for(int i=0;i<MAX_CLIENTS;i++){ g_cl[i].used=0; g_cl[i].s=INVALID_SOCKET; }
     for(;;){
-        SOCKET c=accept(srv,NULL,NULL);
-        if(c==INVALID_SOCKET) continue;
-        char req[8192]; int n=recv(c,req,sizeof(req)-1,0);
-        if(n<=0){ closesocket(c); continue; }
-        req[n]=0;
-        if(strstr(req,"Upgrade: websocket")||strstr(req,"upgrade: websocket")) serve_ws(c,req);
-        else serve_page(c,req);
-        closesocket(c);
+        fd_set rd; FD_ZERO(&rd); FD_SET(srv,&rd);
+        for(int i=0;i<MAX_CLIENTS;i++) if(g_cl[i].used) FD_SET(g_cl[i].s,&rd);
+        if(select(0,&rd,NULL,NULL,NULL)<=0) continue;   /* Windows 忽略第一個參數 */
+
+        if(FD_ISSET(srv,&rd)){
+            SOCKET c=accept(srv,NULL,NULL);
+            if(c!=INVALID_SOCKET){
+                /* 🔴 收 timeout：ws_recv_text 內部是 recv_exact（阻塞）。正常
+                   loopback 上一個 frame 一次就到齊，但萬一被切開又遲遲不來，
+                   沒有 timeout 就會整支 helper 卡住 —— 那正是本版要根治的病。 */
+                DWORD to=5000; setsockopt(c,SOL_SOCKET,SO_RCVTIMEO,(char*)&to,sizeof(to));
+                int idx=cl_add(c);
+                if(idx<0){ const char* r="HTTP/1.1 503 Service Unavailable\r\n\r\ntoo many connections";
+                           send_all(c,r,(int)strlen(r)); closesocket(c);
+                           logline("[net] refused: client table full"); }
+            }
+        }
+        for(int i=0;i<MAX_CLIENTS;i++){
+            if(!g_cl[i].used || !FD_ISSET(g_cl[i].s,&rd)) continue;
+            if(!g_cl[i].isWs){
+                /* 還沒升級：這是一個 HTTP 請求 */
+                char req[8192]; int n=recv(g_cl[i].s,req,sizeof(req)-1,0);
+                if(n<=0){ cl_drop(i); continue; }
+                req[n]=0;
+                if(strstr(req,"Upgrade: websocket")||strstr(req,"upgrade: websocket")){
+                    if(ws_upgrade(g_cl[i].s,req)){ g_cl[i].isWs=1; logline("[ws] client #%d connected", i); }
+                    else cl_drop(i);
+                } else {
+                    serve_page(g_cl[i].s,req);      /* 一般 HTTP：回完就關 */
+                    cl_drop(i);
+                }
+            } else {
+                char msg[8192];
+                int n=ws_recv_text(g_cl[i].s,msg,sizeof(msg));
+                if(n<0){ logline("[ws] client #%d disconnected", i); cl_drop(i); continue; }
+                if(n>0) handle_command(i,msg);
+            }
+        }
     }
     if(p_Cleanup) p_Cleanup();
     closesocket(srv); WSACleanup();

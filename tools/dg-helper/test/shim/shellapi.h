@@ -1,0 +1,3 @@
+#ifndef DGH_SHIM_SHELLAPI_H
+#define DGH_SHIM_SHELLAPI_H
+#endif

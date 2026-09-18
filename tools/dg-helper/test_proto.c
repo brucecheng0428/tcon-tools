@@ -142,7 +142,11 @@ int main(void){
           而目錄跳脫一律拒絕。 */
     {
         char f[160];
-        CHECK(dgh_req_filename("GET / HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"dg-measure.html")==0,"\"/\" -> dg-measure.html");
+        /* 🔴 v1.5.0 起 "/" 回空字串＝根路徑，由呼叫端端出內建入口頁。
+           原本是直接對應 dg-measure.html，而那正是 helper 一啟動就把 I2C
+           channel 搶走的來源（Bruce 2026-09-18 因此測不了 i2c 頁）。 */
+        CHECK(dgh_req_filename("GET / HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && f[0]==0,"\"/\" -> 根路徑（空字串，交給內建入口頁）");
+        CHECK(dgh_req_filename("GET /?x=1 HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && f[0]==0,"\"/?x=1\" 也是根路徑");
         CHECK(dgh_req_filename("GET /i2c.html HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"i2c.html")==0,"/i2c.html served");
         CHECK(dgh_req_filename("GET /dg-measure.html HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"dg-measure.html")==0,"explicit dg-measure.html served");
         CHECK(dgh_req_filename("GET /i2c.html?v=1 HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"i2c.html")==0,"query string stripped");

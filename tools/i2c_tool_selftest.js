@@ -424,12 +424,113 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('15. helper 自足入口：下載常數的單一來源、離線版提示');
+  {
+    /* 🔴 單一來源：頁面不得自己寫第二份下載常數。比對的是 common/version.js
+       的 HELPER_PKG 與畫面上真的顯示出來的值。 */
+    const V = win.HELPER_PKG;
+    CHECK(!!V, 'common/version.js 有 HELPER_PKG');
+    EQ(A.PKG, V, '🔴 頁面用的就是 HELPER_PKG 本體（不是複製一份）');
+    CHECK(/^[0-9a-f]{64}$/.test(V.zipSha), 'zipSha 是 64 碼 hex：' + V.zipSha);
+    CHECK(/^[0-9a-f]{64}$/.test(V.exeSha), 'exeSha 是 64 碼 hex：' + V.exeSha);
+    CHECK(V.file === 'data/dg-helper-' + V.pkg + '.zip', '🔴 檔名與包版本一致：' + V.file);
+    CHECK(V.bytes > 0, 'zip 大小有填：' + V.bytes);
+    /* 🔴 pkg（zip 版本）與 exe（執行檔自報版本）是兩個欄位，畫面兩個都要顯示 ——
+       歷史上 v1.3.0/1/2 三包的 exe 都是 1.3.0，只顯示一個就會看起來像 bug。 */
+    CHECK('pkg' in V && 'exe' in V, 'pkg 與 exe 是分開的兩個欄位');
+    EQ(doc.getElementById('hv-pkg').textContent, V.pkg, '畫面顯示下載包版本');
+    EQ(doc.getElementById('hv-need').textContent, String(A.NEED_PROTO), '畫面顯示本頁需要的 proto');
+    EQ(doc.getElementById('sha-zip').textContent, V.zipSha, '畫面顯示 zip SHA');
+    EQ(doc.getElementById('sha-exe').textContent, V.exeSha, '畫面顯示 exe SHA');
+
+    /* 這份 jsdom 跑在 127.0.0.1 ⇒ 等同 helper 端出來的離線打包版 */
+    CHECK(A.isLocal('127.0.0.1') && A.isLocal('localhost') && !A.isLocal('brucecheng0428.github.io'),
+          'loopback 判斷正確');
+    const notice = doc.getElementById('offline-notice').textContent;
+    CHECK(notice.indexOf('離線打包版') >= 0, '🔴 離線版有明示提示（不是藏在說明裡）');
+    CHECK(notice.indexOf('brucecheng0428.github.io') >= 0, '🔴 提示裡寫出線上版網址：' + (notice.indexOf('github.io') >= 0));
+    /* 🔴 離線版的下載連結必須指向**線上**網址 —— 指向相對路徑的話，helper 端
+       根本沒有 data/ 這個目錄，他會抓到 404 而不是新版。 */
+    const href = doc.getElementById('dl').getAttribute('href');
+    CHECK(href.indexOf(A.ONLINE_PAGE.replace('i2c.html', '')) === 0,
+          '🔴 離線版的下載鈕指向線上網址：' + href);
+    CHECK(href.indexOf(V.file) >= 0, '下載連結帶正確檔名');
+    CHECK(/[?&]v=/.test(href), '下載連結帶 cache buster');
+    CHECK(doc.getElementById('btn-chkver') !== null, '有「檢查線上有無新版」按鈕');
+  }
+
+  G('16. I2C 被別的頁面佔用：要講出來、要有出口');
+  {
+    let sent = await useHelper((m) => {
+      if (m.type === 'ping')  return { helper: '1.5.0', proto: 2, ok: true, busy: true };
+      if (m.type === 'open')  return { ok: false, busy: true, err: 'I2C channel is held by another page' };
+      return { ok: true };
+    });
+    CHECK(A.state().channelBusy === true, '🔴 被佔用的狀態有被記下來');
+    const b = doc.getElementById('topbanner').textContent;
+    CHECK(b.indexOf('被另一個頁面佔用') >= 0, '畫面明說被另一個頁面佔用，不是靜默失敗');
+    CHECK(b.indexOf('接手') >= 0, '訊息告訴使用者怎麼拿回來');
+    CHECK(doc.getElementById('btn-takeover').style.display !== 'none', '🔴 「接手 I2C」按鈕露出來了（保護要留出口）');
+    /* 被佔時不該一直重試 open —— 那是可判別狀態，不是暫時性失敗 */
+    EQ(sent.filter(m => m.type === 'open').length, 1, '被佔用時只送一次 open（不做無意義的重試）');
+
+    /* 接手：重連並帶 takeover:1 */
+    sent = [];
+    const s2 = await (async () => {
+      const arr = makeMockWS(win, (m) => {
+        if (m.type === 'ping')  return { helper: '1.5.0', proto: 2, ok: true, busy: true };
+        if (m.type === 'open')  return m.takeover ? { ok: true, channels: 1 } : { ok: false, busy: true };
+        return { ok: true };
+      });
+      await A.takeover();
+      await sleep(30);
+      return arr;
+    })();
+    const opens = s2.filter(m => m.type === 'open');
+    CHECK(opens.length >= 1, '接手時有送 open');
+    EQ(opens[opens.length - 1].takeover, 1, '🔴 接手送的是 takeover:1');
+    CHECK(A.state().linked === true, '接手後已連線');
+    CHECK(A.state().channelBusy === false, '接手後不再是被佔用狀態');
+    CHECK(doc.getElementById('btn-takeover').style.display === 'none', '接手成功後按鈕收起來');
+  }
+
+  G('17. 釋放 I2C：交回治具但保持連線（回去用 DG／PQ Tool 的出口）');
+  {
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: [1] };
+    }));
+    CHECK(A.state().linked === true, '先連上');
+    CHECK(doc.getElementById('btn-release').disabled === false, '連上後「釋放 I2C」可按');
+    await A.release(); await sleep(20);
+    const closes = sent.filter(m => m.type === 'close');
+    CHECK(closes.length >= 1, '🔴 釋放時真的送出 close');
+    CHECK(A.state().linked === false, '釋放後狀態誠實回報「沒有通道」');
+    CHECK(doc.getElementById('topbanner').textContent.indexOf('釋放') >= 0, '畫面說明已釋放');
+    CHECK(doc.getElementById('btn-release').disabled === true, '已釋放後按鈕停用（不能重複釋放）');
+  }
+
+  G('18. helper 太舊：要說手上哪版、要哪版、去哪裡拿');
+  {
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.3.2', proto: 1, ok: true };
+      return { ok: true, channels: 1 };
+    });
+    const b = doc.getElementById('topbanner').textContent;
+    CHECK(A.state().linked === false, 'proto 太舊 → 不視為已連線');
+    CHECK(b.indexOf('1.3.2') >= 0, '🔴 講出他手上是哪一版：' + (b.indexOf('1.3.2') >= 0));
+    CHECK(b.indexOf('proto 2') >= 0, '🔴 講出需要哪一版');
+    CHECK(b.indexOf(win.HELPER_PKG.pkg) >= 0, '🔴 講出要換成哪一包：' + win.HELPER_PKG.pkg);
+    CHECK(b.indexOf('brucecheng0428.github.io') >= 0, '🔴 講出去哪裡拿（線上版網址）');
+    CHECK(doc.getElementById('helper-card').open === true, '🔴 下載卡自動展開（他可能就是缺那一包）');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');
   console.log('🔴 未驗（沒有 Windows／沒有 FTDI 治具，驗不了，不做假探針）：');
   console.log('   · dg-helper.exe 在 Windows 上實際執行（D2XX / libMPSSE / 真的 I2C 波形）');
-  console.log('   · helper 端出 i2c.html 的 HTTP 回應（只驗到路徑解析的純函式，見 test_proto.c）');
+  console.log('   · Windows 上的 winsock 行為（helper 的 HTTP／WebSocket／擁有權已由\n     tools/dg-helper/test/test_server.c 用真的 socket 驗過，但那是 POSIX socket）');
   console.log('   · 真的 TCON 對 0x68 / 0x0000 的回應（黃金向量 A1 D8 FB 沿用先前實機結果）');
   process.exit(0);
 })().catch(e => { console.error('🔴 selftest 本身爆掉：', e); process.exit(2); });

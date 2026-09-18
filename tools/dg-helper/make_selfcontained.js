@@ -39,6 +39,18 @@ html = html.replace(/(var\s+DGM_HELPER_EXE_SHA\s*=\s*)'[^']*'/,  "$1'" + exeSha 
 html = html.replace(/(var\s+DGM_HELPER_ZIP_SHA\s*=\s*)'[^']*'/,
   "$1'(extracted copy; verify the zip on the online download page)'");
 
+// ── 2026-09-18 (round 2): the sha strings moved into common/version.js
+//    (HELPER_PKG), which this script inlines above, so rewrite them there.
+//    Only zipSha needs neutralising — the exe sha is knowable before zipping,
+//    but a file inside the zip cannot state the zip's own hash (writing it in
+//    would change that hash). This is what keeps the build non-circular.
+html = html.replace(/(zipSha:\s*)'[^']*'/,
+  "$1'(extracted copy; verify the zip on the online download page)'");
+html = html.replace(/(exeSha:\s*)'[^']*'/, "$1'" + exeSha + "'");
+// bytes 是 zip 自己的大小 -> 同樣不能寫進 zip 裡的檔案（會改變那個大小）。歸零；
+// 頁面對 bytes===0 的處理就是不顯示大小（離線版本來就該去線上版拿新包）。
+html = html.replace(/(bytes:\s*)\d+/, "$10");
+
 fs.writeFileSync(outPath, html);
 console.log('wrote ' + outPath + ' (' + html.length + ' bytes), no external script refs left: ' +
   !/<script src="common/.test(html));

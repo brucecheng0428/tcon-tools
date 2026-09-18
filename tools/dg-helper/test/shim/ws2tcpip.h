@@ -1,0 +1,3 @@
+#ifndef DGH_SHIM_WS2TCPIP_H
+#define DGH_SHIM_WS2TCPIP_H
+#endif
