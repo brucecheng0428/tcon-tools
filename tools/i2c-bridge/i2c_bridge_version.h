@@ -36,9 +36,18 @@
  *     same-space（本機頁連本機）才不跳。headless 沒有人可以按那個提示，
  *     所以看起來像「收到 TCP 但一個 byte 都沒送就關」—— 那是環境限制，不是結論。
  *     出處：developer.chrome.com/blog/local-network-access
+ * 1.8.0 / proto 3 不變（2026-09-19，Bruce「I2C 讀取的速度好像有點太慢了」）：
+ *   - 🔴 **讀取改走 libMPSSE 的 fast transfer 路徑**（OPT_READ_DATA 加上 0x10）。
+ *     根因：沒有 FAST_TRANSFER 位元時，I2C_DeviceRead 對**每一個 byte**做
+ *     「送 ~17 byte MPSSE 命令 → INFRA_SLEEP(1) → 讀 1 byte」⇒ 4096 byte 光 sleep
+ *     就 4 秒，外加 8192 次 USB 往返。理論 I2C 時間 @400kHz 只有 0.09 秒。
+ *     🔴 而我們原本**只有讀取沒帶這個位元**（位址相位與寫入都有）⇒ 慢的一直只有讀取。
+ *   - `--slow-read` 與 open 的 `"fastread":0` 可退回舊路徑（不必換 exe）。
+ *   - read／rawwrite 的回覆多帶 `us`（libMPSSE 呼叫本身的耗時）與 `fast` 旗標，
+ *     網頁據此把「傳輸層 vs 裝置」分開記在 log。wire 只有**新增**欄位 ⇒ proto 不變。
  * 🔴 exe 內容改變 ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
  *    （實測：同一份原始碼用同一個 zig 重編兩次，SHA 也不同 —— 這個編譯流程不是
  *      可重現建置，所以「只要動 exe 就一定要重過」，沒有例外。） */
-#define I2C_BRIDGE_VERSION "1.7.0"
+#define I2C_BRIDGE_VERSION "1.8.0"
 #define I2C_BRIDGE_PROTO   3
 #endif

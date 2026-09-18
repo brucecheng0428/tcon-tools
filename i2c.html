@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c180"></script>
+<script src="common/version.js?v=20260919i2c190"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -144,7 +144,9 @@
      用綠色外框＋淡綠底，十字是藍底、diff 是洋紅字、FF 是琥珀字、寫入失敗是紅底。 */
   table.dump td.sel{background:rgba(34,197,94,.20);box-shadow:inset 0 0 0 1px rgba(34,197,94,.75);}
   table.dump td.sel.wrfail{background:#450a0a;}
-  table.dump td.sel{outline:2px solid var(--accent);outline-offset:-2px;}
+  /* 🔴 成對元素稽核（2026-09-19）抓到的第二個：這裡原本還有一條重複的
+     `td.sel{outline:2px solid var(--accent)}`，和十字中心 `td.xc` 用同一個外框，
+     選取範圍會長得像十字中心。刪掉，選取只用綠色那一套。 */
   table.dump td.wrote{background:#3f2d07;color:#fde68a;}
   /* 🔴 與快照不同的格子。用洋紅色，與「本次寫入過」（琥珀）分得開 ——
      兩者意義相反：一個是「我剛送出去的」，一個是「裝置跟上次不一樣」。 */
@@ -219,7 +221,14 @@
      仍然是「淺色」（底下的狀態色照樣分得出來），不是換色。 */
   table.dump td.xh, table.dump th.xh { box-shadow: inset 0 0 0 999px rgba(56,189,248,.22); }
   table.dump td.xc { outline: 2px solid var(--accent); outline-offset: -2px; }
-  table.dump th.rh.xh { color: var(--accent); }
+  /* 🔴 成對的東西只做了一半（Bruce 2026-09-19）：原本只有 `th.rh.xh`（列標）
+     會轉成亮藍字，欄標仍是灰的 —— 底色疊層兩邊其實一樣，差的是**文字顏色**，
+     所以看起來「最左邊亮、最上面沒亮」。兩邊都要。 */
+  table.dump th.xh { color: var(--accent); }
+  /* 左上角那格**刻意不亮**：它既不屬於被選的那一列、也不屬於被選的那一欄，
+     而且它是「任意位址輸入框」，疊一層亮藍會讓輸入的字更難讀。
+     規則因此是說得通的：**只有被選那一列的列標與那一欄的欄標會亮**。 */
+  table.dump th.corner.xh { box-shadow: none; color: var(--sub); }
   /* 左上角空白格裡的定位輸入框（用既有的空白處，不增加版面） */
   table.dump th.corner { padding: 0; background: #16233a; }
   table.dump th.corner input { width: 100%; box-sizing: border-box; background: transparent; border: 0;
@@ -847,10 +856,25 @@ var i2ctPrevHas = null;
 
 function i2ctCurSet(){ return (i2ctView === 'file') ? i2ctFile : i2ctDev; }
 /* 有新資料進來就走這一支：不可比 ⇒ 成為新基準（靜默）；可比 ⇒ 比對。 */
+/* ═══ 🔴 基準必須是「當下的複本」，不是同一個物件 ════════════════════════
+   Bruce 2026-09-19：「按快照、再改值，它居然不會出現左上角與右上角」。
+
+   根因：`i2ctRef = d` 存的是**同一個物件、同一個 Uint8Array**。
+   手動改值是**就地修改** `d.bytes[idx]` ⇒ 基準的那一格跟著一起變 ⇒
+   「當前值 ≠ 快照值」永遠不成立 ⇒ 左上永遠不出現。
+
+   為什麼讀取／載入那兩條路看起來沒問題：它們每次都 `i2ctMakeSet()` 產生
+   **新的**陣列，舊物件還留在 i2ctRef 手上，所以比得出來。
+   ⇒ 這個 bug 只在「就地修改」時現形，而那正是他這次走的路。 */
+function i2ctSnapshotOf(d){
+  if (!d) return null;
+  return { kind: d.kind, slave: d.slave, awid: d.awid, base: d.base, name: d.name,
+           allFF: d.allFF, bytes: new Uint8Array(d.bytes) };   /* ⇦ 複本 */
+}
 function i2ctIngest(d){
   var made = false;
   if (!i2ctComparable(i2ctRef, d)) {
-    i2ctRef = d; i2ctDiffIdx = null; made = true;
+    i2ctRef = i2ctSnapshotOf(d); i2ctDiffIdx = null; made = true;
     i2ctLog('建立比較基準（自動）：' + i2ctSetLabel(d), 'n');
   } else {
     i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
@@ -1287,6 +1311,24 @@ function i2ctSaveAs(){
   return true;
 }
 
+/* ═══ 計時（Bruce：「讀取或寫入那邊再多一個計時的顯示」）═══════════════════
+   🔴 **以秒為單位、一位小數**。他明講「i2C 讀取的應該都是以秒為單位的，
+   毫秒是不太實際的」。log 裡才留毫秒（診斷要用）。
+
+   分三層記時，因為「時間花在哪一層」是唯一能定位瓶頸的資訊：
+     · ws   ＝ 網頁送出 → 收到回覆（WebSocket 往返，含 bridge 端全部處理）
+     · dev  ＝ bridge 回報的 libMPSSE 呼叫本身耗時（回覆裡的 `us`）
+     · ws − dev ＝ 我們自己的傳輸層（WebSocket、JSON、排程）吃掉的時間
+   他跑一次把 log 給我，就能直接算出比例，不必再猜。 */
+function i2ctSecs(ms){ return (ms / 1000).toFixed(1) + ' 秒'; }
+function i2ctTimeLine(tag, ms, devUs, n){
+  var dev = devUs ? (devUs / 1000) : 0;
+  return tag + ' ' + n + ' byte · 共 ' + i2ctSecs(ms)
+       + '（' + Math.round(ms) + ' ms'
+       + (dev ? '，其中 libMPSSE ' + Math.round(dev) + ' ms、傳輸層 ' + Math.round(ms - dev) + ' ms' : '')
+       + '，平均 ' + (n ? (ms / n).toFixed(2) : '0') + ' ms/byte）';
+}
+
 /* ═══ log ═══════════════════════════════════════════════════════════════ */
 function i2ctLog(msg, cls){
   var el = $('log'); if (!el) return;
@@ -1717,6 +1759,7 @@ async function i2ctDoRead(slave, awid, base, len){
   var plan = i2ctPlanRead(base, len, awid);
   var all = [];
   i2ctAbort = false;
+  var t0 = Date.now(), devUs = 0;
   for (var i = 0; i < plan.length; i++) {
     if (i2ctAbort) {
       i2ctLog('■ 使用者中止：已讀 ' + all.length + '/' + len + ' byte', 'w');
@@ -1724,10 +1767,10 @@ async function i2ctDoRead(slave, awid, base, len){
       return { ok: false, bytes: all, err: '已中止（讀到 ' + all.length + '/' + len + ' byte）', aborted: true };
     }
     /* 進度：只有分成兩則以上才顯示（一則的時候一閃而過只會干擾） */
-    if (plan.length > 1) { i2ctProgress = { done: all.length, total: len }; i2ctRenderProgress(); }
+    if (plan.length > 1) { i2ctProgress = { done: all.length, total: len, t0: t0 }; i2ctRenderProgress(); }
     var c = plan[i];
     var req = { type: 'read', slave: slave, addr: c.addr, len: c.len, awid: awid };
-    var r;
+    var r, tSeg = Date.now();
     try { r = await i2ctSend(req); }
     catch (e) { i2ctProgress = null; i2ctRenderProgress(); return { ok: false, bytes: all, err: e.message }; }
     if (!r.ok) {
@@ -1736,15 +1779,24 @@ async function i2ctDoRead(slave, awid, base, len){
         err: 'I2C Bridge 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）' };
     }
     var d = r.data || [];
+    var segMs = Date.now() - tSeg;
+    if (typeof r.us === 'number') devUs += r.us;
     i2ctLog('R  slave 0x' + i2ctHex(slave) + ' · offset ' + awid + 'B '
           + (awid === 0 ? '(無位址)' : i2ctAddrText(c.addr, awid))
           + ' ×' + c.len + '  →  ' + i2ctBytesText(d)
-          + (d.length !== c.len ? '  🔴 只收到 ' + d.length + '/' + c.len : ''), 'r');
+          + (d.length !== c.len ? '  🔴 只收到 ' + d.length + '/' + c.len : '')
+          /* 🔴 每一段各花多久：ws ＝ 往返、dev ＝ bridge 端的 libMPSSE 呼叫。
+             兩者相減就是我們自己的傳輸層成本。 */
+          + '   [' + segMs + ' ms'
+          + (typeof r.us === 'number' ? '，dev ' + Math.round(r.us / 1000) + ' ms' : '')
+          + (r.fast === false ? '，slow-read' : '') + ']', 'r');
     for (var j = 0; j < d.length; j++) all.push(d[j] & 0xFF);
     if (d.length < c.len) return { ok: false, bytes: all, err: '第 ' + (i + 1) + ' 段只收到 ' + d.length + '/' + c.len + ' byte' };
   }
   i2ctProgress = null; i2ctRenderProgress();
-  return { ok: true, bytes: all, err: null };
+  var ms = Date.now() - t0;
+  i2ctLog('⏱ ' + i2ctTimeLine('讀取', ms, devUs, all.length) + ' · 分 ' + plan.length + ' 段', 'o');
+  return { ok: true, bytes: all, err: null, ms: ms, devUs: devUs, segs: plan.length };
 }
 /* 進度列 ＋ 中止鈕（只在真的在跑長讀取時才出現） */
 function i2ctRenderProgress(){
@@ -1752,8 +1804,11 @@ function i2ctRenderProgress(){
   if (!i2ctProgress) { e.style.display = 'none'; e.innerHTML = ''; return; }
   var pct = Math.floor(i2ctProgress.done / i2ctProgress.total * 100);
   e.style.display = '';
+  /* 🔴 進行中要看得到已經過幾秒（他明講讀取是以秒計的，沒有這個會以為當掉）。 */
+  var el = i2ctProgress.t0 ? ('　已 ' + i2ctSecs(Date.now() - i2ctProgress.t0)) : '';
   e.innerHTML = '<div class="pbar"><i style="width:' + pct + '%"></i></div>'
-              + '<span class="mono">' + i2ctProgress.done + ' / ' + i2ctProgress.total + ' byte（' + pct + '%）</span>'
+              + '<span class="mono">' + i2ctProgress.done + ' / ' + i2ctProgress.total + ' byte（' + pct + '%）'
+              + el + '</span>'
               + '<button id="btn-abort">中止</button>';
   var b = $('btn-abort');
   if (b) b.addEventListener('click', function () { i2ctAbort = true; i2ctLog('使用者按下中止', 'w'); });
@@ -1789,7 +1844,10 @@ async function i2ctOnRead(){
   } else { i2ctPrevBytes = null; i2ctPrevHas = null; }
   i2ctDev = i2ctMakeSet('dev', v.slave, v.awid, v.off, res.bytes);
   i2ctDev.allFF = allFF;
-  i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF };
+  /* 🔴 耗時一併記進 lastRead：它是「這一次讀取發生了什麼」的單一出口，
+     測試與診斷都從這裡拿，不必改 handler 的回傳型別。 */
+  i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF,
+                   ms: res.ms, devUs: res.devUs, segs: res.segs };
   i2ctWroteFlags = null;
   /* 🔴 讀取失敗（長度不足）的資料不得成為基準、也不得參與比較 ——
      拿半份資料當基準，之後每一次比對都是錯的，而且看起來很正常。 */
@@ -1805,7 +1863,8 @@ async function i2ctOnRead(){
        log 他不用看，但我診斷時要用 —— 這一行是那個能力的唯一去處。 */
     if (allFF) i2ctLog('⚠ 全 FF ＝ 總線閒置／無回應（不是有效資料）· slave 0x'
                      + i2ctHex(v.slave) + '、檢查接線與電源', 'w');
-    i2ctBanner('readbanner', 'ok', '讀到 ' + res.bytes.length + ' byte，'
+    i2ctBanner('readbanner', 'ok', '讀到 ' + res.bytes.length + ' byte'
+      + (res.ms != null ? '（' + i2ctSecs(res.ms) + '）' : '') + '，'
       + (v.awid === 0 ? '無位址模式（索引 0–' + (res.bytes.length - 1) + '）'
                       : i2ctAddrText(v.off, v.awid) + ' – ' + i2ctAddrText(i2ctWrap(v.off + res.bytes.length - 1, v.awid), v.awid))
       + '，共 ' + i2ctPageCount() + ' 頁。'
@@ -1836,7 +1895,7 @@ async function i2ctDoWrite(slave, awid, addr, bytes){
     return { ok: false, err: msg };
   }
   i2ctLog('   ✔ 已寫入（transferred ' + (r.transferred != null ? r.transferred : '?') + '）', 'o');
-  return { ok: true, err: null };
+  return { ok: true, err: null, us: r.us };
 }
 /* ═══ 🔴 讀取超過裝置容量 ⇒ 位址回捲（不是報錯、不是回 FF）═════════════════
    Bruce 問「讀的部分是都沒有分段的限制，對嗎？」——**對**，sequential read 位址
@@ -2124,6 +2183,7 @@ async function i2ctOnWrite(){
    那正是這一輪在修的 bug。 */
 async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
   i2ctBusy = true; i2ctSyncButtons();
+  var tW0 = Date.now(), devUsW = 0;
   var page = i2ctPageSize(), twr = i2ctTwr();
   var plan = i2ctPlanWrite(base, d.length, page);
   i2ctLog('寫入計畫：' + d.length + ' byte ⇒ ' + plan.length + ' 段'
@@ -2132,7 +2192,12 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
   for (var pi2 = 0; pi2 < plan.length && ok; pi2++) {
     var n = plan[pi2].len;
     var addr = i2ctWrap(plan[pi2].addr, wireAwid);
+    var tSegW = Date.now();
     var r = await i2ctDoWrite(slave, wireAwid, addr, d.slice(done, done + n));
+    if (typeof r.us === 'number') devUsW += r.us;
+    i2ctLog('   段 ' + (pi2 + 1) + '/' + plan.length + ' · ' + n + ' byte · '
+          + (Date.now() - tSegW) + ' ms'
+          + (typeof r.us === 'number' ? '（dev ' + Math.round(r.us / 1000) + ' ms）' : ''), 'n');
     if (!r.ok) { ok = false; errMsg = r.err; break; }
     /* 🔴 tWR：EEPROM 收下一頁之後要把它燒進去，這段期間它**不回應任何命令**。
        沒等就送下一段，下一段會 NACK 或整批掉。5ms 是 24C32／24C64 的規格值。
@@ -2167,7 +2232,8 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
     /* 🔴 寫完之後**還有沒有漏掉的**：離線改了 17 格但只寫到其中 10 格，
        剩下 7 格還在裝置外面 —— 不講他不會知道。 */
     var leftN = i2ctDirtyCount();
-    i2ctBanner('readbanner', 'warn', '已寫入 ' + done + ' byte（來源：' + srcLabel + '）'
+    i2ctLog('⏱ ' + i2ctTimeLine('寫入', Date.now() - tW0, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
+    i2ctBanner('readbanner', 'warn', '已寫入 ' + done + ' byte（' + i2ctSecs(Date.now() - tW0) + '，來源：' + srcLabel + '）'
       + (leftN ? '。🔴 <b>還有 ' + leftN + ' byte 改過但沒寫到</b>（不在這次的範圍內）' : '')
       + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。');
   } else {
@@ -2754,11 +2820,34 @@ function i2ctCommitEdit(){
   if (same) return Promise.resolve(false);       /* 值沒變 ⇒ 不送出任何交易 */
   return i2ctApplyCellValue(d, idx, addr, awid, val[0]);
 }
+/* ═══ 一格的值要變了 ⇒ 三槽的**唯一出口** ═══════════════════════════════
+   規格（Bruce 定的）：**左上 ＝ 快照值、右上 ＝ 被換出去的值**。
+   所以手動改值之後應該是「狀態 A」：左上有快照值、右上是空的 ——
+   左上會由 render 自己從 i2ctRef 比出來，這裡**不可以**去設右上，
+   否則值會跑到右上（他看到的第二個現象就是這個）。
+
+   🔴 例外：**還沒有可比的快照**時（沒按過快照、或形狀不同），左上比不出東西。
+   這時把「改之前的原值」放進右上 —— 它本來就是「被換出去的值」，語意剛好吻合，
+   而且他點一下就能還原。沒有這一條的話，離線改完連原值都找不回來。 */
+function i2ctNoteCellChange(d, idx, newByte){
+  if (!d || idx < 0 || idx >= d.bytes.length) return;
+  if (!i2ctPrevBytes || i2ctPrevBytes.length !== d.bytes.length) {
+    i2ctPrevBytes = new Uint8Array(d.bytes.length);
+    i2ctPrevHas = new Uint8Array(d.bytes.length);
+  }
+  var refB = (i2ctRef && i2ctComparable(i2ctRef, d)) ? i2ctRef.bytes : null;
+  var haveSnap = !!(refB && idx < refB.length);
+  if (haveSnap) { i2ctPrevHas[idx] = 0; i2ctPrevBytes[idx] = 0; }   /* 左上負責顯示，右上留給切換 */
+  else { i2ctPrevBytes[idx] = d.bytes[idx]; i2ctPrevHas[idx] = 1; } /* 沒有快照 ⇒ 原值進右上 */
+  void newByte;
+}
+
 /* 真正把一個 byte 落定：未連線 ⇒ 只改本地；已連線 ⇒ 寫入 ＋ 回讀驗證。 */
 async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   /* ═══ 未連線 ⇒ 只改本地值（不寫入、不回讀、不報錯）═══════════════════ */
   if (!i2ctLinked) {
     i2ctEnsureWrFail(d);
+    i2ctNoteCellChange(d, idx, byte);
     d.bytes[idx] = byte;
     i2ctDirty[idx] = 1;
     i2ctWrFail[idx] = 0;
@@ -2780,11 +2869,7 @@ async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   var back = await i2ctDoRead(v.slave, awid, addr, 1);
   i2ctBusy = false; i2ctSyncButtons();
   var got = (back.ok && back.bytes.length === 1) ? (back.bytes[0] & 0xFF) : null;
-  if (!i2ctPrevBytes || i2ctPrevBytes.length !== d.bytes.length) {
-    i2ctPrevBytes = new Uint8Array(d.bytes.length);
-    i2ctPrevHas = new Uint8Array(d.bytes.length);
-  }
-  i2ctPrevBytes[idx] = d.bytes[idx]; i2ctPrevHas[idx] = 1;
+  i2ctNoteCellChange(d, idx, (got === null) ? d.bytes[idx] : got);
   d.bytes[idx] = (got === null) ? d.bytes[idx] : got;          /* ⇦ 回讀值，不是輸入值 */
   if (!i2ctWroteFlags) i2ctWroteFlags = new Uint8Array(d.bytes.length);
   i2ctWroteFlags[idx] = 1;
@@ -2956,7 +3041,7 @@ function i2ctInit(){
   $('btn-snap').addEventListener('click', function () {
     var d = i2ctCurSet();
     if (!d) { i2ctBanner('readbanner', 'warn', '還沒有資料可以當基準'); return; }
-    i2ctRef = d; i2ctDiffIdx = null;
+    i2ctRef = i2ctSnapshotOf(d); i2ctDiffIdx = null;
     i2ctLog('手動快照：基準 ＝ ' + i2ctSetLabel(d) + '（diff 清零）', 'n');
     i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
   });
@@ -3276,6 +3361,8 @@ window.__i2ct = {
   selAnchor: function (i) { i2ctSelAnchor = i; i2ctSelCursor = i; i2ctRenderTable(); i2ctSyncButtons(); },
   selClear: function () { return i2ctSelClear(); },
   eeForget: function () { return i2ctEeForget(); },
+  snapshotOf: function (d) { return i2ctSnapshotOf(d); },
+  refBytesAt: function (i) { return i2ctRef ? i2ctRef.bytes[i] : null; },
   dirtyCount: function () { return i2ctDirtyCount(); },
   dirtyAt: function (i) { return !!(i2ctDirty && i2ctDirty[i]); },
   wrFailAt: function (i) { return !!(i2ctWrFail && i2ctWrFail[i]); },

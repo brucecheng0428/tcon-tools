@@ -2117,6 +2117,39 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('40. ⏱ 計時：秒為單位、分層記錄（他跑一次給 log 就能定位瓶頸）');
+  {
+    A._reset();
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, us: 12345, fast: true,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0, transferred: 1, us: 6789 };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '512' });
+    await A.doRead(); await sleep(30);
+    const res = A.state().lastRead;
+    CHECK(typeof res.ms === 'number' && res.ms >= 0, '讀取記下耗時（ms）：' + res.ms);
+    EQ(res.segs, 2, '512 byte ⇒ 分 2 段');
+    EQ(res.devUs, 24690, '🔴 bridge 端回報的 us 有被累加（2 段 × 12345）');
+    const log = doc.getElementById('log').textContent;
+    CHECK(/⏱ 讀取 512 byte · 共 \d+\.\d 秒/.test(log), '🔴 log 有「共 N.N 秒」（秒為單位、一位小數）');
+    CHECK(/libMPSSE \d+ ms、傳輸層 -?\d+ ms/.test(log), '🔴 log 有分層：libMPSSE 與傳輸層各多久');
+    CHECK(/dev 12 ms/.test(log), '🔴 每一段各記一次 dev 耗時');
+    CHECK(/秒/.test(doc.getElementById('readbanner').textContent),
+      '🔴 畫面上的完成訊息帶秒數：' + doc.getElementById('readbanner').textContent.slice(0, 40));
+    CHECK(!/共 \d+ 毫秒/.test(doc.getElementById('readbanner').textContent), '畫面不用毫秒（他明講不實際）');
+    /* 寫入那一側 */
+    A.loadFile('t.bin', new win.Uint8Array(300));
+    await sleep(20);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '300' });
+    await A.doWrite(); await sleep(30);
+    const log2 = doc.getElementById('log').textContent;
+    CHECK(/⏱ 寫入 300 byte · 共 \d+\.\d 秒/.test(log2), '🔴 寫入也有總計秒數');
+    CHECK(/段 1\/\d+ · \d+ byte · \d+ ms/.test(log2), '🔴 寫入每一段各記一次耗時');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');

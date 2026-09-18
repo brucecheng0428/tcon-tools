@@ -40,6 +40,9 @@
 int dgh_main(int argc, char** argv);
 extern int dgh_fake_open_calls, dgh_fake_close_calls, dgh_fake_live, dgh_fake_writes, dgh_fake_reads;
 extern int dgh_serve_files;   /* v1.7.0：靜態檔服務的開關（預設 0） */
+extern int dgh_fast_read;     /* v1.8.0：讀取走不走 fast 路徑 */
+extern unsigned dgh_fake_last_read_opts, dgh_fake_last_write_opts;
+extern unsigned dgh_fake_read_status, dgh_fake_write_status;
 extern unsigned char dgh_fake_last_write[64];
 extern int dgh_fake_last_write_len;
 
@@ -178,6 +181,46 @@ int main(void){
     CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")==NULL,
           "🔴 /i2c.html 也不端（預設關閉）");
     CHECK(dgh_fake_live==0, "🔴 啟動後沒有任何 channel 開著");
+
+    G("1a2. 🔴 讀取走 fast 路徑（效能根因：libMPSSE 非 fast 路徑是逐 byte）");
+    {
+        /* 🔴 libMPSSE 的 I2C_DeviceRead 在沒有 FAST_TRANSFER 位元時，對每一個 byte
+           做「送 ~17 byte 命令 → INFRA_SLEEP(1) → 讀 1 byte」。4096 byte 光 sleep
+           就 4 秒，加上 8192 次 USB 往返 ⇒ Bruce 實測的 20~60 秒。
+           我們原本**只有讀取沒帶 fast 位元**（位址相位與寫入都有）——
+           所以慢的一直只有讀取，和他抱怨的完全一致。 */
+        int s0 = ws_open(hello, sizeof(hello));
+        CHECK(s0 >= 0, "連上");
+        ws_cmd(s0, "{\"type\":\"open\",\"id\":1}", buf, sizeof(buf));
+        ws_cmd(s0, "{\"type\":\"read\",\"id\":2,\"slave\":80,\"addr\":0,\"awid\":2,\"len\":64}", buf, sizeof(buf));
+        CHECK((dgh_fake_last_read_opts & 0x10) != 0, "🔴 預設讀取帶 FAST_TRANSFER_BYTES(0x10)");
+        CHECK((dgh_fake_last_read_opts & 0x03) == 0x03, "仍然有 START|STOP（線上行為不變）");
+        CHECK((dgh_fake_last_read_opts & 0x08) == 0x08, "仍然有 NACK_LAST_BYTE（最後一個 byte 回 NACK）");
+        CHECK((dgh_fake_last_write_opts & 0x10) != 0, "位址相位本來就是 fast（沒有被改掉）");
+        CHECKS(buf, "\"fast\":true", "回覆帶 fast 旗標，網頁看得到用了哪一種");
+        CHECKS(buf, "\"us\":", "🔴 回覆帶 libMPSSE 呼叫耗時（us）");
+
+        /* 退路：open 帶 fastread:0 ⇒ 退回 PQ Tool 原本的逐 byte 讀法 */
+        ws_cmd(s0, "{\"type\":\"open\",\"id\":3,\"fastread\":0}", buf, sizeof(buf));
+        ws_cmd(s0, "{\"type\":\"read\",\"id\":4,\"slave\":80,\"addr\":0,\"awid\":2,\"len\":64}", buf, sizeof(buf));
+        CHECK((dgh_fake_last_read_opts & 0x10) == 0, "🔴 fastread:0 ⇒ 退回舊路徑（不帶 0x10）");
+        CHECKS(buf, "\"fast\":false", "回覆如實反映用了舊路徑");
+        ws_cmd(s0, "{\"type\":\"open\",\"id\":5,\"fastread\":1}", buf, sizeof(buf));
+        CHECK(dgh_fast_read == 1, "切得回來");
+
+        /* 🔴 ACK／錯誤不可以被靜默吞掉 */
+        dgh_fake_read_status = 4;              /* 非 0 ＝ FT 錯誤（含 NACK 造成的失敗） */
+        ws_cmd(s0, "{\"type\":\"read\",\"id\":6,\"slave\":80,\"addr\":0,\"awid\":2,\"len\":8}", buf, sizeof(buf));
+        CHECKS(buf, "\"ok\":false", "🔴 讀取失敗如實回報 ok:false（不靜默吞掉）");
+        CHECKS(buf, "\"status\":4", "並帶回 FT status");
+        dgh_fake_read_status = 0;
+        dgh_fake_write_status = 4;
+        ws_cmd(s0, "{\"type\":\"rawwrite\",\"id\":7,\"slave\":80,\"addr\":0,\"awid\":2,\"data\":[1,2,3]}", buf, sizeof(buf));
+        CHECKS(buf, "\"ok\":false", "🔴 寫入失敗（NACK）如實回報");
+        dgh_fake_write_status = 0;
+        close(s0);
+        msleep(60);
+    }
 
     G("1b. --serve 這條退路仍然可用（保留但預設不走）");
     dgh_serve_files = 1;

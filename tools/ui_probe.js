@@ -221,6 +221,100 @@
        document.querySelector('.legend').textContent.replace(/\s+/g, ' ').trim());
 
     stage(10);
+    /* ── 路徑 11：🔴 三槽走「手動改值」這條路（Bruce 2026-09-19 實測壞掉）──────
+       他的操作順序：已中斷 → 讀 256 byte → 按快照 → 改值 →
+       期望「左上出現快照值」，實際兩個角落都沒有。
+       根因：`i2ctRef = d` 存的是同一個 Uint8Array，就地改值連快照一起改掉。 */
+    A._reset();
+    A.loadFile('snap.bin', new Uint8Array(Array.from({ length: 256 }, (_, i) => i & 0xFF)));
+    await sleep(80);
+    A.snapshot();
+    await sleep(40);
+    ok('11a 前置：按下快照', A.refBytesAt(0x10) === 0x10, A.refBytesAt(0x10));
+    /* 改值 */
+    click(cellAt(0x10)); await sleep(60);
+    let ed = document.querySelector('#dump td.edit input');
+    if (ed) {
+      ed.value = '99'; ed.dispatchEvent(new Event('input', { bubbles: true }));
+      key(ed, 'Enter'); await sleep(90);
+    }
+    ok('11b 值改成 0x99', A.curSet().bytes[0x10] === 0x99, A.curSet().bytes[0x10]);
+    ok('11c 🔴 快照沒有被一起改掉（alias bug 的核心）', A.refBytesAt(0x10) === 0x10, A.refBytesAt(0x10));
+    let parts = A.cellParts(0x10);
+    ok('11d 🔴 左上出現快照值 10', parts && parts.snap === '10', JSON.stringify(parts));
+    ok('11e 🔴 右上此時是空的（狀態 A）', parts && parts.old === null, parts && parts.old);
+    /* 點左上 ⇒ 狀態 B */
+    A.slotClick(0x10, 'sv'); await sleep(50);
+    parts = A.cellParts(0x10);
+    ok('11f 點左上 ⇒ 主值變快照值 10', parts && parts.main === '10', parts && parts.main);
+    ok('11g 點左上 ⇒ 右上出現剛才改的 99', parts && parts.old === '99', parts && parts.old);
+    /* 點右上 ⇒ 回到狀態 A */
+    A.slotClick(0x10, 'ov'); await sleep(50);
+    parts = A.cellParts(0x10);
+    ok('11h 點右上 ⇒ 主值回 99', parts && parts.main === '99', parts && parts.main);
+    ok('11i 點右上 ⇒ 左上又是快照值 10', parts && parts.snap === '10', parts && parts.snap);
+    ok('11j 點右上 ⇒ 右上清空', parts && parts.old === null, parts && parts.old);
+    /* 🔴 連續來回 10 次都不能壞 */
+    let okLoop = true;
+    for (let i = 0; i < 10; i++) {
+      A.slotClick(0x10, 'sv');
+      if (A.curSet().bytes[0x10] !== 0x10) { okLoop = false; break; }
+      A.slotClick(0x10, 'ov');
+      if (A.curSet().bytes[0x10] !== 0x99) { okLoop = false; break; }
+    }
+    await sleep(40);
+    ok('11k 🔴 來回 10 次兩個值都沒遺失', okLoop && A.curSet().bytes[0x10] === 0x99 && A.refBytesAt(0x10) === 0x10,
+       'cur=' + A.curSet().bytes[0x10] + ' ref=' + A.refBytesAt(0x10));
+    /* 🔴 「沒按過快照就改值」其實不會發生：載入檔案與讀取都會**自動建立基準**
+       （i2ctIngest 在不可比時就把當下這份當基準）。所以左上一定有東西可比，
+       他不必先按快照也能還原。（我一度以為要靠右上補位，實測是我想錯了 ——
+       程式的行為比我設計的更好，測試改成釘住真實行為。） */
+    A._reset();
+    A.loadFile('nosnap.bin', new Uint8Array([0x11, 0x22, 0x33, 0x44]));
+    await sleep(70);
+    click(cellAt(1)); await sleep(50);
+    ed = document.querySelector('#dump td.edit input');
+    if (ed) { ed.value = 'EE'; ed.dispatchEvent(new Event('input', { bubbles: true })); key(ed, 'Enter'); await sleep(80); }
+    parts = A.cellParts(1);
+    ok('11l 沒按快照就改值 ⇒ 載入時的自動基準讓左上仍然顯示原值 22',
+       parts && parts.snap === '22' && parts.main === 'EE', JSON.stringify(parts));
+    A.slotClick(1, 'sv'); await sleep(40);
+    ok('11m 點左上 ⇒ 還原成 22', A.curSet().bytes[1] === 0x22, A.curSet().bytes[1]);
+    ok('11n 而且剛改的 EE 進了右上，可以再換回去', A.cellParts(1).old === 'EE', A.cellParts(1).old);
+
+    /* ── 路徑 9e：列標與欄標的 highlight 要一致（Bruce：「垂直最上方沒有一併亮」）── */
+    A._reset();
+    A.loadFile('hdr.bin', new Uint8Array(256));
+    await sleep(80);
+    click(cellAt(0x35)); await sleep(70);
+    {
+      const rowHead = document.querySelectorAll('#dump tr')[4].querySelector('th.rh');
+      const colHead = document.querySelectorAll('#dump tr')[0].querySelectorAll('th')[6];
+      const cs = (el) => el ? getComputedStyle(el).boxShadow : '(null)';
+      ok('9e 列標（最左）有 highlight', /rgb/.test(cs(rowHead)), cs(rowHead).slice(0, 40));
+      ok('9f 欄標（最上）有 highlight', /rgb/.test(cs(colHead)), cs(colHead).slice(0, 40));
+      ok('9g 🔴 兩者的底色疊層完全相同', cs(rowHead) === cs(colHead),
+         'row=' + cs(rowHead).slice(0, 30) + ' col=' + cs(colHead).slice(0, 30));
+      /* 🔴 他看到的差別其實是**文字顏色**：原本只有列標會轉亮藍。 */
+      const col = (el) => el ? getComputedStyle(el).color : '(null)';
+      ok('9g2 🔴 兩者的文字顏色也相同（他看到的差別在這裡）', col(rowHead) === col(colHead),
+         'row=' + col(rowHead) + ' col=' + col(colHead));
+      const corner = document.querySelector('#dump th.corner');
+      ok('9g3 左上角那格刻意不亮（它是位址輸入框）',
+         getComputedStyle(corner).boxShadow === 'none', getComputedStyle(corner).boxShadow.slice(0, 24));
+      ok('9h 列標真的是那一列（0x0030）', (rowHead && rowHead.textContent) === '0x0030', rowHead && rowHead.textContent);
+      ok('9i 欄標真的是那一欄（+5）', (colHead && colHead.textContent) === '+5', colHead && colHead.textContent);
+      /* 換一格 ⇒ 舊的熄滅 */
+      click(cellAt(0x02)); await sleep(70);
+      const oldRow = document.querySelectorAll('#dump tr')[4].querySelector('th.rh');
+      ok('9j 換一格 ⇒ 舊的列標熄滅', !/rgb\(56/.test(getComputedStyle(oldRow).boxShadow),
+         getComputedStyle(oldRow).boxShadow.slice(0, 30));
+      /* 方向鍵移動 ⇒ 標頭跟著走 */
+      key(document.activeElement, 'ArrowDown'); await sleep(80);
+      const r2 = document.querySelectorAll('#dump tr')[2].querySelector('th.rh');
+      ok('9k 方向鍵移動 ⇒ 標頭跟著移動', /rgb/.test(getComputedStyle(r2).boxShadow), r2 && r2.textContent);
+    }
+
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
     ok('10a 另存新檔在有資料時可以按', $('#btn-save').disabled === false);
     ok('10b 快照按得下去', $('#btn-snap').disabled === false || $('#btn-snap').disabled === undefined);
