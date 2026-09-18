@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1130"></script>
+<script src="common/version.js?v=20260919i2c1131"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -343,7 +343,7 @@
       <!-- 🔴 raw MPSSE：自己組整段命令、一次送出（一次 FT_Write ＋ 一次 FT_Read）。
            預設關 —— 命令序列沒有在他的硬體上跑過，沒有實證就不當預設值。 -->
       <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
-        <input type="checkbox" id="chk-rawmpsse"> 快速模式（實驗）
+        <input type="checkbox" id="chk-rawmpsse" checked> 快速模式
       </label>
       <!-- 🔴 讓他**自己證明**快路徑是對的：同一段位址兩條路徑各讀一次、逐 byte 比對。
            這比我們任何斷言都有力。 -->
@@ -1755,6 +1755,7 @@ async function i2ctConnect(takeover){
     i2ctRetry = 0;
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctEeForget();      /* 🔴 重新連線 ⇒ EEPROM 型號重問（可能換了一片板子） */
+    i2ctFastVerified = null;   /* 🔴 換了板子／重連 ⇒ 快路徑要重驗一次 */
     i2ctBanner('topbanner', '', '');
     i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C Bridge）
     /* 🔴 連線**不做任何 I2C 交易**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
@@ -1862,8 +1863,11 @@ function i2ctLnaBlocked(dt){
 function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
 
 /* ═══ 讀 ════════════════════════════════════════════════════════════════ */
-/* 回傳 {ok, bytes, err}。不丟例外，讓呼叫端統一處理版面。 */
-async function i2ctDoRead(slave, awid, base, len){
+/* 回傳 {ok, bytes, err}。不丟例外，讓呼叫端統一處理版面。
+   🔴 `quiet` ＝ 這是內部驗證用的讀取，**不要記進他的耗時紀錄**。
+      耗時紀錄是他拿來比較速度的資料（Bruce 2026-09-19「永遠都沒辦法比對」），
+      自動驗證每次塞兩筆進去會把那張表洗掉，等於我們的內部行為佔用他的畫面。 */
+async function i2ctDoRead(slave, awid, base, len, quiet){
   var plan = i2ctPlanRead(base, len, awid);
   var all = [];
   i2ctAbort = false;
@@ -1908,7 +1912,7 @@ async function i2ctDoRead(slave, awid, base, len){
   i2ctProgress = null; i2ctRenderProgress();
   var ms = Date.now() - t0;
   i2ctLog('⏱ ' + i2ctTimeLine('讀取', ms, devUs, all.length) + ' · 分 ' + plan.length + ' 段', 'o');
-  i2ctNoteTime('讀', all.length, ms, i2ctLastPath || '一般模式');
+  if (!quiet) i2ctNoteTime('讀', all.length, ms, i2ctLastPath || '一般模式');
   return { ok: true, bytes: all, err: null, ms: ms, devUs: devUs, segs: plan.length };
 }
 /* 進度列 ＋ 中止鈕（只在真的在跑長讀取時才出現） */
@@ -1926,6 +1930,57 @@ function i2ctRenderProgress(){
   var b = $('btn-abort');
   if (b) b.addEventListener('click', function () { i2ctAbort = true; i2ctLog('使用者按下中止', 'w'); });
 }
+/* ═══ 🔴 快路徑自動驗證（v1.13.1，Bruce 2026-09-19）════════════════════════
+   他要的是「不必勾任何東西就用得到快的，而且不會有資料錯了還照用的風險」。
+
+   🔴 **為什麼不在連線時做**：i2c.html 有一條更早的規則 ——
+      「連線**不做任何 I2C 交易**」（Bruce 2026-09-18「i2c 頁完全去 TCON 化」，
+      見 i2ctConnect 裡的註解）。連線當下我們根本不知道線上掛的是 EEPROM、PMIC
+      還是感測器，也不知道該讀哪個位址，隨便挑一個去讀就是替他決定，甚至可能有副作用。
+   ⇒ 改成在**他自己按下第一次讀取時**驗證，用**他自己填的 slave 與 offset**，
+     這樣兩條規則都守住：連線零交易，而且驗證用的位址一定是有意義的。
+
+   成本：只驗前 I2CT_VERIFY_N(64) byte，慢路徑約 0.8 秒，一個連線只做一次。
+   一致 ⇒ 安靜沿用快的（不跳訊息、不加說明文字）。
+   不一致或快路徑報錯 ⇒ 自動退回慢的，留一行常駐訊息，細節只進 log。 */
+var I2CT_VERIFY_N = 64;
+var i2ctFastVerified = null;      /* null=還沒驗 / true=驗過一致 / false=已退回慢的 */
+async function i2ctVerifyFastOnce(slave, awid, off, len){
+  if (!i2ctRawMpsse || i2ctFastVerified !== null) return;
+  var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
+  var fast = null, slow = null;
+  i2ctLog('── 首次讀取：先用 ' + n + ' byte 確認快的方式讀出來的值正確 ──', 'n');
+  try {
+    fast = await i2ctDoRead(slave, awid, off, n, true);
+    await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+                     fastread: i2ctFastRead ? 1 : 0, rawmpsse: 0 });
+    slow = await i2ctDoRead(slave, awid, off, n, true);
+  } catch (e) {
+    i2ctLog('✕ 自動驗證過程出錯：' + e.message, 'e');
+  }
+  var ok = !!(fast && fast.ok && slow && slow.ok
+              && fast.bytes.length === slow.bytes.length);
+  if (ok) for (var i = 0; i < slow.bytes.length; i++) {
+    if ((fast.bytes[i] & 0xFF) !== (slow.bytes[i] & 0xFF)) { ok = false; break; }
+  }
+  i2ctFastVerified = ok;
+  if (ok) {
+    /* 🔴 安靜。驗過就驗過，不要為了展示我們做了事而佔他的畫面。 */
+    i2ctLog('✔ 自動驗證通過（' + n + ' byte 兩種方式相同）⇒ 沿用快的方式', 'o');
+  } else {
+    i2ctRawMpsse = false;
+    var cb = $('chk-rawmpsse'); if (cb) cb.checked = false;
+    i2ctLog('✕ 自動驗證未通過 ⇒ 已改用慢但已知正確的方式'
+          + (fast && !fast.ok ? '（快的方式回報：' + fast.err + '）' : ''), 'e');
+    /* 🔴 用 topbanner 不是 readbanner：readbanner 會被這次讀取的結果訊息立刻蓋掉，
+       他就看不到自己正在走慢的那條。這一行要**留著**直到下次重連。 */
+    i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式（自動確認沒通過）。');
+  }
+  /* 不論結果，都把連線切回結論對應的狀態再繼續 */
+  try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+                         fastread: i2ctFastRead ? 1 : 0,
+                         rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
+}
 async function i2ctOnRead(){
   /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
   if (i2ctEditing) i2ctCancelEdit();
@@ -1935,6 +1990,7 @@ async function i2ctOnRead(){
   if (!i2ctConfirmDiscardDirty('重新讀取')) { i2ctLog('取消讀取（保留未寫入的本地修改）', 'n'); return; }
   i2ctBusy = true; i2ctSyncButtons();
   i2ctBanner('readbanner', 'info', '讀取中…');
+  await i2ctVerifyFastOnce(v.slave, v.wireAwid, v.off, v.len);
   var res = await i2ctDoRead(v.slave, v.wireAwid, v.off, v.len);
   i2ctBusy = false; i2ctSyncButtons();
 
@@ -2190,7 +2246,12 @@ function i2ctWriteSource(len, awid){
 /* 🔴 讀取要不要走 fast 路徑。**預設 false** —— 見 i2ctConnect 裡的說明。
    只能從 debug 區打開，而且打開後要重新連線才生效。 */
 var i2ctFastRead = false;
-var i2ctRawMpsse = false;      /* 直接組 MPSSE 命令（預設關，見 i2ctConnect 的說明） */
+/* 🔴 v1.13.1：**預設開**（Bruce 2026-09-19）。
+   原本預設關、而且開關藏在 `?debug=1` 裡 ⇒ 他正常開網頁量到的**必然**是慢的那條，
+   等於快路徑做了他也用不到。他的原話：「這等於又退回去了，為什麼不去解決呢？」
+   安全性不靠「預設關」，改靠**連線後自動對讀驗證**（i2ctAutoVerifyFast）：
+   驗過一致才繼續用快的，不一致就自動退回慢的。 */
+var i2ctRawMpsse = true;
 var i2ctLastPath = '', i2ctLastUsbRt = 0;
 var i2ctEeAuto = null;
 /* 🔴 「每個 slave 只問一次」（Bruce 2026-09-19）：逐格即時寫入時，每按一次就跳
@@ -3377,7 +3438,8 @@ function i2ctInit(){
   $('btn-clear').addEventListener('click', function () { i2ctClearAll(); });
   $('chk-rawmpsse').addEventListener('change', function () {
     i2ctRawMpsse = this.checked;
-    i2ctLog('快速模式 ⇒ ' + (i2ctRawMpsse ? '開（實驗）' : '關（預設）') + '　※ 要重新連線才生效', 'w');
+    i2ctFastVerified = null;   /* 手動改過 ⇒ 下次讀取重驗一次 */
+    i2ctLog('快速模式 ⇒ ' + (i2ctRawMpsse ? '開（預設）' : '關') + '　※ 要重新連線才生效', 'w');
   });
   $('btn-cmppath').addEventListener('click', i2ctComparePaths);
   $('btn-clrtime').addEventListener('click', function () {
@@ -3801,6 +3863,12 @@ window.__i2ct = {
     i2ctSelAnchor = null; i2ctSelCursor = null;
     i2ctCross = null; i2ctPageIdx = 0;
     i2ctWrFail = null; i2ctWrOk = null; i2ctDirty = null;
+    /* 🔴 v1.13.1：讀取模式也要回到**產品預設**（快速模式開、尚未驗證）。
+       `_reset` 的語意是「回到剛打開網頁的狀態」，而剛打開時這兩個就是這樣。
+       不重設的話，前一組測試把快速模式關掉之後會漏到下一組，
+       下一組就在驗一個使用者根本遇不到的狀態 —— 那種綠燈沒有意義。 */
+    i2ctRawMpsse = true; i2ctFastVerified = null;
+    { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
     i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctSyncButtons();
   },

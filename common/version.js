@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.13.0',       // I2C（讀寫測試）
+  i2c:     'v1.13.1',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -48,11 +48,11 @@ var HELPER_PKG = {
   /* 🔴 v1.7.0（2026-09-18）：exe **有動**（拿掉自動開瀏覽器、靜態檔服務改成
      預設關閉）⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
      包內也從四個檔縮成兩個：**只有 exe ＋ libMPSSE.dll**，不再附 html。 */
-  pkg:    'v1.11.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.11.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  pkg:    'v1.11.1',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.11.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.11.0.zip',
-  bytes:  161821,                             // zip 位元組數（打包後填）
-  zipSha: '951d711b058e0e8e54f857def304716ee67fd5f357578b6a84694733b73031d4',
-  exeSha: '96547e28f7788742ab81f76165a4d7e9a60d8e3922f1e51c3c8259f664d8de46'
+  file:   'data/i2c-bridge-v1.11.1.zip',
+  bytes:  162698,                             // zip 位元組數（打包後填）
+  zipSha: '426c06fa8013deb4121528d1a24f0606dfdce8963a457bf19b760bbbff59676c',
+  exeSha: '0298b7440bf5f48c76261026dc5b4f16e78445b55d17ca119659708103c4eb9f'
 };

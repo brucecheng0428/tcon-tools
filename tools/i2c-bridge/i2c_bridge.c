@@ -104,6 +104,8 @@ int dgh_fast_read = 1;
    網頁提供「快慢路徑比對」按鈕，讓他自己用同一段位址兩種路徑各讀一次、
    逐 byte 比對 —— 那比我們任何斷言都有力。 */
 int dgh_raw_mpsse = 0;
+/* 🔴 預設 0：v1.11.0 無條件做這件事導致完全連不上（見 i2c_force_clock 的註解）。 */
+int dgh_force_clock = 0;
 typedef unsigned long (*PFN_FT_Write)(void*, void*, unsigned long, unsigned long*);
 typedef unsigned long (*PFN_FT_Read )(void*, void*, unsigned long, unsigned long*);
 typedef unsigned long (*PFN_FT_Purge)(void*, unsigned long);
@@ -472,10 +474,35 @@ static void diag_ftdi(void) {
 /* ===========================================================================
  * I2C actions (copied from PQ Tool)
  * =========================================================================== */
-/* 🔴 自己把時脈除數寫進去，不依賴 libMPSSE 的換算（理由見 i2c_open 的註解：
-   實測 400k 設定量到 600k）。base 與公式**必須成對**，所以 0x8B 與 6e6/f-1
-   一定要一起送，不可以只送其中一個。
-   回傳實際會落在線上的頻率（Hz），0 代表沒送成（沒有 D2XX 就沒辦法送）。 */
+/* 🔴🔴 v1.11.1：**預設不呼叫這支**（`dgh_force_clock`，只有 `--force-clock` 會開）。
+   ───────────────────────────────────────────────────────────────────────────
+   v1.11.0 在 `i2c_open()` 成功後無條件呼叫它，結果 Bruce 那台**完全連不上
+   I2C Bridge**（「逾時未回覆」／「連不到」），退回 v1.10.0 就正常。
+
+   🔴 **我們是「移除嫌疑者」，不是「已證實根因」。** 這台 Mac 沒有 Windows、
+      沒有 FTDI 治具，無法執行 exe，所以下面是**推論**，不是實證：
+
+   為什麼它是最大嫌疑：
+     1. 它是 v1.10.0→v1.11.0 之間**唯一新增在 open 路徑上的裝置 I/O**
+        （另一個改動 `raise_timer_resolution` 只做 LoadLibrary ＋ 一次 API 呼叫，
+        且 `logline` 有 NULL 守衛，:206）。
+     2. 🔴 **這條路在 v1.11.0 之前從來沒有在真實硬體上執行過。**
+        `p_FT_Write` 原本只被 `mpsse_xfer()` 用到，而那要 `dgh_raw_mpsse`（預設 0）
+        才會走到。也就是說 v1.11.0 是**第一個每次連線都會呼叫 `p_FT_Write` 的版本**。
+     3. 它建立在一個**從未驗證過的假設**上：`I2C_OpenChannel` 給的 handle 可以拿去
+        餵我們自己用 `LoadLibraryA("ftd2xx.dll")` 解析出來的 `FT_Write`。
+        若那支 `ftd2xx.dll` 與 libMPSSE 內部實際使用的**不是同一份載入實例**，
+        就是拿 A 實例的 handle 去呼叫 B 實例的函式 —— 輕則回錯誤，
+        **重則存取違規讓整個 bridge 當掉**，而 bridge 一死就正是「連不到」。
+     4. 工具鏈已排除：用現在這版 zig 重建 v1.10.0 的原始碼，產出 **289,792 byte，
+        與出貨的 v1.10.0 完全同大小**（只差 PE 時戳）⇒ 大小增加純粹來自這兩處改動。
+
+   ⇒ 先讓 open 路徑回到 v1.10.0 的行為。時脈那件事之後再想別的做法
+     （例如在 `I2C_InitChannel` **之前**送，或直接補償傳進去的 ClockRate），
+     不要再用「事後插隊寫裝置」這種形狀。
+
+   base 與公式**必須成對**，所以 0x8B 與 6e6/f-1 一定要一起送。
+   回傳實際會落在線上的頻率（Hz），0 代表沒送成。 */
 static uint32_t i2c_force_clock(uint32_t hz) {
     unsigned char cmd[4];
     unsigned long wrote = 0;
@@ -498,12 +525,25 @@ static uint32_t i2c_force_clock(uint32_t hz) {
             hz, div, actual);
     return actual;
 }
+/* 🔴 v1.11.1：open 路徑**每一步都記一行，含耗時**。
+   起因：v1.11.0 在 Bruce 那台連不上，而我們手上的 log 完全看不出卡在哪一步 ——
+   只能靠推論。推論這次也許猜對了，下一次不一定。每一階段都留時間戳之後，
+   他把 i2c-bridge.log 丟過來就能直接指出是哪一個呼叫沒回來。
+   （這台 Mac 沒有 Windows 也沒有治具，log 是我們唯一的遠端眼睛。） */
 static int i2c_open(uint32_t clockHz) {
-    if (!g_dllOk) return 0;
-    if (g_opened) return 1;
-    if (p_Init) p_Init();
-    if (p_GetNum(&g_numChannels)!=FT_OK || g_numChannels==0) return 0;
-    if (p_Open(0,&g_handle)!=FT_OK) return 0;
+    double t0 = now_ms(), t;
+    if (!g_dllOk) { logline("  open    : ABORT dll not loaded"); return 0; }
+    if (g_opened) { logline("  open    : already open, reuse"); return 1; }
+    logline("  open    : begin (clock %u Hz)", clockHz);
+    if (p_Init) { p_Init(); logline("  open    : Init_libMPSSE done (+%.0f ms)", now_ms()-t0); }
+    t = now_ms();
+    if (p_GetNum(&g_numChannels)!=FT_OK || g_numChannels==0) {
+        logline("  open    : ABORT GetNumChannels failed or 0 (+%.0f ms)", now_ms()-t); return 0; }
+    logline("  open    : GetNumChannels = %u (+%.0f ms)", g_numChannels, now_ms()-t);
+    t = now_ms();
+    if (p_Open(0,&g_handle)!=FT_OK) {
+        logline("  open    : ABORT OpenChannel(0) failed (+%.0f ms)", now_ms()-t); return 0; }
+    logline("  open    : OpenChannel(0) ok (+%.0f ms)", now_ms()-t);
     /* 🔴 Options=3 = I2C_DISABLE_3PHASE_CLOCKING(0x1) | I2C_ENABLE_DRIVE_ONLY_ZERO(0x2).
        Three-phase is deliberately OFF. FTDI AN_113 says I2C "should" enable it (0x8C),
        but the vendor DLL explicitly DISABLES it -- DLL_I2C_BCB.dll sends 0x8D at
@@ -532,9 +572,19 @@ static int i2c_open(uint32_t clockHz) {
        400000 -> divisor 14 -> 12e6/((1+14)*2) = 400,000 Hz.
        This is verifiable on Bruce's analyser, which is the point. */
     ChannelConfig cfg; cfg.ClockRate=clockHz?clockHz:150000; cfg.LatencyTimer=1; cfg.Options=3;
-    if (p_Init2(g_handle,&cfg)!=FT_OK) { p_Close(g_handle); g_handle=NULL; return 0; }
+    t = now_ms();
+    if (p_Init2(g_handle,&cfg)!=FT_OK) {
+        logline("  open    : ABORT InitChannel failed (+%.0f ms)", now_ms()-t);
+        p_Close(g_handle); g_handle=NULL; return 0; }
     g_opened=1;
-    i2c_force_clock(cfg.ClockRate);
+    logline("  open    : InitChannel ok (clock req %u Hz, latency 1, options 3) (+%.0f ms)",
+            cfg.ClockRate, now_ms()-t);
+    /* 🔴 v1.11.1 REGRESSION FIX -- see the block comment above i2c_force_clock.
+       Default OFF. v1.11.0 called this unconditionally and Bruce could no longer
+       connect at all; v1.10.0 worked. Opt in with --force-clock only. */
+    if (dgh_force_clock) i2c_force_clock(cfg.ClockRate);
+    else logline("  clock   : force-clock OFF (default since v1.11.1) -- libMPSSE owns the clock");
+    logline("  open    : DONE in %.0f ms total", now_ms()-t0);
     return 1;
 }
 static void i2c_close(void){ if(g_opened&&g_handle) p_Close(g_handle); g_handle=NULL; g_opened=0; }
@@ -1097,8 +1147,6 @@ static void restore_timer_resolution(void){}
 
 int main(int argc, char** argv){
     int port=8899;
-    raise_timer_resolution();
-    atexit(restore_timer_resolution);
     /* v1.4.0: which page the browser is auto-opened at. Default "" = "/" =
        dg-measure.html (unchanged). `--page=i2c.html` opens the I2C test tool
        instead, so it can be a double-click shortcut rather than a typed URL. */
@@ -1112,6 +1160,8 @@ int main(int argc, char** argv){
            用這個旗標退回 PQ Tool 原本的逐 byte 讀法，不必換 exe。 */
         else if(strcmp(argv[i],"--slow-read")==0) dgh_fast_read=0;
         else if(strcmp(argv[i],"--raw-mpsse")==0) dgh_raw_mpsse=1;
+        /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
+        else if(strcmp(argv[i],"--force-clock")==0) dgh_force_clock=1;
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
         else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }
     }
@@ -1121,8 +1171,13 @@ int main(int argc, char** argv){
     detect_temp_dir();
     { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%si2c-bridge.log",g_exeDir); g_log=fopen(lp,"wb"); }
 
+    /* 🔴 v1.11.1：這一行原本在 main() 的第一行，也就是 g_log 還沒 fopen 的時候，
+       所以它印的兩行 timer log **永遠不會寫進檔案** —— 出事時等於沒有線索。
+       移到開檔之後。功能不變，只是現在看得到結果。 */
     logline("==================================================");
     logline(" I2C Bridge (local I2C bridge for the web tools)  %s (proto %d)", I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
+    raise_timer_resolution();
+    atexit(restore_timer_resolution);
     logline("  read mode: %s  (libMPSSE %s per-byte loop; --slow-read reverts)",
             dgh_fast_read ? "FAST (one MPSSE command block)" : "SLOW (per-byte, PQ Tool original)",
             dgh_fast_read ? "bypasses" : "uses");
