@@ -17,6 +17,9 @@
      · **斷線釋放**：正常關閉／異常斷線（RST）／client 逾時，三種都要把
        channel 放掉（用假 libMPSSE 的 open/close 計數與 live 數驗）
      · 入口頁只列出真的存在的工具頁，且自己不碰 I2C
+     · 🔴 §8 **helper 只開一次**：兩頁來回接手，server 全程不重啟（Bruce 2026-09-18）
+     · 🔴 §9 **忙碌中拒絕接手**（lock，proto 3）：量測進行中不可以被切分頁打斷；
+       非持有者不能改 lock；持有者斷線時 lock 必須跟著消失
 
    🔴 驗不到（沒有 Windows、沒有 FTDI 治具，不做假探針）：
      · 真正的 D2XX／libMPSSE．dll 載入與呼叫（這裡是假的）
@@ -180,7 +183,7 @@ int main(void){
     int A=ws_open(hello,sizeof(hello));
     CHECK(A>=0, "client A 握手成功");
     CHECKS(hello,"\"type\":\"hello\"","A 收到 hello");
-    CHECKS(hello,"\"proto\":2","hello 回報 proto 2");
+    CHECKS(hello,"\"proto\":3","hello 回報 proto 3");
     /* 🔴 就是這一條。v1.4.x 在 A 的 WS 開著時卡在 serve_ws 的 recv 迴圈裡，
        這個 GET 會一直躺在 backlog、永遠不回 —— 使用者看到的就是「打不開」。 */
     CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")!=NULL,
@@ -276,6 +279,76 @@ int main(void){
     CHECK(ws_cmd(E,"{\"type\":\"close\",\"id\":2}",buf,sizeof(buf)) && strstr(buf,"\"ok\":true")!=NULL, "E 主動 close");
     CHECK(dgh_fake_live==0, "主動 close 也會釋放");
     close(E);
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       8. 🔴 helper 只開一次就好：兩頁來回互搶，server 全程不重啟
+       ───────────────────────────────────────────────────────────────────────
+       Bruce 2026-09-18：「可不可以做到我只要開一次就好？用 i2c 網頁或者用 DG 的
+       i2c 都可以共用，不用再把它關掉重開。」這一節就是把那句話變成斷言。
+       注意：接手會把舊持有者的連線關掉，所以「切回去」＝新開一條連線再 takeover，
+       這正是網頁 visibilitychange 自動接手時實際做的事。 */
+    G("8. 🔴 兩頁來回接手，helper 全程不重啟（Bruce：只要開一次就好）");
+    int P1=ws_open(hello,sizeof(hello));
+    CHECK(P1>=0, "第一頁連上（helper 還是最初那一個行程）");
+    CHECK(ws_cmd(P1,"{\"type\":\"open\",\"id\":1}",buf,sizeof(buf)) && strstr(buf,"\"ok\":true")!=NULL, "第一頁取得 channel");
+    int P2=ws_open(hello,sizeof(hello));
+    CHECKS(hello,"\"busy\":true","第二頁的 hello 就看得出 channel 已被佔");
+    CHECK(ws_cmd(P2,"{\"type\":\"open\",\"id\":1,\"takeover\":1}",buf,sizeof(buf))
+          && strstr(buf,"\"ok\":true")!=NULL, "第二頁自動接手成功");
+    { char tk[512]; ws_recv(P1,tk,sizeof(tk)); }
+    close(P1);
+    CHECK(dgh_fake_live==1, "接手後仍然只有一個 channel");
+    /* 切回第一頁 */
+    int P1b=ws_open(hello,sizeof(hello));
+    CHECK(ws_cmd(P1b,"{\"type\":\"open\",\"id\":1,\"takeover\":1}",buf,sizeof(buf))
+          && strstr(buf,"\"ok\":true")!=NULL, "🔴 切回第一頁又接手回來（不必重開 helper）");
+    { char tk[512]; ws_recv(P2,tk,sizeof(tk)); }
+    close(P2);
+    CHECK(dgh_fake_live==1, "來回兩次之後 channel 數仍然是 1");
+    CHECK(ws_cmd(P1b,"{\"type\":\"read\",\"id\":2,\"slave\":104,\"addr\":0,\"len\":1}",buf,sizeof(buf))
+          && strstr(buf,"\"ok\":true")!=NULL, "接手回來的那頁讀得動");
+    CHECK(dgh_shim_browser_opened==1, "🔴 全程只開過一次瀏覽器 ＝ helper 沒有被重啟過");
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       9. 🔴 量測進行中不准被搶走（lock，proto 3）
+       ───────────────────────────────────────────────────────────────────────
+       自動接手不可以把正在跑的 Gray 0~255 量測打斷。這比「無腦」優先。 */
+    G("9. 🔴 忙碌中拒絕接手（lock）");
+    CHECK(ws_cmd(P1b,"{\"type\":\"lock\",\"id\":3,\"on\":1}",buf,sizeof(buf)), "持有者 lock 有回覆");
+    CHECKS(buf,"\"ok\":true","持有者 lock 成功");
+    CHECKS(buf,"\"locked\":true","helper 回報現在是忙碌中");
+    int Q=ws_open(hello,sizeof(hello));
+    CHECK(Q>=0, "另一頁連上");
+    CHECKS(hello,"\"locked\":true","🔴 hello 就告訴新頁面「對方忙碌中」");
+    CHECK(ws_cmd(Q,"{\"type\":\"open\",\"id\":1,\"takeover\":1}",buf,sizeof(buf)), "忙碌中的 takeover 有回覆");
+    CHECKS(buf,"\"ok\":false","🔴 忙碌中的 takeover 被拒絕");
+    CHECKS(buf,"\"locked\":true","🔴 拒絕的理由可判別（locked，不是單純 busy）");
+    CHECK(dgh_fake_live==1, "被拒絕不會動到持有者的 channel");
+    CHECK(ws_cmd(P1b,"{\"type\":\"read\",\"id\":4,\"slave\":104,\"addr\":0,\"len\":1}",buf,sizeof(buf))
+          && strstr(buf,"\"ok\":true")!=NULL, "🔴 被拒絕期間，持有者的量測照常進行");
+    /* 非持有者不能 lock（否則任何一頁都能把 channel 凍住） */
+    CHECK(ws_cmd(Q,"{\"type\":\"lock\",\"id\":5,\"on\":0}",buf,sizeof(buf)), "非持有者 lock 有回覆");
+    CHECKS(buf,"\"ok\":false","🔴 非持有者不能改 lock");
+    CHECKS(buf,"\"locked\":true","非持有者的 lock 沒有把鎖解掉");
+    /* 量測結束 → 解鎖 → 接手放行 */
+    CHECK(ws_cmd(P1b,"{\"type\":\"lock\",\"id\":6,\"on\":0}",buf,sizeof(buf)) && strstr(buf,"\"locked\":false")!=NULL,
+          "量測結束後持有者解鎖");
+    CHECK(ws_cmd(Q,"{\"type\":\"open\",\"id\":7,\"takeover\":1}",buf,sizeof(buf)) && strstr(buf,"\"ok\":true")!=NULL,
+          "🔴 解鎖之後接手就通了");
+    { char tk[512]; ws_recv(P1b,tk,sizeof(tk)); }
+    close(P1b);
+    CHECK(dgh_fake_live==1, "解鎖接手後仍然只有一個 channel");
+    /* 🔴 鎖著的持有者直接斷線 → 鎖必須跟著消失，否則只能重開 helper */
+    CHECK(ws_cmd(Q,"{\"type\":\"lock\",\"id\":8,\"on\":1}",buf,sizeof(buf)) && strstr(buf,"\"locked\":true")!=NULL,
+          "新持有者也鎖起來");
+    { struct linger lg={1,0}; setsockopt(Q,SOL_SOCKET,SO_LINGER,&lg,sizeof(lg)); close(Q); }
+    msleep(300);
+    CHECK(dgh_fake_live==0, "鎖著的持有者斷線 → channel 釋放");
+    int R=ws_open(hello,sizeof(hello));
+    CHECKS(hello,"\"locked\":false","🔴 持有者斷線後鎖也消失（不會卡死到只能重開 helper）");
+    CHECK(ws_cmd(R,"{\"type\":\"open\",\"id\":1}",buf,sizeof(buf)) && strstr(buf,"\"ok\":true")!=NULL,
+          "🔴 後來的頁面直接拿得到 channel");
+    close(R); msleep(200);
 
     printf("\n================================================================\n");
     if(fails){ printf("🔴 %d / %d 項未通過\n", fails, total); return 1; }
