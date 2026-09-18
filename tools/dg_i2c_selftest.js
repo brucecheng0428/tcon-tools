@@ -144,11 +144,22 @@ eq(P.iface(), 0,
 
 console.log('── 5. IC ID 表（含撞號這件事本身）─────────────────────────');
 eq(P.matchIc([0x01, 0xEF, 0xA5]).key, 'EM01A1', '01 EF Ax ⇒ EM01A1（低四位不比對）');
+/* 🔴 Bruce 2026-09-18 實機讀到的值，必須認得（低四位＝版本/變體，遮罩比對） */
+eq(P.matchIc([0x01, 0xEF, 0xA1]).key, 'EM01A1', '🔴 01 EF A1（Bruce 實測）⇒ EM01A1');
+eq(P.matchIc([0x01, 0xEF, 0xA0]).key, 'EM01A1', '01 EF A0 ⇒ EM01A1');
+eq(P.matchIc([0x01, 0xEF, 0xAF]).key, 'EM01A1', '01 EF AF ⇒ EM01A1');
+ok(P.matchIc([0x01, 0xEF, 0xB0]) === null, '01 EF B0（高四位不同）⇒ 不認得（遮罩沒放太寬）');
 eq(P.matchIc([0x02, 0xEF, 0xA0]).key, 'EM02A1', '02 EF Ax ⇒ EM02A1');
 eq(P.matchIc([0x02, 0xEF, 0xF0]).key, 'VM02AX', '02 EF Fx ⇒ VM02AX');
 eq(P.matchIc([0x12, 0xE5, 0xA0]).key, 'E512AX', '12 E5 Ax ⇒ E512AX');
 ok(P.matchIc([0xAA, 0xBB, 0xCC]) === null, '認不出來要回 null（不要亂猜）');
 ok(P.matchIc([0x01]) === null, '長度不足要回 null');
+/* 🔴 Bug 2（Bruce 2026-09-18）：全 0xFF＝總線閒置，不是有效回應 */
+ok(typeof P.isBusIdle === 'function', 'isBusIdle 探針在');
+ok(P.isBusIdle([0xFF, 0xFF, 0xFF]) === true, 'FF FF FF ⇒ 總線閒置（無回應）');
+ok(P.isBusIdle([0x01, 0xEF, 0xA1]) === false, '01 EF A1 ⇒ 不是閒置（有效資料）');
+ok(P.isBusIdle([0xFF, 0xFF, 0x00]) === false, '只要有一個非 0xFF 就不算閒置');
+ok(P.matchIc([0xFF, 0xFF, 0xFF]) === null, '🔴 matchIc(FF FF FF) 回 null（不會誤認）');
 const tbl = P.icTable();
 const em01 = tbl.filter(x => x.key === 'EM01A1')[0];
 ok(em01.patternOk === true, 'EM01A1 允許出圖');
@@ -393,9 +404,9 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
     ok(/整包解壓到一個資料夾|整包解壓/.test(t), '流程強調整包解壓到資料夾');
     /* v1.3.0：主下載改不加密，頁面不應把「密碼 1234」當作解壓步驟 */
     const dlHref = (d.getElementById('dgm-i2c-helper-dl') || {}).getAttribute ? d.getElementById('dgm-i2c-helper-dl').getAttribute('href') : '';
-    ok(/dg-helper-v1\.3\.1\.zip/.test(dlHref), '下載連結指向 v1.3.1 zip', dlHref);
+    ok(/dg-helper-v1\.3\.2\.zip/.test(dlHref), '下載連結指向 v1.3.2 zip', dlHref);
     ok(/[?&]v=/.test(dlHref), '下載連結帶 cache buster ?v=', dlHref);
-    ok(/dg-helper-v1\.3\.1\.zip$/.test(meta.zip), 'helperMeta.zip 指向 v1.3.1', meta.zip);
+    ok(/dg-helper-v1\.3\.2\.zip$/.test(meta.zip), 'helperMeta.zip 指向 v1.3.2', meta.zip);
   }
   d.getElementById('dgm-i2c-close').click();
   } else {

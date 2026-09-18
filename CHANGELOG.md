@@ -22,6 +22,37 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.65.2 — 2026-09-18 ｜ PATCH
+
+**Bruce 2026-09-17 實機 I2C log 到手（通訊自檢 PASS、0x68 讀到 `01 EF A1`）。三件事：(2) 全 `FF FF FF` 不再當成有效回應〔真因〕、(3) 開通道 channels=0 自動重試、(1) 確認 ID 遮罩比對本來就對並補測試。**
+
+背景：Bruce 的 log 顯示 0x68 讀到 `01 EF A1`（EM01A1），但畫面卻「未知 IC」。
+
+判定依據：`docs/VERSIONING.md` §2 案例 2（修 bug）⇒ **PATCH**。逐項確認：沒有新增能力（R3 不適用）、沒有預設值改變（R4 不適用）、沒有移除（案例 6 不適用）。量測輸出不變（CA-410 回歸 rows 0/256，不標 `⚠ 輸出變更`；IC 識別結果變化屬修 bug、非量測輸出）。
+
+### 🔴 真因是 Bug 2，不是 Bug 1（誠實更正）
+Bruce 研判「ID 比對用相等比對、要求 == 0xA0」——**但 `dgmI2cMatchIc` 本來就是遮罩比對** `(b[2] & 0xF0) === 0xA0`（09-17 就照 `ICCommonFunction.cs` L419/L431 寫的，selftest 也一直有 `01 EF A5 ⇒ EM01A1`）。`01 EF A1` 本來就會被認得。
+**真正的錯是 Bug 2**：掃描時 0x60 先回 `FF FF FF`（FT status 0、也「收到 3 byte」），被當成有效回應選走，拿 `FF FF FF` 去比對 ID 當然對不上 ⇒ 顯示「未知 IC」。真正有資料的 0x68（`01 EF A1`）反而沒被選到。
+
+### Bug 2（真因）— 全 0xFF 判為無回應
+- 新增純函式 `dgmI2cIsBusIdle(b)`（所有 byte 皆 0xFF）。全 0xFF ＝ I2C 總線閒置（SDA 被上拉為高、無裝置回應），不是有效資料。
+- 掃描時全 0xFF 一律判為**無回應**、不選它，並 log `FF FF FF ⇒ 判為無回應（總線閒置）`。`dgmI2cMatchIc` 也對全 0xFF 直接回 null（縱深）。
+- ⇒ 0x60/0x61/0x69 的 `FF FF FF` 被跳過，0x68 的 `01 EF A1` 被選到、遮罩比對 ⇒ 認出 **EM01A1**。
+
+### Bug 3 — 開通道 channels=0 自動重試
+- Bruce 的 log：前兩次 `channels=0`、第三次才成功（`I2C_GetNumChannels` 列舉時序／前次未乾淨關）。
+- helper 連線時的 `open` 改為**自動重試**（最多 5 次、每次退避 500ms、每次 log 第幾次），使用者不必按三次。
+
+### Bug 1 — 遮罩比對（本來就對，補釘）
+- `dgmI2cMatchIc` 維持 `(b[2] & 0xF0) === ic.id[2]`；補註解「第三個 byte 低 4 位＝版本／變體、不參與比對」。**四顆有 id 的 IC 都走同一個 matcher，比對規則一致**（無第二套相等比對）。
+- selftest 補 Bruce 的實測向量：`01 EF A1`/`A0`/`AF` ⇒ EM01A1、`01 EF B0`（高四位不同）⇒ 不認得（遮罩沒放太寬）、`FF FF FF` ⇒ null。
+
+> 🔴 **未經實機驗證**：Bug 2 的掃描改法、Bug 3 的重試在真機的實際行為、D2XX／I2C，無 Windows／FTDI 硬體可驗（重試邏輯與純函式可驗）。已驗（附數字）：`dgmI2cIsBusIdle`／`dgmI2cMatchIc` 純函式（含 `01 EF A1 ⇒ EM01A1`、`FF FF FF ⇒ null`）；`dg_i2c_selftest.js` 197 項全過；CA-410 回歸 rows 0/256（基準＝v1.65.1）；zip 用**一般解壓（無密碼）**解出三個檔、exe SHA `81444d8…41ba`（**與 v1.3.0 byte-identical**）、dll 逐位元組相同。
+
+驗收：helper 套件 v1.3.2 zip SHA256 `9d201610a746f20d0ee14921d66b4a3859e060ed4055a3c9e671873c57e2af48`、exe SHA256 `81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba`（不變）。舊 `data/dg-helper-v1.3.1.zip` 移除。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.65.1 — 2026-09-18 ｜ PATCH
 
 **slave address 一律同時標 7-bit 與 8-bit（Bruce 2026-09-18 提醒「同一個位置兩個表示值不一樣」），並在最容易被後人改壞的地方寫死註解；helper 套件內容變更就換檔名（→ v1.3.1）＋下載連結加 cache buster。純文字／命名層面，不動任何通訊邏輯。**
