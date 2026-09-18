@@ -230,4 +230,132 @@ static inline int dgh_origin_allowed(const char* hdr){
     return 0;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   🔴 直接組 MPSSE 命令（繞開 libMPSSE 的逐 byte 迴圈）
+   ───────────────────────────────────────────────────────────────────────────
+   為什麼要這一條路（2026-09-19，Bruce「讀的還是太慢了」）：
+     libMPSSE 的 I2C_DeviceRead 在**非 fast 路徑**對每一個 byte 做
+     「送 ~17 byte 命令 → INFRA_SLEEP(1) → 讀 1 byte」⇒ 4096 byte ＝ 8192 次
+     USB 往返 ＋ 4096 ms 純睡眠。
+
+   🔴 為什麼不照抄原廠：**原廠沒有這個需求，所以原廠沒有答案。**
+     反組譯實查（`I2C_tool/xCtrl_I2C_App.cs:73` options=11u ⇒ 0x0B，資料相位
+     **沒有** FAST_TRANSFER）—— PQ Tool 的讀取也是逐 byte，它不慢只是因為
+     `RaydiumEM02A1.cs:220` `new byte[48]`：**它一次只讀 48 byte**（全庫最大 228）。
+     48 byte 逐 byte 讀約 0.1 秒（瞬間），4096 byte 就是 10~20 秒。
+
+   ⇒ 這裡自己組整段 MPSSE 命令：**一次 FT_Write ＋ 一次 FT_Read**。
+     I2C 線上的行為與 PQ Tool 等價（START／位址／repeated start／每 byte ACK／
+     最後一個 byte NACK／STOP），差別只在「命令怎麼送到晶片」。
+
+   🔴 這一份是 `dg-measure.html` 的 WebUSB 路徑（`dgmI2cBuildRead`／`dgmI2cBuildWrite`）
+     的 C 移植，**位元組序列必須逐位元組相同** —— 兩邊互為對照，這是無硬體時
+     最強的交叉驗證（test_proto.c 與 dg_i2c_selftest.js 各釘一份同樣的向量）。
+
+   MPSSE opcode：
+     0x80 = set data bits low byte（value, dir）
+     0x11 = clock data bytes out, MSB first, falling edge（長度欄 n-1）
+     0x13 = clock data bits out, MSB first, falling edge（長度欄 bits-1）
+     0x20 = clock data bytes in,  MSB first, rising edge
+     0x22 = clock data bits in,   MSB first, rising edge
+     0x87 = send immediate
+   腳位：bit0 = SCL、bit1 = SDA_out、bit2 = SDA_in（1 與 2 外部相接）
+   ═══════════════════════════════════════════════════════════════════════════ */
+#define DGH_MP_DIR_WR 0x03      /* SCL out, SDA out */
+#define DGH_MP_DIR_RD 0x01      /* SCL out, SDA 放開 */
+#define DGH_MP_HI     0x03      /* SCL=1 SDA=1 */
+#define DGH_MP_SDALO  0x01      /* SCL=1 SDA=0 */
+#define DGH_MP_LO     0x00      /* SCL=0 SDA=0 */
+/* libMPSSE 用「同一道指令重複數次」湊 START/STOP 的建立與保持時間
+   （USB 送出的速度不受 0x86 除數控制）。沿用同一個做法與量級。 */
+#define DGH_MP_START_REP  10
+#define DGH_MP_START_REP2 20
+#define DGH_MP_STOP_REP   10
+
+/* 極小的 append 輔助：超過容量就把 ok 清 0，呼叫端統一檢查。 */
+typedef struct { unsigned char* p; int cap; int n; int ok; } dgh_buf;
+static inline void dgh_put(dgh_buf* b, int v){
+    if(b->n >= b->cap){ b->ok = 0; return; }
+    b->p[b->n++] = (unsigned char)(v & 0xFF);
+}
+static inline void dgh_pins(dgh_buf* b, int val, int dir, int times){
+    for(int i=0;i<times;i++){ dgh_put(b,0x80); dgh_put(b,val); dgh_put(b,dir); }
+}
+static inline void dgh_mp_start(dgh_buf* b){
+    dgh_pins(b, DGH_MP_HI,    DGH_MP_DIR_WR, DGH_MP_START_REP);   /* SDA↑ SCL↑ */
+    dgh_pins(b, DGH_MP_SDALO, DGH_MP_DIR_WR, DGH_MP_START_REP2);  /* SDA↓（SCL 仍高）＝ START */
+    dgh_pins(b, DGH_MP_LO,    DGH_MP_DIR_WR, DGH_MP_START_REP);   /* SCL↓ */
+}
+static inline void dgh_mp_stop(dgh_buf* b){
+    dgh_pins(b, DGH_MP_LO,    DGH_MP_DIR_WR, DGH_MP_STOP_REP);
+    dgh_pins(b, DGH_MP_SDALO, DGH_MP_DIR_WR, DGH_MP_STOP_REP);    /* SCL↑（SDA 仍低） */
+    dgh_pins(b, DGH_MP_HI,    DGH_MP_DIR_WR, DGH_MP_STOP_REP);    /* SDA↑ ＝ STOP */
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_HI); dgh_put(b,0x00);       /* 放開匯流排 */
+}
+/* 寫一個 byte ＋ 收一個 ACK 位元 ⇒ 會多回 1 個 input byte。 */
+static inline int dgh_mp_wr_byte(dgh_buf* b, int v){
+    dgh_put(b,0x11); dgh_put(b,0x00); dgh_put(b,0x00); dgh_put(b,v);
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_RD);  /* 放開 SDA 收 ACK */
+    dgh_put(b,0x22); dgh_put(b,0x00);                                  /* 讀 1 bit */
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_WR);  /* 拿回 SDA */
+    return 1;
+}
+/* 讀一個 byte，然後主端送 ACK（還要再讀）或 NACK（最後一個）。 */
+static inline int dgh_mp_rd_byte(dgh_buf* b, int nack){
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_RD);
+    dgh_put(b,0x20); dgh_put(b,0x00); dgh_put(b,0x00);
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_WR);
+    dgh_put(b,0x13); dgh_put(b,0x00); dgh_put(b, nack ? 0x80 : 0x00);
+    return 1;
+}
+/* 讀：START ＋ slave(W) ＋ offset… ＋ repeated START ＋ slave(R) ＋ data… ＋ STOP
+   awid==0 ⇒ 沒有位址相位，直接 START ＋ slave(R)（current address read）。
+   回傳命令長度；*acks ＝ 會回傳幾個 ACK byte，*din ＝ 會回傳幾個資料 byte。
+   容量不足回 -1。 */
+static inline int dgh_mp_build_read(unsigned char* out, int cap, unsigned slave,
+                                    unsigned addr, int awid, int len, int* acks, int* din){
+    dgh_buf b = { out, cap, 0, 1 };
+    int a = 0, i;
+    unsigned char ab[4]; int n = dgh_build_offset(ab, addr, (unsigned)awid);
+    if(n < 0 || len < 1) return -1;
+    if(n > 0){
+        dgh_mp_start(&b);
+        a += dgh_mp_wr_byte(&b, (int)((slave << 1) | 0));
+        for(i=0;i<n;i++) a += dgh_mp_wr_byte(&b, ab[i]);
+    }
+    dgh_mp_start(&b);                                   /* repeated start（中間不下 STOP） */
+    a += dgh_mp_wr_byte(&b, (int)((slave << 1) | 1));
+    for(i=0;i<len;i++) dgh_mp_rd_byte(&b, i == len-1);  /* 最後一個 NACK */
+    dgh_mp_stop(&b);
+    dgh_put(&b, 0x87);                                  /* send immediate */
+    if(!b.ok) return -1;
+    if(acks) *acks = a;
+    if(din)  *din  = len;
+    return b.n;
+}
+/* 寫：START ＋ slave(W) ＋ offset… ＋ data… ＋ STOP */
+static inline int dgh_mp_build_write(unsigned char* out, int cap, unsigned slave,
+                                     unsigned addr, int awid, const unsigned char* data,
+                                     int dlen, int* acks, int* din){
+    dgh_buf b = { out, cap, 0, 1 };
+    int a = 0, i;
+    unsigned char ab[4]; int n = dgh_build_offset(ab, addr, (unsigned)awid);
+    if(n < 0 || dlen < 0) return -1;
+    dgh_mp_start(&b);
+    a += dgh_mp_wr_byte(&b, (int)((slave << 1) | 0));
+    for(i=0;i<n;i++)    a += dgh_mp_wr_byte(&b, ab[i]);
+    for(i=0;i<dlen;i++) a += dgh_mp_wr_byte(&b, data[i]);
+    dgh_mp_stop(&b);
+    dgh_put(&b, 0x87);
+    if(!b.ok) return -1;
+    if(acks) *acks = a;
+    if(din)  *din  = 0;
+    return b.n;
+}
+/* ACK 位元怎麼判：MPSSE 回的那個 byte，位元可能靠右(bit0)或靠左(bit7)對齊。
+   兩種對齊下 ACK 都是「bit0 與 bit7 皆為 0」⇒ 用 0x81 遮罩，
+   **只可能多報 NACK、不可能少報**（漏報才是危險的那一邊）。 */
+static inline int dgh_mp_ack_ok(unsigned char v){ return (v & 0x81) == 0; }
+
 #endif

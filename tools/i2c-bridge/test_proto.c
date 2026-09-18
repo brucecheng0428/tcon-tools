@@ -202,6 +202,51 @@ int main(void){
         CHECK(dgh_req_filename("POST / HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject non-GET");
         CHECK(dgh_req_filename("GET i2c.html HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject target without leading /");
     }
+    /* ═══ 🔴 直接組 MPSSE 命令：與 WebUSB 那條路**逐位元組相同** ═══════════
+       這是無硬體時最強的交叉驗證：同一套邏輯有兩份獨立實作
+       （dg-measure.html 的 dgmI2cBuildRead 與這裡的 dgh_mp_build_read），
+       兩邊各自釘同一個向量。任一邊被改壞，另一邊的測試就會紅。
+       向量：slave 0x50、addr 0x1234、awid 2、讀 4 byte。
+       基準字串由 dg-measure.html 的 builder 實際產生（見
+       tools/dg_i2c_selftest.js 的同名測試）。 */
+    {
+        static const char* EXPECT =
+            "800303800303800303800303800303800303800303800303800303800303800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800003800003800003800003800003800003800003800003800003800003110000A08000012200800003110000128000012200800003110000348000012200800003800303800303800303800303800303800303800303800303800303800303800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800003800003800003800003800003800003800003800003800003800003110000A1800001220080000380000120000080000313000080000120000080000313000080000120000080000313000080000120000080000313008080000380000380000380000380000380000380000380000380000380000380010380010380010380010380010380010380010380010380010380010380030380030380030380030380030380030380030380030380030380030380030087";
+        unsigned char buf[2048]; int acks=0, din=0;
+        int n = dgh_mp_build_read(buf, (int)sizeof(buf), 0x50, 0x1234, 2, 4, &acks, &din);
+        char hex[4096]; int ho=0;
+        for(int i=0;i<n && ho<(int)sizeof(hex)-3;i++) ho += sprintf(hex+ho, "%02X", buf[i]);
+        hex[ho]=0;
+        CHECK(n == (int)strlen(EXPECT)/2, "MPSSE read 命令長度與 WebUSB 那條路相同");
+        CHECK(strcmp(hex, EXPECT)==0, "🔴 MPSSE read 命令**逐位元組**與 WebUSB 那條路相同");
+        CHECK(acks == 4, "讀 4 byte 要等 4 個 ACK（slaveW＋addrHi＋addrLo＋slaveR）");
+        CHECK(din == 4, "會回 4 個資料 byte");
+        CHECK(buf[n-1] == 0x87, "最後一道是 0x87（send immediate）");
+
+        /* awid 0 ＝ current address read：沒有位址相位，只有 START ＋ slave(R) */
+        n = dgh_mp_build_read(buf, (int)sizeof(buf), 0x50, 0, 0, 4, &acks, &din);
+        CHECK(n > 0 && acks == 1, "awid 0 ⇒ 只有 1 個 ACK（沒有位址相位）");
+        n = dgh_mp_build_read(buf, (int)sizeof(buf), 0x50, 0x12, 1, 4, &acks, &din);
+        /* slaveW ＋ 1 個位址 byte ＋ slaveR ＝ 3（第一版我算成 2，是我算錯不是碼錯） */
+        CHECK(n > 0 && acks == 3, "awid 1 ⇒ 3 個 ACK（slaveW＋1 位址＋slaveR）");
+        n = dgh_mp_build_read(buf, (int)sizeof(buf), 0x50, 0x12345678u, 4, 4, &acks, &din);
+        CHECK(n > 0 && acks == 6, "awid 4 ⇒ 6 個 ACK（slaveW＋4 位址＋slaveR）");
+        CHECK(dgh_mp_build_read(buf, 8, 0x50, 0x1234, 2, 4, &acks, &din) < 0, "容量不足要回 -1，不可以寫爆");
+
+        /* 寫：START ＋ slave(W) ＋ offset ＋ data ＋ STOP */
+        unsigned char wd[3] = { 0xAA, 0xBB, 0xCC };
+        n = dgh_mp_build_write(buf, (int)sizeof(buf), 0x50, 0x1234, 2, wd, 3, &acks, &din);
+        CHECK(n > 0 && acks == 6, "寫 3 byte ⇒ 6 個 ACK（slaveW＋2 位址＋3 資料）");
+        CHECK(din == 0, "寫不回資料 byte");
+        CHECK(buf[n-1] == 0x87, "寫也以 0x87 結尾");
+
+        /* ACK 判讀：兩種對齊下 ACK 都是 bit0 與 bit7 皆 0 */
+        CHECK(dgh_mp_ack_ok(0x00) == 1, "0x00 ＝ ACK");
+        CHECK(dgh_mp_ack_ok(0x01) == 0, "0x01 ＝ NACK（靠右對齊）");
+        CHECK(dgh_mp_ack_ok(0x80) == 0, "0x80 ＝ NACK（靠左對齊）");
+        CHECK(dgh_mp_ack_ok(0x7E) == 1, "中間的雜訊位元不影響判讀（只看 bit0/bit7）");
+    }
+
 
     printf("\n%d/%d checks passed\n", total-fails, total);
     return fails?1:0;

@@ -80,8 +80,24 @@
 #define OPT_READ_DATA_FAST  (0x0Bu | I2C_FAST_TRANSFER_BYTES)/* 0x1B：一次組命令一次送 */
 #define OPT_WRITE       (0x07u | I2C_FAST_TRANSFER_BYTES)   /* 0x17 */
 
-/* 讀取要不要走 fast 路徑。預設 1；`--slow-read` 或 open 帶 fastread:false 可關。 */
+/* 讀取要不要走 fast 路徑。預設 1；`--slow-read` 或 open 帶 fastread:false 可關。
+   🔴 網頁端一律送 fastread:0（v1.9.1 的回歸修復），所以實際上這個預設沒有作用。 */
 int dgh_fast_read = 1;
+
+/* 🔴 直接組 MPSSE 命令（繞開 libMPSSE 的逐 byte 迴圈）。**預設 0。**
+   理由與上一次的教訓一致：這條路的命令序列**沒有在他的硬體上跑過**
+   （WebUSB 那條路在他機器上從來連不上），所以沒有實證 ⇒ 不當預設值。
+   打開方式：`--raw-mpsse` 或 open 帶 `"rawmpsse":1`。
+   網頁提供「快慢路徑比對」按鈕，讓他自己用同一段位址兩種路徑各讀一次、
+   逐 byte 比對 —— 那比我們任何斷言都有力。 */
+int dgh_raw_mpsse = 0;
+typedef unsigned long (*PFN_FT_Write)(void*, void*, unsigned long, unsigned long*);
+typedef unsigned long (*PFN_FT_Read )(void*, void*, unsigned long, unsigned long*);
+typedef unsigned long (*PFN_FT_Purge)(void*, unsigned long);
+static PFN_FT_Write p_FT_Write = NULL;
+static PFN_FT_Read  p_FT_Read  = NULL;
+static PFN_FT_Purge p_FT_Purge = NULL;
+#define DGH_RAW_AVAILABLE (p_FT_Write && p_FT_Read)
 #define OPT_READ_DATA (dgh_fast_read ? OPT_READ_DATA_FAST : OPT_READ_DATA_SLOW)
 
 /* ---- 計時（Bruce：「讀取或寫入那邊再多一個計時的顯示」）----
@@ -258,6 +274,23 @@ static int try_dir(const char* dirIn) {
     p_Write=(PFN_Write)GetProcAddress(h,"I2C_DeviceWrite");
     p_Read=(PFN_Read)GetProcAddress(h,"I2C_DeviceRead");
     p_ChanInfo=(PFN_ChanInfo)GetProcAddress(h,"I2C_GetChannelInfo");
+    /* 🔴 直接組 MPSSE 命令需要 D2XX 的 FT_Write／FT_Read。
+       libMPSSE 回的 handle **本來就是 D2XX 的 FT_HANDLE**（它內部也是這樣用），
+       所以在同一個 handle 上送 MPSSE opcode 與 libMPSSE 自己做的事完全同一件。
+       ftd2xx.dll 是 libMPSSE 的相依，能載到 libMPSSE 就一定載得到它。
+       拿不到也不是致命錯誤 —— 只是 raw 路徑不可用，退回 libMPSSE。 */
+    {
+        HMODULE d2 = LoadLibraryA("ftd2xx.dll");
+        if(!d2) d2 = GetModuleHandleA("ftd2xx.dll");
+        if(d2){
+            p_FT_Write=(PFN_FT_Write)GetProcAddress(d2,"FT_Write");
+            p_FT_Read =(PFN_FT_Read) GetProcAddress(d2,"FT_Read");
+            p_FT_Purge=(PFN_FT_Purge)GetProcAddress(d2,"FT_Purge");
+        }
+        logline("  d2xx    : FT_Write=%s FT_Read=%s FT_Purge=%s (raw MPSSE %s)",
+                p_FT_Write?"ok":"-", p_FT_Read?"ok":"-", p_FT_Purge?"ok":"-",
+                (p_FT_Write&&p_FT_Read)?"available":"unavailable");
+    }
     if (!p_GetNum||!p_Open||!p_Close||!p_Init2||!p_Write||!p_Read) {
         g_dllLoadedButBad = 1;
         logline("  search: %-60s  FOUND & loaded but I2C_* exports missing (wrong/32-64 bit mismatch)", dir);
@@ -446,16 +479,102 @@ static int build_offset(uint8_t* ab, uint32_t addr, uint32_t awid){
 /* g_lastUs：最近一次 libMPSSE 呼叫（位址相位＋資料相位）花了幾微秒。
    回傳給網頁放進 log，讓「時間到底花在哪一層」變成可量的事而不是猜的。 */
 static double g_lastUs = 0;
+static int g_lastRaw = 0;        /* 最近一次用的是不是 raw MPSSE 路徑 */
+static int g_lastUsbRt = 0;      /* 最近一次的 USB 往返次數（raw 路徑才數得準） */
+
+/* ═══ 🔴 直接組 MPSSE 命令 ⇒ 一次 FT_Write ＋ 一次 FT_Read ═══════════════════
+   對照：libMPSSE 非 fast 路徑是「每 byte 送命令 → sleep 1ms → 讀 1 byte」，
+   4096 byte ＝ 8192 次往返 ＋ 4096ms 睡眠。這裡是 **2 次往返、0 睡眠**。
+   ACK 一併在同一批回來，逐個檢查；**任何一個 NACK 都要回報，不可以靜默吞掉**。 */
+static FT_STATUS mpsse_xfer(const unsigned char* cmd, int cmdLen,
+                            int expectIn, unsigned char* in, int* gotIn){
+    unsigned long wrote = 0, red = 0;
+    unsigned long st;
+    if(!DGH_RAW_AVAILABLE) return 0xFFFFFFF0u;
+    if(p_FT_Purge) p_FT_Purge(g_handle, 3 /* RX|TX */);
+    st = p_FT_Write(g_handle, (void*)cmd, (unsigned long)cmdLen, &wrote);
+    if(st != 0 || (int)wrote != cmdLen) return st ? st : 0xFFFFFFF1u;
+    if(expectIn > 0){
+        /* FT_Read 可能分次回來（USB 封包切割），湊滿或逾時為止。 */
+        int total = 0, spins = 0;
+        while(total < expectIn && spins < 2000){
+            red = 0;
+            st = p_FT_Read(g_handle, in + total, (unsigned long)(expectIn - total), &red);
+            if(st != 0) return st;
+            if(red == 0){ spins++; Sleep(1); } else { total += (int)red; spins = 0; }
+        }
+        if(gotIn) *gotIn = total;
+        if(total < expectIn) return 0xFFFFFFF2u;
+    } else if(gotIn) *gotIn = 0;
+    return 0;
+}
+/* 把回來的那一批拆成 ACK 與資料。ACK 與資料是**按命令順序交錯**回來的，
+   所以要照組命令的順序取：先 acks 個 ACK byte（位址相位與 slave），
+   讀取時資料 byte 與每個 byte 後的 ACK/NACK 送出不產生 input，
+   所以資料是連續的最後 din 個 byte。 */
+static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
+                          uint32_t len, uint8_t* out, uint32_t* got){
+    unsigned char cmd[16384], in[2048];
+    int acks = 0, din = 0, gotIn = 0;
+    int n = dgh_mp_build_read(cmd, (int)sizeof(cmd), slave, addr, (int)awid, (int)len, &acks, &din);
+    FT_STATUS st;
+    if(n < 0) return 0xFFFFFFFEu;
+    if(acks + din > (int)sizeof(in)) return 0xFFFFFFFEu;
+    st = mpsse_xfer(cmd, n, acks + din, in, &gotIn);
+    g_lastUsbRt = 2;
+    if(st != 0) return st;
+    /* 🔴 ACK 檢查：任何一個 NACK 都是錯誤。漏報才是危險的那一邊。 */
+    for(int i = 0; i < acks; i++){
+        if(!dgh_mp_ack_ok(in[i])){
+            logline("  raw_read : NACK at ack #%d (0x%02X) slave=0x%02X addr=0x%X", i, in[i], slave, addr);
+            return 0xFFFFFFF3u;
+        }
+    }
+    for(uint32_t i = 0; i < len; i++) out[i] = in[acks + i];
+    if(got) *got = len;
+    return 0;
+}
+static FT_STATUS raw_write(uint32_t slave, uint32_t addr, uint32_t awid,
+                           const uint8_t* data, int dlen, uint32_t* got){
+    unsigned char cmd[16384], in[512];
+    int acks = 0, din = 0, gotIn = 0;
+    int n = dgh_mp_build_write(cmd, (int)sizeof(cmd), slave, addr, (int)awid, data, dlen, &acks, &din);
+    FT_STATUS st;
+    if(n < 0) return 0xFFFFFFFEu;
+    if(acks > (int)sizeof(in)) return 0xFFFFFFFEu;
+    st = mpsse_xfer(cmd, n, acks, in, &gotIn);
+    g_lastUsbRt = 2;
+    if(st != 0) return st;
+    for(int i = 0; i < acks; i++){
+        if(!dgh_mp_ack_ok(in[i])){
+            logline("  raw_write: NACK at ack #%d (0x%02X) slave=0x%02X addr=0x%X", i, in[i], slave, addr);
+            return 0xFFFFFFF3u;
+        }
+    }
+    if(got) *got = (uint32_t)dlen;
+    return 0;
+}
+
 static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t len, uint8_t* out, uint32_t* got){
     uint8_t ab[4]; int n=build_offset(ab,addr,awid);
     double t0 = now_ms();
     FT_STATUS s;
     if(n<0) return 0xFFFFFFFEu;
-    if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
-    s = p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
+    g_lastRaw = 0; g_lastUsbRt = 0;
+    if(dgh_raw_mpsse && DGH_RAW_AVAILABLE && len <= 1024){
+        g_lastRaw = 1;
+        s = raw_read(slave, addr, awid, len, out, got);
+    } else {
+        if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
+        s = p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
+        /* libMPSSE 非 fast 路徑：每 byte 兩次 USB 往返（命令 ＋ 讀回） */
+        g_lastUsbRt = dgh_fast_read ? 2 : (int)(len * 2 + (n ? 2 : 0));
+    }
     g_lastUs = (now_ms() - t0) * 1000.0;
-    logline("  i2c_read : slave=0x%02X addr=0x%X awid=%u len=%u mode=%s -> %u bytes, %.0f us",
-            slave, addr, awid, len, dgh_fast_read ? "fast" : "slow", got ? *got : 0, g_lastUs);
+    logline("  i2c_read : slave=0x%02X addr=0x%X awid=%u len=%u mode=%s -> %u bytes, %.0f us, usb_rt=%d",
+            slave, addr, awid, len,
+            g_lastRaw ? "raw-mpsse" : (dgh_fast_read ? "fast" : "slow"),
+            got ? *got : 0, g_lastUs, g_lastUsbRt);
     return s;
 }
 static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, const uint8_t* data, int dlen, uint32_t* got){
@@ -465,7 +584,15 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
     double t0;
     if(fl<0) return 0xFFFFFFFFu;
     t0 = now_ms();
-    uint32_t tr=0; FT_STATUS s=p_Write(g_handle, slave, (uint32_t)fl, buf, &tr, OPT_WRITE);   /* slave is 7-bit, no <<1 */
+    uint32_t tr=0; FT_STATUS s;
+    g_lastRaw = 0; g_lastUsbRt = 0;
+    if(dgh_raw_mpsse && DGH_RAW_AVAILABLE){
+        g_lastRaw = 1;
+        s = raw_write(slave, addr, awid, data, dlen, &tr);
+    } else {
+        s = p_Write(g_handle, slave, (uint32_t)fl, buf, &tr, OPT_WRITE);   /* slave is 7-bit, no <<1 */
+        g_lastUsbRt = 2;
+    }
     g_lastUs = (now_ms() - t0) * 1000.0;
     logline("  i2c_write: slave=0x%02X addr=0x%X awid=%u dlen=%d -> %u bytes, %.0f us",
             slave, addr, awid, dlen, tr, g_lastUs);
@@ -554,6 +681,7 @@ static void handle_command(int idx, const char* json){
     if(strcmp(type,"open")==0){
         /* 網頁也可以指定讀取模式（open 帶 "fastread":0）⇒ 不必重開程式就能 A/B 比較。 */
         { long fr = dgh_json_int(json,"fastread",-1); if(fr==0) dgh_fast_read=0; else if(fr==1) dgh_fast_read=1; }
+        { long rm = dgh_json_int(json,"rawmpsse",-1); if(rm==0) dgh_raw_mpsse=0; else if(rm==1) dgh_raw_mpsse=1; }
         uint32_t hz=(uint32_t)dgh_json_int(json,"clockHz",150000);
         /* 已經被別的頁面持有：**不靜默失敗、不靜默排隊**，回一個可判別的
            錯誤型別（busy=true），頁面據此顯示「已被另一個頁面佔用」＋接手鈕。 */
@@ -630,8 +758,9 @@ static void handle_command(int idx, const char* json){
         if(len<1) len=1;
         if(len>1024) len=1024;
         uint8_t buf[1024]; uint32_t got=0; FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
-        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"data\":[",
-                       id,(st==FT_OK)?"true":"false",st,g_lastUs,dgh_fast_read?"true":"false");
+        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"raw\":%s,\"usbrt\":%d,\"data\":[",
+                       id,(st==FT_OK)?"true":"false",st,g_lastUs,
+                       dgh_fast_read?"true":"false", g_lastRaw?"true":"false", g_lastUsbRt);
         for(uint32_t i=0;i<got&&o<(int)sizeof(rep)-16;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",buf[i]);
         o+=snprintf(rep+o,sizeof(rep)-o,"]}");
         ws_send_text(c,rep); return;
@@ -657,8 +786,9 @@ static void handle_command(int idx, const char* json){
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         uint32_t got=0; FT_STATUS st=i2c_write_ex(slave,addr,awid,data,dn,&got);
         logline("        -> FT status %u, transferred %u", st, got);
-        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u,\"us\":%.0f}",
-                 id,(st==FT_OK)?"true":"false",st,got,g_lastUs);
+        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u,\"us\":%.0f,\"raw\":%s,\"usbrt\":%d}",
+                 id,(st==FT_OK)?"true":"false",st,got,g_lastUs,
+                 g_lastRaw?"true":"false", g_lastUsbRt);
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"write")==0){
@@ -849,6 +979,7 @@ int main(int argc, char** argv){
         /* 🔴 退路：讀取若在實機上出問題（例如 fast 模式下最後一個 byte 沒送 NACK），
            用這個旗標退回 PQ Tool 原本的逐 byte 讀法，不必換 exe。 */
         else if(strcmp(argv[i],"--slow-read")==0) dgh_fast_read=0;
+        else if(strcmp(argv[i],"--raw-mpsse")==0) dgh_raw_mpsse=1;
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
         else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }
     }

@@ -85,6 +85,7 @@ typedef union { long long QuadPart; } LARGE_INTEGER;
 BOOL QueryPerformanceFrequency(LARGE_INTEGER* f);
 BOOL QueryPerformanceCounter(LARGE_INTEGER* c);
 DWORD GetTickCount(void);
+void  Sleep(DWORD ms);
 
 /* i2c_bridge.c 組出來的檔案路徑是 Windows 風格（反斜線），POSIX 的 fopen 吃不下。
    在這一層正規化，讓出貨的原始碼不必為了測試而改。
