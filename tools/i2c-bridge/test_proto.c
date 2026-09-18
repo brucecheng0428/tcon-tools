@@ -7,6 +7,9 @@
 
 static int fails=0, total=0;
 #define CHECK(cond, name) do{ total++; if(cond){ printf("  ok   %s\n",name);} else { printf("  FAIL %s\n",name); fails++; } }while(0)
+/* 數值不符時要印出實際值 —— 只說「FAIL」沒辦法拿去跟 log 對照。 */
+#define EQ_INT(got, want, name) do{ total++; if((got)==(want)){ printf("  ok   %s\n",name);} \
+    else { printf("  FAIL %s   got=%d want=%d\n",name,(int)(got),(int)(want)); fails++; } }while(0)
 
 int main(void){
     printf("== i2c_bridge_proto self-test ==\n");
@@ -285,6 +288,82 @@ int main(void){
         }
     }
 
+
+    /* ═══ 🔴 raw 讀取命令序列的結構自檢（2026-09-19）═════════════════════════
+       情境：Bridge 已經不當掉了（__stdcall 修好），但自動驗證每次都判快慢兩路資料
+       不一致 ⇒ raw 路徑讀出來的值是錯的（就是當初 0F 那個東西）。
+       在 Bruce 的 log 到達之前，先把**不需要硬體就能驗的每一條**釘住，
+       這樣 log 一到就只剩「硬體時序」這一類可能，不必再從頭排除。
+
+       🔴 特別是回傳位元組的**記帳**：一次 FT_Read 收 acks+din 個 byte，
+       raw_read 用 in[acks + i] 取資料。只要 ACK 不是全部排在最前面，
+       整段資料就會偏移 —— 這是最可能的一種錯法，所以這裡直接解析命令流來確認。 */
+    {
+        static unsigned char c[4096 * 13 + 512];
+        int acks = 0, din = 0, n, i;
+        int nRead20 = 0, nRead22 = 0, nAck13 = 0, lastAckVal = -1, firstAfterAddr = -1;
+        int seen20 = 0, bad13 = 0;
+        n = dgh_mp_build_read(c, (int)sizeof(c), 0x50, 0x1234, 2, 8, &acks, &din);
+        CHECK(n > 0, "build_read(8 byte) 成功");
+        /* 走一遍命令流，依 opcode 的長度前進 */
+        for (i = 0; i < n; ) {
+            unsigned char op = c[i];
+            if (op == 0x80 || op == 0x82) { i += 3; }
+            else if (op == 0x11 || op == 0x13) {     /* 寫 byte / 寫 bit */
+                if (op == 0x11) i += 3 + (c[i+1] | (c[i+2] << 8)) + 1;
+                else {                                /* 0x13：長度欄 1 byte ＋ 1 個資料 byte */
+                    if (seen20) { nAck13++; lastAckVal = c[i+2];
+                                  /* 前 N-1 個必須是 0x00（ACK），最後一個 0x80（NACK） */
+                                  if (nAck13 < 8 && c[i+2] != 0x00) bad13++; }
+                    i += 3;
+                }
+            }
+            else if (op == 0x20) { nRead20++; seen20 = 1;
+                                   if (firstAfterAddr < 0) firstAfterAddr = nRead22;
+                                   i += 3; }
+            else if (op == 0x22) { nRead22++; i += 2; }
+            else if (op == 0x87) { i += 1; }
+            else { i += 1; }
+        }
+        EQ_INT(nRead20, 8, "資料讀取命令 0x20 的數量 ＝ 要讀的 byte 數");
+        EQ_INT(nRead22, acks, "位元讀取命令 0x22 的數量 ＝ acks（位址相位的 ACK）");
+        EQ_INT(nAck13, 8, "每個資料 byte 後面都有一個 0x13 發 ACK/NACK");
+        EQ_INT(bad13, 0, "前 N-1 個 ACK 都是 0x00");
+        EQ_INT(lastAckVal, 0x80, "🔴 最後一個 byte 發的是 NACK(0x80)");
+        /* 🔴 記帳：所有 0x22（ACK）都必須排在第一個 0x20（資料）之前，
+           否則 in[acks + i] 取資料就會偏移。firstAfterAddr ＝ 遇到第一個 0x20 時
+           已經數到的 0x22 個數；它必須等於 acks。 */
+        EQ_INT(firstAfterAddr, acks,
+               "🔴 位址相位的 ACK 全部排在資料之前 ⇒ in[acks+i] 取資料不會偏移");
+        EQ_INT(acks + din, acks + 8, "預期收回的 byte 數 ＝ acks + 資料長度");
+        EQ_INT(din, 8, "din ＝ 資料長度");
+    }
+
+    /* 方向位元可切換（--ad3-out），且**預設不變**。 */
+    {
+        static unsigned char a[2048], b[2048];
+        int ak = 0, dn = 0, na, nb;
+        na = dgh_mp_build_read(a, (int)sizeof(a), 0x50, 0x1234, 2, 4, &ak, &dn);
+        dgh_ad3_out = 1;
+        nb = dgh_mp_build_read(b, (int)sizeof(b), 0x50, 0x1234, 2, 4, &ak, &dn);
+        dgh_ad3_out = 0;
+        EQ_INT(na, nb, "切換 AD3 只改方向位元的值，不改命令長度");
+        CHECK(memcmp(a, b, na) != 0, "🔴 --ad3-out 真的改變了送出的位元組");
+        {   /* 差異只能出現在 0x80 命令的第 3 個 byte（方向欄），不能動到別處 */
+            int i2, diffs = 0, offDir = 0;
+            for (i2 = 0; i2 < na; i2++) if (a[i2] != b[i2]) {
+                diffs++;
+                if ((a[i2] == 0x03 && b[i2] == 0x0B) || (a[i2] == 0x01 && b[i2] == 0x09)) offDir++;
+            }
+            EQ_INT(diffs, offDir, "🔴 差異全部是方向欄 0x03→0x0B / 0x01→0x09，沒有波及其他位元組");
+        }
+        {   /* 預設值必須是既有行為 */
+            static unsigned char d[2048]; int k = 0, m = 0;
+            int nd = dgh_mp_build_read(d, (int)sizeof(d), 0x50, 0x1234, 2, 4, &k, &m);
+            EQ_INT(nd, na, "預設長度不變");
+            CHECK(memcmp(a, d, na) == 0, "🔴 預設（不帶 --ad3-out）與本版之前逐位元組相同");
+        }
+    }
 
     printf("\n%d/%d checks passed\n", total-fails, total);
     return fails?1:0;

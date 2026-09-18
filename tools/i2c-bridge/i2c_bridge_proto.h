@@ -284,8 +284,20 @@ static inline int dgh_origin_allowed(const char* hdr){
      0x87 = send immediate
    腳位：bit0 = SCL、bit1 = SDA_out、bit2 = SDA_in（1 與 2 外部相接）
    ═══════════════════════════════════════════════════════════════════════════ */
-#define DGH_MP_DIR_WR 0x03      /* SCL out, SDA out */
-#define DGH_MP_DIR_RD 0x01      /* SCL out, SDA 放開 */
+/* ═══ 🔴 方向位元：我們的 0x03/0x01 vs FTDI 範例的 0x0B/0x09 ═══════════════════
+   位元定義：bit0=SCK、bit1=SDA out、bit2=SDA in、**bit3=AD3**。
+     · 我們：WR=0x03（SCK+SDA 輸出）、RD=0x01（只有 SCK 輸出，放開 SDA）
+     · FTDI 官方 I2C 範例：WR=0x0B、RD=0x09 —— 多的就是 **bit3，把 AD3 也設成輸出**
+   AD3 在 FTDI 的 I2C 範例接線裡通常被拉來當輸出以免浮接；但**我們不知道 Bruce 的
+   治具上 AD3 接了什麼**，貿然驅動它有風險，所以預設維持 0x03/0x01（＝既有行為）。
+
+   🔴 這個差異我在幾輪前就標出來過但一直沒處理。現在做成**可切換**，
+   等 log 指向方向／浮接問題時可以直接 A/B 對比，不必再改一次程式重編：
+       `--ad3-out`（或 open 帶 `"ad3":1`）⇒ 改用 0x0B/0x09。
+   🔴 預設不變 ＝ 不在沒有證據時改變既有行為。 */
+extern int dgh_ad3_out;         /* 0 ＝ 0x03/0x01（預設）；1 ＝ 0x0B/0x09（FTDI 範例） */
+#define DGH_MP_DIR_WR (dgh_ad3_out ? 0x0B : 0x03)   /* SCL out, SDA out */
+#define DGH_MP_DIR_RD (dgh_ad3_out ? 0x09 : 0x01)   /* SCL out, SDA 放開 */
 #define DGH_MP_HI     0x03      /* SCL=1 SDA=1 */
 #define DGH_MP_SDALO  0x01      /* SCL=1 SDA=0 */
 #define DGH_MP_LO     0x00      /* SCL=0 SDA=0 */
