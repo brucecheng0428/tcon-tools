@@ -357,6 +357,14 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   } else {
     ok(false, 'commVerdict 探針缺（通訊自檢沒接上）');
   }
+  /* ── slave 7-bit/8-bit 標示（Bruce 2026-09-18）───────────────────────── */
+  if (typeof P.slaveLabel === 'function') {
+    ok(P.slaveLabel(0x68) === '0x68 (7-bit) = 0xD0/0xD1 (8-bit W/R)', 'slaveLabel(0x68) 標出 7-bit＋8-bit', P.slaveLabel(0x68));
+    ok(P.slaveLabel(0x60) === '0x60 (7-bit) = 0xC0/0xC1 (8-bit W/R)', 'slaveLabel(0x60) 正確', P.slaveLabel(0x60));
+    ok(P.slaveLabel(0x69) === '0x69 (7-bit) = 0xD2/0xD3 (8-bit W/R)', 'slaveLabel(0x69) 正確', P.slaveLabel(0x69));
+  } else {
+    ok(false, 'slaveLabel 探針缺（7-bit/8-bit 標示沒接上）');
+  }
   /* DOM：連線鈕、狀態、下載連結、SHA 欄位、SmartScreen、通訊自檢鈕 */
   ok(!!d.getElementById('dgm-i2c-comm-btn'), '通訊自檢按鈕在 DOM 上');
   ok(!!d.getElementById('dgm-i2c-comm'), '通訊自檢結果欄在 DOM 上');
@@ -365,7 +373,7 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   ok(!!d.getElementById('dgm-i2c-ws-state'), 'helper 狀態欄在 DOM 上');
   {
     const dl = d.getElementById('dgm-i2c-helper-dl');
-    ok(!!dl && /dg-helper-.*\.zip$/.test(dl.getAttribute('href')), '下載連結指向 helper zip', dl && dl.getAttribute('href'));
+    ok(!!dl && /dg-helper-.*\.zip(\?|$)/.test(dl.getAttribute('href')), '下載連結指向 helper zip', dl && dl.getAttribute('href'));
     const zs = d.getElementById('dgm-i2c-helper-zipsha');
     ok(!!zs && zs.textContent === meta.zipSha, '下載區顯示 zip SHA256');
     const es = d.getElementById('dgm-i2c-helper-exesha');
@@ -385,8 +393,9 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
     ok(/整包解壓到一個資料夾|整包解壓/.test(t), '流程強調整包解壓到資料夾');
     /* v1.3.0：主下載改不加密，頁面不應把「密碼 1234」當作解壓步驟 */
     const dlHref = (d.getElementById('dgm-i2c-helper-dl') || {}).getAttribute ? d.getElementById('dgm-i2c-helper-dl').getAttribute('href') : '';
-    ok(/dg-helper-v1\.3\.0\.zip$/.test(dlHref), '下載連結指向 v1.3.0 zip', dlHref);
-    ok(/v1\.3\.0/.test(meta.zip), 'helperMeta.zip 指向 v1.3.0');
+    ok(/dg-helper-v1\.3\.1\.zip/.test(dlHref), '下載連結指向 v1.3.1 zip', dlHref);
+    ok(/[?&]v=/.test(dlHref), '下載連結帶 cache buster ?v=', dlHref);
+    ok(/dg-helper-v1\.3\.1\.zip$/.test(meta.zip), 'helperMeta.zip 指向 v1.3.1', meta.zip);
   }
   d.getElementById('dgm-i2c-close').click();
   } else {

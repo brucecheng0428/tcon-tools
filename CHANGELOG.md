@@ -22,6 +22,24 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.65.1 — 2026-09-18 ｜ PATCH
+
+**slave address 一律同時標 7-bit 與 8-bit（Bruce 2026-09-18 提醒「同一個位置兩個表示值不一樣」），並在最容易被後人改壞的地方寫死註解；helper 套件內容變更就換檔名（→ v1.3.1）＋下載連結加 cache buster。純文字／命名層面，不動任何通訊邏輯。**
+
+背景：Bruce 提醒 slave address 有 7-bit／8-bit 兩種表示。我兩條路徑都查過、**目前處理正確**（helper 送原值給 libMPSSE＝7-bit、左移由 libMPSSE 內部做；WebUSB 路徑自組 MPSSE 位元組才手動 `<<1` 補 R/W）—— 兩條各自對，沒有多移或少移。⇒ 自檢若仍讀不到，slave 這層不是原因（往 ACK 遮罩／位址寬度／repeated start 找）。本版把這個結論釘進註解與面板，免得日後有人「修」錯。
+
+判定依據：`docs/VERSIONING.md` §2 案例 11（文案）⇒ **PATCH**。逐項確認：沒有新增能力（R3 不適用）、沒有預設值改變（R4 不適用）、沒有移除（案例 6 不適用）、通訊邏輯一個字沒動、量測輸出不變（CA-410 回歸 rows 0/256，不標 `⚠ 輸出變更`）。
+
+- **面板／log 標 7-bit＋8-bit**：新增純函式 `dgmI2cSlaveLabel(s)` → `0x68 (7-bit) = 0xD0/0xD1 (8-bit W/R)`，用在「目前設定」行、通訊自檢說明與 log、掃描選中的 slave 顯示。`DGM_I2C_SLAVES` 加註解寫明「這四個是 7-bit（PQ Tool 96/97/104/105），8-bit 形式不同」。
+- 🔴 **`tools/dg-helper/dg_helper.c` 的 `i2c_read`／`i2c_write` 兩處 libMPSSE 呼叫旁加註解「slave is 7-bit, no `<<1`」** —— 這是最容易被後人左移改壞的地方。**註解不改變二進位**，故 exe 仍與 v1.3.0 byte-identical（未重建）。
+- **zip 改名 v1.3.1 ＋ cache buster**：上一版把 `dg-helper-v1.3.0.zip` 同名重打包（Bruce 指出「內容變更就換檔名」）。本版更名為 `dg-helper-v1.3.1.zip`，下載連結另帶 `?v=v1.3.1` 防 Pages／瀏覽器吃舊快取；`download` 屬性明確給檔名避免 query 混入存檔名。舊 `data/dg-helper-v1.3.0.zip` 移除。**helper exe 仍 v1.3.0、byte-identical（SHA 不變）**，套件版 v1.3.1 只代表「內附頁面換新」。
+
+> 🔴 **未經實機驗證**：無 Windows／FTDI 硬體。已驗（附數字）：`dgmI2cSlaveLabel` 純函式（0x68→0xD0/0xD1、0x60→0xC0/0xC1、0x69→0xD2/0xD3）；`dg_i2c_selftest.js` 188 項全過；CA-410 回歸 rows 0/256（基準＝v1.65.0）；zip 用**一般解壓（無密碼）**解出三個檔、exe SHA `81444d8…41ba`（**與 v1.3.0 byte-identical**）、dll 與 PQ Tool 源檔逐位元組相同。
+
+驗收：helper 套件 v1.3.1 zip SHA256 `35d19be054da9c7784c158c2ec2b5b0c0bd9c808692030daacf7bc31cb7be012`、exe SHA256 `81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba`（不變）。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.65.0 — 2026-09-18 ｜ MINOR
 
 **helper 通道第一次通到裝置層（Bruce 2026-09-17 實測 v1.3.0 顯示「I2C on」）後的兩個修正：Bug A 觀測性＋通訊自檢黃金向量；Bug B off→on 狀態機。helper exe 未改（仍 v1.3.0，byte-identical），只重打包內附的量測頁。**
