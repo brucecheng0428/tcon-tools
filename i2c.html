@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1110"></script>
+<script src="common/version.js?v=20260919i2c1120"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -696,7 +696,18 @@ var I2CT_TIMEOUT_MS = 8000;
    之所以還是改，是因為成本為零而且與他的領域認知一致。
    （dg-measure 維持 150k：那條路是已經驗證過的量測流程，沒有理由動它。） */
 var I2CT_CLOCK_HZ   = 400000;
-var I2CT_CHUNK      = 256;        /* 每則 read 訊息最多幾個 byte */
+/* 每則 read 訊息最多幾個 byte。
+   🔴 256 是**我們自己加的**，不是協定或硬體限制 —— 原廠 RomCode UI 的標準操作是
+   「slave 0x50、offset 寬度 2、**一次讀 4096**」，沒有任何 chunk 迴圈
+   （`RomCodeProcessUI.py:30842` 判斷式與 `:31669` 的單行 GetBytesEx）。
+   它存在的理由是**進度回報與中止的顆粒度**：走 libMPSSE 逐 byte 路徑時，
+   4096 要跑 10~20 秒，切成 16 段才有進度條可看、才按得下中止。
+   ⇒ 所以它**跟著路徑走**：raw MPSSE 一次就送完（快到不需要進度條，
+      原廠的進度條也是假的），libMPSSE 維持 256。 */
+var I2CT_CHUNK_SLOW = 256;
+var I2CT_CHUNK_RAW  = 4096;      /* ＝ bridge 的 DGH_READ_MAX，也是原廠的標準長度 */
+function i2ctChunk(){ return i2ctRawMpsse ? I2CT_CHUNK_RAW : I2CT_CHUNK_SLOW; }
+var I2CT_CHUNK      = 256;       /* 舊名保留：寫入分段與既有測試沿用 */
 /* 🔴 Bruce 2026-09-18：「最大檔案可能不止 4096 bytes，我有可能有 256K bytes」
    ⇒ 上限拉到 262,144（1024 頁）。每則 read 上限 256 byte ⇒ 最多 1024 次交易，
    所以下面一定要有進度與中止，不然他按下去只能乾等。 */
@@ -1146,9 +1157,9 @@ function i2ctWrap(addr, awid){
    🔴 awid === 0（current address read）也照樣可以分段：裝置自己的位址指標會
       跟著往前走，所以連續送 N 則就是連續讀，不需要（也不能）給位址。 */
 function i2ctPlanRead(base, len, awid){
-  var out = [], done = 0;
+  var out = [], done = 0, chunk = i2ctChunk();
   while (done < len) {
-    var n = Math.min(I2CT_CHUNK, len - done);
+    var n = Math.min(chunk, len - done);
     out.push({ addr: i2ctWrap(base + done, awid), len: n, off: done });
     done += n;
   }
@@ -3663,6 +3674,7 @@ window.__i2ct = {
   times: function () { return i2ctTimes.slice(); },
   clearTimes: function () { i2ctTimes = []; i2ctRenderTimes(); },
   rawMpsse: function (v) { if (v !== undefined) i2ctRawMpsse = !!v; return i2ctRawMpsse; },
+  chunk: function () { return i2ctChunk(); },
   fastRead: function (v) { if (v !== undefined) i2ctFastRead = !!v; return i2ctFastRead; },
   snapshotOf: function (d) { return i2ctSnapshotOf(d); },
   refBytesAt: function (i) { return i2ctRef ? i2ctRef.bytes[i] : null; },

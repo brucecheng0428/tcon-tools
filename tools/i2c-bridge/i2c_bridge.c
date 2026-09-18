@@ -128,6 +128,11 @@ static double now_ms(void){
  *   1 / 2 / 4 -> that many offset bytes, MSB first.                            */
 #define AWID_DEFAULT 2u
 #define RAW_MAX_DATA 256              /* bytes per rawwrite */
+/* 🔴 單次讀取上限。4096 ＝ 原廠 RomCode UI 的標準操作長度（一次讀完，不分段）。
+   raw MPSSE 的命令長度約 12 byte/資料 byte ⇒ 4096 byte 需要約 50 KB 命令緩衝區。
+   這個上限**不是保護，是緩衝區大小**：超過就會截斷，所以要明確擋下而不是放行。 */
+#define DGH_READ_MAX 4096
+#define DGH_MP_CMD_MAX (DGH_READ_MAX * 13 + 512)
 
 /* ---- libMPSSE ChannelConfig (Pack=1, matches C# [StructLayout(Pack=1)]) ---- */
 #pragma pack(push, 1)
@@ -514,7 +519,10 @@ static FT_STATUS mpsse_xfer(const unsigned char* cmd, int cmdLen,
    所以資料是連續的最後 din 個 byte。 */
 static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
                           uint32_t len, uint8_t* out, uint32_t* got){
-    unsigned char cmd[16384], in[2048];
+    /* static：4096 byte 的命令序列約 50 KB，放在堆疊上會爆（預設執行緒堆疊 1 MB，
+       但這支是單一連線單執行緒處理，static 更安全也省得每次清零）。 */
+    static unsigned char cmd[DGH_MP_CMD_MAX];
+    static unsigned char in[DGH_READ_MAX + 64];
     int acks = 0, din = 0, gotIn = 0;
     int n = dgh_mp_build_read(cmd, (int)sizeof(cmd), slave, addr, (int)awid, (int)len, &acks, &din);
     FT_STATUS st;
@@ -561,7 +569,7 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
     FT_STATUS s;
     if(n<0) return 0xFFFFFFFEu;
     g_lastRaw = 0; g_lastUsbRt = 0;
-    if(dgh_raw_mpsse && DGH_RAW_AVAILABLE && len <= 1024){
+    if(dgh_raw_mpsse && DGH_RAW_AVAILABLE && len <= DGH_READ_MAX){
         g_lastRaw = 1;
         s = raw_read(slave, addr, awid, len, out, got);
     } else {
@@ -677,7 +685,10 @@ static void handle_command(int idx, const char* json){
     SOCKET c=g_cl[idx].s;
     char type[24]={0}; if(!dgh_json_type(json,type,sizeof(type))) return;
     long id=dgh_json_int(json,"id",0);
-    char rep[8192];
+    /* 🔴 4096 byte 的讀取回覆是一個 4096 個數字的 JSON 陣列（最多 4 字元＋逗號），
+       約 16.4 KB ⇒ 8192 不夠。放大到 24 KB 才裝得下，否則會被 snprintf 截斷成
+       壞掉的 JSON（而且是**安靜**截斷）。 */
+    static char rep[24576];
     if(strcmp(type,"open")==0){
         /* 網頁也可以指定讀取模式（open 帶 "fastread":0）⇒ 不必重開程式就能 A/B 比較。 */
         { long fr = dgh_json_int(json,"fastread",-1); if(fr==0) dgh_fast_read=0; else if(fr==1) dgh_fast_read=1; }
@@ -756,8 +767,14 @@ static void handle_command(int idx, const char* json){
         if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"bad awid (0/1/2/4 only)\"}",id); ws_send_text(c,rep); return; }
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         if(len<1) len=1;
-        if(len>1024) len=1024;
-        uint8_t buf[1024]; uint32_t got=0; FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
+        /* 🔴 上限從 1024 放寬到 4096（2026-09-19）。
+           原廠的標準操作就是「slave 0x50、offset 寬度 2、**一次讀 4096**」
+           （`RomCodeProcessUI.py:30842` 與 `:31669`，沒有任何 chunk 迴圈）。
+           1024 是我們自己加的，不是協定或硬體限制。
+           **但仍然要有上限**：`rep` 是固定大小的緩衝區，沒有上限就會安靜截斷 JSON。 */
+        if(len>DGH_READ_MAX) len=DGH_READ_MAX;
+        static uint8_t buf[DGH_READ_MAX]; uint32_t got=0;
+        FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
         int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"raw\":%s,\"usbrt\":%d,\"data\":[",
                        id,(st==FT_OK)?"true":"false",st,g_lastUs,
                        dgh_fast_read?"true":"false", g_lastRaw?"true":"false", g_lastUsbRt);

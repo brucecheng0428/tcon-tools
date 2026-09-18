@@ -60,9 +60,21 @@
  *     它不慢只是因為 `RaydiumEM02A1.cs:220` `new byte[48]`：**一次只讀 48 byte**
  *     （全庫最大 228）。48 byte 逐 byte 讀約 0.1 秒，4096 byte 就是 10~20 秒。
  *     ⇒ **照抄原廠不會變快，原廠沒有這個需求所以沒有答案。**
+ * 1.10.0 / proto 3 不變（2026-09-19，照原廠 RomCode UI 的標準操作放寬）：
+ *   - 單次讀取上限 1024 ⇒ **4096**（`DGH_READ_MAX`）。原廠標準操作就是
+ *     「slave 0x50、offset 寬度 2、一次讀 4096」，沒有 chunk 迴圈
+ *     （`RomCodeProcessUI.py:30842` 與 `:31669`）。1024 是我們自己加的。
+ *   - 回覆緩衝區 8192 ⇒ 24576：4096 個數字的 JSON 陣列約 16.4 KB，
+ *     8192 會**安靜截斷**成壞掉的 JSON。
+ *   - raw 路徑的命令／輸入緩衝區改 static 並依 DGH_READ_MAX 算大小
+ *     （4096 byte 的 MPSSE 命令約 50 KB，放堆疊會爆）。
+ *   🔴 **查證更正**：我們用的 libMPSSE **自己就呼叫了**
+ *     `FT_SetUSBParameters(handle, 65536, 65536)`（`_FT_InitChannel` 內，
+ *     rva 0x26CB/0x26D3），與原廠 DLL 的 (65536, 65535) 實質相同。
+ *     ⇒ 「我們沒設 USB buffer 所以慢」是**錯的**，不得當成加速理由。
  * 🔴 exe 內容改變 ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
  *    （實測：同一份原始碼用同一個 zig 重編兩次，SHA 也不同 —— 這個編譯流程不是
  *      可重現建置，所以「只要動 exe 就一定要重過」，沒有例外。） */
-#define I2C_BRIDGE_VERSION "1.9.0"
+#define I2C_BRIDGE_VERSION "1.10.0"
 #define I2C_BRIDGE_PROTO   3
 #endif
