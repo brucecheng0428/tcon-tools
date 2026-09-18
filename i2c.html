@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— helper 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260918i2c100"></script>
+<script src="common/version.js?v=20260918i2c110"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -128,10 +128,17 @@
     <div class="row" style="align-items:center;">
       <div><span class="dot" id="dot"></span><span id="linktext">未連線</span></div>
       <button class="pri" id="btn-conn">連線</button>
-      <button id="btn-disc" disabled>中斷</button>
+      <button id="btn-release" disabled title="把 I2C 治具交回去，但保持與 helper 的連線（要回去用 DG 量測或原廠 PQ Tool 時按這個）">釋放 I2C</button>
+      <button id="btn-disc" disabled title="關閉與 helper 的整條連線（同時也會釋放 I2C）">中斷</button>
+      <button class="wr" id="btn-takeover" style="display:none" title="把 I2C 治具從另一個頁面搶過來（那一頁會被斷線）">接手 I2C</button>
       <button id="btn-self" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
       <span class="sp" style="flex:1"></span>
-      <span class="kv mono" id="wsurl"></span>
+    </div>
+    <!-- 通道／版本一行講完：使用者要知道「走哪條、對面是誰、夠不夠新」 -->
+    <div class="kv" style="margin-top:8px;border-top:1px solid #223049;padding-top:7px;line-height:1.9">
+      通道：<b>本機 helper（WebSocket）</b> <span class="mono" id="wsurl"></span>
+      —— 這是唯一的通道，瀏覽器沒有別條路可以碰到 FTDI 治具（理由見下方「為什麼需要 helper」）。<br>
+      helper 執行檔：<b id="hv-exe">—</b> · 協定 proto <b id="hv-proto">—</b>（本頁需要 ≥ <b id="hv-need">2</b>） · 下載包 <b id="hv-pkg">—</b>
     </div>
   </div>
 
@@ -206,6 +213,78 @@
     </div>
   </div>
 
+  <!-- ═══ helper 取得與安裝（本頁自足，不必經過 dg 的任何頁面）═══════════════
+       🔴 這一整塊存在的理由：這一頁的 UI 原本是獨立的，但「怎麼拿到 helper」
+          只寫在 dg-measure.html 上 —— 等於使用者還是得先繞去 dg。
+          Bruce 2026-09-18：「跟 DG 沒有關係」包含取得與管理 helper。
+       🔴 而且他人在外地出差時，**線上版這一塊是他唯一拿得到新版的地方**。 -->
+  <details class="card" id="helper-card" style="margin-top:12px;">
+    <summary style="cursor:pointer;list-style:none;font-size:11px;font-weight:700;letter-spacing:.9px;
+                    text-transform:uppercase;color:var(--sub)">
+      取得 / 更新 helper <span id="helper-sum" style="text-transform:none;letter-spacing:0;font-weight:400"></span>
+    </summary>
+
+    <div id="offline-notice"></div>
+
+    <div class="row" style="align-items:center;margin-top:10px;">
+      <a id="dl" class="mono" href="#" download style="background:#0369a1;border:1px solid #0ea5e9;border-radius:6px;
+         color:#e0f2fe;padding:7px 14px;text-decoration:none;font-weight:700;font-size:13px">⬇ 下載 helper</a>
+      <span class="kv" id="dl-meta"></span>
+      <span class="sp" style="flex:1"></span>
+      <button id="btn-chkver" title="向線上版查詢有沒有更新的下載包（會發出一次對外請求）">檢查線上有無新版</button>
+    </div>
+
+    <ol style="margin:12px 0 8px 1.3em;padding:0;font-size:12.5px;line-height:1.8">
+      <li><b>下載</b>（Chrome 若標「不常下載」→ 選「保留」）。</li>
+      <li>🔴 <b>整包解壓到一個資料夾</b>（例如桌面）—— <b>不要</b>直接在壓縮檔預覽視窗裡點 exe。</li>
+      <li>在那個資料夾裡<b>雙擊 <code class="mono">dg-helper.exe</code></b>（SmartScreen 藍框：「其他資訊 → 仍要執行」）
+          → 瀏覽器自己開一個<b>選單頁</b>，點「I2C 讀寫測試」就到這一頁。</li>
+    </ol>
+    <div class="kv" style="line-height:1.8">
+      解壓後<b>四個檔要在同一個資料夾</b>：<code class="mono">dg-helper.exe</code>、<code class="mono">dg-measure.html</code>、
+      <code class="mono">i2c.html</code>、<code class="mono">libMPSSE.dll</code>（dll 已附上，不必去 PQ Tool 搬）。<br>
+      SHA256 — zip：<code class="mono" id="sha-zip" style="font-size:10.5px;word-break:break-all">—</code><br>
+      <span style="padding-left:5.2em">exe：<code class="mono" id="sha-exe" style="font-size:10.5px;word-break:break-all">—</code></span><br>
+      🔴 <b>exe 內容一變，SHA 就變，SmartScreen 要重過一次</b>。上面這兩個值給你／IT 核對用。
+    </div>
+
+    <div class="banner warn" style="margin-top:10px">
+      🔴 <b>同一時間只有一個頁面能握著 I2C 治具。</b>被另一頁佔住時，上面會出現
+      <b>「接手 I2C」</b>按鈕，按下去就把治具搶過來（原本那一頁會被斷線）——
+      跟原廠 PQ Tool 擇一使用是同一個道理。分頁關掉也會自動釋放。
+    </div>
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--sub)">黑視窗最後一行的狀態字母是什麼意思？</summary>
+      <table style="font-size:12px;border-collapse:collapse;margin-top:6px">
+        <tr><td style="padding:2px 10px 2px 0"><b>G</b></td><td>一切正常</td><td>直接用</td></tr>
+        <tr><td><b>T</b></td><td>在壓縮檔預覽／暫存目錄裡直接跑 exe，dll 沒跟出來</td><td>整包解壓到資料夾再跑</td></tr>
+        <tr><td><b>D</b></td><td>找不到 <code class="mono">libMPSSE.dll</code></td><td>把 dll 放回 exe 旁</td></tr>
+        <tr><td><b>F</b></td><td>找到 dll 但相依的 <code class="mono">ftd2xx.dll</code> 載不到</td><td>裝 FTDI D2XX 驅動，或先跑一次 PQ Tool</td></tr>
+        <tr><td><b>X</b></td><td>dll 位元數不合／損壞</td><td>換 32 位元的 dll</td></tr>
+        <tr><td><b>J</b></td><td>找不到 FTDI 治具</td><td>插上治具（USB／電源）</td></tr>
+        <tr><td><b>U</b></td><td>治具被佔用</td><td>關掉原廠 PQ Tool／AUX GUI</td></tr>
+        <tr><td><b>P</b></td><td>127.0.0.1 埠被佔</td><td>已有一個 helper 在跑，關掉再開</td></tr>
+        <tr><td><b>B</b></td><td>瀏覽器沒自動開</td><td>自己開 <code class="mono">http://127.0.0.1:8899</code></td></tr>
+      </table>
+    </details>
+
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--sub)">為什麼需要一支 exe，不能全部做在網頁裡？</summary>
+      <div class="kv" style="line-height:1.85;margin-top:6px">
+        缺的<b>不是</b>「知道怎麼跟治具講話」—— 協定早就逆向清楚了，PQ Tool 就是這樣做的。
+        缺的是<b>管道</b>：那顆 FTDI 驅動只開放給原生程式直接呼叫 DLL，而瀏覽器裡的 JavaScript
+        沒有任何辦法呼叫本機 DLL，它只有 <b>WebUSB／Web Serial／WebHID</b> 三個 API。<br>
+        WebUSB 也走不通，而且卡住的地方要分清楚：Windows 在<b>裝置綁定層</b>把 FTDI 的 interface
+        綁在 <code class="mono">ftdibus.sys</code>（D2XX）／<code class="mono">ftser2k.sys</code>（VCP）上，
+        而 <code class="mono">claimInterface()</code> 需要該 interface 掛的是 WinUSB 類驅動 ——
+        <b>所以就算把所有程式都關掉，瀏覽器一樣拿不到</b>。這不是「誰先佔用」的問題。
+        <b>更換驅動這條路不做</b>（Bruce 2026-09-17 裁示），所以在不換驅動、不換硬體的前提下，
+        本機跑一支橋接程式是唯一成立的路。
+      </div>
+    </details>
+  </details>
+
   <div class="card" style="margin-top:12px;">
     <div class="row" style="align-items:center;margin-bottom:6px;">
       <h2 style="margin:0;">交易 Log</h2>
@@ -229,7 +308,17 @@
 var I2CT_PORT      = 8899;
 var I2CT_WS_URL    = 'ws://127.0.0.1:' + I2CT_PORT + '/ws';
 var I2CT_PAGE_URL  = 'http://127.0.0.1:' + I2CT_PORT + '/i2c.html';
+var I2CT_MENU_URL  = 'http://127.0.0.1:' + I2CT_PORT + '/';
 var I2CT_NEED_PROTO = 2;          /* awid 與 rawwrite 是 proto 2 才有的 */
+
+/* 線上版（GitHub Pages）。🔴 打包進 zip 的那一份是離線版，它的下載連結永遠指向
+   打包當時的那一包 —— 要更新只能來這裡。Bruce 出差在外時，這是他唯一的取得管道。 */
+var I2CT_ONLINE_BASE = 'https://brucecheng0428.github.io/tcon-tools/';
+var I2CT_ONLINE_PAGE = I2CT_ONLINE_BASE + 'i2c.html';
+
+/* helper 下載包的常數：一律讀 common/version.js 的 HELPER_PKG（單一來源）。
+   🔴 不要在這一頁寫第二份字面值 —— 兩份數字遲早不同步。 */
+var I2CT_PKG = (typeof HELPER_PKG !== 'undefined' && HELPER_PKG) ? HELPER_PKG : {};
 var I2CT_TIMEOUT_MS = 8000;
 var I2CT_CLOCK_HZ   = 150000;     /* 與 PQ Tool／dg helper 同一組參數 */
 var I2CT_CHUNK      = 256;        /* 每則 read 訊息最多幾個 byte */
@@ -247,6 +336,10 @@ var I2CT_ID_VEC = { slave: 0x68, awid: 2, addr: 0xFF00, len: 3, known: [0x01, 0x
 var i2ctWs = null, i2ctSeq = 0, i2ctPending = {};
 var i2ctLinked = false, i2ctBusy = false;
 var i2ctHelperVer = '', i2ctHelperProto = 0;
+var i2ctChannelBusy = false;      /* I2C 治具被別的頁面握著 */
+var i2ctUserClosing = false;      /* 使用者自己按中斷（不要自動重連） */
+var i2ctRetry = 0;                /* 非預期斷線的重試次數 */
+var I2CT_RETRY_MAX = 3;
 var i2ctBuf = {};                 /* key(位址或索引) → byte 值 */
 var i2ctWrote = {};               /* key → true（本次寫過，僅供上色） */
 var i2ctPages = [];               /* 目前資料涵蓋的頁（每頁 256） */
@@ -420,6 +513,12 @@ function i2ctSyncButtons(){
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
   $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
   $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
+  /* 🔴 「接手」是出口，不是選配：被佔住時使用者一定要有辦法把治具搶回來，
+     否則他唯一的辦法是關掉整個 helper（Bruce 2026-09-18 就是卡在這裡）。 */
+  var to = $('btn-takeover');
+  to.style.display = i2ctChannelBusy ? '' : 'none';
+  to.disabled = i2ctBusy;
+  $('btn-release').disabled = !i2ctLinked || i2ctBusy || i2ctChannelBusy;
 }
 
 /* ═══ WebSocket（helper）═══════════════════════════════════════════════ */
@@ -437,7 +536,16 @@ function i2ctSend(obj){
 }
 function i2ctOnMessage(ev){
   var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-  if (m.type === 'hello' || m.type === 'pong') { i2ctHelperVer = m.helper || ''; i2ctHelperProto = m.proto || 0; }
+  if (m.type === 'hello' || m.type === 'pong') {
+    i2ctHelperVer = m.helper || ''; i2ctHelperProto = m.proto || 0;
+    if (typeof m.busy === 'boolean') i2ctChannelBusy = m.busy;
+  }
+  /* helper 主動通知：治具被另一個頁面接手了（接著它會關掉這條連線） */
+  if (m.type === 'taken') {
+    i2ctChannelBusy = true;
+    i2ctLog('⚠ I2C 治具被另一個頁面接手，本頁已失去控制權', 'w');
+    i2ctBanner('topbanner', 'warn', 'I2C 治具被<b>另一個頁面接手</b>了。要拿回來請按上方的「接手 I2C」。');
+  }
   if (typeof m.id === 'number' && i2ctPending[m.id]) {
     var p = i2ctPending[m.id]; delete i2ctPending[m.id]; clearTimeout(p.timer); p.resolve(m);
   }
@@ -447,12 +555,15 @@ function i2ctSetLink(on, txt, cls){
   $('dot').className = 'dot' + (cls ? ' ' + cls : (on ? ' on' : ''));
   $('linktext').textContent = txt;
   $('helperinfo').textContent = i2ctHelperVer ? ('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto) : '';
+  $('hv-exe').textContent   = i2ctHelperVer || '—';
+  $('hv-proto').textContent = i2ctHelperProto || '—';
   i2ctSyncButtons();
 }
-async function i2ctConnect(){
+async function i2ctConnect(takeover){
   if (i2ctLinked || i2ctBusy) return;
+  i2ctUserClosing = false;
   i2ctBusy = true; i2ctSetLink(false, '連線中…', 'busy');
-  i2ctLog('連線 ' + I2CT_WS_URL, 'n');
+  i2ctLog('連線 ' + I2CT_WS_URL + (takeover ? '（要求接手 I2C）' : ''), 'n');
   var ws;
   try { ws = new WebSocket(I2CT_WS_URL); }
   catch (e) { i2ctBusy = false; i2ctSetLink(false, '無法建立 WebSocket', 'err'); i2ctLog('✕ ' + e.message, 'e'); return; }
@@ -461,8 +572,22 @@ async function i2ctConnect(){
   ws.onclose = function () {
     for (var k in i2ctPending) { try { clearTimeout(i2ctPending[k].timer); i2ctPending[k].reject(new Error('helper 連線關閉')); } catch (e) {} }
     i2ctPending = {};
-    if (i2ctLinked) { i2ctSetLink(false, 'helper 連線中斷', 'err'); i2ctLog('✕ helper 連線關閉', 'e'); }
+    var wasLinked = i2ctLinked;
+    if (wasLinked) { i2ctSetLink(false, 'helper 連線中斷', 'err'); i2ctLog('✕ helper 連線關閉', 'e'); }
     i2ctWs = null;
+    /* 非預期斷線 → 自動重試幾次（helper 重啟、被接手、暫時性中斷都屬此類）。
+       使用者自己按中斷時不重連，否則按了也關不掉。 */
+    if (wasLinked && !i2ctUserClosing && i2ctRetry < I2CT_RETRY_MAX) {
+      var wait = 1000 * Math.pow(2, i2ctRetry);
+      i2ctRetry++;
+      i2ctLog('　 ' + (wait / 1000) + ' 秒後自動重試第 ' + i2ctRetry + '/' + I2CT_RETRY_MAX + ' 次…', 'n');
+      i2ctBanner('topbanner', 'warn', '與 helper 的連線中斷了，' + (wait / 1000)
+        + ' 秒後自動重試（第 ' + i2ctRetry + '/' + I2CT_RETRY_MAX + ' 次）。也可以直接按上方的「連線」。');
+      setTimeout(function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(); }, wait);
+    } else if (wasLinked && !i2ctUserClosing) {
+      i2ctBanner('topbanner', 'err', '與 helper 的連線中斷，自動重試 ' + I2CT_RETRY_MAX
+        + ' 次都沒成功。請確認 dg-helper 的黑視窗還在，然後按上方的「連線」。');
+    }
   };
   var opened = await new Promise(function (resolve) {
     var settled = false;
@@ -475,28 +600,52 @@ async function i2ctConnect(){
     i2ctWs = null; i2ctBusy = false; i2ctSetLink(false, '連不到 helper', 'err');
     i2ctLog('✕ 連不到本機 helper。helper（黑視窗）有在跑嗎？若本頁是從 https 開的，'
           + '請改用 helper 自己端出來的 ' + I2CT_PAGE_URL, 'e');
-    i2ctBanner('topbanner', 'err', '連不到本機 helper。請確認 dg-helper 有在執行；'
-      + '若你是從 https 的工具箱開這一頁，請改開 <a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL + '</a>（helper 自己端的同源版本）。');
+    i2ctNoHelperBanner();
     return;
   }
   try {
     var pong = await i2ctSend({ type: 'ping' });
     i2ctHelperVer = pong.helper || ''; i2ctHelperProto = pong.proto || 0;
-    i2ctLog('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto, 'o');
+    if (typeof pong.busy === 'boolean') i2ctChannelBusy = pong.busy;
+    i2ctLog('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto
+          + (i2ctChannelBusy ? '（I2C 目前被另一個頁面握著）' : ''), 'o');
     if (i2ctHelperProto < I2CT_NEED_PROTO) {
-      throw new Error('helper 協定版本太舊（proto ' + i2ctHelperProto + '，本頁需要 proto '
-        + I2CT_NEED_PROTO + '）。offset 寬度 0/1/4 與不限位址寫入都是 proto ' + I2CT_NEED_PROTO + ' 才有的，請更新 helper。');
+      /* 🔴 不能只說「版本太舊」—— 要說手上哪版、需要哪版、去哪裡拿。
+         Bruce 在外地時，下載入口就在下面那張卡，而且只有線上版才是新的。 */
+      i2ctOpenHelperCard();
+      throw new Error('helper 太舊：你手上的是 ' + (i2ctHelperVer || '?') + '（proto '
+        + i2ctHelperProto + '），本頁需要 proto ' + I2CT_NEED_PROTO + ' 以上'
+        + '（offset 寬度 0/1/4 與不限位址寫入都是 proto ' + I2CT_NEED_PROTO + ' 才有的）。'
+        + '請用下方「取得 / 更新 helper」的下載鈕換成 ' + (I2CT_PKG.pkg || '最新版')
+        + '；🔴 若你現在看的是 helper 端出來的離線頁，它的下載連結是打包當時那一包，'
+        + '要拿新版請到線上版：' + I2CT_ONLINE_PAGE);
     }
     var op = null;
     for (var a = 1; a <= I2CT_OPEN_RETRIES; a++) {
-      op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ });
+      op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
+      /* 🔴 被另一個頁面佔住是**可判別**的狀態，不是一般失敗：不要重試、不要
+         靜默失敗，直接告訴使用者並把「接手」這個出口亮出來。 */
+      if (op.busy) {
+        i2ctChannelBusy = true;
+        i2ctBusy = false;
+        i2ctLinked = true;                    /* 連線本身是好的，只是沒拿到治具 */
+        i2ctSetLink(true, 'I2C 被另一個頁面佔用', 'busy');
+        i2ctLog('⚠ I2C 已被另一個頁面佔用（helper 回 busy）', 'w');
+        i2ctBanner('topbanner', 'warn',
+          '<b>I2C 治具已被另一個頁面佔用</b>（多半是 DG 光學量測那一頁）。'
+          + '按上方的<b>「接手 I2C」</b>就能搶過來 —— 原本那一頁會被斷線，'
+          + '跟原廠 PQ Tool 擇一使用是同一個道理。');
+        return;
+      }
       i2ctLog('開通道第 ' + a + '/' + I2CT_OPEN_RETRIES + ' 次失敗（channels=' + op.channels + '）', 'e');
       if (a < I2CT_OPEN_RETRIES) await new Promise(function (r) { setTimeout(r, I2CT_OPEN_RETRY_MS); });
     }
     if (!op || !op.ok) throw new Error('開通道連試 ' + I2CT_OPEN_RETRIES + ' 次都失敗（治具插好了嗎？原廠 PQ Tool 是不是開著佔住 channel？）');
     i2ctBusy = false;
-    i2ctSetLink(true, '已連線');
+    i2ctChannelBusy = false;
+    i2ctRetry = 0;
+    i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctBanner('topbanner', '', '');
   } catch (err) {
     i2ctBusy = false;
@@ -512,13 +661,56 @@ async function i2ctConnect(){
   }
 }
 async function i2ctDisconnect(){
+  i2ctUserClosing = true; i2ctRetry = 0;
   i2ctBusy = true; i2ctSyncButtons();
   try { if (i2ctWs && i2ctWs.readyState === 1) await i2ctSend({ type: 'close' }); } catch (e) {}
   try { if (i2ctWs) i2ctWs.close(); } catch (e) {}
-  i2ctWs = null; i2ctBusy = false;
+  i2ctWs = null; i2ctBusy = false; i2ctChannelBusy = false;
   i2ctSetLink(false, '已中斷（原廠 PQ Tool 可以接手）');
   i2ctLog('已中斷 helper 連線', 'o');
 }
+/* 🔴 釋放：把治具交回去，但**保持連線**。這是「保護要留出口」的那個出口 ——
+   他要回去用 DG 量測或原廠 PQ Tool 時，不必把整條連線關掉、也不必關 helper。
+   與「中斷」的差別：中斷會連 WebSocket 一起關掉。 */
+async function i2ctRelease(){
+  if (!i2ctLinked || i2ctBusy) return;
+  i2ctBusy = true; i2ctSyncButtons();
+  try {
+    await i2ctSend({ type: 'close' });
+    i2ctChannelBusy = false;
+    i2ctLog('已釋放 I2C 治具（連線保持著；DG 量測或原廠 PQ Tool 現在可以接手）', 'o');
+    i2ctBanner('topbanner', 'ok', '已<b>釋放 I2C 治具</b>，與 helper 的連線仍在。'
+      + '要再用請按「連線」重開通道，或直接按「接手 I2C」。');
+    i2ctBusy = false;
+    i2ctLinked = false;                 /* 沒有通道就不能讀寫，狀態要誠實 */
+    i2ctSetLink(false, '已釋放 I2C（連線仍在）');
+  } catch (e) {
+    i2ctBusy = false; i2ctSyncButtons();
+    i2ctLog('✕ 釋放失敗：' + (e.message || e), 'e');
+  }
+}
+/* 接手：重連一次並帶 takeover 旗標。原持有者會收到 taken 並被 helper 斷線。 */
+async function i2ctTakeover(){
+  i2ctLog('要求接手 I2C 治具…', 'w');
+  i2ctUserClosing = true;                       /* 這一次的斷線是我們自己造成的 */
+  try { if (i2ctWs) i2ctWs.close(); } catch (e) {}
+  i2ctWs = null; i2ctLinked = false; i2ctBusy = false;
+  await new Promise(function (r) { setTimeout(r, 150); });
+  await i2ctConnect(true);
+}
+/* 連不到 helper 時的統一訊息。🔴 一定要把下載入口亮出來並展開 ——
+   使用者（尤其人在外地時）可能就是缺那一包，而這是他拿得到的唯一地方。 */
+function i2ctNoHelperBanner(){
+  i2ctOpenHelperCard();
+  var extra = (location.protocol === 'https:')
+    ? '若 dg-helper 已經在跑卻還是連不上，請改開 <a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL
+      + '</a>（同一份頁面，由 helper 自己端出來、同源，不會被瀏覽器的本機網路限制擋住）。'
+    : '';
+  i2ctBanner('topbanner', 'err',
+    '<b>這一頁要通 I2C 一定得有本機 helper</b>（瀏覽器沒有別的管道碰得到 FTDI 治具）。'
+    + '沒有的話請用下方<b>「取得 / 更新 helper」</b>的下載鈕抓一包（已自動展開）。' + extra);
+}
+function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
 
 /* ═══ 讀 ════════════════════════════════════════════════════════════════ */
 /* 回傳 {ok, bytes, err}。不丟例外，讓呼叫端統一處理版面。 */
@@ -754,19 +946,99 @@ function i2ctSetAwid(a){
 }
 
 /* ═══ 啟動 ══════════════════════════════════════════════════════════════ */
+/* 判斷本頁是不是 helper 端出來的那一份（＝離線打包版）。抽成純函式好驗。 */
+function i2ctIsLocal(host){
+  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
+}
+/* 下載卡：連結、大小、SHA、離線版提示 —— 全部從 HELPER_PKG 這個單一來源來 */
+function i2ctFillHelperCard(){
+  var local = i2ctIsLocal(location.hostname);
+  var dl = $('dl');
+  if (I2CT_PKG.file) {
+    /* 🔴 cache buster 用包版本：改版後不帶它，瀏覽器可能拿到快取的舊 zip */
+    dl.setAttribute('href', (local ? I2CT_ONLINE_BASE : '') + I2CT_PKG.file + '?v=' + I2CT_PKG.pkg);
+    dl.textContent = '⬇ 下載 helper ' + I2CT_PKG.pkg;
+  } else {
+    dl.removeAttribute('href'); dl.textContent = '⬇ 下載連結缺失（HELPER_PKG 沒載到）';
+  }
+  var kb = I2CT_PKG.bytes ? (Math.round(I2CT_PKG.bytes / 1024) + ' KB') : '';
+  $('dl-meta').innerHTML = (I2CT_PKG.file ? I2CT_PKG.file.split('/').pop() : '—')
+    + (kb ? ' · ' + kb : '') + ' · 內含 exe ' + (I2CT_PKG.exe || '?') + '（proto ' + (I2CT_PKG.proto || '?') + '）';
+  $('sha-zip').textContent = I2CT_PKG.zipSha || '—';
+  $('sha-exe').textContent = I2CT_PKG.exeSha || '—';
+  $('hv-pkg').textContent  = I2CT_PKG.pkg || '—';
+  $('hv-need').textContent = I2CT_NEED_PROTO;
+
+  /* 🔴 離線打包版的防呆。這一份是跟著 zip 一起發出去的，它的下載連結永遠指向
+     打包當時那一包 —— 不講清楚，使用者會一直重抓到同一包還以為自己更新了。
+     所以這一行是**明示的警告，不是藏在說明裡的一句話**，而且上面的下載鈕在
+     離線版會直接指向線上網址（相對路徑在 helper 端不存在，本來就抓不到）。 */
+  if (local) {
+    $('offline-notice').innerHTML =
+      '<div class="banner warn">🔴 <b>本頁是離線打包版</b>（由 helper 從你電腦上端出來，'
+      + '內容停在打包當時 ' + (I2CT_PKG.pkg || '?') + '）。<b>要更新請到線上版：</b>'
+      + '<a href="' + I2CT_ONLINE_PAGE + '" target="_blank" rel="noopener">' + I2CT_ONLINE_PAGE + '</a>'
+      + ' —— 上面那顆下載鈕已經幫你指到線上網址了。</div>';
+    $('helper-sum').textContent = '（本頁為離線打包版 ' + (I2CT_PKG.pkg || '?') + '，更新要到線上版）';
+  } else {
+    $('offline-notice').innerHTML = '';
+    $('helper-sum').textContent = '（線上版 · ' + (I2CT_PKG.pkg || '?') + '）';
+  }
+}
+/* 使用者主動按才發出的對外請求：比對線上版的 HELPER_PKG.pkg。
+   🔴 刻意做成**按鈕**而不是載入時自動跑：這一頁的離線版是為了「沒有外網也能用」
+      而存在的，自動對外發請求會違反那個前提，而且是使用者沒要求的行為。
+      （要不要改成自動檢查，等 Bruce 裁示。） */
+async function i2ctCheckOnline(){
+  var btn = $('btn-chkver'); btn.disabled = true; var old = btn.textContent; btn.textContent = '查詢中…';
+  try {
+    var ctl = new AbortController();
+    var to = setTimeout(function () { ctl.abort(); }, 6000);
+    var r = await fetch(I2CT_ONLINE_BASE + 'common/version.js?t=' + Date.now(),
+                        { cache: 'no-store', signal: ctl.signal });
+    clearTimeout(to);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var txt = await r.text();
+    var m = txt.match(/pkg\s*:\s*'([^']+)'/);
+    var f = txt.match(/file\s*:\s*'([^']+)'/);
+    if (!m) throw new Error('線上版的 version.js 裡找不到 HELPER_PKG.pkg');
+    if (m[1] === I2CT_PKG.pkg) {
+      i2ctBanner('topbanner', 'ok', '已經是最新的 helper 下載包（' + m[1] + '）。');
+      i2ctLog('線上版本檢查：目前 ' + I2CT_PKG.pkg + '，線上 ' + m[1] + ' ⇒ 已是最新', 'o');
+    } else {
+      var href = I2CT_ONLINE_BASE + (f ? f[1] : '') + '?v=' + m[1];
+      i2ctBanner('topbanner', 'warn', '線上有新的 helper 下載包：<b>' + m[1] + '</b>（你手上的是 '
+        + (I2CT_PKG.pkg || '?') + '）。<a href="' + href + '" download>點此下載</a>'
+        + '，或到 <a href="' + I2CT_ONLINE_PAGE + '" target="_blank" rel="noopener">線上版</a> 取得。');
+      i2ctLog('線上版本檢查：目前 ' + I2CT_PKG.pkg + '，線上 ' + m[1] + ' ⇒ 🔴 有新版', 'w');
+    }
+  } catch (e) {
+    /* 查不到就是查不到（沒外網、被擋、逾時）。不猜、也不影響任何既有功能。 */
+    i2ctBanner('topbanner', 'info', '查不到線上版本（' + (e.message || e)
+      + '）。這不影響本頁的其他功能；要手動確認請開 <a href="' + I2CT_ONLINE_PAGE
+      + '" target="_blank" rel="noopener">線上版</a>。');
+    i2ctLog('線上版本檢查失敗：' + (e.message || e), 'e');
+  } finally { btn.disabled = false; btn.textContent = old; }
+}
+
 function i2ctInit(){
   try { $('ver').textContent = (window.TOOL_VERSIONS && TOOL_VERSIONS.i2c) || 'v?'; } catch (e) {}
   $('wsurl').textContent = I2CT_WS_URL;
+  i2ctFillHelperCard();
 
-  /* helper 自己端出來的那一份沒有 index.html，藏掉回首頁的連結免得 404 */
-  var local = (location.hostname === '127.0.0.1' || location.hostname === 'localhost');
-  if (local) $('backlink').style.display = 'none';
+  /* helper 自己端出來的那一份沒有 index.html，改成回 helper 的選單頁 */
+  var local = i2ctIsLocal(location.hostname);
+  if (local) { $('backlink').textContent = '← helper 選單'; $('backlink').setAttribute('href', I2CT_MENU_URL); }
   /* 🔴 https 頁面連 ws://127.0.0.1 會撞 Chrome 的 Local Network Access 閘。
-     這不是本頁能繞過的，唯一的解是改用 helper 自己端出來的同源版本。 */
-  if (location.protocol === 'https:') {
+     這不是本頁能繞過的，唯一的解是改用 helper 自己端出來的同源版本。
+     沒有 helper 時下載入口就是使用者唯一的出口，所以這裡直接把卡片展開。 */
+  if (!local) {
+    i2ctOpenHelperCard();
     i2ctBanner('topbanner', 'info',
-      '這一頁是從 https 開的，瀏覽器可能擋住往 127.0.0.1 的本機連線。'
-      + '若「連線」按不通，請執行 dg-helper 後改開 <a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL + '</a>（同一份頁面，由 helper 自己端出來）。');
+      '這一頁是從線上版開的。要通 I2C <b>一定得有本機 helper</b>：執行 dg-helper 後，'
+      + '它會開一個選單頁，點「I2C 讀寫測試」就到同一頁的本機版'
+      + '（<a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL + '</a>）。'
+      + '還沒有 helper 的話，下方「取得 / 更新 helper」就是下載入口。');
   }
 
   var chips = document.querySelectorAll('#awid-chips .chip');
@@ -779,8 +1051,11 @@ function i2ctInit(){
   ['in-slave', 'in-off', 'in-len', 'in-data'].forEach(function (id) {
     $(id).addEventListener('input', i2ctUpdateHints);
   });
-  $('btn-conn').addEventListener('click', i2ctConnect);
+  $('btn-conn').addEventListener('click', function () { i2ctConnect(false); });
   $('btn-disc').addEventListener('click', i2ctDisconnect);
+  $('btn-takeover').addEventListener('click', i2ctTakeover);
+  $('btn-release').addEventListener('click', i2ctRelease);
+  $('btn-chkver').addEventListener('click', i2ctCheckOnline);
   $('btn-self').addEventListener('click', i2ctSelfTest);
   $('btn-read').addEventListener('click', i2ctOnRead);
   $('btn-write').addEventListener('click', i2ctOnWrite);
@@ -799,11 +1074,22 @@ function i2ctInit(){
     catch (e) { i2ctLog('複製失敗：' + e.message, 'e'); }
   });
 
+  /* 🔴 盡力在分頁關閉前送一筆 close。unload 不等 Promise，所以這**只是加保險**
+     —— 真正的保證在 helper 端：WebSocket 一斷（關分頁、瀏覽器崩潰、拔線）
+     它就會 I2C_CloseChannel。不要依賴頁面有沒有送出這一筆。 */
+  window.addEventListener('pagehide', function () {
+    try { if (i2ctWs && i2ctWs.readyState === 1) i2ctWs.send(JSON.stringify({ type: 'close', id: 0 })); } catch (e) {}
+  });
+
   i2ctPages = [0]; i2ctPageIdx = 0;
   i2ctRenderPager(); i2ctRenderTable();
   i2ctUpdateHints();
   i2ctSetLink(false, '未連線');
   i2ctLog('I2C 讀寫測試工具就緒。讀寫皆不限位址；每一筆交易都記在這裡。', 'n');
+
+  /* helper 自己端出來時就自動連 —— 這一頁是它的選單點進來的，使用者的意圖
+     很明確，不該再多按一次。線上版不自動連（連不到，只會製造錯誤訊息）。 */
+  if (local) setTimeout(function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(false); }, 250);
 }
 
 /* selftest 用的掛勾（純函式與狀態存取，不改變任何行為） */
@@ -815,8 +1101,14 @@ window.__i2ct = {
   hex: i2ctHex, addrText: i2ctAddrText, bytesText: i2ctBytesText,
   GOLDEN: I2CT_GOLDEN, ID_VEC: I2CT_ID_VEC,
   NEED_PROTO: I2CT_NEED_PROTO, CHUNK: I2CT_CHUNK, MAX_LEN: I2CT_MAX_LEN,
-  connect: function () { return i2ctConnect(); },
+  connect: function (t) { return i2ctConnect(!!t); },
   disconnect: function () { return i2ctDisconnect(); },
+  takeover: function () { return i2ctTakeover(); },
+  release: function () { return i2ctRelease(); },
+  checkOnline: function () { return i2ctCheckOnline(); },
+  isLocal: i2ctIsLocal,
+  PKG: I2CT_PKG,
+  ONLINE_PAGE: I2CT_ONLINE_PAGE,
   selfTest: function () { return i2ctSelfTest(); },
   doRead:  function () { return i2ctOnRead(); },
   doWrite: function () { return i2ctOnWrite(); },
@@ -831,7 +1123,8 @@ window.__i2ct = {
   state: function () {
     return { linked: i2ctLinked, busy: i2ctBusy, buf: i2ctBuf, wrote: i2ctWrote,
              pages: i2ctPages.slice(), pageIdx: i2ctPageIdx, lastRead: i2ctLastRead,
-             helperProto: i2ctHelperProto };
+             helperProto: i2ctHelperProto, helperVer: i2ctHelperVer,
+             channelBusy: i2ctChannelBusy, retry: i2ctRetry };
   }
 };
 

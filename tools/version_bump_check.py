@@ -146,9 +146,36 @@ def git(repo, *args):
 
 
 def parse_versions(text):
+    """只解析 `TOOL_VERSIONS = { ... }` 這個物件裡的項目。
+
+    🔴 2026-09-18 收斂：原本是對**整個檔案**跑 VER_RE，也就是「任何一行長得像
+    `名稱: 'x.y.z'` 就算一個工具」。common/version.js 現在還放了 `HELPER_PKG`
+    （helper 下載包的單一來源），它裡面的 `pkg: 'v1.5.0'` / `exe: '1.5.0'`
+    會被誤認成兩個工具 —— 第一次出現時無害（「新工具，不判級別」），但**下一次
+    改包版號就會要求一個 `## … (pkg) vX.Y.Z` 的 CHANGELOG 條目**，變成擋住正確
+    改動的假警報。這種「判準比它要判的東西更寬」的錯，本專案在
+    check_em01_code_import 上吃過一次。判準收到它真正該管的範圍。
+    """
+    src = text or ""
+    m = re.search(r"TOOL_VERSIONS\s*=\s*\{", src)
+    if not m:
+        return {}
+    # 從 `{` 起做一次大括號配對，取出物件本體（註解裡不會有裸大括號，實測成立）
+    start = src.index("{", m.start())
+    depth, end = 0, None
+    for i in range(start, len(src)):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end is None:
+        return {}
     out = {}
-    for m in VER_RE.finditer(text or ""):
-        out[m.group(1)] = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+    for mm in VER_RE.finditer(src[start:end]):
+        out[mm.group(1)] = (int(mm.group(2)), int(mm.group(3)), int(mm.group(4)))
     return out
 
 

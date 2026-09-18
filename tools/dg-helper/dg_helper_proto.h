@@ -74,10 +74,15 @@ static inline const char* dgh_mime_for(const char* name){
  * helper 原本不管什麼路徑都回同一份 dg-measure.html，第二個頁面因此無法被端出來。
  * 這裡把「路徑 → exe 旁的單一檔名」這段獨立成純函式，好讓 test_proto.c 驗它。
  * 規則（全部從嚴，不做 percent-decode，也不支援子目錄）：
- *   "/"           -> "dg-measure.html"（維持既有行為）
+ *   "/"           -> out 為空字串（＝**根路徑**，交給呼叫端端出內建入口頁）
  *   "/i2c.html"   -> "i2c.html"
  *   含 / \ : % 或 ".." 或以 '.' 開頭 -> 0（拒絕）
- * 回傳 1＝out 有可用檔名，0＝拒絕。 */
+ * 回傳 1＝out 有效（可能是空字串＝根），0＝拒絕。
+ *
+ * 🔴 v1.5.0 變更：`/` 原本直接對應 dg-measure.html。那是「helper 只端一頁」
+ *    時代的假設，而它造成了實際故障 —— helper 啟動就把 dg 那一頁開起來，
+ *    那頁一載入就搶走 I2C channel，使用者要測 i2c.html 時搶不到。
+ *    現在 `/` 是一個誰都不佔用的入口頁，由使用者自己點要用哪一個。 */
 static inline int dgh_req_filename(const char* req, char* out, int cap){
     if(!req||!out||cap<2) return 0;
     if(strncmp(req,"GET ",4)!=0) return 0;
@@ -87,7 +92,7 @@ static inline int dgh_req_filename(const char* req, char* out, int cap){
     const char* e=p;
     while(*e && *e!=' ' && *e!='?' && *e!='#' && *e!='\r' && *e!='\n') e++;
     int n=(int)(e-p);
-    if(n==0){ snprintf(out,(size_t)cap,"dg-measure.html"); return 1; }
+    if(n==0){ out[0]=0; return 1; }          /* 根路徑：交給呼叫端端內建入口頁 */
     if(n>=cap) return 0;
     for(int i=0;i<n;i++){
         char c=p[i];

@@ -22,6 +22,53 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.1.0 — 2026-09-18 ｜ MINOR
+
+**🔴 真因：helper 一啟動就把 I2C 治具搶走，而且是**結構性**的 —— v1.4.x 的伺服迴圈是單連線阻塞式，dg 的 WebSocket 一開，helper 連「把 i2c.html 送出去」都做不到。本版改 helper 的連線模型（select 多路複用、內建入口頁、channel 擁有權與接手），並把 helper 的取得／更新／狀態全部補進 i2c.html，讓這一頁真正自足。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表「**多了**能做的事，但舊的一切照舊」那一欄 ⇒ **MINOR**。逐項確認：四項輸入、16×16 表格、讀寫、自檢的操作與輸出**一個字都沒變**（`tools/i2c_tool_selftest.js` 原有 137 項全部原封通過）；新增的是下載入口、接手、釋放、自動重連、線上版本查詢 —— 全是**新增**（R3）。沒有任何既有入口被移除或移位（案例 6 不適用）⇒ **不是 MAJOR**，也不只是修正（不是 PATCH）。
+
+### 🔴 Bruce 回報「helper 一按下就被 dg 的網頁佔住」的真因（實測，不是推測）
+用 `tools/dg-helper/test/` 的 shim 把**出貨的 `dg_helper.c` 一個字不改**地在 Linux 上跑起來，用真的 TCP 連線量。同一份測試跑 v1.4.0 與 v1.5.0：
+
+| 斷言 | v1.4.0（Bruce 手上那版） | v1.5.0 |
+|---|---|---|
+| A 的 WebSocket 開著時，`/i2c.html` 仍然載得進來 | **FAIL** | PASS |
+| A 還連著時，client B 也能建立 WebSocket | **FAIL** | PASS |
+
+原因在 `serve_ws()`：accept 一個連線就進 recv 迴圈，**卡到對方斷線為止**，中間完全不回到 `accept()`。所以 dg 那頁連著時，i2c.html 的 HTTP 請求躺在 TCP backlog 裡永遠不會被處理 —— 使用者看到的「被佔住／打不開」就是這個。
+
+> 🔴 **順帶更正一個查證錯誤**：曾判斷 v1.4.0「沒有在 WebSocket 斷線時釋放 channel」。**這是錯的。** `serve_ws()` 的 recv 迴圈 break 之後就是 `logline("[ws] client disconnected, releasing I2C"); i2c_close();`（v1.4.0 的 L515–516，在 `serve_ws` 內，不是程式結束處）。另寫 `tools/dg-helper/test/test_v140_release.c` 對 v1.4.0 實測：分頁關閉 ⇒ `live` 1→0、`I2C_CloseChannel` 呼叫數 1→2；異常斷線（RST）⇒ `live` 1→0、呼叫數 2→3。**兩種都有釋放。** 所以當時的繞路本身成立，缺的是**順序**：必須先讓 dg 那條連線斷掉（關分頁，或在 dg 頁按 I2C 鈕 —— `dgmI2cWsOff()` 的 finally 裡有 `dgmI2cWs.close()`），helper 才會回到 accept，i2c.html 才載得進來。
+
+### helper v1.4.0 → v1.5.0（proto 仍為 2）
+- 🔴 **伺服迴圈改 `select()` 多路複用**（client 表上限 8）。任何時候都還能 accept，兩個頁面可以並存。
+- 🔴 **`/` 改為內建的極簡入口頁**，不再直接開 dg-measure.html。入口頁**自己完全不碰 I2C**（測試有釘：`live==0`），只列出 exe 旁真的存在的工具頁，誰被點誰才持有治具 —— 互搶的來源就此消失。
+- **I2C channel 擁有權**：同時只有一個 client 持有。被佔時 `open` 回 `busy:true`（可判別，不是靜默失敗）；非持有者的 `read`／`write`／`rawwrite` 一律擋下並標 `busy`。
+- **接手**：`open` 帶 `takeover:1` 會先送 `taken` 給原持有者、再把它的連線關掉。**關連線而不是只送訊息**，是因為既有的 dg-measure 不認得 `taken`，但它認得 `onclose`（走已測過的 `dgmI2cLost`），兩邊都會得到正確收尾。
+- **斷線釋放**（原本就有，本版補上擁有權清理並加測）：正常關閉、異常斷線（RST）、送到一半就不動的 client（5s `SO_RCVTIMEO`）三種都會 `I2C_CloseChannel`。
+  🔴 **閒置的 client 不會被沒收 channel** —— 分頁開著不動是正常狀態。真正保證釋放的是 TCP 斷線，這一點測試明文釘住，免得日後有人以為「逾時會自動回收」而少寫斷線處理。
+- 啟動橫幅改印選單網址與「同時只有一頁持有治具」的說明。
+
+### i2c.html 自足化（不再需要先繞去 dg 的任何頁面）
+- **helper 下載入口搬進本頁**：連結、檔名、大小、zip／exe 兩個 SHA256、三行流程、狀態字母表、「為什麼需要一支 exe」。**沒有 import dg 的任何 CSS／JS**，用本頁自己的樣式重做。
+- **下載常數單一來源**：`common/version.js` 的 `HELPER_PKG`，`dg-measure.html` 與本頁都從這裡讀，**不留第二份字面值**。順便把歷史上已經分岔的兩個版本號分開成具名欄位：`pkg`（zip 版本＝檔名）與 `exe`（執行檔自報版本）—— v1.3.0／v1.3.1／v1.3.2 三個包的 exe 全是 byte-identical 的 `1.3.0`，過去畫面只顯示包版本，看起來像 bug 其實不是。
+- **連線狀態講清楚**：目前走哪條通道（本機 helper WebSocket，且說明這是唯一通道）、helper 執行檔版本、proto 版本與本頁需要的版本、下載包版本。
+- **接手／釋放兩個出口**（保護一定要留出口）：被佔用時「接手 I2C」按鈕露出來；持有時「釋放 I2C」把治具交回去但**保持連線**（要回去用 DG 量測或原廠 PQ Tool 時用），與「中斷」（連 WebSocket 一起關）是兩件事。
+- **自動重連**：非預期斷線退避重試 3 次（1s／2s／4s），使用者自己按中斷則不重連。
+- **loopback 自動連線**：helper 端出來時不必再按「連線」。
+- `pagehide` 盡力送一筆 `close` —— 🔴 **只是加保險**，真正的保證在 helper 端的斷線釋放，註解裡寫明不要依賴頁面有沒有送出。
+
+### 🔴 部署層：他人在外地，線上版是唯一的取得管道
+- **離線打包版（helper 端出來的那一份）會明示警告**：頂部一條 warn 橫幅寫「本頁是離線打包版，內容停在打包當時 vX」＋線上版完整網址，而且**那一份的下載鈕直接指向線上網址**（指相對路徑的話 helper 端根本沒有 `data/`，只會 404）。這是防呆，不是說明文字。
+- **「檢查線上有無新版」按鈕**：抓線上的 `version.js` 比對 `HELPER_PKG.pkg`，落後就給出可直接點的下載連結。🔴 刻意做成**按鈕而不是載入時自動跑** —— 離線版存在的前提就是「沒有外網也能用」，自動對外發請求會違反那個前提。**要不要改成自動檢查，等 Bruce 裁示**（評估見本次回報）。
+- **版本不相容的訊息**改成「你手上哪一版 ／ 需要哪一版 ／ 要換成哪一包 ／ 去哪裡拿」四件事都講齊，並自動展開下載卡。
+- 連不到 helper 時同樣展開下載卡 —— 他可能就是缺那一包。
+
+> 🔴 **未經實機驗證**（沒有 Windows、沒有 FTDI 治具）：dg-helper.exe 在 Windows 上實際執行、D2XX／libMPSSE 呼叫、真正的 I2C 波形、真 TCON 的回應、Windows winsock 與 `select()` 的實際行為（測試跑的是 POSIX socket，shim 只翻譯了 `nfds` 與 `SO_RCVTIMEO` 兩處已知語意差異）。
+> **已驗（附數字）**：`test_server.c` **58 項全過**（真 TCP 連線；含「兩條連線並存時 HTTP 仍端得出檔案」「busy 可判別」「接手」「三種斷線釋放」「送到 libMPSSE 的 frame 逐 byte ＝ 12 34 DE AD BE」）；同一份測試對 v1.4.0 跑出 14 項 FAIL，正好落在上述兩條結構性斷言；`test_v140_release.c` 對 v1.4.0 實測斷線釋放（數字見上）；`i2c_tool_selftest.js` **177 項全過**（原 137 項未改一字，新增 40 項涵蓋單一來源、離線提示、busy／接手／釋放、版本不相容文案）；`test_proto.c` **76/76**；`dg_i2c_selftest.js` **202 項全過**；CA-410 回歸 `rows=256 prim=3 cmds=272`（同基準）；headless Chrome 截圖檢查線上版與離線被佔用兩種畫面。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.0.0 — 2026-09-18 ｜ MINOR
 
 **全新獨立頁 `i2c.html`：任意 slave、offset 寬度 0/1/2/4 byte、任意起始位址與長度的 I2C 讀寫，結果以 16×16 register dump 呈現。與 Digital Gamma（dg）沒有任何關係，不共用 dg 的 UI 框架與量測流程。**
@@ -59,6 +106,22 @@ https 頁面連 `ws://127.0.0.1` 會撞 Chrome 的 Local Network Access 閘，�
 
 > 🔴 **未經實機驗證**（沒有 Windows、沒有 FTDI 治具，驗不了，不做假探針）：dg-helper.exe 在 Windows 上實際執行、D2XX／libMPSSE 呼叫、真正的 I2C 波形、真 TCON 對 0x68/0x0000 的回應。
 > **已驗（附數字）**：`tools/i2c_tool_selftest.js` **137 項全過**（15 組，含以假 helper 驅動真頁面的端到端：四項輸入→送出的 WS 訊息欄位、資料落格位置、表格 256 格與列欄表頭、分頁邊界、全 FF 判定的正反面、讀失敗不填假值、proto 太舊被擋）；`tools/dg-helper/test_proto.c` **75 項全過**（原 32 項 ＋ offset 組包／寫入 frame 逐 byte／Content-Type 白名單／HTTP 路徑解析，正反都驗）；headless Chrome 實際截圖檢查版面（1180px 與 500px 各一輪，probe 量到 `body.scrollWidth === viewport`，無水平溢出）。
+
+---
+
+## Digital Gamma 迭代校正 (dg) v1.65.4 — 2026-09-18 ｜ PATCH
+
+**helper 換到 v1.5.0（修 I2C 治具互搶），因此本頁的下載連結與兩個 SHA 一起更新；那四個常數改讀 `common/version.js` 的單一來源。🔴 exe 內容有變 ⇒ SHA 變 ⇒ 要重過一次 SmartScreen。量測流程與輸出一個字都沒動。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表「使用者幾乎無感」那一欄 ⇒ **PATCH**。逐項確認：本頁沒有新增能力（R3 不適用）、起始狀態與預設值未變（R4 不適用）、沒有移除（案例 6 不適用）、按鈕位置與量測流程零變動。常數改讀 `HELPER_PKG` 是純重構、顯示值完全相同（案例 4：使用者無感 ⇒ PATCH）。**不標 `⚠ 輸出變更`**：CA-410 回歸 `rows=256 prim=3 cmds=272`，與 v1.65.3 基準相同。
+
+> 🔴 **判定取捨（供覆核）**：helper v1.5.0 起，啟動時瀏覽器開的是**選單頁**而不是直接開本頁，所以到達本頁多了一次點擊。這是唯一可能被視為「流程換掉」的地方。取 PATCH 的理由：**本頁自身的畫面、按鈕位置、操作、輸出完全沒變**，改變的是 helper 開哪一頁；而這個改變正是為了修「helper 一啟動就把 I2C 治具搶走、另一個工具完全無法使用」這個故障（Bruce 2026-09-18 實測回報）。依 §1 R2 補充「不確定一律往低編」，編 PATCH 並在此寫明取捨。若覆核認為「多一次點擊」應算流程變更，請裁示後再調整。
+
+- `DGM_HELPER_ZIP`／`ZIP_SHA`／`EXE_SHA`／`VER_STR` 四個常數不再寫死在本頁，改讀 `HELPER_PKG`（理由：`i2c.html` 也要顯示同一組數字，複製一份遲早不同步）。
+- `make_selfcontained.js` 跟著改：打包進 zip 的那一份要把 `zipSha` 與 `bytes` 中和掉 —— **zip 裡的檔案不可能寫出那個 zip 自己的雜湊與大小**（寫進去就變了）。這也是整條建置不循環的關鍵；已實測「重跑打包 == zip 內那一份」為 True。
+- 🔴 helper 現在會在 WebSocket 斷線時釋放 I2C channel **並清掉擁有權**；被另一個頁面接手時，本頁會收到連線關閉，走既有的 `dgmI2cLost` 收尾（本頁程式碼未改）。
+
+驗收：helper 套件 **v1.5.0**，zip SHA256 `d120c53cb6935e71b705d9202da5db900d4176d56e40fd7e1560dd159b281865`（307,052 byte）、exe SHA256 `792542cc4ab75ce3a21baf8af111935c3d482a06e8898b503ef886a681001704`（**已變更**；v1.4.0／v1.4.1 是 `6468994e…1509d`）。zip 內四個檔：`dg-helper.exe`（275,968 byte、PE machine `0x014c` ＝ 32-bit，實測）、`dg-measure.html`、`i2c.html`、`libMPSSE.dll`（與前版逐位元組相同）。舊 `data/dg-helper-v1.4.0.zip` 移除。
 
 ---
 
