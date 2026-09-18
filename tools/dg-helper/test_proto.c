@@ -48,18 +48,61 @@ int main(void){
         CHECK(dgh_json_int(w,"addr",-1)==4608,"json addr=4608(0x1200)");
     }
 
-    /* 4. 位址白名單（0x1200–0x12FF） */
+    /* 4. 位址白名單（v1.6.0 起是幾個區間的聯集，不再是單一段）
+       🔴 正面那一半是這一節存在的理由：check_nb_code_import / check_em01_code_import
+          那兩次破口都是「只驗壞的會被擋、沒驗好的會被放行」。所以**七顆 IC 實際
+          會寫到的每一個位址**都要在這裡被點名放行，一顆都不能漏。 */
     {
-        CHECK(dgh_write_allowed(0x1200,1)==1,"allow 0x1200 x1");
+        /* --- 正面：EM01A1 / VM01S1（ptg base 0x1200） --- */
+        CHECK(dgh_write_allowed(0x1200,1)==1,"allow EM01 soft 0x1200 x1");
+        CHECK(dgh_write_allowed(0x1201,1)==1,"allow EM01 pat 0x1201 x1");
+        CHECK(dgh_write_allowed(0x1238,2)==1,"allow EM01 xpos 0x1238 x2");
+        CHECK(dgh_write_allowed(0x123A,2)==1,"allow EM01 ypos 0x123A x2");
+        CHECK(dgh_write_allowed(0x1240,5)==1,"allow EM01 inside 0x1240 x5");
         CHECK(dgh_write_allowed(0x1268,1)==1,"allow 0x1268 x1");
         CHECK(dgh_write_allowed(0x12FF,1)==1,"allow 0x12FF x1");
         CHECK(dgh_write_allowed(0x12FE,2)==1,"allow 0x12FE x2 (ends 0x12FF)");
+        /* --- 正面：EM02A1 / V512S2 / VM02S1（ptg base 0x0C00） --- */
+        CHECK(dgh_write_allowed(0x0C00,1)==1,"allow EM02 soft 0x0C00 x1");
+        CHECK(dgh_write_allowed(0x0C01,1)==1,"allow EM02 pat 0x0C01 x1");
+        CHECK(dgh_write_allowed(0x0C5C,2)==1,"allow EM02 xpos 0x0C5C x2");
+        CHECK(dgh_write_allowed(0x0C36,2)==1,"allow EM02 ypos 0x0C36 x2");
+        CHECK(dgh_write_allowed(0x0C39,5)==1,"allow EM02 inside 0x0C39 x5");
+        CHECK(dgh_write_allowed(0x0C38,2)==1,"allow VM02S1 xpos 0x0C38 x2");
+        CHECK(dgh_write_allowed(0x0C3A,2)==1,"allow VM02S1 ypos 0x0C3A x2");
+        CHECK(dgh_write_allowed(0x0C40,5)==1,"allow VM02S1 inside 0x0C40 x5");
+        /* --- 正面：E512A1 / V512S1（ptg base 0x0200） --- */
+        CHECK(dgh_write_allowed(0x0200,1)==1,"allow E512 soft 0x0200 x1");
+        CHECK(dgh_write_allowed(0x0201,1)==1,"allow E512 pat 0x0201 x1");
+        CHECK(dgh_write_allowed(0x0203,5)==1,"allow E512 inside 0x0203 x5");
+        CHECK(dgh_write_allowed(0x0236,2)==1,"allow E512 ypos 0x0236 x2");
+        CHECK(dgh_write_allowed(0x025B,2)==1,"allow E512 xpos 0x025B x2");
+        CHECK(dgh_write_allowed(0x0239,5)==1,"allow V512S1 inside 0x0239 x5");
+        CHECK(dgh_write_allowed(0x0255,1)==1,"allow E512 aging_en byte 0x0255 x1");
+        /* --- 正面：cursor（十字）--- */
+        CHECK(dgh_write_allowed(0x0001,1)==1,"allow cursor clk 0x0001 (E512A1)");
+        CHECK(dgh_write_allowed(0x0002,1)==1,"allow cursor clk 0x0002 (EM01A1)");
+        CHECK(dgh_write_allowed(0x0003,1)==1,"allow cursor clk 0x0003 (EM02/VM01/V512S1)");
+        CHECK(dgh_write_allowed(0x0004,1)==1,"allow cursor clk 0x0004 (V512S2/VM02S1)");
+        CHECK(dgh_write_allowed(0xFF20,1)==1,"allow cursor ctl 0xFF20 x1");
+        CHECK(dgh_write_allowed(0xFF22,4)==1,"allow cursor xy 0xFF22 x4");
+        /* --- 反面 --- */
         CHECK(dgh_write_allowed(0x12FF,2)==0,"block 0x12FF x2 (overruns)");
-        CHECK(dgh_write_allowed(0x11FF,1)==0,"block 0x11FF (below)");
-        CHECK(dgh_write_allowed(0x1300,1)==0,"block 0x1300 (above)");
+        CHECK(dgh_write_allowed(0x11FF,1)==0,"block 0x11FF (below ptg)");
+        CHECK(dgh_write_allowed(0x1300,1)==0,"block 0x1300 (above ptg)");
+        CHECK(dgh_write_allowed(0x0BFF,1)==0,"block 0x0BFF (below EM02 ptg)");
+        CHECK(dgh_write_allowed(0x0D00,1)==0,"block 0x0D00 (dmc bank)");
+        CHECK(dgh_write_allowed(0x01FF,1)==0,"block 0x01FF (below E512 ptg)");
+        CHECK(dgh_write_allowed(0x0300,1)==0,"block 0x0300 (dither bank)");
+        CHECK(dgh_write_allowed(0x02ED,1)==1,"allow 0x02ED (inside E512 ptg range, page-side per-IC table is the fine gate)");
         CHECK(dgh_write_allowed(0x1200,0)==0,"block zero length");
-        CHECK(dgh_write_allowed(0x0000,1)==0,"block 0x0000");
+        CHECK(dgh_write_allowed(0x0000,1)==0,"block 0x0000 (below cursor clk)");
+        CHECK(dgh_write_allowed(0x0005,1)==0,"block 0x0005 (above cursor clk)");
+        CHECK(dgh_write_allowed(0x0004,2)==0,"block 0x0004 x2 (overruns cursor clk)");
         CHECK(dgh_write_allowed(0xFF00,1)==0,"block IC-ID reg 0xFF00 write");
+        CHECK(dgh_write_allowed(0xFF25,2)==0,"block 0xFF25 x2 (overruns cursor block)");
+        CHECK(dgh_write_allowed(0xFF26,2)==0,"block 0xFF26 (reg_tmg_hres is read-only to us)");
+        CHECK(dgh_write_allowed(0xE801,1)==0,"block 0xE801 (read-only observation point)");
     }
 
     /* 5. Origin 白名單 */

@@ -8,15 +8,43 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-/* ---- I2C 寫入位址白名單（ptg bank） ----
+/* ---- I2C 寫入位址白名單 ----
  * 🔴 只管 `write`（dg-measure 的量測流程）。`rawwrite`（I2C 測試工具）**不套**
- *    這條 —— 測試工具的性質就是要能任意讀寫，防護改用「如實寫進 log」達成。 */
+ *    這條 —— 測試工具的性質就是要能任意讀寫，防護改用「如實寫進 log」達成。
+ *
+ * 🔴 v1.6.0：從單一區間 0x1200–0x12FF 改成**幾個區間的聯集**，理由是事實層面的：
+ *    七顆 TCON 的 ptg bank base **不是同一個**（PQ Tool 反組譯覆核）——
+ *      EM01A1 / VM01S1          → 0x1200
+ *      EM02A1 / V512S2 / VM02S1 → 0x0C00
+ *      E512A1 / V512S1          → 0x0200
+ *    再加上 cursor（十字）要碰的 sys clock-enable 0x0001–0x0004 與 tm 0xFF20–0xFF25。
+ *
+ * 🔴 **helper 這一份必然是粗的：它不知道對面是哪一顆 IC**（IC 識別在網頁端）。
+ *    精確的那一份在 dg-measure.html 的 `dgmI2cWrRangesOf()`，依識別出來的 IC
+ *    逐顆查表，而且認不出來就一個位址都不寫。兩份的分工是刻意的：
+ *      · 網頁端：精確、會因為 IC 而變、擋得住「寫到別顆的 bank」
+ *      · helper：粗、永遠不變、擋得住「網頁端整個壞掉亂寫」
+ *    把 helper 這份也做成 per-IC 等於讓它相信網頁傳來的 IC 判斷，
+ *    那就不是第二道防線，只是把第一道抄了一份。 */
+typedef struct { uint32_t lo, hi; } DghRange;
+#define DGH_WR_RANGES_N 5
+static const DghRange DGH_WR_RANGES[DGH_WR_RANGES_N] = {
+    { 0x0001u, 0x0004u },   /* sys：cursor clock enable（per-IC 落在其中一個 byte） */
+    { 0x0200u, 0x02FFu },   /* ptg：E512A1 / V512S1 */
+    { 0x0C00u, 0x0CFFu },   /* ptg：EM02A1 / V512S2 / VM02S1 */
+    { 0x1200u, 0x12FFu },   /* ptg：EM01A1 / VM01S1 */
+    { 0xFF20u, 0xFF25u }    /* tm ：cursor enable／模式／顏色與 x,y 座標 */
+};
+/* 相容用（舊名字仍被 README 與測試引用）：ptg 那一段的代表值 */
 #define DGH_WR_ADDR_MIN 0x1200u
 #define DGH_WR_ADDR_MAX 0x12FFu
 static inline int dgh_write_allowed(uint32_t addr, int len){
     if(len<=0) return 0;
-    if(addr<DGH_WR_ADDR_MIN) return 0;
-    return (addr + (uint32_t)len - 1) <= DGH_WR_ADDR_MAX;
+    uint32_t end = addr + (uint32_t)len - 1u;
+    if(end < addr) return 0;                 /* 溢位：一律擋 */
+    for(int i=0;i<DGH_WR_RANGES_N;i++)
+        if(addr>=DGH_WR_RANGES[i].lo && end<=DGH_WR_RANGES[i].hi) return 1;
+    return 0;
 }
 
 /* ---- offset（sub-address）寬度組包，proto 2 ----

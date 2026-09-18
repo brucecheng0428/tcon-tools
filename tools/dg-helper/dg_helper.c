@@ -443,6 +443,11 @@ static int ws_recv_text(SOCKET c, char* out, int cap){
 typedef struct { SOCKET s; int used; int isWs; } Client;
 static Client g_cl[MAX_CLIENTS];
 static int    g_ownerIdx = -1;      /* 持有 I2C channel 的 client；-1＝沒人 */
+/* 🔴 v1.6.0：持有者可以把自己標成「忙碌中」（dg 正在跑 Gray 0~255 量測）。
+   忙碌中時**拒絕接手** —— 為了「切到哪頁哪頁自動接手」而讓正在跑的量測被
+   打斷，是拿無腦換掉正確性，不做。lock 只對持有者有效，持有權一換就歸零。 */
+static int    g_lockOwner = -1;     /* 宣告忙碌中的 client；-1＝沒人忙 */
+static int    i2c_locked(void){ return g_lockOwner>=0 && g_lockOwner==g_ownerIdx; }
 
 static int cl_add(SOCKET s){
     for(int i=0;i<MAX_CLIENTS;i++) if(!g_cl[i].used){
@@ -453,6 +458,10 @@ static int cl_add(SOCKET s){
    不放的話 helper 會一直握著治具，下一個頁面（與原廠 PQ Tool）都開不起來。 */
 static void cl_drop(int i){
     if(i<0||i>=MAX_CLIENTS||!g_cl[i].used) return;
+    /* 🔴 lock 一定要跟著持有權一起消失。忘了清的後果是最惡劣的那一種：
+       分頁關掉之後 helper 永遠認為「有人忙碌中」，所有接手都被拒，
+       而且畫面上沒有任何東西可以按 —— 只能重開 helper，正好是 Bruce 要免掉的事。 */
+    if(g_lockOwner==i){ logline("[ws] busy-lock owner #%d gone -> lock cleared", i); g_lockOwner=-1; }
     if(g_ownerIdx==i){
         logline("[ws] owner #%d disconnected -> releasing I2C channel", i);
         i2c_close();
@@ -480,6 +489,15 @@ static void handle_command(int idx, const char* json){
                 logline("[cmd] open from #%d -> BUSY (owner is #%d)", idx, g_ownerIdx);
                 ws_send_text(c,rep); return;
             }
+            /* 🔴 v1.6.0：持有者宣告忙碌中（量測進行中）就**拒絕接手**。
+               這條比「自動接手」優先 —— 切分頁不可以打斷正在跑的量測。 */
+            if(i2c_locked()){
+                snprintf(rep,sizeof(rep),
+                    "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"busy\":true,"
+                    "\"locked\":true,\"err\":\"the holding page is busy (measuring)\"}", id);
+                logline("[cmd] open(takeover) from #%d -> REFUSED (owner #%d is busy)", idx, g_ownerIdx);
+                ws_send_text(c,rep); return;
+            }
             /* 接手：先通知舊持有者，再關掉它的連線。關連線而不是只送訊息，是因為
                既有的 dg-measure 不認得新的 `taken` 型別，但它**認得 onclose**
                （走 dgmI2cLost 這條已經測過的路），這樣兩邊都會得到正確結果。 */
@@ -489,15 +507,32 @@ static void handle_command(int idx, const char* json){
             cl_drop(g_ownerIdx);
         }
         int ok=i2c_open(hz);
-        if(ok) g_ownerIdx=idx;
+        if(ok){ if(g_ownerIdx!=idx) g_lockOwner=-1; g_ownerIdx=idx; }
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":%s,\"channels\":%u%s}",
                  id, ok?"true":"false", g_numChannels, g_dllOk?"":",\"err\":\"libMPSSE not loaded\"");
         logline("[cmd] open from #%d -> %s (channels=%u)", idx, ok?"OK":"FAIL", g_numChannels);
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"close")==0){
+        if(g_lockOwner==idx) g_lockOwner=-1;
         if(g_ownerIdx==idx){ i2c_close(); g_ownerIdx=-1; logline("[cmd] close from #%d -> released", idx); }
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"close\",\"ok\":true}",id); ws_send_text(c,rep); return; }
+    /* ── lock（proto 3）：持有者宣告「忙碌中／不忙了」───────────────────────
+       🔴 只有持有者能設。非持有者設得動的話，任何一頁都可以把 channel 凍住，
+          那就從保護變成阻斷。設不動時回 ok:false 但**不當成錯誤畫在畫面上** ——
+          頁面那邊是 fire-and-forget。 */
+    if(strcmp(type,"lock")==0){
+        int on=(int)dgh_json_int(json,"on",1);
+        int ok=(g_ownerIdx==idx);
+        if(ok){
+            if(on) g_lockOwner=idx; else if(g_lockOwner==idx) g_lockOwner=-1;
+            logline("[cmd] lock from #%d -> %s", idx, on?"BUSY (takeover refused)":"free");
+        }
+        snprintf(rep,sizeof(rep),
+            "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"lock\",\"ok\":%s,\"locked\":%s}",
+            id, ok?"true":"false", i2c_locked()?"true":"false");
+        ws_send_text(c,rep); return;
+    }
     /* 讀寫一律要求「你是持有者」。只看 g_opened 不夠：那樣另一個頁面會在
        不知情的狀況下操作別人開的 channel，錯得很安靜。 */
     if((strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0)
@@ -552,8 +587,11 @@ static void handle_command(int idx, const char* json){
         uint32_t addr=(uint32_t)dgh_json_int(json,"addr",0);
         uint8_t data[60]; int dn=dgh_json_int_array(json,"data",data,sizeof(data));
         if(dn<0){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"bad data\"}",id); ws_send_text(c,rep); return; }
-        if(addr<WR_ADDR_MIN || (addr+(uint32_t)dn-1)>WR_ADDR_MAX){
-            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"addr blocked (helper whitelist 0x1200-0x12FF)\"}",id);
+        /* 🔴 v1.6.0：改用 dgh_write_allowed()（proto header 的區間表，七顆 IC 的
+           ptg bank ＋ cursor 暫存器）。原本寫死 0x1200–0x12FF 會把 EM02／E512
+           那幾顆的出圖全部擋掉 —— 同一支檢查在兩個地方各寫一份就是這樣分岔的。 */
+        if(!dgh_write_allowed(addr,dn)){
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"addr blocked by helper whitelist\"}",id);
             logline("[cmd] write BLOCKED addr=0x%04X x%d", addr, dn); ws_send_text(c,rep); return;
         }
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
@@ -562,7 +600,9 @@ static void handle_command(int idx, const char* json){
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"ping")==0){
-        snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s}",id,DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false");
+        snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"owner\":%s,\"locked\":%s}",
+                 id,DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false",
+                 (g_ownerIdx==idx)?"true":"false", i2c_locked()?"true":"false");
         ws_send_text(c,rep); return;
     }
 }
@@ -579,8 +619,9 @@ static int ws_upgrade(SOCKET c, const char* req){
     char resp[256]; snprintf(resp,sizeof(resp),"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",acc);
     if(!send_all(c,resp,(int)strlen(resp))) return 0;
     char hello[200]; snprintf(hello,sizeof(hello),
-        "{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"busy\":%s}",
-        DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false", (g_ownerIdx>=0)?"true":"false");
+        "{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"busy\":%s,\"locked\":%s}",
+        DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false",
+        (g_ownerIdx>=0)?"true":"false", i2c_locked()?"true":"false");
     ws_send_text(c,hello);
     return 1;
 }
