@@ -465,6 +465,22 @@ static int i2c_open(uint32_t clockHz) {
     if (p_Init) p_Init();
     if (p_GetNum(&g_numChannels)!=FT_OK || g_numChannels==0) return 0;
     if (p_Open(0,&g_handle)!=FT_OK) return 0;
+    /* 🔴 Options=3 = I2C_DISABLE_3PHASE_CLOCKING(0x1) | I2C_ENABLE_DRIVE_ONLY_ZERO(0x2).
+       Three-phase is deliberately OFF. FTDI AN_113 says I2C "should" enable it (0x8C),
+       but the vendor DLL explicitly DISABLES it -- DLL_I2C_BCB.dll sends 0x8D at
+       0x401c01, and 0x8C appears 0 times in the whole image. Per Bruce's ruling the
+       vendor is the spec (it demonstrably works); AN_113 only explains why.
+       Enabling three-phase would also drop the real clock to 2/3 of the setting
+       (400k -> 266k), which breaks the "set 400k, measure 400k" acceptance criterion.
+
+       🔴 The requested clock is the REAL wire clock -- no compensation needed:
+       Options bit0 makes libMPSSE's _I2C_InitChannel skip both the ClockRate*3/2
+       adjustment and the 0x8C write (libmpsse.dll 0x6f583693 / 0x6f5836c4).
+       _Mid_SetClock (0x6f5823f0) then, for clock <= 6 MHz, sends 0x8B (ENABLE
+       divide-by-5 => 12 MHz base) and programs divisor = 6e6/f - 1. Base and
+       formula are a matched pair, so 400000 -> divisor 14 -> 12e6/((1+14)*2)
+       = 400,000 Hz exactly. Full evidence: ~/ClaudeData/em02_readall/findings.md.
+       The raw-MPSSE path does no channel init of its own and inherits this. */
     ChannelConfig cfg; cfg.ClockRate=clockHz?clockHz:150000; cfg.LatencyTimer=1; cfg.Options=3;
     if (p_Init2(g_handle,&cfg)!=FT_OK) { p_Close(g_handle); g_handle=NULL; return 0; }
     g_opened=1; return 1;
