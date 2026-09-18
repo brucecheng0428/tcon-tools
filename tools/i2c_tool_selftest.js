@@ -1917,6 +1917,186 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('36. 🔴 逐格即時寫入 ⇒ 回讀驗證（顯示的一定是裝置上的真實值）');
+  {
+    const editCell = async (addr, text) => {
+      const td = doc.querySelector('#dump td[data-addr="' + addr + '"]');
+      td.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true }));
+      const inp = td.querySelector('input');
+      inp.value = text;
+      inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await sleep(40);
+    };
+    /* (a) 回讀相符 ⇒ 成功，不出聲 */
+    A._reset();
+    let store = new Map();
+    let sent = await useHelper(baseScript((m) => {
+      if (m.type === 'rawwrite') { m.data.forEach((b, i) => store.set(m.addr + i, b & 0xFF)); return { ok: true, status: 0, transferred: m.data.length }; }
+      if (m.type === 'read') { const o = []; for (let i = 0; i < m.len; i++) o.push(store.has(m.addr + i) ? store.get(m.addr + i) : 0x00); return { ok: true, status: 0, data: o }; }
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(25);
+    let since = sent.length;
+    await editCell(3, 'AA');
+    const after = sent.slice(since);
+    EQ(after.filter(m => m.type === 'rawwrite').length, 1, '🔴 編輯一格 ⇒ 送出 1 筆寫入');
+    EQ(after.filter(m => m.type === 'rawwrite')[0].data.length, 1, '🔴 而且只有 1 byte（byte write）');
+    EQ(after.filter(m => m.type === 'read').length, 1, '🔴 寫完立刻回讀 1 筆');
+    EQ(after.filter(m => m.type === 'read')[0].len, 1, '🔴 回讀 1 byte');
+    EQ(A.cellParts(3).main, 'AA', '回讀相符 ⇒ 格子顯示 AA');
+    EQ(A.wrFailAt(3), false, '回讀相符 ⇒ 不標失敗');
+    /* (b) 🔴 回讀不符 ⇒ 顯示**讀回來的值**，並標失敗（他的例子：填 AA、讀回 FF） */
+    A._reset();
+    sent = await useHelper(baseScript((m) => {
+      if (m.type === 'rawwrite') return { ok: true, status: 0, transferred: m.data.length };
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0xFF) };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(25);
+    await editCell(3, 'AA');
+    EQ(A.cellParts(3).main, 'FF', '🔴 填 AA、回讀 FF ⇒ 格子顯示 **FF**（裝置上的實際值）');
+    EQ(A.wrFailAt(3), true, '🔴 標成寫入失敗');
+    CHECK(/失敗/.test(doc.getElementById('readbanner').textContent), '🔴 講明寫入失敗：'
+      + doc.getElementById('readbanner').textContent.slice(0, 46));
+    CHECK(doc.querySelector('#dump td[data-addr="3"]').className.indexOf('wrfail') >= 0,
+      '🔴 格子有 wrfail 樣式（與 diff／FF／選取分得出來）');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('37. 🔴 EEPROM 型號視窗：每個 slave 只問一次');
+  {
+    A.eepromAuto();                       /* 真的跳視窗 */
+    const modal = () => win.getComputedStyle(doc.getElementById('eeprom')).display;
+    const confirmIt = async (pr) => { await sleep(25); doc.getElementById('ee-ok').click(); await pr; await sleep(15); };
+    A._reset();
+    await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.eeForget();
+    A.loadFile('x.bin', new win.Uint8Array(8));
+    await sleep(15);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '8' });
+    let pr = A.doWrite(); await sleep(25);
+    CHECK(modal() !== 'none', '🔴 第一次寫 0x50 ⇒ 跳視窗');
+    await confirmIt(pr);
+    A.loadFile('x2.bin', new win.Uint8Array(8)); await sleep(15);
+    await A.doWrite(); await sleep(25);
+    EQ(modal(), 'none', '🔴 同一個 slave 第二次寫入 ⇒ **不再跳**');
+    /* 換到另一個 EEPROM slave ⇒ 重新問（可能換了一顆） */
+    A.setInputs({ slave: '0x51' });
+    A.loadFile('x3.bin', new win.Uint8Array(8)); await sleep(15);
+    pr = A.doWrite(); await sleep(25);
+    CHECK(modal() !== 'none', '🔴 換到 0x51 ⇒ **重新問一次**');
+    await confirmIt(pr);
+    /* 非 EEPROM ⇒ 從來不問 */
+    A.setInputs({ slave: '0x68' });
+    A.loadFile('x4.bin', new win.Uint8Array(8)); await sleep(15);
+    await A.doWrite(); await sleep(25);
+    EQ(modal(), 'none', '🔴 非 EEPROM 的 slave ⇒ 不跳');
+    /* 斷線重連 ⇒ 全部重問 */
+    A.eeForget();
+    A.setInputs({ slave: '0x50' });
+    A.loadFile('x5.bin', new win.Uint8Array(8)); await sleep(15);
+    pr = A.doWrite(); await sleep(25);
+    CHECK(modal() !== 'none', '🔴 重新連線之後 ⇒ 重新問');
+    doc.getElementById('ee-cancel').click(); await pr; await sleep(15);
+    A.eepromAuto('24C32');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('38. 🔴 Shift＋方向鍵多選（線性位址區間，不是矩形）');
+  {
+    A._reset();
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, (_, i) => (m.addr + i) & 0xFF) };
+      return { ok: true, status: 0, transferred: 1 };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
+    await A.doRead(); await sleep(25);
+    EQ(A.curSet().bytes.length, 256, '前置：真的讀到 256 byte（mock 沒回 data 的話後面全錯）');
+    A.selClear();
+    EQ(A.selRange(), null, '沒點過 ⇒ 沒有選取');
+    A.selAnchor(0x00);
+    EQ(A.selRange(), null, '只點一格 ⇒ 還不算多選');
+    A.selMove(16);
+    EQ(A.selRange().len, 17, '🔴 在 0x00 按 Shift+下 ⇒ 選取 **17 格**（0x00–0x10），不是 2 格');
+    EQ(A.selRange().from + ',' + A.selRange().to, '0,16', '🔴 區間就是 0x00 到 0x10');
+    EQ(doc.querySelectorAll('#dump td.sel').length, 17, '🔴 畫面上真的標了 17 格');
+    A.selAnchor(0x00); A.selMove(1);
+    EQ(A.selRange().len, 2, '🔴 Shift+右 ⇒ 2 格');
+    A.selAnchor(0x00); A.selMove(16); A.selMove(1);
+    EQ(A.selRange().len, 18, '🔴 Shift+下再 Shift+右 ⇒ 18 格');
+    A.selAnchor(0x20); A.selMove(-16);
+    EQ(A.selRange().from + ',' + A.selRange().to, '16,32', '🔴 往上也對（0x10–0x20）');
+    A.selAnchor(0); A.selMove(-16);
+    EQ(A.selRange(), null, '🔴 夾在 0，不繞回');
+    EQ(A.selMove(16) && A.selRange() !== null, true, '夾住之後還能繼續往下選');
+    A.selAnchor(0);
+    A.selAnchor(255); A.selMove(16);
+    EQ(A.selRange(), null, '🔴 夾在最後一格，不繞回');
+    /* 有選取 ⇒ 按鈕寫出會寫多少 */
+    A.selAnchor(0x00); A.selMove(16);
+    EQ(doc.getElementById('btn-write').textContent, '寫入 17 byte', '🔴 按鈕標明會寫幾個 byte');
+    /* 🔴 有選取 ⇒ 只寫選取那段，而且是一筆 burst（非 EEPROM） */
+    const since = sent.length;
+    await A.doWrite(); await sleep(30);
+    const w = sent.slice(since).filter(m => m.type === 'rawwrite');
+    EQ(w.length, 1, '🔴 非 EEPROM ⇒ **一筆 burst**（不是 17 筆逐 byte）');
+    EQ(w[0].data.length, 17, '🔴 只寫選取的 17 byte');
+    EQ(w[0].addr, 0, '起始位址是選取的開頭');
+    /* Esc 清除選取 ⇒ 回到整批行為 */
+    A.selClear();
+    EQ(A.selRange(), null, 'Esc／點別處 ⇒ 清除選取');
+    EQ(doc.getElementById('btn-write').textContent, '寫入', '沒有選取 ⇒ 按鈕文字回復');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('39. 🔴 離線編輯 ⇒ 只改本地、標示未寫入，連線後多選一次 burst 寫進去');
+  {
+    /* Bruce 2026-09-19 的工作流：把 I2C 關掉 → 離線把值編好 → 連線 → 多選 → 一次寫。 */
+    A._reset();
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0x00) };
+      return { ok: true, status: 0, transferred: 1 };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '32' });
+    await A.doRead(); await sleep(25);
+    await win.__i2ct.disconnect(); await sleep(30);          /* 🔴 他故意把 I2C 關掉 */
+    const since = sent.length;
+    const editCell = async (addr, text) => {
+      const td = doc.querySelector('#dump td[data-addr="' + addr + '"]');
+      td.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true }));
+      const inp = td.querySelector('input');
+      inp.value = text;
+      inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await sleep(25);
+    };
+    for (let i = 0; i < 17; i++) await editCell(i, (0xA0 + i).toString(16).toUpperCase().slice(-2));
+    EQ(sent.slice(since).length, 0, '🔴 未連線編輯 ⇒ **完全沒有 I2C 交易**');
+    EQ(A.cellParts(0).main, 'A0', '值真的改了');
+    EQ(A.dirtyCount(), 17, '🔴 標示計數：已修改 17 byte 未寫入');
+    EQ(A.dirtyAt(0), true, '第一格標成未寫入');
+    CHECK(doc.querySelector('#dump td[data-addr="0"]').className.indexOf('dirty') >= 0,
+      '🔴 格子有 dirty 樣式（與讀回來的值分得出來）');
+    CHECK(/已修改 17 byte 未寫入/.test(doc.getElementById('dirtyline').textContent),
+      '🔴 總數顯示出來：' + doc.getElementById('dirtyline').textContent);
+    /* 連線 → 多選 17 格 → 一次寫進去 */
+    const sent2 = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.selAnchor(0); A.selMove(16);
+    EQ(A.selRange().len, 17, '多選 17 格');
+    await A.doWrite(); await sleep(30);
+    const w = SINCE(sent2, 'rawwrite');
+    EQ(w.length, 1, '🔴 一筆 burst 寫完 17 byte');
+    EQ(w[0].data.length, 17, '長度 17');
+    EQ(w[0].data.map(b => b & 0xFF).join(','),
+       Array.from({ length: 17 }, (_, i) => 0xA0 + i).join(','), '🔴 內容就是他離線編輯的值');
+    EQ(A.dirtyCount(), 0, '🔴 寫完 ⇒ 未寫入標示全部解除');
+    EQ(doc.getElementById('dirtyline').textContent, '', '計數歸零後那一行消失');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');
