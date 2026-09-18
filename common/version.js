@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.13.1',       // I2C（讀寫測試）
+  i2c:     'v1.13.2',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -48,11 +48,17 @@ var HELPER_PKG = {
   /* 🔴 v1.7.0（2026-09-18）：exe **有動**（拿掉自動開瀏覽器、靜態檔服務改成
      預設關閉）⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
      包內也從四個檔縮成兩個：**只有 exe ＋ libMPSSE.dll**，不再附 html。 */
-  pkg:    'v1.11.1',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.11.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  /* 🔴 v1.11.2 起包內是**三個檔**：exe ＋ libMPSSE.dll ＋ **ftd2xx.dll**。
+     ftd2xx.dll 是 D2XX 介面本體，快速讀取路徑要靠它的 FT_Write／FT_Read。
+     依 FTDI TN_153，隨應用程式附帶 D2XX 是官方支持的做法。
+     載入順序：**先系統已安裝的，載不到才用包內這一份**（見 i2c_bridge.c）。
+     ftd2xx.dll 419,256 bytes，
+     SHA256 46cff89a3de8db52ca2967c11235c010fdba7e823539245c85a0af28f2516577 */
+  pkg:    'v1.11.2',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.11.2',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.11.1.zip',
-  bytes:  162698,                             // zip 位元組數（打包後填）
-  zipSha: '426c06fa8013deb4121528d1a24f0606dfdce8963a457bf19b760bbbff59676c',
-  exeSha: '0298b7440bf5f48c76261026dc5b4f16e78445b55d17ca119659708103c4eb9f'
+  file:   'data/i2c-bridge-v1.11.2.zip',
+  bytes:  351209,                             // zip 位元組數（打包後填）
+  zipSha: 'e6c5d59ad35e22c8ebab37e697d01c46dc72953b64c6823ab02e5db3fb05383d',
+  exeSha: '6ff329335ffe57b34a2572a8c6deb3629d2492dd0c1981fc9c9471e2e21ccb0c'
 };

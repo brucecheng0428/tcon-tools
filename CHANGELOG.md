@@ -34,6 +34,140 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.13.2 — 2026-09-19 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 🔴 exe 有動（I2C Bridge v1.11.2）
+
+**找到 600 kHz 的真正根因：是我們自己的 `ChannelConfig` 結構對齊錯誤。**
+
+判定依據：主體是**修正為原本就該有的行為**（Options 本來就該送到 offset 8）⇒ 判定表
+「既有功能的輸出：修正為原本就該有的行為」＝ PATCH。附帶的三路徑比對是既有按鈕的擴充，
+不新增操作。R1～R4 逐項判取最高者仍是 PATCH。
+
+⚠ 輸出變更：修好之後 `I2C_DISABLE_3PHASE_CLOCKING` 才真正生效 ⇒
+**匯流排 SCL 由實測的 600 kHz 變成 400 kHz**，且 SDA 由推挽變回開汲極。
+讀回的位元組應不變，但**用邏輯分析儀存下來的舊波形基線不再可比**。
+
+### ✅ 已證實：`ChannelConfig` 被 `#pragma pack(1)` 污染（官方標頭為據）
+
+FTDI 官方 `libMPSSE_i2c.h` 宣告這個結構時**沒有任何 `#pragma pack`**：
+
+```c
+typedef struct ChannelConfig_t {
+    I2C_CLOCKRATE ClockRate;     // @0,  4 bytes
+    uint8         LatencyTimer;  // @4,  1 byte  (+3 padding)
+    uint32        Options;       // @8
+} ChannelConfig;                 // sizeof == 12
+```
+
+我們 `i2c_bridge.c` 卻加了 `#pragma pack(push,1)`，理由寫「matches C# [StructLayout(Pack=1)]」
+—— **那個依據是錯的**。packed 之後 `Options` 落在 offset **5**、`sizeof` 只有 **9**，
+而 DLL 是從 offset **8** 讀 ⇒ **它讀到的是 padding 加上結構外的堆疊位元組**。
+
+後果兩條，都不會報錯、只會安靜地錯：
+
+1. `I2C_DISABLE_3PHASE_CLOCKING`(bit0) **從未生效** ⇒ libMPSSE 認定三相啟用 ⇒
+   套用 `ClockRate*3/2` ⇒ **設 400k 實際程式化成 600k**，正是 Bruce 量到的數字。
+2. `I2C_ENABLE_DRIVE_ONLY_ZERO`(bit1) **也從未生效** ⇒ SDA 一直是**推挽**而非開汲極。
+
+🔴 **這同時解掉我先前「反組譯怎麼看都對不起來」的矛盾。** 我讀 `_I2C_InitChannel` 沒有讀錯
+（`testb $1,%dl` @ `0x6f583693` 在 bit0 有設時確實會跳過 `*3/2`）——
+**錯的是輸入**：DLL 根本沒收到 3。
+教訓已寫進程式碼註解：**量測與被呼叫端的解讀衝突時，先檢查呼叫端實際交出去的是什麼，
+再去懷疑自己對被呼叫端的解讀。**
+
+**修法與證明**：
+
+- 拿掉 `#pragma pack`，改用預設對齊。
+- 加**編譯期斷言**：`sizeof(ChannelConfig)==12`、`offsetof(Options)==8`、`offsetof(LatencyTimer)==4`。
+  🔴 **反向驗過**：把 `#pragma pack(1)` 加回去，編譯立刻失敗
+  （`dgh_assert_chancfg_size` / `dgh_assert_chancfg_opts` 宣告成負長度陣列）。
+  這代表**這個錯誤以後不可能再悄悄回來** —— 它會讓 build 紅，而不是讓匯流排慢慢錯。
+- `i2c_open` 把**實際的** `sizeof`／`offsetof(Options)`／`offsetof(LatencyTimer)`／`Options` 值
+  寫進 log，Bruce 丟 log 過來就能直接確認他手上那支是對的。
+- `cfg` 先 `memset` 清零：日後若有人把它改回 packed，症狀會是穩定壞掉而不是時好時壞。
+- **全檔掃過其他跨 DLL 邊界的結構**：`FT_NODE`（＝官方 `FT_DEVICE_LIST_INFO_NODE`）
+  本來就**沒有** packed，成員全部自然對齊（4×4 ＋ `char[16]`@16 ＋ `char[64]`@32 ＋ handle@96），
+  與官方 `ftd2xx.h` 一致 ⇒ **只有 ChannelConfig 一處**。
+
+### ✅ 已證實：一般路徑「照定義」就有 USB interframe delay
+
+FTDI 自己的 `libMPSSE_i2c.h` 對 FAST_TRANSFER 的註解：
+`/* no address phase, no USB interframe delays */`
+⇒ **反面即是：不開 FAST_TRANSFER 的一般路徑有 USB interframe delays。**
+這是 byte 間十幾毫秒的官方解釋 —— 不是我們用錯，那條路本來就長這樣。
+Bruce 說「這哪叫 burst read」是對的。
+
+### 🔵 假說（**不是結論**）：0F 是 struct bug 的次生災害
+
+我們試過 `FAST_TRANSFER_BYTES`，結果是 Bruce 讀 0x68「前 2 byte 對、其餘全 0F」。
+**但那次是在 `ChannelConfig` 對齊錯誤的情況下測的** —— 當時
+`I2C_ENABLE_DRIVE_ONLY_ZERO` 沒生效，**SDA 是推挽輸出**。
+推挽在 I2C 上主從會互相驅動打架，慢速時也許還勉強讀得到，一旦拿掉 interframe delay、
+時序變緊就爆掉，而那正好是 0F 的形狀。
+
+🔴 **推翻條件（寫在這裡以免日後硬拗）：struct 修好之後開 FAST_TRANSFER 若仍出現 0F，
+本假說即被推翻**，要回頭找別的原因，不准找理由圓它。
+所以 FAST_TRANSFER **仍然預設關閉**，直到 Bruce 在硬體上驗過 —— 這條規則不變。
+
+### 🔴 快速路徑為什麼沒生效：**我沒有查出確切原因**
+
+Bruce 實測 exe v1.11.1、網頁 v1.13.1、快速模式預設開，間隔仍 15~16 ms。
+**我無法從這台 Mac 判定確切原因**（沒有 Windows、沒有治具，執行不了 exe），
+而 v1.11.1 的 log **沒有任何一行**能分辨是哪一個前置條件不成立 —— 這正是查不下去的原因。
+**不猜，改成讓下一次一定查得出來**：
+
+- `open` 收到 `rawmpsse` 時印出「收到什麼值」與「套用後 `dgh_raw_mpsse` 是多少」。
+- 走慢路徑時印出**三個條件各自的值**與哪一個把它擋掉
+  （`rawmpsse` 旗標／`ftd2xx.dll` 的 `FT_Write`/`FT_Read` 解析不到／長度超過上限）。
+- d2xx 載入印出**從哪裡載到、實際路徑是什麼**；解析不到時明講
+  「every read will silently fall back to the slow path」。
+
+**最可能的那一個已經先堵起來**（見下）：`DGH_RAW_AVAILABLE = p_FT_Write && p_FT_Read`，
+只要 `ftd2xx.dll` 載不到就是 0，而舊版**完全靜默**地退回慢路徑。
+
+### 🔴 任何路徑退回都不再靜默
+
+- **bridge 端**：每次走慢路徑都寫明原因（上一節）。
+- **網頁端**：要求了快的、回報卻是慢的 ⇒ topbanner 留一行
+  「這次用的是比較慢的讀取方式（快的方式在這台電腦上用不了）」，並在 log 指向
+  `i2c-bridge.log` 的 `SLOW path because …` 那一行。只講一次，不洗版。
+
+### 包內附帶 `ftd2xx.dll`
+
+依 FTDI **TN_153**（隨應用程式附帶 D2XX 是官方支持的做法）。
+`FTD2XX_NET.dll` 是給 C# 的受管理包裝層，我們是 C ⇒ **不包**。
+
+- 檔案：419,256 bytes，SHA256 `46cff89a3de8db52ca2967c11235c010fdba7e823539245c85a0af28f2516577`
+  （EM01 與 EM02 兩套工具裡的那兩份**雜湊完全相同**，已交叉比對；`objdump -f` ⇒
+  `coff-i386`，與我們 32-bit PE 的 bridge 相符）
+- 🔴 **載入順序：先系統已安裝的，載不到才用包內這一份。**
+  系統驅動的使用者模式版本與核心驅動相匹配，優先用它才不會版本錯配；包內那份只是保險。
+  兩條路都在 log 寫明用了哪一份與完整路徑。
+
+### 三條路徑一次量完
+
+「快慢路徑比對」按鈕改成量**三條**：**快速**（我們自己組命令）／**中速**
+（libMPSSE 的 `FAST_TRANSFER_BYTES`）／**一般**（基準）。
+三條都逐 byte 對基準比，**中速那條單獨給一行結論**，不被快速那條的結果帶過。
+耗時紀錄三條各一筆。
+
+### 時脈
+
+`i2c_force_clock` **維持預設關閉**。Options 修好後時脈若自然變成 400k，
+那段事後插隊寫入就永遠不需要 —— 等 Bruce 量過再決定要不要刪掉它。
+
+### 測試
+
+jsdom **811**（新增：標題列與診斷列**真的顯示** Bridge 版本；三路徑比對的 4 次 open／
+3 次讀取／三筆結論）、真實瀏覽器 **75**、bridge TCP **103**、proto **154**、文案閘門通過。
+struct 佈局有**編譯期斷言 ＋ 執行期 log**，並已反向驗證斷言會擋。
+
+🔴 **關於「網頁上看不到 Bridge 版本」：我沒能重現。** jsdom 實測標題列確實顯示
+「I2C Bridge 1.4.0 · proto 2」，`#helperinfo` 也不在 debug 區。
+最可能的解釋是他當時**根本沒拿到 pong**（v1.11.0 連不上），而不是顯示邏輯有錯。
+已加測試釘住這個顯示，若之後再發生就是別的原因。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.13.1 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.1）
 
 **修 v1.11.0 的 regression（完全連不上 I2C Bridge），同時把快讀變成不必勾就有的預設。**

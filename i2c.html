@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1131"></script>
+<script src="common/version.js?v=20260919i2c1132"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1755,7 +1755,7 @@ async function i2ctConnect(takeover){
     i2ctRetry = 0;
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctEeForget();      /* 🔴 重新連線 ⇒ EEPROM 型號重問（可能換了一片板子） */
-    i2ctFastVerified = null;   /* 🔴 換了板子／重連 ⇒ 快路徑要重驗一次 */
+    i2ctFastVerified = null; i2ctRawFellBack = false;   /* 🔴 換了板子／重連 ⇒ 快路徑要重驗一次 */
     i2ctBanner('topbanner', '', '');
     i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C Bridge）
     /* 🔴 連線**不做任何 I2C 交易**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
@@ -1896,6 +1896,17 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
     /* bridge 回報它實際走了哪條路 ⇒ 耗時紀錄才比得出「快慢路徑差多少」。 */
     /* 🔴 畫面上只講「快速／一般」，不講實作（Bruce 2026-09-19）。細分留在 log。 */
     i2ctLastPath = r.raw ? '快速模式' : '一般模式';
+    /* 🔴 **要求了快的、拿回來卻是慢的** ⇒ bridge 端有前置條件不成立（旗標沒收到、
+       ftd2xx.dll 的 FT_Write/FT_Read 解析不到、長度超過上限）。
+       這種情況以前是**完全靜默**的：畫面照樣出資料，只是慢，他量了才發現 ——
+       Bruce 2026-09-19 就是這樣白跑一輪（「我確定我是 v1.11.1」但間隔仍 15~16 ms）。
+       任何一條路徑退回都不准靜默，這是規則。 */
+    if (i2ctRawMpsse && r.raw === false && !i2ctRawFellBack) {
+      i2ctRawFellBack = true;
+      i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式（快的方式在這台電腦上用不了）。');
+      i2ctLog('🔴 要求快速模式但 bridge 回報走的是一般模式 ⇒ 看 i2c-bridge.log 的 '
+            + '「SLOW path because …」那一行，它會指出是哪一個前置條件不成立', 'e');
+    }
     if (typeof r.usbrt === 'number') i2ctLastUsbRt = r.usbrt;
     i2ctLog('R  slave 0x' + i2ctHex(slave) + ' · offset ' + awid + 'B '
           + (awid === 0 ? '(無位址)' : i2ctAddrText(c.addr, awid))
@@ -1945,6 +1956,7 @@ function i2ctRenderProgress(){
    不一致或快路徑報錯 ⇒ 自動退回慢的，留一行常駐訊息，細節只進 log。 */
 var I2CT_VERIFY_N = 64;
 var i2ctFastVerified = null;      /* null=還沒驗 / true=驗過一致 / false=已退回慢的 */
+var i2ctRawFellBack = false;      /* bridge 端偷偷退回慢路徑 ⇒ 只講一次，不要每次讀都洗版 */
 async function i2ctVerifyFastOnce(slave, awid, off, len){
   if (!i2ctRawMpsse || i2ctFastVerified !== null) return;
   var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
@@ -2774,28 +2786,45 @@ async function i2ctComparePaths(){
   var n = Math.min(v.len, I2CT_CHUNK_RAW);
   i2ctBusy = true; i2ctSyncButtons();
   i2ctLog('── 快慢路徑比對：同一段 ' + n + ' byte 各讀一次 ──', 'n');
-  var res = { raw: null, slow: null };
-  for (var pass = 0; pass < 2; pass++) {
-    var useRaw = (pass === 0);
+  /* 🔴 三條路一起量（Bruce 2026-09-19 要「一次量出三種」）：
+       · 一般   ＝ libMPSSE 逐 byte。FTDI 自己的 libMPSSE_i2c.h 對 FAST_TRANSFER
+                  的註解是「no address phase, **no USB interframe delays**」——
+                  反過來說，不開它的這條路**照定義就有 USB interframe delay**。
+                  這就是 byte 間十幾毫秒的官方解釋，不是我們用錯。
+       · 中速   ＝ libMPSSE 的 FAST_TRANSFER_BYTES（0x10）
+       · 快速   ＝ 我們自己組整段命令，整段只有結尾一個 0x87
+     三條都要逐 byte 比對，因為快不等於對。 */
+  var MODES = [
+    { key: 'raw',  name: '快速', fastread: 0, rawmpsse: 1 },
+    { key: 'mid',  name: '中速', fastread: 1, rawmpsse: 0 },
+    { key: 'slow', name: '一般', fastread: 0, rawmpsse: 0 }
+  ];
+  var res = {};
+  for (var pass = 0; pass < MODES.length; pass++) {
+    var M = MODES[pass];
     try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
-                           fastread: 0, rawmpsse: useRaw ? 1 : 0 }); }
+                           fastread: M.fastread, rawmpsse: M.rawmpsse }); }
     catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換模式失敗：' + e.message); return; }
     var t0 = Date.now();
-    var r = await i2ctDoRead(v.slave, v.wireAwid, v.off, n);
-    res[useRaw ? 'raw' : 'slow'] = { ok: r.ok, bytes: r.bytes, ms: Date.now() - t0, err: r.err };
+    var r = await i2ctDoRead(v.slave, v.wireAwid, v.off, n, true);
+    res[M.key] = { ok: r.ok, bytes: r.bytes, ms: Date.now() - t0, err: r.err, name: M.name };
   }
-  var bad = 0, first = -1, done = (res.raw.ok && res.slow.ok);
-  if (done) {
-    var cmpN = Math.min(res.raw.bytes.length, res.slow.bytes.length);
-    for (var i = 0; i < cmpN; i++) {
-      if ((res.raw.bytes[i] & 0xFF) !== (res.slow.bytes[i] & 0xFF)) { bad++; if (first < 0) first = i; }
-    }
+  /* 🔴 基準是「一般」那條：它是唯一從頭到尾沒出過錯的路徑。
+     另外兩條各自跟它比，任何一條錯都要單獨講出來 —— 不可以因為某一條對就帶過。 */
+  function i2ctCmpTo(base, other){
+    if (!base || !base.ok || !other || !other.ok) return { bad: -1, first: -1 };
+    var b = 0, f = -1, m = Math.min(base.bytes.length, other.bytes.length);
+    for (var i = 0; i < m; i++)
+      if ((base.bytes[i] & 0xFF) !== (other.bytes[i] & 0xFF)) { b++; if (f < 0) f = i; }
     /* 長度不同本身就是不一致 —— 不能只比共同長度就說「相同」。 */
-    if (res.raw.bytes.length !== res.slow.bytes.length) {
-      bad += Math.abs(res.raw.bytes.length - res.slow.bytes.length);
-      if (first < 0) first = cmpN;
+    if (base.bytes.length !== other.bytes.length) {
+      b += Math.abs(base.bytes.length - other.bytes.length); if (f < 0) f = m;
     }
+    return { bad: b, first: f };
   }
+  var cRaw = i2ctCmpTo(res.slow, res.raw), cMid = i2ctCmpTo(res.slow, res.mid);
+  var bad = cRaw.bad, first = cRaw.first, done = (res.raw.ok && res.slow.ok);
+  if (bad < 0) bad = 0;
   /* 🔴 不一致（或快速模式根本讀失敗）⇒ 強制關掉快速模式，不留在危險狀態。 */
   var forcedOff = false;
   if ((!done && !res.raw.ok) || (done && bad)) {
@@ -2814,21 +2843,36 @@ async function i2ctComparePaths(){
     return;
   }
   var speed = res.slow.ms > 0 ? (res.slow.ms / Math.max(res.raw.ms, 1)).toFixed(1) : '?';
+  var midSpeed = (res.mid && res.mid.ok && res.slow.ms > 0)
+               ? (res.slow.ms / Math.max(res.mid.ms, 1)).toFixed(1) : null;
   if (!bad) {
-    i2ctBanner('readbanner', 'ok', '✔ <b>兩種模式讀到的 ' + n + ' byte 完全相同</b>：'
-      + '快速模式 ' + i2ctSecs(res.raw.ms) + '、一般模式 ' + i2ctSecs(res.slow.ms)
-      + '　⇒ <b>快 ' + speed + ' 倍，可以放心開快速模式</b>。');
-    i2ctLog('✔ 快慢路徑比對：' + n + ' byte 全部相同（快 ' + res.raw.ms + ' ms vs 慢 ' + res.slow.ms + ' ms）', 'o');
+    i2ctBanner('readbanner', 'ok', '✔ <b>快速模式與一般模式讀到的 ' + n + ' byte 完全相同</b>：'
+      + '快速 ' + i2ctSecs(res.raw.ms) + '、一般 ' + i2ctSecs(res.slow.ms)
+      + '　⇒ <b>快 ' + speed + ' 倍，可以放心用快速模式</b>。');
+    i2ctLog('✔ 路徑比對：' + n + ' byte 全部相同（快 ' + res.raw.ms + ' ms vs 一般 ' + res.slow.ms + ' ms）', 'o');
   } else {
-    i2ctBanner('readbanner', 'err', '🔴 <b>兩種模式讀到的值不一樣</b>：' + n + ' byte 中有 '
-      + bad + ' byte 不符（第一個在 +' + first + '）⇒ <b>不要開快速模式</b>'
+    i2ctBanner('readbanner', 'err', '🔴 <b>快速模式讀到的值不一樣</b>：' + n + ' byte 中有 '
+      + bad + ' byte 不符（第一個在 +' + first + '）⇒ <b>不要用快速模式</b>'
       + (forcedOff ? '，已自動改回一般模式。' : '。'));
-    i2ctLog('✕ 快慢路徑比對：' + bad + '/' + n + ' byte 不符，第一個在 +' + first, 'e');
+    i2ctLog('✕ 路徑比對：' + bad + '/' + n + ' byte 不符，第一個在 +' + first, 'e');
+  }
+  /* 🔴 中速那條**單獨講**，不可以被快速那條的結論帶過 —— 它是另一個變因
+     （libMPSSE 的 FAST_TRANSFER_BYTES），對錯與快慢都要自己的一行。 */
+  if (!res.mid || !res.mid.ok) {
+    i2ctLog('· 中速模式讀失敗：' + (res.mid ? res.mid.err : '沒有結果'), 'w');
+    i2ctNoteTime('比對', n, 0, '中速模式', '讀失敗', 'diff');
+  } else {
+    i2ctLog('· 中速模式：' + res.mid.ms + ' ms，' + (cMid.bad ? cMid.bad + ' byte 不符' : '資料相同'),
+            cMid.bad ? 'e' : 'o');
+    i2ctNoteTime('比對', n, res.mid.ms, '中速模式',
+                 cMid.bad ? ('不符 ' + cMid.bad)
+                          : ('相同' + (midSpeed ? ' · 快 ' + midSpeed + '×' : '')),
+                 cMid.bad ? 'diff' : 'same');
   }
   /* 結論跟著耗時一起常駐，banner 被蓋掉之後還看得到。 */
   i2ctNoteTime('比對', n, res.raw.ms, '快速模式',
                bad ? ('不符 ' + bad) : ('相同 · 快 ' + speed + '×'), bad ? 'diff' : 'same');
-  i2ctNoteTime('比對', n, res.slow.ms, '一般模式', bad ? '不符 ' + bad : '相同', bad ? 'diff' : 'same');
+  i2ctNoteTime('比對', n, res.slow.ms, '一般模式', '基準', 'same');
 }
 
 /* ═══ 🔴 清空：回到「完全沒有檔案」的狀態（Bruce 2026-09-19）══════════════
@@ -3867,7 +3911,7 @@ window.__i2ct = {
        `_reset` 的語意是「回到剛打開網頁的狀態」，而剛打開時這兩個就是這樣。
        不重設的話，前一組測試把快速模式關掉之後會漏到下一組，
        下一組就在驗一個使用者根本遇不到的狀態 —— 那種綠燈沒有意義。 */
-    i2ctRawMpsse = true; i2ctFastVerified = null;
+    i2ctRawMpsse = true; i2ctFastVerified = null; i2ctRawFellBack = false;
     { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
     i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctSyncButtons();

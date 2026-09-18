@@ -40,6 +40,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stddef.h>          /* offsetof -- used by the ChannelConfig layout asserts */
 
 #include "i2c_bridge_version.h"
 #include "i2c_bridge_proto.h"   /* SHA1 / Base64 / JSON / whitelist / Origin (shared with test_proto.c) */
@@ -149,10 +150,41 @@ static double now_ms(void){
 #define DGH_READ_MAX 4096
 #define DGH_MP_CMD_MAX (DGH_READ_MAX * 13 + 512)
 
-/* ---- libMPSSE ChannelConfig (Pack=1, matches C# [StructLayout(Pack=1)]) ---- */
-#pragma pack(push, 1)
+/* ═══ 🔴 libMPSSE ChannelConfig -- DEFAULT ALIGNMENT, **NOT** packed ═══════════
+   FTDI's official libMPSSE_i2c.h declares it with no #pragma pack at all:
+
+       typedef struct ChannelConfig_t {
+           I2C_CLOCKRATE ClockRate;     // offset 0, 4 bytes
+           uint8         LatencyTimer;  // offset 4, 1 byte  (+3 padding)
+           uint32        Options;       // offset 8
+       } ChannelConfig;                 // sizeof == 12
+
+   🔴 This used to be `#pragma pack(push,1)` here, justified by a comment saying it
+   "matches C# [StructLayout(Pack=1)]". That justification was wrong, and it was a
+   REAL, PROVEN BUG -- not a suspicion:
+
+     packed layout put Options at offset 5 (sizeof 9), but the DLL reads it from
+     offset 8, i.e. from padding + whatever stack bytes followed the struct.
+     ⇒ I2C_DISABLE_3PHASE_CLOCKING (bit0) never took effect, so libMPSSE believed
+       three-phase clocking was ON and applied ClockRate*3/2 -- which is exactly
+       why Bruce measured **600 kHz when we asked for 400 kHz** (400k * 3/2).
+     ⇒ I2C_ENABLE_DRIVE_ONLY_ZERO (bit1) never took effect either, so SDA was
+       driven push-pull instead of open-drain the whole time.
+
+   🔴 This also resolves the contradiction I could not explain earlier. I had read
+   _I2C_InitChannel correctly (testb $1,%dl at 0x6f583693 skips the *3/2 when bit0
+   is set); what was wrong was my assumption that the DLL was *receiving* Options=3.
+   It was not -- we were writing it to the wrong offset. The disassembly was fine;
+   the input was garbage. Lesson: when a measurement contradicts a reading of the
+   callee, check what the caller actually handed over before doubting the reading.
+
+   The static asserts below make this unfixable-by-accident: any future change that
+   re-packs the struct fails the build instead of silently mis-clocking the bus. */
 typedef struct { uint32_t ClockRate; uint8_t LatencyTimer; uint32_t Options; } ChannelConfig;
-#pragma pack(pop)
+/* C89-compatible compile-time assertions (negative array size on failure). */
+typedef char dgh_assert_chancfg_size[(sizeof(ChannelConfig) == 12) ? 1 : -1];
+typedef char dgh_assert_chancfg_opts[(offsetof(ChannelConfig, Options) == 8) ? 1 : -1];
+typedef char dgh_assert_chancfg_lat [(offsetof(ChannelConfig, LatencyTimer) == 4) ? 1 : -1];
 
 /* FT_DEVICE_LIST_INFO_NODE (for enumeration diagnostics) */
 typedef struct {
@@ -299,17 +331,34 @@ static int try_dir(const char* dirIn) {
        所以在同一個 handle 上送 MPSSE opcode 與 libMPSSE 自己做的事完全同一件。
        ftd2xx.dll 是 libMPSSE 的相依，能載到 libMPSSE 就一定載得到它。
        拿不到也不是致命錯誤 —— 只是 raw 路徑不可用，退回 libMPSSE。 */
+    /* 🔴 載入順序（Bruce/Dispatch 2026-09-19，依 FTDI TN_153「隨應用程式附帶 D2XX」）：
+         ① 先試**系統已安裝**的（預設搜尋路徑）—— 系統驅動的版本與核心驅動相匹配，
+            優先用它才不會出現使用者模式與核心模式版本不一致。
+         ② 失敗才載 **exe 同目錄**附帶的那一份（zip 裡有附）。那只是保險。
+       🔴 兩條路都要在 log 寫明**用了哪一份、路徑是什麼** —— 這正是這一輪查不下去的原因：
+          舊版只印 "unavailable"，完全看不出是沒找到檔案、還是找到了但沒有那些函式。 */
     {
         HMODULE d2 = LoadLibraryA("ftd2xx.dll");
+        const char* src = "system search path";
+        char bundled[MAX_PATH];
         if(!d2) d2 = GetModuleHandleA("ftd2xx.dll");
+        if(!d2){
+            snprintf(bundled, sizeof(bundled), "%sftd2xx.dll", g_exeDir);
+            d2 = LoadLibraryA(bundled);
+            src = bundled;
+            if(!d2) logline("  d2xx    : NOT FOUND -- tried system search path and %s", bundled);
+        }
         if(d2){
+            char got[MAX_PATH]; DWORD n = GetModuleFileNameA(d2, got, sizeof(got));
             p_FT_Write=(PFN_FT_Write)GetProcAddress(d2,"FT_Write");
             p_FT_Read =(PFN_FT_Read) GetProcAddress(d2,"FT_Read");
             p_FT_Purge=(PFN_FT_Purge)GetProcAddress(d2,"FT_Purge");
+            logline("  d2xx    : loaded from %s -> %s", src, n ? got : "(path unknown)");
         }
-        logline("  d2xx    : FT_Write=%s FT_Read=%s FT_Purge=%s (raw MPSSE %s)",
-                p_FT_Write?"ok":"-", p_FT_Read?"ok":"-", p_FT_Purge?"ok":"-",
-                (p_FT_Write&&p_FT_Read)?"available":"unavailable");
+        logline("  d2xx    : FT_Write=%s FT_Read=%s FT_Purge=%s ==> fast path %s",
+                p_FT_Write?"ok":"MISSING", p_FT_Read?"ok":"MISSING", p_FT_Purge?"ok":"-",
+                (p_FT_Write&&p_FT_Read)?"AVAILABLE"
+                                       :"UNAVAILABLE (every read will silently fall back to the slow path)");
     }
     if (!p_GetNum||!p_Open||!p_Close||!p_Init2||!p_Write||!p_Read) {
         g_dllLoadedButBad = 1;
@@ -571,7 +620,16 @@ static int i2c_open(uint32_t clockHz) {
        the same base/formula pair the vendor's SetClock uses (dll_i2c.asm 0x4017bc).
        400000 -> divisor 14 -> 12e6/((1+14)*2) = 400,000 Hz.
        This is verifiable on Bruce's analyser, which is the point. */
-    ChannelConfig cfg; cfg.ClockRate=clockHz?clockHz:150000; cfg.LatencyTimer=1; cfg.Options=3;
+    /* 🔴 memset 先清乾淨：padding(offset 5~7) 若留著堆疊垃圾，日後任何人把
+       struct 改回 packed 時症狀會變成「有時對有時錯」，比穩定壞掉更難查。 */
+    ChannelConfig cfg; memset(&cfg, 0, sizeof(cfg));
+    cfg.ClockRate=clockHz?clockHz:150000; cfg.LatencyTimer=1; cfg.Options=3;
+    /* 🔴 把結構佈局印出來 —— 600 kHz 的根因就是這三個數字錯了，而且**完全沒有徵兆**：
+       它不會報錯，只會讓 DLL 讀到垃圾。編譯期斷言已經擋住了，這一行是給
+       Bruce 的 log 用的：他丟 log 過來我們就能直接確認他手上那支是對的。 */
+    logline("  open    : ChannelConfig sizeof=%d Options@%d LatencyTimer@%d -> Options=0x%X (3phase-off|drive0)",
+            (int)sizeof(ChannelConfig), (int)offsetof(ChannelConfig, Options),
+            (int)offsetof(ChannelConfig, LatencyTimer), cfg.Options);
     t = now_ms();
     if (p_Init2(g_handle,&cfg)!=FT_OK) {
         logline("  open    : ABORT InitChannel failed (+%.0f ms)", now_ms()-t);
@@ -695,6 +753,14 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
         g_lastRaw = 1;
         s = raw_read(slave, addr, awid, len, out, got);
     } else {
+        /* 🔴 走慢路徑時**一定要說出是哪一個條件擋掉的**。Bruce 回報 v1.11.1 間隔
+           仍是 15~16 ms，而舊 log 只寫 mode=slow，三個條件哪一個不成立完全看不出來，
+           害他和 Dispatch 多繞了一圈。三個都印，不要只印第一個。 */
+        logline("  i2c_read: SLOW path because rawmpsse=%d d2xx=%d len=%u(max %d)%s",
+                dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0, len, DGH_READ_MAX,
+                !dgh_raw_mpsse ? "  <-- flag off"
+                  : (!DGH_RAW_AVAILABLE ? "  <-- ftd2xx.dll FT_Write/FT_Read not resolved"
+                                        : "  <-- length over limit"));
         if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
         s = p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
         /* libMPSSE 非 fast 路徑：每 byte 兩次 USB 往返（命令 ＋ 讀回） */
@@ -814,7 +880,13 @@ static void handle_command(int idx, const char* json){
     if(strcmp(type,"open")==0){
         /* 網頁也可以指定讀取模式（open 帶 "fastread":0）⇒ 不必重開程式就能 A/B 比較。 */
         { long fr = dgh_json_int(json,"fastread",-1); if(fr==0) dgh_fast_read=0; else if(fr==1) dgh_fast_read=1; }
-        { long rm = dgh_json_int(json,"rawmpsse",-1); if(rm==0) dgh_raw_mpsse=0; else if(rm==1) dgh_raw_mpsse=1; }
+        { long rm = dgh_json_int(json,"rawmpsse",-1); if(rm==0) dgh_raw_mpsse=0; else if(rm==1) dgh_raw_mpsse=1;
+          /* 🔴 印出「收到什麼」與「套用後是什麼」兩個值。Bruce 2026-09-19 回報
+             v1.11.1 的間隔仍是 15~16 ms（＝ Windows 排程器 tick ＝ 走 libMPSSE 那條），
+             而我們**無法從既有 log 分辨**是旗標沒送到、沒被收下、還是後面被擋掉。
+             這一行把「沒被收下」這個可能性直接變成可觀測的。 */
+          logline("  open    : rawmpsse field=%ld -> dgh_raw_mpsse=%d ; d2xx %s",
+                  rm, dgh_raw_mpsse, DGH_RAW_AVAILABLE ? "available" : "MISSING (fast path impossible)"); }
         uint32_t hz=(uint32_t)dgh_json_int(json,"clockHz",150000);
         /* 已經被別的頁面持有：**不靜默失敗、不靜默排隊**，回一個可判別的
            錯誤型別（busy=true），頁面據此顯示「已被另一個頁面佔用」＋接手鈕。 */
