@@ -2150,6 +2150,114 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('41. 🔴 燒 EEPROM ⇒ 寫完自動回讀驗證（program → verify）');
+  {
+    /* Bruce 2026-09-19：「整包寫入 EEPROM 的動作，必須要再回讀回來…都一樣才能
+       秀出『驗證比對正確』；有不一樣就 highlight『驗證比對錯誤，需要再重新檢查』」。
+       **只有 EEPROM（0x50–0x57）才做。** */
+    const mkStore = (corrupt) => {
+      const store = new Map();
+      return (m) => {
+        if (m.type === 'rawwrite') { m.data.forEach((b, i) => store.set(m.addr + i, b & 0xFF)); return { ok: true, status: 0, transferred: m.data.length }; }
+        if (m.type === 'read') {
+          const o = [];
+          for (let i = 0; i < m.len; i++) {
+            const a = m.addr + i;
+            let v = store.has(a) ? store.get(a) : 0x00;
+            if (corrupt && corrupt.has(a)) v = corrupt.get(a);
+            o.push(v);
+          }
+          return { ok: true, status: 0, data: o };
+        }
+        return { ok: true, status: 0 };
+      };
+    };
+    /* (a) 全部相同 ⇒ 驗證比對正確 */
+    A._reset();
+    let sent = await useHelper(baseScript(mkStore(null)));
+    A.loadFile('burn.bin', new win.Uint8Array(Array.from({ length: 64 }, (_, i) => (i * 3 + 1) & 0xFF)));
+    await sleep(20);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '64' });
+    const snapBefore = A.refBytesAt(0);
+    await A.doWrite(); await sleep(60);
+    const reads = SINCE(sent, 'read');
+    CHECK(reads.length > 0, '🔴 寫完之後真的有回讀');
+    EQ(reads.reduce((n, m) => n + m.len, 0), 64, '🔴 回讀的長度等於剛寫的 64 byte');
+    EQ(reads[0].addr, 0, '從剛寫的起始位址開始回讀');
+    CHECK(/驗證比對正確/.test(doc.getElementById('readbanner').textContent),
+      '🔴 顯示「驗證比對正確」：' + doc.getElementById('readbanner').textContent.slice(-30));
+    EQ(doc.querySelectorAll('#dump td.wrfail').length, 0, '沒有任何格子被標紅');
+    EQ(A.refBytesAt(0), snapBefore, '🔴 驗證的回讀**沒有**動到快照基準');
+    /* (b) 有 byte 不符 ⇒ 驗證比對錯誤，標紅、數量正確 */
+    A._reset();
+    const corrupt = new Map([[3, 0xEE], [10, 0xEE], [40, 0xEE]]);
+    sent = await useHelper(baseScript(mkStore(corrupt)));
+    A.loadFile('burn2.bin', new win.Uint8Array(Array.from({ length: 64 }, (_, i) => (i * 3 + 1) & 0xFF)));
+    await sleep(20);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '64' });
+    await A.doWrite(); await sleep(60);
+    const txt = doc.getElementById('readbanner').textContent;
+    CHECK(/驗證比對錯誤，需要再重新檢查/.test(txt), '🔴 顯示「驗證比對錯誤，需要再重新檢查」：' + txt.slice(-40));
+    CHECK(/3 byte/.test(txt), '🔴 講出有幾個 byte 不符：' + txt.slice(-30));
+    EQ(doc.querySelectorAll('#dump td.wrfail').length, 3, '🔴 三個不符的格子被標紅');
+    CHECK(A.wrFailAt(3) && A.wrFailAt(10) && A.wrFailAt(40), '🔴 標紅的正是那三格');
+    CHECK(!A.wrFailAt(4), '相符的格子沒有被標');
+    /* (c) 回讀整段失敗 ⇒ 訊息要說「讀不回來」，不是「值不對」 */
+    A._reset();
+    sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: false, status: 4, err: 'no response' };
+      return { ok: true, status: 0, transferred: m.data ? m.data.length : 0 };
+    }));
+    A.loadFile('burn3.bin', new win.Uint8Array(32));
+    await sleep(20);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '32' });
+    await A.doWrite(); await sleep(60);
+    const t3 = doc.getElementById('readbanner').textContent;
+    CHECK(/讀不回來/.test(t3), '🔴 講明是「讀不回來」而不是值不對：' + t3.slice(-40));
+    CHECK(/驗證比對錯誤/.test(t3), '仍然算驗證失敗');
+    /* (d) 非 EEPROM ⇒ 完全不做驗證（寫完沒有任何 read） */
+    A._reset();
+    sent = await useHelper(baseScript(mkStore(null)));
+    A.loadFile('burn4.bin', new win.Uint8Array(32));
+    await sleep(20);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '32' });
+    await A.doWrite(); await sleep(60);
+    EQ(SINCE(sent, 'read').length, 0, '🔴 非 EEPROM 的 slave ⇒ 寫完沒有任何回讀交易');
+    CHECK(!/驗證比對/.test(doc.getElementById('readbanner').textContent), '也不會講驗證');
+    /* (e) 逐格即時寫入那條路不受影響（它本來就有自己的回讀） */
+    EQ(A.isEepromAddr(0x50), true, '邊界仍然正確');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('42. 🔴 讀取預設走已知正確的路徑（fast read 預設關）');
+  {
+    /* 2026-09-19 實機回歸：Bruce 讀 0x68（TCON register）只有前兩個 byte 正確、
+       之後全是 0F。fast read 在真實裝置上的行為與假設不同 ⇒ 預設關掉。
+       🔴 規則：**無法驗證的東西不可以當預設值。** */
+    EQ(A.fastRead(), false, '🔴 頁面預設 fast read ＝ 關');
+    A._reset();
+    const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, data: [1, 2, 3] })));
+    const opens = sent.filter(m => m.type === 'open');
+    CHECK(opens.length > 0, '有送出 open');
+    EQ(opens[opens.length - 1].fastread, 0, '🔴 open 命令明確帶 fastread:0（不靠 exe 的預設）');
+    /* debug 區可以打開（供日後查清根因後實測），但要重新連線才生效 */
+    A.setDebug(true);
+    const chk = doc.getElementById('chk-fastread');
+    CHECK(!!chk, 'debug 區有 fast read 開關');
+    EQ(chk.checked, false, '開關預設沒勾');
+    chk.checked = true; chk.dispatchEvent(new win.Event('change', { bubbles: true }));
+    EQ(A.fastRead(), true, '勾起來會改狀態');
+    const sent2 = await useHelper(baseScript(() => ({ ok: true, status: 0, data: [1] })));
+    const o2 = sent2.filter(m => m.type === 'open');
+    EQ(o2[o2.length - 1].fastread, 1, '重新連線後才帶 fastread:1');
+    chk.checked = false; chk.dispatchEvent(new win.Event('change', { bubbles: true }));
+    A.setDebug(false);
+    EQ(A.fastRead(), false, '關回去');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');
