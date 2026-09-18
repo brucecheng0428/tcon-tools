@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— helper 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260918dg1660"></script>
+<script src="common/version.js?v=20260918i2c130"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -88,6 +88,9 @@
   table.dump td.bus{color:var(--idle);background:#1b1033;}
   table.dump td.sel{outline:2px solid var(--accent);outline-offset:-2px;}
   table.dump td.wrote{background:#3f2d07;color:#fde68a;}
+  /* 🔴 與快照不同的格子。用洋紅色，與「本次寫入過」（琥珀）分得開 ——
+     兩者意義相反：一個是「我剛送出去的」，一個是「裝置跟上次不一樣」。 */
+  table.dump td.diff{background:#4a044e;color:#f0abfc;font-weight:700;outline:1px solid #a21caf;outline-offset:-1px;}
   table.dump td.edit{padding:0;background:#0c4a6e;}
   table.dump td input{width:100%;height:22px;border:0;background:transparent;color:#e0f2fe;text-align:center;
     font:12px ui-monospace,Menlo,Consolas,monospace;padding:0;}
@@ -105,6 +108,39 @@
   #log .r{color:#7dd3fc;} #log .w{color:#fdba74;} #log .e{color:#fca5a5;} #log .o{color:#86efac;} #log .n{color:#94a3b8;}
 
   .kv{font-size:11px;color:var(--sub);}
+  /* ═══ 🔴 debug 模式（Bruce 2026-09-18）════════════════════════════════════
+     他原話：「I2C 網頁上面怎麼有這麼多奇怪看不懂的按鈕？例如『釋放 I2C』、
+     『自檢』、『黃金向量』，這些到底是什麼？」
+     ⇒ 正常使用者用不到的一律收起來，但**功能全部保留**（診斷要用）。
+     🔴 開關刻意不顯眼、也**刻意不在畫面上寫「debug」這幾個字** —— 那本身
+        就是他看不懂的東西。兩個入口：網址帶 ?debug=1，或連點標題三下。 */
+  /* ═══ 🔴 下載後的說明視窗（Bruce 2026-09-18 第三次要求簡化）════════════════
+     他原話：「旁邊和下面寫了一大堆內容介紹，我覺得這樣子很不直觀。應該是按下
+     下載以後，會跳出說明視窗，告訴使用者要如何進行就好了。簡單明瞭，文字大一點，
+     文字這麼小沒人在看。」
+     ⇒ 畫面上只留一顆下載鈕；步驟三行、每行一句、字級 22px（內文是 13px）。 */
+  .modal { position: fixed; inset: 0; background: rgba(2,6,23,.82); z-index: 100;
+           display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modalbox { background: var(--card); border: 1px solid var(--accent); border-radius: 14px;
+              padding: 26px 30px; max-width: 560px; width: 100%; }
+  .modalbox h3 { margin: 0 0 18px; font-size: 24px; font-weight: 700; color: #e0f2fe; }
+  .modalbox ol { margin: 0 0 22px; padding-left: 1.4em; }
+  .modalbox li { font-size: 22px; line-height: 1.85; margin-bottom: 6px; }
+  .modalbox .mono { font-size: 21px; }
+  .modalbox button { font-size: 19px; padding: 11px 26px; background: #0369a1; border-color: #0ea5e9; }
+
+  /* 檔案預覽狀態：整張 dump 卡換色，一眼分得出「這是要寫進去的，還沒寫」 */
+  #dumpcard.filemode { border-color: #b45309; box-shadow: inset 4px 0 0 #f59e0b; }
+  #dumpcard.filemode #dumptitle { color: #fbbf24; }
+
+  /* 🔴 逐個 tag 寫死 display，**不要用 `revert`** —— jsdom 的 CSS 引擎算不出
+     `revert`，結果是「debug 打開了但東西沒回來」，而且只有測試看得出來。 */
+  .dbgonly { display: none !important; }
+  body.dbg .dbgonly { display: block !important; }
+  body.dbg p.dbgonly, body.dbg div.dbgonly, body.dbg details.dbgonly { display: block !important; }
+  body.dbg button.dbgonly, body.dbg a.dbgonly { display: inline-block !important; }
+  body.dbg span.dbgonly, body.dbg code.dbgonly { display: inline !important; }
+  body.dbg table.dbgonly { display: table !important; }
   .kv b{color:var(--text);font-weight:600;}
 </style>
 </head>
@@ -128,23 +164,49 @@
     <div class="row" style="align-items:center;">
       <div><span class="dot" id="dot"></span><span id="linktext">未連線</span></div>
       <button class="pri" id="btn-conn">連線</button>
-      <button id="btn-release" disabled title="把 I2C 治具交回去，但保持與 helper 的連線（要回去用 DG 量測或原廠 PQ Tool 時按這個）">釋放 I2C</button>
+      <button id="btn-release" class="dbgonly" disabled title="把 I2C 治具交回去，但保持與 helper 的連線（要回去用 DG 量測或原廠 PQ Tool 時按這個）">釋放 I2C</button>
       <button id="btn-disc" disabled title="關閉與 helper 的整條連線（同時也會釋放 I2C）">中斷</button>
-      <button class="wr" id="btn-takeover" style="display:none" title="把 I2C 治具從另一個頁面搶過來（那一頁會被斷線）">接手 I2C</button>
-      <button id="btn-self" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
+      <button class="wr dbgonly" id="btn-takeover" style="display:none" title="把 I2C 治具從另一個頁面搶過來（那一頁會被斷線）">接手 I2C</button>
+      <button id="btn-self" class="dbgonly" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
       <span class="sp" style="flex:1"></span>
     </div>
     <!-- 🔴 v1.2.0：這一行從「講通道為什麼是唯一的」縮成「對面是誰」。
          診斷資訊一個字沒少（版本／proto／包版本都還在，log 也還在），
          少掉的是解釋性的那一句 —— Bruce：說明文字越少越好。 -->
-    <div class="kv" style="margin-top:8px;border-top:1px solid #223049;padding-top:7px;line-height:1.9">
+    <!-- ═══ 🔴 連不到 helper ⇒ 第一個出現的就是下載鈕（Bruce 2026-09-18 實測）═══
+         他原話：「我根本就還沒有下載 Helper，Helper 的下載按鈕反而是在下方，
+         這樣的流程是有問題的。」
+
+         我們錯在假設「使用者已經有 helper，只是開錯頁面」，於是連不到時叫他
+         改開 127.0.0.1 —— 對第一次來的人那句話沒有意義（他連 helper 都沒有）。
+
+         🔴 **畫面上只有這一個下載入口。** 下面那張摺疊卡只留雜湊、線上版本檢查
+            與疑難排解，**不再放第二顆下載鈕**。
+         🔴 版號印在按鈕上，來源是 common/version.js 的 HELPER_PKG，不寫死。 -->
+    <div id="gethelper" style="display:none;margin-top:10px;border-top:1px solid #223049;padding-top:10px;">
+      <!-- 🔴 旁邊、下面的介紹文字全部拿掉（Bruce 2026-09-18）。
+           剩下的只有一顆大按鈕（版號印在上面）＋一句話說為什麼會看到它。
+           「接下來怎麼做」改成按下去才跳的說明視窗。
+           包大小／exe 版本／proto 這些是診斷資訊 ⇒ 收進 debug。 -->
+      <div class="row" style="align-items:center;">
+        <a id="dl" class="mono" href="#" download style="background:#0369a1;border:1px solid #0ea5e9;border-radius:8px;
+           color:#e0f2fe;padding:12px 22px;text-decoration:none;font-weight:700;font-size:17px">⬇ 下載 helper</a>
+        <span class="kv" id="get-why">連不到 helper</span>
+      </div>
+      <div class="kv dbgonly" id="dl-meta" style="margin-top:4px"></div>
+    </div>
+    <!-- 🔴 這一行整條收進 debug：它是診斷資訊（URL／版本／proto），不是使用者
+         要讀的東西，而且 `ws://127.0.0.1:8899/ws` 正是 Bruce 說「沒有人看得懂」
+         的那種字串。功能沒砍，log 也照印。 -->
+    <div class="kv dbgonly" style="margin-top:8px;border-top:1px solid #223049;padding-top:7px;line-height:1.9">
       <span class="mono" id="wsurl"></span> · helper <b id="hv-exe">—</b> · proto <b id="hv-proto">—</b>（需 ≥ <b id="hv-need">2</b>） · 包 <b id="hv-pkg">—</b>
     </div>
   </div>
 
-  <!-- ═══ 四項輸入 ═══ -->
+  <!-- ═══ 讀寫共用的一組參數（Bruce 2026-09-18：「讀取跟寫入都整合共用同一個
+       slave address、offset 寬度、起始 offset」）═══════════════════════════ -->
   <div class="card" style="margin-bottom:12px;">
-    <h2>參數</h2>
+    <h2>讀 / 寫（共用同一組參數）</h2>
     <div class="row" style="align-items:flex-end;">
       <label class="f" style="width:150px;">
         <span>① Slave 位址（7-bit）</span>
@@ -162,7 +224,9 @@
         <span class="hint" id="awidhint">&nbsp;</span>
       </label>
       <label class="f" style="width:150px;">
-        <span>③ 起始 offset</span>
+        <!-- 🔴 offset 寬度切到 0 byte 時，這一欄不再是位址而是「一個 1 byte 的值」，
+             所以標籤要跟著變（見 i2ctUpdateHints）—— 語意不同，名字就不能一樣。 -->
+        <span id="offlabel">③ 起始 offset</span>
         <input type="text" id="in-off" class="mono" value="0x0000" spellcheck="false">
         <span class="hint" id="offhint">&nbsp;</span>
       </label>
@@ -177,20 +241,31 @@
     </div>
     <div class="row" style="align-items:flex-end;margin-top:8px;border-top:1px solid #223049;padding-top:9px;">
       <label class="f" style="flex:1;min-width:280px;">
-        <span>寫入資料（hex，從 ③ 起始 offset 依序寫入）</span>
-        <input type="text" id="in-data" class="mono" placeholder="A1 D8 FB   或   a1d8fb   或   0xA1,0xD8,0xFB" spellcheck="false">
+        <span>寫入資料</span>
+        <input type="text" id="in-data" class="mono" placeholder="A1 D8 FB" spellcheck="false">
         <span class="hint" id="datahint">&nbsp;</span>
       </label>
       <div style="display:flex;gap:8px;padding-bottom:16px;">
+        <!-- 🔴 載入檔案就是一顆按鈕，旁邊**不配格式說明** —— 格式靠 accept 的
+             副檔名清單自然表達，細節收進說明視窗。 -->
+        <input type="file" id="in-file" accept=".bin,.hex,.txt,.rom,.ihx,.ihex,.eep,.dat,.raw" style="display:none">
+        <button id="btn-load">載入檔案</button>
         <button class="wr" id="btn-write" disabled>寫入</button>
       </div>
     </div>
   </div>
 
   <!-- ═══ 16×16 ═══ -->
-  <div class="card">
+  <div class="card" id="dumpcard">
     <div class="row" style="align-items:center;margin-bottom:8px;">
-      <h2 style="margin:0;">16 × 16 Dump</h2>
+      <!-- 🔴 一眼要分得出「從裝置讀回來的」與「準備要寫進去的檔案」。
+           兩者長得一模一樣但意義天差地別，混淆就會燒錯東西。
+           做法：標題直接改字 ＋ 整張卡片換左邊框顏色（琥珀＝待寫入），
+           **不加任何說明文字**。切換鈕只有在兩份資料都存在時才出現。 -->
+      <h2 style="margin:0;" id="dumptitle">16 × 16 Dump</h2>
+      <button id="btn-view" class="dbgonly" style="margin-left:8px">切換</button>
+      <!-- 手動覆蓋當前 slave 的快照。自動那條已經涵蓋日常使用 ⇒ 收進 debug。 -->
+      <button id="btn-snap" class="dbgonly" style="margin-left:6px">重設快照</button>
       <span class="sp" style="flex:1"></span>
       <div class="pager">
         <button id="btn-prev" disabled>◀</button>
@@ -203,14 +278,14 @@
     <div style="overflow:auto;">
       <table class="dump" id="dump"></table>
     </div>
-    <div class="legend">
+    <div class="legend dbgonly">
       <span><i style="background:#132038;"></i>已讀到的值</span>
       <span><i style="background:#0b1424;"></i>未讀取（本次範圍外）</span>
       <span><i style="background:#132038;"></i><span style="color:var(--warn)">FF</span> ＝ 資料中的 0xFF</span>
       <span><i style="background:#1b1033;"></i><span style="color:var(--idle)">整批全 FF</span> ＝ 總線閒置／無回應</span>
       <span><i style="background:#3f2d07;"></i>本次寫入過</span>
-      <span>點任一格可直接改值 → Enter 寫回該位址</span>
     </div>
+    <div class="hint" style="margin-top:6px">點任一格可直接改值 → Enter 寫回該位址</div>
   </div>
 
   <!-- ═══ helper 取得與安裝（本頁自足，不必經過 dg 的任何頁面）═══════════════
@@ -218,20 +293,23 @@
           只寫在 dg-measure.html 上 —— 等於使用者還是得先繞去 dg。
           Bruce 2026-09-18：「跟 DG 沒有關係」包含取得與管理 helper。
        🔴 而且他人在外地出差時，**線上版這一塊是他唯一拿得到新版的地方**。 -->
-  <details class="card" id="helper-card" style="margin-top:12px;">
+  <details class="card dbgonly" id="helper-card" style="margin-top:12px;">
     <summary style="cursor:pointer;list-style:none;font-size:11px;font-weight:700;letter-spacing:.9px;
                     text-transform:uppercase;color:var(--sub)">
-      取得 / 更新 helper <span id="helper-sum" style="text-transform:none;letter-spacing:0;font-weight:400"></span>
+      helper 資訊與疑難排解 <span id="helper-sum" style="text-transform:none;letter-spacing:0;font-weight:400"></span>
     </summary>
 
     <div id="offline-notice"></div>
 
+    <!-- 🔴 下載鈕**不在這裡**，在上面的 #gethelper（連不到 helper 時自動出現）。
+         畫面上同時只能有一個下載入口。這裡留的是「已經有 helper 的人才需要的」。 -->
+    <!-- 🔴 「檢查線上有無新版」整顆刪掉（Bruce 2026-09-18）：
+         「這個本來就是從網頁更新的，進來的不就一定是最新版的，怎麼還需要檢查？」
+         —— 無可反駁。線上版沒有版本落後這回事，那顆按鈕只在離線打包版有意義，
+         而主路徑已經回歸線上網頁。離線包的版本比對改成自動、靜默、只在落後時說話
+         （見 i2ctAutoVerCheck），沒有任何按鈕。 -->
     <div class="row" style="align-items:center;margin-top:10px;">
-      <a id="dl" class="mono" href="#" download style="background:#0369a1;border:1px solid #0ea5e9;border-radius:6px;
-         color:#e0f2fe;padding:7px 14px;text-decoration:none;font-weight:700;font-size:13px">⬇ 下載 helper</a>
-      <span class="kv" id="dl-meta"></span>
-      <span class="sp" style="flex:1"></span>
-      <button id="btn-chkver" title="向線上版查詢有沒有更新的下載包（會發出一次對外請求）">檢查線上有無新版</button>
+      <button id="btn-getshow">顯示下載鈕</button>
     </div>
 
     <!-- 🔴 v1.2.0（Bruce 2026-09-18「說明文字越少越好」）：
@@ -268,9 +346,22 @@
       <button id="btn-clearlog">清除</button>
     </div>
     <div id="log"></div>
-    <div class="hint" style="margin-top:6px;">
+    <div class="hint dbgonly" style="margin-top:6px;">
       每一筆讀寫都完整記錄（slave／offset 寬度／位址／byte）。寫入同時也寫進 helper 的 <span class="mono">dg-helper.log</span>。
     </div>
+  </div>
+</div>
+
+<!-- 🔴 按下下載才出現。平常整個不在畫面上（display:none）。 -->
+<div id="howto" class="modal" style="display:none">
+  <div class="modalbox">
+    <h3>下載好了，接著這樣做</h3>
+    <ol>
+      <li>把整包<b>解壓縮</b>到一個資料夾</li>
+      <li>雙擊 <code class="mono">dg-helper.exe</code></li>
+      <li>回到這一頁按<b>「連線」</b></li>
+    </ol>
+    <button id="howto-ok">知道了</button>
   </div>
 </div>
 
@@ -321,10 +412,268 @@ var i2ctPages = [];               /* 目前資料涵蓋的頁（每頁 256） */
 var i2ctPageIdx = 0;
 var i2ctLastRead = null;          /* {base,len,awid,allFF,got} */
 var i2ctEditing = null;
+/* 🔴 載入的檔案。文字框與檔案是**兩個來源**，最後動的那一個算數 ——
+   兩個同時有效會變成「到底燒了哪一份」說不清楚。 */
+var i2ctFileBytes = null;         /* Uint8Array 或 null */
+var i2ctFileName  = '';
+var i2ctFileFormat = '';        /* 辨識出的格式（回報用） */
+var i2ctFileBase  = 0;            /* 載入當下的起始 offset（決定它會落在哪些頁） */
+var i2ctFileAwid  = 2;
+/* 🔴 檢視模式。**兩份資料同時保留**，一次只顯示一份。
+   為什麼不是「後來的蓋掉先前的」：這一頁的流程是
+     載入 → 檢視 → 寫入 → 讀回來比對。
+   載入若蓋掉讀回值，就沒有東西可以比對；讀取若蓋掉檔案，就不知道剛才要燒什麼。
+   所以兩份都留，切換規則做成可預期的：**載入 ⇒ 看檔案；按讀取 ⇒ 看裝置**，
+   兩份都在時才出現一顆「切換」。寫完**不自動讀回**（自動讀會蓋掉剛才檢視的內容），
+   要比對就自己按「讀取」。 */
+var i2ctView = 'dev';             /* 'dev' ＝ 裝置讀回值；'file' ＝ 待寫入的檔案 */
+
+/* ═══ 快照與差異比對（Bruce 2026-09-18，含他當晚的更正）═══════════════════
+   🔴 **更正過的規則（以這一版為準）**：他原話
+       「切回 0x68 的話，等於從 50 切回 68。這時候 68 **不能再用原本的那份**，
+        而是要重新讀完以後快照一次，這樣才符合『我只要切換 Slave 的 Address
+        就要重新快照』的邏輯。」
+   ⇒ 所以**不是** per-slave 永久保存多份快照，而是**只有一份「當前基準」**
+     ＋ 記住它屬於哪個 slave。**slave 一變，基準就作廢**，下一次讀取重建。
+     這比 per-slave 保存簡單得多，而且行為更好預測。
+
+   行為：
+     讀 0x68（基準不存在）⇒ 建立基準，無 highlight
+     再讀 0x68           ⇒ 與基準比，highlight 差異
+     改成 0x50           ⇒ 基準作廢；讀 0x50 ⇒ 建立新基準，無 highlight
+     改回 0x68           ⇒ 基準再次作廢；讀 0x68 ⇒ **重新建立**，無 highlight
+
+   🔴 兩個不變的設計決定：
+     ① **位址對位址比，不是索引對索引**。i2ctBuf 的 key 本來就是絕對位址，
+        所以先讀 0x0000–0x00FF、再讀 0x0100–0x01FF 時，後者沒有基準可比 ⇒
+        不 highlight，而**不會**跟前者錯位相比。
+     ② **自動快照一律靜默** —— 他要無腦，不要被通知打斷（log 有記）。 */
+var i2ctSnap = null;              /* 當前基準 {addr: byte}；null ＝ 還沒建立 */
+var i2ctSnapSlave = null;         /* 這份基準屬於哪個 slave */
+
+function i2ctMakeSnap(map){
+  var o = {};
+  for (var k in map) if (Object.prototype.hasOwnProperty.call(map, k)) o[k] = map[k];
+  return o;
+}
+/* 位址對位址比對。只比**兩邊都有**的位址；只有一邊有的不算差異
+   （那是「沒有基準」，不是「變了」）。 */
+function i2ctDiffAgainst(map, snap){
+  var d = {}, n = 0;
+  if (!snap) return { keys: d, count: 0 };
+  for (var k in map) {
+    if (!Object.prototype.hasOwnProperty.call(map, k)) continue;
+    if (!Object.prototype.hasOwnProperty.call(snap, k)) continue;
+    if (map[k] !== snap[k]) { d[k] = true; n++; }
+  }
+  return { keys: d, count: n };
+}
+/* 🔴 slave 一變就作廢。呼叫點有兩個：slave 欄位 input、以及每次讀取之前
+   （後者覆蓋「用 setInputs 程式性地改」與「改完沒觸發 input」兩種情況）。 */
+function i2ctSnapCheckSlave(slave){
+  if (i2ctSnapSlave !== null && i2ctSnapSlave !== slave) {
+    i2ctSnap = null; i2ctSnapSlave = null;
+    i2ctDiffKeys = {}; i2ctLastDiffCount = 0;
+    i2ctLog('slave 換成 0x' + i2ctHex(slave) + ' ⇒ 快照作廢，下次讀取重新建立', 'n');
+  }
+}
+function i2ctHasSnap(slave){ return i2ctSnap !== null && i2ctSnapSlave === slave; }
+function i2ctTakeSnap(slave, map){ i2ctSnap = i2ctMakeSnap(map); i2ctSnapSlave = slave; }
+function i2ctGetSnap(slave){ return (i2ctSnapSlave === slave) ? i2ctSnap : null; }
 
 function $(id){ return document.getElementById(id); }
 
 /* ═══ 純函式（selftest 直接打這幾支）════════════════════════════════════ */
+
+/* ═══ 檔案載入與解析（Bruce 2026-09-18，含他 22:xx 的更正）═══════════════════
+   🔴 **更正**：他一開始說 `.hex` 是 raw data，後來更正為「HEX 檔案打開是文字，
+      一行 8 個或 16 個 byte」，並要求「其他不同的格式也都要可以相容」。
+      ⇒ **不看副檔名猜格式，看內容自動判定**，這也最符合他的無腦準則。
+
+   判定順序：
+     ① `.bin` ⇒ 一律 raw（副檔名在這一個情況下是可信的，而且它是最危險的
+        誤判方向：把二進位當文字解析可能剛好解析成功並燒錯東西）
+     ② 其餘：先看內容是不是可列印文字（含 0x00 或 >0x7E 的非白字元 ⇒ raw）
+     ③ 是文字 ⇒ 進 i2ctParseHexText()，它自己再分辨是哪一種 hex 文字
+
+   🔴 二進位誤判的風險與處置（誠實說明）：一個**每個 byte 都落在 0x20–0x7E、
+      且沒有 0x00** 的二進位檔會被當成文字。那時它幾乎一定在 hex 解析階段失敗
+      （每個 token 都要是合法 hex），我們就**明確報第幾行失敗**而不是默默照燒 ——
+      失敗的方向是安全的。真正會出事的是「純可列印、而且每個 token 剛好都是
+      合法 hex」的二進位，機率極低；要完全避開就把副檔名改成 `.bin`。 */
+
+/* 內容嗅探：回 'raw' 或 'text'。只看前 1024 byte（夠判、又不拖慢大檔）。 */
+function i2ctSniffKind(bytes){
+  var n = Math.min(bytes.length, 1024);
+  if (!n) return 'raw';
+  for (var i = 0; i < n; i++) {
+    var b = bytes[i];
+    if (b === 0x09 || b === 0x0A || b === 0x0D) continue;
+    if (b < 0x20 || b > 0x7E) return 'raw';
+  }
+  return 'text';
+}
+/* 副檔名只用來處理 `.bin` 這一個「一律 raw」的情況；其餘交給內容判定。 */
+function i2ctFileKind(name){
+  var m = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return (m && m[1] === 'bin') ? 'raw' : 'auto';
+}
+
+/* ── Intel HEX ────────────────────────────────────────────────────────────
+   規格（見 CHANGELOG 的出處連結）：`:LL AAAA TT <data> CC`
+     LL ＝ data 長度、AAAA ＝ 16-bit 位址、TT ＝ record type
+     00 資料／01 檔案結束／02 Extended Segment（data×16 當基底）
+     04 Extended Linear（提供位址高 16 位）／03、05 起始位址（不搬資料）
+     CC ＝ 從 LL 到 data 最後一個 byte 的總和取 8-bit 二補數
+   🔴 02／04 會造成**位址跳躍**，所以先落到稀疏表，最後才依真實位址攤平 ——
+      直接首尾相接會把跳躍吃掉，燒出來整份錯位。 */
+function i2ctParseIntelHex(lines){
+  var map = {}, base = 0, minA = null, maxA = null, ended = false, recs = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trim();
+    if (!t) continue;
+    if (ended) continue;                      /* 01 之後的內容忽略（規格允許有尾巴） */
+    if (t.charAt(0) !== ':') return { err: { line: i + 1, text: lines[i].slice(0, 40), reason: 'Intel HEX 的每一行都要以 : 開頭' } };
+    var body = t.slice(1);
+    if (!/^[0-9a-fA-F]+$/.test(body) || body.length % 2 || body.length < 10)
+      return { err: { line: i + 1, text: lines[i].slice(0, 40), reason: '不是合法的 Intel HEX 記錄（長度或字元不對）' } };
+    var b = [];
+    for (var k = 0; k < body.length; k += 2) b.push(parseInt(body.substr(k, 2), 16));
+    var ll = b[0], type = b[3];
+    if (b.length !== ll + 5)
+      return { err: { line: i + 1, text: lines[i].slice(0, 40), reason: '長度欄說有 ' + ll + ' 個 data byte，實際是 ' + (b.length - 5) + ' 個' } };
+    var sum = 0;
+    for (var j = 0; j < b.length - 1; j++) sum += b[j];
+    var want = ((~sum + 1) & 0xFF);
+    if (want !== b[b.length - 1])
+      return { err: { line: i + 1, text: lines[i].slice(0, 40),
+                      reason: 'checksum 不符（算出 0x' + i2ctHex(want) + '，檔案寫 0x' + i2ctHex(b[b.length - 1]) + '）' } };
+    var addr = (b[1] << 8) | b[2];
+    if (type === 0x00) {
+      recs++;
+      for (var d = 0; d < ll; d++) {
+        var a = base + addr + d;
+        map[a] = b[4 + d];
+        if (minA === null || a < minA) minA = a;
+        if (maxA === null || a > maxA) maxA = a;
+      }
+    } else if (type === 0x01) { ended = true; }
+    else if (type === 0x02) { base = ((b[4] << 8) | b[5]) * 16; }
+    else if (type === 0x04) { base = ((b[4] << 8) | b[5]) * 65536; }
+    else if (type === 0x03 || type === 0x05) { /* 起始位址，不搬資料 */ }
+    else return { err: { line: i + 1, text: lines[i].slice(0, 40), reason: '不支援的 record type 0x' + i2ctHex(type) } };
+  }
+  if (!recs) return { err: { line: 1, text: '', reason: 'Intel HEX 裡沒有任何資料記錄' } };
+  /* 攤平：位址跳躍造成的空洞補 0xFF（EEPROM／Flash 的抹除值），並回報範圍 */
+  var out = [], holes = 0;
+  for (var a2 = minA; a2 <= maxA; a2++) {
+    if (Object.prototype.hasOwnProperty.call(map, a2)) out.push(map[a2]);
+    else { out.push(0xFF); holes++; }
+  }
+  return { bytes: out, err: null, format: 'Intel HEX', startAddr: minA, holes: holes };
+}
+
+/* ── 一般 hex 文字（每行 1／8／16 個、有沒有位址欄、有沒有 ASCII 尾欄都吃）──
+   🔴 位址欄的判定用**自我驗證**而不是猜：只有在「每一行的第一個 token 都是
+      等長的 hex，而且這些值遞增、步進等於每行的 byte 數」時才把它當位址剝掉。
+      用猜的後果是把資料的第一個 byte 當位址丟掉，而且完全看不出來。 */
+function i2ctStripAsciiCol(line){
+  /* xxd / hexdump -C 的尾欄是 |....|；先剝這個最可靠 */
+  var bar = line.indexOf('|');
+  if (bar > 0) return line.slice(0, bar);
+  return line;
+}
+function i2ctHexTokens(line){
+  var t = line.trim();
+  if (!t) return [];
+  return t.split(/[\s,]+/).filter(function (x) { return x.length > 0; });
+}
+function i2ctTokenBytes(tok){
+  var t = tok;
+  t = t.replace(/[,;]$/, '');
+  if (/^0[xX]/.test(t)) t = t.slice(2);
+  if (/[hH]$/.test(t)) t = t.slice(0, -1);           /* A1h 這種寫法（與手動輸入同一套容忍） */
+  if (!t) return null;
+  if (!/^[0-9a-fA-F]+$/.test(t)) return null;
+  if (t.length === 1) return [parseInt(t, 16)];
+  if (t.length % 2) return null;                    /* 3、5… 碼無法切成 byte */
+  var out = [];
+  for (var i = 0; i < t.length; i += 2) out.push(parseInt(t.substr(i, 2), 16));
+  return out;
+}
+function i2ctDetectAddrCol(rows){
+  /* rows = [{line, tokens}]，只看有 2 個以上 token 的行 */
+  var cand = rows.filter(function (r) { return r.tokens.length >= 2; });
+  if (cand.length < 2) return false;
+  var w = cand[0].tokens[0].replace(/[:hH]$/, '').length;
+  if (w < 4 || w > 8) return false;
+  var prev = null, stride = null;
+  for (var i = 0; i < cand.length; i++) {
+    var raw = cand[i].tokens[0];
+    var hadSep = /[:hH]$/.test(raw);
+    var a = raw.replace(/[:hH]$/, '');
+    if (a.length !== w || !/^[0-9a-fA-F]+$/.test(a)) return false;
+    var v = parseInt(a, 16);
+    /* 沒有 `:`／`h` 分隔時，只有「等差且步進等於每行 byte 數」才敢當位址 */
+    if (prev !== null) {
+      var d = v - prev;
+      if (d <= 0) return false;
+      if (stride === null) stride = d; else if (d !== stride) return false;
+    }
+    prev = v;
+    if (!hadSep && cand[i].tokens.length - 1 < 2) return false;
+  }
+  if (stride === null) return false;
+  /* 步進要跟每行的 byte 數對得上（容許最後一行不滿） */
+  var bytesPerRow = 0, bt = i2ctTokenBytes(cand[0].tokens[1]);
+  for (var j = 1; j < cand[0].tokens.length; j++) {
+    var bb = i2ctTokenBytes(cand[0].tokens[j]);
+    if (!bb) return false;
+    bytesPerRow += bb.length;
+  }
+  return bytesPerRow === stride;
+}
+function i2ctParseHexDump(lines){
+  var rows = [];
+  for (var i = 0; i < lines.length; i++) {
+    var raw = i2ctStripAsciiCol(lines[i]);
+    var toks = i2ctHexTokens(raw);
+    if (!toks.length) continue;
+    rows.push({ line: i + 1, text: lines[i], tokens: toks });
+  }
+  if (!rows.length) return { err: { line: 1, text: '', reason: '檔案裡沒有任何內容' } };
+  var hasAddr = i2ctDetectAddrCol(rows);
+  var out = [], perRow = null, uniform = true;
+  for (var r = 0; r < rows.length; r++) {
+    var toks2 = rows[r].tokens.slice(hasAddr ? 1 : 0);
+    var n = 0;
+    for (var t2 = 0; t2 < toks2.length; t2++) {
+      var bs = i2ctTokenBytes(toks2[t2]);
+      if (!bs) return { err: { line: rows[r].line, text: rows[r].text.slice(0, 40),
+                               reason: '「' + toks2[t2] + '」不是合法的 16 進位 byte' } };
+      for (var q = 0; q < bs.length; q++) out.push(bs[q]);
+      n += bs.length;
+    }
+    if (perRow === null) perRow = n; else if (n !== perRow && r < rows.length - 1) uniform = false;
+  }
+  if (!out.length) return { err: { line: 1, text: '', reason: '解析出 0 個 byte' } };
+  var fmt = (hasAddr ? '帶位址的 hex dump' : 'hex 文字')
+          + (uniform && perRow ? '（每行 ' + perRow + ' byte）' : '');
+  return { bytes: out, err: null, format: fmt };
+}
+
+/* 文字 hex 的總入口：先分辨 Intel HEX 還是一般 dump。
+   回傳 {bytes, format, err}；err ＝ {line, text, reason} 或 null。 */
+function i2ctParseHexText(text){
+  var lines = String(text == null ? '' : text).split(/\r?\n/);
+  var firstNonEmpty = null;
+  for (var i = 0; i < lines.length; i++) { if (lines[i].trim()) { firstNonEmpty = lines[i].trim(); break; } }
+  if (firstNonEmpty === null) return { bytes: [], err: null, format: '空白檔' };
+  if (firstNonEmpty.charAt(0) === ':') return i2ctParseIntelHex(lines);
+  return i2ctParseHexDump(lines);
+}
+/* 舊名保留（每列一個 byte 是上面那支的特例），這樣呼叫端與既有測試都不必改。 */
+function i2ctParseTextBytes(text){ return i2ctParseHexText(text); }
 
 /* offset 寬度只有 0/1/2/4 —— 與 helper 的 dgh_awid_ok 是同一套判準 */
 function i2ctAwidOk(a){ return a === 0 || a === 1 || a === 2 || a === 4; }
@@ -382,17 +731,32 @@ function i2ctAllFF(bytes){
 }
 /* hex 字串 → byte 陣列。接受 "A1 D8 FB" / "a1d8fb" / "0xA1,0xD8" / 換行。
    解不出來回 null（不猜、不丟掉看不懂的部分）。 */
+/* ═══ 手動輸入欄的 hex 解析 ════════════════════════════════════════════════
+   Bruce 2026-09-18 問「0xA1 0xD8 0xFB 這樣可不可以」—— **可以**，並且他要求
+   再支援 `A1h` 這種把 0x 換到右邊的寫法，連 `0xA1h`（前後綴都寫了的誤寫）
+   也要吃下。所以容忍清單是：
+     · 前綴 `0x` / `0X`、後綴 `h` / `H`、兩個都有
+     · 分隔用空白、逗號、分號、tab、換行，或**完全不分隔**（`A1D8FB`）
+     · 大小寫任意
+   🔴 **同一份資料用任一種寫法，解析結果必須完全相同** —— 這是測試的判準。
+   🔴 解析不了的 token 要**指出是哪一個**（i2ctLastHexErr），不靜默丟掉。 */
+var i2ctLastHexErr = '';
 function i2ctParseHex(s){
+  i2ctLastHexErr = '';
   if (s == null) return null;
-  var t = String(s).replace(/0[xX]/g, ' ').replace(/[,;\r\n\t]+/g, ' ').trim();
-  if (!t) return [];
-  if (/[^0-9a-fA-F ]/.test(t)) return null;
-  var out = [], parts = t.split(/\s+/);
+  var raw = String(s).trim();
+  if (!raw) return [];
+  var parts = raw.split(/[\s,;]+/);
+  var out = [];
   for (var i = 0; i < parts.length; i++) {
     var p = parts[i];
     if (!p) continue;
-    if (p.length % 2 !== 0) return null;             /* 半個 byte ＝ 使用者打錯，不臆測 */
-    for (var j = 0; j < p.length; j += 2) out.push(parseInt(p.substr(j, 2), 16));
+    var t = p;
+    if (/^0[xX]/.test(t)) t = t.slice(2);            /* 前綴 0x */
+    if (/[hH]$/.test(t)) t = t.slice(0, -1);         /* 後綴 h（0xA1h 兩個都剝） */
+    if (!t || !/^[0-9a-fA-F]+$/.test(t)) { i2ctLastHexErr = p; return null; }
+    if (t.length % 2 !== 0) { i2ctLastHexErr = p; return null; }  /* 半個 byte ＝ 打錯，不臆測 */
+    for (var j = 0; j < t.length; j += 2) out.push(parseInt(t.substr(j, 2), 16));
   }
   return out;
 }
@@ -446,20 +810,43 @@ function i2ctReadInputs(){
   var errs  = [];
 
   if (slave === null || slave < 0 || slave > 0x7F) errs.push('slave 位址要是 0x00–0x7F 的 7-bit 值');
-  if (awid === 0) { if (off === null) off = 0; }
-  else if (off === null || off < 0 || off > i2ctAddrMax(awid)) {
+  /* 🔴 offset 寬度 0 的語意（Bruce 2026-09-18 親自確認）：
+       「寬度 0 時交易就是 slave address ＋ 你填的那 1 byte，**沒有位址相位**。
+        也就是說，0 byte offset 的時候，實際上 data 也只有 1 byte 而已，
+        所以它看起來就很像 1 byte offset 一樣。只是在 1 byte offset 下，
+        那個 offset 就是 data，後面也就沒有 data 了。」
+
+     ⇒ 寬度 0：wire 上 `awid=0`（一個位址 byte 都不送），那個欄位的值是**唯一的
+       那個 data byte**。寬度 1：那個值走**位址相位**，後面才接 data。
+       兩者送出去的 byte 很像但相位不同，測試特地把差異釘死。
+
+     🔴 **這條路存在的理由（不要當成 bug 修掉）**：面板裡調 VCOM 的 PMIC
+        （提供 digital VCOM 的那種）就是用這種 zero-byte-offset 直接下設定值 ——
+        它整顆就一個暫存器，所以沒有 offset 可言。這件事刻意**不寫在畫面上**
+        （極簡準則），只留在這裡。 */
+  if (awid === 0) {
+    if (off === null || off < 0 || off > 0xFF) errs.push('這個模式下的值要是 0x00–0xFF 的 1 byte');
+  } else if (off === null || off < 0 || off > i2ctAddrMax(awid)) {
     errs.push('起始 offset 超出 ' + awid + ' byte 能表示的範圍（0–0x' + i2ctHex(i2ctAddrMax(awid), awid * 2) + '）');
   }
   if (len === null || len < 1 || len > I2CT_MAX_LEN) errs.push('總 byte 數要在 1–' + I2CT_MAX_LEN + ' 之間');
 
   $('in-slave').classList.toggle('bad', slave === null || slave < 0 || slave > 0x7F);
-  $('in-off').classList.toggle('bad', awid !== 0 && (off === null || off < 0 || off > i2ctAddrMax(awid)));
+  $('in-off').classList.toggle('bad', awid === 0
+    ? (off === null || off < 0 || off > 0xFF)
+    : (off === null || off < 0 || off > i2ctAddrMax(awid)));
   $('in-len').classList.toggle('bad', len === null || len < 1 || len > I2CT_MAX_LEN);
 
-  return { slave: slave, awid: awid, off: off, len: len, errs: errs };
+  /* wireAwid ＝ 真正送給 helper 的 offset 寬度。**與 UI 完全一致** ——
+     寬度 0 就是 wire 的 0（沒有位址相位），那個值走 data，不是走位址。 */
+  return { slave: slave, awid: awid, wireAwid: awid, off: off, len: len, errs: errs };
 }
 function i2ctUpdateHints(){
   var v = i2ctReadInputs();
+  /* 🔴 slave 一改，基準立刻作廢 —— 放在這裡而不是綁在 input 事件上，是因為
+     程式性地改值（setInputs）不會觸發 input，綁事件就會漏掉那條路。
+     這一支每次按鍵都會跑，但 i2ctSnapCheckSlave 只在 slave 真的變了才動作。 */
+  if (v.slave !== null) i2ctSnapCheckSlave(v.slave);
   /* 7-bit / 8-bit 兩種寫法是同一顆裝置的不同表示，兩個都印出來避免對錯位址
      （dg v1.65.1 起全站統一這個標法）。 */
   $('slavehint').textContent = (v.slave !== null && v.slave >= 0 && v.slave <= 0x7F)
@@ -467,16 +854,28 @@ function i2ctUpdateHints(){
        + ' / R 0x' + i2ctHex(((v.slave << 1) | 1) & 0xFF))
     : '0x00–0x7F';
   $('awidhint').textContent = v.awid === 0
-    ? '不送位址，直接讀（current address read）'
+    ? '無位址相位'
     : (v.awid + ' byte，高位在前');
-  $('offhint').textContent = v.awid === 0 ? '此模式無位址，忽略' : ('上限 0x' + i2ctHex(i2ctAddrMax(v.awid), v.awid * 2));
+  /* 🔴 標籤本身要變，不是只有 hint 變 —— 語意不同，名字就不能一樣。 */
+  $('offlabel').textContent = v.awid === 0 ? '③ 寫入值（1 byte）' : '③ 起始 offset';
+  $('offhint').textContent = v.awid === 0 ? '0x00–0xFF' : ('上限 0x' + i2ctHex(i2ctAddrMax(v.awid), v.awid * 2));
   $('lenhint').textContent = (v.len !== null && v.len >= 1)
     ? (Math.ceil(v.len / 256) + ' 頁 · 分 ' + i2ctPlanRead(0, Math.min(v.len, I2CT_MAX_LEN), v.awid).length + ' 則傳送')
     : ('1 – ' + I2CT_MAX_LEN);
-  var d = i2ctParseHex($('in-data').value);
-  $('in-data').classList.toggle('bad', d === null);
-  $('datahint').textContent = d === null ? '🔴 hex 解析失敗（每個 byte 要兩碼）'
-    : (d.length ? (d.length + ' byte：' + i2ctBytesText(d.slice(0, 16)) + (d.length > 16 ? ' …' : '')) : '空白');
+  if (v.awid === 0) {
+    /* 寬度 0 ⇒ 要寫的就是 ③ 那一個 byte，這一欄與檔案都用不到 */
+    $('in-data').classList.remove('bad');
+    $('datahint').textContent = '寬度 0：只寫 ③ 的那 1 byte';
+  } else if (i2ctFileBytes) {
+    $('in-data').classList.remove('bad');
+    $('datahint').textContent = i2ctFileName + ' · ' + i2ctFileBytes.length + ' byte';
+  } else {
+    var d = i2ctParseHex($('in-data').value);
+    $('in-data').classList.toggle('bad', d === null);
+    $('datahint').textContent = d === null
+      ? ('🔴 看不懂「' + (i2ctLastHexErr || '?') + '」')
+      : (d.length ? (d.length + ' byte：' + i2ctBytesText(d.slice(0, 16)) + (d.length > 16 ? ' …' : '')) : '空白');
+  }
   i2ctSyncButtons();
 }
 function i2ctSyncButtons(){
@@ -541,7 +940,7 @@ async function i2ctConnect(takeover){
   i2ctLog('連線 ' + I2CT_WS_URL + (takeover ? '（要求接手 I2C）' : ''), 'n');
   var ws;
   try { ws = new WebSocket(I2CT_WS_URL); }
-  catch (e) { i2ctBusy = false; i2ctSetLink(false, '無法建立 WebSocket', 'err'); i2ctLog('✕ ' + e.message, 'e'); return; }
+  catch (e) { i2ctBusy = false; i2ctSetLink(false, '無法建立 WebSocket', 'err'); i2ctLog('✕ ' + e.message, 'e'); i2ctNeedHelper('連不到 helper'); return; }
   i2ctWs = ws;
   ws.onmessage = i2ctOnMessage;
   ws.onclose = function () {
@@ -560,8 +959,8 @@ async function i2ctConnect(takeover){
         + ' 秒後自動重試（第 ' + i2ctRetry + '/' + I2CT_RETRY_MAX + ' 次）。也可以直接按上方的「連線」。');
       setTimeout(function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(); }, wait);
     } else if (wasLinked && !i2ctUserClosing) {
-      i2ctBanner('topbanner', 'err', '與 helper 的連線中斷，自動重試 ' + I2CT_RETRY_MAX
-        + ' 次都沒成功。請確認 dg-helper 的黑視窗還在，然後按上方的「連線」。');
+      /* 🔴 重試用完了 ⇒ helper 不在了，下一步一樣是「去拿一個 helper」。 */
+      i2ctNeedHelper('helper 不見了（自動重試 ' + I2CT_RETRY_MAX + ' 次都沒接上）');
     }
   };
   var opened = await new Promise(function (resolve) {
@@ -573,8 +972,8 @@ async function i2ctConnect(takeover){
   if (!opened) {
     try { ws.close(); } catch (e) {}
     i2ctWs = null; i2ctBusy = false; i2ctSetLink(false, '連不到 helper', 'err');
-    i2ctLog('✕ 連不到本機 helper。helper（黑視窗）有在跑嗎？若本頁是從 https 開的，'
-          + '請改用 helper 自己端出來的 ' + I2CT_PAGE_URL, 'e');
+    i2ctLog('✕ 連不到本機 helper（' + I2CT_WS_URL + '）。helper 有在跑嗎？'
+          + '（退路：helper 也端得出同一份頁面 ' + I2CT_PAGE_URL + '，但畫面上不再主動提它）', 'e');
     i2ctNoHelperBanner();
     return;
   }
@@ -587,13 +986,12 @@ async function i2ctConnect(takeover){
     if (i2ctHelperProto < I2CT_NEED_PROTO) {
       /* 🔴 不能只說「版本太舊」—— 要說手上哪版、需要哪版、去哪裡拿。
          Bruce 在外地時，下載入口就在下面那張卡，而且只有線上版才是新的。 */
-      i2ctOpenHelperCard();
-      throw new Error('helper 太舊：你手上的是 ' + (i2ctHelperVer || '?') + '（proto '
-        + i2ctHelperProto + '），本頁需要 proto ' + I2CT_NEED_PROTO + ' 以上'
-        + '（offset 寬度 0/1/4 與不限位址寫入都是 proto ' + I2CT_NEED_PROTO + ' 才有的）。'
-        + '請用下方「取得 / 更新 helper」的下載鈕換成 ' + (I2CT_PKG.pkg || '最新版')
-        + '；🔴 若你現在看的是 helper 端出來的離線頁，它的下載連結是打包當時那一包，'
-        + '要拿新版請到線上版：' + I2CT_ONLINE_PAGE);
+      /* 🔴 訊息縮成一句話，因為下一步已經變成一顆按鈕（見 catch 裡的 i2ctNeedHelper）。
+         完整細節（手上哪版、要哪版、離線頁的連結指向哪裡）留在 log。 */
+      i2ctLog('helper 太舊：手上 ' + (i2ctHelperVer || '?') + '（proto ' + i2ctHelperProto
+            + '），本頁需要 proto ' + I2CT_NEED_PROTO + ' 以上；離線頁的下載連結是打包當時那一包，'
+            + '新版在 ' + I2CT_ONLINE_PAGE, 'e');
+      throw new Error('helper 太舊（proto ' + i2ctHelperProto + '，本頁需要 ' + I2CT_NEED_PROTO + '）');
     }
     var op = null;
     for (var a = 1; a <= I2CT_OPEN_RETRIES; a++) {
@@ -628,6 +1026,11 @@ async function i2ctConnect(takeover){
     i2ctRetry = 0;
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctBanner('topbanner', '', '');
+    i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 helper）
+    /* 🔴 自檢改成連線後自動跑、**成功就安靜**（Bruce 2026-09-18）。
+       這樣他不必知道「黃金向量」是什麼，診斷能力卻一點都沒少：
+       通過只寫 log，不通過才在畫面上說話。按鈕本身收進 debug 當手動出口。 */
+    i2ctSelfTest(true).catch(function () {});
   } catch (err) {
     i2ctBusy = false;
     /* 🔴 .catch 不可省：下一行的 ws.close() 會觸發 onclose，onclose 會 reject 掉
@@ -638,7 +1041,10 @@ async function i2ctConnect(takeover){
     i2ctWs = null;
     i2ctSetLink(false, '連線失敗', 'err');
     i2ctLog('✕ ' + err.message, 'e');
-    i2ctBanner('topbanner', 'err', err.message);
+    /* 🔴 「helper 太舊」的下一步也是下載鈕，不是一段字。其餘（開通道失敗之類）
+       helper 本身是好的、下載沒有用 ⇒ 那一種才留紅字。 */
+    if (/太舊|proto/.test(err.message)) i2ctNeedHelper('helper 太舊（你手上是 ' + (i2ctHelperVer || '?') + '）');
+    else i2ctBanner('topbanner', 'err', err.message);
   }
 }
 async function i2ctDisconnect(){
@@ -681,16 +1087,20 @@ async function i2ctTakeover(){
 }
 /* 連不到 helper 時的統一訊息。🔴 一定要把下載入口亮出來並展開 ——
    使用者（尤其人在外地時）可能就是缺那一包，而這是他拿得到的唯一地方。 */
-function i2ctNoHelperBanner(){
-  i2ctOpenHelperCard();
-  var extra = (location.protocol === 'https:')
-    ? '若 dg-helper 已經在跑卻還是連不上，請改開 <a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL
-      + '</a>（同一份頁面，由 helper 自己端出來、同源，不會被瀏覽器的本機網路限制擋住）。'
-    : '';
-  i2ctBanner('topbanner', 'err',
-    '<b>這一頁要通 I2C 一定得有本機 helper</b>（瀏覽器沒有別的管道碰得到 FTDI 治具）。'
-    + '沒有的話請用下方<b>「取得 / 更新 helper」</b>的下載鈕抓一包（已自動展開）。' + extra);
+/* 🔴 連不到 helper ⇒ 第一個出現的東西是下載鈕（Bruce 2026-09-18 實測指正）。
+   不是紅色警示、不是「請改開 127.0.0.1」—— 第一次來的人根本沒有 helper，
+   那句話對他沒有意義。「改開 127.0.0.1」降級成下載鈕底下的一行小字，
+   因為它只有在「已經裝好、helper 也在跑」時才成立，而網頁分辨不出來。 */
+function i2ctNeedHelper(why){
+  var g = $('gethelper'); if (g) g.style.display = '';
+  var w = $('get-why'); if (w) w.textContent = why || '連不到 helper';
+  /* 🔴 按鈕旁邊不再有任何說明（Bruce 2026-09-18 第三次要求）：
+     「接下來怎麼做」改成按下下載才跳的說明視窗，字大、三行、一鍵關掉。
+     127.0.0.1 那句也一併消失 —— 他原話「沒有人看得懂」。URL 只留在 log。 */
+  i2ctBanner('topbanner', '', '');   // 紅字讓位給下載鈕，不要兩個東西同時喊
 }
+function i2ctGotHelper(){ var g = $('gethelper'); if (g) g.style.display = 'none'; }
+function i2ctNoHelperBanner(){ i2ctNeedHelper('連不到 helper'); }
 function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
 
 /* ═══ 讀 ════════════════════════════════════════════════════════════════ */
@@ -723,16 +1133,27 @@ async function i2ctOnRead(){
   if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
   i2ctBusy = true; i2ctSyncButtons();
   i2ctBanner('readbanner', 'info', '讀取中…');
-  var res = await i2ctDoRead(v.slave, v.awid, v.off, v.len);
+  var res = await i2ctDoRead(v.slave, v.wireAwid, v.off, v.len);
   i2ctBusy = false; i2ctSyncButtons();
 
   i2ctBuf = {}; i2ctWrote = {};
   for (var i = 0; i < res.bytes.length; i++) i2ctBuf[i2ctKeyOf(v.off, i, v.awid)] = res.bytes[i];
   var allFF = i2ctAllFF(res.bytes);
   i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF };
-  i2ctPages = i2ctPagesOf(v.off, res.bytes.length || 1, v.awid);
-  i2ctPageIdx = 0;
-  i2ctRenderPager(); i2ctRenderTable();
+  /* 🔴 slave 一變基準就作廢；沒有基準就建立（靜默），有才比對。 */
+  i2ctSnapCheckSlave(v.slave);
+  var firstForSlave = !i2ctHasSnap(v.slave);
+  var dif = { keys: {}, count: 0 };
+  if (firstForSlave) {
+    i2ctTakeSnap(v.slave, i2ctBuf);
+    i2ctLog('slave 0x' + i2ctHex(v.slave) + ' 第一次讀取 ⇒ 自動建立快照（' + res.bytes.length + ' byte）', 'n');
+  } else {
+    dif = i2ctDiffAgainst(i2ctBuf, i2ctGetSnap(v.slave));
+    i2ctLog('與 slave 0x' + i2ctHex(v.slave) + ' 的快照比對：' + dif.count + ' 處不同', dif.count ? 'w' : 'n');
+  }
+  i2ctDiffKeys = dif.keys;
+  i2ctLastDiffCount = dif.count;
+  i2ctSetView('dev');             // 按讀取 ⇒ 看裝置（載入的檔案仍然留著，可切回去）
 
   if (!res.ok) {
     i2ctBanner('readbanner', 'err', '讀取失敗：' + res.err + '（已收到的 ' + res.bytes.length + ' byte 仍顯示在表格上）');
@@ -747,7 +1168,9 @@ async function i2ctOnRead(){
     i2ctBanner('readbanner', 'ok', '讀到 ' + res.bytes.length + ' byte，'
       + (v.awid === 0 ? '無位址模式（索引 0–' + (res.bytes.length - 1) + '）'
                       : i2ctAddrText(v.off, v.awid) + ' – ' + i2ctAddrText(i2ctWrap(v.off + res.bytes.length - 1, v.awid), v.awid))
-      + '，共 ' + i2ctPages.length + ' 頁。');
+      + '，共 ' + i2ctPages.length + ' 頁。'
+      /* 🔴 自動快照那一次**完全不出聲**（他要無腦）；有差異才講一句。 */
+      + (i2ctLastDiffCount ? '　🔴 ' + i2ctLastDiffCount + ' 處與上次不同' : ''));
   }
 }
 
@@ -768,36 +1191,154 @@ async function i2ctDoWrite(slave, awid, addr, bytes){
   i2ctLog('   ✔ 已寫入（transferred ' + (r.transferred != null ? r.transferred : '?') + '）', 'o');
   return { ok: true, err: null };
 }
+/* 🔴 要寫的 byte 從哪裡來：載入的檔案優先，沒有檔案才看文字框。
+   **長度一律由「總 byte 數」決定**（Bruce：「寫入的 byte 數就以檔案長度為主…
+   除非使用者不想燒這麼多，自己手動再改為其他的」）—— 載入時把總 byte 數設成
+   檔案長度，之後他改小就以他改的為準。 */
+function i2ctWriteSource(len, awid){
+  /* 🔴 寬度 0：**恆定 1 個 byte**，就是 ③ 那個值。不看總 byte 數、不看檔案 ——
+     這個模式下 PMIC 整顆就一個暫存器，送第二個 byte 沒有意義而且危險。
+     （總 byte 數在這個模式下只影響**讀取**的長度：讀是 current address read，
+       連續讀 N 個是合法且有用的，硬湊成 1 會把讀取功能砍掉。） */
+  if (awid === 0) {
+    var one = i2ctParseNum($('in-off').value);
+    if (one === null || one < 0 || one > 0xFF) return { bytes: null, err: '寬度 0：③ 要是 0x00–0xFF 的 1 byte' };
+    return { bytes: [one & 0xFF], err: null, src: '③ 的 1 byte（無位址相位）' };
+  }
+  var all;
+  if (i2ctFileBytes) all = Array.prototype.slice.call(i2ctFileBytes);
+  else {
+    all = i2ctParseHex($('in-data').value);
+    if (all === null) return { bytes: null, err: '寫入資料解析不出來（每個 byte 要兩碼）' };
+    if (!all.length) return { bytes: null, err: '沒有要寫的資料：打字或按「載入檔案」' };
+    return { bytes: all, err: null, src: '手動輸入' };   /* 手打的就照打的長度 */
+  }
+  if (!all.length) return { bytes: null, err: '檔案是空的' };
+  var n = Math.min(len, all.length);
+  return { bytes: all.slice(0, n), err: null,
+           src: i2ctFileName + (n < all.length ? '（只寫前 ' + n + '／' + all.length + ' byte）' : '') };
+}
 async function i2ctOnWrite(){
   var v = i2ctReadInputs();
-  var d = i2ctParseHex($('in-data').value);
   if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
-  if (d === null || !d.length) { i2ctBanner('readbanner', 'err', '寫入資料解析不出來或為空'); return; }
-  if (d.length > I2CT_CHUNK) { i2ctBanner('readbanner', 'err', '一次最多寫 ' + I2CT_CHUNK + ' byte（目前 ' + d.length + '）'); return; }
+  var src = i2ctWriteSource(v.len, v.awid);
+  if (!src.bytes) { i2ctBanner('readbanner', 'err', src.err); return; }
+  var d = src.bytes;
   i2ctBusy = true; i2ctSyncButtons();
-  var r = await i2ctDoWrite(v.slave, v.awid, v.off, d);
+  /* 🔴 分段：helper 的 rawwrite 一次最多 RAW_MAX_DATA(256) byte，所以 4096 的檔案
+     要切成多則、位址逐段往前推。切錯的後果是**燒到別的位址**，所以位址用
+     i2ctWrap() 照該 offset 寬度回繞，與讀取那一側用同一支函式。 */
+  var ok = true, errMsg = '', done = 0;
+  while (done < d.length && ok) {
+    var n = Math.min(I2CT_CHUNK, d.length - done);
+    var addr = i2ctWrap(v.off + done, v.wireAwid);
+    var r = await i2ctDoWrite(v.slave, v.wireAwid, addr, d.slice(done, done + n));
+    if (!r.ok) { ok = false; errMsg = r.err; break; }
+    for (var i = 0; i < n; i++) { var k = i2ctKeyOf(v.off, done + i, v.awid); i2ctBuf[k] = d[done + i]; i2ctWrote[k] = true; }
+    done += n;
+  }
   i2ctBusy = false; i2ctSyncButtons();
-  if (r.ok) {
-    for (var i = 0; i < d.length; i++) { var k = i2ctKeyOf(v.off, i, v.awid); i2ctBuf[k] = d[i]; i2ctWrote[k] = true; }
-    if (!i2ctPages.length) { i2ctPages = i2ctPagesOf(v.off, d.length, v.awid); i2ctPageIdx = 0; i2ctRenderPager(); }
-    i2ctRenderTable();
-    i2ctBanner('readbanner', 'warn', '已寫入 ' + d.length + ' byte 到 '
-      + (v.awid === 0 ? '（無位址模式）' : i2ctAddrText(v.off, v.awid))
+  /* 🔴 寫完**不自動讀回** —— 自動讀會蓋掉他剛才檢視的內容，而「要不要回頭比對」
+     是他的決定，不是我們的。要比對就按「讀取」。 */
+  if (!i2ctFileBytes && !i2ctPages.length) { i2ctPages = i2ctPagesOf(v.off, Math.max(done, 1), v.awid); i2ctPageIdx = 0; }
+  i2ctRenderPager(); i2ctRenderTable();
+  if (ok) {
+    i2ctBanner('readbanner', 'warn', '已寫入 ' + done + ' byte（來源：' + src.src + '）'
       + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。');
   } else {
-    i2ctBanner('readbanner', 'err', r.err);
+    i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗：' + errMsg);
+  }
+}
+
+/* ═══ 載入檔案 ═════════════════════════════════════════════════════════════ */
+function i2ctClearFile(){ i2ctFileBytes = null; i2ctFileName = ''; i2ctFileFormat = ''; }
+function i2ctOnFile(file){
+  if (!file) return;
+  var fr = new FileReader();
+  fr.onload = function(){ i2ctApplyFile(file.name, new Uint8Array(fr.result)); };
+  fr.onerror = function(){ i2ctBanner('readbanner', 'err', '檔案讀不起來'); };
+  fr.readAsArrayBuffer(file);
+}
+/* 🔴 解析與套用都在這一支：真路徑（FileReader）與測試路徑打的是同一段程式碼。
+   回傳 true ＝ 載入成功。 */
+function i2ctApplyFile(name, raw){
+  {
+    var file = { name: name };
+    var kind = i2ctFileKind(file.name);
+    var why = kind === 'raw' ? '副檔名 .bin' : '內容判定';
+    if (kind === 'auto') kind = i2ctSniffKind(raw);
+    var bytes, fmt;
+    if (kind === 'text') {
+      var txt = '';
+      for (var i = 0; i < raw.length; i++) txt += String.fromCharCode(raw[i]);
+      var pr = i2ctParseHexText(txt);
+      if (pr.err) {
+        i2ctClearFile();
+        /* 🔴 說清楚第幾行、為什麼 —— 不靜默跳過、不吞掉。 */
+        var em = '第 ' + pr.err.line + ' 行解析不出來：' + pr.err.reason
+               + (pr.err.text ? '（「' + pr.err.text + '」）' : '');
+        i2ctBanner('readbanner', 'err', em);
+        i2ctLog('✕ 載入 ' + file.name + ' 失敗：' + em, 'e');
+        i2ctUpdateHints();
+        return false;
+      }
+      bytes = pr.bytes;
+      fmt = pr.format + (pr.holes ? '　⚠ 位址跳躍處補了 ' + pr.holes + ' 個 0xFF' : '')
+          + (pr.startAddr != null ? '　起始位址 0x' + i2ctHex(pr.startAddr, 4) : '');
+    } else {
+      bytes = raw;
+      fmt = 'raw binary（依' + why + '）';
+    }
+    if (!bytes.length) {
+      i2ctClearFile();
+      i2ctBanner('readbanner', 'err', file.name + ' 解析出 0 個 byte');
+      i2ctUpdateHints(); return false;
+    }
+    i2ctFileBytes = bytes;
+    i2ctFileName = file.name;
+    /* 🔴 **載入 ≠ 寫入。** 這一整支從頭到尾沒有任何 i2ctSend / i2ctDoWrite ——
+       一個 byte 都不會上匯流排。寫入只能由「寫入」那顆按鈕觸發。
+       這是防誤燒的關鍵，selftest 用假 helper 斷言「載入後送出的訊息數 = 0」。 */
+    var vin = i2ctReadInputs();
+    i2ctFileBase = (vin.off === null ? 0 : vin.off);
+    i2ctFileAwid = vin.awid;
+    /* 🔴 載入的長度**共用「總 byte 數」欄位**（Bruce 明講）。他之後改小就以他為準。 */
+    $('in-len').value = String(Math.min(bytes.length, I2CT_MAX_LEN));
+    $('in-data').value = '';
+    i2ctFileFormat = fmt;
+    i2ctLog('載入 ' + file.name + '：' + fmt + ' · ' + bytes.length + ' byte'
+          + (bytes.length > I2CT_MAX_LEN ? '　⚠ 超過一次上限 ' + I2CT_MAX_LEN + '，總 byte 數已設為上限' : ''), 'o');
+    /* 🔴 一行講完：辨識成哪一種、幾個 byte。他一眼就知道有沒有吃對。 */
+    i2ctBanner('readbanner', 'ok', file.name + '：' + fmt + ' · ' + bytes.length + ' byte，確認後按「寫入」'
+      + (i2ctLastDiffCount ? '　🔴 ' + i2ctLastDiffCount + ' 處與裝置快照不同' : ''));
+    /* 🔴 載入的檔案也跟當前 slave 的快照比（他先前的規則：不管是 load 檔案
+       還是從裝置讀取，相同的位置都要比較）。一樣是**位址對位址**。 */
+    var fmap = {};
+    for (var fi = 0; fi < bytes.length; fi++) fmap[i2ctKeyOf(i2ctFileBase, fi, i2ctFileAwid)] = bytes[fi];
+    i2ctSnapCheckSlave(vin.slave);
+    var fdif = i2ctDiffAgainst(fmap, i2ctGetSnap(vin.slave));
+    i2ctDiffKeys = fdif.keys;
+    i2ctLastDiffCount = fdif.count;
+    if (fdif.count) i2ctLog('檔案與 slave 0x' + i2ctHex(vin.slave) + ' 的快照有 ' + fdif.count + ' 處不同', 'w');
+    i2ctSetView('file');          // 載入 ⇒ 看檔案（可預期的切換規則）
+    i2ctUpdateHints();
+    return true;
   }
 }
 
 /* ═══ 自檢 ══════════════════════════════════════════════════════════════ */
-async function i2ctSelfTest(){
+/* `auto` ＝ 連線後自動跑的那一次：通過不出聲、也不動使用者的四項輸入。
+   手動按的那一次維持原行為（把輸入填成黃金向量，看得到自檢做了什麼）。 */
+async function i2ctSelfTest(auto){
   i2ctBusy = true; i2ctSyncButtons();
-  /* 把輸入一併設成黃金向量，讓使用者看得到自檢到底做了什麼 */
-  $('in-slave').value = '0x' + i2ctHex(I2CT_GOLDEN.slave);
-  i2ctSetAwid(I2CT_GOLDEN.awid);
-  $('in-off').value = '0x' + i2ctHex(I2CT_GOLDEN.addr, 4);
-  $('in-len').value = String(I2CT_GOLDEN.len);
-  i2ctUpdateHints();
+  if (!auto) {
+    /* 把輸入一併設成黃金向量，讓使用者看得到自檢到底做了什麼 */
+    $('in-slave').value = '0x' + i2ctHex(I2CT_GOLDEN.slave);
+    i2ctSetAwid(I2CT_GOLDEN.awid);
+    $('in-off').value = '0x' + i2ctHex(I2CT_GOLDEN.addr, 4);
+    $('in-len').value = String(I2CT_GOLDEN.len);
+    i2ctUpdateHints();
+  }
 
   i2ctLog('── 自檢：黃金向量 slave 0x68 / offset 2B / 0x0000 ×3，期望 '
         + i2ctBytesText(I2CT_GOLDEN.expect) + ' ──', 'n');
@@ -818,13 +1359,15 @@ async function i2ctSelfTest(){
 
   i2ctBusy = false; i2ctSyncButtons();
   if (pass) {
-    i2ctBanner('topbanner', 'ok', '✔ 自檢通過：0x0000 讀回 ' + i2ctBytesText(g.bytes) + '，與黃金向量一致。' + idTxt);
-    i2ctLog('✔ 自檢通過：' + i2ctBytesText(g.bytes), 'o');
+    /* 🔴 自動那一次通過就**完全安靜**：log 有記錄，畫面上不出聲。 */
+    if (!auto) i2ctBanner('topbanner', 'ok', '✔ 自檢通過：0x0000 讀回 ' + i2ctBytesText(g.bytes) + '，與黃金向量一致。' + idTxt);
+    i2ctLog('✔ 自檢通過：' + i2ctBytesText(g.bytes) + (auto ? '（連線後自動跑）' : ''), 'o');
   } else {
     var why = !g.ok ? g.err
       : (i2ctAllFF(g.bytes) ? '讀回 ' + i2ctBytesText(g.bytes) + ' ＝ 全 FF ＝ 總線閒置／無裝置回應'
                             : '讀回 ' + i2ctBytesText(g.bytes) + '，與期望的 ' + i2ctBytesText(I2CT_GOLDEN.expect) + ' 不同');
-    i2ctBanner('topbanner', 'err', '✕ 自檢未通過：' + why + idTxt);
+    /* 失敗一律說話（自動或手動都一樣）—— 這是「錯誤才說話」的另一半。 */
+    i2ctBanner('topbanner', 'err', '讀不到 TCON（' + why + '）' + idTxt);
     i2ctLog('✕ 自檢未通過：' + why, 'e');
   }
   return pass;
@@ -839,7 +1382,7 @@ function i2ctBanner(id, cls, html){
 function i2ctRenderPager(){
   var sel = $('pagesel');
   sel.innerHTML = '';
-  var awid = i2ctLastRead ? i2ctLastRead.awid : i2ctAwid();
+  var awid = i2ctViewAwid();
   for (var i = 0; i < i2ctPages.length; i++) {
     var o = document.createElement('option');
     o.value = String(i);
@@ -853,10 +1396,39 @@ function i2ctRenderPager(){
   $('btn-next').disabled = i2ctPageIdx >= i2ctPages.length - 1;
   $('pageinfo').textContent = i2ctPages.length ? ('第 ' + (i2ctPageIdx + 1) + ' / ' + i2ctPages.length + ' 頁') : '尚無資料';
 }
+/* 目前這個檢視要顯示的 {key -> byte}。檔案那一份是即時算出來的，不另外複製一份
+   —— 複製就會有「兩份不同步」的機會。 */
+function i2ctViewBuf(){
+  if (i2ctView !== 'file' || !i2ctFileBytes) return i2ctBuf;
+  var m = {};
+  for (var i = 0; i < i2ctFileBytes.length; i++) m[i2ctKeyOf(i2ctFileBase, i, i2ctFileAwid)] = i2ctFileBytes[i];
+  return m;
+}
+function i2ctViewAwid(){
+  if (i2ctView === 'file' && i2ctFileBytes) return i2ctFileAwid;
+  return i2ctLastRead ? i2ctLastRead.awid : i2ctAwid();
+}
+function i2ctSetView(v){
+  i2ctView = (v === 'file' && i2ctFileBytes) ? 'file' : 'dev';
+  var base = i2ctView === 'file' ? i2ctFileBase : (i2ctLastRead ? i2ctLastRead.base : 0);
+  var len  = i2ctView === 'file' ? i2ctFileBytes.length : (i2ctLastRead ? i2ctLastRead.got : 0);
+  i2ctPages = i2ctPagesOf(base, Math.max(len, 1), i2ctViewAwid());
+  i2ctPageIdx = 0;
+  $('dumptitle').textContent = i2ctView === 'file'
+    ? ('檔案內容：' + i2ctFileName + '（尚未寫入）') : '16 × 16 Dump';
+  $('dumpcard').classList.toggle('filemode', i2ctView === 'file');
+  /* 切換鈕只有在兩份資料都存在時才有意義 ⇒ 平常不出現（他不必看到多餘的東西） */
+  var vb = $('btn-view');
+  var both = !!i2ctFileBytes && !!i2ctLastRead;
+  vb.classList.toggle('dbgonly', !both);
+  vb.textContent = i2ctView === 'file' ? '看裝置讀回值' : '看檔案內容';
+  i2ctRenderPager(); i2ctRenderTable();
+}
 function i2ctRenderTable(){
   var t = $('dump');
-  var awid = i2ctLastRead ? i2ctLastRead.awid : i2ctAwid();
-  var busIdle = !!(i2ctLastRead && i2ctLastRead.allFF);
+  var src = i2ctViewBuf();
+  var awid = i2ctViewAwid();
+  var busIdle = i2ctView === 'dev' && !!(i2ctLastRead && i2ctLastRead.allFF);
   var pageBase = i2ctPages.length ? i2ctPages[i2ctPageIdx] : 0;
   var html = '<tr><th class="rh"></th>';
   for (var c = 0; c < 16; c++) html += '<th>+' + i2ctHex(c, 1) + '</th>';
@@ -866,13 +1438,16 @@ function i2ctRenderTable(){
     html += '<tr><th class="rh">' + (awid === 0 ? ('#' + rowBase) : i2ctAddrText(rowBase, awid)) + '</th>';
     for (var c2 = 0; c2 < 16; c2++) {
       var key = i2ctCellKey(pageBase, r, c2);
-      var has = Object.prototype.hasOwnProperty.call(i2ctBuf, key);
-      var v = has ? i2ctBuf[key] : null;
+      var has = Object.prototype.hasOwnProperty.call(src, key);
+      var v = has ? src[key] : null;
       var cls = [];
       if (has) cls.push('has');
       if (has && busIdle) cls.push('bus');
       else if (has && v === 0xFF) cls.push('ff');
-      if (i2ctWrote[key]) cls.push('wrote');
+      /* 檔案檢視整片都是「還沒寫進去」，所以整片用同一個待寫入底色 */
+      if (i2ctView === 'file' ? has : i2ctWrote[key]) cls.push('wrote');
+      /* 🔴 與該 slave 的快照不同 ⇒ 標出來（洋紅，壓在待寫入底色之上） */
+      if (has && i2ctDiffKeys[key]) cls.push('diff');
       var title = i2ctAddrText(key, awid) + (has ? ' = 0x' + i2ctHex(v) + ' (' + v + ')' : ' 未讀取');
       html += '<td class="' + cls.join(' ') + '" data-key="' + key + '" title="' + title + '">'
             + (has ? i2ctHex(v) : '') + '</td>';
@@ -967,60 +1542,53 @@ function i2ctFillHelperCard(){
     $('helper-sum').textContent = '（線上版 · ' + (I2CT_PKG.pkg || '?') + '）';
   }
 }
-/* 使用者主動按才發出的對外請求：比對線上版的 HELPER_PKG.pkg。
-   🔴 刻意做成**按鈕**而不是載入時自動跑：這一頁的離線版是為了「沒有外網也能用」
-      而存在的，自動對外發請求會違反那個前提，而且是使用者沒要求的行為。
-      （要不要改成自動檢查，等 Bruce 裁示。） */
-async function i2ctCheckOnline(){
-  var btn = $('btn-chkver'); btn.disabled = true; var old = btn.textContent; btn.textContent = '查詢中…';
-  try {
-    var ctl = new AbortController();
-    var to = setTimeout(function () { ctl.abort(); }, 6000);
-    var r = await fetch(I2CT_ONLINE_BASE + 'common/version.js?t=' + Date.now(),
-                        { cache: 'no-store', signal: ctl.signal });
-    clearTimeout(to);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    var txt = await r.text();
-    var m = txt.match(/pkg\s*:\s*'([^']+)'/);
-    var f = txt.match(/file\s*:\s*'([^']+)'/);
-    if (!m) throw new Error('線上版的 version.js 裡找不到 HELPER_PKG.pkg');
-    if (m[1] === I2CT_PKG.pkg) {
-      i2ctBanner('topbanner', 'ok', '已經是最新的 helper 下載包（' + m[1] + '）。');
-      i2ctLog('線上版本檢查：目前 ' + I2CT_PKG.pkg + '，線上 ' + m[1] + ' ⇒ 已是最新', 'o');
-    } else {
-      var href = I2CT_ONLINE_BASE + (f ? f[1] : '') + '?v=' + m[1];
-      i2ctBanner('topbanner', 'warn', '線上有新的 helper 下載包：<b>' + m[1] + '</b>（你手上的是 '
-        + (I2CT_PKG.pkg || '?') + '）。<a href="' + href + '" download>點此下載</a>'
-        + '，或到 <a href="' + I2CT_ONLINE_PAGE + '" target="_blank" rel="noopener">線上版</a> 取得。');
-      i2ctLog('線上版本檢查：目前 ' + I2CT_PKG.pkg + '，線上 ' + m[1] + ' ⇒ 🔴 有新版', 'w');
-    }
-  } catch (e) {
-    /* 查不到就是查不到（沒外網、被擋、逾時）。不猜、也不影響任何既有功能。 */
-    i2ctBanner('topbanner', 'info', '查不到線上版本（' + (e.message || e)
-      + '）。這不影響本頁的其他功能；要手動確認請開 <a href="' + I2CT_ONLINE_PAGE
-      + '" target="_blank" rel="noopener">線上版</a>。');
-    i2ctLog('線上版本檢查失敗：' + (e.message || e), 'e');
-  } finally { btn.disabled = false; btn.textContent = old; }
+/* 🔴 i2ctCheckOnline() 已於 v1.2.1 刪除（Bruce 2026-09-18）：
+   「這個本來就是從網頁更新的，進來的不就一定是最新版的，怎麼還需要檢查？」
+   線上版沒有「版本落後」這回事；離線打包版的比對改由 i2ctAutoVerCheck()
+   自動、靜默地做，只在確定落後時顯示一行＋下載鈕。**沒有任何按鈕。** */
+
+/* ═══ 🔴 debug 模式的兩個入口（刻意不顯眼）═════════════════════════════════
+   ① 網址帶 `?debug=1`（我要他開時，一句話就講得完）
+   ② 連點標題三下（他手上沒有網址可改時的退路）
+   🔴 畫面上**沒有任何一顆寫著 debug 的按鈕** —— 那本身就是 Bruce 說的
+      「看不懂的按鈕」。打開之後那些診斷用的控制項原封回來，功能一個沒少。 */
+function i2ctSetDebug(on){
+  document.body.classList.toggle('dbg', !!on);
+  i2ctLog('debug 模式 ' + (on ? 'ON（診斷控制項已顯示）' : 'OFF'), 'n');
+  i2ctSyncButtons();
+}
+function i2ctIsDebug(){ return document.body.classList.contains('dbg'); }
+function i2ctWireDebugToggle(){
+  var h = document.querySelector('.hdr h1'); if (!h) return;
+  var n = 0, t = 0;
+  h.addEventListener('click', function () {
+    var now = Date.now();
+    if (now - t > 800) n = 0;
+    t = now; n++;
+    if (n >= 3) { n = 0; i2ctSetDebug(!i2ctIsDebug()); }
+  });
 }
 
 function i2ctInit(){
   try { $('ver').textContent = (window.TOOL_VERSIONS && TOOL_VERSIONS.i2c) || 'v?'; } catch (e) {}
+  try { if (/[?&]debug=1\b/.test(location.search)) document.body.classList.add('dbg'); } catch (e) {}
+  i2ctWireDebugToggle();
   $('wsurl').textContent = I2CT_WS_URL;
   i2ctFillHelperCard();
 
   /* helper 自己端出來的那一份沒有 index.html，改成回 helper 的選單頁 */
   var local = i2ctIsLocal(location.hostname);
-  if (local) { $('backlink').textContent = '← helper 選單'; $('backlink').setAttribute('href', I2CT_MENU_URL); }
+  /* 🔴 v1.2.1：不再把使用者導回 helper 的本機選單頁（Bruce：不要再出現那個
+     local 網頁了）。離線打包版沒有 index.html，所以指回線上首頁。 */
+  if (local) $('backlink').setAttribute('href', I2CT_ONLINE_BASE);
   /* 🔴 https 頁面連 ws://127.0.0.1 會撞 Chrome 的 Local Network Access 閘。
      這不是本頁能繞過的，唯一的解是改用 helper 自己端出來的同源版本。
      沒有 helper 時下載入口就是使用者唯一的出口，所以這裡直接把卡片展開。 */
   if (!local) {
-    i2ctOpenHelperCard();
-    /* 🔴 v1.2.0：從四句縮成一句＋一個連結。線上版沒有 helper 就是不能用，
-       使用者需要的只有「下一步去哪裡」。 */
-    i2ctBanner('topbanner', 'info',
-      '要通 I2C 得先跑本機 helper：下載執行後開 '
-      + '<a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL + '</a>。');
+    /* 🔴 v1.2.1：線上版一載入就給下載鈕，不再先叫他「改開 127.0.0.1」。
+       這一頁在線上版本來就通不了 I2C（沒有 helper 就沒有管道），所以
+       「下一步」從第一秒起就是「去拿一個 helper」。 */
+    i2ctNeedHelper('這一頁要通 I2C 得先有本機 helper');
   }
 
   var chips = document.querySelectorAll('#awid-chips .chip');
@@ -1030,14 +1598,39 @@ function i2ctInit(){
       i2ctUpdateHints();
     });
   }
-  ['in-slave', 'in-off', 'in-len', 'in-data'].forEach(function (id) {
+  ['in-off', 'in-len'].forEach(function (id) {
     $(id).addEventListener('input', i2ctUpdateHints);
+  });
+  /* 🔴 slave 一改就讓基準作廢（Bruce：「只要切換 Slave 的 Address 就要重新快照」）。
+     在 input 這一層就做，使用者甚至還沒按讀取，highlight 就已經清乾淨了。 */
+  /* 作廢的判斷在 i2ctUpdateHints 裡（見那裡的註解）；這裡只負責重畫表格，
+     讓 highlight 在他改 slave 的當下就消失，不必等到按讀取。 */
+  $('in-slave').addEventListener('input', function () { i2ctUpdateHints(); i2ctRenderTable(); });
+  /* 🔴 手打就代表要用手打的那一份 ⇒ 清掉載入的檔案。兩個來源同時有效的話，
+     「到底燒了哪一份」就說不清楚，而這是燒 EEPROM，說不清楚不行。 */
+  $('in-data').addEventListener('input', function () {
+    if (i2ctFileBytes && this.value.trim()) { i2ctClearFile(); i2ctLog('改用手動輸入（已放掉載入的檔案）', 'n'); }
+    i2ctUpdateHints();
+  });
+  $('btn-load').addEventListener('click', function () { $('in-file').value = ''; $('in-file').click(); });
+  $('in-file').addEventListener('change', function () { i2ctOnFile(this.files && this.files[0]); });
+  $('btn-view').addEventListener('click', function () { i2ctSetView(i2ctView === 'file' ? 'dev' : 'file'); });
+  $('btn-snap').addEventListener('click', function () {
+    var vv = i2ctReadInputs();
+    i2ctTakeSnap(vv.slave, i2ctBuf);
+    i2ctDiffKeys = {}; i2ctLastDiffCount = 0;
+    i2ctLog('手動重設 slave 0x' + i2ctHex(vv.slave) + ' 的快照', 'n');
+    i2ctRenderTable();
   });
   $('btn-conn').addEventListener('click', function () { i2ctConnect(false); });
   $('btn-disc').addEventListener('click', i2ctDisconnect);
   $('btn-takeover').addEventListener('click', i2ctTakeover);
   $('btn-release').addEventListener('click', i2ctRelease);
-  $('btn-chkver').addEventListener('click', i2ctCheckOnline);
+  $('btn-getshow').addEventListener('click', function () { i2ctNeedHelper('手動叫出來的下載入口'); });
+  /* 🔴 按下下載才跳說明視窗。下載本身照走（<a download> 的預設行為不攔）。 */
+  $('dl').addEventListener('click', function () { $('howto').style.display = 'flex'; });
+  $('howto-ok').addEventListener('click', function () { $('howto').style.display = 'none'; });
+  $('howto').addEventListener('click', function (e) { if (e.target === this) this.style.display = 'none'; });
   $('btn-self').addEventListener('click', i2ctSelfTest);
   $('btn-read').addEventListener('click', i2ctOnRead);
   $('btn-write').addEventListener('click', i2ctOnWrite);
@@ -1064,7 +1657,7 @@ function i2ctInit(){
   });
 
   i2ctPages = [0]; i2ctPageIdx = 0;
-  i2ctRenderPager(); i2ctRenderTable();
+  i2ctSetView('dev');
   i2ctUpdateHints();
   i2ctSetLink(false, '未連線');
   i2ctLog('I2C 讀寫測試工具就緒。讀寫皆不限位址；每一筆交易都記在這裡。', 'n');
@@ -1140,6 +1733,31 @@ window.__i2ct = {
   planRead: i2ctPlanRead, keyOf: i2ctKeyOf, pageOf: i2ctPageOf,
   cellKey: i2ctCellKey, pagesOf: i2ctPagesOf, allFF: i2ctAllFF,
   parseHex: i2ctParseHex, parseNum: i2ctParseNum,
+  fileKind: i2ctFileKind, sniffKind: i2ctSniffKind, parseTextBytes: i2ctParseTextBytes,
+  parseHexText: i2ctParseHexText, parseIntelHex: function (t) { return i2ctParseIntelHex(String(t).split(/\r?\n/)); },
+  fileFormat: function () { return i2ctFileFormat; },
+  /* 夾具用：繞過 <input type=file>（jsdom 沒有真的檔案選擇器），直接走
+     **與真路徑同一支** i2ctApplyFile —— 測到的是出貨的那段解析，不是複製品。 */
+  loadFile: function (name, bytes) {
+    return i2ctApplyFile(name, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+  },
+  fileState: function () { return { name: i2ctFileName, len: i2ctFileBytes ? i2ctFileBytes.length : 0 }; },
+  clearFile: function () { i2ctClearFile(); i2ctUpdateHints(); },
+  writeSource: function (len, awid) { return i2ctWriteSource(len, awid === undefined ? i2ctAwid() : awid); },
+  view: function () { return i2ctView; },
+  hasSnap: function (sl) { return i2ctHasSnap(sl); },
+  snapOf: function (sl) { return i2ctGetSnap(sl); },
+  diffCount: function () { return i2ctLastDiffCount; },
+  diffKeys: function () { return Object.keys(i2ctDiffKeys).map(Number).sort(function (a, b) { return a - b; }); },
+  diffCells: function () {
+    return Array.prototype.filter.call(document.querySelectorAll('#dump td'),
+      function (td) { return td.classList.contains('diff'); }).length;
+  },
+  makeSnap: i2ctMakeSnap, diffAgainst: i2ctDiffAgainst,
+  setView: function (v) { return i2ctSetView(v); },
+  pageLabels: function () {
+    return Array.prototype.map.call(document.getElementById('pagesel').options, function (o) { return o.textContent; });
+  },
   hex: i2ctHex, addrText: i2ctAddrText, bytesText: i2ctBytesText,
   GOLDEN: I2CT_GOLDEN, ID_VEC: I2CT_ID_VEC,
   NEED_PROTO: I2CT_NEED_PROTO, CHUNK: I2CT_CHUNK, MAX_LEN: I2CT_MAX_LEN,
@@ -1147,8 +1765,11 @@ window.__i2ct = {
   disconnect: function () { return i2ctDisconnect(); },
   takeover: function () { return i2ctTakeover(); },
   release: function () { return i2ctRelease(); },
-  checkOnline: function () { return i2ctCheckOnline(); },
   isLocal: i2ctIsLocal,
+  needHelper: function (w) { return i2ctNeedHelper(w); },
+  gotHelper: function () { return i2ctGotHelper(); },
+  setDebug: function (on) { return i2ctSetDebug(on); },
+  isDebug: i2ctIsDebug,
   PKG: I2CT_PKG,
   ONLINE_PAGE: I2CT_ONLINE_PAGE,
   selfTest: function () { return i2ctSelfTest(); },

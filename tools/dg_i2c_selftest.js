@@ -492,7 +492,22 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
     ok(!/ftd2xx/.test(t), '🔴 狀態字母對照表已從畫面上移除（Bruce：對照表不用給我）');
     ok(!/壓縮檔預覽/.test(t), '🔴 解壓流程的長說明已移除');
     ok(/未經實機驗證/.test(t), '🔴 但「未經實機驗證」這句**保留** —— 它不是說明，是誠實標示');
-    ok(/解壓整包到一個資料夾/.test(t), '取得 helper 只留一句話（收在摺疊裡）');
+    /* 🔴 v1.66.1：連「解壓整包」那一句也從畫面上拿掉了 —— 改成**按下下載才跳**
+       的說明視窗（Bruce：「按下下載以後，會跳出說明視窗…文字大一點」）。 */
+    ok(!/解壓整包到一個資料夾/.test(t), '🔴 按鈕旁不再有任何步驟說明');
+    {
+      const how = d.getElementById('dgm-howto');
+      ok(!!how && how.classList.contains('dgm-hidden'), '說明視窗預設不出現');
+      d.getElementById('dgm-i2c-helper-dl').click();
+      ok(!how.classList.contains('dgm-hidden'), '🔴 按下下載 ⇒ 說明視窗出現');
+      const li = how.querySelector('li');
+      const big = parseFloat(dom.window.getComputedStyle(li).fontSize);
+      ok(big >= 20, '🔴 說明視窗的字夠大：' + big + 'px（面板內文 13px）');
+      ok(how.querySelectorAll('li').length <= 3, '步驟三行以內');
+      d.getElementById('dgm-howto-ok').click();
+      ok(how.classList.contains('dgm-hidden'), '一鍵關得掉');
+    }
+    ok(d.querySelectorAll('a[download]').length === 1, '🔴 整頁只有一個下載入口');
     {
       const more = d.getElementById('dgm-i2c-more');
       ok(!!more && more.tagName === 'DETAILS', '說明收在 <details> 裡，預設不展開');
@@ -524,6 +539,57 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   } else {
     ok(false, 'window.dgmI2cProbe.transport 不存在（v1.61.0 的 ws 探針沒接上？）');
   }
+}
+
+console.log('── 13. 極簡準則：非 debug 看不到診斷用的東西（v1.66.1）──');
+{
+  const d3 = dom.window.document;
+  const P2 = P;
+  /* 面板本身是對話框，前一組把它關掉了 —— 不先打開的話這裡量到的
+     「看不見」是被面板關著造成的，不是 debug 造成的。 */
+  d3.getElementById('dgm-i2c-open').click();
+  P2.setDebug(false);
+  /* 🔴 要看**整條祖先鏈**，不能只看元素自己的 computed display ——
+     display 不會繼承，父層 display:none 時子元素自己算出來的還是 inline-block。
+     這正是上一輪「class 加了畫面照樣顯示」的同一類錯，只是換到測試這一側。 */
+  function shown(el) {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = dom.window.getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      if (n.classList && n.classList.contains('dgm-hidden')) return false;
+    }
+    return true;
+  }
+  const diag = ['dgm-i2c-probe', 'dgm-i2c-comm-btn', 'dgm-i2c-copy', 'dgm-i2c-cross-pat'];
+  diag.forEach(id => ok(!shown(d3.getElementById(id)), '🔴 非 debug 下 ' + id + ' 看不到'));
+  ok(dom.window.getComputedStyle(d3.getElementById('dgm-i2c-more')).display === 'none',
+    '🔴 說明摺疊區整個收進 debug');
+  /* 🔴 127.0.0.1 在非 debug 的可見文字裡一個字都不能有（log 例外） */
+  function vis(root) {
+    let out = '';
+    const w = d3.createTreeWalker(root, dom.window.NodeFilter.SHOW_TEXT, null);
+    while (w.nextNode()) {
+      const p = w.currentNode.parentElement;
+      if (!p || p.tagName === 'SCRIPT' || p.tagName === 'STYLE') continue;
+      let hid = false;
+      for (let n = p; n; n = n.parentElement) {
+        if (n.id === 'dgm-log' || n.id === 'dgm-i2c-out') { hid = true; break; }
+        const cs = dom.window.getComputedStyle(n);
+        if (cs.display === 'none' || cs.visibility === 'hidden') { hid = true; break; }
+        if (n.classList && n.classList.contains('dgm-hidden')) { hid = true; break; }
+        if (n.tagName === 'DETAILS' && !n.open) { hid = true; break; }
+      }
+      if (!hid) out += w.currentNode.nodeValue;
+    }
+    return out;
+  }
+  const t3 = vis(d3.getElementById('dgm-i2c-panel'));
+  ok(t3.indexOf('127.0.0.1') < 0, '🔴 非 debug 的可見文字裡沒有 127.0.0.1');
+  ok(t3.indexOf('通訊自檢') < 0, '🔴 非 debug 看不到「通訊自檢」');
+  P2.setDebug(true);
+  diag.forEach(id => ok(shown(d3.getElementById(id)), 'debug 打開後 ' + id + ' 回來'));
+  P2.setDebug(false);
+  d3.getElementById('dgm-i2c-close').click();
 }
 
 console.log('── 12. 十字、解析度與中心座標（v1.66.0）───────────────────');

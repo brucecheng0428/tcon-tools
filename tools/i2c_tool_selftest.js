@@ -109,9 +109,17 @@ async function useHelper(script) {
   await sleep(10);
   const sent = makeMockWS(win, script);
   await win.__i2ct.connect();
-  await quiesce();
+  await quiesce();                    // 連線 + 連線後自動自檢都跑完
   await sleep(25);
+  /* 🔴 v1.2.1：連線成功後頁面會**自動跑一次自檢**（Bruce 要的「不必按、通過就
+     安靜」）。那一次也會送 read，所以「這次測案送了幾則 read」不能再直接數
+     整個 sent —— 那樣數到的是自檢的。記一個分水嶺，測案要看的是它之後的。 */
+  sent.afterConnect = sent.length;
   return sent;
+}
+/* 分水嶺之後、屬於這個測案自己觸發的訊息 */
+function SINCE(sent, type) {
+  return sent.slice(sent.afterConnect || 0).filter(m => m.type === type);
 }
 /* 大部分測案共用的腳本骨架：ping/open/close 一律成功，read/write 交給 f 決定 */
 function baseScript(f) {
@@ -249,7 +257,7 @@ function baseScript(f) {
     A.setInputs({ slave: '0x68', awid: 2, off: '0x1234', len: '3' });
     await A.doRead();
     await sleep(20);
-    const rd = sent.filter(m => m.type === 'read');
+    const rd = SINCE(sent, 'read');
     EQ(rd.length, 1, '3 byte ＝ 送 1 則 read');
     EQ({ slave: rd[0].slave, addr: rd[0].addr, len: rd[0].len, awid: rd[0].awid },
        { slave: 0x68, addr: 0x1234, len: 3, awid: 2 },
@@ -285,16 +293,22 @@ function baseScript(f) {
   /* ═════════════════════════════════════════════════════════════════════ */
   G('8. 端到端：四種 offset 寬度真的送出對應的 awid');
   {
-    for (const [awid, off, wantAddr] of [[0, '0x0000', 0], [1, '0x34', 0x34], [2, '0x1234', 0x1234], [4, '0x00001234', 0x1234]]) {
+    /* 🔴 v1.2.1：UI 的「0 byte」語意改了（Bruce 2026-09-18）——
+       不再是「完全不送位址」，而是「slave ＋ 一個 1 byte 的值」，
+       所以 wire 上送的是 awid=1、位址就是那個值。這裡照新語意釘住。 */
+    /* 🔴 wire 的 awid **與 UI 完全一致**（Bruce 2026-09-18 親自確認寬度 0
+       ＝ 沒有位址相位）。寬度 0 的讀取仍是 current address read。 */
+    for (const [awid, off, wantAddr, wireAwid] of [[0, '0x34', 0x34, 0], [1, '0x34', 0x34, 1],
+                                                   [2, '0x1234', 0x1234, 2], [4, '0x00001234', 0x1234, 4]]) {
       const sent = await useHelper(baseScript((m) => {
         if (m.type === 'read') return { ok: true, status: 0, data: [0x01, 0x02] };
       }));
       A.setInputs({ slave: '0x68', awid: awid, off: off, len: '2' });
       await A.doRead();
       await sleep(15);
-      const r = sent.filter(m => m.type === 'read')[0];
-      EQ({ awid: r.awid, addr: r.addr }, { awid: awid, addr: wantAddr },
-         'offset 寬度 ' + awid + ' byte → awid=' + awid + ' addr=' + wantAddr);
+      const r = SINCE(sent, 'read')[0];
+      EQ({ awid: r.awid, addr: r.addr }, { awid: wireAwid, addr: wantAddr },
+         'UI offset 寬度 ' + awid + ' byte → wire awid=' + wireAwid + ' addr=' + wantAddr);
     }
     /* awid 0 的表格用索引標示 */
     await useHelper(baseScript((m) => {
@@ -303,8 +317,12 @@ function baseScript(f) {
     A.setInputs({ awid: 0, off: '0', len: '2' });
     await A.doRead(); await sleep(15);
     const rh0 = Array.from(doc.querySelectorAll('#dump th.rh')).map(t => t.textContent).filter(s => s);
-    EQ(rh0[0], '#0', 'awid 0：列表頭用索引（#0）而不是位址');
-    EQ(A.state().buf[0], 0xAA, 'awid 0：第 0 個 byte 落在索引 0');
+    EQ(rh0[0], '#0', 'UI awid 0：列表頭仍用索引（#0）—— 它不是位址空間');
+    EQ(A.state().buf[0], 0xAA, 'UI awid 0：第 0 個 byte 落在索引 0');
+    /* 🔴 標籤本身要跟著語意變，不是只有 hint 變 */
+    EQ(doc.getElementById('offlabel').textContent, '③ 寫入值（1 byte）', 'awid 0 時欄位標籤改名');
+    A.setInputs({ awid: 2 });
+    EQ(doc.getElementById('offlabel').textContent, '③ 起始 offset', '切回 2 byte 時標籤復原');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -320,7 +338,7 @@ function baseScript(f) {
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '3', data: 'DE AD BE' });
     await A.doWrite();
     await sleep(20);
-    const w = sent.filter(m => m.type === 'rawwrite');
+    const w = SINCE(sent, 'rawwrite');
     EQ(w.length, 1, '送出 1 則 rawwrite');
     EQ({ type: 'rawwrite', slave: w[0].slave, addr: w[0].addr, awid: w[0].awid, data: w[0].data },
        { type: 'rawwrite', slave: 0x50, addr: 0x0000, awid: 2, data: [0xDE, 0xAD, 0xBE] },
@@ -336,7 +354,7 @@ function baseScript(f) {
     /* 更高位址也不擋 */
     A.setInputs({ off: '0xFFFF', data: 'FF' });
     await A.doWrite(); await sleep(15);
-    const w2 = sent.filter(m => m.type === 'rawwrite');
+    const w2 = SINCE(sent, 'rawwrite');
     EQ(w2[w2.length - 1].addr, 0xFFFF, '0xFFFF 也寫得出去（不限位址）');
   }
 
@@ -440,8 +458,15 @@ function baseScript(f) {
       return { ok: true, channels: 1 };
     });
     CHECK(A.state().linked === false, 'proto 1 的舊 helper → 不視為已連線');
-    const b = doc.getElementById('topbanner').textContent;
-    CHECK(b.indexOf('proto') >= 0 && b.indexOf('更新 helper') >= 0, '訊息要說出 proto 版本並叫人更新 helper：' + b.slice(0, 80));
+    /* 🔴 v1.2.1 反轉：「helper 太舊」的下一步已經從**一段字**變成**一顆下載鈕**。
+       所以這裡驗的不再是橫幅文字，而是「下載入口有沒有出現、上面有沒有版號」。
+       文字那一半降級成 log（診斷用），不占畫面。 */
+    const g = doc.getElementById('gethelper');
+    CHECK(win.getComputedStyle(g).display !== 'none', '🔴 proto 太舊 ⇒ 下載鈕出現');
+    CHECK(doc.getElementById('get-why').textContent.indexOf('太舊') >= 0,
+          '一句話說明為什麼：' + doc.getElementById('get-why').textContent);
+    CHECK(doc.getElementById('log').textContent.indexOf('proto') >= 0,
+          'proto 版本仍然照印在 log（診斷能力沒被砍）');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -482,7 +507,10 @@ function baseScript(f) {
           '🔴 離線版的下載鈕指向線上網址：' + href);
     CHECK(href.indexOf(V.file) >= 0, '下載連結帶正確檔名');
     CHECK(/[?&]v=/.test(href), '下載連結帶 cache buster');
-    CHECK(doc.getElementById('btn-chkver') !== null, '有「檢查線上有無新版」按鈕');
+    /* 🔴 v1.2.1 反轉：這顆按鈕已刪除（Bruce：「本來就是從網頁更新的，
+       進來的不就一定是最新版的，怎麼還需要檢查？」）。 */
+    CHECK(doc.getElementById('btn-chkver') === null, '🔴 「檢查線上有無新版」按鈕已移除');
+    CHECK(doc.body.textContent.indexOf('檢查線上有無新版') < 0, '🔴 整頁不再有這串字');
   }
 
   G('16. I2C 被別的頁面佔用：要講出來、要有出口');
@@ -541,13 +569,427 @@ function baseScript(f) {
       if (m.type === 'ping') return { helper: '1.3.2', proto: 1, ok: true };
       return { ok: true, channels: 1 };
     });
-    const b = doc.getElementById('topbanner').textContent;
     CHECK(A.state().linked === false, 'proto 太舊 → 不視為已連線');
-    CHECK(b.indexOf('1.3.2') >= 0, '🔴 講出他手上是哪一版：' + (b.indexOf('1.3.2') >= 0));
-    CHECK(b.indexOf('proto 2') >= 0, '🔴 講出需要哪一版');
-    CHECK(b.indexOf(win.HELPER_PKG.pkg) >= 0, '🔴 講出要換成哪一包：' + win.HELPER_PKG.pkg);
-    CHECK(b.indexOf('brucecheng0428.github.io') >= 0, '🔴 講出去哪裡拿（線上版網址）');
-    CHECK(doc.getElementById('helper-card').open === true, '🔴 下載卡自動展開（他可能就是缺那一包）');
+    /* 🔴 「手上哪版／要哪版／去哪裡拿」三件事還是要講齊，只是講的地方換了：
+       **要換成哪一包**印在按鈕上（他一眼看得到），**手上哪版**在按鈕旁那句話裡，
+       **需要哪版與線上網址**留在 log。畫面上不再塞一整段。 */
+    const dl = doc.getElementById('dl');
+    CHECK(win.getComputedStyle(doc.getElementById('gethelper')).display !== 'none',
+          '🔴 下載入口出現（他可能就是缺那一包）');
+    CHECK(dl.textContent.indexOf(win.HELPER_PKG.pkg) >= 0,
+          '🔴 版號印在下載鈕上：' + dl.textContent.trim());
+    CHECK(doc.getElementById('get-why').textContent.indexOf('1.3.2') >= 0,
+          '🔴 講出他手上是哪一版：' + doc.getElementById('get-why').textContent);
+    const lg = doc.getElementById('log').textContent;
+    CHECK(lg.indexOf('proto 2') >= 0, '🔴 需要哪一版留在 log');
+    CHECK(lg.indexOf('brucecheng0428.github.io') >= 0, '🔴 去哪裡拿留在 log');
+  }
+
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19. 載入檔案：解析、預覽、而且一個 byte 都不准送出');
+  {
+    /* ── 19a. 🔴 副檔名只管 .bin，其餘看內容（Bruce 2026-09-18 更正：
+           「HEX 檔案打開是文字，一行 8 個或 16 個 byte」⇒ .hex 不是 raw）──── */
+    EQ(A.fileKind('a.bin'), 'raw', '🔴 .bin ⇒ 一律 raw（誤判方向最危險，用副檔名釘死）');
+    EQ(A.fileKind('A.HEX'), 'auto', '🔴 .hex ⇒ 交給內容判定（他更正後 .hex 是文字）');
+    EQ(A.fileKind('a.txt'), 'auto', '.txt ⇒ 內容判定');
+    EQ(A.fileKind('a.ROM'), 'auto', '.rom ⇒ 內容判定');
+    EQ(A.sniffKind(new win.Uint8Array([0x00, 0x41, 0x42])), 'raw', '含 0x00 ⇒ raw');
+    EQ(A.sniffKind(new win.Uint8Array([0xFF, 0x41])), 'raw', '含 >0x7E ⇒ raw');
+    EQ(A.sniffKind(new win.Uint8Array([0x41, 0x31, 0x0A, 0x44, 0x38])), 'text', '全可列印 ⇒ text');
+
+    /* ── 19b. 🔴 同一份資料、不同格式表達，解析結果必須逐 byte 相同 ──────── */
+    {
+      const want = [];
+      for (let i = 0; i < 32; i++) want.push((i * 7) & 0xFF);
+      const hx = n => ('0' + n.toString(16)).slice(-2).toUpperCase();
+      /* 每列 1 byte */
+      const one = want.map(hx).join('\n');
+      /* 每行 8 byte */
+      let eight = '';
+      for (let i = 0; i < 32; i += 8) eight += want.slice(i, i + 8).map(hx).join(' ') + '\n';
+      /* 每行 16 byte */
+      let sixteen = '';
+      for (let i = 0; i < 32; i += 16) sixteen += want.slice(i, i + 16).map(hx).join(' ') + '\n';
+      /* 帶位址前綴（hexdump 風格，8 碼位址＋兩個空格） */
+      let withAddr = '';
+      for (let i = 0; i < 32; i += 16)
+        withAddr += ('0000000' + i.toString(16)).slice(-8) + '  ' + want.slice(i, i + 16).map(hx).join(' ') + '\n';
+      /* 帶位址＋ASCII 尾欄（xxd -C 風格） */
+      let withAscii = '';
+      for (let i = 0; i < 32; i += 16)
+        withAscii += ('0000000' + i.toString(16)).slice(-8) + '  ' + want.slice(i, i + 16).map(hx).join(' ')
+                   + '  |' + want.slice(i, i + 16).map(() => '.').join('') + '|\n';
+      /* 連續無分隔 */
+      const cont = want.map(hx).join('');
+      /* C 陣列風格 */
+      const carr = want.map(b => '0x' + hx(b) + ',').join(' ');
+      /* 4 碼一組（0000: 4142 4344 …） */
+      let grouped = '';
+      for (let i = 0; i < 32; i += 16) {
+        const g = [];
+        for (let j = i; j < i + 16; j += 2) g.push(hx(want[j]) + hx(want[j + 1]));
+        grouped += ('000' + i.toString(16)).slice(-4) + ': ' + g.join(' ') + '\n';
+      }
+      const cases = { '每列1byte': one, '每行8byte': eight, '每行16byte': sixteen,
+                      '帶位址': withAddr, '帶位址+ASCII尾欄': withAscii,
+                      '連續無分隔': cont, 'C陣列': carr, '4碼一組帶位址': grouped };
+      Object.keys(cases).forEach(k => {
+        const r = A.parseHexText(cases[k]);
+        CHECK(r.err === null, k + ' 要解析成功：' + (r.err ? JSON.stringify(r.err) : 'ok'));
+        EQ(r.bytes, want, '🔴 ' + k + ' 解析出的 byte 序列與其他格式逐 byte 相同');
+      });
+    }
+    /* 容忍：空行、前後空白、大小寫、0x 前綴、CRLF */
+    EQ(A.parseHexText('  a1 \r\n\r\n 0xD8 \r\nFB\r\n').bytes, [0xA1, 0xD8, 0xFB],
+       '空行／空白／大小寫／0x 前綴／CRLF 全部容忍');
+    EQ(A.parseHexText('7\nF').bytes, [0x07, 0x0F], '單碼也算一個 byte');
+    EQ(A.parseHexText('').bytes, [], '空檔 ⇒ 0 byte');
+    /* 🔴 壞 token 要報第幾行、為什麼 */
+    {
+      const bad = A.parseHexText('A1 D8\nZZ 44\nFB');
+      CHECK(bad.err !== null, '🔴 壞 token 要報錯，不可以靜默跳過');
+      EQ(bad.err.line, 2, '🔴 報的是第 2 行（1-based）');
+      CHECK(/不是合法/.test(bad.err.reason), '講出原因：' + bad.err.reason);
+    }
+    {
+      const odd = A.parseHexText('A1B\nD8');
+      CHECK(odd.err !== null && odd.err.line === 1, '🔴 3 碼這種切不成 byte 的要報第 1 行');
+    }
+
+    /* ── 19b2. Intel HEX（含 04 位址跳躍與 checksum）────────────────────── */
+    {
+      /* :10 0000 00 <16 bytes> CC  — 用真的 checksum 算 */
+      function rec(addr, type, data) {
+        const b = [data.length, (addr >> 8) & 0xFF, addr & 0xFF, type].concat(data);
+        let sum = 0; b.forEach(x => sum += x);
+        b.push((~sum + 1) & 0xFF);
+        return ':' + b.map(x => ('0' + x.toString(16)).slice(-2).toUpperCase()).join('');
+      }
+      const d0 = [0x11, 0x22, 0x33, 0x44];
+      const d1 = [0xAA, 0xBB];
+      const ih = [rec(0x0000, 0, d0), rec(0x0004, 0, d1), rec(0, 1, [])].join('\n');
+      const r = A.parseHexText(ih);
+      CHECK(r.err === null, 'Intel HEX 解析成功：' + (r.err ? JSON.stringify(r.err) : 'ok'));
+      EQ(r.format, 'Intel HEX', '格式辨識為 Intel HEX');
+      EQ(r.bytes, d0.concat(d1), '兩筆連續記錄 ⇒ 首尾相接');
+      EQ(r.startAddr, 0, '起始位址 0');
+
+      /* 🔴 04 造成的位址跳躍：0x0000 一筆、然後跳到 0x00010000 一筆 */
+      const jump = [rec(0x0000, 0, [0x01, 0x02]),
+                    rec(0x0000, 4, [0x00, 0x01]),      /* base = 0x00010000 */
+                    rec(0x0000, 0, [0x03, 0x04]),
+                    rec(0, 1, [])].join('\n');
+      const rj = A.parseHexText(jump);
+      CHECK(rj.err === null, '帶 04 的 Intel HEX 解析成功');
+      EQ(rj.bytes.length, 0x10002, '🔴 位址跳躍要反映在長度上（不是首尾相接的 4 byte）');
+      EQ([rj.bytes[0], rj.bytes[1]], [0x01, 0x02], '低位址那兩個 byte 在 0、1');
+      EQ([rj.bytes[0x10000], rj.bytes[0x10001]], [0x03, 0x04], '🔴 高位址那兩個落在 0x10000');
+      EQ(rj.bytes[0x0002], 0xFF, '空洞補 0xFF（抹除值）');
+      CHECK(rj.holes === 0x10000 - 2, '空洞數如實回報：' + rj.holes);
+
+      /* 🔴 02（Extended Segment）：base = data×16 */
+      const seg = [rec(0x0000, 2, [0x10, 0x00]),       /* base = 0x1000*16 = 0x10000 */
+                   rec(0x0000, 0, [0x77]), rec(0, 1, [])].join('\n');
+      const rs = A.parseHexText(seg);
+      EQ(rs.startAddr, 0x10000, '🔴 02 記錄 ⇒ 基底 = data×16');
+
+      /* checksum 錯要報第幾行 */
+      const lines = ih.split('\n');
+      lines[1] = lines[1].slice(0, -2) + '00';
+      const rc = A.parseHexText(lines.join('\n'));
+      CHECK(rc.err !== null, '🔴 checksum 錯要擋下');
+      EQ(rc.err.line, 2, '🔴 報第 2 行');
+      CHECK(/checksum/.test(rc.err.reason), '講出是 checksum：' + rc.err.reason);
+
+      /* 05（Start Linear Address）不參與資料搬移 */
+      const st = [rec(0x0000, 0, [0x99]), rec(0x0000, 5, [0, 0, 0, 0]), rec(0, 1, [])].join('\n');
+      EQ(A.parseHexText(st).bytes, [0x99], '05 記錄不搬資料');
+      /* 不支援的 record type 要講 */
+      const un = [rec(0x0000, 6, [0x00]), rec(0, 1, [])].join('\n');
+      CHECK(/record type/.test(A.parseHexText(un).err.reason), '不支援的 record type 要明講');
+    }
+
+    /* ── 19c. 🔴 最重要的一條：載入不可以送出任何 I2C 交易 ───────────────── */
+    const sentF = await useHelper(baseScript());
+    const before = sentF.length;
+    const bin = new win.Uint8Array(4096);
+    for (let i = 0; i < 4096; i++) bin[i] = (i * 7) & 0xFF;
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000' });
+    A.loadFile('dump.bin', bin);
+    await sleep(30);
+    EQ(sentF.length - before, 0, '🔴🔴 載入檔案之後送出的 WS 訊息數 ＝ 0（一個 byte 都沒上匯流排）');
+    EQ(A.fileState().len, 4096, '4096 byte 的檔案載進來了');
+
+    /* ── 19d. 總 byte 數共用同一個欄位 ─────────────────────────────────── */
+    EQ(doc.getElementById('in-len').value, '4096', '🔴 載入後總 byte 數自動變成檔案長度');
+    EQ(A.writeSource(4096, 2).bytes.length, 4096, '不改的話就是整份 4096');
+    EQ(A.writeSource(256, 2).bytes.length, 256, '🔴 使用者把總 byte 數改小 ⇒ 以他改的為準');
+    EQ(A.writeSource(512, 2).bytes[511], bin[511], '改小之後取的是前 512 個 byte，內容正確');
+
+    /* ── 19e. 預覽：分頁與範圍標示 ─────────────────────────────────────── */
+    EQ(A.view(), 'file', '載入後自動切到檔案檢視');
+    EQ(A.state().pages.length, 16, '🔴 4096 byte ⇒ 16 頁，每頁 256 byte');
+    {
+      const labels = A.pageLabels();
+      EQ(labels[0], '0x0000 – 0x00FF', '🔴 第 0 頁範圍 0x0000–0x00FF');
+      EQ(labels[15], '0x0F00 – 0x0FFF', '🔴 第 15 頁範圍 0x0F00–0x0FFF');
+    }
+    {
+      const cells = Array.from(doc.querySelectorAll('#dump td'));
+      EQ(cells[0].textContent, '00', '第 0 格 ＝ 檔案第 0 個 byte');
+      EQ(cells[1].textContent, '07', '第 1 格 ＝ 檔案第 1 個 byte（i*7）');
+    }
+    /* ── 19f. 兩種資料一眼分得出來 ─────────────────────────────────────── */
+    CHECK(doc.getElementById('dumpcard').classList.contains('filemode'),
+          '🔴 檔案檢視時整張卡片換狀態（不是靠一段說明文字）');
+    CHECK(doc.getElementById('dumptitle').textContent.indexOf('尚未寫入') >= 0,
+          '🔴 標題直接講「尚未寫入」：' + doc.getElementById('dumptitle').textContent);
+
+    /* ── 19g. 兩份資料並存、可切換 ─────────────────────────────────────── */
+    A.setInputs({ len: '3' });
+    await A.doRead(); await sleep(25);
+    EQ(A.view(), 'dev', '按讀取 ⇒ 切回裝置檢視');
+    EQ(A.fileState().len, 4096, '🔴 讀取沒有把載入的檔案丟掉（兩份並存）');
+    CHECK(win.getComputedStyle(doc.getElementById('btn-view')).display !== 'none',
+          '🔴 兩份都在時才出現切換鈕');
+    A.setView('file');
+    EQ(A.view(), 'file', '切得回檔案檢視');
+    CHECK(doc.getElementById('dumptitle').textContent.indexOf('檔案內容') >= 0, '標題跟著切');
+
+    /* ── 19h. 手打會放掉檔案（來源只能有一個）──────────────────────────── */
+    A.clearFile();
+    EQ(A.fileState().len, 0, 'clearFile 之後沒有檔案');
+    A.setInputs({ data: 'DE AD' });
+    EQ(A.writeSource(16, 2).src, '手動輸入', '沒有檔案就回到文字框那一份');
+
+    /* ── 19i. 四種副檔名都選得到 ───────────────────────────────────────── */
+    {
+      const acc = doc.getElementById('in-file').getAttribute('accept');
+      ['.bin', '.hex', '.txt', '.rom'].forEach(e =>
+        CHECK(acc.indexOf(e) >= 0, 'accept 含 ' + e + '：' + acc));
+    }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19b. offset 寬度 0：沒有位址相位，data 恰好 1 byte（PMIC digital VCOM）');
+  {
+    /* 🔴 這一組存在的理由：寬度 0 與寬度 1 送出去的 byte 看起來很像，
+       但相位不同 —— 寬度 0 那個值走 **data**，寬度 1 走 **位址**。
+       誤把兩者當成一樣，燒 PMIC 的 VCOM 就會寫到不存在的位址去。 */
+    const sent0 = await useHelper(baseScript());
+    const n0 = sent0.length;
+    A.setInputs({ slave: '0x30', awid: 0, off: '0x5A', len: '4096', data: 'DE AD BE EF' });
+    await A.doWrite(); await sleep(25);
+    const w0 = SINCE(sent0, 'rawwrite');
+    EQ(w0.length, 1, '寬度 0 ⇒ 只送一則');
+    EQ({ awid: w0[0].awid, data: w0[0].data },
+       { awid: 0, data: [0x5A] },
+       '🔴 寬度 0：awid=0（沒有位址相位）且 data **恰好是 ③ 的那 1 byte**');
+    CHECK(w0[0].data.length === 1,
+          '🔴 即使總 byte 數填 4096、資料欄有 4 個 byte，也只送 1 個 byte');
+
+    /* 同一個值改用寬度 1 ⇒ 走位址相位，兩者 wire 不同 */
+    const sent1 = await useHelper(baseScript());
+    A.setInputs({ slave: '0x30', awid: 1, off: '0x5A', len: '4', data: 'DE AD BE EF' });
+    await A.doWrite(); await sleep(25);
+    const w1 = SINCE(sent1, 'rawwrite');
+    EQ({ awid: w1[0].awid, addr: w1[0].addr, data: w1[0].data },
+       { awid: 1, addr: 0x5A, data: [0xDE, 0xAD, 0xBE, 0xEF] },
+       '🔴 寬度 1：0x5A 走位址相位，後面才是 data —— 與寬度 0 那筆不同');
+    CHECK(JSON.stringify(w0[0]) !== JSON.stringify(w1[0]),
+          '🔴 兩者送出的訊息確實不同（不可以被當成同一件事）');
+
+    /* 寬度 0 的讀取：仍是 current address read，長度由總 byte 數決定 */
+    const sentR = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: [1, 2, 3, 4, 5, 6, 7, 8] };
+    }));
+    A.setInputs({ slave: '0x30', awid: 0, off: '0x00', len: '8' });
+    await A.doRead(); await sleep(25);
+    const r0 = SINCE(sentR, 'read');
+    EQ({ awid: r0[0].awid, len: r0[0].len }, { awid: 0, len: 8 },
+       '🔴 寬度 0 的讀取仍是 current address read，長度照總 byte 數（讀寫在這裡刻意不同）');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19c. 快照與差異：slave 一變就作廢，下次讀取重新快照');
+  {
+    /* 🔴 規則以 Bruce 當晚的更正為準：**只有一份基準**，slave 一改就作廢。
+       切回先前用過的 slave **不是**沿用舊基準，而是重新建立。 */
+    let payload = [0x11, 0x22, 0x33, 0x44];
+    const script = baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: payload.slice(0, m.len) };
+    });
+    await useHelper(script);
+    A.clearFile();
+
+    /* ① 讀 0x68（基準不存在）⇒ 建立、無 highlight */
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(25);
+    CHECK(A.hasSnap(0x68), '🔴 首次讀 0x68 ⇒ 建立基準');
+    EQ(A.diffCount(), 0, '🔴 首次讀沒有 highlight（沒有比較對象）');
+    EQ(A.diffCells(), 0, '畫面上也沒有 diff 格子');
+    {
+      const b = doc.getElementById('readbanner').textContent;
+      CHECK(b.indexOf('快照') < 0, '🔴 自動快照靜默（畫面上不提它）：' + b.slice(0, 40));
+      CHECK(doc.getElementById('log').textContent.indexOf('自動建立快照') >= 0, '🔴 但 log 有記');
+    }
+
+    /* ② 再讀 0x68、資料不同 ⇒ highlight */
+    payload = [0x11, 0x99, 0x33, 0x88];
+    await A.doRead(); await sleep(25);
+    EQ(A.diffCount(), 2, '🔴 第二次讀 ⇒ 2 處不同');
+    EQ(A.diffKeys(), [0x0001, 0x0003], '🔴 差異在 0x0001 與 0x0003（位址，不是索引）');
+    EQ(A.diffCells(), 2, '畫面上剛好 2 個 diff 格子');
+    CHECK(doc.getElementById('readbanner').textContent.indexOf('2 處與上次不同') >= 0, '有差異才講一句');
+
+    /* ③ 改成 0x50 ⇒ 基準作廢；讀一次 ⇒ 無 highlight */
+    payload = [0xAA, 0xBB, 0xCC, 0xDD];
+    A.setInputs({ slave: '0x50' });
+    CHECK(!A.hasSnap(0x68) && !A.hasSnap(0x50), '🔴 slave 一改，基準立刻作廢（還沒讀就作廢）');
+    await A.doRead(); await sleep(25);
+    CHECK(A.hasSnap(0x50), '讀 0x50 ⇒ 建立新基準');
+    EQ(A.diffCount(), 0, '🔴 新 slave 首次讀沒有 highlight');
+
+    /* ④ 🔴 改回 0x68 ⇒ **重新建立**，不是沿用舊的那份 */
+    payload = [0x11, 0x99, 0x33, 0x88];        /* 與 0x68 舊基準不同的那一份 */
+    A.setInputs({ slave: '0x68' });
+    CHECK(!A.hasSnap(0x68), '🔴 切回 0x68 時基準再次作廢');
+    await A.doRead(); await sleep(25);
+    EQ(A.diffCount(), 0,
+       '🔴🔴 切回 0x68 讀一次 ⇒ **無 highlight**（證明是重新快照，不是拿舊的來比）');
+    /* ⑤ 再讀一次才有比較對象 */
+    payload = [0x11, 0x00, 0x33, 0x00];
+    await A.doRead(); await sleep(25);
+    EQ(A.diffCount(), 2, '🔴 再讀一次才出現差異（2 處）');
+
+    /* ⑥ 位址對位址：讀另一段不會錯位相比 */
+    payload = [0x11, 0x00, 0x33, 0x00];
+    A.setInputs({ off: '0x0100' });
+    await A.doRead(); await sleep(25);
+    EQ(A.diffCount(), 0,
+       '🔴 讀 0x0100–0x0103 不會跟基準的 0x0000–0x0003 相比（位址對位址）');
+
+    /* ⑦ 手動重設快照 */
+    A.setInputs({ off: '0x0000' });
+    payload = [0xFF, 0xEE, 0xDD, 0xCC];
+    await A.doRead(); await sleep(25);
+    CHECK(A.diffCount() > 0, '改回 0x0000 又讀到不同的值 ⇒ 有差異');
+    doc.getElementById('btn-snap').click();
+    EQ(A.diffCount(), 0, '按「重設快照」 ⇒ 差異歸零');
+    EQ(A.diffCells(), 0, '畫面上的 diff 也清掉');
+    await A.doRead(); await sleep(25);
+    EQ(A.diffCount(), 0, '🔴 重設之後再讀同一份資料 ⇒ 0 處不同（新基準生效）');
+
+    /* ⑧ 載入檔案也跟基準比 */
+    {
+      A.loadFile('same.bin', new win.Uint8Array([0xFF, 0xEE, 0xDD, 0xCC]));
+      await sleep(20);
+      EQ(A.diffCount(), 0, '載入與基準相同的檔案 ⇒ 0 處不同');
+      A.loadFile('diff.bin', new win.Uint8Array([0xFF, 0x00, 0xDD, 0x00]));
+      await sleep(20);
+      EQ(A.diffCount(), 2, '🔴 載入檔案也會與裝置基準比對（2 處不同）');
+      EQ(A.diffKeys(), [0x0001, 0x0003], '差異位址正確');
+      EQ(A.diffCells(), 2, '檔案檢視裡也看得到 diff 標記');
+      A.clearFile();
+    }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19d. 手動 hex 輸入的容忍寫法（Bruce 2026-09-18）');
+  {
+    /* 🔴 同一份資料的所有寫法，解析結果必須逐 byte 相同 —— 這是判準。 */
+    const want = [0xA1, 0xD8, 0xFB];
+    const forms = {
+      '空格':            'A1 D8 FB',
+      '逗號':            'A1,D8,FB',
+      '完全不分隔':      'A1D8FB',
+      '0x＋逗號':        '0xA1, 0xD8, 0xFB',
+      '0x＋空格':        '0xA1 0xD8 0xFB',
+      'h 後綴':          'A1h D8h FBh',
+      'h 後綴大寫':      'A1H D8H FBH',
+      '0x＋h 誤寫':      '0xA1h 0xD8h 0xFBh',
+      '混用':            '0xA1, D8h FB',
+      '小寫':            'a1 d8 fb',
+      '換行分隔':        'A1\nD8\nFB',
+      'tab 分隔':        'A1\tD8\tFB',
+      '前後多餘空白':    '   A1   D8   FB   '
+    };
+    Object.keys(forms).forEach(k => EQ(A.parseHex(forms[k]), want, '🔴 ' + k + ' ⇒ A1 D8 FB'));
+    /* 反面：看不懂的 token 要回 null，而且指得出是哪一個 */
+    EQ(A.parseHex('A1 ZZ FB'), null, '壞 token ⇒ null');
+    EQ(A.parseHex('A1 D'), null, '半個 byte ⇒ null（不臆測）');
+    EQ(A.parseHex(''), [], '空字串 ⇒ 空陣列');
+    /* 畫面上的範例只留一個最常見的（極簡） */
+    {
+      const ph = doc.getElementById('in-data').getAttribute('placeholder');
+      CHECK(ph.split(/\s+或\s+/).length === 1, '🔴 placeholder 只列一種寫法：' + ph);
+    }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('20. 極簡準則：非 debug 看不到診斷用的東西，debug 打開就全回來');
+  {
+    A.setDebug(false);
+    const gone = ['btn-release', 'btn-self', 'btn-takeover'];
+    gone.forEach(id => CHECK(win.getComputedStyle(doc.getElementById(id)).display === 'none',
+      '🔴 非 debug 下 ' + id + ' 看不到'));
+    CHECK(win.getComputedStyle(doc.getElementById('helper-card')).display === 'none',
+      '🔴 helper 資訊卡收進 debug');
+    function visibleText(root) {
+      let out = '';
+      const w = doc.createTreeWalker(root, win.NodeFilter.SHOW_TEXT, null);
+      while (w.nextNode()) {
+        const p = w.currentNode.parentElement;
+        if (!p || p.tagName === 'SCRIPT' || p.tagName === 'STYLE') continue;
+        let hid = false;
+        for (let n = p; n; n = n.parentElement) {
+          if (n.id === 'log') { hid = true; break; }
+          const cs = win.getComputedStyle(n);
+          if (cs.display === 'none' || cs.visibility === 'hidden') { hid = true; break; }
+          if (n.tagName === 'DETAILS' && !n.open) { hid = true; break; }
+        }
+        if (!hid) out += w.currentNode.nodeValue;
+      }
+      return out;
+    }
+    const vis = visibleText(doc.body);
+    CHECK(vis.indexOf('127.0.0.1') < 0, '🔴 非 debug 的可見文字裡沒有 127.0.0.1');
+    CHECK(vis.indexOf('黃金向量') < 0, '🔴 非 debug 看不到「黃金向量」');
+    CHECK(vis.indexOf('釋放 I2C') < 0, '🔴 非 debug 看不到「釋放 I2C」');
+    CHECK(doc.getElementById('log').textContent.indexOf('127.0.0.1') >= 0,
+          '🔴 但 log 裡照樣印 127.0.0.1（診斷能力沒被砍）');
+    A.setDebug(true);
+    gone.forEach(id => CHECK(win.getComputedStyle(doc.getElementById(id)).display !== 'none',
+      'debug 打開後 ' + id + ' 回來'));
+    CHECK(win.getComputedStyle(doc.getElementById('helper-card')).display !== 'none',
+      'debug 打開後 helper 資訊卡回來');
+    A.setDebug(false);
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('21. 下載鈕與說明視窗（Bruce：按下下載才跳說明，字要大）');
+  {
+    A.needHelper('連不到 helper');
+    CHECK(win.getComputedStyle(doc.getElementById('gethelper')).display !== 'none', '🔴 下載入口看得到');
+    CHECK(doc.getElementById('dl').textContent.indexOf(win.HELPER_PKG.pkg) >= 0,
+          '🔴 版號印在按鈕上：' + doc.getElementById('dl').textContent.trim());
+    CHECK(win.getComputedStyle(doc.getElementById('howto')).display === 'none', '說明視窗預設不出現');
+    doc.getElementById('dl').click();
+    CHECK(win.getComputedStyle(doc.getElementById('howto')).display !== 'none', '🔴 按下下載 ⇒ 說明視窗出現');
+    {
+      const li = doc.querySelector('#howto li');
+      const big = parseFloat(win.getComputedStyle(li).fontSize);
+      const body = parseFloat(win.getComputedStyle(doc.body).fontSize) || 13;
+      CHECK(big > body, '🔴 說明視窗的字比內文大：' + big + 'px vs ' + body + 'px');
+      CHECK(doc.querySelectorAll('#howto li').length <= 3, '步驟三行以內');
+    }
+    doc.getElementById('howto-ok').click();
+    CHECK(win.getComputedStyle(doc.getElementById('howto')).display === 'none', '一鍵關得掉');
+    CHECK(doc.querySelectorAll('a[download]').length === 1, '🔴 整頁只有一個下載入口');
+    A.gotHelper();
+    CHECK(win.getComputedStyle(doc.getElementById('gethelper')).display === 'none', '連上之後收起來');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
