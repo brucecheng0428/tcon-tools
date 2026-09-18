@@ -179,7 +179,7 @@ eq(S(true, false, null, false).text, 'I2C …', '連線中 ⇒ I2C …');
 ok(S(true, false, null, false).busy, '連線中：busy');
 eq(S(false, true, 'EM01A1', false).text, 'I2C ON · EM01A1', '已連線且認得 IC ⇒ 型號寫在按鈕上');
 ok(S(false, true, 'EM01A1', false).on, '已連線且認得 IC：綠');
-eq(S(false, true, null, false).text, 'I2C ON · 未知 IC', '已連線但 IC 不明');
+eq(S(false, true, null, false).text, 'I2C ON', '🔴 v1.65.0：IC 不明時按鈕只寫「I2C ON」，不再寫「未知 IC」（避免誤導成沒接到 TCON）');
 ok(S(false, true, null, false).unknown && !S(false, true, null, false).on,
   '🔴 IC 不明 ⇒ 橘，不是綠（能連上 ≠ 可以安全地寫）');
 ok(S(true, true, 'EM01A1', false).busy && !S(true, true, 'EM01A1', false).on,
@@ -330,9 +330,36 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
     ok(P.isLoopback('brucecheng0428.github.io') === false, 'isLoopback 對 GitHub Pages 回 false（既有行為不變）');
     ok(P.isLoopback('example.invalid') === false, 'isLoopback 對其他網域回 false');
   } else {
-    ok(false, 'P.isLoopback 不存在（v1.62.0 自動連線判斷沒接上）');
+    ok(false, 'isLoopback 探針缺');
   }
-  /* DOM：連線鈕、狀態、下載連結、SHA 欄位、密碼 1234、SmartScreen 說明 */
+  /* ── Bug B（v1.65.0）：主 I2C 鈕 off→on 要走「上次那條」──────────────── */
+  if (typeof P.onTarget === 'function') {
+    ok(P.onTarget(true, 'ws') === 'off', '連著時按主鈕＝關（不論上次哪條）');
+    ok(P.onTarget(true, 'usb') === 'off', '連著時按主鈕＝關（usb）');
+    ok(P.onTarget(false, 'ws') === 'ws', '🔴 上次是 helper ⇒ off 後再按主鈕自動走 helper（Bug B 修正）');
+    ok(P.onTarget(false, 'usb') === 'usb', '上次是 WebUSB ⇒ 走 WebUSB');
+    ok(P.onTarget(false, null) === 'usb', '從未連過 ⇒ 預設 WebUSB');
+    ok(P.lastTransport() === null, '開頁時 lastTransport 尚未設定（還沒連過）');
+  } else {
+    ok(false, 'onTarget 探針缺（Bug B 修正沒接上）');
+  }
+  /* ── 通訊自檢黃金向量（v1.65.0，Bruce 的 A1 D8 FB）─────────────────────── */
+  if (typeof P.commVerdict === 'function') {
+    ok(P.commSlave() === 0x68, '通訊自檢 slave 固定 0x68', '得到 0x' + P.commSlave().toString(16));
+    ok(JSON.stringify(P.commExpect()) === JSON.stringify([0xA1, 0xD8, 0xFB]), '通訊自檢期望值 A1 D8 FB');
+    ok(P.commVerdict([0xA1, 0xD8, 0xFB]).state === 'pass', '讀到 A1 D8 FB ⇒ PASS');
+    ok(/PASS/.test(P.commVerdict([0xA1, 0xD8, 0xFB]).text), 'PASS 文字含 PASS');
+    ok(P.commVerdict([0x01, 0x02, 0x03]).state === 'mismatch', '讀到別的三個 byte ⇒ FAIL 不符');
+    ok(/實際 01 02 03/.test(P.commVerdict([0x01, 0x02, 0x03]).text), '🔴 不符時如實顯示實際讀到的 byte，不美化');
+    ok(P.commVerdict([]).state === 'noread', '空陣列 ⇒ FAIL 讀不到');
+    ok(P.commVerdict([0xA1]).state === 'noread', '不足 3 byte ⇒ FAIL 讀不到（不是 PASS）');
+    ok(P.commVerdict([0xA1, 0xD8]).state === 'noread', '只 2 byte ⇒ FAIL 讀不到');
+  } else {
+    ok(false, 'commVerdict 探針缺（通訊自檢沒接上）');
+  }
+  /* DOM：連線鈕、狀態、下載連結、SHA 欄位、SmartScreen、通訊自檢鈕 */
+  ok(!!d.getElementById('dgm-i2c-comm-btn'), '通訊自檢按鈕在 DOM 上');
+  ok(!!d.getElementById('dgm-i2c-comm'), '通訊自檢結果欄在 DOM 上');
   d.getElementById('dgm-i2c-open').click();
   ok(!!d.getElementById('dgm-i2c-ws'), '「透過 helper 連線」按鈕在 DOM 上');
   ok(!!d.getElementById('dgm-i2c-ws-state'), 'helper 狀態欄在 DOM 上');

@@ -22,6 +22,37 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.65.0 — 2026-09-18 ｜ MINOR
+
+**helper 通道第一次通到裝置層（Bruce 2026-09-17 實測 v1.3.0 顯示「I2C on」）後的兩個修正：Bug A 觀測性＋通訊自檢黃金向量；Bug B off→on 狀態機。helper exe 未改（仍 v1.3.0，byte-identical），只重打包內附的量測頁。**
+
+背景：Bruce 實測 v1.3.0 —— DLL／執行位置／port／WebSocket／MPSSE 開通道全過，但（A）接了 TCON 卻顯示「未知 IC」，（B）主 I2C 鈕 off→on 後連不到、非得按「Helper 連線」。
+
+判定依據：`docs/VERSIONING.md` §1 判定表與 R1～R4 逐項判、取最高者。
+
+| 條 | 這一版的哪一件事 | 判到 |
+|---|---|---|
+| §2 案例 5／R3（多一件能做的事） | 新增「通訊自檢」按鈕與自動自檢（Bruce 的黃金向量），連上後一鍵確認通訊通不通 | **MINOR** |
+| §2 案例 2（修 bug） | Bug B：off→on 記住上次 transport，走 helper 重連（原本掉回 WebUSB，在 Bruce 機器上永遠連不上） | PATCH |
+| §2 案例 11（文案）／觀測性 | 四 slave 逐一探並全部記錄、原始 0xFF00 顯眼顯示、「讀不到」與「不在表內」分開、按鈕不再寫「未知 IC」 | PATCH |
+| R1（輸出變更） | 量測輸出不變：CA-410 回歸 rows 0/256（基準＝已提交的 v1.64.0）。不標 `⚠ 輸出變更` | — |
+
+判定取捨：新增通訊自檢＝新能力 ⇒ 取 **MINOR**；其餘為修 bug 與觀測性。**helper exe 一個 byte 都沒改**（仍 v1.3.0，SHA 不變 ⇒ 不必重過 SmartScreen），只是把內附的 `dg-measure.html` 換成含本次修正的版本並重打包（`data/dg-helper-v1.3.0.zip` 內容更新、exe 不動）。
+
+### Bug A — 通訊自檢 ＋ 觀測性（🔴 不臆測性地改讀取邏輯）
+- **通訊自檢黃金向量（Bruce 提供）**：讀 slave **0x68**（7-bit）、2-byte offset、offset **0x0000** 起 3 byte，期望 **A1 D8 FB**。與「認不認得 IC」**完全解耦**。連上後**自動跑一次**、也有手動按鈕；結果顯示在 helper 狀態列與獨立欄位。三種結果分開：`PASS 通訊正常`／`FAIL 期望 A1 D8 FB 實際 xx xx xx`／`FAIL 讀不到`。判定抽成純函式 `dgmI2cCommVerdict`（selftest 覆蓋，少於 3 byte 一律判讀不到、不美化）。
+- **IC 識別（0xFF00）降級為附帶資訊**：四個 slave **逐一探並全部記錄**（哪個回應、哪個 NACK 都進 log），原始三個 byte 一律顯示在觀測表；認不出來顯示「讀到了但不在已知 ID 表內」＋請使用者回報 byte，**不再用「未知 IC」當主要狀態**（那個字面讓人誤以為沒接到 TCON）。IC 識別失敗**不再中止連線**。
+- **讀取序列逐旗標核對 PQ Tool**（`xCtrl_I2C_App.cs` Read_Reg）：ws 路徑的讀由 helper 的 **libMPSSE（與 PQ Tool 同一顆 DLL）**執行，寫位址 `options 0x19`（START｜NACK_LAST｜FAST_BYTES，無 STOP＝repeated start）、讀 `options 0x0B`（START｜STOP｜NACK_LAST）、位址 big-endian 兩 byte —— 與 PQ Tool **逐旗標一致，無差異**。ACK 由 libMPSSE 內部處理，helper 回傳 FT_STATUS；每筆讀寫的原始 byte、實收數、FT status 都進 log。**在拿到 Bruce 的原始 byte 之前不改讀取邏輯**，本次只加觀測。
+
+### Bug B — off→on 狀態機（不需硬體，純函式修正）
+- 新增 `dgmI2cLastTransport`（記住上次成功連上走哪條；`dgmI2cOff()` 會把 `dgmI2cTransport` 歸回 'usb'，所以不能拿它判重連）。主 I2C 鈕的動作抽成純函式 `dgmI2cOnTarget(linkActive, lastTransport)`：連著→關、沒連且上次是 helper→走 helper、否則→WebUSB。**上次用 helper 連的，off 再 on 就自動走 helper**，不必再按「Helper 連線」。selftest 覆蓋這張真值表。
+
+> 🔴 **未經實機驗證**：通訊自檢在真機讀 0x68 的實際結果、Bug B 的完整 off→on 重連在真機的行為、D2XX／I2C，全部沒有 Windows／FTDI 硬體可驗；程式一律「如實顯示讀到的東西」，不做任何「應該是這樣所以顯示這樣」的美化。已驗（附數字）：`dgmI2cCommVerdict` 與 `dgmI2cOnTarget` 純函式真值表；`dg_i2c_selftest.js` 184 項全過；CA-410 回歸 rows 0/256（基準＝v1.64.0）；zip 用**一般解壓（無密碼）**解出三個檔、exe SHA `81444d8…41ba`（與 v1.3.0 **byte-identical**）、dll 與 PQ Tool 源檔逐位元組相同。
+
+驗收：helper 套件 zip（v1.3.0，內附頁面更新）SHA256 `f3474dac1362b41c9415ebe2fbf1f55b810d85fae3428800a3a4f31a34dbf059`、exe SHA256 `81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba`（不變）。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.64.0 — 2026-09-17 ｜ MINOR
 
 **helper 升到 v1.3.0：新增狀態碼 T（偵測到 exe 在暫存／解壓預覽目錄執行 → dll 沒跟出來，這極可能就是 Bruce 出 D 的真因）；主下載改不加密 zip（少一步輸入密碼）；下載區文案砍到「下載 → 整包解壓到資料夾 → 雙擊 exe」三行。**

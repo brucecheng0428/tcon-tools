@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260917dg1640"></script>
+<script src="common/version.js?v=20260918dg1650"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -987,6 +987,11 @@
       <button id="dgm-i2c-ws" class="dgm-i2c-go" type="button">透過 helper 連線</button>
       <span class="dgm-k">helper 狀態</span> <span class="dgm-i2c-val" id="dgm-i2c-ws-state">未連線</span>
     </p>
+    <p>
+      <button id="dgm-i2c-comm-btn" class="dgm-i2c-go" type="button">通訊自檢</button>
+      <span class="dgm-i2c-val na" id="dgm-i2c-comm">尚未執行</span>
+    </p>
+    <p class="dgm-i2c-note">🔴 通訊自檢與「認不認得 IC」<b>無關</b>：讀 slave <b>0x68</b>、offset <b>0x0000</b> 起 3 個 byte，期望 <b>A1 D8 FB</b>。<b>PASS</b>＝通訊正常（連上後會自動跑一次，結果也顯示在上面 helper 狀態那行）。不符只會如實顯示實際讀到的三個 byte，不美化。</p>
     <p class="dgm-i2c-warn">🔴 <b>helper 這條路本身未經實機驗證</b>：它是在沒有 Windows、沒有 FTDI 硬體的環境寫出來的，D2XX 連線與實際 I2C 通訊都還沒有人在真機上跑過。網頁端只驗到訊息格式與位址白名單那一半。</p>
 
     <div class="dgm-i2c-note" style="border:1px solid var(--dgm-i2c-line,#334155);border-radius:8px;padding:10px 12px;margin:8px 0">
@@ -3034,7 +3039,17 @@
      🔴 helper 這條是唯一「不換驅動、不換硬體」下成立的路（報告3 §1 表 H）。
      🔴 未經實機驗證：本頁的 ws 客戶端在無 Windows、無 helper、無硬體的環境
         寫成，只驗到純函式（訊息格式、白名單）那一半。 */
-  var dgmI2cTransport = 'usb';     // 'usb' | 'ws'
+  var dgmI2cTransport = 'usb';     // 'usb' | 'ws'（本次連線用哪條；off 後會歸回 'usb'）
+  /* 🔴 v1.65.0 Bug B：記住「上一次成功連上是走哪條」。dgmI2cOff() 會把
+     dgmI2cTransport 歸回 'usb'，所以不能拿它判重連 —— 否則用 helper 連上後、
+     按主 I2C 鈕 off 再 on，會掉回 WebUSB（在 Bruce 機器上永遠連不上）。
+     這個變數 off 時不清，讓「off→on」自動走回上次那條。 */
+  var dgmI2cLastTransport = null;  // 'ws' | 'usb' | null（本 session 還沒成功連過）
+  /* 主 I2C 鈕按下去要做什麼：連著→關；沒連→走上次那條（預設 usb）。純函式，可驗。 */
+  function dgmI2cOnTarget(linkActive, lastTransport) {
+    if (linkActive) return 'off';
+    return (lastTransport === 'ws') ? 'ws' : 'usb';
+  }
   var DGM_I2C_WS_PORT = 8899;
   var DGM_I2C_WS_URL  = 'ws://127.0.0.1:' + DGM_I2C_WS_PORT + '/ws';
   var DGM_I2C_WS_MS   = 4000;      // 單筆命令等 helper 回覆的上限
@@ -3047,7 +3062,7 @@
   /* helper 下載包（data/ 的加密 zip，密碼 1234）與其雜湊 —— 讓人／IT 核對。
      🔴 這兩個 SHA256 是實測值：exe 與 zip 各一個，改版時要一起更新。 */
   var DGM_HELPER_ZIP = 'data/dg-helper-v1.3.0.zip';
-  var DGM_HELPER_ZIP_SHA = 'ffda7d620292c34f6f2421cfbae0fa238eec70c7d6ac461a9d113b9d7a6f966d';
+  var DGM_HELPER_ZIP_SHA = 'f3474dac1362b41c9415ebe2fbf1f55b810d85fae3428800a3a4f31a34dbf059';
   var DGM_HELPER_EXE_SHA = '81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba';
   var DGM_HELPER_VER_STR = 'v1.3.0';
 
@@ -3153,7 +3168,7 @@
     if (busy) txt = 'I2C …';
     else if (!active) txt = 'I2C OFF';
     else if (icKey) txt = 'I2C ON · ' + icKey;
-    else txt = 'I2C ON · 未知 IC';
+    else txt = 'I2C ON';   /* 🔴 v1.65.0：不再寫「未知 IC」（會誤導成沒接到 TCON）；通訊狀態看自檢那一行 */
     return {
       text: txt,
       busy: !!busy,
@@ -3187,12 +3202,15 @@
     var wst = $('dgm-i2c-ws-state');
     if (wst) {
       if (dgmI2cTransport === 'ws' && dgmI2cLinkActive)
-        wst.textContent = '已連線 · helper ' + (dgmI2cHelperVer || '?') + ' · proto ' + (dgmI2cHelperProto || '?')
-          + (dgmI2cIc ? ' · ' + dgmI2cIc.key : ' · 未知 IC');
+        wst.textContent = '已連線 · helper ' + (dgmI2cHelperVer || '?')
+          + ' · 通訊自檢 ' + (dgmI2cCommResult ? dgmI2cCommResult.text : '未執行')
+          + (dgmI2cIdRaw ? ' · 0xFF00=' + dgmI2cHex(dgmI2cIdRaw) + (dgmI2cIc ? '(' + dgmI2cIc.key + ')' : '(不在表內)') : '');
       else if (dgmI2cLinkBusy && dgmI2cTransport === 'ws') wst.textContent = '連線中…';
       else wst.textContent = '未連線';
     }
     var pr = $('dgm-i2c-probe'); if (pr) pr.disabled = !dgmI2cLinkActive || dgmI2cLinkBusy;
+    /* 🔴 通訊自檢鈕：連上就能按（不看 IC 認不認得） */
+    var ct = $('dgm-i2c-comm-btn'); if (ct) ct.disabled = !dgmI2cLinkActive || dgmI2cLinkBusy;
     ['dgm-i2c-enter', 'dgm-i2c-white', 'dgm-i2c-mid', 'dgm-i2c-black', 'dgm-i2c-restore']
       .forEach(function (id) {
         var e = $(id);
@@ -3385,9 +3403,10 @@
     dgmI2cOut('讀 ' + dgmI2cAddrText(addr) + ' ×' + len + '（slave 0x'
       + dgmI2cSlave.toString(16).toUpperCase() + '，helper）');
     var r = await dgmI2cWsSend({ type: 'read', slave: dgmI2cSlave, addr: addr, len: len });
-    if (!r.ok) { dgmI2cOut('✕ helper 讀失敗（status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）'); throw new Error('helper 讀失敗（NACK 或裝置無回應）'); }
+    if (!r.ok) { dgmI2cOut('✕ helper 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）'); throw new Error('helper 讀失敗（FT status ' + (r.status != null ? r.status : '?') + '）'); }
     var data = r.data || [];
-    dgmI2cOut('　 資料 ' + dgmI2cHex(data));
+    /* 🔴 觀測：印出原始 byte、實收幾個、FT status —— 判 IC 全靠這幾個數字 */
+    dgmI2cOut('　 資料 ' + (dgmI2cHex(data) || '（空）') + ' · 收到 ' + data.length + '/' + len + ' byte · FT status ' + (r.status != null ? r.status : '?'));
     return data;
   }
   /* ws 版的寫：白名單在網頁端先擋一次（helper 端還有一份，縱深防禦）。 */
@@ -3406,27 +3425,96 @@
   }
 
   /* 掃 slave＋辨識 IC（兩條傳輸共用，避免重複）。設定 dgmI2cIdRaw／dgmI2cIc／dgmI2cSlave。 */
+  /* 🔴 v1.65.0 Bug A 觀測性：四個 slave **逐一探並全部記錄**（Bruce 要求「哪個有回應、
+     哪個 NACK」），把 0xFF00 的原始三個 byte **顯眼顯示**（即使認不出 IC），並把
+     「讀不到（全無回應）」與「讀到了但不認得」分成兩件不同的事。
+     🔴 這裡**只做觀測，不動讀取序列** —— helper 走的是 libMPSSE，序列與 PQ Tool 的
+        Read_Reg（寫位址 options 0x19＝repeated start／讀 options 0x0B）逐旗標一致，
+        在拿到 Bruce 的原始 byte 之前不臆測性地改它。 */
   async function dgmI2cScanIdentify(lk) {
-    var id = null, slaveTried = [];
-    lk('　　掃 slave（順序照抄 PQ Tool 的 CheckICID：'
+    var chosen = null, chosenSlave = null, results = [];
+    lk('　　掃 slave（四個逐一探，順序照 PQ Tool CheckICID：'
       + DGM_I2C_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' → ') + '）');
-    for (var si = 0; si < DGM_I2C_SLAVES.length && !id; si++) {
-      dgmI2cSlave = DGM_I2C_SLAVES[si];
-      try { id = await dgmI2cReadReg(0xFF00, 3); }
-      catch (e) { id = null; slaveTried.push('0x' + dgmI2cSlave.toString(16).toUpperCase() + ' ' + dgmErrMsg(e)); }
+    for (var si = 0; si < DGM_I2C_SLAVES.length; si++) {
+      var sl = DGM_I2C_SLAVES[si];
+      dgmI2cSlave = sl;
+      var tag = '0x' + sl.toString(16).toUpperCase();
+      try {
+        var d = await dgmI2cReadReg(0xFF00, 3);
+        var hex = dgmI2cHex(d);
+        if (d && d.length >= 3) {
+          results.push(tag + ' ← ' + hex);
+          lk('　　　' + tag + '：有回應，0xFF00 ＝ ' + hex, 'o');
+          if (!chosen) { chosen = d; chosenSlave = sl; }
+        } else {
+          results.push(tag + ' ← 只收到 ' + (d ? d.length : 0) + ' byte（' + (hex || '空') + '）');
+          lk('　　　' + tag + '：有 ACK 但只收到 ' + (d ? d.length : 0) + ' byte（' + (hex || '空') + '）', 'e');
+        }
+      } catch (e) {
+        results.push(tag + ' ✕ ' + dgmErrMsg(e));
+        lk('　　　' + tag + '：無回應（' + dgmErrMsg(e) + '）', 'e');
+      }
     }
-    if (!id) throw new Error('掃過的 slave address 都讀不到 0xFF00 —— ' + slaveTried.join('；'));
-    dgmI2cIdRaw = id;
-    dgmI2cIc = dgmI2cMatchIc(id);
-    var idt = dgmI2cHex(id);
+    lk('　　slave 掃描結果：' + results.join('　'));
+
+    if (!chosen) {
+      /* 🔴 全無回應 ＝ 「讀不到」，不是「未知 IC」。v1.65.0 起**不再 throw／不中止連線**：
+         通訊到底通不通由下面的「通訊自檢」authoritative 判定，IC 識別只是附帶資訊。 */
+      dgmI2cIdRaw = null; dgmI2cIc = null;
+      dgmI2cShow('dgm-i2c-v-id', '0xFF00 讀不到（四個 slave 全無有效回應）—— 以通訊自檢為準', false);
+      lk('⚠ 0xFF00 四個 slave 全無有效回應（IC 識別失敗，但這不代表通訊壞 —— 看通訊自檢）', 'e');
+      return;
+    }
+    dgmI2cSlave = chosenSlave;
+    dgmI2cIdRaw = chosen;
+    dgmI2cIc = dgmI2cMatchIc(chosen);
+    var idt = dgmI2cHex(chosen);
+    var slt = '0x' + chosenSlave.toString(16).toUpperCase();
+    /* 🔴 一律把原始三個 byte 顯示在觀測表的 IC ID 那一列（連不認得也顯示） */
+    dgmI2cShow('dgm-i2c-v-id', idt + '（slave ' + slt + '）' + (dgmI2cIc ? '  ⇒ ' + dgmI2cIc.name : '  ⇒ 讀到了，但不在已知 ID 表內'), true);
     if (dgmI2cIc) {
-      dgmI2cToast('已連上 · 0xFF00 ＝ ' + idt + ' ⇒ ' + dgmI2cIc.name
+      dgmI2cToast('已連上 · slave ' + slt + ' · 0xFF00 ＝ ' + idt + ' ⇒ ' + dgmI2cIc.name
         + (dgmI2cIc.alsoMayBe ? '（也可能是 ' + dgmI2cIc.alsoMayBe + '）' : ''), 'ok');
-      lk('✔ I2C 已連線 · slave 0x' + dgmI2cSlave.toString(16) + ' · 0xFF00 ＝ ' + idt + ' ⇒ ' + dgmI2cIc.name, 'o');
+      lk('✔ I2C 已連線 · slave ' + slt + ' · 0xFF00 ＝ ' + idt + ' ⇒ ' + dgmI2cIc.name, 'o');
     } else {
-      dgmI2cToast('已連上，但 0xFF00 ＝ ' + idt + ' 不在已知 ID 表內 ⇒ 只允許讀', 'warn');
-      lk('⚠ I2C 已連線但 IC 不明 · 0xFF00 ＝ ' + idt + ' ⇒ 出圖與寫入一律停用', 'e');
+      dgmI2cToast('已讀到 0xFF00 ＝ ' + idt + '（slave ' + slt + '）但不在已知 ID 表內 ⇒ 只允許讀。把這三個 byte 回報給我。', 'warn');
+      lk('⚠ 讀到了但認不出 · slave ' + slt + ' · 0xFF00 ＝ ' + idt + ' ⇒ 出圖與寫入停用。請把這三個 byte 回報。', 'e');
     }
+  }
+
+  /* ═══ v1.65.0：通訊自檢（Bruce 的黃金向量，與 IC 認不認得完全解耦）═══════════
+     讀 slave 0x68（7-bit）、2-byte offset、offset 0x0000 起連續 3 byte，期望 A1 D8 FB。
+     🔴 一律先把實收的三個 byte 如實顯示，再判定；三種結果分開講：
+        PASS 通訊正常／FAIL 期望 A1 D8 FB 實際 xx xx xx／FAIL 讀不到（NACK 或逾時）。
+     🔴 不依賴 IC ID 表，也不因 IC 判不出來而跳過。 */
+  var DGM_I2C_COMM_SLAVE = 0x68;
+  var DGM_I2C_COMM_ADDR  = 0x0000;
+  var DGM_I2C_COMM_EXPECT = [0xA1, 0xD8, 0xFB];
+  var dgmI2cCommResult = null;   // {state:'pass'|'mismatch'|'noread', bytes:[], text}
+  function dgmI2cCommVerdict(bytes) {
+    /* 純函式，可單元測 —— 給實收的 byte 陣列，回傳判定。不美化：少於 3 byte＝讀不到 */
+    var b = bytes || [];
+    if (b.length < 3) return { state: 'noread', text: 'FAIL 讀不到（只收到 ' + b.length + ' byte' + (b.length ? '：' + dgmI2cHex(b) : '') + '）' };
+    if (b[0] === DGM_I2C_COMM_EXPECT[0] && b[1] === DGM_I2C_COMM_EXPECT[1] && b[2] === DGM_I2C_COMM_EXPECT[2])
+      return { state: 'pass', text: 'PASS 通訊正常（讀到 ' + dgmI2cHex(b.slice(0, 3)) + '）' };
+    return { state: 'mismatch', text: 'FAIL 期望 A1 D8 FB，實際 ' + dgmI2cHex(b.slice(0, 3)) };
+  }
+  async function dgmI2cCommTest() {
+    if (!dgmI2cLinkActive) { dgmI2cToast('請先連上再做通訊自檢', 'warn'); return null; }
+    var saved = dgmI2cSlave;
+    dgmI2cSlave = DGM_I2C_COMM_SLAVE;
+    dgmI2cOut('通訊自檢：讀 slave 0x68 · offset 0x0000 ×3（期望 A1 D8 FB）');
+    var bytes = [];
+    try { var d = await dgmI2cReadReg(DGM_I2C_COMM_ADDR, 3); bytes = (d || []).slice(0, 3); }
+    catch (e) { dgmI2cOut('通訊自檢：讀取丟出例外 —— ' + dgmErrMsg(e)); bytes = []; }
+    dgmI2cSlave = saved;
+    var v = dgmI2cCommVerdict(bytes);
+    dgmI2cCommResult = { state: v.state, bytes: bytes, text: v.text, at: Date.now() };
+    dgmI2cShow('dgm-i2c-comm', v.text, v.state === 'pass');
+    dgmI2cOut('通訊自檢結果：' + v.text);
+    (v.state === 'pass' ? dgmI2cToast(v.text, 'ok') : dgmI2cToast(v.text, 'err'));
+    dgmI2cRender();
+    return dgmI2cCommResult;
   }
 
   async function dgmI2cReadReg(addr, len) {
@@ -3542,9 +3630,11 @@
       /* 🔴 「連線測試」只讀不寫（報告2 §2.2 第 3 道防護）：
          讀 0xFF00 三個 byte，把**原始值**顯示出來讓使用者自己核對 ——
          網頁不裝作知道自己面對的是 EM01 還是 VM01（那兩顆撞號）。 */
+      await dgmI2cCommTest();        // 🔴 通訊自檢先跑（authoritative）
       await dgmI2cScanIdentify(lk);
       dgmI2cSetLink(true);
       dgmI2cStartHb();
+      dgmI2cLastTransport = 'usb';   // 上次成功是走 WebUSB
     } catch (err) {
       dgmI2cLinkActive = false;                      // 🔴 claim 失敗絕不假亮綠
       /* 🔴 claim 失敗要把已經 open 的 handle close 掉（照抄 wfg L20691 的理由）：
@@ -3677,9 +3767,11 @@
       if (!op.ok) throw new Error('helper 開通道失敗（channels=' + (op.channels != null ? op.channels : '?') + '）⇒ 治具有沒有插好？原廠 PQ Tool 是不是開著佔用了 channel？');
       lk('　　helper 已開通道 · channels=' + (op.channels != null ? op.channels : '?'), 'o');
       dgmI2cLinkActive = true;
-      await dgmI2cScanIdentify(lk);
+      await dgmI2cCommTest();        // 🔴 通訊自檢先跑（authoritative，與 IC 識別解耦）
+      await dgmI2cScanIdentify(lk);  // IC 識別＝附帶資訊，不中止連線
       dgmI2cSetLink(true);
       dgmI2cStartHb();
+      dgmI2cLastTransport = 'ws';   // 🔴 記住這條，讓主 I2C 鈕 off→on 自動走 helper
     } catch (err) {
       dgmI2cLinkActive = false;
       try { dgmI2cWsSend({ type: 'close' }); } catch (e) {}
@@ -3836,7 +3928,10 @@
   (function dgmI2cWire() {
     $('dgm-i2c').addEventListener('click', function () {
       if (running || dgmI2cLinkBusy) return;
-      if (dgmI2cLinkActive) dgmI2cOff(); else dgmI2cOn();
+      var act = dgmI2cOnTarget(dgmI2cLinkActive, dgmI2cLastTransport);
+      if (act === 'off') dgmI2cOff();
+      else if (act === 'ws') dgmI2cWsOn();   // 上次是 helper ⇒ 自動走 helper 重連
+      else dgmI2cOn();
     });
     $('dgm-i2c-open').addEventListener('click', function () { dgmI2cPanel(true); });
     $('dgm-i2c-close').addEventListener('click', function () { dgmI2cPanel(false); });
@@ -3846,6 +3941,8 @@
       if (running || dgmI2cLinkBusy) return;
       if (dgmI2cTransport === 'ws' && dgmI2cLinkActive) dgmI2cWsOff(); else dgmI2cWsOn();
     });
+    var commBtn = $('dgm-i2c-comm-btn');
+    if (commBtn) commBtn.addEventListener('click', function () { dgmI2cGuard(dgmI2cCommTest); });
     /* 下載區的 SHA256 與版本填進去（來源＝JS 常數，改版一起改） */
     var zs = $('dgm-i2c-helper-zipsha'); if (zs) zs.textContent = DGM_HELPER_ZIP_SHA;
     var es = $('dgm-i2c-helper-exesha'); if (es) es.textContent = DGM_HELPER_EXE_SHA;
@@ -3936,7 +4033,12 @@
     helperNeedProto: function () { return DGM_HELPER_NEED_PROTO; },
     helperMeta: function () { return { ver: DGM_HELPER_VER_STR, zip: DGM_HELPER_ZIP, zipSha: DGM_HELPER_ZIP_SHA, exeSha: DGM_HELPER_EXE_SHA }; },
     hasWsFns: function () { return typeof dgmI2cWsOn === 'function' && typeof dgmI2cWsReadReg === 'function' && typeof dgmI2cWsWriteReg === 'function' && typeof dgmI2cScanIdentify === 'function'; },
-    isLoopback: dgmI2cIsLoopback
+    isLoopback: dgmI2cIsLoopback,
+    onTarget: dgmI2cOnTarget,                         // Bug B：主鈕 off→on 走哪條
+    lastTransport: function () { return dgmI2cLastTransport; },
+    commVerdict: dgmI2cCommVerdict,                    // 通訊自檢判定（純函式）
+    commSlave: function () { return DGM_I2C_COMM_SLAVE; },
+    commExpect: function () { return DGM_I2C_COMM_EXPECT.slice(); }
   };
 
 
