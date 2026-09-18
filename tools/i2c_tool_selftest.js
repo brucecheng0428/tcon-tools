@@ -487,7 +487,7 @@ function baseScript(f) {
     EQ(A.PKG, V, '🔴 頁面用的就是 HELPER_PKG 本體（不是複製一份）');
     CHECK(/^[0-9a-f]{64}$/.test(V.zipSha), 'zipSha 是 64 碼 hex：' + V.zipSha);
     CHECK(/^[0-9a-f]{64}$/.test(V.exeSha), 'exeSha 是 64 碼 hex：' + V.exeSha);
-    CHECK(V.file === 'data/dg-helper-' + V.pkg + '.zip', '🔴 檔名與包版本一致：' + V.file);
+    CHECK(V.file === 'data/i2c-bridge-' + V.pkg + '.zip', '🔴 檔名與包版本一致：' + V.file);
     CHECK(V.bytes > 0, 'zip 大小有填：' + V.bytes);
     /* 🔴 pkg（zip 版本）與 exe（執行檔自報版本）是兩個欄位，畫面兩個都要顯示 ——
        歷史上 v1.3.0/1/2 三包的 exe 都是 1.3.0，只顯示一個就會看起來像 bug。 */
@@ -1263,12 +1263,263 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('22. slave 三格連動：7-bit ⇔ 8-bit write ⇔ 8-bit read');
+  {
+    const s7 = doc.getElementById('in-slave'), w8 = doc.getElementById('in-slave8w'), r8 = doc.getElementById('in-slave8r');
+    const typeIn = (el, v, commit) => {
+      el.value = v;
+      el.dispatchEvent(new win.Event('input', { bubbles: true }));
+      if (commit) el.dispatchEvent(new win.Event('change', { bubbles: true }));
+    };
+    typeIn(s7, '0x68', true);
+    EQ(w8.value, '0xD0', '改 7-bit 0x68 ⇒ 8-bit write 0xD0');
+    EQ(r8.value, '0xD1', '改 7-bit 0x68 ⇒ 8-bit read 0xD1');
+    typeIn(w8, '0xA0', true);
+    EQ(s7.value, '0x50', '🔴 反向：8-bit write 0xA0 ⇒ 7-bit 0x50');
+    EQ(r8.value, '0xA1', '8-bit write 0xA0 ⇒ 8-bit read 0xA1');
+    typeIn(r8, '0x93', true);
+    EQ(s7.value, '0x49', '🔴 反向：8-bit read 0x93 ⇒ 7-bit 0x49');
+    EQ(w8.value, '0x92', '8-bit read 0x93 ⇒ 8-bit write 0x92');
+    /* 🔴 防呆：write 打奇數 ⇒ 清掉 bit0；read 打偶數 ⇒ 補上 bit0。修正要看得見。 */
+    typeIn(w8, '0xD1', true);
+    EQ(w8.value, '0xD0', '🔴 write 打成 D1 ⇒ 自動修正成 D0');
+    CHECK(doc.getElementById('slave8whint').textContent.indexOf('D1') >= 0
+       && doc.getElementById('slave8whint').textContent.indexOf('D0') >= 0,
+      '🔴 修正**看得見**：' + doc.getElementById('slave8whint').textContent);
+    EQ(s7.value, '0x68', '修正後 7-bit 也對');
+    typeIn(r8, '0xD0', true);
+    EQ(r8.value, '0xD1', '🔴 read 打成 D0 ⇒ 自動修正成 D1');
+    EQ(s7.value, '0x68', '修正後 7-bit 也對');
+    /* 打到一半不可以被改掉（邊打邊修正會讓人打不完） */
+    typeIn(w8, '0xD', false);
+    EQ(w8.value, '0xD', '🔴 還在打的時候不動他的字（commit 才修正）');
+    typeIn(s7, '0x68', true);
+    /* 純函式層 */
+    EQ(A.slaveFrom('w8', '0xD1').fixed.to, 0xD0, 'slaveFrom：write 奇數被修正');
+    EQ(A.slaveFrom('r8', '0xD0').fixed.to, 0xD1, 'slaveFrom：read 偶數被修正');
+    EQ(A.slaveFrom('w8', '0xD0').fixed, null, 'slaveFrom：write 偶數不動它');
+    EQ(A.slaveFrom('s7', '0x80').s, null, 'slaveFrom：7-bit 超過 0x7F 擋下');
+    /* 8-bit 那一段要**明顯**，不能是淡色 */
+    {
+      const lab = doc.querySelector('.f8 > span:first-child');
+      const cs = win.getComputedStyle(lab), csi = win.getComputedStyle(w8);
+      const sub = win.getComputedStyle(doc.querySelector('#in-slave')).borderColor;
+      CHECK(cs.fontWeight === '700' || +cs.fontWeight >= 700, '🔴 8-bit 標籤是粗體：' + cs.fontWeight);
+      CHECK(csi.borderColor !== sub, '🔴 8-bit 欄位的框跟一般欄位不同色：' + csi.borderColor + ' vs ' + sub);
+    }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('23. 輸入寬容解析：統一「純數字＝十六進位」，總 byte 數是唯一例外');
+  {
+    EQ(A.parseAddr('50'),      0x50, '🔴 純數字 ⇒ 十六進位');
+    EQ(A.parseAddr('0x50'),    0x50, '0x 前綴');
+    EQ(A.parseAddr('50h'),     0x50, 'h 後綴');
+    EQ(A.parseAddr('50H'),     0x50, 'H 後綴');
+    EQ(A.parseAddr('0X50'),    0x50, '大寫 0X');
+    EQ(A.parseAddr('0x50H'),   0x50, '🔴 0x 與 H 同時存在（Bruce 指名的 0x50H）');
+    EQ(A.parseAddr('0x50h'),   0x50, '0x 與小寫 h 同時存在');
+    EQ(A.parseAddr(' 0x 50 '), 0x50, '夾雜空白');
+    EQ(A.parseAddr('3ff'),     0x3FF, '小寫 a–f');
+    EQ(A.parseAddr('3FF'),     0x3FF, '大寫 A–F');
+    EQ(A.parseAddr('00050'),   0x50, '前導零');
+    EQ(A.parseAddr('#80'),     80,   '🔴 # 前綴 ⇒ 十進位');
+    EQ(A.parseAddr('80d'),     80,   '🔴 d 後綴 ⇒ 十進位');
+    EQ(A.parseAddr('80D'),     80,   'D 後綴 ⇒ 十進位');
+    EQ(A.parseAddr('xyz'),     null, '亂碼 ⇒ null');
+    EQ(A.parseAddr('0x'),      null, '只有前綴 ⇒ null');
+    EQ(A.parseAddr(''),        null, '空 ⇒ null');
+    EQ(A.parseAddr('#5A'),     null, '# 後面不是十進位 ⇒ null（不偷偷當 hex）');
+    /* 唯一例外：總 byte 數是數量 */
+    EQ(A.parseNum('4096'), 4096, '🔴 總 byte 數：4096 ⇒ 4096（十進位，唯一例外）');
+    EQ(A.parseNum('0x100'), 256, '總 byte 數也吃得下 0x100');
+    /* 每一個位址類欄位都走同一支 */
+    const setv = (id, v) => { const e = doc.getElementById(id); e.value = v;
+      e.dispatchEvent(new win.Event('input', { bubbles: true })); };
+    setv('in-slave', '0x50H'); EQ(doc.getElementById('in-slave8w').value, '0xA0', '① 吃 0x50H');
+    setv('in-off', '3ff');
+    CHECK(doc.getElementById('offhint').textContent.indexOf('0x03FF') >= 0,
+      '🔴 ③ 即時顯示解析結果：' + doc.getElementById('offhint').textContent);
+    setv('in-off', '#80');
+    CHECK(doc.getElementById('offhint').textContent.indexOf('0x0050') >= 0,
+      '③ #80 ⇒ 0x0050：' + doc.getElementById('offhint').textContent);
+    /* 解不出來 ⇒ 標紅且**保留原輸入** */
+    setv('in-off', 'zz');
+    EQ(doc.getElementById('in-off').value, 'zz', '🔴 解不出來不清空他打的字');
+    CHECK(doc.getElementById('in-off').classList.contains('bad'), '🔴 解不出來標紅');
+    setv('in-off', '0x0000');
+    /* 那一行小字：每個位址欄位都要有，且文字一致 */
+    const note = A.decNote().replace(/^ · /, '');
+    ['slavehint', 'slave8whint', 'slave8rhint', 'offhint'].forEach(id => {
+      A.slaveSync('s7', true); A.updateHints && A.updateHints();
+      CHECK(doc.getElementById(id).textContent.indexOf(note) >= 0,
+        '🔴 ' + id + ' 有那一行小字「' + note + '」：' + doc.getElementById(id).textContent);
+    });
+    CHECK(doc.getElementById('lenhint').textContent.indexOf('十進位') >= 0,
+      '🔴 ④ 標明是十進位（唯一例外）：' + doc.getElementById('lenhint').textContent);
+    CHECK(doc.getElementById('xhair') === null
+       || /十進位加 d/.test(doc.getElementById('xhair').getAttribute('title') || ''),
+      '頁內定位格的規則寫在 title');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('24. 另存新檔：四種格式 ＋ round-trip 逐 byte 相同');
+  {
+    /* 獨立實作的 Intel HEX 驗算器 —— **不用自己的函式驗自己**。 */
+    function ihexAudit(text) {
+      const lines = text.split('\r\n').filter(x => x.length);
+      const rec = [], bad = [];
+      let upper = 0, eof = false, ext04 = 0;
+      const flat = new Map();
+      for (const ln of lines) {
+        if (ln[0] !== ':') { bad.push('行首不是 :'); continue; }
+        if (!/^:[0-9A-F]+$/.test(ln)) bad.push('不是大寫十六進位：' + ln);
+        const b = [];
+        for (let i = 1; i < ln.length; i += 2) b.push(parseInt(ln.substr(i, 2), 16));
+        const ll = b[0], type = b[3];
+        let sum = 0; for (let i = 0; i < b.length - 1; i++) sum += b[i];
+        const want = (0x100 - (sum & 0xFF)) & 0xFF;          /* 二補數，另一種寫法 */
+        if (want !== b[b.length - 1]) bad.push('checksum 錯：' + ln);
+        if (type === 0) {
+          rec.push(ll);
+          const a = upper * 65536 + ((b[1] << 8) | b[2]);
+          for (let i = 0; i < ll; i++) flat.set(a + i, b[4 + i]);
+        } else if (type === 4) { upper = (b[4] << 8) | b[5]; ext04++; }
+        else if (type === 1) eof = true;
+      }
+      return { rec, bad, eof, ext04, flat, lines };
+    }
+    const mk = n => { const a = new Uint8Array(n); for (let i = 0; i < n; i++) a[i] = (i * 7 + 3) & 0xFF; return a; };
+    const set = { kind: 'dev', slave: 0x68, awid: 2, base: 0x0000, bytes: mk(4096) };
+    const hx = A.exportBuild(set, 'hex');
+    CHECK(/\.hex$/.test(hx.name), '檔名副檔名正確：' + hx.name);
+    CHECK(/S68/.test(hx.name) && /4096B/.test(hx.name), '檔名帶 slave 與長度：' + hx.name);
+    const au = ihexAudit(hx.data);
+    EQ(au.bad.length, 0, '🔴 獨立驗算器：checksum 與大小寫全對' + (au.bad[0] ? '（' + au.bad[0] + '）' : ''));
+    CHECK(au.rec.slice(0, -1).every(x => x === 16), '🔴 每筆 16 byte（Bruce 指名的格式）');
+    EQ(au.rec.length, 256, '4096 / 16 ＝ 256 筆');
+    CHECK(au.eof, '🔴 有 EOF 記錄');
+    CHECK(hx.data.endsWith(':00000001FF\r\n'), '🔴 EOF 就是 :00000001FF');
+    CHECK(hx.data.split('\n').every(l => l === '' || l.endsWith('\r')), '🔴 行尾是 CRLF');
+    CHECK(/^:10000000/.test(hx.data), '第一筆長得跟範本一樣：' + hx.data.slice(0, 12));
+    EQ(au.flat.size, 4096, '攤平後還是 4096 byte');
+    /* round-trip：四種格式各存一次再載回來 */
+    for (const fmt of ['hex', 'txt', 'rom', 'bin']) {
+      const b = A.exportBuild(set, fmt);
+      let back;
+      if (fmt === 'bin') back = Array.from(b.data);
+      else { const r = A.parseHexText(b.data); EQ(r.err, null, fmt + ' 載得回來'); back = r.bytes; }
+      let same = back && back.length === 4096;
+      if (same) for (let i = 0; i < 4096; i++) if ((back[i] & 0xFF) !== set.bytes[i]) { same = false; break; }
+      CHECK(same, '🔴 round-trip 逐 byte 相同：.' + fmt);
+    }
+    /* 256K ⇒ 一定要有 type 04，而且位址對 */
+    const big = { kind: 'dev', slave: 0x50, awid: 4, base: 0, bytes: mk(262144) };
+    const au2 = ihexAudit(A.exportBuild(big, 'hex').data);
+    EQ(au2.bad.length, 0, '256K：checksum 全對');
+    EQ(au2.ext04, 3, '🔴 256K ⇒ 跨 64K 三次 ⇒ 3 筆 type 04（第一段 hi=0 不用插，與範本一致）');
+    EQ(au2.flat.size, 262144, '🔴 type 04 的位址對：攤平剛好 262144 個不重複位址');
+    EQ(au2.flat.get(0x3FFFF), big.bytes[0x3FFFF], '最後一個 byte 落在 0x3FFFF');
+    /* 非 16 的倍數：最後一筆照實際長度 */
+    const odd = { kind: 'dev', slave: 0x68, awid: 2, base: 0x100, bytes: mk(20) };
+    const au3 = ihexAudit(A.exportBuild(odd, 'hex').data);
+    EQ(au3.rec.join(','), '16,4', '🔴 20 byte ⇒ 16 ＋ 4');
+    EQ(au3.flat.get(0x100), odd.bytes[0], '🔴 起始位址用 set.base（0x100）');
+    EQ(A.exportBuild({ kind: 'dev', slave: 1, awid: 2, base: 0, bytes: new Uint8Array(0) }, 'hex'), null,
+       '沒有資料 ⇒ 不給存');
+    /* .txt 與 .rom 同格式 */
+    EQ(A.exportBuild(set, 'txt').data, A.exportBuild(set, 'rom').data, '.txt 與 .rom 內容相同');
+    EQ(A.exportBuild(set, 'txt').data.split('\r\n')[0], '03', '.txt 一列一個 byte、兩位大寫');
+    CHECK(A.exportBuild(set, 'bin').data instanceof Uint8Array, '.bin 是 raw binary');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('25. 另存新檔的按鈕：沒資料不給按，有資料就能按（不需連線）');
+  {
+    const btn = doc.getElementById('btn-save');
+    CHECK(!!btn, '按鈕在');
+    CHECK(!!doc.getElementById('sav-fmt'), '格式選單在');
+    EQ(Array.from(doc.getElementById('sav-fmt').options).map(o => o.value).join(','),
+       'hex,bin,txt,rom', '🔴 四種格式，預設 .hex');
+    EQ(doc.getElementById('sav-fmt').value, 'hex', '預設就是 Bruce 指名的 hex');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('26. 瀏覽器擋住連本機（LNA）：一句話 ＋ 重試，正常路徑不出現');
+  {
+    CHECK(win.getComputedStyle(doc.getElementById('lna')).display === 'none', '🔴 平常完全不出現');
+    /* 判準：非本機來源 ＋ 慢。快的那種是「沒人在聽」＝ 沒裝 helper。 */
+    CHECK(!A.lnaSuspect(50), '🔴 失敗得很快 ⇒ 不是權限問題（jsdom 的 location 是 localhost）');
+    A.lnaBlocked(3000);
+    CHECK(win.getComputedStyle(doc.getElementById('lna')).display !== 'none', '🔴 被擋時看得到');
+    CHECK(/允許/.test(doc.getElementById('lna').textContent), '🔴 就是那一句話：'
+      + doc.getElementById('lna').textContent.trim().slice(0, 30));
+    CHECK(!!doc.getElementById('btn-lna-retry'), '🔴 有重試按鈕');
+    CHECK(win.getComputedStyle(doc.getElementById('gethelper')).display === 'none',
+      '🔴 一次只喊一件事：下載鈕讓位');
+    A.gotHelper();
+    CHECK(win.getComputedStyle(doc.getElementById('lna')).display === 'none', '連上之後收起來');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('27. 去 TCON 化：連線不做任何 I2C 交易');
+  {
+    /* 🔴 Bruce 2026-09-18：「i2c 頁完全去 TCON 化：連線不做任何 I2C 交易、
+       不讀 0xFF00」。這一頁是通用工具，對方可能是 EEPROM／PMIC／感測器 —— 
+       連上就替他讀某個位址，既是假設也可能有副作用。 */
+    A.setDebug(false);
+    const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, data: [0xA1, 0xD8, 0xFB] })));
+    const reads = sent.filter(m => m.type === 'read');
+    EQ(reads.length, 0, '🔴 連線全程送出 0 則 read（原本會自動自檢送 2 則）');
+    EQ(sent.filter(m => m.type === 'rawwrite').length, 0, '🔴 也沒有任何寫入');
+    EQ(sent.map(m => m.type).join(','), 'ping,open', '🔴 只有 ping 與 open（開通道≠I2C 交易）');
+    CHECK(!/0xFF00|FF00/.test(doc.getElementById('topbanner').textContent), '畫面沒有 0xFF00 字樣');
+    /* 只找他點名的那幾句；`tcon-tools` 是我們自己的網址（log 裡會出現），不算。 */
+    /* 🔴 textContent 會把 <script> 的原始碼也算進去（註解裡提到那句話）⇒ 要先剔除，
+       否則測的是原始碼不是畫面。 */
+    const bodyText = Array.from(doc.body.querySelectorAll('*'))
+      .filter(e => !/^(SCRIPT|STYLE)$/.test(e.tagName))
+      .map(e => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.nodeValue).join(''))
+      .join(' ');
+    CHECK(!/讀不到\s*T-?CON/i.test(bodyText), '🔴 畫面上沒有「讀不到 T-Con」');
+    CHECK(!/讀回\s*[0-9A-F]{2}\s/i.test(doc.getElementById('topbanner').textContent),
+      '🔴 橫幅沒有「讀回 xx xx xx」');
+    /* 診斷沒有被砍，只是收進 debug */
+    A.setDebug(true);
+    const sent2 = await useHelper(baseScript(() => ({ ok: true, status: 0, data: [0xA1, 0xD8, 0xFB] })));
+    CHECK(sent2.filter(m => m.type === 'read').length > 0, '🔴 debug 打開 ⇒ 自檢回來（診斷能力一個字沒少）');
+    A.setDebug(false);
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('28. 改名：使用者看到的是「I2C Bridge」，不再是「helper」');
+  {
+    /* 🔴 Bruce 2026-09-18：「helper 的字樣是不是其實不夠貼切？它的功能應該是
+       I2C 的 bridge…用一個使用者一看就知道它在做什麼功能的字樣」。 */
+    const vis = () => Array.from(doc.body.querySelectorAll('*'))
+      .filter(e => !/^(SCRIPT|STYLE)$/.test(e.tagName))
+      .filter(e => { const cs = win.getComputedStyle(e); return cs.display !== 'none'; })
+      .map(e => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.nodeValue).join(''))
+      .join(' ');
+    A.setDebug(true); A.needHelper('連不到 I2C Bridge');
+    const t = vis();
+    CHECK(!/helper/i.test(t), '🔴 畫面上（含 debug 區、下載鈕）一個 helper 都沒有');
+    CHECK(/I2C Bridge/.test(t), '🔴 改稱 I2C Bridge：' + (t.match(/.{0,12}I2C Bridge.{0,12}/) || [''])[0]);
+    CHECK(doc.getElementById('dl').textContent.indexOf('I2C Bridge') >= 0,
+      '🔴 下載鈕：' + doc.getElementById('dl').textContent.trim());
+    CHECK(/i2c-bridge-v/.test(win.HELPER_PKG.file), '🔴 zip 檔名改了：' + win.HELPER_PKG.file);
+    CHECK(!/dg-helper/.test(doc.documentElement.outerHTML), '🔴 整頁原始碼裡沒有 dg-helper 字樣');
+    A.setDebug(false); A.gotHelper();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');
   console.log('🔴 未驗（沒有 Windows／沒有 FTDI 治具，驗不了，不做假探針）：');
-  console.log('   · dg-helper.exe 在 Windows 上實際執行（D2XX / libMPSSE / 真的 I2C 波形）');
-  console.log('   · Windows 上的 winsock 行為（helper 的 HTTP／WebSocket／擁有權已由\n     tools/dg-helper/test/test_server.c 用真的 socket 驗過，但那是 POSIX socket）');
+  console.log('   · i2c-bridge.exe 在 Windows 上實際執行（D2XX / libMPSSE / 真的 I2C 波形）');
+  console.log('   · Windows 上的 winsock 行為（helper 的 HTTP／WebSocket／擁有權已由\n     tools/i2c-bridge/test/test_server.c 用真的 socket 驗過，但那是 POSIX socket）');
   console.log('   · 真的 TCON 對 0x68 / 0x0000 的回應（黃金向量 A1 D8 FB 沿用先前實機結果）');
   process.exit(0);
 })().catch(e => { console.error('🔴 selftest 本身爆掉：', e); process.exit(2); });

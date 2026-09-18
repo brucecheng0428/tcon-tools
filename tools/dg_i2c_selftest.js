@@ -422,7 +422,7 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   ok(/^[0-9a-f]{64}$/.test(meta.zipSha), 'helper zip SHA256 是 64 碼十六進位', meta.zipSha);
   ok(/^[0-9a-f]{64}$/.test(meta.exeSha), 'helper exe SHA256 是 64 碼十六進位', meta.exeSha);
   ok(meta.zipSha !== meta.exeSha, 'zip 與 exe 的 SHA256 不同（不是複製貼上）');
-  ok(/^data\/dg-helper-.*\.zip$/.test(meta.zip), 'helper 下載指向 data/ 的 zip', meta.zip);
+  ok(/^data\/i2c-bridge-.*\.zip$/.test(meta.zip), 'helper 下載指向 data/ 的 zip', meta.zip);
   ok(/^v\d+\.\d+\.\d+$/.test(meta.ver), 'helper 版本字串格式正確', meta.ver);
   /* loopback 自動連線判斷（v1.62.0）：只在本機 host 觸發，GitHub Pages 不動 */
   if (typeof P.isLoopback === 'function') {
@@ -474,7 +474,7 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
   ok(!!d.getElementById('dgm-i2c-ws-state'), 'helper 狀態欄在 DOM 上');
   {
     const dl = d.getElementById('dgm-i2c-helper-dl');
-    ok(!!dl && /dg-helper-.*\.zip(\?|$)/.test(dl.getAttribute('href')), '下載連結指向 helper zip', dl && dl.getAttribute('href'));
+    ok(!!dl && /i2c-bridge-.*\.zip(\?|$)/.test(dl.getAttribute('href')), '下載連結指向 helper zip', dl && dl.getAttribute('href'));
     const zs = d.getElementById('dgm-i2c-helper-zipsha');
     ok(!!zs && zs.textContent === meta.zipSha, '下載區顯示 zip SHA256');
     const es = d.getElementById('dgm-i2c-helper-exesha');
@@ -520,10 +520,10 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
        改成釘住那件真正該成立的事 ——
          ① 連結、helperMeta.zip、版號徽章三者版本一致（三處各自硬編是舊病）
          ② 連結指到的 zip **在 repo 裡真的存在**（這是寫死版本永遠驗不到的一點） */
-    const verInHref = (dlHref.match(/dg-helper-(v\d+\.\d+\.\d+)\.zip/) || [])[1];
-    ok(!!verInHref, '下載連結是 dg-helper-vX.Y.Z.zip 的形式', dlHref);
+    const verInHref = (dlHref.match(/i2c-bridge-(v\d+\.\d+\.\d+)\.zip/) || [])[1];
+    ok(!!verInHref, '下載連結是 i2c-bridge-vX.Y.Z.zip 的形式', dlHref);
     ok(verInHref === meta.ver, '下載連結版本 === helperMeta.ver', verInHref + ' vs ' + meta.ver);
-    ok(meta.zip === 'data/dg-helper-' + meta.ver + '.zip', 'helperMeta.zip 與 ver 一致', meta.zip);
+    ok(meta.zip === 'data/i2c-bridge-' + meta.ver + '.zip', 'helperMeta.zip 與 ver 一致', meta.zip);
     ok(fs.existsSync(path.join(repoDir, meta.zip)), '🔴 連結指到的 zip 檔在 repo 裡真的存在', meta.zip);
     ok(/[?&]v=/.test(dlHref), '下載連結帶 cache buster ?v=', dlHref);
     /* SHA 欄位要是 64 碼十六進位，不能是佔位字串（貼錯就會變成沒法核對） */

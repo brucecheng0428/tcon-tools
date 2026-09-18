@@ -22,7 +22,7 @@ static inline int WSACleanup(void){ return 0; }
 
 /* 🔴 Windows 的 select() **忽略**第一個參數（nfds），POSIX 不是 —— 直接照搬
    `select(0,...)` 在 POSIX 上等於什麼都不監看、立刻回 0，會變成忙迴圈。
-   這是平台語意差異，不是 dg_helper.c 的錯，所以由 shim 這一層翻譯：
+   這是平台語意差異，不是 i2c_bridge.c 的錯，所以由 shim 這一層翻譯：
    自己算出 max(fd)+1 再呼叫真正的 select。 */
 int dgh_shim_select(fd_set* r, fd_set* w, fd_set* e, struct timeval* t);
 #define select(n, r, w, e, t) dgh_shim_select((r), (w), (e), (t))

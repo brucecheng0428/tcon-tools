@@ -3,16 +3,16 @@
 網頁沒有任何管道直接呼叫本機的 FTDI 驅動（D2XX），這支小程式就是那條「電話線」：
 
 ```
-網頁 ──WebSocket(127.0.0.1)──> dg-helper.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
+網頁 ──WebSocket(127.0.0.1)──> i2c-bridge.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
 ```
 
 ## 使用者流程（v1.3.0，Bruce 2026-09-17 回饋後）
 
 1. **下載**（不加密 zip，Windows 內建就解得開）
 2. 🔴 **整包解壓到一個資料夾**（例如桌面）—— **不要**直接在壓縮檔預覽視窗裡點 exe
-3. 在那個資料夾**雙擊 `dg-helper.exe`**（SmartScreen「其他資訊 → 仍要執行」兩下）→ 瀏覽器自己開、自己連好，直接用
+3. 在那個資料夾**雙擊 `i2c-bridge.exe`**（SmartScreen「其他資訊 → 仍要執行」兩下）→ 瀏覽器自己開、自己連好，直接用
 
-解壓後是**四個檔**（`dg-helper.exe`＋`dg-measure.html`＋`i2c.html`＋`libMPSSE.dll`）要在同一資料夾。要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）。
+解壓後是**四個檔**（`i2c-bridge.exe`＋`dg-measure.html`＋`i2c.html`＋`libMPSSE.dll`）要在同一資料夾。要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）。
 
 > **v1.2.0：`libMPSSE.dll` 直接包進 zip**（Bruce 裁示）。`ftd2xx.dll` **不附**（系統隨 FTDI 驅動提供，缺它是狀態碼 **F**）。
 >
@@ -20,7 +20,7 @@
 > - **主下載改不加密**。原本壓密碼只是為了繞下載掃描，但密碼 `1234` 本來就印在頁面上＝沒有機密性，只多一步輸入 → 拿掉。被公司掃描器擋住的話再給加密版。
 > - 🔴 **偵測「在暫存目錄執行」＝狀態碼 T**。最可能造成 Bruce 出 D 的真因：在檔案總管的**壓縮檔預覽**裡直接雙擊 exe，Windows 只把 exe 解到 `%TEMP%` 執行，`libMPSSE.dll` 留在壓縮檔沒跟出來 → 找不到。這種情況印 **T**（不是 D），並直接叫使用者「整包解壓到資料夾再從那裡跑」。
 
-**Console 全英文**（Windows console 中文會亂碼）。黑視窗最後一行是**單一大寫狀態字母**，詳細英文寫進 exe 旁的 `dg-helper.log`。
+**Console 全英文**（Windows console 中文會亂碼）。黑視窗最後一行是**單一大寫狀態字母**，詳細英文寫進 exe 旁的 `i2c-bridge.log`。
 
 | 字母 | 意思 | 處置 |
 |---|---|---|
@@ -39,19 +39,19 @@
 
 ## DLL 搜尋順序（v1.2.0）
 
-`libMPSSE.dll` 已包進 zip，正常情況同目錄第一順位就命中。但搜尋邏輯保留（使用者自己拆開放、或未來換版的退路），且**逐條路徑寫進 `dg-helper.log`**：
+`libMPSSE.dll` 已包進 zip，正常情況同目錄第一順位就命中。但搜尋邏輯保留（使用者自己拆開放、或未來換版的退路），且**逐條路徑寫進 `i2c-bridge.log`**：
 
-1. 環境變數 `DG_HELPER_DLL_DIR`（進階使用者明路）
+1. 環境變數 `I2C_BRIDGE_DLL_DIR`（舊名 `DG_HELPER_DLL_DIR` 仍相容）（進階使用者明路）
 2. exe 所在目錄
 3. 目前工作目錄
-4. 選填的 `dg-helper.ini`（單行＝資料夾）
+4. 選填的 `i2c-bridge.ini`（單行＝資料夾）
 5. 登錄檔 Uninstall 鍵（HKLM 64/32-bit view、HKCU）比對 DisplayName 含 Raydium／PQ，取 InstallLocation
 6. `Program Files`／`Program Files (x86)` 底下名字像 Raydium/PQ/TCON 的資料夾（限深度，不全碟掃）
 7. 使用者 `Desktop`／`Downloads`／`Documents` 底下同上
 8. `PATH` 上每個目錄
 9. 相對 `.\Release V1.5.0`、`..\Release V1.5.0`（退路，放最後）
 
-## 自我診斷（寫進 dg-helper.log，全英文）
+## 自我診斷（寫進 i2c-bridge.log，全英文）
 
 OS 版本、行程是否 32-bit、**搜尋過的每一條路徑**＋命中與否、`libMPSSE.dll` 完整路徑、FTDI 裝置列舉（幾顆、VID/PID/desc）、channel 0 開得起來與否（分辨 J／U）、port 綁定、瀏覽器是否自動開起來。每項 `OK` / `FAIL:<reason>`。
 
@@ -80,17 +80,17 @@ Microsoft／Mono／Debian 套件庫）根本編不出 C# net472。** 依 Bruce �
 
 | 檔 | 作用 |
 |---|---|
-| `dg_helper.c` | 主程式：DLL 尋找／載入、I2C 動作（照抄 PQ Tool）、WebSocket 伺服 |
-| `dg_helper_proto.h` | 可攜協定工具：SHA1／Base64（WS 握手）、JSON 擷取、位址白名單、Origin 檢查 |
-| `dg_helper_version.h` | helper 版本 ＋ 協定版本（分離） |
-| `test_proto.c` | `dg_helper_proto.h` 的單元測試（在 Linux/macOS 上編來跑） |
+| `i2c_bridge.c` | 主程式：DLL 尋找／載入、I2C 動作（照抄 PQ Tool）、WebSocket 伺服 |
+| `i2c_bridge_proto.h` | 可攜協定工具：SHA1／Base64（WS 握手）、JSON 擷取、位址白名單、Origin 檢查 |
+| `i2c_bridge_version.h` | helper 版本 ＋ 協定版本（分離） |
+| `test_proto.c` | `i2c_bridge_proto.h` 的單元測試（在 Linux/macOS 上編來跑） |
 | `build.sh` | 用 zig 交叉編譯成 32 位元 Windows exe |
 
 ## 編譯
 
 ```bash
 # 需要 zig（pip 套件 ziglang 亦可）
-ZIG=/path/to/zig ./build.sh          # 產出 dg-helper.exe（32 位元、PE32、console）
+ZIG=/path/to/zig ./build.sh          # 產出 i2c-bridge.exe（32 位元、PE32、console）
 ```
 
 驗證 PE：`python3` 讀 `f[0x3c:0x40]` 取 PE offset、再讀 machine，應為 `0x014c`。
@@ -133,7 +133,7 @@ libMPSSE.dll 做 GetProcAddress」這一層。
   位址一律 **MSB first**。
 - 新增 **`rawwrite`**：I2C 序列與 `write` 完全相同，但 **不套位址白名單**。
   🔴 這是給 `i2c.html`（I2C 讀寫測試）用的 —— 測試工具的性質就是要能任意讀寫。
-  代價用**可觀測性**補：每一筆 `rawwrite` 都完整寫進 `dg-helper.log`
+  代價用**可觀測性**補：每一筆 `rawwrite` 都完整寫進 `i2c-bridge.log`
   （slave／awid／位址／全部 byte），而且**先寫 log 再碰匯流排**，I2C 卡住也留得下紀錄。
   既有的 `write` 與它的白名單**原封未動**，dg-measure 的防線不受影響。
 - 網頁端用 `pong.proto` 判相容：`dg-measure.html` 需要 `proto >= 1`、
@@ -190,7 +190,7 @@ v1.4.0 改成服務 exe 旁的靜態檔 —— **以後新增頁面不必再改 
 | `/i2c.html` | I2C 讀寫測試頁 |
 | 其他 | exe 旁的同名檔，找不到就 404 |
 
-從嚴的地方（`dgh_req_filename` / `dgh_mime_for`，都在 `dg_helper_proto.h`，
+從嚴的地方（`dgh_req_filename` / `dgh_mime_for`，都在 `i2c_bridge_proto.h`，
 `test_proto.c` 正反都驗）：不支援子目錄、不做 percent-decode、
 拒絕 `..` `/` `\` `:` `%` 與 dotfile；副檔名白名單只放行
 `.html/.htm/.js/.css/.json/.svg/.png/.ico/.txt` —— `.exe`／`.dll`／`.log`／`.c`

@@ -8,8 +8,8 @@
       所以不靠讀碼，直接把 v1.4.0 跑起來量。
 
    用法（v1.4.0 的原始碼要自己從 git 取出來放在 <dir>）：
-     git show 45994af:tools/dg-helper/dg_helper.c > /tmp/v140/dg_helper.c   （proto.h / version.h 同）
-     cc -I test/shim -I/tmp/v140 -Dmain=dgh_main -c /tmp/v140/dg_helper.c -o v140.o
+     git show 45994af:tools/i2c-bridge/i2c_bridge.c > /tmp/v140/i2c_bridge.c   （proto.h / version.h 同）
+     cc -I test/shim -I/tmp/v140 -Dmain=dgh_main -c /tmp/v140/i2c_bridge.c -o v140.o
      cc -I test/shim -c test/shim.c -o shim.o
      cc -I test/shim -c test/test_v140_release.c -o rel.o
      cc -o t v140.o shim.o rel.o -lpthread && ./t

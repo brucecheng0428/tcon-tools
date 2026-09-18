@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Win32 shim —— 只為了讓**出貨的那份 dg_helper.c 一個字不改**就能在 Linux 上
+   Win32 shim —— 只為了讓**出貨的那份 i2c_bridge.c 一個字不改**就能在 Linux 上
    編起來跑真的 socket，好驗它的伺服迴圈。
    ───────────────────────────────────────────────────────────────────────────
    🔴 為什麼值得做這一層：v1.4.x 的單連線阻塞迴圈「看程式碼是對的」，編得過、
@@ -78,7 +78,7 @@ BOOL      SetConsoleOutputCP(unsigned cp);
 
 #define strtok_s(s, d, ctx) strtok_r((s), (d), (ctx))
 
-/* dg_helper.c 組出來的檔案路徑是 Windows 風格（反斜線），POSIX 的 fopen 吃不下。
+/* i2c_bridge.c 組出來的檔案路徑是 Windows 風格（反斜線），POSIX 的 fopen 吃不下。
    在這一層正規化，讓出貨的原始碼不必為了測試而改。
    （<stdio.h> 已在本檔開頭 include 過，所以這個巨集不會撞到它的宣告。） */
 FILE* dgh_shim_fopen(const char* path, const char* mode);
