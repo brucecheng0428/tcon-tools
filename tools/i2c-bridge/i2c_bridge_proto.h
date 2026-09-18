@@ -296,6 +296,37 @@ static inline int dgh_origin_allowed(const char* hdr){
        `--ad3-out`（或 open 帶 `"ad3":1`）⇒ 改用 0x0B/0x09。
    🔴 預設不變 ＝ 不在沒有證據時改變既有行為。 */
 extern int dgh_ad3_out;         /* 0 ＝ 0x03/0x01（預設）；1 ＝ 0x0B/0x09（FTDI 範例） */
+
+/* ═══ 🔴 時脈換算：想要的**線上**頻率 → 0x86 的 divisor ═══════════════════════
+   把這件事做成函式而不是散在註解裡，因為它有兩個**必須成對**的變數，
+   拆開就會出錯 —— v1.11.4 正是「送 0x8A(60MHz base) 卻用 12MHz 的公式」，
+   實測 400k 設定量到 80 kHz。
+
+     base 一律 12 MHz（我們**不碰** divide-by-5，維持 MPSSE 重置後的預設）
+     程式化頻率 SK = 12e6 / ((1 + divisor) * 2)
+     🔴 三相開啟時，實際線上 SCL ＝ 程式化值的 **2/3**（多一個 phase）
+        ⇒ 要量到 f，就要照 f * 3/2 去程式化
+
+   400 kHz、三相開：prog = 600,000 ⇒ div = 6e6/600000 - 1 = **9**
+                    驗算 12e6/((1+9)*2) = 600,000 程式化 ⇒ 線上 400,000 ✅
+   400 kHz、三相關：prog = 400,000 ⇒ div = 6e6/400000 - 1 = **14**
+                    驗算 12e6/((1+14)*2) = 400,000 ✅（與 libMPSSE 程式化的一致） */
+static inline unsigned short dgh_mp_divisor(unsigned int wireHz, int threePhase){
+    unsigned int prog, div;
+    if(!wireHz) wireHz = 400000u;
+    prog = threePhase ? (wireHz * 3u) / 2u : wireHz;
+    if(!prog) prog = 1u;
+    div = 6000000u / prog;
+    if(div == 0u) div = 1u;
+    div -= 1u;
+    if(div > 0xFFFFu) div = 0xFFFFu;
+    return (unsigned short)div;
+}
+/* 反算，給 log 與測試用：divisor ＋ 三相 → 線上頻率 */
+static inline unsigned int dgh_mp_wire_hz(unsigned short div, int threePhase){
+    unsigned int prog = 12000000u / (((unsigned int)div + 1u) * 2u);
+    return threePhase ? (prog * 2u) / 3u : prog;
+}
 #define DGH_MP_DIR_WR (dgh_ad3_out ? 0x0B : 0x03)   /* SCL out, SDA out */
 #define DGH_MP_DIR_RD (dgh_ad3_out ? 0x09 : 0x01)   /* SCL out, SDA 放開 */
 #define DGH_MP_HI     0x03      /* SCL=1 SDA=1 */

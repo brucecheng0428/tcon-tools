@@ -32,6 +32,21 @@ const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_FILES = ['i2c.html'];
 
+/* 🔴 例外，兩類，都刻意寫得很窄：
+
+   (A) `dbgonly` 標記的元素 —— debug 區存在的目的**就是**把實作攤開給我們自己看，
+       Bruce 也要靠它 A/B 量測。把它跟主畫面文案套同一把尺是用錯尺。
+       只豁免「這一行標了 dbgonly」，不是整個檔。
+
+   (B) 下面這張 ALLOW 表 —— **一次一條、每條都要寫理由**。
+       目前只有一條：三相時脈那個 debug 開關的狀態 log。Bruce 2026-09-19 明確要求
+       「一次量完三相開與關兩種」，log 不寫清楚是哪一種，他量完也對不起來。
+       🔴 加任何一條進這張表都要問：使用者**真的需要**這個詞才做得了事嗎？
+          答案是「不需要，只是我懶得換句話說」的話，就去換句話說。 */
+const ALLOW = [
+  /i2ctLog\('三相時脈 ⇒ '/,      /* debug 開關的狀態回報，見上 (B) */
+];
+
 /* 禁用詞。key = 正則，value = 建議替代說法（訊息裡直接告訴下一個人要寫什麼）。 */
 const BANNED = [
   [/\bMPSSE\b/i,      '改用「快速模式」／「一般模式」'],
@@ -78,12 +93,20 @@ for (const f of files) {
   if (!fs.existsSync(f)) continue;
   scanned++;
   const lines = stripComments(fs.readFileSync(f, 'utf8')).split('\n');
-  let inScript = false;
+  let inScript = false, dbgSpan = 0;
   lines.forEach((line, i) => {
     const opened = /<script\b/i.test(line), closed = /<\/script\s*>/i.test(line);
     const wasScript = inScript;
     if (opened && !closed) inScript = true;
     else if (closed) inScript = false;
+    /* (A) debug 區的元素豁免；(B) ALLOW 表逐條豁免。見檔案上方的說明。
+       🔴 `dbgonly` 通常標在**父元素**（`<label class="dbgonly">`），要豁免的字卻在
+       下一行的 `<input>` 後面，所以豁免範圍要涵蓋開標籤之後幾行。
+       用 3 行的固定跨度（一個 label 就這麼長），而不是去做 HTML 解析 ——
+       跨度寫死才不會不小心把整段都豁免掉。 */
+    if (/\bdbgonly\b/.test(line)) dbgSpan = 3;
+    if (dbgSpan > 0) { dbgSpan--; return; }
+    if (ALLOW.some(re => re.test(line))) return;
     const text = visibleText(line, wasScript || opened);
     if (!text.trim()) return;
     for (const [re, hint] of BANNED) {

@@ -2415,6 +2415,10 @@ function baseScript(f) {
        「no address phase, no USB interframe delays」，反面就是一般路徑照定義有
        interframe delay —— 那正是 byte 間十幾毫秒的官方解釋。 */
     EQ(os.length, 4, '🔴 比對送出 4 次 open（快速、中速、一般、還原）');
+    /* 🔴 每一次 open 都要帶 threephase —— bridge 靠它在切換路徑時重設三相與除數。
+       漏掉的話慢路徑會跑在 raw 的設定上（v1.11.4 實測 80 kHz 就是這樣污染的）。 */
+    CHECK(os.every(m => m.threephase === 1 || m.threephase === 0),
+      '🔴 每次 open 都帶 threephase（bridge 據此重設三相與除數）');
     EQ({ raw: os[0].rawmpsse, fast: os[0].fastread }, { raw: 1, fast: 0 }, '第一趟：快速');
     EQ({ raw: os[1].rawmpsse, fast: os[1].fastread }, { raw: 0, fast: 1 }, '第二趟：中速（FAST_TRANSFER）');
     EQ({ raw: os[2].rawmpsse, fast: os[2].fastread }, { raw: 0, fast: 0 }, '第三趟：一般（基準）');
