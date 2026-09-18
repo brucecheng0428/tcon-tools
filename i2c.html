@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c190"></script>
+<script src="common/version.js?v=20260919i2c191"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -317,6 +317,11 @@
       <button id="btn-disc" disabled title="關閉與 I2C Bridge 的整條連線（同時也會釋放 I2C）">中斷</button>
       <button class="wr dbgonly" id="btn-takeover" style="display:none" title="把 I2C 治具從另一個頁面搶過來（那一頁會被斷線）">接手 I2C</button>
       <button id="btn-self" class="dbgonly" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
+      <!-- 🔴 fast read 是**未驗證的最佳化**，實機上讀錯（2026-09-19）。收在 debug 裡，
+           預設關。查清根因並在治具上驗過之前，不要把它放回主路徑。 -->
+      <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
+        <input type="checkbox" id="chk-fastread"> fast read（實驗，預設關）
+      </label>
       <span class="sp" style="flex:1"></span>
     </div>
     <!-- 🔴 v1.2.0：這一行從「講通道為什麼是唯一的」縮成「對面是誰」。
@@ -1616,7 +1621,21 @@ async function i2ctConnect(takeover){
     }
     var op = null;
     for (var a = 1; a <= I2CT_OPEN_RETRIES; a++) {
-      op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0 });
+      /* ═══ 🔴 fastread 預設 0（2026-09-19 實機回歸）═══════════════════════
+         Bruce 讀 0x68（TCON register，不是 EEPROM）回報：**只有前兩個 byte 正確，
+         之後全是 0F**。⇒ I2C Bridge v1.8.0 把讀取改走 libMPSSE 的 fast transfer
+         路徑，在真實裝置上**行為與我們的假設不同**，會靜默讀錯。
+
+         🔴 這正是我在上一輪自己標出來、卻仍然設成預設值的那個未知數：
+         「讀不到 I2C_FastRead 的函式本體，fast 模式是否照樣對最後一個 byte 送
+          NACK 無法從原始碼確認」。**無法驗證的東西不可以當預設值** ——
+         預設一律走已知正確的路徑，最佳化當可選項，等有硬體驗過再談切換。
+
+         做法刻意放在**網頁端**：他不必換 exe、不必打任何參數，重新整理就好。
+         （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
+         fast 仍保留在 debug 區，供日後查清根因後實測用。 */
+      op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
+                            fastread: i2ctFastRead ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
       /* 🔴 被另一個頁面佔住是**可判別**的狀態，不是一般失敗：不要重試、不要
          靜默失敗，直接告訴使用者並把「接手」這個出口亮出來。 */
@@ -2068,6 +2087,9 @@ function i2ctWriteSource(len, awid){
    字串 ＝ 當作選了那個型號並按確認。**存在的理由**：其他測試組會寫 0x50，
    真的跳視窗會讓自動化測試永遠停在那裡等人按。視窗本身由專屬的那一組
    用真的 DOM 點擊驗（見 selftest 的「EEPROM 型號確認視窗」）。 */
+/* 🔴 讀取要不要走 fast 路徑。**預設 false** —— 見 i2ctConnect 裡的說明。
+   只能從 debug 區打開，而且打開後要重新連線才生效。 */
+var i2ctFastRead = false;
 var i2ctEeAuto = null;
 /* 🔴 「每個 slave 只問一次」（Bruce 2026-09-19）：逐格即時寫入時，每按一次就跳
    一次視窗是不能用的。但也不能只問一次就永遠不問 —— 換了 slave 很可能是換了
@@ -2224,18 +2246,77 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
     }
     done += n;
   }
+  /* ═══ 🔴 燒 EEPROM ⇒ 寫完自動回讀驗證（program → verify）══════════════════
+     Bruce 2026-09-19：「load 完以後，整包寫入 EEPROM 的動作，必須要再回讀回來，
+     然後把回讀的值跟寫入的值兩邊比對」。這是燒錄器的標準流程。
+
+     🔴 **只有 EEPROM（slave 0x50–0x57）才做**（他明講）。一般暫存器 bank 寫進去
+     就生效、而且很多是唯寫或讀值與寫值本來就不同，回讀比對只會製造假警報。
+
+     🔴 三個刻意的決定：
+       ① 用 `i2ctDoRead()`（低階）而**不是** `i2ctOnRead()` —— 後者會 `i2ctIngest()`
+          把讀回來的東西變成新的比較基準。驗證用的回讀**不可以動到他手動設的快照**。
+       ② **不把回讀值寫進顯示的那一份**。顯示的是他要燒的來源（檔案／預覽區），
+          用裝置值蓋掉等於毀掉他的來源。不符的格子改用標示＋清單呈現。
+       ③ 不符的格子**沿用「寫入失敗」的紅底**（`wrfail`），不另立第四種顏色：
+          語意完全相同 —— 這個 byte 沒有正確寫進去。少一種顏色，少一次學習成本。
+
+     🔴 回讀前要等最後一段的 tWR 走完，否則會讀到舊值 ⇒ 假的驗證失敗。 */
+  var verdict = null;          /* {cls, html} —— 驗證結果，最後才寫進 banner */
+  if (ok && i2ctIsEepromAddr(slave) && done > 0) {
+    if (page > 0 && twr > 0) await new Promise(function (rs) { setTimeout(rs, twr); });
+    i2ctLog('── 驗證：回讀剛寫的 ' + done + ' byte 並逐 byte 比對 ──', 'n');
+    var vr = await i2ctDoRead(slave, wireAwid, base, done);
+    var cs2 = i2ctCurSet();
+    i2ctEnsureWrFail(cs2);
+    if (!vr.ok || vr.bytes.length !== done) {
+      /* 🔴 「讀不回來」與「值不對」成因不同、處置也不同，訊息要分開講。 */
+      verdict = { cls: 'err', html: '🔴 <b>驗證比對錯誤，需要再重新檢查</b>：'
+        + '寫入的 ' + done + ' byte <b>讀不回來</b>（' + (vr.err || '只收到 ' + vr.bytes.length + ' byte')
+        + '）⇒ 無法確認有沒有燒進去。' };
+      i2ctLog('✕ 驗證失敗：讀不回來（' + (vr.err || vr.bytes.length + '/' + done) + '）', 'e');
+    } else {
+      var bad = [];
+      for (var vi = 0; vi < done; vi++) {
+        if ((vr.bytes[vi] & 0xFF) !== (d[vi] & 0xFF)) {
+          bad.push(vi);
+          var gx = (base + vi) - cs2.base;
+          if (gx >= 0 && gx < i2ctWrFail.length) i2ctWrFail[gx] = 1;
+          if (bad.length <= 20) i2ctLog('  ✕ ' + i2ctAddrText(i2ctWrap(base + vi, wireAwid), wireAwid)
+                + '：寫 0x' + i2ctHex(d[vi]) + '、讀回 0x' + i2ctHex(vr.bytes[vi]), 'e');
+        } else {
+          var gy = (base + vi) - cs2.base;
+          if (gy >= 0 && gy < i2ctWrFail.length) i2ctWrFail[gy] = 0;
+        }
+      }
+      if (!bad.length) {
+        verdict = { cls: 'ok', html: '✔ <b>驗證比對正確</b>：回讀 ' + done + ' byte，與寫入的值完全相同。' };
+        i2ctLog('✔ 驗證比對正確（' + done + ' byte 全部相同）', 'o');
+      } else {
+        verdict = { cls: 'err', html: '🔴 <b>驗證比對錯誤，需要再重新檢查</b>：'
+          + done + ' byte 中有 <b>' + bad.length + ' byte</b> 不符（已在表格上標紅）。' };
+        i2ctLog('✕ 驗證比對錯誤：' + bad.length + '/' + done + ' byte 不符'
+              + (bad.length > 20 ? '（上面只列前 20 筆）' : ''), 'e');
+      }
+    }
+  }
   i2ctBusy = false; i2ctSyncButtons();
-  /* 🔴 寫完**不自動讀回** —— 自動讀會蓋掉他剛才檢視的內容，而「要不要回頭比對」
-     是他的決定，不是我們的。要比對就按「讀取」。 */
+  /* 🔴 非 EEPROM 寫完**不自動讀回** —— 自動讀會蓋掉他剛才檢視的內容，而
+     「要不要回頭比對」是他的決定。要比對就按「讀取」。 */
   i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
   if (ok) {
     /* 🔴 寫完之後**還有沒有漏掉的**：離線改了 17 格但只寫到其中 10 格，
        剩下 7 格還在裝置外面 —— 不講他不會知道。 */
     var leftN = i2ctDirtyCount();
     i2ctLog('⏱ ' + i2ctTimeLine('寫入', Date.now() - tW0, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
-    i2ctBanner('readbanner', 'warn', '已寫入 ' + done + ' byte（' + i2ctSecs(Date.now() - tW0) + '，來源：' + srcLabel + '）'
-      + (leftN ? '。🔴 <b>還有 ' + leftN + ' byte 改過但沒寫到</b>（不在這次的範圍內）' : '')
-      + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。');
+    /* 🔴 有跑過驗證 ⇒ **驗證結果是最後一句話**。
+       （第一版把驗證訊息寫在前面，結果被這一行的「已寫入…」蓋掉 ——
+        兩個地方都寫同一個 banner，後寫的靜靜贏。） */
+    var head = '已寫入 ' + done + ' byte（' + i2ctSecs(Date.now() - tW0) + '，來源：' + srcLabel + '）'
+             + (leftN ? '。🔴 <b>還有 ' + leftN + ' byte 改過但沒寫到</b>（不在這次的範圍內）' : '');
+    i2ctBanner('readbanner', verdict ? verdict.cls : 'warn',
+      verdict ? (head + '　' + verdict.html)
+              : (head + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。'));
   } else {
     i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗：' + errMsg);
   }
@@ -3060,6 +3141,11 @@ function i2ctInit(){
   $('btn-disc').addEventListener('click', i2ctDisconnect);
   $('btn-takeover').addEventListener('click', i2ctTakeover);
   $('btn-release').addEventListener('click', i2ctRelease);
+  $('chk-fastread').addEventListener('change', function () {
+    i2ctFastRead = this.checked;
+    i2ctLog('fast read ⇒ ' + (i2ctFastRead ? '開（實驗，實機上曾讀錯）' : '關（預設，已知正確）')
+          + '　※ 要重新連線才生效', 'w');
+  });
   $('btn-getshow').addEventListener('click', function () { i2ctNeedHelper('手動叫出來的下載入口'); });
   /* 🔴 重試必須是使用者按的：權限提示要有 user gesture 才問得出來（自動重試只會
      再被同一個決定拒絕一次）。所以這裡不做自動重試，只給一顆按鈕。 */
@@ -3361,6 +3447,7 @@ window.__i2ct = {
   selAnchor: function (i) { i2ctSelAnchor = i; i2ctSelCursor = i; i2ctRenderTable(); i2ctSyncButtons(); },
   selClear: function () { return i2ctSelClear(); },
   eeForget: function () { return i2ctEeForget(); },
+  fastRead: function (v) { if (v !== undefined) i2ctFastRead = !!v; return i2ctFastRead; },
   snapshotOf: function (d) { return i2ctSnapshotOf(d); },
   refBytesAt: function (i) { return i2ctRef ? i2ctRef.bytes[i] : null; },
   dirtyCount: function () { return i2ctDirtyCount(); },
