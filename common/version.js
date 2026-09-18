@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.13.3',       // I2C（讀寫測試）
+  i2c:     'v1.13.4',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -54,11 +54,11 @@ var HELPER_PKG = {
      載入順序：**先系統已安裝的，載不到才用包內這一份**（見 i2c_bridge.c）。
      ftd2xx.dll 419,256 bytes，
      SHA256 46cff89a3de8db52ca2967c11235c010fdba7e823539245c85a0af28f2516577 */
-  pkg:    'v1.11.3',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.11.3',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  pkg:    'v1.11.4',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.11.4',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.11.3.zip',
-  bytes:  352354,                             // zip 位元組數（打包後填）
-  zipSha: 'bfb897d98d8e9edaaa6acfbb56cc10963f97b28826ccb4f38c986a8e04fa3c2d',
-  exeSha: '650bfd8282591af69daaccc1568dd542b30597d60c78f9eac73760a2720a8957'
+  file:   'data/i2c-bridge-v1.11.4.zip',
+  bytes:  353215,                             // zip 位元組數（打包後填）
+  zipSha: 'bb1cf3781e2387f0e417a6d24e61b1a7d3022efa00af53767bb347512ea7a9d6',
+  exeSha: '2060854fbbd43a9ef5e98bff11cb105076c21d535393d2321734b96d84756c92'
 };
