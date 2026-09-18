@@ -408,9 +408,11 @@ function baseScript(f) {
     A.setInputs({ slave: '0x60', awid: 2, off: '0x0000', len: '16', data: '' });
     await A.doRead(); await sleep(20);
     CHECK(A.state().lastRead.allFF === true, '整批 FF 被判為閒置');
-    CHECK(doc.getElementById('readbanner').textContent.indexOf('總線閒置') >= 0, '橫幅明說總線閒置、不是有效資料');
+    /* 🔴 2026-09-19：FF 一律不標、畫面也不出聲，診斷只留 log（Bruce 要求）。 */
+    CHECK(doc.getElementById('readbanner').textContent.indexOf('總線閒置') < 0, '🔴 橫幅不再講總線閒置');
+    CHECK(doc.getElementById('log').textContent.indexOf('全 FF') >= 0, '🔴 診斷改留在 log');
     const c0 = doc.querySelector('#dump td[data-addr="0"]');
-    CHECK(c0.className.indexOf('bus') >= 0, '閒置時格子用 bus 樣式（與資料中的 FF 區分）');
+    CHECK(c0.className.indexOf('bus') < 0, '🔴 閒置時**不再**用 bus 樣式');
 
     /* 反面：夾雜一個非 FF 就不能判閒置，格子要回到一般的 ff 樣式 */
     await useHelper(baseScript((m) => {
@@ -419,7 +421,7 @@ function baseScript(f) {
     await A.doRead(); await sleep(20);
     CHECK(A.state().lastRead.allFF === false, '夾雜非 FF → 不判閒置');
     const c1 = doc.querySelector('#dump td[data-addr="1"]');
-    CHECK(c1.className.indexOf('bus') < 0 && c1.className.indexOf('ff') >= 0, '資料中的 FF 用 ff 樣式，不是 bus');
+    CHECK(c1.className.indexOf('bus') < 0 && c1.className.indexOf('ff') < 0, '🔴 資料中的 FF 也完全不標');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -1877,21 +1879,34 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
-  G('30. FF 標示依來源分流：載入的檔案不標，裝置全 FF 仍要標');
+  G('30. 🔴 FF 一律不標（任何情境都不上色），診斷只留在 log');
   {
+    /* 🔴 Bruce 說了兩次：「FF 也是很常見的數值」「我有說過 FF 不要用特殊的顏色
+       highlight 出來，為什麼還是有？」。第一次我自作主張留了例外
+       （載入不標、讀回的整批全 FF 仍標）—— **他沒有同意那個例外**。
+       現在全面移除：不管來源、不管整批還是夾雜，畫面上一律不標。 */
     A._reset();
     A.loadFile('ff.bin', new win.Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF]));
     await sleep(20);
     EQ(doc.querySelectorAll('#dump td.ff').length, 0, '🔴 載入的檔案：一格 FF 都沒有被標');
-    EQ(doc.querySelectorAll('#dump td.bus').length, 0, '載入的檔案也不會被當成總線閒置');
+    EQ(doc.querySelectorAll('#dump td.bus').length, 0, '也沒有總線閒置的標示');
     A._reset();
     await useHelper(baseScript((m) => {
       if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0xFF) };
     }));
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
     await A.doRead(); await sleep(20);
-    CHECK(doc.querySelectorAll('#dump td.bus').length > 0, '🔴 裝置讀回全 FF ⇒ 仍然標出來（總線閒置的診斷訊號）');
-    CHECK(/總線閒置/.test(doc.getElementById('readbanner').textContent), '🔴 並且講明是總線閒置');
+    EQ(doc.querySelectorAll('#dump td.ff').length, 0, '🔴 裝置讀回整批全 FF ⇒ 照樣一格都不標');
+    EQ(doc.querySelectorAll('#dump td.bus').length, 0, '🔴 也沒有紫色的總線閒置標示');
+    CHECK(!/總線閒置/.test(doc.getElementById('readbanner').textContent),
+      '🔴 畫面上也不講總線閒置：' + (doc.getElementById('readbanner').textContent || '(空)'));
+    /* 診斷能力沒有消失，只是換到不占畫面的地方 */
+    CHECK(/全 FF/.test(doc.getElementById('log').textContent), '🔴 診斷改寫在 log（我要用，他不用看）');
+    /* CSS 規則本身也要不存在，否則哪天又被接回去 */
+    CHECK(!/td\.ff\{|td\.bus\{/.test(doc.documentElement.outerHTML),
+      '🔴 連 CSS class 都清掉了（留著遲早又被接回去）');
+    const legend = doc.querySelector('.legend').textContent;
+    CHECK(!/FF/.test(legend), '🔴 圖例裡沒有任何 FF 項目：' + legend.replace(/\s+/g, ' ').trim());
     await win.__i2ct.disconnect();
   }
 
@@ -1919,11 +1934,14 @@ function baseScript(f) {
   /* ═════════════════════════════════════════════════════════════════════ */
   G('36. 🔴 逐格即時寫入 ⇒ 回讀驗證（顯示的一定是裝置上的真實值）');
   {
+    /* 🔴 走**真的單擊路徑**（dblclick 已經拿掉，它從來沒生效過）。 */
     const editCell = async (addr, text) => {
-      const td = doc.querySelector('#dump td[data-addr="' + addr + '"]');
-      td.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true }));
-      const inp = td.querySelector('input');
+      doc.querySelector('#dump td[data-addr="' + addr + '"]')
+         .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      await sleep(20);
+      const inp = doc.querySelector('#dump td.edit input');
       inp.value = text;
+      inp.dispatchEvent(new win.Event('input', { bubbles: true }));
       inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await sleep(40);
     };
@@ -2065,10 +2083,12 @@ function baseScript(f) {
     await win.__i2ct.disconnect(); await sleep(30);          /* 🔴 他故意把 I2C 關掉 */
     const since = sent.length;
     const editCell = async (addr, text) => {
-      const td = doc.querySelector('#dump td[data-addr="' + addr + '"]');
-      td.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true }));
-      const inp = td.querySelector('input');
+      doc.querySelector('#dump td[data-addr="' + addr + '"]')
+         .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      await sleep(15);
+      const inp = doc.querySelector('#dump td.edit input');
       inp.value = text;
+      inp.dispatchEvent(new win.Event('input', { bubbles: true }));
       inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await sleep(25);
     };
