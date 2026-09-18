@@ -261,6 +261,13 @@ function baseScript(f) {
     }));
     CHECK(A.state().linked === true, '連線成功（proto 2）');
     EQ(A.state().helperProto, 2, '協商到 proto 2');
+    /* 🔴 Bruce 2026-09-19：「但是網頁上是沒辦法秀出這個版本是多少」。
+       版本看不到 ⇒ 他和我們都無法確認他在跑哪一版，已經因此多繞一圈。
+       標題列那一格必須真的有字，不能只是變數裡有值。 */
+    CHECK(/I2C Bridge \d+\.\d+\.\d+ · proto \d/.test(doc.getElementById('helperinfo').textContent),
+      '🔴 標題列顯示 Bridge 版本：「' + doc.getElementById('helperinfo').textContent + '」');
+    CHECK(/^\d+\.\d+\.\d+$/.test(doc.getElementById('hv-exe').textContent),
+      '🔴 診斷列也顯示版本：「' + doc.getElementById('hv-exe').textContent + '」');
     EQ(sent.filter(m => m.type === 'ping').length, 1, '先 ping 一次');
     EQ(sent.filter(m => m.type === 'open').length, 1, '再 open 一次');
 
@@ -2390,11 +2397,16 @@ function baseScript(f) {
     await sleep(40);
     const after = sent.slice(since);
     const os = after.filter(m => m.type === 'open');
-    EQ(os.length, 3, '🔴 比對送出 3 次 open（raw、libMPSSE、切回原設定）');
-    EQ(os[0].rawmpsse, 1, '第一趟用 raw MPSSE');
-    EQ(os[1].rawmpsse, 0, '第二趟用 libMPSSE');
-    EQ(os[2].rawmpsse, 0, '🔴 比完切回他原本的設定（不偷偷留在比對狀態）');
-    EQ(after.filter(m => m.type === 'read').length, 2, '兩條路徑各讀一次');
+    /* 🔴 v1.13.2：改成量**三條**路徑（快速／中速／一般），所以是 3 次切換 ＋ 1 次還原。
+       中速 ＝ libMPSSE 的 FAST_TRANSFER_BYTES；FTDI 自己的標頭註解寫
+       「no address phase, no USB interframe delays」，反面就是一般路徑照定義有
+       interframe delay —— 那正是 byte 間十幾毫秒的官方解釋。 */
+    EQ(os.length, 4, '🔴 比對送出 4 次 open（快速、中速、一般、還原）');
+    EQ({ raw: os[0].rawmpsse, fast: os[0].fastread }, { raw: 1, fast: 0 }, '第一趟：快速');
+    EQ({ raw: os[1].rawmpsse, fast: os[1].fastread }, { raw: 0, fast: 1 }, '第二趟：中速（FAST_TRANSFER）');
+    EQ({ raw: os[2].rawmpsse, fast: os[2].fastread }, { raw: 0, fast: 0 }, '第三趟：一般（基準）');
+    EQ(os[3].rawmpsse, 0, '🔴 比完切回他原本的設定（不偷偷留在比對狀態）');
+    EQ(after.filter(m => m.type === 'read').length, 3, '三條路徑各讀一次');
     CHECK(/完全相同/.test(doc.getElementById('readbanner').textContent),
       '🔴 兩邊相同 ⇒ 明確告訴他：' + doc.getElementById('readbanner').textContent.slice(0, 40));
     CHECK(A.times().some(t => t.kind === '比對'), '比對也記進耗時紀錄');
@@ -2420,18 +2432,21 @@ function baseScript(f) {
     const since2 = sent2.length;
     await A.comparePaths(); await sleep(40);
     const banner = doc.getElementById('readbanner').textContent;
-    CHECK(/不要開快速模式/.test(banner), '🔴 兩邊不同 ⇒ 明講不要開：' + banner.slice(0, 44));
+    CHECK(/不要用快速模式/.test(banner), '🔴 兩邊不同 ⇒ 明講不要開：' + banner.slice(0, 44));
     CHECK(/已自動改回一般模式/.test(banner), '🔴 不一致 ⇒ 畫面上講明已自動切回');
     CHECK(chk.checked === false, '🔴 不一致 ⇒ 勾選框真的被取消（不是只講講）');
     /* 最後一次 open 必須是 rawmpsse:0，否則「切回」只是畫面上的假象 */
     const os2 = sent2.slice(since2).filter(m => m.type === 'open');
     EQ(os2[os2.length - 1].rawmpsse, 0, '🔴 不一致 ⇒ 最後真的用一般模式重新連線');
     /* 🔴 結論要跟耗時一起常駐：banner 會被下一個動作蓋掉，紀錄不會 */
-    /* 🔴 只看**最新那兩筆** —— 紀錄是常駐的，前面那一輪「相同」的比對也還在表上
-       （那正是我們要的行為），拿全部去 every() 會永遠失敗。 */
-    const cmp = A.times().filter(t => t.kind === '比對').slice(0, 2);
-    CHECK(cmp.length === 2 && cmp.every(t => /不符/.test(t.verdict)),
-      '🔴 比對結論留在耗時紀錄裡：' + cmp.map(t => t.verdict).join(' / '));
+    /* 🔴 只看**最新那三筆**（一般／快速／中速各一）—— 紀錄是常駐的，前一輪
+       「相同」的比對也還在表上（那正是我們要的行為），拿全部去比會永遠失敗。
+       一般那條是**基準**，它不會標「不符」；快速與中速各自對基準的結論要標出來。 */
+    const cmp = A.times().filter(t => t.kind === '比對').slice(0, 3);
+    EQ(cmp.length, 3, '🔴 三條路徑各留一筆結論');
+    CHECK(cmp.some(t => t.path === '一般模式' && /基準/.test(t.verdict)), '一般模式標為基準');
+    CHECK(cmp.some(t => t.path === '快速模式' && /不符/.test(t.verdict)),
+      '🔴 快速模式的不符結論留在紀錄裡：' + cmp.map(t => t.path + '=' + t.verdict).join(' / '));
     /* 🔴 文案不得出現實作名詞（Bruce 2026-09-19）——畫面上的字逐條檢查 */
     CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(banner), '🔴 比對文案沒有實作名詞');
     await win.__i2ct.disconnect();
