@@ -404,9 +404,25 @@ console.log('── 11. helper（ws）傳輸與下載入口（v1.61.0）──�
     ok(/整包解壓到一個資料夾|整包解壓/.test(t), '流程強調整包解壓到資料夾');
     /* v1.3.0：主下載改不加密，頁面不應把「密碼 1234」當作解壓步驟 */
     const dlHref = (d.getElementById('dgm-i2c-helper-dl') || {}).getAttribute ? d.getElementById('dgm-i2c-helper-dl').getAttribute('href') : '';
-    ok(/dg-helper-v1\.3\.2\.zip/.test(dlHref), '下載連結指向 v1.3.2 zip', dlHref);
+    /* 🔴 2026-09-18 起不再寫死版本字串。寫死的後果實測過：helper 換到 v1.4.0 時
+       這兩條變成「擋住正確的改動」，而它們本來想擋的是「連結指到不存在的檔案」。
+       改成釘住那件真正該成立的事 ——
+         ① 連結、helperMeta.zip、版號徽章三者版本一致（三處各自硬編是舊病）
+         ② 連結指到的 zip **在 repo 裡真的存在**（這是寫死版本永遠驗不到的一點） */
+    const verInHref = (dlHref.match(/dg-helper-(v\d+\.\d+\.\d+)\.zip/) || [])[1];
+    ok(!!verInHref, '下載連結是 dg-helper-vX.Y.Z.zip 的形式', dlHref);
+    ok(verInHref === meta.ver, '下載連結版本 === helperMeta.ver', verInHref + ' vs ' + meta.ver);
+    ok(meta.zip === 'data/dg-helper-' + meta.ver + '.zip', 'helperMeta.zip 與 ver 一致', meta.zip);
+    ok(fs.existsSync(path.join(repoDir, meta.zip)), '🔴 連結指到的 zip 檔在 repo 裡真的存在', meta.zip);
     ok(/[?&]v=/.test(dlHref), '下載連結帶 cache buster ?v=', dlHref);
-    ok(/dg-helper-v1\.3\.2\.zip$/.test(meta.zip), 'helperMeta.zip 指向 v1.3.2', meta.zip);
+    /* SHA 欄位要是 64 碼十六進位，不能是佔位字串（貼錯就會變成沒法核對） */
+    ok(/^[0-9a-f]{64}$/.test(meta.exeSha), 'exe SHA 是 64 碼 hex', meta.exeSha);
+    ok(/^[0-9a-f]{64}$/.test(meta.zipSha), 'zip SHA 是 64 碼 hex', meta.zipSha);
+    {
+      const crypto = require('crypto');
+      const real = crypto.createHash('sha256').update(fs.readFileSync(path.join(repoDir, meta.zip))).digest('hex');
+      ok(real === meta.zipSha, '🔴 頁面上寫的 zip SHA === 該 zip 的實際 SHA', real);
+    }
   }
   d.getElementById('dgm-i2c-close').click();
   } else {

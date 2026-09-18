@@ -22,6 +22,88 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.0.0 — 2026-09-18 ｜ MINOR
+
+**全新獨立頁 `i2c.html`：任意 slave、offset 寬度 0/1/2/4 byte、任意起始位址與長度的 I2C 讀寫，結果以 16×16 register dump 呈現。與 Digital Gamma（dg）沒有任何關係，不共用 dg 的 UI 框架與量測流程。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 12（新增一個獨立的新分頁工具 ⇒ 該分頁 **v1.0.0**、首頁 `app` 進 MINOR）。級別標 MINOR 是照 §1 判定表「新增獨立功能」那一格；`tools/version_bump_check.py` 對新工具本來就不判級別（`common/version.js` 沒有舊值可比），所以這個標註不構成任何放行條件。**不是 MAJOR** —— 沒有任何既有操作失效、沒有任何既有輸出改變（R2 補充：開新波要 Bruce 明示裁示，本版沒有也不需要）。
+
+### 需求（Bruce 2026-09-18 原話，未增刪）
+> 「專門測試 I2C 的。要可以輸入：① 第一個 slave address ② 第二個 offset bytes 的數量（包含 0 byte、1 byte、2 bytes 還有 4 bytes，這些可以選擇）③ 起始讀值或寫值的位置（offset）④ 讀或寫的總 byte 數。最後要呈現一個 16x16 的表格出來。」
+> 補充：「先做一個專門測試 I2C 的網頁，**跟 DG 沒有關係**」
+
+### 四項輸入怎麼對應到實際的 I2C 交易
+| 輸入 | 送到 helper 的欄位 | 實際 I2C 動作 |
+|---|---|---|
+| ① slave（**7-bit**，0x00–0x7F） | `slave` | 直接交給 libMPSSE 的 `deviceAddress`，**不左移**（R/W bit 由它內部補）。畫面同時標出 8-bit W/R 兩種寫法避免對錯 |
+| ② offset 寬度 0/1/2/4 | `awid` | 資料相位前送幾個位址 byte、**高位在前**。`awid=0` ＝完全不送位址＝ I2C **current address read**（裝置用自己的位址指標），這是合法模式，不是「不填」 |
+| ③ 起始 offset | `addr` | 該寬度下的位址；超出寬度上限（1B→0xFF、2B→0xFFFF、4B→0xFFFFFFFF）直接擋在輸入層 |
+| ④ 總 byte 數（1–4096） | `len` | 每則最多 256 byte，超過就自動分段、位址接續。`awid=0` 也照樣分段（裝置指標會自己往前走） |
+
+### 16×16 表格
+- **經典 register dump 版面**：列＝位址高位 nibble、欄＝低位 nibble，所以第 (3,4) 格永遠是 `頁首+0x34`。每頁 256 格對齊 `0x?00`，每格 `title` 帶完整位址與值。
+- 起始位址不對齊 16 時，**前面的格子留空**；讀回少於 256 byte 時其餘格子也留空 —— **不填 0、不填假值**。
+- **超過 256 byte ⇒ 分頁**（上一頁／下一頁＋頁碼下拉），而不是多張表或捲動。理由：需求要的是「一個 16×16 的表格」，多張表在 4096 byte 時會變成 16 張、捲動則讓 16×16 的形狀消失；分頁讓畫面上永遠**恰好一個** 16×16。
+- **全 0xFF 的判定是「整批」而不是「單格」**：整批全 FF ⇒ 紫色橫幅明寫「I2C 總線閒置、沒有裝置回應，這不是有效資料」，格子一併轉紫；資料中夾雜的 0xFF 只用琥珀色標示，仍是正常資料。（實機證據：slave 0x60/0x61/0x69 都回 `FF FF FF`。）
+
+### 讀寫界線（刻意的設計選擇，寫在原始碼註解裡免得日後被「順手加防護」改掉）
+- 🔴 **不套 dg-measure 的位址白名單 0x1200–0x12FF。** 那條是為了防量測流程中誤按而加的，測試工具的性質就是要能任意讀寫，套上去等於把工具廢掉。helper 端用**新的 `rawwrite` 指令**（無白名單），既有的 `write`（有白名單）一個字都沒動，dg 的防線原封不動。
+- 🔴 **不加確認對話框、不加「允許寫入」開關。** 防護改用不擋路的方式：每一筆寫入**如實寫進畫面 log 與 helper 的 `dg-helper.log`**（哪個 slave、哪個 offset 寬度、哪個位址、寫了哪些 byte）。
+- 寫入有兩條路：上方「寫入資料」欄（hex 字串，從 ③ 起始 offset 依序寫）＋**表格上點任一格就地改值、Enter 寫回該位址**。`awid=0` 沒有位址可指定，該模式下只開放前者。
+
+### 一鍵自檢（黃金向量）
+slave `0x68`（7-bit）／offset 寬度 2 byte／`0x0000` 讀 3 byte ⇒ 期望 **`A1 D8 FB`**（先前實機驗證過的那一組）。通過／不通過都會印出**實際讀到的 byte**；全 FF 時訊息講的是「總線閒置／無回應」而不是「值不同」。附帶再讀 `0xFF00`（已知樣本 `01 EF A1`），只作資訊、不影響通過與否。
+
+### 頁面怎麼被開啟
+https 頁面連 `ws://127.0.0.1` 會撞 Chrome 的 Local Network Access 閘，這不是網頁能繞過的。解法沿用 dg-measure 那條：**由 helper 自己端出來**（同源）。本版把 helper 從「只端死一份 dg-measure.html」改成「服務 exe 所在資料夾的靜態檔」，`/` 仍是 dg-measure.html，`/i2c.html` 就是本頁 —— **以後新增頁面不必再改 exe**。從 GitHub Pages 開本頁時，畫面上方會直接給出 `http://127.0.0.1:8899/i2c.html` 的連結。
+
+> 🔴 **未經實機驗證**（沒有 Windows、沒有 FTDI 治具，驗不了，不做假探針）：dg-helper.exe 在 Windows 上實際執行、D2XX／libMPSSE 呼叫、真正的 I2C 波形、真 TCON 對 0x68/0x0000 的回應。
+> **已驗（附數字）**：`tools/i2c_tool_selftest.js` **137 項全過**（15 組，含以假 helper 驅動真頁面的端到端：四項輸入→送出的 WS 訊息欄位、資料落格位置、表格 256 格與列欄表頭、分頁邊界、全 FF 判定的正反面、讀失敗不填假值、proto 太舊被擋）；`tools/dg-helper/test_proto.c` **75 項全過**（原 32 項 ＋ offset 組包／寫入 frame 逐 byte／Content-Type 白名單／HTTP 路徑解析，正反都驗）；headless Chrome 實際截圖檢查版面（1180px 與 500px 各一輪，probe 量到 `body.scrollWidth === viewport`，無水平溢出）。
+
+---
+
+## 首頁 (app) v1.92.0 — 2026-09-18 ｜ MINOR
+
+**首頁新增「I2C 讀寫測試」工具卡片。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 12（新增一個獨立的新分頁工具 ⇒ 首頁 `app` 進 **MINOR**）。既有七張卡片的位置、文案、連結全部不變，只是多一張；沒有任何既有操作失效（不觸發 MAJOR），也不只是文案微調（不是 PATCH）。
+
+- 卡片放在 Digital Gamma 之後、「更多工具開發中…」之前，沿用 dg 卡片的作法（無 `data-i18n`，繁中硬編）。
+- 本頁的 `common/version.js` cache buster 一併 bump 成 `20260918i2c100`（`tools/check_cache_buster.py`：首頁用 `data-tool-version` 顯示 `app`／`dg`／`i2c` 三個有變動的版號，不 bump 線上徽章會停在舊版號）。
+
+---
+
+## Digital Gamma 迭代校正 (dg) v1.65.3 — 2026-09-18 ｜ PATCH
+
+**helper 換版到 v1.4.0（為了端得出新的 i2c.html），因此本頁的下載連結、zip 檔名與兩個 SHA 一起更新。🔴 exe 內容有變 ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。dg 的量測流程與輸出一個字都沒動。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ——「使用者幾乎無感」那一欄。逐項確認：沒有新增能力（R3 不適用，i2c 是另一個分頁的事）、沒有預設值或起始狀態改變（R4 不適用）、沒有移除功能（案例 6 不適用）、操作流程與按鈕位置零變動 ⇒ **PATCH**。**不標 `⚠ 輸出變更`**：CA-410 回歸 `rows=256 prim=3 cmds=272`，與 v1.65.2 基準完全相同；helper proto 1 的 `read`／`write` wire byte 逐 byte 未變（新增的 `awid` 缺省就是 2，新增的 `rawwrite` 是另一個指令）。
+
+### 為什麼非改 exe 不可（先確認過沒有別條路）
+新的 I2C 測試頁需要三件 helper 目前做不到的事，**每一件都在協定或 HTTP 層，不是網頁端能繞過的**：
+
+| 需要 | v1.3.2 的實況 | 有沒有不動 exe 的替代 |
+|---|---|---|
+| offset 寬度 0／1／4 byte | `i2c_read()` 寫死兩個位址 byte（`uint8_t ab[2]`） | **沒有**。wire format 上根本表達不出來 |
+| 任意位址寫入 | `handle_command` 的 `write` 硬擋 `0x1200–0x12FF` | **沒有**。擋在 helper 裡，網頁改不動 |
+| 端出第二個頁面 | `serve_page()` 不看路徑，一律回 dg-measure.html | 有一條：把 I2C UI 塞進 dg-measure.html —— **Bruce 明確否決**（「跟 DG 沒有關係」） |
+
+⇒ 代價（重過 SmartScreen）無法避免，但只付這一次：HTTP 改成服務整個資料夾之後，**以後新增頁面不必再改 exe**。
+
+### helper v1.3.2 → v1.4.0（proto 1 → 2）
+- `read` 新增選填 `awid`（0/1/2/4，**缺省 2**）⇒ proto 1 的呼叫端行為完全不變。
+- 新增 `rawwrite`：與 `write` 同樣的 I2C 序列，但**不套位址白名單**，且**每一筆都完整寫進 `dg-helper.log`**（slave／awid／位址／全部 byte，先寫 log 再碰匯流排，I2C 卡住也留得下紀錄）。既有的 `write` 與它的白名單**原封未動**。
+- HTTP 改為服務 exe 所在資料夾：`/` → dg-measure.html（不變）、`/i2c.html` → 新頁。路徑從嚴（不支援子目錄、不做 percent-decode、拒 `..`／`\`／`:`／`%`／dotfile），副檔名白名單（`.exe`／`.dll`／`.log`／`.c` 一律不端出去），並加 `Cache-Control: no-store`。
+- 新增 `--page=<file>`：指定自動開啟的頁面。啟動橫幅在偵測到 exe 旁有 `i2c.html` 時多印一行它的網址。
+- 🔴 `dgh_build_offset`／`dgh_build_write_frame`／`dgh_mime_for`／`dgh_req_filename` 全部放在 `dg_helper_proto.h`，**測到的就是出貨的那份程式碼**（`test_proto.c` 75 項全過）。
+
+### `dg_i2c_selftest.js`：兩條寫死版本的檢查改掉（197 → 202 項）
+原本兩條斷言寫死 `dg-helper-v1.3.2.zip`，helper 一換版就變成「擋住正確的改動」，而它們本來想擋的是「連結指到不存在的檔案」。改成釘住真正該成立的事：下載連結／`helperMeta.zip`／`helperMeta.ver` 三者版本一致、**連結指到的 zip 在 repo 裡真的存在**、兩個 SHA 是 64 碼 hex、且**頁面上寫的 zip SHA 等於該檔案的實際 SHA**（這一條寫死版本永遠驗不到）。
+
+驗收：helper 套件 **v1.4.0** zip SHA256 `0b1bf099563242b7cc0d082d2c1dbd013b6c1c97129dac787d0cea467d182505`、exe SHA256 `6468994e01986bccc5b3e2f3f258a1302bcd95add1e7abd8417eacbd14d1509d`（**已變更**，v1.3.2 是 `81444d8…41ba`）。zip 內四個檔：`dg-helper.exe`（270,336 byte，PE machine `0x014c` ＝ 32-bit，實測）、`dg-measure.html`、`i2c.html`、`libMPSSE.dll`（與前版逐位元組相同）。舊 `data/dg-helper-v1.3.2.zip` 移除。回歸：CA-410 `rows=256 prim=3 cmds=272`（同基準）、`dg_i2c_selftest.js` 202 項全過。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.65.2 — 2026-09-18 ｜ PATCH
 
 **Bruce 2026-09-17 實機 I2C log 到手（通訊自檢 PASS、0x68 讀到 `01 EF A1`）。三件事：(2) 全 `FF FF FF` 不再當成有效回應〔真因〕、(3) 開通道 channels=0 自動重試、(1) 確認 ID 遮罩比對本來就對並補測試。**

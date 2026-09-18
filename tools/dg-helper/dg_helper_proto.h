@@ -8,13 +8,95 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-/* ---- I2C 寫入位址白名單（ptg bank） ---- */
+/* ---- I2C 寫入位址白名單（ptg bank） ----
+ * 🔴 只管 `write`（dg-measure 的量測流程）。`rawwrite`（I2C 測試工具）**不套**
+ *    這條 —— 測試工具的性質就是要能任意讀寫，防護改用「如實寫進 log」達成。 */
 #define DGH_WR_ADDR_MIN 0x1200u
 #define DGH_WR_ADDR_MAX 0x12FFu
 static inline int dgh_write_allowed(uint32_t addr, int len){
     if(len<=0) return 0;
     if(addr<DGH_WR_ADDR_MIN) return 0;
     return (addr + (uint32_t)len - 1) <= DGH_WR_ADDR_MAX;
+}
+
+/* ---- offset（sub-address）寬度組包，proto 2 ----
+ * 合法寬度只有 0／1／2／4。**MSB first**（與 proto 1 的兩 byte 版一致：
+ * 高位在前），awid==0 代表完全不送位址＝I2C current address read。
+ * 🔴 awid 預設 2 ⇒ proto 1 的呼叫端（dg-measure）走的 wire byte 一個都沒變。
+ * 回傳組出的 byte 數；寬度不合法回 -1（呼叫端必須當成錯誤，不可當 0 處理）。 */
+static inline int dgh_awid_ok(uint32_t awid){
+    return awid==0u||awid==1u||awid==2u||awid==4u;
+}
+static inline int dgh_build_offset(uint8_t* ab, uint32_t addr, uint32_t awid){
+    switch(awid){
+        case 0u: return 0;
+        case 1u: ab[0]=(uint8_t)(addr&0xFF); return 1;
+        case 2u: ab[0]=(uint8_t)((addr>>8)&0xFF);  ab[1]=(uint8_t)(addr&0xFF); return 2;
+        case 4u: ab[0]=(uint8_t)((addr>>24)&0xFF); ab[1]=(uint8_t)((addr>>16)&0xFF);
+                 ab[2]=(uint8_t)((addr>>8)&0xFF);  ab[3]=(uint8_t)(addr&0xFF); return 4;
+        default: return -1;
+    }
+}
+
+/* ---- 寫入 frame 組包（offset bytes ＋ data，一次送出） ----
+ * libMPSSE 的 I2C_DeviceWrite 收的是「位址 ＋ 資料」連在一起的一段 buffer
+ * （PQ Tool 的 Write_Reg 就是這樣送）。組錯了不會報錯，只會寫到別的位址去 ——
+ * 所以把它獨立成純函式讓 test_proto.c 逐 byte 釘住。
+ * 回傳 frame 總長度；awid 不合法、dlen 為負、或 cap 不夠都回 -1。 */
+static inline int dgh_build_write_frame(uint8_t* buf, int cap, uint32_t addr, uint32_t awid,
+                                        const uint8_t* data, int dlen){
+    uint8_t ab[4];
+    int n=dgh_build_offset(ab,addr,awid);
+    if(n<0||dlen<0||!buf) return -1;
+    if(n+dlen>cap) return -1;
+    if(n) memcpy(buf,ab,(size_t)n);
+    if(dlen) memcpy(buf+n,data,(size_t)dlen);
+    return n+dlen;
+}
+
+/* ---- Content-Type（proto 2 的靜態檔服務） ----
+ * 回 NULL＝這個副檔名一律不端出去，exe 旁的資料夾因此不會變成任意檔案的出口。 */
+static inline const char* dgh_mime_for(const char* name){
+    const char* d = name ? strrchr(name,'.') : 0;
+    if(!d) return 0;
+    if(!strcmp(d,".html")||!strcmp(d,".htm")) return "text/html; charset=utf-8";
+    if(!strcmp(d,".js"))   return "text/javascript; charset=utf-8";
+    if(!strcmp(d,".css"))  return "text/css; charset=utf-8";
+    if(!strcmp(d,".json")) return "application/json; charset=utf-8";
+    if(!strcmp(d,".svg"))  return "image/svg+xml";
+    if(!strcmp(d,".png"))  return "image/png";
+    if(!strcmp(d,".ico"))  return "image/x-icon";
+    if(!strcmp(d,".txt"))  return "text/plain; charset=utf-8";
+    return 0;
+}
+
+/* ---- HTTP 請求目標的檔名擷取（proto 2 的靜態檔服務） ----
+ * helper 原本不管什麼路徑都回同一份 dg-measure.html，第二個頁面因此無法被端出來。
+ * 這裡把「路徑 → exe 旁的單一檔名」這段獨立成純函式，好讓 test_proto.c 驗它。
+ * 規則（全部從嚴，不做 percent-decode，也不支援子目錄）：
+ *   "/"           -> "dg-measure.html"（維持既有行為）
+ *   "/i2c.html"   -> "i2c.html"
+ *   含 / \ : % 或 ".." 或以 '.' 開頭 -> 0（拒絕）
+ * 回傳 1＝out 有可用檔名，0＝拒絕。 */
+static inline int dgh_req_filename(const char* req, char* out, int cap){
+    if(!req||!out||cap<2) return 0;
+    if(strncmp(req,"GET ",4)!=0) return 0;
+    const char* p=req+4; while(*p==' ') p++;
+    if(*p!='/') return 0;
+    p++;
+    const char* e=p;
+    while(*e && *e!=' ' && *e!='?' && *e!='#' && *e!='\r' && *e!='\n') e++;
+    int n=(int)(e-p);
+    if(n==0){ snprintf(out,(size_t)cap,"dg-measure.html"); return 1; }
+    if(n>=cap) return 0;
+    for(int i=0;i<n;i++){
+        char c=p[i];
+        if(c=='/'||c=='\\'||c==':'||c=='%') return 0;
+        if(c=='.'&&i+1<n&&p[i+1]=='.') return 0;
+    }
+    if(p[0]=='.') return 0;
+    memcpy(out,p,(size_t)n); out[n]=0;
+    return 1;
 }
 
 /* ---- SHA1 ---- */
