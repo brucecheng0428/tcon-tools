@@ -614,6 +614,66 @@ static uint32_t i2c_force_clock(uint32_t hz) {
    只能靠推論。推論這次也許猜對了，下一次不一定。每一階段都留時間戳之後，
    他把 i2c-bridge.log 丟過來就能直接指出是哪一個呼叫沒回來。
    （這台 Mac 沒有 Windows 也沒有治具，log 是我們唯一的遠端眼睛。） */
+/* ═══ 🔴 raw 路徑自己做通道初始化（2026-09-19，依 Bruce 的實機 log）════════════
+   證據鏈：
+     · 他的 log：快路徑每個 byte 只拿到 1 個位元，右對齊在 bit0
+       （`fast[i] == LSB(slow[i])`，16 個吻合 15~16 個），而 acks／din／收回位元組數
+       全部正確 ⇒ **記帳沒錯、命令數量沒錯**。
+     · 我把實際送出的 1150 個位元組 dump 出來逐段解析：資料區塊是
+       `80 00 01 / 20 00 00 / 80 00 03 / 13 00 ACK`，
+       **與 `dg-measure.html` 的 `dgmMpReadByte()` 逐位元組相同**（該檔 3151-3157），
+       而那條 WebUSB 路徑**在他的硬體上是能正常讀的**。
+     ⇒ 命令序列不是變因。**變因是執行這些命令時通道處於什麼狀態** ——
+       raw 路徑原本完全沿用 libMPSSE `I2C_InitChannel` 留下的設定。
+
+   🔴 最明顯的差異：參考實作在 init 時**自己送 `0x9E 0x07 0x00`**（open-drain，
+   只驅動 0 的針腳遮罩 AD0/AD1/AD2），我們則是靠 libMPSSE 的
+   `I2C_ENABLE_DRIVE_ONLY_ZERO` 代勞。主控端若在讀取期間**主動驅動 SDA**
+   而不是開汲極，從機就搶不過它 —— 線被壓住，只有最後一個位元時序上剛好放開，
+   於是「前 7 個位元全 0、最後一位才是真資料」，**正好是他量到的形狀**。
+
+   🔴 這是假說，不是結論。但**修法不依賴假說成立**：我們不去猜是哪一個位元，
+   而是讓 raw 路徑**完整送出那份在他硬體上已被證明可用的 init**，
+   一次排除整類「libMPSSE 把通道留在別的狀態」的可能。
+   推翻條件：送了這份 init 之後資料仍然錯 ⇒ 假說錯，要回頭查別的。
+
+   逐一對照參考實作（dg-measure.html 3606-3615）：
+     0x8A          關 divide-by-5 ⇒ base 60 MHz（**所以 divisor 要用 30e6/f-1**）
+     0x97          關 adaptive clocking
+     0x8D          關三相（與原廠 DLL_I2C_BCB 0x401c01 一致）
+     0x9E 07 00    open-drain：AD0(SCK)/AD1(SDA out)/AD2(SDA in)
+     0x85          關 loopback
+     0x86 lo hi    時脈除數
+     0x80 03 03    匯流排閒置：SCL/SDA 拉高、設為輸出
+   只在 raw 路徑要用時才送；走 libMPSSE 的慢路徑完全不受影響。 */
+static int raw_init_channel(uint32_t hz) {
+    unsigned char c[32];
+    unsigned long wrote = 0;
+    uint32_t div;
+    int n = 0;
+    if (!DGH_RAW_AVAILABLE || !g_handle) return 0;
+    if (!hz) hz = 400000;
+    div = 30000000u / hz;            /* base 60 MHz（因為上面送 0x8A） */
+    if (div == 0) div = 1;
+    div -= 1;
+    if (div > 0xFFFF) div = 0xFFFF;
+    c[n++] = 0x8A;
+    c[n++] = 0x97;
+    c[n++] = 0x8D;
+    c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00;
+    c[n++] = 0x85;
+    c[n++] = 0x86; c[n++] = (unsigned char)(div & 0xFF); c[n++] = (unsigned char)((div >> 8) & 0xFF);
+    c[n++] = 0x80; c[n++] = DGH_MP_HI; c[n++] = DGH_MP_DIR_WR;
+    if (p_FT_Write(g_handle, c, (unsigned long)n, &wrote) != 0 || (int)wrote != n) {
+        logline("  raw_init: FAILED (wrote=%lu of %d)", wrote, n);
+        return 0;
+    }
+    logline("  raw_init: sent 0x8A/0x97/0x8D/0x9E 07 00/0x85/0x86 %02X %02X/0x80 %02X %02X"
+            "  -> %u Hz on a 60 MHz base (divisor %u), open-drain AD0-AD2",
+            div & 0xFF, (div >> 8) & 0xFF, DGH_MP_HI, DGH_MP_DIR_WR,
+            60000000u / ((div + 1) * 2), div);
+    return 1;
+}
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
     if (!g_dllOk) { logline("  open    : ABORT dll not loaded"); return 0; }
@@ -677,6 +737,10 @@ static int i2c_open(uint32_t clockHz) {
        connect at all; v1.10.0 worked. Opt in with --force-clock only. */
     if (dgh_force_clock) i2c_force_clock(cfg.ClockRate);
     else logline("  clock   : force-clock OFF (default since v1.11.1) -- libMPSSE owns the clock");
+    /* 🔴 只有要走 raw 路徑時才重設通道，慢路徑保持 libMPSSE 自己的設定不動。 */
+    if (dgh_raw_mpsse && DGH_RAW_AVAILABLE) raw_init_channel(cfg.ClockRate);
+    else logline("  raw_init: skipped (rawmpsse=%d d2xx=%d) -- libMPSSE keeps the channel",
+                 dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0);
     logline("  open    : DONE in %.0f ms total", now_ms()-t0);
     return 1;
 }
@@ -747,10 +811,25 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
        特徵印出來（Bruce 2026-09-19）：0x87 的位置、位址相位要收幾個 ACK、
        最後一個資料 byte 有沒有送 NACK(0x80)。這三個是最可能出錯的地方。 */
     {
-        int i87 = -1, i;
-        for(i = 0; i < n; i++) if(cmd[i] == 0x87) i87 = i;
-        logline("  raw_read: cmdLen=%d 0x87@%d(last=%d) acks=%d din=%d lastAckByte=0x%02X(NACK expected 0x80)",
-                n, i87, n - 1, acks, din, (n >= 1) ? cmd[n - 2] : 0);
+        /* 🔴 更正（2026-09-19）：這一行原本印 `cmd[n-2]` 當作 NACK 位元組，那是**錯的
+           偏移** —— 命令尾端是 STOP 序列（`80 03 03 / 80 00 00`）再接 `0x87`，
+           所以 cmd[n-2] 是放開匯流排那一條的方向欄（0x00），不是 ACK 值。
+           實際的 NACK 在最後一個 `0x13` 的第 3 個位元組，dump 出來確認是 **0x80，正確**。
+           ⇒ 之前 log 顯示的 `lastAckByte=0x00(NACK expected 0x80)` 是**這一行在說謊**，
+           不是命令有問題；structural 測試驗的也確實是同一個緩衝區。
+           現在改成掃出最後一個 0x13 再印，才不會再誤導人。 */
+        int i87 = -1, last13 = -1, i;
+        for(i = 0; i < n; ){
+            unsigned char op = cmd[i];
+            if(op == 0x80 || op == 0x82) i += 3;
+            else if(op == 0x11) i += 3 + (cmd[i+1] | (cmd[i+2] << 8)) + 1;
+            else if(op == 0x13){ last13 = i; i += 3; }
+            else if(op == 0x20) i += 3;
+            else if(op == 0x22) i += 2;
+            else { if(op == 0x87) i87 = i; i += 1; }
+        }
+        logline("  raw_read: cmdLen=%d 0x87@%d(last=%d) acks=%d din=%d lastNACK@%d=0x%02X(expect 0x80)",
+                n, i87, n - 1, acks, din, last13, (last13 >= 0) ? cmd[last13 + 2] : 0xFF);
     }
     st = mpsse_xfer(cmd, n, acks + din, in, &gotIn);
     g_lastUsbRt = 2;
