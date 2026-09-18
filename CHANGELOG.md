@@ -34,6 +34,97 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.12.0 — 2026-09-19 ｜ MINOR ｜ 🔴 exe 有動（I2C Bridge v1.10.0）
+
+**照原廠 EM02 UI 的標準操作放寬讀取分段：raw 路徑一次讀 4096，不再切 16 段。**
+
+判定依據：新增能力（一次讀完）＋既有操作全在原位、輸出不變 ⇒ R3 判 **MINOR**。
+
+### 🔴 查證更正：`FT_SetUSBParameters` **我們早就有了**
+
+上一輪的假設是「原廠設了 64KB USB buffer、我們沒設所以慢」。**這個假設是錯的。**
+
+我們出貨的 `libMPSSE.dll` 匯入表只有 KERNEL32 與 msvcrt（它用 `GetProcAddress`
+動態解析 D2XX，所以**不能**用匯入表判斷），但字串表裡有 `FT_SetUSBParameters`，
+而且反組譯在 **`_FT_InitChannel`** 內找到：
+
+```
+6f5826cb:  movl $65536, 8(%esp)     ; OutTransferSize = 65536
+6f5826d3:  movl $65536, 4(%esp)     ; InTransferSize  = 65536
+6f5826db:  movl %ebx, (%esp)        ; handle
+6f5826de:  calll *1868083388        ; FT_SetUSBParameters
+```
+
+與原廠 DLL 的 `(65536, 65535)` 實質相同。我們呼叫 `I2C_InitChannel` ⇒ **早就生效**，
+raw 路徑用同一個 handle ⇒ **raw 也早就有 64KB buffer**。
+🔴 **不得把它當成加速理由。**（獨立佐證：直接反 38MB 主程式，MPSSE 那條路的
+`FT_SetUSBParameters` 推入 `0x10000, 0xFFFF`，與 DLL 側一致。）
+
+### 原廠的標準操作（Python 原始碼，不必再啃反組譯）
+
+`~/TCON/TCON_UI/Raydium_RomCodeProcessUI/SourceCode_V5.0.4/`：
+
+- `RomCodeProcessUI.py:31669` — **單行 `GetBytesEx(addr, offset, read_bytes_num, buf, offset_bytes)`，沒有 chunk 迴圈**
+- `:30842` — `if slave_addr != 0x50 or offset_bytes != 2 or read_bytes_num != 4096:`
+  ⇒ 標準操作就是 **slave 0x50、offset 寬度 2、一次 4096**
+- `:36448` — 預設 **400 kHz**（可設 100–1000），且改時脈必須 **Close → SetClock → Open**
+
+4096 byte @400 kHz 的理論匯流排時間 ≈ **0.09 秒** ⇒ 我們的 20~60 秒**全部是主機端開銷**。
+
+### 三個上限：逐一交代
+
+| 上限 | 原因 | 處置 |
+|---|---|---|
+| `I2CT_CHUNK = 256`（網頁） | **進度回報與中止的顆粒度** —— 逐 byte 路徑要跑 10~20 秒，切 16 段才有進度條、才按得下中止 | **跟著路徑走**：raw ⇒ 4096（一次送完，原廠的進度條本來也是假的）；libMPSSE ⇒ 維持 256 |
+| bridge `len <= 1024` | **沒有理由**，是我們自己加的 | 放寬到 `DGH_READ_MAX = 4096` |
+| `RAW_MAX_DATA = 256`（寫入） | 寫入本來就被 **EEPROM page 邊界**切到 ≤ page（24C32/64 是 32），256 不是瓶頸 | **不動**。拿掉不會更快，只會讓緩衝區白白變大 |
+
+🔴 連帶必須改的：回覆緩衝區 **8192 ⇒ 24576**。4096 個數字的 JSON 陣列約 16.4 KB，
+8192 會**安靜截斷**成壞掉的 JSON —— 這種錯不會報錯，只會讓資料莫名其妙壞掉。
+raw 路徑的命令緩衝區也改成 static 並依 `DGH_READ_MAX` 計算（4096 byte 的 MPSSE
+命令約 50 KB，放堆疊會爆）。
+
+### 原廠讀回模式（反組譯實證）
+
+`DLL_I2C_BCB.dll` 的 `GetBytesEx`(0x401334) → `0x4016C0`；讀回骨架在 0x4029EB–0x402A6C：
+
+```
+loop:   輪詢佇列長度是否湊夠（cmpl 8(%esp) / ja loop）
+        FT_GetQueueStatus(h, &rx)            ; 0x402a1e
+        if (rx > 0) FT_Read(h, 0x4706B4, rx, &got)  ; 0x402a43
+        testb $1, 0x4706B4                   ; 0x402a5b 🔴 ACK 看 bit0
+```
+
+⇒ **與我們 raw MPSSE 的 `mpsse_xfer()` 同一個形狀**。
+ACK 我們用 `0x81` 遮罩（bit0 與 bit7 都要 0），**比原廠嚴**，只會多報不會漏報 ⇒ 保留。
+
+### 🔴 他有硬體，這一版是給他量的
+
+raw MPSSE **仍然預設關**（第一次跑在他硬體上，不當預設是對的），
+但 debug 區的**「快慢路徑比對」**就是他的量測工具：同一段位址兩條路徑各讀一次、
+逐 byte 比對、報速度倍數；一致就說快幾倍，不一致就明講**「raw 不可信，不要開」**，
+比完自動切回原設定。耗時紀錄常駐（最近 5 筆，含走了哪條路）供他對照。
+
+### 驗證
+
+jsdom **787 項**（原 780，新增分段長度跟著路徑走的 7 項）、真實瀏覽器 75 條路徑、
+bridge 真 TCP **103 項**、proto **127 項**、版面閘門三解析度全過。
+
+🔴 **速度改善量這台 Mac 量不到**（沒有硬體）⇒ 要他用「快慢路徑比對」實測。
+
+### 下載包
+
+| 項目 | 值 |
+|---|---|
+| 檔名 | `data/i2c-bridge-v1.10.0.zip`（160,907 bytes） |
+| zip SHA256 | `d3dfd6ff957085378408e384fb0b08ebbc77d7f1b4e780a73fb4ff5f65bf4c32` |
+| exe SHA256 | `42636841c601620363a74191d6d73a2f8cb9c1a8389571f07ab569e5048251de` |
+| 舊 exe SHA256 | `90f2144e79d1bfdb64a58409d7fdaea93ebda83be5250e6717cfae4595e8c417`（v1.9.0） |
+
+🔴 **exe 有動 ⇒ 要重新過一次 SmartScreen。這一版他必須下載**（放寬上限在 bridge 端）。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.11.0 — 2026-09-19 ｜ MINOR ｜ 🔴 exe 有動（I2C Bridge v1.9.0）
 
 **raw MPSSE 快路徑（預設關）＋快慢路徑比對、耗時紀錄常駐、dump 清空鍵、快照與驗證的回饋。**

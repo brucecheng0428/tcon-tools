@@ -2392,6 +2392,25 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('46. 🔴 分段長度跟著路徑走（原廠一次讀 4096，不分段）');
+  {
+    /* 原廠 RomCode UI 的標準操作：slave 0x50、offset 寬度 2、**一次讀 4096**
+       （RomCodeProcessUI.py:30842 判斷式、:31669 單行 GetBytesEx，沒有 chunk 迴圈）。
+       256 是我們自己加的，理由是「逐 byte 路徑要跑 10~20 秒，得有進度與中止」。
+       ⇒ raw 路徑一次送完，libMPSSE 路徑維持 256。 */
+    A.rawMpsse(false);
+    EQ(A.chunk(), 256, 'libMPSSE 路徑：每則 256 byte（保住進度條與中止）');
+    EQ(A.planRead(0, 4096, 2).length, 16, '4096 ⇒ 切 16 段');
+    A.rawMpsse(true);
+    EQ(A.chunk(), 4096, '🔴 raw 路徑：一次 4096（與原廠相同）');
+    EQ(A.planRead(0, 4096, 2).length, 1, '🔴 4096 ⇒ **一則訊息**（原本 16 則）');
+    EQ(A.planRead(0, 4096, 2)[0].len, 4096, '那一則就是 4096 byte');
+    EQ(A.planRead(0, 8192, 2).length, 2, '超過 4096 仍會切（bridge 緩衝區上限）');
+    A.rawMpsse(false);
+    EQ(A.planRead(0, 4096, 2).length, 16, '切回去也對');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');
