@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c170"></script>
+<script src="common/version.js?v=20260919i2c180"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -128,10 +128,15 @@
   table.dump td .sv:hover{background:#0c4a6e;}   /* 左上＝快照值（點一下換上來） */
   table.dump td .ov:hover{background:#7c2d12;}   /* 右上＝被換出去的值（點一下換回去） */
   table.dump td.has{color:#e2e8f0;background:#132038;}
-  table.dump td.ff{color:var(--warn);}
   /* 🔴 寫入後回讀不符：紅底＋紅框，跟 diff（洋紅字）與 FF（琥珀字）都分得出來。 */
   table.dump td.wrfail{background:#450a0a;box-shadow:inset 0 0 0 2px var(--err);color:#fecaca;font-weight:700;}
   table.dump td.wrok{box-shadow:inset 0 0 0 2px #16a34a;}
+  /* 🔴 「有沒有進入編輯」必須一眼看得出來 —— 他以為沒反應，有一半是因為
+     編輯狀態沒有任何視覺差異。亮藍外框＋深色底＋游標。 */
+  table.dump td.edit{background:#0c2d48;box-shadow:inset 0 0 0 2px var(--accent);padding:0;}
+  table.dump td.edit input{width:100%;box-sizing:border-box;background:#04121f;border:0;
+    color:#e0f2fe;font:inherit;font-weight:700;text-align:center;padding:0;height:100%;
+    outline:none;caret-color:var(--accent);}
   /* 🔴 本地改過、尚未寫入：藍紫底＋左側粗邊。與 diff（洋紅字）、FF（琥珀字）、
      選取（綠框）、十字（藍底淡）、寫入失敗（紅底）都分得出來。 */
   table.dump td.dirty{background:#1e1b4b;box-shadow:inset 3px 0 0 #818cf8;color:#c7d2fe;font-weight:700;}
@@ -139,7 +144,6 @@
      用綠色外框＋淡綠底，十字是藍底、diff 是洋紅字、FF 是琥珀字、寫入失敗是紅底。 */
   table.dump td.sel{background:rgba(34,197,94,.20);box-shadow:inset 0 0 0 1px rgba(34,197,94,.75);}
   table.dump td.sel.wrfail{background:#450a0a;}
-  table.dump td.bus{color:var(--idle);background:#1b1033;}
   table.dump td.sel{outline:2px solid var(--accent);outline-offset:-2px;}
   table.dump td.wrote{background:#3f2d07;color:#fde68a;}
   /* 🔴 與快照不同的格子。用洋紅色，與「本次寫入過」（琥珀）分得開 ——
@@ -209,10 +213,10 @@
      「輸入 0x0033 ⇒ 0x0030 那一列整列淺色背景、+3 那一欄整欄同樣背景，
        形成十字交叉，交叉中心就是 0x0033」＋ 反向：點格子也要出現十字。
      🔴 **疊色而不是換色**：用半透明的 box-shadow inset 疊一層淺藍，
-        底下的全 FF 紫／資料 FF 琥珀／diff 洋紅**照樣看得出來**。
+        底下的 diff 洋紅／未寫入藍紫／寫入失敗紅**照樣看得出來**。
         （換 background 會把狀態整個蓋掉 —— 那正是他說「不要撞色」要防的事。） */
   /* 🔴 實際截圖後調整：0.13 的疊色在洋紅 diff 格上幾乎看不見 ⇒ 提到 0.22，
-     仍然是「淺色」（底下的紫／琥珀／洋紅照樣分得出來），不是換色。 */
+     仍然是「淺色」（底下的狀態色照樣分得出來），不是換色。 */
   table.dump td.xh, table.dump th.xh { box-shadow: inset 0 0 0 999px rgba(56,189,248,.22); }
   table.dump td.xc { outline: 2px solid var(--accent); outline-offset: -2px; }
   table.dump th.rh.xh { color: var(--accent); }
@@ -518,8 +522,6 @@
     <div class="legend dbgonly">
       <span><i style="background:#132038;"></i>已讀到的值</span>
       <span><i style="background:#0b1424;"></i>未讀取（本次範圍外）</span>
-      <span><i style="background:#132038;"></i><span style="color:var(--warn)">FF</span> ＝ 資料中的 0xFF</span>
-      <span><i style="background:#1b1033;"></i><span style="color:var(--idle)">整批全 FF</span> ＝ 總線閒置／無回應</span>
       <span><i style="background:#3f2d07;"></i>本次寫入過</span>
     </div>
     <div class="hint" style="margin-top:6px">點任一格可直接改值 → Enter 寫回該位址</div>
@@ -754,6 +756,31 @@ function i2ctSelClear(){
   if (i2ctSelAnchor === null && i2ctSelCursor === null) return;
   i2ctSelAnchor = null; i2ctSelCursor = null;
   i2ctRenderTable(); i2ctSyncButtons();
+}
+/* ═══ 🔴 無 Shift 的方向鍵 ＝ 移動選中格（Bruce 2026-09-19 回報沒作用）═══════
+   為什麼原本沒反應：`<td>` 預設不可聚焦，鍵盤事件根本不會落在它身上；
+   而我們的 document 層 handler 當時**只處理按著 Shift 的情況**。
+   焦點問題與「打字沒反應」是同一件事的兩面 —— 現在單擊會進入編輯狀態，
+   焦點落在格子裡的 input 上，方向鍵與打字就都收得到了。
+
+   移動時把**編輯狀態一起帶過去**：移到新格就直接可以打字，
+   這樣「方向鍵走到某格 → 打兩位 → 再按方向鍵」是一條連續的路。 */
+async function i2ctMoveCell(step){
+  var d = i2ctCurSet(); if (!d || !d.bytes.length) return false;
+  var from = (i2ctSelCursor !== null) ? i2ctSelCursor
+           : (i2ctSelAnchor !== null) ? i2ctSelAnchor
+           : (i2ctCross !== null ? (i2ctCross - d.base) : 0);
+  /* 方向鍵移開視同輸入完成（與「點其他儲存格」一致）。🔴 這條是我推的，待覆核。 */
+  if (i2ctEditing) await i2ctCommitEdit();
+  var c = from + step;
+  if (c < 0) c = 0;
+  if (c > d.bytes.length - 1) c = d.bytes.length - 1;      /* 夾住，不繞回 */
+  i2ctSelAnchor = c; i2ctSelCursor = c;                    /* 單格 ⇒ 清掉範圍選取 */
+  i2ctSetCross(d.base + c);                                /* 定位＋必要時翻頁＋重繪 */
+  i2ctSyncButtons();
+  var td = document.querySelector('#dump td[data-idx="' + c + '"]');
+  if (td) i2ctBeginEdit(td);                               /* 焦點跟著走，才收得到下一次按鍵 */
+  return true;
 }
 function i2ctSelMove(step){
   var d = i2ctCurSet(); if (!d) return false;
@@ -1732,6 +1759,8 @@ function i2ctRenderProgress(){
   if (b) b.addEventListener('click', function () { i2ctAbort = true; i2ctLog('使用者按下中止', 'w'); });
 }
 async function i2ctOnRead(){
+  /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
+  if (i2ctEditing) i2ctCancelEdit();
   var v = i2ctReadInputs();
   if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
   /* 🔴 讀取會把本地未寫入的修改蓋掉 ⇒ 那是會遺失他工作成果的操作，問一次。 */
@@ -1771,13 +1800,11 @@ async function i2ctOnRead(){
   if (!res.ok) {
     i2ctBanner('readbanner', 'err', '讀取失敗：' + res.err + '（已收到的 ' + res.bytes.length + ' byte 仍顯示在表格上）');
     i2ctLog('✕ ' + res.err, 'e');
-  } else if (allFF) {
-    /* 🔴 實機證據：沒有裝置回應時 SDA 被 pull-high，讀回來就是整批 FF。
-       這不是 0xFF 這個「值」，是「沒有人回應」。判錯方向會讓人以為讀到了資料。 */
-    i2ctBanner('readbanner', 'idle', '整批 ' + res.bytes.length + ' byte 全部是 0xFF ⇒ <b>I2C 總線閒置、沒有裝置回應</b>，'
-      + '這不是有效資料。請檢查 slave 位址（目前 7-bit 0x' + i2ctHex(v.slave) + '）、治具接線與電源。');
-    i2ctLog('⚠ 全 FF ＝ 總線閒置／無回應（不是有效資料）', 'w');
   } else {
+    /* 🔴 整批全 FF 的診斷**只寫 log、畫面不出聲**（Bruce：FF 不要特別標）。
+       log 他不用看，但我診斷時要用 —— 這一行是那個能力的唯一去處。 */
+    if (allFF) i2ctLog('⚠ 全 FF ＝ 總線閒置／無回應（不是有效資料）· slave 0x'
+                     + i2ctHex(v.slave) + '、檢查接線與電源', 'w');
     i2ctBanner('readbanner', 'ok', '讀到 ' + res.bytes.length + ' byte，'
       + (v.awid === 0 ? '無位址模式（索引 0–' + (res.bytes.length - 1) + '）'
                       : i2ctAddrText(v.off, v.awid) + ' – ' + i2ctAddrText(i2ctWrap(v.off + res.bytes.length - 1, v.awid), v.awid))
@@ -2167,6 +2194,7 @@ function i2ctOnFile(file){
 /* 🔴 解析與套用都在這一支：真路徑（FileReader）與測試路徑打的是同一段程式碼。
    回傳 true ＝ 載入成功。 */
 function i2ctApplyFile(name, raw){
+  if (i2ctEditing) i2ctCancelEdit();          /* 未生效的輸入一併放棄 */
   /* 🔴 載入檔案同樣會蓋掉本地未寫入的修改 ⇒ 問一次（與讀取同一支守門函式）。 */
   if (!i2ctConfirmDiscardDirty('載入檔案')) { i2ctLog('取消載入（保留未寫入的本地修改）', 'n'); return false; }
   {
@@ -2421,7 +2449,21 @@ function i2ctRenderTable(){
   var t = $('dump');
   var d = i2ctCurSet();
   var w = i2ctAddrDigits();
-  var busIdle = i2ctView === 'dev' && !!(d && d.allFF);
+  /* 🔴 游標類狀態要**夾回目前這份資料的範圍內**再用。
+     情境：在 512 byte 上選了 0x100–0x110，然後載入一個 4 byte 的檔 ——
+     選取／十字／頁碼三個索引都會指到不存在的位置。使用者做得到（選一段再載入
+     小檔）。防線放在**使用點**，因為能改變資料集的路徑不只一條。
+     （更正：我一度把 probe 卡住誤判成這裡有無窮迴圈。真正的原因是 headless 沒有
+      人能回答 window.confirm。這段夾制仍然該有，但它不是在修當機。） */
+  if (d) {
+    var dn = d.bytes.length;
+    if (i2ctSelAnchor !== null && i2ctSelAnchor >= dn) i2ctSelAnchor = null;
+    if (i2ctSelCursor !== null && i2ctSelCursor >= dn) i2ctSelCursor = null;
+    if (i2ctCross !== null && (i2ctCross < d.base || i2ctCross >= d.base + dn)) i2ctCross = null;
+    var pc = i2ctPageCount();
+    if (i2ctPageIdx >= pc) i2ctPageIdx = pc - 1;
+    if (i2ctPageIdx < 0) i2ctPageIdx = 0;
+  }
   var selR = i2ctSelRange();
   /* 基準那一份的 byte（可比時才有）—— 左上角小字的來源 */
   var refBytes = (i2ctRef && i2ctComparable(i2ctRef, d)) ? i2ctRef.bytes : null;
@@ -2462,14 +2504,11 @@ function i2ctRenderTable(){
       var v = has ? d.bytes[idx] : null;
       var cls = [];
       if (has) cls.push('has');
-      /* 🔴 FF 的標示**依資料來源分流**（Bruce 2026-09-19：「載入值在 dump 裡面，
-         FF 不用特別 highlight，因為 FF 也是很常見的數值」）：
-           · 裝置讀回來的整批全 FF ⇒ 仍標紫（那是「總線閒置／沒有裝置回應」的
-             診斷訊號，是我們判斷「到底讀到東西沒有」的唯一依據，不能拿掉）
-           · **載入的檔案** ⇒ 一律不標（檔案裡的 FF 就是正常資料，標了只是干擾）
-         所以兩種標示都掛在 `i2ctView === 'dev'` 這個前提下。 */
-      if (has && busIdle) cls.push('bus');
-      else if (has && v === 0xFF && i2ctView === 'dev') cls.push('ff');
+      /* 🔴 FF **完全不標**（Bruce 2026-09-19 第二次要求）：「FF 也是很常見的數值」。
+         不管是載入的檔案還是 I2C 讀回來的、不管是整批全 FF 還是夾雜的 FF，
+         畫面上一律不上色。診斷能力改用不占畫面的方式保留 ——
+         整批全 FF 時**只在 log 寫一行**（見 i2ctOnRead）。
+         （先前「載入不標、讀回的整批全 FF 仍標」那個例外是我自己加的，他沒同意。） */
       /* 🔴 實際截圖後修正：原本檔案檢視把**每一格**都塗成琥珀（＝待寫入），
          整片黃底配上洋紅 diff 太吵，而且「待寫入」的訊息卡片邊框與標題已經講過了。
          改成只有**真的寫過的格子**才上琥珀。 */
@@ -2632,97 +2671,152 @@ function i2ctRenderDiff(){
 
 /* 點格子 → 就地改值 → Enter 寫回該位址（Esc 取消）。
    awid === 0 沒有位址可以指定，這個模式下不開放逐格寫。 */
+/* ═══ 儲存格編輯：單擊進入、Enter 或離開該格才生效 ════════════════════════
+   🔴 Bruce 2026-09-19 實測定案的流程：
+     1. 單擊一格 ⇒ 選中 ＋ 十字定位 ＋ **直接進入編輯**
+     2. 打十六進位字元 ⇒ **只顯示、不生效**（湊滿兩位也不會自動送出）
+     3. 生效時機只有兩個：按 **Enter**，或**離開這一格**（點別格／方向鍵移開）
+     4. 生效時：已連線 ⇒ 寫入＋回讀；未連線 ⇒ 只改本地值並標成尚未寫入
+     5. **Esc** ⇒ 放棄，值回復原狀
+
+   邊界（我的選擇與理由，待覆核）：
+     · **只打一位就生效 ⇒ 當成高位補 0**（`A` ⇒ `0A`）。理由：hex byte 本來就
+       慣例補零，而且他打的東西不會被默默丟掉；輸入框旁的預覽會先寫出 `0A`，
+       不合意就按 Esc。直接放棄他的輸入比補零更糟 —— 那是無聲失敗。
+     · **打滿兩位又繼續打 ⇒ 往左移位**（`A`→`AB`→`BC`，像計算機）。理由：
+       maxlength 擋掉第三個字元的話，他得先全選才能重打，而這一格只有兩位，
+       移位是最省事且可預期的。
+     · **方向鍵移開視同完成**（與點別格一致）。🔴 這條是我推的，他只說了
+       「點其他儲存格」—— 要 Bruce 確認。 */
 function i2ctBeginEdit(td){
-  /* 🔴 **未連線也可以編輯**（Bruce 2026-09-19）：他的工作流是「把 I2C 關掉 →
-     離線把要改的值都編好 → 連線 → 多選 → 一次 burst 寫進去」。
-     所以未連線時不報錯、不提示要先連線，只改本地值並標成「尚未寫入」。 */
-  if (i2ctEditing || i2ctBusy) return;
+  /* 🔴 **未連線也可以編輯**：他的工作流是「把 I2C 關掉 → 離線把值編好 →
+     連線 → 多選 → 一次 burst 寫進去」。未連線時不報錯、不叫他先連線。 */
+  /* 🔴 **不能用 i2ctBusy 一刀擋掉**（2026-09-19 真實瀏覽器 probe 抓到）：
+     頁面載入後會自動嘗試連線，連不到時 i2ctBusy 會一直是 true 直到逾時
+     （I2CT_TIMEOUT_MS ＝ 8 秒）。線上頁面沒開 Bridge 時，**開頭那 8 秒鐘
+     整個 dump 都不能編輯，而且畫面上沒有任何說明** —— 那就是 Bruce 說的
+     「點了根本沒辦法改值」。
+     正確判準：只有「已連線而且正在跑 I2C 交易」時才擋。未連線的編輯是純本地
+     操作，不碰匯流排，沒有任何理由擋。 */
+  if (i2ctEditing || (i2ctLinked && i2ctBusy)) return;
   var d = i2ctCurSet();
   var awid = d ? d.awid : i2ctAwid();
   if (i2ctLinked && awid === 0) { i2ctBanner('readbanner', 'warn', 'offset 寬度為 0 byte（無位址）時無法逐格寫入 —— 請改用上方「寫入資料」欄。'); return; }
+  if (!d || !(parseInt(td.getAttribute('data-idx'), 10) < d.bytes.length)) return;
   var idx = parseInt(td.getAttribute('data-idx'), 10);
   var addr = parseInt(td.getAttribute('data-addr'), 10);
-  var cur = (d && idx < d.bytes.length) ? i2ctHex(d.bytes[idx]) : '';
+  var cur = i2ctHex(d.bytes[idx]);
   var prevHtml = td.innerHTML, prevCls = td.className;
   td.className = prevCls + ' edit';
-  td.innerHTML = '<input class="mono" maxlength="2" value="' + cur + '">';
+  td.innerHTML = '<input class="mono" value="' + cur + '" spellcheck="false">';
   var inp = td.firstChild;
-  i2ctEditing = { td: td, idx: idx, prevHtml: prevHtml, prevCls: prevCls };
+  i2ctEditing = { td: td, idx: idx, addr: addr, awid: awid, inp: inp, dirtyTyped: false,
+                  prevHtml: prevHtml, prevCls: prevCls };
   inp.focus(); inp.select();
-  inp.addEventListener('keydown', async function (e) {
-    if (e.key === 'Escape') { i2ctCancelEdit(); return; }
-    if (e.key !== 'Enter') return;
-    var val = i2ctParseHex(inp.value);
-    if (val === null || val.length !== 1) { inp.style.color = '#fca5a5'; return; }
-    var v = i2ctReadInputs();
-    i2ctCancelEdit();
-    /* ═══ 未連線 ⇒ 只改本地值 ═══════════════════════════════════════════
-       不寫入、不回讀、**不報錯**。標成 dirty，讓他一眼分得出「還沒進裝置」。 */
-    if (!i2ctLinked) {
-      if (d && idx < d.bytes.length) {
-        i2ctEnsureWrFail(d);
-        d.bytes[idx] = val[0];
-        i2ctDirty[idx] = 1;
-        i2ctWrFail[idx] = 0;
-      }
-      if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
-      i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
-      i2ctLog('本地修改（未連線）：0x' + i2ctHex(addr, i2ctAddrDigits())
-            + ' ← 0x' + i2ctHex(val[0]) + '（尚未寫入裝置）', 'n');
-      return;
-    }
-    if (v.slave === null) { i2ctBanner('readbanner', 'err', 'slave 位址無效'); return; }
-    /* 🔴 EEPROM 只在「本次連線中第一次對這個 slave 寫」時問型號 ——
-       逐格寫入每按一次就跳一次視窗是不能用的。 */
-    if (!(await i2ctEnsureEeprom(v.slave))) return;
-    i2ctBusy = true; i2ctSyncButtons();
-    var r = await i2ctDoWrite(v.slave, awid, addr, val);
-    if (!r.ok) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', r.err); return; }
-    /* ═══ 🔴 寫完立刻回讀同一個位址 1 byte（Bruce 2026-09-19）═══════════════
-       這個功能的全部意義就在這裡：**畫面顯示的一定是裝置上真實的值**，
-       不是他輸入的值。他的例子 —— 填 AA、寫入有問題、回讀是 FF ⇒ 格子要顯示 FF，
-       而且要看得出來「沒寫進去」。顯示他輸入的值等於騙他，比不顯示還糟。 */
-    var back = await i2ctDoRead(v.slave, awid, addr, 1);
-    i2ctBusy = false; i2ctSyncButtons();
-    var got = (back.ok && back.bytes.length === 1) ? (back.bytes[0] & 0xFF) : null;
-    if (d && idx < d.bytes.length) {
-      if (!i2ctPrevBytes || i2ctPrevBytes.length !== d.bytes.length) {
-        i2ctPrevBytes = new Uint8Array(d.bytes.length);
-        i2ctPrevHas = new Uint8Array(d.bytes.length);
-      }
-      i2ctPrevBytes[idx] = d.bytes[idx]; i2ctPrevHas[idx] = 1;
-      d.bytes[idx] = (got === null) ? d.bytes[idx] : got;      /* ⇦ 回讀值，不是輸入值 */
-    }
-    if (!i2ctWroteFlags && d) i2ctWroteFlags = new Uint8Array(d.bytes.length);
-    if (i2ctWroteFlags) i2ctWroteFlags[idx] = 1;
-    i2ctEnsureWrFail(d);
-    if (got === null) {
-      i2ctWrFail[idx] = 1;
-      i2ctBanner('readbanner', 'err', '0x' + i2ctHex(addr, i2ctAddrDigits())
-        + ' 寫入後回讀失敗（' + (back.err || '沒有回應') + '）⇒ 無法確認有沒有寫進去');
-    } else if (got !== val[0]) {
-      i2ctWrFail[idx] = 1;
-      i2ctBanner('readbanner', 'err', '🔴 0x' + i2ctHex(addr, i2ctAddrDigits())
-        + ' 寫入 0x' + i2ctHex(val[0]) + ' <b>失敗</b>：回讀是 <b>0x' + i2ctHex(got)
-        + '</b>。表格顯示的是裝置上的實際值。');
-      i2ctLog('✕ 回讀不符：寫 0x' + i2ctHex(val[0]) + '、讀回 0x' + i2ctHex(got), 'e');
-    } else {
-      i2ctWrFail[idx] = 0; i2ctDirty[idx] = 0;
-      i2ctBanner('readbanner', '', '');           /* 成功不出聲，只有格子上的短暫標示 */
-      i2ctWrOkFlash(idx);
-      i2ctLog('✔ 回讀相符：0x' + i2ctHex(addr, i2ctAddrDigits()) + ' ＝ 0x' + i2ctHex(got), 'o');
-    }
-    if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
-    i2ctRenderTable(); i2ctRenderDiff();
+  /* 打字只更新顯示，**不生效**。滿兩位再打就往左移位。 */
+  inp.addEventListener('input', function () {
+    var t = inp.value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+    if (t.length > 2) t = t.slice(-2);          /* 往左移位 */
+    inp.value = t;
+    i2ctEditing.dirtyTyped = true;
   });
-  inp.addEventListener('blur', function () { if (i2ctEditing && i2ctEditing.td === td) i2ctCancelEdit(); });
+  inp.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); i2ctCancelEdit(); return; }
+    if (e.key === 'Enter')  { e.preventDefault(); i2ctCommitEdit(); return; }
+  });
+  /* 🔴 離開這一格 ＝ 輸入完成 ⇒ **commit**（不是 cancel）。
+     點別的格子時，click handler 會先 commit 再重繪，所以這裡通常不會被用到；
+     它負責的是「點到表格外面」「Tab 出去」這些路徑。 */
+  inp.addEventListener('blur', function () {
+    if (i2ctEditing && i2ctEditing.inp === inp) i2ctCommitEdit();
+  });
 }
 function i2ctCancelEdit(){
   if (!i2ctEditing) return;
-  i2ctEditing.td.className = i2ctEditing.prevCls;
-  i2ctEditing.td.innerHTML = i2ctEditing.prevHtml;
-  i2ctEditing = null;
+  var e = i2ctEditing; i2ctEditing = null;       /* 先清，避免 blur 再繞回來 */
+  if (e.td && e.td.parentNode) { e.td.className = e.prevCls; e.td.innerHTML = e.prevHtml; }
 }
+/* 把編輯中的值定案。回傳 Promise（已連線時要等寫入＋回讀）。 */
+function i2ctCommitEdit(){
+  if (!i2ctEditing) return Promise.resolve(false);
+  var e = i2ctEditing;
+  var text = e.inp ? e.inp.value.trim() : '';
+  var d = i2ctCurSet();
+  /* 沒打任何東西 ⇒ 等於沒編輯過，直接收掉 */
+  if (!text || !d || e.idx >= d.bytes.length) { i2ctCancelEdit(); return Promise.resolve(false); }
+  /* 只打一位 ⇒ 高位補 0（見上面的理由） */
+  if (text.length === 1) text = '0' + text;
+  var val = i2ctParseHex(text);
+  if (val === null || val.length !== 1) { i2ctCancelEdit(); return Promise.resolve(false); }
+  var idx = e.idx, addr = e.addr, awid = e.awid;
+  var same = (d.bytes[idx] === val[0]);
+  i2ctCancelEdit();
+  if (same) return Promise.resolve(false);       /* 值沒變 ⇒ 不送出任何交易 */
+  return i2ctApplyCellValue(d, idx, addr, awid, val[0]);
+}
+/* 真正把一個 byte 落定：未連線 ⇒ 只改本地；已連線 ⇒ 寫入 ＋ 回讀驗證。 */
+async function i2ctApplyCellValue(d, idx, addr, awid, byte){
+  /* ═══ 未連線 ⇒ 只改本地值（不寫入、不回讀、不報錯）═══════════════════ */
+  if (!i2ctLinked) {
+    i2ctEnsureWrFail(d);
+    d.bytes[idx] = byte;
+    i2ctDirty[idx] = 1;
+    i2ctWrFail[idx] = 0;
+    if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
+    i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
+    i2ctLog('本地修改（未連線）：0x' + i2ctHex(addr, i2ctAddrDigits())
+          + ' ← 0x' + i2ctHex(byte) + '（尚未寫入裝置）', 'n');
+    return true;
+  }
+  var v = i2ctReadInputs();
+  if (v.slave === null) { i2ctBanner('readbanner', 'err', 'slave 位址無效'); return false; }
+  /* EEPROM 只在「本次連線中第一次對這個 slave 寫」時問型號。 */
+  if (!(await i2ctEnsureEeprom(v.slave))) return false;
+  i2ctBusy = true; i2ctSyncButtons();
+  var r = await i2ctDoWrite(v.slave, awid, addr, [byte]);
+  if (!r.ok) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', r.err); return false; }
+  /* 🔴 寫完立刻回讀同一個位址 1 byte：**畫面顯示的一定是裝置上的真實值**。
+     顯示他輸入的值等於騙他，比不顯示還糟。 */
+  var back = await i2ctDoRead(v.slave, awid, addr, 1);
+  i2ctBusy = false; i2ctSyncButtons();
+  var got = (back.ok && back.bytes.length === 1) ? (back.bytes[0] & 0xFF) : null;
+  if (!i2ctPrevBytes || i2ctPrevBytes.length !== d.bytes.length) {
+    i2ctPrevBytes = new Uint8Array(d.bytes.length);
+    i2ctPrevHas = new Uint8Array(d.bytes.length);
+  }
+  i2ctPrevBytes[idx] = d.bytes[idx]; i2ctPrevHas[idx] = 1;
+  d.bytes[idx] = (got === null) ? d.bytes[idx] : got;          /* ⇦ 回讀值，不是輸入值 */
+  if (!i2ctWroteFlags) i2ctWroteFlags = new Uint8Array(d.bytes.length);
+  i2ctWroteFlags[idx] = 1;
+  i2ctEnsureWrFail(d);
+  if (got === null) {
+    i2ctWrFail[idx] = 1;
+    i2ctBanner('readbanner', 'err', '0x' + i2ctHex(addr, i2ctAddrDigits())
+      + ' 寫入後回讀失敗（' + (back.err || '沒有回應') + '）⇒ 無法確認有沒有寫進去');
+  } else if (got !== byte) {
+    i2ctWrFail[idx] = 1;
+    i2ctBanner('readbanner', 'err', '🔴 0x' + i2ctHex(addr, i2ctAddrDigits())
+      + ' 寫入 0x' + i2ctHex(byte) + ' <b>失敗</b>：回讀是 <b>0x' + i2ctHex(got)
+      + '</b>。表格顯示的是裝置上的實際值。');
+    i2ctLog('✕ 回讀不符：寫 0x' + i2ctHex(byte) + '、讀回 0x' + i2ctHex(got), 'e');
+  } else {
+    i2ctWrFail[idx] = 0; i2ctDirty[idx] = 0;
+    i2ctBanner('readbanner', '', '');
+    i2ctWrOkFlash(idx);
+    i2ctLog('✔ 回讀相符：0x' + i2ctHex(addr, i2ctAddrDigits()) + ' ＝ 0x' + i2ctHex(got), 'o');
+  }
+  if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
+  i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
+  return true;
+}
+/* 🔴 這裡原本有**第二份** i2ctCancelEdit()，它在檔案後面、會覆蓋掉前面那一份。
+   舊版沒有先把 i2ctEditing 清成 null 就去改 td.innerHTML ⇒ 移除聚焦中的 input
+   會同步觸發 blur ⇒ blur 又回頭 commit ⇒ 重入，瀏覽器丟
+   `NotFoundError: The node to be removed is no longer a child of this node.
+    Perhaps it was moved in a 'blur' event handler?`
+   而那是在 async handler 裡丟的 ⇒ 變成 unhandledrejection ⇒ **畫面上完全沒有
+   任何跡象，看起來就是「點了沒反應」**。正本在上面（L2712），這裡刪掉。
+   （教訓：同名函式重複定義，後面那個靜靜贏 —— 真實瀏覽器的 probe 才抓得到。） */
 function i2ctSetAwid(a){
   var chips = document.querySelectorAll('#awid-chips .chip');
   for (var i = 0; i < chips.length; i++)
@@ -2939,7 +3033,11 @@ function i2ctInit(){
      理由：他要的是「點任意位置的儲存格，一樣也要有十字中心對位」，而定位是
      高頻動作、改值是低頻且**會真的寫進裝置**的動作。把寫入放在單擊上，
      「想定位卻誤改了值」就會變成誤燒 —— 這是不能接受的失敗方向。 */
-  $('dump').addEventListener('click', function (e) {
+  $('dump').addEventListener('click', async function (e) {
+    /* 🔴 點別的格子 ＝ 這一格輸入完成 ⇒ **先 commit 再做別的事**。
+       必須在任何重繪之前做完：重繪會把正在編輯的 input 從 DOM 拔掉，
+       blur 就不保證發得出來，他打的值會無聲消失。 */
+    if (i2ctEditing) await i2ctCommitEdit();
     if (e.target && e.target.id === 'xhair') return;           /* 左上角輸入框不算 */
     /* 角落小字 ＝ 三槽輪替（優先於定位）。它會真的改到主值，也就是會燒進去的值。 */
     if (e.target && (e.target.classList.contains('sv') || e.target.classList.contains('ov'))) {
@@ -2954,34 +3052,62 @@ function i2ctInit(){
     if (!td || td === this) return;
     var a = td.getAttribute('data-addr');
     if (a === null) return;
-    /* 點一格 ＝ 設錨點並清掉舊的選取（他要重新框一段）。Shift+方向鍵才展開。 */
+    /* 🔴 Bruce 2026-09-19：「我直接點其中一個輸入格，根本就沒辦法更改」。
+       舊行為是「單擊＝定位、**雙擊**＝改值」，理由是怕他想定位卻誤改值。
+       那個理由站不住：十字定位是**被動顯示、不動資料**，沒有道理為它犧牲
+       編輯的直覺性；誤改的風險由回讀驗證與「尚未寫入」標示承擔，
+       真要反悔按 Esc 就好。⇒ **單擊就進編輯**，同時照樣定位、照樣設選取錨點。 */
     var ix2 = parseInt(td.getAttribute('data-idx'), 10);
     i2ctSelAnchor = isFinite(ix2) ? ix2 : null;
     i2ctSelCursor = i2ctSelAnchor;
-    i2ctSetCross(parseInt(a, 10));                             /* 只定位，不動資料 */
+    i2ctSetCross(parseInt(a, 10));                             /* 定位（被動顯示） */
     i2ctSyncButtons();
+    /* 🔴 **必須重新查一次 td**：上一行的 i2ctSetCross() 會 `t.innerHTML = html`
+       把整張表重繪，手上這個 `td` 已經是被丟掉的舊節點 —— 對它 beginEdit
+       會把輸入框插進一個不在畫面上的節點裡，**看起來就是「點了沒反應」**。
+
+       🔴 這正是「雙擊改值沒作用」的根因（Bruce 2026-09-19 實測）：
+       瀏覽器要兩下都打在**同一個節點**上才會發出 dblclick，而單擊的
+       handler 每次都把整張表換掉 ⇒ 第二下打在新節點上 ⇒ **dblclick 永遠不會發生**。
+       所以那個功能不是沒實作，是被單擊的重繪吃掉了。 */
+    if (isFinite(ix2)) {
+      var fresh = this.querySelector('td[data-idx="' + ix2 + '"]');
+      if (fresh) i2ctBeginEdit(fresh);
+    }
   });
-  $('dump').addEventListener('dblclick', function (e) {
-    var td = e.target;
-    while (td && td !== this && td.tagName !== 'TD') td = td.parentNode;
-    if (td && td !== this && td.getAttribute('data-idx') !== null) i2ctBeginEdit(td);
-  });
+  /* 🔴 `dblclick` 整個拿掉（2026-09-19）。它從來沒有生效過：單擊的 handler 會
+     `t.innerHTML = html` 重繪整張表，第二下打在**新節點**上，瀏覽器湊不出
+     dblclick。Bruce 實測「雙擊一樣沒辦法改值」就是這個原因 ——
+     不是沒實作，是被自己的重繪吃掉。現在單擊就進編輯，這條路不需要了。 */
   /* 左上角的定位輸入框是每次 render 重建的 ⇒ 用委派，不要直接綁在元素上。 */
   /* 🔴 掛在 document 上：他點完格子之後焦點不在表格裡（td 不可聚焦），
      掛在表格上收不到鍵盤事件。只在「有錨點 ＋ 按著 Shift ＋ 方向鍵」時才動作，
      所以不會干擾任何輸入框裡的打字（輸入框內的方向鍵照常移動游標）。 */
   document.addEventListener('keydown', function (e) {
     var tag = e.target && e.target.tagName;
-    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-    if (e.key === 'Escape') { i2ctSelClear(); return; }
-    if (!e.shiftKey) return;
+    /* 🔴 例外：正在編輯的那個格子內輸入框，Shift+方向鍵要能直接開始多選
+       （單擊已經進入編輯模式了，不放行的話「點一格 → Shift+方向」就卡住）。
+       其他輸入框一律不攔，否則會把打字時的方向鍵吃掉。 */
+    var inCell = e.target && e.target.parentNode && e.target.parentNode.tagName === 'TD';
+    if (!inCell && (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA')) return;
+    if (e.key === 'Escape') { if (i2ctEditing) i2ctCancelEdit(); i2ctSelClear(); return; }
     var step = 0;
     if (e.key === 'ArrowRight') step = 1;
     else if (e.key === 'ArrowLeft') step = -1;
     else if (e.key === 'ArrowDown') step = 16;
     else if (e.key === 'ArrowUp') step = -16;
     else return;
-    if (i2ctSelMove(step)) e.preventDefault();
+    /* 🔴 一定要 preventDefault：方向鍵的預設行為是捲動頁面，漏掉他會看到畫面亂跳。
+       （在編輯中的輸入框裡，左右鍵預設是移動文字游標 —— 這一格只有兩個字元，
+         拿來移動儲存格比移動游標有用得多。） */
+    if (e.shiftKey) {
+      if (inCell && i2ctEditing) i2ctCancelEdit();          /* 要多選就放掉編輯 */
+      if (i2ctSelMove(step)) e.preventDefault();
+      return;
+    }
+    if (!inCell && i2ctSelAnchor === null && i2ctCross === null) return;  /* 還沒點過任何格子 */
+    e.preventDefault();
+    i2ctMoveCell(step);
   });
   $('dump').addEventListener('keydown', function (e) {
     if (!e.target || e.target.id !== 'xhair') return;
@@ -3130,8 +3256,23 @@ window.__i2ct = {
   pageStep: function (d) { return i2ctPageStep(d); },
   setCross: function (a) { return i2ctSetCross(a); },
   slotClick: function (i, w) { return i2ctSlotClick(i, w); },
+  beginEdit: function (i) {
+    var td = document.querySelector('#dump td[data-idx="' + i + '"]');
+    return td ? (i2ctBeginEdit(td), !!i2ctEditing) : false;
+  },
+  editing: function () { return i2ctEditing ? { idx: i2ctEditing.idx, value: i2ctEditing.inp.value } : null; },
+  typeInto: function (text) {
+    if (!i2ctEditing) return false;
+    i2ctEditing.inp.value = text;
+    i2ctEditing.inp.dispatchEvent(new Event('input', { bubbles: true }));
+    return i2ctEditing.inp.value;
+  },
+  commitEdit: function () { return i2ctCommitEdit(); },
+  cancelEdit: function () { return i2ctCancelEdit(); },
   selRange: function () { return i2ctSelRange(); },
   selMove: function (st) { return i2ctSelMove(st); },
+  moveCell: function (st) { return i2ctMoveCell(st); },
+  cursorAt: function () { return i2ctSelCursor; },
   selAnchor: function (i) { i2ctSelAnchor = i; i2ctSelCursor = i; i2ctRenderTable(); i2ctSyncButtons(); },
   selClear: function () { return i2ctSelClear(); },
   eeForget: function () { return i2ctEeForget(); },
@@ -3205,6 +3346,13 @@ window.__i2ct = {
     i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
     i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
     i2ctFileBytes = null; i2ctView = 'dev';
+    /* 🔴 「回到剛打開的狀態」必須連**游標狀態**一起清：選取範圍、十字、頁碼、
+       編輯中的格子、dirty/失敗旗標。留著任何一個，下一份資料一進來就會有
+       指向舊資料的索引。`_reset` 的語意本來就該是全清。 */
+    if (i2ctEditing) i2ctCancelEdit();
+    i2ctSelAnchor = null; i2ctSelCursor = null;
+    i2ctCross = null; i2ctPageIdx = 0;
+    i2ctWrFail = null; i2ctWrOk = null; i2ctDirty = null;
     i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctSyncButtons();
   },
