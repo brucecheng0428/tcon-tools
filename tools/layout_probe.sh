@@ -47,3 +47,22 @@ for W in "${WIDTHS[@]}"; do
   echo "  $W → $OUT/align-$W.json, $OUT/shot-$W.png"
 done
 rm -f "$TMP"
+
+# 🔴 這一支不只是「產生數字給人看」，它自己就是閘門：任何一顆按鈕的文字溢出
+#    自身邊界，或同列控制項高度／位置不一致，就以非 0 結束。
+#    （起因：2026-09-19「知道了」三個字跑到按鈕外面，而當時的驗證只量了輸入列。）
+python3 - "$OUT" "${WIDTHS[@]}" <<'PY'
+import json,sys
+out=sys.argv[1]; widths=sys.argv[2:]; bad=0
+for w in widths:
+    d=json.load(open(f"{out}/align-{w}.json"))
+    for f in d.get("fitFails",[]):
+        print(f"  🔴 {w}px  {f['id']} ({f['tag']}, {f['fs']}) 內容溢出：{', '.join(f['bad'])}"); bad+=1
+    for r in d.get("rows",[]):
+        if r["topSpread"] or r["hSpread"] or r["labTopSpread"]:
+            print(f"  🔴 {w}px  第 {r['i']} 列未對齊：top±{r['topSpread']} h±{r['hSpread']} 標籤±{r['labTopSpread']}"); bad+=1
+    if d.get("docOverflow") or d.get("overflow"):
+        print(f"  🔴 {w}px  版面溢出"); bad+=1
+print("🔴 未通過：%d 項" % bad if bad else "✅ 版面檢查通過：按鈕文字都在框內、同列同高同頂、無溢出")
+sys.exit(1 if bad else 0)
+PY
