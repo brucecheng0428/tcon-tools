@@ -22,6 +22,115 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.66.0 — 2026-09-18 ｜ MINOR
+
+**把 PQ Tool 的 I2C 出圖完整複刻過來：七顆 TCON 的暫存器序列、Gray 0~255 與 RGB、畫面正中心的十字；位址白名單改成 per-IC；面板的說明文字大幅砍掉。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表「**多了**能做的事，但舊的一切照舊」那一欄，取 R3（大功能分階段交付，每個「使用者真的多能做一件事」的階段各進一次 MINOR）⇒ **MINOR**。逐項確認：①「開始量測」的流程、PC 出圖那條路、既有的連線／通訊自檢／讀觀測點／進 pattern 模式／還原**全部原位不動**（`tools/dg_measure_regression.js` 的 256 階 rows 與 272 筆 cmds 與前一版**逐欄位相同**）；② 新增的是 Gray 滑桿、RGB 255、十字、解析度選擇、per-IC 出圖 —— 全是新增；③ 砍掉的是**說明文字**，不是控制項（案例 3 判的是控制項位置；被刪的段落沒有任何 `<button>`）⇒ 不是 MAJOR。不確定處往低編：白名單在「認不出 IC」時由「放行 0x1200–0x12FF」變成「完全禁寫」，這是**收緊**不是移除功能，且該情境下出圖鈕本來就是 disabled，使用者操作面沒有變化。
+
+### 🔴 規範來源＝原廠 PQ Tool 的反組譯，不是暫存器規格書
+
+Bruce 2026-09-18 明示更正：「不是暫存器規格書，是原廠的 UI PQ Tool 裡面讀出來，復刻做到」。下面每一條序列都標了檔名與行號，路徑前綴 `~/TCON/Share/DG/gamma_analysis_v150/decompiled/RaydiumTCONIPTool/`。register bank 只用來解釋欄位含義。
+
+### per-IC 表（七顆，`DGM_I2C_ICS`）
+
+| IC | ptg base | SetAgingMode | UserdefineMode 順序 | pattern | inside | cursor clk | 0xFF20 | 出處 |
+|---|---|---|---|---|---|---|---|---|
+| E512A1 | 0x0200 | 0x0200 `&0xB3\|0x4C` ＋ **0x0255 bit7** | pat→ypos→xpos，**無 SetCursorOFF** | **0**（User Define） | 0x0203 | 0x0001 `\|0x04` | `&0x87\|0x12` | `RaydiumE512A1.cs` L1807–1945 |
+| V512S1 | 0x0200 | 0x0200 | pat→ypos→xpos | 58 | 0x0239 | 0x0003 `\|0x04` | **`&0x97`**`\|0x12` | `RaydiumV512S1_RM80120.cs` L2729–2960 |
+| EM01A1 | 0x1200 | 0x1200 | pat→xpos→ypos | 58 | 0x1240 | **0x0002** `\|0x02` | **`&0x85`**`\|0x12` | `RaydiumEM01A1_RM80100.cs` L2725–2906 |
+| EM02A1 | 0x0C00 | 0x0C00 | **xpos→ypos→pat** | 58 | 0x0C39 | 0x0003 `\|0x04` | `&0x87\|0x12` | `RaydiumEM02A1.cs` L2856–3023 |
+| VM02S1 | 0x0C00 | 0x0C00 | xpos→ypos→pat | 58 | **0x0C40** | 0x0004 **`\|0x20`** | `&0x87\|0x12` | `RaydiumVM02S1.cs` L3328–3495 |
+| VM01S1 | 0x1200 | 與 EM01A1 **逐位元相同** | 同 EM01A1 | 58 | 0x1240 | 0x0003 `\|0x04` | `&0x87\|0x12` | `RaydiumVM01S1.cs` L2972–3143 |
+| V512S2 | 0x0C00 | 與 EM02A1 **逐位元相同** | 同 EM02A1 | 58 | 0x0C39 | 0x0004 `\|0x04` | `&0x87\|0x12` | `RaydiumV512S2.cs` L2725–2892 |
+| V007SX | — | 🔴 **反組譯子集裡沒有這顆的 IC 類別** ⇒ 沒有序列可抄 ⇒ 只認得出來、不出圖 | | | | | | `ICCommonFunction.cs` L395–405 |
+
+三個被這張表釘住的坑（`tools/dg_i2c_selftest.js` §5 逐條斷言）：
+
+1. **同 ptg base ≠ 同 offset**：EM02A1 與 VM02S1 都在 0x0C00，但 xpos/inside 是 5C/39 對 38/40。
+2. **同絕對位址 ≠ 同 bit**：cursor clock-enable 五個位址、兩種 bit（`|0x04` 與 VM02S1 的 `|0x20`）；0xFF20 的保留遮罩有 0x85／0x87／0x97 三種。
+3. **同一位址在不同 IC 屬於不同 bank**：0x0C00 在 EM01 上是 `lod_1`。所以白名單不能用聯集。
+
+### 🔴 兩組撞號，如實呈現，不假裝分得出來
+
+- `CheckICID_EM01AX`(L419) 與 `CheckICID_VM01AX`(L431) 判別條件**逐字相同**。
+- `CheckICID(TCONChip)` L177–179 把 **EM02A1_RM80120 與 V512S2 共用同一支 `CheckICID_EM02AX`** —— 這一組先前沒被指出過。
+
+處理方式：掃描與比對順序**逐字照抄** `ICCommonFunction.CheckICID(ref data)` L191–227（E512AX→V007SX→V512SX→EM01AX→EM02AX→VM01AX→VM02AX），撞號的那一顆在畫面上寫「也可能是 X」。**出圖不受影響**（撞號兩顆的出圖序列逐位元相同，selftest 釘住這一條）；**只有 cursor 的 clock-enable 那一筆不同**，所以十字沒反應時才出現一顆「改用另一顆的序列」按鈕 —— 平常不顯示。
+
+### 🔴 十字：PQ Tool 有兩套，兩套都做，差別如實標示
+
+| | (A) Cursor | (B) SetCrossPattern() |
+|---|---|---|
+| 來源 | `SetCursorON()` / `SetCursorON(h_loc, w_loc)` | `SetCrossPattern()`（七顆都有） |
+| 做什麼 | 0xFF20 `(reg & 0x85) \| 0x12` ⇒ 對照 register bank `tm`：bit1 `reg_cursor_en`=1、**bit3 `reg_cursor_mode`=0 ＝ crooss line**（原文拼字）、bit[6:4] `reg_cur_color`=001 ⇒ **紅色十字線**；座標寫 0xFF22 四 byte `[w&FF, w>>8, h&FF, h>>8]` ⇒ 對上 `reg_cur_xpos`/`reg_cur_ypos` | 讀 pattern 編號位址 → `(reg & 0x80) \| 0x0D` ⇒ **pattern 13** |
+| 畫面 | 乾淨的十字，座標可指定 | 🔴 datasheet p.13 Aging Patterns 表：13 ＝ **「Chess 5x5 + Cross Gray」** —— 十字之外**還有 5×5 棋盤格** |
+| 線寬／顏色 | 線寬 **不可設**（`tm` 工作表沒有這個欄位）；顏色由 `reg_cur_color` 決定，PQ Tool 選紅 | 不可設 |
+| 原廠有沒有在用 | 🔴 `SetCursorON(h,w)` 全庫**無呼叫者** | 🔴 `SetCrossPattern()` 全庫**無呼叫者** |
+
+兩支都是原廠寫的序列、但原廠 UI 沒接上去。本頁把它們接上，這件事寫在畫面上。
+
+**座標＝解析度/2，取 floor**（對應 `ICCommonFunction.cs` L2978–2979 的 C# 整數除法）。**解析度來源照 PQ Tool**：`Form1.GetResolutionSetting` L1033–1115 —— 18 組預設 ＋ 自訂兩個文字框，**由人選，不是從暫存器讀**（全庫 grep 確認 PQ Tool 從未寫過 `reg_tmg_hres`/`vres`）。本頁多做一件 PQ Tool 沒做的事：連線後**讀** 0xFF26/0xFF28 自動帶入，讀到不合理（0 或超出 12-bit）就沉默放棄。讀沒有副作用，白名單不擋讀。
+
+### 🔴 位址白名單：固定 → per-IC，而且認不出 IC 就完全禁寫
+
+舊版固定 `0x1200–0x12FF`，那只是 EM01A1/VM01S1 的 ptg bank ⇒ 另外五顆的出圖會被自己的防線擋掉。改成依識別出的 IC 查表（每顆一組區間，含 ptg bank ＋ 那一顆的 cursor clock-enable byte ＋ tm 0xFF20–0xFF25）。**沒有用聯集** —— 0x0C00 在 EM01 上是 Line OD 的 bank，聯集等於默許寫到 LOD 去。**認不出 IC ⇒ 空區間 ⇒ 一個位址都不寫**（比舊版嚴：舊版此時仍放行 0x1200–0x12FF）。helper 端那一份必然是粗的（它不知道對面是哪顆 IC），兩份的分工寫在 `dg_helper_proto.h`。
+
+### 🔴 每一階都重跑 SetAgingUserdefineMode（照抄，不自作聰明）
+
+`ICCommonFunction.SetPatternRGB` L2548–2612 的每個 case 都是 `SetAgingUserdefineMode()` ＋ `SetPatternRGB()` ⇒ 原廠每一階灰階都重下一次（SetCursorOFF ＋ pattern 編號 ＋ xpos ＋ ypos）。本版照抄。代價：每階約 6 筆交易，256 階 ≈ 1,536 筆，150 kHz 下是數秒量級。
+
+### UX：說明文字大幅砍掉（Bruce 2026-09-18）
+
+原話：「請用得越簡單越好，說明文字越少越好，讓使用者無腦使用是最方便的」。實測面板從 150 行說明縮成「要按的東西 ＋ 讀值表 ＋ log」，其餘收進一個預設不展開的 `<details>`。
+
+**砍掉的**：helper 狀態字母對照表（9 列）、SmartScreen 步驟列、解壓流程三步驟列、WebUSB 為什麼走不通的四段論述、claim 失敗兩種原因的對照表、步驟 0～4 的敘述、步驟 3 的四條後路表。
+**保留的**：所有按鈕、觀測點表格、原始交易 log、「未經實機驗證」的誠實標示。
+**改成自動的**：解析度改讀暫存器自動帶入（原本沒有）；錯誤訊息從「列出所有可能原因」改成「這個情境的一句話＋展開下載區」。
+🔴 **log 與 console 的診斷資訊一個字沒減** —— `dgmI2cOut()` 反而多印了序列出處與白名單理由。
+
+### 量測進行中不准被搶走
+
+`running = true` 時對 helper 送 `lock`（fire-and-forget，舊 helper 不認得也不影響），量完／中止／例外都會解鎖。切到本頁時自動接手（`visibilitychange` → visible），背景頁不自動搶。
+
+### 驗了什麼（數字）
+
+| 項目 | 結果 |
+|---|---|
+| `tools/dg_i2c_selftest.js` | **286 項全過**（前一版 202；新增白名單 per-IC 正反面、七顆序列、撞號、十字／中心座標／解析度） |
+| `tools/dg_measure_regression.js` | rows **256**、cmds **272**，與前一版**逐欄位零差異** |
+| `tools/i2c_tool_selftest.js` | 178 項全過 |
+| `tools/dg-helper/test_proto.c` | **111/111**（前一版 76） |
+| `tools/dg-helper/test/test_server.c` | **87/87**（前一版 58） |
+| `tools/scan_untranslated_keys.js` | rc=0 |
+
+🔴 **沒驗到的（誠實清單）**：任何一顆 IC 的實機出圖、十字會不會真的出現在正中心、cursor clock-enable 寫下去的實際效果、`reg_tmg_hres/vres` 在真機上讀得到什麼 —— 沒有 Windows、沒有治具，全部驗不了，不做假探針。
+
+---
+
+## I2C (i2c) v1.2.0 — 2026-09-18 ｜ MINOR
+
+**切到哪一頁哪一頁自動接手 I2C（helper 只要開一次）；離線版自動比對線上版本；說明文字砍掉。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表「**多了**能做的事，但舊的一切照舊」⇒ **MINOR**。四項輸入、16×16 表格、讀寫、自檢、接手／釋放／中斷五顆按鈕**一個都沒少、位置沒動**（`tools/i2c_tool_selftest.js` 178 項全過）；新增的是自動接手與自動版本比對。砍掉的是**說明文字**（狀態字母表、SmartScreen 步驟、WebUSB 論述），不是控制項 ⇒ 不是 MAJOR。「檢查線上有無新版」那顆按鈕**保留**（降級為例外時才按的出口），所以也沒有入口消失。
+
+- **自動接手**：`visibilitychange` 變成 visible（或 `focus`）時，若自己不是持有者就靜默接手；背景頁不自動搶（避免兩頁互搶抖動）；對方在量測中（helper 回 `locked`）就不搶，只顯示一行「DG 正在量測中」。
+- **自動版本比對**：載入後 1.2 秒 fire-and-forget、逾時 3 秒、失敗**完全靜默**、**只有確定落後時**才顯示一行＋下載鈕。沒落後什麼都不出現。（上一輪裁決是維持按鈕，Bruce 2026-09-18 改判為自動。）
+- **離線版提示**：從大橫幅縮成一行灰字。保留是 Bruce 明講的界線 —— 他人在外面，抓不到新版整條路就斷了。
+- 🔴 **交易 log 一個字沒減。**
+
+順帶修掉夾具的一個真問題：`useHelper()` 只看 `linked` 沒看 `busy`，會在頁面自動連線計時器醒來的瞬間取樣，造成 6 次跑掛 2 次的假失敗。改成等 `busy` 落下、無條件斷線、並在開頭等過 250ms 的自動連線。
+
+---
+
+## 首頁 (app) v1.92.1 — 2026-09-18 ｜ PATCH
+
+**I2C 卡片標題由「I2C 讀寫測試」改為「I2C」。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 3「改 UI 版面、不動功能」的微調那一欄（文案）⇒ **PATCH**。卡片位置、連結、描述文字、版號徽章全部不動，使用者不需要重新找東西。依 Bruce 2026-09-18 原話：「就叫做 I2C 就好」。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.1.0 — 2026-09-18 ｜ MINOR
 
 **🔴 真因：helper 一啟動就把 I2C 治具搶走，而且是**結構性**的 —— v1.4.x 的伺服迴圈是單連線阻塞式，dg 的 WebSocket 一開，helper 連「把 i2c.html 送出去」都做不到。本版改 helper 的連線模型（select 多路複用、內建入口頁、channel 擁有權與接手），並把 helper 的取得／更新／狀態全部補進 i2c.html，讓這一頁真正自足。**

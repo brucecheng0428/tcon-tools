@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260918i2c110"></script>
+<script src="common/version.js?v=20260918dg1660"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -798,6 +798,15 @@
     font: 13px/1.55 -apple-system, 'SF Pro Text', sans-serif;
   }
   #dgm-i2c-panel.dgm-hidden { display: none; }
+  /* 🔴 v1.66.0：本頁的 `.dgm-hidden` 一直是**逐個 id 各寫一條**（#dgm-head、#dgm-gate…），
+     沒有通用規則。新加的四個元素照著加 class 卻沒有對應的規則 ⇒ class 加上了、
+     畫面照樣顯示。這是「元素存在 ≠ 功能正常」的活例：selftest 驗
+     `classList.contains('dgm-hidden')` 是綠的，實際截圖才看得出來沒有隱藏。
+     所以除了補規則，selftest 也改成驗 `getComputedStyle().display`。 */
+  #dgm-i2c-alt.dgm-hidden,
+  #dgm-i2c-err.dgm-hidden,
+  #dgm-i2c-upd.dgm-hidden,
+  #dgm-i2c-panel input.dgm-hidden { display: none; }
   #dgm-i2c-panel h3 { margin: 0; padding: 12px 16px; font-size: 15px; background: #111c33;
                       border-bottom: 1px solid #334155; display: flex; justify-content: space-between; }
   #dgm-i2c-panel .dgm-i2c-body { padding: 12px 16px; overflow: auto; }
@@ -974,153 +983,95 @@
         數字判斷，不是靠看畫面亮不亮。** 所以每一步都給一個可讀回的觀測點。
      🔴 量測進行中一律關閉（見 dgmI2cPanel()）—— 量測時畫面上不能有任何東西。 -->
 <div id="dgm-i2c-panel" class="dgm-hidden" role="dialog" aria-modal="false" aria-labelledby="dgm-i2c-title">
-  <h3><span id="dgm-i2c-title">TCON I2C 實測（報告2 §1.10，約 15 分鐘）</span><button id="dgm-i2c-close" type="button">關閉</button></h3>
+  <h3><span id="dgm-i2c-title">TCON I2C</span><button id="dgm-i2c-close" type="button">關閉</button></h3>
   <div class="dgm-i2c-body">
 
-    <p class="dgm-i2c-warn">🔴 本頁的 I2C 功能<b>未經實機驗證</b>。MPSSE 指令層是依 PQ Tool V1.5.0 的 libMPSSE 設定（150 kHz、停用 3-phase、drive-only-zero）重寫的，沒有硬體可以對答案。第一次用請先做步驟 0 與步驟 1（純讀，不寫任何東西）。</p>
-    <p class="dgm-i2c-warn">🔴 <b>2026-09-17 實測結果：瀏覽器直接用 WebUSB 連這顆 FTDI 治具，連不上、而且無解。</b>原因不是硬體、也不是有別的程式佔用，是 Windows／macOS 把 FTDI 的 USB interface 綁在 FTDI 自己的驅動上，瀏覽器拿不到；而<b>本專案不更換驅動</b>。詳見下面「按了連線卻失敗」那一段。</p>
-
-    <h4 id="dgm-i2c-helper-h">🔴 v1.61.0 起：透過本機 helper 連線（推薦這條）</h4>
-    <p>補上那條「電話線」：在你電腦上跑一支小程式 <code>dg-helper</code>，它用你<b>已經裝好</b>的 FTDI 驅動（D2XX）走同一顆 <code>libMPSSE.dll</code>、同一組 I2C 序列，網頁透過 <code>127.0.0.1</code> 的 WebSocket 跟它講話。這是「不換驅動、不換硬體」下唯一成立的路。<b>helper 開著時它會佔住治具的 channel</b> —— 要用原廠 PQ Tool 就先關掉 helper（跟 LA 一樣，執行期擇一）。</p>
-    <p class="dgm-i2c-note">🔴 <b>v1.1.0 起：跑 helper 後它會自己打開瀏覽器、自己連好，你什麼「連線」鈕都不用按。</b>（若你是在 GitHub Pages 上看到這頁，才需要下面那顆「透過 helper 連線」手動連。）</p>
+    <!-- ① 連線：一行。正常路徑上不解釋任何東西（Bruce 2026-09-18 UX 裁示）。 -->
     <p>
       <button id="dgm-i2c-ws" class="dgm-i2c-go" type="button">透過 helper 連線</button>
-      <span class="dgm-k">helper 狀態</span> <span class="dgm-i2c-val" id="dgm-i2c-ws-state">未連線</span>
+      <span class="dgm-i2c-val" id="dgm-i2c-ws-state">未連線</span>
+    </p>
+    <!-- 出錯時才會被填上文字；正常時整個是空的（錯誤才說話） -->
+    <p id="dgm-i2c-err" class="dgm-i2c-warn dgm-hidden"></p>
+
+    <!-- ② 出圖：Gray 0~255、RGB、十字。IC 認不出來時整組 disabled。 -->
+    <p>
+      <button id="dgm-i2c-enter" class="dgm-i2c-go" type="button">進 pattern 模式</button>
+      <button id="dgm-i2c-restore" class="dgm-i2c-danger" type="button">還原</button>
+      <span class="dgm-i2c-val na" id="dgm-i2c-icname">—</span>
     </p>
     <p>
-      <button id="dgm-i2c-comm-btn" class="dgm-i2c-go" type="button">通訊自檢</button>
+      <span class="dgm-k">Gray</span>
+      <input id="dgm-i2c-gray" type="range" min="0" max="255" step="1" value="255" style="vertical-align:middle;width:180px">
+      <input id="dgm-i2c-graynum" type="number" min="0" max="255" step="1" value="255" style="width:70px">
+      <button id="dgm-i2c-graygo" type="button">送出</button>
+      <button id="dgm-i2c-white" type="button">255</button>
+      <button id="dgm-i2c-mid" type="button">128</button>
+      <button id="dgm-i2c-black" type="button">0</button>
+    </p>
+    <p>
+      <span class="dgm-k">RGB 255</span>
+      <button id="dgm-i2c-r255" type="button">R</button>
+      <button id="dgm-i2c-g255" type="button">G</button>
+      <button id="dgm-i2c-b255" type="button">B</button>
+      <span class="dgm-k" style="margin-left:10px">十字</span>
+      <button id="dgm-i2c-cross-on" class="dgm-i2c-go" type="button">開（正中心）</button>
+      <button id="dgm-i2c-cross-off" type="button">關</button>
+      <button id="dgm-i2c-cross-pat" type="button" title="PQ Tool SetCrossPattern()＝內建 aging pattern 13，datasheet 標示為 Chess 5x5 + Cross Gray（十字之外還有棋盤格）">pattern 13</button>
+    </p>
+    <p>
+      <span class="dgm-k">面板解析度</span>
+      <select id="dgm-i2c-res"></select>
+      <input id="dgm-i2c-resw" type="number" min="320" max="4095" step="1" value="1920" style="width:78px" class="dgm-hidden">
+      <input id="dgm-i2c-resh" type="number" min="240" max="4095" step="1" value="1080" style="width:78px" class="dgm-hidden">
+      <span class="dgm-i2c-val na" id="dgm-i2c-center">—</span>
+    </p>
+    <!-- 撞號時的出口：平常不顯示，按了十字沒反應才出現 -->
+    <p id="dgm-i2c-alt" class="dgm-hidden">
+      <button id="dgm-i2c-altbtn" type="button">十字沒反應？改用另一顆的序列</button>
+      <span class="dgm-i2c-val na" id="dgm-i2c-altv">—</span>
+    </p>
+
+    <!-- ③ 讀值：資料不是說明，全部保留 -->
+    <p>
+      <button id="dgm-i2c-probe" class="dgm-i2c-go" type="button">讀觀測點</button>
+      <button id="dgm-i2c-comm-btn" type="button">通訊自檢</button>
       <span class="dgm-i2c-val na" id="dgm-i2c-comm">尚未執行</span>
+      <button id="dgm-i2c-copy" type="button">複製讀值</button>
     </p>
-    <p class="dgm-i2c-note">🔴 通訊自檢與「認不認得 IC」<b>無關</b>：讀 slave <b>0x68 (7-bit) = 0xD0/0xD1 (8-bit W/R)</b>、offset <b>0x0000</b> 起 3 個 byte，期望 <b>A1 D8 FB</b>。<b>PASS</b>＝通訊正常（連上後會自動跑一次，結果也顯示在上面 helper 狀態那行）。不符只會如實顯示實際讀到的三個 byte，不美化。<br><span style="font-size:11px;color:#94a3b8">提醒：slave address 有 7-bit 與 8-bit 兩種表示，同一顆的值不一樣（8-bit ＝ 7-bit 左移一位再補 R/W）。本頁與 helper 一律用 7-bit 傳給 libMPSSE，左移由 libMPSSE 內部做。</span></p>
-    <p class="dgm-i2c-warn">🔴 <b>helper 這條路本身未經實機驗證</b>：它是在沒有 Windows、沒有 FTDI 硬體的環境寫出來的，D2XX 連線與實際 I2C 通訊都還沒有人在真機上跑過。網頁端只驗到訊息格式與位址白名單那一半。</p>
-
-    <div class="dgm-i2c-note" style="border:1px solid var(--dgm-i2c-line,#334155);border-radius:8px;padding:10px 12px;margin:8px 0">
-      <h4 style="margin:0 0 6px">下載 helper（<span id="dgm-i2c-helper-ver">v1.3.2</span>）</h4>
-      <p style="margin:4px 0"><a id="dgm-i2c-helper-dl" href="data/dg-helper-v1.3.2.zip" download>⬇ 下載 dg-helper.zip</a></p>
-      <ol style="margin:6px 0 6px 1.2em;padding:0">
-        <li><b>下載</b>（Chrome 若標「不常下載」→「保留」）。</li>
-        <li>🔴 <b>整包解壓到一個資料夾</b>（例如桌面）—— 不要直接在壓縮檔預覽視窗裡點 exe。</li>
-        <li>在那個資料夾裡<b>雙擊 <code>dg-helper.exe</code></b> → 瀏覽器自己開、自己連好，直接用。（SmartScreen 藍框：「其他資訊 → 仍要執行」兩下。）</li>
-      </ol>
-      <p style="margin:4px 0;font-size:12px;color:#94a3b8">裡面三個檔（exe＋html＋<code>libMPSSE.dll</code>）要在同一資料夾；`libMPSSE.dll` 已附上，不必去 PQ Tool 搬。要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）。SHA256 — zip：<code id="dgm-i2c-helper-zipsha" style="font-size:11px;word-break:break-all">—</code>／exe：<code id="dgm-i2c-helper-exesha" style="font-size:11px;word-break:break-all">—</code>（給 IT 核對）。下載被公司掃描器擋住的話跟我說，我給加密版。</p>
-      <p style="margin:6px 0 2px">🔴 黑視窗<b>最後一行是一個大寫字母</b>＝狀態碼。<b>G</b>＝正常；不是 G 就把字母念給對方（完整英文在 <code>dg-helper.log</code>）：</p>
-      <table style="font-size:12px">
-        <thead><tr><th>字母</th><th>意思</th><th>你要做什麼</th></tr></thead>
-        <tbody>
-          <tr><td><b>G</b></td><td>一切正常</td><td>已開已連，直接用</td></tr>
-          <tr><td><b>T</b></td><td>🔴 你在壓縮檔預覽裡直接點了 exe（跑在暫存目錄），dll 沒跟出來</td><td>把<b>整包解壓到一個資料夾</b>再從那裡雙擊 exe</td></tr>
-          <tr><td><b>D</b></td><td>找不到 <code>libMPSSE.dll</code></td><td>它本來就在 zip 裡；若你只搬了 exe，把 dll 放回 exe 旁</td></tr>
-          <tr><td><b>F</b></td><td>找到 dll 但相依的 <code>ftd2xx.dll</code> 載不到（FTDI 驅動沒裝）</td><td>裝 FTDI D2XX 驅動，或先跑一次 PQ Tool，再重跑</td></tr>
-          <tr><td><b>X</b></td><td>dll 載得起來但不對（位元數不合）</td><td>換 32 位元的 <code>libMPSSE.dll</code></td></tr>
-          <tr><td><b>J</b></td><td>找不到 FTDI 治具</td><td>插上治具（USB／電源），重跑</td></tr>
-          <tr><td><b>U</b></td><td>治具被佔用</td><td>關掉原廠 PQ Tool／AUX GUI，重跑</td></tr>
-          <tr><td><b>P</b></td><td>127.0.0.1 埠被佔</td><td>已有一個 helper 在跑，關掉再開</td></tr>
-          <tr><td><b>B</b></td><td>瀏覽器沒自動開</td><td>自己開 <code>http://127.0.0.1:8899</code></td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p class="dgm-i2c-note">下面的「步驟 0～4」兩條路都適用：連上後一樣照步驟 1 先純讀四個觀測點。WebUSB 那顆「I2C OFF」按鈕保留作備援（多半連不上，理由見下）。</p>
-
-    <h4>步驟 0 — 把板子弄成「最壞情況」</h4>
-    <ol>
-      <li>AGMODE 跳帽移到<b>接地側</b>（EM01A1 EVB 的 <code>HEAD-3X1</code> pin2–pin3），<b>重新上電</b>。</li>
-      <li>不要接任何 RX 訊號源。</li>
-      <li>小黑治具接上 USB 與板上 I2C（SDA／SCL／GND）。</li>
-      <li>原廠 PQ Tool <b>要關掉</b>（同一顆裝置同一時間只能被一個程式握著 —— 就像 LA 那邊與原廠 LA 軟體 永遠只能擇一）。</li>
-    </ol>
-
-    <h4 id="dgm-i2c-claim-help">🔴 按了連線卻失敗（claim 失敗）—— 先看是哪一種</h4>
-    <p>「取得控制權失敗」有<b>兩種完全不同</b>的原因，處置方向相反。瀏覽器回報的錯誤<b>分不出來</b>（兩種都可能是 <code>SecurityError</code>／<code>NetworkError</code>／<code>NotFoundError</code>），所以兩種都列出來，請自己對照現象：</p>
     <table>
-      <thead><tr><th>現象</th><th>是哪一種</th><th>怎麼處置</th></tr></thead>
+      <thead><tr><th>觀測點</th><th>位址</th><th>讀到</th></tr></thead>
       <tbody>
-        <tr>
-          <td>畫面上<b>真的有</b>別的程式開著（原廠 PQ Tool／AUX GUI／燒錄工具）</td>
-          <td>被<b>應用程式</b>佔用</td>
-          <td>關掉那個程式再按一次。這一種關掉就好了</td>
-        </tr>
-        <tr>
-          <td>🔴 <b>沒有</b>任何程式開著，而且<b>關掉本頁之後原廠 UI 連得上</b></td>
-          <td>被 <b>OS 驅動</b>持有</td>
-          <td>不是佔用問題，關程式沒有用。見下一段 —— 這一種在現有治具上<b>無解</b>，要換硬體</td>
-        </tr>
+        <tr><td>IC ID</td><td>0xFF00 ×3</td><td class="dgm-i2c-val na" id="dgm-i2c-v-id">—</td></tr>
+        <tr><td><code>agbsen_rc</code></td><td>0xFFC5 bit1</td><td class="dgm-i2c-val na" id="dgm-i2c-v-agm">—</td></tr>
+        <tr><td><code>ro_rt0_aging_en</code></td><td>0xE801 bit0</td><td class="dgm-i2c-val na" id="dgm-i2c-v-ag">—</td></tr>
+        <tr><td><code>ptg</code> 第一個 byte</td><td class="dgm-i2c-val na" id="dgm-i2c-a-ptg">—</td><td class="dgm-i2c-val na" id="dgm-i2c-v-ptg">—</td></tr>
+        <tr><td><code>reg_ptg_aging_en</code></td><td class="dgm-i2c-val na" id="dgm-i2c-a-agen">—</td><td class="dgm-i2c-val na" id="dgm-i2c-v-agen">—</td></tr>
       </tbody>
     </table>
 
-    <h4>🔴 現有的 FTDI 治具，網頁直驅走不通（這是結論，不是待辦）</h4>
-    <p>先把兩件常被混在一起的事分開：</p>
-    <table>
-      <thead><tr><th>是什麼</th><th>例子</th><th>本專案</th></tr></thead>
-      <tbody>
-        <tr><td><b>執行期互斥</b>：同一時間只有一個程式能握著這顆裝置，關掉一邊另一邊就能用</td><td>wfg 的 LA 分頁與原廠 LA 軟體 —— 永遠只能擇一使用</td><td>✅ <b>可以接受</b></td></tr>
-        <tr><td><b>更換驅動程式</b>：永久改變這顆裝置掛哪一個驅動</td><td>把 FTDI 的 interface 從 D2XX 換成 WinUSB 類</td><td>❌ <b>不做</b>（Bruce 2026-09-17 裁示）</td></tr>
-      </tbody>
-    </table>
-    <p>🔴 <b>這顆治具卡住的是第二件，不是第一件。</b>Windows 上 FTDI 裝置由 FTDI 自己的驅動（<code>ftdibus.sys</code> ＝ D2XX／<code>ftser2k.sys</code> ＝ VCP）在<b>裝置綁定層</b>接管，而瀏覽器的 <code>claimInterface()</code> 需要該 interface 掛的是 WinUSB 類驅動。所以就算把所有程式都關掉，瀏覽器一樣拿不到 —— <b>擋住我們的不是「有沒有程式在用」</b>。</p>
-    <p>「關掉網頁之後原廠 UI 連得上」正好證明 FTDI 驅動活著並持有這個 interface ⇒ <b>硬體與治具都沒問題</b>，問題只在驅動類型。</p>
-    <p class="dgm-i2c-note">為什麼 wfg 的 LA 分頁同樣走 WebUSB 卻可以？因為那顆 LA 本來掛的就是 WebUSB claim 得到的驅動，原廠軟體走的也是同一個 —— 兩邊各自 claim／release，天然就是執行期擇一。FTDI 治具是<b>另一類驅動</b>，差的不是程式怎麼寫。</p>
-
-    <h4>🔴 「驅動明明有裝，為什麼網頁碰不到？」</h4>
-    <p>這個直覺很合理，但少了一層。FTDI 驅動確實裝好了 —— <b>原廠 PQ Tool 正是靠它</b>。問題是那個驅動<b>只開放給原生程式</b>：PQ Tool 是 .NET 程式，可以直接呼叫 <code>FTD2XX_NET.dll</code>／<code>libMPSSE.dll</code>。而<b>瀏覽器裡的 JavaScript 沒有任何管道呼叫本機 DLL</b>（這是瀏覽器的安全模型，不是缺功能），它只有 WebUSB／Web Serial／WebHID 三個 API，而這三個都要求 interface 掛的是另一類驅動。</p>
-    <p>換句話說：<b>不是不知道怎麼講（協定已經完全逆向清楚），是沒有電話線。</b></p>
-    <p>所以在「不換驅動、不買硬體」的前提下，唯一補得上這條線的做法是<b>在本機跑一支小程式當橋</b>（網頁 →WebSocket(127.0.0.1)→ 本機程式 →D2XX→ 治具）—— 那支程式是原生程式，呼叫得到現有的 FTDI 驅動。代價是桌上多一支要開的程式。另一條路是<b>另外接一顆獨立的 USB-I2C 橋接器</b>（HID class，用系統內建驅動、不必安裝也不必更換任何驅動），原廠治具與其驅動一動也不動，兩邊甚至可以同時插著。兩案的並排比較見該輪的評估報告。</p>
-
-    <h4>macOS</h4>
-    <p>同上（<code>/System/Library/DriverExtensions/com.apple.DriverKit-AppleUSBFTDI.dext</code> 已在本機實查存在）。Mac 上請用 PC 出圖那一條，功能完整、不需要治具。</p>
-
-    <h4>為什麼本頁固定用 Interface 0（Channel A）</h4>
-    <p>PQ Tool V1.5.0 反組譯：<code>I2CSettingForm.cs</code> 每次連線都把通道下拉重建並強制 <code>SelectedIndex = 0</code>（L141、L273），<code>_I2CChannel</code> 只在那之後從下拉文字取值（L143、L196）；而下拉的 <code>SelectedIndexChanged</code>（L247–253）算完 <code>result</code> 就丟掉，<b>是空殼</b>。全庫也找不到任何用通道 1 的呼叫。⇒ <b>PQ Tool 的 I2C 永遠是 libMPSSE channel 0</b>，對單顆 FT2232 就是 Channel A ＝ USB Interface 0。本頁照抄，不讓人選。</p>
-
-    <h4>步驟 1 — 連線並確認起始狀態（純讀，不寫）</h4>
-    <p>先按右上角面板的 <b>I2C OFF</b> 連線，再按這裡：</p>
-    <p>
-      <button id="dgm-i2c-probe" class="dgm-i2c-go" type="button">讀四個觀測點</button>
-      <span class="dgm-k">目前設定</span> <span class="dgm-i2c-val" id="dgm-i2c-fixed">—</span>
-    </p>
-    <p class="dgm-i2c-note">v1.60.0 起<b>通道、ACK 判讀、slave 位址都不再讓人選</b>：通道照 PQ Tool 寫死 Interface 0（Channel A）；slave 照 PQ Tool 的自動偵測順序 0x60→0x61→0x68→0x69 掃；ACK 用同時涵蓋兩種位元對齊的判準。依據見 <code>dgmI2c*</code> 那一段的註解。</p>
-    <table>
-      <thead><tr><th>觀測點</th><th>位址</th><th>期望</th><th>讀到</th><th>意義</th></tr></thead>
-      <tbody>
-        <tr><td>IC ID</td><td>0xFF00 ×3</td><td>01 EF A0</td><td class="dgm-i2c-val na" id="dgm-i2c-v-id">—</td><td>EM01AX 與 VM01AX <b>撞號</b>，這三個 byte 分不出來 —— 自己核對</td></tr>
-        <tr><td><code>agbsen_rc</code></td><td>0xFFC5 bit1</td><td><b>0</b></td><td class="dgm-i2c-val na" id="dgm-i2c-v-agm">—</td><td>AGMODE pad 現在的準位。讀到 1 代表跳帽沒移對，<b>先解決再往下</b></td></tr>
-        <tr><td><code>ro_rt0_aging_en</code></td><td>0xE801 bit0</td><td><b>0</b></td><td class="dgm-i2c-val na" id="dgm-i2c-v-ag">—</td><td>TCON 內部最終認定的 aging_en —— 有沒有生效看這一位，不看畫面</td></tr>
-        <tr><td><code>ptg</code> 第一個 byte</td><td>0x1200</td><td>記下原值</td><td class="dgm-i2c-val na" id="dgm-i2c-v-ptg">—</td><td>步驟 4 要寫回去</td></tr>
-        <tr><td><code>reg_ptg_aging_en</code></td><td>0x1268 bit0</td><td>記下原值</td><td class="dgm-i2c-val na" id="dgm-i2c-v-agen">—</td><td>同上</td></tr>
-      </tbody>
-    </table>
-
-    <h4>步驟 2 — 下 PQ Tool 那幾筆，看畫面</h4>
-    <p>照抄 <code>RaydiumEM01A1_RM80100.cs</code> 的 <code>SetAgingMode(true)</code> → <code>SetAgingUserdefineMode()</code> → <code>SetPatternRGB()</code>：</p>
-    <p>
-      <button id="dgm-i2c-enter" class="dgm-i2c-go" type="button">① 進 pattern 模式（4 筆）</button>
-      <button id="dgm-i2c-white" type="button">② 全白 0xFFF</button>
-      <button id="dgm-i2c-mid" type="button">③ 中灰 0x800</button>
-      <button id="dgm-i2c-black" type="button">④ 全黑 0x000</button>
-    </p>
-    <p class="dgm-i2c-note">按完 ② 或 ③ 之後<b>再按一次「讀四個觀測點」</b>：要記的是三件事 —— 畫面有沒有變、回讀的 0x1200 有沒有被硬體改掉（特別是 bit6）、0xE801 bit0 有沒有從 0 變 1。</p>
-
-    <h4>步驟 3 — 只在步驟 2 沒有畫面時才做</h4>
-    <p class="dgm-i2c-warn">🔴 這四條後路全部<b>在 ptg bank 之外</b>，被本頁的位址白名單（只准寫 0x1200–0x12FF）擋住，<b>本頁不做</b>。請用原廠 PQ Tool 或 AUX GUI 逐條試，每試一條就回來按「讀四個觀測點」看 0xE801 bit0：</p>
-    <table>
-      <thead><tr><th>試</th><th>寫什麼</th><th>備註</th></tr></thead>
-      <tbody>
-        <tr><td>C</td><td>0x1268 bit0 = 1（sw aging mode）</td><td>要先進 sw aging 的話，再回頭補 0x1200 那筆</td></tr>
-        <tr><td><b>B</b></td><td>0x02ED bit7 = 1（<code>reg_gpi_agmode_xor</code>）</td><td><b>最推薦的後路</b>：不需要 pad selection 編碼表，只翻極性。<br>🔴 <b>EM02 不是 bit7 是 bit6</b> —— 兩顆 IC 的絕對位址剛好都是 0x02ED，bit 配置差一位</td></tr>
-        <tr><td>極性</td><td>0x1200 bit7 = 1（<code>reg_ptg_ag_en_polar_sel</code>）</td><td>PQ Tool 的 <code>&amp;0xB3</code> 刻意保留這一位 ⇒ 原廠不碰它</td></tr>
-        <tr><td>inv</td><td>0x0039 bit4 = 1（<code>reg_aging_en_inv</code>）</td><td>唯一有明文公式：<code>ag_mode_rc_final = ag_mode_rc ^ reg_aging_en_xor</code></td></tr>
-        <tr><td>跳帽</td><td>AGMODE 跳回 VDD 側並重新上電</td><td>若只有這樣才行 ⇒ I2C 出圖只能用在有跳線的板子上</td></tr>
-      </tbody>
-    </table>
-
-    <h4>步驟 4 — 收尾</h4>
-    <p><button id="dgm-i2c-restore" class="dgm-i2c-danger" type="button">把 0x1200 寫回步驟 1 記下的原值</button>（＝ PQ Tool 的 <code>SetAgingMode(false)</code>）</p>
-
-    <h4>要回報的三個數字</h4>
-    <p>0xFFC5 bit1、0xE801 bit0、回讀的 0x1200。有這三個數字就能定案，不必第二次進實驗室。<button id="dgm-i2c-copy" type="button">複製本頁所有讀值</button></p>
-
-    <h4>原始 log（送出去與收回來的 byte）</h4>
     <div id="dgm-i2c-out">（還沒有任何交易）</div>
+
+    <!-- ④ 以下全部收進摺疊：需要時才展開（Bruce：說明文字越少越好）───────── -->
+    <details id="dgm-i2c-more">
+      <summary>取得 / 更新 helper、設定與限制</summary>
+
+      <div id="dgm-i2c-upd" class="dgm-hidden"></div>
+
+      <p>
+        <a id="dgm-i2c-helper-dl" href="data/dg-helper-v1.6.0.zip" download>⬇ 下載 helper</a>
+        <span class="dgm-i2c-val" id="dgm-i2c-helper-ver">—</span>
+        <span class="dgm-i2c-note">解壓整包到一個資料夾，雙擊 <code>dg-helper.exe</code>。</span>
+      </p>
+      <p class="dgm-i2c-note">SHA256 zip <code id="dgm-i2c-helper-zipsha" style="word-break:break-all">—</code> · exe <code id="dgm-i2c-helper-exesha" style="word-break:break-all">—</code></p>
+
+      <p class="dgm-i2c-note">目前設定：<span class="dgm-i2c-val" id="dgm-i2c-fixed">—</span></p>
+
+      <p class="dgm-i2c-warn">🔴 <b>I2C 這一段七顆 IC 全部未經實機驗證。</b>暫存器序列逐行照抄 PQ Tool V1.5.0 反組譯（檔名與行號寫在原始碼註解裡），但沒有 Windows、沒有治具，沒有人在真機上跑過。</p>
+      <p class="dgm-i2c-note">十字有兩種：<b>開（正中心）</b>走 PQ Tool 的 <code>SetCursorON(h,w)</code> ＝ <code>reg_cursor_mode</code> 的 cross line，紅色、座標可指定、<b>線寬不可設</b>（暫存器沒有這個欄位）；<b>pattern 13</b> 走 <code>SetCrossPattern()</code>，datasheet 標示為 <b>Chess 5x5 + Cross Gray</b> —— 十字之外還有棋盤格。兩支在原廠 UI 裡都沒有呼叫者，序列是原廠的，用法是我們接上去的。</p>
+      <p class="dgm-i2c-note">解析度照 PQ Tool 由人選（<code>Form1.GetResolutionSetting</code> 的 18 組預設＋自訂）；連線後本頁會多做一件 PQ Tool 沒做的事 —— 讀 <code>0xFF26/0xFF28</code>（<code>reg_tmg_hres/vres</code>）自動帶入，讀到不合理就沉默放棄。</p>
+      <p class="dgm-i2c-note">位址白名單依識別出的 IC 查表（七顆各一組）；<b>認不出 IC 就一個位址都不寫</b>。WebUSB 直連現有 FTDI 治具在 Windows／macOS 上是驅動層綁定，無解，所以只有 helper 這一條路。</p>
+    </details>
   </div>
 </div>
 
@@ -2788,57 +2739,116 @@
        · 不寫 ptg bank 以外的任何位址 —— 見下面的白名單。
      ═══════════════════════════════════════════════════════════════════════ */
 
-  /* ═══ 🔴 硬防線：位址白名單 ═══════════════════════════════════════════════
-     報告2 §2.2 的第 2 道防護，**本專案唯一一條不依賴 IC 判斷正確的保護**。
+  /* ═══ per-IC 位址表（v1.66.0 起，七顆全到齊）═════════════════════════════
+     🔴 規範來源＝**原廠 PQ Tool V1.5.0 的反組譯**，不是暫存器規格書
+        （Bruce 2026-09-18 明示更正）。下面每一條序列都標了檔名與行號，
+        路徑前綴一律 `~/TCON/Share/DG/gamma_analysis_v150/decompiled/
+        RaydiumTCONIPTool/`。register bank 只用來解釋欄位含義，不取代序列。
 
-     為什麼需要它：EM01AX 與 VM01AX 的 IC ID 撞號 ⇒ 在一塊 NB 的 VM01S1 上
-     誤選 I2C 時，網頁會把它認成 EM01，然後照 EM01 的位址寫下去。那時候擋得住
-     的只有「位址本身在不在允許範圍內」這一條 —— 它不問這顆 IC 是誰。
+     🔴 報告2 §1.5c 的陷阱不是特例，是常態。實際覆核七顆之後的三個坑：
+        ① `reg_gpi_agmode` 在 EM01 與 EM02 上**絕對位址剛好都是 0x02ED、
+           bit 配置差一位** ⇒ 表裡任何一個位元都寫成 {addr, bit}，不准只寫位址。
+        ② **同一個 ptg base 不代表同一組 offset**：EM02A1 與 VM02S1 的 ptg base
+           都是 0x0C00，但 xpos/ypos/inside 的 offset 是 5C/36/39 對 38/3A/40 ——
+           共用一段程式碼會寫到別的暫存器去。
+        ③ **同一個位址在不同 IC 上屬於不同的 bank**：0x0C00 在 EM01 上是
+           `lod_1`（bank_offset 工作表），在 EM02 上才是 ptg。所以白名單必須
+           per-IC，不能用聯集。
 
-     範圍就是 ptg bank：`bank_offset` 工作表 `h12ff | h1200 | ptg | pattern gen`。
-     本功能要寫的五個位址（0x1200／0x1201／0x1238／0x123A／0x1240）全在裡面。
+     🔴 `patternOk` 是「本版願不願意對這顆下寫入」的閘門，與「認不認得出來」
+        分開。七顆的序列都從反組譯逐行抄出來了，所以七顆都開；**但沒有任何一顆
+        經過實機驗證**（沒有 Windows、沒有治具），這件事寫在畫面上，不靠記得。
 
-     🔴 **讀不受限**。三個觀測點（0xFF00 IC ID、0xFFC5 AGMODE 準位、
-        0xE801 aging_en）都在 ptg 之外，而讀是沒有副作用的。
-     🔴 檢查的是**整段**（addr … addr+len-1），不是只看起點 —— 0x12FE 寫 5 bytes
-        會跨出去，那一筆必須被擋下。 */
-  var DGM_I2C_WR_MIN = 0x1200;
-  var DGM_I2C_WR_MAX = 0x12FF;
-  function dgmI2cWriteAllowed(addr, len) {
-    if (typeof addr !== 'number' || !isFinite(addr)) return false;
-    if (typeof len !== 'number' || !isFinite(len) || len < 1) return false;
-    if (addr !== Math.floor(addr) || len !== Math.floor(len)) return false;
-    if (addr < DGM_I2C_WR_MIN) return false;
-    return (addr + len - 1) <= DGM_I2C_WR_MAX;
-  }
-
-  /* ═══ per-IC 位址表 ══════════════════════════════════════════════════════
-     🔴 報告2 §1.5c 的陷阱：`reg_gpi_agmode` 在 EM01 與 EM02 上**絕對位址剛好
-        都是 0x02ED，但 bit 配置差一位**（EM01 sel[5:0]/sw6/xor7；
-        EM02 sel[4:0]/sw5/xor6）。所以這張表**連 bit 一起存**，任何一個觀測點
-        都是 {addr, bit}，不准只寫位址。
-     🔴 R4：階段 4 **先只做 EM01**。EM02 在這裡只到「認得出來」為止
-        （`patternOk: false`）—— 認得出來是真的有用（按鈕上會寫型號，
-        使用者知道自己面對的是誰），而出圖那一段沒有實機驗過就不放行。 */
+     欄位說明：
+       soft  — SetAgingMode(true)：讀 addr →(reg & and)|or→ 寫回
+       aux   — 只有 E512A1 有的第二段：另外處理 0x0255 bit7（進入時清、離開時還原）
+       ud    — SetAgingUserdefineMode() 的**逐筆順序**（原廠三顆三種順序，照抄）
+       inside— SetPatternRGB 的 5 bytes 寫入位址
+       cross — SetCrossPattern()：讀 pat →(reg & 0x80)|0x0D→ 寫回（pattern 13）
+       cursor— SetCursorON/OFF/SetCursorON(h,w)
+       wr    — 🔴 **本顆 IC 允許寫入的位址區間**（白名單，見下） */
   var DGM_I2C_ICS = [
+    /* 掃描與比對順序 🔴 逐字照抄 `ICCommonFunction.CheckICID(ref data)` L191–227：
+       E512AX → V007SX → V512SX → EM01AX → EM02AX → VM01AX → VM02AX。
+       這個順序決定撞號時報哪一顆 —— 不是我排的，是原廠排的。 */
+    {
+      key: 'E512AX',
+      name: 'E512A1',
+      id: [0x12, 0xE5, 0xA0],            // CheckICID_E512AX L383–393
+      alsoMayBe: 'E512A2_RM80020（同一組 ID，PQ Tool 也分不出）',
+      patternOk: true,
+      src: 'RaydiumE512A1.cs',
+      ptgBase: 0x0200,
+      soft: { addr: 0x0200, and: 0xB3, or: 0x4C, src: 'L1807–1822' },
+      /* 🔴 只有 E512A1 有這一段：`SetAgingMode` 第二段讀 0x0255，進入時把 bit7
+         （reg_ptg_aging_en）**清掉並記住原值**，離開時還原（L1823–1844）。
+         報告2 §1.8：原廠進固定 pattern 時是把 sw aging **關掉**，不是打開。 */
+      aux: { addr: 0x0255, bit: 7, mode: 'clearOnEnter', src: 'L1823–1844' },
+      udCursorOff: false,                // 🔴 七顆裡唯一沒有 SetCursorOFF 的（L1922–1934）
+      ud: ['pat', 'ypos', 'xpos'],       // 0x0201=0 → 0x0236 → 0x025B
+      pat: { addr: 0x0201, value: 0 },   // 🔴 pattern **0**（User Define Full Color），不是 58
+      xpos: { addr: 0x025B }, ypos: { addr: 0x0236 },
+      inside: { addr: 0x0203, src: 'L1907–1919' },   // reg_pat0_user_r/g/b
+      cross: { addr: 0x0201, and: 0x80, or: 0x0D, src: 'L1937–1945' },
+      cursor: { clk: { addr: 0x0001, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+                off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L1768–1804' },
+      wr: [[0x0200, 0x02FF], [0x0001, 0x0001], [0xFF20, 0xFF25]],
+      obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+    },
+    {
+      key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0],   // L395–405
+      patternOk: false,                  // 🔴 反組譯裡沒有 V007SX 的 per-IC 檔 ⇒ 沒有序列可抄
+      noImpl: '反組譯子集裡沒有 V007SX 的 IC 類別，沒有任何序列可以照抄',
+      obs: { icid: { addr: 0xFF00, len: 3 } }
+    },
+    {
+      key: 'V512SX', name: 'V512S1 / RM80120', id: [0x12, 0xF5, 0xF0],   // L407–417
+      alsoMayBe: '', patternOk: true,
+      src: 'RaydiumV512S1_RM80120.cs',
+      ptgBase: 0x0200,
+      soft: { addr: 0x0200, and: 0xB3, or: 0x4C, src: 'L2729–2748' },
+      udCursorOff: true,
+      ud: ['pat', 'ypos', 'xpos'],       // L2935–2949
+      pat: { addr: 0x0201, value: 58 },
+      xpos: { addr: 0x025B }, ypos: { addr: 0x0236 },
+      inside: { addr: 0x0239, src: 'L2920–2933' },
+      cross: { addr: 0x0201, and: 0x80, or: 0x0D, src: 'L2951–2960' },
+      /* 🔴 V512S1 的 0xFF20 遮罩是 **0x97**，不是別顆的 0x87（L2850）。 */
+      cursor: { clk: { addr: 0x0003, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x97, or: 0x12 },
+                off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2830–2866' },
+      wr: [[0x0200, 0x02FF], [0x0003, 0x0003], [0xFF20, 0xFF25]],
+      obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+    },
     {
       key: 'EM01A1',
       name: 'EM01A1 / RM80100',
-      id: [0x01, 0xEF, 0xA0],            // data[0], data[1], data[2] & 0xF0
-      alsoMayBe: 'VM01AX（ID 撞號，分不出來）',
+      id: [0x01, 0xEF, 0xA0],            // CheckICID_EM01AX L419–429
+      /* 🔴 撞號如實呈現：`CheckICID_EM01AX`(L419) 與 `CheckICID_VM01AX`(L431)
+         的判別條件**逐字相同**，這三個 byte 分不出來。PQ Tool 自己的掃描順序把
+         EM01AX 排在 VM01AX 前面，所以本頁也先報 EM01A1 —— 但**不假裝分得出**。
+         好消息（可逐位元覆核）：出圖那一段兩顆的序列**完全相同**
+         （0x1200 &0xB3|0x4C、0x1201=58、0x1238、0x123A、0x1240），
+         所以撞號**不影響灰階／RGB 出圖**。差別只在 cursor 的 clock-enable
+         那一筆（EM01 0x0002 bit1／VM01S1 0x0003 bit2）—— 見 crossAlt。 */
+      alsoMayBe: 'VM01S1（判別條件逐字相同，分不出來）',
       patternOk: true,
+      src: 'RaydiumEM01A1_RM80100.cs',
       ptgBase: 0x1200,
-      /* SetAgingMode(true)：讀 0x1200 → (reg & 0xB3) | 0x4C → 寫回
-         （`RaydiumEM01A1_RM80100.cs` L2725–2745） */
-      soft: { addr: 0x1200, and: 0xB3, or: 0x4C },
-      /* SetAgingUserdefineMode()：0x1201 = 58（Edge）→ 0x1238 = 0 → 0x123A = 0
-         🔴 順序照抄（EM01 是 pattern 編號 → xpos → ypos；EM02 的順序不同） */
-      pat: { addr: 0x1201, value: 58 },
-      xpos: { addr: 0x1238 },
-      ypos: { addr: 0x123A },
-      inside: { addr: 0x1240 },          // SetPatternRGB 的 5 bytes
+      soft: { addr: 0x1200, and: 0xB3, or: 0x4C, src: 'L2725–2745' },
+      udCursorOff: true,
+      ud: ['pat', 'xpos', 'ypos'],       // L2881–2896：pattern 編號 → xpos → ypos
+      pat: { addr: 0x1201, value: 58 },  // 58 = Edge（datasheet p.15 Aging Patterns）
+      xpos: { addr: 0x1238 }, ypos: { addr: 0x123A },
+      inside: { addr: 0x1240, src: 'L2810–2823' },
+      cross: { addr: 0x1201, and: 0x80, or: 0x0D, src: 'L2898–2906' },
+      cursor: { clk: { addr: 0x0002, or: 0x02 }, ctl: { addr: 0xFF20, and: 0x85, or: 0x12 },
+                off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2825–2879' },
+      /* 撞號時的另一組 cursor clock-enable（VM01S1 L3088–3102）。十字按了沒反應
+         才用得到，平常不出現 —— 這就是「錯誤才說話」。 */
+      crossAlt: { key: 'VM01S1', clk: { addr: 0x0003, or: 0x04 },
+                  ctl: { addr: 0xFF20, and: 0x87, or: 0x12 }, wr: [[0x0003, 0x0003]] },
       agingEn: { addr: 0x1268, bit: 0 }, // reg_ptg_aging_en（1: sw aging mode）
-      /* 觀測點（唯讀，在 ptg 之外 —— 白名單只擋寫，不擋讀） */
+      wr: [[0x1200, 0x12FF], [0x0002, 0x0002], [0x0003, 0x0003], [0xFF20, 0xFF25]],
       obs: {
         icid: { addr: 0xFF00, len: 3 },
         agbsen: { addr: 0xFFC5, bit: 1 },   // tm:245 ro_io_status8
@@ -2848,20 +2858,104 @@
     {
       key: 'EM02A1',
       name: 'EM02A1',
-      id: [0x02, 0xEF, 0xA0],
-      alsoMayBe: '',
-      patternOk: false,                  // 🔴 位址不同（ptg base 0x0C00），未實機驗過
+      id: [0x02, 0xEF, 0xA0],            // CheckICID_EM02AX L455–465
+      /* 🔴 第二組撞號，先前沒被指出過：`CheckICID(TCONChip)` L177–179 把
+         **EM02A1_RM80120 與 V512S2 共用同一支 CheckICID_EM02AX**。兩顆的
+         ptg base 同為 0x0C00、offset 也相同，唯一差別是 cursor 的 clock-enable
+         （EM02 0x0003 bit2／V512S2 0x0004 bit2）。 */
+      alsoMayBe: 'V512S2（PQ Tool 用同一支 CheckICID_EM02AX，分不出來）',
+      patternOk: true,
+      src: 'RaydiumEM02A1.cs',
       ptgBase: 0x0C00,
+      soft: { addr: 0x0C00, and: 0xB3, or: 0x4C, src: 'L2856–2876' },
+      udCursorOff: true,
+      ud: ['xpos', 'ypos', 'pat'],       // L2998–3012：🔴 順序與 EM01 相反
+      pat: { addr: 0x0C01, value: 58 },
+      xpos: { addr: 0x0C5C }, ypos: { addr: 0x0C36 },
+      inside: { addr: 0x0C39, src: 'L2928–2941' },
+      cross: { addr: 0x0C01, and: 0x80, or: 0x0D, src: 'L3014–3023' },
+      cursor: { clk: { addr: 0x0003, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+                off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2959–2996' },
+      crossAlt: { key: 'V512S2', clk: { addr: 0x0004, or: 0x04 },
+                  ctl: { addr: 0xFF20, and: 0x87, or: 0x12 }, wr: [[0x0004, 0x0004]] },
+      wr: [[0x0C00, 0x0CFF], [0x0003, 0x0004], [0xFF20, 0xFF25]],
       obs: {
         icid: { addr: 0xFF00, len: 3 },
         agingRo: { addr: 0xE801, bit: 0 }  // 這一個兩顆相同（報告2 §1.5c）
       }
     },
-    { key: 'VM02AX', name: 'VM02AX（NB）', id: [0x02, 0xEF, 0xF0], patternOk: false },
-    { key: 'E512AX', name: 'E512AX', id: [0x12, 0xE5, 0xA0], patternOk: false },
-    { key: 'V512SX', name: 'V512SX（NB）', id: [0x12, 0xF5, 0xF0], patternOk: false },
-    { key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0], patternOk: false }
+    {
+      key: 'VM02AX',
+      name: 'VM02S1（NB）',
+      id: [0x02, 0xEF, 0xF0],            // CheckICID_VM02AX L443–453
+      patternOk: true,
+      src: 'RaydiumVM02S1.cs',
+      ptgBase: 0x0C00,
+      soft: { addr: 0x0C00, and: 0xB3, or: 0x4C, src: 'L3328–3347' },
+      udCursorOff: true,
+      ud: ['xpos', 'ypos', 'pat'],       // L3470–3484
+      pat: { addr: 0x0C01, value: 58 },
+      /* 🔴 與 EM02A1 同樣 base 0x0C00，**offset 卻不同**（38/3A/40 對 5C/36/39）。
+         這一列就是「不能因為 base 一樣就共用」最直接的證據。 */
+      xpos: { addr: 0x0C38 }, ypos: { addr: 0x0C3A },
+      inside: { addr: 0x0C40, src: 'L3400–3413' },
+      cross: { addr: 0x0C01, and: 0x80, or: 0x0D, src: 'L3486–3495' },
+      /* 🔴 VM02S1 的 clock-enable 是 0x0004 **bit5**（|0x20），不是別顆的 bit2。 */
+      cursor: { clk: { addr: 0x0004, or: 0x20 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+                off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L3431–3468' },
+      wr: [[0x0C00, 0x0CFF], [0x0004, 0x0004], [0xFF20, 0xFF25]],
+      obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+    }
   ];
+  /* 🔴 VM01S1 與 V512S2 **不是獨立的比對項**，它們的 ID 與 EM01AX／EM02AX 撞號，
+     PQ Tool 自己也沒有第八、第九支判別函式。所以它們以 `alsoMayBe` 與
+     `crossAlt` 掛在撞號的那一顆上 —— **假裝分得出來才是說謊**。 */
+
+  /* ═══ 🔴 硬防線：位址白名單（v1.66.0 起 per-IC）═══════════════════════════
+     報告2 §2.2 的第 2 道防護。它保護的情境是 Bruce 明確擔心過的那一個：
+     **在一台 NB 上誤按 I2C**。
+
+     為什麼原本的固定 0x1200–0x12FF 不能留：不同 IC 的 ptg base 不同
+     （EM01/VM01 0x1200、EM02/V512S2/VM02 0x0C00、E512/V512S1 0x0200），
+     固定範圍會把三分之二的 IC 擋在門外；而改成聯集又更糟 ——
+     0x0C00 在 EM01 上是 `lod_1` bank，聯集等於默許寫到 Line OD 去。
+     ⇒ **依識別出來的那一顆查表放行。**
+
+     🔴 **識別不出來 ⇒ 完全禁寫**（比舊版更嚴，不是更鬆）。舊版在認不得 IC 時
+        仍然放行 0x1200–0x12FF；新版一個位址都不放。
+     🔴 **讀不受限**。觀測點（0xFF00／0xFFC5／0xE801／0xFF26）都在 ptg 之外，
+        而讀沒有副作用。
+     🔴 檢查的是**整段**（addr … addr+len-1），不是只看起點 —— 0x12FE 寫 5 bytes
+        會跨出去，那一筆必須被擋下。 */
+  function dgmI2cWrRangesOf(ic) {
+    if (!ic || !ic.wr || !ic.patternOk) return [];
+    var out = ic.wr.slice();
+    /* 撞號的替代 clock-enable：只有使用者明確切過去時才加進來（見 dgmI2cAltOn） */
+    if (ic.crossAlt && dgmI2cAltOn && ic.crossAlt.wr) out = out.concat(ic.crossAlt.wr);
+    return out;
+  }
+  /* 純函式：給定允許區間，判斷 addr…addr+len-1 是否整段落在其中一段之內。 */
+  function dgmI2cWriteAllowedIn(ranges, addr, len) {
+    if (!ranges || !ranges.length) return false;
+    if (typeof addr !== 'number' || !isFinite(addr)) return false;
+    if (typeof len !== 'number' || !isFinite(len) || len < 1) return false;
+    if (addr !== Math.floor(addr) || len !== Math.floor(len)) return false;
+    var end = addr + len - 1;
+    for (var i = 0; i < ranges.length; i++) {
+      if (addr >= ranges[i][0] && end <= ranges[i][1]) return true;
+    }
+    return false;
+  }
+  function dgmI2cWriteAllowed(addr, len) {
+    return dgmI2cWriteAllowedIn(dgmI2cWrRangesOf(dgmI2cIc), addr, len);
+  }
+  /* 白名單擋下時的說明（一句話，帶上目前是哪一顆、允許哪些段） */
+  function dgmI2cWrDenyText(addr, len) {
+    var r = dgmI2cWrRangesOf(dgmI2cIc);
+    if (!r.length) return '位址白名單擋下 ' + dgmI2cAddrText(addr) + '：還沒認出 IC，本頁一個位址都不寫';
+    return '位址白名單擋下 ' + dgmI2cAddrText(addr) + ' ×' + len + '（' + (dgmI2cIc ? dgmI2cIc.key : '?')
+      + ' 只允許 ' + r.map(function (x) { return dgmI2cAddrText(x[0]) + '–' + dgmI2cAddrText(x[1]); }).join('、') + '）';
+  }
   /* 🔴 全 0xFF ＝ I2C 總線閒置（SDA 被上拉為高、沒有裝置回應）。FT status 可能是 0、
      也「收到 3 byte」，但那是總線空轉讀回的，不是有效資料。掃描時必須把它判為無回應，
      否則會選到第一個「假裝有回應」的 slave（Bruce 2026-09-18 實測：0x60 回 FF FF FF
@@ -3243,12 +3337,55 @@
     var pr = $('dgm-i2c-probe'); if (pr) pr.disabled = !dgmI2cLinkActive || dgmI2cLinkBusy;
     /* 🔴 通訊自檢鈕：連上就能按（不看 IC 認不認得） */
     var ct = $('dgm-i2c-comm-btn'); if (ct) ct.disabled = !dgmI2cLinkActive || dgmI2cLinkBusy;
-    ['dgm-i2c-enter', 'dgm-i2c-white', 'dgm-i2c-mid', 'dgm-i2c-black', 'dgm-i2c-restore']
-      .forEach(function (id) {
-        var e = $(id);
-        /* 寫入類一律要求「已連線 ＋ 認得出 IC ＋ 這顆 IC 的出圖路徑驗過」 */
-        if (e) e.disabled = !(dgmI2cLinkActive && dgmI2cIc && dgmI2cIc.patternOk) || dgmI2cLinkBusy;
-      });
+    /* 寫入類一律要求「已連線 ＋ 認得出 IC ＋ 這顆 IC 有序列可抄」 */
+    var canWrite = !!(dgmI2cLinkActive && dgmI2cIc && dgmI2cIc.patternOk) && !dgmI2cLinkBusy;
+    ['dgm-i2c-enter', 'dgm-i2c-white', 'dgm-i2c-mid', 'dgm-i2c-black', 'dgm-i2c-restore',
+     'dgm-i2c-graygo', 'dgm-i2c-r255', 'dgm-i2c-g255', 'dgm-i2c-b255', 'dgm-i2c-cross-pat']
+      .forEach(function (id) { var e = $(id); if (e) e.disabled = !canWrite; });
+    /* 十字（cursor）另有條件：這顆 IC 的反組譯裡要真的有 cursor 序列 */
+    var canCross = canWrite && !!dgmI2cCursorOf(dgmI2cIc);
+    ['dgm-i2c-cross-on', 'dgm-i2c-cross-off'].forEach(function (id) { var e = $(id); if (e) e.disabled = !canCross; });
+    /* 撞號的出口：只有認到有 crossAlt 的那兩顆才出現 */
+    var alt = $('dgm-i2c-alt');
+    if (alt) alt.classList.toggle('dgm-hidden', !(dgmI2cIc && dgmI2cIc.crossAlt && dgmI2cLinkActive));
+    var altv = $('dgm-i2c-altv');
+    if (altv && dgmI2cIc && dgmI2cIc.crossAlt) {
+      altv.textContent = '目前用 ' + (dgmI2cAltOn ? dgmI2cIc.crossAlt.key : dgmI2cIc.key) + ' 的 cursor 序列';
+    }
+    var icn = $('dgm-i2c-icname');
+    if (icn) {
+      icn.textContent = dgmI2cIc
+        ? (dgmI2cIc.name + (dgmI2cIc.alsoMayBe ? '（也可能是 ' + dgmI2cIc.alsoMayBe + '）' : ''))
+        : (dgmI2cLinkActive ? '認不出 IC —— 本頁不寫任何位址' : '—');
+      icn.classList.toggle('na', !dgmI2cIc);
+    }
+    /* 觀測點表格的位址欄依 IC 而定（不同顆 ptg base 不同） */
+    var ap = $('dgm-i2c-a-ptg'), ag = $('dgm-i2c-a-agen');
+    if (ap) ap.textContent = (dgmI2cIc && dgmI2cIc.soft) ? dgmI2cAddrText(dgmI2cIc.soft.addr) : '—';
+    if (ag) ag.textContent = (dgmI2cIc && dgmI2cIc.agingEn) ? (dgmI2cAddrText(dgmI2cIc.agingEn.addr) + ' bit' + dgmI2cIc.agingEn.bit) : '—';
+    dgmI2cResRender();
+  }
+  /* 解析度與中心座標那一行 */
+  function dgmI2cResRender() {
+    var c = dgmI2cCenter(dgmI2cRes.w, dgmI2cRes.h);
+    var e = $('dgm-i2c-center');
+    if (e) { e.textContent = dgmI2cRes.w + '×' + dgmI2cRes.h + ' → 中心 (' + c.x + ', ' + c.y + ')'; e.classList.remove('na'); }
+    var sel = $('dgm-i2c-res');
+    if (sel && sel.options.length) {
+      var want = dgmI2cRes.w + 'x' + dgmI2cRes.h, hit = false;
+      for (var i = 0; i < sel.options.length; i++) if (sel.options[i].value === want) { sel.value = want; hit = true; break; }
+      if (!hit) sel.value = 'custom';
+      var custom = sel.value === 'custom';
+      var w = $('dgm-i2c-resw'), h = $('dgm-i2c-resh');
+      if (w) { w.classList.toggle('dgm-hidden', !custom); w.value = dgmI2cRes.w; }
+      if (h) { h.classList.toggle('dgm-hidden', !custom); h.value = dgmI2cRes.h; }
+    }
+  }
+  /* 🔴 錯誤才說話：正常路徑上這一行是空的、整個不顯示。 */
+  function dgmI2cSay(msg) {
+    var e = $('dgm-i2c-err'); if (!e) return;
+    if (!msg) { e.textContent = ''; e.classList.add('dgm-hidden'); return; }
+    e.textContent = msg; e.classList.remove('dgm-hidden');
   }
 
   function dgmI2cSetLink(v) {
@@ -3387,12 +3524,10 @@
     return { out: out, acks: acks, data: len };
   }
   function dgmI2cBuildWrite(slave, addr, bytes) {
-    /* 🔴 白名單在**最前面**，在任何 USB 動作之前，也在任何 IC 判斷之前 ——
-       它擋的是程式自己的 bug，所以不能依賴「IC 認得對」這個前提。 */
+    /* 🔴 白名單在**最前面**，在任何 USB 動作之前。v1.66.0 起它依「已識別出的
+       那一顆 IC」查表；認不出來就一個位址都不放行（比舊版嚴）。 */
     if (!dgmI2cWriteAllowed(addr, bytes.length)) {
-      throw new Error('位址白名單擋下：' + dgmI2cAddrText(addr) + ' 寫 ' + bytes.length
-        + ' byte，超出允許範圍 ' + dgmI2cAddrText(DGM_I2C_WR_MIN) + '–'
-        + dgmI2cAddrText(DGM_I2C_WR_MAX) + '（ptg bank）');
+      throw new Error(dgmI2cWrDenyText(addr, bytes.length));
     }
     var out = [], acks = 0, i;
     dgmMpStart(out);
@@ -3430,6 +3565,21 @@
       p.resolve(m);
     }
   }
+  /* 🔴 忙碌鎖（proto 3）。fire-and-forget：
+     · 拿舊 helper（proto 2）的人送過去不會有回覆 —— 所以**不等回覆**，
+       否則每次開始量測都會白等一次 4 秒逾時。
+     · 沒連線時整支是 no-op（PC 出圖那條路完全不受影響）。
+     · 它保護的是「量測進行中不可以被另一頁接手」，不是資料正確性 ——
+       失敗了最壞情況就是回到 v1.5.0 的行為（可能被接手），不會讓量測出錯。 */
+  function dgmI2cLock(on) {
+    try {
+      if (!dgmI2cWs || dgmI2cWs.readyState !== 1) return;
+      if (dgmI2cTransport !== 'ws' || !dgmI2cLinkActive) return;
+      dgmI2cWs.send(JSON.stringify({ type: 'lock', id: ++dgmI2cWsSeq, on: on ? 1 : 0 }));
+      dgmI2cOut('helper 忙碌鎖 ' + (on ? 'ON（量測中，拒絕接手）' : 'OFF'));
+    } catch (e) { /* 靜默：它是保護，不是功能 */ }
+  }
+
   /* ws 版的讀：helper 內部處理 ACK，回 {ok,data,status}。 */
   async function dgmI2cWsReadReg(addr, len) {
     dgmI2cOut('讀 ' + dgmI2cAddrText(addr) + ' ×' + len + '（slave 0x'
@@ -3444,8 +3594,7 @@
   /* ws 版的寫：白名單在網頁端先擋一次（helper 端還有一份，縱深防禦）。 */
   async function dgmI2cWsWriteReg(addr, bytes) {
     if (!dgmI2cWriteAllowed(addr, bytes.length)) {
-      var msg = '位址白名單擋下：' + dgmI2cAddrText(addr) + ' 寫 ' + bytes.length
-        + ' byte，超出允許範圍 ' + dgmI2cAddrText(DGM_I2C_WR_MIN) + '–' + dgmI2cAddrText(DGM_I2C_WR_MAX) + '（ptg bank）';
+      var msg = dgmI2cWrDenyText(addr, bytes.length);
       dgmI2cOut('✕ ' + msg); log('I2C ' + msg, 'e'); dgmI2cToast('位址白名單擋下這一筆寫入', 'err');
       throw new Error(msg);
     }
@@ -3782,12 +3931,13 @@
     if (!opened) {
       try { ws.close(); } catch (e) {}
       dgmI2cWs = null; dgmI2cTransport = 'usb'; dgmI2cLinkBusy = false; dgmI2cRender();
-      var help = '連不到本機 helper（' + DGM_I2C_WS_URL + '）。請確認：'
-        + '① dg-helper 有沒有在跑（工作列那個黑視窗）；'
-        + '② 若是第一次用，先在下方「下載 helper」把它抓下來、依說明執行；'
-        + '③ Chrome 若跳出「存取本機網路」的提示，要按允許。';
-      dgmI2cOut('✕ ' + help); lk('✕ helper 連線失敗 · ' + DGM_I2C_WS_URL, 'e');
-      dgmI2cToast('連不到本機 helper（詳見 log 與下方下載區）', 'err');
+      /* 🔴 錯誤才說話，而且只說**這個情境**的一句話＋一個下一步。
+         完整診斷（URL、平台、UA）留在 log —— 那是給我看的，不占畫面。 */
+      var help = '連不到 helper。helper 沒在跑的話，展開下面「取得 / 更新 helper」下載並執行。';
+      dgmI2cSay(help);
+      dgmI2cOut('✕ 連不到本機 helper（' + DGM_I2C_WS_URL + '）· ' + dgmI2cEnvLine());
+      lk('✕ helper 連線失敗 · ' + DGM_I2C_WS_URL, 'e');
+      var more = $('dgm-i2c-more'); if (more) more.open = true;
       dgmI2cLinkBusy = false; dgmI2cRender(); syncFs(); return;
     }
     try {
@@ -3804,7 +3954,13 @@
          每次嘗試都 log，退避 500ms，最多 5 次。 */
       var op = null;
       for (var attempt = 1; attempt <= DGM_I2C_OPEN_RETRIES; attempt++) {
-        op = await dgmI2cWsSend({ type: 'open', clockHz: DGM_I2C_CLOCK_HZ });
+        /* 🔴 v1.66.0：一律帶 takeover。Bruce 的 UX 裁示是「切到哪一頁哪一頁就拿到，
+           不用按任何東西」；helper 端若正在被鎖住（另一頁在量測）會回 locked:true，
+           那一種就**不搶**，只講一句話。 */
+        op = await dgmI2cWsSend({ type: 'open', clockHz: DGM_I2C_CLOCK_HZ, takeover: 1 });
+        if (op && op.locked) {
+          throw new Error('另一個頁面正在量測中，暫時不能接手 I2C（等它跑完，或到那一頁按停止）');
+        }
         if (op.ok) { lk('　　helper 已開通道（第 ' + attempt + ' 次）· channels=' + (op.channels != null ? op.channels : '?'), 'o'); break; }
         lk('　　開通道第 ' + attempt + '/' + DGM_I2C_OPEN_RETRIES + ' 次失敗（channels=' + (op.channels != null ? op.channels : '?') + '）'
           + (attempt < DGM_I2C_OPEN_RETRIES ? '，' + DGM_I2C_OPEN_RETRY_MS + 'ms 後重試…' : ''), 'e');
@@ -3815,6 +3971,8 @@
       dgmI2cLinkActive = true;
       await dgmI2cCommTest();        // 🔴 通訊自檢先跑（authoritative，與 IC 識別解耦）
       await dgmI2cScanIdentify(lk);  // IC 識別＝附帶資訊，不中止連線
+      await dgmI2cReadRes();         // 解析度自動帶入（讀而已，失敗靜默）
+      dgmI2cSay('');                 // 連上了 ⇒ 錯誤行清空
       dgmI2cSetLink(true);
       dgmI2cStartHb();
       dgmI2cLastTransport = 'ws';   // 🔴 記住這條，讓主 I2C 鈕 off→on 自動走 helper
@@ -3823,7 +3981,7 @@
       try { dgmI2cWsSend({ type: 'close' }); } catch (e) {}
       var msg = dgmErrMsg(err);
       dgmI2cOut('✕ ' + msg); lk('✕ helper 連線後續失敗 · ' + msg, 'e');
-      dgmI2cToast(msg, 'err');
+      dgmI2cSay(msg);
       try { ws.close(); } catch (e) {}
       dgmI2cWs = null; dgmI2cTransport = 'usb';
     } finally {
@@ -3850,51 +4008,216 @@
     }
   }
 
-  /* ═══ 出圖：照抄 PQ Tool 的三步驟 ════════════════════════════════════════
-     ① SetAgingMode(true)        讀 0x1200 → (reg & 0xB3) | 0x4C → 寫回
-     ② SetAgingUserdefineMode()  0x1201 = 58（Edge）→ 0x1238 = 0 → 0x123A = 0
-     ③ SetPatternRGB(r,g,b)      0x1240 寫 5 bytes
-     🔴 12-bit：`AgingPatternBit = 12` 是常數，UI 的 L0~L255 要 ×16（報告 A.2.2）。 */
-  var dgmI2cInitPtg = null;      // SetAgingMode(true) 之前的 0x1200 原值（還原用）
+  /* ═══ 出圖：照抄 PQ Tool，per-IC ═════════════════════════════════════════
+     對照 `ICCommonFunction.SetPatternRGB(r,g,b)` L2548–2612 —— 它的每一個 case
+     都是**兩件事**：`XxxFlag.SetAgingUserdefineMode()` 然後 `XxxFlag.SetPatternRGB()`。
+     🔴 也就是說原廠**每一階灰階都重跑一次 SetAgingUserdefineMode**
+        （＝ SetCursorOFF ＋ pattern 編號 ＋ xpos ＋ ypos），不是只在開頭下一次。
+        報告2 §2.0 已經指出這一點；本版照抄，理由是「照抄比自作聰明可驗證」。
+        代價：每階約 6 筆交易，256 階 ≈ 1,536 筆，150 kHz 下是數秒量級。
+     ① SetAgingMode(true)   讀 soft.addr →(reg & and)|or→ 寫回（E512A1 另有 aux 段）
+     ② SetAgingUserdefineMode() 逐筆順序照 ic.ud（三顆三種順序）
+     ③ SetPatternRGB(r,g,b) ic.inside.addr 寫 5 bytes
+     🔴 12-bit：`AgingPatternBit = 12` 是常數（七顆 per-IC 檔都寫死），
+        UI 的 L0~L255 要 ×16（報告 A.2.2、`CCTForm.cs` L1076）。 */
+  var dgmI2cInitPtg = null;      // SetAgingMode(true) 之前的 soft.addr 原值（還原用）
+  var dgmI2cInitAux = null;      // E512A1 的 0x0255 原值（bit7）
+  var dgmI2cAltOn = false;       // 撞號時是否改用 crossAlt 的 cursor 序列
 
   function dgmI2cPackRgb12(r, g, b) {
-    /* 位元封裝與 register bank 的 Loc MSB/LSB 逐位元吻合（報告 A.2.1）。
+    /* 位元封裝與 register bank 的 Loc MSB/LSB 逐位元吻合（報告 A.2.1）；
+       七顆 per-IC 檔的 SetPatternRGB **封裝完全相同**，只有寫入位址不同。
        🔴 b4 是 `b >> 8`，12-bit 的高位只有 4 bit ⇒ 全白時是 0x0F，不是 0xFF。 */
     return [r & 0xFF, ((r >> 8) & 0x0F) | ((g & 0x0F) << 4), (g >> 4) & 0xFF, b & 0xFF, (b >> 8) & 0x0F];
   }
   function dgmI2cTo12(v8) { return (v8 & 0xFF) * 16; }
 
-  async function dgmI2cEnterPattern() {
-    var ic = dgmI2cIc;
-    if (!ic || !ic.patternOk) throw new Error('這顆 IC 本版不支援 I2C 出圖');
+  /* SetCursorOFF()：讀 0xFF20 → reg & 0xFD（清 bit1 reg_cursor_en）→ 寫回。
+     七顆完全相同（EM01 L2841–2849 等）。 */
+  async function dgmI2cCursorOff(ic) {
+    var cu = ic && ic.cursor; if (!cu) return;
+    var cur = await dgmI2cReadReg(cu.off.addr, 1);
+    await dgmI2cWriteReg(cu.off.addr, [cur[0] & cu.off.and]);
+  }
+  /* SetAgingUserdefineMode()：逐筆順序照 ic.ud。E512A1 是唯一沒有 SetCursorOFF 的。 */
+  async function dgmI2cUserdefineMode(ic) {
+    if (ic.udCursorOff) await dgmI2cCursorOff(ic);
+    for (var i = 0; i < ic.ud.length; i++) {
+      var w = ic.ud[i];
+      if (w === 'pat') await dgmI2cWriteReg(ic.pat.addr, [ic.pat.value]);
+      else if (w === 'xpos') await dgmI2cWriteReg(ic.xpos.addr, [0x00, 0x00]);
+      else if (w === 'ypos') await dgmI2cWriteReg(ic.ypos.addr, [0x00, 0x00]);
+    }
+  }
+  /* SetAgingMode(flag)：per-IC 的第一段 ＋ E512A1 專屬的第二段。 */
+  async function dgmI2cAgingMode(ic, on) {
     var cur = await dgmI2cReadReg(ic.soft.addr, 1);
     /* 🔴 報告2 §2.2 第 1 道防護：read-modify-write 的回讀值要先看合不合理。
        0xFF ＝ 匯流排上沒有人在回應（或回應全 1），照著改寫下去等於對空氣寫。 */
     if (cur[0] === 0xFF) throw new Error('回讀 ' + dgmI2cAddrText(ic.soft.addr) + ' 是 0xFF ⇒ 這顆 IC 的回應不符預期，已中止');
-    if (dgmI2cInitPtg === null) dgmI2cInitPtg = cur[0];
-    var nv = (cur[0] & ic.soft.and) | ic.soft.or;
-    await dgmI2cWriteReg(ic.soft.addr, [nv]);
-    await dgmI2cWriteReg(ic.pat.addr, [ic.pat.value]);
-    await dgmI2cWriteReg(ic.xpos.addr, [0x00, 0x00]);
-    await dgmI2cWriteReg(ic.ypos.addr, [0x00, 0x00]);
+    if (on) {
+      if (dgmI2cInitPtg === null) dgmI2cInitPtg = cur[0];
+      await dgmI2cWriteReg(ic.soft.addr, [(cur[0] & ic.soft.and) | ic.soft.or]);
+    } else {
+      await dgmI2cWriteReg(ic.soft.addr, [dgmI2cInitPtg === null ? (cur[0] & ic.soft.and) : dgmI2cInitPtg]);
+      await dgmI2cCursorOff(ic);           // 原廠 SetAgingMode(false) 一律關 cursor
+    }
+    /* E512A1 的第二段（L1823–1844）：進入時記住 0x0255 bit7 並清掉，離開時還原。
+       報告2 §1.8：原廠要固定畫面時是把 sw aging **關掉**，不是打開。 */
+    if (ic.aux) {
+      var a = await dgmI2cReadReg(ic.aux.addr, 1);
+      var m = 1 << ic.aux.bit;
+      if (on) { dgmI2cInitAux = (a[0] & m) ? 1 : 0; await dgmI2cWriteReg(ic.aux.addr, [a[0] & ~m & 0xFF]); }
+      else if (dgmI2cInitAux === 1) { await dgmI2cWriteReg(ic.aux.addr, [(a[0] | m) & 0xFF]); }
+    }
+  }
+
+  async function dgmI2cEnterPattern() {
+    var ic = dgmI2cIc;
+    if (!ic || !ic.patternOk) throw new Error(dgmI2cNoPatternText());
+    await dgmI2cAgingMode(ic, true);
+    await dgmI2cUserdefineMode(ic);
     var back = await dgmI2cReadReg(ic.soft.addr, 1);
-    dgmI2cOut('進 pattern 模式：0x1200 原值 0x' + dgmI2cInitPtg.toString(16).toUpperCase()
+    var nv = (dgmI2cInitPtg & ic.soft.and) | ic.soft.or;
+    dgmI2cOut('進 pattern 模式（' + ic.key + '）：' + dgmI2cAddrText(ic.soft.addr)
+      + ' 原值 0x' + dgmI2cInitPtg.toString(16).toUpperCase()
       + ' → 寫入 0x' + nv.toString(16).toUpperCase()
       + ' → 回讀 0x' + back[0].toString(16).toUpperCase()
       + (back[0] === nv ? '（一致）' : '　⚠ 與寫入值不同，硬體改掉了某些位元'));
     return back[0];
   }
+  /* 🔴 每一階都照原廠重跑 SetAgingUserdefineMode（見本節開頭）。 */
   async function dgmI2cSetRgb12(r12, g12, b12) {
     var ic = dgmI2cIc;
-    if (!ic || !ic.patternOk) throw new Error('這顆 IC 本版不支援 I2C 出圖');
+    if (!ic || !ic.patternOk) throw new Error(dgmI2cNoPatternText());
+    await dgmI2cUserdefineMode(ic);
     await dgmI2cWriteReg(ic.inside.addr, dgmI2cPackRgb12(r12, g12, b12));
   }
   async function dgmI2cLeavePattern() {
     var ic = dgmI2cIc;
     if (!ic || !ic.patternOk || dgmI2cInitPtg === null) return;
-    await dgmI2cWriteReg(ic.soft.addr, [dgmI2cInitPtg]);
-    dgmI2cOut('已把 0x1200 寫回原值 0x' + dgmI2cInitPtg.toString(16).toUpperCase()
-      + '（＝ SetAgingMode(false)）');
+    await dgmI2cAgingMode(ic, false);
+    dgmI2cOut('已把 ' + dgmI2cAddrText(ic.soft.addr) + ' 寫回原值 0x'
+      + dgmI2cInitPtg.toString(16).toUpperCase() + '（＝ SetAgingMode(false)）');
+    dgmI2cInitPtg = null; dgmI2cInitAux = null;
+  }
+  function dgmI2cNoPatternText() {
+    var ic = dgmI2cIc;
+    if (!ic) return '還沒認出 IC，不出圖';
+    if (ic.noImpl) return ic.key + '：' + ic.noImpl;
+    return ic.key + ' 本版不支援 I2C 出圖';
+  }
+
+  /* ═══ 十字（CA-410 對位用）════════════════════════════════════════════════
+     🔴 這不是自己發明的畫法。PQ Tool 有**兩套**能在畫面上放十字的機制，
+        兩套都在反組譯裡，本頁兩套都做，並如實標示差別：
+
+     (A) Cursor —— `SetCursorON()` / `SetCursorON(h_loc, w_loc)`
+         EM01 `RaydiumEM01A1_RM80100.cs` L2851–2879：
+           · 先開 cursor 的 clock：讀 0x0002 → |0x02 → 寫（per-IC，位址與 bit 都不同）
+           · 再寫 0xFF20：reg = (reg & 0x85) | 0x12
+           · 座標寫 0xFF22 四個 byte：[w&0xFF, w>>8, h&0xFF, h>>8]
+         對照 EM01 register bank 工作表 `tm`（base 0xFF00）逐位元吻合：
+           0xFF20 bit1 `reg_cursor_en`、**bit3 `reg_cursor_mode`（0 = crooss line，
+           原文拼字如此；1 = color bar）**、bit[6:4] `reg_cur_color`
+           （R={8{bit0}}, G={8{bit1}}, B={8{bit2}}）
+           0xFF22–23 `reg_cur_xpos`[12:0]、0xFF24–25 `reg_cur_ypos`[12:0]
+         ⇒ `(reg & 0x85) | 0x12` 拆開就是：bit1 = 1（開）、**bit3 = 0（十字線）**、
+            bit4 = 1 且 bit5/6 = 0（顏色 ＝ 紅）。
+         ⇒ **PQ Tool 的 cursor 就是一條紅色的十字線，而且座標可以指定。**
+            這正是 Bruce 要的東西，不必自己發明。
+         ⚠️ 線寬在 `tm` 工作表裡找不到欄位（只有 en／mode／color／xy／
+            `reg_en_cursor_frame`／`reg_en_cursor_dot`）⇒ **線寬不可設**，如實講。
+         ⚠️ `SetCursorON(h,w)` 這個多載在 PQ Tool 裡**沒有任何呼叫者**
+            （全庫 grep 只有定義）。序列是原廠寫的，但原廠 UI 沒在用它。
+
+     (B) SetCrossPattern() —— 內建 aging pattern
+         七顆都有（EM01 L2898–2906…）：SetAgingMode(true) → 讀 pat 位址
+         → (reg & 0x80) | 0x0D → 寫回，亦即 **pattern 編號 13**。
+         🔴 datasheet `RM80103.PC_Datasheet_v0_4` p.13 的 Aging Patterns 表：
+            **13 = 「Chess 5x5 + Cross Gray」** —— 十字之外**還有 5×5 棋盤格**。
+            所以它不是乾淨的十字，畫面上會有格子。如實標示，不美化。
+         🔴 `SetCrossPattern()` 在 PQ Tool 裡也**沒有任何呼叫者**。
+
+     座標怎麼算：中心 ＝ (hres/2, vres/2)。
+     🔴 解析度來源**照 PQ Tool**：`Form1.GetResolutionSetting` L1033–1115 —— 是
+        使用者在 UI 選的（18 組預設 ＋ 自訂兩個文字框），**不是從暫存器讀**。
+        全庫 grep 確認 PQ Tool 從未寫過 `reg_tmg_hres`／`reg_tmg_vres`
+        （0xFF26/0xFF28，`{255,38}`／`{255,40}` 0 命中）。
+        本頁照這個做法讓人選，但**多做一件 PQ Tool 沒做的事**：連線後自動**讀**
+        0xFF26/0xFF28 帶入（讀沒有副作用、白名單不擋讀）。讀到不合理就沉默放棄，
+        使用者照樣用下拉。這是「能自動就不要叫人做」，不是改規範來源。 */
+  var DGM_I2C_RES_PRESETS = [
+    /* 逐項照抄 `Form1.GetResolutionSetting` L1036–1109 的 case 0–17 */
+    [1920, 1080], [2048, 1080], [2048, 1536], [2560, 1080], [2560, 1440], [2560, 1600],
+    [2560, 2048], [3200, 2048], [3200, 2400], [3440, 1440], [3840, 2160], [4096, 2160],
+    [3840, 2400], [5120, 4096], [6400, 4096], [6400, 4800], [7680, 4320], [7680, 4800]
+  ];
+  var dgmI2cRes = { w: 1920, h: 1080, from: '預設' };
+  /* reg_tmg_hres/vres 是 12 bit ⇒ 最大 4095。讀回超過或為 0 都當成「沒填過」。 */
+  function dgmI2cResSane(w, h) {
+    return w >= 320 && w <= 4095 && h >= 240 && h <= 4095;
+  }
+  /* 中心座標（純函式，可單元測）。奇數時取 floor —— 與 PQ Tool 的 int 除法一致
+     （`ICCommonFunction.cs` L2978–2979 `_Resolution_X / 2` 是 C# 整數除法）。 */
+  function dgmI2cCenter(w, h) { return { x: Math.floor(w / 2), y: Math.floor(h / 2) }; }
+  /* SetCursorON(h_loc, w_loc) 的 4 個 byte（`RaydiumEM01A1_RM80100.cs` L2874–2877）：
+     [w&0xFF, w>>8, h&0xFF, h>>8] ⇒ 對上 tm 的 xpos(0xFF22/23) 與 ypos(0xFF24/25)。 */
+  function dgmI2cPackXY(x, y) {
+    return [x & 0xFF, (x >> 8) & 0xFF, y & 0xFF, (y >> 8) & 0xFF];
+  }
+  /* 撞號時要用哪一組 cursor 序列（EM01A1↔VM01S1、EM02A1↔V512S2） */
+  function dgmI2cCursorOf(ic) {
+    if (!ic || !ic.cursor) return null;
+    if (dgmI2cAltOn && ic.crossAlt) {
+      return { clk: ic.crossAlt.clk, ctl: ic.crossAlt.ctl, off: ic.cursor.off, pos: ic.cursor.pos };
+    }
+    return ic.cursor;
+  }
+  /* 讀 0xFF26/0xFF28 帶入解析度。失敗一律靜默（它只是便利功能）。 */
+  async function dgmI2cReadRes() {
+    try {
+      var a = await dgmI2cReadReg(0xFF26, 2);
+      var b = await dgmI2cReadReg(0xFF28, 2);
+      var w = ((a[1] & 0x0F) << 8) | a[0];        // reg_tmg_hres[11:0]
+      var h = ((b[1] & 0x0F) << 8) | b[0];        // reg_tmg_vres[11:0]
+      if (!dgmI2cResSane(w, h)) { dgmI2cOut('讀 0xFF26/0xFF28 得到 ' + w + '×' + h + '（不合理，忽略）'); return null; }
+      dgmI2cRes = { w: w, h: h, from: '讀自 0xFF26/0xFF28' };
+      dgmI2cOut('解析度自動帶入：' + w + '×' + h + '（reg_tmg_hres/vres）');
+      dgmI2cResRender();
+      return dgmI2cRes;
+    } catch (e) { return null; }
+  }
+  /* (A) Cursor 十字 —— SetCursorON(h,w)，座標＝畫面正中心 */
+  async function dgmI2cCrossOn() {
+    var ic = dgmI2cIc, cu = dgmI2cCursorOf(ic);
+    if (!ic || !cu) throw new Error(ic ? (ic.key + '：反組譯裡沒有這顆的 cursor 序列') : '還沒認出 IC');
+    var c = dgmI2cCenter(dgmI2cRes.w, dgmI2cRes.h);
+    var k = await dgmI2cReadReg(cu.clk.addr, 1);                 // cursor clock enable
+    await dgmI2cWriteReg(cu.clk.addr, [(k[0] | cu.clk.or) & 0xFF]);
+    var t = await dgmI2cReadReg(cu.ctl.addr, 1);                 // 0xFF20
+    await dgmI2cWriteReg(cu.ctl.addr, [((t[0] & cu.ctl.and) | cu.ctl.or) & 0xFF]);
+    await dgmI2cWriteReg(cu.pos.addr, dgmI2cPackXY(c.x, c.y));   // 0xFF22 ×4
+    dgmI2cOut('十字（cursor）ON：中心 (' + c.x + ', ' + c.y + ')　解析度 '
+      + dgmI2cRes.w + '×' + dgmI2cRes.h + '（' + dgmI2cRes.from + '）'
+      + '　clk ' + dgmI2cAddrText(cu.clk.addr) + '|0x' + cu.clk.or.toString(16).toUpperCase()
+      + '　0xFF20 &0x' + cu.ctl.and.toString(16).toUpperCase() + '|0x' + cu.ctl.or.toString(16).toUpperCase());
+    return c;
+  }
+  async function dgmI2cCrossOff() {
+    var ic = dgmI2cIc; if (!ic || !ic.cursor) return;
+    await dgmI2cCursorOff(ic);
+    dgmI2cOut('十字（cursor）OFF：' + dgmI2cAddrText(ic.cursor.off.addr) + ' &0xFD');
+  }
+  /* (B) 內建 pattern 13（Chess 5x5 + Cross Gray）—— SetCrossPattern() */
+  async function dgmI2cCrossPattern() {
+    var ic = dgmI2cIc;
+    if (!ic || !ic.cross) throw new Error(dgmI2cNoPatternText());
+    await dgmI2cAgingMode(ic, true);
+    var cur = await dgmI2cReadReg(ic.cross.addr, 1);
+    await dgmI2cWriteReg(ic.cross.addr, [((cur[0] & ic.cross.and) | ic.cross.or) & 0xFF]);
+    dgmI2cOut('內建 pattern 13（Chess 5x5 + Cross Gray）：' + dgmI2cAddrText(ic.cross.addr)
+      + ' ← (0x' + cur[0].toString(16).toUpperCase() + ' & 0x80) | 0x0D');
   }
 
   /* ═══ 觀測點（唯讀）══════════════════════════════════════════════════════ */
@@ -3921,27 +4244,40 @@
       res.agingEn = (g[0] & 1);
       dgmI2cShow('dgm-i2c-v-ag', res.agingEn + '　(0xE801 ＝ 0x' + g[0].toString(16).toUpperCase() + ')', true);
 
-      var p = await dgmI2cReadReg(0x1200, 1);
-      res.ptg = p[0];
-      dgmI2cShow('dgm-i2c-v-ptg', '0x' + p[0].toString(16).toUpperCase(), true);
-      if (dgmI2cInitPtg === null) dgmI2cInitPtg = p[0];
-
-      var q = await dgmI2cReadReg(0x1268, 1);
-      res.agingSw = (q[0] & 1);
-      dgmI2cShow('dgm-i2c-v-agen', res.agingSw + '　(0x1268 ＝ 0x' + q[0].toString(16).toUpperCase() + ')', true);
+      /* 🔴 v1.66.0：ptg 與 aging_en 的位址**依認出來的那一顆 IC**（三顆三個 base）。
+         認不出來就不讀這兩個 —— 讀 0x1200 在 EM02 上是別的 bank 的值，
+         印出來只會讓人以為讀到了東西。 */
+      var ic = dgmI2cIc;
+      if (ic && ic.soft) {
+        var p = await dgmI2cReadReg(ic.soft.addr, 1);
+        res.ptgAddr = ic.soft.addr; res.ptg = p[0];
+        dgmI2cShow('dgm-i2c-v-ptg', '0x' + p[0].toString(16).toUpperCase(), true);
+        if (dgmI2cInitPtg === null) dgmI2cInitPtg = p[0];
+      } else {
+        dgmI2cShow('dgm-i2c-v-ptg', '—（認不出 IC，不知道該讀哪個 base）', false);
+      }
+      if (ic && ic.agingEn) {
+        var q = await dgmI2cReadReg(ic.agingEn.addr, 1);
+        res.agingSw = (q[0] >> ic.agingEn.bit) & 1;
+        dgmI2cShow('dgm-i2c-v-agen', res.agingSw + '　(' + dgmI2cAddrText(ic.agingEn.addr)
+          + ' ＝ 0x' + q[0].toString(16).toUpperCase() + ')', true);
+      } else {
+        dgmI2cShow('dgm-i2c-v-agen', '—（這顆的 reg_ptg_aging_en 位址未覆核）', false);
+      }
 
       dgmI2cLastProbe = res;
       dgmI2cOut('觀測點：IC ID ' + res.icid + ' · 0xFFC5 bit1 ＝ ' + res.agbsen
-        + ' · 0xE801 bit0 ＝ ' + res.agingEn + ' · 0x1200 ＝ 0x' + res.ptg.toString(16).toUpperCase()
-        + ' · 0x1268 bit0 ＝ ' + res.agingSw);
+        + ' · 0xE801 bit0 ＝ ' + res.agingEn
+        + (res.ptg != null ? ' · ' + dgmI2cAddrText(res.ptgAddr) + ' ＝ 0x' + res.ptg.toString(16).toUpperCase() : '')
+        + (res.agingSw != null ? ' · aging_en bit ＝ ' + res.agingSw : ''));
       if (res.agbsen === 1) {
-        dgmI2cToast('⚠ 0xFFC5 bit1 讀到 1 ＝ AGMODE 是 High。跳帽沒移對，先解決這個再往下。', 'warn');
+        dgmI2cSay('0xFFC5 bit1 讀到 1 ＝ AGMODE 是 High（跳帽在 VDD 側）。');
       } else {
-        dgmI2cToast('讀完了：0xFFC5 bit1 ＝ ' + res.agbsen + '、0xE801 bit0 ＝ ' + res.agingEn, 'ok');
+        dgmI2cSay('');
       }
     } catch (e) {
       dgmI2cOut('✕ 讀觀測點失敗：' + dgmErrMsg(e));
-      dgmI2cToast('讀觀測點失敗：' + dgmErrMsg(e), 'err');
+      dgmI2cSay('讀觀測點失敗：' + dgmErrMsg(e));
     } finally {
       dgmI2cLinkBusy = false; dgmI2cRender();
     }
@@ -4002,28 +4338,115 @@
     }
     $('dgm-i2c-probe').addEventListener('click', function () { dgmI2cProbe(); });
     $('dgm-i2c-enter').addEventListener('click', function () { dgmI2cGuard(dgmI2cEnterPattern); });
-    $('dgm-i2c-white').addEventListener('click', function () {
-      dgmI2cGuard(function () { return dgmI2cSetRgb12(0xFFF, 0xFFF, 0xFFF); });
+    /* 🔴 Gray 0~255：UI 給的是 8-bit 階，寫進去的是 12-bit（×16，`CCTForm.cs` L1076）。
+       滑桿與數字框雙向同步，兩個都可以直接送。 */
+    function dgmI2cGrayVal() {
+      var n = parseInt($('dgm-i2c-graynum').value, 10);
+      if (!isFinite(n)) n = 0;
+      return Math.max(0, Math.min(255, n));
+    }
+    function dgmI2cGraySync(v, from) {
+      var s = $('dgm-i2c-gray'), n = $('dgm-i2c-graynum');
+      if (from !== 'range' && s) s.value = v;
+      if (from !== 'num' && n) n.value = v;
+    }
+    $('dgm-i2c-gray').addEventListener('input', function () { dgmI2cGraySync(this.value, 'range'); });
+    $('dgm-i2c-graynum').addEventListener('input', function () { dgmI2cGraySync(dgmI2cGrayVal(), 'num'); });
+    $('dgm-i2c-graygo').addEventListener('click', function () {
+      var v = dgmI2cTo12(dgmI2cGrayVal());
+      dgmI2cGuard(function () { return dgmI2cSetRgb12(v, v, v); });
     });
-    $('dgm-i2c-mid').addEventListener('click', function () {
-      dgmI2cGuard(function () { return dgmI2cSetRgb12(0x800, 0x800, 0x800); });
+    /* 三顆快捷：值就寫在鈕面上（255 / 128 / 0），不需要另一行說明 */
+    [['dgm-i2c-white', 255], ['dgm-i2c-mid', 128], ['dgm-i2c-black', 0]].forEach(function (p) {
+      $(p[0]).addEventListener('click', function () {
+        dgmI2cGraySync(p[1]);
+        var v = dgmI2cTo12(p[1]);
+        dgmI2cGuard(function () { return dgmI2cSetRgb12(v, v, v); });
+      });
     });
-    $('dgm-i2c-black').addEventListener('click', function () {
-      dgmI2cGuard(function () { return dgmI2cSetRgb12(0x000, 0x000, 0x000); });
+    /* RGB 255：只留一色滿刻度，其餘 0（＝ PQ Tool CCTForm.cs L1103–1133 的 k=0/1/2） */
+    [['dgm-i2c-r255', 0], ['dgm-i2c-g255', 1], ['dgm-i2c-b255', 2]].forEach(function (p) {
+      $(p[0]).addEventListener('click', function () {
+        var v = dgmI2cTo12(255), rgb = [0, 0, 0]; rgb[p[1]] = v;
+        dgmI2cGuard(function () { return dgmI2cSetRgb12(rgb[0], rgb[1], rgb[2]); });
+      });
     });
+    /* 十字 */
+    $('dgm-i2c-cross-on').addEventListener('click', function () { dgmI2cGuard(dgmI2cCrossOn); });
+    $('dgm-i2c-cross-off').addEventListener('click', function () { dgmI2cGuard(dgmI2cCrossOff); });
+    $('dgm-i2c-cross-pat').addEventListener('click', function () { dgmI2cGuard(dgmI2cCrossPattern); });
+    $('dgm-i2c-altbtn').addEventListener('click', function () {
+      dgmI2cAltOn = !dgmI2cAltOn;
+      dgmI2cOut('cursor 序列改用 ' + (dgmI2cAltOn && dgmI2cIc && dgmI2cIc.crossAlt ? dgmI2cIc.crossAlt.key : (dgmI2cIc ? dgmI2cIc.key : '?')));
+      dgmI2cRender();
+    });
+    /* 解析度下拉：18 組預設逐項照抄 Form1.GetResolutionSetting，末項為自訂 */
+    (function () {
+      var sel = $('dgm-i2c-res'); if (!sel) return;
+      DGM_I2C_RES_PRESETS.forEach(function (p) {
+        var o = document.createElement('option');
+        o.value = p[0] + 'x' + p[1]; o.textContent = p[0] + ' × ' + p[1];
+        sel.appendChild(o);
+      });
+      var oc = document.createElement('option'); oc.value = 'custom'; oc.textContent = '自訂…';
+      sel.appendChild(oc);
+      sel.addEventListener('change', function () {
+        if (sel.value === 'custom') {
+          dgmI2cRes = { w: parseInt($('dgm-i2c-resw').value, 10) || 1920,
+                        h: parseInt($('dgm-i2c-resh').value, 10) || 1080, from: '自訂' };
+          $('dgm-i2c-resw').classList.remove('dgm-hidden');
+          $('dgm-i2c-resh').classList.remove('dgm-hidden');
+          dgmI2cResRender();
+          return;
+        }
+        var wh = sel.value.split('x');
+        dgmI2cRes = { w: parseInt(wh[0], 10), h: parseInt(wh[1], 10), from: '下拉選單' };
+        dgmI2cResRender();
+      });
+      ['dgm-i2c-resw', 'dgm-i2c-resh'].forEach(function (id) {
+        $(id).addEventListener('input', function () {
+          var w = parseInt($('dgm-i2c-resw').value, 10), h = parseInt($('dgm-i2c-resh').value, 10);
+          if (dgmI2cResSane(w, h)) { dgmI2cRes = { w: w, h: h, from: '自訂' }; dgmI2cResRender(); }
+        });
+      });
+    })();
     $('dgm-i2c-restore').addEventListener('click', function () { dgmI2cGuard(dgmI2cLeavePattern); });
     $('dgm-i2c-copy').addEventListener('click', function () {
       var t = ['TCON I2C 實測讀值 · ' + new Date().toLocaleString(),
-        'IC ID (0xFF00)   : ' + $('dgm-i2c-v-id').textContent,
+        'IC            : ' + $('dgm-i2c-icname').textContent,
+        'IC ID (0xFF00): ' + $('dgm-i2c-v-id').textContent,
         'agbsen  (0xFFC5b1): ' + $('dgm-i2c-v-agm').textContent,
         'aging_en(0xE801b0): ' + $('dgm-i2c-v-ag').textContent,
-        'ptg     (0x1200)  : ' + $('dgm-i2c-v-ptg').textContent,
-        'aging_sw(0x1268b0): ' + $('dgm-i2c-v-agen').textContent,
+        'ptg     (' + $('dgm-i2c-a-ptg').textContent + ')  : ' + $('dgm-i2c-v-ptg').textContent,
+        'aging_sw(' + $('dgm-i2c-a-agen').textContent + '): ' + $('dgm-i2c-v-agen').textContent,
         '', '─── 原始交易 log ───', dgmI2cOutLines.join('\n')].join('\n');
       try { navigator.clipboard.writeText(t); dgmI2cToast('已複製', 'ok'); }
       catch (e) { dgmI2cToast('複製失敗，請自己框選', 'err'); }
     });
     dgmI2cRender();
+
+    /* ═══ 🔴 切到這一頁就自動接手 I2C（Bruce 2026-09-18）═══════════════════
+       目的：helper 只要開一次，兩頁來回切都不必按任何按鈕。
+       界線（都是刻意的）：
+         · 只在**變成可見**時觸發。背景頁不自動重連 —— 否則兩頁會互搶抖動。
+         · 已經是持有者（連線還活著）就什麼都不做。
+         · 對方在量測中（helper 回 locked）就**不搶**，只講一句話。
+         · 全程靜默：log 記，畫面不跳訊息。 */
+    var dgmI2cAutoTimer = 0;
+    function dgmI2cAutoClaim() {
+      if (document.hidden) return;
+      if (running || dgmI2cLinkBusy || dgmI2cLinkActive) return;
+      if (dgmI2cLastTransport !== 'ws') return;   // 本 session 還沒用 helper 連成功過 ⇒ 不自作主張
+      if (dgmI2cAutoTimer) return;
+      dgmI2cAutoTimer = setTimeout(function () {
+        dgmI2cAutoTimer = 0;
+        if (document.hidden || running || dgmI2cLinkBusy || dgmI2cLinkActive) return;
+        dgmI2cOut('分頁變成可見 → 自動接手 I2C');
+        try { dgmI2cWsOn(); } catch (e) {}
+      }, 250);
+    }
+    document.addEventListener('visibilitychange', dgmI2cAutoClaim);
+    window.addEventListener('focus', dgmI2cAutoClaim);
 
     /* ═══ v1.62.0：helper 自端網頁時自動連線 ═══════════════════════════════
        當這一頁是由 helper 從 http://127.0.0.1 端出來的（同源），使用者不必再
@@ -4051,7 +4474,27 @@
         就是驗不了，不做假的探針去製造「全綠」。 */
   window.dgmI2cProbe = {
     writeAllowed: dgmI2cWriteAllowed,
-    wrRange: function () { return [DGM_I2C_WR_MIN, DGM_I2C_WR_MAX]; },
+    /* v1.66.0：白名單改成 per-IC。純函式版本讓 selftest 不必去動全域狀態。 */
+    writeAllowedIn: dgmI2cWriteAllowedIn,
+    wrRangesOf: function (key) {
+      for (var i = 0; i < DGM_I2C_ICS.length; i++)
+        if (DGM_I2C_ICS[i].key === key) return dgmI2cWrRangesOf(DGM_I2C_ICS[i]);
+      return [];
+    },
+    /* 現在認出來的那一顆的允許區間（沒認出來＝空陣列＝完全禁寫） */
+    wrRanges: function () { return dgmI2cWrRangesOf(dgmI2cIc); },
+    /* 測試用：把「目前認出的 IC」切到某一顆（只影響白名單與按鈕狀態的判斷）。
+       🔴 這是唯一一個 setter，存在的理由是白名單的正面測試需要一個已識別的 IC；
+          不開這個口，正面那一半就永遠測不到 —— 那正是 check_nb_code_import 的教訓。 */
+    setIcForTest: function (key) {
+      dgmI2cIc = null;
+      for (var i = 0; i < DGM_I2C_ICS.length; i++) if (DGM_I2C_ICS[i].key === key) dgmI2cIc = DGM_I2C_ICS[i];
+      return !!dgmI2cIc;
+    },
+    center: dgmI2cCenter,
+    packXY: dgmI2cPackXY,
+    resSane: dgmI2cResSane,
+    resPresets: function () { return DGM_I2C_RES_PRESETS.map(function (p) { return p.slice(); }); },
     buildRead: dgmI2cBuildRead,
     buildWrite: dgmI2cBuildWrite,
     packRgb12: dgmI2cPackRgb12,
@@ -4092,7 +4535,11 @@
     commSlave: function () { return DGM_I2C_COMM_SLAVE; },
     commExpect: function () { return DGM_I2C_COMM_EXPECT.slice(); },
     slaveLabel: dgmI2cSlaveLabel,                       // 7-bit＋8-bit 標示（純函式）
-    isBusIdle: dgmI2cIsBusIdle                          // 全 0xFF＝總線閒置（純函式）
+    isBusIdle: dgmI2cIsBusIdle,                         // 全 0xFF＝總線閒置（純函式）
+    /* v1.66.0：忙碌鎖。驗得到的只有「函式在」與「沒連線時是 no-op」——
+       真的鎖不鎖得住是 helper 端的事，那一半由 test_server.c §9 用真 TCP 驗。 */
+    hasLock: function () { return typeof dgmI2cLock === 'function'; },
+    lockNoop: function () { try { dgmI2cLock(true); dgmI2cLock(false); return true; } catch (e) { return false; } }
   };
 
 
@@ -4688,6 +5135,10 @@
     if (dgmI2cLinkActive && !dgmSrcConfirmed) { dgmSrcCardShow(); return; }
     dgmSrcConfirmed = false;
     running = true;
+    /* 🔴 v1.66.0：量測期間鎖住 helper 的 I2C channel。Bruce 2026-09-18：切分頁時
+       哪一頁可見哪一頁自動接手 —— 但**正在跑的量測不能被打斷**，所以這條優先。
+       fire-and-forget：舊 helper（proto 2）不認得 lock，不回覆也不影響量測。 */
+    dgmI2cLock(true);
     aborted = null; lastStep = 0; lastGray = null; finished = false;
     dgmRunStartedAt = Date.now();        // v1.34.0：忽略窗從這一刻起算
     dgmFirstTxAt = 0; dgmFirstMesAt = 0; dgmRingGoneAt = 0;   // v1.35.0：時序證據歸零
@@ -4720,6 +5171,7 @@
       catch (e) { log('離開 ' + dgmPatternSource.name + ' 時出錯：' + dgmErrMsg(e), 'e'); }
     }
     running = false; finished = true;
+    dgmI2cLock(false);       // 量完（或中止／例外）就放開，別人可以接手了
     progStop();
     dgmWarnSync();          // v1.30.0：量完（或中止）之後警示要立刻回來，不必等輪詢
     /* 停止後可以直接再按一次；掉出全螢幕就仍然關著；連線掉了就變回「連線」。

@@ -98,7 +98,7 @@ ZIG=/path/to/zig ./build.sh          # 產出 dg-helper.exe（32 位元、PE32�
 ## 測試（可自驗的部分）
 
 ```bash
-cc -O2 test_proto.c -o test_proto && ./test_proto   # 75/75 通過（v1.4.0；原為 32/32）
+cc -O2 test_proto.c -o test_proto && ./test_proto   # 111/111 通過（v1.6.0；v1.4.0 為 76/76，原為 32/32）
 ```
 
 測到：WebSocket 握手（RFC 6455 標準向量）、SHA1／Base64、JSON 擷取、
@@ -122,6 +122,7 @@ libMPSSE.dll 做 GetProcAddress」這一層。
 | `{"type":"read","slave":96,"addr":65280,"len":3,"awid":2}` | `{"type":"result","cmd":"read","ok":true,"data":[..],"status":0}` |
 | `{"type":"write","slave":96,"addr":4608,"data":[..]}` | `{"type":"result","cmd":"write","ok":true,"status":0}` |
 | `{"type":"rawwrite","slave":104,"addr":0,"data":[..],"awid":2}` | `{"type":"result","cmd":"rawwrite","ok":true,"status":0,"transferred":N}` |
+| `{"type":"lock","id":N,"on":1}` | `{"type":"result","cmd":"lock","ok":true,"locked":true}` |
 | `{"type":"close"}` | `{"type":"result","cmd":"close","ok":true}` |
 
 **proto 1 → 2 的差異（向後相容）**
@@ -137,6 +138,35 @@ libMPSSE.dll 做 GetProcAddress」這一層。
   既有的 `write` 與它的白名單**原封未動**，dg-measure 的防線不受影響。
 - 網頁端用 `pong.proto` 判相容：`dg-measure.html` 需要 `proto >= 1`、
   `i2c.html` 需要 `proto >= 2`。
+
+**proto 2 → 3 的差異（向後相容）**
+
+- 新增 **`lock`**：只有 channel 的**持有者**能設。`on:1` 之後，別人帶 `takeover:1`
+  的 `open` 會被拒絕並回 `busy:true` **＋ `locked:true`** —— 兩個旗標分開是刻意的：
+  頁面要能分辨「對方拿著」與「對方正在量測」，因為下一步完全不同。
+  🔴 存在的理由只有一個：dg 正在跑 Gray 0~255 量測時，使用者切到別的分頁
+  **不可以**把那條量測打斷。
+  lock 在三種情況會自動清掉：持有者斷線、持有者 `close`、持有權易主。
+  忘了清的後果是 helper 永遠認為「有人忙碌中」，只能重開 —— 正好是 v1.6.0 要免掉的事。
+- `hello` 與 `pong` 多回 `locked`（`pong` 另回 `owner`）。
+- 🔴 網頁端**仍只要求 proto ≥ 2**。lock 是選配：沒有它只是少一道保護，
+  不該讓拿著舊 helper 的人整條路斷掉。網頁送 lock 是 fire-and-forget，
+  舊 helper 不回覆也不影響量測。
+
+**位址白名單（`write`）v1.6.0 起是幾個區間的聯集**
+
+| 區間 | 誰用 |
+|---|---|
+| `0x0001–0x0004` | cursor clock enable（per-IC 落在其中一個 byte） |
+| `0x0200–0x02FF` | ptg：E512A1 / V512S1 |
+| `0x0C00–0x0CFF` | ptg：EM02A1 / V512S2 / VM02S1 |
+| `0x1200–0x12FF` | ptg：EM01A1 / VM01S1 |
+| `0xFF20–0xFF25` | tm：cursor 開關／模式／顏色與 x,y 座標 |
+
+🔴 **helper 這一份必然是粗的：它不知道對面是哪一顆 IC**（IC 識別在網頁端）。
+精確的那一份在 `dg-measure.html` 的 `dgmI2cWrRangesOf()`，依識別出來的 IC 逐顆查表，
+而且**認不出來就一個位址都不寫**。兩份的分工是刻意的 —— 把 helper 這份也做成
+per-IC 等於讓它相信網頁傳來的判斷，那就不是第二道防線，只是把第一道抄了一份。
 
 I2C 序列（照抄 PQ Tool 反組譯 `xCtrl_FTDI_I2C.cs` / `xCtrl_I2C_App.cs`）：
 - open：`I2C_InitChannel(ClockRate=150000, LatencyTimer=1, Options=3)`，channel 0
