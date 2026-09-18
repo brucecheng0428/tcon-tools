@@ -141,6 +141,9 @@ function baseScript(f) {
   const A = win.__i2ct;
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  /* 🔴 寫 0x50–0x57 會跳「EEPROM 型號確認」視窗。其他組不是在驗那個視窗，
+     預先作答成 24C32，否則測試會停在那裡等人按。視窗本身由專屬那一組驗。 */
+  A.eepromAuto('24C32');
   G('0. 頁面載入');
   CHECK(pageErrors.length === 0, '載入時沒有 JS 例外：' + pageErrors.join(' | '));
   CHECK(!!A, 'window.__i2ct 測試掛勾存在');
@@ -1105,6 +1108,18 @@ function baseScript(f) {
       }
     }
 
+    /* 視覺層次：主值要比兩個角落大。
+       🔴 位置很重要：**必須在任何 slotClick 之前**。三層同時存在只會出現在
+       「讀了三次、值變過兩次」這種自然狀態（主值 BB、左上 05、右上 AA）；
+       一旦開始輪替，正確行為就是其中一個角落是空的。 */
+    {
+      const td = doc.querySelector('#dump td[data-addr="5"]');
+      const mv = parseFloat(win.getComputedStyle(td.querySelector('.mv')).fontSize);
+      const sv = parseFloat(win.getComputedStyle(td.querySelector('.sv')).fontSize);
+      CHECK(!!td.querySelector('.ov'), '三層都在（主值／左上／右上）');
+      CHECK(mv > sv, '🔴 主值比角落小字大（' + mv + 'px vs ' + sv + 'px）—— 三個一樣大會看錯要燒哪個');
+    }
+
     /* 🔴 三槽輪替：點左上 ⇒ 主值換成快照值、原主值移到右上；點右上 ⇒ 換回來。
        可以無限來回而不遺失任何一個值，而且**主值就是按寫入時會燒的值**。 */
     {
@@ -1121,22 +1136,24 @@ function baseScript(f) {
       {
         const c = A.cellParts(5);
         EQ(c.main, 'BB', '🔴 點右上 ⇒ 主值換回 BB');
-        EQ(c.old, '05', '對調之後右上變成 05');
+        /* 🔴 2026-09-19 更正：這兩條**原本把 bug 寫成預期行為**（斷言「對調之後
+           右上變成 05」「再點右上又換回 05」）。那正是 Bruce 看到的
+           「右上變得跟左上一樣而且不消失」。右上的語意是「這一格在變成現在
+           這個值之前是什麼」—— 放回主值之後就沒有換出值了，那個槽必須是空的。
+           這也是為什麼這個 bug 能出貨：**測試背書了錯誤的規格。** */
+        EQ(c.old, null, '🔴 放回去之後右上**清空**（不是對調成跟左上一樣）');
+        EQ(c.snap, '05', '左上仍然是快照值 05，與右上不會變成同一個值');
       }
       A.slotClick(5, 'ov');
-      EQ(A.cellParts(5).main, '05', '再點右上 ⇒ 又換回 05（可無限來回）');
+      EQ(A.cellParts(5).main, 'BB', '🔴 右上已空 ⇒ 再點不做事（不是又換回去）');
+      A.slotClick(5, 'sv');
+      EQ(A.cellParts(5).main, '05', '🔴 要換回快照值就點左上 ⇒ 可無限來回');
+      A.slotClick(5, 'ov');
+      EQ(A.cellParts(5).main, 'BB', '🔴 再點右上 ⇒ 回到 BB（A ⇄ B 無限來回）');
       A.slotClick(5, 'ov');
       EQ(A.cellParts(5).main, 'BB', '再點一次 ⇒ BB，值一個都沒遺失');
     }
 
-    /* 視覺層次：主值要比兩個角落大 */
-    {
-      const td = doc.querySelector('#dump td[data-addr="5"]');
-      const mv = parseFloat(win.getComputedStyle(td.querySelector('.mv')).fontSize);
-      const sv = parseFloat(win.getComputedStyle(td.querySelector('.sv')).fontSize);
-      CHECK(!!td.querySelector('.ov'), '三層都在（主值／左上／右上）');
-      CHECK(mv > sv, '🔴 主值比角落小字大（' + mv + 'px vs ' + sv + 'px）—— 三個一樣大會看錯要燒哪個');
-    }
     A.clearFile();
   }
 
@@ -1562,6 +1579,300 @@ function baseScript(f) {
     await A.doRead(); await sleep(20);
     CHECK(doc.getElementById('btn-write').disabled === true,
       '🔴 只是讀回來的資料不會變成寫入來源（防誤燒）');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('32. 🔴 一格三槽的狀態機：A ⇄ B 可無限來回，兩個值都不會遺失');
+  {
+    /* Bruce 2026-09-19：「點了右上以後，右上的值居然會變成跟左上一樣，
+       而且沒有消失」。舊寫法在右上分支做**對調**，正確的是**放回去並清空**。 */
+    const A0 = { main: 0xAA, ref: 0x55, prev: 0, hasPrev: 0 };   /* 狀態 A */
+    const B = A.slotNext(A0, 'sv');
+    EQ(JSON.stringify(B), JSON.stringify({ main: 0x55, ref: 0x55, prev: 0xAA, hasPrev: 1 }),
+       '🔴 A 點左上 ⇒ B（主值＝快照值、右上＝原新值）');
+    const A1 = A.slotNext(B, 'ov');
+    EQ(JSON.stringify(A1), JSON.stringify({ main: 0xAA, ref: 0x55, prev: 0, hasPrev: 0 }),
+       '🔴 B 點右上 ⇒ 回到 A（右上**清空**，不是變成跟左上一樣）');
+    EQ(A.slotNext(B, 'ov').prev, 0, '🔴 右上真的空了（hasPrev=0）');
+    /* 連續交替 10 次仍然正確 */
+    let st = { main: 0xAA, ref: 0x55, prev: 0, hasPrev: 0 }, okAll = true;
+    for (let i = 0; i < 10; i++) {
+      st = A.slotNext(st, 'sv');
+      if (!st || st.main !== 0x55 || st.prev !== 0xAA || !st.hasPrev) { okAll = false; break; }
+      st = A.slotNext(st, 'ov');
+      if (!st || st.main !== 0xAA || st.hasPrev) { okAll = false; break; }
+    }
+    CHECK(okAll, '🔴 交替 10 次之後仍然回到正確狀態');
+    EQ(st.main, 0xAA, '10 次之後主值還是原本的新值');
+    /* 任何時候兩個角落的值都不相等（除非本來就相等 ⇒ 根本沒有切換行為） */
+    EQ(A.slotNext({ main: 0x33, ref: 0x33, prev: 0, hasPrev: 0 }, 'sv'), null,
+       '🔴 快照值與新值相同 ⇒ 這一格沒有切換行為');
+    EQ(A.slotNext({ main: 0x33, ref: null, prev: 0, hasPrev: 0 }, 'sv'), null, '沒有基準 ⇒ 不給換');
+    EQ(A.slotNext({ main: 0x33, ref: 0x44, prev: 0, hasPrev: 0 }, 'ov'), null, '右上是空的 ⇒ 點了不做事');
+    /* 端到端：真的點到 DOM 上的角落 */
+    A._reset();
+    await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: [0xAA, 0xAA, 0xAA, 0xAA] };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(20);          /* 建立基準 AA AA AA AA */
+    A.snapshot();
+    A.loadFile('newer.bin', new win.Uint8Array([0x55, 0xAA, 0xAA, 0xAA]));
+    await sleep(20);
+    const cell = () => A.cellParts(0);
+    CHECK(cell().main === '55' && cell().snap === 'AA' && cell().old === null,
+      '🔴 狀態 A：主值 55、左上 AA、右上空　' + JSON.stringify(cell()));
+    A.slotClick(0, 'sv'); await sleep(10);
+    CHECK(cell().main === 'AA' && cell().snap === null && cell().old === '55',
+      '🔴 狀態 B：主值 AA、左上消失、右上 55　' + JSON.stringify(cell()));
+    A.slotClick(0, 'ov'); await sleep(10);
+    CHECK(cell().main === '55' && cell().snap === 'AA' && cell().old === null,
+      '🔴 點右上 ⇒ 回到 A（右上消失，且**不等於**左上）　' + JSON.stringify(cell()));
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('31. 🔴 寫入的 EEPROM page 邊界切分（舊版完全沒做 ⇒ 靜默寫錯資料）');
+  {
+    /* Bruce 指定的驗證向量：起始 0x0010、100 byte、page 32 ⇒ 16/32/32/20 */
+    EQ(A.planWrite(0x0010, 100, 32).map(x => x.len).join('/'), '16/32/32/20',
+       '🔴 0x0010 起 100 byte、page 32 ⇒ 16/32/32/20');
+    EQ(A.planWrite(0x0010, 100, 32).map(x => '0x' + x.addr.toString(16).toUpperCase()).join(','),
+       '0x10,0x20,0x40,0x60', '🔴 每一段的起始位址都落在 page 邊界上');
+    EQ(A.planWrite(0, 128, 32).map(x => x.len).join('/'), '32/32/32/32', '對齊起點：整齊切四段');
+    EQ(A.planWrite(0, 100, 0).map(x => x.len).join('/'), '100', '不分段：一次送完（仍受 256 上限）');
+    EQ(A.planWrite(0, 600, 0).map(x => x.len).join('/'), '256/256/88',
+       '🔴 不分段也不能超過 Bridge 的 RAW_MAX_DATA(256)');
+    EQ(A.planWrite(0x1F, 3, 32).map(x => x.len).join('/'), '1/2', '剛好卡在頁尾前一個 byte');
+    EQ(A.planWrite(0, 64, 8).map(x => x.len).join('/'), '8/8/8/8/8/8/8/8', 'page 8 也對');
+    /* 🔴 partial page write 是合法的（Bruce 2026-09-19 查證）：page size 是**上限
+       不是必須**，1～page 之間任意長度都可以。所以切段的判準只有「不得跨越 page
+       邊界」，**絕對不可以把尾段補齊到 page size** —— 那會寫進他沒要寫的資料。 */
+    EQ(A.planWrite(0x0003, 1, 32).map(x => x.len).join('/'), '1',
+       '🔴 寫 1 byte ⇒ 一筆、資料長度 1（不補齊、不拒絕）');
+    EQ(A.planWrite(0x0003, 5, 32).map(x => x.len).join('/'), '5',
+       '🔴 寫 5 byte（同頁內）⇒ 一筆、長度 5（不切）');
+    EQ(A.planWrite(0x001E, 10, 32).map(x => x.len).join('/'), '2/8',
+       '🔴 0x001E 起 10 byte ⇒ 切兩筆 2 ＋ 8（跨頁邊界才切）');
+    EQ(A.planWrite(0x001E, 10, 32).map(x => '0x' + x.addr.toString(16).toUpperCase()).join(','),
+       '0x1E,0x20', '🔴 兩筆的位址是 0x1E 與 0x20');
+    CHECK(A.planWrite(0x0010, 100, 32).every(x => x.len <= 32) &&
+          A.planWrite(0x0010, 100, 32).some(x => x.len !== 32),
+      '🔴 沒有任何一筆被補齊到 page size（16 與 20 都是 partial page write）');
+
+    /* 每一段都不得跨頁：用獨立邏輯重驗一次（不用自己的函式驗自己） */
+    for (const [base, len, page] of [[0x10, 100, 32], [0x7, 300, 16], [0, 4096, 32], [0x123, 77, 64]]) {
+      const plan = A.planWrite(base, len, page);
+      let okAll = true, total = 0, cursor = base;
+      for (const seg of plan) {
+        if (seg.addr !== cursor) okAll = false;
+        if (page > 0 && Math.floor(seg.addr / page) !== Math.floor((seg.addr + seg.len - 1) / page)) okAll = false;
+        if (seg.len > 256 || seg.len <= 0) okAll = false;
+        cursor += seg.len; total += seg.len;
+      }
+      CHECK(okAll && total === len,
+        '🔴 base=0x' + base.toString(16) + ' len=' + len + ' page=' + page
+        + ' ⇒ 每段都在同一頁內、連續、總長正確（' + plan.length + ' 段）');
+    }
+    /* 端到端：真的送出去的訊息就是切好的那些段 */
+    A._reset();
+    const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.loadFile('p.bin', new win.Uint8Array(Array.from({ length: 100 }, (_, i) => i & 0xFF)));
+    await sleep(20);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
+    doc.getElementById('wr-page').value = '32';
+    await A.doWrite();
+    await sleep(30);
+    const w = SINCE(sent, 'rawwrite');
+    EQ(w.map(m => m.data.length).join('/'), '16/32/32/20', '🔴 實際送出：16/32/32/20');
+    EQ(w.map(m => m.addr).join(','), '16,32,64,96', '🔴 實際送出的位址：0x10,0x20,0x40,0x60');
+    const flat = []; w.forEach(m => m.data.forEach(b => flat.push(b & 0xFF)));
+    EQ(flat.length, 100, '總共還是 100 byte');
+    EQ(flat.every((b, i) => b === (i & 0xFF)), true, '🔴 切分沒有弄亂資料順序');
+    /* 切到「不分段」 */
+    A._reset();
+    const sent2 = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.loadFile('q.bin', new win.Uint8Array(100));
+    await sleep(20);
+    /* 🔴 用非 EEPROM 的 slave 驗「不分段」：0x50–0x57 會被型號確認視窗
+       強制填回該型號的 page size，那條路由專屬的那一組驗。 */
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0010', len: '100' });
+    doc.getElementById('wr-page').value = '0';
+    doc.getElementById('wr-page').dispatchEvent(new win.Event('change', { bubbles: true }));
+    await A.doWrite();
+    await sleep(30);
+    EQ(SINCE(sent2, 'rawwrite').map(m => m.data.length).join('/'), '100', '🔴 不分段：一筆送完');
+    CHECK(/連續/.test(doc.getElementById('pagehint').textContent),
+      '🔴 一行極短寫出目前生效的模式：' + doc.getElementById('pagehint').textContent);
+    CHECK(doc.getElementById('wr-twr').disabled === true, '不分段時段間等待停用（沒有意義）');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('33. 🔴 依 slave 位址自動決定分段：0x50–0x57 才是 EEPROM');
+  {
+    /* Bruce 2026-09-19：「只有在 slave address 是 0x50 到 0x57 這八種，才需要
+       預設選到 32 bytes 的分頁寫入」。EEPROM 的位址是 `1010 A2 A1 A0`，
+       高四位由規範固定 ⇒ 正好這八個。 */
+    for (const a of [0x50, 0x51, 0x54, 0x57]) EQ(A.isEepromAddr(a), true, '0x' + a.toString(16) + ' 是 EEPROM');
+    for (const a of [0x4F, 0x58, 0x68, 0x00, 0x7F]) EQ(A.isEepromAddr(a), false, '0x' + a.toString(16) + ' 不是 EEPROM');
+    const setSlave = (v) => {
+      const e = doc.getElementById('in-slave'); e.value = v;
+      e.dispatchEvent(new win.Event('input', { bubbles: true }));
+    };
+    A.pageTouched(false);
+    for (const [addr, want] of [['0x50', 32], ['0x57', 32], ['0x4F', 0], ['0x58', 0], ['0x68', 0], ['0x53', 32]]) {
+      setSlave(addr);
+      EQ(A.pageSize(), want, '🔴 slave ' + addr + ' ⇒ ' + (want ? '自動分段 ' + want + 'B' : '自動不分段'));
+    }
+    setSlave('0x50');
+    CHECK(/自動/.test(doc.getElementById('pagehint').textContent),
+      '🔴 標明是自動判定的：' + doc.getElementById('pagehint').textContent);
+    /* 手動指定之後就不准被自動規則蓋掉 */
+    doc.getElementById('wr-page').value = '8';
+    doc.getElementById('wr-page').dispatchEvent(new win.Event('change', { bubbles: true }));
+    EQ(A.pageSize(), 8, '手動選 8 byte');
+    setSlave('0x68');
+    EQ(A.pageSize(), 8, '🔴 切到非 EEPROM 的 slave ⇒ **維持他手動選的 8**，不被蓋掉');
+    setSlave('0x50');
+    EQ(A.pageSize(), 8, '🔴 再切回 EEPROM ⇒ 仍然維持 8（他指定過就是他說了算）');
+    CHECK(/手動/.test(doc.getElementById('pagehint').textContent),
+      '🔴 標明是手動指定的：' + doc.getElementById('pagehint').textContent);
+    A.pageTouched(false); setSlave('0x50');
+    EQ(A.pageSize(), 32, '重置旗標後回到自動規則');
+
+    /* 🔴 選項旁的型號標示（常見值，不是保證） */
+    const opts = Array.from(doc.getElementById('wr-page').options).map(o => o.value + '=' + o.textContent);
+    EQ(opts.join('|'),
+       '8=8B（24C01/02）|16=16B（24C04/08/16）|32=32B（24C32/64）|64=64B（24C128/256）'
+       + '|128=128B（24C512）|256=256B（24C1024）|0=不分段',
+       '🔴 每個 page size 都標了對應的常見型號');
+
+    A.pageTouched(false); setSlave('0x68');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('35. 🔴 寫 EEPROM 前的型號確認視窗（選型號，page size 由系統填）');
+  {
+    /* Bruce 2026-09-19：把使用者要知道的東西從**實作細節（page size）**換成
+       **他本來就知道的事實（我手上這顆是 24C32）**⇒ 不可能選錯。
+       所以視窗裡刻意**沒有** page size。 */
+    A.eepromAuto();                    /* 回到真的會跳視窗的模式 */
+    const modal = () => win.getComputedStyle(doc.getElementById('eeprom')).display;
+    EQ(modal(), 'none', '平常不出現');
+    A._reset();
+    const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.loadFile('e.bin', new win.Uint8Array(100));
+    await sleep(20);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
+    let p = A.doWrite();               /* 不 await：視窗會擋住 */
+    await sleep(30);
+    CHECK(modal() !== 'none', '🔴 slave 0x50 ＋ 按寫入 ⇒ 視窗出現');
+    /* 內容：每列「型號 — N Kbit (M B/KB)」，且**沒有** page size 字樣 */
+    /* 每一列是 grid 的三欄（型號／—／容量），欄距來自 CSS 的 gap，
+       所以 textContent 串起來沒有空白 —— 用欄位本身斷言比較誠實。 */
+    const rows = Array.from(doc.querySelectorAll('#ee-list .eerow')).map(r => ({
+      id: r.querySelector('.eeid').textContent,
+      sep: r.querySelector('.eesep').textContent,
+      cap: r.querySelector('.eecap').textContent
+    }));
+    EQ(rows.length, 11, '11 種型號');
+    EQ(rows[0].id + ' ' + rows[0].sep + ' ' + rows[0].cap, '24C01 — 1 Kbit (128 B)', '🔴 第一列格式');
+    EQ(rows[5].id + ' ' + rows[5].sep + ' ' + rows[5].cap, '24C32 — 32 Kbit (4 KB)', '🔴 24C32 那列');
+    EQ(rows[10].id + ' ' + rows[10].sep + ' ' + rows[10].cap, '24C1024 — 1 Mbit (128 KB)', '最後一列');
+    CHECK(!/page|Page|byte 分段|分段/.test(doc.getElementById('ee-list').textContent),
+      '🔴 視窗裡**沒有** page size 字樣');
+    EQ(doc.querySelector('#ee-list input:checked').value, '5', '🔴 預設選中 24C32');
+    /* 按取消 ⇒ 一個 byte 都沒送 */
+    doc.getElementById('ee-cancel').click();
+    await p; await sleep(20);
+    EQ(modal(), 'none', '取消後視窗關掉');
+    EQ(SINCE(sent, 'rawwrite').length, 0, '🔴 按取消 ⇒ 一個 byte 都沒送出');
+    /* 逐型號驗「選完自動填入 page size」 */
+    for (const [id, want] of [['24C01', 8], ['24C02', 8], ['24C04', 16], ['24C08', 16], ['24C16', 16],
+                              ['24C32', 32], ['24C64', 32], ['24C128', 64], ['24C256', 64],
+                              ['24C512', 128], ['24C1024', 256]]) {
+      A._reset();
+      await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+      A.loadFile('m.bin', new win.Uint8Array(8));
+      await sleep(15);
+      A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '8' });
+      const pr = A.doWrite();
+      await sleep(25);
+      CHECK(modal() !== 'none', '選 ' + id + ' 之前視窗有開');
+      const idx = A.EEPROMS.findIndex(e => e.id === id);
+      doc.querySelectorAll('#ee-list input[name=eesel]')[idx].checked = true;
+      doc.getElementById('ee-ok').click();
+      await pr; await sleep(20);
+      EQ(A.pageSize(), want, '🔴 選 ' + id + ' ⇒ 分段自動填 ' + want);
+    }
+    /* 確認之後真的照填入的 page size 切段 */
+    A._reset();
+    const sent3 = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.loadFile('e2.bin', new win.Uint8Array(100));
+    await sleep(20);
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
+    const pr2 = A.doWrite();
+    await sleep(25);
+    doc.querySelectorAll('#ee-list input[name=eesel]')[5].checked = true;   /* 24C32 */
+    doc.getElementById('ee-ok').click();
+    await pr2; await sleep(30);
+    EQ(SINCE(sent3, 'rawwrite').map(m => m.data.length).join('/'), '16/32/32/20',
+       '🔴 確認之後照 24C32 的 32 byte 切段：16/32/32/20');
+    /* 非 EEPROM 的 slave 不跳視窗，直接寫 */
+    for (const a of ['0x4F', '0x58', '0x68']) {
+      A._reset();
+      const s4 = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+      A.loadFile('e3.bin', new win.Uint8Array(8));
+      await sleep(15);
+      A.setInputs({ slave: a, awid: 2, off: '0x0000', len: '8' });
+      await A.doWrite();
+      await sleep(20);
+      EQ(modal(), 'none', '🔴 slave ' + a + ' ⇒ 不跳視窗，直接寫');
+      EQ(SINCE(s4, 'rawwrite').length, 1, 'slave ' + a + ' 真的寫出去了');
+    }
+    A.eepromAuto('24C32');            /* 交還給其他組 */
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('34. 讀取沒有分段限制，但超過容量會位址回捲 ⇒ 從資料本身找證據');
+  {
+    /* Bruce 問「讀的部分是都沒有分段的限制，對嗎？」⇒ 對，sequential read 位址
+       自動遞增。但書：超過容量會回捲到 0，後半段是前半段的重複，不會報錯。
+       🔴 不擋他（他可能就是要測回捲），改成從資料本身找證據：整段以 p 重複。 */
+    const rep = (p, n) => Array.from({ length: n }, (_, i) => (i % p) * 3 + 1 & 0xFF);
+    EQ(A.wrapPeriod(rep(64, 256)), 64, '🔴 每 64 byte 重複 ⇒ 抓得到週期 64');
+    EQ(A.wrapPeriod(rep(256, 1024)), 256, '每 256 byte 重複 ⇒ 抓得到');
+    EQ(A.wrapPeriod(rep(16, 128)), 16, '週期 16 也抓得到');
+    /* 🔴 不能用 `(i*7+3)&0xFF` 當「沒有重複」的樣本：7 與 256 互質，那條序列
+       **本來就以 256 為週期**，函式判它重複是對的（第一版測試向量選錯，不是函式錯）。
+       改用真正不重複的樣本。 */
+    {
+      let x = 12345;
+      const noise = Array.from({ length: 512 }, () => { x = (x * 1103515245 + 12345) & 0x7FFFFFFF; return (x >> 16) & 0xFF; });
+      EQ(A.wrapPeriod(noise), 0, '🔴 沒有重複 ⇒ 完全不出聲（正常讀取不該被打擾）');
+      EQ(A.wrapPeriod(Array.from({ length: 512 }, (_, i) => (i * 7 + 3) & 0xFF)), 256,
+         '🔴 反過來：0..255 的等差序列讀 512 byte **確實**每 256 重複 —— 那正是回捲的樣子，判它重複是對的');
+    }
+    EQ(A.wrapPeriod(new Array(256).fill(0xFF)), 0, '🔴 整批 FF 不算回捲（那是總線閒置，另有判斷）');
+    EQ(A.wrapPeriod(new Array(256).fill(0x00)), 0, '整批 00 也不算');
+    EQ(A.wrapPeriod(rep(16, 16)), 0, '長度不足 ⇒ 不判（重複沒有鑑別力）');
+    /* 端到端：真的讀到回捲資料時畫面要講一句 */
+    A._reset();
+    await useHelper(baseScript((m) => {
+      if (m.type === 'read') {
+        const o = []; for (let i = 0; i < m.len; i++) o.push(((m.addr + i) % 64) * 3 + 1 & 0xFF);
+        return { ok: true, status: 0, data: o };
+      }
+    }));
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '512' });
+    await A.doRead(); await sleep(30);
+    CHECK(/回捲/.test(doc.getElementById('readbanner').textContent),
+      '🔴 讀到重複資料 ⇒ 一句話點出可能已超過容量');
+    CHECK(!/失敗|擋/.test(doc.getElementById('readbanner').textContent), '🔴 但不擋他，讀取照樣完成');
+    EQ(A.curSet().bytes.length, 512, '資料照樣全部收下');
     await win.__i2ct.disconnect();
   }
 
