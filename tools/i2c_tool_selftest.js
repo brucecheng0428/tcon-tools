@@ -88,11 +88,28 @@ const doc = win.document;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* 換一組假 helper：一定要先斷線再接，否則頁面還握著上一個 MockWS 實例，
-   新的腳本與 sent 陣列根本不會被用到（這正是第一版跑掛的原因）。 */
+   新的腳本與 sent 陣列根本不會被用到（這正是第一版跑掛的原因）。
+
+   🔴 2026-09-18：原本只有 `if (linked) disconnect()` —— **漏掉「連線正在進行中」
+      這個狀態**。頁面自己有兩個會自動連線的計時器（載入後 250ms 的自動連線、
+      斷線後的指數退避重試），所以有機會在 `linked===false` 但 `busy===true`
+      的瞬間走到這裡：不斷線 → 換掉 MockWS → `i2ctConnect()` 開頭的
+      `if (i2ctLinked || i2ctBusy) return;` 直接退出 → 新的 sent 是空陣列，
+      而頁面稍後用**上一個** mock 完成連線。症狀就是 `sent.filter(...)[0]`
+      是 undefined，而且時有時無（實測 6 次掛 2 次）。
+      這不是產品的 bug，是夾具的取樣點沒有等頁面靜下來。修法是等 busy 落下、
+      而且**無條件**斷一次線，不要用 linked 當前提。 */
+async function quiesce() {
+  for (let i = 0; i < 100 && win.__i2ct.state().busy; i++) await sleep(10);
+}
 async function useHelper(script) {
-  if (win.__i2ct.state().linked) { await win.__i2ct.disconnect(); await sleep(10); }
+  await quiesce();
+  await win.__i2ct.disconnect();      // 無條件：linked 為 false 也可能有殘留的 socket
+  await quiesce();
+  await sleep(10);
   const sent = makeMockWS(win, script);
   await win.__i2ct.connect();
+  await quiesce();
   await sleep(25);
   return sent;
 }
@@ -108,7 +125,11 @@ function baseScript(f) {
 }
 
 (async function run() {
-  await sleep(30);
+  /* 🔴 先讓頁面自己的「載入後自動連線」計時器（250ms）跑完再開始。
+     不等它的後果實測過：它會在第 8 組中間醒來，用**上一組**的 MockWS 把連線
+     接走，於是這一組的 sent 是空陣列 —— 6 次跑掛 2 次的那個時有時無就是它。
+     等 400ms 是讓夾具的取樣點落在頁面靜止之後，不是把問題蓋掉。 */
+  await sleep(400);
   const A = win.__i2ct;
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -447,8 +468,13 @@ function baseScript(f) {
     CHECK(A.isLocal('127.0.0.1') && A.isLocal('localhost') && !A.isLocal('brucecheng0428.github.io'),
           'loopback 判斷正確');
     const notice = doc.getElementById('offline-notice').textContent;
-    CHECK(notice.indexOf('離線打包版') >= 0, '🔴 離線版有明示提示（不是藏在說明裡）');
-    CHECK(notice.indexOf('brucecheng0428.github.io') >= 0, '🔴 提示裡寫出線上版網址：' + (notice.indexOf('github.io') >= 0));
+    CHECK(notice.indexOf('離線打包版') >= 0, '🔴 離線版提示保留（Bruce 明講的界線：他人在外面，抓不到新版整條路就斷了）');
+    /* 🔴 v1.2.0：從大橫幅縮成一行灰字 ⇒ 網址不再寫成純文字，改成連結的 href。
+       驗的東西不變（去得了線上版），驗的地方換成 href —— 這才是真正該成立的事。 */
+    const noticeHref = (doc.getElementById('offline-notice').querySelector('a') || {}).getAttribute
+      ? doc.getElementById('offline-notice').querySelector('a').getAttribute('href') : '';
+    CHECK(noticeHref.indexOf('brucecheng0428.github.io') >= 0, '🔴 提示裡的連結指向線上版：' + noticeHref);
+    CHECK(notice.length < 60, '🔴 而且它是一行，不是一大塊（實際 ' + notice.length + ' 字）');
     /* 🔴 離線版的下載連結必須指向**線上**網址 —— 指向相對路徑的話，helper 端
        根本沒有 data/ 這個目錄，他會抓到 404 而不是新版。 */
     const href = doc.getElementById('dl').getAttribute('href');
@@ -468,7 +494,7 @@ function baseScript(f) {
     });
     CHECK(A.state().channelBusy === true, '🔴 被佔用的狀態有被記下來');
     const b = doc.getElementById('topbanner').textContent;
-    CHECK(b.indexOf('被另一個頁面佔用') >= 0, '畫面明說被另一個頁面佔用，不是靜默失敗');
+    CHECK(b.indexOf('另一個頁面') >= 0, '畫面明說 I2C 在另一個頁面，不是靜默失敗');
     CHECK(b.indexOf('接手') >= 0, '訊息告訴使用者怎麼拿回來');
     CHECK(doc.getElementById('btn-takeover').style.display !== 'none', '🔴 「接手 I2C」按鈕露出來了（保護要留出口）');
     /* 被佔時不該一直重試 open —— 那是可判別狀態，不是暫時性失敗 */

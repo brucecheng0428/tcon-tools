@@ -5,15 +5,15 @@
    ═══════════════════════════════════════════════════════════════ */
 
 var TOOL_VERSIONS = {
-  app:     'v1.92.0',      // 首頁 app 總版號
+  app:     'v1.92.1',      // 首頁 app 總版號
   rxtx:    'v1.13.0',      // Rx/Tx 頻率計算工具
   calc:    'v1.6.0',       // mLVDS Skew 計算工具
   isp:     'v1.20.0',      // iSP 波形產生器
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
-  dg:      'v1.65.4',      // Digital Gamma 迭代校正
-  i2c:     'v1.1.0',       // I2C 讀寫測試
+  dg:      'v1.66.0',      // Digital Gamma 迭代校正
+  i2c:     'v1.2.0',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -38,11 +38,11 @@ var TOOL_VERSIONS = {
       現在兩個都存、畫面兩個都顯示，這個歧義就消失了。
    ═══════════════════════════════════════════════════════════════ */
 var HELPER_PKG = {
-  pkg:    'v1.5.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.5.0',                       // exe 內的 DG_HELPER_VERSION（ping 回報值）
-  proto:  2,                             // wire protocol 版本
-  file:   'data/dg-helper-v1.5.0.zip',
-  bytes:  307052,                             // zip 位元組數（打包後填）
-  zipSha: 'd120c53cb6935e71b705d9202da5db900d4176d56e40fd7e1560dd159b281865',
-  exeSha: '792542cc4ab75ce3a21baf8af111935c3d482a06e8898b503ef886a681001704'
+  pkg:    'v1.6.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.6.0',                       // exe 內的 DG_HELPER_VERSION（ping 回報值）
+  proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
+  file:   'data/dg-helper-v1.6.0.zip',
+  bytes:  314722,                             // zip 位元組數（打包後填）
+  zipSha: '73cedcccc3be1ccb61866b57568ae7a57f67c0f49a47d343901ca679022bebff',
+  exeSha: 'cb89e553af6e86090c2dab81920792f70c8b9c77e637a152d5774caa34cc6524'
 };
