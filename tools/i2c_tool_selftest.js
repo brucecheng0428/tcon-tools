@@ -270,6 +270,13 @@ function baseScript(f) {
       '🔴 診斷列也顯示版本：「' + doc.getElementById('hv-exe').textContent + '」');
     EQ(sent.filter(m => m.type === 'ping').length, 1, '先 ping 一次');
     EQ(sent.filter(m => m.type === 'open').length, 1, '再 open 一次');
+    /* 🔴 open 要帶網頁版本給 bridge 寫進 log（Bruce 2026-09-19）。
+       這一輪繞一圈就是因為 log 裡只有 exe 版本、沒有網頁版本，
+       分不出「新網頁送了 0」還是「舊網頁根本沒改」。 */
+    CHECK(/^v\d+\.\d+\.\d+$/.test(sent.filter(m => m.type === 'open')[0].page || ''),
+      '🔴 open 帶網頁版本：' + sent.filter(m => m.type === 'open')[0].page);
+    EQ(sent.filter(m => m.type === 'open')[0].page, win.TOOL_VERSIONS.i2c,
+      '🔴 送的就是 version.js 裡的版本（不另外寫死一份）');
 
     A.setInputs({ slave: '0x68', awid: 2, off: '0x1234', len: '3' });
     await A.doRead();
@@ -1220,7 +1227,12 @@ function baseScript(f) {
   /* ═════════════════════════════════════════════════════════════════════ */
   G('19g. 長讀取的進度與中止（256K ＝ 1024 次交易）');
   {
-    /* 🔴 用假 helper 驗，不需要真硬體。中止之後那一份**不得成為基準**。 */
+    /* 🔴 用假 helper 驗，不需要真硬體。中止之後那一份**不得成為基準**。
+       🔴 v1.13.3：中止的顆粒度**只存在於慢路徑**（快路徑 4096 一次送完、
+       約 0.1 秒，本來就不需要進度條與中止 —— 這是 i2ctChunk() 的設計理由）。
+       所以這一組要明講走慢路徑，不能靠預設值（快速模式已是預設開）。
+       🔴 要放在 useHelper（連線）**之後** —— 連線會把快速模式還原成預設開
+       （那正是這一版修掉的退回狀態不復原的 bug），放前面會被蓋掉。 */
     let served = 0;
     const sc = baseScript((m) => {
       if (m.type === 'read') {
@@ -1231,6 +1243,7 @@ function baseScript(f) {
       }
     });
     await useHelper(sc);
+    A.rawMpsse(false);   /* 連線之後才設，否則會被連線時的還原蓋掉 */
     A.clearFile();
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '2048' });
     const refBefore = A.refLabel();
@@ -2380,16 +2393,16 @@ function baseScript(f) {
        自動驗證只比 64 byte，他想拿 4096 byte 自己比一次時用這顆。 */
     A._reset();
     EQ(A.rawMpsse(), true, '🔴 快速模式預設開（v1.13.1 起）');
-    A.rawMpsse(false);        /* 這一組要從「關」的狀態驗比對按鈕的切換行為 */
     const sent = await useHelper(baseScript((m) => {
       if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
     }));
-    const opens = sent.filter(m => m.type === 'open');
-    EQ(opens[opens.length - 1].rawmpsse, 0, '🔴 open 明確帶 rawmpsse:0');
+    /* 🔴 連線之後才關 —— 連線會把快速模式還原成預設開（v1.13.3 修掉的那個
+       「退回狀態不復原」的 bug），在連線前設會被蓋掉。 */
+    A.rawMpsse(false);
     const chk = doc.getElementById('chk-rawmpsse');
     CHECK(!!chk, 'debug 區有快速模式開關');
-    chk.checked = false;      /* 與上面的 rawMpsse(false) 對齊 */
+    chk.checked = false;
     /* 快慢路徑比對：兩條路徑各讀一次，然後切回原本的設定 */
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '32' });
     const since = sent.length;
@@ -2453,6 +2466,47 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('45c. 🔴 分頁過舊的偵測（bridge 比我這份 version.js 預期的還新）');
+  {
+    /* 🔴 判準不是拍腦袋挑的門檻：version.js 與 i2c.html 同一次部署出去，
+       所以「我預期 X，實際連到 X 之後的版本」只有一個解釋 —— 我這份是舊的。
+       誠實的限制：**救不了已經開著的舊分頁**（它沒有這段程式碼），
+       只能讓下一次不再繞圈；舊分頁那一次靠 bridge 的 log。 */
+    const V = win.i2ctVerNewer;
+    CHECK(V('1.11.3', '1.11.2') === true,  '1.11.3 比 1.11.2 新');
+    CHECK(V('1.11.2', '1.11.3') === false, '反向不成立');
+    CHECK(V('1.11.2', '1.11.2') === false, '相同不算新');
+    CHECK(V('v1.12.0', '1.11.9') === true, '開頭的 v 不影響比較');
+    CHECK(V('1.12', '1.11.9') === true,    '缺的段當 0');
+    CHECK(V('unknown', '1.11.2') === false, '🔴 非數字一律不跳警告（不確定就不要吵他）');
+
+    A._reset();
+    await useHelper((m) => {
+      /* bridge 自報 99.0.0 ＝ 遠新於這份 version.js 預期的 ⇒ 這個分頁是舊的 */
+      if (m.type === 'ping') return { helper: '99.0.0', proto: 3, ok: true };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      return { ok: true, status: 0 };
+    });
+    const stale = doc.getElementById('topbanner').textContent;
+    CHECK(/Ctrl\+F5|重新整理/.test(stale), '🔴 一行字叫他重新整理：' + stale.slice(0, 40));
+    CHECK(stale.length < 40, '🔴 一行就好，不加說明段落（' + stale.length + ' 字）');
+    await win.__i2ct.disconnect();
+
+    /* 反面：版本相符時**不可以**跳這句話 */
+    A._reset();
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: win.HELPER_PKG.exe, proto: 3, ok: true };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      return { ok: true, status: 0 };
+    });
+    CHECK(!/Ctrl\+F5/.test(doc.getElementById('topbanner').textContent),
+      '🔴 版本相符 ⇒ 不跳重新整理（不要沒事嚇他）');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   G('45b. 🔴 快速模式預設開，第一次讀取自動驗證；不一致就自動退回');
   {
     /* 🔴 這一組驗的是「他什麼都不用勾」的那條路（Bruce 2026-09-19：
@@ -2503,9 +2557,39 @@ function baseScript(f) {
        不能只是畫面上說退回了，底下還在走快的。 */
     const lastOpen = s2.filter(m => m.type === 'open').pop();
     EQ(lastOpen.rawmpsse, 0, '🔴 退回後真的用慢的方式重新連線');
+    /* 🔴 驗證失敗的細節要送進 **bridge 的 log**（note 命令）。
+       Bruce 能傳給我們的只有 i2c-bridge.log；網頁 log 區的內容不會跟著過來，
+       這一輪就是因此繞了一圈。 */
+    const notes = s2.filter(m => m.type === 'note').map(m => m.msg).join(' | ');
+    CHECK(/verify FAIL/.test(notes), '🔴 失敗有送進 bridge log：' + notes.slice(0, 60));
+    CHECK(/first mismatch at \+\d+/.test(notes), '🔴 有寫出第一個不一致的位置');
+    CHECK(/fast\[0\.\.\] = [0-9A-F]{2} /.test(notes) && /slow\[0\.\.\] = [0-9A-F]{2} /.test(notes),
+      '🔴 快慢兩邊的實際位元組都有留下來（要看得出是不是 0F 那個形狀）');
     /* 退回之後那一次實際讀取，拿到的必須是慢路徑的值（0,1,2…） */
     const st45 = A.state();
     EQ([st45.buf[0], st45.buf[1], st45.buf[2]], [0, 1, 2], '🔴 最後落格的是慢路徑（正確）的值');
+    await win.__i2ct.disconnect();
+
+    /* 🔴🔴 (c) 退回之後**重新連線要能復原** —— 這是 Bruce 的 log 照出來的真 bug。
+       舊版重連只重設 i2ctFastVerified，沒有重設 i2ctRawMpsse ⇒
+       i2ctVerifyFastOnce 開頭就 return ⇒ 永遠不再驗、永遠走慢的，而且重連後
+       畫面上那一行提示還被清掉了，他完全看不出來。他重啟 Bridge 三次都送
+       rawmpsse:0，就是這個。 */
+    CHECK(A.rawMpsse() === false, '前提：上一段結束時是退回狀態');
+    const s3 = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.11.3', proto: 3, ok: true };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      if (m.type === 'read') return { ok: true, status: 0,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    CHECK(A.rawMpsse() === true, '🔴 重新連線 ⇒ 快速模式還原成預設開（會再驗一次）');
+    EQ(s3.filter(m => m.type === 'open').pop().rawmpsse, 1, '🔴 重連後送出的是 rawmpsse:1');
+    /* 這次兩邊資料相同 ⇒ 應該驗得過並沿用快的 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(30);
+    CHECK(A.rawMpsse() === true, '🔴 這次驗得過 ⇒ 真的用快的（狀態自己復原了）');
     await win.__i2ct.disconnect();
   }
 

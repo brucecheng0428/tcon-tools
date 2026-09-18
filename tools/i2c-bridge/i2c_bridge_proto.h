@@ -192,6 +192,20 @@ static inline int dgh_json_type(const char* s, char* out, int cap){
     if(*p!='"') return 0; p++; int i=0;
     while(*p&&*p!='"'&&i<cap-1) out[i++]=*p++; out[i]=0; return 1;
 }
+/* 🔴 取字串欄位（目前只用在 open 的 `page` ＝ 網頁版本，寫進 log）。
+   回傳 1 ＝ 有這個欄位；0 ＝ 沒有（呼叫端據此分辨「舊網頁不會送」與「送了空字串」）。
+   不處理跳脫序列：版本字串是 `v1.13.3` 這種形狀，沒有跳脫的可能；
+   真的來了跳脫字元也只是照抄進 log，不會影響判斷。 */
+static inline int dgh_json_str(const char* s, const char* key, char* out, int cap){
+    char pat[64]; const char* p; int i=0;
+    if(cap>0) out[0]=0;
+    snprintf(pat,sizeof(pat),"\"%s\"",key);
+    p=strstr(s,pat); if(!p) return 0;
+    p+=strlen(pat); while(*p&&(*p==' '||*p==':')) p++;
+    if(*p!='"') return 0; p++;
+    while(*p&&*p!='"'&&i<cap-1) out[i++]=*p++;
+    out[i]=0; return 1;
+}
 static inline int dgh_json_int_array(const char* s, const char* key, uint8_t* buf, int cap){
     char pat[64]; snprintf(pat,sizeof(pat),"\"%s\"",key);
     const char* p=strstr(s,pat); if(!p) return -1;

@@ -34,6 +34,88 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.13.3 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.3）
+
+**已證實根因：ftd2xx 的函式指標少了 `__stdcall`，一走快速路徑就把 Bridge 打死。**
+
+判定依據：修正為原本就該有的行為（呼叫慣例本來就該跟官方標頭一致）⇒ PATCH。
+
+### ✅ 已證實：`__stdcall` 缺漏（官方標頭 ＋ 症狀 ＋ 交叉驗證，三者齊備）
+
+Bruce：「重新整理讀取…**Bridge 的終端機會關掉**，下面又出現紅字『讀取失敗，I2C Bridge 尚未連線』」
+「我只要一重新整理網頁，再按讀取，**這個 I2C Bridge 的程式就一定會被關閉**」。
+
+`i2c_bridge.c` 的三個 ftd2xx 函式指標原本是：
+
+```c
+typedef unsigned long (*PFN_FT_Write)(void*, void*, unsigned long, unsigned long*);
+```
+
+但官方 `ftd2xx.h` 是 `FTD2XX_API FT_STATUS WINAPI FT_Write(...)` —— **`WINAPI` ＝ `__stdcall`**。
+32-bit x86 上 `__stdcall` 由**被呼叫端**清堆疊、cdecl 由**呼叫端**清 ⇒
+每呼叫一次堆疊就被多平衡一次（16 bytes），累積幾次毀掉堆疊 ⇒ **行程直接死**，
+終端機視窗跟著消失，網頁隨即報「尚未連線」。
+
+🔴 **交叉驗證（這是為什麼可以寫「已證實」）**：官方 `libMPSSE_i2c.h` 的 `FTDI_API`
+**沒有** `WINAPI` ⇒ libMPSSE 是 **cdecl**，而我們那一組 typedef 也沒寫 `__stdcall`
+⇒ **剛好正確**。所以慢路徑（只走 libMPSSE）從頭到尾都好好的，
+**只有走 ftd2xx 的快速路徑會死** —— 症狀的分布與這個解釋完全一致，沒有其他假設能同時解釋。
+
+**這條把先前幾件懸案一併定案**：
+
+- v1.11.0「完全連不到 Bridge」：`i2c_force_clock` 呼叫 `p_FT_Write` ⇒ 同一個當機。
+  當時我只能寫「移除嫌疑者、未證實根因」—— **現在證實了，就是這個。**
+- 快速模式的自動驗證一直判定失敗：它第一步就走 raw 路徑呼叫這三支。
+
+**修法**：三個 typedef 加上 `__stdcall`（非 Windows 編譯時定義成空的，自檢照常編）。
+
+🔴 **並把所有 `GetProcAddress` 取來的指標逐一對照官方標頭，把依據寫成註解**：
+
+| 來源 DLL | 官方標頭 | 慣例 | 我們 |
+|---|---|---|---|
+| `ftd2xx.dll` | `WINAPI FT_Write(...)` | **stdcall** | 本版補上 `__stdcall` ✅ |
+| `libMPSSE.dll` | `FTDI_API`（無 WINAPI） | **cdecl** | 刻意不加，正確 ✅ |
+| `ntdll.dll` | `RtlGetVersion` | stdcall | 原本就寫 `WINAPI` ✅ |
+| `winmm.dll` | `timeBeginPeriod` | stdcall | 原本就寫 `__stdcall` ✅ |
+
+這種錯**編得過、連結得過、只在執行期死**，靠「記得」擋不住，所以依據直接寫在型別旁邊。
+
+### 一併帶走的診斷改善
+
+- 🔴 **網頁端的自動驗證結果送進 `i2c-bridge.log`**（新的 `note` 命令）：
+  開始／通過／未通過、第一個不一致的 index、快慢兩邊各 16 byte 的實際值。
+  上一輪繞一圈就是因為失敗只留在網頁端，而他能傳給我們的只有 bridge 的 log。
+- 🔴 **網頁版本送進 `open` 並寫進 log**（`page` 欄位）。舊網頁不會送這個欄位，
+  所以「有沒有這個欄位」本身就是判準，不必挑版本門檻。
+- bridge 的慢路徑那一行改寫成
+  `flag off: THE PAGE SENT rawmpsse:0 (bridge never turns it off by itself)`，
+  並附上 `page=` 版本 —— 一眼看出不是 bridge 自己關的。
+- raw 讀取會印出 `0x87` 的位置、位址相位要收幾個 ACK、最後一個資料 byte 的 NACK 值，
+  以及收回來的 ACK 位元組。
+- 🔴 **分頁過舊的偵測**：bridge 自報的版本比本頁 `version.js` 預期的還新 ⇒
+  一行字「這個分頁是舊的，請按 Ctrl+F5 重新整理」。
+  誠實的限制：**救不了已經開著的舊分頁**（它沒有這段程式碼），只能讓下一次不繞圈。
+
+### 🔴 我自己的 bug：退回狀態跨重連不會復原
+
+自動驗證失敗會把 `i2ctRawMpsse` 設成 `false`，但重連只重設 `i2ctFastVerified`
+⇒ `i2ctVerifyFastOnce` 開頭就 return ⇒ **永遠不再驗、永遠走慢的**，
+而且重連會清掉畫面上那一行提示 ⇒ **他完全看不出自己在走慢路徑**。
+他重啟 Bridge、頁面自動重連三次都送 `rawmpsse:0`，就是這個。
+
+修法：重連一律回到「預設開、待驗證」（除非他手動動過開關，手動優先），
+而且**放在送出 `open` 之前** —— 放在連線成功之後，那一次的 open 仍會帶著舊的 0。
+退回時的那一行字也改成帶下一步：「重新整理頁面會再確認一次」。
+
+### 測試
+
+jsdom **828**（新增第 45c 組分頁過舊偵測與版本比較函式；45b 增加
+「退回細節有送進 bridge log」與「重連會復原並重驗」）、bridge TCP **103**。
+另修正 3 處假設「快速模式預設關」的舊案例 —— 它們要在**連線之後**才設模式，
+因為連線現在會還原預設（那正是本版修掉的 bug）。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.13.2 — 2026-09-19 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 🔴 exe 有動（I2C Bridge v1.11.2）
 
 **找到 600 kHz 的真正根因：是我們自己的 `ChannelConfig` 結構對齊錯誤。**
