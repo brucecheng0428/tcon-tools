@@ -22,6 +22,13 @@ int dgh_fake_writes      = 0;
 int dgh_fake_reads       = 0;
 unsigned char dgh_fake_last_write[64];
 int dgh_fake_last_write_len = 0;
+/* 🔴 記下最後一次呼叫帶的 transfer options ——「讀取有沒有真的走 fast 路徑」
+   只有從這個位元看得出來（0x10 ＝ I2C_TRANSFER_OPTIONS_FAST_TRANSFER_BYTES）。 */
+unsigned dgh_fake_last_read_opts  = 0;
+unsigned dgh_fake_last_write_opts = 0;
+/* 讓測試可以叫某一次讀／寫失敗（模擬 NACK），驗我們不會靜默吞掉。 */
+unsigned dgh_fake_read_status  = 0;
+unsigned dgh_fake_write_status = 0;
 
 static void      fake_Init(void){}
 static void      fake_Cleanup(void){}
@@ -31,14 +38,14 @@ static uint32_t  fake_Open(uint32_t idx, void** h){ (void)idx; *h=(void*)(intptr
 static uint32_t  fake_Close(void* h){ (void)h; dgh_fake_close_calls++; if(dgh_fake_live>0) dgh_fake_live--; return 0; }
 static uint32_t  fake_Init2(void* h, void* cfg){ (void)h; (void)cfg; return 0; }
 static uint32_t  fake_Write(void* h, uint32_t a, uint32_t n, unsigned char* b, uint32_t* t, uint32_t o){
-    (void)h;(void)a;(void)o; dgh_fake_writes++;
+    (void)h;(void)a; dgh_fake_writes++; dgh_fake_last_write_opts=o;
     dgh_fake_last_write_len = (int)(n>sizeof(dgh_fake_last_write)?sizeof(dgh_fake_last_write):n);
     memcpy(dgh_fake_last_write,b,(size_t)dgh_fake_last_write_len);
-    if(t)*t=n; return 0; }
+    if(t)*t=n; return dgh_fake_write_status; }
 static uint32_t  fake_Read(void* h, uint32_t a, uint32_t n, unsigned char* b, uint32_t* t, uint32_t o){
-    (void)h;(void)a;(void)o; dgh_fake_reads++;
+    (void)h;(void)a; dgh_fake_reads++; dgh_fake_last_read_opts=o;
     for(uint32_t i=0;i<n;i++) b[i]=(unsigned char)(0xA0+i);
-    if(t)*t=n; return 0; }
+    if(t)*t=n; return dgh_fake_read_status; }
 static uint32_t  fake_ChanInfo(uint32_t i, void* node){ (void)i; (void)node; return 0; }
 
 HMODULE LoadLibraryA(const char* path){
@@ -130,4 +137,17 @@ FILE* dgh_shim_fopen(const char* path, const char* mode){
     char p[MAX_PATH*2]; snprintf(p,sizeof(p),"%s",path?path:"");
     for(char* q=p; *q; q++) if(*q=='\\') *q='/';
     return fopen(p,mode);
+}
+
+/* ── 高解析度計時（見 shim/windows.h 的說明）──────────────────────────────── */
+#include <time.h>
+BOOL QueryPerformanceFrequency(LARGE_INTEGER* f){ if(f) f->QuadPart = 1000000000LL; return 1; }
+BOOL QueryPerformanceCounter(LARGE_INTEGER* c){
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    if(c) c->QuadPart = (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    return 1;
+}
+DWORD GetTickCount(void){
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (DWORD)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }

@@ -44,11 +44,55 @@
 #include "i2c_bridge_version.h"
 #include "i2c_bridge_proto.h"   /* SHA1 / Base64 / JSON / whitelist / Origin (shared with test_proto.c) */
 
-/* ---- I2C transfer options (from ftdi_i2c.h / the combos PQ Tool uses) ---- */
+/* ---- I2C transfer options (from ftdi_i2c.h / the combos PQ Tool uses) ----
+ *
+ * 🔴 效能根因（2026-09-19，Bruce 回報「讀 4096 byte 要 20~60 秒」）：
+ *    libMPSSE 的 I2C_DeviceRead 在**沒有** FAST_TRANSFER 位元時走的是逐 byte 迴圈
+ *
+ *        for(i=0; i<sizeToTransfer; i++)
+ *            I2C_Read8bitsAndGiveAck(handle, &buffer[i], ...);
+ *
+ *    而 I2C_Read8bitsAndGiveAck 每一個 byte 都做：
+ *        FT_Channel_Write(~17 bytes 的 MPSSE 命令) → INFRA_SLEEP(1) → FT_Channel_Read(1)
+ *    ⇒ **每個 byte 兩次 USB 往返 ＋ 一次 1 ms 睡眠**。
+ *    4096 byte 光是 sleep 就 4 秒起跳，加上 8192 次 USB 往返 ⇒ 20~60 秒完全說得通。
+ *    （理論 I2C 時間 @400kHz 只有 0.09 秒 ⇒ 99% 以上的時間不在匯流排上。）
+ *
+ * 🔴 而我們原本的設定是：位址相位與寫入**有**帶 0x10（fast），**只有讀取的資料
+ *    相位沒帶**（0x0B ＝ START|STOP|NACK_LAST_BYTE）。也就是說**寫入本來就是快的，
+ *    慢的只有讀取** —— 和他抱怨的正好一致。
+ *
+ * 🔴 這是對 PQ Tool 的**刻意偏離**（Bruce 授權）：PQ Tool 只讀幾個 byte，從來沒
+ *    踩到這個情境，它的 0x0B 沿用下來對我們是錯的選擇。I2C 線上的行為（START、
+ *    位址、repeated start、STOP）不變，改變的只是「命令怎麼下給 MPSSE」：
+ *    fast 模式把整段命令一次組好、一次送出，ACK 在整批結束時一起檢查。
+ *
+ * ⚠️ 我**沒有**讀到 I2C_FastRead 的函式本體（只讀到 ftdi_i2c.c 前 ~1000 行與
+ *    它的 doc comment），所以「fast 模式下 NACK_LAST_BYTE 是否照樣在最後一個
+ *    byte 送 NACK」**無法從原始碼確認**。I2C 規格要求 master 對讀取的最後一個
+ *    byte 回 NACK，這條若沒照做，匯流排可能不會正常釋放。
+ *    ⇒ 因此做成**可切換**：預設走 fast，`--slow-read` 或 open 命令帶
+ *      `"fastread":false` 就退回舊行為。Bruce 實測若讀取異常，不必換 exe 就能退回。
+ */
 #define I2C_FAST_TRANSFER_BYTES 0x10
 #define OPT_READ_ADDR   (0x09u | I2C_FAST_TRANSFER_BYTES)   /* 0x19 */
-#define OPT_READ_DATA   0x0Bu
+#define OPT_READ_DATA_SLOW  0x0Bu                            /* PQ Tool 原值（逐 byte） */
+#define OPT_READ_DATA_FAST  (0x0Bu | I2C_FAST_TRANSFER_BYTES)/* 0x1B：一次組命令一次送 */
 #define OPT_WRITE       (0x07u | I2C_FAST_TRANSFER_BYTES)   /* 0x17 */
+
+/* 讀取要不要走 fast 路徑。預設 1；`--slow-read` 或 open 帶 fastread:false 可關。 */
+int dgh_fast_read = 1;
+#define OPT_READ_DATA (dgh_fast_read ? OPT_READ_DATA_FAST : OPT_READ_DATA_SLOW)
+
+/* ---- 計時（Bruce：「讀取或寫入那邊再多一個計時的顯示」）----
+ * bridge 這一側量的是「libMPSSE 呼叫本身」花多久，網頁那側量 WebSocket 往返。
+ * 兩個數字相減就知道時間是花在 USB/I2C 還是花在我們自己的傳輸層。 */
+static double now_ms(void){
+    LARGE_INTEGER f, c;
+    if(!QueryPerformanceFrequency(&f) || f.QuadPart == 0) return (double)GetTickCount();
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart * 1000.0 / (double)f.QuadPart;
+}
 
 /* ---- write address whitelist (ptg bank) ----
  * 🔴 SCOPE: this whitelist guards the **dg-measure** flow only, i.e. the
@@ -399,18 +443,32 @@ static int build_offset(uint8_t* ab, uint32_t addr, uint32_t awid){
     return dgh_build_offset(ab, addr, awid);
 }
 /* awid: 0/1/2/4. awid==0 -> current-address read (no address phase at all). */
+/* g_lastUs：最近一次 libMPSSE 呼叫（位址相位＋資料相位）花了幾微秒。
+   回傳給網頁放進 log，讓「時間到底花在哪一層」變成可量的事而不是猜的。 */
+static double g_lastUs = 0;
 static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t len, uint8_t* out, uint32_t* got){
     uint8_t ab[4]; int n=build_offset(ab,addr,awid);
+    double t0 = now_ms();
+    FT_STATUS s;
     if(n<0) return 0xFFFFFFFEu;
     if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
-    return p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
+    s = p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
+    g_lastUs = (now_ms() - t0) * 1000.0;
+    logline("  i2c_read : slave=0x%02X addr=0x%X awid=%u len=%u mode=%s -> %u bytes, %.0f us",
+            slave, addr, awid, len, dgh_fast_read ? "fast" : "slow", got ? *got : 0, g_lastUs);
+    return s;
 }
 static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, const uint8_t* data, int dlen, uint32_t* got){
     uint8_t buf[RAW_MAX_DATA+4];
     if(dlen<0||dlen>RAW_MAX_DATA) return 0xFFFFFFFFu;
     int fl=dgh_build_write_frame(buf,(int)sizeof(buf),addr,awid,data,dlen);
+    double t0;
     if(fl<0) return 0xFFFFFFFFu;
+    t0 = now_ms();
     uint32_t tr=0; FT_STATUS s=p_Write(g_handle, slave, (uint32_t)fl, buf, &tr, OPT_WRITE);   /* slave is 7-bit, no <<1 */
+    g_lastUs = (now_ms() - t0) * 1000.0;
+    logline("  i2c_write: slave=0x%02X addr=0x%X awid=%u dlen=%d -> %u bytes, %.0f us",
+            slave, addr, awid, dlen, tr, g_lastUs);
     if(got)*got=tr; return s;
 }
 /* proto-1 shapes, kept so the dg-measure path is byte-for-byte what it was */
@@ -494,6 +552,8 @@ static void handle_command(int idx, const char* json){
     long id=dgh_json_int(json,"id",0);
     char rep[8192];
     if(strcmp(type,"open")==0){
+        /* 網頁也可以指定讀取模式（open 帶 "fastread":0）⇒ 不必重開程式就能 A/B 比較。 */
+        { long fr = dgh_json_int(json,"fastread",-1); if(fr==0) dgh_fast_read=0; else if(fr==1) dgh_fast_read=1; }
         uint32_t hz=(uint32_t)dgh_json_int(json,"clockHz",150000);
         /* 已經被別的頁面持有：**不靜默失敗、不靜默排隊**，回一個可判別的
            錯誤型別（busy=true），頁面據此顯示「已被另一個頁面佔用」＋接手鈕。 */
@@ -570,7 +630,8 @@ static void handle_command(int idx, const char* json){
         if(len<1) len=1;
         if(len>1024) len=1024;
         uint8_t buf[1024]; uint32_t got=0; FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
-        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"data\":[",id,(st==FT_OK)?"true":"false",st);
+        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"data\":[",
+                       id,(st==FT_OK)?"true":"false",st,g_lastUs,dgh_fast_read?"true":"false");
         for(uint32_t i=0;i<got&&o<(int)sizeof(rep)-16;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",buf[i]);
         o+=snprintf(rep+o,sizeof(rep)-o,"]}");
         ws_send_text(c,rep); return;
@@ -596,7 +657,8 @@ static void handle_command(int idx, const char* json){
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         uint32_t got=0; FT_STATUS st=i2c_write_ex(slave,addr,awid,data,dn,&got);
         logline("        -> FT status %u, transferred %u", st, got);
-        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u}",id,(st==FT_OK)?"true":"false",st,got);
+        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u,\"us\":%.0f}",
+                 id,(st==FT_OK)?"true":"false",st,got,g_lastUs);
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"write")==0){
@@ -784,6 +846,9 @@ int main(int argc, char** argv){
         else if(strncmp(argv[i],"--page=",7)==0) snprintf(page,sizeof(page),"%s",argv[i]+7);
         /* 🔴 退路：`--serve` 打開靜態檔服務（可再給目錄 `--serve=<dir>`）。
            預設關閉 —— 預設路徑是線上的 tcon-tools 網頁。 */
+        /* 🔴 退路：讀取若在實機上出問題（例如 fast 模式下最後一個 byte 沒送 NACK），
+           用這個旗標退回 PQ Tool 原本的逐 byte 讀法，不必換 exe。 */
+        else if(strcmp(argv[i],"--slow-read")==0) dgh_fast_read=0;
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
         else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }
     }
@@ -795,6 +860,9 @@ int main(int argc, char** argv){
 
     logline("==================================================");
     logline(" I2C Bridge (local I2C bridge for the web tools)  %s (proto %d)", I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
+    logline("  read mode: %s  (libMPSSE %s per-byte loop; --slow-read reverts)",
+            dgh_fast_read ? "FAST (one MPSSE command block)" : "SLOW (per-byte, PQ Tool original)",
+            dgh_fast_read ? "bypasses" : "uses");
     logline(" listens on 127.0.0.1:%d only, allow-list origins only", port);
     logline(" write address hard whitelist: 0x1200-0x12FF");
     logline("==================================================");

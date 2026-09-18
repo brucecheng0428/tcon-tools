@@ -78,6 +78,14 @@ BOOL      SetConsoleOutputCP(unsigned cp);
 
 #define strtok_s(s, d, ctx) strtok_r((s), (d), (ctx))
 
+/* 高解析度計時（i2c_bridge.c 用它量 libMPSSE 呼叫的耗時）。
+   POSIX 這側用 CLOCK_MONOTONIC 換算成同樣的「counter ＋ frequency」形狀，
+   讓出貨的原始碼一個字都不必為了測試而改。 */
+typedef union { long long QuadPart; } LARGE_INTEGER;
+BOOL QueryPerformanceFrequency(LARGE_INTEGER* f);
+BOOL QueryPerformanceCounter(LARGE_INTEGER* c);
+DWORD GetTickCount(void);
+
 /* i2c_bridge.c 組出來的檔案路徑是 Windows 風格（反斜線），POSIX 的 fopen 吃不下。
    在這一層正規化，讓出貨的原始碼不必為了測試而改。
    （<stdio.h> 已在本檔開頭 include 過，所以這個巨集不會撞到它的宣告。） */
