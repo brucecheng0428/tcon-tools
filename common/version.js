@@ -12,7 +12,7 @@ var TOOL_VERSIONS = {
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
-  dg:      'v1.66.1',      // Digital Gamma 迭代校正
+  dg:      'v1.66.2',      // Digital Gamma 迭代校正
   i2c:     'v1.4.0',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
@@ -38,11 +38,11 @@ var TOOL_VERSIONS = {
       現在兩個都存、畫面兩個都顯示，這個歧義就消失了。
    ═══════════════════════════════════════════════════════════════ */
 var HELPER_PKG = {
-  pkg:    'v1.6.0',                      // 下載包（zip）版本 ＝ 檔名
+  pkg:    'v1.6.1',                      // 下載包（zip）版本 ＝ 檔名
   exe:    '1.6.0',                       // exe 內的 DG_HELPER_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/dg-helper-v1.6.0.zip',
-  bytes:  314722,                             // zip 位元組數（打包後填）
-  zipSha: '73cedcccc3be1ccb61866b57568ae7a57f67c0f49a47d343901ca679022bebff',
+  file:   'data/dg-helper-v1.6.1.zip',
+  bytes:  344075,                             // zip 位元組數（打包後填）
+  zipSha: '6d0ead71efb0d06e402f8233f16b84fb5a6de39748858443a8b67dc72e9d08e9',
   exeSha: 'cb89e553af6e86090c2dab81920792f70c8b9c77e637a152d5774caa34cc6524'
 };
