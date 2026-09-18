@@ -151,3 +151,4 @@ DWORD GetTickCount(void){
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (DWORD)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
+void Sleep(DWORD ms){ struct timespec t = { (time_t)(ms/1000), (long)(ms%1000)*1000000L }; nanosleep(&t, NULL); }

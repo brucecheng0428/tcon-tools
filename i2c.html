@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1100"></script>
+<script src="common/version.js?v=20260919i2c1110"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -131,6 +131,19 @@
   /* 🔴 寫入後回讀不符：紅底＋紅框，跟 diff（洋紅字）與 FF（琥珀字）都分得出來。 */
   table.dump td.wrfail{background:#450a0a;box-shadow:inset 0 0 0 2px var(--err);color:#fecaca;font-weight:700;}
   table.dump td.wrok{box-shadow:inset 0 0 0 2px #16a34a;}
+  /* 耗時紀錄：一行一筆，等寬對齊方便比較 */
+  .timebox{margin:8px 0;border:1px solid var(--border);border-radius:8px;padding:6px 9px;background:#0b1424;}
+  .timebox .thead{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);
+    text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;}
+  .timebox .trow{display:grid;grid-template-columns:44px 90px 72px 1fr 62px;gap:8px;
+    align-items:center;font-size:12px;padding:1px 0;}
+  .timebox .tk{color:#e0f2fe;font-weight:700;}
+  .timebox .tt{color:#4ade80;font-weight:700;text-align:right;}
+  .timebox .tp{color:var(--sub);}
+  .timebox .ta{text-align:right;}
+  /* 🔴 20px 高配 11px 字 ⇒ 上下只剩 4px，版面閘門會擋（判準是 ≥6px）。
+     11px 的行高約 13px ⇒ 至少要 26px 才有 6px 內距。 */
+  button.tiny{min-height:0;height:26px;padding:0 10px;font-size:11px;}
   /* 🔴 「有沒有進入編輯」必須一眼看得出來 —— 他以為沒反應，有一半是因為
      編輯狀態沒有任何視覺差異。亮藍外框＋深色底＋游標。 */
   table.dump td.edit{background:#0c2d48;box-shadow:inset 0 0 0 2px var(--accent);padding:0;}
@@ -322,6 +335,14 @@
       <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
         <input type="checkbox" id="chk-fastread"> fast read（實驗，預設關）
       </label>
+      <!-- 🔴 raw MPSSE：自己組整段命令、一次送出（一次 FT_Write ＋ 一次 FT_Read）。
+           預設關 —— 命令序列沒有在他的硬體上跑過，沒有實證就不當預設值。 -->
+      <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
+        <input type="checkbox" id="chk-rawmpsse"> raw MPSSE（快，實驗）
+      </label>
+      <!-- 🔴 讓他**自己證明**快路徑是對的：同一段位址兩條路徑各讀一次、逐 byte 比對。
+           這比我們任何斷言都有力。 -->
+      <button id="btn-cmppath" class="dbgonly" disabled>快慢路徑比對</button>
       <span class="sp" style="flex:1"></span>
     </div>
     <!-- 🔴 v1.2.0：這一行從「講通道為什麼是唯一的」縮成「對面是誰」。
@@ -484,9 +505,14 @@
         <option value="rom">.rom</option>
       </select>
       <button id="btn-save" disabled>另存新檔</button>
+      <!-- 🔴 清空 ＝ 回到「完全沒有檔案」的狀態（見 i2ctClearAll 的說明）。 -->
+      <button id="btn-clear">清空</button>
       <span id="refline" class="kv" style="margin-left:10px"></span>
       <!-- 🔴 「還有多少沒燒進去」是正確性資訊：離線編輯完切回來，他要一眼看到數量。 -->
       <span id="dirtyline" class="kv" style="margin-left:10px;color:#a5b4fc;font-weight:700"></span>
+      <!-- 🔴 瞬時回饋：一行、2.5 秒後自己消失（見 i2ctFlash） -->
+      <span id="flashline" class="kv" style="margin-left:10px;color:#4ade80;font-weight:700;
+            opacity:0;transition:opacity .25s"></span>
       <span class="sp" style="flex:1"></span>
       <!-- 🔴 256K ＝ 1024 頁，下拉選單放 1024 個選項是不能用的（Bruce 2026-09-18
            說最大可能到 256K byte）⇒ 改成「填頁碼或位址直接跳」＋上一頁／下一頁。 -->
@@ -509,6 +535,12 @@
         <button id="btn-next" disabled>▶</button>
         <span id="pageinfo" class="kv"></span>
       </div>
+    </div>
+    <!-- 🔴 耗時紀錄常駐在這裡（最近 5 筆），讓他能比較不同設定的速度差。 -->
+    <div class="timebox">
+      <div class="thead"><b>耗時紀錄</b><span class="sp" style="flex:1"></span>
+        <button id="btn-clrtime" class="tiny">清除</button></div>
+      <div id="timeline"></div>
     </div>
     <div id="pagewarn"></div>
     <div id="readbanner"></div>
@@ -655,7 +687,15 @@ var I2CT_ONLINE_PAGE = I2CT_ONLINE_BASE + 'i2c.html';
    🔴 不要在這一頁寫第二份字面值 —— 兩份數字遲早不同步。 */
 var I2CT_PKG = (typeof HELPER_PKG !== 'undefined' && HELPER_PKG) ? HELPER_PKG : {};
 var I2CT_TIMEOUT_MS = 8000;
-var I2CT_CLOCK_HZ   = 150000;     /* 與 PQ Tool／dg I2C Bridge 同一組參數 */
+/* 🔴 400 kHz（2026-09-19）。Bruce 自己給過領域事實「TCON 打出來的 clock 通常是
+   400K」，而原廠 PQ Tool 的預設其實是 **50 kHz**（`xCtrl_FTDI_I2C.cs:141`
+   `ClockRate_default = 50000u`）—— 我們原本的 150k 已經比它快 3 倍。
+   🔴 **誠實標明：這對他抱怨的 20 秒幾乎沒有幫助。** 4096 byte @400kHz 的理論
+   匯流排時間只有 0.09 秒，@150kHz 是 0.25 秒 —— 省下的 0.16 秒在 20 秒面前
+   看不出來。真正的成本在每 byte 的 USB 往返（見 raw MPSSE 那條路）。
+   之所以還是改，是因為成本為零而且與他的領域認知一致。
+   （dg-measure 維持 150k：那條路是已經驗證過的量測流程，沒有理由動它。） */
+var I2CT_CLOCK_HZ   = 400000;
 var I2CT_CHUNK      = 256;        /* 每則 read 訊息最多幾個 byte */
 /* 🔴 Bruce 2026-09-18：「最大檔案可能不止 4096 bytes，我有可能有 256K bytes」
    ⇒ 上限拉到 262,144（1024 頁）。每則 read 上限 256 byte ⇒ 最多 1024 次交易，
@@ -1311,6 +1351,7 @@ function i2ctSaveAs(){
   a.href = url; a.download = built.name;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  i2ctFlash('✔ 已存出 ' + built.name);
   i2ctLog('另存新檔：' + built.name + '（' + set.bytes.length + ' byte，'
         + (fmt === 'hex' ? 'Intel HEX，每列 16 byte' : fmt === 'bin' ? 'raw binary' : '逐列一個 byte') + '）', 'o');
   return true;
@@ -1326,6 +1367,31 @@ function i2ctSaveAs(){
      · ws − dev ＝ 我們自己的傳輸層（WebSocket、JSON、排程）吃掉的時間
    他跑一次把 log 給我，就能直接算出比例，不必再猜。 */
 function i2ctSecs(ms){ return (ms / 1000).toFixed(1) + ' 秒'; }
+/* ═══ 🔴 耗時紀錄要**常駐**（Bruce 2026-09-19）══════════════════════════════
+   「這個資訊應該要繼續留在畫面上面，而不是寫完以後就突然不見了，
+     這樣永遠都沒辦法比對」⇒ 他的目的是**比較**（不同長度、不同路徑的速度差），
+   所以留最近 5 筆，而不是只留最後一次。
+   🔴 這是**資料**不是說明文字，不在極簡準則的刪除範圍。
+   換頁、切 slave 都不清，只有他按「清除」才清。 */
+var I2CT_TIMES_MAX = 5;
+var i2ctTimes = [];
+function i2ctNoteTime(kind, n, ms, path){
+  i2ctTimes.unshift({ kind: kind, n: n, ms: ms, path: path,
+                      at: new Date().toTimeString().slice(0, 8) });
+  if (i2ctTimes.length > I2CT_TIMES_MAX) i2ctTimes.length = I2CT_TIMES_MAX;
+  i2ctRenderTimes();
+}
+function i2ctRenderTimes(){
+  var e = $('timeline'); if (!e) return;
+  if (!i2ctTimes.length) { e.innerHTML = '<span class="kv">（還沒有讀寫紀錄）</span>'; return; }
+  e.innerHTML = i2ctTimes.map(function (t) {
+    return '<div class="trow"><span class="tk">' + t.kind + '</span>'
+         + '<span class="tn mono">' + t.n + ' byte</span>'
+         + '<span class="tt mono">' + i2ctSecs(t.ms) + '</span>'
+         + '<span class="tp">' + t.path + '</span>'
+         + '<span class="ta kv">' + t.at + '</span></div>';
+  }).join('');
+}
 function i2ctTimeLine(tag, ms, devUs, n){
   var dev = devUs ? (devUs / 1000) : 0;
   return tag + ' ' + n + ' byte · 共 ' + i2ctSecs(ms)
@@ -1519,6 +1585,7 @@ function i2ctSyncButtons(){
   /* 🔴 另存新檔不需要連線 —— 讀完之後把線拔掉照樣能存。只看「有沒有資料」。 */
   var cur = i2ctCurSet();
   $('btn-save').disabled = !(cur && cur.bytes && cur.bytes.length);
+  { var cp = $('btn-cmppath'); if (cp) cp.disabled = !i2ctLinked || i2ctBusy; }
 }
 
 /* ═══ WebSocket（I2C Bridge）═══════════════════════════════════════════════ */
@@ -1635,7 +1702,8 @@ async function i2ctConnect(takeover){
          （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
          fast 仍保留在 debug 區，供日後查清根因後實測用。 */
       op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
-                            fastread: i2ctFastRead ? 1 : 0 });
+                            fastread: i2ctFastRead ? 1 : 0,
+                            rawmpsse: i2ctRawMpsse ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
       /* 🔴 被另一個頁面佔住是**可判別**的狀態，不是一般失敗：不要重試、不要
          靜默失敗，直接告訴使用者並把「接手」這個出口亮出來。 */
@@ -1800,6 +1868,9 @@ async function i2ctDoRead(slave, awid, base, len){
     var d = r.data || [];
     var segMs = Date.now() - tSeg;
     if (typeof r.us === 'number') devUs += r.us;
+    /* bridge 回報它實際走了哪條路 ⇒ 耗時紀錄才比得出「快慢路徑差多少」。 */
+    i2ctLastPath = r.raw ? 'raw-MPSSE' : (r.fast === false ? 'libMPSSE(逐byte)' : 'libMPSSE(fast)');
+    if (typeof r.usbrt === 'number') i2ctLastUsbRt = r.usbrt;
     i2ctLog('R  slave 0x' + i2ctHex(slave) + ' · offset ' + awid + 'B '
           + (awid === 0 ? '(無位址)' : i2ctAddrText(c.addr, awid))
           + ' ×' + c.len + '  →  ' + i2ctBytesText(d)
@@ -1815,6 +1886,7 @@ async function i2ctDoRead(slave, awid, base, len){
   i2ctProgress = null; i2ctRenderProgress();
   var ms = Date.now() - t0;
   i2ctLog('⏱ ' + i2ctTimeLine('讀取', ms, devUs, all.length) + ' · 分 ' + plan.length + ' 段', 'o');
+  i2ctNoteTime('讀', all.length, ms, i2ctLastPath || (i2ctFastRead ? 'fast' : 'libMPSSE'));
   return { ok: true, bytes: all, err: null, ms: ms, devUs: devUs, segs: plan.length };
 }
 /* 進度列 ＋ 中止鈕（只在真的在跑長讀取時才出現） */
@@ -2090,6 +2162,8 @@ function i2ctWriteSource(len, awid){
 /* 🔴 讀取要不要走 fast 路徑。**預設 false** —— 見 i2ctConnect 裡的說明。
    只能從 debug 區打開，而且打開後要重新連線才生效。 */
 var i2ctFastRead = false;
+var i2ctRawMpsse = false;      /* 直接組 MPSSE 命令（預設關，見 i2ctConnect 的說明） */
+var i2ctLastPath = '', i2ctLastUsbRt = 0;
 var i2ctEeAuto = null;
 /* 🔴 「每個 slave 只問一次」（Bruce 2026-09-19）：逐格即時寫入時，每按一次就跳
    一次視窗是不能用的。但也不能只問一次就永遠不問 —— 換了 slave 很可能是換了
@@ -2311,14 +2385,19 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
        剩下 7 格還在裝置外面 —— 不講他不會知道。 */
     var leftN = i2ctDirtyCount();
     i2ctLog('⏱ ' + i2ctTimeLine('寫入', Date.now() - tW0, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
+    i2ctNoteTime('寫', done, Date.now() - tW0, i2ctLastPath || 'libMPSSE');
     /* 🔴 有跑過驗證 ⇒ **驗證結果是最後一句話**。
        （第一版把驗證訊息寫在前面，結果被這一行的「已寫入…」蓋掉 ——
         兩個地方都寫同一個 banner，後寫的靜靜贏。） */
     var head = '已寫入 ' + done + ' byte（' + i2ctSecs(Date.now() - tW0) + '，來源：' + srcLabel + '）'
              + (leftN ? '。🔴 <b>還有 ' + leftN + ' byte 改過但沒寫到</b>（不在這次的範圍內）' : '');
+    /* 🔴 驗證結果放在**最前面**，而且**成功也要講**（Bruce 2026-09-19：他不知道
+       有沒有做驗證）。這與「成功就安靜」的通則刻意相反 ——
+       燒錄正確與否是不可逆操作裡他最需要確認的事，安靜等於沒做。 */
     i2ctBanner('readbanner', verdict ? verdict.cls : 'warn',
-      verdict ? (head + '　' + verdict.html)
+      verdict ? (verdict.html + '　<span style="opacity:.75">（' + head + '）</span>')
               : (head + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。'));
+    if (verdict) i2ctFlash(verdict.cls === 'ok' ? '✔ 驗證比對正確' : '🔴 驗證比對錯誤');
   } else {
     i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗：' + errMsg);
   }
@@ -2584,6 +2663,112 @@ function i2ctSetView(v){
 /* 🔴 基準是什麼，畫面上一定要寫出來。情境：I2C 讀 → 載入檔案（跟 I2C 比）→
    再 I2C 讀（又變回跟第一次 I2C 比）—— 比較對象換了，使用者不知道就會判讀錯。
    這一行是**必要資訊**，不是多餘說明。 */
+/* ═══ 🔴 快慢路徑比對：讓他自己證明 ════════════════════════════════════════
+   同一段位址，**raw MPSSE 讀一次、libMPSSE 讀一次**，逐 byte 比對並報告耗時差。
+   為什麼要有這個：raw 路徑的命令序列我們驗得了位元組、驗不了真實時序
+   （沒有硬體）。與其要他相信我們的斷言，不如給他一顆按鈕自己證明。
+   🔴 比對過程**不動任何資料**：不寫入、不建立快照、不改 dump。 */
+async function i2ctComparePaths(){
+  var v = i2ctReadInputs();
+  if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
+  if (!i2ctLinked) { i2ctBanner('readbanner', 'err', '要先連線才能比對'); return; }
+  var n = Math.min(v.len, 256);
+  i2ctBusy = true; i2ctSyncButtons();
+  i2ctLog('── 快慢路徑比對：同一段 ' + n + ' byte 各讀一次 ──', 'n');
+  var res = { raw: null, slow: null };
+  for (var pass = 0; pass < 2; pass++) {
+    var useRaw = (pass === 0);
+    try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+                           fastread: 0, rawmpsse: useRaw ? 1 : 0 }); }
+    catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換路徑失敗：' + e.message); return; }
+    var t0 = Date.now();
+    var r = await i2ctDoRead(v.slave, v.wireAwid, v.off, n);
+    res[useRaw ? 'raw' : 'slow'] = { ok: r.ok, bytes: r.bytes, ms: Date.now() - t0, err: r.err };
+  }
+  /* 比對完把路徑切回他原本選的，不要偷偷留在比對用的狀態 */
+  try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+                         fastread: i2ctFastRead ? 1 : 0, rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
+  i2ctBusy = false; i2ctSyncButtons();
+  if (!res.raw.ok || !res.slow.ok) {
+    i2ctBanner('readbanner', 'err', '🔴 比對沒完成：'
+      + (!res.raw.ok ? 'raw MPSSE 讀失敗（' + res.raw.err + '）' : 'libMPSSE 讀失敗（' + res.slow.err + '）'));
+    return;
+  }
+  var bad = 0, first = -1;
+  for (var i = 0; i < n; i++) {
+    if ((res.raw.bytes[i] & 0xFF) !== (res.slow.bytes[i] & 0xFF)) { bad++; if (first < 0) first = i; }
+  }
+  var speed = res.slow.ms > 0 ? (res.slow.ms / Math.max(res.raw.ms, 1)).toFixed(1) : '?';
+  if (!bad) {
+    i2ctBanner('readbanner', 'ok', '✔ <b>兩條路徑讀到的 ' + n + ' byte 完全相同</b>。'
+      + 'raw MPSSE ' + i2ctSecs(res.raw.ms) + '、libMPSSE ' + i2ctSecs(res.slow.ms)
+      + '　⇒ <b>快 ' + speed + ' 倍</b>。');
+    i2ctLog('✔ 快慢路徑比對：' + n + ' byte 全部相同（raw ' + res.raw.ms + ' ms vs libMPSSE ' + res.slow.ms + ' ms）', 'o');
+  } else {
+    i2ctBanner('readbanner', 'err', '🔴 <b>兩條路徑讀到的值不一樣</b>：' + n + ' byte 中有 '
+      + bad + ' byte 不符（第一個在 +' + first + '）⇒ <b>raw MPSSE 不可信，不要開它</b>。');
+    i2ctLog('✕ 快慢路徑比對：' + bad + '/' + n + ' byte 不符，第一個在 +' + first, 'e');
+  }
+  i2ctNoteTime('比對', n, res.raw.ms, 'raw-MPSSE');
+  i2ctNoteTime('比對', n, res.slow.ms, 'libMPSSE(逐byte)');
+}
+
+/* ═══ 🔴 清空：回到「完全沒有檔案」的狀態（Bruce 2026-09-19）══════════════
+   他要的是「清完還可以再繼續做其他的比對」⇒ 清掉的是**這一輪作業的資料**，
+   不是把整個工具重設。界線刻意畫在這裡：
+
+   **清掉（屬於這一輪的資料與狀態）**
+     ① dump 的資料本身（B）　② 快照（A）　③ 三槽狀態
+     ④ diff 結果與 diff log　⑤ 本地修改標記（已修改未寫入）
+     ⑥ 寫入失敗／回讀成功標記　⑦ 選取範圍、十字定位、半輸入中的格子
+     ⑧ 載入的檔名與位元組、④ 總 byte 數欄位回預設
+     ⑨ 驗證結果／讀取訊息橫幅　⑩ 頁碼回第一頁
+     ⑪ EEPROM 型號「已確認過」的記憶 —— **清掉**。理由：那是「這一顆、這一次
+        作業」的確認，資料都清了還記著它，下次燒別的片子就不會再問，
+        那正是型號確認要防的事。
+
+   **不清（屬於工具設定，他只是要換一份資料重做比對）**
+     · 連線狀態（不會斷線）
+     · slave 三格、offset 寬度、起始 offset
+     · Page 大小／段間等待、fast read／raw MPSSE 開關、debug 模式
+     · 🔴 **耗時紀錄**（那正是他要拿來比較的東西，見 i2ctNoteTime）
+
+   有未寫入的本地修改 ⇒ 先問一次（與讀取／載入的保護一致）；沒有就直接清。 */
+function i2ctClearAll(){
+  if (!i2ctConfirmDiscardDirty('清空')) { i2ctLog('取消清空（保留未寫入的本地修改）', 'n'); return false; }
+  if (i2ctEditing) i2ctCancelEdit();
+  i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
+  i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
+  i2ctWrFail = null; i2ctWrOk = null; i2ctDirty = null;
+  i2ctFileBytes = null; i2ctFileName = ''; i2ctView = 'dev';
+  i2ctSelAnchor = null; i2ctSelCursor = null;
+  i2ctCross = null; i2ctPageIdx = 0; i2ctLastRead = null;
+  i2ctEeForget();                       /* ⑪ 型號確認記憶一併清掉 */
+  $('in-len').value = '256';            /* ⑧ 總 byte 數回預設 */
+  i2ctBanner('readbanner', '', '');
+  i2ctBanner('pagewarn', '', '');
+  i2ctUpdateHints();
+  i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
+  i2ctLog('清空：回到沒有任何資料的狀態（連線與參數保留）', 'n');
+  i2ctFlash('✔ 已清空');
+  return true;
+}
+
+/* ═══ 🔴 短暫回饋（Bruce 2026-09-19：「按了快照並沒有跳出任何的資訊」）═══════
+   凡是「按了之後畫面沒有明顯變化」的動作，都要講一句話再自己消失。
+   刻意的界線：**一行、2.5 秒後自動消失、不跳確認框**（極簡準則）。
+   不用 banner —— banner 是給需要停留的訊息用的，這種瞬時回饋留在那裡只會變雜訊。 */
+var i2ctFlashTimer = 0;
+function i2ctFlash(msg){
+  var e = $('flashline'); if (!e) return;
+  e.textContent = msg;
+  e.style.opacity = '1';
+  if (i2ctFlashTimer) clearTimeout(i2ctFlashTimer);
+  i2ctFlashTimer = setTimeout(function () {
+    var el = $('flashline'); if (el) { el.style.opacity = '0'; el.textContent = ''; }
+    i2ctFlashTimer = 0;
+  }, 2500);
+}
 function i2ctRenderRefLine(){
   var e = $('refline'); if (!e) return;
   e.textContent = i2ctRef ? ('基準：' + i2ctSetLabel(i2ctRef)) : '基準：（尚未建立）';
@@ -3132,12 +3317,22 @@ function i2ctInit(){
      按下的同時 **diff log 清零、highlight 清除** —— 那代表「還沒開始比較，
      只是先把基準存下來」（Bruce 2026-09-18 明講）。 */
   $('btn-save').addEventListener('click', function () { i2ctSaveAs(); });
+  $('btn-clear').addEventListener('click', function () { i2ctClearAll(); });
+  $('chk-rawmpsse').addEventListener('change', function () {
+    i2ctRawMpsse = this.checked;
+    i2ctLog('raw MPSSE ⇒ ' + (i2ctRawMpsse ? '開（實驗）' : '關（預設）') + '　※ 要重新連線才生效', 'w');
+  });
+  $('btn-cmppath').addEventListener('click', i2ctComparePaths);
+  $('btn-clrtime').addEventListener('click', function () {
+    i2ctTimes = []; i2ctRenderTimes(); i2ctFlash('✔ 已清除耗時紀錄');
+  });
   $('btn-snap').addEventListener('click', function () {
     var d = i2ctCurSet();
     if (!d) { i2ctBanner('readbanner', 'warn', '還沒有資料可以當基準'); return; }
     i2ctRef = i2ctSnapshotOf(d); i2ctDiffIdx = null;
     i2ctLog('手動快照：基準 ＝ ' + i2ctSetLabel(d) + '（diff 清零）', 'n');
     i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
+    i2ctFlash('✔ 已快照 ' + d.bytes.length + ' byte');
   });
   /* diff log 的兩顆：重新比較（拿當前資料再比一次）／只清 log（基準保留） */
   $('btn-recmp').addEventListener('click', function () {
@@ -3145,10 +3340,12 @@ function i2ctInit(){
     if (!d || !i2ctRef) { i2ctBanner('readbanner', 'warn', '沒有基準或沒有資料'); return; }
     i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
     if (i2ctDiffIdx === null) i2ctBanner('readbanner', 'warn', '這一份與基準不可比（長度／slave／offset 不同）');
+    else i2ctFlash('✔ 已重新比較：' + i2ctDiffIdx.length + ' 處不同');
     i2ctRenderTable(); i2ctRenderDiff();
   });
   $('btn-clrdiff').addEventListener('click', function () {
     i2ctDiffIdx = null; i2ctRenderTable(); i2ctRenderDiff();
+    i2ctFlash('✔ 已清除差異清單');
   });
   $('btn-conn').addEventListener('click', function () { i2ctConnect(false); });
   $('btn-disc').addEventListener('click', i2ctDisconnect);
@@ -3314,6 +3511,7 @@ function i2ctInit(){
 
   i2ctPageIdx = 0;
   i2ctSetView('dev');
+  i2ctRenderTimes();
   i2ctSlaveSync('s7', true);   /* 三格從 7-bit 對齊一次 */
   i2ctUpdateHints();
   i2ctSetLink(false, '未連線');
@@ -3460,6 +3658,11 @@ window.__i2ct = {
   selAnchor: function (i) { i2ctSelAnchor = i; i2ctSelCursor = i; i2ctRenderTable(); i2ctSyncButtons(); },
   selClear: function () { return i2ctSelClear(); },
   eeForget: function () { return i2ctEeForget(); },
+  clearAll: function () { return i2ctClearAll(); },
+  comparePaths: function () { return i2ctComparePaths(); },
+  times: function () { return i2ctTimes.slice(); },
+  clearTimes: function () { i2ctTimes = []; i2ctRenderTimes(); },
+  rawMpsse: function (v) { if (v !== undefined) i2ctRawMpsse = !!v; return i2ctRawMpsse; },
   fastRead: function (v) { if (v !== undefined) i2ctFastRead = !!v; return i2ctFastRead; },
   snapshotOf: function (d) { return i2ctSnapshotOf(d); },
   refBytesAt: function (i) { return i2ctRef ? i2ctRef.bytes[i] : null; },

@@ -2260,6 +2260,138 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('43. ⏱ 耗時紀錄常駐（他要拿來比較，不能自己消失）');
+  {
+    A._reset();
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, us: 1000, fast: false, raw: false,
+        data: Array.from({ length: m.len }, () => 0x11) };
+      return { ok: true, status: 0, transferred: 1, us: 500 };
+    }));
+    A.clearTimes();
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(25);
+    await A.doRead(); await sleep(25);
+    await A.doRead(); await sleep(25);
+    EQ(A.times().length, 3, '🔴 連讀 3 次 ⇒ 列出 3 筆');
+    EQ(A.times()[0].kind, '讀', '最新的在最上面');
+    EQ(A.times()[0].n, 16, '記下長度');
+    CHECK(/libMPSSE/.test(A.times()[0].path), '🔴 記下走的是哪條路徑：' + A.times()[0].path);
+    CHECK(doc.getElementById('timeline').textContent.indexOf('byte') >= 0, '畫面上看得到');
+    /* 換頁、切 slave 都不能清掉 */
+    A.jumpTo('000');
+    A.setInputs({ slave: '0x50' });
+    await sleep(20);
+    EQ(A.times().length, 3, '🔴 換頁與切 slave 之後仍然在');
+    /* 超過 5 筆只留最近 5 筆 */
+    for (let i = 0; i < 4; i++) { await A.doRead(); await sleep(15); }
+    EQ(A.times().length, 5, '最多留 5 筆');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('44. 🔴 清空：回到「完全沒有檔案」的狀態（逐項斷言）');
+  {
+    A._reset();
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0x11) };
+      return { ok: true, status: 0, transferred: 1 };
+    }));
+    /* 把每一項狀態都弄髒 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0020', len: '64' });
+    await A.doRead(); await sleep(25);
+    A.snapshot();
+    A.loadFile('dirty.bin', new win.Uint8Array(Array.from({ length: 64 }, (_, i) => i)));
+    await sleep(25);
+    A.selAnchor(2); A.selMove(16);
+    A.setCross(0x0020);
+    await win.__i2ct.disconnect(); await sleep(25);
+    A.beginEdit(1);
+    CHECK(A.curSet() && A.refBytesAt(0) !== null && A.selRange() && A.editing(), '前置：狀態都弄髒了');
+    const linkedBefore = A.state().linked;
+    /* 清空 */
+    EQ(A.clearAll(), true, '清空執行');
+    await sleep(25);
+    EQ(A.curSet(), null, '① dump 資料清掉');
+    EQ(A.refBytesAt(0), null, '🔴 ② 快照清掉');
+    { const c0 = A.cellParts(0);
+      CHECK(!c0 || (c0.main === null && c0.snap === null && c0.old === null),
+            '③ 三槽（格子上沒有任何值）'); }
+    EQ(A.diffCount(), 0, '④ diff 歸零');
+    EQ(A.dirtyCount(), 0, '⑤ 本地修改標記清掉');
+    EQ(A.wrFailAt(0), false, '⑥ 寫入失敗標記清掉');
+    EQ(A.selRange(), null, '⑦a 選取清掉');
+    EQ(A.cross(), null, '⑦b 十字清掉');
+    EQ(A.editing(), null, '⑦c 半輸入狀態清掉');
+    EQ(A.fileState().len, 0, '⑧a 載入的檔案清掉');
+    EQ(doc.getElementById('in-len').value, '256', '⑧b 總 byte 數回預設');
+    EQ(doc.getElementById('readbanner').textContent, '', '⑨ 訊息橫幅清掉');
+    EQ(A.pageIdx(), 0, '⑩ 頁碼回第一頁');
+    /* 🔴 不該被清掉的 */
+    EQ(doc.getElementById('in-slave').value, '0x50', '🔴 slave 參數**不清**');
+    EQ(A.state().linked, linkedBefore, '🔴 連線狀態**不動**');
+    CHECK(A.times().length > 0, '🔴 耗時紀錄**不清**（那正是他要比較的東西）');
+    /* 清空後再讀 ⇒ 與剛開頁面一樣，會自動建立新快照 */
+    await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0x77) };
+      return { ok: true, status: 0 };
+    }));
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(25);
+    EQ(A.curSet().bytes.length, 16, '🔴 清空後再讀 ⇒ 行為與剛開頁面相同');
+    EQ(A.refBytesAt(0), 0x77, '🔴 並且自動建立了新的快照基準');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('45. 🔴 raw MPSSE 與快慢路徑比對（預設關，讓他自己驗證）');
+  {
+    EQ(A.rawMpsse(), false, '🔴 raw MPSSE 預設關（命令序列沒在他硬體上跑過）');
+    A._reset();
+    const sent = await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    }));
+    const opens = sent.filter(m => m.type === 'open');
+    EQ(opens[opens.length - 1].rawmpsse, 0, '🔴 open 明確帶 rawmpsse:0');
+    const chk = doc.getElementById('chk-rawmpsse');
+    CHECK(!!chk && chk.checked === false, 'debug 區有開關且預設沒勾');
+    /* 快慢路徑比對：兩條路徑各讀一次，然後切回原本的設定 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '32' });
+    const since = sent.length;
+    await A.comparePaths();
+    await sleep(40);
+    const after = sent.slice(since);
+    const os = after.filter(m => m.type === 'open');
+    EQ(os.length, 3, '🔴 比對送出 3 次 open（raw、libMPSSE、切回原設定）');
+    EQ(os[0].rawmpsse, 1, '第一趟用 raw MPSSE');
+    EQ(os[1].rawmpsse, 0, '第二趟用 libMPSSE');
+    EQ(os[2].rawmpsse, 0, '🔴 比完切回他原本的設定（不偷偷留在比對狀態）');
+    EQ(after.filter(m => m.type === 'read').length, 2, '兩條路徑各讀一次');
+    CHECK(/完全相同/.test(doc.getElementById('readbanner').textContent),
+      '🔴 兩邊相同 ⇒ 明確告訴他：' + doc.getElementById('readbanner').textContent.slice(0, 40));
+    CHECK(A.times().some(t => t.kind === '比對'), '比對也記進耗時紀錄');
+    /* 不一致時要說「不要開它」 */
+    A._reset();
+    /* 🔴 不能用 baseScript：它在呼叫 f 之前就把 open 攔下來回覆了，
+       所以 f 看不到 open 的 rawmpsse 旗標（第一版就是這樣，兩趟讀到一樣的資料）。 */
+    let flip = false;
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.8.0', proto: 3, ok: true };
+      if (m.type === 'open') { flip = (m.rawmpsse === 1); return { ok: true, channels: 1 }; }
+      if (m.type === 'close') return { ok: true };
+      if (m.type === 'read') return { ok: true, status: 0,
+        data: Array.from({ length: m.len }, (_, i) => (i + (flip ? 1 : 0)) & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.comparePaths(); await sleep(40);
+    CHECK(/不要開它/.test(doc.getElementById('readbanner').textContent),
+      '🔴 兩邊不同 ⇒ 明講不要開：' + doc.getElementById('readbanner').textContent.slice(0, 44));
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');

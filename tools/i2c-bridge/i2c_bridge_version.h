@@ -45,9 +45,24 @@
  *   - `--slow-read` 與 open 的 `"fastread":0` 可退回舊路徑（不必換 exe）。
  *   - read／rawwrite 的回覆多帶 `us`（libMPSSE 呼叫本身的耗時）與 `fast` 旗標，
  *     網頁據此把「傳輸層 vs 裝置」分開記在 log。wire 只有**新增**欄位 ⇒ proto 不變。
+ * 1.9.0 / proto 3 不變（2026-09-19，Bruce「讀的還是太慢了…你確定這個讀是 Burst Read 嗎？」）：
+ *   - 🔴 新增 **raw MPSSE 路徑**：自己組整段命令 ⇒ **一次 FT_Write ＋ 一次 FT_Read**，
+ *     繞開 libMPSSE 每 byte 的兩次 USB 往返與 INFRA_SLEEP(1)。
+ *     4096 byte：8192 次往返 ⇒ **2 次**。
+ *   - 🔴 **預設關**（`--raw-mpsse` 或 open 帶 `"rawmpsse":1` 才開）。理由與 v1.8.0
+ *     的教訓一致：命令序列**沒有在他的硬體上跑過**，沒有實證不當預設值。
+ *   - 命令序列是 `dg-measure.html` WebUSB 路徑的 C 移植，**逐位元組相同**
+ *     （test_proto.c 與 dg_i2c_selftest.js 各釘同一個向量互相對照）。
+ *   - 每個 byte 的 ACK 都檢查，最後一個 byte 送 NACK；任何 NACK 都回報，不靜默吞掉。
+ *   - 回覆多帶 `raw` 與 `usbrt`（USB 往返次數），網頁的耗時紀錄據此標出走了哪條路。
+ *   🔴 查證結論（反組譯實查，附行號）：PQ Tool 的讀取**也不是 burst** ——
+ *     `I2C_tool/xCtrl_I2C_App.cs:73` 資料相位 options=11u(0x0B)，沒有 FAST_TRANSFER。
+ *     它不慢只是因為 `RaydiumEM02A1.cs:220` `new byte[48]`：**一次只讀 48 byte**
+ *     （全庫最大 228）。48 byte 逐 byte 讀約 0.1 秒，4096 byte 就是 10~20 秒。
+ *     ⇒ **照抄原廠不會變快，原廠沒有這個需求所以沒有答案。**
  * 🔴 exe 內容改變 ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
  *    （實測：同一份原始碼用同一個 zig 重編兩次，SHA 也不同 —— 這個編譯流程不是
  *      可重現建置，所以「只要動 exe 就一定要重過」，沒有例外。） */
-#define I2C_BRIDGE_VERSION "1.8.0"
+#define I2C_BRIDGE_VERSION "1.9.0"
 #define I2C_BRIDGE_PROTO   3
 #endif
