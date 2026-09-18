@@ -12,7 +12,7 @@
 2. 🔴 **整包解壓到一個資料夾**（例如桌面）—— **不要**直接在壓縮檔預覽視窗裡點 exe
 3. 在那個資料夾**雙擊 `dg-helper.exe`**（SmartScreen「其他資訊 → 仍要執行」兩下）→ 瀏覽器自己開、自己連好，直接用
 
-解壓後是**三個檔**（`dg-helper.exe`＋`dg-measure.html`＋`libMPSSE.dll`）要在同一資料夾。要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）。
+解壓後是**四個檔**（`dg-helper.exe`＋`dg-measure.html`＋`i2c.html`＋`libMPSSE.dll`）要在同一資料夾。要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）。
 
 > **v1.2.0：`libMPSSE.dll` 直接包進 zip**（Bruce 裁示）。`ftd2xx.dll` **不附**（系統隨 FTDI 驅動提供，缺它是狀態碼 **F**）。
 >
@@ -98,34 +98,76 @@ ZIG=/path/to/zig ./build.sh          # 產出 dg-helper.exe（32 位元、PE32�
 ## 測試（可自驗的部分）
 
 ```bash
-cc -O2 test_proto.c -o test_proto && ./test_proto   # 32/32 通過
+cc -O2 test_proto.c -o test_proto && ./test_proto   # 75/75 通過（v1.4.0；原為 32/32）
 ```
 
 測到：WebSocket 握手（RFC 6455 標準向量）、SHA1／Base64、JSON 擷取、
-位址白名單 `0x1200–0x12FF`、Origin 白名單（含 spoof 後綴的阻擋）。
+位址白名單 `0x1200–0x12FF`、Origin 白名單（含 spoof 後綴的阻擋），
+以及 v1.4.0 新增的 offset 寬度組包、寫入 frame 逐 byte、Content-Type 白名單、
+HTTP 請求路徑解析（正反都驗）。
 
 🔴 **未經實機驗證**：D2XX 連線、libMPSSE 呼叫、實際 I2C 通訊在無 Windows、
 無 FTDI 硬體的環境全部無法自驗。只驗到「PE 正確、能載 winsock、能對
 libMPSSE.dll 做 GetProcAddress」這一層。
 
-## WebSocket 協定（proto 1）
+## WebSocket 協定（proto 2，v1.4.0 起）
 
 只 bind `127.0.0.1`，WS 升級時檢查 Origin（只收 `https://brucecheng0428.github.io`
 與 `http://127.0.0.1`/`localhost`）。連上後 helper 先送 `hello`。
 
 | 網頁送 | helper 回 |
 |---|---|
-| `{"type":"ping","id":N}` | `{"type":"pong","id":N,"helper":"1.0.0","proto":1}` |
+| `{"type":"ping","id":N}` | `{"type":"pong","id":N,"helper":"1.4.0","proto":2}` |
 | `{"type":"open","clockHz":150000}` | `{"type":"result","cmd":"open","ok":true,"channels":N}` |
-| `{"type":"read","slave":96,"addr":65280,"len":3}` | `{"type":"result","cmd":"read","ok":true,"data":[..],"status":0}` |
+| `{"type":"read","slave":96,"addr":65280,"len":3,"awid":2}` | `{"type":"result","cmd":"read","ok":true,"data":[..],"status":0}` |
 | `{"type":"write","slave":96,"addr":4608,"data":[..]}` | `{"type":"result","cmd":"write","ok":true,"status":0}` |
+| `{"type":"rawwrite","slave":104,"addr":0,"data":[..],"awid":2}` | `{"type":"result","cmd":"rawwrite","ok":true,"status":0,"transferred":N}` |
 | `{"type":"close"}` | `{"type":"result","cmd":"close","ok":true}` |
+
+**proto 1 → 2 的差異（向後相容）**
+
+- `read` 多一個選填欄位 **`awid`**（offset／sub-address 寬度，只接受 `0/1/2/4`，
+  **缺省 2**）。缺省值就是 proto 1 的行為，所以舊呼叫端的 wire byte 一個都沒變。
+  `awid=0` ＝ 完全不送位址 ＝ I2C **current address read**（合法模式，非「沒填」）。
+  位址一律 **MSB first**。
+- 新增 **`rawwrite`**：I2C 序列與 `write` 完全相同，但 **不套位址白名單**。
+  🔴 這是給 `i2c.html`（I2C 讀寫測試）用的 —— 測試工具的性質就是要能任意讀寫。
+  代價用**可觀測性**補：每一筆 `rawwrite` 都完整寫進 `dg-helper.log`
+  （slave／awid／位址／全部 byte），而且**先寫 log 再碰匯流排**，I2C 卡住也留得下紀錄。
+  既有的 `write` 與它的白名單**原封未動**，dg-measure 的防線不受影響。
+- 網頁端用 `pong.proto` 判相容：`dg-measure.html` 需要 `proto >= 1`、
+  `i2c.html` 需要 `proto >= 2`。
 
 I2C 序列（照抄 PQ Tool 反組譯 `xCtrl_FTDI_I2C.cs` / `xCtrl_I2C_App.cs`）：
 - open：`I2C_InitChannel(ClockRate=150000, LatencyTimer=1, Options=3)`，channel 0
-- read：寫 2-byte 位址 `options=0x19`（repeated start，無 STOP）→ 讀 `options=0x0B`
+- read：寫 `awid`-byte 位址 `options=0x19`（repeated start，無 STOP）→ 讀 `options=0x0B`
+  （`awid=0` 時跳過位址相位，直接讀）
 - write：位址+資料串成一 buffer `options=0x17`
-- 🔴 寫入位址白名單 `0x1200–0x12FF` 在 helper 端**再擋一次**（不只靠網頁）
+- 🔴 `slave` 是 **7-bit**，`I2C_DeviceRead/Write` 的 `deviceAddress` 收 7-bit，
+  左移由 libMPSSE 內部做 —— **這一層不准左移**
+- 🔴 寫入位址白名單 `0x1200–0x12FF` 在 helper 端**再擋一次**（不只靠網頁），
+  但**只套用在 `write`**，不套用在 `rawwrite`（見上）
+
+## HTTP：服務 exe 所在的資料夾（v1.4.0 起）
+
+v1.3.x 不看路徑、一律回 `dg-measure.html`，所以第二個工具頁根本端不出來。
+v1.4.0 改成服務 exe 旁的靜態檔 —— **以後新增頁面不必再改 exe**（也就不必再讓
+使用者重過 SmartScreen）。
+
+| 路徑 | 結果 |
+|---|---|
+| `/` | `dg-measure.html`（與 v1.3.x 相同；檔案不在時仍是原本那頁提示） |
+| `/i2c.html` | I2C 讀寫測試頁 |
+| 其他 | exe 旁的同名檔，找不到就 404 |
+
+從嚴的地方（`dgh_req_filename` / `dgh_mime_for`，都在 `dg_helper_proto.h`，
+`test_proto.c` 正反都驗）：不支援子目錄、不做 percent-decode、
+拒絕 `..` `/` `\` `:` `%` 與 dotfile；副檔名白名單只放行
+`.html/.htm/.js/.css/.json/.svg/.png/.ico/.txt` —— `.exe`／`.dll`／`.log`／`.c`
+一律不端出去。回應帶 `Cache-Control: no-store`。
+
+另新增 `--page=<file>`：指定啟動時自動開啟哪一頁（預設 `/`）。
+啟動橫幅偵測到 exe 旁有 `i2c.html` 時會多印一行它的網址。
 
 ## 相依 DLL
 

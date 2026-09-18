@@ -25,9 +25,19 @@ html = html.replace(/<script src="(common\/[^"?]+)(\?[^"]*)?"><\/script>/g, (m, 
   return '<script>\n/* inlined from ' + src + ' */\n' + fs.readFileSync(f, 'utf8') + '\n</script>';
 });
 
-// SHA placeholders
+// SHA placeholders (first-generation form)
 html = html.replace(/DGM_HELPER_EXE_SHA_PLACEHOLDER/g, exeSha);
 html = html.replace(/DGM_HELPER_ZIP_SHA_PLACEHOLDER/g, '(extracted copy; verify the zip on the online download page)');
+
+// ── 2026-09-18: the repo page now carries the REAL sha strings (so the online
+//    download box can show them), so the placeholders above no longer appear.
+//    Rewrite the literals instead. The EXE sha is knowable before zipping; the
+//    ZIP sha is NOT — a file inside the zip cannot state the zip's own hash
+//    (writing it in would change the hash). So it becomes a note, which is also
+//    what breaks the otherwise circular build.
+html = html.replace(/(var\s+DGM_HELPER_EXE_SHA\s*=\s*)'[^']*'/,  "$1'" + exeSha + "'");
+html = html.replace(/(var\s+DGM_HELPER_ZIP_SHA\s*=\s*)'[^']*'/,
+  "$1'(extracted copy; verify the zip on the online download page)'");
 
 fs.writeFileSync(outPath, html);
 console.log('wrote ' + outPath + ' (' + html.length + ' bytes), no external script refs left: ' +

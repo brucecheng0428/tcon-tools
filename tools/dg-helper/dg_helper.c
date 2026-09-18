@@ -50,9 +50,24 @@
 #define OPT_READ_DATA   0x0Bu
 #define OPT_WRITE       (0x07u | I2C_FAST_TRANSFER_BYTES)   /* 0x17 */
 
-/* ---- write address whitelist (ptg bank) ---- */
+/* ---- write address whitelist (ptg bank) ----
+ * 🔴 SCOPE: this whitelist guards the **dg-measure** flow only, i.e. the
+ *    `write` command. It exists so a mis-click on a NB cannot poke arbitrary
+ *    registers during a gamma run. It is NOT a general security boundary and
+ *    deliberately does NOT apply to `rawwrite` (the I2C test tool), whose whole
+ *    purpose is to read/write anywhere. `rawwrite` is logged in full instead.  */
 #define WR_ADDR_MIN 0x1200u
 #define WR_ADDR_MAX 0x12FFu
+
+/* ---- register-offset width (proto 2) ----
+ * The offset (a.k.a. sub-address / register address) sent before the data
+ * phase. 2 bytes is what the TCON uses and stays the default, so every proto-1
+ * caller (dg-measure) keeps the exact same wire bytes.
+ *   0 -> send no offset at all = I2C "current address read" (a legal mode:
+ *        the device keeps its own address pointer and returns from there)
+ *   1 / 2 / 4 -> that many offset bytes, MSB first.                            */
+#define AWID_DEFAULT 2u
+#define RAW_MAX_DATA 256              /* bytes per rawwrite */
 
 /* ---- libMPSSE ChannelConfig (Pack=1, matches C# [StructLayout(Pack=1)]) ---- */
 #pragma pack(push, 1)
@@ -361,16 +376,30 @@ static void i2c_close(void){ if(g_opened&&g_handle) p_Close(g_handle); g_handle=
    the R/W bit itself. **DO NOT left-shift `slave` here** — shifting turns 0x68
    into 0xD0 and libMPSSE would then shift again. The 7-bit vs 8-bit forms are
    different values for the same device; this layer is 7-bit, end to end. */
-static FT_STATUS i2c_read(uint32_t slave, uint32_t addr, uint32_t len, uint8_t* out, uint32_t* got){
-    uint8_t ab[2]; ab[0]=(uint8_t)((addr>>8)&0xFF); ab[1]=(uint8_t)(addr&0xFF); uint32_t tr=0;
-    p_Write(g_handle, slave, 2, ab, &tr, OPT_READ_ADDR);   /* slave is 7-bit, no <<1 */
+/* Build the offset bytes. Returns the byte count, or -1 for an illegal width.
+   Pure function -> covered by test_proto.c (see dgh_build_offset). */
+static int build_offset(uint8_t* ab, uint32_t addr, uint32_t awid){
+    return dgh_build_offset(ab, addr, awid);
+}
+/* awid: 0/1/2/4. awid==0 -> current-address read (no address phase at all). */
+static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t len, uint8_t* out, uint32_t* got){
+    uint8_t ab[4]; int n=build_offset(ab,addr,awid);
+    if(n<0) return 0xFFFFFFFEu;
+    if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
     return p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
 }
-static FT_STATUS i2c_write(uint32_t slave, uint32_t addr, const uint8_t* data, int dlen, uint32_t* got){
-    uint8_t buf[64]; if(dlen<0||dlen>60) return 0xFFFFFFFF;
-    buf[0]=(uint8_t)((addr>>8)&0xFF); buf[1]=(uint8_t)(addr&0xFF); memcpy(buf+2,data,dlen);
-    uint32_t tr=0; FT_STATUS s=p_Write(g_handle, slave, (uint32_t)(dlen+2), buf, &tr, OPT_WRITE);   /* slave is 7-bit, no <<1 */
+static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, const uint8_t* data, int dlen, uint32_t* got){
+    uint8_t buf[RAW_MAX_DATA+4];
+    if(dlen<0||dlen>RAW_MAX_DATA) return 0xFFFFFFFFu;
+    int fl=dgh_build_write_frame(buf,(int)sizeof(buf),addr,awid,data,dlen);
+    if(fl<0) return 0xFFFFFFFFu;
+    uint32_t tr=0; FT_STATUS s=p_Write(g_handle, slave, (uint32_t)fl, buf, &tr, OPT_WRITE);   /* slave is 7-bit, no <<1 */
     if(got)*got=tr; return s;
+}
+/* proto-1 shapes, kept so the dg-measure path is byte-for-byte what it was */
+static FT_STATUS i2c_write(uint32_t slave, uint32_t addr, const uint8_t* data, int dlen, uint32_t* got){
+    if(dlen<0||dlen>60) return 0xFFFFFFFFu;
+    return i2c_write_ex(slave, addr, AWID_DEFAULT, data, dlen, got);
 }
 
 /* ===========================================================================
@@ -414,12 +443,40 @@ static void handle_command(SOCKET c, const char* json){
         uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x60);
         uint32_t addr=(uint32_t)dgh_json_int(json,"addr",0);
         uint32_t len=(uint32_t)dgh_json_int(json,"len",1);
+        /* proto 2: optional offset width. Absent -> 2 -> identical to proto 1. */
+        uint32_t awid=(uint32_t)dgh_json_int(json,"awid",(long)AWID_DEFAULT);
+        if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"bad awid (0/1/2/4 only)\"}",id); ws_send_text(c,rep); return; }
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        if(len<1) len=1;
         if(len>1024) len=1024;
-        uint8_t buf[1024]; uint32_t got=0; FT_STATUS st=i2c_read(slave,addr,len,buf,&got);
+        uint8_t buf[1024]; uint32_t got=0; FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
         int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"data\":[",id,(st==FT_OK)?"true":"false",st);
         for(uint32_t i=0;i<got&&o<(int)sizeof(rep)-16;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",buf[i]);
         o+=snprintf(rep+o,sizeof(rep)-o,"]}");
+        ws_send_text(c,rep); return;
+    }
+    /* ── rawwrite (proto 2): the I2C test tool's write ────────────────────────
+       🔴 NO address whitelist on purpose. A test tool that cannot write
+          everywhere is not a test tool; Bruce asked for exactly this. The
+          safeguard is observability, not refusal: every rawwrite is written to
+          dg-helper.log in full (slave, offset width, address, every byte). */
+    if(strcmp(type,"rawwrite")==0){
+        uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x60);
+        uint32_t addr=(uint32_t)dgh_json_int(json,"addr",0);
+        uint32_t awid=(uint32_t)dgh_json_int(json,"awid",(long)AWID_DEFAULT);
+        uint8_t data[RAW_MAX_DATA];
+        int dn=dgh_json_int_array(json,"data",data,sizeof(data));
+        if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"bad awid (0/1/2/4 only)\"}",id); ws_send_text(c,rep); return; }
+        if(dn<0){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"bad data (max %d bytes)\"}",id,RAW_MAX_DATA); ws_send_text(c,rep); return; }
+        /* log BEFORE touching the bus, so an I2C hang still leaves the record */
+        { char hex[RAW_MAX_DATA*3+8]; int ho=0;
+          for(int i=0;i<dn && ho<(int)sizeof(hex)-4;i++) ho+=snprintf(hex+ho,sizeof(hex)-ho,"%s%02X",i?" ":"",data[i]);
+          if(dn==0) snprintf(hex,sizeof(hex),"(none)");
+          logline("[cmd] rawwrite slave=0x%02X(7-bit) awid=%u addr=0x%08X x%d bytes: %s", slave, awid, addr, dn, hex); }
+        if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        uint32_t got=0; FT_STATUS st=i2c_write_ex(slave,addr,awid,data,dn,&got);
+        logline("        -> FT status %u, transferred %u", st, got);
+        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u}",id,(st==FT_OK)?"true":"false",st,got);
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"write")==0){
@@ -469,28 +526,64 @@ static char* read_file(const char* path, long* outLen){
     char* b=(char*)malloc(n+1); if(!b){ fclose(f); return NULL; }
     long got=(long)fread(b,1,n,f); fclose(f); b[got]=0; if(outLen)*outLen=got; return b;
 }
-static void serve_page(SOCKET c){
-    char path[MAX_PATH]; snprintf(path,sizeof(path),"%sdg-measure.html",g_exeDir);
+static void serve_404(SOCKET c, const char* what){
+    char body[512]; int bl=snprintf(body,sizeof(body),
+        "<!doctype html><meta charset=utf-8><title>404</title>"
+        "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
+        "<h2>404 — not served</h2><p>%s</p>"
+        "<p>Only files sitting next to dg-helper.exe are served (no sub-folders).</p></body>", what);
+    char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),
+        "HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", bl);
+    send_all(c,hdr,hl); send_all(c,body,bl);
+}
+/* ── v1.4.0: serve the whole folder, not one hard-coded page ──────────────────
+   Before, EVERY non-WebSocket request got dg-measure.html back, so a second
+   tool page simply could not be reached through the helper — and the helper is
+   the only way to reach ws://127.0.0.1 without hitting Chrome's Local Network
+   Access gate. Serving the exe's own folder fixes that once, for every future
+   page, instead of re-shipping the exe each time a page is added.
+   "/" still maps to dg-measure.html, so the dg flow is unchanged.             */
+static void serve_page(SOCKET c, const char* req){
+    char name[160];
+    if(!dgh_req_filename(req,name,sizeof(name))){ serve_404(c,"(request target rejected)"); logline("[http] rejected request target"); return; }
+    const char* mime=dgh_mime_for(name);
+    if(!mime){ serve_404(c,"That file type is not served."); logline("[http] 404 (type) %s", name); return; }
+    char path[MAX_PATH]; snprintf(path,sizeof(path),"%s%s",g_exeDir,name);
     long n=0; char* body=read_file(path,&n);
     if(body){
-        char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n",n);
-        send_all(c,hdr,hl); send_all(c,body,(int)n); free(body); return;
+        char hdr[320]; int hl=snprintf(hdr,sizeof(hdr),
+            "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %ld\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", mime, n);
+        send_all(c,hdr,hl); send_all(c,body,(int)n); free(body);
+        logline("[http] 200 %s (%ld bytes)", name, n);
+        return;
     }
-    /* fallback: the page file is missing next to the exe */
-    const char* fb =
-      "<!doctype html><meta charset=utf-8><title>DG helper</title>"
-      "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
-      "<h2>DG helper is running, but dg-measure.html was not found next to it.</h2>"
-      "<p>Put <b>dg-measure.html</b> in the same folder as dg-helper.exe (it ships inside the same zip), then reload.</p>"
-      "<p>Or use the online tool at https://brucecheng0428.github.io/tcon-tools/ .</p></body>";
-    char resp[1024]; snprintf(resp,sizeof(resp),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",(int)strlen(fb),fb);
-    send_all(c,resp,(int)strlen(resp));
-    logline("[http] served fallback: dg-measure.html not found next to exe");
+    if(strcmp(name,"dg-measure.html")==0){
+        /* fallback: the default page file is missing next to the exe */
+        const char* fb =
+          "<!doctype html><meta charset=utf-8><title>DG helper</title>"
+          "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
+          "<h2>DG helper is running, but dg-measure.html was not found next to it.</h2>"
+          "<p>Put <b>dg-measure.html</b> in the same folder as dg-helper.exe (it ships inside the same zip), then reload.</p>"
+          "<p>Or use the online tool at https://brucecheng0428.github.io/tcon-tools/ .</p></body>";
+        char resp[1024]; snprintf(resp,sizeof(resp),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",(int)strlen(fb),fb);
+        send_all(c,resp,(int)strlen(resp));
+        logline("[http] served fallback: dg-measure.html not found next to exe");
+        return;
+    }
+    serve_404(c,"That file is not next to dg-helper.exe.");
+    logline("[http] 404 (missing) %s", name);
 }
 
 int main(int argc, char** argv){
     int port=8899;
-    for(int i=1;i<argc;i++) if(strncmp(argv[i],"--port=",7)==0) port=atoi(argv[i]+7);
+    /* v1.4.0: which page the browser is auto-opened at. Default "" = "/" =
+       dg-measure.html (unchanged). `--page=i2c.html` opens the I2C test tool
+       instead, so it can be a double-click shortcut rather than a typed URL. */
+    char page[160]="";
+    for(int i=1;i<argc;i++){
+        if(strncmp(argv[i],"--port=",7)==0) port=atoi(argv[i]+7);
+        else if(strncmp(argv[i],"--page=",7)==0) snprintf(page,sizeof(page),"%s",argv[i]+7);
+    }
 
     SetConsoleOutputCP(65001);   /* extra insurance; output is ASCII anyway */
     exe_dir(g_exeDir, sizeof(g_exeDir));
@@ -512,7 +605,7 @@ int main(int argc, char** argv){
     diag_ftdi();
 
     WSADATA w;
-    char url[64]; snprintf(url,sizeof(url),"http://127.0.0.1:%d/", port);
+    char url[256]; snprintf(url,sizeof(url),"http://127.0.0.1:%d/%s", port, page);
     SOCKET srv = INVALID_SOCKET;
     if(WSAStartup(MAKEWORD(2,2),&w)==0){
         srv=socket(AF_INET,SOCK_STREAM,0);
@@ -558,6 +651,20 @@ int main(int argc, char** argv){
     else          printf("   What to do: %s\n", todo);
     printf("   (Full English details are in dg-helper.log, next to this program.)\n");
     if(code!='G') printf("   Report just this letter:  %c\n", code);
+    /* v1.4.0: list the other tool pages that are actually sitting next to the
+       exe, so the user does not have to know a URL by heart. */
+    if(g_bindOk){
+        static const char* pages[]={"i2c.html",NULL};
+        int shown=0;
+        for(int i=0;pages[i];i++){
+            char p[MAX_PATH]; snprintf(p,sizeof(p),"%s%s",g_exeDir,pages[i]);
+            DWORD a=GetFileAttributesA(p);
+            if(a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_DIRECTORY)){
+                if(!shown){ printf("--------------------------------------------------\n"); shown=1; }
+                printf("   Also available:  http://127.0.0.1:%d/%s\n", port, pages[i]);
+            }
+        }
+    }
     printf("==================================================\n");
     fflush(stdout);
     logline("STATUS LETTER: %c (%s)", code, meaning);
@@ -577,7 +684,7 @@ int main(int argc, char** argv){
         if(n<=0){ closesocket(c); continue; }
         req[n]=0;
         if(strstr(req,"Upgrade: websocket")||strstr(req,"upgrade: websocket")) serve_ws(c,req);
-        else serve_page(c);
+        else serve_page(c,req);
         closesocket(c);
     }
     if(p_Cleanup) p_Cleanup();

@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>I2C 讀寫測試 — TCON FAE專用工具箱</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     I2C 讀寫測試工具（i2c.html）  — 與 Digital Gamma（dg）無關的獨立頁面
+
+     Bruce 2026-09-18 的需求，原話四項輸入：
+       1. slave address
+       2. offset bytes 的數量（0 / 1 / 2 / 4 可選）
+       3. 起始讀值或寫值的位置（offset）
+       4. 讀或寫的總 byte 數
+     輸出：一個 16×16 的表格。
+
+     🔴 設計界線（刻意寫在這裡，避免日後被「順手加防護」改掉）：
+       · **不套位址白名單。** dg-measure 的 0x1200–0x12FF 是為了防量測流程中誤按，
+         測試工具的性質就是要能任意讀寫，套上去等於把工具廢掉。
+       · **不加確認對話框、不加「允許寫入」開關。** 防護改用「不擋路」的方式：
+         每一筆寫入都如實寫進畫面 log 與 helper 的 dg-helper.log
+         （哪個 slave、哪個位址、寫了什麼 byte）。
+       · 使用者是這個領域的專家，版面以密度與效率優先，不做教學式引導。
+
+     🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
+        common/version.js（版號單一來源）—— helper 端出來的那一份會把它內嵌進來。
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="common/version.js?v=20260918i2c100"></script>
+<style>
+  * { box-sizing: border-box; }
+  :root{
+    --bg:#0f172a; --card:#1e293b; --border:#334155; --text:#e2e8f0; --sub:#94a3b8;
+    --accent:#38bdf8; --ok:#22c55e; --warn:#fbbf24; --err:#ef4444; --idle:#a855f7;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);}
+  body{font:13px/1.5 -apple-system,"PingFang TC","Noto Sans TC",Segoe UI,sans-serif;-webkit-font-smoothing:antialiased;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;}
+  a{color:var(--accent);}
+
+  .hdr{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#111c30;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;}
+  .hdr h1{margin:0;font-size:15px;font-weight:700;letter-spacing:.2px;}
+  .hdr .ver{background:#0ea5e9;color:#04202e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;}
+  .hdr .sp{flex:1;}
+  .back{font-size:12px;color:var(--sub);text-decoration:none;}
+  .back:hover{color:var(--accent);}
+
+  .wrap{max-width:1100px;margin:0 auto;padding:12px 14px 40px;}
+  .row{display:flex;flex-wrap:wrap;gap:12px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;}
+  .card h2{margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--sub);}
+
+  label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--sub);}
+  input[type=text]{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--text);
+    padding:5px 8px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;width:100%;}
+  input[type=text]:focus{outline:none;border-color:var(--accent);}
+  input.bad{border-color:var(--err);}
+  .hint{font-size:10.5px;color:#64748b;}
+  .chips{display:flex;gap:5px;}
+  .chip{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--sub);
+    padding:5px 9px;font-size:12px;cursor:pointer;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .chip.on{background:#0c4a6e;border-color:var(--accent);color:#e0f2fe;font-weight:700;}
+  button{background:#334155;border:1px solid #475569;border-radius:6px;color:var(--text);
+    padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;}
+  button:hover{background:#3f4f66;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  button.pri{background:#0369a1;border-color:#0ea5e9;}
+  button.pri:hover{background:#0284c7;}
+  button.wr{background:#9a3412;border-color:#f97316;}
+  button.wr:hover{background:#c2410c;}
+
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#475569;margin-right:5px;vertical-align:middle;}
+  .dot.on{background:var(--ok);} .dot.busy{background:var(--warn);} .dot.err{background:var(--err);}
+
+  .banner{border-radius:8px;padding:7px 11px;font-size:12px;margin-bottom:10px;border:1px solid;}
+  .banner.info{background:#0c2233;border-color:#0369a1;color:#bae6fd;}
+  .banner.idle{background:#2e1065;border-color:#7e22ce;color:#e9d5ff;}
+  .banner.ok{background:#052e16;border-color:#16a34a;color:#bbf7d0;}
+  .banner.err{background:#450a0a;border-color:#dc2626;color:#fecaca;}
+  .banner.warn{background:#3f2d07;border-color:#b45309;color:#fde68a;}
+
+  /* ── 16×16 dump ─────────────────────────────────────────────────────── */
+  table.dump{border-collapse:collapse;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;}
+  table.dump th{color:var(--sub);font-weight:600;font-size:10.5px;padding:2px 4px;text-align:center;background:#16233a;}
+  table.dump th.rh{text-align:right;padding-right:7px;}
+  table.dump td{border:1px solid #223049;width:30px;height:24px;text-align:center;color:#334155;background:#0b1424;padding:0;}
+  table.dump td.has{color:#e2e8f0;background:#132038;}
+  table.dump td.ff{color:var(--warn);}
+  table.dump td.bus{color:var(--idle);background:#1b1033;}
+  table.dump td.sel{outline:2px solid var(--accent);outline-offset:-2px;}
+  table.dump td.wrote{background:#3f2d07;color:#fde68a;}
+  table.dump td.edit{padding:0;background:#0c4a6e;}
+  table.dump td input{width:100%;height:22px;border:0;background:transparent;color:#e0f2fe;text-align:center;
+    font:12px ui-monospace,Menlo,Consolas,monospace;padding:0;}
+  table.dump td input:focus{outline:none;}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;color:var(--sub);margin-top:7px;}
+  .legend i{display:inline-block;width:10px;height:10px;border:1px solid #223049;vertical-align:-1px;margin-right:4px;}
+
+  .pager{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--sub);}
+  select{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 7px;font-size:12px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;}
+
+  #log{background:#080f1c;border:1px solid var(--border);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;}
+  #log .t{color:#475569;}
+  #log .r{color:#7dd3fc;} #log .w{color:#fdba74;} #log .e{color:#fca5a5;} #log .o{color:#86efac;} #log .n{color:#94a3b8;}
+
+  .kv{font-size:11px;color:var(--sub);}
+  .kv b{color:var(--text);font-weight:600;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>⚙ I2C 讀寫測試</h1>
+  <span class="ver" id="ver">v?</span>
+  <span class="sp"></span>
+  <span class="kv" id="helperinfo"></span>
+  <a class="back" href="index.html" id="backlink">← 工具箱</a>
+</div>
+
+<div class="wrap">
+
+  <div id="topbanner"></div>
+
+  <!-- ═══ 連線 ═══ -->
+  <div class="card" style="margin-bottom:12px;">
+    <h2>本機 helper 連線</h2>
+    <div class="row" style="align-items:center;">
+      <div><span class="dot" id="dot"></span><span id="linktext">未連線</span></div>
+      <button class="pri" id="btn-conn">連線</button>
+      <button id="btn-disc" disabled>中斷</button>
+      <button id="btn-self" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
+      <span class="sp" style="flex:1"></span>
+      <span class="kv mono" id="wsurl"></span>
+    </div>
+  </div>
+
+  <!-- ═══ 四項輸入 ═══ -->
+  <div class="card" style="margin-bottom:12px;">
+    <h2>參數</h2>
+    <div class="row" style="align-items:flex-end;">
+      <label class="f" style="width:150px;">
+        <span>① Slave 位址（7-bit）</span>
+        <input type="text" id="in-slave" class="mono" value="0x68" spellcheck="false">
+        <span class="hint" id="slavehint">&nbsp;</span>
+      </label>
+      <label class="f">
+        <span>② Offset 寬度</span>
+        <div class="chips" id="awid-chips">
+          <span class="chip" data-awid="0">0 byte</span>
+          <span class="chip" data-awid="1">1 byte</span>
+          <span class="chip on" data-awid="2">2 bytes</span>
+          <span class="chip" data-awid="4">4 bytes</span>
+        </div>
+        <span class="hint" id="awidhint">&nbsp;</span>
+      </label>
+      <label class="f" style="width:150px;">
+        <span>③ 起始 offset</span>
+        <input type="text" id="in-off" class="mono" value="0x0000" spellcheck="false">
+        <span class="hint" id="offhint">&nbsp;</span>
+      </label>
+      <label class="f" style="width:120px;">
+        <span>④ 總 byte 數</span>
+        <input type="text" id="in-len" class="mono" value="256" spellcheck="false">
+        <span class="hint" id="lenhint">&nbsp;</span>
+      </label>
+      <div style="display:flex;gap:8px;padding-bottom:16px;">
+        <button class="pri" id="btn-read" disabled>讀取</button>
+      </div>
+    </div>
+    <div class="row" style="align-items:flex-end;margin-top:8px;border-top:1px solid #223049;padding-top:9px;">
+      <label class="f" style="flex:1;min-width:280px;">
+        <span>寫入資料（hex，從 ③ 起始 offset 依序寫入）</span>
+        <input type="text" id="in-data" class="mono" placeholder="A1 D8 FB   或   a1d8fb   或   0xA1,0xD8,0xFB" spellcheck="false">
+        <span class="hint" id="datahint">&nbsp;</span>
+      </label>
+      <div style="display:flex;gap:8px;padding-bottom:16px;">
+        <button class="wr" id="btn-write" disabled>寫入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 16×16 ═══ -->
+  <div class="card">
+    <div class="row" style="align-items:center;margin-bottom:8px;">
+      <h2 style="margin:0;">16 × 16 Dump</h2>
+      <span class="sp" style="flex:1"></span>
+      <div class="pager">
+        <button id="btn-prev" disabled>◀</button>
+        <select id="pagesel"></select>
+        <button id="btn-next" disabled>▶</button>
+        <span id="pageinfo" class="kv"></span>
+      </div>
+    </div>
+    <div id="readbanner"></div>
+    <div style="overflow:auto;">
+      <table class="dump" id="dump"></table>
+    </div>
+    <div class="legend">
+      <span><i style="background:#132038;"></i>已讀到的值</span>
+      <span><i style="background:#0b1424;"></i>未讀取（本次範圍外）</span>
+      <span><i style="background:#132038;"></i><span style="color:var(--warn)">FF</span> ＝ 資料中的 0xFF</span>
+      <span><i style="background:#1b1033;"></i><span style="color:var(--idle)">整批全 FF</span> ＝ 總線閒置／無回應</span>
+      <span><i style="background:#3f2d07;"></i>本次寫入過</span>
+      <span>點任一格可直接改值 → Enter 寫回該位址</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="row" style="align-items:center;margin-bottom:6px;">
+      <h2 style="margin:0;">交易 Log</h2>
+      <span class="sp" style="flex:1"></span>
+      <button id="btn-copylog">複製</button>
+      <button id="btn-clearlog">清除</button>
+    </div>
+    <div id="log"></div>
+    <div class="hint" style="margin-top:6px;">
+      每一筆讀寫都完整記錄（slave／offset 寬度／位址／byte）。寫入同時也寫進 helper 的 <span class="mono">dg-helper.log</span>。
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ═══════════════════════════════════════════════════════════════════════════
+   命名前綴一律 i2ct（i2c tool），避免與其他頁面的全域衝突（專案開發規則 3）。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+var I2CT_PORT      = 8899;
+var I2CT_WS_URL    = 'ws://127.0.0.1:' + I2CT_PORT + '/ws';
+var I2CT_PAGE_URL  = 'http://127.0.0.1:' + I2CT_PORT + '/i2c.html';
+var I2CT_NEED_PROTO = 2;          /* awid 與 rawwrite 是 proto 2 才有的 */
+var I2CT_TIMEOUT_MS = 8000;
+var I2CT_CLOCK_HZ   = 150000;     /* 與 PQ Tool／dg helper 同一組參數 */
+var I2CT_CHUNK      = 256;        /* 每則 read 訊息最多幾個 byte */
+var I2CT_MAX_LEN    = 4096;       /* 一次讀寫的上限 ＝ 16 頁 */
+var I2CT_OPEN_RETRIES = 5;        /* D2XX 列舉時序：頭幾次可能回 0 channel */
+var I2CT_OPEN_RETRY_MS = 500;
+
+/* 🔴 實機已驗證的黃金向量（dg v1.65.0 起沿用同一組）：
+   slave 0x68（7-bit）、offset 寬度 2 byte、位址 0x0000 讀 3 byte ⇒ A1 D8 FB。
+   另：同一顆 IC 的 0xFF00 讀回 01 EF A1（附帶資訊，不當成通過與否的判準）。   */
+var I2CT_GOLDEN = { slave: 0x68, awid: 2, addr: 0x0000, len: 3, expect: [0xA1, 0xD8, 0xFB] };
+var I2CT_ID_VEC = { slave: 0x68, awid: 2, addr: 0xFF00, len: 3, known: [0x01, 0xEF, 0xA1] };
+
+/* ── 狀態 ──────────────────────────────────────────────────────────────── */
+var i2ctWs = null, i2ctSeq = 0, i2ctPending = {};
+var i2ctLinked = false, i2ctBusy = false;
+var i2ctHelperVer = '', i2ctHelperProto = 0;
+var i2ctBuf = {};                 /* key(位址或索引) → byte 值 */
+var i2ctWrote = {};               /* key → true（本次寫過，僅供上色） */
+var i2ctPages = [];               /* 目前資料涵蓋的頁（每頁 256） */
+var i2ctPageIdx = 0;
+var i2ctLastRead = null;          /* {base,len,awid,allFF,got} */
+var i2ctEditing = null;
+
+function $(id){ return document.getElementById(id); }
+
+/* ═══ 純函式（selftest 直接打這幾支）════════════════════════════════════ */
+
+/* offset 寬度只有 0/1/2/4 —— 與 helper 的 dgh_awid_ok 是同一套判準 */
+function i2ctAwidOk(a){ return a === 0 || a === 1 || a === 2 || a === 4; }
+
+/* 某個 offset 寬度能表示的位址上限（awid 0 沒有位址概念，回 0） */
+function i2ctAddrMax(awid){
+  if (awid === 1) return 0xFF;
+  if (awid === 2) return 0xFFFF;
+  if (awid === 4) return 0xFFFFFFFF;
+  return 0;
+}
+/* 位址在該寬度下的回繞。1 byte 的裝置位址指標走到 0xFF 之後回到 0x00，
+   這不是錯誤而是裝置的實際行為，所以表格也照這個規則落格。 */
+function i2ctWrap(addr, awid){
+  if (awid === 0) return addr;                       /* 無位址：當索引用，不回繞 */
+  var m = i2ctAddrMax(awid) + 1;
+  var v = addr % m;
+  return v < 0 ? v + m : v;
+}
+/* 把一次讀取拆成多則 helper 訊息。
+   🔴 awid === 0（current address read）也照樣可以分段：裝置自己的位址指標會
+      跟著往前走，所以連續送 N 則就是連續讀，不需要（也不能）給位址。 */
+function i2ctPlanRead(base, len, awid){
+  var out = [], done = 0;
+  while (done < len) {
+    var n = Math.min(I2CT_CHUNK, len - done);
+    out.push({ addr: i2ctWrap(base + done, awid), len: n, off: done });
+    done += n;
+  }
+  return out;
+}
+/* 第 i 個 byte 落在表格的哪個 key（awid>0 ＝ 位址，awid===0 ＝ 索引） */
+function i2ctKeyOf(base, i, awid){ return awid === 0 ? i : i2ctWrap(base + i, awid); }
+/* key 所屬的頁（每頁 256，對齊 0x?00 —— 經典 register dump 的落點） */
+function i2ctPageOf(key){ return Math.floor(key / 256) * 256; }
+/* 表格第 row 列第 col 欄的 key。列＝高位 nibble，欄＝低位 nibble。 */
+function i2ctCellKey(pageBase, row, col){ return pageBase + row * 16 + col; }
+/* 一次讀取涵蓋哪些頁（依 key 實際落點，含回繞後的結果），由小到大 */
+function i2ctPagesOf(base, len, awid){
+  var seen = {}, out = [];
+  for (var i = 0; i < len; i++) {
+    var p = i2ctPageOf(i2ctKeyOf(base, i, awid));
+    if (!seen[p]) { seen[p] = 1; out.push(p); }
+  }
+  out.sort(function (a, b) { return a - b; });
+  return out;
+}
+/* 🔴 全 0xFF ＝ I2C 總線閒置、沒有裝置回應，不是有效資料。
+   實機證據：slave 0x60 / 0x61 / 0x69 都回 FF FF FF。
+   判準是「整批」而不是「單格」—— 單一個 0xFF 在真資料裡很常見。 */
+function i2ctAllFF(bytes){
+  if (!bytes || !bytes.length) return false;
+  for (var i = 0; i < bytes.length; i++) if ((bytes[i] & 0xFF) !== 0xFF) return false;
+  return true;
+}
+/* hex 字串 → byte 陣列。接受 "A1 D8 FB" / "a1d8fb" / "0xA1,0xD8" / 換行。
+   解不出來回 null（不猜、不丟掉看不懂的部分）。 */
+function i2ctParseHex(s){
+  if (s == null) return null;
+  var t = String(s).replace(/0[xX]/g, ' ').replace(/[,;\r\n\t]+/g, ' ').trim();
+  if (!t) return [];
+  if (/[^0-9a-fA-F ]/.test(t)) return null;
+  var out = [], parts = t.split(/\s+/);
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i];
+    if (!p) continue;
+    if (p.length % 2 !== 0) return null;             /* 半個 byte ＝ 使用者打錯，不臆測 */
+    for (var j = 0; j < p.length; j += 2) out.push(parseInt(p.substr(j, 2), 16));
+  }
+  return out;
+}
+/* 數字輸入：0x 開頭當 16 進位，否則 10 進位。解不出來回 null。 */
+function i2ctParseNum(s){
+  if (s == null) return null;
+  var t = String(s).trim();
+  if (!t) return null;
+  var v;
+  if (/^0[xX][0-9a-fA-F]+$/.test(t)) v = parseInt(t.slice(2), 16);
+  else if (/^[0-9]+$/.test(t)) v = parseInt(t, 10);
+  else if (/^[0-9a-fA-F]+[hH]$/.test(t)) v = parseInt(t.slice(0, -1), 16);
+  else return null;
+  return isFinite(v) ? v : null;
+}
+function i2ctHex(v, w){ var s = (v >>> 0).toString(16).toUpperCase(); while (s.length < (w || 2)) s = '0' + s; return s; }
+function i2ctAddrText(key, awid){
+  if (awid === 0) return '#' + key;
+  return '0x' + i2ctHex(key, awid === 1 ? 2 : awid === 4 ? 8 : 4);
+}
+function i2ctBytesText(a){
+  if (!a || !a.length) return '(空)';
+  var s = []; for (var i = 0; i < a.length; i++) s.push(i2ctHex(a[i] & 0xFF));
+  return s.join(' ');
+}
+
+/* ═══ log ═══════════════════════════════════════════════════════════════ */
+function i2ctLog(msg, cls){
+  var el = $('log'); if (!el) return;
+  var d = new Date();
+  var ts = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2)
+         + ':' + ('0' + d.getSeconds()).slice(-2) + '.' + ('00' + d.getMilliseconds()).slice(-3);
+  var line = document.createElement('div');
+  var t = document.createElement('span'); t.className = 't'; t.textContent = ts + ' ';
+  var b = document.createElement('span'); b.className = cls || 'n'; b.textContent = msg;
+  line.appendChild(t); line.appendChild(b);
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ═══ 輸入讀取與驗證 ════════════════════════════════════════════════════ */
+function i2ctAwid(){
+  var on = document.querySelector('#awid-chips .chip.on');
+  return on ? parseInt(on.getAttribute('data-awid'), 10) : 2;
+}
+function i2ctReadInputs(){
+  var awid = i2ctAwid();
+  var slave = i2ctParseNum($('in-slave').value);
+  var off   = i2ctParseNum($('in-off').value);
+  var len   = i2ctParseNum($('in-len').value);
+  var errs  = [];
+
+  if (slave === null || slave < 0 || slave > 0x7F) errs.push('slave 位址要是 0x00–0x7F 的 7-bit 值');
+  if (awid === 0) { if (off === null) off = 0; }
+  else if (off === null || off < 0 || off > i2ctAddrMax(awid)) {
+    errs.push('起始 offset 超出 ' + awid + ' byte 能表示的範圍（0–0x' + i2ctHex(i2ctAddrMax(awid), awid * 2) + '）');
+  }
+  if (len === null || len < 1 || len > I2CT_MAX_LEN) errs.push('總 byte 數要在 1–' + I2CT_MAX_LEN + ' 之間');
+
+  $('in-slave').classList.toggle('bad', slave === null || slave < 0 || slave > 0x7F);
+  $('in-off').classList.toggle('bad', awid !== 0 && (off === null || off < 0 || off > i2ctAddrMax(awid)));
+  $('in-len').classList.toggle('bad', len === null || len < 1 || len > I2CT_MAX_LEN);
+
+  return { slave: slave, awid: awid, off: off, len: len, errs: errs };
+}
+function i2ctUpdateHints(){
+  var v = i2ctReadInputs();
+  /* 7-bit / 8-bit 兩種寫法是同一顆裝置的不同表示，兩個都印出來避免對錯位址
+     （dg v1.65.1 起全站統一這個標法）。 */
+  $('slavehint').textContent = (v.slave !== null && v.slave >= 0 && v.slave <= 0x7F)
+    ? ('7-bit 0x' + i2ctHex(v.slave) + ' ＝ 8-bit W 0x' + i2ctHex((v.slave << 1) & 0xFF)
+       + ' / R 0x' + i2ctHex(((v.slave << 1) | 1) & 0xFF))
+    : '0x00–0x7F';
+  $('awidhint').textContent = v.awid === 0
+    ? '不送位址，直接讀（current address read）'
+    : (v.awid + ' byte，高位在前');
+  $('offhint').textContent = v.awid === 0 ? '此模式無位址，忽略' : ('上限 0x' + i2ctHex(i2ctAddrMax(v.awid), v.awid * 2));
+  $('lenhint').textContent = (v.len !== null && v.len >= 1)
+    ? (Math.ceil(v.len / 256) + ' 頁 · 分 ' + i2ctPlanRead(0, Math.min(v.len, I2CT_MAX_LEN), v.awid).length + ' 則傳送')
+    : ('1 – ' + I2CT_MAX_LEN);
+  var d = i2ctParseHex($('in-data').value);
+  $('in-data').classList.toggle('bad', d === null);
+  $('datahint').textContent = d === null ? '🔴 hex 解析失敗（每個 byte 要兩碼）'
+    : (d.length ? (d.length + ' byte：' + i2ctBytesText(d.slice(0, 16)) + (d.length > 16 ? ' …' : '')) : '空白');
+  i2ctSyncButtons();
+}
+function i2ctSyncButtons(){
+  var v = i2ctReadInputs();
+  var d = i2ctParseHex($('in-data').value);
+  var can = i2ctLinked && !i2ctBusy && v.errs.length === 0;
+  $('btn-read').disabled  = !can;
+  $('btn-write').disabled = !can || d === null || d.length === 0;
+  $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
+  $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
+  $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
+}
+
+/* ═══ WebSocket（helper）═══════════════════════════════════════════════ */
+function i2ctSend(obj){
+  return new Promise(function (resolve, reject) {
+    if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error('helper 尚未連線')); return; }
+    var id = ++i2ctSeq; obj.id = id;
+    var timer = setTimeout(function () {
+      if (i2ctPending[id]) { delete i2ctPending[id]; reject(new Error('helper 逾時未回覆（' + obj.type + '）')); }
+    }, I2CT_TIMEOUT_MS);
+    i2ctPending[id] = { resolve: resolve, reject: reject, timer: timer };
+    try { i2ctWs.send(JSON.stringify(obj)); }
+    catch (e) { clearTimeout(timer); delete i2ctPending[id]; reject(e); }
+  });
+}
+function i2ctOnMessage(ev){
+  var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+  if (m.type === 'hello' || m.type === 'pong') { i2ctHelperVer = m.helper || ''; i2ctHelperProto = m.proto || 0; }
+  if (typeof m.id === 'number' && i2ctPending[m.id]) {
+    var p = i2ctPending[m.id]; delete i2ctPending[m.id]; clearTimeout(p.timer); p.resolve(m);
+  }
+}
+function i2ctSetLink(on, txt, cls){
+  i2ctLinked = on;
+  $('dot').className = 'dot' + (cls ? ' ' + cls : (on ? ' on' : ''));
+  $('linktext').textContent = txt;
+  $('helperinfo').textContent = i2ctHelperVer ? ('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto) : '';
+  i2ctSyncButtons();
+}
+async function i2ctConnect(){
+  if (i2ctLinked || i2ctBusy) return;
+  i2ctBusy = true; i2ctSetLink(false, '連線中…', 'busy');
+  i2ctLog('連線 ' + I2CT_WS_URL, 'n');
+  var ws;
+  try { ws = new WebSocket(I2CT_WS_URL); }
+  catch (e) { i2ctBusy = false; i2ctSetLink(false, '無法建立 WebSocket', 'err'); i2ctLog('✕ ' + e.message, 'e'); return; }
+  i2ctWs = ws;
+  ws.onmessage = i2ctOnMessage;
+  ws.onclose = function () {
+    for (var k in i2ctPending) { try { clearTimeout(i2ctPending[k].timer); i2ctPending[k].reject(new Error('helper 連線關閉')); } catch (e) {} }
+    i2ctPending = {};
+    if (i2ctLinked) { i2ctSetLink(false, 'helper 連線中斷', 'err'); i2ctLog('✕ helper 連線關閉', 'e'); }
+    i2ctWs = null;
+  };
+  var opened = await new Promise(function (resolve) {
+    var settled = false;
+    var to = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, I2CT_TIMEOUT_MS);
+    ws.onopen  = function () { if (!settled) { settled = true; clearTimeout(to); resolve(true); } };
+    ws.onerror = function () { if (!settled) { settled = true; clearTimeout(to); resolve(false); } };
+  });
+  if (!opened) {
+    try { ws.close(); } catch (e) {}
+    i2ctWs = null; i2ctBusy = false; i2ctSetLink(false, '連不到 helper', 'err');
+    i2ctLog('✕ 連不到本機 helper。helper（黑視窗）有在跑嗎？若本頁是從 https 開的，'
+          + '請改用 helper 自己端出來的 ' + I2CT_PAGE_URL, 'e');
+    i2ctBanner('topbanner', 'err', '連不到本機 helper。請確認 dg-helper 有在執行；'
+      + '若你是從 https 的工具箱開這一頁，請改開 <a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL + '</a>（helper 自己端的同源版本）。');
+    return;
+  }
+  try {
+    var pong = await i2ctSend({ type: 'ping' });
+    i2ctHelperVer = pong.helper || ''; i2ctHelperProto = pong.proto || 0;
+    i2ctLog('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto, 'o');
+    if (i2ctHelperProto < I2CT_NEED_PROTO) {
+      throw new Error('helper 協定版本太舊（proto ' + i2ctHelperProto + '，本頁需要 proto '
+        + I2CT_NEED_PROTO + '）。offset 寬度 0/1/4 與不限位址寫入都是 proto ' + I2CT_NEED_PROTO + ' 才有的，請更新 helper。');
+    }
+    var op = null;
+    for (var a = 1; a <= I2CT_OPEN_RETRIES; a++) {
+      op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ });
+      if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
+      i2ctLog('開通道第 ' + a + '/' + I2CT_OPEN_RETRIES + ' 次失敗（channels=' + op.channels + '）', 'e');
+      if (a < I2CT_OPEN_RETRIES) await new Promise(function (r) { setTimeout(r, I2CT_OPEN_RETRY_MS); });
+    }
+    if (!op || !op.ok) throw new Error('開通道連試 ' + I2CT_OPEN_RETRIES + ' 次都失敗（治具插好了嗎？原廠 PQ Tool 是不是開著佔住 channel？）');
+    i2ctBusy = false;
+    i2ctSetLink(true, '已連線');
+    i2ctBanner('topbanner', '', '');
+  } catch (err) {
+    i2ctBusy = false;
+    /* 🔴 .catch 不可省：下一行的 ws.close() 會觸發 onclose，onclose 會 reject 掉
+       所有在途的 request —— 包含這個 close。沒有接住就是 unhandled rejection
+       （selftest 第 14 組實測到 node 直接中止；瀏覽器則是 console 一則紅字）。 */
+    try { i2ctSend({ type: 'close' }).catch(function () {}); } catch (e) {}
+    try { ws.close(); } catch (e) {}
+    i2ctWs = null;
+    i2ctSetLink(false, '連線失敗', 'err');
+    i2ctLog('✕ ' + err.message, 'e');
+    i2ctBanner('topbanner', 'err', err.message);
+  }
+}
+async function i2ctDisconnect(){
+  i2ctBusy = true; i2ctSyncButtons();
+  try { if (i2ctWs && i2ctWs.readyState === 1) await i2ctSend({ type: 'close' }); } catch (e) {}
+  try { if (i2ctWs) i2ctWs.close(); } catch (e) {}
+  i2ctWs = null; i2ctBusy = false;
+  i2ctSetLink(false, '已中斷（原廠 PQ Tool 可以接手）');
+  i2ctLog('已中斷 helper 連線', 'o');
+}
+
+/* ═══ 讀 ════════════════════════════════════════════════════════════════ */
+/* 回傳 {ok, bytes, err}。不丟例外，讓呼叫端統一處理版面。 */
+async function i2ctDoRead(slave, awid, base, len){
+  var plan = i2ctPlanRead(base, len, awid);
+  var all = [];
+  for (var i = 0; i < plan.length; i++) {
+    var c = plan[i];
+    var req = { type: 'read', slave: slave, addr: c.addr, len: c.len, awid: awid };
+    var r;
+    try { r = await i2ctSend(req); }
+    catch (e) { return { ok: false, bytes: all, err: e.message }; }
+    if (!r.ok) {
+      return { ok: false, bytes: all,
+        err: 'helper 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）' };
+    }
+    var d = r.data || [];
+    i2ctLog('R  slave 0x' + i2ctHex(slave) + ' · offset ' + awid + 'B '
+          + (awid === 0 ? '(無位址)' : i2ctAddrText(c.addr, awid))
+          + ' ×' + c.len + '  →  ' + i2ctBytesText(d)
+          + (d.length !== c.len ? '  🔴 只收到 ' + d.length + '/' + c.len : ''), 'r');
+    for (var j = 0; j < d.length; j++) all.push(d[j] & 0xFF);
+    if (d.length < c.len) return { ok: false, bytes: all, err: '第 ' + (i + 1) + ' 段只收到 ' + d.length + '/' + c.len + ' byte' };
+  }
+  return { ok: true, bytes: all, err: null };
+}
+async function i2ctOnRead(){
+  var v = i2ctReadInputs();
+  if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
+  i2ctBusy = true; i2ctSyncButtons();
+  i2ctBanner('readbanner', 'info', '讀取中…');
+  var res = await i2ctDoRead(v.slave, v.awid, v.off, v.len);
+  i2ctBusy = false; i2ctSyncButtons();
+
+  i2ctBuf = {}; i2ctWrote = {};
+  for (var i = 0; i < res.bytes.length; i++) i2ctBuf[i2ctKeyOf(v.off, i, v.awid)] = res.bytes[i];
+  var allFF = i2ctAllFF(res.bytes);
+  i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF };
+  i2ctPages = i2ctPagesOf(v.off, res.bytes.length || 1, v.awid);
+  i2ctPageIdx = 0;
+  i2ctRenderPager(); i2ctRenderTable();
+
+  if (!res.ok) {
+    i2ctBanner('readbanner', 'err', '讀取失敗：' + res.err + '（已收到的 ' + res.bytes.length + ' byte 仍顯示在表格上）');
+    i2ctLog('✕ ' + res.err, 'e');
+  } else if (allFF) {
+    /* 🔴 實機證據：沒有裝置回應時 SDA 被 pull-high，讀回來就是整批 FF。
+       這不是 0xFF 這個「值」，是「沒有人回應」。判錯方向會讓人以為讀到了資料。 */
+    i2ctBanner('readbanner', 'idle', '整批 ' + res.bytes.length + ' byte 全部是 0xFF ⇒ <b>I2C 總線閒置、沒有裝置回應</b>，'
+      + '這不是有效資料。請檢查 slave 位址（目前 7-bit 0x' + i2ctHex(v.slave) + '）、治具接線與電源。');
+    i2ctLog('⚠ 全 FF ＝ 總線閒置／無回應（不是有效資料）', 'w');
+  } else {
+    i2ctBanner('readbanner', 'ok', '讀到 ' + res.bytes.length + ' byte，'
+      + (v.awid === 0 ? '無位址模式（索引 0–' + (res.bytes.length - 1) + '）'
+                      : i2ctAddrText(v.off, v.awid) + ' – ' + i2ctAddrText(i2ctWrap(v.off + res.bytes.length - 1, v.awid), v.awid))
+      + '，共 ' + i2ctPages.length + ' 頁。');
+  }
+}
+
+/* ═══ 寫 ════════════════════════════════════════════════════════════════ */
+async function i2ctDoWrite(slave, awid, addr, bytes){
+  /* 🔴 位址一律不限。留痕靠 log：這一行就是「寫了什麼」的完整紀錄。 */
+  i2ctLog('W  slave 0x' + i2ctHex(slave) + ' · offset ' + awid + 'B '
+        + (awid === 0 ? '(無位址)' : i2ctAddrText(addr, awid))
+        + ' ×' + bytes.length + '  ←  ' + i2ctBytesText(bytes), 'w');
+  var r;
+  try { r = await i2ctSend({ type: 'rawwrite', slave: slave, addr: addr, data: bytes, awid: awid }); }
+  catch (e) { i2ctLog('✕ ' + e.message, 'e'); return { ok: false, err: e.message }; }
+  if (!r.ok) {
+    var msg = 'helper 寫失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）';
+    i2ctLog('✕ ' + msg, 'e');
+    return { ok: false, err: msg };
+  }
+  i2ctLog('   ✔ 已寫入（transferred ' + (r.transferred != null ? r.transferred : '?') + '）', 'o');
+  return { ok: true, err: null };
+}
+async function i2ctOnWrite(){
+  var v = i2ctReadInputs();
+  var d = i2ctParseHex($('in-data').value);
+  if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
+  if (d === null || !d.length) { i2ctBanner('readbanner', 'err', '寫入資料解析不出來或為空'); return; }
+  if (d.length > I2CT_CHUNK) { i2ctBanner('readbanner', 'err', '一次最多寫 ' + I2CT_CHUNK + ' byte（目前 ' + d.length + '）'); return; }
+  i2ctBusy = true; i2ctSyncButtons();
+  var r = await i2ctDoWrite(v.slave, v.awid, v.off, d);
+  i2ctBusy = false; i2ctSyncButtons();
+  if (r.ok) {
+    for (var i = 0; i < d.length; i++) { var k = i2ctKeyOf(v.off, i, v.awid); i2ctBuf[k] = d[i]; i2ctWrote[k] = true; }
+    if (!i2ctPages.length) { i2ctPages = i2ctPagesOf(v.off, d.length, v.awid); i2ctPageIdx = 0; i2ctRenderPager(); }
+    i2ctRenderTable();
+    i2ctBanner('readbanner', 'warn', '已寫入 ' + d.length + ' byte 到 '
+      + (v.awid === 0 ? '（無位址模式）' : i2ctAddrText(v.off, v.awid))
+      + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。');
+  } else {
+    i2ctBanner('readbanner', 'err', r.err);
+  }
+}
+
+/* ═══ 自檢 ══════════════════════════════════════════════════════════════ */
+async function i2ctSelfTest(){
+  i2ctBusy = true; i2ctSyncButtons();
+  /* 把輸入一併設成黃金向量，讓使用者看得到自檢到底做了什麼 */
+  $('in-slave').value = '0x' + i2ctHex(I2CT_GOLDEN.slave);
+  i2ctSetAwid(I2CT_GOLDEN.awid);
+  $('in-off').value = '0x' + i2ctHex(I2CT_GOLDEN.addr, 4);
+  $('in-len').value = String(I2CT_GOLDEN.len);
+  i2ctUpdateHints();
+
+  i2ctLog('── 自檢：黃金向量 slave 0x68 / offset 2B / 0x0000 ×3，期望 '
+        + i2ctBytesText(I2CT_GOLDEN.expect) + ' ──', 'n');
+  var g = await i2ctDoRead(I2CT_GOLDEN.slave, I2CT_GOLDEN.awid, I2CT_GOLDEN.addr, I2CT_GOLDEN.len);
+  var pass = g.ok && g.bytes.length === I2CT_GOLDEN.expect.length;
+  if (pass) for (var i = 0; i < I2CT_GOLDEN.expect.length; i++) if (g.bytes[i] !== I2CT_GOLDEN.expect[i]) pass = false;
+
+  /* 附帶（不影響通過與否）：同一顆 IC 的 0xFF00 已知回 01 EF A1 */
+  var idTxt = '';
+  if (g.ok) {
+    var idr = await i2ctDoRead(I2CT_ID_VEC.slave, I2CT_ID_VEC.awid, I2CT_ID_VEC.addr, I2CT_ID_VEC.len);
+    if (idr.ok) {
+      var same = idr.bytes.length === 3 && idr.bytes.every(function (b, k) { return b === I2CT_ID_VEC.known[k]; });
+      idTxt = '　0xFF00 → ' + i2ctBytesText(idr.bytes) + (same ? '（與已知的 01 EF A1 相同）' : '（已知樣本是 01 EF A1）');
+      if (i2ctAllFF(idr.bytes)) idTxt += ' ⚠ 全 FF ＝ 無回應';
+    }
+  }
+
+  i2ctBusy = false; i2ctSyncButtons();
+  if (pass) {
+    i2ctBanner('topbanner', 'ok', '✔ 自檢通過：0x0000 讀回 ' + i2ctBytesText(g.bytes) + '，與黃金向量一致。' + idTxt);
+    i2ctLog('✔ 自檢通過：' + i2ctBytesText(g.bytes), 'o');
+  } else {
+    var why = !g.ok ? g.err
+      : (i2ctAllFF(g.bytes) ? '讀回 ' + i2ctBytesText(g.bytes) + ' ＝ 全 FF ＝ 總線閒置／無裝置回應'
+                            : '讀回 ' + i2ctBytesText(g.bytes) + '，與期望的 ' + i2ctBytesText(I2CT_GOLDEN.expect) + ' 不同');
+    i2ctBanner('topbanner', 'err', '✕ 自檢未通過：' + why + idTxt);
+    i2ctLog('✕ 自檢未通過：' + why, 'e');
+  }
+  return pass;
+}
+
+/* ═══ 版面 ══════════════════════════════════════════════════════════════ */
+function i2ctBanner(id, cls, html){
+  var el = $(id); if (!el) return;
+  if (!cls || !html) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="banner ' + cls + '">' + html + '</div>';
+}
+function i2ctRenderPager(){
+  var sel = $('pagesel');
+  sel.innerHTML = '';
+  var awid = i2ctLastRead ? i2ctLastRead.awid : i2ctAwid();
+  for (var i = 0; i < i2ctPages.length; i++) {
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = awid === 0
+      ? ('索引 ' + i2ctPages[i] + '–' + (i2ctPages[i] + 255))
+      : (i2ctAddrText(i2ctPages[i], awid) + ' – ' + i2ctAddrText(i2ctPages[i] + 255, awid));
+    sel.appendChild(o);
+  }
+  sel.value = String(i2ctPageIdx);
+  $('btn-prev').disabled = i2ctPageIdx <= 0;
+  $('btn-next').disabled = i2ctPageIdx >= i2ctPages.length - 1;
+  $('pageinfo').textContent = i2ctPages.length ? ('第 ' + (i2ctPageIdx + 1) + ' / ' + i2ctPages.length + ' 頁') : '尚無資料';
+}
+function i2ctRenderTable(){
+  var t = $('dump');
+  var awid = i2ctLastRead ? i2ctLastRead.awid : i2ctAwid();
+  var busIdle = !!(i2ctLastRead && i2ctLastRead.allFF);
+  var pageBase = i2ctPages.length ? i2ctPages[i2ctPageIdx] : 0;
+  var html = '<tr><th class="rh"></th>';
+  for (var c = 0; c < 16; c++) html += '<th>+' + i2ctHex(c, 1) + '</th>';
+  html += '</tr>';
+  for (var r = 0; r < 16; r++) {
+    var rowBase = pageBase + r * 16;
+    html += '<tr><th class="rh">' + (awid === 0 ? ('#' + rowBase) : i2ctAddrText(rowBase, awid)) + '</th>';
+    for (var c2 = 0; c2 < 16; c2++) {
+      var key = i2ctCellKey(pageBase, r, c2);
+      var has = Object.prototype.hasOwnProperty.call(i2ctBuf, key);
+      var v = has ? i2ctBuf[key] : null;
+      var cls = [];
+      if (has) cls.push('has');
+      if (has && busIdle) cls.push('bus');
+      else if (has && v === 0xFF) cls.push('ff');
+      if (i2ctWrote[key]) cls.push('wrote');
+      var title = i2ctAddrText(key, awid) + (has ? ' = 0x' + i2ctHex(v) + ' (' + v + ')' : ' 未讀取');
+      html += '<td class="' + cls.join(' ') + '" data-key="' + key + '" title="' + title + '">'
+            + (has ? i2ctHex(v) : '') + '</td>';
+    }
+    html += '</tr>';
+  }
+  t.innerHTML = html;
+}
+
+/* 點格子 → 就地改值 → Enter 寫回該位址（Esc 取消）。
+   awid === 0 沒有位址可以指定，這個模式下不開放逐格寫。 */
+function i2ctBeginEdit(td){
+  if (i2ctEditing || !i2ctLinked || i2ctBusy) return;
+  var awid = i2ctLastRead ? i2ctLastRead.awid : i2ctAwid();
+  if (awid === 0) { i2ctBanner('readbanner', 'warn', 'offset 寬度為 0 byte（無位址）時無法逐格寫入 —— 請改用上方「寫入資料」欄。'); return; }
+  var key = parseInt(td.getAttribute('data-key'), 10);
+  var cur = Object.prototype.hasOwnProperty.call(i2ctBuf, key) ? i2ctHex(i2ctBuf[key]) : '';
+  var prevHtml = td.innerHTML, prevCls = td.className;
+  td.className = prevCls + ' edit';
+  td.innerHTML = '<input class="mono" maxlength="2" value="' + cur + '">';
+  var inp = td.firstChild;
+  i2ctEditing = { td: td, key: key, prevHtml: prevHtml, prevCls: prevCls };
+  inp.focus(); inp.select();
+  inp.addEventListener('keydown', async function (e) {
+    if (e.key === 'Escape') { i2ctCancelEdit(); return; }
+    if (e.key !== 'Enter') return;
+    var val = i2ctParseHex(inp.value);
+    if (val === null || val.length !== 1) { inp.style.color = '#fca5a5'; return; }
+    var v = i2ctReadInputs();
+    i2ctCancelEdit();
+    if (v.slave === null) { i2ctBanner('readbanner', 'err', 'slave 位址無效'); return; }
+    i2ctBusy = true; i2ctSyncButtons();
+    var r = await i2ctDoWrite(v.slave, awid, key, val);
+    i2ctBusy = false; i2ctSyncButtons();
+    if (r.ok) { i2ctBuf[key] = val[0]; i2ctWrote[key] = true; i2ctRenderTable();
+      i2ctBanner('readbanner', 'warn', '已寫入 ' + i2ctAddrText(key, awid) + ' ← 0x' + i2ctHex(val[0])
+        + '（表格顯示的是送出的值，要確認請重讀）'); }
+    else i2ctBanner('readbanner', 'err', r.err);
+  });
+  inp.addEventListener('blur', function () { if (i2ctEditing && i2ctEditing.td === td) i2ctCancelEdit(); });
+}
+function i2ctCancelEdit(){
+  if (!i2ctEditing) return;
+  i2ctEditing.td.className = i2ctEditing.prevCls;
+  i2ctEditing.td.innerHTML = i2ctEditing.prevHtml;
+  i2ctEditing = null;
+}
+function i2ctSetAwid(a){
+  var chips = document.querySelectorAll('#awid-chips .chip');
+  for (var i = 0; i < chips.length; i++)
+    chips[i].classList.toggle('on', parseInt(chips[i].getAttribute('data-awid'), 10) === a);
+}
+
+/* ═══ 啟動 ══════════════════════════════════════════════════════════════ */
+function i2ctInit(){
+  try { $('ver').textContent = (window.TOOL_VERSIONS && TOOL_VERSIONS.i2c) || 'v?'; } catch (e) {}
+  $('wsurl').textContent = I2CT_WS_URL;
+
+  /* helper 自己端出來的那一份沒有 index.html，藏掉回首頁的連結免得 404 */
+  var local = (location.hostname === '127.0.0.1' || location.hostname === 'localhost');
+  if (local) $('backlink').style.display = 'none';
+  /* 🔴 https 頁面連 ws://127.0.0.1 會撞 Chrome 的 Local Network Access 閘。
+     這不是本頁能繞過的，唯一的解是改用 helper 自己端出來的同源版本。 */
+  if (location.protocol === 'https:') {
+    i2ctBanner('topbanner', 'info',
+      '這一頁是從 https 開的，瀏覽器可能擋住往 127.0.0.1 的本機連線。'
+      + '若「連線」按不通，請執行 dg-helper 後改開 <a href="' + I2CT_PAGE_URL + '">' + I2CT_PAGE_URL + '</a>（同一份頁面，由 helper 自己端出來）。');
+  }
+
+  var chips = document.querySelectorAll('#awid-chips .chip');
+  for (var i = 0; i < chips.length; i++) {
+    chips[i].addEventListener('click', function () {
+      i2ctSetAwid(parseInt(this.getAttribute('data-awid'), 10));
+      i2ctUpdateHints();
+    });
+  }
+  ['in-slave', 'in-off', 'in-len', 'in-data'].forEach(function (id) {
+    $(id).addEventListener('input', i2ctUpdateHints);
+  });
+  $('btn-conn').addEventListener('click', i2ctConnect);
+  $('btn-disc').addEventListener('click', i2ctDisconnect);
+  $('btn-self').addEventListener('click', i2ctSelfTest);
+  $('btn-read').addEventListener('click', i2ctOnRead);
+  $('btn-write').addEventListener('click', i2ctOnWrite);
+  $('btn-prev').addEventListener('click', function () { if (i2ctPageIdx > 0) { i2ctPageIdx--; i2ctRenderPager(); i2ctRenderTable(); } });
+  $('btn-next').addEventListener('click', function () { if (i2ctPageIdx < i2ctPages.length - 1) { i2ctPageIdx++; i2ctRenderPager(); i2ctRenderTable(); } });
+  $('pagesel').addEventListener('change', function () { i2ctPageIdx = parseInt(this.value, 10) || 0; i2ctRenderPager(); i2ctRenderTable(); });
+  $('dump').addEventListener('click', function (e) {
+    var td = e.target;
+    while (td && td.tagName !== 'TD') td = td.parentNode;
+    if (td && td.getAttribute('data-key') !== null) i2ctBeginEdit(td);
+  });
+  $('btn-clearlog').addEventListener('click', function () { $('log').innerHTML = ''; });
+  $('btn-copylog').addEventListener('click', function () {
+    var txt = $('log').textContent;
+    try { navigator.clipboard.writeText(txt); i2ctLog('（log 已複製到剪貼簿）', 'n'); }
+    catch (e) { i2ctLog('複製失敗：' + e.message, 'e'); }
+  });
+
+  i2ctPages = [0]; i2ctPageIdx = 0;
+  i2ctRenderPager(); i2ctRenderTable();
+  i2ctUpdateHints();
+  i2ctSetLink(false, '未連線');
+  i2ctLog('I2C 讀寫測試工具就緒。讀寫皆不限位址；每一筆交易都記在這裡。', 'n');
+}
+
+/* selftest 用的掛勾（純函式與狀態存取，不改變任何行為） */
+window.__i2ct = {
+  awidOk: i2ctAwidOk, addrMax: i2ctAddrMax, wrap: i2ctWrap,
+  planRead: i2ctPlanRead, keyOf: i2ctKeyOf, pageOf: i2ctPageOf,
+  cellKey: i2ctCellKey, pagesOf: i2ctPagesOf, allFF: i2ctAllFF,
+  parseHex: i2ctParseHex, parseNum: i2ctParseNum,
+  hex: i2ctHex, addrText: i2ctAddrText, bytesText: i2ctBytesText,
+  GOLDEN: I2CT_GOLDEN, ID_VEC: I2CT_ID_VEC,
+  NEED_PROTO: I2CT_NEED_PROTO, CHUNK: I2CT_CHUNK, MAX_LEN: I2CT_MAX_LEN,
+  connect: function () { return i2ctConnect(); },
+  disconnect: function () { return i2ctDisconnect(); },
+  selfTest: function () { return i2ctSelfTest(); },
+  doRead:  function () { return i2ctOnRead(); },
+  doWrite: function () { return i2ctOnWrite(); },
+  setInputs: function (o) {
+    if (o.slave != null) $('in-slave').value = o.slave;
+    if (o.awid  != null) i2ctSetAwid(o.awid);
+    if (o.off   != null) $('in-off').value = o.off;
+    if (o.len   != null) $('in-len').value = o.len;
+    if (o.data  != null) $('in-data').value = o.data;
+    i2ctUpdateHints();
+  },
+  state: function () {
+    return { linked: i2ctLinked, busy: i2ctBusy, buf: i2ctBuf, wrote: i2ctWrote,
+             pages: i2ctPages.slice(), pageIdx: i2ctPageIdx, lastRead: i2ctLastRead,
+             helperProto: i2ctHelperProto };
+  }
+};
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', i2ctInit);
+else i2ctInit();
+</script>
+</body>
+</html>
