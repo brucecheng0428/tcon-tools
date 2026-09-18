@@ -105,11 +105,21 @@ int dgh_fast_read = 1;
    網頁提供「快慢路徑比對」按鈕，讓他自己用同一段位址兩種路徑各讀一次、
    逐 byte 比對 —— 那比我們任何斷言都有力。 */
 int dgh_raw_mpsse = 0;
-/* 🔴 預設 0：v1.11.0 無條件做這件事導致完全連不上（見 i2c_force_clock 的註解）。 */
-int dgh_force_clock = 0;
+/* 🔴 v1.11.5：`i2c_force_clock()` 與 `--force-clock` **已刪除**。
+   它是 v1.11.0 在 InitChannel 之後「事後插隊」寫時脈的那一段（自 v1.11.1 起預設關）。
+   刪掉不是因為沒用，而是它**與現在的時脈模型矛盾**：它寫死 `0x8B` 並自己算
+   `6e6/f-1`（無三相），而 raw 路徑現在是三相開啟 ＋ 2/3 補償。
+   留著一個「預設關、一開就把時脈設錯」的旁路，只是下一個陷阱。
+   ⇒ 時脈現在只有一個出口：`raw_set_mode()` ＋ `dgh_mp_divisor()`。 */
 /* 見 i2c_bridge_proto.h 的說明：0 ＝ 維持既有的 0x03/0x01；1 ＝ FTDI 範例的 0x0B/0x09。
    預設 0 —— 沒有證據之前不改變既有行為。 */
 int dgh_ad3_out = 0;
+/* 🔴 三相時脈（raw 路徑用）。**預設開**（Bruce 2026-09-19 裁示）。
+   AN_113 說 FT2232H/FT4232H 的 I2C 需要它；但 Bruce 提了一個有效的反面假說 ——
+   「原廠 Python UI 與 EM02 TCON UI 好像都沒用三相，會不會不用才對？」
+   ⇒ 所以做成**可切換**，讓他一次量完兩種，而不是我們替他選一邊。
+   慢路徑（libMPSSE, Options=3）永遠是關的，不受這個旗標影響。 */
+int dgh_three_phase = 1;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -558,57 +568,6 @@ static void diag_ftdi(void) {
 /* ===========================================================================
  * I2C actions (copied from PQ Tool)
  * =========================================================================== */
-/* 🔴🔴 v1.11.1：**預設不呼叫這支**（`dgh_force_clock`，只有 `--force-clock` 會開）。
-   ───────────────────────────────────────────────────────────────────────────
-   v1.11.0 在 `i2c_open()` 成功後無條件呼叫它，結果 Bruce 那台**完全連不上
-   I2C Bridge**（「逾時未回覆」／「連不到」），退回 v1.10.0 就正常。
-
-   🔴 **我們是「移除嫌疑者」，不是「已證實根因」。** 這台 Mac 沒有 Windows、
-      沒有 FTDI 治具，無法執行 exe，所以下面是**推論**，不是實證：
-
-   為什麼它是最大嫌疑：
-     1. 它是 v1.10.0→v1.11.0 之間**唯一新增在 open 路徑上的裝置 I/O**
-        （另一個改動 `raise_timer_resolution` 只做 LoadLibrary ＋ 一次 API 呼叫，
-        且 `logline` 有 NULL 守衛，:206）。
-     2. 🔴 **這條路在 v1.11.0 之前從來沒有在真實硬體上執行過。**
-        `p_FT_Write` 原本只被 `mpsse_xfer()` 用到，而那要 `dgh_raw_mpsse`（預設 0）
-        才會走到。也就是說 v1.11.0 是**第一個每次連線都會呼叫 `p_FT_Write` 的版本**。
-     3. 它建立在一個**從未驗證過的假設**上：`I2C_OpenChannel` 給的 handle 可以拿去
-        餵我們自己用 `LoadLibraryA("ftd2xx.dll")` 解析出來的 `FT_Write`。
-        若那支 `ftd2xx.dll` 與 libMPSSE 內部實際使用的**不是同一份載入實例**，
-        就是拿 A 實例的 handle 去呼叫 B 實例的函式 —— 輕則回錯誤，
-        **重則存取違規讓整個 bridge 當掉**，而 bridge 一死就正是「連不到」。
-     4. 工具鏈已排除：用現在這版 zig 重建 v1.10.0 的原始碼，產出 **289,792 byte，
-        與出貨的 v1.10.0 完全同大小**（只差 PE 時戳）⇒ 大小增加純粹來自這兩處改動。
-
-   ⇒ 先讓 open 路徑回到 v1.10.0 的行為。時脈那件事之後再想別的做法
-     （例如在 `I2C_InitChannel` **之前**送，或直接補償傳進去的 ClockRate），
-     不要再用「事後插隊寫裝置」這種形狀。
-
-   base 與公式**必須成對**，所以 0x8B 與 6e6/f-1 一定要一起送。
-   回傳實際會落在線上的頻率（Hz），0 代表沒送成。 */
-static uint32_t i2c_force_clock(uint32_t hz) {
-    unsigned char cmd[4];
-    unsigned long wrote = 0;
-    uint32_t div, actual;
-    if (!DGH_RAW_AVAILABLE || !g_handle || !hz) return 0;
-    div = 6000000u / hz;
-    if (div == 0) div = 1;
-    div -= 1;
-    if (div > 0xFFFF) div = 0xFFFF;
-    actual = 12000000u / ((div + 1) * 2);
-    cmd[0] = 0x8B;                          /* enable divide-by-5 => 12 MHz base */
-    cmd[1] = 0x86;                          /* set clock divisor */
-    cmd[2] = (unsigned char)(div & 0xFF);
-    cmd[3] = (unsigned char)((div >> 8) & 0xFF);
-    if (p_FT_Write(g_handle, cmd, 4, &wrote) != 0 || wrote != 4) {
-        logline("  clock   : force failed (wrote=%lu)", wrote);
-        return 0;
-    }
-    logline("  clock   : requested %u Hz -> divisor %u -> wire %u Hz (12 MHz base, 0x8B+0x86)",
-            hz, div, actual);
-    return actual;
-}
 /* 🔴 v1.11.1：open 路徑**每一步都記一行，含耗時**。
    起因：v1.11.0 在 Bruce 那台連不上，而我們手上的 log 完全看不出卡在哪一步 ——
    只能靠推論。推論這次也許猜對了，下一次不一定。每一階段都留時間戳之後，
@@ -637,30 +596,68 @@ static uint32_t i2c_force_clock(uint32_t hz) {
    一次排除整類「libMPSSE 把通道留在別的狀態」的可能。
    推翻條件：送了這份 init 之後資料仍然錯 ⇒ 假說錯，要回頭查別的。
 
-   逐一對照參考實作（dg-measure.html 3606-3615）：
-     0x8A          關 divide-by-5 ⇒ base 60 MHz（**所以 divisor 要用 30e6/f-1**）
-     0x97          關 adaptive clocking
-     0x8D          關三相（與原廠 DLL_I2C_BCB 0x401c01 一致）
-     0x9E 07 00    open-drain：AD0(SCK)/AD1(SDA out)/AD2(SDA in)
-     0x85          關 loopback
-     0x86 lo hi    時脈除數
-     0x80 03 03    匯流排閒置：SCL/SDA 拉高、設為輸出
-   只在 raw 路徑要用時才送；走 libMPSSE 的慢路徑完全不受影響。 */
-static int raw_init_channel(uint32_t hz) {
-    unsigned char c[32];
-    unsigned long wrote = 0;
-    uint32_t div;
-    int n = 0;
+   🔴🔴 v1.11.5 兩處更正（Bruce 實測 v1.11.4：時脈變 80 kHz、資料仍錯）：
+
+   ① **`0x9E` 在 FT2232H 上不存在。** FTDI 命令表原文：
+        「Open Collector / Tristate — 0x9E (**FT232H only**)」
+      他的治具是 `ID=0x04036010` ⇒ **PID 0x6010 ＝ FT2232H**，不是 FT232H。
+      MPSSE 收到不認識的 opcode 會回 `0xFA <bad opcode>`，**而且後面的 `07` `00`
+      會被當成 opcode 繼續解析** ⇒ 整串命令流從那裡開始錯位。
+      🔴 這很可能就是資料讀錯的元兇，不只是時脈。⇒ **移除。**
+      （開汲極改回由 libMPSSE 的 `I2C_ENABLE_DRIVE_ONLY_ZERO` 負責 ——
+        Options 的 struct 對齊已在 v1.11.2 修好，那個位元現在是真的有生效。）
+
+   ② **base 與除數公式必須成對。** v1.11.4 送 `0x8A`（關 divide-by-5 ⇒ 60 MHz）
+      卻搭 `30e6/f-1`；實測 400k 設定量到 **80 kHz**，而
+      `12e6/((74+1)*2) = 80,000` **完全吻合** ⇒ `0x8A` 沒有生效、base 仍是 12 MHz。
+      ⇒ **不要碰 divide-by-5 這個開關**（不送 0x8A 也不送 0x8B），維持 12 MHz base，
+        用 **`div = 6e6/f - 1`** —— 這就是原廠 `DLL_I2C_BCB` 的 `SetClock`
+        （`dll_i2c.asm 0x4017bc`）那一套，**已經被他量到 400 kHz 證實過**。
+        400 kHz ⇒ div = 14 ⇒ `12e6/((14+1)*2) = 400,000`。
+
+   🔴 教訓（寫在這裡，不要再犯第三次）：**抄參考實作時，每一道命令都要對照
+      晶片型號與官方定義核一次。** v1.11.4 是整份從 dg-measure.html 的 WebUSB
+      路徑抄過來，既沒確認每道命令在這顆晶片上支援，也沒確認 base 與除數成對。
+
+   ③ 🔴 **三相時脈要「開」，這推翻我先前「跟隨原廠關閉」的決定。**
+      先前的理由是原廠 `DLL_I2C_BCB` 明示送 `0x8D`。**那個推論有缺陷**：原廠是
+      **整套時序自己控**（自己組每一道命令、自己決定 setup 時間），我們是拿
+      FTDI 的通用 MPSSE 指令在拼，前提不同，不能只因為原廠關著就跟著關。
+      FTDI **AN_113** 原文：三相時脈「**Required for correct I2C timing on
+      FT2232H and FT4232H**」，它多一個 phase 讓資料線在時脈上升**之前**先建立。
+
+      Bruce 用 LA 直接反推出線上的位元組就是 `61 41 34`（正確值 `B4`）
+      ⇒ **錯誤發生在實體匯流排上**，軟體側（記帳／偏移／bit 或 byte 模式）全部已排除。
+      指紋是零反例的「bit7 永遠讀成 0、反向從不發生」，而 bit7 是 MSB-first 的
+      **第一個位元**，它的前一道命令正是我們自己把 SDA 拉低送 ACK：
+          `13 00 00`（我們拉低 SDA）→ `80 00 01`（放開轉輸入）→ `20 00 00`（立刻採樣）
+      放開後靠上拉電阻回到高電位需要時間，我們沒給 ⇒ 第一個位元採到殘留的低電位。
+      這也解釋為什麼 80 kHz 時只錯 2 個、400 kHz 時錯更多。
+
+   現在送出的每一道（全部對照官方 MPSSE 命令表與晶片型號，逐條標明依據）：
+     0x97          關 adaptive clocking          —— FT2232H/FT4232H/FT232H 皆支援
+     **0x8C**      **開**三相                    —— AN_113：FT2232H/FT4232H 的 I2C 必需
+     0x85          關 loopback                   —— 全系列支援（AN_135 同步程序）
+     0x86 lo hi    時脈除數                      —— 全系列支援；base 12 MHz（未動 div-by-5）
+     0x80 03 03    匯流排閒置：SCL/SDA 拉高、輸出 —— 全系列支援
+   **不送**：`0x9E`（FT232H only）、`0x8A`/`0x8B`（刻意不碰，維持 base 與公式成對）
+
+   🔴 **兩條路徑的三相設定不同**（raw 開、libMPSSE 關），所以**每次切換路徑都要重設**，
+      否則慢路徑會跑在 raw 的設定下 —— v1.11.4 的 80 kHz 就是這樣污染過去的。
+      這個函式因此改成 `raw_set_mode(useRaw, hz)`，**open 每次都呼叫**（不只第一次），
+      而且慢路徑那一支會把三相關回去、除數改回未補償的值（與 libMPSSE 程式化的一致）。 */
+static int raw_set_mode(int useRaw, uint32_t hz) {
+    unsigned char c[32], rb[8];
+    unsigned long wrote = 0, red = 0;
+    unsigned short div;
+    int n = 0, spins = 0, tp;
     if (!DGH_RAW_AVAILABLE || !g_handle) return 0;
     if (!hz) hz = 400000;
-    div = 30000000u / hz;            /* base 60 MHz（因為上面送 0x8A） */
-    if (div == 0) div = 1;
-    div -= 1;
-    if (div > 0xFFFF) div = 0xFFFF;
-    c[n++] = 0x8A;
+    /* 🔴 三相只在 raw 路徑上可能開；慢路徑（libMPSSE, Options=3）一律關。 */
+    tp = useRaw ? (dgh_three_phase ? 1 : 0) : 0;
+    div = dgh_mp_divisor(hz, tp);            /* 🔴 三相與除數成對，見 proto.h */
     c[n++] = 0x97;
-    c[n++] = 0x8D;
-    c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00;
+    c[n++] = (unsigned char)(tp ? 0x8C : 0x8D);
     c[n++] = 0x85;
     c[n++] = 0x86; c[n++] = (unsigned char)(div & 0xFF); c[n++] = (unsigned char)((div >> 8) & 0xFF);
     c[n++] = 0x80; c[n++] = DGH_MP_HI; c[n++] = DGH_MP_DIR_WR;
@@ -668,11 +665,48 @@ static int raw_init_channel(uint32_t hz) {
         logline("  raw_init: FAILED (wrote=%lu of %d)", wrote, n);
         return 0;
     }
-    logline("  raw_init: sent 0x8A/0x97/0x8D/0x9E 07 00/0x85/0x86 %02X %02X/0x80 %02X %02X"
-            "  -> %u Hz on a 60 MHz base (divisor %u), open-drain AD0-AD2",
-            div & 0xFF, (div >> 8) & 0xFF, DGH_MP_HI, DGH_MP_DIR_WR,
-            60000000u / ((div + 1) * 2), div);
-    return 1;
+    logline("  raw_init: mode=%s  3-phase=%s  divisor=%u  programmed=%u Hz  EXPECTED ON THE WIRE=%u Hz"
+            "  (12 MHz base; 0x9E not sent = FT232H only; 0x8A/0x8B not touched)",
+            useRaw ? "fast" : "normal", tp ? "ON (0x8C)" : "off (0x8D)", div,
+            12000000u / (((unsigned int)div + 1u) * 2u), dgh_mp_wire_hz(div, tp));
+
+    /* ═══ 🔴 MPSSE 同步自檢（AN_135 的標準做法）═══════════════════════════════
+       送一個**不存在**的 opcode，MPSSE 必須回 `0xFA <該 opcode>`。
+       它不動匯流排，純粹回答「命令流有沒有失步」。
+       存在的理由：v1.11.4 送了 FT2232H 不支援的 `0x9E`，它的兩個參數被當成
+       opcode 繼續解析 ⇒ **整串錯位、資料靜默讀錯**，而我們毫無所覺。
+       有了這一步，這種狀態就變成**可偵測**而不是靜默讀錯。 */
+    { unsigned char bad = 0xAB;
+      if (p_FT_Purge) p_FT_Purge(g_handle, 3);
+      if (p_FT_Write(g_handle, &bad, 1, &wrote) != 0 || wrote != 1) {
+          logline("  raw_init: sync probe write failed"); return 0; }
+      { int total = 0;
+        while (total < 2 && spins < 200) {
+            red = 0;
+            if (p_FT_Read(g_handle, rb + total, (unsigned long)(2 - total), &red) != 0) break;
+            if (red == 0) { spins++; Sleep(1); } else total += (int)red;
+        }
+        if (total >= 2 && rb[0] == 0xFA && rb[1] == 0xAB) {
+            logline("  raw_init: sync OK (sent 0xAB, got FA AB) -- command stream is aligned");
+            return 1;
+        }
+        logline("  raw_init: 🔴 SYNC FAILED (sent 0xAB, got %d bytes: %02X %02X)"
+                " -- command stream is NOT aligned; refusing to use the fast path",
+                total, total > 0 ? rb[0] : 0, total > 1 ? rb[1] : 0);
+        /* 🔴 失步就**不要用** raw 路徑 —— 靜默讀錯比慢更糟。 */
+        dgh_raw_mpsse = 0;
+        return 0;
+      }
+    }
+}
+/* 🔴 每次 open 都要重新套用當前模式對應的通道設定。
+   不能只在第一次 open 做：`i2c_open()` 在 `g_opened` 時會直接 return，
+   而自動驗證正是用「再送一次 open 切模式」在快慢之間來回 ——
+   不重設的話，慢路徑就會跑在 raw 的三相與除數上（v1.11.4 的 80 kHz 污染）。 */
+static void i2c_apply_mode(uint32_t hz) {
+    if (!g_opened) return;
+    if (DGH_RAW_AVAILABLE) raw_set_mode(dgh_raw_mpsse, hz);
+    else logline("  raw_init: skipped (no d2xx) -- libMPSSE keeps the channel");
 }
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
@@ -732,15 +766,7 @@ static int i2c_open(uint32_t clockHz) {
     g_opened=1;
     logline("  open    : InitChannel ok (clock req %u Hz, latency 1, options 3) (+%.0f ms)",
             cfg.ClockRate, now_ms()-t);
-    /* 🔴 v1.11.1 REGRESSION FIX -- see the block comment above i2c_force_clock.
-       Default OFF. v1.11.0 called this unconditionally and Bruce could no longer
-       connect at all; v1.10.0 worked. Opt in with --force-clock only. */
-    if (dgh_force_clock) i2c_force_clock(cfg.ClockRate);
-    else logline("  clock   : force-clock OFF (default since v1.11.1) -- libMPSSE owns the clock");
-    /* 🔴 只有要走 raw 路徑時才重設通道，慢路徑保持 libMPSSE 自己的設定不動。 */
-    if (dgh_raw_mpsse && DGH_RAW_AVAILABLE) raw_init_channel(cfg.ClockRate);
-    else logline("  raw_init: skipped (rawmpsse=%d d2xx=%d) -- libMPSSE keeps the channel",
-                 dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0);
+    i2c_apply_mode(cfg.ClockRate);
     logline("  open    : DONE in %.0f ms total", now_ms()-t0);
     return 1;
 }
@@ -1021,6 +1047,8 @@ static void handle_command(int idx, const char* json){
         { int hasPage = dgh_json_str(json,"page",g_pageVer,sizeof(g_pageVer));
           if(!hasPage){ snprintf(g_pageVer,sizeof(g_pageVer),"%s","(not sent -- page older than i2c v1.13.3)"); }
           logline("  open    : page=%s  bridge=%s", g_pageVer, I2C_BRIDGE_VERSION); }
+        /* 🔴 三相開關也由網頁帶（預設開）。Bruce 要一次量完開／關兩種。 */
+        { long t3 = dgh_json_int(json,"threephase",-1); if(t3==0) dgh_three_phase=0; else if(t3==1) dgh_three_phase=1; }
         { long rm = dgh_json_int(json,"rawmpsse",-1); if(rm==0) dgh_raw_mpsse=0; else if(rm==1) dgh_raw_mpsse=1;
           /* 🔴 印出「收到什麼」與「套用後是什麼」兩個值。Bruce 2026-09-19 回報
              v1.11.1 的間隔仍是 15~16 ms（＝ Windows 排程器 tick ＝ 走 libMPSSE 那條），
@@ -1057,7 +1085,13 @@ static void handle_command(int idx, const char* json){
                 "{\"type\":\"taken\",\"err\":\"another page took over the I2C channel\"}");
             cl_drop(g_ownerIdx);
         }
+        int wasOpen = g_opened;
         int ok=i2c_open(hz);
+        /* 🔴 已經開著時 i2c_open() 直接 return，不會重跑 init ——
+           但網頁**正是用「再送一次 open」在快慢模式之間切換**（自動驗證就是這樣做的）。
+           兩條路徑的三相與除數不同，不在這裡重設，慢路徑就會跑在 raw 的設定上。
+           v1.11.4 實測的 80 kHz 就是這樣污染過去的。 */
+        if(ok && wasOpen) i2c_apply_mode(hz);
         if(ok){ if(g_ownerIdx!=idx) g_lockOwner=-1; g_ownerIdx=idx; }
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":%s,\"channels\":%u%s}",
                  id, ok?"true":"false", g_numChannels, g_dllOk?"":",\"err\":\"libMPSSE not loaded\"");
@@ -1387,8 +1421,9 @@ int main(int argc, char** argv){
         else if(strcmp(argv[i],"--raw-mpsse")==0) dgh_raw_mpsse=1;
         /* 方向位元改用 FTDI 範例的 0x0B/0x09（多驅動 AD3）。預設不開，見 proto.h。 */
         else if(strcmp(argv[i],"--ad3-out")==0) dgh_ad3_out=1;
+        /* 三相時脈（raw 路徑）。預設開；`--no-3phase` 關掉以驗 Bruce 的反面假說。 */
+        else if(strcmp(argv[i],"--no-3phase")==0) dgh_three_phase=0;
         /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
-        else if(strcmp(argv[i],"--force-clock")==0) dgh_force_clock=1;
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
         else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }
     }

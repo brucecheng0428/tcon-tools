@@ -365,6 +365,64 @@ int main(void){
         }
     }
 
+    /* ═══ 🔴 時脈換算：三相與除數必須成對（v1.11.5）════════════════════════════
+       v1.11.4 送 0x8A（60 MHz base）卻用 12 MHz 的公式，實測 400k 設定量到 80 kHz。
+       把換算做成函式之後，這裡直接釘住「設定 f ⇒ 線上就是 f」這個往返關係。 */
+    {
+        EQ_INT(dgh_mp_divisor(400000, 1), 9,  "400 kHz + 三相 ⇒ divisor 9");
+        EQ_INT(dgh_mp_wire_hz(9, 1), 400000,  "🔴 divisor 9 + 三相 ⇒ 線上 400 kHz");
+        EQ_INT(12000000u / ((9 + 1) * 2), 600000, "驗算：divisor 9 程式化 600 kHz（線上是它的 2/3）");
+        EQ_INT(dgh_mp_divisor(400000, 0), 14, "400 kHz 不開三相 ⇒ divisor 14");
+        EQ_INT(dgh_mp_wire_hz(14, 0), 400000, "divisor 14 無三相 ⇒ 線上 400 kHz（與 libMPSSE 一致）");
+        /* 🔴 往返一致性。divisor 是整數，所以不是每個頻率都剛好表示得出來 ——
+           例如 150 kHz 開三相要 prog=225,000，6e6/225000 整數除法得 26 ⇒ div 25
+           ⇒ 線上 153,846（差 2.6%）。那是硬體本來的量化，不是我們算錯。
+           所以這裡用 5% 容差，**但 400 kHz 必須精確**（那是 Bruce 的驗收條件，
+           上面已單獨用 EQ_INT 釘死）。 */
+        {
+            unsigned int f[] = { 100000, 150000, 200000, 400000 };
+            unsigned i3, tp;
+            for (tp = 0; tp <= 1; tp++)
+                for (i3 = 0; i3 < sizeof(f)/sizeof(f[0]); i3++) {
+                    unsigned short d = dgh_mp_divisor(f[i3], (int)tp);
+                    unsigned int got = dgh_mp_wire_hz(d, (int)tp);
+                    unsigned int lo = f[i3] - f[i3]/20, hi = f[i3] + f[i3]/20;
+                    CHECK(got >= lo && got <= hi,
+                          tp ? "往返一致（三相開，±5% 量化容差）"
+                             : "往返一致（三相關，±5% 量化容差）");
+                }
+        }
+        /* 🔴 反面：三相開與關**必須**得到不同的 divisor，否則就是補償沒生效 */
+        CHECK(dgh_mp_divisor(400000, 1) != dgh_mp_divisor(400000, 0),
+              "🔴 三相開/關的 divisor 不同 ＝ 2/3 補償真的有算進去");
+        EQ_INT(dgh_mp_divisor(400000, 0) - dgh_mp_divisor(400000, 1), 5,
+              "14 - 9 = 5（補償幅度符合 3/2）");
+    }
+
+    /* ═══ 🔴 FT2232H 不得送 0x9E（Open Collector，FT232H only）═════════════════
+       v1.11.4 抄 dg-measure 的 WebUSB init 時連 0x9E 一起抄了，但他的治具
+       PID=0x6010 ＝ FT2232H。未知 opcode 會讓 MPSSE 回 0xFA，而它後面的兩個
+       參數會被當成 opcode 繼續解析 ⇒ 整串命令流錯位。
+       raw init 的位元組序列是在 i2c_bridge.c 裡組的，這裡驗的是**產生命令的那一段
+       不會把 0x9E 放進讀寫命令流**（builder 層），i2c_bridge.c 那一份由
+       tools/check_raw_init.sh 以原始碼比對把關。 */
+    {
+        static unsigned char c9[4096 * 13 + 512];
+        int ak = 0, dn = 0, nn, i9, found9E = 0;
+        nn = dgh_mp_build_read(c9, (int)sizeof(c9), 0x68, 0, 2, 64, &ak, &dn);
+        for (i9 = 0; i9 < nn; ) {
+            unsigned char op = c9[i9];
+            if (op == 0x9E) { found9E = 1; break; }
+            if (op == 0x80 || op == 0x82) i9 += 3;
+            else if (op == 0x11) i9 += 3 + (c9[i9+1] | (c9[i9+2] << 8)) + 1;
+            else if (op == 0x13) i9 += 3;
+            else if (op == 0x20) i9 += 3;
+            else if (op == 0x22) i9 += 2;
+            else i9 += 1;
+        }
+        EQ_INT(found9E, 0, "🔴 讀取命令流裡沒有 0x9E（FT232H only，FT2232H 會失步）");
+    }
+
     printf("\n%d/%d checks passed\n", total-fails, total);
     return fails?1:0;
 }
