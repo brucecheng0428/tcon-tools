@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260918dg1650"></script>
+<script src="common/version.js?v=20260918dg1651"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -991,12 +991,12 @@
       <button id="dgm-i2c-comm-btn" class="dgm-i2c-go" type="button">通訊自檢</button>
       <span class="dgm-i2c-val na" id="dgm-i2c-comm">尚未執行</span>
     </p>
-    <p class="dgm-i2c-note">🔴 通訊自檢與「認不認得 IC」<b>無關</b>：讀 slave <b>0x68</b>、offset <b>0x0000</b> 起 3 個 byte，期望 <b>A1 D8 FB</b>。<b>PASS</b>＝通訊正常（連上後會自動跑一次，結果也顯示在上面 helper 狀態那行）。不符只會如實顯示實際讀到的三個 byte，不美化。</p>
+    <p class="dgm-i2c-note">🔴 通訊自檢與「認不認得 IC」<b>無關</b>：讀 slave <b>0x68 (7-bit) = 0xD0/0xD1 (8-bit W/R)</b>、offset <b>0x0000</b> 起 3 個 byte，期望 <b>A1 D8 FB</b>。<b>PASS</b>＝通訊正常（連上後會自動跑一次，結果也顯示在上面 helper 狀態那行）。不符只會如實顯示實際讀到的三個 byte，不美化。<br><span style="font-size:11px;color:#94a3b8">提醒：slave address 有 7-bit 與 8-bit 兩種表示，同一顆的值不一樣（8-bit ＝ 7-bit 左移一位再補 R/W）。本頁與 helper 一律用 7-bit 傳給 libMPSSE，左移由 libMPSSE 內部做。</span></p>
     <p class="dgm-i2c-warn">🔴 <b>helper 這條路本身未經實機驗證</b>：它是在沒有 Windows、沒有 FTDI 硬體的環境寫出來的，D2XX 連線與實際 I2C 通訊都還沒有人在真機上跑過。網頁端只驗到訊息格式與位址白名單那一半。</p>
 
     <div class="dgm-i2c-note" style="border:1px solid var(--dgm-i2c-line,#334155);border-radius:8px;padding:10px 12px;margin:8px 0">
-      <h4 style="margin:0 0 6px">下載 helper（<span id="dgm-i2c-helper-ver">v1.3.0</span>）</h4>
-      <p style="margin:4px 0"><a id="dgm-i2c-helper-dl" href="data/dg-helper-v1.3.0.zip" download>⬇ 下載 dg-helper.zip</a></p>
+      <h4 style="margin:0 0 6px">下載 helper（<span id="dgm-i2c-helper-ver">v1.3.1</span>）</h4>
+      <p style="margin:4px 0"><a id="dgm-i2c-helper-dl" href="data/dg-helper-v1.3.1.zip" download>⬇ 下載 dg-helper.zip</a></p>
       <ol style="margin:6px 0 6px 1.2em;padding:0">
         <li><b>下載</b>（Chrome 若標「不常下載」→「保留」）。</li>
         <li>🔴 <b>整包解壓到一個資料夾</b>（例如桌面）—— 不要直接在壓縮檔預覽視窗裡點 exe。</li>
@@ -2886,7 +2886,16 @@
               見 `ICCommonFunction.cs` L234–247／L256–269…（七顆各一段，順序一致）。
         本頁不讓使用者選機種（EM01/VM01 撞號，選了也不可信），所以走 (2)，
         **順序逐字照抄 PQ Tool**，不是自己排的。 */
+  /* 🔴 這四個是 **7-bit** slave address（PQ Tool `ICCommonFunction.cs` 的 96/97/104/105，
+     傳給 libMPSSE 的 deviceAddress 就是 7-bit，左移補 R/W 由 libMPSSE 內部做）。
+     8-bit 表示法（左移一位）不同：0x60→0xC0/0xC1、0x61→0xC2/0xC3、
+     0x68→0xD0/0xD1、0x69→0xD2/0xD3（W/R）。**同一顆的兩種表示值不一樣，別搞混。** */
   var DGM_I2C_SLAVES = [0x60, 0x61, 0x68, 0x69];
+  /* 顯示用：把 7-bit slave 同時標出 8-bit（W/R），避免現場對錯表示法。 */
+  function dgmI2cSlaveLabel(s) {
+    var h = function (v) { return '0x' + v.toString(16).toUpperCase(); };
+    return h(s) + ' (7-bit) = ' + h((s << 1) & 0xFF) + '/' + h(((s << 1) | 1) & 0xFF) + ' (8-bit W/R)';
+  }
 
   /* ═══ FTDI USB 層 ════════════════════════════════════════════════════════
      🔴 VID/PID **不寫死成單一組**：報告 B.1 查證 PQ Tool 自己也不知道 VID/PID
@@ -3061,10 +3070,10 @@
   var dgmI2cHelperProto = 0;       // helper 回報的協定版本
   /* helper 下載包（data/ 的加密 zip，密碼 1234）與其雜湊 —— 讓人／IT 核對。
      🔴 這兩個 SHA256 是實測值：exe 與 zip 各一個，改版時要一起更新。 */
-  var DGM_HELPER_ZIP = 'data/dg-helper-v1.3.0.zip';
-  var DGM_HELPER_ZIP_SHA = 'f3474dac1362b41c9415ebe2fbf1f55b810d85fae3428800a3a4f31a34dbf059';
+  var DGM_HELPER_ZIP = 'data/dg-helper-v1.3.1.zip';
+  var DGM_HELPER_ZIP_SHA = '35d19be054da9c7784c158c2ec2b5b0c0bd9c808692030daacf7bc31cb7be012';
   var DGM_HELPER_EXE_SHA = '81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba';
-  var DGM_HELPER_VER_STR = 'v1.3.0';
+  var DGM_HELPER_VER_STR = 'v1.3.1';
 
   function dgmI2cHex(b) {
     var o = [], i;
@@ -3433,12 +3442,12 @@
         在拿到 Bruce 的原始 byte 之前不臆測性地改它。 */
   async function dgmI2cScanIdentify(lk) {
     var chosen = null, chosenSlave = null, results = [];
-    lk('　　掃 slave（四個逐一探，順序照 PQ Tool CheckICID：'
+    lk('　　掃 slave（四個逐一探，7-bit，順序照 PQ Tool CheckICID：'
       + DGM_I2C_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' → ') + '）');
     for (var si = 0; si < DGM_I2C_SLAVES.length; si++) {
       var sl = DGM_I2C_SLAVES[si];
       dgmI2cSlave = sl;
-      var tag = '0x' + sl.toString(16).toUpperCase();
+      var tag = '0x' + sl.toString(16).toUpperCase();   // 短標；表示法在標頭已註明 7-bit
       try {
         var d = await dgmI2cReadReg(0xFF00, 3);
         var hex = dgmI2cHex(d);
@@ -3469,7 +3478,7 @@
     dgmI2cIdRaw = chosen;
     dgmI2cIc = dgmI2cMatchIc(chosen);
     var idt = dgmI2cHex(chosen);
-    var slt = '0x' + chosenSlave.toString(16).toUpperCase();
+    var slt = dgmI2cSlaveLabel(chosenSlave);   // 標明 7-bit＋8-bit，避免現場對錯表示法
     /* 🔴 一律把原始三個 byte 顯示在觀測表的 IC ID 那一列（連不認得也顯示） */
     dgmI2cShow('dgm-i2c-v-id', idt + '（slave ' + slt + '）' + (dgmI2cIc ? '  ⇒ ' + dgmI2cIc.name : '  ⇒ 讀到了，但不在已知 ID 表內'), true);
     if (dgmI2cIc) {
@@ -3503,7 +3512,7 @@
     if (!dgmI2cLinkActive) { dgmI2cToast('請先連上再做通訊自檢', 'warn'); return null; }
     var saved = dgmI2cSlave;
     dgmI2cSlave = DGM_I2C_COMM_SLAVE;
-    dgmI2cOut('通訊自檢：讀 slave 0x68 · offset 0x0000 ×3（期望 A1 D8 FB）');
+    dgmI2cOut('通訊自檢：讀 slave ' + dgmI2cSlaveLabel(DGM_I2C_COMM_SLAVE) + ' · offset 0x0000 ×3（期望 A1 D8 FB）');
     var bytes = [];
     try { var d = await dgmI2cReadReg(DGM_I2C_COMM_ADDR, 3); bytes = (d || []).slice(0, 3); }
     catch (e) { dgmI2cOut('通訊自檢：讀取丟出例外 —— ' + dgmErrMsg(e)); bytes = []; }
@@ -3918,9 +3927,9 @@
   /* 🔴 v1.60.0：通道／ACK／slave 三個下拉拿掉了，改成**唯讀的一行**。
      留這一行不是為了好看：現場要對照 log 時，得看得到本頁到底用了什麼設定。 */
   function dgmI2cFixedText() {
-    return 'Interface ' + DGM_I2C_IFACE + '（Channel A）· slave 掃 '
+    return 'Interface ' + DGM_I2C_IFACE + '（Channel A）· slave 掃（7-bit）'
       + DGM_I2C_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→')
-      + '（目前 0x' + dgmI2cSlave.toString(16).toUpperCase() + '）· ACK 遮罩 0x'
+      + '（目前 ' + dgmI2cSlaveLabel(dgmI2cSlave) + '）· ACK 遮罩 0x'
       + DGM_I2C_ACK_MASK.toString(16).toUpperCase()
       + ' · ' + (DGM_I2C_CLOCK_HZ / 1000) + ' kHz';
   }
@@ -3947,7 +3956,13 @@
     var zs = $('dgm-i2c-helper-zipsha'); if (zs) zs.textContent = DGM_HELPER_ZIP_SHA;
     var es = $('dgm-i2c-helper-exesha'); if (es) es.textContent = DGM_HELPER_EXE_SHA;
     var hv = $('dgm-i2c-helper-ver'); if (hv) hv.textContent = DGM_HELPER_VER_STR;
-    var dl = $('dgm-i2c-helper-dl'); if (dl) { dl.setAttribute('href', DGM_HELPER_ZIP); dl.setAttribute('download', ''); }
+    var dl = $('dgm-i2c-helper-dl'); if (dl) {
+      /* cache buster：內容變更就換檔名（v1.3.1），再加 ?v= 保險，避免 Pages/瀏覽器吃舊快取。
+         download 明確給檔名，避免 ?v= 混進存檔名。 */
+      var fname = DGM_HELPER_ZIP.split('/').pop();
+      dl.setAttribute('href', DGM_HELPER_ZIP + '?v=' + DGM_HELPER_VER_STR);
+      dl.setAttribute('download', fname);
+    }
     $('dgm-i2c-probe').addEventListener('click', function () { dgmI2cProbe(); });
     $('dgm-i2c-enter').addEventListener('click', function () { dgmI2cGuard(dgmI2cEnterPattern); });
     $('dgm-i2c-white').addEventListener('click', function () {
@@ -4038,7 +4053,8 @@
     lastTransport: function () { return dgmI2cLastTransport; },
     commVerdict: dgmI2cCommVerdict,                    // 通訊自檢判定（純函式）
     commSlave: function () { return DGM_I2C_COMM_SLAVE; },
-    commExpect: function () { return DGM_I2C_COMM_EXPECT.slice(); }
+    commExpect: function () { return DGM_I2C_COMM_EXPECT.slice(); },
+    slaveLabel: dgmI2cSlaveLabel                        // 7-bit＋8-bit 標示（純函式）
   };
 
 

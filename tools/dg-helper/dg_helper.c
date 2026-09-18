@@ -356,15 +356,20 @@ static int i2c_open(uint32_t clockHz) {
     g_opened=1; return 1;
 }
 static void i2c_close(void){ if(g_opened&&g_handle) p_Close(g_handle); g_handle=NULL; g_opened=0; }
+/* 🔴 `slave` is a **7-bit** address (0x60/0x61/0x68/0x69 from the web, straight
+   from PQ Tool's 96/97/104/105). libMPSSE's deviceAddress takes 7-bit and adds
+   the R/W bit itself. **DO NOT left-shift `slave` here** — shifting turns 0x68
+   into 0xD0 and libMPSSE would then shift again. The 7-bit vs 8-bit forms are
+   different values for the same device; this layer is 7-bit, end to end. */
 static FT_STATUS i2c_read(uint32_t slave, uint32_t addr, uint32_t len, uint8_t* out, uint32_t* got){
     uint8_t ab[2]; ab[0]=(uint8_t)((addr>>8)&0xFF); ab[1]=(uint8_t)(addr&0xFF); uint32_t tr=0;
-    p_Write(g_handle, slave, 2, ab, &tr, OPT_READ_ADDR);
-    return p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);
+    p_Write(g_handle, slave, 2, ab, &tr, OPT_READ_ADDR);   /* slave is 7-bit, no <<1 */
+    return p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
 }
 static FT_STATUS i2c_write(uint32_t slave, uint32_t addr, const uint8_t* data, int dlen, uint32_t* got){
     uint8_t buf[64]; if(dlen<0||dlen>60) return 0xFFFFFFFF;
     buf[0]=(uint8_t)((addr>>8)&0xFF); buf[1]=(uint8_t)(addr&0xFF); memcpy(buf+2,data,dlen);
-    uint32_t tr=0; FT_STATUS s=p_Write(g_handle, slave, (uint32_t)(dlen+2), buf, &tr, OPT_WRITE);
+    uint32_t tr=0; FT_STATUS s=p_Write(g_handle, slave, (uint32_t)(dlen+2), buf, &tr, OPT_WRITE);   /* slave is 7-bit, no <<1 */
     if(got)*got=tr; return s;
 }
 
