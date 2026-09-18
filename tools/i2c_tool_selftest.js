@@ -1436,6 +1436,33 @@ function baseScript(f) {
   /* ═════════════════════════════════════════════════════════════════════ */
   G('25. 另存新檔的按鈕：沒資料不給按，有資料就能按（不需連線）');
   {
+    /* 🔴 Bruce 2026-09-19 回報的 bug：只讀 256 byte 就不能另存新檔。
+       根因不是長度門檻（從來沒有過），是 i2ctSyncButtons() 在 i2ctDev 指派**之前**
+       被呼叫，第一次讀完按鈕還停在「沒有資料」的狀態。
+       這一組把**任何長度都能存**釘死，順便釘住「讀完當下就能按」。 */
+    for (const n of [1, 10, 256, 4096]) {
+      /* 🔴 每一輪都回到「什麼都還沒讀過」—— 這個 bug **只在第一次讀取**出現。 */
+      A._reset();
+      CHECK(doc.getElementById('btn-save').disabled === true, '重置後沒有資料 ⇒ 不給按');
+      await useHelper(baseScript((m) => {
+        if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, (_, i) => (i * 3 + 1) & 0xFF) };
+      }));
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: String(n) });
+      await A.doRead();
+      await sleep(20);
+      CHECK(doc.getElementById('btn-save').disabled === false,
+        '🔴 讀 ' + n + ' byte 之後「另存新檔」立刻可以按');
+      for (const fmt of ['bin', 'hex', 'txt', 'rom']) {
+        const b = A.exportBuild(A.curSet(), fmt);
+        let len;
+        if (fmt === 'bin') len = b.data.length;
+        else len = A.parseHexText(b.data).bytes.length;
+        EQ(len, n, '🔴 存出來就是 ' + n + ' byte（.' + fmt + '），沒有任何長度門檻');
+      }
+    }
+    await win.__i2ct.disconnect();
+  }
+  {
     const btn = doc.getElementById('btn-save');
     CHECK(!!btn, '按鈕在');
     CHECK(!!doc.getElementById('sav-fmt'), '格式選單在');
@@ -1489,6 +1516,71 @@ function baseScript(f) {
     const sent2 = await useHelper(baseScript(() => ({ ok: true, status: 0, data: [0xA1, 0xD8, 0xFB] })));
     CHECK(sent2.filter(m => m.type === 'read').length > 0, '🔴 debug 打開 ⇒ 自檢回來（診斷能力一個字沒少）');
     A.setDebug(false);
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('29. 載入檔案 ⇒ 立刻可以寫入，寫出去的就是預覽區顯示的那一份');
+  {
+    /* 🔴 Bruce 2026-09-19（阻斷性）：「我載入資料的目的不就是要寫入嗎？
+       可是我載入完以後，它居然不讓我寫入」。根因與另存新檔同一類 ——
+       判斷條件（只看 in-data 文字框）跟真正的寫入來源脫節。 */
+    for (const n of [10, 256, 4096]) {
+      A._reset();
+      const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+      const bytes = Array.from({ length: n }, (_, i) => (i * 5 + 7) & 0xFF);
+      A.loadFile('blob' + n + '.bin', new win.Uint8Array(bytes));
+      await sleep(20);
+      CHECK(doc.getElementById('btn-write').disabled === false,
+        '🔴 載入 ' + n + ' byte 的檔 ⇒ 寫入鈕可以按');
+      A.setInputs({ len: String(n) });
+      await A.doWrite();
+      await sleep(20);
+      const out = [];
+      SINCE(sent, 'rawwrite').forEach(m => m.data.forEach(b => out.push(b & 0xFF)));
+      EQ(out.length, n, '🔴 送出去的長度 ＝ 總 byte 數欄位（' + n + '）');
+      EQ(out.join(','), bytes.join(','), '🔴 送出去的 byte 與預覽區顯示的完全相同');
+    }
+    /* 三槽切換挑過的值也要是寫入來源（所見即所寫） */
+    A._reset();
+    const sent2 = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.loadFile('four.bin', new win.Uint8Array([0x00, 0x01, 0x02, 0x03]));
+    await sleep(20);
+    A.curSet().bytes[1] = 0x99;            /* 模擬他雙擊改了第 2 格 */
+    A.setInputs({ len: '4' });
+    await A.doWrite();
+    await sleep(20);
+    const out2 = [];
+    SINCE(sent2, 'rawwrite').forEach(m => m.data.forEach(b => out2.push(b & 0xFF)));
+    EQ(out2.join(','), '0,153,2,3', '🔴 預覽區改過的那一格也照著寫出去（所見即所寫）');
+    /* 🔴 反面：裝置讀回值**不是**寫入來源（讀完隨手按到寫入不該把整批寫回去） */
+    A._reset();
+    await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0x5A) };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(20);
+    CHECK(doc.getElementById('btn-write').disabled === true,
+      '🔴 只是讀回來的資料不會變成寫入來源（防誤燒）');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('30. FF 標示依來源分流：載入的檔案不標，裝置全 FF 仍要標');
+  {
+    A._reset();
+    A.loadFile('ff.bin', new win.Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF]));
+    await sleep(20);
+    EQ(doc.querySelectorAll('#dump td.ff').length, 0, '🔴 載入的檔案：一格 FF 都沒有被標');
+    EQ(doc.querySelectorAll('#dump td.bus').length, 0, '載入的檔案也不會被當成總線閒置');
+    A._reset();
+    await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0xFF) };
+    }));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(20);
+    CHECK(doc.querySelectorAll('#dump td.bus').length > 0, '🔴 裝置讀回全 FF ⇒ 仍然標出來（總線閒置的診斷訊號）');
+    CHECK(/總線閒置/.test(doc.getElementById('readbanner').textContent), '🔴 並且講明是總線閒置');
     await win.__i2ct.disconnect();
   }
 

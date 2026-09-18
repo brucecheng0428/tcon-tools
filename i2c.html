@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c150"></script>
+<script src="common/version.js?v=20260919i2c151"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -84,9 +84,16 @@
   .chip.on{background:#0c4a6e;border-color:var(--accent);color:#e0f2fe;font-weight:700;}
   select{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--text);
     height:var(--fh);box-sizing:border-box;padding:0 6px;font:12.5px/1 ui-monospace,Menlo,Consolas,monospace;}
+  /* 🔴 `min-height` 不是 `height`（2026-09-19 修 Bruce 拍照回報的溢出）。
+     上一版寫死 `height:var(--fh)` ⇒ 說明視窗那顆 19px 字的「知道了」內容比 30px 高，
+     字直接**溢出到按鈕外面**。固定高度只對「字級一致的那一列」成立，
+     一旦有人（我自己）把某處字放大，固定高度就變成裁刀。
+     min-height 保留了同列對齊（同字級的按鈕算出來仍是 30px），又讓大字的按鈕自己長高。
+     flex 置中則保證文字永遠在正中央，不會偏到角落。 */
   button{background:#334155;border:1px solid #475569;border-radius:6px;color:var(--text);
     padding:0 14px;font-size:12.5px;font-weight:600;cursor:pointer;
-    height:var(--fh);box-sizing:border-box;}
+    min-height:var(--fh);box-sizing:border-box;
+    display:inline-flex;align-items:center;justify-content:center;}
   button:hover{background:#3f4f66;}
   button:disabled{opacity:.45;cursor:not-allowed;}
   button.pri{background:#0369a1;border-color:#0ea5e9;}
@@ -164,7 +171,10 @@
   .modalbox ol { margin: 0 0 22px; padding-left: 1.4em; }
   .modalbox li { font-size: 22px; line-height: 1.85; margin-bottom: 6px; }
   .modalbox .mono { font-size: 21px; }
-  .modalbox button { font-size: 19px; padding: 11px 26px; background: #0369a1; border-color: #0ea5e9; }
+  /* 🔴 字級放大的地方，內距與行高都要一起調 —— 這就是上一版漏掉的那一步。
+     line-height 明寫，不吃瀏覽器的 normal（各家不同，算出來的高度會飄）。 */
+  .modalbox button { font-size: 19px; line-height: 1.2; padding: 13px 28px;
+                     min-height: 0; height: auto; background: #0369a1; border-color: #0ea5e9; }
 
   /* 檔案預覽狀態：整張 dump 卡換色，一眼分得出「這是要寫進去的，還沒寫」 */
   #dumpcard.filemode { border-color: #b45309; box-shadow: inset 4px 0 0 #f59e0b; }
@@ -206,6 +216,7 @@
                    border-left: 1px solid var(--border); }
   .pagebox .spin button { background: #16233a; border: 0; color: var(--sub); cursor: pointer;
                           font-size: 8px; line-height: 1; padding: 0 6px; height: 50%;
+                          min-height: 0;            /* 🔴 一格切兩半，不吃全域的 min-height */
                           border-radius: 0; }
   .pagebox .spin button:first-child { border-top-right-radius: 5px; border-bottom: 1px solid var(--border); }
   .pagebox .spin button:last-child { border-bottom-right-radius: 5px; }
@@ -423,7 +434,11 @@
         <button id="btn-prev" disabled>◀</button>
         <span class="pagebox" id="pagebox">
           <span class="fix">0x</span><input id="pagesel" class="mono" spellcheck="false"><span class="fix">00</span>
-          <span class="spin"><button id="page-up" type="button" tabindex="-1">▲</button><button id="page-dn" type="button" tabindex="-1">▼</button></span>
+          <!-- 🔴 data-compact ＝ **明示**放棄 6px 內距的規定。這兩顆是「一個輸入格切兩半」
+               的上下鍵，30px 裡塞兩顆，6px 上下內距在幾何上就不可能成立。
+               豁免寫在標記上而不是藏在檢查腳本裡，是為了讓它看得見、可以被質疑；
+               即使豁免，文字仍然必須完整落在按鈕內（檢查改判 pad ≥ 0）。 -->
+          <span class="spin"><button id="page-up" type="button" tabindex="-1" data-compact>▲</button><button id="page-dn" type="button" tabindex="-1" data-compact>▼</button></span>
         </span>
         <button id="btn-next" disabled>▶</button>
         <span id="pageinfo" class="kv"></span>
@@ -1263,10 +1278,14 @@ function i2ctUpdateHints(){
 }
 function i2ctSyncButtons(){
   var v = i2ctReadInputs();
-  var d = i2ctParseHex($('in-data').value);
   var can = i2ctLinked && !i2ctBusy && v.errs.length === 0;
   $('btn-read').disabled  = !can;
-  $('btn-write').disabled = !can || d === null || d.length === 0;
+  /* 🔴 能不能寫，要問**真正的寫入來源**（i2ctWriteSource），不是只看那個文字框。
+     舊寫法只看 `in-data`，所以載入檔案之後文字框是空的 ⇒ 寫入鈕永遠是灰的，
+     而那正是他載入檔案的目的。這與「另存新檔灰掉」是同一類 bug：
+     **判斷條件跟真正的資料來源脫節**。 */
+  var src = i2ctWriteSource(v.len == null ? 0 : v.len, v.awid);
+  $('btn-write').disabled = !can || !src.bytes || !src.bytes.length;
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
   $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
   $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
@@ -1613,6 +1632,12 @@ async function i2ctOnRead(){
       /* 🔴 自動快照那一次**完全不出聲**（他要無腦）；有差異才講一句。 */
       + (i2ctDiffCount() ? '　🔴 ' + i2ctDiffCount() + ' 處與基準不同' : ''));
   }
+  /* 🔴 Bruce 2026-09-19 回報「只讀 256 byte 不能另存新檔」的根因就在這裡：
+     上面那句 `i2ctBusy=false; i2ctSyncButtons();` 是在 **i2ctDev 還沒被指派之前**
+     跑的，所以「有沒有資料」那個判斷看到的是上一次（第一次讀就是 null）的狀態，
+     另存新檔因此一直是灰的。**跟長度一點關係都沒有** —— 讀 1 byte 也一樣灰。
+     資料真的落定之後必須再同步一次按鈕狀態。 */
+  i2ctSyncButtons();
 }
 
 /* ═══ 寫 ════════════════════════════════════════════════════════════════ */
@@ -1646,18 +1671,37 @@ function i2ctWriteSource(len, awid){
     if (one === null || one < 0 || one > 0xFF) return { bytes: null, err: '寬度 0：③ 要是 0x00–0xFF 的 1 byte' };
     return { bytes: [one & 0xFF], err: null, src: '③ 的 1 byte（無位址相位）' };
   }
+  /* 🔴 Bruce 2026-09-19：「我載入資料的目的不就是要寫入嗎？可是我載入完以後，
+     它居然不讓我寫入」—— 我把「載入 ≠ 自動寫入」做成了「載入的資料不能寫」。
+     正確行為：載入**不自動寫**（防誤燒，這條保留），但按下寫入就寫**預覽區
+     那一份**，也就是 dump 上正在顯示的 bytes。
+     🔴 用「顯示中的那一份」而不是「原始檔案位元組」是刻意的：使用者可能雙擊
+     改過某幾格、或用三槽切換挑過值，**所見即所寫**才不會有第二份真相。 */
+  /* 來源優先序（刻意如此，每一條都有理由）：
+       1. **手動輸入的文字**（他正在打字 ⇒ 他要寫的就是這個；打字會清掉載入的檔案）
+       2. **載入的檔案**，取值取自**預覽區顯示的那一份** —— 因為他可能雙擊改過
+          某幾格、或用三槽切換挑過值，**所見即所寫**才不會有第二份真相
+       3. 沒有 ⇒ 不給寫
+     🔴 **裝置讀回來的那一份刻意不算寫入來源**：讀完隨手按到寫入，就會把整批
+        讀回值原封寫回去。那不是他要的，而且一旦錯了是燒在晶片上、救不回來。
+        （要「讀→改→寫回」的流程，請明講，我會做成一個明確的動作而不是預設行為。） */
+  var typed = $('in-data').value.trim();
   var all;
-  if (i2ctFileBytes) all = Array.prototype.slice.call(i2ctFileBytes);
-  else {
-    all = i2ctParseHex($('in-data').value);
+  if (typed) {
+    all = i2ctParseHex(typed);
     if (all === null) return { bytes: null, err: '寫入資料解析不出來（每個 byte 要兩碼）' };
     if (!all.length) return { bytes: null, err: '沒有要寫的資料：打字或按「載入檔案」' };
     return { bytes: all, err: null, src: '手動輸入' };   /* 手打的就照打的長度 */
   }
-  if (!all.length) return { bytes: null, err: '檔案是空的' };
-  var n = Math.min(len, all.length);
-  return { bytes: all.slice(0, n), err: null,
-           src: i2ctFileName + (n < all.length ? '（只寫前 ' + n + '／' + all.length + ' byte）' : '') };
+  var cur = i2ctCurSet();
+  if (cur && cur.kind === 'file' && cur.bytes && cur.bytes.length) {
+    all = Array.prototype.slice.call(cur.bytes);
+    var n0 = Math.min(len, all.length);
+    return { bytes: all.slice(0, n0), err: null,
+             src: (cur.name || '載入的檔案') + '（預覽區顯示值）'
+                + (n0 < all.length ? '，只寫前 ' + n0 + '／' + all.length + ' byte' : '') };
+  }
+  return { bytes: null, err: '沒有要寫的資料：打字或按「載入檔案」' };
 }
 async function i2ctOnWrite(){
   var v = i2ctReadInputs();
@@ -1724,6 +1768,8 @@ async function i2ctOnWrite(){
 /* ═══ 載入檔案 ═════════════════════════════════════════════════════════════ */
 /* 🔴 放掉檔案時**檢視也要跟著回到裝置那一份** —— 不然 i2ctView 還停在 'file'，
    而 i2ctFile 已經是 null，畫面就會停在一份不存在的資料上（實測抓到）。 */
+/* 🔴 同上：任何會讓「目前顯示的那一份資料」改變的路徑，結束後都要重新同步
+   按鈕狀態。漏掉任何一條，另存新檔就會在那條路徑上灰掉。 */
 function i2ctClearFile(){
   i2ctFileBytes = null; i2ctFileName = ''; i2ctFileFormat = ''; i2ctFile = null;
   if (i2ctView === 'file') i2ctView = 'dev';
@@ -1974,6 +2020,7 @@ function i2ctSetView(v){
   vb.classList.toggle('dbgonly', !both);
   vb.textContent = i2ctView === 'file' ? '看裝置讀回值' : '看檔案內容';
   i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
+  i2ctSyncButtons();          /* 🔴 顯示的那一份換了 ⇒ 另存新檔能不能按也跟著換 */
 }
 /* 🔴 基準是什麼，畫面上一定要寫出來。情境：I2C 讀 → 載入檔案（跟 I2C 比）→
    再 I2C 讀（又變回跟第一次 I2C 比）—— 比較對象換了，使用者不知道就會判讀錯。
@@ -2026,8 +2073,14 @@ function i2ctRenderTable(){
       var v = has ? d.bytes[idx] : null;
       var cls = [];
       if (has) cls.push('has');
+      /* 🔴 FF 的標示**依資料來源分流**（Bruce 2026-09-19：「載入值在 dump 裡面，
+         FF 不用特別 highlight，因為 FF 也是很常見的數值」）：
+           · 裝置讀回來的整批全 FF ⇒ 仍標紫（那是「總線閒置／沒有裝置回應」的
+             診斷訊號，是我們判斷「到底讀到東西沒有」的唯一依據，不能拿掉）
+           · **載入的檔案** ⇒ 一律不標（檔案裡的 FF 就是正常資料，標了只是干擾）
+         所以兩種標示都掛在 `i2ctView === 'dev'` 這個前提下。 */
       if (has && busIdle) cls.push('bus');
-      else if (has && v === 0xFF) cls.push('ff');
+      else if (has && v === 0xFF && i2ctView === 'dev') cls.push('ff');
       /* 🔴 實際截圖後修正：原本檔案檢視把**每一格**都塗成琥珀（＝待寫入），
          整片黃底配上洋紅 diff 太吵，而且「待寫入」的訊息卡片邊框與標題已經講過了。
          改成只有**真的寫過的格子**才上琥珀。 */
@@ -2643,6 +2696,18 @@ window.__i2ct = {
     if (o.len   != null) $('in-len').value = o.len;
     if (o.data  != null) $('in-data').value = o.data;
     i2ctUpdateHints();
+  },
+  curSet: function () { return i2ctCurSet(); },
+  /* 🔴 測試專用：回到「這一頁剛打開、什麼都還沒讀過」的狀態。
+     存在的理由很具體 —— Bruce 回報的「讀完不能另存新檔」只在**第一次讀取**
+     發生，而測試跑到那一組時前面早就讀過好幾次了，i2ctDev 不是 null，
+     於是那個 bug 在測試裡永遠重現不了（第一版就是這樣白測的）。 */
+  _reset: function () {
+    i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
+    i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
+    i2ctFileBytes = null; i2ctView = 'dev';
+    i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
+    i2ctSyncButtons();
   },
   state: function () {
     var cs = i2ctCurSet();
