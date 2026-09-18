@@ -107,9 +107,38 @@ int dgh_fast_read = 1;
 int dgh_raw_mpsse = 0;
 /* 🔴 預設 0：v1.11.0 無條件做這件事導致完全連不上（見 i2c_force_clock 的註解）。 */
 int dgh_force_clock = 0;
-typedef unsigned long (*PFN_FT_Write)(void*, void*, unsigned long, unsigned long*);
-typedef unsigned long (*PFN_FT_Read )(void*, void*, unsigned long, unsigned long*);
-typedef unsigned long (*PFN_FT_Purge)(void*, unsigned long);
+/* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
+static char g_pageVer[64] = "(no open yet)";
+/* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
+   這是 2026-09-19「一讀取 Bridge 就整個關掉」的**已證實根因**，而且只差三個字。
+
+   官方標頭：
+     · `ftd2xx.h`      : `FTD2XX_API FT_STATUS WINAPI FT_Write(...)`  ⇒ WINAPI ＝ __stdcall
+     · `libMPSSE_i2c.h`: `FTDI_API FT_STATUS I2C_DeviceRead(...)`      ⇒ 沒有 WINAPI ⇒ cdecl
+
+   32-bit x86 上 `__stdcall` 由**被呼叫端**清堆疊、cdecl 由**呼叫端**清。
+   我們這三個 typedef 原本沒寫 `__stdcall` ⇒ 每呼叫一次堆疊就多平衡一次（16 bytes），
+   累積幾次把堆疊毀掉 ⇒ **行程直接死**，終端機視窗跟著消失。
+
+   為什麼慢路徑一直好好的（交叉驗證，不是巧合）：慢路徑只走 libMPSSE，
+   而 libMPSSE 本來就是 cdecl，下面 PFN_Init/PFN_Read/... 不寫 __stdcall **剛好是對的**。
+   只有 raw 路徑會碰 ftd2xx 的這三支 ⇒ **只有讀取（且只有快速模式）會當**。
+
+   這條也把先前幾件事串起來並定案：
+     · v1.11.0「連不到 Bridge」：`i2c_force_clock` 呼叫 `p_FT_Write` ⇒ 同一個當機。
+       當時我只能寫「移除嫌疑者、未證實根因」—— **現在證實了，就是這個。**
+     · 快速模式的自動驗證一直判失敗：它第一步就走 raw 路徑。
+
+   🔴 規則：**每一個 GetProcAddress 取來的函式指標，都要標明它來自哪支 DLL、
+      該 DLL 的官方標頭用什麼呼叫慣例。** 這種錯編得過、連結得過、只在執行期死，
+      靠「記得」是擋不住的。 */
+#ifndef _WIN32
+#define __stdcall           /* 非 Windows（自檢編譯）下沒有這個慣例，定義成空的 */
+#endif
+/* 來源：ftd2xx.dll ── 官方 ftd2xx.h 全部標 WINAPI ⇒ __stdcall */
+typedef unsigned long (__stdcall *PFN_FT_Write)(void*, void*, unsigned long, unsigned long*);
+typedef unsigned long (__stdcall *PFN_FT_Read )(void*, void*, unsigned long, unsigned long*);
+typedef unsigned long (__stdcall *PFN_FT_Purge)(void*, unsigned long);
 static PFN_FT_Write p_FT_Write = NULL;
 static PFN_FT_Read  p_FT_Read  = NULL;
 static PFN_FT_Purge p_FT_Purge = NULL;
@@ -196,6 +225,9 @@ typedef void* FT_HANDLE;
 typedef uint32_t FT_STATUS;
 #define FT_OK 0
 
+/* 🔴 來源：libMPSSE.dll ── 官方 libMPSSE_i2c.h 的 FTDI_API **沒有** WINAPI ⇒ **cdecl**。
+   所以這一組**刻意不加** `__stdcall`；加了反而會壞。與上面 ftd2xx 那三支相反，
+   兩支 DLL 的慣例不同是這個檔案最容易踩的地雷，已在上方寫明依據。 */
 typedef void      (*PFN_Init)(void);
 typedef void      (*PFN_Cleanup)(void);
 typedef FT_STATUS (*PFN_GetNum)(uint32_t*);
@@ -708,9 +740,25 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
     FT_STATUS st;
     if(n < 0) return 0xFFFFFFFEu;
     if(acks + din > (int)sizeof(in)) return 0xFFFFFFFEu;
+    /* 🔴 快路徑讀錯時，光看資料看不出是命令組錯還是匯流排錯。把命令序列的關鍵
+       特徵印出來（Bruce 2026-09-19）：0x87 的位置、位址相位要收幾個 ACK、
+       最後一個資料 byte 有沒有送 NACK(0x80)。這三個是最可能出錯的地方。 */
+    {
+        int i87 = -1, i;
+        for(i = 0; i < n; i++) if(cmd[i] == 0x87) i87 = i;
+        logline("  raw_read: cmdLen=%d 0x87@%d(last=%d) acks=%d din=%d lastAckByte=0x%02X(NACK expected 0x80)",
+                n, i87, n - 1, acks, din, (n >= 1) ? cmd[n - 2] : 0);
+    }
     st = mpsse_xfer(cmd, n, acks + din, in, &gotIn);
     g_lastUsbRt = 2;
     if(st != 0) return st;
+    {   /* 位址相位收回來的 ACK 位元組原樣印出 —— 判讀是 ACK 還是 NACK 靠 bit0/bit7 */
+        char b[64]; int i, o = 0;
+        for(i = 0; i < acks && o < (int)sizeof(b) - 4; i++)
+            o += snprintf(b + o, sizeof(b) - o, "%02X ", in[i]);
+        b[o] = 0;
+        logline("  raw_read: addr-phase ACK bytes = %s(got %d of %d in)", b, gotIn, acks + din);
+    }
     /* 🔴 ACK 檢查：任何一個 NACK 都是錯誤。漏報才是危險的那一邊。 */
     for(int i = 0; i < acks; i++){
         if(!dgh_mp_ack_ok(in[i])){
@@ -756,11 +804,16 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
         /* 🔴 走慢路徑時**一定要說出是哪一個條件擋掉的**。Bruce 回報 v1.11.1 間隔
            仍是 15~16 ms，而舊 log 只寫 mode=slow，三個條件哪一個不成立完全看不出來，
            害他和 Dispatch 多繞了一圈。三個都印，不要只印第一個。 */
+        /* 🔴 「旗標關」要講清楚**是誰關的**。2026-09-19 實機 log 出現
+           `<-- flag off`，Dispatch 一時分不出是 bridge 自己關的還是網頁送 0 ——
+           實際上 bridge 從不自己關它（預設值由 --raw-mpsse 決定，其餘一律
+           來自網頁的 open 訊息）。把來源寫進同一行，不要讓人再猜一次。 */
         logline("  i2c_read: SLOW path because rawmpsse=%d d2xx=%d len=%u(max %d)%s",
                 dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0, len, DGH_READ_MAX,
-                !dgh_raw_mpsse ? "  <-- flag off"
+                !dgh_raw_mpsse ? "  <-- flag off: THE PAGE SENT rawmpsse:0 (bridge never turns it off by itself)"
                   : (!DGH_RAW_AVAILABLE ? "  <-- ftd2xx.dll FT_Write/FT_Read not resolved"
                                         : "  <-- length over limit"));
+        if(!dgh_raw_mpsse) logline("            page=%s -- if that is not the latest, the tab was not reloaded", g_pageVer);
         if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
         s = p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
         /* libMPSSE 非 fast 路徑：每 byte 兩次 USB 往返（命令 ＋ 讀回） */
@@ -880,6 +933,12 @@ static void handle_command(int idx, const char* json){
     if(strcmp(type,"open")==0){
         /* 網頁也可以指定讀取模式（open 帶 "fastread":0）⇒ 不必重開程式就能 A/B 比較。 */
         { long fr = dgh_json_int(json,"fastread",-1); if(fr==0) dgh_fast_read=0; else if(fr==1) dgh_fast_read=1; }
+        /* 🔴 網頁版本：舊網頁不會送這個欄位，所以「有沒有這個欄位」本身就是判準 ——
+           不必做版本字串的大小比較（那需要挑一個門檻，而挑門檻就是拍腦袋）。
+           這一輪繞一圈的原因就是 log 裡只有 exe 版本、沒有網頁版本。 */
+        { int hasPage = dgh_json_str(json,"page",g_pageVer,sizeof(g_pageVer));
+          if(!hasPage){ snprintf(g_pageVer,sizeof(g_pageVer),"%s","(not sent -- page older than i2c v1.13.3)"); }
+          logline("  open    : page=%s  bridge=%s", g_pageVer, I2C_BRIDGE_VERSION); }
         { long rm = dgh_json_int(json,"rawmpsse",-1); if(rm==0) dgh_raw_mpsse=0; else if(rm==1) dgh_raw_mpsse=1;
           /* 🔴 印出「收到什麼」與「套用後是什麼」兩個值。Bruce 2026-09-19 回報
              v1.11.1 的間隔仍是 15~16 ms（＝ Windows 排程器 tick ＝ 走 libMPSSE 那條），
@@ -1017,6 +1076,18 @@ static void handle_command(int idx, const char* json){
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         uint32_t got=0; FT_STATUS st=i2c_write(slave,addr,data,dn,&got);
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":%s,\"status\":%u,\"transferred\":%u}",id,(st==FT_OK)?"true":"false",st,got);
+        ws_send_text(c,rep); return;
+    }
+    /* ═══ 🔴 `note`：把**網頁端**的診斷寫進同一個 log 檔 ═══════════════════════
+       起因（Bruce／Dispatch 2026-09-19）：自動驗證失敗是發生在網頁端，只留在網頁的
+       log 區；他傳給我們的是 `i2c-bridge.log`，於是那一次失敗**完全看不到**，
+       整整繞了一圈。兩邊的診斷必須匯流到同一個檔案。
+       純粹記錄，不碰任何硬體狀態，也不需要持有 channel。 */
+    if(strcmp(type,"note")==0){
+        char msg[512];
+        if(!dgh_json_str(json,"msg",msg,sizeof(msg))) msg[0]=0;
+        logline("  [page]  : %s", msg[0]?msg:"(empty note)");
+        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"note\",\"ok\":true}",id);
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"ping")==0){

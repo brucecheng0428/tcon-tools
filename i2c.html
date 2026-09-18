@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1132"></script>
+<script src="common/version.js?v=20260919i2c1133"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -701,6 +701,24 @@ var I2CT_TIMEOUT_MS = 8000;
    之所以還是改，是因為成本為零而且與他的領域認知一致。
    （dg-measure 維持 150k：那條路是已經驗證過的量測流程，沒有理由動它。） */
 var I2CT_CLOCK_HZ   = 400000;
+/* 🔴 網頁版本要跟著每一個 open 送給 bridge，讓它寫進 log（Bruce 2026-09-19）。
+   這一輪整整繞了一圈：他的 log 顯示 `rawmpsse field=0`，bridge 一切正常，
+   但 log 裡**沒有網頁版本**，所以無法分辨是「新網頁送了 0」還是「舊網頁根本沒改」。
+   兩端版本都在 log 裡，以後 log 一攤開就知道。
+   取自 common/version.js，不另外寫死一份（第二份遲早不同步）。 */
+var I2CT_PAGE_VER   = (typeof TOOL_VERSIONS === 'object' && TOOL_VERSIONS.i2c) || 'unknown';
+/* a 比 b 新嗎？只比數字段，缺的段當 0（'1.11.2' vs '1.11' ⇒ 新）。
+   非數字（例如 'unknown'）一律回 false —— 不確定就不要跳警告。 */
+function i2ctVerNewer(a, b){
+  if (!a || !b) return false;
+  var pa = String(a).replace(/^v/, '').split('.'), pb = String(b).replace(/^v/, '').split('.');
+  for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+    var x = parseInt(pa[i], 10), y = parseInt(pb[i], 10);
+    if (isNaN(x)) x = 0; if (isNaN(y)) y = 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
 /* 每則 read 訊息最多幾個 byte。
    🔴 256 是**我們自己加的**，不是協定或硬體限制 —— 原廠 RomCode UI 的標準操作是
    「slave 0x50、offset 寬度 2、**一次讀 4096**」，沒有任何 chunk 迴圈
@@ -1649,6 +1667,19 @@ function i2ctSetLink(on, txt, cls){
 }
 async function i2ctConnect(takeover){
   if (i2ctLinked || i2ctBusy) return;
+  /* 🔴🔴 v1.13.3：重連時**連同旗標一起還原**，不只是清 i2ctFastVerified。
+     這是我自己的 bug，Bruce 的 log 把它照出來了：
+     自動驗證失敗會把 `i2ctRawMpsse` 設成 false，而舊版重連只重設
+     `i2ctFastVerified`。於是 `i2ctVerifyFastOnce` 開頭的
+     `if (!i2ctRawMpsse || ...) return;` 直接返回 ⇒ **永遠不會再驗、永遠走慢的**，
+     而且重連後畫面上那一行提示也被清掉 ⇒ **他完全看不出自己在走慢路徑**。
+     他重啟 Bridge、頁面自動重連三次，三次都送 rawmpsse:0，就是這個原因。
+
+     🔴 位置必須在**送出 open 之前** —— 放在連線成功之後等於這一次的 open
+     還是帶著舊的 0（第一版就是這樣，測試抓到）。
+     除非他自己手動動過開關（手動優先）。 */
+  if (!i2ctRawManual) { i2ctRawMpsse = true;
+                        var cbR2 = $('chk-rawmpsse'); if (cbR2) cbR2.checked = true; }
   i2ctUserClosing = false;
   i2ctBusy = true; i2ctSetLink(false, '連線中…', 'busy');
   i2ctLog('連線 ' + I2CT_WS_URL + (takeover ? '（要求接手 I2C）' : ''), 'n');
@@ -1697,6 +1728,23 @@ async function i2ctConnect(takeover){
     if (typeof pong.busy === 'boolean') i2ctChannelBusy = pong.busy;
     i2ctLog('I2C Bridge ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto
           + (i2ctChannelBusy ? '（I2C 目前被另一個頁面握著）' : ''), 'o');
+    /* 🔴 分頁是舊的 ⇒ 一行字叫他重新整理（Bruce 2026-09-19）。
+       判準**不是拍腦袋挑的門檻**，是：bridge 自報的版本**比我這份 version.js
+       預期的還新**。version.js 與 i2c.html 是同一次部署出去的，所以
+       「我預期 X，實際跑的是 X 之後的版本」只有一個解釋 —— 我這份是舊的。
+       （反過來 bridge 比較舊，既有流程已經給下載鈕，不在這裡處理。）
+
+       🔴 誠實的限制：**這救不了已經開著的舊分頁** —— 舊分頁沒有這段程式碼。
+       它只能讓「下一次」不再繞圈，舊分頁那一次只能靠 bridge 的 log。 */
+    /* 🔴 只記旗標，**不在這裡畫** —— 連線成功後會 i2ctBanner('topbanner','','')
+       把上方橫幅清空，在這裡畫會立刻被清掉（第一版就是這樣，測試抓到）。
+       真正顯示在 i2ctConnect 清空之後。 */
+    i2ctStaleTab = !!(i2ctHelperVer && HELPER_PKG && HELPER_PKG.exe
+                      && i2ctVerNewer(i2ctHelperVer, HELPER_PKG.exe));
+    if (i2ctStaleTab) {
+      i2ctLog('🔴 分頁過舊：本頁預期 I2C Bridge ' + HELPER_PKG.exe
+            + '，實際連到的是更新的 ' + i2ctHelperVer + ' ⇒ 這份 i2c.html 不是最新的', 'e');
+    }
     if (i2ctHelperProto < I2CT_NEED_PROTO) {
       /* 🔴 不能只說「版本太舊」—— 要說手上哪版、需要哪版、去哪裡拿。
          Bruce 在外地時，下載入口就在下面那張卡，而且只有線上版才是新的。 */
@@ -1722,7 +1770,7 @@ async function i2ctConnect(takeover){
          做法刻意放在**網頁端**：他不必換 exe、不必打任何參數，重新整理就好。
          （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
          fast 仍保留在 debug 區，供日後查清根因後實測用。 */
-      op = await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
+      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
                             rawmpsse: i2ctRawMpsse ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
@@ -1755,8 +1803,10 @@ async function i2ctConnect(takeover){
     i2ctRetry = 0;
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctEeForget();      /* 🔴 重新連線 ⇒ EEPROM 型號重問（可能換了一片板子） */
-    i2ctFastVerified = null; i2ctRawFellBack = false;   /* 🔴 換了板子／重連 ⇒ 快路徑要重驗一次 */
+    i2ctFastVerified = null; i2ctRawFellBack = false;
     i2ctBanner('topbanner', '', '');
+    /* 🔴 分頁過舊的提醒要在清空之後才畫，否則會被上一行清掉。一行就好。 */
+    if (i2ctStaleTab) i2ctBanner('topbanner', 'warn', '這個分頁是舊的，請按 Ctrl+F5 重新整理。');
     i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C Bridge）
     /* 🔴 連線**不做任何 I2C 交易**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
        這一頁是通用的 I2C 讀寫工具，不該假設線上掛的是哪一顆晶片 —— 連上就去讀
@@ -1955,8 +2005,16 @@ function i2ctRenderProgress(){
    一致 ⇒ 安靜沿用快的（不跳訊息、不加說明文字）。
    不一致或快路徑報錯 ⇒ 自動退回慢的，留一行常駐訊息，細節只進 log。 */
 var I2CT_VERIFY_N = 64;
+/* 🔴 把網頁端的診斷送進 bridge 的 log 檔（v1.13.3）。
+   他能傳給我們的只有 `i2c-bridge.log`；網頁 log 區的內容不會跟著過來。
+   失敗一次就丟一次，不吞例外 —— 診斷本身不可以變成新的失敗來源。 */
+async function i2ctNote(msg){
+  try { await i2ctSend({ type: 'note', msg: String(msg).slice(0, 480) }); } catch (e) {}
+}
 var i2ctFastVerified = null;      /* null=還沒驗 / true=驗過一致 / false=已退回慢的 */
 var i2ctRawFellBack = false;      /* bridge 端偷偷退回慢路徑 ⇒ 只講一次，不要每次讀都洗版 */
+var i2ctStaleTab = false;         /* bridge 比本頁預期的還新 ⇒ 這個分頁沒重新載入過 */
+var i2ctRawManual = false;        /* 他自己動過快速模式的勾選 ⇒ 重連不要覆蓋他的選擇 */
 async function i2ctVerifyFastOnce(slave, awid, off, len){
   if (!i2ctRawMpsse || i2ctFastVerified !== null) return;
   var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
@@ -1964,7 +2022,7 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   i2ctLog('── 首次讀取：先用 ' + n + ' byte 確認快的方式讀出來的值正確 ──', 'n');
   try {
     fast = await i2ctDoRead(slave, awid, off, n, true);
-    await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+    await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                      fastread: i2ctFastRead ? 1 : 0, rawmpsse: 0 });
     slow = await i2ctDoRead(slave, awid, off, n, true);
   } catch (e) {
@@ -1972,24 +2030,54 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   }
   var ok = !!(fast && fast.ok && slow && slow.ok
               && fast.bytes.length === slow.bytes.length);
+  var firstBad = -1;
   if (ok) for (var i = 0; i < slow.bytes.length; i++) {
-    if ((fast.bytes[i] & 0xFF) !== (slow.bytes[i] & 0xFF)) { ok = false; break; }
+    if ((fast.bytes[i] & 0xFF) !== (slow.bytes[i] & 0xFF)) { ok = false; firstBad = i; break; }
   }
   i2ctFastVerified = ok;
   if (ok) {
     /* 🔴 安靜。驗過就驗過，不要為了展示我們做了事而佔他的畫面。 */
     i2ctLog('✔ 自動驗證通過（' + n + ' byte 兩種方式相同）⇒ 沿用快的方式', 'o');
+    await i2ctNote('verify PASS: ' + n + ' bytes identical on both paths (slave=0x'
+                 + slave.toString(16) + ' addr=0x' + off.toString(16) + ')');
   } else {
     i2ctRawMpsse = false;
     var cb = $('chk-rawmpsse'); if (cb) cb.checked = false;
     i2ctLog('✕ 自動驗證未通過 ⇒ 已改用慢但已知正確的方式'
           + (fast && !fast.ok ? '（快的方式回報：' + fast.err + '）' : ''), 'e');
+    /* 🔴 逐 byte 的細節送進 **bridge 的 log**（他能傳給我們的只有那一個檔）。
+       特別要看第一個不一致的位置：若是「前 2~3 byte 對、之後全錯」，
+       形狀就與當初的 0F 相同 ⇒ 同一個根因還在。
+       🔴 注意 drive-only-zero 現在才真正生效（Options 修好），
+       所以這次的結果不可以沿用舊結論，要當成新的一次量測。 */
+    if (fast && fast.ok && slow && slow.ok) {
+      var hex = function (a, from, cnt) {
+        var s = [], k;
+        for (k = from; k < Math.min(from + cnt, a.length); k++)
+          s.push(('0' + (a[k] & 0xFF).toString(16)).slice(-2).toUpperCase());
+        return s.join(' ');
+      };
+      var at = firstBad < 0 ? 0 : firstBad;
+      await i2ctNote('verify FAIL: first mismatch at +' + firstBad
+                   + ' of ' + n + ' (slave=0x' + slave.toString(16)
+                   + ' addr=0x' + off.toString(16) + ' awid=' + awid + ')');
+      await i2ctNote('verify FAIL: fast[' + at + '..] = ' + hex(fast.bytes, at, 16));
+      await i2ctNote('verify FAIL: slow[' + at + '..] = ' + hex(slow.bytes, at, 16));
+      await i2ctNote('verify FAIL: fast[0..] = ' + hex(fast.bytes, 0, 16));
+      await i2ctNote('verify FAIL: slow[0..] = ' + hex(slow.bytes, 0, 16));
+    } else {
+      await i2ctNote('verify FAIL: read error -- fast='
+                   + (fast ? (fast.ok ? 'ok' : fast.err) : 'no result')
+                   + ' slow=' + (slow ? (slow.ok ? 'ok' : slow.err) : 'no result'));
+    }
     /* 🔴 用 topbanner 不是 readbanner：readbanner 會被這次讀取的結果訊息立刻蓋掉，
        他就看不到自己正在走慢的那條。這一行要**留著**直到下次重連。 */
-    i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式（自動確認沒通過）。');
+    /* 🔴 一行話要**帶著下一步**：他重新整理頁面就會重驗一次。
+       沒有下一步的警告等於只是讓他焦慮。 */
+    i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式；重新整理頁面會再確認一次。');
   }
   /* 不論結果，都把連線切回結論對應的狀態再繼續 */
-  try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0,
                          rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
 }
@@ -2802,7 +2890,7 @@ async function i2ctComparePaths(){
   var res = {};
   for (var pass = 0; pass < MODES.length; pass++) {
     var M = MODES[pass];
-    try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                            fastread: M.fastread, rawmpsse: M.rawmpsse }); }
     catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換模式失敗：' + e.message); return; }
     var t0 = Date.now();
@@ -2831,7 +2919,7 @@ async function i2ctComparePaths(){
     if (i2ctRawMpsse) { i2ctRawMpsse = false; forcedOff = true;
                         var cb = $('chk-rawmpsse'); if (cb) cb.checked = false; }
   }
-  try { await i2ctSend({ type: 'open', clockHz: I2CT_CLOCK_HZ, takeover: 0,
+  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0, rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
   i2ctBusy = false; i2ctSyncButtons();
   if (!done) {
@@ -3482,6 +3570,7 @@ function i2ctInit(){
   $('btn-clear').addEventListener('click', function () { i2ctClearAll(); });
   $('chk-rawmpsse').addEventListener('change', function () {
     i2ctRawMpsse = this.checked;
+    i2ctRawManual = true;      /* 🔴 手動動過 ⇒ 重連不再自動還原，他的選擇優先 */
     i2ctFastVerified = null;   /* 手動改過 ⇒ 下次讀取重驗一次 */
     i2ctLog('快速模式 ⇒ ' + (i2ctRawMpsse ? '開（預設）' : '關') + '　※ 要重新連線才生效', 'w');
   });
@@ -3912,6 +4001,7 @@ window.__i2ct = {
        不重設的話，前一組測試把快速模式關掉之後會漏到下一組，
        下一組就在驗一個使用者根本遇不到的狀態 —— 那種綠燈沒有意義。 */
     i2ctRawMpsse = true; i2ctFastVerified = null; i2ctRawFellBack = false;
+    i2ctRawManual = false;   /* 剛打開的網頁 ＝ 他還沒動過任何開關 */
     { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
     i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctSyncButtons();
