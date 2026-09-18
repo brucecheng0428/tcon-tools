@@ -12,15 +12,22 @@ var TOOL_VERSIONS = {
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
-  dg:      'v1.66.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.4.0',       // I2C（讀寫測試）
+  dg:      'v1.67.0',      // Digital Gamma 迭代校正
+  i2c:     'v1.5.0',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   helper 下載包的**單一來源**（2026-09-18）
+   I2C Bridge 下載包的**單一來源**（2026-09-18）
+
+   🔴 v1.7.0 起這支程式叫 **I2C Bridge**（舊名 helper）。Bruce：「helper 的字樣
+      是不是其實不夠貼切？它的功能應該是 I2C 的 bridge」—— 完全正確，它本來就
+      不專屬於 dg，而且「helper」沒有告訴任何人它在做什麼。
+      變數名 `HELPER_PKG` 與 wire 欄位 `helper` **刻意保留**：前者是內部識別字
+      （改了要動兩頁十幾處，對使用者零差別），後者是協定欄位（改了會讓新舊版
+      互接時版本顯示變成 undefined）。使用者看得到的字樣一律是 I2C Bridge。
 
    `dg-measure.html` 與 `i2c.html` 都要顯示下載連結與雜湊。原本只有
    dg-measure 有，而且數字是硬編在那一頁裡 —— 第二頁要用就得複製一份，
@@ -38,11 +45,14 @@ var TOOL_VERSIONS = {
       現在兩個都存、畫面兩個都顯示，這個歧義就消失了。
    ═══════════════════════════════════════════════════════════════ */
 var HELPER_PKG = {
-  pkg:    'v1.6.1',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.6.0',                       // exe 內的 DG_HELPER_VERSION（ping 回報值）
+  /* 🔴 v1.7.0（2026-09-18）：exe **有動**（拿掉自動開瀏覽器、靜態檔服務改成
+     預設關閉）⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
+     包內也從四個檔縮成兩個：**只有 exe ＋ libMPSSE.dll**，不再附 html。 */
+  pkg:    'v1.7.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.7.0',                       // exe 內的 DG_HELPER_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/dg-helper-v1.6.1.zip',
-  bytes:  344075,                             // zip 位元組數（打包後填）
-  zipSha: '6d0ead71efb0d06e402f8233f16b84fb5a6de39748858443a8b67dc72e9d08e9',
-  exeSha: 'cb89e553af6e86090c2dab81920792f70c8b9c77e637a152d5774caa34cc6524'
+  file:   'data/i2c-bridge-v1.7.0.zip',
+  bytes:  155280,                             // zip 位元組數（打包後填）
+  zipSha: '55646e5b2ca367e1e7a80a29e9e4be73f2a7b621d1987ad0057a93408bfa5e23',
+  exeSha: '99aa14854089f19d60f07c9c0af537f6be00de74dae1544184914f1c7e499415'
 };

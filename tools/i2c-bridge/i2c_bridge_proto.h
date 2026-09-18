@@ -1,8 +1,8 @@
-#ifndef DG_HELPER_PROTO_H
-#define DG_HELPER_PROTO_H
+#ifndef I2C_BRIDGE_PROTO_H
+#define I2C_BRIDGE_PROTO_H
 /* 可攜（無 Windows 依賴）的協定小工具：SHA1／Base64（WebSocket 握手）、
  * 極簡 JSON 擷取、I2C 寫入位址白名單判斷。
- * dg_helper.c 與 test_proto.c 都 include 這一份 —— 測到的就是出貨的那份程式碼。 */
+ * i2c_bridge.c 與 test_proto.c 都 include 這一份 —— 測到的就是出貨的那份程式碼。 */
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>

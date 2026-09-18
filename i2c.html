@@ -18,14 +18,14 @@
        · **不套位址白名單。** dg-measure 的 0x1200–0x12FF 是為了防量測流程中誤按，
          測試工具的性質就是要能任意讀寫，套上去等於把工具廢掉。
        · **不加確認對話框、不加「允許寫入」開關。** 防護改用「不擋路」的方式：
-         每一筆寫入都如實寫進畫面 log 與 helper 的 dg-helper.log
+         每一筆寫入都如實寫進畫面 log 與 I2C Bridge 的 i2c-bridge.log
          （哪個 slave、哪個位址、寫了什麼 byte）。
        · 使用者是這個領域的專家，版面以密度與效率優先，不做教學式引導。
 
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
-        common/version.js（版號單一來源）—— helper 端出來的那一份會把它內嵌進來。
+        common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260918dg16602"></script>
+<script src="common/version.js?v=20260919i2c150"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -51,18 +51,42 @@
   .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;}
   .card h2{margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--sub);}
 
-  label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--sub);}
+  /* ═══ 🔴 一列裡的每一個控制項都必須同高、同頂（Bruce 2026-09-18）════════
+     原本 `label.f` 是 flex column ＋ 外面 `align-items:flex-end`，於是每一欄的
+     高度由自己的內容決定：input 是 30px、chip 是 26px、按鈕那一欄甚至要靠
+     `padding-bottom:16px` 這種魔術數字硬湊 —— 只要字級或 padding 一動就歪。
+     改成**固定三列的 grid**（標籤／控制項／提示），每一欄的三列高度都一樣，
+     對齊就不再依賴內容，而是版面本身保證的。判準可機械檢查：同一列所有
+     控制項的 getBoundingClientRect() 的 top 與 height 差為 0。 */
+  :root{ --fh:30px; --labh:15px; --hinth:14px; }
+  label.f,.f{display:grid;grid-template-rows:var(--labh) var(--fh) var(--hinth);
+    gap:3px;font-size:11px;color:var(--sub);align-content:start;}
+  label.f > span:first-child,.f > span:first-child{line-height:var(--labh);
+    display:block;overflow:hidden;white-space:nowrap;}
+  .f .fctl{display:flex;gap:8px;align-items:center;height:var(--fh);}
   input[type=text]{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--text);
-    padding:5px 8px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;width:100%;}
+    padding:0 8px;font:13px/1 ui-monospace,Menlo,Consolas,monospace;width:100%;
+    height:var(--fh);box-sizing:border-box;}
   input[type=text]:focus{outline:none;border-color:var(--accent);}
   input.bad{border-color:var(--err);}
-  .hint{font-size:10.5px;color:#64748b;}
-  .chips{display:flex;gap:5px;}
+  .hint{font-size:10.5px;color:#64748b;line-height:var(--hinth);display:block;
+    overflow:hidden;white-space:nowrap;}
+  .chips{display:flex;gap:5px;height:var(--fh);align-items:stretch;}
   .chip{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--sub);
-    padding:5px 9px;font-size:12px;cursor:pointer;font-family:ui-monospace,Menlo,Consolas,monospace;}
+    padding:0 9px;font-size:12px;cursor:pointer;font-family:ui-monospace,Menlo,Consolas,monospace;
+    display:inline-flex;align-items:center;box-sizing:border-box;}
+  /* 🔴 8-bit 那兩格要**一眼看到**（Bruce：「常常有人把 7 bit 跟 8 bit 搞混」）。
+     用琥珀色實框＋粗體，不用淡灰。不寫等式、不加解釋句 —— 標籤本身就是說明。 */
+  .f8 > span:first-child{color:#fbbf24;font-weight:700;letter-spacing:.3px;}
+  .f8 input[type=text]{background:#2b2007;border-color:#f59e0b;color:#fde68a;font-weight:700;}
+  .f8 input[type=text]:focus{border-color:#fbbf24;}
+  .f8 .hint{color:#b45309;}
   .chip.on{background:#0c4a6e;border-color:var(--accent);color:#e0f2fe;font-weight:700;}
+  select{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--text);
+    height:var(--fh);box-sizing:border-box;padding:0 6px;font:12.5px/1 ui-monospace,Menlo,Consolas,monospace;}
   button{background:#334155;border:1px solid #475569;border-radius:6px;color:var(--text);
-    padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;}
+    padding:0 14px;font-size:12.5px;font-weight:600;cursor:pointer;
+    height:var(--fh);box-sizing:border-box;}
   button:hover{background:#3f4f66;}
   button:disabled{opacity:.45;cursor:not-allowed;}
   button.pri{background:#0369a1;border-color:#0ea5e9;}
@@ -238,12 +262,12 @@
 
   <!-- ═══ 連線 ═══ -->
   <div class="card" style="margin-bottom:12px;">
-    <h2>本機 helper 連線</h2>
+    <h2>本機 I2C Bridge 連線</h2>
     <div class="row" style="align-items:center;">
       <div><span class="dot" id="dot"></span><span id="linktext">未連線</span></div>
       <button class="pri" id="btn-conn">連線</button>
-      <button id="btn-release" class="dbgonly" disabled title="把 I2C 治具交回去，但保持與 helper 的連線（要回去用 DG 量測或原廠 PQ Tool 時按這個）">釋放 I2C</button>
-      <button id="btn-disc" disabled title="關閉與 helper 的整條連線（同時也會釋放 I2C）">中斷</button>
+      <button id="btn-release" class="dbgonly" disabled title="把 I2C 治具交回去，但保持與 I2C Bridge 的連線（要回去用 DG 量測或原廠 PQ Tool 時按這個）">釋放 I2C</button>
+      <button id="btn-disc" disabled title="關閉與 I2C Bridge 的整條連線（同時也會釋放 I2C）">中斷</button>
       <button class="wr dbgonly" id="btn-takeover" style="display:none" title="把 I2C 治具從另一個頁面搶過來（那一頁會被斷線）">接手 I2C</button>
       <button id="btn-self" class="dbgonly" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
       <span class="sp" style="flex:1"></span>
@@ -251,16 +275,27 @@
     <!-- 🔴 v1.2.0：這一行從「講通道為什麼是唯一的」縮成「對面是誰」。
          診斷資訊一個字沒少（版本／proto／包版本都還在，log 也還在），
          少掉的是解釋性的那一句 —— Bruce：說明文字越少越好。 -->
-    <!-- ═══ 🔴 連不到 helper ⇒ 第一個出現的就是下載鈕（Bruce 2026-09-18 實測）═══
+    <!-- ═══ 🔴 連不到 I2C Bridge ⇒ 第一個出現的就是下載鈕（Bruce 2026-09-18 實測）═══
          他原話：「我根本就還沒有下載 Helper，Helper 的下載按鈕反而是在下方，
          這樣的流程是有問題的。」
 
-         我們錯在假設「使用者已經有 helper，只是開錯頁面」，於是連不到時叫他
-         改開 127.0.0.1 —— 對第一次來的人那句話沒有意義（他連 helper 都沒有）。
+         我們錯在假設「使用者已經有 I2C Bridge，只是開錯頁面」，於是連不到時叫他
+         改開 127.0.0.1 —— 對第一次來的人那句話沒有意義（他連 I2C Bridge 都沒有）。
 
          🔴 **畫面上只有這一個下載入口。** 下面那張摺疊卡只留雜湊、線上版本檢查
             與疑難排解，**不再放第二顆下載鈕**。
          🔴 版號印在按鈕上，來源是 common/version.js 的 HELPER_PKG，不寫死。 -->
+    <!-- 🔴 v1.5.0：瀏覽器擋住「連本機」時的那一句話（Bruce 2026-09-18）。
+         Chrome 147 起，公開網址連 ws://127.0.0.1 會先跳一次權限提示；按了「封鎖」
+         或把提示關掉，連線就不會成立 —— 而 JS 看到的跟「I2C Bridge 沒開」長得一模一樣。
+         唯一分得出來的線索是**耗時**：沒人在聽的 loopback 會立刻被拒（幾毫秒），
+         有提示跳出來就一定要等人按（幾百毫秒以上）。所以慢的那種才顯示這一句。 -->
+    <div id="lna" style="display:none;margin-top:10px;border-top:1px solid #223049;padding-top:10px;">
+      <div class="row" style="align-items:center;">
+        <span style="font-size:17px;font-weight:700;color:#fde68a">瀏覽器要你允許存取本機網路，請按「允許」。</span>
+        <button id="btn-lna-retry" style="font-size:15px;padding:10px 20px">重試</button>
+      </div>
+    </div>
     <div id="gethelper" style="display:none;margin-top:10px;border-top:1px solid #223049;padding-top:10px;">
       <!-- 🔴 旁邊、下面的介紹文字全部拿掉（Bruce 2026-09-18）。
            剩下的只有一顆大按鈕（版號印在上面）＋一句話說為什麼會看到它。
@@ -268,8 +303,8 @@
            包大小／exe 版本／proto 這些是診斷資訊 ⇒ 收進 debug。 -->
       <div class="row" style="align-items:center;">
         <a id="dl" class="mono" href="#" download style="background:#0369a1;border:1px solid #0ea5e9;border-radius:8px;
-           color:#e0f2fe;padding:12px 22px;text-decoration:none;font-weight:700;font-size:17px">⬇ 下載 helper</a>
-        <span class="kv" id="get-why">連不到 helper</span>
+           color:#e0f2fe;padding:12px 22px;text-decoration:none;font-weight:700;font-size:17px">⬇ 下載 I2C Bridge</a>
+        <span class="kv" id="get-why">連不到 I2C Bridge</span>
       </div>
       <div class="kv dbgonly" id="dl-meta" style="margin-top:4px"></div>
     </div>
@@ -277,7 +312,7 @@
          要讀的東西，而且 `ws://127.0.0.1:8899/ws` 正是 Bruce 說「沒有人看得懂」
          的那種字串。功能沒砍，log 也照印。 -->
     <div class="kv dbgonly" style="margin-top:8px;border-top:1px solid #223049;padding-top:7px;line-height:1.9">
-      <span class="mono" id="wsurl"></span> · helper <b id="hv-exe">—</b> · proto <b id="hv-proto">—</b>（需 ≥ <b id="hv-need">2</b>） · 包 <b id="hv-pkg">—</b>
+      <span class="mono" id="wsurl"></span> · I2C Bridge <b id="hv-exe">—</b> · proto <b id="hv-proto">—</b>（需 ≥ <b id="hv-need">2</b>） · 包 <b id="hv-pkg">—</b>
     </div>
   </div>
 
@@ -285,11 +320,24 @@
        slave address、offset 寬度、起始 offset」）═══════════════════════════ -->
   <div class="card" style="margin-bottom:12px;">
     <h2>讀 / 寫（共用同一組參數）</h2>
-    <div class="row" style="align-items:flex-end;">
-      <label class="f" style="width:150px;">
+    <div class="row" style="align-items:flex-start;">
+      <label class="f" style="width:146px;">
         <span>① Slave 位址（7-bit）</span>
         <input type="text" id="in-slave" class="mono" value="0x68" spellcheck="false">
         <span class="hint" id="slavehint">&nbsp;</span>
+      </label>
+      <!-- 🔴 三格連動（Bruce 2026-09-18）：改任何一格，另外兩格立刻跟著變。
+           防呆是**看得見的**修正：write 欄打奇數 ⇒ 清掉 bit0、read 欄打偶數 ⇒ 補上
+           bit0，而且**欄位會顯示修正後的值**，不是偷偷換掉一個他看不到的東西。 -->
+      <label class="f f8" style="width:132px;">
+        <span>8-bit write</span>
+        <input type="text" id="in-slave8w" class="mono" value="0xD0" spellcheck="false">
+        <span class="hint" id="slave8whint">&nbsp;</span>
+      </label>
+      <label class="f f8" style="width:132px;">
+        <span>8-bit read</span>
+        <input type="text" id="in-slave8r" class="mono" value="0xD1" spellcheck="false">
+        <span class="hint" id="slave8rhint">&nbsp;</span>
       </label>
       <label class="f">
         <span>② Offset 寬度</span>
@@ -301,34 +349,40 @@
         </div>
         <span class="hint" id="awidhint">&nbsp;</span>
       </label>
-      <label class="f" style="width:150px;">
+      <label class="f" style="width:172px;">
         <!-- 🔴 offset 寬度切到 0 byte 時，這一欄不再是位址而是「一個 1 byte 的值」，
              所以標籤要跟著變（見 i2ctUpdateHints）—— 語意不同，名字就不能一樣。 -->
         <span id="offlabel">③ 起始 offset</span>
         <input type="text" id="in-off" class="mono" value="0x0000" spellcheck="false">
         <span class="hint" id="offhint">&nbsp;</span>
       </label>
-      <label class="f" style="width:120px;">
+      <label class="f" style="width:168px;">
         <span>④ 總 byte 數</span>
         <input type="text" id="in-len" class="mono" value="256" spellcheck="false">
         <span class="hint" id="lenhint">&nbsp;</span>
       </label>
-      <div style="display:flex;gap:8px;padding-bottom:16px;">
-        <button class="pri" id="btn-read" disabled>讀取</button>
+      <div class="f">
+        <span>&nbsp;</span>
+        <div class="fctl"><button class="pri" id="btn-read" disabled>讀取</button></div>
+        <span class="hint">&nbsp;</span>
       </div>
     </div>
-    <div class="row" style="align-items:flex-end;margin-top:8px;border-top:1px solid #223049;padding-top:9px;">
+    <div class="row" style="align-items:flex-start;margin-top:8px;border-top:1px solid #223049;padding-top:9px;">
       <label class="f" style="flex:1;min-width:280px;">
         <span>寫入資料</span>
         <input type="text" id="in-data" class="mono" placeholder="A1 D8 FB" spellcheck="false">
         <span class="hint" id="datahint">&nbsp;</span>
       </label>
-      <div style="display:flex;gap:8px;padding-bottom:16px;">
-        <!-- 🔴 載入檔案就是一顆按鈕，旁邊**不配格式說明** —— 格式靠 accept 的
-             副檔名清單自然表達，細節收進說明視窗。 -->
-        <input type="file" id="in-file" accept=".bin,.hex,.txt,.rom,.ihx,.ihex,.eep,.dat,.raw" style="display:none">
-        <button id="btn-load">載入檔案</button>
-        <button class="wr" id="btn-write" disabled>寫入</button>
+      <div class="f">
+        <span>&nbsp;</span>
+        <div class="fctl">
+          <!-- 🔴 載入檔案就是一顆按鈕，旁邊**不配格式說明** —— 格式靠 accept 的
+               副檔名清單自然表達，細節收進說明視窗。 -->
+          <input type="file" id="in-file" accept=".bin,.hex,.txt,.rom,.ihx,.ihex,.eep,.dat,.raw" style="display:none">
+          <button id="btn-load">載入檔案</button>
+          <button class="wr" id="btn-write" disabled>寫入</button>
+        </div>
+        <span class="hint">&nbsp;</span>
       </div>
     </div>
   </div>
@@ -346,6 +400,15 @@
            做比較基準，這時候按 snapshot 就有它的意義在」⇒ **是主要功能，放在外面**，
            不收進 debug。按下去 diff log 一併清零（那代表還沒開始比較）。 -->
       <button id="btn-snap" style="margin-left:6px">快照</button>
+      <!-- 🔴 另存新檔（Bruce 2026-09-18）：讀多少存多少，四種格式。
+           預設 .hex ＝ KGS Code 資料夾那種 Intel HEX（每列 16 byte、大寫、CRLF）。 -->
+      <select id="sav-fmt" class="mono" style="margin-left:6px">
+        <option value="hex">.hex</option>
+        <option value="bin">.bin</option>
+        <option value="txt">.txt</option>
+        <option value="rom">.rom</option>
+      </select>
+      <button id="btn-save" disabled>另存新檔</button>
       <span id="refline" class="kv" style="margin-left:10px"></span>
       <span class="sp" style="flex:1"></span>
       <!-- 🔴 256K ＝ 1024 頁，下拉選單放 1024 個選項是不能用的（Bruce 2026-09-18
@@ -398,21 +461,21 @@
     <div class="hint" style="margin-top:6px">點任一格可直接改值 → Enter 寫回該位址</div>
   </div>
 
-  <!-- ═══ helper 取得與安裝（本頁自足，不必經過 dg 的任何頁面）═══════════════
-       🔴 這一整塊存在的理由：這一頁的 UI 原本是獨立的，但「怎麼拿到 helper」
+  <!-- ═══ I2C Bridge 取得與安裝（本頁自足，不必經過 dg 的任何頁面）═══════════════
+       🔴 這一整塊存在的理由：這一頁的 UI 原本是獨立的，但「怎麼拿到 I2C Bridge」
           只寫在 dg-measure.html 上 —— 等於使用者還是得先繞去 dg。
-          Bruce 2026-09-18：「跟 DG 沒有關係」包含取得與管理 helper。
+          Bruce 2026-09-18：「跟 DG 沒有關係」包含取得與管理 I2C Bridge。
        🔴 而且他人在外地出差時，**線上版這一塊是他唯一拿得到新版的地方**。 -->
   <details class="card dbgonly" id="helper-card" style="margin-top:12px;">
     <summary style="cursor:pointer;list-style:none;font-size:11px;font-weight:700;letter-spacing:.9px;
                     text-transform:uppercase;color:var(--sub)">
-      helper 資訊與疑難排解 <span id="helper-sum" style="text-transform:none;letter-spacing:0;font-weight:400"></span>
+      I2C Bridge 資訊與疑難排解 <span id="helper-sum" style="text-transform:none;letter-spacing:0;font-weight:400"></span>
     </summary>
 
     <div id="offline-notice"></div>
 
-    <!-- 🔴 下載鈕**不在這裡**，在上面的 #gethelper（連不到 helper 時自動出現）。
-         畫面上同時只能有一個下載入口。這裡留的是「已經有 helper 的人才需要的」。 -->
+    <!-- 🔴 下載鈕**不在這裡**，在上面的 #gethelper（連不到 I2C Bridge 時自動出現）。
+         畫面上同時只能有一個下載入口。這裡留的是「已經有 I2C Bridge 的人才需要的」。 -->
     <!-- 🔴 「檢查線上有無新版」整顆刪掉（Bruce 2026-09-18）：
          「這個本來就是從網頁更新的，進來的不就一定是最新版的，怎麼還需要檢查？」
          —— 無可反駁。線上版沒有版本落後這回事，那顆按鈕只在離線打包版有意義，
@@ -425,10 +488,10 @@
     <!-- 🔴 v1.2.0（Bruce 2026-09-18「說明文字越少越好」）：
          三步驟列 → 一行；SmartScreen 步驟列 → 刪；狀態字母對照表 → **從畫面上刪掉**
          （他原話：「對照表不用給我啊，我不用懂這些，只要你知道就好」）。
-         🔴 字母仍然照印在 helper 的 console 與 dg-helper.log —— 診斷能力一個字沒少，
+         🔴 字母仍然照印在 I2C Bridge 的 console 與 i2c-bridge.log —— 診斷能力一個字沒少，
             少掉的只有「要他讀」這件事。 -->
     <div class="kv" style="margin-top:10px;line-height:1.8">
-      下載 → 整包解壓到一個資料夾 → 雙擊 <code class="mono">dg-helper.exe</code>。<br>
+      下載 → 整包解壓到一個資料夾 → 雙擊 <code class="mono">i2c-bridge.exe</code>。<br>
       SHA256 zip <code class="mono" id="sha-zip" style="font-size:10.5px;word-break:break-all">—</code>
       · exe <code class="mono" id="sha-exe" style="font-size:10.5px;word-break:break-all">—</code>
     </div>
@@ -436,9 +499,9 @@
     <details style="margin-top:10px">
       <summary style="cursor:pointer;font-size:12px;color:var(--sub)">跑不起來 / 連不上？</summary>
       <div class="kv" style="line-height:1.85;margin-top:6px">
-        helper 黑視窗最後一行是一個大寫字母，<b>G</b> ＝ 正常。不是 G 就把整份
-        <code class="mono">dg-helper.log</code> 給我，字母的意思我這邊查。<br>
-        四個檔要在同一個資料夾：<code class="mono">dg-helper.exe</code>、<code class="mono">dg-measure.html</code>、
+        I2C Bridge 黑視窗最後一行是一個大寫字母，<b>G</b> ＝ 正常。不是 G 就把整份
+        <code class="mono">i2c-bridge.log</code> 給我，字母的意思我這邊查。<br>
+        四個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">dg-measure.html</code>、
         <code class="mono">i2c.html</code>、<code class="mono">libMPSSE.dll</code>。<br>
         exe 內容一變 SHA 就變，Windows 會再擋一次。<br>
         同一時間只有一個頁面握著 I2C：切到哪一頁哪一頁就自動接手，不必按任何東西；
@@ -457,7 +520,7 @@
     </div>
     <div id="log"></div>
     <div class="hint dbgonly" style="margin-top:6px;">
-      每一筆讀寫都完整記錄（slave／offset 寬度／位址／byte）。寫入同時也寫進 helper 的 <span class="mono">dg-helper.log</span>。
+      每一筆讀寫都完整記錄（slave／offset 寬度／位址／byte）。寫入同時也寫進 I2C Bridge 的 <span class="mono">i2c-bridge.log</span>。
     </div>
   </div>
 </div>
@@ -468,7 +531,7 @@
     <h3>下載好了，接著這樣做</h3>
     <ol>
       <li>把整包<b>解壓縮</b>到一個資料夾</li>
-      <li>雙擊 <code class="mono">dg-helper.exe</code></li>
+      <li>雙擊 <code class="mono">i2c-bridge.exe</code></li>
       <li>回到這一頁按<b>「連線」</b></li>
     </ol>
     <button id="howto-ok">知道了</button>
@@ -492,11 +555,11 @@ var I2CT_NEED_PROTO = 2;          /* awid 與 rawwrite 是 proto 2 才有的 */
 var I2CT_ONLINE_BASE = 'https://brucecheng0428.github.io/tcon-tools/';
 var I2CT_ONLINE_PAGE = I2CT_ONLINE_BASE + 'i2c.html';
 
-/* helper 下載包的常數：一律讀 common/version.js 的 HELPER_PKG（單一來源）。
+/* I2C Bridge 下載包的常數：一律讀 common/version.js 的 HELPER_PKG（單一來源）。
    🔴 不要在這一頁寫第二份字面值 —— 兩份數字遲早不同步。 */
 var I2CT_PKG = (typeof HELPER_PKG !== 'undefined' && HELPER_PKG) ? HELPER_PKG : {};
 var I2CT_TIMEOUT_MS = 8000;
-var I2CT_CLOCK_HZ   = 150000;     /* 與 PQ Tool／dg helper 同一組參數 */
+var I2CT_CLOCK_HZ   = 150000;     /* 與 PQ Tool／dg I2C Bridge 同一組參數 */
 var I2CT_CHUNK      = 256;        /* 每則 read 訊息最多幾個 byte */
 /* 🔴 Bruce 2026-09-18：「最大檔案可能不止 4096 bytes，我有可能有 256K bytes」
    ⇒ 上限拉到 262,144（1024 頁）。每則 read 上限 256 byte ⇒ 最多 1024 次交易，
@@ -815,7 +878,7 @@ function i2ctParseHexText(text){
 /* 舊名保留（每列一個 byte 是上面那支的特例），這樣呼叫端與既有測試都不必改。 */
 function i2ctParseTextBytes(text){ return i2ctParseHexText(text); }
 
-/* offset 寬度只有 0/1/2/4 —— 與 helper 的 dgh_awid_ok 是同一套判準 */
+/* offset 寬度只有 0/1/2/4 —— 與 I2C Bridge 的 dgh_awid_ok 是同一套判準 */
 function i2ctAwidOk(a){ return a === 0 || a === 1 || a === 2 || a === 4; }
 
 /* 某個 offset 寬度能表示的位址上限（awid 0 沒有位址概念，回 0） */
@@ -833,7 +896,7 @@ function i2ctWrap(addr, awid){
   var v = addr % m;
   return v < 0 ? v + m : v;
 }
-/* 把一次讀取拆成多則 helper 訊息。
+/* 把一次讀取拆成多則 I2C Bridge 訊息。
    🔴 awid === 0（current address read）也照樣可以分段：裝置自己的位址指標會
       跟著往前走，所以連續送 N 則就是連續讀，不需要（也不能）給位址。 */
 function i2ctPlanRead(base, len, awid){
@@ -901,17 +964,58 @@ function i2ctParseHex(s){
   return out;
 }
 /* 數字輸入：0x 開頭當 16 進位，否則 10 進位。解不出來回 null。 */
-function i2ctParseNum(s){
-  if (s == null) return null;
-  var t = String(s).trim();
-  if (!t) return null;
-  var v;
-  if (/^0[xX][0-9a-fA-F]+$/.test(t)) v = parseInt(t.slice(2), 16);
-  else if (/^[0-9]+$/.test(t)) v = parseInt(t, 10);
-  else if (/^[0-9a-fA-F]+[hH]$/.test(t)) v = parseInt(t.slice(0, -1), 16);
-  else return null;
-  return isFinite(v) ? v : null;
+/* ═══ 數字解析（全站唯一一支）═════════════════════════════════════════════
+   Bruce 2026-09-18：「不管是 slave address 還是起始 offset，都要可以接受錯誤的
+   輸入格式。像 `0x50H`，又有 0x 又有 H，這種同時存在的也要可以接受。另外，
+   現在看起來應該也要可以接受十進位的輸入。」
+
+   🔴 十進位有歧義（`50` 到底是 0x50 還是 80？），規則訂死如下，並且**每個欄位
+      旁邊即時印出解析結果**（例如 `= 0x50 · 80`）—— 不論預設偏哪一邊，他都能
+      當場看到系統怎麼解讀。那一行是正確性資訊，不在「說明文字越少越好」的
+      刪除範圍內。
+
+     · 有 `0x` 前綴 或 `h`/`H` 後綴（含兩者並存的 `0x50H`）⇒ 十六進位
+     · 含 a–f 字母 ⇒ 十六進位
+     · `#` 前綴 或 `d`/`D` 後綴 ⇒ 十進位（明確標記）
+     · 純數字、沒有任何標記 ⇒ 看欄位的預設進位：
+         位址類欄位（slave／offset／跳頁／資料）＝ 十六進位（I2C 的慣例）
+         數量類欄位（總 byte 數）＝ 十進位（`256` 就是 256 個）
+   🔴 已知的取捨：`0D` 會被當成十進位 0 而不是 0x0D。這是「d 後綴＝十進位」這條
+      規則的代價，選擇讓它發生而不是偷偷猜，因為旁邊那行解析結果會把它顯示出來。 */
+function i2ctParseAny(str, defBase){
+  var r = { v: null, base: 0, err: '' };
+  if (str == null) { r.err = '空'; return r; }
+  var t = String(str).replace(/\s+/g, '');
+  if (!t) { r.err = '空'; return r; }
+  var body = t, base = 0;
+  if (body.charAt(0) === '#') { base = 10; body = body.slice(1); }
+  else {
+    var pre = false, suf = false;
+    if (/^0[xX]/.test(body)) { pre = true; body = body.slice(2); }
+    if (/[hH]$/.test(body))  { suf = true; body = body.slice(0, -1); }
+    if (pre || suf) base = 16;
+    else if (/^[0-9]+[dD]$/.test(body)) { base = 10; body = body.slice(0, -1); }
+  }
+  if (!body) { r.err = '看不懂'; return r; }
+  if (base === 0) base = /[a-fA-F]/.test(body) ? 16 : (defBase || 10);
+  if (!(base === 16 ? /^[0-9a-fA-F]+$/ : /^[0-9]+$/).test(body)) { r.err = '看不懂'; return r; }
+  var v = parseInt(body, base);
+  if (!isFinite(v)) { r.err = '看不懂'; return r; }
+  r.v = v; r.base = base; return r;
 }
+/* 數量類（預設十進位）—— 既有呼叫端與測試沿用這個名字，語意不變。 */
+function i2ctParseNum(s){ return i2ctParseAny(s, 10).v; }
+/* 位址類（預設十六進位）：slave 三格、起始 offset、跳頁、十字定位。 */
+function i2ctParseAddr(s){ return i2ctParseAny(s, 16).v; }
+/* 解析結果那一行：`= 0x50 · 80`。w ＝ 十六進位要補到幾位。 */
+function i2ctParseEcho(v, w){
+  if (v === null || v === undefined) return '';
+  return '= 0x' + i2ctHex(v, w || 2) + '\u00b7' + v + I2CT_DEC_NOTE;
+}
+/* 🔴 Bruce 2026-09-18：「十進位輸入的規範要統一…但是你可能也要在輸入格下面
+   註明十進位要如何輸入」⇒ 每個位址類欄位下面都掛這一行，**就這一行**。
+   全站同一個常數，不會有兩種寫法。 */
+var I2CT_DEC_NOTE = ' \u00b7 十進位 +d';
 function i2ctHex(v, w){ var s = (v >>> 0).toString(16).toUpperCase(); while (s.length < (w || 2)) s = '0' + s; return s; }
 function i2ctAddrText(key, awid){
   if (awid === 0) return '#' + key;
@@ -921,6 +1025,89 @@ function i2ctBytesText(a){
   if (!a || !a.length) return '(空)';
   var s = []; for (var i = 0; i < a.length; i++) s.push(i2ctHex(a[i] & 0xFF));
   return s.join(' ');
+}
+
+/* ═══ 匯出（另存新檔）══════════════════════════════════════════════════════
+   Bruce 2026-09-18：「讀取的資料那邊還要有個按鈕可以另存新檔…可以選擇 bin 檔、
+   hex 檔、TXT 檔、ROM 檔。**hex 檔預設應該是 16 byte 一列的那種**」，並指名
+   ~/TCON/Model/KGS/…/Code/*.hex 當範本。
+
+   🔴 範本實際長相（已逐 byte 看過檔案，不是照規格書想像）：
+       :1000000000FFFFFFFFFFFF00289A1800000000001C
+       :100010001C230104A51A1078021025985E57992810
+     · `:` ＋ `10`（＝16 個 data byte）＋ 四位位址 ＋ `00`（type）＋ 資料 ＋ checksum
+     · **大寫**十六進位
+     · 行尾 **CRLF**（xxd 確認是 0d 0a）
+     · 結尾 EOF 記錄 `:00000001FF`
+   checksum ＝ 從 Record Length 到最後一個 data byte 的總和取 8-bit 二補數。
+   🔴 超過 64KB（我們最大 256K）要插 type 04 Extended Linear Address，
+      否則四位位址欄位繞回去，載入端會把資料疊在一起。 */
+var I2CT_EOL = '\r\n';
+function i2ctIhexRec(ll, addr, type, data){
+  var b = [ll & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF, type & 0xFF];
+  for (var i = 0; i < (data ? data.length : 0); i++) b.push(data[i] & 0xFF);
+  var sum = 0; for (var j = 0; j < b.length; j++) sum += b[j];
+  b.push((~sum + 1) & 0xFF);
+  var out = ':'; for (var k = 0; k < b.length; k++) out += i2ctHex(b[k]);
+  return out;
+}
+function i2ctExportIhex(bytes, base){
+  /* 🔴 upper 從 0 起跳（不是 -1）：範本檔的第一行就是 `:10000000…`，**沒有**
+     開頭那筆 type 04。只有真的跨過 64K 才插，這樣 4K 的檔跟範本長得一模一樣。 */
+  var start = (base || 0) >>> 0, lines = [], upper = 0;
+  for (var i = 0; i < bytes.length; i += 16) {
+    var a = start + i, hi = (a >>> 16) & 0xFFFF;
+    if (hi !== upper) {                       /* 🔴 跨 64K ⇒ 先下 type 04 */
+      lines.push(i2ctIhexRec(2, 0, 0x04, [(hi >> 8) & 0xFF, hi & 0xFF]));
+      upper = hi;
+    }
+    var n = Math.min(16, bytes.length - i), d = [];
+    for (var k = 0; k < n; k++) d.push(bytes[i + k] & 0xFF);
+    lines.push(i2ctIhexRec(n, a & 0xFFFF, 0x00, d));
+  }
+  lines.push(':00000001FF');
+  return lines.join(I2CT_EOL) + I2CT_EOL;
+}
+/* .txt／.rom：一列一個 byte、兩位大寫 —— 跟我們的載入解析完全對稱。 */
+function i2ctExportLines(bytes){
+  var out = []; for (var i = 0; i < bytes.length; i++) out.push(i2ctHex(bytes[i] & 0xFF));
+  return out.join(I2CT_EOL) + I2CT_EOL;
+}
+function i2ctExportName(set, ext){
+  var d = new Date(), pad = function (x) { return ('0' + x).slice(-2); };
+  var ts = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
+         + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+  if (set.kind === 'file') return 'i2c_' + set.bytes.length + 'B_' + ts + '.' + ext;
+  return 'i2c_S' + i2ctHex(set.slave) + '_off' + i2ctHex(set.base, set.awid === 4 ? 8 : 4)
+       + '_' + set.bytes.length + 'B_' + ts + '.' + ext;
+}
+/* 回傳 {name, mime, data:(string|Uint8Array)}；不碰 DOM，方便測試。 */
+function i2ctExportBuild(set, fmt){
+  if (!set || !set.bytes || !set.bytes.length) return null;
+  var ext = fmt, body;
+  if (fmt === 'bin')      body = set.bytes;
+  else if (fmt === 'hex') body = i2ctExportIhex(set.bytes, set.kind === 'dev' ? set.base : 0);
+  else                    body = i2ctExportLines(set.bytes);   /* txt 與 rom 同格式 */
+  return { name: i2ctExportName(set, ext),
+           mime: (fmt === 'bin' ? 'application/octet-stream' : 'text/plain'),
+           data: body };
+}
+function i2ctSaveAs(){
+  var set = i2ctCurSet();
+  var fmt = $('sav-fmt').value;
+  var built = i2ctExportBuild(set, fmt);
+  if (!built) { i2ctBanner('readbanner', 'err', '還沒有資料可以存。'); return false; }
+  var blob = (built.data instanceof Uint8Array)
+    ? new Blob([built.data], { type: built.mime })
+    : new Blob([built.data], { type: built.mime + ';charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = built.name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  i2ctLog('另存新檔：' + built.name + '（' + set.bytes.length + ' byte，'
+        + (fmt === 'hex' ? 'Intel HEX，每列 16 byte' : fmt === 'bin' ? 'raw binary' : '逐列一個 byte') + '）', 'o');
+  return true;
 }
 
 /* ═══ log ═══════════════════════════════════════════════════════════════ */
@@ -944,9 +1131,9 @@ function i2ctAwid(){
 }
 function i2ctReadInputs(){
   var awid = i2ctAwid();
-  var slave = i2ctParseNum($('in-slave').value);
-  var off   = i2ctParseNum($('in-off').value);
-  var len   = i2ctParseNum($('in-len').value);
+  var slave = i2ctParseAddr($('in-slave').value);
+  var off   = i2ctParseAddr($('in-off').value);
+  var len   = i2ctParseNum($('in-len').value);   /* 數量 ⇒ 預設十進位 */
   var errs  = [];
 
   if (slave === null || slave < 0 || slave > 0x7F) errs.push('slave 位址要是 0x00–0x7F 的 7-bit 值');
@@ -977,31 +1164,87 @@ function i2ctReadInputs(){
     : (off === null || off < 0 || off > i2ctAddrMax(awid)));
   $('in-len').classList.toggle('bad', len === null || len < 1 || len > I2CT_MAX_LEN);
 
-  /* wireAwid ＝ 真正送給 helper 的 offset 寬度。**與 UI 完全一致** ——
+  /* wireAwid ＝ 真正送給 I2C Bridge 的 offset 寬度。**與 UI 完全一致** ——
      寬度 0 就是 wire 的 0（沒有位址相位），那個值走 data，不是走位址。 */
   return { slave: slave, awid: awid, wireAwid: awid, off: off, len: len, errs: errs };
 }
+/* ═══ slave 位址三格連動（Bruce 2026-09-18）════════════════════════════════
+   「常常有人把 7 bit 跟 8 bit 搞混」⇒ 三格都可以輸入，改哪一格另兩格立刻跟著變。
+     7-bit s  ⇔  8-bit write = s<<1  ⇔  8-bit read = (s<<1)|1
+   🔴 防呆是**看得見的**：write 打成奇數 ⇒ 清掉 bit0；read 打成偶數 ⇒ 補上 bit0。
+      修正後那一格會顯示修正後的值，底下並列出「D1 → D0」，不做無聲替換 ——
+      無聲替換等於騙人，他會以為自己打的那個值就是送出去的值。
+   🔴 為什麼修正發生在 change（離開欄位／按 Enter）而不是每一次按鍵：邊打邊改會
+      把還沒打完的值當成打錯。打 `D1` 的中途是 `D`（＝0x0D，奇數），當場改成 0x0C
+      就再也打不完了。連動（另兩格跟著變）仍然是每一次按鍵就做。 */
+function i2ctSlaveFmt(x){ return '0x' + i2ctHex(x & 0xFF); }
+/* 回傳 {s, fixed:{from,to}|null, err}；不碰 DOM，方便測試。 */
+function i2ctSlaveFrom(which, raw){
+  var v = i2ctParseAddr(raw);
+  if (v === null || v < 0) return { s: null, fixed: null, err: '看不懂' };
+  if (which === 's7') {
+    if (v > 0x7F) return { s: null, fixed: null, err: '0x00–0x7F' };
+    return { s: v, fixed: null, err: '' };
+  }
+  if (v > 0xFF) return { s: null, fixed: null, err: '0x00–0xFF' };
+  var want = (which === 'w8') ? (v & 0xFE) : (v | 0x01);
+  return { s: want >> 1, fixed: (want === v ? null : { from: v, to: want }), err: '' };
+}
+/* which ＝ 剛剛被改的那一格；commit ＝ true 時才把防呆修正寫回該格。 */
+function i2ctSlaveSync(which, commit){
+  var ids = { s7: 'in-slave', w8: 'in-slave8w', r8: 'in-slave8r' };
+  var r = i2ctSlaveFrom(which, $(ids[which]).value);
+  $(ids[which]).classList.toggle('bad', r.s === null);
+
+  var hint = $({ s7: 'slavehint', w8: 'slave8whint', r8: 'slave8rhint' }[which]);
+  /* 🔴 解析不出來 ⇒ 標紅、說一句、**但不動他打的字**（Bruce 明講「不要自動清空」）。 */
+  if (r.s === null) { if (hint) hint.textContent = r.err + I2CT_DEC_NOTE; return null; }
+  if (commit && r.fixed) {
+    $(ids[which]).value = i2ctSlaveFmt(r.fixed.to);
+    if (hint) hint.textContent = '已修正 ' + i2ctHex(r.fixed.from) + ' → ' + i2ctHex(r.fixed.to);
+    i2ctLog('slave ' + (which === 'w8' ? '8-bit write' : '8-bit read') + ' 自動修正：0x'
+          + i2ctHex(r.fixed.from) + ' → 0x' + i2ctHex(r.fixed.to), 'w');
+  } else if (hint) {
+    /* 平常就印解析結果，讓他看到系統把那串字讀成什麼（十進位／十六進位的歧義）。 */
+    var shown = i2ctParseAddr($(ids[which]).value);
+    hint.textContent = shown === null ? '' : i2ctParseEcho(shown, 2);
+  }
+  if (which !== 's7') { $('in-slave').value   = i2ctSlaveFmt(r.s);                 $('slavehint').textContent   = i2ctParseEcho(r.s, 2); }
+  if (which !== 'w8') { $('in-slave8w').value = i2ctSlaveFmt((r.s << 1) & 0xFE);   $('slave8whint').textContent = i2ctParseEcho((r.s << 1) & 0xFE, 2); }
+  if (which !== 'r8') { $('in-slave8r').value = i2ctSlaveFmt(((r.s << 1) | 1) & 0xFF); $('slave8rhint').textContent = i2ctParseEcho(((r.s << 1) | 1) & 0xFF, 2); }
+  $('in-slave').classList.remove('bad');
+  $('in-slave8w').classList.remove('bad');
+  $('in-slave8r').classList.remove('bad');
+  return r.s;
+}
+
 function i2ctUpdateHints(){
   var v = i2ctReadInputs();
   /* 🔴 v1.4.0 起「slave 一改就作廢」那條規則被 Bruce 的最終規則取代了：
      基準換不換，由**可比性**決定（見 i2ctComparable）—— slave 只在
      「I2C ↔ I2C」那一種比較裡才是判準，跟檔案比的時候他明講不看 slave。
      所以這裡不再主動作廢，改由每次資料進來時 i2ctIngest() 判定。 */
-  /* 7-bit / 8-bit 兩種寫法是同一顆裝置的不同表示，兩個都印出來避免對錯位址
-     （dg v1.65.1 起全站統一這個標法）。 */
-  $('slavehint').textContent = (v.slave !== null && v.slave >= 0 && v.slave <= 0x7F)
-    ? ('7-bit 0x' + i2ctHex(v.slave) + ' ＝ 8-bit W 0x' + i2ctHex((v.slave << 1) & 0xFF)
-       + ' / R 0x' + i2ctHex(((v.slave << 1) | 1) & 0xFF))
-    : '0x00–0x7F';
+  /* 🔴 等式（「7-bit 0x68 ＝ 8-bit W 0xD0 / R 0xD1」）整句拿掉 —— Bruce 明講
+     「不用刻意把等式寫在上面，直接寫 8 bit write 是什麼、read 是什麼」。
+     那兩個值現在是**可以輸入的欄位**，欄位本身就是答案，再寫一次是重複。
+     這一格的 hint 只在出錯或自動修正時說話（見 i2ctSlaveSync）。 */
+  if (v.slave === null || v.slave < 0 || v.slave > 0x7F) $('slavehint').textContent = '0x00–0x7F' + I2CT_DEC_NOTE;
   $('awidhint').textContent = v.awid === 0
     ? '無位址相位'
     : (v.awid + ' byte，高位在前');
   /* 🔴 標籤本身要變，不是只有 hint 變 —— 語意不同，名字就不能一樣。 */
   $('offlabel').textContent = v.awid === 0 ? '③ 寫入值（1 byte）' : '③ 起始 offset';
-  $('offhint').textContent = v.awid === 0 ? '0x00–0xFF' : ('上限 0x' + i2ctHex(i2ctAddrMax(v.awid), v.awid * 2));
-  $('lenhint').textContent = (v.len !== null && v.len >= 1)
-    ? (Math.ceil(v.len / 256) + ' 頁 · 分 ' + i2ctPlanRead(0, Math.min(v.len, I2CT_MAX_LEN), v.awid).length + ' 則傳送')
-    : ('1 – ' + I2CT_MAX_LEN);
+  /* 🔴 解析結果放在最前面（Bruce 2026-09-18）：`0x50H`、`#80`、`80d`、`50` 這些
+     寫法都吃得下，但吃下去變成什麼必須當場看得到，否則寬容就變成危險。 */
+  $('offhint').textContent = (v.off === null)
+    ? ((v.awid === 0 ? '0x00–0xFF' : ('上限 0x' + i2ctHex(i2ctAddrMax(v.awid), v.awid * 2))) + I2CT_DEC_NOTE)
+    : i2ctParseEcho(v.off, v.awid === 0 ? 2 : (v.awid === 1 ? 2 : v.awid * 2));
+  /* 🔴 唯一的例外欄位：④ 是**數量**不是位址，維持十進位（打 4096 就是 4096），
+     所以它標的是「十進位」而不是「十進位 +d」。這個例外刻意標在畫面上。 */
+  $('lenhint').textContent = '十進位 · ' + ((v.len !== null && v.len >= 1)
+    ? (Math.ceil(v.len / 256) + ' 頁 · 分 '
+       + i2ctPlanRead(0, Math.min(v.len, I2CT_MAX_LEN), v.awid).length + ' 則傳送')
+    : ('1 – ' + I2CT_MAX_LEN));
   if (v.awid === 0) {
     /* 寬度 0 ⇒ 要寫的就是 ③ 那一個 byte，這一欄與檔案都用不到 */
     $('in-data').classList.remove('bad');
@@ -1028,20 +1271,23 @@ function i2ctSyncButtons(){
   $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
   $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
   /* 🔴 「接手」是出口，不是選配：被佔住時使用者一定要有辦法把治具搶回來，
-     否則他唯一的辦法是關掉整個 helper（Bruce 2026-09-18 就是卡在這裡）。 */
+     否則他唯一的辦法是關掉整個 I2C Bridge（Bruce 2026-09-18 就是卡在這裡）。 */
   var to = $('btn-takeover');
   to.style.display = i2ctChannelBusy ? '' : 'none';
   to.disabled = i2ctBusy;
   $('btn-release').disabled = !i2ctLinked || i2ctBusy || i2ctChannelBusy;
+  /* 🔴 另存新檔不需要連線 —— 讀完之後把線拔掉照樣能存。只看「有沒有資料」。 */
+  var cur = i2ctCurSet();
+  $('btn-save').disabled = !(cur && cur.bytes && cur.bytes.length);
 }
 
-/* ═══ WebSocket（helper）═══════════════════════════════════════════════ */
+/* ═══ WebSocket（I2C Bridge）═══════════════════════════════════════════════ */
 function i2ctSend(obj){
   return new Promise(function (resolve, reject) {
-    if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error('helper 尚未連線')); return; }
+    if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error('I2C Bridge 尚未連線')); return; }
     var id = ++i2ctSeq; obj.id = id;
     var timer = setTimeout(function () {
-      if (i2ctPending[id]) { delete i2ctPending[id]; reject(new Error('helper 逾時未回覆（' + obj.type + '）')); }
+      if (i2ctPending[id]) { delete i2ctPending[id]; reject(new Error('I2C Bridge 逾時未回覆（' + obj.type + '）')); }
     }, I2CT_TIMEOUT_MS);
     i2ctPending[id] = { resolve: resolve, reject: reject, timer: timer };
     try { i2ctWs.send(JSON.stringify(obj)); }
@@ -1054,7 +1300,7 @@ function i2ctOnMessage(ev){
     i2ctHelperVer = m.helper || ''; i2ctHelperProto = m.proto || 0;
     if (typeof m.busy === 'boolean') i2ctChannelBusy = m.busy;
   }
-  /* helper 主動通知：治具被另一個頁面接手了（接著它會關掉這條連線） */
+  /* I2C Bridge 主動通知：治具被另一個頁面接手了（接著它會關掉這條連線） */
   if (m.type === 'taken') {
     i2ctChannelBusy = true;
     i2ctLog('⚠ I2C 治具被另一個頁面接手，本頁已失去控制權', 'w');
@@ -1068,7 +1314,7 @@ function i2ctSetLink(on, txt, cls){
   i2ctLinked = on;
   $('dot').className = 'dot' + (cls ? ' ' + cls : (on ? ' on' : ''));
   $('linktext').textContent = txt;
-  $('helperinfo').textContent = i2ctHelperVer ? ('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto) : '';
+  $('helperinfo').textContent = i2ctHelperVer ? ('I2C Bridge ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto) : '';
   $('hv-exe').textContent   = i2ctHelperVer || '—';
   $('hv-proto').textContent = i2ctHelperProto || '—';
   i2ctSyncButtons();
@@ -1078,29 +1324,29 @@ async function i2ctConnect(takeover){
   i2ctUserClosing = false;
   i2ctBusy = true; i2ctSetLink(false, '連線中…', 'busy');
   i2ctLog('連線 ' + I2CT_WS_URL + (takeover ? '（要求接手 I2C）' : ''), 'n');
-  var ws;
+  var ws, i2ctConnT0 = Date.now();
   try { ws = new WebSocket(I2CT_WS_URL); }
-  catch (e) { i2ctBusy = false; i2ctSetLink(false, '無法建立 WebSocket', 'err'); i2ctLog('✕ ' + e.message, 'e'); i2ctNeedHelper('連不到 helper'); return; }
+  catch (e) { i2ctBusy = false; i2ctSetLink(false, '無法建立 WebSocket', 'err'); i2ctLog('✕ ' + e.message, 'e'); i2ctNeedHelper('連不到 I2C Bridge'); return; }
   i2ctWs = ws;
   ws.onmessage = i2ctOnMessage;
   ws.onclose = function () {
-    for (var k in i2ctPending) { try { clearTimeout(i2ctPending[k].timer); i2ctPending[k].reject(new Error('helper 連線關閉')); } catch (e) {} }
+    for (var k in i2ctPending) { try { clearTimeout(i2ctPending[k].timer); i2ctPending[k].reject(new Error('I2C Bridge 連線關閉')); } catch (e) {} }
     i2ctPending = {};
     var wasLinked = i2ctLinked;
-    if (wasLinked) { i2ctSetLink(false, 'helper 連線中斷', 'err'); i2ctLog('✕ helper 連線關閉', 'e'); }
+    if (wasLinked) { i2ctSetLink(false, 'I2C Bridge 連線中斷', 'err'); i2ctLog('✕ I2C Bridge 連線關閉', 'e'); }
     i2ctWs = null;
-    /* 非預期斷線 → 自動重試幾次（helper 重啟、被接手、暫時性中斷都屬此類）。
+    /* 非預期斷線 → 自動重試幾次（I2C Bridge 重啟、被接手、暫時性中斷都屬此類）。
        使用者自己按中斷時不重連，否則按了也關不掉。 */
     if (wasLinked && !i2ctUserClosing && i2ctRetry < I2CT_RETRY_MAX) {
       var wait = 1000 * Math.pow(2, i2ctRetry);
       i2ctRetry++;
       i2ctLog('　 ' + (wait / 1000) + ' 秒後自動重試第 ' + i2ctRetry + '/' + I2CT_RETRY_MAX + ' 次…', 'n');
-      i2ctBanner('topbanner', 'warn', '與 helper 的連線中斷了，' + (wait / 1000)
+      i2ctBanner('topbanner', 'warn', '與 I2C Bridge 的連線中斷了，' + (wait / 1000)
         + ' 秒後自動重試（第 ' + i2ctRetry + '/' + I2CT_RETRY_MAX + ' 次）。也可以直接按上方的「連線」。');
       setTimeout(function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(); }, wait);
     } else if (wasLinked && !i2ctUserClosing) {
-      /* 🔴 重試用完了 ⇒ helper 不在了，下一步一樣是「去拿一個 helper」。 */
-      i2ctNeedHelper('helper 不見了（自動重試 ' + I2CT_RETRY_MAX + ' 次都沒接上）');
+      /* 🔴 重試用完了 ⇒ I2C Bridge 不在了，下一步一樣是「去拿一個 I2C Bridge」。 */
+      i2ctNeedHelper('I2C Bridge 不見了（自動重試 ' + I2CT_RETRY_MAX + ' 次都沒接上）');
     }
   };
   var opened = await new Promise(function (resolve) {
@@ -1110,28 +1356,28 @@ async function i2ctConnect(takeover){
     ws.onerror = function () { if (!settled) { settled = true; clearTimeout(to); resolve(false); } };
   });
   if (!opened) {
+    var dt = Date.now() - i2ctConnT0;
     try { ws.close(); } catch (e) {}
-    i2ctWs = null; i2ctBusy = false; i2ctSetLink(false, '連不到 helper', 'err');
-    i2ctLog('✕ 連不到本機 helper（' + I2CT_WS_URL + '）。helper 有在跑嗎？'
-          + '（退路：helper 也端得出同一份頁面 ' + I2CT_PAGE_URL + '，但畫面上不再主動提它）', 'e');
-    i2ctNoHelperBanner();
+    i2ctWs = null; i2ctBusy = false; i2ctSetLink(false, '連不到 I2C Bridge', 'err');
+    i2ctLog('✕ 連不到本機 I2C Bridge（' + I2CT_WS_URL + '），耗時 ' + dt + ' ms', 'e');
+    if (i2ctLnaSuspect(dt)) i2ctLnaBlocked(dt); else i2ctNoHelperBanner();
     return;
   }
   try {
     var pong = await i2ctSend({ type: 'ping' });
     i2ctHelperVer = pong.helper || ''; i2ctHelperProto = pong.proto || 0;
     if (typeof pong.busy === 'boolean') i2ctChannelBusy = pong.busy;
-    i2ctLog('helper ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto
+    i2ctLog('I2C Bridge ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto
           + (i2ctChannelBusy ? '（I2C 目前被另一個頁面握著）' : ''), 'o');
     if (i2ctHelperProto < I2CT_NEED_PROTO) {
       /* 🔴 不能只說「版本太舊」—— 要說手上哪版、需要哪版、去哪裡拿。
          Bruce 在外地時，下載入口就在下面那張卡，而且只有線上版才是新的。 */
       /* 🔴 訊息縮成一句話，因為下一步已經變成一顆按鈕（見 catch 裡的 i2ctNeedHelper）。
          完整細節（手上哪版、要哪版、離線頁的連結指向哪裡）留在 log。 */
-      i2ctLog('helper 太舊：手上 ' + (i2ctHelperVer || '?') + '（proto ' + i2ctHelperProto
+      i2ctLog('I2C Bridge 太舊：手上 ' + (i2ctHelperVer || '?') + '（proto ' + i2ctHelperProto
             + '），本頁需要 proto ' + I2CT_NEED_PROTO + ' 以上；離線頁的下載連結是打包當時那一包，'
             + '新版在 ' + I2CT_ONLINE_PAGE, 'e');
-      throw new Error('helper 太舊（proto ' + i2ctHelperProto + '，本頁需要 ' + I2CT_NEED_PROTO + '）');
+      throw new Error('I2C Bridge 太舊（proto ' + i2ctHelperProto + '，本頁需要 ' + I2CT_NEED_PROTO + '）');
     }
     var op = null;
     for (var a = 1; a <= I2CT_OPEN_RETRIES; a++) {
@@ -1144,15 +1390,15 @@ async function i2ctConnect(takeover){
         i2ctBusy = false;
         i2ctLinked = true;                    /* 連線本身是好的，只是沒拿到治具 */
         /* 🔴 v1.2.0：兩種 busy 要分開講，因為下一步完全不同。
-           · locked ＝ 對方正在量測 ⇒ **不能搶**，等它跑完（helper proto 3 才有）
+           · locked ＝ 對方正在量測 ⇒ **不能搶**，等它跑完（I2C Bridge proto 3 才有）
            · 一般 busy ＝ 對方只是拿著 ⇒ 按「接手」或切回本頁就會自動接手 */
         if (op.locked) {
           i2ctSetLink(true, 'DG 正在量測中', 'busy');
-          i2ctLog('⚠ 接手被拒：另一頁正在量測（helper 回 locked）', 'w');
+          i2ctLog('⚠ 接手被拒：另一頁正在量測（I2C Bridge 回 locked）', 'w');
           i2ctBanner('topbanner', 'warn', 'DG 正在量測中，等它跑完就能用。');
         } else {
           i2ctSetLink(true, 'I2C 在另一個頁面', 'busy');
-          i2ctLog('⚠ I2C 由另一個頁面持有（helper 回 busy）', 'w');
+          i2ctLog('⚠ I2C 由另一個頁面持有（I2C Bridge 回 busy）', 'w');
           i2ctBanner('topbanner', 'warn', 'I2C 在另一個頁面。按「接手 I2C」拿回來。');
         }
         return;
@@ -1166,11 +1412,13 @@ async function i2ctConnect(takeover){
     i2ctRetry = 0;
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctBanner('topbanner', '', '');
-    i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 helper）
-    /* 🔴 自檢改成連線後自動跑、**成功就安靜**（Bruce 2026-09-18）。
-       這樣他不必知道「黃金向量」是什麼，診斷能力卻一點都沒少：
-       通過只寫 log，不通過才在畫面上說話。按鈕本身收進 debug 當手動出口。 */
-    i2ctSelfTest(true).catch(function () {});
+    i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C Bridge）
+    /* 🔴 連線**不做任何 I2C 交易**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
+       這一頁是通用的 I2C 讀寫工具，不該假設線上掛的是哪一顆晶片 —— 連上就去讀
+       0x0000／0xFF00 等於替使用者決定了他要讀誰，而且他接的可能是 EEPROM、PMIC、
+       感測器，那兩個位址對它們沒有意義，甚至有副作用。
+       自檢功能沒有砍，改成 debug 模式裡的一顆手動按鈕（見 #btn-self）。 */
+    if (i2ctIsDebug()) i2ctSelfTest(true).catch(function () {});
   } catch (err) {
     i2ctBusy = false;
     /* 🔴 .catch 不可省：下一行的 ws.close() 會觸發 onclose，onclose 會 reject 掉
@@ -1181,9 +1429,9 @@ async function i2ctConnect(takeover){
     i2ctWs = null;
     i2ctSetLink(false, '連線失敗', 'err');
     i2ctLog('✕ ' + err.message, 'e');
-    /* 🔴 「helper 太舊」的下一步也是下載鈕，不是一段字。其餘（開通道失敗之類）
-       helper 本身是好的、下載沒有用 ⇒ 那一種才留紅字。 */
-    if (/太舊|proto/.test(err.message)) i2ctNeedHelper('helper 太舊（你手上是 ' + (i2ctHelperVer || '?') + '）');
+    /* 🔴 「I2C Bridge 太舊」的下一步也是下載鈕，不是一段字。其餘（開通道失敗之類）
+       I2C Bridge 本身是好的、下載沒有用 ⇒ 那一種才留紅字。 */
+    if (/太舊|proto/.test(err.message)) i2ctNeedHelper('I2C Bridge 太舊（你手上是 ' + (i2ctHelperVer || '?') + '）');
     else i2ctBanner('topbanner', 'err', err.message);
   }
 }
@@ -1194,10 +1442,10 @@ async function i2ctDisconnect(){
   try { if (i2ctWs) i2ctWs.close(); } catch (e) {}
   i2ctWs = null; i2ctBusy = false; i2ctChannelBusy = false;
   i2ctSetLink(false, '已中斷（原廠 PQ Tool 可以接手）');
-  i2ctLog('已中斷 helper 連線', 'o');
+  i2ctLog('已中斷 I2C Bridge 連線', 'o');
 }
 /* 🔴 釋放：把治具交回去，但**保持連線**。這是「保護要留出口」的那個出口 ——
-   他要回去用 DG 量測或原廠 PQ Tool 時，不必把整條連線關掉、也不必關 helper。
+   他要回去用 DG 量測或原廠 PQ Tool 時，不必把整條連線關掉、也不必關 I2C Bridge。
    與「中斷」的差別：中斷會連 WebSocket 一起關掉。 */
 async function i2ctRelease(){
   if (!i2ctLinked || i2ctBusy) return;
@@ -1206,7 +1454,7 @@ async function i2ctRelease(){
     await i2ctSend({ type: 'close' });
     i2ctChannelBusy = false;
     i2ctLog('已釋放 I2C 治具（連線保持著；DG 量測或原廠 PQ Tool 現在可以接手）', 'o');
-    i2ctBanner('topbanner', 'ok', '已<b>釋放 I2C 治具</b>，與 helper 的連線仍在。'
+    i2ctBanner('topbanner', 'ok', '已<b>釋放 I2C 治具</b>，與 I2C Bridge 的連線仍在。'
       + '要再用請按「連線」重開通道，或直接按「接手 I2C」。');
     i2ctBusy = false;
     i2ctLinked = false;                 /* 沒有通道就不能讀寫，狀態要誠實 */
@@ -1216,7 +1464,7 @@ async function i2ctRelease(){
     i2ctLog('✕ 釋放失敗：' + (e.message || e), 'e');
   }
 }
-/* 接手：重連一次並帶 takeover 旗標。原持有者會收到 taken 並被 helper 斷線。 */
+/* 接手：重連一次並帶 takeover 旗標。原持有者會收到 taken 並被 I2C Bridge 斷線。 */
 async function i2ctTakeover(){
   i2ctLog('要求接手 I2C 治具…', 'w');
   i2ctUserClosing = true;                       /* 這一次的斷線是我們自己造成的 */
@@ -1225,22 +1473,48 @@ async function i2ctTakeover(){
   await new Promise(function (r) { setTimeout(r, 150); });
   await i2ctConnect(true);
 }
-/* 連不到 helper 時的統一訊息。🔴 一定要把下載入口亮出來並展開 ——
+/* 連不到 I2C Bridge 時的統一訊息。🔴 一定要把下載入口亮出來並展開 ——
    使用者（尤其人在外地時）可能就是缺那一包，而這是他拿得到的唯一地方。 */
-/* 🔴 連不到 helper ⇒ 第一個出現的東西是下載鈕（Bruce 2026-09-18 實測指正）。
-   不是紅色警示、不是「請改開 127.0.0.1」—— 第一次來的人根本沒有 helper，
+/* 🔴 連不到 I2C Bridge ⇒ 第一個出現的東西是下載鈕（Bruce 2026-09-18 實測指正）。
+   不是紅色警示、不是「請改開 127.0.0.1」—— 第一次來的人根本沒有 I2C Bridge，
    那句話對他沒有意義。「改開 127.0.0.1」降級成下載鈕底下的一行小字，
-   因為它只有在「已經裝好、helper 也在跑」時才成立，而網頁分辨不出來。 */
+   因為它只有在「已經裝好、I2C Bridge 也在跑」時才成立，而網頁分辨不出來。 */
 function i2ctNeedHelper(why){
   var g = $('gethelper'); if (g) g.style.display = '';
-  var w = $('get-why'); if (w) w.textContent = why || '連不到 helper';
+  var l = $('lna');       if (l) l.style.display = 'none';   /* 一次只喊一件事 */
+  var w = $('get-why'); if (w) w.textContent = why || '連不到 I2C Bridge';
   /* 🔴 按鈕旁邊不再有任何說明（Bruce 2026-09-18 第三次要求）：
      「接下來怎麼做」改成按下下載才跳的說明視窗，字大、三行、一鍵關掉。
      127.0.0.1 那句也一併消失 —— 他原話「沒有人看得懂」。URL 只留在 log。 */
   i2ctBanner('topbanner', '', '');   // 紅字讓位給下載鈕，不要兩個東西同時喊
 }
-function i2ctGotHelper(){ var g = $('gethelper'); if (g) g.style.display = 'none'; }
-function i2ctNoHelperBanner(){ i2ctNeedHelper('連不到 helper'); }
+function i2ctGotHelper(){
+  var g = $('gethelper'); if (g) g.style.display = 'none';
+  var l = $('lna');       if (l) l.style.display = 'none';
+}
+function i2ctNoHelperBanner(){ i2ctNeedHelper('連不到 I2C Bridge'); }
+
+/* ═══ 瀏覽器擋住「公開網址連本機」時的那一句話 ═════════════════════════════
+   🔴 為什麼是「耗時」而不是別的判準：WebSocket 失敗只給你一個沒有細節的
+   onerror（規格如此，為了不讓網頁探測內網）。code、reason、例外訊息全都是空的，
+   所以**分不出**「沒人在聽」與「被使用者擋掉」。唯一還留著的訊號是時間：
+     · 沒人在聽 ⇒ loopback 立刻 RST（本機，實測都是個位數到數十 ms）
+     · 有權限提示 ⇒ 一定要等人動手，不可能在 1.2 秒內結束
+   所以慢的那種才說這句話；快的那種照舊給下載鈕。
+   🔴 驗不到的部分（沒有 Windows、也不能用 headless 證明這條路）：真實 Chrome
+   會不會跳提示、按了允許之後連不連得上 —— 那要 Bruce 在機器上實測。
+   同源（I2C Bridge 自己端出來的頁面）不受 LNA 管，所以直接不套這條。 */
+var I2CT_LNA_SLOW_MS = 1200;
+function i2ctLnaSuspect(dt){
+  return !i2ctIsLocal(location.hostname) && dt >= I2CT_LNA_SLOW_MS;
+}
+function i2ctLnaBlocked(dt){
+  var l = $('lna');       if (l) l.style.display = '';
+  var g = $('gethelper'); if (g) g.style.display = 'none';   /* 一次只喊一件事 */
+  i2ctBanner('topbanner', '', '');
+  i2ctLog('　 耗時 ' + dt + ' ms（≥ ' + I2CT_LNA_SLOW_MS + ' ms）⇒ 判為瀏覽器的本機網路權限被拒或未回應，'
+        + '不是 I2C Bridge 沒開。Chrome 147 起公開來源連 loopback 會先問一次。', 'w');
+}
 function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
 
 /* ═══ 讀 ════════════════════════════════════════════════════════════════ */
@@ -1265,7 +1539,7 @@ async function i2ctDoRead(slave, awid, base, len){
     if (!r.ok) {
       i2ctProgress = null; i2ctRenderProgress();
       return { ok: false, bytes: all,
-        err: 'helper 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）' };
+        err: 'I2C Bridge 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）' };
     }
     var d = r.data || [];
     i2ctLog('R  slave 0x' + i2ctHex(slave) + ' · offset ' + awid + 'B '
@@ -1351,7 +1625,7 @@ async function i2ctDoWrite(slave, awid, addr, bytes){
   try { r = await i2ctSend({ type: 'rawwrite', slave: slave, addr: addr, data: bytes, awid: awid }); }
   catch (e) { i2ctLog('✕ ' + e.message, 'e'); return { ok: false, err: e.message }; }
   if (!r.ok) {
-    var msg = 'helper 寫失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）';
+    var msg = 'I2C Bridge 寫失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）';
     i2ctLog('✕ ' + msg, 'e');
     return { ok: false, err: msg };
   }
@@ -1368,7 +1642,7 @@ function i2ctWriteSource(len, awid){
      （總 byte 數在這個模式下只影響**讀取**的長度：讀是 current address read，
        連續讀 N 個是合法且有用的，硬湊成 1 會把讀取功能砍掉。） */
   if (awid === 0) {
-    var one = i2ctParseNum($('in-off').value);
+    var one = i2ctParseAddr($('in-off').value);
     if (one === null || one < 0 || one > 0xFF) return { bytes: null, err: '寬度 0：③ 要是 0x00–0xFF 的 1 byte' };
     return { bytes: [one & 0xFF], err: null, src: '③ 的 1 byte（無位址相位）' };
   }
@@ -1408,7 +1682,7 @@ async function i2ctOnWrite(){
       i2ctWroteFlags = null;
     }
   })();
-  /* 🔴 分段：helper 的 rawwrite 一次最多 RAW_MAX_DATA(256) byte，所以 4096 的檔案
+  /* 🔴 分段：I2C Bridge 的 rawwrite 一次最多 RAW_MAX_DATA(256) byte，所以 4096 的檔案
      要切成多則、位址逐段往前推。切錯的後果是**燒到別的位址**，所以位址用
      i2ctWrap() 照該 offset 寬度回繞，與讀取那一側用同一支函式。 */
   var ok = true, errMsg = '', done = 0;
@@ -1500,7 +1774,7 @@ function i2ctApplyFile(name, raw){
     i2ctFileName = file.name;
     /* 🔴 **載入 ≠ 寫入。** 這一整支從頭到尾沒有任何 i2ctSend / i2ctDoWrite ——
        一個 byte 都不會上匯流排。寫入只能由「寫入」那顆按鈕觸發。
-       這是防誤燒的關鍵，selftest 用假 helper 斷言「載入後送出的訊息數 = 0」。 */
+       這是防誤燒的關鍵，selftest 用假 I2C Bridge 斷言「載入後送出的訊息數 = 0」。 */
     var vin = i2ctReadInputs();
     i2ctFileBase = (vin.off === null ? 0 : vin.off);
     i2ctFileAwid = vin.awid;
@@ -1539,6 +1813,7 @@ async function i2ctSelfTest(auto){
   if (!auto) {
     /* 把輸入一併設成黃金向量，讓使用者看得到自檢到底做了什麼 */
     $('in-slave').value = '0x' + i2ctHex(I2CT_GOLDEN.slave);
+    i2ctSlaveSync('s7', true);
     i2ctSetAwid(I2CT_GOLDEN.awid);
     $('in-off').value = '0x' + i2ctHex(I2CT_GOLDEN.addr, 4);
     $('in-len').value = String(I2CT_GOLDEN.len);
@@ -1551,9 +1826,10 @@ async function i2ctSelfTest(auto){
   var pass = g.ok && g.bytes.length === I2CT_GOLDEN.expect.length;
   if (pass) for (var i = 0; i < I2CT_GOLDEN.expect.length; i++) if (g.bytes[i] !== I2CT_GOLDEN.expect[i]) pass = false;
 
-  /* 附帶（不影響通過與否）：同一顆 IC 的 0xFF00 已知回 01 EF A1 */
+  /* 附帶（不影響通過與否）：同一顆 IC 的 0xFF00 已知回 01 EF A1。
+     🔴 只在 debug 模式下讀 —— 平常這一頁一個 byte 都不該替使用者決定去讀。 */
   var idTxt = '';
-  if (g.ok) {
+  if (g.ok && i2ctIsDebug()) {
     var idr = await i2ctDoRead(I2CT_ID_VEC.slave, I2CT_ID_VEC.awid, I2CT_ID_VEC.addr, I2CT_ID_VEC.len);
     if (idr.ok) {
       var same = idr.bytes.length === 3 && idr.bytes.every(function (b, k) { return b === I2CT_ID_VEC.known[k]; });
@@ -1572,7 +1848,8 @@ async function i2ctSelfTest(auto){
       : (i2ctAllFF(g.bytes) ? '讀回 ' + i2ctBytesText(g.bytes) + ' ＝ 全 FF ＝ 總線閒置／無裝置回應'
                             : '讀回 ' + i2ctBytesText(g.bytes) + '，與期望的 ' + i2ctBytesText(I2CT_GOLDEN.expect) + ' 不同');
     /* 失敗一律說話（自動或手動都一樣）—— 這是「錯誤才說話」的另一半。 */
-    i2ctBanner('topbanner', 'err', '讀不到 TCON（' + why + '）' + idTxt);
+    /* 🔴 不再說「讀不到 TCON」—— 這一頁不預設對方是什麼晶片（去 TCON 化）。 */
+    i2ctBanner('topbanner', 'err', '自檢未通過（' + why + '）' + idTxt);
     i2ctLog('✕ 自檢未通過：' + why, 'e');
   }
   return pass;
@@ -1635,7 +1912,9 @@ function i2ctRenderPager(){
   $('pagesel').value = i2ctHex(high + i2ctPageIdx, i2ctPageDigits());
   $('btn-prev').disabled = i2ctPageIdx <= 0;
   $('btn-next').disabled = i2ctPageIdx >= n - 1;
-  $('pageinfo').textContent = i2ctPageLabel(i2ctPageIdx) + '　第 ' + (i2ctPageIdx + 1) + ' / ' + n + ' 頁';
+  /* 跳頁格底下沒有 hint 列（它是 `0x`▢▢▢`00` 的固定格式），小字掛在旁邊這行。 */
+  $('pageinfo').textContent = i2ctPageLabel(i2ctPageIdx) + '　第 ' + (i2ctPageIdx + 1) + ' / ' + n + ' 頁'
+                            + '　' + I2CT_DEC_NOTE.replace(/^ \u00b7 /, '');
 }
 /* 上／下一頁，夾在範圍內（到頂到底就不動，**不繞回**）。 */
 function i2ctPageStep(delta){
@@ -1656,7 +1935,7 @@ function i2ctPageStep(delta){
 function i2ctJumpTo(text){
   var t = String(text || '').trim();
   if (!t) return false;
-  var v = i2ctParseNum(/^0[xX]/.test(t) ? t : ('0x' + t));   /* 沒寫 0x 也當 16 進位 */
+  var v = i2ctParseAddr(t);   /* 位址類 ⇒ 沒寫 0x 也當十六進位 */
   if (v === null) return false;
   /* 容忍兩種寫法，用**位數**分辨（用大小分辨會有歧義：1024 頁時 `3FF` 既是
      合法頁碼也是合法位址的高位）：
@@ -1668,7 +1947,7 @@ function i2ctJumpTo(text){
   var high = i2ctPageBase0() >> 8;
   /* 🔴 **不要**去掉前導零再數位數：使用者打 `00123` 是 5 位（完整位址），
      打 `123` 是 3 位（頁碼）—— 把前導零吃掉就分不出這兩件事了。 */
-  var digits = t.replace(/^0[xX]/, '').length;
+  var digits = t.replace(/^0[xX]/, '').replace(/[hH]$/, '').length;
   var page = (digits > i2ctPageDigits()) ? (v >> 8) : v;
   var pi = page - high;
   if (!isFinite(pi)) return false;
@@ -1729,7 +2008,9 @@ function i2ctRenderTable(){
     if (rel >= 0 && rel < 256) { xr = rel >> 4; xc = rel & 0x0F; }
   }
   /* 🔴 左上角那個原本空白的表頭格 ＝ 頁內定位輸入框（他指定的位置）。 */
+  /* 這一格塞在表頭裡，實在放不下一行小字 ⇒ 規則寫在 title（滑過就看得到）。 */
   var html = '<tr><th class="rh corner"><input id="xhair" spellcheck="false" placeholder="跳到"'
+           + ' title="位址：純數字當十六進位；十進位加 d（如 80d）或 # 前綴（如 #80）"'
            + ' value="' + (i2ctCross !== null ? ('0x' + i2ctHex(i2ctCross, w)) : '') + '"></th>';
   for (var c = 0; c < 16; c++)
     html += '<th' + (c === xc ? ' class="xh"' : '') + '>+' + i2ctHex(c, 1) + '</th>';
@@ -1837,9 +2118,9 @@ function i2ctSetCross(addr){
 function i2ctCrossParse(text){
   var t = String(text || '').trim();
   if (!t) return null;
-  var v = i2ctParseNum(/^0[xX]/.test(t) ? t : ('0x' + t));
+  var v = i2ctParseAddr(t);
   if (v === null) return null;
-  var digits = t.replace(/^0[xX]/, '').length;
+  var digits = t.replace(/^0[xX]/, '').replace(/[hH]$/, '').length;
   if (digits <= 2) return i2ctPageBase0() + i2ctPageIdx * 256 + (v & 0xFF);
   return v;
 }
@@ -1933,7 +2214,7 @@ function i2ctSetAwid(a){
 }
 
 /* ═══ 啟動 ══════════════════════════════════════════════════════════════ */
-/* 判斷本頁是不是 helper 端出來的那一份（＝離線打包版）。抽成純函式好驗。 */
+/* 判斷本頁是不是 I2C Bridge 端出來的那一份（＝離線打包版）。抽成純函式好驗。 */
 function i2ctIsLocal(host){
   return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
 }
@@ -1944,7 +2225,7 @@ function i2ctFillHelperCard(){
   if (I2CT_PKG.file) {
     /* 🔴 cache buster 用包版本：改版後不帶它，瀏覽器可能拿到快取的舊 zip */
     dl.setAttribute('href', (local ? I2CT_ONLINE_BASE : '') + I2CT_PKG.file + '?v=' + I2CT_PKG.pkg);
-    dl.textContent = '⬇ 下載 helper ' + I2CT_PKG.pkg;
+    dl.textContent = '⬇ 下載 I2C Bridge ' + I2CT_PKG.pkg;
   } else {
     dl.removeAttribute('href'); dl.textContent = '⬇ 下載連結缺失（HELPER_PKG 沒載到）';
   }
@@ -1959,7 +2240,7 @@ function i2ctFillHelperCard(){
   /* 🔴 離線打包版的防呆。這一份是跟著 zip 一起發出去的，它的下載連結永遠指向
      打包當時那一包 —— 不講清楚，使用者會一直重抓到同一包還以為自己更新了。
      所以這一行是**明示的警告，不是藏在說明裡的一句話**，而且上面的下載鈕在
-     離線版會直接指向線上網址（相對路徑在 helper 端不存在，本來就抓不到）。 */
+     離線版會直接指向線上網址（相對路徑在 I2C Bridge 端不存在，本來就抓不到）。 */
   if (local) {
     /* 🔴 v1.2.0：從大橫幅縮成一行灰字。**保留**是 Bruce 明講的界線（他人在外面，
        抓不到新版整條路就斷了）；縮小是因為它是常態訊息，不是錯誤。
@@ -2007,19 +2288,19 @@ function i2ctInit(){
   $('wsurl').textContent = I2CT_WS_URL;
   i2ctFillHelperCard();
 
-  /* helper 自己端出來的那一份沒有 index.html，改成回 helper 的選單頁 */
+  /* I2C Bridge 自己端出來的那一份沒有 index.html，改成回 I2C Bridge 的選單頁 */
   var local = i2ctIsLocal(location.hostname);
-  /* 🔴 v1.2.1：不再把使用者導回 helper 的本機選單頁（Bruce：不要再出現那個
+  /* 🔴 v1.2.1：不再把使用者導回 I2C Bridge 的本機選單頁（Bruce：不要再出現那個
      local 網頁了）。離線打包版沒有 index.html，所以指回線上首頁。 */
   if (local) $('backlink').setAttribute('href', I2CT_ONLINE_BASE);
   /* 🔴 https 頁面連 ws://127.0.0.1 會撞 Chrome 的 Local Network Access 閘。
-     這不是本頁能繞過的，唯一的解是改用 helper 自己端出來的同源版本。
-     沒有 helper 時下載入口就是使用者唯一的出口，所以這裡直接把卡片展開。 */
+     這不是本頁能繞過的，唯一的解是改用 I2C Bridge 自己端出來的同源版本。
+     沒有 I2C Bridge 時下載入口就是使用者唯一的出口，所以這裡直接把卡片展開。 */
   if (!local) {
     /* 🔴 v1.2.1：線上版一載入就給下載鈕，不再先叫他「改開 127.0.0.1」。
-       這一頁在線上版本來就通不了 I2C（沒有 helper 就沒有管道），所以
-       「下一步」從第一秒起就是「去拿一個 helper」。 */
-    i2ctNeedHelper('這一頁要通 I2C 得先有本機 helper');
+       這一頁在線上版本來就通不了 I2C（沒有 I2C Bridge 就沒有管道），所以
+       「下一步」從第一秒起就是「去拿一個 I2C Bridge」。 */
+    i2ctNeedHelper('這一頁要通 I2C 得先有本機 I2C Bridge');
   }
 
   var chips = document.querySelectorAll('#awid-chips .chip');
@@ -2036,7 +2317,17 @@ function i2ctInit(){
      在 input 這一層就做，使用者甚至還沒按讀取，highlight 就已經清乾淨了。 */
   /* 作廢的判斷在 i2ctUpdateHints 裡（見那裡的註解）；這裡只負責重畫表格，
      讓 highlight 在他改 slave 的當下就消失，不必等到按讀取。 */
-  $('in-slave').addEventListener('input', function () { i2ctUpdateHints(); i2ctRenderTable(); });
+  $('in-slave').addEventListener('input', function () {
+    i2ctSlaveSync('s7', false); i2ctUpdateHints(); i2ctRenderTable();
+  });
+  [['in-slave8w', 'w8'], ['in-slave8r', 'r8']].forEach(function (pair) {
+    $(pair[0]).addEventListener('input',  function () { i2ctSlaveSync(pair[1], false); i2ctUpdateHints(); i2ctRenderTable(); });
+    $(pair[0]).addEventListener('change', function () { i2ctSlaveSync(pair[1], true);  i2ctUpdateHints(); });
+    $(pair[0]).addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { i2ctSlaveSync(pair[1], true); i2ctUpdateHints(); }
+    });
+  });
+  $('in-slave').addEventListener('change', function () { i2ctSlaveSync('s7', true); i2ctUpdateHints(); });
   /* 🔴 手打就代表要用手打的那一份 ⇒ 清掉載入的檔案。兩個來源同時有效的話，
      「到底燒了哪一份」就說不清楚，而這是燒 EEPROM，說不清楚不行。 */
   $('in-data').addEventListener('input', function () {
@@ -2049,6 +2340,7 @@ function i2ctInit(){
   /* 🔴 「快照」＝ 打破自動規則，把當下這一份定為新基準。
      按下的同時 **diff log 清零、highlight 清除** —— 那代表「還沒開始比較，
      只是先把基準存下來」（Bruce 2026-09-18 明講）。 */
+  $('btn-save').addEventListener('click', function () { i2ctSaveAs(); });
   $('btn-snap').addEventListener('click', function () {
     var d = i2ctCurSet();
     if (!d) { i2ctBanner('readbanner', 'warn', '還沒有資料可以當基準'); return; }
@@ -2072,6 +2364,12 @@ function i2ctInit(){
   $('btn-takeover').addEventListener('click', i2ctTakeover);
   $('btn-release').addEventListener('click', i2ctRelease);
   $('btn-getshow').addEventListener('click', function () { i2ctNeedHelper('手動叫出來的下載入口'); });
+  /* 🔴 重試必須是使用者按的：權限提示要有 user gesture 才問得出來（自動重試只會
+     再被同一個決定拒絕一次）。所以這裡不做自動重試，只給一顆按鈕。 */
+  $('btn-lna-retry').addEventListener('click', function () {
+    var l = $('lna'); if (l) l.style.display = 'none';
+    i2ctConnect(true);
+  });
   /* 🔴 按下下載才跳說明視窗。下載本身照走（<a download> 的預設行為不攔）。 */
   $('dl').addEventListener('click', function () { $('howto').style.display = 'flex'; });
   $('howto-ok').addEventListener('click', function () { $('howto').style.display = 'none'; });
@@ -2159,7 +2457,7 @@ function i2ctInit(){
   });
 
   /* 🔴 盡力在分頁關閉前送一筆 close。unload 不等 Promise，所以這**只是加保險**
-     —— 真正的保證在 helper 端：WebSocket 一斷（關分頁、瀏覽器崩潰、拔線）
+     —— 真正的保證在 I2C Bridge 端：WebSocket 一斷（關分頁、瀏覽器崩潰、拔線）
      它就會 I2C_CloseChannel。不要依賴頁面有沒有送出這一筆。 */
   window.addEventListener('pagehide', function () {
     try { if (i2ctWs && i2ctWs.readyState === 1) i2ctWs.send(JSON.stringify({ type: 'close', id: 0 })); } catch (e) {}
@@ -2167,16 +2465,21 @@ function i2ctInit(){
 
   i2ctPageIdx = 0;
   i2ctSetView('dev');
+  i2ctSlaveSync('s7', true);   /* 三格從 7-bit 對齊一次 */
   i2ctUpdateHints();
   i2ctSetLink(false, '未連線');
   i2ctLog('I2C 讀寫測試工具就緒。讀寫皆不限位址；每一筆交易都記在這裡。', 'n');
 
-  /* helper 自己端出來時就自動連 —— 這一頁是它的選單點進來的，使用者的意圖
+  /* I2C Bridge 自己端出來時就自動連 —— 這一頁是它的選單點進來的，使用者的意圖
      很明確，不該再多按一次。線上版不自動連（連不到，只會製造錯誤訊息）。
      🔴 v1.2.0：第一次連線就帶 takeover。Bruce「切到哪一頁哪一頁就拿到，
-        不用再把 helper 關掉重開」——「按一下接手」在他眼裡就是多出來的一步。
-        對方在量測時 helper 會回 locked，那一種不會被搶走（見上面的分支）。 */
-  if (local) setTimeout(function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(true); }, 250);
+        不用再把 I2C Bridge 關掉重開」——「按一下接手」在他眼裡就是多出來的一步。
+        對方在量測時 I2C Bridge 會回 locked，那一種不會被搶走（見上面的分支）。 */
+  /* 🔴 v1.5.0 起**線上版也自動連**（Bruce 2026-09-18 推翻「線上連不到本機」的舊結論）。
+     主路徑已經是線上頁 ⇒ 在這裡不連，等於每個人都要多按一下「連線」。
+     連不到的兩種收場都已經有出口：快 ⇒ 下載鈕、慢 ⇒ 本機網路權限那一句＋重試。 */
+  setTimeout(function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(true); }, 250);
+  void local;
 
   /* ═══ 🔴 切回這一頁就自動接手（Bruce 2026-09-18）═══════════════════════════
      界線與 dg-measure 那邊一致，三條都是刻意的：
@@ -2227,7 +2530,7 @@ async function i2ctAutoVerCheck(){
     i2ctLog('自動版本比對：本機 ' + I2CT_PKG.pkg + '，線上 ' + m[1], 'n');
     if (m[1] === I2CT_PKG.pkg) return;                  /* 沒落後 ⇒ 什麼都不顯示 */
     var href = I2CT_ONLINE_BASE + (f ? f[1] : '') + '?v=' + m[1];
-    i2ctBanner('topbanner', 'warn', 'helper 有新版 <b>' + m[1] + '</b>：'
+    i2ctBanner('topbanner', 'warn', 'I2C Bridge 有新版 <b>' + m[1] + '</b>：'
       + '<a href="' + href + '" download>下載</a>');
   } catch (e) {
     /* 🔴 完全靜默：沒外網、被 proxy 擋、逾時都不影響離線可用性。
@@ -2242,6 +2545,10 @@ window.__i2ct = {
   planRead: i2ctPlanRead, keyOf: i2ctKeyOf, pageOf: i2ctPageOf,
   cellKey: i2ctCellKey, pagesOf: i2ctPagesOf, allFF: i2ctAllFF,
   parseHex: i2ctParseHex, parseNum: i2ctParseNum,
+  parseAddr: i2ctParseAddr, parseAny: i2ctParseAny, parseEcho: i2ctParseEcho,
+  decNote: function () { return I2CT_DEC_NOTE; },
+  exportIhex: i2ctExportIhex, exportLines: i2ctExportLines, exportBuild: i2ctExportBuild,
+  saveAs: function () { return i2ctSaveAs(); },
   fileKind: i2ctFileKind, sniffKind: i2ctSniffKind, parseTextBytes: i2ctParseTextBytes,
   parseHexText: i2ctParseHexText, parseIntelHex: function (t) { return i2ctParseIntelHex(String(t).split(/\r?\n/)); },
   fileFormat: function () { return i2ctFileFormat; },
@@ -2317,6 +2624,10 @@ window.__i2ct = {
   release: function () { return i2ctRelease(); },
   isLocal: i2ctIsLocal,
   needHelper: function (w) { return i2ctNeedHelper(w); },
+  lnaSuspect: function (d) { return i2ctLnaSuspect(d); },
+  slaveFrom: function (w, r) { return i2ctSlaveFrom(w, r); },
+  slaveSync: function (w, c) { return i2ctSlaveSync(w, !!c); },
+  lnaBlocked: function (d) { return i2ctLnaBlocked(d); },
   gotHelper: function () { return i2ctGotHelper(); },
   setDebug: function (on) { return i2ctSetDebug(on); },
   isDebug: i2ctIsDebug,
@@ -2326,7 +2637,7 @@ window.__i2ct = {
   doRead:  function () { return i2ctOnRead(); },
   doWrite: function () { return i2ctOnWrite(); },
   setInputs: function (o) {
-    if (o.slave != null) $('in-slave').value = o.slave;
+    if (o.slave != null) { $('in-slave').value = o.slave; i2ctSlaveSync('s7', true); }
     if (o.awid  != null) i2ctSetAwid(o.awid);
     if (o.off   != null) $('in-off').value = o.off;
     if (o.len   != null) $('in-len').value = o.len;

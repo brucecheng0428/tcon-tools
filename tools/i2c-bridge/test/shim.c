@@ -43,7 +43,7 @@ static uint32_t  fake_ChanInfo(uint32_t i, void* node){ (void)i; (void)node; ret
 
 HMODULE LoadLibraryA(const char* path){
     if(!path) return NULL;
-    /* dg_helper.c 組出來的是 Windows 風格路徑（反斜線），先正規化再 stat */
+    /* i2c_bridge.c 組出來的是 Windows 風格路徑（反斜線），先正規化再 stat */
     char p[MAX_PATH*2]; snprintf(p,sizeof(p),"%s",path);
     for(char* q=p; *q; q++) if(*q=='\\') *q='/';
     const char* base = strrchr(p,'/'); base = base?base+1:p;
@@ -66,8 +66,8 @@ void* GetProcAddress(HMODULE m, const char* name){
 }
 
 DWORD GetModuleFileNameA(HMODULE m, char* buf, DWORD cap){
-    (void)m; snprintf(buf,cap,"%sdg-helper.exe",g_shim_exe_dir);
-    /* dg_helper.c 用 strrchr(exe,'\\') 切目錄，所以這裡要給 Windows 風格的分隔符 */
+    (void)m; snprintf(buf,cap,"%si2c-bridge.exe",g_shim_exe_dir);
+    /* i2c_bridge.c 用 strrchr(exe,'\\') 切目錄，所以這裡要給 Windows 風格的分隔符 */
     for(char* p=buf; *p; p++) if(*p=='/') *p='\\';
     return (DWORD)strlen(buf);
 }

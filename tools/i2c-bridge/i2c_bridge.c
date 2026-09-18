@@ -1,5 +1,5 @@
 /* ===========================================================================
- * DG I2C local bridge helper (native Win32, 32-bit)
+ * I2C Bridge - local I2C bridge for the web tools (native Win32, 32-bit)
  * ---------------------------------------------------------------------------
  * Shape:  browser --WebSocket(127.0.0.1)--> this exe --libMPSSE(D2XX)--> jig --I2C--> TCON
  *
@@ -8,7 +8,7 @@
  *   2. Helper SELF-SERVES the measurement page and AUTO-OPENS the default browser
  *      at http://127.0.0.1:<port>. The user no longer clicks any "connect" button.
  *      Fewer steps: download -> unzip (pw 1234) -> double-click exe -> browser opens.
- *   3. Startup SELF-DIAGNOSTICS written to console AND to dg-helper.log next to the
+ *   3. Startup SELF-DIAGNOSTICS written to console AND to i2c-bridge.log next to the
  *      exe. Every item prints OK / FAIL:<reason> so the user can just send the log.
  *      The window stays open on fatal failure.
  *
@@ -41,8 +41,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-#include "dg_helper_version.h"
-#include "dg_helper_proto.h"   /* SHA1 / Base64 / JSON / whitelist / Origin (shared with test_proto.c) */
+#include "i2c_bridge_version.h"
+#include "i2c_bridge_proto.h"   /* SHA1 / Base64 / JSON / whitelist / Origin (shared with test_proto.c) */
 
 /* ---- I2C transfer options (from ftdi_i2c.h / the combos PQ Tool uses) ---- */
 #define I2C_FAST_TRANSFER_BYTES 0x10
@@ -110,11 +110,12 @@ static uint32_t  g_numChannels = 0;
 static int       g_dllOk = 0;
 
 static char g_exeDir[MAX_PATH] = "";
+static char g_serveDir[MAX_PATH] = "";   /* --serve=<dir>；空 ＝ 用 exe 所在目錄 */
 static char g_dllPath[MAX_PATH] = "";
 static FILE* g_log = NULL;
 
 /* ===========================================================================
- * logging: DETAIL goes to dg-helper.log ONLY (English, ASCII).
+ * logging: DETAIL goes to i2c-bridge.log ONLY (English, ASCII).
  * The CONSOLE shows just the single-letter status banner (Bruce 2026-09-17:
  * "log message as simple as possible, ideally one letter tells the problem"),
  * so the user can read the letter off the black window without a photo.
@@ -132,6 +133,18 @@ static int  g_dllFound = 0;          /* libMPSSE.dll FILE existed somewhere (eve
 static int  g_dllDepMissing = 0;     /* file existed but LoadLibrary failed with MOD_NOT_FOUND (ftd2xx?) */
 static char g_jigState = 'J';        /* 'J' none, 'U' found-but-open-failed, 'K' ok */
 static int  g_browserOk = 0;
+/* 🔴 v1.7.0（Bruce 2026-09-18）：「helper 啟動不要再跳那個 local 網頁」，
+   而且「解壓縮以後裡面一樣會有這個網頁」—— 他連那兩個 html 都不要。
+   ⇒ 包裡只剩 exe ＋ dll；**不自動開瀏覽器**；靜態檔服務**預設關閉**，
+     只有明確給 `--serve` 才啟用（留成退路，不是預設路徑）。
+   線上頁面連 ws://127.0.0.1 這條路本身是成立的：Chrome 147 起會跳一次
+   「允許存取本機網路」的提示，按允許就通（same-space 的本機頁才不跳 ——
+   那正是先前 headless 測試看到「TCP 進來但一個 byte 都沒送」的原因：
+   沒有人可以按那個提示）。 */
+/* 🔴 非 static：test_server.c 要能在同一個行程裡切換「預設關閉」與「--serve 打開」
+   兩條路（開兩個 server 實例會撞全域狀態）。與 dgh_fake_* 同一個做法。 */
+int dgh_serve_files = 0;
+#define g_serveFiles dgh_serve_files
 static int  g_bindOk = 0;
 static int  g_runningFromTemp = 0;   /* exe is executing from a temp/extraction dir -> T */
 
@@ -266,13 +279,17 @@ static int locate_and_load_dll(void) {
     char buf[MAX_PATH];
     logline("Looking for libMPSSE.dll (order: env, exe dir, cwd, ini, registry, Program Files, user folders, PATH):");
     /* 1. explicit override for power users */
+    /* 🔴 改名後**兩個名字都吃**：新的優先，舊的保留相容。環境變數是已經交到
+       使用者手上的介面，單方面改掉等於把別人現有的設定弄壞（改名的目的是讓人
+       看得懂，不是製造一次無聲的故障）。 */
+    if (GetEnvironmentVariableA("I2C_BRIDGE_DLL_DIR", buf, sizeof(buf)) && buf[0] && try_dir(buf)) return 1;
     if (GetEnvironmentVariableA("DG_HELPER_DLL_DIR", buf, sizeof(buf)) && buf[0] && try_dir(buf)) return 1;
     /* 2. next to the exe */
     if (try_dir(g_exeDir)) return 1;
     /* 3. current working directory */
     if (GetCurrentDirectoryA(sizeof(buf), buf) && try_dir(buf)) return 1;
-    /* 4. optional dg-helper.ini (one line = folder) */
-    { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%sdg-helper.ini",g_exeDir);
+    /* 4. optional i2c-bridge.ini (one line = folder) */
+    { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%si2c-bridge.ini",g_exeDir);
       FILE* f=fopen(ip,"rb"); if(f){ if(fgets(buf,sizeof(buf),f)){ int n=(int)strlen(buf);
         while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'||buf[n-1]==' ')) buf[--n]=0;
         if(buf[0] && try_dir(buf)){ fclose(f); return 1; } } fclose(f); } }
@@ -562,7 +579,7 @@ static void handle_command(int idx, const char* json){
        🔴 NO address whitelist on purpose. A test tool that cannot write
           everywhere is not a test tool; Bruce asked for exactly this. The
           safeguard is observability, not refusal: every rawwrite is written to
-          dg-helper.log in full (slave, offset width, address, every byte). */
+          i2c-bridge.log in full (slave, offset width, address, every byte). */
     if(strcmp(type,"rawwrite")==0){
         uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x60);
         uint32_t addr=(uint32_t)dgh_json_int(json,"addr",0);
@@ -591,7 +608,7 @@ static void handle_command(int idx, const char* json){
            ptg bank ＋ cursor 暫存器）。原本寫死 0x1200–0x12FF 會把 EM02／E512
            那幾顆的出圖全部擋掉 —— 同一支檢查在兩個地方各寫一份就是這樣分岔的。 */
         if(!dgh_write_allowed(addr,dn)){
-            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"addr blocked by helper whitelist\"}",id);
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"addr blocked by bridge whitelist\"}",id);
             logline("[cmd] write BLOCKED addr=0x%04X x%d", addr, dn); ws_send_text(c,rep); return;
         }
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
@@ -600,8 +617,12 @@ static void handle_command(int idx, const char* json){
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"ping")==0){
+        /* 🔴 wire 欄位仍叫 `helper`（不是 `bridge`）：改名只為了讓人看得懂，
+           而這個欄位是**協定**。改掉它，手上還拿著舊 exe 的人配新頁面、或舊頁面
+           配新 exe，版本欄位都會變成 undefined ⇒ 顯示與相容性判斷一起壞。
+           使用者看不到這個字串，所以留舊名沒有任何代價。 */
         snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"owner\":%s,\"locked\":%s}",
-                 id,DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false",
+                 id,I2C_BRIDGE_VERSION,I2C_BRIDGE_PROTO,g_dllOk?"true":"false",
                  (g_ownerIdx==idx)?"true":"false", i2c_locked()?"true":"false");
         ws_send_text(c,rep); return;
     }
@@ -620,7 +641,7 @@ static int ws_upgrade(SOCKET c, const char* req){
     if(!send_all(c,resp,(int)strlen(resp))) return 0;
     char hello[200]; snprintf(hello,sizeof(hello),
         "{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"busy\":%s,\"locked\":%s}",
-        DG_HELPER_VERSION,DG_HELPER_PROTO,g_dllOk?"true":"false",
+        I2C_BRIDGE_VERSION,I2C_BRIDGE_PROTO,g_dllOk?"true":"false",
         (g_ownerIdx>=0)?"true":"false", i2c_locked()?"true":"false");
     ws_send_text(c,hello);
     return 1;
@@ -641,7 +662,7 @@ static void serve_404(SOCKET c, const char* what){
         "<!doctype html><meta charset=utf-8><title>404</title>"
         "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
         "<h2>404 — not served</h2><p>%s</p>"
-        "<p>Only files sitting next to dg-helper.exe are served (no sub-folders).</p></body>", what);
+        "<p>Only files sitting next to i2c-bridge.exe are served (no sub-folders).</p></body>", what);
     char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),
         "HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", bl);
     send_all(c,hdr,hl); send_all(c,body,bl);
@@ -663,20 +684,20 @@ static void serve_404(SOCKET c, const char* what){
 static void serve_landing(SOCKET c){
     char body[3072]; int o=0;
     o+=snprintf(body+o,sizeof(body)-o,
-        "<!doctype html><meta charset=utf-8><title>dg-helper</title>"
+        "<!doctype html><meta charset=utf-8><title>i2c-bridge</title>"
         "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
         "<body style='margin:0;background:#0f172a;color:#e2e8f0;font:15px/1.6 -apple-system,\"PingFang TC\",\"Noto Sans TC\",sans-serif'>"
         "<div style='max-width:560px;margin:0 auto;padding:32px 20px'>"
-        "<h1 style='font-size:19px;margin:0 0 4px'>dg-helper 已在執行</h1>"
-        "<p style='color:#94a3b8;font-size:13px;margin:0 0 22px'>helper %s · proto %d — 選一個工具開始。</p>",
-        DG_HELPER_VERSION, DG_HELPER_PROTO);
+        "<h1 style='font-size:19px;margin:0 0 4px'>i2c-bridge 已在執行</h1>"
+        "<p style='color:#94a3b8;font-size:13px;margin:0 0 22px'>I2C Bridge %s · proto %d — 選一個工具開始。</p>",
+        I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
     struct { const char* file; const char* title; const char* desc; const char* color; } items[] = {
         { "dg-measure.html", "DG 光學量測",   "Digital Gamma 迭代校正的即時量測畫面", "#a78bfa" },
         { "i2c.html",        "I2C 讀寫測試",  "任意 slave／offset 寬度 0-1-2-4 byte 讀寫，16×16 dump", "#38bdf8" },
     };
     int shown=0;
     for(unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++){
-        char p[MAX_PATH]; snprintf(p,sizeof(p),"%s%s",g_exeDir,items[i].file);
+        char p[MAX_PATH]; snprintf(p,sizeof(p),"%s%s",(g_serveDir[0]?g_serveDir:g_exeDir),items[i].file);
         DWORD a=GetFileAttributesA(p);
         if(a==INVALID_FILE_ATTRIBUTES || (a&FILE_ATTRIBUTE_DIRECTORY)) continue;
         shown++;
@@ -702,13 +723,31 @@ static void serve_landing(SOCKET c){
     logline("[http] 200 / (landing, %d tools listed)", shown);
 }
 
+/* 沒有開 --serve 時的唯一回應：告訴來人正確的入口在線上，不端任何檔案。 */
+static void serve_disabled(SOCKET c){
+    const char* body =
+      "<!doctype html><meta charset=utf-8><title>i2c-bridge</title>"
+      "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
+      "<h2>I2C Bridge is running in the background.</h2>"
+      "<p>This program no longer serves any page. Use the online tool:</p>"
+      "<p><a style='color:#38bdf8' href='https://brucecheng0428.github.io/tcon-tools/i2c.html'>"
+      "https://brucecheng0428.github.io/tcon-tools/i2c.html</a></p>"
+      "<p style='color:#94a3b8;font-size:13px'>Chrome asks once for permission to reach this local "
+      "program - choose Allow.</p></body>";
+    char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\n"
+        "Cache-Control: no-store\r\nConnection: close\r\n\r\n",(int)strlen(body));
+    send_all(c,hdr,hl); send_all(c,body,(int)strlen(body));
+    logline("[http] 200 (file serving is off; pointed at the online tool)");
+}
 static void serve_page(SOCKET c, const char* req){
+    if(!g_serveFiles){ serve_disabled(c); return; }
     char name[160];
     if(!dgh_req_filename(req,name,sizeof(name))){ serve_404(c,"(request target rejected)"); logline("[http] rejected request target"); return; }
     if(!name[0]){ serve_landing(c); return; }   /* "/" -> 內建入口頁 */
     const char* mime=dgh_mime_for(name);
     if(!mime){ serve_404(c,"That file type is not served."); logline("[http] 404 (type) %s", name); return; }
-    char path[MAX_PATH]; snprintf(path,sizeof(path),"%s%s",g_exeDir,name);
+    char path[MAX_PATH]; snprintf(path,sizeof(path),"%s%s",(g_serveDir[0]?g_serveDir:g_exeDir),name);
     long n=0; char* body=read_file(path,&n);
     if(body){
         char hdr[320]; int hl=snprintf(hdr,sizeof(hdr),
@@ -720,17 +759,17 @@ static void serve_page(SOCKET c, const char* req){
     if(strcmp(name,"dg-measure.html")==0){
         /* fallback: the default page file is missing next to the exe */
         const char* fb =
-          "<!doctype html><meta charset=utf-8><title>DG helper</title>"
+          "<!doctype html><meta charset=utf-8><title>I2C Bridge</title>"
           "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
-          "<h2>DG helper is running, but dg-measure.html was not found next to it.</h2>"
-          "<p>Put <b>dg-measure.html</b> in the same folder as dg-helper.exe (it ships inside the same zip), then reload.</p>"
+          "<h2>I2C Bridge is running, but dg-measure.html was not found next to it.</h2>"
+          "<p>Put <b>dg-measure.html</b> in the same folder as i2c-bridge.exe (it ships inside the same zip), then reload.</p>"
           "<p>Or use the online tool at https://brucecheng0428.github.io/tcon-tools/ .</p></body>";
         char resp[1024]; snprintf(resp,sizeof(resp),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",(int)strlen(fb),fb);
         send_all(c,resp,(int)strlen(resp));
         logline("[http] served fallback: dg-measure.html not found next to exe");
         return;
     }
-    serve_404(c,"That file is not next to dg-helper.exe.");
+    serve_404(c,"That file is not next to i2c-bridge.exe.");
     logline("[http] 404 (missing) %s", name);
 }
 
@@ -743,15 +782,19 @@ int main(int argc, char** argv){
     for(int i=1;i<argc;i++){
         if(strncmp(argv[i],"--port=",7)==0) port=atoi(argv[i]+7);
         else if(strncmp(argv[i],"--page=",7)==0) snprintf(page,sizeof(page),"%s",argv[i]+7);
+        /* 🔴 退路：`--serve` 打開靜態檔服務（可再給目錄 `--serve=<dir>`）。
+           預設關閉 —— 預設路徑是線上的 tcon-tools 網頁。 */
+        else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
+        else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }
     }
 
     SetConsoleOutputCP(65001);   /* extra insurance; output is ASCII anyway */
     exe_dir(g_exeDir, sizeof(g_exeDir));
     detect_temp_dir();
-    { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%sdg-helper.log",g_exeDir); g_log=fopen(lp,"wb"); }
+    { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%si2c-bridge.log",g_exeDir); g_log=fopen(lp,"wb"); }
 
     logline("==================================================");
-    logline(" DG I2C local bridge helper  %s (proto %d)", DG_HELPER_VERSION, DG_HELPER_PROTO);
+    logline(" I2C Bridge (local I2C bridge for the web tools)  %s (proto %d)", I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
     logline(" listens on 127.0.0.1:%d only, allow-list origins only", port);
     logline(" write address hard whitelist: 0x1200-0x12FF");
     logline("==================================================");
@@ -775,49 +818,48 @@ int main(int argc, char** argv){
         if(bind(srv,(struct sockaddr*)&a,sizeof(a))==0){ g_bindOk=1; listen(srv,8);
             logline("  bind      : OK  127.0.0.1:%d", port);
         } else {
-            logline("  bind      : FAIL: cannot bind 127.0.0.1:%d (another helper already running?) -> P", port);
+            logline("  bind      : FAIL: cannot bind 127.0.0.1:%d (another I2C Bridge already running?) -> P", port);
         }
     } else logline("  bind      : FAIL: WSAStartup -> P");
 
-    /* only auto-open the browser if we can actually serve */
-    if(g_bindOk){
-        HINSTANCE r = ShellExecuteA(NULL,"open",url,NULL,NULL,SW_SHOWNORMAL);
-        g_browserOk = ((INT_PTR)r > 32);
-        if(g_browserOk) logline("  browser   : OK  opened %s", url);
-        else            logline("  browser   : FAIL: could not auto-open browser -> B (open %s yourself)", url);
-    }
+    /* 🔴 v1.7.0：**不再自動開任何網頁**（Bruce 2026-09-18 明確要求）。
+       helper 就是一支背景服務；網頁一律用線上的 tcon-tools。
+       `--serve` 那條退路即使開著也不自動開瀏覽器 —— 自動開是另一件事。 */
+    (void)url;
+    g_browserOk = 1;       /* 狀態碼 B 不再適用：沒有「開瀏覽器」這個步驟了 */
+    if(g_bindOk) logline("  browser   : (not opened on purpose; use the online tool)");
+    logline("  serving   : %s", g_serveFiles ? "ON (--serve)" : "OFF (default)");
 
     /* ── decide the single status letter (priority order) ─────────────────
        P port/bind cannot serve (fatal) > D dll missing > X dll wrong/bad
        > J no jig > U jig held by PQ Tool > B browser not opened > G good.   */
     char code; const char *meaning, *todo;
-    if(!g_bindOk){ code='P'; meaning="port 127.0.0.1 is busy"; todo="Another dg-helper is already running. Close it, then start this one again."; }
-    else if(!g_dllOk && !g_dllFound && g_runningFromTemp){ code='T'; meaning="you ran the exe from inside the zip (a temp folder), so the bundled libMPSSE.dll got left behind"; todo="Close this. EXTRACT the whole zip to a real folder (e.g. Desktop), then double-click dg-helper.exe there."; }
+    if(!g_bindOk){ code='P'; meaning="port 127.0.0.1 is busy"; todo="Another i2c-bridge is already running. Close it, then start this one again."; }
+    else if(!g_dllOk && !g_dllFound && g_runningFromTemp){ code='T'; meaning="you ran the exe from inside the zip (a temp folder), so the bundled libMPSSE.dll got left behind"; todo="Close this. EXTRACT the whole zip to a real folder (e.g. Desktop), then double-click i2c-bridge.exe there."; }
     else if(!g_dllOk && !g_dllFound){ code='D'; meaning="libMPSSE.dll not found"; todo="It normally ships next to this exe. If you moved the exe out, copy libMPSSE.dll back beside it (or run the exe from the folder you unzipped)."; }
     else if(!g_dllOk && g_dllDepMissing){ code='F'; meaning="libMPSSE.dll found, but its ftd2xx.dll (FTDI driver) is missing"; todo="Install the FTDI D2XX driver, or just run the original PQ Tool once; that puts ftd2xx.dll on the system. Then start this program again."; }
     else if(!g_dllOk){ code='X'; meaning="wrong libMPSSE.dll (bitness/corrupt)"; todo="Use the 32-bit libMPSSE.dll from your PQ Tool 'Release V1.5.0' folder."; }
     else if(g_jigState=='J'){ code='J'; meaning="FTDI jig not found"; todo="Plug in the I2C jig (check USB and power), then start this program again."; }
     else if(g_jigState=='U'){ code='U'; meaning="jig is in use"; todo="Close the original PQ Tool / AUX GUI (it is holding the jig), then start this program again."; }
-    else if(!g_browserOk){ code='B'; meaning="browser did not open"; todo="Open this address in Chrome yourself:  "; }
-    else { code='G'; meaning="all good"; todo="The page opened in your browser. You can start measuring."; }
+    /* 狀態碼 B（瀏覽器沒開）在 v1.7.0 之後不存在了 —— 本來就不開瀏覽器。 */
+    else { code='G'; meaning="all good"; todo="Open the online tool in Chrome and press Connect."; }
 
     /* ── console banner: the LAST, most visible thing on screen ──────────── */
     printf("\n\n");
     printf("==================================================\n");
-    printf("        DG-HELPER STATUS:   %c\n", code);
+    printf("        I2C BRIDGE STATUS:  %c\n", code);
     printf("==================================================\n");
     printf("   %c = %s\n", code, meaning);
-    if(code=='B') printf("   What to do: %s%s\n", todo, url);
-    else          printf("   What to do: %s\n", todo);
-    printf("   (Full English details are in dg-helper.log, next to this program.)\n");
+    printf("   What to do: %s\n", todo);
+    printf("   (Full English details are in i2c-bridge.log, next to this program.)\n");
     if(code!='G') printf("   Report just this letter:  %c\n", code);
     /* v1.5.0: the browser lands on the built-in menu, which is what lets the
        two tool pages coexist instead of racing for the I2C channel. */
     if(g_bindOk){
         printf("--------------------------------------------------\n");
-        printf("   Menu:  http://127.0.0.1:%d/   (pick DG or I2C there)\n", port);
-        printf("   Only ONE page holds the I2C jig at a time; the other page\n");
-        printf("   can take it over with its \"take over\" button.\n");
+        printf("   Running in the background. Open the online tool:\n");
+        printf("   https://brucecheng0428.github.io/tcon-tools/i2c.html\n");
+        printf("   (Chrome asks once to allow reaching this local program - choose Allow.)\n");
     }
     printf("==================================================\n");
     fflush(stdout);

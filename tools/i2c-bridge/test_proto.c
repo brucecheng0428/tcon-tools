@@ -1,15 +1,15 @@
-/* dg_helper_proto.h 的單元測試（可攜，在 Linux/macOS 上編來跑）。
+/* i2c_bridge_proto.h 的單元測試（可攜，在 Linux/macOS 上編來跑）。
  * 測到的就是 helper 出貨的那份協定程式碼。
  *   cc test_proto.c -o test_proto && ./test_proto
  */
-#include "dg_helper_proto.h"
+#include "i2c_bridge_proto.h"
 #include <stdio.h>
 
 static int fails=0, total=0;
 #define CHECK(cond, name) do{ total++; if(cond){ printf("  ok   %s\n",name);} else { printf("  FAIL %s\n",name); fails++; } }while(0)
 
 int main(void){
-    printf("== dg_helper_proto self-test ==\n");
+    printf("== i2c_bridge_proto self-test ==\n");
 
     /* 1. WebSocket accept（RFC 6455 §1.3 的標準向量） */
     {
@@ -173,10 +173,10 @@ int main(void){
         CHECK(dgh_mime_for("i2c.html")&&strstr(dgh_mime_for("i2c.html"),"text/html")!=0,".html served as text/html");
         CHECK(dgh_mime_for("x.js")&&strstr(dgh_mime_for("x.js"),"javascript")!=0,".js served");
         CHECK(dgh_mime_for("x.png")!=0,".png served");
-        CHECK(dgh_mime_for("dg_helper.c")==0,".c NOT served");
-        CHECK(dgh_mime_for("dg-helper.exe")==0,".exe NOT served");
+        CHECK(dgh_mime_for("i2c_bridge.c")==0,".c NOT served");
+        CHECK(dgh_mime_for("i2c-bridge.exe")==0,".exe NOT served");
         CHECK(dgh_mime_for("libMPSSE.dll")==0,".dll NOT served");
-        CHECK(dgh_mime_for("dg-helper.log")==0,".log NOT served");
+        CHECK(dgh_mime_for("i2c-bridge.log")==0,".log NOT served");
         CHECK(dgh_mime_for("noext")==0,"no extension NOT served");
     }
 
@@ -194,7 +194,7 @@ int main(void){
         CHECK(dgh_req_filename("GET /dg-measure.html HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"dg-measure.html")==0,"explicit dg-measure.html served");
         CHECK(dgh_req_filename("GET /i2c.html?v=1 HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"i2c.html")==0,"query string stripped");
         CHECK(dgh_req_filename("GET /i2c.html#top HTTP/1.1\r\n\r\n",f,sizeof(f))==1 && strcmp(f,"i2c.html")==0,"fragment stripped");
-        CHECK(dgh_req_filename("GET /../dg_helper.c HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject ..");
+        CHECK(dgh_req_filename("GET /../i2c_bridge.c HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject ..");
         CHECK(dgh_req_filename("GET /sub/x.html HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject sub-folder");
         CHECK(dgh_req_filename("GET /..%2Fx HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject percent-encoding");
         CHECK(dgh_req_filename("GET /C:\\windows\\x HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject drive/backslash");

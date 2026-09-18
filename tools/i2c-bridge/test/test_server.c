@@ -1,12 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   test_server.c — 把**出貨的那份 dg_helper.c**真的跑起來，用真的 TCP 連線驗它
+   test_server.c — 把**出貨的那份 i2c_bridge.c**真的跑起來，用真的 TCP 連線驗它
    ───────────────────────────────────────────────────────────────────────────
    🔴 為什麼非要這一支不可：v1.4.x 的「一個頁面把另一個頁面鎖死」是編得過、
       純函式測試全綠、code review 也看不出來的錯 —— accept 迴圈阻塞在
       serve_ws 裡，只有**真的開兩條連線**才看得到。Bruce 2026-09-18 實測踩到，
       這支就是把那個情境變成可重跑的測試。
 
-   做法：用 shim/ 讓 dg_helper.c 一個字不改地在 Linux 上編起來（`-Dmain=dgh_main`
+   做法：用 shim/ 讓 i2c_bridge.c 一個字不改地在 Linux 上編起來（`-Dmain=dgh_main`
    只改進入點名稱），在背景執行緒跑它的 main，然後用真的 socket 當 client。
 
    驗得到（下面每一條都有斷言）：
@@ -39,6 +39,7 @@
 
 int dgh_main(int argc, char** argv);
 extern int dgh_fake_open_calls, dgh_fake_close_calls, dgh_fake_live, dgh_fake_writes, dgh_fake_reads;
+extern int dgh_serve_files;   /* v1.7.0：靜態檔服務的開關（預設 0） */
 extern unsigned char dgh_fake_last_write[64];
 extern int dgh_fake_last_write_len;
 
@@ -59,7 +60,7 @@ static void msleep(int ms){ struct timespec t={ms/1000,(long)(ms%1000)*1000000L}
 static void* server_thread(void* arg){
     (void)arg;
     char portarg[64]; snprintf(portarg,sizeof(portarg),"--port=%d",PORT);
-    char* argv[]={(char*)"dg-helper", portarg, NULL};
+    char* argv[]={(char*)"i2c-bridge", portarg, NULL};
     dgh_main(2, argv);
     return NULL;
 }
@@ -146,7 +147,7 @@ static int http_get(const char* path, char* out, int cap){
 
 int main(void){
     setvbuf(stdout,NULL,_IONBF,0);   /* 卡住時也要看得到已經跑到哪 */
-    printf("== dg_helper.c 真實伺服器測試（shim 讓出貨原始碼原封在 Linux 上跑）==\n");
+    printf("== i2c_bridge.c 真實伺服器測試（shim 讓出貨原始碼原封在 Linux 上跑）==\n");
 
     /* exe 旁的資料夾：放一顆假的 libMPSSE.dll 與兩個工具頁 */
     char dir[256]; snprintf(dir,sizeof(dir),"/tmp/dgh_test_%d/",(int)getpid());
@@ -162,22 +163,30 @@ int main(void){
 
     char buf[8192], hello[1024];
 
-    G("0. 啟動");
-    CHECK(dgh_shim_browser_opened==1, "啟動時開了一次瀏覽器");
-    CHECKS(dgh_shim_browser_url, "http://127.0.0.1:18899/", "瀏覽器開的是入口頁 /（不是 dg-measure.html）");
-    CHECK(strstr(dgh_shim_browser_url,"dg-measure")==NULL, "🔴 啟動不再直接開 dg-measure.html（這正是搶 channel 的來源）");
+    G("0. 啟動（v1.7.0：不開瀏覽器、不端檔案）");
+    /* 🔴 Bruce 2026-09-18：「那個 local 的網頁不是已經叫你不要再用了嗎？」
+       ⇒ helper 是純背景服務，啟動**不開任何網頁**。 */
+    CHECK(dgh_shim_browser_opened==0, "🔴 啟動完全不開瀏覽器");
+    CHECK(dgh_serve_files==0, "🔴 靜態檔服務預設關閉");
 
-    G("1. 入口頁");
+    G("1. 預設狀態：任何 HTTP 請求都指向線上工具，不端本機檔案");
     CHECK(http_get("/",buf,sizeof(buf)), "GET / 有回應");
-    CHECKS(buf,"200 OK","入口頁回 200");
-    CHECKS(buf,"/dg-measure.html","入口頁列出 DG 量測頁");
-    CHECKS(buf,"/i2c.html","入口頁列出 I2C 測試頁");
-    /* 🔴 啟動時的 diag_ftdi() 會探一次 open/close 來分辨 J（沒治具）與 U（被佔），
-       所以 open 呼叫數本來就不是 0。真正要釘的是「沒有人持有 channel」。 */
-    CHECK(dgh_fake_live==0, "🔴 入口頁自己不碰 I2C（沒有任何 channel 開著）");
-    CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")!=NULL, "GET /i2c.html 拿到 i2c 頁");
-    CHECK(http_get("/dg-measure.html",buf,sizeof(buf)) && strstr(buf,"DGMEASURE-MARKER")!=NULL, "GET /dg-measure.html 拿到 dg 頁");
-    CHECK(http_get("/dg_helper.c",buf,sizeof(buf)) && strstr(buf,"404")!=NULL, "副檔名白名單外的檔案回 404");
+    CHECKS(buf,"200 OK","回 200（不是 404，讓人知道 helper 活著）");
+    CHECKS(buf,"brucecheng0428.github.io","🔴 指向線上的 tcon-tools");
+    CHECKS(buf,"Allow","一句話提醒 Chrome 會問一次權限");
+    CHECK(strstr(buf,"DGMEASURE-MARKER")==NULL, "🔴 即使檔案就在 exe 旁邊也不端出去");
+    CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")==NULL,
+          "🔴 /i2c.html 也不端（預設關閉）");
+    CHECK(dgh_fake_live==0, "🔴 啟動後沒有任何 channel 開著");
+
+    G("1b. --serve 這條退路仍然可用（保留但預設不走）");
+    dgh_serve_files = 1;
+    CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")!=NULL, "打開後 /i2c.html 端得出來");
+    CHECK(http_get("/dg-measure.html",buf,sizeof(buf)) && strstr(buf,"DGMEASURE-MARKER")!=NULL, "打開後 /dg-measure.html 端得出來");
+    CHECK(http_get("/i2c_bridge.c",buf,sizeof(buf)) && strstr(buf,"404")!=NULL, "副檔名白名單外的檔案回 404");
+    CHECK(http_get("/",buf,sizeof(buf)) && strstr(buf,"/i2c.html")!=NULL, "打開後 / 是入口頁");
+    dgh_serve_files = 0;   /* 驗完關回去：預設就是關的 */
+    CHECK(http_get("/",buf,sizeof(buf)) && strstr(buf,"brucecheng0428.github.io")!=NULL, "關回去之後又指向線上");
 
     G("2. 🔴 兩條連線並存時 HTTP 還端得出檔案（v1.4.x 的致命傷）");
     int A=ws_open(hello,sizeof(hello));
@@ -186,8 +195,10 @@ int main(void){
     CHECKS(hello,"\"proto\":3","hello 回報 proto 3");
     /* 🔴 就是這一條。v1.4.x 在 A 的 WS 開著時卡在 serve_ws 的 recv 迴圈裡，
        這個 GET 會一直躺在 backlog、永遠不回 —— 使用者看到的就是「打不開」。 */
-    CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")!=NULL,
-          "🔴 A 的 WebSocket 開著時，/i2c.html 仍然載得進來");
+    /* 🔴 v1.4.x 的致命傷：A 的 WS 開著時第二個 HTTP 請求永遠不會被處理。
+       v1.7.0 不端檔案了，但「還 accept 得到、還回得了應」這件事照樣要成立。 */
+    CHECK(http_get("/",buf,sizeof(buf)) && strstr(buf,"200 OK")!=NULL,
+          "🔴 A 的 WebSocket 開著時，HTTP 請求仍然處理得到");
     int B=ws_open(hello,sizeof(hello));
     CHECK(B>=0, "🔴 A 還連著時，client B 也能建立 WebSocket");
 
@@ -260,8 +271,8 @@ int main(void){
     CHECK(ws_cmd(D,"{\"type\":\"open\",\"id\":1}",buf,sizeof(buf)) && strstr(buf,"\"ok\":true")!=NULL, "D 取得 channel");
     msleep(300);
     CHECK(dgh_fake_live==1, "(c) 閒置的 client 不會被沒收 channel（分頁開著不動是正常狀態）");
-    CHECK(http_get("/i2c.html",buf,sizeof(buf)) && strstr(buf,"I2CPAGE-MARKER")!=NULL,
-          "(c) 有人閒置持有 channel 時，helper 照樣服務 HTTP");
+    CHECK(http_get("/",buf,sizeof(buf)) && strstr(buf,"200 OK")!=NULL,
+          "(c) 有人閒置持有 channel 時，helper 照樣回得了 HTTP");
     /* 半個 frame：送 header 說有 20 byte 卻只送 2 byte → 5 秒 recv timeout 後收掉 */
     { unsigned char h[8]={0x81,0x80|20,0x11,0x22,0x33,0x44}; send(D,h,6,0); send(D,"ab",2,0); }
     before=dgh_fake_close_calls;
@@ -307,7 +318,7 @@ int main(void){
     CHECK(dgh_fake_live==1, "來回兩次之後 channel 數仍然是 1");
     CHECK(ws_cmd(P1b,"{\"type\":\"read\",\"id\":2,\"slave\":104,\"addr\":0,\"len\":1}",buf,sizeof(buf))
           && strstr(buf,"\"ok\":true")!=NULL, "接手回來的那頁讀得動");
-    CHECK(dgh_shim_browser_opened==1, "🔴 全程只開過一次瀏覽器 ＝ helper 沒有被重啟過");
+    CHECK(dgh_shim_browser_opened==0, "🔴 全程一次瀏覽器都沒開（v1.7.0 起就不開）");
 
     /* ═══════════════════════════════════════════════════════════════════════
        9. 🔴 量測進行中不准被搶走（lock，proto 3）
