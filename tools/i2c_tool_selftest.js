@@ -2135,7 +2135,9 @@ function baseScript(f) {
     EQ(res.devUs, 24690, '🔴 bridge 端回報的 us 有被累加（2 段 × 12345）');
     const log = doc.getElementById('log').textContent;
     CHECK(/⏱ 讀取 512 byte · 共 \d+\.\d 秒/.test(log), '🔴 log 有「共 N.N 秒」（秒為單位、一位小數）');
-    CHECK(/libMPSSE \d+ ms、傳輸層 -?\d+ ms/.test(log), '🔴 log 有分層：libMPSSE 與傳輸層各多久');
+    /* 🔴 文案改成使用者的語言（Bruce 2026-09-19：不准出現實作名詞），
+       但**分層這件事本身不可以消失** —— 那是定位瓶頸唯一的資訊。 */
+    CHECK(/裝置 \d+ ms、傳輸 -?\d+ ms/.test(log), '🔴 log 有分層：裝置與傳輸各多久');
     CHECK(/dev 12 ms/.test(log), '🔴 每一段各記一次 dev 耗時');
     CHECK(/秒/.test(doc.getElementById('readbanner').textContent),
       '🔴 畫面上的完成訊息帶秒數：' + doc.getElementById('readbanner').textContent.slice(0, 40));
@@ -2276,7 +2278,7 @@ function baseScript(f) {
     EQ(A.times().length, 3, '🔴 連讀 3 次 ⇒ 列出 3 筆');
     EQ(A.times()[0].kind, '讀', '最新的在最上面');
     EQ(A.times()[0].n, 16, '記下長度');
-    CHECK(/libMPSSE/.test(A.times()[0].path), '🔴 記下走的是哪條路徑：' + A.times()[0].path);
+    CHECK(/一般模式|快速模式/.test(A.times()[0].path), '🔴 記下走的是哪條路徑：' + A.times()[0].path);
     CHECK(doc.getElementById('timeline').textContent.indexOf('byte') >= 0, '畫面上看得到');
     /* 換頁、切 slave 都不能清掉 */
     A.jumpTo('000');
@@ -2376,7 +2378,9 @@ function baseScript(f) {
     /* 🔴 不能用 baseScript：它在呼叫 f 之前就把 open 攔下來回覆了，
        所以 f 看不到 open 的 rawmpsse 旗標（第一版就是這樣，兩趟讀到一樣的資料）。 */
     let flip = false;
-    await useHelper((m) => {
+    /* 🔴 要接住這一次的 sent —— 前面那個 `sent` 是**上一個 helper** 的紀錄陣列，
+       拿它去看第二輪的 open 會永遠是空的（第一版就是這樣爆的）。 */
+    const sent2 = await useHelper((m) => {
       if (m.type === 'ping') return { helper: '1.8.0', proto: 3, ok: true };
       if (m.type === 'open') { flip = (m.rawmpsse === 1); return { ok: true, channels: 1 }; }
       if (m.type === 'close') return { ok: true };
@@ -2385,9 +2389,26 @@ function baseScript(f) {
       return { ok: true, status: 0 };
     });
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    /* 🔴 先把快速模式打開 —— 這才是危險情境：他本來就開著，比對抓到不一致之後
+       若還切回快速模式，等於抓到問題卻放他繼續踩。舊版就是這樣。 */
+    chk.checked = true; chk.dispatchEvent(new win.Event('change'));
+    const since2 = sent2.length;
     await A.comparePaths(); await sleep(40);
-    CHECK(/不要開它/.test(doc.getElementById('readbanner').textContent),
-      '🔴 兩邊不同 ⇒ 明講不要開：' + doc.getElementById('readbanner').textContent.slice(0, 44));
+    const banner = doc.getElementById('readbanner').textContent;
+    CHECK(/不要開快速模式/.test(banner), '🔴 兩邊不同 ⇒ 明講不要開：' + banner.slice(0, 44));
+    CHECK(/已自動改回一般模式/.test(banner), '🔴 不一致 ⇒ 畫面上講明已自動切回');
+    CHECK(chk.checked === false, '🔴 不一致 ⇒ 勾選框真的被取消（不是只講講）');
+    /* 最後一次 open 必須是 rawmpsse:0，否則「切回」只是畫面上的假象 */
+    const os2 = sent2.slice(since2).filter(m => m.type === 'open');
+    EQ(os2[os2.length - 1].rawmpsse, 0, '🔴 不一致 ⇒ 最後真的用一般模式重新連線');
+    /* 🔴 結論要跟耗時一起常駐：banner 會被下一個動作蓋掉，紀錄不會 */
+    /* 🔴 只看**最新那兩筆** —— 紀錄是常駐的，前面那一輪「相同」的比對也還在表上
+       （那正是我們要的行為），拿全部去 every() 會永遠失敗。 */
+    const cmp = A.times().filter(t => t.kind === '比對').slice(0, 2);
+    CHECK(cmp.length === 2 && cmp.every(t => /不符/.test(t.verdict)),
+      '🔴 比對結論留在耗時紀錄裡：' + cmp.map(t => t.verdict).join(' / '));
+    /* 🔴 文案不得出現實作名詞（Bruce 2026-09-19）——畫面上的字逐條檢查 */
+    CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(banner), '🔴 比對文案沒有實作名詞');
     await win.__i2ct.disconnect();
   }
 

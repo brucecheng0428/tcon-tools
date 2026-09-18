@@ -54,9 +54,22 @@
  *
  *    而 I2C_Read8bitsAndGiveAck 每一個 byte 都做：
  *        FT_Channel_Write(~17 bytes 的 MPSSE 命令) → INFRA_SLEEP(1) → FT_Channel_Read(1)
- *    ⇒ **每個 byte 兩次 USB 往返 ＋ 一次 1 ms 睡眠**。
- *    4096 byte 光是 sleep 就 4 秒起跳，加上 8192 次 USB 往返 ⇒ 20~60 秒完全說得通。
- *    （理論 I2C 時間 @400kHz 只有 0.09 秒 ⇒ 99% 以上的時間不在匯流排上。）
+ *    ⇒ **每個 byte 一次完整的 USB 來回**。
+ *
+ * 🔴 更正（2026-09-19，Bruce 用邏輯分析儀實測 ＋ FTDI 官方定義）：
+ *    這段註解原本寫「主因是 INFRA_SLEEP(1) 的 1 ms 睡眠，4096 byte 光 sleep 就 4 秒」。
+ *    **那是錯的，量級差一個數量級。** 實測 byte 與 byte 之間是 **10~15 ms**，
+ *    而 sleep 確實只有 1 ms（libmpsse.dll 0x6f5838e3／0x6f583a31／0x6f583c40／
+ *    0x6f5843a5／0x6f5849c3 全是 `movl $1`），latency timer 也確實被設成 1
+ *    （0x6f582754 傳入的 %edi ＝ 第 4 個參數，即我們的 LatencyTimer=1）。
+ *
+ *    真正的主因是**每個 byte 都強制一次 USB flush**：FTDI 官方的 I2C 讀取 recipe
+ *    在每個資料 byte 的 ACK 之後送一次 `0x87`（Send Immediate），其定義是
+ *    「強制把已緩衝的讀取資料立刻送回主機，不等 USB latency timer」。
+ *    每一個 `0x87` ＝ 一次強制往返；主機收到後才組下一個 byte 的命令再送出去，
+ *    這段來回就是量到的 10~15 ms。**所以「匯流排上已經是 burst」那句話也是錯的** ——
+ *    定址層面確實只有一筆交易，但時間上每個 byte 之間都停住，沒有人會叫它 burst。
+ *    （理論 I2C 時間 @400kHz 只有 0.09 秒 ⇒ 99% 以上的時間不在匯流排上，這句仍成立。）
  *
  * 🔴 而我們原本的設定是：位址相位與寫入**有**帶 0x10（fast），**只有讀取的資料
  *    相位沒帶**（0x0B ＝ START|STOP|NACK_LAST_BYTE）。也就是說**寫入本來就是快的，
@@ -459,6 +472,32 @@ static void diag_ftdi(void) {
 /* ===========================================================================
  * I2C actions (copied from PQ Tool)
  * =========================================================================== */
+/* 🔴 自己把時脈除數寫進去，不依賴 libMPSSE 的換算（理由見 i2c_open 的註解：
+   實測 400k 設定量到 600k）。base 與公式**必須成對**，所以 0x8B 與 6e6/f-1
+   一定要一起送，不可以只送其中一個。
+   回傳實際會落在線上的頻率（Hz），0 代表沒送成（沒有 D2XX 就沒辦法送）。 */
+static uint32_t i2c_force_clock(uint32_t hz) {
+    unsigned char cmd[4];
+    unsigned long wrote = 0;
+    uint32_t div, actual;
+    if (!DGH_RAW_AVAILABLE || !g_handle || !hz) return 0;
+    div = 6000000u / hz;
+    if (div == 0) div = 1;
+    div -= 1;
+    if (div > 0xFFFF) div = 0xFFFF;
+    actual = 12000000u / ((div + 1) * 2);
+    cmd[0] = 0x8B;                          /* enable divide-by-5 => 12 MHz base */
+    cmd[1] = 0x86;                          /* set clock divisor */
+    cmd[2] = (unsigned char)(div & 0xFF);
+    cmd[3] = (unsigned char)((div >> 8) & 0xFF);
+    if (p_FT_Write(g_handle, cmd, 4, &wrote) != 0 || wrote != 4) {
+        logline("  clock   : force failed (wrote=%lu)", wrote);
+        return 0;
+    }
+    logline("  clock   : requested %u Hz -> divisor %u -> wire %u Hz (12 MHz base, 0x8B+0x86)",
+            hz, div, actual);
+    return actual;
+}
 static int i2c_open(uint32_t clockHz) {
     if (!g_dllOk) return 0;
     if (g_opened) return 1;
@@ -473,17 +512,30 @@ static int i2c_open(uint32_t clockHz) {
        Enabling three-phase would also drop the real clock to 2/3 of the setting
        (400k -> 266k), which breaks the "set 400k, measure 400k" acceptance criterion.
 
-       🔴 The requested clock is the REAL wire clock -- no compensation needed:
-       Options bit0 makes libMPSSE's _I2C_InitChannel skip both the ClockRate*3/2
-       adjustment and the 0x8C write (libmpsse.dll 0x6f583693 / 0x6f5836c4).
-       _Mid_SetClock (0x6f5823f0) then, for clock <= 6 MHz, sends 0x8B (ENABLE
-       divide-by-5 => 12 MHz base) and programs divisor = 6e6/f - 1. Base and
-       formula are a matched pair, so 400000 -> divisor 14 -> 12e6/((1+14)*2)
-       = 400,000 Hz exactly. Full evidence: ~/ClaudeData/em02_readall/findings.md.
-       The raw-MPSSE path does no channel init of its own and inherits this. */
+       🔴🔴 RETRACTED 2026-09-19. This comment used to claim "the requested clock is
+       the real wire clock, no compensation needed", reasoning that Options bit0 makes
+       _I2C_InitChannel skip the ClockRate*3/2 adjustment (libmpsse 0x6f583693).
+       **Bruce measured it with a logic analyser: setting 400000 puts 600 kHz on the
+       wire -- exactly 1.5x.** So the *3/2 DID happen. The measurement is the fact;
+       my reading of the disassembly was wrong somewhere, and I have NOT yet found
+       where -- I re-checked that _FT_InitChannel passes the clock through untouched
+       (%esi from 0x6f582647 straight to _Mid_SetClock at 0x6f58281e) and that
+       _Mid_SetClock uses divisor = 6e6/f - 1 with 0x8B (12 MHz base), which would
+       give 400 kHz. I cannot reconcile that with 600 kHz and I am not going to
+       invent a reason. See findings.md.
+
+       🔴 So we stop depending on libMPSSE's clock arithmetic altogether: after
+       InitChannel we program the divisor OURSELVES, so the last word on the wire
+       clock is ours and is independent of whatever libMPSSE did. We send 0x8B
+       (enable divide-by-5 => 12 MHz base) and 0x86 with divisor = 6e6/f - 1 --
+       the same base/formula pair the vendor's SetClock uses (dll_i2c.asm 0x4017bc).
+       400000 -> divisor 14 -> 12e6/((1+14)*2) = 400,000 Hz.
+       This is verifiable on Bruce's analyser, which is the point. */
     ChannelConfig cfg; cfg.ClockRate=clockHz?clockHz:150000; cfg.LatencyTimer=1; cfg.Options=3;
     if (p_Init2(g_handle,&cfg)!=FT_OK) { p_Close(g_handle); g_handle=NULL; return 0; }
-    g_opened=1; return 1;
+    g_opened=1;
+    i2c_force_clock(cfg.ClockRate);
+    return 1;
 }
 static void i2c_close(void){ if(g_opened&&g_handle) p_Close(g_handle); g_handle=NULL; g_opened=0; }
 /* 🔴 `slave` is a **7-bit** address (0x60/0x61/0x68/0x69 from the web, straight
@@ -505,7 +557,11 @@ static int g_lastUsbRt = 0;      /* 最近一次的 USB 往返次數（raw 路�
 
 /* ═══ 🔴 直接組 MPSSE 命令 ⇒ 一次 FT_Write ＋ 一次 FT_Read ═══════════════════
    對照：libMPSSE 非 fast 路徑是「每 byte 送命令 → sleep 1ms → 讀 1 byte」，
-   4096 byte ＝ 8192 次往返 ＋ 4096ms 睡眠。這裡是 **2 次往返、0 睡眠**。
+   ⇒ **每個 byte 一次強制 USB 往返**（FTDI recipe 每個 byte 都送 `0x87`
+   Send Immediate；Bruce 2026-09-19 實測 byte 間隔 10~15 ms）。
+   這裡整段命令**只在最尾巴放一個 `0x87`**（由 test_proto.c 的檢查釘住：4096 byte
+   的命令共 49,534 byte，`0x87` 恰好 1 個且是最後一個位元組），
+   所以是 **1 次 FT_Write ＋ 1 次 FT_Read、0 睡眠、0 中途 flush**。
    ACK 一併在同一批回來，逐個檢查；**任何一個 NACK 都要回報，不可以靜默吞掉**。 */
 static FT_STATUS mpsse_xfer(const unsigned char* cmd, int cmdLen,
                             int expectIn, unsigned char* in, int* gotIn){
@@ -998,8 +1054,51 @@ static void serve_page(SOCKET c, const char* req){
     logline("[http] 404 (missing) %s", name);
 }
 
+/* ═══ 🔴 Windows 排程器時間精度（2026-09-19，Bruce 用邏輯分析儀量到的那件事）═══
+   實測：讀取時**每個 byte 之間相隔 10~15 ms**。我們原本的解釋是 libMPSSE 非 fast
+   路徑每 byte 一次 `INFRA_SLEEP(1)`，也就是 1 ms —— 這個 1 已經逐一查證過
+   （libmpsse.dll 0x6f5838e3 / 0x6f583a31 / 0x6f583c40 / 0x6f5843a5 / 0x6f5849c3
+   全部是 `movl $1`），而且 `FT_SetLatencyTimer` 拿到的確實是我們給的 1
+   （0x6f582754 傳 %edi ＝ 第 4 個參數，入口 0x6f58264f 取自 124(%esp)，
+   並有 `cmpl $255,%edi` 的上界檢查佐證）。**兩者都解釋不了 10~15 ms。**
+
+   🔴 這是**假說，不是結論**：Windows 的 `Sleep(1)` 會被進位到下一個排程器 tick，
+   而預設 tick 是 **15.6 ms**，除非行程呼叫過 `timeBeginPeriod(1)` 把精度調高。
+   `Sleep(1)` ⇒ 實際睡 ~15.6 ms，與量到的 10~15 ms 量級吻合；這也能解釋為什麼
+   原廠工具不慢（它的 runtime 可能已經調高過精度）。
+
+   我們自己呼叫 `timeBeginPeriod(1)`，讓 libMPSSE 內部的 `Sleep(1)` 真的是 1 ms。
+   ⚠️ 這台 Mac 驗不了，**要靠 Bruce 用邏輯分析儀複量才算數**。若量完間隔沒有變小，
+   代表假說被推翻，要回來找別的原因，不要硬拗。
+   （成本：提高全系統時間精度會略增耗電，程式結束前 timeEndPeriod 還原。） */
+#ifdef _WIN32
+static int g_timerRaised = 0;
+static void raise_timer_resolution(void){
+    typedef unsigned (__stdcall *PFN_TP)(unsigned);
+    HMODULE mm = LoadLibraryA("winmm.dll");
+    PFN_TP beg = mm ? (PFN_TP)GetProcAddress(mm, "timeBeginPeriod") : NULL;
+    if (beg && beg(1) == 0) { g_timerRaised = 1; logline("  timer   : timeBeginPeriod(1) OK (Sleep(1) is now ~1ms, not ~15.6ms)"); }
+    else logline("  timer   : timeBeginPeriod(1) unavailable -- per-byte reads may stay slow");
+}
+static void restore_timer_resolution(void){
+    typedef unsigned (__stdcall *PFN_TP)(unsigned);
+    HMODULE mm;
+    PFN_TP end;
+    if (!g_timerRaised) return;
+    mm = GetModuleHandleA("winmm.dll");
+    end = mm ? (PFN_TP)GetProcAddress(mm, "timeEndPeriod") : NULL;
+    if (end) end(1);
+    g_timerRaised = 0;
+}
+#else
+static void raise_timer_resolution(void){}
+static void restore_timer_resolution(void){}
+#endif
+
 int main(int argc, char** argv){
     int port=8899;
+    raise_timer_resolution();
+    atexit(restore_timer_resolution);
     /* v1.4.0: which page the browser is auto-opened at. Default "" = "/" =
        dg-measure.html (unchanged). `--page=i2c.html` opens the I2C test tool
        instead, so it can be a double-click shortcut rather than a typed URL. */

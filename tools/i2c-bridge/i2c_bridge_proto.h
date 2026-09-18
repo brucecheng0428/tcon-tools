@@ -236,8 +236,16 @@ static inline int dgh_origin_allowed(const char* hdr){
    ───────────────────────────────────────────────────────────────────────────
    為什麼要這一條路（2026-09-19，Bruce「讀的還是太慢了」）：
      libMPSSE 的 I2C_DeviceRead 在**非 fast 路徑**對每一個 byte 做
-     「送 ~17 byte 命令 → INFRA_SLEEP(1) → 讀 1 byte」⇒ 4096 byte ＝ 8192 次
-     USB 往返 ＋ 4096 ms 純睡眠。
+     「送 ~17 byte 命令 → INFRA_SLEEP(1) → 讀 1 byte」⇒ 每個 byte 一次 USB 來回。
+
+   🔴 更正（2026-09-19）：這裡原本寫「4096 ms 純睡眠」，把主因算在 `INFRA_SLEEP(1)`
+     頭上。**實測推翻**：Bruce 用邏輯分析儀量到 byte 間隔 **10~15 ms**，而 sleep 確實
+     只有 1 ms。主因是 FTDI 官方 I2C recipe 在**每個資料 byte 的 ACK 之後都送一次
+     `0x87`（Send Immediate）**＝ 強制一次 USB flush，不等 latency timer。
+     每一次 flush 都要等主機收完、組好下一個 byte 的命令再送出去。
+     ⇒ 本檔這條路的重點**不是「省掉 sleep」，是「整段只留最後一個 `0x87`」**：
+       資料 byte 的 ACK 是主機自己發的，不需要跟從機來回，所以 N 個 byte 可以
+       整段組完、一次送出、一次收回。由 test_proto.c 的「整段只有一個 0x87」釘住。
 
    🔴 為什麼不照抄原廠：**原廠沒有這個需求，所以原廠沒有答案。**
      反組譯實查（`I2C_tool/xCtrl_I2C_App.cs:73` options=11u ⇒ 0x0B，資料相位

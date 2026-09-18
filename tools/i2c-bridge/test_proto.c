@@ -247,6 +247,44 @@ int main(void){
         CHECK(dgh_mp_ack_ok(0x7E) == 1, "中間的雜訊位元不影響判讀（只看 bit0/bit7）");
     }
 
+    /* ═══ 🔴 整段只能有一個 0x87，而且必須在最後 ═════════════════════════════
+       起因：Bruce 2026-09-19 用邏輯分析儀量到「byte 與 byte 之間 SCL 停 10~15 ms」，
+       並指出「這根本不是 burst read」。FTDI 對 `0x87`（Send Immediate）的定義是
+       「強制把已緩衝的讀取資料立刻送回主機，不等 USB latency timer」——
+       **每一個 0x87 就是一次強制的 USB 往返**。所以只要命令序列裡每個 byte 都夾一個
+       0x87，時間上就不可能連續，不管定址層面是不是一筆交易。
+
+       我們的 builder 目前是對的（4096 byte 的命令共 49,534 byte，只有結尾一個 0x87），
+       但這是**沒有任何測試釘住**的性質 —— 有人為了「先拿到 ACK 再繼續」在迴圈裡補一個
+       0x87，功能完全正常、所有測試照樣綠，只有拿邏輯分析儀量才看得出來。
+       這正是本專案其他閘門的同一種破口，所以釘在這裡。 */
+    {
+        static unsigned char cmd[4096 * 13 + 512];
+        int acks = 0, din = 0;
+        int lens[] = { 1, 2, 17, 256, 1024, 4096 };
+        for (unsigned k = 0; k < sizeof(lens)/sizeof(lens[0]); k++) {
+            int n = lens[k];
+            int len = dgh_mp_build_read(cmd, (int)sizeof(cmd), 0x50, 0x1234, 2, n, &acks, &din);
+            int c87 = 0;
+            CHECK(len > 0, "build_read 成功");
+            for (int i = 0; i < len; i++) if (cmd[i] == 0x87) c87++;
+            CHECK(c87 == 1, "讀取命令整段只有一個 0x87（每多一個就是多一次 USB 往返）");
+            CHECK(len > 0 && cmd[len - 1] == 0x87, "唯一的 0x87 在最後一個位元組");
+            CHECK(din == n, "資料 byte 數等於要求的長度");
+        }
+        /* 寫入路徑同理：資料 byte 不需要中途 flush */
+        {
+            unsigned char data[64];
+            int len, c87 = 0;
+            for (int i = 0; i < 64; i++) data[i] = (unsigned char)i;
+            len = dgh_mp_build_write(cmd, (int)sizeof(cmd), 0x50, 0x1234, 2, data, 64, &acks, &din);
+            CHECK(len > 0, "build_write 成功");
+            for (int i = 0; i < len; i++) if (cmd[i] == 0x87) c87++;
+            CHECK(c87 == 1, "寫入命令整段也只有一個 0x87");
+            CHECK(cmd[len - 1] == 0x87, "寫入的 0x87 也在最後");
+        }
+    }
+
 
     printf("\n%d/%d checks passed\n", total-fails, total);
     return fails?1:0;
