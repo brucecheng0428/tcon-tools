@@ -173,6 +173,11 @@ function baseScript(f) {
 
   /* ═════════════════════════════════════════════════════════════════════ */
   G('2. 讀取分段（chunk 256）');
+  /* 🔴 v1.13.1：快速模式改成**預設開**，而 i2ctChunk() 是跟著模式走的
+     （快 4096、慢 256）。這一組驗的是**慢路徑**的分段規則，所以要明講模式，
+     不能再靠預設值 —— 靠預設值的測試在預設一改就會自相矛盾。
+     快路徑「不分段」由第 46 組驗。 */
+  A.rawMpsse(false);
   EQ(A.planRead(0x1200, 3, 2), [{ addr: 0x1200, len: 3, off: 0 }], '3 byte ＝ 1 則');
   EQ(A.planRead(0x0000, 256, 2), [{ addr: 0, len: 256, off: 0 }], '256 byte ＝ 1 則（剛好一頁）');
   EQ(A.planRead(0x0000, 257, 2),
@@ -183,6 +188,8 @@ function baseScript(f) {
   EQ(A.planRead(0, 300, 0).map(c => c.len), [256, 44], 'awid 0 照樣分段（current address read 連續讀）');
   /* 1 byte 位址的分段會回繞，這是裝置真實行為，不是 bug */
   EQ(A.planRead(0xF0, 300, 1).map(c => c.addr), [0xF0, 0xF0], '1 byte：第二則回繞回 0xF0（0xF0+256 mod 256）');
+  A.rawMpsse(true);                     /* 還原成產品預設，不要污染後面的組別 */
+  CHECK(A.rawMpsse() === true, '🔴 快速模式的產品預設是「開」（v1.13.1 起）');
 
   /* ═════════════════════════════════════════════════════════════════════ */
   G('3. 16×16 表格的位址與分頁');
@@ -261,10 +268,20 @@ function baseScript(f) {
     await A.doRead();
     await sleep(20);
     const rd = SINCE(sent, 'read');
-    EQ(rd.length, 1, '3 byte ＝ 送 1 則 read');
-    EQ({ slave: rd[0].slave, addr: rd[0].addr, len: rd[0].len, awid: rd[0].awid },
+    /* 🔴 v1.13.1：快速模式預設開 ⇒ **第一次讀取**會先自動對讀驗證一次
+       （快一次、慢一次，各 min(len,64) byte），所以這裡是 2 則驗證 ＋ 1 則實際。
+       這不是多餘的往返，是「預設用快的」的安全前提，見 i2ctVerifyFastOnce。 */
+    EQ(rd.length, 3, '🔴 第一次讀取 ＝ 2 則自動驗證 ＋ 1 則實際讀取');
+    EQ(rd.slice(0, 2).map(m => m.len), [3, 3], '驗證讀的長度 ＝ min(要求長度, 64)');
+    const real = rd[2];
+    EQ({ slave: real.slave, addr: real.addr, len: real.len, awid: real.awid },
        { slave: 0x68, addr: 0x1234, len: 3, awid: 2 },
        '🔴 送出的 read 四個欄位 ＝ 使用者的四項輸入（slave 未被左移）');
+    /* 🔴 驗證只做一次：第二次讀取不可以再付這個成本 */
+    { const before = sent.length;
+      await A.doRead(); await sleep(20);
+      EQ(sent.slice(before).filter(m => m.type === 'read').length, 1,
+         '🔴 第二次讀取只送 1 則（驗證不重複做）'); }
     const st = A.state();
     EQ([st.buf[0x1234], st.buf[0x1235], st.buf[0x1236]], [0x10, 0x11, 0x12], '資料落在 0x1234–0x1236');
     CHECK(st.buf[0x1233] === undefined, '起始位址之前的格子沒被填（留空，不補 0）');
@@ -2127,6 +2144,9 @@ function baseScript(f) {
         data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0, transferred: 1, us: 6789 };
     }));
+    /* 🔴 這一組驗的是**分段時**的耗時累加，所以要明講走慢路徑（快路徑一次讀完、
+       不分段，見第 46 組）。v1.13.1 起快速模式是預設值，不能再靠預設。 */
+    A.rawMpsse(false);
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '512' });
     await A.doRead(); await sleep(30);
     const res = A.state().lastRead;
@@ -2346,10 +2366,14 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
-  G('45. 🔴 raw MPSSE 與快慢路徑比對（預設關，讓他自己驗證）');
+  G('45. 🔴 手動的快慢路徑比對按鈕（debug 診斷工具）');
   {
-    EQ(A.rawMpsse(), false, '🔴 raw MPSSE 預設關（命令序列沒在他硬體上跑過）');
+    /* 🔴 v1.13.1：快速模式已改成**預設開**（安全性靠自動驗證，見第 45b 組），
+       所以這裡不再驗「預設關」。這顆按鈕的定位也跟著變成**診斷工具**：
+       自動驗證只比 64 byte，他想拿 4096 byte 自己比一次時用這顆。 */
     A._reset();
+    EQ(A.rawMpsse(), true, '🔴 快速模式預設開（v1.13.1 起）');
+    A.rawMpsse(false);        /* 這一組要從「關」的狀態驗比對按鈕的切換行為 */
     const sent = await useHelper(baseScript((m) => {
       if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
@@ -2357,7 +2381,8 @@ function baseScript(f) {
     const opens = sent.filter(m => m.type === 'open');
     EQ(opens[opens.length - 1].rawmpsse, 0, '🔴 open 明確帶 rawmpsse:0');
     const chk = doc.getElementById('chk-rawmpsse');
-    CHECK(!!chk && chk.checked === false, 'debug 區有開關且預設沒勾');
+    CHECK(!!chk, 'debug 區有快速模式開關');
+    chk.checked = false;      /* 與上面的 rawMpsse(false) 對齊 */
     /* 快慢路徑比對：兩條路徑各讀一次，然後切回原本的設定 */
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '32' });
     const since = sent.length;
@@ -2409,6 +2434,63 @@ function baseScript(f) {
       '🔴 比對結論留在耗時紀錄裡：' + cmp.map(t => t.verdict).join(' / '));
     /* 🔴 文案不得出現實作名詞（Bruce 2026-09-19）——畫面上的字逐條檢查 */
     CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(banner), '🔴 比對文案沒有實作名詞');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('45b. 🔴 快速模式預設開，第一次讀取自動驗證；不一致就自動退回');
+  {
+    /* 🔴 這一組驗的是「他什麼都不用勾」的那條路（Bruce 2026-09-19：
+       「這等於又退回去了，為什麼不去解決呢？」）。預設開的前提是**驗得過才用**，
+       所以「驗不過會自動退回」這一半一定要有測試 —— 只驗通過那一半，
+       等於又犯一次 CLAUDE.md 記的「只驗過壞檔會被拒絕」的老毛病。 */
+
+    /* (a) 兩條路一致 ⇒ 安靜沿用快的 */
+    A._reset();
+    const s1 = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.11.1', proto: 3, ok: true };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      if (m.type === 'read') return { ok: true, status: 0,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    CHECK(A.rawMpsse() === true, '🔴 連上時快速模式是開的（不必他動手）');
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(30);
+    CHECK(A.rawMpsse() === true, '一致 ⇒ 沿用快的');
+    CHECK(!/比較慢/.test(doc.getElementById('topbanner').textContent),
+      '🔴 一致時不跳任何訊息（安靜）：' + doc.getElementById('topbanner').textContent.slice(0, 30));
+    EQ(s1.filter(m => m.type === 'read').length, 3, '第一次讀取 ＝ 2 則驗證 ＋ 1 則實際');
+    await win.__i2ct.disconnect();
+
+    /* (b) 兩條路不一致 ⇒ 自動退回慢的，並留一行常駐訊息 */
+    A._reset();
+    let isFast = false;
+    const s2 = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.11.1', proto: 3, ok: true };
+      if (m.type === 'open') { isFast = (m.rawmpsse === 1); return { ok: true, channels: 1 }; }
+      if (m.type === 'close') return { ok: true };
+      /* 快的那條回錯的資料 ⇒ 正是「資料錯了還照用」要擋下來的情況 */
+      if (m.type === 'read') return { ok: true, status: 0,
+        data: Array.from({ length: m.len }, (_, i) => (i + (isFast ? 1 : 0)) & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    CHECK(A.rawMpsse() === true, '起點仍是預設開');
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(30);
+    CHECK(A.rawMpsse() === false, '🔴 不一致 ⇒ 自動退回慢的');
+    CHECK(doc.getElementById('chk-rawmpsse').checked === false, '🔴 勾選框也跟著取消');
+    const b45 = doc.getElementById('topbanner').textContent;
+    CHECK(/比較慢/.test(b45), '🔴 留一行常駐訊息告訴他這次用慢的：' + b45.slice(0, 40));
+    CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(b45), '🔴 退回訊息也沒有實作名詞');
+    /* 🔴 最關鍵的一條：退回之後**實際送出的 open 必須是 rawmpsse:0**，
+       不能只是畫面上說退回了，底下還在走快的。 */
+    const lastOpen = s2.filter(m => m.type === 'open').pop();
+    EQ(lastOpen.rawmpsse, 0, '🔴 退回後真的用慢的方式重新連線');
+    /* 退回之後那一次實際讀取，拿到的必須是慢路徑的值（0,1,2…） */
+    const st45 = A.state();
+    EQ([st45.buf[0], st45.buf[1], st45.buf[2]], [0, 1, 2], '🔴 最後落格的是慢路徑（正確）的值');
     await win.__i2ct.disconnect();
   }
 
