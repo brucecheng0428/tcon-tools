@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260918dg1651"></script>
+<script src="common/version.js?v=20260918dg1652"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -995,8 +995,8 @@
     <p class="dgm-i2c-warn">🔴 <b>helper 這條路本身未經實機驗證</b>：它是在沒有 Windows、沒有 FTDI 硬體的環境寫出來的，D2XX 連線與實際 I2C 通訊都還沒有人在真機上跑過。網頁端只驗到訊息格式與位址白名單那一半。</p>
 
     <div class="dgm-i2c-note" style="border:1px solid var(--dgm-i2c-line,#334155);border-radius:8px;padding:10px 12px;margin:8px 0">
-      <h4 style="margin:0 0 6px">下載 helper（<span id="dgm-i2c-helper-ver">v1.3.1</span>）</h4>
-      <p style="margin:4px 0"><a id="dgm-i2c-helper-dl" href="data/dg-helper-v1.3.1.zip" download>⬇ 下載 dg-helper.zip</a></p>
+      <h4 style="margin:0 0 6px">下載 helper（<span id="dgm-i2c-helper-ver">v1.3.2</span>）</h4>
+      <p style="margin:4px 0"><a id="dgm-i2c-helper-dl" href="data/dg-helper-v1.3.2.zip" download>⬇ 下載 dg-helper.zip</a></p>
       <ol style="margin:6px 0 6px 1.2em;padding:0">
         <li><b>下載</b>（Chrome 若標「不常下載」→「保留」）。</li>
         <li>🔴 <b>整包解壓到一個資料夾</b>（例如桌面）—— 不要直接在壓縮檔預覽視窗裡點 exe。</li>
@@ -2862,8 +2862,21 @@
     { key: 'V512SX', name: 'V512SX（NB）', id: [0x12, 0xF5, 0xF0], patternOk: false },
     { key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0], patternOk: false }
   ];
+  /* 🔴 全 0xFF ＝ I2C 總線閒置（SDA 被上拉為高、沒有裝置回應）。FT status 可能是 0、
+     也「收到 3 byte」，但那是總線空轉讀回的，不是有效資料。掃描時必須把它判為無回應，
+     否則會選到第一個「假裝有回應」的 slave（Bruce 2026-09-18 實測：0x60 回 FF FF FF
+     被選走，拿去比對 ID 當然對不上）。純函式，可單元測。 */
+  function dgmI2cIsBusIdle(b) {
+    if (!b || b.length < 1) return false;
+    for (var i = 0; i < b.length; i++) if ((b[i] & 0xFF) !== 0xFF) return false;
+    return true;
+  }
+  /* 🔴 ID 比對照原廠 `ICCommonFunction.cs` L419/L431：`data[0]==0x01 && data[1]==0xEF
+     && (data[2] & 0xF0)==0xA0`。**第三個 byte 的低 4 位是版本／變體，不參與比對**，
+     所以用遮罩 `& 0xF0`，不是相等比對（例：01 EF A1 與 01 EF A0 都是同一顆）。 */
   function dgmI2cMatchIc(b) {
     if (!b || b.length < 3) return null;
+    if (dgmI2cIsBusIdle(b)) return null;    // 全 0xFF 不是有效 ID
     for (var i = 0; i < DGM_I2C_ICS.length; i++) {
       var ic = DGM_I2C_ICS[i];
       if (!ic.id) continue;
@@ -3062,6 +3075,8 @@
   var DGM_I2C_WS_PORT = 8899;
   var DGM_I2C_WS_URL  = 'ws://127.0.0.1:' + DGM_I2C_WS_PORT + '/ws';
   var DGM_I2C_WS_MS   = 4000;      // 單筆命令等 helper 回覆的上限
+  var DGM_I2C_OPEN_RETRIES = 5;    // 🔴 開通道自動重試次數（channels=0 前一兩次可能是列舉時序）
+  var DGM_I2C_OPEN_RETRY_MS = 500; // 每次重試前的退避
   var DGM_HELPER_NEED_PROTO = 1;   // 本頁需要的 helper 協定版本
   var dgmI2cWs = null;             // WebSocket
   var dgmI2cWsSeq = 0;             // 命令流水號
@@ -3070,10 +3085,10 @@
   var dgmI2cHelperProto = 0;       // helper 回報的協定版本
   /* helper 下載包（data/ 的加密 zip，密碼 1234）與其雜湊 —— 讓人／IT 核對。
      🔴 這兩個 SHA256 是實測值：exe 與 zip 各一個，改版時要一起更新。 */
-  var DGM_HELPER_ZIP = 'data/dg-helper-v1.3.1.zip';
-  var DGM_HELPER_ZIP_SHA = '35d19be054da9c7784c158c2ec2b5b0c0bd9c808692030daacf7bc31cb7be012';
+  var DGM_HELPER_ZIP = 'data/dg-helper-v1.3.2.zip';
+  var DGM_HELPER_ZIP_SHA = '9d201610a746f20d0ee14921d66b4a3859e060ed4055a3c9e671873c57e2af48';
   var DGM_HELPER_EXE_SHA = '81444d8730b8be65a56005d5df41291b60111d467ad1b9d8d545ad4435df41ba';
-  var DGM_HELPER_VER_STR = 'v1.3.1';
+  var DGM_HELPER_VER_STR = 'v1.3.2';
 
   function dgmI2cHex(b) {
     var o = [], i;
@@ -3451,7 +3466,11 @@
       try {
         var d = await dgmI2cReadReg(0xFF00, 3);
         var hex = dgmI2cHex(d);
-        if (d && d.length >= 3) {
+        if (d && d.length >= 3 && dgmI2cIsBusIdle(d)) {
+          /* 🔴 全 0xFF ＝ 總線閒置、沒有裝置回應。不可當命中（Bruce 2026-09-18 實測） */
+          results.push(tag + ' ← ' + hex + '（判為無回應：總線閒置）');
+          lk('　　　' + tag + '：讀到 ' + hex + ' ⇒ 判為無回應（全 0xFF＝總線閒置，非有效資料）', 'e');
+        } else if (d && d.length >= 3) {
           results.push(tag + ' ← ' + hex);
           lk('　　　' + tag + '：有回應，0xFF00 ＝ ' + hex, 'o');
           if (!chosen) { chosen = d; chosenSlave = sl; }
@@ -3772,9 +3791,19 @@
         throw new Error('helper 協定版本太舊（helper proto ' + dgmI2cHelperProto
           + '，本頁需要 proto ' + DGM_HELPER_NEED_PROTO + '）⇒ 請到下方下載區更新 helper');
       }
-      var op = await dgmI2cWsSend({ type: 'open', clockHz: DGM_I2C_CLOCK_HZ });
-      if (!op.ok) throw new Error('helper 開通道失敗（channels=' + (op.channels != null ? op.channels : '?') + '）⇒ 治具有沒有插好？原廠 PQ Tool 是不是開著佔用了 channel？');
-      lk('　　helper 已開通道 · channels=' + (op.channels != null ? op.channels : '?'), 'o');
+      /* 🔴 Bug 3（Bruce 2026-09-18）：I2C_GetNumChannels 前一兩次可能回 0（D2XX 列舉
+         時序／前一次沒乾淨關），第三次才好。**自動重試**，使用者不該按三次。
+         每次嘗試都 log，退避 500ms，最多 5 次。 */
+      var op = null;
+      for (var attempt = 1; attempt <= DGM_I2C_OPEN_RETRIES; attempt++) {
+        op = await dgmI2cWsSend({ type: 'open', clockHz: DGM_I2C_CLOCK_HZ });
+        if (op.ok) { lk('　　helper 已開通道（第 ' + attempt + ' 次）· channels=' + (op.channels != null ? op.channels : '?'), 'o'); break; }
+        lk('　　開通道第 ' + attempt + '/' + DGM_I2C_OPEN_RETRIES + ' 次失敗（channels=' + (op.channels != null ? op.channels : '?') + '）'
+          + (attempt < DGM_I2C_OPEN_RETRIES ? '，' + DGM_I2C_OPEN_RETRY_MS + 'ms 後重試…' : ''), 'e');
+        dgmI2cOut('開通道第 ' + attempt + ' 次失敗（channels=' + (op.channels != null ? op.channels : '?') + '）');
+        if (attempt < DGM_I2C_OPEN_RETRIES) await new Promise(function (r) { setTimeout(r, DGM_I2C_OPEN_RETRY_MS); });
+      }
+      if (!op || !op.ok) throw new Error('helper 開通道連試 ' + DGM_I2C_OPEN_RETRIES + ' 次都失敗（channels=' + (op && op.channels != null ? op.channels : '?') + '）⇒ 治具有沒有插好？原廠 PQ Tool 是不是開著佔用了 channel？');
       dgmI2cLinkActive = true;
       await dgmI2cCommTest();        // 🔴 通訊自檢先跑（authoritative，與 IC 識別解耦）
       await dgmI2cScanIdentify(lk);  // IC 識別＝附帶資訊，不中止連線
@@ -4054,7 +4083,8 @@
     commVerdict: dgmI2cCommVerdict,                    // 通訊自檢判定（純函式）
     commSlave: function () { return DGM_I2C_COMM_SLAVE; },
     commExpect: function () { return DGM_I2C_COMM_EXPECT.slice(); },
-    slaveLabel: dgmI2cSlaveLabel                        // 7-bit＋8-bit 標示（純函式）
+    slaveLabel: dgmI2cSlaveLabel,                       // 7-bit＋8-bit 標示（純函式）
+    isBusIdle: dgmI2cIsBusIdle                          // 全 0xFF＝總線閒置（純函式）
   };
 
 
