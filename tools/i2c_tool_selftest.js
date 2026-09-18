@@ -1073,7 +1073,8 @@ function baseScript(f) {
       const c = A.cellParts(5);
       EQ(c.main, 'AA', '主值 ＝ 現在生效的值（會被寫進去的那個）');
       EQ(c.snap, '05', '🔴 左上小字 ＝ 快照值');
-      EQ(c.old, '05', '🔴 右上小字 ＝ 被換出去的值');
+      /* 🔴 A／B 模型（2026-09-19 定案）：狀態 1 只有左上，右上必須是空的。 */
+      EQ(c.old, null, '🔴 狀態 1：右上是空的（左上與右上絕不同時出現）');
       CHECK(c.cls.indexOf('diff') >= 0, '與基準不同 ⇒ diff 標記');
     }
     {
@@ -1098,7 +1099,7 @@ function baseScript(f) {
         const c = A.cellParts(5);
         EQ(c.main, 'AA', '主值 ＝ 這一次讀到的');
         EQ(c.snap, '05', '🔴 左上 ＝ 快照值');
-        EQ(c.old, '05', '🔴 右上 ＝ 被換出去的值（上一次讀到的 05）');
+        EQ(c.old, null, '🔴 讀取後是狀態 1 ⇒ 右上空（右上只由「點左上」產生）');
       }
       pay = (a, i) => (i === 5 ? 0xBB : i);
       await A.doRead(); await sleep(25);      /* 第三次：0x05 變成 BB */
@@ -1106,19 +1107,20 @@ function baseScript(f) {
         const c = A.cellParts(5);
         EQ(c.main, 'BB', '主值 ＝ 最新讀到的 BB');
         EQ(c.snap, '05', '🔴 左上 ＝ 快照值（第一次讀到的 05）');
-        EQ(c.old, 'AA', '🔴 右上 ＝ 被換出去的值（上一次讀到的 AA）');
+        EQ(c.old, null, '🔴 再讀一次仍然是狀態 1 ⇒ 右上空');
       }
     }
 
-    /* 視覺層次：主值要比兩個角落大。
-       🔴 位置很重要：**必須在任何 slotClick 之前**。三層同時存在只會出現在
-       「讀了三次、值變過兩次」這種自然狀態（主值 BB、左上 05、右上 AA）；
-       一旦開始輪替，正確行為就是其中一個角落是空的。 */
+    /* 視覺層次：主值要比角落大。
+       🔴 A／B 模型定案後，**三層永遠不會同時存在**（左上與右上互斥），
+       所以這裡只驗主值與「當下那個角落」的字級差。 */
     {
       const td = doc.querySelector('#dump td[data-addr="5"]');
       const mv = parseFloat(win.getComputedStyle(td.querySelector('.mv')).fontSize);
-      const sv = parseFloat(win.getComputedStyle(td.querySelector('.sv')).fontSize);
-      CHECK(!!td.querySelector('.ov'), '三層都在（主值／左上／右上）');
+      const corner = td.querySelector('.sv') || td.querySelector('.ov');
+      const sv = parseFloat(win.getComputedStyle(corner).fontSize);
+      CHECK(!!corner && !(td.querySelector('.sv') && td.querySelector('.ov')),
+            '🔴 只有一個角落有值（左上與右上不同時出現）');
       CHECK(mv > sv, '🔴 主值比角落小字大（' + mv + 'px vs ' + sv + 'px）—— 三個一樣大會看錯要燒哪個');
     }
 

@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c191"></script>
+<script src="common/version.js?v=20260919i2c1100"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1853,14 +1853,14 @@ async function i2ctOnRead(){
   var old = i2ctDev;
   var sameShape = old && old.bytes.length === res.bytes.length
                && old.base === v.off && old.awid === v.awid && old.slave === v.slave;
-  if (sameShape) {
-    /* 🔴 只標「真的變了」的格子。全部標起來的話，整片都會冒出跟主值一樣的
-       重複數字（第一版實際截圖就是那樣，很吵）。 */
-    i2ctPrevBytes = old.bytes;
-    i2ctPrevHas = new Uint8Array(old.bytes.length);
-    for (var pz = 0; pz < old.bytes.length; pz++)
-      i2ctPrevHas[pz] = (old.bytes[pz] !== res.bytes[pz]) ? 1 : 0;
-  } else { i2ctPrevBytes = null; i2ctPrevHas = null; }
+  /* 🔴 讀取一律回到**狀態 1**（主值＝讀回來的 B、左上＝快照 A、右上空）。
+     舊版在這裡把「上一次讀到的值」塞進右上當「被換出去的值」——
+     那是 A／B 模型定案前的舊語意，會造成**兩角同時有值**（主值≠A 又有右上），
+     正是 Bruce 說的「怎麼會有兩個同時出現的情況」。
+     現在右上只有一個意思：**狀態 2 時的 B**，只由點左上產生。
+     （要看「跟上次讀的差在哪」用 diff log 與洋紅標示，那條路沒有受影響。） */
+  i2ctPrevBytes = null; i2ctPrevHas = null;
+  void old; void sameShape;
   i2ctDev = i2ctMakeSet('dev', v.slave, v.awid, v.off, res.bytes);
   i2ctDev.allFF = allFF;
   /* 🔴 耗時一併記進 lastRead：它是「這一次讀取發生了什麼」的單一出口，
@@ -2237,7 +2237,9 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
       for (var i = 0; i < n; i++) {
         var ix = (base + done + i) - cs.base;
         if (ix >= 0 && ix < cs.bytes.length) {
-          i2ctPrevBytes[ix] = cs.bytes[ix]; i2ctPrevHas[ix] = 1;   /* 原值 ＝ 換出去的 */
+          /* 🔴 寫進去的值成為新的 B ⇒ 回到狀態 1（左上＝A、右上空）。
+             舊版在這裡把原值塞進右上，那是 A／B 模型定案前的語意。 */
+          i2ctPrevBytes[ix] = 0; i2ctPrevHas[ix] = 0;
           cs.bytes[ix] = d[done + i]; i2ctWroteFlags[ix] = 1;
           i2ctEnsureWrFail(cs);
           if (ix < i2ctDirty.length) i2ctDirty[ix] = 0;   /* 🔴 寫進去了 ⇒ 解除標示 */
@@ -2395,13 +2397,10 @@ function i2ctApplyFile(name, raw){
       + (i2ctDiffCount() ? '　🔴 ' + i2ctDiffCount() + ' 處與基準不同' : ''));
     /* 🔴 載入的檔案也跟當前 slave 的快照比（他先前的規則：不管是 load 檔案
        還是從裝置讀取，相同的位置都要比較）。一樣是**位址對位址**。 */
-    var oldF = i2ctFile;
-    if (oldF && oldF.bytes.length === bytes.length && oldF.base === i2ctFileBase) {
-      i2ctPrevBytes = oldF.bytes;
-      i2ctPrevHas = new Uint8Array(oldF.bytes.length);
-      for (var pz2 = 0; pz2 < oldF.bytes.length; pz2++)
-        i2ctPrevHas[pz2] = (oldF.bytes[pz2] !== bytes[pz2]) ? 1 : 0;
-    } else { i2ctPrevBytes = null; i2ctPrevHas = null; }
+    /* 🔴 載入新檔一律回到**狀態 1**（主值＝新載入的 B、左上＝快照 A、右上空）。
+       舊版把「上一份檔案的值」塞進右上，會造成兩角同時有值 —— 見 render 那段的
+       A／B 模型說明。與快照的比較照舊（左上、diff 洋紅、diff log 都沒受影響）。 */
+    i2ctPrevBytes = null; i2ctPrevHas = null;
     i2ctFile = i2ctMakeSet('file', vin.slave, i2ctFileAwid, i2ctFileBase, bytes, file.name);
     i2ctWroteFlags = null;
     i2ctIngest(i2ctFile);
@@ -2677,14 +2676,29 @@ function i2ctRenderTable(){
            左上 ＝ **快照值**（基準）—— 只有與基準可比、而且值不同時才顯示
            右上 ＝ **被換出去的值** —— 這一格在變成現在這個值之前是什麼
          只有在「跟現在不一樣」時才印，否則三個一樣的數字疊在一起只會干擾。 */
+      /* ═══ 🔴 A／B 兩狀態模型（Bruce 2026-09-19 第三次定義，逐字照做）═══════
+           **A ＝ 快照值**，恆定，只有重新快照才會變。
+           **B ＝ 改變後的值**，每次修改都更新。
+           只有兩種狀態，**左上與右上絕不同時出現**：
+             狀態 1：主值 ＝ B ｜ 左上 ＝ A ｜ 右上 空
+             狀態 2：主值 ＝ A ｜ 左上 空   ｜ 右上 ＝ B
+           A 與 B 相等 ⇒ 兩角都空（沒有可切換的東西）。
+
+         🔴 以前的寫法是「三個槽各自判斷有沒有值」，所以會出現兩角同時有值
+            （主值 ≠ 快照，又剛好有換出值）。現在改成**由狀態推導顯示**：
+            `i2ctPrevHas[idx]` 就是狀態旗標（1 ＝ 狀態 2），顯示完全由它決定，
+            **結構上不可能兩個同時出現**。 */
       var inner = has ? ('<span class="mv">' + i2ctHex(v) + '</span>') : '';
-      if (has && refBytes && idx < refBytes.length && refBytes[idx] !== v)
-        inner += '<span class="sv" title="快照值（點一下換成主值）">' + i2ctHex(refBytes[idx]) + '</span>';
-      /* 🔴 雜訊在**來源**就處理掉了（只有真的變過的格子才有換出值），所以這裡
-         不再額外抑制 —— 抑制掉的話三槽輪替就沒得點了（右上不見 ＝ 換不回來）。 */
-      if (has && i2ctPrevBytes && idx < i2ctPrevBytes.length && i2ctPrevHas[idx]
-          && i2ctPrevBytes[idx] !== v)
-        inner += '<span class="ov" title="被換出去的值（點一下換回來）">' + i2ctHex(i2ctPrevBytes[idx]) + '</span>';
+      var hasA = has && refBytes && idx < refBytes.length;
+      var inState2 = has && i2ctPrevHas && idx < i2ctPrevHas.length && i2ctPrevHas[idx];
+      if (inState2) {
+        /* 狀態 2：主值是 A，B 收在 prev ⇒ 只顯示右上 */
+        if (i2ctPrevBytes[idx] !== v)
+          inner += '<span class="ov" title="改變後的值 B（點一下換回來）">' + i2ctHex(i2ctPrevBytes[idx]) + '</span>';
+      } else if (hasA && refBytes[idx] !== v) {
+        /* 狀態 1：主值是 B ⇒ 只顯示左上的 A */
+        inner += '<span class="sv" title="快照值 A（點一下換成主值）">' + i2ctHex(refBytes[idx]) + '</span>';
+      }
       html += '<td class="' + cls.join(' ') + '" data-idx="' + idx + '" data-addr="' + addr + '" title="' + title + '">'
             + inner + '</td>';
     }
@@ -2916,10 +2930,9 @@ function i2ctNoteCellChange(d, idx, newByte){
     i2ctPrevBytes = new Uint8Array(d.bytes.length);
     i2ctPrevHas = new Uint8Array(d.bytes.length);
   }
-  var refB = (i2ctRef && i2ctComparable(i2ctRef, d)) ? i2ctRef.bytes : null;
-  var haveSnap = !!(refB && idx < refB.length);
-  if (haveSnap) { i2ctPrevHas[idx] = 0; i2ctPrevBytes[idx] = 0; }   /* 左上負責顯示，右上留給切換 */
-  else { i2ctPrevBytes[idx] = d.bytes[idx]; i2ctPrevHas[idx] = 1; } /* 沒有快照 ⇒ 原值進右上 */
+  /* 🔴 改值 ⇒ **一律回到狀態 1**（主值＝新的 B、左上＝A、右上空）。
+     A 不動（只有重新快照才會變），新輸入的值就是新的 B。 */
+  i2ctPrevHas[idx] = 0; i2ctPrevBytes[idx] = 0;
   void newByte;
 }
 

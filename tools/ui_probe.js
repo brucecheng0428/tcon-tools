@@ -221,6 +221,71 @@
        document.querySelector('.legend').textContent.replace(/\s+/g, ' ').trim());
 
     stage(10);
+    /* ── 路徑 12：🔴 A／B 兩狀態（Bruce 2026-09-19 第三次定義，逐條照走）──────
+       A ＝ 快照值（恆定）、B ＝ 改變後的值（隨修改更新）。
+       狀態 1：主值 B、左上 A、右上空 ｜ 狀態 2：主值 A、左上空、右上 B。
+       **左上與右上絕不同時出現。** */
+    {
+      const P = (i) => A.cellParts(i);
+      const both = (i) => { const p = P(i); return !!(p && p.snap !== null && p.old !== null); };
+      A._reset();
+      A.loadFile('ab.bin', new Uint8Array(Array.from({ length: 64 }, () => 0x11)));
+      await sleep(80);
+      A.snapshot(); await sleep(40);
+      ok('12-1 快照（值 A=11）⇒ 兩角都空', P(2) && P(2).snap === null && P(2).old === null, JSON.stringify(P(2)));
+      /* 改成 B = 0x22 */
+      click(cellAt(2)); await sleep(60);
+      let e = document.querySelector('#dump td.edit input');
+      if (e) { e.value = '22'; e.dispatchEvent(new Event('input', { bubbles: true })); key(e, 'Enter'); await sleep(90); }
+      ok('12-2 改成 B=22 ⇒ 主值 22、左上 11、右上空',
+         P(2).main === '22' && P(2).snap === '11' && P(2).old === null, JSON.stringify(P(2)));
+      /* 點左上 ⇒ 狀態 2 */
+      A.slotClick(2, 'sv'); await sleep(50);
+      ok('12-3 點左上 ⇒ 主值 11、左上空、右上 22',
+         P(2).main === '11' && P(2).snap === null && P(2).old === '22', JSON.stringify(P(2)));
+      /* 點右上 ⇒ 回狀態 1 */
+      A.slotClick(2, 'ov'); await sleep(50);
+      ok('12-4 點右上 ⇒ 主值 22、左上 11、右上空',
+         P(2).main === '22' && P(2).snap === '11' && P(2).old === null, JSON.stringify(P(2)));
+      /* 來回 10 次，每次都檢查兩角不同時有值 */
+      let loopOk = true, everBoth = false;
+      for (let i = 0; i < 10; i++) {
+        A.slotClick(2, 'sv');
+        if (both(2)) everBoth = true;
+        if (!(P(2).main === '11' && P(2).snap === null && P(2).old === '22')) { loopOk = false; break; }
+        A.slotClick(2, 'ov');
+        if (both(2)) everBoth = true;
+        if (!(P(2).main === '22' && P(2).snap === '11' && P(2).old === null)) { loopOk = false; break; }
+      }
+      await sleep(40);
+      ok('12-5a 來回 10 次每次狀態都正確', loopOk, JSON.stringify(P(2)));
+      ok('12-5b 🔴 全程沒有任何一刻兩角同時有值', !everBoth);
+      /* 在狀態 2（主值 A）再改成 C ⇒ A 不變、C 成為新的 B、回狀態 1 */
+      A.slotClick(2, 'sv'); await sleep(50);
+      ok('12-6a 前置：先回到狀態 2（主值＝A）', P(2).main === '11', P(2).main);
+      click(cellAt(2)); await sleep(60);
+      e = document.querySelector('#dump td.edit input');
+      if (e) { e.value = '33'; e.dispatchEvent(new Event('input', { bubbles: true })); key(e, 'Enter'); await sleep(90); }
+      ok('12-6b 改成 C=33 ⇒ 主值 33、左上仍是 A=11、右上空',
+         P(2).main === '33' && P(2).snap === '11' && P(2).old === null, JSON.stringify(P(2)));
+      ok('12-6c 🔴 A 沒有變（只有重新快照才會變）', A.refBytesAt(2) === 0x11, A.refBytesAt(2));
+      /* 重新快照 ⇒ A 更新成當前值、兩角清空 */
+      A.snapshot(); await sleep(50);
+      ok('12-7a 重新快照 ⇒ A 更新成 33', A.refBytesAt(2) === 0x33, A.refBytesAt(2));
+      ok('12-7b 重新快照 ⇒ 兩角都空', P(2).snap === null && P(2).old === null, JSON.stringify(P(2)));
+      /* A 與 B 相等 ⇒ 兩角都空 */
+      click(cellAt(2)); await sleep(60);
+      e = document.querySelector('#dump td.edit input');
+      if (e) { e.value = '33'; e.dispatchEvent(new Event('input', { bubbles: true })); key(e, 'Enter'); await sleep(90); }
+      ok('12-8 A 與 B 相等 ⇒ 兩角都空', P(2).snap === null && P(2).old === null, JSON.stringify(P(2)));
+      /* 整張表：任何時刻都不該有格子兩角同時有值 */
+      let anyBoth = 0;
+      document.querySelectorAll('#dump td[data-idx]').forEach((td) => {
+        if (td.querySelector('.sv') && td.querySelector('.ov')) anyBoth++;
+      });
+      ok('12-9 🔴 整張表沒有任何一格兩角同時有值', anyBoth === 0, anyBoth);
+    }
+
     /* ── 路徑 11：🔴 三槽走「手動改值」這條路（Bruce 2026-09-19 實測壞掉）──────
        他的操作順序：已中斷 → 讀 256 byte → 按快照 → 改值 →
        期望「左上出現快照值」，實際兩個角落都沒有。
