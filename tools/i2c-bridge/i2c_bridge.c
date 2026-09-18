@@ -107,6 +107,9 @@ int dgh_fast_read = 1;
 int dgh_raw_mpsse = 0;
 /* 🔴 預設 0：v1.11.0 無條件做這件事導致完全連不上（見 i2c_force_clock 的註解）。 */
 int dgh_force_clock = 0;
+/* 見 i2c_bridge_proto.h 的說明：0 ＝ 維持既有的 0x03/0x01；1 ＝ FTDI 範例的 0x0B/0x09。
+   預設 0 —— 沒有證據之前不改變既有行為。 */
+int dgh_ad3_out = 0;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -1303,6 +1306,8 @@ int main(int argc, char** argv){
            用這個旗標退回 PQ Tool 原本的逐 byte 讀法，不必換 exe。 */
         else if(strcmp(argv[i],"--slow-read")==0) dgh_fast_read=0;
         else if(strcmp(argv[i],"--raw-mpsse")==0) dgh_raw_mpsse=1;
+        /* 方向位元改用 FTDI 範例的 0x0B/0x09（多驅動 AD3）。預設不開，見 proto.h。 */
+        else if(strcmp(argv[i],"--ad3-out")==0) dgh_ad3_out=1;
         /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
         else if(strcmp(argv[i],"--force-clock")==0) dgh_force_clock=1;
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
