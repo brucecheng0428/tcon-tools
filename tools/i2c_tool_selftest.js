@@ -200,7 +200,7 @@ function baseScript(f) {
   EQ(A.pagesOf(0x0000, 257, 2), [0x0000, 0x0100], '多 1 byte ＝ 2 頁');
   EQ(A.pagesOf(0x0000, 4096, 2).length, 16, '上限 4096 byte ＝ 16 頁');
   EQ(A.pagesOf(0xF0, 300, 1), [0x0000], '1 byte 位址：全部回繞進同一頁');
-  EQ(A.MAX_LEN, 4096, '一次上限 4096 byte');
+  EQ(A.MAX_LEN, 262144, '🔴 一次上限拉到 256K（Bruce：檔案可能到 256K byte）');
 
   /* ═════════════════════════════════════════════════════════════════════ */
   G('4. 全 0xFF ＝ 總線閒置（實機證據：slave 0x60/0x61/0x69 都回 FF FF FF）');
@@ -266,26 +266,31 @@ function baseScript(f) {
     EQ([st.buf[0x1234], st.buf[0x1235], st.buf[0x1236]], [0x10, 0x11, 0x12], '資料落在 0x1234–0x1236');
     CHECK(st.buf[0x1233] === undefined, '起始位址之前的格子沒被填（留空，不補 0）');
     CHECK(st.buf[0x1237] === undefined, '結束位址之後的格子沒被填');
-    EQ(st.pages, [0x1200], '只有 0x1200 這一頁');
+    /* 🔴 分頁對齊到**絕對位址的 256 邊界** —— Bruce 指定的輸入格長相
+       （`0x` ＋ 頁碼 ＋ 固定的 `00`）要求末兩位永遠是 00，所以頁首必須對齊。
+       起點不在邊界上時，第 0 頁前面那幾格是空的。 */
+    EQ(st.pages, [0x1200], '只有一頁，頁首對齊到 0x1200');
 
     /* 表格內容：直接讀 DOM，元素存在 ≠ 值正確 */
     const cells = doc.querySelectorAll('#dump td');
     EQ(cells.length, 256, '表格恰好 16×16 ＝ 256 格');
-    const byKey = {};
-    cells.forEach(td => { byKey[td.getAttribute('data-key')] = td; });
-    EQ(byKey['4660'].textContent, '10', '0x1234 格顯示 10');
-    EQ(byKey['4661'].textContent, '11', '0x1235 格顯示 11');
-    EQ(byKey['4662'].textContent, '12', '0x1236 格顯示 12');
-    EQ(byKey['4659'].textContent, '', '0x1233 格是空的');
-    CHECK(byKey['4660'].className.indexOf('has') >= 0, '有值的格子帶 has 樣式');
-    CHECK(byKey['4659'].className.indexOf('has') < 0, '沒值的格子不帶 has 樣式');
-    CHECK((byKey['4660'].getAttribute('title') || '').indexOf('0x1234') === 0, '每格 title 帶得出位址：' + byKey['4660'].getAttribute('title'));
+    /* 🔴 v1.4.0：格子改用 data-addr（絕對位址）與 data-idx（相對索引）標記，
+       data-key 已經不存在 —— 資料層換成 Uint8Array，key 不再是識別方式。 */
+    const byAddr = {};
+    cells.forEach(td => { byAddr[td.getAttribute('data-addr')] = td; });
+    EQ(byAddr['4660'].textContent, '10', '0x1234 格顯示 10');
+    EQ(byAddr['4661'].textContent, '11', '0x1235 格顯示 11');
+    EQ(byAddr['4662'].textContent, '12', '0x1236 格顯示 12');
+    EQ(byAddr['4663'].textContent, '', '0x1237 格是空的（讀取範圍外）');
+    CHECK(byAddr['4660'].className.indexOf('has') >= 0, '有值的格子帶 has 樣式');
+    CHECK(byAddr['4663'].className.indexOf('has') < 0, '沒值的格子不帶 has 樣式');
+    CHECK((byAddr['4660'].getAttribute('title') || '').indexOf('0x1234') === 0, '每格 title 帶得出位址：' + byAddr['4660'].getAttribute('title'));
     /* 列／欄表頭：列＝高位 nibble、欄＝低位 nibble */
     const ths = Array.from(doc.querySelectorAll('#dump tr:first-child th')).map(t => t.textContent);
     EQ(ths.slice(1), ['+0', '+1', '+2', '+3', '+4', '+5', '+6', '+7', '+8', '+9', '+A', '+B', '+C', '+D', '+E', '+F'], '欄表頭 +0…+F');
     const rowh = Array.from(doc.querySelectorAll('#dump th.rh')).map(t => t.textContent).filter(s => s);
     EQ(rowh.length, 16, '16 個列表頭');
-    EQ(rowh[0], '0x1200', '第一列表頭 0x1200');
+    EQ(rowh[0], '0x1200', '第一列表頭 0x1200（對齊）');
     EQ(rowh[3], '0x1230', '第四列表頭 0x1230');
     EQ(rowh[15], '0x12F0', '最後一列表頭 0x12F0');
   }
@@ -350,7 +355,7 @@ function baseScript(f) {
     CHECK(logtxt.indexOf('DE AD BE') >= 0, 'log 記了寫進去的 byte');
     const st = A.state();
     EQ([st.buf[0], st.buf[1], st.buf[2]], [0xDE, 0xAD, 0xBE], '寫過的值反映在表格上');
-    CHECK(st.wrote[0] === true, '寫過的格子有標記');
+    CHECK(A.wroteAt(0) === true, '寫過的格子有標記');
     /* 更高位址也不擋 */
     A.setInputs({ off: '0xFFFF', data: 'FF' });
     await A.doWrite(); await sleep(15);
@@ -401,7 +406,7 @@ function baseScript(f) {
     await A.doRead(); await sleep(20);
     CHECK(A.state().lastRead.allFF === true, '整批 FF 被判為閒置');
     CHECK(doc.getElementById('readbanner').textContent.indexOf('總線閒置') >= 0, '橫幅明說總線閒置、不是有效資料');
-    const c0 = doc.querySelector('#dump td[data-key="0"]');
+    const c0 = doc.querySelector('#dump td[data-addr="0"]');
     CHECK(c0.className.indexOf('bus') >= 0, '閒置時格子用 bus 樣式（與資料中的 FF 區分）');
 
     /* 反面：夾雜一個非 FF 就不能判閒置，格子要回到一般的 ff 樣式 */
@@ -410,7 +415,7 @@ function baseScript(f) {
     }));
     await A.doRead(); await sleep(20);
     CHECK(A.state().lastRead.allFF === false, '夾雜非 FF → 不判閒置');
-    const c1 = doc.querySelector('#dump td[data-key="1"]');
+    const c1 = doc.querySelector('#dump td[data-addr="1"]');
     CHECK(c1.className.indexOf('bus') < 0 && c1.className.indexOf('ff') >= 0, '資料中的 FF 用 ff 樣式，不是 bus');
   }
 
@@ -424,14 +429,17 @@ function baseScript(f) {
     await A.doRead(); await sleep(30);
     EQ(A.state().pages, [0x0000, 0x0100], '512 byte ＝ 2 頁');
     EQ(doc.querySelectorAll('#dump td').length, 256, '畫面上永遠只有一個 16×16（256 格）');
-    EQ(doc.getElementById('pagesel').options.length, 2, '分頁下拉有 2 個選項');
+    /* 🔴 v1.4.0：分頁下拉換成「填位址跳頁」的輸入框（256K ＝ 1024 頁，
+       下拉放 1024 個選項是不能用的）。這裡改驗頁數與標籤。 */
+    EQ(A.pageCount(), 2, '共 2 頁');
+    EQ(A.pageLabels(), ['0x0000 – 0x00FF', '0x0100 – 0x01FF'], '兩頁的範圍標示');
     CHECK(doc.getElementById('btn-prev').disabled === true, '第一頁時「上一頁」停用');
     CHECK(doc.getElementById('btn-next').disabled === false, '還有下一頁時「下一頁」可按');
-    EQ(doc.querySelector('#dump td[data-key="0"]').textContent, '00', '第一頁 0x0000 = 00');
+    EQ(doc.querySelector('#dump td[data-addr="0"]').textContent, '00', '第一頁 0x0000 = 00');
     doc.getElementById('btn-next').dispatchEvent(new win.Event('click'));
     await sleep(10);
     EQ(A.state().pageIdx, 1, '按下一頁 → 換到第 2 頁');
-    EQ(doc.querySelector('#dump td[data-key="256"]').textContent, '00', '第二頁 0x0100 = 00（低位 byte 回繞）');
+    EQ(doc.querySelector('#dump td[data-addr="256"]').textContent, '00', '第二頁 0x0100 = 00（低位 byte 回繞）');
     const rh = Array.from(doc.querySelectorAll('#dump th.rh')).map(t => t.textContent).filter(s => s);
     EQ(rh[0], '0x0100', '第二頁第一列表頭 0x0100');
     CHECK(doc.getElementById('btn-next').disabled === true, '最後一頁時「下一頁」停用');
@@ -813,87 +821,323 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
-  G('19c. 快照與差異：slave 一變就作廢，下次讀取重新快照');
+  G('19c. 基準與差異：可比才比，不可比就成為新基準');
   {
-    /* 🔴 規則以 Bruce 當晚的更正為準：**只有一份基準**，slave 一改就作廢。
-       切回先前用過的 slave **不是**沿用舊基準，而是重新建立。 */
-    let payload = [0x11, 0x22, 0x33, 0x44];
+    /* 🔴 Bruce 2026-09-18 的最終規則：
+         檔案↔I2C、檔案↔檔案：**只看長度**（他明講「不管是 0x50 還是 0x68，
+           讀回來都是跟檔案做比較」⇒ slave 不列入）
+         I2C↔I2C：長度＋slave＋起始 offset＋offset 寬度 都要相同
+       不可比 ⇒ 新資料成為新基準，無 highlight。 */
+    const mk = (n, f) => { const u = new win.Uint8Array(n); for (let i = 0; i < n; i++) u[i] = f(i); return u; };
+    let payload = null;
     const script = baseScript((m) => {
-      if (m.type === 'read') return { ok: true, status: 0, data: payload.slice(0, m.len) };
+      if (m.type === 'read') {
+        const d = []; for (let i = 0; i < m.len; i++) d.push(payload((m.addr + i) & 0xFFFFFFFF, i));
+        return { ok: true, status: 0, data: d };
+      }
     });
+
+    /* ── 純函式：可比性 ─────────────────────────────────────────────────── */
+    const F4 = A.makeSet('file', 0x68, 2, 0, mk(4, i => i), 'a.bin');
+    const D4 = A.makeSet('dev', 0x68, 2, 0, mk(4, i => i));
+    const D4b = A.makeSet('dev', 0x50, 2, 0, mk(4, i => i));
+    const D4c = A.makeSet('dev', 0x68, 2, 0x100, mk(4, i => i));
+    const D4d = A.makeSet('dev', 0x68, 1, 0, mk(4, i => i));
+    const D8 = A.makeSet('dev', 0x68, 2, 0, mk(8, i => i));
+    CHECK(A.comparable(F4, D4), '檔案 ↔ I2C 同長度 ⇒ 可比');
+    CHECK(A.comparable(F4, D4b), '🔴 檔案 ↔ I2C **不看 slave**（他明講）');
+    CHECK(A.comparable(F4, A.makeSet('file', 0, 2, 0, mk(4, i => i), 'b.bin')), '檔案 ↔ 檔案同長度 ⇒ 可比');
+    CHECK(!A.comparable(F4, D8), '長度不同 ⇒ 不可比（任何組合）');
+    CHECK(A.comparable(D4, A.makeSet('dev', 0x68, 2, 0, mk(4, i => i))), 'I2C ↔ I2C 全同 ⇒ 可比');
+    CHECK(!A.comparable(D4, D4b), '🔴 I2C ↔ I2C：slave 不同 ⇒ 不可比');
+    CHECK(!A.comparable(D4, D4c), '🔴 I2C ↔ I2C：起始 offset 不同 ⇒ 不可比（我補的那一條）');
+    CHECK(!A.comparable(D4, D4d), '🔴 I2C ↔ I2C：offset 寬度不同 ⇒ 不可比（我補的那一條）');
+
+    /* ── 端到端：檔案(16) → I2C(16) ⇒ 比較，且不看 slave ─────────────────── */
     await useHelper(script);
     A.clearFile();
-
-    /* ① 讀 0x68（基準不存在）⇒ 建立、無 highlight */
-    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    A.loadFile('base.bin', mk(16, i => i));
+    await sleep(20);
+    EQ(A.refKind(), 'file', '第一次載入檔案 ⇒ 檔案成為基準');
+    EQ(A.diffCount(), 0, '第一次載入沒有比較對象 ⇒ 0');
+    payload = (a, i) => (i === 3 ? 0xFF : i);            /* 只有第 3 個 byte 不同 */
+    A.setInputs({ slave: '0x50', len: '16' });           /* 🔴 故意換 slave */
     await A.doRead(); await sleep(25);
-    CHECK(A.hasSnap(0x68), '🔴 首次讀 0x68 ⇒ 建立基準');
-    EQ(A.diffCount(), 0, '🔴 首次讀沒有 highlight（沒有比較對象）');
-    EQ(A.diffCells(), 0, '畫面上也沒有 diff 格子');
+    EQ(A.refKind(), 'file', '🔴 I2C 讀回同長度 ⇒ 仍拿檔案當基準（不看 slave）');
+    EQ(A.diffCount(), 1, '🔴 檔案 ↔ I2C 比出 1 處不同');
+    EQ(A.diffKeys(), [3], '差異在索引 3');
+
+    /* ── 檔案(16) → I2C(4) ⇒ 長度不同，不比較，I2C 成為新基準 ─────────────── */
+    payload = (a, i) => 0x00;
+    A.setInputs({ len: '4' });
+    await A.doRead(); await sleep(25);
+    EQ(A.refKind(), 'dev', '🔴 長度不同 ⇒ 不比較，這次 I2C 成為新基準');
+    EQ(A.diffCount(), 0, '不可比 ⇒ 沒有 highlight');
+
+    /* ── I2C(4) → 檔案(4) ⇒ 比較，且檔案**不會**變成新基準 ────────────────── */
+    A.loadFile('cmp.bin', mk(4, i => (i === 1 ? 0x77 : 0x00)));
+    await sleep(20);
+    EQ(A.refKind(), 'dev', '🔴 載入同長度的檔案 ⇒ 基準仍是先前那次 I2C 讀取');
+    EQ(A.diffCount(), 1, '🔴 檔案與 I2C 基準比出 1 處');
+    EQ(A.diffKeys(), [1], '差異在索引 1');
+
+    /* ── 檔案 → 檔案（同長度 ⇒ 比較；不同長度 ⇒ 新基準）───────────────────── */
+    A.snapshot();                                        /* 把當前檔案定為基準 */
+    EQ(A.refKind(), 'file', '按快照 ⇒ 當前那一份成為基準');
+    EQ(A.diffCount(), 0, '🔴 按快照的同時 diff 清零');
+    A.loadFile('f2.bin', mk(4, i => (i === 1 ? 0x77 : (i === 3 ? 0x99 : 0x00))));
+    await sleep(20);
+    EQ(A.diffCount(), 1, '🔴 檔案 ↔ 檔案（同長度）⇒ 比較');
+    A.loadFile('f3.bin', mk(8, i => 0));
+    await sleep(20);
+    EQ(A.diffCount(), 0, '檔案 ↔ 檔案（長度不同）⇒ 不比較');
+    EQ(A.refLabel().indexOf('f3.bin') >= 0, true, '新檔案成為基準：' + A.refLabel());
+
+    /* ── 讀取失敗的資料不得成為基準、也不得參與比較 ──────────────────────── */
     {
-      const b = doc.getElementById('readbanner').textContent;
-      CHECK(b.indexOf('快照') < 0, '🔴 自動快照靜默（畫面上不提它）：' + b.slice(0, 40));
-      CHECK(doc.getElementById('log').textContent.indexOf('自動建立快照') >= 0, '🔴 但 log 有記');
+      const refBefore = A.refLabel();
+      await useHelper(baseScript((m) => { if (m.type === 'read') return { ok: false, status: 7, data: [] }; }));
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '8' });
+      await A.doRead(); await sleep(25);
+      EQ(A.refLabel(), refBefore, '🔴 讀取失敗 ⇒ 基準保持原樣');
+      EQ(A.diffCount(), 0, '🔴 失敗的資料不參與比較');
     }
 
-    /* ② 再讀 0x68、資料不同 ⇒ highlight */
-    payload = [0x11, 0x99, 0x33, 0x88];
-    await A.doRead(); await sleep(25);
-    EQ(A.diffCount(), 2, '🔴 第二次讀 ⇒ 2 處不同');
-    EQ(A.diffKeys(), [0x0001, 0x0003], '🔴 差異在 0x0001 與 0x0003（位址，不是索引）');
-    EQ(A.diffCells(), 2, '畫面上剛好 2 個 diff 格子');
-    CHECK(doc.getElementById('readbanner').textContent.indexOf('2 處與上次不同') >= 0, '有差異才講一句');
-
-    /* ③ 改成 0x50 ⇒ 基準作廢；讀一次 ⇒ 無 highlight */
-    payload = [0xAA, 0xBB, 0xCC, 0xDD];
-    A.setInputs({ slave: '0x50' });
-    CHECK(!A.hasSnap(0x68) && !A.hasSnap(0x50), '🔴 slave 一改，基準立刻作廢（還沒讀就作廢）');
-    await A.doRead(); await sleep(25);
-    CHECK(A.hasSnap(0x50), '讀 0x50 ⇒ 建立新基準');
-    EQ(A.diffCount(), 0, '🔴 新 slave 首次讀沒有 highlight');
-
-    /* ④ 🔴 改回 0x68 ⇒ **重新建立**，不是沿用舊的那份 */
-    payload = [0x11, 0x99, 0x33, 0x88];        /* 與 0x68 舊基準不同的那一份 */
-    A.setInputs({ slave: '0x68' });
-    CHECK(!A.hasSnap(0x68), '🔴 切回 0x68 時基準再次作廢');
-    await A.doRead(); await sleep(25);
-    EQ(A.diffCount(), 0,
-       '🔴🔴 切回 0x68 讀一次 ⇒ **無 highlight**（證明是重新快照，不是拿舊的來比）');
-    /* ⑤ 再讀一次才有比較對象 */
-    payload = [0x11, 0x00, 0x33, 0x00];
-    await A.doRead(); await sleep(25);
-    EQ(A.diffCount(), 2, '🔴 再讀一次才出現差異（2 處）');
-
-    /* ⑥ 位址對位址：讀另一段不會錯位相比 */
-    payload = [0x11, 0x00, 0x33, 0x00];
-    A.setInputs({ off: '0x0100' });
-    await A.doRead(); await sleep(25);
-    EQ(A.diffCount(), 0,
-       '🔴 讀 0x0100–0x0103 不會跟基準的 0x0000–0x0003 相比（位址對位址）');
-
-    /* ⑦ 手動重設快照 */
-    A.setInputs({ off: '0x0000' });
-    payload = [0xFF, 0xEE, 0xDD, 0xCC];
-    await A.doRead(); await sleep(25);
-    CHECK(A.diffCount() > 0, '改回 0x0000 又讀到不同的值 ⇒ 有差異');
-    doc.getElementById('btn-snap').click();
-    EQ(A.diffCount(), 0, '按「重設快照」 ⇒ 差異歸零');
-    EQ(A.diffCells(), 0, '畫面上的 diff 也清掉');
-    await A.doRead(); await sleep(25);
-    EQ(A.diffCount(), 0, '🔴 重設之後再讀同一份資料 ⇒ 0 處不同（新基準生效）');
-
-    /* ⑧ 載入檔案也跟基準比 */
+    /* ── diff log 的內容與兩顆手動按鈕 ──────────────────────────────────── */
+    await useHelper(script);
+    A.clearFile();
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    A.loadFile('g1.bin', mk(16, i => i));
+    await sleep(20);
+    A.loadFile('g2.bin', mk(16, i => (i === 1 ? 0xA5 : i)));
+    await sleep(20);
+    EQ(A.diffCount(), 1, '兩個同長度的檔案，只有 0x0001 不同 ⇒ 只列一筆');
+    EQ(doc.getElementById('diffcount').textContent, '1', '🔴 差異總數顯示在標題列');
     {
-      A.loadFile('same.bin', new win.Uint8Array([0xFF, 0xEE, 0xDD, 0xCC]));
-      await sleep(20);
-      EQ(A.diffCount(), 0, '載入與基準相同的檔案 ⇒ 0 處不同');
-      A.loadFile('diff.bin', new win.Uint8Array([0xFF, 0x00, 0xDD, 0x00]));
-      await sleep(20);
-      EQ(A.diffCount(), 2, '🔴 載入檔案也會與裝置基準比對（2 處不同）');
-      EQ(A.diffKeys(), [0x0001, 0x0003], '差異位址正確');
-      EQ(A.diffCells(), 2, '檔案檢視裡也看得到 diff 標記');
+      const rows = doc.querySelectorAll('#diffrows .diffrow');
+      EQ(rows.length, 1, 'diff log 只有一列');
+      const t = rows[0].textContent;
+      CHECK(t.indexOf('0x0001') >= 0, '🔴 列出位址：' + t);
+      CHECK(t.indexOf('01') >= 0 && t.indexOf('A5') >= 0, '🔴 列出兩邊的值（基準 → 現在）：' + t);
+    }
+    doc.getElementById('btn-clrdiff').click();
+    EQ(A.diffCount(), 0, '「清除」只清 log');
+    CHECK(A.refLabel() !== null, '「清除」不動基準');
+    doc.getElementById('btn-recmp').click();
+    EQ(A.diffCount(), 1, '「重新比較」拿當前資料再比一次 ⇒ 1 處');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19c2. 256K 規模：分頁、位址寬度、虛擬捲動不卡');
+  {
+    const N = 262144;
+    const big = new win.Uint8Array(N);
+    for (let i = 0; i < N; i++) big[i] = i & 0xFF;
+    A.clearFile();
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    const t0 = Date.now();
+    A.loadFile('big.bin', big);
+    await sleep(30);
+    const tLoad = Date.now() - t0;
+    EQ(A.fileState().len, N, '256K 檔案載進來了');
+    EQ(A.pageCount(), 1024, '🔴 262144 byte ⇒ 1024 頁');
+    EQ(A.addrDigits(), 5, '🔴 位址寬度 5 位（0x3FFFF），且同一份資料集內一致');
+    EQ(A.pageLabel(0), '0x00000 – 0x000FF', '🔴 第 0 頁範圍');
+    EQ(A.pageLabel(1023), '0x3FF00 – 0x3FFFF', '🔴 第 1023 頁範圍');
+    EQ(doc.querySelectorAll('#dump td').length, 256, '畫面上永遠只有 256 格（只渲染當前頁）');
+    CHECK(tLoad < 5000, '載入 256K 的耗時（含解析與渲染）：' + tLoad + ' ms');
+
+    /* 跳頁 */
+    CHECK(A.jumpTo('0x3FF00'), '跳到最後一頁');
+    EQ(A.pageIdx(), 1023, '真的到第 1023 頁');
+    CHECK(A.jumpTo('0x00123'), '填未對齊的完整位址（5 位 ⇒ 當位址）');
+    EQ(A.pageIdx(), 1, '🔴 0x00123 自動對齊到 0x00100 那一頁');
+    CHECK(A.jumpTo('3FF'), '填 3 位 ⇒ 當頁碼');
+    EQ(A.pageIdx(), 1023, '🔴 頁碼 3FF ＝ 第 1023 頁');
+    CHECK(A.jumpTo('ff'), '省略前導零');
+    EQ(A.pageIdx(), 255, '頁碼 0FF ＝ 第 255 頁');
+    CHECK(A.jumpTo('0x99999'), '超出範圍');
+    EQ(A.pageIdx(), 1023, '🔴 超出範圍 ⇒ 夾到最後一頁，不報錯');
+
+    /* 🔴 最壞情況：256K 全差異 —— 計算與渲染都要撐得住 */
+    const other = new win.Uint8Array(N);
+    for (let i = 0; i < N; i++) other[i] = (big[i] + 1) & 0xFF;      /* 每一個都不同 */
+    A.snapshot();
+    const t1 = Date.now();
+    A.loadFile('big2.bin', other);
+    await sleep(40);
+    const tDiff = Date.now() - t1;
+    EQ(A.diffCount(), N, '🔴 262144 處全部不同');
+    EQ(doc.getElementById('diffcount').textContent, String(N), '總數顯示正確');
+    const domRows = A.diffRowsDom();
+    CHECK(domRows > 0 && domRows < 200,
+      '🔴🔴 虛擬捲動：26 萬筆差異只建了 ' + domRows + ' 個 DOM 列（不是 262144 個）');
+    CHECK(tDiff < 8000, '最壞情況的比較＋渲染耗時：' + tDiff + ' ms');
+    A.clearFile();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19e. 頁碼輸入格（0x ▢▢▢ 00 ＋ 框內上下鍵）與十字定位');
+  {
+    const mk = (n, f) => { const u = new win.Uint8Array(n); for (let i = 0; i < n; i++) u[i] = f(i); return u; };
+    A.clearFile();
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    A.loadFile('p.bin', mk(262144, i => i & 0xFF));
+    await sleep(40);
+
+    /* ── 框內上下鍵：必須在輸入格**裡面**（Bruce 明講不可以做到框外）────── */
+    {
+      const box = doc.getElementById('pagebox');
+      CHECK(box.contains(doc.getElementById('page-up')) && box.contains(doc.getElementById('page-dn')),
+            '🔴 上下鍵在輸入格（.pagebox）裡面');
+      CHECK(box.contains(doc.getElementById('pagesel')), '可編輯的頁碼也在同一個框裡');
+      const fixes = Array.from(box.querySelectorAll('.fix')).map(e => e.textContent);
+      EQ(fixes, ['0x', '00'], '🔴 0x 與末兩位 00 是固定的（不可編輯）');
+      CHECK(doc.getElementById('pagesel').tagName === 'INPUT', '中間那幾位是可編輯的 input');
+    }
+    /* ── 上下鍵：一次 ±0x100 ────────────────────────────────────────────── */
+    A.jumpTo('010');
+    const a0 = A.pageIdx();
+    doc.getElementById('page-up').dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    EQ(A.pageIdx(), a0 + 1, '🔴 按上鍵一次 ⇒ 位址 +0x100');
+    doc.getElementById('page-dn').dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    EQ(A.pageIdx(), a0, '🔴 按下鍵一次 ⇒ 位址 −0x100');
+    /* 鍵盤 ↑↓ 與框內箭頭行為一致 */
+    const ev = k => { const e = new win.KeyboardEvent('keydown', { key: k, bubbles: true }); doc.getElementById('pagesel').dispatchEvent(e); };
+    ev('ArrowUp');   EQ(A.pageIdx(), a0 + 1, '鍵盤 ↑ 與上鍵一致');
+    ev('ArrowDown'); EQ(A.pageIdx(), a0, '鍵盤 ↓ 與下鍵一致');
+    /* 夾住、不繞回 */
+    A.jumpTo('000'); ev('ArrowDown'); EQ(A.pageIdx(), 0, '🔴 到頂夾住，不繞回');
+    A.jumpTo('3FF'); ev('ArrowUp');   EQ(A.pageIdx(), 1023, '🔴 到底夾住，不繞回');
+    /* 顯示：hex、位數一致 */
+    EQ(A.pageDigits(), 3, '🔴 1024 頁 ⇒ 頁碼 3 位（000~3FF），同一份資料內一致');
+    EQ(doc.getElementById('pagesel').value, '3FF', '輸入格顯示十六進位的頁碼');
+    CHECK(A.jumpTo('3ff'), '小寫也吃'); EQ(A.pageIdx(), 1023, '3ff ＝ 3FF');
+    CHECK(A.jumpTo('ff'), '省略前導零'); EQ(A.pageIdx(), 255, 'ff ＝ 0FF ＝ 第 255 頁');
+
+    /* ── 十字定位 ───────────────────────────────────────────────────────── */
+    A.jumpTo('000');
+    A.setCross(0x0033);
+    EQ(A.cross(), 0x0033, '十字中心 0x0033');
+    {
+      const cells = Array.from(doc.querySelectorAll('#dump td'));
+      const hl = cells.filter(td => td.classList.contains('xh'));
+      /* 第 3 列 16 格 ＋ 第 3 欄 16 格 − 交叉那一格重複 ＝ 31 */
+      EQ(hl.length, 31, '🔴 整列 16 ＋ 整欄 16 − 交叉 1 ＝ 31 格 highlight');
+      const c = doc.querySelector('#dump td[data-addr="51"]');
+      CHECK(c.classList.contains('xc'), '🔴 交叉中心就是 0x0033');
+      CHECK(doc.querySelectorAll('#dump th.xh').length >= 2, '列表頭與欄表頭也標出來');
+    }
+    /* 不在當前頁的位址 ⇒ 自動跳頁並與 spinner 連動 */
+    A.jumpTo('000');
+    A.setCross(0x0233);
+    EQ(A.pageIdx(), 2, '🔴 定位到不在當前頁的位址 ⇒ 自動跳到 0x0200 那一頁');
+    EQ(doc.getElementById('pagesel').value, '002', '🔴 spinner 同步更新');
+    CHECK(doc.querySelector('#dump td[data-addr="563"]').classList.contains('xc'), '十字落在正確位置');
+    /* 反向：點格子 ⇒ 十字出現、左上角輸入框顯示該格位址，且**不改值** */
+    {
+      const before = A.state().buf[563];
+      const td = doc.querySelector('#dump td[data-addr="600"]');
+      td.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      EQ(A.cross(), 600, '🔴 點格子 ⇒ 十字中心換到那一格');
+      EQ(doc.getElementById('xhair').value, '0x00258', '🔴 左上角輸入框顯示該格位址');
+      EQ(A.state().buf[563], before, '🔴 定位不會改到任何值（不會誤燒）');
+    }
+    /* 左上角輸入框的解析 */
+    EQ(A.crossParse('0x0233'), 0x0233, '完整位址');
+    EQ(A.crossParse('33'), 0x0233, '只填頁內偏移 ⇒ 補上當前頁首');
+    EQ(A.crossParse(''), null, '空字串 ⇒ 不定位');
+    A.clearFile();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19f. 一格三層：主值／左上快照值／右上換出值');
+  {
+    const mk = (n, f) => { const u = new win.Uint8Array(n); for (let i = 0; i < n; i++) u[i] = f(i); return u; };
+    A.clearFile();
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    A.loadFile('v1.bin', mk(16, i => i));
+    await sleep(20);
+    A.snapshot();                                  /* v1 成為基準 */
+    A.loadFile('v2.bin', mk(16, i => (i === 5 ? 0xAA : i)));
+    await sleep(20);
+    {
+      const c = A.cellParts(5);
+      EQ(c.main, 'AA', '主值 ＝ 現在生效的值（會被寫進去的那個）');
+      EQ(c.snap, '05', '🔴 左上小字 ＝ 快照值');
+      EQ(c.old, '05', '🔴 右上小字 ＝ 被換出去的值');
+      CHECK(c.cls.indexOf('diff') >= 0, '與基準不同 ⇒ diff 標記');
+    }
+    {
+      const c = A.cellParts(6);
+      EQ(c.main, '06', '沒變的格子只有主值');
+      EQ(c.snap, null, '🔴 與快照相同就不印左上（避免整片重複數字干擾）');
+      EQ(c.old, null, '🔴 沒變過的格子沒有換出值（雜訊在來源就處理掉）');
+    }
+    /* 三個數字互不相同的情境：讀 → 快照 → 再讀（值變了）⇒ 左上＝快照、右上＝上一次讀到的 */
+    {
       A.clearFile();
+      let pay = (a, i) => i;
+      const sc = baseScript((m) => {
+        if (m.type === 'read') { const o = []; for (let i = 0; i < m.len; i++) o.push(pay(m.addr + i, i)); return { ok: true, status: 0, data: o }; }
+      });
+      await useHelper(sc);
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+      await A.doRead(); await sleep(25);      /* 第一次：00..0F，自動成為基準 */
+      pay = (a, i) => (i === 5 ? 0xAA : i);
+      await A.doRead(); await sleep(25);      /* 第二次：0x05 變成 AA */
+      {
+        const c = A.cellParts(5);
+        EQ(c.main, 'AA', '主值 ＝ 這一次讀到的');
+        EQ(c.snap, '05', '🔴 左上 ＝ 快照值');
+        EQ(c.old, '05', '🔴 右上 ＝ 被換出去的值（上一次讀到的 05）');
+      }
+      pay = (a, i) => (i === 5 ? 0xBB : i);
+      await A.doRead(); await sleep(25);      /* 第三次：0x05 變成 BB */
+      {
+        const c = A.cellParts(5);
+        EQ(c.main, 'BB', '主值 ＝ 最新讀到的 BB');
+        EQ(c.snap, '05', '🔴 左上 ＝ 快照值（第一次讀到的 05）');
+        EQ(c.old, 'AA', '🔴 右上 ＝ 被換出去的值（上一次讀到的 AA）');
+      }
     }
+
+    /* 🔴 三槽輪替：點左上 ⇒ 主值換成快照值、原主值移到右上；點右上 ⇒ 換回來。
+       可以無限來回而不遺失任何一個值，而且**主值就是按寫入時會燒的值**。 */
+    {
+      const before = A.cellParts(5);
+      EQ(before.main, 'BB', '起點：主值 BB、左上 05、右上 AA');
+      A.slotClick(5, 'sv');
+      {
+        const c = A.cellParts(5);
+        EQ(c.main, '05', '🔴 點左上 ⇒ 主值換成快照值 05');
+        EQ(c.old, 'BB', '🔴 原主值 BB 移到右上');
+        EQ(A.state().buf[5], 0x05, '🔴 主值真的改到資料本身（寫入時會燒 05）');
+      }
+      A.slotClick(5, 'ov');
+      {
+        const c = A.cellParts(5);
+        EQ(c.main, 'BB', '🔴 點右上 ⇒ 主值換回 BB');
+        EQ(c.old, '05', '對調之後右上變成 05');
+      }
+      A.slotClick(5, 'ov');
+      EQ(A.cellParts(5).main, '05', '再點右上 ⇒ 又換回 05（可無限來回）');
+      A.slotClick(5, 'ov');
+      EQ(A.cellParts(5).main, 'BB', '再點一次 ⇒ BB，值一個都沒遺失');
+    }
+
+    /* 視覺層次：主值要比兩個角落大 */
+    {
+      const td = doc.querySelector('#dump td[data-addr="5"]');
+      const mv = parseFloat(win.getComputedStyle(td.querySelector('.mv')).fontSize);
+      const sv = parseFloat(win.getComputedStyle(td.querySelector('.sv')).fontSize);
+      CHECK(!!td.querySelector('.ov'), '三層都在（主值／左上／右上）');
+      CHECK(mv > sv, '🔴 主值比角落小字大（' + mv + 'px vs ' + sv + 'px）—— 三個一樣大會看錯要燒哪個');
+    }
+    A.clearFile();
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -926,6 +1170,32 @@ function baseScript(f) {
       const ph = doc.getElementById('in-data').getAttribute('placeholder');
       CHECK(ph.split(/\s+或\s+/).length === 1, '🔴 placeholder 只列一種寫法：' + ph);
     }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('19g. 長讀取的進度與中止（256K ＝ 1024 次交易）');
+  {
+    /* 🔴 用假 helper 驗，不需要真硬體。中止之後那一份**不得成為基準**。 */
+    let served = 0;
+    const sc = baseScript((m) => {
+      if (m.type === 'read') {
+        served++;
+        if (served === 3) A.abort();                 /* 第 3 則的時候按下中止 */
+        const o = []; for (let i = 0; i < m.len; i++) o.push(0x5A);
+        return { ok: true, status: 0, data: o };
+      }
+    });
+    await useHelper(sc);
+    A.clearFile();
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '2048' });
+    const refBefore = A.refLabel();
+    await A.doRead(); await sleep(60);
+    CHECK(served >= 3 && served < 8, '🔴 中止之後沒有把 8 則全部送完（實際送了 ' + served + ' 則）');
+    EQ(A.refLabel(), refBefore, '🔴 中止的讀取不得成為基準');
+    EQ(A.diffCount(), 0, '🔴 中止的資料不參與比較');
+    CHECK(doc.getElementById('log').textContent.indexOf('中止') >= 0, '中止有寫進 log');
+    CHECK(doc.getElementById('progress') !== null, '進度列在 DOM 上');
+    EQ(A.progress(), null, '跑完／中止之後進度列收起來');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
