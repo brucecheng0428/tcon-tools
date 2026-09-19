@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1191"></script>
+<script src="common/version.js?v=20260919i2c1200"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -425,9 +425,11 @@
         <input type="checkbox" id="chk-fastread"> fast read（實驗，預設關）
       </label>
       <!-- 🔴 raw MPSSE：自己組整段命令、一次送出（一次 FT_Write ＋ 一次 FT_Read）。
-           預設關 —— 命令序列沒有在他的硬體上跑過，沒有實證就不當預設值。 -->
+           🔴 v1.20.0 預設關（`checked` 拿掉）：這顆 FT2232C/D 的 MPSSE 沒有三相、
+           沒有開汲極 ⇒ 用它做 I2C 走不通，產品預設走原廠 DLL。
+           開關留著給 Bruce 手動做對照。 -->
       <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
-        <input type="checkbox" id="chk-rawmpsse" checked> 快速模式
+        <input type="checkbox" id="chk-rawmpsse"> 快速模式（自建，對照用）
       </label>
       <!-- 🔴 三相時脈：AN_113 說 FT2232H 的 I2C 需要它，但 Bruce 指出原廠工具
            似乎沒用 —— 那是有效的反面假說，所以給他一個開關一次量完兩種。
@@ -2031,19 +2033,27 @@ function i2ctSetLink(on, txt, cls){
 }
 async function i2ctConnect(takeover){
   if (i2ctLinked || i2ctBusy) return;
-  /* 🔴🔴 v1.13.3：重連時**連同旗標一起還原**，不只是清 i2ctFastVerified。
-     這是我自己的 bug，Bruce 的 log 把它照出來了：
-     自動驗證失敗會把 `i2ctRawMpsse` 設成 false，而舊版重連只重設
-     `i2ctFastVerified`。於是 `i2ctVerifyFastOnce` 開頭的
-     `if (!i2ctRawMpsse || ...) return;` 直接返回 ⇒ **永遠不會再驗、永遠走慢的**，
-     而且重連後畫面上那一行提示也被清掉 ⇒ **他完全看不出自己在走慢路徑**。
-     他重啟 Bridge、頁面自動重連三次，三次都送 rawmpsse:0，就是這個原因。
+  /* ═══ 🔴🔴 v1.20.0：重連時把三個模式旗標**一起還原成產品預設** ═════════════
+     這一段的前身（v1.13.3）在這裡強制 `i2ctRawMpsse = true`。當時的產品預設是
+     「自建 raw MPSSE」，而那個預設**現在已經確定是錯的**：
+       · AN2232C-01（這顆 FT2232C/D 自己的手冊）：它的 MPSSE **沒有三相時脈、
+         沒有開汲極** ⇒ 用 MPSSE 做 I2C 在這顆上走不通。
+       · 實測後果已經量到：讀 0x1000 那一筆的位址相位 ACK 固定回 `0E 1C 38 70`
+         （合法值只有 0x00／0x80），四次側錄全部重現。
+     ⇒ 產品預設改成**原廠 DLL**（`i2ctMode = I2CT_MODE_VENDOR`，見宣告處）。
+     bridge 端的預設本來就已經是 vendor（i2c_bridge.c `int dgh_mode = DGH_MODE_VENDOR;`），
+     是這一段每次 open 前把它覆蓋掉，才會實際走 raw MPSSE。
 
-     🔴 位置必須在**送出 open 之前** —— 放在連線成功之後等於這一次的 open
-     還是帶著舊的 0（第一版就是這樣，測試抓到）。
-     除非他自己手動動過開關（手動優先）。 */
-  if (!i2ctRawManual) { i2ctRawMpsse = true;
-                        var cbR2 = $('chk-rawmpsse'); if (cbR2) cbR2.checked = true; }
+     🔴 原本要修的那個 bug（重連後旗標掉回去、而且畫面提示被清掉）**沒有被放掉**：
+        改成把 mode／fastread／rawmpsse 三個一起設回預設，理由相同 ——
+        重連 ＝ 傳輸層條件整個換過，不可以帶著上一次連線的殘留狀態。
+     🔴 位置必須在**送出 open 之前**（放在連線成功之後，這一次的 open 還是帶舊值）。
+     🔴 手動優先：他自己在 debug 區動過模式（i2ctRawManual）就完全不碰。 */
+  if (!i2ctRawManual) {
+    i2ctMode = I2CT_MODE_VENDOR; i2ctRawMpsse = false; i2ctFastRead = false;
+    var cbR2 = $('chk-rawmpsse'); if (cbR2) cbR2.checked = false;
+    var cbF2 = $('chk-fastread'); if (cbF2) cbF2.checked = false;
+  }
   i2ctUserClosing = false;
   i2ctBusy = true; i2ctSetLink(false, '連線中…', 'busy');
   i2ctLog('連線 ' + I2CT_WS_URL + (takeover ? '（要求接手 I2C）' : ''), 'n');
@@ -2167,7 +2177,10 @@ async function i2ctConnect(takeover){
     i2ctRetry = 0;
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctEeForget();      /* 🔴 重新連線 ⇒ EEPROM 型號重問（可能換了一片板子） */
-    i2ctFastVerified = null; i2ctRawFellBack = false;
+    /* 🔴 `i2ctRawFellBack` 是「降級只講一次」的旗標 —— **每次重連都要歸零**，
+       這樣原廠路徑在這台機器上失敗時，那一行提示會**再出現一次**，
+       而不是第一次講完就永遠安靜（見 i2ctDoRead 裡掛橫幅的地方）。 */
+    i2ctRawFellBack = false;
     i2ctBanner('topbanner', '', '');
     /* 🔴 分頁過舊的提醒要在清空之後才畫，否則會被上一行清掉。一行就好。 */
     if (i2ctStaleTab) i2ctBanner('topbanner', 'warn', '這個分頁是舊的，請按 Ctrl+F5 重新整理。');
@@ -2403,20 +2416,32 @@ function i2ctRenderProgress(){
   var b = $('btn-abort');
   if (b) b.addEventListener('click', function () { i2ctAbort = true; i2ctLog('使用者按下中止', 'w'); });
 }
-/* ═══ 🔴 快路徑自動驗證（v1.13.1，Bruce 2026-09-19）════════════════════════
-   他要的是「不必勾任何東西就用得到快的，而且不會有資料錯了還照用的風險」。
+/* ═══ 🔴🔴 v1.20.0：**首次讀取的自動選路已整套移除** ════════════════════════
+   移除的東西：`i2ctVerifyFastOnce()`、`I2CT_VERIFY_N`(64)、`i2ctFastVerified`。
+   它做的事是：使用者按下第一次讀取時，先用四種模式各讀 64 byte（基準 ＋ 三條候選）
+   互相比對，挑一條讀得對又快的。代價是**每次連線後的第一次讀取會多送 4 次讀取
+   請求**，其中三次是 64 byte 的逐 byte 慢讀 —— 就是 Bruce 看到的
+   「一個 byte 一個 byte read」。
 
-   🔴 **為什麼不在連線時做**：i2c.html 有一條更早的規則 ——
-      「連線**不做任何 I2C 交易**」（Bruce 2026-09-18「i2c 頁完全去 TCON 化」，
-      見 i2ctConnect 裡的註解）。連線當下我們根本不知道線上掛的是 EEPROM、PMIC
-      還是感測器，也不知道該讀哪個位址，隨便挑一個去讀就是替他決定，甚至可能有副作用。
-   ⇒ 改成在**他自己按下第一次讀取時**驗證，用**他自己填的 slave 與 offset**，
-     這樣兩條規則都守住：連線零交易，而且驗證用的位址一定是有意義的。
+   🔴 **為什麼不再需要它**：它存在的前提是「哪一條路走得通是未知數」。
+      那個未知數已經有答案（見 `i2ctMode` 宣告處）：這顆 FT2232C/D 的 MPSSE
+      沒有三相時脈、沒有開汲極 ⇒ 模式 1／2／3 全部建立在 MPSSE 上，做 I2C 走不通；
+      原廠 DLL 是唯一走得通的。**沒有東西需要試**，試的成本卻掛在他每一次連線上。
 
-   成本：只驗前 I2CT_VERIFY_N(64) byte，慢路徑約 0.8 秒，一個連線只做一次。
-   一致 ⇒ 安靜沿用快的（不跳訊息、不加說明文字）。
-   不一致或快路徑報錯 ⇒ 自動退回慢的，留一行常駐訊息，細節只進 log。 */
-var I2CT_VERIFY_N = 64;
+   🔴 **要恢復自動選路的前提是什麼**（寫給後續的 agent，不要憑感覺復活它）：
+      必須先有**至少一條 MPSSE 路徑在這顆晶片上被證實讀得對**的實機證據 ——
+      具體就是「位址相位的 ACK 槽只出現 0x00／0x80，而且整段資料與原廠 DLL 逐
+      byte 相同」。在拿到那個證據之前，自動選路能做的只有「多花時間再確認一次
+      已知走不通的三條」。
+      換了治具（不是 FT2232C/D）也算換了前提 —— 但那時該做的是依 `FT_GetDeviceInfo`
+      的 Type 分流，不是把無條件的選路階梯加回來。
+
+   🔴 **降級路徑沒有跟著移除**：原廠 DLL 若 `Open()` 失敗或讀取失敗，bridge 會退回
+      `DGH_MODE_SLOW`（i2c_bridge.c:1244／1266），而 `i2ctDoRead` 依 bridge 回報的
+      指紋掛出「這次用的是比較慢的讀取方式」那一行；`i2ctRawFellBack` 在**每次重連
+      時歸零**（見 i2ctConnect），所以那句話會重述，不是只講一次。
+   🔴 debug 區的模式切換（快速模式／fast read／三相／ckdelay）全部保留，
+      要做對照隨時可以手動指定，指定後 `i2ctRawManual` 生效、重連也不會被蓋掉。 */
 /* ═══ 🔴🔴 黃金基準（Bruce 2026-09-19 用原廠 Python UI 讀出並拍照）════════════
    slave 0x68、offset 寬度 2、起始 0x0000、256 byte、400 kHz、Burst Read 勾選。
    來源檔：~/ClaudeData/i2c_build/golden_0x68_256.txt
@@ -2468,27 +2493,11 @@ var I2CT_GOLD256 = [
 async function i2ctNote(msg){
   try { await i2ctSend({ type: 'note', msg: String(msg).slice(0, 480) }); } catch (e) {}
 }
-/* ═══ 🔴 什麼時候該把選路結果作廢（v1.17.1 逐項盤點）════════════════════════
-   判準只有一句：**「某條路徑會不會讀錯」有沒有可能因此改變。**
-   與「某個 byte 變成多少」完全無關 —— 資料值不影響傳輸層對不對。
-
-   目前四個把它設回 null 的地方，逐一交代：
-     ① 連線成功（i2ctConnect）        ⇒ **保留**：換了治具／重開 Bridge，
-                                          傳輸層條件整個換過，非重驗不可。
-     ② 快速模式核取方塊（chk-rawmpsse）⇒ **保留**：他手動指定了走哪條路。
-                                          （同時會設 i2ctRawManual，之後尊重他的選擇）
-     ③ 讀取間隔 ckdelay               ⇒ **保留**：直接改命令序列的時序。
-     ④ 三相時脈 chk-3phase            ⇒ **保留**：直接改時脈波形。
-   （另有 `_reset()` 裡那一個，那是測試夾具在模擬「剛打開網頁」，不算產品路徑。）
-
-   🔴 **「手動改一格的值」不在上面任何一條裡，也從來沒有在** ——
-      我實際 grep 過四個位置，沒有任何一處掛在儲存格編輯上。
-      Dispatch 轉述的「原因一：手動改值會作廢驗證結果」**與程式不符，已更正**；
-      真正的成因只有固定基準過期那一條（見 I2CT_GOLD256 上方）。
-      不確定的部分我也說清楚：他那次是怎麼觸發重驗的（重連？重整分頁？）
-      我無法從程式反推，**沒有現場 log 我不編故事**。 */
-var i2ctFastVerified = null;      /* null=還沒驗 / true=驗過一致 / false=已退回慢的 */
-var i2ctRawFellBack = false;      /* bridge 端偷偷退回慢路徑 ⇒ 只講一次，不要每次讀都洗版 */
+/* 🔴 v1.20.0：`i2ctFastVerified`（選路結果的三態旗標）與整段「什麼時候該把選路
+   結果作廢」的盤點一併移除 —— 沒有選路就沒有結果可作廢。
+   `i2ctRawFellBack` **留著**：它管的是「bridge 實際退回慢路徑時的那一行提示」，
+   與選路無關，而且是降級可見性的唯一出口（規則見 i2ctDoRead 掛橫幅處）。 */
+var i2ctRawFellBack = false;      /* bridge 端偷偷退回慢路徑 ⇒ 一次連線只講一次，重連歸零 */
 var i2ctStaleTab = false;         /* bridge 比本頁預期的還新 ⇒ 這個分頁沒重新載入過 */
 var i2ctRawManual = false;        /* 他自己動過快速模式的勾選 ⇒ 重連不要覆蓋他的選擇 */
 /* 🔴 三相時脈（只影響快速模式）。預設開；關掉是為了驗 Bruce 的反面假說
@@ -2505,145 +2514,16 @@ var i2ctCkDelay = 3;
    `i2ctFastRead` / `i2ctRawMpsse` 仍在，是為了相容既有的 debug 勾選與測試；
    真正決定走哪條的是 `i2ctMode`。 */
 var I2CT_MODE_VENDOR = 0, I2CT_MODE_FAST = 1, I2CT_MODE_SLOW = 2, I2CT_MODE_RAW = 3;
-var i2ctMode = I2CT_MODE_SLOW;   /* 驗證前先用已知正確的，驗完才切 */
-/* ═══ 🔴 三段式自動選路（v1.14.0，Bruce 2026-09-19）════════════════════════
-   他問：「那些 .dll 檔案應該都有明確的控制方式吧？**不用細到還要用你來去控制
-   每個 bit 的細微動作吧？**」—— 他是對的，而我漏掉了一件事：
-
-   libMPSSE 官方就有 `FAST_TRANSFER_BYTES`（0x10）這個旗標，官方標頭的註解是
-   **「no address phase, no USB interframe delays」** —— 那就是官方支援的快速讀取，
-   **一個位元的事，不需要我們手刻任何 MPSSE 命令**。
-   程式裡這條路一直都在（`OPT_READ_DATA` 0x0B vs 0x1B），是我們自己關掉的。
-
-   🔴 關掉的唯一理由是當初讀 0x68「前 2 byte 對、其餘全 0F」那一次 ——
-   **但那次是在 `ChannelConfig` 還帶著 `#pragma pack(1)` 的時候測的**，
-   當時 `Options` 是垃圾，三相與 drive-only-zero 兩個都是錯的。
-   ⇒ **那次失敗的前提已經不存在，而我們從來沒有在修好之後重測過。**
-   （假說；推翻條件：重測仍 0F／不一致 ⇒ 回到模式三。）
-
-   ⇒ 自動驗證改成**依序試，能用官方的就不要用自己刻的**：
-       模式一「一般」  ＝ libMPSSE 逐 byte           ← 基準，已知正確
-       模式二「官方快速」＝ libMPSSE ＋ FAST_TRANSFER ← **先試這個**
-       模式三「自建」  ＝ 我們手刻的 raw MPSSE       ← 備援
-   模式二只是一個旗標，維護成本與出錯面都遠小於模式三。
-
-   🔴 仍然守住「連線不做任何 I2C 交易」（Bruce 2026-09-18 去 TCON 化）：
-      驗證在**他按下第一次讀取時**做，用**他自己填的 slave 與 offset**。 */
-async function i2ctVerifyFastOnce(slave, awid, off, len){
-  if (i2ctFastVerified !== null) return;
-  /* 🔴 他自己指定過模式 ⇒ 尊重他的選擇，不要再自動選路。 */
-  if (i2ctRawManual) { i2ctFastVerified = true; return; }
-  var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
-  var hex = function (a) {
-    var s = [], k;
-    for (k = 0; k < Math.min(16, a.length); k++)
-      s.push(('0' + (a[k] & 0xFF).toString(16)).slice(-2).toUpperCase());
-    return s.join(' ');
-  };
-  var setMode = async function (mode) {
-    await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: mode,
-                     threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay,
-                     clockHz: I2CT_CLOCK_HZ, takeover: 0,
-                     fastread: mode === I2CT_MODE_FAST ? 1 : 0,
-                     rawmpsse: mode === I2CT_MODE_RAW ? 1 : 0 });
-  };
-  /* 🔴 依序往下試，**能用原廠／官方的就不要用自己刻的**。
-     基準是模式二（libMPSSE 逐 byte，已知正確），其餘都跟它比。 */
-  /* 🔴🔴 v1.14.4：**原廠排第一，而且它現在是唯一真正有機會成立的那條。**
-     AN2232C-01（這顆 FT2232C/D 自己的手冊）證實它的 MPSSE **沒有三相、沒有開汲極**
-     —— 而那正是 I2C 需要的兩樣東西 ⇒ **MPSSE 做 I2C 在這顆上走不通**
-     （pyftdi 對 FT2232D 也是直接拒絕）。原廠 DLL 幾乎確定走 bit-bang 自產時序。
-     「官方快速」與「自建」留在名單裡只是對照組，驗不過就往下，不會卡住他。
-     順序：原廠 → 官方快速 → 自建 →（都不過就留在）慢速基準。 */
-  var MODES = [
-    { key: 'vendor', name: '原廠',     mode: I2CT_MODE_VENDOR },
-    { key: 'fast',   name: '官方快速', mode: I2CT_MODE_FAST },
-    { key: 'built',  name: '自建',     mode: I2CT_MODE_RAW }
-  ];
-  i2ctFastVerified = true;                 /* 先佔住，避免重入 */
-  i2ctLog('── 首次讀取：用 ' + n + ' byte 挑一條讀得對又快的路 ──', 'n');
-  var base = null, chosen = null, i, m, r, bad, first;
-  try {
-    /* ═══ 🔴🔴 基準 ＝ **當下用慢速讀一次**（v1.17.1 撤回黃金基準）════════════
-       v1.14.4 曾把基準換成固定的黃金基準（Bruce 用原廠 UI 讀出的那 256 byte），
-       理由是「自己讀兩次互比會被汙染的資料騙過去」—— v1.11.10 連慢路徑都讀錯，
-       兩次都錯成一樣就會判成通過。
-
-       🔴 **那個汙染源早就清掉了**：`raw_init` 只在 raw 模式執行，而且只送
-          FT2232C/D 真的有的命令（不再有 `0x8D/0x97/0x9E` 被回 `0xFA` 灌進資料流）。
-          慢速讀回來的**就是裝置當下的真相**。
-
-       🔴 而固定基準有一個致命後果：**他只要改過裝置裡任何一個 byte，
-          那把尺就永遠對不上** ⇒ 每一條快路徑都「不符」⇒ 一律退回逐 byte 的慢路徑，
-          而且再也回不去。那不是讀錯，是我拿了一把過期的尺去量。
-          （Bruce 2026-09-19：「讀取全部範圍已經不是 burst read 了，
-            它變成一個 byte 一個 byte read」。）
-
-       ⇒ 基準改回「該次驗證當下用 SLOW 讀一次」。
-       ⇒ 黃金基準 `I2CT_GOLD256` **退回去只當 debug 區自檢（btn-self）的向量**，
-          **不再參與自動選路**。日後不要再把固定值塞進這個流程。 */
-    await setMode(I2CT_MODE_SLOW);
-    base = await i2ctDoRead(slave, awid, off, n, true);
-    if (!base || !base.ok) {
-      await i2ctNote('verify: baseline (normal) FAILED -- ' + (base ? base.err : 'no result'));
-      i2ctLog('✕ 基準讀取就失敗了，維持一般方式', 'e');
-      i2ctMode = I2CT_MODE_SLOW;
-      await setMode(I2CT_MODE_SLOW); return;
-    }
-    await i2ctNote('verify: baseline(normal) ok, ' + n + ' bytes: ' + hex(base.bytes));
-    for (i = 0; i < MODES.length && !chosen; i++) {
-      m = MODES[i];
-      await setMode(m.mode);
-      r = await i2ctDoRead(slave, awid, off, n, true);
-      if (!r || !r.ok) {
-        await i2ctNote('verify: ' + m.key + ' READ FAILED -- ' + (r ? r.err : 'no result'));
-        i2ctLog('· ' + m.name + '：讀取失敗（' + (r ? r.err : '無結果') + '）', 'w');
-        continue;
-      }
-      bad = 0; first = -1;
-      if (r.bytes.length !== base.bytes.length) { bad = 1; first = Math.min(r.bytes.length, base.bytes.length); }
-      else for (var k = 0; k < base.bytes.length; k++)
-        if ((r.bytes[k] & 0xFF) !== (base.bytes[k] & 0xFF)) { bad++; if (first < 0) first = k; }
-      if (!bad) {
-        chosen = m;
-        await i2ctNote('verify: ' + m.key + ' PASS -- identical to baseline over ' + n + ' bytes');
-        i2ctLog('✔ ' + m.name + '：' + n + ' byte 與基準完全相同 ⇒ 採用', 'o');
-      } else {
-        await i2ctNote('verify: ' + m.key + ' MISMATCH at +' + first + ' of ' + n);
-        await i2ctNote('verify: ' + m.key + '[0..] = ' + hex(r.bytes));
-        await i2ctNote('verify: base [0..] = ' + hex(base.bytes));
-        i2ctLog('· ' + m.name + '：' + bad + '/' + n + ' byte 不符（第一個在 +' + first + '）', 'w');
-      }
-    }
-  } catch (e) {
-    i2ctLog('✕ 自動選路過程出錯：' + e.message, 'e');
-    await i2ctNote('verify: exception -- ' + e.message);
-  }
-  /* 套用結論並把連線切到該模式 */
-  i2ctMode     = chosen ? chosen.mode : I2CT_MODE_SLOW;
-  i2ctFastRead = (i2ctMode === I2CT_MODE_FAST);
-  i2ctRawMpsse = (i2ctMode === I2CT_MODE_RAW);
-  { var cb = $('chk-rawmpsse'); if (cb) cb.checked = i2ctRawMpsse;
-    var cf = $('chk-fastread'); if (cf) cf.checked = i2ctFastRead; }
-  try { await setMode(i2ctMode); } catch (e) {}
-  /* 🔴 v1.14.5：選到了比較快的一條 ⇒ **把結論講出來，並收掉階梯期間可能掛上的
-     「比較慢」橫幅**。v1.14.4 就是選到原廠、卻讓那張警告留在畫面上，他看到的是
-     「用不了」＋「0.0 秒」兩個互相矛盾的訊息。
-     `i2ctRawFellBack` 一併歸零：它是「只講一次」的旗標，結論換了就要能重新講。 */
-  if (chosen) {
-    i2ctRawFellBack = false;
-    i2ctBanner('topbanner', '', '');
-    i2ctLog('▶ 本次連線採用：' + chosen.name + '（耗時紀錄會標示為「快速模式」）', 'o');
-  }
-  if (!chosen) {
-    /* 🔴 三條都不對 ⇒ 用慢但已知正確的，並且**講出來**（不是靜默變慢）。 */
-    i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式；重新整理頁面會再確認一次。');
-    i2ctLog('🔴 三種比較快的方式都與基準不符 ⇒ 改用慢但已知正確的方式', 'e');
-    await i2ctNote('verify: no faster path passed -- staying on the normal (slow) path');
-  } else {
-    await i2ctNote('verify: adopted ' + chosen.key);
-  }
-}
+/* ═══ 🔴🔴 v1.20.0：預設就是原廠 DLL，不再自動選路 ═══════════════════════════
+   舊值是 `I2CT_MODE_SLOW`（「驗證前先用已知正確的，驗完才切」）。那句話的前提是
+   「哪一條走得通還是未知數，所以要在他的硬體上試」。**那個未知數已經有答案了：**
+     · AN2232C-01：這顆 FT2232C/D 的 MPSSE **沒有三相時脈、沒有開汲極**
+       ⇒ 模式 1／2／3（全都建立在 MPSSE 上）做 I2C 在這顆上走不通。
+     · 實測佐證：讀 0x1000 的位址相位 ACK 固定回 `0E 1C 38 70`（合法值只有
+       0x00／0x80），四次側錄全部重現 —— 那不是待查的謎題，是必然結果。
+     · 原廠 Python UI 走的就是 `DLL_I2C_BCB.dll`，256 byte 約 12.6 ms。
+   ⇒ 沒有東西需要在使用者的第一次讀取上「試」。預設直接用唯一走得通的那條。 */
+var i2ctMode = I2CT_MODE_VENDOR;
 async function i2ctOnRead(){
   /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
   if (i2ctEditing) i2ctCancelEdit();
@@ -2653,7 +2533,10 @@ async function i2ctOnRead(){
   if (!i2ctConfirmDiscardDirty('重新讀取')) { i2ctLog('取消讀取（保留未寫入的本地修改）', 'n'); return; }
   i2ctBusy = true; i2ctSyncButtons();
   i2ctBanner('readbanner', 'info', '讀取中…');
-  await i2ctVerifyFastOnce(v.slave, v.wireAwid, v.off, v.len);
+  /* 🔴 v1.20.0：這裡原本先呼叫 `i2ctVerifyFastOnce()` 做首次讀取的自動選路
+     （多 4 次讀取、其中三次是 64 byte 逐 byte 慢讀）。整套已移除，
+     理由與復活的前提寫在 `i2ctMode` 宣告上方那一段。
+     ⇒ 使用者按讀取就只送他要的那一次讀取，不再有額外的探測。 */
   var res = await i2ctDoRead(v.slave, v.wireAwid, v.off, v.len);
   i2ctBusy = false; i2ctSyncButtons();
 
@@ -3004,12 +2887,14 @@ function i2ctWriteSource(awid){
 /* 🔴 讀取要不要走 fast 路徑。**預設 false** —— 見 i2ctConnect 裡的說明。
    只能從 debug 區打開，而且打開後要重新連線才生效。 */
 var i2ctFastRead = false;
-/* 🔴 v1.13.1：**預設開**（Bruce 2026-09-19）。
-   原本預設關、而且開關藏在 `?debug=1` 裡 ⇒ 他正常開網頁量到的**必然**是慢的那條，
-   等於快路徑做了他也用不到。他的原話：「這等於又退回去了，為什麼不去解決呢？」
-   安全性不靠「預設關」，改靠**連線後自動對讀驗證**（i2ctAutoVerifyFast）：
-   驗過一致才繼續用快的，不一致就自動退回慢的。 */
-var i2ctRawMpsse = true;
+/* 🔴 v1.20.0：**預設關**。這是「自建 raw MPSSE」那一條，而它在這顆 FT2232C/D 上
+   做 I2C 走不通（理由與實測見 `i2ctMode` 宣告上方）。產品預設走原廠 DLL
+   ⇒ `i2ctMode = I2CT_MODE_VENDOR`、這個旗標 false ⇒ open 送出 `rawmpsse:0`。
+   🔴 它**不是**另一個獨立開關：真正決定走哪條的是 `i2ctMode`，這個旗標只是
+   debug 核取方塊與相容欄位的鏡子，兩者一律一起改，不要各填各的。
+   （v1.13.1～v1.19.x 預設是 true，再靠首次讀取的自動選路把它改回來；
+     選路已移除 ⇒ 預設值必須自己就是對的。） */
+var i2ctRawMpsse = false;
 var i2ctLastPath = '', i2ctLastUsbRt = 0;
 var i2ctEeAuto = null;
 /* 🔴 「每個 slave 只問一次」（Bruce 2026-09-19）：逐格即時寫入時，每按一次就跳
@@ -3803,11 +3688,22 @@ async function i2ctComparePaths(){
   var cRaw = i2ctCmpTo(res.slow, res.raw), cMid = i2ctCmpTo(res.slow, res.mid);
   var bad = cRaw.bad, first = cRaw.first, done = (res.raw.ok && res.slow.ok);
   if (bad < 0) bad = 0;
-  /* 🔴 不一致（或快速模式根本讀失敗）⇒ 強制關掉快速模式，不留在危險狀態。 */
+  /* 🔴 不一致（或快速模式根本讀失敗）⇒ 強制回到產品預設，不留在危險狀態。
+     🔴🔴 v1.20.0 補正：舊寫法只把 `i2ctRawMpsse` 設回 false，**沒有動 `i2ctMode`**。
+        v1.14.0 之後 bridge 是以 `mode` 為準（`i2c_read_ex` 第一個判斷就是它），
+        而 v1.20.0 起 debug 核取方塊會一併設定 `i2ctMode` ⇒ 只關旗標的話，
+        下一行的 open 仍會送出 `mode:3`，「已自動改回」就只是畫面上的話。
+        ⇒ 三個旗標一起設回產品預設（原廠 DLL），並解除手動鎖定，
+          讓之後的重連也回到預設，而不是把被證明會讀錯的選擇留著。 */
   var forcedOff = false;
   if ((!done && !res.raw.ok) || (done && bad)) {
-    if (i2ctRawMpsse) { i2ctRawMpsse = false; forcedOff = true;
-                        var cb = $('chk-rawmpsse'); if (cb) cb.checked = false; }
+    if (i2ctRawMpsse || i2ctFastRead || i2ctMode !== I2CT_MODE_VENDOR) {
+      forcedOff = true;
+      i2ctMode = I2CT_MODE_VENDOR; i2ctRawMpsse = false; i2ctFastRead = false;
+      i2ctRawManual = false;
+      var cb = $('chk-rawmpsse'); if (cb) cb.checked = false;
+      var cbf = $('chk-fastread'); if (cbf) cbf.checked = false;
+    }
   }
   try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0, rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
@@ -3816,7 +3712,7 @@ async function i2ctComparePaths(){
     i2ctBanner('readbanner', 'err', '🔴 比對沒完成：'
       + (!res.raw.ok ? '快速模式讀失敗（' + res.raw.err + '）⇒ <b>不要開快速模式</b>'
                      : '一般模式讀失敗（' + res.slow.err + '）')
-      + (forcedOff ? '，已自動改回一般模式。' : '。'));
+      + (forcedOff ? '，已自動改回預設的讀取方式。' : '。'));
     i2ctNoteTime('比對', n, res.raw.ok ? res.raw.ms : 0, '快速模式', '讀失敗', 'diff');
     return;
   }
@@ -3831,7 +3727,7 @@ async function i2ctComparePaths(){
   } else {
     i2ctBanner('readbanner', 'err', '🔴 <b>快速模式讀到的值不一樣</b>：' + n + ' byte 中有 '
       + bad + ' byte 不符（第一個在 +' + first + '）⇒ <b>不要用快速模式</b>'
-      + (forcedOff ? '，已自動改回一般模式。' : '。'));
+      + (forcedOff ? '，已自動改回預設的讀取方式。' : '。'));
     i2ctLog('✕ 路徑比對：' + bad + '/' + n + ' byte 不符，第一個在 +' + first, 'e');
   }
   /* 🔴 中速那條**單獨講**，不可以被快速那條的結論帶過 —— 它是另一個變因
@@ -4837,26 +4733,30 @@ function i2ctInit(){
      只是先把基準存下來」（Bruce 2026-09-18 明講）。 */
   $('btn-save').addEventListener('click', function () { i2ctSaveAs(); });
   $('btn-clear').addEventListener('click', function () { i2ctClearAll(); });
+  /* 🔴 v1.20.0：這個核取方塊 ＝ **手動指定走自建 raw MPSSE**（debug 對照用）。
+     自動選路移除後，它必須自己把 `i2ctMode` 一起改掉 —— bridge 以 `mode` 為準，
+     只改 `rawmpsse` 旗標而 mode 還留在 0，他勾了也不會生效（等於開關是壞的）。
+     取消勾選 ⇒ 回到產品預設（原廠 DLL），不是回到已知走不通的 SLOW。 */
   $('chk-rawmpsse').addEventListener('change', function () {
     i2ctRawMpsse = this.checked;
     i2ctRawManual = true;      /* 🔴 手動動過 ⇒ 重連不再自動還原，他的選擇優先 */
     i2ctRawFellBack = false;
-    /* 🔴 **保留**（v1.17.1 盤點結論②）：他手動指定了走哪條路 ⇒ 重驗一次。
-       注意這是「動這個**核取方塊**」，不是「改某一格的值」—— 兩者不要混。 */
-    i2ctFastVerified = null;
-    i2ctLog('快速模式 ⇒ ' + (i2ctRawMpsse ? '開（預設）' : '關') + '　※ 要重新連線才生效', 'w');
+    i2ctMode = i2ctRawMpsse ? I2CT_MODE_RAW : I2CT_MODE_VENDOR;
+    if (i2ctRawMpsse) { i2ctFastRead = false;
+                        var cfx = $('chk-fastread'); if (cfx) cfx.checked = false; }
+    i2ctLog('快速模式（自建）⇒ ' + (i2ctRawMpsse ? '開' : '關（預設走原廠）')
+          + '　※ 要重新連線才生效', 'w');
   });
-  /* 🔴 三相時脈：只影響快速模式。改了要重驗一次（資料對不對是這個開關的重點）。 */
   $('in-ckdelay').addEventListener('change', function () {
     var v = parseInt(this.value, 10);
     if (isNaN(v) || v < 0) v = 0; if (v > 16) v = 16;
     this.value = String(v); i2ctCkDelay = v;
-    i2ctFastVerified = null; i2ctRawFellBack = false;
+    i2ctRawFellBack = false;
     i2ctLog('讀取間隔 ⇒ ' + v + '　※ 要重新連線才生效', 'w');
   });
   $('chk-3phase').addEventListener('change', function () {
     i2ctThreePhase = this.checked;
-    i2ctFastVerified = null; i2ctRawFellBack = false;
+    i2ctRawFellBack = false;
     i2ctLog('三相時脈 ⇒ ' + (i2ctThreePhase ? '開' : '關（預設）') + '　※ 要重新連線才生效', 'w');
   });
   $('btn-cmppath').addEventListener('click', i2ctComparePaths);
@@ -4916,9 +4816,15 @@ function i2ctInit(){
   $('btn-disc').addEventListener('click', i2ctDisconnect);
   $('btn-takeover').addEventListener('click', i2ctTakeover);
   $('btn-release').addEventListener('click', i2ctRelease);
+  /* 🔴 v1.20.0：同 chk-rawmpsse —— 要一起改 `i2ctMode`，否則 bridge 以 mode 為準，
+     這個開關在畫面上打得開、實際上不生效。取消 ⇒ 回產品預設（原廠 DLL）。 */
   $('chk-fastread').addEventListener('change', function () {
     i2ctFastRead = this.checked;
-    i2ctLog('fast read ⇒ ' + (i2ctFastRead ? '開（實驗，實機上曾讀錯）' : '關（預設，已知正確）')
+    i2ctRawManual = true;
+    i2ctMode = i2ctFastRead ? I2CT_MODE_FAST : I2CT_MODE_VENDOR;
+    if (i2ctFastRead) { i2ctRawMpsse = false;
+                        var crx = $('chk-rawmpsse'); if (crx) crx.checked = false; }
+    i2ctLog('fast read ⇒ ' + (i2ctFastRead ? '開（實驗，實機上曾讀錯）' : '關（預設走原廠）')
           + '　※ 要重新連線才生效', 'w');
   });
   $('btn-getshow').addEventListener('click', function () { i2ctNeedHelper('手動叫出來的下載入口'); });
@@ -5364,7 +5270,9 @@ window.__i2ct = {
      結果連已經指定模式的情境也照跑自動選路，多送兩次讀取。 */
   rawMpsse: function (v) {
     if (v !== undefined) { i2ctRawMpsse = !!v; i2ctRawManual = true;
-                           i2ctMode = i2ctRawMpsse ? I2CT_MODE_RAW : I2CT_MODE_SLOW; }
+                           /* 🔴 v1.20.0：關掉 ⇒ 回產品預設（原廠 DLL），
+                              不是回 SLOW（那條在這顆晶片上本來就走不通）。 */
+                           i2ctMode = i2ctRawMpsse ? I2CT_MODE_RAW : I2CT_MODE_VENDOR; }
     return i2ctRawMpsse;
   },
   /* 0 原廠DLL / 1 官方快速 / 2 一般 / 3 自建 —— 自動選路的結論 */
@@ -5451,18 +5359,17 @@ window.__i2ct = {
     i2ctSelAnchor = null; i2ctSelCursor = null;
     i2ctCross = null; i2ctPageIdx = 0;
     i2ctWrFail = null; i2ctWrOk = null; i2ctDirty = null;
-    /* 🔴 v1.13.1：讀取模式也要回到**產品預設**（快速模式開、尚未驗證）。
-       `_reset` 的語意是「回到剛打開網頁的狀態」，而剛打開時這兩個就是這樣。
-       不重設的話，前一組測試把快速模式關掉之後會漏到下一組，
-       下一組就在驗一個使用者根本遇不到的狀態 —— 那種綠燈沒有意義。 */
-    i2ctRawMpsse = true; i2ctFastVerified = null; i2ctRawFellBack = false;
+    /* 🔴 讀取模式要回到**產品預設**。`_reset` 的語意是「回到剛打開網頁的狀態」，
+       不重設的話前一組測試採用的模式會漏到下一組，下一組等於在驗一個使用者
+       遇不到的狀態 —— 那種綠燈沒有意義（這一類疏漏被 Bruce 的 log 抓到過一次）。
+       🔴 v1.20.0：產品預設改成**原廠 DLL**（mode 0、rawmpsse 關、fastread 關），
+       所以這裡跟著改。這一行與 `var i2ctMode` / `var i2ctRawMpsse` 的初值、
+       以及 i2ctConnect 裡「非手動就還原」那一段，三處必須一致。 */
+    i2ctMode = I2CT_MODE_VENDOR; i2ctRawMpsse = false; i2ctFastRead = false;
+    i2ctRawFellBack = false;
     i2ctRawManual = false;   /* 剛打開的網頁 ＝ 他還沒動過任何開關 */
-    /* 🔴 讀取模式與 fast read 也要回到產品預設。少重設一個，前一組測試採用的模式
-       就會漏到下一組，下一組等於在驗一個使用者遇不到的狀態 ——
-       這一輪已經因為同一類疏漏（i2ctRawMpsse 不重設）被 Bruce 的 log 抓到過一次。 */
-    i2ctMode = I2CT_MODE_SLOW; i2ctFastRead = false;
     { var cbF = $('chk-fastread'); if (cbF) cbF.checked = false; }
-    { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
+    { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = false; }
     /* 🔴 v1.15.0：搜尋狀態同理 —— 上一組測試留下的查詢字串與命中清單會
        漏到下一組（命中的 index 還指著上一份資料）。 */
     /* 🔴 v1.16.0：分段設定也要回到「剛打開」的狀態。`i2ctPageTouched` 留著的話，
