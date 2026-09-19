@@ -176,6 +176,52 @@ if (fs.existsSync(CFILE)) {
   });
 }
 
+/* ═══ 🔴 第三關：`lasterr_set(...)` 的文案（v1.13.0 補）═══════════════════
+   為什麼要補：第二關只認字面上的 `\"err\":\"…\"`。v1.13.0 起失敗原因改成先存進
+   `g_lastErr`、回覆時用 `%s` 帶出去 ——「err 的內容」與「組 err 的那一行」
+   從此不在同一行，第二關**一個字都掃不到**。實測：第一版的訊息裡寫著
+   「the MPSSE bit stream is misaligned」，第二關照樣回報通過。
+
+   🔴 這正是 CLAUDE.md 記的那一類錯：**判準比它要管的東西窄，於是變成假防線。**
+   假防線比沒有防線更糟 —— 它會讓下一個人以為已經檢查過了。
+   ⇒ 判準改成「這個字串最後會不會被端到使用者面前」，而不是「它長什麼樣子」。
+   log 照舊不管（`logline(...)` 就是要寫實作細節的地方）。 */
+{
+  const csrcAll = fs.existsSync(CFILE) ? fs.readFileSync(CFILE, 'utf8') : '';
+  /* 取出每一個 lasterr_set( … ) 呼叫，把裡面所有的 "…" 字面值接起來再判。
+     訊息是跨行的相鄰字串常數，所以一定要先接起來 —— 逐行掃會把
+     「… the MPSSE bit」這種剛好斷在詞中間的情況漏掉。 */
+  const callRe = /lasterr_set\s*\(/g;
+  let m;
+  while ((m = callRe.exec(csrcAll))) {
+    let i = m.index + m[0].length, depth = 1, lits = '';
+    while (i < csrcAll.length && depth > 0) {
+      const ch = csrcAll[i];
+      if (ch === '(') { depth++; i++; continue; }
+      if (ch === ')') { depth--; i++; continue; }
+      if (ch === '"') {
+        i++;
+        while (i < csrcAll.length && csrcAll[i] !== '"') {
+          if (csrcAll[i] === '\\') { lits += csrcAll[i + 1]; i += 2; continue; }
+          lits += csrcAll[i]; i++;
+        }
+        i++; continue;
+      }
+      i++;
+    }
+    const lineNo = csrcAll.slice(0, m.index).split('\n').length;
+    for (const [rx, hint] of ERR_BANNED) {
+      const hit = lits.match(rx);
+      if (hit) {
+        console.log(`  🔴 i2c_bridge.c:${lineNo}  lasterr_set 的文案裡出現「${hit[0]}」 ⇒ ${hint}`);
+        console.log(`       "${lits.slice(0, 120)}"`);
+        bad++;
+        break;
+      }
+    }
+  }
+}
+
 if (bad) {
   console.log(`\n🔴 使用者可見文案含實作名詞：${bad} 處（掃了 ${scanned} 個檔）`);
   process.exit(1);
