@@ -629,6 +629,16 @@ var I18N = {
   'wfg.laBEventToolbarTitle': { 'zh-TW': 'A 後第 N 個 B Event 才是 Trigger / 0s', 'en': 'Nth B Event after A becomes Trigger / 0s', 'zh-CN': 'A 后第 N 个 B Event 才是 Trigger / 0s' },
   'wfg.laAnalyzer':     { 'zh-TW': '分析器', 'en': 'Analyzer', 'zh-CN': '分析器' },
   'wfg.laAnalyzerEmpty': { 'zh-TW': '點擊 ＋ 新增 analyzer', 'en': 'Click + to add analyzer', 'zh-CN': '点击 ＋ 新增 analyzer' },
+  /* v4.51.0: 同一種分析器只能有一個 */
+  'wfg.laAnalyzerTypeTaken': { 'zh-TW': '已新增', 'en': 'already added', 'zh-CN': '已新增' },
+  'wfg.laAnalyzerAllTaken': { 'zh-TW': '每一種分析器都已新增', 'en': 'Every analyzer type has been added', 'zh-CN': '每一种分析器都已新增' },
+  /* v4.51.0: I2C data 序號的 offset 長度設定與來源標示 */
+  'wfg.laI2cOffsetLen': { 'zh-TW': 'Offset 長度', 'en': 'Offset length', 'zh-CN': 'Offset 长度' },
+  'wfg.laI2cOffsetAuto': { 'zh-TW': '未知（自動推算）', 'en': 'Unknown (auto-detect)', 'zh-CN': '未知（自动推算）' },
+  'wfg.laI2cOffsetSrcManual': { 'zh-TW': '指定', 'en': 'manual', 'zh-CN': '指定' },
+  'wfg.laI2cOffsetSrcInferred': { 'zh-TW': '推算', 'en': 'inferred', 'zh-CN': '推算' },
+  'wfg.laI2cOffsetSrcMixed': { 'zh-TW': '依裝置推算', 'en': 'inferred per device', 'zh-CN': '依装置推算' },
+  'wfg.laI2cOffsetSrcUnknown': { 'zh-TW': '未知，併入編號', 'en': 'unknown, counted as data', 'zh-CN': '未知，并入编号' },
   'wfg.laDecodeResults': { 'zh-TW': '解碼結果', 'en': 'Decode Results', 'zh-CN': '解码结果' },
   'wfg.laSearch':       { 'zh-TW': '🔍 搜尋', 'en': '🔍 Search', 'zh-CN': '🔍 搜索' },
   'wfg.laSearchPlaceholder': { 'zh-TW': '🔍 搜尋', 'en': '🔍 Search', 'zh-CN': '🔍 搜索' },

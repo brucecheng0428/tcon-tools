@@ -963,6 +963,17 @@
   .wfg-la-decode-tip-body { max-height: 50vh; overflow-y: auto; color: #e2e8f0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; text-align: left; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; }
   /* ── v2.97.442: DP AUX 解碼表欄寬策略（僅作用於 dp_aux 表，i2c/其他表不受影響） ── */
   /* 自適應內容寬 + 不換行：Time(1) / #(2) / Type(3) / Status(6) */
+  /* v4.51.0: I2C 表的「Data #」欄（第 3 欄，Packet 與 Type 之間）。
+     數字靠右、不換行，寬度縮到最小，讓後面的欄位不被擠掉。 */
+  .wfg-la-decode-table--i2c th:nth-child(3), .wfg-la-decode-table--i2c td:nth-child(3) {
+    width: 1%; white-space: nowrap; text-align: right; padding-right: 8px;
+  }
+  /* 未展開時右側面板很窄，表頭「Data #」若不換行會多吃掉一截寬度，把 Value/ACK 擠出去。
+     只放行這一格的表頭換行（欄內的數字仍然 nowrap）。 */
+  .wfg-la-decode-table--i2c th:nth-child(3) { white-space: normal; }
+  .wfg-la-decode-table--i2c td.wfg-la-decode-seq { color: #7dd3fc; font-variant-numeric: tabular-nums; }
+  /* 通用規則 td:nth-child(5) 的省略號原本對到 I2C 的 Value 欄；插欄後 Value 變成第 6 欄，補回去。 */
+  .wfg-la-decode-table--i2c td:nth-child(6) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
   .wfg-la-decode-table--dp_aux { table-layout: auto; }
   .wfg-la-decode-table--dp_aux th:nth-child(1), .wfg-la-decode-table--dp_aux td:nth-child(1),
   .wfg-la-decode-table--dp_aux th:nth-child(2), .wfg-la-decode-table--dp_aux td:nth-child(2),
@@ -3680,8 +3691,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260919wfg4501"></script>
-<script src="common/i18n.js?v=20260919wfg4501"></script>
+<script src="common/version.js?v=20260919wfg4510"></script>
+<script src="common/i18n.js?v=20260919wfg4510"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -9290,6 +9301,8 @@ var wfgLaDecodeVGroups = [];
 var _wfgLaLastFocusViewStart = NaN;
 var _wfgLaLastFocusViewEnd = NaN;
 var _wfgLaLastFocusVgroupCount = -1;
+/* v4.51.0: 版面尺寸也要進 dirty key，理由見 wfgLaApplyDecodeScopeFocus 的註解。 */
+var _wfgLaLastFocusGeomKey = '';
 var WFG_LA_PRESET_SNAPSHOT_CACHE = {};
 var WFG_LA_PRESET_SNAPSHOT_PROMISES = {};
 var _wfgLaQuickPresetSeq = 0;
@@ -13486,7 +13499,27 @@ window.__wfgLaProbe = {
     var cfg = wfgLaBuildConfig();
     wfgLaMeasRenderAll(cfg, { force: true });
     wfgLaPulseRenderAll(cfg, { force: true });
-  }
+  },
+  /* ── LA I2C 驗收出口（tools/la_i2c_dataseq_probe.js 用）──────────────
+     🔴 本檔的 JS 全部包在一個 IIFE 裡（wfg.html:3688 … 49326），
+        頂層 `var` / `function` **不是** window 屬性。probe 是另一個
+        <script>，拿不到任何沒有明寫 window.xxx 的東西 —— 這就是為什麼
+        要在這裡開出口，而不是 probe 自己去摸全域變數。
+     這些出口全都是「讀狀態」或「重跑既有流程」，沒有任何只給測試走的分支。 */
+  analyzers:      function () { return wfgLaAnalyzers; },
+  setAnalyzers:   function (list) { wfgLaAnalyzers = list || []; wfgLaRenderAnalyzers(); },
+  defaultCfg:     function (type) { return wfgLaDefaultAnalyzerConfig(type); },
+  addrKvFrom:     function (v) { return wfgLaI2cAddressDisplayFromKvParam(v); },
+  addrKvTo:       function (v) { return wfgLaI2cAddressDisplayToKvParam(v); },
+  setWaveform:    function (wf) { wfgLaCleared = false; wfgLaCapturedWaveform = wf; },
+  setView:        function (a, b) { wfgLaSetViewRange(a, b); },
+  viewRange:      function () { return [wfgLaViewStart, wfgLaViewEnd]; },
+  renderScope:    function () { wfgLaRenderScope(); },
+  runAnalyzers:   function () { wfgLaAnalyzersDirty = true; wfgLaRunAnalyzers(); },
+  vgroupRows:     function (i) { var g = wfgLaDecodeVGroups[i]; return g ? g.rows : []; },
+  decodeGroups:   function () { return wfgLaDecodeResults; },
+  searchTextOf:   function (gi, ri) { var g = wfgLaDecodeResults[gi]; return g ? wfgLaDecodeSearchText(g, g.rows[ri]) : ''; },
+  i2cExcelXml:    function (gi) { return wfgLaBuildI2cDecodeExcelXml(wfgLaDecodeResults[gi]); }
 };
 
 /* v2.97.465: 時基尺標卡片 |Δt| 輸入框 —— 按 Enter 才生效。 */
@@ -16004,9 +16037,14 @@ function wfgLaAnalyzerChannelOptions(selected) {
   return html;
 }
 
+/* v4.51.0: 新增分析器時 Address Display 預設由 '8rw' 改為 '7bit'（Bruce 2026-09-19）。
+   🔴 只動「新增時的預設值」。wfgLaI2cAddressDisplayFromKvParam / ToKvParam 的
+      0/1/2 ↔ 7bit/8zero/8rw 對應一個字都不能改，否則使用者存過的設定字串
+      會被解讀成別的東西。既有分析器的設定一律原樣沿用。
+   offsetBytes：'auto' = 未知（預設，走推算→併入 data 編號），或 0/1/2/3/4。 */
 function wfgLaDefaultAnalyzerConfig(type) {
-  if (type === 'i2c') return { sda: 0, scl: 1, addressDisplay: '8rw', exportLevel: 'packets' };
-  if (type === 'i2c_eeprom') return { sda: 0, scl: 1, addressDisplay: '8rw', memoryAddress: 'lowbits', exportLevel: 'packets' };
+  if (type === 'i2c') return { sda: 0, scl: 1, addressDisplay: '7bit', exportLevel: 'packets', offsetBytes: 'auto' };
+  if (type === 'i2c_eeprom') return { sda: 0, scl: 1, addressDisplay: '7bit', memoryAddress: 'lowbits', exportLevel: 'packets', offsetBytes: 'auto' };
   return { channel: 0, bitRate: 1000000, polarity: 'normal', tolerance: 25, syncBits: 16 };
 }
 
@@ -16075,11 +16113,42 @@ function wfgLaDpAuxToleranceToKvParam(value) {
   return 0;
 }
 
+/* v4.51.0: 同一種分析器只能存在一個（Bruce 2026-09-19）。
+   判斷依據是**型別**：i2c 與 i2c_eeprom 是兩種不同型別，各自可以有一個。
+   阻擋方式是「按下去之前就看得出來」—— 選單裡把已存在的型別標「已新增」並 disable，
+   不是選完按下去才跳錯誤（也因此完全不用 alert）。 */
+var WFG_LA_ANALYZER_TYPES = ['i2c', 'i2c_eeprom', 'dp_aux'];
+
+function wfgLaAnalyzerTypeTaken(type, exceptId) {
+  for (var i = 0; i < wfgLaAnalyzers.length; i++) {
+    if (wfgLaAnalyzers[i].type === type && wfgLaAnalyzers[i].id !== exceptId) return true;
+  }
+  return false;
+}
+
+function wfgLaAnalyzerTypeOptionsHtml(selectedType, exceptId) {
+  return WFG_LA_ANALYZER_TYPES.map(function(tp) {
+    var taken = wfgLaAnalyzerTypeTaken(tp, exceptId);
+    var label = wfgLaAnalyzerTypeLabel(tp) + (taken ? '（' + t('wfg.laAnalyzerTypeTaken') + '）' : '');
+    return '<option value="' + tp + '"' + (tp === selectedType ? ' selected' : '') + (taken ? ' disabled' : '') + '>' + wfgLaEscapeHtml(label) + '</option>';
+  }).join('');
+}
+
+/* ＋ 鈕：三種型別都已存在時就沒有東西可加，直接 disable（刪掉任一個會恢復）。 */
+function wfgLaSyncAnalyzerAddButton() {
+  var btn = document.querySelector('#wfg-la-analyzer-card .wfg-la-panel-add');
+  if (!btn) return;
+  var full = WFG_LA_ANALYZER_TYPES.every(function(tp) { return wfgLaAnalyzerTypeTaken(tp, null); });
+  btn.disabled = full;
+  btn.title = full ? t('wfg.laAnalyzerAllTaken') : '新增 analyzer';
+}
+
 function wfgLaOpenAnalyzerDialog(id) {
   wfgLaInit();
   var editing = null;
   for (var i = 0; i < wfgLaAnalyzers.length; i++) if (wfgLaAnalyzers[i].id === id) editing = wfgLaAnalyzers[i];
-  var type = editing ? editing.type : 'i2c';
+  /* 新增時：預設選中第一個「還沒被用掉」的型別，不要停在 disable 的選項上。 */
+  var type = editing ? editing.type : (WFG_LA_ANALYZER_TYPES.filter(function(tp) { return !wfgLaAnalyzerTypeTaken(tp, null); })[0] || 'i2c');
   var cfg = Object.assign(wfgLaDefaultAnalyzerConfig(type), editing ? editing.config || {} : {});
   var modal = document.createElement('div');
   modal.id = 'wfg-la-analyzer-backdrop';
@@ -16092,9 +16161,7 @@ function wfgLaOpenAnalyzerDialog(id) {
       '</div>',
       '<div class="wfg-la-guide-body wfg-la-analyzer-form">',
         '<label>Analyzer<select id="wfg-la-analyzer-type" onchange="wfgLaRefreshAnalyzerDialogFields()">',
-          '<option value="i2c"' + (type === 'i2c' ? ' selected' : '') + '>I2C</option>',
-          '<option value="i2c_eeprom"' + (type === 'i2c_eeprom' ? ' selected' : '') + '>I2C-EEPROM</option>',
-          '<option value="dp_aux"' + (type === 'dp_aux' ? ' selected' : '') + '>DP AUX</option>',
+          wfgLaAnalyzerTypeOptionsHtml(type, editing ? editing.id : null),
         '</select></label>',
         '<div id="wfg-la-analyzer-fields"></div>',
         '<div class="wfg-la-pwm-actions">',
@@ -16147,6 +16214,14 @@ function wfgLaRefreshAnalyzerDialogFields(existingCfg) {
       '<option value="packets"' + (cfg.exportLevel !== 'bytes' ? ' selected' : '') + '>Packets</option>',
       '<option value="bytes"' + (cfg.exportLevel === 'bytes' ? ' selected' : '') + '>Bytes</option>',
     '</select></label>',
+    /* v4.51.0: Offset 長度 —— 決定「data 序號」要從第幾個 byte 開始編號。
+       未知（預設）＝ 先從同一個 slave 的 combined read 推算，推算不到就把 offset 一起當 data 編號。 */
+    '<label>' + wfgLaEscapeHtml(t('wfg.laI2cOffsetLen')) + '<select id="wfg-la-analyzer-offset">',
+      '<option value="auto"' + (wfgLaI2cNormalizeOffsetSetting(cfg.offsetBytes) === 'auto' ? ' selected' : '') + '>' + wfgLaEscapeHtml(t('wfg.laI2cOffsetAuto')) + '</option>',
+      [0, 1, 2, 3, 4].map(function(n) {
+        return '<option value="' + n + '"' + (wfgLaI2cNormalizeOffsetSetting(cfg.offsetBytes) === n ? ' selected' : '') + '>' + n + ' byte</option>';
+      }).join(''),
+    '</select></label>',
     type === 'i2c_eeprom' ? '<label>Memory Address<select id="wfg-la-analyzer-memory"><option value="lowbits"' + (cfg.memoryAddress === 'lowbits' ? ' selected' : '') + '>Low bits of Device Address included</option><option value="plain"' + (cfg.memoryAddress === 'plain' ? ' selected' : '') + '>Low bits of Device Address not included</option></select></label>' : ''
   ].join('');
 }
@@ -16154,6 +16229,9 @@ window.wfgLaRefreshAnalyzerDialogFields = wfgLaRefreshAnalyzerDialogFields;
 
 function wfgLaConfirmAnalyzerDialog(id) {
   var type = document.getElementById('wfg-la-analyzer-type')?.value || 'i2c';
+  /* v4.51.0: 同型別只能有一個。UI 上該型別已經是 disable 的選項、正常操作走不到這裡，
+     這一條是程式面的最後一道防線（例如直接呼叫本函式）。不跳彈窗，直接不收。 */
+  if (wfgLaAnalyzerTypeTaken(type, id || null)) return;
   var existing = null;
   for (var ei = 0; ei < wfgLaAnalyzers.length; ei++) if (wfgLaAnalyzers[ei].id === id) existing = wfgLaAnalyzers[ei];
   var cfg = Object.assign(wfgLaDefaultAnalyzerConfig(type), existing && existing.type === type ? (existing.config || {}) : {});
@@ -16166,8 +16244,9 @@ function wfgLaConfirmAnalyzerDialog(id) {
   } else {
     cfg.sda = Number(document.getElementById('wfg-la-analyzer-sda')?.value || 0);
     cfg.scl = Number(document.getElementById('wfg-la-analyzer-scl')?.value || 1);
-    cfg.addressDisplay = document.getElementById('wfg-la-analyzer-address')?.value || '8rw';
+    cfg.addressDisplay = document.getElementById('wfg-la-analyzer-address')?.value || '7bit';
     cfg.exportLevel = document.getElementById('wfg-la-analyzer-export-level')?.value || 'packets';
+    cfg.offsetBytes = wfgLaI2cNormalizeOffsetSetting(document.getElementById('wfg-la-analyzer-offset')?.value);
     if (type === 'i2c_eeprom') cfg.memoryAddress = document.getElementById('wfg-la-analyzer-memory')?.value || 'lowbits';
     if (cfg.sda === cfg.scl) {
       alert(t('wfg.laSdaSclSameChannel'));
@@ -16200,6 +16279,7 @@ window.wfgLaRemoveAnalyzer = wfgLaRemoveAnalyzer;
 
 function wfgLaRenderAnalyzers() {
   var el = document.getElementById('wfg-la-analyzer-list');
+  wfgLaSyncAnalyzerAddButton();   /* v4.51.0: 型別加滿 ⇒ ＋ 鈕 disable；刪掉任一個會恢復 */
   if (!el) return;
   if (!wfgLaAnalyzers.length) {
     el.innerHTML = '<div class="wfg-la-decoder-empty">' + wfgLaEscapeHtml(t('wfg.laAnalyzerEmpty') || '點擊 ＋ 新增 analyzer') + '</div>';
@@ -16247,6 +16327,10 @@ function wfgLaDecodeSearchText(group, row) {
   return [
     analyzer, row.label, typeText, row.rw, row.value, row.ack, row.dpcdWarn ? 'dpcd warn abnormal' : '',
     row.device, row.memory, row.data, row.packet, wfgLaDisplayTimeLabel(row.time),
+    /* v4.51.0: data 序號也要搜得到。token 用「data#N」：
+       🔴 不能只放裸「#N」—— wfgLaRenderDecodeResults 對 /^#(\d+)$/ 有既有的特殊路徑
+       （I2C 只比對 START 列的 Packet 編號），放裸「#N」會被那條攔走、而且會改掉既有行為。 */
+    row.dataIndex != null ? ('data#' + row.dataIndex) : '',
     wfgLaDecodeRowTimeLabel(row.time) /* v2.97.447：一併收錄完整精度時間，讓搜尋框可用畫面顯示的完整時間比對 */
   ].filter(function(v) { return v != null && v !== ''; }).join(' ').toLowerCase();
 }
@@ -16261,23 +16345,73 @@ function wfgLaRowContentBounds(wrap, row) {
   };
 }
 
+/* v4.51.0: 版面還沒算出來就算過一次 ⇒ 這裡記一筆，等下一個 frame 重算。
+   （dirty flag 一旦更新，後續呼叫會 early-return，錯的捲動位置就永遠留著。） */
+function wfgLaInvalidateDecodeScopeFocus() {
+  _wfgLaLastFocusViewStart = NaN;
+  _wfgLaLastFocusViewEnd = NaN;
+  _wfgLaLastFocusVgroupCount = -1;
+  _wfgLaLastFocusGeomKey = '';
+}
+
+/* v4.51.0: 各組表格容器的可視尺寸簽章。
+   🔴 為什麼非要它：藍框是 `position:absolute` 疊在捲動容器裡的元素，它的高度會
+      **撐大容器的 scrollHeight**。藍框高度是用「那一刻的列高」算出來的，所以版面
+      一變（展開解碼面板、視窗縮放、新增分析器改動通道列）列高就變，舊的藍框高度
+      立刻失真 —— 實測：窄面板下 17 列各 79px ⇒ 藍框 1348px；展開後列高變 29px、
+      表格只剩 509px，但藍框還是 1348px ⇒ scrollHeight 被撐到 1373，而 scrollTop
+      仍停在舊版面算出來的 570 ⇒ **畫面一片空白，要把捲軸拉到最上面才看得到**
+      （Bruce 2026-09-19 回報的症狀；此 bug 在 v4.50.1 就存在，非本次改動造成）。
+      原本的 dirty key 只看 view range 與組數，這兩者在展開時都沒變 ⇒ early-return
+      ⇒ 永遠不會重算。把尺寸加進 key 才擋得住。 */
+function wfgLaDecodeFocusGeomKey() {
+  var key = '';
+  for (var i = 0; i < wfgLaDecodeVGroups.length; i++) {
+    var el = wfgLaDecodeVGroups[i] && wfgLaDecodeVGroups[i].el;
+    key += (el ? (el.clientHeight + 'x' + el.clientWidth) : '-') + '|';
+  }
+  return key;
+}
+
 function wfgLaApplyDecodeScopeFocus() {
   /* v2.97.310: 藍框系統改成資料列驅動。
      Decode results 已限制每組最多 1000 rows，直接渲染可避免 virtual spacer 與換行 row 高度失準。
-     藍框只從實際 DOM row 的 getBoundingClientRect() 取得位置，不再用 rowH 推算可視框位置。 */
+     藍框只從實際 DOM row 的 getBoundingClientRect() 取得位置，不再用 rowH 推算可視框位置。
+
+     ── 捲動規則（Bruce 2026-09-19 明示，三條互斥）──────────────────────
+     目前視野與解碼列的關係決定 displayFirst / displayLast，再由下面的
+     `center - halfH` + clamp 換算成 scrollTop：
+       · 視野**落在所有列之後**（比最後一筆還晚）⇒ displayFirst/Last = 最後一列
+         ⇒ center-halfH 超過 maxScroll ⇒ clamp 成捲到底 ＝ **停在最後一筆**。
+       · 視野**落在所有列之前**（比第一筆還早）⇒ displayFirst/Last = 第 0 列
+         ⇒ desiredScroll = 0 ＝ **停在第一筆**。
+       · 視野**與解碼列有重疊** ⇒ 走上面的 displayFirst/displayLast 迴圈，
+         維持原本「捲到視野內那一段」的行為，這一條一個字都沒改。
+     v4.51.0: 這三條原本就在，壞的是**算的時機**：新增分析器時 innerHTML 才剛
+     塞進去，wrap 的高度（flex 分配）或 row 的 getBoundingClientRect 可能還沒
+     穩定；算出來的 scrollTop 是錯的，而 dirty flag 又已經更新 ⇒ 之後不會再算，
+     於是停在一片空白、手動捲一下才看得到。下面兩處 deferred 就是修這個。 */
+  var geomKey = wfgLaDecodeFocusGeomKey();
   if (
     _wfgLaLastFocusViewStart === wfgLaViewStart &&
     _wfgLaLastFocusViewEnd === wfgLaViewEnd &&
-    _wfgLaLastFocusVgroupCount === wfgLaDecodeVGroups.length
+    _wfgLaLastFocusVgroupCount === wfgLaDecodeVGroups.length &&
+    _wfgLaLastFocusGeomKey === geomKey
   ) return;
   var viewChanged = (_wfgLaLastFocusViewStart !== wfgLaViewStart || _wfgLaLastFocusViewEnd !== wfgLaViewEnd);
+  var geomChanged = (_wfgLaLastFocusGeomKey !== geomKey);
   _wfgLaLastFocusViewStart = wfgLaViewStart;
   _wfgLaLastFocusViewEnd = wfgLaViewEnd;
   _wfgLaLastFocusVgroupCount = wfgLaDecodeVGroups.length;
+  _wfgLaLastFocusGeomKey = geomKey;
+  var focusDeferred = false;
   for (var gi2 = 0; gi2 < wfgLaDecodeVGroups.length; gi2++) {
     var vg2 = wfgLaDecodeVGroups[gi2];
     if (!vg2 || !vg2.rows || !vg2.rows.length || !vg2.el) continue;
     var wrap = vg2.el;
+    /* 高度還是 0 ＝ 版面沒算完（或卡片收合中）。這一輪算出來的位置一定是錯的，
+       不要拿它當定案，標記成待重算。 */
+    if (!wrap.clientHeight) { focusDeferred = true; continue; }
     var frame = wrap.querySelector('.wfg-la-decode-scope-frame');
     var rows = vg2.rows;
     var displayFirst = -1, displayLast = -1;
@@ -16324,18 +16458,22 @@ function wfgLaApplyDecodeScopeFocus() {
     var lastRow = wrap.querySelector('tr[data-vrow-idx="' + displayLast + '"]');
     if (!firstRow || !lastRow) {
       frame.style.display = 'none';
+      focusDeferred = true;   /* v4.51.0: 列還沒進 DOM ⇒ 這一組沒捲到，下一個 frame 要重算 */
       continue;
     }
     var firstBounds = wfgLaRowContentBounds(wrap, firstRow);
     var lastBounds = wfgLaRowContentBounds(wrap, lastRow);
     if (!firstBounds || !lastBounds) {
       frame.style.display = 'none';
+      focusDeferred = true;
       continue;
     }
     var top = firstBounds.top;
     var bottom = lastBounds.bottom;
     if (bottom <= top) bottom = top + Math.max(4, firstRow.getBoundingClientRect().height || 4);
-    if (viewChanged) {
+    /* v4.51.0: 版面尺寸變了也要重捲。展開／收合解碼面板、視窗縮放都會改列高，
+       舊的 scrollTop 是照舊列高算的，不重捲就會停在錯的位置。 */
+    if (viewChanged || geomChanged) {
       var center = (top + bottom) / 2;
       var halfH = wrap.clientHeight / 2;
       var maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
@@ -16353,6 +16491,9 @@ function wfgLaApplyDecodeScopeFocus() {
       frame.style.height = newHeight;
     }
   }
+  /* v4.51.0: 有任何一組是在版面沒算完的情況下跳過的 ⇒ 把 dirty flag 放回去，
+     下一次呼叫（含下面排的那個 rAF）才會真的重算，而不是 early-return。 */
+  if (focusDeferred) wfgLaInvalidateDecodeScopeFocus();
 }
 
 function wfgLaLevelAtTime(decoded, ch, timeSec) {
@@ -16372,6 +16513,122 @@ function wfgLaPrevEdgeBefore(edges, timeSec) {
   if (!edges || !edges.length) return timeSec;
   var idx = wfgLaLowerBound(edges, (Number(timeSec) || 0) - 1e-15) - 1;
   return idx >= 0 ? edges[idx] : timeSec;
+}
+
+/* ═══ v4.51.0: I2C data 序號（Bruce 2026-09-19 需求）════════════════════════
+   一段連續讀／連續寫裡，第 1 筆 data 標 1、第 2 筆標 2…，所以**最後一個號碼
+   就是這一段讀寫了幾個 byte**。offset（記憶體位址）不算。
+
+   解碼器本身沒有 offset 的概念（wfgLaDecodeI2cRows 裡 byteIndex===0 是 ADDR、
+   其餘每一個 byte 都是 DATA），所以 offset 寬度要另外決定。優先序（Bruce 已裁示）：
+
+     1. 使用者在分析器設定裡指定「Offset 長度」0~4 byte ⇒ 以他指定的為準。
+     2. 未指定（＝未知，預設）⇒ 從同一個 slave 的 combined-format 隨機讀推算：
+            START → ADDR(W) → offset… → repeated START → ADDR(R) → data…
+        dummy write 相位裡只有 offset、沒有 data，所以那一段的 DATA 列數就是
+        該 slave 的 offset 寬度。**精確可得，不是猜**（依據 NXP UM10204）。
+        再把它套用到同一個 slave 的純寫入交易。
+     3. 推算不到（該 slave 在這份側錄裡從來沒有讀取）⇒ 把 offset 也一起當 data 編號。
+
+   🔴 禁止用「offset 與 data 之間會有較長間隔」判斷：規格上 page write 是連續
+      串流、沒有規定的間隔；實測 bridge log（1+2+32 byte / 2786 us ≈ 80 us/byte，
+      均勻，一整塊 MPSSE 命令送出去）中間也沒有縫。這個假設已被證明是錯的。 */
+function wfgLaI2cNormalizeOffsetSetting(value) {
+  if (value === null || value === undefined || value === '' || value === 'auto') return 'auto';
+  var n = Math.round(Number(value));
+  if (!isFinite(n) || n < 0 || n > 4) return 'auto';
+  return n;
+}
+
+/* 把解碼列切成「相位」：每個 START（含 repeated START）開一個相位，STOP 收掉一筆交易。
+   repeated START 在 wfgLaDecodeI2cRows 裡本來就會產生一列 START（且 packet++），
+   所以相位邊界＝START 列，一個相位就是一個 packet 編號。 */
+function wfgLaI2cSplitPhases(rows) {
+  var phases = [];
+  var cur = null;
+  var afterStop = true;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.type === 'START') {
+      cur = { addr7: null, rw: '', dataRows: [], continued: !afterStop };
+      phases.push(cur);
+      afterStop = false;
+    } else if (r.type === 'ADDR') {
+      if (cur) { cur.addr7 = (Number(r.raw) >> 1) & 0x7f; cur.rw = r.rw || ''; }
+    } else if (r.type === 'DATA') {
+      if (cur) cur.dataRows.push(r);
+    } else if (r.type === 'STOP') {
+      afterStop = true;
+      cur = null;
+    }
+  }
+  return phases;
+}
+
+/* 從 combined format 的 dummy write 相位推算各 slave 的 offset 寬度。
+   同一個 slave 推出兩個不同的寬度 ⇒ 前提被打破，該 slave 視為推算不到（不硬猜一個）。 */
+function wfgLaI2cInferOffsetWidths(phases) {
+  var seen = {};
+  for (var i = 0; i + 1 < phases.length; i++) {
+    var w = phases[i], r = phases[i + 1];
+    if (w.rw !== 'W' || r.rw !== 'R') continue;
+    if (!r.continued) continue;                       /* 中間有 STOP ⇒ 不是 combined format */
+    if (w.addr7 == null || w.addr7 !== r.addr7) continue;
+    var n = w.dataRows.length;
+    if (n < 1 || n > 4) continue;                     /* 0 ＝ current-address read，問不出寬度 */
+    if (!seen[w.addr7]) seen[w.addr7] = { width: n, conflict: false };
+    else if (seen[w.addr7].width !== n) seen[w.addr7].conflict = true;
+  }
+  var out = {};
+  for (var k in seen) if (!seen[k].conflict) out[k] = seen[k].width;
+  return out;
+}
+
+/* 幫 DATA 列掛上 dataIndex（1 起算）。offset 列與 ADDR/START/STOP 一律不編號（欄位留空），
+   這樣最後一個號碼就直接等於這一段讀寫的 byte 數。 */
+function wfgLaI2cAnnotateDataIndex(rows, cfg) {
+  var setting = wfgLaI2cNormalizeOffsetSetting(cfg && cfg.offsetBytes);
+  var phases = wfgLaI2cSplitPhases(rows);
+  var inferred = setting === 'auto' ? wfgLaI2cInferOffsetWidths(phases) : {};
+  var writeSlaves = {};
+  phases.forEach(function(ph) {
+    var width = 0;
+    if (ph.rw === 'W') {
+      writeSlaves[ph.addr7] = true;
+      if (setting !== 'auto') width = setting;
+      else if (ph.addr7 != null && inferred[ph.addr7] != null) width = inferred[ph.addr7];
+      else width = 0;                                  /* 優先序 3：offset 併入 data 編號 */
+    }
+    var seq = 0;
+    ph.dataRows.forEach(function(row, idx) {
+      var isOffset = idx < width;
+      row.i2cIsOffset = isOffset;
+      row.dataIndex = isOffset ? null : (++seq);
+    });
+  });
+  var keys = Object.keys(writeSlaves).filter(function(k) { return k !== 'null' && k !== 'undefined'; });
+  var info;
+  if (setting !== 'auto') info = { mode: 'manual', width: setting };
+  else if (!keys.length) info = { mode: 'none' };
+  else {
+    var known = keys.filter(function(k) { return inferred[k] != null; }).map(function(k) { return inferred[k]; });
+    var uniq = known.filter(function(v, i, arr) { return arr.indexOf(v) === i; });
+    if (!known.length) info = { mode: 'unknown' };
+    else if (known.length === keys.length && uniq.length === 1) info = { mode: 'inferred', width: uniq[0] };
+    else info = { mode: 'mixed' };
+  }
+  rows.i2cOffsetInfo = info;
+  return info;
+}
+
+/* 來源標示：讓使用者一眼看出這次的 offset 寬度是他指定的、推算出來的、還是未知。
+   刻意做成一小段灰字掛在解碼結果標題列旁邊，不另外加說明文字。 */
+function wfgLaI2cOffsetInfoText(info) {
+  if (!info || info.mode === 'none') return '';
+  if (info.mode === 'manual') return 'Offset ' + info.width + ' byte (' + t('wfg.laI2cOffsetSrcManual') + ')';
+  if (info.mode === 'inferred') return 'Offset ' + info.width + ' byte (' + t('wfg.laI2cOffsetSrcInferred') + ')';
+  if (info.mode === 'mixed') return 'Offset ' + t('wfg.laI2cOffsetSrcMixed');
+  return 'Offset ' + t('wfg.laI2cOffsetSrcUnknown');
 }
 
 function wfgLaDecodeI2cRows(decoded, cfg) {
@@ -16491,6 +16748,7 @@ function wfgLaDecodeI2cRows(decoded, cfg) {
   }
   // Remove trailing lone START (capture-boundary artifact or incomplete transaction)
   if (rows.length > 0 && rows[rows.length - 1].type === 'START') rows.pop();
+  wfgLaI2cAnnotateDataIndex(rows, cfg);   /* v4.51.0: data 序號 + offset 來源資訊 */
   return rows;
 }
 
@@ -16967,10 +17225,10 @@ function wfgLaI2cBuildPacketRows(rows) {
     if (!row) return;
     if (row.type === 'START') {
       if (current) packets.push(current);
-      current = { time: row.time, endTime: row.endTime || row.time, packet: row.packet, address: '', rw: '', data: [], status: '', error: false };
+      current = { time: row.time, endTime: row.endTime || row.time, packet: row.packet, address: '', rw: '', data: [], dataCount: 0, status: '', error: false };
       return;
     }
-    if (!current) current = { time: row.time, endTime: row.endTime || row.time, packet: row.packet, address: '', rw: '', data: [], status: '', error: false };
+    if (!current) current = { time: row.time, endTime: row.endTime || row.time, packet: row.packet, address: '', rw: '', data: [], dataCount: 0, status: '', error: false };
     current.endTime = Math.max(Number(current.endTime) || 0, Number(row.endTime) || Number(row.time) || 0);
     if (row.type === 'ADDR') {
       current.address = row.value || '';
@@ -16980,6 +17238,8 @@ function wfgLaI2cBuildPacketRows(rows) {
       current.status = row.ack || current.status;
     } else if (row.type === 'DATA') {
       current.data.push(row.value || '');
+      /* v4.51.0: 這一段實際讀／寫了幾個 data byte（offset 不算）＝畫面上最後一個序號 */
+      if (row.dataIndex != null) current.dataCount = Math.max(current.dataCount || 0, Number(row.dataIndex) || 0);
       if ((row.ack === 'NACK' && !row.normalNack) || row.ack === 'ERR') current.error = true;
       if (row.ack === 'NACK' || !current.status) current.status = row.ack || current.status;
     } else if (row.type === 'STOP') {
@@ -17013,6 +17273,8 @@ function wfgLaI2cByteRows(rows) {
       rw: row.rw || '',
       ack: row.ack || '',
       kind: row.type === 'ADDR' ? 'Address' : 'Data',
+      /* v4.51.0: 與畫面「Data #」欄同一個值（offset 列與 ADDR 列留空） */
+      seq: row.dataIndex == null ? '' : Number(row.dataIndex),
       error: (row.ack === 'NACK' && !normalNack) || row.ack === 'ERR'
     };
   });
@@ -17037,14 +17299,16 @@ function wfgLaBuildI2cDecodeExcelXml(group) {
   xml.push('</Styles>');
   xml.push('<Worksheet ss:Name="' + wfgLaExcelXmlEscape(wfgLaExcelSheetName(sheet)) + '"><Table>');
   if (byteMode) {
-    xml.push('<Column ss:Width="112"/><Column ss:Width="72"/><Column ss:Width="72"/><Column ss:Width="80"/><Column ss:Width="80"/><Column ss:Width="110"/>');
+    /* v4.51.0: 多一欄「Data #」，與畫面同一個值、同樣接在 Packet 後面 */
+    xml.push('<Column ss:Width="112"/><Column ss:Width="72"/><Column ss:Width="56"/><Column ss:Width="72"/><Column ss:Width="80"/><Column ss:Width="80"/><Column ss:Width="110"/>');
     xml.push('<Row>' + wfgLaExcelCell('I2C Byte Export', 'Title') + '</Row>');
-    xml.push('<Row>' + ['Time [s]', 'Packet ID', 'Byte', 'Read/Write', 'ACK/NAK', 'Address/Data'].map(function(h) { return wfgLaExcelCell(h, 'Header'); }).join('') + '</Row>');
+    xml.push('<Row>' + ['Time [s]', 'Packet ID', 'Data #', 'Byte', 'Read/Write', 'ACK/NAK', 'Address/Data'].map(function(h) { return wfgLaExcelCell(h, 'Header'); }).join('') + '</Row>');
     wfgLaI2cByteRows(group.rows).forEach(function(row) {
       var style = row.error ? 'Err' : '';
       xml.push('<Row>' +
         wfgLaExcelCell(wfgLaI2cExportTimeLabel(row.time), style) +
         wfgLaExcelCell(row.packet, style, '', 'Number') +
+        wfgLaExcelCell(row.seq, style, '', row.seq === '' ? 'String' : 'Number') +
         wfgLaExcelCell(row.byte, style) +
         wfgLaExcelCell(row.rw, style) +
         wfgLaExcelCell(row.ack, style) +
@@ -17052,14 +17316,17 @@ function wfgLaBuildI2cDecodeExcelXml(group) {
       '</Row>');
     });
   } else {
-    xml.push('<Column ss:Width="112"/><Column ss:Width="72"/><Column ss:Width="82"/><Column ss:Width="82"/><Column ss:Width="420"/><Column ss:Width="150"/>');
+    /* v4.51.0: Packet 層級沒有「每一列一個 byte」，對應的是這一段的 data byte 數
+       ＝畫面上該段最後一個序號（offset 不算）。 */
+    xml.push('<Column ss:Width="112"/><Column ss:Width="72"/><Column ss:Width="56"/><Column ss:Width="82"/><Column ss:Width="82"/><Column ss:Width="420"/><Column ss:Width="150"/>');
     xml.push('<Row>' + wfgLaExcelCell('I2C Packet Export', 'Title') + '</Row>');
-    xml.push('<Row>' + ['Time[s]', 'Packet ID', 'Address', 'Read/Write', 'Data', 'Status'].map(function(h) { return wfgLaExcelCell(h, 'Header'); }).join('') + '</Row>');
+    xml.push('<Row>' + ['Time[s]', 'Packet ID', 'Data #', 'Address', 'Read/Write', 'Data', 'Status'].map(function(h) { return wfgLaExcelCell(h, 'Header'); }).join('') + '</Row>');
     wfgLaI2cBuildPacketRows(group.rows).forEach(function(row) {
       var style = row.error ? 'Err' : (row.rw === 'R' ? 'Read' : (row.rw === 'W' ? 'Write' : ''));
       xml.push('<Row>' +
         wfgLaExcelCell(wfgLaI2cExportTimeLabel(row.time), style) +
         wfgLaExcelCell(row.packet, style, '', 'Number') +
+        wfgLaExcelCell(row.dataCount || 0, style, '', 'Number') +
         wfgLaExcelCell(row.address, style) +
         wfgLaExcelCell(row.rw, style) +
         wfgLaExcelCell(row.data.join(' '), style) +
@@ -19032,6 +19299,14 @@ function wfgLaToggleDecodeExpanded() {
   if (wfgLaDecodeExpanded && wfgLaSettingsPanelOpen) wfgLaCloseSettingsPanel();
   wfgLaApplyDecodeExpandedState();
   wfgLaRenderScope();
+  /* v4.51.0: 展開／收合會整個改掉列高與容器高度，藍框高度與 scrollTop 都要跟著重算。
+     排在下一個 frame，確保是對著**穩定之後**的版面算的。 */
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(function() {
+      wfgLaInvalidateDecodeScopeFocus();
+      wfgLaApplyDecodeScopeFocus();
+    });
+  }
 }
 window.wfgLaToggleDecodeExpanded = wfgLaToggleDecodeExpanded;
 
@@ -19221,7 +19496,11 @@ function wfgLaRenderDecodeResults() {
   var groupIdx = 0;
   wfgLaDecodeResults.forEach(function(group) {
     var a = group.analyzer;
-    html += '<div style="font-weight:800;color:#f5f5f5;margin:4px 0 6px">' + wfgLaEscapeHtml(wfgLaAnalyzerTypeLabel(a.type)) + '</div>';
+    /* v4.51.0: I2C 標題列右邊掛一小段灰字，說明本次 data 序號用的 offset 寬度是
+       指定的、推算的、還是未知（未知＝offset 併入編號）。 */
+    var offText = (a.type === 'i2c' && group.rows) ? wfgLaI2cOffsetInfoText(group.rows.i2cOffsetInfo) : '';
+    html += '<div style="font-weight:800;color:#f5f5f5;margin:4px 0 6px">' + wfgLaEscapeHtml(wfgLaAnalyzerTypeLabel(a.type)) +
+      (offText ? '<span style="font-weight:600;color:#9ca3af;font-size:10px;margin-left:8px">' + wfgLaEscapeHtml(offText) + '</span>' : '') + '</div>';
     var rows = group.rows.filter(function(row) {
       if (!wfgLaDecodeSearch) return true;
       /* #N 特殊搜尋：AUX 匹配序號欄位（不限 type）；I2C 僅匹配 START 的 Packet 編號 */
@@ -19278,13 +19557,15 @@ function wfgLaRenderDecodeResults() {
         return '<tr class="' + (key === wfgLaDecodeSelectedKey ? 'selected' : '') + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td>' + wfgLaEscapeHtml(r.device) + '</td><td>' + wfgLaEscapeHtml(r.memory) + '</td><td><span class="wfg-la-decode-badge ' + (r.rw === 'Read' ? 'read' : r.rw === 'Write' ? 'write' : '') + '">' + wfgLaEscapeHtml(r.rw) + '</span></td><td>' + wfgLaEscapeHtml(r.data) + '</td></tr>';
       };
     } else {
-      theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Type</th><th>R/W</th><th>Value</th><th>ACK</th></tr></thead>';
+      /* v4.51.0: Packet 與 Type 之間插入「Data #」欄（連續讀／連續寫的 data 序號）。 */
+      theadHtml = '<thead><tr><th>Time</th><th>Packet</th><th>Data #</th><th>Type</th><th>R/W</th><th>Value</th><th>ACK</th></tr></thead>';
       renderRow = function(r, grp) {
         var isProtocolError = (r.ack === 'NACK' && !r.normalNack) || r.ack === 'ERR';
         var cls = isProtocolError ? ' err' : '';
         var key = wfgLaDecodeRowKey(grp, r);
         var trCls = (key === wfgLaDecodeSelectedKey ? 'selected' : '') + (r.dpcdWarn ? ' dpcd-warn' : '') + (isProtocolError ? ' protocol-error' : '');
-        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
+        var seq = (r.dataIndex == null) ? '' : String(r.dataIndex);
+        return '<tr class="' + trCls.trim() + '" data-decode-key="' + wfgLaEscapeHtml(key) + '" onclick="wfgLaSelectDecodeRow(\'' + wfgLaEscapeHtml(key) + '\')"><td>' + wfgLaEscapeHtml(wfgLaDecodeRowTimeLabel(r.time)) + '</td><td>' + r.packet + '</td><td class="wfg-la-decode-seq">' + seq + '</td><td><span class="wfg-la-decode-badge' + cls + '">' + wfgLaEscapeHtml(r.type) + '</span></td><td>' + wfgLaEscapeHtml(r.rw) + '</td><td>' + wfgLaRenderDecodeCellHtml(r, 'value') + '</td><td>' + wfgLaEscapeHtml(r.dpcdWarn ? 'DPCD WARN' : r.ack) + '</td></tr>';
       };
     }
     var idx = groupIdx++;
@@ -19302,10 +19583,20 @@ function wfgLaRenderDecodeResults() {
     wfgLaRenderDecodeVRows(i);
   });
   /* v2.97.310: decode 結果重建後 invalidate scope focus dirty flag，強制重新計算藍框位置 */
-  _wfgLaLastFocusViewStart = NaN;
-  _wfgLaLastFocusViewEnd = NaN;
-  _wfgLaLastFocusVgroupCount = -1;
+  wfgLaInvalidateDecodeScopeFocus();
   wfgLaApplyDecodeScopeFocus();
+  /* v4.51.0: 再排一次 rAF 重算。
+     innerHTML 之後同一個 tick 裡量到的高度不一定是最終值 —— 新增分析器會同時
+     改動通道列（wfgLaRenderChannelGrid）與 flex 分配，捲動位置算在那之前就是錯的，
+     而 dirty flag 已經更新 ⇒ 之後不會再算 ⇒ 使用者看到一片空白、手動捲一下才對。
+     這一次重算在版面穩定之後跑，且只發生在 decode 結果「重建」時（不是 mousemove
+     那條高頻路徑），不會把 v2.97.310 的抖動問題帶回來。 */
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(function() {
+      wfgLaInvalidateDecodeScopeFocus();
+      wfgLaApplyDecodeScopeFocus();
+    });
+  }
 }
 
 function wfgLaDrawAnalyzerOverlays(ctx, cfg, visibleChannels) {
@@ -40700,7 +40991,7 @@ function wfgLaBuildAnalyzerLines() {
         var i2cParams = wfgLaBuildI2cParameters(acfg.kvParams, {
           sda: i2cSda,
           scl: i2cScl,
-          addressDisplay: acfg.addressDisplay || '8rw',
+          addressDisplay: acfg.addressDisplay || '7bit',  /* v4.51.0: 與新增時的預設一致；既有分析器 acfg.addressDisplay 一定有值，走不到這個 fallback */
           exportLevel: acfg.exportLevel || 'packets'
         });
         analyzerLines.push({
