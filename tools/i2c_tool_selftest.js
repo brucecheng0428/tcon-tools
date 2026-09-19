@@ -2178,22 +2178,36 @@ function baseScript(f) {
     EQ(res.segs, 2, '512 byte ⇒ 分 2 段');
     EQ(res.devUs, 24690, '🔴 bridge 端回報的 us 有被累加（2 段 × 12345）');
     const log = doc.getElementById('log').textContent;
-    CHECK(/⏱ 讀取 512 byte · 共 \d+\.\d 秒/.test(log), '🔴 log 有「共 N.N 秒」（秒為單位、一位小數）');
+    /* 🔴🔴 v1.15.0：單位規則**反過來了**（Bruce 2026-09-19：「像這種總耗時這麼短的，
+       請用毫秒等級來列出，不要用 0 秒」）。舊斷言釘的是「一律用秒」，而那正是
+       讓 12.6 ms 印成 `0.0 秒` 的原因 —— 舊測試是在保護這個 bug。
+       新規則：**< 1 秒用 ms、≥ 1 秒用秒**。這一段的模擬耗時是幾 ms ⇒ 應該是 ms。 */
+    CHECK(/⏱ 讀取 512 byte · 共 \d+(\.\d)? ms/.test(log), '🔴 log 的總計用毫秒（這一段遠短於 1 秒）');
     /* 🔴 文案改成使用者的語言（Bruce 2026-09-19：不准出現實作名詞），
        但**分層這件事本身不可以消失** —— 那是定位瓶頸唯一的資訊。 */
     CHECK(/裝置 \d+ ms、傳輸 -?\d+ ms/.test(log), '🔴 log 有分層：裝置與傳輸各多久');
     CHECK(/dev 12 ms/.test(log), '🔴 每一段各記一次 dev 耗時');
-    CHECK(/秒/.test(doc.getElementById('readbanner').textContent),
-      '🔴 畫面上的完成訊息帶秒數：' + doc.getElementById('readbanner').textContent.slice(0, 40));
-    CHECK(!/共 \d+ 毫秒/.test(doc.getElementById('readbanner').textContent), '畫面不用毫秒（他明講不實際）');
+    CHECK(/\d+(\.\d)? (ms|秒)/.test(doc.getElementById('readbanner').textContent),
+      '🔴 畫面上的完成訊息帶耗時：' + doc.getElementById('readbanner').textContent.slice(0, 40));
+    CHECK(!/0\.0 秒/.test(doc.getElementById('readbanner').textContent),
+      '🔴 短耗時不准印成 0.0 秒（那一格等於沒有資訊）');
     /* 寫入那一側 */
     A.loadFile('t.bin', new win.Uint8Array(300));
     await sleep(20);
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '300' });
     await A.doWrite(); await sleep(30);
     const log2 = doc.getElementById('log').textContent;
-    CHECK(/⏱ 寫入 300 byte · 共 \d+\.\d 秒/.test(log2), '🔴 寫入也有總計秒數');
-    CHECK(/段 1\/\d+ · \d+ byte · \d+ ms/.test(log2), '🔴 寫入每一段各記一次耗時');
+    /* 🔴 不釘死小數位：100 ms 以上會取整數（`137 ms`），那是規則的一部分，
+       不是壞掉。釘的是「有總計、而且單位合規」。 */
+    CHECK(/⏱ 寫入 300 byte · 共 \d+(\.\d)? (ms|秒)/.test(log2), '🔴 寫入也有總計耗時（同一套單位規則）');
+    CHECK(/段 1\/\d+ · \d+ byte · \d+\.\d ms/.test(log2), '🔴 寫入每一段各記一次耗時');
+    /* 🔴 單位門檻本身要有單元測試，不能只靠上面那幾條剛好落在 ms 那一側。 */
+    EQ(A.secs(0), '0.0 ms', '🔴 0 ⇒ `0.0 ms`（不是 `0.0 秒`，那正是他抱怨的那個畫面）');
+    EQ(A.secs(12.64), '12.6 ms', '🔴 < 100 ms 留一位小數（7.9 和 8.4 不可以印成同一個數字）');
+    EQ(A.secs(523.4), '523 ms', '100～999 ms 取整數（三位有效數字夠比較了）');
+    EQ(A.secs(999), '999 ms', '999 ms 還是 ms');
+    EQ(A.secs(1000), '1.0 秒', '🔴 門檻：1 秒（含）以上改用秒');
+    EQ(A.secs(2730910), '2730.9 秒', '很長的耗時照樣用秒（不會變成七位數的 ms）');
     await win.__i2ct.disconnect();
   }
 
@@ -2620,6 +2634,213 @@ function baseScript(f) {
     { const om3 = s3.filter(m => m.type === 'open').map(m => m.mode);
       CHECK(om3.indexOf(0) >= 0, '🔴 重連後真的又重驗了一次：' + om3.join(',')); }
     await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('45c. 🔴🔴 模式標籤與退回橫幅必須反映**實際走的後端**（v1.14.5）');
+  {
+    /* 根因：舊寫法只看 `r.raw` 一個旗標 ⇒ 原廠 DLL（raw=false）被標成「一般模式」，
+       而且 `i2ctRawMpsse` 的預設 true 在自動選路**結束前**就讓退回橫幅掛上去。
+       Bruce 2026-09-19 的畫面同時出現「0.0 秒　一般模式」與「快的方式用不了」，
+       但那次讀到的 256 byte 與黃金基準逐位元組相同、不到 10 ms —— 兩行都是假的。 */
+
+    /* (a) 四條路各自的指紋 ⇒ 標籤 */
+    EQ(A.pathOf({ usbrt: 1 }).key, 'vendor', '🔴 usbrt=1 ＝ 原廠 DLL（只有它會是 1）');
+    EQ(A.pathOf({ usbrt: 1 }).label, '快速模式', '🔴 原廠要標成「快速模式」（就是這一條被標錯的）');
+    EQ(A.pathOf({ usbrt: 1, raw: false, fast: false }).key, 'vendor',
+       '🔴 raw/fast 都是 false 也不能蓋過 usbrt=1 —— 原廠本來就兩個都 false');
+    EQ(A.pathOf({ raw: true, usbrt: 2 }).key, 'built', '自建：raw=true');
+    EQ(A.pathOf({ raw: true, usbrt: 2 }).label, '快速模式', '自建也是快速');
+    EQ(A.pathOf({ fast: true, usbrt: 2 }).key, 'fast', '官方快速：fast=true');
+    EQ(A.pathOf({ fast: true, usbrt: 2 }).label, '快速模式', '官方快速也是快速');
+    EQ(A.pathOf({ raw: false, fast: false, usbrt: 34 }).key, 'slow', '逐 byte：usbrt = len*2+2');
+    EQ(A.pathOf({ raw: false, fast: false, usbrt: 34 }).label, '一般模式', '逐 byte 才是一般模式');
+    /* 🔴 三條快的都要 fastish，否則退回判斷會把它們當成退回 */
+    CHECK(A.pathOf({ usbrt: 1 }).fastish && A.pathOf({ raw: true }).fastish
+          && A.pathOf({ fast: true }).fastish, '🔴 三條快的都算「快」');
+    CHECK(A.pathOf({ raw: false, fast: false, usbrt: 34 }).fastish === false, '逐 byte 不算快');
+    /* (b) 欄位缺席 ⇒ 判不出來，**不可以**宣稱它退回了 */
+    CHECK(A.pathOf({}).sure === false, '🔴 沒有任何指紋 ⇒ sure=false（不宣稱）');
+    CHECK(A.pathOf(null).sure === false, '🔴 連回覆都沒有也不能當成退回');
+    CHECK(A.pathOf({ usbrt: 34 }).sure === true, '逐 byte 有正面證據 ⇒ sure=true');
+
+    /* (c) 端到端：原廠被採用時，耗時紀錄要寫「快速模式」、橫幅要乾淨 */
+    A._reset();
+    let cm = 2;
+    const s45c = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.11.11', proto: 3, ok: true };
+      if (m.type === 'open') { cm = (typeof m.mode === 'number') ? m.mode : 2; return { ok: true, channels: 1 }; }
+      if (m.type === 'close') return { ok: true };
+      if (m.type === 'read') {
+        /* 🔴 忠實模擬 bridge 依**實際走的分支**填的三個欄位（i2c_bridge.c i2c_read_ex）。
+           少填就等於在測一個現實中不存在的 bridge。 */
+        const f = cm === 0 ? { usbrt: 1, raw: false, fast: false }
+                : cm === 1 ? { usbrt: 2, raw: false, fast: true  }
+                : cm === 3 ? { usbrt: 2, raw: true,  fast: false }
+                           : { usbrt: m.len * 2 + 2, raw: false, fast: false };
+        return Object.assign({ ok: true, status: 0,
+          data: Array.from({ length: m.len }, (_, i) => i & 0xFF) }, f);
+      }
+      return { ok: true, status: 0 };
+    });
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(40);
+    EQ(A.mode(), 0, '前提：資料一致 ⇒ 採用原廠');
+    EQ(A.lastPath(), '快速模式', '🔴🔴 採用原廠時，耗時紀錄的模式欄是「快速模式」（bug 本體）');
+    { const bn = doc.getElementById('topbanner').textContent;
+      CHECK(!/比較慢|用不了/.test(bn), '🔴🔴 原廠成功時不准掛「快的方式用不了」：' + bn.slice(0, 40)); }
+    { const tt = doc.getElementById('times') ? doc.getElementById('times').textContent : '';
+      CHECK(!/一般模式/.test(tt), '🔴 耗時紀錄裡不會出現「一般模式」：' + tt.slice(0, 60)); }
+    await win.__i2ct.disconnect();
+
+    /* (d) 反面：要了快的、bridge 實際走逐 byte ⇒ 橫幅**要**出現（規則不可以被修掉） */
+    A._reset();
+    let cm2 = 2;
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.11.11', proto: 3, ok: true };
+      if (m.type === 'open') { cm2 = (typeof m.mode === 'number') ? m.mode : 2; return { ok: true, channels: 1 }; }
+      if (m.type === 'close') return { ok: true };
+      if (m.type === 'read') {
+        /* 🔴 資料一律相同（所以原廠會被採用），但 bridge 一律回報**逐 byte 的指紋**
+           ＝ 典型的「靜默退回」：選了快的，底下走的是慢的。 */
+        return { ok: true, status: 0, usbrt: m.len * 2 + 2, raw: false, fast: false,
+                 data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      }
+      return { ok: true, status: 0 };
+    });
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(40);
+    EQ(A.mode(), 0, '前提：資料一致，網頁以為自己採用了原廠');
+    { const bn2 = doc.getElementById('topbanner').textContent;
+      CHECK(/比較慢/.test(bn2), '🔴 真的退回時橫幅**一定要**出現（不准靜默）：' + bn2.slice(0, 40));
+      CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(bn2), '退回訊息沒有實作名詞'); }
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('47. 🔴 搜尋（連續位元組、全部／本頁、兩端循環、跨頁自動翻頁）');
+  {
+    /* Bruce 2026-09-19 指定的四件事：範圍兩選一、用「寫入資料」那套輸入格式、
+       比對**連在一起的 N 筆**、上下箭頭兩端都循環。 */
+    A._reset();
+    /* 1024 byte ＝ 4 頁。在三個位置埋同一段 3 byte 的樣式：
+         +0x0005（第 0 頁）、+0x0123（第 1 頁）、+0x02FE（第 2→3 頁交界，跨頁） */
+    const buf = new win.Uint8Array(1024);
+    for (let i = 0; i < 1024; i++) buf[i] = (i * 7) & 0xFF;
+    const PAT = [0x61, 0x41, 0xB4];
+    /* 0x02FE 那一筆**故意跨頁**（766,767 在第 2 頁、768 在第 3 頁）：
+       「本頁」的定義是整段都要落在本頁，所以它只能在「全部範圍」被找到。 */
+    [0x0005, 0x0123, 0x0250, 0x02FE].forEach((p) => { buf[p] = PAT[0]; buf[p + 1] = PAT[1]; buf[p + 2] = PAT[2]; });
+    A.loadFile('find.bin', buf);
+    await sleep(20);
+
+    /* (a) 全部範圍：三筆都要找到，包含跨頁那一筆 */
+    const ALL = [0x0005, 0x0123, 0x0250, 0x02FE];
+    let f = A.find('61 41 B4');
+    EQ(f.hits, ALL, '🔴 全部範圍：四筆都找到（含跨頁的 0x02FE）');
+    EQ(f.info, '1 / 4', '🔴 顯示第幾筆／共幾筆');
+
+    /* (b) 🔴 輸入格式沿用「寫入資料」的解析器 ⇒ 各種寫法結果必須完全相同 */
+    ['61,41,B4', '0x61 0x41 0xB4', '61h 41h B4h', '0x61h,0x41h,0xB4h', '6141B4']
+      .forEach((s) => EQ(A.find(s).hits, ALL, '同一段資料寫成「' + s + '」結果相同'));
+    EQ(A.find('61 4').hits, [], '🔴 半個 byte ⇒ 不臆測');
+    CHECK(/看不懂/.test(A.find('61 4').info), '🔴 解不了要講出是哪一個 token：' + A.find('61 4').info);
+
+    /* (c) 長度：1 / 2 / 4 個位元組都要是**連續**比對 */
+    EQ(A.find('61 41').hits, ALL, '2 byte 連續');
+    EQ(A.find('41 B4').hits, ALL.map((h) => h + 1), '2 byte 連續（起點差一）');
+    CHECK(A.find('61 41 B4 00').hits.length === 0
+       || A.find('61 41 B4 00').hits.every((h) => buf[h + 3] === 0x00), '4 byte 也是連續比對');
+
+    /* (d) 兩端循環（他逐字指定的 (a)(b) 兩條） */
+    A.find(''); A.find('61 41 B4');
+    EQ(A.findGo(-1).at, 3, '🔴 在第 1 筆按「上」⇒ 循環到最後一筆');
+    EQ(A.findGo(1).at, 0, '🔴 在最後一筆按「下」⇒ 循環回第一筆');
+    EQ(A.findGo(1).at, 1, '一般情況：往下一筆');
+
+    /* (e) 🔴 跨頁命中要自動翻到那一頁，並用既有的十字定位標示 */
+    /* 🔴 先清空再輸入 —— 重打**同一個**查詢時，游標會**停在原來那一筆**
+       （翻頁重算時不該把他丟回第一筆，見 i2ctFindRun 的說明）。
+       這一段要從第一筆開始數，所以明確清掉。 */
+    A.find(''); A.find('61 41 B4');
+    EQ(A.findState().at, 0, '清空後重新輸入 ⇒ 從第一筆開始');
+    let g3 = A.findGo(1);           /* 0x0005 → 0x0123（第 1 頁） */
+    EQ(g3.page, 1, '🔴 命中在第 1 頁 ⇒ 自動翻過去');
+    EQ(g3.cross, 0x0123, '🔴 用既有的十字定位標示命中位置');
+    CHECK(doc.querySelectorAll('#dump td.xc').length === 1, '🔴 畫面上真的有一個十字中心');
+    g3 = A.findGo(1);               /* → 0x0250（第 2 頁） */
+    EQ(g3.page, 2, '🔴 下一筆在第 2 頁 ⇒ 又自動翻過去');
+
+    /* (f) 只找本頁：目前在第 2 頁（0x0200–0x02FF） */
+    A.findScope(true);
+    EQ(A.findState().hits, [0x0250], '🔴 本頁範圍：只剩完整落在這一頁裡的那一筆');
+    EQ(A.findState().info, '1 / 1', '計數跟著範圍走');
+    /* 🔴 0x02FE 那一筆**跨頁**（766,767 在本頁、768 在下一頁）⇒ 不算本頁命中。
+       否則同一段資料在第 2 頁算一次、第 3 頁再算一次，計數會自己重複。 */
+    CHECK(A.findState().hits.indexOf(0x02FE) < 0, '🔴 跨頁的那一段不算「本頁」命中');
+    A.findGo(1);
+    EQ(A.findState().hits.length, 1, '本頁只有一筆，往下循環還是同一筆');
+    /* 切回全部範圍 ⇒ 跨頁那一筆又出現 */
+    A.findScope(false);
+    CHECK(A.findState().hits.indexOf(0x02FE) >= 0, '🔴 切回全部範圍，跨頁那一筆找得到');
+
+    /* (g) 找不到 ⇒ 一句話 */
+    A.findScope(false);
+    const nf = A.find('DE AD BE EF');
+    EQ(nf.hits, [], '找不到就是空的');
+    EQ(nf.info, '找不到', '🔴 找不到要講一句（一行，不加說明段落）');
+    CHECK(doc.getElementById('btn-find-next').disabled === true, '沒有命中時上下鍵是灰的');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('48. 🔴 bit7–bit0 核取方塊：雙向同步，提交走與手動改格同一條路');
+  {
+    A._reset();
+    const buf2 = new win.Uint8Array([0x00, 0xA5, 0xFF, 0x10]);
+    A.loadFile('bits.bin', buf2);
+    await sleep(20);
+
+    /* (a) 沒選取任何格 ⇒ 空狀態 */
+    CHECK(A.bitsEmpty() === true, '🔴 未選取時是空狀態');
+    EQ(A.bits(), null, '空狀態沒有核取方塊');
+
+    /* (b) 點一格 ⇒ 顯示該格的 bit7…bit0 */
+    A.selAnchor(1);                                  /* 0xA5 = 1010 0101 */
+    await sleep(10);
+    CHECK(A.bitsEmpty() === false, '選取後空狀態消失');
+    EQ(A.bits(), [true, false, true, false, false, true, false, true],
+       '🔴 0xA5 ⇒ b7..b0 = 1,0,1,0,0,1,0,1（bit7 在最左）');
+    CHECK(/0x0001 = 0xA5/.test(doc.getElementById('bitaddr').textContent),
+      '🔴 標題寫出是哪一格、目前是多少：' + doc.getElementById('bitaddr').textContent);
+
+    /* (c) 勾一個 bit ⇒ 值立刻變，而且 dump 與核取方塊**雙向同步** */
+    A.bitClick(1);                                   /* b1: 0 → 1 ⇒ 0xA5|0x02 = 0xA7 */
+    await sleep(20);
+    EQ(A.state().buf[1], 0xA7, '🔴 勾選 b1 ⇒ 該格變成 0xA7');
+    EQ(A.bits(), [true, false, true, false, false, true, true, true], '核取方塊跟著更新');
+    CHECK(/A7/.test(doc.querySelector('#dump td[data-idx="1"]').textContent),
+      '🔴 dump 上那一格也變了（不是只有右邊的方塊變）');
+    A.bitClick(7);                                   /* b7: 1 → 0 ⇒ 0x27 */
+    await sleep(20);
+    EQ(A.state().buf[1], 0x27, '🔴 取消勾選 b7 ⇒ 0x27');
+
+    /* (d) 🔴 提交路徑與手動改格完全一致 ⇒ 同樣會標成「尚未寫入」（dirty） */
+    CHECK(A.dirtyAt(1) === true, '🔴 走的是同一條提交路徑（dirty 標記有上）');
+    EQ(A.dirtyCount(), 1, '只有這一格被標記');
+
+    /* (e) 換一格 ⇒ 方塊跟著換 */
+    A.selAnchor(2);                                  /* 0xFF */
+    await sleep(10);
+    EQ(A.bits(), [true, true, true, true, true, true, true, true], '0xFF ⇒ 八個都勾');
+    A.selAnchor(0);                                  /* 0x00 */
+    await sleep(10);
+    EQ(A.bits(), [false, false, false, false, false, false, false, false], '0x00 ⇒ 八個都沒勾');
+
+    /* (f) 值沒變就不該送出任何東西（勾一個已經是 1 的 bit） */
+    A.selAnchor(2); await sleep(10);
+    const before = A.dirtyCount();
+    await A.bitToggle(3, true);                      /* 0xFF 的 b3 本來就是 1 */
+    EQ(A.dirtyCount(), before, '值沒變 ⇒ 不動 dirty、不送交易');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */

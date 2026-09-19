@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1144"></script>
+<script src="common/version.js?v=20260919i2c1150"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -173,6 +173,28 @@
   table.dump td input{width:100%;height:36px;border:0;background:transparent;color:#e0f2fe;text-align:center;
     font:13px ui-monospace,Menlo,Consolas,monospace;padding:0;}
   table.dump td input:focus{outline:none;}
+  /* 🔴 v1.15.0：dump 右側欄（搜尋 ＋ 位元編輯）。
+     `align-items:flex-start` ⇒ 兩塊都貼著表格頂端對齊，不會被拉成等高。
+     `flex-wrap` ⇒ 視窗窄的時候整塊掉到表格下面（見標記處的理由）。 */
+  .dumpwrap{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;}
+  .sidepanel{display:flex;flex-direction:column;gap:10px;flex:0 0 auto;width:196px;}
+  .sp-box{border:1px solid var(--border);border-radius:8px;background:#0b1424;padding:8px 9px;}
+  .sp-hd{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.8px;
+    margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+  /* 🔴 位址與值不跟著標題轉大寫：`0x0021` 被轉成 `0X0021` 看起來像打錯字。
+     （截圖驗出來的，DOM 上完全看不出問題。） */
+  .sp-hd .kv{text-transform:none;letter-spacing:0;}
+  .sp-box input[type=text],.sp-box input:not([type]){width:100%;box-sizing:border-box;}
+  .sp-row{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
+  .sp-rd{display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--sub);cursor:pointer;}
+  .sp-rd input{margin:0;}
+  /* 位元：bit7 在左、bit0 在右（與資料表的慣例一致）。每一格標示自己的位元編號，
+     不靠使用者去數第幾個 —— 數錯一位燒進去的就是別的值。 */
+  .bitgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;}
+  .bitgrid label{display:flex;flex-direction:column;align-items:center;gap:3px;
+    font-size:9.5px;color:var(--sub);cursor:pointer;user-select:none;}
+  .bitgrid label.on{color:#4ade80;font-weight:700;}
+  .bitgrid input{margin:0;width:13px;height:13px;cursor:pointer;}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;color:var(--sub);margin-top:7px;}
   .legend i{display:inline-block;width:10px;height:10px;border:1px solid #223049;vertical-align:-1px;margin-right:4px;}
 
@@ -563,8 +585,35 @@
     <div id="readbanner"></div>
     <!-- 🔴 長讀取的進度與中止（256K ＝ 1024 次交易）。平常整個不顯示。 -->
     <div id="progress" style="display:none"></div>
+    <!-- 🔴 v1.15.0（Bruce 2026-09-19）：dump **右邊**加兩塊 —— 搜尋與位元編輯。
+         版面用 flex：表格固定 16 欄在左，側欄在右；寬度不夠時側欄整塊**換行到
+         下方**（不是壓縮表格）—— 16×44px 的格子被壓到就不能看了，那比換行糟。 -->
     <div class="dumpwrap">
       <table class="dump" id="dump"></table>
+      <div class="sidepanel">
+        <!-- ═══ 搜尋 ═══ -->
+        <div class="sp-box">
+          <div class="sp-hd">搜尋</div>
+          <!-- 🔴 輸入格式與「寫入資料」**同一支解析器**（i2ctParseHex）：空白或逗號
+               分隔，0xA1／A1h／0xA1h／不分隔的 A1D8FB 都吃。另寫一套必然分岔。 -->
+          <input id="in-find" class="mono" spellcheck="false" placeholder="61 41 B4">
+          <div class="sp-row">
+            <label class="sp-rd"><input type="radio" name="findscope" id="find-all" checked> 全部範圍</label>
+            <label class="sp-rd"><input type="radio" name="findscope" id="find-page"> 本頁</label>
+          </div>
+          <div class="sp-row">
+            <button id="btn-find-prev" class="tiny" type="button">▲</button>
+            <button id="btn-find-next" class="tiny" type="button">▼</button>
+            <span id="findinfo" class="kv mono"></span>
+          </div>
+        </div>
+        <!-- ═══ 位元 ═══ -->
+        <div class="sp-box">
+          <div class="sp-hd">位元 <span id="bitaddr" class="kv mono"></span></div>
+          <div id="bitgrid" class="bitgrid"></div>
+          <div id="bitnone" class="kv">（點任一格後顯示）</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1412,7 +1461,33 @@ function i2ctSaveAs(){
      · dev  ＝ bridge 回報的 libMPSSE 呼叫本身耗時（回覆裡的 `us`）
      · ws − dev ＝ 我們自己的傳輸層（WebSocket、JSON、排程）吃掉的時間
    他跑一次把 log 給我，就能直接算出比例，不必再猜。 */
-function i2ctSecs(ms){ return (ms / 1000).toFixed(1) + ' 秒'; }
+/* 🔴🔴 v1.15.0（Bruce 2026-09-19）：「像這種總耗時這麼短的，請用毫秒等級來列出，
+   不要用 0 秒。」
+
+   舊寫法一律 `(ms/1000).toFixed(1) + ' 秒'`，解析度是 100 ms —— 原廠 DLL 路徑讀
+   256 byte 只要 12.6 ms，於是**畫面上永遠是 `0.0 秒`**。0.0 秒涵蓋 0～49 ms，
+   等於這一欄沒有資訊，而這張表存在的唯一目的就是讓他比較速度。
+
+   門檻與依據：
+     · **< 1 秒 ⇒ 毫秒**。1 秒是兩種單位都能用 3～4 個字寫完的自然分界
+       （999 ms ↔ 1.0 秒），再往上用 ms 會變成五位數難讀。
+     · < 100 ms 留一位小數（`12.6 ms`）—— 他舉的例子就是這個量級，
+       整數化會把 7.9 和 8.4 印成同一個數字。
+     · ≥ 100 ms 取整數（`523 ms`）：三位有效數字已經夠比較，小數只是雜訊。
+   🔴 這一支是全站唯一的耗時格式化 ⇒ 耗時紀錄的**每一筆（含歷史筆）**、橫幅、
+      log 摘要全部一起改；紀錄裡存的是原始 ms，換算是在畫面上做的。 */
+/* 🔴 `Date.now()` 的解析度就是 1 ms ⇒ 12.6 ms 這種小數**永遠印不出來**，
+   而且 1 ms 以內的讀取會量成 0。量測一律改用 `performance.now()`（次毫秒），
+   沒有它的環境（舊 jsdom）才退回 Date.now()。 */
+function i2ctNow(){
+  return (typeof performance === 'object' && performance && typeof performance.now === 'function')
+    ? performance.now() : Date.now();
+}
+function i2ctSecs(ms){
+  var v = +ms; if (!isFinite(v) || v < 0) v = 0;
+  if (v >= 1000) return (v / 1000).toFixed(1) + ' 秒';
+  return (v < 100 ? v.toFixed(1) : String(Math.round(v))) + ' ms';
+}
 /* ═══ 🔴 耗時紀錄要**常駐**（Bruce 2026-09-19）══════════════════════════════
    「這個資訊應該要繼續留在畫面上面，而不是寫完以後就突然不見了，
      這樣永遠都沒辦法比對」⇒ 他的目的是**比較**（不同長度、不同路徑的速度差），
@@ -1925,6 +2000,34 @@ function i2ctLnaBlocked(dt){
 function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
 
 /* ═══ 讀 ════════════════════════════════════════════════════════════════ */
+/* 🔴🔴 v1.14.5：bridge 回報的是**三個各自獨立的旗標**，不是一個「剛才走了哪一條」
+   的欄位。舊寫法只看 `r.raw` 一個旗標，於是**原廠 DLL 路徑（raw=false）被標成
+   「一般模式」** —— 畫面上就出現「讀 256 byte 0.0 秒　一般模式」這種不可能的組合
+   （一般模式逐 byte 讀 256 byte 要好幾秒）。標籤說謊比沒有標籤更糟，因為他就是
+   拿這張表在比速度。
+
+   指紋（全部出自 `i2c_bridge.c` 的 `i2c_read_ex`，不是猜的）：
+     原廠 DLL   ：`usbrt = 1`   ← 🔴 **只有這一條會是 1**（1435 行）
+     自建       ：`raw  = true`，usbrt = 2
+     官方快速   ：`fast = true`，usbrt = 2（1461 行 `dgh_fast_read ? 2 : …`）
+     一般逐 byte：以上皆非       ，usbrt = len*2+2
+   `usbrt` 是 bridge 依**實際走過的分支**填的，不是把網頁送去的旗標原樣回拋，
+   所以它問得到「實際走了哪條」；`fast` 只是旗標回音，只能當最後一順位的線索。
+
+   🔴 一律以 bridge 回報的值判定，**不准改用「網頁自己以為選了哪一條」** ——
+      v1.11.1 那次他量到間隔仍是 15~16 ms、卻以為自己在跑快路徑，白跑一輪，
+      根因就是網頁只相信自己的狀態。 */
+/* 🔴 `sure` ＝ 有沒有**正面證據**。四條裡有三條各有自己的指紋，第四條（逐 byte）
+   只能用「usbrt 大於 2」反推 —— 因為它的 usbrt 是 len*2+2。
+   沒有正面證據時（欄位缺席，例如更舊的 bridge）**寧可什麼都不宣稱**：
+   「我判不出來」不可以變成「它退回慢的了」這種會嚇到人的假警報。 */
+function i2ctPathOf(r){
+  if (r && r.usbrt === 1)   return { key: 'vendor', detail: '原廠',     label: '快速模式', fastish: true,  sure: true };
+  if (r && r.raw  === true) return { key: 'built',  detail: '自建',     label: '快速模式', fastish: true,  sure: true };
+  if (r && r.fast === true) return { key: 'fast',   detail: '官方快速', label: '快速模式', fastish: true,  sure: true };
+  var slow = !!(r && typeof r.usbrt === 'number' && r.usbrt > 2);
+  return { key: 'slow', detail: slow ? '逐 byte' : '未知', label: '一般模式', fastish: false, sure: slow };
+}
 /* 回傳 {ok, bytes, err}。不丟例外，讓呼叫端統一處理版面。
    🔴 `quiet` ＝ 這是內部驗證用的讀取，**不要記進他的耗時紀錄**。
       耗時紀錄是他拿來比較速度的資料（Bruce 2026-09-19「永遠都沒辦法比對」），
@@ -1933,7 +2036,7 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
   var plan = i2ctPlanRead(base, len, awid);
   var all = [];
   i2ctAbort = false;
-  var t0 = Date.now(), devUs = 0;
+  var t0 = i2ctNow(), devUs = 0;
   for (var i = 0; i < plan.length; i++) {
     if (i2ctAbort) {
       i2ctLog('■ 使用者中止：已讀 ' + all.length + '/' + len + ' byte', 'w');
@@ -1944,7 +2047,7 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
     if (plan.length > 1) { i2ctProgress = { done: all.length, total: len, t0: t0 }; i2ctRenderProgress(); }
     var c = plan[i];
     var req = { type: 'read', slave: slave, addr: c.addr, len: c.len, awid: awid };
-    var r, tSeg = Date.now();
+    var r, tSeg = i2ctNow();
     try { r = await i2ctSend(req); }
     catch (e) { i2ctProgress = null; i2ctRenderProgress(); return { ok: false, bytes: all, err: e.message }; }
     if (!r.ok) {
@@ -1953,17 +2056,32 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
         err: 'I2C Bridge 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）' };
     }
     var d = r.data || [];
-    var segMs = Date.now() - tSeg;
+    var segMs = i2ctNow() - tSeg;
     if (typeof r.us === 'number') devUs += r.us;
     /* bridge 回報它實際走了哪條路 ⇒ 耗時紀錄才比得出「快慢路徑差多少」。 */
     /* 🔴 畫面上只講「快速／一般」，不講實作（Bruce 2026-09-19）。細分留在 log。 */
-    i2ctLastPath = r.raw ? '快速模式' : '一般模式';
+    var pth = i2ctPathOf(r);
+    i2ctLastPath = pth.label;
     /* 🔴 **要求了快的、拿回來卻是慢的** ⇒ bridge 端有前置條件不成立（旗標沒收到、
        ftd2xx.dll 的 FT_Write/FT_Read 解析不到、長度超過上限）。
        這種情況以前是**完全靜默**的：畫面照樣出資料，只是慢，他量了才發現 ——
        Bruce 2026-09-19 就是這樣白跑一輪（「我確定我是 v1.11.1」但間隔仍 15~16 ms）。
        任何一條路徑退回都不准靜默，這是規則。 */
-    if (i2ctRawMpsse && r.raw === false && !i2ctRawFellBack) {
+    /* 🔴🔴 v1.14.5：這個橫幅**掛錯過一次，而且是掛在成功的那一刻上**。
+       舊條件是 `i2ctRawMpsse && r.raw === false`：
+         · `i2ctRawMpsse` 的預設值是 `true`（宣告處），而它要到自動選路**結束**
+           才會被改寫成「實際採用的是不是自建路徑」；
+         · 選路階梯的第一次讀取是**原廠 DLL**，它回的就是 `raw:false`。
+       ⇒ 原廠路徑讀成功（資料與黃金基準逐 byte 相同、256 byte < 10 ms）的同一秒，
+         畫面上被掛了「快的方式在這台電腦上用不了」。**那是假訊息。**
+       新條件改成三件事同時成立才算退回：
+         (1) `!quiet` —— 選路階梯本來就會一條一條試，試不過是預期行為不是故障；
+         (2) 我們這次**要的不是**一般模式（`i2ctMode !== SLOW`）；
+         (3) bridge 回報實際走的**確實是**逐 byte 那一條（`!pth.fastish && pth.sure`）
+             —— 判不出來時不算，寧可漏喊也不要假警報。
+       第 (3) 點看的是 bridge 回報值，不是網頁自己的旗標 —— 「靜默退回不准發生」
+       這條規則要留住，但它必須以實際發生的事為依據。 */
+    if (!quiet && i2ctMode !== I2CT_MODE_SLOW && !pth.fastish && pth.sure && !i2ctRawFellBack) {
       i2ctRawFellBack = true;
       i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式（快的方式在這台電腦上用不了）。');
       i2ctLog('🔴 要求快速模式但 bridge 回報走的是一般模式 ⇒ 看 i2c-bridge.log 的 '
@@ -1976,14 +2094,17 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
           + (d.length !== c.len ? '  🔴 只收到 ' + d.length + '/' + c.len : '')
           /* 🔴 每一段各花多久：ws ＝ 往返、dev ＝ bridge 端的 libMPSSE 呼叫。
              兩者相減就是我們自己的傳輸層成本。 */
-          + '   [' + segMs + ' ms'
+          + '   [' + segMs.toFixed(1) + ' ms'
           + (typeof r.us === 'number' ? '，dev ' + Math.round(r.us / 1000) + ' ms' : '')
-          + (r.fast === false ? '，slow-read' : '') + ']', 'r');
+          /* 🔴 這裡原本印的是 `r.fast === false ? '，slow-read'`，那是**旗標回音**：
+             原廠路徑的 fastread 本來就送 0，於是最快的那一條每次都被印成
+             「slow-read」。改印 `i2ctPathOf()` 算出來的實際後端。 */
+          + '，' + pth.detail + ']', 'r');
     for (var j = 0; j < d.length; j++) all.push(d[j] & 0xFF);
     if (d.length < c.len) return { ok: false, bytes: all, err: '第 ' + (i + 1) + ' 段只收到 ' + d.length + '/' + c.len + ' byte' };
   }
   i2ctProgress = null; i2ctRenderProgress();
-  var ms = Date.now() - t0;
+  var ms = i2ctNow() - t0;
   i2ctLog('⏱ ' + i2ctTimeLine('讀取', ms, devUs, all.length) + ' · 分 ' + plan.length + ' 段', 'o');
   if (!quiet) i2ctNoteTime('讀', all.length, ms, i2ctLastPath || '一般模式');
   return { ok: true, bytes: all, err: null, ms: ms, devUs: devUs, segs: plan.length };
@@ -1995,7 +2116,7 @@ function i2ctRenderProgress(){
   var pct = Math.floor(i2ctProgress.done / i2ctProgress.total * 100);
   e.style.display = '';
   /* 🔴 進行中要看得到已經過幾秒（他明講讀取是以秒計的，沒有這個會以為當掉）。 */
-  var el = i2ctProgress.t0 ? ('　已 ' + i2ctSecs(Date.now() - i2ctProgress.t0)) : '';
+  var el = i2ctProgress.t0 ? ('　已 ' + i2ctSecs(i2ctNow() - i2ctProgress.t0)) : '';
   e.innerHTML = '<div class="pbar"><i style="width:' + pct + '%"></i></div>'
               + '<span class="mono">' + i2ctProgress.done + ' / ' + i2ctProgress.total + ' byte（' + pct + '%）'
               + el + '</span>'
@@ -2192,6 +2313,15 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   { var cb = $('chk-rawmpsse'); if (cb) cb.checked = i2ctRawMpsse;
     var cf = $('chk-fastread'); if (cf) cf.checked = i2ctFastRead; }
   try { await setMode(i2ctMode); } catch (e) {}
+  /* 🔴 v1.14.5：選到了比較快的一條 ⇒ **把結論講出來，並收掉階梯期間可能掛上的
+     「比較慢」橫幅**。v1.14.4 就是選到原廠、卻讓那張警告留在畫面上，他看到的是
+     「用不了」＋「0.0 秒」兩個互相矛盾的訊息。
+     `i2ctRawFellBack` 一併歸零：它是「只講一次」的旗標，結論換了就要能重新講。 */
+  if (chosen) {
+    i2ctRawFellBack = false;
+    i2ctBanner('topbanner', '', '');
+    i2ctLog('▶ 本次連線採用：' + chosen.name + '（耗時紀錄會標示為「快速模式」）', 'o');
+  }
   if (!chosen) {
     /* 🔴 三條都不對 ⇒ 用慢但已知正確的，並且**講出來**（不是靜默變慢）。 */
     i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式；重新整理頁面會再確認一次。');
@@ -2588,7 +2718,7 @@ async function i2ctOnWrite(){
    那正是這一輪在修的 bug。 */
 async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
   i2ctBusy = true; i2ctSyncButtons();
-  var tW0 = Date.now(), devUsW = 0;
+  var tW0 = i2ctNow(), devUsW = 0;
   var page = i2ctPageSize(), twr = i2ctTwr();
   var plan = i2ctPlanWrite(base, d.length, page);
   i2ctLog('寫入計畫：' + d.length + ' byte ⇒ ' + plan.length + ' 段'
@@ -2597,11 +2727,11 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
   for (var pi2 = 0; pi2 < plan.length && ok; pi2++) {
     var n = plan[pi2].len;
     var addr = i2ctWrap(plan[pi2].addr, wireAwid);
-    var tSegW = Date.now();
+    var tSegW = i2ctNow();
     var r = await i2ctDoWrite(slave, wireAwid, addr, d.slice(done, done + n));
     if (typeof r.us === 'number') devUsW += r.us;
     i2ctLog('   段 ' + (pi2 + 1) + '/' + plan.length + ' · ' + n + ' byte · '
-          + (Date.now() - tSegW) + ' ms'
+          + (i2ctNow() - tSegW).toFixed(1) + ' ms'
           + (typeof r.us === 'number' ? '（dev ' + Math.round(r.us / 1000) + ' ms）' : ''), 'n');
     if (!r.ok) { ok = false; errMsg = r.err; break; }
     /* 🔴 tWR：EEPROM 收下一頁之後要把它燒進去，這段期間它**不回應任何命令**。
@@ -2693,12 +2823,12 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
     /* 🔴 寫完之後**還有沒有漏掉的**：離線改了 17 格但只寫到其中 10 格，
        剩下 7 格還在裝置外面 —— 不講他不會知道。 */
     var leftN = i2ctDirtyCount();
-    i2ctLog('⏱ ' + i2ctTimeLine('寫入', Date.now() - tW0, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
-    i2ctNoteTime('寫', done, Date.now() - tW0, i2ctLastPath || '一般模式');
+    i2ctLog('⏱ ' + i2ctTimeLine('寫入', i2ctNow() - tW0, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
+    i2ctNoteTime('寫', done, i2ctNow() - tW0, i2ctLastPath || '一般模式');
     /* 🔴 有跑過驗證 ⇒ **驗證結果是最後一句話**。
        （第一版把驗證訊息寫在前面，結果被這一行的「已寫入…」蓋掉 ——
         兩個地方都寫同一個 banner，後寫的靜靜贏。） */
-    var head = '已寫入 ' + done + ' byte（' + i2ctSecs(Date.now() - tW0) + '，來源：' + srcLabel + '）'
+    var head = '已寫入 ' + done + ' byte（' + i2ctSecs(i2ctNow() - tW0) + '，來源：' + srcLabel + '）'
              + (leftN ? '。🔴 <b>還有 ' + leftN + ' byte 改過但沒寫到</b>（不在這次的範圍內）' : '');
     /* 🔴 驗證結果放在**最前面**，而且**成功也要講**（Bruce 2026-09-19：他不知道
        有沒有做驗證）。這與「成功就安靜」的通則刻意相反 ——
@@ -3002,20 +3132,29 @@ async function i2ctComparePaths(){
        · 中速   ＝ libMPSSE 的 FAST_TRANSFER_BYTES（0x10）
        · 快速   ＝ 我們自己組整段命令，整段只有結尾一個 0x87
      三條都要逐 byte 比對，因為快不等於對。 */
+  /* 🔴🔴 v1.14.5：三個 pass 原本都送 `mode: i2ctMode`，只換 fastread／rawmpsse ——
+     而 v1.14.0 之後真正決定走哪條的是 `mode`（`i2c_read_ex` 第一個判斷就是它）。
+     ⇒ 目前採用原廠 DLL 時，三個 pass **全部都走原廠**，比出來必然是「快 1.0 倍」，
+       這顆按鈕的存在意義（讓他自己證明快多少）整個消失。每個 pass 各自帶自己的
+       `mode`，fastread／rawmpsse 由 mode 推導，不要兩套來源各填一次。
+     第一列「快速」＝**他目前實際採用的那一條**（原廠／官方快速／自建都可能），
+     不是寫死的自建路徑 —— 否則比的是他根本沒在用的東西。 */
+  var fastMode = (i2ctMode !== I2CT_MODE_SLOW) ? i2ctMode : I2CT_MODE_RAW;
   var MODES = [
-    { key: 'raw',  name: '快速', fastread: 0, rawmpsse: 1 },
-    { key: 'mid',  name: '中速', fastread: 1, rawmpsse: 0 },
-    { key: 'slow', name: '一般', fastread: 0, rawmpsse: 0 }
+    { key: 'raw',  name: '快速', mode: fastMode },
+    { key: 'mid',  name: '中速', mode: I2CT_MODE_FAST },
+    { key: 'slow', name: '一般', mode: I2CT_MODE_SLOW }
   ];
   var res = {};
   for (var pass = 0; pass < MODES.length; pass++) {
     var M = MODES[pass];
-    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
-                           fastread: M.fastread, rawmpsse: M.rawmpsse }); }
+    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: M.mode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+                           fastread: M.mode === I2CT_MODE_FAST ? 1 : 0,
+                           rawmpsse: M.mode === I2CT_MODE_RAW  ? 1 : 0 }); }
     catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換模式失敗：' + e.message); return; }
-    var t0 = Date.now();
+    var t0 = i2ctNow();
     var r = await i2ctDoRead(v.slave, v.wireAwid, v.off, n, true);
-    res[M.key] = { ok: r.ok, bytes: r.bytes, ms: Date.now() - t0, err: r.err, name: M.name };
+    res[M.key] = { ok: r.ok, bytes: r.bytes, ms: i2ctNow() - t0, err: r.err, name: M.name };
   }
   /* 🔴 基準是「一般」那條：它是唯一從頭到尾沒出過錯的路徑。
      另外兩條各自跟它比，任何一條錯都要單獨講出來 —— 不可以因為某一條對就帶過。 */
@@ -3260,6 +3399,12 @@ function i2ctRenderTable(){
     html += '</tr>';
   }
   t.innerHTML = html;
+  /* 🔴 側欄兩塊跟著表格一起更新：選取換格、值被改掉、翻頁、換資料集都會走到這裡。
+     把它們掛在這裡而不是每個呼叫端各加一行 —— 漏掉一處就會出現「畫面上的值變了、
+     右邊的位元沒變」，那種不一致比沒有這個功能更危險。
+     🔴 i2ctFindRun／i2ctRenderBits **都不可以**回頭呼叫 i2ctRenderTable。 */
+  if (typeof i2ctRenderBits === 'function') i2ctRenderBits();
+  if (typeof i2ctFindRun === 'function') i2ctFindRun();
 }
 
 /* ═══ 一格三槽的輪替（Bruce 2026-09-18）════════════════════════════════════
@@ -3353,6 +3498,151 @@ function i2ctCrossParse(text){
   var digits = t.replace(/^0[xX]/, '').replace(/[hH]$/, '').length;
   if (digits <= 2) return i2ctPageBase0() + i2ctPageIdx * 256 + (v & 0xFF);
   return v;
+}
+
+/* ═══ 🔴 搜尋（v1.15.0，Bruce 2026-09-19）════════════════════════════════════
+   他的原話：「在 16×16 的 dump 右邊需要一個搜尋框，提供『搜尋全部範圍』跟
+   『只有這個 16×16 頁面範圍』這兩種選擇…用空格或逗號來輸入一連串要搜尋的資料…
+     要搜尋有沒有**連在一起的這三筆**…還需要有上、下箭頭…（頭往上／尾往下都循環）」
+
+   🔴 輸入解析**重用 `i2ctParseHex`**（＝「寫入資料」那一欄用的同一支）。
+      另寫一套的後果是兩邊對 `0xA1h`、`A1D8FB` 這些寫法的行為會慢慢分岔，
+      而使用者會合理假設它們一樣。
+
+   🔴 「本頁」的定義：**整段都要落在本頁 256 byte 之內**。跨頁的部分命中留給
+      「全部範圍」—— 否則同一段資料在「本頁」找得到、翻到下一頁又找得到一次，
+      計數會自己重複，他分不清那是兩筆還是一筆。 */
+var i2ctFindHits = [], i2ctFindAt = -1, i2ctFindMsg = '';
+function i2ctFindScopePage(){ var e = $('find-page'); return !!(e && e.checked); }
+/* 目前輸入框要找的位元組序列。`null` ＝ 解析不了（訊息寫進 i2ctFindMsg）。 */
+function i2ctFindSeq(){
+  var e = $('in-find'); if (!e) return [];
+  var t = String(e.value || '').trim();
+  i2ctFindMsg = '';
+  if (!t) return [];
+  var b = i2ctParseHex(t);
+  if (b === null) { i2ctFindMsg = '看不懂：' + i2ctLastHexErr; return null; }
+  return b;
+}
+/* 連續位元組序列比對。回傳所有命中的**起始 index**（相對 d.bytes）。 */
+function i2ctFindScan(seq){
+  var d = i2ctCurSet(), out = [];
+  if (!d || !seq || !seq.length) return out;
+  var n = d.bytes.length, m = seq.length;
+  var lo = 0, hi = n - m;
+  if (i2ctFindScopePage()) {
+    var p0 = i2ctPageBase0() + i2ctPageIdx * 256 - d.base;
+    lo = Math.max(lo, p0);
+    hi = Math.min(hi, p0 + 256 - m);
+  }
+  for (var i = lo; i <= hi; i++) {
+    var ok = true;
+    for (var j = 0; j < m; j++) if (d.bytes[i + j] !== seq[j]) { ok = false; break; }
+    if (ok) out.push(i);
+  }
+  return out;
+}
+/* 重算命中清單。🔴 **不呼叫 i2ctRenderTable**（它會回頭呼叫這裡 ⇒ 無窮迴圈）。 */
+function i2ctFindRun(){
+  var prev = (i2ctFindAt >= 0 && i2ctFindAt < i2ctFindHits.length) ? i2ctFindHits[i2ctFindAt] : -1;
+  var seq = i2ctFindSeq();
+  if (seq === null) { i2ctFindHits = []; i2ctFindAt = -1; i2ctRenderFind(); return; }
+  i2ctFindHits = i2ctFindScan(seq);
+  /* 資料或範圍變了 ⇒ 盡量**停在原來那一筆**（他翻頁時不該被丟回第一筆）。 */
+  var k = i2ctFindHits.indexOf(prev);
+  i2ctFindAt = i2ctFindHits.length ? (k >= 0 ? k : 0) : -1;
+  i2ctRenderFind();
+}
+function i2ctRenderFind(){
+  var e = $('findinfo'); if (!e) return;
+  var q = ($('in-find') ? String($('in-find').value || '').trim() : '');
+  if (i2ctFindMsg)             { e.textContent = i2ctFindMsg;  e.style.color = '#fca5a5'; }
+  else if (!q)                 { e.textContent = '';           e.style.color = ''; }
+  else if (!i2ctFindHits.length) { e.textContent = '找不到';   e.style.color = '#fdba74'; }
+  else { e.textContent = (i2ctFindAt + 1) + ' / ' + i2ctFindHits.length; e.style.color = ''; }
+  var dis = !i2ctFindHits.length;
+  if ($('btn-find-prev')) $('btn-find-prev').disabled = dis;
+  if ($('btn-find-next')) $('btn-find-next').disabled = dis;
+}
+/* 上一筆／下一筆。🔴 兩端都**循環**（他指定的 (a)(b) 兩條）。 */
+function i2ctFindGo(step){
+  if (!i2ctFindHits.length) return false;
+  var n = i2ctFindHits.length;
+  i2ctFindAt = ((i2ctFindAt + step) % n + n) % n;
+  var d = i2ctCurSet(); if (!d) return false;
+  var idx = i2ctFindHits[i2ctFindAt];
+  i2ctSelAnchor = idx; i2ctSelCursor = idx;
+  /* 🔴 定位**重用既有的十字機制**：它本來就會「不在當前頁 ⇒ 先翻頁再畫十字」，
+     所以跨頁命中自動翻頁這件事不需要新寫一套。 */
+  i2ctSetCross(d.base + idx);
+  i2ctRenderFind();
+  return true;
+}
+
+/* ═══ 🔴 位元編輯（v1.15.0，Bruce 2026-09-19）════════════════════════════════
+   他的原話：「隨便點擊一個輸入格時，右邊的空白區要顯示 bit 7 到 bit 0…
+     用核取方塊顯示出來。我可以透過右邊這 8-bit 的核取方塊打勾或取消打勾，
+     直接改變所點選輸入格的數值。」
+
+   🔴 **提交路徑與手動改格完全一樣**：一律走 `i2ctApplyCellValue()`。
+      那一支裡面有即時寫入、回讀驗證、dirty 標記、三槽處理、EEPROM 規則 ——
+      另開一條寫入路徑等於把那些全部繞過去，而且兩條路遲早會不一致。 */
+function i2ctBitIdx(){
+  var d = i2ctCurSet();
+  if (!d || i2ctSelAnchor === null) return -1;
+  if (i2ctSelAnchor < 0 || i2ctSelAnchor >= d.bytes.length) return -1;
+  return i2ctSelAnchor;
+}
+function i2ctRenderBits(){
+  var g = $('bitgrid'), none = $('bitnone'), lab = $('bitaddr');
+  if (!g || !none) return;
+  var d = i2ctCurSet(), idx = i2ctBitIdx();
+  if (idx < 0) {
+    g.innerHTML = ''; g.style.display = 'none'; none.style.display = '';
+    if (lab) lab.textContent = '';
+    return;
+  }
+  g.style.display = ''; none.style.display = 'none';
+  var v = d.bytes[idx] & 0xFF, h = '';
+  /* bit7 在最左、bit0 在最右，每一格自己標編號 —— 不要他去數第幾個。 */
+  for (var b = 7; b >= 0; b--) {
+    var on = (v >> b) & 1;
+    h += '<label class="' + (on ? 'on' : '') + '" data-bit="' + b + '">'
+       + '<input type="checkbox" data-bit="' + b + '"' + (on ? ' checked' : '') + '>'
+       + '<span>b' + b + '</span></label>';
+  }
+  g.innerHTML = h;
+  if (lab) lab.textContent = (d.awid === 0 ? '#' + idx : '0x' + i2ctHex(d.base + idx, i2ctAddrDigits()))
+                           + ' = 0x' + i2ctHex(v);
+}
+/* 🔴🔴 真實瀏覽器 probe 抓到的（v1.15.0，jsdom 全綠但 Chrome 壞掉）：
+   點一格會**同時進入編輯狀態**（輸入框拿到焦點），接著去點右邊的核取方塊時 ——
+     1. `i2ctApplyCellValue` 把值改成 0xA7 並重繪整張表；
+     2. 重繪把**還帶著焦點**的輸入框從 DOM 拿掉 ⇒ 瀏覽器同步發 blur；
+     3. blur handler 呼叫 `i2ctCommitEdit()`，它讀到輸入框裡的舊字 `A5`，
+        與「現在的值 0xA7」不同 ⇒ **把 0xA5 再寫回去**，等於撤銷剛才那一勾；
+     4. 同一時間 `i2ctCancelEdit` 對一個正在被移除的 td 設 innerHTML ⇒ 例外
+        （Chrome：node to be removed is no longer a child… moved in a 'blur' handler）。
+   ⇒ 動值之前**先把編輯狀態結清**。這樣重繪時已經沒有帶焦點的輸入框，
+     上面四步一步都不會發生。搜尋的跳頁（i2ctFindGo）同理，也會重繪整張表。 */
+function i2ctSettleEdit(){
+  return i2ctEditing ? Promise.resolve(i2ctCommitEdit()) : Promise.resolve(false);
+}
+function i2ctBitToggle(bit, on){
+  if (i2ctEditing) return i2ctSettleEdit().then(function () { return i2ctBitToggle(bit, on); });
+  var d = i2ctCurSet(), idx = i2ctBitIdx();
+  if (!d || idx < 0) { i2ctRenderBits(); return Promise.resolve(false); }
+  /* 與 i2ctBeginEdit 同一組前置條件，理由也相同（見那一支的說明）。 */
+  if (i2ctLinked && i2ctBusy) { i2ctRenderBits(); return Promise.resolve(false); }
+  if (i2ctLinked && d.awid === 0) {
+    i2ctBanner('readbanner', 'warn', 'offset 寬度為 0 byte（無位址）時無法逐格寫入 —— 請改用上方「寫入資料」欄。');
+    i2ctRenderBits(); return Promise.resolve(false);
+  }
+  var cur = d.bytes[idx] & 0xFF;
+  var nv = (on ? (cur | (1 << bit)) : (cur & ~(1 << bit))) & 0xFF;
+  if (nv === cur) { i2ctRenderBits(); return Promise.resolve(false); }
+  return Promise.resolve(i2ctApplyCellValue(d, idx, d.base + idx, d.awid, nv))
+    .then(function (r) { i2ctRenderBits(); return r; });
 }
 
 /* ═══ diff log：虛擬捲動 ═══════════════════════════════════════════════════
@@ -3712,6 +4002,27 @@ function i2ctInit(){
   $('btn-clrtime').addEventListener('click', function () {
     i2ctTimes = []; i2ctRenderTimes(); i2ctFlash('✔ 已清除耗時紀錄');
   });
+  /* ═══ 🔴 搜尋（v1.15.0）══════════════════════════════════════════════════ */
+  $('in-find').addEventListener('input', function () { i2ctFindRun(); });
+  /* Enter ＝ 下一筆（和一般搜尋框一致，不必去按箭頭） */
+  $('in-find').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); i2ctFindGo(e.shiftKey ? -1 : 1); }
+  });
+  ['find-all', 'find-page'].forEach(function (id) {
+    $(id).addEventListener('change', function () { i2ctFindRun(); });
+  });
+  /* 🔴 跳到命中處會重繪整張表 ⇒ 先把編輯狀態結清（理由見 i2ctSettleEdit）。 */
+  $('btn-find-prev').addEventListener('click', function () { i2ctSettleEdit().then(function () { i2ctFindGo(-1); }); });
+  $('btn-find-next').addEventListener('click', function () { i2ctSettleEdit().then(function () { i2ctFindGo(1); }); });
+  /* ═══ 🔴 位元編輯（v1.15.0）══════════════════════════════════════════════
+     用事件委派：核取方塊每次重繪都是新節點，掛在容器上才不會漏。 */
+  $('bitgrid').addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || t.type !== 'checkbox') return;
+    var b = parseInt(t.getAttribute('data-bit'), 10);
+    if (!isFinite(b)) return;
+    i2ctBitToggle(b, !!t.checked);
+  });
   $('btn-snap').addEventListener('click', function () {
     var d = i2ctCurSet();
     if (!d) { i2ctBanner('readbanner', 'warn', '還沒有資料可以當基準'); return; }
@@ -4019,6 +4330,44 @@ window.__i2ct = {
   makeSet: i2ctMakeSet, comparable: i2ctComparable, diffSets: i2ctDiffSets,
   setLabel: i2ctSetLabel,
   refLabel: function () { return i2ctRef ? i2ctSetLabel(i2ctRef) : null; },
+  /* 🔴 v1.14.5：把「bridge 的回覆 ⇒ 實際走了哪條」這個對應關係暴露出來給自檢，
+     它是「0.0 秒卻標一般模式」那個 bug 的修正核心，一定要有單元測試釘住。 */
+  pathOf: function (r) { return i2ctPathOf(r); },
+  lastPath: function () { return i2ctLastPath; },
+  secs: function (ms) { return i2ctSecs(ms); },
+  times: function () { return i2ctTimes.slice(); },
+  /* ═══ 搜尋與位元編輯的測試入口（v1.15.0）═══ */
+  findScope: function (page) { $(page ? 'find-page' : 'find-all').checked = true; i2ctFindRun(); },
+  find: function (text) { $('in-find').value = text; i2ctFindRun(); return this.findState(); },
+  findGo: function (step) { i2ctFindGo(step); return this.findState(); },
+  findState: function () {
+    return { hits: i2ctFindHits.slice(), at: i2ctFindAt,
+             info: $('findinfo') ? $('findinfo').textContent : '',
+             page: i2ctPageIdx, cross: i2ctCross };
+  },
+  /* 回傳 bit7…bit0 的勾選狀態（讀的是**畫面上的核取方塊**，不是內部值 ——
+     要驗的正是「畫面與資料同步」，讀內部值等於自己跟自己對答案）。 */
+  bits: function () {
+    var g = $('bitgrid');
+    if (!g || g.style.display === 'none') return null;
+    var out = [];
+    for (var b = 7; b >= 0; b--) {
+      var e = g.querySelector('input[data-bit="' + b + '"]');
+      if (!e) return null;
+      out.push(!!e.checked);
+    }
+    return out;                       /* [b7, b6, …, b0] */
+  },
+  bitsEmpty: function () { var n = $('bitnone'); return !!n && n.style.display !== 'none'; },
+  bitToggle: function (b, on) { return i2ctBitToggle(b, on); },
+  /* 直接點畫面上的核取方塊（走真正的 change 事件，不繞過 UI）。 */
+  bitClick: function (b) {
+    var e = $('bitgrid') ? $('bitgrid').querySelector('input[data-bit="' + b + '"]') : null;
+    if (!e) return false;
+    e.checked = !e.checked;
+    e.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  },
   refKind: function () { return i2ctRef ? i2ctRef.kind : null; },
   jumpTo: function (t) { return i2ctJumpTo(t); },
   pageStep: function (d) { return i2ctPageStep(d); },
@@ -4151,6 +4500,11 @@ window.__i2ct = {
     i2ctMode = I2CT_MODE_SLOW; i2ctFastRead = false;
     { var cbF = $('chk-fastread'); if (cbF) cbF.checked = false; }
     { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
+    /* 🔴 v1.15.0：搜尋狀態同理 —— 上一組測試留下的查詢字串與命中清單會
+       漏到下一組（命中的 index 還指著上一份資料）。 */
+    { var fi = $('in-find'); if (fi) fi.value = ''; }
+    { var fa = $('find-all'); if (fa) fa.checked = true; }
+    i2ctFindHits = []; i2ctFindAt = -1; i2ctFindMsg = '';
     i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctSyncButtons();
   },

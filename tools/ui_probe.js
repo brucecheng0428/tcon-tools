@@ -380,6 +380,66 @@
       ok('9k 方向鍵移動 ⇒ 標頭跟著移動', /rgb/.test(getComputedStyle(r2).boxShadow), r2 && r2.textContent);
     }
 
+    /* ── 🔴 路徑 13：搜尋（v1.15.0）—— 真的按畫面上的按鈕，不呼叫內部函式 ──
+       jsdom 那邊驗的是邏輯；這裡驗的是「他點下去會發生什麼」。 */
+    A._reset();
+    {
+      const b = new Uint8Array(1024);
+      for (let i = 0; i < 1024; i++) b[i] = (i * 7) & 0xFF;
+      [0x0005, 0x0123].forEach((p) => { b[p] = 0x61; b[p + 1] = 0x41; b[p + 2] = 0xB4; });
+      A.loadFile('find.bin', b);
+      await sleep(80);
+      const fi = $('#in-find');
+      fi.value = '61 41 B4';
+      fi.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(60);
+      ok('13a 打字就開始找，並顯示第幾筆／共幾筆', $('#findinfo').textContent === '1 / 2',
+         $('#findinfo').textContent);
+      ok('13b 有命中時上下鍵可以按', $('#btn-find-next').disabled === false);
+      click($('#btn-find-next')); await sleep(80);
+      ok('13c 按「下」跳到下一筆並自動翻頁', A.pageIdx() === 1, 'page=' + A.pageIdx());
+      ok('13d 用既有的十字標示命中位置', document.querySelectorAll('#dump td.xc').length === 1,
+         document.querySelectorAll('#dump td.xc').length);
+      click($('#btn-find-next')); await sleep(80);
+      ok('13e 在最後一筆按「下」⇒ 循環回第一筆', A.pageIdx() === 0 && A.findState().at === 0,
+         'page=' + A.pageIdx() + ' at=' + A.findState().at);
+      click($('#btn-find-prev')); await sleep(80);
+      ok('13f 在第一筆按「上」⇒ 循環到最後一筆', A.findState().at === 1, A.findState().at);
+      fi.value = 'DE AD'; fi.dispatchEvent(new Event('input', { bubbles: true })); await sleep(60);
+      ok('13g 找不到就講一句', $('#findinfo').textContent === '找不到', $('#findinfo').textContent);
+    }
+
+    /* ── 🔴 路徑 14：bit7–bit0 核取方塊（v1.15.0）─────────────────────────
+       🔴 這條路徑只有真實瀏覽器驗得到：點格子會進入編輯狀態（輸入框拿到焦點），
+          接著點右邊的核取方塊會先觸發輸入框的 blur ⇒ commit ⇒ 整張表重繪。
+          「重繪把後續事件吃掉」正是 2026-09-19 那個 dblclick 失效的老問題。 */
+    A._reset();
+    A.loadFile('bits.bin', new Uint8Array([0x00, 0xA5, 0xFF, 0x10]));
+    await sleep(80);
+    {
+      ok('14a 還沒點任何格 ⇒ 位元區是空狀態', A.bitsEmpty() === true);
+      click(cellAt(1)); await sleep(80);          /* 0xA5，同時會進入編輯狀態 */
+      ok('14b 點一格之後位元區出現八個核取方塊',
+         A.bits() && A.bits().length === 8, JSON.stringify(A.bits()));
+      ok('14c 0xA5 ⇒ b7..b0 = 1,0,1,0,0,1,0,1',
+         JSON.stringify(A.bits()) === JSON.stringify([true, false, true, false, false, true, false, true]),
+         JSON.stringify(A.bits()));
+      /* 🔴 直接**點畫面上的核取方塊**（此時該格正處於編輯狀態） */
+      const cb = document.querySelector('#bitgrid input[data-bit="1"]');
+      cb.click(); await sleep(120);
+      ok('14d 勾 b1 ⇒ 那一格真的變成 0xA7（編輯狀態下點也要生效）',
+         A.curSet().bytes[1] === 0xA7, A.curSet().bytes[1]);
+      ok('14e dump 上那一格的顯示也跟著變', /A7/.test(cellAt(1).textContent), cellAt(1).textContent.trim());
+      ok('14f 核取方塊自己也同步了',
+         JSON.stringify(A.bits()) === JSON.stringify([true, false, true, false, false, true, true, true]),
+         JSON.stringify(A.bits()));
+      ok('14g 走的是與手動改格同一條提交路徑（dirty 標記有上）', A.dirtyAt(1) === true);
+      click(cellAt(2)); await sleep(80);
+      ok('14h 換一格 ⇒ 位元區跟著換（0xFF ⇒ 八個都勾）',
+         JSON.stringify(A.bits()) === JSON.stringify([true, true, true, true, true, true, true, true]),
+         JSON.stringify(A.bits()));
+    }
+
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
     ok('10a 另存新檔在有資料時可以按', $('#btn-save').disabled === false);
     ok('10b 快照按得下去', $('#btn-snap').disabled === false || $('#btn-snap').disabled === undefined);
