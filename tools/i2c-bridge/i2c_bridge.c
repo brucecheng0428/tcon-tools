@@ -190,9 +190,40 @@ static char g_pageVer[64] = "(no open yet)";
 typedef unsigned long (__stdcall *PFN_FT_Write)(void*, void*, unsigned long, unsigned long*);
 typedef unsigned long (__stdcall *PFN_FT_Read )(void*, void*, unsigned long, unsigned long*);
 typedef unsigned long (__stdcall *PFN_FT_Purge)(void*, unsigned long);
+/* 🔴🔴 裝置型別查詢（Codex 2026-09-19 指出的最優先未知數）。
+   `0403:6010` **同時用於 FT2232D 與 FT2232H**，不能用 PID 判定，描述字串也不行。
+   而 AN_108 的命令能力表：`0x8A`／`0x8C`／`0x8E` 屬 **H 系列**，`0x9E` 僅 FT232H。
+   ⇒ 若治具其實是 **FT2232D**，一次解釋兩個我們查不出原因的現象：
+       · 送 `0x8A` 但 base 仍是 12 MHz（D 的 base 本來就是 12 MHz，且不支援 0x8A）
+       · 送 `0x8C` 但線上時脈沒降到 2/3（D 不支援三相）
+   旁證：pyftdi 的 I2cController 對 FT2232D **直接拒絕**，理由就是 I2C 需要三相。
+   全部 conv: ftd2xx.h 標 WINAPI ⇒ __stdcall。 */
+typedef unsigned long (__stdcall *PFN_FT_GetDeviceInfo)(void*, unsigned long*, unsigned long*, char*, char*, void*);
+typedef unsigned long (__stdcall *PFN_FT_GetDriverVersion)(void*, unsigned long*);
+typedef unsigned long (__stdcall *PFN_FT_GetLibraryVersion)(unsigned long*);
 static PFN_FT_Write p_FT_Write = NULL;
 static PFN_FT_Read  p_FT_Read  = NULL;
 static PFN_FT_Purge p_FT_Purge = NULL;
+static PFN_FT_GetDeviceInfo     p_FT_GetDeviceInfo     = NULL;
+static PFN_FT_GetDriverVersion  p_FT_GetDriverVersion  = NULL;
+static PFN_FT_GetLibraryVersion p_FT_GetLibraryVersion = NULL;
+/* FT_DEVICE 列舉（ftd2xx.h）。🔴 **4 = FT_DEVICE_2232C 涵蓋 FT2232C/D**，
+   6 才是 FT2232H —— 這正是 Codex 要我們分辨的那一格。 */
+static const char* ft_device_name(unsigned long t){
+    switch(t){
+        case 0: return "FT_DEVICE_BM";
+        case 1: return "FT_DEVICE_AM";
+        case 2: return "FT_DEVICE_100AX";
+        case 3: return "FT_DEVICE_UNKNOWN";
+        case 4: return "FT_DEVICE_2232C  <-- 🔴 FT2232C/D (NOT H): no 0x8A/0x8C/0x8E";
+        case 5: return "FT_DEVICE_232R";
+        case 6: return "FT_DEVICE_2232H  <-- H series: 0x8A/0x8C/0x8E available";
+        case 7: return "FT_DEVICE_4232H";
+        case 8: return "FT_DEVICE_232H";
+        case 9: return "FT_DEVICE_X_SERIES";
+        default: return "(unmapped)";
+    }
+}
 #define DGH_RAW_AVAILABLE (p_FT_Write && p_FT_Read)
 #define OPT_READ_DATA (dgh_fast_read ? OPT_READ_DATA_FAST : OPT_READ_DATA_SLOW)
 
@@ -439,6 +470,13 @@ static int try_dir(const char* dirIn) {
             p_FT_Write=(PFN_FT_Write)GetProcAddress(d2,"FT_Write");
             p_FT_Read =(PFN_FT_Read) GetProcAddress(d2,"FT_Read");
             p_FT_Purge=(PFN_FT_Purge)GetProcAddress(d2,"FT_Purge");
+            p_FT_GetDeviceInfo    =(PFN_FT_GetDeviceInfo)    GetProcAddress(d2,"FT_GetDeviceInfo");
+            p_FT_GetDriverVersion =(PFN_FT_GetDriverVersion) GetProcAddress(d2,"FT_GetDriverVersion");
+            p_FT_GetLibraryVersion=(PFN_FT_GetLibraryVersion)GetProcAddress(d2,"FT_GetLibraryVersion");
+            { unsigned long lv=0;
+              if(p_FT_GetLibraryVersion && p_FT_GetLibraryVersion(&lv)==0)
+                  logline("  d2xx    : FT_GetLibraryVersion = %lu.%lu.%lu (0x%06lX)",
+                          (lv>>16)&0xFF, (lv>>8)&0xFF, lv&0xFF, lv); }
             logline("  d2xx    : loaded from %s -> %s", src, n ? got : "(path unknown)");
         }
         logline("  d2xx    : FT_Write=%s FT_Read=%s FT_Purge=%s ==> fast path %s",
@@ -593,9 +631,13 @@ static int locate_and_load_dll(void) {
 
    參數個數維持 **5** 個（反組譯確認讀 `8/12/16/20/24(%ebp)`，
    型別 byte, u32, u32, ptr, byte）—— 與 `ret 20` 互相印證。 */
-typedef int  (__stdcall *PFN_V_Detect)(void);
-typedef int  (__stdcall *PFN_V_Open)(void);
-typedef int  (__stdcall *PFN_V_Close)(void);
+/* 🔴 `Open` 的成功路徑在 0x4013a6／0x4013cb **只設定 AL＝1**；`Detect` 也有
+   只設 AL 的路徑 ⇒ 是 8-bit 布林介面，原本宣告成 `int` **過寬**。
+   （失敗路徑會清 EAX，所以這件事本身不是已證實的當機根因 —— 只是宣告不精確。）
+   🔴 `Close` 的回傳型別**尚未確認**，所以維持不使用它的回傳值，型別也不亂改。 */
+typedef unsigned char (__stdcall *PFN_V_Detect)(void);
+typedef unsigned char (__stdcall *PFN_V_Open)(void);
+typedef int  (__stdcall *PFN_V_Close)(void);   /* 回傳型別未確認，不使用回傳值 */
 typedef void (__stdcall *PFN_V_SetClock)(unsigned short);
 typedef unsigned short (__stdcall *PFN_V_GetClock)(void);
 typedef int  (__stdcall *PFN_V_Send)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
@@ -622,13 +664,17 @@ static int vendor_try_dir(const char* dirIn){
       if(a==INVALID_FILE_ATTRIBUTES || (a&FILE_ATTRIBUTE_DIRECTORY)) return 0; }
     SetDllDirectoryA(dir);            /* 讓它自己的相依（ftd2xx 等）也解得到 */
     h = LoadLibraryA(full);
+    /* 🔴 先存錯誤碼再做任何其他 API 呼叫 —— 下一行的 SetDllDirectoryA 會覆寫
+       thread 的 last-error，原本的失敗原因就丟了（Codex 指出）。 */
+    { DWORD le = h ? 0 : GetLastError();
     /* 🔴 用完立刻還原行程層級的 DLL 搜尋目錄。
        v1.11.7 設了就不還原，於是它一直指著 vendor 資料夾 —— 之後任何隱式相依
        解析（包含 libMPSSE 自己去拉 ftd2xx.dll）都會先看那個目錄，可能拉到
        版本不合的那一份。這是純粹的衛生問題，與當機原因是否為它無關，先修掉。 */
     SetDllDirectoryA(NULL);
-    if(!h){ logline("  vendor  : %-50s FOUND but LoadLibrary failed (err=%lu)", full, GetLastError());
+    if(!h){ logline("  vendor  : %-50s FOUND but LoadLibrary failed (err=%lu)", full, le);
             return 0; }
+    }
     pv_Detect  =(PFN_V_Detect)  GetProcAddress(h,"Detect");
     pv_Open    =(PFN_V_Open)    GetProcAddress(h,"Open");
     pv_Close   =(PFN_V_Close)   GetProcAddress(h,"Close");
@@ -758,13 +804,31 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
                        uint8_t* out, uint32_t* got){
     unsigned short r;
     unsigned char ob = (awid==0||awid==1||awid==2) ? (unsigned char)awid : 0xFF;
+    /* 🔴 先清零。回傳值是**讀取數量**不是布林（Codex 追過內部三條分派路徑：
+       0x401334 → 0x4016c0 → 0x401650 → 0x401544；
+       0x402570 失敗回 0、成功回 EBX+1 ＝ 數量；
+       0x402aa4 回最後複製迴圈的長度；0x40331c 失敗清零、成功回 ESI ＝ 要求長度）。
+       原本寫 `*got = len; return r ? 1 : 0;` **把數量資訊丟掉了** ——
+       部分讀取會被當成完全成功。 */
+    if(got) *got = 0;
     if(!g_vendorOk || !g_vendorOpen) return 0;
     /* 🔴 slave 傳 7-bit，不左移（與他的 Python 一致） */
     r = pv_Get((unsigned char)slave, addr, len, out, ob);
-    if(got) *got = len;
-    logline("  vendor  : GetBytesEx(slave=0x%02X addr=0x%X len=%u offBytes=%u) -> %u",
+    logline("  vendor  : GetBytesEx(slave=0x%02X addr=0x%X len=%u offBytes=%u) -> raw=%u",
             slave, addr, len, ob, (unsigned)r);
-    return r ? 1 : 0;
+    if((uint32_t)r > len){
+        /* 回報比要求還多 ⇒ 介面理解有誤，不能當成功，也不能拿去當長度用 */
+        logline("  vendor  : 🔴 REJECTED: returned %u > requested %u -- treating as failure", (unsigned)r, len);
+        return 0;
+    }
+    if(got) *got = (uint32_t)r;
+    if((uint32_t)r != len){
+        logline("  vendor  : partial read: got %u of %u", (unsigned)r, len);
+        return 0;                     /* 完整成功要求 r == len */
+    }
+    /* 🔴 r == len **不等於資料正確** —— 其中一條路徑回的是「複製長度」，
+       不保證底層 FT_Read 全數成功。自動比對那一關不可以因此拿掉。 */
+    return 1;
 }
 
 /* ===========================================================================
@@ -807,8 +871,11 @@ static void diag_ftdi(void) {
         for (uint32_t i=0; i<n && i<4; i++) {
             FT_NODE node; memset(&node,0,sizeof(node));
             if (p_ChanInfo(i,&node)==FT_OK)
-                logline("              ch %u: ID=0x%08X (VID=0x%04X PID=0x%04X) desc=\"%.32s\"",
-                        i, node.ID, (node.ID>>16)&0xFFFF, node.ID&0xFFFF, node.Description);
+                /* 🔴 `Type` 我們列舉時**一直都拿到**，只是從來沒印出來。
+                   PID 0x6010 分不出 FT2232D 與 FT2232H，這個欄位可以。 */
+                logline("              ch %u: ID=0x%08X (VID=0x%04X PID=0x%04X) Type=%u %s  sn=\"%.16s\" desc=\"%.32s\"",
+                        i, node.ID, (node.ID>>16)&0xFFFF, node.ID&0xFFFF,
+                        node.Type, ft_device_name(node.Type), node.SerialNumber, node.Description);
         }
     }
     /* Probe openability so the startup letter can tell 'no jig' (J) from
@@ -819,6 +886,31 @@ static void diag_ftdi(void) {
         g_jigState = 'U';
         logline("  FTDI open : FAIL: I2C_OpenChannel(0) failed -> U (channel is in use; close the original PQ Tool / AUX GUI)");
         return;
+    }
+    /* 🔴🔴 用**同一個實際開啟的 handle** 問裝置型別 —— 這是 Codex 標為最優先的未知數。
+       在拿到型別之前不要再調整任何 MPSSE 命令：若是 FT2232D，
+       `0x8A`／`0x8C`／`0x8E` 都不支援，我們整晚的時脈與 NACK 推論都要重看。 */
+    { unsigned long devType = 0xFFFFFFFFul, devId = 0;
+      char sn[32] = "", desc[80] = "";
+      if (p_FT_GetDeviceInfo) {
+          unsigned long st = p_FT_GetDeviceInfo(h, &devType, &devId, sn, desc, NULL);
+          if (st == 0)
+              logline("  FTDI chip : FT_GetDeviceInfo -> Type=%lu %s  id=0x%08lX  sn=\"%.16s\" desc=\"%.32s\"",
+                      devType, ft_device_name(devType), devId, sn, desc);
+          else
+              logline("  FTDI chip : FT_GetDeviceInfo failed (status=%lu) -- chip type UNKNOWN", st);
+      } else {
+          logline("  FTDI chip : FT_GetDeviceInfo not resolved -- chip type UNKNOWN");
+      }
+      { unsigned long dv = 0;
+        if (p_FT_GetDriverVersion && p_FT_GetDriverVersion(h, &dv) == 0)
+            logline("  FTDI drv  : FT_GetDriverVersion = %lu.%lu.%lu (0x%06lX)",
+                    (dv>>16)&0xFF, (dv>>8)&0xFF, dv&0xFF, dv); }
+      if (devType == 4)
+          logline("  🔴 CHIP IS FT2232C/D, **NOT** H: 0x8A / 0x8C / 0x8E are H-series only"
+                  " (AN_108). This would explain 0x8A and 0x8C measuring as no-ops.");
+      else if (devType == 6)
+          logline("  chip note : FT2232H confirmed -- H-series MPSSE commands are available.");
     }
     p_Close(h);
     g_jigState = 'K';

@@ -334,7 +334,11 @@ static inline unsigned int dgh_mp_wire_hz(unsigned short div, int threePhase){
 
    ⇒ **凡是要讓線變高，一律改方向（放開），不可以輸出高值。**
    主動推高會跟正在拉低的從機打架；而且「延遲期間還在驅動低」等於延遲白做 ——
-   **那正是 bit7 一直讀成 0 的機制**。
+   🔵 **這是假說，不是已證實的根因**（Codex 2026-09-19 校正）：
+   「ACK 後釋放 SDA ⇒ 第一個取樣邊緣太早 ⇒ bit7 讀成 0」時序上合理，
+   但**尚未量測佐證**。要證實得在相同 slave／offset／長度／時脈下，
+   用示波器看第 9 個 ACK 時脈到下一個 byte 第 1 個時脈之間 SDA 的上升，
+   只看解碼值不夠。
 
    pyftdi 的 `_clk_lo_data_hi`（`0x80 0x02 0x03`＝輸出且值為高）是它在
    FT2232 沒有開汲極時的 `_fake_tristate` 折衷，**不是 I2C 的正解**，我們不照抄。
@@ -461,7 +465,7 @@ static inline int dgh_mp_rd_byte(dgh_buf* b, int nack){
     }
     /* 🔴 ④ 立刻放開回 High-Z，並在這個狀態下等 ckDelay 拍。
        延遲的目的是給上拉電阻時間把 SDA 拉回高；**延遲期間還驅動低就完全白做**，
-       那正是先前 bit7 讀成 0 的機制。 */
+       🔵 這是**假說**（見上），不是已證實的 bit7 根因。 */
     dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
     for(i = 0; i < d; i++){
         dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
