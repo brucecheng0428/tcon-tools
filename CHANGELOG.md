@@ -34,6 +34,58 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.14.2 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.9）
+
+**已證實根因：原廠 DLL 的七個函式指標漏了 `__stdcall`。修好，原廠路徑重新啟用。**
+
+判定依據：修正為原本就該有的行為 ⇒ PATCH。
+
+### ✅ 已證實：`DLL_I2C_BCB.dll` 是 `__stdcall`，不是 cdecl
+
+objdump 反組譯實證（`~/ClaudeData/i2c_build/dll_i2c.asm`）：
+
+| 函式 | 結尾 | 意義 |
+|---|---|---|
+| `GetBytesEx` | `retl $20` | 5 個參數 × 4 bytes ⇒ **被呼叫端清堆疊** |
+| `SendBytesEx` | `retl $20` | 同上 |
+| `SetClock` / `SetOpened` | `retl $4` | 1 個參數 |
+
+`ret N`（N≠0）＝ **`__stdcall`**。我們原本宣告成 cdecl ⇒ 每呼叫一次堆疊就多平衡
+一次 ⇒ v1.11.7 連線後整個 bridge 當掉，Bruce 得退回 v1.10.0。
+
+🔴 **我誤判的來源，記下來不要再犯**：我看 `RadDll64.py` 用
+`ctypes.cdll.LoadLibrary` 就判成 cdecl。**那個依據無效** —— ctypes 每次呼叫都會
+自行保存／還原 ESP，**慣例判斷錯了 Python 端照樣跑得好好的**，完全看不出異常。
+C 這邊沒有那層保護，堆疊就直接壞掉。
+⇒ **判定呼叫慣例只有兩個合法依據：官方標頭的 `WINAPI`，或被呼叫端的 `ret N`。**
+
+**修法**：七個 typedef 全部加 `__stdcall`。**參數個數維持 5 個不動**
+（反組譯確認讀 `8/12/16/20/24(%ebp)`，型別 byte, u32, u32, ptr, byte，
+與 `ret 20` 互相印證）。
+
+檔頭的呼叫慣例對照表補上第五支，五支 DLL 現在都有依據：
+
+| DLL | 慣例 | 依據 |
+|---|---|---|
+| `ftd2xx.dll` | `__stdcall` | 官方 ftd2xx.h 全部標 WINAPI |
+| `libMPSSE.dll` | cdecl | 官方 libMPSSE_i2c.h 的 FTDI_API 沒有 WINAPI |
+| `ntdll.dll` | `__stdcall` | RtlGetVersion 宣告為 WINAPI |
+| `winmm.dll` | `__stdcall` | timeBeginPeriod 宣告為 WINAPI |
+| **`DLL_I2C_BCB.dll`** | **`__stdcall`** | **objdump `ret 20` / `ret 4`** |
+
+### 原廠路徑重新放回自動選路
+
+堆疊不會再被破壞 ⇒ 它跟其他兩條一樣，**驗不過就自動往下，不會卡住他**。
+順序：**原廠 → 官方快速 → 自建 →（都不過就留在）慢速基準**。
+`GetClock()` 探針保留；`vendor_read` 的原始回傳值照舊印進 log
+（`U16` 的語意未定 —— 是布林還是 byte 數，先不改判斷）。
+
+### 測試
+
+jsdom **835**、bridge TCP **103**。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.14.1 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.8）
 
 **把原廠 `DLL_I2C_BCB.dll` 直接打包進 zip。**

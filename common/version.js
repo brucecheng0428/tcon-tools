@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.14.1',       // I2C（讀寫測試）
+  i2c:     'v1.14.2',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -66,11 +66,11 @@ var HELPER_PKG = {
       （與 `EM01/Raydium_TCON_Tool_RM80100_v0.3.35/` 那份**雜湊相同**，兩處交叉驗證）
       ⚠️ 不是 `Python_Jacky/DLL_I2C_BCB_DEMO_20220606/` 那份（64,512 bytes，舊版），
          也不是 `DLL_I2C_BCB_64.dll`（64 位元，載不進 32 位元的 bridge）。 */
-  pkg:    'v1.11.8',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.11.8',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  pkg:    'v1.11.9',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.11.9',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.11.8.zip',
-  bytes:  390307,                             // zip 位元組數（打包後填）
-  zipSha: '1bb368d66c2029edf91c9c3595908d423b4b25fbfdaad63fd3932a497afdc530',
-  exeSha: '7ab92ada37c732c76e3a949889bf690279e0fa94bcc32047071d112e036fde41'
+  file:   'data/i2c-bridge-v1.11.9.zip',
+  bytes:  390314,                             // zip 位元組數（打包後填）
+  zipSha: '0ace89668e80e54c185358faf3a65c3e5d0ba28baf5d82c73d61a2b03ebf6f60',
+  exeSha: 'eed565767fe126c28037764a387690a66c1fbb7378d100fb468c0ffa9ef7db73'
 };
