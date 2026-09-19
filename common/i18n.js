@@ -632,6 +632,10 @@ var I18N = {
   /* v4.51.0: 同一種分析器只能有一個 */
   'wfg.laAnalyzerTypeTaken': { 'zh-TW': '已新增', 'en': 'already added', 'zh-CN': '已新增' },
   'wfg.laAnalyzerAllTaken': { 'zh-TW': '每一種分析器都已新增', 'en': 'Every analyzer type has been added', 'zh-CN': '每一种分析器都已新增' },
+  /* I2C-EEPROM 下架（Bruce 2026-09-19）。這兩個 key 只會出現在「從既有設定檔載入進來的
+     下架型別分析器」上 —— 新增選單裡看不到。原因見 wfg.html wfgLaDecodeEepromRows() 上方。 */
+  'wfg.laAnalyzerTypeRetired': { 'zh-TW': '已停用', 'en': 'retired', 'zh-CN': '已停用' },
+  'wfg.laAnalyzerTypeRetiredHint': { 'zh-TW': '此分析器已停用，無法新增，僅保留既有設定檔載入的項目。記憶體位址只支援 1 byte，24C32／24C64 等 2 byte 位址裝置的 Memory 欄位會算錯。', 'en': 'This analyzer is retired and can no longer be added; only entries loaded from an existing settings file are kept. Its memory address is limited to 1 byte, so the Memory column is wrong for 2-byte devices such as 24C32/24C64.', 'zh-CN': '此分析器已停用，无法新增，仅保留既有设置文件载入的项目。内存地址只支持 1 byte，24C32／24C64 等 2 byte 地址设备的 Memory 栏位会算错。' },
   /* v4.51.0: I2C data 序號的 offset 長度設定與來源標示 */
   'wfg.laI2cOffsetLen': { 'zh-TW': 'Offset 長度', 'en': 'Offset length', 'zh-CN': 'Offset 长度' },
   'wfg.laI2cOffsetAuto': { 'zh-TW': '未知（自動推算）', 'en': 'Unknown (auto-detect)', 'zh-CN': '未知（自动推算）' },
