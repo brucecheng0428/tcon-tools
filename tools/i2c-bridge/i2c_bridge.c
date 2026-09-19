@@ -855,6 +855,60 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
     return 1;
 }
 
+/* ═══ 🔴🔴 原廠 DLL 寫入（v1.12.0）════════════════════════════════════════════
+   為什麼非做不可：v1.14.x 之後原廠路徑成為**採用的讀取後端**，而寫入還停在
+   「拒絕並請使用者關掉快速模式」那句話 ⇒ 逐格改值、位元核取方塊、整批寫入
+   **全部不能用**。那是功能退步，不是尚未完成的功能。
+
+   🔴🔴 **不在這裡做分段**（Bruce 2026-09-19 的更正，逐字：「這個 32 byte 之前
+      已經定義過了，就是 Page 大小那邊來決定的。**只有 EEPROM 才需要分段，
+      不是 EEPROM 不用分段。**」）。
+
+   原廠 Python（`RomCodeProcessUI.py:31721` `i2c_write_data`）裡那個 `div=32`
+   **不是通則，是 EEPROM 的 page size** —— 那整段是燒 ROM／EEPROM 的流程。
+   分段的唯一理由是 EEPROM 的 page 邊界（跨界會回捲蓋掉資料）與 tWR 等待；
+   TCON／PMIC 那些暫存器是即時生效的 latch，一路連續寫沒有問題。
+
+   ⇒ **分段規則沿用網頁上已經有的那一套**：`i2ctAutoPage()` 只對 slave 0x50–0x57
+     自動選 page size，其餘一律「不分段」；`i2ctPlanWrite()` 負責切到 page 邊界；
+     段間等待由「段間等待」欄位（tWR）控制。bridge 收到的**每一則就是一段**，
+     這裡原樣一次送出去。在兩個地方各做一套分段，遲早會分岔。
+
+   `Detect()` 保留成**寫完之後的健康檢查**（原廠每段之後做一次，我們每則之後做
+   一次，語意相同），用來分辨「送不出去」與「治具不見了」。
+
+   🔴 `SendBytesEx` 的回傳值語意**未確認**（與 `GetBytesEx` 同一個教訓：當初把它
+      當布林用，結果部分讀取被當成完全成功）。所以這裡：
+        · 原始回傳值印進 log（`-> raw=%d`），先累積證據；
+        · 判定只用「有沒有回 0」這個最弱的假設，並在 log 明講判定依據；
+        · 真正的把關交給**寫入後回讀驗證**（既有那一套，一個字都沒動）。 */
+static int vendor_write(uint32_t slave, uint32_t addr, uint32_t awid,
+                        const uint8_t* data, uint32_t dlen, uint32_t* got){
+    unsigned char ob = (awid==0||awid==1||awid==2) ? (unsigned char)awid : 0xFF;
+    int r;
+    if(got) *got = 0;
+    if(!g_vendorOk || !g_vendorOpen || !pv_Send) return 0;
+    r = pv_Send((unsigned char)slave, addr, dlen, (unsigned char*)data, ob);
+    logline("  vendor  : SendBytesEx(slave=0x%02X addr=0x%X len=%u offBytes=%u) -> raw=%d"
+            "  [one call, no splitting here -- the page already split by EEPROM page size]",
+            slave, addr, dlen, ob, r);
+    if(r == 0){
+        logline("  vendor  : 🔴 SendBytesEx returned 0 -- treating as FAILED (0 of %u byte)", dlen);
+        return 0;
+    }
+    /* 健康檢查：分得出「送不出去」與「治具不見了」。不影響上面的成敗判定。 */
+    if(pv_Detect){
+        unsigned char dt = pv_Detect();
+        if(!dt){
+            logline("  vendor  : 🔴 Detect() says the rig is gone right after the write"
+                    " -- reporting failure for %u byte", dlen);
+            return 0;
+        }
+    }
+    if(got) *got = dlen;
+    return 1;
+}
+
 /* ===========================================================================
  * diagnostics
  * =========================================================================== */
@@ -1476,6 +1530,18 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
     t0 = now_ms();
     uint32_t tr=0; FT_STATUS s;
     g_lastRaw = 0; g_lastUsbRt = 0;
+    /* 🔴 原廠 DLL 優先，與讀取同一個判斷式（v1.12.0）。
+       在這之前這條分支不存在 ⇒ vendor 模式下**整個寫入功能都不能用**。 */
+    if(dgh_mode == DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen){
+        int vok = vendor_write(slave, addr, awid, data, (uint32_t)dlen, &tr);
+        g_lastRaw = 0;
+        g_lastUsbRt = 1;                 /* 一則 ＝ 一次 SendBytesEx ＝ 一次往返 */
+        g_lastUs = (now_ms() - t0) * 1000.0;
+        logline("  i2c_write: slave=0x%02X addr=0x%X awid=%u dlen=%d mode=VENDOR -> %s, %u byte, %.0f us",
+                slave, addr, awid, dlen, vok?"ok":"FAILED", tr, g_lastUs);
+        if(got)*got=tr;
+        return vok ? 0 : 0xFFFFFFF5u;
+    }
     if(dgh_raw_mpsse && DGH_RAW_AVAILABLE){
         g_lastRaw = 1;
         s = raw_write(slave, addr, awid, data, dlen, &tr);
@@ -1721,11 +1787,12 @@ static void handle_command(int idx, const char* json){
           for(int i=0;i<dn && ho<(int)sizeof(hex)-4;i++) ho+=snprintf(hex+ho,sizeof(hex)-ho,"%s%02X",i?" ":"",data[i]);
           if(dn==0) snprintf(hex,sizeof(hex),"(none)");
           logline("[cmd] rawwrite slave=0x%02X(7-bit) awid=%u addr=0x%08X x%d bytes: %s", slave, awid, addr, dn, hex); }
-        /* 🔴 **寫入尚未實作 vendor 分派**（`i2c_write_ex` 只有 libMPSSE／raw 兩條）。
-           所以這裡**不可以**一律改成 backend_is_open() —— 那樣 vendor 模式的寫入會
-           掉進 `p_Write(NULL, ...)`。明確拒絕並說清楚，不要靜默失敗。 */
-        if(dgh_mode==DGH_MODE_VENDOR){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"write is not implemented on the vendor DLL path yet (SendBytesEx unwired); switch off the fast path to write\"}",id); ws_send_text(c,rep); return; }
-        if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        /* 🔴 v1.12.0：vendor 寫入已接上（`vendor_write` ⇒ SendBytesEx），所以這裡
+           改問**目前後端**開了沒 —— 不再是那句「尚未實作、請關掉快速模式」。
+           那句話讓原廠路徑一被採用，整個寫入功能就不能用（Bruce 2026-09-19 踩到）。 */
+        if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        /* 🔴 分段不在這一層做：網頁已經依 EEPROM page size 切好，**一則就是一段**。
+           （wire 上也沒有 div／waitms 欄位 —— 刻意不加，兩處各切一次必然分岔。） */
         uint32_t got=0; FT_STATUS st=i2c_write_ex(slave,addr,awid,data,dn,&got);
         logline("        -> FT status %u, transferred %u", st, got);
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u,\"us\":%.0f,\"raw\":%s,\"usbrt\":%d}",
@@ -1745,9 +1812,8 @@ static void handle_command(int idx, const char* json){
             snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"addr blocked by bridge whitelist\"}",id);
             logline("[cmd] write BLOCKED addr=0x%04X x%d", addr, dn); ws_send_text(c,rep); return;
         }
-        /* 🔴 同 rawwrite：vendor 模式的寫入未實作，明確拒絕（見上）。 */
-        if(dgh_mode==DGH_MODE_VENDOR){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"write is not implemented on the vendor DLL path yet (SendBytesEx unwired); switch off the fast path to write\"}",id); ws_send_text(c,rep); return; }
-        if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        /* 🔴 同 rawwrite：vendor 寫入已接上（v1.12.0），改問目前後端。 */
+        if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         uint32_t got=0; FT_STATUS st=i2c_write(slave,addr,data,dn,&got);
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":%s,\"status\":%u,\"transferred\":%u}",id,(st==FT_OK)?"true":"false",st,got);
         ws_send_text(c,rep); return;

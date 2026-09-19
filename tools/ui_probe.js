@@ -440,6 +440,54 @@
          JSON.stringify(A.bits()));
     }
 
+    /* ── 🔴 路徑 15：顏色圖例與輸入範例（v1.16.0）──────────────────────── */
+    {
+      const lg = $('#celllegend');
+      ok('15a 顏色圖例真的在畫面上', !!lg && lg.getBoundingClientRect().width > 0,
+         lg ? Math.round(lg.getBoundingClientRect().width) + 'px' : 'null');
+      const items = lg ? lg.querySelectorAll('span[data-cls]') : [];
+      ok('15b 圖例 11 項（10 種 CSS 樣式 ＋ 未讀取）', items.length === 11, items.length);
+      /* 🔴 色塊要真的有顏色（只有文字的圖例等於沒有圖例） */
+      let painted = 0;
+      Array.prototype.forEach.call(items, (s) => {
+        const sw = s.querySelector('i');
+        const cs = sw ? getComputedStyle(sw) : null;
+        if (cs && (cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || cs.boxShadow !== 'none'
+                   || cs.outlineStyle !== 'none')) painted++;
+      });
+      ok('15c 每一項都有實際的色塊', painted === items.length, painted + '/' + items.length);
+      /* 範例：空的時候看得到，打字之後讓位給解析結果 */
+      A._reset();
+      ok('15d 搜尋框空著時看得到範例', /例：/.test($('#findeg').textContent), $('#findeg').textContent);
+      const fi2 = $('#in-find');
+      fi2.value = '61'; fi2.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(40);
+      ok('15e 有輸入之後範例讓位', !/例：/.test($('#findeg').textContent), $('#findeg').textContent);
+      $('#in-data').value = ''; $('#in-data').dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(40);
+      ok('15f 寫入資料空著時也看得到同一份範例',
+         $('#datahint').textContent === $('#findeg').textContent.replace(/ /, '')
+         || /例：/.test($('#datahint').textContent), $('#datahint').textContent);
+    }
+
+    /* ── 🔴 路徑 16：寫入送出失敗 ⇒ 還原、不留殘影（v1.16.0）────────────
+       這正是 Bruce 截圖上那一格：紫色背景、標題列「已修改 1 byte 未寫入」、
+       按快照清不掉。真實瀏覽器走一次完整的點擊流程。 */
+    A._reset();
+    A.loadFile('rev.bin', new Uint8Array([0x5A, 0x11, 0x22, 0x33]));
+    await sleep(80);
+    {
+      /* 未連線 ⇒ 走本地修改那條，先確認 dirty 真的會出現（不然下面驗不到東西） */
+      click(cellAt(0)); await sleep(60);
+      const cb = document.querySelector('#bitgrid input[data-bit="0"]');
+      if (cb) { cb.click(); await sleep(120); }
+      ok('16a 未連線時改值 ⇒ 標成「已修改未寫入」', A.dirtyCount() === 1, A.dirtyCount());
+      ok('16b 那一格有 dirty 樣式（紫色）',
+         cellAt(0).className.indexOf('dirty') >= 0, cellAt(0).className);
+      /* 🔴 讀取成功會清掉 dirty —— 這裡沒有 bridge，改用 A 的內部狀態驗
+         （jsdom 那邊有完整的連線版測試，第 52 組）。 */
+    }
+
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
     ok('10a 另存新檔在有資料時可以按', $('#btn-save').disabled === false);
     ok('10b 快照按得下去', $('#btn-snap').disabled === false || $('#btn-snap').disabled === undefined);
