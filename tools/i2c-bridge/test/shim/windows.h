@@ -57,6 +57,10 @@ typedef struct { DWORD dwOSVersionInfoSize, dwMajorVersion, dwMinorVersion, dwBu
 
 typedef struct {
     DWORD dwFileAttributes;
+    /* 自檢用 shim 只補到「產品程式碼有用到」為止。
+       nFileSizeLow：vendor_try_dir() 用它把 DLL 大小寫進 log，方便日後核對
+       他手上那份是不是我們打包的那一份（69,120 bytes）。 */
+    DWORD nFileSizeLow;
     char  cFileName[MAX_PATH];
 } WIN32_FIND_DATAA;
 

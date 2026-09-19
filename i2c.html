@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1140"></script>
+<script src="common/version.js?v=20260919i2c1141"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -2083,8 +2083,13 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   };
   /* 🔴 依序往下試，**能用原廠／官方的就不要用自己刻的**。
      基準是模式二（libMPSSE 逐 byte，已知正確），其餘都跟它比。 */
+  /* 🔴🔴 v1.14.1：**原廠那條已從自動嘗試名單移除**。
+     v1.11.7 把它設成預設，結果 Bruce 連線後整個 bridge 當掉，他得退回 v1.10.0。
+     **根因未定（外部分析中）**，在那之前不可以讓自動流程走到它 ——
+     自動選路會在他毫無察覺的情況下把 bridge 打死。
+     要試它只能明示：bridge 端 `--vendor`。
+     （同一個錯本輪犯過一次：`p_FT_Write` 沒在硬體驗過就進必經路徑。） */
   var MODES = [
-    { key: 'vendor', name: '原廠',     mode: I2CT_MODE_VENDOR },
     { key: 'fast',   name: '官方快速', mode: I2CT_MODE_FAST },
     { key: 'built',  name: '自建',     mode: I2CT_MODE_RAW }
   ];
@@ -4083,6 +4088,11 @@ window.__i2ct = {
        下一組就在驗一個使用者根本遇不到的狀態 —— 那種綠燈沒有意義。 */
     i2ctRawMpsse = true; i2ctFastVerified = null; i2ctRawFellBack = false;
     i2ctRawManual = false;   /* 剛打開的網頁 ＝ 他還沒動過任何開關 */
+    /* 🔴 讀取模式與 fast read 也要回到產品預設。少重設一個，前一組測試採用的模式
+       就會漏到下一組，下一組等於在驗一個使用者遇不到的狀態 ——
+       這一輪已經因為同一類疏漏（i2ctRawMpsse 不重設）被 Bruce 的 log 抓到過一次。 */
+    i2ctMode = I2CT_MODE_SLOW; i2ctFastRead = false;
+    { var cbF = $('chk-fastread'); if (cbF) cbF.checked = false; }
     { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
     i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctSyncButtons();

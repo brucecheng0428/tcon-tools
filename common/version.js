@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.47.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.14.0',       // I2C（讀寫測試）
+  i2c:     'v1.14.1',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -53,12 +53,24 @@ var HELPER_PKG = {
      依 FTDI TN_153，隨應用程式附帶 D2XX 是官方支持的做法。
      載入順序：**先系統已安裝的，載不到才用包內這一份**（見 i2c_bridge.c）。
      ftd2xx.dll 419,256 bytes，
-     SHA256 46cff89a3de8db52ca2967c11235c010fdba7e823539245c85a0af28f2516577 */
-  pkg:    'v1.11.7',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.11.7',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+     SHA256 46cff89a3de8db52ca2967c11235c010fdba7e823539245c85a0af28f2516577
+
+   🔴 v1.11.8 起包內是**四個檔**，多了 **`DLL_I2C_BCB.dll`**（原廠 I2C DLL）。
+      Bruce 2026-09-19：「為什麼你自己不先把電腦上的 DLL_I2C_BCB.dll 先找到，
+      然後包在那個壓縮檔裡面呢？」—— 完全正確，而且這與我們對 libMPSSE.dll、
+      ftd2xx.dll 的做法本來就一致。我先前做了一套跨磁碟遞迴搜尋＋環境變數＋ini，
+      **而正解只是把檔案放進 zip**。搜尋保留當備援，載入時 **exe 同目錄優先**。
+      來源：`TCON/TCON_UI/EM02/Raydium_TCON_Tool_EM02_v0.4.0/DLL_I2C_BCB.dll`
+      69,120 bytes，coff-i386（32 位元，與我們的 bridge 相符）
+      SHA256 d441d08edb9b4c6ba411493567c38f6f8d2dce2cc0ed4d12240a38dac3b63c4b
+      （與 `EM01/Raydium_TCON_Tool_RM80100_v0.3.35/` 那份**雜湊相同**，兩處交叉驗證）
+      ⚠️ 不是 `Python_Jacky/DLL_I2C_BCB_DEMO_20220606/` 那份（64,512 bytes，舊版），
+         也不是 `DLL_I2C_BCB_64.dll`（64 位元，載不進 32 位元的 bridge）。 */
+  pkg:    'v1.11.8',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.11.8',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.11.7.zip',
-  bytes:  355025,                             // zip 位元組數（打包後填）
-  zipSha: '3e5c52e10a2d224cad97748a3c80c8aa144dbc4b3658d371e6fd84c6155ec455',
-  exeSha: '8bed9b257d378e4e9316c2ec531ae15bef81bd36b6ef7923d7a2c52d366ece86'
+  file:   'data/i2c-bridge-v1.11.8.zip',
+  bytes:  390307,                             // zip 位元組數（打包後填）
+  zipSha: '1bb368d66c2029edf91c9c3595908d423b4b25fbfdaad63fd3932a497afdc530',
+  exeSha: '7ab92ada37c732c76e3a949889bf690279e0fa94bcc32047071d112e036fde41'
 };

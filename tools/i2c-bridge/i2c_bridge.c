@@ -135,7 +135,16 @@ int dgh_ck_delay = 3;
 #define DGH_MODE_FAST   1
 #define DGH_MODE_SLOW   2
 #define DGH_MODE_RAW    3
-int dgh_mode = DGH_MODE_VENDOR;
+/* 🔴🔴 **預設是 libMPSSE 逐 byte（＝ v1.10.0 那條已知可用的路）**，不是 vendor。
+   v1.11.7 把 vendor 設成預設，結果 Bruce 連線後**整個 bridge 當掉**，
+   他得退回 v1.10.0 才能用。**根因未定（外部分析中）**，在那之前
+   一條會讓他當機的路**絕對不可以放在必經路徑上**。
+
+   🔴 這正是本輪已經犯過一次的同一個錯：`p_FT_Write` 從來沒在硬體上跑過，
+      v1.11.0 卻讓它每次連線都執行 —— 那次也是「完全連不上」。
+      規則再寫一次：**沒有在他硬體上驗過的東西，不當預設值。**
+   ⇒ vendor 只在**明確要求**時才走：`--vendor` 或 open 帶 `mode:0`。 */
+int dgh_mode = DGH_MODE_SLOW;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -587,6 +596,11 @@ static int vendor_try_dir(const char* dirIn){
       if(a==INVALID_FILE_ATTRIBUTES || (a&FILE_ATTRIBUTE_DIRECTORY)) return 0; }
     SetDllDirectoryA(dir);            /* 讓它自己的相依（ftd2xx 等）也解得到 */
     h = LoadLibraryA(full);
+    /* 🔴 用完立刻還原行程層級的 DLL 搜尋目錄。
+       v1.11.7 設了就不還原，於是它一直指著 vendor 資料夾 —— 之後任何隱式相依
+       解析（包含 libMPSSE 自己去拉 ftd2xx.dll）都會先看那個目錄，可能拉到
+       版本不合的那一份。這是純粹的衛生問題，與當機原因是否為它無關，先修掉。 */
+    SetDllDirectoryA(NULL);
     if(!h){ logline("  vendor  : %-50s FOUND but LoadLibrary failed (err=%lu)", full, GetLastError());
             return 0; }
     pv_Detect  =(PFN_V_Detect)  GetProcAddress(h,"Detect");
@@ -601,9 +615,31 @@ static int vendor_try_dir(const char* dirIn){
                 full,(void*)pv_Open,(void*)pv_Close,(void*)pv_Get,(void*)pv_SetClock);
         return 0;
     }
+    /* 🔴 探針：載入後、**在呼叫任何其他函式之前**，只呼叫一次 `GetClock()`。
+       它**無參數**、回傳 U16 —— 無參數的函式對呼叫慣例錯誤最不敏感
+       （沒有參數要清，cdecl 與 stdcall 的堆疊行為在這裡一致），
+       所以它能先回答「這支 DLL 到底叫不叫得動」，而不會因為參數個數或
+       慣例判斷錯誤就把行程打死。
+       🔴 這**不是**在驗證慣例正確 —— 慣例與參數個數的裁定留給外部分析，
+       這裡只是先擋掉「一碰就死」的情況。探針過不了就不啟用 vendor 路徑。 */
+    if(pv_GetClock){
+        unsigned short probe = pv_GetClock();
+        logline("  vendor  : probe GetClock() returned %u (no-arg call survived)", (unsigned)probe);
+    } else {
+        logline("  vendor  : GetClock not exported -- cannot probe; vendor path NOT enabled");
+        return 0;
+    }
     g_vendorOk = 1;
     snprintf(g_vendorPath,sizeof(g_vendorPath),"%s",full);
-    logline("  vendor  : OK  loaded %s", full);
+    /* 🔴 把大小一起寫進 log，日後要核對「他手上那份是不是我們打包的那份」時
+       不必再問。打包的是 EM02 v0.4.0 那份：69,120 bytes，
+       SHA256 d441d08edb9b4c6b…（與 EM01 v0.3.35 的雜湊相同，兩處交叉驗證過）。 */
+    { WIN32_FIND_DATAA fd; HANDLE fh = FindFirstFileA(full, &fd);
+      unsigned long sz = 0;
+      if(fh != INVALID_HANDLE_VALUE){ sz = (unsigned long)fd.nFileSizeLow; FindClose(fh); }
+      logline("  vendor  : OK  loaded %s  (%lu bytes%s)", full, sz,
+              (sz == 69120UL) ? ", matches the bundled EM02 v0.4.0 copy" : " -- NOT the bundled copy");
+    }
     return 1;
 }
 /* 在 root 底下遞迴找檔名（深度有限）。
@@ -635,9 +671,15 @@ static int vendor_scan(const char* root, int depth){
    🔴 找不到要講清楚找過哪些地方，沿用既有的搜尋報告格式。 */
 static int locate_and_load_vendor(void){
     char buf[MAX_PATH];
-    logline("Looking for %s (order: env, exe dir, cwd, ini, user folders (recursive), PATH):", DGH_VENDOR_DLL);
-    if (GetEnvironmentVariableA("I2C_BRIDGE_VENDOR_DLL_DIR", buf, sizeof(buf)) && buf[0] && vendor_try_dir(buf)) return 1;
+    /* 🔴🔴 **exe 同目錄優先** —— zip 裡就附了一份（Bruce 2026-09-19：
+       「為什麼你自己不先把電腦上的 DLL_I2C_BCB.dll 先找到，然後包在那個壓縮檔
+       裡面呢？」）。這與我們對 libMPSSE.dll、ftd2xx.dll 的做法一致。
+       他這句話同時也回答了我先前在等的散佈問題 —— 那個問題不需要問。
+       下面那一整套搜尋**保留當備援**（萬一他把 exe 搬走、或想指定別份），
+       但不再擴大。 */
+    logline("Looking for %s (order: exe dir [bundled], env, cwd, ini, user folders (recursive), PATH):", DGH_VENDOR_DLL);
     if (vendor_try_dir(g_exeDir)) return 1;
+    if (GetEnvironmentVariableA("I2C_BRIDGE_VENDOR_DLL_DIR", buf, sizeof(buf)) && buf[0] && vendor_try_dir(buf)) return 1;
     if (GetCurrentDirectoryA(sizeof(buf), buf) && vendor_try_dir(buf)) return 1;
     { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%si2c-bridge-vendor.ini",g_exeDir);
       FILE* f=fopen(ip,"rb"); if(f){ if(fgets(buf,sizeof(buf),f)){ int n=(int)strlen(buf);
@@ -1690,6 +1732,8 @@ int main(int argc, char** argv){
         /* 三相時脈（raw 路徑）。**預設關**（實測 0x8C 無效）；`--3phase` 開起來診斷。 */
         else if(strcmp(argv[i],"--no-3phase")==0) dgh_three_phase=0;
         else if(strcmp(argv[i],"--3phase")==0) dgh_three_phase=1;
+        /* 🔴 原廠 DLL 路徑**只能明示啟用**（v1.11.7 預設開 ⇒ 連線後當機）。 */
+        else if(strcmp(argv[i],"--vendor")==0) dgh_mode=DGH_MODE_VENDOR;
         /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
         else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }
@@ -1724,8 +1768,11 @@ int main(int argc, char** argv){
     g_dllOk = locate_and_load_dll();
     if(!g_vendorOk && dgh_mode == DGH_MODE_VENDOR){
         dgh_mode = DGH_MODE_SLOW;
-        logline("  mode    : %s not found -> default mode falls back to libMPSSE per-byte", DGH_VENDOR_DLL);
+        logline("  mode    : %s not found -> falling back to libMPSSE per-byte", DGH_VENDOR_DLL);
     }
+    logline("  mode    : default=%d (%s).  Vendor path is OPT-IN ONLY (--vendor or open mode:0)"
+            " because v1.11.7 crashed after connect on the user's machine; root cause undetermined.",
+            dgh_mode, dgh_mode==DGH_MODE_SLOW?"libMPSSE per-byte, same as v1.10.0":"other");
     diag_dll();
     diag_ftdi();
 
