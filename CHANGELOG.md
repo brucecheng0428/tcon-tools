@@ -34,6 +34,107 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.13.6 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.6）
+
+**照 pyftdi 補上讀取序列少掉的兩段，並把 `0x9E` 加回來。**
+
+判定依據：修正為原本就該有的行為 ⇒ PATCH。
+
+### 🔴 先認錯：v1.11.5 把 `0x9E` 刪掉是一次我方造成的退步
+
+v1.11.4（**有** `0x9E 07 00`）：資料幾乎全對，只有 bit7 偶錯。
+v1.11.5（**沒有**）：**整片讀到 0。** 其餘條件相同，只差這三個位元組。
+
+刪它的理由是 FTDI 文件寫「Open Collector / Tristate — `0x9E` **(FT232H only)**」，
+而他的治具是 FT2232H。**但 `dg-measure.html:3610` 那條在他硬體上讀得正確的
+WebUSB 序列就有送它。** 我照文件刪掉了硬體已驗證有效的指令。
+
+🔴 **教訓：使用者的實測優先於文件。** 已把 `tools/check_raw_init.sh` 那條規則
+**反轉**成「必須有 `0x9E`」，依據寫實測與 `dg-measure.html:3610`，不是文件。
+
+補充（pyftdi 的說法印證了兩邊）：`I2cController.configure` 對 FT2232/FT4232 會
+`except FtdiFeatureError` 落到 `_fake_tristate`，即**改用「把 SDA 暫時切高阻抗」**
+來模擬開汲極 —— 那正是每個 byte 讀取前的 `80 00 01`。
+⇒ `0x9E` 有沒有效不是重點，**重點是每個 byte 讀取前後正確切換 SDA 的方向與值**。
+仍然送 `0x9E`（實測有它較好），但**不依賴它**。
+
+### 🔴 真正的根因：讀取序列少了兩段（對照 pyftdi）
+
+來源 `pyftdi/i2c.py`（`I2cController._do_read`）：
+
+```
+read_byte     = _clk_lo_data_input + _read_byte + _clk_lo_data_hi
+read_not_last = read_byte + _ack  + _clk_lo_data_lo * _ck_delay
+read_last     = read_byte + _nack + _clk_lo_data_hi * _ck_delay
+```
+
+| | pyftdi | 我們（v1.11.5 以前） | 影響 |
+|---|---|---|---|
+| 讀完之後 | `80 02 03`（SDA 輸出**高**） | `80 00 03`（輸出**低**） | 🔴 在讀完瞬間就把 SDA 壓低，比 ACK 該拉低的時間更早 |
+| ACK 之後 | `_clk_lo_data_lo` × `_ck_delay` | **完全沒有（0）** | 🔴 下一個 byte 的 bit7 取樣時 SDA 還被壓著 |
+| NACK 值 | `13 00 FF` | `13 00 80` | 等效（MSB 模式只看最高位元），照抄 `0xFF` |
+
+兩者相加**正好解釋零反例的 bit7 指紋**（1 被讀成 0、反向從不發生），
+也解釋為什麼 80 kHz 時錯得較少 —— 時脈慢給了線更多回復時間。
+
+🔴 **Bruce 早就問對了**：「這個間隔應該是可以調整吧？**你是不是把它用到最小？**」
+—— 是，我們就是 0。
+
+### 新的每-byte 序列（ckDelay=3）
+
+```
+80 00 01   _clk_lo_data_input  SCL低、SDA 轉輸入（放開）
+20 00 00   _read_byte          讀 1 byte
+80 02 03   _clk_lo_data_hi     🔴 SCL低、SDA 輸出「高」
+13 00 00   _ack                （最後一個是 13 00 FF ＝ _nack）
+80 00 03   _clk_lo_data_lo  ×3 🔴 建立時間（最後一個 byte 用 80 02 03）
+```
+
+### `ckDelay` 的算式與可調
+
+pyftdi `_compute_delay_cycles`：`max(1, int((t_buf + bit_delay) / bit_delay))`，
+400 kHz 的 `t_buf = 1.3 µs`，MPSSE 位元週期 ≈ 0.5 µs ⇒ `int(1.8/0.5)` ＝ **3**。
+⇒ 預設 3，debug 區一個數字可調（0–16），**讓 Bruce 用 LA 掃出最小可用值**。
+log 印出實際採用的值。命令緩衝區已按最壞情況（12＋3×16 ＝ 60 byte/資料 byte）放大。
+
+### 三相與 `0x8A`：實測都沒有生效，維持不用
+
+- 三相**開**、程式化 600 kHz、預期線上 400 kHz ⇒ **他量到 600 kHz** ⇒ `0x8C` 沒生效。
+- v1.11.4 送 `0x8A` 並用 `30e6/f−1`（div 74）⇒ 量到 **80 kHz** ＝ `12e6/((74+1)*2)`
+  ⇒ `0x8A` 也沒生效，base 一直是 12 MHz。
+- 三相**關**、divisor 14 ⇒ 量到 **400 kHz** ✅
+
+⇒ **三相預設關、除數用 `6e6/f − 1`、不碰 divide-by-5、不做 2/3 補償。**
+pyftdi 確實有開三相並補償（`frequency*3/2`），所以我的 2/3 模型方向沒錯，
+**但在我們這條路上 `0x8C` 就是沒作用**。
+🔴 **原因未解，列為未解項**（`dgh_mp_divisor()` 的補償路徑與測試都留著，
+哪天量到 `0x8C` 生效，把 `raw_set_mode()` 裡的 `dgh_mp_divisor(hz, 0)` 換回 `tp` 即可）。
+
+### 🔴 黃金向量與 dg-measure 刻意分家
+
+原本 C 與 `dg-measure.html` 的 builder 逐位元組相同，是無硬體時最強的交叉驗證。
+這一版 **C 先改**（Bruce 要先能用），dg-measure 維持原樣（它在他硬體上能正常讀，
+這一輪沒理由動、也沒時間驗）。**分家是刻意的，不是漏改**，已寫進測試註解；
+等 C 這條在硬體上驗過再回頭對齊。
+測試另外單獨釘住 `80 02 03`、`13 00 FF`、以及「ckDelay=3 比 0 多 N×3×3 個位元組」，
+這樣即使有人重錄向量，也退不回舊形狀。
+
+### 🔴 我不宣稱這一版是對的
+
+**推翻條件**：照 pyftdi 序列改完、`ckDelay` 加到合理值後 bit7 仍錯 ⇒ **假說死**。
+下一步是 `--ad3-out`，或回頭挖原廠 `DLL_I2C_BCB` 在「ACK → 放開 SDA → 採樣」
+之間安排了什麼餘裕。
+
+**要 Bruce 量**：先用預設（ckDelay=3、三相關）；若 bit7 仍錯，把「間隔」調大
+（4、6、8…）再看。log 會印出 ckDelay、三相狀態、divisor、預期線上頻率，
+以及 `0xAB` 同步自檢**實際收到的位元組**（不再只印通過與否）。
+
+### 測試
+
+proto **187**、bridge TCP **103**、jsdom、文案閘門、raw-init 閘門全數通過。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.13.5 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.5）
 
 **修 v1.11.4 的兩個錯（80 kHz、`0x9E`），並把三相時脈做成可切換、預設開。**

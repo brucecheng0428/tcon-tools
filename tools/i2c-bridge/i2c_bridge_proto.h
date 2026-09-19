@@ -332,6 +332,22 @@ static inline unsigned int dgh_mp_wire_hz(unsigned short div, int threePhase){
 #define DGH_MP_HI     0x03      /* SCL=1 SDA=1 */
 #define DGH_MP_SDALO  0x01      /* SCL=1 SDA=0 */
 #define DGH_MP_LO     0x00      /* SCL=0 SDA=0 */
+/* 🔴 SCL 低、**SDA 輸出高** ＝ pyftdi 的 `_clk_lo_data_hi`（`0x80 0x02 0x03`）。
+   pin bit：SCL=0x01(AD0)、SDA_O=0x02(AD1)、SDA_I=0x04(AD2)（pyftdi i2c.py 常數）。 */
+#define DGH_MP_SDAHI  0x02      /* SCL=0 SDA=1 */
+
+/* ═══ 🔴 讀完一個 byte 之後的建立時間（pyftdi 的 `_ck_delay`）════════════════
+   Bruce：「這個間隔應該是可以調整吧？**你是不是把它用到最小？**」—— 他是對的，
+   我們原本是 **0**。pyftdi 在每個 byte 的 ACK 之後會重複送
+   `_clk_lo_data_lo`（`0x80 0x00 0x03`）共 `_ck_delay` 次當延遲。
+
+   pyftdi 的算法（`I2cController.configure` / `_compute_delay_cycles`）：
+       I2C_400K.t_buf = 1.3 µs
+       ck_delay = max(1, int((t_buf + bit_delay) / bit_delay))
+   以 MPSSE 一個位元週期 bit_delay ≈ 0.5 µs 代入 ⇒ `int(1.8/0.5)` ＝ **3**。
+   ⇒ 預設 3，並做成**可調**，讓 Bruce 用 LA 掃出最小可用值。 */
+extern int dgh_ck_delay;        /* 預設 3；0 ＝ 完全不延遲（＝ v1.11.5 以前的行為） */
+#define DGH_CK_DELAY_MAX 16
 /* libMPSSE 用「同一道指令重複數次」湊 START/STOP 的建立與保持時間
    （USB 送出的速度不受 0x86 除數控制）。沿用同一個做法與量級。 */
 #define DGH_MP_START_REP  10
@@ -366,12 +382,40 @@ static inline int dgh_mp_wr_byte(dgh_buf* b, int v){
     dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_WR);  /* 拿回 SDA */
     return 1;
 }
-/* 讀一個 byte，然後主端送 ACK（還要再讀）或 NACK（最後一個）。 */
+/* ═══ 讀一個 byte ＋ 主端送 ACK／NACK ══════════════════════════════════════
+   🔴 2026-09-19 改成照 **pyftdi** 的形狀（`pyftdi/i2c.py`，`I2cController._do_read`
+   的 `_fake_tristate` 路徑）。pyftdi 是最廣泛使用、驗證最久的 FTDI I2C 實作。
+
+   pyftdi：
+       read_byte      = _clk_lo_data_input + _read_byte + _clk_lo_data_hi
+       read_not_last  = read_byte + _ack  + _clk_lo_data_lo * _ck_delay
+       read_last      = read_byte + _nack + _clk_lo_data_hi * _ck_delay
+   常數：_clk_lo_data_input = 80 00 01、_clk_lo_data_hi = 80 02 03、
+         _clk_lo_data_lo    = 80 00 03、_ack = 13 00 00、_nack = 13 00 FF
+
+   🔴 我們原本少了**兩段**，而這兩段正好解釋 bit7 那個零反例指紋：
+     ① 讀完之後 pyftdi 是 `80 02 03`（SDA 輸出**高**），我們是 `80 00 03`
+        （輸出**低**）⇒ **我們在讀完的瞬間就把 SDA 壓低了**，比 ACK 該拉低的時間更早。
+     ② ACK 之後 pyftdi 有 `_ck_delay` 次的延遲，我們**完全沒有**（＝0）。
+        Bruce：「這個間隔應該是可以調整吧？你是不是把它用到最小？」—— 正是。
+   兩者相加 ⇒ 下一個 byte 的 bit7 取樣時 SDA 還被我們壓在低電位 ⇒ 讀成 0，
+   而且**反向從不發生** —— 與實測指紋、與「80 kHz 時錯得較少」全部吻合。
+
+   NACK 值照抄 pyftdi 的 `0xFF`（MSB 模式下只有最高位元有效，與 0x80 等效）。 */
 static inline int dgh_mp_rd_byte(dgh_buf* b, int nack){
-    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_RD);
-    dgh_put(b,0x20); dgh_put(b,0x00); dgh_put(b,0x00);
-    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO); dgh_put(b,DGH_MP_DIR_WR);
-    dgh_put(b,0x13); dgh_put(b,0x00); dgh_put(b, nack ? 0x80 : 0x00);
+    int i, d = dgh_ck_delay;
+    if(d < 0) d = 0;
+    if(d > DGH_CK_DELAY_MAX) d = DGH_CK_DELAY_MAX;
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO);    dgh_put(b,DGH_MP_DIR_RD);  /* _clk_lo_data_input */
+    dgh_put(b,0x20); dgh_put(b,0x00);         dgh_put(b,0x00);           /* _read_byte */
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_SDAHI); dgh_put(b,DGH_MP_DIR_WR);  /* 🔴 _clk_lo_data_hi */
+    dgh_put(b,0x13); dgh_put(b,0x00);         dgh_put(b, nack ? 0xFF : 0x00);
+    /* 🔴 建立時間：非最後一個用 _clk_lo_data_lo，最後一個用 _clk_lo_data_hi（同 pyftdi） */
+    for(i = 0; i < d; i++){
+        dgh_put(b,0x80);
+        dgh_put(b, nack ? DGH_MP_SDAHI : DGH_MP_LO);
+        dgh_put(b, DGH_MP_DIR_WR);
+    }
     return 1;
 }
 /* 讀：START ＋ slave(W) ＋ offset… ＋ repeated START ＋ slave(R) ＋ data… ＋ STOP

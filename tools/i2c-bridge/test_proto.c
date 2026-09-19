@@ -205,23 +205,42 @@ int main(void){
         CHECK(dgh_req_filename("POST / HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject non-GET");
         CHECK(dgh_req_filename("GET i2c.html HTTP/1.1\r\n\r\n",f,sizeof(f))==0,"reject target without leading /");
     }
-    /* ═══ 🔴 直接組 MPSSE 命令：與 WebUSB 那條路**逐位元組相同** ═══════════
-       這是無硬體時最強的交叉驗證：同一套邏輯有兩份獨立實作
-       （dg-measure.html 的 dgmI2cBuildRead 與這裡的 dgh_mp_build_read），
-       兩邊各自釘同一個向量。任一邊被改壞，另一邊的測試就會紅。
-       向量：slave 0x50、addr 0x1234、awid 2、讀 4 byte。
-       基準字串由 dg-measure.html 的 builder 實際產生（見
-       tools/dg_i2c_selftest.js 的同名測試）。 */
+    /* ═══ 🔴 MPSSE 讀取命令的黃金向量 ═══════════════════════════════════════
+       🔴 **2026-09-19：這個向量刻意與 `dg-measure.html` 的 WebUSB 路徑分家了。**
+       原本兩份實作逐位元組相同，是無硬體時最強的交叉驗證。但 Bruce 的實測顯示
+       那個共同形狀在**讀取**上有 bug（bit7 零反例地讀成 0），根因照 pyftdi
+       （`pyftdi/i2c.py` `I2cController._do_read`）比對出來是兩處：
+         ① 讀完之後要 `80 02 03`（SDA 輸出**高**），原本是 `80 00 03`（輸出低）
+            ⇒ 原本在讀完瞬間就把 SDA 壓低，比 ACK 該拉低的時間更早
+         ② ACK 之後要有 `_ck_delay` 次的建立時間，原本是 **0**
+       ⇒ C 這一份先改（Bruce 要先能用）；`dg-measure.html` 那條**維持原樣**，
+         因為它在他硬體上是能正常讀的，這一輪沒有理由動它、也沒有時間驗它。
+       🔴 **兩邊分家是刻意的，不是漏改。** 等 C 這條在硬體上驗證過，
+         再回頭把 dg-measure 對齊，屆時這段註解要一併更新。
+       向量：slave 0x50、addr 0x1234、awid 2、讀 4 byte、**ckDelay=3**。 */
     {
         static const char* EXPECT =
-            "800303800303800303800303800303800303800303800303800303800303800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800003800003800003800003800003800003800003800003800003800003110000A08000012200800003110000128000012200800003110000348000012200800003800303800303800303800303800303800303800303800303800303800303800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800003800003800003800003800003800003800003800003800003800003110000A1800001220080000380000120000080000313000080000120000080000313000080000120000080000313000080000120000080000313008080000380000380000380000380000380000380000380000380000380000380010380010380010380010380010380010380010380010380010380010380030380030380030380030380030380030380030380030380030380030380030087";
-        unsigned char buf[2048]; int acks=0, din=0;
-        int n = dgh_mp_build_read(buf, (int)sizeof(buf), 0x50, 0x1234, 2, 4, &acks, &din);
-        char hex[4096]; int ho=0;
+            "800303800303800303800303800303800303800303800303800303800303800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800003800003800003800003800003800003800003800003800003800003110000A08000012200800003110000128000012200800003110000348000012200800003800303800303800303800303800303800303800303800303800303800303800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800103800003800003800003800003800003800003800003800003800003800003110000A180000122008000038000012000008002031300008000038000038000038000012000008002031300008000038000038000038000012000008002031300008000038000038000038000012000008002031300FF80020380020380020380000380000380000380000380000380000380000380000380000380000380010380010380010380010380010380010380010380010380010380010380030380030380030380030380030380030380030380030380030380030380030087";
+        unsigned char buf[4096]; int acks=0, din=0;
+        int n;
+        dgh_ck_delay = 3;                      /* 向量是以預設值錄的 */
+        n = dgh_mp_build_read(buf, (int)sizeof(buf), 0x50, 0x1234, 2, 4, &acks, &din);
+        char hex[8192]; int ho=0;
         for(int i=0;i<n && ho<(int)sizeof(hex)-3;i++) ho += sprintf(hex+ho, "%02X", buf[i]);
         hex[ho]=0;
-        CHECK(n == (int)strlen(EXPECT)/2, "MPSSE read 命令長度與 WebUSB 那條路相同");
-        CHECK(strcmp(hex, EXPECT)==0, "🔴 MPSSE read 命令**逐位元組**與 WebUSB 那條路相同");
+        CHECK(n == (int)strlen(EXPECT)/2, "MPSSE read 命令長度符合黃金向量");
+        CHECK(strcmp(hex, EXPECT)==0, "🔴 MPSSE read 命令**逐位元組**符合黃金向量（pyftdi 形狀）");
+        /* 🔴 釘住那兩處修正本身，這樣即使有人重錄向量也擋得住退回舊形狀 */
+        CHECK(strstr(hex, "800203") != NULL,
+              "🔴 讀完之後是 80 02 03（SDA 輸出高）＝ pyftdi _clk_lo_data_hi");
+        CHECK(strstr(hex, "1300FF") != NULL, "🔴 最後一個 byte 的 NACK 是 13 00 FF（pyftdi _nack）");
+        { /* ckDelay 真的有加進去：0 與 3 的長度差 ＝ 3 × 3 × 每個資料 byte */
+            unsigned char b0[4096]; int a0=0,d0=0,n0;
+            dgh_ck_delay = 0;
+            n0 = dgh_mp_build_read(b0, (int)sizeof(b0), 0x50, 0x1234, 2, 4, &a0, &d0);
+            dgh_ck_delay = 3;
+            EQ_INT(n - n0, 4 * 3 * 3, "🔴 ckDelay=3 比 0 多 4 byte × 3 次 × 3 位元組");
+        }
         CHECK(acks == 4, "讀 4 byte 要等 4 個 ACK（slaveW＋addrHi＋addrLo＋slaveR）");
         CHECK(din == 4, "會回 4 個資料 byte");
         CHECK(buf[n-1] == 0x87, "最後一道是 0x87（send immediate）");
@@ -262,7 +281,7 @@ int main(void){
        0x87，功能完全正常、所有測試照樣綠，只有拿邏輯分析儀量才看得出來。
        這正是本專案其他閘門的同一種破口，所以釘在這裡。 */
     {
-        static unsigned char cmd[4096 * 13 + 512];
+        static unsigned char cmd[4096 * 60 + 512];
         int acks = 0, din = 0;
         int lens[] = { 1, 2, 17, 256, 1024, 4096 };
         for (unsigned k = 0; k < sizeof(lens)/sizeof(lens[0]); k++) {
@@ -299,7 +318,7 @@ int main(void){
        raw_read 用 in[acks + i] 取資料。只要 ACK 不是全部排在最前面，
        整段資料就會偏移 —— 這是最可能的一種錯法，所以這裡直接解析命令流來確認。 */
     {
-        static unsigned char c[4096 * 13 + 512];
+        static unsigned char c[4096 * 60 + 512];
         int acks = 0, din = 0, n, i;
         int nRead20 = 0, nRead22 = 0, nAck13 = 0, lastAckVal = -1, firstAfterAddr = -1;
         int seen20 = 0, bad13 = 0;
@@ -329,7 +348,7 @@ int main(void){
         EQ_INT(nRead22, acks, "位元讀取命令 0x22 的數量 ＝ acks（位址相位的 ACK）");
         EQ_INT(nAck13, 8, "每個資料 byte 後面都有一個 0x13 發 ACK/NACK");
         EQ_INT(bad13, 0, "前 N-1 個 ACK 都是 0x00");
-        EQ_INT(lastAckVal, 0x80, "🔴 最後一個 byte 發的是 NACK(0x80)");
+        EQ_INT(lastAckVal, 0xFF, "🔴 最後一個 byte 發的是 NACK（pyftdi 的 0xFF，MSB 模式下與 0x80 等效）");
         /* 🔴 記帳：所有 0x22（ACK）都必須排在第一個 0x20（資料）之前，
            否則 in[acks + i] 取資料就會偏移。firstAfterAddr ＝ 遇到第一個 0x20 時
            已經數到的 0x22 個數；它必須等於 acks。 */
@@ -407,7 +426,7 @@ int main(void){
        不會把 0x9E 放進讀寫命令流**（builder 層），i2c_bridge.c 那一份由
        tools/check_raw_init.sh 以原始碼比對把關。 */
     {
-        static unsigned char c9[4096 * 13 + 512];
+        static unsigned char c9[4096 * 60 + 512];
         int ak = 0, dn = 0, nn, i9, found9E = 0;
         nn = dgh_mp_build_read(c9, (int)sizeof(c9), 0x68, 0, 2, 64, &ak, &dn);
         for (i9 = 0; i9 < nn; ) {
@@ -420,7 +439,11 @@ int main(void){
             else if (op == 0x22) i9 += 2;
             else i9 += 1;
         }
-        EQ_INT(found9E, 0, "🔴 讀取命令流裡沒有 0x9E（FT232H only，FT2232H 會失步）");
+        /* 🔴 0x9E 屬於**通道初始化**（raw_set_mode），不在讀取命令流裡 ——
+           這一條驗的是「讀寫命令流本身不該混進 init 命令」。
+           「init 必須送 0x9E」由 tools/check_raw_init.sh 以原始碼比對把關
+           （那條規則 2026-09-19 反轉過：文件說 FT232H only，但實測拿掉會整片讀到 0）。 */
+        EQ_INT(found9E, 0, "讀寫命令流裡不混入 init 命令（0x9E 屬於 init）");
     }
 
     printf("\n%d/%d checks passed\n", total-fails, total);
