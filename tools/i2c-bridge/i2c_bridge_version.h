@@ -158,16 +158,64 @@
  *   - 時序／three-phase／`ck_delay`／ACK 守衛**一律未動**，波形與 1.13.x 相同。
  *   - 用詞：「原廠」這個詞同時指過 `DLL_I2C_BCB.dll` 與 FTDI 的
  *     `ftd2xx.dll`／`libMPSSE.dll`，Bruce 被它搞混過 ⇒ 註解與 log 一律改寫檔名。 */
-#define I2C_BRIDGE_VERSION "1.14.0"
-#define I2C_BRIDGE_PROTO   3
+/* 1.15.0 / **proto 4**（2026-09-19，Bruce：「把 EEPROM 整批寫入的段間距從約 15 ms
+ *   壓下來」，做法已核准）：
+ *   - 🔴🔴 新增 **`batchwrite`**：一次請求帶整段 payload，**bridge 自己分頁、
+ *     自己等 tWR**。往返從 ×256 變成 ×1。
+ *     依據是 Bruce 的實測分層：每段 `ws=8~13ms`／`dev=4.5~5ms`／`wait=5~6ms`，
+ *     其中 **`ws − dev` ＝ 4~8 ms 就是網頁↔bridge 的 WebSocket＋JSON＋await
+ *     往返開銷**，×256 次 ⇒ 是 15 ms 裡最大的一塊，而且是純軟體。
+ *     （`dev` 的 4.5~5 ms 裡理論匯流排只佔 0.79 ms ＝ 35 byte × 9 bit ÷ 400 kHz，
+ *       其餘是每次 DLL／USB 呼叫的固定成本 —— 那一塊這一版動不了。）
+ *     🔴 **實際的段間距會降到多少，只有他的硬體能量。** 本版只證明了
+ *        「往返次數 256 → 1」（test_server §11 實測印出數字），
+ *        **不得宣稱段間距變成幾毫秒。**
+ *   - 🔴 **進度與中止沒有消失**（硬要求）：bridge 過程中主動送 `progress`
+ *     （時間節流，預設每 100 ms 最多一則；實測 8192 byte／tWR 5 ms ⇒ 15 則，
+ *     每段一則會是 256 則 ＝ 把省下來的往返又加回去）；網頁送 `abortwrite`，
+ *     bridge 在**下一個分頁邊界**停。
+ *   - 🔴 中止／失敗的回覆一律講清楚**裝置處於什麼狀態**：`segsDone`／`done`／
+ *     `lastAddr`／`nextAddr` ＋ 一句「0xAAAA-0xBBBB 寫進去了、0xCCCC 之後沒寫、
+ *     現在是半寫完的映像」。半寫完的 EEPROM 使用者必須知道。
+ *   - 🔴 **舊的單段 `rawwrite` 一個字都沒動**（逐格即時寫入還要用它）。
+ *     網頁靠 `proto >= 4` 決定要不要走新路 ⇒ 拿著舊 exe 的人自動走舊路。
+ *   - 🔴 收訊緩衝區改**動態配置**（舊碼是 main 迴圈的 `char msg[8192]`，
+ *     batchwrite 一則 40 KB~1.3 MB 連收都收不到）。上限由 payload 上限推導
+ *     （262144×4＋4096），超過**明確回錯誤且不斷線**，不是安靜截斷。
+ *   - 🔴🔴 **順手修掉一個既有的安靜 bug**：`ws_send_text` 對 ≥ 65536 byte 的回覆
+ *     只送 `126` ＋ 兩個 byte 的長度 ⇒ 長度欄溢位成 `n & 0xFFFF`，frame 邊界錯位。
+ *     RFC 6455 §5.2 規定 ≥ 65536 要用 `127` ＋ 八個 byte。這條路**自 1.14.0
+ *     拿掉讀取長度上限起就存在**（讀 20000 byte 的回覆約 80 KB），收端一直認得
+ *     127、只有送端沒有，所以它完全安靜。test_server §10 用真 socket 釘住。
+ *   - ACK polling（資料手冊建議的做法）：**做成預設關閉的選項 `"ackpoll":1`**。
+ *     🔴 `DLL_I2C_BCB.dll` 只匯出 9 個函式，**沒有「只送位址看 ACK」的原語**；
+ *        最接近的替代是拿 `GetBytesEx(slave, addr, 1, buf)` 讀 1 個 byte 當探針。
+ *     🔴 已知的問題：探針自己要花 4.5~5 ms（＝ 每次 DLL／USB 呼叫的固定成本），
+ *        而 tWR 本身就是 5 ms ⇒ **成本與整段等待同一個數量級，省不到東西。**
+ *     ⚠️ 未知的問題：「忙碌時 GetBytesEx 會回報失敗」**未在硬體上驗證**。
+ *     ⇒ 因此加了一道**自我校準**守衛：每一段的第一次探針必須回報忙碌
+ *        （剛下完 STOP，裝置一定在燒）；一次就成功 ⇒ 證明探針測不出忙碌 ⇒
+ *        這一段補足**完整的固定 tWR** 並寫進 log。把未驗證的假設變成程式
+ *        每一段都在檢查的東西，而不是賭它成立。
+ *     🔴 **沒有把 tWR 改短。** tWR 是裝置規格，寫太快是靜默寫不進去。
+ *   - proto 進 4 的理由：多了 `batchwrite`／`abortwrite` 兩個命令型別與
+ *     `progress` 這個**主動推送**的訊息型別 ⇒ 依 C2 的反面（wire format 真的變了）。
+ *     🔴 網頁端仍只要求 `proto >= 2`（rawwrite 那條路完全沒變），
+ *        batchwrite 另外用 `proto >= 4` 判斷 —— 不讓拿著舊 exe 的人整條路斷掉。 */
+#define I2C_BRIDGE_VERSION "1.15.0"
+#define I2C_BRIDGE_PROTO   4
+/* 🔴 batchwrite 需要的 proto 下限。網頁用它決定走新路還是舊的逐段 rawwrite，
+   寫成一個名字而不是在兩邊各寫一個 `4`。 */
+#define I2C_BRIDGE_PROTO_BATCHWRITE 4
 /* 🔴🔴 1.14.0：這裡本來只有**一個** `I2C_BRIDGE_FALLBACK_PKG`，同時被兩種意思用，
    而那兩種意思在這一版分岔了。拆成兩個，不要再共用一個名字（這一版的主題就是
    「一個名字被當成兩件事用」，不要在同一次改動裡又留一個）。
 
    (1) 「上一個版本」——啟動橫幅與『新版有問題就先退回去』的泛用退路。
        1.14.0 的上一個是 **v1.13.0**。 */
+/* 🔴 1.15.0：上一個版本是 **v1.14.0**（1.14.0 時這裡指 v1.13.0）。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.13.0.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.14.0.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。

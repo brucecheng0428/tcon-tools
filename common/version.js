@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.53.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.20.2',       // I2C（讀寫測試）
+  i2c:     'v1.21.0',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -92,11 +92,32 @@ var HELPER_PKG = {
      libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…），只有 exe 換掉。
      ⚠️🔴 **未驗證**：一次讀超過 4096（乃至 65535）在真實硬體上會不會成功，
         只有 Bruce 的機器能確認 —— 本版不得宣稱它會成功。 */
-  pkg:    'v1.14.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.14.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
-  proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.14.0.zip',
-  bytes:  393850,                             // zip 位元組數（打包後填）
-  zipSha: '2ee090f98225e5022ef6e579be41dc4190c4efeab3a9cd84ba529fd3b68c50b1',
-  exeSha: '173d23975296de3897c54772c428536d0d507a989699e23887451ca3d0801fc8'
+  /* 🔴 v1.15.0（2026-09-20）：exe **有重編** —— 新增 `batchwrite`，EEPROM 整批寫入
+     改成**一次請求**交給 bridge，由它自己分頁、自己等 tWR。
+     依據是 Bruce 2026-09-19 的實測分層（8192 byte / 32 byte 一段 ＝ 256 段）：
+     每段 `ws=8~13ms`／`dev=4.5~5ms`／`wait=5~6ms`，其中 **`ws − dev` ＝ 4~8 ms
+     就是網頁↔bridge 的往返開銷**（WebSocket＋JSON＋await），×256 ⇒ 是最大的一塊，
+     而且是純軟體。改動後往返 **256 → 1**（tools/i2c-bridge/test/test_server.c §11
+     用真 socket 量出這個數字，i2c_tool_selftest.js 第 63 組在網頁端量同一件事）。
+     🔴 **實際的段間距會降到多少，只有 Bruce 的硬體能量** —— 本版不得宣稱毫秒數。
+     🔴 進度與中止**沒有消失**：bridge 過程中主動送 `progress`（時間節流，
+        8192 byte／tWR 5 ms 實測 15 則），網頁送 `abortwrite` 可在分頁邊界停，
+        中止後回報「寫到哪個位址為止、後面沒寫」。
+     🔴 順手修掉一個既有的安靜 bug：`ws_send_text` 對 ≥ 64 KB 的回覆長度欄溢位
+        （自 1.14.0 拿掉讀取長度上限起就存在，讀 20000 byte 就會踩到）。
+     🔴 proto 3 ⇒ **4**（多了兩個命令與一個主動推送的訊息型別）。網頁端仍只要求
+        proto ≥ 2；整批寫入另外用 proto ≥ 4 判斷，**拿著舊 exe 的人自動走舊路**。
+     🔴 **`data/i2c-bridge-v1.14.0.zip`／`v1.13.0.zip`／`v1.12.0.zip` 一律保留不刪**
+        （依 Bruce 裁示：舊包是他在外地時當場能走的退路）。
+     包內四個檔不變，三支 DLL 是**從 v1.14.0 的包原樣搬過來**（逐位元組 cmp 相同、
+     SHA 逐一比對相同：libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…），
+     只有 exe 換掉。exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386，
+     machine 0x014c、subsystem 3。 */
+  pkg:    'v1.15.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.15.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  proto:  4,                             // wire protocol 版本（4 起有 batchwrite／abortwrite／progress）
+  file:   'data/i2c-bridge-v1.15.0.zip',
+  bytes:  400163,                             // zip 位元組數（打包後填）
+  zipSha: '3e8973f90f07e0b14845f63e880b9a51b378c60594f751e86e04cc2c786eaad3',
+  exeSha: '8e9dc3baef4d348d69605a71b3a271f57dd992d3f45acbe689213554161ceb1c'
 };

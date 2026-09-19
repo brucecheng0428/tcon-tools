@@ -37,14 +37,58 @@ static uint32_t  fake_Open(uint32_t idx, void** h){ (void)idx; *h=(void*)(intptr
                                                     dgh_fake_open_calls++; dgh_fake_live++; return 0; }
 static uint32_t  fake_Close(void* h){ (void)h; dgh_fake_close_calls++; if(dgh_fake_live>0) dgh_fake_live--; return 0; }
 static uint32_t  fake_Init2(void* h, void* cfg){ (void)h; (void)cfg; return 0; }
+/* ── 假 EEPROM（預設關；說明見 shim/windows.h）─────────────────────────────── */
+int  dgh_fake_eeprom = 0;
+int  dgh_fake_page   = 0;
+int  dgh_fake_awid   = 2;
+int  dgh_fake_wraps  = 0;
+unsigned long dgh_fake_addr = 0;
+unsigned char dgh_fake_mem[65536];
+void dgh_fake_eeprom_reset(int page, int awid, unsigned char fill){
+    memset(dgh_fake_mem,fill,sizeof(dgh_fake_mem));
+    dgh_fake_page=page; dgh_fake_awid=awid; dgh_fake_wraps=0; dgh_fake_addr=0;
+    dgh_fake_eeprom=1;
+}
+/* frame ＝ offset bytes（MSB first）＋ data。n==awid 的那一則是**位址相位**
+   （讀取前的 OPT_READ_ADDR），只移動位址指標、不寫入。 */
+static void fake_eeprom_write(uint32_t n, const unsigned char* b){
+    int aw = dgh_fake_awid, i;
+    unsigned long a = 0;
+    if((int)n < aw) return;                       /* 連位址都不完整：忽略（真裝置會 NACK） */
+    for(i=0;i<aw;i++) a = (a<<8) | b[i];
+    dgh_fake_addr = a & 0xFFFFu;
+    for(i=aw;i<(int)n;i++){
+        unsigned long off = (unsigned long)(i-aw);
+        unsigned long ea;
+        if(dgh_fake_page>0){
+            unsigned long pg = (unsigned long)dgh_fake_page;
+            unsigned long pbase = (dgh_fake_addr/pg)*pg;
+            unsigned long within = (dgh_fake_addr%pg) + off;
+            if(within>=pg){ dgh_fake_wraps++; }   /* 🔴 跨頁 ⇒ 回捲（真 EEPROM 的行為） */
+            ea = pbase + (within % pg);
+        } else {
+            ea = (dgh_fake_addr + off) & 0xFFFFu;
+        }
+        dgh_fake_mem[ea & 0xFFFFu] = b[i];
+    }
+    /* 寫入結束後，真裝置的位址指標停在最後寫進去的那一格之後（頁內）。
+       我們用得到的只有「讀取前的位址相位」，所以這裡不再動它。 */
+}
 static uint32_t  fake_Write(void* h, uint32_t a, uint32_t n, unsigned char* b, uint32_t* t, uint32_t o){
     (void)h;(void)a; dgh_fake_writes++; dgh_fake_last_write_opts=o;
     dgh_fake_last_write_len = (int)(n>sizeof(dgh_fake_last_write)?sizeof(dgh_fake_last_write):n);
     memcpy(dgh_fake_last_write,b,(size_t)dgh_fake_last_write_len);
+    if(dgh_fake_eeprom && dgh_fake_write_status==0) fake_eeprom_write(n,b);
     if(t)*t=n; return dgh_fake_write_status; }
 static uint32_t  fake_Read(void* h, uint32_t a, uint32_t n, unsigned char* b, uint32_t* t, uint32_t o){
     (void)h;(void)a; dgh_fake_reads++; dgh_fake_last_read_opts=o;
-    for(uint32_t i=0;i<n;i++) b[i]=(unsigned char)(0xA0+i);
+    if(dgh_fake_eeprom){
+        /* 循序讀：位址一路往前（**沒有** page 的概念，只有整顆容量的回捲）。 */
+        for(uint32_t i=0;i<n;i++) b[i]=dgh_fake_mem[(dgh_fake_addr+i)&0xFFFFu];
+        dgh_fake_addr=(dgh_fake_addr+n)&0xFFFFu;
+    } else {
+        for(uint32_t i=0;i<n;i++) b[i]=(unsigned char)(0xA0+i);
+    }
     if(t)*t=n; return dgh_fake_read_status; }
 static uint32_t  fake_ChanInfo(uint32_t i, void* node){ (void)i; (void)node; return 0; }
 

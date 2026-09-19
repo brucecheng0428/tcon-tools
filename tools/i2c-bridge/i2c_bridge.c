@@ -323,6 +323,39 @@ static double now_ms(void){
    只有 Bruce 的機器能確認，不得因為這段註解就宣稱它會成功。 */
 #define DGH_VENDOR_GOT_MAX 0xFFFFu
 
+/* ═══ 🔴 batchwrite（1.15.0）的長度與緩衝區上限 ══════════════════════════════
+   起因（Bruce 2026-09-19，已核准）：整批寫入 8192 byte / 32 byte 一段 ＝ 256 段，
+   舊做法是網頁發 **256 則 rawwrite**，每則的 `ws − dev` ＝ 4~8 ms 純粹是
+   「網頁↔bridge 的 WebSocket＋JSON＋await 往返」。×256 ⇒ 那是整個 15 ms 裡最大
+   的一塊，而且是純軟體。⇒ 一次請求把整段交給 bridge，往返從 ×256 變成 ×1。
+
+   🔴 payload 上限沿用讀取那一側的同一個天花板（DGH_READ_ALLOC_MAX ＝ 262144
+      ＝ 網頁的 `I2CT_MAX_LEN`）。**兩邊同一個數字，不各訂一套。**
+   🔴 收訊緩衝區上限由它推導，不是另外拍一個數字：
+        每個 byte 在 JSON 裡最多 4 個字元（"255," ）⇒ ×4，再加其他欄位的框 4 KB。
+      超過 ⇒ 明確回錯誤（不斷線、不截斷），見 ws_recv_text_dyn。 */
+#define DGH_BATCH_MAX_LEN  DGH_READ_ALLOC_MAX
+#define DGH_WS_MSG_MAX     ((size_t)DGH_BATCH_MAX_LEN * 4u + 4096u)
+/* 段大小 ＝ EEPROM 的 page size，而每一段都走 i2c_write_ex ⇒ 不能超過它的
+   frame 緩衝區（RAW_MAX_DATA）。實際的 EEPROM page 是 8/16/32/64/128/256，
+   都在範圍內；超過一律明確回錯誤，不夾取。 */
+#define DGH_BATCH_MAX_PAGE ((uint32_t)RAW_MAX_DATA)
+/* tWR 的上限。24C32/64 規格 max 5 ms、舊 AT24C32 為 10 ms；留寬到 1000 ms
+   是為了讓人可以手動放大做實驗，但不能是無上限（一個壞封包寫 "twr":9999999
+   會讓 bridge 看起來像掛住）。 */
+#define DGH_BATCH_MAX_TWR  1000u
+/* 進度訊息的節流。預設每 100 ms 最多一則 —— 這個數字對應「畫面重畫有意義的
+   頻率」，不是猜的：再密使用者也看不出差別，而每一則都是我們剛省下來的成本。
+   🔴 首段與末段一定送（不受節流限制），否則進度條可能從頭到尾都不動。 */
+#define DGH_BATCH_PROG_MS_DEF  100u
+#define DGH_BATCH_PROG_MS_MIN  20u
+#define DGH_BATCH_PROG_MS_MAX  5000u
+/* 🔴 batch 期間把**逐段**的 io log 收起來（宣告放在這裡，因為 vendor_write 等
+   函式比 batchwrite 早定義）。256 段會產生 768 行「SendBytesEx…」，把真正有用的
+   東西（失敗在哪一段）埋掉。改成 8 段一行的摘要，**失敗的那一段照樣完整輸出**。
+   ⚠️ 只在 batchwrite 與 ACK 探針期間為 1，其他路徑（含 rawwrite）行為完全不變。 */
+static int g_ioQuiet;
+
 /* ═══ 🔴 libMPSSE ChannelConfig -- DEFAULT ALIGNMENT, **NOT** packed ═══════════
    FTDI's official libMPSSE_i2c.h declares it with no #pragma pack at all:
 
@@ -939,6 +972,7 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
     if(!g_vendorOk || !g_vendorOpen) return 0;
     /* 🔴 slave 傳 7-bit，不左移（與他的 Python 一致） */
     r = pv_Get((unsigned char)slave, addr, len, out, ob);
+    if(!g_ioQuiet)
     logline("  vendor  : GetBytesEx(slave=0x%02X addr=0x%X len=%u offBytes=%u) -> raw=%u",
             slave, addr, len, ob, (unsigned)r);
     if((uint32_t)r > len){
@@ -1005,6 +1039,9 @@ static int vendor_write(uint32_t slave, uint32_t addr, uint32_t awid,
     if(got) *got = 0;
     if(!g_vendorOk || !g_vendorOpen || !pv_Send) return 0;
     r = pv_Send((unsigned char)slave, addr, dlen, (unsigned char*)data, ob);
+    /* 🔴 g_ioQuiet 只在 batchwrite 的逐段迴圈裡為 1（256 段會生出 768 行，把
+       「失敗在哪一段」埋掉）。失敗的分支**不受它影響**，永遠照樣印。 */
+    if(!g_ioQuiet)
     logline("  vendor  : SendBytesEx(slave=0x%02X addr=0x%X len=%u offBytes=%u) -> raw=%d"
             "  [one call, no splitting here -- the page already split by EEPROM page size]",
             slave, addr, dlen, ob, r);
@@ -1704,6 +1741,7 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
         int vok = vendor_read(slave, addr, awid, len, out, got);
         g_lastRaw = 0; g_lastUsbRt = 1;
         g_lastUs = (now_ms() - t0) * 1000.0;
+        if(!g_ioQuiet || !vok)
         logline("  i2c_read: slave=0x%02X addr=0x%X awid=%u len=%u mode=VENDOR -> %s, %.0f us",
                 slave, addr, awid, len, vok?"ok":"FAILED", g_lastUs);
         return vok ? 0 : 0xFFFFFFF5u;
@@ -1719,18 +1757,20 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
            `<-- flag off`，Dispatch 一時分不出是 bridge 自己關的還是網頁送 0 ——
            實際上 bridge 從不自己關它（預設值由 --raw-mpsse 決定，其餘一律
            來自網頁的 open 訊息）。把來源寫進同一行，不要讓人再猜一次。 */
+        if(!g_ioQuiet)
         logline("  i2c_read: SLOW path because rawmpsse=%d d2xx=%d len=%u(max %d)%s",
                 dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0, len, DGH_RAW_READ_MAX,
                 !dgh_raw_mpsse ? "  <-- flag off: THE PAGE SENT rawmpsse:0 (bridge never turns it off by itself)"
                   : (!DGH_RAW_AVAILABLE ? "  <-- ftd2xx.dll FT_Write/FT_Read not resolved"
                                         : "  <-- length over limit"));
-        if(!dgh_raw_mpsse) logline("            page=%s -- if that is not the latest, the tab was not reloaded", g_pageVer);
+        if(!dgh_raw_mpsse && !g_ioQuiet) logline("            page=%s -- if that is not the latest, the tab was not reloaded", g_pageVer);
         if(n>0){ uint32_t tr=0; p_Write(g_handle, slave, (uint32_t)n, ab, &tr, OPT_READ_ADDR); }  /* slave is 7-bit, no <<1 */
         s = p_Read(g_handle, slave, len, out, got, OPT_READ_DATA);   /* slave is 7-bit, no <<1 */
         /* libMPSSE 非 fast 路徑：每 byte 兩次 USB 往返（命令 ＋ 讀回） */
         g_lastUsbRt = dgh_fast_read ? 2 : (int)(len * 2 + (n ? 2 : 0));
     }
     g_lastUs = (now_ms() - t0) * 1000.0;
+    if(!g_ioQuiet || s != FT_OK)
     logline("  i2c_read : slave=0x%02X addr=0x%X awid=%u len=%u mode=%s -> %u bytes, %.0f us, usb_rt=%d",
             slave, addr, awid, len,
             g_lastRaw ? "raw-mpsse" : (dgh_fast_read ? "fast" : "slow"),
@@ -1753,6 +1793,7 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
         g_lastRaw = 0;
         g_lastUsbRt = 1;                 /* 一則 ＝ 一次 SendBytesEx ＝ 一次往返 */
         g_lastUs = (now_ms() - t0) * 1000.0;
+        if(!g_ioQuiet || !vok)
         logline("  i2c_write: slave=0x%02X addr=0x%X awid=%u dlen=%d mode=VENDOR -> %s, %u byte, %.0f us",
                 slave, addr, awid, dlen, vok?"ok":"FAILED", tr, g_lastUs);
         if(got)*got=tr;
@@ -1766,6 +1807,7 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
         g_lastUsbRt = 2;
     }
     g_lastUs = (now_ms() - t0) * 1000.0;
+    if(!g_ioQuiet)
     logline("  i2c_write: slave=0x%02X addr=0x%X awid=%u dlen=%d -> %u bytes, %.0f us",
             slave, addr, awid, dlen, tr, g_lastUs);
     if(got)*got=tr; return s;
@@ -1780,24 +1822,84 @@ static FT_STATUS i2c_write(uint32_t slave, uint32_t addr, const uint8_t* data, i
  * WebSocket serving (single client)
  * =========================================================================== */
 static int send_all(SOCKET c, const char* p, int n){ int s=0; while(s<n){int r=send(c,p+s,n-s,0); if(r<=0)return 0; s+=r;} return 1; }
+/* ═══ 🔴 1.15.0：≥ 64 KB 的回覆本來會送出**壞掉的 frame** ═════════════════════
+   舊碼只有兩條分支：`n<126` 用 7 位元長度，其餘一律 `126` ＋ **兩個 byte** 的長度。
+   兩個 byte 只到 65535 ⇒ n ≥ 65536 時 `(uint8_t)(n>>8)` 溢位，長度欄變成
+   `n & 0xFFFF`，而後面照樣送 n 個 byte ⇒ 瀏覽器按錯的長度切 frame，
+   多出來的 byte 被當成下一個 frame 的標頭。**RFC 6455 §5.2 規定 ≥ 65536 要用
+   `127` ＋ 八個 byte 的長度**（我們原本沒有這條分支）。
+
+   🔴 這不是 batchwrite 帶來的問題，是 **1.14.0 拿掉讀取長度上限時就已經存在**：
+   讀 65535 byte 的回覆是一個約 263 KB 的 JSON ⇒ 必定走進這條壞路。
+   收端（recv）那一側一直都認得 127，只有送端沒有 —— 所以它是安靜的。
+   一併修掉，並由 test_server 的 §10 用真 socket 釘住。 */
 static int ws_send_text(SOCKET c, const char* msg){
-    int n=(int)strlen(msg); uint8_t hdr[4]; int hl; hdr[0]=0x81;
-    if(n<126){ hdr[1]=(uint8_t)n; hl=2; } else { hdr[1]=126; hdr[2]=(uint8_t)(n>>8); hdr[3]=(uint8_t)(n&0xFF); hl=4; }
-    if(!send_all(c,(char*)hdr,hl)) return 0; return send_all(c,msg,n);
+    size_t n=strlen(msg); uint8_t hdr[10]; int hl; hdr[0]=0x81;
+    if(n<126u){ hdr[1]=(uint8_t)n; hl=2; }
+    else if(n<65536u){ hdr[1]=126; hdr[2]=(uint8_t)(n>>8); hdr[3]=(uint8_t)(n&0xFF); hl=4; }
+    else {
+        int i; hdr[1]=127;
+        for(i=0;i<8;i++) hdr[2+i]=(uint8_t)((uint64_t)n>>(56-i*8));
+        hl=10;
+    }
+    if(!send_all(c,(char*)hdr,hl)) return 0; return send_all(c,msg,(int)n);
 }
 static int recv_exact(SOCKET c, uint8_t* p, int n){ int g=0; while(g<n){int r=recv(c,(char*)p+g,n-g,0); if(r<=0)return 0; g+=r;} return 1; }
-static int ws_recv_text(SOCKET c, char* out, int cap){
-    uint8_t h2[2]; if(!recv_exact(c,h2,2)) return -1;
-    int opcode=h2[0]&0x0F, masked=h2[1]&0x80; uint64_t len=h2[1]&0x7F;
-    if(len==126){ uint8_t e[2]; if(!recv_exact(c,e,2))return -1; len=(e[0]<<8)|e[1]; }
-    else if(len==127){ uint8_t e[8]; if(!recv_exact(c,e,8))return -1; len=0; for(int i=0;i<8;i++) len=(len<<8)|e[i]; }
+/* ═══ 🔴 1.15.0：收訊緩衝區改**動態配置** ═════════════════════════════════════
+   舊碼是 main 迴圈裡的 `char msg[8192]`，而 `ws_recv_text` 對 `len>=cap` 直接
+   回 -1（＝把連線斷掉）。batchwrite 一則就帶整段 payload：8192 byte 的 JSON
+   陣列約 40 KB、256 KB 的約 1.3 MB ⇒ 固定 8192 連第一則都收不到。
+
+   🔴 與讀取那一側（1.14.0）同一套做法：**依實際 frame 長度 malloc／realloc，
+   並保留一個講得出出處的上限**，超過就回明確錯誤而不是安靜截斷。
+   上限算式：DGH_BATCH_MAX_LEN 個 byte，每個最多 4 個字元（"255," ）
+            ＋ 其他欄位的框（< 1 KB）⇒ 乘 4 再加 4096，寬鬆但有界。
+
+   `*cap` 由呼叫端保存（每個 client 一份），所以同一條連線的後續訊息會沿用
+   已經長大的緩衝區，不會每則都 realloc。 */
+#define DGH_WS_MSG_MIN 8192u
+static int ws_recv_text_dyn(SOCKET c, char** outBuf, size_t* outCap, size_t hardMax){
+    uint8_t h2[2]; int opcode, masked; uint64_t len;
+    if(!recv_exact(c,h2,2)) return -1;
+    opcode=h2[0]&0x0F; masked=h2[1]&0x80; len=h2[1]&0x7F;
+    if(len==126){ uint8_t e[2]; if(!recv_exact(c,e,2))return -1; len=((uint64_t)e[0]<<8)|e[1]; }
+    else if(len==127){ uint8_t e[8]; int i; if(!recv_exact(c,e,8))return -1; len=0; for(i=0;i<8;i++) len=(len<<8)|e[i]; }
     uint8_t mask[4]={0,0,0,0}; if(masked){ if(!recv_exact(c,mask,4))return -1; }
-    if(opcode==0x8) return -1;
-    if((int)len>=cap) return -1;
-    if(len){ if(!recv_exact(c,(uint8_t*)out,(int)len)) return -1; if(masked) for(uint64_t i=0;i<len;i++) out[i]^=mask[i&3]; }
-    out[len]=0;
-    if(opcode==0x9){ uint8_t ph[2]={0x8A,(uint8_t)len}; send_all(c,(char*)ph,2); if(len) send_all(c,out,(int)len); return ws_recv_text(c,out,cap); }
-    if(opcode!=0x1){ out[0]=0; return 0; }
+    if(opcode==0x8) return -1;                       /* close */
+    /* 🔴 超過上限：**不能只是 return -1 然後斷線** —— 使用者會看到「連線關閉」
+       而完全不知道原因。先把這一則的 byte 讀掉（保持 frame 邊界對齊），
+       回一個可判別的碼讓呼叫端回明確錯誤，連線留著。 */
+    if(len > hardMax){
+        uint64_t left=len; uint8_t sink[4096];
+        while(left){
+            int want=(int)(left>sizeof(sink)?sizeof(sink):left);
+            if(!recv_exact(c,sink,want)) return -1;
+            left-=(uint64_t)want;
+        }
+        return -2;                                   /* too big：呼叫端回錯誤，不斷線 */
+    }
+    if(len+1u > (uint64_t)*outCap){
+        size_t want=(size_t)len+1u;
+        size_t grow=*outCap? *outCap : DGH_WS_MSG_MIN;
+        char* nb;
+        while(grow<want){ if(grow > hardMax) { grow=want; break; } grow*=2u; }
+        if(grow<want) grow=want;
+        nb=(char*)realloc(*outBuf,grow);
+        if(!nb) return -3;                           /* 配不到記憶體：同樣回可判別的碼 */
+        *outBuf=nb; *outCap=grow;
+    }
+    if(len){
+        uint64_t i;
+        if(!recv_exact(c,(uint8_t*)*outBuf,(int)len)) return -1;
+        if(masked) for(i=0;i<len;i++) (*outBuf)[i]^=mask[i&3];
+    }
+    (*outBuf)[len]=0;
+    if(opcode==0x9){                                 /* ping ⇒ 回 pong，再收下一則 */
+        uint8_t ph[2]={0x8A,(uint8_t)len}; send_all(c,(char*)ph,2);
+        if(len) send_all(c,*outBuf,(int)len);
+        return ws_recv_text_dyn(c,outBuf,outCap,hardMax);
+    }
+    if(opcode!=0x1){ (*outBuf)[0]=0; return 0; }     /* 非文字 frame：忽略內容 */
     return (int)len;
 }
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1814,7 +1916,11 @@ static int ws_recv_text(SOCKET c, char* out, int cap){
  *         （busy 要回一個明確的錯誤型別，並讓對方可以主動「接手」）
  * ========================================================================== */
 #define MAX_CLIENTS 8
-typedef struct { SOCKET s; int used; int isWs; } Client;
+/* 🔴 1.15.0：`rx`／`rxCap` ＝ 這條連線的**動態**收訊緩衝區（見 ws_recv_text_dyn）。
+   每個 client 各一份、隨最大的一則長大、斷線時 free。放在 client 表裡而不是
+   main 的區域變數，是因為 batchwrite 的中止輪詢也要在**同一條連線**上收訊，
+   兩處必須用同一個緩衝區，否則會各自 realloc 一份。 */
+typedef struct { SOCKET s; int used; int isWs; char* rx; size_t rxCap; } Client;
 static Client g_cl[MAX_CLIENTS];
 static int    g_ownerIdx = -1;      /* 持有 I2C channel 的 client；-1＝沒人 */
 /* 🔴 v1.6.0：持有者可以把自己標成「忙碌中」（dg 正在跑 Gray 0~255 量測）。
@@ -1825,7 +1931,8 @@ static int    i2c_locked(void){ return g_lockOwner>=0 && g_lockOwner==g_ownerIdx
 
 static int cl_add(SOCKET s){
     for(int i=0;i<MAX_CLIENTS;i++) if(!g_cl[i].used){
-        g_cl[i].s=s; g_cl[i].used=1; g_cl[i].isWs=0; return i; }
+        g_cl[i].s=s; g_cl[i].used=1; g_cl[i].isWs=0;
+        g_cl[i].rx=NULL; g_cl[i].rxCap=0; return i; }
     return -1;
 }
 /* 丟掉一個 client。🔴 它若是持有者就**一定**要放掉 I2C channel ——
@@ -1842,7 +1949,180 @@ static void cl_drop(int i){
         g_ownerIdx=-1;
     }
     closesocket(g_cl[i].s);
+    /* 🔴 1.15.0：收訊緩衝區跟著連線一起釋放。一則 1.3 MB 的 batchwrite 會讓它
+       長到 1.3 MB，不釋放的話八條連線輪流開關就是 10 MB 漏在那裡。 */
+    if(g_cl[i].rx){ free(g_cl[i].rx); g_cl[i].rx=NULL; }
+    g_cl[i].rxCap=0;
     g_cl[i].used=0; g_cl[i].isWs=0; g_cl[i].s=INVALID_SOCKET;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 batchwrite（1.15.0）—— 一次請求寫完整段，bridge 自己分頁、自己等 tWR
+ * ---------------------------------------------------------------------------
+ * 為什麼（Bruce 2026-09-19 實測，已核准這個做法）：
+ *   8192 byte / 32 byte 一段 ＝ 256 段。每段量到 `ws=8~13ms`、`dev=4.5~5ms`、
+ *   `wait=5~6ms`。其中 **`ws − dev` ＝ 4~8 ms 是網頁↔bridge 的往返開銷**
+ *   （WebSocket＋JSON＋await），×256 次 ⇒ 是整個 15 ms 裡最大的一塊，
+ *   而且是**純軟體**。把分頁搬進 bridge，往返從 ×256 變成 ×1。
+ *
+ * 🔴 這一節有三件事必須同時成立，少一件都不可交付：
+ *   ① **進度不可以消失**。以前有「段 N/256」的逐段回報，正是因為網頁發了 256 次
+ *      請求；搬進 bridge 之後若不主動送，使用者按下去就是一片空白乾等。
+ *      ⇒ bridge 過程中主動送 `progress`，網頁照舊更新進度條。
+ *   ② **中止不可以消失**。網頁送 `abortwrite`，bridge 在**下一個分頁邊界**停。
+ *   ③ **中止之後要講清楚裝置處於什麼狀態**：寫到哪個位址為止、後面沒寫。
+ *      半寫完的 EEPROM 使用者必須知道 —— 這比「中止成功」四個字重要得多。
+ *
+ * 🔴 舊的單段 `rawwrite` 一個字都沒動（逐格即時寫入還要用它），而且拿著舊 exe
+ *    的人也還要能用 —— 網頁靠 `proto >= 4` 判斷要不要走這條新路。
+ * ========================================================================== */
+/* 這一輪 batch 期間把逐段的 io log 收起來：256 段 × 3 行 ＝ 768 行，而真正有用的
+   是「哪一段失敗、那一段的內容是什麼」。⇒ 平常走精簡的逐段摘要（8 段一行），
+   失敗的那一段**改成完整原樣輸出**（見 batch 迴圈裡的 fail 分支）。 */
+
+/* 進度訊息：送出去就算（不等回覆、不佔往返）。刻意做得很小，一則 < 160 byte。 */
+static void batch_send_progress(SOCKET c, long id, uint32_t seg, uint32_t segs,
+                                uint32_t done, uint32_t total, uint32_t addr){
+    char m[224];
+    snprintf(m,sizeof(m),
+        "{\"type\":\"progress\",\"id\":%ld,\"cmd\":\"batchwrite\",\"seg\":%u,\"segs\":%u,"
+        "\"done\":%u,\"total\":%u,\"addr\":%u}", id, seg, segs, done, total, addr);
+    ws_send_text(c,m);
+}
+/* 分頁邊界上檢查有沒有人要中止。**不阻塞**：select 的 timeout 給 0。
+   回傳 1 ＝ 要中止。其他訊息的處置刻意寫死在這裡，不遞迴回 handle_command：
+     · `abortwrite`  ⇒ 中止（id 不符也接受：使用者按的就是這一次的中止鍵，
+                        而畫面上同時只會有一個整批寫入在跑）
+     · `note`        ⇒ 照樣寫進 log（網頁的診斷要能匯流到同一個檔案）
+     · 其他任何命令 ⇒ 回一個**可判別**的 busy 錯誤。已經從 socket 讀掉了，
+                        沒辦法「留到後面再處理」，所以要講出來而不是安靜丟掉。 */
+static int batch_poll_abort(int idx, long id){
+    SOCKET c = g_cl[idx].s;
+    for(;;){
+        fd_set rd; struct timeval tv;
+        int n; char t[24]={0};
+        FD_ZERO(&rd); FD_SET(c,&rd);
+        tv.tv_sec=0; tv.tv_usec=0;
+        if(select(0,&rd,NULL,NULL,&tv)<=0) return 0;      /* 沒有東西可讀 ⇒ 繼續寫 */
+        if(!FD_ISSET(c,&rd)) return 0;
+        n=ws_recv_text_dyn(c,&g_cl[idx].rx,&g_cl[idx].rxCap,DGH_WS_MSG_MAX);
+        if(n==-1){
+            /* 🔴 對方在寫入途中斷線。這**不是**中止的同義詞，但結果一樣要停 ——
+               再寫下去也沒有人收得到結果，而且連線已經沒了。當成中止處理，
+               並在 log 裡分辨得出來（下面的 abort 原因欄位）。 */
+            logline("  batch   : 🔴 client #%d disconnected mid-write -> stopping at the next page boundary", idx);
+            return 2;
+        }
+        if(n<=0) continue;                                 /* -2/-3/0：下面統一處理 */
+        if(!dgh_json_type(g_cl[idx].rx,t,sizeof(t))) continue;
+        if(strcmp(t,"abortwrite")==0){
+            /* 🔴 要中止的那一次寫入放在 **`batch`**，不是 `id`。
+               理由（網頁端踩過、自檢抓到）：`id` 的語意是「回覆對應到哪一則請求」，
+               中止訊息若沿用同一個 id，任何對它的回覆都會被網頁當成**那次整批
+               寫入的結果** ⇒ 畫面說「已寫入 0 byte」而裝置其實寫到一半。
+               ⇒ 分成兩個欄位；而且 bridge **不回覆** abortwrite，
+                 中止的結果由整批寫入自己的 result（aborted:true）報告。 */
+            long bid=dgh_json_int(g_cl[idx].rx,"batch",-1);
+            logline("  batch   : ABORT requested by the page (batch=%ld, running batch id=%ld)", bid, id);
+            /* 同一時間只可能有一個整批寫入在跑（這一層是單執行緒的迴圈），
+               所以 batch 對不上也照樣中止 —— 使用者按的就是這一個。
+               但要把不一致寫進 log，免得日後有人以為它比對過。 */
+            if(bid>=0 && bid!=id)
+                logline("            (the batch id does not match; aborting the running one anyway "
+                        "-- only one batch write can be in flight on this bridge)");
+            return 1;
+        }
+        if(strcmp(t,"note")==0){
+            char msg[512];
+            if(!dgh_json_str(g_cl[idx].rx,"msg",msg,sizeof(msg))) msg[0]=0;
+            logline("  [page]  : %s", msg[0]?msg:"(empty note)");
+            continue;
+        }
+        {   char e[320];
+            snprintf(e,sizeof(e),
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,"
+                "\"err\":\"the bridge is in the middle of a batch write and cannot serve this "
+                "request. It was NOT queued. Wait for the batch write to finish, or abort it.\"}",
+                dgh_json_int(g_cl[idx].rx,"id",0), t);
+            logline("  batch   : refused `%s` during the batch write (not queued)", t);
+            ws_send_text(c,e);
+        }
+    }
+}
+/* ═══ 🔴 tWR：寫完一頁之後 EEPROM 把 page buffer 燒進 cell 的時間 ═══════════
+   這段期間它**不回應任何命令**。規格值 24C32/64 max 5 ms（舊 AT24C32 為 10 ms）。
+   🔴 **不因為想省時間就把等待改短。** 寫太快是**靜默寫不進去** —— 那比慢更糟。
+
+   ═══ ACK polling（資料手冊建議的做法）══════════════════════════════════════
+   標準做法是 STOP 之後反覆送 slave address：裝置寫完前回 NACK、寫完回 ACK
+   ⇒ 只等實際需要的時間。**但這支 DLL 做不做得到是個實際問題，不是文件問題**：
+
+     `DLL_I2C_BCB.dll` 只匯出 9 個函式（Close/Detect/GetBytesEx/GetClock/
+     GetOpened/Open/SendBytesEx/SetClock/SetOpened）——
+     🔴 **沒有「只送位址看 ACK」的原語。**
+
+   最接近的替代是拿 `GetBytesEx(slave, addr, 1, buf)` 讀 1 個 byte 當探針
+   （裝置忙碌時應該會失敗）。這條路有兩個問題，一個是未知、一個是已知：
+
+     ⚠️ **未知**：「忙碌時 GetBytesEx 會回報失敗」是**推測，沒有在硬體上驗證過**。
+        若它在裝置忙碌時仍回成功，我們就會**提早寫下一頁 ⇒ 靜默寫不進去**。
+     🔴 **已知**：探針自己要花 4.5~5 ms（Bruce 實測 `dev=4.5~5ms`，其中理論匯流排
+        只有 0.79 ms，其餘是每次 DLL／USB 呼叫的固定成本）。而 tWR 本身就是 5 ms。
+        ⇒ **探針的成本與整段等待同一個數量級，省不到東西。**
+
+   ⇒ 本版的處置：做成**預設關閉、可觀察、有逾時**的選項（`"ackpoll":1`），
+     並加一道**自我校準**的守衛：一段寫完之後的**第一次探針必須回報忙碌**
+     （剛下完 STOP，裝置一定在燒），若它一次就成功 ⇒ 證明這支探針**測不出忙碌**
+     ⇒ 這一段改用完整的固定 tWR，並把次數記進 log。
+     這樣「未驗證的假設」變成程式**每一段都在檢查**的東西，而不是我們賭它成立。
+     🔴 預設關閉的理由：預設值不該建立在未驗證的假設上。
+   回傳實際等了幾毫秒（給 log 與回覆用）。*polls 填探針次數，*fellBack 填
+   「這一段有沒有退回固定 tWR」。 */
+static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
+                             uint32_t twr, int ackpoll, int* polls, int* fellBack){
+    double t0=now_ms();
+    if(polls)    *polls=0;
+    if(fellBack) *fellBack=0;
+    if(twr==0u) return 0.0;
+    if(!ackpoll){ Sleep(twr); return now_ms()-t0; }
+    {
+        /* 逾時上限 ＝ 固定 tWR 的值（絕不會比不開這個選項等得久）。 */
+        double deadline=t0+(double)twr;
+        int n=0, sawBusy=0;
+        uint8_t probe=0;
+        for(;;){
+            uint32_t got=0; FT_STATUS st;
+            int q=g_ioQuiet; g_ioQuiet=1;                  /* 探針本身不灌 log */
+            st=i2c_read_ex(slave,addr,awid,1,&probe,&got);
+            g_ioQuiet=q;
+            n++;
+            if(st!=FT_OK || got!=1u){ sawBusy=1; }         /* 探針說「還在忙」 */
+            else {
+                if(!sawBusy){
+                    /* 🔴 第一次就成功 ⇒ 這支探針測不出忙碌（剛下完 STOP，裝置
+                       一定在燒）⇒ 不可以相信它，這一段補足完整的固定 tWR。 */
+                    double left=(double)twr-(now_ms()-t0);
+                    if(left>0.0) Sleep((DWORD)(left+0.5));
+                    if(polls)    *polls=n;
+                    if(fellBack) *fellBack=1;
+                    logline("  ackpoll : 🔴 first probe after STOP succeeded -> the probe cannot "
+                            "detect a busy device; used the full fixed tWR (%u ms) for this page",
+                            twr);
+                    return now_ms()-t0;
+                }
+                break;                                      /* 先忙後好 ＝ 真的寫完了 */
+            }
+            if(now_ms()>=deadline){
+                if(polls)    *polls=n;
+                if(fellBack) *fellBack=1;
+                logline("  ackpoll : timeout after %d probes (%u ms) -> falling back to the fixed tWR",
+                        n, twr);
+                return now_ms()-t0;
+            }
+        }
+        if(polls) *polls=n;
+        return now_ms()-t0;
+    }
 }
 
 static void handle_command(int idx, const char* json){
@@ -1952,7 +2232,10 @@ static void handle_command(int idx, const char* json){
     }
     /* 讀寫一律要求「你是持有者」。只看 g_opened 不夠：那樣另一個頁面會在
        不知情的狀況下操作別人開的 channel，錯得很安靜。 */
-    if((strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0)
+    /* 🔴 1.15.0：`batchwrite` 也要在這一關 —— 漏掉它等於開一個「不持有 channel
+       也能寫」的後門，而且是最大的那一種寫入。 */
+    if((strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0
+        ||strcmp(type,"batchwrite")==0)
        && g_ownerIdx!=idx){
         snprintf(rep,sizeof(rep),
             "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,"
@@ -2088,6 +2371,260 @@ static void handle_command(int idx, const char* json){
           if(st!=FT_OK && g_lastErr[0]) o+=snprintf(rep+o,sizeof(rep)-o,",\"err\":\"%s\"",g_lastErr);
           snprintf(rep+o,sizeof(rep)-o,"}"); }
         ws_send_text(c,rep); return;
+    }
+    /* ═══ 🔴🔴 batchwrite（1.15.0）══════════════════════════════════════════════
+       一次請求整段 payload，bridge 自己分頁、自己等 tWR。
+       說明見上面 batch_send_progress／batch_poll_abort／batch_wait_twr 那一節。
+
+       wire 形狀（欄位順序無關）：
+         {"type":"batchwrite","id":7,
+          "slave":80,"addr":0,"awid":2,      <- 起始位址與 offset 寬度（1/2/4）
+          "page":32,"twr":5,                 <- EEPROM page size 與 tWR（ms）
+          "len":8192,"data":[…8192 個 0..255…],
+          "progms":100,                      <- 選填：進度訊息最短間隔（ms）
+          "ackpoll":0}                       <- 選填：ACK polling（預設關，見上）
+
+       過程中（不佔往返，單向）：
+         {"type":"progress","id":7,"cmd":"batchwrite","seg":48,"segs":256,
+          "done":1536,"total":8192,"addr":1536}
+       中止（網頁 → bridge，任何時候）：
+         {"type":"abortwrite","id":7}
+       結束：
+         {"type":"result","id":7,"cmd":"batchwrite","ok":true|false,
+          "aborted":bool,"segs":256,"segsDone":48,"done":1536,"total":8192,
+          "base":0,"lastAddr":1535,"nextAddr":1536,"us":…,"twrms":…,
+          "progsent":38,"usbrt":256,"ackpolls":…,"ackfallback":…,"err":"…"}
+
+       🔴 非法輸入一律**明確回錯誤，不靜默處理**（Dispatch 點名的三種都在）：
+          len 缺／為 0、payload 長度與宣告不符、page 為 0 或超過一段能寫的上限、
+          awid 不合法、awid 0（沒有位址相位就談不上分頁邊界）、twr 超過上限。 */
+    if(strcmp(type,"batchwrite")==0){
+        uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x50);
+        uint32_t base =(uint32_t)dgh_json_int(json,"addr",0);
+        uint32_t awid =(uint32_t)dgh_json_int(json,"awid",(long)AWID_DEFAULT);
+        long     lenL = dgh_json_int(json,"len",-1);
+        long     pageL= dgh_json_int(json,"page",-1);
+        long     twrL = dgh_json_int(json,"twr",-1);
+        long     pmsL = dgh_json_int(json,"progms",(long)DGH_BATCH_PROG_MS_DEF);
+        int      ackpoll=(int)dgh_json_int(json,"ackpoll",0);
+        uint32_t len, page, twr, progms;
+        /* 🔴 非法輸入的統一出口：**回覆與 log 用同一句話**，不各寫一份
+           （兩份遲早分岔，而分岔的時候使用者看到的那一份通常是比較糊的那一份）。
+           每一句都要講出「什麼都沒寫」—— 使用者最需要知道的是裝置有沒有被動到。 */
+        #define BWERR(...) do{ char _m[512]; snprintf(_m,sizeof(_m),__VA_ARGS__); \
+                logline("[cmd] batchwrite REFUSED: %s", _m); \
+                snprintf(rep,sizeof(rep), \
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"batchwrite\",\"ok\":false,\"aborted\":false," \
+                "\"segs\":0,\"segsDone\":0,\"done\":0,\"err\":\"%s\"}",id,_m); \
+                ws_send_text(c,rep); return; }while(0)
+        if(!dgh_awid_ok(awid))
+            BWERR("bad awid %u: only 0, 1, 2 or 4 are legal offset widths.", awid);
+        if(awid==0u)
+            BWERR("awid 0 means no address phase is sent, so page boundaries cannot be honoured "
+                  "and a page write cannot be addressed. Nothing was written. Use rawwrite for "
+                  "address-less writes.");
+        if(lenL<=0)
+            BWERR("len must be given and at least 1 (got %ld). Nothing was written.", lenL);
+        if((uint32_t)lenL > DGH_BATCH_MAX_LEN)
+            BWERR("a batch write of %ld bytes was refused: this bridge accepts at most %u bytes "
+                  "per request. Nothing was written -- nothing was silently truncated. Split it.",
+                  lenL,(unsigned)DGH_BATCH_MAX_LEN);
+        if(pageL<=0)
+            BWERR("page must be at least 1 (got %ld). A page size of 0 means 'do not split', and a "
+                  "single unsplit write is what rawwrite already does -- batchwrite exists to do the "
+                  "page splitting, so 0 is not a legal value here. Nothing was written.", pageL);
+        if((uint32_t)pageL > DGH_BATCH_MAX_PAGE)
+            BWERR("page %ld is larger than the %u bytes one write frame can carry on this bridge. "
+                  "Nothing was written.", pageL,(unsigned)DGH_BATCH_MAX_PAGE);
+        if(twrL<0)
+            BWERR("twr (the tWR wait in ms after each page) must be given and cannot be negative "
+                  "(got %ld). Nothing was written.", twrL);
+        if((uint32_t)twrL > DGH_BATCH_MAX_TWR)
+            BWERR("twr %ld ms is over this bridge's %u ms ceiling. Nothing was written.",
+                  twrL,(unsigned)DGH_BATCH_MAX_TWR);
+        len=(uint32_t)lenL; page=(uint32_t)pageL; twr=(uint32_t)twrL;
+        progms=(uint32_t)(pmsL<(long)DGH_BATCH_PROG_MS_MIN?(long)DGH_BATCH_PROG_MS_MIN:
+                         (pmsL>(long)DGH_BATCH_PROG_MS_MAX?(long)DGH_BATCH_PROG_MS_MAX:pmsL));
+        if(!backend_is_open())
+            BWERR("the I2C backend is not open. Nothing was written.");
+        {
+            uint8_t* data=(uint8_t*)malloc(len);
+            uint32_t n=0, bad=0;
+            int pr;
+            if(!data)
+                BWERR("out of memory: could not allocate the %u byte payload buffer. Nothing was written.", len);
+            pr=dgh_json_bytes(json,"data",data,len,&n,&bad);
+            /* 🔴 宣告長度與實際 payload 不符 ⇒ 明確回錯誤。這一條特別重要：
+               少一個 byte 就代表整段內容往前挪，燒下去全錯，而且回讀比對之前
+               沒有任何人會發現。 */
+            if(pr==DGH_JB_NOKEY){ free(data);
+                BWERR("no `data` array in the request (or it is not an array). Nothing was written."); }
+            if(pr==DGH_JB_OVER){ free(data);
+                BWERR("the `data` array has more than the %u bytes declared in `len`. The two must "
+                      "match exactly. Nothing was written -- nothing was truncated.", len); }
+            if(pr==DGH_JB_BADVAL){ free(data);
+                BWERR("element %u of `data` is not a whole number in 0..255. Every byte must be a "
+                      "plain decimal 0-255. Nothing was written -- no value was silently coerced.", bad); }
+            if(n!=len){ free(data);
+                BWERR("`len` says %u bytes but the `data` array has %u. The two must match exactly. "
+                      "Nothing was written.", len, n); }
+            {
+            uint32_t segs=dgh_plan_count(base,len,page);
+            uint32_t done=0, segDone=0, prog=0;
+            uint32_t lastAddr=0, nextAddr=base;
+            double t0=now_ms(), devUs=0.0, twrMs=0.0, tProg;
+            int ok=1, aborted=0, dropped=0, ackPolls=0, ackFall=0;
+            FT_STATUS lastSt=FT_OK;
+            char segline[520]; int segn=0, segInLine=0;
+            /* 🔴 下手之前先把整件事寫進 log（I2C 卡住時記錄也還在）。
+               內容的指紋用 SHA1（proto.h 已經有一份，WebSocket 握手在用）——
+               256 KB 的 payload 不可能整段 dump，但「燒的是哪一份」必須留得下來。 */
+            { DGH_SHA1 sh; uint8_t dg[20]; char hx[41]; int i;
+              dgh_sha1_init(&sh); dgh_sha1_update(&sh,data,len); dgh_sha1_final(&sh,dg);
+              for(i=0;i<20;i++) snprintf(hx+i*2,3,"%02x",dg[i]);
+              logline("[cmd] batchwrite slave=0x%02X(7-bit) awid=%u base=0x%08X len=%u page=%u twr=%ums "
+                      "-> %u segments, sha1(payload)=%s%s",
+                      slave, awid, base, len, page, twr, segs, hx,
+                      ackpoll?"  [ackpoll ON -- see the ackpoll lines below]":"");
+              logline("      first 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X "
+                      "%02X %02X %02X %02X %02X %02X %02X %02X%s",
+                      data[0],len>1?data[1]:0,len>2?data[2]:0,len>3?data[3]:0,
+                      len>4?data[4]:0,len>5?data[5]:0,len>6?data[6]:0,len>7?data[7]:0,
+                      len>8?data[8]:0,len>9?data[9]:0,len>10?data[10]:0,len>11?data[11]:0,
+                      len>12?data[12]:0,len>13?data[13]:0,len>14?data[14]:0,len>15?data[15]:0,
+                      len<16?"  (payload shorter than 16 bytes -- trailing values are padding in this line)":"");
+            }
+            lasterr_clear();
+            /* 第一則進度在**開始之前**就送：使用者按下去到第一段寫完之間
+               至少有 15 ms，沒有這一則進度條會停在空白。 */
+            batch_send_progress(c,id,0,segs,0,len,dgh_addr_wrap(base,awid)); prog++;
+            tProg=now_ms();
+            segline[0]=0;
+            g_ioQuiet=1;
+            while(done<len){
+                uint32_t seg=dgh_plan_seg(base+done,len-done,page);
+                uint32_t a=dgh_addr_wrap(base+done,awid);
+                uint32_t got=0;
+                FT_STATUS st;
+                double tSeg=now_ms();
+                if(seg==0u) break;                      /* 到不了（page>=1 時 seg 必 >0） */
+                st=i2c_write_ex(slave,a,awid,data+done,(int)seg,&got);
+                devUs+=g_lastUs;
+                lastSt=st;
+                /* 🔴 成敗只看 `st`，**不比對 `got`**。理由是實測踩到的：
+                     · libMPSSE 路徑的 `got` 來自 `p_Write`，算的是**整個 frame**
+                       （offset bytes ＋ data）⇒ 寫 32 byte 會回 34
+                     · vendor（DLL_I2C_BCB）路徑的 `got` 是 `vendor_write` 自己填的
+                       `dlen` ⇒ 寫 32 byte 回 32
+                   兩條路的語意不一樣，拿它當完整性判準會**在其中一條路上永遠失敗**
+                   （第一版就是這樣：段 1 寫進去了卻回報失敗）。
+                   真正的完整性把關是**寫完之後的回讀比對**（網頁端既有那一套），
+                   這裡只負責「呼叫有沒有回錯誤」。`got` 照樣寫進 log 留證。 */
+                if(st!=FT_OK){
+                    /* 🔴 失敗的那一段**完整輸出**（位址、長度、每一個 byte）。
+                       平常的精簡摘要是為了讓這一行看得見，不是為了省事。 */
+                    char hex[RAW_MAX_DATA*3+8]; int ho=0; uint32_t i;
+                    for(i=0;i<seg && ho<(int)sizeof(hex)-4;i++)
+                        ho+=snprintf(hex+ho,sizeof(hex)-ho,"%s%02X",i?" ":"",data[done+i]);
+                    if(segline[0]) logline("  batch   : %s", segline);
+                    segline[0]=0; segn=0; segInLine=0;
+                    logline("  batch   : 🔴 SEGMENT %u/%u FAILED at 0x%08X x%u (FT status %u, "
+                            "transferred %u). Bytes of this segment: %s",
+                            segDone+1, segs, a, seg, st, got, hex);
+                    ok=0;
+                    break;
+                }
+                done+=seg; segDone++;
+                lastAddr=dgh_addr_wrap(base+done-1u,awid);
+                nextAddr=base+done;
+                /* 逐段摘要：8 段一行 */
+                segn+=snprintf(segline+segn,sizeof(segline)-segn,"%s#%u@0x%04X x%u %.1fms",
+                               segInLine?" | ":"", segDone, a, seg, now_ms()-tSeg);
+                if(++segInLine>=8){ logline("  batch   : %s", segline); segline[0]=0; segn=0; segInLine=0; }
+                /* tWR：最後一段之後不等（呼叫端要回讀的話由它自己等，與舊路徑一致） */
+                if(done<len && twr){
+                    int pp=0, fb=0;
+                    twrMs+=batch_wait_twr(slave,dgh_addr_wrap(base+done,awid),awid,twr,ackpoll,&pp,&fb);
+                    ackPolls+=pp; ackFall+=fb;
+                }
+                /* 進度：時間節流（見 DGH_BATCH_PROG_MS_DEF 的理由）。
+                   最後一段一定送，否則進度條會停在 99%。 */
+                if(now_ms()-tProg>=(double)progms || done>=len){
+                    batch_send_progress(c,id,segDone,segs,done,len,dgh_addr_wrap(base+done,awid));
+                    prog++; tProg=now_ms();
+                }
+                /* 🔴 中止只在**分頁邊界**檢查：一段已經送上匯流排就收不回來，
+                   在段中間「停」只會留下一個寫了一半的 page。 */
+                if(done<len){
+                    int ab=batch_poll_abort(idx,id);
+                    if(ab){ aborted=1; dropped=(ab==2); ok=0; break; }
+                }
+            }
+            g_ioQuiet=0;
+            if(segline[0]) logline("  batch   : %s", segline);
+            {
+            double el=now_ms()-t0;
+            int o;
+            /* 🔴🔴 中止／失敗之後**一定要講清楚裝置處於什麼狀態**。
+               半寫完的 EEPROM 使用者必須知道寫到哪、後面沒寫 —— 這是
+               Dispatch 明列的硬要求，也是這個功能最容易被做漏的一塊。 */
+            o=snprintf(rep,sizeof(rep),
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"batchwrite\",\"ok\":%s,\"aborted\":%s,"
+                "\"segs\":%u,\"segsDone\":%u,\"done\":%u,\"total\":%u,\"base\":%u,"
+                "\"lastAddr\":%d,\"nextAddr\":%u,\"page\":%u,\"twr\":%u,"
+                "\"us\":%.0f,\"devus\":%.0f,\"twrms\":%.0f,\"progsent\":%u,\"usbrt\":%u,"
+                "\"ackpoll\":%s,\"ackpolls\":%d,\"ackfallback\":%d,\"status\":%u",
+                id, ok?"true":"false", aborted?"true":"false",
+                segs, segDone, done, len, base,
+                done? (int)lastAddr : -1, nextAddr, page, twr,
+                el*1000.0, devUs, twrMs, prog, segDone,
+                ackpoll?"true":"false", ackPolls, ackFall, lastSt);
+            if(aborted){
+                if(done==0)
+                    o+=snprintf(rep+o,sizeof(rep)-o,
+                        ",\"err\":\"%s after 0 of %u segments. NOTHING was written -- the device still "
+                        "holds its previous contents.\"",
+                        dropped?"the page disconnected":"aborted on request", segs);
+                else
+                    o+=snprintf(rep+o,sizeof(rep)-o,
+                        ",\"err\":\"%s after segment %u of %u. Bytes 0x%04X-0x%04X WERE written; "
+                        "0x%04X onwards (%u bytes) were NOT. The device now holds a partly updated "
+                        "image -- re-run the write from the beginning, or read it back to see "
+                        "exactly what is in it.\"",
+                        dropped?"the page disconnected":"aborted on request", segDone, segs,
+                        dgh_addr_wrap(base,awid), lastAddr, dgh_addr_wrap(nextAddr,awid), len-done);
+            } else if(!ok){
+                if(g_lastErr[0])
+                    o+=snprintf(rep+o,sizeof(rep)-o,",\"err\":\"failed at segment %u of %u: %s "
+                        "Bytes 0x%04X onwards (%u bytes) were NOT written.\"",
+                        segDone+1u, segs, g_lastErr, dgh_addr_wrap(base+done,awid), len-done);
+                else
+                    o+=snprintf(rep+o,sizeof(rep)-o,",\"err\":\"the write failed at segment %u of %u "
+                        "(FT status %u). Bytes 0x%04X-0x%04X were written; 0x%04X onwards (%u bytes) "
+                        "were NOT.\"", segDone+1u, segs, lastSt,
+                        dgh_addr_wrap(base,awid), done?lastAddr:dgh_addr_wrap(base,awid),
+                        dgh_addr_wrap(base+done,awid), len-done);
+            }
+            snprintf(rep+o,sizeof(rep)-o,"}");
+            logline("  batch   : %s -- %u/%u segments, %u/%u bytes, %.0f ms total "
+                    "(device %.0f ms, tWR %.0f ms), %u progress messages, 1 request round-trip",
+                    ok?"DONE":(aborted?(dropped?"STOPPED (page gone)":"ABORTED"):"FAILED"),
+                    segDone, segs, done, len, el, devUs/1000.0, twrMs, prog);
+            if(!ok && done<len)
+                logline("            🔴 device state: 0x%04X..0x%04X written, 0x%04X onwards (%u bytes) NOT written",
+                        dgh_addr_wrap(base,awid), done?lastAddr:0u, dgh_addr_wrap(base+done,awid), len-done);
+            if(ackpoll)
+                logline("  ackpoll : %d probes over %u pages, %d page(s) fell back to the fixed tWR "
+                        "(a page falls back when the first probe after STOP already succeeded, which "
+                        "means the probe cannot see a busy device -- see batch_wait_twr)",
+                        ackPolls, segDone, ackFall);
+            ws_send_text(c,rep);
+            }
+            free(data);
+            return;
+            }
+        }
+        #undef BWERR
     }
     if(strcmp(type,"write")==0){
         uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x60);
@@ -2503,7 +3040,7 @@ int main(int argc, char** argv){
         if(FD_ISSET(srv,&rd)){
             SOCKET c=accept(srv,NULL,NULL);
             if(c!=INVALID_SOCKET){
-                /* 🔴 收 timeout：ws_recv_text 內部是 recv_exact（阻塞）。正常
+                /* 🔴 收 timeout：ws_recv_text_dyn 內部是 recv_exact（阻塞）。正常
                    loopback 上一個 frame 一次就到齊，但萬一被切開又遲遲不來，
                    沒有 timeout 就會整支 helper 卡住 —— 那正是本版要根治的病。 */
                 DWORD to=5000; setsockopt(c,SOL_SOCKET,SO_RCVTIMEO,(char*)&to,sizeof(to));
@@ -2528,10 +3065,28 @@ int main(int argc, char** argv){
                     cl_drop(i);
                 }
             } else {
-                char msg[8192];
-                int n=ws_recv_text(g_cl[i].s,msg,sizeof(msg));
+                /* 🔴 1.15.0：收訊緩衝區改成 client 自己那一份動態緩衝區。
+                   舊碼是 `char msg[8192]`，batchwrite 一則 40 KB~1.3 MB 收不到。
+                   回傳 -2／-3 是**可判別的失敗**（太大／配不到記憶體）——
+                   回一句話給對方，連線留著；只有 -1（真的斷了）才 drop。 */
+                int n=ws_recv_text_dyn(g_cl[i].s,&g_cl[i].rx,&g_cl[i].rxCap,DGH_WS_MSG_MAX);
+                if(n==-2){
+                    char e[256]; snprintf(e,sizeof(e),
+                        "{\"type\":\"result\",\"id\":0,\"cmd\":\"?\",\"ok\":false,\"err\":\"that message was "
+                        "larger than this bridge accepts (%u bytes). Nothing was done. Split the request.\"}",
+                        (unsigned)DGH_WS_MSG_MAX);
+                    logline("[ws] client #%d sent a frame over the %u byte limit -> refused (connection kept)",
+                            i,(unsigned)DGH_WS_MSG_MAX);
+                    ws_send_text(g_cl[i].s,e); continue;
+                }
+                if(n==-3){
+                    const char* e="{\"type\":\"result\",\"id\":0,\"cmd\":\"?\",\"ok\":false,\"err\":\"out of memory "
+                                  "while receiving that message. Nothing was done.\"}";
+                    logline("[ws] client #%d: realloc for the receive buffer failed", i);
+                    ws_send_text(g_cl[i].s,e); continue;
+                }
                 if(n<0){ logline("[ws] client #%d disconnected", i); cl_drop(i); continue; }
-                if(n>0) handle_command(i,msg);
+                if(n>0) handle_command(i,g_cl[i].rx);
             }
         }
     }

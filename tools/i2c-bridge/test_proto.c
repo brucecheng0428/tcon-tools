@@ -512,6 +512,95 @@ int main(void){
         EQ_INT(found9E, 0, "讀寫命令流裡不混入 init 命令（0x9E 屬於 init）");
     }
 
+    /* ═══ 🔴 batchwrite 的分頁邊界（1.15.0）════════════════════════════════════
+       EEPROM 的 page buffer 內位址**會在頁內回捲**：從 0x1F0F 起一次送 64 byte，
+       32 byte 的頁只吃前 17 個（到 0x1F1F），後面 47 個會蓋掉 0x1F00–0x1F0E …
+       而且**裝置不會報錯**。所以第一段只能寫到頁邊界為止。
+       Dispatch 2026-09-19 指名的案例（0x1F0F 起 64 byte）逐段釘在這裡。 */
+    {
+        /* Dispatch 指名案例：base=0x1F0F、len=64、page=32 */
+        EQ_INT(dgh_plan_seg(0x1F0Fu, 64u, 32u), 17u,
+               "🔴 0x1F0F 起、page 32 ⇒ 第一段只能寫 17 byte（到 0x1F1F 為止）");
+        EQ_INT(dgh_plan_seg(0x1F20u, 64u-17u, 32u), 32u, "第二段對齊了 ⇒ 整頁 32 byte");
+        EQ_INT(dgh_plan_seg(0x1F40u, 64u-17u-32u, 32u), 15u, "第三段 ＝ 剩下的 15 byte");
+        EQ_INT(dgh_plan_count(0x1F0Fu, 64u, 32u), 3u, "0x1F0F 起 64 byte ⇒ 3 段");
+        /* 逐段累加必須剛好等於 len，而且每一段都不跨頁 */
+        {
+            uint32_t base=0x1F0Fu, len=64u, page=32u, done=0, segs=0, crossed=0;
+            while(done<len){
+                uint32_t a=base+done, n=dgh_plan_seg(a,len-done,page);
+                if(n==0) break;
+                if((a%page)+n > page) crossed=1;          /* 跨頁 ＝ 會回捲蓋掉資料 */
+                done+=n; segs++;
+            }
+            EQ_INT(done, len,    "逐段累加 ＝ 原長度（不多不少）");
+            EQ_INT(segs, 3u,     "段數 ＝ 3");
+            EQ_INT(crossed, 0,   "🔴 沒有任何一段跨過 page 邊界");
+        }
+        /* 對齊起點：整齊切 */
+        EQ_INT(dgh_plan_seg(0x0000u, 8192u, 32u), 32u, "對齊起點 ⇒ 整頁 32");
+        EQ_INT(dgh_plan_count(0x0000u, 8192u, 32u), 256u, "8192 byte / page 32 ⇒ 256 段");
+        /* 一個 byte、剛好一頁、剛好差一個 */
+        EQ_INT(dgh_plan_seg(0x0001u, 1u, 32u), 1u,  "只剩 1 byte ⇒ 1");
+        EQ_INT(dgh_plan_seg(0x001Fu, 5u, 32u), 1u,  "頁尾最後一個 byte ⇒ 只能 1");
+        EQ_INT(dgh_plan_count(0x001Fu, 33u, 32u), 2u, "頁尾起 33 byte ⇒ 1 ＋ 32 ⇒ 2 段");
+        /* page 8（24C01/02）與 page 256（大顆）兩端都要對 */
+        EQ_INT(dgh_plan_seg(0x0005u, 100u, 8u), 3u, "page 8、從 0x05 起 ⇒ 3");
+        EQ_INT(dgh_plan_count(0x0000u, 256u, 256u), 1u, "page 256、寫滿一頁 ⇒ 1 段");
+        EQ_INT(dgh_plan_count(0x0001u, 256u, 256u), 2u, "page 256、起點差 1 ⇒ 2 段");
+        /* len==0 與 page==0 的定義（呼叫端據此擋，不可以自己猜） */
+        EQ_INT(dgh_plan_seg(0x10u, 0u, 32u), 0u, "len 0 ⇒ 0（呼叫端必須當非法輸入）");
+        EQ_INT(dgh_plan_seg(0x10u, 99u, 0u), 99u, "page 0 ⇒ 不分頁，一次寫完");
+        EQ_INT(dgh_plan_count(0x10u, 0u, 32u), 0u, "len 0 ⇒ 0 段");
+    }
+
+    /* ═══ 🔴 JSON byte 陣列的嚴格解析（1.15.0）════════════════════════════════
+       這一支存在的唯一理由：batchwrite 收的是**要燒進 EEPROM 的內容**，
+       安靜改一個值就是燒錯一個 byte。既有的 dgh_json_int_array() 會把 300
+       安靜變成 44、-1 變成 255、超過容量與找不到鍵都回 -1 —— 四種情況必須分開。 */
+    {
+        uint8_t b[8]; uint32_t n=0, bad=0; int r;
+        r=dgh_json_bytes("{\"data\":[1,2,255,0]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, 4, "正常：4 個元素");
+        EQ_INT(n, 4u, "outN ＝ 4");
+        EQ_INT(b[0],1,"b[0]"); EQ_INT(b[1],2,"b[1]");
+        EQ_INT(b[2],255,"b[2]＝255（上界要吃得下）"); EQ_INT(b[3],0,"b[3]＝0");
+        r=dgh_json_bytes("{\"data\":[ 1 , 2 ]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, 2, "空白與逗號之間的空格照樣吃");
+        r=dgh_json_bytes("{\"data\":[]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, 0, "空陣列 ⇒ 0（呼叫端必須當非法輸入，不是成功）");
+        r=dgh_json_bytes("{\"x\":1}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_NOKEY, "🔴 沒有這個鍵 ⇒ NOKEY（與 OVER 分得開）");
+        r=dgh_json_bytes("{\"data\":9}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_NOKEY, "鍵存在但不是陣列 ⇒ NOKEY");
+        r=dgh_json_bytes("{\"data\":[1,2,3,4,5,6,7,8,9]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_OVER, "🔴 比容量多 ⇒ OVER（**不截斷**）");
+        r=dgh_json_bytes("{\"data\":[1,300,3]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_BADVAL, "🔴 300 不是 byte ⇒ BADVAL（不是安靜變成 44）");
+        EQ_INT(bad, 1u, "BADVAL 指出是第 1 個元素");
+        r=dgh_json_bytes("{\"data\":[1,-1,3]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_BADVAL, "🔴 -1 ⇒ BADVAL（不是安靜變成 255）");
+        r=dgh_json_bytes("{\"data\":[1,2.5]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_BADVAL, "小數 ⇒ BADVAL");
+        r=dgh_json_bytes("{\"data\":[1,,2]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_BADVAL, "連續逗號 ⇒ BADVAL");
+        r=dgh_json_bytes("{\"data\":[1,2,]}","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_BADVAL, "尾逗號 ⇒ BADVAL");
+        /* 沒有結尾的陣列：走到字串結尾時位置落在「元素後面該有 , 或 ]」那一關
+           ⇒ 回 BADVAL。哪一個負碼不重要，重要的是**不會回一個元素個數**
+           （回個數就等於把半截封包當成完整資料燒下去）。 */
+        r=dgh_json_bytes("{\"data\":[1,2","data",b,sizeof(b),&n,&bad);
+        CHECK(r < 0, "🔴 陣列沒有結尾 ⇒ 負的錯誤碼，絕不回元素個數");
+        EQ_INT(r, DGH_JB_BADVAL, "（具體是 BADVAL：卡在「元素後面該有 , 或 ]」）");
+        r=dgh_json_bytes("{\"data\":[","data",b,sizeof(b),&n,&bad);
+        EQ_INT(r, DGH_JB_NOKEY, "只有 '[' 就結束 ⇒ NOKEY");
+        /* 既有那一支的行為**刻意不動**（讀取路徑沒有人送陣列進來），
+           但把差異釘在這裡，免得哪天有人以為兩支可以互換。 */
+        { uint8_t o[4]; EQ_INT(dgh_json_int_array("{\"data\":[300]}","data",o,sizeof(o)), 1,
+              "對照：舊的 dgh_json_int_array 收下 300（並安靜截成 44）—— 兩支不可互換");
+          EQ_INT(o[0], 44, "對照：舊的把 300 變成 44"); }
+    }
+
     printf("\n%d/%d checks passed\n", total-fails, total);
     return fails?1:0;
 }

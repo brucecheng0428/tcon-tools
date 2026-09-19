@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1202"></script>
+<script src="common/version.js?v=20260920i2c1210"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -896,6 +896,11 @@ var I2CT_WS_URL    = 'ws://127.0.0.1:' + I2CT_PORT + '/ws';
 var I2CT_PAGE_URL  = 'http://127.0.0.1:' + I2CT_PORT + '/i2c.html';
 var I2CT_MENU_URL  = 'http://127.0.0.1:' + I2CT_PORT + '/';
 var I2CT_NEED_PROTO = 2;          /* awid 與 rawwrite 是 proto 2 才有的 */
+/* 🔴 v1.21.0：整批寫入（`batchwrite`）要 proto 4。**刻意與 I2CT_NEED_PROTO 分開**：
+   整批寫入是加速用的，沒有它只是慢一點（自動退回逐段 rawwrite），
+   不該讓手上還拿著舊 exe 的人整條路斷掉 —— 那才是真的壞掉。
+   （同一個理由 v1.6.0 的 `lock` 也用過一次。） */
+var I2CT_PROTO_BATCH = 4;
 
 /* 線上版（GitHub Pages）。🔴 打包進 zip 的那一份是離線版，它的下載連結永遠指向
    打包當時的那一包 —— 要更新只能來這裡。Bruce 出差在外時，這是他唯一的取得管道。 */
@@ -2135,6 +2140,42 @@ function i2ctSend(obj){
     catch (e) { clearTimeout(timer); delete i2ctPending[id]; reject(e); }
   });
 }
+/* ═══ 🔴 v1.21.0：會跑很久、而且過程中有進度訊息的命令（目前只有 batchwrite）═══
+   與 `i2ctSend` 的差別只有兩件事，但兩件都是必要的：
+     ① **逾時會被進度訊息續命**。整批寫入 8192 byte 至少兩三秒、更大的檔案更久，
+        固定 8 秒的逾時一定會誤判成「bridge 沒回」。但**不可以乾脆把逾時拿掉**
+        —— 那樣真的掛住時就永遠不會有人發現。判準改成「**多久沒有任何動靜**」：
+        每收到一則進度就重新計時，真的靜止超過逾時才算失敗。
+     ② 進度訊息交給 `onProgress` 回呼（進度條在那裡更新）。
+   `obj.id` 會回填，呼叫端拿它去送 abortwrite。 */
+function i2ctSendLong(obj, onProgress, idleMs){
+  var idle = idleMs || I2CT_TIMEOUT_MS;
+  return new Promise(function (resolve, reject) {
+    if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error('I2C Bridge 尚未連線')); return; }
+    var id = ++i2ctSeq; obj.id = id;
+    var timer = null;
+    var arm = function () {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        if (i2ctPending[id]) {
+          delete i2ctPending[id];
+          reject(new Error('I2C Bridge ' + (idle / 1000) + ' 秒沒有任何動靜（' + obj.type
+                         + '）—— 進度訊息也停了'));
+        }
+      }, idle);
+    };
+    i2ctPending[id] = {
+      resolve: function (m) { if (timer) clearTimeout(timer); resolve(m); },
+      reject:  function (e) { if (timer) clearTimeout(timer); reject(e); },
+      get timer(){ return timer; },
+      /* i2ctOnMessage 收到 progress 時呼叫這兩個 */
+      onProgress: function (m) { arm(); if (onProgress) { try { onProgress(m); } catch (e) {} } }
+    };
+    arm();
+    try { i2ctWs.send(JSON.stringify(obj)); }
+    catch (e) { if (timer) clearTimeout(timer); delete i2ctPending[id]; reject(e); }
+  });
+}
 function i2ctOnMessage(ev){
   var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
   if (m.type === 'hello' || m.type === 'pong') {
@@ -2146,6 +2187,16 @@ function i2ctOnMessage(ev){
     i2ctChannelBusy = true;
     i2ctLog('⚠ I2C 治具被另一個頁面接手，本頁已失去控制權', 'w');
     i2ctBanner('topbanner', 'warn', 'I2C 治具被<b>另一個頁面接手</b>了。要拿回來請按上方的「接手 I2C」。');
+  }
+  /* ═══ 🔴 v1.21.0：`progress` 是 bridge **主動推送**的訊息 ══════════════════
+     它與 `result` 的差別是「這一則不代表事情結束」⇒ **不可以 resolve**，
+     否則整批寫入才寫到第一段就會被當成寫完，後面的段還在跑而畫面已經在做
+     回讀驗證 —— 會變成一個看起來像「驗證失敗」的假故障。
+     只做兩件事：把逾時續命、交給呼叫端更新進度條。 */
+  if (m.type === 'progress') {
+    var pp = (typeof m.id === 'number') ? i2ctPending[m.id] : null;
+    if (pp && pp.onProgress) pp.onProgress(m);
+    return;
   }
   if (typeof m.id === 'number' && i2ctPending[m.id]) {
     var p = i2ctPending[m.id]; delete i2ctPending[m.id]; clearTimeout(p.timer); p.resolve(m);
@@ -2543,7 +2594,11 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
   if (!quiet) i2ctNoteTime('讀', all.length, ms, i2ctLastPath || '一般模式');
   return { ok: true, bytes: all, err: null, ms: ms, devUs: devUs, segs: plan.length };
 }
-/* 進度列 ＋ 中止鈕（只在真的在跑長讀取時才出現） */
+/* 進度列 ＋ 中止鈕（長讀取與整批寫入共用這一支）
+   🔴 v1.21.0：多了 `label`（讀取／寫入）與 `batchId`。
+      `batchId` 非 null ⇒ 這是 bridge 端在跑的整批寫入，中止**必須把訊息送過去**
+      —— 只把網頁的 `i2ctAbort` 設成 true 對 bridge 沒有任何作用，
+      那會變成「按了中止、畫面以為停了、裝置還在寫」，是最壞的一種。 */
 function i2ctRenderProgress(){
   var e = $('progress'); if (!e) return;
   if (!i2ctProgress) { e.style.display = 'none'; e.innerHTML = ''; return; }
@@ -2551,12 +2606,31 @@ function i2ctRenderProgress(){
   e.style.display = '';
   /* 🔴 進行中要看得到已經過幾秒（他明講讀取是以秒計的，沒有這個會以為當掉）。 */
   var el = i2ctProgress.t0 ? ('　已 ' + i2ctSecs(i2ctNow() - i2ctProgress.t0)) : '';
+  var lb = i2ctProgress.label ? (i2ctProgress.label + '　') : '';
   e.innerHTML = '<div class="pbar"><i style="width:' + pct + '%"></i></div>'
-              + '<span class="mono">' + i2ctProgress.done + ' / ' + i2ctProgress.total + ' byte（' + pct + '%）'
+              + '<span class="mono">' + lb + i2ctProgress.done + ' / ' + i2ctProgress.total + ' byte（' + pct + '%）'
               + el + '</span>'
               + '<button id="btn-abort">中止</button>';
   var b = $('btn-abort');
-  if (b) b.addEventListener('click', function () { i2ctAbort = true; i2ctLog('使用者按下中止', 'w'); });
+  if (b) b.addEventListener('click', function () {
+    i2ctAbort = true;
+    i2ctLog('使用者按下中止', 'w');
+    /* 整批寫入是在 bridge 那一側跑的 ⇒ 要真的把中止送過去。
+       bridge 會在**下一個分頁邊界**停（一段已經上匯流排就收不回來），
+       然後回報寫到哪個位址為止。 */
+    if (i2ctProgress && i2ctProgress.batchId != null && i2ctWs && i2ctWs.readyState === 1) {
+      /* ═══ 🔴 要中止的那次寫入放在 `batch`，**不是 `id`** ═══════════════════
+         用 `id` 帶過去踩過一次（自檢抓到的）：`id` 是「回覆要對應到哪一則請求」
+         的欄位，中止訊息若沿用同一個 id，任何對它的回覆都會被
+         `i2ctOnMessage` 當成**那次整批寫入的結果** ⇒ 畫面顯示「已寫入 0 byte」
+         而裝置其實才寫到一半。分成兩個欄位之後這種混淆不可能發生。
+         中止訊息本身刻意**不帶 id、也不期待回覆** —— 它的效果由整批寫入
+         自己的結果訊息（aborted:true ＋ 寫到哪為止）報告。 */
+      try { i2ctWs.send(JSON.stringify({ type: 'abortwrite', batch: i2ctProgress.batchId })); }
+      catch (err) { i2ctLog('✕ 中止訊息送不出去：' + err.message, 'e'); }
+      i2ctLog('　已把中止送給 I2C Bridge，它會在下一個分頁邊界停下來', 'w');
+    }
+  });
 }
 /* ═══ 🔴🔴 v1.20.0：**首次讀取的自動選路已整套移除** ════════════════════════
    移除的東西：`i2ctVerifyFastOnce()`、`I2CT_VERIFY_N`(64)、`i2ctFastVerified`。
@@ -3200,9 +3274,34 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
   var tW0 = i2ctNow(), devUsW = 0;
   var page = i2ctPageSize(), twr = i2ctTwr();
   var plan = i2ctPlanWrite(base, d.length, page);
+  /* ═══ 🔴🔴 v1.21.0：整批寫入改成**一次請求**交給 I2C Bridge ═══════════════════
+     Bruce 2026-09-19 的實測分層（8192 byte / page 32 / 256 段）：
+       每段 `ws=8~13ms`、`dev=4.5~5ms`、`log=0.3~1ms`、`wait=5~6ms`，合計約 15 ms。
+       其中 **`ws − dev` ＝ 4~8 ms 是這一頁與 bridge 之間的往返開銷**
+       （WebSocket ＋ JSON ＋ await），×256 次 ⇒ 15 ms 裡最大的一塊，而且是純軟體。
+     ⇒ 把分頁與 tWR 等待整段交給 bridge，往返從 **256 次變成 1 次**。
+
+     🔴 三個條件都成立才走新路，每一個都有理由：
+       · `plan.length > 1`  只有一段的話新舊完全一樣，沒必要多一條路
+       · `wireAwid !== 0`   沒有位址相位就談不上分頁邊界（bridge 也會拒絕）
+       · `proto >= 4`       拿著舊 exe 的人**自動走舊路**，不是壞掉
+     🔴 舊的逐段路徑**一行都沒刪**：它是 fallback，也還是逐格即時寫入在用的那條。
+
+     🔴 實際的段間距會降到多少，只有他的硬體能量。這裡只確定「往返次數」變了。 */
+  var useBatch = (page > 0 && plan.length > 1 && wireAwid !== 0
+                  && i2ctHelperProto >= I2CT_PROTO_BATCH);
   i2ctLog('寫入計畫：' + d.length + ' byte ⇒ ' + plan.length + ' 段'
-        + (page > 0 ? '（page ' + page + ' byte，段間等待 ' + twr + ' ms）' : '（不分段 ＝ burst）'), 'n');
-  var ok = true, errMsg = '', done = 0;
+        + (page > 0 ? '（page ' + page + ' byte，段間等待 ' + twr + ' ms）' : '（不分段 ＝ burst）')
+        + '　' + (useBatch
+            ? '⚡ 整批模式：**1 次**請求交給 I2C Bridge，由它分頁（舊做法是 ' + plan.length + ' 次）'
+            : (plan.length > 1
+                ? '逐段模式：' + plan.length + ' 次請求'
+                  + (i2ctHelperProto < I2CT_PROTO_BATCH
+                      ? '（I2C Bridge proto ' + (i2ctHelperProto || '?') + ' < ' + I2CT_PROTO_BATCH
+                        + '：整批模式要 I2C Bridge ' + I2CT_PKG.exe + ' 以上）'
+                      : (wireAwid === 0 ? '（無位址相位，不能由 bridge 分頁）' : ''))
+                : '單段')), 'n');
+  var ok = true, errMsg = '', done = 0, aborted = false;
   /* ═══ 🔴 每段寫入的分層計時（v1.18.1，純量測、不改行為）════════════════════
      起因：Bruce 用邏輯分析儀量到 8192 byte 的寫入，**前面幾段段間約 35 ms、
      0x0600 之後掉到 8.x ms**。他判斷 8 ms 才是正常值（400 kHz 下 256 byte 約 6 ms
@@ -3219,6 +3318,91 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
      ws − bridge 就是「我們自己吃掉的」。 */
   var segStats = [];
   i2ctLastSegStats = segStats;
+  /* 寫出去的值反映到目前顯示的那一份上（逐段與整批共用這一支 —— 兩份遲早分岔）。
+     `from`／`cnt` ＝ 在 d 裡的起點與個數。 */
+  var applyWritten = function (from, cnt) {
+    var cs = i2ctCurSet();
+    if (!cs) return;
+    if (!i2ctPrevBytes || i2ctPrevBytes.length !== cs.bytes.length) {
+      i2ctPrevBytes = new Uint8Array(cs.bytes.length);
+      i2ctPrevHas = new Uint8Array(cs.bytes.length);
+    }
+    for (var i = 0; i < cnt; i++) {
+      var ix = (base + from + i) - cs.base;
+      if (ix >= 0 && ix < cs.bytes.length) {
+        /* 🔴 寫進去的值成為新的 B ⇒ 回到狀態 1（左上＝A、右上空）。
+           舊版在這裡把原值塞進右上，那是 A／B 模型定案前的語意。 */
+        i2ctPrevBytes[ix] = 0; i2ctPrevHas[ix] = 0;
+        cs.bytes[ix] = d[from + i];
+        i2ctEnsureWrFail(cs);
+        if (ix < i2ctDirty.length) i2ctDirty[ix] = 0;   /* 🔴 寫進去了 ⇒ 解除標示 */
+      }
+    }
+  };
+  if (useBatch) {
+    /* ═══ 整批模式 ═══════════════════════════════════════════════════════════
+       一次請求 → bridge 分頁、等 tWR、過程中主動送 progress → 一則結果。
+       🔴 逾時用「多久沒有任何動靜」判（進度訊息會續命），不是固定 8 秒 ——
+          8192 byte 至少兩三秒，更大的檔案更久。 */
+    var bt0 = i2ctNow();
+    var req = { type: 'batchwrite', slave: slave, addr: base, awid: wireAwid,
+                page: page, twr: twr, len: d.length,
+                data: Array.prototype.slice.call(d) };
+    i2ctProgress = { done: 0, total: d.length, t0: bt0, label: '寫入', batchId: null };
+    i2ctRenderProgress();
+    i2ctLog('W  slave 0x' + i2ctHex(slave) + ' · offset ' + wireAwid + 'B '
+          + i2ctAddrText(i2ctWrap(base, wireAwid), wireAwid)
+          + ' ×' + d.length + '（整批，' + plan.length + ' 段由 I2C Bridge 分）', 'w');
+    var br = null;
+    try {
+      var bp = i2ctSendLong(req, function (m) {
+        /* 🔴 進度條就靠這裡動。bridge 給的是「已寫幾段／幾 byte」。 */
+        if (!i2ctProgress) return;
+        if (typeof m.done === 'number') i2ctProgress.done = m.done;
+        if (typeof m.total === 'number') i2ctProgress.total = m.total;
+        i2ctProgress.seg = m.seg; i2ctProgress.segs = m.segs;
+        i2ctRenderProgress();
+      });
+      /* 🔴 `id` 是 i2ctSendLong 在建 Promise 時**同步**回填到 req 上的，所以
+         這一行在 await 之前就跑得到 ⇒ 中止鈕從第一刻就有 id 可以用，
+         不會出現「按了中止沒反應」的空窗。中止鈕是即時讀 i2ctProgress，
+         所以設好屬性就生效，不必重畫。 */
+      i2ctProgress.batchId = req.id;
+      br = await bp;
+    } catch (e) {
+      ok = false; errMsg = e.message;
+      i2ctLog('✕ ' + e.message, 'e');
+    }
+    if (br) {
+      done = (typeof br.done === 'number') ? br.done : 0;
+      ok = !!br.ok;
+      aborted = !!br.aborted;
+      if (done > 0) applyWritten(0, done);
+      if (typeof br.devus === 'number') devUsW = br.devus;
+      /* bridge 自己的分層數字 —— 整批模式下網頁量不到逐段，這幾個由它報。 */
+      i2ctLog('⏱ I2C Bridge 回報：' + (br.segsDone != null ? br.segsDone : '?') + '/'
+            + (br.segs != null ? br.segs : '?') + ' 段、'
+            + (br.us != null ? (br.us / 1000).toFixed(1) : '?') + ' ms 總計'
+            + (br.devus != null ? ('（裝置側 ' + (br.devus / 1000).toFixed(1) + ' ms') : '（')
+            + (br.twrms != null ? ('，tWR 等待 ' + Number(br.twrms).toFixed(0) + ' ms') : '')
+            + '）　進度訊息 ' + (br.progsent != null ? br.progsent : '?') + ' 則'
+            + '　⇒ 網頁↔bridge 往返：**1 次**（舊做法 ' + plan.length + ' 次）', 'n');
+      if (!ok) {
+        errMsg = br.err || (aborted ? '已中止' : '整批寫入失敗');
+        i2ctLog((aborted ? '■ ' : '✕ ') + errMsg, aborted ? 'w' : 'e');
+        /* 🔴🔴 半寫完的裝置狀態**一定要講**（不只寫在 log）。
+           bridge 已經把「寫到哪、後面沒寫」算好了，這裡照它的數字講。 */
+        if (br.nextAddr != null && done > 0 && done < d.length)
+          i2ctLog('　裝置現在的狀態：0x' + i2ctHex(i2ctWrap(base, wireAwid), 4)
+                + '–0x' + i2ctHex(br.lastAddr >= 0 ? br.lastAddr : 0, 4) + ' 已寫入，'
+                + '0x' + i2ctHex(i2ctWrap(br.nextAddr, wireAwid), 4) + ' 之後的 '
+                + (d.length - done) + ' byte **沒有寫入** ⇒ 這是一份半更新的內容', 'w');
+      } else {
+        i2ctLog('   ✔ 整批寫入完成（' + done + ' byte）', 'o');
+      }
+    }
+    i2ctProgress = null; i2ctRenderProgress();
+  } else
   for (var pi2 = 0; pi2 < plan.length && ok; pi2++) {
     var n = plan[pi2].len;
     var addr = i2ctWrap(plan[pi2].addr, wireAwid);
@@ -3240,25 +3424,10 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
       await new Promise(function (rs) { setTimeout(rs, twr); });
     var tWait = i2ctNow() - tWait0;
     var tApply0 = i2ctNow();
-    /* 寫出去的值反映到目前顯示的那一份上 */
-    var cs = i2ctCurSet();
-    if (cs) {
-      if (!i2ctPrevBytes || i2ctPrevBytes.length !== cs.bytes.length) {
-        i2ctPrevBytes = new Uint8Array(cs.bytes.length);
-        i2ctPrevHas = new Uint8Array(cs.bytes.length);
-      }
-      for (var i = 0; i < n; i++) {
-        var ix = (base + done + i) - cs.base;
-        if (ix >= 0 && ix < cs.bytes.length) {
-          /* 🔴 寫進去的值成為新的 B ⇒ 回到狀態 1（左上＝A、右上空）。
-             舊版在這裡把原值塞進右上，那是 A／B 模型定案前的語意。 */
-          i2ctPrevBytes[ix] = 0; i2ctPrevHas[ix] = 0;
-          cs.bytes[ix] = d[done + i];
-          i2ctEnsureWrFail(cs);
-          if (ix < i2ctDirty.length) i2ctDirty[ix] = 0;   /* 🔴 寫進去了 ⇒ 解除標示 */
-        }
-      }
-    }
+    /* 🔴 v1.21.0：這一段抽成 applyWritten()，與整批模式共用同一支。
+       原本這裡有一份、整批那邊再寫一份的話，兩份遲早分岔 —— 而分岔的那一刻
+       就是「有一條路沒解除 dirty 標示」，畫面會說他還有東西沒寫。 */
+    applyWritten(done, n);
     segStats.push({ i: pi2 + 1, addr: addr, n: n,
                     ws: tWs, dev: (typeof r.us === 'number' ? r.us / 1000 : null),
                     log: tLog, wait: tWait, apply: i2ctNow() - tApply0 });
@@ -3419,10 +3588,28 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
           （與它的琥珀底色）已整支移除 ⇒ 沒有東西需要清，邊界本身一字未改。 */
     i2ctRenderTable();
     var leftN2 = i2ctDirtyCount();
-    i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗（' + i2ctErrText(errMsg) + '）'
-      + '⇒ 前面 ' + done + ' byte 已經寫進去，第 ' + (done + 1) + ' byte 之後沒有送出'
-      + (leftN2 ? '，本地仍有 ' + leftN2 + ' byte 改過沒寫' : ''));
-    i2ctLog('✕ 整批寫入失敗於第 ' + done + ' byte：' + errMsg, 'e');
+    /* 🔴 v1.21.0：**中止與失敗要分開講**。兩者的裝置狀態一樣（半寫完），
+       但原因與下一步不同：中止是他自己按的，失敗是出了事。混成一句
+       「寫入失敗」會讓他以為裝置或治具有問題。
+       兩種情形都必須把「哪一段位址寫進去了、哪一段沒有」講出來 ——
+       半寫完的 EEPROM 使用者必須知道。 */
+    var rangeTxt = (done > 0 && done < d.length)
+      ? '⇒ <b>0x' + i2ctHex(i2ctWrap(base, wireAwid), 4) + '–0x'
+        + i2ctHex(i2ctWrap(base + done - 1, wireAwid), 4) + ' 已經寫進去</b>，'
+        + '<b>0x' + i2ctHex(i2ctWrap(base + done, wireAwid), 4) + ' 之後的 '
+        + (d.length - done) + ' byte 沒有寫入</b>（裝置上現在是一份半更新的內容）'
+      : (done === 0 ? '⇒ <b>一個 byte 都沒有寫入</b>，裝置維持原本的內容'
+                    : '⇒ 全部 ' + done + ' byte 都已寫入');
+    if (aborted) {
+      i2ctBanner('readbanner', 'warn', '■ <b>已中止整批寫入</b>（' + done + ' / ' + d.length + ' byte）'
+        + rangeTxt + (leftN2 ? '。本地仍有 ' + leftN2 + ' byte 改過沒寫' : '')
+        + '。要完成請重新按一次寫入（會從頭寫），或按「讀取」看裝置現在的內容。');
+      i2ctLog('■ 整批寫入已中止於第 ' + done + ' byte：' + errMsg, 'w');
+    } else {
+      i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗（' + i2ctErrText(errMsg) + '）'
+        + rangeTxt + (leftN2 ? '，本地仍有 ' + leftN2 + ' byte 改過沒寫' : ''));
+      i2ctLog('✕ 整批寫入失敗於第 ' + done + ' byte：' + errMsg, 'e');
+    }
   }
 }
 
