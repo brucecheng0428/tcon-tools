@@ -1164,16 +1164,21 @@ function baseScript(f) {
     /* 🔴 三槽輪替：點左上 ⇒ 主值換成快照值、原主值移到右上；點右上 ⇒ 換回來。
        可以無限來回而不遺失任何一個值，而且**主值就是按寫入時會燒的值**。 */
     {
+      /* 🔴 v1.16.1：這一段驗的是**三槽的顯示語意**，與 I2C 無關。
+         角落還原現在在連線狀態下會真的寫回裝置（走 i2ctApplyCellValue），
+         留著連線會把這一段變成在驗假裝置的回讀值 —— 那是另一件事，
+         已經在第 31 組端到端驗過。這裡先斷線，維持原本的驗證對象。 */
+      if (A.state().linked) await win.__i2ct.disconnect();
       const before = A.cellParts(5);
       EQ(before.main, 'BB', '起點：主值 BB、左上 05、右上 AA');
-      A.slotClick(5, 'sv');
+      await A.slotClick(5, 'sv');
       {
         const c = A.cellParts(5);
         EQ(c.main, '05', '🔴 點左上 ⇒ 主值換成快照值 05');
         EQ(c.old, 'BB', '🔴 原主值 BB 移到右上');
         EQ(A.state().buf[5], 0x05, '🔴 主值真的改到資料本身（寫入時會燒 05）');
       }
-      A.slotClick(5, 'ov');
+      await A.slotClick(5, 'ov');
       {
         const c = A.cellParts(5);
         EQ(c.main, 'BB', '🔴 點右上 ⇒ 主值換回 BB');
@@ -1185,17 +1190,21 @@ function baseScript(f) {
         EQ(c.old, null, '🔴 放回去之後右上**清空**（不是對調成跟左上一樣）');
         EQ(c.snap, '05', '左上仍然是快照值 05，與右上不會變成同一個值');
       }
-      A.slotClick(5, 'ov');
+      await A.slotClick(5, 'ov');
       EQ(A.cellParts(5).main, 'BB', '🔴 右上已空 ⇒ 再點不做事（不是又換回去）');
-      A.slotClick(5, 'sv');
+      await A.slotClick(5, 'sv');
       EQ(A.cellParts(5).main, '05', '🔴 要換回快照值就點左上 ⇒ 可無限來回');
-      A.slotClick(5, 'ov');
+      await A.slotClick(5, 'ov');
       EQ(A.cellParts(5).main, 'BB', '🔴 再點右上 ⇒ 回到 BB（A ⇄ B 無限來回）');
-      A.slotClick(5, 'ov');
+      await A.slotClick(5, 'ov');
       EQ(A.cellParts(5).main, 'BB', '再點一次 ⇒ BB，值一個都沒遺失');
     }
 
-    A.clearFile();
+    /* 🔴 v1.16.1：未連線的角落還原會把那一格標成 dirty（它確實還沒寫進裝置）⇒
+       這一組結束時必須把狀態清乾淨，否則下一組的「讀取」會先跳一個
+       「有未寫入的修改，要覆蓋嗎」的 confirm，在 jsdom 裡回 undefined ⇒
+       讀取被取消，下一組就在驗一個根本沒發生的讀取。`clearFile()` 清不掉 dirty。 */
+    A._reset();
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -1657,10 +1666,18 @@ function baseScript(f) {
        '🔴 快照值與新值相同 ⇒ 這一格沒有切換行為');
     EQ(A.slotNext({ main: 0x33, ref: null, prev: 0, hasPrev: 0 }, 'sv'), null, '沒有基準 ⇒ 不給換');
     EQ(A.slotNext({ main: 0x33, ref: 0x44, prev: 0, hasPrev: 0 }, 'ov'), null, '右上是空的 ⇒ 點了不做事');
-    /* 端到端：真的點到 DOM 上的角落 */
+    /* 端到端：真的點到 DOM 上的角落。
+       🔴 v1.16.1：角落還原現在會**真的寫回裝置**（走 i2ctApplyCellValue）⇒
+          假裝置必須是**會收下寫入、而且依 m.len 回讀**的那種。
+          舊的假裝置不管要幾個 byte 一律回 4 個 ⇒ 單格回讀（len=1）長度對不上
+          ⇒ 被判成「回讀失敗」。那是假裝置太粗糙，不是產品錯。 */
     A._reset();
-    await useHelper(baseScript((m) => {
-      if (m.type === 'read') return { ok: true, status: 0, data: [0xAA, 0xAA, 0xAA, 0xAA] };
+    const dev31 = [0xAA, 0xAA, 0xAA, 0xAA];
+    const sentSlot = await useHelper(baseScript((m) => {
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev31[m.addr + i] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      if (m.type === 'read') return { ok: true, status: 0,
+        data: Array.from({ length: m.len }, (_, i) => dev31[(m.addr + i) % dev31.length]) };
     }));
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
     await A.doRead(); await sleep(20);          /* 建立基準 AA AA AA AA */
@@ -1670,12 +1687,18 @@ function baseScript(f) {
     const cell = () => A.cellParts(0);
     CHECK(cell().main === '55' && cell().snap === 'AA' && cell().old === null,
       '🔴 狀態 A：主值 55、左上 AA、右上空　' + JSON.stringify(cell()));
-    A.slotClick(0, 'sv'); await sleep(10);
+    await A.slotClick(0, 'sv'); await sleep(10);
     CHECK(cell().main === 'AA' && cell().snap === null && cell().old === '55',
       '🔴 狀態 B：主值 AA、左上消失、右上 55　' + JSON.stringify(cell()));
-    A.slotClick(0, 'ov'); await sleep(10);
+    await A.slotClick(0, 'ov'); await sleep(10);
     CHECK(cell().main === '55' && cell().snap === 'AA' && cell().old === null,
       '🔴 點右上 ⇒ 回到 A（右上消失，且**不等於**左上）　' + JSON.stringify(cell()));
+    /* 🔴🔴 v1.16.1：角落還原**要真的寫回裝置**（Bruce：「雖然它會改回來，
+       但是 I2C 沒有跟著一起寫入…我再按讀取，它又是原本的那個值」）。
+       判準不是「有沒有呼叫什麼」，而是**假裝置裡的那個 byte 真的變了**。 */
+    { const w = sentSlot.filter((m) => m.type === 'rawwrite');
+      CHECK(w.length >= 2, '🔴 兩次角落還原各送出一次寫入：' + w.length);
+      EQ(dev31[0], 0x55, '🔴🔴 裝置裡的值真的被改成 0x55（再讀一次不會打回原形）'); }
     await win.__i2ct.disconnect();
   }
 
@@ -1980,11 +2003,15 @@ function baseScript(f) {
   G('36. 🔴 逐格即時寫入 ⇒ 回讀驗證（顯示的一定是裝置上的真實值）');
   {
     /* 🔴 走**真的單擊路徑**（dblclick 已經拿掉，它從來沒生效過）。 */
+    /* 🔴 v1.16.1：**點格子的中間數值**才會進入編輯（點留白只定位、
+       點左上／右上是還原）。所以這裡要點 `.mv`，不是整個 td。 */
     const editCell = async (addr, text) => {
-      doc.querySelector('#dump td[data-addr="' + addr + '"]')
+      const td0 = doc.querySelector('#dump td[data-addr="' + addr + '"]');
+      (td0.querySelector('.mv') || td0)
          .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
       await sleep(20);
       const inp = doc.querySelector('#dump td.edit input');
+      if (!inp) { CHECK(false, '🔴 點中間數值應該要進入編輯（addr ' + addr + '）'); return; }
       inp.value = text;
       inp.dispatchEvent(new win.Event('input', { bubbles: true }));
       inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -2131,10 +2158,13 @@ function baseScript(f) {
     await win.__i2ct.disconnect(); await sleep(30);          /* 🔴 他故意把 I2C 關掉 */
     const since = sent.length;
     const editCell = async (addr, text) => {
-      doc.querySelector('#dump td[data-addr="' + addr + '"]')
+      const td1 = doc.querySelector('#dump td[data-addr="' + addr + '"]');
+      /* v1.16.1：點中間數值才進編輯（見第 36 組的說明）。 */
+      (td1.querySelector('.mv') || td1)
          .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
       await sleep(15);
       const inp = doc.querySelector('#dump td.edit input');
+      if (!inp) { CHECK(false, '🔴 點中間數值應該要進入編輯（addr ' + addr + '）'); return; }
       inp.value = text;
       inp.dispatchEvent(new win.Event('input', { bubbles: true }));
       inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -3117,6 +3147,121 @@ function baseScript(f) {
     /* 兩個框用的是同一份 */
     A.find('');
     EQ(doc.getElementById('findeg').textContent, '例：' + eg.join(' ／ '), '🔴 搜尋框的範例與寫入框同一份');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('54. 🔴🔴 載入檔案的 A／B 模型與來源標籤（Bruce 2026-09-19 規格）');
+  {
+    const mkDev54 = (dev) => (m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') return { ok: true, status: 0, transferred: (m.data || []).length };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev[(m.addr + i) & 0xFF]) };
+      return { ok: true, status: 0 };
+    };
+
+    /* (0) 🔴🔴 **最重要的一條**：已連線時載入檔案，不得送出任何寫入。
+       「載入檔案 ≠ 燒進去」是他講過的安全規則，這一條要永遠釘著。 */
+    A._reset();
+    const sent54 = await useHelper(mkDev54(new Array(256).fill(0x11)));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '8' });
+    await A.doRead(); await sleep(40);
+    const before54 = sent54.length;
+    A.loadFile('f1.bin', new win.Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
+    await sleep(60);
+    { const after = sent54.slice(before54);
+      EQ(after.filter((m) => m.type === 'rawwrite' || m.type === 'write').length, 0,
+         '🔴🔴 已連線時載入檔案 ⇒ **一個寫入訊息都沒送出**');
+      EQ(after.filter((m) => m.type === 'read').length, 0, '🔴 也沒有偷偷讀'); }
+
+    /* (1) 已有 A（第一次讀取），再載入同長度檔案 ⇒ **B ＝ 檔名**，A 不動 */
+    EQ(A.srcA(), '讀取', '🔴 第一次讀取 ⇒ A ＝「讀取」');
+    EQ(A.srcB(), 'f1.bin', '🔴 再載入同長度檔案 ⇒ B ＝ 檔名');
+    CHECK(/A：讀取/.test(doc.getElementById('refline').textContent)
+       && /B：f1\.bin/.test(doc.getElementById('refline').textContent),
+      '🔴 兩行各自印自己的來源：' + doc.getElementById('refline').textContent);
+
+    /* (2) 按快照 ⇒ 檔案成為 A（A 繼承目前來源），**B 清空** */
+    A.snapshot(); await sleep(30);
+    EQ(A.srcA(), 'f1.bin', '🔴 按快照 ⇒ A ＝ 檔名');
+    EQ(A.srcB(), null, '🔴🔴 A 一被重建，B 自然就不見');
+
+    /* (3) 再讀同長度 ⇒ B ＝「讀取」，**A 的檔名仍在**（情境 1） */
+    win.confirm = () => true;
+    await A.doRead(); await sleep(50);
+    EQ(A.srcA(), 'f1.bin', '🔴🔴 情境 1：讀取之後 A 的檔名仍然在');
+    EQ(A.srcB(), '讀取', '🔴 B 換成「讀取」');
+    EQ(A.fileState().name, '', '檔案本身被讀取覆蓋（B 不再是那個檔案）');
+
+    /* (4) 🔴 修改任一格 ⇒ B ＝「<A 的來源> 的修改」 */
+    A.selAnchor(0); await sleep(10);
+    await A.bitToggle(0, !((A.state().buf[0] >> 0) & 1)); await sleep(60);
+    EQ(A.srcB(), 'f1.bin 的修改', '🔴 改一格 ⇒ B ＝「f1.bin 的修改」（A 是檔名就帶出檔名）');
+    await win.__i2ct.disconnect();
+
+    /* (5) 🔴 情境 2：載入後**沒有**按快照，直接讀取 ⇒ 檔名要消失 */
+    A._reset();
+    await useHelper(mkDev54(new Array(256).fill(0x22)));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '8' });
+    await A.doRead(); await sleep(40);
+    A.loadFile('f2.bin', new win.Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]));
+    await sleep(40);
+    EQ(A.srcB(), 'f2.bin', '前提：B 標著 f2.bin');
+    win.confirm = () => true;
+    await A.doRead(); await sleep(50);
+    EQ(A.srcA(), '讀取', 'A 仍是最早那次讀取');
+    EQ(A.srcB(), '讀取', '🔴🔴 情境 2：沒快照就讀取 ⇒ B 被覆蓋');
+    CHECK(!/f2\.bin/.test(doc.getElementById('refline').textContent),
+      '🔴🔴 檔名整個消失，不卡在上面：' + doc.getElementById('refline').textContent);
+    EQ(A.fileState().name, '', '檔案也真的被放掉了');
+    await win.__i2ct.disconnect();
+
+    /* (6) 第一次載入檔案（還沒有 A）⇒ **檔案成為 A**、B 清空 */
+    A._reset();
+    A.loadFile('a1.bin', new win.Uint8Array([1, 2, 3, 4]));
+    await sleep(40);
+    EQ(A.srcA(), 'a1.bin', '🔴 第一次載入檔案 ⇒ A ＝ 檔名');
+    EQ(A.srcB(), null, '🔴 B 清空');
+    /* 再載入同長度的第二個檔 ⇒ 它成為 B，兩邊各自的來源不打架 */
+    A.loadFile('b2.bin', new win.Uint8Array([5, 6, 7, 8]));
+    await sleep(40);
+    EQ(A.srcA(), 'a1.bin', 'A 還是第一個檔');
+    EQ(A.srcB(), 'b2.bin', '🔴 第二個檔成為 B');
+
+    /* (7) 🔴 長度不一樣 ⇒ **後者成為 A**、B 清空、舊檔名消失 */
+    A.loadFile('big.bin', new win.Uint8Array(16));
+    await sleep(40);
+    EQ(A.srcA(), 'big.bin', '🔴🔴 長度不同 ⇒ 後者成為 A');
+    EQ(A.srcB(), null, '🔴 B 清空');
+    EQ(A.diffCount(), 0, '差異比對停用');
+    CHECK(/長度／位址對不起來/.test(doc.getElementById('log').textContent),
+      '🔴 而且講一行為什麼（他看到 diff 變 0 會以為壞了）');
+
+    /* (8) 🔴 換 slave **但不讀取** ⇒ A 完全不動（他特別強調的） */
+    A._reset();
+    await useHelper(mkDev54(new Array(256).fill(0x33)));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '8' });
+    await A.doRead(); await sleep(40);
+    A.loadFile('c3.bin', new win.Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
+    await sleep(30);
+    EQ(A.srcA(), '讀取', '前提：A ＝ 讀取');
+    EQ(A.srcB(), 'c3.bin', '前提：B ＝ c3.bin');
+    doc.getElementById('in-slave').value = '0x50';
+    doc.getElementById('in-slave').dispatchEvent(new win.Event('change', { bubbles: true }));
+    await sleep(60);
+    EQ(A.srcA(), '讀取', '🔴🔴 換 slave 但沒讀取 ⇒ **A 完全不動**');
+    EQ(A.srcB(), 'c3.bin', '🔴 B 也不動（他可能只是切過去看看）');
+
+    /* (9) 🔴 換 slave ＋ **讀取** ⇒ A 換成新讀到的、B 清空、檔名消失 */
+    win.confirm = () => true;
+    await A.doRead(); await sleep(60);
+    EQ(A.srcA(), '讀取', '🔴 換 slave 後讀取 ⇒ A ＝ 新讀到的');
+    EQ(A.srcB(), null, '🔴 B 清空');
+    CHECK(!/c3\.bin/.test(doc.getElementById('refline').textContent),
+      '🔴 檔名消失：' + doc.getElementById('refline').textContent);
+    EQ(A.fileState().name, '', '檔案放掉');
+    await win.__i2ct.disconnect();
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
