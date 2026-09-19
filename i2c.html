@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1135"></script>
+<script src="common/version.js?v=20260919i2c1136"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -349,7 +349,13 @@
            似乎沒用 —— 那是有效的反面假說，所以給他一個開關一次量完兩種。
            debug 區、一行、不加說明段落。 -->
       <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
-        <input type="checkbox" id="chk-3phase" checked> 三相時脈
+        <input type="checkbox" id="chk-3phase"> 三相時脈
+      </label>
+      <!-- 🔴 讀取建立時間（pyftdi `_ck_delay`）。Bruce：「這個間隔應該是可以調整吧？
+           你是不是把它用到最小？」—— 原本是 0，就是他說的那個問題。
+           做成可調讓他用 LA 掃出最小可用值。debug 區、一行。 -->
+      <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
+        間隔 <input type="text" id="in-ckdelay" value="3" style="width:38px">
       </label>
       <!-- 🔴 讓他**自己證明**快路徑是對的：同一段位址兩條路徑各讀一次、逐 byte 比對。
            這比我們任何斷言都有力。 -->
@@ -1776,7 +1782,7 @@ async function i2ctConnect(takeover){
          做法刻意放在**網頁端**：他不必換 exe、不必打任何參數，重新整理就好。
          （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
          fast 仍保留在 debug 區，供日後查清根因後實測用。 */
-      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
+      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
                             rawmpsse: i2ctRawMpsse ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
@@ -2023,7 +2029,10 @@ var i2ctStaleTab = false;         /* bridge 比本頁預期的還新 ⇒ 這個�
 var i2ctRawManual = false;        /* 他自己動過快速模式的勾選 ⇒ 重連不要覆蓋他的選擇 */
 /* 🔴 三相時脈（只影響快速模式）。預設開；關掉是為了驗 Bruce 的反面假說
    「原廠工具似乎沒用三相，會不會不用才讀得對」。 */
-var i2ctThreePhase = true;
+var i2ctThreePhase = false;
+/* 🔴 讀取建立時間（pyftdi `_ck_delay`）。400 kHz 的 t_buf=1.3µs ⇒ 預設 3。
+   0 ＝ 完全不延遲（v1.11.5 以前的行為，就是 bit7 讀錯的那個狀態）。 */
+var i2ctCkDelay = 3;
 async function i2ctVerifyFastOnce(slave, awid, off, len){
   if (!i2ctRawMpsse || i2ctFastVerified !== null) return;
   var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
@@ -2031,7 +2040,7 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   i2ctLog('── 首次讀取：先用 ' + n + ' byte 確認快的方式讀出來的值正確 ──', 'n');
   try {
     fast = await i2ctDoRead(slave, awid, off, n, true);
-    await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+    await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                      fastread: i2ctFastRead ? 1 : 0, rawmpsse: 0 });
     slow = await i2ctDoRead(slave, awid, off, n, true);
   } catch (e) {
@@ -2086,7 +2095,7 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
     i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式；重新整理頁面會再確認一次。');
   }
   /* 不論結果，都把連線切回結論對應的狀態再繼續 */
-  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0,
                          rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
 }
@@ -2899,7 +2908,7 @@ async function i2ctComparePaths(){
   var res = {};
   for (var pass = 0; pass < MODES.length; pass++) {
     var M = MODES[pass];
-    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                            fastread: M.fastread, rawmpsse: M.rawmpsse }); }
     catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換模式失敗：' + e.message); return; }
     var t0 = Date.now();
@@ -2928,7 +2937,7 @@ async function i2ctComparePaths(){
     if (i2ctRawMpsse) { i2ctRawMpsse = false; forcedOff = true;
                         var cb = $('chk-rawmpsse'); if (cb) cb.checked = false; }
   }
-  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0, rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
   i2ctBusy = false; i2ctSyncButtons();
   if (!done) {
@@ -3585,10 +3594,17 @@ function i2ctInit(){
     i2ctLog('快速模式 ⇒ ' + (i2ctRawMpsse ? '開（預設）' : '關') + '　※ 要重新連線才生效', 'w');
   });
   /* 🔴 三相時脈：只影響快速模式。改了要重驗一次（資料對不對是這個開關的重點）。 */
+  $('in-ckdelay').addEventListener('change', function () {
+    var v = parseInt(this.value, 10);
+    if (isNaN(v) || v < 0) v = 0; if (v > 16) v = 16;
+    this.value = String(v); i2ctCkDelay = v;
+    i2ctFastVerified = null; i2ctRawFellBack = false;
+    i2ctLog('讀取間隔 ⇒ ' + v + '　※ 要重新連線才生效', 'w');
+  });
   $('chk-3phase').addEventListener('change', function () {
     i2ctThreePhase = this.checked;
     i2ctFastVerified = null; i2ctRawFellBack = false;
-    i2ctLog('三相時脈 ⇒ ' + (i2ctThreePhase ? '開（預設）' : '關') + '　※ 要重新連線才生效', 'w');
+    i2ctLog('三相時脈 ⇒ ' + (i2ctThreePhase ? '開' : '關（預設）') + '　※ 要重新連線才生效', 'w');
   });
   $('btn-cmppath').addEventListener('click', i2ctComparePaths);
   $('btn-clrtime').addEventListener('click', function () {

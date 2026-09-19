@@ -114,12 +114,17 @@ int dgh_raw_mpsse = 0;
 /* 見 i2c_bridge_proto.h 的說明：0 ＝ 維持既有的 0x03/0x01；1 ＝ FTDI 範例的 0x0B/0x09。
    預設 0 —— 沒有證據之前不改變既有行為。 */
 int dgh_ad3_out = 0;
-/* 🔴 三相時脈（raw 路徑用）。**預設開**（Bruce 2026-09-19 裁示）。
-   AN_113 說 FT2232H/FT4232H 的 I2C 需要它；但 Bruce 提了一個有效的反面假說 ——
-   「原廠 Python UI 與 EM02 TCON UI 好像都沒用三相，會不會不用才對？」
-   ⇒ 所以做成**可切換**，讓他一次量完兩種，而不是我們替他選一邊。
+/* 🔴 三相時脈（raw 路徑用）。**v1.11.6 起預設關**。
+   AN_113 說 FT2232H/FT4232H 的 I2C 需要它，我據此在 v1.11.5 預設開 ——
+   **但實測顯示它根本沒生效**：程式化 600 kHz、預期線上 400 kHz，他量到 **600 kHz**。
+   ⇒ 開著只是多送一道沒有作用的命令，卻讓除數補償算錯 1.5 倍。
+   開關留著當診斷用（`--no-3phase` 的反面 `--3phase`），預設關。
    慢路徑（libMPSSE, Options=3）永遠是關的，不受這個旗標影響。 */
-int dgh_three_phase = 1;
+int dgh_three_phase = 0;
+/* 🔴 每個資料 byte 讀完之後的建立時間，單位＝重複送 `0x80 ...` 的次數。
+   算式與依據見 i2c_bridge_proto.h（pyftdi `_ck_delay`，t_buf=1.3µs @400kHz ⇒ 3）。
+   做成可調是因為 Bruce 要用 LA 掃出最小可用值 —— 這個值只有在他的硬體上量得出來。 */
+int dgh_ck_delay = 3;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -190,7 +195,10 @@ static double now_ms(void){
    raw MPSSE 的命令長度約 12 byte/資料 byte ⇒ 4096 byte 需要約 50 KB 命令緩衝區。
    這個上限**不是保護，是緩衝區大小**：超過就會截斷，所以要明確擋下而不是放行。 */
 #define DGH_READ_MAX 4096
-#define DGH_MP_CMD_MAX (DGH_READ_MAX * 13 + 512)
+/* 🔴 每個資料 byte 的命令長度 ＝ 12 ＋ 3×ckDelay（pyftdi 的建立時間，見 proto.h）。
+   ckDelay 上限 DGH_CK_DELAY_MAX(16) ⇒ 最壞 12+48 = 60 byte/資料 byte。
+   緩衝區要照**最壞情況**算，否則 Bruce 把 ckDelay 調大就會靜默截斷。 */
+#define DGH_MP_CMD_MAX (DGH_READ_MAX * (12 + 3 * DGH_CK_DELAY_MAX) + 512)
 
 /* ═══ 🔴 libMPSSE ChannelConfig -- DEFAULT ALIGNMENT, **NOT** packed ═══════════
    FTDI's official libMPSSE_i2c.h declares it with no #pragma pack at all:
@@ -655,9 +663,27 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
     if (!hz) hz = 400000;
     /* 🔴 三相只在 raw 路徑上可能開；慢路徑（libMPSSE, Options=3）一律關。 */
     tp = useRaw ? (dgh_three_phase ? 1 : 0) : 0;
-    div = dgh_mp_divisor(hz, tp);            /* 🔴 三相與除數成對，見 proto.h */
+    /* 🔴🔴 除數**一律用不補償的算式**（第二個參數固定 0），即使送了 0x8C。
+       依據是實測，不是文件：
+         · v1.11.5 三相開、程式化 600 kHz、預期線上 400 kHz ⇒ **他量到 600 kHz**
+           ⇒ `0x8C` 沒有把線上時脈降到 2/3 ⇒ **三相在這顆／這份韌體上沒有生效**。
+         · 同版三相關、divisor 14 ⇒ 量到 **400 kHz** ✅
+       ⇒ 補償上去只會讓實際頻率偏高 1.5 倍。`dgh_mp_divisor()` 的補償路徑留著
+         （測試也還釘著），**哪天量到 0x8C 真的生效，把這裡的 0 換回 tp 即可。** */
+    div = dgh_mp_divisor(hz, 0);
     c[n++] = 0x97;
     c[n++] = (unsigned char)(tp ? 0x8C : 0x8D);
+    /* 🔴🔴 `0x9E 07 00` ＝ drive-only-zero／開汲極（AD0-AD2）。**必須送。**
+       v1.11.5 我照 FTDI 文件「Open Collector / Tristate (FT232H only)」把它刪掉，
+       結果 Bruce 實測**整片讀到 0** —— 而 v1.11.4（有送）資料幾乎全對、只有 bit7 偶錯。
+       其餘條件相同，只差這三個位元組。
+       機制吻合：沒有開汲極時 MPSSE 對 SDA 是**推挽輸出**，讀取期間我們一直主動
+       驅動它，與從機在線上衝突 ⇒ 讀回一片 0。
+       🔴 依據是**他的硬體實測**與 `dg-measure.html:3610` 那條已驗證可用的 WebUSB
+       序列，**不是** FTDI 文件。文件說 FT232H only，但這顆 FT2232H 上它確實有作用。
+       ⇒ **使用者的實測優先於文件。** 這是本輪最大的教訓，`tools/check_raw_init.sh`
+         已改成「必須有 0x9E」來釘住，別再被文件說服刪掉一次。 */
+    c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00;
     c[n++] = 0x85;
     c[n++] = 0x86; c[n++] = (unsigned char)(div & 0xFF); c[n++] = (unsigned char)((div >> 8) & 0xFF);
     c[n++] = 0x80; c[n++] = DGH_MP_HI; c[n++] = DGH_MP_DIR_WR;
@@ -665,10 +691,11 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
         logline("  raw_init: FAILED (wrote=%lu of %d)", wrote, n);
         return 0;
     }
-    logline("  raw_init: mode=%s  3-phase=%s  divisor=%u  programmed=%u Hz  EXPECTED ON THE WIRE=%u Hz"
-            "  (12 MHz base; 0x9E not sent = FT232H only; 0x8A/0x8B not touched)",
+    logline("  raw_init: mode=%s  3-phase=%s  divisor=%u  EXPECTED ON THE WIRE=%u Hz"
+            "  (12 MHz base; 0x9E 07 00 SENT = open-drain; 0x8A/0x8B not touched;"
+            " divisor is NOT 2/3-compensated because 0x8C measured as having no effect)",
             useRaw ? "fast" : "normal", tp ? "ON (0x8C)" : "off (0x8D)", div,
-            12000000u / (((unsigned int)div + 1u) * 2u), dgh_mp_wire_hz(div, tp));
+            dgh_mp_wire_hz(div, 0));
 
     /* ═══ 🔴 MPSSE 同步自檢（AN_135 的標準做法）═══════════════════════════════
        送一個**不存在**的 opcode，MPSSE 必須回 `0xFA <該 opcode>`。
@@ -686,12 +713,16 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
             if (p_FT_Read(g_handle, rb + total, (unsigned long)(2 - total), &red) != 0) break;
             if (red == 0) { spins++; Sleep(1); } else total += (int)red;
         }
+        /* 🔴 **不論通過與否都把實際收到的位元組印出來。** 只印「通過／失敗」在這一輪
+           已經害我們瞎猜過：`0x8C` 與 `0x8A` 送了卻沒生效，而同步自檢的回應值
+           是目前唯一能看出命令流是否被吃掉／錯位的線索。 */
         if (total >= 2 && rb[0] == 0xFA && rb[1] == 0xAB) {
-            logline("  raw_init: sync OK (sent 0xAB, got FA AB) -- command stream is aligned");
+            logline("  raw_init: sync OK -- sent 0xAB, got %02X %02X (expected FA AB)"
+                    " ⇒ command stream is aligned", rb[0], rb[1]);
             return 1;
         }
-        logline("  raw_init: 🔴 SYNC FAILED (sent 0xAB, got %d bytes: %02X %02X)"
-                " -- command stream is NOT aligned; refusing to use the fast path",
+        logline("  raw_init: 🔴 SYNC FAILED -- sent 0xAB, got %d byte(s): %02X %02X"
+                " (expected FA AB) ⇒ command stream is NOT aligned; refusing the fast path",
                 total, total > 0 ? rb[0] : 0, total > 1 ? rb[1] : 0);
         /* 🔴 失步就**不要用** raw 路徑 —— 靜默讀錯比慢更糟。 */
         dgh_raw_mpsse = 0;
@@ -1049,6 +1080,11 @@ static void handle_command(int idx, const char* json){
           logline("  open    : page=%s  bridge=%s", g_pageVer, I2C_BRIDGE_VERSION); }
         /* 🔴 三相開關也由網頁帶（預設開）。Bruce 要一次量完開／關兩種。 */
         { long t3 = dgh_json_int(json,"threephase",-1); if(t3==0) dgh_three_phase=0; else if(t3==1) dgh_three_phase=1; }
+        /* 🔴 讀取建立時間（pyftdi `_ck_delay`）。網頁可調，讓 Bruce 用 LA 掃最小可用值。 */
+        { long cd = dgh_json_int(json,"ckdelay",-1);
+          if(cd >= 0 && cd <= DGH_CK_DELAY_MAX) dgh_ck_delay = (int)cd;
+          logline("  open    : ckDelay=%d (per-byte setup after ACK; pyftdi _ck_delay, default 3)",
+                  dgh_ck_delay); }
         { long rm = dgh_json_int(json,"rawmpsse",-1); if(rm==0) dgh_raw_mpsse=0; else if(rm==1) dgh_raw_mpsse=1;
           /* 🔴 印出「收到什麼」與「套用後是什麼」兩個值。Bruce 2026-09-19 回報
              v1.11.1 的間隔仍是 15~16 ms（＝ Windows 排程器 tick ＝ 走 libMPSSE 那條），
@@ -1421,8 +1457,9 @@ int main(int argc, char** argv){
         else if(strcmp(argv[i],"--raw-mpsse")==0) dgh_raw_mpsse=1;
         /* 方向位元改用 FTDI 範例的 0x0B/0x09（多驅動 AD3）。預設不開，見 proto.h。 */
         else if(strcmp(argv[i],"--ad3-out")==0) dgh_ad3_out=1;
-        /* 三相時脈（raw 路徑）。預設開；`--no-3phase` 關掉以驗 Bruce 的反面假說。 */
+        /* 三相時脈（raw 路徑）。**預設關**（實測 0x8C 無效）；`--3phase` 開起來診斷。 */
         else if(strcmp(argv[i],"--no-3phase")==0) dgh_three_phase=0;
+        else if(strcmp(argv[i],"--3phase")==0) dgh_three_phase=1;
         /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
         else if(strncmp(argv[i],"--serve=",8)==0){ g_serveFiles=1; snprintf(g_serveDir,sizeof(g_serveDir),"%s",argv[i]+8); }

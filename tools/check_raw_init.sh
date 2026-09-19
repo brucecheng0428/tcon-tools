@@ -25,10 +25,21 @@ bad=0
 
 [ -f "$SRC" ] || { echo "🔴 找不到 $SRC"; exit 1; }
 
-# ── ① 不得出現 0x9E 的送出（註解裡講它為什麼不能用是可以的）────────────────
-#    只看「賦值進命令緩衝區」的形式，例如 `c[n++] = 0x9E;`
-if grep -nE '^[^/*]*=[[:space:]]*0x9[eE][[:space:]]*;' "$SRC" | grep -v '^\s*\*' ; then
-  echo "🔴 raw init 送了 0x9E —— 那是 FT232H only，FT2232H 收到會失步（PID 0x6010）"
+# ── ① 🔴 **必須**送 0x9E（drive-only-zero／開汲極）────────────────────────────
+#    🔴 這條規則在 2026-09-19 被**反轉過一次**，過程要留著，不要再翻回去：
+#      · v1.11.5 我看 FTDI 文件寫「Open Collector / Tristate — 0x9E (FT232H only)」，
+#        他的治具是 FT2232H，就把它刪掉了。
+#      · 結果 Bruce 實測**整片讀到 0**；而 v1.11.4（有送 0x9E）資料幾乎全對，
+#        只有 bit7 偶爾錯。其餘條件相同，只差這三個位元組。
+#      · 機制吻合：沒有開汲極 ⇒ MPSSE 對 SDA 是推挽輸出 ⇒ 讀取期間我們一直主動
+#        驅動 SDA，與從機衝突 ⇒ 讀回一片 0。
+#      · `dg-measure.html:3610` 那條**在他硬體上讀得正確**的 WebUSB 序列也有送它。
+#    ⇒ **依據是使用者的實測，不是文件。文件說 FT232H only，但這顆 FT2232H 上有效。**
+#    🔴 教訓：**使用者的實測優先於文件。** 下次再看到文件說某道命令不支援，
+#       先問「拿掉之後他量到什麼」，不要照著刪。
+if ! grep -qE '=[[:space:]]*0x9[eE][[:space:]]*;' "$SRC"; then
+  echo "🔴 raw init **沒有**送 0x9E（drive-only-zero）"
+  echo "   拿掉它 Bruce 會讀到整片 0（v1.11.5 實測）。文件說 FT232H only，但實測有效。"
   bad=$((bad+1))
 fi
 
@@ -61,4 +72,4 @@ if [ "$bad" -ne 0 ]; then
   echo "🔴 raw init 檢查未通過：$bad 項"
   exit 1
 fi
-echo "✅ raw init 檢查通過：無 0x9E、未動 divide-by-5、除數走 dgh_mp_divisor()"
+echo "✅ raw init 檢查通過：有送 0x9E、未動 divide-by-5、除數走 dgh_mp_divisor()"
