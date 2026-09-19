@@ -22,6 +22,90 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.51.0 — 2026-09-19 ｜ MINOR ｜ ⚠ 輸出變更
+
+**LA I2C 分析器四項：① 新增時 Address Display 預設改 7-bit ② 同一種分析器只能存在一個（選單標「已新增」並 disable）③ 修好「解碼結果一片空白、要把捲軸拉到最上面才看得到」④ 解碼結果在 Packet 與 Type 之間新增「Data #」欄（連續讀／連續寫的 data 序號，offset 不算）。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+- **R3／§1「功能增減：新增獨立功能 → MINOR」＝ 本版最高級別。** ④ 讓使用者多能做一件事：直接讀出「這一段連續讀／寫了幾個 byte」，並可在分析器設定裡指定 Offset 長度。⇒ **MINOR**。
+- **R4（起始狀態／預設值改變）：MINOR。** ① 只改「新增分析器時」的預設值，既有分析器與既有存檔一律原樣沿用（`wfgLaI2cAddressDisplayFromKvParam` / `ToKvParam` 的 `0/1/2 ↔ 7bit/8zero/8rw` 一個字未動；驗證 1d/1e/1g）。沒有功能被移除、沒有入口移位 ⇒ 不觸發 MAJOR。
+- **R1（修 bug）：PATCH，低於本版級別。** ③ 是修正，不是改設計。
+- **🔴 ② 為什麼不編 MAJOR（取捨寫明供覆核）**：§1 判定表「移除既有功能 → MAJOR」指的是**功能入口不見了**。本版「新增分析器」這個功能、按鈕位置、對話框流程一字未動，只是在同型別已存在時該選項會標「已新增」並 disable —— 使用者不需要重新學任何操作，也不需要重新確認任何過去的結果。被擋掉的是「同一種分析器加第二個」這個退化用法（加了只會得到兩份一模一樣的解碼結果）。依 §1 R2 補充第 3 點「不確定一律往低編，並在判定依據寫明取捨」，編為 MINOR。**若 Bruce 認為這仍屬移除既有功能，請裁示，下一版可補編。**
+- **⚠ 輸出變更（依 R1「`⚠ 輸出變更` 的範圍定義」）**：
+  - **匯出檔案的位元組內容變了**：I2C 匯出（Bytes 與 Packets 兩種）各多一欄 `Data #`，欄位序號整體右移。拿舊版匯出檔做 sha256 基線比對會全部不符。
+  - **版面／構圖類**：解碼結果表格多一欄，截圖構圖與欄寬分配改變；③ 修好之後「展開解碼面板」的畫面由空白變成有內容。同一組設定重跑，新舊版畫面不同。
+  - 波形本身（canvas 的每一個點）一位元未變。
+
+### 四項各自的改動
+
+**① Address Display 預設 7-bit**（`wfgLaDefaultAnalyzerConfig`、`wfgLaConfirmAnalyzerDialog` 讀表單的 fallback、`wfgLaBuildAnalyzerLines` 的 fallback）。i2c 與 i2c_eeprom 共用同一個 select，兩種都改。
+
+**② 同型分析器不可重複新增**（新增 `WFG_LA_ANALYZER_TYPES` / `wfgLaAnalyzerTypeTaken` / `wfgLaAnalyzerTypeOptionsHtml` / `wfgLaSyncAnalyzerAddButton`）。判斷依據是**型別**，`i2c` 與 `i2c_eeprom` 視為不同型別、各自可以有一個。阻擋發生在「按下去之前」：選單裡已存在的型別標「（已新增）」並 disable，對話框開啟時預設選中第一個還可選的型別；三種都加滿時 ＋ 鈕 disable。刪掉之後全部恢復。**沒有用任何 alert／confirm。** `wfgLaConfirmAnalyzerDialog` 另有一道無聲的程式面防線（正常操作走不到）。
+
+**③ 解碼結果一片空白 —— 根因已找到，且 v4.50.1 就存在（非本次改動造成）**
+
+藍框（`.wfg-la-decode-scope-frame`）是疊在捲動容器裡的 `position:absolute` 元素，**它的高度會撐大容器的 `scrollHeight`**。藍框高度是照「算的那一刻的列高」得出的，而列高會因版面而大幅改變：右側面板未展開時很窄、每一列會折行到約 79px；展開解碼面板後列高只剩約 29px。實測（`tools/la_i2c_dataseq_probe.js` 3h）：
+
+| | 表格實高 | 藍框高 | 容器 scrollHeight | 可見列數 |
+|---|---|---|---|---|
+| v4.50.1 展開後 | 709px | 81px | **2015px（停在舊版面的值）** | **0（一片空白）** |
+| v4.51.0 展開後 | 709px | 30px | 711px | 24 |
+
+舊的 dirty key 只看 view range 與 group 數量，展開解碼面板時**這兩個都沒變** ⇒ `wfgLaApplyDecodeScopeFocus()` 一律 early-return ⇒ 藍框高度與 `scrollTop` 永遠停在舊版面算出來的值 ⇒ 捲動範圍被撐到實際內容的兩倍多，畫面落在空白區，**要把捲軸拉回最上面才看得到** —— 與 Bruce 回報的症狀一字不差。
+
+修法三處：
+- dirty key 加入各組容器的 `clientHeight x clientWidth` 簽章（`wfgLaDecodeFocusGeomKey`），版面尺寸一變就重算；重捲的條件由 `viewChanged` 放寬為 `viewChanged || geomChanged`。
+- 版面還沒算出來（`wrap.clientHeight === 0`）或列還沒進 DOM 時，**不把這一輪的結果當定案**（`focusDeferred` ⇒ `wfgLaInvalidateDecodeScopeFocus()`），下一次呼叫會重算。原本這種情況會把錯的位置鎖死。
+- `wfgLaRenderDecodeResults()` 與 `wfgLaToggleDecodeExpanded()` 各補一次 `requestAnimationFrame` 後的重算，確保是對著**穩定之後**的版面算的。
+
+捲動規則本身（視野在所有列之後 ⇒ 最後一筆；之前 ⇒ 第一筆；有重疊 ⇒ 維持原行為）原本就在 `wfgLaApplyDecodeScopeFocus()` 裡，本版一行未改，只補了註解把三條寫明。
+
+**④ Data # 欄位**（新增 `wfgLaI2cNormalizeOffsetSetting` / `wfgLaI2cSplitPhases` / `wfgLaI2cInferOffsetWidths` / `wfgLaI2cAnnotateDataIndex` / `wfgLaI2cOffsetInfoText`）
+
+每個「連續讀」或「連續寫」的 data 區段各自從 1 開始編號，所以**最後一個號碼就是這一段讀寫了幾個 byte**。`ADDR` / `START` / `STOP` 與被判為 offset 的列一律留空。
+
+offset 寬度的三條優先序：
+
+1. **使用者指定**：分析器設定多一個「Offset 長度」下拉，選項 未知（預設）／ 0 / 1 / 2 / 3 / 4 byte。
+2. **未指定 ⇒ 從讀取交易推算**：I2C combined format 的隨機讀是 `START → ADDR(W) → offset… → repeated START → ADDR(R) → data…`，**dummy write 相位裡只有 offset、沒有 data**，所以那一段的 DATA 列數就是該 slave 的 offset 寬度（依據 NXP UM10204；精確可得，不是猜）。再套用到**同一個 slave** 的純寫入交易。同一個 slave 推出兩個不同寬度 ⇒ 前提被打破 ⇒ 該 slave 視為推算不到，不硬猜。
+3. **推算不到**（該 slave 在這份側錄裡從來沒有讀取）⇒ **offset 併入 data 一起編號**。
+
+🔴 **明文禁止用時間間隔判斷 offset**：規格上 page write 是連續串流、沒有規定的間隔；Bruce 的 bridge log（`1+2+32 byte / 2786 us` ≈ 80 us/byte，均勻，一整塊 MPSSE 命令送出去）中間也沒有縫。這個假設已被證明是錯的，程式裡沒有任何時間門檻邏輯。
+
+來源標示掛在解碼結果標題列旁的一小段灰字：`Offset 2 byte (指定)` / `Offset 2 byte (推算)` / `Offset 依裝置推算` / `Offset 未知，併入編號`。
+
+連帶：匯出 Bytes 多一欄 `Data #`（與畫面同值，offset 與 ADDR 列留空）；匯出 Packets 多一欄 `Data #`（該段的 data byte 數，＝畫面上最後一個序號）；搜尋文字加入 `data#N` token（**刻意不用裸 `#N`** —— `wfgLaRenderDecodeResults` 對 `/^#(\d+)$/` 有既有特殊路徑，I2C 只比對 START 列的 Packet 編號，放裸 `#N` 會攔走並改掉既有行為）；i18n 補 8 個 key（繁中／簡中／英文）。
+
+### 驗證
+
+`tools/la_i2c_dataseq_probe.js`（新增）：真瀏覽器 51 條路徑全過（`tools/ui_probe.sh wfg.html tools/la_i2c_dataseq_probe.js`）。用合成 I2C 波形（SDA=CH0 / SCL=CH1）走完四項。**尚未加進 pre-commit**（那裡目前只放零相依、一秒內跑完的純函式檢查；瀏覽器 probe 要不要進閘門待 Bruce 裁示）。
+
+🔴 **每一條都驗過會失敗**：③ 的 3h/3i 拿 v4.50.1（只補 probe 出口）跑 ⇒ `可見 0 列`、`scrollH=2015`；3g（版面沒算完就定案）拿拔掉修正的 mutant 跑 ⇒ 停在 `idx 0~3 / scrollTop=25`。
+
+實際數值（節錄）：
+
+- 1a/1b `7bit`；1d `0/1/2 → 7bit/8zero/8rw`、反向 `0/1/2`；1e/1g 既有存檔 `8rw` 進出不變。
+- 2a `I2C（已新增）` 且 `disabled`；2e 對話框預設停在 `i2c_eeprom`；2g 刪除後恢復可選；2h 三種加滿 ⇒ ＋ 鈕 `disabled=true`。
+- 3a/3b 視野在所有列之後 ⇒ `scrollTop=1757 / scrollH=2015 / clientH=258`，可見 `idx 20~23`（最後一筆 = 23）。
+- 3c 視野在所有列之前 ⇒ `scrollTop=0`，可見 `idx 0~2`。
+- 3d 視野與解碼列重疊 ⇒ 可見 `idx 12~16`（視野內第一列 = 14），維持舊行為。
+- 3e/3f 已有一個分析器再新增第二個 ⇒ 第 2 組可見 `idx 20~23`。
+- 4b 推算路徑（0x50 有 combined read）⇒ `[null,null,1,2,3]`；4c 未知路徑（0x60 只有寫入）⇒ `[1,2,3]`；4j 指定 2 byte ⇒ `[null,null,1]`；4m 32 byte page write ⇒ `["","",1,2,…,32]`；4f ADDR/START/STOP 全空。
+- 4o/4p/4q 匯出表頭第 3 欄 `Data #`，Bytes 最後一列 `32`、Packets `32`，與畫面一致。
+- 4r 搜尋 `data#32` 命中 1 列；4s 既有 `#N` 搜尋行為未變（命中 1 列）。
+
+其餘既有閘門：`scan_untranslated_keys`、`check_cache_buster`、`check_line_buffer_half_step`、`check_nb_code_import`、`check_em01_code_import`、`check_ui_jargon`、`version_bump_check` 全過；`wfg_oax_chain_probe` 37/37、`la_clear_probe` 43/43 全過。
+
+`wfg_cpv_trig_probe` 是 9/56 壞掉，但**拿 HEAD（v4.50.1）跑是一模一樣的 9 條**（FAIL 清單逐行 diff 為空），且第一條就是 `0b 用的是真實設定檔 got=內建 preset` —— 它要靠 `WFG_CFG` 餵 Bruce 的真實設定檔才跑得起來，本次環境沒有那個檔。**是既有狀態，不是本版造成的退步。**
+
+### 已知、本版**刻意不動**
+
+- **`wfgLaDecodeEepromRows()` 把記憶體位址寫死成 1 個 byte**（`current.bytes[0]` 當位址、其餘當 data）。24C32／24C64 是 2 byte 位址，所以 I2C-EEPROM 分析器的 Memory 欄對這類元件是錯的。**已查證屬實，本批不動，等 Bruce 裁示。**
+- `offsetBytes` 與既有的 `memoryAddress` 一樣**不寫進 kvdat／kvset 的 analyzer parameters**（原廠格式沒有這個欄位，硬塞會破壞相容性）。存檔再載入會回到「未知（自動推算）」。若要持久化需另外裁示。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.50.1 — 2026-09-19 ｜ PATCH
 
 **Level Shifter 觸發沿兩個下拉的「選項」文字改成自己帶來源名稱：CPV1 上升沿／CPV1 下降沿、CPV2 上升沿／CPV2 下降沿（四進則是 CPV1/CPV3 與 CPV2/CPV4）。只改文案，邏輯一行未動。**
