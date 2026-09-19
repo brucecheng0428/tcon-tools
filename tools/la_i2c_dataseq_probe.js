@@ -144,10 +144,11 @@
       {
         const sel = $('#wfg-la-analyzer-address');
         ok('1a 新增 I2C：Address Display 預設 = 7bit', sel && sel.value === '7bit', sel ? sel.value : '(沒有這個下拉)');
-        $('#wfg-la-analyzer-type').value = 'i2c_eeprom';
-        window.wfgLaRefreshAnalyzerDialogFields();
-        const sel2 = $('#wfg-la-analyzer-address');
-        ok('1b 新增 I2C-EEPROM：Address Display 預設也是 7bit', sel2 && sel2.value === '7bit', sel2 ? sel2.value : '(無)');
+        /* 原本這裡驗「新增 I2C-EEPROM 的 Address Display 預設也是 7bit」。
+           I2C-EEPROM 已下架（Bruce 2026-09-19），新增選單裡沒有這一項 ⇒ 該條不再成立，
+           改驗「選不到」。下架後的完整行為在 tools/la_eeprom_retire_probe.js。 */
+        const eepOpt = Array.from(document.querySelectorAll('#wfg-la-analyzer-type option')).find((o) => o.value === 'i2c_eeprom');
+        ok('1b 🔴 新增選單裡沒有 I2C-EEPROM（已下架）', !eepOpt, eepOpt ? eepOpt.textContent : '(不存在，正確)');
         const off = $('#wfg-la-analyzer-offset');
         ok('1c Offset 長度下拉存在且預設「未知」', off && off.value === 'auto', off ? off.value : '(沒有這個下拉)');
       }
@@ -177,7 +178,7 @@
         const byV = (v) => opts.find((o) => o.value === v);
         ok('2a 🔴 已有 I2C ⇒ 選單裡 I2C 被 disable', !!byV('i2c') && byV('i2c').disabled, byV('i2c') ? byV('i2c').textContent : '(無)');
         ok('2b 🔴 I2C 選項標示「已新增」', !!byV('i2c') && /已新增|already added/i.test(byV('i2c').textContent), byV('i2c') ? byV('i2c').textContent : '(無)');
-        ok('2c i2c_eeprom 仍可選', !!byV('i2c_eeprom') && !byV('i2c_eeprom').disabled, byV('i2c_eeprom') ? byV('i2c_eeprom').textContent : '(無)');
+        ok('2c 🔴 i2c_eeprom 已下架 ⇒ 新增選單裡根本沒有這一項', !byV('i2c_eeprom'), byV('i2c_eeprom') ? byV('i2c_eeprom').textContent : '(不存在，正確)');
         ok('2d dp_aux 仍可選', !!byV('dp_aux') && !byV('dp_aux').disabled);
         ok('2e 🔴 對話框開起來時預設選中的是可選型別，不是 disable 的那個',
           !$('#wfg-la-analyzer-type').selectedOptions[0].disabled, $('#wfg-la-analyzer-type').value);
@@ -207,7 +208,10 @@
       await sleep(80);
       {
         const btn = document.querySelector('#wfg-la-analyzer-card .wfg-la-panel-add');
-        ok('2h 三種型別都加滿 ⇒ ＋ 鈕 disable', !!btn && btn.disabled, btn ? 'disabled=' + btn.disabled : '(找不到 ＋ 鈕)');
+        /* i2c_eeprom 下架後不算在「可新增型別」裡，所以這裡真正要加滿的是 i2c + dp_aux。
+           陣列裡那顆 i2c_eeprom 刻意留著：代表「從舊設定檔載入進來的那一顆」，
+           它不可以害 ＋ 鈕的判斷出錯。 */
+        ok('2h 可新增的型別都加滿 ⇒ ＋ 鈕 disable', !!btn && btn.disabled, btn ? 'disabled=' + btn.disabled : '(找不到 ＋ 鈕)');
       }
       window.wfgLaRemoveAnalyzer(1);
       await sleep(80);
@@ -285,9 +289,11 @@
       /* (D) Bruce 的實際情境：**已經有一個分析器**（所以他看得出哪裡沒解碼），
              把波形移到空白區之後再「新增第二個」分析器。 */
       {
-        P.setAnalyzers([]);
-        await sleep(100);
-        addAnalyzer('i2c_eeprom');
+        /* 第一顆分析器用 i2c_eeprom —— 它已下架、新增選單點不到，只能像「舊設定檔載入」
+           那樣直接放進陣列（下架後的完整行為另見 tools/la_eeprom_retire_probe.js）。
+           這一項驗的是「已經有一個分析器時，新增第二個的捲動行為」，第一顆是什麼型別不影響結論。 */
+        P.setAnalyzers([{ id: 8801, type: 'i2c_eeprom', config: { sda: 0, scl: 1, addressDisplay: '7bit', exportLevel: 'packets' } }]);
+        P.runAnalyzers();
         await sleep(350);
         P.setView(W.duration * 0.6, W.duration * 0.9);
         await sleep(200);
