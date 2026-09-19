@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1170"></script>
+<script src="common/version.js?v=20260919i2c1180"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -213,6 +213,10 @@
     font-size:9.5px;color:var(--sub);cursor:pointer;user-select:none;}
   .bitgrid label.on{color:#4ade80;font-weight:700;}
   .bitgrid input{margin:0;width:13px;height:13px;cursor:pointer;}
+  /* 🔴 A／B 切換：貼著「寫入」按鈕的小控制項，不是獨立一行。
+     刻意做得比一般 select 更緊（28px 高、窄），視覺重量接近一顆小標籤。 */
+  select.absel{height:28px;padding:0 4px;font-size:12px;font-weight:700;
+    margin-right:-2px;border-top-right-radius:0;border-bottom-right-radius:0;}
   /* 總和檢查碼：A 在上、B 在下（與 A／B 那一區同一個順序）。 */
   .cksbox{display:flex;flex-direction:column;gap:4px;}
   .cksrow{display:flex;align-items:center;gap:6px;font-size:12.5px;}
@@ -559,6 +563,15 @@
                副檔名清單自然表達，細節收進說明視窗。 -->
           <input type="file" id="in-file" accept=".bin,.hex,.txt,.rom,.ihx,.ihex,.eep,.dat,.raw" style="display:none">
           <button id="btn-load">載入檔案</button>
+          <!-- 🔴 v1.17.1：A／B 切換**貼著寫入按鈕**，不是獨立佔一行的控制項
+               （Bruce：「版面越精簡越好」）。它與「點 A／B 那兩行」是同一個狀態、
+               雙向同步；放在這裡是因為**寫入目標就是目前顯示的那一份** ——
+               看著按鈕上的「寫入 A（a1.bin）256 byte」順手切，語意最短。
+               只有 A、B 都有內容時才出現（沒得選就不佔位）。 -->
+          <select id="ab-sel" class="mono absel" title="要寫入／顯示哪一份" style="display:none">
+            <option value="A">A</option>
+            <option value="B">B</option>
+          </select>
           <button class="wr" id="btn-write" disabled>寫入</button>
         </div>
         <span class="hint">&nbsp;</span>
@@ -806,6 +819,26 @@
     <div class="row" style="justify-content:flex-end;margin-top:10px">
       <button id="ee-cancel">取消</button>
       <button id="ee-ok" class="wr">確認寫入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 🔴 A、B 都佔用時，載入第三個檔案要問取代哪一個（v1.17.1）═══════════
+     Bruce 2026-09-19：「如果我載入 A 跟 B 兩個檔案，然後我再載入第三個檔案，
+     我想要取代 A 或取代 B，可不可以讓我選擇？取代 A 就要重新快照，取代 B 不用。」
+     🔴 **只在真的有歧義時才問**：A 或 B 任一為空就照既有規則自動放，不多問一步。
+     🔴 字要大（他抱怨過太小），一行一個選項，不加說明段落。 -->
+<div id="abpick" class="modal" style="display:none">
+  <div class="modalbox">
+    <h3>A 與 B 都有內容，這個檔案要放哪一邊？</h3>
+    <div id="abpick-name" class="mono" style="font-size:14px;font-weight:700;margin:6px 0 2px"></div>
+    <div id="abpick-why" class="kv" style="margin-bottom:8px"></div>
+    <!-- 🔴 四個結果攤在同一個視窗、一次點完（他要的是決定權，不是兩次點擊）。 -->
+    <div class="row" style="justify-content:flex-end;margin-top:10px;flex-wrap:wrap;gap:6px">
+      <button id="abpick-cancel">取消</button>
+      <button id="abpick-b">取代 B</button>
+      <button id="abpick-akeep">取代 A，保留 B</button>
+      <button id="abpick-a" class="wr">取代 A，清空 B</button>
     </div>
   </div>
 </div>
@@ -1144,12 +1177,18 @@ function i2ctSnapshotOf(d){
       B 存在 `i2ctBSrc`（null ＝ B 是空的，目前內容就是 A）。
       **沒有**全域的「目前檔名」參與顯示 —— 那正是檔名卡在畫面上的成因。 */
 var i2ctBSrc = null;
-function i2ctPromoteToA(set, source){
+/* `keepB` ＝ 只換 A、**保留 B**（v1.17.1 的「取代 A，保留 B」那個選項）。
+   🔴 保留 B 的需求是 Bruce 提的：「B 還是可以保留，去跟 A 比較」。
+      所以這個選擇權在他手上，不由我預設 —— 但**重建 A 的路徑仍然只有這一支**，
+      呼叫端不准自己去動 `i2ctRef`／`i2ctBSrc`。 */
+function i2ctPromoteToA(set, source, keepB){
   i2ctRef = i2ctSnapshotOf(set);
   if (i2ctRef) i2ctRef.src = source || '讀取';
   i2ctDiffIdx = null;
-  i2ctBSrc = null;                    /* 🔴 A 一被重建，B 自然就不見 */
-  i2ctShowA = false;                  /* 目前內容就是 A，不需要切到「看 A」 */
+  if (!keepB) {
+    i2ctBSrc = null;                  /* 🔴 A 一被重建，B 預設就不見 */
+    i2ctShowA = false;                /* 目前內容就是 A，不需要切到「看 A」 */
+  }
   /* 🔴 「總 byte 數」欄位跟著更新 ——**純粹是顯示便利**（讓下一次讀取的數字合理），
      🔴 **它不是、也不得成為寫入的前提**：寫入來源永遠是 dump 上的中心值，
         長度由那份內容自己決定（見 i2ctWriteSource）。這兩件事刻意分開寫。 */
@@ -1893,9 +1932,13 @@ function i2ctSyncButtons(){
   var selB = i2ctSelRange();
   var wn = selB ? selB.len : (src.bytes ? src.bytes.length : 0);
   $('btn-write').disabled = !can || wn <= 0;
-  /* 🔴 按下去會寫多少，寫在按鈕上 —— 這是正確性資訊，不是多餘說明。
-     N 取自**來源本身**（選取優先），不是欄位。 */
-  $('btn-write').textContent = wn > 0 ? ('寫入 ' + wn + ' byte') : '寫入';
+  /* 🔴 按下去會寫**哪一份、多少**，一起寫在按鈕上（v1.17.1 的寫入目標標示）。
+     N 取自**來源本身**（選取優先），不是欄位；目標取自 `src.from`（A／B ＋ 來源）。
+     他同時有 A 與 B 時，按鈕不講清楚就只能用猜的 —— 這是正確性資訊。 */
+  $('btn-write').textContent =
+      wn <= 0 ? '寫入'
+    : selB    ? ('寫入 選取的 ' + wn + ' byte')
+    :           ('寫入 ' + (src.from || '目前內容') + ' ' + wn + ' byte');
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
   $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
   $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
@@ -2353,6 +2396,15 @@ var I2CT_VERIFY_N = 64;
      位置與兩邊的值，讓人判斷是汙染還是真的變了。 */
 /* 🔴 命名要避開既有的 `I2CT_GOLDEN`（:756，那是 3 byte 的自檢向量 A1 D8 FB）——
    我第一版直接用了同一個名字，把它整個蓋掉，自檢因此紅了兩條。 */
+/* ═══ 🔴🔴 v1.17.1 撤回：**這份固定基準不再參與自動選路** ══════════════════
+   上面那整段推論在「當時」是對的，但它有一個沒想到的後果：
+   **使用者只要改過裝置裡任何一個 byte，這把尺就永遠對不上** ——
+   三條快路徑一律判成不符 ⇒ 退回逐 byte 的慢路徑，而且再也回不去。
+   Bruce 2026-09-19 踩到的「讀取全部範圍變成一個 byte 一個 byte read」就是它。
+   而當初改用固定基準要防的那個汙染源（非法 MPSSE 命令灌 `0xFA` 進資料流）
+   **早就修掉了**（raw_init 只在 raw 模式跑、只送這顆晶片有的命令）。
+   ⇒ 自動選路的基準改回「當下用慢速讀一次」；這份固定值
+     **只剩 debug 區自檢（btn-self）與測試向量這一個用途**。 */
 var I2CT_GOLDEN_SLAVE = 0x68, I2CT_GOLDEN_AWID = 2, I2CT_GOLDEN_OFF = 0x0000;
 /* 逐列排版，與照片一列一列對照，方便覆核。 */
 var I2CT_GOLD256 = [
@@ -2379,6 +2431,25 @@ var I2CT_GOLD256 = [
 async function i2ctNote(msg){
   try { await i2ctSend({ type: 'note', msg: String(msg).slice(0, 480) }); } catch (e) {}
 }
+/* ═══ 🔴 什麼時候該把選路結果作廢（v1.17.1 逐項盤點）════════════════════════
+   判準只有一句：**「某條路徑會不會讀錯」有沒有可能因此改變。**
+   與「某個 byte 變成多少」完全無關 —— 資料值不影響傳輸層對不對。
+
+   目前四個把它設回 null 的地方，逐一交代：
+     ① 連線成功（i2ctConnect）        ⇒ **保留**：換了治具／重開 Bridge，
+                                          傳輸層條件整個換過，非重驗不可。
+     ② 快速模式核取方塊（chk-rawmpsse）⇒ **保留**：他手動指定了走哪條路。
+                                          （同時會設 i2ctRawManual，之後尊重他的選擇）
+     ③ 讀取間隔 ckdelay               ⇒ **保留**：直接改命令序列的時序。
+     ④ 三相時脈 chk-3phase            ⇒ **保留**：直接改時脈波形。
+   （另有 `_reset()` 裡那一個，那是測試夾具在模擬「剛打開網頁」，不算產品路徑。）
+
+   🔴 **「手動改一格的值」不在上面任何一條裡，也從來沒有在** ——
+      我實際 grep 過四個位置，沒有任何一處掛在儲存格編輯上。
+      Dispatch 轉述的「原因一：手動改值會作廢驗證結果」**與程式不符，已更正**；
+      真正的成因只有固定基準過期那一條（見 I2CT_GOLD256 上方）。
+      不確定的部分我也說清楚：他那次是怎麼觸發重驗的（重連？重整分頁？）
+      我無法從程式反推，**沒有現場 log 我不編故事**。 */
 var i2ctFastVerified = null;      /* null=還沒驗 / true=驗過一致 / false=已退回慢的 */
 var i2ctRawFellBack = false;      /* bridge 端偷偷退回慢路徑 ⇒ 只講一次，不要每次讀都洗版 */
 var i2ctStaleTab = false;         /* bridge 比本頁預期的還新 ⇒ 這個分頁沒重新載入過 */
@@ -2456,20 +2527,26 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   i2ctLog('── 首次讀取：用 ' + n + ' byte 挑一條讀得對又快的路 ──', 'n');
   var base = null, chosen = null, i, m, r, bad, first;
   try {
-    /* 🔴🔴 基準優先用**黃金基準**（Bruce 用原廠 Python UI 讀出的固定 256 byte）。
-       不要再拿「自己讀兩次互比」當基準 —— 那會被汙染的資料騙過去：
-       v1.11.10 連慢路徑都讀錯，而「兩次都錯成一樣」就會被判成通過。 */
-    /* 🔴 只在**他真的整批讀** slave 0x68 / awid 2 / offset 0 / ≥256 byte 時才套用。
-       短讀取（例如 3 byte 的自檢向量）不套 —— 否則會把黃金基準灌進不相干的情境。 */
-    if (slave === I2CT_GOLDEN_SLAVE && awid === I2CT_GOLDEN_AWID
-        && off === I2CT_GOLDEN_OFF && len >= I2CT_GOLD256.length && n <= I2CT_GOLD256.length) {
-      base = { ok: true, bytes: I2CT_GOLD256.slice(0, n) };
-      i2ctLog('· 基準：使用黃金基準（原廠 UI 讀出的固定值），不靠本機再讀一次', 'n');
-      await i2ctNote('verify: baseline = GOLDEN (slave 0x68 awid2 off0), ' + n + ' bytes');
-    } else {
-      await setMode(I2CT_MODE_SLOW);
-      base = await i2ctDoRead(slave, awid, off, n, true);
-    }
+    /* ═══ 🔴🔴 基準 ＝ **當下用慢速讀一次**（v1.17.1 撤回黃金基準）════════════
+       v1.14.4 曾把基準換成固定的黃金基準（Bruce 用原廠 UI 讀出的那 256 byte），
+       理由是「自己讀兩次互比會被汙染的資料騙過去」—— v1.11.10 連慢路徑都讀錯，
+       兩次都錯成一樣就會判成通過。
+
+       🔴 **那個汙染源早就清掉了**：`raw_init` 只在 raw 模式執行，而且只送
+          FT2232C/D 真的有的命令（不再有 `0x8D/0x97/0x9E` 被回 `0xFA` 灌進資料流）。
+          慢速讀回來的**就是裝置當下的真相**。
+
+       🔴 而固定基準有一個致命後果：**他只要改過裝置裡任何一個 byte，
+          那把尺就永遠對不上** ⇒ 每一條快路徑都「不符」⇒ 一律退回逐 byte 的慢路徑，
+          而且再也回不去。那不是讀錯，是我拿了一把過期的尺去量。
+          （Bruce 2026-09-19：「讀取全部範圍已經不是 burst read 了，
+            它變成一個 byte 一個 byte read」。）
+
+       ⇒ 基準改回「該次驗證當下用 SLOW 讀一次」。
+       ⇒ 黃金基準 `I2CT_GOLD256` **退回去只當 debug 區自檢（btn-self）的向量**，
+          **不再參與自動選路**。日後不要再把固定值塞進這個流程。 */
+    await setMode(I2CT_MODE_SLOW);
+    base = await i2ctDoRead(slave, awid, off, n, true);
     if (!base || !base.ok) {
       await i2ctNote('verify: baseline (normal) FAILED -- ' + (base ? base.err : 'no result'));
       i2ctLog('✕ 基準讀取就失敗了，維持一般方式', 'e');
@@ -3191,8 +3268,13 @@ function i2ctApplyFile(name, raw){
       i2ctBanner('readbanner', 'err', file.name + ' 解析出 0 個 byte');
       i2ctUpdateHints(); return false;
     }
-    i2ctFileBytes = bytes;
-    i2ctFileName = file.name;
+    /* 🔴🔴 v1.17.1：**B 的內容在做完選擇之前一個 byte 都不能動。**
+       第一版寫成「先把 i2ctFileBytes／i2ctFile 換成新檔，再問要放哪一邊」——
+       於是「取代 A，保留 B」要保留的那個 B **已經被新檔蓋掉了**（測試抓到：
+       diff 變 0、長度判斷也拿到新檔的長度）。
+       ⇒ 新檔先放在區域變數裡，真正決定之後才由 i2ctPlaceFile 寫進狀態。 */
+    var bSetBefore = i2ctSetB();
+    var bLenBefore = bSetBefore ? bSetBefore.bytes.length : 0;
     /* 🔴 **載入 ≠ 寫入。** 這一整支從頭到尾沒有任何 i2ctSend / i2ctDoWrite ——
        一個 byte 都不會上匯流排。寫入只能由「寫入」那顆按鈕觸發。
        這是防誤燒的關鍵，selftest 用假 I2C Bridge 斷言「載入後送出的訊息數 = 0」。 */
@@ -3216,17 +3298,97 @@ function i2ctApplyFile(name, raw){
        舊版把「上一份檔案的值」塞進右上，會造成兩角同時有值 —— 見 render 那段的
        A／B 模型說明。與快照的比較照舊（左上、diff 洋紅、diff log 都沒受影響）。 */
     i2ctPrevBytes = null; i2ctPrevHas = null;
-    i2ctFile = i2ctMakeSet('file', vin.slave, i2ctFileAwid, i2ctFileBase, bytes, file.name);
+    var newSet = i2ctMakeSet('file', vin.slave, i2ctFileAwid, i2ctFileBase, bytes, file.name);
     i2ctWroteFlags = null;
     /* 🔴 來源標籤 ＝ 檔名。第一次載入（還沒有 A）或長度不同 ⇒ 它成為 A；
        已有同長度的 A ⇒ 它成為 B。判斷全在 i2ctIngest 裡，這裡只負責給來源。
        🔴🔴 **載入檔案在任何情況下都不寫入裝置** —— 這裡一個 I2C 交易都沒有，
           只有他按「寫入」才會送出。自檢第 54(0) 組釘死這一條。 */
-    i2ctIngest(i2ctFile, file.name);
-    i2ctUseBKind('file');          // 載入 ⇒ 看檔案（可預期的切換規則）
-    i2ctUpdateHints();
-    return true;
+    /* ═══ 🔴🔴 A、B 都佔用 ⇒ 問他這個檔案要放哪一邊（v1.17.1）═══════════════
+       Bruce：「如果我載入 A 跟 B 兩個檔案，然後我再載入第三個檔案，我想要取代 A
+       或取代 B，可不可以讓我選擇？」以及「取代 A 的話，B 要不要清空？我覺得要
+       跳出視窗讓使用者決定」。
+       🔴 **只在真的有歧義時才問**：A 或 B 任一為空 ⇒ 照既有規則自動放，不多一步。 */
+    if (i2ctRef && i2ctBSrc && bSetBefore) {
+      return i2ctAbPick(file.name, bytes.length, i2ctRef.bytes.length, bLenBefore)
+        .then(function (choice) {
+          if (!choice) {
+            i2ctLog('取消載入（A、B 都保持原樣）', 'n');
+            i2ctBanner('readbanner', '', '');
+            return false;
+          }
+          return i2ctPlaceFile(choice, newSet, bSetBefore);
+        });
+    }
+    return i2ctPlaceFile('auto', newSet, bSetBefore);
   }
+}
+/* 把剛解析好的檔案放到指定的位置。
+   🔴 `bSetBefore` ＝ **放之前**的 B 實體，「取代 A，保留 B」要靠它。
+   🔴 四種 mode 都**不送出任何 I2C 交易**（第零條）。 */
+function i2ctPlaceFile(mode, newSet, bSetBefore){
+  var name = newSet.name;
+  var keepB = (mode === 'Akeep');
+  if (mode === 'auto' || mode === 'B') {
+    /* 這兩種：新檔成為 B（或由 i2ctIngest 依可不可比決定）⇒ 它要進檔案槽。 */
+    i2ctFileBytes = newSet.bytes; i2ctFileName = name; i2ctFile = newSet;
+    if (mode === 'B') {
+      i2ctBSrc = name; i2ctShowA = false;
+      i2ctDiffIdx = i2ctComparable(i2ctRef, newSet) ? i2ctDiffSets(i2ctRef, newSet) : null;
+      i2ctLog('載入 ' + name + ' ⇒ 取代 B（A 不動、不重新快照）', 'n');
+    } else {
+      i2ctIngest(newSet, name);
+    }
+    i2ctUseBKind('file');          // 載入 ⇒ 看檔案（可預期的切換規則）
+  } else {
+    /* 取代 A：走**同一個入口** i2ctPromoteToA，keepB 決定 B 留不留。
+       🔴 保留 B 時**一個 byte 都不動檔案槽** —— B 的內容就存在那裡。 */
+    i2ctPromoteToA(newSet, name, keepB);
+    i2ctShowA = true;              /* 剛載入的那一份現在是 A ⇒ 看 A */
+    if (keepB && bSetBefore) {
+      i2ctDiffIdx = i2ctComparable(i2ctRef, bSetBefore) ? i2ctDiffSets(i2ctRef, bSetBefore) : null;
+      i2ctLog('載入 ' + name + ' ⇒ 取代 A（重新快照），B 保留並與新的 A 比較', 'n');
+    } else {
+      i2ctLog('載入 ' + name + ' ⇒ 取代 A（重新快照），B 清空', 'n');
+      /* B 清空 ⇒ 檔案槽也放掉，避免同一份資料存兩處。 */
+      i2ctFileBytes = null; i2ctFileName = ''; i2ctFile = null; i2ctBKind = 'dev';
+    }
+  }
+  i2ctPageIdx = 0;
+  i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
+  i2ctUpdateHints(); i2ctSyncButtons();
+  return true;
+}
+/* ═══ 🔴 四選項視窗（A、B 都佔用時才出現）═════════════════════════════════
+   回傳 Promise<'Akeep'|'Aclear'|'B'|null>。
+   🔴 停用規則，每一條旁邊都要講原因（不要讓他選了也沒意義，也不要讓他猜）：
+     · 新檔長度 ≠ A ⇒ **取代 B 停用**（長度不同，A 與 B 無法逐 byte 比）
+     · 新檔長度 ≠ B ⇒ **取代 A 保留 B 停用**（留著也比不了）
+     · 「取代 A，清空 B」與「取消」**永遠可選** */
+var i2ctAbPickAuto = null;        /* 測試用預先作答：'Akeep'/'Aclear'/'B'/false */
+function i2ctAbPick(name, nNew, nA, nB){
+  if (i2ctAbPickAuto === false) return Promise.resolve(null);
+  if (typeof i2ctAbPickAuto === 'string') return Promise.resolve(i2ctAbPickAuto);
+  return new Promise(function (resolve) {
+    var canB = (nNew === nA);          /* 取代 B ⇒ 要能跟 A 比 */
+    var canKeep = (nNew === nB);       /* 保留 B ⇒ 要能跟新的 A 比 */
+    $('abpick-name').textContent = name + '　' + nNew + ' byte';
+    $('abpick-why').innerHTML =
+      (canB ? '' : '「取代 B」停用：長度與 A（' + nA + ' byte）不同，兩邊無法逐 byte 比對。<br>')
+      + (canKeep ? '' : '「取代 A，保留 B」停用：長度與 B（' + nB + ' byte）不同，留著也比不了。');
+    var bA = $('abpick-a'), bK = $('abpick-akeep'), bB = $('abpick-b'), bC = $('abpick-cancel');
+    bB.disabled = !canB; bK.disabled = !canKeep;
+    $('abpick').style.display = 'flex';
+    var done = function (v) {
+      $('abpick').style.display = 'none';
+      bA.onclick = bK.onclick = bB.onclick = bC.onclick = null;
+      resolve(v);
+    };
+    bA.onclick = function () { done('Aclear'); };
+    bK.onclick = function () { if (!bK.disabled) done('Akeep'); };
+    bB.onclick = function () { if (!bB.disabled) done('B'); };
+    bC.onclick = function () { done(null); };
+  });
 }
 
 /* ═══ 自檢 ══════════════════════════════════════════════════════════════ */
@@ -3659,6 +3821,14 @@ function i2ctRenderRefLine(){
           hasA && i2ctShowA, hasA && hasB)
     + row('B', hasB ? i2ctBSrc : null, hasB ? bSet.bytes.length : 0,
           hasB && !i2ctShowA, hasA && hasB);
+  /* 🔴 下拉與點那兩行是**同一個狀態**，這裡把下拉同步回來（雙向的另一半在
+     change handler）。沒有內容的那一邊要停用，否則他會選到一個空的東西。 */
+  { var absel = $('ab-sel');
+    if (absel) {
+      /* 🔴 沒得選就**整個不顯示**（不佔版面）。他明確要求「版面越精簡越好」。 */
+      absel.style.display = (hasA && hasB) ? '' : 'none';
+      absel.value = (i2ctShowA && hasA) ? 'A' : 'B';
+    } }
   var dl = $('dirtyline'); if (!dl) return;
   var n = i2ctDirtyCount();
   dl.textContent = n ? ('已修改 ' + n + ' byte 未寫入') : '';
@@ -4475,6 +4645,9 @@ function i2ctInit(){
   /* 🔴 v1.16.2：舊的「看裝置讀回值／看檔案內容」切換鈕收掉，改成**點 A／B 那一行**。
      兩者提供的是同一個能力（兩份資料都在時切換看哪一份），但 A／B 那兩行本來就
      寫著各自的來源，點它最直覺，也不必再多一顆按鈕。 */
+  /* 🔴 下拉與點 A／B 那兩行是**同一個狀態**，這是雙向同步的另一半
+     （回寫在 i2ctRenderRefLine 裡）。 */
+  $('ab-sel').addEventListener('change', function () { i2ctShowSide(this.value); });
   $('abbox').addEventListener('click', function (e) {
     var row = e.target;
     while (row && row !== this && !row.getAttribute('data-ab')) row = row.parentNode;
@@ -4490,7 +4663,9 @@ function i2ctInit(){
     i2ctRawMpsse = this.checked;
     i2ctRawManual = true;      /* 🔴 手動動過 ⇒ 重連不再自動還原，他的選擇優先 */
     i2ctRawFellBack = false;
-    i2ctFastVerified = null;   /* 手動改過 ⇒ 下次讀取重驗一次 */
+    /* 🔴 **保留**（v1.17.1 盤點結論②）：他手動指定了走哪條路 ⇒ 重驗一次。
+       注意這是「動這個**核取方塊**」，不是「改某一格的值」—— 兩者不要混。 */
+    i2ctFastVerified = null;
     i2ctLog('快速模式 ⇒ ' + (i2ctRawMpsse ? '開（預設）' : '關') + '　※ 要重新連線才生效', 'w');
   });
   /* 🔴 三相時脈：只影響快速模式。改了要重驗一次（資料對不對是這個開關的重點）。 */
@@ -4872,6 +5047,20 @@ window.__i2ct = {
   writeSource: function (awid) { return i2ctWriteSource(awid === undefined ? i2ctAwid() : awid); },
   showSide: function (w) { return i2ctShowSide(w); },
   showingA: function () { return i2ctShowA; },
+  /* A／B 下拉（貼著寫入按鈕那一顆）的測試入口 */
+  abSel: function (v) {
+    var s = $('ab-sel'); if (!s) return null;
+    if (v !== undefined) { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }
+    return { value: s.value, shown: s.style.display !== 'none' };
+  },
+  /* 四選項視窗：'Akeep'/'Aclear'/'B' ＝ 預先作答；false ＝ 當作按了取消；
+     null ＝ 恢復正常跳視窗。 */
+  abPickAuto: function (v) { i2ctAbPickAuto = v; },
+  abPickState: function () {
+    return { shown: $('abpick').style.display !== 'none',
+             why: $('abpick-why').textContent,
+             canB: !$('abpick-b').disabled, canKeep: !$('abpick-akeep').disabled };
+  },
   checksum: i2ctChecksum,
   GOLD256: I2CT_GOLD256,
   cksRows: function () {

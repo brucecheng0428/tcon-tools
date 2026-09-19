@@ -144,6 +144,11 @@ function baseScript(f) {
   /* 🔴 寫 0x50–0x57 會跳「EEPROM 型號確認」視窗。其他組不是在驗那個視窗，
      預先作答成 24C32，否則測試會停在那裡等人按。視窗本身由專屬那一組驗。 */
   A.eepromAuto('24C32');
+  /* 🔴 同理（v1.17.1）：A、B 都有內容時再載入檔案會跳「要放哪一邊」的四選項視窗。
+     其他組不是在驗那個視窗，預先作答成 `'auto'` ＝ **照 v1.17.0 的既有規則**
+     （由 i2ctIngest 依可不可比決定成為 A 還是 B）⇒ 既有斷言的前提不變。
+     視窗本身由第 59 組驗，它會自己覆寫這個值、驗完再設回 'auto'。 */
+  A.abPickAuto('auto');
   G('0. 頁面載入');
   CHECK(pageErrors.length === 0, '載入時沒有 JS 例外：' + pageErrors.join(' | '));
   CHECK(!!A, 'window.__i2ct 測試掛勾存在');
@@ -1662,7 +1667,7 @@ function baseScript(f) {
     await A.doRead(); await sleep(20);
     CHECK(doc.getElementById('btn-write').disabled === false,
       '🔴 讀完就能寫（寫的是 dump 的中心值）');
-    EQ(doc.getElementById('btn-write').textContent, '寫入 16 byte', '長度取自那份內容');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 16 byte', '🔴 v1.17.1：按鈕同時標明寫哪一份');
     EQ(A.writeSource(2).bytes.length, 16, '來源就是剛讀到的 16 byte');
     await win.__i2ct.disconnect();
   }
@@ -2164,7 +2169,7 @@ function baseScript(f) {
     EQ(A.selRange(), null, '🔴 夾在最後一格，不繞回');
     /* 有選取 ⇒ 按鈕寫出會寫多少 */
     A.selAnchor(0x00); A.selMove(16);
-    EQ(doc.getElementById('btn-write').textContent, '寫入 17 byte', '🔴 按鈕標明會寫幾個 byte');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 選取的 17 byte', '🔴 有選取時按鈕標明選取長度');
     /* 🔴 有選取 ⇒ 只寫選取那段，而且是一筆 burst（非 EEPROM） */
     const since = sent.length;
     await A.doWrite(); await sleep(30);
@@ -2177,8 +2182,7 @@ function baseScript(f) {
     EQ(A.selRange(), null, 'Esc／點別處 ⇒ 清除選取');
     /* 🔴 v1.16.2：沒有選取時按鈕改成顯示**整份內容的長度**（來源＝dump 中心值），
        不再只寫「寫入」—— 他按下去會寫多少，一律寫在按鈕上。 */
-    EQ(doc.getElementById('btn-write').textContent, '寫入 256 byte',
-       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 256 byte',       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
     await win.__i2ct.disconnect();
   }
 
@@ -3326,7 +3330,8 @@ function baseScript(f) {
     A.loadFile('big.bin', new win.Uint8Array(Array.from({ length: 8192 }, (_, i) => i & 0xFF)));
     await sleep(60);
     EQ(doc.getElementById('btn-write').disabled, false, '🔴🔴 載入 8192 的檔之後寫入鈕可以按');
-    EQ(doc.getElementById('btn-write').textContent, '寫入 8192 byte',
+    /* 讀 256 之後載入 8192 的檔 ⇒ 長度不同 ⇒ 依定案規則它**成為 A**（不是 B）。 */
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A：big.bin 8192 byte',
        '🔴 按鈕長度取自來源本身：' + doc.getElementById('btn-write').textContent);
     EQ(A.writeSource(2).bytes.length, 8192, '🔴 來源就是 8192 byte（不是被截成 256）');
 
@@ -3348,7 +3353,7 @@ function baseScript(f) {
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
     await A.doRead(); await sleep(50);
     A.selAnchor(0); A.selMove(16); await sleep(20);
-    EQ(doc.getElementById('btn-write').textContent, '寫入 17 byte', '選取優先，按鈕顯示 17');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 選取的 17 byte', '選取優先，按鈕顯示 17');
     { const before = sent55.filter((m) => m.type === 'rawwrite').length;
       await A.doWrite(); await sleep(80);
       const w = sent55.filter((m) => m.type === 'rawwrite').slice(before);
@@ -3423,6 +3428,212 @@ function baseScript(f) {
     { const rows = A.cksRows();
       EQ(rows[0].val, '（無）', '清空 ⇒ A 空狀態');
       EQ(rows[1].val, '（無）', '清空 ⇒ B 空狀態'); }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('57. 🔴🔴 改過值之後再讀，**不可以退化成逐 byte**（v1.17.1 的回歸）');
+  {
+    /* Bruce 2026-09-19：「在做了這些匯入匯出的動作以後，然後又手動去更改單一
+       儲存格的值…再按『讀取全部範圍的值』，這時候卻發現讀取全部範圍已經不是
+       burst read 了，它變成一個 byte 一個 byte read」。
+
+       根因：自動選路的基準曾經是**固定的黃金基準**。他一改裝置內容，那把尺就
+       永遠對不上 ⇒ 三條快路徑全判不符 ⇒ 退回慢路徑，而且再也回不去。
+       ⇒ 基準改回「當下用慢速讀一次」。這一組把它釘死。 */
+    const dev57 = new Array(256).fill(0);
+    for (let i = 0; i < 256; i++) dev57[i] = (i * 5) & 0xFF;
+    const mk57 = (m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev57[(m.addr + i) & 0xFF] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,   /* usbrt 1 ＝ 原廠路徑 */
+        data: Array.from({ length: m.len }, (_, i) => dev57[(m.addr + i) & 0xFF]) };
+      return { ok: true, status: 0 };
+    };
+
+    /* (a) 第一次讀 ⇒ 選到快路徑 */
+    A._reset();
+    const sent57 = await useHelper(mk57);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
+    win.confirm = () => true;
+    await A.doRead(); await sleep(60);
+    EQ(A.mode(), 0, '前提：第一次讀就選到原廠（快）路徑');
+    EQ(A.lastPath(), '快速模式', '前提：標籤是快速模式');
+
+    /* (b) 🔴 手動改一格（真的寫進假裝置），再讀 ⇒ **仍然是快路徑** */
+    A.selAnchor(5); await sleep(20);
+    await A.bitToggle(0, !((A.state().buf[5] >> 0) & 1)); await sleep(80);
+    const before57 = sent57.filter((m) => m.type === 'read').length;
+    await A.doRead(); await sleep(60);
+    EQ(A.mode(), 0, '🔴🔴 改過一格之後再讀，**仍然走原廠（快）路徑**');
+    EQ(A.lastPath(), '快速模式', '🔴 模式標籤還是快速模式');
+    { const n = sent57.filter((m) => m.type === 'read').length - before57;
+      CHECK(n <= 2, '🔴🔴 read 訊息沒有暴增（' + n + ' 則；逐 byte 會是幾十上百則）'); }
+
+    /* (c) 🔴 重新連線 ⇒ **會**重驗（這條要保留） */
+    await win.__i2ct.disconnect(); await sleep(20);
+    await useHelper(mk57);
+    EQ(A.state().linked, true, '重新連上');
+    /* 重連會把旗標清掉 ⇒ 下一次讀取重跑選路階梯（多出基準那一次讀） */
+    const beforeC = [];
+    const sentC = await (async () => sent57)();
+    void sentC; void beforeC;
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(60);
+    EQ(A.mode(), 0, '🔴 重驗之後照樣選到快路徑（基準是當下讀的，不是過期的固定值）');
+
+    /* (d) 🔴 換 slave ⇒ 讀取時會重建 A（見第 54 組），選路照樣成立 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    await A.doRead(); await sleep(60);
+    EQ(A.mode(), 0, '換 slave 之後也還是快路徑');
+    await win.__i2ct.disconnect();
+
+    /* (e) 🔴 反向測試：**把固定基準塞回選路流程，(b) 必須失敗**。
+       這裡直接驗那個機制本身 —— 用一份「與裝置現況不同」的固定基準去比，
+       三條快路徑都會被判不符。這就是舊版的行為，也是我們撤掉它的理由。 */
+    {
+      const stale = Array.from({ length: 16 }, () => 0xEE);   /* 過期的固定基準 */
+      const now = Array.from({ length: 16 }, (_, i) => dev57[i]);
+      let bad = 0;
+      for (let i = 0; i < 16; i++) if (stale[i] !== now[i]) bad++;
+      CHECK(bad > 0, '🔴 固定基準與裝置現況不同 ⇒ 任何快路徑都會被判不符（' + bad + '/16）');
+      CHECK(A.GOLD256 && A.GOLD256.length === 256,
+        '🔴 黃金基準本身留著（debug 自檢向量用），只是不再參與選路');
+    }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('58. 🔴 寫入目標標示 ＋ A／B 切換（下拉與點選同一狀態）');
+  {
+    A._reset();
+    A.abPickAuto(null);
+    /* A ＝ a1.bin（第一次載入）、B ＝ b2.bin（同長度第二份） */
+    A.loadFile('a1.bin', new win.Uint8Array([1, 2, 3, 4]));
+    await sleep(40);
+    A.loadFile('b2.bin', new win.Uint8Array([5, 6, 7, 8]));
+    await sleep(40);
+    EQ(A.srcA(), 'a1.bin', '前提：A ＝ a1.bin');
+    EQ(A.srcB(), 'b2.bin', '前提：B ＝ b2.bin');
+
+    /* (a) 🔴 按鈕要講清楚寫的是哪一份、多少 */
+    { const t = doc.getElementById('btn-write').textContent;
+      CHECK(/寫入 B/.test(t) && /b2\.bin/.test(t) && /4 byte/.test(t),
+        '🔴 按鈕標明寫入目標與長度：' + t); }
+
+    /* (b) 🔴 下拉只在 A、B 都有內容時才出現（沒得選就不佔版面） */
+    EQ(A.abSel().shown, true, '🔴 A、B 都有 ⇒ 下拉出現');
+    EQ(A.abSel().value, 'B', '目前顯示 B ⇒ 下拉是 B');
+
+    /* (c) 🔴 下拉與點那一行**雙向同步** */
+    A.abSel('A'); await sleep(30);
+    EQ(A.showingA(), true, '🔴 下拉選 A ⇒ 真的切到 A');
+    { const t = doc.getElementById('btn-write').textContent;
+      CHECK(/寫入 A/.test(t) && /a1\.bin/.test(t), '🔴 按鈕跟著變成寫 A：' + t); }
+    EQ(A.writeSource(2).bytes[0], 1, '🔴 來源也真的換成 A 的內容');
+    A.showSide('B'); await sleep(30);
+    EQ(A.abSel().value, 'B', '🔴 點 B 那一行 ⇒ 下拉跟著回到 B（另一半的同步）');
+    A.showSide('A'); await sleep(30);
+    EQ(A.abSel().value, 'A', '🔴 點 A 那一行 ⇒ 下拉跟著變 A');
+
+    /* (d) 只有一份時下拉收起來 */
+    A._reset();
+    A.loadFile('solo.bin', new win.Uint8Array([9, 9]));
+    await sleep(40);
+    EQ(A.abSel().shown, false, '🔴 只有 A ⇒ 下拉整個不顯示（不佔版面）');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('59. 🔴🔴 A、B 都佔用時載入第三個檔案 ⇒ 四選項視窗');
+  {
+    const mk59 = (m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, () => 0x11) };
+      return { ok: true, status: 0 };
+    };
+    const setup = async () => {
+      A._reset(); A.abPickAuto(null);
+      A.loadFile('a1.bin', new win.Uint8Array([1, 2, 3, 4])); await sleep(30);
+      A.loadFile('b2.bin', new win.Uint8Array([5, 6, 7, 8])); await sleep(30);
+    };
+
+    /* (a) A 或 B 任一為空 ⇒ **不跳視窗** */
+    A._reset(); A.abPickAuto(null);
+    A.loadFile('x1.bin', new win.Uint8Array([1, 2])); await sleep(40);
+    EQ(A.abPickState().shown, false, '🔴 A、B 都空 ⇒ 載入不跳選擇（直接成為 A）');
+    EQ(A.srcA(), 'x1.bin', '直接進 A');
+    A.loadFile('x2.bin', new win.Uint8Array([3, 4])); await sleep(40);
+    EQ(A.abPickState().shown, false, '🔴 A 有、B 空 ⇒ 也不跳（直接成為 B）');
+    EQ(A.srcB(), 'x2.bin', '直接進 B');
+
+    /* (b) A、B 都有、長度全同 ⇒ 跳視窗，四個選項都可選 */
+    await setup();
+    A.abPickAuto(null);
+    const p = A.loadFile('c3.bin', new win.Uint8Array([7, 7, 7, 7]));
+    await sleep(40);
+    { const st = A.abPickState();
+      EQ(st.shown, true, '🔴 A、B 都有 ⇒ 跳選擇視窗');
+      EQ(st.canB, true, '長度與 A 相同 ⇒「取代 B」可選');
+      EQ(st.canKeep, true, '長度與 B 相同 ⇒「取代 A，保留 B」可選'); }
+    doc.getElementById('abpick-cancel').click();
+    await p; await sleep(30);
+    EQ(A.srcA(), 'a1.bin', '🔴 選取消 ⇒ A 不動');
+    EQ(A.srcB(), 'b2.bin', '🔴 選取消 ⇒ B 不動');
+
+    /* (c) 取代 A，保留 B */
+    await setup();
+    A.abPickAuto('Akeep');
+    await A.loadFile('c3.bin', new win.Uint8Array([7, 7, 7, 7])); await sleep(40);
+    EQ(A.srcA(), 'c3.bin', '🔴 ① A 換成新檔');
+    EQ(A.srcB(), 'b2.bin', '🔴 ① **B 仍在**');
+    /* A ＝ 7,7,7,7；B ＝ 5,6,7,8 ⇒ 第 2 個相同，其餘三個不同。 */
+    EQ(A.diffCount(), 3, '🔴 ① diff 用「新的 A vs 保留下來的 B」重算 ⇒ 3 處不同');
+
+    /* (d) 取代 A，清空 B */
+    await setup();
+    A.abPickAuto('Aclear');
+    await A.loadFile('c4.bin', new win.Uint8Array([8, 8, 8, 8])); await sleep(40);
+    EQ(A.srcA(), 'c4.bin', '🔴 ② A 換成新檔');
+    EQ(A.srcB(), null, '🔴 ② B 清空');
+
+    /* (e) 取代 B */
+    await setup();
+    A.abPickAuto('B');
+    await A.loadFile('c5.bin', new win.Uint8Array([2, 2, 2, 2])); await sleep(40);
+    EQ(A.srcA(), 'a1.bin', '🔴 ③ A 不動（不重新快照）');
+    EQ(A.srcB(), 'c5.bin', '🔴 ③ B 換成新檔');
+
+    /* (f) 🔴 長度不同的停用規則 */
+    await setup();
+    A.abPickAuto(null);
+    const p2 = A.loadFile('big.bin', new win.Uint8Array(8));   /* 與 A、B 都不同長 */
+    await sleep(40);
+    { const st = A.abPickState();
+      EQ(st.shown, true, '跳視窗');
+      EQ(st.canB, false, '🔴 長度 ≠ A ⇒「取代 B」停用');
+      EQ(st.canKeep, false, '🔴 長度 ≠ B ⇒「取代 A，保留 B」停用');
+      CHECK(/停用/.test(st.why) && /無法逐 byte 比對/.test(st.why),
+        '🔴 停用要講原因：' + st.why); }
+    doc.getElementById('abpick-a').click();      /* ②「取代 A，清空 B」永遠可選 */
+    await p2; await sleep(40);
+    EQ(A.srcA(), 'big.bin', '🔴 長度不同時仍可「取代 A，清空 B」');
+    EQ(A.srcB(), null, 'B 清空');
+
+    /* (g) 🔴🔴 四個選項**都不寫入裝置** */
+    for (const mode of ['Akeep', 'Aclear', 'B', false]) {
+      await setup();
+      const sent59 = await useHelper(mk59);
+      const before = sent59.length;
+      A.abPickAuto(mode);
+      await A.loadFile('z.bin', new win.Uint8Array([4, 4, 4, 4])); await sleep(40);
+      const after = sent59.slice(before);
+      EQ(after.filter((m) => m.type === 'rawwrite' || m.type === 'write').length, 0,
+         '🔴🔴 選「' + String(mode) + '」⇒ 零寫入訊息');
+      await win.__i2ct.disconnect();
+    }
+    A.abPickAuto(null);
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */

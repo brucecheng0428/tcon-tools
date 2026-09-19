@@ -74,6 +74,10 @@
     /* 🔴 任何例外都要變成一筆 FAIL 回報出去，不能讓 title 停在原樣讓人以為沒跑。 */
     try {
 
+    /* 🔴 v1.17.1：A、B 都有內容時再載入檔案會跳「要放哪一邊」的四選項視窗。
+       多數路徑不是在驗那個視窗 ⇒ 預先作答成 'auto'（照既有規則）。
+       視窗本身由路徑 19 用**真的滑鼠點擊**驗。 */
+    A.abPickAuto('auto');
     /* 準備一份離線資料（未連線 ⇒ 編輯只改本地值，不需要 bridge） */
     A._reset();
     const loaded = A.loadFile('probe.bin', new Uint8Array(Array.from({ length: 512 }, (_, i) => i & 0xFF)));
@@ -263,7 +267,9 @@
     ok('8c Shift 版也有 preventDefault', p2 === true);
     ok('8d 畫面真的標了 17 格', document.querySelectorAll('#dump td.sel').length === 17,
        document.querySelectorAll('#dump td.sel').length);
-    ok('8e 按鈕寫出會寫幾個 byte', $('#btn-write').textContent === '寫入 17 byte', $('#btn-write').textContent);
+    /* v1.17.1：按鈕文字改成「寫入 選取的 N byte」／「寫入 A：<來源> N byte」。 */
+    ok('8e 按鈕寫出會寫幾個 byte', $('#btn-write').textContent === '寫入 選取的 17 byte',
+       $('#btn-write').textContent);
 
     stage(9);
     /* ── 路徑 9a：選了一段之後載入**更小**的檔 ⇒ 索引不可以指到不存在的位置 ──
@@ -661,6 +667,47 @@
       ok('18i 🔴 改一格 ⇒ checksum 立刻變（10 + 128 = 138 = 0x8A）',
          /0x8A/.test($('#cksbox').textContent), $('#cksbox').textContent);
     }
+
+    /* ── 🔴 路徑 19：四選項視窗與 A／B 切換（v1.17.1，真的滑鼠點擊）────── */
+    A._reset();
+    A.abPickAuto(null);                       /* 這一段要真的跳視窗 */
+    A.loadFile('a1.bin', new Uint8Array([1, 2, 3, 4])); await sleep(60);
+    A.loadFile('b2.bin', new Uint8Array([5, 6, 7, 8])); await sleep(60);
+    {
+      ok('19a 前提：A ＝ a1.bin、B ＝ b2.bin', A.srcA() === 'a1.bin' && A.srcB() === 'b2.bin',
+         A.srcA() + ' / ' + A.srcB());
+      /* 🔴 寫入目標標示 ＋ 貼著按鈕的 A／B 切換（主畫面只多這一顆小下拉） */
+      ok('19b 按鈕標明寫入目標與長度', /寫入 B：b2\.bin 4 byte/.test($('#btn-write').textContent),
+         $('#btn-write').textContent);
+      ok('19c A／B 切換在畫面上（只有兩份都在時才出現）',
+         $('#ab-sel') && getComputedStyle($('#ab-sel')).display !== 'none');
+      $('#ab-sel').value = 'A';
+      $('#ab-sel').dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(60);
+      ok('19d 用下拉切到 A ⇒ 真的切過去、按鈕跟著變',
+         A.showingA() === true && /寫入 A：a1\.bin/.test($('#btn-write').textContent),
+         $('#btn-write').textContent);
+      /* 點 B 那一行 ⇒ 下拉跟著回來（雙向同步） */
+      const rowB = $('#abbox').querySelector('.abrow[data-ab="B"]');
+      click(rowB); await sleep(60);
+      ok('19e 點 B 那一行 ⇒ 下拉同步回 B', $('#ab-sel').value === 'B', $('#ab-sel').value);
+
+      /* 載入第三個檔 ⇒ 視窗跳出來 */
+      const pr = A.loadFile('c3.bin', new Uint8Array([9, 9, 9, 9]));
+      await sleep(80);
+      ok('19f 🔴 A、B 都有 ⇒ 載入第三個檔跳出選擇視窗',
+         getComputedStyle($('#abpick')).display !== 'none');
+      ok('19g 四個選項都在', !!$('#abpick-a') && !!$('#abpick-akeep')
+         && !!$('#abpick-b') && !!$('#abpick-cancel'));
+      click($('#abpick-akeep'));
+      await pr; await sleep(80);
+      ok('19h 🔴 選「取代 A，保留 B」⇒ A 換成新檔、B 仍在',
+         A.srcA() === 'c3.bin' && A.srcB() === 'b2.bin', A.srcA() + ' / ' + A.srcB());
+      ok('19i 視窗關掉了', getComputedStyle($('#abpick')).display === 'none');
+      ok('19j checksum 跟著更新（A ＝ 9×4 ＝ 36 ＝ 0x24）',
+         /0x24/.test($('#cksbox').textContent), $('#cksbox').textContent);
+    }
+    A.abPickAuto('auto');
 
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
     ok('10a 另存新檔在有資料時可以按', $('#btn-save').disabled === false);
