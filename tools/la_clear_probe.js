@@ -87,15 +87,15 @@
          ($('#wfg-import-filename') || {}).textContent);
 
       /* ── 按下清空 ⇒ 先跳確認視窗，**不可以**直接清掉 ────────────────── */
-      ok('2a 確認視窗一開始是關的', !!$('#wfg-la-clr-mask') && $('#wfg-la-clr-mask').classList.contains('hidden'));
+      ok('2a 確認視窗一開始是關的', !!$('#wfg-clr-mask') && $('#wfg-clr-mask').classList.contains('hidden'));
       $('#wfg-la-clear-btn').click();
       await sleep(200);
       ok('2b 🔴 按下按鈕 ⇒ 確認視窗跳出來',
-         !!$('#wfg-la-clr-mask') && !$('#wfg-la-clr-mask').classList.contains('hidden'));
+         !!$('#wfg-clr-mask') && !$('#wfg-clr-mask').classList.contains('hidden'));
       ok('2c 🔴 還沒確認之前，波形一個都不准動',
          P.hasWaveform() && P.cursorActive()[0] === true && P.measCount() === 1);
       {
-        const body = $('#wfg-la-clr-mask .wfg-ack-where');
+        const body = $('#wfg-clr-mask .wfg-ack-where');
         const txt = body ? body.textContent : '';
         ok('2d 內文寫出會清掉什麼', /波形/.test(txt) && /游標/.test(txt) && /量測/.test(txt), txt.slice(0, 40) + '…');
         ok('2e 🔴 內文寫出「保留不動」的是什麼（不留給使用者猜）', /保留不動/.test(txt));
@@ -103,9 +103,9 @@
         ok('2g 內文走 i18n', !!body && body.getAttribute('data-i18n') === 'wfg.laClrBody');
       }
       /* 取消 ⇒ 什麼都不動（先驗反面，再驗正面） */
-      $('#wfg-la-clr-cancel').click();
+      $('#wfg-clr-cancel').click();
       await sleep(200);
-      ok('2h 取消 ⇒ 視窗關掉', $('#wfg-la-clr-mask').classList.contains('hidden'));
+      ok('2h 取消 ⇒ 視窗關掉', $('#wfg-clr-mask').classList.contains('hidden'));
       ok('2i 🔴 取消 ⇒ 波形、游標、小卡一個都沒被動到',
          P.hasWaveform() && P.cursorActive()[0] === true
          && P.measCount() === 1 && P.pulseCount() === 1);
@@ -114,10 +114,10 @@
       /* ── 真的清空 ─────────────────────────────────────────────────── */
       $('#wfg-la-clear-btn').click();
       await sleep(200);
-      $('#wfg-la-clr-ok').click();
+      $('#wfg-clr-ok').click();
       await sleep(500);
 
-      ok('3a 視窗關掉了', $('#wfg-la-clr-mask').classList.contains('hidden'));
+      ok('3a 視窗關掉了', $('#wfg-clr-mask').classList.contains('hidden'));
       ok('3b 🔴 波形資料清掉了', P.hasWaveform() === false, String(P.hasWaveform()));
       ok('3c 🔴 而且**沒有**掉回 demo 方波（已清空旗標）', P.cleared() === true, P.cleared());
       {

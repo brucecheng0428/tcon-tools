@@ -1576,6 +1576,18 @@ var I18N = {
                           'en': 'Clears the captured waveform, cursors, the time-base scale card, pinned measurements, pulse counts, decode results and the imported file name; the view returns to full span. This cannot be undone.\nKept as they are: sample depth / rate / threshold, trigger settings, channel names and order, the quick preset and the analyzer list. Those are settings rather than waveform data, they live in the browser and clearing does not touch them.\nThe waveform area becomes empty until the next capture or import.',
                           'zh-CN': '清空撷取到的波形、游标、时基尺标、钉住的测量、脉冲计数、解码结果与导入档名，检视回到全览。无法复原。\n保留不动：取样深度／速率／门槛、触发设定、通道名称与顺序、快捷设定、analyzer 清单。这些是设定不是波形，存在浏览器里，清空不会动到。\n波形区会变成空白，直到下一次撷取或导入。' },
   'wfg.laClrOk':        { 'zh-TW': '清空', 'en': 'Clear', 'zh-CN': '清空' },
+  /* ══ 🔴 v4.53.0：LA 下拉切回「快捷設定」placeholder 的確認視窗（Bruce 2026-09-19）══
+     「只要切回來，就是把所有波形和檔案清空…然後通道名稱也要清空。其他相關設定也是清空」
+     🔴 **又一組 key，不共用上面那組**：這個入口清的東西比「清空」按鈕多
+        （通道名稱與描述、通道順序、analyzer 清單、解碼展開狀態、可見通道都回預設），
+        而 `wfg.laClrBody` 明寫著「保留不動：…通道名稱與順序…analyzer 清單」——
+        照抄過來就是讓視窗承諾一件它不做的事。留下來的只有取樣與觸發設定。 */
+  'wfg.laPreClrTitle':  { 'zh-TW': '要清空波形並把設定回到預設嗎？',
+                          'en': 'Clear the waveform and reset the settings?',
+                          'zh-CN': '要清空波形并把设定回到预设吗？' },
+  'wfg.laPreClrBody':   { 'zh-TW': '清空擷取到的波形與已載入的檔案，連同游標、時基尺標、釘住的量測、脈衝計數、解碼結果與匯入檔名，檢視回到全覽。無法復原。\n通道名稱與描述、通道順序、analyzer 清單一併回到預設，解碼區收起，16 條通道全部顯示。\n保留不動：取樣深度／速率／門檻與觸發設定。\n波形區會變成空白，直到下一次擷取或匯入。',
+                          'en': 'Clears the captured waveform and the loaded file, together with cursors, the time-base scale card, pinned measurements, pulse counts, decode results and the imported file name; the view returns to full span. This cannot be undone.\nChannel names and descriptions, channel order and the analyzer list also return to their defaults, the decode area collapses and all 16 channels are shown.\nKept as they are: sample depth / rate / threshold and the trigger settings.\nThe waveform area becomes empty until the next capture or import.',
+                          'zh-CN': '清空撷取到的波形与已载入的档案，连同游标、时基尺标、钉住的测量、脉冲计数、解码结果与导入档名，检视回到全览。无法复原。\n通道名称与描述、通道顺序、analyzer 清单一并回到预设，解码区收起，16 条通道全部显示。\n保留不动：取样深度／速率／门槛与触发设定。\n波形区会变成空白，直到下一次撷取或导入。' },
   /* ══ 🔴 v4.36.0：匯入類別選擇視窗 ═══════════════════════════════════════════
      Bruce 2026-08-28：「使用者可自由選擇全部匯入、只匯入某一部分或特定幾個部分，
      包含：(a) 左側系統卡片 (b) 左側 TCON 卡片 (c) 左側顯示卡片 (d) 右側量測卡片

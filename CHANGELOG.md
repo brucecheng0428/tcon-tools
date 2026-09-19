@@ -22,6 +22,104 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.53.0 — 2026-09-19 ｜ MINOR ｜ ⚠ 輸出變更
+
+**四個清除入口（WFG「清除」鈕／LA「清空」鈕／WFG 切回「快捷設定」／LA 切回「快捷設定」）現在走同一套確認視窗；LA 切回「快捷設定」除了通道名稱等設定，也一併清空波形與已載入的檔案。⚠ 這兩個「切回快捷設定」的操作，同一組步驟在本版與 v4.52.0 的結果不同。**
+
+Bruce 2026-09-19 原話：
+> 「應該是要 LA 分頁跟 WFG 的設定是一樣的：在預設的快捷設定中，只要切回來，就是把所有波形和檔案清空（跟檔案清空那邊的意義是一樣的），然後通道名稱也要清空。其他相關設定也是清空」
+> 「但是不管是 WFG 分頁還是 LA 分頁，只要遇到預設選到快捷設定，或者是在波形上方區的清除按鈕，按下去要清除的時候，都要跳出『要清除全部設定嗎？』或『要清空波形嗎？』這類的警告視窗。這部分邏輯都是一樣的，所以用到快捷設定時也需要這樣處理。目前面板訊號模擬用到快捷設定時，並沒有跳出那個警告視窗，後續應該也要修改成一致才對。」
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 **逐項判、取最高者**。
+
+- **§1 判定表「操作流程」**：沒有任何入口消失或移位。四個入口都在原位，只是在**執行之前**多一道確認（多出來的「取消」是新的可用動作，舊的動作全部還在）→ MINOR 欄。
+- **R3（使用者能多做一件事）**：能在清除真的發生**之前反悔**（兩個下拉入口原本按下去就沒得救）⇒ **MINOR**。
+- **R1（修 bug）**：LA 切回「快捷設定」原本宣稱「完整復原」（該分支的既有註解），實際漏清波形與已載入的檔案 —— 這一項本身是 **PATCH ＋ ⚠ 輸出變更**。
+- **§2 案例 4（重構、行為不變）**：把 v4.48.0 另立的第二份確認視窗（`#wfg-la-clr-mask` ＋ `wfgLaClrShow/Cancel/Confirm()`）併回一份 ⇒ **PATCH**。
+- **R2**：不適用 —— 不開新波，wfg 仍在 4.x。
+- **R4（起始狀態／預設值）**：不適用 —— 開頁看到的東西與前一版逐項相同，要動手操作才會變。
+- 取最高者 → **MINOR**，`v4.52.0` → **v4.53.0**。
+
+**🔴 MAJOR 有認真判過，結論是不編 —— 理由與 v4.35.0 那一次同型，請覆核。**
+判定表「既有功能的輸出：**主動改變**」那一格，「LA 切回快捷設定」這條命中（原本波形與檔案會留著，本版清掉）。不編 MAJOR 的理由：① 沒有任何入口消失或移位，使用者原本會的每一個操作都在原位；② 被改變的是**清空動作的終點狀態**，而清空的終點本來就不是會被保存、匯出或拿去對數字的東西 —— 波形計算式與匯出檔案位元組本版一行未動；③ 這個改變是 Bruce 本人在本輪明確指示的，不是我方自行改設計；④ §1 明文：改動大小不是 MAJOR 的判準。**不確定往低編，寫明取捨供覆核（R2 補充 3）。**
+
+**⚠ 輸出變更（依 R1 的範圍定義）**：同一組操作序列（切回「快捷設定」）在 v4.52.0 與本版得到不同結果 —— WFG 側多一道確認視窗才會清除；LA 側除了原本就會重置的通道名稱／順序／分析器，現在波形與檔名徽章也會被清空。以 v4.52.0 建立的「切回快捷設定之後」的截圖基線要重建。**波形計算與匯出檔案不受影響。**
+
+### 🔴 這一版推翻了 v4.37.0 寫在程式碼裡的舊裁示
+
+`wfgLoadPresetFromSelect()` 原本的註解是：「『回到快捷設定』placeholder **不跳視窗**：Bruce 已裁示它與工具列『清除』行為一致，而清除是重置不是匯入」。
+
+**那句話的前提在 v4.35.0 就已經不成立了** —— 工具列「清除」自 v4.35.0 起本來就會先跳確認視窗。所以「與清除一致」現在的意思正好相反：**也要跳**。舊註解已就地改寫成新裁示並註明日期與原因，不是只把 `if (!key)` 那一行改掉（留著舊註解等於請下一個人改回去）。
+
+### 做了什麼
+
+| # | 需求 | 落點（行號以本版為準） |
+|---|---|---|
+| A | LA 切回「快捷設定」也清波形與已載入的檔案 | `wfgLaApplyQuickPreset()` 的 `!preset` 分支 `wfg.html:40595` —— **呼叫既有的 `wfgLaClearWaveform()`（13373）**，不另寫一份清空 |
+| B | WFG 切回「快捷設定」要跳確認視窗 | `wfgLoadPresetFromSelect()` `wfg.html:30290`（`wfgClrAskShow('tconPreset', …)` @30304） |
+| C | LA 切回「快捷設定」要跳確認視窗 ＋ 取消要轉回原值 | 新增 `wfgLaPresetRemember()`（40547）與 `wfgLaQuickPresetChanged()`（40550）；下拉改掛 `onfocus`／`onchange`（3026） |
+| D | 四個入口共用同一套確認視窗 | 新增 `WFG_CLR_ASKS`（30206）＋ `wfgClrAskShow/Cancel/Confirm()`（30225／30243／30252）；視窗 DOM 只剩 `#wfg-clr-mask`（3498） |
+
+**收斂成同一支的是 `wfgClrAskShow/Cancel/Confirm()`**：視窗本體、預設焦點給「取消」、「視窗不在就什麼都不做」、「取消 ＝ 什麼都沒發生」這四件事各只有一份程式碼。四個入口只提供「三個 i18n key」與「按下確定要做什麼」：
+
+- `wfgClrShow()`（30264）— WFG 工具列「清除」
+- `wfgLaClrShow()`（13435）— LA 工具列「清空」，v4.48.0 的 `wfgLaClrCancel/Confirm()` 與 `#wfg-la-clr-mask` 一併移除
+- `wfgLoadPresetFromSelect()`（30290）— WFG 切回 placeholder
+- `wfgLaQuickPresetChanged()`（40550）— LA 切回 placeholder
+
+🔴 **先問、後做**：四個入口在視窗開著時**一個狀態都沒動**。兩個下拉入口的「取消」只把下拉轉回 `_wfgPresetPrev`／`_wfgLaPresetPrev`（`focus` 時記下的舊值），不做任何還原 —— 因為根本沒有東西被改過。
+
+🔴 **確認視窗放在 change handler、不是放在 `wfgLaApplyQuickPreset()` 裡**：後者還有開頁還原（localStorage 存的 preset）等程式化呼叫端，視窗跳在那裡等於開頁就彈一個「要清空嗎」。
+
+### 文案（三語）
+
+| 入口 | title / body key | 為什麼是這一組 |
+|---|---|---|
+| WFG 清除鈕、WFG 切回 placeholder | `wfg.clrTitle` / `wfg.clrBody`（既有） | 這兩個入口做的事自 v4.35.0 起就是**同一件**（都是 `wfgResetToDefault()`）⇒ 同一份字，不是照抄 |
+| LA 清空鈕 | `wfg.laClrTitle` / `wfg.laClrBody`（既有） | 只清波形與波形帶出來的東西 |
+| LA 切回 placeholder | **新增** `wfg.laPreClrTitle` / `wfg.laPreClrBody` | 這個入口清得比「清空」鈕多（通道名稱與描述、通道順序、分析器清單、解碼展開狀態、可見通道都回預設），而 `wfg.laClrBody` 明寫著「保留不動：…通道名稱與順序…analyzer 清單」—— 照抄過來就是讓視窗承諾一件它不做的事。保留的只剩取樣與觸發設定 |
+
+三語（zh-TW／en／zh-CN）都補齊；視窗的 title／body／OK 由 `wfgClrAskShow()` **連 `data-i18n` 屬性一起換**，所以視窗開著時切語言字會跟著換（已驗）。使用者看得到的字裡沒有工具名稱或廠牌型號字樣。
+
+### 驗證（`tools/ui_probe.sh`，主機真 Chrome，非 jsdom）
+
+新增 `tools/wfg_clear_ask_probe.js`（51 條）。
+
+| 驗收項 | 結果 |
+|---|---|
+| ① WFG 切回 placeholder：視窗有跳 | ✅ 1c |
+| ① 取消 ⇒ 下拉轉回原值、**設定逐項未變** | ✅ 1h／1i（`#wfg-tcon-content` 內 599 個 input/select 逐項字串比對，「逐項相同」） |
+| ① 確定 ⇒ 等同 `wfgResetToDefault()` | ✅ 2f：與走「清除」按鈕的終點 **599 欄逐項相同** |
+| ② LA 切回 placeholder：視窗有跳、取消什麼都沒發生 | ✅ 4a／4h／4i／4j（波形 45155 亮點原封不動） |
+| ② 確定 ⇒ 波形清空、檔案清空、通道名稱回預設、分析器清空 | ✅ 5b（`hasWaveform=false`）／5d（檔名徽章清掉）／5e（16 個名稱全空＝預設名）／5f（analyzer 0）／5i（45155 → 20856 亮點，只剩格線與通道名） |
+| ② 清完之後改設定 demo 方波不得長回來 | ✅ 6a（`wfgLaCleared=true`，`updateSummary()` 後仍 `hasWaveform=false`） |
+| ③ 兩個清除按鈕既有行為不得退步 | ✅ `la_clear_probe.js` **43/43**（＋ `la_i2c_dataseq_probe` 51/51、`la_eeprom_retire_probe` 28/28、`wfg_oax_chain_probe` 37/37） |
+| ④ 四個入口走同一支實作（程式碼結構） | ✅ 0a～0d：四個入口的 `Function.toString()` 都含 `wfgClrAskShow(`；`[id$="clr-mask"]` 只剩 **1 個**；視窗兩顆按鈕的 onclick 是 `wfgClrAskConfirm()`／`wfgClrAskCancel()` |
+| ⑤ 三語 | ✅ `scan_untranslated_keys` 三語 ×（TCON／LA ／四種視窗）全過；截圖 `_tmp_shots_v4530/`（tconPreset／laPreset × zh-TW／en／zh-CN，共 6 張，未進版控） |
+| ⑥ 其餘閘門 | ✅ `check_cache_buster` / `check_line_buffer_half_step` / `check_nb_code_import` / `check_em01_code_import` / `check_ui_jargon` / `check_legend_items` 全過 |
+
+🔴 **每一條都另外驗過「拿掉修正會失敗」**（同一支 probe 跑在下列頁面上）：
+
+| 對照組 | 結果 |
+|---|---|
+| `HEAD`（v4.52.0 原版） | **10/13 紅**：0a～0d（沒有共用實作、`#wfg-clr-mask` ＋ `#wfg-la-clr-mask` 兩份）、1c（視窗沒跳）、1d（**還沒確認設定就被清了**：`wfg-vtotal 1112→1125`、`wfg-htotal 2080→2200`…），probe 在 `#wfg-clr-body` 不存在處中止 |
+| mutant：拿掉 A（`!preset` 分支不呼叫 `wfgLaClearWaveform()`） | **6 紅**：5b（波形還在）、5c（`cleared=false`）、5d（檔名徽章還在）、5i（45155 亮點沒變）、6a／6b（demo 方波長回來） |
+| mutant：拿掉 B（WFG placeholder 不跳視窗） | **5 紅**：1c／1d／1h／1i ＋ 0b |
+| mutant：拿掉 C（LA placeholder 不跳視窗） | **8 紅**：4a～4e／4h／4i ＋ 0b |
+
+### 落點
+
+| 檔 | 內容 |
+|---|---|
+| `wfg.html` | 確認視窗 DOM 併成一份（3473-3521）；共用實作 ＋ WFG 入口（30198-30285）；LA 清空入口（13430-13436）；`wfgLoadPresetFromSelect()`（30290）；LA change handler（40540-40566）；`!preset` 分支補清空（40595）；`__wfgLaProbe` 補 `channelNames`／`setChannelName` 出口 |
+| `common/i18n.js` | 新增 `wfg.laPreClrTitle`／`wfg.laPreClrBody`（三語） |
+| `common/version.js` | `wfg: v4.52.0 → v4.53.0` |
+| `wfg.html`／`index.html` 的 `?v=` | `20260919wfg4520` → `20260919wfg4530` |
+| `tools/wfg_clear_ask_probe.js` | 新增（51 條） |
+| `tools/la_clear_probe.js` | 三個選擇器改指向合併後的視窗（`#wfg-la-clr-mask/-ok/-cancel` → `#wfg-clr-mask/-ok/-cancel`）。**斷言一條未改、仍是 43 條全過** |
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.52.0 — 2026-09-19 ｜ MINOR ｜ ⚠ 輸出變更
 
 **LA 分析器的 I2C-EEPROM 下架：新增選單裡看不到這一項，使用者選不到；既有設定檔裡已經存在的那一顆仍然照常載入與解碼，只是加不回來。**
