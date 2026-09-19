@@ -1445,6 +1445,13 @@
   .wfg-combo-fixed { width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
     color: #cbd5e1; background: #16203a; border: 1px dashed #475569; border-radius: 6px;
     cursor: default; user-select: none; }
+  /* v4.49.0：OAX 串接的唯讀提示（整條鏈／環狀警告）。 */
+  .wfg-oax-chain { margin-top: 6px; padding: 5px 8px; font-size: 12px; line-height: 1.5;
+    color: #a5b4fc; background: #16203a; border-left: 3px solid #6366f1; border-radius: 4px;
+    word-break: break-all; }
+  .wfg-oax-chain.cyc { color: #fca5a5; border-left-color: #ef4444; }
+  .wfg-oax-chain-k { color: #94a3b8; }
+  .wfg-oax-chain-w { color: #fca5a5; font-weight: 600; }
   .wfg-field-row { display: flex; gap: 8px; }
   .wfg-field-row .wfg-field { flex: 1; }
   .wfg-radio-group { display: flex; gap: 6px; }
@@ -3673,8 +3680,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260919wfg4480"></script>
-<script src="common/i18n.js?v=20260919wfg4480"></script>
+<script src="common/version.js?v=20260919wfg4490"></script>
+<script src="common/i18n.js?v=20260919wfg4490"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -5189,6 +5196,12 @@ function wfgInvalidateDirty(gpioIdx) {
   }
   // OAX: conservative clear (cross-channel dependencies possible)
   _wfgOaxCache = null;
+  /* 🔴 v4.49.0：`_oaxSeries` 也要一起清掉 —— 它掛在 `_wfgTransitionCache` 上，而這條
+     路徑**保留**該物件、只重算其中一條的轉態表，所以合成序列會整份留著。
+     舊版就已經有這個洞（改 OAX 對象的 R_DLY，鏈頭的合成波形不會跟著動），只是
+     兩條訊號時比較不容易撞見；串接之後一條鏈上任何一節的參數都會影響鏈頭，
+     撞見的機率變高。這裡與上一行同樣採保守清除，不去算「哪幾條會受影響」。 */
+  if (_wfgTransitionCache) _wfgTransitionCache._oaxSeries = null;
   // Minimap: mark stale
   _wfgMinimapCache = null;
   _wfgAnalogDataCache = {};
@@ -22459,18 +22472,137 @@ function wfgGetInitLevel(smart, atLine, htotal, gpio) {
   return level;
 }
 
+/* ══ 🔴 v4.49.0：OAX（OR／AND／XOR）沿著 OAX_SEL **串接**，不再只合成兩條 ═══════
+   Bruce 2026-09-19：「假設我有 A、B、C、D 四個訊號，A 是 OR B、B 是 OR C、C 是
+   OR D，這樣照理說 A 應該要有一起把 A、B、C、D 都 OR 進來的效果。」
+
+   ── 舊版為什麼串不起來（根因，不是猜的）──────────────────────────────────
+   舊版這一支寫的是 `var otherSmart = allGpioSmarts[gpio.oax_sel];`，而
+   `allGpioSmarts` 是 `_wfgTransitionCache.transitions` ＝ **每條訊號 OAX 之前的
+   原始轉態表**。所以 A 看到的永遠是 B 的原始波形，B 身上掛的「OR C」對 A 完全
+   不存在 ⇒ 頂多兩條，串不下去。`_wfgOaxSeries()`、`wfgApplyOAX()`、
+   `wfgPhGateCombined()` 三處是同一個寫法、同一個病。
+
+   ── 語意（Bruce 2026-09-19 確認）─────────────────────────────────────────
+       result(X) = X.oax_mode === 0 ? base(X)
+                                    : comb(X.oax_mode, base(X), result(X.oax_sel))
+
+   **有方向、不對稱**：A OR B 不會讓 B 也含 A，站在鏈頭的那一條才吃到整條鏈。
+   Bruce：「CK3 OR CK5、CK5 OR CK7、CK7 OR LC、LC OR VS ⇒ 最多 OR 的是 CK3」，
+   反過來「CK5 OR CK3、CK3 OR CK7…」就換成 CK5 吃到全部 —— 這個順序性就是上式
+   的直接結果，不是另外加的規則。
+
+   **每一節套自己的 mode**，不先把整條攤平成同一種運算：
+   CK3 OR CK5、CK5 AND CK7 ⇒ `CK3 = CK3 | (CK5 & CK7)`。
+
+   ── 環狀指向 ─────────────────────────────────────────────────────────────
+   A→B→A 必須停下來，否則是無限遞迴。`wfgOaxChain()` 走訪時帶 visited set，
+   **下一節已經走過就停在當下這一節、把它當 base**。刻意不是「把環頭再合成
+   一次」—— 那會讓 XOR 出現「自己 XOR 自己＝恆 0」的荒謬結果，而且同一條訊號
+   被算兩次本來就沒有物理意義。偵測到環會 console.warn（每條鏈一次）並在訊號
+   卡片的 OAX 列印出紅字，不靜默吞掉。 */
+
+/* 走訪 OAX 鏈。回傳 { nodes: [{idx, mode}], cycle, sig }。
+     • nodes[0] 一定是 gpioIdx 自己
+     • **最後一節的 mode 恆為 0**（＝只取自己的 base），折疊端靠這個收尾
+     • sig ＝ 整條鏈的指紋，所有快取 key 一律用它（見 `_wfgOaxSeries()` 的說明）
+   走訪帶 visited set，所以步數上限就是 GPIO 條數，不可能不終止。 */
+function wfgOaxChain(gpioIdx) {
+  var nodes = [], seen = {}, idx = gpioIdx | 0, cycle = false, guard = 0;
+  var lim = (wfgGpios ? wfgGpios.length : 0) + 2;
+  while (guard++ < lim) {
+    seen[idx] = 1;
+    var g = wfgGpios[idx];
+    var m = g ? (g.oax_mode | 0) : 0;
+    var s = g ? (g.oax_sel | 0) : 0;
+    /* 收尾條件與舊版**逐字相同**（mode 0／越界／指向自己），一條都沒有新增或放寬。 */
+    if (!g || m === 0 || s < 0 || s >= wfgGpios.length || s === idx) { nodes.push({ idx: idx, mode: 0 }); break; }
+    if (seen[s]) { nodes.push({ idx: idx, mode: 0 }); cycle = true; break; }   // 環：停在這一節
+    nodes.push({ idx: idx, mode: m });
+    idx = s;
+  }
+  /* 理論上走不到（visited set 保證步數 ≤ GPIO 條數），但真的走到就必須把最後一節
+     降成 base，否則折疊端會拿不到起點。寧可多這三行也不要留一個會炸的分支。 */
+  if (nodes.length && nodes[nodes.length - 1].mode !== 0) { nodes[nodes.length - 1].mode = 0; cycle = true; }
+  var sig = wfgOaxChainSig(nodes, 0);
+  return { nodes: nodes, cycle: cycle, sig: sig };
+}
+/* 從第 `from` 節起算的後綴指紋。值完全由「節點順序 ＋ 每節的 mode」決定，
+   所以同字串必同值 —— 拿它當快取 key 是安全的。 */
+function wfgOaxChainSig(nodes, from) {
+  var s = '';
+  for (var i = from | 0; i < nodes.length; i++) s += (i > (from | 0) ? '>' : '') + nodes[i].idx + ':' + nodes[i].mode;
+  return s;
+}
+/* 給人看的鏈文字：`CK3 OR CK5 OR CK7` */
+function wfgOaxChainText(chain) {
+  var s = '', nodes = chain.nodes;
+  for (var i = 0; i < nodes.length; i++) {
+    s += String(WFG_GPIO_NAMES[nodes[i].idx] || nodes[i].idx).toUpperCase();
+    if (nodes[i].mode) s += ' ' + (nodes[i].mode === 1 ? 'OR' : nodes[i].mode === 2 ? 'AND' : 'XOR') + ' ';
+  }
+  return s;
+}
+/* 環狀指向的提示。同一條鏈只叫一次（繪製每秒會進來很多遍，不去重會洗版）。 */
+var _wfgOaxCycleNoted = {};
+function _wfgOaxNoteCycle(chain) {
+  if (_wfgOaxCycleNoted[chain.sig]) return;
+  _wfgOaxCycleNoted[chain.sig] = 1;
+  console.warn('[wfg] OAX 串接偵測到環狀指向：' + wfgOaxChainText(chain)
+    + ' —— 已在最後一節停止串接（不會無限遞迴）。請檢查 OAX_SEL 的指向。');
+}
+window.wfgOaxChain = wfgOaxChain;
+window.wfgOaxChainText = wfgOaxChainText;
+/* 🔴 驗證用的出口（`tools/wfg_oax_chain_probe.js`）。整份 wfg 的程式碼包在一個 IIFE
+   裡，`wfgGpios`／`wfgEnsureTransitions()` 這些都不是全域，外部 probe 拿不到；
+   沒有這個出口，OAX 就只能用「看畫面像不像」來驗，而那正是驗不出快取吃到舊值的
+   那種驗法。與既有的 `window.wfgDebug*` 一樣是唯讀查詢用，不改任何狀態。 */
+window.wfgDebugOax = {
+  gpios:       function () { return wfgGpios; },
+  channels:    function () { return wfgChannels; },
+  frame:       function () { return wfgFrame; },
+  ensure:      function () { return wfgEnsureTransitions(); },
+  totalLines:  function () { return wfgTotalLines(); },
+  expandRange: function (sm, a, b, h) { return wfgExpandRange(sm, a, b, h); },
+  initLevel:   function (sm, a, h, g) { return wfgGetInitLevel(sm, a, h, g); },
+  oaxRange:    function (gi, all, h, a, b) { return wfgGetOaxForRange(gi, all, h, a, b); },
+  series:      function (gi, all, h, n) { return _wfgOaxSeries(gi, all, h, n); },
+  chain:       function (gi) { return wfgOaxChain(gi); },
+  chainText:   function (c) { return wfgOaxChainText(c); }
+};
+
 // ─── Viewport-aware OAX: expand + apply OAX for a line range ───
 function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine) {
   var gpio = wfgGpios[gpioIdx];
   var baseSmart = allGpioSmarts[gpioIdx];
+  /* 🔴 短路條件與舊版逐字相同，而且**擺在走鏈之前**：`oax_mode === 0` 是絕大多數
+     訊號的情況，也有每像素呼叫本支的路徑（minimap），不讓它們多付走鏈的成本。 */
   if (gpio.oax_mode === 0 || gpio.oax_sel < 0 || gpio.oax_sel >= wfgGpios.length || gpio.oax_sel === gpioIdx) {
     return { transitions: wfgExpandRange(baseSmart, startLine, endLine, effHtotal), initLevel: wfgGetInitLevel(baseSmart, startLine, effHtotal, wfgGpios[gpioIdx]) };
   }
-  var otherSmart = allGpioSmarts[gpio.oax_sel];
-  var baseExp = wfgExpandRange(baseSmart, startLine, endLine, effHtotal);
-  var otherExp = wfgExpandRange(otherSmart, startLine, endLine, effHtotal);
-  var baseInit = wfgGetInitLevel(baseSmart, startLine, effHtotal, wfgGpios[gpioIdx]);
-  var otherInit = wfgGetInitLevel(otherSmart, startLine, effHtotal, wfgGpios[gpio.oax_sel]);
+  var _chain = wfgOaxChain(gpioIdx);
+  if (_chain.cycle) _wfgOaxNoteCycle(_chain);
+  var _nodes = _chain.nodes;
+  /* 由**鏈尾往回折**：先取最後一節的 base，再一節一節往前套各自的 mode。
+     兩節的情況與舊版逐值相同（cur 就是舊版的 otherExp／otherInit）。 */
+  var _tailIdx = _nodes[_nodes.length - 1].idx;
+  var _cur = {
+    transitions: wfgExpandRange(allGpioSmarts[_tailIdx], startLine, endLine, effHtotal),
+    initLevel: wfgGetInitLevel(allGpioSmarts[_tailIdx], startLine, effHtotal, wfgGpios[_tailIdx])
+  };
+  for (var _k = _nodes.length - 2; _k >= 0; _k--) {
+    var _mi = _nodes[_k].idx;
+    _cur = _wfgOaxCombineRange(
+      wfgExpandRange(allGpioSmarts[_mi], startLine, endLine, effHtotal),
+      wfgGetInitLevel(allGpioSmarts[_mi], startLine, effHtotal, wfgGpios[_mi]),
+      _cur.transitions, _cur.initLevel, _nodes[_k].mode, effHtotal);
+  }
+  return _cur;
+}
+/* 兩條**已展開**的轉態序列做一次邏輯合成。本體是舊版 `wfgGetOaxForRange()` 下半段
+   原封不動搬過來的（含 O(n log n) 的二分查找與所有原註解），只是把「另一條」從
+   「對方的原始波形」換成參數傳進來的「對方 OAX 之後的結果」。 */
+function _wfgOaxCombineRange(baseExp, baseInit, otherExp, otherInit, oaxMode, effHtotal) {
   // Merge transition points
   var allPts = {};
   function addP(line, dly) { var k = line + ':' + dly; if (!allPts[k]) allPts[k] = { line: line, dly: dly }; }
@@ -22534,7 +22666,6 @@ function wfgGetOaxForRange(gpioIdx, allGpioSmarts, effHtotal, startLine, endLine
   var otherFn = makeLevelFn(otherExp, otherInit, effHtotal);
   var result = [];
   var prevLvl = -1;
-  var oaxMode = gpio.oax_mode;
   for (var i = 0; i < ptList.length; i++) {
     var p = ptList[i];
     var a = baseFn(p.line, p.dly), b = otherFn(p.line, p.dly);
@@ -22649,25 +22780,64 @@ function _wfgOaxSeries(gpioIdx, allGpioSmarts, effHtotal, totalLines) {
   } else {
     store = {};    // 沒有轉態表可掛（理論上不會發生）就當一次性使用，不快取
   }
-  var gpio = wfgGpios[gpioIdx];
-  /* 🔴 快取 key 一定要含 oax_mode／oax_sel：`wfgEnsureTransitions()` 的版本記號只認
-     effVtotal／effHtotal／frameCount，改 OAX 的模式或來源**不會**讓它 +1。
-     只用 gpioIdx 當 key 的話，改完 OAX 會拿到上一組設定的序列（畫得出來、值是錯的）。 */
-  var ckey = gpioIdx + ':' + gpio.oax_mode + ':' + gpio.oax_sel;
-  var hit = store[ckey];
-  if (hit) return hit;
-  var baseSmart = allGpioSmarts[gpioIdx];
-  var otherSmart = allGpioSmarts[gpio.oax_sel];
-  var A = _wfgSmartToPosLvl(baseSmart, effHtotal, totalLines);
-  var B = _wfgSmartToPosLvl(otherSmart, effHtotal, totalLines);
-  var baseInit = wfgGetInitLevel(baseSmart, 0, effHtotal, gpio);
-  var otherInit = wfgGetInitLevel(otherSmart, 0, effHtotal, wfgGpios[gpio.oax_sel]);
-  var oaxMode = gpio.oax_mode;
+  /* 🔴 v4.49.0：快取 key 從「自己那一節」改成「**整條鏈的後綴指紋**」。
+     舊 key 是 `gpioIdx:oax_mode:oax_sel` —— 它只認自己那一節。串接之後
+     **鏈上任何一節改了 mode/sel 都會改變結果，但舊 key 不會變** ⇒ 鏈頭會吃到
+     改動前的序列（畫得出來、值是錯的）。這是串接必踩的坑，所以 key 必須涵蓋
+     整條鏈。`wfgOaxChainSig()` 的字串由「節點順序＋每節 mode」決定，同字串必
+     同值，拿它當 key 是安全的。
+     （鏈以外的變因仍由 `tc._oaxSeries` 掛在轉態表物件上處理：轉態表被換掉＝
+     timing 變了＝序列自動跟著消失，這一點與 v4.27.3 相同。）
+
+     🔴 **逐段後綴各自存一份**，不是只存鏈頭那一份：CK3→CK5→CK7→LC→VS 折完之後
+     CK5／CK7／LC／VS 的後綴都已經算好，它們自己被查時直接命中 ⇒ 五條通道全畫
+     出來是 O(鏈長)，不是 O(鏈長²)。 */
+  var chain = wfgOaxChain(gpioIdx);
+  if (chain.cycle) _wfgOaxNoteCycle(chain);
+  var nodes = chain.nodes;
+  function sufKey(from) { return wfgOaxChainSig(nodes, from) + '@' + totalLines; }
+  function initOf(gi) { return wfgGetInitLevel(allGpioSmarts[gi], 0, effHtotal, wfgGpios[gi]); }
+  var series = null;
+  for (var k = nodes.length - 1; k >= 0; k--) {
+    var ckey = sufKey(k);
+    var hit = store[ckey];
+    if (hit) { series = hit; continue; }
+    var gi = nodes[k].idx;
+    var A = _wfgSmartToPosLvl(allGpioSmarts[gi], effHtotal, totalLines);
+    var aInit = initOf(gi);
+    if (k === nodes.length - 1) {
+      /* 鏈尾：只有自己的 base，沒有東西要合成 —— 但**必須先對 level 去重**。
+         呼叫端（繪製的 per-pixel 分支）的等價性證明寫著「本序列已對 level 去重，
+         相鄰兩筆必然一高一低」，`sawToggle` 就是靠這一點判的。`_wfgSmartToPosLvl()`
+         的產出是原始轉態，同準位的點可能連續出現，不去重會把平坦的像素畫成整格
+         高的轉態柱。舊版沒踩到只是因為它永遠走合成那條（合成天生會去重）。 */
+      series = _wfgOaxDedupSeries(A, aInit);
+    } else {
+      series = _wfgOaxMergeSeries(A, aInit, series, nodes[k].mode);
+    }
+    store[ckey] = series;
+  }
+  return series;
+}
+/* 把一條原始的 (pos, level) 序列對 level 去重（只留真正改變準位的那些點）。 */
+function _wfgOaxDedupSeries(A, initLevel) {
+  var outPos = new Float64Array(A.n), outLvl = new Uint8Array(A.n);
+  var m = 0, prev = initLevel;
+  for (var i = 0; i < A.n; i++) {
+    if (A.lvl[i] !== prev) { outPos[m] = A.pos[i]; outLvl[m] = A.lvl[i]; m++; prev = A.lvl[i]; }
+  }
+  return { pos: outPos, lvl: outLvl, n: m, initLevel: initLevel };
+}
+/* 兩條**整條 timeline 的 (pos, level) 序列**做一次邏輯合成（雙指標，O(n)）。
+   本體是舊版 `_wfgOaxSeries()` 下半段原封不動搬過來的，只是把「另一條」從
+   「對方的原始波形」換成參數傳進來的「對方 OAX 之後的序列」。 */
+function _wfgOaxMergeSeries(A, aInit, B, oaxMode) {
   function comb(a, b) { return oaxMode === 1 ? (a | b) : oaxMode === 2 ? (a & b) : (a ^ b); }
-  var initLevel = comb(baseInit, otherInit);
+  var bInit = B.initLevel;
+  var initLevel = comb(aInit, bInit);
   var cap = A.n + B.n;
   var outPos = new Float64Array(cap), outLvl = new Uint8Array(cap);
-  var m = 0, ia = 0, ib = 0, curA = baseInit, curB = otherInit, prev = initLevel;
+  var m = 0, ia = 0, ib = 0, curA = aInit, curB = bInit, prev = initLevel;
   while (ia < A.n || ib < B.n) {
     var pa = (ia < A.n) ? A.pos[ia] : Infinity;
     var pb = (ib < B.n) ? B.pos[ib] : Infinity;
@@ -22677,9 +22847,7 @@ function _wfgOaxSeries(gpioIdx, allGpioSmarts, effHtotal, totalLines) {
     var c = comb(curA, curB);
     if (c !== prev) { outPos[m] = p; outLvl[m] = c; m++; prev = c; }
   }
-  var series = { pos: outPos, lvl: outLvl, n: m, initLevel: initLevel };
-  store[ckey] = series;
-  return series;
+  return { pos: outPos, lvl: outLvl, n: m, initLevel: initLevel };
 }
 /* 第一個 pos >= v 的位置 */
 function _wfgOaxLowerBound(pos, n, v) {
@@ -22695,14 +22863,28 @@ function _wfgOaxUpperBound(pos, n, v) {
 }
 
 // ─── OAX: apply OAX logic to transitions ───
+/* 🔴 v4.49.0：這一支同樣改成沿 OAX_SEL 串接。它目前**沒有任何呼叫端**
+   （`wfgGetOaxTransitions()` 也沒有），但留著一份「只合成兩條」的舊實作，就是
+   CLAUDE.md 講過的「同一件事兩套標準」——下一個人從這裡抄過去就又錯一次。 */
 function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
   var gpio = wfgGpios[gpioIdx];
   if (gpio.oax_mode === 0) return baseTransitions;
   var otherIdx = gpio.oax_sel;
   if (otherIdx < 0 || otherIdx >= wfgGpios.length || otherIdx === gpioIdx) return baseTransitions;
-  var otherTransitions = allGpioTransitions[otherIdx];
-  if (!otherTransitions) return baseTransitions;
-
+  var _chain = wfgOaxChain(gpioIdx);
+  if (_chain.cycle) _wfgOaxNoteCycle(_chain);
+  var _nodes = _chain.nodes;
+  var _cur = allGpioTransitions[_nodes[_nodes.length - 1].idx];
+  if (!_cur) return baseTransitions;
+  for (var _k = _nodes.length - 2; _k >= 0; _k--) {
+    var _self = (_k === 0) ? baseTransitions : allGpioTransitions[_nodes[_k].idx];
+    if (!_self) return baseTransitions;
+    _cur = _wfgApplyOaxPair(_self, _cur, _nodes[_k].mode, htotal);
+  }
+  return _cur;
+}
+/* 兩條轉態表做一次邏輯合成（舊版 `wfgApplyOAX()` 的下半段，逐字搬過來）。 */
+function _wfgApplyOaxPair(baseTransitions, otherTransitions, oaxMode, htotal) {
   var otherGetLevel = wfgBuildLevelArray(otherTransitions, htotal);
   var baseGetLevel = wfgBuildLevelArray(baseTransitions, htotal);
 
@@ -22730,8 +22912,8 @@ function wfgApplyOAX(gpioIdx, baseTransitions, allGpioTransitions, htotal) {
     var a = baseGetLevel(p.line, p.dly);
     var b = otherGetLevel(p.line, p.dly);
     var combined;
-    if (gpio.oax_mode === 1) combined = (a | b);
-    else if (gpio.oax_mode === 2) combined = (a & b);
+    if (oaxMode === 1) combined = (a | b);
+    else if (oaxMode === 2) combined = (a & b);
     else combined = (a ^ b);
     if (combined !== prevLevel) {
       result.push({ line: p.line, dly: p.dly, level: combined });
@@ -22767,9 +22949,6 @@ function wfgPhGateCombined(gpioIdx, transitions) {
   var otherIdx = gpio.oax_sel;
   // 與 wfgApplyOAX() 完全相同的成立條件，不另訂一套
   if (!gpio.oax_mode || otherIdx < 0 || otherIdx >= wfgGpios.length || otherIdx === gpioIdx) return base;
-  var otherRec = transitions[otherIdx];
-  var other = otherRec && otherRec.phGate;
-  if (!other) return base;
   function uniFrame(a, b) {
     if (!a) return b || null;
     if (!b || b.length !== a.length) return a;
@@ -22777,7 +22956,19 @@ function wfgPhGateCombined(gpioIdx, transitions) {
     for (var i = 0; i < a.length; i++) out[i] = a[i] | (b[i] & 3);   // b 只取閘門 bit
     return out;
   }
-  return { g0: uniFrame(base.g0, other.g0), g1: uniFrame(base.g1, other.g1) };
+  /* 🔴 v4.49.0：聯集的對象從「下一條」改成「**整條鏈上的每一條**」。
+     波形端已經把整條鏈都合進來了，遮罩只認第二條的話，第三條之後打出來的脈衝
+     還是會整段灰掉 —— 正是 v3.26.0 當初要修的那個症狀，只是換成鏈的情境。 */
+  var chain = wfgOaxChain(gpioIdx);
+  var g0 = base.g0, g1 = base.g1;
+  for (var k = 1; k < chain.nodes.length; k++) {
+    var otherRec = transitions[chain.nodes[k].idx];
+    var other = otherRec && otherRec.phGate;
+    if (!other) continue;      // toggle 訊號沒有 phGate（v3.24.2），不替它猜代用值
+    g0 = uniFrame(g0, other.g0);
+    g1 = uniFrame(g1, other.g1);
+  }
+  return { g0: g0, g1: g1 };
 }
 
 // ─── TCON Internal Rows Drawing ───
@@ -35022,6 +35213,23 @@ function wfgRenderGpioList(focusIdx) {
         html += '<option value="' + oi + '"' + ((g.oax_sel | 0) === oi ? ' selected' : '') + '>' + WFG_GPIO_NAMES[oi].toUpperCase() + '</option>';
       }
       html += '</select></div></div>';
+    }
+
+    /* 🔴 v4.49.0：串接之後「這條實際上合成了哪些訊號」不能只存在腦袋裡。
+       OAX_SEL 一格只看得到下一條，鏈有三節以上時使用者根本看不出全貌；環狀指向
+       更是完全無聲（舊版會無限遞迴，新版會停，但停了也要講）。
+       所以只要鏈超過一節就把整條印出來，有環就印紅字。
+       這是**唯讀提示，不是新的輸入欄位** —— Bruce 的既有規則是版面越精簡越好，
+       多訊號一律靠串接自然得到，不加多選介面。 */
+    if (!_comboName) {
+      var _ch = wfgOaxChain(i);
+      if (_ch.nodes.length > 1 || _ch.cycle) {
+        html += '<div class="wfg-oax-chain' + (_ch.cycle ? ' cyc' : '') + '">'
+          + '<span class="wfg-oax-chain-k">' + t('wfg.oaxChainLabel') + '</span> '
+          + escapeHtml(wfgOaxChainText(_ch))
+          + (_ch.cycle ? ' <span class="wfg-oax-chain-w">' + t('wfg.oaxChainCycle') + '</span>' : '')
+          + '</div>';
+      }
     }
 
     html += '</div></div>';

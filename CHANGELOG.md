@@ -22,6 +22,86 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.49.0 — 2026-09-19 ｜ MINOR ｜ ⚠ 輸出變更
+
+**OAX（OR／AND／XOR）沿著 `OAX_SEL` 串接，一條訊號可以合成整條鏈，不再頂多兩條。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+- **R3（多能做一件事 → MINOR）**：這一版之後使用者能做「把三條以上訊號合成到同一條」——以前做不到，`OAX_SEL` 一格只吃得到一條。**這是本版的最高級別。**
+- §1 判定表「功能增減：新增獨立功能 → MINOR」：訊號卡片多了一列唯讀的「實際合成：…」提示（含環狀警告）。屬新增，既有控制項一個都沒移位。
+- **R1（修 bug 即使畫面會變仍是 PATCH，但要標 `⚠ 輸出變更`）**：原本已經掛著三節以上鏈的設定檔（例如 MNT 機種常見的 `CK3→CK5→CK7→LC→VS`），舊版只合成前兩條、新版合成整條 ⇒ **同一份檔案重開波形會不一樣**。依 R1 的範圍定義屬「同一操作序列得到不同結果」，必須標記，讓後續回歸比對不會把預期內的改變誤報成回歸。
+- **不是 MAJOR，取捨寫明供覆核**：`OAX_MODE` / `OAX_SEL` 兩個下拉一字未改、位置未動、沒有任何功能被移除，使用者原本會的操作全部還在（判定表的 MAJOR 核心問句）。唯一可辯的是 §2 案例 8「既有公式主動改設計 → MAJOR」——舊定義是「自己 OP **對方的原始波形**」，新定義是「自己 OP **對方合成後的結果**」。**本版判 MINOR 不判 MAJOR**，理由是 Bruce 2026-09-19 的原話把舊行為定性為沒做到的功能而不是另一種設計：「假設我有 A、B、C、D 四個訊號，A 是 OR B、B 是 OR C、C 是 OR D，這樣**照理說** A 應該要有一起把 A、B、C、D 都 OR 進來的效果」。依 R2 補充 ③「不確定一律往低編，並在判定依據寫明取捨供覆核 —— 編低了下次可補，編高了會永久留在 git commit 訊息裡改不掉」。
+
+### 起因
+
+Bruce 2026-09-19：「它這個 OR 的功能，你看一下程式碼是不是頂多只能 OR 兩個訊號？」
+
+是。根因在三個地方是同一行寫法：
+
+```js
+var otherSmart = allGpioSmarts[gpio.oax_sel];   // wfgGetOaxForRange() / _wfgOaxSeries()
+var otherTransitions = allGpioTransitions[otherIdx];  // wfgApplyOAX()
+```
+
+`allGpioSmarts` ＝ `_wfgTransitionCache.transitions` ＝ **每條訊號 OAX 之前的原始轉態表**。所以 A 看到的永遠是 B 的原始波形，B 身上掛的「OR C」對 A 完全不存在。`wfgPhGateCombined()`（PH_CNT 遮罩）同病。
+
+### 語意（Bruce 確認）
+
+```
+result(X) = X.oax_mode === 0 ? base(X)
+                             : comb(X.oax_mode, base(X), result(X.oax_sel))
+```
+
+- **有方向、不對稱**：`A OR B` 不會讓 B 也含 A。站在鏈頭的那一條才吃到整條鏈。
+  Bruce：「CK3 OR CK5、CK5 OR CK7、CK7 OR LC、LC OR VS ⇒ 最多 OR 的是 **CK3**」；反過來排就換成 **CK5** 吃到全部。**這個順序性就是上式的直接結果**，不是另外加的規則。
+- **每一節套自己的 mode**，不先把整條攤平成同一種運算：`CK3 OR CK5`、`CK5 AND CK7` ⇒ `CK3 = CK3 | (CK5 & CK7)`。
+- OR／AND／XOR 一視同仁，transition 與**初始位準**走同一套折疊（不會只改波形漏掉 init）。
+
+### 改了什麼
+
+| 函式 | 改動 |
+|---|---|
+| `wfgOaxChain()` / `wfgOaxChainSig()` / `wfgOaxChainText()`（新增） | 沿 `OAX_SEL` 走訪成節點串，帶 visited set。最後一節的 mode 恆為 0，折疊端靠它收尾 |
+| `wfgGetOaxForRange()` | 由鏈尾往回折；`oax_mode === 0` 的短路**擺在走鏈之前**，非 OAX 訊號一步都沒有多付 |
+| `_wfgOaxCombineRange()`（新增） | 舊版下半段原封不動搬出來，「另一條」改由參數傳入 |
+| `_wfgOaxSeries()` | 同樣改成折疊；**快取 key 改為整條鏈的後綴指紋**（見下） |
+| `_wfgOaxMergeSeries()` / `_wfgOaxDedupSeries()`（新增） | 雙指標合成／單條去重 |
+| `wfgApplyOAX()` ＋ `_wfgApplyOaxPair()` | 一併改成串接。這一支目前沒有呼叫端，但留一份「只合成兩條」的舊實作＝同一件事兩套標準，下一個人從這裡抄過去就又錯一次 |
+| `wfgPhGateCombined()` | PH_CNT 遮罩的聯集對象由「下一條」改成「鏈上每一條」 |
+| `wfgInvalidateDirty()` | 清掉 `_wfgTransitionCache._oaxSeries`（見下） |
+| `wfgRenderGpioList()` ＋ `.wfg-oax-chain` CSS ＋ 兩個 i18n key | 訊號卡片印出整條鏈，環狀時印紅字 |
+| `window.wfgDebugOax`（新增） | 驗證用唯讀出口（wfg 整份包在 IIFE 裡，外部 probe 拿不到內部符號） |
+
+### 環狀指向
+
+`A→B→A` 這種環會無限遞迴。`wfgOaxChain()` 走訪帶 visited set，**下一節已經走過就停在當下這一節、把它當 base**。
+
+🔴 刻意**不是**「把環頭再合成一次」：那會讓同一條訊號被算兩次，XOR 會出現「自己 XOR 自己＝恆 0」的荒謬結果。偵測到環會 `console.warn`（每條鏈一次，不洗版）**並在訊號卡片印紅字** —— 不靜默吞掉。
+
+### 🔴 快取失效（串接的必踩坑）
+
+`_wfgOaxSeries()` 舊的 key 是 `gpioIdx:oax_mode:oax_sel` —— 它只認自己那一節。串接之後**鏈上任何一節改了都會改變結果，但那個 key 不會變** ⇒ 鏈頭會吃到改動前的序列（畫得出來、值是錯的）。
+
+兩件事一起做：
+
+1. key 改成 `wfgOaxChainSig()`（節點順序＋每節 mode）。字串由這兩者決定，同字串必同值。**逐段後綴各自存一份**，所以 `CK3→CK5→CK7→LC→VS` 折完之後 CK5／CK7／LC／VS 各自被查時直接命中 ⇒ 五條全畫是 O(鏈長) 不是 O(鏈長²)。
+2. `wfgInvalidateDirty()` 補上清 `_oaxSeries`。這條路徑**保留** `_wfgTransitionCache` 物件、只重算其中一條的轉態表，合成序列會整份留著。**這個洞舊版就有**（改 OAX 對象的 `R_DLY`，鏈頭波形不會動），只是兩條訊號時較不易撞見。
+
+### 順帶修正
+
+`OAX_SEL 指向自己` 且 `OAX_MODE = XOR` 時，繪製的兩條路徑本來給不同答案：`wfgGetOaxForRange()` 短路回傳 base，dense 的 `_wfgOaxSeries()` 卻做 `base XOR base ＝ 恆 0`。兩條現在一致回傳 base，與 v4.22.2 明訂的「`oax_sel === 自己的 index` ＝ 這條不做 COMBO 運算」相符。
+
+### 驗證
+
+`tools/wfg_oax_chain_probe.js`（新增，真瀏覽器：`tools/ui_probe.sh wfg.html tools/wfg_oax_chain_probe.js`）。期望值一律由 **OAX 之前的 base** 獨立算出，不拿受測路徑自己的輸出當期望值。拿 Bruce 2026-09-19 的實際 EM01／MNT 設定檔跑：**38 條全過**。
+
+每一條正面都配一條反面：舊版（只合成兩條）與新版必須不同（實測 high 6,301 vs 17,777，鏈尾獨有 11,476 個取樣點）；混用 mode 的結果與「全 OR」「全 AND」都必須不同；環狀不得重複合成；**改了鏈尾之後鏈頭的合成序列與 canvas 像素都必須跟著變**（這一條就是上面那個坑的守門測試，資料與畫面兩邊都比）。
+
+canvas 比對前先跑**前置自檢**（關掉該訊號畫面會不會變）—— 沒有這一步的話「畫面沒變」有兩種完全不同的意思（快取沒失效 vs 這個環境根本沒在重畫），而兩者長得一模一樣。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.19.1 — 2026-09-19 ｜ PATCH ｜ 🔴 **exe 重編：bridge v1.12.0 → v1.13.0**
 
 **raw MPSSE 的 ACK 守衛收緊：回應位元不是 0x00／0x80 就整批擋下，不再把壞資料當成好資料交出去。**

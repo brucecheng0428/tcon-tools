@@ -1088,6 +1088,11 @@ var I18N = {
                           'zh-CN': '{m} 的每一条数字信号只能与硬件指定的那一条做 COMBO，不能任意指派。\n这一条的对象是 {s}，由 .model 的寄存器注释决定。\n左边的 OAX_MODE 就是那两个控制位（ENG_COMB_MODE）。' },
   'wfg.comboNoChannelTag': { 'zh-TW': '（本工具無此通道）', 'en': '(no such channel here)',
                           'zh-CN': '（本工具无此通道）' },
+  /* ══ v4.49.0：OAX 串接（多訊號）的唯讀提示 ═══════════════════════════════ */
+  'wfg.oaxChainLabel': { 'zh-TW': '實際合成：', 'en': 'Combined as:', 'zh-CN': '实际合成：' },
+  'wfg.oaxChainCycle': { 'zh-TW': '⚠ OAX_SEL 指向形成環狀，已在最後一節停止串接',
+                          'en': '⚠ OAX_SEL forms a loop; chaining stops at the last node',
+                          'zh-CN': '⚠ OAX_SEL 指向形成环状，已在最后一节停止串接' },
   'wfg.codeComboNoChannel': { 'zh-TW': 'ℹ 這幾條訊號的 COMBO 對象在本工具沒有對應通道，模式值已照實匯入，但波形不會做這個邏輯運算：{s}',
                           'en': 'ℹ The COMBO source of these signals has no matching channel here. The mode value was imported as-is, but the waveform does not apply the logic operation: {s}',
                           'zh-CN': 'ℹ 这几条信号的 COMBO 对象在本工具没有对应通道，模式值已照实导入，但波形不会做这个逻辑运算：{s}' },
