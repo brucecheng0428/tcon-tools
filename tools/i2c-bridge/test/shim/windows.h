@@ -31,6 +31,10 @@ typedef long           LONG;
 typedef int            BOOL;
 typedef void*          HANDLE;
 typedef void*          HMODULE;
+/* 自檢用 shim：只要定義得出來就好，值照 Windows SDK。 */
+#ifndef FILE_ATTRIBUTE_REPARSE_POINT
+#define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400
+#endif
 typedef void*          HINSTANCE;
 typedef void*          HKEY;
 typedef DWORD          REGSAM;

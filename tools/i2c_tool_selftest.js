@@ -2528,47 +2528,56 @@ function baseScript(f) {
         data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
     });
-    CHECK(A.rawMpsse() === true, '🔴 連上時快速模式是開的（不必他動手）');
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
-    await A.doRead(); await sleep(30);
-    CHECK(A.rawMpsse() === true, '一致 ⇒ 沿用快的');
+    await A.doRead(); await sleep(40);
+    /* 🔴 v1.13.7：三段式自動選路。所有模式回同樣的資料 ⇒ 第一個試的（原廠）就過。
+       順序刻意是「原廠 → 官方快速 → 自建」：**能用現成的就不要用自己刻的**。 */
+    EQ(A.mode(), 0, '🔴 全部一致 ⇒ 採用最優先的「原廠」模式');
     CHECK(!/比較慢/.test(doc.getElementById('topbanner').textContent),
       '🔴 一致時不跳任何訊息（安靜）：' + doc.getElementById('topbanner').textContent.slice(0, 30));
-    EQ(s1.filter(m => m.type === 'read').length, 3, '第一次讀取 ＝ 2 則驗證 ＋ 1 則實際');
+    EQ(s1.filter(m => m.type === 'read').length, 3, '第一次讀取 ＝ 基準 ＋ 原廠 ＋ 實際各一');
+    { const om = s1.filter(m => m.type === 'open').map(m => m.mode);
+      CHECK(om.indexOf(2) >= 0 && om.indexOf(0) >= 0, '🔴 open 有帶 mode，且先試基準再試原廠：' + om.join(',')); }
     await win.__i2ct.disconnect();
 
     /* (b) 兩條路不一致 ⇒ 自動退回慢的，並留一行常駐訊息 */
     A._reset();
-    let isFast = false;
+    /* 🔴 三條比較快的路（原廠 0／官方快速 1／自建 3）**全都**回錯的資料，
+       只有基準（2）是對的 ⇒ 必須三條都試過、三條都不採用、最後退回基準。 */
+    let curMode = 2;
     const s2 = await useHelper((m) => {
-      if (m.type === 'ping') return { helper: '1.11.1', proto: 3, ok: true };
-      if (m.type === 'open') { isFast = (m.rawmpsse === 1); return { ok: true, channels: 1 }; }
+      if (m.type === 'ping') return { helper: '1.11.7', proto: 3, ok: true };
+      if (m.type === 'open') { curMode = (typeof m.mode === 'number') ? m.mode : 2; return { ok: true, channels: 1 }; }
       if (m.type === 'close') return { ok: true };
-      /* 快的那條回錯的資料 ⇒ 正是「資料錯了還照用」要擋下來的情況 */
       if (m.type === 'read') return { ok: true, status: 0,
-        data: Array.from({ length: m.len }, (_, i) => (i + (isFast ? 1 : 0)) & 0xFF) };
+        data: Array.from({ length: m.len }, (_, i) => (i + (curMode === 2 ? 0 : 1)) & 0xFF) };
       return { ok: true, status: 0 };
     });
-    CHECK(A.rawMpsse() === true, '起點仍是預設開');
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
-    await A.doRead(); await sleep(30);
-    CHECK(A.rawMpsse() === false, '🔴 不一致 ⇒ 自動退回慢的');
+    await A.doRead(); await sleep(50);
+    EQ(A.mode(), 2, '🔴 三條都不一致 ⇒ 退回基準（一般）模式');
+    CHECK(A.rawMpsse() === false, '自建模式沒有被採用');
     CHECK(doc.getElementById('chk-rawmpsse').checked === false, '🔴 勾選框也跟著取消');
     const b45 = doc.getElementById('topbanner').textContent;
     CHECK(/比較慢/.test(b45), '🔴 留一行常駐訊息告訴他這次用慢的：' + b45.slice(0, 40));
     CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(b45), '🔴 退回訊息也沒有實作名詞');
-    /* 🔴 最關鍵的一條：退回之後**實際送出的 open 必須是 rawmpsse:0**，
+    /* 🔴 三條都要真的被試過，不可以試一條就放棄 */
+    { const tried = s2.filter(m => m.type === 'open').map(m => m.mode);
+      CHECK(tried.indexOf(0) >= 0 && tried.indexOf(1) >= 0 && tried.indexOf(3) >= 0,
+        '🔴 原廠／官方快速／自建三條都試過了：' + tried.join(',')); }
+    /* 🔴 最關鍵的一條：退回之後**實際送出的 open 必須是基準模式**，
        不能只是畫面上說退回了，底下還在走快的。 */
     const lastOpen = s2.filter(m => m.type === 'open').pop();
-    EQ(lastOpen.rawmpsse, 0, '🔴 退回後真的用慢的方式重新連線');
-    /* 🔴 驗證失敗的細節要送進 **bridge 的 log**（note 命令）。
-       Bruce 能傳給我們的只有 i2c-bridge.log；網頁 log 區的內容不會跟著過來，
-       這一輪就是因此繞了一圈。 */
+    EQ(lastOpen.mode, 2, '🔴 退回後真的用基準模式重新連線');
+    /* 🔴 每一條的結果都要送進 **bridge 的 log**（note 命令）。
+       Bruce 能傳給我們的只有 i2c-bridge.log；網頁 log 區的內容不會跟著過來。 */
     const notes = s2.filter(m => m.type === 'note').map(m => m.msg).join(' | ');
-    CHECK(/verify FAIL/.test(notes), '🔴 失敗有送進 bridge log：' + notes.slice(0, 60));
-    CHECK(/first mismatch at \+\d+/.test(notes), '🔴 有寫出第一個不一致的位置');
-    CHECK(/fast\[0\.\.\] = [0-9A-F]{2} /.test(notes) && /slow\[0\.\.\] = [0-9A-F]{2} /.test(notes),
-      '🔴 快慢兩邊的實際位元組都有留下來（要看得出是不是 0F 那個形狀）');
+    CHECK(/vendor MISMATCH/.test(notes), '🔴 原廠那條的結果有進 log');
+    CHECK(/fast MISMATCH/.test(notes),   '🔴 官方快速那條的結果有進 log');
+    CHECK(/built MISMATCH/.test(notes),  '🔴 自建那條的結果有進 log');
+    CHECK(/MISMATCH at \+\d+ of \d+/.test(notes), '🔴 有寫出第一個不一致的位置');
+    CHECK(/base \[0\.\.\] = [0-9A-F]{2} /.test(notes), '🔴 基準的實際位元組有留下來');
+    CHECK(/no faster path passed/.test(notes), '🔴 最終結論也有進 log');
     /* 退回之後那一次實際讀取，拿到的必須是慢路徑的值（0,1,2…） */
     const st45 = A.state();
     EQ([st45.buf[0], st45.buf[1], st45.buf[2]], [0, 1, 2], '🔴 最後落格的是慢路徑（正確）的值');
@@ -2579,7 +2588,7 @@ function baseScript(f) {
        i2ctVerifyFastOnce 開頭就 return ⇒ 永遠不再驗、永遠走慢的，而且重連後
        畫面上那一行提示還被清掉了，他完全看不出來。他重啟 Bridge 三次都送
        rawmpsse:0，就是這個。 */
-    CHECK(A.rawMpsse() === false, '前提：上一段結束時是退回狀態');
+    EQ(A.mode(), 2, '前提：上一段結束時是退回狀態');
     const s3 = await useHelper((m) => {
       if (m.type === 'ping') return { helper: '1.11.3', proto: 3, ok: true };
       if (m.type === 'open') return { ok: true, channels: 1 };
@@ -2588,12 +2597,15 @@ function baseScript(f) {
         data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
     });
-    CHECK(A.rawMpsse() === true, '🔴 重新連線 ⇒ 快速模式還原成預設開（會再驗一次）');
-    EQ(s3.filter(m => m.type === 'open').pop().rawmpsse, 1, '🔴 重連後送出的是 rawmpsse:1');
-    /* 這次兩邊資料相同 ⇒ 應該驗得過並沿用快的 */
+    /* 🔴 重連要能從退回狀態復原：重驗一次，而不是永遠卡在基準模式。
+       這是 Bruce 的 log 照出來的真 bug（他重啟 Bridge 三次都送 rawmpsse:0）。 */
+    CHECK(A.state().linked === true, '重新連上');
+    /* 這次所有模式資料相同 ⇒ 應該重驗並採用最優先的原廠模式 */
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
-    await A.doRead(); await sleep(30);
-    CHECK(A.rawMpsse() === true, '🔴 這次驗得過 ⇒ 真的用快的（狀態自己復原了）');
+    await A.doRead(); await sleep(40);
+    EQ(A.mode(), 0, '🔴 重連後重驗一次，這次驗得過 ⇒ 採用原廠（狀態自己復原了）');
+    { const om3 = s3.filter(m => m.type === 'open').map(m => m.mode);
+      CHECK(om3.indexOf(0) >= 0, '🔴 重連後真的又試了一次原廠模式：' + om3.join(',')); }
     await win.__i2ct.disconnect();
   }
 

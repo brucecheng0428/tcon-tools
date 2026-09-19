@@ -34,6 +34,105 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.14.0 — 2026-09-19 ｜ MINOR ｜ 🔴 exe 有動（I2C Bridge v1.11.7）
+
+**改用原廠 `DLL_I2C_BCB.dll`，手刻 MPSSE 降為最後備援。**
+
+判定依據：**新增**一條讀取路徑（原廠 DLL），既有操作全部留在原位、輸出不變
+⇒ 判定表「新增獨立功能」＝ **MINOR**。不是 MAJOR：使用者不需要重新學任何事，
+畫面沒有任何按鈕移動或消失。
+
+### 🔴 Bruce 說對了，是我把事情搞複雜
+
+他逐字：「我一直不懂，**是不是都已經有現成的 UI，裡面做的 I2C 溝通都是對的嗎？
+為什麼你要搞得這麼複雜？**」
+
+`DLL_I2C_BCB.dll` **本來就在他電腦上**（EM01／EM02 的 TCON UI 都帶著），
+而我們的 bridge **本來就會在他電腦上到處找 `libMPSSE.dll`**。
+**同一套搜尋機制拿來找它即可** —— 不打包、不散佈、沒有任何需要裁示的事。
+我先前卡在「要不要打包那支 DLL」，那個問題根本不需要問。
+
+### 模式優先序（自動往下試，通過就停）
+
+| | 模式 | 實作 |
+|---|---|---|
+| 1 | **原廠** | `DLL_I2C_BCB.dll` 的 `GetBytesEx()` ← **新的預設** |
+| 2 | 官方快速 | libMPSSE ＋ `FAST_TRANSFER_BYTES` |
+| 3 | 一般 | libMPSSE 逐 byte ← **基準，已知正確** |
+| 4 | 自建 | 我們手刻的 raw MPSSE ← **降為最後備援** |
+
+基準是模式三，其餘三條都逐 byte 跟它比。**能用現成的就不要用自己刻的。**
+
+🔴 **模式二值得單獨說**：它與模式三在程式碼上的差別**只有一個位元** ——
+`OPT_READ_DATA` 是 `0x0B` 還是 `0x1B`（`FAST_TRANSFER_BYTES` = 0x10），
+同一行 `p_Read()` 呼叫。官方標頭對它的註解就是
+「no address phase, **no USB interframe delays**」。
+我們把它關掉的唯一理由是當初讀 0x68 那次「前 2 byte 對、其餘全 0F」——
+🔴 **但那次是在 `ChannelConfig` 還帶著 `#pragma pack(1)` 的時候測的**，
+當時 `Options` 是垃圾、三相與 drive-only-zero 兩個都是錯的。
+**前提已經不存在，而我們從來沒有在修好之後重測過。**
+（假說；推翻條件：重測仍 0F／不一致 ⇒ 回到模式四。）
+
+### 原廠 DLL：搜尋、API、互斥
+
+**搜尋**（與 libMPSSE 同一套策略，找不到會列出找過哪些地方）：
+環境變數 `I2C_BRIDGE_VENDOR_DLL_DIR` → exe 目錄 → 工作目錄 →
+`i2c-bridge-vendor.ini` → `%USERPROFILE%\{TCON,Documents,Desktop,Downloads}` **遞迴**
+→ `C:\TCON`、`D:\TCON` → `PATH`。
+🔴 遞迴的理由：**他 Windows 上 TCON 的實際路徑我們不知道**，已知形狀是
+`<某處>\TCON\TCON_UI\EM02\Raydium_TCON_Tool_EM02_v0.4.0\`（深 4~5 層）。
+深度上限 5，並跳過 `AppData`／`OneDrive`／`Windows`／`node_modules`，避免變成掃碟。
+
+**API 與慣例**（依據：他自己在用、而且會動的 Python —— 不是推敲）：
+`RadDll64.py` 的原廠宣告 `Detect/Open/Close/SetClock/GetClock/SendBytesEx/GetBytesEx`，
+實際呼叫多一個 `u8Bytes` ＝ offset 寬度 0／1／2（不用時 0xFF）。
+🔴 **cdecl**（`RadDll64.py:11,17` 用 `ctypes.cdll.LoadLibrary` 不是 `windll`）⇒ **不加 `__stdcall`**。
+🔴 slave 傳 **7-bit**，不左移。
+🔴 `SetClock` 單位是 **KHz**（`SetClock(400)`），且改時脈要
+**`Close() → SetClock() → Open()`**（`RomCodeProcessUI.py:36448`），不能開著改。
+讀取一次做完不分段（`RomCodeProcessUI.py:30842` 寫死 slave 0x50／offset 2／4096）。
+
+🔴 **互斥**：兩者都會開**同一個** FTDI channel，不能同時持有。
+選原廠就完全不呼叫 `I2C_OpenChannel`；要切回 libMPSSE 會先 `vendor_close()`，
+反之亦然。log 明確寫出這一次用了哪一條、DLL 從哪個完整路徑載入。
+
+### 手刻 MPSSE：open-drain 修正做完了，但降為備援
+
+Bruce：「I2C 為 high 的時候其實是 **open drain**，只是把它放開變 High-Z，
+因為有上拉電阻會自動拉回高。**SCL 跟 SDA 都是這樣。**」
+
+⇒ 凡是要讓線變高，一律**改方向放開**，不可以輸出高值。改了四處：
+
+| 位置 | 原本 | 現在 |
+|---|---|---|
+| START 前的閒置 | `80 03 03`（SDA 輸出高） | `80 01 01`（SDA 放開） |
+| STOP 的最後一步 | `80 03 03` | `80 01 01` |
+| 讀完一個 byte 之後 | `80 02 03`（pyftdi `_clk_lo_data_hi`） | `80 00 01`（放開） |
+| ACK 之後的建立時間 | `80 00 03`（**還在驅動低**） | `80 00 01`（放開） |
+| 最後一個 byte 的 NACK | `13 00 FF`（輸出高） | 維持放開 ＋ `8E 00`（補一個時脈） |
+
+🔴 **pyftdi 的 `_clk_lo_data_hi` 我們不照抄** —— 那是它在 FT2232 沒有開汲極時的
+`_fake_tristate` 折衷（硬推高），不是 I2C 的正解。
+延遲那幾拍尤其關鍵：**還壓著低電位的延遲完全白做**。
+`ckDelay` 依 `t_buf`（400 kHz = 1.3 µs）算，預設 3，debug 區可調 0–16。
+
+### 🔴 未解與未驗
+
+- **`0x8C`（三相）與 `0x8A`（divide-by-5）在這顆上都沒有生效**，各有實測數字佐證
+  （三相開程式化 600k 量到 600k；`0x8A` 配 60 MHz 公式量到 80k ＝ 12 MHz 的結果）。
+  **原因未查明**，維持不用；補償路徑與測試留著。
+- **這一版我驗不了資料正確性** —— 沒有 Windows、沒有 FTDI 治具。
+  **要 Bruce 重測。** 自動選路的每一層結果都會寫進 `i2c-bridge.log`
+  （通過／第一個不一致的 index／實際位元組），一攤開就知道哪一條可用。
+
+### 測試
+
+jsdom **833**（第 45b 組改成驗三段式選路：全對時採用最優先的原廠；
+三條都不對時**三條都要試過**再退回基準；重連會重驗並復原）、
+proto **191**、bridge TCP **103**、文案與 raw-init 兩個閘門通過。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.13.6 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.6）
 
 **照 pyftdi 補上讀取序列少掉的兩段，並把 `0x9E` 加回來。**
