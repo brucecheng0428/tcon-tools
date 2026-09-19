@@ -126,7 +126,7 @@ int dgh_three_phase = 0;
    做成可調是因為 Bruce 要用 LA 掃出最小可用值 —— 這個值只有在他的硬體上量得出來。 */
 int dgh_ck_delay = 3;
 /* 🔴 讀取模式（v1.11.7）。網頁用 open 的 `mode` 欄位指定；自動驗證會依序往下試。
-     0 = 原廠 DLL（DLL_I2C_BCB）      ← 最優先，找得到就用
+     0 = DLL_I2C_BCB.dll      ← 最優先，找得到就用
      1 = libMPSSE ＋ FAST_TRANSFER    ← 官方旗標，一個位元的事
      2 = libMPSSE 逐 byte             ← 基準，已知正確
      3 = 自建 raw MPSSE               ← 最後備援
@@ -135,12 +135,12 @@ int dgh_ck_delay = 3;
 #define DGH_MODE_FAST   1
 #define DGH_MODE_SLOW   2
 #define DGH_MODE_RAW    3
-/* ═══ 🔴🔴 預設 ＝ **vendor（原廠 DLL）** ════════════════════════════════════
+/* ═══ 🔴🔴 預設 ＝ **vendor（DLL_I2C_BCB.dll）** ════════════════════════════════════
    為什麼是它：AN2232C-01（這顆 FT2232C/D 自己的手冊）證實它的 MPSSE
    **沒有三相時脈、沒有開汲極** —— 那正是 I2C 需要的兩樣東西
    ⇒ 用 MPSSE 在這顆上做 I2C 走不通（pyftdi 對 FT2232D 也是直接拒絕），
-     模式 1／2／3 全部建立在 MPSSE 上。原廠 DLL 幾乎確定走 bit-bang 自產時序，
-     原廠 Python UI 走的就是它（256 byte 約 12.6 ms）。
+     模式 1／2／3 全部建立在 MPSSE 上。 DLL_I2C_BCB.dll 幾乎確定走 bit-bang 自產時序，
+     DLL_I2C_BCB 那套 Python UI 走的就是它（256 byte 約 12.6 ms）。
    實測佐證：走自建 raw MPSSE 讀 0x1000 時，位址相位 ACK 固定回 `0E 1C 38 70`
      （合法值只有 0x00／0x80），四次側錄全部重現。
 
@@ -181,7 +181,7 @@ static char g_pageVer[64] = "(no open yet)";
    🔴 規則：**每一個 GetProcAddress 取來的函式指標，都要標明它來自哪支 DLL、
       以及呼叫慣例與判定依據。** 這種錯編得過、連結得過、只在執行期死，
       靠「記得」是擋不住的 —— 2026-09-19 一天之內就犯了兩次
-      （ftd2xx 漏 __stdcall、DLL_I2C_BCB 誤判成 cdecl）。
+      （ftd2xx 漏 __stdcall、 DLL_I2C_BCB 誤判成 cdecl）。
       ⇒ 已加機械檢查 `tools/check_call_conv.sh`，缺依據就讓 build 紅。
 
    四支 DLL 的慣例與依據（第五支見 PFN_V_* 那一段）：
@@ -270,14 +270,58 @@ static double now_ms(void){
  *   1 / 2 / 4 -> that many offset bytes, MSB first.                            */
 #define AWID_DEFAULT 2u
 #define RAW_MAX_DATA 256              /* bytes per rawwrite */
-/* 🔴 單次讀取上限。4096 ＝ 原廠 RomCode UI 的標準操作長度（一次讀完，不分段）。
-   raw MPSSE 的命令長度約 12 byte/資料 byte ⇒ 4096 byte 需要約 50 KB 命令緩衝區。
-   這個上限**不是保護，是緩衝區大小**：超過就會截斷，所以要明確擋下而不是放行。 */
-#define DGH_READ_MAX 4096
+/* 🔴🔴 1.14.0：這裡原本只有一個 `DGH_READ_MAX 4096`，同時被當成兩件**完全不同**
+   的事情用，這正是 2026-09-19 搞混的根源：
+     (a) 自建 raw MPSSE 路徑的**命令緩衝區大小**（真的是記憶體限制）
+     (b) 所有路徑的**單次讀取長度上限**（純粹是我們自己加的人為限制）
+   現在拆成兩個名字，(b) 整個拿掉。
+
+   Bruce 2026-09-19：「不是一次讀 8192 的值，而是一次讀全部我設定的長度值。
+   不一定是 8192 啊，萬一我要讀 65536 呢？」「我只要讀到我不要讀的，我再停止
+   回 nack 就好啊」—— 他是對的，**I2C 循序讀在匯流排上沒有長度上限**，
+   master 讀夠了回 NACK ＋ STOP 就結束。4096 從來不是協定或硬體的限制。
+
+   🔴 **自建 raw MPSSE 的**單次讀取上限。這一條要自己把整段 MPSSE 命令組進一塊
+   靜態緩衝區，所以它的上限是真的記憶體限制，保留。
+   命令長度約 12 byte/資料 byte ⇒ 4096 byte 約需 50 KB（最壞 246 KB，見下）。 */
+#define DGH_RAW_READ_MAX 4096
 /* 🔴 每個資料 byte 的命令長度 ＝ 12 ＋ 3×ckDelay（pyftdi 的建立時間，見 proto.h）。
    ckDelay 上限 DGH_CK_DELAY_MAX(16) ⇒ 最壞 12+48 = 60 byte/資料 byte。
-   緩衝區要照**最壞情況**算，否則 Bruce 把 ckDelay 調大就會靜默截斷。 */
-#define DGH_MP_CMD_MAX (DGH_READ_MAX * (12 + 3 * DGH_CK_DELAY_MAX) + 512)
+   緩衝區要照**最壞情況**算，否則 Bruce 把 ckDelay 調大就會靜默截斷。
+   4096 × 60 ＋ 512 ＝ **246,272 byte**（靜態配置，32 位元行程）。 */
+#define DGH_MP_CMD_MAX (DGH_RAW_READ_MAX * (12 + 3 * DGH_CK_DELAY_MAX) + 512)
+
+/* 🔴 讀取的資料緩衝區與回覆緩衝區自 1.14.0 起**依實際長度動態配置**，所以這裡
+   不再有「單次讀取上限」。剩下的這一個純粹是**配置上限**：一個壞掉（或惡意）的
+   封包寫 `"len":4000000000` 不應該讓 bridge 去要 16 GB。
+   數字取 262,144 ＝ 網頁的 `I2CT_MAX_LEN`（i2c.html）—— 兩邊是同一個天花板，
+   不是各訂各的。超過**回明確錯誤**，絕不夾取。
+   🔴 回覆 JSON 的最壞情況：每個資料 byte 最多 4 個字元（"255" ＋ 逗號）
+      ⇒ 262144 × 4 ＝ 1,048,576 byte，再加標頭與 err 字串 ⇒ 約 1.05 MB。
+      這是**動態配置**的，平常讀 3 byte 就只配幾十 byte。 */
+#define DGH_READ_ALLOC_MAX 262144u
+/* ═══ 🔴🔴 `DLL_I2C_BCB.dll` 路徑的唯一長度限制：65535 ═════════════════════
+   簽章 `U16 GetBytesEx(U8 addr, U32 reg, U32 count, U8* data)`：
+   **要求長度是 32 位元，但回報的「實際讀到幾個 byte」只有 16 位元。**
+   雙重確認 —— ① 我們自己的 typedef 與 `retl $20`（五參數 thunk）；
+               ② `DLL_I2C_BCB_DEMO_20220606/RadDll.py` 的 API 註解。
+   ⇒ len ≥ 65536 時回傳值會溢位（65536 ⇒ 0），「讀滿」與「一個都沒讀到」長得
+     一樣 ⇒ 無法驗證完整性 ⇒ **明確回錯誤，不夾取、不賭**。
+     切段的責任在網頁端（`i2ctChunk()` 對這條路徑回 65535）。
+
+   🔴 **DLL 裡沒有 4096 上限**（反組譯實查，Dispatch 2026-09-19，位址可複驗）：
+     `GetBytesEx` @rva 0x1334（五參數 thunk）→ 0x4016c0 → 0x401650 → 0x401544，
+     再依裝置型別分派到 **0x402570 / 0x402aa4 / 0x40331c** 三個讀取實作。
+     三個實作裡**所有與常數比較的指令**比的只有 `0 / ±1 / 2 / 3 / 255` 與
+     ASCII 65/90（'A'/'Z'，字串處理），**沒有任何一處與 4096／65536 之類的長度
+     常數比較**，迴圈邊界比的是傳入的 count 本身。
+     ⇒ 以前那個 4096 完全是我們自己加的，不是 DLL 的。
+
+   ⚠️🔴 **誠實標註**：上述「沒有常數比較」是強證據但**不是百分之百** ——
+   限制也可能落在它再呼叫的 `FTD2XX.DLL` 裡，那一層沒有追進去。
+   **一次讀 65535（甚至只是超過 4096）在真實硬體上會不會成功，未經驗證。**
+   只有 Bruce 的機器能確認，不得因為這段註解就宣稱它會成功。 */
+#define DGH_VENDOR_GOT_MAX 0xFFFFu
 
 /* ═══ 🔴 libMPSSE ChannelConfig -- DEFAULT ALIGNMENT, **NOT** packed ═══════════
    FTDI's official libMPSSE_i2c.h declares it with no #pragma pack at all:
@@ -603,7 +647,7 @@ static int locate_and_load_dll(void) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   🔴🔴 原廠 DLL 模式（`DLL_I2C_BCB.dll`）—— v1.11.7 起的**最優先**路徑
+   🔴🔴 `DLL_I2C_BCB.dll` 模式—— v1.11.7 起的**最優先**路徑
    ───────────────────────────────────────────────────────────────────────────
    Bruce 2026-09-19：「我一直不懂，是不是都已經有現成的 UI，裡面做的 I2C 溝通
    都是對的嗎？**為什麼你要搞得這麼複雜？**」—— 他是對的。
@@ -613,13 +657,16 @@ static int locate_and_load_dll(void) {
    不需要打包、不需要散佈、沒有任何要裁示的事。
 
    🔴 API 與慣例（依據：他自己在用、而且會動的 Python）
-     `~/TCON/TCON_UI/Raydium_RomCodeProcessUI/SourceCode_V5.0.4/RadDll64.py` 的原廠宣告：
+     `~/TCON/TCON_UI/Raydium_RomCodeProcessUI/SourceCode_V5.0.4/RadDll64.py` 的宣告：
          bool Detect(void);  bool Open(void);  bool Close(void);
          void SetClock(U16);            // 🔴 單位 **KHz**，不是 Hz
          U16  GetClock(void);
          bool SendBytesEx(U8 addr, U32 reg, U32 count, U8* data);
          U16  GetBytesEx (U8 addr, U32 reg, U32 count, U8* data);
      實際呼叫還有第 5 個參數 `u8Bytes` ＝ offset 寬度 0／1／2，不用時帶 **0xFF**。
+     🔴🔴 **`GetBytesEx` 的 `count` 是 U32、回傳值只有 U16** —— 這是這條路徑
+        唯一的長度限制（65535），完整說明與反組譯佐證見 `DGH_VENDOR_GOT_MAX`。
+        **DLL 內部沒有 4096 上限**，那個數字是我們自己加的。
      🔴 **cdecl**（`RadDll64.py:11,17` 用 `ctypes.cdll.LoadLibrary`，不是 `windll`）
         ⇒ **不要加 `__stdcall`**。這與 ftd2xx 相反，慣例逐支確認，見檔頭的表。
      🔴 slave 傳 **7-bit**（他的 Python 傳 0x7C/0x3E/0x68），**不要左移**。
@@ -628,12 +675,12 @@ static int locate_and_load_dll(void) {
         SetClock(400)  →  Open()（內部會先 Detect）
         GetBytesEx(slave, offset, len, buf, offsetBytes)   // 一次讀完，不分段
      `RomCodeProcessUI.py:30842` 的檢查寫死 slave 0x50 / offset 2 / 4096
-     ⇒ **原廠標準操作就是一次讀 4096**。
+     ⇒ ** DLL_I2C_BCB 那套 Python UI 的標準操作就是一次讀 4096**。
    🔴 改時脈要 `Close() → SetClock() → Open()`（`RomCodeProcessUI.py:36448`），
       不能開著改。
 
    🔴 與 libMPSSE **互斥**：兩者都會開同一個 FTDI channel，不能同時持有。
-      選了原廠 DLL 就不呼叫 `I2C_OpenChannel`，反之亦然。 */
+      選了 DLL_I2C_BCB.dll 就不呼叫 `I2C_OpenChannel`，反之亦然。 */
 /* 🔴🔴 來源：DLL_I2C_BCB.dll ── **__stdcall**（依據：objdump 反組譯的 `ret N`）
    `GetBytesEx` 結尾 `retl $20`、`SendBytesEx` `retl $20`（5 個參數 × 4 bytes ＝ 20）、
    `SetClock`／`SetOpened` `retl $4` ⇒ **被呼叫端清堆疊 ＝ __stdcall**。
@@ -797,16 +844,16 @@ static int locate_and_load_vendor(void){
             " C:\\TCON, D:\\TCON, and PATH)", DGH_VENDOR_DLL);
     return 0;
 }
-/* 開啟原廠 channel。🔴 改時脈一定要 Close → SetClock → Open（原廠自己的順序）。 */
+/* 開啟 DLL_I2C_BCB 的 channel。🔴 改時脈一定要 Close → SetClock → Open（DLL_I2C_BCB 自己的順序）。 */
 static int vendor_open(uint32_t clockHz){
     unsigned short kHz = (unsigned short)((clockHz ? clockHz : 400000u) / 1000u);
     if(!g_vendorOk) return 0;
     if(g_vendorOpen) return 1;
-    /* 🔴🔴 **嚴格照原廠的序列，不要自己加東西。**
+    /* 🔴🔴 **嚴格照 DLL_I2C_BCB 的序列，不要自己加東西。**
        出處：`RomCodeProcessUI.py` 的 `i2c_init_device()`（:31032）——
        它整個函式就只有 `dll.Open()`，而且**上面三行 libMPSSE 是被註解掉的**：
            # I2C_GetNumChannels / # I2C_OpenChannel / # I2C_InitChannel
-       ⇒ **原廠自己走過 libMPSSE 這條路然後放棄，改用自家 DLL。**
+       ⇒ **IC 端那套工具自己走過 libMPSSE 這條路然後放棄，改用自家的 DLL_I2C_BCB。**
        這與 FT2232C/D 沒有三相、沒有開汲極完全一致 ——
        **libMPSSE 在這顆晶片上就是不對的工具。**
        時脈由 `SetClock(400)` 在 Open 之前設定（單位 KHz）。
@@ -827,18 +874,68 @@ static void vendor_close(void){
     if(g_vendorOk && g_vendorOpen && pv_Close) pv_Close();
     g_vendorOpen = 0;
 }
-/* 一次讀完，不分段（原廠標準操作）。回傳 1 成功。 */
+/* 「最近一次失敗原因」的設定器，本體在後面（見 `g_lastErr` 那一段的說明）。
+   這裡需要前置宣告：1.14.0 起 `vendor_read` 的少讀／異常回傳也要填 `err`，
+   否則網頁端拿到的是一個沒有理由的失敗。 */
+static void lasterr_set(const char* fmt, ...);
+/* ═══ 🔴🔴 `count` 的合法範圍：**1 ～ 65535**，兩端都是反組譯實證 ═════════════
+   0x402570（三個讀取實作之一）的主迴圈，反組譯實查（Dispatch 2026-09-19）：
+
+       edi = count(16(%ebp)) ; ebx = i = 0 ; esi = pData
+       4025c4: eax = edi
+       4025c6: dec eax            ; count - 1
+       4025c7: cmp ebx, eax
+       4025c9: jb  body           ; 🔴 **無號**比較 while (i < count-1)
+       body:   讀一個 byte 回 ACK，存入，i++
+       迴圈後: 讀最後一個 byte 回 **NACK**，存入 [pData + i]
+       4025d9/db: return i + 1
+
+   **這是反組譯實證，不是推測。** 兩個結論：
+
+   ① `count` 就是**實際 byte 數 N**，不是 N−1。要 1 給 1、要 256 給 256。
+      （Bruce 2026-09-19 在硬體上讀 8192 成功也印證：若語意是 N−1，每一段都會錯位。）
+
+   ② 🔴🔴 **`count == 0` 會災難性溢位。** `0 - 1` 在無號下是 `0xFFFFFFFF`，
+      `0 < 0xFFFFFFFF` 成立 ⇒ 迴圈會跑約 42 億次，**一路寫穿呼叫端的緩衝區**。
+      不是「0 等於 1 byte」，是記憶體毀損。⇒ **這裡必須自己擋，而且要擋在這一層**。
+      read 指令處理那邊的 `if(len<1) len=1;` 保留，但**不可以當成唯一防線** ——
+      `vendor_read()` 還有別的呼叫端（自動驗證、自檢），那些會繞過它。
+
+   上限 65535 的依據是回傳值的位元寬（見 `DGH_VENDOR_GOT_MAX`）：65536 會真的把
+   65536 個 byte 讀進緩衝區，但回報數量溢位成 0 ⇒ 我們分不出「讀滿」與「一個都
+   沒讀到」⇒ **不可以用 65536**。切段的責任在網頁端（`i2ctChunk()` 回 65535）。
+
+   一次讀完，不分段。回傳 1 成功。 */
 static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t len,
                        uint8_t* out, uint32_t* got){
     unsigned short r;
     unsigned char ob = (awid==0||awid==1||awid==2) ? (unsigned char)awid : 0xFF;
+    if(got) *got = 0;
+    /* 🔴 擋在呼叫 DLL **之前**。夾成 1 是不行的：那會讓呼叫端以為自己送的值合法，
+       下一次還是會送 0，而且它拿到的 1 個 byte 不是它要的東西。 */
+    if(len == 0){
+        logline("  vendor  : 🔴 REFUSED len=0 -- the DLL read loop underflows on 0 "
+                "(0-1 unsigned = 0xFFFFFFFF) and would overrun the caller's buffer");
+        lasterr_set("a zero-length read was requested. Zero is not a legal length on this "
+                    "read path and it was not attempted. Ask for at least 1 byte.");
+        return 0;
+    }
+    if(len > DGH_VENDOR_GOT_MAX){
+        logline("  vendor  : 🔴 REFUSED len=%u -- over the 16-bit count limit (%u); "
+                "splitting is the caller's job", len, (unsigned)DGH_VENDOR_GOT_MAX);
+        lasterr_set("a read of %u bytes was requested on this path, which reports how many "
+                    "bytes came back in a 16-bit counter. %u or more cannot be told apart "
+                    "from 0, so a short read would look like a full one. Nothing was read. "
+                    "Split the read into pieces of at most %u bytes.",
+                    len, (unsigned)DGH_VENDOR_GOT_MAX + 1u, (unsigned)DGH_VENDOR_GOT_MAX);
+        return 0;
+    }
     /* 🔴 先清零。回傳值是**讀取數量**不是布林（Codex 追過內部三條分派路徑：
        0x401334 → 0x4016c0 → 0x401650 → 0x401544；
        0x402570 失敗回 0、成功回 EBX+1 ＝ 數量；
        0x402aa4 回最後複製迴圈的長度；0x40331c 失敗清零、成功回 ESI ＝ 要求長度）。
        原本寫 `*got = len; return r ? 1 : 0;` **把數量資訊丟掉了** ——
-       部分讀取會被當成完全成功。 */
-    if(got) *got = 0;
+       部分讀取會被當成完全成功。（清零已在上面的長度守衛之前做過。） */
     if(!g_vendorOk || !g_vendorOpen) return 0;
     /* 🔴 slave 傳 7-bit，不左移（與他的 Python 一致） */
     r = pv_Get((unsigned char)slave, addr, len, out, ob);
@@ -847,11 +944,26 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
     if((uint32_t)r > len){
         /* 回報比要求還多 ⇒ 介面理解有誤，不能當成功，也不能拿去當長度用 */
         logline("  vendor  : 🔴 REJECTED: returned %u > requested %u -- treating as failure", (unsigned)r, len);
+        lasterr_set("the read path reported %u bytes for a %u byte request. More than asked for "
+                    "means the reply cannot be trusted, so nothing is reported as read.",
+                    (unsigned)r, len);
         return 0;
     }
     if(got) *got = (uint32_t)r;
     if((uint32_t)r != len){
+        /* 🔴 1.14.0：少讀一定要有 `err`。以前只有 logline（在 bridge 那台機器的
+           檔案裡），網頁端拿到的是一個沒有 err 的失敗 ⇒ 使用者看不出是 DLL 只給了
+           一部分，還是我們自己擋掉的。現在照實說「要幾個、拿到幾個」。 */
         logline("  vendor  : partial read: got %u of %u", (unsigned)r, len);
+        if((uint32_t)r == 0)
+            lasterr_set("read 0 of the %u bytes requested (slave=0x%02X addr=0x%X). "
+                        "The device did not answer -- check the slave address, that the board is "
+                        "powered, and that the jig is connected.", len, slave, addr);
+        else
+            lasterr_set("partial read: only %u of the %u bytes requested came back "
+                        "(slave=0x%02X addr=0x%X). The read path stopped short -- this bridge did "
+                        "not shorten anything. Retry with a shorter read to find where it stops.",
+                        (unsigned)r, len, slave, addr);
         return 0;                     /* 完整成功要求 r == len */
     }
     /* 🔴 r == len **不等於資料正確** —— 其中一條路徑回的是「複製長度」，
@@ -859,8 +971,8 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
     return 1;
 }
 
-/* ═══ 🔴🔴 原廠 DLL 寫入（v1.12.0）════════════════════════════════════════════
-   為什麼非做不可：v1.14.x 之後原廠路徑成為**採用的讀取後端**，而寫入還停在
+/* ═══ 🔴🔴 DLL_I2C_BCB.dll 寫入（v1.12.0）════════════════════════════════════════════
+   為什麼非做不可：v1.14.x 之後 DLL_I2C_BCB 路徑成為**採用的讀取後端**，而寫入還停在
    「拒絕並請使用者關掉快速模式」那句話 ⇒ 逐格改值、位元核取方塊、整批寫入
    **全部不能用**。那是功能退步，不是尚未完成的功能。
 
@@ -868,7 +980,7 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
       已經定義過了，就是 Page 大小那邊來決定的。**只有 EEPROM 才需要分段，
       不是 EEPROM 不用分段。**」）。
 
-   原廠 Python（`RomCodeProcessUI.py:31721` `i2c_write_data`）裡那個 `div=32`
+   DLL_I2C_BCB 那套 Python（`RomCodeProcessUI.py:31721` `i2c_write_data`）裡那個 `div=32`
    **不是通則，是 EEPROM 的 page size** —— 那整段是燒 ROM／EEPROM 的流程。
    分段的唯一理由是 EEPROM 的 page 邊界（跨界會回捲蓋掉資料）與 tWR 等待；
    TCON／PMIC 那些暫存器是即時生效的 latch，一路連續寫沒有問題。
@@ -878,7 +990,7 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
      段間等待由「段間等待」欄位（tWR）控制。bridge 收到的**每一則就是一段**，
      這裡原樣一次送出去。在兩個地方各做一套分段，遲早會分岔。
 
-   `Detect()` 保留成**寫完之後的健康檢查**（原廠每段之後做一次，我們每則之後做
+   `Detect()` 保留成**寫完之後的健康檢查**（DLL_I2C_BCB 那套 Python 每段之後做一次，我們每則之後做
    一次，語意相同），用來分辨「送不出去」與「治具不見了」。
 
    🔴 `SendBytesEx` 的回傳值語意**未確認**（與 `GetBytesEx` 同一個教訓：當初把它
@@ -1049,7 +1161,7 @@ static void diag_ftdi(void) {
       卻搭 `30e6/f-1`；實測 400k 設定量到 **80 kHz**，而
       `12e6/((74+1)*2) = 80,000` **完全吻合** ⇒ `0x8A` 沒有生效、base 仍是 12 MHz。
       ⇒ **不要碰 divide-by-5 這個開關**（不送 0x8A 也不送 0x8B），維持 12 MHz base，
-        用 **`div = 6e6/f - 1`** —— 這就是原廠 `DLL_I2C_BCB` 的 `SetClock`
+        用 **`div = 6e6/f - 1`** —— 這就是`DLL_I2C_BCB.dll` 的 `SetClock`
         （`dll_i2c.asm 0x4017bc`）那一套，**已經被他量到 400 kHz 證實過**。
         400 kHz ⇒ div = 14 ⇒ `12e6/((14+1)*2) = 400,000`。
 
@@ -1057,10 +1169,10 @@ static void diag_ftdi(void) {
       晶片型號與官方定義核一次。** v1.11.4 是整份從 dg-measure.html 的 WebUSB
       路徑抄過來，既沒確認每道命令在這顆晶片上支援，也沒確認 base 與除數成對。
 
-   ③ 🔴 **三相時脈要「開」，這推翻我先前「跟隨原廠關閉」的決定。**
-      先前的理由是原廠 `DLL_I2C_BCB` 明示送 `0x8D`。**那個推論有缺陷**：原廠是
+   ③ 🔴 **三相時脈要「開」，這推翻我先前「跟隨 DLL_I2C_BCB 關閉」的決定。**
+      先前的理由是`DLL_I2C_BCB.dll` 明示送 `0x8D`。**那個推論有缺陷**：DLL_I2C_BCB 是
       **整套時序自己控**（自己組每一道命令、自己決定 setup 時間），我們是拿
-      FTDI 的通用 MPSSE 指令在拼，前提不同，不能只因為原廠關著就跟著關。
+      FTDI 的通用 MPSSE 指令在拼，前提不同，不能只因為它關著就跟著關。
       FTDI **AN_113** 原文：三相時脈「**Required for correct I2C timing on
       FT2232H and FT4232H**」，它多一個 phase 讓資料線在時脈上升**之前**先建立。
 
@@ -1121,7 +1233,7 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
        🔴 更根本的結論：FT2232C/D 的 MPSSE **沒有三相、沒有開汲極**，
           而那正是 I2C 需要的兩樣東西 ⇒ **用 MPSSE 在這顆上做 I2C 走不通**。
           pyftdi 對 FT2232D 也是直接拒絕提供 I2C。
-          ⇒ 正路是**原廠 DLL**（它幾乎確定走 bit-bang 自產時序）。
+          ⇒ 正路是** DLL_I2C_BCB.dll**（它幾乎確定走 bit-bang 自產時序）。
           這條自組路徑留著只是備援與對照，不是解法。
 
        時脈公式 AN2232C-01 原文確認我們是對的：
@@ -1150,7 +1262,7 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
        送了只會換來 `0xFA 9E` 混進資料流。
        （v1.11.5 我刪掉它之後「整片讀到 0」，當時歸因成開汲極沒了；
         現在看來那個推論也不成立 —— 兩種情況的資料都是錯的，
-        只是錯法不同。開汲極在這顆上根本做不到，要靠原廠 DLL 的 bit-bang。） */
+        只是錯法不同。開汲極在這顆上根本做不到，要靠 DLL_I2C_BCB.dll 的 bit-bang。） */
     if(g_ftDevType == 8){ c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00; }   /* FT232H only */
     c[n++] = 0x85;
     c[n++] = 0x86; c[n++] = (unsigned char)(div & 0xFF); c[n++] = (unsigned char)((div >> 8) & 0xFF);
@@ -1212,7 +1324,7 @@ static void i2c_apply_mode(uint32_t hz) {
        那三個命令在 FT2232C/D **都不存在** ⇒ 每個都讓晶片回 `0xFA <cmd>`，
        **那些位元組留在 IN 緩衝區，被後續讀取當成資料吃掉**。
        ⇒ 連原本正確的慢路徑都被汙染 —— 這就是「越改越差」的機制。
-       證據：Bruce 的黃金基準（原廠 Python UI 讀 0x68，256 byte）第一列是
+       證據：Bruce 的黃金基準（DLL_I2C_BCB 那套 Python UI 讀 0x68，256 byte）第一列是
          `61 41 B4 07 40 00 10 00 50 D0 6E 00 05 00 10 12`
        與我們 v1.11.4 的慢路徑**完全相同**；而 v1.11.10 的慢路徑卻讀成
          `68 01 03 03 03 7F 03 03 50 D0 6E 00 05 00 10 12`
@@ -1239,8 +1351,8 @@ static void i2c_apply_mode(uint32_t hz) {
 }
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
-    /* 🔴🔴 互斥：原廠 DLL 與 libMPSSE 都會開**同一個** FTDI channel，不能同時持有。
-       選了原廠就完全不碰 `I2C_OpenChannel`，反之亦然。 */
+    /* 🔴🔴 互斥：DLL_I2C_BCB.dll 與 libMPSSE 都會開**同一個** FTDI channel，不能同時持有。
+       選了 DLL_I2C_BCB 就完全不碰 `I2C_OpenChannel`，反之亦然。 */
     if (dgh_mode == DGH_MODE_VENDOR) {
         if (!g_vendorOk) {
             logline("  open    : mode=vendor requested but %s not available -- falling back to libMPSSE",
@@ -1270,7 +1382,7 @@ static int i2c_open(uint32_t clockHz) {
             dgh_mode = DGH_MODE_SLOW;
         }
     }
-    /* 走 libMPSSE ⇒ 先確保原廠那邊沒有握著 channel */
+    /* 走 libMPSSE ⇒ 先確保 DLL_I2C_BCB 那邊沒有握著 channel */
     if (g_vendorOpen) { logline("  open    : releasing the vendor channel before using libMPSSE"); vendor_close(); }
     if (!g_dllOk) { logline("  open    : ABORT dll not loaded"); return 0; }
     if (g_opened) { logline("  open    : already open, reuse"); return 1; }
@@ -1336,7 +1448,7 @@ static int i2c_open(uint32_t clockHz) {
    `i2c_open` 的 vendor 分支會讓出 libMPSSE，把 `g_handle=NULL`、**`g_opened=0`**；
    `vendor_open` 成功後只設 `g_vendorOpen=1`。於是 `i2c_open` 回報成功，
    但三個命令入口都只檢查 `g_opened` ⇒ 一律回「not open」
-   ⇒ **`vendor_read` 永遠走不到，原廠路徑從來沒有真的讀過一次。**
+   ⇒ **`vendor_read` 永遠走不到，DLL_I2C_BCB 路徑從來沒有真的讀過一次。**
    log 佐證：`vendor: Open() ok, SetClock(400 kHz)` / `GetClock() reports 400`
    / `DONE via VENDOR DLL ... 523 ms`，然後 `verify: vendor READ FAILED ... not open`。
 
@@ -1441,7 +1553,7 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
     /* static：4096 byte 的命令序列約 50 KB，放在堆疊上會爆（預設執行緒堆疊 1 MB，
        但這支是單一連線單執行緒處理，static 更安全也省得每次清零）。 */
     static unsigned char cmd[DGH_MP_CMD_MAX];
-    static unsigned char in[DGH_READ_MAX + 64];
+    static unsigned char in[DGH_RAW_READ_MAX + 64];
     int acks = 0, din = 0, gotIn = 0;
     int n = dgh_mp_build_read(cmd, (int)sizeof(cmd), slave, addr, (int)awid, (int)len, &acks, &din);
     FT_STATUS st;
@@ -1504,7 +1616,7 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
             logline("             next: retry once; if it repeats, unplug/replug the jig, drop"
                     " the I2C clock, or shorten the read length.");
             logline("             to go back to the previous behaviour, the old package is still"
-                    " online: %s", I2C_BRIDGE_FALLBACK_PKG);
+                    " online: %s", I2C_BRIDGE_NOACKGUARD_PKG);
             /* 🔴 這一段是**會被端到使用者面前**的文案，不是 log。
                所以講事實與下一步，不講實作（上面那幾行 logline 才是寫細節的地方）。 */
             lasterr_set("bad ACK bit 0x%02X in slot %d of %d on read"
@@ -1515,7 +1627,7 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
                         " the I2C clock down, or read fewer bytes at a time."
                         " Version 1.12.0 did not make this check and would have returned the bad"
                         " bytes without saying anything -- that package is still at %s",
-                        in[i], i, acks, slave, addr, len, len, I2C_BRIDGE_FALLBACK_PKG);
+                        in[i], i, acks, slave, addr, len, len, I2C_BRIDGE_NOACKGUARD_PKG);
             return 0xFFFFFFF4u;
         }
         if(kind != DGH_ACK_ACK){
@@ -1556,7 +1668,7 @@ static FT_STATUS raw_write(uint32_t slave, uint32_t addr, uint32_t awid,
                     " -- treat this address as being in an UNKNOWN state and read it back.", dlen);
             logline("             next: read the same address back; if the bit stream keeps"
                     " misaligning, unplug/replug the jig or drop the I2C clock.");
-            logline("             the previous package is still online: %s", I2C_BRIDGE_FALLBACK_PKG);
+            logline("             the previous package is still online: %s", I2C_BRIDGE_NOACKGUARD_PKG);
             lasterr_set("bad ACK bit 0x%02X in slot %d of %d on write"
                         " (slave=0x%02X addr=0x%X dlen=%d)."
                         " An ACK bit can only be 0x00 or 0x80, so the reply came back out of step"
@@ -1564,7 +1676,7 @@ static FT_STATUS raw_write(uint32_t slave, uint32_t addr, uint32_t awid,
                         " UNKNOWN and read it back. If it keeps happening, unplug and replug the"
                         " jig or slow the I2C clock down."
                         " Version 1.12.0 did not make this check -- that package is still at %s",
-                        in[i], i, acks, slave, addr, dlen, I2C_BRIDGE_FALLBACK_PKG);
+                        in[i], i, acks, slave, addr, dlen, I2C_BRIDGE_NOACKGUARD_PKG);
             return 0xFFFFFFF4u;
         }
         if(kind != DGH_ACK_ACK){
@@ -1587,7 +1699,7 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
     FT_STATUS s;
     if(n<0) return 0xFFFFFFFEu;
     g_lastRaw = 0; g_lastUsbRt = 0;
-    /* 🔴 原廠 DLL 優先：一次讀完，不分段（原廠標準操作就是一次 4096）。 */
+    /* 🔴 DLL_I2C_BCB.dll 優先：一次讀完，不分段（DLL_I2C_BCB 那套 Python UI 的標準操作就是一次 4096）。 */
     if(dgh_mode == DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen){
         int vok = vendor_read(slave, addr, awid, len, out, got);
         g_lastRaw = 0; g_lastUsbRt = 1;
@@ -1596,7 +1708,7 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
                 slave, addr, awid, len, vok?"ok":"FAILED", g_lastUs);
         return vok ? 0 : 0xFFFFFFF5u;
     }
-    if(dgh_raw_mpsse && DGH_RAW_AVAILABLE && len <= DGH_READ_MAX){
+    if(dgh_raw_mpsse && DGH_RAW_AVAILABLE && len <= DGH_RAW_READ_MAX){
         g_lastRaw = 1;
         s = raw_read(slave, addr, awid, len, out, got);
     } else {
@@ -1608,7 +1720,7 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
            實際上 bridge 從不自己關它（預設值由 --raw-mpsse 決定，其餘一律
            來自網頁的 open 訊息）。把來源寫進同一行，不要讓人再猜一次。 */
         logline("  i2c_read: SLOW path because rawmpsse=%d d2xx=%d len=%u(max %d)%s",
-                dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0, len, DGH_READ_MAX,
+                dgh_raw_mpsse, DGH_RAW_AVAILABLE ? 1 : 0, len, DGH_RAW_READ_MAX,
                 !dgh_raw_mpsse ? "  <-- flag off: THE PAGE SENT rawmpsse:0 (bridge never turns it off by itself)"
                   : (!DGH_RAW_AVAILABLE ? "  <-- ftd2xx.dll FT_Write/FT_Read not resolved"
                                         : "  <-- length over limit"));
@@ -1634,7 +1746,7 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
     t0 = now_ms();
     uint32_t tr=0; FT_STATUS s;
     g_lastRaw = 0; g_lastUsbRt = 0;
-    /* 🔴 原廠 DLL 優先，與讀取同一個判斷式（v1.12.0）。
+    /* 🔴 DLL_I2C_BCB.dll 優先，與讀取同一個判斷式（v1.12.0）。
        在這之前這條分支不存在 ⇒ vendor 模式下**整個寫入功能都不能用**。 */
     if(dgh_mode == DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen){
         int vok = vendor_write(slave, addr, awid, data, (uint32_t)dlen, &tr);
@@ -1717,7 +1829,7 @@ static int cl_add(SOCKET s){
     return -1;
 }
 /* 丟掉一個 client。🔴 它若是持有者就**一定**要放掉 I2C channel ——
-   不放的話 helper 會一直握著治具，下一個頁面（與原廠 PQ Tool）都開不起來。 */
+   不放的話 helper 會一直握著治具，下一個頁面（與桌面端的 I2C 工具）都開不起來。 */
 static void cl_drop(int i){
     if(i<0||i>=MAX_CLIENTS||!g_cl[i].used) return;
     /* 🔴 lock 一定要跟著持有權一起消失。忘了清的後果是最惡劣的那一種：
@@ -1750,7 +1862,7 @@ static void handle_command(int idx, const char* json){
         { int hasPage = dgh_json_str(json,"page",g_pageVer,sizeof(g_pageVer));
           if(!hasPage){ snprintf(g_pageVer,sizeof(g_pageVer),"%s","(not sent -- page older than i2c v1.13.3)"); }
           logline("  open    : page=%s  bridge=%s", g_pageVer, I2C_BRIDGE_VERSION); }
-        /* 🔴 v1.11.7：`mode` 是新的單一入口（0=原廠DLL 1=官方快速 2=一般 3=自建）。
+        /* 🔴 v1.11.7：`mode` 是新的單一入口（0=DLL_I2C_BCB 1=官方快速 2=一般 3=自建）。
            沒給就沿用舊的 fastread/rawmpsse 組合，維持相容。 */
         { long md = dgh_json_int(json,"mode",-1);
           if(md >= DGH_MODE_VENDOR && md <= DGH_MODE_RAW){
@@ -1858,26 +1970,90 @@ static void handle_command(int idx, const char* json){
            持有者檢查在上面，沒有放寬。 */
         if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         if(len<1) len=1;
-        /* 🔴 上限從 1024 放寬到 4096（2026-09-19）。
-           原廠的標準操作就是「slave 0x50、offset 寬度 2、**一次讀 4096**」
-           （`RomCodeProcessUI.py:30842` 與 `:31669`，沒有任何 chunk 迴圈）。
-           1024 是我們自己加的，不是協定或硬體限制。
-           **但仍然要有上限**：`rep` 是固定大小的緩衝區，沒有上限就會安靜截斷 JSON。 */
-        if(len>DGH_READ_MAX) len=DGH_READ_MAX;
-        static uint8_t buf[DGH_READ_MAX]; uint32_t got=0;
+        /* ═══ 🔴🔴 1.14.0：單次讀取長度上限**整個拿掉** ═══════════════════════
+           舊碼是 `if(len>DGH_READ_MAX) len=DGH_READ_MAX;` —— **靜默夾取**。
+           使用者要 8192 會拿到 4096 個 byte 外加 `"ok":true`，畫面上看起來完全
+           正常。「安靜少給資料」是最糟的失敗方式，比整個失敗還糟，因為他不會知道。
+           Bruce 2026-09-19：「不是一次讀 8192 的值，而是一次讀全部我設定的長度值。
+           不一定是 8192 啊，萬一我要讀 65536 呢？」「我只要讀到我不要讀的，
+           我再停止回 nack 就好啊」—— I2C 循序讀在匯流排上沒有長度上限。
+
+           剩下的兩道**都是明確回錯誤，一律不夾取**，而且各自講得出出處： */
+        /* (1) 配置上限：緩衝區是 malloc 的，但一個壞掉的封包寫 "len":4000000000
+               不該讓 bridge 去要 16 GB。數字 ＝ 網頁的 `I2CT_MAX_LEN`，同一個天花板。 */
+        if(len>DGH_READ_ALLOC_MAX){
+            snprintf(rep,sizeof(rep),
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"want\":%u,\"got\":0,"
+                "\"err\":\"read of %u bytes refused: this bridge allocates at most %u bytes per "
+                "request. Nothing was read -- no data was silently dropped. Split the read.\"}",
+                id,len,len,(unsigned)DGH_READ_ALLOC_MAX);
+            logline("[cmd] read REFUSED: len=%u over the %u byte allocation ceiling (no clamping)",
+                    len,(unsigned)DGH_READ_ALLOC_MAX);
+            ws_send_text(c,rep); return;
+        }
+        /* (2) DLL_I2C_BCB.dll 路徑：`GetBytesEx` 回報的讀取數量只有 16 位元
+               ⇒ len ≥ 65536 時「全部成功」與「完全失敗」在回傳值上**長得一樣**。
+               ⚠️ 這是**回傳值的位元寬**，不是 DLL 的能力上限 —— 它一次吃不吃得下
+                  超過 4096 沒有證據，只有硬體上能確認。不在這裡替它猜安全值。 */
+        if(dgh_mode==DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen && len>DGH_VENDOR_GOT_MAX){
+            snprintf(rep,sizeof(rep),
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"want\":%u,\"got\":0,"
+                "\"err\":\"read of %u bytes refused on the DLL_I2C_BCB.dll path: it reports how many "
+                "bytes came back in a 16-bit counter, so %u or more cannot be told apart from 0 and "
+                "a short read would look like a full one. Nothing was read -- no data was silently "
+                "dropped. The page splits long reads at %u bytes; an older page may not.\"}",
+                id,len,len,(unsigned)DGH_VENDOR_GOT_MAX+1u,(unsigned)DGH_VENDOR_GOT_MAX);
+            logline("[cmd] read REFUSED: len=%u over the 16-bit count limit of the vendor DLL (%u) "
+                    "-- completeness cannot be verified, so it was not attempted (no clamping). "
+                    "Splitting is the page's job; page=%s",
+                    len,(unsigned)DGH_VENDOR_GOT_MAX,g_pageVer);
+            ws_send_text(c,rep); return;
+        }
+        /* 🔴 資料與回覆緩衝區**依實際長度動態配置**（1.14.0 起）。
+           回覆 JSON 的最壞情況算式：每個資料 byte 最多 4 個字元（"255" ＋ 逗號）
+             len × 4  ＋  標頭（id/status/us/fast/raw/usbrt/want/got/data 的框，< 256）
+                      ＋  err 字串（最長 DGH_LASTERR_MAX ＝ 600）
+           ⇒ 取 `len*4 + 1024 + DGH_LASTERR_MAX` 一定夠。
+           數字：len=8192 ⇒ 34,392；len=65535 ⇒ 263,764；len=262144 ⇒ 1,050,200。
+           平常讀 3 byte 就只配 1,636 byte —— 這正是不用固定大小陣列的理由。 */
+        {
+        size_t repN=(size_t)len*4u+1024u+DGH_LASTERR_MAX;
+        uint8_t* buf=(uint8_t*)malloc(len);
+        char*    rp =(char*)malloc(repN);
+        if(!buf||!rp){
+            free(buf); free(rp);
+            snprintf(rep,sizeof(rep),
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"want\":%u,\"got\":0,"
+                "\"err\":\"out of memory: could not allocate %u bytes of data buffer plus %u bytes "
+                "of reply buffer for this read. Nothing was read. Try a shorter read.\"}",
+                id,len,len,(unsigned)repN);
+            logline("[cmd] read FAILED: malloc(%u)+malloc(%u) failed", len,(unsigned)repN);
+            ws_send_text(c,rep); return;
+        }
+        uint32_t got=0;
         lasterr_clear();
         FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
         /* 🔴 v1.13.0：失敗時一定要有 `err`。v1.12.0 只回 `status`（一個十位數的
-           十進位數字），使用者拿到的就是那個數字，沒有任何可行動的資訊。 */
-        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"raw\":%s,\"usbrt\":%d,",
+           十進位數字），使用者拿到的就是那個數字，沒有任何可行動的資訊。
+           🔴 1.14.0：多回 `want`／`got`。少讀的情形以前只能從 `data` 陣列的長度
+              推，而那是使用者推不出來的 —— 現在一眼看得出是誰擋的、拿到幾個。 */
+        int o=snprintf(rp,repN,"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"raw\":%s,\"usbrt\":%d,\"want\":%u,\"got\":%u,",
                        id,(st==FT_OK)?"true":"false",st,g_lastUs,
-                       dgh_fast_read?"true":"false", g_lastRaw?"true":"false", g_lastUsbRt);
+                       dgh_fast_read?"true":"false", g_lastRaw?"true":"false", g_lastUsbRt, len, got);
         if(st!=FT_OK && g_lastErr[0])
-            o+=snprintf(rep+o,sizeof(rep)-o,"\"err\":\"%s\",",g_lastErr);
-        o+=snprintf(rep+o,sizeof(rep)-o,"\"data\":[");
-        for(uint32_t i=0;i<got&&o<(int)sizeof(rep)-16;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",buf[i]);
-        o+=snprintf(rep+o,sizeof(rep)-o,"]}");
-        ws_send_text(c,rep); return;
+            o+=snprintf(rp+o,repN-o,"\"err\":\"%s\",",g_lastErr);
+        o+=snprintf(rp+o,repN-o,"\"data\":[");
+        uint32_t i=0;
+        for(;i<got&&o<(int)repN-16;i++) o+=snprintf(rp+o,repN-o,"%s%u",i?",":"",buf[i]);
+        o+=snprintf(rp+o,repN-o,"]}");
+        /* 🔴 到不了的分支，但**不准安靜地到不了**：算式如果哪天被改壞，這裡是
+           唯一會發現的地方。截斷過的 JSON 送出去只會變成網頁的解析錯誤。 */
+        if(i<got) logline("  🔴 BUG: reply buffer too small -- %u of %u bytes written "
+                          "(repN=%u, o=%d). The size formula above is wrong.",
+                          i,got,(unsigned)repN,o);
+        ws_send_text(c,rp);
+        free(buf); free(rp); return;
+        }
     }
     /* ── rawwrite (proto 2): the I2C test tool's write ────────────────────────
        🔴 NO address whitelist on purpose. A test tool that cannot write
@@ -1899,7 +2075,7 @@ static void handle_command(int idx, const char* json){
           logline("[cmd] rawwrite slave=0x%02X(7-bit) awid=%u addr=0x%08X x%d bytes: %s", slave, awid, addr, dn, hex); }
         /* 🔴 v1.12.0：vendor 寫入已接上（`vendor_write` ⇒ SendBytesEx），所以這裡
            改問**目前後端**開了沒 —— 不再是那句「尚未實作、請關掉快速模式」。
-           那句話讓原廠路徑一被採用，整個寫入功能就不能用（Bruce 2026-09-19 踩到）。 */
+           那句話讓 DLL_I2C_BCB 路徑一被採用，整個寫入功能就不能用（Bruce 2026-09-19 踩到）。 */
         if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         /* 🔴 分段不在這一層做：網頁已經依 EEPROM page size 切好，**一則就是一段**。
            （wire 上也沒有 div／waitms 欄位 —— 刻意不加，兩處各切一次必然分岔。） */
@@ -2045,7 +2221,7 @@ static void serve_landing(SOCKET c){
     o+=snprintf(body+o,sizeof(body)-o,
         "<p style='color:#94a3b8;font-size:12.5px;border-top:1px solid #334155;padding-top:14px;margin-top:20px'>"
         "🔴 同一時間<b>只有一個頁面</b>能握著 I2C 治具。另一頁要用時會顯示「已被另一個頁面佔用」，"
-        "按該頁的<b>接手</b>即可搶過來（原本那頁會被斷線，跟原廠 PQ Tool 擇一使用是同一個道理）。"
+        "按該頁的<b>接手</b>即可搶過來（原本那頁會被斷線，跟桌面端的 I2C 工具 擇一使用是同一個道理）。"
         "分頁關掉就會自動釋放。</p></div></body>");
     char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", o);
@@ -2114,7 +2290,7 @@ static void serve_page(SOCKET c, const char* req){
    🔴 這是**假說，不是結論**：Windows 的 `Sleep(1)` 會被進位到下一個排程器 tick，
    而預設 tick 是 **15.6 ms**，除非行程呼叫過 `timeBeginPeriod(1)` 把精度調高。
    `Sleep(1)` ⇒ 實際睡 ~15.6 ms，與量到的 10~15 ms 量級吻合；這也能解釋為什麼
-   原廠工具不慢（它的 runtime 可能已經調高過精度）。
+   DLL_I2C_BCB 那套工具不慢（它的 runtime 可能已經調高過精度）。
 
    我們自己呼叫 `timeBeginPeriod(1)`，讓 libMPSSE 內部的 `Sleep(1)` 真的是 1 ms。
    ⚠️ 這台 Mac 驗不了，**要靠 Bruce 用邏輯分析儀複量才算數**。若量完間隔沒有變小，
@@ -2165,7 +2341,7 @@ int main(int argc, char** argv){
         /* 三相時脈（raw 路徑）。**預設關**（實測 0x8C 無效）；`--3phase` 開起來診斷。 */
         else if(strcmp(argv[i],"--no-3phase")==0) dgh_three_phase=0;
         else if(strcmp(argv[i],"--3phase")==0) dgh_three_phase=1;
-        /* 🔴 1.13.1 更正：原廠 DLL **本來就是預設**（見 dgh_mode 宣告處），
+        /* 🔴 1.13.1 更正：DLL_I2C_BCB.dll **本來就是預設**（見 dgh_mode 宣告處），
            這個旗標現在的用途只剩「被前面的旗標改掉之後再指定回來」。 */
         else if(strcmp(argv[i],"--vendor")==0) dgh_mode=DGH_MODE_VENDOR;
         /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
@@ -2197,15 +2373,31 @@ int main(int argc, char** argv){
     logline("            or 0x80 (NACK); anything else is reported as a bit-stream");
     logline("            fault and the data is DISCARDED instead of returned.");
     logline("            1.12.0 and older accepted those values and returned the data.");
-    logline("            If this build refuses every read, the previous package is still");
-    logline("            online: %s", I2C_BRIDGE_FALLBACK_PKG);
+    /* 🔴 這裡要指的是「**沒有這道守衛**的那一版」，不是「上一版」——
+       1.13.0 起都有守衛，指過去等於叫他換一個會用同樣理由擋下他的 exe。 */
+    logline("            If this build refuses every read, the last package without");
+    logline("            this check is still online: %s", I2C_BRIDGE_NOACKGUARD_PKG);
+    /* 🔴 1.14.0：單次讀取長度上限拿掉了 —— 這是行為改變，要寫在他會看到的地方。 */
+    logline("--------------------------------------------------");
+    logline(" Read length: 1.14.0 removed the per-request length cap. The page now asks");
+    logline("            for the whole length you typed; buffers are allocated to match.");
+    logline("            Limits that remain, each refused with an explicit error (never");
+    logline("            silently shortened): %u bytes on the DLL_I2C_BCB.dll path (it",
+            (unsigned)DGH_VENDOR_GOT_MAX);
+    logline("            reports the byte count in 16 bits), %u on the self-built path",
+            (unsigned)DGH_RAW_READ_MAX);
+    logline("            (fixed command buffer), %u as the allocation ceiling.",
+            (unsigned)DGH_READ_ALLOC_MAX);
+    logline("            NOT VERIFIED on hardware: whether a single read above 4096");
+    logline("            actually succeeds. Only the rig can answer that.");
+    logline("            Previous package, if 1.14.0 misbehaves: %s", I2C_BRIDGE_PREV_PKG);
     logline("==================================================");
     logline("Self-diagnostics:");
 
     diag_os();
     diag_bits();
     logline("  run dir   : %s%s", g_exeDir, g_runningFromTemp ? "  <- TEMP/extraction dir (letter T: extract the whole zip to a real folder first)" : "");
-    /* 🔴 先找原廠 DLL（它是最優先的路徑），再找 libMPSSE（備援仍然要有）。
+    /* 🔴 先找 DLL_I2C_BCB.dll（它是最優先的路徑），再找 libMPSSE（備援仍然要有）。
        兩個都找、都記進 log —— 這樣他丟 log 過來就知道手上有哪幾條路可走。 */
     locate_and_load_vendor();
     g_dllOk = locate_and_load_dll();

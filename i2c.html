@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1200"></script>
+<script src="common/version.js?v=20260919i2c1201"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -426,12 +426,12 @@
       </label>
       <!-- 🔴 raw MPSSE：自己組整段命令、一次送出（一次 FT_Write ＋ 一次 FT_Read）。
            🔴 v1.20.0 預設關（`checked` 拿掉）：這顆 FT2232C/D 的 MPSSE 沒有三相、
-           沒有開汲極 ⇒ 用它做 I2C 走不通，產品預設走原廠 DLL。
+           沒有開汲極 ⇒ 用它做 I2C 走不通，產品預設走 DLL_I2C_BCB.dll。
            開關留著給 Bruce 手動做對照。 -->
       <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
         <input type="checkbox" id="chk-rawmpsse"> 快速模式（自建，對照用）
       </label>
-      <!-- 🔴 三相時脈：AN_113 說 FT2232H 的 I2C 需要它，但 Bruce 指出原廠工具
+      <!-- 🔴 三相時脈：AN_113 說 FT2232H 的 I2C 需要它，但 Bruce 指出 DLL_I2C_BCB 那套工具
            似乎沒用 —— 那是有效的反面假說，所以給他一個開關一次量完兩種。
            debug 區、一行、不加說明段落。 -->
       <label class="dbgonly kv" style="display:inline-flex;align-items:center;gap:5px">
@@ -896,7 +896,7 @@ var I2CT_ONLINE_PAGE = I2CT_ONLINE_BASE + 'i2c.html';
 var I2CT_PKG = (typeof HELPER_PKG !== 'undefined' && HELPER_PKG) ? HELPER_PKG : {};
 var I2CT_TIMEOUT_MS = 8000;
 /* 🔴 400 kHz（2026-09-19）。Bruce 自己給過領域事實「TCON 打出來的 clock 通常是
-   400K」，而原廠 PQ Tool 的預設其實是 **50 kHz**（`xCtrl_FTDI_I2C.cs:141`
+   400K」，而 DLL_I2C_BCB 那套桌面工具的預設其實是 **50 kHz**（`xCtrl_FTDI_I2C.cs:141`
    `ClockRate_default = 50000u`）—— 我們原本的 150k 已經比它快 3 倍。
    🔴 **誠實標明：這對他抱怨的 20 秒幾乎沒有幫助。** 4096 byte @400kHz 的理論
    匯流排時間只有 0.09 秒，@150kHz 是 0.25 秒 —— 省下的 0.16 秒在 20 秒面前
@@ -923,21 +923,92 @@ function i2ctVerNewer(a, b){
   return false;
 }
 /* 每則 read 訊息最多幾個 byte。
-   🔴 256 是**我們自己加的**，不是協定或硬體限制 —— 原廠 RomCode UI 的標準操作是
-   「slave 0x50、offset 寬度 2、**一次讀 4096**」，沒有任何 chunk 迴圈
-   （`RomCodeProcessUI.py:30842` 判斷式與 `:31669` 的單行 GetBytesEx）。
-   它存在的理由是**進度回報與中止的顆粒度**：走 libMPSSE 逐 byte 路徑時，
-   4096 要跑 10~20 秒，切成 16 段才有進度條可看、才按得下中止。
-   ⇒ 所以它**跟著路徑走**：raw MPSSE 一次就送完（快到不需要進度條，
-      原廠的進度條也是假的），libMPSSE 維持 256。 */
+   🔴 256 是**我們自己加的**，不是協定或硬體限制 —— `DLL_I2C_BCB.dll` 那套
+   Python UI 的標準操作是「slave 0x50、offset 寬度 2、**一次讀 4096**」，
+   沒有任何 chunk 迴圈（`RomCodeProcessUI.py:30842` 判斷式與 `:31669` 的單行
+   GetBytesEx）。它存在的理由是**進度回報與中止的顆粒度**：走 libMPSSE 逐 byte
+   路徑時，4096 要跑 10~20 秒，切成 16 段才有進度條可看、才按得下中止。
+
+   🔴🔴 v1.20.1（Bruce 2026-09-19）：
+   > 「為什麼燒錄完後的讀取驗證，不是一次讀完 8192，而是分 256 byte、256 byte
+   >   這樣讀？」
+   > 「不是一次讀 8192 的值，而是一次讀全部我設定的長度值。不一定是 8192 啊，
+   >   萬一我要讀 65536 呢？」
+   > 「我只要讀到我不要讀的，我再停止回 nack 就好啊」
+
+   他是對的：**I2C 循序讀沒有長度上限**，master 讀夠了回 NACK ＋ STOP 就結束。
+   任何「一次最多 N byte」都是我們這一側的實作限制，不是匯流排的。
+   ⇒ 這一支不再回一個魔術常數，而是回「**這條路徑自己的實作限制**」，
+     沒有實作限制的就回 `I2CT_MAX_LEN`（＝不分段，使用者設多少就送多少）。
+
+   舊寫法錯在**問錯旗標**：`i2ctRawMpsse ? RAW : SLOW` 只分「自建 vs 其他」。
+   v1.20.0 起產品預設走 `DLL_I2C_BCB.dll`（`i2ctRawMpsse === false`）⇒ 一律回 256
+   ⇒ 網頁把 8192 切成 32 段送出去，而 bridge 的那條分支本來就是一次讀完不分段
+   （`i2c_bridge.c` 的 `i2c_read_ex()` 第一個判斷 ⇒ `vendor_read()` 單次
+   `GetBytesEx`）。判準改成 **`i2ctMode`** —— 那才是 bridge 真正看的東西
+   （`i2ctRawMpsse` / `i2ctFastRead` 只是相容用的舊旗標鏡子）。
+
+   四個模式**各自對應哪一條 bridge 路徑、各自的實作限制**（依 `i2c_bridge.c`）：
+     VENDOR(0) → `vendor_read()`：單次 `GetBytesEx`。上限 **65535**，理由見下。
+     FAST(1)   → libMPSSE ＋ `I2C_FAST_TRANSFER_BYTES`（OPT_READ_DATA_FAST 0x1B）：
+                 一次組命令一次送。**不分段**。
+     RAW(3)    → 自建 raw MPSSE：命令緩衝區是靜態配置的
+                 （bridge 的 `DGH_RAW_READ_MAX`）⇒ **維持它自己的 4096 上限**。
+     SLOW(2)   → libMPSSE 無 FAST_TRANSFER（0x0B）：**每個 byte 兩次 USB 往返**，
+                 4096 byte 要 10~20 秒 ⇒ 只有這一條需要 256 的進度／中止顆粒度。 */
 var I2CT_CHUNK_SLOW = 256;
-var I2CT_CHUNK_RAW  = 4096;      /* ＝ bridge 的 DGH_READ_MAX，也是原廠的標準長度 */
-function i2ctChunk(){ return i2ctRawMpsse ? I2CT_CHUNK_RAW : I2CT_CHUNK_SLOW; }
+/* 自建 raw MPSSE 的上限 ＝ bridge 的 `DGH_RAW_READ_MAX`（命令緩衝區大小，靜態配置）。
+   🔴 這個 4096 跟「讀取長度上限」**不是同一件事**，v1.20.0 以前兩者共用
+   `DGH_READ_MAX` 一個名字，這次就是這樣搞混的。 */
+var I2CT_CHUNK_RAW  = 4096;
+/* ═══ 🔴🔴 `DLL_I2C_BCB.dll` 路徑的 65535 ═══════════════════════════════════
+   這**不是**猜的、也**不是**「安全值」，是回傳型別的位元寬：
+
+     `U16 GetBytesEx(U8 addr, U32 reg, U32 count, U8* data)`
+
+   **長度參數是 32 位元，但回報「實際讀到幾個 byte」的回傳值只有 16 位元。**
+   雙重確認：① 我們自己的 typedef 與 `retl $20`（五參數 thunk）；
+             ② `DLL_I2C_BCB_DEMO_20220606/RadDll.py` 的 API 註解。
+   ⇒ 要求 65536 它會真的去讀，但回報數量會溢位成 0 ——「讀滿」與「一個都沒讀到」
+     在回傳值上長得一樣，**我們無法驗證完整性**。所以每段切到 65535 以內。
+
+   🔴 **DLL 裡沒有 4096 上限。** 反組譯實查（Dispatch 2026-09-19）：
+   `GetBytesEx` @rva 0x1334 → 0x4016c0 → 0x401650 → 0x401544，再依裝置型別分派到
+   **0x402570 / 0x402aa4 / 0x40331c** 三個讀取實作。三個實作裡所有與常數比較的
+   指令，比的只有 `0 / ±1 / 2 / 3 / 255` 與 ASCII 65/90（'A'/'Z'，字串處理），
+   **沒有任何一處與 4096 或 65536 之類的長度常數比較**，迴圈邊界比的是傳入的
+   count 本身。那個 4096 從頭到尾就是我們自己加的。
+
+   ⚠️🔴 **誠實標註**：「三個實作裡沒有常數比較」是強證據但**不是百分之百** ——
+   限制也可能落在它再呼叫的 `FTD2XX.DLL` 裡，那一層沒有追進去。
+   **一次讀 65535（甚至只是超過 4096）在真實硬體上會不會成功，未經驗證，
+     只有 Bruce 的機器能確認。** 不得因為這段註解就宣稱它會成功。 */
+var I2CT_CHUNK_VENDOR = 65535;
 var I2CT_CHUNK      = 256;       /* 舊名保留：寫入分段與既有測試沿用 */
 /* 🔴 Bruce 2026-09-18：「最大檔案可能不止 4096 bytes，我有可能有 256K bytes」
-   ⇒ 上限拉到 262,144（1024 頁）。每則 read 上限 256 byte ⇒ 最多 1024 次交易，
-   所以下面一定要有進度與中止，不然他按下去只能乾等。 */
+   ⇒ 上限拉到 262,144（1024 頁）。這是**整個工具的天花板**，也是不分段路徑
+   實際會送出的最大單則長度 —— bridge 端的動態配置以同一個數字為界。
+   走 SLOW 路徑時每則 read 上限 256 byte ⇒ 最多 1024 次交易，所以下面一定要有
+   進度與中止，不然他按下去只能乾等。 */
 var I2CT_MAX_LEN    = 262144;     /* 一次讀寫的上限 ＝ 256K ＝ 1024 頁 */
+/* 🔴 依模式回「每則最多幾 byte」。沒有實作限制的模式回 `I2CT_MAX_LEN`（＝天花板
+   本身，`i2ctPlanRead()` 取 min(chunk, 剩餘長度) ⇒ 實際送出的就是使用者要的長度）。
+   🔴 寫成函式而不是常數：`I2CT_MAX_LEN` 宣告在後面，常數初始化會拿到 undefined。 */
+function i2ctChunk(){
+  if (i2ctMode === I2CT_MODE_SLOW)   return I2CT_CHUNK_SLOW;   /* 逐 byte：要進度與中止 */
+  if (i2ctMode === I2CT_MODE_RAW)    return I2CT_CHUNK_RAW;    /* 自建：命令緩衝區上限 */
+  if (i2ctMode === I2CT_MODE_VENDOR) return I2CT_CHUNK_VENDOR; /* 回報數量只有 16 位元 */
+  return I2CT_MAX_LEN;                                          /* FAST：不分段 */
+}
+/* 🔴 「為什麼切成這麼多段」要能被稽核。上一次的病灶就是**一個說不出出處的 4096**
+   ——「誰加的、是緩衝區還是 DLL 的限制」沒有人講得出來，於是三種不同的限制被當成
+   同一個。這一支把理由寫進 log，下一個人不必再去猜。 */
+function i2ctChunkWhy(){
+  if (i2ctMode === I2CT_MODE_SLOW)   return '一般模式每個 byte 都要一次往返，切小才有進度與中止';
+  if (i2ctMode === I2CT_MODE_RAW)    return '自建路徑的命令緩衝區是固定大小的';
+  if (i2ctMode === I2CT_MODE_VENDOR) return 'DLL_I2C_BCB.dll 回報「讀到幾個 byte」只用 16 位元，超過 65535 無法驗證完整性';
+  return '這條路徑沒有長度限制';
+}
 var I2CT_OPEN_RETRIES = 5;        /* D2XX 列舉時序：頭幾次可能回 0 channel */
 var I2CT_OPEN_RETRY_MS = 500;
 
@@ -1476,7 +1547,7 @@ function i2ctWrap(addr, awid){
    🔴🔴 **讀取沒有 page 這回事**（Bruce 2026-09-19：「而且這個只有『唯讀』的話，
       不是沒有分 page 嗎？」—— 對的）。兩個概念不要混（我們混過一次）：
 
-        `chunk`（I2CT_CHUNK_SLOW／_RAW、bridge 的 DGH_READ_MAX）
+        `chunk`（`i2ctChunk()`：依模式 256／4096／65535／不分段）
             ＝ **傳輸批次大小**。純粹是我們自己的選擇：要有進度條、要能中止、
               回覆緩衝區有上限。與晶片無關，改它不會改變匯流排上的行為對錯。
 
@@ -1720,7 +1791,7 @@ function i2ctSaveAs(){
 /* 🔴🔴 v1.15.0（Bruce 2026-09-19）：「像這種總耗時這麼短的，請用毫秒等級來列出，
    不要用 0 秒。」
 
-   舊寫法一律 `(ms/1000).toFixed(1) + ' 秒'`，解析度是 100 ms —— 原廠 DLL 路徑讀
+   舊寫法一律 `(ms/1000).toFixed(1) + ' 秒'`，解析度是 100 ms —— DLL_I2C_BCB.dll 路徑讀
    256 byte 只要 12.6 ms，於是**畫面上永遠是 `0.0 秒`**。0.0 秒涵蓋 0～49 ms，
    等於這一欄沒有資訊，而這張表存在的唯一目的就是讓他比較速度。
 
@@ -2040,7 +2111,7 @@ async function i2ctConnect(takeover){
          沒有開汲極** ⇒ 用 MPSSE 做 I2C 在這顆上走不通。
        · 實測後果已經量到：讀 0x1000 那一筆的位址相位 ACK 固定回 `0E 1C 38 70`
          （合法值只有 0x00／0x80），四次側錄全部重現。
-     ⇒ 產品預設改成**原廠 DLL**（`i2ctMode = I2CT_MODE_VENDOR`，見宣告處）。
+     ⇒ 產品預設改成** DLL_I2C_BCB.dll**（`i2ctMode = I2CT_MODE_VENDOR`，見宣告處）。
      bridge 端的預設本來就已經是 vendor（i2c_bridge.c `int dgh_mode = DGH_MODE_VENDOR;`），
      是這一段每次 open 前把它覆蓋掉，才會實際走 raw MPSSE。
 
@@ -2178,7 +2249,7 @@ async function i2ctConnect(takeover){
     i2ctSetLink(true, '已連線（本頁持有 I2C）');
     i2ctEeForget();      /* 🔴 重新連線 ⇒ EEPROM 型號重問（可能換了一片板子） */
     /* 🔴 `i2ctRawFellBack` 是「降級只講一次」的旗標 —— **每次重連都要歸零**，
-       這樣原廠路徑在這台機器上失敗時，那一行提示會**再出現一次**，
+       這樣 DLL_I2C_BCB 路徑在這台機器上失敗時，那一行提示會**再出現一次**，
        而不是第一次講完就永遠安靜（見 i2ctDoRead 裡掛橫幅的地方）。 */
     i2ctRawFellBack = false;
     i2ctBanner('topbanner', '', '');
@@ -2291,13 +2362,13 @@ function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
 
 /* ═══ 讀 ════════════════════════════════════════════════════════════════ */
 /* 🔴🔴 v1.14.5：bridge 回報的是**三個各自獨立的旗標**，不是一個「剛才走了哪一條」
-   的欄位。舊寫法只看 `r.raw` 一個旗標，於是**原廠 DLL 路徑（raw=false）被標成
+   的欄位。舊寫法只看 `r.raw` 一個旗標，於是** DLL_I2C_BCB.dll 路徑（raw=false）被標成
    「一般模式」** —— 畫面上就出現「讀 256 byte 0.0 秒　一般模式」這種不可能的組合
    （一般模式逐 byte 讀 256 byte 要好幾秒）。標籤說謊比沒有標籤更糟，因為他就是
    拿這張表在比速度。
 
    指紋（全部出自 `i2c_bridge.c` 的 `i2c_read_ex`，不是猜的）：
-     原廠 DLL   ：`usbrt = 1`   ← 🔴 **只有這一條會是 1**（1435 行）
+     DLL_I2C_BCB.dll   ：`usbrt = 1`   ← 🔴 **只有這一條會是 1**（1435 行）
      自建       ：`raw  = true`，usbrt = 2
      官方快速   ：`fast = true`，usbrt = 2（1461 行 `dgh_fast_read ? 2 : …`）
      一般逐 byte：以上皆非       ，usbrt = len*2+2
@@ -2312,7 +2383,7 @@ function i2ctOpenHelperCard(){ var c = $('helper-card'); if (c) c.open = true; }
    沒有正面證據時（欄位缺席，例如更舊的 bridge）**寧可什麼都不宣稱**：
    「我判不出來」不可以變成「它退回慢的了」這種會嚇到人的假警報。 */
 function i2ctPathOf(r){
-  if (r && r.usbrt === 1)   return { key: 'vendor', detail: '原廠',     label: '快速模式', fastish: true,  sure: true };
+  if (r && r.usbrt === 1)   return { key: 'vendor', detail: 'DLL_I2C_BCB', label: '快速模式', fastish: true,  sure: true };
   if (r && r.raw  === true) return { key: 'built',  detail: '自建',     label: '快速模式', fastish: true,  sure: true };
   if (r && r.fast === true) return { key: 'fast',   detail: '官方快速', label: '快速模式', fastish: true,  sure: true };
   var slow = !!(r && typeof r.usbrt === 'number' && r.usbrt > 2);
@@ -2325,6 +2396,19 @@ function i2ctPathOf(r){
 async function i2ctDoRead(slave, awid, base, len, quiet){
   var plan = i2ctPlanRead(base, len, awid);
   var all = [];
+  /* 🔴 v1.20.1：**分段一定要留痕**（Dispatch 2026-09-19 指示）。
+     「一次讀 N 卻變成 M 則」是這一輪整個問題的起點，而當時 log 裡沒有任何一行
+     講得出為什麼。切幾段、每段多長、**為什麼切**，三件事一起印。
+     一則的時候也印一行「不分段」—— 只在分段時才印的話，「沒印」會有兩種意思
+     （沒分段 vs 這一版根本沒這行），那又要再查一次。 */
+  if (!quiet) {
+    if (plan.length === 1)
+      i2ctLog('分段：' + len + ' byte 一次讀完，不分段', 'n');
+    else
+      i2ctLog('分段：' + len + ' byte ⇒ ' + plan.length + ' 則（每則最多 '
+            + i2ctChunk() + ' byte，最後一則 ' + plan[plan.length - 1].len + '）'
+            + '　原因：' + i2ctChunkWhy(), 'n');
+  }
   i2ctAbort = false;
   var t0 = i2ctNow(), devUs = 0;
   for (var i = 0; i < plan.length; i++) {
@@ -2363,8 +2447,8 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
        舊條件是 `i2ctRawMpsse && r.raw === false`：
          · `i2ctRawMpsse` 的預設值是 `true`（宣告處），而它要到自動選路**結束**
            才會被改寫成「實際採用的是不是自建路徑」；
-         · 選路階梯的第一次讀取是**原廠 DLL**，它回的就是 `raw:false`。
-       ⇒ 原廠路徑讀成功（資料與黃金基準逐 byte 相同、256 byte < 10 ms）的同一秒，
+         · 選路階梯的第一次讀取是** DLL_I2C_BCB.dll**，它回的就是 `raw:false`。
+       ⇒ DLL_I2C_BCB 路徑讀成功（資料與黃金基準逐 byte 相同、256 byte < 10 ms）的同一秒，
          畫面上被掛了「快的方式在這台電腦上用不了」。**那是假訊息。**
        新條件改成三件事同時成立才算退回：
          (1) `!quiet` —— 選路階梯本來就會一條一條試，試不過是預期行為不是故障；
@@ -2389,7 +2473,7 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
           + '   [' + segMs.toFixed(1) + ' ms'
           + (typeof r.us === 'number' ? '，dev ' + Math.round(r.us / 1000) + ' ms' : '')
           /* 🔴 這裡原本印的是 `r.fast === false ? '，slow-read'`，那是**旗標回音**：
-             原廠路徑的 fastread 本來就送 0，於是最快的那一條每次都被印成
+             DLL_I2C_BCB 路徑的 fastread 本來就送 0，於是最快的那一條每次都被印成
              「slow-read」。改印 `i2ctPathOf()` 算出來的實際後端。 */
           + '，' + pth.detail + ']', 'r');
     for (var j = 0; j < d.length; j++) all.push(d[j] & 0xFF);
@@ -2426,23 +2510,23 @@ function i2ctRenderProgress(){
    🔴 **為什麼不再需要它**：它存在的前提是「哪一條路走得通是未知數」。
       那個未知數已經有答案（見 `i2ctMode` 宣告處）：這顆 FT2232C/D 的 MPSSE
       沒有三相時脈、沒有開汲極 ⇒ 模式 1／2／3 全部建立在 MPSSE 上，做 I2C 走不通；
-      原廠 DLL 是唯一走得通的。**沒有東西需要試**，試的成本卻掛在他每一次連線上。
+      DLL_I2C_BCB.dll 是唯一走得通的。**沒有東西需要試**，試的成本卻掛在他每一次連線上。
 
    🔴 **要恢復自動選路的前提是什麼**（寫給後續的 agent，不要憑感覺復活它）：
       必須先有**至少一條 MPSSE 路徑在這顆晶片上被證實讀得對**的實機證據 ——
-      具體就是「位址相位的 ACK 槽只出現 0x00／0x80，而且整段資料與原廠 DLL 逐
+      具體就是「位址相位的 ACK 槽只出現 0x00／0x80，而且整段資料與 DLL_I2C_BCB.dll 逐
       byte 相同」。在拿到那個證據之前，自動選路能做的只有「多花時間再確認一次
       已知走不通的三條」。
       換了治具（不是 FT2232C/D）也算換了前提 —— 但那時該做的是依 `FT_GetDeviceInfo`
       的 Type 分流，不是把無條件的選路階梯加回來。
 
-   🔴 **降級路徑沒有跟著移除**：原廠 DLL 若 `Open()` 失敗或讀取失敗，bridge 會退回
+   🔴 **降級路徑沒有跟著移除**：DLL_I2C_BCB.dll 若 `Open()` 失敗或讀取失敗，bridge 會退回
       `DGH_MODE_SLOW`（i2c_bridge.c:1244／1266），而 `i2ctDoRead` 依 bridge 回報的
       指紋掛出「這次用的是比較慢的讀取方式」那一行；`i2ctRawFellBack` 在**每次重連
       時歸零**（見 i2ctConnect），所以那句話會重述，不是只講一次。
    🔴 debug 區的模式切換（快速模式／fast read／三相／ckdelay）全部保留，
       要做對照隨時可以手動指定，指定後 `i2ctRawManual` 生效、重連也不會被蓋掉。 */
-/* ═══ 🔴🔴 黃金基準（Bruce 2026-09-19 用原廠 Python UI 讀出並拍照）════════════
+/* ═══ 🔴🔴 黃金基準（Bruce 2026-09-19 用 DLL_I2C_BCB 那套 Python UI 讀出並拍照）════════════
    slave 0x68、offset 寬度 2、起始 0x0000、256 byte、400 kHz、Burst Read 勾選。
    來源檔：~/ClaudeData/i2c_build/golden_0x68_256.txt
 
@@ -2501,27 +2585,27 @@ var i2ctRawFellBack = false;      /* bridge 端偷偷退回慢路徑 ⇒ 一次�
 var i2ctStaleTab = false;         /* bridge 比本頁預期的還新 ⇒ 這個分頁沒重新載入過 */
 var i2ctRawManual = false;        /* 他自己動過快速模式的勾選 ⇒ 重連不要覆蓋他的選擇 */
 /* 🔴 三相時脈（只影響快速模式）。預設開；關掉是為了驗 Bruce 的反面假說
-   「原廠工具似乎沒用三相，會不會不用才讀得對」。 */
+   「 DLL_I2C_BCB 那套工具似乎沒用三相，會不會不用才讀得對」。 */
 var i2ctThreePhase = false;
 /* 🔴 讀取建立時間（pyftdi `_ck_delay`）。400 kHz 的 t_buf=1.3µs ⇒ 預設 3。
    0 ＝ 完全不延遲（v1.11.5 以前的行為，就是 bit7 讀錯的那個狀態）。 */
 var i2ctCkDelay = 3;
 /* 🔴 讀取模式（v1.14.0）。與 bridge 的 `mode` 欄位一致。
-     0 原廠 DLL ← 最優先（Bruce：「現成的 UI 裡面做的 I2C 溝通都是對的」）
+     0 DLL_I2C_BCB.dll ← 最優先（Bruce：「現成的 UI 裡面做的 I2C 溝通都是對的」）
      1 官方快速（libMPSSE FAST_TRANSFER，一個旗標）
      2 一般（libMPSSE 逐 byte，基準、已知正確）
      3 自建（我們手刻的 raw MPSSE，最後備援）
    `i2ctFastRead` / `i2ctRawMpsse` 仍在，是為了相容既有的 debug 勾選與測試；
    真正決定走哪條的是 `i2ctMode`。 */
 var I2CT_MODE_VENDOR = 0, I2CT_MODE_FAST = 1, I2CT_MODE_SLOW = 2, I2CT_MODE_RAW = 3;
-/* ═══ 🔴🔴 v1.20.0：預設就是原廠 DLL，不再自動選路 ═══════════════════════════
+/* ═══ 🔴🔴 v1.20.0：預設就是 DLL_I2C_BCB.dll，不再自動選路 ═══════════════════════════
    舊值是 `I2CT_MODE_SLOW`（「驗證前先用已知正確的，驗完才切」）。那句話的前提是
    「哪一條走得通還是未知數，所以要在他的硬體上試」。**那個未知數已經有答案了：**
      · AN2232C-01：這顆 FT2232C/D 的 MPSSE **沒有三相時脈、沒有開汲極**
        ⇒ 模式 1／2／3（全都建立在 MPSSE 上）做 I2C 在這顆上走不通。
      · 實測佐證：讀 0x1000 的位址相位 ACK 固定回 `0E 1C 38 70`（合法值只有
        0x00／0x80），四次側錄全部重現 —— 那不是待查的謎題，是必然結果。
-     · 原廠 Python UI 走的就是 `DLL_I2C_BCB.dll`，256 byte 約 12.6 ms。
+     · DLL_I2C_BCB 那套 Python UI 走的就是 `DLL_I2C_BCB.dll`，256 byte 約 12.6 ms。
    ⇒ 沒有東西需要在使用者的第一次讀取上「試」。預設直接用唯一走得通的那條。 */
 var i2ctMode = I2CT_MODE_VENDOR;
 async function i2ctOnRead(){
@@ -2888,7 +2972,7 @@ function i2ctWriteSource(awid){
    只能從 debug 區打開，而且打開後要重新連線才生效。 */
 var i2ctFastRead = false;
 /* 🔴 v1.20.0：**預設關**。這是「自建 raw MPSSE」那一條，而它在這顆 FT2232C/D 上
-   做 I2C 走不通（理由與實測見 `i2ctMode` 宣告上方）。產品預設走原廠 DLL
+   做 I2C 走不通（理由與實測見 `i2ctMode` 宣告上方）。產品預設走 DLL_I2C_BCB.dll
    ⇒ `i2ctMode = I2CT_MODE_VENDOR`、這個旗標 false ⇒ open 送出 `rawmpsse:0`。
    🔴 它**不是**另一個獨立開關：真正決定走哪條的是 `i2ctMode`，這個旗標只是
    debug 核取方塊與相容欄位的鏡子，兩者一律一起改，不要各填各的。
@@ -3635,8 +3719,11 @@ async function i2ctComparePaths(){
   var v = i2ctReadInputs();
   if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
   if (!i2ctLinked) { i2ctBanner('readbanner', 'err', '要先連線才能比對'); return; }
-  /* 🔴 比到 I2CT_CHUNK_RAW（4096）而不是 256：速度差要夠長才看得出來，而且 4096
-     正好是快速模式「一次做完」的實際長度 —— 比 256 等於沒有驗到他真正會用的情境。 */
+  /* 🔴 比到 I2CT_CHUNK_RAW（4096）而不是 256：速度差要夠長才看得出來 ——
+     比 256 等於沒有驗到他真正會用的情境。
+     🔴 v1.20.1：這裡**刻意不跟著 `i2ctChunk()` 走**。這支按鈕會真的跑一次
+     SLOW（逐 byte）路徑，4096 就要 10~20 秒，跟著使用者設的長度走會等到天荒地老
+     —— 比對的目的是「看出快慢差距」，不是「跑滿長度」，加長不會讓結論更清楚。 */
   var n = Math.min(v.len, I2CT_CHUNK_RAW);
   i2ctBusy = true; i2ctSyncButtons();
   i2ctLog('── 快慢路徑比對：同一段 ' + n + ' byte 各讀一次 ──', 'n');
@@ -3650,10 +3737,10 @@ async function i2ctComparePaths(){
      三條都要逐 byte 比對，因為快不等於對。 */
   /* 🔴🔴 v1.14.5：三個 pass 原本都送 `mode: i2ctMode`，只換 fastread／rawmpsse ——
      而 v1.14.0 之後真正決定走哪條的是 `mode`（`i2c_read_ex` 第一個判斷就是它）。
-     ⇒ 目前採用原廠 DLL 時，三個 pass **全部都走原廠**，比出來必然是「快 1.0 倍」，
+     ⇒ 目前採用 DLL_I2C_BCB.dll 時，三個 pass **全部都走 DLL_I2C_BCB**，比出來必然是「快 1.0 倍」，
        這顆按鈕的存在意義（讓他自己證明快多少）整個消失。每個 pass 各自帶自己的
        `mode`，fastread／rawmpsse 由 mode 推導，不要兩套來源各填一次。
-     第一列「快速」＝**他目前實際採用的那一條**（原廠／官方快速／自建都可能），
+     第一列「快速」＝**他目前實際採用的那一條**（DLL_I2C_BCB／FTDI 官方快速／自建都可能），
      不是寫死的自建路徑 —— 否則比的是他根本沒在用的東西。 */
   var fastMode = (i2ctMode !== I2CT_MODE_SLOW) ? i2ctMode : I2CT_MODE_RAW;
   var MODES = [
@@ -3693,7 +3780,7 @@ async function i2ctComparePaths(){
         v1.14.0 之後 bridge 是以 `mode` 為準（`i2c_read_ex` 第一個判斷就是它），
         而 v1.20.0 起 debug 核取方塊會一併設定 `i2ctMode` ⇒ 只關旗標的話，
         下一行的 open 仍會送出 `mode:3`，「已自動改回」就只是畫面上的話。
-        ⇒ 三個旗標一起設回產品預設（原廠 DLL），並解除手動鎖定，
+        ⇒ 三個旗標一起設回產品預設（DLL_I2C_BCB.dll），並解除手動鎖定，
           讓之後的重連也回到預設，而不是把被證明會讀錯的選擇留著。 */
   var forcedOff = false;
   if ((!done && !res.raw.ok) || (done && bad)) {
@@ -3824,12 +3911,12 @@ function i2ctFlash(msg){
    也就是說，如果檔案很大，例如到 256K Byte，**它加到多少就是多少**。」
    ⇒ **所有 byte 相加，不取模、不截斷**，十六進位顯示，位數依實際值自然增長。
 
-   背景（僅供參考，**我們不採用**）：原廠 `RomCodeProcessUI.py` 的 CKS 也是單純
+   背景（僅供參考，**我們不採用**）：`RomCodeProcessUI.py` 的 CKS 也是單純
    `sum(...)`（:13727／:13771），但需要 16 bit 時會 `% 0x10000`（:13749），
    DataMapping 檔名也寫成 4 位（`CKS(0x2AF5)`）。那是他們的截斷慣例，不是我們的。
 
    🔴🔴 **由他的真實檔案獨立佐證**（2026-09-19，比我們自己編的向量有力得多）：
-      他載入的兩個檔，檔名尾端本來就帶著原廠算好的 CKS，而我們算出來的完全吻合：
+      他載入的兩個檔，檔名尾端本來就帶著那套工具算好的 CKS，而我們算出來的完全吻合：
         `…_CKS_2ACFF.bin`  ⇒ 我們算出 **0x2ACFF** ✓
         `…_CKS_02A91A.bin` ⇒ 我們算出 **0x2A91A** ✓
       兩個值都**大於 0xFFFF** ⇒ 如果有人把 `% 0x10000` 或 `& 0xFFFF` 加回來，
@@ -4736,7 +4823,7 @@ function i2ctInit(){
   /* 🔴 v1.20.0：這個核取方塊 ＝ **手動指定走自建 raw MPSSE**（debug 對照用）。
      自動選路移除後，它必須自己把 `i2ctMode` 一起改掉 —— bridge 以 `mode` 為準，
      只改 `rawmpsse` 旗標而 mode 還留在 0，他勾了也不會生效（等於開關是壞的）。
-     取消勾選 ⇒ 回到產品預設（原廠 DLL），不是回到已知走不通的 SLOW。 */
+     取消勾選 ⇒ 回到產品預設（DLL_I2C_BCB.dll），不是回到已知走不通的 SLOW。 */
   $('chk-rawmpsse').addEventListener('change', function () {
     i2ctRawMpsse = this.checked;
     i2ctRawManual = true;      /* 🔴 手動動過 ⇒ 重連不再自動還原，他的選擇優先 */
@@ -4744,7 +4831,7 @@ function i2ctInit(){
     i2ctMode = i2ctRawMpsse ? I2CT_MODE_RAW : I2CT_MODE_VENDOR;
     if (i2ctRawMpsse) { i2ctFastRead = false;
                         var cfx = $('chk-fastread'); if (cfx) cfx.checked = false; }
-    i2ctLog('快速模式（自建）⇒ ' + (i2ctRawMpsse ? '開' : '關（預設走原廠）')
+    i2ctLog('快速模式（自建）⇒ ' + (i2ctRawMpsse ? '開' : '關（預設走 DLL_I2C_BCB.dll）')
           + '　※ 要重新連線才生效', 'w');
   });
   $('in-ckdelay').addEventListener('change', function () {
@@ -4817,14 +4904,14 @@ function i2ctInit(){
   $('btn-takeover').addEventListener('click', i2ctTakeover);
   $('btn-release').addEventListener('click', i2ctRelease);
   /* 🔴 v1.20.0：同 chk-rawmpsse —— 要一起改 `i2ctMode`，否則 bridge 以 mode 為準，
-     這個開關在畫面上打得開、實際上不生效。取消 ⇒ 回產品預設（原廠 DLL）。 */
+     這個開關在畫面上打得開、實際上不生效。取消 ⇒ 回產品預設（DLL_I2C_BCB.dll）。 */
   $('chk-fastread').addEventListener('change', function () {
     i2ctFastRead = this.checked;
     i2ctRawManual = true;
     i2ctMode = i2ctFastRead ? I2CT_MODE_FAST : I2CT_MODE_VENDOR;
     if (i2ctFastRead) { i2ctRawMpsse = false;
                         var crx = $('chk-rawmpsse'); if (crx) crx.checked = false; }
-    i2ctLog('fast read ⇒ ' + (i2ctFastRead ? '開（實驗，實機上曾讀錯）' : '關（預設走原廠）')
+    i2ctLog('fast read ⇒ ' + (i2ctFastRead ? '開（實驗，實機上曾讀錯）' : '關（預設走 DLL_I2C_BCB.dll）')
           + '　※ 要重新連線才生效', 'w');
   });
   $('btn-getshow').addEventListener('click', function () { i2ctNeedHelper('手動叫出來的下載入口'); });
@@ -5270,12 +5357,12 @@ window.__i2ct = {
      結果連已經指定模式的情境也照跑自動選路，多送兩次讀取。 */
   rawMpsse: function (v) {
     if (v !== undefined) { i2ctRawMpsse = !!v; i2ctRawManual = true;
-                           /* 🔴 v1.20.0：關掉 ⇒ 回產品預設（原廠 DLL），
+                           /* 🔴 v1.20.0：關掉 ⇒ 回產品預設（DLL_I2C_BCB.dll），
                               不是回 SLOW（那條在這顆晶片上本來就走不通）。 */
                            i2ctMode = i2ctRawMpsse ? I2CT_MODE_RAW : I2CT_MODE_VENDOR; }
     return i2ctRawMpsse;
   },
-  /* 0 原廠DLL / 1 官方快速 / 2 一般 / 3 自建 —— 自動選路的結論 */
+  /* 0 DLL_I2C_BCB / 1 官方快速 / 2 一般 / 3 自建 —— 自動選路的結論 */
   mode: function (v) { if (v !== undefined) i2ctMode = v; return i2ctMode; },
   chunk: function () { return i2ctChunk(); },
   fastRead: function (v) { if (v !== undefined) i2ctFastRead = !!v; return i2ctFastRead; },
@@ -5362,7 +5449,7 @@ window.__i2ct = {
     /* 🔴 讀取模式要回到**產品預設**。`_reset` 的語意是「回到剛打開網頁的狀態」，
        不重設的話前一組測試採用的模式會漏到下一組，下一組等於在驗一個使用者
        遇不到的狀態 —— 那種綠燈沒有意義（這一類疏漏被 Bruce 的 log 抓到過一次）。
-       🔴 v1.20.0：產品預設改成**原廠 DLL**（mode 0、rawmpsse 關、fastread 關），
+       🔴 v1.20.0：產品預設改成** DLL_I2C_BCB.dll**（mode 0、rawmpsse 關、fastread 關），
        所以這裡跟著改。這一行與 `var i2ctMode` / `var i2ctRawMpsse` 的初值、
        以及 i2ctConnect 裡「非手動就還原」那一段，三處必須一致。 */
     i2ctMode = I2CT_MODE_VENDOR; i2ctRawMpsse = false; i2ctFastRead = false;

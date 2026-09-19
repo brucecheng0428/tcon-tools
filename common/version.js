@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.53.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.20.0',       // I2C（讀寫測試）
+  i2c:     'v1.20.1',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -78,11 +78,25 @@ var HELPER_PKG = {
         舊包留著他才有當場能走的退路，路徑也印在 exe 的啟動橫幅與每一則錯誤訊息裡。
      包內四個檔不變，三支 DLL 是**從 v1.12.0 的包原樣搬過來**（SHA 逐一比對相同，
      見上面各自的紀錄），只有 exe 換掉。 */
-  pkg:    'v1.13.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.13.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  /* 🔴 v1.14.0（2026-09-19）：exe **有重編** —— 單次讀取的長度上限拿掉了。
+     Bruce：「不是一次讀 8192 的值，而是一次讀全部我設定的長度值。不一定是 8192 啊，
+     萬一我要讀 65536 呢？」「我只要讀到我不要讀的，我再停止回 nack 就好啊」。
+     舊碼會把超過 4096 的讀取**靜默夾取**到 4096 再回 `"ok":true`（要 8192 拿到
+     4096 而且畫面看起來正常）；現在資料與回覆緩衝區依實際長度動態配置，
+     所有剩下的限制一律回明確錯誤。⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
+     🔴 **`data/i2c-bridge-v1.13.0.zip` 與 `v1.12.0.zip` 都刻意保留不刪**：
+        前者是「1.14.0 有問題就先退回去」的退路，後者是「ACK 守衛誤殺時」的退路
+        （1.13.0 起都有守衛，退到它沒用）。兩個路徑分別印在 exe 的啟動橫幅裡，
+        巨集也拆成 `I2C_BRIDGE_PREV_PKG` 與 `I2C_BRIDGE_NOACKGUARD_PKG` 兩個。
+     包內四個檔不變，三支 DLL 是**從 v1.13.0 的包原樣搬過來**（SHA 逐一比對相同：
+     libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…），只有 exe 換掉。
+     ⚠️🔴 **未驗證**：一次讀超過 4096（乃至 65535）在真實硬體上會不會成功，
+        只有 Bruce 的機器能確認 —— 本版不得宣稱它會成功。 */
+  pkg:    'v1.14.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.14.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.13.0.zip',
-  bytes:  392374,                             // zip 位元組數（打包後填）
-  zipSha: 'e6a19a3b4b3f9dbba43b331947e8e9b39adbca1ec2cdfa0dcbaf70ef968c4c00',
-  exeSha: 'a0c18e238403ca95ab141e72deeeb34632f29c0053e20cdf30efc297366e949a'
+  file:   'data/i2c-bridge-v1.14.0.zip',
+  bytes:  393850,                             // zip 位元組數（打包後填）
+  zipSha: '2ee090f98225e5022ef6e579be41dc4190c4efeab3a9cd84ba529fd3b68c50b1',
+  exeSha: '173d23975296de3897c54772c428536d0d507a989699e23887451ca3d0801fc8'
 };
