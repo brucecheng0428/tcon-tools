@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1150"></script>
+<script src="common/version.js?v=20260919i2c1160"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -195,6 +195,22 @@
     font-size:9.5px;color:var(--sub);cursor:pointer;user-select:none;}
   .bitgrid label.on{color:#4ade80;font-weight:700;}
   .bitgrid input{margin:0;width:13px;height:13px;cursor:pointer;}
+  /* 顏色圖例：一行一項，色塊沿用格子本身的視覺（同一組顏色，不另外選色 ——
+     圖例與實物不同色就是在誤導）。 */
+  .celllegend{display:flex;flex-direction:column;gap:3px;font-size:10.5px;color:var(--sub);}
+  .celllegend span{display:flex;align-items:center;gap:6px;line-height:1.35;}
+  .celllegend i{flex:0 0 auto;width:13px;height:13px;border:1px solid #223049;border-radius:2px;}
+  .celllegend .lg-none  {background:#0b1424;}
+  .celllegend .lg-has   {background:#132038;}
+  .celllegend .lg-wrote {background:#3f2d07;}
+  .celllegend .lg-dirty {background:#1e1b4b;box-shadow:inset 3px 0 0 #818cf8;}
+  .celllegend .lg-diff  {background:#4a044e;outline:1px solid #a21caf;outline-offset:-1px;}
+  .celllegend .lg-wrfail{background:#450a0a;box-shadow:inset 0 0 0 2px var(--err);}
+  .celllegend .lg-wrok  {background:#132038;box-shadow:inset 0 0 0 2px #16a34a;}
+  .celllegend .lg-sel   {background:rgba(34,197,94,.20);box-shadow:inset 0 0 0 1px rgba(34,197,94,.75);}
+  .celllegend .lg-xh    {background:rgba(56,189,248,.22);}
+  .celllegend .lg-xc    {background:#0b1424;outline:2px solid var(--accent);outline-offset:-2px;}
+  .celllegend .lg-edit  {background:#0c2d48;box-shadow:inset 0 0 0 2px var(--accent);}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;color:var(--sub);margin-top:7px;}
   .legend i{display:inline-block;width:10px;height:10px;border:1px solid #223049;vertical-align:-1px;margin-right:4px;}
 
@@ -597,6 +613,8 @@
           <!-- 🔴 輸入格式與「寫入資料」**同一支解析器**（i2ctParseHex）：空白或逗號
                分隔，0xA1／A1h／0xA1h／不分隔的 A1D8FB 都吃。另寫一套必然分岔。 -->
           <input id="in-find" class="mono" spellcheck="false" placeholder="61 41 B4">
+          <!-- 🔴 與「寫入資料」同一份範例（同一支解析器 ⇒ 同一份說明）。 -->
+          <div class="hint" id="findeg">&nbsp;</div>
           <div class="sp-row">
             <label class="sp-rd"><input type="radio" name="findscope" id="find-all" checked> 全部範圍</label>
             <label class="sp-rd"><input type="radio" name="findscope" id="find-page"> 本頁</label>
@@ -612,6 +630,29 @@
           <div class="sp-hd">位元 <span id="bitaddr" class="kv mono"></span></div>
           <div id="bitgrid" class="bitgrid"></div>
           <div id="bitnone" class="kv">（點任一格後顯示）</div>
+        </div>
+        <!-- ═══ 🔴 顏色圖例（v1.16.0）═══════════════════════════════════════
+             格子上有十一種長相，而它們的意思**只存在於原始碼裡** —— 使用者只看到
+             一堆顏色。圖例是正確性資訊（分不出「已寫進去」與「改了沒寫」會燒錯東西），
+             不在「說明文字越少越好」的刪除範圍。
+             🔴 項目數必須等於 CSS 裡實際存在的樣式數，由 tools/check_legend_items.js
+                在 pre-commit 比對 `table.dump td.<class>` 的相異類別 ⇒ 不會偷偷漏掉
+                新加的樣式（漏掉的那一個正好會是最新、最沒人認得的那一個）。 -->
+        <div class="sp-box">
+          <div class="sp-hd">顏色說明</div>
+          <div id="celllegend" class="celllegend">
+            <span data-cls=""><i class="lg-none"></i>未讀取</span>
+            <span data-cls="has"><i class="lg-has"></i>已讀到的值</span>
+            <span data-cls="wrote"><i class="lg-wrote"></i>本次寫入過</span>
+            <span data-cls="dirty"><i class="lg-dirty"></i>已修改未寫入</span>
+            <span data-cls="diff"><i class="lg-diff"></i>與快照不同</span>
+            <span data-cls="wrfail"><i class="lg-wrfail"></i>寫入與回讀不一致</span>
+            <span data-cls="wrok"><i class="lg-wrok"></i>回讀相符</span>
+            <span data-cls="sel"><i class="lg-sel"></i>選取範圍</span>
+            <span data-cls="xh"><i class="lg-xh"></i>十字同列同欄</span>
+            <span data-cls="xc"><i class="lg-xc"></i>十字中心</span>
+            <span data-cls="edit"><i class="lg-edit"></i>編輯中</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1239,7 +1280,21 @@ function i2ctWrap(addr, awid){
 }
 /* 把一次讀取拆成多則 I2C Bridge 訊息。
    🔴 awid === 0（current address read）也照樣可以分段：裝置自己的位址指標會
-      跟著往前走，所以連續送 N 則就是連續讀，不需要（也不能）給位址。 */
+      跟著往前走，所以連續送 N 則就是連續讀，不需要（也不能）給位址。
+
+   🔴🔴 **讀取沒有 page 這回事**（Bruce 2026-09-19：「而且這個只有『唯讀』的話，
+      不是沒有分 page 嗎？」—— 對的）。兩個概念不要混（我們混過一次）：
+
+        `chunk`（I2CT_CHUNK_SLOW／_RAW、bridge 的 DGH_READ_MAX）
+            ＝ **傳輸批次大小**。純粹是我們自己的選擇：要有進度條、要能中止、
+              回覆緩衝區有上限。與晶片無關，改它不會改變匯流排上的行為對錯。
+
+        `page`（「Page 大小」欄位、I2CT_PAGE_DEFAULT）
+            ＝ **EEPROM 的硬體限制**，只作用於**寫入**。page buffer 填滿之後
+              位址會在 page 內回捲，跨界寫會蓋掉同一頁前面的資料，寫完還要等 tWR。
+              循序讀取沒有這個機制，晶片自己把位址一路往前推。
+
+      ⇒ 這一支**不看** `i2ctPageSize()`／`i2ctTwr()`，讀取路徑任何一處都不看。 */
 function i2ctPlanRead(base, len, awid){
   var out = [], done = 0, chunk = i2ctChunk();
   while (done < len) {
@@ -1285,6 +1340,16 @@ function i2ctAllFF(bytes){
    🔴 **同一份資料用任一種寫法，解析結果必須完全相同** —— 這是測試的判準。
    🔴 解析不了的 token 要**指出是哪一個**（i2ctLastHexErr），不靜默丟掉。 */
 var i2ctLastHexErr = '';
+/* ═══ 🔴 可接受的寫法（單一來源，v1.16.0）════════════════════════════════════
+   「寫入資料」與「搜尋」用的是**同一支解析器**，所以範例也必須是同一份 ——
+   兩邊各寫一份，他就會以為兩邊規則不同。
+   🔴 這個清單有測試釘住：**每一種都要真的能被 i2ctParseHex 解析成同一個結果**。
+      列出解析器吃不下的寫法，比不列還糟。
+   ⚠️ 十進位**不在這裡** —— `i2ctParseHex` 是位元組序列解析器，一律當十六進位
+      （`161` 會被判成「半個 byte」而拒絕）。十進位只適用於**數值欄位**
+      （slave／offset／總 byte 數），那幾格旁邊各自有「十進位 +d」的說明。 */
+var I2CT_HEX_EG = ['A1 D8 FB', '0xA1,0xD8', 'A1h', 'A1D8FB'];
+var I2CT_HEX_EG_LINE = '例：' + I2CT_HEX_EG.join(' ／ ');
 function i2ctParseHex(s){
   i2ctLastHexErr = '';
   if (s == null) return null;
@@ -1680,9 +1745,14 @@ function i2ctUpdateHints(){
   } else {
     var d = i2ctParseHex($('in-data').value);
     $('in-data').classList.toggle('bad', d === null);
+    /* 🔴 v1.16.0：**空的時候列出可接受的寫法**（Bruce 2026-09-19：「現在寫入資料
+       裡面的範例怎麼變得只有一種？之前不是還有兩三種嗎？」）。
+       解析器吃得下四種，以前只有 placeholder 那一種看得到 —— 能吃的沒讓他看到，
+       等於那些能力不存在。有輸入時仍然以解析回饋優先，範例不蓋掉它。 */
     $('datahint').textContent = d === null
       ? ('🔴 看不懂「' + (i2ctLastHexErr || '?') + '」')
-      : (d.length ? (d.length + ' byte：' + i2ctBytesText(d.slice(0, 16)) + (d.length > 16 ? ' …' : '')) : '空白');
+      : (d.length ? (d.length + ' byte：' + i2ctBytesText(d.slice(0, 16)) + (d.length > 16 ? ' …' : ''))
+                  : I2CT_HEX_EG_LINE);
   }
   i2ctSyncButtons();
 }
@@ -2053,7 +2123,9 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
     if (!r.ok) {
       i2ctProgress = null; i2ctRenderProgress();
       return { ok: false, bytes: all,
-        err: 'I2C Bridge 讀失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）' };
+        /* 同寫入：原文進 log，畫面用翻譯過的話。 */
+        err: (i2ctLog('✕ 讀失敗（status ' + (r.status != null ? r.status : '?') + '）'
+                    + (r.err ? '：' + r.err : ''), 'e'), i2ctErrText(r.err)) };
     }
     var d = r.data || [];
     var segMs = i2ctNow() - tSeg;
@@ -2370,8 +2442,28 @@ async function i2ctOnRead(){
   i2ctWroteFlags = null;
   /* 🔴 讀取失敗（長度不足）的資料不得成為基準、也不得參與比較 ——
      拿半份資料當基準，之後每一次比對都是錯的，而且看起來很正常。 */
-  if (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN)) i2ctIngest(i2ctDev);
+  var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN));
+  if (readReplaced) i2ctIngest(i2ctDev);
   else { i2ctDiffIdx = null; i2ctLog('讀取不完整 ⇒ 不當基準、不參與比較', 'w'); }
+  /* ═══ 🔴🔴 讀取成功 ⇒ 清掉「已修改未寫入」（v1.16.0）════════════════════
+     Bruce 2026-09-19：「可是我都已經**再重新讀取一次 256 byte** 了。重新讀取一次，
+     理論上這個指標應該要被**覆蓋掉**才對啊，因為我就是沒有要寫了。」—— 他是對的。
+     讀取把整片資料換成裝置上的實際值 ⇒ 那些「改了沒寫」的值**已經不存在**，
+     標記留著只會讓他以為還有東西沒燒進去。
+     這一頁本來就有這個認知（上面 `i2ctCancelEdit()` 的理由就是「讀取會整片蓋掉」），
+     但只處理了**正在編輯的那一格**，沒清已經記錄下來的 dirty —— 是漏掉，不是設計。
+
+     🔴 條件用 `readReplaced`（＝ ok 且長度完整），與「可不可以當基準」同一個判準：
+        **資料沒有真的換掉就不清**，否則讀取失敗時等於幫他把待辦丟掉。
+     🔴 只清 dirty，**不動快照**（i2ctRef）—— 快照是比對基準，讀完還要拿來比。 */
+  if (readReplaced) {
+    var hadDirty = i2ctDirtyCount();
+    i2ctEnsureWrFail(i2ctDev);
+    if (i2ctDirty) i2ctDirty.fill(0);
+    if (i2ctWrFail) i2ctWrFail.fill(0);
+    if (i2ctWrOk) i2ctWrOk.fill(0);
+    if (hadDirty) i2ctLog('讀取已覆蓋整片資料 ⇒ 清掉 ' + hadDirty + ' byte 的「已修改未寫入」標記', 'n');
+  }
   i2ctSetView('dev');             // 按讀取 ⇒ 看裝置（載入的檔案仍然留著，可切回去）
 
   if (!res.ok) {
@@ -2409,9 +2501,12 @@ async function i2ctDoWrite(slave, awid, addr, bytes){
   try { r = await i2ctSend({ type: 'rawwrite', slave: slave, addr: addr, data: bytes, awid: awid }); }
   catch (e) { i2ctLog('✕ ' + e.message, 'e'); return { ok: false, err: e.message }; }
   if (!r.ok) {
-    var msg = 'I2C Bridge 寫失敗（FT status ' + (r.status != null ? r.status : '?') + (r.err ? '，' + r.err : '') + '）';
-    i2ctLog('✕ ' + msg, 'e');
-    return { ok: false, err: msg };
+    /* 🔴 **原文只進 log，畫面用翻譯過的話**（v1.16.0）。
+       這一行就是那句 `write is not implemented on the vendor DLL path yet…`
+       原封不動跑到他畫面上的入口 —— bridge 的 err 是給診斷用的，不是文案。 */
+    i2ctLog('✕ 寫失敗（status ' + (r.status != null ? r.status : '?') + '）'
+          + (r.err ? '：' + r.err : ''), 'e');
+    return { ok: false, err: i2ctErrText(r.err) };
   }
   i2ctLog('   ✔ 已寫入（transferred ' + (r.transferred != null ? r.transferred : '?') + '）', 'o');
   return { ok: true, err: null, us: r.us };
@@ -2777,8 +2872,14 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
           語意完全相同 —— 這個 byte 沒有正確寫進去。少一種顏色，少一次學習成本。
 
      🔴 回讀前要等最後一段的 tWR 走完，否則會讀到舊值 ⇒ 假的驗證失敗。 */
+  /* 🔴🔴 v1.16.0：**回讀驗證不再只對 EEPROM 做**（Bruce 2026-09-19 重申：
+     「不論是只點單一個儲存格，還是點多個儲存格，都是寫入以後還要再讀回來」）。
+     原本的例外理由是「一般暫存器很多唯寫、回讀值本來就不同，會製造假警報」——
+     那是我們的推測，而他要的是**每一次寫入都有憑據**。改成一律驗證；
+     真的遇到唯寫暫存器時，畫面會如實說「寫入與回讀不一致」並列出位址，
+     那是可以判讀的資訊，比「什麼都不說」好。 */
   var verdict = null;          /* {cls, html} —— 驗證結果，最後才寫進 banner */
-  if (ok && i2ctIsEepromAddr(slave) && done > 0) {
+  if (ok && done > 0) {
     if (page > 0 && twr > 0) await new Promise(function (rs) { setTimeout(rs, twr); });
     i2ctLog('── 驗證：回讀剛寫的 ' + done + ' byte 並逐 byte 比對 ──', 'n');
     var vr = await i2ctDoRead(slave, wireAwid, base, done);
@@ -2787,7 +2888,8 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
     if (!vr.ok || vr.bytes.length !== done) {
       /* 🔴 「讀不回來」與「值不對」成因不同、處置也不同，訊息要分開講。 */
       verdict = { cls: 'err', html: '🔴 <b>驗證比對錯誤，需要再重新檢查</b>：'
-        + '寫入的 ' + done + ' byte <b>讀不回來</b>（' + (vr.err || '只收到 ' + vr.bytes.length + ' byte')
+        + '寫入的 ' + done + ' byte <b>讀不回來</b>（'
+        + (vr.ok ? ('只收到 ' + vr.bytes.length + ' byte') : i2ctErrText(vr.err))
         + '）⇒ 無法確認有沒有燒進去。' };
       i2ctLog('✕ 驗證失敗：讀不回來（' + (vr.err || vr.bytes.length + '/' + done) + '）', 'e');
     } else {
@@ -2805,11 +2907,20 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
         }
       }
       if (!bad.length) {
-        verdict = { cls: 'ok', html: '✔ <b>驗證比對正確</b>：回讀 ' + done + ' byte，與寫入的值完全相同。' };
+        verdict = { cls: 'ok', html: '✔ <b>寫入與回讀完全一致</b>：驗證 ' + done + ' byte，全部相同。' };
         i2ctLog('✔ 驗證比對正確（' + done + ' byte 全部相同）', 'o');
       } else {
-        verdict = { cls: 'err', html: '🔴 <b>驗證比對錯誤，需要再重新檢查</b>：'
-          + done + ' byte 中有 <b>' + bad.length + ' byte</b> 不符（已在表格上標紅）。' };
+        /* 🔴 「總共幾個不一樣」＋「哪裡不一樣」兩件事都要在畫面上（他明確要求）。
+           位址／寫入值／讀回值最多列 5 筆，其餘進 log —— 列 500 筆會把畫面吃光，
+           但**總數一定要有**，那是他判斷嚴重程度的依據。 */
+        var show = bad.slice(0, 5).map(function (bi2) {
+          return i2ctAddrText(i2ctWrap(base + bi2, wireAwid), wireAwid)
+               + ' 寫 0x' + i2ctHex(d[bi2]) + '、讀回 0x' + i2ctHex(vr.bytes[bi2]);
+        }).join('；');
+        verdict = { cls: 'err', html: '🔴 <b>寫入與回讀不一致</b>：'
+          + done + ' byte 中有 <b>' + bad.length + ' byte</b> 不同（已在表格上標紅）。<br>'
+          + '<span class="mono" style="font-size:11.5px">' + show
+          + (bad.length > 5 ? '　…其餘 ' + (bad.length - 5) + ' 筆見下方 log' : '') + '</span>' };
         i2ctLog('✕ 驗證比對錯誤：' + bad.length + '/' + done + ' byte 不符'
               + (bad.length > 20 ? '（上面只列前 20 筆）' : ''), 'e');
       }
@@ -2838,7 +2949,29 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
               : (head + '。表格顯示的是<b>剛送出的值</b>，不是回讀值 —— 要確認請按「讀取」。'));
     if (verdict) i2ctFlash(verdict.cls === 'ok' ? '✔ 驗證比對正確' : '🔴 驗證比對錯誤');
   } else {
-    i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗：' + errMsg);
+    /* ═══ 🔴 整批寫入失敗的還原邊界（v1.16.0）══════════════════════════════
+       邊界就在 `done`：
+         · index < done ＝ **已經成功送出去的**。它們在上面的迴圈裡已經把新值
+           落到顯示的那一份、也清掉了 dirty ⇒ **不還原**（它們真的在裝置上了，
+           還原反而會讓畫面與裝置不一致）。
+         · index >= done ＝ 失敗那一段與其後 ⇒ **一個 byte 都沒送出**，
+           迴圈也還沒碰過它們的本地值 ⇒ 沒有東西需要還原，dirty 也**必須留著**
+           （那些修改確實還沒進裝置，清掉等於幫他丟掉待辦）。
+       ⇒ 這一版要做的不是「還原」，而是**把邊界講清楚**，並確保失敗那一段
+         沒有被誤標成寫過。 */
+    var cs3 = i2ctCurSet();
+    if (cs3 && i2ctWroteFlags) {
+      for (var ri = done; ri < d.length; ri++) {
+        var rx = (base + ri) - cs3.base;
+        if (rx >= 0 && rx < i2ctWroteFlags.length) i2ctWroteFlags[rx] = 0;
+      }
+    }
+    i2ctRenderTable();
+    var leftN2 = i2ctDirtyCount();
+    i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗（' + i2ctErrText(errMsg) + '）'
+      + '⇒ 前面 ' + done + ' byte 已經寫進去，第 ' + (done + 1) + ' byte 之後沒有送出'
+      + (leftN2 ? '，本地仍有 ' + leftN2 + ' byte 改過沒寫' : ''));
+    i2ctLog('✕ 整批寫入失敗於第 ' + done + ' byte：' + errMsg, 'e');
   }
 }
 
@@ -3556,6 +3689,8 @@ function i2ctFindRun(){
 function i2ctRenderFind(){
   var e = $('findinfo'); if (!e) return;
   var q = ($('in-find') ? String($('in-find').value || '').trim() : '');
+  /* 空的時候列出可接受的寫法（與「寫入資料」同一份），一行。 */
+  { var eg = $('findeg'); if (eg) eg.textContent = q ? ' ' : I2CT_HEX_EG_LINE; }
   if (i2ctFindMsg)             { e.textContent = i2ctFindMsg;  e.style.color = '#fca5a5'; }
   else if (!q)                 { e.textContent = '';           e.style.color = ''; }
   else if (!i2ctFindHits.length) { e.textContent = '找不到';   e.style.color = '#fdba74'; }
@@ -3781,6 +3916,47 @@ function i2ctNoteCellChange(d, idx, newByte){
   void newByte;
 }
 
+/* ═══ 🔴 bridge 回來的錯誤字串 → 使用者看得懂的話（v1.16.0）════════════════
+   起因（Bruce 2026-09-19 截圖）：畫面上出現一整句
+     `write is not implemented on the vendor DLL path yet (SendBytesEx unwired);
+      switch off the fast path to write`
+   —— 三個實作名詞，而且叫他去關一個他根本不該知道存在的東西。
+
+   bridge 的錯誤字串是**給 log 看的**，不是給人看的。這一支負責翻譯；
+   翻不出來的（新的、沒見過的）一律給一句通用的話，原文只進 log。
+   🔴 「原文照登」不是選項 —— 那正是這次出事的做法。 */
+var I2CT_ERRMAP = [
+  [/not open/i,                    '和治具的連線不在了，請重新連線'],
+  [/bad awid/i,                    'offset 寬度只能是 0／1／2／4 byte'],
+  [/bad data/i,                    '這次要寫的資料長度超過單則上限'],
+  [/addr blocked/i,                '這個位址不在允許寫入的範圍內'],
+  [/busy|in use/i,                 '治具正被別的分頁使用中'],
+  [/timeout|timed out/i,           '治具沒有在時間內回應'],
+  [/write .*not implemented/i,     '這條路徑目前不支援寫入']   /* 舊版遺留，翻譯掉 */
+];
+function i2ctErrText(err){
+  var s = String(err == null ? '' : err).trim();
+  if (!s) return '沒有回應';
+  for (var i = 0; i < I2CT_ERRMAP.length; i++) if (I2CT_ERRMAP[i][0].test(s)) return I2CT_ERRMAP[i][1];
+  /* 沒見過的錯誤：畫面給一句話，原文留在 log 供診斷。 */
+  i2ctLog('bridge err（原文，僅供診斷）：' + s, 'e');
+  return '沒有完成（詳細原因已記在下方 log）';
+}
+/* 🔴 寫入失敗 ⇒ 這一格根本沒進裝置 ⇒ 不要在本地留一個寫不進去的修改。
+   （Bruce 2026-09-19：`0x0066` 停在紫色、標題列寫「已修改 1 byte 未寫入」，
+     按快照清不掉 —— 快照本來就不丟本地修改，那條語意是對的、不動；
+     錯的是「寫失敗卻把修改留著」。） */
+function i2ctRevertCell(d, idx, before){
+  if (!d || idx < 0 || idx >= d.bytes.length) return;
+  i2ctEnsureWrFail(d);
+  d.bytes[idx] = before & 0xFF;
+  i2ctDirty[idx] = 0;
+  i2ctWrFail[idx] = 0;
+  if (i2ctWrOk && idx < i2ctWrOk.length) i2ctWrOk[idx] = 0;
+  if (i2ctWroteFlags && idx < i2ctWroteFlags.length) i2ctWroteFlags[idx] = 0;
+  if (i2ctPrevHas && idx < i2ctPrevHas.length) { i2ctPrevHas[idx] = 0; i2ctPrevBytes[idx] = 0; }
+  if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
+}
 /* 真正把一個 byte 落定：未連線 ⇒ 只改本地；已連線 ⇒ 寫入 ＋ 回讀驗證。 */
 async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   /* ═══ 未連線 ⇒ 只改本地值（不寫入、不回讀、不報錯）═══════════════════ */
@@ -3801,8 +3977,20 @@ async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   /* EEPROM 只在「本次連線中第一次對這個 slave 寫」時問型號。 */
   if (!(await i2ctEnsureEeprom(v.slave))) return false;
   i2ctBusy = true; i2ctSyncButtons();
+  /* 🔴 失敗要還原回這個值。在送出之前先記下來 —— 事後才想拿就拿不到了。 */
+  var before = d.bytes[idx] & 0xFF;
   var r = await i2ctDoWrite(v.slave, awid, addr, [byte]);
-  if (!r.ok) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', r.err); return false; }
+  if (!r.ok) {
+    i2ctBusy = false; i2ctSyncButtons();
+    i2ctRevertCell(d, idx, before);
+    i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
+    /* 一行，講清楚「沒寫進去、已還原」，不加說明段落、不用實作名詞。 */
+    i2ctBanner('readbanner', 'err', '0x' + i2ctHex(addr, i2ctAddrDigits())
+      + ' 沒有寫進去（' + i2ctErrText(r.err) + '）⇒ 已還原成 0x' + i2ctHex(before));
+    i2ctLog('✕ 寫入失敗 ⇒ 還原：0x' + i2ctHex(addr, i2ctAddrDigits())
+          + ' 維持 0x' + i2ctHex(before), 'e');
+    return false;
+  }
   /* 🔴 寫完立刻回讀同一個位址 1 byte：**畫面顯示的一定是裝置上的真實值**。
      顯示他輸入的值等於騙他，比不顯示還糟。 */
   var back = await i2ctDoRead(v.slave, awid, addr, 1);
@@ -3813,19 +4001,31 @@ async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   if (!i2ctWroteFlags) i2ctWroteFlags = new Uint8Array(d.bytes.length);
   i2ctWroteFlags[idx] = 1;
   i2ctEnsureWrFail(d);
+  /* ═══ 🔴 三種結果，訊息必須分得出來（Bruce 2026-09-19 重申的既有裁示）═══════
+       ① 送出就失敗   ⇒ 上面那一段：「沒有寫進去」＋**自動還原**
+       ② 送出成功、讀不回來 ⇒ 無法確認，**不還原**（裝置裡可能已經是新值）
+       ③ 送出成功、讀回來不一樣 ⇒ **不還原**。裝置裡就是那個值，還原本地
+          只會掩蓋事實。如實顯示「寫什麼、讀回什麼」。
+     ①與③最容易被混為一談，用字刻意分開：①是「沒有寫進去」，③是「不一致」。 */
   if (got === null) {
     i2ctWrFail[idx] = 1;
     i2ctBanner('readbanner', 'err', '0x' + i2ctHex(addr, i2ctAddrDigits())
-      + ' 寫入後回讀失敗（' + (back.err || '沒有回應') + '）⇒ 無法確認有沒有寫進去');
+      + ' 寫入後回讀失敗（' + i2ctErrText(back.err) + '）⇒ 無法確認有沒有寫進去');
   } else if (got !== byte) {
     i2ctWrFail[idx] = 1;
-    i2ctBanner('readbanner', 'err', '🔴 0x' + i2ctHex(addr, i2ctAddrDigits())
-      + ' 寫入 0x' + i2ctHex(byte) + ' <b>失敗</b>：回讀是 <b>0x' + i2ctHex(got)
+    i2ctBanner('readbanner', 'err', '🔴 <b>寫入與回讀不一致</b>（1 byte 中有 <b>1 byte</b> 不同）：'
+      + '0x' + i2ctHex(addr, i2ctAddrDigits())
+      + ' 寫入 <b>0x' + i2ctHex(byte) + '</b>、讀回 <b>0x' + i2ctHex(got)
       + '</b>。表格顯示的是裝置上的實際值。');
-    i2ctLog('✕ 回讀不符：寫 0x' + i2ctHex(byte) + '、讀回 0x' + i2ctHex(got), 'e');
+    i2ctLog('✕ 回讀不符：' + i2ctAddrText(addr, awid)
+          + '：寫 0x' + i2ctHex(byte) + '、讀回 0x' + i2ctHex(got), 'e');
   } else {
     i2ctWrFail[idx] = 0; i2ctDirty[idx] = 0;
-    i2ctBanner('readbanner', '', '');
+    /* 🔴 **完全一致要用綠底講出來**（Bruce 明確要求，而且刻意與「成功就安靜」的
+       通則相反）：寫入是不可逆操作，他最需要確認的就是這一件事。舊版在這裡是
+       `i2ctBanner('readbanner','','')` —— 把畫面清空，等於沒告訴他驗證做過了。 */
+    i2ctBanner('readbanner', 'ok', '✔ <b>寫入與回讀完全一致</b>：'
+      + '0x' + i2ctHex(addr, i2ctAddrDigits()) + ' ＝ 0x' + i2ctHex(got) + '（驗證 1 byte）');
     i2ctWrOkFlash(idx);
     i2ctLog('✔ 回讀相符：0x' + i2ctHex(addr, i2ctAddrDigits()) + ' ＝ 0x' + i2ctHex(got), 'o');
   }
@@ -4336,6 +4536,14 @@ window.__i2ct = {
   lastPath: function () { return i2ctLastPath; },
   secs: function (ms) { return i2ctSecs(ms); },
   times: function () { return i2ctTimes.slice(); },
+  /* v1.16.0 的測試入口 */
+  errText: function (s) { return i2ctErrText(s); },
+  hexEg: function () { return I2CT_HEX_EG.slice(); },
+  legend: function () {
+    var e = $('celllegend'); if (!e) return null;
+    return Array.prototype.map.call(e.querySelectorAll('span[data-cls]'),
+      function (s) { return s.getAttribute('data-cls'); });
+  },
   /* ═══ 搜尋與位元編輯的測試入口（v1.15.0）═══ */
   findScope: function (page) { $(page ? 'find-page' : 'find-all').checked = true; i2ctFindRun(); },
   find: function (text) { $('in-find').value = text; i2ctFindRun(); return this.findState(); },
@@ -4502,6 +4710,12 @@ window.__i2ct = {
     { var cbR = $('chk-rawmpsse'); if (cbR) cbR.checked = true; }
     /* 🔴 v1.15.0：搜尋狀態同理 —— 上一組測試留下的查詢字串與命中清單會
        漏到下一組（命中的 index 還指著上一份資料）。 */
+    /* 🔴 v1.16.0：分段設定也要回到「剛打開」的狀態。`i2ctPageTouched` 留著的話，
+       下一組測試的 slave 換成非 EEPROM，`i2ctAutoPage()` 會**拒絕**把 32 改回
+       「不分段」（那是「他自己動過就不要蓋掉」的規則），於是下一組驗到的是
+       一個使用者遇不到的狀態。 */
+    i2ctPageTouched = false;
+    { var pg = $('wr-page'); if (pg) pg.value = '0'; }
     { var fi = $('in-find'); if (fi) fi.value = ''; }
     { var fa = $('find-all'); if (fa) fa.checked = true; }
     i2ctFindHits = []; i2ctFindAt = -1; i2ctFindMsg = '';

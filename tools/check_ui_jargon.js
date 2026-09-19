@@ -120,8 +120,50 @@ for (const f of files) {
     }
   });
 }
+/* ═══ 🔴 第二關：bridge 回傳的 `err` 字串（v1.16.0 補）══════════════════════
+   為什麼要補：2026-09-19 這一行原封不動出現在 Bruce 的畫面上 ——
+     `write is not implemented on the vendor DLL path yet (SendBytesEx unwired);
+      switch off the fast path to write`
+   三個實作名詞，還叫他去關一個他不該知道存在的東西。上面那一關只掃 i2c.html，
+   **完全沒有看到它**，因為那句話的出處是 C 檔。
+   ⇒ 錯誤字串是**會被端到使用者面前的文案**，即使它住在 bridge 裡。
+
+   網頁端另外有 `i2ctErrText()` 負責翻譯（第一道防線），這一關是第二道：
+   萬一哪天有人繞過翻譯直接顯示，字串本身也不該帶實作名詞。
+   🔴 只掃 `"err":"…"`，不掃 `logline(...)` —— log 就是要寫實作細節的地方。 */
+const ERR_BANNED = [
+  [/\bvendor\b/i,        '不要提是哪一支 DLL，講「這條路徑」或直接講後果'],
+  [/SendBytesEx|GetBytesEx/, '不要出現 API 名稱'],
+  [/\bMPSSE\b/i,         '同上'],
+  [/fast path|快速路徑/i, '使用者不該知道有「fast path」這種東西'],
+  [/\bDLL\b/,            '不要提 DLL'],
+  [/\bFT_[A-Za-z]+\b/,   '不要出現 D2XX API 名稱'],
+  [/unwired|not implemented/i, '不要用「還沒接上」這種開發者說法'],
+];
+const CFILE = path.join(ROOT, 'tools', 'i2c-bridge', 'i2c_bridge.c');
+if (fs.existsSync(CFILE)) {
+  scanned++;
+  const csrc = fs.readFileSync(CFILE, 'utf8').split('\n');
+  csrc.forEach((line, i) => {
+    /* C 原始碼裡長這樣：\"err\":\"…\" */
+    const re = /\\"err\\":\\"([^\\]*)\\"/g;
+    let m;
+    while ((m = re.exec(line))) {
+      for (const [rx, hint] of ERR_BANNED) {
+        const hit = m[1].match(rx);
+        if (hit) {
+          console.log(`  🔴 i2c_bridge.c:${i + 1}  err 字串裡出現「${hit[0]}」 ⇒ ${hint}`);
+          console.log(`       "${m[1].slice(0, 100)}"`);
+          bad++;
+          break;
+        }
+      }
+    }
+  });
+}
+
 if (bad) {
   console.log(`\n🔴 使用者可見文案含實作名詞：${bad} 處（掃了 ${scanned} 個檔）`);
   process.exit(1);
 }
-console.log(`✅ 使用者可見文案沒有實作名詞（掃了 ${scanned} 個檔）`);
+console.log(`✅ 使用者可見文案沒有實作名詞（掃了 ${scanned} 個檔，含 bridge 的 err 字串）`);

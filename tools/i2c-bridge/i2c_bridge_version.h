@@ -75,6 +75,17 @@
  * 🔴 exe 內容改變 ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
  *    （實測：同一份原始碼用同一個 zig 重編兩次，SHA 也不同 —— 這個編譯流程不是
  *      可重現建置，所以「只要動 exe 就一定要重過」，沒有例外。） */
-#define I2C_BRIDGE_VERSION "1.11.11"
+/* 1.12.0 / proto 3 不變（2026-09-19，Bruce「原廠路徑下改 bit 核取方塊會跳紅字」）：
+ *   - 🔴 **實作原廠 DLL 的寫入**（`vendor_write` ⇒ `SendBytesEx`）。v1.14.x 之後
+ *     原廠路徑成為採用的讀取後端，而寫入還停在「拒絕並請使用者關掉快速模式」
+ *     ⇒ 逐格改值、位元核取方塊、整批寫入**全部不能用**。那是功能退步。
+ *   - 🔴 **這一層不做分段**（Bruce 更正：「只有 EEPROM 才需要分段」）。原廠 Python
+ *     的 `div=32` 是 EEPROM 的 page size，不是通則。網頁已經依 page size 切好，
+ *     bridge 收到的一則就是一段，原樣一次送出。兩處各切一次必然分岔。
+ *   - `Detect()` 保留成寫完之後的健康檢查（分辨「送不出去」與「治具不見了」）。
+ *   - `SendBytesEx` 的原始回傳值印進 log（語意未確認，判定只用「有沒有回 0」）。
+ *   - write／rawwrite 的守門改成 `backend_is_open()`；那句帶實作名詞的拒絕訊息刪除。
+ *   - wire format **只有移除一個錯誤回覆**，沒有新增／改變欄位 ⇒ proto 維持 3。 */
+#define I2C_BRIDGE_VERSION "1.12.0"
 #define I2C_BRIDGE_PROTO   3
 #endif

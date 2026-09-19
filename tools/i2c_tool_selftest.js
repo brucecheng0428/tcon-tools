@@ -494,7 +494,9 @@ function baseScript(f) {
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4', data: '' });
     await A.doRead(); await sleep(20);
     CHECK(doc.getElementById('readbanner').textContent.indexOf('讀取失敗') >= 0, '讀失敗要明說失敗');
-    CHECK(doc.getElementById('log').textContent.indexOf('FT status 7') >= 0, 'log 帶出 FT status');
+    /* 🔴 v1.16.0：狀態碼仍然要進 log（診斷要用），但格式改了 ——
+       畫面上不再出現 bridge 的原文，log 才是原文的去處。 */
+    CHECK(/讀失敗（status 7）/.test(doc.getElementById('log').textContent), 'log 帶出狀態碼');
     EQ(Object.keys(A.state().buf).length, 0, '失敗時不填任何假值進表格');
   }
 
@@ -2017,8 +2019,11 @@ function baseScript(f) {
     await editCell(3, 'AA');
     EQ(A.cellParts(3).main, 'FF', '🔴 填 AA、回讀 FF ⇒ 格子顯示 **FF**（裝置上的實際值）');
     EQ(A.wrFailAt(3), true, '🔴 標成寫入失敗');
-    CHECK(/失敗/.test(doc.getElementById('readbanner').textContent), '🔴 講明寫入失敗：'
-      + doc.getElementById('readbanner').textContent.slice(0, 46));
+    /* 🔴 v1.16.0：用字改了 ——「送出就失敗」才叫「沒有寫進去」，
+       這裡是**送出成功、回讀不一樣**，叫「寫入與回讀不一致」（兩者要分得出來）。 */
+    { const bw = doc.getElementById('readbanner').textContent;
+      CHECK(/寫入與回讀不一致/.test(bw), '🔴 講明回讀不一致：' + bw.slice(0, 46));
+      CHECK(!/沒有寫進去/.test(bw), '🔴 不可以講成「沒有寫進去」（那是送出失敗）'); }
     CHECK(doc.querySelector('#dump td[data-addr="3"]').className.indexOf('wrfail') >= 0,
       '🔴 格子有 wrfail 樣式（與 diff／FF／選取分得出來）');
     await win.__i2ct.disconnect();
@@ -2246,8 +2251,8 @@ function baseScript(f) {
     CHECK(reads.length > 0, '🔴 寫完之後真的有回讀');
     EQ(reads.reduce((n, m) => n + m.len, 0), 64, '🔴 回讀的長度等於剛寫的 64 byte');
     EQ(reads[0].addr, 0, '從剛寫的起始位址開始回讀');
-    CHECK(/驗證比對正確/.test(doc.getElementById('readbanner').textContent),
-      '🔴 顯示「驗證比對正確」：' + doc.getElementById('readbanner').textContent.slice(-30));
+    CHECK(/寫入與回讀完全一致/.test(doc.getElementById('readbanner').textContent),
+      '🔴 顯示「寫入與回讀完全一致」：' + doc.getElementById('readbanner').textContent.slice(0, 40));
     EQ(doc.querySelectorAll('#dump td.wrfail').length, 0, '沒有任何格子被標紅');
     EQ(A.refBytesAt(0), snapBefore, '🔴 驗證的回讀**沒有**動到快照基準');
     /* (b) 有 byte 不符 ⇒ 驗證比對錯誤，標紅、數量正確 */
@@ -2259,8 +2264,10 @@ function baseScript(f) {
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '64' });
     await A.doWrite(); await sleep(60);
     const txt = doc.getElementById('readbanner').textContent;
-    CHECK(/驗證比對錯誤，需要再重新檢查/.test(txt), '🔴 顯示「驗證比對錯誤，需要再重新檢查」：' + txt.slice(-40));
-    CHECK(/3 byte/.test(txt), '🔴 講出有幾個 byte 不符：' + txt.slice(-30));
+    CHECK(/寫入與回讀不一致/.test(txt), '🔴 顯示「寫入與回讀不一致」：' + txt.slice(0, 40));
+    CHECK(/3 byte/.test(txt), '🔴 講出有幾個 byte 不符：' + txt.slice(0, 40));
+    /* 🔴 v1.16.0 新增要求：不只總數，還要看得到**哪裡**不一樣 */
+    CHECK(/0x0003/.test(txt) && /0xEE/.test(txt), '🔴 列出位址與讀回值：' + txt.slice(0, 80));
     EQ(doc.querySelectorAll('#dump td.wrfail').length, 3, '🔴 三個不符的格子被標紅');
     CHECK(A.wrFailAt(3) && A.wrFailAt(10) && A.wrFailAt(40), '🔴 標紅的正是那三格');
     CHECK(!A.wrFailAt(4), '相符的格子沒有被標');
@@ -2277,15 +2284,22 @@ function baseScript(f) {
     const t3 = doc.getElementById('readbanner').textContent;
     CHECK(/讀不回來/.test(t3), '🔴 講明是「讀不回來」而不是值不對：' + t3.slice(-40));
     CHECK(/驗證比對錯誤/.test(t3), '仍然算驗證失敗');
-    /* (d) 非 EEPROM ⇒ 完全不做驗證（寫完沒有任何 read） */
+    /* (d) 🔴🔴 v1.16.0 **這一條反過來了**：非 EEPROM 也要回讀驗證。
+       舊規則是「只有 EEPROM 才驗，一般暫存器很多唯寫、回讀值本來就不同，
+       會製造假警報」—— 那是我們的推測。Bruce 2026-09-19 重申既有裁示：
+       「不論是只點單一個儲存格，還是點多個儲存格，都是寫入以後還要再讀回來。」
+       ⇒ 舊斷言（寫完沒有任何 read）現在是**錯的行為**，改成斷言相反面。 */
     A._reset();
     sent = await useHelper(baseScript(mkStore(null)));
     A.loadFile('burn4.bin', new win.Uint8Array(32));
     await sleep(20);
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '32' });
     await A.doWrite(); await sleep(60);
-    EQ(SINCE(sent, 'read').length, 0, '🔴 非 EEPROM 的 slave ⇒ 寫完沒有任何回讀交易');
-    CHECK(!/驗證比對/.test(doc.getElementById('readbanner').textContent), '也不會講驗證');
+    { const rd = SINCE(sent, 'read');
+      CHECK(rd.length > 0, '🔴 非 EEPROM 也要回讀驗證（這一條 v1.16.0 反過來了）');
+      EQ(rd.reduce((n, m) => n + m.len, 0), 32, '回讀長度等於剛寫的 32 byte'); }
+    CHECK(/寫入與回讀完全一致/.test(doc.getElementById('readbanner').textContent),
+      '🔴 而且一致時同樣是綠底那句話');
     /* (e) 逐格即時寫入那條路不受影響（它本來就有自己的回讀） */
     EQ(A.isEepromAddr(0x50), true, '邊界仍然正確');
     await win.__i2ct.disconnect();
@@ -2841,6 +2855,268 @@ function baseScript(f) {
     const before = A.dirtyCount();
     await A.bitToggle(3, true);                      /* 0xFF 的 b3 本來就是 1 */
     EQ(A.dirtyCount(), before, '值沒變 ⇒ 不動 dirty、不送交易');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('49. 🔴 分段只跟寫入有關：EEPROM 才切，非 EEPROM 一次寫完，讀取永遠不看 page');
+  {
+    /* Bruce 2026-09-19 的更正：「這個 32 byte 之前已經定義過了，就是 Page 大小那邊
+       來決定的。**只有 EEPROM 才需要分段，不是 EEPROM 不用分段。**」
+       以及：「而且這個只有『唯讀』的話，不是沒有分 page 嗎？」 */
+
+    /* (a) 非 EEPROM（0x68）⇒ 自動選到「不分段」⇒ 整批只發一則 */
+    A._reset();
+    let sent = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') return { ok: true, status: 0, transferred: 1 };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '100', data: '' });
+    A.loadFile('reg.bin', new win.Uint8Array(Array.from({ length: 100 }, (_, i) => i & 0xFF)));
+    await sleep(20);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '100' });
+    EQ(A.pageSize(), 0, '🔴 非 EEPROM slave ⇒ Page 大小自動是「不分段」');
+    await A.doWrite(); await sleep(60);
+    { const w = sent.filter((m) => m.type === 'rawwrite');
+      EQ(w.length, 1, '🔴 非 EEPROM 100 byte ⇒ **只發一則寫入**（沒有分段）：' + w.length);
+      EQ(w[0].data.length, 100, '那一則就是整整 100 byte'); }
+    await win.__i2ct.disconnect();
+
+    /* (b) EEPROM（0x50）⇒ 自動選 32 byte page，且第一段切到 page 邊界 */
+    A._reset();
+    sent = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') return { ok: true, status: 0, transferred: 1 };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    A.loadFile('ee.bin', new win.Uint8Array(Array.from({ length: 100 }, (_, i) => i & 0xFF)));
+    await sleep(20);
+    /* 起點 0x0010 ⇒ 第一段只能寫到 0x0020（page 邊界）＝ 16 byte */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
+    await sleep(10);
+    EQ(A.pageSize(), 32, '🔴 EEPROM slave ⇒ Page 大小自動是 32');
+    EQ(A.planWrite(0x10, 100, 32).map((p) => p.len), [16, 32, 32, 20],
+       '🔴 第一段切到 page 邊界（16），之後每段 32，最後餘數 20');
+    await win.__i2ct.disconnect();
+
+    /* (c) 🔴 讀取**完全不看** page 設定：把 Page 大小換成 0／32／64，
+           讀取的分段數一個都不能變（讀取分段只由傳輸批次 chunk 決定）。 */
+    A._reset();
+    const planOf = () => A.planRead(0, 1024, 2).length;
+    const base = planOf();
+    [0, 32, 64].forEach((pg) => {
+      doc.getElementById('wr-page').value = String(pg);
+      doc.getElementById('wr-page').dispatchEvent(new win.Event('change', { bubbles: true }));
+      EQ(planOf(), base, '🔴 Page 大小 ' + pg + ' ⇒ 讀取分段數不變（' + base + '）');
+    });
+    doc.getElementById('wr-twr').value = '500';
+    EQ(planOf(), base, '🔴 段間等待也不影響讀取');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('50. 🔴 寫入後回讀驗證：三條路徑都有，一致綠底、不一致列出位置與總數');
+  {
+    /* Bruce 2026-09-19 重申：「不論是只點單一個儲存格，還是點多個儲存格，
+       都是寫入以後還要再讀回來…有不一樣就要有警示，然後也要秀出哪裡不一樣…
+       如果有很多不一樣，那就要告知總共多少個不一樣…完全是一樣的，那就是要用
+       綠色的底來註明這次寫入驗證、讀取驗證完全一致。」 */
+    /* 一個會真的收下寫入的假裝置（rawwrite 寫進 dev，read 從 dev 讀）。 */
+    const mkDev = (dev) => (m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') {
+        (m.data || []).forEach((b, i) => { dev[(m.addr + i) & 0xFF] = b & 0xFF; });
+        return { ok: true, status: 0, transferred: (m.data || []).length };
+      }
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev[(m.addr + i) & 0xFF]) };
+      return { ok: true, status: 0 };
+    };
+    /* 讀回來永遠是固定值的假裝置（用來造「回讀不一致」）。 */
+    const mkStuck = (val) => (m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') return { ok: true, status: 0, transferred: (m.data || []).length };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, () => val) };
+      return { ok: true, status: 0 };
+    };
+
+    /* (a) 單格（bit 核取方塊）⇒ 回讀一致 ⇒ **綠底** */
+    A._reset();
+    const dev = new Array(256).fill(0); dev[1] = 0xA5;
+    await useHelper(mkDev(dev));
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(40);
+    A.selAnchor(1); await sleep(10);
+    A.bitClick(1); await sleep(80);          /* b1: 0xA5 → 0xA7 */
+    { const b = doc.getElementById('readbanner');
+      CHECK(/寫入與回讀完全一致/.test(b.textContent), '🔴 單格一致 ⇒ 綠底講出來：' + b.textContent.slice(0, 40));
+      CHECK(/banner ok/.test(b.innerHTML), '🔴 而且真的是**綠底**（class ok）：' + b.innerHTML.slice(0, 50)); }
+    EQ(A.state().buf[1], 0xA7, '值真的寫進去了');
+    await win.__i2ct.disconnect();
+
+    /* (b) 單格 ⇒ 回讀不一致 ⇒ 紅字、講出寫什麼讀回什麼，且**不還原** */
+    A._reset();
+    await useHelper(mkStuck(0x11));                       /* 永遠讀回 0x11 */
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(40);
+    A.selAnchor(0); await sleep(10);
+    A.bitClick(7); await sleep(80);       /* 0x11 | 0x80 = 0x91，但裝置回 0x11 */
+    { const b = doc.getElementById('readbanner').textContent;
+      CHECK(/寫入與回讀不一致/.test(b), '🔴 不一致要有警示：' + b.slice(0, 40));
+      CHECK(/0x91/.test(b) && /0x11/.test(b), '🔴 寫入值與讀回值都要秀出來：' + b.slice(0, 60));
+      CHECK(!/沒有寫進去/.test(b), '🔴 不可以講成「沒有寫進去」（那是送出失敗的說法）'); }
+    CHECK(A.wrFailAt(0) === true, '不一致的格子要標起來');
+    EQ(A.state().buf[0], 0x11, '🔴 顯示的是**裝置上的實際值**，沒有被還原成別的');
+    await win.__i2ct.disconnect();
+
+    /* (c) 整批 ⇒ 多筆不一致 ⇒ 要有**總數**與前幾筆的位址／新舊值 */
+    A._reset();
+    await useHelper(mkStuck(0x00));                       /* 一律讀回 0 */
+    A.loadFile('b.bin', new win.Uint8Array(Array.from({ length: 10 }, () => 0xEE)));
+    await sleep(20);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '10' });
+    await A.doWrite(); await sleep(80);
+    { const b = doc.getElementById('readbanner').textContent;
+      CHECK(/寫入與回讀不一致/.test(b), '🔴 整批不一致也要有警示：' + b.slice(0, 40));
+      CHECK(/10 byte 中有 10 byte 不同/.test(b), '🔴 要講總共幾個不一樣：' + b.slice(0, 60));
+      CHECK(/0xEE/.test(b) && /0x00/.test(b), '🔴 要列出寫入值與讀回值'); }
+    await win.__i2ct.disconnect();
+
+    /* (d) 整批 ⇒ 完全一致 ⇒ 綠底。**非 EEPROM 也要做驗證**（以前只有 EEPROM 有）。 */
+    A._reset();
+    await useHelper(mkDev(new Array(256).fill(0)));
+    A.loadFile('c.bin', new win.Uint8Array([1, 2, 3, 4, 5]));
+    await sleep(20);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '5' });   /* 🔴 非 EEPROM */
+    await A.doWrite(); await sleep(80);
+    { const b = doc.getElementById('readbanner');
+      CHECK(/寫入與回讀完全一致/.test(b.textContent), '🔴 整批一致 ⇒ 綠底：' + b.textContent.slice(0, 40));
+      CHECK(/驗證 5 byte/.test(b.textContent), '🔴 要講驗證了幾個 byte：' + b.textContent.slice(0, 40));
+      CHECK(/banner ok/.test(b.innerHTML), '真的是綠底'); }
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('51. 🔴 送出失敗 ⇒ 自動還原、不留殘影；回讀不一致 ⇒ 不還原（兩者要分得出來）');
+  {
+    A._reset();
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      /* 🔴 送出就失敗，而且用的正是那句被 Bruce 看到的原文（反向測試）。 */
+      if (m.type === 'rawwrite') return { ok: false, status: 0,
+        err: 'write is not implemented on the vendor DLL path yet (SendBytesEx unwired); switch off the fast path to write' };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, () => 0x5A) };
+      return { ok: true, status: 0 };
+    });
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(40);
+    EQ(A.state().buf[0], 0x5A, '前提：讀到 0x5A');
+    A.selAnchor(0); await sleep(10);
+    A.bitClick(0); await sleep(80);        /* 0x5A|0x01 = 0x5B，但送出會失敗 */
+    EQ(A.state().buf[0], 0x5A, '🔴 送出失敗 ⇒ 該格**還原**成寫入前的值');
+    CHECK(A.dirtyAt(0) === false, '🔴 dirty 標記也清掉（不留紫色殘影）');
+    EQ(A.dirtyCount(), 0, '🔴 標題列不會再寫「已修改 1 byte 未寫入」');
+    { const b = doc.getElementById('readbanner').textContent;
+      CHECK(/沒有寫進去/.test(b) && /已還原/.test(b), '🔴 一行講清楚沒寫進去、已還原：' + b.slice(0, 50));
+      /* 🔴 反向測試：那句實作名詞原文不可以出現在畫面上 */
+      CHECK(!/vendor|SendBytesEx|fast path|DLL/i.test(b), '🔴🔴 bridge 的原文不准端到畫面上：' + b.slice(0, 80)); }
+    { const lg = doc.getElementById('log').textContent;
+      CHECK(/SendBytesEx/.test(lg), '🔴 但原文要留在 log 裡（診斷要用）'); }
+    await win.__i2ct.disconnect();
+
+    /* 錯誤字串翻譯表本身 */
+    EQ(A.errText('not open'), '和治具的連線不在了，請重新連線', 'not open ⇒ 人話');
+    EQ(A.errText('bad awid (0/1/2/4 only)'), 'offset 寬度只能是 0／1／2／4 byte', 'bad awid ⇒ 人話');
+    CHECK(!/vendor/i.test(A.errText('write is not implemented on the vendor DLL path yet')),
+      '🔴 舊那句也被翻譯掉');
+    CHECK(A.errText('some brand new failure 0x99').indexOf('log') >= 0,
+      '🔴 沒見過的錯誤 ⇒ 畫面給一句通用的話，原文進 log');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('52. 🔴 讀取成功 ⇒ 清掉 dirty；讀取失敗 ⇒ 保留');
+  {
+    /* Bruce：「我都已經再重新讀取一次 256 byte 了…理論上這個指標應該要被覆蓋掉」 */
+    A._reset();
+    A.loadFile('d.bin', new win.Uint8Array([1, 2, 3, 4]));
+    await sleep(20);
+    A.selAnchor(0); await sleep(10);
+    A.bitClick(7); await sleep(30);               /* 未連線 ⇒ 純本地修改 ⇒ dirty */
+    EQ(A.dirtyCount(), 1, '前提：有一格是改過沒寫的');
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, () => 0x77) };
+      return { ok: true, status: 0 };
+    });
+    win.confirm = () => true;                      /* 覆蓋未寫入修改的確認 */
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(50);
+    EQ(A.dirtyCount(), 0, '🔴 讀取成功 ⇒ dirty 全清（資料已經被整片覆蓋）');
+    CHECK(A.refBytesAt(0) !== null, '🔴 但快照還在（只清 dirty，不動比對基準）');
+    await win.__i2ct.disconnect();
+
+    /* 讀取失敗 ⇒ 不清 */
+    A._reset();
+    A.loadFile('e.bin', new win.Uint8Array([1, 2, 3, 4]));
+    await sleep(20);
+    A.selAnchor(0); await sleep(10);
+    A.bitClick(7); await sleep(30);
+    EQ(A.dirtyCount(), 1, '前提：又有一格改過沒寫');
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'read') return { ok: false, status: 4, err: 'not open' };
+      return { ok: true, status: 0 };
+    });
+    win.confirm = () => true;
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(50);
+    EQ(A.dirtyCount(), 1, '🔴 讀取失敗 ⇒ dirty 留著（資料沒換，清掉等於幫他丟東西）');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('53. 🔴 顏色圖例與輸入範例');
+  {
+    A._reset();
+    /* 圖例項目數 ＝ CSS 樣式數（機械檢查 tools/check_legend_items.js 也釘同一條） */
+    const lg = A.legend();
+    EQ(lg.length, 11, '🔴 圖例 11 項（10 種 CSS 樣式 ＋ 無類別的「未讀取」）');
+    EQ(lg.filter((x) => x === '').length, 1, '其中恰好一項是無類別的基底');
+    ['has', 'wrote', 'dirty', 'diff', 'wrfail', 'wrok', 'sel', 'xh', 'xc', 'edit']
+      .forEach((c) => CHECK(lg.indexOf(c) >= 0, '圖例涵蓋 td.' + c));
+
+    /* 🔴 範例列出的每一種寫法，丟進解析器都要解得出同一個結果 —— 這條測試
+       同時防止以後「範例」與「解析器」再分岔。 */
+    const eg = A.hexEg();
+    CHECK(eg.length >= 3, '🔴 範例不只一種（他問「怎麼變得只有一種」）：' + eg.length);
+    eg.forEach((s) => {
+      const p = A.parseHex(s);
+      CHECK(p !== null && p.length >= 1, '🔴 範例「' + s + '」解析器真的吃得下：' + JSON.stringify(p));
+    });
+    EQ(A.parseHex('A1 D8 FB'), [0xA1, 0xD8, 0xFB], 'A1 D8 FB');
+    EQ(A.parseHex('0xA1,0xD8'), [0xA1, 0xD8], '0xA1,0xD8');
+    EQ(A.parseHex('A1h'), [0xA1], 'A1h');
+    EQ(A.parseHex('A1D8FB'), [0xA1, 0xD8, 0xFB], 'A1D8FB');
+    /* 🔴 十進位**不在**這份範例裡：i2ctParseHex 一律當十六進位，`161` 是半個 byte。
+       十進位只適用於數值欄位，那幾格各自有自己的說明。 */
+    CHECK(eg.every((s) => !/^\d+$/.test(s)), '🔴 範例裡沒有純十進位（解析器吃不下）');
+    EQ(A.parseHex('161'), null, '確認：`161` 會被拒絕（奇數個 hex 字元）');
+    /* 兩個框用的是同一份 */
+    A.find('');
+    EQ(doc.getElementById('findeg').textContent, '例：' + eg.join(' ／ '), '🔴 搜尋框的範例與寫入框同一份');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
