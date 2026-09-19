@@ -401,7 +401,10 @@ function baseScript(f) {
     CHECK(logtxt.indexOf('DE AD BE') >= 0, 'log 記了寫進去的 byte');
     const st = A.state();
     EQ([st.buf[0], st.buf[1], st.buf[2]], [0xDE, 0xAD, 0xBE], '寫過的值反映在表格上');
-    CHECK(A.wroteAt(0) === true, '寫過的格子有標記');
+    /* 🔴 v1.20.2：原本這裡驗「寫過的格子有標記」（A.wroteAt）。
+       Bruce 2026-09-19 要求取消「本次寫入過」的著色，而著色是那個旗標的唯一用途
+       ⇒ 旗標與 API 一併移除，這條斷言跟著拿掉。上一行的「寫過的值反映在表格上」
+       仍然釘住真正重要的那件事：送出去的值有落到顯示的那一份。 */
     /* 更高位址也不擋 */
     A.setInputs({ off: '0xFFFF', data: 'FF' });
     await A.doWrite(); await sleep(15);
@@ -2395,8 +2398,13 @@ function baseScript(f) {
     EQ(A.cellParts(0).main, 'A0', '值真的改了');
     EQ(A.dirtyCount(), 17, '🔴 標示計數：已修改 17 byte 未寫入');
     EQ(A.dirtyAt(0), true, '第一格標成未寫入');
-    CHECK(doc.querySelector('#dump td[data-addr="0"]').className.indexOf('dirty') >= 0,
-      '🔴 格子有 dirty 樣式（與讀回來的值分得出來）');
+    /* 🔴 v1.20.2：原本這裡驗「格子有 dirty 樣式」。Bruce 2026-09-19 要求取消
+       「已修改未寫入」的**著色** —— 但**狀態必須留著**（上面兩行的 dirtyCount／
+       dirtyAt、下面那行的「已修改 17 byte 未寫入」、以及讀取前的覆蓋確認都靠它）。
+       ⇒ 斷言反過來：格子**不得**再有 dirty 樣式，狀態與提醒則照樣要在。 */
+    CHECK(doc.querySelector('#dump td[data-addr="0"]').className.indexOf('dirty') < 0,
+      '🔴 格子**沒有** dirty 著色（顏色已取消），但狀態仍在：'
+      + doc.querySelector('#dump td[data-addr="0"]').className);
     CHECK(/已修改 17 byte 未寫入/.test(doc.getElementById('dirtyline').textContent),
       '🔴 總數顯示出來：' + doc.getElementById('dirtyline').textContent);
     /* 連線 → 多選 17 格 → 一次寫進去 */
@@ -3373,10 +3381,16 @@ function baseScript(f) {
     A._reset();
     /* 圖例項目數 ＝ CSS 樣式數（機械檢查 tools/check_legend_items.js 也釘同一條） */
     const lg = A.legend();
-    EQ(lg.length, 11, '🔴 圖例 11 項（10 種 CSS 樣式 ＋ 無類別的「未讀取」）');
+    /* 🔴 v1.20.2：由 11 項降為 9 項 —— Bruce 2026-09-19 要求取消「本次寫入過」
+       與「已修改未寫入」兩個顏色（「基本上只要有跟快照不同的，我覺得就很 OK 了」），
+       CSS 樣式與圖例一起減兩項。機械檢查 tools/check_legend_items.js 釘住兩邊相等。 */
+    EQ(lg.length, 9, '🔴 圖例 9 項（8 種 CSS 樣式 ＋ 無類別的「未讀取」）');
     EQ(lg.filter((x) => x === '').length, 1, '其中恰好一項是無類別的基底');
-    ['has', 'wrote', 'dirty', 'diff', 'wrfail', 'wrok', 'sel', 'xh', 'xc', 'edit']
+    ['has', 'diff', 'wrfail', 'wrok', 'sel', 'xh', 'xc', 'edit']
       .forEach((c) => CHECK(lg.indexOf(c) >= 0, '圖例涵蓋 td.' + c));
+    /* 反面：拿掉的那兩個不可以又偷偷回來（回來就代表著色也回來了） */
+    ['wrote', 'dirty'].forEach((c) =>
+      CHECK(lg.indexOf(c) < 0, '🔴 圖例**不**含已取消的 td.' + c));
 
     /* 🔴 範例列出的每一種寫法，丟進解析器都要解得出同一個結果 —— 這條測試
        同時防止以後「範例」與「解析器」再分岔。 */

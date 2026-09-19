@@ -523,7 +523,9 @@
       ok('15a 顏色圖例真的在畫面上', !!lg && lg.getBoundingClientRect().width > 0,
          lg ? Math.round(lg.getBoundingClientRect().width) + 'px' : 'null');
       const items = lg ? lg.querySelectorAll('span[data-cls]') : [];
-      ok('15b 圖例 11 項（10 種 CSS 樣式 ＋ 未讀取）', items.length === 11, items.length);
+      /* 🔴 v1.20.2：11 → 9。Bruce 2026-09-19 要求取消「本次寫入過」與
+         「已修改未寫入」兩個顏色 ⇒ CSS 樣式與圖例一起減兩項。 */
+      ok('15b 圖例 9 項（8 種 CSS 樣式 ＋ 未讀取）', items.length === 9, items.length);
       /* 🔴 色塊要真的有顏色（只有文字的圖例等於沒有圖例） */
       let painted = 0;
       Array.prototype.forEach.call(items, (s) => {
@@ -559,8 +561,10 @@
       const cb = document.querySelector('#bitgrid input[data-bit="0"]');
       if (cb) { cb.click(); await sleep(120); }
       ok('16a 未連線時改值 ⇒ 標成「已修改未寫入」', A.dirtyCount() === 1, A.dirtyCount());
-      ok('16b 那一格有 dirty 樣式（紫色）',
-         cellAt(0).className.indexOf('dirty') >= 0, cellAt(0).className);
+      /* 🔴 v1.20.2：「已修改未寫入」的**著色**取消，但**狀態**留著（上一行的
+         dirtyCount 就是它）。所以這一條反過來驗：格子不得再有 dirty 樣式。 */
+      ok('16b 那一格**沒有** dirty 著色（顏色已取消，狀態仍在）',
+         cellAt(0).className.indexOf('dirty') < 0, cellAt(0).className);
       /* 🔴 讀取成功會清掉 dirty —— 這裡沒有 bridge，改用 A 的內部狀態驗
          （jsdom 那邊有完整的連線版測試，第 52 組）。 */
     }
