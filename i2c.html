@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1181"></script>
+<script src="common/version.js?v=20260919i2c1182"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -100,6 +100,10 @@
   button.pri:hover{background:#0284c7;}
   button.wr{background:#9a3412;border-color:#f97316;}
   button.wr:hover{background:#c2410c;}
+  /* 🔴 v1.18.2：**寫入鈕的寬度上限**。它的文字現在只放「哪一邊 ＋ 長度」，
+     但上限是第二道保險 —— 任何未來的字都不准把它撐成橫跨整列的長條
+     （他回報過「根本沒有按鈕」，因為被 90 字的檔名撐爛之後就不像按鈕了）。 */
+  #btn-write{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#475569;margin-right:5px;vertical-align:middle;}
   .dot.on{background:var(--ok);} .dot.busy{background:var(--warn);} .dot.err{background:var(--err);}
@@ -140,8 +144,15 @@
     padding:1px 7px;border-radius:4px;}
   .abrow.a .tag{background:#1e3a5f;color:#7dd3fc;}
   .abrow.b .tag{background:#3b2f10;color:#fbbf24;}
+  /* 🔴 v1.18.2：他的檔名有 90 多個字（`RM80103.PC_BOE_…_CKS_02A91A.bin`）。
+     這一行**不准變成兩行、也不准把後面的長度擠出去** ⇒ 單行 ＋ 尾端省略號，
+     完整名稱掛在 `title`（滑鼠移上去看得到）。
+     `min-width:0` 是必要的：flex 子元素的預設 min-width:auto 會讓
+     text-overflow 完全失效（它會撐開而不是省略）。 */
   .abrow .who{font-weight:700;color:#e2e8f0;
-    font-family:ui-monospace,Menlo,Consolas,monospace;}
+    font-family:ui-monospace,Menlo,Consolas,monospace;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .abrow .len{flex:0 0 auto;}
   .abrow .len{color:var(--sub);font-size:12.5px;}
   .abrow .none{color:var(--sub);font-weight:400;}
   /* 目前 dump 顯示的是哪一份 —— 不標出來他會不知道自己在看哪一邊 */
@@ -401,7 +412,7 @@
     <div class="row" style="align-items:center;">
       <div><span class="dot" id="dot"></span><span id="linktext">未連線</span></div>
       <button class="pri" id="btn-conn">連線</button>
-      <button id="btn-release" class="dbgonly" disabled title="把 I2C 治具交回去，但保持與 I2C Bridge 的連線（要回去用 DG 量測或原廠 PQ Tool 時按這個）">釋放 I2C</button>
+      <button id="btn-release" class="dbgonly" disabled title="把 I2C 治具交回去，但保持與 I2C Bridge 的連線（要回去用別的工具時按這個）">釋放 I2C</button>
       <button id="btn-disc" disabled title="關閉與 I2C Bridge 的整條連線（同時也會釋放 I2C）">中斷</button>
       <button class="wr dbgonly" id="btn-takeover" style="display:none" title="把 I2C 治具從另一個頁面搶過來（那一頁會被斷線）">接手 I2C</button>
       <button id="btn-self" class="dbgonly" disabled title="slave 0x68 / offset 寬度 2 / 0x0000 讀 3 byte，期望 A1 D8 FB">自檢（黃金向量）</button>
@@ -782,11 +793,14 @@
       <div class="kv" style="line-height:1.85;margin-top:6px">
         I2C Bridge 黑視窗最後一行是一個大寫字母，<b>G</b> ＝ 正常。不是 G 就把整份
         <code class="mono">i2c-bridge.log</code> 給我，字母的意思我這邊查。<br>
-        四個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">dg-measure.html</code>、
-        <code class="mono">i2c.html</code>、<code class="mono">libMPSSE.dll</code>。<br>
+        <!-- 🔴 v1.18.2：這一行本來寫「exe、dg-measure.html、i2c.html、libMPSSE.dll」——
+             **從 v1.7.0 起就不對了**（那一版把 html 移出下載包），而且它點名了另一頁。
+             改成解壓之後實際會有的四個檔。 -->
+        四個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、
+        <code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>。<br>
         exe 內容一變 SHA 就變，Windows 會再擋一次。<br>
         同一時間只有一個頁面握著 I2C：切到哪一頁哪一頁就自動接手，不必按任何東西；
-        對方正在量測時不會被搶走。要交回去給原廠 PQ Tool 就按「釋放 I2C」。<br>
+        對方正在量測時不會被搶走。要把治具交回去給別的工具就按「釋放 I2C」。<br>
         瀏覽器沒有別條路可以碰 FTDI 治具（驅動層綁定，不是誰先佔用），所以一定要這支 exe。
       </div>
     </details>
@@ -1949,10 +1963,16 @@ function i2ctSyncButtons(){
   /* 🔴 按下去會寫**哪一份、多少**，一起寫在按鈕上（v1.17.1 的寫入目標標示）。
      N 取自**來源本身**（選取優先），不是欄位；目標取自 `src.from`（A／B ＋ 來源）。
      他同時有 A 與 B 時，按鈕不講清楚就只能用猜的 —— 這是正確性資訊。 */
+  /* 🔴🔴 v1.18.2：**按鈕裡不放檔名**。他的檔名有 90 多個字
+     （`RM80103.PC_BOE_…_CKS_02A91A.bin`），塞進去之後按鈕被撐成橫跨整列的
+     橘紅色長條，他回報「根本沒有按鈕」—— 因為它已經不像按鈕了。
+     而且 A／B 那兩行本來就完整寫著檔名 ⇒ 按鈕再寫一次是重複，
+     正是他抱怨過的「檔名到處都是」。
+     ⇒ 只留**哪一邊 ＋ 長度**，長度可預期、寬度不會被資料撐爆。 */
   $('btn-write').textContent =
       wn <= 0 ? '寫入'
     : selB    ? ('寫入 選取的 ' + wn + ' byte')
-    :           ('寫入 ' + (src.from || '目前內容') + ' ' + wn + ' byte');
+    :           ('寫入 ' + (src.side || '目前內容') + ' · ' + wn + ' byte');
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
   $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
   $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
@@ -2138,7 +2158,7 @@ async function i2ctConnect(takeover){
       i2ctLog('開通道第 ' + a + '/' + I2CT_OPEN_RETRIES + ' 次失敗（channels=' + op.channels + '）', 'e');
       if (a < I2CT_OPEN_RETRIES) await new Promise(function (r) { setTimeout(r, I2CT_OPEN_RETRY_MS); });
     }
-    if (!op || !op.ok) throw new Error('開通道連試 ' + I2CT_OPEN_RETRIES + ' 次都失敗（治具插好了嗎？原廠 PQ Tool 是不是開著佔住 channel？）');
+    if (!op || !op.ok) throw new Error('開通道連試 ' + I2CT_OPEN_RETRIES + ' 次都失敗（治具插好了嗎？是不是有別的程式正開著佔住治具？）');
     i2ctBusy = false;
     i2ctChannelBusy = false;
     i2ctRetry = 0;
@@ -2177,11 +2197,11 @@ async function i2ctDisconnect(){
   try { if (i2ctWs && i2ctWs.readyState === 1) await i2ctSend({ type: 'close' }); } catch (e) {}
   try { if (i2ctWs) i2ctWs.close(); } catch (e) {}
   i2ctWs = null; i2ctBusy = false; i2ctChannelBusy = false;
-  i2ctSetLink(false, '已中斷（原廠 PQ Tool 可以接手）');
+  i2ctSetLink(false, '已中斷（其他程式現在可以使用治具）');
   i2ctLog('已中斷 I2C Bridge 連線', 'o');
 }
 /* 🔴 釋放：把治具交回去，但**保持連線**。這是「保護要留出口」的那個出口 ——
-   他要回去用 DG 量測或原廠 PQ Tool 時，不必把整條連線關掉、也不必關 I2C Bridge。
+   他要回去用別的工具時，不必把整條連線關掉、也不必關 I2C Bridge。
    與「中斷」的差別：中斷會連 WebSocket 一起關掉。 */
 async function i2ctRelease(){
   if (!i2ctLinked || i2ctBusy) return;
@@ -2189,7 +2209,7 @@ async function i2ctRelease(){
   try {
     await i2ctSend({ type: 'close' });
     i2ctChannelBusy = false;
-    i2ctLog('已釋放 I2C 治具（連線保持著；DG 量測或原廠 PQ Tool 現在可以接手）', 'o');
+    i2ctLog('已釋放 I2C 治具（連線保持著；其他程式現在可以使用）', 'o');
     i2ctBanner('topbanner', 'ok', '已<b>釋放 I2C 治具</b>，與 I2C Bridge 的連線仍在。'
       + '要再用請按「連線」重開通道，或直接按「接手 I2C」。');
     i2ctBusy = false;
@@ -2924,8 +2944,11 @@ function i2ctWriteSource(awid){
   var cur = i2ctCurSet();
   if (cur && cur.bytes && cur.bytes.length) {
     all = Array.prototype.slice.call(cur.bytes);
-    return { bytes: all, err: null, base: cur.base,
-             from: (i2ctShowA ? 'A' : (i2ctBSrc ? 'B' : 'A')) + '：'
+    /* `side` ＝ 只有 A／B（給按鈕用，長度可預期）；
+       `from` ＝ 帶來源的完整字樣（給 log 與訊息用，那裡不怕長）。 */
+    var side = i2ctShowA ? 'A' : (i2ctBSrc ? 'B' : 'A');
+    return { bytes: all, err: null, base: cur.base, side: side,
+             from: side + '：'
                  + (i2ctShowA ? ((i2ctRef && i2ctRef.src) || '基準')
                               : (i2ctBSrc || (i2ctRef && i2ctRef.src) || '目前內容')) };
   }
@@ -3834,6 +3857,14 @@ function i2ctFlash(msg){
    `sum(...)`（:13727／:13771），但需要 16 bit 時會 `% 0x10000`（:13749），
    DataMapping 檔名也寫成 4 位（`CKS(0x2AF5)`）。那是他們的截斷慣例，不是我們的。
 
+   🔴🔴 **由他的真實檔案獨立佐證**（2026-09-19，比我們自己編的向量有力得多）：
+      他載入的兩個檔，檔名尾端本來就帶著原廠算好的 CKS，而我們算出來的完全吻合：
+        `…_CKS_2ACFF.bin`  ⇒ 我們算出 **0x2ACFF** ✓
+        `…_CKS_02A91A.bin` ⇒ 我們算出 **0x2A91A** ✓
+      兩個值都**大於 0xFFFF** ⇒ 如果有人把 `% 0x10000` 或 `& 0xFFFF` 加回來，
+      這兩個就會變成 0xCFF 與 0xA91A，對不上檔名。
+      ⇒ 「全部相加、不截斷」這個定義是對的，而且**不是我們自己說了算**。
+
    🔴 數值界線：256 KB 全 0xFF ＝ 262144 × 255 ＝ 66,846,720 ＝ `0x3FC0000`，
       遠小於 JS 的安全整數上限 2^53 ⇒ 一般 Number 就夠，不需要 BigInt。
       **日後若把範圍擴大到 2^53 / 255 ≈ 35 TB 以上才需要重新考慮。** */
@@ -3874,7 +3905,8 @@ function i2ctRenderRefLine(){
   var row = function (which, src, n, showing, can) {
     return '<div class="abrow ' + which.toLowerCase() + (showing ? ' now' : '') + (can ? ' can' : '')
          + '" data-ab="' + which + '"><span class="tag">' + which + '</span>'
-         + (src ? ('<span class="who">' + i2ctEsc(src) + '</span><span class="len">'
+         + (src ? ('<span class="who" title="' + i2ctEsc(src) + '">' + i2ctEsc(src)
+                   + '</span><span class="len">'
                    + n + ' byte</span>')
                 : '<span class="who none">（尚未建立）</span>') + '</div>';
   };

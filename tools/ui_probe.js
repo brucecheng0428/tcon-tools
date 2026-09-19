@@ -677,15 +677,21 @@
       ok('19a 前提：A ＝ a1.bin、B ＝ b2.bin', A.srcA() === 'a1.bin' && A.srcB() === 'b2.bin',
          A.srcA() + ' / ' + A.srcB());
       /* 🔴 寫入目標標示 ＋ 貼著按鈕的 A／B 切換（主畫面只多這一顆小下拉） */
-      ok('19b 按鈕標明寫入目標與長度', /寫入 B：b2\.bin 4 byte/.test($('#btn-write').textContent),
+      /* 🔴 v1.18.2：按鈕只放「哪一邊 ＋ 長度」，**不放檔名**（90 字的檔名會把
+         按鈕撐成橫跨整列的長條，他回報「根本沒有按鈕」）。 */
+      ok('19b 按鈕標明寫入目標與長度、且不含檔名',
+         $('#btn-write').textContent === '寫入 B · 4 byte',
          $('#btn-write').textContent);
+      ok('19b2 🔴 按鈕寬度有上限（不會被資料撐爛）',
+         $('#btn-write').getBoundingClientRect().width <= 240,
+         Math.round($('#btn-write').getBoundingClientRect().width) + 'px');
       ok('19c A／B 切換在畫面上（只有兩份都在時才出現）',
          $('#ab-sel') && getComputedStyle($('#ab-sel')).display !== 'none');
       $('#ab-sel').value = 'A';
       $('#ab-sel').dispatchEvent(new Event('change', { bubbles: true }));
       await sleep(60);
       ok('19d 用下拉切到 A ⇒ 真的切過去、按鈕跟著變',
-         A.showingA() === true && /寫入 A：a1\.bin/.test($('#btn-write').textContent),
+         A.showingA() === true && $('#btn-write').textContent === '寫入 A · 4 byte',
          $('#btn-write').textContent);
       /* 點 B 那一行 ⇒ 下拉跟著回來（雙向同步） */
       const rowB = $('#abbox').querySelector('.abrow[data-ab="B"]');
