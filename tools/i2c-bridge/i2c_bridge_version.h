@@ -75,6 +75,6 @@
  * 🔴 exe 內容改變 ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
  *    （實測：同一份原始碼用同一個 zig 重編兩次，SHA 也不同 —— 這個編譯流程不是
  *      可重現建置，所以「只要動 exe 就一定要重過」，沒有例外。） */
-#define I2C_BRIDGE_VERSION "1.11.10"
+#define I2C_BRIDGE_VERSION "1.11.11"
 #define I2C_BRIDGE_PROTO   3
 #endif

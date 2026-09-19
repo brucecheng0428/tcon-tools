@@ -451,13 +451,17 @@ static inline int dgh_mp_rd_byte(dgh_buf* b, int nack){
     /* ② 讀 1 byte */
     dgh_put(b,0x20); dgh_put(b,0x00);           dgh_put(b,0x00);
     if(nack){
-        /* 🔴 ③ NACK ＝ 讓 SDA **維持高** ＝ **放開不要驅動**。
-           不可以用 `0x13 ... 0xFF` 去「輸出高」—— 那是主動推高，違反開汲極。
-           所以這裡維持 High-Z，只補一個時脈脈衝：
-             `0x8E len` ＝ Clock For n x 1 bits, no data transfer（len ＝ 次數-1）。
-           （依據：I2C 的開汲極特性＋Bruce 2026-09-19 的裁示。） */
-        dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
-        dgh_put(b,0x8E); dgh_put(b,0x00);                    /* 1 個時脈，不動資料線 */
+        /* 🔴🔴 2026-09-19 改回 `0x13`：**`0x8E` 在 FT2232C/D 上不存在**。
+           治具 `FT_GetDeviceInfo` 回報 Type=4（FT_DEVICE_2232C），而它自己的手冊
+           **AN2232C-01** 的命令清單裡沒有 `0x8E`（那是 H 系列的）。
+           送了會換來 `0xFA 8E` **混進 IN 資料流**，被我們當成資料讀走。
+           （我先前用 `0x8E` 是照 AN_108 —— 那是 H 系列的文件，不適用這顆。）
+           ⇒ NACK 改回 `0x13 0x00 0x80`：寫 1 個位元、值為 1。
+           ⚠️ 這在開汲極意義上是「主動推高」，不理想；但這顆晶片**本來就沒有
+              開汲極**（沒有 0x9E），MPSSE 在它上面做不出合規的 I2C。
+              正解是原廠 DLL，這條路只是備援與對照。 */
+        dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_WR);
+        dgh_put(b,0x13); dgh_put(b,0x00);           dgh_put(b,0x80);
     } else {
         /* ③ ACK ＝ 主動把 SDA 拉低一個時脈 */
         dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_WR);

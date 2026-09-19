@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1143"></script>
+<script src="common/version.js?v=20260919i2c1144"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -2017,6 +2017,42 @@ function i2ctRenderProgress(){
    一致 ⇒ 安靜沿用快的（不跳訊息、不加說明文字）。
    不一致或快路徑報錯 ⇒ 自動退回慢的，留一行常駐訊息，細節只進 log。 */
 var I2CT_VERIFY_N = 64;
+/* ═══ 🔴🔴 黃金基準（Bruce 2026-09-19 用原廠 Python UI 讀出並拍照）════════════
+   slave 0x68、offset 寬度 2、起始 0x0000、256 byte、400 kHz、Burst Read 勾選。
+   來源檔：~/ClaudeData/i2c_build/golden_0x68_256.txt
+
+   🔴 它推翻了我先前「暫存器會自己變、所以基準不穩」的判斷 —— **撤回那個說法**。
+   這 256 byte 與我們 v1.11.4 那輪的慢路徑**完全相同**，而 v1.11.10 的慢路徑卻讀成
+   `68 01 03 03 03 7F 03 03 50 D0 6E 00 05 00 10 12`
+   ⇒ **暫存器是穩定的，是我們把基礎打壞了。**
+
+   ⇒ 驗證改成對**這個固定基準**比，不再拿「自己讀兩次」互比：
+     · 慢路徑對不上 ⇒ **我們汙染了基礎**，先修那個
+     · 快路徑對不上 ⇒ 才是那條路自己的問題
+   ⚠️ 他可能在 TCON 上做動作導致內容真的變，所以比對不過時要印出第一個不一致
+     位置與兩邊的值，讓人判斷是汙染還是真的變了。 */
+/* 🔴 命名要避開既有的 `I2CT_GOLDEN`（:756，那是 3 byte 的自檢向量 A1 D8 FB）——
+   我第一版直接用了同一個名字，把它整個蓋掉，自檢因此紅了兩條。 */
+var I2CT_GOLDEN_SLAVE = 0x68, I2CT_GOLDEN_AWID = 2, I2CT_GOLDEN_OFF = 0x0000;
+/* 逐列排版，與照片一列一列對照，方便覆核。 */
+var I2CT_GOLD256 = [
+  '61 41 B4 07 40 00 10 00 50 D0 6E 00 05 00 10 12',
+  '50 34 00 00 0A A0 05 A0 00 50 00 50 00 04 00 05',
+  '06 20 10 32 57 64 14 BF A7 BF A7 8A 00 7B 01 76',
+  '02 3E 03 40 04 41 05 43 06 45 07 E9 07 EA 08 00',
+  '00 6C 09 00 00 1D 0A EF F9 C6 00 01 FF 00 01 00',
+  '01 A2 FF 80 00 AF 00 55 02 98 00 AC 02 01 00 00',
+  '00 00 00 00 08 08 00 20 00 A0 A0 00 05 00 00 00',
+  '03 03 74 0C 0E 0D 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 73 00 00 05 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00',
+  '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00'
+].join(' ').trim().split(/\s+/).map(function (h) { return parseInt(h, 16); });
 /* 🔴 把網頁端的診斷送進 bridge 的 log 檔（v1.13.3）。
    他能傳給我們的只有 `i2c-bridge.log`；網頁 log 區的內容不會跟著過來。
    失敗一次就丟一次，不吞例外 —— 診斷本身不可以變成新的失敗來源。 */
@@ -2067,6 +2103,8 @@ var i2ctMode = I2CT_MODE_SLOW;   /* 驗證前先用已知正確的，驗完才�
       驗證在**他按下第一次讀取時**做，用**他自己填的 slave 與 offset**。 */
 async function i2ctVerifyFastOnce(slave, awid, off, len){
   if (i2ctFastVerified !== null) return;
+  /* 🔴 他自己指定過模式 ⇒ 尊重他的選擇，不要再自動選路。 */
+  if (i2ctRawManual) { i2ctFastVerified = true; return; }
   var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
   var hex = function (a) {
     var s = [], k;
@@ -2083,11 +2121,12 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   };
   /* 🔴 依序往下試，**能用原廠／官方的就不要用自己刻的**。
      基準是模式二（libMPSSE 逐 byte，已知正確），其餘都跟它比。 */
-  /* 🔴 v1.14.2：**原廠那條放回自動名單，而且排第一**。
-     v1.11.7 它會把 bridge 打死，根因已查明並修掉：七個函式指標漏了 `__stdcall`
-     （objdump 實證 `GetBytesEx`／`SendBytesEx` 結尾 `ret 20`、`SetClock` `ret 4`）。
-     堆疊不會再被破壞之後，它就跟其他兩條一樣 —— 驗不過自動往下，不會卡住他。
-     順序：原廠 → 官方快速 → 自建 → （都不過就留在）慢速基準。 */
+  /* 🔴🔴 v1.14.4：**原廠排第一，而且它現在是唯一真正有機會成立的那條。**
+     AN2232C-01（這顆 FT2232C/D 自己的手冊）證實它的 MPSSE **沒有三相、沒有開汲極**
+     —— 而那正是 I2C 需要的兩樣東西 ⇒ **MPSSE 做 I2C 在這顆上走不通**
+     （pyftdi 對 FT2232D 也是直接拒絕）。原廠 DLL 幾乎確定走 bit-bang 自產時序。
+     「官方快速」與「自建」留在名單裡只是對照組，驗不過就往下，不會卡住他。
+     順序：原廠 → 官方快速 → 自建 →（都不過就留在）慢速基準。 */
   var MODES = [
     { key: 'vendor', name: '原廠',     mode: I2CT_MODE_VENDOR },
     { key: 'fast',   name: '官方快速', mode: I2CT_MODE_FAST },
@@ -2097,9 +2136,20 @@ async function i2ctVerifyFastOnce(slave, awid, off, len){
   i2ctLog('── 首次讀取：用 ' + n + ' byte 挑一條讀得對又快的路 ──', 'n');
   var base = null, chosen = null, i, m, r, bad, first;
   try {
-    /* 基準：模式二（libMPSSE 逐 byte，已知正確） */
-    await setMode(I2CT_MODE_SLOW);
-    base = await i2ctDoRead(slave, awid, off, n, true);
+    /* 🔴🔴 基準優先用**黃金基準**（Bruce 用原廠 Python UI 讀出的固定 256 byte）。
+       不要再拿「自己讀兩次互比」當基準 —— 那會被汙染的資料騙過去：
+       v1.11.10 連慢路徑都讀錯，而「兩次都錯成一樣」就會被判成通過。 */
+    /* 🔴 只在**他真的整批讀** slave 0x68 / awid 2 / offset 0 / ≥256 byte 時才套用。
+       短讀取（例如 3 byte 的自檢向量）不套 —— 否則會把黃金基準灌進不相干的情境。 */
+    if (slave === I2CT_GOLDEN_SLAVE && awid === I2CT_GOLDEN_AWID
+        && off === I2CT_GOLDEN_OFF && len >= I2CT_GOLD256.length && n <= I2CT_GOLD256.length) {
+      base = { ok: true, bytes: I2CT_GOLD256.slice(0, n) };
+      i2ctLog('· 基準：使用黃金基準（原廠 UI 讀出的固定值），不靠本機再讀一次', 'n');
+      await i2ctNote('verify: baseline = GOLDEN (slave 0x68 awid2 off0), ' + n + ' bytes');
+    } else {
+      await setMode(I2CT_MODE_SLOW);
+      base = await i2ctDoRead(slave, awid, off, n, true);
+    }
     if (!base || !base.ok) {
       await i2ctNote('verify: baseline (normal) FAILED -- ' + (base ? base.err : 'no result'));
       i2ctLog('✕ 基準讀取就失敗了，維持一般方式', 'e');
@@ -3998,7 +4048,14 @@ window.__i2ct = {
   comparePaths: function () { return i2ctComparePaths(); },
   times: function () { return i2ctTimes.slice(); },
   clearTimes: function () { i2ctTimes = []; i2ctRenderTimes(); },
-  rawMpsse: function (v) { if (v !== undefined) i2ctRawMpsse = !!v; return i2ctRawMpsse; },
+  /* 🔴 明確指定 ⇒ 視為**手動覆寫**，自動選路要讓開（與他自己動勾選框同義）。
+     v1.14.x 把守衛從 `!i2ctRawMpsse` 改成 mode 之後漏掉這一層，
+     結果連已經指定模式的情境也照跑自動選路，多送兩次讀取。 */
+  rawMpsse: function (v) {
+    if (v !== undefined) { i2ctRawMpsse = !!v; i2ctRawManual = true;
+                           i2ctMode = i2ctRawMpsse ? I2CT_MODE_RAW : I2CT_MODE_SLOW; }
+    return i2ctRawMpsse;
+  },
   /* 0 原廠DLL / 1 官方快速 / 2 一般 / 3 自建 —— 自動選路的結論 */
   mode: function (v) { if (v !== undefined) i2ctMode = v; return i2ctMode; },
   chunk: function () { return i2ctChunk(); },

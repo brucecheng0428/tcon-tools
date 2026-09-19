@@ -144,7 +144,14 @@ int dgh_ck_delay = 3;
       v1.11.0 卻讓它每次連線都執行 —— 那次也是「完全連不上」。
       規則再寫一次：**沒有在他硬體上驗過的東西，不當預設值。**
    ⇒ vendor 只在**明確要求**時才走：`--vendor` 或 open 帶 `mode:0`。 */
-int dgh_mode = DGH_MODE_SLOW;
+/* 🔴🔴 2026-09-19：預設改回 **vendor（原廠 DLL）**，但只有在
+   「DLL 找得到 **且** `GetClock()` 探針通過」時才成立（見 main 裡的 fallback）。
+   理由：AN2232C-01 證實這顆 FT2232C/D 的 MPSSE **沒有三相、沒有開汲極**，
+   ⇒ 用 MPSSE 在它上面做 I2C 走不通，原廠 DLL 才是正路
+     （它幾乎確定走 bit-bang 自產時序）。
+   當機風險已降低：`__stdcall` 已依 objdump 的 `ret 20`／`ret 4` 修正，
+   探針也會先擋一次；萬一 `Open()` 仍失敗，既有降級邏輯會接住。 */
+int dgh_mode = DGH_MODE_VENDOR;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -201,12 +208,16 @@ typedef unsigned long (__stdcall *PFN_FT_Purge)(void*, unsigned long);
 typedef unsigned long (__stdcall *PFN_FT_GetDeviceInfo)(void*, unsigned long*, unsigned long*, char*, char*, void*);
 typedef unsigned long (__stdcall *PFN_FT_GetDriverVersion)(void*, unsigned long*);
 typedef unsigned long (__stdcall *PFN_FT_GetLibraryVersion)(unsigned long*);
+/* 🔴 開通道後先看 IN 佇列裡有沒有殘留位元組 —— 不被承認的命令會留下
+   `0xFA <cmd>`，不清掉就會被當成資料讀走。conv: ftd2xx.h 標 WINAPI ⇒ __stdcall。 */
+typedef unsigned long (__stdcall *PFN_FT_GetQueueStatus)(void*, unsigned long*);
 static PFN_FT_Write p_FT_Write = NULL;
 static PFN_FT_Read  p_FT_Read  = NULL;
 static PFN_FT_Purge p_FT_Purge = NULL;
 static PFN_FT_GetDeviceInfo     p_FT_GetDeviceInfo     = NULL;
 static PFN_FT_GetDriverVersion  p_FT_GetDriverVersion  = NULL;
 static PFN_FT_GetLibraryVersion p_FT_GetLibraryVersion = NULL;
+static PFN_FT_GetQueueStatus    p_FT_GetQueueStatus    = NULL;
 /* FT_DEVICE 列舉（ftd2xx.h）。🔴 **4 = FT_DEVICE_2232C 涵蓋 FT2232C/D**，
    6 才是 FT2232H —— 這正是 Codex 要我們分辨的那一格。 */
 static const char* ft_device_name(unsigned long t){
@@ -473,6 +484,7 @@ static int try_dir(const char* dirIn) {
             p_FT_GetDeviceInfo    =(PFN_FT_GetDeviceInfo)    GetProcAddress(d2,"FT_GetDeviceInfo");
             p_FT_GetDriverVersion =(PFN_FT_GetDriverVersion) GetProcAddress(d2,"FT_GetDriverVersion");
             p_FT_GetLibraryVersion=(PFN_FT_GetLibraryVersion)GetProcAddress(d2,"FT_GetLibraryVersion");
+            p_FT_GetQueueStatus   =(PFN_FT_GetQueueStatus)   GetProcAddress(d2,"FT_GetQueueStatus");
             { unsigned long lv=0;
               if(p_FT_GetLibraryVersion && p_FT_GetLibraryVersion(&lv)==0)
                   logline("  d2xx    : FT_GetLibraryVersion = %lu.%lu.%lu (0x%06lX)",
@@ -649,6 +661,9 @@ static PFN_V_SetClock pv_SetClock = NULL;
 static PFN_V_GetClock pv_GetClock = NULL;
 static PFN_V_Send     pv_Send     = NULL;
 static PFN_V_Get      pv_Get      = NULL;
+/* 🔴 FTDI 晶片型別（FT_DEVICE 列舉）。4 ＝ FT2232C/D、6 ＝ FT2232H。
+   0xFFFFFFFF ＝ 還沒問到。命令集要依它選，見 raw_set_mode()。 */
+static unsigned long g_ftDevType = 0xFFFFFFFFul;
 static int  g_vendorOk   = 0;         /* DLL 載入且 exports 齊全 */
 static int  g_vendorOpen = 0;         /* 已經 Open() 持有 channel */
 static char g_vendorPath[MAX_PATH] = "";
@@ -783,7 +798,16 @@ static int vendor_open(uint32_t clockHz){
     unsigned short kHz = (unsigned short)((clockHz ? clockHz : 400000u) / 1000u);
     if(!g_vendorOk) return 0;
     if(g_vendorOpen) return 1;
-    if(pv_Close) pv_Close();                 /* 先確保是關的，才改得動時脈 */
+    /* 🔴🔴 **嚴格照原廠的序列，不要自己加東西。**
+       出處：`RomCodeProcessUI.py` 的 `i2c_init_device()`（:31032）——
+       它整個函式就只有 `dll.Open()`，而且**上面三行 libMPSSE 是被註解掉的**：
+           # I2C_GetNumChannels / # I2C_OpenChannel / # I2C_InitChannel
+       ⇒ **原廠自己走過 libMPSSE 這條路然後放棄，改用自家 DLL。**
+       這與 FT2232C/D 沒有三相、沒有開汲極完全一致 ——
+       **libMPSSE 在這顆晶片上就是不對的工具。**
+       時脈由 `SetClock(400)` 在 Open 之前設定（單位 KHz）。
+       ⚠️ 不做 channel 列舉、不做 InitChannel、不先 Close
+       （`g_vendorOpen` 已擋重入；改時脈才需要 Close→SetClock→Open，見 :36448）。 */
     pv_SetClock(kHz);                        /* 🔴 單位 KHz */
     if(!pv_Open()){
         logline("  vendor  : Open() failed (clock %u kHz) -- rig in use by another tool?", kHz);
@@ -906,9 +930,13 @@ static void diag_ftdi(void) {
         if (p_FT_GetDriverVersion && p_FT_GetDriverVersion(h, &dv) == 0)
             logline("  FTDI drv  : FT_GetDriverVersion = %lu.%lu.%lu (0x%06lX)",
                     (dv>>16)&0xFF, (dv>>8)&0xFF, dv&0xFF, dv); }
+      g_ftDevType = devType;
       if (devType == 4)
-          logline("  🔴 CHIP IS FT2232C/D, **NOT** H: 0x8A / 0x8C / 0x8E are H-series only"
-                  " (AN_108). This would explain 0x8A and 0x8C measuring as no-ops.");
+          logline("  🔴 CHIP IS FT2232C/D, **NOT** H. Per AN2232C-01 the MPSSE command set is"
+                  " 0x10-0x3F, 0x4A/0x4B, 0x6A-0x6F, 0x80-0x89, 0x90-0x93 ONLY."
+                  " 0x8A/0x8B/0x8C/0x8D/0x8E/0x97/0x9E DO NOT EXIST here -- each one makes the"
+                  " chip answer 0xFA <bad cmd> INTO THE READ STREAM. No three-phase, no"
+                  " open-drain => MPSSE I2C is not viable on this part; use the vendor DLL.");
       else if (devType == 6)
           logline("  chip note : FT2232H confirmed -- H-series MPSSE commands are available.");
     }
@@ -1015,8 +1043,41 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
        ⇒ 補償上去只會讓實際頻率偏高 1.5 倍。`dgh_mp_divisor()` 的補償路徑留著
          （測試也還釘著），**哪天量到 0x8C 真的生效，把這裡的 0 換回 tp 即可。** */
     div = dgh_mp_divisor(hz, 0);
-    c[n++] = 0x97;
-    c[n++] = (unsigned char)(tp ? 0x8C : 0x8D);
+    /* ═══ 🔴🔴 命令集依晶片型別選（2026-09-19，AN2232C-01 定案）═══════════════
+       這顆治具 `FT_GetDeviceInfo` 回報 **Type=4 ＝ FT_DEVICE_2232C（FT2232C/D）**。
+       它自己的手冊 **AN2232C-01 v1.1** 列出的 MPSSE 命令只有：
+         0x10–0x3F（資料搬移）、0x4A/0x4B、0x6A–0x6F（TMS）、
+         0x80 設低位元組、0x81 讀低位元組、0x82 設高位元組、0x83 讀高位元組、
+         0x84 開迴路、0x85 關迴路、0x86 設除數、0x87 Send Immediate、
+         0x88/0x89 等待 I/O、0x90–0x93 MCU 模式。
+       🔴 **`0x8A`／`0x8B`／`0x8C`／`0x8D`／`0x8E`／`0x97`／`0x9E` 全都不存在。**
+       AN2232C-01 原文：「If the device detects a bad command it will send back
+       2 bytes to the PC: 0xFA, followed by the bad command byte.」
+       ⇒ 每送一個不存在的命令，就有 **2 個位元組混進 IN 資料流** ——
+         **那正是自組路徑讀出 `01 07 07 07 FF 07 ...` 的原因：
+          我們把晶片的錯誤回應當成資料讀進來了。**
+         先前「0x8A 送了沒效果」「0x8C 送了沒效果」也是同一件事 ——
+         它們不是沒生效，是**根本不被承認**。
+       （我先前一直看的 AN_108 是 **H 系列**的文件，不適用這顆。）
+
+       🔴 更根本的結論：FT2232C/D 的 MPSSE **沒有三相、沒有開汲極**，
+          而那正是 I2C 需要的兩樣東西 ⇒ **用 MPSSE 在這顆上做 I2C 走不通**。
+          pyftdi 對 FT2232D 也是直接拒絕提供 I2C。
+          ⇒ 正路是**原廠 DLL**（它幾乎確定走 bit-bang 自產時序）。
+          這條自組路徑留著只是備援與對照，不是解法。
+
+       時脈公式 AN2232C-01 原文確認我們是對的：
+         `TCK/SK period = 12MHz / ((1 + [(ValueH*256) OR ValueL]) * 2)`，
+         0x0000 ⇒ 6 MHz（這顆 MPSSE 的上限）⇒ `div = 6e6/f - 1`，400k ⇒ 14。**不要動。** */
+    if(g_ftDevType == 6){
+        /* FT2232H：H 系列命令可用 */
+        c[n++] = 0x97;
+        c[n++] = (unsigned char)(tp ? 0x8C : 0x8D);
+    } else {
+        /* FT2232C/D（或型別未知）⇒ **一律不送 H 系列命令**。
+           寧可少送也不要讓 0xFA 混進資料流。 */
+        tp = 0;
+    }
     /* 🔴🔴 `0x9E 07 00` ＝ drive-only-zero／開汲極（AD0-AD2）。**必須送。**
        v1.11.5 我照 FTDI 文件「Open Collector / Tristate (FT232H only)」把它刪掉，
        結果 Bruce 實測**整片讀到 0** —— 而 v1.11.4（有送）資料幾乎全對、只有 bit7 偶錯。
@@ -1027,7 +1088,12 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
        序列，**不是** FTDI 文件。文件說 FT232H only，但這顆 FT2232H 上它確實有作用。
        ⇒ **使用者的實測優先於文件。** 這是本輪最大的教訓，`tools/check_raw_init.sh`
          已改成「必須有 0x9E」來釘住，別再被文件說服刪掉一次。 */
-    c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00;
+    /* 🔴 `0x9E` 只在 FT232H 存在。這顆是 FT2232C/D ⇒ **不送**，
+       送了只會換來 `0xFA 9E` 混進資料流。
+       （v1.11.5 我刪掉它之後「整片讀到 0」，當時歸因成開汲極沒了；
+        現在看來那個推論也不成立 —— 兩種情況的資料都是錯的，
+        只是錯法不同。開汲極在這顆上根本做不到，要靠原廠 DLL 的 bit-bang。） */
+    if(g_ftDevType == 8){ c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00; }   /* FT232H only */
     c[n++] = 0x85;
     c[n++] = 0x86; c[n++] = (unsigned char)(div & 0xFF); c[n++] = (unsigned char)((div >> 8) & 0xFF);
     /* 🔴 匯流排閒置 ＝ **SDA 放開**（High-Z，上拉帶高）、SCL 輸出高。
@@ -1082,8 +1148,36 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
    不重設的話，慢路徑就會跑在 raw 的三相與除數上（v1.11.4 的 80 kHz 污染）。 */
 static void i2c_apply_mode(uint32_t hz) {
     if (!g_opened) return;
-    if (DGH_RAW_AVAILABLE) raw_set_mode(dgh_raw_mpsse, hz);
-    else logline("  raw_init: skipped (no d2xx) -- libMPSSE keeps the channel");
+    /* 🔴🔴 2026-09-19：**只有 raw 模式才可以碰晶片。**
+       這裡原本不分模式一律呼叫 `raw_set_mode()`，所以 `mode=normal`／`mode=fast`
+       （走 libMPSSE）時也照樣送了 `0x8D`／`0x97`／`0x9E`。
+       那三個命令在 FT2232C/D **都不存在** ⇒ 每個都讓晶片回 `0xFA <cmd>`，
+       **那些位元組留在 IN 緩衝區，被後續讀取當成資料吃掉**。
+       ⇒ 連原本正確的慢路徑都被汙染 —— 這就是「越改越差」的機制。
+       證據：Bruce 的黃金基準（原廠 Python UI 讀 0x68，256 byte）第一列是
+         `61 41 B4 07 40 00 10 00 50 D0 6E 00 05 00 10 12`
+       與我們 v1.11.4 的慢路徑**完全相同**；而 v1.11.10 的慢路徑卻讀成
+         `68 01 03 03 03 7F 03 03 50 D0 6E 00 05 00 10 12`
+       ⇒ 暫存器內容是穩定的，是我們把基礎打壞了。 */
+    if (dgh_mode == DGH_MODE_RAW && DGH_RAW_AVAILABLE) {
+        raw_set_mode(1, hz);
+    } else {
+        logline("  raw_init: SKIPPED (mode=%d is not raw) -- libMPSSE owns the channel,"
+                " we send no MPSSE commands of our own", dgh_mode);
+    }
+    /* 🔴 不論走哪條路，開通道之後、第一次讀取之前，先把 IN 緩衝區清乾淨。
+       若先前有任何不被承認的命令留下 `0xFA <cmd>`，它就在這裡面等著被當資料讀走。
+       先印出佇列長度 —— **那個數字直接證明有沒有殘留垃圾**。 */
+    if (p_FT_GetQueueStatus && g_handle) {
+        unsigned long q = 0;
+        if (p_FT_GetQueueStatus(g_handle, &q) == 0)
+            logline("  purge   : IN queue had %lu byte(s) before purge%s", q,
+                    q ? "  <-- 🔴 NON-ZERO: leftover bytes would have been read as data" : "");
+        else
+            logline("  purge   : FT_GetQueueStatus failed");
+    }
+    if (p_FT_Purge && g_handle) { p_FT_Purge(g_handle, 3 /* RX|TX */);
+                                  logline("  purge   : FT_Purge(RX|TX) done"); }
 }
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
@@ -1096,6 +1190,16 @@ static int i2c_open(uint32_t clockHz) {
             dgh_mode = DGH_MODE_SLOW;
         } else {
             if (g_opened) {   /* 之前是 libMPSSE 開的 ⇒ 先讓出 channel */
+                /* 🔴 讓出之前先把 IN 佇列清掉，並印出殘留 byte 數。
+                   若先前送過不被這顆晶片承認的命令，它回的 `0xFA <cmd>` 就堆在這裡；
+                   **那個數字直接證明有沒有殘留垃圾**。趁 handle 還有效時做。 */
+                if (p_FT_GetQueueStatus && g_handle) {
+                    unsigned long q = 0;
+                    if (p_FT_GetQueueStatus(g_handle, &q) == 0)
+                        logline("  purge   : IN queue had %lu byte(s) before switching to vendor%s", q,
+                                q ? "  <-- 🔴 NON-ZERO: leftover bytes (likely 0xFA <bad cmd>)" : "");
+                }
+                if (p_FT_Purge && g_handle) p_FT_Purge(g_handle, 3 /* RX|TX */);
                 logline("  open    : releasing the libMPSSE channel before using the vendor DLL");
                 if (p_Close && g_handle) p_Close(g_handle);
                 g_handle = NULL; g_opened = 0;
@@ -1170,7 +1274,27 @@ static int i2c_open(uint32_t clockHz) {
     logline("  open    : DONE in %.0f ms total", now_ms()-t0);
     return 1;
 }
-static void i2c_close(void){ if(g_opened&&g_handle) p_Close(g_handle); g_handle=NULL; g_opened=0; }
+/* ═══ 🔴🔴 後端狀態（2026-09-19，Codex 指出的真 bug）═══════════════════════
+   `i2c_open` 的 vendor 分支會讓出 libMPSSE，把 `g_handle=NULL`、**`g_opened=0`**；
+   `vendor_open` 成功後只設 `g_vendorOpen=1`。於是 `i2c_open` 回報成功，
+   但三個命令入口都只檢查 `g_opened` ⇒ 一律回「not open」
+   ⇒ **`vendor_read` 永遠走不到，原廠路徑從來沒有真的讀過一次。**
+   log 佐證：`vendor: Open() ok, SetClock(400 kHz)` / `GetClock() reports 400`
+   / `DONE via VENDOR DLL ... 523 ms`，然後 `verify: vendor READ FAILED ... not open`。
+
+   🔴 **不可以只把 `g_opened` 硬設成 1** —— 它同時被 libMPSSE 的 reuse 與 close
+      邏輯使用，那樣會把兩套資源的狀態混在一起。
+   ⇒ 改成問「**目前啟用的後端**是否已開啟」。 */
+static int backend_is_open(void){
+    return (dgh_mode == DGH_MODE_VENDOR) ? g_vendorOpen : g_opened;
+}
+/* 🔴 依後端釋放治具。原本只關 libMPSSE，vendor 開著的話治具不會被放掉 ——
+   分頁中斷／主動 close／接手都會留著不放，下一個使用者就開不起來。 */
+static void i2c_close(void){
+    if(g_vendorOpen){ vendor_close(); logline("  close   : vendor Close() done"); }
+    if(g_opened&&g_handle) p_Close(g_handle);
+    g_handle=NULL; g_opened=0;
+}
 /* 🔴 `slave` is a **7-bit** address (0x60/0x61/0x68/0x69 from the web, straight
    from PQ Tool's 96/97/104/105). libMPSSE's deviceAddress takes 7-bit and adds
    the R/W bit itself. **DO NOT left-shift `slave` here** — shifting turns 0x68
@@ -1560,7 +1684,9 @@ static void handle_command(int idx, const char* json){
         /* proto 2: optional offset width. Absent -> 2 -> identical to proto 1. */
         uint32_t awid=(uint32_t)dgh_json_int(json,"awid",(long)AWID_DEFAULT);
         if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"bad awid (0/1/2/4 only)\"}",id); ws_send_text(c,rep); return; }
-        if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        /* 🔴 讀取：改問**目前後端**是否開啟（vendor 看 g_vendorOpen）。
+           持有者檢查在上面，沒有放寬。 */
+        if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         if(len<1) len=1;
         /* 🔴 上限從 1024 放寬到 4096（2026-09-19）。
            原廠的標準操作就是「slave 0x50、offset 寬度 2、**一次讀 4096**」
@@ -1595,6 +1721,10 @@ static void handle_command(int idx, const char* json){
           for(int i=0;i<dn && ho<(int)sizeof(hex)-4;i++) ho+=snprintf(hex+ho,sizeof(hex)-ho,"%s%02X",i?" ":"",data[i]);
           if(dn==0) snprintf(hex,sizeof(hex),"(none)");
           logline("[cmd] rawwrite slave=0x%02X(7-bit) awid=%u addr=0x%08X x%d bytes: %s", slave, awid, addr, dn, hex); }
+        /* 🔴 **寫入尚未實作 vendor 分派**（`i2c_write_ex` 只有 libMPSSE／raw 兩條）。
+           所以這裡**不可以**一律改成 backend_is_open() —— 那樣 vendor 模式的寫入會
+           掉進 `p_Write(NULL, ...)`。明確拒絕並說清楚，不要靜默失敗。 */
+        if(dgh_mode==DGH_MODE_VENDOR){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"write is not implemented on the vendor DLL path yet (SendBytesEx unwired); switch off the fast path to write\"}",id); ws_send_text(c,rep); return; }
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         uint32_t got=0; FT_STATUS st=i2c_write_ex(slave,addr,awid,data,dn,&got);
         logline("        -> FT status %u, transferred %u", st, got);
@@ -1615,6 +1745,8 @@ static void handle_command(int idx, const char* json){
             snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"addr blocked by bridge whitelist\"}",id);
             logline("[cmd] write BLOCKED addr=0x%04X x%d", addr, dn); ws_send_text(c,rep); return;
         }
+        /* 🔴 同 rawwrite：vendor 模式的寫入未實作，明確拒絕（見上）。 */
+        if(dgh_mode==DGH_MODE_VENDOR){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"write is not implemented on the vendor DLL path yet (SendBytesEx unwired); switch off the fast path to write\"}",id); ws_send_text(c,rep); return; }
         if(!g_opened){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         uint32_t got=0; FT_STATUS st=i2c_write(slave,addr,data,dn,&got);
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":%s,\"status\":%u,\"transferred\":%u}",id,(st==FT_OK)?"true":"false",st,got);
