@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1160"></script>
+<script src="common/version.js?v=20260919i2c1161"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -950,11 +950,15 @@ function i2ctSelClear(){
 /* ═══ 🔴 無 Shift 的方向鍵 ＝ 移動選中格（Bruce 2026-09-19 回報沒作用）═══════
    為什麼原本沒反應：`<td>` 預設不可聚焦，鍵盤事件根本不會落在它身上；
    而我們的 document 層 handler 當時**只處理按著 Shift 的情況**。
-   焦點問題與「打字沒反應」是同一件事的兩面 —— 現在單擊會進入編輯狀態，
-   焦點落在格子裡的 input 上，方向鍵與打字就都收得到了。
+   焦點問題與「打字沒反應」是同一件事的兩面 —— handler 掛在 document 上，
+   不需要格子拿到焦點也收得到方向鍵。
 
-   移動時把**編輯狀態一起帶過去**：移到新格就直接可以打字，
-   這樣「方向鍵走到某格 → 打兩位 → 再按方向鍵」是一條連續的路。 */
+   🔴🔴 v1.16.1：**移動時不再進入編輯狀態**（Bruce 2026-09-19：「我只要用上下左右鍵
+   移動，它就直接進入更新輸入值的模式…這樣反而是我要點左上跟右上那個恢復的按鈕時
+   會點不到」）。根因：進入編輯會把整格的 innerHTML 換成一個 `<input>`，
+   **左上／右上那兩個角落的小字就從 DOM 上消失了** —— 不是他點不準，是那兩顆按鈕
+   根本不在畫面上。移動只移動；要打字直接按十六進位鍵就會進編輯（見 document 的
+   keydown handler）。 */
 async function i2ctMoveCell(step){
   var d = i2ctCurSet(); if (!d || !d.bytes.length) return false;
   var from = (i2ctSelCursor !== null) ? i2ctSelCursor
@@ -968,8 +972,8 @@ async function i2ctMoveCell(step){
   i2ctSelAnchor = c; i2ctSelCursor = c;                    /* 單格 ⇒ 清掉範圍選取 */
   i2ctSetCross(d.base + c);                                /* 定位＋必要時翻頁＋重繪 */
   i2ctSyncButtons();
-  var td = document.querySelector('#dump td[data-idx="' + c + '"]');
-  if (td) i2ctBeginEdit(td);                               /* 焦點跟著走，才收得到下一次按鍵 */
+  /* 🔴 **不** beginEdit：移動就只是移動。位元核取方塊會跟著新位置更新
+     （i2ctRenderTable 末尾會呼叫 i2ctRenderBits），他可以一路移動一路看 bit。 */
   return true;
 }
 function i2ctSelMove(step){
@@ -1052,12 +1056,55 @@ function i2ctSnapshotOf(d){
   return { kind: d.kind, slave: d.slave, awid: d.awid, base: d.base, name: d.name,
            allFF: d.allFF, bytes: new Uint8Array(d.bytes) };   /* ⇦ 複本 */
 }
-function i2ctIngest(d){
+/* ═══ 🔴🔴 A／B 模型（v1.16.1 定案版，Bruce 2026-09-19）═════════════════════
+   | 事件 | A | B | 來源 |
+   |---|---|---|---|
+   | 第一次讀取 | ← 讀到的 | **清空** | A ＝「讀取」 |
+   | 第一次載入檔案 | ← 檔案 | **清空** | A ＝ 檔名 |
+   | 已有 A，再載入檔案（同長度） | 不動 | ← 檔案 | B ＝ 檔名 |
+   | 已有 A，再讀取（同長度） | 不動 | ← 讀到的 | B ＝「讀取」 |
+   | 修改任一格 | 不動 | ← 改完的內容 | B ＝「A 的修改」 |
+   | 按快照 | ← 目前內容 | **清空** | A 繼承目前來源 |
+   | 長度不一樣（讀取或載入皆然） | ← **後者** | **清空** | A ＝ 後者，舊檔名消失 |
+   | 換 slave ＋ 讀取 | ← 新讀到的 | **清空** | A ＝「讀取」，檔名消失 |
+
+   🔴 兩條關鍵規則，都是他親自更正過的：
+     · **換 slave 本身不清 A** —— 要**換了而且讀取**才清。他可能只是切過去看看。
+       （不需要額外的偵測：`i2ctComparable()` 對兩份 dev 資料會比 slave，
+         slave 不同就不可比 ⇒ 自然走「重建 A」那一條。）
+     · **只要 A 被重建，B 自動清空** —— 所以 B 的清空由 `i2ctPromoteToA()`
+       一個地方負責，不分散到各個呼叫點（分散必然漏一個）。
+
+   🔴 來源標籤存在 **A 與 B 各自的資料結構**裡：A 存在 `i2ctRef.src`
+      （`i2ctRef` 是 `i2ctSnapshotOf()` 的獨立複本，帶得走自己的標籤），
+      B 存在 `i2ctBSrc`（null ＝ B 是空的，目前內容就是 A）。
+      **沒有**全域的「目前檔名」參與顯示 —— 那正是檔名卡在畫面上的成因。 */
+var i2ctBSrc = null;
+function i2ctPromoteToA(set, source){
+  i2ctRef = i2ctSnapshotOf(set);
+  if (i2ctRef) i2ctRef.src = source || '讀取';
+  i2ctDiffIdx = null;
+  i2ctBSrc = null;                    /* 🔴 A 一被重建，B 自然就不見 */
+}
+/* B ＝「A 的修改」。A 的來源是檔名時要帶出檔名（他指定的）。 */
+function i2ctModifiedSrc(){
+  var a = i2ctRef && i2ctRef.src ? i2ctRef.src : '';
+  return (a && a !== '讀取') ? (a + ' 的修改') : 'A 的修改';
+}
+/* 任何一格的值變了 ⇒ B ＝ 改完的內容。單一入口，所有改值路徑都經過這裡。 */
+function i2ctMarkModified(){ i2ctBSrc = i2ctModifiedSrc(); }
+function i2ctIngest(d, source){
   var made = false;
   if (!i2ctComparable(i2ctRef, d)) {
-    i2ctRef = i2ctSnapshotOf(d); i2ctDiffIdx = null; made = true;
+    /* 🔴 形狀不同（長度／位址／slave 不一樣）⇒ 沒辦法逐 byte 比 ⇒
+       **後者成為新的 A**（他：「只要長度不一樣，都是後者的變成 A」），
+       差異比對停用，並講一行為什麼（他看到 diff 突然是 0 會以為壞了）。 */
+    if (i2ctRef) i2ctLog('與前一份的長度／位址對不起來 ⇒ 差異比對停用，改用這一份當新的 A', 'w');
+    i2ctPromoteToA(d, source); made = true;
     i2ctLog('建立比較基準（自動）：' + i2ctSetLabel(d), 'n');
   } else {
+    /* 同形狀 ⇒ A 不動，這一份成為 **B**，帶著自己的來源標籤。 */
+    i2ctBSrc = source || '讀取';
     i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
     i2ctLog('與基準比對（' + i2ctSetLabel(i2ctRef) + '）：' + i2ctDiffIdx.length + ' 處不同',
             i2ctDiffIdx.length ? 'w' : 'n');
@@ -2443,7 +2490,7 @@ async function i2ctOnRead(){
   /* 🔴 讀取失敗（長度不足）的資料不得成為基準、也不得參與比較 ——
      拿半份資料當基準，之後每一次比對都是錯的，而且看起來很正常。 */
   var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN));
-  if (readReplaced) i2ctIngest(i2ctDev);
+  if (readReplaced) i2ctIngest(i2ctDev, '讀取');
   else { i2ctDiffIdx = null; i2ctLog('讀取不完整 ⇒ 不當基準、不參與比較', 'w'); }
   /* ═══ 🔴🔴 讀取成功 ⇒ 清掉「已修改未寫入」（v1.16.0）════════════════════
      Bruce 2026-09-19：「可是我都已經**再重新讀取一次 256 byte** 了。重新讀取一次，
@@ -2464,7 +2511,20 @@ async function i2ctOnRead(){
     if (i2ctWrOk) i2ctWrOk.fill(0);
     if (hadDirty) i2ctLog('讀取已覆蓋整片資料 ⇒ 清掉 ' + hadDirty + ' byte 的「已修改未寫入」標記', 'n');
   }
-  i2ctSetView('dev');             // 按讀取 ⇒ 看裝置（載入的檔案仍然留著，可切回去）
+  i2ctSetView('dev');             // 按讀取 ⇒ 看裝置
+  /* ═══ 🔴 讀取成功 ⇒ **B 被覆蓋**，載入的檔案跟著放掉（v1.16.1）════════════
+     Bruce：「載入檔案後沒有按快照…如果我後面再用 I2C 讀取一樣長度的 slave 資料，
+     它會覆蓋原本的 B 值，檔案的內容就會不見，**這時候檔案名稱也要消失，
+     不要一直卡在上面**。」
+     🔴 情境 1（載入後有按快照）不受影響：`i2ctRef` 是 `i2ctSnapshotOf()` 做的
+        **獨立複本**，帶著自己的檔名 ⇒ 放掉 `i2ctFile` 之後 A 那一行照樣印檔名。
+     ⇒ 一句話：**A 留著、B 被讀取覆蓋**，這正好就是他要的兩個情境。 */
+  if (readReplaced && i2ctFileBytes) {
+    var goneName = i2ctFileName;
+    i2ctClearFile();
+    i2ctLog('讀取已覆蓋 dump（B）⇒ 放掉載入的檔案 ' + goneName
+          + (i2ctRef && i2ctRef.kind === 'file' ? '（它已經是 A，檔名保留在 A 那一行）' : ''), 'n');
+  }
 
   if (!res.ok) {
     i2ctBanner('readbanner', 'err', '讀取失敗：' + res.err + '（已收到的 ' + res.bytes.length + ' byte 仍顯示在表格上）');
@@ -3054,7 +3114,11 @@ function i2ctApplyFile(name, raw){
     i2ctPrevBytes = null; i2ctPrevHas = null;
     i2ctFile = i2ctMakeSet('file', vin.slave, i2ctFileAwid, i2ctFileBase, bytes, file.name);
     i2ctWroteFlags = null;
-    i2ctIngest(i2ctFile);
+    /* 🔴 來源標籤 ＝ 檔名。第一次載入（還沒有 A）或長度不同 ⇒ 它成為 A；
+       已有同長度的 A ⇒ 它成為 B。判斷全在 i2ctIngest 裡，這裡只負責給來源。
+       🔴🔴 **載入檔案在任何情況下都不寫入裝置** —— 這裡一個 I2C 交易都沒有，
+          只有他按「寫入」才會送出。自檢第 54(0) 組釘死這一條。 */
+    i2ctIngest(i2ctFile, file.name);
     i2ctSetView('file');          // 載入 ⇒ 看檔案（可預期的切換規則）
     i2ctUpdateHints();
     return true;
@@ -3411,9 +3475,25 @@ function i2ctFlash(msg){
     i2ctFlashTimer = 0;
   }, 2500);
 }
+/* ═══ 🔴 A／B 各自帶自己的來源（v1.16.1，Bruce 2026-09-19）══════════════════
+   他的規格：dump 分 A 值與 B 值，**來源標籤掛在 A 與 B 各自身上**。
+     · 載入檔案 ⇒ B 的來源是檔名
+     · 再按快照 ⇒ 檔案成為 A ⇒ **A 標檔名**
+     · 再讀取   ⇒ B 換成讀取，**A 的檔名仍在**
+     · 載入後不快照就讀取 ⇒ B 被覆蓋 ⇒ **檔名消失，不要一直卡在上面**
+
+   🔴 這一版**不需要新增資料結構**：資料集本來就帶 `kind` 與 `name`
+   （`i2ctMakeSet`），而 `i2ctRef` 是 `i2ctSnapshotOf()` 做的**獨立複本**、
+   自己帶著那份 kind/name。所以「A 的來源」與「B 的來源」本來就分開存著 ——
+   卡住的原因是**畫面只印了 A 一行**，而檔名另外靠全域的 `i2ctFileName` 印。
+   ⇒ 改成兩行都從各自的資料集印（`i2ctSetLabel()`），全域檔名只留給
+     「寫入資料」那一欄（它問的是「這次要燒什麼」，語意不同）。 */
 function i2ctRenderRefLine(){
   var e = $('refline'); if (!e) return;
-  e.textContent = i2ctRef ? ('基準：' + i2ctSetLabel(i2ctRef)) : '基準：（尚未建立）';
+  var b = i2ctCurSet();
+  e.textContent = (i2ctRef ? ('A：' + (i2ctRef.src || '讀取') + ' · ' + i2ctRef.bytes.length + ' byte')
+                           : 'A：（尚未建立）')
+                + '　B：' + (i2ctBSrc && b ? (i2ctBSrc + ' · ' + b.bytes.length + ' byte') : '（無）');
   var dl = $('dirtyline'); if (!dl) return;
   var n = i2ctDirtyCount();
   dl.textContent = n ? ('已修改 ' + n + ' byte 未寫入') : '';
@@ -3584,21 +3664,62 @@ function i2ctSlotNext(st, which){
   /* 🔴 放回來 ⇒ 右上清空（不是對調） */
   return { main: prev, ref: ref, prev: 0, hasPrev: 0 };
 }
-function i2ctSlotClick(idx, which){
+/* ═══ 🔴🔴 角落還原也要**真的寫回裝置**（v1.16.1，Bruce 2026-09-19）═══════════
+   他的原話：「我再點左上方或者是右上方的數值，雖然它會改回來，但是 **I2C 沒有跟著
+   一起寫入**。因為我再按讀取，它又是原本的那個值。」
+
+   這是**假還原** —— 畫面說一套、裝置是另一套，比不還原更糟。
+   舊寫法只做 `d.bytes[idx] = nx.main` 加重繪，一個 byte 都沒送出去。
+
+   ⇒ 需要寫的時候一律走 `i2ctApplyCellValue()`，與手動改格、位元核取方塊
+     **完全同一條路徑**（寫入＋回讀驗證＋綠底／紅底＋dirty＋EEPROM 規則一次到位，
+     不必為角落另寫一套）。
+
+   三種分支，判斷依據都是現成的狀態，不用猜：
+     ① 已連線 ＋ 這一格**不是** dirty ⇒ 目前顯示的值就是裝置裡的值
+        ⇒ 還原＝真的要改裝置 ⇒ **走 i2ctApplyCellValue（會寫、會回讀驗證）**
+     ② 已連線 ＋ 這一格**是** dirty ⇒ 那個改動從來沒送出去，裝置裡還是舊的
+        ⇒ **不發任何寫入**，只動本地。
+        · 點左上（還原成快照 A ＝ 上次從裝置讀到的值）⇒ 本地與裝置一致 ⇒ 清掉 dirty
+        · 點右上（換回那個**從未寫入過**的值）⇒ 仍然是未寫入的修改 ⇒ dirty 留著
+     ③ 未連線 ⇒ 只改本地，標成 dirty（讓他知道還沒寫進去）。 */
+async function i2ctSlotClick(idx, which){
   var d = i2ctCurSet(); if (!d || idx < 0 || idx >= d.bytes.length) return false;
   i2ctEnsurePrev(d);
+  i2ctEnsureWrFail(d);
   var refB = (i2ctRef && i2ctComparable(i2ctRef, d)) ? i2ctRef.bytes : null;
   var st = { main: d.bytes[idx],
              ref: (refB && idx < refB.length) ? refB[idx] : null,
              prev: i2ctPrevBytes[idx], hasPrev: i2ctPrevHas[idx] };
   var nx = i2ctSlotNext(st, which);
   if (!nx) return false;
-  d.bytes[idx] = nx.main;
-  i2ctPrevBytes[idx] = nx.prev;
-  i2ctPrevHas[idx] = nx.hasPrev;
+  var wasDirty = !!(i2ctDirty && i2ctDirty[idx]);
+
+  /* ① 已連線且不是 dirty ⇒ 真的寫回去 */
+  if (i2ctLinked && !wasDirty) {
+    var addr = d.base + idx;
+    await i2ctApplyCellValue(d, idx, addr, d.awid, nx.main);
+    /* i2ctApplyCellValue 會把主值換成**回讀值**並清空三槽（它的語意是「新值落定」）。
+       只有在回讀確認落到我們要的值時，才把角落的帳補回去 —— 對不起來的時候
+       畫面要留在「裝置的實際值 ＋ 紅底」那個狀態，不可以用角落帳掩蓋它。 */
+    if (d.bytes[idx] === (nx.main & 0xFF)) {
+      i2ctPrevBytes[idx] = nx.prev;
+      i2ctPrevHas[idx] = nx.hasPrev;
+    }
+  } else {
+    /* ②③ 不送出任何交易，只動本地 */
+    d.bytes[idx] = nx.main;
+    i2ctPrevBytes[idx] = nx.prev;
+    i2ctPrevHas[idx] = nx.hasPrev;
+    i2ctMarkModified();                                     /* B ＝「A 的修改」 */
+    if (!i2ctLinked) i2ctDirty[idx] = 1;                    /* ③ */
+    else i2ctDirty[idx] = (which === 'sv') ? 0 : 1;          /* ② */
+    i2ctLog((i2ctLinked ? '還原（本地改動尚未寫入，不需要送出）：' : '本地還原（未連線）：')
+          + i2ctAddrText(d.base + idx, d.awid) + ' ← 0x' + i2ctHex(nx.main), 'n');
+  }
   /* 主值變了 ⇒ 與基準的差異要重算（它影響的是「會燒什麼」，不是只有外觀） */
   if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
-  i2ctRenderTable(); i2ctRenderDiff();
+  i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
   return true;
 }
 
@@ -3913,6 +4034,10 @@ function i2ctNoteCellChange(d, idx, newByte){
   /* 🔴 改值 ⇒ **一律回到狀態 1**（主值＝新的 B、左上＝A、右上空）。
      A 不動（只有重新快照才會變），新輸入的值就是新的 B。 */
   i2ctPrevHas[idx] = 0; i2ctPrevBytes[idx] = 0;
+  /* 🔴 v1.16.1：任何一格的值變了 ⇒ **B ＝「A 的修改」**（他補的第三種來源）。
+     掛在這一支是因為所有改值路徑（手動輸入、位元核取方塊、角落還原、整批寫入）
+     都會經過它 —— 一個入口，不會漏。 */
+  i2ctMarkModified();
   void newByte;
 }
 
@@ -4163,6 +4288,10 @@ function i2ctInit(){
       if (e.key === 'Enter') { i2ctSlaveSync(pair[1], true); i2ctUpdateHints(); }
     });
   });
+  /* 🔴 v1.16.1 更正：**換 slave 本身不清 A**（Bruce：「畢竟我有可能換了 Slave，
+     但是沒有按下讀取的按鈕」）。清除發生在**換了之後真的讀取**時 ——
+     那時 `i2ctComparable()` 會因為 slave 不同而判不可比 ⇒ 走 `i2ctPromoteToA()`。
+     不需要在這裡做任何事。 */
   $('in-slave').addEventListener('change', function () { i2ctSlaveSync('s7', true); i2ctUpdateHints(); });
   /* 🔴 手打就代表要用手打的那一份 ⇒ 清掉載入的檔案。兩個來源同時有效的話，
      「到底燒了哪一份」就說不清楚，而這是燒 EEPROM，說不清楚不行。 */
@@ -4226,8 +4355,10 @@ function i2ctInit(){
   $('btn-snap').addEventListener('click', function () {
     var d = i2ctCurSet();
     if (!d) { i2ctBanner('readbanner', 'warn', '還沒有資料可以當基準'); return; }
-    i2ctRef = i2ctSnapshotOf(d); i2ctDiffIdx = null;
-    i2ctLog('手動快照：基準 ＝ ' + i2ctSetLabel(d) + '（diff 清零）', 'n');
+    /* 🔴 快照 ＝ 「把目前內容變成 A」⇒ 走同一個入口，**A 繼承目前的來源**
+       （B 有來源就用 B 的，沒有就沿用 A 的），而且 B 由那支負責清空。 */
+    i2ctPromoteToA(d, i2ctBSrc || (i2ctRef && i2ctRef.src) || (d.kind === 'file' ? d.name : '讀取'));
+    i2ctLog('手動快照：A ＝ ' + i2ctSetLabel(d) + '（來源：' + i2ctRef.src + '，B 清空、diff 清零）', 'n');
     i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctFlash('✔ 已快照 ' + d.bytes.length + ' byte');
   });
@@ -4330,11 +4461,19 @@ function i2ctInit(){
     if (!td || td === this) return;
     var a = td.getAttribute('data-addr');
     if (a === null) return;
-    /* 🔴 Bruce 2026-09-19：「我直接點其中一個輸入格，根本就沒辦法更改」。
-       舊行為是「單擊＝定位、**雙擊**＝改值」，理由是怕他想定位卻誤改值。
-       那個理由站不住：十字定位是**被動顯示、不動資料**，沒有道理為它犧牲
-       編輯的直覺性；誤改的風險由回讀驗證與「尚未寫入」標示承擔，
-       真要反悔按 Esc 就好。⇒ **單擊就進編輯**，同時照樣定位、照樣設選取錨點。 */
+    /* ═══ 🔴🔴 一格三區，各做各的（v1.16.1，Bruce 2026-09-19）══════════════
+         左上 `.sv`  ⇒ 還原成 A（上面已經 return 掉）
+         右上 `.ov`  ⇒ 還原成 B（同上）
+         中間 `.mv`  ⇒ **只有這裡才進入輸入模式**
+         其餘（格子的留白）⇒ 只定位／選取，不進編輯
+
+       為什麼要這樣分：v1.15.0 起「點一下就進編輯」，而進編輯會把整格的
+       innerHTML 換成 `<input>` ⇒ **左上／右上那兩顆還原按鈕直接從畫面上消失**。
+       他回報「要點左上跟右上那個恢復的按鈕時會點不到」—— 不是點不準，是不在了。
+
+       🔴 判斷用**元素本身**（`e.target` 的 class），不是用座標去推角落範圍：
+          那三塊本來就是獨立的可點元素，用像素算會在不同縮放／字級下錯位。 */
+    var hitMv = !!(e.target && e.target.classList && e.target.classList.contains('mv'));
     var ix2 = parseInt(td.getAttribute('data-idx'), 10);
     i2ctSelAnchor = isFinite(ix2) ? ix2 : null;
     i2ctSelCursor = i2ctSelAnchor;
@@ -4348,7 +4487,7 @@ function i2ctInit(){
        瀏覽器要兩下都打在**同一個節點**上才會發出 dblclick，而單擊的
        handler 每次都把整張表換掉 ⇒ 第二下打在新節點上 ⇒ **dblclick 永遠不會發生**。
        所以那個功能不是沒實作，是被單擊的重繪吃掉了。 */
-    if (isFinite(ix2)) {
+    if (hitMv && isFinite(ix2)) {
       var fresh = this.querySelector('td[data-idx="' + ix2 + '"]');
       if (fresh) i2ctBeginEdit(fresh);
     }
@@ -4369,6 +4508,24 @@ function i2ctInit(){
     var inCell = e.target && e.target.parentNode && e.target.parentNode.tagName === 'TD';
     if (!inCell && (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA')) return;
     if (e.key === 'Escape') { if (i2ctEditing) i2ctCancelEdit(); i2ctSelClear(); return; }
+    /* ═══ 🔴 直接按十六進位鍵 ⇒ 進入編輯並開始輸入（v1.16.1）══════════════
+       v1.15.0 之前這件事是「免費」的：點一下就已經在編輯狀態，按鍵自然落進
+       輸入框。現在點一下只定位，所以要明確接上 —— 否則他會覺得鍵盤沒反應。
+       只在「已經選了某一格、而且不在任何輸入框裡」時才動作。 */
+    if (!inCell && !i2ctEditing && i2ctSelAnchor !== null
+        && !e.ctrlKey && !e.metaKey && !e.altKey
+        && /^[0-9a-fA-F]$/.test(e.key)) {
+      var tdK = document.querySelector('#dump td[data-idx="' + i2ctSelAnchor + '"]');
+      if (tdK) {
+        e.preventDefault();
+        i2ctBeginEdit(tdK);
+        if (i2ctEditing && i2ctEditing.inp) {
+          i2ctEditing.inp.value = e.key.toUpperCase();
+          i2ctEditing.inp.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return;
+      }
+    }
     var step = 0;
     if (e.key === 'ArrowRight') step = 1;
     else if (e.key === 'ArrowLeft') step = -1;
@@ -4534,6 +4691,11 @@ window.__i2ct = {
      它是「0.0 秒卻標一般模式」那個 bug 的修正核心，一定要有單元測試釘住。 */
   pathOf: function (r) { return i2ctPathOf(r); },
   lastPath: function () { return i2ctLastPath; },
+  /* A／B 模型的測試入口（v1.16.1） */
+  srcA: function () { return i2ctRef ? (i2ctRef.src || null) : null; },
+  srcB: function () { return i2ctBSrc; },
+  promoteToA: function (src) { var d = i2ctCurSet(); if (!d) return false;
+                               i2ctPromoteToA(d, src); i2ctRenderRefLine(); return true; },
   secs: function (ms) { return i2ctSecs(ms); },
   times: function () { return i2ctTimes.slice(); },
   /* v1.16.0 的測試入口 */
@@ -4686,7 +4848,7 @@ window.__i2ct = {
      發生，而測試跑到那一組時前面早就讀過好幾次了，i2ctDev 不是 null，
      於是那個 bug 在測試裡永遠重現不了（第一版就是這樣白測的）。 */
   _reset: function () {
-    i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
+    i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null; i2ctBSrc = null;
     i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
     i2ctFileBytes = null; i2ctView = 'dev';
     /* 🔴 「回到剛打開的狀態」必須連**游標狀態**一起清：選取範圍、十字、頁碼、
