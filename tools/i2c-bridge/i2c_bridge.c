@@ -168,8 +168,21 @@ static char g_pageVer[64] = "(no open yet)";
      · 快速模式的自動驗證一直判失敗：它第一步就走 raw 路徑。
 
    🔴 規則：**每一個 GetProcAddress 取來的函式指標，都要標明它來自哪支 DLL、
-      該 DLL 的官方標頭用什麼呼叫慣例。** 這種錯編得過、連結得過、只在執行期死，
-      靠「記得」是擋不住的。 */
+      以及呼叫慣例與判定依據。** 這種錯編得過、連結得過、只在執行期死，
+      靠「記得」是擋不住的 —— 2026-09-19 一天之內就犯了兩次
+      （ftd2xx 漏 __stdcall、DLL_I2C_BCB 誤判成 cdecl）。
+      ⇒ 已加機械檢查 `tools/check_call_conv.sh`，缺依據就讓 build 紅。
+
+   四支 DLL 的慣例與依據（第五支見 PFN_V_* 那一段）：
+     ftd2xx.dll      : __stdcall  ── 官方 ftd2xx.h 全部標 WINAPI
+     libMPSSE.dll    : cdecl      ── 官方 libMPSSE_i2c.h 的 FTDI_API 沒有 WINAPI
+     ntdll.dll       : __stdcall  ── RtlGetVersion 宣告為 WINAPI
+     winmm.dll       : __stdcall  ── timeBeginPeriod 宣告為 WINAPI
+     DLL_I2C_BCB.dll : __stdcall  ── objdump 實證 `ret 20` / `ret 4`（見下方 PFN_V_*）
+
+   🔴 **判定慣例只有兩個合法依據：官方標頭的 WINAPI，或被呼叫端的 `ret N`。**
+      **不可以**用 Python ctypes 的 `cdll`／`windll` 推斷 —— ctypes 會自行保存
+      還原 ESP，慣例錯了它照樣跑得好好的。那正是 v1.14.0 誤判的來源。 */
 #ifndef _WIN32
 #define __stdcall           /* 非 Windows（自檢編譯）下沒有這個慣例，定義成空的 */
 #endif
@@ -567,13 +580,26 @@ static int locate_and_load_dll(void) {
 
    🔴 與 libMPSSE **互斥**：兩者都會開同一個 FTDI channel，不能同時持有。
       選了原廠 DLL 就不呼叫 `I2C_OpenChannel`，反之亦然。 */
-typedef int  (*PFN_V_Detect)(void);
-typedef int  (*PFN_V_Open)(void);
-typedef int  (*PFN_V_Close)(void);
-typedef void (*PFN_V_SetClock)(unsigned short);
-typedef unsigned short (*PFN_V_GetClock)(void);
-typedef int  (*PFN_V_Send)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
-typedef unsigned short (*PFN_V_Get)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
+/* 🔴🔴 來源：DLL_I2C_BCB.dll ── **__stdcall**（依據：objdump 反組譯的 `ret N`）
+   `GetBytesEx` 結尾 `retl $20`、`SendBytesEx` `retl $20`（5 個參數 × 4 bytes ＝ 20）、
+   `SetClock`／`SetOpened` `retl $4` ⇒ **被呼叫端清堆疊 ＝ __stdcall**。
+   反組譯檔：~/ClaudeData/i2c_build/dll_i2c.asm
+
+   🔴 **不可以用 ctypes 的 `cdll`／`windll` 推斷呼叫慣例。**
+   我 v1.14.0 就是看 `RadDll64.py` 用 `ctypes.cdll.LoadLibrary` 而判成 cdecl ——
+   **那是錯的**：ctypes 每次呼叫都會自己保存／還原 ESP，所以**慣例判斷錯了它照樣能跑**，
+   Python 端看不出任何異常。C 這邊沒有那層保護，堆疊就直接壞掉。
+   ⇒ 慣例只能從**被呼叫端的 `ret N`** 或官方標頭的 `WINAPI` 判定。
+
+   參數個數維持 **5** 個（反組譯確認讀 `8/12/16/20/24(%ebp)`，
+   型別 byte, u32, u32, ptr, byte）—— 與 `ret 20` 互相印證。 */
+typedef int  (__stdcall *PFN_V_Detect)(void);
+typedef int  (__stdcall *PFN_V_Open)(void);
+typedef int  (__stdcall *PFN_V_Close)(void);
+typedef void (__stdcall *PFN_V_SetClock)(unsigned short);
+typedef unsigned short (__stdcall *PFN_V_GetClock)(void);
+typedef int  (__stdcall *PFN_V_Send)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
+typedef unsigned short (__stdcall *PFN_V_Get)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
 static PFN_V_Detect   pv_Detect   = NULL;
 static PFN_V_Open     pv_Open     = NULL;
 static PFN_V_Close    pv_Close    = NULL;
@@ -1691,6 +1717,7 @@ static void serve_page(SOCKET c, const char* req){
 #ifdef _WIN32
 static int g_timerRaised = 0;
 static void raise_timer_resolution(void){
+    /* 來源：winmm.dll ── 官方標頭把 timeBeginPeriod 宣告為 WINAPI ⇒ __stdcall */
     typedef unsigned (__stdcall *PFN_TP)(unsigned);
     HMODULE mm = LoadLibraryA("winmm.dll");
     PFN_TP beg = mm ? (PFN_TP)GetProcAddress(mm, "timeBeginPeriod") : NULL;

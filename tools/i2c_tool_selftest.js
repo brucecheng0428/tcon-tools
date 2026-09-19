@@ -2538,16 +2538,15 @@ function baseScript(f) {
     await A.doRead(); await sleep(40);
     /* 🔴 v1.13.7：三段式自動選路。所有模式回同樣的資料 ⇒ 第一個試的（原廠）就過。
        順序刻意是「原廠 → 官方快速 → 自建」：**能用現成的就不要用自己刻的**。 */
-    /* 🔴 v1.14.1：原廠那條**已從自動名單移除**（v1.11.7 讓 bridge 當機，根因未定）
-       ⇒ 自動選路只試「官方快速」與「自建」，全對時採用最優先的官方快速。 */
-    EQ(A.mode(), 1, '🔴 全部一致 ⇒ 採用「官方快速」（原廠已不在自動名單）');
+    /* 🔴 v1.14.2：原廠那條**放回自動名單且排第一**（__stdcall 修好後不會再打死行程）
+       ⇒ 全對時採用最優先的原廠。 */
+    EQ(A.mode(), 0, '🔴 全部一致 ⇒ 採用最優先的「原廠」');
     CHECK(!/比較慢/.test(doc.getElementById('topbanner').textContent),
       '🔴 一致時不跳任何訊息（安靜）：' + doc.getElementById('topbanner').textContent.slice(0, 30));
     EQ(s1.filter(m => m.type === 'read').length, 3, '第一次讀取 ＝ 基準 ＋ 原廠 ＋ 實際各一');
     { const om = s1.filter(m => m.type === 'open').map(m => m.mode);
-      CHECK(om.indexOf(2) >= 0 && om.indexOf(1) >= 0,
-        '🔴 open 有帶 mode，且先試基準再試官方快速：' + om.join(','));
-      CHECK(om.indexOf(0) < 0, '🔴 自動流程**不會**走到原廠模式（它會讓 bridge 當機）'); }
+      CHECK(om.indexOf(2) >= 0 && om.indexOf(0) >= 0,
+        '🔴 open 有帶 mode，且先試基準再試原廠：' + om.join(',')); }
     await win.__i2ct.disconnect();
 
     /* (b) 兩條路不一致 ⇒ 自動退回慢的，並留一行常駐訊息 */
@@ -2573,9 +2572,8 @@ function baseScript(f) {
     CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(b45), '🔴 退回訊息也沒有實作名詞');
     /* 🔴 三條都要真的被試過，不可以試一條就放棄 */
     { const tried = s2.filter(m => m.type === 'open').map(m => m.mode);
-      CHECK(tried.indexOf(1) >= 0 && tried.indexOf(3) >= 0,
-        '🔴 官方快速與自建兩條都試過了：' + tried.join(','));
-      CHECK(tried.indexOf(0) < 0, '🔴 原廠那條沒有被自動試到'); }
+      CHECK(tried.indexOf(0) >= 0 && tried.indexOf(1) >= 0 && tried.indexOf(3) >= 0,
+        '🔴 原廠／官方快速／自建三條都試過了：' + tried.join(',')); }
     /* 🔴 最關鍵的一條：退回之後**實際送出的 open 必須是基準模式**，
        不能只是畫面上說退回了，底下還在走快的。 */
     const lastOpen = s2.filter(m => m.type === 'open').pop();
@@ -2583,7 +2581,7 @@ function baseScript(f) {
     /* 🔴 每一條的結果都要送進 **bridge 的 log**（note 命令）。
        Bruce 能傳給我們的只有 i2c-bridge.log；網頁 log 區的內容不會跟著過來。 */
     const notes = s2.filter(m => m.type === 'note').map(m => m.msg).join(' | ');
-    CHECK(!/vendor /.test(notes), '🔴 log 裡不會有原廠那條（沒被自動試到）');
+    CHECK(/vendor MISMATCH/.test(notes), '🔴 原廠那條的結果有進 log');
     CHECK(/fast MISMATCH/.test(notes),   '🔴 官方快速那條的結果有進 log');
     CHECK(/built MISMATCH/.test(notes),  '🔴 自建那條的結果有進 log');
     CHECK(/MISMATCH at \+\d+ of \d+/.test(notes), '🔴 有寫出第一個不一致的位置');
@@ -2614,9 +2612,9 @@ function baseScript(f) {
     /* 這次所有模式資料相同 ⇒ 應該重驗並採用最優先的原廠模式 */
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
     await A.doRead(); await sleep(40);
-    EQ(A.mode(), 1, '🔴 重連後重驗一次，這次驗得過 ⇒ 採用官方快速（狀態自己復原了）');
+    EQ(A.mode(), 0, '🔴 重連後重驗一次，這次驗得過 ⇒ 採用原廠（狀態自己復原了）');
     { const om3 = s3.filter(m => m.type === 'open').map(m => m.mode);
-      CHECK(om3.indexOf(1) >= 0, '🔴 重連後真的又重驗了一次：' + om3.join(',')); }
+      CHECK(om3.indexOf(0) >= 0, '🔴 重連後真的又重驗了一次：' + om3.join(',')); }
     await win.__i2ct.disconnect();
   }
 
