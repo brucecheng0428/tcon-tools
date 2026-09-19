@@ -135,22 +135,26 @@ int dgh_ck_delay = 3;
 #define DGH_MODE_FAST   1
 #define DGH_MODE_SLOW   2
 #define DGH_MODE_RAW    3
-/* 🔴🔴 **預設是 libMPSSE 逐 byte（＝ v1.10.0 那條已知可用的路）**，不是 vendor。
-   v1.11.7 把 vendor 設成預設，結果 Bruce 連線後**整個 bridge 當掉**，
-   他得退回 v1.10.0 才能用。**根因未定（外部分析中）**，在那之前
-   一條會讓他當機的路**絕對不可以放在必經路徑上**。
+/* ═══ 🔴🔴 預設 ＝ **vendor（原廠 DLL）** ════════════════════════════════════
+   為什麼是它：AN2232C-01（這顆 FT2232C/D 自己的手冊）證實它的 MPSSE
+   **沒有三相時脈、沒有開汲極** —— 那正是 I2C 需要的兩樣東西
+   ⇒ 用 MPSSE 在這顆上做 I2C 走不通（pyftdi 對 FT2232D 也是直接拒絕），
+     模式 1／2／3 全部建立在 MPSSE 上。原廠 DLL 幾乎確定走 bit-bang 自產時序，
+     原廠 Python UI 走的就是它（256 byte 約 12.6 ms）。
+   實測佐證：走自建 raw MPSSE 讀 0x1000 時，位址相位 ACK 固定回 `0E 1C 38 70`
+     （合法值只有 0x00／0x80），四次側錄全部重現。
 
-   🔴 這正是本輪已經犯過一次的同一個錯：`p_FT_Write` 從來沒在硬體上跑過，
-      v1.11.0 卻讓它每次連線都執行 —— 那次也是「完全連不上」。
-      規則再寫一次：**沒有在他硬體上驗過的東西，不當預設值。**
-   ⇒ vendor 只在**明確要求**時才走：`--vendor` 或 open 帶 `mode:0`。 */
-/* 🔴🔴 2026-09-19：預設改回 **vendor（原廠 DLL）**，但只有在
-   「DLL 找得到 **且** `GetClock()` 探針通過」時才成立（見 main 裡的 fallback）。
-   理由：AN2232C-01 證實這顆 FT2232C/D 的 MPSSE **沒有三相、沒有開汲極**，
-   ⇒ 用 MPSSE 在它上面做 I2C 走不通，原廠 DLL 才是正路
-     （它幾乎確定走 bit-bang 自產時序）。
-   當機風險已降低：`__stdcall` 已依 objdump 的 `ret 20`／`ret 4` 修正，
-   探針也會先擋一次；萬一 `Open()` 仍失敗，既有降級邏輯會接住。 */
+   🔴 歷史：v1.11.7 第一次把 vendor 設成預設，Bruce 連線後**整個 bridge 當掉**，
+      當時判為「根因未定」而改回 libMPSSE 逐 byte。
+   🔴 **據實標明那次當機的狀態**：疑似根因是 vendor 的函式 typedef 漏寫
+      `__stdcall`（32 位元 x86 上 stdcall 由被呼叫端清堆疊，少寫就會堆疊失衡
+      ⇒ 行程死亡），該缺失已依 objdump 的 `ret 20`／`ret 4` 修正。
+      但 **v1.11.7 的當機從來沒有被重現驗證過** —— 我們只知道「症狀與已證實的
+      `__stdcall` 缺失一致」，**不等於已經確認就是它**。不要把這句話寫成已確認。
+   ⇒ 因此風險由兩道機制接住，而不是靠宣稱已修好：
+      (1) `GetClock()` 探針：DLL 載得到但不像那支 DLL 就不採用；
+      (2) `Open()` 失敗 ⇒ 降級到 `DGH_MODE_SLOW`（見 i2c_open 與 main 的 fallback），
+          並把降級寫進 log；網頁端也會依讀取回報的指紋掛出提示。 */
 int dgh_mode = DGH_MODE_VENDOR;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
@@ -2161,7 +2165,8 @@ int main(int argc, char** argv){
         /* 三相時脈（raw 路徑）。**預設關**（實測 0x8C 無效）；`--3phase` 開起來診斷。 */
         else if(strcmp(argv[i],"--no-3phase")==0) dgh_three_phase=0;
         else if(strcmp(argv[i],"--3phase")==0) dgh_three_phase=1;
-        /* 🔴 原廠 DLL 路徑**只能明示啟用**（v1.11.7 預設開 ⇒ 連線後當機）。 */
+        /* 🔴 1.13.1 更正：原廠 DLL **本來就是預設**（見 dgh_mode 宣告處），
+           這個旗標現在的用途只剩「被前面的旗標改掉之後再指定回來」。 */
         else if(strcmp(argv[i],"--vendor")==0) dgh_mode=DGH_MODE_VENDOR;
         /* 🔴 v1.11.1：時脈插隊改為明示啟用（v1.11.0 的無條件呼叫是連不上的嫌疑者） */
         else if(strcmp(argv[i],"--serve")==0) g_serveFiles=1;
@@ -2208,9 +2213,19 @@ int main(int argc, char** argv){
         dgh_mode = DGH_MODE_SLOW;
         logline("  mode    : %s not found -> falling back to libMPSSE per-byte", DGH_VENDOR_DLL);
     }
-    logline("  mode    : default=%d (%s).  Vendor path is OPT-IN ONLY (--vendor or open mode:0)"
-            " because v1.11.7 crashed after connect on the user's machine; root cause undetermined.",
-            dgh_mode, dgh_mode==DGH_MODE_SLOW?"libMPSSE per-byte, same as v1.10.0":"other");
+    /* 🔴 這一行是給「拿到 log 的下一個人」看的，所以它必須說**現在**的事實：
+       預設就是 vendor；只有在 DLL 不見或 Open() 失敗時才會是 libMPSSE。
+       （1.13.1 之前這裡還印著 "Vendor path is OPT-IN ONLY"，與程式碼不符。） */
+    logline("  mode    : default=%d (%s).  The vendor DLL is the DEFAULT path: this chip's"
+            " MPSSE has no three-phase clock and no open-drain (AN2232C-01), so MPSSE-based"
+            " I2C does not work here.",
+            dgh_mode, dgh_mode==DGH_MODE_VENDOR?"vendor DLL":
+                      dgh_mode==DGH_MODE_SLOW?"libMPSSE per-byte -- vendor DLL unavailable":"other");
+    logline("            v1.11.7 crashed after connect with vendor as default.  Suspected cause:"
+            " the vendor typedefs were missing __stdcall (callee-cleanup on 32-bit x86), fixed"
+            " in 1.13.1.  NOT REPRODUCED/CONFIRMED -- only the symptoms match.");
+    logline("            Guards kept: GetClock() probe, and Open() failure falls back to"
+            " libMPSSE per-byte (the fallback is logged, never silent).");
     diag_dll();
     diag_ftdi();
 

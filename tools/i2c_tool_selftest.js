@@ -193,12 +193,13 @@ function baseScript(f) {
   EQ(A.planRead(0, 300, 0).map(c => c.len), [256, 44], 'awid 0 照樣分段（current address read 連續讀）');
   /* 1 byte 位址的分段會回繞，這是裝置真實行為，不是 bug */
   EQ(A.planRead(0xF0, 300, 1).map(c => c.addr), [0xF0, 0xF0], '1 byte：第二則回繞回 0xF0（0xF0+256 mod 256）');
-  /* 🔴 用 `_reset()` 還原，不要用 `A.rawMpsse(true)` ——
-     後者現在會把「手動覆寫」旗標立起來（明確指定就等於他自己選過），
-     那個旗標會讓**後面組別的自動選路整個不跑**，污染下一組。
+  /* 🔴 用 `_reset()` 還原，不要用 `A.rawMpsse(false)` ——
+     後者會把「手動覆寫」旗標立起來（明確指定就等於他自己選過），
+     那個旗標會讓後面組別的「重連還原成預設」整個不跑，污染下一組。
      `_reset()` 才是「回到剛打開網頁」的完整還原。 */
   A._reset();
-  CHECK(A.rawMpsse() === true, '🔴 快速模式的產品預設是「開」（v1.13.1 起）');
+  CHECK(A.rawMpsse() === false, '🔴 v1.20.0：產品預設是原廠 DLL ⇒ 自建（快速模式）關');
+  EQ(A.mode(), 0, '🔴 產品預設的 mode ＝ 0（原廠 DLL）');
 
   /* ═════════════════════════════════════════════════════════════════════ */
   G('3. 16×16 表格的位址與分頁');
@@ -291,20 +292,19 @@ function baseScript(f) {
     await A.doRead();
     await sleep(20);
     const rd = SINCE(sent, 'read');
-    /* 🔴 v1.13.1：快速模式預設開 ⇒ **第一次讀取**會先自動對讀驗證一次
-       （快一次、慢一次，各 min(len,64) byte），所以這裡是 2 則驗證 ＋ 1 則實際。
-       這不是多餘的往返，是「預設用快的」的安全前提，見 i2ctVerifyFastOnce。 */
-    EQ(rd.length, 3, '🔴 第一次讀取 ＝ 2 則自動驗證 ＋ 1 則實際讀取');
-    EQ(rd.slice(0, 2).map(m => m.len), [3, 3], '驗證讀的長度 ＝ min(要求長度, 64)');
-    const real = rd[2];
+    /* 🔴 v1.20.0：首次讀取的自動選路已整套移除 ⇒ **他按一次讀取就只送一則 read**。
+       v1.13.1～v1.19.x 在這裡會多送 2～4 則探測（其中 64 byte 的逐 byte 慢讀
+       就是 Bruce 看到的「一個 byte 一個 byte read」）。 */
+    EQ(rd.length, 1, '🔴🔴 第一次讀取只有 1 則 read（沒有任何自動探測）');
+    const real = rd[0];
     EQ({ slave: real.slave, addr: real.addr, len: real.len, awid: real.awid },
        { slave: 0x68, addr: 0x1234, len: 3, awid: 2 },
        '🔴 送出的 read 四個欄位 ＝ 使用者的四項輸入（slave 未被左移）');
-    /* 🔴 驗證只做一次：第二次讀取不可以再付這個成本 */
+    /* 第二次讀取同樣只有一則 */
     { const before = sent.length;
       await A.doRead(); await sleep(20);
       EQ(sent.slice(before).filter(m => m.type === 'read').length, 1,
-         '🔴 第二次讀取只送 1 則（驗證不重複做）'); }
+         '🔴 第二次讀取也只送 1 則'); }
     const st = A.state();
     EQ([st.buf[0x1234], st.buf[0x1235], st.buf[0x1236]], [0x10, 0x11, 0x12], '資料落在 0x1234–0x1236');
     CHECK(st.buf[0x1233] === undefined, '起始位址之前的格子沒被填（留空，不補 0）');
@@ -2558,18 +2558,16 @@ function baseScript(f) {
     /* 2026-09-19 實機回歸：Bruce 讀 0x68（TCON register）只有前兩個 byte 正確、
        之後全是 0F。fast read 在真實裝置上的行為與假設不同 ⇒ 預設關掉。
        🔴 規則：**無法驗證的東西不可以當預設值。** */
-    /* 🔴 v1.14.1 更新：這一組原本驗「fast read 永遠關」。
-       現在的模型是**連線後不動、第一次讀取才自動選路**，而 fast read
-       （libMPSSE FAST_TRANSFER）是選路的候選之一 —— 驗得過才會被採用。
-       所以「預設關」的正確檢查點是**連線之後、第一次讀取之前**。 */
+    /* 🔴 v1.20.0 更新：自動選路已整套移除，預設直接走**原廠 DLL**。
+       fast read（libMPSSE FAST_TRANSFER）退回純 debug 對照用，預設仍是關。 */
     A._reset();
     const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, data: [1, 2, 3] })));
-    EQ(A.fastRead(), false, '🔴 連線後、還沒讀之前：fast read ＝ 關');
-    EQ(A.mode(), 2, '🔴 連線後的模式 ＝ 一般（＝ v1.10.0 那條已知可用的路）');
+    EQ(A.fastRead(), false, '🔴 連線後：fast read ＝ 關');
+    EQ(A.mode(), 0, '🔴 連線後的模式 ＝ 原廠 DLL（唯一在這顆晶片上走得通的）');
     const opens = sent.filter(m => m.type === 'open');
     CHECK(opens.length > 0, '有送出 open');
     EQ(opens[opens.length - 1].fastread, 0, '🔴 open 命令明確帶 fastread:0（不靠 exe 的預設）');
-    EQ(opens[opens.length - 1].mode, 2, '🔴 open 帶的也是一般模式');
+    EQ(opens[opens.length - 1].mode, 0, '🔴 open 帶的也是原廠模式');
     /* debug 區可以打開（供日後查清根因後實測），但要重新連線才生效 */
     A.setDebug(true);
     const chk = doc.getElementById('chk-fastread');
@@ -2677,7 +2675,8 @@ function baseScript(f) {
        所以這裡不再驗「預設關」。這顆按鈕的定位也跟著變成**診斷工具**：
        自動驗證只比 64 byte，他想拿 4096 byte 自己比一次時用這顆。 */
     A._reset();
-    EQ(A.rawMpsse(), true, '🔴 快速模式預設開（v1.13.1 起）');
+    /* 🔴 v1.20.0：產品預設改成**原廠 DLL** ⇒ 自建那條預設關。 */
+    EQ(A.rawMpsse(), false, '🔴 自建（快速模式）預設關，預設走原廠 DLL');
     const sent = await useHelper(baseScript((m) => {
       if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
@@ -2704,10 +2703,13 @@ function baseScript(f) {
        漏掉的話慢路徑會跑在 raw 的設定上（v1.11.4 實測 80 kHz 就是這樣污染的）。 */
     CHECK(os.every(m => m.threephase === 1 || m.threephase === 0),
       '🔴 每次 open 都帶 threephase（bridge 據此重設三相與除數）');
-    EQ({ raw: os[0].rawmpsse, fast: os[0].fastread }, { raw: 1, fast: 0 }, '第一趟：快速');
-    EQ({ raw: os[1].rawmpsse, fast: os[1].fastread }, { raw: 0, fast: 1 }, '第二趟：中速（FAST_TRANSFER）');
-    EQ({ raw: os[2].rawmpsse, fast: os[2].fastread }, { raw: 0, fast: 0 }, '第三趟：一般（基準）');
-    EQ(os[3].rawmpsse, 0, '🔴 比完切回他原本的設定（不偷偷留在比對狀態）');
+    /* 🔴 v1.20.0：第一趟 ＝ **他目前實際採用的那一條**，預設就是原廠（mode 0）。
+       判準看 `mode` 而不是 rawmpsse／fastread —— bridge 以 mode 為準，
+       那兩個只是相容旗標（v1.14.5 就是兩套來源各填一次才出過錯）。 */
+    EQ({ mode: os[0].mode, raw: os[0].rawmpsse, fast: os[0].fastread }, { mode: 0, raw: 0, fast: 0 }, '第一趟：目前採用的（原廠）');
+    EQ({ mode: os[1].mode, raw: os[1].rawmpsse, fast: os[1].fastread }, { mode: 1, raw: 0, fast: 1 }, '第二趟：中速（FAST_TRANSFER）');
+    EQ({ mode: os[2].mode, raw: os[2].rawmpsse, fast: os[2].fastread }, { mode: 2, raw: 0, fast: 0 }, '第三趟：一般（基準）');
+    EQ({ mode: os[3].mode, raw: os[3].rawmpsse }, { mode: 0, raw: 0 }, '🔴 比完切回他原本的設定（不偷偷留在比對狀態）');
     EQ(after.filter(m => m.type === 'read').length, 3, '三條路徑各讀一次');
     CHECK(/完全相同/.test(doc.getElementById('readbanner').textContent),
       '🔴 兩邊相同 ⇒ 明確告訴他：' + doc.getElementById('readbanner').textContent.slice(0, 40));
@@ -2735,11 +2737,15 @@ function baseScript(f) {
     await A.comparePaths(); await sleep(40);
     const banner = doc.getElementById('readbanner').textContent;
     CHECK(/不要用快速模式/.test(banner), '🔴 兩邊不同 ⇒ 明講不要開：' + banner.slice(0, 44));
-    CHECK(/已自動改回一般模式/.test(banner), '🔴 不一致 ⇒ 畫面上講明已自動切回');
+    CHECK(/已自動改回預設的讀取方式/.test(banner), '🔴 不一致 ⇒ 畫面上講明已自動切回');
     CHECK(chk.checked === false, '🔴 不一致 ⇒ 勾選框真的被取消（不是只講講）');
-    /* 最後一次 open 必須是 rawmpsse:0，否則「切回」只是畫面上的假象 */
+    /* 🔴 v1.20.0：最後一次 open 必須 **mode 與 rawmpsse 都回到預設**。
+       只檢查 rawmpsse 會漏掉真正的破口 —— bridge 以 mode 為準，mode 還留在 3
+       的話「已自動改回」就只是畫面上的話（這一條就是那次補正的釘子）。 */
     const os2 = sent2.slice(since2).filter(m => m.type === 'open');
-    EQ(os2[os2.length - 1].rawmpsse, 0, '🔴 不一致 ⇒ 最後真的用一般模式重新連線');
+    EQ({ mode: os2[os2.length - 1].mode, raw: os2[os2.length - 1].rawmpsse }, { mode: 0, raw: 0 },
+       '🔴 不一致 ⇒ 最後真的用預設（原廠）模式重新連線');
+    EQ(A.mode(), 0, '🔴 內部狀態也回到預設，不是只有送出去的封包');
     /* 🔴 結論要跟耗時一起常駐：banner 會被下一個動作蓋掉，紀錄不會 */
     /* 🔴 只看**最新那三筆**（一般／快速／中速各一）—— 紀錄是常駐的，前一輪
        「相同」的比對也還在表上（那正是我們要的行為），拿全部去比會永遠失敗。
@@ -2796,104 +2802,125 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
-  G('45b. 🔴 快速模式預設開，第一次讀取自動驗證；不一致就自動退回');
+  G('45b. 🔴🔴 預設走原廠 DLL；不再有首次讀取的 64 byte 探測（v1.20.0）');
   {
-    /* 🔴 這一組驗的是「他什麼都不用勾」的那條路（Bruce 2026-09-19：
-       「這等於又退回去了，為什麼不去解決呢？」）。預設開的前提是**驗得過才用**，
-       所以「驗不過會自動退回」這一半一定要有測試 —— 只驗通過那一半，
-       等於又犯一次 CLAUDE.md 記的「只驗過壞檔會被拒絕」的老毛病。 */
+    /* 這一組釘住的是 Bruce 2026-09-19 的兩件事：
+       (1)「不是我們討論了兩天不要用自建的嘛？它不是已經有原廠的 DLL 了嗎？」
+          —— bridge 的預設本來就是 vendor，是網頁每次 open 前強制 rawmpsse=true
+          把它覆蓋掉，所以實際跑的是自建 raw MPSSE。
+       (2)「把那個一 byte 一 byte 的給拿掉」—— 首次讀取的自動選路會多送 4 次讀取，
+          其中三次是 64 byte 的逐 byte 慢讀。
+       🔴 反面也要釘：降級提示不可以跟著消失，而且**每次重連都要重述**。 */
 
-    /* (a) 兩條路一致 ⇒ 安靜沿用快的 */
+    /* (a) 開頁後送出的 open ＝ mode:0、rawmpsse:0 */
     A._reset();
     const s1 = await useHelper((m) => {
-      if (m.type === 'ping') return { helper: '1.11.1', proto: 3, ok: true };
+      if (m.type === 'ping') return { helper: '1.13.1', proto: 3, ok: true };
       if (m.type === 'open') return { ok: true, channels: 1 };
       if (m.type === 'close') return { ok: true };
-      if (m.type === 'read') return { ok: true, status: 0,
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1, raw: false, fast: false,
         data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
     });
+    { const o = s1.filter(m => m.type === 'open');
+      EQ(o.length, 1, '連線只送一次 open');
+      EQ({ mode: o[0].mode, raw: o[0].rawmpsse, fast: o[0].fastread },
+         { mode: 0, raw: 0, fast: 0 },
+         '🔴🔴 open 封包 ＝ mode:0（原廠 DLL）、rawmpsse:0、fastread:0'); }
+    EQ(A.mode(), 0, '內部狀態也是原廠');
+
+    /* (b) 🔴 第一次讀取**不再**先發出 64 byte 的探測 */
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
+    const before = s1.filter(m => m.type === 'read').length;
     await A.doRead(); await sleep(40);
-    /* 🔴 v1.13.7：三段式自動選路。所有模式回同樣的資料 ⇒ 第一個試的（原廠）就過。
-       順序刻意是「原廠 → 官方快速 → 自建」：**能用現成的就不要用自己刻的**。 */
-    /* 🔴 v1.14.2：原廠那條**放回自動名單且排第一**（__stdcall 修好後不會再打死行程）
-       ⇒ 全對時採用最優先的原廠。 */
-    EQ(A.mode(), 0, '🔴 全部一致 ⇒ 採用最優先的「原廠」');
+    { const rd = s1.filter(m => m.type === 'read').slice(before);
+      EQ(rd.length, 1, '🔴🔴 第一次讀取只送 1 則 read（舊版是 4 則：基準＋三條候選＋實際）');
+      EQ(rd[0].len, 16, '🔴 而且長度就是他要的 16，沒有 64 byte 的探測');
+      CHECK(!rd.some(r => r.len === 64), '🔴 沒有任何 64 byte 的額外讀取'); }
+    EQ(A.mode(), 0, '讀完仍是原廠（沒有被選路改掉）');
+    EQ(A.lastPath(), '快速模式', '耗時紀錄標成快速模式（原廠 usbrt=1）');
     CHECK(!/比較慢/.test(doc.getElementById('topbanner').textContent),
-      '🔴 一致時不跳任何訊息（安靜）：' + doc.getElementById('topbanner').textContent.slice(0, 30));
-    EQ(s1.filter(m => m.type === 'read').length, 3, '第一次讀取 ＝ 基準 ＋ 原廠 ＋ 實際各一');
-    { const om = s1.filter(m => m.type === 'open').map(m => m.mode);
-      CHECK(om.indexOf(2) >= 0 && om.indexOf(0) >= 0,
-        '🔴 open 有帶 mode，且先試基準再試原廠：' + om.join(',')); }
+      '🔴 原廠成功時畫面乾淨：' + doc.getElementById('topbanner').textContent.slice(0, 30));
+    /* 第二次讀取也一樣是 1 則（不是「只有第一次沒探測」） */
+    { const b2 = s1.filter(m => m.type === 'read').length;
+      await A.doRead(); await sleep(40);
+      EQ(s1.filter(m => m.type === 'read').length - b2, 1, '第二次讀取同樣只有 1 則'); }
     await win.__i2ct.disconnect();
 
-    /* (b) 兩條路不一致 ⇒ 自動退回慢的，並留一行常駐訊息 */
+    /* (c) 🔴 重連三次，三次都是 mode:0 / rawmpsse:0
+       （舊 bug 就是重連會把旗標掉回去，Bruce 的 log 三次都送 rawmpsse:0） */
+    for (let k = 1; k <= 3; k++) {
+      const sk = await useHelper((m) => {
+        if (m.type === 'ping') return { helper: '1.13.1', proto: 3, ok: true };
+        if (m.type === 'open') return { ok: true, channels: 1 };
+        if (m.type === 'close') return { ok: true };
+        if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+          data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+        return { ok: true, status: 0 };
+      });
+      const ok = sk.filter(m => m.type === 'open');
+      EQ({ mode: ok[0].mode, raw: ok[0].rawmpsse }, { mode: 0, raw: 0 },
+         '🔴 第 ' + k + ' 次重連仍是 mode:0, rawmpsse:0');
+      await win.__i2ct.disconnect();
+    }
+
+    /* (d) 🔴 手動優先：他自己在 debug 區切到自建 ⇒ 重連仍維持他的選擇 */
     A._reset();
-    /* 🔴 三條比較快的路（原廠 0／官方快速 1／自建 3）**全都**回錯的資料，
-       只有基準（2）是對的 ⇒ 必須三條都試過、三條都不採用、最後退回基準。 */
-    let curMode = 2;
-    const s2 = await useHelper((m) => {
-      if (m.type === 'ping') return { helper: '1.11.7', proto: 3, ok: true };
-      if (m.type === 'open') { curMode = (typeof m.mode === 'number') ? m.mode : 2; return { ok: true, channels: 1 }; }
-      if (m.type === 'close') return { ok: true };
-      if (m.type === 'read') return { ok: true, status: 0,
-        data: Array.from({ length: m.len }, (_, i) => (i + (curMode === 2 ? 0 : 1)) & 0xFF) };
-      return { ok: true, status: 0 };
-    });
-    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
-    await A.doRead(); await sleep(50);
-    EQ(A.mode(), 2, '🔴 三條都不一致 ⇒ 退回基準（一般）模式');
-    CHECK(A.rawMpsse() === false, '自建模式沒有被採用');
-    CHECK(doc.getElementById('chk-rawmpsse').checked === false, '🔴 勾選框也跟著取消');
-    const b45 = doc.getElementById('topbanner').textContent;
-    CHECK(/比較慢/.test(b45), '🔴 留一行常駐訊息告訴他這次用慢的：' + b45.slice(0, 40));
-    CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(b45), '🔴 退回訊息也沒有實作名詞');
-    /* 🔴 三條都要真的被試過，不可以試一條就放棄 */
-    { const tried = s2.filter(m => m.type === 'open').map(m => m.mode);
-      CHECK(tried.indexOf(0) >= 0 && tried.indexOf(1) >= 0 && tried.indexOf(3) >= 0,
-        '🔴 原廠／官方快速／自建三條都試過了：' + tried.join(',')); }
-    /* 🔴 最關鍵的一條：退回之後**實際送出的 open 必須是基準模式**，
-       不能只是畫面上說退回了，底下還在走快的。 */
-    const lastOpen = s2.filter(m => m.type === 'open').pop();
-    EQ(lastOpen.mode, 2, '🔴 退回後真的用基準模式重新連線');
-    /* 🔴 每一條的結果都要送進 **bridge 的 log**（note 命令）。
-       Bruce 能傳給我們的只有 i2c-bridge.log；網頁 log 區的內容不會跟著過來。 */
-    const notes = s2.filter(m => m.type === 'note').map(m => m.msg).join(' | ');
-    CHECK(/vendor MISMATCH/.test(notes), '🔴 原廠那條的結果有進 log');
-    CHECK(/fast MISMATCH/.test(notes),   '🔴 官方快速那條的結果有進 log');
-    CHECK(/built MISMATCH/.test(notes),  '🔴 自建那條的結果有進 log');
-    CHECK(/MISMATCH at \+\d+ of \d+/.test(notes), '🔴 有寫出第一個不一致的位置');
-    CHECK(/base \[0\.\.\] = [0-9A-F]{2} /.test(notes), '🔴 基準的實際位元組有留下來');
-    CHECK(/no faster path passed/.test(notes), '🔴 最終結論也有進 log');
-    /* 退回之後那一次實際讀取，拿到的必須是慢路徑的值（0,1,2…） */
-    const st45 = A.state();
-    EQ([st45.buf[0], st45.buf[1], st45.buf[2]], [0, 1, 2], '🔴 最後落格的是慢路徑（正確）的值');
-    await win.__i2ct.disconnect();
-
-    /* 🔴🔴 (c) 退回之後**重新連線要能復原** —— 這是 Bruce 的 log 照出來的真 bug。
-       舊版重連只重設 i2ctFastVerified，沒有重設 i2ctRawMpsse ⇒
-       i2ctVerifyFastOnce 開頭就 return ⇒ 永遠不再驗、永遠走慢的，而且重連後
-       畫面上那一行提示還被清掉了，他完全看不出來。他重啟 Bridge 三次都送
-       rawmpsse:0，就是這個。 */
-    EQ(A.mode(), 2, '前提：上一段結束時是退回狀態');
-    const s3 = await useHelper((m) => {
-      if (m.type === 'ping') return { helper: '1.11.3', proto: 3, ok: true };
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.13.1', proto: 3, ok: true };
       if (m.type === 'open') return { ok: true, channels: 1 };
       if (m.type === 'close') return { ok: true };
-      if (m.type === 'read') return { ok: true, status: 0,
-        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0 };
     });
-    /* 🔴 重連要能從退回狀態復原：重驗一次，而不是永遠卡在基準模式。
-       這是 Bruce 的 log 照出來的真 bug（他重啟 Bridge 三次都送 rawmpsse:0）。 */
-    CHECK(A.state().linked === true, '重新連上');
-    /* 這次所有模式資料相同 ⇒ 應該重驗並採用最優先的原廠模式 */
+    A.setDebug(true);
+    const chkR = doc.getElementById('chk-rawmpsse');
+    CHECK(!!chkR, 'debug 區有自建模式開關');
+    EQ(chkR.checked, false, '🔴 開關預設沒勾（預設走原廠）');
+    chkR.checked = true; chkR.dispatchEvent(new win.Event('change', { bubbles: true }));
+    EQ(A.mode(), 3, '🔴 勾起來 ⇒ mode 也跟著變成自建（只改旗標等於開關是壞的）');
+    await win.__i2ct.disconnect();
+    const sm = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.13.1', proto: 3, ok: true };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      return { ok: true, status: 0 };
+    });
+    { const o = sm.filter(m => m.type === 'open');
+      EQ({ mode: o[0].mode, raw: o[0].rawmpsse }, { mode: 3, raw: 1 },
+         '🔴🔴 重連後**尊重他的手動選擇**，不被預設蓋掉'); }
+    chkR.checked = false; chkR.dispatchEvent(new win.Event('change', { bubbles: true }));
+    EQ(A.mode(), 0, '取消勾選 ⇒ 回產品預設（原廠），不是回已知走不通的一般模式');
+    A.setDebug(false);
+    await win.__i2ct.disconnect();
+
+    /* (e) 🔴🔴 原廠路徑失敗 ⇒ 畫面要講，而且**重連後會再講一次**（不是只講一次）。
+       模擬 bridge 端的降級：Open() 失敗 ⇒ dgh_mode 退回 SLOW ⇒ 讀取回報逐 byte 指紋。 */
+    A._reset();
+    const mkFall = (m) => {
+      if (m.type === 'ping') return { helper: '1.13.1', proto: 3, ok: true };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: m.len * 2 + 2, raw: false, fast: false,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    };
+    await useHelper(mkFall);
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
     await A.doRead(); await sleep(40);
-    EQ(A.mode(), 0, '🔴 重連後重驗一次，這次驗得過 ⇒ 採用原廠（狀態自己復原了）');
-    { const om3 = s3.filter(m => m.type === 'open').map(m => m.mode);
-      CHECK(om3.indexOf(0) >= 0, '🔴 重連後真的又重驗了一次：' + om3.join(',')); }
+    { const bn = doc.getElementById('topbanner').textContent;
+      CHECK(/比較慢/.test(bn), '🔴 原廠走不成 ⇒ 畫面明講這次比較慢：' + bn.slice(0, 40));
+      CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(bn), '🔴 降級訊息沒有實作名詞'); }
+    /* 同一次連線內只講一次（不洗版） */
+    doc.getElementById('topbanner').innerHTML = '';   /* 直接清掉，才驗得到「有沒有再掛一次」 */
+    await A.doRead(); await sleep(40);
+    CHECK(!/比較慢/.test(doc.getElementById('topbanner').textContent),
+      '🔴 同一次連線內不重複洗版');
+    /* 🔴 但**重連之後要再講一次** —— 這是「降級狀態每次重連都重述」那條規則 */
+    await win.__i2ct.disconnect();
+    await useHelper(mkFall);
+    await A.doRead(); await sleep(40);
+    CHECK(/比較慢/.test(doc.getElementById('topbanner').textContent),
+      '🔴🔴 重連之後降級提示**會再出現一次**（不是只講一次就永遠安靜）');
     await win.__i2ct.disconnect();
   }
 
@@ -2946,7 +2973,7 @@ function baseScript(f) {
     });
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
     await A.doRead(); await sleep(40);
-    EQ(A.mode(), 0, '前提：資料一致 ⇒ 採用原廠');
+    EQ(A.mode(), 0, '前提：預設就是原廠（v1.20.0 起不再靠自動選路挑出來）');
     EQ(A.lastPath(), '快速模式', '🔴🔴 採用原廠時，耗時紀錄的模式欄是「快速模式」（bug 本體）');
     { const bn = doc.getElementById('topbanner').textContent;
       CHECK(!/比較慢|用不了/.test(bn), '🔴🔴 原廠成功時不准掛「快的方式用不了」：' + bn.slice(0, 40)); }
@@ -2971,7 +2998,7 @@ function baseScript(f) {
     });
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '16' });
     await A.doRead(); await sleep(40);
-    EQ(A.mode(), 0, '前提：資料一致，網頁以為自己採用了原廠');
+    EQ(A.mode(), 0, '前提：網頁以為自己走的是原廠（預設）');
     { const bn2 = doc.getElementById('topbanner').textContent;
       CHECK(/比較慢/.test(bn2), '🔴 真的退回時橫幅**一定要**出現（不准靜默）：' + bn2.slice(0, 40));
       CHECK(!/MPSSE|三相|divisor|USB 往返/i.test(bn2), '退回訊息沒有實作名詞'); }
@@ -3640,7 +3667,9 @@ function baseScript(f) {
 
        根因：自動選路的基準曾經是**固定的黃金基準**。他一改裝置內容，那把尺就
        永遠對不上 ⇒ 三條快路徑全判不符 ⇒ 退回慢路徑，而且再也回不去。
-       ⇒ 基準改回「當下用慢速讀一次」。這一組把它釘死。 */
+       🔴 v1.20.0 起**整套自動選路已移除**（預設直接走原廠 DLL），這個退化路徑
+       從根上不存在了。這一組保留成回歸網：不管實作怎麼變，
+       「改過值之後再讀仍是快路徑、read 訊息不暴增」這件事都必須成立。 */
     const dev57 = new Array(256).fill(0);
     for (let i = 0; i < 256; i++) dev57[i] = (i * 5) & 0xFF;
     const mk57 = (m) => {

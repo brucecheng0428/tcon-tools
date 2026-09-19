@@ -107,7 +107,20 @@
  *     （第一段讀回的 `00 00 00 00`）⇒ 不能宣稱讀取已正常。
  *   - 時序／three-phase／`ck_delay` **一律未動**，波形與 v1.12.0 相同。
  *   - wire format 只有**新增**一個選填的 `err` 欄位 ⇒ proto 維持 3。 */
-#define I2C_BRIDGE_VERSION "1.13.0"
+/* 1.13.1 / proto 3 不變（2026-09-19，**只有文字與註解**）：
+ *   - 🔴 `dgh_mode` 的註解與啟動橫幅與程式碼不符：`int dgh_mode = DGH_MODE_VENDOR;`
+ *     早就是預設，橫幅卻還印著 "Vendor path is OPT-IN ONLY (--vendor or open mode:0)
+ *     because v1.11.7 crashed after connect... root cause undetermined."
+ *     ⇒ 下一個讀 log 的人會以為預設不是 vendor。改成描述現況：預設就是原廠 DLL，
+ *     理由是 AN2232C-01（此晶片的 MPSSE 無三相、無開汲極 ⇒ MPSSE 做 I2C 走不通）。
+ *   - 🔴 **據實標明**：v1.11.7 當機的疑似根因（vendor typedef 漏 `__stdcall`，
+ *     32 位元 x86 上 stdcall 由被呼叫端清堆疊 ⇒ 堆疊失衡 ⇒ 行程死亡）已修正，
+ *     但**那次當機從未被重現驗證**，只有「症狀與已證實的缺失一致」。
+ *     log 與註解都寫成 NOT REPRODUCED/CONFIRMED，不得寫成已確認。
+ *   - `GetClock()` 探針與 `Open()` 失敗降級到 `DGH_MODE_SLOW` 一律保留。
+ *   - ⚠️ **行為零改變 ⇒ exe 未重編**。使用者手上的 1.13.0 exe 仍然可用；
+ *     這些文字要等下一次重編才會出現在他的 log 裡。`data/*.zip` 未動。 */
+#define I2C_BRIDGE_VERSION "1.13.1"
 #define I2C_BRIDGE_PROTO   3
 /* 🔴 上一個已知可用的下載包。出現在啟動橫幅與每一則 ACK 錯誤訊息裡 ——
    使用者被新守衛擋住時，這是他當場就能走的退路，不必等人回訊息。

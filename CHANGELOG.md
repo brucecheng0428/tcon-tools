@@ -448,6 +448,66 @@ canvas 比對前先跑**前置自檢**（關掉該訊號畫面會不會變）—
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.20.0 — 2026-09-19 ｜ MINOR ｜ exe 不重編（bridge 原始碼進 1.13.1，文字與註解）
+
+**讀取預設改走原廠 DLL；首次讀取的「一個 byte 一個 byte」自動選路整套移除。**
+
+Bruce 2026-09-19 原話：
+> 「不是我們討論了兩天不要用自建的嘛？它不是已經有原廠的 DLL 了嗎？自建不是有問題，已經證明了嗎？」
+> 「我現在需要改的反而是要把那個一 byte 一 byte 的給拿掉……不要有這個一 byte 一 byte read 的行為。」
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 **逐項判、取最高者**。
+
+- **R4（起始狀態／預設值改變）**：讀取模式的預設由「連線先用一般模式、第一次讀取再自動選路」改成「直接用原廠 DLL」。沒有任何入口消失或移位，debug 區的模式切換（快速模式／fast read／三相／讀取間隔）全部留在原位且照樣有效 ⇒ **MINOR**。
+- **§1 判定表「功能增減」**：被移除的 `i2ctVerifyFastOnce()` 是**使用者看不到入口的內部選路機制**，不是「使用者原本會用的東西」（§2 案例 6 的文義）。他原本會的操作只有「按讀取」，那顆按鈕與它的結果都在。
+- **§2 案例 4（內部實作改寫、行為不變）／案例 9（效能）**：讀取本身的結果不變，變的是達成方式與往返次數 ⇒ **PATCH**。
+- **R1**：`i2ctComparePaths()` 的「不一致 ⇒ 強制關掉快速模式」原本只還原 `i2ctRawMpsse`、沒還原 `i2ctMode`，bridge 以 `mode` 為準 ⇒ 那句「已自動改回」是假的。修正 ⇒ **PATCH**。
+- **R2**：不適用 —— 不開新波，i2c 仍在 1.x。
+- 取最高者 → **MINOR**，`v1.19.1` → **v1.20.0**。
+
+**🔴 MAJOR 有認真判過，結論是不編。** 唯一命中 MAJOR 欄的候選是「移除既有功能」那一格（自動選路）。不編的理由：① 它沒有任何使用者入口，使用者原本會的每一個操作都在原位；② 讀取結果（讀回來的位元組）不變 —— 變的是速度與往返次數；③ §1 明文「改動大小不是 MAJOR 的判準」。**不確定往低編，寫明取捨供覆核（R2 補充 3）。**
+
+**不標 `⚠ 輸出變更`**：讀回來的位元組是裝置當下的真值，本版一行未動判讀邏輯；改變的是「用哪條路去讀」與耗時。匯出檔案與計算結果不受影響。
+
+### 做了什麼
+
+| # | 事項 | 落點 |
+|---|---|---|
+| A | 產品預設改成原廠 DLL（mode 0） | `var i2ctMode = I2CT_MODE_VENDOR`（宣告處，原為 `I2CT_MODE_SLOW`）；`var i2ctRawMpsse = false`（原為 `true`）；`<input id="chk-rawmpsse">` 拿掉 `checked` |
+| B | 移除「送 open 前強制 `i2ctRawMpsse = true`」 | `i2ctConnect()`：改成「非手動時把 mode／rawmpsse／fastread 三個一起設回產品預設」，位置仍在送 open 之前 |
+| C | 移除首次讀取的自動選路 | 刪除 `i2ctVerifyFastOnce()`（約 138 行）、`I2CT_VERIFY_N`(64)、`i2ctFastVerified`，以及 `i2ctOnRead()` 裡那一行呼叫 |
+| D | debug 開關要真的生效 | `chk-rawmpsse`／`chk-fastread` 的 change handler 現在一併設定 `i2ctMode`（bridge 以 mode 為準，只改旗標等於開關是壞的）；取消勾選回**產品預設**而不是 SLOW |
+| E | 比對按鈕的強制還原補正 | `i2ctComparePaths()`：不一致時三個旗標一起回預設並解除手動鎖定，畫面文字改成「已自動改回預設的讀取方式」 |
+| F | 測試夾具跟著回到新預設 | `_reset()`：`i2ctMode = I2CT_MODE_VENDOR`、rawmpsse／fastread 關、兩個核取方塊取消 |
+
+**🔴 根因是網頁端覆蓋了 bridge 的正確預設**，不是 bridge 錯：`i2c_bridge.c` 早就是 `int dgh_mode = DGH_MODE_VENDOR;`，但網頁每次 open 都送 `mode:2, rawmpsse:1` 把它蓋掉，所以實際跑的一直是自建 raw MPSSE。
+
+**為什麼可以不再自動選路（結論已定，不是省事）**：AN2232C-01 證實這顆 FT2232C/D 的 MPSSE **沒有三相時脈、沒有開汲極** ⇒ 模式 1／2／3 全部建立在 MPSSE 上，做 I2C 在這顆上走不通；實測佐證是讀 0x1000 時位址相位 ACK 固定回 `0E 1C 38 70`（合法值只有 0x00／0x80），四次側錄全部重現。自動選路只能「再確認一次三條已知走不通的路」，成本卻掛在他每一次連線的第一次讀取上。
+**要恢復自動選路的前提**寫在 `i2c.html` 移除處的註解裡：必須先有至少一條 MPSSE 路徑在這顆晶片上讀得對的實機證據（ACK 槽只出現 0x00／0x80，且整段資料與原廠 DLL 逐 byte 相同）。
+
+### 🔴 降級路徑沒有跟著消失
+
+原廠 DLL 若 `Open()` 失敗或讀取失敗，bridge 退回 `DGH_MODE_SLOW`（`i2c_bridge.c:1244`／`:1266`，本版未動），網頁依 bridge 回報的指紋掛出「這次用的是比較慢的讀取方式」。`i2ctRawFellBack` 在**每次重連時歸零** ⇒ 那一行會**重述**，不是只講一次。選路移除時刻意保留了這個旗標（它管的是降級可見性，與選路無關）。
+
+### bridge：原始碼進 1.13.1（**只有文字與註解，exe 未重編**）
+
+`dgh_mode` 的註解與啟動橫幅與程式碼不符 —— 橫幅印著 `Vendor path is OPT-IN ONLY (--vendor or open mode:0) because v1.11.7 crashed after connect...; root cause undetermined.`，而 `dgh_mode` 早就是 `DGH_MODE_VENDOR`。下一個讀 log 的人會被誤導，所以改成描述現況。
+
+🔴 **據實標明**：v1.11.7 當機的疑似根因（vendor 函式 typedef 漏 `__stdcall` ⇒ 32 位元 x86 上 stdcall 由被呼叫端清堆疊，少寫就堆疊失衡 ⇒ 行程死亡）已修正，但**那次當機從未被重現驗證**，只有「症狀與已證實的缺失一致」。log 與註解都寫成 `NOT REPRODUCED/CONFIRMED`，不得寫成已確認。`GetClock()` 探針與 `Open()` 失敗降級一律保留。
+
+⚠️ **exe 未重編、`data/*.zip` 未動、`common/version.js` 的 helper 區塊未動**：這一版的文字改動不影響行為，Bruce 重整網頁就能得到 A～F；bridge 的新橫幅要等下一次重編才會出現在他的 log 裡。
+
+### 驗證
+
+`tools/i2c_tool_selftest.js`：**1152 項 / 74 組全過**（jsdom）。本輪改寫／新增的斷言：
+
+- 第 45b 組整組重寫：開頁後送出的 open 封包 **`{mode:0, rawmpsse:0, fastread:0}`**；重連三次逐次驗同一組值；手動勾自建 ⇒ `mode` 變 3 且**重連後仍是 3**（手動優先）；取消勾選回 mode 0。
+- 第 7 組：第一次讀取的 read 訊息由 **3 則 → 1 則**，長度就是使用者要的 16／3，**沒有任何 64 byte 的探測**；第二次讀取同樣 1 則。
+- 反面（降級不可消失）：bridge 回報逐 byte 指紋 ⇒ 橫幅出現、同一次連線內不洗版、**重連之後會再出現一次**。
+- 第 45 組：比對按鈕的四次 open 改以 `mode` 斷言（0／1／2／0）；不一致時最後一次 open 必須 `{mode:0, rawmpsse:0}` 且 `A.mode()===0` —— 釘住 E 那條補正。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.19.1 — 2026-09-19 ｜ PATCH ｜ 🔴 **exe 重編：bridge v1.12.0 → v1.13.0**
 
 **raw MPSSE 的 ACK 守衛收緊：回應位元不是 0x00／0x80 就整批擋下，不再把壞資料當成好資料交出去。**
