@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1180"></script>
+<script src="common/version.js?v=20260919i2c1181"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1197,11 +1197,25 @@ function i2ctPromoteToA(set, source, keepB){
     if ($('in-len').value !== want) $('in-len').value = want;
   }
 }
-/* B ＝「A 的修改」。A 的來源是檔名時要帶出檔名（他指定的）。 */
-function i2ctModifiedSrc(){
-  var a = i2ctRef && i2ctRef.src ? i2ctRef.src : '';
-  return (a && a !== '讀取') ? (a + ' 的修改') : 'A 的修改';
+/* ═══ 🔴 讀取的來源標籤要足以「重現那次讀取」（v1.18.1）════════════════════
+   Bruce：「在顯示讀取的時候，應該要顯示讀取 slave address 是多少，然後多少 byte，
+   這樣才會更完整。」
+   ⇒ `讀取 slave 0x68 · 0x0000 起`，長度由 A／B 那一行自己接在後面（`· 8192 byte`），
+     合起來就是他要的 `A：讀取 slave 0x68 · 0x0000 起 · 8192 byte`，而且不重複。
+   🔴 **offset 寬度只在非預設（不是 2 byte）時才顯示**：
+      這是取捨 —— 全部都印會讓那一行變長，而他要求「一行一個、不要變高」；
+      但寬度不對就重現不了那次讀取，所以**只要不是預設值就一定印出來**。
+      預設 2 byte 是這一頁絕大多數的情況，印它等於每一行都多一段沒有資訊量的字。 */
+function i2ctReadSrc(slave, awid, off){
+  return '讀取 slave 0x' + i2ctHex(slave) + ' · '
+       + (awid === 0 ? '無位址' : (i2ctAddrText(off, awid) + ' 起'))
+       + (awid !== 2 ? ' · 寬度 ' + awid + 'B' : '');
 }
+/* B ＝「A 的修改」。
+   🔴 v1.18.1 更正：**不重複 A 的來源字串**（他：「它繼承 A 的身分，
+      再寫一次會讓那行過長」）。A 那一行就在上面一列，看得到。
+      這**取代** v1.16.1 那條「A 是檔名時顯示『<檔名> 的修改』」。 */
+function i2ctModifiedSrc(){ return 'A 的修改'; }
 /* 任何一格的值變了 ⇒ B ＝ 改完的內容。單一入口，所有改值路徑都經過這裡。 */
 function i2ctMarkModified(){ i2ctBSrc = i2ctModifiedSrc(); }
 function i2ctIngest(d, source){
@@ -2647,7 +2661,7 @@ async function i2ctOnRead(){
   /* 🔴 讀取失敗（長度不足）的資料不得成為基準、也不得參與比較 ——
      拿半份資料當基準，之後每一次比對都是錯的，而且看起來很正常。 */
   var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN));
-  if (readReplaced) i2ctIngest(i2ctDev, '讀取');
+  if (readReplaced) i2ctIngest(i2ctDev, i2ctReadSrc(v.slave, v.awid, v.off));
   else { i2ctDiffIdx = null; i2ctLog('讀取不完整 ⇒ 不當基準、不參與比較', 'w'); }
   /* ═══ 🔴🔴 讀取成功 ⇒ 清掉「已修改未寫入」（v1.16.0）════════════════════
      Bruce 2026-09-19：「可是我都已經**再重新讀取一次 256 byte** 了。重新讀取一次，
@@ -3050,6 +3064,7 @@ async function i2ctOnWrite(){
    🔴 兩條路共用同一支的理由：分段規則、tWR 等待、落格、log 格式只能有一份。
    兩份遲早會分岔，而分岔的那一刻就是「有一條路沒切 page」——
    那正是這一輪在修的 bug。 */
+var i2ctLastSegStats = null;    /* 最近一次整批寫入的每段分層計時（純診斷） */
 async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
   i2ctBusy = true; i2ctSyncButtons();
   var tW0 = i2ctNow(), devUsW = 0;
@@ -3058,21 +3073,43 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
   i2ctLog('寫入計畫：' + d.length + ' byte ⇒ ' + plan.length + ' 段'
         + (page > 0 ? '（page ' + page + ' byte，段間等待 ' + twr + ' ms）' : '（不分段 ＝ burst）'), 'n');
   var ok = true, errMsg = '', done = 0;
+  /* ═══ 🔴 每段寫入的分層計時（v1.18.1，純量測、不改行為）════════════════════
+     起因：Bruce 用邏輯分析儀量到 8192 byte 的寫入，**前面幾段段間約 35 ms、
+     0x0600 之後掉到 8.x ms**。他判斷 8 ms 才是正常值（400 kHz 下 256 byte 約 6 ms
+     加上開銷），問前面為什麼拉那麼大。
+
+     🔴 在拿到他的 log 之前**不做任何優化** —— 多出來的 27 ms 可能在網頁端
+     （重畫／字串／DOM）也可能在裝置／驅動側，兩種修法完全不同。
+     這裡只做一件事：把每一段的時間**拆開記下來**，讓下一份 log 直接指認位置。
+       ws     ＝ 網頁送出 → 收到回覆（含 bridge 全部處理）
+       bridge ＝ bridge 自報的 `us`（它那一側花多久）
+       log    ＝ 三行 log 的 DOM 成本（appendChild ＋ scrollTop 會強制排版）
+       apply  ＝ 把這一段的值落到顯示那一份的迴圈
+       wait   ＝ tWR 等待
+     ws − bridge 就是「我們自己吃掉的」。 */
+  var segStats = [];
+  i2ctLastSegStats = segStats;
   for (var pi2 = 0; pi2 < plan.length && ok; pi2++) {
     var n = plan[pi2].len;
     var addr = i2ctWrap(plan[pi2].addr, wireAwid);
     var tSegW = i2ctNow();
     var r = await i2ctDoWrite(slave, wireAwid, addr, d.slice(done, done + n));
+    var tWs = i2ctNow() - tSegW;
     if (typeof r.us === 'number') devUsW += r.us;
+    var tLog0 = i2ctNow();
     i2ctLog('   段 ' + (pi2 + 1) + '/' + plan.length + ' · ' + n + ' byte · '
-          + (i2ctNow() - tSegW).toFixed(1) + ' ms'
-          + (typeof r.us === 'number' ? '（dev ' + Math.round(r.us / 1000) + ' ms）' : ''), 'n');
+          + tWs.toFixed(1) + ' ms'
+          + (typeof r.us === 'number' ? '（dev ' + (r.us / 1000).toFixed(1) + ' ms）' : ''), 'n');
+    var tLog = i2ctNow() - tLog0;
     if (!r.ok) { ok = false; errMsg = r.err; break; }
     /* 🔴 tWR：EEPROM 收下一頁之後要把它燒進去，這段期間它**不回應任何命令**。
        沒等就送下一段，下一段會 NACK 或整批掉。5ms 是 24C32／24C64 的規格值。
        不分段模式沒有頁的概念 ⇒ 不等。 */
+    var tWait0 = i2ctNow();
     if (page > 0 && twr > 0 && pi2 < plan.length - 1)
       await new Promise(function (rs) { setTimeout(rs, twr); });
+    var tWait = i2ctNow() - tWait0;
+    var tApply0 = i2ctNow();
     /* 寫出去的值反映到目前顯示的那一份上（並標成「本次寫過」） */
     var cs = i2ctCurSet();
     if (cs) {
@@ -3093,7 +3130,33 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
         }
       }
     }
+    segStats.push({ i: pi2 + 1, addr: addr, n: n,
+                    ws: tWs, dev: (typeof r.us === 'number' ? r.us / 1000 : null),
+                    log: tLog, wait: tWait, apply: i2ctNow() - tApply0 });
     done += n;
+  }
+  /* 🔴 分層計時**寫進 bridge 的 log**（他能傳給我們的只有那個檔）。
+     刻意在迴圈**結束之後**才送 —— 邊寫邊送 note 會自己污染量測。
+     每則塞 8 段，超過 480 字會被 i2ctNote 截掉。 */
+  if (segStats.length) {
+    var mk = function (s) {
+      return '#' + s.i + '@0x' + i2ctHex(s.addr, 4) + ' ws=' + s.ws.toFixed(1)
+           + (s.dev != null ? '/dev=' + s.dev.toFixed(1) : '')
+           + ' log=' + s.log.toFixed(1) + ' ap=' + s.apply.toFixed(1)
+           + (s.wait > 0.5 ? ' wait=' + s.wait.toFixed(1) : '');
+    };
+    for (var qi = 0; qi < segStats.length; qi += 8) {
+      /* 不 await：這些 note 只是記錄，不該把寫入流程再拖長 */
+      i2ctNote('wtiming ' + segStats.slice(qi, qi + 8).map(mk).join(' | '));
+    }
+    /* 畫面 log 也留一行總結，他不必翻 bridge log 就看得到趨勢 */
+    var wsArr = segStats.map(function (s) { return s.ws; });
+    var devArr = segStats.filter(function (s) { return s.dev != null; }).map(function (s) { return s.dev; });
+    var avg = function (a) { return a.length ? (a.reduce(function (x, y) { return x + y; }, 0) / a.length) : 0; };
+    i2ctLog('⏱ 分層：ws 最小 ' + Math.min.apply(null, wsArr).toFixed(1)
+          + ' / 平均 ' + avg(wsArr).toFixed(1) + ' / 最大 ' + Math.max.apply(null, wsArr).toFixed(1) + ' ms'
+          + (devArr.length ? ('　裝置側平均 ' + avg(devArr).toFixed(1) + ' ms') : '')
+          + '　⇒ 差額就是網頁端吃掉的', 'n');
   }
   /* ═══ 🔴 燒 EEPROM ⇒ 寫完自動回讀驗證（program → verify）══════════════════
      Bruce 2026-09-19：「load 完以後，整包寫入 EEPROM 的動作，必須要再回讀回來，
@@ -4711,7 +4774,12 @@ function i2ctInit(){
     if (!d) { i2ctBanner('readbanner', 'warn', '還沒有資料可以當基準'); return; }
     /* 🔴 快照 ＝ 「把目前內容變成 A」⇒ 走同一個入口，**A 繼承目前的來源**
        （B 有來源就用 B 的，沒有就沿用 A 的），而且 B 由那支負責清空。 */
-    i2ctPromoteToA(d, i2ctBSrc || (i2ctRef && i2ctRef.src) || (d.kind === 'file' ? d.name : '讀取'));
+    /* 🔴 B 是「A 的修改」時，直接拿它當新 A 的來源會變成「A：A 的修改」，
+       看起來像遞迴而且講不出這份資料是哪來的 ⇒ 改成「<原本 A 的來源>（已修改）」。 */
+    var snapSrc = (i2ctBSrc === 'A 的修改')
+      ? (((i2ctRef && i2ctRef.src) || '讀取') + '（已修改）')
+      : (i2ctBSrc || (i2ctRef && i2ctRef.src) || (d.kind === 'file' ? d.name : '讀取'));
+    i2ctPromoteToA(d, snapSrc);
     i2ctLog('手動快照：A ＝ ' + i2ctSetLabel(d) + '（來源：' + i2ctRef.src + '，B 清空、diff 清零）', 'n');
     i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
     i2ctFlash('✔ 已快照 ' + d.bytes.length + ' byte');
@@ -5104,6 +5172,8 @@ window.__i2ct = {
                                i2ctPromoteToA(d, src); i2ctRenderRefLine(); return true; },
   secs: function (ms) { return i2ctSecs(ms); },
   times: function () { return i2ctTimes.slice(); },
+  /* 最近一次整批寫入的每段分層計時（v1.18.1 的量測，給測試與診斷用） */
+  wSegStats: function () { return i2ctLastSegStats ? i2ctLastSegStats.slice() : []; },
   /* v1.16.0 的測試入口 */
   errText: function (s) { return i2ctErrText(s); },
   hexEg: function () { return I2CT_HEX_EG.slice(); },
