@@ -1667,7 +1667,7 @@ function baseScript(f) {
     await A.doRead(); await sleep(20);
     CHECK(doc.getElementById('btn-write').disabled === false,
       '🔴 讀完就能寫（寫的是 dump 的中心值）');
-    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 16 byte', '🔴 v1.17.1：按鈕同時標明寫哪一份');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 slave 0x68 · 0x0000 起 16 byte', '🔴 v1.17.1：按鈕同時標明寫哪一份');
     EQ(A.writeSource(2).bytes.length, 16, '來源就是剛讀到的 16 byte');
     await win.__i2ct.disconnect();
   }
@@ -2182,7 +2182,7 @@ function baseScript(f) {
     EQ(A.selRange(), null, 'Esc／點別處 ⇒ 清除選取');
     /* 🔴 v1.16.2：沒有選取時按鈕改成顯示**整份內容的長度**（來源＝dump 中心值），
        不再只寫「寫入」—— 他按下去會寫多少，一律寫在按鈕上。 */
-    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 256 byte',       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 slave 0x68 · 0x0000 起 256 byte',       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
     await win.__i2ct.disconnect();
   }
 
@@ -3220,9 +3220,13 @@ function baseScript(f) {
       EQ(after.filter((m) => m.type === 'read').length, 0, '🔴 也沒有偷偷讀'); }
 
     /* (1) 已有 A（第一次讀取），再載入同長度檔案 ⇒ **B ＝ 檔名**，A 不動 */
-    EQ(A.srcA(), '讀取', '🔴 第一次讀取 ⇒ A ＝「讀取」');
+    /* 🔴 v1.18.1：讀取的來源要**足以重現那次讀取** —— slave ＋ 起始 offset。
+       長度由 A／B 那一行自己接在後面（`· N byte`），不在 src 裡重複。
+       offset 寬度只在非預設（≠2）時才印，見 i2ctReadSrc 的取捨說明。 */
+    EQ(A.srcA(), '讀取 slave 0x68 · 0x0000 起', '🔴 第一次讀取 ⇒ A 帶上 slave 與起始位址');
+    CHECK(/8 byte/.test(A.abRows()[0].text), '🔴 長度由那一行接上（不重複在 src 裡）');
     EQ(A.srcB(), 'f1.bin', '🔴 再載入同長度檔案 ⇒ B ＝ 檔名');
-    CHECK(/A讀取/.test(A.abRows().map(function(r){return r.text;}).join(' '))
+    CHECK(/A讀取 slave 0x68/.test(A.abRows().map(function(r){return r.text;}).join(' '))
        && /Bf1\.bin/.test(A.abRows().map(function(r){return r.text;}).join(' ')),
       '🔴 兩行各自印自己的來源：' + A.abRows().map(function(r){return r.text;}).join(' '));
 
@@ -3235,13 +3239,13 @@ function baseScript(f) {
     win.confirm = () => true;
     await A.doRead(); await sleep(50);
     EQ(A.srcA(), 'f1.bin', '🔴🔴 情境 1：讀取之後 A 的檔名仍然在');
-    EQ(A.srcB(), '讀取', '🔴 B 換成「讀取」');
+    EQ(A.srcB(), '讀取 slave 0x68 · 0x0000 起', '🔴 B 換成「讀取」');
     EQ(A.fileState().name, '', '檔案本身被讀取覆蓋（B 不再是那個檔案）');
 
     /* (4) 🔴 修改任一格 ⇒ B ＝「<A 的來源> 的修改」 */
     A.selAnchor(0); await sleep(10);
     await A.bitToggle(0, !((A.state().buf[0] >> 0) & 1)); await sleep(60);
-    EQ(A.srcB(), 'f1.bin 的修改', '🔴 改一格 ⇒ B ＝「f1.bin 的修改」（A 是檔名就帶出檔名）');
+    EQ(A.srcB(), 'A 的修改', '🔴 v1.18.1：改一格 ⇒ B ＝「A 的修改」（不重複 A 的來源）');
     await win.__i2ct.disconnect();
 
     /* (5) 🔴 情境 2：載入後**沒有**按快照，直接讀取 ⇒ 檔名要消失 */
@@ -3254,8 +3258,8 @@ function baseScript(f) {
     EQ(A.srcB(), 'f2.bin', '前提：B 標著 f2.bin');
     win.confirm = () => true;
     await A.doRead(); await sleep(50);
-    EQ(A.srcA(), '讀取', 'A 仍是最早那次讀取');
-    EQ(A.srcB(), '讀取', '🔴🔴 情境 2：沒快照就讀取 ⇒ B 被覆蓋');
+    EQ(A.srcA(), '讀取 slave 0x68 · 0x0000 起', 'A 仍是最早那次讀取');
+    EQ(A.srcB(), '讀取 slave 0x68 · 0x0000 起', '🔴🔴 情境 2：沒快照就讀取 ⇒ B 被覆蓋');
     CHECK(!/f2\.bin/.test(A.abRows().map(function(r){return r.text;}).join(' ')),
       '🔴🔴 檔名整個消失，不卡在上面：' + A.abRows().map(function(r){return r.text;}).join(' '));
     EQ(A.fileState().name, '', '檔案也真的被放掉了');
@@ -3289,18 +3293,20 @@ function baseScript(f) {
     await A.doRead(); await sleep(40);
     A.loadFile('c3.bin', new win.Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
     await sleep(30);
-    EQ(A.srcA(), '讀取', '前提：A ＝ 讀取');
+    EQ(A.srcA(), '讀取 slave 0x68 · 0x0000 起', '前提：A ＝ 讀取');
     EQ(A.srcB(), 'c3.bin', '前提：B ＝ c3.bin');
     doc.getElementById('in-slave').value = '0x50';
     doc.getElementById('in-slave').dispatchEvent(new win.Event('change', { bubbles: true }));
     await sleep(60);
-    EQ(A.srcA(), '讀取', '🔴🔴 換 slave 但沒讀取 ⇒ **A 完全不動**');
+    EQ(A.srcA(), '讀取 slave 0x68 · 0x0000 起', '🔴🔴 換 slave 但沒讀取 ⇒ **A 完全不動**');
     EQ(A.srcB(), 'c3.bin', '🔴 B 也不動（他可能只是切過去看看）');
 
     /* (9) 🔴 換 slave ＋ **讀取** ⇒ A 換成新讀到的、B 清空、檔名消失 */
     win.confirm = () => true;
     await A.doRead(); await sleep(60);
-    EQ(A.srcA(), '讀取', '🔴 換 slave 後讀取 ⇒ A ＝ 新讀到的');
+    /* 🔴 v1.18.1 順帶驗到的好處：來源標籤帶著 slave ⇒ **換 slave 之後一眼看得出
+       A 已經是新的那一顆**（舊標籤兩次都只寫「讀取」，看起來一模一樣）。 */
+    EQ(A.srcA(), '讀取 slave 0x50 · 0x0000 起', '🔴 換 slave 後讀取 ⇒ A ＝ 新那顆讀到的');
     EQ(A.srcB(), null, '🔴 B 清空');
     CHECK(!/c3\.bin/.test(A.abRows().map(function(r){return r.text;}).join(' ')),
       '🔴 檔名消失：' + A.abRows().map(function(r){return r.text;}).join(' '));
@@ -3634,6 +3640,47 @@ function baseScript(f) {
       await win.__i2ct.disconnect();
     }
     A.abPickAuto(null);
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('60. 🔴 每段寫入的分層計時（純量測，不改行為）');
+  {
+    /* Bruce 用 LA 量到 8192 byte 的寫入「前面幾段段間 35 ms、0x0600 之後 8.x ms」。
+       在拿到他的 log 之前**不做任何優化** —— 這一組只驗「量測本身有做、而且
+       拆得夠細」，好讓下一份 log 直接指認時間花在哪一層。 */
+    A._reset();
+    const sent60 = await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') return { ok: true, status: 0, transferred: (m.data || []).length, us: 8100 };
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
+      return { ok: true, status: 0 };
+    });
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '1024' });
+    A.loadFile('t60.bin', new win.Uint8Array(Array.from({ length: 1024 }, (_, i) => i & 0xFF)));
+    await sleep(40);
+    await A.doWrite(); await sleep(120);
+    const st = A.wSegStats();
+    EQ(st.length, 4, '🔴 1024 byte ⇒ 4 段（每段 256），每段都有一筆計時');
+    CHECK(st.every((s) => typeof s.ws === 'number' && s.ws >= 0), 'ws（往返）每段都量到');
+    CHECK(st.every((s) => s.dev === 8.1), '🔴 bridge 自報的 us 有被換算成 ms 記下來');
+    CHECK(st.every((s) => typeof s.log === 'number' && typeof s.apply === 'number'
+                       && typeof s.wait === 'number'),
+      '🔴 log／apply／wait 三層都分開記（不是只有一個總數）');
+    EQ(st.map((s) => s.n).join(','), '256,256,256,256', '每段長度都記著');
+    EQ(st[1].addr, 0x0100, '每段的位址也記著（對得上他 LA 上看到的位址）');
+    /* 🔴 分層結果要進 bridge 的 log（他能傳給我們的只有那個檔） */
+    { const notes = sent60.filter((m) => m.type === 'note').map((m) => m.msg).join(' ');
+      CHECK(/wtiming/.test(notes), '🔴 分層計時有送進 bridge 的 log');
+      CHECK(/ws=/.test(notes) && /dev=/.test(notes), '🔴 而且 ws 與 dev 都在裡面：'
+        + notes.slice(0, 80)); }
+    /* 🔴 量測本身不可以污染量測：note 必須在**所有段寫完之後**才送 */
+    { const idxFirstNote = sent60.findIndex((m) => m.type === 'note' && /wtiming/.test(m.msg));
+      const idxLastWrite = sent60.map((m) => m.type).lastIndexOf('rawwrite');
+      CHECK(idxFirstNote > idxLastWrite,
+        '🔴 wtiming 的 note 排在最後一次 rawwrite 之後（邊寫邊送會自己污染量測）'); }
+    await win.__i2ct.disconnect();
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
