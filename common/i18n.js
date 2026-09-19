@@ -1833,9 +1833,15 @@ var I18N = {
   'wfg.lsStvHint':          { 'zh-TW': '定義「下一個 frame」的起點；只看 Rising Edge，用來解除 Terminate 的壓低狀態', 'en': 'Defines the start of the next frame; rising edge only, releases the Terminate hold', 'zh-CN': '定义「下一个 frame」的起点；只看 Rising Edge，用来解除 Terminate 的压低状态' },
   'wfg.lsDualCpvHint':      { 'zh-TW': 'CPV1 充電、CPV2 放電，各自循環全部 CKO', 'en': 'CPV1 charges, CPV2 discharges, each cycling through all CKOs', 'zh-CN': 'CPV1 充电、CPV2 放电，各自循环全部 CKO' },
   'wfg.lsQuadCpvHint':      { 'zh-TW': '奇數 CKO 由 CPV1／CPV2 控制，偶數 CKO 由 CPV3／CPV4 控制，兩組各自循環', 'en': 'Odd CKOs driven by CPV1/CPV2, even CKOs by CPV3/CPV4; each group cycles independently', 'zh-CN': '奇数 CKO 由 CPV1／CPV2 控制，偶数 CKO 由 CPV3／CPV4 控制，两组各自循环' },
-  'wfg.lsCpvTrigEdge':      { 'zh-TW': '觸發邊沿', 'en': 'Trigger Edge', 'zh-CN': '触发边沿' },
-  'wfg.lsCpvTrigFalling':   { 'zh-TW': '下降沿觸發', 'en': 'Falling Edge Trigger', 'zh-CN': '下降沿触发' },
-  'wfg.lsCpvTrigRising':    { 'zh-TW': '上升沿觸發', 'en': 'Rising Edge Trigger', 'zh-CN': '上升沿触发' },
+  /* v4.50.0：觸發沿拆成上升／下降兩個設定。舊的三個 key（lsCpvTrigEdge／
+     lsCpvTrigFalling／lsCpvTrigRising）已無任何引用，一併移除，避免下一個人
+     以為畫面上還有「單一觸發沿」那個控制項。
+     標籤刻意用「CKO 上升／CKO 下降」而不是 CPV1／CPV2 —— 後者要先知道
+     「CPV1 管充電」才看得懂，等於要對照文件才能操作。 */
+  'wfg.lsCpvTrigEdgeRise':  { 'zh-TW': 'CKO 上升的觸發沿', 'en': 'CKO Rise Triggered By', 'zh-CN': 'CKO 上升的触发沿' },
+  'wfg.lsCpvTrigEdgeFall':  { 'zh-TW': 'CKO 下降的觸發沿', 'en': 'CKO Fall Triggered By', 'zh-CN': 'CKO 下降的触发沿' },
+  'wfg.lsCpvEdgeFall':      { 'zh-TW': '下降沿', 'en': 'Falling Edge', 'zh-CN': '下降沿' },
+  'wfg.lsCpvEdgeRise':      { 'zh-TW': '上升沿', 'en': 'Rising Edge', 'zh-CN': '上升沿' },
   'wfg.groupDigital':       { 'zh-TW': '數位信號', 'en': 'Digital', 'zh-CN': '数字信号' },
   'wfg.groupAnalog':        { 'zh-TW': '類比信號', 'en': 'Analog', 'zh-CN': '模拟信号' },
   // ─── WFG: Minimap ───

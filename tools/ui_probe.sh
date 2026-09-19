@@ -22,7 +22,17 @@ CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 [ -f "$ROOT/$PROBE" ] || { echo "找不到 probe：$PROBE"; exit 2; }
 
 TMP="$ROOT/_tmp_ui_probe.html"
-{ cat "$ROOT/$PAGE"; echo '<script>'; cat "$ROOT/$PROBE"; echo '</script>'; } > "$TMP"
+# 可選：WFG_CFG=<設定檔路徑> ⇒ 注入 window.WFG_TEST_CFG 給 probe 用。
+#   相容性要用**使用者的真實檔案**驗，而真實檔案不進版控（放在 repo 外），
+#   所以路徑只能從外面餵進來。沒設就什麼都不注入，既有用法一字不變。
+CFGJS=""
+if [ -n "${WFG_CFG:-}" ]; then
+  [ -f "$WFG_CFG" ] || { echo "找不到設定檔：$WFG_CFG"; exit 2; }
+  CFGJS="$(python3 -c 'import json,sys; print("window.WFG_TEST_CFG=" + json.dumps(open(sys.argv[1],encoding="utf-8").read()) + ";")' "$WFG_CFG")"
+fi
+# 🔴 用 if 而不是 `[ … ] && printf`：後者在 CFGJS 為空時整句回 1，
+#    配上檔頭的 `set -e` 會讓整支腳本在這裡靜靜結束（沒設 WFG_CFG 就跑不動）。
+{ cat "$ROOT/$PAGE"; echo '<script>'; if [ -n "$CFGJS" ]; then printf '%s\n' "$CFGJS"; fi; cat "$ROOT/$PROBE"; echo '</script>'; } > "$TMP"
 trap 'rm -f "$TMP"' EXIT
 
 "$CHROME" --headless --disable-gpu --no-first-run --no-default-browser-check \

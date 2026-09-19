@@ -22,6 +22,80 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.50.0 — 2026-09-19 ｜ MINOR
+
+**Level Shift 的觸發沿拆成兩個：CKO 上升（充電）與 CKO 下降（放電）各自可以選上升沿或下降沿。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+- **R3（這一版之後使用者多能做一件事 → MINOR）**：以前「充電走上升沿、放電走下降沿」這種混合行為表達不出來，只能兩邊一起翻。**這是本版的最高級別。**
+- §1 判定表「功能增減：新增獨立功能 → MINOR」：多一個下拉，既有的那一個沒有被移除、也沒有移位。**面板確實多一列**（`wfg-gpio-grid-2` 的 CSS 是 `grid-template-columns: 1fr`，單欄，沒有任何 media query 會把它變兩欄 —— 上面的 CPV1／CPV2 來源本來就是上下疊的，實測截圖確認）。多一列是「多一個可設的維度」必然的代價，不是版面退步；位置就接在 CPV 來源下方，原本那一列的正上方沒有任何東西被推走。
+- **R1 / `⚠ 輸出變更`：不標。** 舊設定檔載入後兩邊都等於舊值 ⇒ 波形逐點相同（下方驗證欄有跨版本逐值比對數據，47,988 點 diff=0）；預設值也沒動（兩邊都是 `falling`，與舊版單一欄位的預設同值）。沒有任何既有基線會因為這一版失效。
+- **R4（起始狀態／預設值改變）：不適用**，預設行為一位元未變。
+- **不是 MAJOR，取捨寫明供覆核**：使用者原本會的操作是「在 LS 卡片裡選觸發沿」，這個操作還在原位、原本的兩個選項（上升沿／下降沿）也都在；沒有任何功能被移除，舊結果不需要重新確認（見上一條）。依 §1「🔴 改動大小不是判準」與 R2 補充 ③「不確定一律往低編」。
+
+### 起因
+
+Bruce 2026-09-19：「一樣在 WFG 網頁的 level shift 裡面，觸發邊緣要兩個不同的來源可以分開設。也就是如果是二進多出或四進多出的情況下，管 CKO 的上升與 CKO 的下降，這兩個是可以分開設的，看是要上升沿觸發還是下降沿觸發。」
+
+🔴 **硬體依據**：這是**依 Bruce 口述實作**。repo 內與本機 `~/TCON` 都沒有可引用的 GOA／Level Shifter 規格書條文佐證「同一顆元件的充電與放電觸發沿可以不同」，程式碼裡原本那行註解也只寫到「兩類常見元件分別用 falling / rising」。工具本身只是把可設定的維度打開，正確值由使用者依手上的元件規格填。
+
+### 改了什麼
+
+| 位置 | 改動 |
+|---|---|
+| `wfgLsGlobal`（宣告處） | `cpv_trig_edge` → `cpv_trig_edge_rise` / `cpv_trig_edge_fall`，預設都 `'falling'` |
+| `wfgNormalizeLsTrigEdges()`（新增，緊鄰 `wfgNormalizeCkSources()`） | 舊檔相容的**唯一**入口，`wfgLoadPreset()` 與 `wfgImportConfig()` 各呼叫一次 |
+| `_wfgLsBuildCpvPairEvents()` | `activeLevel` 一個 → `activeLevelChg` / `activeLevelDis` 兩個，各自餵給 CPV1／CPV2 的迴圈（含 `prevLevel1` / `prevLevel2` 初值的推導） |
+| `_wfgLsTrigEdgeHtml()`（新增） | 兩個下拉並排在同一列；二進與四進兩個分支呼叫**同一支**，不是兩份複製 |
+| `wfgOnLsGlobalChange()` | 新欄位各自處理，值域夾取（非 `'rising'` 一律當 `'falling'`） |
+| `_wfgExportLsGlobal()`（新增） | 匯出時的舊版鏡像，規則見下 |
+| `window.wfgDumpLsCko()` | `trigEdge` → `trigEdgeRise` / `trigEdgeFall`（舊名不保留，免得驗收腳本以為還有「單一觸發沿」這回事） |
+| `common/i18n.js` | 移除 `lsCpvTrigEdge` / `lsCpvTrigFalling` / `lsCpvTrigRising`（已無引用），新增 `lsCpvTrigEdgeRise` / `lsCpvTrigEdgeFall` / `lsCpvEdgeRise` / `lsCpvEdgeFall`，三語齊 |
+| `wfg-guide.html` | 說明表的「觸發邊沿」一列拆成兩列（說明頁不納入版號機制） |
+
+**二進（`dual_cpv`）與四進（`quad_cpv`）共用同一組設定，維持不變**（Bruce 指定）。四進的奇數組與偶數組各自呼叫 `_wfgLsBuildCpvPairEvents()`，兩次都讀同樣這兩欄。
+
+### 向後相容
+
+載入時：`wfgNormalizeLsTrigEdges(src)` 依序判 ① 新欄位在檔案裡就用它 ② 新欄位不在、舊欄位在 ⇒ **舊值同時套到上升與下降兩邊** ③ 都不在 ⇒ `'falling'`。
+
+🔴 這支**必須無條件跑**，不能只在 `config.lsGlobal` 存在時跑。套 lsGlobal 的寫法是 `for (lk in src) wfgLsGlobal[lk] = src[lk]`，只覆蓋檔案裡有的欄位 —— 舊檔沒有新欄位的話，它們會留著**上一份設定**的值，同一個舊檔在不同時機打開會得到不同波形（`gate_line_x2`／`spx_rc` 那幾條「舊檔沒有就落回預設」是同一個坑）。消化完舊欄位後從執行期物件上 `delete`，避免它跟著整包 stringify 又跑出去、變成第二個真相來源。
+
+匯出時（`_wfgExportLsGlobal()`）：一定寫兩個新欄位；舊欄位 `cpv_trig_edge` **只在兩邊同值時才寫**。
+
+- 兩邊同值 ＝ 舊版讀得到的那個設定確實存在 ⇒ 寫出去，舊版打開波形完全正確。沒有動過新功能的使用者永遠落在這一類。
+- 兩邊不同 ＝ **沒有任何一個值是對的**。寫 rise 的值會讓舊版連放電也照它跑，畫出一條使用者從來沒設過的波形，而且畫面上看不出哪裡不對。寧可不寫 —— 舊版拿不到這個欄位，至少不是我們遞一個錯的答案給它。
+
+### 驗證（真瀏覽器，`tools/ui_probe.sh`）
+
+`tools/ui_probe.sh` 新增可選的 `WFG_CFG=<路徑>` 環境變數，把設定檔注入成 `window.WFG_TEST_CFG`（真實客戶檔案不進版控，路徑只能從外面餵）。沒設時行為一字未變。
+
+**① 跨版本回歸（`tools/wfg_ls_edge_dump_probe.js`，本版新增）** —— 拿同一份客戶實檔（只有舊欄位 `cpv_trig_edge: "falling"`，`dual_cpv` / phase 12 / CPV1=CK3、CPV2=CK4），在 HEAD（`0be8e18`，改動前）與本版各跑一次，逐值比對每條 CKO 的 rise/fall 時間：
+
+| 情境 | CKO 數 | 逐值點數 | diff |
+|---|---|---|---|
+| 二進 上升 falling／下降 falling | 12 | 8,724 | **0** |
+| 二進 上升 rising／下降 rising | 12 | 8,724 | **0** |
+| 四進 上升 falling／下降 falling | 12 | 15,270 | **0** |
+| 四進 上升 rising／下降 rising | 12 | 15,270 | **0** |
+| **合計** | | **47,988** | **0** |
+
+（兩邊不同值的四個情境舊版表達不出來，沒有可比對的對象，如實標示為「無可比對」而不是算成通過。）
+
+**② 行為驗證（`tools/wfg_cpv_trig_probe.js`，本版新增）** —— 56 條全過。期望值**不呼叫 `_wfgLsBuildCpvPairEvents()`**，CPV 轉態取自 `window.wfgDebugOax.oaxRange()`（LS 的上游），邊沿挑選與 round-robin 在 probe 裡自己算一遍。每個情境都有正面與**反面**兩種斷言：
+
+- 正面：二進／四進 × 四種組合（F/F、R/F、F/R、R/R）共 8 組，每組 12 條 CKO 的 rise/fall 與獨立期望值逐點相同。
+- 反面 A：充電事件**沒有**落在 CPV1 的另一種沿上、放電事件**沒有**落在 CPV2 的另一種沿上（舊版共用一個 `activeLevel` 時必爆）。
+- 反面 B：四種組合的波形**互不相同**（相異 4 種）—— 這一條專抓「兩個下拉其實寫到同一格」，那種情況上面每一條正面斷言都還是會過。
+- 實測值（二進 CKO1，前兩筆 rise／fall，單位 line）：F/F `5.1838 / 8.0515`、R/F `4.6755 / 8.0515`、F/R `5.1838 / 7.8287`、R/R `4.6755 / 7.8287` —— 上升那一格只動 rise、下降那一格只動 fall，交叉組合是前兩者的組合。
+- round-trip：匯出 → 重新匯入 → 波形逐點相同；且驗到「兩邊不同時不寫舊欄位」與「兩邊同值時要寫舊欄位」兩個方向。
+- 舊檔相容：載入實檔後 `trigEdgeRise === trigEdgeFall === 'falling'`（＝檔案裡的 `cpv_trig_edge`）。
+
+**③ 既有閘門**：`version_bump_check.py`、`check_cache_buster.py`、`scan_untranslated_keys.js`、`check_line_buffer_half_step.py`、`check_nb_code_import.js`、`check_em01_code_import.js`、`check_legend_items.js`、`check_ui_jargon.js` 全過；上一版的 `wfg_oax_chain_probe.js` 重跑仍全過。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.49.0 — 2026-09-19 ｜ MINOR ｜ ⚠ 輸出變更
 
 **OAX（OR／AND／XOR）沿著 `OAX_SEL` 串接，一條訊號可以合成整條鏈，不再頂多兩條。**

@@ -3680,8 +3680,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260919wfg4490"></script>
-<script src="common/i18n.js?v=20260919wfg4490"></script>
+<script src="common/version.js?v=20260919wfg4500"></script>
+<script src="common/i18n.js?v=20260919wfg4500"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -3745,7 +3745,17 @@ var wfgLsGlobal = {
   // 奇數組沿用 cpv1/cpv2（與二進多出同一組欄位）→ 兩種模式互切時奇數組設定不會遺失。
   cpv3_ck_idx: 6,       // GPIO index of CPV3 (default CK3)
   cpv4_ck_idx: 7,       // GPIO index of CPV4 (default CK4)
-  cpv_trig_edge: 'falling', // 'falling' (G2595E) or 'rising' (G2790B) — 二進／四進共用同一個設定
+  /* ══ v4.50.0：觸發沿拆成兩個（Bruce 2026-09-19）════════════════════════════
+     舊版只有一個 `cpv_trig_edge`，充電（CKO 上升）與放電（CKO 下降）被迫共用。
+     Bruce：「管 CKO 的上升與 CKO 的下降，這兩個是可以分開設的，看是要上升沿
+     觸發還是下降沿觸發。」⇒ 拆成兩欄，各自餵給自己那一個 round-robin 迴圈。
+     🔴 **二進／四進仍共用同一組**（Bruce 明示維持不變）：四進的奇數組／偶數組
+        各自呼叫 `_wfgLsBuildCpvPairEvents()`，兩次都讀這兩欄，不另外分家。
+     🔴 舊欄位 `cpv_trig_edge` **刻意不留在這個執行期物件裡** —— 留著就會被
+        `wfgExportConfig()` 的整包 stringify 帶出去，變成第二個真相來源。
+        舊檔的相容處理集中在 `wfgNormalizeLsTrigEdges()` 一支，見該函式。 */
+  cpv_trig_edge_rise: 'falling', // CKO 上升（充電）認哪一種邊沿：'falling' / 'rising'
+  cpv_trig_edge_fall: 'falling', // CKO 下降（放電）認哪一種邊沿：'falling' / 'rising'
   /* ══ v4.43.0：Terminate ／ STV（Bruce 2026-09-02 提出、2026-09-03 裁示）═══════
      解的問題：VBlanking 期間 CKO 維持 High、一路連到下一個 frame。
      Terminate 是**用一個真實訊號**收邊 —— 與「不准在 frame 邊界硬拉回」那條裁示
@@ -4458,6 +4468,30 @@ function wfgNormalizeCkSources() {
   while (src.length < need) src.push(base[src.length % base.length]);
 }
 
+/* ══ v4.50.0：觸發沿的舊檔相容（單一 `cpv_trig_edge` → 上升／下降兩欄）════════
+   🔴 為什麼需要這一支：`wfgLoadPreset()` 與 `wfgImportConfig()` 套 lsGlobal 的方式
+      都是 `for (lk in src) wfgLsGlobal[lk] = src[lk]` —— **只覆蓋檔案裡有的欄位**。
+      舊檔沒有這兩個新欄位 ⇒ 它們會原封不動留著**上一份設定**的值，
+      同一個舊檔在不同時機打開會得到不同波形（`gate_line_x2`／`spx_rc` 那幾條
+      「舊檔沒有就落回預設」的處理就是為了這件事，這裡是同一個坑）。
+   規則（`src` ＝ 檔案裡的 lsGlobal 原文）：
+     ① 新欄位在檔案裡 → 用它（值域外的字串一律當 'falling'）。
+     ② 新欄位不在、舊欄位在 → **舊值同時套到上升與下降兩邊** ⇒ 舊檔波形逐點不變。
+     ③ 兩者都不在 → 'falling'（與 `wfgLsGlobal` 宣告處的初值同一個字面值）。
+   最後把舊欄位從執行期物件上刪掉：它已經被完全消化，留著只會跟著匯出跑出去。 */
+function wfgNormalizeLsTrigEdges(src) {
+  src = src || {};
+  var legacy = (src.cpv_trig_edge === 'rising' || src.cpv_trig_edge === 'falling')
+                 ? src.cpv_trig_edge : null;
+  function pick(v) {
+    if (v === 'rising' || v === 'falling') return v;
+    return legacy || 'falling';
+  }
+  wfgLsGlobal.cpv_trig_edge_rise = pick(src.cpv_trig_edge_rise);
+  wfgLsGlobal.cpv_trig_edge_fall = pick(src.cpv_trig_edge_fall);
+  delete wfgLsGlobal.cpv_trig_edge;
+}
+
 function wfgLsSyncChannels() {
   var numCko = wfgLsGlobal.phase;
   _wfgSlotGrew = false;
@@ -4723,7 +4757,7 @@ const WFG_PRESETS = {
       {"name":"cko5","waveform_type":2,"enable":true,"analog_config":{"voltage_min":-10,"voltage_max":30,"curvature_rise":127,"curvature_fall":127,"source_ck_idx":8,"cko_index":4,"showCursors":false}},
       {"name":"cko6","waveform_type":2,"enable":true,"analog_config":{"voltage_min":-10,"voltage_max":30,"curvature_rise":127,"curvature_fall":127,"source_ck_idx":9,"cko_index":5,"showCursors":false}}
     ],
-    lsGlobal: { mode: 'dual_cpv', phase: 12, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge: 'falling' },
+    lsGlobal: { mode: 'dual_cpv', phase: 12, vgh: 30, vgl: -10, curvature_rise: 127, curvature_fall: 127, ck_sources: [4,5,6,7,8,9], vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none', cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv_trig_edge_rise: 'falling', cpv_trig_edge_fall: 'falling' },
     lineBuffer: 4,
     channels: [
       {"name":"VST1","gpioIdx":2,"color":"#FF00FF","visible":true},
@@ -25538,7 +25572,8 @@ function _wfgLsBuildCondensedEvents(ckoIndex, numCko, allGpioTransitions, effHto
 // chargeSrc    = charge control: each active edge charges the next CKO in the group to VGH (round-robin)
 // dischargeSrc = discharge control: each active edge discharges the next CKO in the group to VGL (round-robin)
 // The two counters are independent, both cycling group[0]→group[1]→…→group[G-1]→group[0]→…
-// Trigger edge: G2595E uses falling edge, G2790B uses rising edge (user-selectable, shared).
+// Trigger edge: user-selectable, and since v4.50.0 the charge side (CKO rise) and the
+//   discharge side (CKO fall) each have their own setting. 二進／四進共用同一組設定。
 // STV frame boundary: at every frame start, all CKOs reset to VGL and round-robin counters reset to 0.
 function _wfgLsBuildCpvPairEvents(chargeSrcIdx, dischargeSrcIdx, posInGroup, groupSize, allGpioTransitions, effHtotal, effVtotal, viewStartLine, viewEndLine) {
   var cpv1Idx = chargeSrcIdx;
@@ -25548,10 +25583,14 @@ function _wfgLsBuildCpvPairEvents(chargeSrcIdx, dischargeSrcIdx, posInGroup, gro
   if (cpv1Idx < 0 || cpv2Idx < 0) return [];
   if (numCko <= 0) return [];
 
-  var trigEdge = wfgLsGlobal.cpv_trig_edge || 'falling';
-  // Active level: for falling-edge trigger, the active edge is level===0;
-  // for rising-edge trigger, the active edge is level===1.
-  var activeLevel = (trigEdge === 'rising') ? 1 : 0;
+  /* 🔴 v4.50.0：充電與放電各自認自己的觸發沿（Bruce 2026-09-19）。
+     Active level: for falling-edge trigger, the active edge is level===0;
+     for rising-edge trigger, the active edge is level===1.
+     兩個迴圈**不可以再共用同一個 activeLevel** —— 那正是舊版無法分開設的原因。 */
+  var trigEdgeChg = (wfgLsGlobal.cpv_trig_edge_rise === 'rising') ? 'rising' : 'falling';
+  var trigEdgeDis = (wfgLsGlobal.cpv_trig_edge_fall === 'rising') ? 'rising' : 'falling';
+  var activeLevelChg = (trigEdgeChg === 'rising') ? 1 : 0;   // CPV1（充電，CKO 上升）
+  var activeLevelDis = (trigEdgeDis === 'rising') ? 1 : 0;   // CPV2（放電，CKO 下降）
 
   var pad = Math.max(effVtotal, 100);
   var extStart = Math.max(0, viewStartLine - pad);
@@ -25603,13 +25642,13 @@ function _wfgLsBuildCpvPairEvents(chargeSrcIdx, dischargeSrcIdx, posInGroup, gro
   // the level doesn't actually change (e.g. period-boundary re-assertions).
   var chargeIdx = 0;
   var lastChargeFrame = -1;
-  var prevLevel1 = oax1 ? oax1.initLevel : (activeLevel === 1 ? 0 : 1);
+  var prevLevel1 = oax1 ? oax1.initLevel : (activeLevelChg === 1 ? 0 : 1);
   for (var i = 0; i < trans1.length; i++) {
     var tr = trans1[i];
     var isRealEdge = (tr.level !== prevLevel1);
     prevLevel1 = tr.level;
     if (!isRealEdge) continue; // skip redundant "transitions" (no actual level change)
-    if (tr.level === activeLevel) {
+    if (tr.level === activeLevelChg) {
       var lineX = _edgeLineX(tr);
       // Reset round-robin counter at frame boundary
       if (effVtotal > 0) {
@@ -25631,13 +25670,13 @@ function _wfgLsBuildCpvPairEvents(chargeSrcIdx, dischargeSrcIdx, posInGroup, gro
   // Same real-edge filtering as CPV1.
   var dischargeIdx = 0;
   var lastDischargeFrame = -1;
-  var prevLevel2 = oax2 ? oax2.initLevel : (activeLevel === 1 ? 0 : 1);
+  var prevLevel2 = oax2 ? oax2.initLevel : (activeLevelDis === 1 ? 0 : 1);
   for (var j = 0; j < trans2.length; j++) {
     var tr2 = trans2[j];
     var isRealEdge2 = (tr2.level !== prevLevel2);
     prevLevel2 = tr2.level;
     if (!isRealEdge2) continue; // skip redundant "transitions"
-    if (tr2.level === activeLevel) {
+    if (tr2.level === activeLevelDis) {
       var lineX2 = _edgeLineX(tr2);
       // Reset round-robin counter at frame boundary
       if (effVtotal > 0) {
@@ -29628,7 +29667,10 @@ function wfgResetToDefault() {
     curvature_rise: 127, curvature_fall: 127,
     ck_sources: WFG_CK_SOURCES_DEFAULT.slice(),
     vce_ck_idx: 4, cond_phase: 8, cond_interval: 'none',
-    cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7, cpv_trig_edge: 'falling',
+    cpv1_ck_idx: 4, cpv2_ck_idx: 5, cpv3_ck_idx: 6, cpv4_ck_idx: 7,
+    /* v4.50.0：觸發沿拆成上升／下降兩欄，重設一律回到兩邊都 'falling'
+       （＝檔案頂端 `wfgLsGlobal` 宣告處的初值，兩條路徑必須同值）。 */
+    cpv_trig_edge_rise: 'falling', cpv_trig_edge_fall: 'falling',
     /* v4.43.0：重設＝回到首次進站的狀態，所以 Terminate 回到 TEND ＋ 其他模式不使用、
        STV 回到 VST1（與檔案頂端 `wfgLsGlobal` 的初值逐欄相同）。 */
     term_gpio_idx: 13, term_enabled: false, stv_gpio_idx: 2 };
@@ -29978,6 +30020,9 @@ function wfgLoadPreset(presetName, opts) {
     }
     wfgNormalizeCkSources();   // v4.19.0：長度不足 phase 會讓 CKO 畫成平線
   }
+  /* 🔴 v4.50.0：必須**無條件**跑（連 `preset.lsGlobal` 不存在時也要），
+     否則沒帶 lsGlobal 的 preset 會沿用上一份設定的觸發沿。 */
+  wfgNormalizeLsTrigEdges(preset.lsGlobal);
   // Rebuild CKO slots based on (potentially updated) lsGlobal
   wfgLsRebuildCkoSlots();
 
@@ -34195,7 +34240,10 @@ window.wfgDumpLsCko = function(maxFrames) {
     ckos.push({ cko: c + 1, name: gp.name, events: evs.length, rises: rises, falls: falls });
   }
   return { ok: true, mode: wfgLsGlobal.mode, phase: numCko,
-           trigEdge: wfgLsGlobal.cpv_trig_edge,
+           /* v4.50.0：兩個觸發沿分開回報。`trigEdge` 這個舊名**不保留** ——
+              留著會讓驗收腳本以為還有「單一觸發沿」這回事。 */
+           trigEdgeRise: wfgLsGlobal.cpv_trig_edge_rise,
+           trigEdgeFall: wfgLsGlobal.cpv_trig_edge_fall,
            src: { cpv1: wfgLsGlobal.cpv1_ck_idx, cpv2: wfgLsGlobal.cpv2_ck_idx,
                   cpv3: wfgLsGlobal.cpv3_ck_idx, cpv4: wfgLsGlobal.cpv4_ck_idx },
            effHtotal: effH, effVtotal: effV, endLine: endLine, ckos: ckos };
@@ -34458,6 +34506,33 @@ function wfgOnLsCkSourceChange(gpioIdx, value) {
 window.wfgOnLsCkSourceChange = wfgOnLsCkSourceChange;
 
 // ─── LS Global Config Panel HTML ───
+/* ══ v4.50.0：觸發沿兩個下拉（二進／四進共用這一支）════════════════════════════
+   🔴 **面板會多一列。** `wfg-gpio-grid-2` 這個 class 名字容易誤導 —— 它的 CSS 是
+      `grid-template-columns: 1fr`（單欄，沒有任何 media query 把它變兩欄），
+      所以上面的 CPV1／CPV2 來源本來就是上下疊的，這兩個下拉也一樣。
+      沿用它是為了跟旁邊那一對長得一致，不是為了並排。實測截圖確認（v4.50.0 驗收）。
+   🔴 標籤直接寫「CKO 上升／CKO 下降」——使用者在畫面上看得到 CKO 這幾條波形，
+      一眼就知道哪個下拉管哪一段。**刻意不用 CPV1／CPV2 命名**：那要先知道
+      「CPV1 是充電、CPV2 是放電」才看得懂，等於要對照文件。
+   二進與四進共用同一組設定（Bruce 2026-09-19 指定維持不變），所以兩個分支呼叫
+   的是**同一支函式**，不是兩份複製 —— 複製出來的兩份遲早分岔。 */
+function _wfgLsTrigEdgeHtml(g) {
+  var _rows = [
+    ['cpv_trig_edge_rise', t('wfg.lsCpvTrigEdgeRise'), (g.cpv_trig_edge_rise === 'rising') ? 'rising' : 'falling'],
+    ['cpv_trig_edge_fall', t('wfg.lsCpvTrigEdgeFall'), (g.cpv_trig_edge_fall === 'rising') ? 'rising' : 'falling']
+  ];
+  var s = '<div class="wfg-gpio-grid-2">';
+  for (var i = 0; i < _rows.length; i++) {
+    var f = _rows[i][0], lab = _rows[i][1], cur = _rows[i][2];
+    s += '<div class="wfg-field"><label>' + lab + '</label>'
+      + '<select onchange="wfgOnLsGlobalChange(\'' + f + '\',this.value)" style="width:100%">'
+      + '<option value="falling"' + (cur === 'falling' ? ' selected' : '') + '>' + t('wfg.lsCpvEdgeFall') + '</option>'
+      + '<option value="rising"' + (cur === 'rising' ? ' selected' : '') + '>' + t('wfg.lsCpvEdgeRise') + '</option>'
+      + '</select></div>';
+  }
+  return s + '</div>';
+}
+
 function wfgRenderLsGlobalPanel() {
   var g = wfgLsGlobal;
   /* v3.11.0: 外框配色改為「上綠下藍」，與面板類比信號卡（Gate Line 綠 #22c55e /
@@ -34534,12 +34609,8 @@ function wfgRenderLsGlobalPanel() {
       h += '<option value="' + c2i + '"' + (g.cpv2_ck_idx === c2i ? ' selected' : '') + '>' + WFG_GPIO_NAMES[c2i].toUpperCase() + '</option>';
     }
     h += '</select></div></div>';
-    // Trigger edge selector
-    h += '<div class="wfg-field"><label>' + t('wfg.lsCpvTrigEdge') + '</label>'
-      + '<select onchange="wfgOnLsGlobalChange(\'cpv_trig_edge\',this.value)" style="width:100%">'
-      + '<option value="falling"' + (g.cpv_trig_edge === 'falling' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigFalling') + '</option>'
-      + '<option value="rising"' + (g.cpv_trig_edge === 'rising' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigRising') + '</option>'
-      + '</select></div>';
+    // Trigger edge selectors（v4.50.0：上升／下降各一個）
+    h += _wfgLsTrigEdgeHtml(g);
   } else if (g.mode === 'quad_cpv') {
     /* v3.18.0 四進多出：四個來源分兩組並排 —— 上排＝奇數序 CKO 用的 (CPV1, CPV2)，
        下排＝偶數序 CKO 用的 (CPV3, CPV4)。分組標題直接寫在來源上方，
@@ -34563,12 +34634,10 @@ function wfgRenderLsGlobalPanel() {
       }
       h += '</div>';
     }
-    // Trigger edge selector（與二進多出共用同一個 cpv_trig_edge 欄位）
-    h += '<div class="wfg-field"><label>' + t('wfg.lsCpvTrigEdge') + '</label>'
-      + '<select onchange="wfgOnLsGlobalChange(\'cpv_trig_edge\',this.value)" style="width:100%">'
-      + '<option value="falling"' + (g.cpv_trig_edge === 'falling' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigFalling') + '</option>'
-      + '<option value="rising"' + (g.cpv_trig_edge === 'rising' ? ' selected' : '') + '>' + t('wfg.lsCpvTrigRising') + '</option>'
-      + '</select></div>';
+    /* Trigger edge selectors（v4.50.0：上升／下降各一個；
+       與二進多出共用同一組 `cpv_trig_edge_rise` / `cpv_trig_edge_fall` 欄位，
+       奇數組與偶數組**不分家**——Bruce 2026-09-19 指定維持共用） */
+    h += _wfgLsTrigEdgeHtml(g);
   }
 
   /* ══ v4.43.0：Terminate ／ STV 選單（Bruce 2026-09-03 裁示的呈現方式）═════════
@@ -34730,8 +34799,9 @@ function wfgOnLsGlobalChange(field, value) {
     // 換 CPV 來源＝換 LS 的相依 GPIO，相依表要重建，否則之後改那條 CK 的 timing
     // 不會讓 LS 失效重算（v2.97.19 起 _wfgAnalogDeps 是快取）。
     _wfgAnalogDeps = {};
-  } else if (field === 'cpv_trig_edge') {
-    wfgLsGlobal.cpv_trig_edge = value;
+  } else if (field === 'cpv_trig_edge_rise' || field === 'cpv_trig_edge_fall') {
+    // v4.50.0：值域夾取 —— 只有這兩個字串合法，其他一律當 'falling'
+    wfgLsGlobal[field] = (value === 'rising') ? 'rising' : 'falling';
   } else if (field === 'cond_phase') {
     wfgLsGlobal.cond_phase = parseInt(value) || 8;
   } else if (field === 'cond_interval') {
@@ -42283,6 +42353,22 @@ window.wfgBenchZoomDeep = function(steps) {
 window.wfgRender = wfgRender;
 // ═══════════ WFG 設定匯出 / 匯入 ═══════════
 
+/* ══ v4.50.0：lsGlobal 匯出（觸發沿的舊版鏡像）════════════════════════════════
+   新檔一定寫 `cpv_trig_edge_rise` / `cpv_trig_edge_fall`。
+   🔴 舊欄位 `cpv_trig_edge` **只在兩邊同值時才寫**：
+     ・兩邊同值 ＝ 舊版讀得到的那個設定確實存在 ⇒ 寫出去，舊版打開波形完全正確。
+       （這是絕大多數情況：沒有動過新功能的使用者兩邊永遠同值。）
+     ・兩邊不同 ＝ **沒有任何一個值是對的**。寫 rise 的值會讓舊版的放電也跟著用它，
+       畫出一條使用者從來沒設過的波形，而且畫面上看不出哪裡不對。
+       寧可不寫 —— 舊版拿不到這個欄位，至少不是我們遞給它一個錯的答案。
+   這個取捨寫進 CHANGELOG v4.50.0，不要在別處再判一次。 */
+function _wfgExportLsGlobal() {
+  var o = JSON.parse(JSON.stringify(wfgLsGlobal));
+  delete o.cpv_trig_edge;   // 保險：執行期物件理論上已無此欄，這裡不依賴那個假設
+  if (o.cpv_trig_edge_rise === o.cpv_trig_edge_fall) o.cpv_trig_edge = o.cpv_trig_edge_rise;
+  return o;
+}
+
 window.wfgExportConfig = function() {
   var config = {
     _format: 'tcon-wfg-config',
@@ -42389,7 +42475,7 @@ window.wfgExportConfig = function() {
     pulseItems: wfgPulseItems.map(function(p) {
       return { chIdx: p.chIdx, range: p.range, mode: p.mode, expanded: p.expanded };
     }),
-    lsGlobal: JSON.parse(JSON.stringify(wfgLsGlobal)),
+    lsGlobal: _wfgExportLsGlobal(),
     panel: JSON.parse(JSON.stringify(wfgPanel)),
     voltCursorPerSlot: JSON.parse(JSON.stringify(_wfgVoltCursorPerSlot)),
     voltCursorsActive: wfgVoltCursors.map(function(vc) { return vc.active; })
@@ -42875,6 +42961,9 @@ window.wfgImportConfig = function(jsonStr, options) {
     }
     wfgNormalizeCkSources();   // v4.19.0：同 preset —— 舊設定檔只帶 6 項時循環補齊
   }
+  /* 🔴 v4.50.0：同 preset —— 無條件跑，舊檔（只有單一 `cpv_trig_edge`）在這裡被
+     還原成「上升／下降都用那個舊值」⇒ 波形與舊版逐點相同。 */
+  wfgNormalizeLsTrigEdges(config.lsGlobal);
   /* 🔴 v4.19.1：舊版存檔升級。`_wfgCfgPhase` 是**存檔裡的 phase**，
      下面套用 `config.channels` 時要用它把舊索引還原成訊號名再對位（見 wfgMapLegacyIdx）。 */
   var _wfgCfgPhase = (config.lsGlobal && config.lsGlobal.phase != null)
