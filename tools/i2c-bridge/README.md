@@ -85,6 +85,7 @@ Microsoft／Mono／Debian 套件庫）根本編不出 C# net472。** 依 Bruce �
 | `i2c_bridge_version.h` | helper 版本 ＋ 協定版本（分離） |
 | `test_proto.c` | `i2c_bridge_proto.h` 的單元測試（在 Linux/macOS 上編來跑） |
 | `test/test_server.c` | 用 shim 把出貨原始碼在 Linux 上跑起來，真 TCP 驗伺服行為 |
+| `test/shim.c` 的**假 EEPROM**（`dgh_fake_eeprom`，預設關） | v1.15.0 加。模擬 page buffer 的**頁內回捲**（真 EEPROM 跨頁寫會蓋掉同一頁前面的資料，而且不報錯）。判準是「回捲次數 ＝ 0」＋「整段回讀逐 byte 相同」。🔴 §11b 同時驗**反面**：故意用不切段的 `rawwrite` 一次送 64 byte 到 0x1F0F ⇒ 回捲必須真的發生、資料必須真的被蓋掉 —— 夾具抓得到壞行為，上面那個 0 才有意義 |
 | `test/test_ackguard.c` | v1.13.0 的 ACK 守衛，**正反兩面**（乾淨的 0x00 必須通過、實機的 `0E 1C 38 70` 必須擋下），連錯誤訊息的內容一起釘 |
 | `build.sh` | 用 zig 交叉編譯成 32 位元 Windows exe |
 
@@ -100,23 +101,38 @@ ZIG=/path/to/zig ./build.sh          # 產出 i2c-bridge.exe（32 位元、PE32�
 ## 測試（可自驗的部分）
 
 ```bash
-cc -O2 test_proto.c -o test_proto && ./test_proto   # 200/200 通過（v1.13.0；v1.6.0 為 111/111，v1.4.0 為 76/76，原為 32/32）
+cc -O2 test_proto.c -o test_proto && ./test_proto   # 240/240 通過（v1.15.0；v1.13.0 為 200/200，v1.6.0 為 111/111，v1.4.0 為 76/76，原為 32/32）
 
 # 真 TCP 伺服測試（shim 讓出貨原始碼原封在 Linux 上跑）
 cc -O2 -I test/shim -Dmain=dgh_main -c i2c_bridge.c -o /tmp/bo.o
 cc -O2 -I test -c test/test_server.c -o /tmp/ts.o
 cc -O2 -I test/shim -c test/shim.c   -o /tmp/sh.o
-cc /tmp/ts.o /tmp/bo.o /tmp/sh.o -o test_server -lpthread && ./test_server   # 103/103
+cc /tmp/ts.o /tmp/bo.o /tmp/sh.o -o test_server -lpthread && ./test_server   # 205/205（v1.15.0；v1.14.0 為 103/103）
 
 # ACK 守衛的正反兩面（v1.13.0；把 i2c_bridge.c 整個 include 進來，直接叫 raw_read）
 cc -O2 -I test/shim -I . test/test_ackguard.c test/shim.c -o test_ackguard -lpthread
-./test_ackguard                                     # 31/31
+./test_ackguard                                     # 32/32
+
+# 原廠 DLL 的長度守衛
+cc -O2 -I test/shim -I . test/test_vendor_len.c test/shim.c -o test_vendor_len -lpthread
+./test_vendor_len                                   # 43/43
 ```
 
-🔴 `build.sh` 需要 zig 做交叉編譯。這台主機上沒有 zig，v1.13.0 是在 Linux sandbox
-裡裝 `ziglang`（pip）之後用 `ZIG=<wrapper> ./build.sh` 編的 —— wrapper 只是
-`exec python3 -m ziglang "$@"`，**編譯旗標一個都沒改**。第一次編要等 zig 先把
-目標平台的 libc 建起來（本機實測約 5 分鐘），之後有快取就幾秒。
+🔴 `build.sh` 需要 zig 做交叉編譯。**更正（2026-09-20）：這台 Mac 上已經有
+`ziglang` 0.16.0**（pip 裝在 `/usr/local/bin/python3` 那一份的 site-packages，
+路徑 `~/Library/Python/3.9/.../ziglang`）—— 原本這裡寫「這台主機上沒有 zig」，
+v1.15.0 照著它先去 Linux sandbox 重裝了一次（97.9 MB，跑了幾輪都沒下載完）才發現。
+本機編法（**編譯旗標一個都沒改**）：
+
+```bash
+printf '#!/bin/sh\nexec /usr/local/bin/python3 -m ziglang "$@"\n' > /tmp/zigwrap.sh
+chmod +x /tmp/zigwrap.sh
+ZIG=/tmp/zigwrap.sh bash ./build.sh /tmp/i2c-bridge.exe
+```
+
+⚠️ `/usr/bin/python3`（Command Line Tools 那一份）**沒有** ziglang，要用
+`/usr/local/bin/python3`。第一次編要等 zig 先把目標平台的 libc 建起來
+（實測約 5 分鐘），之後有快取就幾秒。
 
 測到：WebSocket 握手（RFC 6455 標準向量）、SHA1／Base64、JSON 擷取、
 位址白名單 `0x1200–0x12FF`、Origin 白名單（含 spoof 後綴的阻擋），
@@ -127,7 +143,7 @@ HTTP 請求路徑解析（正反都驗）。
 無 FTDI 硬體的環境全部無法自驗。只驗到「PE 正確、能載 winsock、能對
 libMPSSE.dll 做 GetProcAddress」這一層。
 
-## WebSocket 協定（proto 2，v1.4.0 起）
+## WebSocket 協定（proto 4，v1.15.0 起；proto 2 是 v1.4.0 的基準）
 
 只 bind `127.0.0.1`，WS 升級時檢查 Origin（只收 `https://brucecheng0428.github.io`
 與 `http://127.0.0.1`/`localhost`）。連上後 helper 先送 `hello`。
@@ -139,6 +155,8 @@ libMPSSE.dll 做 GetProcAddress」這一層。
 | `{"type":"read","slave":96,"addr":65280,"len":3,"awid":2}` | `{"type":"result","cmd":"read","ok":true,"data":[..],"status":0}` |
 | `{"type":"write","slave":96,"addr":4608,"data":[..]}` | `{"type":"result","cmd":"write","ok":true,"status":0}` |
 | `{"type":"rawwrite","slave":104,"addr":0,"data":[..],"awid":2}` | `{"type":"result","cmd":"rawwrite","ok":true,"status":0,"transferred":N}` |
+| `{"type":"batchwrite","slave":80,"addr":0,"awid":2,"page":32,"twr":5,"len":8192,"data":[..]}` | 過程中多則 `{"type":"progress",…}`，最後 `{"type":"result","cmd":"batchwrite",…}` |
+| `{"type":"abortwrite","batch":N}` | **不回覆**（結果由那次 batchwrite 自己的 result 報告） |
 | `{"type":"lock","id":N,"on":1}` | `{"type":"result","cmd":"lock","ok":true,"locked":true}` |
 | `{"type":"close"}` | `{"type":"result","cmd":"close","ok":true}` |
 
@@ -169,6 +187,58 @@ libMPSSE.dll 做 GetProcAddress」這一層。
 - 🔴 網頁端**仍只要求 proto ≥ 2**。lock 是選配：沒有它只是少一道保護，
   不該讓拿著舊 helper 的人整條路斷掉。網頁送 lock 是 fire-and-forget，
   舊 helper 不回覆也不影響量測。
+
+**proto 3 → 4 的差異（向後相容），v1.15.0 起**
+
+- 新增 **`batchwrite`**：**一次請求帶整段 payload，bridge 自己分頁、自己等 tWR。**
+  為什麼（Bruce 2026-09-19 用邏輯分析儀量到的分層，8192 byte / 32 byte 一段 ＝ 256 段）：
+  每段 `ws=8~13ms`／`dev=4.5~5ms`／`wait=5~6ms`，其中 **`ws − dev` ＝ 4~8 ms 是
+  網頁↔bridge 的往返開銷**（WebSocket＋JSON＋await），×256 次 ⇒ 15 ms 裡最大的
+  一塊，而且是純軟體。⇒ 往返 **256 → 1**（`test/test_server.c` §11 用真 socket 量）。
+  🔴 **段間距實際會降到多少只有硬體能量，不得在文件或畫面上宣稱毫秒數。**
+
+  必填欄位與拒收條件（**一律明確回錯誤，不夾取、不靜默改值**）：
+
+  | 欄位 | 合法範圍 | 不合法時 |
+  |---|---|---|
+  | `awid` | 1 / 2 / 4 | `0` 也拒（沒有位址相位就談不上分頁邊界，請用 `rawwrite`） |
+  | `len` | 1 … 262144 | 缺、0、超過上限 ⇒ 錯誤 |
+  | `data` | 長度**必須等於** `len`，每個元素是 0..255 的十進位 | 多一個、少一個、300、-1、小數、尾逗號 ⇒ 錯誤 |
+  | `page` | 1 … 256 | **`0` 也拒**（不分頁 ＝ 單段 ＝ `rawwrite` 的工作） |
+  | `twr` | 0 … 1000（ms） | 缺、負、超過 ⇒ 錯誤 |
+  | `progms` | 20 … 5000（預設 100） | 超出範圍時夾到邊界（純顯示節流，夾了沒有正確性風險） |
+  | `ackpoll` | 0（預設）／1 | 見下 |
+
+- 新增 **`progress`**：bridge **主動推送**的訊息型別（單向、不佔往返、網頁不回覆）。
+  帶 `seg`／`segs`／`done`／`total`／`addr`。**時間節流**（預設每 100 ms 最多一則，
+  首段與末段一定送）—— 每段一則等於把剛省下來的往返又加回去。
+  🔴 網頁端**不可以**把它當成結果：它不代表事情結束（第一版踩過，畫面會在第一段
+  就以為寫完並開始回讀驗證）。
+- 新增 **`abortwrite`**：bridge 在**下一個分頁邊界**停（一段已經上匯流排就收不回來），
+  然後由那次 batchwrite 的 result 回報 `aborted:true` ＋ **寫到哪個位址為止**
+  （`segsDone`／`done`／`lastAddr`／`nextAddr` ＋ 一句人看得懂的話）。
+  🔴 要中止的那次寫入放在 **`batch`**，不是 `id`。用 `id` 踩過：`id` 的語意是
+  「回覆對應到哪一則請求」，沿用同一個 id 時任何對它的回覆都會被網頁當成**那次
+  整批寫入的結果** ⇒ 畫面說「已寫入 0 byte」而裝置其實寫到一半。bridge 因此
+  **完全不回覆 `abortwrite`**。
+- **ACK polling（`ackpoll:1`，預設關）**：資料手冊建議 STOP 之後反覆送 slave address，
+  但 `DLL_I2C_BCB.dll` 只匯出 9 個函式，**沒有「只送位址看 ACK」的原語**。
+  替代品是 `GetBytesEx(slave, addr, 1, buf)` 讀 1 byte 當探針，兩個問題：
+  🔴 已知 —— 探針本身要 4.5~5 ms（每次 DLL／USB 呼叫的固定成本），而 tWR 就是 5 ms
+  ⇒ **省不到東西**；⚠️ 未知 —— 「忙碌時會回報失敗」**未在硬體上驗證**。
+  ⇒ 預設關、可觀察（log 印次數與實際等待）、**有逾時**（逾時退回固定 tWR），
+  並有**自我校準守衛**：每一段的第一次探針必須回報忙碌（剛下完 STOP 一定在燒），
+  一次就成功 ⇒ 判定探針測不出忙碌 ⇒ 該段補足完整固定 tWR 並寫進 log。
+  🔴 **tWR 一個毫秒都沒有改短** —— 它是裝置規格，寫太快是靜默寫不進去。
+- 收訊緩衝區改**動態配置**（舊碼是 main 迴圈的 `char msg[8192]`）。上限由 payload
+  上限推導（262144×4＋4096 ≈ 1.05 MB），超過**明確回錯誤且不斷線**。
+- 🔴 **修掉一個既有的安靜 bug**：`ws_send_text` 對 ≥ 65536 byte 的回覆只送 `126` ＋
+  兩個 byte 的長度 ⇒ 溢位成 `n & 0xFFFF`，frame 邊界從此錯位。RFC 6455 §5.2 規定
+  ≥ 65536 要用 `127` ＋ 八個 byte。這條路**自 1.14.0 拿掉讀取長度上限起就存在**
+  （讀 20000 byte 的回覆約 80 KB），收端一直認得 127、只有送端沒有。§10 釘住。
+- 🔴 網頁端**仍只要求 proto ≥ 2**；整批寫入另外用 **proto ≥ 4** 判斷
+  ⇒ 拿著舊 exe 的人**自動走舊的逐段 `rawwrite`**，只是慢一點，不是壞掉。
+  舊的 `rawwrite` 一行都沒動（逐格即時寫入還在用它）。
 
 **位址白名單（`write`）v1.6.0 起是幾個區間的聯集**
 

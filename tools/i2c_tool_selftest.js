@@ -62,8 +62,16 @@ function makeMockWS(win, script) {
     send(txt) {
       const m = JSON.parse(txt);
       sent.push(m);
-      const reply = script(m, sent.length);
-      if (reply === null) return;                       // 模擬逾時（不回）
+      /* 🔴 第三個參數 `emit`（v1.21.0 加）：讓腳本自己主動推訊息。
+         `batchwrite` 的 bridge 會在寫的過程中**單向**送多則 `progress`，
+         而舊的夾具只能「一則請求換一則 result」—— 用它驗不到進度條會不會動，
+         也驗不到中止（中止的前提就是結果還沒回來）。
+         回 null ＝ 不要自動回 result（腳本自己負責）。 */
+      const emit = (obj) => setTimeout(() => {
+        if (this.onmessage) this.onmessage({ data: JSON.stringify(obj) });
+      }, 0);
+      const reply = script(m, sent.length, emit);
+      if (reply === null) return;                       // 模擬逾時（不回）／腳本自己回
       setTimeout(() => {
         if (this.onmessage) this.onmessage({ data: JSON.stringify(Object.assign({ id: m.id, type: 'result' }, reply)) });
       }, 0);
@@ -4103,6 +4111,230 @@ function baseScript(f) {
       CHECK(log.indexOf('分段：') >= 0, '🔴 log 裡有「分段：」那一行');
       CHECK(log.indexOf('一次讀完，不分段') >= 0, '🔴 不分段時也印，避免「沒印」有兩種意思');
       CHECK(log.indexOf('16 位元') >= 0, '🔴 分段時 log 講得出**為什麼**切'); }
+
+    await win.__i2ct.disconnect();
+    A._reset();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('63. 🔴🔴 整批寫入：一次請求交給 bridge（往返 256 → 1）＋ 進度 ＋ 中止');
+  {
+    /* 🔴 這一組要釘住的是三件事，而第二、三件是**不能因為變快就消失的能力**：
+         (1) 8192 byte / page 32 ⇒ **1 則 batchwrite**（舊做法 256 則 rawwrite）
+         (2) 進度訊息真的會讓進度條動（否則使用者按下去就是一片空白乾等）
+         (3) 中止真的會把 `abortwrite` 送出去，而且畫面講得出「寫到哪為止」
+             —— 只把網頁的 i2ctAbort 設 true 對 bridge 沒有任何作用
+       外加兩條退路：舊 exe（proto < 4）與非 EEPROM（不分頁）都要自動走舊路。 */
+    const N63 = 8192;
+    const dev63 = new Array(0x10000).fill(0xFF);
+    const src63 = new Uint8Array(N63);
+    for (let i = 0; i < N63; i++) src63[i] = (i * 11 + 3) & 0xFF;
+
+    /* 假 bridge：proto 4，batchwrite 會先送 3 則 progress 再回結果。 */
+    let holdBatch = null;                 /* 給中止測案用：接住不回覆的那一則 */
+    const mk63 = (proto) => (m, n, emit) => {
+      if (m.type === 'ping')  return { helper: '1.15.0', proto: proto, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'read')  return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev63[(m.addr + i) & 0xFFFF]) };
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev63[(m.addr + i) & 0xFFFF] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      /* 🔴 真的 bridge **不回覆 abortwrite**（中止的結果由整批寫入自己的
+         result 報告）。夾具必須照這個行為 —— 回一則 result 就會冒充成結果。 */
+      if (m.type === 'abortwrite') return null;
+      if (m.type === 'batchwrite') {
+        const segs = Math.ceil(m.len / m.page);
+        if (holdBatch !== null) {         /* 中止測案：先給進度，結果等中止再回 */
+          holdBatch = { id: m.id, msg: m, segs: segs, emit: emit };
+          emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: 0, segs: segs, done: 0, total: m.len, addr: m.addr });
+          emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: 20, segs: segs, done: 640, total: m.len, addr: m.addr + 640 });
+          return null;
+        }
+        /* 正常路：bridge 自己分頁寫進假裝置（頁邊界由它算，這裡照它給的資料落） */
+        for (let i = 0; i < m.len; i++) dev63[(m.addr + i) & 0xFFFF] = m.data[i] & 0xFF;
+        emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: 0, segs: segs, done: 0, total: m.len, addr: m.addr });
+        emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: Math.floor(segs / 2), segs: segs,
+               done: Math.floor(segs / 2) * m.page, total: m.len, addr: m.addr + Math.floor(segs / 2) * m.page });
+        emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: segs, segs: segs, done: m.len, total: m.len, addr: m.addr + m.len });
+        return { ok: true, aborted: false, segs: segs, segsDone: segs, done: m.len, total: m.len,
+                 base: m.addr, lastAddr: m.addr + m.len - 1, nextAddr: m.addr + m.len,
+                 us: 3800000, devus: 1200000, twrms: 1275, progsent: 3, usbrt: segs, status: 0 };
+      }
+      return { ok: true, status: 0 };
+    };
+
+    /* ── (1) 往返次數 ─────────────────────────────────────────────────── */
+    A._reset();
+    let sent63 = await useHelper(mk63(4));
+    win.confirm = () => true;
+    A.eepromAuto('24C32');
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000' });
+    A.pageTouched(false);
+    await sleep(30);
+    EQ(A.pageSize(), 32, '前提：slave 0x50 ⇒ page 32（EEPROM）');
+    CHECK(A.loadFile('b63.bin', src63), '載入 8192 byte 的來源');
+    await sleep(60);
+    {
+      const before = sent63.length;
+      await A.doWrite(); await sleep(250);
+      const after = sent63.slice(before);
+      const bw = after.filter(m => m.type === 'batchwrite');
+      const rw = after.filter(m => m.type === 'rawwrite');
+      console.log('      [量測] 8192 byte / page 32 ⇒ batchwrite ' + bw.length
+                + ' 則、rawwrite ' + rw.length + ' 則（改動前：rawwrite 256 則）');
+      EQ(bw.length, 1, '🔴🔴 **1 則** batchwrite（改動前是 256 則 rawwrite）');
+      EQ(rw.length, 0, '🔴 一則 rawwrite 都沒有（沒有走舊路）');
+      if (bw.length) {
+        EQ(bw[0].len, N63, '  └ len ＝ 8192');
+        EQ(bw[0].data.length, N63, '  └ data 陣列長度 ＝ len（宣告與實際一致）');
+        EQ(bw[0].page, 32, '  └ page ＝ 32（bridge 照這個切）');
+        EQ(bw[0].twr, A.twr(), '  └ twr ＝ 畫面上的段間等待');
+        EQ(bw[0].awid, 2, '  └ awid ＝ 2');
+        EQ(bw[0].addr, 0, '  └ 起始位址 ＝ 0');
+        EQ(bw[0].slave, 0x50, '  └ slave ＝ 0x50');
+        EQ(bw[0].data[0], src63[0], '  └ 第一個 byte 對');
+        EQ(bw[0].data[N63 - 1], src63[N63 - 1], '  └ 最後一個 byte 對');
+      }
+      /* 寫完的內容真的落到假裝置上，而且**回讀驗證照樣做**（1 則 read） */
+      EQ(SINCE(sent63, 'read').length >= 1, true, '寫完之後有回讀驗證');
+      { let bad = -1;
+        for (let i = 0; i < N63; i++) if (dev63[i] !== src63[i]) { bad = i; break; }
+        EQ(bad, -1, '🔴 假裝置上的 8192 byte 與來源逐 byte 相同'); }
+      EQ(A.dirtyCount(), 0, '🔴 寫進去了 ⇒ 未寫入標示全部解除（與逐段模式共用同一支）');
+      { const log = doc.getElementById('log').textContent;
+        CHECK(log.indexOf('整批模式') >= 0, '🔴 log 講得出這次走的是整批模式');
+        CHECK(log.indexOf('1 次') >= 0 || log.indexOf('**1 次**') >= 0,
+              '🔴 log 講得出往返次數（他要的就是這個數字）'); }
+      EQ(A.progress(), null, '寫完進度列收起來');
+    }
+
+    /* ── (2) 進度訊息真的會讓進度條動 ────────────────────────────────── */
+    {
+      /* 攔住進度那一刻的畫面：用一個會在第二則進度時取樣的腳本 */
+      let snap = null;
+      const mkP = (m, n, emit) => {
+        if (m.type === 'ping')  return { helper: '1.15.0', proto: 4, ok: true };
+        if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+        if (m.type === 'read')  return { ok: true, status: 0, usbrt: 1,
+          data: Array.from({ length: m.len }, () => 0xFF) };
+        if (m.type === 'batchwrite') {
+          emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: 128, segs: 256,
+                 done: 4096, total: m.len, addr: 4096 });
+          setTimeout(() => {
+            const el = doc.getElementById('progress');
+            snap = { text: el ? el.textContent : '', shown: el ? el.style.display !== 'none' : false,
+                     prog: A.progress() ? { done: A.progress().done, total: A.progress().total,
+                                            label: A.progress().label, hasId: A.progress().batchId != null } : null,
+                     hasAbortBtn: !!doc.getElementById('btn-abort') };
+            emit({ type: 'result', id: m.id, cmd: 'batchwrite', ok: true, aborted: false,
+                   segs: 256, segsDone: 256, done: m.len, total: m.len, base: 0,
+                   lastAddr: m.len - 1, nextAddr: m.len, us: 1, devus: 1, twrms: 0, progsent: 1 });
+          }, 20);
+          return null;
+        }
+        return { ok: true, status: 0 };
+      };
+      A._reset();
+      sent63 = await useHelper(mkP);
+      A.eepromAuto('24C32'); A.setInputs({ slave: '0x50', awid: 2, off: '0x0000' }); A.pageTouched(false);
+      CHECK(A.loadFile('b63b.bin', src63), '重新載入來源');
+      await sleep(40);
+      await A.doWrite(); await sleep(250);
+      CHECK(snap !== null, '取樣到進度進行中的那一刻');
+      if (snap) {
+        CHECK(snap.shown, '🔴 進度列是顯示的（不是一片空白乾等）');
+        EQ(snap.prog && snap.prog.done, 4096, '🔴 進度條的已完成 byte 數 ＝ bridge 送來的 done');
+        EQ(snap.prog && snap.prog.total, N63, '總量 ＝ 8192');
+        EQ(snap.prog && snap.prog.label, '寫入', '🔴 進度列講明這是「寫入」（讀取也用同一條）');
+        CHECK(snap.text.indexOf('50%') >= 0, '🔴 百分比算得出來（4096/8192 ＝ 50%）');
+        CHECK(snap.hasAbortBtn, '🔴 中止鍵在畫面上');
+        CHECK(snap.prog && snap.prog.hasId, '🔴 中止鍵拿得到這次 batchwrite 的 id（否則按了沒用）');
+      }
+    }
+
+    /* ── (3) 中止：要真的送 abortwrite，而且要講「寫到哪為止」 ────────── */
+    {
+      A._reset();
+      holdBatch = 0;                       /* 非 null ⇒ 進入「接住不回覆」模式 */
+      sent63 = await useHelper(mk63(4));
+      A.eepromAuto('24C32'); A.setInputs({ slave: '0x50', awid: 2, off: '0x0000' }); A.pageTouched(false);
+      CHECK(A.loadFile('b63c.bin', src63), '重新載入來源');
+      await sleep(40);
+      const wp = A.doWrite();              /* 不 await：它會停在等結果那裡 */
+      await sleep(120);
+      CHECK(holdBatch && holdBatch.id != null, '假 bridge 接住了那一則 batchwrite');
+      const btn = doc.getElementById('btn-abort');
+      CHECK(!!btn, '🔴 寫入進行中畫面上有中止鍵');
+      if (btn) {
+        btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+        await sleep(40);
+        const ab = sent63.filter(m => m.type === 'abortwrite');
+        EQ(ab.length, 1, '🔴🔴 按中止真的送出 `abortwrite`（不是只改網頁自己的旗標）');
+        if (ab.length) {
+          EQ(ab[0].batch, holdBatch.id, '  └ 中止訊息用 `batch` 指明**這一次**寫入');
+          /* 🔴 反面：中止訊息**不可以**沿用 `id`。沿用的話，任何對它的回覆都會
+             被 i2ctOnMessage 當成那次整批寫入的結果 ⇒ 畫面說「已寫入 0 byte」
+             而裝置其實寫到一半。這是實際踩到的，所以要釘死。 */
+          EQ(ab[0].id, undefined, '  └ 🔴 中止訊息**不帶 id**（沿用 id 會冒充成整批寫入的結果）');
+        }
+        /* bridge 收到中止後回報：停在第 20 段（640 byte） */
+        holdBatch.emit({ type: 'result', id: holdBatch.id, cmd: 'batchwrite', ok: false, aborted: true,
+          segs: holdBatch.segs, segsDone: 20, done: 640, total: N63, base: 0,
+          lastAddr: 639, nextAddr: 640, page: 32, twr: 5, us: 400000, devus: 100000, twrms: 95, progsent: 2,
+          err: 'aborted on request after segment 20 of 256. Bytes 0x0000-0x027F WERE written; '
+             + '0x0280 onwards (7552 bytes) were NOT. The device now holds a partly updated image.' });
+        await wp; await sleep(120);
+        const bn = doc.getElementById('readbanner').textContent;
+        CHECK(bn.indexOf('已中止') >= 0, '🔴 畫面說「已中止」（不是「失敗」——原因不同，下一步也不同）');
+        CHECK(bn.indexOf('640') >= 0, '🔴 講出已經寫了幾個 byte');
+        CHECK(/0x0000/.test(bn) && /0x027F/i.test(bn.toUpperCase()), '🔴 講出**已寫入**的位址範圍');
+        CHECK(/0X0280/.test(bn.toUpperCase()), '🔴 講出**沒有寫入**的起始位址');
+        CHECK(bn.indexOf('7552') >= 0, '🔴 講出還有幾個 byte 沒寫');
+        CHECK(bn.indexOf('半更新') >= 0, '🔴🔴 明講裝置上現在是一份半更新的內容');
+        EQ(A.progress(), null, '中止後進度列收起來');
+        /* 中止之後**不可以**再跑回讀驗證：驗證的前提是寫完了 */
+        EQ(SINCE(sent63, 'read').length, 0, '🔴 中止之後不做回讀驗證（沒寫完，驗了只會製造假警報）');
+      }
+      holdBatch = null;
+    }
+
+    /* ── (4) 退路一：舊 exe（proto 3）⇒ 自動走逐段 rawwrite ─────────────── */
+    {
+      A._reset();
+      sent63 = await useHelper(mk63(3));
+      A.eepromAuto('24C32'); A.setInputs({ slave: '0x50', awid: 2, off: '0x0000' }); A.pageTouched(false);
+      const small = new Uint8Array(96); for (let i = 0; i < 96; i++) small[i] = (i + 1) & 0xFF;
+      CHECK(A.loadFile('b63d.bin', small), '載入 96 byte（3 段）');
+      await sleep(40);
+      const before = sent63.length;
+      await A.doWrite(); await sleep(250);
+      const after = sent63.slice(before);
+      EQ(after.filter(m => m.type === 'batchwrite').length, 0,
+         '🔴 proto 3 的舊 exe ⇒ **不送 batchwrite**');
+      EQ(after.filter(m => m.type === 'rawwrite').length, 3,
+         '🔴 自動退回逐段 rawwrite（3 段）⇒ 拿著舊 exe 的人不會壞掉，只是慢一點');
+      { const log = doc.getElementById('log').textContent;
+        CHECK(log.indexOf('逐段模式') >= 0, '🔴 log 講得出走的是逐段模式');
+        CHECK(log.indexOf('proto 3') >= 0, '🔴 log 講得出**為什麼**（proto 3 < 4）'); }
+    }
+
+    /* ── (5) 退路二：非 EEPROM（不分頁）⇒ 一則就寫完，不必整批 ──────────── */
+    {
+      A._reset();
+      sent63 = await useHelper(mk63(4));
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000' });
+      A.pageTouched(false); await sleep(30);
+      EQ(A.pageSize(), 0, '前提：slave 0x68 ⇒ 不分段（不是 EEPROM）');
+      const small = new Uint8Array(40); for (let i = 0; i < 40; i++) small[i] = (i + 2) & 0xFF;
+      CHECK(A.loadFile('b63e.bin', small), '載入 40 byte');
+      await sleep(40);
+      const before = sent63.length;
+      await A.doWrite(); await sleep(200);
+      const after = sent63.slice(before);
+      EQ(after.filter(m => m.type === 'batchwrite').length, 0,
+         '🔴 不分頁（page 0）⇒ 不走 batchwrite（bridge 也會拒絕 page 0）');
+      EQ(after.filter(m => m.type === 'rawwrite').length, 1, '一則 rawwrite 就寫完');
+    }
 
     await win.__i2ct.disconnect();
     A._reset();

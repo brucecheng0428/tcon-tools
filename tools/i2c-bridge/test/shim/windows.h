@@ -106,4 +106,25 @@ extern int  dgh_shim_browser_opened;        /* ShellExecuteA 被呼叫幾次 */
 extern char dgh_shim_browser_url[512];      /* 最後一次開的網址 */
 void dgh_shim_set_exe_dir(const char* dir); /* 指定「exe 所在目錄」 */
 
+/* ═══ 🔴 假 EEPROM 夾具（1.15.0）════════════════════════════════════════════
+   為什麼要有它：batchwrite 把**分頁**搬進 bridge，而分頁寫錯的後果是
+   「EEPROM 頁內回捲、蓋掉同一頁前面的資料，而且裝置不會報錯」——
+   這種錯**在假 libMPSSE 只記錄最後一次寫入的年代看不見**：每一段都成功、
+   回覆也 ok，只有真的把資料存下來、再讀回來比對才抓得到。
+
+   夾具刻意模擬那個壞行為本身：`dgh_fake_page` 非 0 時，一段寫入若跨過頁邊界，
+   超出的 byte 就**回捲到本頁開頭**（真 EEPROM 就是這樣），並且把次數記在
+   `dgh_fake_wraps`。⇒ 測試的判準變成「dgh_fake_wraps 必須是 0」＋
+   「整段回讀必須逐 byte 相同」，兩條一起才算數。
+
+   🔴 預設 `dgh_fake_eeprom == 0` ＝ **既有行為一個位元都沒變**（讀回 0xA0+i），
+      既有 103 項測試不受影響。要用就在測試裡自己打開。 */
+extern int  dgh_fake_eeprom;                /* 0＝舊行為（預設）；1＝走記憶體模型 */
+extern int  dgh_fake_page;                  /* 模擬的 page size；0＝不模擬頁內回捲 */
+extern int  dgh_fake_awid;                  /* 位址相位寬度，用來解析 frame */
+extern int  dgh_fake_wraps;                 /* 發生過幾次頁內回捲（應為 0） */
+extern unsigned long dgh_fake_addr;         /* 目前的裝置位址指標 */
+extern unsigned char dgh_fake_mem[65536];
+void dgh_fake_eeprom_reset(int page, int awid, unsigned char fill);
+
 #endif

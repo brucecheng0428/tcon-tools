@@ -220,6 +220,105 @@ static inline int dgh_json_int_array(const char* s, const char* key, uint8_t* bu
     return n;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   🔴 batchwrite（1.15.0）需要的純函式
+   ───────────────────────────────────────────────────────────────────────────
+   為什麼要獨立成純函式、而且放在這一份：
+     ① **分頁邊界**（`dgh_plan_seg`）是 EEPROM 最經典的坑 —— page buffer 內
+        的位址會回捲，跨界寫會蓋掉同一頁前面的資料，而且**不會報錯**。
+        以前這段邏輯只存在於網頁的 `i2ctPlanWrite()`；現在 bridge 自己也要切，
+        兩邊各寫一份必然分岔（README 已經為「分段在兩個地方各做一套」吃過一次虧）。
+        ⇒ 切段規則在 C 這一側只有這一支，由 test_proto.c 逐案例釘住，
+          網頁那支的判準寫成同一句話（`min(page - addr % page, 剩下的)`）。
+     ② **JSON byte 陣列的嚴格解析**（`dgh_json_bytes`）。既有的
+        `dgh_json_int_array()` 用 `-1` 同時代表「沒有這個欄位」與「超過容量」，
+        而且 `(uint8_t)strtol` 會把 `300` **安靜地**變成 44、把 `-1` 變成 255。
+        讀取那一側無所謂（沒有人送陣列進來），但 batchwrite 收的就是使用者
+        要燒進 EEPROM 的內容 —— 安靜改值是這裡最不能接受的失敗方式。
+        ⇒ 這一支把四種情況分開回報，呼叫端才講得出「錯在哪」。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 這一段（從 addr 起、還剩 remain 個 byte）在 page 大小下**最多**能寫幾個 byte。
+   page<=0 ⇒ 不分頁，一次寫完（呼叫端自己決定要不要允許）。
+   規則與網頁 `i2ctPlanWrite()` 同一句話：`min(remain, page - addr % page)`。
+   回傳 0 只可能是 remain<=0。 */
+static inline uint32_t dgh_plan_seg(uint32_t addr, uint32_t remain, uint32_t page){
+    uint32_t room;
+    if(remain==0u) return 0u;
+    if(page==0u) return remain;
+    room = page - (addr % page);          /* 到本頁邊界還剩幾個 byte（1..page） */
+    return remain < room ? remain : room;
+}
+/* 位址在該 offset 寬度下的回繞。1 byte 的位址指標走到 0xFF 之後回到 0x00 ——
+   這是裝置的實際行為而不是錯誤，所以寫入位址也要照同一條規則算。
+   🔴 與網頁的 `i2ctWrap()` 是同一句話；bridge 自己分段之後，兩邊算出來的位址
+      必須一模一樣，否則同一份內容從兩條路寫下去會落在不同位址。
+   awid==0（不送位址）沒有回繞可言，原值回傳（呼叫端本來就不會用它）。 */
+static inline uint32_t dgh_addr_wrap(uint32_t addr, uint32_t awid){
+    switch(awid){
+        case 1u: return addr & 0xFFu;
+        case 2u: return addr & 0xFFFFu;
+        case 4u: return addr;                 /* 32 位元本身就是自然回繞 */
+        default: return addr;                 /* awid 0：無位址相位 */
+    }
+}
+/* 從 addr 起寫 len 個 byte，在 page 大小下會切成幾段。len==0 ⇒ 0 段。 */
+static inline uint32_t dgh_plan_count(uint32_t addr, uint32_t len, uint32_t page){
+    uint32_t n=0, done=0;
+    while(done<len){
+        uint32_t seg=dgh_plan_seg(addr+done, len-done, page);
+        if(seg==0u) break;               /* 到不了（page 非 0 時 seg 必 >0），不做無窮迴圈 */
+        done+=seg; n++;
+    }
+    return n;
+}
+
+/* JSON int 陣列的嚴格解析。回傳實際元素個數（>=0），或負的錯誤碼：
+     DGH_JB_NOKEY   (-1) 找不到這個鍵，或它後面不是 '['
+     DGH_JB_OVER    (-2) 元素比 cap 多（**不截斷**，呼叫端必須當錯誤回報）
+     DGH_JB_BADVAL  (-3) 某個元素不是 0..255 的十進位整數
+   刻意**不**接受 0x 形式與小數：wire 上一律是十進位 0..255（網頁 `JSON.stringify`
+   一個 Uint8Array 就是這個形狀），多接受一種寫法只會多一種解讀分歧。
+   `*outBad` 若非 NULL，BADVAL 時填出錯的元素索引（log 要指得出位置）。 */
+#define DGH_JB_NOKEY  (-1)
+#define DGH_JB_OVER   (-2)
+#define DGH_JB_BADVAL (-3)
+static inline int dgh_json_bytes(const char* s, const char* key, uint8_t* buf,
+                                 uint32_t cap, uint32_t* outN, uint32_t* outBad){
+    char pat[64]; const char* p; uint32_t n=0;
+    if(outN) *outN=0;
+    if(outBad) *outBad=0;
+    snprintf(pat,sizeof(pat),"\"%s\"",key);
+    p=strstr(s,pat); if(!p) return DGH_JB_NOKEY;
+    p+=strlen(pat); while(*p==' '||*p==':') p++;
+    if(*p!='[') return DGH_JB_NOKEY;
+    p++;
+    for(;;){
+        long v; const char* d;
+        while(*p==' '||*p=='\t'||*p=='\r'||*p=='\n') p++;
+        if(*p==']') break;
+        if(!*p) return DGH_JB_NOKEY;                 /* 陣列沒有結尾 ⇒ 當成壞封包 */
+        if(n>0){
+            if(*p!=',') { if(outBad)*outBad=n; return DGH_JB_BADVAL; }
+            p++;
+            while(*p==' '||*p=='\t'||*p=='\r'||*p=='\n') p++;
+            if(*p==']') { if(outBad)*outBad=n; return DGH_JB_BADVAL; }  /* 尾逗號 */
+        }
+        d=p;
+        if(*p=='+'||*p=='-'){ if(outBad)*outBad=n; return DGH_JB_BADVAL; }  /* 負數／正號一律拒 */
+        if(*p<'0'||*p>'9'){ if(outBad)*outBad=n; return DGH_JB_BADVAL; }
+        v=strtol(p,(char**)&p,10);
+        if(p==d){ if(outBad)*outBad=n; return DGH_JB_BADVAL; }
+        if(v<0||v>255){ if(outBad)*outBad=n; return DGH_JB_BADVAL; }
+        while(*p==' '||*p=='\t'||*p=='\r'||*p=='\n') p++;
+        if(*p!=','&&*p!=']'){ if(outBad)*outBad=n; return DGH_JB_BADVAL; } /* 例如 1.5 / 1x */
+        if(n>=cap) return DGH_JB_OVER;               /* 🔴 不截斷，也不回 n */
+        buf[n++]=(uint8_t)v;
+    }
+    if(outN) *outN=n;
+    return (int)n;
+}
+
 /* ---- Origin 白名單 ----
  * 🔴 必須做「前綴 ＋ 終止字元」比對，不能只比前綴：
  *    只比前綴的話 https://brucecheng0428.github.io.evil.com 會被放行。
