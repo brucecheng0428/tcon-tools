@@ -1667,7 +1667,7 @@ function baseScript(f) {
     await A.doRead(); await sleep(20);
     CHECK(doc.getElementById('btn-write').disabled === false,
       '🔴 讀完就能寫（寫的是 dump 的中心值）');
-    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 slave 0x68 · 0x0000 起 16 byte', '🔴 v1.17.1：按鈕同時標明寫哪一份');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A · 16 byte', '🔴 v1.17.1：按鈕同時標明寫哪一份');
     EQ(A.writeSource(2).bytes.length, 16, '來源就是剛讀到的 16 byte');
     await win.__i2ct.disconnect();
   }
@@ -2182,7 +2182,7 @@ function baseScript(f) {
     EQ(A.selRange(), null, 'Esc／點別處 ⇒ 清除選取');
     /* 🔴 v1.16.2：沒有選取時按鈕改成顯示**整份內容的長度**（來源＝dump 中心值），
        不再只寫「寫入」—— 他按下去會寫多少，一律寫在按鈕上。 */
-    EQ(doc.getElementById('btn-write').textContent, '寫入 A：讀取 slave 0x68 · 0x0000 起 256 byte',       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A · 256 byte',       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
     await win.__i2ct.disconnect();
   }
 
@@ -3337,7 +3337,7 @@ function baseScript(f) {
     await sleep(60);
     EQ(doc.getElementById('btn-write').disabled, false, '🔴🔴 載入 8192 的檔之後寫入鈕可以按');
     /* 讀 256 之後載入 8192 的檔 ⇒ 長度不同 ⇒ 依定案規則它**成為 A**（不是 B）。 */
-    EQ(doc.getElementById('btn-write').textContent, '寫入 A：big.bin 8192 byte',
+    EQ(doc.getElementById('btn-write').textContent, '寫入 A · 8192 byte',
        '🔴 按鈕長度取自來源本身：' + doc.getElementById('btn-write').textContent);
     EQ(A.writeSource(2).bytes.length, 8192, '🔴 來源就是 8192 byte（不是被截成 256）');
 
@@ -3409,6 +3409,28 @@ function baseScript(f) {
        這裡再直接釘一次「不等於截斷值」，讓失敗訊息一眼看得出原因。 */
     CHECK(A.checksum(new win.Uint8Array(8192).fill(0xFF)) !== (2088960 & 0xFFFF),
       '🔴 反向測試：不可以等於 16 bit 截斷後的值');
+    /* 🔴🔴 **由他的真實檔案佐證的兩個值**（2026-09-19）：他載入的兩個檔，
+       檔名尾端帶著原廠算好的 CKS，我們算出來完全吻合 ——
+         `…_CKS_2ACFF.bin`  ⇒ 0x2ACFF
+         `…_CKS_02A91A.bin` ⇒ 0x2A91A
+       兩個都 > 0xFFFF ⇒ 誰把 `% 0x10000` 加回來，這兩條就會變成 0xCFF／0xA91A 而紅。
+       這比我們自己編的向量有力：**定義的正確性有外部來源背書。**
+       （這裡用「湊出同樣總和的位元組陣列」來驗函式，他的原始檔不進版控。） */
+    {
+      const mkSum = (target) => {
+        const full = Math.floor(target / 255), rest = target % 255;
+        const a = new win.Uint8Array(full + (rest ? 1 : 0));
+        a.fill(0xFF, 0, full);
+        if (rest) a[full] = rest;
+        return a;
+      };
+      EQ(A.checksum(mkSum(0x2ACFF)), 0x2ACFF,
+         '🔴🔴 0x2ACFF —— 與他檔名裡的 CKS_2ACFF 相同（外部佐證）');
+      EQ(A.checksum(mkSum(0x2A91A)), 0x2A91A,
+         '🔴🔴 0x2A91A —— 與他檔名裡的 CKS_02A91A 相同（外部佐證）');
+      CHECK(A.checksum(mkSum(0x2ACFF)) !== (0x2ACFF & 0xFFFF),
+        '🔴 若被截成 16 bit 會變 0xCFF，對不上他的檔名');
+    }
 
     /* (c) 畫面上 A／B 各一列、即時重算 */
     A.loadFile('c1.bin', new win.Uint8Array([0x01, 0x02, 0x03, 0x04]));
@@ -3513,7 +3535,10 @@ function baseScript(f) {
   G('58. 🔴 寫入目標標示 ＋ A／B 切換（下拉與點選同一狀態）');
   {
     A._reset();
-    A.abPickAuto(null);
+    /* 🔴 這一組不是在驗四選項視窗 ⇒ 預先作答 'auto'（照既有規則自動放）。
+       寫成 null 會讓「A、B 都有時再載入」真的跳視窗、卡在那裡等人按，
+       而且那個視窗會**留到下一組**去（第一版就是這樣連累第 59 組）。 */
+    A.abPickAuto('auto');
     /* A ＝ a1.bin（第一次載入）、B ＝ b2.bin（同長度第二份） */
     A.loadFile('a1.bin', new win.Uint8Array([1, 2, 3, 4]));
     await sleep(40);
@@ -3522,10 +3547,28 @@ function baseScript(f) {
     EQ(A.srcA(), 'a1.bin', '前提：A ＝ a1.bin');
     EQ(A.srcB(), 'b2.bin', '前提：B ＝ b2.bin');
 
-    /* (a) 🔴 按鈕要講清楚寫的是哪一份、多少 */
+    /* (a) 🔴 按鈕要講清楚寫的是哪一份、多少，但 **不放檔名**（v1.18.2）。
+       原因：他的檔名有 90 多個字，塞進去之後按鈕被撐成橫跨整列的長條，
+       他回報「根本沒有按鈕」。A／B 那兩行本來就完整寫著檔名，按鈕再寫一次是重複。 */
     { const t = doc.getElementById('btn-write').textContent;
-      CHECK(/寫入 B/.test(t) && /b2\.bin/.test(t) && /4 byte/.test(t),
-        '🔴 按鈕標明寫入目標與長度：' + t); }
+      EQ(t, '寫入 B · 4 byte', '🔴 按鈕只有「哪一邊 ＋ 長度」');
+      CHECK(!/b2\.bin/.test(t), '🔴🔴 按鈕裡**沒有檔名**'); }
+    /* 🔴 長度可預期：塞一個 200 字的來源名進去，按鈕文字**不會變長** */
+    { const longName = 'X'.repeat(200) + '.bin';
+      A.loadFile(longName, new win.Uint8Array([9, 9, 9, 9]));
+      await sleep(40);
+      const t2 = doc.getElementById('btn-write').textContent;
+      CHECK(t2.length <= 20, '🔴 200 字的檔名也撐不長按鈕：「' + t2 + '」(' + t2.length + ' 字)');
+      CHECK(!/XXXX/.test(t2), '🔴 按鈕裡沒有那個長檔名');
+      /* A／B 那一行**不准變成兩行**：單行 ＋ 省略號 ＋ title 放完整名稱 */
+      const who = doc.querySelector('#abbox .abrow.b .who');
+      CHECK(who && who.getAttribute('title').indexOf('XXXX') >= 0,
+        '🔴 完整檔名掛在 title（滑鼠移上去看得到）');
+      EQ(win.getComputedStyle(who).textOverflow, 'ellipsis', '🔴 尾端省略號');
+      EQ(win.getComputedStyle(who).whiteSpace, 'nowrap', '🔴 不換行（那一行不准變高）');
+      A._reset();
+      A.loadFile('a1.bin', new win.Uint8Array([1, 2, 3, 4])); await sleep(30);
+      A.loadFile('b2.bin', new win.Uint8Array([5, 6, 7, 8])); await sleep(30); }
 
     /* (b) 🔴 下拉只在 A、B 都有內容時才出現（沒得選就不佔版面） */
     EQ(A.abSel().shown, true, '🔴 A、B 都有 ⇒ 下拉出現');
@@ -3535,7 +3578,8 @@ function baseScript(f) {
     A.abSel('A'); await sleep(30);
     EQ(A.showingA(), true, '🔴 下拉選 A ⇒ 真的切到 A');
     { const t = doc.getElementById('btn-write').textContent;
-      CHECK(/寫入 A/.test(t) && /a1\.bin/.test(t), '🔴 按鈕跟著變成寫 A：' + t); }
+      CHECK(/寫入 A · 4 byte/.test(t) && !/a1\.bin/.test(t),
+        '🔴 按鈕跟著變成寫 A，而且不含檔名：' + t); }
     EQ(A.writeSource(2).bytes[0], 1, '🔴 來源也真的換成 A 的內容');
     A.showSide('B'); await sleep(30);
     EQ(A.abSel().value, 'B', '🔴 點 B 那一行 ⇒ 下拉跟著回到 B（另一半的同步）');
@@ -3681,6 +3725,41 @@ function baseScript(f) {
       CHECK(idxFirstNote > idxLastWrite,
         '🔴 wtiming 的 note 排在最後一次 rawwrite 之後（邊寫邊送會自己污染量測）'); }
     await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('61. 🔴 使用者可見文案不得寫死特定工具名（v1.18.2）');
+  {
+    /* Bruce 2026-09-19：「不要寫原廠 PQ Tool 可以接手，**因為不一定是 PQ tool 喔**」。
+       會來搶同一支治具的還有 EM01／EM02 的 TCON UI、他自己的 Python UI、DG 量測。
+       🔴 註解裡當技術依據引用的**留著**（那是證據來源）；這裡只驗畫面上的字。 */
+    A._reset();
+    /* 中斷之後那一行 */
+    await useHelper((m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      return { ok: true, status: 0 };
+    });
+    await win.__i2ct.disconnect(); await sleep(40);
+    { const t = doc.getElementById('linktext') ? doc.getElementById('linktext').textContent
+                                               : doc.body.textContent;
+      CHECK(!/PQ\s*Tool/i.test(t), '🔴 中斷的狀態文字沒有寫死工具名：' + t.slice(0, 40));
+      CHECK(/其他程式/.test(t) || /別的程式/.test(t) || /已中斷/.test(t),
+        '而且講的是泛稱：' + t.slice(0, 40)); }
+    /* 整頁掃一遍。🔴 要先把 `<script>`／`<style>` 拿掉：它們也在 body 裡，
+       `textContent` 會**把整段 JS 原始碼（含註解）一起算進來** ——
+       而註解裡引用 `RomCodeProcessUI.py:31721` 這種技術依據是要留著的。
+       第一版沒拿掉，四條斷言全紅，紅的理由是掃錯範圍，不是文案沒改乾淨。 */
+    { const clone = doc.body.cloneNode(true);
+      Array.prototype.forEach.call(clone.querySelectorAll('script,style'),
+                                   function (e) { e.remove(); });
+      const all = clone.textContent;
+      ['PQ Tool', 'RomCodeProcessUI', '原廠 UI', '原廠工具'].forEach((w) => {
+        CHECK(all.indexOf(w) < 0, '🔴 整頁畫面文字裡沒有「' + w + '」');
+      });
+      /* 🔴 「原廠」本身沒有被禁（原廠 DLL 是實際檔名的一部分），
+         禁的是拿它當「會來搶治具的那個程式」的代稱。 */
+      CHECK(all.indexOf('dg-measure.html') < 0, '🔴 也不再點名另一頁的檔名'); }
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
