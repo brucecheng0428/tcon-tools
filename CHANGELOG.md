@@ -34,6 +34,80 @@ dg-measure 走的是同一條 I2C Bridge 讀取路徑，v1.8.0 的 fast read 在
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.14.4 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.11）
+
+**原廠 DLL 路徑被自己的狀態檢查擋掉，從來沒有真的讀過一次。修掉。**
+
+判定依據：修正為原本就該有的行為 ⇒ PATCH。
+
+### 🔴 真正的 bug（Codex 在現有原始碼裡完整指出路徑）
+
+log 其實顯示原廠開啟是**成功的**：
+`vendor: Open() ok, SetClock(400 kHz)` → `GetClock() reports 400 kHz`
+→ `open: DONE via VENDOR DLL ... 523 ms`。
+失敗的是**讀取**，而且錯誤訊息是 **`not open`**。
+
+| 步驟 | 發生什麼 |
+|---|---|
+| 1 | `i2c_open` 的 vendor 分支關掉 libMPSSE，設 `g_handle=NULL`、**`g_opened=0`** |
+| 2 | `vendor_open` 成功後**只設 `g_vendorOpen=1`** |
+| 3 | `i2c_open` 回傳成功，但 `g_opened` 仍是 0 |
+| 4 | read 入口**只檢查 `g_opened`** ⇒ 為 0 ⇒ 直接回「not open」 |
+| 5 | ⇒ `i2c_read_ex` 裡的 `vendor_read` 分支**永遠走不到** |
+
+**所以原廠路徑不是沒被選中，是被自己的狀態檢查擋掉。**
+
+### 修法：以「目前後端」判斷，不硬設 `g_opened`
+
+```c
+static int backend_is_open(void){
+    return (dgh_mode == DGH_MODE_VENDOR) ? g_vendorOpen : g_opened;
+}
+```
+🔴 **不把 `g_opened` 硬設成 1** —— 它同時被 libMPSSE 的 reuse 與 close 邏輯使用，
+硬設會把兩套資源的狀態混在一起。持有者權限檢查**原封不動保留**。
+
+- **read**：改用 `backend_is_open()` ⇒ vendor 模式終於讀得到。
+- **write／rawwrite**：🔴 **不放寬**。`i2c_write_ex` 還沒有 vendor 分派，
+  放寬會讓它掉進 `p_Write(NULL, ...)`。改成**明確拒絕**並回：
+  `write is not implemented on the vendor DLL path yet (SendBytesEx unwired);
+   switch off the fast path to write`
+- **`i2c_close`**：改成**依後端釋放**。原本只關 libMPSSE，vendor 開著時治具不會被
+  放掉 —— 分頁中斷／主動 close／接手都會留著不放，下一個使用者就開不起來。
+
+### 其餘（依裁示範圍）
+
+- `raw_init` **只在 raw 模式執行**。原本 `mode=normal` 也照送 `0x8D`／`0x97`／`0x9E`，
+  而這顆 FT2232C/D 不認得它們 ⇒ 每個都回 `0xFA <cmd>` 混進 IN 資料流
+  ⇒ **連原本正確的慢路徑都被汙染**。
+- 切到 vendor 前 **`FT_Purge`＋`FT_GetQueueStatus`**，並印出殘留 byte 數
+  （非 0 就是有 `0xFA` 之類的垃圾等著被當資料讀走）。
+- 驗證改用**黃金基準**（Bruce 用原廠 UI 讀出的 256 byte），不再「自己讀兩次互比」
+  —— 兩次都錯成一樣會被判成通過。只在 slave 0x68／awid 2／offset 0／≥256 byte 時套用。
+
+### 🔴 撤回兩項先前的說法
+
+- **「`mode=0` 從未出現」是錯的** —— 它有執行過，是 log 中段被漏看。
+- **「原廠 DLL 走 bit-bang」是錯的** —— Codex 反組譯確認 DLL 在 `0x4018ec` 用
+  `FT_ListDevices`（旗標 `0x40000002`）取描述字串，再用**子字串比對**選路徑
+  （`0x405549`→`0x40548c` 是字串搜尋，不是 device type 比較）。
+  `0x401924–0x40194a` 比對的兩個字串符合才走 `0x401950` 的同步 bit-bang；
+  **本治具的描述字串對應的是 `0x4019dc` 起的另一組，會走 MPSSE 分支。**
+
+### 待辦（Bruce 裁示延後）
+
+**Auto Modify Offset-Bytes**（`0x7C`⇒1、`0x3E`/`0x50`–`0x57`⇒2）與換 slave 自動快照
+**這一版不做**。他的原話：「這個可以做，可是**你要有這個核取方塊**。這個先之後吧，
+你先確認 I2C 可以順利溝通。」
+🔴 **以後做的時候必須配一個核取方塊讓他開關**，不可以做成寫死的自動行為
+（比照原廠 UI 的 `checkBox_38`）。
+
+### 測試
+
+jsdom **835**、bridge TCP **103**。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.14.3 — 2026-09-19 ｜ PATCH ｜ 🔴 exe 有動（I2C Bridge v1.11.10）
 
 **讓 log 回答「治具到底是哪顆晶片」—— 這是整晚多個怪現象的可能總開關。**
