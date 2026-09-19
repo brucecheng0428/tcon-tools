@@ -520,9 +520,38 @@ static inline int dgh_mp_build_write(unsigned char* out, int cap, unsigned slave
     if(din)  *din  = 0;
     return b.n;
 }
-/* ACK 位元怎麼判：MPSSE 回的那個 byte，位元可能靠右(bit0)或靠左(bit7)對齊。
-   兩種對齊下 ACK 都是「bit0 與 bit7 皆為 0」⇒ 用 0x81 遮罩，
-   **只可能多報 NACK、不可能少報**（漏報才是危險的那一邊）。 */
-static inline int dgh_mp_ack_ok(unsigned char v){ return (v & 0x81) == 0; }
+/* ═══ ACK 位元怎麼判（2026-09-19 收緊）═══════════════════════════════════
+   ACK 槽的命令是 `0x22 0x00` ＝「clock 1 bit in，MSB first」（見上面
+   dgh_mp_wr_byte）。MPSSE 把讀到的那**一個**位元放在回傳 byte 的 bit7，
+   其餘位元由硬體補 0 ⇒ **合法值只有兩個**：
+     0x00 ＝ ACK （從機把 SDA 拉低）
+     0x80 ＝ NACK（SDA 維持高）
+
+   🔴 舊版是 `(v & 0x81) == 0`，只看 bit0 與 bit7，理由寫的是「靠右或靠左
+      對齊都吃得下，只可能多報 NACK 不可能少報」。**那個論證管不到第三種錯**。
+      實證（2026-09-19 14:48 的 bridge log，同一次連線兩段 4096 byte 讀回）：
+
+        raw_read: addr-phase ACK bytes = 00 00 00 00   <- addr=0x0000
+        raw_read: addr-phase ACK bytes = 0E 1C 38 70   <- addr=0x1000
+
+      `0E 1C 38 70` 四個值恰好每一個都是前一個左移一位（0E<<1=1C、1C<<1=38、
+      38<<1=70）—— 不是單一位元翻轉、也不像雜訊，而是**整條位元流錯位**。
+      但這四個值 `& 0x81` 全部為 0 ⇒ 舊判準**四個全部放行** ⇒ 沒有報 NACK ⇒
+      4096 byte 的壞資料被當成好資料交回給網頁。
+
+   ⇒ 現在只認 0x00／0x80，其餘一律歸為「位元流異常」，由呼叫端回一個
+      **與 NACK 不同**的錯誤碼，並把原始值與位置印進 log。
+      根因（為什麼位元流會錯位）另案處理；這一層只負責**大聲失敗**。 */
+#define DGH_ACK_ACK  0   /* 0x00 */
+#define DGH_ACK_NACK 1   /* 0x80 */
+#define DGH_ACK_BAD  2   /* 其他一切值：位元流異常，不可當成任何一種正常結果 */
+static inline int dgh_mp_ack_kind(unsigned char v){
+    if(v == 0x00) return DGH_ACK_ACK;
+    if(v == 0x80) return DGH_ACK_NACK;
+    return DGH_ACK_BAD;
+}
+/* 舊名保留給「只想知道能不能往下走」的呼叫端；要分辨 NACK 與位元流異常
+   請用 dgh_mp_ack_kind()。 */
+static inline int dgh_mp_ack_ok(unsigned char v){ return dgh_mp_ack_kind(v) == DGH_ACK_ACK; }
 
 #endif

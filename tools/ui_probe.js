@@ -715,7 +715,109 @@
     }
     A.abPickAuto('auto');
 
+    /* ── 🔴 路徑 20：EEPROM 型號視窗的預設值 ＋ Page 大小自動還原 ──────────
+       兩件事在同一段裡走完，因為它們共用同一條「開視窗 → 選型號 → 看 page
+       欄位」的真實操作序列：
+
+       (A) 預設勾選要看**這次會寫到的最高位址＋1**（base ＋ 長度），不是寫死
+           24C32（Bruce 2026-09-19）。
+       (C) slave 從 0x50 切回 0x68，page 欄位要自己回到「不分段」
+           （Bruce 2026-09-19：「為什麼這個沒有做到？」）。
+
+       🔴 為什麼非要真瀏覽器：這兩條都是「欄位值有沒有跟著動」，jsdom 驗得到
+          資料，驗不到「使用者切了 slave 之後，畫面上那一格顯示什麼」。 */
+    A._reset();
+    A.eeForget(); A.pageTouched(false); A.eepromAuto();   /* 真的跳視窗 */
+    {
+      const eeOpen = () => getComputedStyle($('#eeprom')).display !== 'none';
+      const pageVal = () => $('#wr-page').value;
+      const hint = () => $('#pagehint').textContent;
+      const checkedId = () => {
+        const s = document.querySelector('#ee-list input[name=eesel]:checked');
+        return s ? A.EEPROMS[parseInt(s.value, 10)].id : null;
+      };
+      const setSlave = (v) => {
+        $('#in-slave').value = v;
+        $('#in-slave').dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const pick = async (id) => {
+        const i = A.EEPROMS.findIndex((e) => e.id === id);
+        document.querySelectorAll('#ee-list input[name=eesel]')[i].click();
+        $('#ee-ok').click();
+        await sleep(120);
+      };
+
+      /* (A-1) 小範圍：base 0x0000 ＋ 8 byte ⇒ 24C01 放得下 ⇒ 預設就是它 */
+      A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '8' });
+      A.loadFile('p1.bin', new Uint8Array(8)); await sleep(80);
+      let pr = A.doWrite(); await sleep(140);
+      ok('20a 🔴 slave 0x50 按寫入 ⇒ 型號視窗真的跳出來', eeOpen());
+      ok('20b 小範圍（8 byte）⇒ 預設勾最小放得下的那顆', checkedId() === '24C01', checkedId());
+      $('#ee-cancel').click(); await pr; await sleep(80);
+
+      /* (A-2) 🔴 base ＋ 長度：0x1F00 ＋ 256 ＝ 8192 ⇒ 必須是 24C64，
+               只看長度 256 會錯選 24C02。這就是 Bruce 說的「大於 4096 就不能
+               選到 24C32」。 */
+      A.setInputs({ slave: '0x50', awid: 2, off: '0x1F00', len: '256' });
+      A.loadFile('p2.bin', new Uint8Array(256)); await sleep(80);
+      pr = A.doWrite(); await sleep(140);
+      ok('20c 🔴 base 0x1F00 ＋ 256 byte ＝ 8192 ⇒ 預設 24C64（不是 24C32／24C02）',
+         checkedId() === '24C64', checkedId());
+      {
+        const rows = Array.from(document.querySelectorAll('#ee-list .eerow'));
+        const small = rows.filter((r) => r.classList.contains('eesmall'));
+        ok('20d 放不下的六顆標「容量不足」', small.length === 6
+           && small.every((r) => /容量不足/.test(r.textContent)), small.length + ' 顆');
+        ok('20e 🔴 標示歸標示，一個都不 disable（仍可手動改選）',
+           rows.every((r) => !r.querySelector('input').disabled));
+        /* 真的用滑鼠點一顆「容量不足」的，證明它點得動 */
+        const i02 = A.EEPROMS.findIndex((e) => e.id === '24C02');
+        document.querySelectorAll('#ee-list input[name=eesel]')[i02].click();
+        await sleep(40);
+        ok('20f 🔴 真的點得下去：手動改選 24C02 成功', checkedId() === '24C02', checkedId());
+      }
+      $('#ee-cancel').click(); await pr; await sleep(80);
+
+      /* (C) Bruce 回報的那一條，逐步印出 page 欄位的實際值 */
+      A.eeForget(); A.pageTouched(false);
+      A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '8' });
+      A.loadFile('p3.bin', new Uint8Array(8)); await sleep(80);
+      pr = A.doWrite(); await sleep(140);
+      await pick('24C64'); await pr; await sleep(80);
+      ok('20g 前置：0x50 走完視窗選 24C64 ⇒ Page 欄位 ＝ 32', pageVal() === '32', pageVal());
+      ok('20h 🔴 系統填的值不得被當成「手動」', /自動/.test(hint()) && !/手動/.test(hint()), hint());
+      setSlave('0x68'); await sleep(80);
+      ok('20i 🔴🔴 slave 改成 0x68 ⇒ Page 欄位自動回「不分段」（0）',
+         pageVal() === '0', pageVal() + ' / ' + hint());
+      setSlave('0x50'); await sleep(80);
+      ok('20j 🔴 再改回 0x50 ⇒ 拿回它自己那顆的 32', pageVal() === '32', pageVal());
+      /* 換一顆 page 不是 32 的，才分得出「用那一顆」與「用通用預設 32」 */
+      A.setInputs({ slave: '0x51' }); await sleep(40);
+      A.loadFile('p4.bin', new Uint8Array(8)); await sleep(80);
+      pr = A.doWrite(); await sleep(140);
+      await pick('24C01'); await pr; await sleep(80);
+      ok('20k 前置：0x51 選 24C01 ⇒ Page ＝ 8', pageVal() === '8', pageVal());
+      setSlave('0x68'); await sleep(80);
+      ok('20l 0x68 ⇒ 0', pageVal() === '0', pageVal());
+      setSlave('0x51'); await sleep(80);
+      ok('20m 🔴 切回 0x51 ⇒ 回到 8，不是通用預設 32', pageVal() === '8', pageVal());
+      setSlave('0x50'); await sleep(80);
+      ok('20n 🔴 切到 0x50 ⇒ 回到 32（兩個 slave 各記各的）', pageVal() === '32', pageVal());
+      /* 反面：他自己動過選單就不准被蓋掉（既有行為不得退步） */
+      $('#wr-page').value = '256';
+      $('#wr-page').dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(60);
+      ok('20o 他動了選單 ⇒ 標「（手動）」', /手動/.test(hint()), hint());
+      setSlave('0x68'); await sleep(80);
+      ok('20p 🔴 手動指定過 ⇒ 切 slave 不蓋掉（既有規則不得退步）',
+         pageVal() === '256', pageVal());
+      A.pageTouched(false); A.eeForget(); A.eepromAuto('24C32');
+      setSlave('0x68'); await sleep(60);
+    }
+
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
+    A._reset();
+    A.loadFile('z.bin', new Uint8Array([1, 2, 3, 4])); await sleep(80);
     ok('10a 另存新檔在有資料時可以按', $('#btn-save').disabled === false);
     ok('10b 快照按得下去', $('#btn-snap').disabled === false || $('#btn-snap').disabled === undefined);
 

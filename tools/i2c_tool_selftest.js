@@ -1890,7 +1890,13 @@ function baseScript(f) {
     EQ(rows[10].id + ' ' + rows[10].sep + ' ' + rows[10].cap, '24C1024 — 1 Mbit (128 KB)', '最後一列');
     CHECK(!/page|Page|byte 分段|分段/.test(doc.getElementById('ee-list').textContent),
       '🔴 視窗裡**沒有** page size 字樣');
-    EQ(doc.querySelector('#ee-list input:checked').value, '5', '🔴 預設選中 24C32');
+    /* 🔴 **改判（2026-09-19）**：預設不再寫死 24C32。Bruce：「如果是大於 4096，
+       那就不能選到 24C32，你的預設值應該就要選到 24C64。」⇒ 預設 ＝ 容量放得下
+       這次範圍的**最小**一顆。這一組寫的是 base 0x0010 ＋ 100 byte
+       ⇒ needBytes = 116 ⇒ 24C01（128 B）＝ index 0。
+       （原本這裡斷言 '5'＝24C32，那是舊的寫死行為，不是這一版的規格。） */
+    EQ(doc.querySelector('#ee-list input:checked').value, '0',
+       '🔴 預設 ＝ 放得下 116 byte 的最小一顆（24C01）');
     /* 按取消 ⇒ 一個 byte 都沒送 */
     doc.getElementById('ee-cancel').click();
     await p; await sleep(20);
@@ -2133,6 +2139,173 @@ function baseScript(f) {
     CHECK(modal() !== 'none', '🔴 重新連線之後 ⇒ 重新問');
     doc.getElementById('ee-cancel').click(); await pr; await sleep(15);
     A.eepromAuto('24C32');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('62. 🔴 EEPROM 預設型號跟著「這次要寫到的最高位址＋1」走');
+  {
+    /* Bruce 2026-09-19：「在寫入 EEPROM 的時候，如果跳出選擇 Page 大小的視窗，
+       應該也要考量到我這次寫的總 Byte 數是多少。如果是大於 4096，那就不能選到
+       24C32，你的預設值應該就要選到 24C64。雖然還是可以讓使用者手動改選。」
+
+       🔴 正反都驗（本專案吃過三次「只驗壞的會被擋下」的虧）：
+          正面 ＝ 該被選中的要被選中、放得下的不得被標成容量不足、沒選時的
+                 fallback 要跟預設同一個值；
+          反面 ＝ 容量不足的要標出來，但**不得** disable。 */
+
+    /* ── (a) 純函式層：容量 >= needBytes 的最小一顆 ───────────────────── */
+    const idOf = (n) => A.EEPROMS[A.eeDefaultIdx(n)].id;
+    EQ(idOf(4096),   '24C32',   '🔴 4096 ⇒ 24C32（剛好放得下就不要往上跳）');
+    EQ(idOf(4097),   '24C64',   '🔴 4097 ⇒ 24C64（超過一個 byte 就要換大的）');
+    EQ(idOf(8192),   '24C64',   '🔴 8192 ⇒ 24C64（Bruce 舉的那個例子）');
+    EQ(idOf(8193),   '24C128',  '8193 ⇒ 24C128');
+    EQ(idOf(1),      '24C01',   '1 byte ⇒ 最小那顆');
+    EQ(idOf(128),    '24C01',   '128 ⇒ 24C01（邊界含等號）');
+    EQ(idOf(129),    '24C02',   '129 ⇒ 24C02');
+    EQ(idOf(131072), '24C1024', '131072 ⇒ 最大那顆');
+    EQ(idOf(999999), '24C1024', '🔴 比最大顆還大 ⇒ 勾最大那顆（不是不勾）');
+    EQ(idOf(undefined), '24C32', '🔴 算不出來 ⇒ 維持原本的 24C32');
+    EQ(idOf(0),      '24C32',   '0 ⇒ 維持 24C32');
+    EQ(idOf(null),   '24C32',   'null ⇒ 維持 24C32');
+
+    A.eepromAuto();                       /* 真的跳視窗 */
+    const modal = () => win.getComputedStyle(doc.getElementById('eeprom')).display;
+    const checkedId = () =>
+      A.EEPROMS[parseInt(doc.querySelector('#ee-list input:checked').value, 10)].id;
+
+    /* ── (b) 🔴 用 base ＋ 長度算，不是只看長度 ───────────────────────── */
+    A._reset();
+    await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.eeForget();
+    /* 先設 offset 再載入（寫入的 base 取自那份內容，見第 31 組的說明）。 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x1F00', len: '256' });
+    A.loadFile('hi.bin', new win.Uint8Array(256));
+    await sleep(20);
+    let pr = A.doWrite(); await sleep(30);
+    CHECK(modal() !== 'none', '前置：slave 0x50 ⇒ 視窗有開');
+    EQ(checkedId(), '24C64',
+       '🔴 base 0x1F00 ＋ 256 byte ＝ 8192 ⇒ 預設 24C64（只看長度 256 會錯選 24C02）');
+    /* 容量不足的要標示，但**不得** disable */
+    const rows = Array.from(doc.querySelectorAll('#ee-list .eerow'));
+    const small = rows.filter(r => r.classList.contains('eesmall'));
+    EQ(small.length, 6, '🔴 24C01～24C32 六顆放不下 8192 ⇒ 標成容量不足');
+    CHECK(small.every(r => /容量不足/.test(r.textContent)), '🔴 「容量不足」字樣有出現');
+    CHECK(rows.every(r => !r.querySelector('input').disabled),
+      '🔴 一個都不 disable —— Bruce 明講仍要可以手動改選');
+    CHECK(!rows[6].classList.contains('eesmall') && !/容量不足/.test(rows[6].textContent),
+      '🔴 放得下的（24C64）不得被標成容量不足');
+    CHECK(!rows[10].classList.contains('eesmall'), '🔴 24C1024 更不得被標');
+    doc.getElementById('ee-cancel').click(); await pr; await sleep(15);
+
+    /* ── (c) 🔴 沒選就按確認 ⇒ fallback 用**同一個**預設，不是寫死 24C32 ──
+       這裡刻意挑 needBytes = 16384 ⇒ 預設是 24C128（page 64）。
+       用 24C64 驗不出來：它的 page 也是 32，跟 24C32 一樣，分不出走哪條。 */
+    A._reset();
+    await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.eeForget();
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x3F00', len: '256' });
+    A.loadFile('hi2.bin', new win.Uint8Array(256));
+    await sleep(20);
+    pr = A.doWrite(); await sleep(30);
+    EQ(checkedId(), '24C128', '前置：0x3F00 ＋ 256 ＝ 16384 ⇒ 預設 24C128');
+    doc.querySelectorAll('#ee-list input[name=eesel]').forEach((i) => { i.checked = false; });
+    doc.getElementById('ee-ok').click(); await pr; await sleep(20);
+    EQ(A.pageSize(), 64,
+       '🔴 一個都沒選就按確認 ⇒ 用預設那顆（24C128 的 page 64），不是寫死的 24C32（32）');
+
+    /* ── (d) 🔴 快取的型號容量不足 ⇒ 重新問，不可以沿用 ─────────────── */
+    A._reset();
+    await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.eeForget();
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '8' });
+    A.loadFile('s1.bin', new win.Uint8Array(8)); await sleep(15);
+    pr = A.doWrite(); await sleep(25);
+    CHECK(modal() !== 'none', '前置：第一次寫 0x50 ⇒ 跳視窗');
+    const i32 = A.EEPROMS.findIndex((e) => e.id === '24C32');
+    doc.querySelectorAll('#ee-list input[name=eesel]')[i32].checked = true;
+    doc.getElementById('ee-ok').click(); await pr; await sleep(20);
+    EQ(A.eeOk()[0x50], '24C32', '前置：0x50 已確認為 24C32');
+    /* 正面：範圍仍在 4096 內 ⇒ 沿用快取，不再問（不可以每次都跳） */
+    A.setInputs({ off: '0x0000', len: '8' });
+    A.loadFile('s2.bin', new win.Uint8Array(8)); await sleep(15);
+    await A.doWrite(); await sleep(25);
+    EQ(modal(), 'none', '🔴 範圍放得下已確認的型號 ⇒ 沿用快取，**不再問**');
+    /* 反面：超出 4096 ⇒ 一定要重問，否則會拿容量不足的 page size 去寫 */
+    A.setInputs({ off: '0x1000', len: '8' });
+    A.loadFile('s3.bin', new win.Uint8Array(8)); await sleep(15);
+    pr = A.doWrite(); await sleep(25);
+    CHECK(modal() !== 'none',
+      '🔴 0x1000 ＋ 8 ＝ 4104 超出已確認的 24C32（4096）⇒ **重新問一次**');
+    EQ(checkedId(), '24C64', '🔴 重問時的預設 ⇒ 24C64');
+    doc.getElementById('ee-cancel').click(); await pr; await sleep(15);
+    A.eeForget();
+    A.eepromAuto('24C32');
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('63. 🔴 slave 從 EEPROM 切回非 EEPROM ⇒ Page 大小自動回「不分段」');
+  {
+    /* Bruce 2026-09-19：「我 Slave 位址從 0x50 切回 0x68 的時候，它的 Page 大小
+       應該要自己切回不分段才對。為什麼這個沒有做到？」
+
+       根因：`i2ctEepromApply()` 填完 page 之後把 `i2ctPageTouched` 設成 true，
+       但那個旗標的定義是「**使用者自己動過** page 下拉選單」（唯一該設它的是
+       `wr-page` 的 change listener）。型號視窗是系統填值，不是使用者動選單。
+       旗標一被誤設，`i2ctAutoPage()` 之後永遠第一行就 return。 */
+    const setSlave = (v) => {
+      const e = doc.getElementById('in-slave'); e.value = v;
+      e.dispatchEvent(new win.Event('input', { bubbles: true }));
+    };
+    const hint = () => doc.getElementById('pagehint').textContent;
+    const pickModel = async (slave, id) => {
+      A.setInputs({ slave: slave, awid: 2, off: '0x0000', len: '8' });
+      A.loadFile('c.bin', new win.Uint8Array(8)); await sleep(15);
+      const p = A.doWrite(); await sleep(25);
+      const i = A.EEPROMS.findIndex((e) => e.id === id);
+      doc.querySelectorAll('#ee-list input[name=eesel]')[i].checked = true;
+      doc.getElementById('ee-ok').click(); await p; await sleep(20);
+    };
+    A._reset();
+    await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    A.eeForget(); A.pageTouched(false); A.eepromAuto();
+
+    await pickModel('0x50', '24C64');
+    EQ(A.pageSize(), 32, '前置：0x50 選了 24C64 ⇒ page 32');
+    EQ(A.pageTouched(), false, '🔴 型號視窗**不得**設 pageTouched（那是使用者的旗標）');
+    CHECK(/自動/.test(hint()) && !/手動/.test(hint()),
+      '🔴 系統填的值仍標「（自動）」，不是「（手動）」：' + hint());
+
+    setSlave('0x68');
+    EQ(A.pageSize(), 0, '🔴🔴 切到 0x68 ⇒ 自動回「不分段」（Bruce 回報的正是這一條）');
+    CHECK(/連續/.test(hint()) && /自動/.test(hint()), '🔴 提示也要跟著變：' + hint());
+    setSlave('0x50');
+    EQ(A.pageSize(), 32, '🔴 切回 0x50 ⇒ 拿回**它自己那顆**確認過的 page（32）');
+
+    /* 🔴 換一顆 page 不是 32 的，才驗得出「用那一顆的 page」而不是通用預設 32 */
+    await pickModel('0x51', '24C01');
+    EQ(A.pageSize(), 8, '前置：0x51 選了 24C01 ⇒ page 8');
+    setSlave('0x68');
+    EQ(A.pageSize(), 0, '0x68 ⇒ 不分段');
+    setSlave('0x51');
+    EQ(A.pageSize(), 8, '🔴 切回 0x51 ⇒ 回到 8，**不是**通用預設 32');
+    setSlave('0x50');
+    EQ(A.pageSize(), 32, '🔴 再切到 0x50 ⇒ 回到它的 32（兩個 slave 各記各的）');
+    setSlave('0x52');
+    EQ(A.pageSize(), 32, '沒確認過的 EEPROM slave ⇒ 通用預設 32');
+
+    /* 反面：使用者**自己**動過選單，就不准被上面這套自動規則蓋掉 */
+    doc.getElementById('wr-page').value = '256';
+    doc.getElementById('wr-page').dispatchEvent(new win.Event('change', { bubbles: true }));
+    EQ(A.pageTouched(), true, '他動了選單 ⇒ pageTouched 才該是 true');
+    CHECK(/手動/.test(hint()), '🔴 這時才標「（手動）」：' + hint());
+    setSlave('0x68');
+    EQ(A.pageSize(), 256, '🔴 他指定過 ⇒ 切 slave 也不蓋掉（既有規則不得退步）');
+    setSlave('0x50');
+    EQ(A.pageSize(), 256, '🔴 切回 EEPROM 也一樣維持他選的');
+
+    A.pageTouched(false); A.eeForget(); A.eepromAuto('24C32'); setSlave('0x68');
     await win.__i2ct.disconnect();
   }
 

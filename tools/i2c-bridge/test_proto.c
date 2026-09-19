@@ -5,6 +5,13 @@
 #include "i2c_bridge_proto.h"
 #include <stdio.h>
 
+/* proto.h 把這兩個宣告成 extern（正本定義在 i2c_bridge.c）。本檔是**單檔**測試，
+   不連 i2c_bridge.c ⇒ 必須自己給定義，否則檔頭那行 `cc test_proto.c -o test_proto`
+   會在連結階段掛掉（實測：undefined reference to `dgh_ck_delay`／`dgh_ad3_out`）。
+   值與 i2c_bridge.c 的初始值相同，測的才是出貨那一份的預設行為。 */
+int dgh_ad3_out  = 0;
+int dgh_ck_delay = 3;
+
 static int fails=0, total=0;
 #define CHECK(cond, name) do{ total++; if(cond){ printf("  ok   %s\n",name);} else { printf("  FAIL %s\n",name); fails++; } }while(0)
 /* 數值不符時要印出實際值 —— 只說「FAIL」沒辦法拿去跟 log 對照。 */
@@ -276,11 +283,43 @@ int main(void){
         CHECK(din == 0, "寫不回資料 byte");
         CHECK(buf[n-1] == 0x87, "寫也以 0x87 結尾");
 
-        /* ACK 判讀：兩種對齊下 ACK 都是 bit0 與 bit7 皆 0 */
+        /* ═══ ACK 判讀：合法值只有 0x00／0x80 ═══════════════════════════════
+           🔴 2026-09-19 **改判**。這一條原本是：
+
+             CHECK(dgh_mp_ack_ok(0x7E) == 1, "中間的雜訊位元不影響判讀（只看 bit0/bit7）");
+
+           理由是「ACK 位元可能靠右或靠左對齊，用 0x81 遮罩只會多報不會少報」。
+           那個論證只涵蓋「單一 ACK 位元讀錯」，**涵蓋不到整條位元流錯位**，
+           而實機上發生的正是後者。證據（bridge log，2026-09-19 14:48，
+           同一次連線的兩段 4096 byte 讀回）：
+
+             raw_read: addr-phase ACK bytes = 00 00 00 00   <- addr=0x0000
+             raw_read: addr-phase ACK bytes = 0E 1C 38 70   <- addr=0x1000
+
+           `0E 1C 38 70` 每一個都是前一個左移一位，而且 `& 0x81` **全部為 0**
+           ⇒ 舊判準四個全部放行 ⇒ 4096 byte 壞資料被當成好資料交回網頁。
+           ACK 槽的命令是 `0x22 0x00`（clock 1 bit in, MSB first），硬體會把
+           其餘位元補 0，所以**合法值就只有 0x00 與 0x80**，沒有第三種。
+           ⇒ 其餘一律歸 DGH_ACK_BAD，由呼叫端回與 NACK 不同的錯誤碼。 */
         CHECK(dgh_mp_ack_ok(0x00) == 1, "0x00 ＝ ACK");
-        CHECK(dgh_mp_ack_ok(0x01) == 0, "0x01 ＝ NACK（靠右對齊）");
-        CHECK(dgh_mp_ack_ok(0x80) == 0, "0x80 ＝ NACK（靠左對齊）");
-        CHECK(dgh_mp_ack_ok(0x7E) == 1, "中間的雜訊位元不影響判讀（只看 bit0/bit7）");
+        CHECK(dgh_mp_ack_ok(0x80) == 0, "0x80 ＝ NACK，不是 ACK");
+        CHECK(dgh_mp_ack_kind(0x00) == DGH_ACK_ACK,  "kind(0x00) ＝ ACK");
+        CHECK(dgh_mp_ack_kind(0x80) == DGH_ACK_NACK, "kind(0x80) ＝ NACK");
+        /* 舊判準把 0x01 當 NACK（「靠右對齊」）。它不是合法值 ⇒ 現在歸 BAD。 */
+        CHECK(dgh_mp_ack_kind(0x01) == DGH_ACK_BAD, "0x01 不是合法 ACK 值（舊版誤判為 NACK）");
+        CHECK(dgh_mp_ack_kind(0x7E) == DGH_ACK_BAD, "0x7E 不是合法 ACK 值（舊版誤判為 ACK ⇒ 放行壞資料）");
+        CHECK(dgh_mp_ack_ok(0x7E)   == 0,           "0x7E 不得再被當成 ACK 放行");
+        /* 🔴 實機 log 實際出現過的那四個值，逐一釘住 —— 這一組就是這次改判的來源。 */
+        CHECK(dgh_mp_ack_kind(0x0E) == DGH_ACK_BAD, "0x0E（實機 log）＝ 位元流異常");
+        CHECK(dgh_mp_ack_kind(0x1C) == DGH_ACK_BAD, "0x1C（實機 log）＝ 位元流異常");
+        CHECK(dgh_mp_ack_kind(0x38) == DGH_ACK_BAD, "0x38（實機 log）＝ 位元流異常");
+        CHECK(dgh_mp_ack_kind(0x70) == DGH_ACK_BAD, "0x70（實機 log）＝ 位元流異常");
+        CHECK(dgh_mp_ack_ok(0x0E) == 0 && dgh_mp_ack_ok(0x1C) == 0
+           && dgh_mp_ack_ok(0x38) == 0 && dgh_mp_ack_ok(0x70) == 0,
+              "🔴 實機那四個值一個都不得通過 ack_ok（舊版四個全部通過）");
+        /* 反面也要釘：合法的兩個值不可以被誤判成 BAD，否則就換成誤殺真交易。 */
+        CHECK(dgh_mp_ack_kind(0x00) != DGH_ACK_BAD
+           && dgh_mp_ack_kind(0x80) != DGH_ACK_BAD, "合法的 0x00／0x80 不得被誤判成異常");
     }
 
     /* ═══ 🔴 整段只能有一個 0x87，而且必須在最後 ═════════════════════════════

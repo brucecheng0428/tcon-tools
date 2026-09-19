@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1182"></script>
+<script src="common/version.js?v=20260919i2c1190"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -296,6 +296,9 @@
   .eerow .eeid { font-weight: 700; color: #e0f2fe; }
   .eerow .eesep { color: #475569; }
   .eerow .eecap { color: #94a3b8; }
+  /* 容量放不下這次要寫的範圍：**變灰標示，但照樣可以選**（不 disable）。
+     不多加欄位、不加說明段落 —— 一個字尾就夠了。 */
+  .eerow.eesmall .eeid, .eerow.eesmall .eecap { color: #64748b; }
   #ee-list { max-height: 60vh; overflow: auto; }
   .modalbox button { font-size: 19px; line-height: 1.2; padding: 13px 28px;
                      min-height: 0; height: auto; background: #0369a1; border-color: #0ea5e9; }
@@ -2834,6 +2837,35 @@ var I2CT_EEPROMS = [
 function i2ctCapText(b){
   return b >= 1024 ? (b / 1024) + ' KB' : b + ' B';
 }
+function i2ctEepromById(id){
+  for (var i = 0; i < I2CT_EEPROMS.length; i++) if (I2CT_EEPROMS[i].id === id) return I2CT_EEPROMS[i];
+  return null;
+}
+/* ═══ 🔴 預設勾哪一顆：看這次要寫到的**最高位址＋1**（Bruce 2026-09-19）═════
+   他的原話：「在寫入 EEPROM 的時候，如果跳出選擇 Page 大小的視窗，應該也要
+   考量到我這次寫的總 Byte 數是多少。如果是大於 4096，那就不能選到 24C32，
+   你的預設值應該就要選到 24C64。雖然還是可以讓使用者手動改選。」
+
+   🔴 用 **base ＋ 長度**算，不是只看長度 —— 從 0x1F00 寫 256 byte 也會超出
+      24C32 的 4096，只看「256」永遠看不出來。
+   規則：容量 >= needBytes 的**最小**一顆（8192 ⇒ 24C64；4096 ⇒ 24C32；
+         4097 ⇒ 24C64）；比最大顆還大 ⇒ 勾最大那顆；
+         needBytes 算不出來 ⇒ 維持原本的 24C32。
+   🔴 只影響**預設值**，容量不足的型號照樣可以手動選（他明講要留這個出口）。 */
+var I2CT_EE_FALLBACK = '24C32';
+function i2ctEeNeed(v){                    /* 統一把 needBytes 正規化成數字或 0 */
+  var n = Number(v);
+  return (isFinite(n) && n > 0) ? n : 0;
+}
+function i2ctEeDefaultIdx(needBytes){
+  var n = i2ctEeNeed(needBytes), i;
+  if (!n) {
+    for (i = 0; i < I2CT_EEPROMS.length; i++) if (I2CT_EEPROMS[i].id === I2CT_EE_FALLBACK) return i;
+    return 0;
+  }
+  for (i = 0; i < I2CT_EEPROMS.length; i++) if (I2CT_EEPROMS[i].bytes >= n) return i;
+  return I2CT_EEPROMS.length - 1;          /* 比最大顆還大 ⇒ 勾最大那顆 */
+}
 function i2ctKbitText(k){ return k >= 1024 ? (k / 1024) + ' Mbit' : k + ' Kbit'; }
 var I2CT_PAGE_DEFAULT = 32;        /* 24C32／24C64 都是 32 byte（他實際會用到的兩種） */
 var I2CT_TWR_DEFAULT  = 5;         /* page write 的 tWR，單位 ms */
@@ -2869,10 +2901,18 @@ function i2ctPlanWrite(base, len, page){
 function i2ctIsEepromAddr(slave){ return slave !== null && slave >= 0x50 && slave <= 0x57; }
 var i2ctPageTouched = false;      /* 使用者有沒有自己動過 page 選單 */
 function i2ctAutoPage(){
-  if (i2ctPageTouched) return;                       /* 他指定過 ⇒ 不碰 */
+  if (i2ctPageTouched) return;                       /* 他**自己動過選單** ⇒ 不碰 */
   var e = $('wr-page'); if (!e) return;
   var slave = i2ctParseAddr($('in-slave').value);
-  var want = i2ctIsEepromAddr(slave) ? String(I2CT_PAGE_DEFAULT) : '0';
+  var want = '0';                                    /* 非 EEPROM ⇒ 連續，不分段 */
+  if (i2ctIsEepromAddr(slave)) {
+    /* 🔴 這個 slave 已經在型號視窗確認過 ⇒ 用**那一顆的** page，不是通用預設。
+       （Bruce 2026-09-19：「我 Slave 位址從 0x50 切回 0x68 的時候，它的 Page
+         大小應該要自己切回不分段才對。」）切回 0x50 時也要拿回它自己那顆的
+       page size —— 否則會被 0x68 洗成 0，或被通用預設 32 蓋掉真正選的 8／64。 */
+    var ee = i2ctEeOk[slave] ? i2ctEepromById(i2ctEeOk[slave]) : null;
+    want = String(ee ? ee.page : I2CT_PAGE_DEFAULT);
+  }
   if (e.value !== want) e.value = want;
 }
 function i2ctPageSize(){
@@ -2979,42 +3019,65 @@ var i2ctEeAuto = null;
    🔴 整批寫入與逐格寫入**共用同一份**已確認清單，不各問各的。 */
 var i2ctEeOk = {};                       /* slave(數字) → 已確認的型號 id */
 function i2ctEeForget(){ i2ctEeOk = {}; }
-/* 回傳 Promise<boolean>：可以往下寫嗎。非 EEPROM 位址一律直接放行。 */
-async function i2ctEnsureEeprom(slave){
+/* 回傳 Promise<boolean>：可以往下寫嗎。非 EEPROM 位址一律直接放行。
+   🔴 needBytes ＝ 這次寫入會碰到的**最高位址＋1**（＝ base ＋ 長度）。
+      算不出來時傳 0／null／undefined，視窗就維持原本的預設。 */
+async function i2ctEnsureEeprom(slave, needBytes){
   if (!i2ctIsEepromAddr(slave)) return true;          /* 不是 EEPROM ⇒ 不跳視窗 */
+  var need = i2ctEeNeed(needBytes);
   if (i2ctEeOk[slave]) {                               /* 這個 slave 問過了 */
-    i2ctEepromApply(i2ctEeOk[slave]);                  /* 把它的 page size 套回去 */
-    return true;
+    var was = i2ctEepromById(i2ctEeOk[slave]);
+    /* 🔴 快取只在「那顆放得下這次的範圍」時才算數。放不下還沿用的話，等於拿
+       一顆容量不足的 page size 去寫，位址回捲會把前面的內容蓋掉 ⇒ 重問一次。 */
+    if (was && (!need || was.bytes >= need)) {
+      i2ctEepromApply(was.id, slave);                  /* 把它的 page size 套回去 */
+      return true;
+    }
+    i2ctLog('這次要寫到 0x' + i2ctHex(need - 1, 4) + '（共 ' + need + ' byte 範圍），'
+          + '超出已確認的 ' + (was ? was.id : '?') + ' 容量 ⇒ 重新確認型號', 'n');
   }
-  var picked = await i2ctEepromAsk();
+  var picked = await i2ctEepromAsk(need, slave);
   if (!picked) return false;
-  i2ctEeOk[slave] = i2ctEeLast || '24C32';
+  i2ctEeOk[slave] = i2ctEeLast || I2CT_EE_FALLBACK;
   return true;
 }
 var i2ctEeLast = '';                     /* 最後一次選定的型號，給 i2ctEnsureEeprom 記錄用 */
-function i2ctEepromApply(id){
-  var e = null;
-  for (var i = 0; i < I2CT_EEPROMS.length; i++) if (I2CT_EEPROMS[i].id === id) e = I2CT_EEPROMS[i];
+function i2ctEepromApply(id, slave){
+  var e = i2ctEepromById(id);
   if (!e) return false;
   $('wr-page').value = String(e.page);
-  i2ctPageTouched = true;
+  /* 🔴 **這裡不設 i2ctPageTouched**（Bruce 2026-09-19 回報的 bug 根因）。
+     那個旗標的定義是「**使用者自己動過** page 下拉選單」，唯一該設它的地方是
+     `wr-page` 的 change listener。型號視窗是**系統**填值，不是使用者動選單。
+     一旦被誤設成 true，`i2ctAutoPage()` 第一行就 return ⇒ slave 從 0x50 切回
+     0x68 永遠回不到「不分段」。改由 i2ctAutoPage() 讀 i2ctEeOk 來記住選擇。 */
   i2ctEeLast = e.id;
+  /* 🔴 **先**記進已確認清單，**再**更新提示 —— i2ctUpdateHints() 會呼叫
+     i2ctAutoPage()，它必須讀得到這個 slave 剛選定的型號，否則上一行剛填好的
+     page 會立刻被通用預設值蓋回去（選 24C01 的 8 會變成 32）。 */
+  if (slave !== undefined && slave !== null && i2ctIsEepromAddr(slave)) i2ctEeOk[slave] = e.id;
   i2ctUpdateHints();
   i2ctLog('EEPROM 型號：' + e.id + '（' + i2ctKbitText(e.kbit) + '／'
         + i2ctCapText(e.bytes) + '）⇒ 分段 ' + e.page + ' byte', 'n');
   return true;
 }
-function i2ctEepromAsk(){
+function i2ctEepromAsk(needBytes, slave){
   if (i2ctEeAuto === false) return Promise.resolve(false);
-  if (typeof i2ctEeAuto === 'string') return Promise.resolve(i2ctEepromApply(i2ctEeAuto));
+  if (typeof i2ctEeAuto === 'string') return Promise.resolve(i2ctEepromApply(i2ctEeAuto, slave));
+  /* 🔴 預設勾「放得下這次範圍的最小一顆」，不再寫死 24C32（見 i2ctEeDefaultIdx）。 */
+  var need = i2ctEeNeed(needBytes);
+  var defIdx = i2ctEeDefaultIdx(need);
   return new Promise(function (resolve) {
     var box = $('ee-list');
     box.innerHTML = I2CT_EEPROMS.map(function (e, i) {
-      return '<label class="eerow"><input type="radio" name="eesel" value="' + i + '"'
-           + (e.id === '24C32' ? ' checked' : '') + '>'
+      /* 放不下的型號**標示但不停用** —— Bruce 明講還是要能手動改選。 */
+      var small = need > 0 && e.bytes < need;
+      return '<label class="eerow' + (small ? ' eesmall' : '') + '">'
+           + '<input type="radio" name="eesel" value="' + i + '"' + (i === defIdx ? ' checked' : '') + '>'
            + '<span class="mono eeid">' + e.id + '</span>'
            + '<span class="eesep">—</span>'
-           + '<span class="mono eecap">' + i2ctKbitText(e.kbit) + ' (' + i2ctCapText(e.bytes) + ')</span>'
+           + '<span class="mono eecap">' + i2ctKbitText(e.kbit) + ' (' + i2ctCapText(e.bytes) + ')'
+           + (small ? '　容量不足' : '') + '</span>'
            + '</label>';
     }).join('');
     $('eeprom').style.display = 'flex';
@@ -3025,8 +3088,10 @@ function i2ctEepromAsk(){
     };
     $('ee-ok').onclick = function () {
       var sel = document.querySelector('#ee-list input[name=eesel]:checked');
-      /* 🔴 選完自動把 page size 填進分段欄位 —— 這就是「不可能選錯」的來源。 */
-      done(i2ctEepromApply(I2CT_EEPROMS[sel ? parseInt(sel.value, 10) : 5].id));
+      /* 🔴 選完自動把 page size 填進分段欄位 —— 這就是「不可能選錯」的來源。
+         🔴 沒選時的 fallback 用**同一個** defIdx，不再寫死 index 5（24C32）：
+            兩個地方各寫一份預設，遲早分岔。 */
+      done(i2ctEepromApply(I2CT_EEPROMS[sel ? parseInt(sel.value, 10) : defIdx].id, slave));
     };
     $('ee-cancel').onclick = function () { i2ctLog('取消寫入（EEPROM 型號確認）', 'n'); done(false); };
   });
@@ -3042,7 +3107,9 @@ async function i2ctOnWrite(){
   if (sel) {
     var ds = i2ctCurSet();
     if (!ds) { i2ctBanner('readbanner', 'err', '沒有資料可寫'); return; }
-    if (!(await i2ctEnsureEeprom(v.slave))) return;
+    /* 🔴 needBytes ＝ 這一段會碰到的最高位址＋1。用**該份內容自己的 base**
+       ＋ 選取的結束 offset 算，不是只看選取長度。 */
+    if (!(await i2ctEnsureEeprom(v.slave, ds.base + sel.to + 1))) return;
     var segBytes = Array.prototype.slice.call(ds.bytes.subarray(sel.from, sel.to + 1));
     await i2ctWriteBytes(v.slave, v.wireAwid, ds.base + sel.from, segBytes,
                          '選取的 ' + sel.len + ' byte');
@@ -3051,8 +3118,16 @@ async function i2ctOnWrite(){
   var src = i2ctWriteSource(v.awid);
   if (!src.bytes) { i2ctBanner('readbanner', 'err', src.err); return; }
   /* 🔴 slave 落在 0x50–0x57 ⇒ 對面是 EEPROM ⇒ 寫之前先確認型號。
-     其他 slave 不跳（不分段，沒有這個問題）。取消就一個 byte 都不送。 */
-  if (!(await i2ctEnsureEeprom(v.slave))) return;
+     其他 slave 不跳（不分段，沒有這個問題）。取消就一個 byte 都不送。
+     🔴 needBytes ＝ base ＋ 長度（最高位址＋1）。base 的取法與下面的 wbase
+        同一條規則：那份內容自己的 base，沒有才退回欄位值。
+        awid 0 沒有位址相位（③ 是**值**不是位址）⇒ 算不出位址，傳 0 不參與判斷。 */
+  var need0 = 0;
+  if (v.awid !== 0) {
+    var nb = (src.base === null || src.base === undefined) ? v.off : src.base;
+    if (nb !== null && nb !== undefined) need0 = nb + src.bytes.length;
+  }
+  if (!(await i2ctEnsureEeprom(v.slave, need0))) return;
   v = i2ctReadInputs();                        /* 視窗可能改過分段設定，重讀一次 */
   src = i2ctWriteSource(v.awid);
   if (!src.bytes) { i2ctBanner('readbanner', 'err', src.err); return; }
@@ -4535,8 +4610,10 @@ async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   }
   var v = i2ctReadInputs();
   if (v.slave === null) { i2ctBanner('readbanner', 'err', 'slave 位址無效'); return false; }
-  /* EEPROM 只在「本次連線中第一次對這個 slave 寫」時問型號。 */
-  if (!(await i2ctEnsureEeprom(v.slave))) return false;
+  /* EEPROM 只在「本次連線中第一次對這個 slave 寫」時問型號。
+     🔴 逐格寫入只碰一個位址 ⇒ needBytes ＝ addr + 1。已確認的型號若放不下
+        這個位址（例如在 0x1FFF 改一格、但先前確認的是 24C32）會重問一次。 */
+  if (!(await i2ctEnsureEeprom(v.slave, addr + 1))) return false;
   i2ctBusy = true; i2ctSyncButtons();
   /* 🔴 失敗要還原回這個值。在送出之前先記下來 —— 事後才想拿就拿不到了。 */
   var before = d.bytes[idx] & 0xFF;
@@ -5119,6 +5196,7 @@ window.__i2ct = {
   planRead: i2ctPlanRead, planWrite: i2ctPlanWrite, wrapPeriod: i2ctWrapPeriod,
   pageSize: function () { return i2ctPageSize(); }, twr: function () { return i2ctTwr(); },
   isEepromAddr: i2ctIsEepromAddr, EEPROMS: I2CT_EEPROMS,
+  eeDefaultIdx: i2ctEeDefaultIdx, eeOk: function () { return i2ctEeOk; },
   eepromAuto: function (v) { i2ctEeAuto = (v === undefined) ? null : v; return i2ctEeAuto; },
   pageTouched: function (v) { if (v !== undefined) i2ctPageTouched = !!v; return i2ctPageTouched; }, keyOf: i2ctKeyOf, pageOf: i2ctPageOf,
   cellKey: i2ctCellKey, pagesOf: i2ctPagesOf, allFF: i2ctAllFF,
@@ -5386,6 +5464,11 @@ window.__i2ct = {
        「不分段」（那是「他自己動過就不要蓋掉」的規則），於是下一組驗到的是
        一個使用者遇不到的狀態。 */
     i2ctPageTouched = false;
+    /* 🔴 已確認的 EEPROM 型號清單也要清。`i2ctAutoPage()` 現在會讀它來決定
+       page（見那裡的註解）⇒ 不清的話，上一組確認過的型號會漏到下一組，
+       下一組的 wr-page 會被還原成上一組那顆的 page size —— 與上面那段
+       `i2ctPageTouched` 不重設是完全同一類的漏。 */
+    i2ctEeForget();
     { var pg = $('wr-page'); if (pg) pg.value = '0'; }
     { var fi = $('in-find'); if (fi) fi.value = ''; }
     { var fa = $('find-all'); if (fa) fa.checked = true; }
