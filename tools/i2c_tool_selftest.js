@@ -774,12 +774,21 @@ function baseScript(f) {
 
     /* ── 19d. 總 byte 數共用同一個欄位 ─────────────────────────────────── */
     EQ(doc.getElementById('in-len').value, '4096', '🔴 載入後總 byte 數自動變成檔案長度');
-    EQ(A.writeSource(4096, 2).bytes.length, 4096, '不改的話就是整份 4096');
-    EQ(A.writeSource(256, 2).bytes.length, 256, '🔴 使用者把總 byte 數改小 ⇒ 以他改的為準');
-    EQ(A.writeSource(512, 2).bytes[511], bin[511], '改小之後取的是前 512 個 byte，內容正確');
+    /* 🔴🔴 v1.16.2：**寫入來源不再看「總 byte 數」欄位**（Bruce 2026-09-19 的更正：
+       「寫入不該被擋…長度不一樣，我後面進來的一定就會變成 A，那就等於是重新開始」）。
+       舊斷言「使用者把總 byte 數改小 ⇒ 以他改的為準」**整條作廢** ——
+       那個欄位是給讀取用的，拿它來截寫入來源，正是「讀 256 之後載入 8192 的檔
+       按不下去」那個 bug 的根。 */
+    EQ(A.writeSource(2).bytes.length, 4096, '🔴 來源＝目前 dump 的內容，整份 4096');
+    doc.getElementById('in-len').value = '256';
+    doc.getElementById('in-len').dispatchEvent(new win.Event('input', { bubbles: true }));
+    EQ(A.writeSource(2).bytes.length, 4096, '🔴🔴 把總 byte 數改成 256 ⇒ 寫入來源**完全不受影響**');
+    EQ(A.writeSource(2).bytes[511], bin[511], '內容也沒被截，第 511 個 byte 正確');
+    doc.getElementById('in-len').value = '4096';
+    doc.getElementById('in-len').dispatchEvent(new win.Event('input', { bubbles: true }));
 
     /* ── 19e. 預覽：分頁與範圍標示 ─────────────────────────────────────── */
-    EQ(A.view(), 'file', '載入後自動切到檔案檢視');
+    EQ(A.bKind(), 'file', '載入後自動切到檔案檢視');
     EQ(A.state().pages.length, 16, '🔴 4096 byte ⇒ 16 頁，每頁 256 byte');
     {
       const labels = A.pageLabels();
@@ -791,28 +800,42 @@ function baseScript(f) {
       EQ(cells[0].textContent, '00', '第 0 格 ＝ 檔案第 0 個 byte');
       EQ(cells[1].textContent, '07', '第 1 格 ＝ 檔案第 1 個 byte（i*7）');
     }
-    /* ── 19f. 兩種資料一眼分得出來 ─────────────────────────────────────── */
-    CHECK(doc.getElementById('dumpcard').classList.contains('filemode'),
-          '🔴 檔案檢視時整張卡片換狀態（不是靠一段說明文字）');
-    CHECK(doc.getElementById('dumptitle').textContent.indexOf('尚未寫入') >= 0,
-          '🔴 標題直接講「尚未寫入」：' + doc.getElementById('dumptitle').textContent);
+    /* ── 19f. 🔴🔴 v1.16.2：**舊的「檔案模式」整套收掉** ──────────────────
+       Bruce 2026-09-19：「檔案名稱寫在網頁上面的位置，重複的地方太多了。
+       一下子在上面，一下子又在綠色的裡面，一下子又在黃色的裡面。」
+       根因是兩套模型重疊：琥珀卡片＋標題改字＋切換鈕，講的就是 A／B 已經在講的
+       「檔案 vs 裝置」。⇒ 舊斷言全部反過來：那些東西**不該再存在**。 */
+    CHECK(!doc.getElementById('dumpcard').classList.contains('filemode'),
+          '🔴 不再有「檔案模式」的琥珀卡片');
+    EQ(doc.getElementById('dumptitle').textContent.trim(), '16 × 16 Dump',
+       '🔴 標題固定，不再變成「檔案內容：…（尚未寫入）」');
+    EQ(doc.getElementById('btn-view'), null, '🔴 切換鈕整顆刪掉（改成點 A／B 那一行）');
+    /* 檔名只出現在 A／B 那一區 —— 掃整個 dump 卡片的文字 */
+    CHECK(!/v2\.bin/.test(doc.getElementById('dumptitle').textContent), '標題裡沒有檔名');
 
-    /* ── 19g. 兩份資料並存、可切換 ─────────────────────────────────────── */
-    A.setInputs({ len: '3' });
+    /* ── 19g. 兩份資料並存、可切換（能力保留，改由點 A／B 提供）──────────
+       🔴 這一組原本用的假 helper **read 不回任何 data**（`baseScript()` 沒有覆寫
+          read ⇒ 回 `{ok:true}`、沒有 data）⇒ 讀到 0 byte，所以「檔案沒被丟掉」
+          其實是「讀取根本沒成功」造成的，**斷言通過的理由是錯的**。
+          要驗 v1.16.1 的「讀取覆蓋 B」就必須讓讀取真的回資料。 */
+    await useHelper(baseScript((m) => {
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, () => 0x5A) };
+    }));
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '3' });
+    win.confirm = () => true;
     await A.doRead(); await sleep(25);
-    EQ(A.view(), 'dev', '按讀取 ⇒ 切回裝置檢視');
-    EQ(A.fileState().len, 4096, '🔴 讀取沒有把載入的檔案丟掉（兩份並存）');
-    CHECK(win.getComputedStyle(doc.getElementById('btn-view')).display !== 'none',
-          '🔴 兩份都在時才出現切換鈕');
-    A.setView('file');
-    EQ(A.view(), 'file', '切得回檔案檢視');
-    CHECK(doc.getElementById('dumptitle').textContent.indexOf('檔案內容') >= 0, '標題跟著切');
+    EQ(A.bKind(), 'dev', '按讀取 ⇒ 顯示裝置那一份');
+    /* 🔴 v1.16.1 起讀取會放掉檔案（B 被覆蓋，他要的「檔名不要卡住」），
+       但**看得到 A** —— A 是快照複本，點 A 那一行就能切過去看。 */
+    EQ(A.fileState().len, 0, '🔴 讀取覆蓋 B ⇒ 檔案放掉（v1.16.1 起）');
+    CHECK(A.srcA() !== null, '🔴 A 還在（要能切過去看）');
 
     /* ── 19h. 手打會放掉檔案（來源只能有一個）──────────────────────────── */
     A.clearFile();
     EQ(A.fileState().len, 0, 'clearFile 之後沒有檔案');
     A.setInputs({ data: 'DE AD' });
-    EQ(A.writeSource(16, 2).src, '手動輸入', '沒有檔案就回到文字框那一份');
+    EQ(A.writeSource(2).from, '手動輸入', '沒有檔案就回到文字框那一份');
 
     /* ── 19i. 四種副檔名都選得到 ───────────────────────────────────────── */
     {
@@ -1626,15 +1649,21 @@ function baseScript(f) {
     const out2 = [];
     SINCE(sent2, 'rawwrite').forEach(m => m.data.forEach(b => out2.push(b & 0xFF)));
     EQ(out2.join(','), '0,153,2,3', '🔴 預覽區改過的那一格也照著寫出去（所見即所寫）');
-    /* 🔴 反面：裝置讀回值**不是**寫入來源（讀完隨手按到寫入不該把整批寫回去） */
+    /* 🔴🔴 v1.16.2：這一條**反過來了**。舊規則是「裝置讀回值不算寫入來源，
+       免得讀完隨手按到寫入把整批寫回去」；Bruce 2026-09-19 直接否決：
+       「使用者在這個時候沒有任何改變，他想要把 A 寫進去當然 OK 啊！」
+       ⇒ 讀完就能按寫入，寫的是目前 dump 的中心值。誤燒的防線在確認視窗與
+         回讀驗證，不在「不給他寫」。 */
     A._reset();
     await useHelper(baseScript((m) => {
       if (m.type === 'read') return { ok: true, status: 0, data: Array.from({ length: m.len }, () => 0x5A) };
     }));
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '16' });
     await A.doRead(); await sleep(20);
-    CHECK(doc.getElementById('btn-write').disabled === true,
-      '🔴 只是讀回來的資料不會變成寫入來源（防誤燒）');
+    CHECK(doc.getElementById('btn-write').disabled === false,
+      '🔴 讀完就能寫（寫的是 dump 的中心值）');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 16 byte', '長度取自那份內容');
+    EQ(A.writeSource(2).bytes.length, 16, '來源就是剛讀到的 16 byte');
     await win.__i2ct.disconnect();
   }
 
@@ -1748,9 +1777,12 @@ function baseScript(f) {
     /* 端到端：真的送出去的訊息就是切好的那些段 */
     A._reset();
     const sent = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    /* 🔴 v1.16.2：**先設起始 offset 再載入**。寫入的起始位址現在取自
+       「那份內容自己的 base」（Bruce 指定），而檔案的 base 是**載入當下**
+       的 offset 欄位 —— 載入後才改欄位不會追溯改變那份資料的 base。 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
     A.loadFile('p.bin', new win.Uint8Array(Array.from({ length: 100 }, (_, i) => i & 0xFF)));
     await sleep(20);
-    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
     doc.getElementById('wr-page').value = '32';
     await A.doWrite();
     await sleep(30);
@@ -1880,9 +1912,10 @@ function baseScript(f) {
     /* 確認之後真的照填入的 page size 切段 */
     A._reset();
     const sent3 = await useHelper(baseScript(() => ({ ok: true, status: 0, transferred: 1 })));
+    /* v1.16.2：先設 offset 再載入（寫入的 base 取自那份內容，見第 31 組的說明）。 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
     A.loadFile('e2.bin', new win.Uint8Array(100));
     await sleep(20);
-    A.setInputs({ slave: '0x50', awid: 2, off: '0x0010', len: '100' });
     const pr2 = A.doWrite();
     await sleep(25);
     doc.querySelectorAll('#ee-list input[name=eesel]')[5].checked = true;   /* 24C32 */
@@ -2007,8 +2040,10 @@ function baseScript(f) {
        點左上／右上是還原）。所以這裡要點 `.mv`，不是整個 td。 */
     const editCell = async (addr, text) => {
       const td0 = doc.querySelector('#dump td[data-addr="' + addr + '"]');
-      (td0.querySelector('.mv') || td0)
-         .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      (td0.querySelector(".mv") || td0).dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+      /* 🔴 v1.16.2：點中間數值要**點兩次**才進編輯（第一次只定位）。 */
+      {const t2 = doc.querySelector("#dump td[data-addr='" + addr + "']");
+       (t2.querySelector(".mv") || t2).dispatchEvent(new win.MouseEvent("click", { bubbles: true }));}
       await sleep(20);
       const inp = doc.querySelector('#dump td.edit input');
       if (!inp) { CHECK(false, '🔴 點中間數值應該要進入編輯（addr ' + addr + '）'); return; }
@@ -2140,7 +2175,10 @@ function baseScript(f) {
     /* Esc 清除選取 ⇒ 回到整批行為 */
     A.selClear();
     EQ(A.selRange(), null, 'Esc／點別處 ⇒ 清除選取');
-    EQ(doc.getElementById('btn-write').textContent, '寫入', '沒有選取 ⇒ 按鈕文字回復');
+    /* 🔴 v1.16.2：沒有選取時按鈕改成顯示**整份內容的長度**（來源＝dump 中心值），
+       不再只寫「寫入」—— 他按下去會寫多少，一律寫在按鈕上。 */
+    EQ(doc.getElementById('btn-write').textContent, '寫入 256 byte',
+       '🔴 沒有選取 ⇒ 按鈕顯示整份的長度');
     await win.__i2ct.disconnect();
   }
 
@@ -2158,10 +2196,12 @@ function baseScript(f) {
     await win.__i2ct.disconnect(); await sleep(30);          /* 🔴 他故意把 I2C 關掉 */
     const since = sent.length;
     const editCell = async (addr, text) => {
-      const td1 = doc.querySelector('#dump td[data-addr="' + addr + '"]');
-      /* v1.16.1：點中間數值才進編輯（見第 36 組的說明）。 */
-      (td1.querySelector('.mv') || td1)
-         .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      /* v1.16.2：點中間數值、而且要**點兩次**才進編輯（見第 36 組的說明）。 */
+      for (var k2 = 0; k2 < 2; k2++) {
+        const td1 = doc.querySelector('#dump td[data-addr="' + addr + '"]');
+        (td1.querySelector('.mv') || td1)
+           .dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      }
       await sleep(15);
       const inp = doc.querySelector('#dump td.edit input');
       if (!inp) { CHECK(false, '🔴 點中間數值應該要進入編輯（addr ' + addr + '）'); return; }
@@ -3178,9 +3218,9 @@ function baseScript(f) {
     /* (1) 已有 A（第一次讀取），再載入同長度檔案 ⇒ **B ＝ 檔名**，A 不動 */
     EQ(A.srcA(), '讀取', '🔴 第一次讀取 ⇒ A ＝「讀取」');
     EQ(A.srcB(), 'f1.bin', '🔴 再載入同長度檔案 ⇒ B ＝ 檔名');
-    CHECK(/A：讀取/.test(doc.getElementById('refline').textContent)
-       && /B：f1\.bin/.test(doc.getElementById('refline').textContent),
-      '🔴 兩行各自印自己的來源：' + doc.getElementById('refline').textContent);
+    CHECK(/A讀取/.test(A.abRows().map(function(r){return r.text;}).join(' '))
+       && /Bf1\.bin/.test(A.abRows().map(function(r){return r.text;}).join(' ')),
+      '🔴 兩行各自印自己的來源：' + A.abRows().map(function(r){return r.text;}).join(' '));
 
     /* (2) 按快照 ⇒ 檔案成為 A（A 繼承目前來源），**B 清空** */
     A.snapshot(); await sleep(30);
@@ -3212,8 +3252,8 @@ function baseScript(f) {
     await A.doRead(); await sleep(50);
     EQ(A.srcA(), '讀取', 'A 仍是最早那次讀取');
     EQ(A.srcB(), '讀取', '🔴🔴 情境 2：沒快照就讀取 ⇒ B 被覆蓋');
-    CHECK(!/f2\.bin/.test(doc.getElementById('refline').textContent),
-      '🔴🔴 檔名整個消失，不卡在上面：' + doc.getElementById('refline').textContent);
+    CHECK(!/f2\.bin/.test(A.abRows().map(function(r){return r.text;}).join(' ')),
+      '🔴🔴 檔名整個消失，不卡在上面：' + A.abRows().map(function(r){return r.text;}).join(' '));
     EQ(A.fileState().name, '', '檔案也真的被放掉了');
     await win.__i2ct.disconnect();
 
@@ -3258,10 +3298,131 @@ function baseScript(f) {
     await A.doRead(); await sleep(60);
     EQ(A.srcA(), '讀取', '🔴 換 slave 後讀取 ⇒ A ＝ 新讀到的');
     EQ(A.srcB(), null, '🔴 B 清空');
-    CHECK(!/c3\.bin/.test(doc.getElementById('refline').textContent),
-      '🔴 檔名消失：' + doc.getElementById('refline').textContent);
+    CHECK(!/c3\.bin/.test(A.abRows().map(function(r){return r.text;}).join(' ')),
+      '🔴 檔名消失：' + A.abRows().map(function(r){return r.text;}).join(' '));
     EQ(A.fileState().name, '', '檔案放掉');
     await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('55. 🔴 寫入來源 ＝ dump 的中心值，與「總 byte 數」欄位完全無關');
+  {
+    const dev55 = new Array(256).fill(0x11);
+    const mk55 = (m) => {
+      if (m.type === 'ping') return { helper: '1.12.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev55[(m.addr + i) & 0xFF] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev55[(m.addr + i) & 0xFF]) };
+      return { ok: true, status: 0 };
+    };
+
+    /* (a) 🔴 讀 256 → 載入 8192 的檔 ⇒ 寫入鈕**可按**、長度是 8192（他踩到的） */
+    A._reset();
+    let sent55 = await useHelper(mk55);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
+    await A.doRead(); await sleep(50);
+    A.loadFile('big.bin', new win.Uint8Array(Array.from({ length: 8192 }, (_, i) => i & 0xFF)));
+    await sleep(60);
+    EQ(doc.getElementById('btn-write').disabled, false, '🔴🔴 載入 8192 的檔之後寫入鈕可以按');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 8192 byte',
+       '🔴 按鈕長度取自來源本身：' + doc.getElementById('btn-write').textContent);
+    EQ(A.writeSource(2).bytes.length, 8192, '🔴 來源就是 8192 byte（不是被截成 256）');
+
+    /* (b) 🔴🔴 把「總 byte 數」欄位改成任意值 ⇒ 寫入行為**完全不受影響** */
+    ['', '1', 'abc', '99999'].forEach((junk) => {
+      doc.getElementById('in-len').value = junk;
+      doc.getElementById('in-len').dispatchEvent(new win.Event('input', { bubbles: true }));
+      EQ(A.writeSource(2).bytes.length, 8192,
+         '🔴 總 byte 數填「' + junk + '」⇒ 寫入來源仍然是 8192 byte');
+    });
+    /* 按鈕可按與否也不受它影響（空字串會讓讀取那邊報錯，但寫入不該被牽連）。 */
+    doc.getElementById('in-len').value = '8192';
+    doc.getElementById('in-len').dispatchEvent(new win.Event('input', { bubbles: true }));
+    EQ(doc.getElementById('btn-write').disabled, false, '恢復合法值之後照樣可按');
+
+    /* (c) 選取優先：Shift 多選 17 格 ⇒ 按鈕與送出都是 17 byte */
+    A._reset();
+    sent55 = await useHelper(mk55);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
+    await A.doRead(); await sleep(50);
+    A.selAnchor(0); A.selMove(16); await sleep(20);
+    EQ(doc.getElementById('btn-write').textContent, '寫入 17 byte', '選取優先，按鈕顯示 17');
+    { const before = sent55.filter((m) => m.type === 'rawwrite').length;
+      await A.doWrite(); await sleep(80);
+      const w = sent55.filter((m) => m.type === 'rawwrite').slice(before);
+      EQ(w.reduce((n, m) => n + m.data.length, 0), 17, '🔴 真的只送 17 byte'); }
+
+    /* (d) 🔴 **寫入送出的永遠是中心值**（不是左上 A、也不是右上的暫存） */
+    A._reset();
+    sent55 = await useHelper(mk55);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '4' });
+    await A.doRead(); await sleep(50);           /* 中心 = 0x11 × 4，A = 讀取 */
+    A.snapshot(); await sleep(20);
+    /* 改第 0 格 ⇒ 中心變 0x99、左上出現 A=0x11 */
+    A.selAnchor(0); await sleep(20);              /* 🔴 位元核取方塊要有選取格才動得了 */
+    await A.bitToggle(3, true); await sleep(60);  /* 0x11 | 0x08 = 0x19 */
+    await A.bitToggle(7, true); await sleep(60);  /* 0x19 | 0x80 = 0x99 */
+    { const p = A.cellParts(0);
+      CHECK(p.main === '99' && p.snap === '11', '前提：中心 99、左上 11：' + JSON.stringify(p)); }
+    { const before = sent55.filter((m) => m.type === 'rawwrite').length;
+      doc.getElementById('in-data').value = '';   /* 確保走 dump 那條來源 */
+      A.selAnchor(null); await sleep(10);
+      EQ(A.writeSource(2).bytes[0], 0x99,
+         '🔴🔴 來源第 0 byte ＝ **中心值 0x99**，不是左上的 0x11');
+      void before; }
+    /* 點左上把 A 搬進中心 ⇒ 來源跟著變成搬進來之後的中心值 */
+    await A.slotClick(0, 'sv'); await sleep(80);
+    EQ(A.writeSource(2).bytes[0], dev55[0],
+       '🔴 點左上之後，來源就是搬進中心的那個值（＝已寫回裝置的值）');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('56. 🔴 總和檢查碼：A／B 各一、即時重算、**不截斷**');
+  {
+    A._reset();
+    /* (a) 純函式：已知向量 */
+    EQ(A.checksum([1, 2, 3]), 6, '1+2+3 = 6');
+    EQ(A.checksum(null), null, '沒有資料 ⇒ null（不是 0）');
+    EQ(A.checksum([]), null, '空陣列 ⇒ null');
+    /* 🔴 黃金基準（他用原廠 UI 讀出的 256 byte）⇒ 固定值釘住 */
+    { let g = 0; for (let i = 0; i < A.GOLD256.length; i++) g += A.GOLD256[i];
+      EQ(A.checksum(A.GOLD256), g, '黃金基準 256 byte 的 checksum 與逐項相加一致'); }
+    /* (b) 🔴🔴 **不截斷**：8192 全 FF 與 256K 全 FF */
+    EQ(A.checksum(new win.Uint8Array(8192).fill(0xFF)), 2088960,
+       '🔴 8192 × 255 = 2,088,960 = 0x1FE000，**沒有被截成 16 bit**');
+    EQ(A.checksum(new win.Uint8Array(262144).fill(0xFF)), 66846720,
+       '🔴🔴 256K × 255 = 66,846,720 = 0x3FC0000，完整值');
+    /* 反向：如果有人加回 & 0xFFFF，上面兩條的值會變成 0x0000 ⇒ 必然失敗。
+       這裡再直接釘一次「不等於截斷值」，讓失敗訊息一眼看得出原因。 */
+    CHECK(A.checksum(new win.Uint8Array(8192).fill(0xFF)) !== (2088960 & 0xFFFF),
+      '🔴 反向測試：不可以等於 16 bit 截斷後的值');
+
+    /* (c) 畫面上 A／B 各一列、即時重算 */
+    A.loadFile('c1.bin', new win.Uint8Array([0x01, 0x02, 0x03, 0x04]));
+    await sleep(40);
+    { const rows = A.cksRows();
+      EQ(rows.length, 2, 'A／B 各一列');
+      EQ(rows[0].ab, 'A', '🔴 A 在上');
+      EQ(rows[1].ab, 'B', '🔴 B 在下');
+      EQ(rows[0].val, '0xA', 'A ＝ 1+2+3+4 = 10 = 0xA');
+      EQ(rows[0].n, '4 byte', '🔴 同時顯示參與計算的 byte 數');
+      EQ(rows[1].val, '（無）', '🔴 B 不存在 ⇒ 空狀態，不是 0'); }
+    /* 改一格 ⇒ 立刻重算（原值 − 舊 byte ＋ 新 byte） */
+    A.selAnchor(0); await sleep(10);
+    await A.bitToggle(7, true); await sleep(60);       /* 0x01 → 0x81，+0x80 */
+    { const rows = A.cksRows();
+      EQ(rows[1].val, '0x8A', '🔴 改一格 ⇒ B 的 checksum 立刻變成 10 + 128 = 138 = 0x8A');
+      EQ(rows[0].val, '0xA', '🔴 A 不受影響（它是基準）'); }
+    /* 點左上還原 ⇒ checksum 回到還原後的值 */
+    await A.slotClick(0, 'sv'); await sleep(60);
+    EQ(A.cksRows()[1].val, '0xA', '🔴 點左上還原 ⇒ B 的 checksum 回到 0xA');
+    /* 清空 ⇒ 兩個都回空狀態 */
+    A.clearAll(); await sleep(40);
+    { const rows = A.cksRows();
+      EQ(rows[0].val, '（無）', '清空 ⇒ A 空狀態');
+      EQ(rows[1].val, '（無）', '清空 ⇒ B 空狀態'); }
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
