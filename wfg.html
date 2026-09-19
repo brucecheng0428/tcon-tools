@@ -3023,7 +3023,7 @@
             <div class="wfg-la-toolbar" id="wfg-la-toolbar-sticky">
                 <div class="wfg-la-brand wfg-la-preset-brand">
                   <span class="wfg-la-group-label" data-i18n="wfg.laGrpPreset">預設</span>
-                  <select id="wfg-la-quick-preset" class="wfg-la-quick-select preset-attention" onchange="var _v=this.value;setTimeout(function(){wfgLaApplyQuickPreset(_v)},0)" title="原廠軟體設定快捷" data-i18n-title="wfg.laQuickPresetTitle">
+                  <select id="wfg-la-quick-preset" class="wfg-la-quick-select preset-attention" onfocus="wfgLaPresetRemember(this)" onchange="wfgLaQuickPresetChanged(this)" title="原廠軟體設定快捷" data-i18n-title="wfg.laQuickPresetTitle">
                     <option value="" data-i18n="wfg.laQuickPresetDefault">快捷設定</option>
                     <option value="e512-em02" data-i18n="wfg.laPresetE512">E512/EM02(PC)</option>
                     <option value="e503" data-i18n="wfg.laPresetE503">E503</option>
@@ -3480,7 +3480,21 @@
 
        🔴 **刻意沒有「不再顯示」勾選**：Bruce 在 v4.27.0 明確反對過。
        🔴 tone 用 `tone-red`（不是 amber）：紅色在站上的語意是「錯誤／停住」，
-          這裡是**不可復原**，是全站唯一一個按下去就救不回來的動作。 -->
+          這裡是**不可復原**，是全站唯一一個按下去就救不回來的動作。
+
+       ══ 🔴 v4.53.0：這是**四個清除入口共用的唯一一份視窗**（Bruce 2026-09-19）══
+       他的原話：「不管是 WFG 分頁還是 LA 分頁，只要遇到預設選到快捷設定，或者是在
+       波形上方區的清除按鈕，按下去要清除的時候，都要跳出『要清除全部設定嗎？』或
+       『要清空波形嗎？』這類的警告視窗。這部分邏輯都是一樣的。」
+
+       ⇒ 四個入口（WFG 清除鈕／LA 清空鈕／WFG 切回 placeholder／LA 切回 placeholder）
+         走同一份 DOM 與同一支 `wfgClrAskShow/Cancel/Confirm()`。
+         **v4.48.0 另立的 `#wfg-la-clr-mask` 已併入本節** —— 它與這一份「逐行相同」，
+         留兩份 DOM 的唯一結果就是下次只改到其中一邊（v3.5.1 的清空路徑分岔教訓）。
+       🔴 title／body／OK 三處的字**由 `wfgClrAskShow()` 依入口寫入**（連 `data-i18n`
+          一起換，所以中途切語言仍然正確）。下面寫死的字是 WFG「清除」那一個入口的字，
+          純粹當沒有 JS 時的 fallback。
+       🔴 刻意不寫任何廠牌／型號字樣（公開面去商標化）。 -->
   <div class="wfg-ack-mask hidden" id="wfg-clr-mask" role="dialog" aria-modal="true" aria-labelledby="wfg-clr-title">
     <div class="wfg-ack">
       <div class="wfg-ack-hd">
@@ -3493,45 +3507,14 @@
         <div class="wfg-ack-item tone-red">
           <div class="wfg-ack-num">!</div>
           <div class="wfg-ack-tx">
-            <div class="wfg-ack-where" style="white-space:pre-wrap" data-i18n="wfg.clrBody">波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。
+            <div class="wfg-ack-where" id="wfg-clr-body" style="white-space:pre-wrap" data-i18n="wfg.clrBody">波形、游標、量測與匯入紀錄全部清空，回到 FHD／E503／60Hz／Single Gate。自動存檔一併清除，無法復原。
 波形區會變成空白（所有通道與內部訊號都不顯示），檢視的中心與倍率回到預設。</div>
           </div>
         </div>
       </div>
       <div class="wfg-ack-ft">
-        <button type="button" class="wfg-ack-ok on" id="wfg-clr-ok" onclick="wfgClrConfirm()" data-i18n="wfg.clrOk">清除</button>
-        <button type="button" class="wfg-ack-ok on" id="wfg-clr-cancel" onclick="wfgClrCancel()"
-                style="background:#334155;border-color:#475569;color:#e2e8f0" data-i18n="wfg.clrCancel">取消</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ 🔴 LA 分頁的「清空波形」確認視窗（Bruce 2026-09-19）══════════════════════
-       結構與 `#wfg-clr-mask` **逐行相同**（同一套 `.wfg-ack-mask`，不新造對話框樣式）。
-       差別只在內文：WFG 那顆是「清除全部設定」，這顆只清**波形與波形帶出來的東西**，
-       所以文案必須把「保留什麼」明寫出來，不留給使用者猜。
-       🔴 刻意不寫任何廠牌／型號字樣（公開面去商標化）。 -->
-  <div class="wfg-ack-mask hidden" id="wfg-la-clr-mask" role="dialog" aria-modal="true" aria-labelledby="wfg-la-clr-title">
-    <div class="wfg-ack">
-      <div class="wfg-ack-hd">
-        <div class="wfg-ack-bang" aria-hidden="true">?</div>
-        <div class="wfg-ack-hd-tx">
-          <div class="wfg-ack-title" id="wfg-la-clr-title" data-i18n="wfg.laClrTitle">要清空波形嗎？</div>
-        </div>
-      </div>
-      <div class="wfg-ack-bd">
-        <div class="wfg-ack-item tone-red">
-          <div class="wfg-ack-num">!</div>
-          <div class="wfg-ack-tx">
-            <div class="wfg-ack-where" style="white-space:pre-wrap" data-i18n="wfg.laClrBody">清空擷取到的波形、游標、時基尺標、釘住的量測、脈衝計數、解碼結果與匯入檔名，檢視回到全覽。無法復原。
-保留不動：取樣深度／速率／門檻、觸發設定、通道名稱與順序、快捷設定、analyzer 清單。這些是設定不是波形，存在瀏覽器裡，清空不會動到。
-波形區會變成空白，直到下一次擷取或匯入。</div>
-          </div>
-        </div>
-      </div>
-      <div class="wfg-ack-ft">
-        <button type="button" class="wfg-ack-ok on" id="wfg-la-clr-ok" onclick="wfgLaClrConfirm()" data-i18n="wfg.laClrOk">清空</button>
-        <button type="button" class="wfg-ack-ok on" id="wfg-la-clr-cancel" onclick="wfgLaClrCancel()"
+        <button type="button" class="wfg-ack-ok on" id="wfg-clr-ok" onclick="wfgClrAskConfirm()" data-i18n="wfg.clrOk">清除</button>
+        <button type="button" class="wfg-ack-ok on" id="wfg-clr-cancel" onclick="wfgClrAskCancel()"
                 style="background:#334155;border-color:#475569;color:#e2e8f0" data-i18n="wfg.clrCancel">取消</button>
       </div>
     </div>
@@ -3691,8 +3674,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260919wfg4520"></script>
-<script src="common/i18n.js?v=20260919wfg4520"></script>
+<script src="common/version.js?v=20260919wfg4530"></script>
+<script src="common/i18n.js?v=20260919wfg4530"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -8389,7 +8372,7 @@ function wfgLbShift() { return wfgFirstLineRead | 0; }
       改為預設一律 0。」）。這個常數是這個選項唯一的預設值來源，改它一處即同時涵蓋
       三條路徑，不需要（也不可以）在別處再寫一次數字：
         1. 開新頁 —— 下面 `let wfgTxDeOffset = WFG_TXDE_OFF_DEFAULT`
-        2. 「清除」重置 —— `wfgClrConfirm()` 內的 `wfgTxDeOffset = WFG_TXDE_OFF_DEFAULT`
+        2. 「清除」重置 —— `wfgResetToDefault()` 內的 `wfgTxDeOffset = WFG_TXDE_OFF_DEFAULT`
         3. **舊設定檔匯入的 fallback** —— `wfgImportConfig()` 內
            `(typeof config.txDeOffset === 'number') ? … : WFG_TXDE_OFF_DEFAULT`
       第 3 條正是 Bruce 特別交代的那一項：v4.37.3 以前存的檔沒有 `txDeOffset` 欄位，
@@ -13445,29 +13428,12 @@ function wfgLaClearWaveform() {
 }
 window.wfgLaClearWaveform = wfgLaClearWaveform;
 
-/* 三支入口，與 WFG 的 wfgClrShow/Cancel/Confirm 逐行對應（同一套 .wfg-ack-mask）。 */
-function wfgLaClrShow() {
-  var m = document.getElementById('wfg-la-clr-mask');
-  /* 視窗不在就什麼都不做 —— 不退回直接執行，那等於把防呆拿掉（同 wfgClrShow）。 */
-  if (!m) { console.warn('[wfg-la] clear confirm dialog missing; clear aborted'); return; }
-  m.classList.remove('hidden');
-  /* 預設焦點給「取消」：破壞性動作的 Enter 不該是確認。 */
-  setTimeout(function() {
-    var b = document.getElementById('wfg-la-clr-cancel');
-    if (b) b.focus({ preventScroll: true });
-  }, 60);
-}
-function wfgLaClrCancel() {
-  var m = document.getElementById('wfg-la-clr-mask');
-  if (m) m.classList.add('hidden');
-}
-function wfgLaClrConfirm() {
-  wfgLaClrCancel();
-  wfgLaClearWaveform();
-}
+/* ══ 入口②：LA 工具列「清空」═══════════════════════════════════════════════
+   🔴 v4.53.0：v4.48.0 的 `wfgLaClrShow/Cancel/Confirm()` 是 WFG 那三支的**第二份
+   逐行相同的實作**。本版把視窗本體收斂到 `wfgClrAskShow()`（見該處說明），
+   這裡只剩「用哪一組文案、按下確定做什麼」。四個入口都只剩這兩件事。 */
+function wfgLaClrShow() { wfgClrAskShow('la', wfgLaClearWaveform); }
 window.wfgLaClrShow = wfgLaClrShow;
-window.wfgLaClrCancel = wfgLaClrCancel;
-window.wfgLaClrConfirm = wfgLaClrConfirm;   // 驗收腳本要走與按鈕相同的路徑
 
 /* 🔴 驗收腳本用的狀態出口。LA 的變數全部關在 IIFE 裡，真瀏覽器 probe 讀不到 ——
    沒有這個出口，probe 就只驗得到「按鈕在不在」，驗不到「東西有沒有真的清掉」，
@@ -13486,6 +13452,10 @@ window.__wfgLaProbe = {
   decodeCount:    function () { return wfgLaDecodeResults.length; },
   viewStart:      function () { return wfgLaViewStart; },
   channelOrderLen:function () { return (wfgLaChannelOrder || []).length; },
+  /* v4.53.0：「切回快捷設定」要驗通道名稱有沒有真的回預設（內部以 '' 表示預設名）。
+     走 `wfgLaStoreChannelName()`＝使用者改名的同一支，不直接寫陣列。 */
+  channelNames:   function () { return wfgLaChannelNames.slice(); },
+  setChannelName: function (i, v) { wfgLaStoreChannelName(i, v); },
   analyzerCount:  function () { return (wfgLaAnalyzers || []).length; },
   /* 🔴 `wfgLaLoadDemoCapture()` 本身**只灌資料不重繪**（重繪由各呼叫端做）。
      測試鉤子這裡補上重繪，否則 probe 會拿到上一次的畫面、驗出假綠。 */
@@ -29924,8 +29894,9 @@ function wfgClearAllCursors() {
 
 /* ══ 🔴 v4.35.0：這一支同時是「預設下拉選回快捷設定」與工具列「清除」按鈕的實作 ═══
    Bruce 2026-08-28：「我覺得點選『回到快捷設定』與按下『清除』按鈕的行為，
-   應該要保持一致會比較好。」⇒ **不寫第二套清除邏輯**，兩個入口共用這一支，
-   差別只在「清除」按鈕會先跳一個確認視窗（見 `wfgClrShow()`）。
+   應該要保持一致會比較好。」⇒ **不寫第二套清除邏輯**，兩個入口共用這一支。
+   🔴 v4.53.0 起兩個入口**都會先跳同一個確認視窗**（見 `wfgClrAskShow()`）——
+      原本只有「清除」按鈕會跳，那個差別已經被 Bruce 2026-09-19 的裁示取消。
 
    他同時指出既有的「回到快捷設定」本身就漏了東西：「並沒有清空到右側即時測量用上去
    的資訊，所以那邊也要跟著清空；而左側的資訊也只是保留，並沒有回到清除的狀態。」
@@ -30212,17 +30183,56 @@ function wfgResetToDefault() {
   }
   wfgAutoSaveNow();
 }
-/* ══ 🔴 v4.35.0：工具列「清除」按鈕的三支處理函式 ═══════════════════════════════
-   🔴 **這裡沒有任何清除邏輯**：確認之後直接呼叫 `wfgResetToDefault()`。
+/* ══ 🔴 v4.35.0 → v4.53.0：**四個清除入口共用的唯一一套確認視窗** ═══════════════
+   🔴 **這裡沒有任何清除邏輯**：確認之後由呼叫端給的 `onConfirm` 去做事。
    Bruce 2026-08-28：「我覺得點選『回到快捷設定』與按下『清除』按鈕的行為，
    應該要保持一致會比較好。」寫第二套實作就是分岔的起點 —— 今天一致，
-   下次只改到其中一邊就又不一致了，而且不會有人發現。 */
-function wfgClrShow() {
+   下次只改到其中一邊就又不一致了，而且不會有人發現。
+
+   v4.53.0（Bruce 2026-09-19）：「這部分邏輯都是一樣的」⇒ 入口從兩個變四個，
+   而 v4.48.0 的 `wfgLaClrShow/Cancel/Confirm()` 是**第二份逐行相同的實作**。
+   兩份變四份之前先收斂成一份：視窗本體（`#wfg-clr-mask`）、預設焦點給「取消」、
+   「視窗不在就什麼都不做」、「取消 ＝ 什麼都沒發生」這四件事各只有一份程式碼。
+
+   四個入口只提供「文案（三個 i18n key）」與「按下確定要做什麼」：
+     wfgClrShow()              — WFG 工具列「清除」
+     wfgLaClrShow()            — LA 工具列「清空」
+     wfgLoadPresetFromSelect() — WFG 下拉切回「快捷設定」placeholder
+     wfgLaQuickPresetChanged() — LA 下拉切回「快捷設定」placeholder
+   🔴 文案**依入口而不同**（清的東西不一樣，承諾就必須不一樣）；
+      只有「WFG 清除鈕」與「WFG 切回 placeholder」共用同一組 key，
+      因為 v4.35.0 起這兩個入口做的事就是同一件（都是 `wfgResetToDefault()`）——
+      這不是照抄，是同一個動作同一份字。 */
+var WFG_CLR_ASKS = {
+  /* key → 三個 i18n key。`ok` 那顆的字要講出**這一次**做什麼（清除／清空）。 */
+  tcon:     { title: 'wfg.clrTitle',      body: 'wfg.clrBody',      ok: 'wfg.clrOk' },
+  la:       { title: 'wfg.laClrTitle',    body: 'wfg.laClrBody',    ok: 'wfg.laClrOk' },
+  laPreset: { title: 'wfg.laPreClrTitle', body: 'wfg.laPreClrBody', ok: 'wfg.laClrOk' }
+};
+WFG_CLR_ASKS.tconPreset = WFG_CLR_ASKS.tcon;   /* 同一個動作 ⇒ 同一份字，不另寫一份 */
+
+/* 視窗開著時**唯一**被改動的狀態就是這個變數（＝「取消什麼都沒發生」的結構保證）。 */
+var _wfgClrAsk = null;
+
+function _wfgClrAskText(el, key) {
+  if (!el || !key) return;
+  /* 連 `data-i18n` 一起換：換語言時 `applyLang()` 會用這個屬性重寫，
+     不換就會在切語言後跳回上一個入口的字（靜默、而且只有切語言才看得到）。 */
+  el.setAttribute('data-i18n', key);
+  if (typeof t === 'function') el.textContent = t(key);
+}
+
+function wfgClrAskShow(kind, onConfirm, onCancel) {
+  var spec = WFG_CLR_ASKS[kind];
   var m = document.getElementById('wfg-clr-mask');
-  /* 🔴 大聲失敗的方向要挑對：視窗不在就**什麼都不做**。
+  /* 🔴 大聲失敗的方向要挑對：視窗（或文案）不在就**什麼都不做**。
      這裡不能像其他對話框那樣「退回直接執行」—— 那等於把防呆整個拿掉，
      而這個動作是不可復原的。寧可按鈕沒反應，也不要無聲清光使用者的設定。 */
-  if (!m) { console.warn('[wfg] clear confirm dialog missing; clear aborted'); return; }
+  if (!m || !spec) { console.warn('[wfg] clear confirm dialog missing; clear aborted', kind); return; }
+  _wfgClrAskText(document.getElementById('wfg-clr-title'), spec.title);
+  _wfgClrAskText(document.getElementById('wfg-clr-body'), spec.body);
+  _wfgClrAskText(document.getElementById('wfg-clr-ok'), spec.ok);
+  _wfgClrAsk = { onConfirm: onConfirm, onCancel: onCancel };
   m.classList.remove('hidden');
   /* 🔴 預設焦點給「取消」而不是「清除」：破壞性動作的 Enter 鍵不該是確認。 */
   setTimeout(function() {
@@ -30230,22 +30240,38 @@ function wfgClrShow() {
     if (b) b.focus({ preventScroll: true });
   }, 60);
 }
-function wfgClrCancel() {
-  /* 取消：**不動任何狀態**（與 `wfgImpCancel()` 同一個寫法與同一個承諾）。 */
+function wfgClrAskCancel() {
+  /* 取消：**不動任何狀態**（與 `wfgImpCancel()` 同一個寫法與同一個承諾）。
+     `onCancel` 只用來還原**可見狀態**（下拉轉回原值），不做任何清除。 */
   var m = document.getElementById('wfg-clr-mask');
   if (m) m.classList.add('hidden');
+  var ask = _wfgClrAsk;
+  _wfgClrAsk = null;
+  if (ask && ask.onCancel) ask.onCancel();
 }
-function wfgClrConfirm() {
-  wfgClrCancel();
-  /* 下拉也回到 placeholder —— 兩個入口的**可見狀態**也要一致，
-     否則清除完畢後下拉還停在某個 preset 名稱上，看起來像「套了那組 preset」。 */
-  var sel = document.getElementById('wfg-preset-select');
-  if (sel) sel.value = '';
-  wfgResetToDefault();
+function wfgClrAskConfirm() {
+  var ask = _wfgClrAsk;
+  _wfgClrAsk = null;
+  var m = document.getElementById('wfg-clr-mask');
+  if (m) m.classList.add('hidden');
+  if (ask && ask.onConfirm) ask.onConfirm();
+}
+window.wfgClrAskShow = wfgClrAskShow;
+window.wfgClrAskCancel = wfgClrAskCancel;
+window.wfgClrAskConfirm = wfgClrAskConfirm;   // 驗收腳本要走與按鈕相同的路徑
+
+/* 入口①：WFG 工具列「清除」。 */
+function wfgClrShow() {
+  wfgClrAskShow('tcon', function() {
+    /* 下拉也回到 placeholder —— 兩個入口的**可見狀態**也要一致，
+       否則清除完畢後下拉還停在某個 preset 名稱上，看起來像「套了那組 preset」。 */
+    var sel = document.getElementById('wfg-preset-select');
+    if (sel) sel.value = '';
+    _wfgPresetPrev = '';
+    wfgResetToDefault();
+  });
 }
 window.wfgClrShow = wfgClrShow;
-window.wfgClrCancel = wfgClrCancel;
-window.wfgClrConfirm = wfgClrConfirm;   // 驗收腳本要走與按鈕相同的路徑
 
 /* ══ 🔴 v4.37.0：快捷設定也走五類選擇視窗（Bruce 2026-08-28）════════════════════
    「其實在左側的預設選單（也就是快捷設定）這邊，當我選擇不同的設定時，其實功能
@@ -30264,9 +30290,22 @@ window.wfgPresetRemember = wfgPresetRemember;
 function wfgLoadPresetFromSelect(sel) {
   var key = sel.value;
   if (!key || !WFG_PRESETS[key]) {
-    /* 🔴 「回到快捷設定」placeholder **不跳視窗**：Bruce 已裁示它與工具列「清除」
-       行為一致，而清除是**重置**不是匯入（v4.35.0 定的語意，本版一個字未改）。 */
-    if (!key) wfgResetToDefault();
+    /* 🔴 v4.53.0（Bruce 2026-09-19）：「回到快捷設定」placeholder **要跳確認視窗**。
+       這**推翻**了 v4.37.0 寫在這裡的舊裁示（「與工具列『清除』一致，而清除不跳視窗」）。
+       舊裁示的前提已經不成立 —— v4.35.0 之後工具列「清除」本身就會先跳確認視窗，
+       所以「與清除一致」現在的意思正好相反：**也要跳**。
+       他的原話：「只要遇到預設選到快捷設定，或者是在波形上方區的清除按鈕，按下去要
+       清除的時候，都要跳出『要清除全部設定嗎？』…這部分邏輯都是一樣的」。
+       文案與「清除」共用同一組 key，因為這兩個入口做的事是同一件（`wfgResetToDefault()`）。
+
+       🔴 **先問、後做**：視窗開著時一個狀態都不動（與下面套 preset 那條同一個原則）。
+       取消 ⇒ 只把下拉轉回 `_wfgPresetPrev`，其餘一個欄位都沒被碰過。 */
+    if (!key) {
+      wfgClrAskShow('tconPreset',
+        function() { _wfgPresetPrev = ''; wfgResetToDefault(); },
+        function() { sel.value = _wfgPresetPrev; });
+      return;
+    }
     _wfgPresetPrev = sel.value;
     return;
   }
@@ -40495,6 +40534,37 @@ function wfgLaApplyParsedSettings(parsed, options) {
   if (options.message) wfgLaSetAcqProgress(100, options.message, 'done');
 }
 
+/* ══ 🔴 v4.53.0：入口④ — LA 下拉的 change handler（Bruce 2026-09-19）═══════════
+   在此之前 `onchange` 直接 `setTimeout(… wfgLaApplyQuickPreset(_v) …)`，**沒有任何
+   記錄舊值的機制**，所以取消時無法把下拉轉回原值。比照 WFG 的 `_wfgPresetPrev`
+   在 `focus` 記舊值（真人操作一定先 focus；`change` 事件本身拿不到舊值）。
+   🔴 不用 setTimeout 去猜舊值。
+
+   🔴 確認視窗放在**這支 change handler**、不是放在 `wfgLaApplyQuickPreset()` 裡：
+      後者還有開頁還原（localStorage 存的 preset）與錯誤處理等程式化呼叫端，
+      視窗跳在那裡等於開頁就彈一個「要清空嗎」。 */
+var _wfgLaPresetPrev = '';
+function wfgLaPresetRemember(sel) { _wfgLaPresetPrev = sel ? sel.value : ''; }
+window.wfgLaPresetRemember = wfgLaPresetRemember;
+
+function wfgLaQuickPresetChanged(sel) {
+  var id = sel ? sel.value : '';
+  if (!id) {
+    /* 切回 placeholder ＝ 清空波形＋把 LA 的設定回到預設（見 `wfgLaApplyQuickPreset`
+       的 `!preset` 分支）⇒ 與「清空」按鈕同一套確認視窗，只是文案不同。
+       先問後做：視窗開著時一個狀態都沒動；取消只把下拉轉回去。 */
+    wfgClrAskShow('laPreset',
+      function() { _wfgLaPresetPrev = ''; wfgLaApplyQuickPreset(''); },
+      function() { if (sel) sel.value = _wfgLaPresetPrev; });
+    return;
+  }
+  _wfgLaPresetPrev = id;
+  /* 具體某個 preset：行為維持現狀（含原本那一層 setTimeout —— 它是為了讓
+     iOS Safari 的 select picker 先關掉再跑重活，不是用來記舊值的）。 */
+  setTimeout(function() { wfgLaApplyQuickPreset(id); }, 0);
+}
+window.wfgLaQuickPresetChanged = wfgLaQuickPresetChanged;
+
 async function wfgLaApplyQuickPreset(id) {
   wfgLaInit(); /* 確保 LA 已初始化 */
   var seq = ++_wfgLaQuickPresetSeq;
@@ -40510,6 +40580,19 @@ async function wfgLaApplyQuickPreset(id) {
     wfgHideProgress();
     if (select) { select.value = ''; select.classList.add('preset-attention'); }
     try { localStorage.removeItem('wfg-la-quick-preset'); } catch(e) {}
+    /* ══ 🔴 v4.53.0：波形與已載入的檔案也要清掉（Bruce 2026-09-19）════════════
+       他的原話：「在預設的快捷設定中，只要切回來，就是把所有波形和檔案清空
+       （跟檔案清空那邊的意義是一樣的），然後通道名稱也要清空。」
+
+       🔴 **走「清空」按鈕的同一支 `wfgLaClearWaveform()`，不在這裡另寫一份清空**。
+          理由是 v3.5.1 的教訓：清空路徑各寫一份，結果有的漏清 cursor、有的漏清
+          sticky 時間軸。順帶：`wfgLaCleared` 旗標也只有這一支會設，而少了它，
+          清完之後隨手改一個設定 `wfgLaUpdateSummary()` 就會把 demo 方波補回來
+          （v4.48.0 踩過的坑）—— 自己寫一份 `wfgLaCapturedWaveform = null` 正是那個長相。
+       🔴 排在最前面：這支結尾會整片重繪，放在後面會先讓下面的 `wfgLaUpdateSummary()`
+          在 `wfgLaCleared` 還是 false 時把 demo 方波補回來，多閃一次畫面。
+          它也負責清 `wfgLaLastEdgeCounts`（原本寫在下面那一行，已移除以免兩份）。 */
+    wfgLaClearWaveform();
     /* 選回「快捷設定」時完整復原：通道名稱/描述/順序/分析器/可見通道/解碼展開狀態 */
     wfgLaDecodeExpanded = false;
     wfgLaApplyDecodeExpandedState();
@@ -40520,7 +40603,9 @@ async function wfgLaApplyQuickPreset(id) {
        註：這是 change 事件「當下」的一次性重置；之後使用者的任何手動改名仍走既有即時存檔路徑，不受影響。
        v435 已修復 restore render-timing（清 wfgLaIoSelectLockUntil），故空名稱重整不會再出現名稱欄空白。 */
     for (var ri = 0; ri < 16; ri++) { wfgLaChannelNames[ri] = ''; wfgLaChannelDescriptions[ri] = ''; }
-    wfgLaLastEdgeCounts = []; /* v2.97.407: 清前一個 preset(如 I2C 2ch) 殘留的 edge counts，避免影響 has-signal/硬體通道判斷 */
+    /* v2.97.407 的 `wfgLaLastEdgeCounts = []`（清前一個 preset 殘留的 edge counts，
+       避免影響 has-signal／硬體通道判斷）v4.53.0 起由上面的 `wfgLaClearWaveform()`
+       負責 —— 同一件事不留兩份。 */
     wfgLaChannelOrder = Array.from({ length: 16 }, function(_, idx) { return idx; });
     wfgLaAnalyzers = [];
     wfgLaIoSelectLockUntil = 0; /* 比照 v435：清 IO select 鎖，確保下方同步 render 立即重建通道名稱欄，名稱立刻變回預設 */
@@ -43098,7 +43183,7 @@ function wfgImpSelClose() {
 }
 
 function wfgImpSelCancel() {
-  /* 取消：**不動任何狀態**（與 `wfgClrCancel()`／`wfgImpCancel()` 同一個承諾）。
+  /* 取消：**不動任何狀態**（與 `wfgClrAskCancel()`／`wfgImpCancel()` 同一個承諾）。
      v4.37.0：快捷設定那條路要把下拉轉回原本的選項，否則畫面會停在一個沒有被套用的
      預設名稱上 —— 那是說謊，不是小瑕疵。這件事由呼叫端用 `onCancel` 決定。 */
   var p = _wfgImpSelPending;
