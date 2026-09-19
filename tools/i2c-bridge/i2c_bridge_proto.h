@@ -261,7 +261,7 @@ static inline int dgh_origin_allowed(const char* hdr){
        資料 byte 的 ACK 是主機自己發的，不需要跟從機來回，所以 N 個 byte 可以
        整段組完、一次送出、一次收回。由 test_proto.c 的「整段只有一個 0x87」釘住。
 
-   🔴 為什麼不照抄原廠：**原廠沒有這個需求，所以原廠沒有答案。**
+   🔴 為什麼不照抄 DLL_I2C_BCB：** DLL_I2C_BCB 沒有這個需求，所以它沒有答案。**
      反組譯實查（`I2C_tool/xCtrl_I2C_App.cs:73` options=11u ⇒ 0x0B，資料相位
      **沒有** FAST_TRANSFER）—— PQ Tool 的讀取也是逐 byte，它不慢只是因為
      `RaydiumEM02A1.cs:220` `new byte[48]`：**它一次只讀 48 byte**（全庫最大 228）。
@@ -459,7 +459,7 @@ static inline int dgh_mp_rd_byte(dgh_buf* b, int nack){
            ⇒ NACK 改回 `0x13 0x00 0x80`：寫 1 個位元、值為 1。
            ⚠️ 這在開汲極意義上是「主動推高」，不理想；但這顆晶片**本來就沒有
               開汲極**（沒有 0x9E），MPSSE 在它上面做不出合規的 I2C。
-              正解是原廠 DLL，這條路只是備援與對照。 */
+              正解是 DLL_I2C_BCB.dll，這條路只是備援與對照。 */
         dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_WR);
         dgh_put(b,0x13); dgh_put(b,0x00);           dgh_put(b,0x80);
     } else {

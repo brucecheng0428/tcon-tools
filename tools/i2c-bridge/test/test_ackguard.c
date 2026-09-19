@@ -143,8 +143,13 @@ int main(void){
     CHECK(strstr(g_lastErr, "0x1000") != NULL, "訊息帶 addr");
     CHECK(strstr(g_lastErr, "DISCARDED") != NULL, "訊息明講資料已丟棄（不是靜默失敗）");
     CHECK(strstr(g_lastErr, "Retry") != NULL, "訊息給下一步（重試／重插／降速／少讀）");
-    CHECK(strstr(g_lastErr, I2C_BRIDGE_FALLBACK_PKG) != NULL,
-          "🔴 訊息帶舊版下載路徑 —— 被新守衛擋死時他當場就有退路");
+    /* 🔴 1.14.0：巨集拆成兩個。這裡要的是「**沒有這道守衛**的那一版」，
+       不是「上一版」—— 1.13.0 起都有守衛，指過去等於叫他換一個會用同樣理由
+       擋下他的 exe。所以這條斷言同時釘住「指的是 v1.12.0」。 */
+    CHECK(strstr(g_lastErr, I2C_BRIDGE_NOACKGUARD_PKG) != NULL,
+          "🔴 訊息帶「沒有這道守衛的那一版」的下載路徑 —— 被新守衛擋死時他當場就有退路");
+    CHECK(strstr(g_lastErr, "v1.12.0") != NULL,
+          "🔴🔴 而且那個路徑就是 v1.12.0，**不會跟著版號往前走**（往前走就不是退路了）");
     CHECK(json_safe(g_lastErr), "🔴 訊息可直接嵌進 JSON（無 \" 無 \\ 無非 ASCII）");
     CHECK((int)strlen(g_lastErr) < DGH_LASTERR_MAX, "長度在緩衝區內");
 

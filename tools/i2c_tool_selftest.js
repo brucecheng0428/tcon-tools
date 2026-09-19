@@ -182,7 +182,10 @@ function baseScript(f) {
      （快 4096、慢 256）。這一組驗的是**慢路徑**的分段規則，所以要明講模式，
      不能再靠預設值 —— 靠預設值的測試在預設一改就會自相矛盾。
      快路徑「不分段」由第 46 組驗。 */
-  A.rawMpsse(false);
+  /* 🔴 v1.20.1：這裡本來寫 `A.rawMpsse(false)`，那在 v1.20.0 之後等於「走
+     DLL_I2C_BCB.dll 路徑」，而那條路**不分段** ⇒ 這一組驗的 256 分段規則會全滅。
+     要驗慢路徑就要明講 `A.mode(2)`，不能再靠旗標旁敲側擊（這正是本版修的病灶）。 */
+  A.mode(2);
   EQ(A.planRead(0x1200, 3, 2), [{ addr: 0x1200, len: 3, off: 0 }], '3 byte ＝ 1 則');
   EQ(A.planRead(0x0000, 256, 2), [{ addr: 0, len: 256, off: 0 }], '256 byte ＝ 1 則（剛好一頁）');
   EQ(A.planRead(0x0000, 257, 2),
@@ -1286,7 +1289,7 @@ function baseScript(f) {
       }
     });
     await useHelper(sc);
-    A.rawMpsse(false);   /* 連線之後才設，否則會被連線時的還原蓋掉 */
+    A.mode(2);           /* 🔴 v1.20.1：明講 SLOW。rawMpsse(false) 現在是 VENDOR＝不分段 */
     A.clearFile();
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '2048' });
     const refBefore = A.refLabel();
@@ -2420,9 +2423,12 @@ function baseScript(f) {
         data: Array.from({ length: m.len }, (_, i) => i & 0xFF) };
       return { ok: true, status: 0, transferred: 1, us: 6789 };
     }));
-    /* 🔴 這一組驗的是**分段時**的耗時累加，所以要明講走慢路徑（快路徑一次讀完、
-       不分段，見第 46 組）。v1.13.1 起快速模式是預設值，不能再靠預設。 */
-    A.rawMpsse(false);
+    /* 🔴 這一組驗的是**分段時**的耗時累加，所以要明講走慢路徑（其他路徑一次讀完、
+       不分段，見第 46 組）。v1.13.1 起快速模式是預設值，不能再靠預設。
+       🔴 v1.20.1：原本寫 `A.rawMpsse(false)`，而那在 v1.20.0 之後是
+       **DLL_I2C_BCB.dll 路徑**（不分段）⇒ 512 會變成 1 段，這一組就驗不到累加。
+       要慢路徑就明講 `A.mode(2)` —— 靠旗標旁敲側擊正是本版修掉的病灶。 */
+    A.mode(2);
     A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '512' });
     await A.doRead(); await sleep(30);
     const res = A.state().lastRead;
@@ -3965,22 +3971,127 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
-  G('46. 🔴 分段長度跟著路徑走（原廠一次讀 4096，不分段）');
+  G('46. 🔴 分段長度跟著「模式」走，不是跟著舊旗標（v1.20.1）');
   {
-    /* 原廠 RomCode UI 的標準操作：slave 0x50、offset 寬度 2、**一次讀 4096**
-       （RomCodeProcessUI.py:30842 判斷式、:31669 單行 GetBytesEx，沒有 chunk 迴圈）。
-       256 是我們自己加的，理由是「逐 byte 路徑要跑 10~20 秒，得有進度與中止」。
-       ⇒ raw 路徑一次送完，libMPSSE 路徑維持 256。 */
-    A.rawMpsse(false);
-    EQ(A.chunk(), 256, 'libMPSSE 路徑：每則 256 byte（保住進度條與中止）');
+    /* 🔴 這一組整組重寫。舊版驗的是 `i2ctRawMpsse ? 4096 : 256` —— 那個判準本身
+       就是 bug：v1.20.0 起產品預設是 DLL_I2C_BCB.dll 路徑（rawMpsse === false），
+       於是 8192 被切成 32 則送出去，而那條路在 bridge 端本來就一次讀完不分段。
+       Bruce 2026-09-19：「為什麼燒錄完後的讀取驗證，不是一次讀完 8192，而是分
+       256 byte、256 byte 這樣讀？」「不是一次讀 8192 的值，而是一次讀全部我設定
+       的長度值。不一定是 8192 啊，萬一我要讀 65536 呢？」
+
+       🔴 每一條路徑的上限都要**講得出出處**，這一組就是釘住那四個出處：
+         SLOW(2)   256   ＝ 進度與中止的顆粒度（每個 byte 都要往返，4096 要 10~20 秒）
+         RAW(3)    4096  ＝ bridge `DGH_RAW_READ_MAX`，自建路徑的命令緩衝區大小
+         VENDOR(0) 65535 ＝ `U16 GetBytesEx(...)` 的**回傳值位元寬**（回報讀到幾個
+                           byte 只有 16 位元 ⇒ 65536 溢位成 0，無法驗證完整性）
+         FAST(1)   無限制 ＝ 只受 I2CT_MAX_LEN 這個天花板
+       ⚠️ 65535 這條在**真實硬體上未經驗證**（DLL 內部反組譯沒看到長度常數比較，
+          但它再呼叫的 FTD2XX.DLL 沒追進去）。這裡驗的是網頁端會怎麼切，
+          不是「硬體上一定讀得到」。 */
+    A.mode(2);                                   /* SLOW：libMPSSE 逐 byte */
+    EQ(A.chunk(), 256, '一般模式：每則 256 byte（保住進度條與中止）');
     EQ(A.planRead(0, 4096, 2).length, 16, '4096 ⇒ 切 16 段');
-    A.rawMpsse(true);
-    EQ(A.chunk(), 4096, '🔴 raw 路徑：一次 4096（與原廠相同）');
-    EQ(A.planRead(0, 4096, 2).length, 1, '🔴 4096 ⇒ **一則訊息**（原本 16 則）');
-    EQ(A.planRead(0, 4096, 2)[0].len, 4096, '那一則就是 4096 byte');
-    EQ(A.planRead(0, 8192, 2).length, 2, '超過 4096 仍會切（bridge 緩衝區上限）');
-    A.rawMpsse(false);
-    EQ(A.planRead(0, 4096, 2).length, 16, '切回去也對');
+    A.mode(3);                                   /* RAW：自建 */
+    EQ(A.chunk(), 4096, '自建路徑：4096（命令緩衝區大小）');
+    EQ(A.planRead(0, 4096, 2).length, 1, '4096 ⇒ 一則');
+    EQ(A.planRead(0, 8192, 2).length, 2, '自建超過 4096 仍會切');
+    A.mode(0);                                   /* VENDOR：DLL_I2C_BCB.dll */
+    EQ(A.chunk(), 65535, '🔴 DLL 路徑：65535（回報數量只有 16 位元）');
+    EQ(A.planRead(0, 8192, 2).length, 1, '🔴🔴 8192 ⇒ **一則訊息**（這一版之前是 32 則）');
+    EQ(A.planRead(0, 8192, 2)[0].len, 8192, '那一則就是 8192 byte，不是 256');
+    EQ(A.planRead(0, 4096, 2).length, 1, '4096 也是一則');
+    EQ(A.planRead(0, 65535, 2).length, 1, '🔴 65535 ⇒ 一則（剛好踩在上限）');
+    EQ(A.planRead(0, 65536, 2).map(c => c.len), [65535, 1],
+       '🔴 65536 ⇒ 切 2 則（65535 ＋ 1），**不是報錯、也不是夾取**');
+    EQ(A.planRead(0, 262144, 2).map(c => c.len).reduce((a, b) => a + b, 0), 262144,
+       '🔴 256K 切完之後總長度一個 byte 都不能少');
+    EQ(A.planRead(0, 262144, 2).length, 5, '256K ⇒ 5 則（65535×4 ＋ 4）');
+    A.mode(1);                                   /* FAST：libMPSSE FAST_TRANSFER */
+    EQ(A.planRead(0, 262144, 2).length, 1, 'FAST 沒有長度限制 ⇒ 256K 也是一則');
+    A.mode(0);
+    /* 🔴 反面：舊旗標**不再**能決定分段長度。`i2ctRawMpsse` 在 VENDOR 下是 false，
+       舊寫法會回 256 —— 這一條就是釘住「不准再用它推斷走哪條路」。 */
+    EQ(A.rawMpsse(), false, '前提：DLL 路徑下舊旗標是 false');
+    EQ(A.chunk(), 65535, '🔴 舊旗標 false 但分段長度是 65535 ⇒ 判準確實換成 mode 了');
+    A._reset();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('62. 🔴🔴 一次讀多少就送幾則 —— 端到端數 read 訊息（v1.20.1）');
+  {
+    /* 🔴 第 46 組驗的是 `i2ctPlanRead()` 這個純函式。那只證明「切法對」，
+       **不證明真的送出去的訊息就是那樣**（中間還有 i2ctDoRead 的迴圈、
+       中止、進度、以及寫入後的回讀驗證各自的路徑）。
+       Bruce 問的是他在 log 裡看到的**訊息則數**，所以這一組數的就是訊息。
+
+       🔴 反面也一起釘：一般模式仍然是 256 一段 —— 進度條與中止是靠它的，
+          「全部改成一次送完」會把那個能力弄掉，那不是修好是換一個壞。 */
+    const dev62 = new Array(0x10000).fill(0);
+    for (let i = 0; i < dev62.length; i++) dev62[i] = (i * 7) & 0xFF;
+    const mk62 = (m) => {
+      if (m.type === 'ping') return { helper: '1.14.0', proto: 3, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev62[(m.addr + i) & 0xFFFF] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,   /* usbrt 1 ＝ DLL_I2C_BCB.dll 路徑 */
+        data: Array.from({ length: m.len }, (_, i) => dev62[(m.addr + i) & 0xFFFF]) };
+      return { ok: true, status: 0 };
+    };
+    A._reset();
+    const sent62 = await useHelper(mk62);
+    win.confirm = () => true;
+    EQ(A.mode(), 0, '前提：產品預設 ＝ DLL_I2C_BCB.dll 路徑（mode 0）');
+
+    /* (a) 產品預設下，使用者設多少就一次讀多少 */
+    for (const [len, want, note] of [[4096, 1, ''], [8192, 1, '🔴 Bruce 問的那一個'],
+                                     [65535, 1, '剛好踩在 16 位元的上限']]) {
+      const before = sent62.filter((m) => m.type === 'read').length;
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: String(len) });
+      await A.doRead(); await sleep(60);
+      const reads = sent62.filter((m) => m.type === 'read').slice(before);
+      EQ(reads.length, want, '🔴 讀 ' + len + ' byte ⇒ **' + want + ' 則** read'
+                             + (note ? '（' + note + '）' : ''));
+      EQ(reads[0].len, len, '  └ 那一則的 len 就是 ' + len + '，不是 256');
+    }
+
+    /* (b) 超過 65535 ⇒ **分段**，不是報錯、不是夾取。總長度一個 byte 都不能少。 */
+    { const before = sent62.filter((m) => m.type === 'read').length;
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '65536' });
+      await A.doRead(); await sleep(80);
+      const reads = sent62.filter((m) => m.type === 'read').slice(before);
+      EQ(reads.length, 2, '🔴 讀 65536 ⇒ 2 則（回報數量只有 16 位元，切在 65535）');
+      EQ(reads.map((r) => r.len), [65535, 1], '  └ 65535 ＋ 1');
+      EQ(reads.reduce((a, r) => a + r.len, 0), 65536, '  └ 🔴 總長度一個 byte 都不少'); }
+
+    /* (c) 🔴 **寫入後的回讀驗證**（Bruce 問的正是這個情境）也只送 1 則 */
+    { A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '8192' });
+      await A.doRead(); await sleep(60);
+      A.selAnchor(5); await sleep(20);
+      await A.bitToggle(0, !((A.state().buf[5] >> 0) & 1)); await sleep(80);
+      const before = sent62.filter((m) => m.type === 'read').length;
+      await A.doWrite(); await sleep(150);
+      const reads = sent62.filter((m) => m.type === 'read').slice(before);
+      EQ(reads.length, 1, '🔴🔴 寫完之後的回讀驗證 ⇒ **1 則**（這一版之前是 32 則）');
+      EQ(reads[0].len, 8192, '  └ 一次回讀 8192 byte'); }
+
+    /* (d) 反面：一般模式仍然 256 一段（進度條與中止靠它） */
+    { A.mode(2);
+      const before = sent62.filter((m) => m.type === 'read').length;
+      A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '1024' });
+      await A.doRead(); await sleep(80);
+      const reads = sent62.filter((m) => m.type === 'read').slice(before);
+      EQ(reads.length, 4, '🔴 一般模式讀 1024 ⇒ 仍是 4 則（每則 256）');
+      EQ(reads.every((r) => r.len === 256), true, '  └ 每一則都是 256'); }
+
+    /* (e) 分段的理由要進 log —— 上一次的病灶就是「說不出這個數字哪來的」 */
+    { const log = doc.getElementById('log').textContent;
+      CHECK(log.indexOf('分段：') >= 0, '🔴 log 裡有「分段：」那一行');
+      CHECK(log.indexOf('一次讀完，不分段') >= 0, '🔴 不分段時也印，避免「沒印」有兩種意思');
+      CHECK(log.indexOf('16 位元') >= 0, '🔴 分段時 log 講得出**為什麼**切'); }
+
+    await win.__i2ct.disconnect();
+    A._reset();
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
