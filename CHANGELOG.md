@@ -22,6 +22,46 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.50.1 — 2026-09-19 ｜ PATCH
+
+**Level Shifter 觸發沿兩個下拉的「選項」文字改成自己帶來源名稱：CPV1 上升沿／CPV1 下降沿、CPV2 上升沿／CPV2 下降沿（四進則是 CPV1/CPV3 與 CPV2/CPV4）。只改文案，邏輯一行未動。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+- **§1 判定表「操作流程：位置微調、文案、配色 → PATCH」**，以及 §2 案例 3「改 UI 版面、不動功能：微調（間距、配色、文案…）→ PATCH」。本版**只有 `<option>` 的 textContent 變了**：兩個下拉還在原位、標籤沒變、選項數量與順序沒變、`value`（`falling` / `rising`）沒變、預設值沒變。**這是本版的最高級別。**
+- **R3（使用者能做的事有沒有多一件）：沒有。** 可設的維度與 v4.50.0 完全相同，只是看得懂選的是誰的沿。⇒ 不到 MINOR。
+- **R1 / `⚠ 輸出變更`：不標。** 波形輸出逐點相同（下方驗證欄：8 組情境、95,976 個值、diff=0）。
+- **R4（起始狀態／預設值改變）：不適用**，兩個欄位的預設仍是 `falling`。
+- **不是 MAJOR**：沒有任何控制項移位或消失，使用者原本會的操作一字不變，舊結果不需要重新確認。
+
+### 起因
+
+Bruce 2026-09-19：「你那個 CKO 上升沿（上升的觸發沿），下面選擇應該是 CPV1 上升沿，或是 CPV1 下降沿。而 CKO 下降的觸發沿，應該是 CPV2 的下降沿或上升沿。應該要這樣子寫吧？」
+
+🔴 **這是對 v4.50.0 一個判斷的更正。** v4.50.0 在 `_wfgLsTrigEdgeHtml()` 與 `common/i18n.js` 都寫了「**刻意不用 CPV1／CPV2 命名**，那要先知道 CPV1 是充電才看得懂」——**那個判斷是錯的**。同一張卡片的正上方本來就有「CPV1 來源」「CPV2 來源」兩個欄位（四進是 CPV1~CPV4），選項只寫「上升沿／下降沿」反而對不上剛剛選過的那個欄位。兩處註解已一併改掉並寫明原因。
+
+### 改了什麼
+
+| 位置 | 改動 |
+|---|---|
+| `common/i18n.js` | 移除 `lsCpvEdgeFall` / `lsCpvEdgeRise`（改完已無引用），新增 `lsCpvEdgeFallOf` / `lsCpvEdgeRiseOf`（`{src} 下降沿` / `{src} 上升沿`），三語齊 |
+| `wfg.html` `_wfgLsTrigEdgeHtml()` | 依 `g.mode` 決定 `{src}`：二進 `CPV1` / `CPV2`，四進 `CPV1/CPV3` / `CPV2/CPV4`。另更正上方註解 |
+| `common/version.js`、`wfg.html`／`index.html` 的 `?v=` | v4.50.1 ／ `20260919wfg4501` |
+
+**四進為什麼要寫兩個來源**（以程式碼為準，不是推測）：`_wfgLsBuildQuadCpvEvents()` 依 CKO 序號分組 —— 奇數序 CKO 吃 `(cpv1_ck_idx 充電, cpv2_ck_idx 放電)`、偶數序吃 `(cpv3_ck_idx 充電, cpv4_ck_idx 放電)`，兩組**共用同一對** `cpv_trig_edge_rise` / `cpv_trig_edge_fall`。所以「CKO 上升的觸發沿」實際同時作用在 CPV1 與 CPV3；只寫 CPV1 會讓使用者以為偶數組不受影響。二進維持 CPV1／CPV2。
+
+### 驗證
+
+| 項目 | 結果 |
+|---|---|
+| 跨版本逐點比對（`tools/wfg_ls_edge_dump_probe.js`，真實設定檔 `wfg-config-20260919.txt`，基準 `d5b21f7`） | 8 組情境（二進／四進 × rise/fall 四種組合）、12 條 CKO、**95,976 個時間值全部 diff=0**（FNV-1a 雜湊逐條相同） |
+| `tools/wfg_cpv_trig_probe.js` | **56 / 56 全過**（與 v4.50.0 同數量，無退步） |
+| `tools/wfg_oax_chain_probe.js` | **38 / 38 全過**（無退步） |
+| `scan_untranslated_keys`（二進＋四進 × 三語） | 皆無未翻譯 key |
+| 真瀏覽器截圖（二進／四進 × zh-TW／en／zh-CN，共 6 張） | 四個選項文字與模式對應皆正確 |
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.50.0 — 2026-09-19 ｜ MINOR
 
 **Level Shift 的觸發沿拆成兩個：CKO 上升（充電）與 CKO 下降（放電）各自可以選上升沿或下降沿。**

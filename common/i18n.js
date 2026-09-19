@@ -1836,12 +1836,21 @@ var I18N = {
   /* v4.50.0：觸發沿拆成上升／下降兩個設定。舊的三個 key（lsCpvTrigEdge／
      lsCpvTrigFalling／lsCpvTrigRising）已無任何引用，一併移除，避免下一個人
      以為畫面上還有「單一觸發沿」那個控制項。
-     標籤刻意用「CKO 上升／CKO 下降」而不是 CPV1／CPV2 —— 後者要先知道
-     「CPV1 管充電」才看得懂，等於要對照文件才能操作。 */
+     標籤用「CKO 上升／CKO 下降」：使用者在畫面上看得到 CKO 這幾條波形。 */
   'wfg.lsCpvTrigEdgeRise':  { 'zh-TW': 'CKO 上升的觸發沿', 'en': 'CKO Rise Triggered By', 'zh-CN': 'CKO 上升的触发沿' },
   'wfg.lsCpvTrigEdgeFall':  { 'zh-TW': 'CKO 下降的觸發沿', 'en': 'CKO Fall Triggered By', 'zh-CN': 'CKO 下降的触发沿' },
-  'wfg.lsCpvEdgeFall':      { 'zh-TW': '下降沿', 'en': 'Falling Edge', 'zh-CN': '下降沿' },
-  'wfg.lsCpvEdgeRise':      { 'zh-TW': '上升沿', 'en': 'Rising Edge', 'zh-CN': '上升沿' },
+  /* v4.50.1：選項文字改成**自己帶來源名稱**。舊的兩個 key（lsCpvEdgeFall／
+     lsCpvEdgeRise，只寫「上升沿／下降沿」）已無任何引用，一併移除 ——
+     與 v4.50.0 移除那三個舊 key 同一個慣例。
+     🔴 為什麼改：v4.50.0 的註解寫「刻意不用 CPV1／CPV2 命名」，那是錯的。
+        Bruce 2026-09-19：「你那個 CKO 上升沿（上升的觸發沿），下面選擇應該是
+        CPV1 上升沿，或是 CPV1 下降沿。而 CKO 下降的觸發沿，應該是 CPV2 的
+        下降沿或上升沿。」同一張卡片上面本來就有「CPV1 來源」「CPV2 來源」
+        兩個欄位，選項不寫來源名稱，反而看不出來選的是誰的沿。
+     `{src}` 由 `_wfgLsTrigEdgeHtml()` 依模式填入（二進 CPV1／CPV2、
+     四進 CPV1/CPV3／CPV2/CPV4），不是翻譯內容，三語共用同一組代號。 */
+  'wfg.lsCpvEdgeFallOf':    { 'zh-TW': '{src} 下降沿', 'en': '{src} Falling Edge', 'zh-CN': '{src} 下降沿' },
+  'wfg.lsCpvEdgeRiseOf':    { 'zh-TW': '{src} 上升沿', 'en': '{src} Rising Edge', 'zh-CN': '{src} 上升沿' },
   'wfg.groupDigital':       { 'zh-TW': '數位信號', 'en': 'Digital', 'zh-CN': '数字信号' },
   'wfg.groupAnalog':        { 'zh-TW': '類比信號', 'en': 'Analog', 'zh-CN': '模拟信号' },
   // ─── WFG: Minimap ───
