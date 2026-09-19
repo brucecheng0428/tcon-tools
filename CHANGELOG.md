@@ -22,6 +22,128 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.48.0 — 2026-09-19 ｜ MINOR
+
+**LA 分頁多一顆「清空」按鈕：把波形與波形帶出來的東西一次清乾淨。**
+
+判定依據：新增一個獨立功能（多一顆按鈕、多一件使用者能做的事），**既有操作一個都沒變、沒有任何東西被移除、沒有控制項移位** ⇒ 依 §1 判定表「功能增減：新增獨立功能」與 R3「這一版之後使用者能多做一件事」⇒ **MINOR**。
+逐項複核取最高者：R1 不適用（不是修 bug）；R2 不適用（不開新波，WFG 仍在 4.x）；R4 不適用（沒有改任何預設值或起始狀態 —— 開頁看到的東西與前一版逐項相同，要按下按鈕才會變）。**不標 `⚠ 輸出變更`**：不按那顆按鈕，任何既有操作序列得到的結果完全一樣。
+
+### 起因
+
+Bruce 2026-09-19：「LA 那個網頁，它要仿照 WFG 網頁一樣，要有一個清空波形的按鈕，按下去以後波形可以清空。」
+
+🔴 **事實更正**：`la.html` 只是一個 15 行的轉址檔（`location.replace('wfg.html#la')`），所謂「LA 那個網頁」是 `wfg.html` 裡的 LA 檢視（`#wfg-la-content`，由 `wfgSwitchMode('la')` 切換）。所以這次改的是 `wfg.html`，不是 `la.html`。
+
+### 為什麼不能沿用 WFG 那一套，而要各補一份
+
+| WFG（TCON 側）既有 | LA 能不能共用 | 依據 |
+|---|---|---|
+| `wfgResetToDefault()` | ❌ | 全函式沒有任何一個 `wfgLa*` 識別字；它清的是 `wfgFrame`／`wfgChannels`／`wfgOverlayCfg` 那一組 |
+| `wfgClearAllCursors()` | ❌ | 清的是 `wfgCursors`／`wfgDtLock`；LA 是 `wfgLaCursorActive/Pos/Anchors` ＋ `wfgLaDtLock`，兩套變數 |
+| `_wfgTconClearStickyTimeAxis()` | ❌ | 三個 DOM id 寫死 `wfg-tcon-*`；LA 是 `wfg-la-time-axis-canvas` / `-overlay` |
+| `#wfg-clr-mask` 的視覺 | ✅ | 沿用同一套 `.wfg-ack-mask`，**不新造第七種對話框樣式** |
+
+⇒ 新增 `wfgLaClearAllCursors()`、`_wfgLaClearStickyTimeAxis()`、`wfgLaClearWaveform()` ＋ `wfgLaClrShow/Cancel/Confirm()`。三支清空函式**各自抽出來**（不寫在按鈕 handler 裡），理由與 v3.5.1 抽 `wfgClearAllCursors()` 相同：以後新增清空路徑呼叫一次就好，不會漏掉其中一份。
+
+### 🔴 實作中抓到的坑（只有真瀏覽器跑得出來）
+
+`wfgLaCapturedWaveform = null` **不等於空白**：`wfgLaGetWaveform()` 在沒有擷取資料時會退回 **demo 方波**。而且 `wfgLaUpdateSummary()`（改任何取樣／觸發設定都會走到）在 `wfgLaCapturedWaveform` 為 null 時會**自動呼叫 `wfgLaLoadDemoCapture()` 把方波補回來**。不處理的話，使用者按下清空、隨手改個設定，方波就自己長回來 —— 典型的「按了沒反應」。
+
+⇒ 新增 `wfgLaCleared` 旗標：`wfgLaGetWaveform()` 看到它就回傳零個 edge；守衛放在 **`wfgLaLoadDemoCapture()` 的入口**（不是四個呼叫端），以後新增的自動補 demo 路徑不必記得再加一次。擷取成功（`wfgLaApplyCapturedWaveform`）與強制載入 demo 會把旗標設回 false。
+
+### 清空範圍（確認視窗逐項寫明，不留給使用者猜）
+
+**會清**：擷取到的波形＋edge 數快取＋demo 快取、10 支時間游標與 |Δt| 鎖、時基尺標卡片、釘住的量測小卡與量測箭頭、脈衝計數、解碼結果、匯入檔名徽章、擷取進度列、sticky 時間軸與兩張 overlay canvas、平移慣性與幾何快取；檢視回到全覽。
+
+**保留不動**：取樣深度／速率／門檻、觸發設定、通道名稱與順序、快捷設定、analyzer 清單。這些是**設定**不是波形，存在 `wfg-la-user-settings-v1` 等 localStorage 裡，清空不碰。
+（🔴 與 WFG 那顆的語意刻意不同：那顆叫「清除**全部設定**」會連 autosave 一起清；Bruce 這次要的是「清空**波形**」。所以 i18n 也用另一組 key `wfg.laClr*`，不共用 —— 共用會讓按鈕文字承諾一件它不做的事。）
+
+### 落點
+
+| 檔 | 內容 |
+|---|---|
+| `wfg.html` | LA 工具列「檔案」group 末尾加 `#wfg-la-clear-btn`（樣式與 WFG `#wfg-clear-btn` 一致：無 class、16×16 垃圾桶線稿）；新增 `#wfg-la-clr-mask` 確認視窗；新增上述五支函式 ＋ `wfgLaCleared` 旗標 ＋ `wfgLaGetWaveform()`／`wfgLaLoadDemoCapture()`／`wfgLaApplyCapturedWaveform()` 三處守衛；新增 `window.__wfgLaProbe` 驗收出口 |
+| `common/i18n.js` | 新增 `wfg.laClearPlain`／`laClearTitle`／`laClrTitle`／`laClrBody`／`laClrOk`，三語齊全。**只新增、沒有改動既有 key**（所以其他分頁不必 bump） |
+| `tools/la_clear_probe.js` | 新增真瀏覽器驗收（43 條），逐項讀真的 DOM／真的狀態 |
+| `tools/ui_probe.sh` | 第二個參數可換 probe 檔（原本寫死 `tools/ui_probe.js`）。向後相容，預設值不變 |
+
+### 驗收
+
+`tools/ui_probe.sh wfg.html tools/la_clear_probe.js` ⇒ **43/43 通過**（真 Chrome）。含：按鈕可見且走 i18n、按下先跳視窗不直接清、**取消時一個都不准動**、清空後逐項歸零、canvas 亮點數 45155 → 20856（只剩格線與通道名）、兩張 overlay 亮點 = 0、**`wfgLaUpdateSummary()` 之後 demo 不得自己長回來**、保留項目真的沒被動到、重新載入波形後亮點回到 45155。
+
+🔴 `ResizeObserver loop completed…` 是**改版前就有**的瀏覽器通知（拿 `git show HEAD:wfg.html` 的原版跑同一支 probe 同樣會出現），已在 probe 裡針對這一句放行，其餘例外照常擋。
+
+---
+
+## I2C（讀寫測試）(i2c) v1.19.0 — 2026-09-19 ｜ MINOR ｜ exe 不動（維持 v1.12.0）
+
+**EEPROM 型號視窗的預設值改看「這次要寫到的最高位址」；切回非 EEPROM 的 slave 時 Page 大小會自己回「不分段」；bridge 的 ACK 守衛收緊（原始碼，exe 未重編）。**
+
+判定依據：逐項判、取最高者 ——
+① 型號視窗**預設勾選**從寫死 24C32 改成依範圍決定 ⇒ **R4「預設值改變」**。不影響任何既有操作（視窗照樣跳、11 顆照樣全部可選、容量不足的只是變灰仍可手動選、page 欄位仍可手動改）⇒ R4 的 MINOR 那一支。
+② Page 大小切不回「不分段」是把錯的改對 ⇒ PATCH（案例 2）。
+③ bridge ACK 守衛收緊 ⇒ PATCH（案例 2）。
+取最高者 ⇒ **MINOR**。
+**不標 `⚠ 輸出變更`**：三項都不改任何已寫出去的資料內容。①只換預設勾選；②讓 page 欄位回到本來就該有的值；③把原本被誤放行的壞資料改成明確報錯（是**不再交出壞資料**，不是產生不同的好資料）。
+
+### 1. 🔴 EEPROM 預設型號跟著「這次要寫的總 byte 數」走
+
+Bruce 2026-09-19：「在寫入 EEPROM 的時候，如果跳出選擇 Page 大小的視窗，應該也要考量到我這次寫的總 Byte 數是多少。如果是大於 4096，那就不能選到 24C32，你的預設值應該就要選到 24C64。要有這個考量，雖然還是可以讓使用者手動改選，但預設值應該要考量到總 Byte 數。」
+
+- 預設 ＝ **容量 >= needBytes 的最小一顆**（4096 ⇒ 24C32；4097 ⇒ 24C64；8192 ⇒ 24C64；超過最大顆 ⇒ 勾最大那顆；算不出來 ⇒ 維持原本的 24C32）。
+- 🔴 **needBytes 用 base ＋ 長度算，不是只看長度**：從 0x1F00 寫 256 byte 也會超出 24C32，只看「256」永遠看不出來。三條寫入路徑都傳進去（選取區間用 `ds.base + sel.to + 1`、整批用 `base + 長度`、逐格用 `addr + 1`）；`awid 0` 沒有位址相位（③ 那格是**值**不是位址）⇒ 不參與判斷。
+- 容量放不下的型號**標示但不停用**（變灰 ＋「容量不足」字尾），Bruce 明講仍要能手動改選。不加欄位、不加說明段落。
+- 沒選就按確認時的 fallback 改用**同一個** `defIdx`，不再寫死 `I2CT_EEPROMS[5]` —— 兩個地方各寫一份預設，遲早分岔。
+- `i2ctEeOk[slave]` 的快取若**容量小於這次的 needBytes 就重問一次**（例如已確認 24C32，這次要寫到 0x1000+8 = 4104）。沿用的話等於拿容量不足的 page size 去寫，位址回捲會蓋掉前面的內容。
+
+### 2. 🔴 slave 從 0x50 切回 0x68，Page 大小沒有自己回「不分段」
+
+Bruce：「我 Slave 位址從 0x50 切回 0x68 的時候，它的 Page 大小應該要自己切回不分段才對。為什麼這個沒有做到？」
+
+**根因**：`i2ctEepromApply()` 填完 page 之後執行 `i2ctPageTouched = true`。那個旗標的定義是「**使用者自己動過** page 下拉選單」（唯一該設它的是 `wr-page` 的 change listener）；型號視窗是**系統**填值。旗標一被誤設，`i2ctAutoPage()` 之後永遠第一行就 `return`。
+
+**修法**：`i2ctEepromApply()` 不再設那個旗標；改由 `i2ctAutoPage()` 去讀 `i2ctEeOk[slave]`，用**那一顆確認過的 page**，沒確認過才用通用預設，非 EEPROM 一律 `'0'`。於是 0x50 ↔ 0x68 來回切都會自動對，而且切回 0x50 拿回的是它自己那顆的 page size（選 24C01 就是 8，不會被通用預設 32 蓋掉）。「（手動）／（自動）」提示的語意也跟著回正：只有真的動過選單才顯示「（手動）」。
+
+🔴 連帶：自檢的 `_reset()` 補上 `i2ctEeForget()`。`i2ctAutoPage()` 現在會讀 `i2ctEeOk`，不清的話上一組確認過的型號會漏到下一組 —— 與該處註解記載的 `i2ctPageTouched` 漏重設是完全同一類的坑。
+
+### 3. 🔴 raw MPSSE 的 ACK 守衛太鬆，把壞資料當好資料回傳（原始碼；**exe 未重編**）
+
+證據（bridge log，2026-09-19 14:48，同一次連線兩段 4096 byte 讀回）：
+
+```
+raw_read: addr-phase ACK bytes = 00 00 00 00   <- addr=0x0000  正常
+raw_read: addr-phase ACK bytes = 0E 1C 38 70   <- addr=0x1000  異常
+```
+
+`0E 1C 38 70` 四個值恰好每一個都是前一個左移一位 —— 不是單一位元翻轉、也不像雜訊，而是**整條位元流錯位**。而舊判準 `dgh_mp_ack_ok(v) = (v & 0x81) == 0` 只看 bit0 與 bit7，這四個值 `& 0x81` **全部為 0** ⇒ 四個全部放行 ⇒ 沒有報 NACK ⇒ **4096 byte 壞資料被當成好資料交回網頁**。
+
+ACK 槽的命令是 `0x22 0x00`（clock 1 bit in, MSB first），硬體把其餘位元補 0 ⇒ **合法值只有 0x00（ACK）與 0x80（NACK）**，沒有第三種。改法：
+
+- `i2c_bridge_proto.h` 新增三態判讀 `dgh_mp_ack_kind()`（`DGH_ACK_ACK` / `DGH_ACK_NACK` / `DGH_ACK_BAD`）；`dgh_mp_ack_ok()` 保留為「是不是 ACK」的薄包裝。
+- `raw_read()` 與 `raw_write()` 改用三態：`DGH_ACK_BAD` 回**新的錯誤碼 `0xFFFFFFF4`**（與 NACK 的 `0xFFFFFFF3` 分開），log 印出槽次、原始值、slave／addr。
+- 🔴 `raw_read()` 的檢查**刻意在把資料抄進 `out[]` 之前**：任何一個 ACK 槽不合法，這一批資料一個 byte 都不交出去。寧可讓網頁看到明確錯誤，也不要靜默回傳壞資料。
+- 🔴 **這一輪只做「讓錯誤大聲失敗」**。MPSSE 時序、three-phase、`ck_delay` 一律沒動 —— 動到波形在沒有硬體的環境無法驗證。**位元流為什麼會錯位，是另一件事，未解。**
+- `test_proto.c` 的斷言改判：原本 `dgh_mp_ack_ok(0x7E) == 1`（「中間的雜訊位元不影響判讀」）**改成 0**，並把上面那段 log 當證據寫進註解；另外把實機出現過的 `0E/1C/38/70` 四個值逐一釘住，反面也釘（合法的 0x00／0x80 不得被誤判成異常）。順手補上 `dgh_ad3_out`／`dgh_ck_delay` 的定義，讓 README 寫的 `cc test_proto.c -o test_proto` 真的編得起來（原本連結會掛）。
+
+🔴 **exe／下載包沒有重編**（`HELPER_PKG` 維持 `pkg v1.12.0` / `exe 1.12.0`）。這一項目前**只在原始碼裡**，要重新交叉編譯並換掉 zip 才會到 Bruce 手上 —— 而重編會換 SHA、使用者要重過一次 SmartScreen，那是 Bruce 的裁示範圍。
+
+### 驗收
+
+| 驗證 | 結果 |
+|---|---|
+| `tools/i2c_tool_selftest.js`（jsdom） | **1151/1151（74 組）**，新增第 62、63 組 |
+| `tools/ui_probe.sh i2c.html`（真 Chrome） | **157/157**，新增路徑 20a–20p |
+| `test_proto.c` | **200/200** |
+| `test/test_server.c`（shim，真 TCP） | **103/103** |
+
+真瀏覽器逐步實測（Bruce 指定的序列，附實際欄位值）：
+`0x50` 按寫入 → 視窗跳出、預設 24C01（8 byte）→ 改 base 0x1F00＋256 byte ⇒ 預設 **24C64**、六顆標「容量不足」且都點得動 → 選 24C64 ⇒ Page 欄位 **32**、提示「分段 32B（自動）」→ slave 改 **0x68** ⇒ Page **0**、提示「連續（自動）」→ 改回 **0x50** ⇒ Page **32**。另驗 0x51 選 24C01 ⇒ 8、切 0x68 ⇒ 0、切回 0x51 ⇒ **8**（不是通用預設 32）；手動選 256 之後切 slave 仍維持 256、提示「（手動）」。
+
+🔴 **沒有硬體，以下一律未驗**：真正的 I2C 波形、ACK 收緊之後實機會不會開始報錯、Bruce 看到的「寫入與讀回不一致」有沒有變。這些只有他在治具上才能確認。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.18.2 — 2026-09-19 ｜ PATCH ｜ ⚠ 輸出變更 ｜ exe 不動（維持 v1.12.0）
 
 **文案去掉寫死的工具名、寫入鈕被長檔名撐爛的修正，以及 checksum 的外部佐證。**

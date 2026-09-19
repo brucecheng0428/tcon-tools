@@ -2,7 +2,11 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # ui_probe.sh — 在真實瀏覽器裡走過主要互動路徑，非 0 結束表示有路徑壞掉
 #
-#   tools/ui_probe.sh [頁面.html]
+#   tools/ui_probe.sh [頁面.html] [probe.js]
+#
+# 第二個參數可換掉要注入的 probe（預設 tools/ui_probe.js，i2c.html 專用）。
+# 加這個參數的理由：原本 probe 路徑寫死，wfg/LA 那一側要用同一套「真瀏覽器
+# --dump-dom」手法就只能另外複製一份 shell —— 複製出來的兩份遲早分岔。
 #
 # 🔴 為什麼是這個做法：jsdom 驗不了「使用者點下去會發生什麼」（2026-09-19
 #    「單擊重繪把 dblclick 吃掉」就是 700 多項全綠卻不能用的那次）。
@@ -12,11 +16,13 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PAGE="${1:-i2c.html}"
+PROBE="${2:-tools/ui_probe.js}"
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 [ -x "$CHROME" ] || { echo "找不到 Chrome：$CHROME"; exit 2; }
+[ -f "$ROOT/$PROBE" ] || { echo "找不到 probe：$PROBE"; exit 2; }
 
 TMP="$ROOT/_tmp_ui_probe.html"
-{ cat "$ROOT/$PAGE"; echo '<script>'; cat "$ROOT/tools/ui_probe.js"; echo '</script>'; } > "$TMP"
+{ cat "$ROOT/$PAGE"; echo '<script>'; cat "$ROOT/$PROBE"; echo '</script>'; } > "$TMP"
 trap 'rm -f "$TMP"' EXIT
 
 "$CHROME" --headless --disable-gpu --no-first-run --no-default-browser-check \

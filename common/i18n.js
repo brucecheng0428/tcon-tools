@@ -1540,6 +1540,23 @@ var I18N = {
                           'zh-CN': '波形、游标、测量与导入记录全部清空，回到 FHD／E503／60Hz／Single Gate。自动存档一并清除，无法复原。\n波形区会变成空白（所有通道与内部信号都不显示），检视的中心与倍率回到预设。' },
   'wfg.clrOk':          { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
   'wfg.clrCancel':      { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
+  /* ══ 🔴 LA 分頁的「清空波形」（Bruce 2026-09-19）═════════════════════════════
+     「LA 那個網頁，它要仿照 WFG 網頁一樣，要有一個清空波形的按鈕。」
+     🔴 **另外一組 key**，不共用上面那組：語意不同。上面那顆是「清除全部設定
+        回到預設值」，這顆只清**波形與波形帶出來的東西**，設定一律保留。
+        共用 key 會讓按鈕文字承諾一件它不會做的事。
+     🔴 內文要把「保留什麼」明寫出來 —— 使用者按下不可復原的動作之前，
+        唯一看得到的說明就是這段字，內容與行為不符比沒有更糟（同 wfg.clrBody 的教訓）。 */
+  'wfg.laClearPlain':   { 'zh-TW': '清空', 'en': 'Clear', 'zh-CN': '清空' },
+  'wfg.laClearTitle':   { 'zh-TW': '清空波形與量測結果',
+                          'en': 'Clear the waveform and measurement results',
+                          'zh-CN': '清空波形与测量结果' },
+  'wfg.laClrTitle':     { 'zh-TW': '要清空波形嗎？', 'en': 'Clear the waveform?',
+                          'zh-CN': '要清空波形吗？' },
+  'wfg.laClrBody':      { 'zh-TW': '清空擷取到的波形、游標、時基尺標、釘住的量測、脈衝計數、解碼結果與匯入檔名，檢視回到全覽。無法復原。\n保留不動：取樣深度／速率／門檻、觸發設定、通道名稱與順序、快捷設定、analyzer 清單。這些是設定不是波形，存在瀏覽器裡，清空不會動到。\n波形區會變成空白，直到下一次擷取或匯入。',
+                          'en': 'Clears the captured waveform, cursors, the time-base scale card, pinned measurements, pulse counts, decode results and the imported file name; the view returns to full span. This cannot be undone.\nKept as they are: sample depth / rate / threshold, trigger settings, channel names and order, the quick preset and the analyzer list. Those are settings rather than waveform data, they live in the browser and clearing does not touch them.\nThe waveform area becomes empty until the next capture or import.',
+                          'zh-CN': '清空撷取到的波形、游标、时基尺标、钉住的测量、脉冲计数、解码结果与导入档名，检视回到全览。无法复原。\n保留不动：取样深度／速率／门槛、触发设定、通道名称与顺序、快捷设定、analyzer 清单。这些是设定不是波形，存在浏览器里，清空不会动到。\n波形区会变成空白，直到下一次撷取或导入。' },
+  'wfg.laClrOk':        { 'zh-TW': '清空', 'en': 'Clear', 'zh-CN': '清空' },
   /* ══ 🔴 v4.36.0：匯入類別選擇視窗 ═══════════════════════════════════════════
      Bruce 2026-08-28：「使用者可自由選擇全部匯入、只匯入某一部分或特定幾個部分，
      包含：(a) 左側系統卡片 (b) 左側 TCON 卡片 (c) 左側顯示卡片 (d) 右側量測卡片

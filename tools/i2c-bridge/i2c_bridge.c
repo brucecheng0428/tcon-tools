@@ -1445,9 +1445,22 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
         b[o] = 0;
         logline("  raw_read: addr-phase ACK bytes = %s(got %d of %d in)", b, gotIn, acks + din);
     }
-    /* 🔴 ACK 檢查：任何一個 NACK 都是錯誤。漏報才是危險的那一邊。 */
+    /* 🔴 ACK 檢查：任何一個 NACK 都是錯誤。漏報才是危險的那一邊。
+       🔴 2026-09-19 加上第三種結果「位元流異常」（0x00／0x80 以外的值）。
+          這個迴圈**刻意放在把資料抄進 out[] 之前** —— 只要有任何一個 ACK 槽
+          不合法，這一整批資料就一個 byte 都不交出去。寧可讓網頁看到明確的
+          錯誤，也不要靜默回傳壞資料（見 i2c_bridge_proto.h 的 log 證據）。
+       錯誤碼：0xFFFFFFF3 ＝ NACK（從機沒有回應）
+               0xFFFFFFF4 ＝ ACK 槽出現非法值（匯流排／位元流異常） */
     for(int i = 0; i < acks; i++){
-        if(!dgh_mp_ack_ok(in[i])){
+        int kind = dgh_mp_ack_kind(in[i]);
+        if(kind == DGH_ACK_BAD){
+            logline("  raw_read : BAD ACK slot #%d of %d = 0x%02X (only 0x00/0x80 are legal)"
+                    " slave=0x%02X addr=0x%X len=%u -> data DISCARDED",
+                    i, acks, in[i], slave, addr, len);
+            return 0xFFFFFFF4u;
+        }
+        if(kind != DGH_ACK_ACK){
             logline("  raw_read : NACK at ack #%d (0x%02X) slave=0x%02X addr=0x%X", i, in[i], slave, addr);
             return 0xFFFFFFF3u;
         }
@@ -1467,8 +1480,17 @@ static FT_STATUS raw_write(uint32_t slave, uint32_t addr, uint32_t awid,
     st = mpsse_xfer(cmd, n, acks, in, &gotIn);
     g_lastUsbRt = 2;
     if(st != 0) return st;
+    /* 讀那一側的同一道守衛（錯誤碼同義）：0x00／0x80 以外的值不是 NACK，
+       是位元流異常，要跟 NACK 分開回報，否則會被當成「從機沒回應」誤導診斷。 */
     for(int i = 0; i < acks; i++){
-        if(!dgh_mp_ack_ok(in[i])){
+        int kind = dgh_mp_ack_kind(in[i]);
+        if(kind == DGH_ACK_BAD){
+            logline("  raw_write: BAD ACK slot #%d of %d = 0x%02X (only 0x00/0x80 are legal)"
+                    " slave=0x%02X addr=0x%X dlen=%d",
+                    i, acks, in[i], slave, addr, dlen);
+            return 0xFFFFFFF4u;
+        }
+        if(kind != DGH_ACK_ACK){
             logline("  raw_write: NACK at ack #%d (0x%02X) slave=0x%02X addr=0x%X", i, in[i], slave, addr);
             return 0xFFFFFFF3u;
         }
