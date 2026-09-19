@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1161"></script>
+<script src="common/version.js?v=20260919i2c1170"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -131,6 +131,24 @@
   /* 🔴 寫入後回讀不符：紅底＋紅框，跟 diff（洋紅字）與 FF（琥珀字）都分得出來。 */
   table.dump td.wrfail{background:#450a0a;box-shadow:inset 0 0 0 2px var(--err);color:#fecaca;font-weight:700;}
   table.dump td.wrok{box-shadow:inset 0 0 0 2px #16a34a;}
+  /* 🔴 A／B：A 在上、B 在下，字要大（Bruce 2026-09-19「字體有點太小」）。
+     14px＋粗體，與耗時紀錄的 12px 拉開層次。可點的那一行加 hover 提示。 */
+  .abbox{margin:8px 0;border:1px solid var(--border);border-radius:8px;
+    padding:7px 10px;background:#0b1424;display:flex;flex-direction:column;gap:3px;}
+  .abrow{display:flex;align-items:center;gap:9px;font-size:14px;line-height:1.5;}
+  .abrow .tag{flex:0 0 auto;font-weight:800;font-size:13px;letter-spacing:1px;
+    padding:1px 7px;border-radius:4px;}
+  .abrow.a .tag{background:#1e3a5f;color:#7dd3fc;}
+  .abrow.b .tag{background:#3b2f10;color:#fbbf24;}
+  .abrow .who{font-weight:700;color:#e2e8f0;
+    font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .abrow .len{color:var(--sub);font-size:12.5px;}
+  .abrow .none{color:var(--sub);font-weight:400;}
+  /* 目前 dump 顯示的是哪一份 —— 不標出來他會不知道自己在看哪一邊 */
+  .abrow.now{background:#132038;border-radius:5px;margin:0 -4px;padding:0 4px;}
+  .abrow.now .who::after{content:'　← 目前顯示';color:#4ade80;font-size:11.5px;font-weight:700;}
+  .abrow.can{cursor:pointer;}
+  .abrow.can:hover{background:#16233a;border-radius:5px;margin:0 -4px;padding:0 4px;}
   /* 耗時紀錄：一行一筆，等寬對齊方便比較 */
   .timebox{margin:8px 0;border:1px solid var(--border);border-radius:8px;padding:6px 9px;background:#0b1424;}
   .timebox .thead{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);
@@ -195,6 +213,16 @@
     font-size:9.5px;color:var(--sub);cursor:pointer;user-select:none;}
   .bitgrid label.on{color:#4ade80;font-weight:700;}
   .bitgrid input{margin:0;width:13px;height:13px;cursor:pointer;}
+  /* 總和檢查碼：A 在上、B 在下（與 A／B 那一區同一個順序）。 */
+  .cksbox{display:flex;flex-direction:column;gap:4px;}
+  .cksrow{display:flex;align-items:center;gap:6px;font-size:12.5px;}
+  .cksrow .tag{flex:0 0 auto;font-weight:800;font-size:11px;letter-spacing:1px;
+    padding:0 5px;border-radius:4px;}
+  .cksrow.a .tag{background:#1e3a5f;color:#7dd3fc;}
+  .cksrow.b .tag{background:#3b2f10;color:#fbbf24;}
+  .cksrow .val{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;color:#e2e8f0;}
+  .cksrow .n{color:var(--sub);font-size:11px;}
+  .cksrow .none{color:var(--sub);font-weight:400;}
   /* 顏色圖例：一行一項，色塊沿用格子本身的視覺（同一組顏色，不另外選色 ——
      圖例與實物不同色就是在誤導）。 */
   .celllegend{display:flex;flex-direction:column;gap:3px;font-size:10.5px;color:var(--sub);}
@@ -262,8 +290,8 @@
   .modalbox button.wr:hover { background: #b1401a; }
 
   /* 檔案預覽狀態：整張 dump 卡換色，一眼分得出「這是要寫進去的，還沒寫」 */
-  #dumpcard.filemode { border-color: #b45309; box-shadow: inset 4px 0 0 #f59e0b; }
-  #dumpcard.filemode #dumptitle { color: #fbbf24; }
+  /* 🔴 v1.16.2：`#dumpcard.filemode` 那兩條（琥珀邊框＋標題變色）整組刪除 ——
+     它與 A／B 的來源標籤是同一件事的兩套講法，見 #abbox 的說明。 */
 
   /* 🔴 逐個 tag 寫死 display，**不要用 `revert`** —— jsdom 的 CSS 引擎算不出
      `revert`，結果是「debug 打開了但東西沒回來」，而且只有測試看得出來。 */
@@ -541,12 +569,14 @@
   <!-- ═══ 16×16 ═══ -->
   <div class="card" id="dumpcard">
     <div class="row" style="align-items:center;margin-bottom:8px;">
-      <!-- 🔴 一眼要分得出「從裝置讀回來的」與「準備要寫進去的檔案」。
-           兩者長得一模一樣但意義天差地別，混淆就會燒錯東西。
-           做法：標題直接改字 ＋ 整張卡片換左邊框顏色（琥珀＝待寫入），
-           **不加任何說明文字**。切換鈕只有在兩份資料都存在時才出現。 -->
+      <!-- 🔴🔴 v1.16.2：舊的「檔案內容：<檔名>（尚未寫入）」標題、琥珀色卡片邊框
+           與「看裝置讀回值／看檔案內容」切換鈕**整套收掉**。
+           理由（Bruce 2026-09-19）：「檔案名稱寫在網頁上面的位置，重複的地方太多了。
+           一下子在上面，一下子又在綠色的裡面，一下子又在黃色的裡面。」
+           —— 那是**兩套模型重疊**：A／B 的來源標籤本來就在表達「檔案 vs 裝置」。
+           舊那套唯一多出來的能力（兩份資料都在時切換看哪一份）改由
+           **點 A／B 那兩行**提供，見 #abbox。標題固定不變。 -->
       <h2 style="margin:0;" id="dumptitle">16 × 16 Dump</h2>
-      <button id="btn-view" class="dbgonly" style="margin-left:8px">切換</button>
       <!-- 🔴 Bruce 2026-09-18 賦予它明確意義：「我認為這個當下資料很重要、我要重新
            做比較基準，這時候按 snapshot 就有它的意義在」⇒ **是主要功能，放在外面**，
            不收進 debug。按下去 diff log 一併清零（那代表還沒開始比較）。 -->
@@ -562,7 +592,6 @@
       <button id="btn-save" disabled>另存新檔</button>
       <!-- 🔴 清空 ＝ 回到「完全沒有檔案」的狀態（見 i2ctClearAll 的說明）。 -->
       <button id="btn-clear">清空</button>
-      <span id="refline" class="kv" style="margin-left:10px"></span>
       <!-- 🔴 「還有多少沒燒進去」是正確性資訊：離線編輯完切回來，他要一眼看到數量。 -->
       <span id="dirtyline" class="kv" style="margin-left:10px;color:#a5b4fc;font-weight:700"></span>
       <!-- 🔴 瞬時回饋：一行、2.5 秒後自己消失（見 i2ctFlash） -->
@@ -591,6 +620,16 @@
         <span id="pageinfo" class="kv"></span>
       </div>
     </div>
+    <!-- ═══ 🔴 A／B（v1.16.2，Bruce 2026-09-19）═══════════════════════════════
+         「你的『A 是什麼、B 是什麼』的文字不夠醒目。字體有點太小，我是希望把它
+           用成 A 在上面、B 在下面的這種形式。」
+         ⇒ 兩行、字放大。這是**資料**（判斷要燒什麼、跟誰比）不是說明文字，
+           可以佔版面；但仍然一行一項。
+         🔴 這裡是**畫面上唯一出現檔名的地方**（他：「重複的地方太多了…
+            可不可以統一一個位置」）。
+         🔴 兩份資料都在時，**點哪一行就看哪一份**（取代舊的「看裝置讀回值／
+            看檔案內容」切換鈕，那套與 A／B 是重複的兩套模型）。 -->
+    <div class="abbox" id="abbox"></div>
     <!-- 🔴 耗時紀錄常駐在這裡（最近 5 筆），讓他能比較不同設定的速度差。 -->
     <div class="timebox">
       <div class="thead"><b>耗時紀錄</b><span class="sp" style="flex:1"></span>
@@ -630,6 +669,16 @@
           <div class="sp-hd">位元 <span id="bitaddr" class="kv mono"></span></div>
           <div id="bitgrid" class="bitgrid"></div>
           <div id="bitnone" class="kv">（點任一格後顯示）</div>
+        </div>
+        <!-- ═══ 🔴 總和檢查碼（v1.16.2，Bruce 2026-09-19）═══════════════════
+             「在 dump 區的右邊要有一個總 total checksum，從最前面的第一個 byte
+               加到最後面的最後一個 byte，而且需要可以即時運算…這有區分 A 的
+               checksum 跟 B 的 checksum。」
+             🔴 範圍是**整份資料**，不是目前這一頁。
+             🔴 以**中心值**為準（與寫入來源同一份資料），不算角落的參考值。 -->
+        <div class="sp-box">
+          <div class="sp-hd">總和檢查碼</div>
+          <div id="cksbox" class="cksbox"></div>
         </div>
         <!-- ═══ 🔴 顏色圖例（v1.16.0）═══════════════════════════════════════
              格子上有十一種長相，而它們的意思**只存在於原始碼裡** —— 使用者只看到
@@ -873,7 +922,7 @@ var i2ctFileAwid  = 2;
    所以兩份都留，切換規則做成可預期的：**載入 ⇒ 看檔案；按讀取 ⇒ 看裝置**，
    兩份都在時才出現一顆「切換」。寫完**不自動讀回**（自動讀會蓋掉剛才檢視的內容），
    要比對就自己按「讀取」。 */
-var i2ctView = 'dev';             /* 'dev' ＝ 裝置讀回值；'file' ＝ 待寫入的檔案 */
+var i2ctBKind = 'dev';             /* 'dev' ＝ 裝置讀回值；'file' ＝ 待寫入的檔案 */
 
 /* ═══ 資料集、基準與差異（Bruce 2026-09-18 的最終規則）═════════════════════
    一份「資料集」＝ 一次 I2C 讀取，或一個載入的檔案：
@@ -1039,7 +1088,22 @@ var i2ctProgress = null;      /* {done, total} 或 null */
 var i2ctPrevBytes = null;
 var i2ctPrevHas = null;
 
-function i2ctCurSet(){ return (i2ctView === 'file') ? i2ctFile : i2ctDev; }
+/* 🔴 v1.16.2：`i2ctShowA` ＝ dump 現在顯示的是 **A（基準）**。
+   舊的「看裝置讀回值／看檔案內容」切換鈕收掉之後，那個能力改由點 A／B 兩行提供，
+   而 A 只存在於 `i2ctRef`（快照複本）⇒ 顯示 A 就是顯示那份複本。
+   🔴 顯示 A 時**唯讀**：它是比較基準，就地改它等於把基準弄髒（那正是
+      v1.13 那個 alias bug 的形狀）。要改值請切回 B。 */
+var i2ctShowA = false;
+function i2ctCurSet(){
+  if (i2ctShowA && i2ctRef) return i2ctRef;
+  return (i2ctBKind === 'file') ? i2ctFile : i2ctDev;
+}
+/* 顯示 A 時擋掉所有改值路徑，並講一行為什麼。 */
+function i2ctReadOnlyNow(){
+  if (!i2ctShowA || !i2ctRef) return false;
+  i2ctBanner('readbanner', 'warn', '目前顯示的是 A（基準），唯讀 —— 要改值請點下面那一行切回 B。');
+  return true;
+}
 /* 有新資料進來就走這一支：不可比 ⇒ 成為新基準（靜默）；可比 ⇒ 比對。 */
 /* ═══ 🔴 基準必須是「當下的複本」，不是同一個物件 ════════════════════════
    Bruce 2026-09-19：「按快照、再改值，它居然不會出現左上角與右上角」。
@@ -1085,6 +1149,14 @@ function i2ctPromoteToA(set, source){
   if (i2ctRef) i2ctRef.src = source || '讀取';
   i2ctDiffIdx = null;
   i2ctBSrc = null;                    /* 🔴 A 一被重建，B 自然就不見 */
+  i2ctShowA = false;                  /* 目前內容就是 A，不需要切到「看 A」 */
+  /* 🔴 「總 byte 數」欄位跟著更新 ——**純粹是顯示便利**（讓下一次讀取的數字合理），
+     🔴 **它不是、也不得成為寫入的前提**：寫入來源永遠是 dump 上的中心值，
+        長度由那份內容自己決定（見 i2ctWriteSource）。這兩件事刻意分開寫。 */
+  if (set && set.bytes && set.bytes.length && $('in-len')) {
+    var want = String(Math.min(set.bytes.length, I2CT_MAX_LEN));
+    if ($('in-len').value !== want) $('in-len').value = want;
+  }
 }
 /* B ＝「A 的修改」。A 的來源是檔名時要帶出檔名（他指定的）。 */
 function i2ctModifiedSrc(){
@@ -1788,7 +1860,9 @@ function i2ctUpdateHints(){
     $('datahint').textContent = '寬度 0：只寫 ③ 的那 1 byte';
   } else if (i2ctFileBytes) {
     $('in-data').classList.remove('bad');
-    $('datahint').textContent = i2ctFileName + ' · ' + i2ctFileBytes.length + ' byte';
+    /* 🔴 v1.16.2：不印檔名（檔名只出現在 A／B 那一區）。這一行要回答的是
+       「按下去會寫多少」，長度才是重點。 */
+    $('datahint').textContent = '載入的檔案 · ' + i2ctFileBytes.length + ' byte';
   } else {
     var d = i2ctParseHex($('in-data').value);
     $('in-data').classList.toggle('bad', d === null);
@@ -1811,11 +1885,17 @@ function i2ctSyncButtons(){
      舊寫法只看 `in-data`，所以載入檔案之後文字框是空的 ⇒ 寫入鈕永遠是灰的，
      而那正是他載入檔案的目的。這與「另存新檔灰掉」是同一類 bug：
      **判斷條件跟真正的資料來源脫節**。 */
-  var src = i2ctWriteSource(v.len == null ? 0 : v.len, v.awid);
+  /* 🔴🔴 v1.16.2：判斷條件**只看「來源有沒有內容」＋ 連線狀態**，
+     不再看「總 byte 數」欄位（`v.len`）。舊寫法把讀取的參數拿來管寫入 ⇒
+     「讀 256 之後載入 8192 的檔」按鈕直接鎖死（Bruce 2026-09-19 踩到）。
+     🔴 `v.errs` 仍然算數（slave 解析不出來之類的，那是真的不能寫）。 */
+  var src = i2ctWriteSource(v.awid);
   var selB = i2ctSelRange();
-  $('btn-write').disabled = !can || (!selB && (!src.bytes || !src.bytes.length));
-  /* 🔴 按下去會寫多少，寫在按鈕上 —— 這是正確性資訊，不是多餘說明。 */
-  $('btn-write').textContent = selB ? ('寫入 ' + selB.len + ' byte') : '寫入';
+  var wn = selB ? selB.len : (src.bytes ? src.bytes.length : 0);
+  $('btn-write').disabled = !can || wn <= 0;
+  /* 🔴 按下去會寫多少，寫在按鈕上 —— 這是正確性資訊，不是多餘說明。
+     N 取自**來源本身**（選取優先），不是欄位。 */
+  $('btn-write').textContent = wn > 0 ? ('寫入 ' + wn + ' byte') : '寫入';
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
   $('btn-conn').disabled  = i2ctLinked || i2ctBusy;
   $('btn-disc').disabled  = !i2ctLinked || i2ctBusy;
@@ -2511,7 +2591,7 @@ async function i2ctOnRead(){
     if (i2ctWrOk) i2ctWrOk.fill(0);
     if (hadDirty) i2ctLog('讀取已覆蓋整片資料 ⇒ 清掉 ' + hadDirty + ' byte 的「已修改未寫入」標記', 'n');
   }
-  i2ctSetView('dev');             // 按讀取 ⇒ 看裝置
+  i2ctUseBKind('dev');             // 按讀取 ⇒ 看裝置
   /* ═══ 🔴 讀取成功 ⇒ **B 被覆蓋**，載入的檔案跟著放掉（v1.16.1）════════════
      Bruce：「載入檔案後沒有按快照…如果我後面再用 I2C 讀取一樣長度的 slave 資料，
      它會覆蓋原本的 B 值，檔案的內容就會不見，**這時候檔案名稱也要消失，
@@ -2699,7 +2779,9 @@ function i2ctTwr(){
    **長度一律由「總 byte 數」決定**（Bruce：「寫入的 byte 數就以檔案長度為主…
    除非使用者不想燒這麼多，自己手動再改為其他的」）—— 載入時把總 byte 數設成
    檔案長度，之後他改小就以他改的為準。 */
-function i2ctWriteSource(len, awid){
+/* 🔴 v1.16.2：簽章從 `(len, awid)` 改成 `(awid)` —— **長度不再由呼叫端決定**，
+   由來源自己帶（見下面的說明）。回傳 `{bytes, base, from, err}`。 */
+function i2ctWriteSource(awid){
   /* 🔴 寬度 0：**恆定 1 個 byte**，就是 ③ 那個值。不看總 byte 數、不看檔案 ——
      這個模式下 PMIC 整顆就一個暫存器，送第二個 byte 沒有意義而且危險。
      （總 byte 數在這個模式下只影響**讀取**的長度：讀是 current address read，
@@ -2715,29 +2797,46 @@ function i2ctWriteSource(len, awid){
      那一份**，也就是 dump 上正在顯示的 bytes。
      🔴 用「顯示中的那一份」而不是「原始檔案位元組」是刻意的：使用者可能雙擊
      改過某幾格、或用三槽切換挑過值，**所見即所寫**才不會有第二份真相。 */
-  /* 來源優先序（刻意如此，每一條都有理由）：
+  /* 來源優先序：
        1. **手動輸入的文字**（他正在打字 ⇒ 他要寫的就是這個；打字會清掉載入的檔案）
-       2. **載入的檔案**，取值取自**預覽區顯示的那一份** —— 因為他可能雙擊改過
-          某幾格、或用三槽切換挑過值，**所見即所寫**才不會有第二份真相
+       2. **目前 dump 上顯示的那一份**（有選取時，選取優先 —— 由 i2ctOnWrite 處理）
        3. 沒有 ⇒ 不給寫
-     🔴 **裝置讀回來的那一份刻意不算寫入來源**：讀完隨手按到寫入，就會把整批
-        讀回值原封寫回去。那不是他要的，而且一旦錯了是燒在晶片上、救不回來。
-        （要「讀→改→寫回」的流程，請明講，我會做成一個明確的動作而不是預設行為。） */
+     🔴 v1.16.2 **推翻**舊註解裡那條「裝置讀回來的那一份刻意不算寫入來源」。
+        舊理由是「讀完隨手按到寫入會把讀回值原封寫回去」，Bruce 直接否決：
+        沒有改過的話，把 A 原樣寫回去本來就沒有害處；有改過的話寫的就是 B。
+        誤燒的防線在**確認視窗與回讀驗證**，不在「不給他寫」。 */
   var typed = $('in-data').value.trim();
   var all;
   if (typed) {
     all = i2ctParseHex(typed);
     if (all === null) return { bytes: null, err: '寫入資料解析不出來（每個 byte 要兩碼）' };
     if (!all.length) return { bytes: null, err: '沒有要寫的資料：打字或按「載入檔案」' };
-    return { bytes: all, err: null, src: '手動輸入' };   /* 手打的就照打的長度 */
+    return { bytes: all, err: null, base: null, from: '手動輸入' };   /* 手打的就照打的長度 */
   }
+  /* ═══ 🔴🔴 v1.16.2：**寫入來源 ＝ 目前 dump 上顯示的那一份，長度＝它自己的長度**
+     （Bruce 2026-09-19 的更正，逐字：「長度不一樣，我後面進來的一定就會變成 A，
+       那就等於是重新開始。那使用者在這個時候沒有任何改變，他想要把 A 寫進去當然
+       OK 啊！除非有改變，有改變的話，寫入就會寫入 B 的值。」）
+
+     🔴 **絕對不看「總 byte 數」欄位**。那個欄位是給**讀取**用的。
+        舊寫法拿 `v.len` 去截來源，於是「讀 256 之後載入 8192 的檔」會變成
+        來源 8192、宣告 256 ⇒ 按鈕直接鎖死。那是拿讀取的參數去管寫入，根子就錯了。
+        （欄位在長度不同的載入之後仍然會跟著更新，那是**顯示便利**，
+          讓下一次讀取的數字合理 —— 但它**不是寫入的前提**，兩件事分開。）
+     🔴 起始位址用那份內容自己的 `base`，不要拿欄位重算。 */
+  /* 🔴🔴 **來源永遠是每一格「中心」顯示的那個值**（Bruce 2026-09-19：「不管它現在
+     是在 A 還是 B 的狀態，只要是中心那個值，就是我們要寫入的值」）。
+     中心值就存在 `i2ctCurSet().bytes` 裡。
+     🔴 **不可以**改成 `i2ctRef`（左上／A）或 `i2ctPrevBytes`（右上／B 的暫存）——
+        那兩個是**參考值**，點角落只是把它們**搬進中心**，搬進來之後才會被寫。
+        這一條寫死在這裡，免得日後有人「順手」把 i2ctRef 當來源。 */
   var cur = i2ctCurSet();
-  if (cur && cur.kind === 'file' && cur.bytes && cur.bytes.length) {
+  if (cur && cur.bytes && cur.bytes.length) {
     all = Array.prototype.slice.call(cur.bytes);
-    var n0 = Math.min(len, all.length);
-    return { bytes: all.slice(0, n0), err: null,
-             src: (cur.name || '載入的檔案') + '（預覽區顯示值）'
-                + (n0 < all.length ? '，只寫前 ' + n0 + '／' + all.length + ' byte' : '') };
+    return { bytes: all, err: null, base: cur.base,
+             from: (i2ctShowA ? 'A' : (i2ctBSrc ? 'B' : 'A')) + '：'
+                 + (i2ctShowA ? ((i2ctRef && i2ctRef.src) || '基準')
+                              : (i2ctBSrc || (i2ctRef && i2ctRef.src) || '目前內容')) };
   }
   return { bytes: null, err: '沒有要寫的資料：打字或按「載入檔案」' };
 }
@@ -2835,15 +2934,18 @@ async function i2ctOnWrite(){
                          '選取的 ' + sel.len + ' byte');
     return;
   }
-  var src = i2ctWriteSource(v.len, v.awid);
+  var src = i2ctWriteSource(v.awid);
   if (!src.bytes) { i2ctBanner('readbanner', 'err', src.err); return; }
   /* 🔴 slave 落在 0x50–0x57 ⇒ 對面是 EEPROM ⇒ 寫之前先確認型號。
      其他 slave 不跳（不分段，沒有這個問題）。取消就一個 byte 都不送。 */
   if (!(await i2ctEnsureEeprom(v.slave))) return;
   v = i2ctReadInputs();                        /* 視窗可能改過分段設定，重讀一次 */
-  src = i2ctWriteSource(v.len, v.awid);
+  src = i2ctWriteSource(v.awid);
   if (!src.bytes) { i2ctBanner('readbanner', 'err', src.err); return; }
   var d = src.bytes;
+  /* 🔴 v1.16.2：起始位址用**那份內容自己的 base**，不要拿「起始 offset」欄位重算。
+     手動輸入沒有 base（它不是一份 dump）⇒ 才退回欄位值。 */
+  var wbase = (src.base === null || src.base === undefined) ? v.off : src.base;
   i2ctBusy = true; i2ctSyncButtons();
   /* 🔴 還沒有任何資料集時（開頁就直接寫），先用這一次要寫的內容建一份，
      否則畫面上什麼都不會出現，使用者不知道自己剛送了什麼。
@@ -2854,17 +2956,17 @@ async function i2ctOnWrite(){
      不顯示，使用者以為只寫了前面幾個。 */
   (function () {
     var cur = i2ctCurSet();
-    var covers = cur && v.off >= cur.base && (v.off + d.length) <= (cur.base + cur.bytes.length);
+    var covers = cur && wbase >= cur.base && (wbase + d.length) <= (cur.base + cur.bytes.length);
     if (!covers) {
-      i2ctDev = i2ctMakeSet('dev', v.slave, v.awid, v.off, new Uint8Array(d.length));
-      i2ctView = 'dev';
+      i2ctDev = i2ctMakeSet('dev', v.slave, v.awid, wbase, new Uint8Array(d.length));
+      i2ctBKind = 'dev'; i2ctShowA = false;
       i2ctWroteFlags = null;
     }
   })();
   /* 🔴 分段：I2C Bridge 的 rawwrite 一次最多 RAW_MAX_DATA(256) byte，所以 4096 的檔案
      要切成多則、位址逐段往前推。切錯的後果是**燒到別的位址**，所以位址用
      i2ctWrap() 照該 offset 寬度回繞，與讀取那一側用同一支函式。 */
-  await i2ctWriteBytes(v.slave, v.wireAwid, v.off, d, src.src);
+  await i2ctWriteBytes(v.slave, v.wireAwid, wbase, d, src.from);
 }
 
 /* ═══ 寫一段連續位址（整批寫入與選取範圍寫入共用這一支）═══════════════════
@@ -3036,13 +3138,13 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
 }
 
 /* ═══ 載入檔案 ═════════════════════════════════════════════════════════════ */
-/* 🔴 放掉檔案時**檢視也要跟著回到裝置那一份** —— 不然 i2ctView 還停在 'file'，
+/* 🔴 放掉檔案時**檢視也要跟著回到裝置那一份** —— 不然 i2ctBKind 還停在 'file'，
    而 i2ctFile 已經是 null，畫面就會停在一份不存在的資料上（實測抓到）。 */
 /* 🔴 同上：任何會讓「目前顯示的那一份資料」改變的路徑，結束後都要重新同步
    按鈕狀態。漏掉任何一條，另存新檔就會在那條路徑上灰掉。 */
 function i2ctClearFile(){
   i2ctFileBytes = null; i2ctFileName = ''; i2ctFileFormat = ''; i2ctFile = null;
-  if (i2ctView === 'file') i2ctView = 'dev';
+  if (i2ctBKind === 'file') i2ctBKind = 'dev';
 }
 function i2ctOnFile(file){
   if (!file) return;
@@ -3104,7 +3206,9 @@ function i2ctApplyFile(name, raw){
     i2ctLog('載入 ' + file.name + '：' + fmt + ' · ' + bytes.length + ' byte'
           + (bytes.length > I2CT_MAX_LEN ? '　⚠ 超過一次上限 ' + I2CT_MAX_LEN + '，總 byte 數已設為上限' : ''), 'o');
     /* 🔴 一行講完：辨識成哪一種、幾個 byte。他一眼就知道有沒有吃對。 */
-    i2ctBanner('readbanner', 'ok', file.name + '：' + fmt + ' · ' + bytes.length + ' byte，確認後按「寫入」'
+    /* 🔴 v1.16.2：**這裡不再印檔名**（Bruce：「檔案名稱…重複的地方太多了，
+       可不可以統一一個位置」）⇒ 檔名只出現在 A／B 那一區。 */
+    i2ctBanner('readbanner', 'ok', '已載入：' + fmt + ' · ' + bytes.length + ' byte，確認後按「寫入」'
       + (i2ctDiffCount() ? '　🔴 ' + i2ctDiffCount() + ' 處與基準不同' : ''));
     /* 🔴 載入的檔案也跟當前 slave 的快照比（他先前的規則：不管是 load 檔案
        還是從裝置讀取，相同的位置都要比較）。一樣是**位址對位址**。 */
@@ -3119,7 +3223,7 @@ function i2ctApplyFile(name, raw){
        🔴🔴 **載入檔案在任何情況下都不寫入裝置** —— 這裡一個 I2C 交易都沒有，
           只有他按「寫入」才會送出。自檢第 54(0) 組釘死這一條。 */
     i2ctIngest(i2ctFile, file.name);
-    i2ctSetView('file');          // 載入 ⇒ 看檔案（可預期的切換規則）
+    i2ctUseBKind('file');          // 載入 ⇒ 看檔案（可預期的切換規則）
     i2ctUpdateHints();
     return true;
   }
@@ -3277,24 +3381,31 @@ function i2ctJumpTo(text){
   i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff();
   return true;
 }
-function i2ctViewAwid(){
+function i2ctCurAwid(){
   var d = i2ctCurSet();
   return d ? d.awid : i2ctAwid();
 }
-function i2ctSetView(v){
-  i2ctView = (v === 'file' && i2ctFile) ? 'file' : 'dev';
+/* 🔴 v1.16.2：這一支只剩「**哪一份是 B 的實體**」這個內部狀態。
+   舊的標題改字、琥珀卡片邊框、切換鈕全部收掉（見標記處的理由）——
+   那三樣與 A／B 的來源標籤是**同一件事的兩套講法**，檔名因此出現三次。 */
+function i2ctUseBKind(v){
+  i2ctBKind = (v === 'file' && i2ctFile) ? 'file' : 'dev';
   i2ctPageIdx = 0;
-  var d = i2ctCurSet();
-  $('dumptitle').textContent = (i2ctView === 'file' && d)
-    ? ('檔案內容：' + d.name + '（尚未寫入）') : '16 × 16 Dump';
-  $('dumpcard').classList.toggle('filemode', i2ctView === 'file');
-  /* 切換鈕只有在兩份資料都存在時才有意義 ⇒ 平常不出現 */
-  var vb = $('btn-view');
-  var both = !!i2ctFile && !!i2ctDev;
-  vb.classList.toggle('dbgonly', !both);
-  vb.textContent = i2ctView === 'file' ? '看裝置讀回值' : '看檔案內容';
+  i2ctShowA = false;                 /* 換了 B 的內容 ⇒ 一定是看 B */
   i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
   i2ctSyncButtons();          /* 🔴 顯示的那一份換了 ⇒ 另存新檔能不能按也跟著換 */
+}
+/* 點 A／B 那一行 ⇒ 切換 dump 顯示哪一份（取代舊的切換鈕）。 */
+function i2ctShowSide(which){
+  if (which === 'A' && i2ctRef) i2ctShowA = true;
+  else if (which === 'B' && i2ctBSrc && i2ctSetB()) i2ctShowA = false;
+  else return false;
+  if (i2ctEditing) i2ctCancelEdit();
+  i2ctPageIdx = 0; i2ctSelAnchor = null; i2ctSelCursor = null;
+  i2ctBanner('readbanner', '', '');
+  i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine();
+  i2ctSyncButtons();
+  return true;
 }
 /* 🔴 基準是什麼，畫面上一定要寫出來。情境：I2C 讀 → 載入檔案（跟 I2C 比）→
    再 I2C 讀（又變回跟第一次 I2C 比）—— 比較對象換了，使用者不知道就會判讀錯。
@@ -3446,7 +3557,8 @@ function i2ctClearAll(){
   i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
   i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
   i2ctWrFail = null; i2ctWrOk = null; i2ctDirty = null;
-  i2ctFileBytes = null; i2ctFileName = ''; i2ctView = 'dev';
+  i2ctFileBytes = null; i2ctFileName = ''; i2ctBKind = 'dev';
+  i2ctBSrc = null; i2ctShowA = false;    /* A／B 的來源標籤與「在看哪一份」一併清掉 */
   i2ctSelAnchor = null; i2ctSelCursor = null;
   i2ctCross = null; i2ctPageIdx = 0; i2ctLastRead = null;
   i2ctEeForget();                       /* ⑪ 型號確認記憶一併清掉 */
@@ -3488,12 +3600,65 @@ function i2ctFlash(msg){
    卡住的原因是**畫面只印了 A 一行**，而檔名另外靠全域的 `i2ctFileName` 印。
    ⇒ 改成兩行都從各自的資料集印（`i2ctSetLabel()`），全域檔名只留給
      「寫入資料」那一欄（它問的是「這次要燒什麼」，語意不同）。 */
+/* ═══ 🔴 總和檢查碼（v1.16.2）════════════════════════════════════════════════
+   🔴🔴 定義（Bruce 2026-09-19 裁示，逐字）：「**不要限制在幾位的 check 上**。
+   也就是說，如果檔案很大，例如到 256K Byte，**它加到多少就是多少**。」
+   ⇒ **所有 byte 相加，不取模、不截斷**，十六進位顯示，位數依實際值自然增長。
+
+   背景（僅供參考，**我們不採用**）：原廠 `RomCodeProcessUI.py` 的 CKS 也是單純
+   `sum(...)`（:13727／:13771），但需要 16 bit 時會 `% 0x10000`（:13749），
+   DataMapping 檔名也寫成 4 位（`CKS(0x2AF5)`）。那是他們的截斷慣例，不是我們的。
+
+   🔴 數值界線：256 KB 全 0xFF ＝ 262144 × 255 ＝ 66,846,720 ＝ `0x3FC0000`，
+      遠小於 JS 的安全整數上限 2^53 ⇒ 一般 Number 就夠，不需要 BigInt。
+      **日後若把範圍擴大到 2^53 / 255 ≈ 35 TB 以上才需要重新考慮。** */
+function i2ctChecksum(bytes){
+  if (!bytes || !bytes.length) return null;
+  var s = 0;
+  for (var i = 0; i < bytes.length; i++) s += (bytes[i] & 0xFF);
+  return s;                     /* 🔴 不要加 `% 0x10000` 或 `& 0xFFFF`：他明確要完整值 */
+}
+function i2ctRenderChecksum(){
+  var e = $('cksbox'); if (!e) return;
+  var bSet = i2ctSetB();
+  var row = function (which, bytes) {
+    var v = i2ctChecksum(bytes);
+    return '<div class="cksrow ' + which.toLowerCase() + '"><span class="tag">' + which + '</span>'
+         + (v === null ? '<span class="val none">（無）</span>'
+                       /* 🔴 位數依實際值自然增長，**不補零到固定寬度**（不截斷的另一面）。 */
+                       : ('<span class="val">0x' + v.toString(16).toUpperCase() + '</span>'
+                          + '<span class="n">' + bytes.length + ' byte</span>')) + '</div>';
+  };
+  e.innerHTML = row('A', i2ctRef ? i2ctRef.bytes : null)
+              + row('B', (i2ctBSrc && bSet) ? bSet.bytes : null);
+}
+/* 檔名是使用者給的字串 ⇒ 進 innerHTML 之前一定要跳脫。 */
+function i2ctEsc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+  });
+}
+/* B 的實體（不是 A 的那一份）。B 不存在時回 null。 */
+function i2ctSetB(){
+  if (!i2ctBSrc) return null;
+  return (i2ctBKind === 'file') ? i2ctFile : i2ctDev;
+}
 function i2ctRenderRefLine(){
-  var e = $('refline'); if (!e) return;
-  var b = i2ctCurSet();
-  e.textContent = (i2ctRef ? ('A：' + (i2ctRef.src || '讀取') + ' · ' + i2ctRef.bytes.length + ' byte')
-                           : 'A：（尚未建立）')
-                + '　B：' + (i2ctBSrc && b ? (i2ctBSrc + ' · ' + b.bytes.length + ' byte') : '（無）');
+  var e = $('abbox'); if (!e) return;
+  var bSet = i2ctSetB();
+  var row = function (which, src, n, showing, can) {
+    return '<div class="abrow ' + which.toLowerCase() + (showing ? ' now' : '') + (can ? ' can' : '')
+         + '" data-ab="' + which + '"><span class="tag">' + which + '</span>'
+         + (src ? ('<span class="who">' + i2ctEsc(src) + '</span><span class="len">'
+                   + n + ' byte</span>')
+                : '<span class="who none">（尚未建立）</span>') + '</div>';
+  };
+  var hasA = !!i2ctRef, hasB = !!(i2ctBSrc && bSet);
+  e.innerHTML =
+      row('A', hasA ? (i2ctRef.src || '讀取') : null, hasA ? i2ctRef.bytes.length : 0,
+          hasA && i2ctShowA, hasA && hasB)
+    + row('B', hasB ? i2ctBSrc : null, hasB ? bSet.bytes.length : 0,
+          hasB && !i2ctShowA, hasA && hasB);
   var dl = $('dirtyline'); if (!dl) return;
   var n = i2ctDirtyCount();
   dl.textContent = n ? ('已修改 ' + n + ' byte 未寫入') : '';
@@ -3618,6 +3783,10 @@ function i2ctRenderTable(){
      🔴 i2ctFindRun／i2ctRenderBits **都不可以**回頭呼叫 i2ctRenderTable。 */
   if (typeof i2ctRenderBits === 'function') i2ctRenderBits();
   if (typeof i2ctFindRun === 'function') i2ctFindRun();
+  /* 🔴 總和檢查碼掛在這裡 ＝ **任何會改變內容的動作都會重算**（改格、位元核取
+     方塊、角落還原、載入、讀取、清空都會走到 i2ctRenderTable）。
+     掛在各個呼叫端就一定會漏掉一條。 */
+  if (typeof i2ctRenderChecksum === 'function') i2ctRenderChecksum();
 }
 
 /* ═══ 一格三槽的輪替（Bruce 2026-09-18）════════════════════════════════════
@@ -3684,6 +3853,7 @@ function i2ctSlotNext(st, which){
         · 點右上（換回那個**從未寫入過**的值）⇒ 仍然是未寫入的修改 ⇒ dirty 留著
      ③ 未連線 ⇒ 只改本地，標成 dirty（讓他知道還沒寫進去）。 */
 async function i2ctSlotClick(idx, which){
+  if (i2ctReadOnlyNow()) return false;        /* 顯示 A 時唯讀 */
   var d = i2ctCurSet(); if (!d || idx < 0 || idx >= d.bytes.length) return false;
   i2ctEnsurePrev(d);
   i2ctEnsureWrFail(d);
@@ -3961,6 +4131,7 @@ function i2ctBeginEdit(td){
      正確判準：只有「已連線而且正在跑 I2C 交易」時才擋。未連線的編輯是純本地
      操作，不碰匯流排，沒有任何理由擋。 */
   if (i2ctEditing || (i2ctLinked && i2ctBusy)) return;
+  if (i2ctReadOnlyNow()) return;              /* 🔴 顯示 A（基準）時唯讀 */
   var d = i2ctCurSet();
   var awid = d ? d.awid : i2ctAwid();
   if (i2ctLinked && awid === 0) { i2ctBanner('readbanner', 'warn', 'offset 寬度為 0 byte（無位址）時無法逐格寫入 —— 請改用上方「寫入資料」欄。'); return; }
@@ -4301,7 +4472,15 @@ function i2ctInit(){
   });
   $('btn-load').addEventListener('click', function () { $('in-file').value = ''; $('in-file').click(); });
   $('in-file').addEventListener('change', function () { i2ctOnFile(this.files && this.files[0]); });
-  $('btn-view').addEventListener('click', function () { i2ctSetView(i2ctView === 'file' ? 'dev' : 'file'); });
+  /* 🔴 v1.16.2：舊的「看裝置讀回值／看檔案內容」切換鈕收掉，改成**點 A／B 那一行**。
+     兩者提供的是同一個能力（兩份資料都在時切換看哪一份），但 A／B 那兩行本來就
+     寫著各自的來源，點它最直覺，也不必再多一顆按鈕。 */
+  $('abbox').addEventListener('click', function (e) {
+    var row = e.target;
+    while (row && row !== this && !row.getAttribute('data-ab')) row = row.parentNode;
+    if (!row || row === this) return;
+    i2ctShowSide(row.getAttribute('data-ab'));
+  });
   /* 🔴 「快照」＝ 打破自動規則，把當下這一份定為新基準。
      按下的同時 **diff log 清零、highlight 清除** —— 那代表「還沒開始比較，
      只是先把基準存下來」（Bruce 2026-09-18 明講）。 */
@@ -4475,6 +4654,14 @@ function i2ctInit(){
           那三塊本來就是獨立的可點元素，用像素算會在不同縮放／字級下錯位。 */
     var hitMv = !!(e.target && e.target.classList && e.target.classList.contains('mv'));
     var ix2 = parseInt(td.getAttribute('data-idx'), 10);
+    /* 🔴🔴 v1.16.2：**點中間數值也要點兩下才進編輯**（Bruce 2026-09-19：
+       「我就算點到儲存格中間的文字，我也不要馬上就進入輸入模式，而是點到以後，
+         我再點一下文字才會進入輸入模式」）。
+       判準是「**這一格是不是已經是目前選取的那一格**」——
+       🔴 不是 `dblclick`：單擊的 handler 每次都重繪整張表，第二下打在新節點上，
+          瀏覽器湊不出 dblclick（2026-09-19 已實測過這條路走不通）。
+       用選取狀態判就不受重繪影響：第一下把它變成選取格，第二下時它已經是了。 */
+    var already = (i2ctSelAnchor === ix2 && i2ctSelCursor === ix2);
     i2ctSelAnchor = isFinite(ix2) ? ix2 : null;
     i2ctSelCursor = i2ctSelAnchor;
     i2ctSetCross(parseInt(a, 10));                             /* 定位（被動顯示） */
@@ -4487,7 +4674,7 @@ function i2ctInit(){
        瀏覽器要兩下都打在**同一個節點**上才會發出 dblclick，而單擊的
        handler 每次都把整張表換掉 ⇒ 第二下打在新節點上 ⇒ **dblclick 永遠不會發生**。
        所以那個功能不是沒實作，是被單擊的重繪吃掉了。 */
-    if (hitMv && isFinite(ix2)) {
+    if (hitMv && already && isFinite(ix2)) {
       var fresh = this.querySelector('td[data-idx="' + ix2 + '"]');
       if (fresh) i2ctBeginEdit(fresh);
     }
@@ -4508,6 +4695,17 @@ function i2ctInit(){
     var inCell = e.target && e.target.parentNode && e.target.parentNode.tagName === 'TD';
     if (!inCell && (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA')) return;
     if (e.key === 'Escape') { if (i2ctEditing) i2ctCancelEdit(); i2ctSelClear(); return; }
+    /* ═══ 🔴 Enter ⇒ 進入編輯（v1.16.2，Bruce 2026-09-19「現在是按 Enter 沒有用」）══
+       完整的鍵盤流程：**方向鍵移動 → Enter 開始輸入 → 打兩位 → Enter 提交**。
+       🔴 三個條件缺一不可，免得搶走別人的 Enter：
+         · `!inCell`（不在格子的輸入框裡）—— 編輯中的 Enter 是「提交」，那條不動；
+         · 上面已經擋掉所有 INPUT／SELECT／TEXTAREA ⇒ **搜尋框的 Enter 照常搜尋**；
+         · 必須真的有選取格，沒有就什麼都不做（不報錯）。 */
+    if (e.key === 'Enter' && !inCell && !i2ctEditing && i2ctSelAnchor !== null) {
+      var tdE = document.querySelector('#dump td[data-idx="' + i2ctSelAnchor + '"]');
+      if (tdE) { e.preventDefault(); i2ctBeginEdit(tdE); }
+      return;
+    }
     /* ═══ 🔴 直接按十六進位鍵 ⇒ 進入編輯並開始輸入（v1.16.1）══════════════
        v1.15.0 之前這件事是「免費」的：點一下就已經在編輯狀態，按鍵自然落進
        輸入框。現在點一下只定位，所以要明確接上 —— 否則他會覺得鍵盤沒反應。
@@ -4564,7 +4762,7 @@ function i2ctInit(){
   });
 
   i2ctPageIdx = 0;
-  i2ctSetView('dev');
+  i2ctUseBKind('dev');
   i2ctRenderTimes();
   i2ctSlaveSync('s7', true);   /* 三格從 7-bit 對齊一次 */
   i2ctUpdateHints();
@@ -4671,8 +4869,27 @@ window.__i2ct = {
     return { main: g('mv'), snap: g('sv'), old: g('ov'), cls: td.className };
   },
   clearFile: function () { i2ctClearFile(); i2ctUpdateHints(); },
-  writeSource: function (len, awid) { return i2ctWriteSource(len, awid === undefined ? i2ctAwid() : awid); },
-  view: function () { return i2ctView; },
+  writeSource: function (awid) { return i2ctWriteSource(awid === undefined ? i2ctAwid() : awid); },
+  showSide: function (w) { return i2ctShowSide(w); },
+  showingA: function () { return i2ctShowA; },
+  checksum: i2ctChecksum,
+  GOLD256: I2CT_GOLD256,
+  cksRows: function () {
+    var e = $('cksbox'); if (!e) return [];
+    return Array.prototype.map.call(e.querySelectorAll('.cksrow'), function (r) {
+      var v = r.querySelector('.val'), n = r.querySelector('.n');
+      return { ab: r.classList.contains('a') ? 'A' : 'B',
+               val: v ? v.textContent : '', n: n ? n.textContent : '' };
+    });
+  },
+  abRows: function () {
+    var e = $('abbox'); if (!e) return [];
+    return Array.prototype.map.call(e.querySelectorAll('.abrow'), function (r) {
+      return { ab: r.getAttribute('data-ab'), text: r.textContent,
+               now: r.classList.contains('now'), can: r.classList.contains('can') };
+    });
+  },
+  bKind: function () { return i2ctBKind; },
   diffCount: function () { return i2ctDiffCount(); },
   diffKeys: function () {
     if (!i2ctDiffIdx) return [];
@@ -4807,7 +5024,7 @@ window.__i2ct = {
   diffRowsDom: function () { return document.querySelectorAll('#diffrows .diffrow').length; },
   renderDiff: function () { return i2ctRenderDiff(); },
   snapshot: function () { document.getElementById('btn-snap').click(); },
-  setView: function (v) { return i2ctSetView(v); },
+  useBKind: function (v) { return i2ctUseBKind(v); },
   pageLabels: function () {
     var o = [];
     for (var i = 0; i < i2ctPageCount(); i++) o.push(i2ctPageLabel(i));
@@ -4848,9 +5065,10 @@ window.__i2ct = {
      發生，而測試跑到那一組時前面早就讀過好幾次了，i2ctDev 不是 null，
      於是那個 bug 在測試裡永遠重現不了（第一版就是這樣白測的）。 */
   _reset: function () {
-    i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null; i2ctBSrc = null;
+    i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
+    i2ctBSrc = null; i2ctShowA = false;
     i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
-    i2ctFileBytes = null; i2ctView = 'dev';
+    i2ctFileBytes = null; i2ctBKind = 'dev';
     /* 🔴 「回到剛打開的狀態」必須連**游標狀態**一起清：選取範圍、十字、頁碼、
        編輯中的格子、dirty/失敗旗標。留著任何一個，下一份資料一進來就會有
        指向舊資料的索引。`_reset` 的語意本來就該是全清。 */

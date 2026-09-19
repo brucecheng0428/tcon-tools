@@ -38,9 +38,20 @@
   const cellAt = (idx) => document.querySelector('#dump td[data-idx="' + idx + '"]');
   const mainOf = (idx) => { const t = cellAt(idx); const m = t && t.querySelector('.mv'); return m ? m.textContent : null; };
   const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  /* 🔴 v1.16.1：**點格子的中間數值**才會進入編輯（點留白只定位、點左上／右上是還原）。
-     所以「要編輯」的那些步驟一律點 `.mv`，不能點整個 td。 */
-  const clickMv = (idx) => { const t = cellAt(idx); const m = t && t.querySelector('.mv'); click(m || t); };
+  /* 🔴 v1.16.2：**點中間數值要點兩次才進編輯**（第一次只定位，第二次才開輸入框）。
+     `mvOf` 每次都要重新查 —— 每一下點擊都會重繪整張表，舊節點已經被丟掉。 */
+  const mvOf = (idx) => { const t = cellAt(idx); return (t && t.querySelector('.mv')) || t; };
+  /* 🔴 兩下之間要讓出一次事件圈：如果當下**正在編輯別的格子**，click handler 的
+     第一行會 `await i2ctCommitEdit()` ⇒ 後半段（設選取）被排到 microtask，
+     第二下就會看到「還不是選取格」而不進編輯。真人點兩下中間有上百毫秒，
+     probe 連點會踩到這個順序問題。 */
+  /* 🔴 「已經是選取格」時第一下就會進編輯 ⇒ 第二下會打在 `<input>` 上、
+     反而把編輯收掉。所以第一下之後**先看有沒有進編輯**，沒有才點第二下。 */
+  const inEdit = () => !!document.querySelector('#dump td.edit input');
+  const clickMv = async (idx) => {
+    click(mvOf(idx)); await sleep(30);
+    if (!inEdit()) { click(mvOf(idx)); await sleep(10); }
+  };
   const key = (el, k, shift) => {
     const e = new KeyboardEvent('keydown', { key: k, shiftKey: !!shift, bubbles: true, cancelable: true });
     el.dispatchEvent(e);
@@ -77,7 +88,7 @@
 
     stage(1);
     /* ── 路徑 1：單擊一格就能進編輯（真的滑鼠事件）─────────────────────── */
-    clickMv(3);
+    await clickMv(3);
     await sleep(60);
     const edit1 = document.querySelector('#dump td.edit input');
     ok('1a 單擊一格 ⇒ 進入編輯狀態（出現輸入框）', !!edit1);
@@ -101,7 +112,7 @@
 
     stage(3);
     /* ── 路徑 3：Esc 放棄 ──────────────────────────────────────────────── */
-    clickMv(4);
+    await clickMv(4);
     await sleep(50);
     const edit3 = document.querySelector('#dump td.edit input');
     if (edit3) {
@@ -114,12 +125,12 @@
 
     stage(4);
     /* ── 路徑 4：打完點別格 ＝ 完成 ────────────────────────────────────── */
-    clickMv(5);
+    await clickMv(5);
     await sleep(50);
     const edit4 = document.querySelector('#dump td.edit input');
     if (edit4) {
       edit4.value = 'CC'; edit4.dispatchEvent(new Event('input', { bubbles: true }));
-      clickMv(6);
+      await clickMv(6);
       await sleep(90);
       ok('4a 點別格 ⇒ 前一格的輸入生效', A.curSet().bytes[5] === 0xCC, A.curSet().bytes[5]);
       ok('4b 新點的那一格進入編輯', !!document.querySelector('#dump td.edit input'));
@@ -128,7 +139,7 @@
 
     stage(5);
     /* ── 路徑 5：只打一位 ⇒ 高位補 0 ──────────────────────────────────── */
-    clickMv(7);
+    await clickMv(7);
     await sleep(50);
     const edit5 = document.querySelector('#dump td.edit input');
     if (edit5) {
@@ -140,7 +151,7 @@
 
     stage(6);
     /* ── 路徑 6：打滿兩位再打第三個 ⇒ 往左移位 ─────────────────────────── */
-    clickMv(8);
+    await clickMv(8);
     await sleep(50);
     const edit6 = document.querySelector('#dump td.edit input');
     if (edit6) {
@@ -192,6 +203,39 @@
       ok('7n 而且第一個字元就是剛按的那個', ed && ed.value === 'A', ed && ed.value);
       if (ed) { key(ed, 'Escape'); await sleep(50); }
     }
+    /* 🔴 v1.16.2：**Enter 進入編輯**（Bruce：「現在是按 Enter 沒有用」）。
+       完整鍵盤流程：方向鍵移動 → Enter 開始輸入 → 打兩位 → Enter 提交。 */
+    ok('7o 前置：Enter 之前不在編輯狀態', !document.querySelector('#dump td.edit input'));
+    key(document.body, 'Enter'); await sleep(80);
+    {
+      const ed = document.querySelector('#dump td.edit input');
+      ok('7p 🔴 按 Enter ⇒ 進入編輯', !!ed);
+      if (ed) {
+        ed.value = '5C'; ed.dispatchEvent(new Event('input', { bubbles: true }));
+        key(ed, 'Enter'); await sleep(90);
+        ok('7q 🔴 編輯中按 Enter ⇒ 提交（既有行為沒被搶走）',
+           A.curSet().bytes[A.cursorAt()] === 0x5C, A.curSet().bytes[A.cursorAt()]);
+      }
+    }
+    /* 🔴 搜尋框裡的 Enter 不可以被搶走 */
+    {
+      const fi3 = $('#in-find');
+      fi3.value = '5C'; fi3.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(50);
+      fi3.focus();
+      key(fi3, 'Enter'); await sleep(80);
+      ok('7r 🔴 焦點在搜尋框時按 Enter ⇒ 不會誤開編輯',
+         !document.querySelector('#dump td.edit input'));
+      fi3.value = ''; fi3.dispatchEvent(new Event('input', { bubbles: true })); await sleep(30);
+      /* 🔴 一定要把焦點放掉：焦點留在搜尋框裡，後面的方向鍵會被
+         「輸入框內不攔截」那條規則擋掉，下一段就會莫名其妙不動。 */
+      fi3.blur(); document.body.focus(); await sleep(20);
+    }
+    /* 未選取任何格時按 Enter ⇒ 無事發生 */
+    A.selAnchor(null); await sleep(30);
+    key(document.body, 'Enter'); await sleep(60);
+    ok('7s 🔴 未選取任何格按 Enter ⇒ 什麼都不做',
+       !document.querySelector('#dump td.edit input'));
 
     /* 夾住不繞回 */
     click(cellAt(0)); await sleep(60);
@@ -261,7 +305,7 @@
       A.snapshot(); await sleep(40);
       ok('12-1 快照（值 A=11）⇒ 兩角都空', P(2) && P(2).snap === null && P(2).old === null, JSON.stringify(P(2)));
       /* 改成 B = 0x22 */
-      clickMv(2); await sleep(60);
+      await clickMv(2); await sleep(60);
       let e = document.querySelector('#dump td.edit input');
       if (e) { e.value = '22'; e.dispatchEvent(new Event('input', { bubbles: true })); key(e, 'Enter'); await sleep(90); }
       ok('12-2 改成 B=22 ⇒ 主值 22、左上 11、右上空',
@@ -290,7 +334,7 @@
       /* 在狀態 2（主值 A）再改成 C ⇒ A 不變、C 成為新的 B、回狀態 1 */
       A.slotClick(2, 'sv'); await sleep(50);
       ok('12-6a 前置：先回到狀態 2（主值＝A）', P(2).main === '11', P(2).main);
-      clickMv(2); await sleep(60);
+      await clickMv(2); await sleep(60);
       e = document.querySelector('#dump td.edit input');
       if (e) { e.value = '33'; e.dispatchEvent(new Event('input', { bubbles: true })); key(e, 'Enter'); await sleep(90); }
       ok('12-6b 改成 C=33 ⇒ 主值 33、左上仍是 A=11、右上空',
@@ -301,7 +345,7 @@
       ok('12-7a 重新快照 ⇒ A 更新成 33', A.refBytesAt(2) === 0x33, A.refBytesAt(2));
       ok('12-7b 重新快照 ⇒ 兩角都空', P(2).snap === null && P(2).old === null, JSON.stringify(P(2)));
       /* A 與 B 相等 ⇒ 兩角都空 */
-      clickMv(2); await sleep(60);
+      await clickMv(2); await sleep(60);
       e = document.querySelector('#dump td.edit input');
       if (e) { e.value = '33'; e.dispatchEvent(new Event('input', { bubbles: true })); key(e, 'Enter'); await sleep(90); }
       ok('12-8 A 與 B 相等 ⇒ 兩角都空', P(2).snap === null && P(2).old === null, JSON.stringify(P(2)));
@@ -324,7 +368,7 @@
     await sleep(40);
     ok('11a 前置：按下快照', A.refBytesAt(0x10) === 0x10, A.refBytesAt(0x10));
     /* 改值 */
-    clickMv(0x10); await sleep(60);
+    await clickMv(0x10); await sleep(60);
     let ed = document.querySelector('#dump td.edit input');
     if (ed) {
       ed.value = '99'; ed.dispatchEvent(new Event('input', { bubbles: true }));
@@ -364,7 +408,7 @@
     A._reset();
     A.loadFile('nosnap.bin', new Uint8Array([0x11, 0x22, 0x33, 0x44]));
     await sleep(70);
-    clickMv(1); await sleep(50);
+    await clickMv(1); await sleep(50);
     ed = document.querySelector('#dump td.edit input');
     if (ed) { ed.value = 'EE'; ed.dispatchEvent(new Event('input', { bubbles: true })); key(ed, 'Enter'); await sleep(80); }
     parts = A.cellParts(1);
@@ -378,7 +422,7 @@
     A._reset();
     A.loadFile('hdr.bin', new Uint8Array(256));
     await sleep(80);
-    clickMv(0x35); await sleep(70);
+    await clickMv(0x35); await sleep(70);
     {
       const rowHead = document.querySelectorAll('#dump tr')[4].querySelector('th.rh');
       const colHead = document.querySelectorAll('#dump tr')[0].querySelectorAll('th')[6];
@@ -461,7 +505,7 @@
          JSON.stringify(A.bits()) === JSON.stringify([true, false, true, false, false, true, true, true]),
          JSON.stringify(A.bits()));
       ok('14g 走的是與手動改格同一條提交路徑（dirty 標記有上）', A.dirtyAt(1) === true);
-      clickMv(2); await sleep(80);
+      await clickMv(2); await sleep(80);
       ok('14h 換一格 ⇒ 位元區跟著換（0xFF ⇒ 八個都勾）',
          JSON.stringify(A.bits()) === JSON.stringify([true, true, true, true, true, true, true, true]),
          JSON.stringify(A.bits()));
@@ -524,7 +568,7 @@
     {
       /* 先建立快照 A＝0x11，再把值改成 0x99 ⇒ 左上會出現快照值 */
       $('#btn-snap').click(); await sleep(60);
-      clickMv(0); await sleep(60);
+      await clickMv(0); await sleep(60);
       let ed = document.querySelector('#dump td.edit input');
       if (ed) { ed.value = '99'; ed.dispatchEvent(new Event('input', { bubbles: true }));
                 key(ed, 'Enter'); await sleep(90); }
@@ -549,20 +593,73 @@
       if (ov) { click(ov); await sleep(90); }
       ok('17g 🔴 點右上 ⇒ 主值換回 0x99', A.curSet().bytes[0] === 0x99, A.curSet().bytes[0]);
 
-      /* (4) 點中間數值 ⇒ 這時候才進編輯 */
-      clickMv(0); await sleep(70);
-      ok('17h 🔴 點中間數值 ⇒ 進入編輯', !!document.querySelector('#dump td.edit input'));
+      /* (4) 🔴 v1.16.2：點中間數值**第一次只定位**，**第二次才進編輯** */
+      A.selAnchor(null); await sleep(30);         /* 先確保它不是選取格 */
+      click(mvOf(0)); await sleep(70);
+      ok('17h1 🔴 第一次點中間數值 ⇒ **不**進編輯（只定位）',
+         !document.querySelector('#dump td.edit input'));
+      ok('17h2 但已經成為選取格', A.cursorAt() === 0, A.cursorAt());
+      click(mvOf(0)); await sleep(70);
+      ok('17h3 🔴 同一格再點一次中間數值 ⇒ 這時候才進編輯',
+         !!document.querySelector('#dump td.edit input'));
       ed = document.querySelector('#dump td.edit input');
       if (ed) { key(ed, 'Escape'); await sleep(50); }
 
       /* (5) 🔴 上一輪那個 blur bug 的回歸測試**留著**：
              進入編輯後再去點核取方塊，值要正確改變、不可以被 blur 撤銷。 */
-      clickMv(1); await sleep(70);
+      await clickMv(1); await sleep(70);
       ok('17i 前置：0x22 那一格進入編輯', !!document.querySelector('#dump td.edit input'));
       const cb2 = document.querySelector('#bitgrid input[data-bit="0"]');
       if (cb2) { cb2.click(); await sleep(140); }
       ok('17j 🔴 編輯中點核取方塊 ⇒ 0x22 變成 0x23（沒有被 blur 撤銷）',
          A.curSet().bytes[1] === 0x23, A.curSet().bytes[1]);
+    }
+
+    /* ── 🔴 路徑 18：A／B 區塊與 checksum（v1.16.2）────────────────────── */
+    A._reset();
+    A.loadFile('one.bin', new Uint8Array([0x01, 0x02, 0x03, 0x04]));
+    await sleep(80);
+    {
+      const box = $('#abbox');
+      ok('18a A／B 區塊在畫面上', !!box && box.getBoundingClientRect().width > 0);
+      const rows = box.querySelectorAll('.abrow');
+      ok('18b 兩行：A 在上、B 在下', rows.length === 2
+         && rows[0].getAttribute('data-ab') === 'A' && rows[1].getAttribute('data-ab') === 'B');
+      /* 🔴 字要夠大（他明說太小）：與耗時紀錄那一區（12px）拉開 */
+      const fs = parseFloat(getComputedStyle(rows[0]).fontSize);
+      ok('18c 🔴 字放大到 14px 以上', fs >= 14, fs + 'px');
+      ok('18d 第一次載入 ⇒ A ＝ 檔名、B 是空狀態',
+         /one\.bin/.test(rows[0].textContent) && /尚未建立/.test(rows[1].textContent),
+         rows[0].textContent + ' | ' + rows[1].textContent);
+      /* 🔴🔴 檔名只出現在 A／B 那一區。
+         掃描範圍是 dump 卡片的**可見文字**，但**排除 #log** ——
+         log 是診斷區，寫「載入檔案 one.bin」是它的職責，也不是他抱怨的那三處
+         （標題、綠底、黃底）。排除的理由寫在這裡，不要偷偷縮小範圍。 */
+      {
+        const card = $('#dumpcard');
+        const clone = card.cloneNode(true);
+        const lg = clone.querySelector('#log'); if (lg) lg.remove();
+        const hits = (clone.textContent.match(/one\.bin/g) || []).length;
+        ok('18e 🔴🔴 檔名在 dump 卡片上只出現一次（A／B 那一區）', hits === 1, '出現 ' + hits + ' 次');
+        ok('18e2 而且那一次就在 A／B 區塊裡',
+           (($('#abbox').textContent.match(/one\.bin/g) || []).length) === 1);
+        ok('18e3 標題／綠底都沒有檔名',
+           !/one\.bin/.test($('#dumptitle').textContent)
+           && !/one\.bin/.test($('#readbanner').textContent), $('#readbanner').textContent.slice(0, 40));
+      }
+      /* checksum：1+2+3+4 = 10 = 0xA，不截斷 */
+      const ck = $('#cksbox').querySelectorAll('.cksrow');
+      ok('18f checksum A／B 各一列（A 上 B 下）', ck.length === 2);
+      ok('18g A ＝ 0xA（4 byte）',
+         ck[0].querySelector('.val').textContent === '0xA'
+         && /4 byte/.test(ck[0].textContent), ck[0].textContent);
+      ok('18h B 不存在 ⇒ 空狀態而不是 0', /（無）/.test(ck[1].textContent), ck[1].textContent);
+      /* 改一格 ⇒ checksum 立刻重算 */
+      A.selAnchor(0); await sleep(30);
+      const cb3 = document.querySelector('#bitgrid input[data-bit="7"]');
+      if (cb3) { cb3.click(); await sleep(140); }
+      ok('18i 🔴 改一格 ⇒ checksum 立刻變（10 + 128 = 138 = 0x8A）',
+         /0x8A/.test($('#cksbox').textContent), $('#cksbox').textContent);
     }
 
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
