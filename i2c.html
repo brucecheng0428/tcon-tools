@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1136"></script>
+<script src="common/version.js?v=20260919i2c1140"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1782,7 +1782,7 @@ async function i2ctConnect(takeover){
          做法刻意放在**網頁端**：他不必換 exe、不必打任何參數，重新整理就好。
          （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
          fast 仍保留在 debug 區，供日後查清根因後實測用。 */
-      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
+      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
                             rawmpsse: i2ctRawMpsse ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
@@ -2033,71 +2033,118 @@ var i2ctThreePhase = false;
 /* 🔴 讀取建立時間（pyftdi `_ck_delay`）。400 kHz 的 t_buf=1.3µs ⇒ 預設 3。
    0 ＝ 完全不延遲（v1.11.5 以前的行為，就是 bit7 讀錯的那個狀態）。 */
 var i2ctCkDelay = 3;
+/* 🔴 讀取模式（v1.14.0）。與 bridge 的 `mode` 欄位一致。
+     0 原廠 DLL ← 最優先（Bruce：「現成的 UI 裡面做的 I2C 溝通都是對的」）
+     1 官方快速（libMPSSE FAST_TRANSFER，一個旗標）
+     2 一般（libMPSSE 逐 byte，基準、已知正確）
+     3 自建（我們手刻的 raw MPSSE，最後備援）
+   `i2ctFastRead` / `i2ctRawMpsse` 仍在，是為了相容既有的 debug 勾選與測試；
+   真正決定走哪條的是 `i2ctMode`。 */
+var I2CT_MODE_VENDOR = 0, I2CT_MODE_FAST = 1, I2CT_MODE_SLOW = 2, I2CT_MODE_RAW = 3;
+var i2ctMode = I2CT_MODE_SLOW;   /* 驗證前先用已知正確的，驗完才切 */
+/* ═══ 🔴 三段式自動選路（v1.14.0，Bruce 2026-09-19）════════════════════════
+   他問：「那些 .dll 檔案應該都有明確的控制方式吧？**不用細到還要用你來去控制
+   每個 bit 的細微動作吧？**」—— 他是對的，而我漏掉了一件事：
+
+   libMPSSE 官方就有 `FAST_TRANSFER_BYTES`（0x10）這個旗標，官方標頭的註解是
+   **「no address phase, no USB interframe delays」** —— 那就是官方支援的快速讀取，
+   **一個位元的事，不需要我們手刻任何 MPSSE 命令**。
+   程式裡這條路一直都在（`OPT_READ_DATA` 0x0B vs 0x1B），是我們自己關掉的。
+
+   🔴 關掉的唯一理由是當初讀 0x68「前 2 byte 對、其餘全 0F」那一次 ——
+   **但那次是在 `ChannelConfig` 還帶著 `#pragma pack(1)` 的時候測的**，
+   當時 `Options` 是垃圾，三相與 drive-only-zero 兩個都是錯的。
+   ⇒ **那次失敗的前提已經不存在，而我們從來沒有在修好之後重測過。**
+   （假說；推翻條件：重測仍 0F／不一致 ⇒ 回到模式三。）
+
+   ⇒ 自動驗證改成**依序試，能用官方的就不要用自己刻的**：
+       模式一「一般」  ＝ libMPSSE 逐 byte           ← 基準，已知正確
+       模式二「官方快速」＝ libMPSSE ＋ FAST_TRANSFER ← **先試這個**
+       模式三「自建」  ＝ 我們手刻的 raw MPSSE       ← 備援
+   模式二只是一個旗標，維護成本與出錯面都遠小於模式三。
+
+   🔴 仍然守住「連線不做任何 I2C 交易」（Bruce 2026-09-18 去 TCON 化）：
+      驗證在**他按下第一次讀取時**做，用**他自己填的 slave 與 offset**。 */
 async function i2ctVerifyFastOnce(slave, awid, off, len){
-  if (!i2ctRawMpsse || i2ctFastVerified !== null) return;
+  if (i2ctFastVerified !== null) return;
   var n = Math.min(len || I2CT_VERIFY_N, I2CT_VERIFY_N);
-  var fast = null, slow = null;
-  i2ctLog('── 首次讀取：先用 ' + n + ' byte 確認快的方式讀出來的值正確 ──', 'n');
+  var hex = function (a) {
+    var s = [], k;
+    for (k = 0; k < Math.min(16, a.length); k++)
+      s.push(('0' + (a[k] & 0xFF).toString(16)).slice(-2).toUpperCase());
+    return s.join(' ');
+  };
+  var setMode = async function (mode) {
+    await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: mode,
+                     threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay,
+                     clockHz: I2CT_CLOCK_HZ, takeover: 0,
+                     fastread: mode === I2CT_MODE_FAST ? 1 : 0,
+                     rawmpsse: mode === I2CT_MODE_RAW ? 1 : 0 });
+  };
+  /* 🔴 依序往下試，**能用原廠／官方的就不要用自己刻的**。
+     基準是模式二（libMPSSE 逐 byte，已知正確），其餘都跟它比。 */
+  var MODES = [
+    { key: 'vendor', name: '原廠',     mode: I2CT_MODE_VENDOR },
+    { key: 'fast',   name: '官方快速', mode: I2CT_MODE_FAST },
+    { key: 'built',  name: '自建',     mode: I2CT_MODE_RAW }
+  ];
+  i2ctFastVerified = true;                 /* 先佔住，避免重入 */
+  i2ctLog('── 首次讀取：用 ' + n + ' byte 挑一條讀得對又快的路 ──', 'n');
+  var base = null, chosen = null, i, m, r, bad, first;
   try {
-    fast = await i2ctDoRead(slave, awid, off, n, true);
-    await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
-                     fastread: i2ctFastRead ? 1 : 0, rawmpsse: 0 });
-    slow = await i2ctDoRead(slave, awid, off, n, true);
-  } catch (e) {
-    i2ctLog('✕ 自動驗證過程出錯：' + e.message, 'e');
-  }
-  var ok = !!(fast && fast.ok && slow && slow.ok
-              && fast.bytes.length === slow.bytes.length);
-  var firstBad = -1;
-  if (ok) for (var i = 0; i < slow.bytes.length; i++) {
-    if ((fast.bytes[i] & 0xFF) !== (slow.bytes[i] & 0xFF)) { ok = false; firstBad = i; break; }
-  }
-  i2ctFastVerified = ok;
-  if (ok) {
-    /* 🔴 安靜。驗過就驗過，不要為了展示我們做了事而佔他的畫面。 */
-    i2ctLog('✔ 自動驗證通過（' + n + ' byte 兩種方式相同）⇒ 沿用快的方式', 'o');
-    await i2ctNote('verify PASS: ' + n + ' bytes identical on both paths (slave=0x'
-                 + slave.toString(16) + ' addr=0x' + off.toString(16) + ')');
-  } else {
-    i2ctRawMpsse = false;
-    var cb = $('chk-rawmpsse'); if (cb) cb.checked = false;
-    i2ctLog('✕ 自動驗證未通過 ⇒ 已改用慢但已知正確的方式'
-          + (fast && !fast.ok ? '（快的方式回報：' + fast.err + '）' : ''), 'e');
-    /* 🔴 逐 byte 的細節送進 **bridge 的 log**（他能傳給我們的只有那一個檔）。
-       特別要看第一個不一致的位置：若是「前 2~3 byte 對、之後全錯」，
-       形狀就與當初的 0F 相同 ⇒ 同一個根因還在。
-       🔴 注意 drive-only-zero 現在才真正生效（Options 修好），
-       所以這次的結果不可以沿用舊結論，要當成新的一次量測。 */
-    if (fast && fast.ok && slow && slow.ok) {
-      var hex = function (a, from, cnt) {
-        var s = [], k;
-        for (k = from; k < Math.min(from + cnt, a.length); k++)
-          s.push(('0' + (a[k] & 0xFF).toString(16)).slice(-2).toUpperCase());
-        return s.join(' ');
-      };
-      var at = firstBad < 0 ? 0 : firstBad;
-      await i2ctNote('verify FAIL: first mismatch at +' + firstBad
-                   + ' of ' + n + ' (slave=0x' + slave.toString(16)
-                   + ' addr=0x' + off.toString(16) + ' awid=' + awid + ')');
-      await i2ctNote('verify FAIL: fast[' + at + '..] = ' + hex(fast.bytes, at, 16));
-      await i2ctNote('verify FAIL: slow[' + at + '..] = ' + hex(slow.bytes, at, 16));
-      await i2ctNote('verify FAIL: fast[0..] = ' + hex(fast.bytes, 0, 16));
-      await i2ctNote('verify FAIL: slow[0..] = ' + hex(slow.bytes, 0, 16));
-    } else {
-      await i2ctNote('verify FAIL: read error -- fast='
-                   + (fast ? (fast.ok ? 'ok' : fast.err) : 'no result')
-                   + ' slow=' + (slow ? (slow.ok ? 'ok' : slow.err) : 'no result'));
+    /* 基準：模式二（libMPSSE 逐 byte，已知正確） */
+    await setMode(I2CT_MODE_SLOW);
+    base = await i2ctDoRead(slave, awid, off, n, true);
+    if (!base || !base.ok) {
+      await i2ctNote('verify: baseline (normal) FAILED -- ' + (base ? base.err : 'no result'));
+      i2ctLog('✕ 基準讀取就失敗了，維持一般方式', 'e');
+      i2ctMode = I2CT_MODE_SLOW;
+      await setMode(I2CT_MODE_SLOW); return;
     }
-    /* 🔴 用 topbanner 不是 readbanner：readbanner 會被這次讀取的結果訊息立刻蓋掉，
-       他就看不到自己正在走慢的那條。這一行要**留著**直到下次重連。 */
-    /* 🔴 一行話要**帶著下一步**：他重新整理頁面就會重驗一次。
-       沒有下一步的警告等於只是讓他焦慮。 */
-    i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式；重新整理頁面會再確認一次。');
+    await i2ctNote('verify: baseline(normal) ok, ' + n + ' bytes: ' + hex(base.bytes));
+    for (i = 0; i < MODES.length && !chosen; i++) {
+      m = MODES[i];
+      await setMode(m.mode);
+      r = await i2ctDoRead(slave, awid, off, n, true);
+      if (!r || !r.ok) {
+        await i2ctNote('verify: ' + m.key + ' READ FAILED -- ' + (r ? r.err : 'no result'));
+        i2ctLog('· ' + m.name + '：讀取失敗（' + (r ? r.err : '無結果') + '）', 'w');
+        continue;
+      }
+      bad = 0; first = -1;
+      if (r.bytes.length !== base.bytes.length) { bad = 1; first = Math.min(r.bytes.length, base.bytes.length); }
+      else for (var k = 0; k < base.bytes.length; k++)
+        if ((r.bytes[k] & 0xFF) !== (base.bytes[k] & 0xFF)) { bad++; if (first < 0) first = k; }
+      if (!bad) {
+        chosen = m;
+        await i2ctNote('verify: ' + m.key + ' PASS -- identical to baseline over ' + n + ' bytes');
+        i2ctLog('✔ ' + m.name + '：' + n + ' byte 與基準完全相同 ⇒ 採用', 'o');
+      } else {
+        await i2ctNote('verify: ' + m.key + ' MISMATCH at +' + first + ' of ' + n);
+        await i2ctNote('verify: ' + m.key + '[0..] = ' + hex(r.bytes));
+        await i2ctNote('verify: base [0..] = ' + hex(base.bytes));
+        i2ctLog('· ' + m.name + '：' + bad + '/' + n + ' byte 不符（第一個在 +' + first + '）', 'w');
+      }
+    }
+  } catch (e) {
+    i2ctLog('✕ 自動選路過程出錯：' + e.message, 'e');
+    await i2ctNote('verify: exception -- ' + e.message);
   }
-  /* 不論結果，都把連線切回結論對應的狀態再繼續 */
-  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
-                         fastread: i2ctFastRead ? 1 : 0,
-                         rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
+  /* 套用結論並把連線切到該模式 */
+  i2ctMode     = chosen ? chosen.mode : I2CT_MODE_SLOW;
+  i2ctFastRead = (i2ctMode === I2CT_MODE_FAST);
+  i2ctRawMpsse = (i2ctMode === I2CT_MODE_RAW);
+  { var cb = $('chk-rawmpsse'); if (cb) cb.checked = i2ctRawMpsse;
+    var cf = $('chk-fastread'); if (cf) cf.checked = i2ctFastRead; }
+  try { await setMode(i2ctMode); } catch (e) {}
+  if (!chosen) {
+    /* 🔴 三條都不對 ⇒ 用慢但已知正確的，並且**講出來**（不是靜默變慢）。 */
+    i2ctBanner('topbanner', 'warn', '這次用的是比較慢的讀取方式；重新整理頁面會再確認一次。');
+    i2ctLog('🔴 三種比較快的方式都與基準不符 ⇒ 改用慢但已知正確的方式', 'e');
+    await i2ctNote('verify: no faster path passed -- staying on the normal (slow) path');
+  } else {
+    await i2ctNote('verify: adopted ' + chosen.key);
+  }
 }
 async function i2ctOnRead(){
   /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
@@ -2908,7 +2955,7 @@ async function i2ctComparePaths(){
   var res = {};
   for (var pass = 0; pass < MODES.length; pass++) {
     var M = MODES[pass];
-    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                            fastread: M.fastread, rawmpsse: M.rawmpsse }); }
     catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換模式失敗：' + e.message); return; }
     var t0 = Date.now();
@@ -2937,7 +2984,7 @@ async function i2ctComparePaths(){
     if (i2ctRawMpsse) { i2ctRawMpsse = false; forcedOff = true;
                         var cb = $('chk-rawmpsse'); if (cb) cb.checked = false; }
   }
-  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0, rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
   i2ctBusy = false; i2ctSyncButtons();
   if (!done) {
@@ -3947,6 +3994,8 @@ window.__i2ct = {
   times: function () { return i2ctTimes.slice(); },
   clearTimes: function () { i2ctTimes = []; i2ctRenderTimes(); },
   rawMpsse: function (v) { if (v !== undefined) i2ctRawMpsse = !!v; return i2ctRawMpsse; },
+  /* 0 原廠DLL / 1 官方快速 / 2 一般 / 3 自建 —— 自動選路的結論 */
+  mode: function (v) { if (v !== undefined) i2ctMode = v; return i2ctMode; },
   chunk: function () { return i2ctChunk(); },
   fastRead: function (v) { if (v !== undefined) i2ctFastRead = !!v; return i2ctFastRead; },
   snapshotOf: function (d) { return i2ctSnapshotOf(d); },

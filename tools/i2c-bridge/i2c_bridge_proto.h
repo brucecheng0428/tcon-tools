@@ -327,14 +327,47 @@ static inline unsigned int dgh_mp_wire_hz(unsigned short div, int threePhase){
     unsigned int prog = 12000000u / (((unsigned int)div + 1u) * 2u);
     return threePhase ? (prog * 2u) / 3u : prog;
 }
-#define DGH_MP_DIR_WR (dgh_ad3_out ? 0x0B : 0x03)   /* SCL out, SDA out */
-#define DGH_MP_DIR_RD (dgh_ad3_out ? 0x09 : 0x01)   /* SCL out, SDA 放開 */
-#define DGH_MP_HI     0x03      /* SCL=1 SDA=1 */
-#define DGH_MP_SDALO  0x01      /* SCL=1 SDA=0 */
-#define DGH_MP_LO     0x00      /* SCL=0 SDA=0 */
-/* 🔴 SCL 低、**SDA 輸出高** ＝ pyftdi 的 `_clk_lo_data_hi`（`0x80 0x02 0x03`）。
-   pin bit：SCL=0x01(AD0)、SDA_O=0x02(AD1)、SDA_I=0x04(AD2)（pyftdi i2c.py 常數）。 */
-#define DGH_MP_SDAHI  0x02      /* SCL=0 SDA=1 */
+/* ═══ 🔴🔴 I2C 是開汲極：「高」＝放開，不是驅動高 ═══════════════════════════
+   Bruce 2026-09-19：「I2C 的機制本來就是下拉的時候由 slave 或 master 去拉它，
+   而為 high 的時候其實是 **open drain** 的形式，也就是**只是把它放開變 High-Z**
+   而已。因為有上拉電阻，會自動把它拉回 High 準位。SCL 跟 SDA 都是這樣。」
+
+   ⇒ **凡是要讓線變高，一律改方向（放開），不可以輸出高值。**
+   主動推高會跟正在拉低的從機打架；而且「延遲期間還在驅動低」等於延遲白做 ——
+   **那正是 bit7 一直讀成 0 的機制**。
+
+   pyftdi 的 `_clk_lo_data_hi`（`0x80 0x02 0x03`＝輸出且值為高）是它在
+   FT2232 沒有開汲極時的 `_fake_tristate` 折衷，**不是 I2C 的正解**，我們不照抄。
+
+   pin bit：SCL=0x01(AD0)、SDA_O=0x02(AD1)、SDA_I=0x04(AD2)。
+   SCL 維持輸出 —— MPSSE 得自己產生時脈，把它設成輸入就沒有時脈了；
+   開汲極由 `0x9E 07 00` 在硬體層做掉（它做的就是「只驅動 0、其餘放開」，
+   與上面那段話是同一件事）。 */
+#define DGH_MP_DIR_WR (dgh_ad3_out ? 0x0B : 0x03)   /* SCL out, SDA out（要拉低時才用） */
+#define DGH_MP_DIR_RD (dgh_ad3_out ? 0x09 : 0x01)   /* SCL out, **SDA 放開 ＝ High-Z** */
+/* 四種匯流排狀態，命名直接講「放開」還是「拉低」，不要再用會誤導的 HI/LO */
+#define DGH_MP_V_SCLLO 0x00     /* value: SCL=0 */
+#define DGH_MP_V_SCLHI 0x01     /* value: SCL=1 */
+/* 🔴 `DGH_MP_HI`(0x03) 與 `DGH_MP_SDALO`(0x01) 已移除 —— 它們的語意是「值為高」，
+   在開汲極的 I2C 上是誤導：要高就改方向放開，不是把值設成 1。
+   留著遲早有人再拿去用，所以直接刪掉。`DGH_MP_LO` 保留（值 0 是真的要拉低）。 */
+#define DGH_MP_LO     0x00
+
+/* ═══ 🔴 讀完一個 byte 之後的建立時間（pyftdi 的 `_ck_delay`）════════════════
+   Bruce：「這個間隔應該是可以調整吧？**你是不是把它用到最小？**」—— 他是對的，
+   我們原本是 **0**。
+
+   pyftdi 的算法（`I2cController.configure` / `_compute_delay_cycles`）：
+       I2C_400K.t_buf = 1.3 µs
+       ck_delay = max(1, int((t_buf + bit_delay) / bit_delay))
+   以 MPSSE 一個位元週期 bit_delay ≈ 0.5 µs 代入 ⇒ `int(1.8/0.5)` ＝ **3**。
+
+   🔴 但延遲那幾拍**必須維持在「放開」狀態**（`0x80 0x00 0x01`），
+   不是 pyftdi 的 `0x80 0x00 0x03`（那是驅動低）——
+   延遲的目的就是給上拉電阻時間把線拉回高，還壓著就完全白做。
+   ⇒ 預設 3，並做成**可調**，讓 Bruce 用 LA 掃出最小可用值。 */
+extern int dgh_ck_delay;        /* 預設 3；0 ＝ 完全不延遲（＝ v1.11.5 以前的行為） */
+#define DGH_CK_DELAY_MAX 16
 
 /* ═══ 🔴 讀完一個 byte 之後的建立時間（pyftdi 的 `_ck_delay`）════════════════
    Bruce：「這個間隔應該是可以調整吧？**你是不是把它用到最小？**」—— 他是對的，
@@ -363,16 +396,19 @@ static inline void dgh_put(dgh_buf* b, int v){
 static inline void dgh_pins(dgh_buf* b, int val, int dir, int times){
     for(int i=0;i<times;i++){ dgh_put(b,0x80); dgh_put(b,val); dgh_put(b,dir); }
 }
+/* 🔴 START：閒置（兩條線都放開＝被上拉到高）→ SDA 拉低（SCL 仍高）→ SCL 拉低。
+   「SDA 高」用**放開**（DIR_RD），不是輸出高值。 */
 static inline void dgh_mp_start(dgh_buf* b){
-    dgh_pins(b, DGH_MP_HI,    DGH_MP_DIR_WR, DGH_MP_START_REP);   /* SDA↑ SCL↑ */
-    dgh_pins(b, DGH_MP_SDALO, DGH_MP_DIR_WR, DGH_MP_START_REP2);  /* SDA↓（SCL 仍高）＝ START */
-    dgh_pins(b, DGH_MP_LO,    DGH_MP_DIR_WR, DGH_MP_START_REP);   /* SCL↓ */
+    dgh_pins(b, DGH_MP_V_SCLHI, DGH_MP_DIR_RD, DGH_MP_START_REP);   /* 閒置：SDA 放開、SCL 高 */
+    dgh_pins(b, DGH_MP_V_SCLHI, DGH_MP_DIR_WR, DGH_MP_START_REP2);  /* SDA↓（SCL 仍高）＝ START */
+    dgh_pins(b, DGH_MP_V_SCLLO, DGH_MP_DIR_WR, DGH_MP_START_REP);   /* SCL↓ */
 }
+/* 🔴 STOP：SCL 低、SDA 拉低 → SCL 放高 → **SDA 放開**（上拉把它帶高）＝ STOP。
+   最後一道維持 SDA 放開、SCL 輸出高 ＝ 匯流排回到閒置。 */
 static inline void dgh_mp_stop(dgh_buf* b){
-    dgh_pins(b, DGH_MP_LO,    DGH_MP_DIR_WR, DGH_MP_STOP_REP);
-    dgh_pins(b, DGH_MP_SDALO, DGH_MP_DIR_WR, DGH_MP_STOP_REP);    /* SCL↑（SDA 仍低） */
-    dgh_pins(b, DGH_MP_HI,    DGH_MP_DIR_WR, DGH_MP_STOP_REP);    /* SDA↑ ＝ STOP */
-    dgh_put(b,0x80); dgh_put(b,DGH_MP_HI); dgh_put(b,0x00);       /* 放開匯流排 */
+    dgh_pins(b, DGH_MP_V_SCLLO, DGH_MP_DIR_WR, DGH_MP_STOP_REP);    /* SCL低、SDA 拉低 */
+    dgh_pins(b, DGH_MP_V_SCLHI, DGH_MP_DIR_WR, DGH_MP_STOP_REP);    /* SCL↑（SDA 仍拉低） */
+    dgh_pins(b, DGH_MP_V_SCLHI, DGH_MP_DIR_RD, DGH_MP_STOP_REP);    /* SDA 放開 ＝ STOP */
 }
 /* 寫一個 byte ＋ 收一個 ACK 位元 ⇒ 會多回 1 個 input byte。 */
 static inline int dgh_mp_wr_byte(dgh_buf* b, int v){
@@ -406,15 +442,29 @@ static inline int dgh_mp_rd_byte(dgh_buf* b, int nack){
     int i, d = dgh_ck_delay;
     if(d < 0) d = 0;
     if(d > DGH_CK_DELAY_MAX) d = DGH_CK_DELAY_MAX;
-    dgh_put(b,0x80); dgh_put(b,DGH_MP_LO);    dgh_put(b,DGH_MP_DIR_RD);  /* _clk_lo_data_input */
-    dgh_put(b,0x20); dgh_put(b,0x00);         dgh_put(b,0x00);           /* _read_byte */
-    dgh_put(b,0x80); dgh_put(b,DGH_MP_SDAHI); dgh_put(b,DGH_MP_DIR_WR);  /* 🔴 _clk_lo_data_hi */
-    dgh_put(b,0x13); dgh_put(b,0x00);         dgh_put(b, nack ? 0xFF : 0x00);
-    /* 🔴 建立時間：非最後一個用 _clk_lo_data_lo，最後一個用 _clk_lo_data_hi（同 pyftdi） */
+    /* ① SDA 放開（High-Z），SCL 仍為輸出低 —— 讓從機驅動資料 */
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
+    /* ② 讀 1 byte */
+    dgh_put(b,0x20); dgh_put(b,0x00);           dgh_put(b,0x00);
+    if(nack){
+        /* 🔴 ③ NACK ＝ 讓 SDA **維持高** ＝ **放開不要驅動**。
+           不可以用 `0x13 ... 0xFF` 去「輸出高」—— 那是主動推高，違反開汲極。
+           所以這裡維持 High-Z，只補一個時脈脈衝：
+             `0x8E len` ＝ Clock For n x 1 bits, no data transfer（len ＝ 次數-1）。
+           （依據：I2C 的開汲極特性＋Bruce 2026-09-19 的裁示。） */
+        dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
+        dgh_put(b,0x8E); dgh_put(b,0x00);                    /* 1 個時脈，不動資料線 */
+    } else {
+        /* ③ ACK ＝ 主動把 SDA 拉低一個時脈 */
+        dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_WR);
+        dgh_put(b,0x13); dgh_put(b,0x00);           dgh_put(b,0x00);
+    }
+    /* 🔴 ④ 立刻放開回 High-Z，並在這個狀態下等 ckDelay 拍。
+       延遲的目的是給上拉電阻時間把 SDA 拉回高；**延遲期間還驅動低就完全白做**，
+       那正是先前 bit7 讀成 0 的機制。 */
+    dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
     for(i = 0; i < d; i++){
-        dgh_put(b,0x80);
-        dgh_put(b, nack ? DGH_MP_SDAHI : DGH_MP_LO);
-        dgh_put(b, DGH_MP_DIR_WR);
+        dgh_put(b,0x80); dgh_put(b,DGH_MP_V_SCLLO); dgh_put(b,DGH_MP_DIR_RD);
     }
     return 1;
 }

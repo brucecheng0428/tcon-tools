@@ -125,6 +125,17 @@ int dgh_three_phase = 0;
    算式與依據見 i2c_bridge_proto.h（pyftdi `_ck_delay`，t_buf=1.3µs @400kHz ⇒ 3）。
    做成可調是因為 Bruce 要用 LA 掃出最小可用值 —— 這個值只有在他的硬體上量得出來。 */
 int dgh_ck_delay = 3;
+/* 🔴 讀取模式（v1.11.7）。網頁用 open 的 `mode` 欄位指定；自動驗證會依序往下試。
+     0 = 原廠 DLL（DLL_I2C_BCB）      ← 最優先，找得到就用
+     1 = libMPSSE ＋ FAST_TRANSFER    ← 官方旗標，一個位元的事
+     2 = libMPSSE 逐 byte             ← 基準，已知正確
+     3 = 自建 raw MPSSE               ← 最後備援
+   舊欄位 `fastread`／`rawmpsse` 仍然吃（相容），但 `mode` 若有給就以它為準。 */
+#define DGH_MODE_VENDOR 0
+#define DGH_MODE_FAST   1
+#define DGH_MODE_SLOW   2
+#define DGH_MODE_RAW    3
+int dgh_mode = DGH_MODE_VENDOR;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -515,6 +526,179 @@ static int locate_and_load_dll(void) {
     return 0;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   🔴🔴 原廠 DLL 模式（`DLL_I2C_BCB.dll`）—— v1.11.7 起的**最優先**路徑
+   ───────────────────────────────────────────────────────────────────────────
+   Bruce 2026-09-19：「我一直不懂，是不是都已經有現成的 UI，裡面做的 I2C 溝通
+   都是對的嗎？**為什麼你要搞得這麼複雜？**」—— 他是對的。
+
+   這支 DLL **已經在他電腦上**（EM01／EM02 的 TCON UI 都帶著它），而我們的 bridge
+   本來就會在他電腦上到處找 `libMPSSE.dll`。**同一套搜尋機制拿來找它即可**，
+   不需要打包、不需要散佈、沒有任何要裁示的事。
+
+   🔴 API 與慣例（依據：他自己在用、而且會動的 Python）
+     `~/TCON/TCON_UI/Raydium_RomCodeProcessUI/SourceCode_V5.0.4/RadDll64.py` 的原廠宣告：
+         bool Detect(void);  bool Open(void);  bool Close(void);
+         void SetClock(U16);            // 🔴 單位 **KHz**，不是 Hz
+         U16  GetClock(void);
+         bool SendBytesEx(U8 addr, U32 reg, U32 count, U8* data);
+         U16  GetBytesEx (U8 addr, U32 reg, U32 count, U8* data);
+     實際呼叫還有第 5 個參數 `u8Bytes` ＝ offset 寬度 0／1／2，不用時帶 **0xFF**。
+     🔴 **cdecl**（`RadDll64.py:11,17` 用 `ctypes.cdll.LoadLibrary`，不是 `windll`）
+        ⇒ **不要加 `__stdcall`**。這與 ftd2xx 相反，慣例逐支確認，見檔頭的表。
+     🔴 slave 傳 **7-bit**（他的 Python 傳 0x7C/0x3E/0x68），**不要左移**。
+
+   使用序列（`mainDemo64.py:77,79`、`RomCodeProcessUI.py:31669`）：
+        SetClock(400)  →  Open()（內部會先 Detect）
+        GetBytesEx(slave, offset, len, buf, offsetBytes)   // 一次讀完，不分段
+     `RomCodeProcessUI.py:30842` 的檢查寫死 slave 0x50 / offset 2 / 4096
+     ⇒ **原廠標準操作就是一次讀 4096**。
+   🔴 改時脈要 `Close() → SetClock() → Open()`（`RomCodeProcessUI.py:36448`），
+      不能開著改。
+
+   🔴 與 libMPSSE **互斥**：兩者都會開同一個 FTDI channel，不能同時持有。
+      選了原廠 DLL 就不呼叫 `I2C_OpenChannel`，反之亦然。 */
+typedef int  (*PFN_V_Detect)(void);
+typedef int  (*PFN_V_Open)(void);
+typedef int  (*PFN_V_Close)(void);
+typedef void (*PFN_V_SetClock)(unsigned short);
+typedef unsigned short (*PFN_V_GetClock)(void);
+typedef int  (*PFN_V_Send)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
+typedef unsigned short (*PFN_V_Get)(unsigned char, unsigned int, unsigned int, unsigned char*, unsigned char);
+static PFN_V_Detect   pv_Detect   = NULL;
+static PFN_V_Open     pv_Open     = NULL;
+static PFN_V_Close    pv_Close    = NULL;
+static PFN_V_SetClock pv_SetClock = NULL;
+static PFN_V_GetClock pv_GetClock = NULL;
+static PFN_V_Send     pv_Send     = NULL;
+static PFN_V_Get      pv_Get      = NULL;
+static int  g_vendorOk   = 0;         /* DLL 載入且 exports 齊全 */
+static int  g_vendorOpen = 0;         /* 已經 Open() 持有 channel */
+static char g_vendorPath[MAX_PATH] = "";
+#define DGH_VENDOR_DLL "DLL_I2C_BCB.dll"
+
+static int vendor_try_dir(const char* dirIn){
+    char dir[MAX_PATH], full[MAX_PATH];
+    HMODULE h;
+    if(!dirIn || !dirIn[0] || g_vendorOk) return 0;
+    snprintf(dir,sizeof(dir),"%s",dirIn); ensure_slash(dir);
+    snprintf(full,sizeof(full),"%s%s",dir,DGH_VENDOR_DLL);
+    { DWORD a=GetFileAttributesA(full);
+      if(a==INVALID_FILE_ATTRIBUTES || (a&FILE_ATTRIBUTE_DIRECTORY)) return 0; }
+    SetDllDirectoryA(dir);            /* 讓它自己的相依（ftd2xx 等）也解得到 */
+    h = LoadLibraryA(full);
+    if(!h){ logline("  vendor  : %-50s FOUND but LoadLibrary failed (err=%lu)", full, GetLastError());
+            return 0; }
+    pv_Detect  =(PFN_V_Detect)  GetProcAddress(h,"Detect");
+    pv_Open    =(PFN_V_Open)    GetProcAddress(h,"Open");
+    pv_Close   =(PFN_V_Close)   GetProcAddress(h,"Close");
+    pv_SetClock=(PFN_V_SetClock)GetProcAddress(h,"SetClock");
+    pv_GetClock=(PFN_V_GetClock)GetProcAddress(h,"GetClock");
+    pv_Send    =(PFN_V_Send)    GetProcAddress(h,"SendBytesEx");
+    pv_Get     =(PFN_V_Get)     GetProcAddress(h,"GetBytesEx");
+    if(!pv_Open || !pv_Close || !pv_Get || !pv_SetClock){
+        logline("  vendor  : %-50s loaded but exports missing (Open=%p Close=%p GetBytesEx=%p SetClock=%p)",
+                full,(void*)pv_Open,(void*)pv_Close,(void*)pv_Get,(void*)pv_SetClock);
+        return 0;
+    }
+    g_vendorOk = 1;
+    snprintf(g_vendorPath,sizeof(g_vendorPath),"%s",full);
+    logline("  vendor  : OK  loaded %s", full);
+    return 1;
+}
+/* 在 root 底下遞迴找檔名（深度有限）。
+   🔴 需要遞迴的理由：他的 TCON 目錄在 Windows 上的實際路徑我們不知道，
+      已知形狀是 `<某處>\TCON\TCON_UI\EM02\Raydium_TCON_Tool_EM02_v0.4.0\`，
+      深度 4~5 層。深度設 5、跳過明顯無關的大目錄，避免掃爆整顆硬碟。 */
+static int vendor_scan(const char* root, int depth){
+    char pat[MAX_PATH], sub[MAX_PATH];
+    WIN32_FIND_DATAA fd; HANDLE hf;
+    if(g_vendorOk || !root || !root[0] || depth <= 0) return g_vendorOk;
+    if(vendor_try_dir(root)) return 1;
+    snprintf(pat,sizeof(pat),"%s\\*",root);
+    hf = FindFirstFileA(pat,&fd);
+    if(hf==INVALID_HANDLE_VALUE) return 0;
+    do{
+        if(!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if(fd.cFileName[0]=='.') continue;
+        if(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;  /* 別跟著捷徑繞圈 */
+        /* 明顯無關又很大的目錄直接跳過，別讓搜尋變成掃碟 */
+        if(case_contains(fd.cFileName,"AppData")||case_contains(fd.cFileName,"OneDrive")
+           ||case_contains(fd.cFileName,"node_modules")||case_contains(fd.cFileName,"Windows")) continue;
+        snprintf(sub,sizeof(sub),"%s\\%s",root,fd.cFileName);
+        if(vendor_scan(sub,depth-1)){ FindClose(hf); return 1; }
+    }while(FindNextFileA(hf,&fd));
+    FindClose(hf);
+    return g_vendorOk;
+}
+/* 與 libMPSSE **同一套**搜尋策略（env → exe dir → cwd → ini → 使用者目錄遞迴 → PATH）。
+   🔴 找不到要講清楚找過哪些地方，沿用既有的搜尋報告格式。 */
+static int locate_and_load_vendor(void){
+    char buf[MAX_PATH];
+    logline("Looking for %s (order: env, exe dir, cwd, ini, user folders (recursive), PATH):", DGH_VENDOR_DLL);
+    if (GetEnvironmentVariableA("I2C_BRIDGE_VENDOR_DLL_DIR", buf, sizeof(buf)) && buf[0] && vendor_try_dir(buf)) return 1;
+    if (vendor_try_dir(g_exeDir)) return 1;
+    if (GetCurrentDirectoryA(sizeof(buf), buf) && vendor_try_dir(buf)) return 1;
+    { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%si2c-bridge-vendor.ini",g_exeDir);
+      FILE* f=fopen(ip,"rb"); if(f){ if(fgets(buf,sizeof(buf),f)){ int n=(int)strlen(buf);
+        while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'||buf[n-1]==' ')) buf[--n]=0;
+        if(buf[0] && vendor_try_dir(buf)){ fclose(f); return 1; } } fclose(f); } }
+    { char up[MAX_PATH];
+      if(GetEnvironmentVariableA("USERPROFILE",up,sizeof(up))&&up[0]){
+        /* 先試最可能的形狀，再全域遞迴 */
+        const char* subs[]={"TCON","Documents","Desktop","Downloads",NULL};
+        int i;
+        for(i=0;subs[i];i++){ snprintf(buf,sizeof(buf),"%s\\%s",up,subs[i]);
+            if(vendor_scan(buf,5)) return 1; }
+        if(vendor_scan(up,4)) return 1; } }
+    { const char* drives[]={"C:\\TCON","D:\\TCON",NULL}; int i;
+      for(i=0;drives[i];i++) if(vendor_scan(drives[i],5)) return 1; }
+    { DWORD need=GetEnvironmentVariableA("PATH",NULL,0);
+      if(need){ char* path=(char*)malloc(need+1); if(path){ GetEnvironmentVariableA("PATH",path,need+1);
+        char* ctx=NULL; char* tok;
+        for(tok=strtok_s(path,";",&ctx); tok; tok=strtok_s(NULL,";",&ctx))
+            if(tok[0]&&vendor_try_dir(tok)){ free(path); return 1; }
+        free(path); } } }
+    logline("  vendor  : %s not found (searched env I2C_BRIDGE_VENDOR_DLL_DIR, exe dir, cwd,"
+            " i2c-bridge-vendor.ini, %%USERPROFILE%%\\{TCON,Documents,Desktop,Downloads} recursively,"
+            " C:\\TCON, D:\\TCON, and PATH)", DGH_VENDOR_DLL);
+    return 0;
+}
+/* 開啟原廠 channel。🔴 改時脈一定要 Close → SetClock → Open（原廠自己的順序）。 */
+static int vendor_open(uint32_t clockHz){
+    unsigned short kHz = (unsigned short)((clockHz ? clockHz : 400000u) / 1000u);
+    if(!g_vendorOk) return 0;
+    if(g_vendorOpen) return 1;
+    if(pv_Close) pv_Close();                 /* 先確保是關的，才改得動時脈 */
+    pv_SetClock(kHz);                        /* 🔴 單位 KHz */
+    if(!pv_Open()){
+        logline("  vendor  : Open() failed (clock %u kHz) -- rig in use by another tool?", kHz);
+        return 0;
+    }
+    g_vendorOpen = 1;
+    logline("  vendor  : Open() ok, SetClock(%u kHz)%s", kHz,
+            pv_GetClock ? "" : " (GetClock not exported)");
+    if(pv_GetClock) logline("  vendor  : GetClock() reports %u kHz", (unsigned)pv_GetClock());
+    return 1;
+}
+static void vendor_close(void){
+    if(g_vendorOk && g_vendorOpen && pv_Close) pv_Close();
+    g_vendorOpen = 0;
+}
+/* 一次讀完，不分段（原廠標準操作）。回傳 1 成功。 */
+static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t len,
+                       uint8_t* out, uint32_t* got){
+    unsigned short r;
+    unsigned char ob = (awid==0||awid==1||awid==2) ? (unsigned char)awid : 0xFF;
+    if(!g_vendorOk || !g_vendorOpen) return 0;
+    /* 🔴 slave 傳 7-bit，不左移（與他的 Python 一致） */
+    r = pv_Get((unsigned char)slave, addr, len, out, ob);
+    if(got) *got = len;
+    logline("  vendor  : GetBytesEx(slave=0x%02X addr=0x%X len=%u offBytes=%u) -> %u",
+            slave, addr, len, ob, (unsigned)r);
+    return r ? 1 : 0;
+}
+
 /* ===========================================================================
  * diagnostics
  * =========================================================================== */
@@ -686,7 +870,9 @@ static int raw_set_mode(int useRaw, uint32_t hz) {
     c[n++] = 0x9E; c[n++] = 0x07; c[n++] = 0x00;
     c[n++] = 0x85;
     c[n++] = 0x86; c[n++] = (unsigned char)(div & 0xFF); c[n++] = (unsigned char)((div >> 8) & 0xFF);
-    c[n++] = 0x80; c[n++] = DGH_MP_HI; c[n++] = DGH_MP_DIR_WR;
+    /* 🔴 匯流排閒置 ＝ **SDA 放開**（High-Z，上拉帶高）、SCL 輸出高。
+       原本是 `0x80 0x03 0x03`（SDA 輸出且值為高）—— 那是主動推高，違反開汲極。 */
+    c[n++] = 0x80; c[n++] = DGH_MP_V_SCLHI; c[n++] = DGH_MP_DIR_RD;
     if (p_FT_Write(g_handle, c, (unsigned long)n, &wrote) != 0 || (int)wrote != n) {
         logline("  raw_init: FAILED (wrote=%lu of %d)", wrote, n);
         return 0;
@@ -741,6 +927,29 @@ static void i2c_apply_mode(uint32_t hz) {
 }
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
+    /* 🔴🔴 互斥：原廠 DLL 與 libMPSSE 都會開**同一個** FTDI channel，不能同時持有。
+       選了原廠就完全不碰 `I2C_OpenChannel`，反之亦然。 */
+    if (dgh_mode == DGH_MODE_VENDOR) {
+        if (!g_vendorOk) {
+            logline("  open    : mode=vendor requested but %s not available -- falling back to libMPSSE",
+                    DGH_VENDOR_DLL);
+            dgh_mode = DGH_MODE_SLOW;
+        } else {
+            if (g_opened) {   /* 之前是 libMPSSE 開的 ⇒ 先讓出 channel */
+                logline("  open    : releasing the libMPSSE channel before using the vendor DLL");
+                if (p_Close && g_handle) p_Close(g_handle);
+                g_handle = NULL; g_opened = 0;
+            }
+            if (vendor_open(clockHz)) {
+                logline("  open    : DONE via VENDOR DLL (%s) in %.0f ms", g_vendorPath, now_ms()-t0);
+                return 1;
+            }
+            logline("  open    : vendor Open() failed -- falling back to libMPSSE");
+            dgh_mode = DGH_MODE_SLOW;
+        }
+    }
+    /* 走 libMPSSE ⇒ 先確保原廠那邊沒有握著 channel */
+    if (g_vendorOpen) { logline("  open    : releasing the vendor channel before using libMPSSE"); vendor_close(); }
     if (!g_dllOk) { logline("  open    : ABORT dll not loaded"); return 0; }
     if (g_opened) { logline("  open    : already open, reuse"); return 1; }
     logline("  open    : begin (clock %u Hz)", clockHz);
@@ -936,6 +1145,15 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
     FT_STATUS s;
     if(n<0) return 0xFFFFFFFEu;
     g_lastRaw = 0; g_lastUsbRt = 0;
+    /* 🔴 原廠 DLL 優先：一次讀完，不分段（原廠標準操作就是一次 4096）。 */
+    if(dgh_mode == DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen){
+        int vok = vendor_read(slave, addr, awid, len, out, got);
+        g_lastRaw = 0; g_lastUsbRt = 1;
+        g_lastUs = (now_ms() - t0) * 1000.0;
+        logline("  i2c_read: slave=0x%02X addr=0x%X awid=%u len=%u mode=VENDOR -> %s, %.0f us",
+                slave, addr, awid, len, vok?"ok":"FAILED", g_lastUs);
+        return vok ? 0 : 0xFFFFFFF5u;
+    }
     if(dgh_raw_mpsse && DGH_RAW_AVAILABLE && len <= DGH_READ_MAX){
         g_lastRaw = 1;
         s = raw_read(slave, addr, awid, len, out, got);
@@ -1078,6 +1296,18 @@ static void handle_command(int idx, const char* json){
         { int hasPage = dgh_json_str(json,"page",g_pageVer,sizeof(g_pageVer));
           if(!hasPage){ snprintf(g_pageVer,sizeof(g_pageVer),"%s","(not sent -- page older than i2c v1.13.3)"); }
           logline("  open    : page=%s  bridge=%s", g_pageVer, I2C_BRIDGE_VERSION); }
+        /* 🔴 v1.11.7：`mode` 是新的單一入口（0=原廠DLL 1=官方快速 2=一般 3=自建）。
+           沒給就沿用舊的 fastread/rawmpsse 組合，維持相容。 */
+        { long md = dgh_json_int(json,"mode",-1);
+          if(md >= DGH_MODE_VENDOR && md <= DGH_MODE_RAW){
+              dgh_mode = (int)md;
+              dgh_fast_read  = (dgh_mode == DGH_MODE_FAST);
+              dgh_raw_mpsse  = (dgh_mode == DGH_MODE_RAW);
+          }
+          logline("  open    : mode=%d (%s)  vendorDll=%s", dgh_mode,
+                  dgh_mode==DGH_MODE_VENDOR?"vendor DLL":dgh_mode==DGH_MODE_FAST?"libMPSSE FAST_TRANSFER":
+                  dgh_mode==DGH_MODE_SLOW?"libMPSSE per-byte":"raw MPSSE",
+                  g_vendorOk?g_vendorPath:"(not found)"); }
         /* 🔴 三相開關也由網頁帶（預設開）。Bruce 要一次量完開／關兩種。 */
         { long t3 = dgh_json_int(json,"threephase",-1); if(t3==0) dgh_three_phase=0; else if(t3==1) dgh_three_phase=1; }
         /* 🔴 讀取建立時間（pyftdi `_ck_delay`）。網頁可調，讓 Bruce 用 LA 掃最小可用值。 */
@@ -1488,7 +1718,14 @@ int main(int argc, char** argv){
     diag_os();
     diag_bits();
     logline("  run dir   : %s%s", g_exeDir, g_runningFromTemp ? "  <- TEMP/extraction dir (letter T: extract the whole zip to a real folder first)" : "");
+    /* 🔴 先找原廠 DLL（它是最優先的路徑），再找 libMPSSE（備援仍然要有）。
+       兩個都找、都記進 log —— 這樣他丟 log 過來就知道手上有哪幾條路可走。 */
+    locate_and_load_vendor();
     g_dllOk = locate_and_load_dll();
+    if(!g_vendorOk && dgh_mode == DGH_MODE_VENDOR){
+        dgh_mode = DGH_MODE_SLOW;
+        logline("  mode    : %s not found -> default mode falls back to libMPSSE per-byte", DGH_VENDOR_DLL);
+    }
     diag_dll();
     diag_ftdi();
 
