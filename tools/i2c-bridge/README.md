@@ -84,6 +84,8 @@ Microsoft／Mono／Debian 套件庫）根本編不出 C# net472。** 依 Bruce �
 | `i2c_bridge_proto.h` | 可攜協定工具：SHA1／Base64（WS 握手）、JSON 擷取、位址白名單、Origin 檢查 |
 | `i2c_bridge_version.h` | helper 版本 ＋ 協定版本（分離） |
 | `test_proto.c` | `i2c_bridge_proto.h` 的單元測試（在 Linux/macOS 上編來跑） |
+| `test/test_server.c` | 用 shim 把出貨原始碼在 Linux 上跑起來，真 TCP 驗伺服行為 |
+| `test/test_ackguard.c` | v1.13.0 的 ACK 守衛，**正反兩面**（乾淨的 0x00 必須通過、實機的 `0E 1C 38 70` 必須擋下），連錯誤訊息的內容一起釘 |
 | `build.sh` | 用 zig 交叉編譯成 32 位元 Windows exe |
 
 ## 編譯
@@ -98,8 +100,23 @@ ZIG=/path/to/zig ./build.sh          # 產出 i2c-bridge.exe（32 位元、PE32�
 ## 測試（可自驗的部分）
 
 ```bash
-cc -O2 test_proto.c -o test_proto && ./test_proto   # 111/111 通過（v1.6.0；v1.4.0 為 76/76，原為 32/32）
+cc -O2 test_proto.c -o test_proto && ./test_proto   # 200/200 通過（v1.13.0；v1.6.0 為 111/111，v1.4.0 為 76/76，原為 32/32）
+
+# 真 TCP 伺服測試（shim 讓出貨原始碼原封在 Linux 上跑）
+cc -O2 -I test/shim -Dmain=dgh_main -c i2c_bridge.c -o /tmp/bo.o
+cc -O2 -I test -c test/test_server.c -o /tmp/ts.o
+cc -O2 -I test/shim -c test/shim.c   -o /tmp/sh.o
+cc /tmp/ts.o /tmp/bo.o /tmp/sh.o -o test_server -lpthread && ./test_server   # 103/103
+
+# ACK 守衛的正反兩面（v1.13.0；把 i2c_bridge.c 整個 include 進來，直接叫 raw_read）
+cc -O2 -I test/shim -I . test/test_ackguard.c test/shim.c -o test_ackguard -lpthread
+./test_ackguard                                     # 31/31
 ```
+
+🔴 `build.sh` 需要 zig 做交叉編譯。這台主機上沒有 zig，v1.13.0 是在 Linux sandbox
+裡裝 `ziglang`（pip）之後用 `ZIG=<wrapper> ./build.sh` 編的 —— wrapper 只是
+`exec python3 -m ziglang "$@"`，**編譯旗標一個都沒改**。第一次編要等 zig 先把
+目標平台的 libc 建起來（本機實測約 5 分鐘），之後有快取就幾秒。
 
 測到：WebSocket 握手（RFC 6455 標準向量）、SHA1／Base64、JSON 擷取、
 位址白名單 `0x1200–0x12FF`、Origin 白名單（含 spoof 後綴的阻擋），

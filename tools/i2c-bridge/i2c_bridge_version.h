@@ -86,6 +86,32 @@
  *   - `SendBytesEx` 的原始回傳值印進 log（語意未確認，判定只用「有沒有回 0」）。
  *   - write／rawwrite 的守門改成 `backend_is_open()`；那句帶實作名詞的拒絕訊息刪除。
  *   - wire format **只有移除一個錯誤回覆**，沒有新增／改變欄位 ⇒ proto 維持 3。 */
-#define I2C_BRIDGE_VERSION "1.12.0"
+/* 1.13.0 / proto 3 不變（2026-09-19，ACK 守衛收緊後的第一次重編）：
+ *   - 🔴 **這一版存在的唯一理由是「把 15f7db9 的原始碼變成使用者手上跑的 exe」**。
+ *     那個 commit 只改了原始碼，exe 與下載包都沒有重編 ⇒ 收緊完全沒有生效。
+ *   - 守衛本體：`dgh_mp_ack_ok()`（`(v & 0x81) == 0`）換成三態 `dgh_mp_ack_kind()`，
+ *     ACK 槽只認 0x00（ACK）／0x80（NACK），其餘一律判為位元流異常，
+ *     回新錯誤碼 `0xFFFFFFF4`（NACK 仍是 `0xFFFFFFF3`）。read 側的檢查在把資料
+ *     複製進 out[] **之前**，壞資料一個 byte 都不交出去。
+ *     實證：2026-09-19 的 bridge log，同一次連線兩段 4096 byte 讀回，
+ *     位址相位 ACK 分別是 `00 00 00 00`（addr=0x0000）與 `0E 1C 38 70`
+ *     （addr=0x1000，每個是前一個左移一位）。後者 `& 0x81` 全為 0
+ *     ⇒ 舊判準四個全部放行 ⇒ 4096 byte 壞資料被當好資料回傳。
+ *   - 🔴 **大聲失敗**：log 與**回給網頁的 `err` 欄位**都印出「哪一個 ACK 槽／
+ *     原始值／slave／addr／長度」＋下一步。v1.12.0 的 read 回覆失敗時**只有
+ *     `status` 沒有 `err`** ⇒ 使用者畫面上就是一個裸的十進位數字。
+ *   - 🔴 **刻意不加旁路開關**：預設關的開關等於沒做這件事。退路是「舊的包還在線上」，
+ *     路徑印在啟動橫幅與每一則錯誤訊息裡（`I2C_BRIDGE_FALLBACK_PKG`）。
+ *   - ⚠️ 已知風險，**只有硬體端能確認**：若 FTDI 在 1-bit 讀回時 bit0–bit6 是
+ *     未定義殘值，收緊後每一次讀都會被擋。目前只有一個正面樣本
+ *     （第一段讀回的 `00 00 00 00`）⇒ 不能宣稱讀取已正常。
+ *   - 時序／three-phase／`ck_delay` **一律未動**，波形與 v1.12.0 相同。
+ *   - wire format 只有**新增**一個選填的 `err` 欄位 ⇒ proto 維持 3。 */
+#define I2C_BRIDGE_VERSION "1.13.0"
 #define I2C_BRIDGE_PROTO   3
+/* 🔴 上一個已知可用的下載包。出現在啟動橫幅與每一則 ACK 錯誤訊息裡 ——
+   使用者被新守衛擋住時，這是他當場就能走的退路，不必等人回訊息。
+   v1.12.0 的檔案**刻意保留不刪**。 */
+#define I2C_BRIDGE_FALLBACK_PKG \
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.12.0.zip"
 #endif

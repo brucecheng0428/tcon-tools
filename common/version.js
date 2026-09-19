@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.48.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.19.0',       // I2C（讀寫測試）
+  i2c:     'v1.19.1',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -69,11 +69,20 @@ var HELPER_PKG = {
   /* 🔴 v1.12.0（2026-09-19）：exe **有動** —— 原廠 DLL 的寫入（SendBytesEx）
      接上去了。v1.14.x 之後原廠路徑是採用中的讀取後端，而寫入還停在拒絕狀態，
      等於整個寫入功能不能用。⇒ 使用者要重新過一次 SmartScreen。 */
-  pkg:    'v1.12.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.12.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  /* 🔴 v1.13.0（2026-09-19）：exe **有重編** —— 這一版存在的唯一理由就是
+     「把收緊過的 ACK 守衛變成 Bruce 手上真的在跑的 exe」。commit 15f7db9 只動了
+     原始碼，exe 與下載包都沒重編，所以那次收緊**一直沒有生效**。
+     ⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
+     🔴 **`data/i2c-bridge-v1.12.0.zip` 刻意保留不刪**：收緊只可能讓「本來會過的讀取」
+        變成失敗，萬一他那顆晶片正常時 ACK 槽就不是 0x00，新版會擋下每一次讀取。
+        舊包留著他才有當場能走的退路，路徑也印在 exe 的啟動橫幅與每一則錯誤訊息裡。
+     包內四個檔不變，三支 DLL 是**從 v1.12.0 的包原樣搬過來**（SHA 逐一比對相同，
+     見上面各自的紀錄），只有 exe 換掉。 */
+  pkg:    'v1.13.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.13.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  3,                             // wire protocol 版本（3 起有 lock：量測中拒絕接手）
-  file:   'data/i2c-bridge-v1.12.0.zip',
-  bytes:  392018,                             // zip 位元組數（打包後填）
-  zipSha: '41cbc7b04a3da3a211e0e197b751ee6db18eb393a2847120d632e68466ce24f5',
-  exeSha: '37abe1ff397a79cce4d5ac21509d6aa326c4697586f4177b5a59fa1cfcbd06f4'
+  file:   'data/i2c-bridge-v1.13.0.zip',
+  bytes:  392374,                             // zip 位元組數（打包後填）
+  zipSha: 'e6a19a3b4b3f9dbba43b331947e8e9b39adbca1ec2cdfa0dcbaf70ef968c4c00',
+  exeSha: 'a0c18e238403ca95ab141e72deeeb34632f29c0053e20cdf30efc297366e949a'
 };

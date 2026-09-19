@@ -1366,6 +1366,38 @@ static double g_lastUs = 0;
 static int g_lastRaw = 0;        /* 最近一次用的是不是 raw MPSSE 路徑 */
 static int g_lastUsbRt = 0;      /* 最近一次的 USB 往返次數（raw 路徑才數得準） */
 
+/* ═══ 🔴 v1.13.0：失敗原因要跟著回覆一起送回網頁 ═══════════════════════════
+   v1.12.0 的 read 回覆在失敗時只有 `"status":4294967284`（＝0xFFFFFFF4）而
+   **沒有 `err` 欄位** —— 網頁畫面上就是一個裸的數字。使用者（Bruce 人在外地、
+   只有他有硬體）看到那個數字，沒有任何線索知道發生什麼、下一步能做什麼。
+   收緊 ACK 判準之後這件事更嚴重：舊版是靜默放行壞資料，新版會擋下來，
+   如果擋下來時只給一個數字，等於把「靜默的錯」換成「看不懂的錯」。
+
+   ⇒ 這裡放一個「最近一次失敗原因」的字串，由底層（raw_read／raw_write）填，
+     由回覆組裝處讀出來塞進 `err`。每次讀寫命令進來時先清掉，不會殘留上一次的。
+   🔴 內容一律限 ASCII 且不含 `"` 與 `\`：它會被直接嵌進 JSON 字串，
+     這支 bridge 沒有 JSON escape 函式，寫進去就是寫進去。 */
+/* 🔴 600 而不是 400：第一版設 400，`test_ackguard.c` 立刻抓到訊息被**切在
+   退路網址中間** —— 也就是最需要看到的那一句被靜默截掉，而 vsnprintf 不會叫。
+   退路網址本身就 64 個字元，前面的事實（槽次／原始值／slave／addr／長度）
+   與下一步又不能省。rep 緩衝區是 24576，600 綽綽有餘。
+   `test_ackguard.c` 有一條斷言直接檢查退路網址在不在訊息裡，所以往後誰把訊息
+   寫長了、或把這個上限調小了，都會被擋下來，不必靠記得。 */
+#define DGH_LASTERR_MAX 600
+static char g_lastErr[DGH_LASTERR_MAX];
+static void lasterr_clear(void){ g_lastErr[0] = 0; }
+static void lasterr_set(const char* fmt, ...){
+    va_list ap; int i;
+    va_start(ap, fmt);
+    vsnprintf(g_lastErr, sizeof(g_lastErr), fmt, ap);
+    va_end(ap);
+    /* 保險絲：把任何會破壞 JSON 的字元換掉，而不是相信呼叫端都記得。 */
+    for(i = 0; g_lastErr[i]; i++){
+        unsigned char ch = (unsigned char)g_lastErr[i];
+        if(ch == '"' || ch == '\\' || ch < 0x20 || ch > 0x7E) g_lastErr[i] = ' ';
+    }
+}
+
 /* ═══ 🔴 直接組 MPSSE 命令 ⇒ 一次 FT_Write ＋ 一次 FT_Read ═══════════════════
    對照：libMPSSE 非 fast 路徑是「每 byte 送命令 → sleep 1ms → 讀 1 byte」，
    ⇒ **每個 byte 一次強制 USB 往返**（FTDI recipe 每個 byte 都送 `0x87`
@@ -1455,13 +1487,40 @@ static FT_STATUS raw_read(uint32_t slave, uint32_t addr, uint32_t awid,
     for(int i = 0; i < acks; i++){
         int kind = dgh_mp_ack_kind(in[i]);
         if(kind == DGH_ACK_BAD){
+            /* 🔴 v1.13.0：log 與**回給網頁的訊息**都要說滿四件事 —— 哪一個 ACK 槽、
+               原始值、slave、addr —— 再加一句「下一步能做什麼」。
+               只印錯誤碼等於把問題丟回給使用者自己猜。 */
             logline("  raw_read : BAD ACK slot #%d of %d = 0x%02X (only 0x00/0x80 are legal)"
                     " slave=0x%02X addr=0x%X len=%u -> data DISCARDED",
                     i, acks, in[i], slave, addr, len);
+            logline("             what this means: the MPSSE bit stream came back misaligned,"
+                    " so the %u bytes just read are NOT trustworthy and were thrown away.", len);
+            logline("             v1.12.0 and older did NOT check this and would have handed"
+                    " those bytes back as if they were good.");
+            logline("             next: retry once; if it repeats, unplug/replug the jig, drop"
+                    " the I2C clock, or shorten the read length.");
+            logline("             to go back to the previous behaviour, the old package is still"
+                    " online: %s", I2C_BRIDGE_FALLBACK_PKG);
+            /* 🔴 這一段是**會被端到使用者面前**的文案，不是 log。
+               所以講事實與下一步，不講實作（上面那幾行 logline 才是寫細節的地方）。 */
+            lasterr_set("bad ACK bit 0x%02X in slot %d of %d on read"
+                        " (slave=0x%02X addr=0x%X len=%u)."
+                        " An ACK bit can only be 0x00 or 0x80, so the reply came back out of step;"
+                        " the %u bytes were DISCARDED instead of being handed back as if they were"
+                        " good. Retry once; if it keeps happening, unplug and replug the jig, slow"
+                        " the I2C clock down, or read fewer bytes at a time."
+                        " Version 1.12.0 did not make this check and would have returned the bad"
+                        " bytes without saying anything -- that package is still at %s",
+                        in[i], i, acks, slave, addr, len, len, I2C_BRIDGE_FALLBACK_PKG);
             return 0xFFFFFFF4u;
         }
         if(kind != DGH_ACK_ACK){
-            logline("  raw_read : NACK at ack #%d (0x%02X) slave=0x%02X addr=0x%X", i, in[i], slave, addr);
+            logline("  raw_read : NACK at ack #%d of %d (0x%02X) slave=0x%02X addr=0x%X len=%u",
+                    i, acks, in[i], slave, addr, len);
+            lasterr_set("NACK in ACK slot %d of %d on read: slave=0x%02X addr=0x%X len=%u."
+                        " The slave did not answer -- check the slave address, that the board is"
+                        " powered, and that the jig is connected.",
+                        i, acks, slave, addr, len);
             return 0xFFFFFFF3u;
         }
     }
@@ -1488,10 +1547,29 @@ static FT_STATUS raw_write(uint32_t slave, uint32_t addr, uint32_t awid,
             logline("  raw_write: BAD ACK slot #%d of %d = 0x%02X (only 0x00/0x80 are legal)"
                     " slave=0x%02X addr=0x%X dlen=%d",
                     i, acks, in[i], slave, addr, dlen);
+            logline("             what this means: the MPSSE bit stream came back misaligned."
+                    " The %d bytes were pushed onto the bus but the device never confirmed them"
+                    " -- treat this address as being in an UNKNOWN state and read it back.", dlen);
+            logline("             next: read the same address back; if the bit stream keeps"
+                    " misaligning, unplug/replug the jig or drop the I2C clock.");
+            logline("             the previous package is still online: %s", I2C_BRIDGE_FALLBACK_PKG);
+            lasterr_set("bad ACK bit 0x%02X in slot %d of %d on write"
+                        " (slave=0x%02X addr=0x%X dlen=%d)."
+                        " An ACK bit can only be 0x00 or 0x80, so the reply came back out of step"
+                        " and the device never confirmed these bytes -- treat this address as"
+                        " UNKNOWN and read it back. If it keeps happening, unplug and replug the"
+                        " jig or slow the I2C clock down."
+                        " Version 1.12.0 did not make this check -- that package is still at %s",
+                        in[i], i, acks, slave, addr, dlen, I2C_BRIDGE_FALLBACK_PKG);
             return 0xFFFFFFF4u;
         }
         if(kind != DGH_ACK_ACK){
-            logline("  raw_write: NACK at ack #%d (0x%02X) slave=0x%02X addr=0x%X", i, in[i], slave, addr);
+            logline("  raw_write: NACK at ack #%d of %d (0x%02X) slave=0x%02X addr=0x%X dlen=%d",
+                    i, acks, in[i], slave, addr, dlen);
+            lasterr_set("NACK in ACK slot %d of %d on write: slave=0x%02X addr=0x%X dlen=%d."
+                        " The slave did not answer -- check the slave address, that the board is"
+                        " powered, and that the jig is connected.",
+                        i, acks, slave, addr, dlen);
             return 0xFFFFFFF3u;
         }
     }
@@ -1783,10 +1861,16 @@ static void handle_command(int idx, const char* json){
            **但仍然要有上限**：`rep` 是固定大小的緩衝區，沒有上限就會安靜截斷 JSON。 */
         if(len>DGH_READ_MAX) len=DGH_READ_MAX;
         static uint8_t buf[DGH_READ_MAX]; uint32_t got=0;
+        lasterr_clear();
         FT_STATUS st=i2c_read_ex(slave,addr,awid,len,buf,&got);
-        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"raw\":%s,\"usbrt\":%d,\"data\":[",
+        /* 🔴 v1.13.0：失敗時一定要有 `err`。v1.12.0 只回 `status`（一個十位數的
+           十進位數字），使用者拿到的就是那個數字，沒有任何可行動的資訊。 */
+        int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":%s,\"status\":%u,\"us\":%.0f,\"fast\":%s,\"raw\":%s,\"usbrt\":%d,",
                        id,(st==FT_OK)?"true":"false",st,g_lastUs,
                        dgh_fast_read?"true":"false", g_lastRaw?"true":"false", g_lastUsbRt);
+        if(st!=FT_OK && g_lastErr[0])
+            o+=snprintf(rep+o,sizeof(rep)-o,"\"err\":\"%s\",",g_lastErr);
+        o+=snprintf(rep+o,sizeof(rep)-o,"\"data\":[");
         for(uint32_t i=0;i<got&&o<(int)sizeof(rep)-16;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",buf[i]);
         o+=snprintf(rep+o,sizeof(rep)-o,"]}");
         ws_send_text(c,rep); return;
@@ -1815,11 +1899,14 @@ static void handle_command(int idx, const char* json){
         if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
         /* 🔴 分段不在這一層做：網頁已經依 EEPROM page size 切好，**一則就是一段**。
            （wire 上也沒有 div／waitms 欄位 —— 刻意不加，兩處各切一次必然分岔。） */
+        lasterr_clear();
         uint32_t got=0; FT_STATUS st=i2c_write_ex(slave,addr,awid,data,dn,&got);
         logline("        -> FT status %u, transferred %u", st, got);
-        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u,\"us\":%.0f,\"raw\":%s,\"usbrt\":%d}",
+        { int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":%s,\"status\":%u,\"transferred\":%u,\"us\":%.0f,\"raw\":%s,\"usbrt\":%d",
                  id,(st==FT_OK)?"true":"false",st,got,g_lastUs,
                  g_lastRaw?"true":"false", g_lastUsbRt);
+          if(st!=FT_OK && g_lastErr[0]) o+=snprintf(rep+o,sizeof(rep)-o,",\"err\":\"%s\"",g_lastErr);
+          snprintf(rep+o,sizeof(rep)-o,"}"); }
         ws_send_text(c,rep); return;
     }
     if(strcmp(type,"write")==0){
@@ -1836,8 +1923,11 @@ static void handle_command(int idx, const char* json){
         }
         /* 🔴 同 rawwrite：vendor 寫入已接上（v1.12.0），改問目前後端。 */
         if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
+        lasterr_clear();
         uint32_t got=0; FT_STATUS st=i2c_write(slave,addr,data,dn,&got);
-        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":%s,\"status\":%u,\"transferred\":%u}",id,(st==FT_OK)?"true":"false",st,got);
+        { int o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"write\",\"ok\":%s,\"status\":%u,\"transferred\":%u",id,(st==FT_OK)?"true":"false",st,got);
+          if(st!=FT_OK && g_lastErr[0]) o+=snprintf(rep+o,sizeof(rep)-o,",\"err\":\"%s\"",g_lastErr);
+          snprintf(rep+o,sizeof(rep)-o,"}"); }
         ws_send_text(c,rep); return;
     }
     /* ═══ 🔴 `note`：把**網頁端**的診斷寫進同一個 log 檔 ═══════════════════════
@@ -2095,6 +2185,15 @@ int main(int argc, char** argv){
             dgh_fast_read ? "bypasses" : "uses");
     logline(" listens on 127.0.0.1:%d only, allow-list origins only", port);
     logline(" write address hard whitelist: 0x1200-0x12FF");
+    /* 🔴 v1.13.0：ACK 守衛收緊了，而收緊只可能讓**本來會通過的讀取變成失敗**。
+       使用者在外地、只有他有硬體，所以他的退路必須寫在 log 最上面，
+       不能只存在於某個他不會去看的說明頁裡。 */
+    logline(" ACK guard: tightened in 1.13.0 -- an ACK slot may only be 0x00 (ACK)");
+    logline("            or 0x80 (NACK); anything else is reported as a bit-stream");
+    logline("            fault and the data is DISCARDED instead of returned.");
+    logline("            1.12.0 and older accepted those values and returned the data.");
+    logline("            If this build refuses every read, the previous package is still");
+    logline("            online: %s", I2C_BRIDGE_FALLBACK_PKG);
     logline("==================================================");
     logline("Self-diagnostics:");
 
