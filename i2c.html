@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260919i2c1201"></script>
+<script src="common/version.js?v=20260919i2c1202"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -175,6 +175,14 @@
   .timebox .tv.same{color:#4ade80;}
   .timebox .tv.diff{color:#f87171;}
   .timebox .ta{text-align:right;}
+  /* 🔴 同一次操作的多筆紀錄用一個框框起來（Bruce 2026-09-19：「最好用一個框框
+     把它們框起來…而不要只能時間辨識」）。
+     刻意只用**左色條＋淡底**：不加標題列、不加說明文字、不加垂直內距 ⇒
+     一筆都不佔多餘的高度，版面與原本一樣精簡。
+     border-left 2px ＋ padding-left 6px ＝ 8px，正好被 margin-left:-8px 抵銷 ⇒
+     組內那幾列與沒被框起來的列**左緣完全對齊**（否則會變成閘門抓的未對齊）。 */
+  .timebox .tgrp{border-left:2px solid #38bdf8;padding-left:6px;margin-left:-8px;
+    background:rgba(56,189,248,.07);border-radius:0 3px 3px 0;}
   /* 🔴 20px 高配 11px 字 ⇒ 上下只剩 4px，版面閘門會擋（判準是 ≥6px）。
      11px 的行高約 13px ⇒ 至少要 26px 才有 6px 內距。 */
   button.tiny{min-height:0;height:26px;padding:0 10px;font-size:11px;}
@@ -184,9 +192,14 @@
   table.dump td.edit input{width:100%;box-sizing:border-box;background:#04121f;border:0;
     color:#e0f2fe;font:inherit;font-weight:700;text-align:center;padding:0;height:100%;
     outline:none;caret-color:var(--accent);}
-  /* 🔴 本地改過、尚未寫入：藍紫底＋左側粗邊。與 diff（洋紅字）、FF（琥珀字）、
-     選取（綠框）、十字（藍底淡）、寫入失敗（紅底）都分得出來。 */
-  table.dump td.dirty{background:#1e1b4b;box-shadow:inset 3px 0 0 #818cf8;color:#c7d2fe;font-weight:700;}
+  /* 🔴 v1.20.2：「已修改未寫入」（td.dirty）的**顏色**整條移除（Bruce 2026-09-19：
+     「把 dump 的顏色取消。『本次寫入過』還有『已修改未寫入』這兩個…基本上只要有跟
+       快照不同的，我覺得就很 OK 了」）。
+     🔴 拿掉的只有**著色**，`i2ctDirty` 這個狀態本身留著 —— 它還撐著三件事：
+       ① 寫完之後「還有 N byte 改過但沒寫到」的提醒
+       ② 讀取／載入／清空前的「會蓋掉未寫入修改」確認（i2ctConfirmDiscardDirty）
+       ③ 點角落還原時「要不要真的送出寫入」的判斷（i2ctSlotClick 的 wasDirty）
+     刪掉狀態會一次弄壞這三件，那不是他要的。 */
   /* 🔴 Shift＋方向鍵的**線性位址區間**選取（不是矩形）。與十字、diff、FF 都要分得出來 ⇒
      用綠色外框＋淡綠底，十字是藍底、diff 是洋紅字、FF 是琥珀字、寫入失敗是紅底。 */
   table.dump td.sel{background:rgba(34,197,94,.20);box-shadow:inset 0 0 0 1px rgba(34,197,94,.75);}
@@ -194,9 +207,11 @@
   /* 🔴 成對元素稽核（2026-09-19）抓到的第二個：這裡原本還有一條重複的
      `td.sel{outline:2px solid var(--accent)}`，和十字中心 `td.xc` 用同一個外框，
      選取範圍會長得像十字中心。刪掉，選取只用綠色那一套。 */
-  table.dump td.wrote{background:#3f2d07;color:#fde68a;}
-  /* 🔴 與快照不同的格子。用洋紅色，與「本次寫入過」（琥珀）分得開 ——
-     兩者意義相反：一個是「我剛送出去的」，一個是「裝置跟上次不一樣」。 */
+  /* 🔴 v1.20.2：「本次寫入過」（td.wrote，琥珀底）整個移除 —— 連同它背後的
+     `i2ctWroteFlags` 旗標陣列（Bruce 2026-09-19 同一句話）。
+     這一個與 dirty 不同：著色是它**唯一**的用途，拿掉顏色之後整支只剩「一直寫、
+     沒人讀」的旗標 ＝ 死碼，所以一併刪掉，不留永遠走不到的分支。 */
+  /* 🔴 與快照不同的格子 —— 這是他唯一要留的標示。 */
   table.dump td.diff{background:#4a044e;color:#f0abfc;font-weight:700;outline:1px solid #a21caf;outline-offset:-1px;}
   table.dump td.edit{padding:0;background:#0c4a6e;}
   table.dump td input{width:100%;height:36px;border:0;background:transparent;color:#e0f2fe;text-align:center;
@@ -245,8 +260,6 @@
   .celllegend i{flex:0 0 auto;width:13px;height:13px;border:1px solid #223049;border-radius:2px;}
   .celllegend .lg-none  {background:#0b1424;}
   .celllegend .lg-has   {background:#132038;}
-  .celllegend .lg-wrote {background:#3f2d07;}
-  .celllegend .lg-dirty {background:#1e1b4b;box-shadow:inset 3px 0 0 #818cf8;}
   .celllegend .lg-diff  {background:#4a044e;outline:1px solid #a21caf;outline-offset:-1px;}
   .celllegend .lg-wrfail{background:#450a0a;box-shadow:inset 0 0 0 2px var(--err);}
   .celllegend .lg-wrok  {background:#132038;box-shadow:inset 0 0 0 2px #16a34a;}
@@ -721,8 +734,6 @@
           <div id="celllegend" class="celllegend">
             <span data-cls=""><i class="lg-none"></i>未讀取</span>
             <span data-cls="has"><i class="lg-has"></i>已讀到的值</span>
-            <span data-cls="wrote"><i class="lg-wrote"></i>本次寫入過</span>
-            <span data-cls="dirty"><i class="lg-dirty"></i>已修改未寫入</span>
             <span data-cls="diff"><i class="lg-diff"></i>與快照不同</span>
             <span data-cls="wrfail"><i class="lg-wrfail"></i>寫入與回讀不一致</span>
             <span data-cls="wrok"><i class="lg-wrok"></i>回讀相符</span>
@@ -1097,7 +1108,6 @@ var i2ctDev  = null;      /* 最近一次 I2C 讀回來的資料集 */
 var i2ctFile = null;      /* 最近載入的檔案資料集 */
 var i2ctRef  = null;      /* 基準（snapshot） */
 var i2ctDiffIdx = null;   /* Int32Array：目前顯示的那一份與基準的差異索引 */
-var i2ctWroteFlags = null;/* 與目前顯示的那一份等長；1 ＝ 本次寫過 */
 /* 🔴 1 ＝ 這一格寫完回讀對不起來（或讀不回來）。與 wrote 分開，因為
    「寫過」與「寫成功」是兩件事，混在一起就看不出哪一格其實沒寫進去。 */
 var i2ctWrFail = null;
@@ -1217,9 +1227,20 @@ var i2ctPrevHas = null;
    🔴 顯示 A 時**唯讀**：它是比較基準，就地改它等於把基準弄髒（那正是
       v1.13 那個 alias bug 的形狀）。要改值請切回 B。 */
 var i2ctShowA = false;
+/* ═══ 🔴 B 那一份的實體，**與 dump 現在正在看哪一邊無關**（v1.20.2）═══════════
+   Bruce 2026-09-19：「藍色跟紅色明明值是一樣的，為什麼也要列出來？」
+   根因：差異清單拿 `i2ctCurSet()` 當「新值」那一欄，而 `i2ctCurSet()` 在
+   `i2ctShowA` 時回的是 **A 自己** ⇒ 每一列都印「同一個值 → 同一個值」
+   （列數對、值錯，因為 i2ctDiffIdx 還是先前 A 對 B 算出來的）。
+   最容易踩到：載入檔案選「取代 A、保留 B」之後程式會自動 `i2ctShowA = true`。
+   ⇒ **差異是「A 對 B」這一對資料的屬性**，不隨檢視切換而改變。
+     凡是要「B 那一份」的地方一律用這一支，不要用 i2ctCurSet()。
+   🔴 條件只寫這一處：i2ctCurSet／i2ctSetB／差異清單三個地方各寫一份條件
+      遲早會分岔，而分岔的那一刻就是這個 bug 的形狀。 */
+function i2ctBSlot(){ return (i2ctBKind === 'file') ? i2ctFile : i2ctDev; }
 function i2ctCurSet(){
   if (i2ctShowA && i2ctRef) return i2ctRef;
-  return (i2ctBKind === 'file') ? i2ctFile : i2ctDev;
+  return i2ctBSlot();
 }
 /* 顯示 A 時擋掉所有改值路徑，並講一行為什麼。 */
 function i2ctReadOnlyNow(){
@@ -1826,24 +1847,61 @@ var i2ctTimes = [];
 /* 🔴 `verdict` ＝ 比對的**結論**，跟耗時一起常駐。
    理由同上：Bruce 要的是「永遠都沒辦法比對」的相反 —— 結論如果只出現在會被下一個
    動作蓋掉的 banner 上，他隔幾分鐘回頭看就什麼都沒有了。所以結論也進這張表。 */
+/* ═══ 🔴 同一次操作的紀錄要看得出來是同一次（Bruce 2026-09-19）═════════════
+   「因為它們是同一次的操作，最好用一個框框把它們框起來…而不要只能用時間辨識」
+   做法：一次使用者操作（按一次寫入／一次比對／一次自檢）開頭配一個遞增的
+   `opId`，期間記下的每一筆都帶著它，渲染時把相鄰同 op 的列框起來。
+   🔴 巢狀時**保留最外層的 id**：寫入內部的回讀驗證屬於那一次寫入，不是新的一次。
+   🔴 沒有外層操作時（單獨按讀取、逐格寫入的回讀）每一筆各給一個新的 id ⇒
+      **不會**跟前後不相干的紀錄誤併成同一組，而且只有一筆的組不畫框。 */
+var i2ctOpSeq = 0;      /* 已經發過幾個 opId */
+var i2ctOpCur = 0;      /* 目前這一次操作的 opId；0 ＝ 現在沒有外層操作 */
+function i2ctOpBegin(){ var prev = i2ctOpCur; if (!prev) i2ctOpCur = ++i2ctOpSeq; return prev; }
+function i2ctOpEnd(prev){ i2ctOpCur = prev; }
+/* 把一支「一次使用者操作」的函式包成自動帶 opId 的版本。
+   用 try/finally：中途丟例外也一定要把 opId 收回去，否則之後所有紀錄
+   都會被算進那一次沒收尾的操作裡。 */
+function i2ctInOp(fn){
+  return async function(){
+    var prev = i2ctOpBegin();
+    try { return await fn.apply(null, arguments); }
+    finally { i2ctOpEnd(prev); }
+  };
+}
+/* 🔴 回傳剛記下的那一筆，讓呼叫端可以**先佔位、後補值**（見寫入那一支）。 */
 function i2ctNoteTime(kind, n, ms, path, verdict, vcls){
-  i2ctTimes.unshift({ kind: kind, n: n, ms: ms, path: path,
-                      verdict: verdict || '', vcls: vcls || '',
-                      at: new Date().toTimeString().slice(0, 8) });
+  var rec = { kind: kind, n: n, ms: ms, path: path,
+              verdict: verdict || '', vcls: vcls || '',
+              op: i2ctOpCur || (++i2ctOpSeq),
+              at: new Date().toTimeString().slice(0, 8) };
+  i2ctTimes.unshift(rec);
   if (i2ctTimes.length > I2CT_TIMES_MAX) i2ctTimes.length = I2CT_TIMES_MAX;
   i2ctRenderTimes();
+  return rec;
 }
 function i2ctRenderTimes(){
   var e = $('timeline'); if (!e) return;
   if (!i2ctTimes.length) { e.innerHTML = '<span class="kv">（還沒有讀寫紀錄）</span>'; return; }
-  e.innerHTML = i2ctTimes.map(function (t) {
+  var row = function (t) {
     return '<div class="trow"><span class="tk">' + t.kind + '</span>'
          + '<span class="tn mono">' + t.n + ' byte</span>'
          + '<span class="tt mono">' + i2ctSecs(t.ms) + '</span>'
          + '<span class="tp">' + t.path + '</span>'
          + '<span class="tv ' + (t.vcls || '') + '">' + (t.verdict || '') + '</span>'
          + '<span class="ta kv">' + t.at + '</span></div>';
-  }).join('');
+  };
+  /* 同 op 的紀錄必定相鄰（同一次操作之間不會插進別人的紀錄）⇒ 掃一遍切成連續段。
+     🔴 只有一筆的操作**不畫框**：單純按一次讀取的外觀要跟以前一模一樣，
+        也不會出現孤零零的空框（被 I2CT_TIMES_MAX 截掉半組時同理）。 */
+  var out = '', i = 0;
+  while (i < i2ctTimes.length) {
+    var j = i + 1;
+    while (j < i2ctTimes.length && i2ctTimes[j].op === i2ctTimes[i].op) j++;
+    var rows = i2ctTimes.slice(i, j).map(row).join('');
+    out += (j - i > 1) ? ('<div class="tgrp">' + rows + '</div>') : rows;
+    i = j;
+  }
+  e.innerHTML = out;
 }
 function i2ctTimeLine(tag, ms, devUs, n){
   var dev = devUs ? (devUs / 1000) : 0;
@@ -2647,7 +2705,6 @@ async function i2ctOnRead(){
      測試與診斷都從這裡拿，不必改 handler 的回傳型別。 */
   i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF,
                    ms: res.ms, devUs: res.devUs, segs: res.segs };
-  i2ctWroteFlags = null;
   /* 🔴 讀取失敗（長度不足）的資料不得成為基準、也不得參與比較 ——
      拿半份資料當基準，之後每一次比對都是錯的，而且看起來很正常。 */
   var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN));
@@ -3118,7 +3175,6 @@ async function i2ctOnWrite(){
     if (!covers) {
       i2ctDev = i2ctMakeSet('dev', v.slave, v.awid, wbase, new Uint8Array(d.length));
       i2ctBKind = 'dev'; i2ctShowA = false;
-      i2ctWroteFlags = null;
     }
   })();
   /* 🔴 分段：I2C Bridge 的 rawwrite 一次最多 RAW_MAX_DATA(256) byte，所以 4096 的檔案
@@ -3132,7 +3188,14 @@ async function i2ctOnWrite(){
    兩份遲早會分岔，而分岔的那一刻就是「有一條路沒切 page」——
    那正是這一輪在修的 bug。 */
 var i2ctLastSegStats = null;    /* 最近一次整批寫入的每段分層計時（純診斷） */
+/* 🔴 一次寫入 ＝ 一次操作：本體寫入那筆與內部的回讀驗證那筆共用同一個 opId。
+   用 function 宣告（不是 var）⇒ 會被提升，不必擔心它與呼叫端的先後順序。 */
 async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
+  var prev = i2ctOpBegin();
+  try { return await i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel); }
+  finally { i2ctOpEnd(prev); }
+}
+async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
   i2ctBusy = true; i2ctSyncButtons();
   var tW0 = i2ctNow(), devUsW = 0;
   var page = i2ctPageSize(), twr = i2ctTwr();
@@ -3177,10 +3240,9 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
       await new Promise(function (rs) { setTimeout(rs, twr); });
     var tWait = i2ctNow() - tWait0;
     var tApply0 = i2ctNow();
-    /* 寫出去的值反映到目前顯示的那一份上（並標成「本次寫過」） */
+    /* 寫出去的值反映到目前顯示的那一份上 */
     var cs = i2ctCurSet();
     if (cs) {
-      if (!i2ctWroteFlags || i2ctWroteFlags.length !== cs.bytes.length) i2ctWroteFlags = new Uint8Array(cs.bytes.length);
       if (!i2ctPrevBytes || i2ctPrevBytes.length !== cs.bytes.length) {
         i2ctPrevBytes = new Uint8Array(cs.bytes.length);
         i2ctPrevHas = new Uint8Array(cs.bytes.length);
@@ -3191,7 +3253,7 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
           /* 🔴 寫進去的值成為新的 B ⇒ 回到狀態 1（左上＝A、右上空）。
              舊版在這裡把原值塞進右上，那是 A／B 模型定案前的語意。 */
           i2ctPrevBytes[ix] = 0; i2ctPrevHas[ix] = 0;
-          cs.bytes[ix] = d[done + i]; i2ctWroteFlags[ix] = 1;
+          cs.bytes[ix] = d[done + i];
           i2ctEnsureWrFail(cs);
           if (ix < i2ctDirty.length) i2ctDirty[ix] = 0;   /* 🔴 寫進去了 ⇒ 解除標示 */
         }
@@ -3202,6 +3264,11 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
                     log: tLog, wait: tWait, apply: i2ctNow() - tApply0 });
     done += n;
   }
+  /* ═══ 🔴 寫入耗時在**迴圈結束的那一刻**就定案（v1.20.2）══════════════════
+     舊版是在整個流程（含下面的回讀驗證）跑完才 `i2ctNow() - tW0`，
+     那個數字裡混進了回讀的時間 ⇒ 「已寫入 N byte（X 秒）」說的不是寫入。
+     量測點往前移到這裡，底下三處（log 一行、耗時紀錄、banner）共用同一個值。 */
+  var tWDone = i2ctNow() - tW0;
   /* 🔴 分層計時**寫進 bridge 的 log**（他能傳給我們的只有那個檔）。
      刻意在迴圈**結束之後**才送 —— 邊寫邊送 note 會自己污染量測。
      每則塞 8 段，超過 480 字會被 i2ctNote 截掉。 */
@@ -3224,6 +3291,20 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
           + ' / 平均 ' + avg(wsArr).toFixed(1) + ' / 最大 ' + Math.max.apply(null, wsArr).toFixed(1) + ' ms'
           + (devArr.length ? ('　裝置側平均 ' + avg(devArr).toFixed(1) + ' ms') : '')
           + '　⇒ 差額就是網頁端吃掉的', 'n');
+  }
+  /* ═══ 🔴 耗時紀錄在**動作發生的當下**就記（Bruce 2026-09-19）═══════════════
+     他抓到的現象：「依照『越下方是越早的紀錄』來看，它的先寫再讀反而會變成
+     先讀再寫」。成因不在 `i2ctNoteTime()` 的 unshift（新的在上，本身沒錯），
+     而在**記錄的時機** —— 舊版把「寫」那一筆留到整個流程（含下面的回讀驗證）
+     跑完才補記，於是實際進清單的順序是「讀」先、「寫」後 ⇒ 顯示成寫在上、
+     讀在下 ＝ 看起來先讀再寫，與真實順序相反。
+     🔴 修法是把記錄點移到**寫入真的結束、回讀還沒開始**的這一刻，
+        讓清單順序天生就等於發生順序；不是事後對清單重排（那會把其他情境弄反）。
+     條件（`ok`）與內容都與舊版一致，只有時機改變。 */
+  var wRec = null;
+  if (ok) {
+    i2ctLog('⏱ ' + i2ctTimeLine('寫入', tWDone, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
+    wRec = i2ctNoteTime('寫', done, tWDone, i2ctLastPath || '一般模式');
   }
   /* ═══ 🔴 燒 EEPROM ⇒ 寫完自動回讀驗證（program → verify）══════════════════
      Bruce 2026-09-19：「load 完以後，整包寫入 EEPROM 的動作，必須要再回讀回來，
@@ -3252,6 +3333,11 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
     if (page > 0 && twr > 0) await new Promise(function (rs) { setTimeout(rs, twr); });
     i2ctLog('── 驗證：回讀剛寫的 ' + done + ' byte 並逐 byte 比對 ──', 'n');
     var vr = await i2ctDoRead(slave, wireAwid, base, done);
+    /* 🔴 「走哪條路」只有 bridge 的回覆說得準（i2ctPathOf 看的是回覆欄位），
+       而寫入那一側的回覆沒有這個資訊 ⇒ 舊版是拿回讀的路徑當寫入的路徑。
+       記錄點提前之後這個值還拿不到，所以**先佔位、後補值**：這裡回填，
+       顯示內容與舊版一致，但清單順序已經是正確的。 */
+    if (wRec && i2ctLastPath) { wRec.path = i2ctLastPath; i2ctRenderTimes(); }
     var cs2 = i2ctCurSet();
     i2ctEnsureWrFail(cs2);
     if (!vr.ok || vr.bytes.length !== done) {
@@ -3303,12 +3389,14 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
     /* 🔴 寫完之後**還有沒有漏掉的**：離線改了 17 格但只寫到其中 10 格，
        剩下 7 格還在裝置外面 —— 不講他不會知道。 */
     var leftN = i2ctDirtyCount();
-    i2ctLog('⏱ ' + i2ctTimeLine('寫入', i2ctNow() - tW0, devUsW, done) + ' · 分 ' + plan.length + ' 段', 'o');
-    i2ctNoteTime('寫', done, i2ctNow() - tW0, i2ctLastPath || '一般模式');
+    /* 🔴 「⏱ 寫入…」與耗時紀錄已經在**回讀驗證之前**記過了（見上面那一段）——
+       留在這裡的話，log 也會變成「先驗證後寫入」的假順序。 */
     /* 🔴 有跑過驗證 ⇒ **驗證結果是最後一句話**。
        （第一版把驗證訊息寫在前面，結果被這一行的「已寫入…」蓋掉 ——
         兩個地方都寫同一個 banner，後寫的靜靜贏。） */
-    var head = '已寫入 ' + done + ' byte（' + i2ctSecs(i2ctNow() - tW0) + '，來源：' + srcLabel + '）'
+    /* 🔴 用 tWDone（寫入真正結束那一刻）而不是現在 —— 現在這個時間點已經
+       包含回讀驗證，拿它當「已寫入 N byte 花了多久」是假的。 */
+    var head = '已寫入 ' + done + ' byte（' + i2ctSecs(tWDone) + '，來源：' + srcLabel + '）'
              + (leftN ? '。🔴 <b>還有 ' + leftN + ' byte 改過但沒寫到</b>（不在這次的範圍內）' : '');
     /* 🔴 驗證結果放在**最前面**，而且**成功也要講**（Bruce 2026-09-19：他不知道
        有沒有做驗證）。這與「成功就安靜」的通則刻意相反 ——
@@ -3326,15 +3414,9 @@ async function i2ctWriteBytes(slave, wireAwid, base, d, srcLabel){
          · index >= done ＝ 失敗那一段與其後 ⇒ **一個 byte 都沒送出**，
            迴圈也還沒碰過它們的本地值 ⇒ 沒有東西需要還原，dirty 也**必須留著**
            （那些修改確實還沒進裝置，清掉等於幫他丟掉待辦）。
-       ⇒ 這一版要做的不是「還原」，而是**把邊界講清楚**，並確保失敗那一段
-         沒有被誤標成寫過。 */
-    var cs3 = i2ctCurSet();
-    if (cs3 && i2ctWroteFlags) {
-      for (var ri = done; ri < d.length; ri++) {
-        var rx = (base + ri) - cs3.base;
-        if (rx >= 0 && rx < i2ctWroteFlags.length) i2ctWroteFlags[rx] = 0;
-      }
-    }
+       ⇒ 這一版要做的不是「還原」，而是**把邊界講清楚**。
+       🔴 v1.20.2：原本這裡還會把失敗那一段的「本次寫過」旗標清掉，那個旗標
+          （與它的琥珀底色）已整支移除 ⇒ 沒有東西需要清，邊界本身一字未改。 */
     i2ctRenderTable();
     var leftN2 = i2ctDirtyCount();
     i2ctBanner('readbanner', 'err', '寫到第 ' + done + ' byte 時失敗（' + i2ctErrText(errMsg) + '）'
@@ -3429,7 +3511,6 @@ function i2ctApplyFile(name, raw){
        A／B 模型說明。與快照的比較照舊（左上、diff 洋紅、diff log 都沒受影響）。 */
     i2ctPrevBytes = null; i2ctPrevHas = null;
     var newSet = i2ctMakeSet('file', vin.slave, i2ctFileAwid, i2ctFileBase, bytes, file.name);
-    i2ctWroteFlags = null;
     /* 🔴 來源標籤 ＝ 檔名。第一次載入（還沒有 A）或長度不同 ⇒ 它成為 A；
        已有同長度的 A ⇒ 它成為 B。判斷全在 i2ctIngest 裡，這裡只負責給來源。
        🔴🔴 **載入檔案在任何情況下都不寫入裝置** —— 這裡一個 I2C 交易都沒有，
@@ -3524,7 +3605,13 @@ function i2ctAbPick(name, nNew, nA, nB){
 /* ═══ 自檢 ══════════════════════════════════════════════════════════════ */
 /* `auto` ＝ 連線後自動跑的那一次：通過不出聲、也不動使用者的四項輸入。
    手動按的那一次維持原行為（把輸入填成黃金向量，看得到自檢做了什麼）。 */
+/* 🔴 debug 模式下自檢會讀兩段（黃金向量＋ID 向量）⇒ 同一次操作，共用一個 opId。 */
 async function i2ctSelfTest(auto){
+  var prev = i2ctOpBegin();
+  try { return await i2ctSelfTestRun(auto); }
+  finally { i2ctOpEnd(prev); }
+}
+async function i2ctSelfTestRun(auto){
   i2ctBusy = true; i2ctSyncButtons();
   if (!auto) {
     /* 把輸入一併設成黃金向量，讓使用者看得到自檢到底做了什麼 */
@@ -3715,7 +3802,14 @@ function i2ctShowSide(which){
    🔴 **不一致時強制關閉快速模式**：原本的寫法無論結果如何都切回 `i2ctRawMpsse`，
       所以他若本來就開著快速模式，比對抓到不一致之後**還是會被切回快速模式** ——
       正好是最危險的那一種。現在改成「不一致 ⇒ 連同勾選框一起關掉」。 */
+/* 🔴 一次「比對」會連記三～四筆（中速／快速／一般，或讀失敗那一筆）——
+   它們是同一次操作 ⇒ 共用一個 opId，渲染時框在一起。 */
 async function i2ctComparePaths(){
+  var prev = i2ctOpBegin();
+  try { return await i2ctComparePathsRun(); }
+  finally { i2ctOpEnd(prev); }
+}
+async function i2ctComparePathsRun(){
   var v = i2ctReadInputs();
   if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join('；')); return; }
   if (!i2ctLinked) { i2ctBanner('readbanner', 'err', '要先連線才能比對'); return; }
@@ -3861,7 +3955,7 @@ function i2ctClearAll(){
   if (!i2ctConfirmDiscardDirty('清空')) { i2ctLog('取消清空（保留未寫入的本地修改）', 'n'); return false; }
   if (i2ctEditing) i2ctCancelEdit();
   i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
-  i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
+  i2ctPrevBytes = null; i2ctPrevHas = null;
   i2ctWrFail = null; i2ctWrOk = null; i2ctDirty = null;
   i2ctFileBytes = null; i2ctFileName = ''; i2ctBKind = 'dev';
   i2ctBSrc = null; i2ctShowA = false;    /* A／B 的來源標籤與「在看哪一份」一併清掉 */
@@ -3955,7 +4049,7 @@ function i2ctEsc(s){
 /* B 的實體（不是 A 的那一份）。B 不存在時回 null。 */
 function i2ctSetB(){
   if (!i2ctBSrc) return null;
-  return (i2ctBKind === 'file') ? i2ctFile : i2ctDev;
+  return i2ctBSlot();
 }
 function i2ctRenderRefLine(){
   var e = $('abbox'); if (!e) return;
@@ -4050,15 +4144,15 @@ function i2ctRenderTable(){
          畫面上一律不上色。診斷能力改用不占畫面的方式保留 ——
          整批全 FF 時**只在 log 寫一行**（見 i2ctOnRead）。
          （先前「載入不標、讀回的整批全 FF 仍標」那個例外是我自己加的，他沒同意。） */
-      /* 🔴 實際截圖後修正：原本檔案檢視把**每一格**都塗成琥珀（＝待寫入），
-         整片黃底配上洋紅 diff 太吵，而且「待寫入」的訊息卡片邊框與標題已經講過了。
-         改成只有**真的寫過的格子**才上琥珀。 */
-      if (i2ctWroteFlags && i2ctWroteFlags[idx]) cls.push('wrote');
+      /* 🔴 v1.20.2：這裡原本有「本次寫入過」（琥珀）與「已修改未寫入」（藍紫）
+         兩層著色，Bruce 2026-09-19 要求一併取消：「基本上只要有跟快照不同的，
+         我覺得就很 OK 了」。
+         「已修改未寫入」的**狀態**（i2ctDirty）仍在，只是不在格子上著色；
+         「本次寫入過」則連旗標一起刪掉（著色是它唯一的用途）。 */
       /* 🔴 寫入後回讀對不起來 ⇒ 醒目標出來。這一格顯示的是**裝置上的實際值**。 */
       if (i2ctWrFail && idx < i2ctWrFail.length && i2ctWrFail[idx]) cls.push('wrfail');
       if (i2ctWrOk   && idx < i2ctWrOk.length   && i2ctWrOk[idx])   cls.push('wrok');
       if (selR && idx >= selR.from && idx <= selR.to) cls.push('sel');
-      if (i2ctDirty && idx < i2ctDirty.length && i2ctDirty[idx]) cls.push('dirty');
       if (has && dmap[idx]) cls.push('diff');
       /* 十字：整列 ＋ 整欄疊淺色；交叉中心再加一圈外框 */
       if (r === xr || c2 === xc) cls.push('xh');
@@ -4379,6 +4473,11 @@ function i2ctSettleEdit(){
 }
 function i2ctBitToggle(bit, on){
   if (i2ctEditing) return i2ctSettleEdit().then(function () { return i2ctBitToggle(bit, on); });
+  /* 🔴 顯示 A（基準）時唯讀 —— 這一層原本**漏掉**（i2ctBeginEdit 與 i2ctSlotClick
+     都有，只有位元核取方塊沒有）。少了它，在看 A 的狀態下勾位元會就地改掉基準，
+     而且接著用 A 自己去算差異（`i2ctDiffSets(i2ctRef, d)`）⇒ 差異被清成 0。
+     與「差異清單印出相同值」是同一個根因：拿 i2ctCurSet() 當 B。 */
+  if (i2ctReadOnlyNow()) { i2ctRenderBits(); return Promise.resolve(false); }
   var d = i2ctCurSet(), idx = i2ctBitIdx();
   if (!d || idx < 0) { i2ctRenderBits(); return Promise.resolve(false); }
   /* 與 i2ctBeginEdit 同一組前置條件，理由也相同（見那一支的說明）。 */
@@ -4405,7 +4504,10 @@ function i2ctRenderDiff(){
   var n = i2ctDiffCount();
   $('diffcount').textContent = String(n);
   spacer.style.height = (n * I2CT_DIFF_ROW_H) + 'px';
-  var d = i2ctCurSet(), ref = i2ctRef, w = i2ctAddrDigits();
+  /* 🔴 這一欄是 **B**，不是「目前顯示的那一份」（見 i2ctBSlot 的說明）。
+     用 i2ctCurSet() 的話，切到看 A 時每一列都會印成「同一個值 → 同一個值」。
+     B 不存在（只有 A）⇒ d 是 null ⇒ 走下面的空狀態，不印任何列。 */
+  var d = i2ctBSlot(), ref = i2ctRef, w = i2ctAddrDigits();
   if (!n || !d || !ref) { rows.innerHTML = ''; rows.style.transform = 'translateY(0)'; return; }
   var top = body.scrollTop;
   var first = Math.max(0, Math.floor(top / I2CT_DIFF_ROW_H) - 4);
@@ -4578,7 +4680,6 @@ function i2ctRevertCell(d, idx, before){
   i2ctDirty[idx] = 0;
   i2ctWrFail[idx] = 0;
   if (i2ctWrOk && idx < i2ctWrOk.length) i2ctWrOk[idx] = 0;
-  if (i2ctWroteFlags && idx < i2ctWroteFlags.length) i2ctWroteFlags[idx] = 0;
   if (i2ctPrevHas && idx < i2ctPrevHas.length) { i2ctPrevHas[idx] = 0; i2ctPrevBytes[idx] = 0; }
   if (i2ctRef) i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
 }
@@ -4625,8 +4726,6 @@ async function i2ctApplyCellValue(d, idx, addr, awid, byte){
   var got = (back.ok && back.bytes.length === 1) ? (back.bytes[0] & 0xFF) : null;
   i2ctNoteCellChange(d, idx, (got === null) ? d.bytes[idx] : got);
   d.bytes[idx] = (got === null) ? d.bytes[idx] : got;          /* ⇦ 回讀值，不是輸入值 */
-  if (!i2ctWroteFlags) i2ctWroteFlags = new Uint8Array(d.bytes.length);
-  i2ctWroteFlags[idx] = 1;
   i2ctEnsureWrFail(d);
   /* ═══ 🔴 三種結果，訊息必須分得出來（Bruce 2026-09-19 重申的既有裁示）═══════
        ① 送出就失敗   ⇒ 上面那一段：「沒有寫進去」＋**自動還原**
@@ -4888,7 +4987,9 @@ function i2ctInit(){
   });
   /* diff log 的兩顆：重新比較（拿當前資料再比一次）／只清 log（基準保留） */
   $('btn-recmp').addEventListener('click', function () {
-    var d = i2ctCurSet();
+    /* 🔴 「重新比較」比的是 **A 對 B**。舊寫法用 i2ctCurSet()，在看 A 的狀態下
+       會變成 A 對 A ⇒ 算出 0 處不同，**把真正的差異清空**（同一個根因的另一半）。 */
+    var d = i2ctBSlot();
     if (!d || !i2ctRef) { i2ctBanner('readbanner', 'warn', '沒有基準或沒有資料'); return; }
     i2ctDiffIdx = i2ctDiffSets(i2ctRef, d);
     if (i2ctDiffIdx === null) i2ctBanner('readbanner', 'warn', '這一份與基準不可比（長度／slave／offset 不同）');
@@ -5213,7 +5314,6 @@ window.__i2ct = {
     return i2ctApplyFile(name, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
   },
   fileState: function () { return { name: i2ctFileName, len: i2ctFileBytes ? i2ctFileBytes.length : 0 }; },
-  wroteAt: function (i) { return !!(i2ctWroteFlags && i2ctWroteFlags[i]); },
   cellParts: function (addr) {
     var td = document.querySelector('#dump td[data-addr="' + addr + '"]');
     if (!td) return null;
@@ -5437,7 +5537,7 @@ window.__i2ct = {
   _reset: function () {
     i2ctDev = null; i2ctFile = null; i2ctRef = null; i2ctDiffIdx = null;
     i2ctBSrc = null; i2ctShowA = false;
-    i2ctPrevBytes = null; i2ctPrevHas = null; i2ctWroteFlags = null;
+    i2ctPrevBytes = null; i2ctPrevHas = null;
     i2ctFileBytes = null; i2ctBKind = 'dev';
     /* 🔴 「回到剛打開的狀態」必須連**游標狀態**一起清：選取範圍、十字、頁碼、
        編輯中的格子、dirty/失敗旗標。留著任何一個，下一份資料一進來就會有
