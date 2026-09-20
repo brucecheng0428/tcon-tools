@@ -2638,9 +2638,9 @@ var I18N = {
 
   /* ── 觀測列 ───────────────────────────────────────────────────────── */
   'dst.kvBridge':       { 'zh-TW': 'I2C Bridge', 'en': 'I2C Bridge', 'zh-CN': 'I2C Bridge' },
-  'dst.kvComm':         { 'zh-TW': '通訊自檢', 'en': 'Link check', 'zh-CN': '通讯自检' },
+  'dst.kvComm':         { 'zh-TW': '匯流排讀回測試', 'en': 'Bus read-back', 'zh-CN': '总线读回测试' },
   'dst.kvId':           { 'zh-TW': '0xFF00（IC ID）', 'en': '0xFF00 (IC ID)', 'zh-CN': '0xFF00（IC ID）' },
-  'dst.kvIc':           { 'zh-TW': 'IC', 'en': 'IC', 'zh-CN': 'IC' },
+  'dst.kvIc':           { 'zh-TW': 'IC 型號', 'en': 'IC model', 'zh-CN': 'IC 型号' },
   'dst.kvRes':          { 'zh-TW': '解析度', 'en': 'Resolution', 'zh-CN': '分辨率' },
   'dst.kvWr':           { 'zh-TW': '可寫入位址', 'en': 'Writable addresses', 'zh-CN': '可写入地址' },
   'dst.kvSend':         { 'zh-TW': '送進 IC 的 12-bit 值', 'en': '12-bit values sent to the IC', 'zh-CN': '送进 IC 的 12-bit 值' },
@@ -2654,7 +2654,19 @@ var I18N = {
      12-bit 值 —— 三種深度換算完**都是 4080**。兩個數字都要講，只講一個會被誤讀。 */
   'dst.bitsNote':       { 'zh-TW': '送進 IC ＝ 你填的值 × {mul}；掃描 0…{end}，最亮那一階送出去是 {end12}', 'en': 'Sent to the IC = your value × {mul}; the scan runs 0…{end} and the brightest step goes out as {end12}', 'zh-CN': '送进 IC ＝ 你填的值 × {mul}；扫描 0…{end}，最亮那一阶送出去是 {end12}' },
   'dst.crossNote':      { 'zh-TW': '十字是紅色的一條細線，位置固定在畫面正中心；線寬不可調（暫存器裡沒有這個欄位）。', 'en': 'The cross is a thin red line fixed at the centre of the screen. Its width cannot be set — there is no such register field.', 'zh-CN': '十字是红色的一条细线，位置固定在画面正中心；线宽不可调（暂存器里没有这个字段）。' },
-  'dst.altWhy':         { 'zh-TW': '這兩顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請自己選 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。', 'en': 'These two chips return exactly the same ID; the upstream tool cannot tell them apart either. Only you know which one is on the board, so please pick it. Picking the wrong one only affects the cross and the write order; it cannot damage the IC.', 'zh-CN': '这两颗的 ID 完全相同，上游工具自己也分不出来。板子上是哪一颗只有你知道，请自己选 —— 选错只影响十字线与写入顺序，不会写坏 IC。' },
+  /* 🔴 v1.2.0：帶上**實際讀到的 ID** 與**共用這個 ID 的是哪幾顆** ——
+     不說是哪個 ID、哪兩顆，讀的人沒辦法自己確認。 */
+  'dst.altWhy':         { 'zh-TW': '自動識別讀到的 ID 是 {id}，而 {names} 這幾顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請指定 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。',
+                          'en': 'The auto-detected ID is {id}, and {names} return exactly the same ID — the upstream tool cannot tell them apart either. Only you know which one is on the board, so please pick it. Picking the wrong one only affects the cross and the write order; it cannot damage the IC.',
+                          'zh-CN': '自动识别读到的 ID 是 {id}，而 {names} 这几颗的 ID 完全相同，上游工具自己也分不出来。板子上是哪一颗只有你知道，请指定 —— 选错只影响十字线与写入顺序，不会写坏 IC。' },
+  'dst.altPick':        { 'zh-TW': '實際板子上是哪一顆', 'en': 'Which one is actually on the board', 'zh-CN': '实际板子上是哪一颗' },
+  /* 🔴 v1.2.0：Bruce 2026-09-20：「它是會自動識別嗎？為什麼我看到的可選擇的只有
+     EM02A1 跟 V512S1、S2 這兩個呢？」—— 因為那個下拉只在**撞號**時出現，
+     畫面上卻沒有一個字說「型號是自動判的」。顆數與清單由 DST_ICS 算出來。 */
+  'dst.autoNote':       { 'zh-TW': '型號是自動識別的：連線時依序掃 slave {slaves}，讀 0xFF00 的三個 byte 比對 ID 表，不需要手動選。本頁認得的 {n} 顆：{list}。',
+                          'en': 'The model is detected automatically: on connect the page scans slaves {slaves}, reads the three bytes at 0xFF00 and matches them against the ID table — nothing to pick by hand. The {n} chips this page knows: {list}.',
+                          'zh-CN': '型号是自动识别的：连线时依序扫 slave {slaves}，读 0xFF00 的三个 byte 比对 ID 表，不需要手动选。本页认得的 {n} 颗：{list}。' },
+  'dst.icAuto':         { 'zh-TW': '自動識別：{name}（ID {id}）', 'en': 'Auto-detected: {name} (ID {id})', 'zh-CN': '自动识别：{name}（ID {id}）' },
   'dst.fixedLine':      { 'zh-TW': 'slave 掃描順序（7-bit）{slaves} · 時脈 {khz} kHz · 寫入一律經位址白名單', 'en': 'slave scan order (7-bit) {slaves} · clock {khz} kHz · every write goes through the address whitelist', 'zh-CN': 'slave 扫描顺序（7-bit）{slaves} · 时钟 {khz} kHz · 写入一律经地址白名单' },
   'dst.thStep':         { 'zh-TW': '階', 'en': 'Step', 'zh-CN': '阶' },
   'dst.cellFail':       { 'zh-TW': '量測失敗', 'en': 'measurement failed', 'zh-CN': '量测失败' },
@@ -2681,9 +2693,14 @@ var I18N = {
   'dst.ackNakOdd':      { 'zh-TW': 'NACK，但這個值不在預期範圍內 —— 位元對齊的假設可能有問題，請把這個原始 byte 一起回報', 'en': 'NACK, but this value is outside the expected range — the bit-alignment assumption may be wrong. Please report this raw byte as well.', 'zh-CN': 'NACK，但这个值不在预期范围内 —— 位元对齐的假设可能有问题，请把这个原始 byte 一起回报' },
 
   /* ── 通訊自檢 ─────────────────────────────────────────────────────── */
-  'dst.commPass':       { 'zh-TW': 'PASS 通訊正常（讀到 {got}）', 'en': 'PASS — the link works (read {got})', 'zh-CN': 'PASS 通讯正常（读到 {got}）' },
-  'dst.commMismatch':   { 'zh-TW': 'FAIL 期望 A1 D8 FB，實際 {got}', 'en': 'FAIL — expected A1 D8 FB, got {got}', 'zh-CN': 'FAIL 期望 A1 D8 FB，实际 {got}' },
-  'dst.commNoRead':     { 'zh-TW': 'FAIL 讀不到（只收到 {n} byte）', 'en': 'FAIL — nothing to read (only {n} bytes received)', 'zh-CN': 'FAIL 读不到（只收到 {n} byte）' },
+  /* 🔴 v1.2.0：這一項**不再判對錯**。舊的 dst.commPass／dst.commMismatch 已刪除 ——
+     那兩條的前提是「讀回 A1 D8 FB 才正常」，而那三個 byte 是某一份 code 的內容，
+     不是硬體身分（Bruce 2026-09-20 實機：「只要是有不同的 code，這邊的設定就會不一樣」）。 */
+  'dst.commRead':       { 'zh-TW': '讀回 {got}', 'en': 'Read back {got}', 'zh-CN': '读回 {got}' },
+  'dst.commNoRead':     { 'zh-TW': '讀不到（只收到 {n} byte）', 'en': 'Nothing to read (only {n} bytes received)', 'zh-CN': '读不到（只收到 {n} byte）' },
+  'dst.commNote':       { 'zh-TW': '「匯流排讀回測試」只證明 I2C 讀得到東西；<b>讀回的值會隨 code 不同而不同，不能用來判斷是哪一顆 T-CON</b>，本頁也不拿它做任何判定。型號一律看下面的 0xFF00 ID。',
+                          'en': 'The bus read-back only proves that I2C can read something. <b>The value it returns changes with the code loaded, so it cannot tell you which T-CON this is</b> — this page makes no judgement from it. The model always comes from the 0xFF00 ID below.',
+                          'zh-CN': '「总线读回测试」只证明 I2C 读得到东西；<b>读回的值会随 code 不同而不同，不能用来判断是哪一颗 T-CON</b>，本页也不拿它做任何判定。型号一律看下面的 0xFF00 ID。' },
 
   /* ── 出圖不可用的理由 ─────────────────────────────────────────────── */
   'dst.noIcNoWrite':    { 'zh-TW': '還沒認出 IC，本頁一個位址都不寫', 'en': 'The IC has not been identified, so this page writes nothing at all', 'zh-CN': '还没认出 IC，本页一个地址都不写' },
@@ -2780,6 +2797,48 @@ var I18N = {
   'dst.dlShared':       { 'zh-TW': '「I2C 讀寫測試」那一頁用的是<b>同一支程式</b>：已經下載過就不必再載一次，執行起來這一頁就連得上。',
                           'en': 'The I2C Read/Write Test page uses <b>the same program</b>. If you already downloaded it, just run it — no need to download again.',
                           'zh-CN': '「I2C 读写测试」那一页用的是<b>同一支程序</b>：已经下载过就不必再载一次，执行起来这一页就连得上。' },
+  /* ═══ v1.2.0：匯出（版面逐欄照上游工具）═════════════════════ */
+  'dst.btnXlsx':        { 'zh-TW': '匯出 XLSX', 'en': 'Export XLSX', 'zh-CN': '导出 XLSX' },
+  'dst.expNoData':      { 'zh-TW': '還沒有任何量測結果可以匯出。',
+                          'en': 'There are no measurement results to export yet.',
+                          'zh-CN': '还没有任何量测结果可以导出。' },
+  /* 🔴 Bruce 2026-09-20：「只要有量測失敗的，是不能匯出 CSV 的。」 */
+  'dst.expVoid':        { 'zh-TW': '這一輪沒有完整跑完（中止或量測失敗），已作廢 —— 不得匯出，也不會回傳 DG。請先排除量測儀器的問題，再重新掃一次。',
+                          'en': 'This round did not finish cleanly (stopped, or a measurement failed), so it is void — it cannot be exported and nothing was sent back to DG. Fix the meter first, then run the scan again.',
+                          'zh-CN': '这一轮没有完整跑完（中止或量测失败），已作废 —— 不得导出，也不会回传 DG。请先排除量测仪器的问题，再重新扫一次。' },
+  'dst.expNoLib':       { 'zh-TW': 'common/xlsx.js 沒有載入 —— 無法產生 Excel 檔。請重新整理這一頁。',
+                          'en': 'common/xlsx.js did not load — the Excel file cannot be produced. Please reload this page.',
+                          'zh-CN': 'common/xlsx.js 没有载入 —— 无法生成 Excel 文件。请重新刷新这一页。' },
+
+  /* ═══ v1.2.0：量測失敗不准跳過 ════════════════════════════ */
+  'dst.pgRetry':        { 'zh-TW': '{key}（重試 {k}/{n}）', 'en': '{key} (retry {k}/{n})', 'zh-CN': '{key}（重试 {k}/{n}）' },
+  'dst.failTitle':      { 'zh-TW': '⚠ 量測失敗，這一階沒有拿到數據', 'en': '⚠ Measurement failed — no data for this step', 'zh-CN': '⚠ 量测失败，这一阶没有拿到数据' },
+  'dst.failWhere':      { 'zh-TW': '失敗的是第 {i}/{n} 階（{key}），送進 IC 的是 R={r} G={g} B={b}（12-bit）。',
+                          'en': 'Step {i}/{n} ({key}) failed. The values sent to the IC were R={r} G={g} B={b} (12-bit).',
+                          'zh-CN': '失败的是第 {i}/{n} 阶（{key}），送进 IC 的是 R={r} G={g} B={b}（12-bit）。' },
+  'dst.failGot':        { 'zh-TW': '量測儀器的回應：{raw}（已經自動試了 {tries} 次）。',
+                          'en': 'The meter replied: {raw} (already retried automatically {tries} times).',
+                          'zh-CN': '量测仪器的回应：{raw}（已经自动试了 {tries} 次）。' },
+  'dst.failTimeout':    { 'zh-TW': '（逾時，完全沒有回應）', 'en': '(timed out — no reply at all)', 'zh-CN': '（超时，完全没有回应）' },
+  'dst.failCheck':      { 'zh-TW': '請檢查量測儀器：USB 線有沒有鬆、探頭有沒有貼緊面板、遮光蓋是不是還蓋著、機身有沒有跳錯誤訊息，以及面板是不是還停在出圖畫面上。',
+                          'en': 'Check the meter: is the USB cable loose, is the probe flush against the panel, is the light cap still on, is there an error on the meter itself, and is the panel still showing the test pattern?',
+                          'zh-CN': '请检查量测仪器：USB 线有没有松、探头有没有贴紧面板、遮光盖是不是还盖着、机身有没有跳错误信息，以及面板是不是还停在出图画面上。' },
+  'dst.failVoidWarn':   { 'zh-TW': '這一階不會被跳過。選「中止整輪」的話，這一輪作廢 —— 不匯出、也不回傳 DG。',
+                          'en': 'This step will not be skipped. If you abort, the whole round is void — nothing is exported and nothing goes back to DG.',
+                          'zh-CN': '这一阶不会被跳过。选「中止整轮」的话，这一轮作废 —— 不导出、也不回传 DG。' },
+  'dst.failRetry':      { 'zh-TW': '再試一次這一階', 'en': 'Retry this step', 'zh-CN': '再试一次这一阶' },
+  'dst.failAbort':      { 'zh-TW': '中止整輪（作廢）', 'en': 'Abort the round (void)', 'zh-CN': '中止整轮（作废）' },
+  'dst.voidRun':        { 'zh-TW': '⚠ 這一輪已作廢：只量到 {n}/{total} 階。下面的表格只是給你看停在哪裡，不會匯出、也沒有回傳 DG。排除問題後請重新掃一次。',
+                          'en': '⚠ This round is void: only {n} of {total} steps were measured. The table below is only there to show where it stopped — it will not be exported and nothing was sent back to DG. Fix the problem and run the scan again.',
+                          'zh-CN': '⚠ 这一轮已作废：只量到 {n}/{total} 阶。下面的表格只是给你看停在哪里，不会导出、也没有回传 DG。排除问题后请重新扫一次。' },
+  'dst.dgVoidNoSend':   { 'zh-TW': '這一輪沒有完整跑完，一筆都沒有回傳 DG。半套的灰階曲線灌進去會錯得很安靜。',
+                          'en': 'This round did not finish cleanly, so nothing at all was sent back to DG. A half-finished grey ramp would go wrong very quietly.',
+                          'zh-CN': '这一轮没有完整跑完，一笔都没有回传 DG。半套的灰阶曲线灌进去会错得很安静。' },
+  /* 🔴 v1.2.0：已知缺陷的事前揭露（不是修它）—— 見 dstRenderDgBits。 */
+  'dst.dgBitsWarn':     { 'zh-TW': '⚠ 這一輪是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐階不跳號）的灰階，{bits}-bit 量完會被 DG 擋下。要回填 DG 請改選 8-bit；只是要拿匯出檔的話不受影響。',
+                          'en': '⚠ This round is {bits}-bit. DG part 2 currently only accepts an 8-bit ramp (L0…L255 with no gaps), so a {bits}-bit round will be rejected by DG. Switch to 8-bit if you need it fed back into DG; the exported file is unaffected.',
+                          'zh-CN': '⚠ 这一轮是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐阶不跳号）的灰阶，{bits}-bit 量完会被 DG 挡下。要回填 DG 请改选 8-bit；只是要拿导出文件的话不受影响。' },
+
   'dst.ownerNote':      { 'zh-TW': 'I2C Bridge 一次只給一個分頁用 —— 切到哪一頁就由哪一頁接手，被接手的那一頁會顯示未連線；<b>正在量測的那一頁不會被接手</b>。',
                           'en': 'Only one tab holds the I2C Bridge at a time — whichever tab you switch to takes it over, and the one that loses it shows as disconnected. <b>A tab that is measuring will not be taken over.</b>',
                           'zh-CN': 'I2C Bridge 一次只给一个分页用 —— 切到哪一页就由哪一页接手，被接手的那一页会显示未连线；<b>正在量测的那一页不会被接手</b>。' },

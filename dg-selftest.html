@@ -12,12 +12,17 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260920dst110"></script>
+<script src="common/version.js?v=20260920dst120"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
      CSS 變數，不另外寫死色碼（換主題時才不會只有這一頁沒跟上）。 */
-  .dst-wrap { max-width: 520px; margin: 0 auto; padding: 12px; }
+  /* 🔴 v1.2.0：本頁的外框改用 common.css 的 `.container`（Bruce 2026-09-20：
+     「裡面顯示的內容寬度實在是太窄了，請用跟其他網頁一樣寬的寬度。」）。
+     v1.1.0 是自己寫的 `.dst-wrap { max-width: 520px }` —— 那是全站最窄的一個
+     數值，而 `dg.html`／`calc.html` 用的都是 common.css 那一套
+     （480 → 720／860 → 860 → 1200，依斷點）。**不在這裡再寫一個新數值**：
+     寬度只有一個來源，改主題時才不會只有這一頁沒跟上。 */
 
   /* 一行「標籤 ─ 值」的觀測列 */
   .dst-kv { display: flex; justify-content: space-between; align-items: baseline;
@@ -85,6 +90,28 @@
   .dst-warn-box { border: 1.5px solid var(--warn); border-radius: 8px; padding: 10px;
                   background: #2b2207; font-size: 12.5px; line-height: 1.65; }
   .dst-hidden { display: none !important; }
+
+  /* ═══ v1.2.0：量測失敗的警告視窗 ═════════════════════════════════════════
+     🔴 為什麼不用 window.confirm：它只有「確定／取消」兩顆瀏覽器自己的按鈕，
+        文字不能改、不能翻譯，而這裡要問的是「再試一次 / 中止整輪」—— 兩個都是
+        實質動作，用「確定／取消」講不清楚哪一顆是哪一個。
+        另一個理由是可驗證性：自建視窗的兩顆鈕夾具點得到，window.confirm 只能靠
+        猴子補丁替換掉，等於驗的不是產品路徑。 */
+  .dst-modal { position: fixed; inset: 0; background: rgba(2, 6, 23, .78);
+               display: none; align-items: center; justify-content: center; z-index: 90; padding: 16px; }
+  .dst-modal.open { display: flex; }
+  .dst-modal-box { background: var(--card); border: 1.5px solid var(--warn); border-radius: 12px;
+                   max-width: 520px; width: 100%; padding: 16px 18px; }
+  .dst-modal-title { font-size: 15px; font-weight: 700; color: var(--warn); margin-bottom: 10px; }
+  .dst-modal-body { font-size: 13px; line-height: 1.75; color: var(--text); }
+  .dst-modal-body code { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); }
+  .dst-modal-act { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .dst-modal-act .dst-btn { flex: 1 1 160px; justify-content: center; text-align: center; }
+
+  /* 這一輪作廢的橫幅（中止／失敗之後，讓人一眼看到「這些數字不算數」） */
+  .dst-void { border: 1.5px solid var(--red); border-radius: 8px; padding: 9px 11px;
+              background: #431418; color: #fca5a5; font-size: 12.5px; line-height: 1.65; margin-top: 10px; }
+  .dst-void:empty { display: none; }
 </style>
 </head>
 <body>
@@ -110,7 +137,7 @@
   </div>
 </div>
 
-<div class="dst-wrap">
+<div class="container">
 
   <!-- ═══ 0-a. DG 指派的任務（v1.1.0）═════════════════════════════════════
        只有從 DG 的「即時量測 → T-CON 自檢畫面量測」開過來才出現；直接開這一頁
@@ -143,17 +170,30 @@
       </div>
       <div style="margin-top:10px">
         <div class="dst-kv"><span data-i18n="dst.kvBridge">I2C Bridge</span><span id="dst-v-bridge" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.kvComm">通訊自檢</span><span id="dst-v-comm" class="dst-na">—</span></div>
+        <!-- 🔴 v1.2.0：這一列只報「讀回什麼」，**不做任何對錯判定**。見 dstCommVerdict。 -->
+        <div class="dst-kv"><span data-i18n="dst.kvComm">匯流排讀回測試</span><span id="dst-v-comm" class="dst-na">—</span></div>
         <div class="dst-kv"><span data-i18n="dst.kvId">0xFF00（IC ID）</span><span id="dst-v-id" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.kvIc">IC</span><span id="dst-v-ic" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvIc">IC 型號</span><span id="dst-v-ic" class="dst-na">—</span></div>
         <div class="dst-kv"><span data-i18n="dst.kvRes">解析度</span><span id="dst-v-res" class="dst-na">—</span></div>
         <div class="dst-kv"><span data-i18n="dst.kvWr">可寫入位址</span><span id="dst-v-wr" class="dst-na">—</span></div>
       </div>
+      <!-- 🔴 v1.2.0：這一行是 Bruce 2026-09-20 的原話所指
+           （「只要是有不同的 code，這邊的設定就會不一樣，千萬不要用這個來判別」）。
+           它必須在畫面上，不能只寫在註解裡。 -->
+      <div class="dst-note" data-i18n-html="dst.commNote">「匯流排讀回測試」只證明 I2C 讀得到東西；<b>讀回的值會隨 code 不同而不同，不能用來判斷是哪一顆 T-CON</b>，本頁也不拿它做任何判定。型號一律看下面的 0xFF00 ID。</div>
+
+      <!-- ═══ v1.2.0：識別是自動的 —— 這一行講清楚 ═════════════════════════
+           Bruce 2026-09-20：「它是會自動識別嗎？為什麼我看到的可選擇的只有
+           EM02A1 跟 V512S1、S2 這兩個呢？」
+           🔴 下拉只在**撞號**時出現，卻讓人以為「只支援這幾顆」。所以這裡如實說
+              支援幾顆、怎麼判的。顆數不寫死，由 DST_ICS 算出來（表改了字就跟著改）。 -->
+      <div class="dst-note" id="dst-auto-note">&nbsp;</div>
 
       <!-- 撞號二選一：只有識別到的那一組 ID 分不出兩顆時才出現 -->
       <div id="dst-alt-box" class="dst-hidden" style="margin-top:10px">
-        <div class="dst-note" data-i18n="dst.altWhy">這兩顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請自己選 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。</div>
+        <div class="dst-note" id="dst-alt-why"></div>
         <div class="dst-row" style="margin-top:6px">
+          <label for="dst-alt" style="font-size:12.5px;font-weight:700" data-i18n="dst.altPick">實際板子上是哪一顆</label>
           <select id="dst-alt" class="dst-sel"></select>
         </div>
       </div>
@@ -241,15 +281,22 @@
         <div class="dst-kv"><span data-i18n="dst.kvHz">畫面更新率</span><span id="dst-v-hz" class="dst-na">—</span></div>
       </div>
 
+      <!-- 🔴 v1.2.0：匯出兩顆。XLSX 是**上游工具的預設**（它的存檔視窗
+           FilterIndex = 3 ＝ xlsx），CSV 走它同一支文字輸出（逗號分隔）。
+           欄位、表頭、順序、尾段三者共用同一份資料組裝，見 dstExportRows()。 -->
       <div class="dst-row" style="margin-top:12px">
         <button class="dst-btn pri" id="dst-run" data-i18n="dst.btnRun">開始掃描</button>
         <button class="dst-btn danger" id="dst-stop" disabled data-i18n="dst.btnStop">■ 停止</button>
+        <button class="dst-btn" id="dst-xlsx" disabled data-i18n="dst.btnXlsx">匯出 XLSX</button>
         <button class="dst-btn" id="dst-csv" disabled data-i18n="dst.btnCsv">匯出 CSV</button>
       </div>
 
       <div class="dst-prog-outer"><div class="dst-prog-inner" id="dst-prog"></div></div>
       <div class="dst-note" id="dst-progtxt">&nbsp;</div>
+      <div class="dst-note" id="dst-dgbits">&nbsp;</div>
       <div class="dst-say" id="dst-say-run"></div>
+      <!-- v1.2.0：這一輪作廢的橫幅（中止／失敗之後）。正常跑完時是空的、不佔位。 -->
+      <div class="dst-void" id="dst-void"></div>
 
       <div class="dst-tbl-wrap dst-hidden" id="dst-res-wrap" style="margin-top:10px">
         <table class="dst-tbl">
@@ -274,8 +321,27 @@
 
 </div>
 
-<script src="common/i18n.js?v=20260920dst110"></script>
-<script src="common/common.js?v=20260920dst110"></script>
+<!-- ═══ v1.2.0：量測失敗的警告視窗 ════════════════════════════════════════
+     Bruce 2026-09-20：「如果在開始掃描時遇到哪一個灰階量測失敗的情況，應該不能
+     跳過它，要一直等它的數據是正確的才能繼續往下」「跳出警告視窗去提醒使用者要
+     檢查一下量測儀器是發生什麼問題」。
+     🔴 這個視窗**只在自動重試用完之後**出現 —— 偶發的一次失敗由重試自己吞掉，
+        不打擾人；連續失敗才是「儀器真的有事」，那時候才該停下來問。
+     🔴 兩顆鈕都是實質動作，所以兩顆都有顏色（不做一主一次）。 -->
+<div class="dst-modal" id="dst-modal-fail">
+  <div class="dst-modal-box">
+    <div class="dst-modal-title" data-i18n="dst.failTitle">⚠ 量測失敗，這一階沒有拿到數據</div>
+    <div class="dst-modal-body" id="dst-fail-body"></div>
+    <div class="dst-modal-act">
+      <button class="dst-btn pri" id="dst-fail-retry" data-i18n="dst.failRetry">再試一次這一階</button>
+      <button class="dst-btn danger" id="dst-fail-abort" data-i18n="dst.failAbort">中止整輪（作廢）</button>
+    </div>
+  </div>
+</div>
+
+<script src="common/i18n.js?v=20260920dst120"></script>
+<script src="common/xlsx.js?v=20260920dst120"></script>
+<script src="common/common.js?v=20260920dst120"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -566,6 +632,11 @@ var dstLastPaint = null;       // 最後一次打出去的東西（中止時要�
 var dstBits = 8;
 var dstRgb = { r: 0, g: 0, b: 0 };   // 使用者刻度（不是 12-bit 值）
 var dstRows = [], dstRunning = false, dstAbort = false;
+/* 🔴 v1.2.0：這一輪是不是**完整跑完**的。只有掃完計畫上的每一階、而且每一階都
+   拿到有效數據，才會是 true。中止、例外、使用者在失敗視窗按「中止整輪」⇒ false。
+   它是匯出與回傳 DG 的唯一閘門 —— 半套資料不得離開這一頁。 */
+var dstRunOk = false;
+var dstFailResolve = null;   // 失敗視窗正在等答案時的 resolver（null ＝ 視窗關著）
 
 /* ═══ log ════════════════════════════════════════════════════════════════
    🔴 交易層的每一行刻意用**語言中性**的格式（`R 0xFF00 x3 -> 01 EF A1`）：
@@ -813,7 +884,10 @@ async function dstScanIdentify() {
   dstAltIdx = -1;
   dstShow('dst-v-id', dstHex(chosen) + '  (slave ' + dstSlaveLabel(chosenSlave) + ')', true);
   if (dstIc) {
-    dstShow('dst-v-ic', dstIc.name + dstAlsoText(dstIc), true);
+    /* 🔴 v1.2.0：明寫「自動識別」。Bruce 2026-09-20 問「它是會自動識別嗎？」——
+       會，而且一直都是（掃 slave → 讀 0xFF00 → 比對 ID 表）。畫面上沒有一個字
+       說出來，才會讓那個撞號下拉看起來像「只支援這幾顆」。 */
+    dstShow('dst-v-ic', dstT('dst.icAuto', { name: dstIcName(), id: dstHex(chosen) }) + dstAlsoText(dstIc), true);
     dstLog('== IC = ' + dstIc.key + '  slave ' + dstSlaveLabel(chosenSlave), 'o');
   } else {
     dstShow('dst-v-ic', dstT('dst.icUnknown'), false);
@@ -823,27 +897,47 @@ async function dstScanIdentify() {
   dstRenderAlt(); dstRenderWr();
 }
 
-/* ═══ 通訊自檢（與 IC 認不認得完全解耦）═══════════════════════════════════
-   讀 slave 0x68、2-byte offset、offset 0x0000 起連續 3 byte，期望 A1 D8 FB。
-   三種結果分開講：PASS／期望不符／讀不到。 */
-var DST_COMM_SLAVE = 0x68, DST_COMM_ADDR = 0x0000, DST_COMM_EXPECT = [0xA1, 0xD8, 0xFB];
+/* ═══ 匯流排讀回測試（與 IC 認不認得完全解耦）═════════════════════════════
+   讀 slave 0x68、2-byte offset、offset 0x0000 起連續 3 byte，**只報讀回什麼**。
+
+   ═══ 🔴 v1.2.0：拿掉 PASS／FAIL 判定 ═══════════════════════════════════════
+   v1.1.0 這裡有一個黃金向量 `DST_COMM_EXPECT = [0xA1,0xD8,0xFB]`，讀回不等於它
+   就報紅字 FAIL。那個值是從 `i2c.html` 搬過來的，而它的來源是**某一顆 IC 上某
+   一份 code** 讀出來的三個 byte。
+
+   Bruce 2026-09-20 實機打臉（他看到「期望 A1D8FB，實際 6141B4」）：
+     「這個跟 T-CON 是哪一顆完全沒有關係喔，所以不要用這個判別。**只要是有不同
+       的 code，這邊的設定就會不一樣，千萬不要用這個來判別。**」
+
+   ⇒ offset 0x0000 起那三個 byte 是**韌體／設定內容**，不是硬體身分。拿它當期望
+     值，對所有其他 code 都會報一個假的 FAIL —— 而假 FAIL 比沒有這項檢查更糟，
+     它會讓人去查一個根本不存在的問題。
+
+   🔴 現在唯一區分得出來、而且真的有意義的事只有一件：**讀得到 vs 讀不到**。
+      讀到 3 個 byte ⇒ 匯流排通了（中性顯示，不標綠也不標紅、不寫「PASS」）。
+      讀不到／長度不足 ⇒ 真的有問題（標紅）。
+   🔴 常數 `DST_COMM_EXPECT` **整個刪掉**，不是留著不用 —— 留著的常數遲早被下一
+      個人接回去。 */
+var DST_COMM_SLAVE = 0x68, DST_COMM_ADDR = 0x0000, DST_COMM_LEN = 3;
 function dstCommVerdict(bytes) {
   var b = bytes || [];
-  if (b.length < 3) return { state: 'noread', text: dstT('dst.commNoRead', { n: b.length }) };
-  if (b[0] === DST_COMM_EXPECT[0] && b[1] === DST_COMM_EXPECT[1] && b[2] === DST_COMM_EXPECT[2])
-    return { state: 'pass', text: dstT('dst.commPass', { got: dstHex(b.slice(0, 3)) }) };
-  return { state: 'mismatch', text: dstT('dst.commMismatch', { got: dstHex(b.slice(0, 3)) }) };
+  if (b.length < DST_COMM_LEN) return { state: 'noread', text: dstT('dst.commNoRead', { n: b.length }) };
+  /* 🔴 state 只有 'read'／'noread' 兩種。**沒有 pass／mismatch** —— 不是把判定
+     改寬，是這一項根本不該有判定。 */
+  return { state: 'read', got: b.slice(0, DST_COMM_LEN),
+           text: dstT('dst.commRead', { got: dstHex(b.slice(0, DST_COMM_LEN)) }) };
 }
 async function dstCommTest() {
   var saved = dstSlave;
   dstSlave = DST_COMM_SLAVE;
   var bytes = [];
-  try { var d = await dstReadReg(DST_COMM_ADDR, 3); bytes = (d || []).slice(0, 3); }
+  try { var d = await dstReadReg(DST_COMM_ADDR, DST_COMM_LEN); bytes = (d || []).slice(0, DST_COMM_LEN); }
   catch (e) { bytes = []; }
   dstSlave = saved;
   var v = dstCommVerdict(bytes);
-  dstShow('dst-v-comm', v.text, v.state === 'pass');
-  if (v.state !== 'pass') dstSay('dst-say-link', v.text);
+  /* 讀得到 ⇒ 正常字色（不是綠色的「通過」，只是「有值」）；讀不到 ⇒ 灰掉＋紅字說明。 */
+  dstShow('dst-v-comm', v.text, v.state === 'read');
+  if (v.state !== 'read') dstSay('dst-say-link', v.text);
   return v;
 }
 
@@ -1134,6 +1228,63 @@ async function dstCaClose() {
    🔴 量測失敗**明確標記該階失敗**，不沿用上一階的值（上游工具會安靜沿用，
       那是它的缺陷，不要一起複製）。
    ═══════════════════════════════════════════════════════════════════════ */
+/* ═══ v1.2.0：量測回應的解析與失敗處理 ════════════════════════════════════
+   🔴 `DST_MES_RETRY = 3` 不是隨手挑的：`dg-measure.html` 的白灰階與純色兩圈都是
+      `if (++bad >= 3) … 否則同一步重來`，那一套已經在真機上跑過。兩條路用同一個
+      數字，現場的體感才會一致。
+   🔴 `DST_MES_MS = 20000` 是 v1.1.0 原本就在用的逾時值，一字未改。 */
+var DST_MES_RETRY = 3;
+var DST_MES_MS = 20000;
+/* 量測儀回應 → { x, y, lv }；**任何一種不合格都回 null**，由呼叫端統一處理。
+   三種失敗：逾時（res === null）／儀器回 ER…／回了但解不出三個數字。
+   🔴 純函式，夾具直接驗（三種都要驗到，不能只驗「好的會過」）。 */
+function dstParseMes(res) {
+  if (res === null || res === undefined) return null;
+  if (/^ER/.test(res)) return null;
+  var p = String(res).split(',');
+  var x = parseFloat(p[3]), y = parseFloat(p[4]), lv = parseFloat(p[5]);
+  if (isNaN(x) || isNaN(y) || isNaN(lv)) return null;
+  return { x: x, y: y, lv: lv };
+}
+/* 這一輪作廢的橫幅（空字串 ＝ 收起來）。 */
+function dstVoid(text) {
+  var e = $('dst-void'); if (e) e.textContent = text || '';
+}
+/* 停下來問「再試一次 / 中止整輪」。回傳 'retry' 或 'abort'。
+   🔴 視窗開著的時候「停止」鈕仍然有效 —— dstAbort 一旦被設起來，這裡直接收掉
+      視窗並回 'abort'，不讓使用者卡在一個按了停止卻沒反應的畫面上。 */
+function dstFailAsk(stepIdx, total, p, res) {
+  var body = $('dst-fail-body'), m = $('dst-modal-fail');
+  var raw = (res === null || res === undefined) ? dstT('dst.failTimeout') : String(res);
+  if (body) {
+    body.innerHTML = '';
+    var l1 = document.createElement('div');
+    l1.textContent = dstT('dst.failWhere', { i: stepIdx + 1, n: total, key: p.key,
+      r: p.r, g: p.g, b: p.b });
+    var l2 = document.createElement('div');
+    l2.textContent = dstT('dst.failGot', { raw: raw, tries: DST_MES_RETRY + 1 });
+    var l3 = document.createElement('div');
+    l3.style.marginTop = '8px';
+    l3.textContent = dstT('dst.failCheck');
+    var l4 = document.createElement('div');
+    l4.style.marginTop = '8px';
+    l4.textContent = dstT('dst.failVoidWarn');
+    body.appendChild(l1); body.appendChild(l2); body.appendChild(l3); body.appendChild(l4);
+  }
+  dstLog('== measure FAILED at step ' + (stepIdx + 1) + '/' + total + ' (' + p.key
+    + ') after ' + (DST_MES_RETRY + 1) + ' attempts, asking the user', 'e');
+  if (m) m.classList.add('open');
+  return new Promise(function (resolve) {
+    dstFailResolve = function (ans) {
+      dstFailResolve = null;
+      if (m) m.classList.remove('open');
+      dstLog('== user chose: ' + ans, ans === 'retry' ? 'w' : 'e');
+      resolve(ans);
+    };
+    if (dstAbort) dstFailResolve('abort');   // 問之前就已經被按停止了
+  });
+}
+
 function dstSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 async function dstWaitOrAbort(ms) {
   var step = 50;
@@ -1175,6 +1326,7 @@ async function dstRun() {
         return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('、') }))) return;
 
   dstRunning = true; dstAbort = false; dstRows = [];
+  dstRunOk = false; dstVoid('');          // v1.2.0：新的一輪先把上一輪的作廢狀態清掉
   dstDgRunT0 = Date.now();                // v1.1.0：回傳給 DG 的 durMs 取自同一個來源
   dstSettleUsedMs = dstSettleMs();      // 進迴圈前抓一次，迴圈中不再讀 UI
   dstSay('dst-say-run', '');
@@ -1227,35 +1379,67 @@ async function dstRun() {
     if (dstAbort) throw new Error('__abort__');
     if (z === null || /^ER/.test(z)) throw new Error(dstT('dst.errZero', { r: z || 'timeout' }));
 
-    // ④ 逐階
+    /* ═══ ④ 逐階 —— 🔴 v1.2.0：失敗不准跳過 ════════════════════════════════
+       Bruce 2026-09-20：「如果在開始掃描時遇到哪一個灰階量測失敗的情況，**應該
+       不能跳過它，要一直等它的數據是正確的才能繼續往下**。要不然這樣，你等於
+       灰階的亮度是有問題的。」
+
+       v1.1.0 的做法是「記一筆 x=null 然後往下走」。那等於把一條有洞的灰階曲線
+       交出去 —— 而洞在哪裡只有那一列的紅字看得出來，**筆數是對的**，後面沒有
+       任何人會再發現。
+
+       新規則，三段：
+         ① 先**自動重試**同一階 DST_MES_RETRY 次。
+            次數取 3，理由：與 `dg-measure.html` 既有的 `bad >= 3` 逐字相同
+            （那一套已經在 Bruce 的真機上跑過），不另發明一個數字。
+            重試 ＝ 重新出圖 → 重新等 settle → 重新 MES,1，不是只重送指令：
+            失敗有可能是畫面還沒穩，只重送等於沒重試。
+         ② 重試用完 **停下來問**（`dstFailAsk`），不無限卡住、也不自己決定。
+            視窗上要講：第幾階／哪個灰階、儀器實際回了什麼、該檢查什麼。
+         ③ 使用者選「再試一次」⇒ 重試次數歸零、同一階重來（可以無限次，那是他
+            的選擇）；選「中止整輪」⇒ 走 __abort__，這一輪作廢。
+       🔴 因此**跑完的那一輪，dstRows 裡不可能有 x === null 的列**。 */
     for (var g = 0; g < plan.length; g++) {
       if (dstAbort) throw new Error('__abort__');
-      var p = plan[g];
-      dstProg(g, plan.length, p.key);
-      await dstSetRgb12(p.r, p.g, p.b);
-      if (!(await dstWaitOrAbort(dstSettleUsedMs))) throw new Error('__abort__');
-      var res = await dstCaCmd('MES,1', 20000);
-      if (dstAbort) throw new Error('__abort__');
-      var x = NaN, y = NaN, lv = NaN;
-      if (res !== null && !/^ER/.test(res)) {
-        var pp = res.split(',');
-        x = parseFloat(pp[3]); y = parseFloat(pp[4]); lv = parseFloat(pp[5]);
+      var p = plan[g], tries = 0;
+      while (true) {
+        if (dstAbort) throw new Error('__abort__');
+        dstProg(g, plan.length, tries
+          ? dstT('dst.pgRetry', { key: p.key, k: tries, n: DST_MES_RETRY })
+          : p.key);
+        await dstSetRgb12(p.r, p.g, p.b);
+        if (!(await dstWaitOrAbort(dstSettleUsedMs))) throw new Error('__abort__');
+        var res = await dstCaCmd('MES,1', DST_MES_MS);
+        if (dstAbort) throw new Error('__abort__');
+        var m = dstParseMes(res);
+        if (m) {
+          dstRows.push({ key: p.key, r12: p.r, g12: p.g, b12: p.b, x: m.x, y: m.y, lv: m.lv });
+          dstRenderRows();
+          break;                                  // 這一階成功，往下一階
+        }
+        tries++;
+        dstLog('!  step ' + p.key + ' measure failed (' + (res === null ? 'timeout' : res)
+          + ')  attempt ' + tries + '/' + (DST_MES_RETRY + 1), 'e');
+        if (tries <= DST_MES_RETRY) continue;      // 自動重試，不打擾人
+        var ans = await dstFailAsk(g, plan.length, p, res);
+        if (ans !== 'retry') throw new Error('__abort__');
+        tries = 0;                                 // 他說再試 ⇒ 重新給滿重試次數
       }
-      /* 🔴 失敗就標記該階失敗，**不沿用上一階的值**。 */
-      var bad = (isNaN(x) || isNaN(y) || isNaN(lv));
-      if (bad) dstLog('!  step ' + p.key + ' FAILED (' + (res || 'timeout') + ')', 'e');
-      dstRows.push({ key: p.key, r12: p.r, g12: p.g, b12: p.b,
-                     x: bad ? null : x, y: bad ? null : y, lv: bad ? null : lv });
-      dstRenderRows();
     }
     dstProg(plan.length, plan.length, dstT('dst.pgDone'));
-    dstLog('== RUN done: ' + dstRows.length + ' rows, '
-      + dstRows.filter(function (q) { return q.x === null; }).length + ' failed', 'o');
+    dstLog('== RUN done: ' + dstRows.length + ' rows, 0 failed', 'o');
+    /* 🔴 到得了這一行 ＝ 計畫上每一階都有有效數據（失敗的那條路一律 throw）。
+       這是**唯一**把 dstRunOk 設成 true 的地方。 */
+    dstRunOk = true;
     /* v1.1.0：跑完就把資料送回 DG。
        🔴 只在**正常跑完**這一條路送 —— 中止與例外走下面的 catch，那兩條
           一律不回傳（半套資料比沒有資料更糟，這一條與 dg-measure.html 相同）。 */
     dstDgSend();
   } catch (e) {
+    /* 🔴 v1.2.0：作廢的路徑統一在這裡收斂 —— 中止、例外、失敗視窗按中止，
+       三條都走到這裡，三條都不回傳 DG、都不給匯出。 */
+    dstRunOk = false;
+    dstVoid(dstT('dst.voidRun', { n: dstRows.length, total: plan.length }));
     if (dstErrMsg(e) === '__abort__') {
       /* 🔴 中止時要講清楚 TCON 現在停在什麼畫面 —— 他可能需要自己復原。 */
       dstSay('dst-say-run', dstT('dst.abortedAt', { what: dstPaintText() }));
@@ -1293,11 +1477,36 @@ function dstRenderWr() {
   if (!r.length) { dstShow('dst-v-wr', dstT('dst.wrNone'), false); return; }
   dstShow('dst-v-wr', r.map(function (x) { return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('  '), true);
 }
+/* ═══ v1.2.0：「識別是自動的」那一行 ══════════════════════════════════════
+   🔴 支援幾顆、有幾顆是只認得不出圖，都由 DST_ICS **算出來**，不寫死數字 ——
+      表改了畫面上的字才不會變成謊話。 */
+function dstRenderAutoNote() {
+  var e = $('dst-auto-note'); if (!e) return;
+  /* 「本頁認得的型號」＝ 主表每一筆 ＋ 每一筆掛著的撞號替代顆。使用者要看的是
+     「我手上這顆在不在裡面」，所以替代顆也要算進去、也要列名。 */
+  var names = [];
+  DST_ICS.forEach(function (ic) {
+    names.push(ic.name);
+    (ic.alts || []).forEach(function (a) { names.push(a.name); });
+  });
+  e.textContent = dstT('dst.autoNote', {
+    n: names.length, list: names.join('／'),
+    slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→')
+  });
+}
 function dstRenderAlt() {
-  var box = $('dst-alt-box'), sel = $('dst-alt');
+  var box = $('dst-alt-box'), sel = $('dst-alt'), why = $('dst-alt-why');
   if (!box || !sel) return;
   if (!dstIc || !dstIc.alts || !dstIc.alts.length) { box.classList.add('dst-hidden'); return; }
   box.classList.remove('dst-hidden');
+  /* 🔴 說明句裡要帶**實際讀到的 ID** 與**共用這個 ID 的是哪幾顆** ——
+     「這兩顆 ID 相同」如果不說是哪個 ID、哪兩顆，讀的人沒辦法自己確認。 */
+  if (why) {
+    var share = [dstIc.name].concat(dstIc.alts.map(function (a) { return a.name; }));
+    why.textContent = dstT('dst.altWhy', {
+      id: dstIdRaw ? dstHex(dstIdRaw) : '—', names: share.join('／')
+    });
+  }
   sel.innerHTML = '';
   var o0 = document.createElement('option');
   o0.value = '-1'; o0.textContent = dstIc.name;
@@ -1329,7 +1538,11 @@ function dstRenderBtns() {
   var pr = $('dst-probe'); if (pr) pr.disabled = !dstLinked || dstBusy || dstRunning;
   var run = $('dst-run'); if (run) run.disabled = dstRunning || !dstLinked || !dstCaLinked;
   var st = $('dst-stop'); if (st) st.disabled = !dstRunning;
-  var cv = $('dst-csv'); if (cv) cv.disabled = !dstRows.length;
+  /* 🔴 v1.2.0：匯出的唯一條件是「**這一輪完整跑完**」，不是「有沒有列」。
+     作廢的一輪表格照樣留著（診斷用），但兩顆匯出鈕都是灰的。 */
+  var canExp = dstRunOk && !!dstRows.length && !dstRunning;
+  var cx = $('dst-xlsx'); if (cx) cx.disabled = !canExp;
+  var cv = $('dst-csv'); if (cv) cv.disabled = !canExp;
   var ca = $('dst-ca'); if (ca) ca.disabled = dstRunning;
   var sel = $('dst-alt'); if (sel) sel.disabled = dstRunning || dstBusy;
 }
@@ -1367,6 +1580,26 @@ function dstSetBits(nb) {
   var note = $('dst-bits-note');
   if (note) note.textContent = dstT('dst.bitsNote', {
     mul: dstScale(nb), end: dstScanEnd(nb), end12: dstTo12(dstScanEnd(nb), nb) });
+  dstRenderDgBits();
+}
+/* ═══ v1.2.0：10／12-bit 這一輪 DG 收不收得下 —— 先講，不要等他量完 ══════════
+   🔴 這是**如實揭露一個已知缺陷，不是修它**（`dg.html` 的 `dgGrayGate` 要求灰階
+      集合恰為 {0…n−1}；本頁 10-bit 送的是 0,4,8…1020、12-bit 是 0,16,32…4080
+      ⇒ 兩者都被擋下，第 2 部分收到 0 列）。已用兩頁對開的夾具實測確認
+      （tools/dg_selftest_link_probe.js）。
+   🔴 動 `dgGrayGate` 會改到 DG 既有的匯入判準，那是另一個決定 —— 依專案規則先
+      回報、由 Bruce 裁示，不在這一版自作主張。
+   🔴 在這裡講的理由：使用者在這一頁花好幾分鐘量完才被 DG 擋下，是最壞的順序。
+      只有「從 DG 開過來」時才顯示 —— 直接開這一頁自己用，8/10/12-bit 都正常。 */
+function dstRenderDgBits() {
+  var e = $('dst-dgbits'); if (!e) return;
+  if (dstDgAlive() && dstDgMode !== 'prim' && dstBits !== 8) {
+    e.textContent = dstT('dst.dgBitsWarn', { bits: dstBits });
+    e.style.color = 'var(--warn)';
+  } else {
+    e.textContent = ' ';
+    e.style.color = '';
+  }
 }
 function dstSyncSliders(rebuildMax) {
   var max = dstUserMax(dstBits);
@@ -1522,21 +1755,179 @@ async function dstDisconnect() {
   }
 }
 
-/* ═══ CSV ════════════════════════════════════════════════════════════════ */
-function dstCsv() {
-  if (!dstRows.length) return;
-  var head = ['step', 'r12', 'g12', 'b12', 'x', 'y', 'Y'];
-  var lines = [head.join(',')];
-  dstRows.forEach(function (r) {
-    lines.push([r.key, r.r12, r.g12, r.b12,
-      r.x === null ? '' : r.x, r.y === null ? '' : r.y, r.lv === null ? '' : r.lv].join(','));
+/* ═══════════════════════════════════════════════════════════════════════════
+   匯出 —— 🔴 v1.2.0 起**版面逐欄照上游工具**
+   ───────────────────────────────────────────────────────────────────────────
+   Bruce 2026-09-20：「量測完以後，你確認一下 PQ Tool 的原廠 UI 是匯出 CSV 檔還是
+   匯出 XLSX 檔案，這個要一致喔，而且匯出的格式也要跟原廠 UI 是一致的。」
+
+   ═══ 查證結果（反組譯，不是猜的）═══════════════════════════════════════════
+   上游工具的基本量測分頁（本頁對應的就是它那一支）按下 Run 之後：
+     · 存檔視窗 filter ＝ `All file|*.*|xls|*.xls|xlsx|*.xlsx|txt|*.txt`，
+       **FilterIndex = 3 ⇒ 預設就是 .xlsx**（L752–755）
+       🔴 filter 清單裡**根本沒有 .csv** ⇒「原廠是 CSV」這個說法是錯的。
+     · 預設檔名 `<廠商名>Gamma_yyyyMMddHHmmssfff`
+     · 匯出分派依**副檔名**（L1735–1748）：
+         `.txt` → 逐行文字，**tab** 分隔
+         `.csv` → 逐行文字，**逗號** 分隔（與 .txt 同一支函式，只差分隔字元）
+         其他（含 .xlsx／.xls）→ Excel COM
+     · Excel 那一條走 COM（`Workbooks.Add` → 寫值 → `SaveAs`），而 `SaveAs` 的
+       **FileFormat 參數是 `Type.Missing`**（L1809）⇒ 格式由**副檔名**決定，
+       所以「是 xlsx」這件事是 FilterIndex = 3 決定的，不是程式裡寫死的。
+   ⇒ **答案：預設 XLSX。** CSV／TXT 是同一份版面的另一條路（使用者自己打副檔名
+     才走得到），本頁因此給兩顆鈕，兩顆走同一份資料組裝（`dstExportRows()`），
+     版面不可能分岔。
+   🔴 另一支會寫 CSV 的 `DMCSaveCSV` 是 **Data Mapping** 的輸出，與 Gamma 無關。
+
+   ═══ 版面（`BasicMeasureEXLOut` L1751–1811 ／ `BasicMeasureTXTOut` L1813–1836）══
+     第 1 列表頭，24 欄，順序逐字：
+       Gray, W_x, W_y, W_Y, W_T, W_duv,
+             R_x, R_y, R_Y,  G_x, G_y, G_Y,  B_x, B_y, B_Y,
+             C_x, C_y, C_Y,  M_x, M_y, M_Y,  Y_x, Y_y, Y_Y
+     🔴 只有 W 有 5 欄（多 T 與 duv），其餘六色各 3 欄。
+     資料列從第 2 列起，一列一個灰階。
+     **沒有任何小數位數格式化** —— 原廠直接把 double 寫進儲存格／文字，
+     所以本頁也不做 `toFixed()`（畫面上的表格才有 4／3 位，那是畫面的事）。
+     尾段：`Time: yyyyMMddHHmmssfff`
+       · Excel 走 `Cells[2 + length + 1, 1]` ⇒ 資料最後一列之後**空一列**再寫；
+       · 文字版直接寫在資料的下一行、**不空行**。
+       這個不對稱是原廠自己的，照抄。
+     🔴 文字版每一行（含表頭）**尾端多一個分隔字元** —— 也是原廠自己的
+       （迴圈每寫一欄就補一個 Space），照抄。
+
+   ═══ 做不到完全一致的地方（如實列出，不假裝）═══════════════════════════════
+     ① **W_T／W_duv 留空。** 原廠是從量測儀的 COM 物件直接取 `get_T()`／`get_duv()`；
+        本頁走序列埠的 `MES,1`，目前只解析回應的 x／y／Lv 三欄（索引 3/4/5）。
+        沒有實機可以確認 T／duv 落在哪兩個索引 ⇒ **不猜、留空**。
+     ② **C／M／Y 九欄留空。** 原廠一輪最多量七色；本頁（與 dg-measure 那條路一致）
+        只量白灰階 ＋ R／G／B 三個端點。欄位照留，值空白。
+     ③ **R／G／B 只有最亮那一列有值。** 原廠的 R_x… 是「紅色也逐階量」；本頁的
+        R／G／B 是滿刻度的三個端點 ⇒ 放在灰階最亮的那一列，其餘列空白。
+     ④ **檔名不含廠商名。** 本站是公開可抓的（去商標化規則），所以是
+        `TCON_Gamma_<同一組時間戳>`，其餘一字不差。
+     ⑤ **工作表名固定 `Sheet1`。** 原廠**沒有設** `worksheet.Name`（對照：它的 VRR
+        那一支 L1679–1698 有設成 W/R/G/B/C/M/Y），取的是 Excel 的預設值 ⇒ 隨
+        Office 語系而異（en-US 是 Sheet1、zh-TW 是「工作表1」），沒有一個「正確
+        答案」可抄。
+     ⑥ **樣式（字型、欄寬、數字格式）沒有複製** —— 原廠自己也沒設任何樣式，
+        `BasicMeasureEXLOut` 只寫值，沒有碰 Font／NumberFormat／ColumnWidth。
+   ═══════════════════════════════════════════════════════════════════════════ */
+var DST_EXP_COLORS = ['W', 'R', 'G', 'B', 'C', 'M', 'Y'];
+/* 🔴 Gray 欄的刻度：原廠 `num4 = 2^(8 − 12) = 1/16`，Gray ＝ 12-bit 值 ÷ 16。
+   **與使用者選的位元深度無關** —— 8／10／12-bit 三種掃描送出去的 12-bit 值序列
+   本來就完全相同（0,16,32…4080，見 dstScanValues），所以 Gray 欄恆為 0…255。 */
+var DST_EXP_GRAY_DIV = 16;
+var DST_EXP_SHEET = 'Sheet1';
+
+function dstExportHeader() {
+  var h = ['Gray'];
+  DST_EXP_COLORS.forEach(function (c) {
+    h.push(c + '_x', c + '_y', c + '_Y');
+    if (c === 'W') h.push('W_T', 'W_duv');   // 🔴 只有 W 多這兩欄
   });
-  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  return h;
+}
+function dstExpNum(v) { return (v === null || v === undefined || !isFinite(v)) ? '' : v; }
+/* 這一列在 Gray 欄要填什麼：優先用實際送出去的 12-bit 值（＝原廠的算法）。 */
+function dstExpGrayOf(q) {
+  if (isFinite(q.r12)) return q.r12 / DST_EXP_GRAY_DIV;
+  var m = /^L(\d+)$/.exec(q.key || '');
+  return m ? (dstTo12(parseInt(m[1], 10), dstBits) / DST_EXP_GRAY_DIV) : null;
+}
+/* 把 dstRows 攤成「表頭 ＋ 資料列」。XLSX 與 CSV 共用，版面因此不可能分岔。 */
+function dstExportRows() {
+  var head = dstExportHeader(), idx = {};
+  head.forEach(function (h, i) { idx[h] = i; });
+  var map = {}, order = [], maxGray = null;
+  function rowFor(g) {
+    if (!(g in map)) {
+      var r = []; for (var i = 0; i < head.length; i++) r.push('');
+      r[0] = g; map[g] = r; order.push(g);
+    }
+    return map[g];
+  }
+  // ① 白灰階 → W 那三欄
+  dstRows.forEach(function (q) {
+    if (!/^L\d+$/.test(q.key || '')) return;
+    var g = dstExpGrayOf(q);
+    if (g === null) return;
+    var r = rowFor(g);
+    r[idx.W_x] = dstExpNum(q.x); r[idx.W_y] = dstExpNum(q.y); r[idx.W_Y] = dstExpNum(q.lv);
+    if (maxGray === null || g > maxGray) maxGray = g;
+  });
+  // ② R／G／B 端點 → 最亮那一列（沒有灰階時自成一列）
+  var prim = dstRows.filter(function (q) { return q.key === 'R' || q.key === 'G' || q.key === 'B'; });
+  if (prim.length) {
+    var pg = (maxGray === null) ? (dstExpGrayOf(prim[0]) || 0) : maxGray;
+    var pr = rowFor(pg);
+    prim.forEach(function (q) {
+      pr[idx[q.key + '_x']] = dstExpNum(q.x);
+      pr[idx[q.key + '_y']] = dstExpNum(q.y);
+      pr[idx[q.key + '_Y']] = dstExpNum(q.lv);
+    });
+  }
+  order.sort(function (a, b) { return a - b; });
+  return { head: head, rows: order.map(function (g) { return map[g]; }) };
+}
+/* 時間戳 `yyyyMMddHHmmssfff`（毫秒三位），與原廠同一個格式字串。 */
+function dstStamp(d) {
+  d = d || new Date();
+  function p(n, w) { return ('000' + n).slice(-(w || 2)); }
+  return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
+    + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + p(d.getMilliseconds(), 3);
+}
+function dstTimeLine(stamp) { return 'Time: ' + stamp; }
+
+/* 🔴 匯出前的唯一一道閘：這一輪必須是**完整跑完**的。見 dstRunOk。 */
+function dstExportBlocked() {
+  if (!dstRows.length) return dstT('dst.expNoData');
+  if (!dstRunOk) return dstT('dst.expVoid');
+  return null;
+}
+function dstDownload(bytes, name, mime) {
+  var blob = new Blob([bytes], { type: mime });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'tcon-selftest-' + (dstIc ? dstIc.key : 'unknown') + '-' + dstBits + 'bit.csv';
+  a.download = name;
   a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+/* 產出 XLSX 的位元組（夾具直接驗這一支，不必經過下載）。 */
+function dstXlsxBytes(stamp) {
+  if (typeof TCONXlsx === 'undefined' || !TCONXlsx)
+    throw new Error(dstT('dst.expNoLib'));
+  var d = dstExportRows();
+  var rows = [d.head].concat(d.rows);
+  rows.push([]);                        // 🔴 原廠：資料與 Time 之間空一列
+  rows.push([dstTimeLine(stamp)]);
+  return TCONXlsx.build([{ name: DST_EXP_SHEET, rows: rows }]);
+}
+/* 產出 CSV 的文字（原廠的 `BasicMeasureTXTOut(..., ",")`）。 */
+function dstCsvText(stamp) {
+  var d = dstExportRows(), SEP = ',';
+  /* 🔴 每一行尾端補一個分隔字元 —— 原廠的迴圈就是這樣寫的（每寫一欄補一個）。
+     再匯入時會多出一個空欄位，那是原廠檔本來就有的樣子，不「修正」。 */
+  var lines = [d.head.join(SEP) + SEP];
+  d.rows.forEach(function (r) { lines.push(r.join(SEP) + SEP); });
+  lines.push(dstTimeLine(stamp));       // 🔴 文字版**不空行**（與 Excel 版不對稱，照抄）
+  return lines.join('\r\n') + '\r\n';
+}
+function dstExportName(ext, stamp) { return 'TCON_Gamma_' + stamp + '.' + ext; }
+
+function dstExportXlsx() {
+  var why = dstExportBlocked();
+  if (why) { dstSay('dst-say-run', why); return false; }
+  var stamp = dstStamp();
+  dstDownload(dstXlsxBytes(stamp), dstExportName('xlsx', stamp),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  return true;
+}
+function dstExportCsv() {
+  var why = dstExportBlocked();
+  if (why) { dstSay('dst-say-run', why); return false; }
+  var stamp = dstStamp();
+  dstDownload(dstCsvText(stamp), dstExportName('csv', stamp), 'text/csv;charset=utf-8');
+  return true;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1565,6 +1956,19 @@ function dstDgRows() {
 /* 把這一輪的結果回傳給 DG。回傳 true ＝ 真的送出去了。 */
 function dstDgSend() {
   if (!dstDgAlive()) return false;          // 不是從 DG 開過來的（或 DG 關掉了）⇒ 什麼都不做
+  /* ═══ 🔴 v1.2.0：這一輪沒有完整跑完 ⇒ **一個 byte 都不送** ══════════════
+     Bruce 2026-09-20：「只要有量測失敗的，是不能匯出 CSV 的」，而回填 DG 比匯出
+     更危險 —— 匯出的檔他會打開來看，回填是**安靜的**。`dg-measure.html` 那一端
+     早就寫死了同一條原則：「停止 ＝ 放棄本次，不回傳部分資料……半套資料灌進去，
+     後面的反查與收斂會錯得很安靜（筆數對不上不會有人發現，只會算出一張錯的表）」。
+     🔴 這一道與 dstRun() 裡「只在成功路徑呼叫 dstDgSend」是**兩道**，刻意重複：
+        呼叫點只有一個、今天是對的，但 `dstProbe.dgSend` 也暴露給夾具，而下一個
+        人很可能從別的地方接第二個呼叫點。判準寫在函式裡才擋得住那一次。 */
+  if (!dstRunOk) {
+    dstSay('dst-say-run', dstT('dst.dgVoidNoSend'));
+    dstLog('!  DG send refused: this round did not complete cleanly', 'e');
+    return false;
+  }
   var s = dstDgRows();
   var rows = (dstDgMode === 'prim') ? s.prim : s.gray;
   /* 門檻與 dg-measure.html 逐字相同：純色三筆缺一不可（少一個端點湊不出色彩
@@ -1634,6 +2038,7 @@ function dstDgApplyTask(d) {
   dstDgDest = d.dest || '';
   dstDgWhat = d.what || '';
   dstDgRenderTask();
+  dstRenderDgBits();     // v1.2.0：換任務之後 gray/prim 可能變了，警語要跟著重算
   dstSay('dst-say-run', dstT('dst.dgSwitched', { dest: dstDgDest || 'DG' }));
   dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' dest=' + dstDgDest, 'o');
 }
@@ -1671,6 +2076,7 @@ function dstBind() {
   dstRenderBtns();
   dstRenderDl();          // v1.1.0：I2C Bridge 下載入口（版號來自 HELPER_PKG）
   dstDgRenderTask();      // v1.1.0：DG 指派的任務（沒有就整張卡不顯示）
+  dstRenderAutoNote();    // v1.2.0：「型號是自動識別的」那一行
   $('dst-fixed').textContent = dstT('dst.fixedLine', {
     slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
     khz: Math.round(DST_CLOCK_HZ / 1000)
@@ -1685,7 +2091,8 @@ function dstBind() {
   $('dst-alt').addEventListener('change', function () {
     dstAltIdx = parseInt(this.value, 10);
     if (isNaN(dstAltIdx)) dstAltIdx = -1;
-    dstShow('dst-v-ic', dstIcName() + dstAlsoText(dstIc), true);
+    dstShow('dst-v-ic', dstT('dst.icAuto', { name: dstIcName(),
+      id: dstIdRaw ? dstHex(dstIdRaw) : '—' }) + dstAlsoText(dstIc), true);
     dstRenderWr();
     dstLog('== alt selected: ' + dstIcName()
       + '  ud=' + (dstIc ? dstUdOf(dstIc, dstAltIdx).join('→') : '?'), 'w');
@@ -1733,8 +2140,20 @@ function dstBind() {
   $('dst-stop').addEventListener('click', function () {
     dstAbort = true;
     dstLog('== stop requested', 'w');
+    /* 🔴 失敗視窗正開著時，「停止」也要收得掉它 —— 否則畫面上有一個被 modal
+       蓋住、按了沒反應的停止鈕。 */
+    if (dstFailResolve) dstFailResolve('abort');
   });
-  $('dst-csv').addEventListener('click', dstCsv);
+  $('dst-xlsx').addEventListener('click', dstExportXlsx);
+  $('dst-csv').addEventListener('click', dstExportCsv);
+  /* v1.2.0：失敗視窗的兩顆鈕。🔴 **不做「點暗色區域＝取消」** —— 這個視窗的
+     兩個選項都是實質動作（會重跑一階／會作廢整輪），誤觸關掉沒有一個安全的預設。 */
+  $('dst-fail-retry').addEventListener('click', function () {
+    if (dstFailResolve) dstFailResolve('retry');
+  });
+  $('dst-fail-abort').addEventListener('click', function () {
+    if (dstFailResolve) dstFailResolve('abort');
+  });
   $('dst-log-copy').addEventListener('click', function () {
     try { navigator.clipboard.writeText(dstLogBuf.join('\n')); } catch (e) {}
   });
@@ -1747,7 +2166,9 @@ function dstBind() {
     dstBuildSettle();
     dstSetBits(dstBits);
     dstRenderRes(); dstRenderWr(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();
-    dstRenderDl(); dstDgRenderTask();
+    dstRenderDl(); dstDgRenderTask(); dstRenderAutoNote();
+    if (dstIc) dstShow('dst-v-ic', dstT('dst.icAuto', { name: dstIcName(),
+      id: dstIdRaw ? dstHex(dstIdRaw) : '—' }) + dstAlsoText(dstIc), true);
     $('dst-fixed').textContent = dstT('dst.fixedLine', {
       slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
       khz: Math.round(DST_CLOCK_HZ / 1000)
@@ -1807,6 +2228,12 @@ window.dstProbe = {
   slaves: function () { return DST_SLAVES.slice(); },
   slaveLabel: dstSlaveLabel,
   commVerdict: dstCommVerdict,
+  /* v1.2.0 驗證用：這兩支要能**分開**跑，才驗得出「通訊讀回」與「IC 識別」
+     是不是真的解耦（讀回值亂給，識別結果不得改變）。 */
+  commTest: function () { return dstCommTest(); },
+  scanIdentify: function () { return dstScanIdentify(); },
+  commSlave: function () { return DST_COMM_SLAVE; },
+  currentIc: function () { return dstIc ? dstIc.key : null; },
   settleChoices: function () { return DST_SETTLE_CHOICES.slice(); },
   settleDefault: function () { return DST_SETTLE_DEFAULT; },
   settleMs: dstSettleMs,
@@ -1840,7 +2267,48 @@ window.dstProbe = {
   dgSend: dstDgSend,
   dgApplyTask: dstDgApplyTask,
   dgPostHello: dstDgPostHello,
-  __setRowsForTest: function (rows) { dstRows = rows; dstRenderRows(); return dstRows.length; }
+  /* 🔴 語意 ＝「假裝剛剛**乾淨地跑完**一輪，結果是這些列」，所以它一併把
+     dstRunOk 設成 true —— 否則每一個夾具都要多記一步，而忘記那一步的症狀
+     （dgSend 靜靜回 false）看起來會像產品壞了。要驗作廢那一半的，用
+     `__setRunOkForTest(false)` 明確表達。 */
+  __setRowsForTest: function (rows) {
+    dstRows = rows; dstRunOk = true; dstVoid(''); dstRenderRows(); return dstRows.length;
+  },
+  /* v1.2.0 驗證用：作廢閘門的兩面都要驗得到 */
+  __setRunOkForTest: function (v) { dstRunOk = !!v; dstRenderBtns(); return dstRunOk; },
+  runOk: function () { return dstRunOk; },
+  parseMes: dstParseMes,
+  mesRetry: function () { return DST_MES_RETRY; },
+  failOpen: function () { var m = $('dst-modal-fail'); return !!(m && m.classList.contains('open')); },
+  failAnswer: function (ans) { if (dstFailResolve) { dstFailResolve(ans); return true; } return false; },
+  exportBlocked: dstExportBlocked,
+  exportHeader: dstExportHeader,
+  exportRows: dstExportRows,
+  xlsxBytes: dstXlsxBytes,
+  csvText: dstCsvText,
+  exportName: dstExportName,
+  stamp: dstStamp,
+  /* 🔴 走匯出鈕自己那條路（不是夾具自己組資料）—— 夾具自己組的通過不算數。 */
+  exportXlsx: dstExportXlsx,
+  exportCsv: dstExportCsv,
+  run: function () { return dstRun(); },
+  abort: function () { dstAbort = true; if (dstFailResolve) dstFailResolve('abort'); },
+  rows: function () { return JSON.parse(JSON.stringify(dstRows)); },
+  setBits: function (b) { $('dst-bits').value = String(b); dstSetBits(b); return dstBits; },
+  /* 🔴 給夾具用：把假的量測儀掛進來（產品路徑永遠走真的 Web Serial）。
+     `fn(cmd)` 回傳「儀器回了什麼」（字串／null ＝ 逾時），可以是 Promise。 */
+  __attachFakeMeter: function (fn) {
+    dstCaCmd = function (text, ms) {
+      dstLog('>  ' + text);
+      return Promise.resolve(fn(text)).then(function (r) {
+        dstLog('<  ' + (r === null ? '(timeout)' : r));
+        return r;
+      });
+    };
+    dstCaClose = function () { dstCaLinked = false; dstRenderCa(); return Promise.resolve(); };
+    dstCaLinked = true; dstRenderCa(); dstRenderBtns();
+    return true;
+  }
 };
 
 })();
