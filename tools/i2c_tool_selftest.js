@@ -3712,7 +3712,11 @@ function baseScript(f) {
         '🔴 若被截成 16 bit 會變 0xCFF，對不上他的檔名');
     }
 
-    /* (c) 畫面上 A／B 各一列、即時重算 */
+    /* (c) 畫面上 A／B 各一列、即時重算
+       🔴 v1.23.0：checksum 從 dump 右側欄的獨立卡片（`#cksbox`）搬進 **A／B 那兩列**
+          （Bruce 2026-09-20：byte 數不要重複顯示，統一在 checksum 的顯示區域裡）。
+          `A.cksRows()` 跟著讀新位置，**回傳欄位與下面的斷言一字未改** ——
+          唯一改掉的是「B 不存在」那一條，理由見該行。 */
     A.loadFile('c1.bin', new win.Uint8Array([0x01, 0x02, 0x03, 0x04]));
     await sleep(40);
     { const rows = A.cksRows();
@@ -3721,7 +3725,16 @@ function baseScript(f) {
       EQ(rows[1].ab, 'B', '🔴 B 在下');
       EQ(rows[0].val, '0xA', 'A ＝ 1+2+3+4 = 10 = 0xA');
       EQ(rows[0].n, '4 byte', '🔴 同時顯示參與計算的 byte 數');
-      EQ(rows[1].val, '（無）', '🔴 B 不存在 ⇒ 空狀態，不是 0'); }
+      /* 🔴 斷言從「顯示（無）」改成「不顯示 checksum，而且那一行說的是『尚未建立』」。
+         **這不是放寬**：原本這一條要擋的風險是「空資料被算成 0x0」，而那個風險
+         現在由下一行直接釘住（整行文字不得出現 0x0）。舊的字面值 `（無）` 之所以
+         不再成立，是因為那個空狀態標記本來就與同一行的「（尚未建立）」重複 ——
+         合併之後一行只留一個空狀態標記。 */
+      EQ(rows[1].val, '', '🔴 B 不存在 ⇒ 那一列不印 checksum');
+      { const abB = A.abRows()[1];
+        CHECK(/尚未建立/.test(abB.text), '🔴 B 那一列講的是「尚未建立」：' + abB.text);
+        CHECK(!/0x0\b/.test(abB.text) && !/checksum/.test(abB.text),
+          '🔴🔴 空資料**絕不可以**被算成 0x0（i2ctChecksum 回 null 不是 0）：' + abB.text); } }
     /* 改一格 ⇒ 立刻重算（原值 − 舊 byte ＋ 新 byte） */
     A.selAnchor(0); await sleep(10);
     await A.bitToggle(7, true); await sleep(60);       /* 0x01 → 0x81，+0x80 */
@@ -3731,11 +3744,13 @@ function baseScript(f) {
     /* 點左上還原 ⇒ checksum 回到還原後的值 */
     await A.slotClick(0, 'sv'); await sleep(60);
     EQ(A.cksRows()[1].val, '0xA', '🔴 點左上還原 ⇒ B 的 checksum 回到 0xA');
-    /* 清空 ⇒ 兩個都回空狀態 */
+    /* 清空 ⇒ 兩個都回空狀態（同上：不印 checksum，而且不可以印成 0x0） */
     A.clearAll(); await sleep(40);
     { const rows = A.cksRows();
-      EQ(rows[0].val, '（無）', '清空 ⇒ A 空狀態');
-      EQ(rows[1].val, '（無）', '清空 ⇒ B 空狀態'); }
+      EQ(rows[0].val, '', '清空 ⇒ A 不印 checksum');
+      EQ(rows[1].val, '', '清空 ⇒ B 不印 checksum');
+      const all = A.abRows().map((r) => r.text).join(' ');
+      CHECK(!/0x0\b/.test(all), '🔴 清空後也不可以出現 0x0：' + all); }
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -4476,8 +4491,17 @@ function baseScript(f) {
           '🔴 8-bit write **不再**被強調');
     CHECK(!doc.getElementById('in-slave8r').closest('label').classList.contains('f8'),
           '🔴 8-bit read **不再**被強調');
+    /* 🔴 v1.23.0：③ 總 byte 數也套上 group card（Bruce 2026-09-20：「那三種 byte 數，
+       它沒有一個 group 框住…請你也把它加上一個 group 框住，跟旁邊其他的一樣」）。
+       ⇒ 期望值從三個變四個。**這不是放寬**：它問的還是「有哪幾個 group、標籤是什麼」，
+       而且比前一版多釘住一個 —— 下一行再釘「in-len 真的在那個 group 裡面」。 */
     EQ(Array.from(doc.querySelectorAll('.grp > .grplab')).map(x => x.textContent),
-       ['① Slave 位址', '② Offset', '④ 對裝置'], '三個 group card 的標籤');
+       ['① Slave 位址', '② Offset', '③ 總 byte 數', '④ 對裝置'], '四個 group card 的標籤');
+    CHECK(!!doc.getElementById('in-len').closest('.grp'),
+          '🔴 總 byte 數欄位真的被 group card 框住了');
+    CHECK(doc.getElementById('in-len').closest('.grp')
+            !== doc.getElementById('in-off').closest('.grp'),
+          '🔴 它是**自己一個** group，不是被併進 ② Offset');
     CHECK(doc.getElementById('in-slave').closest('.grp') === doc.getElementById('in-slave8r').closest('.grp'),
           '🔴 slave 三格在同一個 group 裡');
     CHECK(doc.getElementById('in-awid').closest('.grp') === doc.getElementById('in-off').closest('.grp'),
@@ -4591,6 +4615,205 @@ function baseScript(f) {
     }
     await win.__i2ct.disconnect();
     A._reset();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('66. 🔴🔴 v1.23.0：Ctrl＋點擊跳躍選取 ⇒ 每段各自重下位址、各自回讀驗證');
+  {
+    /* Bruce 2026-09-20 逐字：「因為這種寫法的儲存格不是連續的，所以只要有斷開的
+       地方，都要重新下一次 slave address 再寫入；回讀驗證也是一樣，要重新下
+       slave address 寫入然後回讀」＋「這個新功能也要支援跨頁」。
+       這一組把那兩句話變成可驗的斷言。 */
+
+    /* ── (a) 選取模型：同頁三格不連續 ────────────────────────────────── */
+    A._reset();
+    const dev66 = new Array(4096).fill(0).map((_, i) => i & 0xFF);
+    const mk66 = (m) => {
+      if (m.type === 'ping') return { helper: '1.16.0', proto: 5, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev66[(m.addr + i) & 0xFFF] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev66[(m.addr + i) & 0xFFF]) };
+      return { ok: true, status: 0 };
+    };
+    let sent66 = await useHelper(mk66);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '1024' });
+    win.confirm = () => true;
+    await A.doRead(); await sleep(80);
+    EQ(A.curSet().bytes.length, 1024, '前置：讀進 1024 byte（4 頁）');
+
+    A.ctrlClick(0x10); await sleep(10);
+    A.ctrlClick(0x50); await sleep(10);
+    A.ctrlClick(0xA0); await sleep(10);
+    EQ(A.selCount(), 3, '🔴 Ctrl＋點三格不連續 ⇒ 總數 3');
+    EQ(A.selSegs().map(s => s.from + '..' + s.to).join(' '), '16..16 80..80 160..160',
+       '🔴🔴 三個各自獨立的區段（不會被併成 0x10–0xA0）');
+    EQ(A.selRange(), null, '🔴 多段時 selRange() 回 null（它只認「恰好一段」）');
+    { const p = A.selPanel();
+      CHECK(/共 3 byte/.test(p.sum) && /3 段/.test(p.sum), '🔴 側欄總計：' + p.sum);
+      EQ(p.rows.join(' '), '0x0010|1 0x0050|1 0x00A0|1', '🔴 側欄逐一列出三個位址'); }
+    CHECK(/選取的 3 byte/.test(doc.getElementById('btn-write').textContent)
+       && /3 段/.test(doc.getElementById('btn-write').textContent),
+      '🔴 寫入鍵寫出總數與段數：' + doc.getElementById('btn-write').textContent);
+    EQ(doc.querySelectorAll('#dump td.sel').length, 3, '🔴 表格上剛好三格被標起來');
+
+    /* toggle：再點一次同一格 ⇒ 取消 */
+    A.ctrlClick(0x50); await sleep(10);
+    EQ(A.selCount(), 2, '🔴 Ctrl＋點已選的格子 ⇒ 取消（toggle）');
+    A.ctrlClick(0x50); await sleep(10);
+    EQ(A.selCount(), 3, '  └ 再點一次又選回來');
+
+    /* ── (b) 🔴 跨頁：切到第 2 頁再 Ctrl 點兩格，五個都還在 ───────────── */
+    EQ(A.pageStep(1), true, '前置：切到第 2 頁');
+    await sleep(20);
+    A.ctrlClick(0x110); await sleep(10);
+    A.ctrlClick(0x1F0); await sleep(10);
+    EQ(A.selCount(), 5, '🔴🔴 跨頁繼續 Ctrl 點 ⇒ 五格都在（選取用絕對索引）');
+    EQ(A.selSegs().map(s => s.from).join(','), '16,80,160,272,496', '🔴 五段、依位址遞增');
+    EQ(doc.querySelectorAll('#dump td.sel').length, 2, '第 2 頁上看得到屬於這一頁的那兩格');
+    EQ(A.pageStep(-1), true, '切回第 1 頁');
+    await sleep(20);
+    EQ(doc.querySelectorAll('#dump td.sel').length, 3, '🔴🔴 切回第 1 頁，原本那三格仍然高亮');
+    EQ(A.selCount(), 5, '  └ 而且總數沒變');
+
+    /* ── (c) 🔴🔴 寫入：3 個區段 ⇒ 3 次各自帶起始位址與長度 ──────────── */
+    A._reset();
+    sent66 = await useHelper(mk66);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '1024' });
+    await A.doRead(); await sleep(80);
+    /* 選 0x0010–0x0012 ＋ 0x0050 ＋ 0x00A0–0x00A1 */
+    A.selAnchor(0x10); A.selMove(1); A.selMove(1);      /* Shift 區間：0x10–0x12 */
+    EQ(A.selCount(), 3, '前置：Shift 區間 3 格');
+    A.ctrlClick(0x50); await sleep(10);
+    A.ctrlClick(0xA0); await sleep(10);
+    A.shiftClick(0xA1); await sleep(10);                /* 🔴 Shift＋點：從 0xA0 連到 0xA1 */
+    EQ(A.selSegs().map(s => s.from + '..' + s.to).join(' '), '16..18 80..80 160..161',
+       '🔴 三段：0x0010–0x0012、0x0050、0x00A0–0x00A1');
+    EQ(A.selCount(), 6, '🔴 總數 3+1+2 = 6');
+    const before66 = sent66.length;
+    await A.doWrite(); await sleep(400);
+    const w66 = sent66.slice(before66).filter(m => m.type === 'rawwrite' || m.type === 'batchwrite');
+    EQ(w66.length, 3, '🔴🔴 **三次**寫入請求（斷開的地方各重下一次 slave address）');
+    EQ(w66.map(m => '0x' + m.addr.toString(16).toUpperCase() + '×' + (m.data || []).length).join(' '),
+       '0x10×3 0x50×1 0xA0×2',
+       '🔴🔴 各自帶正確的起始位址與長度（payload 實際內容）');
+    EQ(w66.map(m => m.slave).join(','), '104,104,104', '  └ 每一次都重新送 slave address');
+    /* 🔴 這一組的**實際 payload 印出來**。它不是裝飾：Bruce 要的憑據是
+       「送出去的到底長什麼樣」，而不是「我們宣稱它對」。印在測試輸出裡，
+       日後任何人重跑都看得到同一份東西，不必相信誰的轉述。 */
+    console.log('   ▸ 選取區段：' + JSON.stringify(A.selSegs()));
+    console.log('   ▸ 側欄清單：' + JSON.stringify(A.selPanel()));
+    w66.forEach((m, i) => console.log('   ▸ 寫入 #' + (i + 1) + '  '
+      + JSON.stringify({ type: m.type, slave: m.slave, awid: m.awid,
+                         addr: '0x' + m.addr.toString(16).toUpperCase(),
+                         len: (m.data || []).length, data: m.data })));
+    /* ── (d) 🔴🔴 回讀驗證也是三次、各自位址與長度 ────────────────────── */
+    const r66 = sent66.slice(before66).filter(m => m.type === 'read');
+    EQ(r66.length, 3, '🔴🔴 回讀驗證也是**三次**（不是一次讀 0x10–0xA1 再挑著比）');
+    EQ(r66.map(m => '0x' + m.addr.toString(16).toUpperCase() + '×' + m.len).join(' '),
+       '0x10×3 0x50×1 0xA0×2', '🔴🔴 回讀的位址與長度與寫入一一對應');
+    /* 反面：若有人改成「最小到最大讀一次」，上面會變成 1 次 × 146 byte。 */
+    CHECK(!r66.some(m => m.len > 3), '🔴 反面：沒有任何一次回讀跨過沒選的範圍（最長 3 byte）');
+    r66.forEach((m, i) => console.log('   ▸ 回讀 #' + (i + 1) + '  '
+      + JSON.stringify({ slave: m.slave, awid: m.awid,
+                         addr: '0x' + m.addr.toString(16).toUpperCase(), len: m.len })));
+    { const b = doc.getElementById('readbanner').textContent;
+      CHECK(/寫入與回讀完全一致/.test(b), '🔴 三段都驗過且一致：' + b.slice(0, 50));
+      CHECK(/3 段/.test(b), '  └ 而且講出是分 3 段各自重下位址回讀'); }
+
+    /* ── (e) 🔴 跨 EEPROM page 邊界的區段，段內仍照 page 切 ────────────── */
+    A._reset();
+    sent66 = await useHelper(mk66);
+    A.eepromAuto('24C32');                       /* page 32 */
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '256' });
+    await A.doRead(); await sleep(80);
+    A.selAnchor(0x1C);
+    for (let k = 0; k < 8; k++) A.selMove(1);    /* 0x1C–0x24：跨過 0x20 這個 page 邊界 */
+    EQ(A.selSegs().map(s => s.from + '..' + s.to).join(' '), '28..36', '前置：單一區段 0x1C–0x24');
+    const before66b = sent66.length;
+    await A.doWrite(); await sleep(400);
+    const w66b = sent66.slice(before66b).filter(m => m.type === 'rawwrite' || m.type === 'batchwrite');
+    /* page 32、0x1C 起 9 byte ⇒ 0x1C–0x1F（4）＋ 0x20–0x24（5）＝ 2 段 */
+    CHECK(w66b.length === 2
+       || (w66b.length === 1 && w66b[0].type === 'batchwrite' && w66b[0].page === 32),
+      '🔴🔴 段**內部**仍照 EEPROM page 邊界切（' + w66b.length + ' 則、'
+      + w66b.map(m => m.type).join('/') + '）');
+    if (w66b.length === 2)
+      EQ(w66b.map(m => '0x' + m.addr.toString(16).toUpperCase() + '×' + m.data.length).join(' '),
+         '0x1C×4 0x20×5', '  └ 切在 page 邊界 0x20 上');
+    /* 🔴 最直接的證據：寫入計畫那一行自己說切成幾段。走 batchwrite 時實際的
+       分頁是在 bridge 那一側做的（v1.21.0 起的既有設計），網頁量不到 wire，
+       但**計畫是網頁算的**，而它就是交給 bridge 的 page 參數所依據的同一份。 */
+    { const lg = doc.getElementById('log').textContent;
+      CHECK(/9 byte ⇒ 2 段/.test(lg),
+        '🔴🔴 寫入計畫把 9 byte 切成 2 段（page 32 的邊界 0x20）'); }
+    w66b.forEach((m, i) => console.log('   ▸ 跨 page 區段 #' + (i + 1) + '  '
+      + JSON.stringify({ type: m.type, addr: '0x' + m.addr.toString(16).toUpperCase(),
+                         len: (m.data || []).length, page: m.page })));
+
+    /* ── (f) 🔴 第 2 段失敗 ⇒ 訊息要講清楚寫到哪為止 ─────────────────── */
+    A._reset();
+    let failAfter = 0;
+    const mkFail = (m) => {
+      if (m.type === 'ping') return { helper: '1.16.0', proto: 5, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'rawwrite') {
+        failAfter++;
+        if (failAfter === 2) return { ok: false, status: 1, err: 'NACK' };
+        return { ok: true, status: 0, transferred: (m.data || []).length };
+      }
+      if (m.type === 'read') return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev66[(m.addr + i) & 0xFFF]) };
+      return { ok: true, status: 0 };
+    };
+    const sentF = await useHelper(mkFail);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
+    await A.doRead(); await sleep(80);
+    failAfter = 0;
+    A.ctrlClick(0x10); await sleep(10);
+    A.ctrlClick(0x50); await sleep(10);
+    A.ctrlClick(0x90); await sleep(10);
+    EQ(A.selCount(), 3, '前置：三段各一格');
+    await A.doWrite(); await sleep(400);
+    { const b = doc.getElementById('readbanner').textContent;
+      CHECK(/失敗/.test(b), '🔴 講明是失敗：' + b.slice(0, 60));
+      CHECK(/前 1 段已經完整寫入/.test(b), '🔴🔴 講出**哪幾段已經寫進去**：' + b.slice(0, 90));
+      CHECK(/第 2 段/.test(b) && /0 \/ 1 byte/.test(b), '🔴🔴 講出第 2 段寫了幾個 byte');
+      CHECK(/其後 1 段一個 byte 都沒送出/.test(b), '🔴🔴 講出後面幾段完全沒寫'); }
+    /* 失敗 ⇒ 不做回讀驗證（驗證的前提是寫完了） */
+    EQ(sentF.filter(m => m.type === 'read').length >= 1, true, '（前置的讀取本來就有）');
+    await win.__i2ct.disconnect();
+
+    /* ── (g) 🔴 Shift 既有行為沒有退步 ────────────────────────────────── */
+    A._reset();
+    await useHelper(mk66);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000', len: '256' });
+    await A.doRead(); await sleep(60);
+    A.selAnchor(0x00); A.selMove(16);
+    EQ(A.selRange() && A.selRange().len, 17, '🔴 Shift+下 ⇒ 仍然是 17 格（與 v1.22.2 相同）');
+    EQ(A.selSegs().length, 1, '  └ 而且是**一個**區段');
+    EQ(doc.getElementById('btn-write').textContent, '寫入 選取的 17 byte',
+       '🔴 單段時按鈕文字一字未變（沒有多出「N 段」）');
+    A.selAnchor(0x20); A.selMove(-16);
+    EQ(A.selRange().from + ',' + A.selRange().to, '16,32', '🔴 往上也對（0x10–0x20）');
+    A.selClear();
+    EQ(A.selCount(), 0, 'Esc ⇒ 清乾淨');
+    EQ(A.selPanel().sum, '（未選取）', '  └ 側欄回空狀態');
+    /* 🔴 無修飾鍵的單擊 ＝ 定位並清掉多選（含 Ctrl 挑出來的那幾格） */
+    A.ctrlClick(0x10); A.ctrlClick(0x50); await sleep(10);
+    EQ(A.selCount(), 2, '前置：兩格');
+    { const td = doc.querySelector('#dump td[data-idx="5"]');
+      (td.querySelector('.mv') || td).dispatchEvent(new win.MouseEvent('click', { bubbles: true })); }
+    await sleep(20);
+    EQ(A.selCount(), 0, '🔴🔴 普通單擊 ⇒ 跳躍選取整個清掉（既有語意照舊）');
+    /* 🔴 資料變短 ⇒ 越界的索引要被清掉，不可以留著指向不存在的位址 */
+    A.ctrlClick(0x10); A.ctrlClick(0x80); await sleep(10);
+    EQ(A.selCount(), 2, '前置：0x10 與 0x80');
+    A.loadFile('tiny66.bin', new win.Uint8Array([1, 2, 3, 4]));
+    await sleep(60);
+    EQ(A.selCount(), 0, '🔴🔴 載入 4 byte 的檔 ⇒ 越界的跳躍選取全部清掉');
+    await win.__i2ct.disconnect();
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
