@@ -144,7 +144,9 @@ async function armed(mesFn, opts) {
     }
     ['zh-TW', 'zh-CN', 'en'].forEach(L => {
       CHECK(i18nEntry('dst.commRead').indexOf("'" + L + "'") >= 0, 'dst.commRead 有 ' + L);
-      CHECK(i18nEntry('dst.commNote').indexOf("'" + L + "'") >= 0, 'dst.commNote 有 ' + L);
+      /* 🔴 dgself v1.4.0：dst.commNote 已刪除（那一列不再顯示在畫面上），
+         所以這裡改成**驗它真的不在**，而不是驗它三語齊備。 */
+      CHECK(i18nEntry('dst.commNote') === '', 'dst.commNote 已刪除（' + L + ' 也不該還在）');
     });
 
     const dom = await load();
@@ -170,14 +172,17 @@ async function armed(mesFn, opts) {
     await P.commTest();
     await P.scanIdentify();
     const ic = P.currentIc();
-    const commTxt = w.document.getElementById('dst-v-comm').textContent;
+    /* 🔴 dgself v1.4.0：畫面上那一列**已經移除**（Bruce 2026-09-20：「匯流排讀回
+       測試也不用秀出來」），所以這裡不再驗那個元素。
+       這一段要釘的事實沒有變、而且更重要了：**通訊讀回值不管是什麼，IC 識別的
+       結果都不准改變**。測試本身（dstCommTest）照跑，只是不再佔畫面。 */
     const icTxt = w.document.getElementById('dst-v-ic').textContent;
     console.log('    comm=' + comm.map(x => ('0' + x.toString(16).toUpperCase()).slice(-2)).join(' ')
-      + '  →  通訊列：' + JSON.stringify(commTxt) + '   IC 列：' + JSON.stringify(icTxt));
+      + '  →  IC 列：' + JSON.stringify(icTxt));
     CHECK(ic === 'EM02A1', '通訊讀回 ' + comm[0].toString(16) + '… ⇒ IC 仍然認成 EM02A1', ic);
-    CHECK(!/FAIL|PASS/i.test(commTxt), '  …通訊那一列沒有 PASS／FAIL 字樣');
-    CHECK(!w.document.getElementById('dst-v-comm').classList.contains('dst-na'),
-      '  …讀得到就不標灰（中性顯示）');
+    CHECK(!/FAIL|PASS/i.test(icTxt), '  …IC 那一列沒有 PASS／FAIL 字樣');
+    CHECK(w.document.getElementById('dst-v-comm') === null,
+      '  …匯流排讀回那一列已經不在畫面上（v1.4.0）');
   }
   {
     // 讀不到才標紅／標灰
@@ -190,44 +195,56 @@ async function armed(mesFn, opts) {
       '讀不到時的文字是「讀不到」（這一種才該標紅）', v.text);
   }
 
-  /* ═══ ② IC 識別的畫面 ══════════════════════════════════════════════════ */
-  H('2. IC 識別的畫面講得清楚');
+  /* ═══ ② IC 識別的畫面 ══════════════════════════════════════════════════
+     🔴 dgself v1.4.0 重寫這一段。原本驗的是「自動識別說明那一行講了什麼」＋
+        「撞號說明句帶了 ID 與哪幾顆」，而那兩段文字**已經整個移除**
+        （Bruce 2026-09-20：「0xFF IC 的 ID 不用列出來」「下面一大堆文字都可以
+        拿掉」「實際上板子上是哪一顆，應該直接合併在 IC 型號那邊」）。
+        改成驗**他真正要的那三件事**：
+          ① 型號有被 highlight 出來（大字、不是灰的 dst-na）
+          ② 撞號時下拉就在型號旁邊，而且非撞號的顆不出現
+          ③ 那些被他點名的字**真的不在畫面上了**（反向驗證，不是只看新的有沒有） */
+  H('2. IC 識別：型號 highlight ＋ 撞號下拉合併在旁邊');
   {
     const dom = await load();
     const w = dom.window, P = w.dstProbe;
-    const note = w.document.getElementById('dst-auto-note').textContent;
-    console.log('    自動識別說明：' + JSON.stringify(note));
-    CHECK(/自動識別/.test(note), '有「自動識別」四個字');
-    CHECK(/0xFF00/.test(note), '講了是讀哪個位址判的');
-    // 支援清單＝主表 ＋ 撞號替代顆，不可漏
-    const want = ['E512A1', 'V007SX', 'V512S1', 'EM01A1', 'VM01S1', 'EM02A1', 'V512S2', 'VM02S1'];
-    want.forEach(n => CHECK(note.indexOf(n) >= 0, '支援清單列了 ' + n, note));
-    CHECK(/共 8 顆|8 顆/.test(note) || /的 8 /.test(note), '顆數是算出來的（8）', note);
-
-    // 撞號才出現下拉；非撞號的顆不出現
-    P.setIcForTest('EM02A1', -1);
-    w.dstProbe.__setRunOkForTest(false);
-    // 直接叫 render（撞號盒是由 dstRenderAlt 決定的）
-    P.scanIdentify;  // 只為表明來源；下面用真的 render 路徑
     P.__attachFakeWs(makeFakeWs({ 0xFF00: [0x02, 0xEF, 0xA0], 0x0000: [1, 2, 3] }));
     await P.scanIdentify();
-    const box = w.document.getElementById('dst-alt-box');
-    const why = w.document.getElementById('dst-alt-why').textContent;
+    const icEl = w.document.getElementById('dst-v-ic');
     const sel = w.document.getElementById('dst-alt');
-    console.log('    撞號說明：' + JSON.stringify(why));
+    console.log('    IC 列：' + JSON.stringify(icEl.textContent));
     console.log('    下拉選項：' + JSON.stringify(Array.prototype.map.call(sel.options, o => o.textContent)));
-    CHECK(!box.classList.contains('dst-hidden'), 'EM02A1（撞號）⇒ 下拉會出現');
-    CHECK(/02 EF A0/.test(why), '撞號說明帶了實際讀到的 ID', why);
-    CHECK(/EM02A1/.test(why) && /V512S2/.test(why), '撞號說明講了是哪幾顆共用這個 ID', why);
-    CHECK(/自動識別/.test(w.document.getElementById('dst-v-ic').textContent),
-      'IC 那一列寫的是「自動識別：…」', w.document.getElementById('dst-v-ic').textContent);
+    CHECK(/EM02A1/.test(icEl.textContent), '① 型號直接印在那一格（EM02A1）', icEl.textContent);
+    CHECK(icEl.classList.contains('dst-icname'), '① 用的是 highlight 的樣式 .dst-icname');
+    CHECK(!icEl.classList.contains('dst-na'), '① 認出來了 ⇒ 不是灰的');
+    CHECK(!/自動識別|0xFF00|ID /.test(icEl.textContent), '① 那一格只有型號，沒有 ID 與「自動識別」字樣', icEl.textContent);
+    CHECK(!sel.classList.contains('dst-hidden'), '② EM02A1（撞號）⇒ 下拉出現');
+    CHECK(Array.prototype.map.call(sel.options, o => o.textContent).join(',') === 'EM02A1,V512S2',
+      '② 下拉就是那兩顆，沒有別的');
 
     const dom2 = await load();
     const P2 = dom2.window.dstProbe;
     P2.__attachFakeWs(makeFakeWs({ 0xFF00: [0x02, 0xEF, 0xF0], 0x0000: [1, 2, 3] }));  // VM02S1，不撞號
     await P2.scanIdentify();
-    CHECK(dom2.window.document.getElementById('dst-alt-box').classList.contains('dst-hidden'),
-      'VM02S1（不撞號）⇒ 下拉不出現');
+    CHECK(dom2.window.document.getElementById('dst-alt').classList.contains('dst-hidden'),
+      '② VM02S1（不撞號）⇒ 下拉不出現');
+
+    /* ③ 反向：被點名的那幾樣**真的不在** */
+    ['dst-auto-note', 'dst-alt-why', 'dst-alt-box', 'dst-fixed',
+     'dst-v-id', 'dst-v-comm', 'dst-v-wr'].forEach(id => {
+      CHECK(w.document.getElementById(id) === null, '③ 已移除：#' + id);
+    });
+    /* 🔴 用 innerText 會拿不到（jsdom 沒有排版），所以走 textContent —— 但
+       textContent **連 <script> 裡的程式碼與註解都算進去**，那裡本來就會提到
+       「匯流排讀回測試」這幾個字（函式的段落標題）。所以先把 script 剝掉，
+       驗的才是「使用者看得到的字」。 */
+    const bodyVisible = Array.prototype.map.call(
+      w.document.body.querySelectorAll(':scope > *'), el => el.tagName === 'SCRIPT' ? '' : el.textContent).join(' ');
+    const body = bodyVisible;
+    CHECK(!/這一頁會寫入 TCON 的暫存器/.test(body), '③ 寫入警語整段不在畫面上');
+    CHECK(!/可寫入位址/.test(body), '③ 「可寫入位址」不在畫面上');
+    CHECK(!/匯流排讀回測試/.test(bodyVisible), '③ 「匯流排讀回測試」不在畫面上');
+    CHECK(!/slave 掃描順序/.test(body), '③ slave 掃描順序那一行不在畫面上');
   }
 
   /* ═══ ③ 二選一對話框的配色 ═════════════════════════════════════════════ */
@@ -279,7 +296,7 @@ async function armed(mesFn, opts) {
     const HEAD = ['Gray', 'W_x', 'W_y', 'W_Y', 'W_T', 'W_duv',
       'R_x', 'R_y', 'R_Y', 'G_x', 'G_y', 'G_Y', 'B_x', 'B_y', 'B_Y',
       'C_x', 'C_y', 'C_Y', 'M_x', 'M_y', 'M_Y', 'Y_x', 'Y_y', 'Y_Y'];
-    EQ(P.exportHeader(), HEAD, '表頭 24 欄，逐字＋順序與 BasicMeaForm.cs:1781–1804 相同');
+    EQ(P.exportHeader().slice(0, 24), HEAD, '表頭前 24 欄，逐字＋順序與 BasicMeaForm.cs:1781–1804 相同（v1.4.0 在尾端追加 Drive_R/G/B）');
 
     // 擺一輪 8-bit 的結果進去（含三個純色端點）
     const rows = [];

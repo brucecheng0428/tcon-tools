@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>dgself v1.4.0 handoff harness</title>
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     dg_selftest_v140_handoff.html — 在**真的 Chrome（headless）**裡跑一次完整的
+     dg.html ← dg-selftest.html 回填，三個目的地各跑一次。
+     ───────────────────────────────────────────────────────────────────────────
+     🔴 為什麼不能只用 jsdom：回填走的是 `window.opener.postMessage` ＋ origin 比對
+        ＋ 真的 window.open。jsdom 沒有 opener、沒有 popup，那一段**只能靠真瀏覽器**。
+     🔴 走的是**產品路徑**：按 dg.html 上那顆「即時量測」→ 在二選一視窗按
+        「T-CON 自檢畫面量測」→ 由 dg.html 自己 window.open 出量測頁。
+        harness 只做兩件事：① 把 window.open 包起來以取得那個視窗參照；
+        ② 在量測頁裡掛上假的 I2C Bridge 與假的量測儀（沒有硬體）。
+        **一行產品程式碼都沒有被替換掉。**
+
+     用法（由 tools/dg_selftest_v140_handoff.sh 驅動，它會先起一個本機 http server）：
+       http://127.0.0.1:<port>/tools/dg_selftest_v140_handoff.html
+     結果寫在 <pre id="out"> 裡，用 chrome --dump-dom 取回。
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<pre id="out">RUNNING</pre>
+<script>
+var LOG = [];
+function say(s) { LOG.push(s); document.getElementById('out').textContent = LOG.join('\n'); }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+async function waitFor(fn, ms, what) {
+  var t0 = Date.now();
+  while (Date.now() - t0 < (ms || 20000)) {
+    var v = null;
+    try { v = fn(); } catch (e) { v = null; }
+    if (v) return v;
+    await sleep(40);
+  }
+  throw new Error('timeout waiting for ' + (what || 'condition'));
+}
+
+/* 假的 I2C Bridge（與 jsdom 夾具同一套行為） */
+function fakeWs(map) {
+  var ws = {
+    readyState: 1, onmessage: null, raws: [],
+    send: function (t) {
+      var m = JSON.parse(t), rep;
+      if (m.type === 'read') {
+        var d = (map[m.addr] || []).slice();
+        if (d.length > m.len) d = d.slice(0, m.len);
+        while (d.length < m.len) d.push(0);
+        rep = { type: 'result', id: m.id, cmd: 'read', ok: true, status: 0, data: d };
+      } else if (m.type === 'write') {
+        rep = { type: 'result', id: m.id, cmd: 'write', ok: true, status: 0 };
+      } else if (m.type === 'rawwrite') {
+        ws.raws.push({ addr: m.addr, data: m.data.slice() });
+        map[m.addr] = m.data.slice();
+        rep = { type: 'result', id: m.id, cmd: 'rawwrite', ok: true, status: 0 };
+      } else if (m.type === 'ping') {
+        rep = { type: 'pong', id: m.id, helper: '1.16.0', proto: 5 };
+      } else { rep = { type: 'result', id: m.id, cmd: m.type, ok: true }; }
+      setTimeout(function () { if (ws.onmessage) ws.onmessage({ data: JSON.stringify(rep) }); }, 0);
+    },
+    close: function () { ws.readyState = 3; }
+  };
+  return ws;
+}
+var MES_OK = 'OK00,P1,0,0.3127,0.3290,123.456';
+
+/* dg.html 的三顆「即時量測」鈕 ⇒ 三個目的地 */
+var DESTS = [
+  { btn: 'dg-btn-live-gray', name: '第 2 部分', dest: 'gray' },
+  { btn: 'dg-btn-slot-live', name: '光學資料比較分頁', dest: 'slot' },
+  { btn: 'dg-btn-conf-live', name: '第 4 部分（確認結果）', dest: 'conf' }
+];
+
+var RESULT = { ok: true, cases: [], progress: null, chrome: navigator.userAgent };
+
+/* `?only=gray,slot` 可以只跑其中幾個（分批跑，免得單次太久被外層砍掉）。
+   `?prog=1` 才收進度字串（那一項要跑完整的 256 階）。 */
+var QS = new URLSearchParams(location.search);
+var ONLY = (QS.get('only') || '').split(',').filter(function (x) { return x; });
+var WANTPROG = QS.get('prog') === '1';
+
+(async function main() {
+  try {
+    var list = ONLY.length ? DESTS.filter(function (d) { return ONLY.indexOf(d.dest) >= 0; }) : DESTS;
+    for (var i = 0; i < list.length; i++) {
+      await one(list[i], WANTPROG && i === 0);
+    }
+  } catch (e) {
+    RESULT.ok = false; RESULT.error = String(e && e.message || e);
+  }
+  /* 🔴 把結果 **POST 回本機伺服器**，由它決定收工的時機。
+     不用 --dump-dom：那是在虛擬時間用完的當下抓的，256 階還沒跑完就被截斷。 */
+  document.getElementById('out').textContent = JSON.stringify(RESULT, null, 1) + '\n\n' + LOG.join('\n');
+  try {
+    await fetch('/verdict', { method: 'POST', body: JSON.stringify(RESULT) });
+  } catch (e) { /* 伺服器已經收工：沒關係，結果也在畫面上 */ }
+})();
+
+async function one(D, captureProgress) {
+  say('── ' + D.name + ' ──');
+  var dg = window.open('../dg.html', 'dg_' + D.dest);
+  await waitFor(function () { return dg.document && dg.document.getElementById(D.btn); }, 30000, 'dg.html 載入');
+  await sleep(300);
+
+  /* ① 把 window.open 包起來，才拿得到量測頁的視窗參照（不改產品程式碼） */
+  var child = null;
+  var realOpen = dg.open.bind(dg);
+  dg.open = function (u, n, f) { child = realOpen(u, n, f); return child; };
+
+  /* ② 走產品路徑：按「即時量測」→ 二選一視窗按「T-CON 自檢畫面量測」 */
+  dg.document.getElementById(D.btn).click();
+  await waitFor(function () { return dg.document.getElementById('dg-btn-pick-tcon'); }, 10000, '二選一視窗');
+  dg.document.getElementById('dg-btn-pick-tcon').click();
+
+  var st;
+  try {
+    st = await waitFor(function () { return child && child.dstProbe ? child : null; }, 30000, '量測頁開起來');
+  } catch (e) {
+    /* 🔴 失敗時要講得出「卡在哪一步」，不要只回一句 timeout。 */
+    var diag = {
+      childType: typeof child, childNull: child === null,
+      childHref: (function () { try { return child.location.href; } catch (e2) { return 'ERR:' + e2.message; } })(),
+      childHasProbe: (function () { try { return typeof child.dstProbe; } catch (e2) { return 'ERR'; } })(),
+      dgStatus: (dg.document.getElementById('dg-status') || {}).textContent,
+      pickOpen: !!(dg.document.getElementById('dg-modal-pick') || {}).classList
+                  && dg.document.getElementById('dg-modal-pick').classList.contains('open')
+    };
+    throw new Error(e.message + ' | diag=' + JSON.stringify(diag));
+  }
+  await sleep(300);
+
+  /* ③ 掛假硬體 */
+  var P = st.dstProbe;
+  P.__attachFakeWs(fakeWs({
+    0xFF00: [0x02, 0xEF, 0xA0], 0x0000: [0x61, 0x41, 0xB4],
+    0xFF26: [0x80, 0x07], 0xFF28: [0x38, 0x04],
+    0x005D: [0x00]                      // DG_EN = 0 ⇒ 驅動碼 ＝ 送出值
+  }));
+  await P.scanIdentify();
+  P.__attachFakeMeter(function (cmd) {
+    if (/^MES/.test(cmd)) return MES_OK;
+    if (/^MVS/.test(cmd)) return 'OK00,60.00';
+    return 'OK';
+  });
+  /* 🔴 換階等待挑**選單裡真的有的最小值**（300 ms）。
+     第一版寫 '0' —— 那不是選項，<select> 會靜靜忽略、留在預設的 700 ms
+     ⇒ 259 階 × 700 ms ＝ 181 s，剛好卡死在等待上限。所以下面那一行
+     assert 是必要的：設不進去就要當場失敗，不要跑一輪再來猜為什麼慢。 */
+  var sel = st.document.getElementById('dst-settle');
+  sel.value = String(P.settleChoices()[0]);
+  if (P.settleMs() !== P.settleChoices()[0]) throw new Error('換階等待設不進去：' + sel.value);
+
+  /* ④ 收進度字串（只有第一個 case 收，256 階跑一次就夠） */
+  var seen = [];
+  if (captureProgress) {
+    var el = st.document.getElementById('dst-progtxt');
+    var mo = new st.MutationObserver(function () {
+      var t = el.textContent;
+      if (t && seen[seen.length - 1] !== t) seen.push(t);
+    });
+    mo.observe(el, { childList: true, characterData: true, subtree: true });
+  }
+
+  /* ⑤ 真的按「開始掃描」（產品路徑，不是呼叫內部函式） */
+  st.document.getElementById('dst-run').click();
+  await waitFor(function () { return P.runOk() === true; }, 300000, '掃描跑完（' + D.name + '）');
+  await sleep(500);          // 讓 postMessage 抵達 dg.html
+
+  if (captureProgress) {
+    var frac = seen.filter(function (t) { return /\d+\/\d+$/.test(t.trim()); });
+    RESULT.progress = {
+      first: frac[0], last256: frac[255], all: frac.length,
+      grayFirst5: frac.slice(0, 5), grayLast3: frac.slice(253, 256),
+      prim: frac.slice(256, 259),
+      has259: frac.some(function (t) { return /259/.test(t); })
+    };
+  }
+
+  /* ⑥ 驗收：dg.html 那邊到底收到了什麼 */
+  var note = dg.document.getElementById('dg-modal-note');
+  var rejected = !!(note && note.classList.contains('open'));
+  var rejectText = rejected ? note.textContent.replace(/\s+/g, ' ').slice(0, 200) : '';
+  var sentText = (st.document.getElementById('dst-say-run') || {}).textContent || '';
+
+  var landed = null;
+  if (D.dest === 'gray') {
+    var ta = dg.document.getElementById('dg-in-gray');
+    var lines = (ta.value || '').trim().split('\n').filter(function (l) { return l.trim(); });
+    landed = { rows: lines.length, first: lines[0], second: lines[1], last: lines[lines.length - 1] };
+  } else if (D.dest === 'slot') {
+    landed = { slots: dg.dgProbe ? null : null, rows: null };
+    var tb = dg.document.querySelectorAll('#dg-slot-list .dg-slot-row, #dg-slot-list > *');
+    landed.slotRows = tb ? tb.length : null;
+  } else {
+    var ta2 = dg.document.getElementById('dg-conf-in');
+    landed = { rows: ta2 ? (ta2.value || '').trim().split('\n').filter(function (l) { return l.trim(); }).length : null };
+  }
+  /* 純色一律進第 3 部分 —— 直接看第 3 部分的輸入框 */
+  var primBox = dg.document.getElementById('dg-in-prim');
+  var primText = primBox ? (primBox.value || '').trim() : '';
+
+  var c = {
+    dest: D.dest, name: D.name,
+    rejected: rejected, rejectText: rejectText,
+    sayRun: sentText.replace(/\s+/g, ' '),
+    landed: landed,
+    part3Lines: primText ? primText.split('\n').length : 0,
+    part3: primText.slice(0, 120)
+  };
+  if (rejected) RESULT.ok = false;
+  RESULT.cases.push(c);
+  say(JSON.stringify(c));
+
+  try { st.close(); } catch (e) {}
+  try { dg.close(); } catch (e) {}
+  await sleep(200);
+}
+</script>

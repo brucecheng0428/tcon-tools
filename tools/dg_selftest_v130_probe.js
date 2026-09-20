@@ -307,11 +307,14 @@ async function armed(opts) {
     CHECK(!/dstCsvText|dstExportCsv/.test(CODE), '程式碼裡沒有 dstCsvText／dstExportCsv（死碼已清）');
     CHECK(!/'dst\.btnCsv'/.test(I18NCODE), 'i18n 的 dst.btnCsv 已刪除');
     CHECK(/dstXlsxBytes/.test(CODE), '（對照）XLSX 那一條還在');
-    /* 版面（24 欄）一字未動 —— 這一批不准碰它。 */
-    EQ(P.exportHeader(), ['Gray', 'W_x', 'W_y', 'W_Y', 'W_T', 'W_duv',
+    /* 🔴 前 24 欄一字未動 —— v1.4.0 在**後面**追加了 Drive_R/G/B 三欄
+       （Bruce 2026-09-20：「x/y/Y 旁邊補上該階實際的 R/G/B」）。
+       這一項的語意因此從「表頭完全相同」改成「**前 24 欄**完全相同」：
+       追加在尾端不會動到任何既有欄位的位置，拿舊檔對照的人不受影響。 */
+    EQ(P.exportHeader().slice(0, 24), ['Gray', 'W_x', 'W_y', 'W_Y', 'W_T', 'W_duv',
       'R_x', 'R_y', 'R_Y', 'G_x', 'G_y', 'G_Y', 'B_x', 'B_y', 'B_Y',
       'C_x', 'C_y', 'C_Y', 'M_x', 'M_y', 'M_Y', 'Y_x', 'Y_y', 'Y_Y'],
-      'XLSX 的 24 欄表頭與 v1.2.0 完全相同（這一批沒動匯出版面）');
+      'XLSX 的前 24 欄與 v1.2.0 完全相同（既有欄位位置未動）');
   }
 
   /* ═══ 卡片改名與定位說明 ═══════════════════════════════════════════════ */

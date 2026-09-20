@@ -435,11 +435,15 @@ async function recordEnterAndPaint(key, altIdx) {
   /* 掃描計畫：256 階白 ＋ 三個純色端點 */
   const plan = P.plan(8);
   ok(plan.length === 259, '掃描計畫 ＝ 256 階白 ＋ R/G/B 三個端點', '得到 ' + plan.length);
-  eq(plan[0], { key: 'L0', r: 0, g: 0, b: 0 }, '第一項是 L0');
-  eq(plan[255], { key: 'L255', r: 4080, g: 4080, b: 4080 }, '第 256 項是 L255 ⇒ 4080');
-  eq(plan[256], { key: 'R', r: 4080, g: 0, b: 0 }, '接著是純紅 4080');
-  eq(plan[257], { key: 'G', r: 0, g: 4080, b: 0 }, '純綠');
-  eq(plan[258], { key: 'B', r: 0, g: 0, b: 4080 }, '純藍');
+  /* 🔴 dgself v1.4.0：每一步多了 `group`（進度分兩組計數）與 `idx`（0…255 的
+     灰階索引，回傳 DG 用）。**送進 IC 的 r/g/b 一個數字都沒變** —— 這幾項比的
+     就是那件事，所以連新欄位一起比，新欄位寫錯也會被這裡擋下。 */
+  eq(plan[0], { key: 'L0', group: 'gray', idx: 0, r: 0, g: 0, b: 0 }, '第一項是 L0');
+  eq(plan[255], { key: 'L255', group: 'gray', idx: 255, r: 4080, g: 4080, b: 4080 },
+     '第 256 項是 L255 ⇒ 4080');
+  eq(plan[256], { key: 'R', group: 'prim', idx: 255, r: 4080, g: 0, b: 0 }, '接著是純紅 4080');
+  eq(plan[257], { key: 'G', group: 'prim', idx: 255, r: 0, g: 4080, b: 0 }, '純綠');
+  eq(plan[258], { key: 'B', group: 'prim', idx: 255, r: 0, g: 0, b: 4080 }, '純藍');
   ok(P.alignL === 127, '對位用的背景是 L127');
 
   /* ═══ 9. ID 比對、總線閒置、ACK ════════════════════════════════════════ */

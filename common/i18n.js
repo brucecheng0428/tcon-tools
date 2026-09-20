@@ -2602,10 +2602,6 @@ var I18N = {
   /* ── 頁首 ─────────────────────────────────────────────────────────── */
   'dst.title':          { 'zh-TW': 'TCON 自檢畫面量測', 'en': 'TCON Self-Test Pattern Measurement', 'zh-CN': 'TCON 自检画面量测' },
   'dst.subtitle':       { 'zh-TW': '由 TCON 自己出圖，逐階取 x / y / Y', 'en': 'The TCON paints the pattern itself; x / y / Y are read step by step', 'zh-CN': '由 TCON 自己出图，逐阶取 x / y / Y' },
-  'dst.unverified':     {
-    'zh-TW': '⚠ 這一頁會寫入 TCON 的暫存器。全部七顆 IC 的寫入序列都是逐行照抄上游工具 V1.5.0 的反組譯，但沒有任何一顆在真機上跑過。第一次用請先確認手上的板子是可以重刷的。',
-    'en': '⚠ This page writes to the TCON registers. Every write sequence for all seven ICs is copied line by line from the upstream tool V1.5.0 decompile, but not one of them has ever been run on real hardware. Before the first use, make sure the board in your hand can be re-flashed.',
-    'zh-CN': '⚠ 这一页会写入 TCON 的暂存器。全部七颗 IC 的写入序列都是逐行照抄上游工具 V1.5.0 的反编译，但没有任何一颗在真机上跑过。第一次用请先确认手上的板子是可以重刷的。' },
 
   /* ── 卡片標題 ─────────────────────────────────────────────────────── */
   'dst.hdLink':         { 'zh-TW': 'I2C 連線與 IC 識別', 'en': 'I2C link and IC identification', 'zh-CN': 'I2C 连线与 IC 识别' },
@@ -2650,11 +2646,54 @@ var I18N = {
 
   /* ── 觀測列 ───────────────────────────────────────────────────────── */
   'dst.kvBridge':       { 'zh-TW': 'I2C Bridge', 'en': 'I2C Bridge', 'zh-CN': 'I2C Bridge' },
-  'dst.kvComm':         { 'zh-TW': '匯流排讀回測試', 'en': 'Bus read-back', 'zh-CN': '总线读回测试' },
-  'dst.kvId':           { 'zh-TW': '0xFF00（IC ID）', 'en': '0xFF00 (IC ID)', 'zh-CN': '0xFF00（IC ID）' },
   'dst.kvIc':           { 'zh-TW': 'IC 型號', 'en': 'IC model', 'zh-CN': 'IC 型号' },
   'dst.kvRes':          { 'zh-TW': '解析度', 'en': 'Resolution', 'zh-CN': '分辨率' },
-  'dst.kvWr':           { 'zh-TW': '可寫入位址', 'en': 'Writable addresses', 'zh-CN': '可写入地址' },
+
+  /* ═══ dgself v1.4.0：DG（Digital Gamma）開關 ═══════════════════════════════
+     Bruce 2026-09-20：「DGEN 的 check 這個很重要，要從 I2C 的方式去確認 DGEN 有開
+     還是沒開。最好把它顯示出來。」＋「可以點選核取方塊來強制開啟或強制關閉。」
+     🔴 「未知」與「關閉」必須看得出是兩件事 —— 讀不到卻顯示「關閉」正是安靜錯誤。 */
+  'dst.kvDg':           { 'zh-TW': 'DG', 'en': 'DG', 'zh-CN': 'DG' },
+  'dst.dgForce':        { 'zh-TW': '強制', 'en': 'Force', 'zh-CN': '强制' },
+  'dst.dgOn':           { 'zh-TW': '開啟中', 'en': 'on', 'zh-CN': '开启中' },
+  'dst.dgOff':          { 'zh-TW': '關閉', 'en': 'off', 'zh-CN': '关闭' },
+  'dst.dgUnknown':      { 'zh-TW': '未知', 'en': 'unknown', 'zh-CN': '未知' },
+  'dst.dgLutDepth':     { 'zh-TW': 'LUT {n}-bit', 'en': 'LUT {n}-bit', 'zh-CN': 'LUT {n}-bit' },
+  'dst.dgLutTarget':    { 'zh-TW': 'Target LUT', 'en': 'Target LUT', 'zh-CN': 'Target LUT' },
+  'dst.dgLutOffset':    { 'zh-TW': 'Offset LUT', 'en': 'Offset LUT', 'zh-CN': 'Offset LUT' },
+  'dst.dgWhyNoIc':      { 'zh-TW': '還沒認出 IC', 'en': 'the IC has not been identified yet', 'zh-CN': '还没认出 IC' },
+  'dst.dgWhyNoAddr':    { 'zh-TW': '這一顆查不到 DG 開關的位址', 'en': 'no DG switch address is known for this chip', 'zh-CN': '这一颗查不到 DG 开关的地址' },
+  'dst.dgWhyIdle':      { 'zh-TW': '讀回全 0xFF，匯流排沒有回應', 'en': 'read back all 0xFF — the bus did not respond', 'zh-CN': '读回全 0xFF，总线没有回应' },
+  'dst.dgWhyReadFail':  { 'zh-TW': '讀取失敗', 'en': 'the read failed', 'zh-CN': '读取失败' },
+  'dst.dgWarnOn':       { 'zh-TW': '⚠ DG 目前是開啟的 ⇒ 量到的是已套用 DG 的曲線，不是面板原生曲線。要量原生曲線請先關閉 DG。',
+                          'en': '⚠ DG is on, so what you measure is the curve after DG, not the panel\u2019s native curve. Turn DG off first if you want the native curve.',
+                          'zh-CN': '⚠ DG 目前是开启的 ⇒ 量到的是已套用 DG 的曲线，不是面板原生曲线。要量原生曲线请先关闭 DG。' },
+  'dst.dgWriteMismatch':{ 'zh-TW': 'DG 寫入後讀回來的狀態不是預期的：想要 {want}，讀回 {got}。IC 端沒有照做，請確認這顆 IC 的 DG 開關是不是被別的設定鎖住。',
+                          'en': 'After writing DG the read-back does not match: wanted {want}, read {got}. The IC did not take it — check whether this chip\u2019s DG switch is locked by another setting.',
+                          'zh-CN': 'DG 写入后读回来的状态不是预期的：想要 {want}，读回 {got}。IC 端没有照做，请确认这颗 IC 的 DG 开关是不是被别的设定锁住。' },
+  'dst.dgWriteFail':    { 'zh-TW': 'DG 開關寫入失敗：{err}', 'en': 'Writing the DG switch failed: {err}', 'zh-CN': 'DG 开关写入失败：{err}' },
+  'dst.dgNoLut':        { 'zh-TW': 'DG 開啟中 ⇒ 面板實際收到的是 DG LUT 查出來的值，而本頁目前讀不到那張表，所以匯出的 Drive_R/G/B 三欄留空。',
+                          'en': 'DG is on, so what the panel actually receives comes out of the DG LUT — this page cannot read that table yet, so the exported Drive_R/G/B columns are left blank.',
+                          'zh-CN': 'DG 开启中 ⇒ 面板实际收到的是 DG LUT 查出来的值，而本页目前读不到那张表，所以导出的 Drive_R/G/B 三栏留空。' },
+
+  /* ═══ dgself v1.4.0：解析度 ═══════════════════════════════════════════════
+     🔴 讀不到就說讀不到。舊版在這裡印 1920×1080（預設值），而 1920×1080 正好是
+        最常見的 PC 螢幕解析度 —— Bruce 因此以為本頁抓的是 PC 的解析度。 */
+  'dst.resFromTm':      { 'zh-TW': '讀自 IC 0xFF26/0xFF28', 'en': 'read from the IC, 0xFF26/0xFF28', 'zh-CN': '读自 IC 0xFF26/0xFF28' },
+  'dst.resFromSys':     { 'zh-TW': '讀自 IC sys bank', 'en': 'read from the IC sys bank', 'zh-CN': '读自 IC sys bank' },
+  'dst.resNone':        { 'zh-TW': '讀不到（十字仍以 {w}x{h} 置中，位置可能不在正中央）',
+                          'en': 'could not read it (the cross is still centred on {w}x{h}, so it may not be at the real centre)',
+                          'zh-CN': '读不到（十字仍以 {w}x{h} 置中，位置可能不在正中央）' },
+
+  /* ═══ dgself v1.4.0：兩組計數共用的字 ═════════════════════════════════════
+     🔴 進度條與「回填完成」那一行**必須是同一組字**（Bruce 明確要求不要一個叫
+        「純色 Pattern」另一個叫「RGB 畫面」），所以兩邊都讀這一個 key。 */
+  'dst.primGroup':      { 'zh-TW': 'RGB 純色', 'en': 'RGB primaries', 'zh-CN': 'RGB 纯色' },
+  'dst.grayGroup':      { 'zh-TW': '灰階', 'en': 'gray steps', 'zh-CN': '灰阶' },
+  'dst.pgDg':           { 'zh-TW': '讀 DG 開關', 'en': 'Reading the DG switch', 'zh-CN': '读 DG 开关' },
+  'dst.dgSentTwo':      { 'zh-TW': '✔ 灰階 {n} 筆已回到 DG 的{dest}；{prim} {np} 筆已回到 DG 的第 3 部分。',
+                          'en': '✔ {n} gray rows are back in DG ({dest}); {np} {prim} are back in DG part 3.',
+                          'zh-CN': '✔ 灰阶 {n} 笔已回到 DG 的{dest}；{prim} {np} 笔已回到 DG 的第 3 部分。' },
   /* 🔴 dgself v1.3.0：`dst.kvSend`（送進 IC 的 12-bit 值）已刪除 —— Bruce
      2026-09-20：「使用者不需要注意到這麼多」。那個數字只留在紀錄卡的寫入行裡。 */
   /* 🔴 dgself v1.3.0：改名 ——「畫面更新率」聽起來像是從 T-CON 讀出來的設定值，
@@ -2682,32 +2721,20 @@ var I18N = {
         會讓人以為掃描量到 1023。
      🔴 `dst.crossNote` 已併入 `dst.alignNote`（版面精簡，Bruce 2026-09-20）。 */
   'dst.bitsNote':       { 'zh-TW': '滿刻度 {max}（色鈕與拉霸的上限）；掃描逐階量到 {end}', 'en': 'Full scale {max} (the ceiling for the colour buttons and sliders); the scan steps up to {end}', 'zh-CN': '满刻度 {max}（色钮与拉杆的上限）；扫描逐阶量到 {end}' },
-  /* 🔴 v1.2.0：帶上**實際讀到的 ID** 與**共用這個 ID 的是哪幾顆** ——
-     不說是哪個 ID、哪兩顆，讀的人沒辦法自己確認。 */
-  'dst.altWhy':         { 'zh-TW': '自動識別讀到的 ID 是 {id}，而 {names} 這幾顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請指定 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。',
-                          'en': 'The auto-detected ID is {id}, and {names} return exactly the same ID — the upstream tool cannot tell them apart either. Only you know which one is on the board, so please pick it. Picking the wrong one only affects the cross and the write order; it cannot damage the IC.',
-                          'zh-CN': '自动识别读到的 ID 是 {id}，而 {names} 这几颗的 ID 完全相同，上游工具自己也分不出来。板子上是哪一颗只有你知道，请指定 —— 选错只影响十字线与写入顺序，不会写坏 IC。' },
-  'dst.altPick':        { 'zh-TW': '實際板子上是哪一顆', 'en': 'Which one is actually on the board', 'zh-CN': '实际板子上是哪一颗' },
-  /* 🔴 v1.2.0：Bruce 2026-09-20：「它是會自動識別嗎？為什麼我看到的可選擇的只有
-     EM02A1 跟 V512S1、S2 這兩個呢？」—— 因為那個下拉只在**撞號**時出現，
-     畫面上卻沒有一個字說「型號是自動判的」。顆數與清單由 DST_ICS 算出來。 */
-  'dst.autoNote':       { 'zh-TW': '型號是自動識別的：連線時依序掃 slave {slaves}，讀 0xFF00 的三個 byte 比對 ID 表，不需要手動選。本頁認得的 {n} 顆：{list}。',
-                          'en': 'The model is detected automatically: on connect the page scans slaves {slaves}, reads the three bytes at 0xFF00 and matches them against the ID table — nothing to pick by hand. The {n} chips this page knows: {list}.',
-                          'zh-CN': '型号是自动识别的：连线时依序扫 slave {slaves}，读 0xFF00 的三个 byte 比对 ID 表，不需要手动选。本页认得的 {n} 颗：{list}。' },
-  'dst.icAuto':         { 'zh-TW': '自動識別：{name}（ID {id}）', 'en': 'Auto-detected: {name} (ID {id})', 'zh-CN': '自动识别：{name}（ID {id}）' },
-  'dst.fixedLine':      { 'zh-TW': 'slave 掃描順序（7-bit）{slaves} · 時脈 {khz} kHz · 寫入一律經位址白名單', 'en': 'slave scan order (7-bit) {slaves} · clock {khz} kHz · every write goes through the address whitelist', 'zh-CN': 'slave 扫描顺序（7-bit）{slaves} · 时钟 {khz} kHz · 写入一律经地址白名单' },
+  /* 🔴 dgself v1.4.0：`dst.altWhy`／`dst.altPick` 已刪除。撞號的下拉現在直接放在
+     型號旁邊（Bruce 2026-09-20：「實際上板子上是哪一顆，應該直接合併在 IC 型號
+     那邊；如果辨識不是的話，手動改變選擇就好啦」），不再有標題與說明句。 */
+  /* 🔴 dgself v1.4.0：`dst.autoNote` 已刪除。識別本來就是自動的，而畫面上那顆被
+     highlight 的型號自己就說明了這件事 —— 再寫一段「它是自動識別的」等於用一段
+     文字解釋一個看得見的事實（Bruce：「下面一大堆文字都可以拿掉」）。 */
   'dst.thStep':         { 'zh-TW': '階', 'en': 'Step', 'zh-CN': '阶' },
   'dst.cellFail':       { 'zh-TW': '量測失敗', 'en': 'measurement failed', 'zh-CN': '量测失败' },
-  'dst.resFromReg':     { 'zh-TW': '讀自 IC', 'en': 'read from the IC', 'zh-CN': '读自 IC' },
-  'dst.resDefault':     { 'zh-TW': '預設值', 'en': 'default', 'zh-CN': '默认值' },
 
   /* ── 識別結果 ─────────────────────────────────────────────────────── */
-  'dst.idNone':         { 'zh-TW': '四個 slave 全無有效回應', 'en': 'no valid response from any of the four slaves', 'zh-CN': '四个 slave 全无有效回应' },
   'dst.icNone':         { 'zh-TW': '—（讀不到 ID）', 'en': '— (cannot read the ID)', 'zh-CN': '—（读不到 ID）' },
   'dst.icUnknown':      { 'zh-TW': '讀到了，但不在已知 ID 表內 ⇒ 只允許讀', 'en': 'ID read, but it is not in the known table ⇒ read-only', 'zh-CN': '读到了，但不在已知 ID 表内 ⇒ 只允许读' },
   'dst.sayIcUnknown':   { 'zh-TW': '0xFF00 讀到 {id}，不在已知 ID 表內 ⇒ 出圖與寫入全部停用。請把這三個 byte 回報。', 'en': '0xFF00 returned {id}, which is not in the known ID table ⇒ pattern output and all writes are disabled. Please report these three bytes.', 'zh-CN': '0xFF00 读到 {id}，不在已知 ID 表内 ⇒ 出图与写入全部停用。请把这三个 byte 回报。' },
   'dst.alsoE512':       { 'zh-TW': '也可能是 E512A2 —— 同一組 ID，上游工具也分不出來', 'en': 'may also be an E512A2 — same ID; the upstream tool cannot tell them apart either', 'zh-CN': '也可能是 E512A2 —— 同一组 ID，上游工具也分不出来' },
-  'dst.wrNone':         { 'zh-TW': '無（沒認出 IC ⇒ 一個位址都不寫）', 'en': 'none (IC not identified ⇒ not a single address is written)', 'zh-CN': '无（没认出 IC ⇒ 一个地址都不写）' },
 
   /* ── 白名單 ───────────────────────────────────────────────────────── */
   'dst.denyNoIc':       { 'zh-TW': '位址白名單擋下 {addr}：還沒認出 IC，本頁一個位址都不寫', 'en': 'The address whitelist blocked {addr}: the IC has not been identified, so this page writes nothing at all', 'zh-CN': '地址白名单挡下 {addr}：还没认出 IC，本页一个地址都不写' },
@@ -2726,9 +2753,9 @@ var I18N = {
      不是硬體身分（Bruce 2026-09-20 實機：「只要是有不同的 code，這邊的設定就會不一樣」）。 */
   'dst.commRead':       { 'zh-TW': '讀回 {got}', 'en': 'Read back {got}', 'zh-CN': '读回 {got}' },
   'dst.commNoRead':     { 'zh-TW': '讀不到（只收到 {n} byte）', 'en': 'Nothing to read (only {n} bytes received)', 'zh-CN': '读不到（只收到 {n} byte）' },
-  'dst.commNote':       { 'zh-TW': '「匯流排讀回測試」只證明 I2C 讀得到東西；<b>讀回的值會隨 code 不同而不同，不能用來判斷是哪一顆 T-CON</b>，本頁也不拿它做任何判定。型號一律看下面的 0xFF00 ID。',
-                          'en': 'The bus read-back only proves that I2C can read something. <b>The value it returns changes with the code loaded, so it cannot tell you which T-CON this is</b> — this page makes no judgement from it. The model always comes from the 0xFF00 ID below.',
-                          'zh-CN': '「总线读回测试」只证明 I2C 读得到东西；<b>读回的值会随 code 不同而不同，不能用来判断是哪一颗 T-CON</b>，本页也不拿它做任何判定。型号一律看下面的 0xFF00 ID。' },
+  /* 🔴 dgself v1.4.0：`dst.commNote` 已刪除，連同畫面上那一列讀回值
+     （Bruce：「匯流排讀回測試也不用秀出來」）。**測試本身照跑**（dstCommTest），
+     結果進交易 log；讀不到時仍然會用 `dst.commNoRead` 在說話行講出來。 */
 
   /* ── 出圖不可用的理由 ─────────────────────────────────────────────── */
   'dst.noIcNoWrite':    { 'zh-TW': '還沒認出 IC，本頁一個位址都不寫', 'en': 'The IC has not been identified, so this page writes nothing at all', 'zh-CN': '还没认出 IC，本页一个地址都不写' },
@@ -2857,9 +2884,11 @@ var I18N = {
                           'zh-CN': '这一阶不会被跳过。选「中止整轮」的话，这一轮作废 —— 不导出、也不回传 DG。' },
   'dst.failRetry':      { 'zh-TW': '再試一次這一階', 'en': 'Retry this step', 'zh-CN': '再试一次这一阶' },
   'dst.failAbort':      { 'zh-TW': '中止整輪（作廢）', 'en': 'Abort the round (void)', 'zh-CN': '中止整轮（作废）' },
-  'dst.voidRun':        { 'zh-TW': '⚠ 這一輪已作廢：只量到 {n}/{total} 階。下面的表格只是給你看停在哪裡，不會匯出、也沒有回傳 DG。排除問題後請重新掃一次。',
-                          'en': '⚠ This round is void: only {n} of {total} steps were measured. The table below is only there to show where it stopped — it will not be exported and nothing was sent back to DG. Fix the problem and run the scan again.',
-                          'zh-CN': '⚠ 这一轮已作废：只量到 {n}/{total} 阶。下面的表格只是给你看停在哪里，不会导出、也没有回传 DG。排除问题后请重新扫一次。' },
+  /* 🔴 dgself v1.4.0：分母拆成「灰階 {gray} 階 ＋ RGB 純色 {prim} 個」，不再是
+     兩組相加的那個數字（Bruce：「我有說過不要 259 啊」）。 */
+  'dst.voidRun':        { 'zh-TW': '⚠ 這一輪已作廢：只量到 {detail}。下面的表格只是給你看停在哪裡，不會匯出、也沒有回傳 DG。排除問題後請重新掃一次。',
+                          'en': '⚠ This round is void: only {detail} came in. The table below is only there to show where it stopped — it will not be exported and nothing was sent back to DG. Fix the problem and run the scan again.',
+                          'zh-CN': '⚠ 这一轮已作废：只量到 {detail}。下面的表格只是给你看停在哪里，不会导出、也没有回传 DG。排除问题后请重新扫一次。' },
   'dst.dgVoidNoSend':   { 'zh-TW': '這一輪沒有完整跑完，一筆都沒有回傳 DG。半套的灰階曲線灌進去會錯得很安靜。',
                           'en': 'This round did not finish cleanly, so nothing at all was sent back to DG. A half-finished grey ramp would go wrong very quietly.',
                           'zh-CN': '这一轮没有完整跑完，一笔都没有回传 DG。半套的灰阶曲线灌进去会错得很安静。' },
