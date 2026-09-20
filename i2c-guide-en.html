@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'en';
+window.GUIDE_FILES = { 'zh-TW': 'i2c-guide.html', 'zh-CN': 'i2c-guide-cn.html', 'en': 'i2c-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>I2C Read / Write Test - User Guide</title>
+<meta name="description" content="Complete user guide for the I2C Read / Write Test: getting and starting the local I2C Bridge, connecting and clock settings, 7-bit vs 8-bit slave notation, offset width, the A/B pair, in-place editing and non-adjacent selection, EEPROM page size and segment gap, read-back verification and the checksum.">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>I2C Read / Write Test</h1>
+  <p class="subtitle">Read and write any slave and offset through the local I2C Bridge; view, edit and compare in a 16×16 table — the complete user guide.</p>
+  <span class="version">Web tool · requires the local I2C Bridge · desktop browser</span>
+  <div class="hero-links">
+    <a href="i2c.html">▶ Open I2C Read / Write Test</a>
+    <a href="index.html">⌂ Back to the toolbox</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">Overview</button>
+      <button class="nav-btn" onclick="scrollToSection('#bridge')">Get &amp; start</button>
+      <button class="nav-btn" onclick="scrollToSection('#connect')">Connect</button>
+      <button class="nav-btn" onclick="scrollToSection('#params')">Parameters</button>
+      <button class="nav-btn" onclick="scrollToSection('#read')">Read &amp; A/B</button>
+      <button class="nav-btn" onclick="scrollToSection('#edit')">Edit &amp; select</button>
+      <button class="nav-btn" onclick="scrollToSection('#write')">Write &amp; verify</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">FAQ</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 Search controls…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark theme" aria-label="Toggle light / dark theme">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 1. INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>Overview</h2>
+    <p class="section-desc">This is an I2C read/write tool that <strong>assumes nothing about what is on the other end</strong>: any slave address, any offset, any length. What comes back is laid out as a 16×16 table where you can edit values in place, compare byte by byte against another copy, and write it back with an automatic read-back verification.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>What it is for</h3>
+        <ul>
+          <li><strong>See the whole thing</strong> — up to 262,144 bytes (256K) in one read, paged 256 bytes at a time.</li>
+          <li><strong>See what changed</strong> — two copies (A and B) are held at once, differing cells are coloured, and the difference list spells out “address / Data A / Data B”.</li>
+          <li><strong>No guessing after a write</strong> — the same range is read back automatically and compared byte by byte; mismatching cells turn red and their addresses are listed.</li>
+          <li><strong>It does not get in your way</strong> — no address allowlist, no “enable writing” switch. Every read and write is recorded in full, both on screen and in the I2C Bridge log file.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What it does not do</h3>
+        <ul>
+          <li><strong>It does not identify the device for you</strong> — apart from the EEPROM capacity confirmation, it does not guess part numbers or apply register definitions.</li>
+          <li><strong>It never writes on its own</strong> — nothing is written unless you press Write or edit a cell in place while connected.</li>
+          <li><strong>It does not remember your data</strong> — close the tab and the dump is gone. Use “Save as” to keep it.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>Why the browser cannot reach the adapter</strong>
+      A USB-to-I2C adapter is bound at the driver level; a browser has no path to it at all. So this page works together with a small program running on your PC (the I2C Bridge) that drives the adapter, and the page talks to it over a local WebSocket.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 2. BRIDGE ==================== -->
+<section id="bridge">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>Getting and starting the I2C Bridge</h2>
+    <p class="section-desc">When the page cannot reach it, the <strong>first thing you see is the download button</strong>, with the version printed on the button itself.</p>
+
+    <div class="steps">
+      <div class="step">
+        <h4>Download</h4>
+        <p>Press “⬇ Download I2C Bridge <em>version</em>”. A three-line instruction window appears; just follow it.</p>
+      </div>
+      <div class="step">
+        <h4>Unzip everything into one folder</h4>
+        <p>The package contains <strong>four files</strong>: <code>i2c-bridge.exe</code>, <code>libMPSSE.dll</code>, <code>ftd2xx.dll</code>, <code>DLL_I2C_BCB.dll</code>. <strong>All four must sit in the same folder</strong>; it will not start if one is missing.</p>
+      </div>
+      <div class="step">
+        <h4>Double-click <code>i2c-bridge.exe</code></h4>
+        <p>Windows blocks it the first time (any change to the program changes its hash, so it is blocked again after every update). Leave the console window open — that is the channel.</p>
+      </div>
+      <div class="step">
+        <h4>Come back to this page</h4>
+        <p>The page tries to connect by itself, so usually there is nothing to press. If it does not connect, press “Connect”.</p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>The last line in the console window is a single capital letter</strong>
+      <strong>G</strong> means everything is fine. When it is not G, keep the whole <code>i2c-bridge.log</code>; what the letter means is looked up by whoever maintains the tool — this page deliberately does not print the lookup table at you.
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Download I2C Bridge</td><td><span class="t-type tt-btn">button</span></td><td>—</td><td>Appears automatically when the page cannot connect. The version on the button comes from the toolbox’s single version source, not from a literal on this page.</td></tr>
+          <tr><td class="t-name">I2C Bridge info &amp; troubleshooting</td><td><span class="t-type tt-btn">collapsible card</span></td><td>—</td><td>Kept in diagnostic mode. Contains the SHA256 of the zip and the exe, the list of four files, and the usual reasons a connection fails.</td></tr>
+          <tr><td class="t-name">SHA256 zip / exe</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td>Check the download against these two values. Any change to the exe changes its SHA, and Windows will block it once more.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout danger">
+      <strong>Allow the browser to access the local network when it asks</strong>
+      Reaching the local machine (<code>127.0.0.1</code>) from a public address makes newer browsers ask for permission once. If it is blocked or the prompt is dismissed, the connection never happens — and on screen that looks exactly like “the program is not running”. This page can tell the two apart: the case that fails only after a few hundred milliseconds also shows a line asking you to allow it, plus a retry button.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 3. CONNECT ==================== -->
+<section id="connect">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>Connecting</h2>
+    <p class="section-desc">Connecting is a <strong>toggle</strong>: green when connected, grey when not. The small text beside it is the version and protocol version of the program on the other end.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Connect / Connected</td><td><span class="t-type tt-btn">toggle</span></td><td>—</td><td>One button for both directions. <strong>Switching it off does more than disconnect</strong>: it also hands the adapter back so other programs can use it.</td></tr>
+          <tr><td class="t-name">Status light</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td>A lamp plus one line of status. Common ones: “Not connected”, “Cannot reach I2C Bridge”, “Connected (this page holds I2C)”, “I2C is held by another page”.</td></tr>
+          <tr><td class="t-name">I2C Bridge x.y.z · proto n</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td>Only has text once connected; empty otherwise. “proto” is the protocol version the two sides speak; some newer features need a new enough bridge (see below).</td></tr>
+          <tr><td class="t-name">I2C clock (kHz)</td><td><span class="t-type tt-txt">text input</span> + <span class="t-type tt-sel">dropdown</span></td><td>dropdown 50 / 100 / 200 / 400 / 1000; no upper limit when typed</td><td>Common values are in the dropdown, or type one. The small text underneath prints the <strong>frequency you will actually get</strong> (see the pitfall below). Reconnect for a change to take effect.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:22px;">Clock: the integer-division pitfall</h3>
+    <p>The adapter side converts the frequency with two <strong>integer</strong> divisions:</p>
+    <div class="callout">
+      <strong>divisor = (12000 / kHz) / 2 − 1　(both divisions truncate)</strong>
+      The actual frequency is therefore <code>12000 / (2 × (divisor + 1))</code> kHz. It <strong>does not validate the input and has no table of allowed steps</strong>: it accepts any value, and a value that does not divide evenly is silently turned into something else.
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>What you type</th><th>Type</th><th>divisor</th><th>Actual frequency</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">400</td><td><span class="t-type tt-num">kHz</span></td><td>14</td><td>400 kHz　✔ divides evenly</td></tr>
+          <tr><td class="t-name">350</td><td><span class="t-type tt-num">kHz</span></td><td>16</td><td><strong>352.94 kHz</strong>　← not the number you typed</td></tr>
+          <tr><td class="t-name">100</td><td><span class="t-type tt-num">kHz</span></td><td>59</td><td>100 kHz　✔</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color:var(--muted); font-size:.93rem;">That is why the small text always works out the real value for you, and marks it red when it differs from what you typed. That is more use than any warning.</p>
+
+    <div class="callout info">
+      <strong>Only one page holds the adapter at a time</strong>
+      Whichever page you switch to takes over automatically, with nothing to press. It will not be taken away while the other page is measuring. To hand the adapter back to another program, switch the connection toggle off.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 4. PARAMS ==================== -->
+<section id="params">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>Read / write parameters (shared)</h2>
+    <p class="section-desc">Reading and writing <strong>share</strong> the same slave address, offset width and start offset. Four groups, left to right: ① Slave address　② Offset　③ Total bytes　④ To device.</p>
+
+    <h3>① Slave address: 7-bit and 8-bit</h3>
+    <p>The three fields are <strong>three notations for the same address</strong>; change any one and the other two follow immediately.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">7-bit (actually sent)</td><td><span class="t-type tt-txt">text input</span> + <span class="t-type tt-sel">dropdown</span></td><td>0x00–0x7F; dropdown 0x68 / 0x50 / 0x3E / 0x7C / 0x7D</td><td><strong>This is the value that really goes onto the bus</strong>, which is why it is the highlighted field.</td></tr>
+          <tr><td class="t-name">8-bit write</td><td><span class="t-type tt-txt">text input</span></td><td>0x00–0xFF, even</td><td>= 7-bit &lt;&lt; 1. Typing an odd number <strong>corrects it on the spot and shows the corrected value</strong> — nothing is swapped behind your back.</td></tr>
+          <tr><td class="t-name">8-bit read</td><td><span class="t-type tt-txt">text input</span></td><td>0x00–0xFF, odd</td><td>= (7-bit &lt;&lt; 1) | 1. Typing an even number sets the low bit and shows the corrected value.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Why there are two notations</strong>
+      The first byte on an I2C bus is “7 address bits plus one read/write bit”. Some datasheets write that whole byte as the address (so the same part appears as “write 0xD0, read 0xD1”), others write only the 7 bits (0x68). Having all three side by side means <strong>you can copy whichever notation your datasheet uses</strong>.
+    </div>
+
+    <h3 style="margin-top:22px;">② Offset: width and start address</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Width (bytes)</td><td><span class="t-type tt-txt">text input</span> + <span class="t-type tt-sel">dropdown</span></td><td>dropdown 0 / 1 / 2 / 4 (default 2); 3 can be typed</td><td>How many bytes the address phase sends, <strong>MSB first</strong>. Anything above 4 is rejected before it is sent.</td></tr>
+          <tr><td class="t-name">Start offset</td><td><span class="t-type tt-txt">text input</span></td><td>0 – whatever that width can represent</td><td>Where to start reading or writing. Plain digits are hex; for decimal add <code>d</code> (e.g. <code>80d</code>) or prefix <code>#</code> (e.g. <code>#80</code>).</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Width</th><th>Type</th><th>Address phase</th><th>What the field means</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">0</td><td><span class="t-type tt-num">bytes</span></td><td><strong>no address phase</strong></td><td>“Start offset” is no longer an address but <strong>the single byte to be written</strong> (the label changes to “Value to write (1 byte)”). Reads start from wherever the device is, and the row headers show an index (<code>#0</code>…) instead of an address.</td></tr>
+          <tr><td class="t-name">1</td><td><span class="t-type tt-num">bytes</span></td><td>1 byte</td><td>0x00 – 0xFF</td></tr>
+          <tr><td class="t-name">2</td><td><span class="t-type tt-num">bytes</span></td><td>2 bytes (default)</td><td>0x0000 – 0xFFFF</td></tr>
+          <tr><td class="t-name">3</td><td><span class="t-type tt-num">bytes</span></td><td>3 bytes (24-bit)</td><td>Not in the dropdown — <strong>type 3</strong> to get it. If the I2C Bridge on the other end is too old, the small text says so before you send anything.</td></tr>
+          <tr><td class="t-name">4</td><td><span class="t-type tt-num">bytes</span></td><td>4 bytes</td><td>0x00000000 – 0xFFFFFFFF</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:22px;">③ Total bytes</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Total bytes</td><td><span class="t-type tt-txt">text input</span> + <span class="t-type tt-sel">dropdown</span></td><td>1 – 262144 (256K); dropdown 4096 / 8192</td><td><strong>Applies to reading only.</strong> The small text prints how many pages that is and how many transfers it will be split into.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <strong>This field is not a precondition for writing</strong>
+      How much a write sends is decided by <strong>the data on the table itself</strong> (or by which cells you selected) and has nothing to do with this field. An earlier version tied the two together, and “read 256, then load an 8192-byte file” locked the button solid. That was wrong; the two are separate now.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 5. READ ==================== -->
+<section id="read">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>Reading, and the two copies A and B</h2>
+    <p class="section-desc">Press “Read” to pull the data into the 16×16 table. The important part of this section is <strong>what A and B actually are</strong> — once that is clear, everything else on screen makes sense.</p>
+
+    <h3>A and B</h3>
+    <ul>
+      <li><strong>A is the reference</strong> (the snapshot). It is an independent copy and only changes when A is rebuilt.</li>
+      <li><strong>B is the copy you have now</strong> — what the table shows, and what a write sends out.</li>
+      <li>When both exist, <strong>clicking the A or B row switches which one you are looking at</strong>. While viewing A the table is <strong>read-only</strong> (it is the reference; it should not be edited).</li>
+    </ul>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>What happens</th><th>Type</th><th>A</th><th>B / source label</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">First read</td><td><span class="t-type tt-out">state</span></td><td>← what was read</td><td><strong>cleared</strong>; A is labelled “Read slave 0x·· · from 0x····”</td></tr>
+          <tr><td class="t-name">First file loaded</td><td><span class="t-type tt-out">state</span></td><td>← the file</td><td><strong>cleared</strong>; A is labelled with the file name</td></tr>
+          <tr><td class="t-name">A exists, another file loaded (same length)</td><td><span class="t-type tt-out">state</span></td><td>unchanged</td><td>← the file; B is labelled with the file name</td></tr>
+          <tr><td class="t-name">A exists, read again (same length)</td><td><span class="t-type tt-out">state</span></td><td>unchanged</td><td>← what was read; B is labelled “Read”</td></tr>
+          <tr><td class="t-name">Any cell edited</td><td><span class="t-type tt-out">state</span></td><td>unchanged</td><td>← the edited contents; B is labelled “Edited copy of A”</td></tr>
+          <tr><td class="t-name">“Snapshot A” pressed</td><td><span class="t-type tt-btn">button</span></td><td>← current contents</td><td><strong>cleared</strong>, diff list reset; A inherits the current source</td></tr>
+          <tr><td class="t-name">Different length (read or load alike)</td><td><span class="t-type tt-out">state</span></td><td>← <strong>the newer one</strong></td><td><strong>cleared</strong>; the old source label disappears</td></tr>
+          <tr><td class="t-name">Change slave, then read</td><td><span class="t-type tt-out">state</span></td><td>← the new read</td><td><strong>cleared</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>Two rules that are easy to misread</strong>
+      <strong>① Changing the slave does not by itself clear A</strong> — you have to change it <em>and</em> read. You might just be switching over to have a look.<br>
+      <strong>② Whenever A is rebuilt, B is cleared automatically.</strong> A and B are a pair; there is never a “new A with an old B”, which could not be compared anyway.
+    </div>
+
+    <h3 style="margin-top:22px;">Controls around reading</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Read</td><td><span class="t-type tt-btn">button</span></td><td>—</td><td>Fetches data using ①②③. Long reads show progress and an abort button; aborting stops at the next segment boundary and reports how far it got.</td></tr>
+          <tr><td class="t-name">Snapshot A</td><td><span class="t-type tt-btn">button</span></td><td>—</td><td>Stores <strong>the current contents</strong> as A for comparison. The side effect is in the tooltip: <strong>B is cleared and the diff list is reset</strong>.</td></tr>
+          <tr><td class="t-name">Save as</td><td><span class="t-type tt-btn">button</span> + <span class="t-type tt-sel">dropdown</span></td><td>.hex / .bin / .txt / .rom</td><td>Saves as much as was read. <code>.hex</code> is Intel HEX, 16 bytes per line. No connection needed — you can unplug and still save.</td></tr>
+          <tr><td class="t-name">Load file</td><td><span class="t-type tt-btn">button</span></td><td>.bin .hex .txt .rom .ihx .ihex .eep .dat .raw</td><td>The format is detected: Intel HEX, hex dump with addresses, plain hex text, raw binary. Address gaps in Intel HEX are filled with <code>0xFF</code> and the log says how many were inserted.</td></tr>
+          <tr><td class="t-name">Clear</td><td><span class="t-type tt-btn">button</span></td><td>—</td><td>Back to the “no data at all” state. <strong>The connection and the parameters are kept</strong>, so you can go straight into the next comparison.</td></tr>
+          <tr><td class="t-name">Page (0x ▢▢▢ 00)</td><td><span class="t-type tt-txt">text input</span> + <span class="t-type tt-btn">spinner</span></td><td>—</td><td>256 bytes per page. The leading <code>0x</code> and the trailing <code>00</code> are fixed; only the middle is editable.</td></tr>
+          <tr><td class="t-name">Go to (top-left of the table)</td><td><span class="t-type tt-txt">text input</span></td><td>—</td><td>Jumps to any address and draws the crosshair. If the address is not on the current page it <strong>turns to that page first</strong>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout danger">
+      <strong>What it means when everything reads back as 0xFF</strong>
+      An idle I2C bus sits high. All <code>FF</code> usually means <strong>nobody answered</strong>, not “the data really is FF”. Check the slave address, whether the board is powered, and whether the adapter is properly connected. Also: if the data <strong>repeats exactly every N bytes</strong>, you have probably read past the device capacity and the address wrapped to 0 — a sequential read does not error, it just repeats, so this page points it out.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 6. EDIT ==================== -->
+<section id="edit">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>Editing, selecting and searching</h2>
+    <p class="section-desc">The table is not just for looking at. Every cell can be edited in place; <strong>while connected, editing a cell really writes that cell</strong> (and immediately reads it back to verify). While not connected it only changes the local copy and marks it as “not written yet”.</p>
+
+    <h3>Three values per cell</h3>
+    <p>A cell holds up to three numbers: the large one in the middle is the <strong>main value</strong> (what a write would send), the small one at the top left is <strong>snapshot value A</strong>, and the one at the top right is <strong>the value that was swapped out, B</strong>. Top-left and top-right <strong>never appear at the same time</strong>:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>State</th><th>Type</th><th>Main value</th><th>Corners</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">State 1 (after editing)</td><td><span class="t-type tt-out">state</span></td><td>B (the new value)</td><td>top-left = A (snapshot); top-right empty</td></tr>
+          <tr><td class="t-name">State 2 (after clicking the top-left)</td><td><span class="t-type tt-out">state</span></td><td>A (snapshot)</td><td>top-left empty; top-right = B (the new value)</td></tr>
+          <tr><td class="t-name">A equals B</td><td><span class="t-type tt-out">state</span></td><td>that value</td><td>both corners empty (there is nothing to switch to)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <strong>Clicking a corner also really writes to the device</strong>
+      While connected, and when that cell is <em>not</em> in the “edited but not written” state, restoring it means genuinely changing the device — so a write is sent and read back. If the edit on that cell was never sent in the first place, clicking a corner only changes the local copy and sends nothing.
+    </div>
+
+    <h3 style="margin-top:22px;">Editing one cell</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action</th><th>Type</th><th>Key</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Start editing</td><td><span class="t-type tt-txt">mouse</span></td><td>single click</td><td>Selects the cell, draws the crosshair and goes straight into editing.</td></tr>
+          <tr><td class="t-name">Typing</td><td><span class="t-type tt-txt">keyboard</span></td><td>hex characters</td><td><strong>Display only; nothing takes effect</strong>, not even after two digits. Typing past two digits shifts left, like a calculator.</td></tr>
+          <tr><td class="t-name">Commit</td><td><span class="t-type tt-btn">keyboard / mouse</span></td><td>Enter, or leave the cell</td><td>A single digit is taken as a leading zero (<code>A</code> ⇒ <code>0A</code>). Connected ⇒ write plus read-back; not connected ⇒ local only, marked as not yet written.</td></tr>
+          <tr><td class="t-name">Cancel</td><td><span class="t-type tt-btn">keyboard</span></td><td>Esc</td><td>The value goes back to what it was.</td></tr>
+          <tr><td class="t-name">Bits (bit 7–0)</td><td><span class="t-type tt-chk">checkboxes</span></td><td>—</td><td>The side panel lists the eight bits of the selected cell; ticking one changes the value through <strong>exactly the same path as editing by hand</strong> (same write, same read-back verification).</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout info">
+      <strong>Per-cell writing is impossible at offset width 0</strong>
+      Without an address phase there is no way to say which cell to write. In that mode use the “Data to write” field above instead.
+    </div>
+
+    <h3 style="margin-top:22px;">Selecting which cells to write</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action</th><th>Type</th><th>Key</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Continuous selection</td><td><span class="t-type tt-txt">mouse / keyboard</span></td><td>Shift + click, or Shift + arrow keys</td><td>What gets selected is a <strong>linear address range</strong>, not a rectangle. Click 0x00, press Shift+Down, and 0x00 through 0x10 — 17 cells — are selected.</td></tr>
+          <tr><td class="t-name">Non-adjacent selection</td><td><span class="t-type tt-txt">mouse</span></td><td>Ctrl + click</td><td>Pick cells that are not next to each other, <strong>across pages too</strong>. Ctrl-clicking the same cell again deselects it.</td></tr>
+          <tr><td class="t-name">Clear the selection</td><td><span class="t-type tt-txt">mouse</span></td><td>plain single click</td><td>Drops the whole non-adjacent selection.</td></tr>
+          <tr><td class="t-name">Selection list</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td>At the top of the side panel, one line per run: continuous runs show start and end, non-adjacent picks get a line each. The heading also prints the total byte count and the number of runs.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout danger">
+      <strong>A non-adjacent selection re-issues the address for every run</strong>
+      Address auto-increment cannot cross a break. So <strong>each run re-issues its own slave address and offset</strong> — for the write itself, and for the read-back verification afterwards. The button spells it out as “Write N selected bytes · M segments”, and the activity log lists each run.
+    </div>
+
+    <h3 style="margin-top:22px;">Search</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Search field</td><td><span class="t-type tt-txt">text input</span></td><td>—</td><td>Finds bytes that are <strong>adjacent</strong>. The input goes through the <strong>same parser</strong> as “Data to write”: <code>61 41 B4</code>, <code>0x61,0x41</code>, <code>A1h</code> and <code>6141B4</code> are all accepted. Half a byte is always rejected — no guessing.</td></tr>
+          <tr><td class="t-name">Whole range / This page</td><td><span class="t-type tt-rad">radio</span></td><td>one of two</td><td>“This page” means <strong>the whole run must fall inside this 256-byte page</strong>; hits that straddle a page boundary are left to “Whole range”, so the same hit is never counted twice.</td></tr>
+          <tr><td class="t-name">▲ / ▼</td><td><span class="t-type tt-btn">buttons</span></td><td>—</td><td>Previous / next hit, <strong>wrapping at both ends</strong>. A hit on another page turns to that page and draws the crosshair.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 7. WRITE ==================== -->
+<section id="write">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>Writing, EEPROM and verification</h2>
+    <p class="section-desc">The button always says <strong>which copy this press writes, and how many bytes</strong>. After the write, the same range is read back and compared byte by byte, with the result at the top of the page.</p>
+
+    <h3>What gets written: the main values</h3>
+    <p>What goes out is <strong>the main value of each cell in the table</strong> (the large digit), not the “Total bytes” field and not the original file. In order of priority:</p>
+    <div class="steps">
+      <div class="step"><h4>Something selected ⇒ only those cells</h4><p>The button says “Write N selected bytes”, plus “· M segments” when the selection is in several runs.</p></div>
+      <div class="step"><h4>Nothing selected ⇒ the whole copy being shown</h4><p>The button says “Write A/B · N bytes”. <strong>No file name on the button</strong> — the file name is already on the A/B rows, and a long one would stretch the button out of shape.</p></div>
+      <div class="step"><h4>Offset width 0 ⇒ only the single byte in ③</h4><p>Without an address phase that is the only thing that can be written in this mode.</p></div>
+    </div>
+
+    <h3 style="margin-top:22px;">EEPROM: page size and segment gap</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Page size</td><td><span class="t-type tt-sel">dropdown</span></td><td>8 / 16 / 32 / 64 / 128 / 256 B, or “No paging”</td><td>An EEPROM page write has a hardware limit, and <strong>a continuous write that crosses a page wraps around inside that page</strong> — silently writing the wrong thing. Choosing a smaller value is always safe (just slower); only a larger one causes damage.</td></tr>
+          <tr><td class="t-name">Target segment gap</td><td><span class="t-type tt-txt">text input</span></td><td>milliseconds; default 5</td><td>This is <strong>the gap you can measure on the bus between segments</strong>, not “how much extra to sleep”. The fixed overhead is measured per segment by the I2C Bridge and subtracted by it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout danger">
+      <strong>The gap is a device specification, not a knob to turn down</strong>
+      After receiving a segment, an EEPROM needs time to commit it to memory (<strong>tWR</strong>, the internal write cycle). During that time it <strong>does not respond</strong>. Not waiting long enough means the data <strong>silently fails to program</strong> — no error, no warning; you only find out on read-back. Values below 5 ms are marked red. The common 24C32/24C64 need 5 ms; older AT24C32 parts need 10 ms.
+    </div>
+    <div class="callout warn">
+      <strong>A slave in 0x50–0x57 asks for the part first</strong>
+      Those eight addresses are the conventional ones for I2C EEPROMs. Before writing, a window asks you to pick the <strong>part</strong> — not the page size — because you know the part in your hand is a 24C32, but you may not remember its page size. Pick the part and the page size is filled in for you, so it cannot be wrong. Each slave is asked once; it asks again after reconnecting, or when the range about to be written exceeds the capacity already confirmed.
+    </div>
+
+    <h3 style="margin-top:22px;">Read-back verification</h3>
+    <ul>
+      <li>After the write the same range is <strong>read back automatically</strong> and compared byte by byte. A non-adjacent selection is <strong>read back run by run, each re-issuing its address</strong>.</li>
+      <li>All identical ⇒ a green line: “Write and read-back match exactly: N bytes verified, all identical.”</li>
+      <li>Any mismatch ⇒ a red line with <strong>how many bytes differ</strong>; the first few are printed as “address: wrote 0x··, read back 0x··” and the rest go to the activity log. Those cells turn red in the table.</li>
+      <li>Cannot be read back ⇒ it says plainly that it <strong>cannot confirm</strong> whether the data was programmed. It never pretends to have succeeded.</li>
+      <li>Failed or aborted part-way ⇒ it spells out <strong>which addresses were written and which were not</strong>, i.e. that the device now holds half-updated contents.</li>
+    </ul>
+
+    <h3 style="margin-top:22px;">Difference list and checksum</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Type</th><th>Range / options</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Differences (Address / Data A / Data B)</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td><strong>Only differing addresses are listed</strong>; identical ones are not. Clicking a row jumps to that address in the dump and draws the crosshair — it <strong>only navigates, it does not change values</strong>. Edit values in the dump itself.</td></tr>
+          <tr><td class="t-name">Compare again</td><td><span class="t-type tt-btn">button</span></td><td>—</td><td>Re-runs the comparison with the current A and B. If the two cannot be compared (different length / slave / offset) it says so.</td></tr>
+          <tr><td class="t-name">checksum (one on the A row, one on B)</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td><strong>Every byte of the whole copy added together</strong>, with <strong>no modulo and no truncation</strong>, shown in hex, growing as many digits as the value needs. It is computed from the <strong>main values</strong> (the copy that would be written) and recomputed the moment any cell changes.</td></tr>
+          <tr><td class="t-name">Timing log</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td>Byte count, total time, path taken and verdict for every read and write. Entries from one operation are boxed together so they are easy to compare.</td></tr>
+          <tr><td class="t-name">Activity log</td><td><span class="t-type tt-out">read-only</span></td><td>—</td><td>Slave, offset width, address and bytes of every read and write, in full. One button copies the whole thing.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout info">
+      <strong>Why the checksum is not truncated</strong>
+      Some tools take the sum modulo 16 bits (<code>% 0x10000</code>). This page deliberately does not: with a file as large as 256K bytes, whatever it adds up to is what it shows. This was cross-checked against real files whose names already carry the checksum computed by another tool — truncating would have made those two values disagree with their own file names.
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 8. FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>FAQ</h2>
+    <p class="section-desc">Click a question to expand the answer.</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>It keeps saying “Cannot reach I2C Bridge”, but I have it running</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Three possibilities, in order: <strong>①</strong> the browser’s “allow local network access” was denied — this page can tell that case apart and shows a separate line asking you to allow it, plus a retry button; <strong>②</strong> the last line in the console window is not <strong>G</strong>, meaning it did not start properly — keep <code>i2c-bridge.log</code>; <strong>③</strong> the four files are not all in the same folder.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Everything reads back as FF</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">That is usually <strong>not data</strong> — it is nobody answering (an idle bus sits high). Check the slave address, whether the board is powered, and whether the adapter is connected. To check the whole path quickly, use “Self-test (golden vector)” in diagnostic mode.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The write went through but nothing was stored, and there was no error</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">On an EEPROM this is almost always <strong>too short a segment gap</strong>: the device is still committing the previous segment when the next one arrives, so it does not respond — and a continuous write does not report that. Raise “Target segment gap” to 5 ms or more (10 ms for older parts) and do not pick a page size larger than the real one. Read-back verification exists to catch exactly this.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I typed 350 kHz but the small text says 352.94</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">That is correct. The frequency is derived with two <strong>integer</strong> divisions (<code>divisor = (12000 / kHz) / 2 − 1</code>), so a value that does not divide evenly is silently turned into something else. The small text prints <strong>what you will actually get</strong>; to land exactly, pick a value that divides evenly (50 / 100 / 200 / 400 / 1000).</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The difference list suddenly shows 0, but the data clearly differs</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">That means the two copies <strong>cannot be compared</strong> (different length, slave or start offset). In that case the newer one becomes the <strong>new A</strong> and diffing is disabled. The activity log has a line explaining why. Press “Snapshot A” to establish a reference again.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Cells in the table will not respond or will not take a new value</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Three cases: <strong>①</strong> you are viewing <strong>A (the reference)</strong>, which is read-only — click the row below to switch back to B; <strong>②</strong> the offset width is 0, and without an address phase there is no per-cell write; <strong>③</strong> an I2C transfer is in progress. Being disconnected does <strong>not</strong> stop you editing — that is deliberate: prepare the values offline, then write them in one go once connected.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>The data read back repeats itself every so often</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Usually you have <strong>read past the device capacity</strong>: the address wrapped to 0 and it started over. A sequential read does not error, it just repeats, so this page mentions it as soon as it detects a period. Reduce the total byte count to within the real capacity.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>Another tab took the adapter away from me</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">Only one page holds the adapter at a time. Whichever page you switch to takes over automatically, with nothing to press — except while the other page is <strong>measuring</strong>, when it will not be taken, and the screen says so.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>I switched language but the older lines in the activity log did not change</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">That is deliberate. The activity log is a <strong>timestamped transcript</strong>: each line records what happened at that moment, so it keeps the language it was written in. Every line produced <strong>after</strong> the switch is in the new language. Everything else on screen (buttons, fields, hints, banners, the timing log, the A/B rows) changes immediately.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>I2C Read / Write Test — User Guide</strong></p>
+  <p style="margin-top:6px;"><a href="i2c.html">Open the tool</a> · <a href="index.html">Back to the toolbox</a></p>
+  <p style="margin-top:8px; opacity:.65;">This guide is updated together with the tool and is not part of the tool’s version numbering.<br>This tool is an engineering aid; results are for reference only. Refer to the official documentation for actual specifications.</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+/* 🔴 這一頁沒有 .zone 互動示意圖，所以文案物件是空的（範本 §6.4：按需保留或整段刪掉）。
+   **留著空物件而不是連同這幾行一起刪**：`.zone` 的走訪與 hover/click 綁定是範本的共用
+   骨架，刪掉會讓這一頁與母版分岔；日後要加示意圖時把文案填回來即可。
+   🔴 從 calc-guide 抄過來的那六條 calc 專用文案已整批移除 —— 那些字在這一頁
+   一個字都不會被顯示，留著只會讓人搜到不相干的內容。 */
+const zoneDescriptions = {};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' matches';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+/* 🔴 這一頁沒有 .key 鍵帽示範，理由同 zoneDescriptions：保留骨架、清空文案。 */
+const keyMap = {};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = 'Press number key <code>' + k + '</code> → toggle cursor <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>.<br>First press: the cursor appears and <strong>follows the mouse</strong>; left-click on the canvas to <strong>pin it</strong>; press the same key again while it is pinned to <strong>go back to following</strong>; press it once more while it is following to <strong>remove</strong> that cursor.';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>

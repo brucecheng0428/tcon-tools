@@ -31,6 +31,7 @@ const fs = require('fs'), path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_FILES = ['i2c.html'];
+/* 🔴 v1.24.0：文案已大量搬進 common/i18n.js，那一份由下面「第一關之二」掃。 */
 
 /* 🔴 例外，兩類，都刻意寫得很窄：
 
@@ -134,6 +135,61 @@ for (const f of files) {
     }
   });
 }
+/* ═══ 🔴🔴 第一關之二：`common/i18n.js` 裡的 `i2c.*` 文案（v1.24.0 補）════════
+   **這一段是本閘門的救命稻草。** v1.24.0 把 i2c.html 整頁三語化，使用者看得到的
+   每一句話都從 HTML／JS 搬進了 `common/i18n.js` —— 上面那一關只掃 `i2c.html`，
+   搬完之後它**看到的字幾乎歸零，卻會照樣印綠燈**。
+   這正是 CLAUDE.md 記著的那一種失效：「檢查工具看不到第二份東西所以一直全綠」。
+   ⇒ 文案搬到哪裡，閘門就要跟到哪裡。
+
+   只取 key 以 `i2c.` 開頭的那些條目的**值**（三種語言都掃）；
+   其他工具的 key 不在 Bruce 這條指示的範圍內，不連坐。
+   註解行照樣跳過（`stripComments` 已經處理）。 */
+/* 🔴 逐 key 的豁免，**一條一個理由**，與上面 ALLOW 表同一條規矩。
+   這裡不是放寬 BANNED 的樣式（那會讓整張表一起失效），而是點名三個 key ——
+   點名的東西日後一眼就看得到，也隨時可以被質疑。 */
+const I18N_ALLOW_KEYS = {
+  /* 這兩個是 debug 區那個「三相時脈」開關本身與它的狀態 log。
+     它們在 i2c.html 裡本來就已經豁免（開關那一行標了 `dbgonly`＝規則 A；
+     log 那一行在上面的 ALLOW 表裡＝規則 B），搬進字典之後不該因為換了位置就變成違規。
+     Bruce 2026-09-19 明確要求「一次量完三相開與關兩種」，log 不寫是哪一種他對不起來。 */
+  'i2c.chk3Phase': 'debug 區的開關，i2c.html 裡原本就由 dbgonly 豁免',
+  'i2c.log3Phase': 'debug 開關的狀態 log，原本就在 ALLOW 表裡',
+  /* 這一條的 zh-TW 原文是 v1.22.0 就在畫面上的既有文案，本來就寫著
+     「12 MHz / 2(div+1) 的公式」與「分頻值」—— 上面那一關放它過只是因為
+     BANNED 沒有中文樣式，不是因為它乾淨。英文只是**忠實翻譯同一句話**。
+     🔴 而且這個詞在這裡是必要的：這句話存在的唯一目的就是告訴他
+     「你填的 kHz 在分頻公式下不存在」，拿掉公式他就不知道該改成什麼。
+     （要收掉的話該連 zh-TW 一起重寫，那是另一次 UI 文案改動，不在本版範圍。） */
+  'i2c.errClkDiv': 'zh-TW 原文（v1.22.0 既有）本來就講分頻公式，英文為忠實翻譯',
+};
+const I18N_FILE = path.join(ROOT, 'common', 'i18n.js');
+if (fs.existsSync(I18N_FILE)) {
+  scanned++;
+  const src = stripComments(fs.readFileSync(I18N_FILE, 'utf8')).split('\n');
+  let curKey = null;
+  src.forEach((line, i) => {
+    const km = line.match(/'([a-zA-Z0-9]+\.[A-Za-z0-9_]+)'\s*:/);
+    if (km) curKey = km[1];
+    if (!curKey || !curKey.startsWith('i2c.')) return;
+    if (I18N_ALLOW_KEYS[curKey]) return;
+    /* 只看字串字面值本身（三語的值），不看 key 名字 */
+    const vals = line.match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g) || [];
+    const text = vals.filter(v => !/^'(zh-TW|en|zh-CN)'$/.test(v)
+                              && !/^'[a-zA-Z0-9]+\.[A-Za-z0-9_]+'$/.test(v)).join('  ');
+    if (!text.trim()) return;
+    for (const [re, hint] of BANNED) {
+      const m = text.match(re);
+      if (m) {
+        console.log(`  🔴 i18n.js:${i + 1}  ${curKey} 出現「${m[0]}」 ⇒ ${hint}`);
+        console.log(`       ${line.trim().slice(0, 110)}`);
+        bad++;
+        break;
+      }
+    }
+  });
+}
+
 /* ═══ 🔴 第二關：bridge 回傳的 `err` 字串（v1.16.0 補）══════════════════════
    為什麼要補：2026-09-19 這一行原封不動出現在 Bruce 的畫面上 ——
      `write is not implemented on the vendor DLL path yet (SendBytesEx unwired);
