@@ -474,14 +474,24 @@ async function recordEnterAndPaint(key, altIdx) {
   ok(/ACK/.test(P.ackNote(0x00)), 'ackNote(0x00) 說 ACK', P.ackNote(0x00));
   ok(!/\{k:/.test(P.ackNote(0x42)), 'ackNote 回的是字，不是內部描述子', P.ackNote(0x42));
 
-  /* ═══ 10. 通訊自檢的判定（純函式）══════════════════════════════════════ */
-  console.log('\n── 10. 通訊自檢判定 ───────────────────────────────────────');
-  ok(P.commVerdict([0xA1, 0xD8, 0xFB]).state === 'pass', '黃金向量 ⇒ pass');
-  ok(P.commVerdict([0xA1, 0xD8, 0xFC]).state === 'mismatch', '對不上 ⇒ mismatch');
+  /* ═══ 10. 匯流排讀回測試的判定（純函式）════════════════════════════════
+     🔴 v1.2.0 把 PASS／FAIL 整個拿掉了，這一節跟著改寫。
+        原因（Bruce 2026-09-20 實機）：黃金向量 A1 D8 FB 是「某一顆 IC 上某一份
+        code」讀出來的值，**不是硬體身分** —— 拿它當期望值會對所有其他 code 報
+        一個假的 FAIL。現在只分「讀得到（read）」與「讀不到（noread）」。
+     🔴 這幾條是**反向釘子**：哪天有人把判定接回去，這裡會亮紅燈。 */
+  console.log('\n── 10. 匯流排讀回測試（v1.2.0 起不再判對錯）────────────────');
+  ok(P.commVerdict([0xA1, 0xD8, 0xFB]).state === 'read', '舊的黃金向量 ⇒ read（不再是 pass）');
+  ok(P.commVerdict([0x61, 0x41, 0xB4]).state === 'read', 'Bruce 實機那一組 ⇒ read（不再是 mismatch）');
+  ok(P.commVerdict([0x00, 0x00, 0x00]).state === 'read', '全 0 也是 read（讀得到就是讀得到）');
   ok(P.commVerdict([]).state === 'noread', '讀不到 ⇒ noread');
   ok(P.commVerdict([0xA1]).state === 'noread', '只有 1 byte ⇒ noread');
-  ok(/A1 D8 FB/.test(P.commVerdict([0x01, 0x02, 0x03]).text), 'mismatch 的訊息講出期望值',
-     P.commVerdict([0x01, 0x02, 0x03]).text);
+  ok(!/PASS|FAIL/i.test(P.commVerdict([0x01, 0x02, 0x03]).text),
+     '訊息裡沒有 PASS／FAIL 字樣', P.commVerdict([0x01, 0x02, 0x03]).text);
+  ok(!/A1 D8 FB/.test(P.commVerdict([0x01, 0x02, 0x03]).text),
+     '訊息裡也不再提「期望值」', P.commVerdict([0x01, 0x02, 0x03]).text);
+  ok(/01 02 03/.test(P.commVerdict([0x01, 0x02, 0x03]).text),
+     '只把讀回的值原樣報出來', P.commVerdict([0x01, 0x02, 0x03]).text);
 
   /* ═══ 11. 換階等待 ════════════════════════════════════════════════════ */
   console.log('\n── 11. 換階等待 ───────────────────────────────────────────');
