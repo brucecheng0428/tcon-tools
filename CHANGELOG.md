@@ -22,6 +22,104 @@
 
 ---
 
+## I2C（讀寫測試）(i2c) v1.21.1 — 2026-09-20 ｜ PATCH ｜ 🔴 **exe 重編：bridge 1.15.0 → 1.15.1（proto 維持 4）**
+
+**根因抓到了：tWR 要求等 5 ms，這台機器上 `Sleep(5)` 實際等 11.2 ms。tWR 的等待改走高解析度計時器，不再經過 `Sleep`。**
+
+### 依據：Bruce 2026-09-20 的實機 log 自己的分項（不是推論）
+
+bridge 1.15.0、網頁 v1.21.0、`mode=0`（`DLL_I2C_BCB.dll`）、確認走 `batchwrite`、1 次往返、41 則進度：
+
+```
+batch : DONE -- 256/256 segments, 8192/8192 bytes, 4308 ms total
+        (device 1400 ms, tWR 2846 ms), 41 progress messages, 1 request round-trip
+```
+
+| | 總計 | 每段 | 要求值 |
+|---|---|---|---|
+| `SendBytesEx` 本身 | 1400 ms | 5.5 ms | — |
+| **tWR 等待** | **2846 ms** | 🔴 **11.2 ms** | 5 ms ⇒ **2.2 倍** |
+| 其餘 | 62 ms | 0.2 ms | — |
+
+`batch_wait_twr()` 在 `ackpoll=0`（預設）時做的就是 `Sleep(twr)` ＝ `Sleep(5)`
+⇒ **這台機器上 Sleep 的解析度根本不是 1 ms。** 他的 OS 是 Windows 10.0 build 26100。
+
+🔴 **這同時解釋了 v1.15.0「整批化之後反而更慢」**：舊路徑的 5 ms 等待發生在**瀏覽器**（`setTimeout(5)` 大約就是 5 ms），搬進 bridge 用 `Sleep(5)` 變 11.2 ms ⇒ 省下的 255 次往返被多出來的 6.2 ms × 255 ≈ **1.6 s** 吃光還有找。
+
+### 改了什麼
+
+**① tWR 的等待改成高解析度可等待計時器 ＋ QPC 補足自旋**（`i2c_bridge.c` 的 `precise_wait_ms()`）
+
+`CreateWaitableTimerExW(..., CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, ...)` ＋ `SetWaitableTimer` 負值相對時間（Win10 1803+），最後 **0.3 ms** 用 `QueryPerformanceCounter` 自旋補足。
+
+- 不用純 `Sleep`：上面那 11.2 ms 就是它。
+- 不用純自旋：256 段 × 5 ms ＝ 1.3 秒忙等，對筆電不友善。
+- 不用「`Sleep(twr − margin)` ＋ 自旋」：margin 要抓多大取決於 Sleep 的解析度，而那正是這台機器上的**未知數**。計時器把未知數換成「建立成功了沒有」這個開機當場判定得出來的事實。
+- 建立失敗 ⇒ **退回 `Sleep(twr)`**，並在 log 與 batchwrite 的結果裡標明（`waitmode: sleep`），不假裝成功。
+
+🔴 **等待時間只能 ≥ 要求值**（tWR 是裝置規格，等不夠是**靜默寫不進去**，比慢更糟）：計時器只負責「要求值 − 0.3 ms」，最後一律自旋到 `t0 + 要求值` 才返回，誤差一律往長邊倒。
+
+**② 開機自檢改成實測，不再印假設**
+
+v1.15.0 的橫幅寫死 `timeBeginPeriod(1) OK (Sleep(1) is now ~1ms, not ~15.6ms)` —— 那句話被上面那份 log 打臉，而且**它讓讀 log 的人把 Sleep 排除在嫌疑之外**，這一輪因此繞了一圈。`timeBeginPeriod(1)` 回 0 只代表**請求被接受**。現在改成開機實際量（QPC 計時、取中位數、n 與 min/max 一併印）：
+
+```
+  timer   : wait backend: high-resolution waitable timer + QPC top-up spin
+  timer   :   (CreateWaitableTimerExW(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION) OK)
+  timer   : MEASURING the actual wait resolution on THIS machine with QueryPerformanceCounter --
+  timer   :   precise_wait(5)    = median   5.33 ms for a requested 5 ms  (n=5, min 5.13, max 5.54)   <-- this is what tWR uses
+  timer   :   Sleep(5)           = median  16.14 ms for a requested 5 ms  (n=2, min 16.06, max 16.23)   <-- what 1.15.0 used for tWR
+  timer   :   Sleep(1)           = median  16.30 ms for a requested 1 ms  (n=2, min 16.10, max 16.49)   <-- libMPSSE's per-byte wait (not ours)
+  timer   :   (the three probes above cost 91.6 ms of start-up in total)
+```
+
+（上面這份是 Linux 上**模擬 15.6 ms tick** 跑出來的樣張，不是他的機器。）預算三等分、一種等待一份 —— 共用一個先到先用的池子踩過：precise 與 Sleep(5) 就把預算用光，`Sleep(1)` 被跳過，而**粒度粗的機器正是最需要那個數字的機器**。
+
+**③ batchwrite 的結果要能覆核**
+
+DONE 摘要保留既有的 `device`／`tWR` 分項，另加一行，result JSON 同步加 `twrreqms`／`twravgms`／`twrwaits`／`waitmode`：
+
+```
+batch : tWR -- requested 5 ms per page, ACTUALLY waited 5.17 ms per page on average
+        (16 ms over 3 waits); device 0.02 ms per segment; wait backend: high-resolution
+        waitable timer + QPC top-up spin
+```
+
+平均低於要求值時 log 會自己大聲喊（這是不該發生的事，不是可以安靜帶過的事）。
+
+### 明確沒有做的
+
+- 🔴 **tWR 的值一個毫秒都沒有改短，沒有跳過任何一段的等待。** 這一版只修「等 5 ms 卻等了 11 ms」。
+- `ackpoll` 的邏輯與它的自我校準守衛**一律未動**（預設仍關）。
+- 分頁、中止、進度、讀取路徑、ACK 守衛、時序**一律未動**。
+
+### ⚠️ 一個記下來供日後驗證的觀察（**本版不據此改任何行為**）
+
+`ackpoll` 的守衛每次都觸發（第一次探針就成功 ⇒ 判定探針測不出忙碌），**有可能**是因為 `SendBytesEx` 自己就花了 5.5 ms，等它返回時裝置的寫入週期其實已經快結束或結束了。若為真，tWR 的等待有一部分是多餘的。
+
+🔴 **這是假說，沒有硬體證據，而且猜錯就是靜默寫壞。** 留在這裡等實機驗證，這一版一個毫秒都不因此縮短。
+
+### 驗證
+
+| 項目 | 結果 |
+|---|---|
+| `test_wait`（**本版新增**） | **32/32**。含「30 次 `precise_wait_ms(5)` 沒有任何一次短於 5 ms」「這條路徑一次都沒呼叫 `Sleep()`」「要求 1/2/5/10 ms 各 8 次都不短」「計時器建不起來時退回 Sleep **也不短**」「橫幅裡那句寫死的話真的不在了」 |
+| `test_server` | **216/216**（v1.15.0 為 205；新增 §11f 驗 tWR 的回報與平均值）。§11f 量測：要求 5 ms，實際平均 **5.17 ms**／段，同時 shim 的 `Sleep()` 被量化成 15.6 ms tick ⇒ 走 Sleep 會是 ~47 ms |
+| `test_proto` | 240/240（未退步） |
+| `test_ackguard` | 32/32（未退步） |
+| `test_vendor_len` | 43/43（未退步） |
+| `i2c_tool_selftest.js` | 1228/1228（76 組，未退步） |
+| `ui_probe.sh i2c.html` | 通過（主機端 Chrome） |
+| exe | `file` ⇒ `PE32 executable (console) Intel 80386`、machine `0x014c`、subsystem 3；333,312 byte（1.15.0 為 327,680）；SHA256 `06ee7b8e7370b5c019f26550abd35591937e12138f0304d93a3c5baffaac5c96` |
+| zip | `data/i2c-bridge-v1.15.1.zip`，402,770 byte（1.15.0 為 400,163），SHA256 `35535405ba7288de0d2cb5a03dbf873af40052369f21f9d4c4bd45b2e1185600`。**四個檔都在**；三支 DLL 從 v1.15.0 的包原樣搬過來，SHA 逐一比對相同（libMPSSE `916584df…`、ftd2xx `46cff89a…`、DLL_I2C_BCB `d441d08e…`）；解壓後四個檔的 SHA256 重算一致 |
+| 舊包 | `v1.15.0`／`v1.14.0`／`v1.13.0`／`v1.12.0` **一律保留不刪** |
+
+🔴 **驗不到（誠實列出）**：**他那台機器上 tWR 實際會降到幾毫秒。** 理論上應該從 11.2 ms 降到接近 5 ms，但 Windows 高解析度計時器的真實精度、他筆電的電源策略、`SendBytesEx` 的 5.5 ms —— 全部只有他的硬體能量。test_wait 的 tick 是**模擬**的，只證明「等待路徑不依賴 `Sleep` 的粒度」這個結構性事實。**本條目不宣稱他那邊現在是 5 ms。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。操作流程**完全沒變**（沒有新按鈕、沒有東西移位）；能做的事**沒有多一件**（R3 ⇒ 不到 MINOR）；起始狀態與預設值未變（R4 不適用）；本質是「修好一個等太久的 bug ＋ 效能修正」⇒ §2 案例 2（修 bug）與案例 9（效能優化、行為不變）皆判 **PATCH**。`⚠ 輸出變更` **不標**：寫進 EEPROM 的**資料**一個 byte 都沒變（`test_server` §11f 逐 byte 比對），改變的只有耗時顯示，而耗時本來就是每次執行都不同的量測值、不可能是回歸基線。bridge exe 與 zip 換版屬於**同一次改動的配套**（不另計級別，與 v1.13.0／v1.15.0 的處理一致）。取最高者 → **PATCH**，`v1.21.0` → **v1.21.1**。
+
+---
+
 ## I2C（讀寫測試）(i2c) v1.21.0 — 2026-09-20 ｜ MINOR ｜ ⚠ 輸出變更 ｜ 🔴 **exe 重編：bridge 1.14.0 → 1.15.0（proto 3 → 4）**
 
 **EEPROM 整批寫入改成「一次請求」交給 I2C Bridge，由它自己分頁、自己等 tWR —— 網頁↔bridge 的往返從 256 次變成 1 次。同時整批寫入第一次有了進度條與中止鍵。**

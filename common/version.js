@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.53.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.21.0',       // I2C（讀寫測試）
+  i2c:     'v1.21.1',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -113,11 +113,37 @@ var HELPER_PKG = {
      SHA 逐一比對相同：libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…），
      只有 exe 換掉。exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386，
      machine 0x014c、subsystem 3。 */
-  pkg:    'v1.15.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.15.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  /* 🔴 v1.15.1（2026-09-20）：exe **有重編** —— tWR 的等待不再用 `Sleep`。
+     根因是 Bruce 的實機 log 自己的分項，不是推論：`batch : DONE -- 256/256
+     segments, 8192/8192 bytes, 4308 ms total (device 1400 ms, tWR 2846 ms)`
+     ⇒ tWR **2846 ÷ 255 ＝ 每次 11.2 ms，而要求值是 5 ms**（2.2 倍）；
+     `SendBytesEx` 自己是 1400 ÷ 256 ＝ 5.5 ms。`batch_wait_twr()` 在 ackpoll
+     關閉（預設）時做的就是 `Sleep(5)` ⇒ **這台機器上 Sleep 的解析度不是 1 ms。**
+     這也解釋了 v1.15.0 整批化之後反而更慢：舊路徑的 5 ms 等待在**瀏覽器**
+     （`setTimeout(5)` 約就是 5 ms），搬進 bridge 變 11.2 ms ⇒ 省下的 255 次
+     往返被多出來的 6.2 ms × 255 ≈ 1.6 s 吃光還有找。
+     🔴 改成**高解析度可等待計時器**（CreateWaitableTimerExW ＋
+        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION）＋ 最後 0.3 ms 用 QPC 自旋補足；
+        建不起來就退回 Sleep，並在 log 與結果裡標明走了哪一條。
+     🔴 **等待只能 ≥ 要求值**（tWR 是裝置規格，等不夠是靜默寫不進去）——
+        tools/i2c-bridge/test/test_wait.c 32 項逐次釘住，含退路那一條。
+     🔴 開機自檢**不再印假設**：v1.15.0 橫幅寫死「Sleep(1) is now ~1ms」，
+        被這份 log 打臉。改成實測 precise_wait(5)／Sleep(5)／Sleep(1) 的中位數
+        並列印出（總成本 < 100 ms）。
+     🔴 batchwrite 的結果與 log 多回 twrreqms／twravgms／twrwaits／waitmode。
+     🔴 **不得宣稱他那邊的 tWR 現在是幾毫秒** —— 理論上應從 11.2 降到接近 5，
+        實際只有他的硬體能量。proto 維持 4（只有新增欄位）。
+     🔴 **v1.15.0／v1.14.0／v1.13.0／v1.12.0 的包一律保留不刪**（Bruce 裁示：
+        舊包是他在外地時當場能走的退路）。
+     包內四個檔不變，三支 DLL 從 v1.15.0 的包**原樣搬過來**，SHA 逐一比對相同：
+     libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…；只有 exe 換掉。
+     exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386、machine 0x014c、
+     subsystem 3；zip 解出來後四個檔的 SHA256 逐一重算相同。 */
+  pkg:    'v1.15.1',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.15.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  4,                             // wire protocol 版本（4 起有 batchwrite／abortwrite／progress）
-  file:   'data/i2c-bridge-v1.15.0.zip',
-  bytes:  400163,                             // zip 位元組數（打包後填）
-  zipSha: '3e8973f90f07e0b14845f63e880b9a51b378c60594f751e86e04cc2c786eaad3',
-  exeSha: '8e9dc3baef4d348d69605a71b3a271f57dd992d3f45acbe689213554161ceb1c'
+  file:   'data/i2c-bridge-v1.15.1.zip',
+  bytes:  402770,                             // zip 位元組數（打包後填）
+  zipSha: '35535405ba7288de0d2cb5a03dbf873af40052369f21f9d4c4bd45b2e1185600',
+  exeSha: '06ee7b8e7370b5c019f26550abd35591937e12138f0304d93a3c5baffaac5c96'
 };

@@ -752,6 +752,62 @@ int main(void){
                     free(hb);
                 }
             }
+            /* ═══════════════════════════════════════════════════════════════
+               §11f 🔴🔴 tWR 的等待與它的回報（1.15.1）
+               ───────────────────────────────────────────────────────────────
+               根因（Bruce 2026-09-20 實機 log）：tWR 要求 5 ms，實際每次 11.2 ms
+               （2846 ms ÷ 255）。`Sleep(5)` 在他那台機器上就是 11.2 ms。
+               這一節從**真 socket** 這一端驗兩件事：
+                 (1) 回覆講得出「要求幾 ms／實際平均幾 ms／等了幾次／走哪一條等待」
+                     —— 他下次給 log 我不必自己除（Dispatch 明列）
+                 (2) 平均**不低於要求值**，而且**沒有被 Sleep 的粒度綁住**
+               做法：把 shim 的 `Sleep()` 量化成 15.6 ms tick（**模擬** Windows，
+               見 test_wait.c 的說明）。走 Sleep 的話 3 次等待會是 ~47 ms；
+               走高解析度計時器則是 ~15 ms。
+               🔴 這裡的毫秒數是 Linux 上的**模擬**，不得引用成他機器上的數字。 */
+            G("11f. 🔴 tWR：回報要求值／實際平均／等待實作，且平均不低於要求值");
+            {
+                double twrms=-1.0, avg=-1.0; long waits=-1, reqms=-1;
+                char* p;
+                dgh_fake_eeprom_reset(32,2,0xFF);
+                dgh_fake_writes=0;
+                dgh_shim_sleep_tick_ms=15.6;          /* 模擬粗 tick 的 Windows */
+                o=(size_t)snprintf(req,cap,"{\"type\":\"batchwrite\",\"id\":80,\"slave\":80,\"addr\":0,"
+                                           "\"awid\":2,\"page\":32,\"twr\":5,\"len\":128,\"data\":[");
+                for(i=0;i<128;i++) o+=(size_t)snprintf(req+o,cap-o,"%s%u",i?",":"",(unsigned)(i&0xFF));
+                o+=(size_t)snprintf(req+o,cap-o,"]}");
+                ws_send_n(B,req,o);
+                buf[0]=0;
+                for(;;){
+                    if(!ws_recv(B,rbuf,200000)) break;
+                    if(strstr(rbuf,"\"type\":\"progress\"")) continue;
+                    if(strstr(rbuf,"\"type\":\"result\"")){ snprintf(buf,sizeof(buf),"%s",rbuf); break; }
+                }
+                dgh_shim_sleep_tick_ms=0.0;           /* 還原，別影響後面 */
+                CHECKS(buf,"\"ok\":true","128 byte / page 32 寫成功");
+                CHECKS(buf,"\"segs\":4","分成 4 段");
+                CHECKS(buf,"\"twrreqms\":5","🔴 回覆帶**要求的** tWR（5 ms）");
+                CHECKS(buf,"\"twrwaits\":3","🔴 回覆帶等了幾次（4 段 ⇒ 3 次，最後一段不等）");
+                CHECKS(buf,"\"waitmode\":\"hires\"","🔴 回覆帶等待實作（hires ＝ 高解析度計時器）");
+                if((p=strstr(buf,"\"twravgms\":"))) avg =atof(p+11);
+                if((p=strstr(buf,"\"twrms\":")))    twrms=atof(p+8);
+                if((p=strstr(buf,"\"twrwaits\":")))  waits=atol(p+11);
+                if((p=strstr(buf,"\"twrreqms\":")))  reqms=atol(p+11);
+                printf("      [量測] tWR 要求 %ld ms；實際平均 %.2f ms／段（總計 %.0f ms ÷ %ld 次）\n",
+                       reqms, avg, twrms, waits);
+                printf("      [量測] 同一時間 shim 的 Sleep() 被量化成 15.6 ms tick（模擬 Windows）"
+                       " ⇒ 走 Sleep 會是 ~47 ms\n");
+                CHECK(avg >= 5.0, "🔴🔴 實際平均**不低於**要求的 5 ms（tWR 等不夠＝靜默寫不進去）");
+                CHECK(avg < 8.0,  "🔴 也沒有被 Sleep 的 15.6 ms tick 綁住（1.15.0 就是綁住了）");
+                CHECK(twrms < 3*15.6, "🔴 三次等待的總計遠低於三個 tick");
+                EQ_I(dgh_fake_writes, 4, "4 段都真的寫出去了（省時間不是靠少寫）");
+                {   int bad=-1;
+                    for(i=0;i<128;i++) if(dgh_fake_mem[i]!=(unsigned char)(i&0xFF)){ bad=i; break; }
+                    EQ_I(bad, -1, "🔴 內容逐 byte 正確（改等待沒有動到資料）");
+                }
+                EQ_I(dgh_fake_wraps, 0, "沒有頁內回捲");
+            }
+
             dgh_fake_eeprom=0;            /* 還原，不影響後面（目前沒有後面，但不留地雷） */
             free(req); free(rbuf); free(want);
             close(B); msleep(200);
