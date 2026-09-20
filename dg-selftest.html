@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260920dst130"></script>
+<script src="common/version.js?v=20260921dst140"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -99,6 +99,25 @@
 
   .dst-warn-box { border: 1.5px solid var(--warn); border-radius: 8px; padding: 10px;
                   background: #2b2207; font-size: 12.5px; line-height: 1.65; }
+  /* v1.4.0：只有一行的警告（DG 開啟時）。不用框，框會把一行字撐成一個區塊。 */
+  .dst-warn-line { margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: var(--warn); }
+  /* v1.4.0：DG 強制開／關的核取方塊，貼在狀態值右邊（同一列，不另開一行）。 */
+  .dst-ck { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px;
+            font-family: inherit; font-size: 12px; color: var(--text-sub); cursor: pointer; }
+  .dst-ck input { cursor: pointer; }
+  .dst-ck input:disabled { cursor: not-allowed; }
+  .dst-ck:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+
+  /* ═══ v1.4.0：識別到的型號要一看就知道 ════════════════════════════════════
+     Bruce 2026-09-20：「請把識別到的 TCON 用明顯的方式 highlight 出來。」
+     撞號時右邊接一個下拉（合併在同一行，不另開一區）。 */
+  .dst-icline { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .dst-icname { font-size: 20px; font-weight: 800; letter-spacing: .5px; color: var(--accent);
+                background: #0b2a3c; border: 1.5px solid var(--accent); border-radius: 8px;
+                padding: 4px 12px; }
+  /* 還沒認出來 ⇒ 不要用高亮的樣子（高亮的「—」看起來像認出了一顆叫「—」的 IC）。 */
+  .dst-icname.dst-na { color: var(--text-sub); background: transparent; border-color: var(--border);
+                       font-size: 14px; font-weight: 600; }
   .dst-hidden { display: none !important; }
 
   /* ═══ v1.2.0：量測失敗的警告視窗 ═════════════════════════════════════════
@@ -161,16 +180,21 @@
     </div>
   </div>
 
-  <!-- ═══ 0. 未經實機驗證的警語 ═══════════════════════════════════════════
-       🔴 這一段一個字都不能拿掉，直到有人拿真機跑過為止。
-          出處：dg-measure.html 的同一句警語（那一頁自述七顆 IC 全部未驗）。 -->
-  <div class="card">
-    <div class="card-body">
-      <div class="dst-warn-box" data-i18n="dst.unverified">⚠ 這一頁會寫入 TCON 的暫存器。全部七顆 IC 的寫入序列都是逐行照抄上游工具 V1.5.0 的反組譯，但**沒有任何一顆在真機上跑過**。第一次用請先確認手上的板子是可以重刷的。</div>
-    </div>
-  </div>
-
-  <!-- ═══ 1. 連線 ═══════════════════════════════════════════════════════ -->
+  <!-- ═══ 1. 連線 ═══════════════════════════════════════════════════════
+       ═══ 🔴 v1.4.0：這張卡砍掉六項 ═════════════════════════════════════════
+       Bruce 2026-09-20 第三輪，逐條：
+         ·「不要有那個警告（說明什麼這一頁會寫入 TCON 的暫存器）…全部 7 顆 IC
+            寫入序列都是逐行照抄上游工具，不要寫這些東西」⇒ 整張警語卡**移除**
+            （不是縮短、不是收折）。
+         ·「請把識別到的 TCON 用明顯的方式 highlight 出來」⇒ 型號變成大字。
+         ·「0xFF IC 的 ID 不用列出來，沒有人會記得這個東西」⇒ 移除那一列。
+         ·「匯流排讀回測試也不用秀出來」⇒ 移除那一列與它的說明段。
+         ·「可寫入位置不用列出來，下面一大堆文字都可以拿掉」⇒ 移除那一列 ＋
+            自動識別說明 ＋ slave 掃描那一行。
+         ·「實際上板子上是哪一顆，應該直接合併在 IC 型號那邊」⇒ 撞號下拉直接
+            放在型號旁邊，不再自成一區、不再有 why 說明句。
+       🔴 被移除的**功能一個都沒有掉**：匯流排讀回測試（dstCommTest）與 ID 比對
+          照跑，結果進交易 log；只是不再佔畫面。診斷資訊留在「紀錄」那張卡。 -->
   <div class="card">
     <div class="card-header"><span class="icon">🔌</span><span data-i18n="dst.hdLink">I2C 連線與 IC 識別</span></div>
     <div class="card-body">
@@ -178,37 +202,31 @@
         <button id="dst-link" class="dst-toggle" aria-pressed="false"><span id="dst-link-txt" data-i18n="dst.stOff">未連線</span></button>
         <button id="dst-probe" class="dst-btn" data-i18n="dst.btnProbe">重新識別</button>
       </div>
-      <div style="margin-top:10px">
-        <div class="dst-kv"><span data-i18n="dst.kvBridge">I2C Bridge</span><span id="dst-v-bridge" class="dst-na">—</span></div>
-        <!-- 🔴 v1.2.0：這一列只報「讀回什麼」，**不做任何對錯判定**。見 dstCommVerdict。 -->
-        <div class="dst-kv"><span data-i18n="dst.kvComm">匯流排讀回測試</span><span id="dst-v-comm" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.kvId">0xFF00（IC ID）</span><span id="dst-v-id" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.kvIc">IC 型號</span><span id="dst-v-ic" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.kvRes">解析度</span><span id="dst-v-res" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.kvWr">可寫入位址</span><span id="dst-v-wr" class="dst-na">—</span></div>
+
+      <!-- 🔴 識別到的型號：一看就知道是哪一顆。撞號時右邊那個下拉才出現
+           （沒有撞號就完全不佔位）—— 這就是「合併在 IC 型號那邊」。 -->
+      <div class="dst-icline">
+        <span id="dst-v-ic" class="dst-icname dst-na">—</span>
+        <select id="dst-alt" class="dst-sel dst-hidden" aria-label="IC"></select>
       </div>
-      <!-- 🔴 v1.2.0：這一行是 Bruce 2026-09-20 的原話所指
-           （「只要是有不同的 code，這邊的設定就會不一樣，千萬不要用這個來判別」）。
-           它必須在畫面上，不能只寫在註解裡。 -->
-      <div class="dst-note" data-i18n-html="dst.commNote">「匯流排讀回測試」只證明 I2C 讀得到東西；<b>讀回的值會隨 code 不同而不同，不能用來判斷是哪一顆 T-CON</b>，本頁也不拿它做任何判定。型號一律看下面的 0xFF00 ID。</div>
 
-      <!-- ═══ v1.2.0：識別是自動的 —— 這一行講清楚 ═════════════════════════
-           Bruce 2026-09-20：「它是會自動識別嗎？為什麼我看到的可選擇的只有
-           EM02A1 跟 V512S1、S2 這兩個呢？」
-           🔴 下拉只在**撞號**時出現，卻讓人以為「只支援這幾顆」。所以這裡如實說
-              支援幾顆、怎麼判的。顆數不寫死，由 DST_ICS 算出來（表改了字就跟著改）。 -->
-      <div class="dst-note" id="dst-auto-note">&nbsp;</div>
-
-      <!-- 撞號二選一：只有識別到的那一組 ID 分不出兩顆時才出現 -->
-      <div id="dst-alt-box" class="dst-hidden" style="margin-top:10px">
-        <div class="dst-note" id="dst-alt-why"></div>
-        <div class="dst-row" style="margin-top:6px">
-          <label for="dst-alt" style="font-size:12.5px;font-weight:700" data-i18n="dst.altPick">實際板子上是哪一顆</label>
-          <select id="dst-alt" class="dst-sel"></select>
+      <div style="margin-top:8px">
+        <div class="dst-kv"><span data-i18n="dst.kvBridge">I2C Bridge</span><span id="dst-v-bridge" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvRes">解析度</span><span id="dst-v-res" class="dst-na">—</span></div>
+        <!-- 🔴 v1.4.0：DG 開關。量到的曲線是不是「已被 DG 修過」全看這一列。
+             右邊那個核取方塊可以**強制開／關**（＝原廠 PQ Tool CCT 頁的
+             `CCTDGEnableCkbx`，PQ/CCTForm.cs:2324–2331＋394–404）。 -->
+        <div class="dst-kv">
+          <span data-i18n="dst.kvDg">DG</span>
+          <span>
+            <span id="dst-v-dg" class="dst-na">—</span>
+            <label class="dst-ck"><input type="checkbox" id="dst-dg-ck" disabled><span data-i18n="dst.dgForce">強制</span></label>
+          </span>
         </div>
       </div>
+      <!-- DG 開啟時才出現的一行黃字（關閉／未知時完全不佔位） -->
+      <div class="dst-warn-line dst-hidden" id="dst-dg-warn"></div>
 
-      <div class="dst-note" id="dst-fixed">&nbsp;</div>
       <div class="dst-say" id="dst-say-link"></div>
 
       <!-- ═══ I2C Bridge：下載入口 ＋ 兩句必要的說明（v1.1.0）═══════════════
@@ -269,8 +287,16 @@
            併成**這一顆切換鈕**（Bruce 2026-09-20：「後面 L127 加中心十字應該也
            只要分一個按鈕就好了，按下去就是 L127 加中心十字，取消的話就回到原本
            的狀態」）。字也由 JS 依狀態換（見 dstRenderPick）。 -->
+      <!-- 🔴 v1.4.0：**拿掉 `.pri`**。Bruce 2026-09-20：「對位畫面 L127 加中心
+           十字，在沒有成立的情況下，它應該是要用灰色，不要那麼明顯 highlight。
+           這樣看起來很像是按下去一樣。」
+           ⇒ 關的時候就是一般的灰鈕（.dst-btn），開的時候才變綠（.dst-btn.on，由
+             dstRenderPick 加）。`.pri` 的藍底讓它在**關著**的狀態也很搶眼，
+             跟旁邊四顆色鈕的「選取態」長得太像 —— 那才是他說的「看起來像按下去」。
+           🔴 這只是**外觀**：對位畫面開不開，與「開始掃描」能不能按**完全無關**
+             （見 dstRenderBtns 上方那一段）。 -->
       <div class="dst-row" style="margin-top:10px">
-        <button class="dst-btn pri" id="dst-align" aria-pressed="false">對位畫面（L127 ＋ 中心十字）</button>
+        <button class="dst-btn" id="dst-align" aria-pressed="false">對位畫面（L127 ＋ 中心十字）</button>
       </div>
       <div class="dst-note" data-i18n="dst.alignNote">按一次出對位畫面（L127 灰底＋正中心紅十字，十字線寬不可調）；再按一次離開出圖模式，面板回到原本的畫面。</div>
       <div class="dst-say" id="dst-say-pattern"></div>
@@ -355,9 +381,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260920dst130"></script>
-<script src="common/xlsx.js?v=20260920dst130"></script>
-<script src="common/common.js?v=20260920dst130"></script>
+<script src="common/i18n.js?v=20260921dst140"></script>
+<script src="common/xlsx.js?v=20260921dst140"></script>
+<script src="common/common.js?v=20260921dst140"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -481,6 +507,13 @@ var dstSettleUsedMs = DST_SETTLE_DEFAULT;   // 進迴圈前抓一次，迴圈中
      cursor — SetCursorON / SetCursorOFF / SetCursorON(h,w)
      wr     — 🔴 **本顆允許寫入的位址區間**（白名單）
      alts   — 撞號時的另一顆：可覆寫 ud／cursor.clk／cursor.ctl，並追加 wr 區間
+     dgEn   — 🔴 **DG（Digital Gamma）開關的讀取位址**（v1.4.0 新增，只讀不寫）
+              `{ addr, bit, depthBit?, targetBit?, src }`
+              🔴 **本頁永遠不寫這個位址**，而且它**不在任何一顆的 wr 白名單裡** ——
+                 關 DG 會改變 IC 狀態，上游工具也只在使用者自己去勾 CCT 頁那個
+                 勾選框時才寫（PQ/CCTForm.cs:394–404）。要關請他自己關。
+              depthBit／targetBit 只有 EM01／EM02 有（register bank 對得上）；
+              其餘顆**刻意留空**，不猜。
 
    🔴 三個坑（實際覆核七顆之後）：
       ① 同一個 ptg base 不代表同一組 offset：EM02A1 與 VM02S1 的 base 都是
@@ -512,7 +545,9 @@ var DST_ICS = [
               off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L1768–1806' },
     wr: [[0x0200, 0x02FF], [0x0001, 0x0001], [0xFF20, 0xFF25]],
     obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } },
-    agingEn: { addr: 0x0255, bit: 7 }
+    agingEn: { addr: 0x0255, bit: 7 },
+    /* 🔴 只讀，**永遠不寫**（見 DST_ICS 上方 dgEn 欄位說明）。 */
+    dgEn: { addr: 0x002F, bit: 0, src: 'IP/RaydiumE512A1.cs:1738-1766' }
   },
   {
     key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0],   // L395–405
@@ -537,7 +572,11 @@ var DST_ICS = [
     cursor: { clk: { addr: 0x0003, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x97, or: 0x12 },
               off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2830–2866' },
     wr: [[0x0200, 0x02FF], [0x0003, 0x0003], [0xFF20, 0xFF25]],
-    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } },
+    /* 🔴 V512S1 是七顆裡唯一「讀／寫不同址」的：Get 讀 0x005D bit0、Set 卻寫
+       0x0003 bit7（IP/RaydiumV512S1_RM80120.cs:2699-2727）。本頁**只讀**，所以
+       這個歧異碰不到；寫的那一個位址刻意不記在這裡，免得下一個人接上去。 */
+    dgEn: { addr: 0x005D, bit: 0, src: 'IP/RaydiumV512S1_RM80120.cs:2699-2727 (Get)' }
   },
   {
     key: 'EM01A1', name: 'EM01A1', id: [0x01, 0xEF, 0xA0],   // L419–429
@@ -565,6 +604,12 @@ var DST_ICS = [
         wr: [[0x0003, 0x0003]] }
     ],
     agingEn: { addr: 0x1268, bit: 0 },
+    /* 🔴 EM01／VM01S1：dgm_top base 0x1160 的第 0 個 byte。三方（PQ Tool 反組譯
+       ＋ register bank ＋ AN-DG p15）逐位元吻合，所以同一個 byte 的另外兩位也讀：
+         bit1 reg_dgm_8bit12bit_en（0: 10-bit LUT depth / 1: 12-bit）
+         bit2 reg_dgm_target_en   （0: Offset LUT / 1: Target LUT） */
+    dgEn: { addr: 0x1160, bit: 0, depthBit: 1, targetBit: 2,
+            src: 'IP/RaydiumEM01A1_RM80100.cs:2695-2723 + BANK-EM01 dgm_top h0000' },
     wr: [[0x1200, 0x12FF], [0x0002, 0x0002], [0xFF20, 0xFF25]],
     obs: { icid: { addr: 0xFF00, len: 3 }, agbsen: { addr: 0xFFC5, bit: 1 },
            agingRo: { addr: 0xE801, bit: 0 } }
@@ -601,6 +646,10 @@ var DST_ICS = [
     ],
     /* 規格書 EM02 的 ptg：h005d bit6 ＝ reg_ptg_aging_en */
     agingEn: { addr: 0x0C5D, bit: 6 },
+    /* 🔴 EM02A1／V512S2：sys 0x005D。bit1 是 eng_mode（不是深度），深度在 bit2、
+       型態在 bit3 —— 與 EM01 **不同位**，照 BANK-EM02 逐格抄，不要「整理成一致」。 */
+    dgEn: { addr: 0x005D, bit: 0, depthBit: 2, targetBit: 3,
+            src: 'IP/RaydiumEM02A1.cs:2826-2854 + BANK-EM02 sys h005D' },
     wr: [[0x0C00, 0x0CFF], [0x0003, 0x0003], [0xFF20, 0xFF25]],
     obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
   },
@@ -620,7 +669,11 @@ var DST_ICS = [
     cursor: { clk: { addr: 0x0004, or: 0x20 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
               off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L3431–3468' },
     wr: [[0x0C00, 0x0CFF], [0x0004, 0x0004], [0xFF20, 0xFF25]],
-    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } },
+    /* 🔴 VM02S1 只有 DG_EN 那一位查得到出處（PQ Tool 反組譯）。同一個 byte 的
+       深度／型態在哪一位**沒有 register bank 可以對**，所以這裡不填 —— 猜一個
+       位元出來，畫面上就會出現一個沒有依據的「12-bit / Target」。 */
+    dgEn: { addr: 0x008A, bit: 0, src: 'IP/RaydiumVM02S1.cs:3298-3326' }
   }
 ];
 
@@ -640,7 +693,11 @@ var dstAltIdx = -1;            // 撞號時使用者選的替代顆（-1 ＝ 用
 var dstIdRaw = null;
 var dstSlave = DST_SLAVES[0];
 var dstBridgeVer = '', dstBridgeProto = 0;
-var dstRes = { w: 1920, h: 1080, from: 'default' };
+/* 🔴 v1.4.0：`from` 的值域是 'none'／'tm'／'sys'。**沒有 'default' 了** ——
+   起始狀態就是「還沒讀到」，畫面上不會出現一個沒有來源的數字（見 dstReadRes）。
+   十字置中仍然需要一組數字才畫得出來，那組數字**只**來自這裡，而且畫面會明講。 */
+var DST_RES_FALLBACK = { w: 1920, h: 1080 };
+var dstRes = { w: DST_RES_FALLBACK.w, h: DST_RES_FALLBACK.h, from: 'none' };
 var dstInitPtg = null;         // SetAgingMode(true) 之前的 soft.addr 原值（還原用）
 var dstInitAux = null;         // E512A1 的 0x0255 原值（bit7）
 var dstInPattern = false;      // 有沒有進過出圖模式（中止時要講清楚畫面停在哪）
@@ -892,30 +949,31 @@ async function dstScanIdentify() {
   }
   dstLog('-- scan result: ' + results.join('   '));
 
+  /* 🔴 v1.4.0：0xFF00 的三個 byte 與 slave 標籤**不再顯示在畫面上**（Bruce：
+     「0xFF IC 的 ID 不用列出來，沒有人會記得這個東西」）。兩者照舊全部進交易
+     log（上面那兩行 `-- scan …`），要追的時候在「紀錄」那張卡看得到。 */
   if (!chosen) {
     dstIdRaw = null; dstIc = null; dstAltIdx = -1;
-    dstShow('dst-v-id', dstT('dst.idNone'), false);
     dstShow('dst-v-ic', dstT('dst.icNone'), false);
-    dstRenderAlt(); dstRenderWr();
+    dstRenderAlt(); dstRenderDg();
     return;
   }
   dstSlave = chosenSlave;
   dstIdRaw = chosen;
   dstIc = dstMatchIc(chosen);
   dstAltIdx = -1;
-  dstShow('dst-v-id', dstHex(chosen) + '  (slave ' + dstSlaveLabel(chosenSlave) + ')', true);
   if (dstIc) {
-    /* 🔴 v1.2.0：明寫「自動識別」。Bruce 2026-09-20 問「它是會自動識別嗎？」——
-       會，而且一直都是（掃 slave → 讀 0xFF00 → 比對 ID 表）。畫面上沒有一個字
-       說出來，才會讓那個撞號下拉看起來像「只支援這幾顆」。 */
-    dstShow('dst-v-ic', dstT('dst.icAuto', { name: dstIcName(), id: dstHex(chosen) }) + dstAlsoText(dstIc), true);
+    /* 🔴 v1.4.0：只印型號（大字高亮，見 .dst-icname）。「自動識別」與 ID 那些
+       字都拿掉了 —— 型號自己就說明了它被認出來這件事。 */
+    dstShow('dst-v-ic', dstIcName() + dstAlsoText(dstIc), true);
     dstLog('== IC = ' + dstIc.key + '  slave ' + dstSlaveLabel(chosenSlave), 'o');
   } else {
     dstShow('dst-v-ic', dstT('dst.icUnknown'), false);
     dstSay('dst-say-link', dstT('dst.sayIcUnknown', { id: dstHex(chosen) }));
     dstLog('== IC unknown, id=' + dstHex(chosen) + ' -> writes disabled', 'e');
   }
-  dstRenderAlt(); dstRenderWr();
+  dstRenderAlt();
+  await dstReadDgEn();      // v1.4.0：認出 IC 之後立刻讀 DG_EN（讀而已，失敗靜默）
 }
 
 /* ═══ 匯流排讀回測試（與 IC 認不認得完全解耦）═════════════════════════════
@@ -957,29 +1015,256 @@ async function dstCommTest() {
   dstSlave = saved;
   var v = dstCommVerdict(bytes);
   /* 讀得到 ⇒ 正常字色（不是綠色的「通過」，只是「有值」）；讀不到 ⇒ 灰掉＋紅字說明。 */
-  dstShow('dst-v-comm', v.text, v.state === 'read');
+  /* 🔴 v1.4.0：畫面上那一列已經移除（Bruce：「匯流排讀回測試也不用秀出來」）。
+     **測試照跑**，結果走兩條路：讀得到 ⇒ 只進交易 log；讀不到 ⇒ 那是真的有問題，
+     仍然在說話行講出來。⇒ 這裡不再對任何 DOM 元素寫字。 */
+  dstLog('-- bus read-back ' + dstAddrText(DST_COMM_ADDR) + ' x' + DST_COMM_LEN + ' -> ' + v.text,
+    v.state === 'read' ? 'o' : 'e');
   if (v.state !== 'read') dstSay('dst-say-link', v.text);
   return v;
 }
 
+/* ═══ 🔴 DG（Digital Gamma）開關 —— v1.4.0 ════════════════════════════════
+   Bruce 2026-09-20：「DGEN 的 check 這個很重要，要從 I2C 的方式去確認 DGEN 有開
+   還是沒開。最好把它顯示出來。」
+
+   ═══ 為什麼這一項重要（規格 §23.4／§28.1 #1）══════════════════════════════
+   送進 PTG 的 12-bit 值**與 DG_EN 無關**（原廠全樹查證：碰 DG_EN 的 4 個地方與
+   算出送出值的 5 支函式交集是空集合）。DG_EN 改變的是 IC 內部：
+     DG_EN=0 ⇒ DGM bypass ⇒ 面板收到的就是送出去的值 ⇒ 量到**面板原生曲線**
+     DG_EN=1 ⇒ 送出去的值被當成索引（高 8 bit）查 DG LUT ⇒ 面板收到 LUT[索引]
+               ⇒ 量到的是**已經被 DG 修過一次的曲線**
+   後者拿去算新 LUT 會疊在舊的上面（過修），而且**完全安靜**：畫面正常、數字
+   正常、筆數正常。這一列的唯一目的就是讓它不再安靜。
+
+   ═══ 三條硬規矩 ═══════════════════════════════════════════════════════════
+   🔴 ① **只讀，永遠不寫。** 關 DG 會改變 IC 狀態；上游也只在使用者自己去勾
+        CCT 頁那個勾選框時才寫。dgEn 的位址**不在任何一顆的 wr 白名單裡**，
+        所以就算有人日後手滑接了寫入，dstWriteReg 也會擋下來。
+   🔴 ② **讀不到就是「未知」，不准用預設值假裝讀到了。**（Bruce 明示）
+   🔴 ③ 全 0xFF ⇒ 判為**匯流排無回應**，不是「DG 開著」。沿用 dstIsBusIdle 這個
+        既有判準（不是為這裡新發明的），否則探頭沒接好會顯示成「DG 開啟中」。 */
+var dstDg = { state: 'unknown', raw: null, depth: null, target: null, whyKey: null };
+/* 狀態 → 人看得懂的字。三個 key 都是字面值（見 dstSetDgEn 裡那段說明）。 */
+function dstDgStateText(st) {
+  if (st === 'on') return dstT('dst.dgOn');
+  if (st === 'off') return dstT('dst.dgOff');
+  return dstT('dst.dgUnknown');
+}
+/* 純函式：把讀回來的那個 byte 解成狀態。分開寫是為了讓夾具不必假造 I2C 就驗得到。 */
+function dstDgDecode(byteVal, d) {
+  var v = byteVal & 0xFF;
+  var o = { state: ((v >> d.bit) & 1) ? 'on' : 'off', raw: v, depth: null, target: null, whyKey: null };
+  if (d.depthBit != null)  o.depth  = ((v >> d.depthBit) & 1) ? 12 : 10;
+  if (d.targetBit != null) o.target = ((v >> d.targetBit) & 1) ? 'target' : 'offset';
+  return o;
+}
+async function dstReadDgEn() {
+  var d = dstIc && dstIc.dgEn;
+  if (!d) {
+    dstDg = { state: 'unknown', raw: null, depth: null, target: null,
+              whyKey: dstIc ? 'dst.dgWhyNoAddr' : 'dst.dgWhyNoIc' };
+    dstRenderDg(); return dstDg;
+  }
+  try {
+    var b = await dstReadReg(d.addr, 1);
+    if (!b || !b.length) throw new Error('short read');
+    if (dstIsBusIdle(b.slice(0, 1))) {
+      dstDg = { state: 'unknown', raw: 0xFF, depth: null, target: null, whyKey: 'dst.dgWhyIdle' };
+    } else {
+      dstDg = dstDgDecode(b[0], d);
+    }
+  } catch (e) {
+    dstDg = { state: 'unknown', raw: null, depth: null, target: null, whyKey: 'dst.dgWhyReadFail' };
+  }
+  dstLog('-- DG_EN ' + dstAddrText(d.addr) + ' bit' + d.bit + ' -> ' + dstDg.state
+    + (dstDg.raw === null ? '' : ' (raw=0x' + ('0' + dstDg.raw.toString(16).toUpperCase()).slice(-2) + ')'),
+    dstDg.state === 'on' ? 'w' : 'o');
+  dstRenderDg();
+  return dstDg;
+}
+
+/* ═══ 🔴🔴 v1.4.0：強制開／關 DG ══════════════════════════════════════════
+   Bruce 2026-09-20：「這個 DGEN 開啟跟關閉的功能，應該要做得跟原廠的 PQ Tools
+   一樣，可以點選核取方塊來強制開啟或強制關閉。」
+
+   ═══ 原廠那顆核取方塊做什麼 —— 查到的與查不到的，分開講 ═══════════════════
+   ✅ 查得到：勾／取消 ⇒ `SetDGEn(true/false)`，**沒有任何前後序列**
+      （`PQ/CCTForm.cs:394–404`；全程式碰 DG_EN 的只有 4 個地方，
+        規格 §29.2(a) 的 grep 已窮舉：兩個 Get、兩個 Set，沒有停更新、沒有
+        reload LUT、沒有重下 pattern）。
+   ❌ 查不到：**`SetDGEn` 自己那 28 行的逐行內容**。規格 §23.1 只給了
+      「位址 ＋ 位元 ＋ 行號區間」（例如 `IP/RaydiumEM01A1_RM80100.cs:2695–2723`），
+      沒有貼出它是整個 byte 覆寫還是 read-modify-write。
+   ⇒ 依 Bruce 指示「查不到就明說查不到，並且只做最小的 bit0 讀改寫」：
+      **讀 1 byte → 只動 bit0 → 寫回同一個位址 → 再讀一次確認。**
+      不補任何原廠沒有的動作。
+
+   ═══ 🔴 為什麼這裡走 `rawwrite` 而不是 `write`（唯一的例外，寫下來備查）═════
+   I2C Bridge 的 `write` 自己有一份位址白名單（`DGH_WR_RANGES`：0x0001–0x0004／
+   0x0200–0x02FF／0x0C00–0x0CFF／0x1200–0x12FF／0xFF20–0xFF25）。
+   **四顆的 DG_EN 位址（0x1160／0x005D／0x002F／0x008A）沒有一個在裡面** ⇒ 走
+   `write` 會被 bridge 回 `addr blocked by bridge whitelist`，這個功能在**現有的
+   exe 上一定不會動**。要改 bridge 就得重新編譯、重發下載包、讓所有人重過一次
+   SmartScreen —— 那是另一件事，不能夾帶。
+   ⇒ 這一支改走 `rawwrite`（bridge 端不套白名單、但**逐筆寫進 log**）。
+   🔴 代價（誠實列出）：這一個位址少了 bridge 那一層防線。補償是把網頁這一層
+      收到最窄，而且**只有這一支**可以走 rawwrite：
+        · 位址只能是 `dstIc.dgEn.addr`（認不出 IC ⇒ 直接拒絕）
+        · 長度固定 1 byte
+        · 值必須是「剛剛讀回來的那個 byte 只改 bit0」—— 其餘 7 位逐位元比對，
+          不同就拒絕送出（dstDgEnFrame 是純函式，夾具直接驗）
+      ⇒ 就算上面的邏輯全錯，能寫出去的也只有那一個 byte 的那一位。
+   🔴 出圖那條路**一個字都沒動**：dstWriteReg 仍然是 `write` ＋ 白名單。 */
+/* 純函式：給定讀回來的 byte 與目標狀態，算出要寫回去的 byte。
+   回 null ＝ 不該寫（參數不合理）。 */
+function dstDgEnFrame(cur, bit, on) {
+  if (typeof cur !== 'number' || !isFinite(cur)) return null;
+  if (typeof bit !== 'number' || bit < 0 || bit > 7) return null;
+  var v = cur & 0xFF, m = (1 << bit);
+  return on ? (v | m) : (v & ~m & 0xFF);
+}
+/* 純函式：這一筆 rawwrite 准不准送出。**唯一的判準**是「只有 bit0 變了」。 */
+function dstDgEnWriteOk(cur, next, bit) {
+  if (typeof cur !== 'number' || typeof next !== 'number') return false;
+  var m = (1 << bit);
+  return ((cur & 0xFF) & ~m & 0xFF) === ((next & 0xFF) & ~m & 0xFF);
+}
+async function dstSetDgEn(on) {
+  var d = dstIc && dstIc.dgEn;
+  if (!d) { dstSay('dst-say-link', dstT(dstIc ? 'dst.dgWhyNoAddr' : 'dst.dgWhyNoIc')); return false; }
+  if (!dstLinked) { dstSay('dst-say-link', dstT('dst.errNotLinked')); return false; }
+  dstSay('dst-say-link', '');
+  try {
+    // ① 讀現值（read-modify-write 的 read）
+    var b = await dstReadReg(d.addr, 1);
+    if (!b || !b.length) throw new Error('short read');
+    if (dstIsBusIdle(b.slice(0, 1))) throw new Error('bus idle');
+    var cur = b[0] & 0xFF;
+    var next = dstDgEnFrame(cur, d.bit, on);
+    // ② 只動 bit0 —— 這一關過不了就什麼都不送
+    if (next === null || !dstDgEnWriteOk(cur, next, d.bit)) throw new Error('frame refused');
+    if (next === cur) {
+      dstLog('-- DG_EN already ' + (on ? 'ON' : 'OFF') + ', nothing written', 'o');
+    } else {
+      dstLog('W* ' + dstAddrText(d.addr) + ' <- 0x' + ('0' + next.toString(16).toUpperCase()).slice(-2)
+        + '  (was 0x' + ('0' + cur.toString(16).toUpperCase()).slice(-2) + ', bit' + d.bit + ' only)', 'w');
+      var r = await dstSend({ type: 'rawwrite', slave: dstSlave, addr: d.addr, data: [next], awid: 2 });
+      if (!r || !r.ok) throw new Error(dstT('dst.errWriteFail', { addr: dstAddrText(d.addr),
+        status: (r && r.status != null) ? r.status : '?' }));
+    }
+    // ③ 🔴 讀回確認 —— 讀回值與預期不符**絕不靜默當成功**
+    await dstReadDgEn();
+    if (dstDg.state !== (on ? 'on' : 'off')) {
+      /* 🔴 key 一律寫成完整字面值，**不要用字串相加把 key 拼出來**。
+         tools/scan_untranslated_keys.js 掃的是呼叫裡的字面值；拼出來的 key 它看不到
+         ⇒ 翻譯漏了不會有人叫，而 t() 查不到時會**回傳 key 本身**，靜靜印在畫面上。
+         這一行原本是拼的，掃描器因此報了一個半截的、根本不存在的 key。
+         🔴 同理，註解裡也不要寫出呼叫的樣子 —— 掃描器連註解一起掃，寫了就變偽陽性。 */
+      dstSay('dst-say-link', dstT('dst.dgWriteMismatch',
+        { want: dstT(on ? 'dst.dgOn' : 'dst.dgOff'), got: dstDgStateText(dstDg.state) }));
+      dstLog('!  DG_EN write did not stick: wanted ' + (on ? 'on' : 'off') + ', read back ' + dstDg.state, 'e');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    dstSay('dst-say-link', dstT('dst.dgWriteFail', { err: dstErrMsg(e) }));
+    dstLog('!  DG_EN write failed: ' + dstErrMsg(e), 'e');
+    await dstReadDgEn();        // 失敗之後畫面要回到 IC 的真實狀態，不是使用者按的那個
+    return false;
+  }
+}
+
 /* ═══ 解析度 ═════════════════════════════════════════════════════════════
-   上游工具是讓使用者在下拉裡選（它從不讀 0xFF26/0xFF28）。本頁**多做一件事**：
-   連線後自動讀那兩個暫存器帶入（讀沒有副作用、白名單不擋讀）。
-   讀到不合理就沉默放棄，沿用預設。reg_tmg_hres/vres 是 12 bit ⇒ 最大 4095。 */
+   上游工具是讓使用者在下拉裡選（`PQ/Form1.cs:1159–1182`，19 項預設 ＋ User define，
+   **它從不讀 IC**）。本頁多做一件事：連線後自己去 IC 讀（讀沒有副作用、白名單不擋讀）。
+
+   ═══ 🔴 v1.4.0：根因與修法（Bruce 2026-09-20）═════════════════════════════
+   他的原話：「解析度的部分，不是 PC 電腦的解析度喔，你這邊是不是有問題？你應該
+   要去讀 TCON 畫面內部暫存器的解析度。」
+
+   **根因不是讀錯位址，是「讀不到的時候在說謊」**：
+     · `dstRes` 的初值硬編成 `{ w:1920, h:1080, from:'default' }`，而 `dstRenderRes()`
+       在頁面初始化時就會被呼叫一次 ⇒ **還沒讀任何東西，畫面上就已經寫著
+       「1920 x 1080（預設值）」**。
+     · 讀失敗或讀到不合理時，舊碼 `return null` ⇒ **沉默保留那個 1920×1080**。
+     · 1920×1080 正好是最常見的 PC 螢幕解析度 ⇒ 他看到的就是「PC 的解析度」。
+       他的判讀完全正確：那個數字確實不是從 TCON 來的。
+   ⇒ 修法：**沒讀到就說沒讀到**（畫面顯示「讀不到」，沿用本頁 v1.3.0「量不到
+     就不秀」的既有慣例），不再有一個看起來像量測結果的預設值。
+     十字置中仍然需要一組數字，所以 `dstRes` 保留 fallback，但**畫面會明講
+     那是 fallback、十字可能不在正中心**。
+
+   ═══ 位址：兩組暫存器都存在，優先序寫清楚 ═════════════════════════════════
+   ① `tm` bank 的 **0xFF26/0xFF27[3:0] ＝ reg_tmg_hres[11:0]**、
+      **0xFF28/0xFF29[3:0] ＝ reg_tmg_vres[11:0]**（規格 §3.1 的暫存器表，
+      原文欄位說明是 "display h/v-resolution"）。
+      🔴 這是**七顆共用**的那一組（本頁本來就在同一個 bank 寫 0xFF20–0xFF25），
+         所以當主要來源。舊碼的解碼式與這張表逐位元相符，**解碼沒有錯**。
+   ② `sys` bank 的 `reg_tmg_hres/vres`（規格 §33.1，`wfg.html` 解 code 檔用的就是
+      這一組）：**位址逐顆不同，而且是 nibble 打包**
+        EM01：0x0013–0x0014[3:0] / 0x0014[7:4]–0x0015
+        EM02：0x0013–0x0014[3:0] / 0x0015–0x0016[3:0]   ← 🔴 與 EM01 **不同**
+        E512：0x0002–0x0003[3:0] / 0x0003[7:4]–0x0004
+      當 ① 讀不到時的備援。
+      🔴 **只有這三個家族有出處**；V512S1／V512S2／VM01S1／VM02S1 的 sys bank
+         規格裡沒有 ⇒ 不填、不猜（猜錯會讀到別的欄位當成解析度）。
+   reg_tmg_hres/vres 都是 12 bit ⇒ 最大 4095。 */
 function dstResSane(w, h) { return w >= 320 && w <= 4095 && h >= 240 && h <= 4095; }
 /* 中心座標（純函式）。奇數時取 floor —— 與上游工具的整數除法一致。 */
 function dstCenter(w, h) { return { x: Math.floor(w / 2), y: Math.floor(h / 2) }; }
+/* sys bank 的備援位址表。key ＝ DST_ICS 的 key。**沒有出處的顆刻意不列。**
+   `pack` 兩種：'em01'（hres 低→ 0x13、vres 跨 nibble）、'em02'（兩個都 byte 對齊）。 */
+var DST_SYS_RES = {
+  EM01A1: { addr: 0x0013, len: 3, pack: 'em01', src: 'BANK-EM01:sys!r59,r60' },
+  EM02A1: { addr: 0x0013, len: 4, pack: 'em02', src: 'BANK-EM02:sys!r60,r61' },
+  E512AX: { addr: 0x0002, len: 3, pack: 'em01', src: 'BANK-E512:sys!r15,r16' }
+};
+/* 純函式：把 sys bank 讀回來的 bytes 解成 {w,h}。解不出來回 null。 */
+function dstSysResDecode(bytes, pack) {
+  var b = bytes || [];
+  if (pack === 'em01') {
+    if (b.length < 3) return null;
+    return { w: b[0] | ((b[1] & 0x0F) << 8), h: ((b[1] >> 4) & 0x0F) | (b[2] << 4) };
+  }
+  if (pack === 'em02') {
+    if (b.length < 4) return null;
+    return { w: b[0] | ((b[1] & 0x0F) << 8), h: b[2] | ((b[3] & 0x0F) << 8) };
+  }
+  return null;
+}
 async function dstReadRes() {
+  // ① tm bank（七顆共用）
   try {
     var a = await dstReadReg(0xFF26, 2);
     var b = await dstReadReg(0xFF28, 2);
     var w = ((a[1] & 0x0F) << 8) | a[0];
     var h = ((b[1] & 0x0F) << 8) | b[0];
-    if (!dstResSane(w, h)) { dstLog('-- res 0xFF26/0xFF28 = ' + w + 'x' + h + ' (insane, ignored)', 'w'); return null; }
-    dstRes = { w: w, h: h, from: 'reg' };
-    dstRenderRes();
-    return dstRes;
-  } catch (e) { return null; }
+    if (dstResSane(w, h)) {
+      dstRes = { w: w, h: h, from: 'tm' };
+      dstLog('-- res tm 0xFF26/0xFF28 = ' + w + 'x' + h, 'o');
+      dstRenderRes(); return dstRes;
+    }
+    dstLog('-- res tm 0xFF26/0xFF28 = ' + w + 'x' + h + ' (insane, trying sys bank)', 'w');
+  } catch (e) { dstLog('-- res tm 0xFF26/0xFF28 read failed (trying sys bank)', 'w'); }
+  // ② sys bank（只有查得到位址的三個家族）
+  var s = dstIc && DST_SYS_RES[dstIc.key];
+  if (s) {
+    try {
+      var d = await dstReadReg(s.addr, s.len);
+      var v = dstSysResDecode(d, s.pack);
+      if (v && dstResSane(v.w, v.h)) {
+        dstRes = { w: v.w, h: v.h, from: 'sys' };
+        dstLog('-- res sys ' + dstAddrText(s.addr) + ' = ' + v.w + 'x' + v.h, 'o');
+        dstRenderRes(); return dstRes;
+      }
+      dstLog('-- res sys ' + dstAddrText(s.addr) + ' = ' + (v ? (v.w + 'x' + v.h) : '(undecodable)') + ' (insane)', 'w');
+    } catch (e2) { dstLog('-- res sys ' + dstAddrText(s.addr) + ' read failed', 'w'); }
+  }
+  /* 🔴 兩條都沒讀到 ⇒ **如實說讀不到**。不留一個看起來像量測結果的數字。 */
+  dstRes = { w: DST_RES_FALLBACK.w, h: DST_RES_FALLBACK.h, from: 'none' };
+  dstRenderRes();
+  return null;
 }
 
 /* ═══ 出圖：逐筆照抄，per-IC ══════════════════════════════════════════════
@@ -1021,6 +1306,67 @@ function dstScanValues(bits) {
   var out = [], step = dstScanStep(bits), end = dstScanEnd(bits), mul = dstScale(bits);
   for (var i = 0; i <= end; i += step) out.push(Math.round(i * mul));
   return out;
+}
+/* 🔴 v1.4.0：**灰階索引一律 0…255**，與位元深度無關。
+   依據不是推的：三種位元深度送出去的 12-bit 序列本來就逐筆相同（0,16,…,4080，
+   見 dstScanValues 上面那段），而原廠記錄的 Gray 欄一律是「12-bit 值 ÷ 16」
+   （PQ/BasicMeaForm.cs，§25 路徑 A）⇒ 索引 ＝ 12-bit 值 ÷ 16 ＝ 0…255。
+   這一支是**唯一**的索引來源，匯出與回傳 DG 都走它，兩邊不可能再分岔。 */
+var DST_IDX_DIV = 16;
+function dstIdxOf12(v12) {
+  return (typeof v12 === 'number' && isFinite(v12)) ? Math.round(v12 / DST_IDX_DIV) : null;
+}
+
+/* ═══ 🔴 v1.4.0：這一階「面板實際被驅動的碼」 ═════════════════════════════
+   Bruce 2026-09-20：「如果 DGEN 是關閉的，那就回到原本 PQ Tools 的做法：RGB 的
+   值都是一樣的…但是如果 DGEN 是開啟的話，就要按照 DGLUT 裡面的值去給。」
+
+   🔴 **送進 IC 的值一個字都不會因為這一支而改變。** 他自己也講清楚了：
+      「應該不會套了兩次 Gamma…只要去讀 DGLUT，就會知道當送 L0 的時候，DGLUT
+        裡面的 RGB 各是送什麼」⇒ 變的是**記錄／回報的 RGB**，不是送出的值。
+      規格 §29.6 逐情境列過：DG_EN=1 時 IC 硬體自己拿送進來的值當索引查表，
+      主機端若「照 LUT 送」會被再查一次表 ⇒ 套兩次。**所以只改記錄。**
+
+   三種狀態，三種結果：
+     DG_EN = 0   ⇒ DGM bypass ⇒ 驅動碼 ＝ 送出去的 12-bit 值本身（R=G=B）
+     DG_EN = 1   ⇒ 驅動碼 ＝ LUT[索引] 的 R／G／B
+     未知／讀不到 ⇒ **留空**。拿送出值冒充等於在 DG_EN=1 時寫下一個假的數字。
+
+   🔴 `lut` 這條路目前**恆為 null**（dstDgLut 沒有寫入者），理由與出路寫在
+      dstDgLut 宣告處 —— 不是忘了接。 */
+/* ═══ 🔴🔴 dstDgLut 目前**恆為 null** —— 這不是漏接，是兩個查證過的擋路點 ═════
+   （v1.4.0。要接上去之前請先把這兩點解掉，不要直接寫一個讀取函式上來。）
+
+   ① **I2C Bridge 寫不到 AHB bus-enable。**
+      讀 DG LUT 的路徑（規格 §24.4，模板是 GetC3DLUT，IP/RaydiumEM01A1_RM80100.cs:237–274）
+      要先設 `reg_dgm_ahb_bus_en` ＝ EM01 的 **sys 0x00A0 bit5**，讀完再清掉。
+      而 I2C Bridge 自己那份寫入白名單（tools/i2c-bridge/i2c_bridge_proto.h
+      `DGH_WR_RANGES`）只有 0x0001–0x0004／0x0200–0x02FF／0x0C00–0x0CFF／
+      0x1200–0x12FF／0xFF20–0xFF25 —— **0x00A0 不在裡面，`write` 會被 bridge 擋下**。
+      繞過的方法只有 `rawwrite`（不套白名單），而本頁刻意不用它（見傳輸層那一段：
+      「縱深防禦要的就是這一層」）。⇒ 要做這件事得**改 bridge 並重發下載包**
+      （新 pkg／新 SHA／使用者要重過一次 SmartScreen），那不是本頁單方面能決定的。
+      ⚠️ EM02 的 bus-enable 位址規格 §24.4 標為**兩種可能、無法定案**，更不能猜。
+
+   ② **SRAM 裡的 packing 沒有實證。** 257×3×12 bit 是從 AN-DG p8 推的；
+      「是不是連續 bit-packing、有沒有 32-bit padding、三通道是交錯還是分段」
+      規格 §24.4／§27 #22 明列為查不到。而且 `reg_dgm_target_en` 預設是 **Offset**
+      （存差值，index 0 與 252~256 才是絕對值，位元寬還不一樣），解錯了會得到
+      一條看起來很合理的錯曲線。
+      要定案只有兩條路：反組譯 EM01／EM02 的 TCON UI（Bruce 指定為最後手段），
+      或在真機上側錄一次「按下 Button_GAMMA_Read」的完整交易。
+
+   🔴 在這兩點解掉之前，DG_EN ＝ 1 時驅動碼**留空**，畫面與匯出都如實說「讀不到」。
+      寫一個猜出來的解碼器比留空糟得多：留空看得見，猜錯看不見。 */
+var dstDgLut = null;    // { r:[256], g:[256], b:[256] } 或 null（見上）
+function dstDriveOf(idx, r12, g12, b12) {
+  if (dstDg.state === 'off') return { r: r12, g: g12, b: b12, from: 'sent' };
+  if (dstDg.state === 'on') {
+    if (dstDgLut && idx != null && isFinite(dstDgLut.r[idx]))
+      return { r: dstDgLut.r[idx], g: dstDgLut.g[idx], b: dstDgLut.b[idx], from: 'lut' };
+    return { r: null, g: null, b: null, from: 'lutNA' };
+  }
+  return { r: null, g: null, b: null, from: 'unknown' };
 }
 
 /* SetCursorOFF()：讀 0xFF20 → reg & 0xFD（清 bit1 reg_cursor_en）→ 寫回。七顆相同。 */
@@ -1356,13 +1702,14 @@ function dstVoid(text) {
 /* 停下來問「再試一次 / 中止整輪」。回傳 'retry' 或 'abort'。
    🔴 視窗開著的時候「停止」鈕仍然有效 —— dstAbort 一旦被設起來，這裡直接收掉
       視窗並回 'abort'，不讓使用者卡在一個按了停止卻沒反應的畫面上。 */
-function dstFailAsk(stepIdx, total, p, res) {
+/* 🔴 v1.4.0：`step` 是**該組的 1-based 序號**（不是 plan 的 index）。 */
+function dstFailAsk(step, total, p, res) {
   var body = $('dst-fail-body'), m = $('dst-modal-fail');
   var raw = (res === null || res === undefined) ? dstT('dst.failTimeout') : String(res);
   if (body) {
     body.innerHTML = '';
     var l1 = document.createElement('div');
-    l1.textContent = dstT('dst.failWhere', { i: stepIdx + 1, n: total, key: p.key,
+    l1.textContent = dstT('dst.failWhere', { i: step, n: total, key: p.key,
       r: p.r, g: p.g, b: p.b });
     var l2 = document.createElement('div');
     l2.textContent = dstT('dst.failGot', { raw: raw, tries: DST_MES_RETRY + 1 });
@@ -1374,7 +1721,7 @@ function dstFailAsk(stepIdx, total, p, res) {
     l4.textContent = dstT('dst.failVoidWarn');
     body.appendChild(l1); body.appendChild(l2); body.appendChild(l3); body.appendChild(l4);
   }
-  dstLog('== measure FAILED at step ' + (stepIdx + 1) + '/' + total + ' (' + p.key
+  dstLog('== measure FAILED at step ' + step + '/' + total + ' (' + p.key
     + ') after ' + (DST_MES_RETRY + 1) + ' attempts, asking the user', 'e');
   if (m) m.classList.add('open');
   return new Promise(function (resolve) {
@@ -1405,15 +1752,30 @@ function dstPlan(bits, mode) {
         （`dg-measure.html` 的 `?mode=prim` 也是只跑三步，兩條路一致）。 */
   var out = [], vals = dstScanValues(bits), step = dstScanStep(bits);
   var top = vals[vals.length - 1];
+  /* 🔴 v1.4.0：每一步多帶一個 `idx` ＝ **0…255 的灰階索引**（與位元深度無關）。
+     `key` 是**使用者刻度上的字樣**（10-bit ⇒ L0/L4/…/L1020），兩者刻意分開：
+     畫面上他選了 10-bit 就該看到 10-bit 的刻度，但交出去的索引必須是 0…255。
+     索引一律由 dstIdxOf12 從實際送出去的 12-bit 值算，不用迴圈計數 —— 這樣
+     「送出值」與「索引」永遠是同一個來源推出來的，不可能各走各的。 */
+  /* 🔴 v1.4.0：每一步還多帶一個 `group`（'gray'｜'prim'）—— 進度計數要靠它把
+     兩組分開（Bruce：「RGB 三個純色畫面應該要分開計數」）。 */
   if (mode !== 'prim') {
     for (var i = 0; i < vals.length; i++) {
-      out.push({ key: 'L' + (i * step), r: vals[i], g: vals[i], b: vals[i] });
+      out.push({ key: 'L' + (i * step), group: 'gray', idx: dstIdxOf12(vals[i]),
+                 r: vals[i], g: vals[i], b: vals[i] });
     }
   }
-  out.push({ key: 'R', r: top, g: 0, b: 0 });
-  out.push({ key: 'G', r: 0, g: top, b: 0 });
-  out.push({ key: 'B', r: 0, g: 0, b: top });
+  var ti = dstIdxOf12(top);
+  out.push({ key: 'R', group: 'prim', idx: ti, r: top, g: 0, b: 0 });
+  out.push({ key: 'G', group: 'prim', idx: ti, r: 0, g: top, b: 0 });
+  out.push({ key: 'B', group: 'prim', idx: ti, r: 0, g: 0, b: top });
   return out;
+}
+/* 兩組各有幾筆（純函式，夾具直接驗分母不是 259）。 */
+function dstPlanCounts(plan) {
+  var gray = 0, prim = 0;
+  (plan || []).forEach(function (p) { if (p.group === 'prim') prim++; else gray++; });
+  return { gray: gray, prim: prim };
 }
 
 async function dstRun() {
@@ -1430,6 +1792,7 @@ async function dstRun() {
      🔴 **失敗處理那個視窗不在此列**（見 dstFailAsk）—— 那是「出事了要你決定」，
         不是「動作前問一次」，性質不同，保留。 */
   var plan = dstPlan(dstBits, dstDgMode);
+  var cnt = dstPlanCounts(plan), nGray = cnt.gray, nPrim = cnt.prim;
 
   dstRunning = true; dstAbort = false; dstRows = [];
   dstRunOk = false; dstVoid('');          // v1.2.0：新的一輪先把上一輪的作廢狀態清掉
@@ -1455,13 +1818,23 @@ async function dstRun() {
        🔴 沒進過出圖模式（dstInPattern false）就什麼都不送 —— 不對著沒動過的
           暫存器寫東西。 */
     if (dstInPattern) {
-      dstProg(0, plan.length, dstT('dst.pgLeave'));
+      dstProg('step', 0, 0, dstT('dst.pgLeave'));
       await dstLeavePattern();
       if (dstAbort) throw new Error('__abort__');
     }
 
+    /* ═══ 🔴 v1.4.0：掃描前重讀一次 DG_EN ═══════════════════════════════════
+       連線時已經讀過一次，但那可能是十分鐘前的事，中間他很可能去 CCT 頁
+       把 DG 勾掉或勾起來。這一輪每一列要記的驅動碼都依賴它，所以**在這一輪
+       自己的起點讀一次**。一次 I2C 讀，成本趨近於零。
+       🔴 讀不到不擋掃描 —— 沿用本頁「不自作主張」的慣例：狀態變成「未知」，
+          驅動碼欄留空，掃描照跑。量到的 x/y/Y 不受 DG_EN 影響。 */
+    dstProg('step', 0, 0, dstT('dst.pgDg'));
+    await dstReadDgEn();
+    if (dstAbort) throw new Error('__abort__');
+
     // ② 進出圖模式
-    dstProg(0, plan.length, dstT('dst.pgEnter'));
+    dstProg('step', 0, 0, dstT('dst.pgEnter'));
     await dstEnterPattern();
     if (dstAbort) throw new Error('__abort__');
 
@@ -1472,7 +1845,7 @@ async function dstRun() {
 
     // ③ 初始化儀器
     for (var i = 0; i < DST_INIT.length; i++) {
-      dstProg(0, plan.length, dstT('dst.pgInit', { i: i + 1, n: DST_INIT.length, what: dstT(DST_INIT[i][1]) }));
+      dstProg('step', 0, 0, dstT('dst.pgInit', { i: i + 1, n: DST_INIT.length, what: dstT(DST_INIT[i][1]) }));
       var r0 = await dstCaCmd(DST_INIT[i][0], 6000);
       if (dstAbort) throw new Error('__abort__');
       if (r0 === null) throw new Error(dstT('dst.errCaStuck', { cmd: DST_INIT[i][0] }));
@@ -1510,7 +1883,7 @@ async function dstRun() {
     }
 
     // 零校正
-    dstProg(0, plan.length, dstT('dst.pgZero'));
+    dstProg('step', 0, 0, dstT('dst.pgZero'));
     var z = await dstCaCmd('ZRC', 40000);
     if (dstAbort) throw new Error('__abort__');
     if (z === null || /^ER/.test(z)) throw new Error(dstT('dst.errZero', { r: z || 'timeout' }));
@@ -1535,21 +1908,30 @@ async function dstRun() {
          ③ 使用者選「再試一次」⇒ 重試次數歸零、同一階重來（可以無限次，那是他
             的選擇）；選「中止整輪」⇒ 走 __abort__，這一輪作廢。
        🔴 因此**跑完的那一輪，dstRows 裡不可能有 x === null 的列**。 */
+    /* 🔴 v1.4.0：計數在這裡分成兩組。`gi`／`pi` 都是 **1-based**（正在量第幾筆），
+       分母是各自那一組的筆數 —— 不是 plan.length。 */
+    var gi = 0, pi = 0;
     for (var g = 0; g < plan.length; g++) {
       if (dstAbort) throw new Error('__abort__');
       var p = plan[g], tries = 0;
+      if (p.group === 'prim') pi++; else gi++;
       while (true) {
         if (dstAbort) throw new Error('__abort__');
-        dstProg(g, plan.length, tries
-          ? dstT('dst.pgRetry', { key: p.key, k: tries, n: DST_MES_RETRY })
-          : p.key);
+        dstProg(p.group, (p.group === 'prim') ? pi : gi, (p.group === 'prim') ? nPrim : nGray,
+          tries ? dstT('dst.pgRetry', { key: p.key, k: tries, n: DST_MES_RETRY }) : p.key);
         await dstSetRgb12(p.r, p.g, p.b);
         if (!(await dstWaitOrAbort(dstSettleUsedMs))) throw new Error('__abort__');
         var res = await dstCaCmd('MES,1', DST_MES_MS);
         if (dstAbort) throw new Error('__abort__');
         var m = dstParseMes(res);
         if (m) {
-          dstRows.push({ key: p.key, r12: p.r, g12: p.g, b12: p.b, x: m.x, y: m.y, lv: m.lv });
+          /* 🔴 v1.4.0：`idx`（0…255 的灰階索引）與 `drv`（面板實際被驅動的碼）
+             都在這裡定案，之後匯出與回傳 DG 都只讀這兩個欄位。
+             `drv` 取的是**這一輪開頭讀到的 DG 狀態**（不是每一階重讀）——
+             一輪之內 DG_EN 不該變，重讀 256 次只是多 256 次 I2C。 */
+          dstRows.push({ key: p.key, idx: p.idx, r12: p.r, g12: p.g, b12: p.b,
+                         drv: dstDriveOf(p.idx, p.r, p.g, p.b),
+                         x: m.x, y: m.y, lv: m.lv });
           dstRenderRows();
           break;                                  // 這一階成功，往下一階
         }
@@ -1557,12 +1939,15 @@ async function dstRun() {
         dstLog('!  step ' + p.key + ' measure failed (' + (res === null ? 'timeout' : res)
           + ')  attempt ' + tries + '/' + (DST_MES_RETRY + 1), 'e');
         if (tries <= DST_MES_RETRY) continue;      // 自動重試，不打擾人
-        var ans = await dstFailAsk(g, plan.length, p, res);
+        /* v1.4.0：失敗視窗的「第幾階／共幾階」也改成**該組自己的**計數，
+           不再用 259（與進度條同一個判準，兩個出口不得各講各的）。 */
+        var ans = await dstFailAsk((p.group === 'prim') ? pi : gi,
+                                   (p.group === 'prim') ? nPrim : nGray, p, res);
         if (ans !== 'retry') throw new Error('__abort__');
         tries = 0;                                 // 他說再試 ⇒ 重新給滿重試次數
       }
     }
-    dstProg(plan.length, plan.length, dstT('dst.pgDone'));
+    dstProg(nPrim ? 'prim' : 'gray', nPrim || nGray, nPrim || nGray, dstT('dst.pgDone'));
     dstLog('== RUN done: ' + dstRows.length + ' rows, 0 failed', 'o');
     /* 🔴 到得了這一行 ＝ 計畫上每一階都有有效數據（失敗的那條路一律 throw）。
        這是**唯一**把 dstRunOk 設成 true 的地方。 */
@@ -1575,7 +1960,10 @@ async function dstRun() {
     /* 🔴 v1.2.0：作廢的路徑統一在這裡收斂 —— 中止、例外、失敗視窗按中止，
        三條都走到這裡，三條都不回傳 DG、都不給匯出。 */
     dstRunOk = false;
-    dstVoid(dstT('dst.voidRun', { n: dstRows.length, total: plan.length }));
+    /* 🔴 v1.4.0：作廢橫幅的分母也拆成兩組（灰階 N／RGB 純色 M），不再是 259。
+       兩組各量到幾筆**由 dstRows 算出來**，不用迴圈變數 —— 例外有可能在進迴圈
+       之前就丟出來，那時 gi／pi 還是 undefined。 */
+    dstVoid(dstT('dst.voidRun', { detail: dstVoidDetail(nGray, nPrim) }));
     if (dstErrMsg(e) === '__abort__') {
       /* 🔴 中止時要講清楚 TCON 現在停在什麼畫面 —— 他可能需要自己復原。 */
       dstSay('dst-say-run', dstT('dst.abortedAt', { what: dstPaintText() }));
@@ -1591,6 +1979,24 @@ async function dstRun() {
   }
 }
 
+/* 作廢橫幅裡「兩組各量到幾筆」那一段（純函式，夾具直接驗）。
+   🔴 只列**這一輪真的有計畫的那幾組**：?mode=prim 只跑三個純色，那一輪寫
+      「灰階 0/0」是噪音。 */
+function dstVoidCounts(rows) {
+  var gray = 0, prim = 0;
+  (rows || []).forEach(function (r) {
+    if (/^L\d+$/.test(r.key || '')) gray++;
+    else if (r.key === 'R' || r.key === 'G' || r.key === 'B') prim++;
+  });
+  return { gray: gray, prim: prim };
+}
+function dstVoidDetail(nGray, nPrim) {
+  var c = dstVoidCounts(dstRows), parts = [];
+  if (nGray) parts.push(dstT('dst.grayGroup') + ' ' + c.gray + '/' + nGray);
+  if (nPrim) parts.push(dstT('dst.primGroup') + ' ' + c.prim + '/' + nPrim);
+  return parts.join('、');
+}
+
 /* 中止／失敗時，把「面板現在是什麼」講成人話 */
 function dstPaintText() {
   if (!dstInPattern) return dstT('dst.paintNormal');
@@ -1604,45 +2010,58 @@ function dstShow(id, text, ok) {
   e.textContent = text;
   e.classList.toggle('dst-na', !ok);
 }
+/* 🔴 v1.4.0：讀不到就寫「讀不到」，並把「十字用的是什麼」一起講。
+   舊版在這裡印 1920×1080（預設值）—— 那是使用者看到「PC 解析度」的來源。 */
 function dstRenderRes() {
-  dstShow('dst-v-res', dstRes.w + ' x ' + dstRes.h + '  ('
-    + dstT(dstRes.from === 'reg' ? 'dst.resFromReg' : 'dst.resDefault') + ')', true);
-}
-function dstRenderWr() {
-  var r = dstWrRangesOf(dstIc, dstAltIdx);
-  if (!r.length) { dstShow('dst-v-wr', dstT('dst.wrNone'), false); return; }
-  dstShow('dst-v-wr', r.map(function (x) { return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('  '), true);
-}
-/* ═══ v1.2.0：「識別是自動的」那一行 ══════════════════════════════════════
-   🔴 支援幾顆、有幾顆是只認得不出圖，都由 DST_ICS **算出來**，不寫死數字 ——
-      表改了畫面上的字才不會變成謊話。 */
-function dstRenderAutoNote() {
-  var e = $('dst-auto-note'); if (!e) return;
-  /* 「本頁認得的型號」＝ 主表每一筆 ＋ 每一筆掛著的撞號替代顆。使用者要看的是
-     「我手上這顆在不在裡面」，所以替代顆也要算進去、也要列名。 */
-  var names = [];
-  DST_ICS.forEach(function (ic) {
-    names.push(ic.name);
-    (ic.alts || []).forEach(function (a) { names.push(a.name); });
-  });
-  e.textContent = dstT('dst.autoNote', {
-    n: names.length, list: names.join('／'),
-    slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→')
-  });
-}
-function dstRenderAlt() {
-  var box = $('dst-alt-box'), sel = $('dst-alt'), why = $('dst-alt-why');
-  if (!box || !sel) return;
-  if (!dstIc || !dstIc.alts || !dstIc.alts.length) { box.classList.add('dst-hidden'); return; }
-  box.classList.remove('dst-hidden');
-  /* 🔴 說明句裡要帶**實際讀到的 ID** 與**共用這個 ID 的是哪幾顆** ——
-     「這兩顆 ID 相同」如果不說是哪個 ID、哪兩顆，讀的人沒辦法自己確認。 */
-  if (why) {
-    var share = [dstIc.name].concat(dstIc.alts.map(function (a) { return a.name; }));
-    why.textContent = dstT('dst.altWhy', {
-      id: dstIdRaw ? dstHex(dstIdRaw) : '—', names: share.join('／')
-    });
+  if (dstRes.from === 'none') {
+    dstShow('dst-v-res', dstT('dst.resNone', { w: DST_RES_FALLBACK.w, h: DST_RES_FALLBACK.h }), false);
+    return;
   }
+  dstShow('dst-v-res', dstRes.w + ' x ' + dstRes.h + '  ('
+    + dstT(dstRes.from === 'sys' ? 'dst.resFromSys' : 'dst.resFromTm') + ')', true);
+}
+/* ═══ 🔴 v1.4.0：DG 那一列 ════════════════════════════════════════════════
+   三種狀態三種樣子，**「未知」不得看起來像「關閉」**（那正是安靜錯誤的溫床）。
+   LUT 深度／型態只有讀得到的顆才印（EM01／EM02）；其餘顆不印，不是印「未知」——
+   那一格根本沒有被查詢過，印「未知」會讓人以為讀失敗。 */
+function dstRenderDg() {
+  var txt, ok = true;
+  if (dstDg.state === 'on') {
+    txt = dstT('dst.dgOn');
+    if (dstDg.depth) txt += '  ' + dstT('dst.dgLutDepth', { n: dstDg.depth });
+    if (dstDg.target) txt += '  ' + dstT(dstDg.target === 'target' ? 'dst.dgLutTarget' : 'dst.dgLutOffset');
+  } else if (dstDg.state === 'off') {
+    txt = dstDgStateText('off');
+  } else {
+    txt = dstDgStateText('unknown') + (dstDg.whyKey ? ('（' + dstT(dstDg.whyKey) + '）') : '');
+    ok = false;
+  }
+  dstShow('dst-v-dg', txt, ok);
+  /* DG 開著 ⇒ 量到的不是面板原生曲線。這一行只在開著的時候出現。 */
+  var w = $('dst-dg-warn');
+  if (w) {
+    var on = (dstDg.state === 'on');
+    w.classList.toggle('dst-hidden', !on);
+    /* 第二句只在「DG 開著、而且讀不到 LUT」時出現 —— 那正是 Drive_R/G/B 會留空
+       的情況。今天 dstDgLut 恆為 null（見它的宣告），所以 DG 一開就會看到。 */
+    w.textContent = on ? (dstT('dst.dgWarnOn') + (dstDgLut ? '' : ' ' + dstT('dst.dgNoLut'))) : '';
+  }
+  /* 核取方塊：反映**讀回來的狀態**，不是使用者按過什麼。
+     認不出 IC／沒有位址／沒連線 ⇒ 停用（但仍如實顯示目前讀到的狀態）。 */
+  var ck = $('dst-dg-ck');
+  if (ck) {
+    ck.checked = (dstDg.state === 'on');
+    ck.disabled = !(dstLinked && dstIc && dstIc.dgEn) || dstRunning || dstBusy;
+  }
+}
+/* 撞號二選一：v1.4.0 起就是型號旁邊那一個下拉，沒有標題、沒有說明句
+   （Bruce：「實際上板子上是哪一顆，應該直接合併在 IC 型號那邊」）。
+   🔴 沒有撞號時整個下拉隱藏 —— 只有一個選項的下拉是純噪音。 */
+function dstRenderAlt() {
+  var sel = $('dst-alt');
+  if (!sel) return;
+  if (!dstIc || !dstIc.alts || !dstIc.alts.length) { sel.classList.add('dst-hidden'); return; }
+  sel.classList.remove('dst-hidden');
   sel.innerHTML = '';
   var o0 = document.createElement('option');
   o0.value = '-1'; o0.textContent = dstIc.name;
@@ -1701,6 +2120,17 @@ function dstRenderBtns() {
     $('dst-link-txt').textContent = dstT(dstBusy ? 'dst.stBusy' : (dstLinked ? 'dst.stOn' : 'dst.stOff'));
   }
   var pr = $('dst-probe'); if (pr) pr.disabled = !dstLinked || dstBusy || dstRunning;
+  /* ═══ 🔴 v1.4.0：「開始掃描」的條件只有三個，**對位畫面不在裡面** ══════════
+     Bruce 2026-09-20：「我可能自動對位以後，我自己再把對位的畫面關掉，這時候
+     不管畫面有沒有開，它都還是可以開始掃描。不要去限制『畫面開啟』這個測試條件。」
+     🔴 逐條查過：`dstShowing`／`dstInPattern`／對位狀態**沒有出現在這一行的任何
+        一個條件裡**（v1.3.0 起就沒有），所以這一項本來就成立 —— 這段註解是
+        把它釘住，避免下一個人「順手」把它加回來。
+        同理，`dstRun()` 開頭的四道檢查也只看 dstLinked／dstIc.patternOk／
+        dstCaLinked，沒有一道看畫面開著沒有。
+     🔴 全頁再確認一次「變暗 ＝ 擋住」有沒有別的地方：`disabled` 只出現在
+        「沒連線／沒儀器／正在跑／認不出 IC ⇒ 本來就不能寫」這幾種，沒有任何一顆
+        鈕是因為「另一顆鈕沒按過」而變暗的。 */
   var run = $('dst-run'); if (run) run.disabled = dstRunning || !dstLinked || !dstCaLinked;
   var st = $('dst-stop'); if (st) st.disabled = !dstRunning;
   /* 🔴 v1.2.0：匯出的唯一條件是「**這一輪完整跑完**」，不是「有沒有列」。
@@ -1709,11 +2139,46 @@ function dstRenderBtns() {
   var cx = $('dst-xlsx'); if (cx) cx.disabled = !canExp;
   var ca = $('dst-ca'); if (ca) ca.disabled = dstRunning;
   var sel = $('dst-alt'); if (sel) sel.disabled = dstRunning || dstBusy;
+  /* v1.4.0：DG 強制開／關只有在「連著 ＋ 認得出 IC ＋ 這顆查得到位址」時可按。 */
+  var dck = $('dst-dg-ck');
+  if (dck) dck.disabled = !(dstLinked && dstIc && dstIc.dgEn) || dstRunning || dstBusy;
 }
-function dstProg(done, total, label) {
-  var pct = total ? Math.round(done / total * 100) : 0;
-  var b = $('dst-prog'); if (b) b.style.width = pct + '%';
-  var e = $('dst-progtxt'); if (e) e.textContent = label ? (label + '   ' + done + '/' + total) : ' ';
+/* ═══ 🔴🔴 v1.4.0：進度計數整個重做 ════════════════════════════════════════
+   Bruce 2026-09-20（**第二次講同一件事**）：「你現在是 259 分之幾，而這個『幾』
+   居然還是跟灰階是一樣的。我不是說了 L0 是一個灰階，所以應該是 259 分之 1，
+   而且我有說過不要 259 啊。那個 RGB 三個純色畫面應該要分開計數。」
+
+   v1.3.0 的三個毛病（逐條）：
+     ① **分母是 259** —— 直接用 `plan.length`（256 灰階 ＋ 3 純色）。那是實作的
+        步數，不是使用者腦袋裡的東西：灰階與純色是兩件事，加起來沒有意義。
+     ② **分子是 0-based** —— 迴圈呼叫 `dstProg(g, …)`，所以跑 L0 時顯示 `0/259`。
+        L0 **是一個灰階**，正在量它就代表第 1 筆。
+     ③ **兩組混在同一個分母裡** —— 跑到純色時顯示 `257/259`，看不出那是另一組。
+
+   v1.4.0：**兩組各自計數**，同一個函式、兩種 kind：
+     灰階 ⇒ `1/256` … `256/256`
+     純色 ⇒ `RGB 純色 1/3` … `RGB 純色 3/3`
+   🔴 進度條寬度：灰階佔 0–90%，純色佔 90–100%（純色只有 3 步，給它三分之一
+      會讓條子在最後跳一大段）。這個比例只影響藍條寬度，**數字完全不受影響**。
+   🔴 措辭與「回填完成」那一行共用同一個 i18n key（`dst.primGroup`）——
+      Bruce 明確要求兩個出口不能一個叫「純色 Pattern」一個叫「RGB 畫面」。 */
+var DST_PROG_GRAY_SHARE = 0.9;
+/* 純函式：算出進度字串與百分比。kind ＝ 'gray'｜'prim'｜'step'（前置步驟，無分數）。 */
+function dstProgCalc(kind, done, total, label) {
+  if (kind === 'gray') {
+    return { pct: total ? (done / total * DST_PROG_GRAY_SHARE * 100) : 0,
+             text: (label ? label + '   ' : '') + done + '/' + total };
+  }
+  if (kind === 'prim') {
+    return { pct: (DST_PROG_GRAY_SHARE + (total ? (done / total) : 0) * (1 - DST_PROG_GRAY_SHARE)) * 100,
+             text: dstT('dst.primGroup') + '  ' + (label ? label + '   ' : '') + done + '/' + total };
+  }
+  return { pct: 0, text: label || '' };     // 前置步驟：只有字，沒有分數
+}
+function dstProg(kind, done, total, label) {
+  var r = dstProgCalc(kind, done, total, label);
+  var b = $('dst-prog'); if (b) b.style.width = Math.round(r.pct) + '%';
+  var e = $('dst-progtxt'); if (e) e.textContent = r.text || ' ';
 }
 function dstRenderRows() {
   var tb = $('dst-res'); if (!tb) return;
@@ -1916,9 +2381,12 @@ async function dstDisconnect() {
   } finally {
     try { if (dstWs) dstWs.close(); } catch (e) {}
     dstWs = null; dstLinked = false; dstIc = null; dstAltIdx = -1; dstIdRaw = null;
-    dstShow('dst-v-bridge', '—', false); dstShow('dst-v-comm', '—', false);
-    dstShow('dst-v-id', '—', false); dstShow('dst-v-ic', '—', false);
-    dstRenderWr(); dstRenderAlt();
+    /* 🔴 斷線 ⇒ DG 狀態與解析度一起歸零。留著上一次讀到的值等於讓畫面說謊
+       （「DG 開啟中」但其實已經連不上那顆 IC 了）。 */
+    dstDg = { state: 'unknown', raw: null, depth: null, target: null, whyKey: 'dst.dgWhyNoIc' };
+    dstRes = { w: DST_RES_FALLBACK.w, h: DST_RES_FALLBACK.h, from: 'none' };
+    dstShow('dst-v-bridge', '—', false); dstShow('dst-v-ic', '—', false);
+    dstRenderAlt(); dstRenderDg(); dstRenderRes();
     dstBusy = false; dstRenderBtns();
     dstLog('== disconnected');
   }
@@ -1989,13 +2457,21 @@ var DST_EXP_COLORS = ['W', 'R', 'G', 'B', 'C', 'M', 'Y'];
 var DST_EXP_GRAY_DIV = 16;
 var DST_EXP_SHEET = 'Sheet1';
 
+/* ═══ 🔴 v1.4.0：第 25–27 欄 —— 該階「面板實際被驅動的碼」 ═══════════════
+   Bruce 2026-09-20：「x/y/Y 旁邊補上該階實際的 R/G/B。」
+   🔴 **加在 24 欄之後，前 24 欄一格都沒動** ⇒ 拿舊檔對照的人，欄位位置全部不變。
+   🔴 欄名用 `Drive_R/G/B`，**不是** `R/G/B` —— 上游版面裡 `R_x/R_y/R_Y` 已經是
+      「紅色那次量測」的意思，再開一個叫 `R` 的欄會讓兩件事混在一起。
+   值的來源見 dstDriveOf：DG_EN=0 ⇒ 送出去的 12-bit 值；DG_EN=1 ⇒ LUT[索引]；
+   讀不到 ⇒ **留空**（不拿送出值冒充）。 */
+var DST_EXP_DRIVE = ['Drive_R', 'Drive_G', 'Drive_B'];
 function dstExportHeader() {
   var h = ['Gray'];
   DST_EXP_COLORS.forEach(function (c) {
     h.push(c + '_x', c + '_y', c + '_Y');
     if (c === 'W') h.push('W_T', 'W_duv');   // 🔴 只有 W 多這兩欄
   });
-  return h;
+  return h.concat(DST_EXP_DRIVE);
 }
 function dstExpNum(v) { return (v === null || v === undefined || !isFinite(v)) ? '' : v; }
 /* 這一列在 Gray 欄要填什麼：優先用實際送出去的 12-bit 值（＝原廠的算法）。 */
@@ -2016,13 +2492,17 @@ function dstExportRows() {
     }
     return map[g];
   }
-  // ① 白灰階 → W 那三欄
+  // ① 白灰階 → W 那三欄（v1.4.0：外加 Drive_R/G/B 三欄）
   dstRows.forEach(function (q) {
     if (!/^L\d+$/.test(q.key || '')) return;
     var g = dstExpGrayOf(q);
     if (g === null) return;
     var r = rowFor(g);
     r[idx.W_x] = dstExpNum(q.x); r[idx.W_y] = dstExpNum(q.y); r[idx.W_Y] = dstExpNum(q.lv);
+    var d = q.drv;
+    if (d) {
+      r[idx.Drive_R] = dstExpNum(d.r); r[idx.Drive_G] = dstExpNum(d.g); r[idx.Drive_B] = dstExpNum(d.b);
+    }
     if (maxGray === null || g > maxGray) maxGray = g;
   });
   // ② R／G／B 端點 → 最亮那一列（沒有灰階時自成一列）
@@ -2093,11 +2573,25 @@ function dstExportXlsx() {
    與 DG 主控頁的連動 —— 實作（v1.1.0）
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* 本頁的列（物件、key 是 'L123'／'R'／'G'／'B'）→ DG 要的列（陣列 [g, x, y, Y]）。
-   🔴 `L` 後面那個數字是**使用者刻度上的實際灰階**（8-bit ⇒ 0…255、10-bit ⇒
-      0、4、8…1020），不是第幾步。DG 的第 2 部分本來就吃「灰階值 x y Y」這個
-      形狀、而且自己會依列數與跨距判位元深度（`dgGrayScan()`），所以原樣送過去
-      就對得上；送「第幾步」反而會把 10/12-bit 壓成 8-bit 的謊。
+/* 本頁的列（物件）→ DG 要的列（陣列 [g, x, y, Y]）。
+
+   ═══ 🔴🔴 v1.4.0：灰階欄一律送 **0…255 的索引**（這是 v1.3.0 的 bug）═══════
+   Bruce 2026-09-20：「量的是 L0 到 L1020，當然永遠都不會有 L1 啊！…這個階你
+   應該要在這個地方自己轉成 8-bit。」
+
+   v1.1.0–v1.3.0 送的是 `key` 裡那個**使用者刻度上的值**（10-bit ⇒ 0,4,8…1020、
+   12-bit ⇒ 0,16,32…4080）。DG 那一端的 `dgGrayGate()`／`dgGrayScan()` 要求灰階
+   集合**恰為 {0…n−1}**（dg.html:5271–5293），所以 256 筆卻缺 L1 ⇒ `miss = 1`
+   ⇒ 整批被退掉，訊息是「缺 L1」。⇒ **10-bit／12-bit 這兩個選項從來沒有成功
+   回填過 DG**，而且失敗訊息看起來像資料有問題，不像刻度對不上。
+
+   🔴 這樣改**不是**把 10/12-bit「壓成 8-bit 的謊」（舊註解的顧慮）：三種位元
+      深度送進 IC 的 12-bit 值序列本來就**逐筆相同**（0,16,…,4080，見
+      dstScanValues），量到的也是同一組亮度 ⇒ 它們本來就是同一條 256 階曲線，
+      刻度不同只是標示方式不同。原廠記錄的 Gray 欄同樣是 0…255（§25 路徑 A），
+      本頁的 XLSX 匯出（dstExpGrayOf）**一直都是 0…255** —— 只有回傳 DG 這一條
+      路不是，這才是真正的不一致。
+   🔴 送進 IC 的值**一個字都沒動**（p.r/p.g/p.b 與 dstSetRgb12 全未變更）。
    🔴 失敗的那一階（x===null）**不送**。DG 那一端也會再濾一次 isFinite，
       兩邊都濾是刻意的：少一階不影響曲線，混進 null 會變成 0 lux 的假資料。 */
 function dstDgRows() {
@@ -2106,8 +2600,12 @@ function dstDgRows() {
     if (r.x === null || r.y === null || r.lv === null) return;
     var pk = DST_DG_PRIM_KEY[r.key];
     if (pk) { prim.push([pk, r.x, r.y, r.lv]); return; }
-    var m = /^L(\d+)$/.exec(r.key);
-    if (m) gray.push([parseInt(m[1], 10), r.x, r.y, r.lv]);
+    if (!/^L\d+$/.test(r.key || '')) return;
+    /* 索引優先用列上記的 `idx`；舊列（沒有這個欄位）回頭從實際送出去的 12-bit
+       值算 —— 兩條路算出來的是同一個數字，不是兩套標準。 */
+    var idx = (r.idx != null) ? r.idx : dstIdxOf12(r.r12);
+    if (idx == null) return;
+    gray.push([idx, r.x, r.y, r.lv]);
   });
   return { gray: gray, prim: prim };
 }
@@ -2157,7 +2655,27 @@ function dstDgSend() {
     dstLog('!  DG send failed: ' + dstErrMsg(e), 'e');
     return false;
   }
-  dstSay('dst-say-run', dstT('dst.dgSent', { n: rows.length, dest: dstDgDest || 'DG' }));
+  /* ═══ 🔴 v1.4.0：回填完成的訊息要把**兩組分開講** ═══════════════════════
+     Bruce 2026-09-20：「掃描完成以後會顯示『256 筆已回到 DG 的第二部分』，應該
+     還要再多註明『RGB 純色 Pattern 已回到 DG 的第三部分』，這樣才對吧？」
+
+     🔴 **先查證再寫，不照著把「第三部分」寫死** —— 查證結果：**他說的是對的**。
+        `prim` 三筆在 DG 那一端走 `dgApplyGrayTailPrim()`（`dg.html:10633–10638`）
+        → `dgApplyPrim({prim: xyz}, …)`，它自己回的那句話就是
+        「純色 R／G／B 三個端點也一併帶入**第 3 部分**」（`dg.html:10637`）。
+        三個目的地**都會**走到它：
+          · 第 2 部分   `dg.html:10933`
+          · 光學比較分頁 `dg.html:8057–8058`
+          · 確認分頁     `dg.html:11147`
+        ⇒ 灰階去哪由「是誰按的即時量測」決定，**純色一律進第 3 部分**。
+     🔴 純色沒有湊齊三筆時（上面 `prim:` 那一行會送 null）**不講那一句** ——
+        沒送出去的東西不可以出現在「已回到」的訊息裡。
+     🔴 「RGB 純色」這五個字與進度條共用 `dst.primGroup`，兩個出口同一組措辭。 */
+  var primSent = (dstDgMode === 'gray' && s.prim.length === 3);
+  dstSay('dst-say-run', primSent
+    ? dstT('dst.dgSentTwo', { n: rows.length, dest: dstDgDest || 'DG',
+                              prim: dstT('dst.primGroup'), np: s.prim.length })
+    : dstT('dst.dgSent', { n: rows.length, dest: dstDgDest || 'DG' }));
   dstLog('== sent to DG: task=' + dstDgTask + ' mode=' + dstDgMode
     + ' rows=' + rows.length + ' prim=' + (s.prim.length === 3 ? 3 : 0), 'o');
   return true;
@@ -2230,16 +2748,11 @@ function dstBind() {
   dstBuildSettle();
   dstSetBits(8);
   dstRenderRes();
-  dstRenderWr();
+  dstRenderDg();          // v1.4.0：DG 那一列（未連線時是「未知」）
   dstRenderCa();
   dstRenderBtns();
   dstRenderDl();          // v1.1.0：I2C Bridge 下載入口（版號來自 HELPER_PKG）
   dstDgRenderTask();      // v1.1.0：DG 指派的任務（沒有就整張卡不顯示）
-  dstRenderAutoNote();    // v1.2.0：「型號是自動識別的」那一行
-  $('dst-fixed').textContent = dstT('dst.fixedLine', {
-    slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
-    khz: Math.round(DST_CLOCK_HZ / 1000)
-  });
 
   $('dst-link').addEventListener('click', function () {
     if (dstLinked) dstDisconnect(); else dstConnect();
@@ -2250,11 +2763,19 @@ function dstBind() {
   $('dst-alt').addEventListener('change', function () {
     dstAltIdx = parseInt(this.value, 10);
     if (isNaN(dstAltIdx)) dstAltIdx = -1;
-    dstShow('dst-v-ic', dstT('dst.icAuto', { name: dstIcName(),
-      id: dstIdRaw ? dstHex(dstIdRaw) : '—' }) + dstAlsoText(dstIc), true);
-    dstRenderWr();
+    dstShow('dst-v-ic', dstIcName() + dstAlsoText(dstIc), true);
     dstLog('== alt selected: ' + dstIcName()
       + '  ud=' + (dstIc ? dstUdOf(dstIc, dstAltIdx).join('→') : '?'), 'w');
+  });
+
+  /* ═══ 🔴 v1.4.0：DG 強制開／關 ══════════════════════════════════════════
+     🔴 **不跳確認視窗**（沿用 v1.3.0 的判準：他勾的那一格字面就是那個動作）。
+     🔴 勾選框先**立刻彈回讀到的狀態**，等 I2C 真的寫成功並讀回來才變 ——
+        否則寫失敗時畫面會停在他按的那一格上，看起來像成功了。 */
+  $('dst-dg-ck').addEventListener('change', function () {
+    var want = !!this.checked;
+    this.checked = (dstDg.state === 'on');       // 先彈回現況，由讀回結果決定最終樣子
+    dstGuard(async function () { await dstSetDgEn(want); });
   });
 
   $('dst-bits').addEventListener('change', function () { dstSetBits(parseInt(this.value, 10)); });
@@ -2330,17 +2851,11 @@ function dstBind() {
   window._onLangChange = function () {
     dstBuildSettle();
     dstSetBits(dstBits);
-    dstRenderRes(); dstRenderWr(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();
-    dstRenderDl(); dstDgRenderTask(); dstRenderAutoNote();
-    if (dstIc) dstShow('dst-v-ic', dstT('dst.icAuto', { name: dstIcName(),
-      id: dstIdRaw ? dstHex(dstIdRaw) : '—' }) + dstAlsoText(dstIc), true);
-    $('dst-fixed').textContent = dstT('dst.fixedLine', {
-      slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
-      khz: Math.round(DST_CLOCK_HZ / 1000)
-    });
+    dstRenderRes(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();
+    dstRenderDl(); dstDgRenderTask(); dstRenderDg();
+    if (dstIc) dstShow('dst-v-ic', dstIcName() + dstAlsoText(dstIc), true);
     if (!dstLinked) {
-      dstShow('dst-v-bridge', '—', false); dstShow('dst-v-comm', '—', false);
-      dstShow('dst-v-id', '—', false); dstShow('dst-v-ic', '—', false);
+      dstShow('dst-v-bridge', '—', false); dstShow('dst-v-ic', '—', false);
     }
   };
 }
@@ -2386,6 +2901,28 @@ window.dstProbe = {
   scanStep: dstScanStep,
   scanValues: dstScanValues,
   plan: dstPlan,
+  /* ═══ v1.4.0 新增的純函式（夾具直接驗，不必碰硬體）═══════════════════════ */
+  idxOf12: dstIdxOf12,             // 灰階索引：一律 0…255
+  planCounts: dstPlanCounts,       // 兩組各幾筆（驗分母不是 259）
+  progCalc: dstProgCalc,           // 進度字串與百分比
+  dgDecode: dstDgDecode,           // DG_EN byte → 狀態
+  dgEnFrame: dstDgEnFrame,         // read-modify-write 要寫回去的 byte
+  dgEnWriteOk: dstDgEnWriteOk,     // 「只有 bit0 變了」的守門
+  sysResDecode: dstSysResDecode,   // sys bank 解析度解碼（em01／em02 兩種打包）
+  driveOf: dstDriveOf,             // 該階面板實際被驅動的碼
+  /* 🔴 叫 dgEnState 不叫 dgState —— `dgState` 早就被「DG 指派的任務」佔走了
+     （mode／task／dest），同名會靜靜蓋掉其中一個。 */
+  dgEnState: function () { return JSON.parse(JSON.stringify(dstDg)); },
+  setDgForTest: function (st) { dstDg = st; dstRenderDg(); return dstDg; },
+  resState: function () { return JSON.parse(JSON.stringify(dstRes)); },
+  readDgEn: function () { return dstReadDgEn(); },
+  setDgEn: function (on) { return dstSetDgEn(on); },
+  readRes: function () { return dstReadRes(); },
+  dgText: function () { var e = $('dst-v-dg'); return e ? e.textContent : null; },
+  resText: function () { var e = $('dst-v-res'); return e ? e.textContent : null; },
+  icText: function () { var e = $('dst-v-ic'); return e ? e.textContent : null; },
+  progText: function () { var e = $('dst-progtxt'); return e ? e.textContent : null; },
+  sayRun: function () { var e = $('dst-say-run'); return e ? e.textContent : null; },
   matchIc: dstMatchIc,
   isBusIdle: dstIsBusIdle,
   isAck: dstIsAck,
