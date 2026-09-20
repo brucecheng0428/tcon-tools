@@ -238,8 +238,26 @@
  *     ⇒ **proto 維持 4**。
  *   - 🔴 **不得宣稱他那邊的 tWR 現在是幾毫秒。** 理論上應從 11.2 降到接近 5，
  *     實際數字只有他的硬體能量 —— 等他的下一份 log。 */
-#define I2C_BRIDGE_VERSION "1.15.1"
-#define I2C_BRIDGE_PROTO   4
+/* ═══ 1.16.0（2026-09-20）══════════════════════════════════════════════════
+ *   - 🔴 **offset 寬度放行 3**（24 位元 sub-address）。擋掉 3 的一直是**我們自己**
+ *     （舊 `dgh_awid_ok` 只收 0/1/2/4），不是硬體也不是原廠 DLL：位址相位產生器
+ *     （`DLL_I2C_BCB.dll` 0x402208）把位址拆成 4 個 byte 放堆疊、依寬度 n 取起點
+ *     **MSB first 送 n 個** ⇒ n=0..4 全部正確。同一段反組譯也給出真正的上限：
+ *     **n ≥ 5 會讀過那個 4 byte 緩衝區的頭**（送出堆疊垃圾且不報錯）⇒ 一律擋下。
+ *   - 🔴 順帶修掉一個安靜的錯誤：原廠 DLL 路徑的 `offBytes` 參數原本是
+ *     `(awid<=2)?awid:0xFF`，也就是 **awid=4 會送 255 進去** —— 0xFF 不是「拒絕」
+ *     值，它會讓 DLL 送出 255 個位址 byte。改成一律送實際寬度。
+ *     ⚠️ 依反組譯，未在硬體上驗證。
+ *   - 🔴 batchwrite 新增 **`gap`＝目標段間距**（取代 `twr` 的「我要睡多久」語意）。
+ *     bridge 自己量每段的固定開銷，睡 `目標 − 開銷`；開銷**不是寫死的常數**。
+ *     `gap` 缺席 ⇒ 完全走舊的 `twr` 行為 ⇒ 舊網頁的 wire byte 一個都沒變。
+ *   - wire format 只有**新增**欄位與**放寬**既有欄位的值域 ⇒ **proto 4 → 5**
+ *     （放寬值域會讓新網頁送出舊 exe 看不懂的 awid=3，網頁要判得出來）。 */
+#define I2C_BRIDGE_VERSION "1.16.0"
+#define I2C_BRIDGE_PROTO   5
+/* 🔴 24 位元 offset（awid=3）與目標段間距（`gap`）需要的 proto 下限。
+   網頁用它決定「這支 exe 懂不懂 awid 3 / gap」，而不是把 5 寫死在兩個地方。 */
+#define I2C_BRIDGE_PROTO_AWID3 5
 /* 🔴 batchwrite 需要的 proto 下限。網頁用它決定走新路還是舊的逐段 rawwrite，
    寫成一個名字而不是在兩邊各寫一個 `4`。 */
 #define I2C_BRIDGE_PROTO_BATCHWRITE 4
@@ -249,9 +267,9 @@
 
    (1) 「上一個版本」——啟動橫幅與『新版有問題就先退回去』的泛用退路。
        1.14.0 的上一個是 **v1.13.0**。 */
-/* 🔴 1.15.1：上一個版本是 **v1.15.0**（1.15.0 時這裡指 v1.14.0）。 */
+/* 🔴 1.16.0：上一個版本是 **v1.15.1**（1.15.1 時這裡指 v1.15.0）。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.15.0.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.15.1.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。

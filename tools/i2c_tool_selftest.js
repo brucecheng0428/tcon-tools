@@ -167,16 +167,44 @@ function baseScript(f) {
   /* 四項輸入都在 DOM 上，而且是可輸入的 —— 元素存在 ≠ 功能正常，所以下面還會真的打字 */
   ['in-slave', 'in-off', 'in-len', 'in-data'].forEach(id =>
     CHECK(!!doc.getElementById(id), '輸入欄 ' + id + ' 在 DOM 上'));
-  EQ(Array.from(doc.querySelectorAll('#awid-chips .chip')).map(c => c.getAttribute('data-awid')),
-     ['0', '1', '2', '4'], 'offset 寬度四個選項恰好是 0/1/2/4');
+  /* 🔴 v1.22.0：offset 寬度的 chips 換成「下拉 ＋ 手動輸入」的共用元件（.combo）。
+     下拉的常用值仍然是 0/1/2/4（**預設 2**），但 3 可以手打 —— 見下一節。 */
+  EQ(Array.from(doc.querySelectorAll('#in-awid-sel option')).map(o => o.value),
+     ['', '0', '1', '2', '4'], 'offset 寬度下拉：自訂 ＋ 0/1/2/4');
+  EQ(doc.getElementById('in-awid').value, '2', 'offset 寬度預設 2');
+  EQ(doc.getElementById('in-awid-sel').value, '2', '下拉也停在 2');
+  /* 另外三個「下拉 ＋ 手動」：選項與預設值 */
+  EQ(Array.from(doc.querySelectorAll('#in-clk-sel option')).map(o => o.value),
+     ['', '50', '100', '200', '400', '1000'], 'I2C 時脈下拉：自訂 ＋ 50/100/200/400/1000');
+  EQ(doc.getElementById('in-clk').value, '400', 'I2C 時脈預設 400 kHz');
+  EQ(Array.from(doc.querySelectorAll('#in-slave-sel option')).map(o => o.value),
+     ['', '0x68', '0x50', '0x3E', '0x7C', '0x7D'], 'slave 位址下拉：自訂 ＋ 五個常用值（依序）');
+  EQ(doc.getElementById('in-slave').value, '0x68', 'slave 預設 0x68');
+  EQ(Array.from(doc.querySelectorAll('#in-len-sel option')).map(o => o.value),
+     ['', '4096', '8192'], '總 byte 數下拉：自訂 ＋ 4096/8192');
+  /* 🔴 四個欄位都**真的是同一個元件**：每一個都有 .combo 外殼與 select.cmb */
+  ['in-clk', 'in-slave', 'in-len', 'in-awid'].forEach(id => {
+    const inp = doc.getElementById(id), sel = doc.getElementById(id + '-sel');
+    CHECK(!!inp && !!sel, id + ' 的輸入框與下拉都在');
+    CHECK(inp.parentElement.classList.contains('combo'), id + ' 包在共用的 .combo 裡');
+    CHECK(sel.classList.contains('cmb'), id + ' 的下拉用共用的 .cmb 樣式');
+  });
 
   /* ═════════════════════════════════════════════════════════════════════ */
   G('1. offset 寬度與位址回繞（正反都驗）');
-  CHECK(A.awidOk(0) && A.awidOk(1) && A.awidOk(2) && A.awidOk(4), '接受 0/1/2/4');
-  CHECK(!A.awidOk(3) && !A.awidOk(5) && !A.awidOk(8) && !A.awidOk(-1), '拒絕 3/5/8/-1');
+  /* 🔴🔴 v1.22.0：3 是**合法**的（24 位元 sub-address），上限是 4。
+     擋掉 3 的一直是我們自己（`dgh_awid_ok` 只收 0/1/2/4），不是硬體也不是原廠 DLL。
+     真正的上限來自 DLL 的位址相位產生器：位址被拆成 4 個 byte 放在堆疊上，
+     n ≥ 5 會讀過那個緩衝區的頭 ⇒ 送出堆疊垃圾而且不報錯。 */
+  CHECK(A.awidOk(0) && A.awidOk(1) && A.awidOk(2) && A.awidOk(3) && A.awidOk(4), '接受 0/1/2/3/4');
+  CHECK(!A.awidOk(5) && !A.awidOk(8) && !A.awidOk(-1) && !A.awidOk(255), '拒絕 5/8/-1/255');
+  EQ(A.awidMax, 4, '上限名字化成 I2CT_AWID_MAX ＝ 4（訊息與驗證共用同一個數字）');
   EQ(A.addrMax(1), 0xFF, '1 byte 上限 0xFF');
   EQ(A.addrMax(2), 0xFFFF, '2 byte 上限 0xFFFF');
+  EQ(A.addrMax(3), 0xFFFFFF, '🔴 3 byte 上限 0xFFFFFF（24 位元）');
   EQ(A.addrMax(4), 0xFFFFFFFF, '4 byte 上限 0xFFFFFFFF');
+  EQ(A.wrap(0x1000000, 3), 0x000000, '🔴 3 byte：0x1000000 回繞成 0x000000');
+  EQ(A.wrap(0x1234567, 3), 0x234567, '🔴 3 byte：高位被丟掉，不是被移進來');
   EQ(A.wrap(0x0100, 1), 0x00, '1 byte：0x100 回繞成 0x00');
   EQ(A.wrap(0x00FF, 1), 0xFF, '1 byte：0xFF 不動');
   EQ(A.wrap(0x10000, 2), 0x0000, '2 byte：0x10000 回繞成 0x0000');
@@ -379,9 +407,11 @@ function baseScript(f) {
     EQ(rh0[0], '#0', 'UI awid 0：列表頭仍用索引（#0）—— 它不是位址空間');
     EQ(A.state().buf[0], 0xAA, 'UI awid 0：第 0 個 byte 落在索引 0');
     /* 🔴 標籤本身要跟著語意變，不是只有 hint 變 */
-    EQ(doc.getElementById('offlabel').textContent, '③ 寫入值（1 byte）', 'awid 0 時欄位標籤改名');
+    /* 🔴 v1.22.0：編號拿掉（這一格搬進「② Offset」group，再掛 ③ 會跟
+       旁邊的「③ 總 byte 數」撞號）。**換字的行為本身沒變**。 */
+    EQ(doc.getElementById('offlabel').textContent, '寫入值（1 byte）', 'awid 0 時欄位標籤改名');
     A.setInputs({ awid: 2 });
-    EQ(doc.getElementById('offlabel').textContent, '③ 起始 offset', '切回 2 byte 時標籤復原');
+    EQ(doc.getElementById('offlabel').textContent, '起始 offset', '切回 2 byte 時標籤復原');
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
@@ -2631,8 +2661,23 @@ function baseScript(f) {
     await sleep(20);
     EQ(A.times().length, 3, '🔴 換頁與切 slave 之後仍然在');
     /* 超過 5 筆只留最近 5 筆 */
-    for (let i = 0; i < 4; i++) { await A.doRead(); await sleep(15); }
-    EQ(A.times().length, 5, '最多留 5 筆');
+    /* 🔴 v1.22.0：上限 5 → 12。原本壓到 5 是因為這一塊夾在控制項與 dump 表格
+       中間，多一筆就把表格往下推；搬到表格下方之後那個代價消失了。 */
+    EQ(A.timesMax, 12, '🔴 v1.22.0：耗時紀錄上限放寬到 12 筆（＝六組讀寫）');
+    for (let i = 0; i < 12; i++) { await A.doRead(); await sleep(15); }
+    EQ(A.times().length, 12, '最多留 12 筆');
+    /* 🔴 序號：最早的是 1，往新的遞增；清單是新的在上 ⇒ 第一列的 seq 最大 */
+    const sq = A.times().map(t => t.seq);
+    CHECK(sq[0] > sq[sq.length - 1], '🔴 序號：最上面那列最大、最下面那列最小');
+    CHECK(sq.every((v, i2) => i2 === 0 || sq[i2 - 1] === v + 1), '🔴 序號連續不跳號');
+    /* 🔴 畫面上真的印出序號（元素存在 ≠ 有值） */
+    const qs = Array.from(doc.querySelectorAll('#timeline .tq')).map(x => x.textContent);
+    EQ(qs.map(Number), sq, '🔴 畫面上的序號欄與資料一致');
+    /* 🔴 清除之後序號從 1 重新開始 */
+    A.clearTimes();
+    EQ(A.timeSeq(), 0, '清除紀錄 ⇒ 序號計數歸零');
+    await A.doRead(); await sleep(15);
+    EQ(A.times()[0].seq, 1, '🔴 清除後第一筆的序號是 1');
     await win.__i2ct.disconnect();
   }
 
@@ -4336,6 +4381,207 @@ function baseScript(f) {
       EQ(after.filter(m => m.type === 'rawwrite').length, 1, '一則 rawwrite 就寫完');
     }
 
+    await win.__i2ct.disconnect();
+    A._reset();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('64. 🔴🔴 v1.22.0：時脈換算、共用下拉元件、目標段間距、24 位元 offset');
+  {
+    /* ── (1) 時脈換算：整數除法會把不整除的值默默算歪 ───────────────────
+       公式（FTDI 轉接器 ＝ 型別 0，DLL_I2C_BCB 的 0x4017bc）：
+         divisor = (12000 / kHz) / 2 - 1     ← 兩個都是整數除法
+         實際     = 12000 / (2 × (divisor + 1))
+       🔴 五個常用值必須**完全整除**（選了就是那個值），手動值要算得出實際頻率。 */
+    [[50, 119, 50], [100, 59, 100], [200, 29, 200], [400, 14, 400], [1000, 5, 1000]].forEach(t => {
+      const r = A.clockCalc(t[0]);
+      CHECK(r.ok, t[0] + ' kHz 算得出來');
+      EQ(r.div, t[1], '  └ divisor ＝ ' + t[1]);
+      EQ(r.actual, t[2], '  └ 實際 ＝ ' + t[2] + ' kHz（下拉的五個值都剛好整除）');
+    });
+    { const r = A.clockCalc(350);
+      CHECK(r.ok, '🔴 350 kHz 不會被擋（不設上限、不勸阻）');
+      EQ(r.div, 16, '  └ 350 ⇒ divisor 16');
+      CHECK(Math.abs(r.actual - 352.94117647058823) < 1e-9,
+            '🔴🔴 350 kHz **實際是 352.94 kHz**，不是 350 —— 這一行就是要讓他看到'); }
+    { const r = A.clockCalc(700);
+      CHECK(r.ok && r.div === 7 && r.actual === 750, '700 kHz ⇒ 實際 750 kHz（商是奇數也會歪）'); }
+    /* 🔴 只有**數學界線**會擋，不擋頻率高低 */
+    CHECK(A.clockCalc(6000).ok, '6000 kHz 仍在公式的定義域內（divisor 0）');
+    CHECK(!A.clockCalc(6001).ok, '🔴 6001 kHz ⇒ divisor 算成 -1 ⇒ 明確擋下');
+    CHECK(!A.clockCalc(0).ok, '0 kHz 擋下');
+    CHECK(!A.clockCalc(-5).ok, '負值擋下');
+    CHECK(!A.clockCalc(12.5).ok, '非整數擋下');
+    CHECK(/超出 0–65535/.test(A.clockCalc(9999).err || ''), '🔴 被擋下時講得出原因（可行動）');
+    /* 畫面上真的把實際頻率寫出來（元素存在 ≠ 有值） */
+    const setClk = (v) => { const e = doc.getElementById('in-clk'); e.value = String(v);
+      e.dispatchEvent(new win.Event('input', { bubbles: true })); };
+    setClk(400);
+    CHECK(/實際 400 kHz/.test(doc.getElementById('clkhint').textContent),
+          '400 ⇒ 提示寫「實際 400 kHz」：' + doc.getElementById('clkhint').textContent);
+    setClk(350);
+    CHECK(/352\.94/.test(doc.getElementById('clkhint').textContent),
+          '🔴🔴 350 ⇒ 提示當場寫出 352.94：' + doc.getElementById('clkhint').textContent);
+    EQ(doc.getElementById('in-clk-sel').value, '', '350 不是常用值 ⇒ 下拉顯示「自訂」');
+    setClk(9999);
+    CHECK(doc.getElementById('in-clk').classList.contains('bad'), '超界 ⇒ 欄位標紅');
+    setClk(400);
+    EQ(doc.getElementById('in-clk-sel').value, '400', '改回 400 ⇒ 下拉回到 400');
+    EQ(A.clockHz(), 400000, '🔴 送給 bridge 的是 Hz（整 kHz 的整數倍，vendor 路徑會 /1000）');
+
+    /* ── (2) 共用下拉元件：四個欄位同一套行為 ─────────────────────────── */
+    const pick = (id, v) => { const sel = doc.getElementById(id + '-sel'); sel.value = v;
+      sel.dispatchEvent(new win.Event('change', { bubbles: true })); };
+    const type = (id, v) => { const e = doc.getElementById(id); e.value = String(v);
+      e.dispatchEvent(new win.Event('input', { bubbles: true })); };
+    pick('in-len', '8192');
+    EQ(doc.getElementById('in-len').value, '8192', '選了 8192 ⇒ 輸入框跟著變');
+    EQ(doc.getElementById('in-len-sel').value, '8192', '下拉停在 8192');
+    type('in-len', '777');
+    EQ(doc.getElementById('in-len-sel').value, '', '🔴 手動打 777 ⇒ 下拉顯示「自訂」');
+    type('in-len', '4096');
+    EQ(doc.getElementById('in-len-sel').value, '4096', '🔴 手動打回 4096 ⇒ 下拉自己認出來');
+    pick('in-slave', '0x3E');
+    EQ(doc.getElementById('in-slave').value, '0x3E', 'slave 選 0x3E ⇒ 輸入框跟著變');
+    EQ(doc.getElementById('in-slave8w').value, '0x7C', '🔴 三格連動沒壞：8-bit write ＝ 0x7C');
+    EQ(doc.getElementById('in-slave8r').value, '0x7D', '🔴 8-bit read ＝ 0x7D');
+    /* 🔴 比對用的是**解析後的數值**，不是字串 ⇒ 打 62（十進位寫法）也要認出 0x3E */
+    type('in-slave', '62d');
+    EQ(doc.getElementById('in-slave-sel').value, '0x3E',
+       '🔴 「62d」解析成 0x3E ⇒ 下拉認得出它就是常用值那一項');
+    type('in-slave', '0x51');
+    EQ(doc.getElementById('in-slave-sel').value, '', '0x51 不是常用值 ⇒ 自訂');
+    /* 🔴 從 8-bit 那一格改，7-bit 的下拉也要跟著對 */
+    { const e = doc.getElementById('in-slave8w'); e.value = '0xA0';
+      e.dispatchEvent(new win.Event('input', { bubbles: true })); }
+    EQ(doc.getElementById('in-slave').value, '0x50', '8-bit write 0xA0 ⇒ 7-bit 0x50');
+    EQ(doc.getElementById('in-slave-sel').value, '0x50', '🔴 7-bit 的下拉也跟著顯示 0x50');
+    /* 🔴 看得見的防呆修正沒壞：write 欄打奇數 ⇒ 清掉 bit0，而且**欄位顯示修正後的值** */
+    { const e = doc.getElementById('in-slave8w'); e.value = '0xA1';
+      e.dispatchEvent(new win.Event('change', { bubbles: true })); }
+    EQ(doc.getElementById('in-slave8w').value, '0xA0', '🔴 8-bit write 打奇數 ⇒ 看得見地修正成 0xA0');
+    EQ(doc.getElementById('in-slave').value, '0x50', '  └ 7-bit 仍是 0x50');
+
+    /* ── (3) 版面分組：7-bit 被強調、8-bit 不被強調（Bruce 2026-09-20 反轉）── */
+    CHECK(doc.getElementById('in-slave').closest('label').classList.contains('f8'),
+          '🔴 .f8（琥珀色強調）在 **7-bit** 這一格');
+    CHECK(!doc.getElementById('in-slave8w').closest('label').classList.contains('f8'),
+          '🔴 8-bit write **不再**被強調');
+    CHECK(!doc.getElementById('in-slave8r').closest('label').classList.contains('f8'),
+          '🔴 8-bit read **不再**被強調');
+    EQ(Array.from(doc.querySelectorAll('.grp > .grplab')).map(x => x.textContent),
+       ['① Slave 位址', '② Offset', '④ 對裝置'], '三個 group card 的標籤');
+    CHECK(doc.getElementById('in-slave').closest('.grp') === doc.getElementById('in-slave8r').closest('.grp'),
+          '🔴 slave 三格在同一個 group 裡');
+    CHECK(doc.getElementById('in-awid').closest('.grp') === doc.getElementById('in-off').closest('.grp'),
+          '🔴 offset 寬度與起始 offset 在同一個 group 裡');
+    CHECK(doc.getElementById('btn-read').closest('.grp') === doc.getElementById('btn-write').closest('.grp'),
+          '🔴 讀取與寫入在同一個 group 裡');
+    CHECK(doc.getElementById('ab-sel').parentElement.classList.contains('wrpair')
+          && doc.getElementById('ab-sel').parentElement.contains(doc.getElementById('btn-write')),
+          '🔴 A／B 下拉貼著**寫入**鍵（它是寫入目標，不是讀取目標）');
+    /* 🔴 offlabel 在寬度 0 時仍然換字（語意不同，名字就不能一樣） */
+    A.setInputs({ awid: 0 }); await sleep(10);
+    CHECK(/寫入值/.test(doc.getElementById('offlabel').textContent),
+          '🔴 寬度 0 ⇒ 標籤換成「寫入值（1 byte）」：' + doc.getElementById('offlabel').textContent);
+    A.setInputs({ awid: 2 }); await sleep(10);
+    CHECK(/起始 offset/.test(doc.getElementById('offlabel').textContent), '寬度 2 ⇒ 換回「起始 offset」');
+
+    /* ── (4) offset 寬度 3：手動填得進去、非法值擋得下來 ───────────────── */
+    type('in-awid', '3');
+    EQ(A.readInputs().awid, 3, '🔴 手動填 3 ⇒ 真的生效（下拉裡沒有這一項）');
+    EQ(A.readInputs().errs.length, 0, '  └ 3 不算錯誤');
+    EQ(doc.getElementById('in-awid-sel').value, '', '  └ 下拉顯示「自訂」');
+    type('in-awid', '5');
+    CHECK(A.readInputs().errs.some(e => /0–4/.test(e)),
+          '🔴🔴 填 5 ⇒ **送出前就擋下**，而且訊息講出上限 4');
+    CHECK(A.readInputs().errs.some(e => /堆疊|緩衝區/.test(e)), '  └ 訊息也講得出為什麼是 4');
+    CHECK(doc.getElementById('in-awid').classList.contains('bad'), '  └ 欄位標紅');
+    type('in-awid', '2');
+    EQ(A.readInputs().errs.length, 0, '改回 2 ⇒ 錯誤消失');
+
+    /* ── (5) 目標段間距：語意、提示、送出去的欄位 ─────────────────────── */
+    const setGap = (v) => { const e = doc.getElementById('wr-twr'); e.value = String(v);
+      e.dispatchEvent(new win.Event('input', { bubbles: true })); };
+    setGap(5);
+    EQ(A.gap(), 5, '預設 5 ms');
+    EQ(A.gapNote(5), '24C32/64（5 ms）夠；舊款 AT24C32 要 10 ms', '5 ms ⇒ 提醒舊款要 10 ms');
+    EQ(A.gapNote(10), '', '10 ms ⇒ 沒有話要說');
+    CHECK(/低於 24C32\/64 的 tWR 規格/.test(A.gapNote(3)),
+          '🔴🔴 低於 5 ms ⇒ 明講「那一頁可能靜默寫不進去」');
+    setGap(3);
+    CHECK(/靜默寫不進去/.test(doc.getElementById('twrhint').textContent),
+          '🔴 畫面上真的看得到那句話：' + doc.getElementById('twrhint').textContent);
+    EQ(A.gap(), 3, '🔴 **不擋他**：3 仍然是 3（他有硬體、他自己判斷）');
+    setGap(5);
+    CHECK(/段間距/.test(doc.getElementById('twrhint').textContent), '提示講的是「段間距」不是「等待」');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('65. 🔴 目標段間距與 24 位元 offset 真的送到 bridge（端到端）');
+  {
+    const dev65 = new Array(0x10000).fill(0xFF);
+    const sent = [];
+    const mk65 = (proto) => (m, n, emit) => {
+      if (m.type === 'ping')  return { helper: '1.16.0', proto: proto, ok: true };
+      if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      if (m.type === 'read')  return { ok: true, status: 0, usbrt: 1,
+        data: Array.from({ length: m.len }, (_, i) => dev65[(m.addr + i) & 0xFFFF]) };
+      if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev65[(m.addr + i) & 0xFFFF] = b & 0xFF; });
+                                   return { ok: true, status: 0, transferred: (m.data || []).length }; }
+      if (m.type === 'abortwrite') return null;
+      if (m.type === 'batchwrite') {
+        const segs = Math.ceil(m.len / m.page);
+        for (let i = 0; i < m.len; i++) dev65[(m.addr + i) & 0xFFFF] = m.data[i] & 0xFF;
+        emit({ type: 'progress', id: m.id, cmd: 'batchwrite', seg: segs, segs: segs, done: m.len, total: m.len, addr: m.addr + m.len });
+        /* 🔴 照 bridge 1.16.0 的回覆形狀回：四個 gap 數字都有 */
+        return { ok: true, aborted: false, segs: segs, segsDone: segs, done: m.len, total: m.len,
+                 base: m.addr, lastAddr: m.addr + m.len - 1, nextAddr: m.addr + m.len,
+                 us: 900000, devus: 500000, twrms: 130, progsent: 1, usbrt: segs, status: 0,
+                 gapmode: true, gapreqms: m.gap, gapovhms: 4.1, gapsleepms: 0.9, gapavgms: 5.0, gapzero: 0 };
+      }
+      return { ok: true, status: 0 };
+    };
+    /* ── batchwrite 帶 gap，而且**也帶舊的 twr**（舊 exe 的退路） ───────── */
+    A._reset();
+    const s65 = await useHelper(mk65(5));
+    win.confirm = () => true;
+    A.eepromAuto('24C32');
+    A.setInputs({ slave: '0x50', awid: 2, off: '0x0000' });
+    A.pageTouched(false);
+    await sleep(30);
+    { const e = doc.getElementById('wr-twr'); e.value = '7';
+      e.dispatchEvent(new win.Event('input', { bubbles: true })); }
+    const src65 = new Uint8Array(256); for (let i = 0; i < 256; i++) src65[i] = (i * 7 + 1) & 0xFF;
+    CHECK(A.loadFile('b65.bin', src65), '載入 256 byte');
+    await sleep(60);
+    { const before = s65.length;
+      await A.doWrite(); await sleep(250);
+      const bw = s65.slice(before).filter(m => m.type === 'batchwrite');
+      EQ(bw.length, 1, '一則 batchwrite');
+      if (bw.length) {
+        EQ(bw[0].gap, 7, '🔴🔴 `gap`（目標段間距）＝ 畫面上的值');
+        EQ(bw[0].twr, 7, '🔴 舊欄位 `twr` **也照樣送**：舊 exe 只看得懂它，會睡滿 7 ms'
+                       + '（間距比目標長 ＝ 安全的方向，不是等不夠）');
+      }
+      const log = doc.getElementById('log').textContent;
+      CHECK(/目標段間距/.test(log), '🔴 log 用的是新語意「目標段間距」');
+      CHECK(/實測開銷/.test(log) && /實際睡/.test(log) && /實際段間距/.test(log),
+            '🔴🔴 四個數字都印出來了（目標／實測開銷／實際睡了多久／實際段間距）');
+    }
+    /* ── awid 3：讀取真的送出寬度 3 ───────────────────────────────────── */
+    { A.setInputs({ slave: '0x50', off: '0x001234', len: '4' });
+      const e = doc.getElementById('in-awid'); e.value = '3';
+      e.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await sleep(20);
+      const before = s65.length;
+      await A.doRead(); await sleep(120);
+      const rd = s65.slice(before).filter(m => m.type === 'read');
+      EQ(rd.length >= 1, true, '🔴 awid 3 的讀取有送出去');
+      if (rd.length) {
+        EQ(rd[0].awid, 3, '🔴🔴 wire 上的 awid ＝ 3（24 位元 sub-address）');
+        EQ(rd[0].addr, 0x1234, '  └ 位址原樣帶過去'); }
+    }
     await win.__i2ct.disconnect();
     A._reset();
   }

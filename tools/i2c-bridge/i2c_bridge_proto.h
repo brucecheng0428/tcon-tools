@@ -47,22 +47,35 @@ static inline int dgh_write_allowed(uint32_t addr, int len){
     return 0;
 }
 
-/* ---- offset（sub-address）寬度組包，proto 2 ----
- * 合法寬度只有 0／1／2／4。**MSB first**（與 proto 1 的兩 byte 版一致：
+/* ---- offset（sub-address）寬度組包，proto 2（proto 5 起放寬到 3） ----
+ * 合法寬度是 **0／1／2／3／4**。**MSB first**（與 proto 1 的兩 byte 版一致：
  * 高位在前），awid==0 代表完全不送位址＝I2C current address read。
  * 🔴 awid 預設 2 ⇒ proto 1 的呼叫端（dg-measure）走的 wire byte 一個都沒變。
- * 回傳組出的 byte 數；寬度不合法回 -1（呼叫端必須當成錯誤，不可當 0 處理）。 */
+ * 回傳組出的 byte 數；寬度不合法回 -1（呼叫端必須當成錯誤，不可當 0 處理）。
+ *
+ * ═══ 🔴 為什麼上限是 4，而且這個 4 來自原廠 DLL 不是 FTDI ═══════════════════
+ * `DLL_I2C_BCB.dll` 的位址相位產生器（0x402208，反組譯實查）把傳進去的 32 位元
+ * 位址拆成 **4 個 byte 放在堆疊上**（`-1(%ebp)`＝bit31-24 … `-4(%ebp)`＝bit7-0），
+ * 再用 `leal -5(%ebp,%ecx), %edi` 依寬度 n 取起點、**MSB first 送出 n 個 byte**。
+ *   ⇒ n = 0/1/2/3/4 全部正確（n=3 就是標準的 24 位元 sub-address）。
+ *   ⇒ 🔴 **n ≥ 5 會讀過那個 4 byte 緩衝區的頭**（送出去的是堆疊垃圾，而且不會
+ *        報錯，只會寫到／讀到完全不相干的位址）⇒ 真正的上限是 4。
+ * 這裡的 3 原本被擋掉是**我們自己**擋的（舊版 `dgh_awid_ok` 只收 0/1/2/4），
+ * 不是硬體或 DLL 的限制。proto 5 起放行 3，**同時把 ≥5 明確擋成錯誤**。 */
 static inline int dgh_awid_ok(uint32_t awid){
-    return awid==0u||awid==1u||awid==2u||awid==4u;
+    return awid<=4u;
 }
 static inline int dgh_build_offset(uint8_t* ab, uint32_t addr, uint32_t awid){
     switch(awid){
         case 0u: return 0;
         case 1u: ab[0]=(uint8_t)(addr&0xFF); return 1;
         case 2u: ab[0]=(uint8_t)((addr>>8)&0xFF);  ab[1]=(uint8_t)(addr&0xFF); return 2;
+        /* 🔴 proto 5：24 位元 sub-address。MSB first，與 2／4 同一個規則。 */
+        case 3u: ab[0]=(uint8_t)((addr>>16)&0xFF); ab[1]=(uint8_t)((addr>>8)&0xFF);
+                 ab[2]=(uint8_t)(addr&0xFF); return 3;
         case 4u: ab[0]=(uint8_t)((addr>>24)&0xFF); ab[1]=(uint8_t)((addr>>16)&0xFF);
                  ab[2]=(uint8_t)((addr>>8)&0xFF);  ab[3]=(uint8_t)(addr&0xFF); return 4;
-        default: return -1;
+        default: return -1;                    /* ≥5：緩衝區只有 4 byte，一律擋 */
     }
 }
 
@@ -258,6 +271,7 @@ static inline uint32_t dgh_addr_wrap(uint32_t addr, uint32_t awid){
     switch(awid){
         case 1u: return addr & 0xFFu;
         case 2u: return addr & 0xFFFFu;
+        case 3u: return addr & 0xFFFFFFu;     /* proto 5：24 位元 sub-address */
         case 4u: return addr;                 /* 32 位元本身就是自然回繞 */
         default: return addr;                 /* awid 0：無位址相位 */
     }

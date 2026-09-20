@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260920i2c1211"></script>
+<script src="common/version.js?v=20260920i2c1220"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -82,6 +82,47 @@
   .f8 input[type=text]:focus{border-color:#fbbf24;}
   .f8 .hint{color:#b45309;}
   .chip.on{background:#0c4a6e;border-color:var(--accent);color:#e0f2fe;font-weight:700;}
+  /* ═══ 🔴 v1.22.0：「下拉 ＋ 手動輸入」的**共用元件**（.combo）════════════════
+     四個欄位（I2C 時脈／slave 位址／總 byte 數／offset 寬度）都要「常用值一鍵選、
+     任意值照樣能打」。Bruce：「不要各做一套互動邏輯，抽成同一個元件重複用」
+     「不要因此讓面板變高一大截」。
+
+     做法：**下拉與輸入框共用同一格空間** —— `<select>` 疊在輸入框右緣，
+     `opacity:0` 只留一個 26px 寬的熱區，箭頭由 `::after` 畫出來。
+       · 高度 ＝ var(--fh)，與其他欄位**完全一樣**，一個 px 都沒長高
+       · 值只有一份，就是輸入框裡的那個（選單選完寫回輸入框）⇒ 不會出現
+         「下拉顯示 A、輸入框是 B」這種兩份狀態打架的情況
+       · 目前的值本來就顯示在輸入框裡，下拉再顯示一次是重複的 ⇒ 不顯示。
+         「這是不是常用值」由 hint 那一行說（自訂值會標「自訂」）。
+     🔴 `select` 仍然是真的 select，值也照樣同步 ⇒ 鍵盤與輔助技術照常可用，
+        自動化測試也量得到 `select.value`。 */
+  .combo{position:relative;display:block;height:var(--fh);}
+  .combo > input[type=text]{padding-right:26px;}
+  .combo > select.cmb{position:absolute;right:0;top:0;height:100%;width:26px;
+    opacity:0;cursor:pointer;border:0;padding:0;margin:0;appearance:none;-webkit-appearance:none;}
+  .combo::after{content:'';position:absolute;right:9px;top:50%;margin-top:-2px;
+    border-left:4px solid transparent;border-right:4px solid transparent;
+    border-top:5px solid #64748b;pointer-events:none;}
+  .combo:hover::after{border-top-color:#94a3b8;}
+  /* ═══ 🔴 v1.22.0：group card（外框 ＋ 壓在框線上的標籤）══════════════════════
+     沿用 wfg.html 的 `.wfg-preset-group-card`／`.wfg-preset-group-label` 那一組做法
+     （fieldset/legend 的外觀），顏色改成本頁的藍色系以保持一致。
+     🔴 標籤是 `position:absolute` ⇒ **不佔額外高度**，不要改成在上面多加一行標題。 */
+  .grp{position:relative;border:1px solid #27394f;border-radius:8px;
+    padding:13px 9px 7px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;}
+  .grp > .grplab{position:absolute;top:2px;left:8px;font-size:9px;font-weight:600;
+    color:#7dd3fc;letter-spacing:.3px;line-height:1;pointer-events:none;user-select:none;
+    white-space:nowrap;text-transform:uppercase;}
+  /* 讀寫這一組裡放的是按鈕不是欄位 ⇒ 置中對齊、間距小一點 */
+  .grp.rwgrp{gap:8px;align-items:center;}
+  /* 🔴 一道分隔線把「讀取」與「A/B ＋ 寫入」分開：同一組、兩件事。
+       沒有它，A／B 下拉會看起來像在選讀取的目標（那是錯的）。 */
+  .rwsep{width:1px;align-self:stretch;background:#27394f;margin:0 1px;}
+  /* 🔴 A／B 與寫入鍵**貼在一起**（不留間隙）＝ 它是寫入的目標選擇器。 */
+  .wrpair{display:inline-flex;align-items:center;gap:0;}
+  .wrpair > select.absel{border-top-right-radius:0;border-bottom-right-radius:0;
+    border-right-color:#0f172a;}
+  .wrpair > button.wr{border-top-left-radius:0;border-bottom-left-radius:0;}
   select{background:#0b1424;border:1px solid var(--border);border-radius:6px;color:var(--text);
     height:var(--fh);box-sizing:border-box;padding:0 6px;font:12.5px/1 ui-monospace,Menlo,Consolas,monospace;}
   /* 🔴 `min-height` 不是 `height`（2026-09-19 修 Bruce 拍照回報的溢出）。
@@ -166,8 +207,13 @@
     text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;}
   /* 🔴 6 欄（最後兩欄是「結論」與時刻）。結論欄即使空的也要占位，否則有結論的那
      一列會整列位移，變成閘門會抓的未對齊。 */
-  .timebox .trow{display:grid;grid-template-columns:44px 90px 72px 1fr auto 62px;gap:8px;
+  /* 🔴 v1.22.0：最左多一欄**序號**（Bruce 2026-09-20：「第一個出來標 1，再來 2、3、4」）。
+     清單是新的在上 ⇒ 最下面那列數字最小。欄寬固定 20px、數字右對齊，
+     後面每一欄的左緣因此完全不動（不會因為 9→10 而整排跳一格）。 */
+  .timebox .trow{display:grid;grid-template-columns:20px 44px 90px 72px 1fr auto 62px;gap:8px;
     align-items:center;font-size:12px;padding:1px 0;}
+  /* 序號是索引不是重點：小一級、灰、等寬右對齊 */
+  .timebox .tq{color:#64748b;font:11px/1 ui-monospace,Menlo,Consolas,monospace;text-align:right;}
   .timebox .tk{color:#e0f2fe;font-weight:700;}
   .timebox .tt{color:#4ade80;font-weight:700;text-align:right;}
   .timebox .tp{color:var(--sub);}
@@ -175,14 +221,23 @@
   .timebox .tv.same{color:#4ade80;}
   .timebox .tv.diff{color:#f87171;}
   .timebox .ta{text-align:right;}
-  /* 🔴 同一次操作的多筆紀錄用一個框框起來（Bruce 2026-09-19：「最好用一個框框
-     把它們框起來…而不要只能時間辨識」）。
-     刻意只用**左色條＋淡底**：不加標題列、不加說明文字、不加垂直內距 ⇒
-     一筆都不佔多餘的高度，版面與原本一樣精簡。
-     border-left 2px ＋ padding-left 6px ＝ 8px，正好被 margin-left:-8px 抵銷 ⇒
-     組內那幾列與沒被框起來的列**左緣完全對齊**（否則會變成閘門抓的未對齊）。 */
-  .timebox .tgrp{border-left:2px solid #38bdf8;padding-left:6px;margin-left:-8px;
-    background:rgba(56,189,248,.07);border-radius:0 3px 3px 0;}
+  /* ═══ 🔴🔴 v1.22.0：分組要在**照片上**分得出來 ══════════════════════════════
+     v1.20.2 用的是「左側 2px 色條 ＋ 7% 淡底」。Bruce 2026-09-20 拍實機照片回報：
+     「根本分辨不出來哪一個讀寫是一個 group」—— 那個對比在螢幕照片上等於沒有。
+     ⇒ 改成**完整外框 ＋ 明顯底色**，而且**相鄰的組交替色相**（藍／紫），
+       讓「這兩列是一組、下面兩列是另一組」不必靠對比度去分辨，靠顏色就分得出來。
+     🔴 高度仍然不增加：只有 1px 外框與 3px 左右內距，垂直內距 1px，
+        `margin:2px -4px` 的負值把左右內距抵銷掉 ⇒ 欄位左緣與單列的完全對齊。 */
+  .timebox .tgrp{border:1px solid #38bdf8;border-left-width:3px;
+    background:rgba(56,189,248,.16);border-radius:5px;
+    /* 左：-6 ＋ 3(border) ＋ 3(padding) ＝ 0；右：-4 ＋ 1(border) ＋ 3(padding) ＝ 0
+       ⇒ 組內欄位與單列欄位的左右緣**完全對齊**（版面閘門會抓未對齊）。 */
+    padding:1px 3px;margin:2px -4px 2px -6px;}
+  .timebox .tgrp.alt{border-color:#c084fc;border-left-color:#c084fc;
+    background:rgba(192,132,252,.16);}
+  /* 單列的操作也要跟相鄰的組分得開 ⇒ 給一條同樣粗的左邊界，但用中性灰，
+     一眼就知道「這一列自己一組」。同樣不長高。 */
+  .timebox .tsolo{border-left:3px solid #475569;padding-left:5px;margin:2px -4px 2px -8px;}
   /* 🔴 20px 高配 11px 字 ⇒ 上下只剩 4px，版面閘門會擋（判準是 ≥6px）。
      11px 的行高約 13px ⇒ 至少要 26px 才有 6px 內距。 */
   button.tiny{min-height:0;height:26px;padding:0 10px;font-size:11px;}
@@ -460,6 +515,26 @@
            這比我們任何斷言都有力。 -->
       <button id="btn-cmppath" class="dbgonly" disabled>快慢路徑比對</button>
       <span class="sp" style="flex:1"></span>
+      <!-- ═══ 🔴 v1.22.0：I2C 時脈（下拉 ＋ 手動）══════════════════════════════
+           原本是寫死的 `I2CT_CLOCK_HZ = 400000`，畫面上沒有任何地方可以改。
+           Bruce 要能推到邊界（量 margin、或跟 TCON 暫存器溝通）⇒ 做成可調，
+           **手動輸入不設上限**，只擋公式本身的數學界線。
+           常用值是能整除、不會被默默算歪的那幾個（理由見 i2ctClockCalc）。 -->
+      <label class="f" style="width:150px">
+        <span>I2C 時脈（kHz）</span>
+        <span class="combo">
+          <input type="text" id="in-clk" class="mono" value="400" spellcheck="false">
+          <select id="in-clk-sel" class="cmb mono" aria-label="常用時脈">
+            <option value="">自訂</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="400" selected>400</option>
+            <option value="1000">1000</option>
+          </select>
+        </span>
+        <span class="hint" id="clkhint">&nbsp;</span>
+      </label>
     </div>
     <!-- 🔴 v1.2.0：這一行從「講通道為什麼是唯一的」縮成「對面是誰」。
          診斷資訊一個字沒少（版本／proto／包版本都還在，log 也還在），
@@ -510,51 +585,84 @@
   <div class="card" style="margin-bottom:12px;">
     <h2>讀 / 寫（共用同一組參數）</h2>
     <div class="row" style="align-items:flex-start;">
-      <label class="f" style="width:146px;">
-        <span>① Slave 位址（7-bit）</span>
-        <input type="text" id="in-slave" class="mono" value="0x68" spellcheck="false">
-        <span class="hint" id="slavehint">&nbsp;</span>
-      </label>
-      <!-- 🔴 三格連動（Bruce 2026-09-18）：改任何一格，另外兩格立刻跟著變。
-           防呆是**看得見的**修正：write 欄打奇數 ⇒ 清掉 bit0、read 欄打偶數 ⇒ 補上
-           bit0，而且**欄位會顯示修正後的值**，不是偷偷換掉一個他看不到的東西。 -->
-      <label class="f f8" style="width:132px;">
-        <span>8-bit write</span>
-        <input type="text" id="in-slave8w" class="mono" value="0xD0" spellcheck="false">
-        <span class="hint" id="slave8whint">&nbsp;</span>
-      </label>
-      <label class="f f8" style="width:132px;">
-        <span>8-bit read</span>
-        <input type="text" id="in-slave8r" class="mono" value="0xD1" spellcheck="false">
-        <span class="hint" id="slave8rhint">&nbsp;</span>
-      </label>
-      <label class="f">
-        <span>② Offset 寬度</span>
-        <div class="chips" id="awid-chips">
-          <span class="chip" data-awid="0">0 byte</span>
-          <span class="chip" data-awid="1">1 byte</span>
-          <span class="chip on" data-awid="2">2 bytes</span>
-          <span class="chip" data-awid="4">4 bytes</span>
-        </div>
-        <span class="hint" id="awidhint">&nbsp;</span>
-      </label>
-      <label class="f" style="width:172px;">
-        <!-- 🔴 offset 寬度切到 0 byte 時，這一欄不再是位址而是「一個 1 byte 的值」，
-             所以標籤要跟著變（見 i2ctUpdateHints）—— 語意不同，名字就不能一樣。 -->
-        <span id="offlabel">③ 起始 offset</span>
-        <input type="text" id="in-off" class="mono" value="0x0000" spellcheck="false">
-        <span class="hint" id="offhint">&nbsp;</span>
-      </label>
+      <!-- ═══ 🔴 v1.22.0 group ①：slave 位址三格 ═══════════════════════════════
+           Bruce 2026-09-20：「slave address 有分 7-bit 跟 8-bit，用 group 的方式把
+           它們套在一起」＋「**7-bit 的要一看就知道**，highlight 在 7-bit 這邊，
+           8-bit 的讀跟寫反而不要 highlight」。
+           ⇒ `.f8`（琥珀色強調）從兩個 8-bit 欄位**移到 7-bit 欄位**。
+           🔴 三格連動與看得見的防呆修正**行為一字未改**，只動樣式與外框。 -->
+      <div class="grp">
+        <span class="grplab">① Slave 位址</span>
+        <label class="f f8" style="width:150px;">
+          <span>7-bit（實際送出）</span>
+          <span class="combo">
+            <input type="text" id="in-slave" class="mono" value="0x68" spellcheck="false" data-radix="hex">
+            <!-- 常用 slave：TCON 暫存器 0x68、EEPROM 0x50、以及三個常見的周邊位址 -->
+            <select id="in-slave-sel" class="cmb mono" aria-label="常用 slave 位址">
+              <option value="">自訂</option>
+              <option value="0x68" selected>0x68</option>
+              <option value="0x50">0x50</option>
+              <option value="0x3E">0x3E</option>
+              <option value="0x7C">0x7C</option>
+              <option value="0x7D">0x7D</option>
+            </select>
+          </span>
+          <span class="hint" id="slavehint">&nbsp;</span>
+        </label>
+        <!-- 🔴 三格連動（Bruce 2026-09-18）：改任何一格，另外兩格立刻跟著變。
+             防呆是**看得見的**修正：write 欄打奇數 ⇒ 清掉 bit0、read 欄打偶數 ⇒ 補上
+             bit0，而且**欄位會顯示修正後的值**，不是偷偷換掉一個他看不到的東西。 -->
+        <label class="f" style="width:118px;">
+          <span>8-bit write</span>
+          <input type="text" id="in-slave8w" class="mono" value="0xD0" spellcheck="false">
+          <span class="hint" id="slave8whint">&nbsp;</span>
+        </label>
+        <label class="f" style="width:118px;">
+          <span>8-bit read</span>
+          <input type="text" id="in-slave8r" class="mono" value="0xD1" spellcheck="false">
+          <span class="hint" id="slave8rhint">&nbsp;</span>
+        </label>
+      </div>
+      <!-- ═══ 🔴 v1.22.0 group ②：offset 寬度 ＋ 起始 offset ═════════════════ -->
+      <div class="grp">
+        <span class="grplab">② Offset</span>
+        <label class="f" style="width:126px;">
+          <span>寬度（byte）</span>
+          <!-- 🔴 v1.22.0：chips 換成同一個 .combo 元件。選項是 0／1／2／4（預設 2），
+               **手動可以填 3**（24 位元 sub-address）—— 擋掉 3 的一直是我們自己，
+               不是硬體（依據見 i2ctAwidOk）。填 5 以上會在送出前就被擋下。 -->
+          <span class="combo">
+            <input type="text" id="in-awid" class="mono" value="2" spellcheck="false">
+            <select id="in-awid-sel" class="cmb mono" aria-label="常用 offset 寬度">
+              <option value="">自訂</option>
+              <option value="0">0</option>
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="4">4</option>
+            </select>
+          </span>
+          <span class="hint" id="awidhint">&nbsp;</span>
+        </label>
+        <label class="f" style="width:172px;">
+          <!-- 🔴 offset 寬度切到 0 byte 時，這一欄不再是位址而是「一個 1 byte 的值」，
+               所以標籤要跟著變（見 i2ctUpdateHints）—— 語意不同，名字就不能一樣。 -->
+          <span id="offlabel">起始 offset</span>
+          <input type="text" id="in-off" class="mono" value="0x0000" spellcheck="false">
+          <span class="hint" id="offhint">&nbsp;</span>
+        </label>
+      </div>
       <label class="f" style="width:168px;">
-        <span>④ 總 byte 數</span>
-        <input type="text" id="in-len" class="mono" value="256" spellcheck="false">
+        <span>③ 總 byte 數</span>
+        <span class="combo">
+          <input type="text" id="in-len" class="mono" value="256" spellcheck="false">
+          <select id="in-len-sel" class="cmb mono" aria-label="常用長度">
+            <option value="">自訂</option>
+            <option value="4096">4096</option>
+            <option value="8192">8192</option>
+          </select>
+        </span>
         <span class="hint" id="lenhint">&nbsp;</span>
       </label>
-      <div class="f">
-        <span>&nbsp;</span>
-        <div class="fctl"><button class="pri" id="btn-read" disabled>讀取</button></div>
-        <span class="hint">&nbsp;</span>
-      </div>
     </div>
     <div class="row" style="align-items:flex-start;margin-top:8px;border-top:1px solid #223049;padding-top:9px;">
       <label class="f" style="flex:1;min-width:280px;">
@@ -580,11 +688,20 @@
         </select>
         <span class="hint" id="pagehint">&nbsp;</span>
       </label>
-      <label class="f" style="width:96px;">
-        <span>段間等待</span>
+      <!-- ═══ 🔴 v1.22.0：「段間等待」→「目標段間距」════════════════════════════
+           Bruce 2026-09-20：「我的段間等待現在設 1 毫秒，實際的間隔大概是 5 毫秒
+           左右…顯示上面最小 5 毫秒」。舊欄位填的是**實作細節**（我們額外睡多久），
+           而他量得到的是**匯流排上的段間距**。兩者差一段固定開銷。
+           ⇒ 欄位語意換成他量得到的那個數字，開銷由 I2C Bridge **自己每段量、自己扣**
+             （不是寫死的常數 —— 換一台機器、換一支 DLL 就不一樣）。 -->
+      <label class="f" style="width:118px;">
+        <span>目標段間距</span>
         <input type="text" id="wr-twr" class="mono" value="5" spellcheck="false">
-        <span class="hint">ms · tWR</span>
+        <span class="hint" id="twrhint">ms</span>
       </label>
+      <!-- 🔴 載入檔案自己一格：它是「把資料弄進來」，與「對裝置讀／寫」不是同一件事
+           （讀寫那一組才是會碰到匯流排的）。放在寫入資料這一列的尾端，
+           與它真正相關的 ③ 寫入資料／A／B 在同一段視線上。 -->
       <div class="f">
         <span>&nbsp;</span>
         <div class="fctl">
@@ -592,18 +709,29 @@
                副檔名清單自然表達，細節收進說明視窗。 -->
           <input type="file" id="in-file" accept=".bin,.hex,.txt,.rom,.ihx,.ihex,.eep,.dat,.raw" style="display:none">
           <button id="btn-load">載入檔案</button>
-          <!-- 🔴 v1.17.1：A／B 切換**貼著寫入按鈕**，不是獨立佔一行的控制項
-               （Bruce：「版面越精簡越好」）。它與「點 A／B 那兩行」是同一個狀態、
-               雙向同步；放在這裡是因為**寫入目標就是目前顯示的那一份** ——
-               看著按鈕上的「寫入 A（a1.bin）256 byte」順手切，語意最短。
-               只有 A、B 都有內容時才出現（沒得選就不佔位）。 -->
+        </div>
+        <span class="hint">&nbsp;</span>
+      </div>
+      <!-- ═══ 🔴 v1.22.0 group ③：讀取／寫入 ═══════════════════════════════════
+           Bruce 2026-09-20：「讀取跟寫入的按鈕，我覺得是可以把它們變成一個 group」。
+           🔴 `ab-sel` 的處置：**留在寫入鍵左邊、貼著它**，不放到組的外面，也不放到
+              兩顆按鈕中間。理由是它原本的設計意圖不能被踩掉 —— 它是「寫入目標」的
+              選擇器（同時也決定 dump 顯示哪一份），看著「寫入 B · 8192 byte」順手切
+              是最短的語意。放中間會讓它看起來同時管著讀取，那是錯的。
+              為了讓「它屬於寫入」一眼看得出來，它與寫入鍵之間不留間隙（.wrpair），
+              與讀取鍵之間留一道分隔線。
+           🔴 出現條件（只有 A、B 都有內容才顯示）與雙向同步**一行都沒動**。 -->
+      <div class="grp rwgrp">
+        <span class="grplab">④ 對裝置</span>
+        <button class="pri" id="btn-read" disabled>讀取</button>
+        <span class="rwsep"></span>
+        <span class="wrpair">
           <select id="ab-sel" class="mono absel" title="要寫入／顯示哪一份" style="display:none">
             <option value="A">A</option>
             <option value="B">B</option>
           </select>
           <button class="wr" id="btn-write" disabled>寫入</button>
-        </div>
-        <span class="hint">&nbsp;</span>
+        </span>
       </div>
     </div>
   </div>
@@ -672,12 +800,6 @@
          🔴 兩份資料都在時，**點哪一行就看哪一份**（取代舊的「看裝置讀回值／
             看檔案內容」切換鈕，那套與 A／B 是重複的兩套模型）。 -->
     <div class="abbox" id="abbox"></div>
-    <!-- 🔴 耗時紀錄常駐在這裡（最近 5 筆），讓他能比較不同設定的速度差。 -->
-    <div class="timebox">
-      <div class="thead"><b>耗時紀錄</b><span class="sp" style="flex:1"></span>
-        <button id="btn-clrtime" class="tiny">清除</button></div>
-      <div id="timeline"></div>
-    </div>
     <div id="pagewarn"></div>
     <div id="readbanner"></div>
     <!-- 🔴 長讀取的進度與中止（256K ＝ 1024 次交易）。平常整個不顯示。 -->
@@ -744,6 +866,17 @@
           </div>
         </div>
       </div>
+    </div>
+    <!-- ═══ 🔴 v1.22.0：耗時紀錄搬到 dump 表格**下方** ═════════════════════════
+         Bruce 2026-09-20：「耗時紀錄的那個 log 視窗，它會隨著我一直在讀取紀錄而
+         變得越來越長，導致 dump 會一直被往下推。可是我控制 dump 的分頁、快照、
+         另存新檔、清空等功能，又是在這個耗時紀錄的上方。」
+         —— 它原本夾在**控制項**與**被控制的東西**中間，長幾筆就把 dump 推走。
+         🔴 驗證橫幅（#readbanner）**刻意留在上方**：那是他最需要第一眼看到的結果。 -->
+    <div class="timebox">
+      <div class="thead"><b>耗時紀錄</b><span class="sp" style="flex:1"></span>
+        <button id="btn-clrtime" class="tiny">清除</button></div>
+      <div id="timeline"></div>
     </div>
   </div>
 
@@ -901,6 +1034,11 @@ var I2CT_NEED_PROTO = 2;          /* awid 與 rawwrite 是 proto 2 才有的 */
    不該讓手上還拿著舊 exe 的人整條路斷掉 —— 那才是真的壞掉。
    （同一個理由 v1.6.0 的 `lock` 也用過一次。） */
 var I2CT_PROTO_BATCH = 4;
+/* 🔴 v1.22.0：**24 位元 offset（awid 3）與目標段間距（`gap`）需要 proto 5。**
+   與上面同一個理由分開放：拿著舊 exe 的人仍然可以用 0/1/2/4 與舊的段間等待，
+   只有這兩件新東西不能用 —— 而且我們要在送出**之前**就講清楚，
+   不要讓他看到一個沒頭沒尾的 bridge 錯誤訊息去猜是不是硬體問題。 */
+var I2CT_PROTO_AWID3 = 5;
 
 /* 線上版（GitHub Pages）。🔴 打包進 zip 的那一份是離線版，它的下載連結永遠指向
    打包當時的那一包 —— 要更新只能來這裡。Bruce 出差在外時，這是他唯一的取得管道。 */
@@ -919,7 +1057,53 @@ var I2CT_TIMEOUT_MS = 8000;
    看不出來。真正的成本在每 byte 的 USB 往返（見 raw MPSSE 那條路）。
    之所以還是改，是因為成本為零而且與他的領域認知一致。
    （dg-measure 維持 150k：那條路是已經驗證過的量測流程，沒有理由動它。） */
-var I2CT_CLOCK_HZ   = 400000;
+var I2CT_CLOCK_KHZ_DEFAULT = 400;   /* 畫面預設值（kHz），理由同上 */
+/* ═══ 🔴🔴 v1.22.0：時脈是**可調的**，而且要當場算出實際會得到的頻率 ═══════════
+   `DLL_I2C_BCB.dll` 的 `SetClock(kHz)`（0x4013fc）在 **FTDI 轉接器**上算的是
+
+       divisor = (12000 / kHz) / 2 - 1        ← 兩個都是**整數除法**
+
+   也就是 FTDI 的 12 MHz 分頻。實際頻率因此是 `12000 / (2 × (divisor + 1))` kHz。
+
+   🔴 **型別分歧已經追完，不是未知數**（Dispatch 2026-09-20 反組譯實查）：
+     · 型別變數在 `Open` 時設定。走 **FTDI D2XX** 那條路時設為 **0**
+       （設完 USB 緩衝區 16384/16384 之後，0x4019cf `pushl $0` → 0x4017a4 存進 5047992）；
+       另一類硬體才設成 **2**（0x4013bb）。
+     · `SetClock` 的判斷是 `if (type == 2) 走 0x403098; else 走 0x4017bc`
+       ⇒ FTDI 治具是型別 0 ⇒ **走 0x4017bc**，就是上面那條公式。
+     · 旁證：讀取的分派器（0x401544）用的是**同一個**型別變數，型別 0 對應 0x402570
+       —— 正是推導出「count 就是 N」「count=0 會溢位」的那一支。兩邊對得起來。
+   ⇒ 這條公式適用於 FTDI 轉接器（型別 0）。實際頻率仍建議量測，但那是一般性的
+     謹慎，不是因為我們不知道走哪條。
+
+   🔴 **它不檢查輸入、沒有檔位表**：任何值都收，不整除的值會被**默默算歪**
+     （輸入 350 實際會變成 352.94）。所以這一支一定要把實際值算出來給人看 ——
+     這比任何警告都有用。
+
+   數學界線（只有這一條會擋，**不擋頻率高低**）：
+     · kHz < 1  ⇒ 12000/kHz 除以 0 或爆掉
+     · kHz > 6000 ⇒ 12000/kHz 的整數商 < 2 ⇒ divisor 算成 −1 ⇒ 超出 0..65535
+   回傳 {ok, div, actual, err}。 */
+function i2ctClockCalc(kHz){
+  if (kHz === null || !isFinite(kHz) || Math.floor(kHz) !== kHz || kHz < 1)
+    return { ok: false, err: '時脈要是 1 kHz 以上的整數' };
+  var q = Math.floor(12000 / kHz);           /* 第一個整數除法 */
+  var div = Math.floor(q / 2) - 1;           /* 第二個整數除法，再 −1 */
+  if (div < 0 || div > 65535)
+    return { ok: false, div: div,
+             err: '分頻值算出來是 ' + div + '，超出 0–65535（' + kHz
+                + ' kHz 這個值在 12 MHz / 2(div+1) 的公式下不存在）' };
+  return { ok: true, div: div, actual: 12000 / (2 * (div + 1)) };
+}
+/* 目前畫面上的時脈（kHz）。解析不出來就回預設值 —— 送 open 的路徑不可以帶 NaN。 */
+function i2ctClockKHz(){
+  var e = $('in-clk'); if (!e) return I2CT_CLOCK_KHZ_DEFAULT;
+  var v = i2ctParseNum(e.value);
+  return (v === null || !isFinite(v) || v < 1) ? I2CT_CLOCK_KHZ_DEFAULT : Math.floor(v);
+}
+/* 送給 bridge 的 clockHz。🔴 bridge 的 vendor 路徑會做 `clockHz / 1000` ⇒ 這裡
+   一律送整 kHz 的整數倍，不然那一除就把尾數吃掉（而且沒有人會發現）。 */
+function i2ctClockHz(){ return i2ctClockKHz() * 1000; }
 /* 🔴 網頁版本要跟著每一個 open 送給 bridge，讓它寫進 log（Bruce 2026-09-19）。
    這一輪整整繞了一圈：他的 log 顯示 `rawmpsse field=0`，bridge 一切正常，
    但 log 裡**沒有網頁版本**，所以無法分辨是「新網頁送了 0」還是「舊網頁根本沒改」。
@@ -1310,7 +1494,7 @@ function i2ctPromoteToA(set, source, keepB){
         長度由那份內容自己決定（見 i2ctWriteSource）。這兩件事刻意分開寫。 */
   if (set && set.bytes && set.bytes.length && $('in-len')) {
     var want = String(Math.min(set.bytes.length, I2CT_MAX_LEN));
-    if ($('in-len').value !== want) $('in-len').value = want;
+    if ($('in-len').value !== want) { $('in-len').value = want; i2ctComboSync('in-len'); }
   }
 }
 /* ═══ 🔴 讀取的來源標籤要足以「重現那次讀取」（v1.18.1）════════════════════
@@ -1548,13 +1732,24 @@ function i2ctParseHexText(text){
 /* 舊名保留（每列一個 byte 是上面那支的特例），這樣呼叫端與既有測試都不必改。 */
 function i2ctParseTextBytes(text){ return i2ctParseHexText(text); }
 
-/* offset 寬度只有 0/1/2/4 —— 與 I2C Bridge 的 dgh_awid_ok 是同一套判準 */
-function i2ctAwidOk(a){ return a === 0 || a === 1 || a === 2 || a === 4; }
+/* ═══ 🔴🔴 v1.22.0：offset 寬度是 **0–4**，上限 4 來自原廠 DLL ════════════════
+   舊版這一支只收 `0/1/2/4`，而那個「不收 3」是**我們自己加的**，不是硬體、也不是
+   `DLL_I2C_BCB.dll` 的限制。反組譯實查（Dispatch 2026-09-20）：位址相位產生器
+   （0x402208）把 32 位元位址拆成 **4 個 byte 放在堆疊上**
+   （`-1(%ebp)`＝bit31-24 … `-4(%ebp)`＝bit7-0），再用 `leal -5(%ebp,%ecx), %edi`
+   依寬度 n 取起點、**MSB first 送出 n 個 byte**。
+     ⇒ n = 0/1/2/3/4 全部正確（n=3 ＝ 標準的 24 位元 sub-address）
+     ⇒ 🔴 **n ≥ 5 會讀過那個 4 byte 緩衝區的頭**（送出堆疊垃圾而且不報錯）
+        ⇒ 真正的上限是 **4**，而且這個 4 來自這支 DLL，不是 FTDI。
+   與 I2C Bridge 的 `dgh_awid_ok` 是同一套判準（bridge 端也擋一次，不只靠網頁）。 */
+function i2ctAwidOk(a){ return a === 0 || a === 1 || a === 2 || a === 3 || a === 4; }
+var I2CT_AWID_MAX = 4;          /* 名字化，訊息與驗證共用同一個數字 */
 
 /* 某個 offset 寬度能表示的位址上限（awid 0 沒有位址概念，回 0） */
 function i2ctAddrMax(awid){
   if (awid === 1) return 0xFF;
   if (awid === 2) return 0xFFFF;
+  if (awid === 3) return 0xFFFFFF;
   if (awid === 4) return 0xFFFFFFFF;
   return 0;
 }
@@ -1847,8 +2042,20 @@ function i2ctSecs(ms){
    所以留最近 5 筆，而不是只留最後一次。
    🔴 這是**資料**不是說明文字，不在極簡準則的刪除範圍。
    換頁、切 slave 都不清，只有他按「清除」才清。 */
-var I2CT_TIMES_MAX = 5;
+/* 🔴 v1.22.0：5 → 12。原本壓到 5 是因為這一塊**夾在控制項與 dump 表格中間**，
+   多一筆就把表格往下推一行。這一版把整塊搬到表格**下方**之後那個代價消失了
+   ⇒ 可以留更多筆給他比較。
+   為什麼是 12 而不是更多：一次寫入會產生 2 筆（寫 ＋ 回讀驗證），12 ＝ **六組**，
+   已經足夠比較「四種模式 × 兩種長度」這種常見的對照；再多只是讓頁面變長，
+   而更早以前的紀錄他已經在 log 區有完整的一份。 */
+var I2CT_TIMES_MAX = 12;
 var i2ctTimes = [];
+/* 🔴 v1.22.0：列的**序號**（Bruce 2026-09-20：「第一個出來標 1，再來 2、3、4」）。
+   最早的是 1，往新的遞增；清單是新的在上 ⇒ 最下面那列數字最小。
+   🔴 它是**發生順序**的序號，不是陣列索引 —— 被 I2CT_TIMES_MAX 截掉舊的之後，
+      剩下的那幾筆不會被重新編號（重新編號會讓「上一次我看到的第 7 筆」失去意義）。
+   清除紀錄時歸零（見 btn-clrtime 與 __i2ct.clearTimes）。 */
+var i2ctTimeSeq = 0;
 /* 🔴 `verdict` ＝ 比對的**結論**，跟耗時一起常駐。
    理由同上：Bruce 要的是「永遠都沒辦法比對」的相反 —— 結論如果只出現在會被下一個
    動作蓋掉的 banner 上，他隔幾分鐘回頭看就什麼都沒有了。所以結論也進這張表。 */
@@ -1878,6 +2085,7 @@ function i2ctNoteTime(kind, n, ms, path, verdict, vcls){
   var rec = { kind: kind, n: n, ms: ms, path: path,
               verdict: verdict || '', vcls: vcls || '',
               op: i2ctOpCur || (++i2ctOpSeq),
+              seq: ++i2ctTimeSeq,
               at: new Date().toTimeString().slice(0, 8) };
   i2ctTimes.unshift(rec);
   if (i2ctTimes.length > I2CT_TIMES_MAX) i2ctTimes.length = I2CT_TIMES_MAX;
@@ -1888,7 +2096,8 @@ function i2ctRenderTimes(){
   var e = $('timeline'); if (!e) return;
   if (!i2ctTimes.length) { e.innerHTML = '<span class="kv">（還沒有讀寫紀錄）</span>'; return; }
   var row = function (t) {
-    return '<div class="trow"><span class="tk">' + t.kind + '</span>'
+    return '<div class="trow"><span class="tq">' + (t.seq || '') + '</span>'
+         + '<span class="tk">' + t.kind + '</span>'
          + '<span class="tn mono">' + t.n + ' byte</span>'
          + '<span class="tt mono">' + i2ctSecs(t.ms) + '</span>'
          + '<span class="tp">' + t.path + '</span>'
@@ -1896,14 +2105,23 @@ function i2ctRenderTimes(){
          + '<span class="ta kv">' + t.at + '</span></div>';
   };
   /* 同 op 的紀錄必定相鄰（同一次操作之間不會插進別人的紀錄）⇒ 掃一遍切成連續段。
-     🔴 只有一筆的操作**不畫框**：單純按一次讀取的外觀要跟以前一模一樣，
-        也不會出現孤零零的空框（被 I2CT_TIMES_MAX 截掉半組時同理）。 */
-  var out = '', i = 0;
+     🔴🔴 v1.22.0：分組必須**在實機照片上分得出來**。v1.20.2 的「左側 2px 色條 ＋
+        7% 淡底」被 Bruce 拍照打臉（「根本分辨不出來哪一個讀寫是一個 group」）⇒
+        改成完整外框 ＋ 明顯底色，而且**相鄰的組交替色相**（藍／紫）——
+        分辨「哪兩列是一組」不再依賴對比度，靠顏色就分得出來。
+     🔴 只有一筆的操作改用一條中性灰的左邊界（`.tsolo`）：它原本**完全沒有標記**，
+        夾在兩個彩色框中間時反而看不出自己是獨立的一次。仍然不長高。 */
+  var out = '', i = 0, grp = 0;
   while (i < i2ctTimes.length) {
     var j = i + 1;
     while (j < i2ctTimes.length && i2ctTimes[j].op === i2ctTimes[i].op) j++;
     var rows = i2ctTimes.slice(i, j).map(row).join('');
-    out += (j - i > 1) ? ('<div class="tgrp">' + rows + '</div>') : rows;
+    if (j - i > 1) {
+      out += '<div class="tgrp' + ((grp % 2) ? ' alt' : '') + '">' + rows + '</div>';
+      grp++;
+    } else {
+      out += '<div class="tsolo">' + rows + '</div>';
+    }
     i = j;
   }
   e.innerHTML = out;
@@ -1930,10 +2148,65 @@ function i2ctLog(msg, cls){
   el.scrollTop = el.scrollHeight;
 }
 
+/* ═══ 🔴 v1.22.0：「下拉 ＋ 手動輸入」共用元件 ═══════════════════════════════
+   四個欄位（I2C 時脈／slave 位址／總 byte 數／offset 寬度）用的是**同一支**邏輯，
+   不是四份複製品（Bruce：「不要各做一套互動邏輯，抽成同一個元件重複用」）。
+
+   規則只有兩條，兩邊都很短：
+     · 選單選了某一項 ⇒ 寫進輸入框（值只有一份，就是輸入框裡的那個）
+     · 輸入框改了     ⇒ 選單跟著顯示對應項；沒有對應的就顯示「自訂」（value 為空）
+   比對用的是**解析後的數值**，不是字串 —— 打 `0x50`、`80`、`80d`、`0X50h` 都要
+   認得出它就是選單裡的 `0x50`，否則寬容的輸入解析會讓下拉永遠顯示「自訂」。
+
+   🔴 `i2ctComboVal()` 是**共用的**解析器入口：位址類用 i2ctParseAddr（預設十六進位），
+      數量類用 i2ctParseNum（預設十進位）。哪一種由 data-radix 決定，
+      而不是在四個地方各判一次。 */
+function i2ctComboVal(id, text){
+  var e = $(id);
+  var radix = e && e.getAttribute('data-radix');
+  return (radix === 'hex') ? i2ctParseAddr(text) : i2ctParseNum(text);
+}
+/* 輸入框 → 選單（找得到對應項就選它，找不到就是「自訂」）。回傳是不是自訂值。 */
+function i2ctComboSync(id){
+  var inp = $(id), sel = $(id + '-sel');
+  if (!inp || !sel) return false;
+  var v = i2ctComboVal(id, inp.value);
+  var hit = '';
+  for (var i = 0; i < sel.options.length; i++) {
+    var ov = sel.options[i].value;
+    if (ov === '') continue;
+    if (v !== null && i2ctComboVal(id, ov) === v) { hit = ov; break; }
+  }
+  sel.value = hit;
+  return hit === '';
+}
+/* 掛上事件。`onchange` 是呼叫端要做的後續（重算 hint、重畫表格…），
+   由呼叫端給，元件本身不知道也不需要知道。 */
+function i2ctComboInit(id, onchange){
+  var inp = $(id), sel = $(id + '-sel');
+  if (!inp || !sel) return;
+  sel.addEventListener('change', function () {
+    if (!sel.value) return;                 /* 選到「自訂」那一項：不動輸入框 */
+    inp.value = sel.value;
+    i2ctComboSync(id);
+    if (onchange) onchange(true);           /* true ＝ 來自下拉 */
+  });
+  inp.addEventListener('input', function () {
+    i2ctComboSync(id);
+    if (onchange) onchange(false);          /* false ＝ 手動輸入 */
+  });
+  i2ctComboSync(id);
+}
+
 /* ═══ 輸入讀取與驗證 ════════════════════════════════════════════════════ */
+/* 🔴 v1.22.0：offset 寬度從 chips 改成「下拉 ＋ 手動」的共用元件 ⇒ 值在 input 裡。
+   解析不出來就回 2（proto 1 的預設），與舊版 chips 全關時的行為一致。
+   **不在這裡夾取值域** —— 越界要讓 i2ctReadInputs 明確報錯給人看，
+   靜默夾成合法值正是「寬容變成危險」的那一種。 */
 function i2ctAwid(){
-  var on = document.querySelector('#awid-chips .chip.on');
-  return on ? parseInt(on.getAttribute('data-awid'), 10) : 2;
+  var e = $('in-awid'); if (!e) return 2;
+  var v = i2ctParseNum(e.value);
+  return (v === null || !isFinite(v)) ? 2 : v;
 }
 function i2ctReadInputs(){
   var awid = i2ctAwid();
@@ -1943,6 +2216,12 @@ function i2ctReadInputs(){
   var errs  = [];
 
   if (slave === null || slave < 0 || slave > 0x7F) errs.push('slave 位址要是 0x00–0x7F 的 7-bit 值');
+  /* 🔴 v1.22.0：offset 寬度現在是可以手打的 ⇒ 非法值要**在送出前就擋下並說明**，
+     不可以讓它上 wire（bridge 端也會擋，但使用者應該在這裡就看到原因）。
+     訊息要講出上限 4 與它的出處 —— 「為什麼不能填 5」比「不能填 5」有用。 */
+  if (!i2ctAwidOk(awid))
+    errs.push('offset 寬度只能是 0–' + I2CT_AWID_MAX + '：位址相位是從一個 4 byte 的'
+            + '緩衝區依寬度取出來送的，填 5 以上會送出不相干的 byte 當位址，而且不會報錯');
   /* 🔴 offset 寬度 0 的語意（Bruce 2026-09-18 親自確認）：
        「寬度 0 時交易就是 slave address ＋ 你填的那 1 byte，**沒有位址相位**。
         也就是說，0 byte offset 的時候，實際上 data 也只有 1 byte 而已，
@@ -1965,6 +2244,7 @@ function i2ctReadInputs(){
   if (len === null || len < 1 || len > I2CT_MAX_LEN) errs.push('總 byte 數要在 1–' + I2CT_MAX_LEN + ' 之間');
 
   $('in-slave').classList.toggle('bad', slave === null || slave < 0 || slave > 0x7F);
+  if ($('in-awid')) $('in-awid').classList.toggle('bad', !i2ctAwidOk(awid));
   $('in-off').classList.toggle('bad', awid === 0
     ? (off === null || off < 0 || off > 0xFF)
     : (off === null || off < 0 || off > i2ctAddrMax(awid)));
@@ -2021,6 +2301,9 @@ function i2ctSlaveSync(which, commit){
   $('in-slave').classList.remove('bad');
   $('in-slave8w').classList.remove('bad');
   $('in-slave8r').classList.remove('bad');
+  /* 🔴 v1.22.0：7-bit 那一格被另外兩格改寫之後，它的下拉也要跟著顯示對的那一項
+     （或「自訂」）。少了這一行，從 8-bit 欄改成 0x50 時下拉會停在 0x68。 */
+  i2ctComboSync('in-slave');
   return r.s;
 }
 
@@ -2041,14 +2324,26 @@ function i2ctUpdateHints(){
   if ($('pagehint')) $('pagehint').textContent =
     (pg > 0 ? '分段 ' + pg + 'B' : '連續') + (i2ctPageTouched ? '（手動）' : '（自動）');
   if ($('wr-twr')) $('wr-twr').disabled = (pg === 0);
+  i2ctUpdateGapHint();
+  i2ctUpdateClockHint();
   /* 🔴 原本這裡有一條「選得比自動判定值大就紅字提醒」，**已取消** ——
      被寫入前的型號確認視窗取代（見 i2ctEepromAsk）。那個做法更好：
      使用者選的是他本來就知道的型號，page size 由系統填，不可能選錯。 */
-  $('awidhint').textContent = v.awid === 0
-    ? '無位址相位'
-    : (v.awid + ' byte，高位在前');
+  $('awidhint').textContent = !i2ctAwidOk(v.awid)
+    ? ('只能 0–' + I2CT_AWID_MAX)
+    : (v.awid === 0 ? '無位址相位' : (v.awid + ' byte，高位在前'
+        /* 🔴 3 不在下拉裡（手打才有）⇒ 要有一行告訴他這確實生效了，
+           而且要告訴他舊版 I2C Bridge 不認得它（不然他會以為是硬體問題）。 */
+        + (v.awid === 3
+            ? ('·24 位元'
+               + ((i2ctLinked && i2ctHelperProto && i2ctHelperProto < I2CT_PROTO_AWID3)
+                   ? '　🔴 這支 I2C Bridge 太舊，不吃寬度 3（要 proto ' + I2CT_PROTO_AWID3 + '）'
+                   : ''))
+            : '')));
   /* 🔴 標籤本身要變，不是只有 hint 變 —— 語意不同，名字就不能一樣。 */
-  $('offlabel').textContent = v.awid === 0 ? '③ 寫入值（1 byte）' : '③ 起始 offset';
+  /* 🔴 v1.22.0：編號拿掉 —— 這一格現在在「② Offset」這個 group 裡面，
+     再掛一個 ③ 會跟旁邊的「③ 總 byte 數」撞號（實機截圖上兩個 ③ 並排）。 */
+  $('offlabel').textContent = v.awid === 0 ? '寫入值（1 byte）' : '起始 offset';
   /* 🔴 解析結果放在最前面（Bruce 2026-09-18）：`0x50H`、`#80`、`80d`、`50` 這些
      寫法都吃得下，但吃下去變成什麼必須當場看得到，否則寬容就變成危險。 */
   $('offhint').textContent = (v.off === null)
@@ -2324,7 +2619,7 @@ async function i2ctConnect(takeover){
          做法刻意放在**網頁端**：他不必換 exe、不必打任何參數，重新整理就好。
          （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
          fast 仍保留在 debug 區，供日後查清根因後實測用。 */
-      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: takeover ? 1 : 0,
+      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
                             rawmpsse: i2ctRawMpsse ? 1 : 0 });
       if (op.ok) { i2ctLog('已開通道（第 ' + a + ' 次）· channels=' + op.channels, 'o'); break; }
@@ -3018,10 +3313,59 @@ function i2ctPageSize(){
   var v = parseInt(e.value, 10);
   return isFinite(v) && v >= 0 ? v : I2CT_PAGE_DEFAULT;
 }
+/* ═══ 🔴🔴 v1.22.0：「段間等待」→「目標段間距」═══════════════════════════════
+   舊語意：這個數字 ＝ 每一段寫完之後**我們額外睡多久**。那是實作細節，使用者
+   在匯流排上量不到它 —— 他量到的是**段與段之間的間距**，而那等於
+     睡眠 ＋ 一段固定開銷（SendBytesEx 回來之後到下一段真正上匯流排的時間）。
+   Bruce 2026-09-20 實測：設 1 ms，量到約 5 ms。
+
+   新語意：這個數字就是**他量得到的那個段間距**。扣掉開銷的工作交給 I2C Bridge，
+   而且**開銷是它每一段自己量的**，不是寫死的 4 ms —— 寫死等於把「這台機器、
+   這支 DLL、這個 page 大小」的一次量測固化成常數，換一台就過期。
+
+   🔴 **不夾取、不擋。** 他有硬體、他自己判斷（`i2ctGapNote()` 負責讓他知情）。
+      上限 1000 是 bridge 的協定上限，超過它 bridge 會回明確錯誤。 */
+var I2CT_GAP_MIN_SUGGEST = 5;      /* 建議下限：24C32／24C64 的 tWR 規格值 */
 function i2ctTwr(){
   var e = $('wr-twr'); if (!e) return I2CT_TWR_DEFAULT;
   var v = i2ctParseNum(e.value);
   return (v === null || v < 0) ? I2CT_TWR_DEFAULT : Math.min(v, 1000);
+}
+/* 舊名 i2ctTwr 保留（既有測試與呼叫端都在用），新名字是語意正確的那一個。 */
+function i2ctGap(){ return i2ctTwr(); }
+/* 🔴 **安全界線**：tWR 是 EEPROM 的內部寫入週期 —— 收下一頁之後它要把資料燒進去，
+   這段期間不回應任何命令。24C32／24C64 的規格是**最多 5 ms**，舊款 AT24C32 是
+   **10 ms**。🔴 **等不夠的後果是那一頁靜默寫不進去**（不會報錯，回讀才看得到）。
+   這一支只負責**讓他知情**，不擋、不改他的值。 */
+function i2ctGapNote(gap){
+  if (gap < I2CT_GAP_MIN_SUGGEST)
+    return '🔴 低於 24C32/64 的 tWR 規格（5 ms）：那一頁可能靜默寫不進去';
+  if (gap < 10)
+    return '24C32/64（5 ms）夠；舊款 AT24C32 要 10 ms';
+  return '';
+}
+function i2ctUpdateGapHint(){
+  var h = $('twrhint'); if (!h) return;
+  var gap = i2ctGap(), note = i2ctGapNote(gap);
+  h.textContent = 'ms · 匯流排上的段間距' + (note ? '　' + note : '');
+  h.style.color = (gap < I2CT_GAP_MIN_SUGGEST) ? '#f87171' : '';
+}
+/* 🔴 時脈：**當場算出實際會得到的頻率**。整數除法會把不整除的值默默算歪
+   （輸入 350 實際是 352.94），所以這一行不是裝飾，是正確性資訊。
+   🔴 不擋高低、不跳警告、不標紅 —— SCL 是主機產生的，從機只是在這個時脈上取樣；
+      超過從機規格時的表現是 NACK 或資料錯誤，而寫入後的回讀驗證會抓到。 */
+function i2ctUpdateClockHint(){
+  var h = $('clkhint'); if (!h) return;
+  var inp = $('in-clk'); if (!inp) return;
+  var raw = i2ctParseNum(inp.value);
+  var r = i2ctClockCalc(raw);
+  inp.classList.toggle('bad', !r.ok);
+  if (!r.ok) { h.textContent = r.err; h.style.color = '#f87171'; return; }
+  h.style.color = '';
+  var same = Math.abs(r.actual - raw) < 1e-9;
+  h.textContent = same
+    ? ('實際 ' + r.actual + ' kHz · div ' + r.div)
+    : ('🔴 實際 ' + (Math.round(r.actual * 100) / 100) + ' kHz（div ' + r.div + '）');
 }
 
 /* 🔴 要寫的 byte 從哪裡來：載入的檔案優先，沒有檔案才看文字框。
@@ -3291,7 +3635,7 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
   var useBatch = (page > 0 && plan.length > 1 && wireAwid !== 0
                   && i2ctHelperProto >= I2CT_PROTO_BATCH);
   i2ctLog('寫入計畫：' + d.length + ' byte ⇒ ' + plan.length + ' 段'
-        + (page > 0 ? '（page ' + page + ' byte，段間等待 ' + twr + ' ms）' : '（不分段 ＝ burst）')
+        + (page > 0 ? '（page ' + page + ' byte，目標段間距 ' + twr + ' ms）' : '（不分段 ＝ burst）')
         + '　' + (useBatch
             ? '⚡ 整批模式：**1 次**請求交給 I2C Bridge，由它分頁（舊做法是 ' + plan.length + ' 次）'
             : (plan.length > 1
@@ -3345,8 +3689,14 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
        🔴 逾時用「多久沒有任何動靜」判（進度訊息會續命），不是固定 8 秒 ——
           8192 byte 至少兩三秒，更大的檔案更久。 */
     var bt0 = i2ctNow();
+    /* 🔴 v1.22.0：**兩個欄位都送**。
+         `gap` ＝ 新語意（目標段間距，bridge 自己扣掉實測開銷），要 proto ≥ 5。
+         `twr` ＝ 舊語意（額外睡多久）。舊 exe 只看得懂它，會睡滿 `twr` ⇒
+                  段間距變成「目標 ＋ 開銷」＝ **比目標長**。慢一點，但絕不會等不夠
+                  （tWR 等不夠是靜默寫不進去，等太久只是慢）—— 這是安全的方向。
+       新 bridge 看到 `gap` 就完全忽略 `twr`。 */
     var req = { type: 'batchwrite', slave: slave, addr: base, awid: wireAwid,
-                page: page, twr: twr, len: d.length,
+                page: page, twr: twr, gap: twr, len: d.length,
                 data: Array.prototype.slice.call(d) };
     i2ctProgress = { done: 0, total: d.length, t0: bt0, label: '寫入', batchId: null };
     i2ctRenderProgress();
@@ -3384,9 +3734,27 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
             + (br.segs != null ? br.segs : '?') + ' 段、'
             + (br.us != null ? (br.us / 1000).toFixed(1) : '?') + ' ms 總計'
             + (br.devus != null ? ('（裝置側 ' + (br.devus / 1000).toFixed(1) + ' ms') : '（')
-            + (br.twrms != null ? ('，tWR 等待 ' + Number(br.twrms).toFixed(0) + ' ms') : '')
+            + (br.twrms != null ? ('，段間等待 ' + Number(br.twrms).toFixed(0) + ' ms') : '')
             + '）　進度訊息 ' + (br.progsent != null ? br.progsent : '?') + ' 則'
             + '　⇒ 網頁↔bridge 往返：**1 次**（舊做法 ' + plan.length + ' 次）', 'n');
+      /* 🔴 v1.22.0：**四個數字一行印完**（Bruce：「讓我一眼對得起來，不用自己算」）。
+         目標／實測開銷／實際睡了多久／實際平均段間距 —— 與 i2c-bridge.log 印的
+         是同一組數字（同一份回覆算出來的，不是各湊一份）。
+         🔴 段間距是 bridge 用「實測段週期 − 理論匯流排時間」估的；
+            真正的值只有邏輯分析儀量得到，這裡如實標明「估」。 */
+      if (br.gapmode) {
+        i2ctLog('⏱ 段間距：目標 ' + Number(br.gapreqms).toFixed(2) + ' ms'
+              + '　實測開銷 ' + Number(br.gapovhms).toFixed(2) + ' ms'
+              + '　實際睡 ' + Number(br.gapsleepms).toFixed(2) + ' ms'
+              + '　⇒ 實際段間距（估）' + Number(br.gapavgms).toFixed(2) + ' ms', 'n');
+        if (br.gapzero)
+          i2ctLog('　其中 ' + br.gapzero + ' 次的目標已被固定開銷吃滿 ⇒ **未額外等待**'
+                + '（要更長的間距就把目標調大）', 'w');
+      } else {
+        i2ctLog('　（這支 I2C Bridge 是 proto ' + (i2ctHelperProto || '?')
+              + '，還不懂目標段間距 ⇒ 它睡滿 ' + twr + ' ms，實際間距會比目標長。'
+              + '換新版 I2C Bridge 才會自動扣掉開銷。）', 'n');
+      }
       if (!ok) {
         errMsg = br.err || (aborted ? '已中止' : '整批寫入失敗');
         i2ctLog((aborted ? '■ ' : '✕ ') + errMsg, aborted ? 'w' : 'e');
@@ -3418,10 +3786,16 @@ async function i2ctWriteBytesRun(slave, wireAwid, base, d, srcLabel){
     if (!r.ok) { ok = false; errMsg = r.err; break; }
     /* 🔴 tWR：EEPROM 收下一頁之後要把它燒進去，這段期間它**不回應任何命令**。
        沒等就送下一段，下一段會 NACK 或整批掉。5ms 是 24C32／24C64 的規格值。
-       不分段模式沒有頁的概念 ⇒ 不等。 */
+       不分段模式沒有頁的概念 ⇒ 不等。
+       🔴 v1.22.0：欄位語意換成**目標段間距** ⇒ 這一條逐段路徑也要扣掉自己的開銷，
+          否則同一個數字在兩條路徑上代表不同的東西（那比沒改還糟）。
+          這裡的開銷是**這一頁自己量到的**：`tWs` ＝ 這一段的整趟往返（含 WebSocket、
+          JSON、await 與裝置），它就是「不管睡多久都躲不掉」的那一段。
+          🔴 算出來 ≤ 0 ⇒ 不睡（目標已經被開銷吃滿），與 bridge 端同一條規則。 */
     var tWait0 = i2ctNow();
-    if (page > 0 && twr > 0 && pi2 < plan.length - 1)
-      await new Promise(function (rs) { setTimeout(rs, twr); });
+    var wantWait = Math.max(0, twr - tWs);
+    if (page > 0 && wantWait > 0 && pi2 < plan.length - 1)
+      await new Promise(function (rs) { setTimeout(rs, wantWait); });
     var tWait = i2ctNow() - tWait0;
     var tApply0 = i2ctNow();
     /* 🔴 v1.21.0：這一段抽成 applyWritten()，與整批模式共用同一支。
@@ -3681,7 +4055,7 @@ function i2ctApplyFile(name, raw){
     i2ctFileBase = (vin.off === null ? 0 : vin.off);
     i2ctFileAwid = vin.awid;
     /* 🔴 載入的長度**共用「總 byte 數」欄位**（Bruce 明講）。他之後改小就以他為準。 */
-    $('in-len').value = String(Math.min(bytes.length, I2CT_MAX_LEN));
+    $('in-len').value = String(Math.min(bytes.length, I2CT_MAX_LEN)); i2ctComboSync('in-len');
     $('in-data').value = '';
     i2ctFileFormat = fmt;
     i2ctLog('載入 ' + file.name + '：' + fmt + ' · ' + bytes.length + ' byte'
@@ -3806,7 +4180,7 @@ async function i2ctSelfTestRun(auto){
     i2ctSlaveSync('s7', true);
     i2ctSetAwid(I2CT_GOLDEN.awid);
     $('in-off').value = '0x' + i2ctHex(I2CT_GOLDEN.addr, 4);
-    $('in-len').value = String(I2CT_GOLDEN.len);
+    $('in-len').value = String(I2CT_GOLDEN.len); i2ctComboSync('in-len');
     i2ctUpdateHints();
   }
 
@@ -4032,7 +4406,7 @@ async function i2ctComparePathsRun(){
   var res = {};
   for (var pass = 0; pass < MODES.length; pass++) {
     var M = MODES[pass];
-    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: M.mode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+    try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: M.mode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: 0,
                            fastread: M.mode === I2CT_MODE_FAST ? 1 : 0,
                            rawmpsse: M.mode === I2CT_MODE_RAW  ? 1 : 0 }); }
     catch (e) { i2ctBusy = false; i2ctSyncButtons(); i2ctBanner('readbanner', 'err', '切換模式失敗：' + e.message); return; }
@@ -4073,7 +4447,7 @@ async function i2ctComparePathsRun(){
       var cbf = $('chk-fastread'); if (cbf) cbf.checked = false;
     }
   }
-  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: I2CT_CLOCK_HZ, takeover: 0,
+  try { await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: 0,
                          fastread: i2ctFastRead ? 1 : 0, rawmpsse: i2ctRawMpsse ? 1 : 0 }); } catch (e) {}
   i2ctBusy = false; i2ctSyncButtons();
   if (!done) {
@@ -4149,7 +4523,7 @@ function i2ctClearAll(){
   i2ctSelAnchor = null; i2ctSelCursor = null;
   i2ctCross = null; i2ctPageIdx = 0; i2ctLastRead = null;
   i2ctEeForget();                       /* ⑪ 型號確認記憶一併清掉 */
-  $('in-len').value = '256';            /* ⑧ 總 byte 數回預設 */
+  $('in-len').value = '256'; i2ctComboSync('in-len');   /* ⑧ 總 byte 數回預設 */
   i2ctBanner('readbanner', '', '');
   i2ctBanner('pagewarn', '', '');
   i2ctUpdateHints();
@@ -4955,9 +5329,9 @@ async function i2ctApplyCellValue(d, idx, addr, awid, byte){
    任何跡象，看起來就是「點了沒反應」**。正本在上面（L2712），這裡刪掉。
    （教訓：同名函式重複定義，後面那個靜靜贏 —— 真實瀏覽器的 probe 才抓得到。） */
 function i2ctSetAwid(a){
-  var chips = document.querySelectorAll('#awid-chips .chip');
-  for (var i = 0; i < chips.length; i++)
-    chips[i].classList.toggle('on', parseInt(chips[i].getAttribute('data-awid'), 10) === a);
+  var e = $('in-awid'); if (!e) return;
+  e.value = String(a);
+  i2ctComboSync('in-awid');
 }
 
 /* ═══ 啟動 ══════════════════════════════════════════════════════════════ */
@@ -5050,14 +5424,18 @@ function i2ctInit(){
     i2ctNeedHelper('這一頁要通 I2C 得先有本機 I2C Bridge');
   }
 
-  var chips = document.querySelectorAll('#awid-chips .chip');
-  for (var i = 0; i < chips.length; i++) {
-    chips[i].addEventListener('click', function () {
-      i2ctSetAwid(parseInt(this.getAttribute('data-awid'), 10));
-      i2ctUpdateHints();
-    });
-  }
-  ['in-off', 'in-len', 'wr-twr'].forEach(function (id) {
+  /* ═══ 🔴 v1.22.0：四個「下拉 ＋ 手動」全部走**同一支** i2ctComboInit ═══════════
+     （Bruce：「不要各做一套互動邏輯，抽成同一個元件重複用」）
+     每一個只給自己的後續動作，互動邏輯一份都沒有複製。 */
+  i2ctComboInit('in-awid', function () { i2ctUpdateHints(); });
+  i2ctComboInit('in-len',  function () { i2ctUpdateHints(); });
+  i2ctComboInit('in-clk',  function () { i2ctUpdateClockHint(); });
+  i2ctComboInit('in-slave', function () {
+    /* slave 與另外兩格（8-bit write／read）連動 —— 行為與手打時**完全一樣**，
+       這裡只是把下拉選出來的值餵進同一條路。 */
+    i2ctSlaveSync('s7', false); i2ctUpdateHints(); i2ctRenderTable();
+  });
+  ['in-off', 'wr-twr'].forEach(function (id) {
     $(id).addEventListener('input', i2ctUpdateHints);
   });
   /* 動過選單 ＝ 他指定了 ⇒ 之後切 slave 不再自動改（見 i2ctAutoPage 的註解）。 */
@@ -5066,9 +5444,9 @@ function i2ctInit(){
      在 input 這一層就做，使用者甚至還沒按讀取，highlight 就已經清乾淨了。 */
   /* 作廢的判斷在 i2ctUpdateHints 裡（見那裡的註解）；這裡只負責重畫表格，
      讓 highlight 在他改 slave 的當下就消失，不必等到按讀取。 */
-  $('in-slave').addEventListener('input', function () {
-    i2ctSlaveSync('s7', false); i2ctUpdateHints(); i2ctRenderTable();
-  });
+  /* 🔴 v1.22.0：這一顆 `input` 監聽器**搬進上面的 i2ctComboInit('in-slave')** ——
+     那支已經掛了 input（要同步下拉的選取狀態），再掛一顆會讓 i2ctSlaveSync 每次
+     敲鍵跑兩遍。行為完全一樣，少一次重工。 */
   [['in-slave8w', 'w8'], ['in-slave8r', 'r8']].forEach(function (pair) {
     $(pair[0]).addEventListener('input',  function () { i2ctSlaveSync(pair[1], false); i2ctUpdateHints(); i2ctRenderTable(); });
     $(pair[0]).addEventListener('change', function () { i2ctSlaveSync(pair[1], true);  i2ctUpdateHints(); });
@@ -5134,7 +5512,7 @@ function i2ctInit(){
   });
   $('btn-cmppath').addEventListener('click', i2ctComparePaths);
   $('btn-clrtime').addEventListener('click', function () {
-    i2ctTimes = []; i2ctRenderTimes(); i2ctFlash('✔ 已清除耗時紀錄');
+    i2ctTimes = []; i2ctTimeSeq = 0; i2ctRenderTimes(); i2ctFlash('✔ 已清除耗時紀錄');
   });
   /* ═══ 🔴 搜尋（v1.15.0）══════════════════════════════════════════════════ */
   $('in-find').addEventListener('input', function () { i2ctFindRun(); });
@@ -5482,6 +5860,15 @@ window.__i2ct = {
   awidOk: i2ctAwidOk, addrMax: i2ctAddrMax, wrap: i2ctWrap,
   planRead: i2ctPlanRead, planWrite: i2ctPlanWrite, wrapPeriod: i2ctWrapPeriod,
   pageSize: function () { return i2ctPageSize(); }, twr: function () { return i2ctTwr(); },
+  /* v1.22.0 的新東西：目標段間距、時脈換算、共用的下拉元件 */
+  gap: function () { return i2ctGap(); }, gapNote: i2ctGapNote,
+  awidMax: I2CT_AWID_MAX, protoAwid3: I2CT_PROTO_AWID3,
+  clockCalc: i2ctClockCalc,
+  clockKHz: function () { return i2ctClockKHz(); },
+  clockHz: function () { return i2ctClockHz(); },
+  comboSync: i2ctComboSync, comboVal: i2ctComboVal,
+  timeSeq: function () { return i2ctTimeSeq; },
+  timesMax: I2CT_TIMES_MAX,
   isEepromAddr: i2ctIsEepromAddr, EEPROMS: I2CT_EEPROMS,
   eeDefaultIdx: i2ctEeDefaultIdx, eeOk: function () { return i2ctEeOk; },
   eepromAuto: function (v) { i2ctEeAuto = (v === undefined) ? null : v; return i2ctEeAuto; },
@@ -5638,7 +6025,7 @@ window.__i2ct = {
   clearAll: function () { return i2ctClearAll(); },
   comparePaths: function () { return i2ctComparePaths(); },
   times: function () { return i2ctTimes.slice(); },
-  clearTimes: function () { i2ctTimes = []; i2ctRenderTimes(); },
+  clearTimes: function () { i2ctTimes = []; i2ctTimeSeq = 0; i2ctRenderTimes(); },
   /* 🔴 明確指定 ⇒ 視為**手動覆寫**，自動選路要讓開（與他自己動勾選框同義）。
      v1.14.x 把守衛從 `!i2ctRawMpsse` 改成 mode 之後漏掉這一層，
      結果連已經指定模式的情境也照跑自動選路，多送兩次讀取。 */
@@ -5709,13 +6096,16 @@ window.__i2ct = {
   doRead:  function () { return i2ctOnRead(); },
   doWrite: function () { return i2ctOnWrite(); },
   setInputs: function (o) {
-    if (o.slave != null) { $('in-slave').value = o.slave; i2ctSlaveSync('s7', true); }
+    if (o.slave != null) { $('in-slave').value = o.slave; i2ctSlaveSync('s7', true); i2ctComboSync('in-slave'); }
     if (o.awid  != null) i2ctSetAwid(o.awid);
     if (o.off   != null) $('in-off').value = o.off;
-    if (o.len   != null) $('in-len').value = o.len;
+    if (o.len   != null) { $('in-len').value = o.len; i2ctComboSync('in-len'); }
     if (o.data  != null) $('in-data').value = o.data;
     i2ctUpdateHints();
   },
+  /* 🔴 v1.22.0：夾具要驗「非法輸入在**送出前**就被擋下」，而那個判斷在
+     i2ctReadInputs 裡 —— 之前沒有掛勾可以取到它的 errs。 */
+  readInputs: function () { return i2ctReadInputs(); },
   curSet: function () { return i2ctCurSet(); },
   /* 🔴 測試專用：回到「這一頁剛打開、什麼都還沒讀過」的狀態。
      存在的理由很具體 —— Bruce 回報的「讀完不能另存新檔」只在**第一次讀取**

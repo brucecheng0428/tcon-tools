@@ -269,7 +269,7 @@ int main(void){
        這個主動推送的訊息型別）。這一條刻意寫死數字而不是讀巨集：**協定版本是
        對外承諾**，跟著巨集走的斷言等於永遠不會失敗，那就不是斷言。
        改這個數字時請同時確認網頁端的 `I2CT_PROTO_BATCH`。 */
-    CHECKS(hello,"\"proto\":4","hello 回報 proto 4（1.15.0 起）");
+    CHECKS(hello,"\"proto\":5","hello 回報 proto 5（1.16.0 起；4 是 1.15.x）");
     /* 🔴 就是這一條。v1.4.x 在 A 的 WS 開著時卡在 serve_ws 的 recv 迴圈裡，
        這個 GET 會一直躺在 backlog、永遠不回 —— 使用者看到的就是「打不開」。 */
     /* 🔴 v1.4.x 的致命傷：A 的 WS 開著時第二個 HTTP 請求永遠不會被處理。
@@ -705,8 +705,13 @@ int main(void){
                    "page must be at least 1", "🔴 page 為 0");
             BADREQ("{\"type\":\"batchwrite\",\"id\":55,\"slave\":80,\"addr\":0,\"awid\":2,\"page\":300,\"twr\":5,\"len\":2,\"data\":[1,2]}",
                    "larger than", "page 超過一段能寫的上限");
-            BADREQ("{\"type\":\"batchwrite\",\"id\":56,\"slave\":80,\"addr\":0,\"awid\":3,\"page\":32,\"twr\":5,\"len\":2,\"data\":[1,2]}",
-                   "bad awid", "awid 不合法");
+            /* 🔴 1.16.0：不合法的 awid 從「3」換成「5」—— 3 現在是合法的
+               （見 dgh_awid_ok 的反組譯依據），而 **5 以上才是真的會讀過
+               那個 4 byte 位址緩衝區**。錯誤訊息要講得出上限與原因。 */
+            BADREQ("{\"type\":\"batchwrite\",\"id\":56,\"slave\":80,\"addr\":0,\"awid\":5,\"page\":32,\"twr\":5,\"len\":2,\"data\":[1,2]}",
+                   "maximum is 4", "awid 5（超過 DLL 的 4 byte 位址緩衝區）");
+            BADREQ("{\"type\":\"batchwrite\",\"id\":56,\"slave\":80,\"addr\":0,\"awid\":255,\"page\":32,\"twr\":5,\"len\":2,\"data\":[1,2]}",
+                   "maximum is 4", "awid 255");
             BADREQ("{\"type\":\"batchwrite\",\"id\":57,\"slave\":80,\"addr\":0,\"awid\":0,\"page\":32,\"twr\":5,\"len\":2,\"data\":[1,2]}",
                    "no address phase", "awid 0（沒有位址相位就談不上分頁）");
             BADREQ("{\"type\":\"batchwrite\",\"id\":58,\"slave\":80,\"addr\":0,\"awid\":2,\"page\":32,\"len\":2,\"data\":[1,2]}",
@@ -806,6 +811,135 @@ int main(void){
                     EQ_I(bad, -1, "🔴 內容逐 byte 正確（改等待沒有動到資料）");
                 }
                 EQ_I(dgh_fake_wraps, 0, "沒有頁內回捲");
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               §11g 🔴🔴 目標段間距（`gap`）與它的自校正（1.16.0）
+               ───────────────────────────────────────────────────────────────
+               欄位語意從「我要額外睡多久」換成「匯流排上的段間距」。bridge 量
+               自己的每段固定開銷，睡「目標 − 開銷」。這一節釘住四件事：
+                 (1) 四個數字**都回得出來**（目標／實測開銷／實際睡了多久／
+                     實際平均段間距）—— Bruce 不必自己算，Dispatch 明列
+                 (2) 目標大於開銷 ⇒ 真的有睡，而且**段間距不小於目標**
+                 (3) 目標被開銷吃滿（gap:0）⇒ 睡 0，而且有 `gapzero` 可查
+                 (4) **`gap` 缺席 ⇒ 舊 `twr` 行為一個 byte 都沒變**（相容性）
+               🔴 這裡的毫秒數是 Linux 上的模擬，不得引用成他機器上的數字。 */
+            G("11g. 🔴 目標段間距（gap）：四個數字都回得出來，且不短於目標");
+            {
+                double gtar=-1.0, govh=-1.0, gslp=-1.0, gavg=-1.0;
+                char* p;
+                dgh_fake_eeprom_reset(32,2,0xFF);
+                dgh_fake_writes=0;
+                o=(size_t)snprintf(req,cap,"{\"type\":\"batchwrite\",\"id\":90,\"slave\":80,\"addr\":0,"
+                                           "\"awid\":2,\"page\":32,\"twr\":5,\"gap\":9,\"len\":128,\"data\":[");
+                for(i=0;i<128;i++) o+=(size_t)snprintf(req+o,cap-o,"%s%u",i?",":"",(unsigned)(i&0xFF));
+                o+=(size_t)snprintf(req+o,cap-o,"]}");
+                ws_send_n(B,req,o);
+                buf[0]=0;
+                for(;;){
+                    if(!ws_recv(B,rbuf,200000)) break;
+                    if(strstr(rbuf,"\"type\":\"progress\"")) continue;
+                    if(strstr(rbuf,"\"type\":\"result\"")){ snprintf(buf,sizeof(buf),"%s",rbuf); break; }
+                }
+                CHECKS(buf,"\"ok\":true","gap 模式：128 byte / page 32 寫成功");
+                CHECKS(buf,"\"gapmode\":true","🔴 回覆說得出這一次走的是 gap 模式");
+                CHECKS(buf,"\"gapreqms\":9.00","🔴 ① 目標段間距（9 ms）");
+                CHECKS(buf,"\"gapovhms\":","🔴 ② 實測每段開銷");
+                CHECKS(buf,"\"gapsleepms\":","🔴 ③ 實際睡了多久");
+                CHECKS(buf,"\"gapavgms\":","🔴 ④ 實際平均段間距");
+                if((p=strstr(buf,"\"gapreqms\":")))   gtar=atof(p+11);
+                if((p=strstr(buf,"\"gapovhms\":")))   govh=atof(p+11);
+                if((p=strstr(buf,"\"gapsleepms\":"))) gslp=atof(p+13);
+                if((p=strstr(buf,"\"gapavgms\":")))   gavg=atof(p+11);
+                printf("      [量測] 目標 %.2f ms ｜ 實測開銷 %.2f ms ｜ 實際睡 %.2f ms ｜ 實際段間距 %.2f ms\n",
+                       gtar, govh, gslp, gavg);
+                CHECK(gtar==9.0, "目標原樣回報，沒有被夾取");
+                /* 🔴 開銷**可以是負的**（理論匯流排時間算得比實際久時），所以這裡
+                   不釘正負，而是釘「四個數字彼此對得起來」—— 段間距 ≈ 睡眠 ＋ 開銷。
+                   這一條比「是不是正數」有力：它證明這三個數字是同一筆量測算出來
+                   的，而不是各自湊的（寫死一個常數就會在這裡露餡）。 */
+                {   double diff=gavg-(gslp+govh); if(diff<0) diff=-diff;
+                    CHECK(diff<0.8, "🔴 四個數字彼此對得起來：段間距 ≈ 實際睡眠 ＋ 實測開銷"); }
+                CHECK(gslp>0.0,  "🔴 目標 9 ms 大於開銷 ⇒ 真的有睡（不是睡 0）");
+                CHECK(gslp<=9.0+3.0, "🔴 睡的時間沒有失控（上界＝目標＋匯流排時間的估計）");
+                CHECK(gavg>=9.0-0.5, "🔴🔴 實際段間距**不短於**目標（等不夠＝靜默寫不進去）");
+                EQ_I(dgh_fake_writes, 4, "4 段都真的寫出去了");
+                {   int bad=-1;
+                    for(i=0;i<128;i++) if(dgh_fake_mem[i]!=(unsigned char)(i&0xFF)){ bad=i; break; }
+                    EQ_I(bad, -1, "🔴 內容逐 byte 正確（改等待沒有動到資料）"); }
+                EQ_I(dgh_fake_wraps, 0, "沒有頁內回捲");
+            }
+            /* 目標被開銷吃滿：gap:0 ⇒ 一定睡 0，而且要講出來 */
+            {
+                double gslp=-1.0; long gz=-1; char* p;
+                dgh_fake_eeprom_reset(32,2,0xFF);
+                o=(size_t)snprintf(req,cap,"{\"type\":\"batchwrite\",\"id\":91,\"slave\":80,\"addr\":0,"
+                                           "\"awid\":2,\"page\":32,\"twr\":5,\"gap\":0,\"len\":128,\"data\":[");
+                for(i=0;i<128;i++) o+=(size_t)snprintf(req+o,cap-o,"%s%u",i?",":"",(unsigned)(i&0xFF));
+                o+=(size_t)snprintf(req+o,cap-o,"]}");
+                ws_send_n(B,req,o);
+                buf[0]=0;
+                for(;;){
+                    if(!ws_recv(B,rbuf,200000)) break;
+                    if(strstr(rbuf,"\"type\":\"progress\"")) continue;
+                    if(strstr(rbuf,"\"type\":\"result\"")){ snprintf(buf,sizeof(buf),"%s",rbuf); break; }
+                }
+                CHECKS(buf,"\"ok\":true","gap 0：照樣寫成功（不擋、不夾取）");
+                CHECKS(buf,"\"gapmode\":true","gap 0 仍然是 gap 模式（0 不等於缺席）");
+                if((p=strstr(buf,"\"gapsleepms\":"))) gslp=atof(p+13);
+                if((p=strstr(buf,"\"gapzero\":")))    gz  =atol(p+10);
+                printf("      [量測] gap=0 ⇒ 實際睡 %.2f ms，被開銷吃滿的次數 %ld\n", gslp, gz);
+                CHECK(gslp==0.0, "🔴 目標 0 ⇒ 完全不睡（不是睡一點點）");
+                EQ_I(dgh_fake_writes, 8, "第二輪的 4 段也真的寫出去了（累計 8）");
+            }
+            /* 🔴 相容性：`gap` 缺席 ⇒ 完全走舊的 twr 語意，gapmode 必須是 false */
+            {
+                dgh_fake_eeprom_reset(32,2,0xFF);
+                o=(size_t)snprintf(req,cap,"{\"type\":\"batchwrite\",\"id\":92,\"slave\":80,\"addr\":0,"
+                                           "\"awid\":2,\"page\":32,\"twr\":5,\"len\":128,\"data\":[");
+                for(i=0;i<128;i++) o+=(size_t)snprintf(req+o,cap-o,"%s%u",i?",":"",(unsigned)(i&0xFF));
+                o+=(size_t)snprintf(req+o,cap-o,"]}");
+                ws_send_n(B,req,o);
+                buf[0]=0;
+                for(;;){
+                    if(!ws_recv(B,rbuf,200000)) break;
+                    if(strstr(rbuf,"\"type\":\"progress\"")) continue;
+                    if(strstr(rbuf,"\"type\":\"result\"")){ snprintf(buf,sizeof(buf),"%s",rbuf); break; }
+                }
+                CHECKS(buf,"\"gapmode\":false","🔴 gap 缺席 ⇒ 舊 twr 行為（舊網頁一個 byte 都沒變）");
+                CHECKS(buf,"\"twrreqms\":5","🔴 舊模式仍然回報要求的 tWR");
+                {   double avg=-1.0; char* p2;
+                    if((p2=strstr(buf,"\"twravgms\":"))) avg=atof(p2+11);
+                    CHECK(avg>=5.0,"🔴 舊模式的平均仍然不低於要求的 5 ms"); }
+            }
+            /* 🔴 gap 超過上限 ⇒ 明確擋下（與 twr 同一套規矩） */
+            {
+                CHECK(ws_cmd(B,"{\"type\":\"batchwrite\",\"id\":93,\"slave\":80,\"addr\":0,\"awid\":2,"
+                               "\"page\":32,\"gap\":99999,\"len\":2,\"data\":[1,2]}",rbuf,200000),
+                      "gap 超過上限 有回覆");
+                CHECKS(rbuf,"\"ok\":false","gap 超過上限 回失敗");
+                CHECKS(rbuf,"ceiling","gap 超過上限 的錯誤訊息講得出原因");
+            }
+            /* 🔴 awid 3（24 位元 sub-address）在 batchwrite 這條路也要真的走得通 */
+            {
+                dgh_fake_eeprom_reset(32,3,0xFF);
+                dgh_fake_writes=0;
+                o=(size_t)snprintf(req,cap,"{\"type\":\"batchwrite\",\"id\":94,\"slave\":80,\"addr\":0,"
+                                           "\"awid\":3,\"page\":32,\"gap\":0,\"len\":64,\"data\":[");
+                for(i=0;i<64;i++) o+=(size_t)snprintf(req+o,cap-o,"%s%u",i?",":"",(unsigned)(i&0xFF));
+                o+=(size_t)snprintf(req+o,cap-o,"]}");
+                ws_send_n(B,req,o);
+                buf[0]=0;
+                for(;;){
+                    if(!ws_recv(B,rbuf,200000)) break;
+                    if(strstr(rbuf,"\"type\":\"progress\"")) continue;
+                    if(strstr(rbuf,"\"type\":\"result\"")){ snprintf(buf,sizeof(buf),"%s",rbuf); break; }
+                }
+                CHECKS(buf,"\"ok\":true","🔴 awid 3：batchwrite 走得通（以前被我們自己擋掉）");
+                EQ_I(dgh_fake_writes, 2, "awid 3：64 byte / page 32 ＝ 2 段");
+                {   int bad=-1;
+                    for(i=0;i<64;i++) if(dgh_fake_mem[i]!=(unsigned char)(i&0xFF)){ bad=i; break; }
+                    EQ_I(bad, -1, "🔴 awid 3 寫進去的內容逐 byte 正確"); }
             }
 
             dgh_fake_eeprom=0;            /* 還原，不影響後面（目前沒有後面，但不留地雷） */

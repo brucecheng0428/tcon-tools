@@ -143,11 +143,33 @@ int main(void){
         CHECK(dgh_build_offset(ab,0x0000,2)==2 && ab[0]==0x00 && ab[1]==0x00,"proto1 compat: 0x0000 -> 00 00");
         CHECK(dgh_build_offset(ab,0xFF00,2)==2 && ab[0]==0xFF && ab[1]==0x00,"proto1 compat: 0xFF00 -> FF 00");
         CHECK(dgh_build_offset(ab,0x1200,2)==2 && ab[0]==0x12 && ab[1]==0x00,"proto1 compat: 0x1200 -> 12 00");
-        CHECK(dgh_build_offset(ab,0x1234,3)==-1,"awid 3 rejected");
-        CHECK(dgh_build_offset(ab,0x1234,5)==-1,"awid 5 rejected");
+        /* ═══ 🔴 1.16.0 (proto 5)：awid 3 是**合法**的，上限是 4 ═════════════════
+           以前這三行釘的是「3 被拒絕」，而那個拒絕是我們自己加的，不是硬體或
+           原廠 DLL 的限制（依據見 dgh_awid_ok 上面那段反組譯）。這裡改成正反
+           兩面一起釘：**3 必須被接受而且逐 byte 正確**、**5 以上必須被拒絕**。 */
+        CHECK(dgh_build_offset(ab,0x123456,3)==3 && ab[0]==0x12 && ab[1]==0x34 && ab[2]==0x56,
+              "awid 3 -> 12 34 56 (24-bit sub-address, MSB first)");
+        CHECK(dgh_build_offset(ab,0x000000,3)==3 && ab[0]==0x00 && ab[1]==0x00 && ab[2]==0x00,
+              "awid 3: 0x000000 -> 00 00 00");
+        CHECK(dgh_build_offset(ab,0xFFFFFF,3)==3 && ab[0]==0xFF && ab[1]==0xFF && ab[2]==0xFF,
+              "awid 3: 0xFFFFFF -> FF FF FF");
+        /* 🔴 高位必須被丟掉，不可以滲進送出去的 byte 裡 */
+        CHECK(dgh_build_offset(ab,0xAB123456,3)==3 && ab[0]==0x12 && ab[1]==0x34 && ab[2]==0x56,
+              "awid 3: bits above 24 are dropped, not shifted in");
+        /* 🔴 3 與 4 必須是**不同的** wire byte（差一個位元組就是寫到別的位址） */
+        { uint8_t a4[4]; int n3=dgh_build_offset(ab,0x00123456,3), n4=dgh_build_offset(a4,0x00123456,4);
+          CHECK(n3==3 && n4==4 && a4[0]==0x00 && a4[1]==0x12 && a4[2]==0x34 && a4[3]==0x56,
+                "awid 3 vs 4: 12 34 56 vs 00 12 34 56"); }
+        CHECK(dgh_build_offset(ab,0x1234,5)==-1,"awid 5 rejected (the DLL address buffer is 4 bytes)");
         CHECK(dgh_build_offset(ab,0x1234,8)==-1,"awid 8 rejected");
-        CHECK(dgh_awid_ok(0)&&dgh_awid_ok(1)&&dgh_awid_ok(2)&&dgh_awid_ok(4),"awid_ok accepts 0/1/2/4");
-        CHECK(!dgh_awid_ok(3)&&!dgh_awid_ok(5)&&!dgh_awid_ok(0xFFFFFFFFu),"awid_ok rejects the rest");
+        CHECK(dgh_build_offset(ab,0x1234,0xFFu)==-1,"awid 255 rejected");
+        CHECK(dgh_awid_ok(0)&&dgh_awid_ok(1)&&dgh_awid_ok(2)&&dgh_awid_ok(3)&&dgh_awid_ok(4),
+              "awid_ok accepts 0/1/2/3/4");
+        CHECK(!dgh_awid_ok(5)&&!dgh_awid_ok(6)&&!dgh_awid_ok(0xFFu)&&!dgh_awid_ok(0xFFFFFFFFu),
+              "awid_ok rejects 5 and above (nothing may read past the 4-byte buffer)");
+        /* 位址回繞也要跟著認得 3，否則跨 16 MB 的段會落到錯的格子 */
+        CHECK(dgh_addr_wrap(0x01234567u,3)==0x234567u,"addr_wrap awid 3 = 24-bit");
+        CHECK(dgh_addr_wrap(0x01234567u,4)==0x01234567u,"addr_wrap awid 4 unchanged");
         /* awid 缺席時的預設：讀不到 key 就要拿到 2（＝proto 1 行為） */
         CHECK(dgh_json_int("{\"type\":\"read\",\"slave\":104,\"addr\":0,\"len\":3}","awid",2)==2,
               "missing awid -> default 2 (proto 1 behaviour)");
@@ -173,7 +195,10 @@ int main(void){
         { const uint8_t one[1]={0x0F};
           n=dgh_build_write_frame(f,sizeof(f),0x1200,2,one,1);
           CHECK(n==3 && f[0]==0x12 && f[1]==0x00 && f[2]==0x0F,"proto1 compat frame: 12 00 0F"); }
-        CHECK(dgh_build_write_frame(f,sizeof(f),0x1234,3,d3,3)==-1,"frame rejects awid 3");
+        n=dgh_build_write_frame(f,sizeof(f),0x123456,3,d3,3);
+        CHECK(n==6 && f[0]==0x12 && f[1]==0x34 && f[2]==0x56 && f[3]==0xA1 && f[4]==0xD8 && f[5]==0xFB,
+              "frame awid3: 12 34 56 A1 D8 FB");
+        CHECK(dgh_build_write_frame(f,sizeof(f),0x1234,5,d3,3)==-1,"frame rejects awid 5");
         CHECK(dgh_build_write_frame(f,4,0x1234,2,d3,3)==-1,"frame rejects cap overflow");
         CHECK(dgh_build_write_frame(f,sizeof(f),0x1234,2,0,0)==2,"frame with zero data = offset only");
     }
