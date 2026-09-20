@@ -252,6 +252,142 @@ static double now_ms(void){
     return (double)c.QuadPart * 1000.0 / (double)f.QuadPart;
 }
 
+/* ═══ 🔴🔴 短等待（< 15 ms）一律不得用 Sleep（1.15.1）═══════════════════════
+   實測依據（Bruce 2026-09-20 的 `i2c-bridge.log`，bridge 1.15.0、網頁 v1.21.0、
+   `mode=0`、確認走 batchwrite、8192 byte／page 32 ＝ 256 段、`twr=5`）：
+
+       batch : DONE -- 256/256 segments, 8192/8192 bytes, 4308 ms total
+               (device 1400 ms, tWR 2846 ms), 41 progress messages, 1 round-trip
+
+     · `SendBytesEx` 本身 1400 ms ÷ 256 ＝ 每段 5.5 ms
+     · **tWR 2846 ms ÷ 255 次 ＝ 每次 11.2 ms，而要求值是 5 ms ⇒ 2.2 倍**
+
+   `batch_wait_twr()` 在 `ackpoll` 關閉（＝預設）時做的就是 `Sleep(5)`
+   ⇒ **這台機器上 Sleep 的解析度根本不是 1 ms。**
+
+   🔴 v1.15.0 的開機橫幅印著 `timeBeginPeriod(1) OK (Sleep(1) is now ~1ms,
+      not ~15.6ms)` —— 那是**寫死的假設**，被上面這份 log 打臉。
+      `timeBeginPeriod(1)` 回 0 只代表「這個請求被接受」，**不代表實際解析度就是
+      1 ms**（它是全系統共享的設定，Windows 10 2004 起對背景／被節流的行程另有
+      規則）。Bruce 的 OS 是 Windows 10.0 build 26100。
+      ⇒ 自檢改成**實際量**（見 measure_timer_resolution()），不再印假設。
+
+   這也解釋了整批化之後反而更慢：舊路徑的 5 ms 等待發生在**瀏覽器**
+   （`setTimeout(5)` 大約就是 5 ms），搬進 bridge 用 `Sleep(5)` 變 11.2 ms
+   ⇒ 省下的 255 次往返被多出來的 6.2 ms × 255 ≈ 1.6 s 吃光還有找。
+
+   ── 選了哪一種等待，以及為什麼 ─────────────────────────────────────────
+   **高解析度可等待計時器**（`CreateWaitableTimerExW` ＋
+   `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`，Win10 1803+）**＋ 最後 0.3 ms 用
+   `QueryPerformanceCounter` 自旋補足**：
+     · 不用純 `Sleep`：上面那 11.2 ms 就是它。
+     · 不用純自旋：256 段 × 5 ms ＝ 1.3 秒的忙等，會吃滿他筆電的一顆核心。
+     · 不用「`Sleep(twr − margin)` ＋ 自旋」：margin 要抓多大取決於 Sleep 的
+       解析度，而那正是這台機器上的**未知數**（量到 11.2，但那不是規格值，
+       會隨別的行程調整全系統精度而變）。高解析度計時器把這個未知數換成
+       「計時器建立成功了沒有」—— 一個開機當場就判定得出來的事實。
+     · 建立失敗（OS 太舊、資源不足）⇒ **退回 `Sleep(twr)`**，並在 log 與
+       batchwrite 的結果裡明白標出走的是哪一條，不假裝成功。
+
+   🔴 硬性要求：**等待時間只能 ≥ 要求值。** tWR 是裝置規格，等不夠是
+      **靜默寫不進去** —— 那比慢更糟。所以誤差一律往長邊倒：
+        (a) 計時器只負責「要求值 − 0.3 ms」的粗等；
+        (b) 最後一律用 QPC 自旋等到 `t0 + 要求值` 才返回（粗等早到就補足，
+            晚到就直接走）。
+      `precise_wait_ms()` 回傳的是**實際**等了幾毫秒，不是它以為等了幾毫秒。 */
+#define DGH_WAIT_SPIN_MARGIN_MS  0.30     /* 粗等留這麼多給 QPC 自旋補足（每段只 0.3 ms） */
+#define DGH_CWT_HIGH_RESOLUTION  0x00000002u  /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */
+#define DGH_TIMER_ALL_ACCESS     0x1F0003u    /* TIMER_ALL_ACCESS */
+/* 來源：kernel32.dll ── 官方 winbase.h 全部標 WINAPI ⇒ __stdcall
+   （慣例的判定依據見上面「四支 DLL 的慣例與依據」那一節的規則：官方標頭的 WINAPI）。
+   🔴 用 GetProcAddress 而不是直接連結：`CreateWaitableTimerExW` 與
+      `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` 的可用性依 OS 版本而定，動態解析
+      才分辨得出「函式不在」與「旗標不被接受」這兩種不同的退化，
+      而靜態連結會讓 exe 在舊 OS 上**根本起不來**。 */
+typedef void* (__stdcall *PFN_CreateWaitableTimerExW)(void*, const void*, unsigned long, unsigned long);
+typedef int   (__stdcall *PFN_SetWaitableTimer)(void*, const LARGE_INTEGER*, long, void*, void*, int);
+static PFN_CreateWaitableTimerExW p_CreateWaitableTimerExW = NULL;
+static PFN_SetWaitableTimer       p_SetWaitableTimer       = NULL;
+static void* g_waitTimer = NULL;      /* 高解析度計時器的 handle（NULL ＝ 沒有） */
+static int   g_waitHires = 0;         /* 1 ＝ 走計時器；0 ＝ 退回 Sleep */
+static char  g_waitWhy[224] = "wait backend not initialised yet";
+
+/* 給 log／回覆用的一句話：**走的是哪一條**。不可以省 —— 退回 Sleep 時
+   等待會變成 11 ms 級，而那個數字必須解釋得出來。 */
+static const char* wait_backend_name(void){
+    return g_waitHires ? "high-resolution waitable timer + QPC top-up spin"
+                       : "Sleep (coarse; high-resolution timer unavailable)";
+}
+static const char* wait_backend_tag(void){ return g_waitHires ? "hires" : "sleep"; }
+
+static void wait_backend_init(void){
+    HMODULE k;
+    g_waitHires = 0; g_waitTimer = NULL;
+    k = GetModuleHandleA("kernel32.dll");
+    if(!k) k = LoadLibraryA("kernel32.dll");
+    if(!k){
+        snprintf(g_waitWhy,sizeof(g_waitWhy),
+                 "no handle to kernel32.dll -> falling back to Sleep");
+        return;
+    }
+    p_CreateWaitableTimerExW=(PFN_CreateWaitableTimerExW)GetProcAddress(k,"CreateWaitableTimerExW");
+    p_SetWaitableTimer      =(PFN_SetWaitableTimer      )GetProcAddress(k,"SetWaitableTimer");
+    if(!p_CreateWaitableTimerExW || !p_SetWaitableTimer){
+        snprintf(g_waitWhy,sizeof(g_waitWhy),
+                 "kernel32 does not export CreateWaitableTimerExW/SetWaitableTimer "
+                 "(CreateWaitableTimerExW needs Windows 7+) -> falling back to Sleep");
+        return;
+    }
+    g_waitTimer=p_CreateWaitableTimerExW(NULL,NULL,DGH_CWT_HIGH_RESOLUTION,DGH_TIMER_ALL_ACCESS);
+    if(!g_waitTimer){
+        snprintf(g_waitWhy,sizeof(g_waitWhy),
+                 "CreateWaitableTimerExW(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION) failed, "
+                 "GetLastError=%lu (that flag needs Windows 10 1803+) -> falling back to Sleep",
+                 (unsigned long)GetLastError());
+        return;
+    }
+    g_waitHires=1;
+    snprintf(g_waitWhy,sizeof(g_waitWhy),
+             "CreateWaitableTimerExW(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION) OK");
+}
+static void wait_backend_shutdown(void){
+    if(g_waitTimer){ CloseHandle(g_waitTimer); g_waitTimer=NULL; }
+    g_waitHires=0;
+}
+
+/* 等**至少** ms 毫秒，回傳實際等了幾毫秒。ms ≤ 0 ⇒ 不等。 */
+static double precise_wait_ms(double ms){
+    double t0, target, coarse;
+    if(ms<=0.0) return 0.0;
+    t0=now_ms(); target=t0+ms;
+    coarse=ms-DGH_WAIT_SPIN_MARGIN_MS;
+    if(g_waitHires){
+        if(coarse>0.0){
+            LARGE_INTEGER due;
+            /* 負值 ＝ **相對**時間，單位 100 ns（正值是絕對的 UTC 時間，會等到 1601 年
+               那個時間點 ⇒ 立刻返回。這個正負號寫錯就是靜默少等，所以寫在這裡）。 */
+            due.QuadPart = -(long long)(coarse*10000.0);
+            if(p_SetWaitableTimer(g_waitTimer,&due,0,NULL,NULL,0)){
+                /* 🔴 逾時有上限：計時器壞掉也不會把整批寫入永遠掛住。
+                   逾時返回不會少等 —— 下面的自旋仍然會等到 target。 */
+                WaitForSingleObject(g_waitTimer,(DWORD)(ms+50.0));
+            } else {
+                /* 設不起來 ⇒ 照要求值整段 Sleep。只會太長，不會太短。 */
+                Sleep((DWORD)(ms+0.999));
+            }
+        }
+    } else {
+        /* 退路。`Sleep(n)` 的保證是「至少 n 毫秒」（會進位到排程器 tick），
+           所以它本身不會短；粗的代價由使用者在 log 裡看得到。 */
+        Sleep((DWORD)(ms+0.999));
+    }
+    /* 🔴 「不短於要求值」的保證就在這一行：粗等早到就在這裡補足，
+       晚到則條件一開始就不成立、直接返回。自旋長度上限 ＝ margin（0.3 ms），
+       256 段合計不到 80 ms 的忙等。 */
+    while(now_ms()<target){ /* QPC spin, bounded by DGH_WAIT_SPIN_MARGIN_MS */ }
+    return now_ms()-t0;
+}
+
 /* ---- write address whitelist (ptg bank) ----
  * 🔴 SCOPE: this whitelist guards the **dg-measure** flow only, i.e. the
  *    `write` command. It exists so a mis-click on a NB cannot poke arbitrary
@@ -2084,7 +2220,10 @@ static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
     if(polls)    *polls=0;
     if(fellBack) *fellBack=0;
     if(twr==0u) return 0.0;
-    if(!ackpoll){ Sleep(twr); return now_ms()-t0; }
+    /* 🔴 1.15.1：這一行原本是 `Sleep(twr)`，而 Bruce 的實機 log 量到「要求 5 ms、
+       實際每次 11.2 ms」（2846 ms ÷ 255）。理由與取代方案寫在 precise_wait_ms()
+       上面那一段。**等待時間只能 ≥ 要求值**，precise_wait_ms() 保證這件事。 */
+    if(!ackpoll){ precise_wait_ms((double)twr); return now_ms()-t0; }
     {
         /* 逾時上限 ＝ 固定 tWR 的值（絕不會比不開這個選項等得久）。 */
         double deadline=t0+(double)twr;
@@ -2101,8 +2240,10 @@ static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
                 if(!sawBusy){
                     /* 🔴 第一次就成功 ⇒ 這支探針測不出忙碌（剛下完 STOP，裝置
                        一定在燒）⇒ 不可以相信它，這一段補足完整的固定 tWR。 */
+                    /* 🔴 1.15.1：補足的那一段也走高解析度等待（原本是
+                       `Sleep((DWORD)(left+0.5))`，在解析度粗的機器上會超等一大截）。 */
                     double left=(double)twr-(now_ms()-t0);
-                    if(left>0.0) Sleep((DWORD)(left+0.5));
+                    if(left>0.0) precise_wait_ms(left);
                     if(polls)    *polls=n;
                     if(fellBack) *fellBack=1;
                     logline("  ackpoll : 🔴 first probe after STOP succeeded -> the probe cannot "
@@ -2471,6 +2612,7 @@ static void handle_command(int idx, const char* json){
             {
             uint32_t segs=dgh_plan_count(base,len,page);
             uint32_t done=0, segDone=0, prog=0;
+            uint32_t twrWaits=0;      /* 🔴 實際等了幾次 tWR（＝ 段數 − 1，最後一段不等） */
             uint32_t lastAddr=0, nextAddr=base;
             double t0=now_ms(), devUs=0.0, twrMs=0.0, tProg;
             int ok=1, aborted=0, dropped=0, ackPolls=0, ackFall=0;
@@ -2545,6 +2687,7 @@ static void handle_command(int idx, const char* json){
                 if(done<len && twr){
                     int pp=0, fb=0;
                     twrMs+=batch_wait_twr(slave,dgh_addr_wrap(base+done,awid),awid,twr,ackpoll,&pp,&fb);
+                    twrWaits++;
                     ackPolls+=pp; ackFall+=fb;
                 }
                 /* 進度：時間節流（見 DGH_BATCH_PROG_MS_DEF 的理由）。
@@ -2573,11 +2716,15 @@ static void handle_command(int idx, const char* json){
                 "\"segs\":%u,\"segsDone\":%u,\"done\":%u,\"total\":%u,\"base\":%u,"
                 "\"lastAddr\":%d,\"nextAddr\":%u,\"page\":%u,\"twr\":%u,"
                 "\"us\":%.0f,\"devus\":%.0f,\"twrms\":%.0f,\"progsent\":%u,\"usbrt\":%u,"
+                /* 🔴 1.15.1：要求值（`twr` 已在上面）、**實際每段等了幾 ms**、等了幾次、
+                   以及用的是高解析度計時器還是退回 Sleep。Bruce 下次給 log 就不必自己除。 */
+                "\"twrwaits\":%u,\"twravgms\":%.2f,\"twrreqms\":%u,\"waitmode\":\"%s\","
                 "\"ackpoll\":%s,\"ackpolls\":%d,\"ackfallback\":%d,\"status\":%u",
                 id, ok?"true":"false", aborted?"true":"false",
                 segs, segDone, done, len, base,
                 done? (int)lastAddr : -1, nextAddr, page, twr,
                 el*1000.0, devUs, twrMs, prog, segDone,
+                twrWaits, twrWaits? twrMs/(double)twrWaits : 0.0, twr, wait_backend_tag(),
                 ackpoll?"true":"false", ackPolls, ackFall, lastSt);
             if(aborted){
                 if(done==0)
@@ -2610,6 +2757,16 @@ static void handle_command(int idx, const char* json){
                     "(device %.0f ms, tWR %.0f ms), %u progress messages, 1 request round-trip",
                     ok?"DONE":(aborted?(dropped?"STOPPED (page gone)":"ABORTED"):"FAILED"),
                     segDone, segs, done, len, el, devUs/1000.0, twrMs, prog);
+            /* 🔴 1.15.1：tWR 的分項要**能被覆核**，不要再讓人自己拿總計去除。
+               「要求幾 ms／實際平均幾 ms／等了幾次／走哪一條等待」四個都印。 */
+            logline("  batch   : tWR -- requested %u ms per page, ACTUALLY waited %.2f ms per page "
+                    "on average (%.0f ms over %u waits); device %.2f ms per segment; wait backend: %s",
+                    twr, twrWaits? twrMs/(double)twrWaits : 0.0, twrMs, twrWaits,
+                    segDone? (devUs/1000.0)/(double)segDone : 0.0, wait_backend_name());
+            if(twrWaits && twr && twrMs/(double)twrWaits < (double)twr - 0.05)
+                logline("            🔴 the average is BELOW the requested tWR. That must not happen "
+                        "(tWR is a device spec; waiting too little is a silent write failure). "
+                        "Please send this log.");
             if(!ok && done<len)
                 logline("            🔴 device state: 0x%04X..0x%04X written, 0x%04X onwards (%u bytes) NOT written",
                         dgh_addr_wrap(base,awid), done?lastAddr:0u, dgh_addr_wrap(base+done,awid), len-done);
@@ -2830,8 +2987,16 @@ static void serve_page(SOCKET c, const char* req){
    DLL_I2C_BCB 那套工具不慢（它的 runtime 可能已經調高過精度）。
 
    我們自己呼叫 `timeBeginPeriod(1)`，讓 libMPSSE 內部的 `Sleep(1)` 真的是 1 ms。
-   ⚠️ 這台 Mac 驗不了，**要靠 Bruce 用邏輯分析儀複量才算數**。若量完間隔沒有變小，
-   代表假說被推翻，要回來找別的原因，不要硬拗。
+
+   🔴🔴 **1.15.1 更正（Bruce 2026-09-20 的實機 log）**：這一段原本在橫幅上印
+      `timeBeginPeriod(1) OK (Sleep(1) is now ~1ms, not ~15.6ms)` —— **那句話是
+      寫死的假設，而且被實測打臉**：同一份 log 的 batchwrite 摘要顯示 tWR 等待
+      2846 ms ÷ 255 次 ＝ **每次 11.2 ms，要求值 5 ms**（詳見 precise_wait_ms()
+      上面那一大段）。`timeBeginPeriod(1)` 回 0 只代表**請求被接受**。
+      ⇒ 這一版把那句話刪掉，改成開機**實際量**（measure_timer_resolution()），
+        並且 tWR 的等待不再經由 Sleep（改走高解析度計時器）。
+      timeBeginPeriod 本身**保留**：libMPSSE 非 fast 路徑內部那些 `Sleep(1)`
+      不在我們手上，能調高多少就多少。但它的效果從此由量測決定，不由宣告決定。
    （成本：提高全系統時間精度會略增耗電，程式結束前 timeEndPeriod 還原。） */
 #ifdef _WIN32
 static int g_timerRaised = 0;
@@ -2840,7 +3005,8 @@ static void raise_timer_resolution(void){
     typedef unsigned (__stdcall *PFN_TP)(unsigned);
     HMODULE mm = LoadLibraryA("winmm.dll");
     PFN_TP beg = mm ? (PFN_TP)GetProcAddress(mm, "timeBeginPeriod") : NULL;
-    if (beg && beg(1) == 0) { g_timerRaised = 1; logline("  timer   : timeBeginPeriod(1) OK (Sleep(1) is now ~1ms, not ~15.6ms)"); }
+    /* 🔴 措辭刻意只講「請求被接受」。實際解析度由下面的量測回答。 */
+    if (beg && beg(1) == 0) { g_timerRaised = 1; logline("  timer   : timeBeginPeriod(1) -> request accepted (this says NOTHING about the actual resolution; measured below)"); }
     else logline("  timer   : timeBeginPeriod(1) unavailable -- per-byte reads may stay slow");
 }
 static void restore_timer_resolution(void){
@@ -2857,6 +3023,91 @@ static void restore_timer_resolution(void){
 static void raise_timer_resolution(void){}
 static void restore_timer_resolution(void){}
 #endif
+
+/* ═══ 🔴🔴 開機自檢：**實際量**等待解析度，不准印假設（1.15.1）═════════════
+   為什麼要有這一段：v1.15.0 印的是一句寫死的「Sleep(1) is now ~1ms」，而 Bruce
+   的實機 log 量出 tWR 每次 11.2 ms。**一句不會被檢查的宣告，比沒有那句話更糟**
+   —— 它讓下一個讀 log 的人（包括我自己）把 Sleep 排除在嫌疑之外，這一輪就是
+   因此繞了一圈。所以改成：開機當場量，把數字印出來，讓 log 自己說話。
+
+   量什麼、為什麼是這三個：
+     · `precise_wait_ms(5)` ＝ **tWR 實際會用的那一條**（要求 5 ms）
+     · `Sleep(5)`           ＝ **被取代掉的那一條**（同一個要求值，可以直接對照）
+     · `Sleep(1)`           ＝ libMPSSE 非 fast 路徑內部每 byte 做的那件事
+                              （不在我們手上，但它解釋逐 byte 讀取為什麼慢）
+   取**中位數**（不是平均）：偶爾被排程器插隊的那一次會把平均整個拉走，
+   而我們想知道的是「常態是多少」。min／max 一起印，離散程度也看得見。
+
+   🔴 成本上限 DGH_TIMER_PROBE_BUDGET（Dispatch 要求全部探針 < 100 ms）：
+      粒度粗的機器上光 `Sleep(1)` 一次就 11~16 ms，五次就吃掉大半預算。
+      ⇒ 預算**三等分，一種等待一份**，而不是共用一個先到先用的池子。
+        共用池踩過：precise 與 Sleep(5) 就把 70 ms 用光，Sleep(1) 被跳過
+        —— 而粒度粗的機器**正是最需要那個數字的機器**。
+      每一份用完就停，所以樣本數會自己縮（粗機器 n=2、正常機器 n=5），
+      **n 一律印出來**，讓讀 log 的人知道這個中位數的把握有多少。
+      預算訂 70 而不是 100：檢查點在每個樣本**之前**，最後一個樣本可能超支。
+      實測（模擬 15.6 ms tick）約 90 ms，正常機器約 55 ms。
+      ⚠️ 下限是「每種至少一個樣本」，所以 tick 大於約 33 ms 的機器會超過 100 ms。
+         這是刻意的取捨：那種機器上這個數字的價值遠高於 30 ms 的開機時間。 */
+#define DGH_TIMER_PROBE_N       5      /* 每一種等待量幾次（上限 8，見 timer_probe） */
+#define DGH_TIMER_PROBE_BUDGET  70.0   /* 全部探針的總時間預算（ms），三等分 */
+
+/* 回傳實際取到幾個樣本（0 ＝ 預算不足，一個都沒量）。*used 填花掉的毫秒數。 */
+static int timer_probe(int usePrecise, unsigned reqMs, int want, double budgetMs,
+                       double* med, double* mn, double* mx, double* used){
+    double v[8]; int n=0, i, j; double spent=0.0;
+    if(want>8) want=8;
+    while(n<want && spent<budgetMs){
+        double e, t0=now_ms();
+        if(usePrecise) precise_wait_ms((double)reqMs); else Sleep(reqMs);
+        e=now_ms()-t0;
+        v[n++]=e; spent+=e;
+    }
+    if(used) *used=spent;
+    if(n==0){ if(med)*med=0.0; if(mn)*mn=0.0; if(mx)*mx=0.0; return 0; }
+    for(i=1;i<n;i++){ double t=v[i]; for(j=i-1;j>=0 && v[j]>t;j--) v[j+1]=v[j]; v[j+1]=t; }
+    if(mn) *mn=v[0];
+    if(mx) *mx=v[n-1];
+    if(med) *med = (n&1) ? v[n/2] : (v[n/2-1]+v[n/2])/2.0;
+    return n;
+}
+static void probe_line(const char* label, unsigned reqMs, int n, double med, double mn, double mx,
+                       const char* note){
+    if(n<=0){   /* 到不了（每一種至少會取一個樣本），但不靜默假裝量過了 */
+        logline("  timer   :   %-18s = (not measured)", label);
+        return;
+    }
+    logline("  timer   :   %-18s = median %6.2f ms for a requested %u ms  (n=%d, min %.2f, max %.2f)%s",
+            label, med, reqMs, n, mn, mx, note?note:"");
+}
+static void measure_timer_resolution(void){
+    double per=DGH_TIMER_PROBE_BUDGET/3.0, spent=0.0, total=0.0;
+    double mp=0,np=0,xp=0, m5=0,n5=0,x5=0, m1=0,n1=0,x1=0;
+    int cp,c5,c1;
+    logline("  timer   : wait backend: %s", wait_backend_name());
+    logline("  timer   :   (%s)", g_waitWhy);
+    logline("  timer   : MEASURING the actual wait resolution on THIS machine with "
+            "QueryPerformanceCounter --");
+    logline("  timer   : not assuming it. v1.15.0 printed a hard-coded claim here that raising the "
+            "timer period");
+    logline("  timer   : made a 1 ms sleep really take 1 ms; Bruce's 2026-09-20 log then showed tWR "
+            "waits of");
+    logline("  timer   : 11.2 ms for a requested 5 ms. A claim nobody checks is worse than no claim.");
+    /* 三等分，一種一份（理由見上面的預算那一段）。順序：真正會用到的那一條先量。 */
+    cp=timer_probe(1,5,DGH_TIMER_PROBE_N,per,&mp,&np,&xp,&spent); total+=spent;
+    c5=timer_probe(0,5,DGH_TIMER_PROBE_N,per,&m5,&n5,&x5,&spent); total+=spent;
+    c1=timer_probe(0,1,DGH_TIMER_PROBE_N,per,&m1,&n1,&x1,&spent); total+=spent;
+    probe_line("precise_wait(5)",5,cp,mp,np,xp,"   <-- this is what tWR uses");
+    probe_line("Sleep(5)",       5,c5,m5,n5,x5,"   <-- what 1.15.0 used for tWR");
+    probe_line("Sleep(1)",       1,c1,m1,n1,x1,"   <-- libMPSSE's per-byte wait (not ours)");
+    logline("  timer   :   (the three probes above cost %.1f ms of start-up in total)", total);
+    if(cp>0 && np < 5.0)
+        logline("  timer   : 🔴 WARNING: a precise_wait(5) came back in %.2f ms, i.e. SHORTER than "
+                "requested. That must not happen (tWR is a device spec; waiting too little is a "
+                "silent write failure). Please send this log.", np);
+    logline("  timer   : 🔴 what this does NOT tell us: the segment-to-segment spacing on the bus. "
+            "Only a logic analyser on Bruce's hardware can measure that.");
+}
 
 int main(int argc, char** argv){
     int port=8899;
@@ -2898,6 +3149,10 @@ int main(int argc, char** argv){
     logline(" I2C Bridge (local I2C bridge for the web tools)  %s (proto %d)", I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
     raise_timer_resolution();
     atexit(restore_timer_resolution);
+    /* 🔴 1.15.1：先建立高解析度等待，再量，才量得到真正會用到的那一條。 */
+    wait_backend_init();
+    atexit(wait_backend_shutdown);
+    measure_timer_resolution();
     logline("  read mode: %s  (libMPSSE %s per-byte loop; --slow-read reverts)",
             dgh_fast_read ? "FAST (one MPSSE command block)" : "SLOW (per-byte, PQ Tool original)",
             dgh_fast_read ? "bypasses" : "uses");

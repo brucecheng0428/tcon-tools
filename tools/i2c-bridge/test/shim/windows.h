@@ -95,6 +95,30 @@ BOOL QueryPerformanceCounter(LARGE_INTEGER* c);
 DWORD GetTickCount(void);
 void  Sleep(DWORD ms);
 
+/* ═══ 🔴 高解析度可等待計時器（1.15.1）═════════════════════════════════════
+   出貨程式碼用 `CreateWaitableTimerExW` ＋ `SetWaitableTimer` ＋
+   `WaitForSingleObject` 做 tWR 的短等待（理由見 i2c_bridge.c 的 precise_wait_ms）。
+   這一層把它們補上，**讓 Linux 上跑的是出貨的那條路徑**，不是另寫一份。
+   實作在 shim.c：用 `clock_nanosleep` 的絕對到期時間，對應 Windows 高解析度
+   計時器的語意（Linux 的 nanosleep 本身就是次毫秒級）。 */
+#define INFINITE 0xFFFFFFFFu
+DWORD WaitForSingleObject(HANDLE h, DWORD ms);
+BOOL  CloseHandle(HANDLE h);
+
+/* ── 測試掛勾 ─────────────────────────────────────────────────────────────
+   🔴 `dgh_shim_sleep_tick_ms`：**模擬 Windows 排程器 tick 對 `Sleep()` 的量化**
+      （`Sleep(n)` 會被進位到下一個 tick）。預設 0 ＝ 不量化 ＝ 既有測試行為
+      一個位元都沒變。設成 15.6 就能在 Linux 上重現 Bruce 那台機器的症狀，
+      於是「precise_wait 不經過 Sleep」這件事變成**可驗證**的，而不是嘴上說的。
+      ⚠️ 這是**模擬**，不是 Windows 的量測值 —— 測試裡與 log 裡都要這樣寫。
+   🔴 `dgh_shim_hires_timer`：0 ＝ 讓 CreateWaitableTimerExW 失敗，用來驗
+      **退回 Sleep 的那條路**（退路不驗＝沒有退路）。 */
+extern double dgh_shim_sleep_tick_ms;
+extern int    dgh_shim_hires_timer;
+extern int    dgh_shim_timer_waits;      /* WaitForSingleObject 被呼叫幾次（證明真的走了計時器） */
+extern int    dgh_shim_sleep_calls;      /* Sleep() 被呼叫幾次 */
+extern DWORD  g_shim_lasterr;            /* GetLastError 回的值（1.15.1 起不再永遠 0） */
+
 /* i2c_bridge.c 組出來的檔案路徑是 Windows 風格（反斜線），POSIX 的 fopen 吃不下。
    在這一層正規化，讓出貨的原始碼不必為了測試而改。
    （<stdio.h> 已在本檔開頭 include 過，所以這個巨集不會撞到它的宣告。） */

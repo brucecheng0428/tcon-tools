@@ -202,7 +202,43 @@
  *     `progress` 這個**主動推送**的訊息型別 ⇒ 依 C2 的反面（wire format 真的變了）。
  *     🔴 網頁端仍只要求 `proto >= 2`（rawwrite 那條路完全沒變），
  *        batchwrite 另外用 `proto >= 4` 判斷 —— 不讓拿著舊 exe 的人整條路斷掉。 */
-#define I2C_BRIDGE_VERSION "1.15.0"
+/* 1.15.1 / proto 4 不變（2026-09-20，Bruce 的實機 log：「整批化之後反而更慢」）：
+ *   - 🔴🔴 **根因：這台機器上 `Sleep(5)` 實際是 11.2 ms。** 量法不是推論，是他的
+ *     log 自己的分項：`batch : DONE -- 256/256 segments, 8192/8192 bytes, 4308 ms
+ *     total (device 1400 ms, tWR 2846 ms)` ⇒ tWR **2846 ÷ 255 ＝ 每次 11.2 ms**，
+ *     而要求值是 5 ms（2.2 倍）；`SendBytesEx` 自己是 1400 ÷ 256 ＝ 5.5 ms。
+ *     `batch_wait_twr()` 在 ackpoll 關閉（預設）時做的就是 `Sleep(5)`。
+ *     ⇒ 這也解釋了為什麼整批化反而更慢：舊路徑的 5 ms 等待在**瀏覽器**
+ *       （`setTimeout(5)` 約就是 5 ms），搬進 bridge 用 `Sleep(5)` 變 11.2 ms
+ *       ⇒ 省下的 255 次往返被多出來的 6.2 ms × 255 ≈ 1.6 s 吃光還有找。
+ *   - 🔴 tWR 的等待改走**高解析度可等待計時器**（`CreateWaitableTimerExW` ＋
+ *     `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`，Win10 1803+）**＋ 最後 0.3 ms 用
+ *     `QueryPerformanceCounter` 自旋補足**。不用純自旋（256 段 × 5 ms 的忙等對
+ *     筆電不友善），不用「Sleep(twr−margin)＋自旋」（margin 取決於 Sleep 的解析度，
+ *     而那正是未知數）。建立失敗 ⇒ 退回 `Sleep(twr)`，並在 log 與結果裡明白標出。
+ *     🔴 **硬性要求：等待只能 ≥ 要求值。** tWR 是裝置規格，等不夠是靜默寫不進去
+ *        —— 誤差一律往長邊倒（test_wait.c §3/§4/§5 逐次釘住，含退路那一條）。
+ *   - 🔴🔴 **開機自檢不再印假設**。v1.15.0 的橫幅寫死
+ *     `timeBeginPeriod(1) OK (Sleep(1) is now ~1ms, not ~15.6ms)` —— 那句話被上面
+ *     那份 log 打臉，而且它讓下一個讀 log 的人（我自己）把 Sleep 排除在嫌疑之外，
+ *     這一輪因此繞了一圈。改成開機**實際量** `precise_wait(5)`／`Sleep(5)`／`Sleep(1)`
+ *     各自的中位數（QPC 計時、n 一併印出），三者並列。預算三等分、總計 < 100 ms
+ *     （模擬 15.6 ms tick 實測 91.6 ms，正常機器約 55 ms）。
+ *     `timeBeginPeriod(1)` 本身保留（libMPSSE 內部的 `Sleep(1)` 不在我們手上），
+ *     但措辭改成「請求被接受」——**它不代表實際解析度**。
+ *   - 🔴 batchwrite 的 DONE 摘要與 result 多回 `twrreqms`／`twravgms`／`twrwaits`／
+ *     `waitmode`（hires｜sleep）：**要求幾 ms、實際平均幾 ms、等了幾次、走哪一條**。
+ *     下次拿到 log 不必自己除。低於要求值時 log 會自己大聲喊。
+ *   - ⚠️ **只是觀察，本版一個毫秒都沒有因此縮短**：`ackpoll` 的自我校準守衛每次都
+ *     觸發（第一次探針就成功），**有可能**是因為 `SendBytesEx` 自己就花了 5.5 ms，
+ *     等它返回時裝置的寫入週期已經快結束。若為真，tWR 的等待有一部分是多餘的。
+ *     🔴 這是**假說，沒有硬體證據，猜錯就是靜默寫壞** ⇒ 記在這裡供日後驗證，
+ *        本版不據此改任何行為。`ackpoll` 的邏輯與守衛一律未動（預設仍關）。
+ *   - 分頁／中止／進度／讀取路徑**一律未動**；wire format 只有**新增**欄位
+ *     ⇒ **proto 維持 4**。
+ *   - 🔴 **不得宣稱他那邊的 tWR 現在是幾毫秒。** 理論上應從 11.2 降到接近 5，
+ *     實際數字只有他的硬體能量 —— 等他的下一份 log。 */
+#define I2C_BRIDGE_VERSION "1.15.1"
 #define I2C_BRIDGE_PROTO   4
 /* 🔴 batchwrite 需要的 proto 下限。網頁用它決定走新路還是舊的逐段 rawwrite，
    寫成一個名字而不是在兩邊各寫一個 `4`。 */
@@ -213,9 +249,9 @@
 
    (1) 「上一個版本」——啟動橫幅與『新版有問題就先退回去』的泛用退路。
        1.14.0 的上一個是 **v1.13.0**。 */
-/* 🔴 1.15.0：上一個版本是 **v1.14.0**（1.14.0 時這裡指 v1.13.0）。 */
+/* 🔴 1.15.1：上一個版本是 **v1.15.0**（1.15.0 時這裡指 v1.14.0）。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.14.0.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.15.0.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。

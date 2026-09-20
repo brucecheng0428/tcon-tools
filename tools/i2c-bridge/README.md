@@ -87,6 +87,7 @@ Microsoft／Mono／Debian 套件庫）根本編不出 C# net472。** 依 Bruce �
 | `test/test_server.c` | 用 shim 把出貨原始碼在 Linux 上跑起來，真 TCP 驗伺服行為 |
 | `test/shim.c` 的**假 EEPROM**（`dgh_fake_eeprom`，預設關） | v1.15.0 加。模擬 page buffer 的**頁內回捲**（真 EEPROM 跨頁寫會蓋掉同一頁前面的資料，而且不報錯）。判準是「回捲次數 ＝ 0」＋「整段回讀逐 byte 相同」。🔴 §11b 同時驗**反面**：故意用不切段的 `rawwrite` 一次送 64 byte 到 0x1F0F ⇒ 回捲必須真的發生、資料必須真的被蓋掉 —— 夾具抓得到壞行為，上面那個 0 才有意義 |
 | `test/test_ackguard.c` | v1.13.0 的 ACK 守衛，**正反兩面**（乾淨的 0x00 必須通過、實機的 `0E 1C 38 70` 必須擋下），連錯誤訊息的內容一起釘 |
+| `test/test_wait.c` | v1.15.1 的 tWR 短等待。**最重要的一條是「等待不短於要求值」**（tWR 是裝置規格，等不夠是靜默寫不進去）。正反兩面：shim 把 `Sleep()` 量化成 15.6 ms tick（**模擬** Windows，先驗它真的會咬人），然後驗 `precise_wait_ms(5)` 仍是 5 ms 級、而且**一次都沒呼叫 `Sleep()`**；再把計時器建立弄失敗，驗**退路也不短**。另外釘住「橫幅裡那句寫死的 `Sleep(1) is now ~1ms` 真的不在了」 |
 | `build.sh` | 用 zig 交叉編譯成 32 位元 Windows exe |
 
 ## 編譯
@@ -107,7 +108,11 @@ cc -O2 test_proto.c -o test_proto && ./test_proto   # 240/240 通過（v1.15.0�
 cc -O2 -I test/shim -Dmain=dgh_main -c i2c_bridge.c -o /tmp/bo.o
 cc -O2 -I test -c test/test_server.c -o /tmp/ts.o
 cc -O2 -I test/shim -c test/shim.c   -o /tmp/sh.o
-cc /tmp/ts.o /tmp/bo.o /tmp/sh.o -o test_server -lpthread && ./test_server   # 205/205（v1.15.0；v1.14.0 為 103/103）
+cc /tmp/ts.o /tmp/bo.o /tmp/sh.o -o test_server -lpthread && ./test_server   # 216/216（v1.15.1；v1.15.0 為 205/205，v1.14.0 為 103/103）
+
+# 🔴 tWR 的短等待（v1.15.1）：等待不得短於要求值、而且不得經過 Sleep
+cc -O2 -I test/shim -I . test/test_wait.c test/shim.c -o test_wait -lpthread
+./test_wait                                         # 32/32
 
 # ACK 守衛的正反兩面（v1.13.0；把 i2c_bridge.c 整個 include 進來，直接叫 raw_read）
 cc -O2 -I test/shim -I . test/test_ackguard.c test/shim.c -o test_ackguard -lpthread
@@ -142,6 +147,27 @@ HTTP 請求路徑解析（正反都驗）。
 🔴 **未經實機驗證**：D2XX 連線、libMPSSE 呼叫、實際 I2C 通訊在無 Windows、
 無 FTDI 硬體的環境全部無法自驗。只驗到「PE 正確、能載 winsock、能對
 libMPSSE.dll 做 GetProcAddress」這一層。
+
+🔴 **v1.15.1 的等待也在這條線上**：`test_wait.c` 的 15.6 ms tick 是 shim **模擬**
+Windows 排程器量化的結果，證明的是「出貨的等待路徑不依賴 `Sleep` 的粒度」這個
+結構性事實。**Windows 高解析度計時器的真實精度、Bruce 那台機器上 tWR 實際會降到
+幾毫秒，只有他的硬體能量** —— 不得拿這裡的數字冒充。
+
+## tWR 的短等待（v1.15.1 起）
+
+`batch_wait_twr()` 的 `Sleep(twr)` 換成 `precise_wait_ms()`：
+**高解析度可等待計時器**（`CreateWaitableTimerExW` ＋
+`CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`，Win10 1803+，GetProcAddress 動態解析）
+**＋ 最後 0.3 ms 用 `QueryPerformanceCounter` 自旋補足**；建不起來就退回 `Sleep`。
+
+依據：Bruce 2026-09-20 的實機 log，`tWR 2846 ms ÷ 255 次 ＝ 每次 11.2 ms`，
+要求值 5 ms ⇒ **那台機器上 `Sleep` 的解析度不是 1 ms**。
+
+🔴 兩條不可退讓的規則：
+1. **等待只能 ≥ 要求值**（誤差往長邊倒）。等不夠是靜默寫不進去，比慢更糟。
+2. **開機自檢印實測值，不印假設。** v1.15.0 印過一句寫死的
+   「`Sleep(1)` 現在是 ~1 ms」，被上面那份 log 打臉 ——
+   `timeBeginPeriod(1)` 回 0 只代表**請求被接受**。
 
 ## WebSocket 協定（proto 4，v1.15.0 起；proto 2 是 v1.4.0 的基準）
 

@@ -102,8 +102,19 @@ HMODULE LoadLibraryA(const char* path){
     struct stat st; if(stat(p,&st)!=0) return NULL;
     return (HMODULE)(intptr_t)0x11B;
 }
+/* 1.15.1 的高解析度計時器假實作定義在本檔最後（它要用 clock_gettime），
+   這裡先宣告，GetProcAddress 才交得出指標。 */
+static void* shim_CreateWaitableTimerExW(void* sec, const void* name,
+                                         unsigned long flags, unsigned long access);
+static int   shim_SetWaitableTimer(void* h, const LARGE_INTEGER* due, long period,
+                                   void* apc, void* arg, int resume);
 void* GetProcAddress(HMODULE m, const char* name){
     if(!m) return NULL;
+    if(m==(HMODULE)(intptr_t)0x11C){                     /* kernel32.dll */
+        if(!strcmp(name,"CreateWaitableTimerExW")) return (void*)shim_CreateWaitableTimerExW;
+        if(!strcmp(name,"SetWaitableTimer"))       return (void*)shim_SetWaitableTimer;
+        return NULL;
+    }
     if(!strcmp(name,"Init_libMPSSE"))      return (void*)fake_Init;
     if(!strcmp(name,"Cleanup_libMPSSE"))   return (void*)fake_Cleanup;
     if(!strcmp(name,"I2C_GetNumChannels")) return (void*)fake_GetNum;
@@ -136,7 +147,11 @@ DWORD GetEnvironmentVariableA(const char* name, char* buf, DWORD cap){
 }
 DWORD GetCurrentDirectoryA(DWORD cap, char* buf){ if(!getcwd(buf,cap)) return 0; return (DWORD)strlen(buf); }
 BOOL  SetDllDirectoryA(const char* d){ (void)d; return 1; }
-DWORD GetLastError(void){ return 0; }
+/* 🔴 1.15.1：GetLastError 從「永遠 0」改成回報最後一次失敗的原因。
+   出貨程式碼會把 CreateWaitableTimerExW 失敗的 GetLastError 印進 log —— 永遠 0
+   的話那句話就是假的，而假的診斷比沒有診斷更糟（這一輪的主題就是這件事）。 */
+DWORD g_shim_lasterr = 0;
+DWORD GetLastError(void){ return g_shim_lasterr; }
 HANDLE FindFirstFileA(const char* pat, WIN32_FIND_DATAA* fd){ (void)pat; (void)fd; return INVALID_HANDLE_VALUE; }
 BOOL   FindNextFileA(HANDLE h, WIN32_FIND_DATAA* fd){ (void)h; (void)fd; return 0; }
 BOOL   FindClose(HANDLE h){ (void)h; return 1; }
@@ -146,7 +161,13 @@ LONG RegEnumKeyExA(HKEY a, DWORD b, char* c, DWORD* d, void* e, void* f, void* g
 LONG RegQueryValueExA(HKEY a, const char* b, void* c, DWORD* d, BYTE* e, DWORD* f){
     (void)a;(void)b;(void)c;(void)d;(void)e;(void)f; return 1; }
 LONG RegCloseKey(HKEY k){ (void)k; return 0; }
-HMODULE GetModuleHandleA(const char* n){ (void)n; return NULL; }
+/* 🔴 1.15.1：kernel32 要給得出 handle，否則 wait_backend_init() 連
+   GetProcAddress 都走不到，測試就永遠只驗到退回 Sleep 的那條路。 */
+HMODULE GetModuleHandleA(const char* n){
+    if(n && (strcmp(n,"kernel32.dll")==0 || strcmp(n,"KERNEL32.dll")==0))
+        return (HMODULE)(intptr_t)0x11C;
+    return NULL;
+}
 HINSTANCE ShellExecuteA(void* h, const char* op, const char* file, const char* par, const char* dir, int show){
     (void)h;(void)op;(void)par;(void)dir;(void)show;
     dgh_shim_browser_opened++;
@@ -195,4 +216,82 @@ DWORD GetTickCount(void){
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (DWORD)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
-void Sleep(DWORD ms){ struct timespec t = { (time_t)(ms/1000), (long)(ms%1000)*1000000L }; nanosleep(&t, NULL); }
+/* ── 🔴 Sleep：可選的「Windows 排程器 tick 量化」模擬（1.15.1）────────────────
+   Windows 的 `Sleep(n)` 會被進位到下一個排程器 tick，所以粒度粗的機器上
+   `Sleep(5)` 會變成 11~16 ms（Bruce 2026-09-20 的實機 log：要求 5，實際 11.2）。
+   `dgh_shim_sleep_tick_ms` 預設 0 ＝ **不量化 ＝ 既有測試行為完全不變**。 */
+double dgh_shim_sleep_tick_ms = 0.0;
+int    dgh_shim_sleep_calls   = 0;
+static void shim_nanosleep_ms(double ms){
+    struct timespec t;
+    if(ms<=0.0) return;
+    t.tv_sec  = (time_t)(ms/1000.0);
+    t.tv_nsec = (long)((ms - (double)t.tv_sec*1000.0)*1000000.0);
+    if(t.tv_nsec<0) t.tv_nsec=0;
+    if(t.tv_nsec>999999999L) t.tv_nsec=999999999L;
+    nanosleep(&t, NULL);
+}
+void Sleep(DWORD ms){
+    double want=(double)ms;
+    dgh_shim_sleep_calls++;
+    if(dgh_shim_sleep_tick_ms>0.0){
+        /* 進位到下一個 tick（Windows 的行為：只會等得比要求久，不會短）。 */
+        double tick=dgh_shim_sleep_tick_ms;
+        double k=want/tick;
+        long   up=(long)k; if((double)up<k) up++;
+        if(up<1) up=1;
+        want=(double)up*tick;
+    }
+    shim_nanosleep_ms(want);
+}
+
+/* ── 🔴 高解析度可等待計時器（見 shim/windows.h 的說明）─────────────────────
+   只支援一個計時器（出貨程式碼也只開一個）。到期時間存絕對的 monotonic 毫秒。 */
+int    dgh_shim_hires_timer = 1;
+int    dgh_shim_timer_waits = 0;
+#define SHIM_TIMER_HANDLE ((HANDLE)(intptr_t)0x71E)
+static double shim_now_ms(void){
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts);
+    return (double)ts.tv_sec*1000.0 + (double)ts.tv_nsec/1000000.0;
+}
+static double g_shim_timer_due = 0.0;
+static int    g_shim_timer_armed = 0;
+static void* shim_CreateWaitableTimerExW(void* sec, const void* name,
+                                         unsigned long flags, unsigned long access){
+    (void)sec; (void)name; (void)access;
+    if(!dgh_shim_hires_timer){ g_shim_lasterr = 87; return NULL; }   /* ERROR_INVALID_PARAMETER */
+    /* 出貨程式碼必須帶 CREATE_WAITABLE_TIMER_HIGH_RESOLUTION（0x2）；沒帶就不是
+       我們要的那條路，讓它失敗，免得測試以為驗過了。 */
+    if(!(flags & 0x2u)){ g_shim_lasterr = 87; return NULL; }
+    return SHIM_TIMER_HANDLE;
+}
+static int shim_SetWaitableTimer(void* h, const LARGE_INTEGER* due, long period,
+                                 void* apc, void* arg, int resume){
+    (void)period; (void)apc; (void)arg; (void)resume;
+    if(h!=SHIM_TIMER_HANDLE || !due) return 0;
+    /* 負值 ＝ 相對時間，單位 100 ns（Windows 語意）。正值在真實 Windows 上是
+       絕對 UTC 檔案時間 —— 這裡只支援相對值，因為出貨程式碼只用相對值；
+       若哪天改成正值，這裡會回 0（設定失敗），呼叫端會退回 Sleep 而不是少等。 */
+    if(due->QuadPart >= 0) return 0;
+    g_shim_timer_due = shim_now_ms() + ((double)(-due->QuadPart))/10000.0;
+    g_shim_timer_armed = 1;
+    return 1;
+}
+DWORD WaitForSingleObject(HANDLE h, DWORD ms){
+    double deadline;
+    dgh_shim_timer_waits++;
+    if(h!=SHIM_TIMER_HANDLE || !g_shim_timer_armed) return 0;
+    deadline = g_shim_timer_due;
+    {   /* 逾時上限照 Windows 語意處理（以較早者為準） */
+        double cap = shim_now_ms() + (double)ms;
+        if(ms!=0xFFFFFFFFu && cap < deadline) deadline = cap;
+    }
+    for(;;){
+        double left = deadline - shim_now_ms();
+        if(left<=0.0) break;
+        shim_nanosleep_ms(left);
+    }
+    g_shim_timer_armed = 0;
+    return 0;                                  /* WAIT_OBJECT_0 */
+}
+BOOL CloseHandle(HANDLE h){ (void)h; g_shim_timer_armed=0; return 1; }
