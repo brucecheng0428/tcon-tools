@@ -23,7 +23,16 @@
     var out = [];
     row.querySelectorAll('input[type=text], select, button, .chips').forEach(function (el) {
       if (el.closest('.chips') && !el.classList.contains('chips')) return;   /* chip 本身不算 */
-      if (el.offsetParent === null && getComputedStyle(el).display === 'none') return;
+      /* 🔴 2026-09-20 修正：舊判準是 `offsetParent === null **&&** display === 'none'`，
+         兩個條件同時成立才跳過。實際上**藏起來的是祖先**時（本頁的 `.dbgonly` 標籤
+         `display:none`，裡面的 `#in-ckdelay` 自己的 display 仍是 inline-block），
+         元素的 offsetParent 是 null 但自己的 display 不是 none ⇒ 不會被跳過，
+         於是一個 0×0 的矩形被當成「同一列的控制項」，整列永遠報 `h±30 top±0.5`。
+         實測：HEAD v1.22.0 與 v1.22.1 在 1920/1440/1280 三個寬度都被同一個元素卡住 ——
+         也就是這道閘門在修好之前是**長期紅燈**，紅燈的閘門等於沒有閘門。
+         改用 `getClientRects().length === 0`：沒有任何 client rect ＝ 沒被排版出來，
+         不管是自己 display:none 還是祖先 display:none 都涵蓋，而且不需要兩個條件。 */
+      if (el.getClientRects().length === 0) return;
       var r = el.getBoundingClientRect();
       out.push({ id: el.id || el.className || el.tagName.toLowerCase(),
                  top: +r.top.toFixed(2), height: +r.height.toFixed(2),
