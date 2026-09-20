@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260920i2c1240"></script>
+<script src="common/version.js?v=20260920i2c1241"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -251,6 +251,41 @@
 
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#475569;margin-right:5px;vertical-align:middle;}
   .dot.on{background:var(--ok);} .dot.busy{background:var(--warn);} .dot.err{background:var(--err);}
+
+  /* ═══ 🔴 v1.24.1：連線卡片 —— 矮一截、開關大一號（Bruce 2026-09-20）═══════════
+     他原話：「最上方『已連線』的那張卡片：1. 高度太高了，請縮短高度（大概是原本
+     的三分之二）2.『已連線』的按鈕和字體請再放大一點，越明顯越好」。
+
+     🔴 這兩件事**方向相反**（放大控制項通常會讓卡片更高），所以高度不能從
+        「把東西縮小」來省，要從**版面結構**來省：
+
+        原本 118px 的組成（實測，Chrome 1920 寬、已連線態）：
+          邊框 2 ＋ 上下內距 20 ＋ h2 18 ＋ h2 下邊距 8 ＋ .row 70 ＝ 118
+        那 70px 全部來自 `label.f` 的三列格線（標籤 17 ＋ 控制項 30 ＋ 提示 17
+        ＋ 兩個 3px 間距）—— 而這張卡片裡**只有一個欄位**（I2C 時脈），
+        為了它一個人把整列撐成三層。把它改成「標籤 · 控制項 · 提示」同一行
+        （`.inlinef`），那 70px 就只剩控制項本身的高度。
+
+        省下來的空間拿去把控制項**加高到 36px**、開關字級 14 → 17px：
+          2 ＋ 16 ＋ 18 ＋ 6 ＋ 36 ＝ 78px ＝ 原本的 66%（≈ 三分之二）
+        資訊一項都沒有少：狀態燈、狀態字、開關、#helperinfo、時脈欄的標籤／
+        輸入框／提示全部還在同一行上，沒有截斷、沒有換行（1920/1440/1280 實測）。
+
+     🔴 `--fh` 在**這張卡片內**覆寫成 36px（不是全域改）—— 版面閘門要求同一
+        `.row` 的每個控制項等高同頂，只把按鈕放大會讓它與時脈輸入框差 6px 而被擋下。
+        其他卡片吃的仍是 :root 的 30px，一個 px 都沒動。 */
+  #card-conn{--fh:36px;padding:8px 12px;}
+  #card-conn > h2{margin-bottom:6px;}
+  /* 時脈欄：三列格線 → 一行。`width` 也要收回來（原本欄位寬 150px 是給三列版用的）。 */
+  #card-conn label.f.inlinef{display:flex;align-items:center;gap:8px;width:auto;}
+  #card-conn label.f.inlinef > span:first-child,
+  #card-conn label.f.inlinef .hint{line-height:var(--fh);}
+  #card-conn label.f.inlinef .combo{width:104px;flex:none;}
+  #card-conn label.f.inlinef .hint{min-width:0;}
+  /* 開關：越明顯越好 —— 字級 14 → 17、加粗、加寬，燈號與狀態字一起放大。 */
+  #card-conn #btn-link{font-size:17px;font-weight:800;letter-spacing:.5px;min-width:132px;padding:0 20px;}
+  #card-conn #linktext{font-size:16px;font-weight:700;color:var(--text);}
+  #card-conn .dot{width:12px;height:12px;margin-right:8px;}
 
   .banner{border-radius:8px;padding:7px 11px;font-size:13px;margin-bottom:10px;border:1px solid;}
   .banner.info{background:#0c2233;border-color:#0369a1;color:#bae6fd;}
@@ -646,8 +681,10 @@
 
   <div id="topbanner"></div>
 
-  <!-- ═══ 連線 ═══ -->
-  <div class="card" style="margin-bottom:12px;">
+  <!-- ═══ 連線 ═══
+       🔴 v1.24.1：加 `id="card-conn"` —— 縮高與放大開關的 CSS 全部掛在這個 id 底下，
+          其他卡片一個 px 都不受影響（Bruce：「其他卡片的高度與版面不要動」）。 -->
+  <div class="card" id="card-conn" style="margin-bottom:12px;">
     <h2 data-i18n="i2c.hdConn">本機 I2C Bridge 連線</h2>
     <div class="row" style="align-items:center;">
       <div><span class="dot" id="dot"></span><span id="linktext" data-i18n="i2c.stNotLinked">未連線</span></div>
@@ -708,7 +745,9 @@
            Bruce 要能推到邊界（量 margin、或跟 TCON 暫存器溝通）⇒ 做成可調，
            **手動輸入不設上限**，只擋公式本身的數學界線。
            常用值是能整除、不會被默默算歪的那幾個（理由見 i2ctClockCalc）。 -->
-      <label class="f" style="width:150px">
+      <!-- 🔴 v1.24.1：`width:150px` → `.inlinef`（標籤·輸入·提示同一行）。
+           寬度改由 CSS 管，因為 inline style 會蓋掉 class 規則。 -->
+      <label class="f inlinef">
         <span data-i18n="i2c.lblClock">I2C 時脈（kHz）</span>
         <span class="combo">
           <input type="text" id="in-clk" class="mono" value="400" spellcheck="false">
@@ -1296,8 +1335,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260920i2c1240"></script>
-<script src="common/common.js?v=20260920i2c1240"></script>
+<script src="common/i18n.js?v=20260920i2c1241"></script>
+<script src="common/common.js?v=20260920i2c1241"></script>
 
 <script>
 'use strict';
@@ -6840,7 +6879,20 @@ window.__i2ct = {
   wrFailAt: function (i) { return !!(i2ctWrFail && i2ctWrFail[i]); },
   slotNext: function (st, w) { return i2ctSlotNext(st, w); },
   abort: function () { i2ctAbort = true; },
-  progress: function () { return i2ctProgress; },
+  /* 🔴 v1.24.1：`label` 在內部是 i18n **描述子**（`{k:'i2c.opWrite'}`），這裡要掛勾回
+     渲染後的字 —— 與同一批 v1.24.0 改過的 `srcA`／`srcB`／`writeSource` 同一個理由，
+     當時**單單漏了這一支**（自檢第 63 組因此 FAIL：got={"k":"i2c.opWrite"}）。
+     🔴 這不是畫面的錯：`i2ctRenderProgress()` 一直都有走 `i2ctSrcTxt()`，
+        三語實測畫面分別是「寫入／写入／Write」（tools/check_i18n_descriptor_leak.js
+        會每次 commit 重驗一遍）。錯的是這個測試掛勾直接回內部狀態，
+        讓「看內部」與「看畫面」兩件事得到不同答案。
+     回**複本**不回原物件：測試拿到的東西不該能反手改到頁面狀態。 */
+  progress: function () {
+    if (!i2ctProgress) return i2ctProgress;
+    var p = Object.assign({}, i2ctProgress);
+    if (p.label !== undefined && p.label !== null) p.label = i2ctSrcTxt(p.label);
+    return p;
+  },
   crossParse: function (t) { return i2ctCrossParse(t); },
   cross: function () { return i2ctCross; },
   crossCells: function () {
