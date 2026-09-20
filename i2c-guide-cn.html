@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 主題初始化 —— 必須在樣式套用前執行，避免亮暗閃爍(FOUC)。
+   規則：網址參數 ?theme=light|dark 優先；沒帶參數時一律 dark（與工具本體一致）。
+   🔴 依專案規範，禁止使用 localStorage / sessionStorage，記憶完全靠網址參數。 */
+(function () {
+  var q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', q === 'light' ? 'light' : 'dark');
+})();
+/* 語言初始化 —— 三份檔案（zh-TW／zh-CN／en）各自獨立，切語言＝換網址。
+   記憶沿用主頁面 common.js:54 的同一個 localStorage key：'tcon-lang'
+   （值域 'zh-TW' / 'zh-CN' / 'en'，見 common/common.js applyLang()），
+   所以在工具本體選過的語言，點進說明頁會直接落在對應的那一份。
+   必須在樣式與內容繪出前執行，避免先閃一下錯的語言。
+   ?lang=xx 為明示指定，優先於 storage，並會寫回 storage（供分享深連結用）。 */
+window.GUIDE_PAGE_LANG = 'zh-CN';
+window.GUIDE_FILES = { 'zh-TW': 'i2c-guide.html', 'zh-CN': 'i2c-guide-cn.html', 'en': 'i2c-guide-en.html' };
+(function () {
+  var FILES = window.GUIDE_FILES, PAGE = window.GUIDE_PAGE_LANG;
+  var forced = new URLSearchParams(location.search).get('lang');
+  var want;
+  if (forced && FILES[forced]) {
+    want = forced;
+    try { localStorage.setItem('tcon-lang', want); sessionStorage.setItem('tcon-lang', want); } catch (e) {}
+  } else {
+    try { want = localStorage.getItem('tcon-lang') || sessionStorage.getItem('tcon-lang') || PAGE; } catch (e) { want = PAGE; }
+    if (!FILES[want]) want = PAGE;
+  }
+  if (want === PAGE) return;
+  var u = new URL(location.href);
+  location.replace(u.pathname.replace(/[^/]*$/, FILES[want]) + u.search + u.hash);
+})();
+</script>
+<title>I2C 读写测试 — 使用手册</title>
+<meta name="description" content="I2C 读写测试完整使用手册：获取与启动本机 I2C Bridge、连接与时钟、slave 地址的 7-bit 与 8-bit 写法、offset 宽度、A／B 两份数据、逐格编辑与跳跃选取、EEPROM 的 page 与段间距、写入后的回读验证与总和校验码。">
+<style>
+/* ============================================================================
+   TCON 說明文件共用樣式範本
+   ----------------------------------------------------------------------------
+   本區塊是所有 *-guide.html 說明頁的共用骨架，新增說明頁請整段複製後只改內容。
+   規則與擴充方式見 docs/guide-template.md。
+
+   主題機制：
+     - 色票全部集中在下方 [data-theme="dark"] / [data-theme="light"] 兩個區塊。
+     - 元件樣式一律只引用 var(--token)，禁止在元件規則裡寫死顏色字面值
+       （唯一例外：刻意模擬工具實際外觀的 .ui-mock / .wave-demo / 介面示意圖，
+         這兩者在亮暗兩色下都保持深色，因為工具本體就是深色主題）。
+     - 預設 dark；使用者切換後以網址參數 ?theme=light 記住（不使用 storage API）。
+   ========================================================================== */
+
+  /* ---- 與主題無關的 token ---- */
+  :root {
+    --radius: 10px;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    /* 品牌主色與固定強調色（兩個主題共用，作為色塊填色，其上文字為 --on-primary） */
+    --primary: #f97316;
+    --primary-dark: #c2410c;
+    --on-primary: #ffffff;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+  }
+
+  /* ---- 暗色色票（預設） ---- */
+  [data-theme="dark"] {
+    --bg: #0f172a;            /* 頁面底 */
+    --card: #1b2740;          /* 卡片／偶數章節底 */
+    --card-alt: #243352;      /* 偶數章節內的卡片（需比 --card 再亮一階） */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent-ink: #fdba74;    /* 主色系「文字」用，暗底要夠亮 */
+    --primary-soft: rgba(249,115,22,.13);   /* 主色淡底（callout／表格 hover） */
+    --primary-line: rgba(249,115,22,.42);
+    --nav-bg: rgba(15,23,42,.92);
+    --input-bg: #0f172a;
+    --input-border: #3f4d68;
+    --code-bg: #0f172a;
+    --code-fg: #fdba74;
+    --table-bg: #17223a;
+    --mark-bg: #a16207;
+    --mark-fg: #fffbeb;
+    --shadow: 0 2px 12px rgba(0,0,0,.45);
+    --callout-warn-bg: rgba(245,158,11,.14);
+    --callout-danger-bg: rgba(239,68,68,.14);
+    --callout-success-bg: rgba(16,185,129,.14);
+    --callout-info-bg: rgba(59,130,246,.15);
+    /* 型別標籤（.t-type）色票 */
+    --tag-bg: rgba(129,140,248,.20);   --tag-fg: #c7d2fe;
+    --tag-num-bg: rgba(59,130,246,.20); --tag-num-fg: #bfdbfe;
+    --tag-sel-bg: rgba(139,92,246,.22); --tag-sel-fg: #ddd6fe;
+    --tag-chk-bg: rgba(34,197,94,.20);  --tag-chk-fg: #bbf7d0;
+    --tag-btn-bg: rgba(249,115,22,.22); --tag-btn-fg: #fed7aa;
+    --tag-out-bg: rgba(234,179,8,.20);  --tag-out-fg: #fde68a;
+    --tag-sld-bg: rgba(6,182,212,.20);  --tag-sld-fg: #a5f3fc;
+    --tag-rad-bg: rgba(236,72,153,.20); --tag-rad-fg: #fbcfe8;
+    --tag-txt-bg: rgba(148,163,184,.20);--tag-txt-fg: #e2e8f0;
+    color-scheme: dark;
+  }
+
+  /* ---- 亮色色票 ---- */
+  [data-theme="light"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --card-alt: #f9fafb;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent-ink: #c2410c;
+    --primary-soft: #fff7ed;
+    --primary-line: #fed7aa;
+    --nav-bg: rgba(255,255,255,.94);
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --code-bg: #f1f5f9;
+    --code-fg: #c2410c;
+    --table-bg: #ffffff;
+    --mark-bg: #fde68a;
+    --mark-fg: #1a1a2e;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+    --callout-warn-bg: #fffbeb;
+    --callout-danger-bg: #fef2f2;
+    --callout-success-bg: #ecfdf5;
+    --callout-info-bg: #eff6ff;
+    --tag-bg: #e0e7ff;    --tag-fg: #3730a3;
+    --tag-num-bg: #dbeafe; --tag-num-fg: #1e40af;
+    --tag-sel-bg: #ede9fe; --tag-sel-fg: #5b21b6;
+    --tag-chk-bg: #dcfce7; --tag-chk-fg: #166534;
+    --tag-btn-bg: #ffedd5; --tag-btn-fg: #9a3412;
+    --tag-out-bg: #fef3c7; --tag-out-fg: #92400e;
+    --tag-sld-bg: #cffafe; --tag-sld-fg: #155e75;
+    --tag-rad-bg: #fce7f3; --tag-rad-fg: #9d174d;
+    --tag-txt-bg: #f3f4f6; --tag-txt-fg: #374151;
+    color-scheme: light;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 35%, #9a3412 75%, #f97316 100%);
+    color: #fff;
+    padding: 70px 24px 50px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .88; max-width: 700px; margin: 0 auto; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.16);
+    font-size: .82rem;
+  }
+  .hero .hero-links { margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hero .hero-links a {
+    display:inline-block; padding:7px 18px; border-radius: 20px;
+    background: rgba(255,255,255,.14); color:#fff; text-decoration:none;
+    font-size:.84rem; border:1px solid rgba(255,255,255,.25); transition: background .2s;
+  }
+  .hero .hero-links a:hover { background: rgba(255,255,255,.3); }
+
+  /* === LAYOUT === */
+  /* 內容區寬度的單一來源，八份說明頁寫法相同，要調整只改這一個值。
+     原本 980px：控制項對照表有相當比例要自己橫捲，左右卻各留一大片空白。 */
+  :root { --content-max: 1280px; }
+  .container { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+  /* === NAV === */
+  .sticky-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  /* 導覽列鋪滿整個視窗寬度（不再夾在 980px 內）：右邊三個控制項才靠得到畫面最右緣。 */
+  .nav-inner { display: flex; gap: 2px; width: 100%; align-items: center; }
+  /* 章節鈕群組。橫向捲動由這一層負責，不是整條 .sticky-nav ——
+     右邊的搜尋／主題／語言三個控制項才會永遠固定看得到。
+     ≥1200px 改成 flex-wrap：排不下時折成第二列，一律不出現橫向捲軸；
+     窄螢幕維持單列橫捲（窄螢幕若也 wrap 會疊成四五列，把內容整個推下去）。 */
+  .nav-scroll {
+    display: flex; gap: 2px; align-items: center;
+    flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .nav-btn {
+    padding: 13px 13px;
+    border: none;
+    background: none;
+    font-size: .85rem;
+    font-family: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2.5px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover, .nav-btn.active { color: var(--accent-ink); border-bottom-color: var(--primary); }
+
+  /* === 右側控制項群組（搜尋／主題／語言）=== */
+  /* 用 margin-left:auto 把整組推到最右，不用絕對定位 —— 疊上去就會蓋到章節鈕。 */
+  .nav-controls {
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding-left: 14px;
+  }
+  .search-wrap { display:flex; align-items:center; gap:6px; padding: 6px 0; }
+  #ctrl-search {
+    font-family: inherit; font-size:.82rem; padding:6px 12px;
+    border:1px solid var(--input-border); border-radius: 18px; width: 190px; outline:none;
+    background: var(--input-bg); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #ctrl-search::placeholder { color: var(--muted); }
+  #ctrl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.22); }
+  #search-count { font-size:.74rem; color: var(--muted); white-space:nowrap; min-width:64px; }
+
+  /* === 主題切換鈕 === */
+  .theme-toggle {
+    flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--accent-ink);
+    font-size: 1rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .2s, background .2s, transform .2s;
+  }
+  .theme-toggle:hover { border-color: var(--primary); transform: rotate(-15deg); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-sun { display: inline; }
+  [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  /* === 語言切換（沿用主頁面 common.css 的 .lang-switcher / .lang-select）===
+     幾何尺寸（min-width / padding / border-radius / 字級 / 箭頭 SVG / 420px 斷點）
+     與 common.css 完全相同；唯一差異是顏色改走說明頁的主題 token，
+     因為說明頁的導覽列有亮／暗兩色，主頁面那組寫死的白字在亮色下會看不見。 */
+  .lang-switcher { flex-shrink: 0; display: flex; align-items: center; }
+  .lang-select {
+    min-width: 90px;
+    padding: 3px 22px 3px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    letter-spacing: 0.3px;
+  }
+  .lang-select:focus { outline: none; border-color: var(--primary); }
+  .lang-select option { background: var(--input-bg); color: var(--text); }
+  @media (max-width: 420px) {
+    .lang-select { min-width: 78px; font-size: 11px; padding: 2px 16px 2px 6px; letter-spacing: 0.1px; }
+  }
+
+  /* === SECTIONS === */
+  section { padding: 54px 0; }
+  section:nth-child(even) { background: var(--card); }
+  .section-title { font-size: 1.6rem; margin-bottom: 6px; }
+  .section-title .sec-num {
+    display:inline-block; background: var(--primary); color: var(--on-primary);
+    font-size: .95rem; padding: 2px 11px; border-radius: 14px; margin-right: 10px; vertical-align: middle;
+  }
+  .section-desc { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  section:nth-child(even) .card { background: var(--card-alt); }
+  .card h3 { font-size: 1.08rem; margin-bottom: 10px; }
+  .card h4 { font-size: .97rem; margin: 16px 0 8px; color: var(--accent-ink); }
+  .card p { font-size: .95rem; }
+  .card ul, .card ol { margin-top: 8px; padding-left: 20px; }
+  .card li { font-size: .93rem; margin-bottom: 4px; }
+
+  /* === GRID === */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  /* 🔴 grid item 的 min-width 預設是 auto ⇒ 欄寬會被卡片內「排不下的東西」頂開。
+     說明頁的 th／.t-name／.t-type 都是 white-space:nowrap，英文標題比中文長，
+     於是只有英文版會在 821～940px 之間把整頁撐出水平捲軸（實測 aux-en 825px 溢出 111px、
+     已上線的 wfg-en 825px 溢出 85px；中文兩份任何寬度都不會）。
+     min-width:0 讓卡片可以縮到比內容窄，多出來的部分交給 .table-wrap 自己的 overflow-x 捲。
+     實測 18 份 × 12 種寬度共 216 組：原本就沒溢出的 210 組加上這行之後數值完全不變。 */
+  .grid-2 > *, .grid-3 > * { min-width: 0; }
+  @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === STEPS === */
+  .steps { counter-reset: step; }
+  .step { counter-increment: step; position: relative; padding-left: 56px; margin-bottom: 26px; }
+  .step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 18px; top: 44px; bottom: -14px; width: 2px; background: var(--border);
+  }
+  .step h3 { font-size: 1.03rem; margin-bottom: 4px; }
+  .step p { color: var(--muted); font-size: .94rem; }
+
+  /* === TABLE === */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--table-bg); }
+  th { background: var(--primary); color: var(--on-primary); padding: 10px 13px; text-align: left; font-weight: 600; white-space: nowrap; }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--primary-soft); }
+  td code, li code, p code, .callout code {
+    font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 6px; border-radius: 4px; color: var(--code-fg);
+  }
+  .t-name { font-weight: 600; white-space: nowrap; }
+  .t-type {
+    display:inline-block; font-size:.72rem; padding: 1px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--tag-fg); white-space:nowrap;
+  }
+  .t-type.tt-num { background: var(--tag-num-bg); color: var(--tag-num-fg); }
+  .t-type.tt-sel { background: var(--tag-sel-bg); color: var(--tag-sel-fg); }
+  .t-type.tt-chk { background: var(--tag-chk-bg); color: var(--tag-chk-fg); }
+  .t-type.tt-btn { background: var(--tag-btn-bg); color: var(--tag-btn-fg); }
+  .t-type.tt-out { background: var(--tag-out-bg); color: var(--tag-out-fg); }
+  .t-type.tt-sld { background: var(--tag-sld-bg); color: var(--tag-sld-fg); }
+  .t-type.tt-rad { background: var(--tag-rad-bg); color: var(--tag-rad-fg); }
+  .t-type.tt-txt { background: var(--tag-txt-bg); color: var(--tag-txt-fg); }
+
+  /* === CALLOUT === */
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: var(--primary-soft);
+    padding: 13px 18px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 16px 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: var(--callout-warn-bg); }
+  .callout.danger { border-left-color: var(--accent-red); background: var(--callout-danger-bg); }
+  .callout.success { border-left-color: var(--accent-green); background: var(--callout-success-bg); }
+  .callout.info { border-left-color: var(--accent-blue); background: var(--callout-info-bg); }
+  /* 只有 callout 的第一個 strong 當標題獨佔一行，內文中的 strong 維持行內 */
+  .callout strong { display: inline; }
+  .callout > strong:first-child { display: block; margin-bottom: 2px; }
+
+  /* === ACCORDION === */
+  .accordion-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 8px; overflow: hidden; background: var(--card);
+  }
+  section:nth-child(even) .accordion-item { background: var(--card-alt); }
+  .accordion-header {
+    padding: 13px 18px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center; gap:12px;
+    font-weight: 600; font-size: .94rem; transition: background .2s; user-select: none;
+  }
+  .accordion-header:hover { background: var(--primary-soft); }
+  .accordion-header .arrow { transition: transform .2s; color: var(--muted); flex-shrink:0; }
+  .accordion-item.open .accordion-header .arrow { transform: rotate(180deg); }
+  .accordion-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; padding: 0 18px; }
+  .accordion-item.open .accordion-body { max-height: 4000px; padding: 0 18px 14px; }
+
+  /* === FLOW === */
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-node { padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: .86rem; color: #fff; text-align: center; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); }
+
+  /* === TABS (互動元件) === */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 14px; }
+  .tab-btn {
+    padding: 8px 16px; border:1px solid var(--input-border); background: var(--input-bg); border-radius: 20px;
+    font-family: inherit; font-size:.85rem; cursor:pointer; color: var(--muted); transition: all .18s;
+  }
+  .tab-btn:hover { border-color: var(--primary); color: var(--accent-ink); }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight:600; }
+  .tab-panel { display:none; animation: fadeIn .25s ease; }
+  .tab-panel.active { display:block; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform:none;} }
+
+  /* === UI MOCK（刻意固定深色：模擬工具實際外觀，兩個主題都不變） === */
+  .ui-mock {
+    background:#0f172a; border-radius: 10px; padding: 14px; border:1px solid #1e293b;
+    font-size: .8rem; color:#e2e8f0; overflow-x:auto;
+  }
+  .ui-card { background:#1e293b; border-radius:8px; margin-bottom:8px; overflow:hidden; border:1px solid #334155; }
+  .ui-card-head {
+    background:#263449; padding:7px 12px; font-weight:700; font-size:.8rem;
+    display:flex; justify-content:space-between; align-items:center; color:#f1f5f9;
+  }
+  .ui-card-body { padding: 10px 12px; }
+  .ui-field { margin-bottom:8px; }
+  .ui-label { display:block; font-size:.7rem; color:#94a3b8; margin-bottom:3px; }
+  .ui-input {
+    background:#0f172a; border:1px solid #334155; border-radius:4px;
+    padding:4px 8px; color:#e2e8f0; font-family: var(--mono); font-size:.76rem; display:inline-block; min-width:70px;
+  }
+  .ui-chip {
+    display:inline-block; background:#0f172a; border:1px solid #334155; border-radius: 12px;
+    padding: 2px 10px; font-size:.72rem; color:#cbd5e1; margin: 2px 3px 2px 0;
+  }
+  .ui-chip.on { background: var(--primary); border-color: var(--primary); color:#fff; font-weight:600; }
+  .ui-val { color:#4ade80; font-family: var(--mono); font-weight:700; }
+  .ui-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* === ZONE 互動示意圖（容器固定深色，說明區跟主題） === */
+  .zone { cursor: pointer; transition: background .2s, box-shadow .2s; }
+  .zone:hover, .zone.zone-active { box-shadow: inset 0 0 0 2px var(--primary); }
+  #zone-desc {
+    margin-top: 14px; padding: 14px 18px; background: var(--primary-soft);
+    border-radius: 8px; font-size: .9rem; min-height: 76px; transition: all .2s;
+    border:1px solid var(--primary-line);
+  }
+
+  /* === 快捷鍵鍵盤 === */
+  .keyboard { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin: 14px 0; }
+  .key {
+    width: 52px; height: 52px; border-radius: 8px; border:1px solid var(--input-border); background: var(--input-bg);
+    color: var(--text);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: var(--mono); font-weight:700; cursor:pointer; transition: all .15s; user-select:none;
+  }
+  .key:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,.28); }
+  .key.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .key small { font-size:.62rem; font-weight:400; opacity:.8; }
+  #key-desc {
+    text-align:center; font-size:.9rem; color: var(--muted); margin-top: 10px;
+    min-height: 46px; padding: 10px; background: var(--card-alt); border:1px solid var(--border); border-radius:8px;
+  }
+  section:nth-child(even) #key-desc { background: var(--bg); }
+
+  /* === 游標三態動畫 === */
+  .tri-state { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; justify-content:center; }
+  .tri-box {
+    flex:1; min-width:170px; border:2px solid var(--border); border-radius:10px; padding:14px;
+    text-align:center; transition: all .2s; cursor:pointer; background: var(--card);
+  }
+  section:nth-child(even) .tri-box { background: var(--bg); }
+  .tri-box:hover, .tri-box.active { border-color: var(--primary); background: var(--primary-soft); }
+  .tri-box .tri-icon { font-size:1.8rem; }
+  .tri-box h4 { margin:6px 0 4px; color: var(--text); font-size:.95rem; }
+  .tri-box p { font-size:.82rem; color: var(--muted); }
+
+  /* === 波形示意 SVG（固定深色，模擬工具畫布） === */
+  .wave-demo { background:#0f172a; border-radius:10px; padding:12px; overflow-x:auto; }
+  .wave-demo svg { display:block; min-width: 560px; }
+
+  /* === 搜尋高亮 / 隱藏 === */
+  tr.search-hide { display:none; }
+  mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+  .search-empty { padding: 14px; color: var(--muted); font-size:.9rem; text-align:center; }
+
+  /* === 回到頂端 === */
+  #to-top {
+    position: fixed; right: 22px; bottom: 22px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); border:none; cursor:pointer; font-size:1.1rem;
+    box-shadow: 0 4px 14px rgba(249,115,22,.4); display:none; z-index:200;
+  }
+  #to-top.show { display:block; }
+
+  /* === FOOTER === */
+  footer { text-align: center; padding: 36px 24px; color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); text-decoration:none; }
+
+  /* 寬螢幕：章節鈕折行不橫捲；字級與左右內距收緊，讓一列多排得下幾顆。 */
+  @media (min-width: 1200px) {
+    .nav-scroll { flex-wrap: wrap; overflow-x: visible; }
+    .nav-btn { padding: 10px 7px; font-size: .8rem; }
+  }
+  /* 中等寬度：搜尋框收窄，把空間讓給章節鈕。 */
+  @media (max-width: 1100px) {
+    #ctrl-search { width: 132px; }
+  }
+  /* 導覽列是 sticky，折成兩列後會變高，錨點跳轉必須扣掉它的高度，
+     否則章節標題會被壓在導覽列底下。--nav-h 由 JS 依實際高度寫入。 */
+  section { scroll-margin-top: var(--nav-h, 0px); }
+
+  /* === PRINT（列印一律用亮色，省碳粉） === */
+  @media print {
+    .sticky-nav, #to-top, .search-wrap, .theme-toggle { display: none; }
+    .hero { padding: 24px; }
+    section { padding: 20px 0; }
+    .accordion-body { max-height: none !important; padding: 0 18px 14px !important; }
+    .tab-panel { display:block !important; }
+  }
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.7rem; }
+    .search-wrap { display:none; }
+    .key { width:44px; height:44px; }
+  }
+</style>
+</head>
+<body>
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>I2C 读写测试</h1>
+  <p class="subtitle">通过本机 I2C Bridge 读写任意 slave 与 offset，以 16×16 表格查看、编辑与比对 — 完整使用手册。</p>
+  <span class="version">网页工具 · 需搭配本机 I2C Bridge · 桌面浏览器</span>
+  <div class="hero-links">
+    <a href="i2c.html">▶ 打开 I2C 读写测试</a>
+    <a href="index.html">⌂ 回到工具首页</a>
+  </div>
+</div>
+
+<!-- ==================== NAV ==================== -->
+<div class="sticky-nav">
+  <div class="nav-inner">
+    <div class="nav-scroll">
+      <button class="nav-btn active" onclick="scrollToSection('#intro')">简介</button>
+      <button class="nav-btn" onclick="scrollToSection('#bridge')">获取与启动</button>
+      <button class="nav-btn" onclick="scrollToSection('#connect')">连接</button>
+      <button class="nav-btn" onclick="scrollToSection('#params')">读写参数</button>
+      <button class="nav-btn" onclick="scrollToSection('#read')">读取与 A／B</button>
+      <button class="nav-btn" onclick="scrollToSection('#edit')">编辑与选取</button>
+      <button class="nav-btn" onclick="scrollToSection('#write')">写入与验证</button>
+      <button class="nav-btn" onclick="scrollToSection('#faq')">常见问题</button>
+    </div>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input id="ctrl-search" type="search" placeholder="🔍 搜索控件…" autocomplete="off">
+        <span id="search-count"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换亮色／暗色主题" aria-label="切换亮色／暗色主题">
+        <span class="icon-moon" aria-hidden="true">🌙</span><span class="icon-sun" aria-hidden="true">☀️</span>
+      </button>
+      <div class="lang-switcher">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 1. INTRO ==================== -->
+<section id="intro">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">1</span>工具简介</h2>
+    <p class="section-desc">这是一支<strong>不预设对面是什么芯片</strong>的 I2C 读写工具：任意 slave 地址、任意 offset、任意长度，读回来摊成 16×16 表格，可以就地改值、跟另一份数据逐 byte 比对、再一次写回去并自动回读验证。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>它解决什么问题</h3>
+        <ul>
+          <li><strong>看得到整片内容</strong> — 一次最多读 262,144 byte（256K），分页呈现，每页 256 byte。</li>
+          <li><strong>改了什么一目了然</strong> — 两份数据（A／B）同时在手上，不同的格子会上色，差异列表逐条列出“地址 / Data A / Data B”。</li>
+          <li><strong>写进去不必猜</strong> — 写完自动回读同一段，逐 byte 比对，不一致的格子标红并列出地址。</li>
+          <li><strong>不挡路</strong> — 没有地址白名单、没有“允许写入”开关。所有读写都完整记在画面的操作记录与 I2C Bridge 的日志文件里。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>它不做什么</h3>
+        <ul>
+          <li><strong>不替你判断对面是什么</strong> — 除了 EEPROM 的容量确认之外，工具不猜芯片型号、不套寄存器定义。</li>
+          <li><strong>不自动写</strong> — 除了你按下“写入”或就地改一格（已连接时）以外，没有任何路径会发出写入。</li>
+          <li><strong>不记住你的数据</strong> — 关掉标签页，dump 内容就没了；要留就用“另存为”。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>浏览器为什么碰不到工装</strong>
+      USB 转 I2C 的工装由驱动层绑定，浏览器没有任何一条路可以直接访问它。所以这一页必须搭配一支在你电脑上运行的小程序（I2C Bridge），由它代为操作工装，网页通过本机的 WebSocket 跟它通信。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 2. BRIDGE ==================== -->
+<section id="bridge">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">2</span>获取与启动 I2C Bridge</h2>
+    <p class="section-desc">连不到的时候，画面上<strong>第一个出现的就是下载按钮</strong>，版本号直接印在按钮上。</p>
+
+    <div class="steps">
+      <div class="step">
+        <h4>下载</h4>
+        <p>按画面上的“⬇ 下载 I2C Bridge <em>版本</em>”。按下去会弹一个三行的说明窗口，照着做即可。</p>
+      </div>
+      <div class="step">
+        <h4>整包解压到同一个文件夹</h4>
+        <p>包内是<strong>四个文件</strong>：<code>i2c-bridge.exe</code>、<code>libMPSSE.dll</code>、<code>ftd2xx.dll</code>、<code>DLL_I2C_BCB.dll</code>。<strong>四个必须在同一个文件夹</strong>，少一个就起不来。</p>
+      </div>
+      <div class="step">
+        <h4>双击 <code>i2c-bridge.exe</code></h4>
+        <p>第一次运行 Windows 会拦一次（程序内容一变，哈希就变，所以每次换版都会再拦一次）。黑窗口留着不要关，它就是那条通道。</p>
+      </div>
+      <div class="step">
+        <h4>回到这一页</h4>
+        <p>页面会自动尝试连接，通常不必按任何东西。没自动连上就按一下“连接”。</p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>黑窗口最后一行是一个大写字母</strong>
+      <strong>G</strong> ＝ 一切正常。不是 G 的时候，把整份 <code>i2c-bridge.log</code> 留下来，字母的意思由工具的维护者查 —— 这一页刻意不把对照表印给使用者看。
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>项目</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">下载 I2C Bridge</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>连不到时自动出现。版本号印在按钮上，来源是工具的版本单一来源文件，不是写死在这一页。</td></tr>
+          <tr><td class="t-name">I2C Bridge 信息与疑难排解</td><td><span class="t-type tt-btn">折叠卡</span></td><td>—</td><td>收在诊断模式里。含 zip 与 exe 的 SHA256、四个文件的清单、常见连不上的原因。</td></tr>
+          <tr><td class="t-name">SHA256 zip / exe</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>下载回来要核对的话比这两个值。exe 内容一改 SHA 就变，Windows 也会再拦一次。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout danger">
+      <strong>浏览器问你要不要“允许访问本地网络”时请点允许</strong>
+      从公开网址连本机（<code>127.0.0.1</code>）时，新版浏览器会先问一次权限。点了阻止或把提示关掉，连接就不会成立，而且画面上看起来跟“程序没开”一模一样。这一页分得出这两种：慢到几百毫秒才失败的那一种，会另外显示一行“请点允许”与一个重试按钮。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 3. CONNECT ==================== -->
+<section id="connect">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">3</span>连接</h2>
+    <p class="section-desc">连接是一个<strong>开关</strong>：连上是绿的，断开是灰的。旁边那一行小字是对面那支程序的版本与协议版本。</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">连接 / 已连接</td><td><span class="t-type tt-btn">开关</span></td><td>—</td><td>同一个按钮负责两个方向。<strong>关掉不只是断开</strong>：它会同时把工装交回去，别的程序就能用。</td></tr>
+          <tr><td class="t-name">连接状态灯</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>灯号＋一句状态。常见的有“未连接”“连不到 I2C Bridge”“已连接（本页持有 I2C）”“I2C 在另一个页面”。</td></tr>
+          <tr><td class="t-name">I2C Bridge x.y.z · proto n</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>连上之后才有字，未连接时是空的。proto 是双方讲的协议版本，有些新功能要对面够新才有（见下方）。</td></tr>
+          <tr><td class="t-name">I2C 时钟（kHz）</td><td><span class="t-type tt-txt">文本输入</span>＋<span class="t-type tt-sel">下拉</span></td><td>下拉 50 / 100 / 200 / 400 / 1000；手动不设上限</td><td>常用值放在下拉里，也可以直接输入。下方小字会印出<strong>实际会得到的频率</strong>（见下面那段陷阱）。改完要重新连接才生效。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:22px;">时钟：整数除法的陷阱</h3>
+    <p>工装端换算频率用的是两次<strong>整数</strong>除法：</p>
+    <div class="callout">
+      <strong>divisor = (12000 / kHz) / 2 − 1　（两个除法都取整）</strong>
+      实际频率因此是 <code>12000 / (2 × (divisor + 1))</code> kHz。它<strong>不检查输入、也没有档位表</strong>：任何值都收，不整除的值会被默默算歪。
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>你填的值</th><th>类型</th><th>divisor</th><th>实际频率</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">400</td><td><span class="t-type tt-num">kHz</span></td><td>14</td><td>400 kHz　✔ 刚好整除</td></tr>
+          <tr><td class="t-name">350</td><td><span class="t-type tt-num">kHz</span></td><td>16</td><td><strong>352.94 kHz</strong>　← 不是你填的那个数字</td></tr>
+          <tr><td class="t-name">100</td><td><span class="t-type tt-num">kHz</span></td><td>59</td><td>100 kHz　✔</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color:var(--muted); font-size:.93rem;">所以下方小字一律把实际值算出来给你看 —— 对不上你填的数字时，它会标红。这比任何警告都有用。</p>
+
+    <div class="callout info">
+      <strong>同一时间只有一个页面握着工装</strong>
+      切到哪一页，哪一页就自动接管，不必按任何东西。对方正在测量时不会被抢走。要把工装交回去给别的程序，就把连接开关关掉。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 4. PARAMS ==================== -->
+<section id="params">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">4</span>读写参数（读与写共用同一组）</h2>
+    <p class="section-desc">读取与写入<strong>共用</strong>同一组 slave 地址、offset 宽度与起始 offset。四个分组由左至右：① Slave 地址　② Offset　③ 总 byte 数　④ 对设备。</p>
+
+    <h3>① Slave 地址：7-bit 与 8-bit 的关系</h3>
+    <p>三格是<strong>同一个地址的三种写法</strong>，改任何一格，另外两格立刻跟着变。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">7-bit（实际发出）</td><td><span class="t-type tt-txt">文本输入</span>＋<span class="t-type tt-sel">下拉</span></td><td>0x00–0x7F；下拉常用值 0x68 / 0x50 / 0x3E / 0x7C / 0x7D</td><td><strong>这一格才是真正发到总线上的值</strong>，所以它是被强调的那一格。</td></tr>
+          <tr><td class="t-name">8-bit write</td><td><span class="t-type tt-txt">文本输入</span></td><td>0x00–0xFF，偶数</td><td>＝ 7-bit &lt;&lt; 1。输入奇数会<strong>当场改成偶数并显示修正后的值</strong>（不是偷偷换掉一个你看不到的东西）。</td></tr>
+          <tr><td class="t-name">8-bit read</td><td><span class="t-type tt-txt">文本输入</span></td><td>0x00–0xFF，奇数</td><td>＝ (7-bit &lt;&lt; 1) | 1。输入偶数会补上最低位并显示修正后的值。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>为什么有两套写法</strong>
+      I2C 在总线上发出的第一个 byte 是“7 位地址 ＋ 1 位读写方向”。有些数据手册直接把那整个 byte 写成地址（所以同一颗会出现“写 0xD0、读 0xD1”两个数字），有些只写 7 位（0x68）。三格并排是为了<strong>不管手册用哪一种写法，你都可以直接照抄</strong>。
+    </div>
+
+    <h3 style="margin-top:22px;">② Offset：宽度与起始地址</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">宽度（byte）</td><td><span class="t-type tt-txt">文本输入</span>＋<span class="t-type tt-sel">下拉</span></td><td>下拉 0 / 1 / 2 / 4（默认 2）；手动可填 3</td><td>地址相位要发几个 byte，<strong>高位在前</strong>。填 5 以上会在发出前被拦下。</td></tr>
+          <tr><td class="t-name">起始 offset</td><td><span class="t-type tt-txt">文本输入</span></td><td>0 – 该宽度能表示的上限</td><td>从哪个地址开始读／写。纯数字当十六进制；要用十进制就加 <code>d</code>（如 <code>80d</code>）或加 <code>#</code> 前缀（如 <code>#80</code>）。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>宽度</th><th>类型</th><th>地址相位</th><th>这一格的意思</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">0</td><td><span class="t-type tt-num">byte</span></td><td><strong>没有地址相位</strong></td><td>“起始 offset”那一格不再是地址，而是<strong>要发出去的那 1 个 byte</strong>（标签会跟着改成“写入值（1 byte）”）。读取则是从头读，表格的行标头印的是索引（<code>#0</code>…）而不是地址。</td></tr>
+          <tr><td class="t-name">1</td><td><span class="t-type tt-num">byte</span></td><td>1 byte</td><td>0x00 – 0xFF</td></tr>
+          <tr><td class="t-name">2</td><td><span class="t-type tt-num">byte</span></td><td>2 byte（默认）</td><td>0x0000 – 0xFFFF</td></tr>
+          <tr><td class="t-name">3</td><td><span class="t-type tt-num">byte</span></td><td>3 byte（24 位）</td><td>不在下拉里，<strong>手动输入 3</strong> 才有。对面的 I2C Bridge 太旧时，小字会先告诉你它不吃。</td></tr>
+          <tr><td class="t-name">4</td><td><span class="t-type tt-num">byte</span></td><td>4 byte</td><td>0x00000000 – 0xFFFFFFFF</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:22px;">③ 总 byte 数</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">总 byte 数</td><td><span class="t-type tt-txt">文本输入</span>＋<span class="t-type tt-sel">下拉</span></td><td>1 – 262144（256K）；下拉常用值 4096 / 8192</td><td><strong>只管读取</strong>。下方小字印出会分成几页、会切成几则传送。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <strong>这一栏不是写入的前提</strong>
+      写入要写多少，由<strong>表格上那份数据自己</strong>决定（或你选取了哪几格），跟这一栏完全无关。曾经有一版把两者绑在一起，结果“读 256 之后载入 8192 的文件”按钮直接锁死 —— 那是错的，现在两件事分开。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 5. READ ==================== -->
+<section id="read">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">5</span>读取，与 A／B 两份数据</h2>
+    <p class="section-desc">按“读取”把数据抓回来摊在 16×16 表格上。这一节最重要的是 <strong>A 与 B 到底是什么</strong> —— 搞清楚它，画面上其他东西都会跟着合理。</p>
+
+    <h3>A 与 B</h3>
+    <ul>
+      <li><strong>A ＝ 比较基准</strong>（快照）。它是一份独立的副本，只有在“重建 A”的时候才会变。</li>
+      <li><strong>B ＝ 现在手上这一份</strong>，也就是表格上显示、按下写入会被写出去的那一份。</li>
+      <li>两份都有内容时，<strong>点 A 或 B 那一行就切换看哪一份</strong>；看 A 的时候是<strong>只读</strong>的（它是基准，不该被改）。</li>
+    </ul>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>发生什么事</th><th>类型</th><th>A</th><th>B ／ 来源标签</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">第一次读取</td><td><span class="t-type tt-out">状态</span></td><td>← 读到的</td><td><strong>清空</strong>；A 的来源标成“读取 slave 0x·· · 0x···· 起”</td></tr>
+          <tr><td class="t-name">第一次载入文件</td><td><span class="t-type tt-out">状态</span></td><td>← 文件</td><td><strong>清空</strong>；A 的来源就是文件名</td></tr>
+          <tr><td class="t-name">已有 A，再载入文件（长度相同）</td><td><span class="t-type tt-out">状态</span></td><td>不动</td><td>← 文件；B 的来源是文件名</td></tr>
+          <tr><td class="t-name">已有 A，再读取（长度相同）</td><td><span class="t-type tt-out">状态</span></td><td>不动</td><td>← 读到的；B 的来源是“读取”</td></tr>
+          <tr><td class="t-name">改了任何一格</td><td><span class="t-type tt-out">状态</span></td><td>不动</td><td>← 改完的内容；B 的来源是“A 的修改”</td></tr>
+          <tr><td class="t-name">按“快照 A”</td><td><span class="t-type tt-btn">按钮</span></td><td>← 当前内容</td><td><strong>清空</strong>，差异列表归零；A 继承当前的来源</td></tr>
+          <tr><td class="t-name">长度不一样（读取或载入都一样）</td><td><span class="t-type tt-out">状态</span></td><td>← <strong>后者</strong></td><td><strong>清空</strong>；旧的来源标签消失</td></tr>
+          <tr><td class="t-name">换 slave ＋ 读取</td><td><span class="t-type tt-out">状态</span></td><td>← 新读到的</td><td><strong>清空</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>两条容易误会的规则</strong>
+      <strong>①“换 slave”本身不会清掉 A</strong> —— 要换了<em>而且读取</em>才会。你可能只是切过去看看。<br>
+      <strong>② 只要 A 被重建，B 就自动清空。</strong>A、B 是一组，不会出现“新的 A 配旧的 B”这种比不了的状态。
+    </div>
+
+    <h3 style="margin-top:22px;">读取相关的控件</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">读取</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>依 ①②③ 的参数抓数据。长读取有进度与中止按钮；中止会停在下一个分段边界，并报告读到哪里。</td></tr>
+          <tr><td class="t-name">快照 A</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>把<strong>当前内容</strong>存成 A 当比较基准。副作用写在提示里：<strong>B 会被清空、差异列表归零</strong>。</td></tr>
+          <tr><td class="t-name">另存为</td><td><span class="t-type tt-btn">按钮</span>＋<span class="t-type tt-sel">下拉</span></td><td>.hex / .bin / .txt / .rom</td><td>读多少存多少。<code>.hex</code> 是 Intel HEX（每行 16 byte）。不需要连接，读完拔线也能存。</td></tr>
+          <tr><td class="t-name">载入文件</td><td><span class="t-type tt-btn">按钮</span></td><td>.bin .hex .txt .rom .ihx .ihex .eep .dat .raw</td><td>自动识别格式：Intel HEX、带地址的 hex dump、纯 hex 文本、raw binary。Intel HEX 的地址跳跃处会补 <code>0xFF</code> 并在记录里说补了几个。</td></tr>
+          <tr><td class="t-name">清空</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>回到“完全没有数据”的状态。<strong>连接与参数保留</strong>，可以接着做下一轮比对。</td></tr>
+          <tr><td class="t-name">页码（0x ▢▢▢ 00）</td><td><span class="t-type tt-txt">文本输入</span>＋<span class="t-type tt-btn">上下键</span></td><td>—</td><td>256 byte 一页。最左的 <code>0x</code> 与最右的 <code>00</code> 是固定的，只有中间可以填。</td></tr>
+          <tr><td class="t-name">跳到（表格左上角）</td><td><span class="t-type tt-txt">文本输入</span></td><td>—</td><td>页内任意地址定位并画十字。地址不在当前页时<strong>会先自动翻页</strong>。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout danger">
+      <strong>整片读回来都是 0xFF 的意思</strong>
+      I2C 总线空闲时就是高电平。整片 <code>FF</code> 通常代表<strong>没有人响应</strong>，而不是“数据真的是 FF”。先确认 slave 地址、板子有没有供电、工装有没有接好。另外，如果读回来的内容<strong>每 N byte 完整重复一次</strong>，那通常是超过设备容量、地址回卷到 0 —— 顺序读不会报错，只会一直重复，所以这一页会主动提醒。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 6. EDIT ==================== -->
+<section id="edit">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">6</span>编辑、选取与搜索</h2>
+    <p class="section-desc">表格不只是拿来看的。每一格都可以就地改值；<strong>已连接时改一格就是真的写一格</strong>（而且会立刻回读验证），未连接时只改本地并标成“尚未写入”。</p>
+
+    <h3>一格三层</h3>
+    <p>每一格最多有三个数字：中间的大字是<strong>主值</strong>（按下写入会被写进去的那一个），左上角小字是<strong>快照值 A</strong>，右上角小字是<strong>被换出去的值 B</strong>。左上与右上<strong>绝不会同时出现</strong>：</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>状态</th><th>类型</th><th>主值</th><th>角落</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">状态 1（改过值之后）</td><td><span class="t-type tt-out">状态</span></td><td>B（新值）</td><td>左上 ＝ A（快照值）；右上空</td></tr>
+          <tr><td class="t-name">状态 2（点了左上之后）</td><td><span class="t-type tt-out">状态</span></td><td>A（快照值）</td><td>左上空；右上 ＝ B（被换出去的新值）</td></tr>
+          <tr><td class="t-name">A 与 B 相等</td><td><span class="t-type tt-out">状态</span></td><td>那个值</td><td>两角都空（没有可切换的东西）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <strong>点角落也会真的写进设备</strong>
+      在已连接、而且这一格<em>不是</em>“改过还没写”的状态下，点角落还原＝真的要改设备 ⇒ 会发出写入并回读验证。如果那一格的改动本来就没发出去过，点角落只动本地、不发任何传输。
+    </div>
+
+    <h3 style="margin-top:22px;">编辑一格</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>操作</th><th>类型</th><th>按键</th><th>会发生什么</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">进入编辑</td><td><span class="t-type tt-txt">鼠标</span></td><td>单击一格</td><td>选中＋画十字＋直接进入编辑。</td></tr>
+          <tr><td class="t-name">输入</td><td><span class="t-type tt-txt">键盘</span></td><td>十六进制字符</td><td><strong>只显示、不生效</strong>；凑满两位也不会自动发出。输满两位再输会往左移位（像计算器）。</td></tr>
+          <tr><td class="t-name">生效</td><td><span class="t-type tt-btn">键盘／鼠标</span></td><td>Enter，或离开这一格</td><td>只输一位当作高位补 0（<code>A</code> ⇒ <code>0A</code>）。已连接 ⇒ 写入＋回读；未连接 ⇒ 只改本地并标示尚未写入。</td></tr>
+          <tr><td class="t-name">放弃</td><td><span class="t-type tt-btn">键盘</span></td><td>Esc</td><td>值恢复原状。</td></tr>
+          <tr><td class="t-name">位（bit 7–0）</td><td><span class="t-type tt-chk">复选框</span></td><td>—</td><td>侧栏会列出所点那一格的 8 个位，勾／取消就直接改值，走的是<strong>与手动改格完全同一条路径</strong>（同样会写入、同样会回读验证）。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout info">
+      <strong>offset 宽度 0 时不能逐格写</strong>
+      没有地址相位就没办法指定要写哪一格。这个模式下请改用上方的“写入数据”栏。
+    </div>
+
+    <h3 style="margin-top:22px;">选取要写哪些格子</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>操作</th><th>类型</th><th>按键</th><th>会发生什么</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">连续选取</td><td><span class="t-type tt-txt">鼠标／键盘</span></td><td>Shift ＋ 点击，或 Shift ＋ 方向键</td><td>选的是<strong>线性地址区间</strong>（不是矩形）。在 0x00 点一下再按 Shift＋下，选到的是 0x00 一直到 0x10 共 17 格。</td></tr>
+          <tr><td class="t-name">跳跃选取</td><td><span class="t-type tt-txt">鼠标</span></td><td>Ctrl ＋ 点击</td><td>可以挑不相邻的格子，<strong>而且支持跨页</strong>。再 Ctrl＋点同一格就是取消那一格。</td></tr>
+          <tr><td class="t-name">取消选取</td><td><span class="t-type tt-txt">鼠标</span></td><td>普通单击任一格</td><td>跳跃选取整个清掉。</td></tr>
+          <tr><td class="t-name">选取列表</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>侧栏最上面逐段列出选了哪些地址：连续段印起止，跳跃选取每一段一行。标题行同时印总 byte 数与段数。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout danger">
+      <strong>跳跃选取会逐段重下地址</strong>
+      不相邻的区段之间，地址没办法靠自动递增走过去。所以<strong>每一段都会各自重下一次 slave address ＋ offset</strong> —— 写入是这样，写完的回读验证也是这样。按钮上会直接写出“写入 选取的 N byte · M 段”，操作记录里也会逐段列出。
+    </div>
+
+    <h3 style="margin-top:22px;">搜索</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">搜索输入框</td><td><span class="t-type tt-txt">文本输入</span></td><td>—</td><td>找<strong>连在一起</strong>的那几个 byte。输入格式与“写入数据”<strong>同一支解析器</strong>：<code>61 41 B4</code>、<code>0x61,0x41</code>、<code>A1h</code>、<code>6141B4</code> 都吃。半个 byte 一律拒绝，不臆测。</td></tr>
+          <tr><td class="t-name">全部范围 / 本页</td><td><span class="t-type tt-rad">单选钮</span></td><td>二选一</td><td>“本页”的定义是<strong>整段都要落在本页 256 byte 之内</strong>；跨页的命中留给“全部范围”，这样同一条才不会被数两次。</td></tr>
+          <tr><td class="t-name">▲ / ▼</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>上一条／下一条，<strong>两端都循环</strong>。跨页的命中会自动翻页并画十字。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 7. WRITE ==================== -->
+<section id="write">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">7</span>写入、EEPROM 与验证</h2>
+    <p class="section-desc">按钮上永远写着<strong>这一下会写哪一份、多少 byte</strong>。写完自动回读同一段、逐 byte 比对，结果放在画面最上面。</p>
+
+    <h3>写入来源：以中心值为准</h3>
+    <p>写出去的是<strong>表格上每一格的主值</strong>（中间那个大字），不是“总 byte 数”那一栏、也不是原始文件。优先顺序：</p>
+    <div class="steps">
+      <div class="step"><h4>有选取 ⇒ 只写选取的那几格</h4><p>按钮上写“写入 选取的 N byte”；多段时再加上“· M 段”。</p></div>
+      <div class="step"><h4>没有选取 ⇒ 写当前显示的那一整份</h4><p>按钮上写“写入 A／B · N byte”。<strong>按钮里不放文件名</strong>（文件名在 A／B 那两行，放两次只是重复，而且长文件名会把按钮撑爆）。</p></div>
+      <div class="step"><h4>offset 宽度 0 ⇒ 只写 ③ 的那 1 byte</h4><p>没有地址相位，这是这个模式下唯一能写的东西。</p></div>
+    </div>
+
+    <h3 style="margin-top:22px;">EEPROM：page 与段间距</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">Page 大小</td><td><span class="t-type tt-sel">下拉</span></td><td>8 / 16 / 32 / 64 / 128 / 256 B，或“不分段”</td><td>EEPROM 的 page write 有硬件上限，<strong>跨页的连续写会在页内回卷</strong>，结果是静默写错。选小一定安全（只是慢），选大才会出事。</td></tr>
+          <tr><td class="t-name">目标段间距</td><td><span class="t-type tt-txt">文本输入</span></td><td>毫秒；默认 5</td><td>这是<strong>总线上量得到的段与段之间的距离</strong>，不是“额外睡多久”。固定开销由 I2C Bridge 自己每段量、自己扣掉。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout danger">
+      <strong>段间距是设备的规格，不是可以随便调小的参数</strong>
+      EEPROM 收到一段数据之后要花时间把它真正写进存储（<strong>tWR</strong>，内部写入周期）。这段期间它<strong>不响应</strong>。等不够就会<strong>静默写不进去</strong> —— 不会有错误、不会有提示，回读才会发现。填低于 5 ms 时画面会标红提醒；常见的 24C32／24C64 是 5 ms，较旧的 AT24C32 要 10 ms。
+    </div>
+    <div class="callout warn">
+      <strong>slave 落在 0x50–0x57 时会先问型号</strong>
+      那八个地址是 I2C EEPROM 的惯例地址。写之前会弹一个窗口请你选<strong>型号</strong>（不是 page size）—— 因为你知道手上这颗是 24C32，但不见得记得它的 page 是几 byte。选了型号，page 由系统填，不可能选错。同一个 slave 只问一次；重新连接或这次要写的范围超过已确认的容量时会再问。
+    </div>
+
+    <h3 style="margin-top:22px;">写完的回读验证</h3>
+    <ul>
+      <li>写完<strong>自动回读同一段</strong>，逐 byte 比对。跳跃选取则<strong>逐区段回读，每段各自重下地址</strong>。</li>
+      <li>完全一致 ⇒ 绿底一行“写入与回读完全一致：验证 N byte，全部相同”。</li>
+      <li>有不一致 ⇒ 红底列出<strong>几个 byte 不同</strong>，前几条直接印出“地址：写 0x·· 、读回 0x··”，其余在下方的操作记录里；表格上那些格子会标红。</li>
+      <li>读不回来 ⇒ 明讲“无法确认有没有烧进去”，<strong>不会假装成功</strong>。</li>
+      <li>写到一半失败或中止 ⇒ 会讲清楚<strong>哪一段地址已经写进去、哪一段之后完全没写</strong>，也就是设备上现在是一份半更新的内容。</li>
+    </ul>
+
+    <h3 style="margin-top:22px;">差异列表与总和校验码</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>控件</th><th>类型</th><th>范围／选项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="t-name">差异（地址 / Data A / Data B）</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td><strong>只列有差异的地址</strong>，相同的不列。点一行会跳到 dump 的对应地址并画十字 —— 它<strong>只定位、不改值</strong>，改值请在 dump 上做。</td></tr>
+          <tr><td class="t-name">重新比较</td><td><span class="t-type tt-btn">按钮</span></td><td>—</td><td>用当前的 A 与 B 重新比一次。两份不可比（长度／slave／offset 不同）时会讲出来。</td></tr>
+          <tr><td class="t-name">checksum（A 行／B 行各一）</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>把<strong>整份数据的每一个 byte 相加</strong>，<strong>不取模、不截断</strong>，十六进制显示，位数依实际值自然增长。算的是<strong>中心值</strong>（也就是会被写出去的那一份），任何一格一改就立刻重算。</td></tr>
+          <tr><td class="t-name">耗时记录</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>每一次读写的 byte 数、总耗时、走的路径与结论。同一次操作的几条会框成一组，方便前后比较。</td></tr>
+          <tr><td class="t-name">操作记录</td><td><span class="t-type tt-out">只读显示</span></td><td>—</td><td>每一笔读写的 slave、offset 宽度、地址与 byte 都完整记着。可以一键复制整份。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout info">
+      <strong>checksum 为什么不截断</strong>
+      有些工具会把总和取 16 位（<code>% 0x10000</code>）。这一页刻意不这么做：文件大到 256K byte 时，加到多少就是多少。实测用两个文件名本身就带着总和的真实文件交叉验证过，截断的话那两个值就对不上文件名了。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 8. FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title"><span class="sec-num">8</span>常见问题</h2>
+    <p class="section-desc">点问题展开答案。</p>
+
+    <div class="accordion-item open">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>一直“连不到 I2C Bridge”，可是我明明开着它</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">三种可能，依序排除：<strong>①</strong> 浏览器的“允许访问本地网络”被拒了 —— 这一页分得出来，那一种会另外显示一句“请点允许”与重试按钮；<strong>②</strong> 黑窗口最后一行不是 <strong>G</strong>，代表它自己没起来，留下 <code>i2c-bridge.log</code>；<strong>③</strong> 四个文件没放在同一个文件夹。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>读回来整片都是 FF</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">那通常<strong>不是数据</strong>，是没有人响应（总线空闲就是高电平）。先确认 slave 地址对不对、板子有没有供电、工装有没有接好。想快速确认整条路通不通，可以在诊断模式下按“自检（黄金向量）”。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>写了但是没写进去，也没有任何错误</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">写 EEPROM 时这几乎都是<strong>段间距太短</strong>：设备还在做内部写入就收到下一段，它不响应，而连续写不会报错。把“目标段间距”拉到 5 ms 以上（旧款 10 ms），Page 大小也不要选得比实际大。回读验证就是为了当场抓到这件事。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>我填 350 kHz，小字却说 352.94</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">正常。频率是用两次<strong>整数</strong>除法换算的（<code>divisor = (12000 / kHz) / 2 − 1</code>），不整除的值会被默默算歪。小字印的是<strong>实际会得到的频率</strong>；要刚好就挑能整除的值（50 / 100 / 200 / 400 / 1000）。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>差异列表突然变成 0，可是数据明明不一样</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">代表两份<strong>不可比</strong>（长度、slave 或起始 offset 不同），这时后来那一份会成为<strong>新的 A</strong>，比对停用。操作记录里会有一行说明为什么。要重新建立基准就按“快照 A”。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>表格上的格子点不动、改不了值</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">三种情形：<strong>①</strong> 当前显示的是 <strong>A（基准）</strong>，它是只读的 —— 点下面那一行切回 B；<strong>②</strong> offset 宽度是 0，没有地址相位就没办法逐格写；<strong>③</strong> 正在跑一次 I2C 传输（忙碌中）。未连接<strong>不会</strong>挡你编辑，那是刻意的：离线先把值编好，连接之后一次写进去。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>读回来的内容每隔一段就完整重复一次</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">通常是<strong>读过了设备的容量</strong>，地址回卷到 0 又从头读一次。顺序读不会报错，只会一直重复，所以这一页检测到周期就会主动讲一句。把总 byte 数调到实际容量以内即可。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>另一个标签页把工装抢走了</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">同一时间只有一个页面握着工装。切到哪一页，哪一页就自动接管，不必按任何东西 —— 但对方<strong>正在测量</strong>时不会被抢走，那时画面会讲“等它跑完就能用”。</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header" onclick="toggleAccordion(this)">
+        <span>切了语言，可是操作记录里旧的那几行没有跟着变</span><span class="arrow">▼</span>
+      </div>
+      <div class="accordion-body">
+        <p style="color:var(--muted); font-size:.93rem;">刻意的。操作记录是<strong>带时间戳的流水记录</strong>，每一行记的是“那一刻发生了什么”，所以它保留当下的语言；切语言之后<strong>新产生</strong>的每一行都会是新语言。画面上其他所有东西（按钮、字段、提示、横幅、耗时记录、A／B 两行）都会立刻跟着换。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>I2C 读写测试 — 使用手册</strong></p>
+  <p style="margin-top:6px;"><a href="i2c.html">打开工具</a> · <a href="index.html">回到工具首页</a></p>
+  <p style="margin-top:8px; opacity:.65;">本手册随工具功能更新，不纳入工具版本号机制。<br>本工具为工程辅助用途，读写结果仅供参考，实际规格请以正式文件为准。</p>
+  <p style="margin-top:6px; opacity:.5;">Designed by Bruce Cheng</p>
+</footer>
+
+
+<button id="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="回到顶端">↑</button>
+
+<script>
+// === 主題切換 ===
+// 狀態只放在 <html data-theme> 與網址參數上，不使用 localStorage / sessionStorage。
+// 切換時用 history.replaceState 改寫網址，重新整理／加書籤／分享網址都會沿用同一個主題。
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  const url = new URL(location.href);
+  url.searchParams.set('theme', next);
+  history.replaceState(null, '', url);
+  syncGuideLinkTheme(next);
+}
+// 讓「其他說明頁」的連結帶著同一個主題參數（只處理 *-guide.html，不動工具本身的連結）
+function syncGuideLinkTheme(theme) {
+  document.querySelectorAll('a[href*="-guide.html"]').forEach(a => {
+    try {
+      const u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', theme);
+      a.setAttribute('href', u.pathname.split('/').pop() + u.search + u.hash);
+    } catch (e) { /* 非法 href 就略過 */ }
+  });
+}
+syncGuideLinkTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+
+// === 語言切換 ===
+// 三份檔案各自獨立，切語言＝換網址；#錨點與 ?theme 都原樣帶過去，
+// 所以三份的 id 集合必須完全一致（跨語言深連結才不會斷）。
+(function () {
+  var sel = document.getElementById('lang-select');
+  if (!sel) return;
+  sel.value = window.GUIDE_PAGE_LANG;
+  sel.addEventListener('change', function () {
+    var lang = sel.value;
+    // 寫回與主頁面同一個 key，回到工具本體時語言保持一致
+    try { localStorage.setItem('tcon-lang', lang); sessionStorage.setItem('tcon-lang', lang); } catch (e) {}
+    if (lang === window.GUIDE_PAGE_LANG) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');   // 已寫進 storage，不需要再掛在網址上
+    location.href = u.pathname.replace(/[^/]*$/, window.GUIDE_FILES[lang]) + u.search + u.hash;
+  });
+})();
+
+
+// === NAV scroll tracking ===
+/* 導覽列實際高度 → --nav-h，供 section 的 scroll-margin-top 使用。
+   折行後導覽列會變高，錨點跳轉要跟著扣，否則標題被壓在導覽列底下。 */
+function syncNavHeight() {
+  const nav = document.querySelector('.sticky-nav');
+  if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+window.addEventListener('load', syncNavHeight);
+window.addEventListener('resize', syncNavHeight);
+syncNavHeight();
+
+function scrollToSection(sel) {
+  document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' });
+}
+function updateNav() {
+  const sections = document.querySelectorAll('section[id]');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const scrollY = window.scrollY;
+  let current = '';
+  sections.forEach(s => {
+    if (scrollY >= s.offsetTop - 140) current = s.id;
+  });
+  // 尚未捲動到第一個章節時，預設高亮第一顆導覽鈕
+  if (!current && sections.length) current = sections[0].id;
+  navBtns.forEach(b => {
+    const on = b.getAttribute('onclick')?.includes("'#" + current + "'");
+    b.classList.toggle('active', !!on);
+    if (on) b.scrollIntoView({ block:'nearest', inline:'nearest' });
+  });
+  document.getElementById('to-top').classList.toggle('show', scrollY > 500);
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// === ACCORDION ===
+function toggleAccordion(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// === TABS ===
+function switchTab(btn, group, panelId) {
+  document.querySelectorAll('[data-tabgroup="' + group + '"] .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// === INTERFACE ZONE ===
+/* 🔴 這一頁沒有 .zone 互動示意圖，所以文案物件是空的（範本 §6.4：按需保留或整段刪掉）。
+   **留著空物件而不是連同這幾行一起刪**：`.zone` 的走訪與 hover/click 綁定是範本的共用
+   骨架，刪掉會讓這一頁與母版分岔；日後要加示意圖時把文案填回來即可。
+   🔴 從 calc-guide 抄過來的那六條 calc 專用文案已整批移除 —— 那些字在這一頁
+   一個字都不會被顯示，留著只會讓人搜到不相干的內容。 */
+const zoneDescriptions = {};
+document.querySelectorAll('.zone').forEach(zone => {
+  const show = () => {
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('zone-active'));
+    zone.classList.add('zone-active');
+    const holder = zone.closest('[data-zone-target]');
+    const descId = holder ? holder.getAttribute('data-zone-target') : 'zone-desc';
+    const descEl = document.getElementById(descId) || document.getElementById('zone-desc');
+    if (descEl) descEl.innerHTML = zoneDescriptions[zone.dataset.zone] || '';
+  };
+  zone.addEventListener('mouseenter', show);
+  zone.addEventListener('click', show);
+});
+
+// === 控制項搜尋 ===
+const searchInput = document.getElementById('ctrl-search');
+const searchCount = document.getElementById('search-count');
+function clearMarks(root) {
+  root.querySelectorAll('mark').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+}
+function highlight(el, term) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue.toLowerCase().includes(term)) targets.push(n);
+  }
+  targets.forEach(node => {
+    const idx = node.nodeValue.toLowerCase().indexOf(term);
+    if (idx < 0) return;
+    const after = node.splitText(idx);
+    after.splitText(term.length);
+    const mark = document.createElement('mark');
+    mark.textContent = after.nodeValue;
+    after.parentNode.replaceChild(mark, after);
+  });
+}
+function runSearch() {
+  const term = (searchInput.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('table tbody tr');
+  document.querySelectorAll('table').forEach(t => clearMarks(t));
+  if (!term) {
+    rows.forEach(r => r.classList.remove('search-hide'));
+    searchCount.textContent = '';
+    document.querySelectorAll('.search-empty').forEach(e => e.remove());
+    return;
+  }
+  let hit = 0;
+  rows.forEach(r => {
+    const match = r.textContent.toLowerCase().includes(term);
+    r.classList.toggle('search-hide', !match);
+    if (match) { hit++; highlight(r, term); }
+  });
+  searchCount.textContent = hit + ' 笔符合';
+  // 命中的第一列自動捲入視野
+  const first = document.querySelector('table tbody tr:not(.search-hide)');
+  if (first) {
+    // 若該列在收合的 accordion 內，自動展開
+    const acc = first.closest('.accordion-item');
+    if (acc) acc.classList.add('open');
+    const panel = first.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) {
+      const group = panel.closest('[data-tabpanels]')?.dataset.tabpanels;
+      if (group) {
+        document.querySelectorAll('[data-tabpanels="' + group + '"] .tab-panel').forEach(p => p.classList.remove('active'));
+        panel.classList.add('active');
+      }
+    }
+  }
+}
+if (searchInput) {
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('search', runSearch);
+}
+
+// === 快捷鍵鍵盤示範 ===
+/* 🔴 這一頁沒有 .key 鍵帽示範，理由同 zoneDescriptions：保留骨架、清空文案。 */
+const keyMap = {};
+function keyDemo(k) {
+  const el = document.getElementById('key-desc');
+  if (!el) return;
+  const info = keyMap[k];
+  document.querySelectorAll('.key').forEach(x => x.classList.toggle('active', x.dataset.key === k));
+  el.innerHTML = '按下数字键 <code>' + k + '</code> → 切换光标 <strong style="color:' + info[1] + '">' + info[0] +
+    '</strong>。<br>第一次按：光标出现并<strong>跟着鼠标移动</strong>；在画布上按一下鼠标左键即可<strong>钉住</strong>；已钉住时再按同一键会<strong>回到跟随状态</strong>；跟随状态下再按一次才会<strong>移除</strong>该光标。';
+}
+
+// === 游標三態示範 ===
+function triDemo(el, state) {
+  document.querySelectorAll('.tri-box').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+updateNav();
+</script>
+</body>
+</html>

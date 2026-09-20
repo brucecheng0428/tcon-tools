@@ -161,8 +161,15 @@ function baseScript(f) {
   CHECK(pageErrors.length === 0, '載入時沒有 JS 例外：' + pageErrors.join(' | '));
   CHECK(!!A, 'window.__i2ct 測試掛勾存在');
   if (!A) { console.log('\n🔴 掛勾不存在，無法繼續'); process.exit(1); }
-  CHECK(/^v\d+\.\d+\.\d+$/.test(doc.getElementById('ver').textContent), '版號徽章讀到 TOOL_VERSIONS.i2c：' + doc.getElementById('ver').textContent);
-  EQ(doc.getElementById('ver').textContent, win.TOOL_VERSIONS.i2c, '徽章版號 === version.js 的單一來源');
+  /* 🔴 v1.24.0：版號徽章從 `#ver`（本頁自己手填）改成 `[data-tool-version="i2c"]`
+     ——與其他六個分頁**同一個機制**（common/common.js 從 TOOL_VERSIONS 注入）。
+     🔴 這不是把斷言放寬：**驗的事實一字未變**（徽章上的字 === version.js 的單一
+        來源），只是徽章換了一個元素在承載。舊選擇器留著才是假驗證 —— 它會去讀一個
+        已經不存在的元素，`null.textContent` 直接丟例外（實測就是這樣掛的）。 */
+  const verBadge = doc.querySelector('[data-tool-version="i2c"]');
+  CHECK(!!verBadge, '版號徽章元素 [data-tool-version="i2c"] 在 DOM 上');
+  CHECK(/^v\d+\.\d+\.\d+$/.test(verBadge.textContent), '版號徽章讀到 TOOL_VERSIONS.i2c：' + verBadge.textContent);
+  EQ(verBadge.textContent, win.TOOL_VERSIONS.i2c, '徽章版號 === version.js 的單一來源');
   CHECK(A.NEED_PROTO === 2, '本頁要求 helper proto 2（awid / rawwrite 都是 proto 2 才有）');
   /* 四項輸入都在 DOM 上，而且是可輸入的 —— 元素存在 ≠ 功能正常，所以下面還會真的打字 */
   ['in-slave', 'in-off', 'in-len', 'in-data'].forEach(id =>
