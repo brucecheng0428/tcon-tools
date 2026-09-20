@@ -2669,7 +2669,11 @@ var I18N = {
      Bruce 2026-09-20：「DGEN 的 check 這個很重要，要從 I2C 的方式去確認 DGEN 有開
      還是沒開。最好把它顯示出來。」＋「可以點選核取方塊來強制開啟或強制關閉。」
      🔴 「未知」與「關閉」必須看得出是兩件事 —— 讀不到卻顯示「關閉」正是安靜錯誤。 */
-  'dst.kvDg':           { 'zh-TW': 'DG', 'en': 'DG', 'zh-CN': 'DG' },
+  /* 🔴 v1.5.0：`DG` → `DG_EN`（Bruce 2026-09-21：「不要只寫 DG，你要寫 DG_EN，
+     這樣才會讓使用者一看就知道那是什麼」）。這一列顯示的本來就是
+     `reg_dgm_dg_en` 那一位的狀態，寫 DG_EN 才對得上 register bank 的欄位名。
+     三語相同：它是**暫存器欄位名**，不是可翻譯的詞。 */
+  'dst.kvDg':           { 'zh-TW': 'DG_EN', 'en': 'DG_EN', 'zh-CN': 'DG_EN' },
   'dst.dgForce':        { 'zh-TW': '強制', 'en': 'Force', 'zh-CN': '强制' },
   'dst.dgOn':           { 'zh-TW': '開啟中', 'en': 'on', 'zh-CN': '开启中' },
   'dst.dgOff':          { 'zh-TW': '關閉', 'en': 'off', 'zh-CN': '关闭' },
