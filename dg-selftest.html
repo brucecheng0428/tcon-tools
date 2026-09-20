@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260920dst120"></script>
+<script src="common/version.js?v=20260920dst130"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -45,6 +45,16 @@
   .dst-btn:disabled { opacity: .45; cursor: not-allowed; }
   .dst-btn.pri { border-color: var(--primary); background: #1e3a5f; color: var(--accent); }
   .dst-btn.danger { border-color: var(--red); background: #431418; color: #fca5a5; }
+
+  /* ═══ v1.3.0：有狀態的鈕一律要有**選取態** ════════════════════════════════
+     Bruce 2026-09-20：「『十字 on』按下去在畫面上完全沒反應（我說的是在網頁畫面
+     上，不是實際 TCON UI 上）。應該要有選取狀態的 highlight，讓使用者知道現在到底
+     是什麼狀態。」
+     🔴 用色沿用本頁既有的 `.dst-toggle[aria-pressed="true"]`（綠框綠底）——
+        **不另調一個新色**：同一頁裡「選取中」只能有一種長相，否則使用者要學兩次。
+     🔴 `.pri` 在後面，所以這一條要用 `.dst-btn.on` 並列在 `.pri` 之後才蓋得過去。 */
+  .dst-btn.on, .dst-btn.pri.on {
+    border-color: var(--success); background: #064e3b; color: #6ee7b7; }
   .dst-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .dst-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .dst-grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -216,10 +226,15 @@
     </div>
   </div>
 
-  <!-- ═══ 2. 出圖設定 ═════════════════════════════════════════════════════ -->
+  <!-- ═══ 2. 畫面測試（量測前）═════════════════════════════════════════════
+       🔴 v1.3.0 改名（Bruce 2026-09-20：「這個卡片叫『出圖』到底是什麼意思？…
+          可以用『畫面測試』之類的嗎？因為它不是在主要量測的流程裡，而是在量測
+          之前的測試畫面流程。」）。**採用他建議的字**，不另創第三個名字。
+       🔴 定位說明只有一行（他同時要求「版面精簡，一兩句就好」）。 -->
   <div class="card">
-    <div class="card-header"><span class="icon">🎚️</span><span data-i18n="dst.hdPattern">出圖</span></div>
+    <div class="card-header"><span class="icon">🎚️</span><span data-i18n="dst.hdTest">畫面測試</span></div>
     <div class="card-body">
+      <div class="dst-note" data-i18n="dst.testNote">量測前的確認畫面：看 T-CON 自檢出圖正不正常，並用對位畫面幫光學量測儀擺好位置。這裡的調整不會影響下面實際量測的 L0…L255。</div>
 
       <div class="field">
         <label data-i18n="dst.lbBits">灰階位元深度</label>
@@ -239,24 +254,25 @@
       <div class="dst-slider dst-sl-b"><label for="dst-sl-b">B</label><input type="range" id="dst-sl-b" min="0" max="255" value="0"><input type="number" id="dst-nb" min="0" max="255" value="0"></div>
       <div class="dst-slider dst-sl-w"><label for="dst-sl-w">W</label><input type="range" id="dst-sl-w" min="0" max="255" value="0"><input type="number" id="dst-nw" min="0" max="255" value="0"></div>
 
-      <div class="dst-kv"><span data-i18n="dst.kvSend">送進 IC 的 12-bit 值</span><span id="dst-v-send">0 / 0 / 0</span></div>
-
+      <!-- 🔴 v1.3.0：這四顆的字由 dstRenderPick() 依**當前位元深度**填
+           （白 255／白 1023／白 4095），HTML 裡留的是 8-bit 的預設字，只為了
+           JS 還沒跑到時不要是四顆空白鈕。`data-i18n` 已拿掉 —— 留著的話
+           common.js 切語言時會把數字洗掉。 -->
       <div class="dst-grid4" style="margin-top:10px">
-        <button class="dst-btn" id="dst-q-w" data-i18n="dst.btnQw">白</button>
-        <button class="dst-btn" id="dst-q-r" data-i18n="dst.btnQr">紅</button>
-        <button class="dst-btn" id="dst-q-g" data-i18n="dst.btnQg">綠</button>
-        <button class="dst-btn" id="dst-q-b" data-i18n="dst.btnQb">藍</button>
+        <button class="dst-btn" id="dst-q-w" aria-pressed="false">白 255</button>
+        <button class="dst-btn" id="dst-q-r" aria-pressed="false">紅 255</button>
+        <button class="dst-btn" id="dst-q-g" aria-pressed="false">綠 255</button>
+        <button class="dst-btn" id="dst-q-b" aria-pressed="false">藍 255</button>
       </div>
 
+      <!-- 🔴 v1.3.0：「對位畫面」「十字 ON」「十字 OFF」「離開出圖模式」四顆
+           併成**這一顆切換鈕**（Bruce 2026-09-20：「後面 L127 加中心十字應該也
+           只要分一個按鈕就好了，按下去就是 L127 加中心十字，取消的話就回到原本
+           的狀態」）。字也由 JS 依狀態換（見 dstRenderPick）。 -->
       <div class="dst-row" style="margin-top:10px">
-        <button class="dst-btn pri" id="dst-align" data-i18n="dst.btnAlign">對位畫面（L127 ＋ 中心十字）</button>
+        <button class="dst-btn pri" id="dst-align" aria-pressed="false">對位畫面（L127 ＋ 中心十字）</button>
       </div>
-      <div class="dst-row" style="margin-top:8px">
-        <button class="dst-btn" id="dst-cross-on" data-i18n="dst.btnCrossOn">十字 ON</button>
-        <button class="dst-btn" id="dst-cross-off" data-i18n="dst.btnCrossOff">十字 OFF</button>
-        <button class="dst-btn" id="dst-leave" data-i18n="dst.btnLeave">離開出圖模式</button>
-      </div>
-      <div class="dst-note" data-i18n="dst.crossNote">十字是紅色的一條細線，位置固定在畫面正中心；線寬不可調（暫存器裡沒有這個欄位）。</div>
+      <div class="dst-note" data-i18n="dst.alignNote">按一次出對位畫面（L127 灰底＋正中心紅十字，十字線寬不可調）；再按一次離開出圖模式，面板回到原本的畫面。</div>
       <div class="dst-say" id="dst-say-pattern"></div>
     </div>
   </div>
@@ -281,14 +297,14 @@
         <div class="dst-kv"><span data-i18n="dst.kvHz">畫面更新率</span><span id="dst-v-hz" class="dst-na">—</span></div>
       </div>
 
-      <!-- 🔴 v1.2.0：匯出兩顆。XLSX 是**上游工具的預設**（它的存檔視窗
-           FilterIndex = 3 ＝ xlsx），CSV 走它同一支文字輸出（逗號分隔）。
-           欄位、表頭、順序、尾段三者共用同一份資料組裝，見 dstExportRows()。 -->
+      <!-- 🔴 v1.3.0：匯出**只剩 XLSX 一顆**。Bruce 2026-09-20：「應該不用再留
+           『匯出 CSV』了吧？因為原廠的 UI 就是匯出 XLSX。」—— v1.2.0 查證的結論
+           也是同一件事（存檔視窗 FilterIndex = 3 ＝ xlsx，filter 清單裡根本沒有
+           .csv）。CSV 的產生器一併刪掉，不留死碼。 -->
       <div class="dst-row" style="margin-top:12px">
         <button class="dst-btn pri" id="dst-run" data-i18n="dst.btnRun">開始掃描</button>
         <button class="dst-btn danger" id="dst-stop" disabled data-i18n="dst.btnStop">■ 停止</button>
         <button class="dst-btn" id="dst-xlsx" disabled data-i18n="dst.btnXlsx">匯出 XLSX</button>
-        <button class="dst-btn" id="dst-csv" disabled data-i18n="dst.btnCsv">匯出 CSV</button>
       </div>
 
       <div class="dst-prog-outer"><div class="dst-prog-inner" id="dst-prog"></div></div>
@@ -339,9 +355,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260920dst120"></script>
-<script src="common/xlsx.js?v=20260920dst120"></script>
-<script src="common/common.js?v=20260920dst120"></script>
+<script src="common/i18n.js?v=20260920dst130"></script>
+<script src="common/xlsx.js?v=20260920dst130"></script>
+<script src="common/common.js?v=20260920dst130"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -631,6 +647,11 @@ var dstInPattern = false;      // 有沒有進過出圖模式（中止時要講�
 var dstLastPaint = null;       // 最後一次打出去的東西（中止時要講）
 var dstBits = 8;
 var dstRgb = { r: 0, g: 0, b: 0 };   // 使用者刻度（不是 12-bit 值）
+/* ═══ v1.3.0：畫面測試那張卡「現在選的是哪一顆」════════════════════════════
+   'w'／'r'／'g'／'b'／'align'／null（null ＝ 沒有任何一顆是選取態）。
+   🔴 這是**選取態唯一的來源**，不從 dstRgb 反推：拉霸拉到剛好全滿也不算「按過
+      白鈕」，反推會讓高亮說謊。拉霸一動就回 null。 */
+var dstShowing = null;
 var dstRows = [], dstRunning = false, dstAbort = false;
 /* 🔴 v1.2.0：這一輪是不是**完整跑完**的。只有掃完計畫上的每一階、而且每一階都
    拿到有效數據，才會是 true。中止、例外、使用者在失敗視窗按「中止整輪」⇒ false。
@@ -1070,12 +1091,22 @@ async function dstEnterPattern() {
 async function dstSetRgb12(r12, g12, b12) {
   var ic = dstIc;
   if (!ic || !ic.patternOk) throw new Error(dstNoPatternText());
+  /* ═══ 🔴 v1.3.0：還沒進出圖模式就先進 ═══════════════════════════════════
+     v1.2.0 只有「對位畫面」那一顆會呼叫 dstEnterPattern()，所以先按「白」是
+     **打不出東西的** —— SetAgingMode(true) 沒下過，ptg 區塊根本沒開，那五個
+     byte 寫進去不會上畫面。上游工具的每一條路徑都是先 SetAgingMode(true)
+     才 SetPatternRGB，這裡補上的就是那一筆，順序與掃描那條路完全相同
+     （enter ＝ aging(true) ＋ userdefine，再 userdefine ＋ inside）。
+     🔴 不是新功能，是把「畫面測試」這張卡原本就該能做的事補起來；序列一個字
+        都沒有自己發明。 */
+  if (dstInitPtg === null) await dstEnterPattern();
   await dstUserdefineMode(ic);
   await dstWriteReg(ic.inside.addr, dstPackRgb12(r12, g12, b12));
   dstLastPaint = { r: r12, g: g12, b: b12 };
 }
 async function dstLeavePattern() {
   var ic = dstIc;
+  dstShowing = null;               // v1.3.0：離開了就沒有任何一顆是選取態
   if (!ic || !ic.patternOk || dstInitPtg === null) { dstInPattern = false; return; }
   await dstAgingMode(ic, false);
   dstLog('== leave pattern: ' + dstAddrText(ic.soft.addr) + ' restored to 0x'
@@ -1128,8 +1159,30 @@ async function dstAlignPattern() {
   var v = dstTo12(DST_ALIGN_L, 8);          // 🔴 L127 固定走 8-bit 刻度，與位元深度選項無關
   await dstSetRgb12(v, v, v);
   var c = await dstCrossOn();
+  dstShowing = 'align';
   dstLog('== align: L' + DST_ALIGN_L + ' (12-bit ' + v + ') + cross at (' + c.x + ',' + c.y + ')', 'o');
   return { v: v, c: c };
+}
+
+/* ═══ 🔴 v1.3.0：對位畫面 ＝ **一顆切換鈕** ═══════════════════════════════
+   Bruce 2026-09-20：「按下去就是 L127 加中心十字，取消的話就回到原本的狀態
+   （可能是黑畫面或什麼的）。」
+
+   ═══ 「原本的狀態」是什麼 —— 查過之後的結論 ═════════════════════════════
+   反組譯裡**沒有** QuickPattern 的「取消」這種東西（上游那個介面是按一顆出一種
+   圖，離開整個視窗才收）。所以這件事沒有可照抄的序列，要自己選一個，理由如下：
+     · 候選 A：只關十字、L127 留著 —— 那是一個既不是對位圖、也不是原本畫面的
+       中間狀態，使用者按「取消」不會預期看到它。
+     · 候選 B（**採用**）：送**完整的離開序列**（SetAgingMode(false)：把
+       soft.addr 寫回進入前的原值 ＋ SetCursorOFF），面板回到我們動它之前的
+       那張畫面 —— 黑畫面、開機畫面、訊號源畫面，是什麼就回到什麼。
+   選 B 的理由是**只有它可驗**：進入前的原值是我們自己存下來的（dstInitPtg），
+   還原得對不對看得出來；「原本應該長什麼樣」則是我們無從得知的。
+   🔴 離開序列本身一行未改，只是改由這一顆鈕觸發（另一個觸發點是「開始掃描」）。 */
+async function dstAlignToggle() {
+  if (dstShowing === 'align') await dstLeavePattern();
+  else await dstAlignPattern();
+  dstRenderPick();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1153,7 +1206,57 @@ var DST_INIT = [
   ['MCH,0', 'dst.caMch'],
   ['LUS,1', 'dst.caLus']
 ];
+/* ═══ 🔴 v1.3.0：垂直同步頻率（MVS）—— 重寫判讀 ═════════════════════════════
+   Bruce 2026-09-20：「畫面更新率這個值，你是怎麼確認的？…要麼就不秀這個值，
+   要麼如果你可以查得到的話，要查 T-CON code 或是 register 去直接讀才會知道。」
+
+   ═══ 查證（原廠通訊規格 §3.3.4.19，不是推的）═══════════════════════════════
+     · `MVS,<設計值>` **只在設計值 ±2 Hz 的範圍內偵測** ⇒ 這個清單是「常見的面板
+       更新率」，真實頻率沒落在某一項的 ±2 Hz 內就偵測不到（例如 143 Hz 量得到、
+       155 Hz 就量不到）。這是清單法的先天侷限，如實寫在這裡。
+     · 回覆格式有**兩種**：
+         一般      `Error code,[1]`              ⇒ 頻率在第 2 欄
+         ER20 時   `Error code,P[Probe No.],[1]` ⇒ 頻率在**第 3 欄**
+       🔴 v1.2.0 用的是 `split(',')[1]`，ER20 時取到的會是**探頭編號**，不是頻率。
+     · 🔴 **OK08／OK10 ＝ 找不到週期性，回傳的是「我們自己送進去的設計值」**
+       （規格原文：… OK08 or OK10 and the entered design value are returned）。
+       v1.2.0 只判 `/^OK/`，所以這兩種會把**我們自己猜的數字當成量到的值顯示**
+       —— 假數據，而且看起來完全正常。這是這一項要修的主要錯誤。
+     · ER20 ＝ 偵測到了，但落在設計值 ±2 Hz 之外（或 10–240 Hz 之外但仍在
+       4.29–960 Hz 內）⇒ 那個值是**真的量到的**，可以顯示，但要標明超出預期範圍。
+     · OK02 ＝ 零校正後溫度變化大，但量測本身完成 ⇒ 值有效。
+       其餘（OK64、ER10、ER22…）一律**不顯示**。
+
+   🔴 這個值是「**量測儀量到的垂直同步頻率**」，不是從 TCON 讀出來的設定值 ——
+      畫面上的字（dst.kvHz／dst.hzOk）要講清楚，不要讓人以為是 TCON 回報的。
+   🔴 **待辦（不在這一批）**：TCON 自檢畫面實際送出的頻率，正確的來源應該是
+      TCON 的暫存器／code，而不是量測儀回推。目前**查不到是哪一個暫存器**，
+      Bruce 也說他不知道 —— 所以這裡不猜。日後若查到，這一段應改成直接讀 TCON，
+      量測儀這條路降為對照。 */
 var DST_HZ_GUESS = [60, 75, 90, 100, 120, 144, 165, 180, 200, 240];
+var DST_MVS_OK       = ['OK00', 'OK02'];   // 回的是真的量到的值
+var DST_MVS_NOPERIOD = ['OK08', 'OK10'];   // 🔴 回的是我們自己送進去的設計值 ⇒ 不得顯示
+/* 純函式（夾具直接驗四種回覆）。回傳 state：
+     'ok'       量到了，hz 可信
+     'range'    ER20：量到了但超出設計值 ±2 Hz，hz 可信但要標明
+     'noperiod' OK08／OK10：沒有週期性，**回的是我們的猜測值** ⇒ 丟掉
+     'err'      其他錯誤碼或解不出數字
+     'none'     逾時，完全沒有回應 */
+function dstParseMvs(res) {
+  if (res === null || res === undefined) return { state: 'none' };
+  var p = String(res).trim().split(',');
+  var code = (p[0] || '').toUpperCase();
+  if (DST_MVS_NOPERIOD.indexOf(code) >= 0) return { state: 'noperiod', code: code };
+  if (code === 'ER20') {
+    var h2 = parseFloat(p[2]);          // 🔴 ER20 多一欄（探頭編號），頻率在第 3 欄
+    return isNaN(h2) ? { state: 'err', code: code } : { state: 'range', code: code, hz: h2 };
+  }
+  if (DST_MVS_OK.indexOf(code) >= 0) {
+    var h = parseFloat(p[1]);
+    return isNaN(h) ? { state: 'err', code: code } : { state: 'ok', code: code, hz: h };
+  }
+  return { state: 'err', code: code || '?' };
+}
 var dstPort = null, dstReader = null, dstWriter = null, dstRxBuf = '', dstRxWaiters = [];
 var dstCaLinked = false;
 
@@ -1319,11 +1422,14 @@ async function dstRun() {
   if (!dstIc || !dstIc.patternOk) { dstSay('dst-say-run', dstNoPatternText()); return; }
   if (!dstCaLinked) { dstSay('dst-say-run', dstT('dst.errNeedCa')); return; }
 
-  /* 🔴 開始前確認一次：這是會改變裝置狀態的操作。 */
+  /* ═══ 🔴 v1.3.0：**不再跳任何確認視窗** ═══════════════════════════════════
+     Bruce 2026-09-20：「開始掃描以後，Chrome 視窗跳出那個警告視窗也不用跳，根本
+     就不用管那麼多，直接開始掃描就好了。」「流程越簡單越好，按的次數越少越好。」
+     🔴 這是**推翻 v1.2.0 刻意加的那道確認**，依他當面裁示。下一個人不要再加回來：
+        判準是「他按的鈕字面就是那個動作 ⇒ 不要再問一次」，而這顆鈕就叫「開始掃描」。
+     🔴 **失敗處理那個視窗不在此列**（見 dstFailAsk）—— 那是「出事了要你決定」，
+        不是「動作前問一次」，性質不同，保留。 */
   var plan = dstPlan(dstBits, dstDgMode);
-  if (!window.confirm(dstT('dst.confirmRun', { ic: dstIcName(), n: plan.length,
-      ranges: dstWrRangesOf(dstIc, dstAltIdx).map(function (x) {
-        return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('、') }))) return;
 
   dstRunning = true; dstAbort = false; dstRows = [];
   dstRunOk = false; dstVoid('');          // v1.2.0：新的一輪先把上一輪的作廢狀態清掉
@@ -1335,19 +1441,34 @@ async function dstRun() {
     + ' settle=' + dstSettleUsedMs + 'ms', 'o');
 
   try {
-    // ① 進出圖模式
+    /* ═══ ① 🔴 v1.3.0：先**自動離開出圖模式** ═══════════════════════════════
+       Bruce 2026-09-20：「出圖那個地方應該不用再多一個『離開出圖模式』的按鈕，
+       而是在量測那個地方，我直接按『開始掃描』，它就會自動離開出圖模式。」
+       ⇒ 那顆鈕整顆移除，離開序列改由這裡觸發。**序列本身一行未改**
+         （dstLeavePattern → SetAgingMode(false) ＝ 寫回進入前的原值 ＋ SetCursorOFF）。
+       🔴 為什麼「離開再進去」不是多此一舉：
+          ① 對位畫面留下的十字壓在正中心，探頭正對著它 —— 掃描前一定要關掉，
+             而 SetCursorOFF 就在離開序列裡（七顆都會送到，包含 udCursorOff
+             為 false 的 E512A1）。
+          ② 掃描那一輪要有自己乾淨的進入點：dstInitPtg 在離開時歸 null，
+             下一行的 dstEnterPattern() 才會重新記一次「進來之前是什麼」。
+       🔴 沒進過出圖模式（dstInPattern false）就什麼都不送 —— 不對著沒動過的
+          暫存器寫東西。 */
+    if (dstInPattern) {
+      dstProg(0, plan.length, dstT('dst.pgLeave'));
+      await dstLeavePattern();
+      if (dstAbort) throw new Error('__abort__');
+    }
+
+    // ② 進出圖模式
     dstProg(0, plan.length, dstT('dst.pgEnter'));
     await dstEnterPattern();
     if (dstAbort) throw new Error('__abort__');
 
-    // ② 對位畫面（L127 ＋ 中心十字），讓使用者把探頭對好
-    dstProg(0, plan.length, dstT('dst.pgAlign'));
-    await dstAlignPattern();
-    if (dstAbort) throw new Error('__abort__');
-    if (!window.confirm(dstT('dst.confirmAligned'))) throw new Error('__abort__');
-
-    // 🔴 掃描前把十字關掉 —— 十字壓在畫面正中心，探頭正對著它。
-    await dstCrossOff();
+    /* 🔴 v1.3.0：這裡**不再打對位畫面、也不再問「對好了沒」**。
+       對位是「量測前」的事，已經移到上面那張「畫面測試」卡由使用者自己決定
+       （按一次出對位圖、擺好探頭、再按一次或直接按開始掃描）。留在這裡等於
+       他每一輪都要再確認一次同一件事，與「按的次數越少越好」直接衝突。 */
 
     // ③ 初始化儀器
     for (var i = 0; i < DST_INIT.length; i++) {
@@ -1363,14 +1484,29 @@ async function dstRun() {
       if (/^ER/.test(r0 || '')) throw new Error(dstT('dst.errCaErr', { cmd: DST_INIT[i][0], r: r0 }));
     }
 
-    // 更新率（順便問一次）
+    /* ═══ 垂直同步頻率（順便問一次）══════════════════════════════════════════
+       🔴 v1.3.0：**量不到就不秀**（Bruce 2026-09-20：「要麼就不秀這個值」）。
+          判讀全部交給 dstParseMvs（規格依據寫在它上面）。
+       🔴 先清成「未偵測到」—— 上一輪留下來的數字絕不能當成這一輪的結果。
+       🔴 ER20（量到了但超出設計值 ±2 Hz）**先記下來但繼續找** —— 清單後面可能
+          有一個剛好命中的設計值，那一次會回 OK00，可信度比 ER20 高。 */
+    dstShow('dst-v-hz', dstT('dst.hzNone'), false);
+    var hzBest = null;
     for (var k = 0; k < DST_HZ_GUESS.length; k++) {
       var mv = await dstCaCmd('MVS,' + DST_HZ_GUESS[k], 8000);
       if (dstAbort) throw new Error('__abort__');
-      if (mv && /^OK/.test(mv)) {
-        var hz = parseFloat(mv.split(',')[1]);
-        if (!isNaN(hz)) { dstShow('dst-v-hz', hz.toFixed(2) + ' Hz', true); break; }
-      }
+      var hzv = dstParseMvs(mv);
+      dstLog('-- MVS,' + DST_HZ_GUESS[k] + ' -> ' + (mv === null ? '(timeout)' : mv)
+        + '  => ' + hzv.state + (hzv.hz != null ? ' ' + hzv.hz : ''),
+        hzv.state === 'ok' ? 'o' : (hzv.state === 'range' ? 'w' : ''));
+      if (hzv.state === 'ok') { hzBest = hzv; break; }
+      if (hzv.state === 'range' && !hzBest) hzBest = hzv;
+    }
+    if (hzBest) {
+      dstShow('dst-v-hz', dstT(hzBest.state === 'ok' ? 'dst.hzOk' : 'dst.hzRange',
+        { hz: hzBest.hz.toFixed(2) }), true);
+    } else {
+      dstLog('-- vertical sync frequency: not detected (nothing in the guess list matched +/-2 Hz)', 'w');
     }
 
     // 零校正
@@ -1523,10 +1659,39 @@ function dstRenderCa() {
   b.setAttribute('aria-pressed', dstCaLinked ? 'true' : 'false');
   $('dst-ca-txt').textContent = dstT(dstCaLinked ? 'dst.stCaOn' : 'dst.stCaOff');
 }
+/* ═══ v1.3.0：畫面測試那張卡的字與**選取態** ══════════════════════════════
+   兩件事在同一支裡做，因為它們用的是同一份狀態（dstShowing ＋ dstBits）：
+     ① 四顆色鈕的字 ＝ 顏色 ＋ **當前位元深度的滿刻度**（白 255／白 1023／白 4095）
+        🔴 Bruce 2026-09-20 裁示：「如果是 drive 8-bit，最大值是 1020，但是你用
+           1023 其實也沒關係，就是代表最大值的意思」⇒ 鈕上的數字是「這個深度的
+           滿刻度」，**不保證等於送進 IC 的值**。實際送出的是
+           `dstTo12(dstUserMax(bits), bits)`：8-bit ⇒ 4080、10-bit ⇒ 4092、
+           12-bit ⇒ 4095。🔴 **不要為了讓兩者一致去改送出的值** —— 那會動到真正
+           打進面板的東西，而顯示只是給人看的。
+     ② 選取態：哪一顆正在畫面上就亮起來（綠框綠底 ＋ aria-pressed）。 */
+function dstPickLabel(i18nKey) { return dstT(i18nKey) + ' ' + dstUserMax(dstBits); }
+function dstRenderPick() {
+  [['dst-q-w', 'dst.btnQw', 'w'], ['dst-q-r', 'dst.btnQr', 'r'],
+   ['dst-q-g', 'dst.btnQg', 'g'], ['dst-q-b', 'dst.btnQb', 'b']].forEach(function (p) {
+    var e = $(p[0]); if (!e) return;
+    e.textContent = dstPickLabel(p[1]);
+    var on = (dstShowing === p[2]);
+    e.classList.toggle('on', on);
+    e.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var a = $('dst-align');
+  if (a) {
+    var onA = (dstShowing === 'align');
+    a.textContent = dstT(onA ? 'dst.btnAlignOn' : 'dst.btnAlign', { l: DST_ALIGN_L });
+    a.classList.toggle('on', onA);
+    a.setAttribute('aria-pressed', onA ? 'true' : 'false');
+  }
+}
 function dstRenderBtns() {
   var canWrite = dstLinked && !!dstIc && !!dstIc.patternOk && !dstRunning && !dstBusy;
-  ['dst-q-w', 'dst-q-r', 'dst-q-g', 'dst-q-b', 'dst-align', 'dst-cross-on', 'dst-cross-off', 'dst-leave']
+  ['dst-q-w', 'dst-q-r', 'dst-q-g', 'dst-q-b', 'dst-align']
     .forEach(function (id) { var e = $(id); if (e) e.disabled = !canWrite; });
+  dstRenderPick();
   ['dst-sl-r', 'dst-sl-g', 'dst-sl-b', 'dst-sl-w', 'dst-nr', 'dst-ng', 'dst-nb', 'dst-nw']
     .forEach(function (id) { var e = $(id); if (e) e.disabled = !canWrite; });
   var link = $('dst-link');
@@ -1542,7 +1707,6 @@ function dstRenderBtns() {
      作廢的一輪表格照樣留著（診斷用），但兩顆匯出鈕都是灰的。 */
   var canExp = dstRunOk && !!dstRows.length && !dstRunning;
   var cx = $('dst-xlsx'); if (cx) cx.disabled = !canExp;
-  var cv = $('dst-csv'); if (cv) cv.disabled = !canExp;
   var ca = $('dst-ca'); if (ca) ca.disabled = dstRunning;
   var sel = $('dst-alt'); if (sel) sel.disabled = dstRunning || dstBusy;
 }
@@ -1577,9 +1741,14 @@ function dstSetBits(nb) {
   dstBits = nb;
   ['r', 'g', 'b'].forEach(function (c) { dstRgb[c] = Math.min(dstUserMax(nb), Math.round(dstRgb[c] * k)); });
   dstSyncSliders(true);
+  /* ═══ 🔴 v1.3.0：這一行不再出現 12-bit 值 ════════════════════════════════
+     Bruce 2026-09-20：「其實這邊完全不用秀出送進 IC 的 12-bit 值，使用者不需要
+     注意到這麼多」⇒ 畫面上一律用**當前深度的刻度**講（255／1023／4095），
+     送進 IC 的 12-bit 值只留在紀錄裡（log 的 `W 0x0C39 <- …` 那幾行）。 */
   var note = $('dst-bits-note');
   if (note) note.textContent = dstT('dst.bitsNote', {
-    mul: dstScale(nb), end: dstScanEnd(nb), end12: dstTo12(dstScanEnd(nb), nb) });
+    max: dstUserMax(nb), end: dstScanEnd(nb) });
+  dstRenderPick();        // 四顆色鈕的數字跟著深度換
   dstRenderDgBits();
 }
 /* ═══ v1.2.0：10／12-bit 這一輪 DG 收不收得下 —— 先講，不要等他量完 ══════════
@@ -1614,8 +1783,8 @@ function dstSyncSliders(rebuildMax) {
   var same = (dstRgb.r === dstRgb.g && dstRgb.g === dstRgb.b);
   sw.value = String(same ? dstRgb.r : 0);
   nw.value = same ? String(dstRgb.r) : '';
-  dstShow('dst-v-send', dstTo12(dstRgb.r, dstBits) + ' / ' + dstTo12(dstRgb.g, dstBits)
-    + ' / ' + dstTo12(dstRgb.b, dstBits), true);
+  /* 🔴 v1.3.0：這裡原本還會把「送進 IC 的 12-bit 值」寫到 #dst-v-send —— 整列
+     已移除（見 dstSetBits 的說明）。拉霸旁邊的數字就是使用者刻度的值。 */
 }
 /* 🔴 拉動中就寫（與上游工具相同），但**加節流** —— 上游沒有任何節流，
    一次拖曳可能送出上百輪、每輪 6 筆交易。節流是我們自己的決定，不是照抄。 */
@@ -1775,8 +1944,9 @@ async function dstDisconnect() {
        **FileFormat 參數是 `Type.Missing`**（L1809）⇒ 格式由**副檔名**決定，
        所以「是 xlsx」這件事是 FilterIndex = 3 決定的，不是程式裡寫死的。
    ⇒ **答案：預設 XLSX。** CSV／TXT 是同一份版面的另一條路（使用者自己打副檔名
-     才走得到），本頁因此給兩顆鈕，兩顆走同一份資料組裝（`dstExportRows()`），
-     版面不可能分岔。
+     才走得到）。v1.2.0 一度兩顆鈕都給，**v1.3.0 起只剩 XLSX**（Bruce 2026-09-20：
+     「原廠的 UI 就是匯出 XLSX，所以可以把『匯出 CSV』給拿掉」），CSV 的產生器
+     一併刪除，不留死碼。下面的版面說明一字未改 —— XLSX 走的就是它。
    🔴 另一支會寫 CSV 的 `DMCSaveCSV` 是 **Data Mapping** 的輸出，與 Gamma 無關。
 
    ═══ 版面（`BasicMeasureEXLOut` L1751–1811 ／ `BasicMeasureTXTOut` L1813–1836）══
@@ -1902,16 +2072,12 @@ function dstXlsxBytes(stamp) {
   rows.push([dstTimeLine(stamp)]);
   return TCONXlsx.build([{ name: DST_EXP_SHEET, rows: rows }]);
 }
-/* 產出 CSV 的文字（原廠的 `BasicMeasureTXTOut(..., ",")`）。 */
-function dstCsvText(stamp) {
-  var d = dstExportRows(), SEP = ',';
-  /* 🔴 每一行尾端補一個分隔字元 —— 原廠的迴圈就是這樣寫的（每寫一欄補一個）。
-     再匯入時會多出一個空欄位，那是原廠檔本來就有的樣子，不「修正」。 */
-  var lines = [d.head.join(SEP) + SEP];
-  d.rows.forEach(function (r) { lines.push(r.join(SEP) + SEP); });
-  lines.push(dstTimeLine(stamp));       // 🔴 文字版**不空行**（與 Excel 版不對稱，照抄）
-  return lines.join('\r\n') + '\r\n';
-}
+/* 🔴 v1.3.0：`dstCsvText()` 與 `dstExportCsv()` **已整個刪除**（不是留著不用）。
+   Bruce 2026-09-20：「應該不用再留『匯出 CSV』了吧？因為原廠的 UI 就是匯出
+   XLSX。」留著的死碼遲早被下一個人接回去，而 v1.2.0 的查證結論本來就是
+   「原廠的存檔 filter 清單裡沒有 .csv」—— 那一條路是使用者自己打副檔名才走得到
+   的旁支，本頁不需要它。版面說明（24 欄、尾端 Time、W_T/W_duv 留空…）一字未改，
+   全部留在上面那段，XLSX 照它走。 */
 function dstExportName(ext, stamp) { return 'TCON_Gamma_' + stamp + '.' + ext; }
 
 function dstExportXlsx() {
@@ -1920,13 +2086,6 @@ function dstExportXlsx() {
   var stamp = dstStamp();
   dstDownload(dstXlsxBytes(stamp), dstExportName('xlsx', stamp),
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  return true;
-}
-function dstExportCsv() {
-  var why = dstExportBlocked();
-  if (why) { dstSay('dst-say-run', why); return false; }
-  var stamp = dstStamp();
-  dstDownload(dstCsvText(stamp), dstExportName('csv', stamp), 'text/csv;charset=utf-8');
   return true;
 }
 
@@ -2103,35 +2262,42 @@ function dstBind() {
   [['r', 'dst-sl-r', 'dst-nr'], ['g', 'dst-sl-g', 'dst-ng'], ['b', 'dst-sl-b', 'dst-nb']].forEach(function (p) {
     function set(v) {
       v = Math.max(0, Math.min(dstUserMax(dstBits), parseInt(v, 10) || 0));
-      dstRgb[p[0]] = v; dstSyncSliders(false); dstPaintSoon();
+      /* 🔴 拉霸一動，四顆色鈕與對位鈕的選取態就要收掉 —— 畫面上已經不是那一顆
+         鈕打出來的東西了，亮著就是在說謊（即使數值剛好相同）。 */
+      dstRgb[p[0]] = v; dstShowing = null; dstRenderPick();
+      dstSyncSliders(false); dstPaintSoon();
     }
     $(p[1]).addEventListener('input', function () { set(this.value); });
     $(p[2]).addEventListener('input', function () { set(this.value); });
   });
   function setW(v) {
     v = Math.max(0, Math.min(dstUserMax(dstBits), parseInt(v, 10) || 0));
-    dstRgb.r = dstRgb.g = dstRgb.b = v; dstSyncSliders(false); dstPaintSoon();
+    dstRgb.r = dstRgb.g = dstRgb.b = v; dstShowing = null; dstRenderPick();
+    dstSyncSliders(false); dstPaintSoon();
   }
   $('dst-sl-w').addEventListener('input', function () { setW(this.value); });
   $('dst-nw').addEventListener('input', function () { setW(this.value); });
 
-  function quick(r, g, b) {
+  /* 🔴 v1.3.0：四顆色鈕也帶選取態（dstShowing），而且**送出的值一字未改** ——
+     依舊是 `dstTo12(dstUserMax(bits), bits)`。鈕上印的 255／1023／4095 是「這個
+     深度的滿刻度」，與送出的 4080／4092／4095 刻意不綁在一起（見 dstRenderPick）。 */
+  function quick(which, r, g, b) {
     var m = dstUserMax(dstBits);
     dstRgb.r = r ? m : 0; dstRgb.g = g ? m : 0; dstRgb.b = b ? m : 0;
     dstSyncSliders(false);
+    dstShowing = which; dstRenderPick();
     dstGuard(function () {
       return dstSetRgb12(dstTo12(dstRgb.r, dstBits), dstTo12(dstRgb.g, dstBits), dstTo12(dstRgb.b, dstBits));
     });
   }
-  $('dst-q-w').addEventListener('click', function () { quick(1, 1, 1); });
-  $('dst-q-r').addEventListener('click', function () { quick(1, 0, 0); });
-  $('dst-q-g').addEventListener('click', function () { quick(0, 1, 0); });
-  $('dst-q-b').addEventListener('click', function () { quick(0, 0, 1); });
+  $('dst-q-w').addEventListener('click', function () { quick('w', 1, 1, 1); });
+  $('dst-q-r').addEventListener('click', function () { quick('r', 1, 0, 0); });
+  $('dst-q-g').addEventListener('click', function () { quick('g', 0, 1, 0); });
+  $('dst-q-b').addEventListener('click', function () { quick('b', 0, 0, 1); });
 
-  $('dst-align').addEventListener('click', function () { dstGuard(dstAlignPattern); });
-  $('dst-cross-on').addEventListener('click', function () { dstGuard(dstCrossOn); });
-  $('dst-cross-off').addEventListener('click', function () { dstGuard(dstCrossOff); });
-  $('dst-leave').addEventListener('click', function () { dstGuard(dstLeavePattern); });
+  /* 🔴 v1.3.0：一顆切換鈕取代「對位畫面」「十字 ON」「十字 OFF」「離開出圖模式」
+     四顆（Bruce 2026-09-20 裁示）。 */
+  $('dst-align').addEventListener('click', function () { dstGuard(dstAlignToggle); });
 
   $('dst-ca').addEventListener('click', function () {
     if (dstCaLinked) dstCaClose(); else dstCaOpen();
@@ -2145,7 +2311,6 @@ function dstBind() {
     if (dstFailResolve) dstFailResolve('abort');
   });
   $('dst-xlsx').addEventListener('click', dstExportXlsx);
-  $('dst-csv').addEventListener('click', dstExportCsv);
   /* v1.2.0：失敗視窗的兩顆鈕。🔴 **不做「點暗色區域＝取消」** —— 這個視窗的
      兩個選項都是實質動作（會重跑一階／會作廢整輪），誤觸關掉沒有一個安全的預設。 */
   $('dst-fail-retry').addEventListener('click', function () {
@@ -2254,6 +2419,17 @@ window.dstProbe = {
   crossOn: function () { return dstCrossOn(); },
   crossOff: function () { return dstCrossOff(); },
   alignPattern: function () { return dstAlignPattern(); },
+  /* v1.3.0：切換鈕那條路（產品路徑），與選取態的讀取器。 */
+  alignToggle: function () { return dstAlignToggle(); },
+  showing: function () { return dstShowing; },
+  pickLabels: function () {
+    return ['dst-q-w', 'dst-q-r', 'dst-q-g', 'dst-q-b', 'dst-align'].map(function (id) {
+      var e = $(id);
+      return { id: id, text: e ? e.textContent : null,
+               on: !!(e && e.classList.contains('on')),
+               pressed: e ? e.getAttribute('aria-pressed') : null };
+    });
+  },
   readReg: function (a, n) { return dstReadReg(a, n); },
   writeReg: function (a, b) { return dstWriteReg(a, b); },
   setRes: function (w, h) { dstRes = { w: w, h: h, from: 'reg' }; dstRenderRes(); },
@@ -2278,6 +2454,11 @@ window.dstProbe = {
   __setRunOkForTest: function (v) { dstRunOk = !!v; dstRenderBtns(); return dstRunOk; },
   runOk: function () { return dstRunOk; },
   parseMes: dstParseMes,
+  /* v1.3.0：MVS 的判讀（四種回覆都要驗得到 —— 尤其是「猜測值不得被當成量測值」）。 */
+  parseMvs: dstParseMvs,
+  hzGuesses: function () { return DST_HZ_GUESS.slice(); },
+  hzText: function () { var e = $('dst-v-hz'); return e ? e.textContent : null; },
+  hzIsNa: function () { var e = $('dst-v-hz'); return !!(e && e.classList.contains('dst-na')); },
   mesRetry: function () { return DST_MES_RETRY; },
   failOpen: function () { var m = $('dst-modal-fail'); return !!(m && m.classList.contains('open')); },
   failAnswer: function (ans) { if (dstFailResolve) { dstFailResolve(ans); return true; } return false; },
@@ -2285,12 +2466,10 @@ window.dstProbe = {
   exportHeader: dstExportHeader,
   exportRows: dstExportRows,
   xlsxBytes: dstXlsxBytes,
-  csvText: dstCsvText,
   exportName: dstExportName,
   stamp: dstStamp,
   /* 🔴 走匯出鈕自己那條路（不是夾具自己組資料）—— 夾具自己組的通過不算數。 */
   exportXlsx: dstExportXlsx,
-  exportCsv: dstExportCsv,
   run: function () { return dstRun(); },
   abort: function () { dstAbort = true; if (dstFailResolve) dstFailResolve('abort'); },
   rows: function () { return JSON.parse(JSON.stringify(dstRows)); },
