@@ -2553,6 +2553,29 @@ var I18N = {
   'i2c.logCkMbus':      { 'zh-TW': 'E503 ⇒ M-Bus 導通 C-Bus：0x7E:0xAB ← CD、0x3E:0x0059 ← 1E', 'en': 'E503 ⇒ opening C-Bus from M-Bus: 0x7E:0xAB ← CD, 0x3E:0x0059 ← 1E', 'zh-CN': 'E503 ⇒ M-Bus 导通 C-Bus：0x7E:0xAB ← CD、0x3E:0x0059 ← 1E' },
   'i2c.logCkMbusOk':    { 'zh-TW': '✔ M-Bus 導通 C-Bus 兩筆都寫入完成', 'en': '✔ Both M-Bus to C-Bus writes completed', 'zh-CN': '✔ M-Bus 导通 C-Bus 两笔都写入完成' },
   'i2c.bnCkMbusFail':   { 'zh-TW': 'E503 的 M-Bus 導通 C-Bus 第 {step} 筆寫入失敗（{err}）', 'en': 'Write {step} of the E503 M-Bus to C-Bus sequence failed ({err})', 'zh-CN': 'E503 的 M-Bus 导通 C-Bus 第 {step} 笔写入失败（{err}）' },
+
+  /* ═══ i2c v1.25.1：燒 EEPROM 前後的 WP 拉低／拉回 ═══════════════════════════
+     Bruce 2026-09-21：「如果要燒錄 Slave address 是 0x50 的 EEPROM Code 時，
+     在燒之前你要下達將 WP 拉 Low 的這個指令。」＋裁示「依照 Python UI 就好」。
+     🔴 正常路徑畫面上**一個字都不多**，這幾條只會出現在 log 或出錯時的橫幅。 */
+  'i2c.logWpLow':       { 'zh-TW': '燒 EEPROM 前先把 WP 拉低（slave 0x{slave}：0x0F 讀改寫 ＋ 0x08/0x09 四筆，結尾 0x00）',
+                          'en': 'Pulling WP low before programming the EEPROM (slave 0x{slave}: read-modify-write 0x0F, then four 0x08/0x09 writes ending in 0x00)',
+                          'zh-CN': '烧 EEPROM 前先把 WP 拉低（slave 0x{slave}：0x0F 读改写 ＋ 0x08/0x09 四笔，结尾 0x00）' },
+  'i2c.logWpHigh':      { 'zh-TW': '燒完把 WP 拉回去（slave 0x{slave}：0x08/0x09 四筆，結尾 0x80）',
+                          'en': 'Restoring WP after programming (slave 0x{slave}: four 0x08/0x09 writes ending in 0x80)',
+                          'zh-CN': '烧完把 WP 拉回去（slave 0x{slave}：0x08/0x09 四笔，结尾 0x80）' },
+  'i2c.logWpLowFail':   { 'zh-TW': 'WP 拉低的第 {step} 筆失敗（{err}）—— 照上游仍然往下寫，寫不進去的話回讀驗證會抓到',
+                          'en': 'Step {step} of pulling WP low failed ({err}). As upstream does, the write still goes ahead; if it does not take, the read-back check will catch it.',
+                          'zh-CN': 'WP 拉低的第 {step} 笔失败（{err}）—— 照上游仍然往下写，写不进去的话回读验证会抓到' },
+  'i2c.logWpHighFail':  { 'zh-TW': '🔴 WP 拉回去的第 {step} 筆失敗（{err}）—— 板子現在可能還停在沒有寫入保護的狀態',
+                          'en': '\u{1F534} Step {step} of restoring WP failed ({err}) — the board may still be left without write protection.',
+                          'zh-CN': '🔴 WP 拉回去的第 {step} 笔失败（{err}）—— 板子现在可能还停在没有写入保护的状态' },
+  'i2c.bnWpHighFail':   { 'zh-TW': '🔴 燒錄後沒能把 WP 拉回去（第 {step} 筆：{err}）。板子現在很可能還停在<b>沒有寫入保護</b>的狀態 —— 請重新連線後再寫一次任何一個 byte 到 0x50–0x57，或自行用 0x7C 的 0x08/0x09 把它拉回（結尾寫 0x80）。',
+                          'en': '\u{1F534} WP could not be restored after programming (step {step}: {err}). The board is most likely still left <b>without write protection</b> — reconnect and write any byte to 0x50\u20130x57 again, or restore it yourself through 0x08/0x09 on 0x7C (ending with 0x80).',
+                          'zh-CN': '🔴 烧录后没能把 WP 拉回去（第 {step} 笔：{err}）。板子现在很可能还停在<b>没有写入保护</b>的状态 —— 请重新连线后再写一次任何一个 byte 到 0x50–0x57，或自行用 0x7C 的 0x08/0x09 把它拉回（结尾写 0x80）。' },
+  'i2c.bnWpLowFail':    { 'zh-TW': '<br>⚠ 這一輪的 WP 拉低在第 {step} 筆就失敗了（{err}）。如果上面出現寫不進去或回讀不符，<b>先查這個</b>，不是治具或線路。',
+                          'en': '<br>\u26A0 Pulling WP low failed at step {step} this round ({err}). If the write did not take or the read-back does not match, <b>look here first</b> — not at the jig or the wiring.',
+                          'zh-CN': '<br>⚠ 这一轮的 WP 拉低在第 {step} 笔就失败了（{err}）。如果上面出现写不进去或回读不符，<b>先查这个</b>，不是治具或线路。' },
   'i2c.logCkMbusFail':  { 'zh-TW': '✕ M-Bus 導通 C-Bus 第 {step} 筆寫入失敗：{err}', 'en': '✕ Write {step} of the M-Bus to C-Bus sequence failed: {err}', 'zh-CN': '✕ M-Bus 导通 C-Bus 第 {step} 笔写入失败：{err}' },
 
   /* ── 快慢路徑比對 ─────────────────────────────────────────────────── */
@@ -2695,6 +2718,70 @@ var I18N = {
   'dst.dgNoLut':        { 'zh-TW': 'DG 開啟中 ⇒ 面板實際收到的是 DG LUT 查出來的值，而本頁目前讀不到那張表，所以匯出的 Drive_R/G/B 三欄留空。',
                           'en': 'DG is on, so what the panel actually receives comes out of the DG LUT — this page cannot read that table yet, so the exported Drive_R/G/B columns are left blank.',
                           'zh-CN': 'DG 开启中 ⇒ 面板实际收到的是 DG LUT 查出来的值，而本页目前读不到那张表，所以导出的 Drive_R/G/B 三栏留空。' },
+
+  /* ═══ dgself v1.6.0：DG LUT（RGB）檢視 ═══════════════════════════════════
+     Bruce 2026-09-21：「可以在自檢畫面這邊多一個確認 RGB LUT 的卡片…要把那個讀
+     回來的 DG LUT 秀在上面…用這種方式讓我也檢查，是不是它真的有讀到對的值，
+     還是你只是亂讀的？」
+     🔴 這一組字的共同要求：**不准把未定案講成定案**。吻合度、bus enable 候選、
+        entry 寬度是讀到的還是預設的，都要在畫面上分得出來。 */
+  'dst.hdLut':          { 'zh-TW': 'DG LUT（RGB）檢視', 'en': 'DG LUT (RGB) viewer', 'zh-CN': 'DG LUT（RGB）检视' },
+  'dst.lutNote':        { 'zh-TW': '從 IC 的 AHB 視窗（0x40010000）把 DG 的 RGB 對照表讀回來。這裡只讀 LUT、不寫 LUT，也不會改變送進面板的值。',
+                          'en': 'Reads the DG RGB lookup table back from the IC’s AHB window (0x40010000). It only reads the LUT — it never writes it, and it does not change what is sent to the panel.',
+                          'zh-CN': '从 IC 的 AHB 窗口（0x40010000）把 DG 的 RGB 对照表读回来。这里只读 LUT、不写 LUT，也不会改变送进面板的值。' },
+  'dst.btnLutRead':     { 'zh-TW': '讀取 DG LUT', 'en': 'Read DG LUT', 'zh-CN': '读取 DG LUT' },
+  'dst.lutBusAuto':     { 'zh-TW': 'bus enable：自動嘗試', 'en': 'bus enable: try in order', 'zh-CN': 'bus enable：自动尝试' },
+  'dst.lutBusBlind':    { 'zh-TW': '⚠ {addr} 這個候選在這顆的 register bank 裡查不到（EM02 的 sys 表最後一格是 0x0087）。自動模式會先試有出處的那一個，只有在它讀不出東西時才退到這個候選，並在紀錄裡標成盲寫。',
+                          'en': '⚠ The candidate at {addr} does not appear in this chip’s register bank (the EM02 sys sheet ends at 0x0087). Auto mode tries the sourced candidate first and only falls back to this one if that returns nothing; the log marks it as a blind write.',
+                          'zh-CN': '⚠ {addr} 这个候选在这颗的 register bank 里查不到（EM02 的 sys 表最后一格是 0x0087）。自动模式会先试有出处的那一个，只有在它读不出东西时才退到这个候选，并在纪录里标成盲写。' },
+  'dst.lutKvState':     { 'zh-TW': '狀態', 'en': 'Status', 'zh-CN': '状态' },
+  'dst.lutKvCfg':       { 'zh-TW': 'LUT 設定', 'en': 'LUT settings', 'zh-CN': 'LUT 设定' },
+  'dst.lutKvBus':       { 'zh-TW': '走的 bus enable', 'en': 'bus enable used', 'zh-CN': '走的 bus enable' },
+  'dst.lutKvFit':       { 'zh-TW': '與 identity 吻合度', 'en': 'Match against identity', 'zh-CN': '与 identity 吻合度' },
+  'dst.lutBusy':        { 'zh-TW': '讀取中…', 'en': 'reading…', 'zh-CN': '读取中…' },
+  'dst.lutFailed':      { 'zh-TW': '讀取失敗', 'en': 'the read failed', 'zh-CN': '读取失败' },
+  'dst.lutOk':          { 'zh-TW': '已讀回 {n} bytes', 'en': '{n} bytes read back', 'zh-CN': '已读回 {n} bytes' },
+  'dst.lutCfgDepth':    { 'zh-TW': 'LUT 深度 {n}-bit', 'en': 'LUT depth {n}-bit', 'zh-CN': 'LUT 深度 {n}-bit' },
+  'dst.lutCfgEntry':    { 'zh-TW': 'entry {n}-bit', 'en': 'entry {n}-bit', 'zh-CN': 'entry {n}-bit' },
+  'dst.lutEntryRead':   { 'zh-TW': '（讀自 IC）', 'en': ' (read from the IC)', 'zh-CN': '（读自 IC）' },
+  'dst.lutEntryDefault':{ 'zh-TW': '（🔴 這顆讀不到，用的是預設值）', 'en': ' (\u{1F534} not readable on this chip — this is the default)', 'zh-CN': '（🔴 这颗读不到，用的是默认值）' },
+  'dst.lutTargetUnknown': { 'zh-TW': '型態未知', 'en': 'LUT form unknown', 'zh-CN': '型态未知' },
+  'dst.lutFitParts':    { 'zh-TW': '值域內 {range}、單調 {mono}', 'en': 'in range {range}, monotonic {mono}', 'zh-CN': '值域内 {range}、单调 {mono}' },
+  /* 🔴 這一段是整張卡最重要的一句話：**不要因為吻合度低就說「讀不到」，也不要
+     因為吻合度高就說「已驗證」**。兩種可能都要講出來。 */
+  'dst.lutFitLow':      { 'zh-TW': '⚠ 這條曲線是真的從 IC 讀回來的 bytes 解出來的，但與 identity 對不上 ⇒ 有兩種可能：① 這個 packing 解錯了，② 這顆 IC 真的燒了一張非 identity 的表。請看下面「所有候選 packing 的分數」自行判斷。🔴 注意：DG_EN 關閉**不會**把 LUT 變成 identity（DG_EN=0 只是 bypass，表的內容一個 bit 都不會變），所以關掉 DG 再讀不會讓吻合度變高。',
+                          'en': '⚠ This curve really is decoded from bytes read out of the IC, but it does not match identity, which leaves two possibilities: (1) this packing is wrong, or (2) this IC genuinely holds a non-identity table. Use the per-packing scores below to judge. \u{1F534} Note: turning DG_EN off does NOT make the LUT identity — DG_EN=0 only bypasses the block and leaves the table untouched, so re-reading with DG off will not raise the match.',
+                          'zh-CN': '⚠ 这条曲线是真的从 IC 读回来的 bytes 解出来的，但与 identity 对不上 ⇒ 有两种可能：① 这个 packing 解错了，② 这颗 IC 真的烧了一张非 identity 的表。请看下面「所有候选 packing 的分数」自行判断。🔴 注意：DG_EN 关闭**不会**把 LUT 变成 identity（DG_EN=0 只是 bypass，表的内容一个 bit 都不会变），所以关掉 DG 再读不会让吻合度变高。' },
+  'dst.lutLbPick':      { 'zh-TW': '解碼方式', 'en': 'Packing', 'zh-CN': '解码方式' },
+  'dst.lutTblSum':      { 'zh-TW': '▸ 數值表（{n} 列 × R/G/B；與 identity 不同的列標紅）',
+                          'en': '▸ Value table ({n} rows × R/G/B; rows that differ from identity are in red)',
+                          'zh-CN': '▸ 数值表（{n} 列 × R/G/B；与 identity 不同的列标红）' },
+  'dst.lutCandSum':     { 'zh-TW': '▸ 所有候選 packing 的分數（{n} 種）', 'en': '▸ Scores for all {n} candidate packings', 'zh-CN': '▸ 所有候选 packing 的分数（{n} 种）' },
+  'dst.lutThIdx':       { 'zh-TW': 'index', 'en': 'index', 'zh-CN': 'index' },
+  'dst.lutThPack':      { 'zh-TW': 'packing', 'en': 'packing', 'zh-CN': 'packing' },
+  'dst.lutThFit':       { 'zh-TW': 'identity', 'en': 'identity', 'zh-CN': 'identity' },
+  'dst.lutThRange':     { 'zh-TW': '值域內', 'en': 'in range', 'zh-CN': '值域内' },
+  'dst.lutThMono':      { 'zh-TW': '單調', 'en': 'monotonic', 'zh-CN': '单调' },
+  'dst.lutThLast':      { 'zh-TW': '末筆 R/G/B', 'en': 'last R/G/B', 'zh-CN': '末笔 R/G/B' },
+  /* 失敗：**講在哪一步**，不要只說「失敗」。 */
+  'dst.lutErrLink':     { 'zh-TW': '還沒連上 I2C Bridge，沒有讀任何東西。', 'en': 'Not connected to the I2C Bridge — nothing was read.', 'zh-CN': '还没连上 I2C Bridge，没有读任何东西。' },
+  'dst.lutErrNoIc':     { 'zh-TW': '還沒認出是哪一顆 IC，沒有讀任何東西。', 'en': 'The IC has not been identified yet — nothing was read.', 'zh-CN': '还没认出是哪一颗 IC，没有读任何东西。' },
+  'dst.lutErrNoCfg':    { 'zh-TW': '這一顆（{detail}）查不到 DG LUT 的 bus enable 位址，本頁只對 EM01／EM02 這兩個家族有出處，其餘不猜。',
+                          'en': 'No DG LUT bus-enable address is known for this chip ({detail}). Only the EM01 and EM02 families have a source here; the rest are not guessed.',
+                          'zh-CN': '这一颗（{detail}）查不到 DG LUT 的 bus enable 地址，本页只对 EM01／EM02 这两个家族有出处，其余不猜。' },
+  'dst.lutErrRead':     { 'zh-TW': '每一個 bus enable 候選都沒有讀回有意義的資料（全 0x00 ＝ AHB 視窗沒開、全 0xFF ＝ 匯流排沒回應、bit-not-stuck ＝ 那一位寫不進去）。逐個候選的結果在中括號裡。',
+                          'en': 'No bus-enable candidate returned meaningful data (all 0x00 = the AHB window never opened, all 0xFF = the bus did not answer, bit-not-stuck = that bit would not take). The per-candidate outcome is in brackets.',
+                          'zh-CN': '每一个 bus enable 候选都没有读回有意义的数据（全 0x00 ＝ AHB 窗口没开、全 0xFF ＝ 总线没回应、bit-not-stuck ＝ 那一位写不进去）。逐个候选的结果在中括号里。' },
+  'dst.lutErrDecode':   { 'zh-TW': '讀回來的 bytes 不足以解出完整的一張表（長度不夠）。', 'en': 'The bytes that came back are not enough to decode a complete table (too short).', 'zh-CN': '读回来的 bytes 不足以解出完整的一张表（长度不够）。' },
+  'dst.lutErrStep':     { 'zh-TW': '讀取中斷：{detail}', 'en': 'The read stopped: {detail}', 'zh-CN': '读取中断：{detail}' },
+
+  /* ═══ dgself v1.6.0：「開始掃描」變灰的原因 ═══════════════════════════════
+     Bruce 2026-09-21 回報「對位畫面開著就不讓按開始掃描」。v1.5.0 實測那不是真的
+     原因（對位那一維對可按性沒有影響）—— 最可能是**灰掉了卻沒說為什麼**。
+     🔴 可按時這一行是空字串，畫面上一個字都不出現。 */
+  'dst.whyRunning':     { 'zh-TW': '正在掃描中，要停請按「■ 停止」。', 'en': 'A scan is running — press “■ Stop” to end it.', 'zh-CN': '正在扫描中，要停请按「■ 停止」。' },
+  'dst.whyNoI2c':       { 'zh-TW': '還不能開始：I2C 尚未連線（請按上面那顆連線鈕）。', 'en': 'Cannot start yet: I2C is not connected (use the connect button above).', 'zh-CN': '还不能开始：I2C 尚未连线（请按上面那颗连线钮）。' },
+  'dst.whyNoMeter':     { 'zh-TW': '還不能開始：光學量測儀尚未連線（請按上面那顆「儀器未連線」）。', 'en': 'Cannot start yet: the optical meter is not connected (use the meter button above).', 'zh-CN': '还不能开始：光学量测仪尚未连线（请按上面那颗「仪器未连线」）。' },
 
   /* ═══ dgself v1.4.0：解析度 ═══════════════════════════════════════════════
      🔴 讀不到就說讀不到。舊版在這裡印 1920×1080（預設值），而 1920×1080 正好是

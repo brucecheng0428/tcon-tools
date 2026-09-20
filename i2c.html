@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260921i2c1250"></script>
+<script src="common/version.js?v=20260921i2c1251"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1361,8 +1361,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260921i2c1250"></script>
-<script src="common/common.js?v=20260921i2c1250"></script>
+<script src="common/i18n.js?v=20260921i2c1251"></script>
+<script src="common/common.js?v=20260921i2c1251"></script>
 
 <script>
 'use strict';
@@ -4466,19 +4466,55 @@ async function i2ctWriteSegsRun(slave, wireAwid, list, srcLabel){
               segStats: segStats, i: 0, n: list.length };
   var results = [], writtenTotal = 0, planTotal = 0, devUsAll = 0, msAll = 0;
   var ok = true, aborted = false, errMsg = '', segDone = 0, failIdx = -1;
-  for (i = 0; i < list.length; i++) {
-    ctx.i = i + 1; ctx.doneBefore = writtenTotal;
-    var r = await i2ctWriteSegOne(slave, wireAwid, list[i].base, list[i].data, ctx);
-    results.push(r);
-    writtenTotal += r.done; planTotal += r.segs; devUsAll += r.devUs; msAll += r.ms;
-    if (!r.ok) { ok = false; aborted = r.aborted; errMsg = r.err; failIdx = i; break; }
-    segDone = i + 1;
-    /* 🔴 中止鍵在**段與段之間**也要有效。整批模式的中止是送給 bridge 的，
-       它只管得到自己那一段；多段時按下去之後還有別的段要跑，不看這個旗標
-       就會「按了中止，它還繼續寫下一段」。 */
-    if (i2ctAbort && i < list.length - 1) {
-      ok = false; aborted = true; errMsg = i2ctT('i2c.errAbortBetweenSegs');
-      break;
+  /* ═══ 🔴 v1.25.1：WP 框在**寫入迴圈**的外面，不是整次操作的外面 ══════════
+     上游的順序是 `wp_low` → 寫入 → `wp_high` → **回讀驗證**（L30948–30956）。
+     回讀驗證在這一支的下半段 ⇒ WP 只能框到迴圈為止，框到整支就變成
+     「驗證完才把 WP 拉回去」，與上游不同。 */
+  var wpOn = i2ctWpNeeded(slave, i2ctWpTconName());
+  var wpLowFail = null, wpHighFail = null;
+  if (wpOn) {
+    i2ctLog(i2ctT('i2c.logWpLow', { slave: i2ctHex(I2CT_WP_SLAVE) }), 'n');
+    var wl = await i2ctWpLow();
+    if (!wl.ok) {
+      /* 🔴 上游不檢查這個回傳值，所以**照樣往下寫**（不自作主張中止他的燒錄）；
+         但不准安靜：log 記一筆錯，最後的 banner 會帶上這一句。
+         WP 沒拉低的實際後果是寫不進去 ⇒ 下面的回讀驗證本來就會抓到。 */
+      wpLowFail = wl;
+      i2ctLog(i2ctT('i2c.logWpLowFail', { step: wl.step, err: wl.err }), 'e');
+    }
+  }
+  try {
+    for (i = 0; i < list.length; i++) {
+      ctx.i = i + 1; ctx.doneBefore = writtenTotal;
+      var r = await i2ctWriteSegOne(slave, wireAwid, list[i].base, list[i].data, ctx);
+      results.push(r);
+      writtenTotal += r.done; planTotal += r.segs; devUsAll += r.devUs; msAll += r.ms;
+      if (!r.ok) { ok = false; aborted = r.aborted; errMsg = r.err; failIdx = i; break; }
+      segDone = i + 1;
+      /* 🔴 中止鍵在**段與段之間**也要有效。整批模式的中止是送給 bridge 的，
+         它只管得到自己那一段；多段時按下去之後還有別的段要跑，不看這個旗標
+         就會「按了中止，它還繼續寫下一段」。 */
+      if (i2ctAbort && i < list.length - 1) {
+        ok = false; aborted = true; errMsg = i2ctT('i2c.errAbortBetweenSegs');
+        break;
+      }
+    }
+  } finally {
+    /* 🔴 **寫入失敗、中止、甚至丟例外都要把 WP 拉回去。**
+       拉低了沒拉回 ＝ 板子留在沒有寫入保護的狀態，而且完全沒有徵兆。 */
+    if (wpOn) {
+      i2ctLog(i2ctT('i2c.logWpHigh', { slave: i2ctHex(I2CT_WP_SLAVE) }), 'n');
+      try {
+        var wh = await i2ctWpHigh();
+        if (!wh.ok) { wpHighFail = wh; i2ctLog(i2ctT('i2c.logWpHighFail', { step: wh.step, err: wh.err }), 'e'); }
+      } catch (e) {
+        wpHighFail = { step: '?', err: (e && e.message) ? e.message : String(e) };
+        i2ctLog(i2ctT('i2c.logWpHighFail', { step: '?', err: wpHighFail.err }), 'e');
+      }
+      /* 🔴 補不回去 ⇒ 板子留在異常狀態 ⇒ **畫面上一定要警告一次**（Bruce 明說）。
+         用最上面那條 banner，因為它不會被下面的「驗證結果」覆蓋掉。 */
+      if (wpHighFail) i2ctBanner('topbanner', 'err', i2ctT('i2c.bnWpHighFail',
+        { step: wpHighFail.step, err: wpHighFail.err }));
     }
   }
   /* 寫入真正結束的這一刻 ⇒ 進度條收起來（驗證階段的 read 有它自己的進度）。 */
@@ -4588,9 +4624,12 @@ async function i2ctWriteSegsRun(slave, wireAwid, list, srcLabel){
     /* 🔴 驗證結果放在**最前面**，而且**成功也要講**（Bruce 2026-09-19：他不知道
        有沒有做驗證）。這與「成功就安靜」的通則刻意相反 ——
        燒錄正確與否是不可逆操作裡他最需要確認的事，安靜等於沒做。 */
-    i2ctBanner('readbanner', verdict ? verdict.cls : 'warn',
-      verdict ? (verdict.html + i2ctT('i2c.headParen', { head: head }))
-              : (head + i2ctT('i2c.headNoVerify')));
+    /* 🔴 v1.25.1：WP 沒拉低的話，這一輪的「寫不進去」很可能就是它造成的 ——
+       接在驗證結果後面講一句，不然他會去查治具與線路。正常路徑這裡是空字串。 */
+    var wpTail = wpLowFail ? i2ctT('i2c.bnWpLowFail', { step: wpLowFail.step, err: wpLowFail.err }) : '';
+    i2ctBanner('readbanner', verdict ? (wpLowFail ? 'err' : verdict.cls) : 'warn',
+      (verdict ? (verdict.html + i2ctT('i2c.headParen', { head: head }))
+               : (head + i2ctT('i2c.headNoVerify'))) + wpTail);
     if (verdict) i2ctFlash(verdict.cls === 'ok' ? i2ctT('i2c.flashVerifyOk') : i2ctT('i2c.flashVerifyBad'));
   } else {
     /* ═══ 🔴 寫入失敗／中止的邊界（v1.16.0，v1.23.0 擴充到多區段）═══════════
@@ -5030,12 +5069,98 @@ async function i2ctCkRomSeq(){
       L396–397 明文 "deliberately does NOT apply to `rawwrite`"，L2522 的 rawwrite
       分支只檢查 awid（L2528）與資料長度（L2529），不看 slave。
       ⇒ 0x7E／0x3E 直接走既有的 i2ctDoWrite（type:'rawwrite'），沒有繞路。
-   🔴 寫入失敗**不靜默**：兩筆各自回報，畫面掛紅色橫幅、log 留全文。 */
+   🔴 寫入失敗**不靜默**：兩筆各自回報，畫面掛紅色橫幅、log 留全文。
+
+   ═══ 🔴 為什麼這裡**刻意**不照抄上游那三個前置條件（2026-09-21 Bruce 裁示）═══
+   上游 `i2c_open_mbus_to_cbus()` 的呼叫端還綁著「載入 ROM code 檔之後要寫入」那個
+   情境的條件（選了型號／載了檔／按了燒錄）。**本頁的「Check T-CON」不是那個情境**
+   ——它是一個工具性的識別動作，使用者按下去就是要它把 M-Bus 切到 C-Bus。
+   Bruce 2026-09-21 原話：「Check TCON 這功能不用硬要這三個條件同時成立才下，
+   是都可以下。」⇒ **判到 E503 就下這兩筆，不再加條件。**
+   寫在這裡是為了讓下一個拿上游原始碼逐行比對的人知道：**這是裁示過的差異，
+   不是抄漏。** 不要「順手補回」那三個條件。 */
 async function i2ctCkMbusToCbus(){
   var w1 = await i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]);                      /* L31839 */
   if (!w1.ok) return { ok: false, step: 1, err: w1.err };
   var w2 = await i2ctDoWrite(0x3E, 2, 0x0059, [0x1E]);                    /* L31843 */
   if (!w2.ok) return { ok: false, step: 2, err: w2.err };
+  return { ok: true };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   🔴🔴 v1.25.1：燒 EEPROM 之前把 WP 拉低、燒完拉回去
+
+   Bruce 2026-09-21：「如果要燒錄 Slave address 是 0x50 的 EEPROM Code 時，
+   在燒之前你要下達將 WP 拉 Low 的這個指令。」
+   ＋ 裁示：「**依照 Python UI 就好**」⇒ 條件照上游，不收窄成「只有 E503」。
+
+   ═══ 上游原文（`RomCodeProcessUI.py` V5.0.4）════════════════════════════════
+   呼叫時機 L30948–30956：
+     ```
+     if slave_addr in {0x50..0x57} and self.tcon_a_name not in {'DAZ7353'}:
+         self.i2c_wp_low()
+     self.i2c_write_data(slave_addr, offset_bytes, offset_addr, data, 32)
+     if slave_addr in {0x50..0x57} and self.tcon_a_name not in {'DAZ7353'}:
+         self.i2c_wp_high()
+     # 接著才讀回驗證
+     ```
+   `i2c_wp_low()` L31772 —— 🔴 **比 high 多一個 0x0F 的 read-modify-write，不可省**：
+     ① read  0x7C / awid 1 / off 0x0F / 1 byte            -> v
+     ② write 0x7C / awid 1 / off 0x0F / [v | 0x80]
+     ③ write 0x7C / awid 1 / off 0x08 / [0xEE]
+     ④ write 0x7C / awid 1 / off 0x09 / [0x17]
+     ⑤ write 0x7C / awid 1 / off 0x08 / [0xEF]
+     ⑥ write 0x7C / awid 1 / off 0x09 / [0x00]
+   `i2c_wp_high()` L31805 —— **沒有** 0x0F 那兩步：
+     ① 0x08 <- 0xEE  ② 0x09 <- 0x17  ③ 0x08 <- 0xEF  ④ 0x09 <- 0x80
+
+   ═══ 三個實作上的決定，各自講出理由 ═════════════════════════════════════════
+   🔴 ① **沒有「拉低 WP」的按鈕、不跳確認**（Bruce 明說）。使用者按的還是原本那顆
+        寫入鈕，WP 由程式框住；正常路徑畫面上一個字都不多，每一筆進 log。
+   🔴 ② **`wp_high` 一定要補回去，連寫入失敗／中止也要**（try/finally）。
+        拉低了沒拉回 ＝ 板子留在**沒有寫入保護**的狀態，而那是安靜的 ——
+        使用者不會知道。所以補不回去時**畫面上要警告一次**。
+   🔴 ③ 條件照上游、不收窄：`slave ∈ 0x50–0x57` 且 `型號 ≠ DAZ7353`。
+        上游判的是 `tcon_a_name`（使用者在下拉選的型號），**只有明確等於
+        DAZ7353 才跳過**；尚未識別／未知一律走 WP 這一套（Bruce 2026-09-21 裁示）。
+        本頁對應的就是「Check T-CON」認出來或使用者自己選定的那個名字。
+   ═══════════════════════════════════════════════════════════════════════════ */
+var I2CT_WP_SLAVE   = 0x7C;          /* WP 控制走這一顆，與 EEPROM 的 slave 無關 */
+var I2CT_WP_LO      = 0x50;          /* 上游的 {0x50..0x57} */
+var I2CT_WP_HI      = 0x57;
+var I2CT_WP_SKIP    = ['DAZ7353'];   /* 上游唯一的例外型號 */
+
+/* 純函式：這一次寫入要不要框 WP。**條件與上游逐字相同。** */
+function i2ctWpNeeded(slave, tconName){
+  if (!(slave >= I2CT_WP_LO && slave <= I2CT_WP_HI)) return false;
+  return I2CT_WP_SKIP.indexOf(String(tconName == null ? '' : tconName)) < 0;
+}
+/* 目前認定的型號（＝上游的 `tcon_a_name`）。還沒識別 ⇒ null ⇒ 不等於 DAZ7353
+   ⇒ 照上游語意仍要走 WP。 */
+function i2ctWpTconName(){ return (i2ctCkResult && i2ctCkResult.name) ? i2ctCkResult.name : null; }
+
+async function i2ctWpLow(){
+  /* ① 讀 0x0F */
+  var rv = await i2ctDoRead(I2CT_WP_SLAVE, 1, 0x0F, 1, true);             /* L31772 */
+  if (!rv.ok || !rv.bytes.length) return { ok: false, step: 1, err: rv.err || 'read 0x0F failed' };
+  /* ② 0x0F <- v | 0x80 —— 🔴 read-modify-write，只 set bit7，其餘位保留 */
+  var w = await i2ctDoWrite(I2CT_WP_SLAVE, 1, 0x0F, [(rv.bytes[0] | 0x80) & 0xFF]);
+  if (!w.ok) return { ok: false, step: 2, err: w.err };
+  /* ③~⑥ index/data 形式的間接存取，逐筆照抄，順序不可換 */
+  var seq = [[0x08, 0xEE], [0x09, 0x17], [0x08, 0xEF], [0x09, 0x00]];
+  for (var i = 0; i < seq.length; i++) {
+    var r = await i2ctDoWrite(I2CT_WP_SLAVE, 1, seq[i][0], [seq[i][1]]);
+    if (!r.ok) return { ok: false, step: 3 + i, err: r.err };
+  }
+  return { ok: true };
+}
+async function i2ctWpHigh(){
+  /* 🔴 **沒有** 0x0F 那兩步 —— 上游 L31805 就是這樣，不要「補成對稱」。 */
+  var seq = [[0x08, 0xEE], [0x09, 0x17], [0x08, 0xEF], [0x09, 0x80]];
+  for (var i = 0; i < seq.length; i++) {
+    var r = await i2ctDoWrite(I2CT_WP_SLAVE, 1, seq[i][0], [seq[i][1]]);
+    if (!r.ok) return { ok: false, step: i + 1, err: r.err };
+  }
   return { ok: true };
 }
 
@@ -7254,6 +7379,16 @@ window.__i2ct = {
   checkTcon: function () { return i2ctCheckTcon(); },
   ckResult:  function () { return i2ctCkResult ? JSON.parse(JSON.stringify(i2ctCkResult)) : null; },
   ckPick:    function (v) { var s = $('tcon-pick'); if (s) s.value = v; return i2ctCkPick(); },
+  /* v1.25.1：燒 EEPROM 前後的 WP。`wpNeeded` 是純函式（條件與上游逐字相同），
+     `ckSetNameForTest` 只是讓夾具能模擬「已經識別出某個型號」這個狀態 ——
+     真正的 wp_low／wp_high 一律走產品路徑（i2ctWriteSegsRun 裡的那一段）。 */
+  wpNeeded: i2ctWpNeeded,
+  wpTconName: i2ctWpTconName,
+  wpConst: function () { return { slave: I2CT_WP_SLAVE, lo: I2CT_WP_LO, hi: I2CT_WP_HI, skip: I2CT_WP_SKIP.slice() }; },
+  ckSetNameForTest: function (n) {
+    i2ctCkResult = n == null ? null : { name: n, ext: '', alts: null, isE503: false, src: 'test' };
+    return i2ctWpTconName();
+  },
   doRead:  function () { return i2ctOnRead(); },
   doWrite: function () { return i2ctOnWrite(); },
   setInputs: function (o) {
