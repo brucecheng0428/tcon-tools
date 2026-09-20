@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260921dst140"></script>
+<script src="common/version.js?v=20260921dst150"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -217,7 +217,7 @@
              右邊那個核取方塊可以**強制開／關**（＝原廠 PQ Tool CCT 頁的
              `CCTDGEnableCkbx`，PQ/CCTForm.cs:2324–2331＋394–404）。 -->
         <div class="dst-kv">
-          <span data-i18n="dst.kvDg">DG</span>
+          <span data-i18n="dst.kvDg">DG_EN</span>
           <span>
             <span id="dst-v-dg" class="dst-na">—</span>
             <label class="dst-ck"><input type="checkbox" id="dst-dg-ck" disabled><span data-i18n="dst.dgForce">強制</span></label>
@@ -381,9 +381,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260921dst140"></script>
+<script src="common/i18n.js?v=20260921dst150"></script>
 <script src="common/xlsx.js?v=20260921dst140"></script>
-<script src="common/common.js?v=20260921dst140"></script>
+<script src="common/common.js?v=20260921dst150"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -710,6 +710,28 @@ var dstRgb = { r: 0, g: 0, b: 0 };   // 使用者刻度（不是 12-bit 值）
       白鈕」，反推會讓高亮說謊。拉霸一動就回 null。 */
 var dstShowing = null;
 var dstRows = [], dstRunning = false, dstAbort = false;
+/* ═══ 🔴 v1.5.0：量測表格自動停在最下方（sticky-to-bottom）══════════════════
+   Bruce 2026-09-21：「這個表格應該要自動停留在最下方，也就是最新量測的灰階都要
+   可以直接看到，不需要滾動捲軸才看得到。希望它能跟下面的記錄一樣，都自動拉到底。
+   停止量測、或是人為地往上滾動，這時才停止自動拉到最底。但是如果人為地再把卷軸
+   拉到最底，這時候又要恢復自動拉到最底的這個功能。」
+
+   🔴 **「跟下面的記錄一樣」這件事沒有東西可抄** —— 這是查過之後的事實，不是偷懶：
+      `dstLog()` L732 是無條件的 `e.scrollTop = e.scrollHeight`，**沒有**「使用者
+      往上滾就停」的判斷，也沒有容差。全 repo 的 log 區（dg-measure.html:1205／1239、
+      ca410-*.html、i2c 的 out 面板）寫法一模一樣，一樣沒有。
+      ⇒ 他要的三個狀態轉換必須在這裡新寫，log 那一份只提供「要自動拉到底」這個意圖。
+
+   🔴 容差 `0.5` **不是我拍的**：它是這個 repo 裡唯一一處既有的捲動幾何比較所用的
+      值 —— `dg-measure.html:5520`／`:5526` 判斷「有沒有垂直捲軸」時用的
+      `scrollHeight > clientHeight + 0.5`。次像素（DPI／瀏覽器縮放）造成的差就是
+      這個數量級。滾到底時瀏覽器本來就會把 `scrollTop` 夾在最大值，所以 0.5 夠用；
+      若實機上發現難以「滾回底部恢復」，要調的是這一個常數，而且要留下實測依據。 */
+var DST_STICK_EPS = 0.5;
+var dstRowStick = true;          /* true ＝ 跟著最新一列走；使用者往上滾會變 false */
+function dstRowsAtBottom(el) {
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= DST_STICK_EPS;
+}
 /* 🔴 v1.2.0：這一輪是不是**完整跑完**的。只有掃完計畫上的每一階、而且每一階都
    拿到有效數據，才會是 true。中止、例外、使用者在失敗視窗按「中止整輪」⇒ false。
    它是匯出與回傳 DG 的唯一閘門 —— 半套資料不得離開這一頁。 */
@@ -1795,6 +1817,8 @@ async function dstRun() {
   var cnt = dstPlanCounts(plan), nGray = cnt.gray, nPrim = cnt.prim;
 
   dstRunning = true; dstAbort = false; dstRows = [];
+  /* v1.5.0：新的一輪一律從「跟著最新一列」開始（上一輪他可能滾到中間去看某一階）。 */
+  dstRowStick = true;
   dstRunOk = false; dstVoid('');          // v1.2.0：新的一輪先把上一輪的作廢狀態清掉
   dstDgRunT0 = Date.now();                // v1.1.0：回傳給 DG 的 durMs 取自同一個來源
   dstSettleUsedMs = dstSettleMs();      // 進迴圈前抓一次，迴圈中不再讀 UI
@@ -2194,6 +2218,12 @@ function dstRenderRows() {
     });
     tb.appendChild(tr);
   });
+  /* 🔴 v1.5.0：**量測中**才自動捲（停止量測 ⇒ 停止自動捲，他的第 4 點），
+     而且只在使用者沒有自己往上滾的時候（`dstRowStick`，他的第 2 點）。
+     這一行寫進去會再觸發一次 scroll 事件，handler 重算後仍是「在底部」⇒
+     `dstRowStick` 維持 true，不會自己把自己關掉。 */
+  var wrap = $('dst-res-wrap');
+  if (wrap && dstRunning && dstRowStick) wrap.scrollTop = wrap.scrollHeight;
   dstRenderBtns();
 }
 
@@ -2824,6 +2854,13 @@ function dstBind() {
     if (dstCaLinked) dstCaClose(); else dstCaOpen();
   });
   $('dst-run').addEventListener('click', dstRun);
+  /* 🔴 v1.5.0：量測表格的 sticky-to-bottom。**狀態只從這裡來** ——
+     「他現在在不在底部」是捲軸自己的事實，不從別的旗標推。
+     往上滾 ⇒ 不在底部 ⇒ 停止自動捲；他自己再滾回底部 ⇒ 恢復。 */
+  (function () {
+    var wrap = $('dst-res-wrap'); if (!wrap) return;
+    wrap.addEventListener('scroll', function () { dstRowStick = dstRowsAtBottom(wrap); });
+  })();
   $('dst-stop').addEventListener('click', function () {
     dstAbort = true;
     dstLog('== stop requested', 'w');
@@ -2923,6 +2960,11 @@ window.dstProbe = {
   icText: function () { var e = $('dst-v-ic'); return e ? e.textContent : null; },
   progText: function () { var e = $('dst-progtxt'); return e ? e.textContent : null; },
   sayRun: function () { var e = $('dst-say-run'); return e ? e.textContent : null; },
+  /* v1.5.0：量測表格 sticky-to-bottom 的可觀測狀態（夾具用）。 */
+  rowStick: function () { return dstRowStick; },
+  stickEps: function () { return DST_STICK_EPS; },
+  renderRows: function () { return dstRenderRows(); },
+  __setRunning: function (v) { dstRunning = !!v; },
   matchIc: dstMatchIc,
   isBusIdle: dstIsBusIdle,
   isAck: dstIsAck,
