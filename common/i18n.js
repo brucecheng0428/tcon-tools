@@ -2585,4 +2585,159 @@ var I18N = {
   'i2c.log3Phase':      { 'zh-TW': '三相時脈 ⇒ {s}', 'en': '3-phase clocking ⇒ {s}', 'zh-CN': '三相时钟 ⇒ {s}' },
   'i2c.logFastRead':    { 'zh-TW': 'fast read ⇒ {s}', 'en': 'fast read ⇒ {s}', 'zh-CN': 'fast read ⇒ {s}' },
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     dst.* — TCON 自檢畫面量測（dg-selftest.html）
+     🔴 這一頁從第一版就三語齊備，不是事後補的。
+        交易層的 log 行（`R 0xFF00 x3 -> 01 EF A1` 那種）刻意**不翻譯** ——
+        它是給維護者與現場對照用的，翻了兩邊反而對不起來。
+        使用者要看的判斷、狀態、錯誤一律走這裡。
+     ═══════════════════════════════════════════════════════════════════════ */
+  /* ── 頁首 ─────────────────────────────────────────────────────────── */
+  'dst.title':          { 'zh-TW': 'TCON 自檢畫面量測', 'en': 'TCON Self-Test Pattern Measurement', 'zh-CN': 'TCON 自检画面量测' },
+  'dst.subtitle':       { 'zh-TW': '由 TCON 自己出圖，逐階取 x / y / Y', 'en': 'The TCON paints the pattern itself; x / y / Y are read step by step', 'zh-CN': '由 TCON 自己出图，逐阶取 x / y / Y' },
+  'dst.unverified':     {
+    'zh-TW': '⚠ 這一頁會寫入 TCON 的暫存器。全部七顆 IC 的寫入序列都是逐行照抄上游工具 V1.5.0 的反組譯，但沒有任何一顆在真機上跑過。第一次用請先確認手上的板子是可以重刷的。',
+    'en': '⚠ This page writes to the TCON registers. Every write sequence for all seven ICs is copied line by line from the upstream tool V1.5.0 decompile, but not one of them has ever been run on real hardware. Before the first use, make sure the board in your hand can be re-flashed.',
+    'zh-CN': '⚠ 这一页会写入 TCON 的暂存器。全部七颗 IC 的写入序列都是逐行照抄上游工具 V1.5.0 的反编译，但没有任何一颗在真机上跑过。第一次用请先确认手上的板子是可以重刷的。' },
+
+  /* ── 卡片標題 ─────────────────────────────────────────────────────── */
+  'dst.hdLink':         { 'zh-TW': 'I2C 連線與 IC 識別', 'en': 'I2C link and IC identification', 'zh-CN': 'I2C 连线与 IC 识别' },
+  'dst.hdPattern':      { 'zh-TW': '出圖', 'en': 'Pattern', 'zh-CN': '出图' },
+  'dst.hdMeasure':      { 'zh-TW': '量測', 'en': 'Measurement', 'zh-CN': '量测' },
+  'dst.hdLog':          { 'zh-TW': '紀錄', 'en': 'Log', 'zh-CN': '纪录' },
+
+  /* ── 狀態 ─────────────────────────────────────────────────────────── */
+  'dst.stOff':          { 'zh-TW': '未連線', 'en': 'Not linked', 'zh-CN': '未连线' },
+  'dst.stOn':           { 'zh-TW': '已連線', 'en': 'Linked', 'zh-CN': '已连线' },
+  'dst.stBusy':         { 'zh-TW': '處理中…', 'en': 'Working…', 'zh-CN': '处理中…' },
+  'dst.stCaOff':        { 'zh-TW': '儀器未連線', 'en': 'Meter not linked', 'zh-CN': '仪器未连线' },
+  'dst.stCaOn':         { 'zh-TW': '儀器已連線', 'en': 'Meter linked', 'zh-CN': '仪器已连线' },
+
+  /* ── 按鈕 ─────────────────────────────────────────────────────────── */
+  'dst.btnProbe':       { 'zh-TW': '重新識別', 'en': 'Identify again', 'zh-CN': '重新识别' },
+  'dst.btnQw':          { 'zh-TW': '白', 'en': 'White', 'zh-CN': '白' },
+  'dst.btnQr':          { 'zh-TW': '紅', 'en': 'Red', 'zh-CN': '红' },
+  'dst.btnQg':          { 'zh-TW': '綠', 'en': 'Green', 'zh-CN': '绿' },
+  'dst.btnQb':          { 'zh-TW': '藍', 'en': 'Blue', 'zh-CN': '蓝' },
+  'dst.btnAlign':       { 'zh-TW': '對位畫面（L127 ＋ 中心十字）', 'en': 'Alignment pattern (L127 + centre cross)', 'zh-CN': '对位画面（L127 ＋ 中心十字）' },
+  'dst.btnCrossOn':     { 'zh-TW': '十字 ON', 'en': 'Cross ON', 'zh-CN': '十字 ON' },
+  'dst.btnCrossOff':    { 'zh-TW': '十字 OFF', 'en': 'Cross OFF', 'zh-CN': '十字 OFF' },
+  'dst.btnLeave':       { 'zh-TW': '離開出圖模式', 'en': 'Leave pattern mode', 'zh-CN': '离开出图模式' },
+  'dst.btnRun':         { 'zh-TW': '開始掃描', 'en': 'Start scan', 'zh-CN': '开始扫描' },
+  'dst.btnStop':        { 'zh-TW': '■ 停止', 'en': '■ Stop', 'zh-CN': '■ 停止' },
+  'dst.btnCsv':         { 'zh-TW': '匯出 CSV', 'en': 'Export CSV', 'zh-CN': '汇出 CSV' },
+  'dst.btnCopyLog':     { 'zh-TW': '複製紀錄', 'en': 'Copy log', 'zh-CN': '复制纪录' },
+  'dst.btnClearLog':    { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
+
+  /* ── 觀測列 ───────────────────────────────────────────────────────── */
+  'dst.kvBridge':       { 'zh-TW': 'I2C Bridge', 'en': 'I2C Bridge', 'zh-CN': 'I2C Bridge' },
+  'dst.kvComm':         { 'zh-TW': '通訊自檢', 'en': 'Link check', 'zh-CN': '通讯自检' },
+  'dst.kvId':           { 'zh-TW': '0xFF00（IC ID）', 'en': '0xFF00 (IC ID)', 'zh-CN': '0xFF00（IC ID）' },
+  'dst.kvIc':           { 'zh-TW': 'IC', 'en': 'IC', 'zh-CN': 'IC' },
+  'dst.kvRes':          { 'zh-TW': '解析度', 'en': 'Resolution', 'zh-CN': '分辨率' },
+  'dst.kvWr':           { 'zh-TW': '可寫入位址', 'en': 'Writable addresses', 'zh-CN': '可写入地址' },
+  'dst.kvSend':         { 'zh-TW': '送進 IC 的 12-bit 值', 'en': '12-bit values sent to the IC', 'zh-CN': '送进 IC 的 12-bit 值' },
+  'dst.kvHz':           { 'zh-TW': '畫面更新率', 'en': 'Refresh rate', 'zh-CN': '画面更新率' },
+
+  /* ── 設定與說明 ───────────────────────────────────────────────────── */
+  'dst.lbBits':         { 'zh-TW': '灰階位元深度', 'en': 'Grey-level bit depth', 'zh-CN': '灰阶位深度' },
+  'dst.lbSettle':       { 'zh-TW': '換階等待', 'en': 'Settle time between steps', 'zh-CN': '换阶等待' },
+  'dst.settleNote':     { 'zh-TW': '出圖之後、叫儀器量之前等這麼久。上游工具的預設值就是 700 ms。', 'en': 'How long to wait after painting a step and before asking the meter to measure. 700 ms is the upstream tool default.', 'zh-CN': '出图之后、叫仪器量之前等这么久。上游工具的默认值就是 700 ms。' },
+  /* 🔴 `end` 是使用者刻度的最後一階（255／1020／4080），`end12` 是它送進 IC 的
+     12-bit 值 —— 三種深度換算完**都是 4080**。兩個數字都要講，只講一個會被誤讀。 */
+  'dst.bitsNote':       { 'zh-TW': '送進 IC ＝ 你填的值 × {mul}；掃描 0…{end}，最亮那一階送出去是 {end12}', 'en': 'Sent to the IC = your value × {mul}; the scan runs 0…{end} and the brightest step goes out as {end12}', 'zh-CN': '送进 IC ＝ 你填的值 × {mul}；扫描 0…{end}，最亮那一阶送出去是 {end12}' },
+  'dst.crossNote':      { 'zh-TW': '十字是紅色的一條細線，位置固定在畫面正中心；線寬不可調（暫存器裡沒有這個欄位）。', 'en': 'The cross is a thin red line fixed at the centre of the screen. Its width cannot be set — there is no such register field.', 'zh-CN': '十字是红色的一条细线，位置固定在画面正中心；线宽不可调（暂存器里没有这个字段）。' },
+  'dst.altWhy':         { 'zh-TW': '這兩顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請自己選 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。', 'en': 'These two chips return exactly the same ID; the upstream tool cannot tell them apart either. Only you know which one is on the board, so please pick it. Picking the wrong one only affects the cross and the write order; it cannot damage the IC.', 'zh-CN': '这两颗的 ID 完全相同，上游工具自己也分不出来。板子上是哪一颗只有你知道，请自己选 —— 选错只影响十字线与写入顺序，不会写坏 IC。' },
+  'dst.fixedLine':      { 'zh-TW': 'slave 掃描順序（7-bit）{slaves} · 時脈 {khz} kHz · 寫入一律經位址白名單', 'en': 'slave scan order (7-bit) {slaves} · clock {khz} kHz · every write goes through the address whitelist', 'zh-CN': 'slave 扫描顺序（7-bit）{slaves} · 时钟 {khz} kHz · 写入一律经地址白名单' },
+  'dst.thStep':         { 'zh-TW': '階', 'en': 'Step', 'zh-CN': '阶' },
+  'dst.cellFail':       { 'zh-TW': '量測失敗', 'en': 'measurement failed', 'zh-CN': '量测失败' },
+  'dst.resFromReg':     { 'zh-TW': '讀自 IC', 'en': 'read from the IC', 'zh-CN': '读自 IC' },
+  'dst.resDefault':     { 'zh-TW': '預設值', 'en': 'default', 'zh-CN': '默认值' },
+
+  /* ── 識別結果 ─────────────────────────────────────────────────────── */
+  'dst.idNone':         { 'zh-TW': '四個 slave 全無有效回應', 'en': 'no valid response from any of the four slaves', 'zh-CN': '四个 slave 全无有效回应' },
+  'dst.icNone':         { 'zh-TW': '—（讀不到 ID）', 'en': '— (cannot read the ID)', 'zh-CN': '—（读不到 ID）' },
+  'dst.icUnknown':      { 'zh-TW': '讀到了，但不在已知 ID 表內 ⇒ 只允許讀', 'en': 'ID read, but it is not in the known table ⇒ read-only', 'zh-CN': '读到了，但不在已知 ID 表内 ⇒ 只允许读' },
+  'dst.sayIcUnknown':   { 'zh-TW': '0xFF00 讀到 {id}，不在已知 ID 表內 ⇒ 出圖與寫入全部停用。請把這三個 byte 回報。', 'en': '0xFF00 returned {id}, which is not in the known ID table ⇒ pattern output and all writes are disabled. Please report these three bytes.', 'zh-CN': '0xFF00 读到 {id}，不在已知 ID 表内 ⇒ 出图与写入全部停用。请把这三个 byte 回报。' },
+  'dst.alsoE512':       { 'zh-TW': '也可能是 E512A2 —— 同一組 ID，上游工具也分不出來', 'en': 'may also be an E512A2 — same ID; the upstream tool cannot tell them apart either', 'zh-CN': '也可能是 E512A2 —— 同一组 ID，上游工具也分不出来' },
+  'dst.wrNone':         { 'zh-TW': '無（沒認出 IC ⇒ 一個位址都不寫）', 'en': 'none (IC not identified ⇒ not a single address is written)', 'zh-CN': '无（没认出 IC ⇒ 一个地址都不写）' },
+
+  /* ── 白名單 ───────────────────────────────────────────────────────── */
+  'dst.denyNoIc':       { 'zh-TW': '位址白名單擋下 {addr}：還沒認出 IC，本頁一個位址都不寫', 'en': 'The address whitelist blocked {addr}: the IC has not been identified, so this page writes nothing at all', 'zh-CN': '地址白名单挡下 {addr}：还没认出 IC，本页一个地址都不写' },
+  'dst.denyRange':      { 'zh-TW': '位址白名單擋下 {addr} ×{len}（{ic} 只允許 {ranges}）', 'en': 'The address whitelist blocked {addr} ×{len} ({ic} only allows {ranges})', 'zh-CN': '地址白名单挡下 {addr} ×{len}（{ic} 只允许 {ranges}）' },
+
+  /* ── ACK 判讀（純函式，目前由自檢夾具使用）──────────────────────── */
+  'dst.ackOk':          { 'zh-TW': 'ACK', 'en': 'ACK', 'zh-CN': 'ACK' },
+  'dst.ackOkResidue':   { 'zh-TW': 'ACK（中間位元是殘留，不影響判讀）', 'en': 'ACK (the middle bits are residue and do not affect the verdict)', 'zh-CN': 'ACK（中间位元是残留，不影响判读）' },
+  'dst.ackNakLeft':     { 'zh-TW': 'NACK（位元靠左對齊）', 'en': 'NACK (bit is left-aligned)', 'zh-CN': 'NACK（位元靠左对齐）' },
+  'dst.ackNakRight':    { 'zh-TW': 'NACK（位元靠右對齊）', 'en': 'NACK (bit is right-aligned)', 'zh-CN': 'NACK（位元靠右对齐）' },
+  'dst.ackNakOdd':      { 'zh-TW': 'NACK，但這個值不在預期範圍內 —— 位元對齊的假設可能有問題，請把這個原始 byte 一起回報', 'en': 'NACK, but this value is outside the expected range — the bit-alignment assumption may be wrong. Please report this raw byte as well.', 'zh-CN': 'NACK，但这个值不在预期范围内 —— 位元对齐的假设可能有问题，请把这个原始 byte 一起回报' },
+
+  /* ── 通訊自檢 ─────────────────────────────────────────────────────── */
+  'dst.commPass':       { 'zh-TW': 'PASS 通訊正常（讀到 {got}）', 'en': 'PASS — the link works (read {got})', 'zh-CN': 'PASS 通讯正常（读到 {got}）' },
+  'dst.commMismatch':   { 'zh-TW': 'FAIL 期望 A1 D8 FB，實際 {got}', 'en': 'FAIL — expected A1 D8 FB, got {got}', 'zh-CN': 'FAIL 期望 A1 D8 FB，实际 {got}' },
+  'dst.commNoRead':     { 'zh-TW': 'FAIL 讀不到（只收到 {n} byte）', 'en': 'FAIL — nothing to read (only {n} bytes received)', 'zh-CN': 'FAIL 读不到（只收到 {n} byte）' },
+
+  /* ── 出圖不可用的理由 ─────────────────────────────────────────────── */
+  'dst.noIcNoWrite':    { 'zh-TW': '還沒認出 IC，本頁一個位址都不寫', 'en': 'The IC has not been identified, so this page writes nothing at all', 'zh-CN': '还没认出 IC，本页一个地址都不写' },
+  'dst.noSeq':          { 'zh-TW': '反組譯裡沒有這一顆的序列，本頁只認得出來、不出圖', 'en': 'the decompile contains no sequence for this chip, so this page can only identify it, not paint with it', 'zh-CN': '反编译里没有这一颗的序列，本页只认得出来、不出图' },
+  'dst.noPattern':      { 'zh-TW': '{ic}：本版不支援出圖', 'en': '{ic}: pattern output is not supported in this version', 'zh-CN': '{ic}：本版不支持出图' },
+  'dst.noCursorSeq':    { 'zh-TW': '{ic}：反組譯裡沒有這一顆的十字序列', 'en': '{ic}: the decompile contains no cross sequence for this chip', 'zh-CN': '{ic}：反编译里没有这一颗的十字序列' },
+
+  /* ── 錯誤 ─────────────────────────────────────────────────────────── */
+  'dst.errNotLinked':   { 'zh-TW': 'I2C 尚未連線', 'en': 'I2C is not linked yet', 'zh-CN': 'I2C 尚未连线' },
+  'dst.errTimeout':     { 'zh-TW': 'I2C Bridge 逾時未回覆（{type}）', 'en': 'The I2C Bridge did not reply in time ({type})', 'zh-CN': 'I2C Bridge 逾时未回复（{type}）' },
+  'dst.errReadFail':    { 'zh-TW': '讀 {addr} 失敗（狀態 {status}）', 'en': 'Reading {addr} failed (status {status})', 'zh-CN': '读 {addr} 失败（状态 {status}）' },
+  'dst.errWriteFail':   { 'zh-TW': '寫 {addr} 失敗（狀態 {status}）', 'en': 'Writing {addr} failed (status {status})', 'zh-CN': '写 {addr} 失败（状态 {status}）' },
+  'dst.errWsClosed':    { 'zh-TW': 'I2C Bridge 連線關閉', 'en': 'The I2C Bridge connection closed', 'zh-CN': 'I2C Bridge 连线关闭' },
+  'dst.errBridgeOld':   { 'zh-TW': 'I2C Bridge 版本太舊（它是 proto {proto}，本頁需要 proto {need}）', 'en': 'The I2C Bridge is too old (it reports proto {proto}, this page needs proto {need})', 'zh-CN': 'I2C Bridge 版本太旧（它是 proto {proto}，本页需要 proto {need}）' },
+  'dst.errLocked':      { 'zh-TW': '另一個頁面正在量測中，暫時不能接手。等它跑完，或到那一頁按停止。', 'en': 'Another page is measuring right now, so the fixture cannot be taken over. Wait for it to finish, or press stop on that page.', 'zh-CN': '另一个页面正在量测中，暂时不能接手。等它跑完，或到那一页按停止。' },
+  'dst.errOpenAllFail': { 'zh-TW': '連試 {n} 次都開不了治具通道 —— 治具有沒有插好？是不是有別的程式正佔著它？', 'en': 'The fixture channel could not be opened after {n} attempts — is the fixture plugged in? Is another program holding it?', 'zh-CN': '连试 {n} 次都开不了治具通道 —— 治具有没有插好？是不是有别的程序正占着它？' },
+  'dst.errFfReadback':  { 'zh-TW': '回讀 {addr} 是 0xFF ⇒ 這顆 IC 的回應不符預期，已中止（不對著空氣改寫暫存器）', 'en': 'Reading {addr} back gave 0xFF ⇒ this IC is not responding as expected, so the operation was stopped (a register is never rewritten into thin air)', 'zh-CN': '回读 {addr} 是 0xFF ⇒ 这颗 IC 的回应不符预期，已中止（不对着空气改写暂存器）' },
+  'dst.errNoSerial':    { 'zh-TW': '這個瀏覽器沒有序列埠功能（請用桌面版 Chrome／Edge）', 'en': 'This browser has no serial port support (use desktop Chrome or Edge)', 'zh-CN': '这个浏览器没有串口功能（请用桌面版 Chrome／Edge）' },
+  'dst.errSerialOpen':  { 'zh-TW': '開啟量測儀失敗：{m}', 'en': 'Opening the meter failed: {m}', 'zh-CN': '开启量测仪失败：{m}' },
+  'dst.errNeedI2c':     { 'zh-TW': '請先連上 I2C', 'en': 'Link the I2C side first', 'zh-CN': '请先连上 I2C' },
+  'dst.errNeedCa':      { 'zh-TW': '請先連上量測儀', 'en': 'Link the meter first', 'zh-CN': '请先连上量测仪' },
+  'dst.errCaStuck':     { 'zh-TW': '量測儀沒有回應，卡在 {cmd}', 'en': 'The meter did not respond; stuck at {cmd}', 'zh-CN': '量测仪没有回应，卡在 {cmd}' },
+  'dst.errCaErr':       { 'zh-TW': '量測儀回錯誤 {r}（{cmd}）', 'en': 'The meter returned an error {r} ({cmd})', 'zh-CN': '量测仪回错误 {r}（{cmd}）' },
+  'dst.errZero':        { 'zh-TW': '零校正失敗（{r}）—— 蓋好遮光蓋再按一次', 'en': 'Zero calibration failed ({r}) — put the cap back on and try again', 'zh-CN': '零校正失败（{r}）—— 盖好遮光盖再按一次' },
+
+  /* ── 確認 ─────────────────────────────────────────────────────────── */
+  'dst.confirmRun':     {
+    'zh-TW': '接下來會寫入 TCON（{ic}），共 {n} 階。\n\n只會寫這些位址：{ranges}\n\n要開始嗎？',
+    'en': 'This will write to the TCON ({ic}) for {n} steps.\n\nOnly these addresses are written: {ranges}\n\nStart?',
+    'zh-CN': '接下来会写入 TCON（{ic}），共 {n} 阶。\n\n只会写这些地址：{ranges}\n\n要开始吗？' },
+  'dst.confirmAligned': {
+    'zh-TW': '畫面上現在是 L127 灰階＋正中心紅十字。\n\n把探頭對準十字之後按「確定」開始掃描（掃描前十字會自動關掉）。',
+    'en': 'The screen now shows an L127 grey field with a red cross at the centre.\n\nAim the probe at the cross, then press OK to start the scan (the cross is turned off automatically before scanning).',
+    'zh-CN': '画面上现在是 L127 灰阶＋正中心红十字。\n\n把探头对准十字之后按「确定」开始扫描（扫描前十字会自动关掉）。' },
+
+  /* ── 進度 ─────────────────────────────────────────────────────────── */
+  'dst.pgEnter':        { 'zh-TW': '進入出圖模式…', 'en': 'Entering pattern mode…', 'zh-CN': '进入出图模式…' },
+  'dst.pgAlign':        { 'zh-TW': '打出對位畫面…', 'en': 'Painting the alignment pattern…', 'zh-CN': '打出对位画面…' },
+  'dst.pgInit':         { 'zh-TW': '設定量測儀 {i}/{n}：{what}', 'en': 'Setting up the meter {i}/{n}: {what}', 'zh-CN': '设定量测仪 {i}/{n}：{what}' },
+  'dst.pgZero':         { 'zh-TW': '零校正中 —— 蓋上遮光蓋，十秒別動', 'en': 'Zero calibration — put the cap on and hold still for ten seconds', 'zh-CN': '零校正中 —— 盖上遮光盖，十秒别动' },
+  'dst.pgDone':         { 'zh-TW': '掃描完成', 'en': 'Scan complete', 'zh-CN': '扫描完成' },
+
+  /* ── 中止時「面板現在是什麼」──────────────────────────────────────── */
+  'dst.paintNormal':    { 'zh-TW': '已離開出圖模式，面板回到正常畫面', 'en': 'pattern mode has been left and the panel is back to its normal image', 'zh-CN': '已离开出图模式，面板回到正常画面' },
+  'dst.paintEntered':   { 'zh-TW': '已進入出圖模式但還沒打出任何顏色', 'en': 'pattern mode was entered but no colour has been painted yet', 'zh-CN': '已进入出图模式但还没打出任何颜色' },
+  'dst.paintRgb':       { 'zh-TW': '停在 R={r} G={g} B={b}（12-bit）這一張畫面', 'en': 'it is stopped on the R={r} G={g} B={b} (12-bit) image', 'zh-CN': '停在 R={r} G={g} B={b}（12-bit）这一张画面' },
+  'dst.abortedAt':      { 'zh-TW': '已停止。TCON 現在{what}。要回到正常畫面請按「離開出圖模式」。', 'en': 'Stopped. The TCON right now: {what}. Press “Leave pattern mode” to return to the normal image.', 'zh-CN': '已停止。TCON 现在{what}。要回到正常画面请按「离开出图模式」。' },
+
+  /* ── 連線說明 ─────────────────────────────────────────────────────── */
+  'dst.sayNoBridge':    { 'zh-TW': '連不到本機的 I2C Bridge。它要先在這台電腦上跑起來 —— 取得與安裝在「I2C 讀寫測試」那一頁。', 'en': 'The local I2C Bridge cannot be reached. It has to be running on this computer first — get it and install it from the “I2C read/write test” page.', 'zh-CN': '连不到本机的 I2C Bridge。它要先在这台电脑上跑起来 —— 取得与安装在「I2C 读写测试」那一页。' },
+  'dst.sayDropped':     { 'zh-TW': '與 I2C Bridge 的連線中斷了。正在進行的掃描已停止。', 'en': 'The connection to the I2C Bridge dropped. Any scan in progress has been stopped.', 'zh-CN': '与 I2C Bridge 的连线中断了。正在进行的扫描已停止。' },
+
+  /* ── 量測儀初始化各步驟 ───────────────────────────────────────────── */
+  'dst.caCom':          { 'zh-TW': '建立通訊', 'en': 'establish communication', 'zh-CN': '建立通讯' },
+  'dst.caScs':          { 'zh-TW': '同步 UNIVERSAL', 'en': 'sync UNIVERSAL', 'zh-CN': '同步 UNIVERSAL' },
+  'dst.caFsc':          { 'zh-TW': '量測速度 LTD.AUTO', 'en': 'measuring speed LTD.AUTO', 'zh-CN': '量测速度 LTD.AUTO' },
+  'dst.caOpr':          { 'zh-TW': '選探頭 P1', 'en': 'select probe P1', 'zh-CN': '选探头 P1' },
+  'dst.caMms':          { 'zh-TW': '色彩＋閃爍', 'en': 'colour + flicker', 'zh-CN': '色彩＋闪烁' },
+  'dst.caFms':          { 'zh-TW': 'FMA 法', 'en': 'FMA method', 'zh-CN': 'FMA 法' },
+  'dst.caMds':          { 'zh-TW': 'x, y, Lv 模式', 'en': 'x, y, Lv mode', 'zh-CN': 'x, y, Lv 模式' },
+  'dst.caMch':          { 'zh-TW': '校正通道 0', 'en': 'calibration channel 0', 'zh-CN': '校正通道 0' },
+  'dst.caLus':          { 'zh-TW': '單位 cd/m²', 'en': 'unit cd/m²', 'zh-CN': '单位 cd/m²' },
+
 };
