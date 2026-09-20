@@ -129,6 +129,16 @@ async function useHelper(script) {
 function SINCE(sent, type) {
   return sent.slice(sent.afterConnect || 0).filter(m => m.type === type);
 }
+/* ═══ 🔴 i2c v1.25.1：把 WP 那一顆（0x7C）的流量排除掉 ══════════════════════
+   燒 0x50–0x57 之前會先送 `wp_low`（6 則）、燒完送 `wp_high`（4 則），全部
+   走 slave **0x7C**。那些是**另一顆裝置**，與「這一次寫到 EEPROM 的是什麼」
+   無關 —— 既有斷言問的是後者，所以這裡把 0x7C 濾掉。
+   🔴 這不是「把測試放寬」：WP 序列本身由 `tools/i2c_wp_probe.js` 逐筆釘死
+      （含順序、資料、以及它排在回讀驗證之前）。兩邊各問各的問題。 */
+const I2CT_WP_SLAVE_T = 0x7C;
+function SINCEB(sent, type) {
+  return SINCE(sent, type).filter(m => m.slave !== I2CT_WP_SLAVE_T);
+}
 /* 大部分測案共用的腳本骨架：ping/open/close 一律成功，read/write 交給 f 決定 */
 function baseScript(f) {
   return (m, n) => {
@@ -434,7 +444,7 @@ function baseScript(f) {
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '3', data: 'DE AD BE' });
     await A.doWrite();
     await sleep(20);
-    const w = SINCE(sent, 'rawwrite');
+    const w = SINCEB(sent, 'rawwrite');          /* 排除 WP 那一顆，見 SINCEB */
     EQ(w.length, 1, '送出 1 則 rawwrite');
     EQ({ type: 'rawwrite', slave: w[0].slave, addr: w[0].addr, awid: w[0].awid, data: w[0].data },
        { type: 'rawwrite', slave: 0x50, addr: 0x0000, awid: 2, data: [0xDE, 0xAD, 0xBE] },
@@ -453,7 +463,7 @@ function baseScript(f) {
     /* 更高位址也不擋 */
     A.setInputs({ off: '0xFFFF', data: 'FF' });
     await A.doWrite(); await sleep(15);
-    const w2 = SINCE(sent, 'rawwrite');
+    const w2 = SINCEB(sent, 'rawwrite');
     EQ(w2[w2.length - 1].addr, 0xFFFF, '0xFFFF 也寫得出去（不限位址）');
   }
 
@@ -1842,7 +1852,7 @@ function baseScript(f) {
     doc.getElementById('wr-page').value = '32';
     await A.doWrite();
     await sleep(30);
-    const w = SINCE(sent, 'rawwrite');
+    const w = SINCEB(sent, 'rawwrite');
     EQ(w.map(m => m.data.length).join('/'), '16/32/32/20', '🔴 實際送出：16/32/32/20');
     EQ(w.map(m => m.addr).join(','), '16,32,64,96', '🔴 實際送出的位址：0x10,0x20,0x40,0x60');
     const flat = []; w.forEach(m => m.data.forEach(b => flat.push(b & 0xFF)));
@@ -1983,7 +1993,7 @@ function baseScript(f) {
     doc.querySelectorAll('#ee-list input[name=eesel]')[5].checked = true;   /* 24C32 */
     doc.getElementById('ee-ok').click();
     await pr2; await sleep(30);
-    EQ(SINCE(sent3, 'rawwrite').map(m => m.data.length).join('/'), '16/32/32/20',
+    EQ(SINCEB(sent3, 'rawwrite').map(m => m.data.length).join('/'), '16/32/32/20',
        '🔴 確認之後照 24C32 的 32 byte 切段：16/32/32/20');
     /* 非 EEPROM 的 slave 不跳視窗，直接寫 */
     for (const a of ['0x4F', '0x58', '0x68']) {
@@ -2535,16 +2545,22 @@ function baseScript(f) {
     /* Bruce 2026-09-19：「整包寫入 EEPROM 的動作，必須要再回讀回來…都一樣才能
        秀出『驗證比對正確』；有不一樣就 highlight『驗證比對錯誤，需要再重新檢查』」。
        **只有 EEPROM（0x50–0x57）才做。** */
+    /* 🔴 v1.25.1：這份假裝置改成**逐 slave 各一份記憶體**。
+       舊版只用位址當 key ⇒ WP 序列寫到 `0x7C` 的 offset 0x08/0x09 會蓋掉
+       EEPROM 的 offset 8/9，回讀驗證就多出兩個假的不符。真實匯流排上
+       0x7C 與 0x50 是**兩顆不同的裝置**，舊的模型才是錯的。
+       `corrupt` 仍然只針對受測的那顆 EEPROM（用位址當 key，語意不變）。 */
     const mkStore = (corrupt) => {
       const store = new Map();
+      const K = (m, i) => m.slave + ':' + (m.addr + i);
       return (m) => {
-        if (m.type === 'rawwrite') { m.data.forEach((b, i) => store.set(m.addr + i, b & 0xFF)); return { ok: true, status: 0, transferred: m.data.length }; }
+        if (m.type === 'rawwrite') { m.data.forEach((b, i) => store.set(K(m, i), b & 0xFF)); return { ok: true, status: 0, transferred: m.data.length }; }
         if (m.type === 'read') {
           const o = [];
           for (let i = 0; i < m.len; i++) {
-            const a = m.addr + i;
-            let v = store.has(a) ? store.get(a) : 0x00;
-            if (corrupt && corrupt.has(a)) v = corrupt.get(a);
+            const k = K(m, i), a = m.addr + i;
+            let v = store.has(k) ? store.get(k) : 0x00;
+            if (corrupt && m.slave !== I2CT_WP_SLAVE_T && corrupt.has(a)) v = corrupt.get(a);
             o.push(v);
           }
           return { ok: true, status: 0, data: o };
@@ -2560,7 +2576,7 @@ function baseScript(f) {
     A.setInputs({ slave: '0x50', awid: 2, off: '0x0000', len: '64' });
     const snapBefore = A.refBytesAt(0);
     await A.doWrite(); await sleep(60);
-    const reads = SINCE(sent, 'read');
+    const reads = SINCEB(sent, 'read');          /* 排除 WP 的 0x0F 讀取 */
     CHECK(reads.length > 0, '🔴 寫完之後真的有回讀');
     EQ(reads.reduce((n, m) => n + m.len, 0), 64, '🔴 回讀的長度等於剛寫的 64 byte');
     EQ(reads[0].addr, 0, '從剛寫的起始位址開始回讀');
@@ -4209,6 +4225,11 @@ function baseScript(f) {
     const mk63 = (proto) => (m, n, emit) => {
       if (m.type === 'ping')  return { helper: '1.15.0', proto: proto, ok: true };
       if (m.type === 'open' || m.type === 'close') return { ok: true, channels: 1 };
+      /* 🔴 v1.25.1：WP 那一顆（0x7C）是**另一個裝置**，不可以落進這份影子記憶體。
+         舊版只看位址 ⇒ WP 的 0x08/0x09 會蓋掉 EEPROM 的 offset 8/9。 */
+      if (m.slave === I2CT_WP_SLAVE_T) return (m.type === 'read')
+        ? { ok: true, status: 0, usbrt: 1, data: new Array(m.len).fill(0x00) }
+        : { ok: true, status: 0, transferred: (m.data || []).length };
       if (m.type === 'read')  return { ok: true, status: 0, usbrt: 1,
         data: Array.from({ length: m.len }, (_, i) => dev63[(m.addr + i) & 0xFFFF]) };
       if (m.type === 'rawwrite') { (m.data || []).forEach((b, i) => { dev63[(m.addr + i) & 0xFFFF] = b & 0xFF; });
@@ -4253,7 +4274,8 @@ function baseScript(f) {
       await A.doWrite(); await sleep(250);
       const after = sent63.slice(before);
       const bw = after.filter(m => m.type === 'batchwrite');
-      const rw = after.filter(m => m.type === 'rawwrite');
+      /* 🔴 v1.25.1：WP 序列（slave 0x7C）不算「走舊路」的 rawwrite。 */
+      const rw = after.filter(m => m.type === 'rawwrite' && m.slave !== I2CT_WP_SLAVE_T);
       console.log('      [量測] 8192 byte / page 32 ⇒ batchwrite ' + bw.length
                 + ' 則、rawwrite ' + rw.length + ' 則（改動前：rawwrite 256 則）');
       EQ(bw.length, 1, '🔴🔴 **1 則** batchwrite（改動前是 256 則 rawwrite）');
@@ -4375,7 +4397,7 @@ function baseScript(f) {
         CHECK(bn.indexOf('半更新') >= 0, '🔴🔴 明講裝置上現在是一份半更新的內容');
         EQ(A.progress(), null, '中止後進度列收起來');
         /* 中止之後**不可以**再跑回讀驗證：驗證的前提是寫完了 */
-        EQ(SINCE(sent63, 'read').length, 0, '🔴 中止之後不做回讀驗證（沒寫完，驗了只會製造假警報）');
+        EQ(SINCEB(sent63, 'read').length, 0, '🔴 中止之後不做回讀驗證（沒寫完，驗了只會製造假警報）');
       }
       holdBatch = null;
     }
@@ -4393,7 +4415,7 @@ function baseScript(f) {
       const after = sent63.slice(before);
       EQ(after.filter(m => m.type === 'batchwrite').length, 0,
          '🔴 proto 3 的舊 exe ⇒ **不送 batchwrite**');
-      EQ(after.filter(m => m.type === 'rawwrite').length, 3,
+      EQ(after.filter(m => m.type === 'rawwrite' && m.slave !== I2CT_WP_SLAVE_T).length, 3,
          '🔴 自動退回逐段 rawwrite（3 段）⇒ 拿著舊 exe 的人不會壞掉，只是慢一點');
       { const log = doc.getElementById('log').textContent;
         CHECK(log.indexOf('逐段模式') >= 0, '🔴 log 講得出走的是逐段模式');
@@ -4748,7 +4770,8 @@ function baseScript(f) {
     EQ(A.selSegs().map(s => s.from + '..' + s.to).join(' '), '28..36', '前置：單一區段 0x1C–0x24');
     const before66b = sent66.length;
     await A.doWrite(); await sleep(400);
-    const w66b = sent66.slice(before66b).filter(m => m.type === 'rawwrite' || m.type === 'batchwrite');
+    const w66b = sent66.slice(before66b).filter(m => (m.type === 'rawwrite' || m.type === 'batchwrite')
+                                                   && m.slave !== I2CT_WP_SLAVE_T);
     /* page 32、0x1C 起 9 byte ⇒ 0x1C–0x1F（4）＋ 0x20–0x24（5）＝ 2 段 */
     CHECK(w66b.length === 2
        || (w66b.length === 1 && w66b[0].type === 'batchwrite' && w66b[0].page === 32),
