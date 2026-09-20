@@ -58,9 +58,31 @@ if (missing.length) { console.log('🔴 CSS 有、圖例沒有：' + missing.joi
 if (extra.length)   { console.log('🔴 圖例有、CSS 沒有：' + extra.join(', ')); bad = 1; }
 if (baseCount !== 1) { console.log('🔴 無類別基底項應該剛好一個，實際 ' + baseCount); bad = 1; }
 
+/* ══ §2 🔴 2026-09-20 新增：顏色圖例**只准有一份** ═══════════════════════════
+ * 為什麼加這一條：上面那一段從頭到尾只看 `#celllegend`，所以它**看不到**畫面上
+ * 另一個地方的第二份圖例。實際後果（Bruce 2026-09-20 抓到）：diff 卡下方有一份
+ * `.legend dbgonly`，列著「已讀到的值／未讀取（本次範圍外）／本次寫入過」，其中
+ * **「本次寫入過」在 v1.20.2 連同 `td.wrote`／`i2ctWroteFlags` 整支刪掉了** ——
+ * 圖例卻留在原地，指著一個不存在的顏色，而這支檢查一路綠燈。
+ *
+ * 判準只能是「不准有第二份」，不能是「第二份也要正確」：兩份圖例即使一開始一致，
+ * 也只是把不同步的時間往後延。單一來源才是可維護的狀態。
+ *
+ * 認定方式：`i2c.html` 裡出現 `class="legend`（本頁專門畫顏色圖例的那個 class）
+ * 就算第二份。`celllegend` 是不同的 class，不會被這條誤傷。
+ * 雙向驗過：現況（已移除）通過；把那一塊塞回去會被擋下。 */
+const dupLegend = (src.match(/class="legend[\s"]/g) || []).length;
+if (dupLegend > 0) {
+  console.log('🔴 除了 #celllegend 之外還有 ' + dupLegend
+    + ' 處 class="legend" 的顏色圖例 —— 顏色說明只准有一份（單一來源）。');
+  console.log('   兩份圖例遲早會不同步；這一條就是為了擋掉那個「第二份」。');
+  bad = 1;
+}
+
 if (bad) {
   console.log('\n   修法：在 #celllegend 補上／移除對應的 <span data-cls="…">，'
-    + '並在 .celllegend 加上同名的 .lg-<class> 色塊樣式（顏色要與格子本身相同）。');
+    + '並在 .celllegend 加上同名的 .lg-<class> 色塊樣式（顏色要與格子本身相同）。'
+    + '若是多出第二份圖例，把它整塊刪掉，不要兩邊各維護一份。');
   process.exit(1);
 }
 console.log('✅ 圖例項目數與 CSS 樣式數一致（' + cssClasses.size + ' + 1 = ' + legend.length + '）');

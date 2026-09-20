@@ -342,7 +342,7 @@ int main(void){
         CHECK(dgh_mp_ack_ok(0x0E) == 0 && dgh_mp_ack_ok(0x1C) == 0
            && dgh_mp_ack_ok(0x38) == 0 && dgh_mp_ack_ok(0x70) == 0,
               "🔴 實機那四個值一個都不得通過 ack_ok（舊版四個全部通過）");
-        /* 反面也要釘：合法的兩個值不可以被誤判成 BAD，否則就換成誤殺真交易。 */
+        /* 反面也要釘：合法的兩個值不可以被誤判成 BAD，否則就換成誤殺真的傳輸。 */
         CHECK(dgh_mp_ack_kind(0x00) != DGH_ACK_BAD
            && dgh_mp_ack_kind(0x80) != DGH_ACK_BAD, "合法的 0x00／0x80 不得被誤判成異常");
     }
@@ -352,7 +352,7 @@ int main(void){
        並指出「這根本不是 burst read」。FTDI 對 `0x87`（Send Immediate）的定義是
        「強制把已緩衝的讀取資料立刻送回主機，不等 USB latency timer」——
        **每一個 0x87 就是一次強制的 USB 往返**。所以只要命令序列裡每個 byte 都夾一個
-       0x87，時間上就不可能連續，不管定址層面是不是一筆交易。
+       0x87，時間上就不可能連續，不管定址層面是不是一次 I2C 傳輸。
 
        我們的 builder 目前是對的（4096 byte 的命令共 49,534 byte，只有結尾一個 0x87），
        但這是**沒有任何測試釘住**的性質 —— 有人為了「先拿到 ACK 再繼續」在迴圈裡補一個
