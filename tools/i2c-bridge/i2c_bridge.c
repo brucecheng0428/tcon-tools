@@ -403,8 +403,36 @@ static double precise_wait_ms(double ms){
  * caller (dg-measure) keeps the exact same wire bytes.
  *   0 -> send no offset at all = I2C "current address read" (a legal mode:
  *        the device keeps its own address pointer and returns from there)
- *   1 / 2 / 4 -> that many offset bytes, MSB first.                            */
+ *   1 / 2 / 3 / 4 -> that many offset bytes, MSB first.
+ * 🔴 1.16.0 (proto 5): 3 is now legal too. The old 0/1/2/4 list was OUR limit,
+ *    not the DLL's -- see dgh_awid_ok() in i2c_bridge_proto.h for the
+ *    disassembly of the address-phase generator (0x402208) that pins n=0..4 as
+ *    correct and n>=5 as a read past the 4-byte stack buffer.                   */
 #define AWID_DEFAULT 2u
+/* 🔴 1.16.0: the `offBytes` argument handed to DLL_I2C_BCB's GetBytesEx /
+   SendBytesEx is simply the offset width. This used to be
+   `(awid==0||awid==1||awid==2) ? awid : 0xFF`, i.e. awid 4 was sent as **255**.
+   That is not a "reject" value: inside the DLL 0xFF reaches the same
+   `leal -5(%ebp,%ecx), %edi` and makes it emit 255 address bytes read from
+   stack garbage. Widths above 4 are refused up front by dgh_awid_ok(), so the
+   only honest value to pass here is the width itself.
+   ⚠️ Not verified on hardware -- this is read off the disassembly. */
+#define DGH_VENDOR_OFFBYTES(aw) ((unsigned char)(((aw)<=4u)?(aw):0xFFu))
+
+/* 🔴 1.16.0：目前生效的 I2C 時脈（Hz）。用途只有一個 —— 算「一段在匯流排上
+   佔多久」的**理論值**，給目標段間距的自校正扣掉（見 batchwrite 的 gap 模式）。
+   它不參與任何 I2C 動作，寫錯了不會改變 wire 上的任何一個 byte。 */
+static uint32_t g_clockHz = 400000u;
+/* 一段（START ＋ slave ＋ awid 個位址 byte ＋ seg 個資料 byte ＋ STOP）在匯流排上
+   佔的**理論**時間，單位 ms。每個 byte 是 8 bit ＋ 1 個 ACK bit ＝ 9 bit，
+   START/STOP 各約 1 bit 時間。
+   🔴 這是理論值，不是量測值：實際會被 clock stretching、時脈本身的誤差拉長。
+      它只用來把「匯流排時間」從段週期裡扣掉，估出段與段之間的空檔。 */
+static double bus_ms_theoretical(uint32_t awid, uint32_t seg){
+    double kHz = (double)(g_clockHz ? g_clockHz : 400000u) / 1000.0;
+    double bits = (double)(1u + awid + seg) * 9.0 + 2.0;
+    return bits / kHz;                        /* kHz ＝ bit/ms */
+}
 #define RAW_MAX_DATA 256              /* bytes per rawwrite */
 /* 🔴🔴 1.14.0：這裡原本只有一個 `DGH_READ_MAX 4096`，同時被當成兩件**完全不同**
    的事情用，這正是 2026-09-19 搞混的根源：
@@ -1016,6 +1044,7 @@ static int locate_and_load_vendor(void){
 /* 開啟 DLL_I2C_BCB 的 channel。🔴 改時脈一定要 Close → SetClock → Open（DLL_I2C_BCB 自己的順序）。 */
 static int vendor_open(uint32_t clockHz){
     unsigned short kHz = (unsigned short)((clockHz ? clockHz : 400000u) / 1000u);
+    g_clockHz = (uint32_t)kHz * 1000u;
     if(!g_vendorOk) return 0;
     if(g_vendorOpen) return 1;
     /* 🔴🔴 **嚴格照 DLL_I2C_BCB 的序列，不要自己加東西。**
@@ -1078,7 +1107,7 @@ static void lasterr_set(const char* fmt, ...);
 static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t len,
                        uint8_t* out, uint32_t* got){
     unsigned short r;
-    unsigned char ob = (awid==0||awid==1||awid==2) ? (unsigned char)awid : 0xFF;
+    unsigned char ob = DGH_VENDOR_OFFBYTES(awid);
     if(got) *got = 0;
     /* 🔴 擋在呼叫 DLL **之前**。夾成 1 是不行的：那會讓呼叫端以為自己送的值合法，
        下一次還是會送 0，而且它拿到的 1 個 byte 不是它要的東西。 */
@@ -1170,7 +1199,7 @@ static int vendor_read(uint32_t slave, uint32_t addr, uint32_t awid, uint32_t le
         · 真正的把關交給**寫入後回讀驗證**（既有那一套，一個字都沒動）。 */
 static int vendor_write(uint32_t slave, uint32_t addr, uint32_t awid,
                         const uint8_t* data, uint32_t dlen, uint32_t* got){
-    unsigned char ob = (awid==0||awid==1||awid==2) ? (unsigned char)awid : 0xFF;
+    unsigned char ob = DGH_VENDOR_OFFBYTES(awid);
     int r;
     if(got) *got = 0;
     if(!g_vendorOk || !g_vendorOpen || !pv_Send) return 0;
@@ -1600,6 +1629,7 @@ static int i2c_open(uint32_t clockHz) {
        struct 改回 packed 時症狀會變成「有時對有時錯」，比穩定壞掉更難查。 */
     ChannelConfig cfg; memset(&cfg, 0, sizeof(cfg));
     cfg.ClockRate=clockHz?clockHz:150000; cfg.LatencyTimer=1; cfg.Options=3;
+    g_clockHz=cfg.ClockRate;
     /* 🔴 把結構佈局印出來 —— 600 kHz 的根因就是這三個數字錯了，而且**完全沒有徵兆**：
        它不會報錯，只會讓 DLL 讀到垃圾。編譯期斷言已經擋住了，這一行是給
        Bruce 的 log 用的：他丟 log 過來我們就能直接確認他手上那支是對的。 */
@@ -2215,18 +2245,22 @@ static int batch_poll_abort(int idx, long id){
    回傳實際等了幾毫秒（給 log 與回覆用）。*polls 填探針次數，*fellBack 填
    「這一段有沒有退回固定 tWR」。 */
 static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
-                             uint32_t twr, int ackpoll, int* polls, int* fellBack){
+                             double twr, int ackpoll, int* polls, int* fellBack){
     double t0=now_ms();
     if(polls)    *polls=0;
     if(fellBack) *fellBack=0;
-    if(twr==0u) return 0.0;
+    /* 🔴 1.16.0: `twr` is now a **double** because in gap mode the sleep the
+       caller asks for is `target - measured overhead`, which is not a whole
+       number of milliseconds. <= 0 means "the overhead already ate the whole
+       target" -> do not wait at all (the caller logs that). */
+    if(!(twr>0.0)) return 0.0;
     /* 🔴 1.15.1：這一行原本是 `Sleep(twr)`，而 Bruce 的實機 log 量到「要求 5 ms、
        實際每次 11.2 ms」（2846 ms ÷ 255）。理由與取代方案寫在 precise_wait_ms()
        上面那一段。**等待時間只能 ≥ 要求值**，precise_wait_ms() 保證這件事。 */
-    if(!ackpoll){ precise_wait_ms((double)twr); return now_ms()-t0; }
+    if(!ackpoll){ precise_wait_ms(twr); return now_ms()-t0; }
     {
         /* 逾時上限 ＝ 固定 tWR 的值（絕不會比不開這個選項等得久）。 */
-        double deadline=t0+(double)twr;
+        double deadline=t0+twr;
         int n=0, sawBusy=0;
         uint8_t probe=0;
         for(;;){
@@ -2242,12 +2276,12 @@ static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
                        一定在燒）⇒ 不可以相信它，這一段補足完整的固定 tWR。 */
                     /* 🔴 1.15.1：補足的那一段也走高解析度等待（原本是
                        `Sleep((DWORD)(left+0.5))`，在解析度粗的機器上會超等一大截）。 */
-                    double left=(double)twr-(now_ms()-t0);
+                    double left=twr-(now_ms()-t0);
                     if(left>0.0) precise_wait_ms(left);
                     if(polls)    *polls=n;
                     if(fellBack) *fellBack=1;
                     logline("  ackpoll : 🔴 first probe after STOP succeeded -> the probe cannot "
-                            "detect a busy device; used the full fixed tWR (%u ms) for this page",
+                            "detect a busy device; used the full fixed wait (%.2f ms) for this page",
                             twr);
                     return now_ms()-t0;
                 }
@@ -2256,7 +2290,7 @@ static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
             if(now_ms()>=deadline){
                 if(polls)    *polls=n;
                 if(fellBack) *fellBack=1;
-                logline("  ackpoll : timeout after %d probes (%u ms) -> falling back to the fixed tWR",
+                logline("  ackpoll : timeout after %d probes (%.2f ms) -> falling back to the fixed wait",
                         n, twr);
                 return now_ms()-t0;
             }
@@ -2389,7 +2423,7 @@ static void handle_command(int idx, const char* json){
         uint32_t len=(uint32_t)dgh_json_int(json,"len",1);
         /* proto 2: optional offset width. Absent -> 2 -> identical to proto 1. */
         uint32_t awid=(uint32_t)dgh_json_int(json,"awid",(long)AWID_DEFAULT);
-        if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"bad awid (0/1/2/4 only)\"}",id); ws_send_text(c,rep); return; }
+        if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"awid %u is not a legal offset width. The maximum is 4: on this path the address phase is built from a 4-byte buffer, so a width of 5 or more would send unrelated bytes as the address and nothing would report it. Legal widths are 0, 1, 2, 3 and 4. Nothing was read.\"}",id,awid); ws_send_text(c,rep); return; }
         /* 🔴 讀取：改問**目前後端**是否開啟（vendor 看 g_vendorOpen）。
            持有者檢查在上面，沒有放寬。 */
         if(!backend_is_open()){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"read\",\"ok\":false,\"err\":\"not open\"}",id); ws_send_text(c,rep); return; }
@@ -2490,7 +2524,7 @@ static void handle_command(int idx, const char* json){
         uint32_t awid=(uint32_t)dgh_json_int(json,"awid",(long)AWID_DEFAULT);
         uint8_t data[RAW_MAX_DATA];
         int dn=dgh_json_int_array(json,"data",data,sizeof(data));
-        if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"bad awid (0/1/2/4 only)\"}",id); ws_send_text(c,rep); return; }
+        if(!dgh_awid_ok(awid)){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"awid %u is not a legal offset width. The maximum is 4: on this path the address phase is built from a 4-byte buffer, so a width of 5 or more would send unrelated bytes as the address and nothing would report it. Legal widths are 0, 1, 2, 3 and 4. Nothing was written.\"}",id,awid); ws_send_text(c,rep); return; }
         if(dn<0){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"rawwrite\",\"ok\":false,\"err\":\"bad data (max %d bytes)\"}",id,RAW_MAX_DATA); ws_send_text(c,rep); return; }
         /* log BEFORE touching the bus, so an I2C hang still leaves the record */
         { char hex[RAW_MAX_DATA*3+8]; int ho=0;
@@ -2546,9 +2580,28 @@ static void handle_command(int idx, const char* json){
         long     lenL = dgh_json_int(json,"len",-1);
         long     pageL= dgh_json_int(json,"page",-1);
         long     twrL = dgh_json_int(json,"twr",-1);
+        /* ═══ 🔴 1.16.0 (proto 5)：`gap` ＝ **目標段間距**，不是「我要睡多久」 ═══
+           舊欄位 `twr` 的語意是「每一段寫完之後額外睡幾毫秒」。那是**實作細節**，
+           使用者根本量不到它 —— 他拿邏輯分析儀量到的是**段與段之間的實際間距**，
+           而那個間距 ＝ 他設的睡眠時間 ＋ 一段固定開銷（`SendBytesEx` 回來之後到
+           下一段真正上匯流排的時間）。Bruce 2026-09-20 實測：設 1 ms，量到約 5 ms。
+
+           ⇒ `gap` 把欄位語意換成**他量得到的那個數字**，由 bridge 自己扣掉開銷：
+                實際要睡的時間 ＝ gap − 實測每段開銷
+           🔴 **開銷是每次量出來的，不是寫死的 4 ms。** 寫死等於把「這台機器、這支
+              DLL、這個 page 大小」的一次量測固化成常數，換一台就過期 —— 本專案
+              已經被這種魔術數字咬過好幾次（v1.15.0 的 `Sleep(1) is now ~1ms` 是
+              最近的一次）。量法見下面迴圈裡的 `ovhEst`。
+
+           🔴 **向後相容**：`gap` 缺席 ⇒ 完全走舊的 `twr` 語意（一個 byte 都沒變）。
+              舊網頁配新 exe、新網頁配舊 exe 都不會壞：新網頁**兩個欄位都送**，
+              舊 exe 只看得懂 `twr`（等得比較久＝比較慢，但絕不會等不夠）。 */
+        long     gapL = dgh_json_int(json,"gap",-1);
         long     pmsL = dgh_json_int(json,"progms",(long)DGH_BATCH_PROG_MS_DEF);
         int      ackpoll=(int)dgh_json_int(json,"ackpoll",0);
         uint32_t len, page, twr, progms;
+        int      gapMode = (gapL >= 0);
+        double   gapTarget = 0.0;
         /* 🔴 非法輸入的統一出口：**回覆與 log 用同一句話**，不各寫一份
            （兩份遲早分岔，而分岔的時候使用者看到的那一份通常是比較糊的那一份）。
            每一句都要講出「什麼都沒寫」—— 使用者最需要知道的是裝置有沒有被動到。 */
@@ -2559,7 +2612,10 @@ static void handle_command(int idx, const char* json){
                 "\"segs\":0,\"segsDone\":0,\"done\":0,\"err\":\"%s\"}",id,_m); \
                 ws_send_text(c,rep); return; }while(0)
         if(!dgh_awid_ok(awid))
-            BWERR("bad awid %u: only 0, 1, 2 or 4 are legal offset widths.", awid);
+            BWERR("awid %u is not a legal offset width. The maximum is 4: on this path the "
+                  "address phase is built from a 4-byte buffer, so a width of 5 or more would "
+                  "send unrelated bytes as the address and nothing would report it. "
+                  "Legal widths are 0, 1, 2, 3 and 4. Nothing was written.", awid);
         if(awid==0u)
             BWERR("awid 0 means no address phase is sent, so page boundaries cannot be honoured "
                   "and a page write cannot be addressed. Nothing was written. Use rawwrite for "
@@ -2577,6 +2633,10 @@ static void handle_command(int idx, const char* json){
         if((uint32_t)pageL > DGH_BATCH_MAX_PAGE)
             BWERR("page %ld is larger than the %u bytes one write frame can carry on this bridge. "
                   "Nothing was written.", pageL,(unsigned)DGH_BATCH_MAX_PAGE);
+        if(gapMode && (uint32_t)gapL > DGH_BATCH_MAX_TWR)
+            BWERR("gap %ld ms is over this bridge's %u ms ceiling. Nothing was written.",
+                  gapL,(unsigned)DGH_BATCH_MAX_TWR);
+        if(gapMode) twrL = gapL;          /* 舊欄位在 gap 模式下不再被讀 */
         if(twrL<0)
             BWERR("twr (the tWR wait in ms after each page) must be given and cannot be negative "
                   "(got %ld). Nothing was written.", twrL);
@@ -2584,6 +2644,7 @@ static void handle_command(int idx, const char* json){
             BWERR("twr %ld ms is over this bridge's %u ms ceiling. Nothing was written.",
                   twrL,(unsigned)DGH_BATCH_MAX_TWR);
         len=(uint32_t)lenL; page=(uint32_t)pageL; twr=(uint32_t)twrL;
+        gapTarget = gapMode ? (double)gapL : 0.0;
         progms=(uint32_t)(pmsL<(long)DGH_BATCH_PROG_MS_MIN?(long)DGH_BATCH_PROG_MS_MIN:
                          (pmsL>(long)DGH_BATCH_PROG_MS_MAX?(long)DGH_BATCH_PROG_MS_MAX:pmsL));
         if(!backend_is_open())
@@ -2615,6 +2676,26 @@ static void handle_command(int idx, const char* json){
             uint32_t twrWaits=0;      /* 🔴 實際等了幾次 tWR（＝ 段數 − 1，最後一段不等） */
             uint32_t lastAddr=0, nextAddr=base;
             double t0=now_ms(), devUs=0.0, twrMs=0.0, tProg;
+            /* ═══ 🔴 1.16.0：目標段間距的自校正（gap 模式）═══════════════════════
+               量什麼：**段週期** ＝ 這一段的 `i2c_write_ex` 開始 → 下一段的
+                       `i2c_write_ex` 開始。它涵蓋了 DLL 呼叫、log、progress、
+                       中止輪詢**與**那一段的睡眠。
+               推什麼：`每段開銷 ＝ 段週期 − 那一段實際睡了多久`。
+                       ⇒ 下一段要睡 `gap − 開銷`，算出來 ≤ 0 就不睡。
+               🔴 用「上一段」的實測值而不是全程平均：段長可以不同（最後一段常常
+                  比較短），平均會把不同成本的段混在一起。
+               🔴 **第一次等待沒有實測值 ⇒ 用保守值 ＝ 睡滿整個 gap**（等長不等短：
+                  tWR 是裝置規格，等不夠是靜默寫不進去，等太久只是慢）。 */
+            double prevSegStart=-1.0;   /* 上一段開始的時刻，-1 ＝ 還沒有 */
+            double lastSleep=0.0;       /* 上一段實際睡了幾 ms */
+            uint32_t prevSeg=0;         /* 上一段寫了幾 byte（算它的匯流排時間用） */
+            /* 🔴 「還沒量到」用**獨立的旗標**，不用 -1 當哨兵：開銷**可以是負的**
+               （見下面的說明），拿負數當哨兵會讓每一次負的修正都被當成「還沒量
+               到」而退回睡滿整個目標 —— 迴路從此永遠收斂不到目標。 */
+            int    haveOvh=0;
+            double ovhEst=0.0;          /* 實測每段開銷（ms），可正可負 */
+            double ovhSum=0.0, gapSum=0.0;
+            uint32_t ovhN=0, gapN=0, gapZero=0;
             int ok=1, aborted=0, dropped=0, ackPolls=0, ackFall=0;
             FT_STATUS lastSt=FT_OK;
             char segline[520]; int segn=0, segInLine=0;
@@ -2624,10 +2705,16 @@ static void handle_command(int idx, const char* json){
             { DGH_SHA1 sh; uint8_t dg[20]; char hx[41]; int i;
               dgh_sha1_init(&sh); dgh_sha1_update(&sh,data,len); dgh_sha1_final(&sh,dg);
               for(i=0;i<20;i++) snprintf(hx+i*2,3,"%02x",dg[i]);
-              logline("[cmd] batchwrite slave=0x%02X(7-bit) awid=%u base=0x%08X len=%u page=%u twr=%ums "
+              logline("[cmd] batchwrite slave=0x%02X(7-bit) awid=%u base=0x%08X len=%u page=%u %s=%ums "
                       "-> %u segments, sha1(payload)=%s%s",
-                      slave, awid, base, len, page, twr, segs, hx,
+                      slave, awid, base, len, page,
+                      gapMode?"TARGET segment interval":"twr (legacy: raw sleep)", twr, segs, hx,
                       ackpoll?"  [ackpoll ON -- see the ackpoll lines below]":"");
+              if(gapMode)
+                  logline("      interval mode: the bridge subtracts its OWN measured per-segment "
+                          "overhead from the target, so the number above is the interval on the bus, "
+                          "not a raw sleep. First wait has no measurement yet -> it sleeps the full "
+                          "target (erring long is the safe direction for tWR).");
               logline("      first 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X "
                       "%02X %02X %02X %02X %02X %02X %02X %02X%s",
                       data[0],len>1?data[1]:0,len>2?data[2]:0,len>3?data[3]:0,
@@ -2649,6 +2736,36 @@ static void handle_command(int idx, const char* json){
                 uint32_t got=0;
                 FT_STATUS st;
                 double tSeg=now_ms();
+                /* 🔴 段週期在這裡結算：上一段開始到這一段開始。扣掉上一段實際睡
+                   的時間，剩下的就是「不管睡多久都躲不掉」的固定開銷。 */
+                if(prevSegStart>=0.0){
+                    /* 段週期 ＝ 上一段開始 → 這一段開始。它由三塊組成：
+                         ① 上一段真正在匯流排上跑的時間（理論值，扣掉）
+                         ② 睡眠（我們自己控制的，扣掉）
+                         ③ 其餘固定開銷 ＝ DLL/USB 的送出與返回、log、progress、
+                            中止輪詢 —— 這一塊就是「段間距裡躲不掉的那一段」。
+                       ⇒ 開銷 ＝ 週期 − 匯流排 − 睡眠；段間距 ＝ 週期 − 匯流排。
+                       🔴 匯流排時間是**理論值**（bus_ms_theoretical），真值只有
+                          邏輯分析儀量得到 —— 所以下面印出來的段間距標明是估算。 */
+                    double period=tSeg-prevSegStart;
+                    double bus=bus_ms_theoretical(awid,prevSeg);
+                    double gapHad=period-bus;
+                    double ovh=gapHad-lastSleep;
+                    /* 🔴 **負的開銷不夾成 0。** 負值代表「理論匯流排時間算得比實際
+                       久」（時脈設定與實際不符、或這條路徑根本沒有我們以為的傳輸
+                       成本）。夾成 0 會讓迴路停在一個**比目標短**的段間距上收斂
+                       不回來 —— test_server §11g 的假裝置就是這個情形。
+                       讓它保持負的，下一段就會睡得更久、把段間距補回目標，
+                       而這正是**安全的方向**（等長不等短）。
+                       下界是 −bus：最壞情況就是「整個匯流排時間的估計都是多的」，
+                       再往下就不是修正而是失控了。 */
+                    if(ovh < -bus) ovh = -bus;
+                    if(gapHad<0.0) gapHad=0.0;
+                    ovhEst=ovh; haveOvh=1;
+                    ovhSum+=ovh; ovhN++;
+                    gapSum+=gapHad; gapN++;
+                }
+                prevSegStart=tSeg; prevSeg=seg;
                 if(seg==0u) break;                      /* 到不了（page>=1 時 seg 必 >0） */
                 st=i2c_write_ex(slave,a,awid,data+done,(int)seg,&got);
                 devUs+=g_lastUs;
@@ -2684,12 +2801,21 @@ static void handle_command(int idx, const char* json){
                                segInLine?" | ":"", segDone, a, seg, now_ms()-tSeg);
                 if(++segInLine>=8){ logline("  batch   : %s", segline); segline[0]=0; segn=0; segInLine=0; }
                 /* tWR：最後一段之後不等（呼叫端要回讀的話由它自己等，與舊路徑一致） */
-                if(done<len && twr){
+                if(done<len && (gapMode ? (gapTarget>0.0) : (twr!=0u))){
                     int pp=0, fb=0;
-                    twrMs+=batch_wait_twr(slave,dgh_addr_wrap(base+done,awid),awid,twr,ackpoll,&pp,&fb);
+                    /* gap 模式：睡「目標 − 實測開銷」；第一次沒有實測值 ⇒ 睡滿目標。
+                       舊 twr 模式：一個字都沒變，睡 twr。 */
+                    double want = gapMode
+                        ? (haveOvh ? (gapTarget-ovhEst) : gapTarget)
+                        : (double)twr;
+                    if(want<0.0) want=0.0;
+                    if(gapMode && want<=0.0) gapZero++;
+                    lastSleep=batch_wait_twr(slave,dgh_addr_wrap(base+done,awid),awid,
+                                             want,ackpoll,&pp,&fb);
+                    twrMs+=lastSleep;
                     twrWaits++;
                     ackPolls+=pp; ackFall+=fb;
-                }
+                } else lastSleep=0.0;
                 /* 進度：時間節流（見 DGH_BATCH_PROG_MS_DEF 的理由）。
                    最後一段一定送，否則進度條會停在 99%。 */
                 if(now_ms()-tProg>=(double)progms || done>=len){
@@ -2719,12 +2845,20 @@ static void handle_command(int idx, const char* json){
                 /* 🔴 1.15.1：要求值（`twr` 已在上面）、**實際每段等了幾 ms**、等了幾次、
                    以及用的是高解析度計時器還是退回 Sleep。Bruce 下次給 log 就不必自己除。 */
                 "\"twrwaits\":%u,\"twravgms\":%.2f,\"twrreqms\":%u,\"waitmode\":\"%s\","
+                /* 🔴 1.16.0 gap 模式的四個數字，**網頁與 log 印的是同一組**：
+                   目標／實測開銷／實際睡了多久／實際平均段間距（估）。 */
+                "\"gapmode\":%s,\"gapreqms\":%.2f,\"gapovhms\":%.2f,\"gapsleepms\":%.2f,"
+                "\"gapavgms\":%.2f,\"gapzero\":%u,"
                 "\"ackpoll\":%s,\"ackpolls\":%d,\"ackfallback\":%d,\"status\":%u",
                 id, ok?"true":"false", aborted?"true":"false",
                 segs, segDone, done, len, base,
                 done? (int)lastAddr : -1, nextAddr, page, twr,
                 el*1000.0, devUs, twrMs, prog, segDone,
                 twrWaits, twrWaits? twrMs/(double)twrWaits : 0.0, twr, wait_backend_tag(),
+                gapMode?"true":"false", gapTarget,
+                ovhN? ovhSum/(double)ovhN : 0.0,
+                twrWaits? twrMs/(double)twrWaits : 0.0,
+                gapN? gapSum/(double)gapN : 0.0, gapZero,
                 ackpoll?"true":"false", ackPolls, ackFall, lastSt);
             if(aborted){
                 if(done==0)
@@ -2763,7 +2897,27 @@ static void handle_command(int idx, const char* json){
                     "on average (%.0f ms over %u waits); device %.2f ms per segment; wait backend: %s",
                     twr, twrWaits? twrMs/(double)twrWaits : 0.0, twrMs, twrWaits,
                     segDone? (devUs/1000.0)/(double)segDone : 0.0, wait_backend_name());
-            if(twrWaits && twr && twrMs/(double)twrWaits < (double)twr - 0.05)
+            /* ═══ 🔴 1.16.0：目標段間距的四個數字，一行印完，不要再讓人自己除 ═══ */
+            if(gapMode){
+                logline("  batch   : segment interval -- TARGET %.2f ms | measured fixed overhead "
+                        "%.2f ms/segment | actually slept %.2f ms/segment | resulting interval "
+                        "%.2f ms/segment (estimated: measured segment period minus the THEORETICAL "
+                        "bus time at %u Hz -- the real interval is yours to measure)",
+                        gapTarget,
+                        ovhN? ovhSum/(double)ovhN : 0.0,
+                        twrWaits? twrMs/(double)twrWaits : 0.0,
+                        gapN? gapSum/(double)gapN : 0.0,
+                        g_clockHz);
+                if(gapZero)
+                    logline("            note: on %u of %u waits the target was already used up by "
+                            "the fixed overhead, so NO extra wait was added (slept 0). Raise the "
+                            "target if you need a longer interval than the overhead alone gives.",
+                            gapZero, twrWaits);
+                if(gapN && gapSum/(double)gapN < gapTarget - 0.5)
+                    logline("            🔴 the resulting interval is BELOW the target. The fixed "
+                            "overhead alone is larger than the target, or the machine stalled. "
+                            "Nothing can be shortened below the overhead -- please send this log.");
+            } else if(twrWaits && twr && twrMs/(double)twrWaits < (double)twr - 0.05)
                 logline("            🔴 the average is BELOW the requested tWR. That must not happen "
                         "(tWR is a device spec; waiting too little is a silent write failure). "
                         "Please send this log.");

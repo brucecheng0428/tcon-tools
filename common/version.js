@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.53.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.67.2',      // Digital Gamma 迭代校正
-  i2c:     'v1.21.1',       // I2C（讀寫測試）
+  i2c:     'v1.22.0',       // I2C（讀寫測試）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）
@@ -139,11 +139,37 @@ var HELPER_PKG = {
      libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…；只有 exe 換掉。
      exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386、machine 0x014c、
      subsystem 3；zip 解出來後四個檔的 SHA256 逐一重算相同。 */
-  pkg:    'v1.15.1',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.15.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
-  proto:  4,                             // wire protocol 版本（4 起有 batchwrite／abortwrite／progress）
-  file:   'data/i2c-bridge-v1.15.1.zip',
-  bytes:  402770,                             // zip 位元組數（打包後填）
-  zipSha: '35535405ba7288de0d2cb5a03dbf873af40052369f21f9d4c4bd45b2e1185600',
-  exeSha: '06ee7b8e7370b5c019f26550abd35591937e12138f0304d93a3c5baffaac5c96'
+  /* 🔴 v1.16.0（2026-09-20）：exe **有重編**，兩件行為改變 ⇒ 要重新過 SmartScreen。
+     ① **offset 寬度放行 3**（24 位元 sub-address）。擋掉 3 的一直是**我們自己**
+        （`dgh_awid_ok` 只收 0/1/2/4），不是硬體也不是原廠 DLL。依據是反組譯實查：
+        `DLL_I2C_BCB.dll` 的位址相位產生器（0x402208）把位址拆成 4 個 byte 放在
+        堆疊上（`-1(%ebp)`＝bit31-24 … `-4(%ebp)`＝bit7-0），再用
+        `leal -5(%ebp,%ecx), %edi` 依寬度 n 取起點、**MSB first 送出 n 個** ⇒
+        n＝0/1/2/3/4 全部正確；同一段也給出真正的上限：**n ≥ 5 會讀過那個 4 byte
+        緩衝區的頭**（送出堆疊垃圾而且不報錯）⇒ 一律擋下並回明確錯誤。
+        🔴 順帶修掉一個安靜的錯誤：原廠 DLL 路徑的 `offBytes` 參數本來是
+        `(awid<=2)?awid:0xFF`，也就是 **awid=4 會送 255 進去** —— 0xFF 不是拒絕值，
+        它會讓 DLL 去送 255 個位址 byte。改成一律送實際寬度。
+        ⚠️ 依反組譯，未在硬體上驗證。
+     ② **`batchwrite` 新增 `gap`＝目標段間距**，取代 `twr` 的「額外睡多久」語意。
+        bridge **自己量**每段的固定開銷（段週期 − 理論匯流排時間 − 上一段的睡眠），
+        睡「目標 − 開銷」。🔴 開銷**不是寫死的 4 ms** —— 那個 4 是 Bruce 那台機器
+        上量到的，寫死等於又埋一個會過期的魔術數字。
+        `gap` 缺席 ⇒ 完全走舊的 `twr` 行為 ⇒ 舊網頁的 wire byte 一個都沒變。
+        log 與回覆同時印出**四個數字**：目標／實測開銷／實際睡了多久／實際平均段間距。
+     ③ proto 4 → **5**（新增欄位 ＋ 放寬 awid 值域）。網頁仍只要求 proto ≥ 2；
+        整批寫入要 ≥ 4；awid 3 與 gap 要 ≥ 5，不到就在畫面上先講清楚。
+     🔴 **v1.15.1／v1.15.0／v1.14.0／v1.13.0／v1.12.0 的包一律保留不刪**（Bruce 裁示：
+        舊包是他在外地時當場能走的退路）。
+     包內四個檔不變，三支 DLL 從 v1.15.1 的包**原樣搬過來**，SHA256 逐一比對相同：
+     libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…；只有 exe 換掉。
+     exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386、machine 0x014c、
+     subsystem 3；337,408 bytes（v1.15.1 是 333,312）。 */
+  pkg:    'v1.16.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.16.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  proto:  5,                             // wire protocol 版本（5 起有 awid 3 與 batchwrite 的 gap）
+  file:   'data/i2c-bridge-v1.16.0.zip',
+  bytes:  404776,                             // zip 位元組數（打包後填）
+  zipSha: '19d0aa2f6e0537d81c423b736fee2461da8c196d4b528672577d743a8a189370',
+  exeSha: '8182604f113e80d6575fd815ded051cf0b3c09d114c5d46640a77ea6aa3ed48e'
 };
