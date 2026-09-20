@@ -4319,7 +4319,15 @@ function baseScript(f) {
         CHECK(snap.shown, '🔴 進度列是顯示的（不是一片空白乾等）');
         EQ(snap.prog && snap.prog.done, 4096, '🔴 進度條的已完成 byte 數 ＝ bridge 送來的 done');
         EQ(snap.prog && snap.prog.total, N63, '總量 ＝ 8192');
-        EQ(snap.prog && snap.prog.label, '寫入', '🔴 進度列講明這是「寫入」（讀取也用同一條）');
+        /* 🔴 驗的是**畫面上的字**，不是內部狀態。原本只驗 `A.progress().label`，
+           而內部存的是 i18n 描述子 `{k:'i2c.opWrite'}` ⇒ 這一條同時漏掉兩件事：
+           (a) 掛勾沒掛勾回渲染後的字（v1.24.1 修），
+           (b) 就算掛勾對了，也還是沒有人驗過**使用者真的看到「寫入」兩個字**。
+           兩條都留著：畫面那一條是使用者視角，掛勾那一條防它再退回描述子。 */
+        CHECK(snap.text.indexOf('寫入') >= 0, '🔴🔴 進度列**畫面上**真的出現「寫入」兩個字   got=' + JSON.stringify(snap.text));
+        CHECK(snap.text.indexOf('{"k":') < 0 && snap.text.indexOf('[object Object]') < 0,
+              '🔴🔴 進度列畫面上沒有把 i18n 描述子原封不動印出來   got=' + JSON.stringify(snap.text));
+        EQ(snap.prog && snap.prog.label, '寫入', '🔴 測試掛勾 progress().label 回的是譯好的字（同 srcA／srcB）');
         CHECK(snap.text.indexOf('50%') >= 0, '🔴 百分比算得出來（4096/8192 ＝ 50%）');
         CHECK(snap.hasAbortBtn, '🔴 中止鍵在畫面上');
         CHECK(snap.prog && snap.prog.hasId, '🔴 中止鍵拿得到這次 batchwrite 的 id（否則按了沒用）');

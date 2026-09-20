@@ -113,6 +113,17 @@ var I18N = {
   'home.patTitle':      { 'zh-TW': 'Pattern Generator 畫面產生器', 'en': 'Pattern Generator', 'zh-CN': 'Pattern Generator 画面产生器' },
   'home.patDesc':       { 'zh-TW': 'Sub-pixel 編輯 4×4 px，全畫面 1:1 平鋪測試畫面', 'en': '4×4 px sub-pixel editor, tiled full-screen test pattern at 1:1', 'zh-CN': 'Sub-pixel 编辑 4×4 px，全画面 1:1 平铺测试画面' },
 
+  // ── I2C 讀寫測試 ──
+  // 🔴 這張卡片的標題與說明原本是**寫死的中文**（只有它與 dg 兩張是這樣），
+  //    所以切語言時整排卡片只有它不動，而且標題只寫「I2C」、與工具本身的
+  //    `i2c.title`（I2C 讀寫測試）對不起來。Bruce 2026-09-20：「標題叫做
+  //    『I2C 讀寫測試』，那為什麼回到首頁的時候，名稱就只有 I2C 呢？」
+  // 🔴 說明裡的 offset 寬度：**0–4**，不是舊文案寫的「0-1-2-4」。
+  //    3 byte 自 i2c v1.22.0 起支援（`dgh_awid_ok` 由 0/1/2/4 放寬成 0–4，
+  //    依據見 tools/i2c-bridge/i2c_bridge_proto.h §dgh_awid_ok）。
+  'home.i2cTitle':      { 'zh-TW': 'I2C 讀寫測試', 'en': 'I2C Read/Write Test', 'zh-CN': 'I2C 读写测试' },
+  'home.i2cDesc':       { 'zh-TW': '任意 slave／offset 寬度 0–4 byte 讀寫，16×16 register dump', 'en': 'Any slave, offset width 0–4 bytes, 16×16 register dump', 'zh-CN': '任意 slave／offset 宽度 0–4 byte 读写，16×16 register dump' },
+
   'pat.title':          { 'zh-TW': 'Pattern Generator 畫面產生器', 'en': 'Pattern Generator', 'zh-CN': 'Pattern Generator 画面产生器' },
   'pat.subtitle':       { 'zh-TW': 'Sub-pixel 編輯 · 全畫面 1:1 平鋪', 'en': 'Sub-pixel editing · Full-screen 1:1 tiling', 'zh-CN': 'Sub-pixel 编辑 · 全画面 1:1 平铺' },
 

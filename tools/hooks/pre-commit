@@ -173,4 +173,40 @@ if [ $lgrc -ne 0 ]; then
 fi
 rm -f /tmp/i2c_lgchk.$$
 
+# ══ 🔴 2026-09-20 新增：i18n 描述子不得以原形出現在畫面上（i2c v1.24.1）══════
+#   三語化之後，所有「之後才翻譯」的文字在內部都是描述子 `{k:'i2c.opWrite'}`，
+#   要在渲染那一刻經 i2ctSrcTxt() 轉字。漏掉的地方**不會報錯**、
+#   **用 zh-TW 看畫面也完全正常**（HTML 裡的預設字還在），只有切到別的語言
+#   才會冒出 [object Object]。與上面幾支同一種破口：本機測不出來，只能靠閘門。
+#   v1.24.0 實際漏過一處（`__i2ct.progress()`），自檢第 63 組報
+#   got={"k":"i2c.opWrite"} —— 所以這支同時掃「畫面」與「測試掛勾」兩側。
+#   已雙向驗過：現況 41 項全過；把 v1.24.1 的 progress() 修正拿掉會被擋下。
+DSCHK="$REPO/tools/check_i18n_descriptor_leak.js"
+if [ ! -f "$DSCHK" ]; then
+  echo "🛑 找不到 $DSCHK —— i18n 描述子檢查無法執行，commit 已中止。"
+  exit 1
+fi
+"$NODE_BIN" "$DSCHK" > /tmp/i2c_dschk.$$ 2>&1
+dsrc=$?
+if [ $dsrc -ne 0 ]; then
+  cat /tmp/i2c_dschk.$$
+  rm -f /tmp/i2c_dschk.$$
+  echo ""
+  if [ $dsrc -eq 2 ]; then
+    # 🔴 這支與上面幾支不同，需要 jsdom（與 i2c_tool_selftest.js 同一份）。
+    #    jsdom 不進版控 ⇒ 重新 clone 之後要先 `npm install jsdom`。
+    #    一樣**不採「找不到就放行」**：檢查失效不當作通過（本檔 rc=2 那一段的原則）。
+    echo "🛑 i18n 描述子檢查跑不起來（缺 jsdom？），commit 已中止。"
+    echo "   安裝：cd \"$REPO\" && npm install jsdom"
+  else
+    echo "🛑 i18n 描述子外洩，commit 已中止。"
+    echo "   ①「畫面」那幾條失敗 ＝ 某處把 {k:…} 直接丟進 textContent／字串拼接，"
+    echo "      切語言時使用者會看到 [object Object]。改成先過 i2ctSrcTxt()。"
+    echo "   ②「測試掛勾」那幾條失敗 ＝ __i2ct 的存取器回了內部描述子，"
+    echo "      會讓「看內部」與「看畫面」得到不同答案（v1.24.0 的 progress() 就是）。"
+  fi
+  exit 1
+fi
+rm -f /tmp/i2c_dschk.$$
+
 exit 0
