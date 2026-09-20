@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260920dst100"></script>
+<script src="common/version.js?v=20260920dst110"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -112,6 +112,18 @@
 
 <div class="dst-wrap">
 
+  <!-- ═══ 0-a. DG 指派的任務（v1.1.0）═════════════════════════════════════
+       只有從 DG 的「即時量測 → T-CON 自檢畫面量測」開過來才出現；直接開這一頁
+       時整張卡不在畫面上（沒資料的東西不顯示）。
+       🔴 步驟名稱與「量什麼」**用 DG 給的字**，本頁不自己造第二套名稱。 -->
+  <div class="card dst-hidden" id="dst-dg-card">
+    <div class="card-body">
+      <div class="dst-kv"><span data-i18n="dst.dgStep">這一次量給</span><span id="dst-dg-step">—</span></div>
+      <div class="dst-kv"><span data-i18n="dst.dgWhat">量什麼</span><span id="dst-dg-what">—</span></div>
+      <div class="dst-note" data-i18n="dst.dgNote">掃描跑完會自動回到 DG 那一頁，不用手動搬。中止或出錯則不回傳。</div>
+    </div>
+  </div>
+
   <!-- ═══ 0. 未經實機驗證的警語 ═══════════════════════════════════════════
        🔴 這一段一個字都不能拿掉，直到有人拿真機跑過為止。
           出處：dg-measure.html 的同一句警語（那一頁自述七顆 IC 全部未驗）。 -->
@@ -148,6 +160,19 @@
 
       <div class="dst-note" id="dst-fixed">&nbsp;</div>
       <div class="dst-say" id="dst-say-link"></div>
+
+      <!-- ═══ I2C Bridge：下載入口 ＋ 兩句必要的說明（v1.1.0）═══════════════
+           v1.0.0 這裡只有一句「請到 I2C 那一頁下載」—— 等於叫人自己去找。
+           🔴 版號印在按鈕上，來源是 common/version.js 的 HELPER_PKG，不寫死。 -->
+      <div id="dst-dl-box" class="dst-hidden" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <div class="dst-row">
+          <a id="dst-dl" class="dst-btn pri" href="#" download>⬇ <span data-i18n="dst.dlBtn">下載 I2C Bridge</span> <span id="dst-dl-ver" class="mono"></span></a>
+        </div>
+        <!-- 🔴 這兩條用 data-i18n-html（字串裡有 <b>）—— data-i18n 走 textContent，
+             會把標籤原樣印在畫面上。 -->
+        <div class="dst-note" data-i18n-html="dst.dlShared">「I2C 讀寫測試」那一頁用的是<b>同一支程式</b>：已經下載過就不必再載一次，執行起來這一頁就連得上。</div>
+        <div class="dst-note" data-i18n-html="dst.ownerNote">I2C Bridge 一次只給一個分頁用 —— 切到哪一頁就由哪一頁接手，被接手的那一頁會顯示未連線；<b>正在量測的那一頁不會被接手</b>。</div>
+      </div>
     </div>
   </div>
 
@@ -249,8 +274,8 @@
 
 </div>
 
-<script src="common/i18n.js?v=20260920dst100"></script>
-<script src="common/common.js?v=20260920dst100"></script>
+<script src="common/i18n.js?v=20260920dst110"></script>
+<script src="common/common.js?v=20260920dst110"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -289,6 +314,55 @@ var DST_OPEN_RETRIES = 5;      // 開通道自動重試（前一兩次可能回 
 var DST_OPEN_RETRY_MS = 500;
 var DST_CLOCK_HZ  = 150000;
 var DST_PAGE_VER  = (typeof TOOL_VERSIONS === 'object' && TOOL_VERSIONS.dgself) || 'unknown';
+
+/* ═══ I2C Bridge 下載包：一律讀 common/version.js 的 HELPER_PKG ═══════════════
+   🔴 **不在這一頁寫第二份字面值。** 版號、檔名、雜湊各只有一個來源；複製一份
+      出來遲早不同步（dg-measure.html 的靜態 href 就卡在 v1.10.0 整整六個版本，
+      靠 JS 覆蓋才沒被看見 —— JS 沒跑到就會給人一年前的舊包）。 */
+var DST_PKG = (typeof HELPER_PKG !== 'undefined' && HELPER_PKG) ? HELPER_PKG : {};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   與 DG 主控頁的連動（v1.1.0）
+   ───────────────────────────────────────────────────────────────────────────
+   DG 的「即時量測」現在會先問「電腦畫面量測／T-CON 自檢畫面量測」，選了後者
+   就開這一頁。
+
+   🔴 **協定逐字沿用 `dg-measure.html` 那一套，一個欄位都不新增**：
+        開新頁   → 網址 `?mode=&task=&dest=&what=&v=`
+        換任務   → `postMessage {type:'dg-measure-task', task, mode, dest, what}`
+        回報版號 → `postMessage {type:'dg-measure-hello', version, task, running}`
+        回傳結果 → `postMessage {type:'dg-measure-result', mode, label, task, at,
+                                 rows, prim, durMs, settleMs}`
+      理由：DG 那一端的收訊處理器**一行都不必改**，也就不會出現「資料從哪一頁
+      回來的」這種分支 —— 分支愈少，兩條路同時被測到的機會愈大。
+
+   🔴 `version` 欄位回報的是 **`TOOL_VERSIONS.dg`（不是 dgself）**，與
+      `dg-measure.html` 一字不差。那個欄位的語意不是「我是哪一頁」，而是
+      「我手上這份 version.js 是哪一次部署的」—— DG 拿它跟自己的比，判斷這個
+      重用中的分頁是不是還停在舊快取上。改成回報 dgself 會讓 DG 的比對永遠
+      不相等 ⇒ 每次換任務都誤報「請關掉那個量測分頁」。
+
+   🔴 **沒有 opener 時這一整段等於不存在**：直接開這一頁（首頁進來、書籤）
+      的行為與 v1.0.0 逐步相同，不會多出任何步驟。 */
+var DST_DG_ORIGIN = window.location.origin;
+var DST_DG_VER = (typeof TOOL_VERSIONS === 'object' && TOOL_VERSIONS && TOOL_VERSIONS.dg)
+  ? String(TOOL_VERSIONS.dg) : '';
+var DST_DG_PRIM_KEY = { R: 'r', G: 'g', B: 'b' };   // 本頁的階名 → DG 的純色代號
+
+var DST_QS = (function () {
+  try { return new URLSearchParams(window.location.search); }
+  catch (e) { return { get: function () { return null; } }; }
+})();
+function dstQs(k) { try { return DST_QS.get(k) || ''; } catch (e) { return ''; } }
+
+/* 'gray' ＝ 白灰階（DG 第 2 部分／光學資料比較／第 4 部分）｜'prim' ＝ 只量 R/G/B 三個端點（第 3 部分） */
+var dstDgMode = (dstQs('mode') === 'prim') ? 'prim' : 'gray';
+var dstDgTask = (function () { var n = parseInt(dstQs('task'), 10); return isFinite(n) ? n : 0; })();
+var dstDgDest = dstQs('dest');      // 「第 2 部分」這種步驟名稱，字串由 DG 給，本頁不自己造
+var dstDgWhat = dstQs('what');      // 「白灰階亮度」／「RGB 純色 Pattern」
+var dstDgRunT0 = 0;                 // 這一輪掃描的起點（回傳 durMs 用）
+
+function dstDgAlive() { return !!(window.opener && !window.opener.closed); }
 
 /* ═══ 🔴 換階等待（出圖之後、叫儀器量之前）══════════════════════════════
    上游工具這一項**沒有下拉清單** —— 是一個自由輸入的文字框，預設字串 "700"，
@@ -1070,13 +1144,18 @@ async function dstWaitOrAbort(ms) {
   return !dstAbort;
 }
 
-function dstPlan(bits) {
-  /* 掃描計畫：白灰階全階 ＋ 三個純色端點。每一項都帶自己的標籤。 */
+function dstPlan(bits, mode) {
+  /* 掃描計畫：白灰階全階 ＋ 三個純色端點。每一項都帶自己的標籤。
+     🔴 v1.1.0 多一個 `mode`（預設 'gray' ⇒ 與 v1.0.0 逐字同結果）：
+        'prim' 時**只跑三個純色端點**，對應 DG 第 3 部分那一顆即時量測
+        （`dg-measure.html` 的 `?mode=prim` 也是只跑三步，兩條路一致）。 */
   var out = [], vals = dstScanValues(bits), step = dstScanStep(bits);
-  for (var i = 0; i < vals.length; i++) {
-    out.push({ key: 'L' + (i * step), r: vals[i], g: vals[i], b: vals[i] });
-  }
   var top = vals[vals.length - 1];
+  if (mode !== 'prim') {
+    for (var i = 0; i < vals.length; i++) {
+      out.push({ key: 'L' + (i * step), r: vals[i], g: vals[i], b: vals[i] });
+    }
+  }
   out.push({ key: 'R', r: top, g: 0, b: 0 });
   out.push({ key: 'G', r: 0, g: top, b: 0 });
   out.push({ key: 'B', r: 0, g: 0, b: top });
@@ -1090,12 +1169,13 @@ async function dstRun() {
   if (!dstCaLinked) { dstSay('dst-say-run', dstT('dst.errNeedCa')); return; }
 
   /* 🔴 開始前確認一次：這是會改變裝置狀態的操作。 */
-  var plan = dstPlan(dstBits);
+  var plan = dstPlan(dstBits, dstDgMode);
   if (!window.confirm(dstT('dst.confirmRun', { ic: dstIcName(), n: plan.length,
       ranges: dstWrRangesOf(dstIc, dstAltIdx).map(function (x) {
         return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('、') }))) return;
 
   dstRunning = true; dstAbort = false; dstRows = [];
+  dstDgRunT0 = Date.now();                // v1.1.0：回傳給 DG 的 durMs 取自同一個來源
   dstSettleUsedMs = dstSettleMs();      // 進迴圈前抓一次，迴圈中不再讀 UI
   dstSay('dst-say-run', '');
   dstRenderBtns();
@@ -1171,6 +1251,10 @@ async function dstRun() {
     dstProg(plan.length, plan.length, dstT('dst.pgDone'));
     dstLog('== RUN done: ' + dstRows.length + ' rows, '
       + dstRows.filter(function (q) { return q.x === null; }).length + ' failed', 'o');
+    /* v1.1.0：跑完就把資料送回 DG。
+       🔴 只在**正常跑完**這一條路送 —— 中止與例外走下面的 catch，那兩條
+          一律不回傳（半套資料比沒有資料更糟，這一條與 dg-measure.html 相同）。 */
+    dstDgSend();
   } catch (e) {
     if (dstErrMsg(e) === '__abort__') {
       /* 🔴 中止時要講清楚 TCON 現在停在什麼畫面 —— 他可能需要自己復原。 */
@@ -1455,6 +1539,128 @@ function dstCsv() {
   setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   與 DG 主控頁的連動 —— 實作（v1.1.0）
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 本頁的列（物件、key 是 'L123'／'R'／'G'／'B'）→ DG 要的列（陣列 [g, x, y, Y]）。
+   🔴 `L` 後面那個數字是**使用者刻度上的實際灰階**（8-bit ⇒ 0…255、10-bit ⇒
+      0、4、8…1020），不是第幾步。DG 的第 2 部分本來就吃「灰階值 x y Y」這個
+      形狀、而且自己會依列數與跨距判位元深度（`dgGrayScan()`），所以原樣送過去
+      就對得上；送「第幾步」反而會把 10/12-bit 壓成 8-bit 的謊。
+   🔴 失敗的那一階（x===null）**不送**。DG 那一端也會再濾一次 isFinite，
+      兩邊都濾是刻意的：少一階不影響曲線，混進 null 會變成 0 lux 的假資料。 */
+function dstDgRows() {
+  var gray = [], prim = [];
+  dstRows.forEach(function (r) {
+    if (r.x === null || r.y === null || r.lv === null) return;
+    var pk = DST_DG_PRIM_KEY[r.key];
+    if (pk) { prim.push([pk, r.x, r.y, r.lv]); return; }
+    var m = /^L(\d+)$/.exec(r.key);
+    if (m) gray.push([parseInt(m[1], 10), r.x, r.y, r.lv]);
+  });
+  return { gray: gray, prim: prim };
+}
+
+/* 把這一輪的結果回傳給 DG。回傳 true ＝ 真的送出去了。 */
+function dstDgSend() {
+  if (!dstDgAlive()) return false;          // 不是從 DG 開過來的（或 DG 關掉了）⇒ 什麼都不做
+  var s = dstDgRows();
+  var rows = (dstDgMode === 'prim') ? s.prim : s.gray;
+  /* 門檻與 dg-measure.html 逐字相同：純色三筆缺一不可（少一個端點湊不出色彩
+     矩陣），白灰階至少兩筆（DG 那一端的內插需要兩個點）。 */
+  var need = (dstDgMode === 'prim') ? 3 : 2;
+  if (rows.length < need) {
+    dstSay('dst-say-run', dstT('dst.dgTooFew', { n: rows.length, need: need }));
+    dstLog('!  DG send skipped: only ' + rows.length + '/' + need + ' usable rows', 'e');
+    return false;
+  }
+  var durMs = dstDgRunT0 ? (Date.now() - dstDgRunT0) : null;
+  try {
+    window.opener.postMessage({
+      type: 'dg-measure-result',
+      mode: dstDgMode,
+      label: dstT('dst.dgLabel'),
+      task: dstDgTask,
+      at: new Date().toLocaleString(),
+      rows: rows,
+      /* 白灰階那一輪順便帶回三個純色端點（DG 會把它們填進第 3 部分）。
+         沒量齊就送 null —— 與 dg-measure.html 相同，DG 那一端已經會處理 null。 */
+      prim: (dstDgMode === 'gray' && s.prim.length === 3) ? s.prim : null,
+      durMs: durMs,
+      settleMs: dstSettleUsedMs
+    }, DST_DG_ORIGIN);
+  } catch (e) {
+    dstLog('!  DG send failed: ' + dstErrMsg(e), 'e');
+    return false;
+  }
+  dstSay('dst-say-run', dstT('dst.dgSent', { n: rows.length, dest: dstDgDest || 'DG' }));
+  dstLog('== sent to DG: task=' + dstDgTask + ' mode=' + dstDgMode
+    + ' rows=' + rows.length + ' prim=' + (s.prim.length === 3 ? 3 : 0), 'o');
+  return true;
+}
+
+/* 回報自己的版號給 DG。🔴 只在收到 `dg-measure-task` 時回一次，taskId 原封帶回去
+   （DG 靠它認出「這是我剛剛那一次問的回答」，不是上一次換任務的回音）。
+   🔴 `running` 帶的是**收到訊息當下**的值 —— 語意是「你切過來的時候我正在量」，
+      所以一定要在 dstDgApplyTask()（它會把跑到一半的那一輪 abort 掉）之前呼叫。 */
+function dstDgPostHello(taskId) {
+  if (!dstDgAlive()) return;
+  try {
+    window.opener.postMessage(
+      { type: 'dg-measure-hello', version: DST_DG_VER, task: taskId, running: !!dstRunning },
+      DST_DG_ORIGIN);
+  } catch (e) { /* 對方已經不在：DG 那端有超時，這裡不需要也不應該補救 */ }
+}
+
+/* 這一頁正在幫 DG 量什麼 —— 只有從 DG 開過來才顯示，直接開這一頁時整張卡不佔位。 */
+function dstDgRenderTask() {
+  var card = $('dst-dg-card');
+  if (!card) return;
+  var on = !!(dstDgAlive() && (dstDgDest || dstDgWhat));
+  card.classList.toggle('dst-hidden', !on);
+  if (!on) return;
+  $('dst-dg-step').textContent = dstDgDest || '—';
+  $('dst-dg-what').textContent = dstDgWhat || '—';
+}
+
+/* 換任務（DG 在分頁已經開著時只發訊息、不重新導航 —— 頁面不重載，
+   I2C Bridge 與量測儀的連線都不會斷）。 */
+function dstDgApplyTask(d) {
+  /* 🔴 正在量就先中止：切了任務還讓舊的那一輪跑完，資料會回到錯的地方。 */
+  if (dstRunning) { dstAbort = true; dstLog('== task switched, aborting current run', 'w'); }
+  dstDgTask = (typeof d.task === 'number') ? d.task : 0;
+  dstDgMode = (d.mode === 'prim') ? 'prim' : 'gray';
+  dstDgDest = d.dest || '';
+  dstDgWhat = d.what || '';
+  dstDgRenderTask();
+  dstSay('dst-say-run', dstT('dst.dgSwitched', { dest: dstDgDest || 'DG' }));
+  dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' dest=' + dstDgDest, 'o');
+}
+
+window.addEventListener('message', function (e) {
+  /* 🔴 只收同源、而且真的是我們的 opener 送來的 —— 同源的別的分頁也送得出
+     這個型別的訊息，那不該影響這一頁的狀態。 */
+  if (e.origin !== DST_DG_ORIGIN) return;
+  if (window.opener && e.source !== window.opener) return;
+  var d = e.data;
+  if (!d || d.type !== 'dg-measure-task') return;
+  dstDgPostHello(d.task);       // 🔴 第一行、在任何 DOM 工作之前（順序與 dg-measure.html 相同）
+  dstDgApplyTask(d);
+});
+
+/* ═══ I2C Bridge 下載入口 ════════════════════════════════════════════════
+   🔴 檔名與版號全部來自 HELPER_PKG，一個字面值都不寫。HELPER_PKG 讀不到時
+      （version.js 沒載進來）整個入口收起來，**不留一顆按了會 404 的鈕**。 */
+function dstRenderDl() {
+  var a = $('dst-dl'), box = $('dst-dl-box');
+  if (!a || !box) return;
+  if (!DST_PKG.file) { box.classList.add('dst-hidden'); return; }
+  box.classList.remove('dst-hidden');
+  a.setAttribute('href', DST_PKG.file + '?v=' + (DST_PKG.pkg || ''));
+  $('dst-dl-ver').textContent = DST_PKG.pkg || '';
+}
+
 /* ═══ 接線 ═══════════════════════════════════════════════════════════════ */
 function dstBind() {
   dstBuildSettle();
@@ -1463,6 +1669,8 @@ function dstBind() {
   dstRenderWr();
   dstRenderCa();
   dstRenderBtns();
+  dstRenderDl();          // v1.1.0：I2C Bridge 下載入口（版號來自 HELPER_PKG）
+  dstDgRenderTask();      // v1.1.0：DG 指派的任務（沒有就整張卡不顯示）
   $('dst-fixed').textContent = dstT('dst.fixedLine', {
     slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
     khz: Math.round(DST_CLOCK_HZ / 1000)
@@ -1539,6 +1747,7 @@ function dstBind() {
     dstBuildSettle();
     dstSetBits(dstBits);
     dstRenderRes(); dstRenderWr(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();
+    dstRenderDl(); dstDgRenderTask();
     $('dst-fixed').textContent = dstT('dst.fixedLine', {
       slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
       khz: Math.round(DST_CLOCK_HZ / 1000)
@@ -1620,7 +1829,18 @@ window.dstProbe = {
   alignPattern: function () { return dstAlignPattern(); },
   readReg: function (a, n) { return dstReadReg(a, n); },
   writeReg: function (a, b) { return dstWriteReg(a, b); },
-  setRes: function (w, h) { dstRes = { w: w, h: h, from: 'reg' }; dstRenderRes(); }
+  setRes: function (w, h) { dstRes = { w: w, h: h, from: 'reg' }; dstRenderRes(); },
+  /* ═══ v1.1.0：與 DG 的連動（唯讀 ＋ 純函式；唯一的寫入口是 __setRowsForTest）══ */
+  pkg: function () { return JSON.parse(JSON.stringify(DST_PKG)); },
+  dgState: function () {
+    return { mode: dstDgMode, task: dstDgTask, dest: dstDgDest, what: dstDgWhat,
+             linked: dstDgAlive(), ver: DST_DG_VER };
+  },
+  dgRows: dstDgRows,
+  dgSend: dstDgSend,
+  dgApplyTask: dstDgApplyTask,
+  dgPostHello: dstDgPostHello,
+  __setRowsForTest: function (rows) { dstRows = rows; dstRenderRows(); return dstRows.length; }
 };
 
 })();

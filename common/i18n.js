@@ -2103,6 +2103,13 @@ var I18N = {
   'i2c.lnaAsk':         { 'zh-TW': '瀏覽器要你允許存取本機網路，請按「允許」。', 'en': 'The browser is asking for permission to reach the local network — please click "Allow".', 'zh-CN': '浏览器要你允许访问本地网络，请点“允许”。' },
   'i2c.btnRetry':       { 'zh-TW': '重試', 'en': 'Retry', 'zh-CN': '重试' },
   'i2c.noBridge':       { 'zh-TW': '連不到 I2C Bridge', 'en': 'Cannot reach I2C Bridge', 'zh-CN': '连不到 I2C Bridge' },
+  /* v1.24.2：同一支程式／搶用權（行為本身沒有改，只是寫出來） */
+  'i2c.dlShared':       { 'zh-TW': '「TCON 自檢畫面量測」用的是<b>同一支程式</b>，兩邊只要下載一次。',
+                          'en': 'The TCON self-test measurement page uses <b>the same program</b> — one download covers both.',
+                          'zh-CN': '「TCON 自检画面量测」用的是<b>同一支程序</b>，两边只要下载一次。' },
+  'i2c.ownerNote':      { 'zh-TW': 'I2C Bridge 一次只給一個分頁用：切到哪一頁就由哪一頁接手，被接手的那一頁會顯示未連線；<b>正在量測的那一頁不會被接手</b>。',
+                          'en': 'Only one tab holds the I2C Bridge at a time: whichever tab you switch to takes it over, and the one that loses it shows as disconnected. <b>A tab that is measuring will not be taken over.</b>',
+                          'zh-CN': 'I2C Bridge 一次只给一个分页用：切到哪一页就由哪一页接手，被接手的那一页会显示未连线；<b>正在量测的那一页不会被接手</b>。' },
   'i2c.dbgNeedOpen':    { 'zh-TW': '（需 ≥ ', 'en': ' (needs ≥ ', 'zh-CN': '（需 ≥ ' },
   'i2c.dbgNeedClose':   { 'zh-TW': '） · 包 ', 'en': ') · package ', 'zh-CN': '） · 包 ' },
 
@@ -2739,5 +2746,42 @@ var I18N = {
   'dst.caMds':          { 'zh-TW': 'x, y, Lv 模式', 'en': 'x, y, Lv mode', 'zh-CN': 'x, y, Lv 模式' },
   'dst.caMch':          { 'zh-TW': '校正通道 0', 'en': 'calibration channel 0', 'zh-CN': '校正通道 0' },
   'dst.caLus':          { 'zh-TW': '單位 cd/m²', 'en': 'unit cd/m²', 'zh-CN': '单位 cd/m²' },
+
+  /* ═══ dg v1.68.0：即時量測的二選一 ════════════════════════════════════════
+     🔴 `dg.html` 其餘部分是繁中單語，這個視窗是新加的 ⇒ 照全站慣例走 i18n。 */
+  'dg.pickTitle':       { 'zh-TW': '這一次要用哪一種畫面量測？', 'en': 'Which picture do you want to measure?', 'zh-CN': '这一次要用哪一种画面量测？' },
+  'dg.pickCancel':      { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
+  'dg.pickPc':          { 'zh-TW': '電腦畫面量測', 'en': 'Measure the computer’s picture', 'zh-CN': '电脑画面量测' },
+  'dg.pickPcSub':       { 'zh-TW': '畫面由這台電腦出，任何面板都適用。這就是原本按下「即時量測」會開的那一頁。',
+                          'en': 'The picture comes from this computer; works with any panel. This is the page “Live measurement” used to open.',
+                          'zh-CN': '画面由这台电脑出，任何面板都适用。这就是原本按下「即时量测」会开的那一页。' },
+  'dg.pickTcon':        { 'zh-TW': 'T-CON 自檢畫面量測', 'en': 'Measure the T-CON self-test picture', 'zh-CN': 'T-CON 自检画面量测' },
+  'dg.pickTconSub':     { 'zh-TW': '畫面由 TCON 自己出，不經過顯示卡。需要 I2C 治具接上板子。',
+                          'en': 'The TCON paints the picture itself, bypassing the graphics card. Needs the I2C rig connected to the board.',
+                          'zh-CN': '画面由 TCON 自己出，不经过显示卡。需要 I2C 治具接上板子。' },
+  'dg.pickDl':          { 'zh-TW': '下載 I2C Bridge', 'en': 'Download I2C Bridge', 'zh-CN': '下载 I2C Bridge' },
+  'dg.pickShared':      { 'zh-TW': '　與「I2C 讀寫測試」是<b>同一支程式</b>，已經下載過就不用再載。',
+                          'en': '　The I2C Read/Write Test page uses <b>the same program</b> — if you already have it, there is nothing to download.',
+                          'zh-CN': '　与「I2C 读写测试」是<b>同一支程序</b>，已经下载过就不用再载。' },
+
+  /* ═══ dg-selftest v1.1.0：與 DG 的連動、I2C Bridge 下載、搶用權 ═══════════ */
+  'dst.dgStep':         { 'zh-TW': '這一次量給', 'en': 'Measuring for', 'zh-CN': '这一次量给' },
+  'dst.dgWhat':         { 'zh-TW': '量什麼', 'en': 'What to measure', 'zh-CN': '量什么' },
+  'dst.dgNote':         { 'zh-TW': '掃描跑完會自動回到 DG 那一頁，不用手動搬。中止或出錯則不回傳。',
+                          'en': 'When the scan finishes the data goes back to the DG page on its own. Nothing is sent back if you stop it or it fails.',
+                          'zh-CN': '扫描跑完会自动回到 DG 那一页，不用手动搬。中止或出错则不回传。' },
+  'dst.dgLabel':        { 'zh-TW': '即時量測（TCON 自檢畫面）', 'en': 'Live measurement (TCON self-test pattern)', 'zh-CN': '即时量测（TCON 自检画面）' },
+  'dst.dgSent':         { 'zh-TW': '✔ {n} 筆已回到 DG 的{dest}。', 'en': '✔ {n} rows are back in DG ({dest}).', 'zh-CN': '✔ {n} 笔已回到 DG 的{dest}。' },
+  'dst.dgTooFew':       { 'zh-TW': '只量到 {n} 筆（需要 {need} 筆），沒有回傳給 DG。',
+                          'en': 'Only {n} rows measured ({need} needed) — nothing was sent back to DG.',
+                          'zh-CN': '只量到 {n} 笔（需要 {need} 笔），没有回传给 DG。' },
+  'dst.dgSwitched':     { 'zh-TW': '已切到{dest}。按「開始掃描」量這一次。', 'en': 'Switched to {dest}. Press “Start scan” for this round.', 'zh-CN': '已切到{dest}。按「开始扫描」量这一次。' },
+  'dst.dlBtn':          { 'zh-TW': '下載 I2C Bridge', 'en': 'Download I2C Bridge', 'zh-CN': '下载 I2C Bridge' },
+  'dst.dlShared':       { 'zh-TW': '「I2C 讀寫測試」那一頁用的是<b>同一支程式</b>：已經下載過就不必再載一次，執行起來這一頁就連得上。',
+                          'en': 'The I2C Read/Write Test page uses <b>the same program</b>. If you already downloaded it, just run it — no need to download again.',
+                          'zh-CN': '「I2C 读写测试」那一页用的是<b>同一支程序</b>：已经下载过就不必再载一次，执行起来这一页就连得上。' },
+  'dst.ownerNote':      { 'zh-TW': 'I2C Bridge 一次只給一個分頁用 —— 切到哪一頁就由哪一頁接手，被接手的那一頁會顯示未連線；<b>正在量測的那一頁不會被接手</b>。',
+                          'en': 'Only one tab holds the I2C Bridge at a time — whichever tab you switch to takes it over, and the one that loses it shows as disconnected. <b>A tab that is measuring will not be taken over.</b>',
+                          'zh-CN': 'I2C Bridge 一次只给一个分页用 —— 切到哪一页就由哪一页接手，被接手的那一页会显示未连线；<b>正在量测的那一页不会被接手</b>。' },
 
 };
