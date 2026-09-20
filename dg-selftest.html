@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="TCON 自檢畫面量測 — 由 TCON 自己出圖，配合光學量測儀逐階取 x / y / Y">
+<meta property="og:title" content="TCON 自檢畫面量測 — TCON FAE專用工具箱">
+<meta property="og:description" content="由 TCON 自己出圖的灰階／純色掃描量測">
+<meta property="og:image" content="https://brucecheng0428.github.io/tcon-tools/og-image.png">
+<meta property="og:url" content="https://brucecheng0428.github.io/tcon-tools/dg-selftest.html">
+<meta property="og:type" content="website">
+<title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
+<link rel="stylesheet" href="common/common.css?v=20260903help">
+<!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
+<script src="common/version.js?v=20260920dst100"></script>
+<style>
+  /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
+     只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
+     CSS 變數，不另外寫死色碼（換主題時才不會只有這一頁沒跟上）。 */
+  .dst-wrap { max-width: 520px; margin: 0 auto; padding: 12px; }
+
+  /* 一行「標籤 ─ 值」的觀測列 */
+  .dst-kv { display: flex; justify-content: space-between; align-items: baseline;
+            gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .dst-kv:last-child { border-bottom: none; }
+  .dst-kv > span:first-child { color: var(--text-sub); flex: 0 0 auto; }
+  .dst-kv > span:last-child { font-family: ui-monospace, Menlo, Consolas, monospace;
+                              text-align: right; word-break: break-all; }
+  .dst-na { color: var(--text-sub); }
+
+  /* 連線開關：OFF 灰、ON 綠。做法沿用 i2c.html 的單顆開關（aria-pressed 帶狀態）。 */
+  .dst-toggle { padding: 10px 18px; border-radius: 9px; border: 1.5px solid var(--border);
+                background: #0f172a; color: var(--text-sub); font-size: 14px; font-weight: 700;
+                cursor: pointer; transition: all .15s; }
+  .dst-toggle[aria-pressed="true"] { border-color: var(--success); background: #064e3b; color: #6ee7b7; }
+  .dst-toggle:disabled { opacity: .5; cursor: not-allowed; }
+
+  .dst-btn { padding: 9px 14px; border-radius: 8px; border: 1.5px solid var(--border);
+             background: #0f172a; color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
+  .dst-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .dst-btn.pri { border-color: var(--primary); background: #1e3a5f; color: var(--accent); }
+  .dst-btn.danger { border-color: var(--red); background: #431418; color: #fca5a5; }
+  .dst-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .dst-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .dst-grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+  /* 顏色拉霸 */
+  .dst-slider { display: grid; grid-template-columns: 26px 1fr 72px; gap: 8px; align-items: center;
+                margin-bottom: 8px; }
+  .dst-slider label { font-weight: 700; font-size: 13px; }
+  .dst-slider input[type="range"] { width: 100%; }
+  .dst-slider input[type="number"] { width: 100%; padding: 6px 6px; font-size: 13px;
+    background: #0f172a; color: var(--text); border: 1.5px solid var(--border); border-radius: 6px; }
+  .dst-sl-r label { color: #f87171; } .dst-sl-g label { color: #4ade80; }
+  .dst-sl-b label { color: #60a5fa; } .dst-sl-w label { color: #e2e8f0; }
+
+  .dst-sel { padding: 7px 8px; background: #0f172a; color: var(--text);
+             border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; }
+
+  /* 說話行：正常路徑上是空的，只有出事才有字（沿用其他頁「錯誤才說話」的做法） */
+  .dst-say { margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: var(--error); }
+  .dst-say:empty { display: none; }
+  .dst-note { font-size: 11.5px; color: var(--text-sub); line-height: 1.6; margin-top: 6px; }
+
+  /* 進度 */
+  .dst-prog-outer { height: 8px; background: #0f172a; border: 1px solid var(--border);
+                    border-radius: 5px; overflow: hidden; margin: 8px 0 4px; }
+  .dst-prog-inner { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+
+  /* log：等寬、可捲、自己一張卡 */
+  .dst-log { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.55;
+             background: #0b1220; border: 1px solid var(--border); border-radius: 8px;
+             padding: 8px; height: 190px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  .dst-log .e { color: var(--error); } .dst-log .o { color: #6ee7b7; } .dst-log .w { color: var(--warn); }
+
+  .dst-tbl-wrap { max-height: 260px; overflow: auto; border: 1.5px solid var(--border); border-radius: 8px; }
+  .dst-tbl { width: 100%; border-collapse: collapse; font-size: 12px;
+             font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .dst-tbl th { position: sticky; top: 0; background: var(--primary); color: #fff;
+                padding: 6px 8px; font-weight: 600; }
+  .dst-tbl td { padding: 5px 8px; text-align: right; border-bottom: 1px solid #2d3f55; }
+  .dst-tbl td:first-child { text-align: left; color: var(--accent); }
+  .dst-tbl tr.bad td { color: var(--error); }
+
+  .dst-warn-box { border: 1.5px solid var(--warn); border-radius: 8px; padding: 10px;
+                  background: #2b2207; font-size: 12.5px; line-height: 1.65; }
+  .dst-hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ═══ 頁首：結構逐項比照 calc.html:436-446 ════════════════════════════════
+     ① .back-btn ② h1（圖示＋標題＋版號徽章）③ 副標 <p> ④ .tool-help-btn
+     ⑤ .lang-switcher > #lang-select
+     🔴 版號徽章走 `data-tool-version="dgself"`，與其他分頁同一個機制
+        （common/common.js 開頭那支 IIFE 從 TOOL_VERSIONS 注入）。
+     🔴 圖示：一塊面板＋中心十字，純幾何，無任何廠商標誌。
+     🔴 說明頁（dg-selftest-guide.html）尚未撰寫 ⇒ 本版**不放「?」按鈕**。
+        放一顆連到 404 的按鈕比沒有按鈕更糟。 -->
+<div class="header subpage-header">
+  <a href="index.html" class="back-btn" data-i18n="common.backToHome">‹ 返回主頁</a>
+  <h1><svg width="22" height="18" viewBox="0 0 30 24" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px" aria-hidden="true"><rect x="2" y="3" width="26" height="18" rx="2" stroke="#38bdf8" stroke-width="1.8"/><path d="M15 7 V17 M10 12 H20" stroke="#f87171" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="dst.title">TCON 自檢畫面量測</span> <span style="display:inline-block;background:#38bdf8;color:#0f172a;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="dgself"></span></h1>
+  <p data-i18n="dst.subtitle">由 TCON 自己出圖，逐階取 x / y / Y</p>
+  <div class="lang-switcher">
+    <select id="lang-select" class="lang-select" aria-label="Language">
+      <option value="zh-TW">繁體中文</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+</div>
+
+<div class="dst-wrap">
+
+  <!-- ═══ 0. 未經實機驗證的警語 ═══════════════════════════════════════════
+       🔴 這一段一個字都不能拿掉，直到有人拿真機跑過為止。
+          出處：dg-measure.html 的同一句警語（那一頁自述七顆 IC 全部未驗）。 -->
+  <div class="card">
+    <div class="card-body">
+      <div class="dst-warn-box" data-i18n="dst.unverified">⚠ 這一頁會寫入 TCON 的暫存器。全部七顆 IC 的寫入序列都是逐行照抄上游工具 V1.5.0 的反組譯，但**沒有任何一顆在真機上跑過**。第一次用請先確認手上的板子是可以重刷的。</div>
+    </div>
+  </div>
+
+  <!-- ═══ 1. 連線 ═══════════════════════════════════════════════════════ -->
+  <div class="card">
+    <div class="card-header"><span class="icon">🔌</span><span data-i18n="dst.hdLink">I2C 連線與 IC 識別</span></div>
+    <div class="card-body">
+      <div class="dst-row" style="justify-content:space-between">
+        <button id="dst-link" class="dst-toggle" aria-pressed="false"><span id="dst-link-txt" data-i18n="dst.stOff">未連線</span></button>
+        <button id="dst-probe" class="dst-btn" data-i18n="dst.btnProbe">重新識別</button>
+      </div>
+      <div style="margin-top:10px">
+        <div class="dst-kv"><span data-i18n="dst.kvBridge">I2C Bridge</span><span id="dst-v-bridge" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvComm">通訊自檢</span><span id="dst-v-comm" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvId">0xFF00（IC ID）</span><span id="dst-v-id" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvIc">IC</span><span id="dst-v-ic" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvRes">解析度</span><span id="dst-v-res" class="dst-na">—</span></div>
+        <div class="dst-kv"><span data-i18n="dst.kvWr">可寫入位址</span><span id="dst-v-wr" class="dst-na">—</span></div>
+      </div>
+
+      <!-- 撞號二選一：只有識別到的那一組 ID 分不出兩顆時才出現 -->
+      <div id="dst-alt-box" class="dst-hidden" style="margin-top:10px">
+        <div class="dst-note" data-i18n="dst.altWhy">這兩顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請自己選 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。</div>
+        <div class="dst-row" style="margin-top:6px">
+          <select id="dst-alt" class="dst-sel"></select>
+        </div>
+      </div>
+
+      <div class="dst-note" id="dst-fixed">&nbsp;</div>
+      <div class="dst-say" id="dst-say-link"></div>
+    </div>
+  </div>
+
+  <!-- ═══ 2. 出圖設定 ═════════════════════════════════════════════════════ -->
+  <div class="card">
+    <div class="card-header"><span class="icon">🎚️</span><span data-i18n="dst.hdPattern">出圖</span></div>
+    <div class="card-body">
+
+      <div class="field">
+        <label data-i18n="dst.lbBits">灰階位元深度</label>
+        <div class="dst-row">
+          <select id="dst-bits" class="dst-sel">
+            <option value="8">8-bit (0–255)</option>
+            <option value="10">10-bit (0–1023)</option>
+            <option value="12">12-bit (0–4095)</option>
+          </select>
+          <span class="dst-note" id="dst-bits-note">&nbsp;</span>
+        </div>
+      </div>
+
+      <!-- R / G / B / W 四條拉霸。W 不是獨立通道，它把 R=G=B 綁在一起。 -->
+      <div class="dst-slider dst-sl-r"><label for="dst-sl-r">R</label><input type="range" id="dst-sl-r" min="0" max="255" value="0"><input type="number" id="dst-nr" min="0" max="255" value="0"></div>
+      <div class="dst-slider dst-sl-g"><label for="dst-sl-g">G</label><input type="range" id="dst-sl-g" min="0" max="255" value="0"><input type="number" id="dst-ng" min="0" max="255" value="0"></div>
+      <div class="dst-slider dst-sl-b"><label for="dst-sl-b">B</label><input type="range" id="dst-sl-b" min="0" max="255" value="0"><input type="number" id="dst-nb" min="0" max="255" value="0"></div>
+      <div class="dst-slider dst-sl-w"><label for="dst-sl-w">W</label><input type="range" id="dst-sl-w" min="0" max="255" value="0"><input type="number" id="dst-nw" min="0" max="255" value="0"></div>
+
+      <div class="dst-kv"><span data-i18n="dst.kvSend">送進 IC 的 12-bit 值</span><span id="dst-v-send">0 / 0 / 0</span></div>
+
+      <div class="dst-grid4" style="margin-top:10px">
+        <button class="dst-btn" id="dst-q-w" data-i18n="dst.btnQw">白</button>
+        <button class="dst-btn" id="dst-q-r" data-i18n="dst.btnQr">紅</button>
+        <button class="dst-btn" id="dst-q-g" data-i18n="dst.btnQg">綠</button>
+        <button class="dst-btn" id="dst-q-b" data-i18n="dst.btnQb">藍</button>
+      </div>
+
+      <div class="dst-row" style="margin-top:10px">
+        <button class="dst-btn pri" id="dst-align" data-i18n="dst.btnAlign">對位畫面（L127 ＋ 中心十字）</button>
+      </div>
+      <div class="dst-row" style="margin-top:8px">
+        <button class="dst-btn" id="dst-cross-on" data-i18n="dst.btnCrossOn">十字 ON</button>
+        <button class="dst-btn" id="dst-cross-off" data-i18n="dst.btnCrossOff">十字 OFF</button>
+        <button class="dst-btn" id="dst-leave" data-i18n="dst.btnLeave">離開出圖模式</button>
+      </div>
+      <div class="dst-note" data-i18n="dst.crossNote">十字是紅色的一條細線，位置固定在畫面正中心；線寬不可調（暫存器裡沒有這個欄位）。</div>
+      <div class="dst-say" id="dst-say-pattern"></div>
+    </div>
+  </div>
+
+  <!-- ═══ 3. 量測 ═════════════════════════════════════════════════════════ -->
+  <div class="card">
+    <div class="card-header"><span class="icon">📈</span><span data-i18n="dst.hdMeasure">量測</span></div>
+    <div class="card-body">
+      <div class="field">
+        <label data-i18n="dst.lbSettle">換階等待</label>
+        <div class="dst-row">
+          <!-- <option> 由 JS 依 DST_SETTLE_CHOICES 產生（單一來源），這裡刻意留空 -->
+          <select id="dst-settle" class="dst-sel"></select>
+          <span class="dst-note" data-i18n="dst.settleNote">出圖之後、叫儀器量之前等這麼久。上游工具的預設值就是 700 ms。</span>
+        </div>
+      </div>
+
+      <div class="dst-row">
+        <button id="dst-ca" class="dst-toggle" aria-pressed="false"><span id="dst-ca-txt" data-i18n="dst.stCaOff">儀器未連線</span></button>
+      </div>
+      <div style="margin-top:10px">
+        <div class="dst-kv"><span data-i18n="dst.kvHz">畫面更新率</span><span id="dst-v-hz" class="dst-na">—</span></div>
+      </div>
+
+      <div class="dst-row" style="margin-top:12px">
+        <button class="dst-btn pri" id="dst-run" data-i18n="dst.btnRun">開始掃描</button>
+        <button class="dst-btn danger" id="dst-stop" disabled data-i18n="dst.btnStop">■ 停止</button>
+        <button class="dst-btn" id="dst-csv" disabled data-i18n="dst.btnCsv">匯出 CSV</button>
+      </div>
+
+      <div class="dst-prog-outer"><div class="dst-prog-inner" id="dst-prog"></div></div>
+      <div class="dst-note" id="dst-progtxt">&nbsp;</div>
+      <div class="dst-say" id="dst-say-run"></div>
+
+      <div class="dst-tbl-wrap dst-hidden" id="dst-res-wrap" style="margin-top:10px">
+        <table class="dst-tbl">
+          <thead><tr><th data-i18n="dst.thStep">階</th><th>x</th><th>y</th><th>Y</th></tr></thead>
+          <tbody id="dst-res"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. log ═════════════════════════════════════════════════════════ -->
+  <div class="card">
+    <div class="card-header"><span class="icon">📜</span><span data-i18n="dst.hdLog">紀錄</span></div>
+    <div class="card-body">
+      <div class="dst-log" id="dst-log"></div>
+      <div class="dst-row" style="margin-top:8px">
+        <button class="dst-btn" id="dst-log-copy" data-i18n="dst.btnCopyLog">複製紀錄</button>
+        <button class="dst-btn" id="dst-log-clear" data-i18n="dst.btnClearLog">清除</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="common/i18n.js?v=20260920dst100"></script>
+<script src="common/common.js?v=20260920dst100"></script>
+<script>
+/* ═════════════════════════════════════════════════════════════════════════
+   TCON 自檢畫面量測 — dg-selftest.html
+   ─────────────────────────────────────────────────────────────────────────
+   這一頁做的事：讓 TCON **自己**把灰階／純色打在面板上（不經過電腦顯示卡），
+   再用光學量測儀逐階取 x / y / Y。
+
+   ═══ 規範來源 ═════════════════════════════════════════════════════════════
+   🔴 暫存器層級的每一條序列，來源都是**上游量測工具 V1.5.0 的反組譯**，
+      不是暫存器規格書。規格書只用來解釋欄位含義，不取代序列。
+      下面每一筆都標了反組譯的行號（`L1807–1822` 這種）；行號對應的檔名與
+      完整逐項比對表在 `~/ClaudeData/dg_tcon_pattern/pq_tool_spec.md`
+      （那份不進 git，所以可以照實寫檔名；本檔是公開可抓的，只留行號）。
+
+   ═══ 這一頁**不**做的事（刻意）═══════════════════════════════════════════
+     · 不走 WebUSB 直連治具 —— 傳輸層一律 I2C Bridge（已在真機上驗過的那一條）。
+     · 不讓使用者填 slave 位址 —— 照上游工具的自動偵測順序掃 0x60→0x61→0x68→0x69。
+     · 不寫白名單以外的任何位址 —— 見 dstWriteAllowed。
+     · 認不出 IC 時**一個位址都不寫**。
+
+   ═══ 命名前綴 ═════════════════════════════════════════════════════════════
+   全域識別字一律 `dst`／`DST_`（dg self-test）。
+   ═════════════════════════════════════════════════════════════════════════ */
+(function () {
+'use strict';
+
+function $(id) { return document.getElementById(id); }
+function dstT(k, v) { return (typeof t === 'function') ? t(k, v) : k; }
+
+/* ═══ 常數 ═══════════════════════════════════════════════════════════════ */
+var DST_PORT      = 8899;
+var DST_WS_URL    = 'ws://127.0.0.1:' + DST_PORT + '/ws';
+var DST_WS_MS     = 4000;      // 單筆命令等 I2C Bridge 回覆的上限
+var DST_NEED_PROTO = 1;        // 本頁只用 read／write／open／ping，proto 1 就夠
+var DST_OPEN_RETRIES = 5;      // 開通道自動重試（前一兩次可能回 0 channel）
+var DST_OPEN_RETRY_MS = 500;
+var DST_CLOCK_HZ  = 150000;
+var DST_PAGE_VER  = (typeof TOOL_VERSIONS === 'object' && TOOL_VERSIONS.dgself) || 'unknown';
+
+/* ═══ 🔴 換階等待（出圖之後、叫儀器量之前）══════════════════════════════
+   上游工具這一項**沒有下拉清單** —— 是一個自由輸入的文字框，預設字串 "700"，
+   沒有上下限檢查，也沒有存檔（每次開程式都回到 700）。
+   Bruce 2026-09-20 指定改成清單：300…1000 每 100 一階，預設 700。
+
+   🔴 **刻意不與 dg-measure.html 共用同一份常數。** 那一頁的 300 ms 是電腦出圖
+      那條路依實測調的（CHANGELOG v1.47.0 ②），兩邊的物理條件不同，共用一份
+      會讓改這裡波及到那裡。兩頁各持一份。
+
+   🔴 這個等待與儀器的積分時間**無關**：量測呼叫本身是同步的（送出 MES,1 之後
+      要等儀器回覆才會往下走），暗階積分變長會自己反映在那一次等待上。
+      這 700 ms 只負責「換圖之後讓畫面穩定」。 */
+var DST_SETTLE_CHOICES = [300, 400, 500, 600, 700, 800, 900, 1000];
+var DST_SETTLE_DEFAULT = 700;
+var dstSettleUsedMs = DST_SETTLE_DEFAULT;   // 進迴圈前抓一次，迴圈中不再讀 UI
+
+/* ═══ per-IC 位址表 ══════════════════════════════════════════════════════
+   🔴 六個比對項，逐字照抄上游工具 `CheckICID(ref data)` L191–227 的掃描順序：
+      E512AX → V007SX → V512SX → EM01AX → EM02AX → VM01AX → VM02AX。
+      這個順序決定撞號時先報哪一顆 —— 不是我排的。
+
+   🔴 兩組撞號（上游工具自己也分不出來，我們不假裝分得出）：
+      ① EM01AX ≡ VM01AX：判別條件逐字相同。
+      ② EM02AX 這一支同時被 EM02A1 與 V512S2 共用（L177–179）。
+      ⇒ 掛成 `alts`，由使用者自己選（見 #dst-alt）。
+
+   欄位說明：
+     soft   — SetAgingMode(true)：讀 addr →(reg & and)|or→ 寫回
+     aux    — 只有 E512A1 有的第二段：0x0255 bit7，進入時記住並清掉、離開時還原
+     ud     — SetAgingUserdefineMode() 的**逐筆順序**（四種順序，照抄不要「整理」）
+     inside — SetPatternRGB 的 5 bytes 寫入位址
+     cross  — SetCrossPattern()：讀 pat →(reg & 0x80)|0x0D→ 寫回（pattern 13）
+     cursor — SetCursorON / SetCursorOFF / SetCursorON(h,w)
+     wr     — 🔴 **本顆允許寫入的位址區間**（白名單）
+     alts   — 撞號時的另一顆：可覆寫 ud／cursor.clk／cursor.ctl，並追加 wr 區間
+
+   🔴 三個坑（實際覆核七顆之後）：
+      ① 同一個 ptg base 不代表同一組 offset：EM02A1 與 VM02S1 的 base 都是
+         0x0C00，但 xpos/ypos/inside 是 5C/36/39 對 38/3A/40。
+      ② 同一個位址在不同 IC 上屬於不同的 bank：0x0C00 在 EM01 上是別的 bank。
+         ⇒ 白名單必須 per-IC，不能用聯集。
+      ③ E512A1 的 pattern 值是 **0**，不是 58；而且它是唯一沒有 SetCursorOFF 的。 */
+var DST_ICS = [
+  {
+    key: 'E512AX', name: 'E512A1',
+    id: [0x12, 0xE5, 0xA0],                              // L383–393
+    /* 🔴 這是**畫面上的字**，所以存的是 i18n key 不是字串常數。
+       E512A2 與 E512A1 共用同一組 ID，上游工具也分不出來 —— 但兩顆的出圖序列
+       相同（它沒有獨立的 per-IC 檔），所以不必做成 alts，如實標示就夠了。 */
+    alsoMayBeKey: 'dst.alsoE512',
+    patternOk: true,
+    ptgBase: 0x0200,
+    soft: { addr: 0x0200, and: 0xB3, or: 0x4C, src: 'L1807–1822' },
+    /* 🔴 只有這一顆有：進入時把 0x0255 bit7（sw aging）記住並清掉，離開時還原。
+       上游工具要固定畫面時是把 sw aging **關掉**，不是打開。 */
+    aux: { addr: 0x0255, bit: 7, mode: 'clearOnEnter', src: 'L1823–1844' },
+    udCursorOff: false,                                  // 🔴 七顆裡唯一沒有的（L1922–1934）
+    ud: ['pat', 'ypos', 'xpos'],                         // 0x0201=0 → 0x0236 → 0x025B
+    pat: { addr: 0x0201, value: 0 },                     // 🔴 pattern **0**，不是 58
+    xpos: { addr: 0x025B }, ypos: { addr: 0x0236 },
+    inside: { addr: 0x0203, src: 'L1907–1919' },
+    cross: { addr: 0x0201, and: 0x80, or: 0x0D, src: 'L1937–1945' },
+    cursor: { clk: { addr: 0x0001, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+              off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L1768–1806' },
+    wr: [[0x0200, 0x02FF], [0x0001, 0x0001], [0xFF20, 0xFF25]],
+    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } },
+    agingEn: { addr: 0x0255, bit: 7 }
+  },
+  {
+    key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0],   // L395–405
+    /* 🔴 反組譯子集裡**沒有**這一顆的 per-IC 檔 ⇒ 沒有任何序列可以照抄。
+       認得出來，但一個位址都不寫。這是「正確地不實作」，不是漏抄。 */
+    patternOk: false,
+    noImpl: true,                      // 說明文字走 i18n（dst.noSeq），這裡只留旗標
+    obs: { icid: { addr: 0xFF00, len: 3 } }
+  },
+  {
+    key: 'V512SX', name: 'V512S1', id: [0x12, 0xF5, 0xF0],   // L407–417
+    patternOk: true,
+    ptgBase: 0x0200,
+    soft: { addr: 0x0200, and: 0xB3, or: 0x4C, src: 'L2729–2748' },
+    udCursorOff: true,
+    ud: ['pat', 'ypos', 'xpos'],                         // L2935–2949
+    pat: { addr: 0x0201, value: 58 },
+    xpos: { addr: 0x025B }, ypos: { addr: 0x0236 },
+    inside: { addr: 0x0239, src: 'L2920–2933' },
+    cross: { addr: 0x0201, and: 0x80, or: 0x0D, src: 'L2951–2960' },
+    /* 🔴 這一顆的 0xFF20 遮罩是 **0x97**，不是別顆的 0x87（L2850）。 */
+    cursor: { clk: { addr: 0x0003, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x97, or: 0x12 },
+              off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2830–2866' },
+    wr: [[0x0200, 0x02FF], [0x0003, 0x0003], [0xFF20, 0xFF25]],
+    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+  },
+  {
+    key: 'EM01A1', name: 'EM01A1', id: [0x01, 0xEF, 0xA0],   // L419–429
+    /* 🔴 撞號如實呈現：EM01AX（L419）與 VM01AX（L431）的判別條件**逐字相同**。
+       好消息（可逐位元覆核）：出圖那一段兩顆的序列**完全相同**
+       （0x1200 &0xB3|0x4C、0x1201=58、0x1238、0x123A、0x1240、ud 順序也相同），
+       所以撞號**不影響灰階／RGB 出圖**。差別只在 cursor 的 clock-enable
+       那一筆（0x0002 bit1 對 0x0003 bit2）。 */
+    patternOk: true,
+    ptgBase: 0x1200,
+    soft: { addr: 0x1200, and: 0xB3, or: 0x4C, src: 'L2725–2745' },
+    udCursorOff: true,
+    ud: ['pat', 'xpos', 'ypos'],                         // L2881–2896
+    pat: { addr: 0x1201, value: 58 },                    // 58 = Edge pattern
+    xpos: { addr: 0x1238 }, ypos: { addr: 0x123A },
+    inside: { addr: 0x1240, src: 'L2810–2823' },
+    cross: { addr: 0x1201, and: 0x80, or: 0x0D, src: 'L2898–2906' },
+    cursor: { clk: { addr: 0x0002, or: 0x02 }, ctl: { addr: 0xFF20, and: 0x85, or: 0x12 },
+              off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2825–2879' },
+    alts: [
+      /* VM01S1：出圖序列與 EM01A1 完全相同，只有 cursor clock-enable 不同（L3088–3102）。 */
+      { key: 'VM01S1', name: 'VM01S1',
+        cursorClk: { addr: 0x0003, or: 0x04 },
+        cursorCtl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+        wr: [[0x0003, 0x0003]] }
+    ],
+    agingEn: { addr: 0x1268, bit: 0 },
+    wr: [[0x1200, 0x12FF], [0x0002, 0x0002], [0xFF20, 0xFF25]],
+    obs: { icid: { addr: 0xFF00, len: 3 }, agbsen: { addr: 0xFFC5, bit: 1 },
+           agingRo: { addr: 0xE801, bit: 0 } }
+  },
+  {
+    key: 'EM02A1', name: 'EM02A1', id: [0x02, 0xEF, 0xA0],   // L455–465
+    /* 🔴 第二組撞號：上游工具把 EM02A1 與 V512S2 交給**同一支**判別函式
+       （L177–179）。兩顆的 ptg base 同為 0x0C00、offset 也相同，但有**兩處**不同：
+         ① cursor clock-enable：0x0003 bit2 對 0x0004 bit2
+         ② 🔴 **UD 的逐筆順序**：EM02A1 是 xpos→ypos→pat（L2998–3012），
+            V512S2 是 **pat→xpos→ypos**（L2867–2882）。
+       ⇒ 兩顆都掛在這裡，由使用者自己選（見 alts）。 */
+    patternOk: true,
+    ptgBase: 0x0C00,
+    soft: { addr: 0x0C00, and: 0xB3, or: 0x4C, src: 'L2856–2876' },
+    udCursorOff: true,
+    ud: ['xpos', 'ypos', 'pat'],                         // L2998–3012：🔴 與 EM01 相反
+    pat: { addr: 0x0C01, value: 58 },
+    xpos: { addr: 0x0C5C }, ypos: { addr: 0x0C36 },
+    inside: { addr: 0x0C39, src: 'L2928–2941' },
+    cross: { addr: 0x0C01, and: 0x80, or: 0x0D, src: 'L3014–3023' },
+    cursor: { clk: { addr: 0x0003, or: 0x04 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+              off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L2959–2996' },
+    alts: [
+      /* 🔴 V512S2 的 UD 順序**單獨處理**（Bruce 2026-09-20 裁示）。
+         理由：以反組譯的實際行為為準。IC 對「先設 pattern 還是先設座標」敏不敏感
+         我們判不出來，照上游工具做最安全。位址與值完全相同，只有先後順序不同，
+         所以這一條不可能寫壞 IC —— 最壞情況是畫面不對。 */
+      { key: 'V512S2', name: 'V512S2',
+        ud: ['pat', 'xpos', 'ypos'],                     // L2867–2882
+        cursorClk: { addr: 0x0004, or: 0x04 },
+        cursorCtl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+        wr: [[0x0004, 0x0004]] }
+    ],
+    /* 規格書 EM02 的 ptg：h005d bit6 ＝ reg_ptg_aging_en */
+    agingEn: { addr: 0x0C5D, bit: 6 },
+    wr: [[0x0C00, 0x0CFF], [0x0003, 0x0003], [0xFF20, 0xFF25]],
+    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+  },
+  {
+    key: 'VM02AX', name: 'VM02S1', id: [0x02, 0xEF, 0xF0],   // L443–453
+    patternOk: true,
+    ptgBase: 0x0C00,
+    soft: { addr: 0x0C00, and: 0xB3, or: 0x4C, src: 'L3328–3347' },
+    udCursorOff: true,
+    ud: ['xpos', 'ypos', 'pat'],                         // L3470–3484
+    pat: { addr: 0x0C01, value: 58 },
+    /* 🔴 與 EM02A1 同樣 base 0x0C00，**offset 卻不同**（38/3A/40 對 5C/36/39）。 */
+    xpos: { addr: 0x0C38 }, ypos: { addr: 0x0C3A },
+    inside: { addr: 0x0C40, src: 'L3400–3413' },
+    cross: { addr: 0x0C01, and: 0x80, or: 0x0D, src: 'L3486–3495' },
+    /* 🔴 這一顆的 clock-enable 是 0x0004 **bit5**（|0x20），不是別顆的 bit2。 */
+    cursor: { clk: { addr: 0x0004, or: 0x20 }, ctl: { addr: 0xFF20, and: 0x87, or: 0x12 },
+              off: { addr: 0xFF20, and: 0xFD }, pos: { addr: 0xFF22 }, src: 'L3431–3468' },
+    wr: [[0x0C00, 0x0CFF], [0x0004, 0x0004], [0xFF20, 0xFF25]],
+    obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
+  }
+];
+
+/* 🔴 這四個是 **7-bit** slave address（上游工具的 96/97/104/105）。
+   8-bit 表示法（左移一位）不同：0x60→0xC0/0xC1、0x68→0xD0/0xD1（W/R）。 */
+var DST_SLAVES = [0x60, 0x61, 0x68, 0x69];
+function dstSlaveLabel(s) {
+  var h = function (v) { return '0x' + v.toString(16).toUpperCase(); };
+  return h(s) + ' (7-bit) = ' + h((s << 1) & 0xFF) + '/' + h(((s << 1) | 1) & 0xFF) + ' (8-bit W/R)';
+}
+
+/* ═══ 狀態 ═══════════════════════════════════════════════════════════════ */
+var dstWs = null, dstWsSeq = 0, dstWsPending = {};
+var dstLinked = false, dstBusy = false;
+var dstIc = null;              // 認出來的那一顆（null ＝ 認不出來 ⇒ 完全禁寫）
+var dstAltIdx = -1;            // 撞號時使用者選的替代顆（-1 ＝ 用主表那一顆）
+var dstIdRaw = null;
+var dstSlave = DST_SLAVES[0];
+var dstBridgeVer = '', dstBridgeProto = 0;
+var dstRes = { w: 1920, h: 1080, from: 'default' };
+var dstInitPtg = null;         // SetAgingMode(true) 之前的 soft.addr 原值（還原用）
+var dstInitAux = null;         // E512A1 的 0x0255 原值（bit7）
+var dstInPattern = false;      // 有沒有進過出圖模式（中止時要講清楚畫面停在哪）
+var dstLastPaint = null;       // 最後一次打出去的東西（中止時要講）
+var dstBits = 8;
+var dstRgb = { r: 0, g: 0, b: 0 };   // 使用者刻度（不是 12-bit 值）
+var dstRows = [], dstRunning = false, dstAbort = false;
+
+/* ═══ log ════════════════════════════════════════════════════════════════
+   🔴 交易層的每一行刻意用**語言中性**的格式（`R 0xFF00 x3 -> 01 EF A1`）：
+      它是給維護者與現場對照用的，翻譯它只會讓兩邊對不起來。
+      使用者要看的判斷與錯誤一律走 i18n（dstSay／dstStatus／toast）。 */
+var dstLogBuf = [];
+function dstLog(s, cls) {
+  dstLogBuf.push(s);
+  if (dstLogBuf.length > 4000) dstLogBuf.splice(0, 1000);
+  var e = $('dst-log'); if (!e) return;
+  var d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = s;
+  e.appendChild(d);
+  e.scrollTop = e.scrollHeight;
+}
+function dstHex(a) {
+  if (!a) return '';
+  var o = [];
+  for (var i = 0; i < a.length; i++) o.push(('0' + (a[i] & 0xFF).toString(16).toUpperCase()).slice(-2));
+  return o.join(' ');
+}
+function dstAddrText(a) { return '0x' + ('000' + a.toString(16).toUpperCase()).slice(-4); }
+function dstErrMsg(e) { return (e && e.message) ? e.message : String(e); }
+/* 「錯誤才說話」：正常路徑上這三行是空的。 */
+function dstSay(id, s) { var e = $(id); if (e) e.textContent = s || ''; }
+
+/* ═══ 白名單 —— 🔴 這是防止寫壞 IC 的唯一一道硬防線 ══════════════════════
+   為什麼不能用固定區間：不同 IC 的 ptg base 不同（0x1200／0x0C00／0x0200），
+   固定範圍會把三分之二的 IC 擋在門外；改成聯集又更糟 —— 0x0C00 在 EM01 上是
+   別的 bank，聯集等於默許寫到那裡去。⇒ **依識別出來的那一顆查表放行。**
+
+   🔴 **識別不出來 ⇒ 完全禁寫**（一個位址都不放）。
+   🔴 **讀不受限**（觀測點都在 ptg 之外，而讀沒有副作用）。
+   🔴 檢查的是**整段**（addr … addr+len-1），不是只看起點 —— 0x12FE 寫 5 bytes
+      會跨出去，那一筆必須被擋下。 */
+function dstWrRangesOf(ic, altIdx) {
+  if (!ic || !ic.wr || !ic.patternOk) return [];
+  var out = ic.wr.slice();
+  var a = dstAltOf(ic, altIdx);
+  if (a && a.wr) out = out.concat(a.wr);
+  return out;
+}
+/* 純函式：給定允許區間，判斷 addr…addr+len-1 是否整段落在其中一段之內。 */
+function dstWriteAllowedIn(ranges, addr, len) {
+  if (!ranges || !ranges.length) return false;
+  if (typeof addr !== 'number' || !isFinite(addr)) return false;
+  if (typeof len !== 'number' || !isFinite(len) || len < 1) return false;
+  if (addr !== Math.floor(addr) || len !== Math.floor(len)) return false;
+  var end = addr + len - 1;
+  for (var i = 0; i < ranges.length; i++) {
+    if (addr >= ranges[i][0] && end <= ranges[i][1]) return true;
+  }
+  return false;
+}
+function dstWriteAllowed(addr, len) {
+  return dstWriteAllowedIn(dstWrRangesOf(dstIc, dstAltIdx), addr, len);
+}
+/* 白名單擋下時的說明（一句話，帶上目前是哪一顆、允許哪些段）。 */
+function dstWrDenyText(addr, len) {
+  var r = dstWrRangesOf(dstIc, dstAltIdx);
+  if (!r.length) return dstT('dst.denyNoIc', { addr: dstAddrText(addr) });
+  return dstT('dst.denyRange', {
+    addr: dstAddrText(addr), len: len, ic: dstIcName(),
+    ranges: r.map(function (x) { return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('、')
+  });
+}
+
+/* ═══ ID 比對 ════════════════════════════════════════════════════════════
+   🔴 全 0xFF ＝ I2C 總線閒置（SDA 被上拉為高、沒有裝置回應）。掃描時必須判為
+      無回應，否則會選到第一個「假裝有回應」的 slave。 */
+function dstIsBusIdle(b) {
+  if (!b || b.length < 1) return false;
+  for (var i = 0; i < b.length; i++) if ((b[i] & 0xFF) !== 0xFF) return false;
+  return true;
+}
+/* 🔴 比對照上游工具：`data[0]==… && data[1]==… && (data[2] & 0xF0)==…`。
+   **第三個 byte 的低 4 位是版本／變體，不參與比對**（01 EF A1 與 01 EF A0 同一顆）。 */
+function dstMatchIc(b) {
+  if (!b || b.length < 3) return null;
+  if (dstIsBusIdle(b)) return null;
+  for (var i = 0; i < DST_ICS.length; i++) {
+    var ic = DST_ICS[i];
+    if (!ic.id) continue;
+    if (b[0] === ic.id[0] && b[1] === ic.id[1] && (b[2] & 0xF0) === ic.id[2]) return ic;
+  }
+  return null;
+}
+
+/* ═══ ACK 判讀 ═══════════════════════════════════════════════════════════
+   🔴 **本頁走 I2C Bridge，ACK 是 bridge 端判的，這兩支目前沒有呼叫端。**
+      保留的理由有兩個，都寫下來免得下一個人把它當死碼刪掉：
+        ① Bruce 2026-09-20 明示要與白名單、ID 比對一起搬過來；
+        ② 日後若接回自建傳輸路徑，判準必須是**同一套**，不能兩邊各寫一份
+           （白名單就是因為兩邊各寫一份而分岔過）。
+      它們是純函式，由自檢夾具直接驗。
+
+   判準本身：MPSSE 只收 1 個 bit 時，那個 bit 會落在回傳 byte 的哪一端有兩種
+   可能（靠左 bit7／靠右 bit0）。**兩種對齊之下 ACK 都是「bit0 與 bit7 都為 0」**，
+   所以用遮罩 0x81 判，不必先知道是哪一種。中間 6 個位元刻意不看（殘留）。
+   誤判方向也選過：只可能多報 NACK，不可能少報。 */
+var DST_ACK_MASK = 0x81;
+function dstIsAck(byteVal) { return (byteVal & DST_ACK_MASK) === 0; }
+function dstAckNote(byteVal) {
+  var v = byteVal & 0xFF, k;
+  if ((v & DST_ACK_MASK) === 0) k = (v === 0) ? 'dst.ackOk' : 'dst.ackOkResidue';
+  else if (v === 0x80) k = 'dst.ackNakLeft';
+  else if (v === 0x01) k = 'dst.ackNakRight';
+  else k = 'dst.ackNakOdd';
+  return '0x' + ('0' + v.toString(16).toUpperCase()).slice(-2) + ' = ' + dstT(k);
+}
+
+/* ═══ 撞號的替代顆 ═══════════════════════════════════════════════════════ */
+function dstAltOf(ic, idx) {
+  if (!ic || !ic.alts || idx == null || idx < 0 || idx >= ic.alts.length) return null;
+  return ic.alts[idx];
+}
+/* 撞號但不需要獨立序列的那一顆：畫面上如實標示「也可能是…」。
+   🔴 存的是 i18n key，不是中文字串 —— 這一行會出現在畫面上。 */
+function dstAlsoText(ic) {
+  return (ic && ic.alsoMayBeKey) ? ('  (' + dstT(ic.alsoMayBeKey) + ')') : '';
+}
+function dstIcName() {
+  if (!dstIc) return '—';
+  var a = dstAltOf(dstIc, dstAltIdx);
+  return a ? a.name : dstIc.name;
+}
+/* 目前生效的 UD 順序（替代顆可以覆寫 —— V512S2 就是靠這一條） */
+function dstUdOf(ic, altIdx) {
+  var a = dstAltOf(ic, altIdx);
+  return (a && a.ud) ? a.ud : ic.ud;
+}
+/* 目前生效的 cursor 序列（替代顆可以覆寫 clk／ctl） */
+function dstCursorOf(ic, altIdx) {
+  if (!ic || !ic.cursor) return null;
+  var a = dstAltOf(ic, altIdx);
+  if (!a) return ic.cursor;
+  return { clk: a.cursorClk || ic.cursor.clk, ctl: a.cursorCtl || ic.cursor.ctl,
+           off: ic.cursor.off, pos: ic.cursor.pos };
+}
+
+/* ═══ I2C Bridge 傳輸層（WebSocket）══════════════════════════════════════
+   🔴 做法照 i2c.html 那一條（已在 Bruce 的硬體上驗過）：
+      open 帶 takeover:1、read／write 一問一答、以 id 對應回覆。
+   🔴 寫入用 `write`（2-byte offset）而不是 `rawwrite`：
+      bridge 端的 `write` 分支**自己也有一份白名單**（ptg bank ＋ cursor），
+      `rawwrite` 沒有。縱深防禦要的就是這一層，不可以為了「比較通用」換掉。 */
+function dstSend(obj) {
+  return new Promise(function (resolve, reject) {
+    if (!dstWs || dstWs.readyState !== 1) { reject(new Error(dstT('dst.errNotLinked'))); return; }
+    var id = ++dstWsSeq; obj.id = id;
+    var timer = setTimeout(function () {
+      if (dstWsPending[id]) { delete dstWsPending[id]; reject(new Error(dstT('dst.errTimeout', { type: obj.type }))); }
+    }, DST_WS_MS);
+    dstWsPending[id] = { resolve: resolve, reject: reject, timer: timer };
+    try { dstWs.send(JSON.stringify(obj)); }
+    catch (e) { clearTimeout(timer); delete dstWsPending[id]; reject(e); }
+  });
+}
+function dstOnMessage(ev) {
+  var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+  if (m.type === 'hello' || m.type === 'pong') {
+    dstBridgeVer = m.helper || ''; dstBridgeProto = m.proto || 0;
+  }
+  if (typeof m.id === 'number' && dstWsPending[m.id]) {
+    var p = dstWsPending[m.id]; delete dstWsPending[m.id]; clearTimeout(p.timer);
+    p.resolve(m);
+  }
+}
+
+async function dstReadReg(addr, len) {
+  if (!dstLinked) throw new Error(dstT('dst.errNotLinked'));
+  var r = await dstSend({ type: 'read', slave: dstSlave, addr: addr, len: len });
+  if (!r.ok) {
+    dstLog('R  ' + dstAddrText(addr) + ' x' + len + '  FAIL  status=' + (r.status != null ? r.status : '?')
+      + (r.err ? '  ' + r.err : ''), 'e');
+    throw new Error(dstT('dst.errReadFail', { addr: dstAddrText(addr),
+      status: (r.status != null ? r.status : '?') }));
+  }
+  var data = r.data || [];
+  dstLog('R  ' + dstAddrText(addr) + ' x' + len + '  -> ' + (dstHex(data) || '(none)')
+    + '  (' + data.length + '/' + len + ')');
+  return data;
+}
+async function dstWriteReg(addr, bytes) {
+  if (!dstLinked) throw new Error(dstT('dst.errNotLinked'));
+  /* 🔴 白名單在**任何** bridge 動作之前。這一行是整頁唯一的寫入出口。 */
+  if (!dstWriteAllowed(addr, bytes.length)) {
+    var msg = dstWrDenyText(addr, bytes.length);
+    dstLog('W  ' + dstAddrText(addr) + ' x' + bytes.length + '  BLOCKED by whitelist', 'e');
+    dstSay('dst-say-pattern', msg);
+    throw new Error(msg);
+  }
+  var arr = []; for (var i = 0; i < bytes.length; i++) arr.push(bytes[i] & 0xFF);
+  var r = await dstSend({ type: 'write', slave: dstSlave, addr: addr, data: arr });
+  if (!r.ok) {
+    dstLog('W  ' + dstAddrText(addr) + ' <- ' + dstHex(arr) + '  FAIL  status='
+      + (r.status != null ? r.status : '?') + (r.err ? '  ' + r.err : ''), 'e');
+    throw new Error(dstT('dst.errWriteFail', { addr: dstAddrText(addr),
+      status: (r.status != null ? r.status : '?') }));
+  }
+  dstLog('W  ' + dstAddrText(addr) + ' <- ' + dstHex(arr));
+  return true;
+}
+
+/* ═══ 掃 slave ＋ 辨識 IC ═════════════════════════════════════════════════
+   四個 slave **逐一探並全部記錄**（哪個有回應、哪個沒有），把 0xFF00 的原始
+   三個 byte 顯眼顯示（即使認不出 IC），並把「讀不到」與「讀到了但不認得」
+   分成兩件不同的事。 */
+async function dstScanIdentify() {
+  var chosen = null, chosenSlave = null, results = [];
+  dstLog('-- scan slaves: ' + DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' -> '));
+  for (var si = 0; si < DST_SLAVES.length; si++) {
+    var sl = DST_SLAVES[si];
+    dstSlave = sl;
+    var tag = '0x' + sl.toString(16).toUpperCase();
+    try {
+      var d = await dstReadReg(0xFF00, 3);
+      var hex = dstHex(d);
+      if (d && d.length >= 3 && dstIsBusIdle(d)) {
+        /* 🔴 全 0xFF ＝ 總線閒置、沒有裝置回應。不可當命中。 */
+        results.push(tag + ' <- ' + hex + ' (idle)');
+      } else if (d && d.length >= 3) {
+        results.push(tag + ' <- ' + hex);
+        if (!chosen) { chosen = d; chosenSlave = sl; }
+      } else {
+        results.push(tag + ' <- ' + (d ? d.length : 0) + 'B');
+      }
+    } catch (e) {
+      results.push(tag + ' x');
+    }
+  }
+  dstLog('-- scan result: ' + results.join('   '));
+
+  if (!chosen) {
+    dstIdRaw = null; dstIc = null; dstAltIdx = -1;
+    dstShow('dst-v-id', dstT('dst.idNone'), false);
+    dstShow('dst-v-ic', dstT('dst.icNone'), false);
+    dstRenderAlt(); dstRenderWr();
+    return;
+  }
+  dstSlave = chosenSlave;
+  dstIdRaw = chosen;
+  dstIc = dstMatchIc(chosen);
+  dstAltIdx = -1;
+  dstShow('dst-v-id', dstHex(chosen) + '  (slave ' + dstSlaveLabel(chosenSlave) + ')', true);
+  if (dstIc) {
+    dstShow('dst-v-ic', dstIc.name + dstAlsoText(dstIc), true);
+    dstLog('== IC = ' + dstIc.key + '  slave ' + dstSlaveLabel(chosenSlave), 'o');
+  } else {
+    dstShow('dst-v-ic', dstT('dst.icUnknown'), false);
+    dstSay('dst-say-link', dstT('dst.sayIcUnknown', { id: dstHex(chosen) }));
+    dstLog('== IC unknown, id=' + dstHex(chosen) + ' -> writes disabled', 'e');
+  }
+  dstRenderAlt(); dstRenderWr();
+}
+
+/* ═══ 通訊自檢（與 IC 認不認得完全解耦）═══════════════════════════════════
+   讀 slave 0x68、2-byte offset、offset 0x0000 起連續 3 byte，期望 A1 D8 FB。
+   三種結果分開講：PASS／期望不符／讀不到。 */
+var DST_COMM_SLAVE = 0x68, DST_COMM_ADDR = 0x0000, DST_COMM_EXPECT = [0xA1, 0xD8, 0xFB];
+function dstCommVerdict(bytes) {
+  var b = bytes || [];
+  if (b.length < 3) return { state: 'noread', text: dstT('dst.commNoRead', { n: b.length }) };
+  if (b[0] === DST_COMM_EXPECT[0] && b[1] === DST_COMM_EXPECT[1] && b[2] === DST_COMM_EXPECT[2])
+    return { state: 'pass', text: dstT('dst.commPass', { got: dstHex(b.slice(0, 3)) }) };
+  return { state: 'mismatch', text: dstT('dst.commMismatch', { got: dstHex(b.slice(0, 3)) }) };
+}
+async function dstCommTest() {
+  var saved = dstSlave;
+  dstSlave = DST_COMM_SLAVE;
+  var bytes = [];
+  try { var d = await dstReadReg(DST_COMM_ADDR, 3); bytes = (d || []).slice(0, 3); }
+  catch (e) { bytes = []; }
+  dstSlave = saved;
+  var v = dstCommVerdict(bytes);
+  dstShow('dst-v-comm', v.text, v.state === 'pass');
+  if (v.state !== 'pass') dstSay('dst-say-link', v.text);
+  return v;
+}
+
+/* ═══ 解析度 ═════════════════════════════════════════════════════════════
+   上游工具是讓使用者在下拉裡選（它從不讀 0xFF26/0xFF28）。本頁**多做一件事**：
+   連線後自動讀那兩個暫存器帶入（讀沒有副作用、白名單不擋讀）。
+   讀到不合理就沉默放棄，沿用預設。reg_tmg_hres/vres 是 12 bit ⇒ 最大 4095。 */
+function dstResSane(w, h) { return w >= 320 && w <= 4095 && h >= 240 && h <= 4095; }
+/* 中心座標（純函式）。奇數時取 floor —— 與上游工具的整數除法一致。 */
+function dstCenter(w, h) { return { x: Math.floor(w / 2), y: Math.floor(h / 2) }; }
+async function dstReadRes() {
+  try {
+    var a = await dstReadReg(0xFF26, 2);
+    var b = await dstReadReg(0xFF28, 2);
+    var w = ((a[1] & 0x0F) << 8) | a[0];
+    var h = ((b[1] & 0x0F) << 8) | b[0];
+    if (!dstResSane(w, h)) { dstLog('-- res 0xFF26/0xFF28 = ' + w + 'x' + h + ' (insane, ignored)', 'w'); return null; }
+    dstRes = { w: w, h: h, from: 'reg' };
+    dstRenderRes();
+    return dstRes;
+  } catch (e) { return null; }
+}
+
+/* ═══ 出圖：逐筆照抄，per-IC ══════════════════════════════════════════════
+   對照上游工具的 `SetPatternRGB(r,g,b)` L2548–2612 —— 它的每一個分支都是**兩件事**：
+   `SetAgingUserdefineMode()` 然後 `SetPatternRGB()`。
+   🔴 也就是說上游工具**每一階灰階都重跑一次 SetAgingUserdefineMode**
+      （＝ SetCursorOFF ＋ pattern 編號 ＋ xpos ＋ ypos），不是只在開頭下一次。
+      本頁照抄，理由是「照抄比自作聰明可驗證」。
+
+   ① SetAgingMode(true)      讀 soft.addr →(reg & and)|or→ 寫回（E512A1 另有 aux 段）
+   ② SetAgingUserdefineMode() 逐筆順序照 ud（四種順序）
+   ③ SetPatternRGB(r,g,b)    inside.addr 寫 5 bytes
+
+   🔴 IC 內部一律 **12-bit**（七顆的 AgingPatternBit 都寫死 12）。 */
+function dstPackRgb12(r, g, b) {
+  /* 🔴 b4 是 `b >> 8`，12-bit 的高位只有 4 bit ⇒ 全白時是 0x0F，不是 0xFF。
+     副作用（與上游工具完全相同，寫下來免得被當 bug 修掉）：這一個 byte 的高
+     nibble 會把 `reg_ptg_edge_pat_outside_r[3:0]` 清成 0 —— 它的預設本來就是 0。 */
+  return [r & 0xFF, ((r >> 8) & 0x0F) | ((g & 0x0F) << 4), (g >> 4) & 0xFF, b & 0xFF, (b >> 8) & 0x0F];
+}
+
+/* ═══ 🔴 位元深度換算（原文照抄，不是推的）══════════════════════════════
+   上游工具有兩處各一份，算式相同：
+     內部深度 num = 12（七顆 TCON 都是）
+     使用者選的 num2 = 8 / 10 / 12
+     倍率 = 2^(num − num2) ⇒ 16 / 4 / 1
+     送進 IC 的值 = 使用者值 × 倍率（整數乘，**沒有任何端點補償**）
+   ⇒ 8-bit 的 255 對到 **4080**，不是 4095。這是刻意設計：
+     掃描的 End 三種選項分別是 255 / 1020 / 4080，換算完**恆為 4080**，
+     所以三種選項量到的最白點是同一個亮度。 */
+function dstScale(bits) { return Math.pow(2, 12 - bits); }
+function dstTo12(v, bits) { return Math.round(v * dstScale(bits)); }
+function dstUserMax(bits) { return Math.pow(2, bits) - 1; }
+/* 掃描的使用者端 End／Step：End = 255 × 2^(bits−8)，Step = 2^(bits−8)。 */
+function dstScanEnd(bits) { return 255 * Math.pow(2, bits - 8); }
+function dstScanStep(bits) { return Math.pow(2, bits - 8); }
+/* 掃描實際會送出去的 12-bit 值序列（純函式，可單元測）。 */
+function dstScanValues(bits) {
+  var out = [], step = dstScanStep(bits), end = dstScanEnd(bits), mul = dstScale(bits);
+  for (var i = 0; i <= end; i += step) out.push(Math.round(i * mul));
+  return out;
+}
+
+/* SetCursorOFF()：讀 0xFF20 → reg & 0xFD（清 bit1 reg_cursor_en）→ 寫回。七顆相同。 */
+async function dstCursorOff(ic) {
+  var cu = ic && ic.cursor; if (!cu) return;
+  var cur = await dstReadReg(cu.off.addr, 1);
+  await dstWriteReg(cu.off.addr, [cur[0] & cu.off.and]);
+}
+/* SetAgingUserdefineMode()：逐筆順序照 ud。E512A1 是唯一沒有 SetCursorOFF 的。
+   🔴 xpos／ypos 一律寫 **2 byte `00 00`**。在 EM02A1／V512S2 上第二個 byte 會落在
+      0x0C5D，順手把 reg_ptg_cascade_en 與 reg_ptg_aging_en 清成 0 —— **這是上游
+      工具自己的行為，照抄沒錯**，方向也與 E512A1 的 aux 段（清 sw aging）一致。
+      寫在這裡免得下一個人以為是 bug 去「修」它。 */
+async function dstUserdefineMode(ic) {
+  if (ic.udCursorOff) await dstCursorOff(ic);
+  var ud = dstUdOf(ic, dstAltIdx);
+  for (var i = 0; i < ud.length; i++) {
+    var w = ud[i];
+    if (w === 'pat') await dstWriteReg(ic.pat.addr, [ic.pat.value]);
+    else if (w === 'xpos') await dstWriteReg(ic.xpos.addr, [0x00, 0x00]);
+    else if (w === 'ypos') await dstWriteReg(ic.ypos.addr, [0x00, 0x00]);
+  }
+}
+/* SetAgingMode(flag)：per-IC 的第一段 ＋ E512A1 專屬的第二段。 */
+async function dstAgingMode(ic, on) {
+  var cur = await dstReadReg(ic.soft.addr, 1);
+  /* 🔴 read-modify-write 的回讀值要先看合不合理。0xFF ＝ 匯流排上沒有人在回應，
+     照著改寫下去等於對空氣寫。上游工具沒有這一道，這是我們刻意加嚴的。 */
+  if (cur[0] === 0xFF) throw new Error(dstT('dst.errFfReadback', { addr: dstAddrText(ic.soft.addr) }));
+  if (on) {
+    if (dstInitPtg === null) dstInitPtg = cur[0];
+    await dstWriteReg(ic.soft.addr, [(cur[0] & ic.soft.and) | ic.soft.or]);
+  } else {
+    /* 🔴 與上游工具的差異（刻意，比較保守）：上游是 `reg = old & 0xB3`（不還原），
+       本頁寫**回進入前的原值**。若進入前那幾個 bit 本來就是 1（別的工具留下的
+       狀態），上游會清掉、本頁會留著 —— 離開後的 IC 狀態兩邊會不同。 */
+    await dstWriteReg(ic.soft.addr, [dstInitPtg === null ? (cur[0] & ic.soft.and) : dstInitPtg]);
+    await dstCursorOff(ic);      // 上游的 SetAgingMode(false) 一律關 cursor，照做
+  }
+  if (ic.aux) {
+    var a = await dstReadReg(ic.aux.addr, 1);
+    var m = 1 << ic.aux.bit;
+    if (on) { dstInitAux = (a[0] & m) ? 1 : 0; await dstWriteReg(ic.aux.addr, [a[0] & ~m & 0xFF]); }
+    else if (dstInitAux === 1) { await dstWriteReg(ic.aux.addr, [(a[0] | m) & 0xFF]); }
+  }
+}
+function dstNoPatternText() {
+  if (!dstIc) return dstT('dst.noIcNoWrite');
+  if (dstIc.noImpl) return dstIc.key + '：' + dstT('dst.noSeq');
+  return dstT('dst.noPattern', { ic: dstIc.key });
+}
+async function dstEnterPattern() {
+  var ic = dstIc;
+  if (!ic || !ic.patternOk) throw new Error(dstNoPatternText());
+  await dstAgingMode(ic, true);
+  await dstUserdefineMode(ic);
+  dstInPattern = true;
+  var back = await dstReadReg(ic.soft.addr, 1);
+  var nv = (dstInitPtg & ic.soft.and) | ic.soft.or;
+  dstLog('== enter pattern (' + ic.key + '): ' + dstAddrText(ic.soft.addr)
+    + ' was 0x' + dstInitPtg.toString(16).toUpperCase()
+    + ' -> wrote 0x' + nv.toString(16).toUpperCase()
+    + ' -> readback 0x' + back[0].toString(16).toUpperCase()
+    + (back[0] === nv ? ' (match)' : ' (MISMATCH)'), back[0] === nv ? 'o' : 'w');
+  return back[0];
+}
+/* 🔴 每一階都照上游重跑 SetAgingUserdefineMode（見本節開頭）。 */
+async function dstSetRgb12(r12, g12, b12) {
+  var ic = dstIc;
+  if (!ic || !ic.patternOk) throw new Error(dstNoPatternText());
+  await dstUserdefineMode(ic);
+  await dstWriteReg(ic.inside.addr, dstPackRgb12(r12, g12, b12));
+  dstLastPaint = { r: r12, g: g12, b: b12 };
+}
+async function dstLeavePattern() {
+  var ic = dstIc;
+  if (!ic || !ic.patternOk || dstInitPtg === null) { dstInPattern = false; return; }
+  await dstAgingMode(ic, false);
+  dstLog('== leave pattern: ' + dstAddrText(ic.soft.addr) + ' restored to 0x'
+    + dstInitPtg.toString(16).toUpperCase() + ', cursor off', 'o');
+  dstInitPtg = null; dstInitAux = null; dstInPattern = false; dstLastPaint = null;
+}
+
+/* ═══ 十字（對位用）══════════════════════════════════════════════════════
+   SetCursorON()：
+     · 先開 cursor 的 clock：讀 clk.addr → |or → 寫（per-IC，位址與 bit 都不同）
+     · 再寫 0xFF20：reg = (reg & and) | or
+       拆開就是 bit1 = 1（開）、bit3 = 0（十字線，不是 color bar）、
+       bit[6:4] = 001（顏色 ＝ 紅）⇒ **一條紅色的十字線**
+     · 座標寫 0xFF22 四個 byte：[x&0xFF, x>>8, y&0xFF, y>>8]
+   🔴 線寬查不到 —— 規格書的 tm bank 0xFF20–0xFF29 沒有線寬欄位，反組譯也沒碰。
+      如實講「不可調」，不要美化成「固定一像素」（那是猜的）。 */
+function dstPackXY(x, y) {
+  return [x & 0xFF, (x >> 8) & 0xFF, y & 0xFF, (y >> 8) & 0xFF];
+}
+async function dstCrossOn() {
+  var ic = dstIc, cu = dstCursorOf(ic, dstAltIdx);
+  if (!ic || !cu) throw new Error(ic ? dstT('dst.noCursorSeq', { ic: ic.key }) : dstT('dst.noIcNoWrite'));
+  var c = dstCenter(dstRes.w, dstRes.h);
+  var k = await dstReadReg(cu.clk.addr, 1);
+  await dstWriteReg(cu.clk.addr, [(k[0] | cu.clk.or) & 0xFF]);
+  var tt = await dstReadReg(cu.ctl.addr, 1);
+  await dstWriteReg(cu.ctl.addr, [((tt[0] & cu.ctl.and) | cu.ctl.or) & 0xFF]);
+  await dstWriteReg(cu.pos.addr, dstPackXY(c.x, c.y));
+  dstLog('== cross ON at (' + c.x + ', ' + c.y + ')  res ' + dstRes.w + 'x' + dstRes.h);
+  return c;
+}
+async function dstCrossOff() {
+  var ic = dstIc; if (!ic || !ic.cursor) return;
+  await dstCursorOff(ic);
+  dstLog('== cross OFF');
+}
+
+/* ═══ 🔴 對位畫面 ＝ **一個動作** ═════════════════════════════════════════
+   上游工具的 QuickPattern idx 0：
+     num6 = ResX / 2;  num7 = ResY / 2;      // 整數除法
+     SetLocationPattern(num7, num6, -1, Point(1,1), cGray2, LabelEn: true)
+       └ 背景不是 -1 ⇒ SetAgingUserdefineMode() + SetPatternRGB(BG)
+       └ 再 SetCursorON(h_loc, w_loc)，座標 = (1×ResX/2, 1×ResY/2) = 正中心
+   ⇒ 「L127 灰階 ＋ 正中心紅十字」是**一次設好**的，不是兩個步驟。照做。 */
+var DST_ALIGN_L = 127;      // 8-bit 刻度的 L127（送進 IC 是 127 × 16 = 2032）
+async function dstAlignPattern() {
+  var ic = dstIc;
+  if (!ic || !ic.patternOk) throw new Error(dstNoPatternText());
+  if (dstInitPtg === null) await dstEnterPattern();
+  var v = dstTo12(DST_ALIGN_L, 8);          // 🔴 L127 固定走 8-bit 刻度，與位元深度選項無關
+  await dstSetRgb12(v, v, v);
+  var c = await dstCrossOn();
+  dstLog('== align: L' + DST_ALIGN_L + ' (12-bit ' + v + ') + cross at (' + c.x + ',' + c.y + ')', 'o');
+  return { v: v, c: c };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   光學量測儀（Web Serial）
+   🔴 沿用 dg-measure.html 既有的實作與指令序列 —— 那一條已經在 Bruce 的硬體上
+      驗過，不重寫。初始化清單、逾時值、回應解析方式逐項相同。
+   🔴 與上游工具的一處實質差異（刻意保留）：同步模式我們用 UNIVERSAL（退
+      INTERNAL 60 Hz），上游用 NTSC。UNIVERSAL 對量測面板通常更合適。
+   🔴 量測速度 FSC,2 與上游送出去的數值相同（2）。
+   🔴 維持 await 非阻塞 —— 上游的量測呼叫會把整個介面凍住（按停止要等這一階量完
+      才被看到），那是它的缺陷，不要一起複製。
+   ═══════════════════════════════════════════════════════════════════════ */
+var DST_INIT = [
+  ['COM,1', 'dst.caCom'],
+  ['SCS,3', 'dst.caScs'],
+  ['FSC,2', 'dst.caFsc'],
+  ['OPR,1', 'dst.caOpr'],
+  ['MMS,0', 'dst.caMms'],
+  ['FMS,0', 'dst.caFms'],
+  ['MDS,0', 'dst.caMds'],
+  ['MCH,0', 'dst.caMch'],
+  ['LUS,1', 'dst.caLus']
+];
+var DST_HZ_GUESS = [60, 75, 90, 100, 120, 144, 165, 180, 200, 240];
+var dstPort = null, dstReader = null, dstWriter = null, dstRxBuf = '', dstRxWaiters = [];
+var dstCaLinked = false;
+
+function dstCaLineIn(line) {
+  dstLog('<  ' + line);
+  var w = dstRxWaiters.shift();
+  if (w) { clearTimeout(w.timer); w.resolve(line); }
+}
+async function dstCaReadLoop() {
+  try {
+    while (dstPort && dstPort.readable && dstReader) {
+      var r = await dstReader.read();
+      if (r.done) break;
+      dstRxBuf += new TextDecoder().decode(r.value);
+      var i;
+      while ((i = dstRxBuf.search(/\r\n|\n|\r/)) >= 0) {
+        var line = dstRxBuf.slice(0, i).trim();
+        dstRxBuf = dstRxBuf.slice(i).replace(/^(\r\n|\n|\r)/, '');
+        if (line) dstCaLineIn(line);
+      }
+    }
+  } catch (e) { /* 關埠時會丟出來，正常 */ }
+}
+function dstCaCmd(text, ms) {
+  dstLog('>  ' + text);
+  return new Promise(function (resolve) {
+    var w = { resolve: resolve, timer: null };
+    w.timer = setTimeout(function () {
+      var k = dstRxWaiters.indexOf(w); if (k >= 0) dstRxWaiters.splice(k, 1);
+      dstLog('!  timeout ' + ms + 'ms on ' + text, 'e');
+      resolve(null);
+    }, ms || 6000);
+    dstRxWaiters.push(w);
+    dstWriter.write(new TextEncoder().encode(text + '\r\n')).catch(function () {});
+  });
+}
+async function dstCaOpen() {
+  if (!navigator.serial) { dstSay('dst-say-run', dstT('dst.errNoSerial')); return false; }
+  try {
+    var ports = await navigator.serial.getPorts();
+    dstPort = ports && ports.length ? ports[0] : await navigator.serial.requestPort();
+    await dstPort.open({ baudRate: 115200 });
+    dstWriter = dstPort.writable.getWriter();
+    dstReader = dstPort.readable.getReader();
+    dstCaReadLoop();
+    dstCaLinked = true;
+    dstRenderCa();
+    dstLog('== serial opened', 'o');
+    return true;
+  } catch (e) {
+    dstSay('dst-say-run', dstT('dst.errSerialOpen', { m: dstErrMsg(e) }));
+    dstLog('!  serial open failed: ' + dstErrMsg(e), 'e');
+    return false;
+  }
+}
+async function dstCaClose() {
+  try { if (dstWriter) await dstCaCmd('COM,0', 3000); } catch (e) {}
+  try { if (dstReader) await dstReader.cancel(); } catch (e) {}
+  try { if (dstReader) dstReader.releaseLock(); } catch (e) {}
+  try { if (dstWriter) dstWriter.releaseLock(); } catch (e) {}
+  try { if (dstPort) await dstPort.close(); } catch (e) {}
+  dstPort = null; dstReader = null; dstWriter = null; dstCaLinked = false;
+  dstRenderCa();
+  dstLog('== serial closed');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   掃描流程
+   ① 進出圖模式（含識別是哪一顆）  ② L127 ＋ 中心十字（一個動作）供對位
+   ③ 對位完成後掃白畫面 L0…Lmax   ④ 再掃 R／G／B 各滿刻度
+   每一階：出圖 → 等 dstSettleUsedMs → 叫儀器量 → 收 x / y / Y
+   🔴 量測失敗**明確標記該階失敗**，不沿用上一階的值（上游工具會安靜沿用，
+      那是它的缺陷，不要一起複製）。
+   ═══════════════════════════════════════════════════════════════════════ */
+function dstSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+async function dstWaitOrAbort(ms) {
+  var step = 50;
+  for (var i = 0; i < ms; i += step) {
+    if (dstAbort) return false;
+    await dstSleep(Math.min(step, ms - i));
+  }
+  return !dstAbort;
+}
+
+function dstPlan(bits) {
+  /* 掃描計畫：白灰階全階 ＋ 三個純色端點。每一項都帶自己的標籤。 */
+  var out = [], vals = dstScanValues(bits), step = dstScanStep(bits);
+  for (var i = 0; i < vals.length; i++) {
+    out.push({ key: 'L' + (i * step), r: vals[i], g: vals[i], b: vals[i] });
+  }
+  var top = vals[vals.length - 1];
+  out.push({ key: 'R', r: top, g: 0, b: 0 });
+  out.push({ key: 'G', r: 0, g: top, b: 0 });
+  out.push({ key: 'B', r: 0, g: 0, b: top });
+  return out;
+}
+
+async function dstRun() {
+  if (dstRunning) return;
+  if (!dstLinked) { dstSay('dst-say-run', dstT('dst.errNeedI2c')); return; }
+  if (!dstIc || !dstIc.patternOk) { dstSay('dst-say-run', dstNoPatternText()); return; }
+  if (!dstCaLinked) { dstSay('dst-say-run', dstT('dst.errNeedCa')); return; }
+
+  /* 🔴 開始前確認一次：這是會改變裝置狀態的操作。 */
+  var plan = dstPlan(dstBits);
+  if (!window.confirm(dstT('dst.confirmRun', { ic: dstIcName(), n: plan.length,
+      ranges: dstWrRangesOf(dstIc, dstAltIdx).map(function (x) {
+        return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('、') }))) return;
+
+  dstRunning = true; dstAbort = false; dstRows = [];
+  dstSettleUsedMs = dstSettleMs();      // 進迴圈前抓一次，迴圈中不再讀 UI
+  dstSay('dst-say-run', '');
+  dstRenderBtns();
+  dstLog('== RUN start: ic=' + dstIcName() + ' bits=' + dstBits + ' steps=' + plan.length
+    + ' settle=' + dstSettleUsedMs + 'ms', 'o');
+
+  try {
+    // ① 進出圖模式
+    dstProg(0, plan.length, dstT('dst.pgEnter'));
+    await dstEnterPattern();
+    if (dstAbort) throw new Error('__abort__');
+
+    // ② 對位畫面（L127 ＋ 中心十字），讓使用者把探頭對好
+    dstProg(0, plan.length, dstT('dst.pgAlign'));
+    await dstAlignPattern();
+    if (dstAbort) throw new Error('__abort__');
+    if (!window.confirm(dstT('dst.confirmAligned'))) throw new Error('__abort__');
+
+    // 🔴 掃描前把十字關掉 —— 十字壓在畫面正中心，探頭正對著它。
+    await dstCrossOff();
+
+    // ③ 初始化儀器
+    for (var i = 0; i < DST_INIT.length; i++) {
+      dstProg(0, plan.length, dstT('dst.pgInit', { i: i + 1, n: DST_INIT.length, what: dstT(DST_INIT[i][1]) }));
+      var r0 = await dstCaCmd(DST_INIT[i][0], 6000);
+      if (dstAbort) throw new Error('__abort__');
+      if (r0 === null) throw new Error(dstT('dst.errCaStuck', { cmd: DST_INIT[i][0] }));
+      if (/^ER/.test(r0) && DST_INIT[i][0] === 'SCS,3') {
+        dstLog('!  SCS,3 rejected, fall back to SCS,4,60.00', 'w');
+        r0 = await dstCaCmd('SCS,4,60.00', 6000);
+        if (dstAbort) throw new Error('__abort__');
+      }
+      if (/^ER/.test(r0 || '')) throw new Error(dstT('dst.errCaErr', { cmd: DST_INIT[i][0], r: r0 }));
+    }
+
+    // 更新率（順便問一次）
+    for (var k = 0; k < DST_HZ_GUESS.length; k++) {
+      var mv = await dstCaCmd('MVS,' + DST_HZ_GUESS[k], 8000);
+      if (dstAbort) throw new Error('__abort__');
+      if (mv && /^OK/.test(mv)) {
+        var hz = parseFloat(mv.split(',')[1]);
+        if (!isNaN(hz)) { dstShow('dst-v-hz', hz.toFixed(2) + ' Hz', true); break; }
+      }
+    }
+
+    // 零校正
+    dstProg(0, plan.length, dstT('dst.pgZero'));
+    var z = await dstCaCmd('ZRC', 40000);
+    if (dstAbort) throw new Error('__abort__');
+    if (z === null || /^ER/.test(z)) throw new Error(dstT('dst.errZero', { r: z || 'timeout' }));
+
+    // ④ 逐階
+    for (var g = 0; g < plan.length; g++) {
+      if (dstAbort) throw new Error('__abort__');
+      var p = plan[g];
+      dstProg(g, plan.length, p.key);
+      await dstSetRgb12(p.r, p.g, p.b);
+      if (!(await dstWaitOrAbort(dstSettleUsedMs))) throw new Error('__abort__');
+      var res = await dstCaCmd('MES,1', 20000);
+      if (dstAbort) throw new Error('__abort__');
+      var x = NaN, y = NaN, lv = NaN;
+      if (res !== null && !/^ER/.test(res)) {
+        var pp = res.split(',');
+        x = parseFloat(pp[3]); y = parseFloat(pp[4]); lv = parseFloat(pp[5]);
+      }
+      /* 🔴 失敗就標記該階失敗，**不沿用上一階的值**。 */
+      var bad = (isNaN(x) || isNaN(y) || isNaN(lv));
+      if (bad) dstLog('!  step ' + p.key + ' FAILED (' + (res || 'timeout') + ')', 'e');
+      dstRows.push({ key: p.key, r12: p.r, g12: p.g, b12: p.b,
+                     x: bad ? null : x, y: bad ? null : y, lv: bad ? null : lv });
+      dstRenderRows();
+    }
+    dstProg(plan.length, plan.length, dstT('dst.pgDone'));
+    dstLog('== RUN done: ' + dstRows.length + ' rows, '
+      + dstRows.filter(function (q) { return q.x === null; }).length + ' failed', 'o');
+  } catch (e) {
+    if (dstErrMsg(e) === '__abort__') {
+      /* 🔴 中止時要講清楚 TCON 現在停在什麼畫面 —— 他可能需要自己復原。 */
+      dstSay('dst-say-run', dstT('dst.abortedAt', { what: dstPaintText() }));
+      dstLog('== ABORTED, panel left at: ' + dstPaintText(), 'w');
+    } else {
+      dstSay('dst-say-run', dstErrMsg(e) + ' — ' + dstT('dst.abortedAt', { what: dstPaintText() }));
+      dstLog('!  RUN failed: ' + dstErrMsg(e), 'e');
+    }
+  } finally {
+    try { await dstCaClose(); } catch (e2) {}
+    dstRunning = false;
+    dstRenderBtns();
+  }
+}
+
+/* 中止／失敗時，把「面板現在是什麼」講成人話 */
+function dstPaintText() {
+  if (!dstInPattern) return dstT('dst.paintNormal');
+  if (!dstLastPaint) return dstT('dst.paintEntered');
+  return dstT('dst.paintRgb', { r: dstLastPaint.r, g: dstLastPaint.g, b: dstLastPaint.b });
+}
+
+/* ═══ 渲染 ═══════════════════════════════════════════════════════════════ */
+function dstShow(id, text, ok) {
+  var e = $(id); if (!e) return;
+  e.textContent = text;
+  e.classList.toggle('dst-na', !ok);
+}
+function dstRenderRes() {
+  dstShow('dst-v-res', dstRes.w + ' x ' + dstRes.h + '  ('
+    + dstT(dstRes.from === 'reg' ? 'dst.resFromReg' : 'dst.resDefault') + ')', true);
+}
+function dstRenderWr() {
+  var r = dstWrRangesOf(dstIc, dstAltIdx);
+  if (!r.length) { dstShow('dst-v-wr', dstT('dst.wrNone'), false); return; }
+  dstShow('dst-v-wr', r.map(function (x) { return dstAddrText(x[0]) + '–' + dstAddrText(x[1]); }).join('  '), true);
+}
+function dstRenderAlt() {
+  var box = $('dst-alt-box'), sel = $('dst-alt');
+  if (!box || !sel) return;
+  if (!dstIc || !dstIc.alts || !dstIc.alts.length) { box.classList.add('dst-hidden'); return; }
+  box.classList.remove('dst-hidden');
+  sel.innerHTML = '';
+  var o0 = document.createElement('option');
+  o0.value = '-1'; o0.textContent = dstIc.name;
+  sel.appendChild(o0);
+  dstIc.alts.forEach(function (a, i) {
+    var o = document.createElement('option');
+    o.value = String(i); o.textContent = a.name;
+    sel.appendChild(o);
+  });
+  sel.value = String(dstAltIdx);
+}
+function dstRenderCa() {
+  var b = $('dst-ca'); if (!b) return;
+  b.setAttribute('aria-pressed', dstCaLinked ? 'true' : 'false');
+  $('dst-ca-txt').textContent = dstT(dstCaLinked ? 'dst.stCaOn' : 'dst.stCaOff');
+}
+function dstRenderBtns() {
+  var canWrite = dstLinked && !!dstIc && !!dstIc.patternOk && !dstRunning && !dstBusy;
+  ['dst-q-w', 'dst-q-r', 'dst-q-g', 'dst-q-b', 'dst-align', 'dst-cross-on', 'dst-cross-off', 'dst-leave']
+    .forEach(function (id) { var e = $(id); if (e) e.disabled = !canWrite; });
+  ['dst-sl-r', 'dst-sl-g', 'dst-sl-b', 'dst-sl-w', 'dst-nr', 'dst-ng', 'dst-nb', 'dst-nw']
+    .forEach(function (id) { var e = $(id); if (e) e.disabled = !canWrite; });
+  var link = $('dst-link');
+  if (link) {
+    link.setAttribute('aria-pressed', dstLinked ? 'true' : 'false');
+    link.disabled = dstBusy || dstRunning;
+    $('dst-link-txt').textContent = dstT(dstBusy ? 'dst.stBusy' : (dstLinked ? 'dst.stOn' : 'dst.stOff'));
+  }
+  var pr = $('dst-probe'); if (pr) pr.disabled = !dstLinked || dstBusy || dstRunning;
+  var run = $('dst-run'); if (run) run.disabled = dstRunning || !dstLinked || !dstCaLinked;
+  var st = $('dst-stop'); if (st) st.disabled = !dstRunning;
+  var cv = $('dst-csv'); if (cv) cv.disabled = !dstRows.length;
+  var ca = $('dst-ca'); if (ca) ca.disabled = dstRunning;
+  var sel = $('dst-alt'); if (sel) sel.disabled = dstRunning || dstBusy;
+}
+function dstProg(done, total, label) {
+  var pct = total ? Math.round(done / total * 100) : 0;
+  var b = $('dst-prog'); if (b) b.style.width = pct + '%';
+  var e = $('dst-progtxt'); if (e) e.textContent = label ? (label + '   ' + done + '/' + total) : ' ';
+}
+function dstRenderRows() {
+  var tb = $('dst-res'); if (!tb) return;
+  $('dst-res-wrap').classList.toggle('dst-hidden', !dstRows.length);
+  tb.innerHTML = '';
+  dstRows.forEach(function (r) {
+    var tr = document.createElement('tr');
+    if (r.x === null) tr.className = 'bad';
+    [r.key, r.x === null ? dstT('dst.cellFail') : r.x.toFixed(4),
+     r.y === null ? '' : r.y.toFixed(4),
+     r.lv === null ? '' : r.lv.toFixed(3)].forEach(function (v) {
+      var td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  dstRenderBtns();
+}
+
+/* ═══ 位元深度與拉霸 ═════════════════════════════════════════════════════
+   🔴 切換位元深度時舊值**等比縮放**：新值 = 舊值 × 2^(新bits − 舊bits)。
+      順序照上游工具：**先歸零 → 改上限 → 填新值**，否則會被舊上限夾住。
+   🔴 W 不是獨立通道：拉 W ⇒ R=G=B 一起動；反向不成立（拉 R/G/B 時 W 不動）。 */
+function dstSetBits(nb) {
+  var ob = dstBits, k = Math.pow(2, nb - ob);
+  dstBits = nb;
+  ['r', 'g', 'b'].forEach(function (c) { dstRgb[c] = Math.min(dstUserMax(nb), Math.round(dstRgb[c] * k)); });
+  dstSyncSliders(true);
+  var note = $('dst-bits-note');
+  if (note) note.textContent = dstT('dst.bitsNote', {
+    mul: dstScale(nb), end: dstScanEnd(nb), end12: dstTo12(dstScanEnd(nb), nb) });
+}
+function dstSyncSliders(rebuildMax) {
+  var max = dstUserMax(dstBits);
+  [['r', 'dst-sl-r', 'dst-nr'], ['g', 'dst-sl-g', 'dst-ng'], ['b', 'dst-sl-b', 'dst-nb']].forEach(function (p) {
+    var s = $(p[1]), n = $(p[2]);
+    if (rebuildMax) { s.value = 0; n.value = 0; s.max = max; n.max = max; }
+    s.value = String(dstRgb[p[0]]); n.value = String(dstRgb[p[0]]);
+  });
+  var sw = $('dst-sl-w'), nw = $('dst-nw');
+  if (rebuildMax) { sw.value = 0; nw.value = 0; sw.max = max; nw.max = max; }
+  /* W 只在三條相等時才顯示那個值，否則留空白 —— 它不是一個獨立的量。 */
+  var same = (dstRgb.r === dstRgb.g && dstRgb.g === dstRgb.b);
+  sw.value = String(same ? dstRgb.r : 0);
+  nw.value = same ? String(dstRgb.r) : '';
+  dstShow('dst-v-send', dstTo12(dstRgb.r, dstBits) + ' / ' + dstTo12(dstRgb.g, dstBits)
+    + ' / ' + dstTo12(dstRgb.b, dstBits), true);
+}
+/* 🔴 拉動中就寫（與上游工具相同），但**加節流** —— 上游沒有任何節流，
+   一次拖曳可能送出上百輪、每輪 6 筆交易。節流是我們自己的決定，不是照抄。 */
+var dstPaintTimer = 0;
+function dstPaintSoon() {
+  if (!dstLinked || !dstIc || !dstIc.patternOk) return;
+  clearTimeout(dstPaintTimer);
+  dstPaintTimer = setTimeout(function () {
+    dstGuard(function () {
+      return dstSetRgb12(dstTo12(dstRgb.r, dstBits), dstTo12(dstRgb.g, dstBits), dstTo12(dstRgb.b, dstBits));
+    });
+  }, 60);
+}
+
+/* ═══ 換階等待 ═══════════════════════════════════════════════════════════ */
+function dstBuildSettle() {
+  var sel = $('dst-settle'); if (!sel) return;
+  sel.innerHTML = '';
+  DST_SETTLE_CHOICES.forEach(function (v) {
+    var o = document.createElement('option');
+    o.value = String(v);
+    o.textContent = v + ' ms' + (v === DST_SETTLE_DEFAULT ? '  (' + dstT('common.default') + ')' : '');
+    if (v === DST_SETTLE_DEFAULT) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+function dstSettleMs() {
+  var sel = $('dst-settle');
+  var v = sel ? parseInt(sel.value, 10) : NaN;
+  return (DST_SETTLE_CHOICES.indexOf(v) >= 0) ? v : DST_SETTLE_DEFAULT;
+}
+
+/* ═══ 連線生命週期 ═══════════════════════════════════════════════════════ */
+function dstGuard(fn) {
+  if (dstBusy) return Promise.resolve();
+  dstBusy = true; dstRenderBtns();
+  return Promise.resolve().then(fn).catch(function (e) {
+    dstSay('dst-say-pattern', dstErrMsg(e));
+    dstLog('!  ' + dstErrMsg(e), 'e');
+  }).then(function () { dstBusy = false; dstRenderBtns(); });
+}
+
+async function dstConnect() {
+  if (dstLinked || dstBusy) return;
+  dstBusy = true; dstRenderBtns();
+  dstSay('dst-say-link', '');
+  dstLog('== connecting to local I2C Bridge ' + DST_WS_URL);
+  var ws, t0 = Date.now();
+  try { ws = new WebSocket(DST_WS_URL); }
+  catch (e) {
+    dstBusy = false; dstRenderBtns();
+    dstSay('dst-say-link', dstT('dst.sayNoBridge')); return;
+  }
+  dstWs = ws;
+  ws.onmessage = dstOnMessage;
+  ws.onclose = function () {
+    for (var k in dstWsPending) {
+      try { clearTimeout(dstWsPending[k].timer); dstWsPending[k].reject(new Error(dstT('dst.errWsClosed'))); } catch (e) {}
+    }
+    dstWsPending = {};
+    if (dstLinked) {
+      dstLinked = false;
+      dstAbort = true;                      // 🔴 掉線要讓正在跑的掃描停下來
+      dstSay('dst-say-link', dstT('dst.sayDropped'));
+      dstLog('== bridge connection closed', 'e');
+      dstRenderBtns();
+    }
+    dstWs = null;
+  };
+  var opened = await new Promise(function (resolve) {
+    var settled = false;
+    var to = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, DST_WS_MS);
+    ws.onopen = function () { if (!settled) { settled = true; clearTimeout(to); resolve(true); } };
+    ws.onerror = function () { if (!settled) { settled = true; clearTimeout(to); resolve(false); } };
+  });
+  if (!opened) {
+    try { ws.close(); } catch (e) {}
+    dstWs = null; dstBusy = false; dstRenderBtns();
+    dstLog('== cannot reach I2C Bridge (' + (Date.now() - t0) + 'ms)', 'e');
+    /* 🔴 **不在這一頁再放一顆下載鈕。** 取得 I2C Bridge 的入口已經在
+       「I2C 讀寫測試」那一頁，同一個東西有兩個下載入口遲早會版本不同步。 */
+    dstSay('dst-say-link', dstT('dst.sayNoBridge'));
+    return;
+  }
+  try {
+    var pong = await dstSend({ type: 'ping' });
+    dstBridgeVer = pong.helper || dstBridgeVer; dstBridgeProto = pong.proto || dstBridgeProto;
+    dstShow('dst-v-bridge', (dstBridgeVer || '?') + '  ·  proto ' + (dstBridgeProto || '?'), true);
+    dstLog('== bridge ' + (dstBridgeVer || '?') + ' proto ' + (dstBridgeProto || '?'), 'o');
+    if (dstBridgeProto < DST_NEED_PROTO) {
+      throw new Error(dstT('dst.errBridgeOld', { proto: dstBridgeProto, need: DST_NEED_PROTO }));
+    }
+    var op = null;
+    for (var a = 1; a <= DST_OPEN_RETRIES; a++) {
+      /* 🔴 takeover:1 —— 切到哪一頁哪一頁就拿到，不用按任何東西。
+         bridge 端若被鎖住（另一頁在量測）會回 locked:true，那一種就**不搶**。
+         🔴 fastread:0 —— 快速讀取路徑在真實裝置上會讀錯（2026-09-19 實機回歸），
+            預設一律走已知正確的路徑；這一頁不提供切換。 */
+      op = await dstSend({ type: 'open', page: DST_PAGE_VER, clockHz: DST_CLOCK_HZ,
+                           takeover: 1, fastread: 0 });
+      if (op && op.locked) throw new Error(dstT('dst.errLocked'));
+      if (op && op.ok) { dstLog('== channel open (attempt ' + a + ', channels=' + (op.channels != null ? op.channels : '?') + ')', 'o'); break; }
+      dstLog('!  channel open failed ' + a + '/' + DST_OPEN_RETRIES
+        + ' (channels=' + (op && op.channels != null ? op.channels : '?') + ')', 'w');
+      if (a < DST_OPEN_RETRIES) await dstSleep(DST_OPEN_RETRY_MS);
+    }
+    if (!op || !op.ok) throw new Error(dstT('dst.errOpenAllFail', { n: DST_OPEN_RETRIES }));
+    dstLinked = true;
+    await dstCommTest();        // 通訊自檢先跑（authoritative，與 IC 識別解耦）
+    await dstScanIdentify();    // IC 識別＝附帶資訊，不中止連線
+    await dstReadRes();         // 解析度自動帶入（讀而已，失敗靜默）
+  } catch (err) {
+    dstLinked = false;
+    try { dstSend({ type: 'close' }).catch(function () {}); } catch (e) {}
+    try { ws.close(); } catch (e) {}
+    dstWs = null;
+    dstSay('dst-say-link', dstErrMsg(err));
+    dstLog('!  ' + dstErrMsg(err), 'e');
+  } finally {
+    dstBusy = false; dstRenderBtns();
+  }
+}
+async function dstDisconnect() {
+  dstBusy = true; dstRenderBtns();
+  try {
+    /* 🔴 斷線前先把出圖模式收掉 —— 不然面板會停在我們打的那張圖上。 */
+    if (dstInPattern) { try { await dstLeavePattern(); } catch (e) {} }
+    if (dstWs && dstWs.readyState === 1) { try { await dstSend({ type: 'close' }); } catch (e) {} }
+  } finally {
+    try { if (dstWs) dstWs.close(); } catch (e) {}
+    dstWs = null; dstLinked = false; dstIc = null; dstAltIdx = -1; dstIdRaw = null;
+    dstShow('dst-v-bridge', '—', false); dstShow('dst-v-comm', '—', false);
+    dstShow('dst-v-id', '—', false); dstShow('dst-v-ic', '—', false);
+    dstRenderWr(); dstRenderAlt();
+    dstBusy = false; dstRenderBtns();
+    dstLog('== disconnected');
+  }
+}
+
+/* ═══ CSV ════════════════════════════════════════════════════════════════ */
+function dstCsv() {
+  if (!dstRows.length) return;
+  var head = ['step', 'r12', 'g12', 'b12', 'x', 'y', 'Y'];
+  var lines = [head.join(',')];
+  dstRows.forEach(function (r) {
+    lines.push([r.key, r.r12, r.g12, r.b12,
+      r.x === null ? '' : r.x, r.y === null ? '' : r.y, r.lv === null ? '' : r.lv].join(','));
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tcon-selftest-' + (dstIc ? dstIc.key : 'unknown') + '-' + dstBits + 'bit.csv';
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+
+/* ═══ 接線 ═══════════════════════════════════════════════════════════════ */
+function dstBind() {
+  dstBuildSettle();
+  dstSetBits(8);
+  dstRenderRes();
+  dstRenderWr();
+  dstRenderCa();
+  dstRenderBtns();
+  $('dst-fixed').textContent = dstT('dst.fixedLine', {
+    slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
+    khz: Math.round(DST_CLOCK_HZ / 1000)
+  });
+
+  $('dst-link').addEventListener('click', function () {
+    if (dstLinked) dstDisconnect(); else dstConnect();
+  });
+  $('dst-probe').addEventListener('click', function () {
+    dstGuard(async function () { await dstCommTest(); await dstScanIdentify(); await dstReadRes(); });
+  });
+  $('dst-alt').addEventListener('change', function () {
+    dstAltIdx = parseInt(this.value, 10);
+    if (isNaN(dstAltIdx)) dstAltIdx = -1;
+    dstShow('dst-v-ic', dstIcName() + dstAlsoText(dstIc), true);
+    dstRenderWr();
+    dstLog('== alt selected: ' + dstIcName()
+      + '  ud=' + (dstIc ? dstUdOf(dstIc, dstAltIdx).join('→') : '?'), 'w');
+  });
+
+  $('dst-bits').addEventListener('change', function () { dstSetBits(parseInt(this.value, 10)); });
+
+  [['r', 'dst-sl-r', 'dst-nr'], ['g', 'dst-sl-g', 'dst-ng'], ['b', 'dst-sl-b', 'dst-nb']].forEach(function (p) {
+    function set(v) {
+      v = Math.max(0, Math.min(dstUserMax(dstBits), parseInt(v, 10) || 0));
+      dstRgb[p[0]] = v; dstSyncSliders(false); dstPaintSoon();
+    }
+    $(p[1]).addEventListener('input', function () { set(this.value); });
+    $(p[2]).addEventListener('input', function () { set(this.value); });
+  });
+  function setW(v) {
+    v = Math.max(0, Math.min(dstUserMax(dstBits), parseInt(v, 10) || 0));
+    dstRgb.r = dstRgb.g = dstRgb.b = v; dstSyncSliders(false); dstPaintSoon();
+  }
+  $('dst-sl-w').addEventListener('input', function () { setW(this.value); });
+  $('dst-nw').addEventListener('input', function () { setW(this.value); });
+
+  function quick(r, g, b) {
+    var m = dstUserMax(dstBits);
+    dstRgb.r = r ? m : 0; dstRgb.g = g ? m : 0; dstRgb.b = b ? m : 0;
+    dstSyncSliders(false);
+    dstGuard(function () {
+      return dstSetRgb12(dstTo12(dstRgb.r, dstBits), dstTo12(dstRgb.g, dstBits), dstTo12(dstRgb.b, dstBits));
+    });
+  }
+  $('dst-q-w').addEventListener('click', function () { quick(1, 1, 1); });
+  $('dst-q-r').addEventListener('click', function () { quick(1, 0, 0); });
+  $('dst-q-g').addEventListener('click', function () { quick(0, 1, 0); });
+  $('dst-q-b').addEventListener('click', function () { quick(0, 0, 1); });
+
+  $('dst-align').addEventListener('click', function () { dstGuard(dstAlignPattern); });
+  $('dst-cross-on').addEventListener('click', function () { dstGuard(dstCrossOn); });
+  $('dst-cross-off').addEventListener('click', function () { dstGuard(dstCrossOff); });
+  $('dst-leave').addEventListener('click', function () { dstGuard(dstLeavePattern); });
+
+  $('dst-ca').addEventListener('click', function () {
+    if (dstCaLinked) dstCaClose(); else dstCaOpen();
+  });
+  $('dst-run').addEventListener('click', dstRun);
+  $('dst-stop').addEventListener('click', function () {
+    dstAbort = true;
+    dstLog('== stop requested', 'w');
+  });
+  $('dst-csv').addEventListener('click', dstCsv);
+  $('dst-log-copy').addEventListener('click', function () {
+    try { navigator.clipboard.writeText(dstLogBuf.join('\n')); } catch (e) {}
+  });
+  $('dst-log-clear').addEventListener('click', function () {
+    dstLogBuf = []; $('dst-log').innerHTML = '';
+  });
+
+  /* 語言切換之後要把「用 JS 填的字」重新渲染一次（data-i18n 的部分 common.js 自己會做）。 */
+  window._onLangChange = function () {
+    dstBuildSettle();
+    dstSetBits(dstBits);
+    dstRenderRes(); dstRenderWr(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();
+    $('dst-fixed').textContent = dstT('dst.fixedLine', {
+      slaves: DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join('→'),
+      khz: Math.round(DST_CLOCK_HZ / 1000)
+    });
+    if (!dstLinked) {
+      dstShow('dst-v-bridge', '—', false); dstShow('dst-v-comm', '—', false);
+      dstShow('dst-v-id', '—', false); dstShow('dst-v-ic', '—', false);
+    }
+  };
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', dstBind);
+else dstBind();
+
+/* ═══ 自檢掛勾（給 tools/dg_selftest_i2c.js 用）══════════════════════════
+   🔴 只暴露**純函式與狀態的讀寫**，不暴露任何會自己動硬體的東西。 */
+window.dstProbe = {
+  version: DST_PAGE_VER,
+  icKeys: function () { return DST_ICS.map(function (x) { return x.key; }); },
+  icTable: function () { return JSON.parse(JSON.stringify(DST_ICS)); },
+  setIcForTest: function (key, altIdx) {
+    dstIc = null; dstAltIdx = (altIdx == null ? -1 : altIdx);
+    for (var i = 0; i < DST_ICS.length; i++) if (DST_ICS[i].key === key) dstIc = DST_ICS[i];
+    return !!dstIc;
+  },
+  currentIcName: dstIcName,
+  udOf: function (key, altIdx) {
+    for (var i = 0; i < DST_ICS.length; i++) if (DST_ICS[i].key === key) return dstUdOf(DST_ICS[i], altIdx == null ? -1 : altIdx);
+    return null;
+  },
+  cursorOf: function (key, altIdx) {
+    for (var i = 0; i < DST_ICS.length; i++) if (DST_ICS[i].key === key) return dstCursorOf(DST_ICS[i], altIdx == null ? -1 : altIdx);
+    return null;
+  },
+  wrRanges: function () { return dstWrRangesOf(dstIc, dstAltIdx); },
+  wrRangesOfKey: function (key, altIdx) {
+    for (var i = 0; i < DST_ICS.length; i++) if (DST_ICS[i].key === key) return dstWrRangesOf(DST_ICS[i], altIdx == null ? -1 : altIdx);
+    return [];
+  },
+  writeAllowed: dstWriteAllowed,
+  writeAllowedIn: dstWriteAllowedIn,
+  packRgb12: dstPackRgb12,
+  packXY: dstPackXY,
+  center: dstCenter,
+  resSane: dstResSane,
+  to12: dstTo12,
+  scale: dstScale,
+  userMax: dstUserMax,
+  scanEnd: dstScanEnd,
+  scanStep: dstScanStep,
+  scanValues: dstScanValues,
+  plan: dstPlan,
+  matchIc: dstMatchIc,
+  isBusIdle: dstIsBusIdle,
+  isAck: dstIsAck,
+  ackNote: dstAckNote,
+  slaves: function () { return DST_SLAVES.slice(); },
+  slaveLabel: dstSlaveLabel,
+  commVerdict: dstCommVerdict,
+  settleChoices: function () { return DST_SETTLE_CHOICES.slice(); },
+  settleDefault: function () { return DST_SETTLE_DEFAULT; },
+  settleMs: dstSettleMs,
+  wsUrl: function () { return DST_WS_URL; },
+  initCmds: function () { return DST_INIT.map(function (x) { return x[0]; }); },
+  alignL: DST_ALIGN_L,
+  /* 🔴 給夾具用：把一個假的 WebSocket 掛進來，之後所有讀寫都走它。
+     這是**唯一**的注入點，產品路徑不會走到（頁面自己永遠用 new WebSocket）。 */
+  __attachFakeWs: function (fakeWs) {
+    dstWs = fakeWs; dstWs.onmessage = dstOnMessage; dstLinked = true;
+    return true;
+  },
+  __setSlave: function (s) { dstSlave = s; },
+  __resetPtg: function () { dstInitPtg = null; dstInitAux = null; dstInPattern = false; dstLastPaint = null; },
+  enterPattern: function () { return dstEnterPattern(); },
+  setRgb12: function (r, g, b) { return dstSetRgb12(r, g, b); },
+  leavePattern: function () { return dstLeavePattern(); },
+  crossOn: function () { return dstCrossOn(); },
+  crossOff: function () { return dstCrossOff(); },
+  alignPattern: function () { return dstAlignPattern(); },
+  readReg: function (a, n) { return dstReadReg(a, n); },
+  writeReg: function (a, b) { return dstWriteReg(a, b); },
+  setRes: function (w, h) { dstRes = { w: w, h: h, from: 'reg' }; dstRenderRes(); }
+};
+
+})();
+</script>
+</body>
+</html>
