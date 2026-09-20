@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.53.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v1.68.1',      // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.24.2',       // I2C（讀寫測試）
+  i2c:     'v1.25.0',       // I2C（讀寫測試）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
      `app` 這一輪不動 —— 首頁上看不到任何新東西。等入口接上去再依
