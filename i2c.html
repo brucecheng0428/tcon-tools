@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260920i2c1242"></script>
+<script src="common/version.js?v=20260921i2c1250"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -803,6 +803,23 @@
            到那邊會以為那是另一個程式、再載一次。一行，不展開。 -->
       <div class="kv" id="dl-shared" style="margin-top:6px" data-i18n-html="i2c.dlShared">「TCON 自檢畫面量測」用的是<b>同一支程式</b>，兩邊只要下載一次。</div>
     </div>
+    <!-- ═══ 🔴 v1.25.0：Check T-CON（Bruce 2026-09-21）════════════════════════
+         他的原話：「現在先說 I2C 這個分頁，多做一個按鈕叫做 Check T-CON。
+         1. 支援判斷的型號 2. E503 特殊處理。請去查 Python UI 的 source code」
+
+         🔴 **介面極簡**（他 2026-09-20 才在 dg-selftest 上逐條點名要求拿掉同樣的東西）：
+            這一列只有**一顆鈕 ＋ 一個大字型號 ＋ 一個下拉**。
+            slave 掃描順序、原始 ID byte、每一筆讀寫的位址與資料**全部只進 log**。
+         🔴 **不跳確認視窗**：他按的鈕字面就是那個動作。
+         🔴 下拉平常 `display:none`，只有**認不出來或有歧義**時才出現（見 i2ctCkRender）。 -->
+    <div class="row" id="tcon-row" style="align-items:center;margin-top:8px;border-top:1px solid #223049;padding-top:8px;">
+      <button id="btn-checktcon" class="pri" disabled
+              data-i18n-title="i2c.tipCheckTcon"
+              title="讀 0x7C 的 0x98/0x95 與 0x7D 的 0x007D 判斷 T-CON 型號；判到 E503 會自動下一次 M-Bus 導通 C-Bus">Check T-CON</button>
+      <span id="tcon-name" class="mono" style="font-size:22px;font-weight:800;letter-spacing:.5px;color:var(--sub);">—</span>
+      <select id="tcon-pick" class="mono" style="display:none;font-size:14px;padding:5px 8px;"
+              data-i18n-aria="i2c.ariaTconPick" aria-label="手動選擇 T-CON 型號"></select>
+    </div>
     <!-- 🔴 v1.24.2：搶用權一行。這是**既有且已定案的行為**（`g_ownerIdx`／
          `takeover:1`／量測中拒絕接手），這一版一個字都沒改，只是把它寫出來 ——
          原本使用者只會看到「另一頁莫名其妙變成未連線」，沒有任何線索。
@@ -1344,8 +1361,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260920i2c1242"></script>
-<script src="common/common.js?v=20260920i2c1242"></script>
+<script src="common/i18n.js?v=20260921i2c1250"></script>
+<script src="common/common.js?v=20260921i2c1250"></script>
 
 <script>
 'use strict';
@@ -2884,6 +2901,8 @@ function i2ctSyncButtons(){
     : selN > 0   ? i2ctT('i2c.btnWriteSel', { n: wn })
     :              i2ctT('i2c.btnWriteSide', { side: (src.side || i2ctT('i2c.sideCurrent')), n: wn });
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
+  /* v1.25.0：Check T-CON 與自檢同一條件（要有連線、且沒有其他操作在跑）。 */
+  $('btn-checktcon').disabled = !i2ctLinked || i2ctBusy;
   /* ═══ 🔴 v1.22.1：連線／中斷合併成一顆開關的狀態收斂點 ══════════════════════
      舊版是兩顆按鈕用 `disabled` 互斥（conn 在已連線時灰、disc 在未連線時灰）。
      現在只有一顆，三件事都由這裡決定：
@@ -2996,6 +3015,9 @@ function i2ctSetLink(on, txt, cls){
   $('helperinfo').textContent = i2ctHelperVer ? ('I2C Bridge ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto) : '';
   $('hv-exe').textContent   = i2ctHelperVer || '—';
   $('hv-proto').textContent = i2ctHelperProto || '—';
+  /* 🔴 v1.25.0：斷線就把認出來的型號清掉。它是**這一條連線上那顆 IC** 的屬性
+     —— 治具拔掉／換一塊板子之後還掛著上一顆的型號，比不顯示更糟。 */
+  if (!on && i2ctCkResult) { i2ctCkResult = null; i2ctCkRender(); }
   i2ctSyncButtons();
 }
 async function i2ctConnect(takeover){
@@ -4860,6 +4882,283 @@ async function i2ctSelfTestRun(auto){
   return pass;
 }
 
+/* ═══ Check T-CON ════════════════════════════════════════════════════════
+   🔴 **每一個數字都有出處，查不到出處的動作一律沒做**（Bruce 2026-09-21）。
+
+   兩支上游工具，各自照抄，**不混成一套**：
+
+   ─ A 段：`RomCodeProcessUI.py` V5.0.4（`~/TCON/TCON_UI/Raydium_RomCodeProcessUI/
+     SourceCode_V5.0.4/`）。這是他指名要查的那一份。
+       `i2c_flash_check_ic_version()` L33501–33521：
+         L33507  list_chip_id = i2c_flash_read_data(0x7C, 1, 0x95, 1)
+         L33508  list_temp    = i2c_flash_read_data(0x7C, 1, 0x98, 1)
+         L33510  if list_temp[0] != 0x00 ⇒ **E501 系列**，型號查 list_chip_id[0]
+         L33512  else                    ⇒ 非 E501，改呼叫 i2c_check_e503_ver()
+       `tcon_id_dict` L2600–2604 是 list_chip_id 的對照表。
+       `i2c_check_e503_ver()` L31694–31716：讀 0x7D／awid 2／0x007D／1 byte。
+       同一組判斷在 L36471–36494（CHECKE503VER 指令）**再出現一次**，而那一支印的是
+       `E503A1 T1`／`T2`／`T3`／`E503A2`／`E503A3` —— 這就是 `RM8100x(n)` 與
+       E503 各版本的對照關係，**不是我推的**。
+       🔴 `i2c_flash_read_data`（L34186）與 `i2c_read_data`（L31653）底層**同一行**
+          `dll.GetBytesEx(...)`，差別只有 log 與進度條 ⇒ 網頁這邊用同一支 i2ctDoRead。
+
+   ─ B 段：PQ Tool `ICCommonFunction.CheckICID`（反組譯，`dg-selftest.html` 的
+     `DST_ICS` 已在用同一份）。讀 `0xFF00` 3 byte。
+       🔴 **第三個 byte 只比高 nibble**（低 4 位是版本／變體）：判準逐字是
+          `data[0]==x && data[1]==y && (data[2] & 0xF0)==z`（L419／L431），
+          2026-09-18 的實機 log 讀到 `01 EF A1`、`0xA1 & 0xF0 = 0xA0` ⇒ 命中。
+
+   🔴 **為什麼一定要兩段**：A 段的上游從頭到尾**沒有 EM01／EM02／E512**
+      （全檔 grep 0 筆），而他要判的型號裡有這三顆；B 段的上游沒有 E501／E503／DAZ。
+      兩段各自覆蓋一半，任何一段都不可能單獨滿足需求。
+
+   🔴 **0xFF00 不是 pass／fail 的門檻**（Bruce 明確交代）。這裡它只做兩件事：
+      ① 補 A 段認不到的那三顆 ② 與 A 段結果互相佐證。
+      **讀不到、對不上、全 FF 一律不算失敗**，也不會讓整個 Check 判成失敗。
+      （另：他提到的 `A1 D8 FB` 其實是 `0x0000` ×3 的**通訊自檢**黃金向量
+        `I2CT_GOLDEN`，不是 `0xFF00` 的值 —— 那一組確實與 IC 身分無關。） */
+
+/* A 段三次讀取（位址、awid、長度逐格對應上面的行號） */
+var I2CT_CK_E501_ID   = { slave: 0x7C, awid: 1, addr: 0x95,   len: 1 };   /* L33507 */
+var I2CT_CK_E501_FLAG = { slave: 0x7C, awid: 1, addr: 0x98,   len: 1 };   /* L33508 */
+var I2CT_CK_E503_VER  = { slave: 0x7D, awid: 2, addr: 0x007D, len: 1 };   /* L31698 / L36480 */
+
+/* `tcon_id_dict` L2600–2604。`ext` 是外部型號，來源是 vault 的
+   `IC內部型號總表.md`／`IC外部型號總表.md`（E501A*→RM81010、E501B1/B2→RM81011、
+   E411A3→DAZ6111），**不是**我從名字猜的。 */
+var I2CT_CK_E501_MAP = {
+  0x00: { name: 'E501A',   ext: 'RM81010' },          /* L2600 TCON：RM81010 */
+  0x40: { name: 'E501B1',  ext: 'RM81011' },          /* L2601 TCON：RM81011 (1) */
+  0x41: { name: 'E501B2',  ext: 'RM81011' },          /* L2602 TCON：RM81011 (2) */
+  0x7E: { name: 'DAZ6111', ext: 'E411A3' }            /* L2603 DAZZO Old TCON #DAZ6111 */
+};
+/* `i2c_check_e503_ver` L31701–31712 ＋ CHECKE503VER L36483–36492。
+   `isE503` 決定要不要跑 M-Bus 導通 C-Bus（見 i2ctCkMbusToCbus）。 */
+var I2CT_CK_E503_MAP = {
+  0x00: { name: 'E503A1 T1', ext: 'RM81000~RM81004', isE503: true },
+  0x01: { name: 'E503A1 T2', ext: 'RM81000~RM81004', isE503: true },
+  0x02: { name: 'E503A1 T3', ext: 'RM81000~RM81004', isE503: true },
+  0x03: { name: 'E503A2',    ext: 'RM81000~RM81004', isE503: true },
+  0x04: { name: 'E503A3',    ext: 'RM81000~RM81004', isE503: true }
+};
+/* L31711–31712 的 else：上游只印一句 `DAZZO Old TCON`，註解寫 `#DAZ613x`。
+   DAZ6138 與 DAZ6139 是**同一顆 IC**（內部型號 E418A4，vault `IC外部型號總表.md`
+   L47／L48 兩列都指向 E418A4）⇒ **上游本來就分不出來**，我們也不假裝分得出。 */
+var I2CT_CK_DAZ13X = { name: 'DAZ613x', ext: 'E418A4', alts: ['DAZ6138', 'DAZ6139'] };
+
+/* B 段：PQ Tool 的 0xFF00 表。slave 掃描順序照抄上游自動偵測（7-bit）。 */
+var I2CT_CK_ICID_SLAVES = [0x60, 0x61, 0x68, 0x69];
+var I2CT_CK_ICID_READ   = { awid: 2, addr: 0xFF00, len: 3 };
+var I2CT_CK_ICID_TABLE = [
+  /* 掃描順序照抄 `CheckICID(ref data)` L191–227：E512AX → EM01AX → EM02AX。
+     （上游那一串還有 V007SX／V512SX／VM01AX／VM02AX，**他這次沒有要判**，
+       但撞號的那兩顆必須如實列進 alts —— 判別條件逐字相同，分不出來。） */
+  { id: [0x12, 0xE5, 0xA0], name: 'E512A1', ext: 'RM80020_A~D',
+    alts: ['E512A1', 'E512A2'] },                       /* L383–393；A1/A2 共用同一組 ID */
+  { id: [0x01, 0xEF, 0xA0], name: 'EM01A1', ext: 'RM80100.PB / RM80203.PB',
+    alts: ['EM01A1', 'VM01S1'] },                       /* L419 與 L431 判別條件逐字相同 */
+  { id: [0x02, 0xEF, 0xA0], name: 'EM02A1', ext: 'RM80120.PC / RM80103.PC',
+    alts: ['EM02A1', 'V512S2'] }                        /* L177–179 同一支判別函式 */
+];
+
+var i2ctCkResult = null;        /* { name, ext, alts, isE503, src } ＝ 這一次認出來的 */
+
+function i2ctCkLog(s){ i2ctLog(s, 'n'); }
+
+/* B 段：掃 slave、讀 0xFF00、比對。**失敗一律回 null，不丟例外、不算錯誤。** */
+async function i2ctCkScanIcId(){
+  var R = I2CT_CK_ICID_READ;
+  for (var i = 0; i < I2CT_CK_ICID_SLAVES.length; i++) {
+    var s = I2CT_CK_ICID_SLAVES[i];
+    var r = await i2ctDoRead(s, R.awid, R.addr, R.len, true);
+    if (!r.ok || r.bytes.length !== 3) { i2ctCkLog('ICID slave 0x' + i2ctHex(s) + ' : no reply'); continue; }
+    var b = r.bytes;
+    i2ctCkLog('ICID slave 0x' + i2ctHex(s) + ' : ' + i2ctBytesText(b));
+    /* 🔴 全 FF ＝ 總線閒置／沒有裝置回應，不是一組 ID（2026-09-18 實機確認 Bug 2）。 */
+    if (i2ctAllFF(b)) continue;
+    for (var k = 0; k < I2CT_CK_ICID_TABLE.length; k++) {
+      var e = I2CT_CK_ICID_TABLE[k];
+      /* 🔴 第三 byte 只比高 nibble —— 相等比對會漏掉 `01 EF A1`（2026-09-18 Bug 1）。 */
+      if (b[0] === e.id[0] && b[1] === e.id[1] && (b[2] & 0xF0) === e.id[2]) {
+        i2ctCkLog('ICID match : ' + e.name + ' (slave 0x' + i2ctHex(s) + ')');
+        return { name: e.name, ext: e.ext, alts: e.alts.slice(), isE503: false, src: 'icid' };
+      }
+    }
+  }
+  return null;
+}
+
+/* A 段：RomCodeProcessUI.py 的三次讀取。回 null ＝ 三次讀取有一次就不成立。 */
+async function i2ctCkRomSeq(){
+  var A = I2CT_CK_E501_ID, B = I2CT_CK_E501_FLAG, C = I2CT_CK_E503_VER;
+  var rid = await i2ctDoRead(A.slave, A.awid, A.addr, A.len, true);        /* L33507 */
+  if (!rid.ok || !rid.bytes.length) { i2ctCkLog('0x7C:0x95 read failed'); return null; }
+  var rfl = await i2ctDoRead(B.slave, B.awid, B.addr, B.len, true);        /* L33508 */
+  if (!rfl.ok || !rfl.bytes.length) { i2ctCkLog('0x7C:0x98 read failed'); return null; }
+  i2ctCkLog('0x7C:0x95 = ' + i2ctBytesText(rid.bytes) + ' · 0x7C:0x98 = ' + i2ctBytesText(rfl.bytes));
+
+  if (rfl.bytes[0] !== 0x00) {                                            /* L33510 ⇒ E501 系列 */
+    var e = I2CT_CK_E501_MAP[rid.bytes[0]];
+    if (e) return { name: e.name, ext: e.ext, alts: null, isE503: false, src: 'rom' };
+    /* 上游此時 tcon_id 不在 dict 裡 ⇒ `tcon_id = ''`（L33568–33570），什麼都不印。
+       我們一樣不編造型號。 */
+    i2ctCkLog('0x7C:0x98 != 0 but 0x95 = 0x' + i2ctHex(rid.bytes[0]) + ' is not in tcon_id_dict');
+    return null;
+  }
+
+  /* L33513–33514：非 E501 ⇒ i2c_check_e503_ver() */
+  var rv = await i2ctDoRead(C.slave, C.awid, C.addr, C.len, true);        /* L31698 */
+  if (!rv.ok || !rv.bytes.length) { i2ctCkLog('0x7D:0x007D read failed'); return null; }
+  i2ctCkLog('0x7D:0x007D = ' + i2ctBytesText(rv.bytes));
+  var v = I2CT_CK_E503_MAP[rv.bytes[0]];
+  if (v) return { name: v.name, ext: v.ext, alts: null, isE503: true, src: 'rom' };
+  /* L31711–31712 else ⇒ DAZZO Old TCON（DAZ613x） */
+  return { name: I2CT_CK_DAZ13X.name, ext: I2CT_CK_DAZ13X.ext,
+           alts: I2CT_CK_DAZ13X.alts.slice(), isE503: false, src: 'rom' };
+}
+
+/* 🔴 E503 特殊處理：`i2c_open_mbus_to_cbus()` L31832–31850，**逐行照抄**。
+     L31839  i2c_write_data(0x7E, 1, 0xAB, [0xCD], 32)
+     L31842  if tcon_a_name in {RM81000..RM81004}:                ← 那五顆外部型號
+     L31843    i2c_write_data(0x3E, 2, 0x59, [0x1E], 32)
+   上游那個 if 判的是**使用者在 comboBox 選的型號**，而 RM81000~RM81004 的內部型號
+   就是 E503A1/A2/A3（vault `IC外部型號總表.md` L169–173）⇒ 我們已經讀出是 E503，
+   條件成立，兩筆都下。上游註解：「E503若回到3E Default值，WP會無法拉Low，
+   需要重新下3E_059h = 0x1E」。
+
+   🔴 bridge 端**沒有 slave 白名單擋這兩個位址**：`tools/i2c-bridge/i2c_bridge.c`
+      L396–397 明文 "deliberately does NOT apply to `rawwrite`"，L2522 的 rawwrite
+      分支只檢查 awid（L2528）與資料長度（L2529），不看 slave。
+      ⇒ 0x7E／0x3E 直接走既有的 i2ctDoWrite（type:'rawwrite'），沒有繞路。
+   🔴 寫入失敗**不靜默**：兩筆各自回報，畫面掛紅色橫幅、log 留全文。 */
+async function i2ctCkMbusToCbus(){
+  var w1 = await i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]);                      /* L31839 */
+  if (!w1.ok) return { ok: false, step: 1, err: w1.err };
+  var w2 = await i2ctDoWrite(0x3E, 2, 0x0059, [0x1E]);                    /* L31843 */
+  if (!w2.ok) return { ok: false, step: 2, err: w2.err };
+  return { ok: true };
+}
+
+/* 畫面：大字型號 ＋（只有歧義／未知才出現的）下拉。其餘一律留在 log。 */
+function i2ctCkRender(){
+  var el = $('tcon-name'), sel = $('tcon-pick');
+  if (!el || !sel) return;
+  var r = i2ctCkResult;
+  if (!r) {
+    el.textContent = '—';
+    el.style.color = 'var(--sub)';
+    sel.style.display = 'none';
+    return;
+  }
+  el.textContent = r.name + (r.ext ? '  (' + r.ext + ')' : '');
+  el.style.color = r.unknown ? 'var(--warn)' : 'var(--ok)';
+  /* 🔴 下拉只在**分不出來**時出現：認得很明確卻還擺一個下拉，等於告訴使用者
+     「我其實不確定」。有歧義（撞號、DAZ613x）或完全認不出來才給他選。 */
+  var list = r.alts;
+  if (!list || !list.length) { sel.style.display = 'none'; return; }
+  sel.innerHTML = '';
+  for (var i = 0; i < list.length; i++) {
+    var o = document.createElement('option');
+    o.value = list[i]; o.textContent = list[i];
+    sel.appendChild(o);
+  }
+  sel.style.display = '';
+}
+
+/* 未知時下拉列出的**全部**支援型號（＝他點名的那九顆的可選形式）。 */
+var I2CT_CK_ALL = ['EM01A1', 'EM02A1', 'E503A1 T1', 'E503A1 T2', 'E503A1 T3',
+                   'E503A2', 'E503A3', 'E501A', 'E501B1', 'E501B2', 'E512A1',
+                   'DAZ6111', 'DAZ6138', 'DAZ6139'];
+
+async function i2ctCheckTcon(){
+  var prev = i2ctOpBegin();
+  try { return await i2ctCheckTconRun(); }
+  finally { i2ctOpEnd(prev); }
+}
+async function i2ctCheckTconRun(){
+  i2ctBusy = true; i2ctSyncButtons();
+  i2ctCkResult = null; i2ctCkRender();
+  i2ctBanner('topbanner', null, null);
+  i2ctCkLog(i2ctT('i2c.logCkStart'));
+
+  var rom = null, icid = null, fatal = null;
+  try {
+    rom  = await i2ctCkRomSeq();
+    icid = await i2ctCkScanIcId();
+  } catch (e) { fatal = e.message; }
+
+  if (fatal) {
+    i2ctBusy = false; i2ctSyncButtons();
+    i2ctBanner('topbanner', 'err', i2ctT('i2c.bnCkFail', { why: fatal }));
+    i2ctLog(i2ctT('i2c.logCkFail', { why: fatal }), 'e');
+    return null;
+  }
+
+  /* 🔴 兩段都有結果而且指向不同顆 ⇒ **不挑一個報給他**，兩個都列進下拉。
+     A 段在 EM01／EM02／E512 上會讀到什麼，上游沒有寫、我們也沒有真機可以測
+     —— 這種時候「挑一個」就是編造。 */
+  var r;
+  if (rom && icid && rom.name !== icid.name) {
+    i2ctCkLog('conflict : rom=' + rom.name + ' icid=' + icid.name);
+    r = { name: icid.name, ext: icid.ext, isE503: false,
+          alts: [icid.name, rom.name].concat(rom.alts || []).concat(icid.alts || [])
+                  .filter(function (v, i, a) { return a.indexOf(v) === i; }) };
+  } else if (rom) {
+    r = rom;
+  } else if (icid) {
+    r = icid;
+  } else {
+    r = { name: i2ctT('i2c.ckUnknown'), ext: '', alts: I2CT_CK_ALL.slice(),
+          isE503: false, unknown: true };
+  }
+  i2ctCkResult = r;
+  i2ctCkRender();
+  i2ctLog(i2ctT('i2c.logCkDone', { name: r.name }), 'o');
+
+  /* E503 特殊處理 —— 只有**確定是 E503** 才下（有寫入副作用，歧義未定時不做）。 */
+  if (r.isE503) {
+    i2ctCkLog(i2ctT('i2c.logCkMbus'));
+    var m = await i2ctCkMbusToCbus();
+    if (!m.ok) {
+      i2ctBusy = false; i2ctSyncButtons();
+      i2ctBanner('topbanner', 'err', i2ctT('i2c.bnCkMbusFail', { step: m.step, err: m.err }));
+      i2ctLog(i2ctT('i2c.logCkMbusFail', { step: m.step, err: m.err }), 'e');
+      return r;
+    }
+    i2ctLog(i2ctT('i2c.logCkMbusOk'), 'o');
+  }
+
+  i2ctBusy = false; i2ctSyncButtons();
+  return r;
+}
+
+/* 下拉：使用者自己選定之後，把它當成**確定的答案**。
+   🔴 選到 E503 的任一版本 ⇒ 依然要下 M-Bus 導通 C-Bus（他要的是「確認到 E503
+      之後」，不分是自動認出來的還是他自己選的）。 */
+async function i2ctCkPick(){
+  var sel = $('tcon-pick'); if (!sel || !i2ctCkResult) return;
+  var v = sel.value;
+  i2ctCkResult.name = v;
+  i2ctCkResult.unknown = false;
+  var wasE503 = i2ctCkResult.isE503;
+  i2ctCkResult.isE503 = /^E503/.test(v);
+  var el = $('tcon-name');
+  if (el) { el.textContent = v; el.style.color = 'var(--ok)'; }
+  i2ctLog(i2ctT('i2c.logCkPick', { name: v }), 'n');
+  if (i2ctCkResult.isE503 && !wasE503 && i2ctLinked && !i2ctBusy) {
+    i2ctBusy = true; i2ctSyncButtons();
+    i2ctCkLog(i2ctT('i2c.logCkMbus'));
+    var m = await i2ctCkMbusToCbus();
+    if (!m.ok) {
+      i2ctBanner('topbanner', 'err', i2ctT('i2c.bnCkMbusFail', { step: m.step, err: m.err }));
+      i2ctLog(i2ctT('i2c.logCkMbusFail', { step: m.step, err: m.err }), 'e');
+    } else {
+      i2ctLog(i2ctT('i2c.logCkMbusOk'), 'o');
+    }
+    i2ctBusy = false; i2ctSyncButtons();
+  }
+}
+
 /* ═══ 版面 ══════════════════════════════════════════════════════════════ */
 function i2ctBanner(id, cls, html){
   var el = $(id); if (!el) return;
@@ -6327,6 +6626,9 @@ function i2ctInit(){
   $('howto-ok').addEventListener('click', function () { $('howto').style.display = 'none'; });
   $('howto').addEventListener('click', function (e) { if (e.target === this) this.style.display = 'none'; });
   $('btn-self').addEventListener('click', i2ctSelfTest);
+  /* 🔴 v1.25.0：**不跳確認視窗**（Bruce 2026-09-21）—— 按下去就直接做。 */
+  $('btn-checktcon').addEventListener('click', function () { i2ctCheckTcon().catch(function () {}); });
+  $('tcon-pick').addEventListener('change', function () { i2ctCkPick().catch(function () {}); });
   $('btn-read').addEventListener('click', i2ctOnRead);
   $('btn-write').addEventListener('click', i2ctOnWrite);
   $('btn-prev').addEventListener('click', function () { if (i2ctPageIdx > 0) { i2ctPageIdx--; i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); } });
@@ -6947,6 +7249,11 @@ window.__i2ct = {
   PKG: I2CT_PKG,
   ONLINE_PAGE: I2CT_ONLINE_PAGE,
   selfTest: function () { return i2ctSelfTest(); },
+  /* v1.25.0：Check T-CON。`ckPick` 走的是與使用者操作**同一支** i2ctCkPick，
+     不是另開一條捷徑 —— 夾具驗到的才會是他按下去會發生的事。 */
+  checkTcon: function () { return i2ctCheckTcon(); },
+  ckResult:  function () { return i2ctCkResult ? JSON.parse(JSON.stringify(i2ctCkResult)) : null; },
+  ckPick:    function (v) { var s = $('tcon-pick'); if (s) s.value = v; return i2ctCkPick(); },
   doRead:  function () { return i2ctOnRead(); },
   doWrite: function () { return i2ctOnWrite(); },
   setInputs: function (o) {

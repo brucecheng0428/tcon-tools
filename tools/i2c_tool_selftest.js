@@ -4832,6 +4832,108 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('80. 🔴 v1.25.0：Check T-CON（兩段上游各自照抄 ＋ E503 特殊處理）');
+  {
+    /* 讀取腳本：依 slave/awid/addr 回值。回 null ＝ 沒有這個位址（NACK）。
+       🔴 `0xFF00` 一律先回全 FF（＝總線閒置），測案要用到時自己覆寫。 */
+    function ckScript(map) {
+      return baseScript((m) => {
+        if (m.type !== 'read') return { ok: true };
+        const k = '0x' + m.slave.toString(16).toUpperCase() + ':' + m.awid + ':0x' + m.addr.toString(16).toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(map, k)) {
+          const v = map[k];
+          return v === null ? { ok: false, err: 'NACK' } : { ok: true, data: v };
+        }
+        return { ok: true, data: new Array(m.len).fill(0xFF) };
+      });
+    }
+    const W = (sent) => SINCE(sent, 'rawwrite').map(m =>
+      '0x' + m.slave.toString(16).toUpperCase() + ':' + m.awid + ':0x' + m.addr.toString(16).toUpperCase()
+      + '←' + m.data.map(b => b.toString(16).toUpperCase()).join(''));
+
+    /* ── ① E503A2：0x98 == 0 ⇒ 走 e503 版本表；0x007D == 0x03 ⇒ E503A2 ───────
+       🔴 這一條同時釘住「**認到 E503 才下 M-Bus 導通 C-Bus 的那兩筆**」。 */
+    {
+      const sent = await useHelper(ckScript({
+        '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x00], '0x7D:2:0x7D': [0x03]
+      }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'E503A2', '① 0x7D:0x007D = 0x03 ⇒ E503A2（RomCodeProcessUI L31707–31708）');
+      EQ(W(sent), ['0x7E:1:0xAB←CD', '0x3E:2:0x59←1E'],
+         '🔴 ① E503 ⇒ M-Bus 導通 C-Bus 兩筆、順序與資料逐格照抄 L31839／L31843');
+      EQ(doc.getElementById('tcon-pick').style.display, 'none', '① 認得明確 ⇒ 不出現下拉');
+    }
+    /* ── ② E501B1：0x98 != 0 ⇒ E501 系列；0x95 == 0x40 ⇒ E501B1 ─────────────
+       🔴 反面：**不是 E503 就一筆寫入都不准有**（誤下會動到別顆的暫存器）。 */
+    {
+      const sent = await useHelper(ckScript({
+        '0x7C:1:0x95': [0x40], '0x7C:1:0x98': [0x01], '0x7D:2:0x7D': [0x03]
+      }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'E501B1', '② 0x98 != 0 且 0x95 = 0x40 ⇒ E501B1（tcon_id_dict L2601）');
+      EQ(W(sent), [], '🔴 ② 非 E503 ⇒ 完全沒有任何寫入');
+    }
+    /* ── ③ 0x95 = 0x7E ⇒ DAZ6111（L2603）──────────────────────────────── */
+    {
+      const sent = await useHelper(ckScript({ '0x7C:1:0x95': [0x7E], '0x7C:1:0x98': [0x01] }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'DAZ6111', '③ 0x95 = 0x7E ⇒ DAZ6111');
+      EQ(W(sent), [], '③ 不是 E503 ⇒ 沒有寫入');
+    }
+    /* ── ④ e503 版本表外的值 ⇒ DAZ613x，且 DAZ6138/6139 掛成可選（上游也分不出）── */
+    {
+      await useHelper(ckScript({
+        '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x00], '0x7D:2:0x7D': [0x77]
+      }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'DAZ613x', '④ 0x007D 不在 0x00–0x04 ⇒ DAZ613x（L31711–31712 else）');
+      EQ(A.ckResult().alts, ['DAZ6138', 'DAZ6139'], '🔴 ④ 同一顆 IC（E418A4）⇒ 兩個都列，不假裝分得出');
+      EQ(doc.getElementById('tcon-pick').style.display, '', '④ 有歧義 ⇒ 下拉出現');
+    }
+    /* ── ⑤ 0xFF00 的高 nibble 比對（PQ Tool CheckICID L419）─────────────────
+       🔴 正面：實機讀到的 `01 EF A1` 必須認得（2026-09-18 Bug 1 就是相等比對漏掉它）。
+          前提：A 段三次讀取全部 NACK，讓結果只能來自 B 段。 */
+    {
+      await useHelper(ckScript({
+        '0x7C:1:0x95': null, '0x7C:1:0x98': null, '0x7D:2:0x7D': null,
+        '0x68:2:0xFF00': [0x01, 0xEF, 0xA1]
+      }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'EM01A1', '🔴 ⑤ 0xFF00 = 01 EF A1 ⇒ EM01A1（第三 byte 只比高 nibble）');
+      EQ(A.ckResult().alts, ['EM01A1', 'VM01S1'], '⑤ 撞號如實列出（L419／L431 判別條件逐字相同）');
+    }
+    /* ── ⑥ 反面：全 FF **不算**命中（2026-09-18 Bug 2）⇒ 認不出來 ────────── */
+    {
+      await useHelper(ckScript({ '0x7C:1:0x95': null, '0x7C:1:0x98': null, '0x7D:2:0x7D': null }));
+      await A.checkTcon(); await quiesce();
+      CHECK(A.ckResult().unknown === true, '🔴 ⑥ 全部讀不到／0xFF00 全 FF ⇒ 認不出來，不亂報一顆');
+      CHECK(A.ckResult().alts.length > 0, '⑥ 認不出來 ⇒ 下拉列出所有支援型號讓他自己選');
+    }
+    /* ── ⑦ E512A1（0xFF00 = 12 E5 A0，CheckICID L383–393）──────────────── */
+    {
+      await useHelper(ckScript({
+        '0x7C:1:0x95': null, '0x7C:1:0x98': null, '0x7D:2:0x7D': null,
+        '0x60:2:0xFF00': [0x12, 0xE5, 0xA0]
+      }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'E512A1', '⑦ 0xFF00 = 12 E5 A0 ⇒ E512A1');
+    }
+    /* ── ⑧ 手動從下拉選到 E503 ⇒ 一樣要下 M-Bus 導通 C-Bus ─────────────────
+       他要的是「確認到 E503 之後」，不分是自動認出來的還是他自己選的。
+       情境用「認不出來」那一種（下拉列全部支援型號），因為那正是他會需要自己選的時候。 */
+    {
+      const sent = await useHelper(ckScript({ '0x7C:1:0x95': null, '0x7C:1:0x98': null, '0x7D:2:0x7D': null }));
+      await A.checkTcon(); await quiesce();
+      EQ(W(sent), [], '前置：認不出來 ⇒ 還沒有寫入');
+      await A.ckPick('E503A1 T1'); await quiesce();
+      EQ(A.ckResult().name, 'E503A1 T1', '⑧ 下拉選定 ⇒ 型號改成他選的那一個');
+      EQ(W(sent), ['0x7E:1:0xAB←CD', '0x3E:2:0x59←1E'],
+         '🔴 ⑧ 手動選到 E503 ⇒ 同樣補上 M-Bus 導通 C-Bus 兩筆');
+    }
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');

@@ -2539,6 +2539,22 @@ var I18N = {
   'i2c.bnSelfFail':     { 'zh-TW': '自檢未通過（{why}）', 'en': 'Self-test failed ({why})', 'zh-CN': '自检未通过（{why}）' },
   'i2c.logSelfFail':    { 'zh-TW': '✕ 自檢未通過：{why}', 'en': '✕ Self-test failed: {why}', 'zh-CN': '✕ 自检未通过：{why}' },
 
+  /* ── Check T-CON（v1.25.0）─────────────────────────────────────────────
+     🔴 畫面上只出現「型號」與失敗的那一句；slave 掃描順序、原始 ID byte、
+        每一筆讀寫全部走 log（log 的字是診斷用的，刻意留英文、不進字典）。 */
+  'i2c.tipCheckTcon':   { 'zh-TW': '讀 0x7C 的 0x98/0x95 與 0x7D 的 0x007D 判斷 T-CON 型號；判到 E503 會自動下一次 M-Bus 導通 C-Bus', 'en': 'Reads 0x98/0x95 on 0x7C and 0x007D on 0x7D to identify the T-CON; if it is an E503, the M-Bus to C-Bus opening sequence is issued automatically', 'zh-CN': '读 0x7C 的 0x98/0x95 与 0x7D 的 0x007D 判断 T-CON 型号；判到 E503 会自动下一次 M-Bus 导通 C-Bus' },
+  'i2c.ariaTconPick':   { 'zh-TW': '手動選擇 T-CON 型號', 'en': 'Pick the T-CON model manually', 'zh-CN': '手动选择 T-CON 型号' },
+  'i2c.ckUnknown':      { 'zh-TW': '認不出來', 'en': 'Not identified', 'zh-CN': '认不出来' },
+  'i2c.logCkStart':     { 'zh-TW': '── Check T-CON ──', 'en': '── Check T-CON ──', 'zh-CN': '── Check T-CON ──' },
+  'i2c.logCkDone':      { 'zh-TW': '✔ Check T-CON：{name}', 'en': '✔ Check T-CON: {name}', 'zh-CN': '✔ Check T-CON：{name}' },
+  'i2c.logCkPick':      { 'zh-TW': '型號改為手動選定：{name}', 'en': 'Model set manually: {name}', 'zh-CN': '型号改为手动选定：{name}' },
+  'i2c.bnCkFail':       { 'zh-TW': 'Check T-CON 沒有完成（{why}）', 'en': 'Check T-CON did not complete ({why})', 'zh-CN': 'Check T-CON 没有完成（{why}）' },
+  'i2c.logCkFail':      { 'zh-TW': '✕ Check T-CON 沒有完成：{why}', 'en': '✕ Check T-CON did not complete: {why}', 'zh-CN': '✕ Check T-CON 没有完成：{why}' },
+  'i2c.logCkMbus':      { 'zh-TW': 'E503 ⇒ M-Bus 導通 C-Bus：0x7E:0xAB ← CD、0x3E:0x0059 ← 1E', 'en': 'E503 ⇒ opening C-Bus from M-Bus: 0x7E:0xAB ← CD, 0x3E:0x0059 ← 1E', 'zh-CN': 'E503 ⇒ M-Bus 导通 C-Bus：0x7E:0xAB ← CD、0x3E:0x0059 ← 1E' },
+  'i2c.logCkMbusOk':    { 'zh-TW': '✔ M-Bus 導通 C-Bus 兩筆都寫入完成', 'en': '✔ Both M-Bus to C-Bus writes completed', 'zh-CN': '✔ M-Bus 导通 C-Bus 两笔都写入完成' },
+  'i2c.bnCkMbusFail':   { 'zh-TW': 'E503 的 M-Bus 導通 C-Bus 第 {step} 筆寫入失敗（{err}）', 'en': 'Write {step} of the E503 M-Bus to C-Bus sequence failed ({err})', 'zh-CN': 'E503 的 M-Bus 导通 C-Bus 第 {step} 笔写入失败（{err}）' },
+  'i2c.logCkMbusFail':  { 'zh-TW': '✕ M-Bus 導通 C-Bus 第 {step} 筆寫入失敗：{err}', 'en': '✕ Write {step} of the M-Bus to C-Bus sequence failed: {err}', 'zh-CN': '✕ M-Bus 导通 C-Bus 第 {step} 笔写入失败：{err}' },
+
   /* ── 快慢路徑比對 ─────────────────────────────────────────────────── */
   'i2c.logCmpStart':    { 'zh-TW': '── 快慢路徑比對：同一段 {n} byte 各讀一次 ──', 'en': '── Fast vs. normal path: reading the same {n} bytes once on each ──', 'zh-CN': '── 快慢路径比对：同一段 {n} byte 各读一次 ──' },
   'i2c.bnCmpIncomplete':{ 'zh-TW': '🔴 比對沒完成：{why}{tail}', 'en': '🔴 Comparison did not finish: {why}{tail}', 'zh-CN': '🔴 比对没完成：{why}{tail}' },
