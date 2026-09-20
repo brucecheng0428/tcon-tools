@@ -25,7 +25,7 @@
      🔴 本頁自給自足（不載 common.css / common.js / i18n.js），唯一外部相依是
         common/version.js（版號單一來源）—— I2C Bridge 端出來的那一份會把它內嵌進來。
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260920i2c1221"></script>
+<script src="common/version.js?v=20260920i2c1222"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -357,8 +357,9 @@
   .celllegend .lg-xh    {background:rgba(56,189,248,.22);}
   .celllegend .lg-xc    {background:#0b1424;outline:2px solid var(--accent);outline-offset:-2px;}
   .celllegend .lg-edit  {background:#0c2d48;box-shadow:inset 0 0 0 2px var(--accent);}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--sub);margin-top:7px;}
-  .legend i{display:inline-block;width:10px;height:10px;border:1px solid #223049;vertical-align:-1px;margin-right:4px;}
+  /* 🔴 v1.22.2：`.legend` / `.legend i` 兩條刪除 —— 唯一的使用點（diff 卡下方那份
+     重複又過時的顏色圖例）已經整塊移除，留著就是沒人讀的死樣式。
+     顏色說明只剩 `.celllegend` 一套（側欄那份，有 check_legend_items.js 顧）。 */
 
   .pager{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--sub);}
   /* 🔴 v1.22.1：下拉是控制項、與按鈕同一類 ⇒ 字級跟著按鈕走（12 → 13.5）。
@@ -882,7 +883,7 @@
     <div class="abbox" id="abbox"></div>
     <div id="pagewarn"></div>
     <div id="readbanner"></div>
-    <!-- 🔴 長讀取的進度與中止（256K ＝ 1024 次交易）。平常整個不顯示。 -->
+    <!-- 🔴 長讀取的進度與中止（256K ＝ 1024 次傳輸）。平常整個不顯示。 -->
     <div id="progress" style="display:none"></div>
     <!-- 🔴 v1.15.0（Bruce 2026-09-19）：dump **右邊**加兩塊 —— 搜尋與位元編輯。
          版面用 flex：表格固定 16 欄在左，側欄在右；寬度不夠時側欄整塊**換行到
@@ -979,12 +980,26 @@
         <div id="diffbody"><div id="diffspacer"><div id="diffrows"></div></div></div>
       </div>
     </div>
-    <div class="legend dbgonly">
-      <span><i style="background:#132038;"></i>已讀到的值</span>
-      <span><i style="background:#0b1424;"></i>未讀取（本次範圍外）</span>
-      <span><i style="background:#3f2d07;"></i>本次寫入過</span>
-    </div>
-    <div class="hint" style="margin-top:6px">點任一格可直接改值 → Enter 寫回該位址</div>
+    <!-- ═══ 🔴 v1.22.2：這裡原本有**第二份** dump 顏色圖例（`.legend dbgonly`），整塊刪除 ══
+         它列了三項，逐項查證：
+           · 已讀到的值      `#132038` ＝ `table.dump td.has`            → 還在，但
+           · 未讀取          `#0b1424` ＝ `table.dump td` 的基底          → 還在，但
+             這兩項在側欄的 `#celllegend` 裡**本來就有**（而且那一份有機械檢查在顧）。
+           · 第三項（`#3f2d07`，就是 v1.20.2 拿掉的那個琥珀色著色）⇒ 全檔搜尋這個色碼
+             只剩 `.banner.warn` 一處，
+             `td.wrote` 與 `i2ctWroteFlags` 在 **v1.20.2 已整支刪除**（Bruce 2026-09-19
+             要求取消那個著色）⇒ **這一項指向一個不存在的顏色**，掛在畫面上一年半載
+             也不會有任何測試叫。
+         ⇒ 兩項重複 ＋ 一項是死的 ⇒ 整塊拿掉，不留空圖例。顏色說明**只留一份**
+           （`#celllegend`），`tools/check_legend_items.js` 顧的就是那一份。
+         🔴 根因不是「有人忘了改」，是**閘門只看 `#celllegend`，看不到第二份圖例** ——
+            同一版已把「不准有第二份」加進那支檢查（見該檔 §2）。 -->
+    <!-- 🔴 v1.22.2：這一行原本寫的是「點一格就能改值」那一句，
+         但它在 `#diffcard` 裡面、描述的卻是 **dump 卡**的操作。差異列的點擊處理
+         （v1.22.1 起走 `i2ctSetCross`）**只定位、不改值** ⇒ 舊文案會讓人以為
+         可以在這張卡上改值，那是錯的。改成描述這張卡真正會做的事，
+         並明寫「改值要去 dump 上做」，把誤解堵死。 -->
+    <div class="hint" style="margin-top:6px">點一列 → 跳到 dump 的對應位址（同時畫十字、左上角顯示該位址）。改值請在 dump 上做。</div>
   </div>
 
   <!-- ═══ I2C Bridge 取得與安裝（本頁自足，不必經過 dg 的任何頁面）═══════════════
@@ -1042,7 +1057,10 @@
 
   <div class="card" style="margin-top:12px;">
     <div class="row" style="align-items:center;margin-bottom:6px;">
-      <h2 style="margin:0;">交易 Log</h2>
+      <!-- 🔴 v1.22.2：標題換成下面那四個字（Bruce 2026-09-20 已確認）。
+           原本用的是 transaction 的中文直譯，那個詞在中文讀起來是買賣 ——
+           同時踩到本專案兩條既有規則：技術流程禁套商業字眼、看不懂的詞不准上畫面。 -->
+      <h2 style="margin:0;">操作紀錄</h2>
       <span class="sp" style="flex:1"></span>
       <button id="btn-copylog">複製</button>
       <button id="btn-clearlog">清除</button>
@@ -1273,7 +1291,7 @@ var I2CT_CHUNK      = 256;       /* 舊名保留：寫入分段與既有測試�
 /* 🔴 Bruce 2026-09-18：「最大檔案可能不止 4096 bytes，我有可能有 256K bytes」
    ⇒ 上限拉到 262,144（1024 頁）。這是**整個工具的天花板**，也是不分段路徑
    實際會送出的最大單則長度 —— bridge 端的動態配置以同一個數字為界。
-   走 SLOW 路徑時每則 read 上限 256 byte ⇒ 最多 1024 次交易，所以下面一定要有
+   走 SLOW 路徑時每則 read 上限 256 byte ⇒ 最多 1024 次傳輸，所以下面一定要有
    進度與中止，不然他按下去只能乾等。 */
 var I2CT_MAX_LEN    = 262144;     /* 一次讀寫的上限 ＝ 256K ＝ 1024 頁 */
 /* 🔴 依模式回「每則最多幾 byte」。沒有實作限制的模式回 `I2CT_MAX_LEN`（＝天花板
@@ -1484,7 +1502,7 @@ function i2ctWrOkFlash(idx){
 /* 🔴 十字定位的中心（絕對位址）。null ＝ 沒有定位。
    這是**純檢視**的狀態，絕對不碰資料 —— 他要的是「定位」，不是「改值」。 */
 var i2ctCross = null;
-/* 🔴 256K ＝ 1024 次交易（每則上限 256 byte）。沒有進度他只能乾等、也不知道會不會
+/* 🔴 256K ＝ 1024 次傳輸（每則上限 256 byte）。沒有進度他只能乾等、也不知道會不會
    卡死；沒有中止他只能關分頁。兩個都是功能，不是說明文字。 */
 var i2ctAbort = false;
 var i2ctProgress = null;      /* {done, total} 或 null */
@@ -2308,7 +2326,9 @@ function i2ctReadInputs(){
     errs.push('offset 寬度只能是 0–' + I2CT_AWID_MAX + '：位址相位是從一個 4 byte 的'
             + '緩衝區依寬度取出來送的，填 5 以上會送出不相干的 byte 當位址，而且不會報錯');
   /* 🔴 offset 寬度 0 的語意（Bruce 2026-09-18 親自確認）：
-       「寬度 0 時交易就是 slave address ＋ 你填的那 1 byte，**沒有位址相位**。
+     🔴 以下是 **Bruce 的逐字引用**，用詞刻意不動 —— v1.22.2 把全檔「交易」改成
+        「傳輸」時獨留這一段：改寫別人說過的話，引用就失去它存在的意義。 */
+  /*   「寬度 0 時交易就是 slave address ＋ 你填的那 1 byte，**沒有位址相位**。
         也就是說，0 byte offset 的時候，實際上 data 也只有 1 byte 而已，
         所以它看起來就很像 1 byte offset 一樣。只是在 1 byte offset 下，
         那個 offset 就是 data，後面也就沒有 data 了。」
@@ -2776,7 +2796,7 @@ async function i2ctConnect(takeover){
     /* 🔴 分頁過舊的提醒要在清空之後才畫，否則會被上一行清掉。一行就好。 */
     if (i2ctStaleTab) i2ctBanner('topbanner', 'warn', '這個分頁是舊的，請按 Ctrl+F5 重新整理。');
     i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C Bridge）
-    /* 🔴 連線**不做任何 I2C 交易**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
+    /* 🔴 連線**不做任何 I2C 傳輸**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
        這一頁是通用的 I2C 讀寫工具，不該假設線上掛的是哪一顆晶片 —— 連上就去讀
        0x0000／0xFF00 等於替使用者決定了他要讀誰，而且他接的可能是 EEPROM、PMIC、
        感測器，那兩個位址對它們沒有意義，甚至有副作用。
@@ -3307,7 +3327,7 @@ function i2ctWrapPeriod(bytes){
      · 網頁端 i2ctOnWrite() 固定切 I2CT_CHUNK(256) byte，位址只是往前推
      · I2C Bridge 端 i2c_write_ex()（tools/i2c-bridge/i2c_bridge.c L409–417）把
        offset ＋ 最多 256 個 data byte 組成**一筆** p_Write(OPT_WRITE)
-   ⇒ **定址層面**是一筆交易（一次 START ＋ 一次 slave ＋ 一次 offset），沒有逐 byte 重新定址。
+   ⇒ **定址層面**是一次 I2C 傳輸（START → slave → offset → … → STOP），沒有逐 byte 重新定址。
    🔴 **但不要因此說「這是 burst」** —— 那是 2026-09-19 被實測打臉的一句話。
       Bruce 用邏輯分析儀量到：**讀取時 byte 與 byte 之間 SCL 停了 10~15 ms**。
       沒有人會把中間停 10 ms 的東西叫 burst。他在意的是**時序**，不是我們怎麼定義名詞。
@@ -4190,7 +4210,7 @@ function i2ctApplyFile(name, raw){
     var newSet = i2ctMakeSet('file', vin.slave, i2ctFileAwid, i2ctFileBase, bytes, file.name);
     /* 🔴 來源標籤 ＝ 檔名。第一次載入（還沒有 A）或長度不同 ⇒ 它成為 A；
        已有同長度的 A ⇒ 它成為 B。判斷全在 i2ctIngest 裡，這裡只負責給來源。
-       🔴🔴 **載入檔案在任何情況下都不寫入裝置** —— 這裡一個 I2C 交易都沒有，
+       🔴🔴 **載入檔案在任何情況下都不寫入裝置** —— 這裡一次 I2C 傳輸都沒有，
           只有他按「寫入」才會送出。自檢第 54(0) 組釘死這一條。 */
     /* ═══ 🔴🔴 A、B 都佔用 ⇒ 問他這個檔案要放哪一邊（v1.17.1）═══════════════
        Bruce：「如果我載入 A 跟 B 兩個檔案，然後我再載入第三個檔案，我想要取代 A
@@ -4213,7 +4233,7 @@ function i2ctApplyFile(name, raw){
 }
 /* 把剛解析好的檔案放到指定的位置。
    🔴 `bSetBefore` ＝ **放之前**的 B 實體，「取代 A，保留 B」要靠它。
-   🔴 四種 mode 都**不送出任何 I2C 交易**（第零條）。 */
+   🔴 四種 mode 都**不送出任何 I2C 傳輸**（第零條）。 */
 function i2ctPlaceFile(mode, newSet, bSetBefore){
   var name = newSet.name;
   var keepB = (mode === 'Akeep');
@@ -4971,7 +4991,7 @@ async function i2ctSlotClick(idx, which){
       i2ctPrevHas[idx] = nx.hasPrev;
     }
   } else {
-    /* ②③ 不送出任何交易，只動本地 */
+    /* ②③ 不送出任何 I2C 傳輸，只動本地 */
     d.bytes[idx] = nx.main;
     i2ctPrevBytes[idx] = nx.prev;
     i2ctPrevHas[idx] = nx.hasPrev;
@@ -5252,7 +5272,7 @@ function i2ctBeginEdit(td){
      （I2CT_TIMEOUT_MS ＝ 8 秒）。線上頁面沒開 Bridge 時，**開頭那 8 秒鐘
      整個 dump 都不能編輯，而且畫面上沒有任何說明** —— 那就是 Bruce 說的
      「點了根本沒辦法改值」。
-     正確判準：只有「已連線而且正在跑 I2C 交易」時才擋。未連線的編輯是純本地
+     正確判準：只有「已連線而且正在跑 I2C 傳輸」時才擋。未連線的編輯是純本地
      操作，不碰匯流排，沒有任何理由擋。 */
   if (i2ctEditing || (i2ctLinked && i2ctBusy)) return;
   if (i2ctReadOnlyNow()) return;              /* 🔴 顯示 A（基準）時唯讀 */
@@ -5308,7 +5328,7 @@ function i2ctCommitEdit(){
   var idx = e.idx, addr = e.addr, awid = e.awid;
   var same = (d.bytes[idx] === val[0]);
   i2ctCancelEdit();
-  if (same) return Promise.resolve(false);       /* 值沒變 ⇒ 不送出任何交易 */
+  if (same) return Promise.resolve(false);       /* 值沒變 ⇒ 不送出任何 I2C 傳輸 */
   return i2ctApplyCellValue(d, idx, addr, awid, val[0]);
 }
 /* ═══ 一格的值要變了 ⇒ 三槽的**唯一出口** ═══════════════════════════════
@@ -5941,7 +5961,7 @@ function i2ctInit(){
   i2ctSlaveSync('s7', true);   /* 三格從 7-bit 對齊一次 */
   i2ctUpdateHints();
   i2ctSetLink(false, '未連線');
-  i2ctLog('I2C 讀寫測試工具就緒。讀寫皆不限位址；每一筆交易都記在這裡。', 'n');
+  i2ctLog('I2C 讀寫測試工具就緒。讀寫皆不限位址；每一筆讀寫都記在這裡。', 'n');
 
   /* I2C Bridge 自己端出來時就自動連 —— 這一頁是它的選單點進來的，使用者的意圖
      很明確，不該再多按一次。線上版不自動連（連不到，只會製造錯誤訊息）。

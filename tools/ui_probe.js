@@ -294,8 +294,17 @@
     await sleep(60);
     ok('9c 載入的 FF 一格都沒標', document.querySelectorAll('#dump td.ff, #dump td.bus').length === 0,
        document.querySelectorAll('#dump td.ff, #dump td.bus').length);
-    ok('9d 圖例裡沒有 FF 項目', !/FF/.test(document.querySelector('.legend').textContent),
-       document.querySelector('.legend').textContent.replace(/\s+/g, ' ').trim());
+    /* 🔴 v1.22.2：本來查的是 diff 卡下方那份 `.legend`，那一塊已整塊移除
+       （兩項與 `#celllegend` 重複、第三項「寫入過」指向 v1.20.2 就刪掉的顏色）。
+       斷言**意圖不變**（圖例不得列出 FF 項目），改查現在唯一的那份，
+       並加一條「只准有一份」。比舊版嚴，不是放寬。 */
+    ok('9d 顏色圖例只有一份（重複又過時的那份已移除）',
+       document.querySelectorAll('.legend').length === 0
+       && document.querySelectorAll('#celllegend').length === 1,
+       '.legend=' + document.querySelectorAll('.legend').length
+       + ' #celllegend=' + document.querySelectorAll('#celllegend').length);
+    ok('9d2 圖例裡沒有 FF 項目', !/FF/.test(document.querySelector('#celllegend').textContent),
+       document.querySelector('#celllegend').textContent.replace(/\s+/g, ' ').trim());
 
     stage(10);
     /* ── 路徑 12：🔴 A／B 兩狀態（Bruce 2026-09-19 第三次定義，逐條照走）──────

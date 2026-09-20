@@ -289,6 +289,55 @@
       $('btn-recmp').click(); await sleep(80);
       ok('4i 「重新比較」之後標頭回來', A.diffCount() > 0 && cs(hd, 'display') !== 'none',
          'n=' + A.diffCount() + ' display=' + cs(hd, 'display'));
+
+      /* ═══ 🔴 v1.22.2 補做 A：差異卡下方的說明必須描述**這張卡**的行為 ═══════
+         舊文案寫的是 dump 卡的操作（「點一格就能改值 → Enter 寫回」），而差異列
+         的點擊自 v1.22.1 起只定位、不改值 ⇒ 那句話會讓人以為在這裡也能改值。
+         判準訂成「不准出現『改值』以外還把它講成在這張卡做」很難機械化，所以拆兩條：
+         ① 必須講到它真正做的事（跳到 dump／十字／位址）
+         ② 不准出現會讓人以為**在這張卡按 Enter 就會寫進裝置**的字樣。 */
+      const dcHints = Array.from($('diffcard').querySelectorAll('.hint'))
+        .filter(h => h.offsetParent !== null).map(h => h.textContent.trim());
+      const dcText = dcHints.join(' ');
+      ok('4j 🔴 差異卡的說明描述的是**這張卡**的行為（跳位址／十字）',
+         dcHints.length > 0 && /dump/i.test(dcText) && dcText.indexOf('十字') >= 0,
+         JSON.stringify(dcHints));
+      ok('4k 🔴 差異卡的說明不再暗示可以在這裡改值（不得出現「可直接改值」「Enter 寫回」）',
+         dcText.indexOf('可直接改值') < 0 && dcText.indexOf('Enter 寫回') < 0,
+         dcText);
+
+      /* ═══ 🔴 v1.22.2 補做 B：畫面上的顏色圖例只准有一份 ════════════════════
+         舊版在 diff 卡下方有第二份 `.legend dbgonly`，其中「寫入過」指向 v1.20.2
+         就刪掉的顏色。`check_legend_items.js` 只看 `#celllegend`，看不到它 ⇒
+         這一條在**真的 DOM 上**再釘一次，含 debug 模式打開的情況
+         （dbgonly 平常不顯示，所以只看「看得見的元素」會漏掉它）。 */
+      ok('4l 🔴 DOM 裡只有一份顏色圖例（#celllegend），沒有第二份 .legend',
+         document.querySelectorAll('.legend').length === 0
+         && document.querySelectorAll('#celllegend').length === 1,
+         '.legend=' + document.querySelectorAll('.legend').length
+         + ' #celllegend=' + document.querySelectorAll('#celllegend').length);
+      {
+        /* debug 模式打開 ⇒ dbgonly 全部現形，再確認一次沒有漏網的第二份圖例 */
+        A.setDebug(true); await sleep(60);
+        const dbgLegend = document.querySelectorAll('.legend').length;
+        const stale = Array.from(document.querySelectorAll('#diffcard span'))
+          .filter(sp => /寫入過/.test(sp.textContent || '')).length;
+        A.setDebug(false); await sleep(40);
+        ok('4m 🔴 連 debug 模式打開都沒有第二份圖例、也沒有「寫入過」這個過時項目',
+           dbgLegend === 0 && stale === 0, '.legend=' + dbgLegend + ' 過時項目=' + stale);
+      }
+
+      /* ═══ 🔴 v1.22.2 補做 C：「操作紀錄」════════════════════════════════════ */
+      {
+        const h2s = Array.from(document.querySelectorAll('.card h2')).map(h => h.textContent.trim());
+        ok('4n 🔴 log 卡的標題是「操作紀錄」，畫面上不再有 transaction 的中文直譯',
+           h2s.indexOf('操作紀錄') >= 0 && !h2s.some(t => t.indexOf('交易') >= 0),
+           JSON.stringify(h2s));
+        const logTxt = ($('log') || {}).textContent || '';
+        ok('4o 🔴 操作紀錄裡的就緒訊息也改掉了（不得出現「每一筆交易」）',
+           logTxt.indexOf('每一筆交易') < 0 && logTxt.indexOf('每一筆讀寫都記在這裡') >= 0,
+           logTxt.slice(0, 80));
+      }
     }
 
     /* ═══════════════════════════════════════════════════════════════════════

@@ -2061,7 +2061,14 @@ function baseScript(f) {
     /* CSS 規則本身也要不存在，否則哪天又被接回去 */
     CHECK(!/td\.ff\{|td\.bus\{/.test(doc.documentElement.outerHTML),
       '🔴 連 CSS class 都清掉了（留著遲早又被接回去）');
-    const legend = doc.querySelector('.legend').textContent;
+    /* 🔴 v1.22.2：舊寫法查的是 diff 卡下方那份 `.legend` —— 那一塊已整塊移除
+       （三項裡兩項與 `#celllegend` 重複、第三項「寫入過」指向 v1.20.2 就刪掉的顏色）。
+       斷言的**意圖沒有變**（圖例不得列出 FF 項目），只是改查現在唯一的那一份，
+       並且多釘一條「只准有一份」。**這比舊版更嚴，不是放寬** ——
+       舊版只要有人再加一份圖例、把 FF 寫進去，這條照樣會綠。 */
+    CHECK(doc.querySelectorAll('.legend').length === 0,
+      '🔴 顏色圖例只准有一份（diff 卡下方那份重複又過時的已移除）');
+    const legend = doc.querySelector('#celllegend').textContent;
     CHECK(!/FF/.test(legend), '🔴 圖例裡沒有任何 FF 項目：' + legend.replace(/\s+/g, ' ').trim());
     await win.__i2ct.disconnect();
   }
