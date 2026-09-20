@@ -666,19 +666,27 @@
            !/one\.bin/.test($('#dumptitle').textContent)
            && !/one\.bin/.test($('#readbanner').textContent), $('#readbanner').textContent.slice(0, 40));
       }
-      /* checksum：1+2+3+4 = 10 = 0xA，不截斷 */
-      const ck = $('#cksbox').querySelectorAll('.cksrow');
-      ok('18f checksum A／B 各一列（A 上 B 下）', ck.length === 2);
-      ok('18g A ＝ 0xA（4 byte）',
-         ck[0].querySelector('.val').textContent === '0xA'
-         && /4 byte/.test(ck[0].textContent), ck[0].textContent);
-      ok('18h B 不存在 ⇒ 空狀態而不是 0', /（無）/.test(ck[1].textContent), ck[1].textContent);
-      /* 改一格 ⇒ checksum 立刻重算 */
+      /* checksum：1+2+3+4 = 10 = 0xA，不截斷
+         🔴 v1.23.0：它的家從 dump 右側欄的獨立卡片（`#cksbox`）搬到 **A／B 這兩列**
+            （Bruce 2026-09-20：byte 數不要重複顯示，統一在 checksum 的顯示區域）。
+            下面問的**還是同樣那幾件事**，只是問在新位置上。 */
+      ok('18f 🔴 checksum 就印在 A／B 那兩列上（不再另開一張卡）',
+         !$('#cksbox') && rows[0].querySelectorAll('.cks').length === 1,
+         'cksbox=' + (!!$('#cksbox')) + ' A 列 .cks=' + rows[0].querySelectorAll('.cks').length);
+      ok('18g A ＝ 0xA（4 byte，兩個數字在同一列）',
+         rows[0].querySelector('.cks b').textContent === '0xA'
+         && /4 byte/.test(rows[0].textContent), rows[0].textContent);
+      ok('18g2 🔴 byte 數只出現一次（不再一份在 A／B、一份在 checksum 卡）',
+         (rows[0].textContent.match(/4 byte/g) || []).length === 1, rows[0].textContent);
+      ok('18h 🔴 B 不存在 ⇒ 不印 checksum、也**絕不**印成 0x0',
+         !rows[1].querySelector('.cks') && /尚未建立/.test(rows[1].textContent)
+         && !/0x0\b/.test(rows[1].textContent), rows[1].textContent);
+      /* 改一格 ⇒ checksum 立刻重算（掛點在 i2ctRenderTable 末尾，沒有跟著搬就會失效） */
       A.selAnchor(0); await sleep(30);
       const cb3 = document.querySelector('#bitgrid input[data-bit="7"]');
       if (cb3) { cb3.click(); await sleep(140); }
       ok('18i 🔴 改一格 ⇒ checksum 立刻變（10 + 128 = 138 = 0x8A）',
-         /0x8A/.test($('#cksbox').textContent), $('#cksbox').textContent);
+         /0x8A/.test($('#abbox').textContent), $('#abbox').textContent);
     }
 
     /* ── 🔴 路徑 19：四選項視窗與 A／B 切換（v1.17.1，真的滑鼠點擊）────── */
@@ -723,8 +731,9 @@
       ok('19h 🔴 選「取代 A，保留 B」⇒ A 換成新檔、B 仍在',
          A.srcA() === 'c3.bin' && A.srcB() === 'b2.bin', A.srcA() + ' / ' + A.srcB());
       ok('19i 視窗關掉了', getComputedStyle($('#abpick')).display === 'none');
+      /* 🔴 v1.23.0：checksum 搬進 A／B 兩列（見路徑 18 的說明），這裡改問同一件事的新位置。 */
       ok('19j checksum 跟著更新（A ＝ 9×4 ＝ 36 ＝ 0x24）',
-         /0x24/.test($('#cksbox').textContent), $('#cksbox').textContent);
+         /0x24/.test($('#abbox').textContent), $('#abbox').textContent);
     }
     A.abPickAuto('auto');
 
@@ -826,6 +835,61 @@
          pageVal() === '256', pageVal());
       A.pageTouched(false); A.eeForget(); A.eepromAuto('24C32');
       setSlave('0x68'); await sleep(60);
+    }
+
+    /* ── 🔴🔴 路徑 21：Ctrl＋點擊跳躍選取（v1.23.0）───────────────────────
+       為什麼一定要在**真的瀏覽器**再驗一次（jsdom 已經有第 66 組）：
+       jsdom 不做排版也不做真的命中測試 —— 「點在格子裡的哪一個子元素上」
+       在 jsdom 永遠成立。這一頁吃過一模一樣的虧（v1.15.0「單擊重繪把 dblclick
+       吃掉」，700 多項全綠卻不能用）。這裡用真的 MouseEvent 打在真的 `.mv` 上。 */
+    A._reset();
+    A.loadFile('sel21.bin', new Uint8Array(512).map((_, i) => i & 0xFF)); await sleep(90);
+    {
+      const cellClick = (idx, mods) => {
+        const td = document.querySelector('#dump td[data-idx="' + idx + '"]');
+        if (!td) return false;
+        (td.querySelector('.mv') || td).dispatchEvent(
+          new MouseEvent('click', Object.assign({ bubbles: true }, mods || {})));
+        return true;
+      };
+      cellClick(0x10, { ctrlKey: true }); await sleep(40);
+      cellClick(0x50, { ctrlKey: true }); await sleep(40);
+      cellClick(0xA0, { ctrlKey: true }); await sleep(40);
+      ok('21a 🔴 真瀏覽器裡 Ctrl＋點三格 ⇒ 三個不連續區段',
+         JSON.stringify(A.selSegs().map((s) => s.from + '..' + s.to)) === '["16..16","80..80","160..160"]',
+         JSON.stringify(A.selSegs()));
+      ok('21b 🔴 表格上剛好三格被標起來',
+         document.querySelectorAll('#dump td.sel').length === 3,
+         document.querySelectorAll('#dump td.sel').length);
+      ok('21c 🔴 Ctrl＋點**不會**進入編輯狀態（那一格第二次點是取消，不是打字）',
+         !document.querySelector('#dump td.edit input'));
+      /* 側欄清單：他要用它確認自己點了哪些格子 */
+      ok('21d 🔴 側欄逐一列出三個位址',
+         JSON.stringify(A.selPanel().rows) === '["0x0010|1","0x0050|1","0x00A0|1"]',
+         JSON.stringify(A.selPanel()));
+      ok('21e 🔴 側欄講出總 byte 數與段數', /共 3 byte/.test(A.selPanel().sum)
+         && /3 段/.test(A.selPanel().sum), A.selPanel().sum);
+      /* 🔴 版面：選很多也不可以把側欄撐爆（他明確要求） */
+      for (let k = 0; k < 40; k++) { cellClick(k * 2, { ctrlKey: true }); }
+      await sleep(120);
+      {
+        const lst = $('#sellist');
+        const h = lst.getBoundingClientRect().height;
+        ok('21f 🔴🔴 選 40 多段 ⇒ 清單高度有上限（捲動，不是把版面撐爆）',
+           h <= 140 && lst.scrollHeight > h, 'h=' + h.toFixed(0) + ' scrollH=' + lst.scrollHeight);
+        ok('21g 🔴 而且一個位址都沒被丟掉（捲得到）',
+           A.selPanel().rows.length === A.selSegs().length, A.selPanel().rows.length);
+      }
+      /* 無修飾鍵單擊 ⇒ 全部清掉（既有語意） */
+      cellClick(5); await sleep(60);
+      ok('21h 🔴 普通單擊 ⇒ 跳躍選取整個清掉', A.selCount() === 0, A.selCount());
+      ok('21i 操作說明兩行在畫面上、而且看得完（沒有被 nowrap 切掉）', (() => {
+        const e = document.querySelector('.selhelp');
+        if (!e) return false;
+        const r = e.getBoundingClientRect();
+        return /Ctrl ＋ 滑鼠/.test(e.textContent) && /Shift ＋ 上下左右方向鍵/.test(e.textContent)
+            && r.height > 0 && e.scrollWidth <= Math.ceil(e.clientWidth) + 1;
+      })(), (document.querySelector('.selhelp') || {}).textContent);
     }
 
     /* ── 路徑 10：主要按鈕真的按得下去 ─────────────────────────────────── */
