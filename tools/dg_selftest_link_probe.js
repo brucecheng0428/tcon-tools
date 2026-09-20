@@ -273,7 +273,9 @@ function primLines(dgWin) {
     CHECK(grayLines(dgWin).length === 0, '作廢的一輪：DG 第 2 部分仍然是空的', grayLines(dgWin).length);
     CHECK(P.exportBlocked() !== null, '作廢的一輪：匯出被擋（有理由字串）', P.exportBlocked());
     CHECK(sWin.document.getElementById('dst-xlsx').disabled === true, '作廢的一輪：XLSX 鈕是灰的');
-    CHECK(sWin.document.getElementById('dst-csv').disabled === true, '作廢的一輪：CSV 鈕是灰的');
+    /* dgself v1.3.0：CSV 鈕整顆移除（Bruce 裁示，原廠 UI 只匯 XLSX）。
+       🔴 不是放寬 —— 斷言的對象換成「它不存在」，接回來一樣會紅。 */
+    CHECK(sWin.document.getElementById('dst-csv') === null, '作廢的一輪：CSV 鈕已不存在（v1.3.0）');
   }
 
   console.log('\n' + '═'.repeat(60));

@@ -6,7 +6,7 @@
      ② IC 識別的畫面講得清楚（自動識別、支援幾顆、撞號才出現下拉）
      ③ 二選一對話框兩顆鈕都有顏色（dg.html）
      ④ 頁面寬度沿用 common.css 的 .container
-     ⑤ 匯出版面逐欄照上游工具（XLSX ＋ CSV）
+     ⑤ 匯出版面逐欄照上游工具（XLSX；CSV 已於 v1.3.0 移除，本支改驗它不見了）
      ⑦ 量測失敗不准跳過：自動重試 → 跳視窗 → 再試／中止；作廢的一輪不得匯出
 
    🔴 第 ⑥ 項（連動回 DG）在 `tools/dg_selftest_link_probe.js`，那一支是兩頁對開。
@@ -76,9 +76,17 @@ async function load(qs) {
     url: ORIGIN + '/dg-selftest.html' + (qs || ''), runScripts: 'dangerously', pretendToBeVisual: true
   });
   await sleep(120);
-  /* jsdom 沒有 window.confirm 的實作（會印 Not implemented 並回 undefined）。
-     🔴 這是**補一個瀏覽器 API**，不是改產品行為 —— 產品那兩處 confirm 一字未動。 */
-  Object.defineProperty(dom.window, 'confirm', { value: () => true, configurable: true });
+  /* ═══ dgself v1.3.0：這裡從「補一個 confirm」改成「**抓有沒有人呼叫 confirm**」══
+     v1.2.0 是 `value: () => true`（補一個 jsdom 沒有的瀏覽器 API，讓產品那兩處
+     確認視窗過得去）。v1.3.0 起產品**一處 confirm 都不該有**（Bruce 2026-09-20
+     裁示拿掉），所以改成記數器：被呼叫到就是回歸。
+     🔴 這是**收緊**不是放寬 —— 舊版無論呼叫幾次都會過，新版呼叫一次就會被第 0
+        節抓出來。 */
+  dom.window.__confirmCalls = [];
+  Object.defineProperty(dom.window, 'confirm', {
+    value: (msg) => { dom.window.__confirmCalls.push(String(msg)); return true; },
+    configurable: true
+  });
   return dom;
 }
 
@@ -313,19 +321,18 @@ async function armed(mesFn, opts) {
         [d2.rows[0][0], d2.rows[d2.rows.length - 1][0]]);
     }
 
-    // CSV
+    /* ═══ dgself v1.3.0：CSV 整個移除 ════════════════════════════════════════
+       v1.2.0 這裡驗的是「CSV 產得出來而且版面對」。Bruce 2026-09-20 裁示把匯出
+       CSV 拿掉（原廠 UI 只匯 XLSX），所以這一段改驗**它真的不見了**。
+       🔴 不是放寬：舊斷言的對象（CSV 產生器）已經不存在，留著只會永遠紅；
+          換成的新斷言是它的反面，一樣會在有人偷偷接回來時失敗。
+       🔴 XLSX 那一半的斷言**一條都沒有拿掉** —— 版面（24 欄、Time 空一列、
+          W_T/W_duv 留空…）全部還在下面。 */
     const stamp = P.stamp(new Date(2026, 8, 20, 21, 30, 15, 42));
     CHECK(/^\d{17}$/.test(stamp), '時間戳是 yyyyMMddHHmmssfff（17 碼）', stamp);
     CHECK(stamp === '20260920213015042', '時間戳算得對', stamp);
-    const csv = P.csvText(stamp).split('\r\n');
-    console.log('    CSV 表頭：' + JSON.stringify(csv[0]));
-    console.log('    CSV 第 1 筆：' + JSON.stringify(csv[1]));
-    console.log('    CSV 最後一筆：' + JSON.stringify(csv[256]));
-    console.log('    CSV 尾段：' + JSON.stringify(csv.slice(257, 259)));
-    CHECK(csv[0] === HEAD.join(',') + ',', 'CSV 表頭尾端有一個多餘逗號（原廠就是這樣寫的）', csv[0]);
-    CHECK(csv[1].slice(-1) === ',', 'CSV 每一筆資料尾端也有一個逗號');
-    CHECK(csv[257] === 'Time: ' + stamp, 'CSV 尾段是 Time:（緊接著、不空行）', csv[257]);
-    CHECK(csv.length === 259 && csv[258] === '', 'CSV 只有 256 筆 ＋ 表頭 ＋ Time 一行', csv.length);
+    CHECK(typeof P.csvText === 'undefined', 'csvText 掛勾已移除', typeof P.csvText);
+    CHECK(typeof P.exportCsv === 'undefined', 'exportCsv 掛勾已移除', typeof P.exportCsv);
 
     // XLSX
     const bytes = P.xlsxBytes(stamp);
@@ -356,7 +363,6 @@ async function armed(mesFn, opts) {
     dom.window.URL.revokeObjectURL = () => {};
     dom.window.HTMLAnchorElement.prototype.click = function () { dl = this.download; };
     CHECK(P.exportXlsx() === true && /\.xlsx$/.test(dl || ''), '按鈕那條路真的觸發下載 .xlsx', dl);
-    CHECK(P.exportCsv() === true && /\.csv$/.test(dl || ''), '按鈕那條路真的觸發下載 .csv', dl);
   }
 
   /* ═══ ⑦ 量測失敗不准跳過 ═══════════════════════════════════════════════ */
@@ -385,6 +391,9 @@ async function armed(mesFn, opts) {
     CHECK(w.document.getElementById('dst-xlsx').disabled === false, 'XLSX 鈕是亮的');
     CHECK(w.document.getElementById('dst-void').textContent === '', '作廢橫幅是空的');
     CHECK(P.failOpen() === false, '沒有跳過失敗視窗');
+    /* dgself v1.3.0 起：整輪掃描一次 window.confirm 都不准呼叫。 */
+    CHECK(w.__confirmCalls.length === 0,
+      '整輪掃描沒有跳出任何確認視窗（v1.3.0）', w.__confirmCalls);
   }
 
   for (const [name, badRes] of [['儀器回 ER', MES_ER], ['回應不完整', MES_SHORT], ['逾時', MES_TIMEOUT]]) {
@@ -441,8 +450,8 @@ async function armed(mesFn, opts) {
     CHECK(/1\/3/.test(voidTxt), '講了量到第幾階', voidTxt.slice(0, 30));
     CHECK(P.exportBlocked() !== null, '匯出被擋', P.exportBlocked());
     CHECK(w.document.getElementById('dst-xlsx').disabled === true, 'XLSX 鈕是灰的');
-    CHECK(w.document.getElementById('dst-csv').disabled === true, 'CSV 鈕是灰的');
-    CHECK(P.exportXlsx() === false && P.exportCsv() === false, '直接呼叫匯出也會被拒絕');
+    CHECK(w.document.getElementById('dst-csv') === null, 'CSV 鈕已從畫面移除（v1.3.0）');
+    CHECK(P.exportXlsx() === false, '直接呼叫匯出也會被拒絕');
     const say = w.document.getElementById('dst-say-run').textContent;
     CHECK(/作廢|完整跑完/.test(say), '說話行也講了原因', say.slice(0, 40));
     CHECK(P.failOpen() === false, '視窗已經收起來');

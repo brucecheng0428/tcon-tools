@@ -2609,7 +2609,13 @@ var I18N = {
 
   /* ── 卡片標題 ─────────────────────────────────────────────────────── */
   'dst.hdLink':         { 'zh-TW': 'I2C 連線與 IC 識別', 'en': 'I2C link and IC identification', 'zh-CN': 'I2C 连线与 IC 识别' },
-  'dst.hdPattern':      { 'zh-TW': '出圖', 'en': 'Pattern', 'zh-CN': '出图' },
+  /* 🔴 dgself v1.3.0：卡片改名（Bruce 2026-09-20：「這個卡片叫『出圖』到底是什麼
+     意思？…可以用『畫面測試』之類的嗎？」）。舊 key `dst.hdPattern` 已刪除 ——
+     留著會讓下一個人以為還有第二張卡。 */
+  'dst.hdTest':         { 'zh-TW': '畫面測試', 'en': 'Picture test', 'zh-CN': '画面测试' },
+  'dst.testNote':       { 'zh-TW': '量測前的確認畫面：看 T-CON 自檢出圖正不正常，並用對位畫面幫光學量測儀擺好位置。這裡的調整不會影響下面實際量測的 L0…L255。',
+                          'en': 'A check before measuring: see whether the T-CON paints its self-test picture properly, and use the alignment picture to place the meter. Nothing set here affects the L0…L255 measurement below.',
+                          'zh-CN': '量测前的确认画面：看 T-CON 自检出图正不正常，并用对位画面帮光学量测仪摆好位置。这里的调整不会影响下面实际量测的 L0…L255。' },
   'dst.hdMeasure':      { 'zh-TW': '量測', 'en': 'Measurement', 'zh-CN': '量测' },
   'dst.hdLog':          { 'zh-TW': '紀錄', 'en': 'Log', 'zh-CN': '纪录' },
 
@@ -2626,13 +2632,19 @@ var I18N = {
   'dst.btnQr':          { 'zh-TW': '紅', 'en': 'Red', 'zh-CN': '红' },
   'dst.btnQg':          { 'zh-TW': '綠', 'en': 'Green', 'zh-CN': '绿' },
   'dst.btnQb':          { 'zh-TW': '藍', 'en': 'Blue', 'zh-CN': '蓝' },
-  'dst.btnAlign':       { 'zh-TW': '對位畫面（L127 ＋ 中心十字）', 'en': 'Alignment pattern (L127 + centre cross)', 'zh-CN': '对位画面（L127 ＋ 中心十字）' },
-  'dst.btnCrossOn':     { 'zh-TW': '十字 ON', 'en': 'Cross ON', 'zh-CN': '十字 ON' },
-  'dst.btnCrossOff':    { 'zh-TW': '十字 OFF', 'en': 'Cross OFF', 'zh-CN': '十字 OFF' },
-  'dst.btnLeave':       { 'zh-TW': '離開出圖模式', 'en': 'Leave pattern mode', 'zh-CN': '离开出图模式' },
+  /* 🔴 dgself v1.3.0：「對位畫面」「十字 ON」「十字 OFF」「離開出圖模式」四顆
+     併成一顆切換鈕 ⇒ 舊的 dst.btnCrossOn／dst.btnCrossOff／dst.btnLeave 三個
+     key **已刪除**。開著時換成 dst.btnAlignOn，讓選取態在文字上也看得出來
+     （不只靠顏色 —— 顏色在截圖壓縮或色弱眼裡可能分不出來）。 */
+  'dst.btnAlign':       { 'zh-TW': '對位畫面（L{l} ＋ 中心十字）', 'en': 'Alignment picture (L{l} + centre cross)', 'zh-CN': '对位画面（L{l} ＋ 中心十字）' },
+  'dst.btnAlignOn':     { 'zh-TW': '✓ 對位畫面開啟中 — 再按一次回到原本畫面', 'en': '✓ Alignment picture is on — press again to go back', 'zh-CN': '✓ 对位画面开启中 — 再按一次回到原本画面' },
+  /* 🔴 灰階值只寫在按鈕上（來源是常數 DST_ALIGN_L），這一行不再寫第二份數字。 */
+  'dst.alignNote':      { 'zh-TW': '按一次出對位畫面（灰底＋正中心紅十字，線寬不可調）；再按一次離開出圖模式，面板回到原本的畫面。',
+                          'en': 'Press once for the alignment picture (a grey field with a red cross at the centre; the cross width cannot be set). Press again to leave pattern mode — the panel goes back to its original image.',
+                          'zh-CN': '按一次出对位画面（灰底＋正中心红十字，线宽不可调）；再按一次离开出图模式，面板回到原本的画面。' },
   'dst.btnRun':         { 'zh-TW': '開始掃描', 'en': 'Start scan', 'zh-CN': '开始扫描' },
   'dst.btnStop':        { 'zh-TW': '■ 停止', 'en': '■ Stop', 'zh-CN': '■ 停止' },
-  'dst.btnCsv':         { 'zh-TW': '匯出 CSV', 'en': 'Export CSV', 'zh-CN': '汇出 CSV' },
+  /* 🔴 dgself v1.3.0：`dst.btnCsv` 已刪除（匯出 CSV 整顆移除，原廠 UI 只匯 XLSX）。 */
   'dst.btnCopyLog':     { 'zh-TW': '複製紀錄', 'en': 'Copy log', 'zh-CN': '复制纪录' },
   'dst.btnClearLog':    { 'zh-TW': '清除', 'en': 'Clear', 'zh-CN': '清除' },
 
@@ -2643,17 +2655,33 @@ var I18N = {
   'dst.kvIc':           { 'zh-TW': 'IC 型號', 'en': 'IC model', 'zh-CN': 'IC 型号' },
   'dst.kvRes':          { 'zh-TW': '解析度', 'en': 'Resolution', 'zh-CN': '分辨率' },
   'dst.kvWr':           { 'zh-TW': '可寫入位址', 'en': 'Writable addresses', 'zh-CN': '可写入地址' },
-  'dst.kvSend':         { 'zh-TW': '送進 IC 的 12-bit 值', 'en': '12-bit values sent to the IC', 'zh-CN': '送进 IC 的 12-bit 值' },
-  'dst.kvHz':           { 'zh-TW': '畫面更新率', 'en': 'Refresh rate', 'zh-CN': '画面更新率' },
+  /* 🔴 dgself v1.3.0：`dst.kvSend`（送進 IC 的 12-bit 值）已刪除 —— Bruce
+     2026-09-20：「使用者不需要注意到這麼多」。那個數字只留在紀錄卡的寫入行裡。 */
+  /* 🔴 dgself v1.3.0：改名 ——「畫面更新率」聽起來像是從 T-CON 讀出來的設定值，
+     實際上是**量測儀量到的**垂直同步頻率（Bruce 2026-09-20：「你必須要去看
+     T-CON 的自檢畫面送出來的頻率到底是多少」）。用詞要講清楚來源。 */
+  'dst.kvHz':           { 'zh-TW': '垂直同步頻率（量測儀測得）', 'en': 'Vertical sync frequency (measured by the meter)', 'zh-CN': '垂直同步频率（量测仪测得）' },
+  'dst.hzOk':           { 'zh-TW': '{hz} Hz', 'en': '{hz} Hz', 'zh-CN': '{hz} Hz' },
+  /* ER20：量到了，但落在送進去的設計值 ±2 Hz 之外 ⇒ 值可信，但要標明。 */
+  'dst.hzRange':        { 'zh-TW': '{hz} Hz（超出設計值 ±2 Hz 的範圍，供參考）',
+                          'en': '{hz} Hz (outside the design value ±2 Hz window — for reference)',
+                          'zh-CN': '{hz} Hz（超出设计值 ±2 Hz 的范围，供参考）' },
+  /* 🔴 量不到就是量不到，不給任何數字（Bruce：「要麼就不秀這個值」）。 */
+  'dst.hzNone':         { 'zh-TW': '未偵測到（量測儀在常見更新率 ±2 Hz 內找不到週期性）',
+                          'en': 'Not detected (the meter found no periodicity within ±2 Hz of the common refresh rates)',
+                          'zh-CN': '未侦测到（量测仪在常见更新率 ±2 Hz 内找不到周期性）' },
 
   /* ── 設定與說明 ───────────────────────────────────────────────────── */
   'dst.lbBits':         { 'zh-TW': '灰階位元深度', 'en': 'Grey-level bit depth', 'zh-CN': '灰阶位深度' },
   'dst.lbSettle':       { 'zh-TW': '換階等待', 'en': 'Settle time between steps', 'zh-CN': '换阶等待' },
   'dst.settleNote':     { 'zh-TW': '出圖之後、叫儀器量之前等這麼久。上游工具的預設值就是 700 ms。', 'en': 'How long to wait after painting a step and before asking the meter to measure. 700 ms is the upstream tool default.', 'zh-CN': '出图之后、叫仪器量之前等这么久。上游工具的默认值就是 700 ms。' },
-  /* 🔴 `end` 是使用者刻度的最後一階（255／1020／4080），`end12` 是它送進 IC 的
-     12-bit 值 —— 三種深度換算完**都是 4080**。兩個數字都要講，只講一個會被誤讀。 */
-  'dst.bitsNote':       { 'zh-TW': '送進 IC ＝ 你填的值 × {mul}；掃描 0…{end}，最亮那一階送出去是 {end12}', 'en': 'Sent to the IC = your value × {mul}; the scan runs 0…{end} and the brightest step goes out as {end12}', 'zh-CN': '送进 IC ＝ 你填的值 × {mul}；扫描 0…{end}，最亮那一阶送出去是 {end12}' },
-  'dst.crossNote':      { 'zh-TW': '十字是紅色的一條細線，位置固定在畫面正中心；線寬不可調（暫存器裡沒有這個欄位）。', 'en': 'The cross is a thin red line fixed at the centre of the screen. Its width cannot be set — there is no such register field.', 'zh-CN': '十字是红色的一条细线，位置固定在画面正中心；线宽不可调（暂存器里没有这个字段）。' },
+  /* 🔴 dgself v1.3.0：這一行不再出現任何 12-bit 值（舊版講 `× {mul}` 與
+     `送出去是 {end12}`）。`{max}` 是這個深度的滿刻度（255／1023／4095，也是四顆
+     色鈕與拉霸的上限），`{end}` 是掃描實際會量到的最後一階（255／1020／4080）。
+     🔴 兩個數字**在 10／12-bit 下本來就不一樣**，所以兩個都要講 —— 只講滿刻度
+        會讓人以為掃描量到 1023。
+     🔴 `dst.crossNote` 已併入 `dst.alignNote`（版面精簡，Bruce 2026-09-20）。 */
+  'dst.bitsNote':       { 'zh-TW': '滿刻度 {max}（色鈕與拉霸的上限）；掃描逐階量到 {end}', 'en': 'Full scale {max} (the ceiling for the colour buttons and sliders); the scan steps up to {end}', 'zh-CN': '满刻度 {max}（色钮与拉杆的上限）；扫描逐阶量到 {end}' },
   /* 🔴 v1.2.0：帶上**實際讀到的 ID** 與**共用這個 ID 的是哪幾顆** ——
      不說是哪個 ID、哪兩顆，讀的人沒辦法自己確認。 */
   'dst.altWhy':         { 'zh-TW': '自動識別讀到的 ID 是 {id}，而 {names} 這幾顆的 ID 完全相同，上游工具自己也分不出來。板子上是哪一顆只有你知道，請指定 —— 選錯只影響十字線與寫入順序，不會寫壞 IC。',
@@ -2727,18 +2755,15 @@ var I18N = {
   'dst.errZero':        { 'zh-TW': '零校正失敗（{r}）—— 蓋好遮光蓋再按一次', 'en': 'Zero calibration failed ({r}) — put the cap back on and try again', 'zh-CN': '零校正失败（{r}）—— 盖好遮光盖再按一次' },
 
   /* ── 確認 ─────────────────────────────────────────────────────────── */
-  'dst.confirmRun':     {
-    'zh-TW': '接下來會寫入 TCON（{ic}），共 {n} 階。\n\n只會寫這些位址：{ranges}\n\n要開始嗎？',
-    'en': 'This will write to the TCON ({ic}) for {n} steps.\n\nOnly these addresses are written: {ranges}\n\nStart?',
-    'zh-CN': '接下来会写入 TCON（{ic}），共 {n} 阶。\n\n只会写这些地址：{ranges}\n\n要开始吗？' },
-  'dst.confirmAligned': {
-    'zh-TW': '畫面上現在是 L127 灰階＋正中心紅十字。\n\n把探頭對準十字之後按「確定」開始掃描（掃描前十字會自動關掉）。',
-    'en': 'The screen now shows an L127 grey field with a red cross at the centre.\n\nAim the probe at the cross, then press OK to start the scan (the cross is turned off automatically before scanning).',
-    'zh-CN': '画面上现在是 L127 灰阶＋正中心红十字。\n\n把探头对准十字之后按「确定」开始扫描（扫描前十字会自动关掉）。' },
+  /* 🔴 dgself v1.3.0：`dst.confirmRun` 與 `dst.confirmAligned` **兩個 key 都已刪除**。
+     Bruce 2026-09-20：「開始掃描以後，Chrome 視窗跳出那個警告視窗也不用跳，根本
+     就不用管那麼多，直接開始掃描就好了。」「流程越簡單越好，按的次數越少越好。」
+     判準：他按的鈕字面就是那個動作 ⇒ 不要再問一次。**不要再加回來。**
+     （量測失敗那個視窗是另一回事 —— 那是出事了要他決定，不是動作前問一次。） */
 
   /* ── 進度 ─────────────────────────────────────────────────────────── */
+  'dst.pgLeave':        { 'zh-TW': '先離開出圖模式…', 'en': 'Leaving pattern mode first…', 'zh-CN': '先离开出图模式…' },
   'dst.pgEnter':        { 'zh-TW': '進入出圖模式…', 'en': 'Entering pattern mode…', 'zh-CN': '进入出图模式…' },
-  'dst.pgAlign':        { 'zh-TW': '打出對位畫面…', 'en': 'Painting the alignment pattern…', 'zh-CN': '打出对位画面…' },
   'dst.pgInit':         { 'zh-TW': '設定量測儀 {i}/{n}：{what}', 'en': 'Setting up the meter {i}/{n}: {what}', 'zh-CN': '设定量测仪 {i}/{n}：{what}' },
   'dst.pgZero':         { 'zh-TW': '零校正中 —— 蓋上遮光蓋，十秒別動', 'en': 'Zero calibration — put the cap on and hold still for ten seconds', 'zh-CN': '零校正中 —— 盖上遮光盖，十秒别动' },
   'dst.pgDone':         { 'zh-TW': '掃描完成', 'en': 'Scan complete', 'zh-CN': '扫描完成' },
@@ -2747,7 +2772,11 @@ var I18N = {
   'dst.paintNormal':    { 'zh-TW': '已離開出圖模式，面板回到正常畫面', 'en': 'pattern mode has been left and the panel is back to its normal image', 'zh-CN': '已离开出图模式，面板回到正常画面' },
   'dst.paintEntered':   { 'zh-TW': '已進入出圖模式但還沒打出任何顏色', 'en': 'pattern mode was entered but no colour has been painted yet', 'zh-CN': '已进入出图模式但还没打出任何颜色' },
   'dst.paintRgb':       { 'zh-TW': '停在 R={r} G={g} B={b}（12-bit）這一張畫面', 'en': 'it is stopped on the R={r} G={g} B={b} (12-bit) image', 'zh-CN': '停在 R={r} G={g} B={b}（12-bit）这一张画面' },
-  'dst.abortedAt':      { 'zh-TW': '已停止。TCON 現在{what}。要回到正常畫面請按「離開出圖模式」。', 'en': 'Stopped. The TCON right now: {what}. Press “Leave pattern mode” to return to the normal image.', 'zh-CN': '已停止。TCON 现在{what}。要回到正常画面请按「离开出图模式」。' },
+  /* 🔴 dgself v1.3.0：「離開出圖模式」那顆鈕已移除 ⇒ 這一行改指現在真的做得到的
+     兩條路。按一次「對位畫面」會出對位圖（此時它變成開啟中），再按一次就離開。 */
+  'dst.abortedAt':      { 'zh-TW': '已停止。TCON 現在{what}。要回到正常畫面：按上面的「對位畫面」鈕，它亮起來之後再按一次就會離開出圖模式；直接按「開始掃描」也會先送離開序列。',
+                          'en': 'Stopped. The TCON right now: {what}. To get back to the normal image: press the “Alignment picture” button above, then press it again once it lights up — that leaves pattern mode. Pressing “Start scan” also sends the leave sequence first.',
+                          'zh-CN': '已停止。TCON 现在{what}。要回到正常画面：按上面的「对位画面」钮，它亮起来之后再按一次就会离开出图模式；直接按「开始扫描」也会先送离开序列。' },
 
   /* ── 連線說明 ─────────────────────────────────────────────────────── */
   'dst.sayNoBridge':    { 'zh-TW': '連不到本機的 I2C Bridge。它要先在這台電腦上跑起來 —— 取得與安裝在「I2C 讀寫測試」那一頁。', 'en': 'The local I2C Bridge cannot be reached. It has to be running on this computer first — get it and install it from the “I2C read/write test” page.', 'zh-CN': '连不到本机的 I2C Bridge。它要先在这台电脑上跑起来 —— 取得与安装在「I2C 读写测试」那一页。' },
