@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260921dst160"></script>
+<script src="common/version.js?v=20260921dst170"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -311,12 +311,13 @@
     </div>
   </div>
 
-  <!-- ═══ 3. 🔴 v1.6.0：DG LUT（RGB）檢視 ══════════════════════════════════
-       Bruce 2026-09-21：「可以在自檢畫面這邊多一個確認 RGB LUT 的卡片。當你可以
-       讀成功以後，要把那個讀回來的 DG LUT 秀在上面…用這種方式讓我也檢查，是不是
-       它真的有讀到對的值，還是你只是亂讀的？」
-       🔴 這張卡的定位就是**給他核對真假**，所以：讀失敗一定講失敗在哪一步、
-          解碼候選全部列出、數值表可展開逐筆對。**不畫猜出來的曲線。** -->
+  <!-- ═══ 3. 🔴 v1.7.0：DG LUT（RGB）檢視 ══════════════════════════════════
+       Bruce 2026-09-21：「可以在自檢畫面這邊多一個確認 RGB LUT 的卡片…用這種
+       方式讓我也檢查，是不是它真的有讀到對的值，還是你只是亂讀的？」
+       🔴 v1.7.0 的介面**只留他會按的**：一顆按鈕 ＋ 讀到什麼（前後各幾筆的數值
+          ＋ 本次用的規格）。v1.6.0 那兩個下拉（bus enable 候選、18 種解碼方式）
+          與候選分數表整組移除 —— 規格已由原廠源碼定案，沒有要他挑的東西了。
+          細節（逐段位址、每段長度、bus enable 有沒有黏住）一律走「紀錄」那張卡。 -->
   <div class="card">
     <div class="card-header"><span class="icon">📊</span><span data-i18n="dst.hdLut">DG LUT（RGB）檢視</span></div>
     <div class="card-body">
@@ -324,43 +325,32 @@
 
       <div class="dst-row" style="margin-top:8px">
         <button class="dst-btn pri" id="dst-lut-read" data-i18n="dst.btnLutRead">讀取 DG LUT</button>
-        <!-- bus enable 候選：EM01 只有一個；EM02 有兩個（見 DST_ICS 的 dgLut 註解） -->
-        <select id="dst-lut-bus" class="dst-sel" aria-label="bus enable"></select>
       </div>
-      <div class="dst-note" id="dst-lut-buswhy">&nbsp;</div>
 
       <div style="margin-top:8px">
         <div class="dst-kv"><span data-i18n="dst.lutKvState">狀態</span><span id="dst-lut-state" class="dst-na">—</span></div>
         <div class="dst-kv"><span data-i18n="dst.lutKvCfg">LUT 設定</span><span id="dst-lut-cfg" class="dst-na">—</span></div>
         <div class="dst-kv"><span data-i18n="dst.lutKvBus">bus enable</span><span id="dst-lut-bususe" class="dst-na">—</span></div>
-        <div class="dst-kv"><span data-i18n="dst.lutKvFit">與 identity 吻合度</span><span id="dst-lut-fit" class="dst-na">—</span></div>
       </div>
-      <div class="dst-warn-line dst-hidden" id="dst-lut-warn"></div>
       <div class="dst-say" id="dst-say-lut"></div>
 
       <div id="dst-lut-body" class="dst-hidden">
-        <div class="dst-row" style="margin-top:10px">
-          <label class="dst-note" for="dst-lut-pick" data-i18n="dst.lutLbPick">解碼方式</label>
-          <select id="dst-lut-pick" class="dst-sel"></select>
-        </div>
         <div class="dst-lutchart" id="dst-lut-chart"></div>
-        <!-- 🔴 預設收起來：他要能核對，但不要一進頁面就被 257 列洗版。 -->
+        <!-- 🔴 前後各幾筆**不收起來**：他要「一眼看出讀到什麼」。 -->
+        <div class="dst-note" id="dst-lut-prevsum" style="margin-top:10px">&nbsp;</div>
+        <div class="dst-tbl-wrap" style="margin-top:6px">
+          <table class="dst-tbl">
+            <thead><tr><th data-i18n="dst.lutThIdx">index</th><th>R</th><th>G</th><th>B</th></tr></thead>
+            <tbody id="dst-lut-prevtb"></tbody>
+          </table>
+        </div>
+        <!-- 全表預設收起來：要逐筆核對時才展開，不要一進頁面就被 257 列洗版。 -->
         <details id="dst-lut-det" style="margin-top:8px">
           <summary class="dst-sum" id="dst-lut-sum">—</summary>
           <div class="dst-tbl-wrap" style="max-height:320px;margin-top:6px">
             <table class="dst-tbl">
               <thead><tr><th data-i18n="dst.lutThIdx">index</th><th>R</th><th>G</th><th>B</th></tr></thead>
               <tbody id="dst-lut-tb"></tbody>
-            </table>
-          </div>
-        </details>
-        <details id="dst-lut-cand" style="margin-top:8px">
-          <summary class="dst-sum" id="dst-lut-candsum">—</summary>
-          <div class="dst-tbl-wrap" style="max-height:280px;margin-top:6px">
-            <table class="dst-tbl">
-              <thead><tr><th data-i18n="dst.lutThPack">packing</th><th data-i18n="dst.lutThFit">identity</th>
-                <th data-i18n="dst.lutThRange">值域內</th><th data-i18n="dst.lutThMono">單調</th><th data-i18n="dst.lutThLast">末筆 R/G/B</th></tr></thead>
-              <tbody id="dst-lut-candtb"></tbody>
             </table>
           </div>
         </details>
@@ -453,9 +443,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260921dst160"></script>
+<script src="common/i18n.js?v=20260921dst170"></script>
 <script src="common/xlsx.js?v=20260921dst140"></script>
-<script src="common/common.js?v=20260921dst160"></script>
+<script src="common/common.js?v=20260921dst170"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -484,6 +474,46 @@
 
 function $(id) { return document.getElementById(id); }
 function dstT(k, v) { return (typeof t === 'function') ? t(k, v) : k; }
+
+/* ═══ 🔴 v1.7.0：本頁自己補的 i18n 鍵值 ═══════════════════════════════════
+   為什麼不寫進 `common/i18n.js`（那裡才是正常的地方）：
+   改動 `common/*.js` 會觸發 `tools/check_cache_buster.py` —— 引用它的**每一頁**
+   都必須 bump `?v=`，包含 `dg.html`／`i2c.html`。這一輪 Bruce 明確要求
+   「範圍收到最小、只改 dg-selftest.html」，為了五個字串去動十幾個檔案是反過來的。
+   ⇒ 掛在 `I18N` 上（`t()` 是呼叫當下才查表，所以掛得上），**三語一個都不少**。
+   下次有機會整理 i18n 時把這五筆搬回 `common/i18n.js` 並刪掉這一段。 */
+if (typeof I18N === 'object' && I18N) {
+  /* 讀到的值本身（不是候選、不是猜測）——「前 {n} 筆與後 {n} 筆，共 {total} 筆」 */
+  I18N['dst.lutPreview'] = {
+    'zh-TW': '前 {n} 筆與後 {n} 筆（整張表共 {total} 筆，全部在下面展開）',
+    'en': 'First {n} and last {n} entries (the full table has {total}, expand below)',
+    'zh-CN': '前 {n} 笔与后 {n} 笔（整张表共 {total} 笔，全部在下面展开）'
+  };
+  /* 這一顆沒有 DG LUT 的讀取規格 ⇒ 不拿別顆的位址去試 */
+  I18N['dst.lutErrNoSpec'] = {
+    'zh-TW': '這一顆（{detail}）沒有 DG LUT 的讀取規格 —— 記憶體位址、channel 位移、交錯方式逐顆不同，沒有出處就不拿別顆的來試。',
+    'en': 'This chip ({detail}) has no DG LUT read spec here. The memory address, channel stride and interleaving differ per chip, so nothing from another chip is reused as a guess.',
+    'zh-CN': '这一颗（{detail}）没有 DG LUT 的读取规格 —— 内存地址、channel 位移、交错方式逐颗不同，没有出处就不拿别颗的来试。'
+  };
+  /* bus enable 那一位寫不進去 */
+  I18N['dst.lutErrBus'] = {
+    'zh-TW': 'bus enable（{detail}）寫進去之後讀回來沒有黏住，AHB 視窗沒開，因此一個 byte 都沒讀。',
+    'en': 'The bus enable bit ({detail}) did not stick when read back, so the AHB window never opened and nothing was read.',
+    'zh-CN': 'bus enable（{detail}）写进去之后读回来没有黏住，AHB 窗口没开，因此一个 byte 都没读。'
+  };
+  /* 讀回來的不是資料 */
+  I18N['dst.lutErrData'] = {
+    'zh-TW': '讀回來的每一個 byte 都一樣（{detail}），那不是資料：全 0x00 ＝ AHB 視窗沒開、全 0xFF ＝ 匯流排沒回應。',
+    'en': 'Every byte that came back is identical ({detail}) — that is not data: all 0x00 means the AHB window never opened, all 0xFF means the bus did not respond.',
+    'zh-CN': '读回来的每一个 byte 都一样（{detail}），那不是数据：全 0x00 ＝ AHB 窗口没开、全 0xFF ＝ 总线没回应。'
+  };
+  /* 深度旗標讀不到 ⇒ 停住，不用預設值硬跑 */
+  I18N['dst.lutErrDepth'] = {
+    'zh-TW': 'LUT 深度旗標讀不到（{detail}），無法決定要遮 10-bit 還是 12-bit，已停住 —— 用預設值硬跑的話，解出來的數字看起來會很正常但其實是錯的。',
+    'en': 'The LUT depth flag could not be read ({detail}), so it is unknown whether to mask 10-bit or 12-bit. Stopped here: running with a default would produce numbers that look fine but are wrong.',
+    'zh-CN': 'LUT 深度标志读不到（{detail}），无法决定要遮 10-bit 还是 12-bit，已停住 —— 用默认值硬跑的话，解出来的数字看起来会很正常但其实是错的。'
+  };
+}
 
 /* ═══ 常數 ═══════════════════════════════════════════════════════════════ */
 var DST_PORT      = 8899;
@@ -619,7 +649,19 @@ var DST_ICS = [
     obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } },
     agingEn: { addr: 0x0255, bit: 7 },
     /* 🔴 只讀，**永遠不寫**（見 DST_ICS 上方 dgEn 欄位說明）。 */
-    dgEn: { addr: 0x002F, bit: 0, src: 'IP/RaydiumE512A1.cs:1738-1766' }
+    dgEn: { addr: 0x002F, bit: 0, src: 'IP/RaydiumE512A1.cs:1738-1766' },
+    /* 🔴 v1.7.0：DG LUT 的讀取規格與 EM02 **完全相同**（slave 0x48、chSpan 0x800、
+       oddOff 0x400、逐筆交錯、257 筆），只有 bus enable 換成 sys 0x0011 bit1。
+       🔴 `mask: null` ＝ 依深度旗標決定，而這一顆的 `dgEn` **沒有 depthBit**
+          （反組譯只查得到 DG_EN 那一位）⇒ 深度讀不到時會停在「深度未知」並講明
+          原因，**不拿 12-bit 硬跑**。要補的是 depthBit 的出處，不是預設值。 */
+    dgLut: {
+      memSlave: 0x48,
+      busEn: { addr: 0x0011, bit: 1, docd: true, src: 'RApp_Table.cpp (E512 bus enable)' },
+      chSpan: 0x800, oddOff: 0x400, group: 1,
+      entries: 257, entryBits: 8, mask: null,
+      src: 'RApp_Table.cpp:18009-18015, 18025-18037 (same path as EM02)'
+    }
   },
   {
     key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0],   // L395–405
@@ -682,16 +724,20 @@ var DST_ICS = [
          bit2 reg_dgm_target_en   （0: Offset LUT / 1: Target LUT） */
     dgEn: { addr: 0x1160, bit: 0, depthBit: 1, targetBit: 2,
             src: 'IP/RaydiumEM01A1_RM80100.cs:2695-2723 + BANK-EM01 dgm_top h0000' },
-    /* 🔴 v1.6.0：DG LUT（見 dstReadDgLut 上方那一大段）。
-       busEn 只有**一個**候選，而且三方對得上（BANK-EM01 sys h00A0 bit5
-       `reg_dgm_ahb_bus_en` ＋ GetC3DLUT 的同一顆 byte ＋ TUI-EM01 的字串）。
-       entryReg：`reg_dg_mode_sel` ＝ dgm_top h0010[6:4]（base 0x1160 ⇒ **0x1170**）
-       0: 10-bit entry／2: 8-bit entry／4: 8-bit entry VRR；1、3 不是 entry 寬度。 */
+    /* 🔴 v1.7.0：DG LUT 的讀取規格 —— 逐格照原廠 UI 源碼
+       `App/Table/RApp_Table.cpp:17538-17551`，**不再有任何推導**。
+         · memSlave 0x58：EM01 的 LUT 記憶體 slave（不是「暫存器 slave − 0x10」）
+         · chSpan 0x2000：R/G/B 三個 channel 的間距
+         · oddOff 0x1000：bank 位移；**每 4 筆換一次 bank**（group 4）
+         · entries 1025、stride 4 byte、mask 固定 0x0F00（12-bit 容器，
+           **不隨 DG_EN 那顆 byte 的深度旗標變** —— 這是 EM01 與 EM02 的差別之一） */
     dgLut: {
-      busEn: [{ key: 'em01a0', addr: 0x00A0, bit: 5, docd: true,
-                src: 'BANK-EM01:sys h00A0 bit5 reg_dgm_ahb_bus_en' }],
-      entryReg: { addr: 0x1170, shift: 4, mask: 0x07,
-                  src: 'BANK-EM01:dgm_top h0010[6:4] reg_dg_mode_sel' }
+      memSlave: 0x58,
+      busEn: { addr: 0x00A0, bit: 5, docd: true,
+               src: 'BANK-EM01:sys h00A0 bit5 reg_dgm_ahb_bus_en' },
+      chSpan: 0x2000, oddOff: 0x1000, group: 4,
+      entries: 1025, entryBits: 10, mask: 0x0F00,
+      src: 'RApp_Table.cpp:17538-17551'
     },
     wr: [[0x1200, 0x12FF], [0x0002, 0x0002], [0xFF20, 0xFF25]],
     obs: { icid: { addr: 0xFF00, len: 3 }, agbsen: { addr: 0xFFC5, bit: 1 },
@@ -733,33 +779,24 @@ var DST_ICS = [
        型態在 bit3 —— 與 EM01 **不同位**，照 BANK-EM02 逐格抄，不要「整理成一致」。 */
     dgEn: { addr: 0x005D, bit: 0, depthBit: 2, targetBit: 3,
             src: 'IP/RaydiumEM02A1.cs:2826-2854 + BANK-EM02 sys h005D' },
-    /* ═══ 🔴🔴 v1.6.0：EM02 的 bus enable —— 規格 §27 #21 本輪**有新證據** ══════
-       規格把這一條列為「兩種可能、無法調和」：`BANK-EM02`(svn213) 寫
-       `sys h0001 bit2 reg_dg_lut_bus_en`，而 `TUI-EM02` 的內嵌字串是
-       `dgm_ahb_bus_en`（與 EM01 同名）⇒ 看起來像是「EM02 也在 0x00A0 bit5」。
-
-       🔴 本輪實查 `EM02A1_register_bank_svn213_final.xls` 的 `sys` 工作表：
-          · `h0001 bit2 reg_dg_lut_bus_en`，說明欄原文「dgm LUT ahb read/write bus
-            enable」—— 與 EM01 那一位的說明欄**一字不差**。
-          · **整張 sys 表的最後一個位址是 `h0087`，根本沒有 `h00A0` 這一格。**
-            （EM01 的 sys 有 h00A0，八個位元全是各 LUT 的 fast/slow/ahb bus enable。）
-       ⇒ 「EM02 也在 0x00A0 bit5」這個候選**寫進去的是 EM02 文件裡不存在的位址**。
-          字串同名只能證明「TUI 的 UI 標籤沿用舊名」，證不出位址相同。
-
-       ⇒ 兩個候選**都實作**（Bruce 要的「由實機資料判定」），但**順序依證據排**：
-         ① `busEm02`  = sys 0x0001 bit2  ← BANK-EM02 有出處，自動模式先試這個
-         ② `busEm01a0`= sys 0x00A0 bit5  ← **EM02 文件裡沒有這個位址**，`docd:false`，
-            自動模式只有在 ① 讀不出東西時才退到它，而且畫面與 log 都會標「盲寫」。
-       🔴 不自己挑一個就定案：使用者可以在下拉裡指定任一個，log 寫清楚走了哪一個。 */
+    /* ═══ 🔴🔴 v1.7.0：EM02 的 DG LUT 讀取規格（Bruce 的實測機台）══════════════
+       v1.6.0 的「兩個 bus-enable 候選自動試」與「記憶體 slave ＝ 暫存器 slave
+       − 0x10」**兩件都作廢**：原廠 UI 源碼
+       `App/Table/RApp_Table.cpp:18009-18015`（even/odd memcpy）與 `:18025-18037`
+       （`idx%2` 交錯與解碼）已把這一顆的路徑寫死，沒有可猜的空間。
+         · memSlave **0x48**（不是 0x58 —— 0x58 只對 EM01 成立，EM02 用它會讀錯）
+         · busEn = sys 0x0001 bit2（BANK-EM02 有出處，與源碼一致 ⇒ 不再留盲寫候選）
+         · chSpan 0x800：channel 基底 = 0x40010000 + ch×0x800
+         · 每個 channel 的 0x800 裡：[0x000,0x400) 偶數筆、[0x400,0x800) 奇數筆
+           ⇒ oddOff 0x400、group 1（逐筆交錯）
+         · entries 257、stride 4 byte、mask 依深度旗標（0x005D bit2）決定 */
     dgLut: {
-      busEn: [{ key: 'busEm02', addr: 0x0001, bit: 2, docd: true,
-                src: 'BANK-EM02:sys h0001 bit2 reg_dg_lut_bus_en' },
-              { key: 'busEm01a0', addr: 0x00A0, bit: 5, docd: false,
-                src: 'TUI-EM02 string dgm_ahb_bus_en (BANK-EM02 sys has no h00A0; last row is h0087)' }],
-      /* 🔴 EM02 的 register bank 裡**沒有** `reg_dg_mode_sel`（全表 grep 0 筆）
-         ⇒ entry 寬度讀不到，只能依 AN-DG p7/p11（EM01A1 有 8/10-bit、其餘只有
-         8-bit）當**預設 8-bit entry**，並在畫面上標明那是預設不是讀到的。 */
-      entryReg: null
+      memSlave: 0x48,
+      busEn: { addr: 0x0001, bit: 2, docd: true,
+               src: 'BANK-EM02:sys h0001 bit2 reg_dg_lut_bus_en' },
+      chSpan: 0x800, oddOff: 0x400, group: 1,
+      entries: 257, entryBits: 8, mask: null,   // mask: null ⇒ 依深度旗標查表
+      src: 'RApp_Table.cpp:18009-18015, 18025-18037'
     },
     wr: [[0x0C00, 0x0CFF], [0x0003, 0x0003], [0xFF20, 0xFF25]],
     obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
@@ -1088,7 +1125,7 @@ async function dstScanIdentify() {
   if (!chosen) {
     dstIdRaw = null; dstIc = null; dstAltIdx = -1;
     dstShow('dst-v-ic', dstT('dst.icNone'), false);
-    dstLut = null; dstLutErr = null; dstLutPick = null;
+    dstLut = null; dstLutErr = null;
     dstRenderAlt(); dstRenderDg(); dstRenderLut();
     return;
   }
@@ -1493,207 +1530,96 @@ function dstIdxOf12(v12) {
 var dstDgLut = null;    // { r:[], g:[], b:[] } 或 null（見上；v1.6.0 仍刻意為 null）
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   🔴🔴 v1.6.0：讀 DG LUT（AHB 0x4001_0000）
+   🔴🔴 v1.7.0：讀 DG LUT（AHB 0x4001_0000）—— 改成原廠源碼證實的規格
 
-   Bruce 2026-09-21：「可以在自檢畫面這邊多一個確認 RGB LUT 的卡片…要把那個讀
-   回來的 DG LUT 秀在上面…用這種方式讓我也檢查，是不是它真的有讀到對的值，
-   還是你只是亂讀的？」
+   Bruce 2026-09-21 在 EM02 機台實測：v1.6.0 讀回來的值**是錯的**。
+   根因三個，全部由原廠 UI 源碼 `App/Table/RApp_Table.cpp` 查證完畢，逐條拔掉：
 
-   ═══ 路徑（模板 ＝ GetC3DLUT，IP/RaydiumEM01A1_RM80100.cs:237–274）════════
-     ① 讀 bus-enable 那個 byte → 只把該位設起來 → rawwrite 寫回 → **讀回確認**
-     ② Thread.Sleep(50)（原廠 L265 的固定等待，照抄）
-     ③ 以 **4-byte 位址**、記憶體 slave 讀 0x4001_0000
-     ④ 不論成敗，**一定**把 bus-enable 那一位清回去（finally）
-   `GetC3DLUT` 設的是 `|8`（bit3 ＝ c3d），DG 要設的是 dgm 那一位 —— 位址與位元
-   逐顆寫在 DST_ICS 的 `dgLut.busEn`，不在這裡寫死。
+     ❌ ① 記憶體 slave 用「暫存器 slave − 0x10」推導（舊的 DST_LUT_MEM_DELTA）。
+          那條式子只在 EM01（0x68 ⇒ 0x58）**碰巧**成立；EM02／E512 是 **0x48**，
+          與暫存器 slave 之間沒有任何算術關係。⇒ 改成逐顆查表 `dgLut.memSlave`。
+     ❌ ② 把整張 LUT 當成一條連續的位元流解。實際上**偶數筆與奇數筆放在不同
+          區段**：EM02／E512 是 [0x000,0x400) 偶／[0x400,0x800) 奇（逐筆交錯），
+          EM01 是 bank +0 ／ bank +0x1000，而且**每 4 筆**才換一次。
+          ⇒ 改成 `dgLut.oddOff`（奇數區位移）＋ `dgLut.group`（幾筆換一次）。
+     ❌ ③ 每 channel 的位移共用一個常數。EM02／E512 是 0x800、EM01 是 0x2000。
+          ⇒ 改成 `dgLut.chSpan`。
 
-   ═══ 🔴 記憶體 slave 怎麼來的 ═══════════════════════════════════════════════
-   規格 §24.4 的表只有兩列：暫存器 slave `0x68` ⇒ 4-byte 記憶體 slave `0x58`；
-   `0x60` ⇒ `0x50`。兩列都是 **−0x10**。本頁掃到的 slave 還可能是 0x69／0x61
-   （那兩個在規格表裡沒有對應列）⇒ 一律套同一個 −0x10，**並在 log 標明那兩個是
-   推導不是出處**。不另外猜一張表。
+   ═══ 規格（逐條對應 dgLut 欄位；行號為 App/Table/RApp_Table.cpp）═════════
+     共通：base 0x4001_0000、位址寬度 **4 byte**、每筆 **4 byte**，
+           值 ＝ `((byte1 << 8) & mask) | byte0`，**byte+2／byte+3 忽略**。
+           讀之前開 bus enable、讀完關掉（原廠讀路徑也是這樣）。
+     EM02／E512：slave 0x48、chSpan 0x800、oddOff 0x400、group 1、257 筆
+                 （`:18009-18015` even/odd memcpy、`:18025-18037` idx%2 交錯與解碼）
+     EM01      ：slave 0x58、chSpan 0x2000、oddOff 0x1000、group 4、1025 筆
+                 （`:17538-17551`）
+     mask：EM01 **固定 0x0F00**；EM02／E512 依深度旗標 —— 10-bit ⇒ 0x0300、
+           12-bit ⇒ 0x0F00（EM02 的旗標 ＝ 0x005D bit2，已在 `dgEn.depthBit`）。
 
-   ═══ 🔴🔴 為什麼不是「解出一條曲線就宣稱讀到了」════════════════════════════
-   §27 #22：SRAM 的 layout／packing／對齊**查不到**。所以這裡把每一種合理的
-   packing 都解一遍，逐種算出「與 identity 的吻合度」，**全部列給使用者看**。
-
-   🔴 而且要講清楚吻合度的極限（這一條很重要，不要在畫面上省掉）：
-      **DG_EN 關閉並不會把 LUT 變成 identity。** DG_EN=0 是 DGM **bypass**
-      （規格 §23.4），LUT 內容一個 bit 都不會變。identity 是**原廠預設表**的長相
-      （AN-DG p8/p13），不是「DG 關掉之後的長相」。
-      ⇒ 吻合度高 ⇒ 解碼很可能對（這顆現在就是預設表）。
-        吻合度低 ⇒ **兩種可能並存**：packing 解錯，或這顆真的燒了一張非 identity
-        的表。**單憑吻合度低不能判定解碼失敗，單憑吻合度高也只是很可能。**
-      所以除了吻合度，另外給「單調不遞減比例」「落在值域內的比例」「末筆值」，
-      並且**所有候選一起列**——讓他自己看，而不是我們替他下結論。
+   ═══ 🔴 為什麼**不再**列 18 種 packing 候選與吻合度評分 ═══════════════════
+   v1.6.0 那一套的前提是「SRAM 的 layout／packing 查不到 ⇒ 全解一遍讓使用者挑」。
+   前提已經不成立。留著候選清單的實際效果是：畫面上同時擺 17 個**已知是錯**的
+   選項，並把一個我們已經知道答案的問題丟回給使用者。⇒ 整組移除。
+   解碼只有一條路；解不出來就講解不出來，不畫第二條曲線。
    ═══════════════════════════════════════════════════════════════════════════ */
-var DST_LUT_AHB       = 0x40010000;   // BANK-EM01/EM02 bank_offset 的 dgm_lut（兩顆相同）
-var DST_LUT_MEM_DELTA = 0x10;         // 記憶體 slave ＝ 暫存器 slave − 0x10（§24.4）
+var DST_LUT_AHB       = 0x40010000;   // 三顆共通的 dgm_lut AHB 視窗起點
+var DST_LUT_STRIDE    = 4;            // 每筆 4 byte（byte0／byte1 有效，+2／+3 忽略）
 var DST_LUT_SETTLE_MS = 50;           // GetC3DLUT L265 的 Thread.Sleep(50)
 var DST_LUT_CHUNK     = 256;          // 分段長度：四種 bridge 路徑裡最小的那一個上限
 
-function dstLutMemSlave(regSlave) { return (regSlave - DST_LUT_MEM_DELTA) & 0x7F; }
-/* 規格 §24.4 的表只涵蓋 0x68／0x60 兩列，其餘是推導 —— 這一支就是講出來的地方。 */
-function dstLutSlaveDocd(regSlave) { return regSlave === 0x68 || regSlave === 0x60; }
-
-/* `reg_dg_mode_sel` → entry 寬度。1（mp only）／3（ddg+mp）與 5~7 不是 entry
-   寬度的描述 ⇒ 回 null（未知），**不硬塞一個 8 進去**。 */
-function dstLutEntryBits(modeSel) {
-  if (modeSel === 0) return 10;
-  if (modeSel === 2 || modeSel === 4) return 8;
+/* 深度 → mask。`cfg.mask` 有值（EM01）就直接用，**不看深度旗標**。
+   深度未知 ⇒ 回 null，由呼叫端停住並講原因，不預設一個 12-bit 硬跑。 */
+function dstLutMask(cfg, depth) {
+  if (!cfg) return null;
+  if (cfg.mask) return cfg.mask;
+  if (depth === 12) return 0x0F00;
+  if (depth === 10) return 0x0300;
   return null;
 }
-function dstLutEntries(entryBits) { return (entryBits === 10 ? 1025 : 257); }
-/* 要讀多長：取「最省的 bit-packing」與「每筆 2 byte」兩者的大者，再加 4 byte 餘裕。
-   讀多了不會壞事（AHB 視窗是 64 KB），讀少了會讓某一種 packing 永遠解不出來。 */
-function dstLutReadLen(entries, depth) {
-  return Math.max(Math.ceil(entries * 3 * depth / 8), entries * 3 * 2) + 4;
-}
+/* mask → 深度（畫面標示與 identity 參照用；兩者是一對一的）。 */
+function dstLutDepthOfMask(mask) { return mask === 0x0300 ? 10 : (mask === 0x0F00 ? 12 : null); }
 
-/* ── 解包原語 ───────────────────────────────────────────────────────────
-   兩種 bit 序都做：msbFirst ＝ 先送高位（大端 bit 序），否則先送低位。
-   越界回 null —— **不補 0**。補 0 會讓「資料不夠」長得像「值就是 0」。 */
-function dstLutBits(bytes, bitOff, w, msbFirst) {
-  if (bitOff < 0 || bitOff + w > bytes.length * 8) return null;
-  var v = 0, i, p, b;
-  if (msbFirst) {
-    for (i = 0; i < w; i++) { p = bitOff + i; b = bytes[p >> 3]; v = (v << 1) | ((b >> (7 - (p & 7))) & 1); }
-  } else {
-    for (i = 0; i < w; i++) { p = bitOff + i; b = bytes[p >> 3]; v |= ((b >> (p & 7)) & 1) << i; }
-  }
-  return v;
+/* 第 i 筆落在偶數區還是奇數區。group ＝ 幾筆換一次區段（EM02／E512 是 1，
+   EM01 是 4 ⇒ `idx/4 % 2`）。 */
+function dstLutIsEven(i, group) { return Math.floor(i / group) % 2 === 0; }
+/* 兩個區段各要幾筆。**讀取長度與越界判斷都只從這裡來**，不在別處再算一次。 */
+function dstLutRegionCounts(entries, group) {
+  var e = 0, o = 0, i;
+  for (i = 0; i < entries; i++) { if (dstLutIsEven(i, group)) e++; else o++; }
+  return { even: e, odd: o };
 }
-/* layout：'planar' ＝ R 全部、G 全部、B 全部；'inter' ＝ 每一階 R,G,B 交錯。 */
-function dstLutBitOff(layout, entries, ch, i, w) {
-  return (layout === 'planar' ? (ch * entries + i) : (i * 3 + ch)) * w;
-}
-function dstLutUnpackUniform(bytes, entries, w, msbFirst, layout) {
-  var out = [[], [], []], ch, i, v;
-  for (ch = 0; ch < 3; ch++) for (i = 0; i < entries; i++) {
-    v = dstLutBits(bytes, dstLutBitOff(layout, entries, ch, i, w), w, msbFirst);
-    if (v === null) return null;
-    out[ch].push(v);
-  }
-  return { r: out[0], g: out[1], b: out[2] };
-}
-function dstLutUnpack16(bytes, entries, little, layout) {
-  var out = [[], [], []], ch, i, o;
-  for (ch = 0; ch < 3; ch++) for (i = 0; i < entries; i++) {
-    o = (layout === 'planar' ? (ch * entries + i) : (i * 3 + ch)) * 2;
-    if (o + 1 >= bytes.length) return null;
-    out[ch].push(little ? (bytes[o] | (bytes[o + 1] << 8)) : ((bytes[o] << 8) | bytes[o + 1]));
-  }
-  return { r: out[0], g: out[1], b: out[2] };
-}
-/* ═══ AN-DG p9/p10 的 Offset 打包 ═════════════════════════════════════════
-   「index 0 與 252~256 存絕對值、1~251 存差值」這句話與同一頁的大小算式
-   `(252×8 + 5×12)×3` **對不起來**（那句話是 6 個絕對值 ＋ 251 個差值）。
-   算式自洽（5 + 252 ＝ 257），文字不自洽 ⇒ **以算式為準**：
-     index 0 絕對值、1…252 差值、253…256 絕對值。
-   🔴 這個取捨寫在這裡是因為它可能是錯的：若實機解出來對不上，先翻這一段。
-   差值寬度：12-bit LUT ⇒ 8 bit、10-bit LUT ⇒ 6 bit（p9/p10）。 */
-function dstLutOffsetIsAbs(i, entries) { return i === 0 || i >= entries - 4; }
-function dstLutUnpackOffset(bytes, entries, depth, msbFirst, layout) {
-  if (entries !== 257) return null;            // 1025 筆的 offset 格式沒有出處，不做
-  var dw = (depth === 12) ? 8 : 6, chLen = 0, i, ch;
-  for (i = 0; i < entries; i++) chLen += dstLutOffsetIsAbs(i, entries) ? depth : dw;
-  var out = [[], [], []];
+/* 讀取計畫：三個 channel × 兩個區段，每一段的位址與長度都算死。
+   🔴 這是**唯一**決定要讀哪些位址的地方 —— 夾具直接驗它，不必等硬體。 */
+function dstLutPlan(cfg, base) {
+  var cnt = dstLutRegionCounts(cfg.entries, cfg.group), out = [], ch;
   for (ch = 0; ch < 3; ch++) {
-    var off = (layout === 'planar') ? ch * chLen : 0, acc = 0;
-    for (i = 0; i < entries; i++) {
-      var w = dstLutOffsetIsAbs(i, entries) ? depth : dw, bo;
-      if (layout === 'planar') { bo = off; off += w; }
-      else {
-        /* 交錯：每一階三個通道連著放，所以要把前面 i 階的 3 個寬度加總 */
-        bo = 0;
-        for (var k = 0; k < i; k++) bo += 3 * (dstLutOffsetIsAbs(k, entries) ? depth : dw);
-        bo += ch * w;
-      }
-      var v = dstLutBits(bytes, bo, w, msbFirst);
-      if (v === null) return null;
-      acc = dstLutOffsetIsAbs(i, entries) ? v : (acc + v);
-      out[ch].push(acc);
-    }
+    var chBase = (base + ch * cfg.chSpan) >>> 0;
+    out.push({ ch: ch, region: 'even', addr: chBase, len: cnt.even * DST_LUT_STRIDE });
+    out.push({ ch: ch, region: 'odd', addr: (chBase + cfg.oddOff) >>> 0, len: cnt.odd * DST_LUT_STRIDE });
   }
-  return { r: out[0], g: out[1], b: out[2] };
+  return out;
 }
-/* 逐筆累加（把「存的是差值」還原成絕對值）。第 0 筆是絕對值。 */
-function dstLutCumsum(rgb) {
-  var o = {}, k, i, a, s;
-  ['r', 'g', 'b'].forEach(function (c) {
-    a = rgb[c]; s = []; var acc = 0;
-    for (i = 0; i < a.length; i++) { acc = (i === 0) ? a[i] : (acc + a[i]); s.push(acc); }
-    o[c] = s;
-  });
-  return o;
+/* 把一個 channel 的兩段 bytes 解成 entries 筆。
+   🔴 兩個區段**各有獨立的計數器** —— 這正是 v1.6.0 漏掉的那一件事。
+   🔴 越界回 null，**不補 0**（補 0 會讓「資料不夠」長得像「值就是 0」）。 */
+function dstLutDecodeCh(even, odd, entries, group, mask) {
+  var out = [], ep = 0, op = 0, i, src, off;
+  for (i = 0; i < entries; i++) {
+    if (dstLutIsEven(i, group)) { src = even; off = ep * DST_LUT_STRIDE; ep++; }
+    else                        { src = odd;  off = op * DST_LUT_STRIDE; op++; }
+    if (!src || off + 1 >= src.length) return null;
+    out.push((((src[off + 1] & 0xFF) << 8) & mask) | (src[off] & 0xFF));
+  }
+  return out;
 }
 /* identity（AN-DG p8/p13）：LUT[i] ＝ i × 2^(depth − entryBits)，末筆 ＝ 2^depth − 1。
-   8-bit entry ＋ 12-bit ⇒ 0,16,32,…,4080，index 256 ＝ 4095。 */
+   8-bit entry ＋ 12-bit ⇒ 0,16,32,…,4080，index 256 ＝ 4095。
+   🔴 v1.7.0 起它**只用來把數值表裡與預設表不同的列標紅**，不再參與任何判定。 */
 function dstLutIdentity(entries, entryBits, depth) {
   var k = Math.pow(2, depth - entryBits), a = [], i;
   for (i = 0; i < entries; i++) a.push(i * k);
   a[entries - 1] = Math.pow(2, depth) - 1;
   return a;
-}
-/* 一組解碼結果的四個指標。**沒有任何一個單獨足以判定「解對了」** —— 這是刻意的。 */
-function dstLutScore(rgb, ident, depth) {
-  var hi = Math.pow(2, depth) - 1, n = 0, mt = 0, mo = 0, ir = 0, mn = 0;
-  ['r', 'g', 'b'].forEach(function (c) {
-    var a = rgb[c];
-    for (var i = 0; i < a.length; i++) {
-      n++;
-      if (a[i] === ident[i]) mt++;
-      if (a[i] >= 0 && a[i] <= hi) ir++;
-      if (i > 0) { mn++; if (a[i] >= a[i - 1]) mo++; }
-    }
-  });
-  return { match: n ? mt / n : 0, inRange: n ? ir / n : 0, mono: mn ? mo / mn : 0,
-           last: [rgb.r[rgb.r.length - 1], rgb.g[rgb.g.length - 1], rgb.b[rgb.b.length - 1]] };
-}
-/* ── 候選清單 ───────────────────────────────────────────────────────────
-   target ＝ 'target'｜'offset'｜null（未知）。
-     'target' ⇒ 存的是絕對值 ⇒ 不加累加候選、不加 Offset 格式候選
-     'offset' ⇒ 存的是差值   ⇒ 三種都給（SRAM 到底用哪一種沒有出處，§27 #22）
-     null     ⇒ 全部都給
-   depths：DG_EN 那個 byte 讀不到深度時（EM01/EM02 以外的顆，或讀失敗）⇒ 10 與 12
-   兩種都試，**不預設一個**。 */
-function dstLutCandidates(bytes, entries, entryBits, depths, target) {
-  var out = [];
-  var wantAbs = (target !== 'offset');
-  var wantAcc = (target !== 'target');
-  depths.forEach(function (depth) {
-    var ident = dstLutIdentity(entries, entryBits, depth);
-    function add(key, label, rgb) {
-      if (!rgb) return;
-      out.push({ key: key, label: label, depth: depth, rgb: rgb, score: dstLutScore(rgb, ident, depth) });
-    }
-    [['planar', 'planar'], ['inter', 'inter']].forEach(function (L) {
-      [[true, 'msb'], [false, 'lsb']].forEach(function (B) {
-        var base = dstLutUnpackUniform(bytes, entries, depth, B[0], L[0]);
-        var tag = depth + 'b/' + B[1] + '/' + L[1];
-        if (wantAbs) add('u' + depth + B[1] + L[0], tag, base);
-        if (wantAcc && base) add('u' + depth + B[1] + L[0] + 'acc', tag + '/累加', dstLutCumsum(base));
-      });
-      [[true, 'LE'], [false, 'BE']].forEach(function (E) {
-        var b16 = dstLutUnpack16(bytes, entries, E[0], L[0]);
-        var tag = '16b/' + E[1] + '/' + L[1];
-        if (wantAbs) add('h' + E[1] + L[0] + depth, tag, b16);
-        if (wantAcc && b16) add('h' + E[1] + L[0] + depth + 'acc', tag + '/累加', dstLutCumsum(b16));
-      });
-      if (wantAcc) {
-        [[true, 'msb'], [false, 'lsb']].forEach(function (B) {
-          add('o' + depth + B[1] + L[0], 'Offset ' + depth + 'b/' + B[1] + '/' + L[0],
-              dstLutUnpackOffset(bytes, entries, depth, B[0], L[0]));
-        });
-      }
-    });
-  });
-  out.sort(function (a, b) {
-    if (b.score.match !== a.score.match) return b.score.match - a.score.match;
-    if (b.score.inRange !== a.score.inRange) return b.score.inRange - a.score.inRange;
-    return b.score.mono - a.score.mono;
-  });
-  return out;
 }
 /* 全部同一個 byte ⇒ 不是資料（全 0xFF ＝ 匯流排沒回應、全 0x00 ＝ 視窗沒開）。 */
 function dstLutDegenerate(bytes) {
@@ -1704,18 +1630,9 @@ function dstLutDegenerate(bytes) {
 }
 
 /* ── 狀態 ──────────────────────────────────────────────────────────────── */
-var dstLut     = null;      // 成功：{ bytes, entries, entryBits, entryFrom, depths, target, busKey, cands }
+var dstLut     = null;      // 成功：{ icKey, cfg, mask, depth, entries, rgb, nBytes, bus }
 var dstLutErr  = null;      // 失敗：{ stepKey, detail }  🔴 失敗一定講在哪一步
-var dstLutBusPick = 'auto'; // 下拉：'auto' 或某個 busEn 候選的 key
-var dstLutPick = null;      // 下拉：使用者指定要畫哪一個候選（null ＝ 分數最高者）
 var dstLutBusy = false;
-
-/* 候選 bus-enable 清單（依使用者的下拉過濾）。 */
-function dstLutBusList(ic, pick) {
-  var all = (ic && ic.dgLut && ic.dgLut.busEn) ? ic.dgLut.busEn : [];
-  if (!pick || pick === 'auto') return all.slice();
-  return all.filter(function (b) { return b.key === pick; });
-}
 
 /* 設／清 bus-enable 的那一位。**守門與 DG_EN 那一支同一組純函式** ——
    只有那一位可以變，其餘 7 位逐位元比對，不同就拒絕送出。 */
@@ -1757,81 +1674,96 @@ async function dstLutReadAhb(memSlave, base, len) {
   return out;
 }
 
+/* 畫面上那一行「本次用的規格」。刻意全部是符號與數字（不必翻譯），
+   因為它要對照的是原廠源碼裡的常數，不是一句說明。 */
+function dstLutSpecText(icKey, cfg, mask, depth) {
+  return icKey
+    + ' · slave 0x' + cfg.memSlave.toString(16).toUpperCase()
+    + ' · ch +0x' + cfg.chSpan.toString(16).toUpperCase()
+    + ' · odd +0x' + cfg.oddOff.toString(16).toUpperCase()
+    + (cfg.group > 1 ? ' /' + cfg.group : '')
+    + ' · ' + cfg.entries + ' × ' + DST_LUT_STRIDE + 'B'
+    + ' · mask 0x' + ('000' + mask.toString(16).toUpperCase()).slice(-4)
+    + ' (' + depth + '-bit)';
+}
+
 async function dstReadDgLut() {
   if (dstLutBusy) return;
   var ic = dstIc, cfg = ic && ic.dgLut;
   dstLutErr = null;
+  /* 🔴 認不出 IC 就停住 —— 不拿別顆的 slave／位移「試試看」。 */
   if (!dstLinked) { dstLutErr = { stepKey: 'dst.lutErrLink', detail: '' }; dstRenderLut(); return; }
   if (!ic)        { dstLutErr = { stepKey: 'dst.lutErrNoIc', detail: '' }; dstRenderLut(); return; }
-  if (!cfg)       { dstLutErr = { stepKey: 'dst.lutErrNoCfg', detail: ic.key }; dstRenderLut(); return; }
+  if (!cfg)       { dstLutErr = { stepKey: 'dst.lutErrNoSpec', detail: ic.key }; dstRenderLut(); return; }
 
   dstLutBusy = true; dstLut = null; dstRenderLut(); dstRenderBtns();
-  var memSlave = dstLutMemSlave(dstSlave);
-  dstLog('== read DG LUT: AHB ' + '0x' + DST_LUT_AHB.toString(16).toUpperCase()
-    + ', mem slave 0x' + memSlave.toString(16).toUpperCase()
-    + (dstLutSlaveDocd(dstSlave) ? ' (per spec table)' : ' (🔴 derived: reg slave − 0x10, no source row)'));
-
   try {
-    /* ① 深度／型態：走既有的 DG_EN 讀取（同一顆 byte，一次讀就有三件事）。 */
+    /* ① 深度：走既有的 DG_EN 讀取（同一顆 byte）。EM01 用不到（mask 固定）。 */
     await dstReadDgEn();
-    var depths = dstDg.depth ? [dstDg.depth] : [12, 10];
-    var target = dstDg.target || null;
-
-    /* ② entry 寬度：EM01 讀得到（reg_dg_mode_sel），EM02 沒有這個欄位。 */
-    var entryBits = 8, entryFrom = 'default', modeSel = null;
-    if (cfg.entryReg) {
-      try {
-        var eb = await dstReadReg(cfg.entryReg.addr, 1);
-        if (eb && eb.length && !dstIsBusIdle(eb.slice(0, 1))) {
-          modeSel = (eb[0] >> cfg.entryReg.shift) & cfg.entryReg.mask;
-          var w = dstLutEntryBits(modeSel);
-          if (w) { entryBits = w; entryFrom = 'read'; }
-          else entryFrom = 'modeUnknown';
-        }
-      } catch (e) { entryFrom = 'readFail'; }
+    var mask = dstLutMask(cfg, dstDg.depth);
+    if (!mask) {
+      /* 🔴 深度旗標讀不到 ⇒ 不知道要遮幾位 ⇒ **停住**。用 12-bit 硬跑的話，
+         10-bit 的表會多出兩位垃圾，而且畫面上看起來完全正常。 */
+      dstLutErr = { stepKey: 'dst.lutErrDepth',
+                    detail: ic.key + (ic.dgEn ? ' ' + dstAddrText(ic.dgEn.addr) : '') };
+      dstLog('!  DG LUT: depth flag unreadable on ' + ic.key + ' -> stop (no default)', 'e');
+      return;
     }
-    var entries = dstLutEntries(entryBits);
-    var readLen = dstLutReadLen(entries, Math.max.apply(null, depths));
-    dstLog('-- entry=' + entryBits + '-bit (' + entryFrom + (modeSel === null ? '' : ', reg_dg_mode_sel=' + modeSel)
-      + '), entries=' + entries + ', depth=' + depths.join('/') + ', target=' + (target || '?')
-      + ' => read ' + readLen + ' bytes');
+    var depth = dstLutDepthOfMask(mask);
+    var plan  = dstLutPlan(cfg, DST_LUT_AHB);
+    var total = plan.reduce(function (s, p) { return s + p.len; }, 0);
+    dstLog('== read DG LUT: ' + dstLutSpecText(ic.key, cfg, mask, depth)
+      + '  [' + cfg.src + ']');
+    dstLog('-- plan: ' + plan.map(function (p) {
+      return 'ch' + p.ch + '/' + p.region + ' @0x' + p.addr.toString(16).toUpperCase() + ' x' + p.len;
+    }).join(', ') + '  (total ' + total + ' bytes)');
 
-    /* ③ 逐一試 bus-enable 候選。**選哪一個不是我們挑的**：拿到非退化資料的就是它。 */
-    var list = dstLutBusList(ic, dstLutBusPick), tried = [];
-    if (!list.length) throw new Error('no bus-enable candidate for ' + ic.key);
-    var bytes = null, usedBus = null;
-    for (var bi = 0; bi < list.length; bi++) {
-      var b = list[bi], stuck = false;
-      try {
-        stuck = await dstLutSetBus(b, true);
-        if (!stuck) { tried.push(b.key + ':bit-not-stuck'); continue; }
-        await new Promise(function (r) { setTimeout(r, DST_LUT_SETTLE_MS); });
-        var got = await dstLutReadAhb(memSlave, DST_LUT_AHB, readLen);
-        var deg = dstLutDegenerate(got);
-        if (deg) { tried.push(b.key + ':' + deg); dstLog('-- ' + b.key + ' -> ' + deg + ', trying next candidate', 'w'); continue; }
-        bytes = got; usedBus = b;
-      } catch (e) {
-        tried.push(b.key + ':' + dstErrMsg(e));
-        dstLog('!  bus-enable candidate ' + b.key + ' failed: ' + dstErrMsg(e), 'e');
-      } finally {
-        /* 🔴 不論成敗都關回去。關失敗只記 log，不把成功的讀取變成失敗。 */
-        try { await dstLutSetBus(b, false); } catch (e2) { dstLog('!  could not clear bus-enable ' + b.key + ': ' + dstErrMsg(e2), 'e'); }
+    /* ② 開 bus enable → 等 50ms → 逐段讀 → **不論成敗一定關回去**。 */
+    var b = cfg.busEn, segs = null;
+    try {
+      /* 🔴 設定那一位的動作本身也在 try 裡面：它有可能在「寫進去了但讀回確認
+         失敗」的地方丟出來，放在外面就會留著一位沒清掉。 */
+      var stuck = await dstLutSetBus(b, true);
+      if (!stuck) {
+        dstLutErr = { stepKey: 'dst.lutErrBus', detail: dstAddrText(b.addr) + ' bit' + b.bit };
+        return;
       }
-      if (bytes) break;
+      await new Promise(function (r) { setTimeout(r, DST_LUT_SETTLE_MS); });
+      segs = [];
+      for (var pi = 0; pi < plan.length; pi++) {
+        segs.push(await dstLutReadAhb(cfg.memSlave, plan[pi].addr, plan[pi].len));
+      }
+    } finally {
+      try { await dstLutSetBus(b, false); }
+      catch (e2) { dstLog('!  could not clear bus-enable: ' + dstErrMsg(e2), 'e'); }
     }
-    if (!bytes) { dstLutErr = { stepKey: 'dst.lutErrRead', detail: tried.join('  |  ') }; return; }
 
-    /* ④ 解碼：所有候選一起算，**不挑一個宣稱成功**。 */
-    var cands = dstLutCandidates(bytes, entries, entryBits, depths, target);
-    if (!cands.length) { dstLutErr = { stepKey: 'dst.lutErrDecode', detail: 'no candidate produced a full table' }; return; }
-    dstLut = { bytes: bytes, entries: entries, entryBits: entryBits, entryFrom: entryFrom,
-               modeSel: modeSel, depths: depths, target: target, bus: usedBus, cands: cands };
-    dstLutPick = null;
-    dstLog('-- decoded ' + cands.length + ' candidate packings; best = ' + cands[0].label
-      + '  identity ' + (cands[0].score.match * 100).toFixed(1) + '%'
-      + ', in-range ' + (cands[0].score.inRange * 100).toFixed(1) + '%'
-      + ', monotonic ' + (cands[0].score.mono * 100).toFixed(1) + '%',
-      cands[0].score.match > 0.99 ? 'o' : 'w');
+    /* ③ 退化判定：全 0x00 ＝ 視窗沒開、全 0xFF ＝ 匯流排沒回應。 */
+    var all = [];
+    for (var si = 0; si < segs.length; si++) all = all.concat(segs[si]);
+    var deg = dstLutDegenerate(all);
+    if (deg) {
+      dstLutErr = { stepKey: 'dst.lutErrData', detail: deg };
+      dstLog('-- DG LUT read back ' + deg + ' (' + all.length + ' bytes)', 'e');
+      return;
+    }
+
+    /* ④ 解碼：每個 channel 兩段（偶／奇），交錯規則由 cfg.group 決定。 */
+    var chans = ['r', 'g', 'b'], rgb = {}, ci;
+    for (ci = 0; ci < 3; ci++) {
+      var one = dstLutDecodeCh(segs[ci * 2], segs[ci * 2 + 1], cfg.entries, cfg.group, mask);
+      if (!one) {
+        dstLutErr = { stepKey: 'dst.lutErrDecode', detail: 'ch' + ci };
+        return;
+      }
+      rgb[chans[ci]] = one;
+    }
+
+    dstLut = { icKey: ic.key, cfg: cfg, mask: mask, depth: depth, entries: cfg.entries,
+               entryBits: cfg.entryBits, rgb: rgb, nBytes: all.length, bus: b };
+    dstLog('-- decoded ' + cfg.entries + ' entries/ch'
+      + '   R[0..3]=' + rgb.r.slice(0, 4).join(',') + ' … R[last]=' + rgb.r[cfg.entries - 1]
+      + '   G[last]=' + rgb.g[cfg.entries - 1] + '   B[last]=' + rgb.b[cfg.entries - 1], 'o');
   } catch (e) {
     dstLutErr = { stepKey: 'dst.lutErrStep', detail: dstErrMsg(e) };
     dstLog('!  DG LUT read failed: ' + dstErrMsg(e), 'e');
@@ -2537,45 +2469,24 @@ function dstRenderDg() {
     ck.disabled = !(dstLinked && dstIc && dstIc.dgEn) || dstRunning || dstBusy;
   }
 }
-/* ═══ 🔴 v1.6.0：DG LUT 檢視那張卡的渲染 ══════════════════════════════════
-   四條硬規矩（Bruce 明說這張卡是拿來「檢查是不是你亂讀的」）：
+/* ═══ 🔴 v1.7.0：DG LUT 檢視那張卡的渲染 ══════════════════════════════════
+   三條硬規矩（Bruce 明說這張卡是拿來「檢查是不是你亂讀的」）：
      ① 讀失敗 ⇒ **講失敗在哪一步**，不畫任何曲線。
-     ② 讀成功但解碼吻合度低 ⇒ 曲線照畫（那是真的 bytes 解出來的），但**畫面上
-        寫明它未定案**，並把所有候選的分數一起列出來。
-     ③ 吻合度的極限要寫在畫面上：**DG_EN 關閉不會把 LUT 變成 identity**
-        （DG_EN=0 是 bypass，LUT 內容不變；identity 是原廠預設表的長相）。
-     ④ 數值表預設收起來。 */
-function dstLutPct(v) { return (v * 100).toFixed(1) + '%'; }
-function dstLutActive() {
-  if (!dstLut || !dstLut.cands.length) return null;
-  if (dstLutPick) {
-    for (var i = 0; i < dstLut.cands.length; i++) if (dstLut.cands[i].key === dstLutPick) return dstLut.cands[i];
-  }
-  return dstLut.cands[0];
-}
-/* bus-enable 下拉：'auto' ＋ 這一顆的每個候選。沒有 IC／沒有候選 ⇒ 整個隱藏。 */
-function dstRenderLutBus() {
-  var sel = $('dst-lut-bus'), why = $('dst-lut-buswhy');
-  if (!sel) return;
-  var list = (dstIc && dstIc.dgLut && dstIc.dgLut.busEn) ? dstIc.dgLut.busEn : [];
-  if (!list.length) { sel.classList.add('dst-hidden'); if (why) why.textContent = ''; return; }
-  sel.classList.remove('dst-hidden');
-  sel.innerHTML = '';
-  var o0 = document.createElement('option');
-  o0.value = 'auto'; o0.textContent = dstT('dst.lutBusAuto');
-  sel.appendChild(o0);
-  list.forEach(function (b) {
-    var o = document.createElement('option');
-    o.value = b.key;
-    o.textContent = dstAddrText(b.addr) + ' bit' + b.bit + (b.docd ? '' : '  ⚠');
-    sel.appendChild(o);
-  });
-  sel.value = dstLutBusPick;
-  /* 只有在「這一顆有沒有出處的候選」時才出現說明 —— EM01 只有一個且有出處 ⇒ 不佔位。 */
-  var blind = list.filter(function (b) { return !b.docd; });
-  if (why) why.textContent = blind.length
-    ? dstT('dst.lutBusBlind', { addr: blind.map(function (b) { return dstAddrText(b.addr) + ' bit' + b.bit; }).join('、') })
-    : '';
+     ② 讀成功 ⇒ 前後各 6 筆直接攤在畫面上（不必展開），旁邊寫本次用的規格
+        （IC／slave／位移／筆數／mask）—— 這兩樣加起來才能判斷「是不是亂讀的」。
+     ③ 全表預設收起來。
+   🔴 v1.6.0 的「候選 packing 下拉 ＋ 分數表 ＋ 吻合度」整組拿掉（見 dstReadDgLut
+      上方那一段）。identity 只剩一個用途：把全表裡與原廠預設表不同的列標紅。 */
+var DST_LUT_PREVIEW = 6;    // 前後各幾筆攤在畫面上
+
+/* 前後各 n 筆的索引清單；中間用 null 代表「…」那一列。筆數不夠就全給。 */
+function dstLutPreviewIdx(entries, n) {
+  var out = [], i;
+  if (entries <= n * 2 + 1) { for (i = 0; i < entries; i++) out.push(i); return out; }
+  for (i = 0; i < n; i++) out.push(i);
+  out.push(null);
+  for (i = entries - n; i < entries; i++) out.push(i);
+  return out;
 }
 /* 純函式：把一組曲線畫成 SVG（字串）。**不依賴 DOM**，夾具可以直接驗。
    viewBox 固定 640×260，外層用 width:100% 縮放 ⇒ 手機上也看得到。 */
@@ -2613,13 +2524,12 @@ function dstLutChartSvg(rgb, depth) {
   return s + '</svg>';
 }
 function dstRenderLut() {
-  dstRenderLutBus();
-  var body = $('dst-lut-body'), warn = $('dst-lut-warn');
+  var body = $('dst-lut-body');
   var busy = dstLutBusy;
   /* ── 狀態列 ── */
   if (busy) dstShow('dst-lut-state', dstT('dst.lutBusy'), true);
   else if (dstLutErr) dstShow('dst-lut-state', dstT('dst.lutFailed'), false);
-  else if (dstLut) dstShow('dst-lut-state', dstT('dst.lutOk', { n: dstLut.bytes.length }), true);
+  else if (dstLut) dstShow('dst-lut-state', dstT('dst.lutOk', { n: dstLut.nBytes }), true);
   else dstShow('dst-lut-state', '—', false);
 
   dstSay('dst-say-lut', dstLutErr ? (dstT(dstLutErr.stepKey) + (dstLutErr.detail ? '  [' + dstLutErr.detail + ']' : '')) : '');
@@ -2627,78 +2537,53 @@ function dstRenderLut() {
   if (!dstLut) {
     dstShow('dst-lut-cfg', '—', false);
     dstShow('dst-lut-bususe', '—', false);
-    dstShow('dst-lut-fit', '—', false);
     if (body) body.classList.add('dst-hidden');
-    if (warn) { warn.classList.add('dst-hidden'); warn.textContent = ''; }
     return;
   }
-  var act = dstLutActive();
-  /* LUT 設定：深度／型態／entry 寬度（以及那個寬度是讀到的還是預設的）。 */
-  var cfgTxt = dstT('dst.lutCfgDepth', { n: dstLut.depths.join('/') })
-    + '  ' + dstT(dstLut.target === 'target' ? 'dst.dgLutTarget' : (dstLut.target === 'offset' ? 'dst.dgLutOffset' : 'dst.lutTargetUnknown'))
-    + '  ' + dstT('dst.lutCfgEntry', { n: dstLut.entryBits })
-    + dstT(dstLut.entryFrom === 'read' ? 'dst.lutEntryRead' : 'dst.lutEntryDefault');
-  dstShow('dst-lut-cfg', cfgTxt, dstLut.entryFrom === 'read');
+  /* ── 本次用的規格：IC／slave／channel 位移／奇數區位移／筆數／mask ── */
+  dstShow('dst-lut-cfg', dstLutSpecText(dstLut.icKey, dstLut.cfg, dstLut.mask, dstLut.depth), true);
   dstShow('dst-lut-bususe', dstLut.bus
     ? (dstAddrText(dstLut.bus.addr) + ' bit' + dstLut.bus.bit + '  ' + dstLut.bus.src) : '—', !!dstLut.bus);
-  dstShow('dst-lut-fit', dstLutPct(act.score.match) + '   ('
-    + dstT('dst.lutFitParts', { range: dstLutPct(act.score.inRange), mono: dstLutPct(act.score.mono) }) + ')',
-    act.score.match > 0.99);
-
-  /* 🔴 吻合度不到 99% ⇒ 明講它未定案，並把兩種可能都說出來。 */
-  if (warn) {
-    var low = act.score.match <= 0.99;
-    warn.classList.toggle('dst-hidden', !low);
-    warn.textContent = low ? dstT('dst.lutFitLow') : '';
-  }
   if (body) body.classList.remove('dst-hidden');
 
-  /* ── 候選下拉 ── */
-  var pk = $('dst-lut-pick');
-  if (pk) {
-    pk.innerHTML = '';
-    dstLut.cands.forEach(function (c) {
-      var o = document.createElement('option');
-      o.value = c.key; o.textContent = c.label + '   ' + dstLutPct(c.score.match);
-      pk.appendChild(o);
-    });
-    pk.value = act.key;
-  }
+  var rgb = dstLut.rgb, n = dstLut.entries;
+  var ident = dstLutIdentity(n, dstLut.entryBits, dstLut.depth);
+
   /* ── 曲線 ── */
   var ch = $('dst-lut-chart');
-  if (ch) ch.innerHTML = dstLutChartSvg(act.rgb, act.depth);
+  if (ch) ch.innerHTML = dstLutChartSvg(rgb, dstLut.depth);
 
-  /* ── 數值表（預設收起）── */
+  /* 一列：index 為 null ⇒ 「…」那一列。 */
+  function row(tb, i) {
+    var tr = document.createElement('tr'), cells;
+    if (i === null) cells = ['…', '…', '…', '…'];
+    else {
+      cells = [i, rgb.r[i], rgb.g[i], rgb.b[i]];
+      /* 與原廠預設表不同的列標紅 —— 要逐筆核對時不必自己一列一列比。 */
+      if (rgb.r[i] !== ident[i] || rgb.g[i] !== ident[i] || rgb.b[i] !== ident[i]) tr.className = 'bad';
+    }
+    cells.forEach(function (v) {
+      var td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  }
+
+  /* ── 前後各 6 筆（不收起來）── */
+  var ps = $('dst-lut-prevsum');
+  if (ps) ps.textContent = dstT('dst.lutPreview', { n: DST_LUT_PREVIEW, total: n });
+  var ptb = $('dst-lut-prevtb');
+  if (ptb) {
+    ptb.innerHTML = '';
+    dstLutPreviewIdx(n, DST_LUT_PREVIEW).forEach(function (i) { row(ptb, i); });
+  }
+
+  /* ── 全表（預設收起）── */
   var sum = $('dst-lut-sum');
-  if (sum) sum.textContent = dstT('dst.lutTblSum', { n: dstLut.entries });
+  if (sum) sum.textContent = dstT('dst.lutTblSum', { n: n });
   var tb = $('dst-lut-tb');
   if (tb) {
     tb.innerHTML = '';
-    var ident = dstLutIdentity(dstLut.entries, dstLut.entryBits, act.depth);
-    for (var i = 0; i < dstLut.entries; i++) {
-      var tr = document.createElement('tr');
-      /* 與 identity 不同的列標紅 —— 他要逐筆核對，標出來才不用自己一列一列比。 */
-      if (act.rgb.r[i] !== ident[i] || act.rgb.g[i] !== ident[i] || act.rgb.b[i] !== ident[i]) tr.className = 'bad';
-      [i, act.rgb.r[i], act.rgb.g[i], act.rgb.b[i]].forEach(function (v) {
-        var td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
-      });
-      tb.appendChild(tr);
-    }
-  }
-  /* ── 所有候選的分數（他要看的就是這一張）── */
-  var cs = $('dst-lut-candsum');
-  if (cs) cs.textContent = dstT('dst.lutCandSum', { n: dstLut.cands.length });
-  var ctb = $('dst-lut-candtb');
-  if (ctb) {
-    ctb.innerHTML = '';
-    dstLut.cands.forEach(function (c) {
-      var tr = document.createElement('tr');
-      [c.label, dstLutPct(c.score.match), dstLutPct(c.score.inRange), dstLutPct(c.score.mono),
-       c.score.last.join(' / ')].forEach(function (v) {
-        var td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
-      });
-      ctb.appendChild(tr);
-    });
+    for (var i = 0; i < n; i++) row(tb, i);
   }
 }
 
@@ -2809,8 +2694,6 @@ function dstRenderBtns() {
      「連著 ＋ 認得出 IC ＋ 這顆有 dgLut 設定」時可按。 */
   var lr = $('dst-lut-read');
   if (lr) lr.disabled = !(dstLinked && dstIc && dstIc.dgLut) || dstRunning || dstBusy || dstLutBusy;
-  var lb = $('dst-lut-bus'); if (lb) lb.disabled = dstRunning || dstBusy || dstLutBusy;
-  var lp = $('dst-lut-pick'); if (lp) lp.disabled = dstLutBusy;
 }
 /* ═══ 🔴🔴 v1.4.0：進度計數整個重做 ════════════════════════════════════════
    Bruce 2026-09-20（**第二次講同一件事**）：「你現在是 259 分之幾，而這個『幾』
@@ -3062,7 +2945,7 @@ async function dstDisconnect() {
     dstRes = { w: DST_RES_FALLBACK.w, h: DST_RES_FALLBACK.h, from: 'none' };
     dstShow('dst-v-bridge', '—', false); dstShow('dst-v-ic', '—', false);
     /* 🔴 v1.6.0：讀回來的 LUT 也一起丟掉。留著上一顆 IC 的表，畫面就會說謊。 */
-    dstLut = null; dstLutErr = null; dstLutPick = null;
+    dstLut = null; dstLutErr = null;
     dstRenderAlt(); dstRenderDg(); dstRenderRes(); dstRenderLut();
     dstBusy = false; dstRenderBtns();
     dstLog('== disconnected');
@@ -3502,15 +3385,10 @@ function dstBind() {
     if (dstCaLinked) dstCaClose(); else dstCaOpen();
   });
   /* 🔴 v1.6.0：讀 DG LUT。**不跳確認視窗**（Bruce 明說「一顆按鈕，不跳確認」）。
-     它自己有 dstLutBusy 防重入，所以不走 dstGuard（走了會跟出圖那條路互相卡）。 */
+     它自己有 dstLutBusy 防重入，所以不走 dstGuard（走了會跟出圖那條路互相卡）。
+     🔴 v1.7.0：卡片上只剩這一顆按鈕 —— 兩個下拉（bus enable 候選、解碼方式）
+        連同它們的事件都拿掉了，規格定案後沒有要使用者挑的東西。 */
   $('dst-lut-read').addEventListener('click', function () { dstReadDgLut(); });
-  $('dst-lut-bus').addEventListener('change', function (e) {
-    dstLutBusPick = e.target.value || 'auto';
-    dstLog('-- bus-enable candidate set to ' + dstLutBusPick);
-  });
-  $('dst-lut-pick').addEventListener('change', function (e) {
-    dstLutPick = e.target.value || null; dstRenderLut();
-  });
 
   $('dst-run').addEventListener('click', dstRun);
   /* 🔴 v1.5.0：量測表格的 sticky-to-bottom。**狀態只從這裡來** ——
@@ -3605,45 +3483,48 @@ window.dstProbe = {
   dgEnFrame: dstDgEnFrame,         // read-modify-write 要寫回去的 byte
   dgEnWriteOk: dstDgEnWriteOk,     // 「只有 bit0 變了」的守門
   sysResDecode: dstSysResDecode,   // sys bank 解析度解碼（em01／em02 兩種打包）
-  /* ═══ v1.6.0：DG LUT ═══════════════════════════════════════════════════
-     🔴 這裡暴露的**全是純函式**（解包、identity、評分、SVG），夾具不必碰硬體
-        就能驗「解碼是不是真的解得出來」，也能驗「把產品那一段改壞會不會紅」。 */
-  lutMemSlave: dstLutMemSlave,
-  lutSlaveDocd: dstLutSlaveDocd,
-  lutEntryBits: dstLutEntryBits,
-  lutEntries: dstLutEntries,
-  lutReadLen: dstLutReadLen,
-  lutBits: dstLutBits,
-  lutBitOff: dstLutBitOff,
-  lutUnpackUniform: dstLutUnpackUniform,
-  lutUnpack16: dstLutUnpack16,
-  lutUnpackOffset: dstLutUnpackOffset,
-  lutCumsum: dstLutCumsum,
+  /* ═══ v1.7.0：DG LUT ═══════════════════════════════════════════════════
+     🔴 這裡暴露的**全是純函式**（交錯規則、讀取計畫、解碼、mask、SVG），夾具
+        不必碰硬體就能驗「even/odd 交錯解對了沒」，也能驗「把產品那一段改壞會
+        不會紅」。v1.6.0 的 18 種 packing 候選與評分整組移除，所以連同
+        lutUnpack*／lutScore／lutCandidates／lutBusList 一起不再暴露。 */
+  lutMask: dstLutMask,
+  lutDepthOfMask: dstLutDepthOfMask,
+  lutIsEven: dstLutIsEven,
+  lutRegionCounts: dstLutRegionCounts,
+  lutPlan: dstLutPlan,
+  lutDecodeCh: dstLutDecodeCh,
   lutIdentity: dstLutIdentity,
-  lutScore: dstLutScore,
-  lutCandidates: dstLutCandidates,
   lutDegenerate: dstLutDegenerate,
-  lutBusList: dstLutBusList,
+  lutSpecText: dstLutSpecText,
+  lutPreviewIdx: dstLutPreviewIdx,
   lutChartSvg: dstLutChartSvg,
   lutConst: function () {
-    return { ahb: DST_LUT_AHB, delta: DST_LUT_MEM_DELTA, settleMs: DST_LUT_SETTLE_MS, chunk: DST_LUT_CHUNK };
+    return { ahb: DST_LUT_AHB, stride: DST_LUT_STRIDE, settleMs: DST_LUT_SETTLE_MS,
+             chunk: DST_LUT_CHUNK, preview: DST_LUT_PREVIEW };
   },
   readDgLut: function () { return dstReadDgLut(); },
   lutState: function () {
     if (!dstLut) return null;
-    return { entries: dstLut.entries, entryBits: dstLut.entryBits, entryFrom: dstLut.entryFrom,
-             modeSel: dstLut.modeSel, depths: dstLut.depths.slice(), target: dstLut.target,
-             busKey: dstLut.bus ? dstLut.bus.key : null, bytes: dstLut.bytes.length,
-             best: dstLut.cands[0].key, bestLabel: dstLut.cands[0].label,
-             bestMatch: dstLut.cands[0].score.match, nCand: dstLut.cands.length };
+    return { icKey: dstLut.icKey, entries: dstLut.entries, entryBits: dstLut.entryBits,
+             mask: dstLut.mask, depth: dstLut.depth, memSlave: dstLut.cfg.memSlave,
+             chSpan: dstLut.cfg.chSpan, oddOff: dstLut.cfg.oddOff, group: dstLut.cfg.group,
+             busAddr: dstLut.bus ? dstLut.bus.addr : null,
+             busBit: dstLut.bus ? dstLut.bus.bit : null,
+             nBytes: dstLut.nBytes,
+             r: dstLut.rgb.r.slice(), g: dstLut.rgb.g.slice(), b: dstLut.rgb.b.slice() };
   },
   lutErr: function () { return dstLutErr ? JSON.parse(JSON.stringify(dstLutErr)) : null; },
-  setLutBusPick: function (k) { dstLutBusPick = k; dstRenderLutBus(); return dstLutBusPick; },
   lutText: function (id) { var e = $(id); return e ? e.textContent : null; },
   lutHidden: function (id) { var e = $(id); return e ? e.classList.contains('dst-hidden') : null; },
   lutChartHtml: function () { var e = $('dst-lut-chart'); return e ? e.innerHTML : null; },
   lutRowCount: function () { var e = $('dst-lut-tb'); return e ? e.children.length : null; },
-  lutCandRowCount: function () { var e = $('dst-lut-candtb'); return e ? e.children.length : null; },
+  lutPrevRowCount: function () { var e = $('dst-lut-prevtb'); return e ? e.children.length : null; },
+  lutPrevRow: function (k) {
+    var e = $('dst-lut-prevtb');
+    if (!e || !e.children[k]) return null;
+    return Array.prototype.map.call(e.children[k].children, function (td) { return td.textContent; });
+  },
   dgLutWired: function () { return dstDgLut; },   // 🔴 這一輪刻意仍是 null（見宣告處）
   /* v1.6.0：「開始掃描」為什麼是灰的（可按 ⇒ null） */
   runWhyKey: dstRunWhyKey,
