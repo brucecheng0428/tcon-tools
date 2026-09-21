@@ -5,15 +5,17 @@
      ① 三個部分都要有進自檢的入口，而且**開的是同一個視窗**，從哪一部分進來就把
         對應那一步標成「目前這一步」
      ② 自檢頁上一張三步清單，每一步做完當場回傳 DG 並打勾（不強迫三件都做）
-     ③ 「回到 DG 頁」：`opener.focus()`，有打勾過就轉強調色；沒有 opener 時不顯示，
-        改給「複製到剪貼簿」當退路
+     ③ 「回到 DG 頁」＝**左上角那一顆返回出口**（v1.8.1 起與它合成一顆）：
+        `opener.focus()`，有打勾過就轉強調色；沒有 opener 時退回「‹ 返回主頁」
+        並照舊指向 index.html，剪貼簿退路則出現
      ④ 第 1 部分的回填：index 0 ～ N−1（不含附加末筆），來源標示「從 T-CON 讀回」
 
    ═══ 這支釘住的東西（逐條對應上面四件事）═══════════════════════════════════
      ① 三個入口都走 DG_LIVE_PAGES.tcon 那**一個槽**（第二、三次是重用、不開新視窗）；
         三條路各自帶出去的 `step` 是 lut／gray／prim
      ② 三步各自打勾，而且**打勾與「真的送出去了」綁在一起**（第 ⑧ 組突變測試證明）
-     ③ 有／沒有 opener 兩種情形下「回到 DG 頁」與「複製到剪貼簿」的出現與消失
+     ③ 有／沒有 opener 兩種情形下左上角那一顆的**文案與去向**，以及「複製到剪貼簿」
+        的出現與消失
      ④ 回填進 #dg-in-lut 的筆數、index 範圍、來源徽章、以及**三個選單沒有被動到**
 
    ═══ 🔴 怎麼避免「自己驗自己」═══════════════════════════════════════════════
@@ -383,15 +385,19 @@ async function loadDg(src) {
     EQ(P.stepRow('lut').done, true, '① 那一列掛上 done');
     CHECK((P.saySteps() || '').indexOf('256') >= 0 && (P.saySteps() || '').indexOf('第 1 部分') >= 0,
       '🔴 訊息沿用既有格式：「256 筆 RGB LUT 已回到 DG 的第 1 部分」', P.saySteps());
-    /* 回到 DG 頁：有打勾 ⇒ 轉強調色 */
-    EQ(P.backRowHidden(), false, '有 opener ⇒「回到 DG 頁」顯示');
-    EQ(P.backIsPri(), true, '🔴 有一步打勾過 ⇒「回到 DG 頁」轉成強調色');
+    /* 左上角的返回出口：有打勾 ⇒ 轉強調色 */
+    EQ(P.backText(), '‹ 回到 DG 頁', '🔴 有 opener ⇒ 左上角那顆寫「‹ 回到 DG 頁」');
+    EQ(P.backIsPri(), true, '🔴 有一步打勾過 ⇒ 它轉成強調色');
     EQ(P.copyHidden(), true, '有 opener ⇒ 剪貼簿退路不出現');
     /* focus，不重開 */
     const before = opener.focused;
-    EQ(P.backToDg(), true, '「回到 DG 頁」按下去回傳 true');
-    EQ(opener.focused, before + 1, '🔴 它做的是 opener.focus()（把既有那個 DG 視窗叫到前面）');
+    /* 🔴 走的是**畫面上那顆 <a> 的 click**（產品路徑），不是直接呼叫 dstBackToDg() */
+    P.backClick();
+    await sleep(20);
+    EQ(opener.focused, before + 1, '🔴 按左上角那顆 ⇒ opener.focus()（把既有那個 DG 視窗叫到前面）');
     EQ(opener.msgs.length, 1, '🔴 它沒有再送任何訊息過去，也沒有重開視窗');
+    EQ(P.backHref(), 'index.html',
+      'href 仍是 index.html（有 opener 時由 click 處理器攔掉導覽，不動 href）');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -417,7 +423,7 @@ async function loadDg(src) {
     EQ(out.rows.map(r => r[0]), ['r', 'g', 'b'], 'rows 形狀與 v1.1.0 逐字相同');
     EQ(P.stepDone(), { lut: false, gray: false, prim: true }, '🔴 只有 ③ 打勾');
     EQ(P.stepRow('prim').tick, '✔', '🔴 ③ 那一列變成 ✔');
-    EQ(P.backIsPri(), true, '🔴 打勾過 ⇒「回到 DG 頁」轉強調色');
+    EQ(P.backIsPri(), true, '🔴 打勾過 ⇒ 左上角那顆轉強調色');
   }
 
   /* ② 白灰階：驗回傳那條路會打勾（整輪 259 階太慢，見檔頭「沒驗到的」）*/
@@ -452,7 +458,7 @@ async function loadDg(src) {
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
-     ⑤ 沒有 opener：「回到 DG 頁」不顯示，剪貼簿退路出現
+     ⑤ 沒有 opener：左上角那顆退回「‹ 返回主頁」，剪貼簿退路出現
      ═══════════════════════════════════════════════════════════════════════ */
   H('⑤ 沒有 opener：剪貼簿退路');
   {
@@ -460,7 +466,10 @@ async function loadDg(src) {
     const ws = makeBridge({ regs: em01Regs(5), mem, busAddr: EM01.busAddr, busBit: EM01.busBit });
     const { P, w } = await loadSelf({ ws, ic: 'EM01A1', opener: null, qs: '' });
     EQ(P.dgState().linked, false, '前置條件：沒有 opener');
-    EQ(P.backRowHidden(), true, '🔴 沒有 opener ⇒「回到 DG 頁」整顆不顯示');
+    EQ(P.backText(), '‹ 返回主頁',
+      '🔴 沒有 opener ⇒ 左上角那顆退回「‹ 返回主頁」（不留一顆按了沒反應的死鈕）');
+    EQ(P.backHref(), 'index.html', '🔴 而且 href 是 index.html');
+    EQ(P.backIsPri(), false, '沒有 opener ⇒ 不會轉強調色（沒有東西送過去）');
     EQ(P.copyHidden(), false, '🔴 沒有 opener ⇒「複製到剪貼簿」出現');
     EQ(P.copyDisabled(), true, '還沒讀過 ⇒ 複製鈕是灰的（沒東西可複製）');
     EQ([P.stepRow('lut').to, P.stepRow('gray').to, P.stepRow('prim').to], ['', '', ''],
@@ -493,7 +502,13 @@ async function loadDg(src) {
     CHECK(P.copyLut() === true, '「複製到剪貼簿」回傳 true');
     EQ(copied, want, '🔴 真的把那一份 TSV 交給剪貼簿了');
     CHECK((P.saySteps() || '').indexOf('256') >= 0, '訊息講了幾筆', P.saySteps());
-    EQ(P.backToDg(), false, '🔴 沒有 opener ⇒「回到 DG 頁」什麼都不做');
+    EQ(P.backToDg(), false, '🔴 沒有 opener ⇒ 回到 DG 那條路什麼都不做');
+    /* 🔴 按下去**不可以**被攔掉 —— 它此刻就是原本那顆返回主頁的鈕。
+       jsdom 不會真的導覽，所以驗的是「click 沒有被 preventDefault」。 */
+    var ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
+    w.document.getElementById('dst-back').dispatchEvent(ev);
+    await sleep(10);
+    EQ(ev.defaultPrevented, false, '🔴 沒有 opener ⇒ 不攔導覽，照原本的方式回首頁');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════

@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260920dg1681"></script>
+<script src="common/version.js?v=20260921dg1700"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -778,7 +778,13 @@
        沒有任何 CSS 規則或 JS 讀它以外的行為 —— 它存在的唯一理由是讓
        dgmProbe.rects() 能證明「按鈕列的 y 沒有因為下面多一列而位移」。 -->
   <div id="dgm-btnrow">
-    <button id="dgm-fs">全螢幕</button><button id="dgm-link">連線</button><button id="dgm-pick">重選儀器</button><button id="dgm-start" disabled>開始量測</button>
+    <!-- 🔴 v1.70.0：`dgm-repick`＝「改選其他埠」。**只在埠打不開的時候才出現**
+         （HTML 裡就寫 display:none，JS 由 dgmRenderBtns() 決定要不要顯示）。
+         Bruce 2026-09-21：「介面極簡：『改選其他埠』平常不必出現，open 失敗時才出現。」
+         🔴 它按下去做的事與「重選儀器」**完全同一支**（dgmLinkPick → requestPort
+            → 開新埠），不是第二份實作。存在的理由是**出口要出現在他卡住的那個
+            位置**：失敗訊息就在下面那一行，眼睛不必先學會「重選儀器」是什麼意思。 -->
+    <button id="dgm-fs">全螢幕</button><button id="dgm-link">連線</button><button id="dgm-pick">重選儀器</button><button id="dgm-repick" style="display:none">改選其他埠</button><button id="dgm-start" disabled>開始量測</button>
   </div>
   <!-- v1.42.0：切換後等待時間。位置與理由見 CSS #dgm-settle-row 那段。
        🔴 <option> 由 JS 依 DGM_SETTLE_CHOICES 產生（單一來源），這裡刻意留空 ——
@@ -1264,6 +1270,73 @@
     return s;
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     🔴 v1.70.0：既有授權的埠要不要直接採用
+     ═══════════════════════════════════════════════════════════════════════
+     ── 事故（同事 Tony Fang 的真機 log，Edge 153 / Win10，本頁 v1.68.1）──────
+       [15:13:40] getPorts() 回 1 個
+       [15:13:40] 　　[0] VID — · PID — ⇒ getInfo() 是空的（非 USB 的埠）
+       [15:13:40] ★ 走「既有授權」這條路：直接用 [0]，不跳選擇視窗
+       [15:13:45] ✕ open() 失敗（規格模式）· NetworkError
+       [15:13:51] ✕ open() 失敗（相容模式）· NetworkError
+       重按一次 ⇒ 一模一樣的迴圈再跑一遍。
+
+     ── 根因 ────────────────────────────────────────────────────────────────
+       ① **CA-410 是 USB 轉序列 ⇒ `getInfo()` 一定有 usbVendorId／usbProductId。**
+          他授權到的那個埠兩個都沒有（主機板內建 COM／藍牙虛擬 COM 這類），
+          所以那個埠**必然不是量測儀** —— 這不是機率判斷，是介面型別的事實。
+       ② v1.38.0 的註解自己就寫著這條路「選中的可能根本不是量測儀」，當時的決定是
+          「本版只把事實印出來，不改這條路，等拿到現場 log 再由 Bruce 決定」。
+          **現場 log 到了，就是這一份。**
+       ③ 真正把人鎖死的是 v1.38.0 那條已知限制：使用者用「重選儀器」挑對了，
+          下一次連線／`run()` 還是走 `getPorts()[0]` ⇒ 他的選擇被丟掉。
+
+     ── 這一版的規則（三條，依序判，每一條都寫進連線 log）────────────────────
+       1. **使用者親手挑過的那一個優先**（`dgmPickedPort` 還在授權清單裡）
+          ⇒ 用它。這條直接修掉 ③：他的選擇不會再被 [0] 蓋掉。
+       2. 否則，**只有一個授權埠、而且它有 USB VID／PID** ⇒ 用它（便利路徑保留，
+          Bruce 機器上一直能動的就是這一條，行為逐字不變）。
+       3. 其餘一律**跳選擇視窗**，並講明為什麼：
+            · 一個都沒有            → 本來就會跳（v1.31.0 起就是）
+            · 有多個                → 不盲取 [0]，讓他自己挑
+            · 只有一個但沒有 VID／PID → 不自動用（那必然不是 CA-410）
+
+     🔴 **不自動排除沒有 VID／PID 的埠、也不自動挑「看起來像」的那一個。**
+        判斷「哪個才是 CA-410」的依據只有使用者手上的實體；程式能做的是
+        「不要在有疑問時替他決定」，不是換一套猜法。
+     🔴 這一支是**純函式**（只讀 getInfo()），不碰埠、不開埠、沒有副作用 ⇒
+        夾具可以直接驗每一種組合。 */
+  function dgmPortHasUsbIds(p) {
+    var i;
+    try { i = (p && p.getInfo) ? (p.getInfo() || {}) : {}; }
+    catch (e) { return false; }
+    return i.usbVendorId != null && i.usbProductId != null;
+  }
+
+  /* 回傳 { port, why, code }。`port === null` ＝ 這一次要跳選擇視窗。
+     `code` 是給夾具與 log 用的穩定識別字，不是給使用者看的字。 */
+  function dgmChooseAuthorized(ports, picked) {
+    ports = ports || [];
+    if (!ports.length) {
+      return { port: null, code: 'none', why: '沒有既有授權' };
+    }
+    if (picked && ports.indexOf(picked) >= 0) {
+      return { port: picked, code: 'picked',
+        why: '用你先前在「重選儀器」裡親手挑的那一個（它仍在授權清單裡）' };
+    }
+    if (ports.length > 1) {
+      return { port: null, code: 'many',
+        why: '有 ' + ports.length + ' 個已授權的埠 ⇒ 不替你挑第一個，請自己選' };
+    }
+    if (!dgmPortHasUsbIds(ports[0])) {
+      return { port: null, code: 'noids',
+        why: '唯一的授權埠沒有 USB VID／PID ⇒ 它不是 USB 轉序列裝置，'
+           + '而量測儀是 ⇒ 不自動採用，請自己選' };
+    }
+    return { port: ports[0], code: 'single',
+      why: '只有一個授權埠、而且有 USB VID／PID ⇒ 直接用它' };
+  }
+
   /* ═══ user activation ═══════════════════════════════════════════════════
      `requestPort()` 需要 transient user activation。現行呼叫點在
      `await navigator.serial.getPorts()` **之後**，中間還隔著 dgmRenderBtns()
@@ -1416,7 +1489,16 @@
     // 取消與「一台都沒有」在 API 上同一種錯誤，所以這句話兩種情況都要成立
     noPort:      '沒選到量測儀 —— 接上 USB 再按一次。',
     denied:      '在網址列權限裡允許序列埠，再按一次。',
-    busy:        '量測儀被佔用 —— 關掉 CA-S40 再按一次。',
+    /* ═══ 🔴 v1.70.0：這句話原本只講「被佔用」，那是猜的 ══════════════════════
+       ── 事故（同事 Tony Fang 的真機 log，Bruce 2026-09-21 轉來）────────────
+         他授權到的埠 **VID／PID 全空**（主機板內建 COM 或藍牙虛擬 COM），而
+         CA-410 是 USB 轉序列、`getInfo()` 一定有 VID／PID ⇒ 他選到的根本不是
+         量測儀。程式卻因為「已有授權」直接採用、不跳選擇視窗，open 兩種參數各
+         等 5.2 秒失敗，訊息只說「量測儀被佔用 —— 關掉 CA-S40」⇒ 他照著去關一個
+         沒有開的軟體，每按一次白等 10.4 秒，**永遠選不到真的 CA-410**。
+       🔴 所以這句話要把**兩種可能都講出來**，而且把出口寫在句子裡。
+          「被佔用」仍留著（那確實是最常見的一種），但不再是唯一的說法。 */
+    busy:        '埠打不開。可能是選到的埠不是量測儀，或原廠軟體還開著佔住它 —— 按「改選其他埠」重新挑一個。',
     lost:        '量測儀斷線 —— 接回 USB 後按「重新量測」。'
   };
 
@@ -1441,6 +1523,11 @@
   /* v1.38.0：使用者用「重選儀器」挑過的那一個。只拿來在 log 裡對照
      「一般路徑最後用的是不是同一個」，**不參與任何判斷**。 */
   var dgmPickedPort = null;
+  /* 🔴 v1.70.0：這一次有沒有「埠打不開」。唯一用途是決定「改選其他埠」那顆鈕
+     要不要出現 —— 它**不參與任何閘門**（能不能開始量測仍然只看 dgmGateLines()）。
+     true 的來源只有一處（dgmOpenPort() 的失敗返回點），清掉的來源也只有一處
+     （開成功）。兩處都在 dgmOpenPort() 裡面，所以不可能只更新了一半。 */
+  var dgmPortFailed = false;
 
   /* ═══ v1.32.0：儀器連線狀態 ═════════════════════════════════════════════
      本頁只支援 **CA-410**（Web Serial）—— 這是唯一有實機、有協議、Bruce 已用真機
@@ -1922,6 +2009,8 @@
           continue;
         }
       }
+      /* 🔴 v1.70.0：開成功 ⇒ 把「改選其他埠」收回去（這是它唯一的清除點）。 */
+      dgmPortFailed = false; dgmRenderBtns();
       lk('✔ 埠可用 · ' + dgmModeLabel(which) + ' · ' + dgmOptsText(opts)
         + ' · readLoop ' + (dgmSerialCh.readLoopRunning ? '執行中' : '沒有在跑'), 'o');
       log('埠已開啟 ' + (which === 'spec' ? '38400 7E2 ＋RTS/CTS' : '38400 8N1'), 'o');
@@ -1931,7 +2020,23 @@
       }
       return true;
     }
+    /* 🔴 v1.70.0：所有模式都試完還是打不開 ⇒ 讓「改選其他埠」出現。
+       這裡是 `dgmPortFailed = true` 的**唯一**設定點：上面那三個 `return false`
+       （SecurityError／busy／逾時，都是 `last` 那一輪）會落到這裡之外，所以
+       ⇒ 那三條各自也要標。為了不讓「標記」散在四個地方，改成**在這一支的
+       出口統一處理**：把三個 `return false` 換成 break 太動結構，於是
+       `dgmOpenFailed()` 由呼叫端無法遺漏地接手 —— 見下面兩個呼叫點。 */
     return false;
+  }
+
+  /* 🔴 v1.70.0：開埠失敗的統一收尾。`dgmOpenPort()` 有四個失敗出口
+     （SecurityError／打不開／逾時／全部模式試完），全部收斂到這裡標記一次
+     ⇒ 「改選其他埠」不可能只在其中幾種情況出現。
+     🔴 它**只動顯示**：不改閘門、不關埠、不重試、不跳任何視窗。 */
+  function dgmOpenFailed() {
+    dgmPortFailed = true;
+    dgmRenderBtns();
+    lk('⇒ 已顯示「改選其他埠」：按它會重新跳選擇視窗，選完就用新的埠再試一次', 'i');
   }
 
   /* ═══ v1.11.0：全螢幕閘門 ════════════════════════════════════════════════
@@ -2170,6 +2275,15 @@
        （dgmPrepChooser），不是被擋住。 */
     var pk = $('dgm-pick');
     if (pk) pk.disabled = running || dgmSerialLinkBusy;
+    /* ── ②b-2 改選其他埠（v1.70.0）────────────────────────────────────────
+       🔴 **只有埠打不開過才出現**（`dgmPortFailed`）。開關條件與上面兩顆同一條。
+       🔴 這裡是它**唯一**的顯示／停用設定點 —— 本頁 v1.32.0 的教訓就是
+          「手動拉回某一個控制項」本身就是破口，所以新控制項一律掛在這一支。 */
+    var rp = $('dgm-repick');
+    if (rp) {
+      rp.style.display = dgmPortFailed ? '' : 'none';
+      rp.disabled = running || dgmSerialLinkBusy;
+    }
     /* ── ②c 切換後等待（v1.42.0）──────────────────────────────────────────
        🔴 條件是 **running 一項**，不是照抄上面兩顆的 `running || dgmLinkBusy`。
           上面那個 dgmLinkBusy 是**連線動作自己的防連點**（連線／中斷／重選都在
@@ -2305,25 +2419,29 @@
     }
     lk('getPorts() 回 ' + ports.length + ' 個（＝這個網址先前已授權過的埠）' + ms());
     for (var pi = 0; pi < ports.length; pi++) lk('　　[' + pi + '] ' + dgmPortInfo(ports[pi]));
-    if (ports.length) {
-      dgmSerialCh.port = ports[0];
-      /* 🔴 v1.38.0 觀測（Dispatch 2026-09-11 要查證的那一點）：`getPorts()` 給的是
-         「這個來源先前已被授權過的**所有**埠」，不是「量測儀那一個」。清單非空就
-         直接用 [0]、而且**不會跳出選擇視窗** —— 若這台電腦以前授權過別的
-         USB-Serial 裝置，選中的可能根本不是量測儀。
-         本版只把事實印出來（走了哪條路、選中誰），**不改這條路** ——
-         要不要改，等拿到現場 log 再由 Bruce 決定。要自己挑，走「重選儀器」。 */
-      lk('★ 走「既有授權」這條路：直接用 [0]，不跳選擇視窗 ⇒ ' + dgmPortInfo(dgmSerialCh.port), 'i');
-      if (dgmPickedPort && dgmSerialCh.port !== dgmPickedPort) {
-        lk('★ 注意：你剛才用「重選儀器」挑的不是這一個，這一輪用的是 [0]', 'i');
-      }
+    /* 🔴 v1.70.0：v1.38.0 的「清單非空就直接用 [0]」換成三條明示規則
+       （見 dgmChooseAuthorized 上方那一整段事故與根因）。
+       🔴 決定與執行分開：`dgmChooseAuthorized()` 是純函式、不碰埠；
+          這裡只是照它的答案走，並把理由印進連線 log。 */
+    var choice = dgmChooseAuthorized(ports, dgmPickedPort);
+    lk('既有授權的判定：' + choice.code + ' ⇒ ' + choice.why);
+    if (choice.port) {
+      dgmSerialCh.port = choice.port;
+      lk('★ 走「既有授權」這條路：不跳選擇視窗 ⇒ ' + dgmPortInfo(dgmSerialCh.port), 'i');
     }
     else {
-      msg('請選量測儀的序列埠。');
+      /* 🔴 v1.70.0：跳選擇視窗的理由現在有四種（none／many／noids），
+         使用者看到的那句話要跟著講 —— 「請選量測儀的序列埠」對「有多個」與
+         「那個埠不是 USB 裝置」這兩種情況等於沒有解釋他為什麼又被問一次。 */
+      msg(choice.code === 'many'
+        ? '有多個已授權的序列埠 —— 請在視窗裡挑量測儀那一個。'
+        : choice.code === 'noids'
+          ? '先前授權的那個埠不像是量測儀（沒有 USB VID／PID）—— 請在視窗裡挑量測儀那一個。'
+          : '請選量測儀的序列埠。');
       /* v1.38.0 觀測：requestPort() 需要 transient user activation，而這個呼叫點
          在 await getPorts() 之後。呼叫前把 activation 狀態與「離 click 幾毫秒」
          記下來 —— 這一版只記錄，呼叫位置一個字都沒動。 */
-      lk('沒有既有授權 ⇒ 呼叫 requestPort()（瀏覽器會跳出選擇視窗）');
+      lk('⇒ 呼叫 requestPort()（瀏覽器會跳出選擇視窗）· 理由 ' + choice.code);
       lk('　　' + dgmActivation() + ' · ' + dgmSinceClick());
       lk('　　' + DGM_LK_CHOOSER_WARN, 'i');
       /* v1.40.0：跳 chooser 之前先處理全螢幕（API 型 ⇒ 可控退出；F11 ⇒ 不跳）。
@@ -2342,10 +2460,25 @@
         lk('✕ requestPort() 失敗 · name=' + dgmErrName(e) + ' · message=' + dgmErrMsg(e) + ms()
           + dgmWhyRequestPort(dgmErrName(e)), 'e');
         log('requestPort 失敗：' + dgmErrName(e) + ' ' + (e && e.message), 'e');
-        msg(dgmErrName(e) === 'SecurityError' ? DGM_ERR.denied : DGM_ERR.noPort, 'err');
+        /* 🔴 v1.70.0：他在選擇視窗按取消時，那句話要看**當初為什麼跳這個視窗**。
+           `DGM_ERR.noPort` 寫的是「接上 USB 再按一次」—— 對 noids 那一種
+           （先前授權的埠不是 USB 裝置）是**錯的建議**：USB 早就接著了，
+           要換的是埠。同理 many 那一種也不是「沒接 USB」。 */
+        msg(dgmErrName(e) === 'SecurityError' ? DGM_ERR.denied
+          : choice.code === 'noids'
+            ? '沒選到量測儀。先前授權的那個埠沒有 USB VID／PID，不是量測儀 —— 再按一次「連線」會重新問你。'
+            : choice.code === 'many'
+              ? '沒選到量測儀。這台電腦授權過多個序列埠 —— 再按一次「連線」會重新問你要哪一個。'
+              : DGM_ERR.noPort, 'err');
         return false;
       }
       lk('★ 在選擇視窗裡選了：' + dgmPortInfo(dgmSerialCh.port) + ms(), 'i');
+      /* 🔴 v1.70.0：記住它。下一次連線走 dgmChooseAuthorized() 的規則 1 就會用
+         同一個埠，不會又被「授權清單裡的第一個」蓋掉 —— 那正是 v1.38.0 留下的
+         已知限制（他挑對了，下一次還是用 [0]）。
+         🔴 這裡只記「使用者親手挑的」。走規則 2（唯一且有 VID／PID）自動採用的
+            那一種**刻意不記** —— 它不是他的選擇，記下來會讓自動路徑變成黏著的。 */
+      dgmPickedPort = dgmSerialCh.port;
     }
     /* ═══ v1.56.0：開埠整段搬進 dgmOpenPort() ═══════════════════════════════
        v1.38.0 當時在下面那一支（dgmSerialPick）寫著「參數與上面那一支刻意寫成
@@ -2353,7 +2486,8 @@
        而這一版的邊界是那一支一個字都不動」。**那個邊界這一版不成立了**：
        這次兩支都必須改，於是「兩處是否一致」就不該再靠驗證腳本去比對兩份字面，
        直接收斂成同一支函式，讓它在結構上不可能不一致。 */
-    if (!(await dgmOpenPort())) return false;
+    /* 🔴 v1.70.0：失敗 ⇒ 統一收尾（讓「改選其他埠」出現）。兩個呼叫點寫法相同。 */
+    if (!(await dgmOpenPort())) { dgmOpenFailed(); return false; }
     lk('　　（連線路徑結束）最後用的是 ' + dgmPortInfo(dgmSerialCh.port) + ms(), 'o');
     return true;
   }
@@ -2424,7 +2558,8 @@
     /* v1.56.0：與 dgmSerialOn() 走**同一支** dgmOpenPort()（兩段式開埠）。
        🔴 這正是 v1.38.0 註記「兩處是否一致由驗證腳本逐字比對」那個問題的正解 ——
           不用比對了，因為只剩一份。 */
-    if (!(await dgmOpenPort())) return false;
+    /* 🔴 v1.70.0：失敗 ⇒ 統一收尾（讓「改選其他埠」出現）。兩個呼叫點寫法相同。 */
+    if (!(await dgmOpenPort())) { dgmOpenFailed(); return false; }
     lk('　　（重選儀器路徑結束）這一次用的是 ' + dgmPortInfo(dgmSerialCh.port) + ms(), 'o');
     return true;
   }
@@ -2553,6 +2688,17 @@
   $('dgm-pick').addEventListener('click', function () {
     if (running || dgmSerialLinkBusy) return;
     // v1.40.0：閘門已移除（同上）。這顆一定會 requestPort() ⇒ 由 dgmPrepChooser() 處理。
+    dgmLinkPick();
+  });
+
+  /* ═══ 🔴 v1.70.0：「改選其他埠」═══════════════════════════════════════════
+     🔴 **與「重選儀器」走同一支 `dgmLinkPick()`** —— requestPort() → 釋放舊埠 →
+        用新埠開。沒有第二份實作，也沒有第二套閘門。
+     🔴 這顆鈕與那顆的差別只有兩件事，都是給人的：**它平常不存在**（只有埠打不開
+        過才出現），以及它就長在失敗訊息旁邊 —— 出口要出現在他卡住的那個位置。 */
+  $('dgm-repick').addEventListener('click', function () {
+    if (running || dgmSerialLinkBusy) return;
+    lk('▶ 改選其他埠（open 失敗後的出口）');
     dgmLinkPick();
   });
 
@@ -2967,6 +3113,38 @@
     fsDisplayMode: function () { return !!(DGM_MQ_FS && DGM_MQ_FS.matches); },
     gateBlocked: function () { return !!$('dgm-start').disabled; },
     portOpen: function () { return !!(dgmSerialCh.port && dgmSerialCh.port.readable); },
+    /* ═══ v1.70.0 驗證用（唯讀 ＋ 純函式）═══════════════════════════════════
+       🔴 `chooseAuthorized` 與 `portHasUsbIds` 是純函式（只讀 getInfo()），夾具
+          可以把每一種埠組合都餵一次，不必碰真硬體。
+       🔴 `portFailed`／`repick*` 全是 getter，**沒有任何 setter** ——「改選其他埠
+          出現了」只能由真的走過一次失敗產生，夾具自己設旗標的通過不算數。 */
+    portHasUsbIds: dgmPortHasUsbIds,
+    chooseAuthorized: dgmChooseAuthorized,
+    portFailed: function () { return dgmPortFailed; },
+    repickShown: function () {
+      var e = $('dgm-repick');
+      return !!(e && e.style.display !== 'none');
+    },
+    repickDisabled: function () { var e = $('dgm-repick'); return e ? !!e.disabled : null; },
+    repickClick: function () { var e = $('dgm-repick'); if (e) e.click(); },
+    /* 🔴 叫 `pickedPortRef` 不叫 `pickedPort` —— 本物件下面已經有一個
+       `pickedPort`（回傳 dgmPortInfo() 的字串）。物件字面裡同名的鍵**後者覆蓋前者**
+       且完全靜默，夾具會拿到字串卻以為是埠物件（v1.70.0 開發時當場踩到）。 */
+    pickedPortRef: function () { return dgmPickedPort; },
+    msgText: function () { return $('dgm-msg').textContent; },
+    /* 連線參數模式的 setter（夾具用）：'legacy' 可以跳過 3 秒的規格模式握手，
+       讓端到端那幾組不必每次等 4 秒。🔴 它是**畫面上真的有的選項**，不是測試後門。 */
+    setSerialMode: function (m) {
+      var e = $('dgm-mode');
+      if (e) { e.value = m; }
+      return e ? e.value : null;
+    },
+    errText: function () { return DGM_ERR; },
+    serialOn: function () { return dgmSerialOn(); },
+    linkLog: function () {
+      var el = $('dgm-log');
+      return el ? Array.prototype.map.call(el.children, function (d) { return d.textContent; }) : null;
+    },
     steps: function () { return DGM_STEPS; },
     // v1.26.1 驗證用：目前是哪一個任務，以及本頁「這一次載入」的身分證。
     // 🔴 loadId 是在本 script 執行時產生的，只要頁面重新載入過就一定會變 ——
