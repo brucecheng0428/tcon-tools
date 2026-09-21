@@ -22,6 +22,106 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v1.7.1 — 2026-09-21 ｜ PATCH ｜ ⚠ 輸出變更
+
+Bruce 2026-09-21 在 **EM01 機台實測**：v1.7.0 讀 DG LUT「**0~256 對，之後不對**」。根因：v1.7.0 把 EM01 的筆數**寫死成 1025**，但 EM01 的筆數由 UI 上的 `LUT_MODE`（暫存器欄位 `reg_dg_mode_sel`）決定。他的機台是 `5:DG-8bit` ⇒ 正確筆數 **257**（index 0~256），第 257 筆以後讀回來的是同一段記憶體裡的殘值。本版**只改讀取**（仍然不做寫入）。
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 條 | 逐條判 | 說明 |
+|---|---|---|
+| §1 判定表・把壞的修好 | **PATCH ＋ `⚠ 輸出變更`**（R1） | 「讀 DG LUT」這個功能本身沒有新增或移除，是它的結果原本就是錯的。DG-8bit 機台上讀到的列數由 1025 變成 257，**拿 v1.7.0 建立的任何基線都失效** ⇒ 標 `⚠ 輸出變更` |
+| §1 判定表・功能增減 | 不適用 | 沒有新增也沒有移除任何使用者可按的東西；按鈕、流程、版面一格未動 |
+| R2 | 不適用 | 不開新波 |
+| R3 | 不適用 | 使用者能做的事沒有變多（非 DG 模式原本會讀出一整片殘值，現在明講停住 —— 那是把錯的變成對的，不是拿掉功能） |
+| R4 | 不適用 | 起始狀態沒變（卡片預設仍是空的、全表預設仍收起） |
+| 🔴 **實際編號** | **PATCH** | 取最高者 ⇒ v1.7.1（Bruce 2026-09-21 經 Dispatch 明示指定同一級別） |
+
+### 🔴 `reg_dg_mode_sel` 的位址推算（逐步，行號可覆核）
+
+原廠源碼路徑 `App/`（VCL_TV_TCON_EM01_Tool）。
+
+1. **讀法**：`Table/RApp_Table.cpp:12081` —— `RApp_BIN_Header_Get_Registar(slave, BK_DGM_TOP + 0x00, sizeof(Reg_GAMMA_t), (U8*)&Reg_GAMMA_t)`。整個 `Table_GAMMA_Reg_st` 從 `BK_DGM_TOP` 起**逐 byte 線性**映射。
+2. **base**：`RApp_Common.h:76` → `#define BK_DGM_TOP (0x1160)`。同檔 `:153`／`:187` 的另外兩個定義都被註解掉了。
+3. **struct 內位移**（`Table/RApp_Table.h:2005-2211`，逐欄累加，每一組 bitfield 都剛好湊滿 8 bit）：
+
+   | byte | 欄位 |
+   |---|---|
+   | 0 | `dgm_en:1` / `dgm_8bit12bit_en:1` / `dgm_target_en:1` / `:4` / `dgm_eng_mode_en:1` |
+   | 1..9 | `union u8GAMMA_reg_eng_mode[9]`（內部 12 個欄位共 72 bit ＝ 9 byte） |
+   | 10 | `reg_div34_7_0:8` |
+   | 11 | `reg_div34_15_8:8` |
+   | 12 | `reg_div34_19_16:4` / `:4` |
+   | 13 | `reg_th_l_r:8` |
+   | 14 | `reg_th_h_r:8` |
+   | 15 | `reg_slop_r_7_0:8` |
+   | **16** | `reg_slop_r_11_8:4` / **`reg_dg_mode_sel:3`** / `:1` ← 這裡 |
+
+   欄位寬度出處：`RApp_Table.h:2042` → `U8 reg_dg_mode_sel:3`（**3 bit**）。
+4. **結果**：位移 **0x10**、位元 **[6:4]** ⇒ 絕對位址 **`0x1170` bit[6:4]**。
+   （把 `:2005-2211` 這段 struct 抄成 C 編譯並用 `memset`+單欄位賦值掃出非零 byte，得到 `offset 16 (0x10)`、`mode=7 → byte 0x70`、`mode=5 → byte 0x50`、`reg_slop_r_11_8=0xF → byte 0x0F`，與手算一致。）
+5. **獨立佐證**（不是同一條推理的重複）：`RApp_Table.cpp:11870` 讀 `BK_DGM_TOP+0x4E` 兩個 byte 後做 `(u16 >> 2) & 0x3FFF` ＝ `ro_dynamic_cnt[15:2]`。依同一份 struct 算，0x4E 正是 `reg_dgm_gain_v_block_div_9_8:2`（bit[1:0]）＋ `reg_dynamic_cnt_5_0:6`（bit[7:2]）那一格 —— **右移 2 位與欄位邊界逐位元吻合**，證明整份 struct 的 byte 對位沒算錯。`sizeof` 也對得上：struct 共 80 byte（0x50），最後兩個 byte 正是 `0x4E`／`0x4F`。
+
+> ✅ **筆記確認**：先前手上未經證實的筆記寫「`0x1170` bit[6:4]」，與源碼算出來的**一致**，本版採用。
+
+### LUT_MODE → 筆數
+
+出處：`RApp_Table.cpp:11711-11772` `RApp_Table_GAMMA_LUT_Mode_Sel_Handler()` 逐 case，以及 `Data_To_Bin_Gamma` `:17833`／`:17845`（1025）與 `:17864`／`:17876`（257）。
+
+| `reg_dg_mode_sel` | 選單文字 | StringGrid RowCount | 本工具的行為 |
+|---|---|---|---|
+| 0 `E_GAMMA_DG_10BIT` | `0:DG-10bit` | 1026 | 讀 **1025 筆**（entryBits 10） |
+| 1 `E_GAMMA_MP_ONLY` | （不在選單） | 不動 | **停住**（不是 DG LUT） |
+| 2 `E_GAMMA_DDG_8BIT` | （不在選單） | 258 | **停住**（不是 DG LUT） |
+| 3 `E_GAMMA_DDG` | （不在選單） | 不動 | **停住**（不是 DG LUT） |
+| 4 `E_GAMMA_DYNAMIC` | `4:Dynamic` | 不動 | **停住** —— 🔴 見下方「與交辦內容不同的一處」 |
+| 5 `E_GAMMA_DG_8BIT` | `5:DG-8bit` | 258 | 讀 **257 筆**（entryBits 8） |
+
+記憶體擺法（slave 0x58、chSpan 0x2000、oddOff 0x1000、group 4、每筆 4 byte、mask 固定 `0x0F00`）**不隨模式改變** —— `RApp_Table_Memory_To_Data_Gamma`（`:17536-17551`）的 `case E_GAMMA_DG_10BIT:` 與 `case E_GAMMA_DG_8BIT:` 共用同一段 body、同樣的 `idx/4%2` 交錯。變的只有「有幾筆是有效的」。
+
+### 🔴 與交辦內容不同的一處：mode 4（Dynamic）改成停住
+
+交辦寫「`4`→1025（Dynamic，size 同 10bit）」。**源碼推翻這一條**，本版改成停住：
+
+- `RApp_Table_GAMMA_LUT_Mode_Sel_Handler` 的 `case E_GAMMA_DYNAMIC`（`:11751-11757`）把 `TabSheet_GAMMA_DG->TabVisible` 設成 **false**、改顯示 `TabSheet_GAMMA_Dynamic`，**不碰** `StringGrid_GAMMA->RowCount`、**不碰** Chart 上限。它顯示的不是這張 DG LUT。
+- `RApp_Table_Memory_To_Data_Gamma` 的 `case E_GAMMA_DYNAMIC`（`:17656` 起）是**完全不同的解法**：外層只跑 **257** 圈、交錯是 **`idx%2`（group 1）**、每圈 **16 byte**、一次解出 4 個值餵進 `StringGrid_GAMMA_dynamic_LUT1..4`，而且值要先過 `RApp_2sComplementToDec()` 再加 `idx*16`。
+
+  ⇒ 拿「1025 筆 × 4 byte × `idx/4%2`」去讀 Dynamic，畫出來的是**看起來正常但完全錯**的曲線 —— 正是本版要修掉的那種失敗。`Edit_GAMMA_Table_size` 同為 4644 只代表整塊記憶體一樣大，不代表擺法一樣。
+
+  **要不要支援 Dynamic 的解碼是另一件事，需要 Bruce 裁示**；在那之前停住並講明原因。
+
+### 🔴 停住而不是硬跑（本版新增兩處，延續 v1.7.0 的原則）
+
+- **LUT_MODE 讀不到**（短讀／全 0xFF 總線閒置）⇒ `dst.lutErrMode`，**不退回 1025**，一個 AHB 讀取都不發。
+- **LUT_MODE 不是 DG 模式**（1／2／3／4，或落在表外的 6／7）⇒ `dst.lutErrModeNotDg`，訊息裡帶出模式值與名稱（`2:DDG-8bit`），並告訴使用者切到 `0:DG-10bit` 或 `5:DG-8bit`。
+
+### 介面
+
+規格那一行多印 LUT_MODE 與它推出來的筆數，讓 Bruce 一眼對得上他 UI 下拉上的設定：
+
+```
+EM01A1 · slave 0x58 · ch +0x2000 · odd +0x1000 /4 · LUT_MODE 5:DG-8bit @0x1170[6:4] ⇒ 257 × 4B · mask 0x0F00 (12-bit)
+```
+
+沒有 `modeSel` 的顆（EM02A1／V512S2／E512AX）維持原樣，**一個字都沒動**。按鈕、版面、流程全部未變。
+
+### i18n
+
+新增 2 個 key（`dst.lutErrMode`／`dst.lutErrModeNotDg`），**三語齊全**。理由同 v1.7.0：掛在 `dg-selftest.html` 而不是 `common/i18n.js`，避免為了兩個字串讓 `tools/check_cache_buster.py` 要求十幾個頁面一起 bump。
+
+### 驗證
+
+- **新增 `tools/dg_selftest_v171_probe.js`（jsdom）：117 項全過。** 核心三條：
+  - mode 5 ⇒ 解出 **257 筆**，且假 SRAM 裡第 257 筆之後塞的 `0xFFF` 殘值**一筆都沒混進來**（正面重現 Bruce 的症狀）；總讀取量 `(516+512)×3`，不是 1025 筆的 `(2052+2048)×3`。
+  - mode 0 ⇒ 解出 **1025 筆**，逐筆相符。
+  - mode 1／2／3／4／7 ⇒ 停住，**AHB 讀取 0 筆、bus enable 一次都沒碰**。
+  - 另有：LUT_MODE 讀不到（0xFF）⇒ 停住不退回 1025；EM02 路徑回歸（仍 257 筆、**完全沒去讀 0x1170**）；`cfg.entries` 與 `modes[0].entries` 不得分岔。
+  - 🔴 **突變測試**：把產品端「筆數取自 LUT_MODE」那一行拿掉（＝改回 v1.7.0），mode 5 的結果立刻變回 1025 筆且 `0xFFF` 殘值混進來 —— 證明第 ③ 組的 257 真的是這一行決定的。
+- **回歸**：`v170` 夾具 **150 項全過（一行未改）**；`v120`／`v130`／`v140`／`v150` 全過（149／185／225／29）。
+- 🔴 **沒驗到的**：真治具、真 TCON、真 AHB 視窗。這台 Mac 沒有硬體，I2C 全部是假的 WebSocket。這支能證明「筆數確實跟著 LUT_MODE 走、其餘模式確實停住」，**不能**證明 `0x1170` 在真機上讀得回來 —— 那要 Bruce 的機台。
+
+---
+
 ## TCON 自檢畫面量測 (dgself) v1.7.0 — 2026-09-21 ｜ MINOR ｜ ⚠ 輸出變更
 
 Bruce 2026-09-21 在 **EM02 機台實測**：v1.6.0 的「讀 DG LUT」讀回來的值**是錯的**。根因已由原廠 UI 源碼 `App/Table/RApp_Table.cpp` 查證完畢，本版照規格重寫**讀取路徑**（**只做讀，不做寫**）。
