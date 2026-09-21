@@ -2648,9 +2648,12 @@ var I18N = {
      意思？…可以用『畫面測試』之類的嗎？」）。舊 key `dst.hdPattern` 已刪除 ——
      留著會讓下一個人以為還有第二張卡。 */
   'dst.hdTest':         { 'zh-TW': '畫面測試', 'en': 'Picture test', 'zh-CN': '画面测试' },
-  'dst.testNote':       { 'zh-TW': '量測前的確認畫面：看 T-CON 自檢出圖正不正常，並用對位畫面幫光學量測儀擺好位置。這裡的調整不會影響下面實際量測的 L0…L255。',
-                          'en': 'A check before measuring: see whether the T-CON paints its self-test picture properly, and use the alignment picture to place the meter. Nothing set here affects the L0…L255 measurement below.',
-                          'zh-CN': '量测前的确认画面：看 T-CON 自检出图正不正常，并用对位画面帮光学量测仪摆好位置。这里的调整不会影响下面实际量测的 L0…L255。' },
+  /* 🔴 dgself v1.12.0：砍到一句（Bruce 2026-09-21：「說明文字少一點…要精簡、無腦」）。
+     被砍掉的「這裡的調整不會影響下面實際量測的 L0…L255」講的是**不會發生的事**，
+     不是他要做的事 —— 這一輪整頁的刪減都照同一條判準。 */
+  'dst.testNote':       { 'zh-TW': '量測前先看出圖正不正常，並用對位畫面擺好量測儀。',
+                          'en': 'Before measuring: check the picture looks right, and use the alignment picture to place the meter.',
+                          'zh-CN': '量测前先看出图正不正常，并用对位画面摆好量测仪。' },
   'dst.hdMeasure':      { 'zh-TW': '量測', 'en': 'Measurement', 'zh-CN': '量测' },
   'dst.hdLog':          { 'zh-TW': '紀錄', 'en': 'Log', 'zh-CN': '纪录' },
 
@@ -2674,9 +2677,11 @@ var I18N = {
   'dst.btnAlign':       { 'zh-TW': '對位畫面（L{l} ＋ 中心十字）', 'en': 'Alignment picture (L{l} + centre cross)', 'zh-CN': '对位画面（L{l} ＋ 中心十字）' },
   'dst.btnAlignOn':     { 'zh-TW': '✓ 對位畫面開啟中 — 再按一次回到原本畫面', 'en': '✓ Alignment picture is on — press again to go back', 'zh-CN': '✓ 对位画面开启中 — 再按一次回到原本画面' },
   /* 🔴 灰階值只寫在按鈕上（來源是常數 DST_ALIGN_L），這一行不再寫第二份數字。 */
-  'dst.alignNote':      { 'zh-TW': '按一次出對位畫面（灰底＋正中心紅十字，線寬不可調）；再按一次離開出圖模式，面板回到原本的畫面。',
-                          'en': 'Press once for the alignment picture (a grey field with a red cross at the centre; the cross width cannot be set). Press again to leave pattern mode — the panel goes back to its original image.',
-                          'zh-CN': '按一次出对位画面（灰底＋正中心红十字，线宽不可调）；再按一次离开出图模式，面板回到原本的画面。' },
+  /* 🔴 dgself v1.12.0：兩句砍成一句。括號裡那串（灰底＋紅十字、線寬不可調）是
+     「按下去會看到什麼」的複述，按一次就知道了。 */
+  'dst.alignNote':      { 'zh-TW': '按一次出對位畫面，再按一次回到原本的畫面。',
+                          'en': 'Press once for the alignment picture, press again to go back.',
+                          'zh-CN': '按一次出对位画面，再按一次回到原本的画面。' },
   /* 🔴 `dst.btnRun`（「開始掃描」）於 dgself v1.10.1 移除：那顆鈕依 Bruce 2026-09-21
      裁示整顆拿掉，量測只留步驟卡那一個兩段式入口（「對位畫面」→「開始量測」，
      走 dst.goAlign／dst.goMeasure）。留著一個沒有任何頁面會用的 key 就是死碼。 */
@@ -2728,9 +2733,12 @@ var I18N = {
      🔴 這一組字的共同要求：**不准把未定案講成定案**。吻合度、bus enable 候選、
         entry 寬度是讀到的還是預設的，都要在畫面上分得出來。 */
   'dst.hdLut':          { 'zh-TW': 'DG LUT（RGB）檢視', 'en': 'DG LUT (RGB) viewer', 'zh-CN': 'DG LUT（RGB）检视' },
-  'dst.lutNote':        { 'zh-TW': '從 IC 的 AHB 視窗（0x40010000）把 DG 的 RGB 對照表讀回來。這裡只讀 LUT、不寫 LUT，也不會改變送進面板的值。',
-                          'en': 'Reads the DG RGB lookup table back from the IC’s AHB window (0x40010000). It only reads the LUT — it never writes it, and it does not change what is sent to the panel.',
-                          'zh-CN': '从 IC 的 AHB 窗口（0x40010000）把 DG 的 RGB 对照表读回来。这里只读 LUT、不写 LUT，也不会改变送进面板的值。' },
+  /* 🔴 dgself v1.12.0：「AHB 視窗（0x40010000）」是診斷細節，移到紀錄那張卡
+     （`dstReadDgLut()` 本來就逐段把位址印進 log）—— 畫面上留的是他要知道的兩件事：
+     讀什麼、會不會動到面板。Bruce 2026-09-21：「看不懂的詞不准上畫面。」 */
+  'dst.lutNote':        { 'zh-TW': '把 T-CON 裡目前的 RGB 對照表讀回來核對。只讀不寫，不會動到面板。',
+                          'en': 'Reads the RGB lookup table currently in the T-CON so you can check it. Read-only — the panel is not touched.',
+                          'zh-CN': '把 T-CON 里目前的 RGB 对照表读回来核对。只读不写，不会动到面板。' },
   'dst.btnLutRead':     { 'zh-TW': '讀取 DG LUT', 'en': 'Read DG LUT', 'zh-CN': '读取 DG LUT' },
   'dst.lutBusAuto':     { 'zh-TW': 'bus enable：自動嘗試', 'en': 'bus enable: try in order', 'zh-CN': 'bus enable：自动尝试' },
   'dst.lutBusBlind':    { 'zh-TW': '⚠ {addr} 這個候選在這顆的 register bank 裡查不到（EM02 的 sys 表最後一格是 0x0087）。自動模式會先試有出處的那一個，只有在它讀不出東西時才退到這個候選，並在紀錄裡標成盲寫。',
@@ -2755,9 +2763,11 @@ var I18N = {
                           'en': '⚠ This curve really is decoded from bytes read out of the IC, but it does not match identity, which leaves two possibilities: (1) this packing is wrong, or (2) this IC genuinely holds a non-identity table. Use the per-packing scores below to judge. \u{1F534} Note: turning DG_EN off does NOT make the LUT identity — DG_EN=0 only bypasses the block and leaves the table untouched, so re-reading with DG off will not raise the match.',
                           'zh-CN': '⚠ 这条曲线是真的从 IC 读回来的 bytes 解出来的，但与 identity 对不上 ⇒ 有两种可能：① 这个 packing 解错了，② 这颗 IC 真的烧了一张非 identity 的表。请看下面「所有候选 packing 的分数」自行判断。🔴 注意：DG_EN 关闭**不会**把 LUT 变成 identity（DG_EN=0 只是 bypass，表的内容一个 bit 都不会变），所以关掉 DG 再读不会让吻合度变高。' },
   'dst.lutLbPick':      { 'zh-TW': '解碼方式', 'en': 'Packing', 'zh-CN': '解码方式' },
-  'dst.lutTblSum':      { 'zh-TW': '▸ 數值表（{n} 列 × R/G/B；與 identity 不同的列標紅）',
-                          'en': '▸ Value table ({n} rows × R/G/B; rows that differ from identity are in red)',
-                          'zh-CN': '▸ 数值表（{n} 列 × R/G/B；与 identity 不同的列标红）' },
+  /* 🔴 dgself v1.12.0：表不再收折（Bruce 2026-09-21：「它不要有收折功能，而是永遠
+     展開的。」）⇒ 開頭那個 `▸`（收折箭頭）拿掉，它現在指不到任何可以按的東西。 */
+  'dst.lutTblSum':      { 'zh-TW': '數值表（{n} 列 × R/G/B；與出廠等距表不同的列標紅）',
+                          'en': 'Value table ({n} rows × R/G/B; rows that differ from the factory linear table are in red)',
+                          'zh-CN': '数值表（{n} 列 × R/G/B；与出厂等距表不同的列标红）' },
   'dst.lutCandSum':     { 'zh-TW': '▸ 所有候選 packing 的分數（{n} 種）', 'en': '▸ Scores for all {n} candidate packings', 'zh-CN': '▸ 所有候选 packing 的分数（{n} 种）' },
   'dst.lutThIdx':       { 'zh-TW': 'index', 'en': 'index', 'zh-CN': 'index' },
   'dst.lutThPack':      { 'zh-TW': 'packing', 'en': 'packing', 'zh-CN': 'packing' },
@@ -2822,7 +2832,10 @@ var I18N = {
   /* ── 設定與說明 ───────────────────────────────────────────────────── */
   'dst.lbBits':         { 'zh-TW': '灰階位元深度', 'en': 'Grey-level bit depth', 'zh-CN': '灰阶位深度' },
   'dst.lbSettle':       { 'zh-TW': '換階等待', 'en': 'Settle time between steps', 'zh-CN': '换阶等待' },
-  'dst.settleNote':     { 'zh-TW': '出圖之後、叫儀器量之前等這麼久。上游工具的預設值就是 700 ms。', 'en': 'How long to wait after painting a step and before asking the meter to measure. 700 ms is the upstream tool default.', 'zh-CN': '出图之后、叫仪器量之前等这么久。上游工具的默认值就是 700 ms。' },
+  /* 🔴 dgself v1.12.0：預設值改成 300 ms（Bruce 2026-09-21 指定），而且這一行
+     **不再寫死任何毫秒數** —— 預設值的唯一來源是 `DST_SETTLE_DEFAULT`，寫在文案裡
+     等於第二份，改一邊忘另一邊就會出現「說是 700、實際選 300」。 */
+  'dst.settleNote':     { 'zh-TW': '出圖之後、叫儀器量之前等這麼久。', 'en': 'How long to wait after painting a step, before asking the meter to measure.', 'zh-CN': '出图之后、叫仪器量之前等这么久。' },
   /* 🔴 dgself v1.3.0：這一行不再出現任何 12-bit 值（舊版講 `× {mul}` 與
      `送出去是 {end12}`）。`{max}` 是這個深度的滿刻度（255／1023／4095，也是四顆
      色鈕與拉霸的上限），`{end}` 是掃描實際會量到的最後一階（255／1020／4080）。
@@ -2953,15 +2966,19 @@ var I18N = {
                           'en': 'When the scan finishes the data goes back to the DG page on its own. Nothing is sent back if you stop it or it fails.',
                           'zh-CN': '扫描跑完会自动回到 DG 那一页，不用手动搬。中止或出错则不回传。' },
   'dst.dgLabel':        { 'zh-TW': '即時量測（TCON 自檢畫面）', 'en': 'Live measurement (TCON self-test pattern)', 'zh-CN': '即时量测（TCON 自检画面）' },
-  'dst.dgSent':         { 'zh-TW': '✔ {n} 筆已回到 DG 的{dest}。', 'en': '✔ {n} rows are back in DG ({dest}).', 'zh-CN': '✔ {n} 笔已回到 DG 的{dest}。' },
+  /* 🔴 dgself v1.12.0：結尾補「請切回 DG 分頁繼續」（理由與 `dst.dgSentBoth`
+     那一段逐字相同：量完之後畫面上最醒目的是剛變成可按的「匯出 XLSX」，
+     而那不是流程的下一步）。 */
+  'dst.dgSent':         { 'zh-TW': '✔ {n} 筆已回到 DG 的{dest}。請切回 DG 分頁繼續。', 'en': '✔ {n} rows are back in DG ({dest}). Switch to the DG tab to carry on.', 'zh-CN': '✔ {n} 笔已回到 DG 的{dest}。请切回 DG 分页继续。' },
   'dst.dgTooFew':       { 'zh-TW': '只量到 {n} 筆（需要 {need} 筆），沒有回傳給 DG。',
                           'en': 'Only {n} rows measured ({need} needed) — nothing was sent back to DG.',
                           'zh-CN': '只量到 {n} 笔（需要 {need} 笔），没有回传给 DG。' },
   'dst.dgSwitched':     { 'zh-TW': '已切到{dest}。按「開始掃描」量這一次。', 'en': 'Switched to {dest}. Press “Start scan” for this round.', 'zh-CN': '已切到{dest}。按「开始扫描」量这一次。' },
   'dst.dlBtn':          { 'zh-TW': '下載 I2C Bridge', 'en': 'Download I2C Bridge', 'zh-CN': '下载 I2C Bridge' },
-  'dst.dlShared':       { 'zh-TW': '「I2C 讀寫測試」那一頁用的是<b>同一支程式</b>：已經下載過就不必再載一次，執行起來這一頁就連得上。',
-                          'en': 'The I2C Read/Write Test page uses <b>the same program</b>. If you already downloaded it, just run it — no need to download again.',
-                          'zh-CN': '「I2C 读写测试」那一页用的是<b>同一支程序</b>：已经下载过就不必再载一次，执行起来这一页就连得上。' },
+  /* 🔴 dgself v1.12.0：砍成一句。 */
+  'dst.dlShared':       { 'zh-TW': '與「I2C 讀寫測試」那一頁是<b>同一支程式</b>，載過就直接執行。',
+                          'en': '<b>Same program</b> as the I2C Read/Write Test page — if you have it, just run it.',
+                          'zh-CN': '与「I2C 读写测试」那一页是<b>同一支程序</b>，载过就直接执行。' },
   /* ═══ v1.2.0：匯出（版面逐欄照上游工具）═════════════════════ */
   'dst.btnXlsx':        { 'zh-TW': '匯出 XLSX', 'en': 'Export XLSX', 'zh-CN': '导出 XLSX' },
   'dst.expNoData':      { 'zh-TW': '還沒有任何量測結果可以匯出。',
@@ -3006,8 +3023,10 @@ var I18N = {
                           'en': '⚠ This round is {bits}-bit. DG part 2 currently only accepts an 8-bit ramp (L0…L255 with no gaps), so a {bits}-bit round will be rejected by DG. Switch to 8-bit if you need it fed back into DG; the exported file is unaffected.',
                           'zh-CN': '⚠ 这一轮是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐阶不跳号）的灰阶，{bits}-bit 量完会被 DG 挡下。要回填 DG 请改选 8-bit；只是要拿导出文件的话不受影响。' },
 
-  'dst.ownerNote':      { 'zh-TW': 'I2C Bridge 一次只給一個分頁用 —— 切到哪一頁就由哪一頁接手，被接手的那一頁會顯示未連線；<b>正在量測的那一頁不會被接手</b>。',
-                          'en': 'Only one tab holds the I2C Bridge at a time — whichever tab you switch to takes it over, and the one that loses it shows as disconnected. <b>A tab that is measuring will not be taken over.</b>',
-                          'zh-CN': 'I2C Bridge 一次只给一个分页用 —— 切到哪一页就由哪一页接手，被接手的那一页会显示未连线；<b>正在量测的那一页不会被接手</b>。' },
+  /* 🔴 dgself v1.12.0：砍成一句。「被接手的那一頁會顯示未連線」是結果的複述，
+     他在畫面上看得到；<b> 只留真正會踩到的那一半（量測中不會被搶走）。 */
+  'dst.ownerNote':      { 'zh-TW': '一次只給一個分頁用，切到哪一頁就換哪一頁接手；<b>量測中不會被搶走</b>。',
+                          'en': 'Only one tab uses it at a time — whichever tab you switch to takes over; <b>a tab that is measuring will not be taken over</b>.',
+                          'zh-CN': '一次只给一个分页用，切到哪一页就换哪一页接手；<b>量测中不会被抢走</b>。' },
 
 };

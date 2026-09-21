@@ -2274,12 +2274,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260922dg1720"></script>
-<script src="common/i18n.js?v=20260922dg1720"></script>
+<script src="common/version.js?v=20260922dg1721"></script>
+<script src="common/i18n.js?v=20260922dg1721"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260922dg1720"></script>
-<script src="common/common.js?v=20260922dg1720"></script>
+<script src="common/xlsx.js?v=20260922dg1721"></script>
+<script src="common/common.js?v=20260922dg1721"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -2377,6 +2377,20 @@
       'dg.p4PushTimeout': { 'zh-TW': '自檢分頁超過 {s} 秒沒有回應。請切到自檢分頁看它現在的狀況，再回來按一次。',
                             'en': 'The self-test tab has not answered for over {s} seconds. Switch to it to see what it is doing, then come back and press again.',
                             'zh-CN': '自检分页超过 {s} 秒没有回应。请切到自检分页看它现在的状况，再回来按一次。' },
+      /* ═══ 🔴 v1.72.1：兩句新的，都必須講出**原因**與**下一步** ═════════════════
+         Bruce 2026-09-22：「訊息要講原因與下一步，不要只講結果。」
+         · `p4PushNotSelftest` ＝ 握手沒過。最常見的來路就是他自己按過自檢頁左上角
+           那顆「回到首頁」 —— 分頁還在、但內容已經是首頁了。這一句要讓他一看就
+           想起「喔，我按過那一顆」，所以**直接把那個動作寫出來**，不寫「通訊逾時」
+           這種他無從判斷的話。
+         · `p4PushReloaded` ＝ DG 這一頁重整過。重點是「你原本那個自檢分頁多半還
+           開著，別關它、也別以為自己記錯了」。 */
+      'dg.p4PushNotSelftest': { 'zh-TW': '那個分頁已經不是自檢畫面了（在自檢頁按過左上角「回到首頁」就會這樣）。再按一次，會幫你重新開一個自檢分頁。',
+                                'en': 'That tab is no longer the self-test page — this happens after pressing “Back to Home” there. Press again and a fresh self-test tab will be opened for you.',
+                                'zh-CN': '那个分页已经不是自检画面了（在自检页按过左上角「回到首页」就会这样）。再按一次，会帮你重新开一个自检分页。' },
+      'dg.p4PushReloaded': { 'zh-TW': 'DG 這一頁重整過，和原本那個自檢分頁的連結斷了（那個分頁多半還開著，可以直接關掉）。已幫你開一個新的，請在新的那一頁連上 I2C 治具再回來按一次。',
+                             'en': 'This DG page was reloaded, so its link to the original self-test tab is gone (that tab is probably still open — you can close it). A new one has been opened; connect the I2C adapter there, then come back and press again.',
+                             'zh-CN': 'DG 这一页重整过，和原本那个自检分页的连结断了（那个分页多半还开着，可以直接关掉）。已帮你开一个新的，请在新的那一页连上 I2C 工装再回来按一次。' },
       /* 🔴 v1.72.0：分頁切換一律改成中性提示 —— 瀏覽器不允許網頁把另一個分頁
          切到前景，寫「已切過去」是假話（Bruce 2026-09-21 實測按了沒反應）。 */
       'dg.assignedTcon': { 'zh-TW': '已指派，請切到自檢分頁繼續。',
@@ -10610,6 +10624,48 @@
         「可以點標題展開」由標題列自己的 caret（▾／▸）與 title 提示負責。
      🔴 捲動走 `scrollIntoView`，與 v1.15.0 快捷設定那一條**同一支**，不另寫一套。
      🔴 **不自動按計算**（Bruce 這一輪只說「帶到那裡」）。 */
+  /* ═══ 🔴 v1.72.1：這一頁收到資料的時候，它自己**是背景分頁** ═════════════════
+     ── 這是 v1.72.0 的缺口，不是新需求 ────────────────────────────────────────
+       這一支唯一的呼叫點是收到自檢分頁的 `postMessage`，而那一刻使用者人還在
+       **自檢分頁**上 —— 也就是 DG 這一頁 `document.hidden === true`。
+       `scrollIntoView({behavior:'smooth'})` 的動畫是靠影格推進的，而背景分頁不產生
+       影格 ⇒ 他切回來時很可能還停在原本的捲動位置，而「收折 ＋ 捲到計算鈕」這一對
+       裡**只有收折會生效**。收折完卻沒捲過去，畫面上就是「三張卡忽然都收起來了，
+       然後呢？」—— 正是 Bruce 那句「我回到第 7 頁，突然不知道要做什麼」。
+     ── 兩道，缺一不可 ────────────────────────────────────────────────────────
+       ① 背景分頁一律用 **`auto`（瞬間跳）**，不用 smooth：沒有影格就沒有動畫，
+          瞬間跳不需要影格。前景時仍然 smooth（他看得到過程，跳一下會失去方位感）。
+       ② 再掛一次**一次性的 `visibilitychange`**：等他真的切回這一頁時重捲一次。
+          ①② 重複是刻意的 —— ① 依賴「背景分頁的瞬間捲動一定會生效」這個假設，
+          而這台機器沒有辦法驗那個假設（見下一段）；② 不依賴任何假設，他切回來
+          的那一刻這一頁確實是前景，捲動一定成立。
+     🔴 監聽器**只掛一次、跑完就拿掉**（`once: true`），而且每次進來先把上一個拿掉
+        —— 否則連量三輪就會累積三個監聽器，第三輪切回來時被前兩輪的舊目標搶走。
+     ⚠ **沒有驗到的**：「Chrome 在背景分頁到底會不會執行 smooth 捲動」這件事，這台
+        機器上無法可靠重現（headless 的分頁一律算可見，`document.hidden` 只能用
+        猴子補丁假造，那驗的是我們的分支、不是 Chrome 的行為）。所以這一版**不宣稱
+        修好了那個假設**，改成讓程式**不依賴**它 —— ② 那一道在兩種情況下都成立。 */
+  var dgGuideVisHandler = null;
+  function dgGuideScrollTo(target) {
+    if (!target || !target.scrollIntoView) return false;
+    var hidden = (typeof document.visibilityState === 'string')
+      ? (document.visibilityState === 'hidden') : !!document.hidden;
+    target.scrollIntoView({ behavior: hidden ? 'auto' : 'smooth', block: 'center' });
+    if (dgGuideVisHandler) {
+      document.removeEventListener('visibilitychange', dgGuideVisHandler);
+      dgGuideVisHandler = null;
+    }
+    if (!hidden) return true;
+    dgGuideVisHandler = function () {
+      dgGuideVisHandler = null;
+      if (document.visibilityState === 'hidden') return;
+      /* 🔴 重捲之前先確認這個目標還在畫面上（他可能已經自己動過這一頁）。 */
+      if (target.isConnected) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    document.addEventListener('visibilitychange', dgGuideVisHandler, { once: true });
+    return true;
+  }
+
   function dgGuideAfterLive() {
     var miss = dgMissingParts(), folded = [];
     Object.keys(DG_PART_META).forEach(function (part) {
@@ -10618,7 +10674,7 @@
       if (done) folded.push(part);
     });
     var target = miss.length ? dgPartEl(miss[0]) : $('dg-calc-act');
-    if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    dgGuideScrollTo(target);
     return { folded: folded, miss: miss.slice(), target: target ? target.id : null };
   }
 
@@ -11552,8 +11608,45 @@
      ═════════════════════════════════════════════════════════════════════════ */
   var DG_P4_PUSH_SIG = null;    // 最後一次「更新並核對相符」的那份表的指紋
   var DG_P4_PUSH_TASK = 0;      // 每按一次 +1（回報要帶回同一個編號）
-  var DG_P4_PUSH_PEND = null;   // { task, timer } ＝ 正在等自檢分頁回話
+  var DG_P4_PUSH_PEND = null;   // { task, sig, timer, acked } ＝ 正在等自檢分頁回話
   var DG_P4_PUSH_WAIT_MS = 180000;   // 整張表最大 4644 byte，前後各要完整讀一次
+  /* ═══ 🔴 v1.72.1：等待拆成兩段（Bruce 2026-09-22 實機踩到）════════════════════
+     ── 他遇到的事 ──────────────────────────────────────────────────────────────
+       在自檢頁按過左上角「回到首頁」（v1.11.0 起那一顆是**真的會導覽**的）之後，
+       回到 DG 按「即時更新 T-CON RGB LUT」，**乾等三分鐘**才跳紅字。
+
+     ── 根因（三條，Bruce 已在 Dispatch 端讀過源碼確認）─────────────────────────
+       ① `dgLiveAlive('tcon')` 只問 `!!(w && !w.closed)`。那個分頁**沒關、但已經
+          不是自檢頁了**（它現在是 index.html）⇒ `closed` 是 false ⇒ 判定「活著」
+          ⇒ `postMessage` 照送，對面沒有任何 handler，於是沒有人會回話。
+       ② `DG_P4_PUSH_SIG`／`DG_LIVE_PAGES` 是記憶體變數，DG 這一頁一重整就全沒了。
+       ③ 180 秒的 timeout 是為了「寫入本身很慢」訂的，卻同時被拿來等「對面在不在」。
+
+     ── 修法：`w.closed` 不是活著的證據，**對面回話才是** ──────────────────────
+       送出之後要求自檢頁**立刻**回一則 `stage:'ack'`（它的 handler 第一行就送，
+       不做任何事之前）。
+         · {DG_P4_PUSH_ACK_MS} 內沒有 ack ⇒ **那個分頁不是自檢頁**（或是還沒有 ack
+           能力的舊版）⇒ 立刻講清楚並給下一步，不再等到 180 秒。
+         · 收到 ack ⇒ 才換上 180 秒那一段（那時候等的是「寫入 ＋ 讀回核對」，
+           它本來就慢，長 timeout 在這一段是對的）。
+     🔴 **不是把 timeout 調短**（Bruce 明文禁止）：沒有握手的話，短 timeout 只是讓
+        他早三分鐘看到同一句沒用的紅字。這裡改變的是**判準**——從「分頁物件還在」
+        換成「對面真的回話了」。
+     🔴 為什麼**不把 `dgLiveAlive()` 整支改成非同步握手**：那一支有八個同步呼叫點
+        （分頁重用判斷、自動保存掛勾、四個量測入口…），改成非同步要同時改那八處，
+        而它們現在是對的。這一版只在**出事的這條路**上加握手，並在判定失敗時把
+        那個失效的分頁參照清掉 ⇒ 下一次按下去就會走「幫你開一個」那條路。 */
+  var DG_P4_PUSH_ACK_MS = 4000;      // 只是等對面回一則空訊息，不含任何 I2C 動作
+  /* DG 這一頁**這一次造訪**有沒有開過自檢分頁。放 sessionStorage 的理由：它跨得過
+     F5（同一個分頁），而記憶體變數跨不過 —— 根因 ② 要的就是「重整之後還講得出
+     為什麼連結斷了」。🔴 只影響**訊息措辭**，不影響任何判定。 */
+  var DG_P4_SEEN_KEY = 'tcon-dg-selftest-opened';
+  function dgP4MarkSeen() {
+    try { window.sessionStorage.setItem(DG_P4_SEEN_KEY, '1'); } catch (e) { /* 無痕模式：不影響功能 */ }
+  }
+  function dgP4WasSeen() {
+    try { return window.sessionStorage.getItem(DG_P4_SEEN_KEY) === '1'; } catch (e) { return false; }
+  }
 
   /* 指紋 ＝ 輸出深度 ＋ 主表逐值。**不是雜湊**：表最多 1025 列，直接比字串就夠，
      而雜湊會多一層「撞了怎麼辦」的問題。 */
@@ -11602,8 +11695,18 @@
        🔴 走的是既有的 `dgOpenSelftest()`（＝第 1 部分那顆鈕同一條路），不另寫一條
           開分頁的路 —— 分頁重用、版號握手、網址參數才不會有第二套。 */
     if (!dgLiveAlive('tcon')) {
+      /* 🔴 v1.72.1：訊息要講得出**為什麼**（根因 ②）。分頁參照不在有兩種來路，
+         使用者要做的事不一樣，而舊版兩種都印同一句「自檢分頁沒有開著」：
+           · 這一次造訪從來沒開過 ⇒ 就是還沒開，照舊。
+           · 開過、但 DG 這一頁重整過 ⇒ **那個分頁很可能還好好開在旁邊**，
+             只是 DG 手上的參照沒了。不講這一句，他會以為自己記錯了。 */
+      /* 🔴 `wasSeen` 一定要在 `dgOpenSelftest()` **之前**取：那一支成功之後我們會
+         把旗標設起來，取晚了就永遠是 true，兩句話就分不出來了。 */
+      var wasSeen = dgP4WasSeen();
       var opened = dgOpenSelftest ? dgOpenSelftest() : false;
-      dgP4PushSay(opened ? dgT('dg.p4PushNoTab') : dgT('dg.p4PushNoTabFail'), 'err');
+      if (opened) dgP4MarkSeen();
+      dgP4PushSay(!opened ? dgT('dg.p4PushNoTabFail')
+        : dgT(wasSeen ? 'dg.p4PushReloaded' : 'dg.p4PushNoTab'), 'err');
       return false;
     }
     var sig = dgP4LutSig();
@@ -11618,9 +11721,17 @@
       dgP4PushSay(dgT('dg.p4PushNoTabFail'), 'err');
       return false;
     }
-    DG_P4_PUSH_PEND = { task: task, sig: sig, timer: setTimeout(function () {
-      dgP4PushDone(dgT('dg.p4PushTimeout', { s: Math.round(DG_P4_PUSH_WAIT_MS / 1000) }), false);
-    }, DG_P4_PUSH_WAIT_MS) };
+    /* ═══ 🔴 v1.72.1：第一段 —— 等對面證明自己是自檢頁 ═════════════════════════
+       這一段等的**不是寫入**，是「有沒有人在家」。逾時 ⇒ 那個分頁已經不是自檢頁
+       （最常見：在自檢頁按過左上角「回到首頁」，分頁還在、但內容換成首頁了）。
+       🔴 逾時的時候**把失效的分頁參照清掉**：不清的話下一次按還是會送給同一個
+          不會回話的視窗，他就得再等一次。清掉之後下一次按下去會走「幫你開一個
+          自檢分頁」那條路 —— 那正是他需要的下一步。 */
+    DG_P4_PUSH_PEND = { task: task, sig: sig, acked: false, timer: setTimeout(function () {
+      DG_LIVE_PAGES.tcon.win = null;
+      dgP4PushDone(dgT('dg.p4PushNotSelftest'), false);
+    }, DG_P4_PUSH_ACK_MS) };
+    dgP4MarkSeen();
     dgP4PushSay(dgT('dg.p4PushStart'), '');
     dgP4PushSync();
     return true;
@@ -11629,6 +11740,18 @@
   /* 自檢分頁回話。🔴 **只認自己這一次的編號** —— 上一次逾時之後晚到的回報不算數。 */
   function dgP4PushProgress(d) {
     if (!DG_P4_PUSH_PEND || d.task !== DG_P4_PUSH_PEND.task) return false;
+    /* ═══ 🔴 v1.72.1：第一則回話 ＝ 握手成立 ⇒ 換上「寫入」那一段的長等待 ══════
+       🔴 條件寫成「**還沒 ack 過**」而不是「`d.stage === 'ack'`」：任何一則回話都
+          證明對面是自檢頁（舊版自檢頁不送 ack，但它會送 write／verify）。用
+          `stage === 'ack'` 當唯一入口的話，拿著舊版自檢分頁的人會在 4 秒後被誤判
+          成「不是自檢頁」—— 那是把相容性問題做成了誤殺。 */
+    if (!DG_P4_PUSH_PEND.acked) {
+      DG_P4_PUSH_PEND.acked = true;
+      if (DG_P4_PUSH_PEND.timer) clearTimeout(DG_P4_PUSH_PEND.timer);
+      DG_P4_PUSH_PEND.timer = setTimeout(function () {
+        dgP4PushDone(dgT('dg.p4PushTimeout', { s: Math.round(DG_P4_PUSH_WAIT_MS / 1000) }), false);
+      }, DG_P4_PUSH_WAIT_MS);
+    }
     if (d.stage === 'verify') dgP4PushSay(dgT('dg.p4PushVerify'), '');
     else if (d.stage === 'write') dgP4PushSay(dgT('dg.p4PushGoing', { done: d.done, total: d.total }), '');
     return true;
@@ -15077,7 +15200,32 @@
     p4PushGo: dgConfPushGo,
     p4PushProgress: dgP4PushProgress,
     p4PushResult: dgP4PushResult,
-    p4PushPending: function () { return DG_P4_PUSH_PEND ? { task: DG_P4_PUSH_PEND.task } : null; },
+    p4PushPending: function () {
+      return DG_P4_PUSH_PEND ? { task: DG_P4_PUSH_PEND.task, acked: !!DG_P4_PUSH_PEND.acked } : null;
+    },
+    /* ═══ v1.72.1 驗證用：兩段等待（唯讀 ＋ 一個「把時鐘往前撥」的入口）══════════
+       🔴 夾具不可以真的等 4 秒／180 秒，但**也不准把產品的常數改小來測**（那樣測
+          的就不是產品在跑的那一份）。所以這裡提供的是「把現在掛著的那個計時器立刻
+          引爆」—— 引爆走的是產品自己排的那一支 callback，一個字都不換。 */
+    p4PushWaitMs: function () { return { ack: DG_P4_PUSH_ACK_MS, write: DG_P4_PUSH_WAIT_MS }; },
+    p4PushFireTimer: function () {
+      if (!DG_P4_PUSH_PEND || !DG_P4_PUSH_PEND.timer) return false;
+      var t = DG_P4_PUSH_PEND.timer;
+      clearTimeout(t);
+      DG_P4_PUSH_PEND.timer = null;
+      /* jsdom／瀏覽器都拿不到 setTimeout 排進去的那個 function 本身，所以這裡重走
+         同一條判定：還沒 ack ⇒ 走「不是自檢頁」；已 ack ⇒ 走寫入逾時。兩條的文案
+         與副作用都與上面那兩處逐字相同（清分頁參照、留不留指紋）。 */
+      if (!DG_P4_PUSH_PEND.acked) {
+        DG_LIVE_PAGES.tcon.win = null;
+        dgP4PushDone(dgT('dg.p4PushNotSelftest'), false);
+      } else {
+        dgP4PushDone(dgT('dg.p4PushTimeout', { s: Math.round(DG_P4_PUSH_WAIT_MS / 1000) }), false);
+      }
+      return true;
+    },
+    p4TconWinAlive: function () { return dgLiveAlive('tcon'); },
+    p4SeenFlag: dgP4WasSeen,
     p4PushSay: function () {
       var e = $('dg-conf-push-say');
       if (!e || e.style.display === 'none') return null;
@@ -15113,6 +15261,9 @@
       return !el.classList.contains('folded');
     },
     guideAfterLive: dgGuideAfterLive,
+    /* v1.72.1：導引捲動有沒有掛著「等他切回來再捲一次」那一道。
+       🔴 只回布林事實，不回任何通過與否的判定（判定留在夾具那一邊）。 */
+    guideVisPending: function () { return !!dgGuideVisHandler; },
     // v1.25.0 驗證用（唯讀／既有路徑的薄包裝）
     round: function () { return DG_ROUND; },
     roundName: dgRoundName,

@@ -400,9 +400,21 @@ async function loadDg(src) {
          · 左上角 ⇒ 永遠「‹ 返回主頁」、永遠真的導向 index.html（下面另驗）
          · 回傳那件事 ⇒ 改由步驟卡第 ④ 項那一顆負責，名字就叫「資料回傳 DG」
        ⇒ 這幾條**整條搬到第 ④ 項那一顆上**，驗的事情一件都沒少。 */
-    EQ(P.backBotText(), '資料回傳 DG', '🔴 有 opener ⇒ ④ 那一顆寫「資料回傳 DG」（名字＝它真的會做的事）');
-    EQ(P.backBotIsPri(), true, '🔴 有一步打勾過 ⇒ ④ 那一顆轉成強調色');
-    EQ(P.backText(), '‹ 返回主頁', '🔴 v1.11.0：左上角那一顆**永遠**是「‹ 返回主頁」');
+    /* ═══ 🔴 dgself v1.12.0 再改判：④ **不再是一顆鈕** ═════════════════════════
+       Bruce 2026-09-21 需求變更：「第四部分『資料回傳 DG』我後來想想，不要做成
+       按鈕式的。而是第三部分跑完以後，第四部分就自動打勾，也就是它自己會回傳
+       DG，然後提醒使用者要回到 DG 分頁去看。」
+       ⇒ `#dst-back-bot` 整顆移除 ⇒ `backBotText()/backBotIsPri()/backBotHref()`
+         一律回 null。這裡**正面驗「它不在了」**，而不是把斷言刪掉。
+       🔴 回傳那件事沒有消失，而且**本來就已經是自動的**（`dstRun()` 成功就呼叫
+          `dstDgSend()`）—— 那顆鈕從來沒送過任何東西，它只印一句話。
+          「有沒有真的送出去」由下面第 ④-1／④-2 組驗（那裡本來就在驗）。 */
+    EQ(P.backBotText(), null, '🔴 v1.12.0：④ 那一顆鈕已移除（改成自動回傳）');
+    EQ(P.backBotIsPri(), null, '🔴 v1.12.0：沒有鈕就沒有強調色可言');
+    /* 🔴 v1.12.0：左上角那一顆改用本頁自己的 `dst.backHome`，字面依 Bruce 指名
+       改成「‹ 回到首頁」（共用的 `common.backToHome` 沒有動 —— 它還被另外七頁
+       用著，理由寫在 dg-selftest.html 填這個字的那一段）。 */
+    EQ(P.backText(), '‹ 回到首頁', '🔴 v1.12.0：左上角那一顆是「‹ 回到首頁」（Bruce 指名）');
     EQ(P.backIsPri(), false, '🔴 左上角那一顆不再轉強調色（它只是離開這一頁的出口）');
     EQ(P.copyHidden(), true, '有 opener ⇒ 剪貼簿退路不出現');
     /* ═══ 🔴 dgself v1.10.1 改判：原本這裡驗的是 `opener.focused` 有沒有 +1 ═══════
@@ -415,14 +427,23 @@ async function loadDg(src) {
        🔴 不改成「驗 focus 沒有被呼叫」—— 那還是在驗一個已經不存在的東西。 */
     /* 🔴 走的是**畫面上那顆 <a> 的 click**（產品路徑），不是直接呼叫 dstBackToDg()。
        🔴 v1.11.0：按的改成第 ④ 項那一顆（回傳那件事現在是它的職責）。 */
+    /* ═══ 🔴 dgself v1.12.0 再改判：沒有鈕可以按了 ══════════════════════════════
+       原本這一段是「按 ④ ⇒ 畫面上出現『請切回 DG 分頁繼續』」。v1.12.0 起那句話
+       **不必按任何東西就會出現** —— 它由 `dstRenderSteps()` 依「有沒有真的送出去」
+       決定，而不是依「他有沒有按過」。
+       ⇒ 這裡驗的事情沒有少，只是驗法從「按了會出現」換成「送出去了就出現」：
+         這一組的情境是 ① 剛剛回傳成功（上面已經送出一則 dg-measure-result），
+         所以現在 ④ 應該已經是 ✔、提示已經是「請切回 DG 分頁繼續」。
+       🔴 `backBotClick()` 仍然呼叫一次：要證明**按一個不存在的東西不會爆**
+          （那一支現在是 no-op），而且不會多送任何訊息。 */
     P.backBotClick();
     await sleep(20);
-    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') >= 0,
-      '🔴 按 ④ 那一顆 ⇒ 畫面上出現「請切回 DG 分頁繼續」',
-      P.saySteps());
+    EQ(P.backSent(), true, '🔴 v1.12.0：① 回傳成功 ⇒ ④ 自動視為已回傳');
+    EQ(P.backRowTick(), '✔', '🔴 v1.12.0：④ 自動打勾（不必按任何東西）');
+    EQ(P.backWarnIsSwitchTab(), true,
+      '🔴 v1.12.0：提示自動變成「已送回 DG，請切回 DG 分頁繼續。」');
     EQ(opener.msgs.length, 1, '🔴 它沒有再送任何訊息過去，也沒有重開視窗');
-    EQ(P.backBotHref(), 'index.html',
-      '④ 那一顆的 href 仍是 index.html（有 opener 時由 click 處理器攔掉導覽，不動 href）');
+    EQ(P.backBotHref(), null, '🔴 v1.12.0：④ 那一顆鈕已移除 ⇒ 沒有 href');
     EQ(P.backHref(), 'index.html',
       '🔴 v1.11.0：左上角那一顆 href 是 index.html，而且**沒有**任何攔截 —— 按下去真的會去首頁');
   }
@@ -450,8 +471,11 @@ async function loadDg(src) {
     EQ(out.rows.map(r => r[0]), ['r', 'g', 'b'], 'rows 形狀與 v1.1.0 逐字相同');
     EQ(P.stepDone(), { lut: false, gray: false, prim: true }, '🔴 只有 ③ 打勾');
     EQ(P.stepRow('prim').tick, '✔', '🔴 ③ 那一列變成 ✔');
-    /* 🔴 v1.11.0 改判（理由同上面第 ④-1 組那一段）：強調色搬到 ④ 那一顆身上。 */
-    EQ(P.backBotIsPri(), true, '🔴 打勾過 ⇒ ④「資料回傳 DG」那一顆轉強調色');
+    /* 🔴 v1.12.0 再改判（理由同上面第 ④-1 組那一段）：④ 沒有鈕了，強調色這件事
+       不再存在；改驗**它自動打勾了**，而且打勾的來源是「真的送出去過」。 */
+    EQ(P.backBotIsPri(), null, '🔴 v1.12.0：④ 沒有鈕 ⇒ 沒有強調色可言');
+    EQ(P.backSent(), true, '🔴 v1.12.0：③ 回傳成功 ⇒ ④ 自動打勾');
+    EQ(P.backRowTick(), '✔', '🔴 v1.12.0：④ 那一列變成 ✔');
     EQ(P.backIsPri(), false, '🔴 左上角那一顆不轉強調色');
   }
 
@@ -495,14 +519,21 @@ async function loadDg(src) {
     const ws = makeBridge({ regs: em01Regs(5), mem, busAddr: EM01.busAddr, busBit: EM01.busBit });
     const { P, w } = await loadSelf({ ws, ic: 'EM01A1', opener: null, qs: '' });
     EQ(P.dgState().linked, false, '前置條件：沒有 opener');
-    EQ(P.backText(), '‹ 返回主頁',
-      '🔴 沒有 opener ⇒ 左上角那顆是「‹ 返回主頁」（v1.11.0 起有沒有 opener 都一樣）');
+    EQ(P.backText(), '‹ 回到首頁',
+      '🔴 v1.12.0：沒有 opener ⇒ 左上角那顆也是「‹ 回到首頁」（有沒有 opener 都一樣）');
     EQ(P.backHref(), 'index.html', '🔴 而且 href 是 index.html');
     EQ(P.backIsPri(), false, '左上角那顆不會轉強調色');
-    /* 🔴 v1.11.0 新增：沒有 DG 可回傳時，④ 那一顆退回「返回主頁」—— 名字仍然等於
-       它會做的事（那時它就是一顆指向 index.html 的返回鈕）。 */
-    EQ(P.backBotText(), '‹ 返回主頁', '🔴 沒有 opener ⇒ ④ 那一顆退回「‹ 返回主頁」（沒有 DG 可回傳）');
-    EQ(P.backBotIsPri(), false, '沒有 opener ⇒ ④ 那一顆不會轉強調色（沒有東西送過去）');
+    /* 🔴 v1.12.0：④ 沒有鈕了。這條路上它**永遠不會打勾**（沒有 DG 可送），
+       所以要驗的變成「有沒有把為什麼、以及那條路怎麼走講出來」——
+       Bruce：「自動回傳失敗時不准自動打勾…要維持未完成並講清楚原因與退路」。 */
+    EQ(P.backBotText(), null, '🔴 v1.12.0：④ 那一顆鈕已移除');
+    EQ(P.backSent(), false, '🔴 沒有 opener ⇒ ④ 不打勾（沒有任何東西送出去）');
+    EQ(P.backRowTick(), '○', '🔴 ④ 那一列維持 ○');
+    CHECK((P.backWarnText() || '').indexOf('不是從 DG 開的') >= 0,
+      '🔴 ④ 講清楚為什麼不會自動回傳', P.backWarnText());
+    CHECK((P.backWarnText() || '').indexOf('複製到剪貼簿') >= 0
+       && (P.backWarnText() || '').indexOf('匯出 XLSX') >= 0,
+      '🔴 ④ 同時講出兩條退路（LUT 走剪貼簿、量測結果走匯出）', P.backWarnText());
     EQ(P.copyHidden(), false, '🔴 沒有 opener ⇒「複製到剪貼簿」出現');
     EQ(P.copyDisabled(), true, '還沒讀過 ⇒ 複製鈕是灰的（沒東西可複製）');
     EQ([P.stepRow('lut').to, P.stepRow('gray').to, P.stepRow('prim').to], ['', '', ''],

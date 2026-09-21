@@ -690,29 +690,33 @@ async function dgCalc(win, doc, outbit) {
   H('⑧ 兩顆返回鈕：名字＝它真的會做的事');
   {
     const { P, w, doc, opener } = await loadSelf({});
-    EQ(P.backText(), '‹ 返回主頁', '🔴 左上角那一顆：永遠是「‹ 返回主頁」');
+    /* ═══ 🔴 dgself v1.12.0 改判：④ 不再是一顆鈕，左上角的字也換了 ══════════════
+       Bruce 2026-09-21 兩條：
+         ·「左上角那個按鈕就把它變成『回到首頁』吧」⇒ 字面改，行為（真的導覽）不變。
+         ·「第四部分…不要做成按鈕式的…它自己會回傳 DG」⇒ ④ 那顆鈕整顆移除。
+       ⇒ 這一組原本驗「兩顆鈕的名字＝它們會做的事」，現在改成驗
+         「一顆鈕的名字＝它會做的事」＋「另一件事根本不需要鈕」。 */
+    EQ(P.backText(), '‹ 回到首頁', '🔴 v1.12.0：左上角那一顆是「‹ 回到首頁」');
     EQ(P.backHref(), 'index.html', '🔴 而且 href 指向首頁');
     const evTop = new w.MouseEvent('click', { bubbles: true, cancelable: true });
     doc.getElementById('dst-back').dispatchEvent(evTop);
     await sleep(20);
     EQ(evTop.defaultPrevented, false, '🔴 **不攔導覽** —— 按下去真的會去首頁');
-    EQ(P.backBotText(), '資料回傳 DG', '🔴 ④ 那一顆：叫「資料回傳 DG」');
+    EQ(P.backBotText(), null, '🔴 v1.12.0：④ 那一顆鈕已移除（改成自動回傳）');
     const row = doc.getElementById('dst-step-back');
-    CHECK((row.textContent || '').indexOf('資料回傳 DG') >= 0,
-      '🔴 清單第 ④ 項的文字也一起改了', (row.textContent || '').trim());
+    CHECK((row.textContent || '').indexOf('自動回傳') >= 0,
+      '🔴 v1.12.0：④ 那一列改叫「資料自動回傳 DG」（名字＝它自己會發生）',
+      (row.textContent || '').trim());
     CHECK((row.textContent || '').indexOf('回到 DG 頁') < 0, '🔴 不再出現「回到 DG 頁」這個說法');
-    const evBot = new w.MouseEvent('click', { bubbles: true, cancelable: true });
-    doc.getElementById('dst-back-bot').dispatchEvent(evBot);
-    await sleep(20);
-    EQ(evBot.defaultPrevented, true, '🔴 有 DG 可回傳 ⇒ 它攔掉導覽（不開第二個 DG 分頁）');
-    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') >= 0,
-      '🔴 而且提示他自己切回去', P.saySteps());
+    CHECK(!row.querySelector('a, button'), '🔴 ④ 那一列裡沒有任何可以按的東西');
     EQ(opener.msgs.length, 0, '它沒有送任何訊息過去（資料是各步驟自己送的）');
     /* 三語都要改到 */
     ['zh-TW', 'en', 'zh-CN'].forEach(L => {
       const v = P.i18nValues('dst.stepBack');
       CHECK(v && v[L] && v[L].indexOf('DG') >= 0 && !/回到 DG 頁|回到 DG 页|Back to the DG page/.test(v[L]),
         '🔴 dst.stepBack 的 ' + L + ' 也改掉了', v && v[L]);
+      const h = P.i18nValues('dst.backHome');
+      CHECK(h && h[L] && h[L].length > 2, '🔴 dst.backHome 有 ' + L + ' 的翻譯', h && h[L]);
     });
   }
 
@@ -951,13 +955,15 @@ async function dgCalc(win, doc, outbit) {
 
   /* M8（第 ⑨ 條）：把左上角那顆的攔截加回去 */
   {
-    const anchor = "  (function () {\n    var e0 = $('dst-back-bot'); if (!e0) return;";
-    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M8：找得到 ④ 那一顆處理器的起點（插入點）');
+    /* 🔴 v1.12.0：錨點跟著產品改了（④ 那顆鈕與它的處理器都不在了），插入點改用
+       左上角那顆填字的地方。突變目標不變：把 v1.10.1 那段攔截加回左上角。 */
+    const anchor = "  var back = $('dst-back');";
+    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M8：找得到左上角那一顆的插入點');
     const mut = SELF_SRC.replace(anchor,
       "  (function () {\n    var eTop = $('dst-back');\n"
-      + "    if (eTop) eTop.addEventListener('click', function (e) {\n"
-      + "      if (!dstDgAlive()) return;\n      e.preventDefault();\n      dstBackToDg();\n    });\n"
-      + "  })();\n  (function () {\n    var e0 = $('dst-back-bot'); if (!e0) return;");
+      + "    if (eTop && !eTop.__mut) { eTop.__mut = 1; eTop.addEventListener('click', function (e) {\n"
+      + "      if (!dstDgAlive()) return;\n      e.preventDefault();\n    }); }\n"
+      + "  })();\n" + anchor);
     const { w, doc } = await loadSelf({ src: mut });
     const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
     doc.getElementById('dst-back').dispatchEvent(ev);

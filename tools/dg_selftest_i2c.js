@@ -501,18 +501,23 @@ async function recordEnterAndPaint(key, altIdx) {
   console.log('\n── 11. 換階等待 ───────────────────────────────────────────');
   eq(P.settleChoices(), [300, 400, 500, 600, 700, 800, 900, 1000],
      '🔴 選項 300…1000 每 100 一階（Bruce 2026-09-20 指定）');
-  ok(P.settleDefault() === 700, '🔴 預設 700 ms（上游工具的預設值）');
-  ok(P.settleMs() === 700, '畫面上選單的目前值也是 700');
+  /* 🔴 dgself v1.12.0：預設值由 700 改成 300（Bruce 2026-09-21：「量測 Gamma
+     換接等待預設改成 300ms 好了。」）。清單一格沒少（上面那一條仍然驗 8 個值），
+     他要調回 700 仍然選得到。 */
+  ok(P.settleDefault() === 300, '🔴 v1.12.0：預設 300 ms（Bruce 指定）');
+  ok(P.settleMs() === 300, '畫面上選單的目前值也是 300');
   {
     const sel = W.document.getElementById('dst-settle');
     ok(sel && sel.options.length === 8, '選單有 8 個選項', sel ? String(sel.options.length) : 'null');
     ok(sel && Array.from(sel.options).every(o => P.settleChoices().indexOf(parseInt(o.value, 10)) >= 0),
        '選單的每一個值都來自同一份常數（單一來源）');
     sel.value = '999';   // 不在清單裡
-    ok(P.settleMs() === 700, '選單被塞了清單外的值 ⇒ 退回預設 700');
+    ok(P.settleMs() === 300, '選單被塞了清單外的值 ⇒ 退回預設 300');
     sel.value = '1000';
     ok(P.settleMs() === 1000, '選 1000 ⇒ 1000');
     sel.value = '700';
+    ok(P.settleMs() === 700, '🔴 700 仍然選得到（只改預設值，沒有動清單）');
+    sel.value = '300';
   }
 
   /* ═══ 12. 解析度 sanity ═══════════════════════════════════════════════ */
@@ -566,8 +571,18 @@ async function recordEnterAndPaint(key, altIdx) {
     const used = new Set();
     (src.match(/data-i18n(?:-html|-ph|-aria|-title)?="([^"]+)"/g) || [])
       .forEach(m => used.add(m.replace(/^[^"]+"/, '').replace(/"$/, '')));
-    (src.match(/dstT\('([^']+)'/g) || []).forEach(m => used.add(m.slice(6, -1)));
-    (src.match(/'dst\.[A-Za-z0-9]+'/g) || []).forEach(m => used.add(m.slice(1, -1)));
+    /* 🔴 v1.12.0 修掉這支掃描器的一個**既有假紅**（不是這一輪改出來的）：
+       產品端有一處是把 key **組出來**的 —— `dstT('dst.sc' + c)`（狀態碼對照表，
+       c 是 G/T/D/F/X/J/U/P）。舊的兩條 regex 只認前面那半截字面值，於是掃出一個
+       誰都不會去查的 `dst.sc`，然後回報「查不到翻譯」。
+       🔴 用 `git show HEAD:dg-selftest.html` 跑同一段 regex 確認過：**HEAD 也掃得到
+          `dst.sc`** ⇒ 這一支在這一輪之前就是紅的（它不在 v1.11.0 的驗證清單裡，
+          所以沒有人跑到）。
+       ⇒ 兩條 regex 都改成「只收**完整**的字面值」：後面緊接著 `+` 的一律跳過。
+         真正的漏翻仍然抓得到（那些都是完整字面值）。 */
+    (src.match(/dstT\('([^']+)'\s*(?:\)|,)/g) || [])
+      .forEach(m => used.add(m.slice(6).replace(/'\s*(?:\)|,)$/, '')));
+    (src.match(/'dst\.[A-Za-z0-9]+'(?!\s*\+)/g) || []).forEach(m => used.add(m.slice(1, -1)));
     const notFound = Array.from(used).filter(k => !I[k]);
     eq(notFound, [], '畫面上用到的每一個 i18n key 都查得到翻譯');
 

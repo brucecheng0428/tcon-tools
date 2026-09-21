@@ -392,8 +392,19 @@ async function loadReady(opts) {
       '🔴 ②③ **一起打勾** —— 這一次量測同時完成 DG 的第 2、3 部分');
     EQ([P.stepRow('gray').tick, P.stepRow('prim').tick], ['✔', '✔'],
       '🔴 兩列的符號都變成 ✔');
-    CHECK((P.sayRun() || '').indexOf('第 2、3 部分') >= 0,
-      '🔴 訊息明講「這一次量測同時完成了第 2、3 部分」', P.sayRun());
+    /* ═══ 🔴 dgself v1.12.0 改判：收尾那句話換了結尾 ═══════════════════════════
+       Bruce 2026-09-21：「2、3 量完以後，不要直接在這邊就匯出 Excel，應該要註明
+       記錄會回到 DG 分頁。」
+       ⇒ 「這一次量測同時完成了第 2、3 部分」那一句刪掉（②③ 現在被同一個框框在
+         一起、兩個圈圈同時變 ✔，畫面已經把它講完了），結尾換成他真正要做的動作。
+       🔴 「兩份資料都送到了」這件事**驗的地方沒有少**：上面三條（out.prim、
+          stepDone、兩列都是 ✔）驗的就是它，而且驗的是事實不是字串。這一條改驗
+          **新的收尾動作有沒有講出來**。 */
+    CHECK((P.sayRun() || '').indexOf('第 2 部分') >= 0
+       && (P.sayRun() || '').indexOf('第 3 部分') >= 0,
+      '🔴 訊息講出兩個落點（第 2 部分／第 3 部分）', P.sayRun());
+    CHECK((P.sayRun() || '').indexOf('切回 DG 分頁') >= 0,
+      '🔴 v1.12.0：收尾明講「請切回 DG 分頁繼續」（不是叫他在這裡匯出 Excel）', P.sayRun());
   }
   {
     /* 🔴 反面：純色沒湊齊三筆 ⇒ prim 欄位送 null ⇒ ③ **不打勾** */
@@ -429,8 +440,15 @@ async function loadReady(opts) {
        && grp.contains(row), '🔴 ②③ 兩列都在那一組裡面');
     CHECK(grp.contains(doc.getElementById('dst-go-gray')),
       '🔴 那一組裡唯一的開始鈕就是 ② 那一顆（②③ 共用）');
-    CHECK((grp.textContent || '').indexOf('同一次量測') >= 0,
-      '🔴 旁邊明講「②③ 是同一次量測」', (grp.textContent || '').slice(0, 60));
+    /* 🔴 v1.12.0 改判：②③ 現在被**同一個實體外框**框在一起（Bruce 2026-09-21
+       「步驟二、步驟三應該也要同一個外框」），所以那一行說明砍成一句，「是同一
+       次量測」這四個字不再出現在文字裡 —— 它由框本身講。
+       ⇒ 改驗兩件仍然成立、而且更接近使用者所見的事：① 那一組**真的是一個框**
+         （掛著本頁的外框樣式 `.dst-box`）② 說明仍然講得出「第 3 項不必再量」。 */
+    CHECK(grp.classList.contains('dst-box'),
+      '🔴 v1.12.0：②③ 那一組是一個實體外框（.dst-box）', grp.className);
+    CHECK((grp.textContent || '').indexOf('不必再量') >= 0,
+      '🔴 旁邊仍然講明「第 3 項不必再量一次」', (grp.textContent || '').slice(0, 80));
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -440,11 +458,29 @@ async function loadReady(opts) {
   {
     const opener = fakeWin();
     const { P, w, doc } = await loadReady({ opener });
-    CHECK(P.backBotInStepsCard(), '🔴 它真的在三步清單那張卡裡面');
-    /* 位置：卡片最下方 ⇒ 它之後不該再有別的控制項 */
+    /* ═══ 🔴 dgself v1.12.0 改判：這一整組原本驗的是「④ 那一顆鈕」═══════════════
+       Bruce 2026-09-21 需求變更：「第四部分『資料回傳 DG』我後來想想，不要做成
+       按鈕式的。而是第三部分跑完以後，第四部分就自動打勾，也就是它自己會回傳
+       DG，然後提醒使用者要回到 DG 分頁去看。」
+       ⇒ `#dst-back-bot` 整顆移除。下面每一條都改驗「④ 那一**列**」的新語意，
+         **沒有一條是刪掉了事**：
+           原本驗                      → 現在驗
+           鈕在這張卡裡                → 鈕不存在（正面驗移除）
+           鈕是卡裡最後一個控制項      → ④ 那一列是清單最後一列（位置沒變）
+           按下去會印「請切回 DG 分頁」→ 送出去就自動印，而且不必按
+           打勾過就轉強調色            → 送出去就自動打勾
+           有 opener 時攔掉導覽        → （沒有鈕就沒有導覽可攔，改驗自動打勾） */
+    EQ(P.backBotText(), null, '🔴 v1.12.0：④ 那一顆鈕已移除（改成自動回傳）');
+    CHECK(!P.backBotInStepsCard(), '🔴 這張卡裡不再有那一顆鈕');
+    /* 位置：④ 仍然是清單的最後一列（Bruce 只說不要做成按鈕，沒有說換位置） */
+    EQ(P.stepRowOrder()[P.stepRowOrder().length - 1], 'dst-step-back',
+      '🔴 ④ 那一列仍然排在清單最後');
+    /* 這張卡裡最後一個控制項現在是「匯出 XLSX」—— 它是 Bruce 自己在 v1.10.1 指名
+       要放進 ②③ 那一格的，這一輪沒有動它（移除既有入口要他裁示）。 */
     const card = doc.getElementById('dst-steps-card');
     const ctrls = Array.prototype.slice.call(card.querySelectorAll('button, a'));
-    EQ(ctrls[ctrls.length - 1].id, 'dst-back-bot', '🔴 它是這張卡裡最後一個控制項');
+    EQ(ctrls[ctrls.length - 1].id, 'dst-xlsx',
+      '🔴 v1.12.0：④ 沒有鈕之後，這張卡最後一個控制項是「匯出 XLSX」');
     /* ═══ 🔴 dgself v1.11.0 改判：名字改了，而且**兩顆不再是同一件事** ═══════════
        刪改原因（不是為了讓測試變綠）：Bruce 2026-09-21 真機實測 ——「那個按鈕名稱
        不應該叫做『回到 DG 頁』，應該叫做『資料回傳 DG』之類。因為按下去並不會回到
@@ -453,37 +489,36 @@ async function loadReady(opts) {
        ⇒ 這一顆改名成它真的會做的事；左上角那一顆改回名副其實的返回首頁。
        ⇒ 原本「兩顆文案逐字相同」那一條**必須刪掉**：它們現在做的不是同一件事，
          逼它們同字就是把剛修好的東西再弄壞一次。改驗「兩顆各自正確且不同」。 */
-    EQ(P.backBotText(), '資料回傳 DG', '🔴 有 opener ⇒ ④ 那一顆寫「資料回傳 DG」（名字＝它真的會做的事）');
-    EQ(P.backText(), '‹ 返回主頁', '🔴 左上角那一顆**永遠**是「‹ 返回主頁」');
-    CHECK(P.backBotText() !== P.backText(),
-      '🔴 兩顆的字不一樣 —— 它們做的不是同一件事（一個回傳資料、一個離開這一頁）');
+    /* 🔴 v1.12.0：左上角那一顆改用本頁自己的 `dst.backHome`，字面依 Bruce 指名
+       改成「‹ 回到首頁」（共用的 `common.backToHome` 沒動，理由見產品端註解）。 */
+    EQ(P.backText(), '‹ 回到首頁', '🔴 v1.12.0：左上角那一顆是「‹ 回到首頁」');
+    /* 還沒送出去任何東西 ⇒ ④ 維持 ○，而且先講「不必按」 */
+    EQ(P.backSent(), false, '🔴 還沒送過 ⇒ ④ 不打勾');
+    EQ(P.backRowTick(), '○', '🔴 ④ 那一列維持 ○');
+    CHECK((P.backWarnText() || '').indexOf('自動回傳') >= 0,
+      '🔴 送出去之前先講「量完會自動回傳，不必按任何東西」', P.backWarnText());
     /* ═══ 🔴 dgself v1.10.1 改判：原本這裡驗的是 `opener.focused` 有沒有 +1 ═══════
        刪改原因（不是為了讓測試變綠）：`window.opener.focus()` 在真瀏覽器**本來就
        無效**（Bruce 2026-09-21 真機實測按下去完全沒反應），jsdom 的 focus 是假的
        ⇒ 這一條從一開始就是**假綠**。v1.10.1 依 Bruce 裁示把那個呼叫整支拿掉，
        改成在自檢頁講清楚下一步。改驗使用者真的看得到的那件事。 */
-    P.backBotClick();
+    P.backBotClick();     // 🔴 鈕不在了 ⇒ 這一支是 no-op，驗它不會爆、也不會送訊息
     await sleep(20);
-    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') >= 0,
-      '🔴 按下去 ⇒ 畫面上出現「請切回 DG 分頁繼續」（v1.10.1 起的行為）', P.saySteps());
-    EQ(opener.msgs.length, 0, '🔴 它沒有送任何訊息過去');
-    EQ(P.backBotHref(), 'index.html', 'href 仍是 index.html（有 opener 時由處理器攔掉導覽）');
-    /* 有一步打勾過 ⇒ 兩顆一起轉強調色 */
+    EQ(opener.msgs.length, 0, '🔴 沒有鈕可按 ⇒ 沒有送任何訊息過去');
+    EQ(P.backBotHref(), null, '🔴 v1.12.0：鈕已移除 ⇒ 沒有 href');
+    EQ(P.backSent(), false, '🔴 按一個不存在的東西不會讓 ④ 打勾');
+    /* ═══ 🔴 v1.12.0 的核心：**真的送出去** ⇒ ④ 自動打勾 ＋ 自動提示 ═════════════ */
     P.__setRowsForTest([
       { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
       { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
     ]);
     P.dgSend();
     await sleep(20);
-    /* 🔴 v1.11.0 改判（理由同上）：強調色的語意是「現在該按的是它」，而那件事
-       只屬於「資料回傳 DG」那一顆。左上角那一顆只是離開這一頁的出口，不該搶。 */
-    EQ([P.backIsPri(), P.backBotIsPri()], [false, true],
-      '🔴 有東西送出去過 ⇒ 只有 ④「資料回傳 DG」那一顆轉強調色');
-    /* 🔴 有 opener 時按下去要被攔掉（不導覽） */
-    const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
-    doc.getElementById('dst-back-bot').dispatchEvent(ev);
-    await sleep(10);
-    EQ(ev.defaultPrevented, true, '🔴 有 opener ⇒ ④ 那一顆攔掉導覽（不開第二個 DG 分頁）');
+    EQ(P.backSent(), true, '🔴 postMessage 真的送出去了 ⇒ ④ 自動打勾');
+    EQ(P.backRowTick(), '✔', '🔴 ④ 那一列自動變成 ✔（不必按任何東西）');
+    EQ(P.backWarnIsSwitchTab(), true,
+      '🔴 提示自動換成「已送回 DG，請切回 DG 分頁繼續。」');
+    EQ(P.backIsPri(), false, '🔴 左上角那一顆不轉強調色（它只是離開這一頁的出口）');
     /* 🔴 v1.11.0 新增：左上角那一顆**必須真的導覽**（名字叫返回主頁就要回得去）。
        它是 v1.11.0 的核心改動 —— v1.8.1～v1.10.1 有 opener 時會把它攔下來。 */
     const evTop = new w.MouseEvent('click', { bubbles: true, cancelable: true });
@@ -493,16 +528,19 @@ async function loadReady(opts) {
       '🔴 左上角那一顆**不攔導覽** —— 按下去真的會去 index.html（名字＝行為）');
   }
   {
-    /* 沒有 opener ⇒ 走既有退路：文案退回「‹ 返回主頁」、不攔導覽 */
-    const { P, w, doc } = await loadReady({ opener: null });
+    /* 🔴 v1.12.0：沒有 opener ⇒ ④ 永遠不會打勾，所以它必須講清楚原因與退路
+       （Bruce：「自動回傳失敗時不准自動打勾…要維持未完成並講清楚原因與退路」）。 */
+    const { P } = await loadReady({ opener: null });
     EQ(P.dgState().linked, false, '前置條件：沒有 opener');
-    EQ(P.backBotText(), '‹ 返回主頁', '🔴 沒有 opener ⇒ 退回「‹ 返回主頁」（與左上角那顆一致）');
-    EQ(P.backBotHref(), 'index.html', '🔴 而且 href 是 index.html（不留一顆按了沒反應的死鈕）');
-    EQ(P.backBotIsPri(), false, '沒有 opener ⇒ 不轉強調色');
-    const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
-    doc.getElementById('dst-back-bot').dispatchEvent(ev);
-    await sleep(10);
-    EQ(ev.defaultPrevented, false, '🔴 沒有 opener ⇒ 不攔導覽，照原本的方式回首頁');
+    EQ(P.backBotText(), null, '🔴 v1.12.0：④ 那一顆鈕已移除');
+    EQ(P.backSent(), false, '🔴 沒有 DG 可送 ⇒ ④ 不打勾');
+    EQ(P.backRowTick(), '○', '🔴 ④ 那一列維持 ○（不編造「已回傳」）');
+    CHECK((P.backWarnText() || '').indexOf('不是從 DG 開的') >= 0,
+      '🔴 講出原因：這一頁不是從 DG 開的', P.backWarnText());
+    CHECK((P.backWarnText() || '').indexOf('複製到剪貼簿') >= 0
+       && (P.backWarnText() || '').indexOf('匯出 XLSX') >= 0,
+      '🔴 講出兩條退路（剪貼簿／匯出 XLSX）', P.backWarnText());
+    EQ(P.backText(), '‹ 回到首頁', '🔴 左上角那一顆仍然是「‹ 回到首頁」');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -663,44 +701,45 @@ async function loadReady(opts) {
     EQ(P.hasGoBtn('prim'), true,
       '🔴 突變後 ③ 又有自己的開始鈕了 ⇒ 證明第 ⑤ 組那條真的在驗東西');
   }
-  /* ── M6（⑥）：④ 那顆不掛處理器 ⇒「按了會回傳並提示」必須紅 ──
-     🔴 v1.11.0：錨點跟著產品改了（兩顆已經拆開，不再共用同一個 forEach）。
-        突變的目標**沒有變**：把 ④ 那一顆的點擊處理器拿掉。 */
+  /* ── M6（⑥）🔴 v1.12.0 換了突變目標 ──────────────────────────────────────
+     v1.11.0 這裡突變的是「④ 那顆鈕的點擊處理器」，而 v1.12.0 起那顆鈕與處理器
+     都不存在了。新的機制是「送出去 ⇒ 自動打勾」，所以突變改成**把自動打勾那一行
+     拿掉** —— 正面那幾條（backSent／✔／提示換成切分頁）就必須全部變紅。 */
   {
-    const orig = "    var e0 = $('dst-back-bot'); if (!e0) return;";
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6：找得到 ④ 那一顆的點擊處理器');
-    const mut = SELF_SRC.replace(orig, "    var e0 = null; if (!e0) return;");
+    const orig = "  dstBackSent = true;      // v1.12.0：postMessage 沒丟例外 ⇒ ④ 自動打勾（見宣告處）";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6：找得到「送出去就自動打勾」那一行');
+    const mut = SELF_SRC.replace(orig, "  /* mutated: no auto tick */");
     const opener = fakeWin();
-    const { P, w, doc } = await loadReady({ src: mut, opener });
-    P.backBotClick();
+    const { P } = await loadReady({ src: mut, opener });
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
+    ]);
+    CHECK(P.dgSend() === true, '突變前置：這一輪確實有送出去');
     await sleep(20);
-    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') < 0,
-      '🔴 突變後按 ④ 不會出現「請切回 DG 分頁」⇒ 證明第 ⑥ 組那條真的在驗東西',
-      P.saySteps());
-    const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
-    doc.getElementById('dst-back-bot').dispatchEvent(ev);
-    await sleep(10);
-    EQ(ev.defaultPrevented, false,
-      '🔴 突變後它會真的導覽去 index.html（有 opener 卻開第二個分頁）');
+    EQ(P.backSent(), false,
+      '🔴 突變後即使送出去了 ④ 也不打勾 ⇒ 證明第 ⑥ 組「自動打勾」那條真的在驗東西');
+    EQ(P.backRowTick(), '○', '🔴 突變後 ④ 那一列停在 ○');
   }
-  /* ── 🔴 v1.11.0 新增 M6-b：左上角那一顆**必須真的導覽**（名實相符的反面）──
-     這是 v1.11.0 的核心改動：v1.8.1～v1.10.1 有一段 click 處理器會把它攔下來。
-     把那段攔截加回去，這一條就必須紅 —— 否則「它真的會回首頁」是假綠。 */
+  /* ── 🔴 v1.12.0 新增 M6-b：**打勾必須等於真的送到了**（Bruce 明文要求的反面）──
+     把自動打勾搬到所有守衛**之前**（＝「我送了，不知道有沒有到」那種寫法）。
+     這樣一來「沒有 opener ⇒ 不打勾」就會變成假的 ⇒ 下面那條必須紅。
+     🔴 這是這一組最重要的一條：假勾等於騙他「東西在 DG 那邊了」。 */
   {
-    const anchor = "  (function () {\n    var e0 = $('dst-back-bot'); if (!e0) return;";
-    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M6-b：找得到 ④ 那一顆處理器的起點（插入點）');
+    const anchor = "function dstDgSend() {\n  if (!dstDgAlive()) return false;";
+    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M6-b：找得到 dstDgSend() 的第一道守衛');
     const mut = SELF_SRC.replace(anchor,
-      "  (function () {\n    var eTop = $('dst-back');\n"
-      + "    if (eTop) eTop.addEventListener('click', function (e) {\n"
-      + "      if (!dstDgAlive()) return;\n      e.preventDefault();\n      dstBackToDg();\n    });\n"
-      + "  })();\n  (function () {\n    var e0 = $('dst-back-bot'); if (!e0) return;");
-    const opener = fakeWin();
-    const { w, doc } = await loadReady({ src: mut, opener });
-    const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
-    doc.getElementById('dst-back').dispatchEvent(ev);
-    await sleep(10);
-    EQ(ev.defaultPrevented, true,
-      '🔴 突變（把 v1.10.1 那段攔截加回左上角）⇒ 它又不會回首頁了 ⇒ 證明正面那條真的在驗東西');
+      "function dstDgSend() {\n  dstBackSent = true; dstRenderSteps();\n  if (!dstDgAlive()) return false;");
+    const { P } = await loadReady({ src: mut, opener: null });
+    EQ(P.dgState().linked, false, '突變前置：沒有 opener');
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
+    ]);
+    CHECK(P.dgSend() === false, '突變前置：沒有 opener ⇒ 什麼都沒送出去');
+    await sleep(20);
+    EQ(P.backSent(), true,
+      '🔴 突變後「什麼都沒送出去」也打勾了 ⇒ 證明「打勾＝真的送到了」那條真的在驗東西');
   }
   /* ── M7（⑦）：進度只寫下面那一份 ⇒「卡片內那條會動」必須紅 ── */
   {
