@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260921dst172"></script>
+<script src="common/version.js?v=20260921dst173"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -435,9 +435,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260921dst171"></script>
-<script src="common/xlsx.js?v=20260921dst140"></script>
-<script src="common/common.js?v=20260921dst171"></script>
+<script src="common/i18n.js?v=20260921dst173"></script>
+<script src="common/xlsx.js?v=20260921dst173"></script>
+<script src="common/common.js?v=20260921dst173"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -2173,6 +2173,16 @@ async function dstCaOpen() {
     dstLog('== serial opened', 'o');
     return true;
   } catch (e) {
+    /* ═══ 🔴 v1.7.3：失敗一定要把狀態收乾淨 ══════════════════════════════════
+       `dstCaLinked` 本來就只在 try 的最後才設 true（所以使用者取消選埠時它維持
+       false，這一點是讀碼確認過的，不是猜的）—— 但**半開的埠沒有收**：
+       `dstPort.open()` 成功之後才在 `getWriter()`／`getReader()` 丟出來的話，
+       `dstPort` 會留著一個已經開著的埠，下一次按就走到
+       `getPorts()` ⇒ ports[0] ⇒ `open()` ⇒ 「port is already open」，
+       而且那個例外**長得跟第一次的失敗一樣**，看不出是我們自己沒收。
+       ⇒ 一律走既有的 `dstCaClose()`（它把 writer／reader／port 逐一釋放、
+          把 dstCaLinked 設回 false、並重畫）。**不另寫一份收尾**。 */
+    try { await dstCaClose(); } catch (e2) {}
     dstSay('dst-say-run', dstT('dst.errSerialOpen', { m: dstErrMsg(e) }));
     dstLog('!  serial open failed: ' + dstErrMsg(e), 'e');
     return false;
@@ -2622,6 +2632,39 @@ function dstLutChartSvg(rgb, depth) {
   });
   return s + '</svg>';
 }
+/* ═══ 🔴 v1.7.3：DG LUT 失敗訊息的組字（Bug：`{detail}` 露在畫面上）═══════════
+   ── 事故（Bruce 2026-09-21 真機截圖）──────────────────────────────────────
+     畫面顯示 `讀取中斷：{detail}  [I2C Bridge 逾時未回復（read）]`
+     —— 模板原形跑出來了。
+
+   ── 根因 ────────────────────────────────────────────────────────────────
+     原本這一行寫的是 `dstT(dstLutErr.stepKey)`，**沒有帶第二個參數**。
+     `t(key, vars)`（common/common.js:20）只有在 `vars` 有值時才替換 `{x}`
+     ⇒ 模板裡的 `{detail}` 原樣留在字串裡，真正的內容則被另外接在中括號裡。
+
+   ── 影響範圍（grep 過，不是只修看到的那一條）──────────────────────────────
+     這一支是**七個** key 的唯一出口，每一個的模板都含 `{detail}`：
+       dst.lutErrNoSpec／lutErrBus／lutErrData／lutErrDepth／lutErrMode／
+       dst.lutErrModeNotDg／lutErrStep
+     ⇒ **七條訊息全部都在漏**，Bruce 看到的只是他當下踩到的那一條。
+     另外兩條（lutErrLink／lutErrNoIc）沒有佔位符、detail 是空字串，本來就沒事；
+     lutErrDecode／lutErrRead 的 detail 走中括號，也沒事。
+     🔴 全頁掃過一遍「模板有佔位符卻沒帶 vars」的呼叫點：字面 key 的 0 處；
+        間接（key 是變數）的 17 處逐一看過，只有這一處在漏。
+        `dst.btnAlign {l}`（dstRenderPick）與 `dst.hzOk／hzRange {hz}` 都有帶。
+
+   ── 為什麼中括號那一段要改成有條件 ─────────────────────────────────────
+     現在 `{detail}` 會被真的替換掉 ⇒ 句子裡已經有那段文字，再接一次中括號就是
+     **同一個內容講兩遍**。判準不寫「哪幾個 key 有佔位符」那種清單（清單會漏），
+     而是問「替換完的句子裡有沒有它」—— 沒有才補在中括號裡。 */
+function dstLutErrText() {
+  if (!dstLutErr) return '';
+  var detail = dstLutErr.detail == null ? '' : String(dstLutErr.detail);
+  var msg = dstT(dstLutErr.stepKey, { detail: detail });
+  if (detail && msg.indexOf(detail) < 0) msg += '  [' + detail + ']';
+  return msg;
+}
+
 function dstRenderLut() {
   var body = $('dst-lut-body');
   var busy = dstLutBusy;
@@ -2631,7 +2674,7 @@ function dstRenderLut() {
   else if (dstLut) dstShow('dst-lut-state', dstT('dst.lutOk', { n: dstLut.nBytes }), true);
   else dstShow('dst-lut-state', '—', false);
 
-  dstSay('dst-say-lut', dstLutErr ? (dstT(dstLutErr.stepKey) + (dstLutErr.detail ? '  [' + dstLutErr.detail + ']' : '')) : '');
+  dstSay('dst-say-lut', dstLutErrText());
 
   if (!dstLut) {
     dstShow('dst-lut-cfg', '—', false);
@@ -2697,6 +2740,36 @@ function dstRenderCa() {
   var b = $('dst-ca'); if (!b) return;
   b.setAttribute('aria-pressed', dstCaLinked ? 'true' : 'false');
   $('dst-ca-txt').textContent = dstT(dstCaLinked ? 'dst.stCaOn' : 'dst.stCaOff');
+  /* ═══ 🔴 v1.7.3：儀器連線狀態變了 ⇒ 閘門與它的說明也要重算 ═══════════════
+     ── 事故（Bruce 2026-09-21 真機截圖）──────────────────────────────────
+       畫面上那顆鈕是綠色的「儀器已連線」，正下方卻寫「還不能開始：光學量測儀
+       尚未連線（請按上面那顆「儀器未連線」）」，「開始掃描」是灰的 —— 三個地方
+       互相矛盾，使用者完全無法判斷到底連上了沒有。
+
+     ── 根因（讀碼定位，不是猜）───────────────────────────────────────────
+       `dstCaOpen()` 成功時只呼叫 `dstRenderCa()`，而
+         · 那顆開關的字與顏色      ← `dstRenderCa()`
+         · 「開始掃描」的 disabled ← `dstRenderBtns()`
+         · 灰掉的原因那一行        ← `dstRenderBtns()`（讀 dstRunWhyKey()）
+       三者分在兩支裡，而 `dstCaOpen()`／`dstCaClose()` 只叫了前者
+       ⇒ **鈕是對的、閘門的顯示是舊的**。
+       🔴 所以事實與 Bruce 當下的判讀相反：不是「按鈕沒還原」，而是
+          「按鈕更新了、閘門那兩處沒更新」。`dstCaLinked = true` 一直都只寫在
+          `requestPort()` ＋ `open()` 都成功之後（try 區塊的最後），catch 裡從來
+          沒有碰它 —— 使用者取消選埠時它確實維持 false。
+       🔴 log 裡「`! serial open failed …` 之後又出現 `== serial opened`」也**不是**
+          失敗路徑走到成功的記錄點：那兩行在同一個 try/catch 的兩側，
+          `return true` 之後不可能再落到 catch。那是**按了兩次**：第一次取消、
+          第二次選了埠。第 ② 組夾具用「requestPort 丟例外」直接釘住這一點
+          （失敗那一次不會印 opened、也不會變成已連線）。
+
+     ── 為什麼修在這裡，而不是在 dstCaOpen／dstCaClose 各補一行 ───────────
+       那是列舉呼叫點，而本頁已經栽在列舉上兩次（v1.4.0／v1.6.0 的註解都寫著）。
+       「儀器連線狀態」只會經由 `dstRenderCa()` 呈現，把閘門的重算接在它後面，
+       之後**任何**改動 dstCaLinked 的路徑都自動正確，不必記得補。
+     🔴 不會遞迴：`dstRenderBtns()` 只設 `$('dst-ca').disabled`，不呼叫本支
+        （若日後有人讓它呼叫回來，這裡就要改成單向的旗標，不要留下互相呼叫）。 */
+  dstRenderBtns();
 }
 /* ═══ v1.3.0：畫面測試那張卡的字與**選取態** ══════════════════════════════
    兩件事在同一支裡做，因為它們用的是同一份狀態（dstShowing ＋ dstBits）：
@@ -3606,6 +3679,15 @@ window.dstProbe = {
              r: dstLut.rgb.r.slice(), g: dstLut.rgb.g.slice(), b: dstLut.rgb.b.slice() };
   },
   lutErr: function () { return dstLutErr ? JSON.parse(JSON.stringify(dstLutErr)) : null; },
+  /* v1.7.3：失敗訊息的組字（純函式，夾具直接驗「畫面上不可以出現 `{`」）。 */
+  lutErrText: dstLutErrText,
+  sayLut: function () { var e = $('dst-say-lut'); return e ? e.textContent : null; },
+  /* v1.7.3：儀器連線那條路。🔴 `caOpen` 走的是**產品那顆鈕呼叫的同一支**；
+     `__setSerialForTest` 只是把 `navigator.serial` 換成假的（真瀏覽器才有它）。 */
+  caOpen: function () { return dstCaOpen(); },
+  caLinked: function () { return dstCaLinked; },
+  caText: function () { var e = $('dst-ca-txt'); return e ? e.textContent : null; },
+  caPressed: function () { var e = $('dst-ca'); return e ? e.getAttribute('aria-pressed') : null; },
   lutText: function (id) { var e = $(id); return e ? e.textContent : null; },
   lutHidden: function (id) { var e = $(id); return e ? e.classList.contains('dst-hidden') : null; },
   lutChartHtml: function () { var e = $('dst-lut-chart'); return e ? e.innerHTML : null; },
