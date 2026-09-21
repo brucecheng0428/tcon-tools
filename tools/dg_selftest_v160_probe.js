@@ -147,7 +147,45 @@ async function load(opts) {
   return { dom, w, doc: w.document, P };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   🔴 dgself v1.11.0 加的前置檢查 —— 這支夾具目前**驗的是一個已經不存在的設計**
+   ───────────────────────────────────────────────────────────────────────────
+   本檔（v1.6.0）驗的是「把 SRAM 用 17 種候選排法各解一次、逐一評分讓使用者挑」。
+   **v1.7.0 依 Bruce 裁示把那一整組移除**（CHANGELOG：「前提已經不成立…留著候選
+   清單的實際效果是：畫面上同時擺 17 個已知是錯的選項」），解碼改成只有一條、
+   直接照原廠源碼的排法走，並由 `dg_selftest_v170_probe.js` ／ `v171` ／ `v173` 接手。
+
+   於是本檔用到的 12 個觀測點（lutEntryBits／lutCandidates／lutScore …）全部沒了，
+   跑起來是 `TypeError: P.lutEntryBits is not a function` —— **自 v1.7.0 起就是紅的**，
+   而那個 TypeError 看不出是「設計換掉了」還是「產品壞了」。
+
+   🔴 這裡**不自行刪檔、也不改寫成 v1.7.x 的版本**：
+      · 刪一支夾具是有永久性的決定，依本專案的規矩要 Bruce 裁示；
+      · 改寫成 v1.7.x 版等於再寫一份 v170／v171 已經在驗的東西（兩份遲早分岔）。
+   ⇒ 只做一件事：把失敗的**原因**講清楚，並且**仍然以非零狀態結束**
+      （「檢查跑不起來不當作通過」是本專案既有原則，見 tools/hooks/pre-commit）。
+   ═══════════════════════════════════════════════════════════════════════════ */
+const OBSOLETE_HOOKS = ['lutEntryBits', 'lutEntries', 'lutMemSlave', 'lutSlaveDocd',
+  'lutReadLen', 'lutUnpackUniform', 'lutUnpack16', 'lutCandidates', 'lutBits',
+  'lutScore', 'lutBusList', 'lutCandRowCount'];
+
 (async function main() {
+
+  {
+    const { P } = await load({});
+    const gone = OBSOLETE_HOOKS.filter(k => typeof P[k] !== 'function');
+    if (gone.length) {
+      console.log('\n════════════════════════════════════════════════════════════════');
+      console.log('🛑 本檔驗的是 dgself v1.6.0 的「候選排法 ＋ 評分讓使用者挑」設計。');
+      console.log('   那一整組在 **v1.7.0 依 Bruce 裁示移除**（改成只有一條照原廠源碼的解碼路徑），');
+      console.log('   接手的是 tools/dg_selftest_v170_probe.js / v171 / v173。');
+      console.log('   已經不存在的觀測點：' + gone.join('、'));
+      console.log('   ⇒ 這不是產品壞了，是這支夾具過期了。**要不要刪掉它請 Bruce 裁示**，');
+      console.log('      在那之前它維持紅色（檢查跑不起來不當作通過）。');
+      console.log('════════════════════════════════════════════════════════════════\n');
+      process.exit(2);
+    }
+  }
 
   /* ═══════════════════════════════════════════════════════════════════════
      ① 純函式：解包／identity／評分。**不碰 DOM、不碰 I2C。**
