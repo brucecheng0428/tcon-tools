@@ -9,8 +9,9 @@
         而且進到第二段之後**還能把對位畫面叫回來**（不把人鎖死）
      ④ 量測完成時 ②③ **一起打勾**（同一次量測同時完成 DG 的第 2、3 部分）
      ⑤ 第 3 項**沒有自己的開始按鈕**
-     ⑥ 卡片最下方那顆「回到 DG 頁」：有 opener ⇒ `opener.focus()`；
-        沒有 opener ⇒ 走既有退路（不攔導覽，連回 index.html）
+     ⑥ 卡片最下方那顆（🔴 dgself v1.11.0 起叫「資料回傳 DG」）：有 opener ⇒ 回傳並
+        提示切分頁；沒有 opener ⇒ 走既有退路（不攔導覽，連回 index.html）。
+        同一組另驗**左上角那一顆永遠是「‹ 返回主頁」而且真的會導覽**。
      ⑦ 卡片內那條進度條會**隨量測更新**，而且與下面那一份逐字相同
 
    ═══ 🔴 怎麼避免「自己驗自己」═══════════════════════════════════════════════
@@ -444,8 +445,18 @@ async function loadReady(opts) {
     const card = doc.getElementById('dst-steps-card');
     const ctrls = Array.prototype.slice.call(card.querySelectorAll('button, a'));
     EQ(ctrls[ctrls.length - 1].id, 'dst-back-bot', '🔴 它是這張卡裡最後一個控制項');
-    EQ(P.backBotText(), '‹ 回到 DG 頁', '🔴 有 opener ⇒ 寫「‹ 回到 DG 頁」');
-    EQ(P.backBotText(), P.backText(), '🔴 文案與左上角那一顆逐字相同（同一組值填的）');
+    /* ═══ 🔴 dgself v1.11.0 改判：名字改了，而且**兩顆不再是同一件事** ═══════════
+       刪改原因（不是為了讓測試變綠）：Bruce 2026-09-21 真機實測 ——「那個按鈕名稱
+       不應該叫做『回到 DG 頁』，應該叫做『資料回傳 DG』之類。因為按下去並不會回到
+       DG 頁」「左上角那邊的按鈕按了也不會回到 DG 頁，所以左上角那個按鈕就把它變成
+       『回到首頁』吧」。
+       ⇒ 這一顆改名成它真的會做的事；左上角那一顆改回名副其實的返回首頁。
+       ⇒ 原本「兩顆文案逐字相同」那一條**必須刪掉**：它們現在做的不是同一件事，
+         逼它們同字就是把剛修好的東西再弄壞一次。改驗「兩顆各自正確且不同」。 */
+    EQ(P.backBotText(), '資料回傳 DG', '🔴 有 opener ⇒ ④ 那一顆寫「資料回傳 DG」（名字＝它真的會做的事）');
+    EQ(P.backText(), '‹ 返回主頁', '🔴 左上角那一顆**永遠**是「‹ 返回主頁」');
+    CHECK(P.backBotText() !== P.backText(),
+      '🔴 兩顆的字不一樣 —— 它們做的不是同一件事（一個回傳資料、一個離開這一頁）');
     /* ═══ 🔴 dgself v1.10.1 改判：原本這裡驗的是 `opener.focused` 有沒有 +1 ═══════
        刪改原因（不是為了讓測試變綠）：`window.opener.focus()` 在真瀏覽器**本來就
        無效**（Bruce 2026-09-21 真機實測按下去完全沒反應），jsdom 的 focus 是假的
@@ -464,13 +475,22 @@ async function loadReady(opts) {
     ]);
     P.dgSend();
     await sleep(20);
-    EQ([P.backIsPri(), P.backBotIsPri()], [true, true],
-      '🔴 有東西送出去過 ⇒ 上下兩顆一起轉強調色');
+    /* 🔴 v1.11.0 改判（理由同上）：強調色的語意是「現在該按的是它」，而那件事
+       只屬於「資料回傳 DG」那一顆。左上角那一顆只是離開這一頁的出口，不該搶。 */
+    EQ([P.backIsPri(), P.backBotIsPri()], [false, true],
+      '🔴 有東西送出去過 ⇒ 只有 ④「資料回傳 DG」那一顆轉強調色');
     /* 🔴 有 opener 時按下去要被攔掉（不導覽） */
     const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
     doc.getElementById('dst-back-bot').dispatchEvent(ev);
     await sleep(10);
-    EQ(ev.defaultPrevented, true, '🔴 有 opener ⇒ 攔掉導覽（不開第二個 DG 分頁）');
+    EQ(ev.defaultPrevented, true, '🔴 有 opener ⇒ ④ 那一顆攔掉導覽（不開第二個 DG 分頁）');
+    /* 🔴 v1.11.0 新增：左上角那一顆**必須真的導覽**（名字叫返回主頁就要回得去）。
+       它是 v1.11.0 的核心改動 —— v1.8.1～v1.10.1 有 opener 時會把它攔下來。 */
+    const evTop = new w.MouseEvent('click', { bubbles: true, cancelable: true });
+    doc.getElementById('dst-back').dispatchEvent(evTop);
+    await sleep(10);
+    EQ(evTop.defaultPrevented, false,
+      '🔴 左上角那一顆**不攔導覽** —— 按下去真的會去 index.html（名字＝行為）');
   }
   {
     /* 沒有 opener ⇒ 走既有退路：文案退回「‹ 返回主頁」、不攔導覽 */
@@ -643,23 +663,44 @@ async function loadReady(opts) {
     EQ(P.hasGoBtn('prim'), true,
       '🔴 突變後 ③ 又有自己的開始鈕了 ⇒ 證明第 ⑤ 組那條真的在驗東西');
   }
-  /* ── M6（⑥）：最下方那顆不掛處理器 ⇒「按了會 focus」必須紅 ── */
+  /* ── M6（⑥）：④ 那顆不掛處理器 ⇒「按了會回傳並提示」必須紅 ──
+     🔴 v1.11.0：錨點跟著產品改了（兩顆已經拆開，不再共用同一個 forEach）。
+        突變的目標**沒有變**：把 ④ 那一顆的點擊處理器拿掉。 */
   {
-    const orig = "['dst-back', 'dst-back-bot'].forEach(function (id) {";
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6：找得到兩顆返回出口共用處理器那一行');
-    const mut = SELF_SRC.replace(orig, "['dst-back'].forEach(function (id) {");
+    const orig = "    var e0 = $('dst-back-bot'); if (!e0) return;";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6：找得到 ④ 那一顆的點擊處理器');
+    const mut = SELF_SRC.replace(orig, "    var e0 = null; if (!e0) return;");
     const opener = fakeWin();
     const { P, w, doc } = await loadReady({ src: mut, opener });
-    const before = opener.focused;
     P.backBotClick();
     await sleep(20);
-    EQ(opener.focused, before,
-      '🔴 突變後按最下方那顆不會把 DG 叫到前面 ⇒ 證明第 ⑥ 組那條真的在驗東西');
+    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') < 0,
+      '🔴 突變後按 ④ 不會出現「請切回 DG 分頁」⇒ 證明第 ⑥ 組那條真的在驗東西',
+      P.saySteps());
     const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
     doc.getElementById('dst-back-bot').dispatchEvent(ev);
     await sleep(10);
     EQ(ev.defaultPrevented, false,
       '🔴 突變後它會真的導覽去 index.html（有 opener 卻開第二個分頁）');
+  }
+  /* ── 🔴 v1.11.0 新增 M6-b：左上角那一顆**必須真的導覽**（名實相符的反面）──
+     這是 v1.11.0 的核心改動：v1.8.1～v1.10.1 有一段 click 處理器會把它攔下來。
+     把那段攔截加回去，這一條就必須紅 —— 否則「它真的會回首頁」是假綠。 */
+  {
+    const anchor = "  (function () {\n    var e0 = $('dst-back-bot'); if (!e0) return;";
+    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M6-b：找得到 ④ 那一顆處理器的起點（插入點）');
+    const mut = SELF_SRC.replace(anchor,
+      "  (function () {\n    var eTop = $('dst-back');\n"
+      + "    if (eTop) eTop.addEventListener('click', function (e) {\n"
+      + "      if (!dstDgAlive()) return;\n      e.preventDefault();\n      dstBackToDg();\n    });\n"
+      + "  })();\n  (function () {\n    var e0 = $('dst-back-bot'); if (!e0) return;");
+    const opener = fakeWin();
+    const { w, doc } = await loadReady({ src: mut, opener });
+    const ev = new w.MouseEvent('click', { bubbles: true, cancelable: true });
+    doc.getElementById('dst-back').dispatchEvent(ev);
+    await sleep(10);
+    EQ(ev.defaultPrevented, true,
+      '🔴 突變（把 v1.10.1 那段攔截加回左上角）⇒ 它又不會回首頁了 ⇒ 證明正面那條真的在驗東西');
   }
   /* ── M7（⑦）：進度只寫下面那一份 ⇒「卡片內那條會動」必須紅 ── */
   {

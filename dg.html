@@ -596,6 +596,21 @@
     color: var(--text); text-transform: none; letter-spacing: 0;
   }
   .dg-part-body { padding: 2px 10px 10px; }
+  /* ═══ 🔴 v1.72.0：三個部分可以收折 ═══════════════════════════════════════
+     Bruce 2026-09-21：「回到第 7 頁以後，上面已經用過的先收折（卡片收折到最小），
+     直接跳到『開始計算新的 RGB LUT』。」
+     🔴 收折是**純視覺**：`.dg-part-body` 只是被藏起來，裡面的 textarea／表格
+        一個字都沒動 —— 資料的真值本來就在那些欄位裡（見下方可編輯表格那一段），
+        藏起來不等於清空，展開回來還是同一份。
+     🔴 標題列整條可按（游標是手指、有 aria-expanded），因為自動收折之後
+        使用者一定要有辦法自己展開；只靠程式收折而沒有出口是把人關在外面。 */
+  .dg-part-head { cursor: pointer; }
+  .dg-part.folded .dg-part-body { display: none; }
+  .dg-part-fold {
+    flex: 0 0 auto; font-size: 11px; color: #94a3b8; user-select: none;
+    transition: transform .12s ease;
+  }
+  .dg-part.folded .dg-part-fold { transform: rotate(-90deg); }
   .dg-part-src {
     margin-top: 6px; font-size: 10.5px; line-height: 1.6; color: #94a3b8;
     text-transform: none; word-break: break-all;
@@ -2083,6 +2098,39 @@
         </div>
       </div>
 
+      <!-- ══ 🔴 v1.72.0：確認之前必須先把新的 RGB LUT 更新進 T-CON ══════════════
+           Bruce 2026-09-21 實機回報：「量完以後，回到 DG 那邊開始計算新的 RGB LUT，
+           它會跳出選擇的視窗……如果我要選擇 T-CON 自檢畫面，按下去以後它也沒有再跳
+           過去，也沒有說要把 DG 新的 LUT 重新載入，什麼都沒有講。嚴格說來，就是
+           『第四部分：確認結果』這個地方是有問題的。」
+
+           🔴 缺的那一步就是這一層：**算出新表 ≠ 面板裡是新表**。沒有這一步，
+              使用者拿著新算的表去量，量到的仍然是上一張表的曲線 —— 那一輪白量，
+              而且畫面上看起來完全正常。
+           🔴 **這一層只在工作模式＝T-CON 自檢畫面時才會走到**（見 dg-btn-conf-yes
+              的處理器）。電腦畫面那條路我們碰不到面板裡的表，跳這一層等於擺一顆
+              按了一定失敗的鈕。
+           🔴 **不准用「燒回」**（Bruce 指定）：那聽起來像燒錄，實際是即時寫進去。
+           🔴 這一層走完才給「下一步」—— 讀回核對不相符時擋住，不讓人在沒生效的
+              狀態下去量（Bruce 明示）。 -->
+      <div class="dg-lut-step" data-step="push" data-title="第 4 部分：先把新的 RGB LUT 更新到 T-CON" style="display:none">
+        <div class="dg-note" data-i18n="dg.p4PushWhy">要確認這一輪，得先把剛算出來的 RGB LUT 更新到 T-CON。沒更新就去量，量到的還是上一張表的曲線，這一輪等於白量。</div>
+        <div class="dg-lut-opt">
+          <div class="dg-lut-opt-title"><b data-i18n="dg.p4PushNow">現在更新</b></div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-conf-push" data-i18n="dg.p4PushBtn">即時更新 T-CON RGB LUT</button>
+          </div>
+          <div class="dg-note" id="dg-conf-push-warn" data-i18n="dg.p4PushUnverified">⚠ 這條更新路徑還沒有在真的機台上跑過。按下去會改變面板當下的顯示；更新完會立刻讀回來逐筆核對，對不上不會假裝成功。</div>
+          <div class="dg-status" id="dg-conf-push-say" style="display:none"></div>
+        </div>
+        <div class="dg-lut-opt" id="dg-conf-push-next-row" style="display:none">
+          <div class="dg-lut-opt-title"><b data-i18n="dg.p4PushDone">T-CON 裡已經是新的 LUT</b></div>
+          <div class="dg-btnrow">
+            <button class="dg-btn dg-btn-imp" id="dg-btn-conf-push-next" data-i18n="dg.p4PushNext">下一步：這一輪要怎麼量</button>
+          </div>
+        </div>
+      </div>
+
       <div class="dg-lut-step" data-step="path" data-title="第 4 部分：確認用的量測從哪來？" style="display:none">
         <div class="dg-note">
           先在「輸出」卡片把新的 LUT <b>寫進 TCON</b>，再重新量一次白灰階。
@@ -2226,12 +2274,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260921dg1710"></script>
-<script src="common/i18n.js?v=20260921dg1710"></script>
+<script src="common/version.js?v=20260922dg1720"></script>
+<script src="common/i18n.js?v=20260922dg1720"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260921dg1710"></script>
-<script src="common/common.js?v=20260921dg1710"></script>
+<script src="common/xlsx.js?v=20260922dg1720"></script>
+<script src="common/common.js?v=20260922dg1720"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -2285,7 +2333,62 @@
                            'zh-CN': '清空「T-CON 自检画面」的记录' },
       'dg.wmodeClrPc': { 'zh-TW': '清空「電腦畫面」的紀錄',
                          'en': 'Clear the \u201ccomputer\u2019s picture\u201d records',
-                         'zh-CN': '清空「电脑画面」的记录' }
+                         'zh-CN': '清空「电脑画面」的记录' },
+      /* ═══ 🔴 v1.72.0：第 4 部分「先把新的 RGB LUT 更新到 T-CON」═════════════
+         🔴 用詞（Bruce 2026-09-21 指定）：**不准用「燒回」** —— 那聽起來像燒錄
+            flash，實際是即時寫進去。一律「即時更新 T-CON RGB LUT」。
+         🔴 三語一個都不少（`t()` 查不到會靜默回傳 key 本身）。
+         🔴 畫面上不出現實作名詞：使用者要知道的是「更新了沒有、T-CON 裡現在是不是
+            新的表、對不上是卡在哪一筆」，不是記憶體怎麼擺。 */
+      'dg.p4PushWhy': { 'zh-TW': '要確認這一輪，得先把剛算出來的 RGB LUT 更新到 T-CON。沒更新就去量，量到的還是上一張表的曲線，這一輪等於白量。',
+                        'en': 'To confirm this round, the RGB LUT you just calculated has to be updated into the T-CON first. Measuring without updating gives you the previous table’s curve again, which wastes the round.',
+                        'zh-CN': '要确认这一轮，得先把刚算出来的 RGB LUT 更新到 T-CON。没更新就去量，量到的还是上一张表的曲线，这一轮等于白量。' },
+      'dg.p4PushNow': { 'zh-TW': '現在更新', 'en': 'Update now', 'zh-CN': '现在更新' },
+      'dg.p4PushBtn': { 'zh-TW': '即時更新 T-CON RGB LUT',
+                        'en': 'Update the T-CON RGB LUT now',
+                        'zh-CN': '即时更新 T-CON RGB LUT' },
+      'dg.p4PushDone': { 'zh-TW': 'T-CON 裡已經是新的 LUT',
+                         'en': 'The T-CON now holds the new LUT',
+                         'zh-CN': 'T-CON 里已经是新的 LUT' },
+      'dg.p4PushNext': { 'zh-TW': '下一步：這一輪要怎麼量',
+                         'en': 'Next: how to measure this round',
+                         'zh-CN': '下一步：这一轮要怎么量' },
+      'dg.p4PushUnverified': { 'zh-TW': '⚠ 這條更新路徑還沒有在真的機台上跑過。按下去會改變面板當下的顯示；更新完會立刻讀回來逐筆核對，對不上不會假裝成功。',
+                               'en': '⚠ This update path has never been run on real hardware. Pressing it changes what the panel is showing; the table is read back and checked entry by entry afterwards, and a mismatch is never reported as success.',
+                               'zh-CN': '⚠ 这条更新路径还没有在真的机台上跑过。按下去会改变面板当下的显示；更新完会立刻读回来逐笔核对，对不上不会假装成功。' },
+      'dg.p4PushNoResult': { 'zh-TW': '還沒有算出這一輪的 RGB LUT，先按「開始計算新的 RGB LUT」。',
+                             'en': 'This round’s RGB LUT has not been calculated yet. Press “Calculate the new RGB LUT” first.',
+                             'zh-CN': '还没有算出这一轮的 RGB LUT，先按「开始计算新的 RGB LUT」。' },
+      'dg.p4PushNoTab': { 'zh-TW': '自檢分頁沒有開著，已經幫你開一個。請在那一頁連上 I2C 治具、等它認出 T-CON，再回來按一次。',
+                          'en': 'The self-test tab was not open, so one has been opened. Connect the I2C adapter there, wait until it identifies the T-CON, then come back and press again.',
+                          'zh-CN': '自检分页没有开着，已经帮你开一个。请在那一页连上 I2C 工装、等它认出 T-CON，再回来按一次。' },
+      'dg.p4PushNoTabFail': { 'zh-TW': '瀏覽器把新分頁擋掉了。請允許本站開新分頁，再按一次。',
+                              'en': 'The browser blocked the new tab. Allow this site to open tabs, then press again.',
+                              'zh-CN': '浏览器把新分页挡掉了。请允许本站开新分页，再按一次。' },
+      'dg.p4PushGoing': { 'zh-TW': '更新中…已送出 {done} / {total}',
+                          'en': 'Updating… {done} / {total} sent',
+                          'zh-CN': '更新中…已送出 {done} / {total}' },
+      'dg.p4PushVerify': { 'zh-TW': '已送完，正在讀回來逐筆核對。',
+                           'en': 'All sent. Reading it back and checking entry by entry.',
+                           'zh-CN': '已送完，正在读回来逐笔核对。' },
+      'dg.p4PushStart': { 'zh-TW': '已指派給自檢分頁，正在更新 T-CON 裡的 RGB LUT。',
+                          'en': 'Handed to the self-test tab; the RGB LUT inside the T-CON is being updated.',
+                          'zh-CN': '已指派给自检分页，正在更新 T-CON 里的 RGB LUT。' },
+      'dg.p4PushTimeout': { 'zh-TW': '自檢分頁超過 {s} 秒沒有回應。請切到自檢分頁看它現在的狀況，再回來按一次。',
+                            'en': 'The self-test tab has not answered for over {s} seconds. Switch to it to see what it is doing, then come back and press again.',
+                            'zh-CN': '自检分页超过 {s} 秒没有回应。请切到自检分页看它现在的状况，再回来按一次。' },
+      /* 🔴 v1.72.0：分頁切換一律改成中性提示 —— 瀏覽器不允許網頁把另一個分頁
+         切到前景，寫「已切過去」是假話（Bruce 2026-09-21 實測按了沒反應）。 */
+      'dg.assignedTcon': { 'zh-TW': '已指派，請切到自檢分頁繼續。',
+                           'en': 'Handed over — switch to the self-test tab to carry on.',
+                           'zh-CN': '已指派，请切到自检分页继续。' },
+      /* ═══ 🔴 v1.72.0：從自檢分頁回來之後的導引 ═══════════════════════════════
+         Bruce 2026-09-21：「我回到第 7 頁，突然不知道要做什麼。」
+         🔴 導引**不寫狀態列**（理由見 `dgGuideAfterLive`），所以這裡只有標題列
+            那一句 title 提示，沒有另一組「已經幫你收折了」的字。 */
+      'dg.foldHint': { 'zh-TW': '點一下可以收折／展開',
+                       'en': 'Click to fold or unfold',
+                       'zh-CN': '点一下可以收折／展开' }
     };
     for (var k in add) if (Object.prototype.hasOwnProperty.call(add, k) && !I18N[k]) I18N[k] = add[k];
     /* ═══ 🔴 補完之後**一定要再套一次語言** ═══════════════════════════════════
@@ -2306,6 +2409,10 @@
 
   // ─── 小工具 ────────────────────────────────────────────────────────────
   function $(id) { return document.getElementById(id); }
+  /* v1.72.0：本頁大部分文字是繁中單語（既有），但這一版新增的字樣依 Bruce 指定走三語。
+     🔴 寫法與 `dg-selftest.html` 的 `dstT()` 逐字相同：`t()` 不在（單獨開這一頁、
+        common.js 沒載到）時回傳 key 本身而不是整頁壞掉。 */
+  function dgT(k, v) { return (typeof t === 'function') ? t(k, v) : k; }
 
   // 固定參數：不出現在 UI，但演算法一律依這組值運算。
   var DG_FIXED = {
@@ -10441,6 +10548,80 @@
       && dgParseRows($('dg-in-white').value).length > 0;
   }
 
+  /* ═══ 🔴 v1.72.0：三個部分的收折 ═══════════════════════════════════════════
+     Bruce 2026-09-21：「我回到第 7 頁，突然不知道要做什麼。是不是有辦法做到：回到
+     第 7 頁以後，上面已經用過的先收折（卡片收折到最小），直接跳到『開始計算新的
+     RGB LUT』？」
+
+     🔴 **收折是視覺狀態，不碰任何資料**：只是把 `.dg-part-body` 藏起來。資料的真值
+        一直在那幾個 textarea 裡（`#dg-in-lut`／`#dg-in-gray`／`#dg-in-white`／
+        `#dg-in-prim`），藏起來、展開回來都是同一份 —— 這一條有夾具逐字元比對。
+     🔴 **不自動按計算**（Bruce 這一輪只說「帶到那裡」，自動計算他是在問、不是裁示）。
+     🔴 名單走 `DG_PART_META`，不另列一張 id 清單 —— 列舉式清單漏一筆不會有人發現，
+        本專案已有多次前例。 */
+  function dgPartEl(part) {
+    var m = DG_PART_META[part];
+    return m ? $(m.card) : null;
+  }
+  function dgPartFoldSet(part, on) {
+    var el = dgPartEl(part);
+    if (!el) return false;
+    el.classList.toggle('folded', !!on);
+    var head = el.querySelector('.dg-part-head');
+    if (head) head.setAttribute('aria-expanded', on ? 'false' : 'true');
+    return true;
+  }
+  function dgPartFolded(part) {
+    var el = dgPartEl(part);
+    return el ? el.classList.contains('folded') : null;
+  }
+  /* 標題列變成收折開關。🔴 caret 由這裡插入而不是寫在 HTML 裡：三個部分共用同一支，
+     少插一個不可能發生。說明鈕（`.dg-info-btn`）自己已經 stopPropagation，不會誤觸。 */
+  function dgFoldInit() {
+    Object.keys(DG_PART_META).forEach(function (part) {
+      var el = dgPartEl(part);
+      if (!el) return;
+      var head = el.querySelector('.dg-part-head');
+      if (!head || head.getAttribute('data-fold-ready')) return;
+      var car = document.createElement('span');
+      car.className = 'dg-part-fold';
+      car.setAttribute('aria-hidden', 'true');
+      car.textContent = '▾';
+      head.insertBefore(car, head.firstChild);
+      head.setAttribute('data-fold-ready', '1');
+      head.setAttribute('role', 'button');
+      head.setAttribute('aria-expanded', 'true');
+      head.setAttribute('title', dgT('dg.foldHint'));
+      head.addEventListener('click', function () {
+        dgPartFoldSet(part, !el.classList.contains('folded'));
+      });
+    });
+  }
+
+  /* 從自檢分頁回來、資料落地之後的導引。
+     🔴 **備齊的才收折** —— 還缺的那一個收起來，等於把他還要做的事藏起來。
+     🔴 三份都齊 ⇒ 帶到計算鈕（他的原話）；還有缺 ⇒ 帶到還缺的那一個，
+        因為帶到一顆按不下去的計算鈕沒有任何用處。
+     🔴 **這一支不寫狀態列。** 三條落地路徑（dgApplyLiveLut／LivePrim／LiveRows）
+        每一條結尾都已經寫了一段狀態，而且最後一句就是「三份都齊了，下一步：按
+        『計算』。」—— 再蓋一段上去只會把那些資訊換掉。而且第 2 部分那條路接著
+        會問「要不要記錄到光學資料比較」，它答完之後會用自己那份字重寫狀態列，
+        我們寫的那一行會被吃掉 ⇒ 寫了也留不住。
+        「可以點標題展開」由標題列自己的 caret（▾／▸）與 title 提示負責。
+     🔴 捲動走 `scrollIntoView`，與 v1.15.0 快捷設定那一條**同一支**，不另寫一套。
+     🔴 **不自動按計算**（Bruce 這一輪只說「帶到那裡」）。 */
+  function dgGuideAfterLive() {
+    var miss = dgMissingParts(), folded = [];
+    Object.keys(DG_PART_META).forEach(function (part) {
+      var done = (miss.indexOf(part) < 0) && dgPartFilled(part);
+      dgPartFoldSet(part, done);
+      if (done) folded.push(part);
+    });
+    var target = miss.length ? dgPartEl(miss[0]) : $('dg-calc-act');
+    if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return { folded: folded, miss: miss.slice(), target: target ? target.id : null };
+  }
+
   /* ═══ v1.17.0：只調 Gamma／也調色溫 ══════════════════════════════════════
      Bruce 2026-09-08：「如果匯入的 RGB LUT 發現 RGB 三個數值一模一樣（也就是沒有做過
      色溫調校），那系統還是要繼續詢問使用者：是要保留『只調 Gamma、不調色溫』，還是要
@@ -10836,7 +11017,7 @@
     var byKey = dgLivePrimToXYZ(rows) || {};
     if (!byKey.r || !byKey.g || !byKey.b) {
       dgSetStatus('dg-status', '即時量測分頁送回來的純色端點不齊（需要 R、G、B 三筆），沒有帶入。', 'err');
-      return;
+      return false;   // v1.72.0：沒落地（理由見 dgApplyLiveLut 同一處註解）
     }
     dgApplyPrim({ prim: byKey }, at || '', 'live');
 
@@ -10857,6 +11038,7 @@
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
         : '三份都齊了，下一步：按「計算」。'),
       miss.length ? '' : 'ok');
+    return true;      // v1.72.0：真的落地了
   }
 
   /* ═══════════════════════════════════════════════════════════════════════════
@@ -10902,7 +11084,9 @@
     if (rs.length < 2) {
       dgSetStatus('dg-status', '自檢分頁送回來的 LUT 不足（只有 ' + rs.length
         + ' 筆有效），沒有帶入。', 'err');
-      return;
+      /* 🔴 v1.72.0：回傳「有沒有真的落地」。呼叫端（收訊處理器）靠它決定要不要做
+         收折與導引 —— 沒落地就導引，等於把「這一份被退回了」那句話蓋掉。 */
+      return false;
     }
 
     dgInvalidateResult();
@@ -10946,6 +11130,7 @@
        詢問，而它的判定讀的就是剛剛寫進去的那份 LUT ⇒ 一定要在寫入之後。
        與匯入檔那一條路走的是**同一支** dgToneAfterLutSet()，不另寫判定。 */
     dgToneAfterLutSet();
+    return true;      // v1.72.0：真的落地了
   }
 
   /* 第 2 部分：白灰階 ＋ 目標白點。v1.8.0：匯入當下就把這條曲線畫到光學確認圖表上。
@@ -11205,7 +11390,7 @@
 
     if (rs.length < 2) {
       dgSetStatus('dg-status', '即時量測分頁送回來的資料不足（只有 ' + rs.length + ' 筆有效），沒有帶入。', 'err');
-      return;
+      return false;   // v1.72.0：沒落地（理由見 dgApplyLiveLut 同一處註解）
     }
     var top = rs[rs.length - 1];
     dgApplyGray({ rows: rs, white: [top.x, top.y, top.Y] }, label || '', 'live');
@@ -11248,6 +11433,7 @@
     dgGrayRecordAsk(rs, label || '（即時量測）', dgRoundName(DG_ROUND), function () {
       if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
     }, DG_GRAY_META);   // v1.45.0
+    return true;        // v1.72.0：真的落地了
   }
 
   /* ═══ v1.24.0：第 4 部分「確認結果」════════════════════════════════════════
@@ -11349,6 +11535,112 @@
   function dgConfClear() {
     dgConfReset();
     dgConfSetStatus('已清空第 4 部分。前三個部分與計算結果都沒有動。', '');
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     🔴 v1.72.0：第 4 部分「先把新的 RGB LUT 更新到 T-CON」
+     ───────────────────────────────────────────────────────────────────────────
+     Bruce 2026-09-21 實機回報：確認結果這一段是半套 —— 算出新表之後直接叫人去量，
+     但面板裡**還是舊表**，那一輪等於白量，而且畫面上看起來完全正常。
+
+     🔴 這一頁自己碰不到 T-CON（I2C 連線活在自檢分頁裡）。所以這裡只做三件事：
+        把表送過去、把進度與結果如實寫在畫面上、**核對相符之前不讓人往下走**。
+        真正的寫入與讀回核對在 `dg-selftest.html`（那裡才有連線與位址規格）。
+     🔴 「已經更新過了嗎」不另存一個布林，而是存**送出去那份表的指紋**：
+        表被重算、輸出深度被改掉，指紋就對不上 ⇒ 自動回到「還沒更新」。
+        用布林的話要在每一個會讓表失效的地方記得清掉它，漏一個就是假的綠燈。
+     ═════════════════════════════════════════════════════════════════════════ */
+  var DG_P4_PUSH_SIG = null;    // 最後一次「更新並核對相符」的那份表的指紋
+  var DG_P4_PUSH_TASK = 0;      // 每按一次 +1（回報要帶回同一個編號）
+  var DG_P4_PUSH_PEND = null;   // { task, timer } ＝ 正在等自檢分頁回話
+  var DG_P4_PUSH_WAIT_MS = 180000;   // 整張表最大 4644 byte，前後各要完整讀一次
+
+  /* 指紋 ＝ 輸出深度 ＋ 主表逐值。**不是雜湊**：表最多 1025 列，直接比字串就夠，
+     而雜湊會多一層「撞了怎麼辦」的問題。 */
+  function dgP4LutSig() {
+    var body = dgOutLutBody();
+    if (!body || !body.length) return null;
+    return dgOutBit() + ':' + body.map(function (r) { return r.join(','); }).join(';');
+  }
+  function dgP4Pushed() {
+    var s = dgP4LutSig();
+    return !!(s && DG_P4_PUSH_SIG && s === DG_P4_PUSH_SIG);
+  }
+  function dgP4PushSay(msg, cls) {
+    var e = $('dg-conf-push-say');
+    if (!e) return;
+    if (!msg) { e.style.display = 'none'; e.textContent = ''; e.className = 'dg-status'; return; }
+    e.style.display = '';
+    e.className = 'dg-status' + (cls ? ' ' + cls : '');
+    e.textContent = msg;
+  }
+  /* 「下一步」只有在**這一份表**已經更新並核對相符時才出現。 */
+  function dgP4PushSync() {
+    var row = $('dg-conf-push-next-row');
+    if (row) row.style.display = dgP4Pushed() ? '' : 'none';
+    var b = $('dg-btn-conf-push');
+    if (b) b.disabled = !!DG_P4_PUSH_PEND;
+  }
+  /* 進到這一層時的起始畫面。已經更新過同一份表就直接顯示成功那一行（不必再按一次）。 */
+  function dgP4PushEnter() {
+    if (DG_P4_PUSH_PEND) { dgP4PushSync(); return; }
+    dgP4PushSay(dgP4Pushed() ? dgT('dg.p4PushDone') : '', dgP4Pushed() ? 'ok' : '');
+    dgP4PushSync();
+  }
+  function dgP4PushDone(text, ok) {
+    if (DG_P4_PUSH_PEND && DG_P4_PUSH_PEND.timer) clearTimeout(DG_P4_PUSH_PEND.timer);
+    DG_P4_PUSH_PEND = null;
+    dgP4PushSay(text, ok ? 'ok' : 'err');
+    dgP4PushSync();
+  }
+
+  function dgConfPushGo() {
+    if (DG_P4_PUSH_PEND) return false;               // 已經在跑了，按第二次不重送
+    var body = dgOutLutBody();
+    if (!body || !body.length) { dgP4PushSay(dgT('dg.p4PushNoResult'), 'err'); return false; }
+    /* 自檢分頁不在 ⇒ **幫他開一個**，然後講清楚要先在那一頁連上、再回來按。
+       🔴 走的是既有的 `dgOpenSelftest()`（＝第 1 部分那顆鈕同一條路），不另寫一條
+          開分頁的路 —— 分頁重用、版號握手、網址參數才不會有第二套。 */
+    if (!dgLiveAlive('tcon')) {
+      var opened = dgOpenSelftest ? dgOpenSelftest() : false;
+      dgP4PushSay(opened ? dgT('dg.p4PushNoTab') : dgT('dg.p4PushNoTabFail'), 'err');
+      return false;
+    }
+    var sig = dgP4LutSig();
+    var task = ++DG_P4_PUSH_TASK;
+    /* 列的形狀與自檢頁回傳 LUT 時那一份逐欄相同：[index, R, G, B]。 */
+    var rows = body.map(function (r, i) { return [i, r[0], r[1], r[2]]; });
+    try {
+      DG_LIVE_PAGES.tcon.win.postMessage(
+        { type: 'dg-lut-write', task: task, depth: dgOutBit(), entries: rows.length, rows: rows },
+        window.location.origin);
+    } catch (e) {
+      dgP4PushSay(dgT('dg.p4PushNoTabFail'), 'err');
+      return false;
+    }
+    DG_P4_PUSH_PEND = { task: task, sig: sig, timer: setTimeout(function () {
+      dgP4PushDone(dgT('dg.p4PushTimeout', { s: Math.round(DG_P4_PUSH_WAIT_MS / 1000) }), false);
+    }, DG_P4_PUSH_WAIT_MS) };
+    dgP4PushSay(dgT('dg.p4PushStart'), '');
+    dgP4PushSync();
+    return true;
+  }
+
+  /* 自檢分頁回話。🔴 **只認自己這一次的編號** —— 上一次逾時之後晚到的回報不算數。 */
+  function dgP4PushProgress(d) {
+    if (!DG_P4_PUSH_PEND || d.task !== DG_P4_PUSH_PEND.task) return false;
+    if (d.stage === 'verify') dgP4PushSay(dgT('dg.p4PushVerify'), '');
+    else if (d.stage === 'write') dgP4PushSay(dgT('dg.p4PushGoing', { done: d.done, total: d.total }), '');
+    return true;
+  }
+  function dgP4PushResult(d) {
+    if (!DG_P4_PUSH_PEND || d.task !== DG_P4_PUSH_PEND.task) return false;
+    var sig = DG_P4_PUSH_PEND.sig;
+    /* 🔴 成功才留指紋。失敗（含「寫到一半」）一律不留 —— 留了就是在說
+       「T-CON 裡是這一張」，而那正是我們不知道的事。 */
+    DG_P4_PUSH_SIG = d.ok ? sig : null;
+    dgP4PushDone(d.text || (d.ok ? dgT('dg.p4PushDone') : ''), !!d.ok);
+    return true;
   }
 
   /* 唯一的寫入點：三條來源（匯入量測檔／匯入光學確認檔／即時量測）都走這裡。 */
@@ -14035,13 +14327,35 @@
              既有那兩句講的是「把分頁拖到要量的那台螢幕、按全螢幕、探頭對準」——
              讀 LUT 這一步一個都不成立（不出圖、不用儀器、不必全螢幕）。
              🔴 其餘四個入口的兩句**一個字都沒動**（見下面的 else 分支）。 */
+          /* ═══ 🔴 v1.72.0：自檢那條路的文案改成「不假裝能切分頁」═══════════════
+             Bruce 2026-09-21 實機回報：「按下去以後它也沒有再跳過去。」
+             🔴 根因不是我們漏做：**瀏覽器不允許網頁把另一個分頁切到前景**。本頁早在
+                v1.27.0 就把 `focus()` 拿掉了（那一行還會害量測分頁掉出全螢幕），
+                而且就算留著也無效。⇒ 文案一律改成中性的「已指派，請切到自檢分頁
+                繼續」，不再寫「已切換到…」那種像是幫他切好了的話。
+             🔴 走自檢這條路時，現場提示取**自檢頁那三顆鈕自己的那一句**（入口表同一
+                份，不另抄一份）：第 4 部分與光學資料比較那兩個入口的 p[3] 寫的是
+                「探頭對準紅圈、按右上角開始量測」，那是電腦畫面那一頁的做法，
+                照抄到自檢這條路上就是錯的。
+             🔴 電腦畫面那條路（下面的 else）**一個字都沒動**。 */
+          var tconHint = (function () {
+            var e = DG_LIVE_ENTRY['dg-btn-tcon-' + step];
+            return (e && e[3]) ? e[3] : p[3];
+          })();
           if (p[4] === 'lut') {
             say(reused
-              ? ('自檢分頁已切換到' + p[2] + '，請切過去那個分頁操作。\n'
-                + '它沒有被重開 —— 它跟 I2C Bridge 的連線維持原樣。\n'
+              ? (dgT('dg.assignedTcon') + '\n'
+                + '目的地是這一頁的' + p[2] + '。自檢分頁沒有被重開 —— 它跟 I2C 治具的連線維持原樣。\n'
                 + '切過去之後，' + p[3] + '。\n' + tail)
-              : ('已開啟「T-CON 自檢」分頁（' + p[2] + '）。\n'
+              : ('已開啟「T-CON 自檢」分頁（' + p[2] + '）。' + dgT('dg.assignedTcon') + '\n'
                 + '在那一頁先連上 I2C、等它認出 IC，' + p[3] + '。\n' + tail), '');
+          } else if (kind === 'tcon') {
+            say(reused
+              ? (dgT('dg.assignedTcon') + '\n'
+                + '目的地是這一頁的' + p[2] + '。自檢分頁沒有被重開 —— 它跟 I2C 治具的連線維持原樣。\n'
+                + '切過去之後，' + tconHint + '。\n' + tail)
+              : ('已開啟「T-CON 自檢」分頁（' + p[2] + '）。' + dgT('dg.assignedTcon') + '\n'
+                + '在那一頁先連上 I2C、等它認出 IC，' + tconHint + '。\n' + tail), '');
           } else {
           say(reused
             /* 🔴 不搶焦點之後，這一句就是「按了有反應」的主要憑據之一，
@@ -14132,6 +14446,15 @@
         dgApplyIcInfo(d);
         return;
       }
+      /* ═══ 🔴 v1.72.0：第 4 部分「更新 T-CON RGB LUT」的進度與結果 ══════════════
+         🔴 來源守衛與下面那兩則逐字相同（必須真的是我們開的那個分頁）。
+         🔴 **編號對不上就丟掉**：上一次逾時之後晚到的回報不該把畫面翻成成功。 */
+      if (d && (d.type === 'dg-lut-write-progress' || d.type === 'dg-lut-write-result')) {
+        if (dgLiveAlive() && !dgLiveIsOurs(e.source)) return;
+        if (d.type === 'dg-lut-write-progress') dgP4PushProgress(d);
+        else dgP4PushResult(d);
+        return;
+      }
       if (d && d.type === 'dg-measure-hello') {
         /* v1.68.0：兩條路各有一個槽 ⇒ 判準從「是不是那一個」改成「是不是我們的
            其中一個」。語意沒變（仍然是「來源必須真的是我們開的量測分頁」）。 */
@@ -14151,9 +14474,20 @@
             帶到別的地方去。
          🔴 `dg-measure.html` 永遠不會送這個 mode（電腦畫面讀不到 IC 裡的表），
             所以這一條只有自檢頁那一條路會走到。 */
-      if (d.mode === 'lut') { dgApplyLiveLut(d.rows, d.at || d.label, d); return; }
+      /* ═══ 🔴 v1.72.0：從自檢分頁回來之後的導引 ═════════════════════════════
+         Bruce 2026-09-21：「我回到第 7 頁，突然不知道要做什麼。」
+         🔴 **只有自檢分頁那一條路**（他的原話就是自檢頁），而且只有三個部分那三個
+            落點 —— 「光學資料比較」與第 4 部分的確認量測不是這個流程，收折它們
+            只會把他剛量好的東西藏起來。
+         🔴 資料一定**先落地再收折**：收折只看落地之後的齊備狀態。 */
+      var guideAfter = (DG_LIVE_TASK_KIND[d.task] === 'tcon')
+        && (d.mode === 'lut' || d.mode === 'prim' || dest === 'gray');
+      /* 🔴 `landed` ＝ 那三支**真的把資料寫進去了**（筆數不足時它們回 false）。
+         沒落地就不導引：收折與捲動會把「這一份被退回了」那句話從他眼前帶走。 */
+      var guide = function (landed) { if (guideAfter && landed) dgGuideAfterLive(); };
+      if (d.mode === 'lut') { guide(dgApplyLiveLut(d.rows, d.at || d.label, d)); return; }
       // mode 缺席時當灰階（v1.11.0 以前的量測頁沒有這個欄位）
-      if (d.mode === 'prim') { dgApplyLivePrim(d.rows, d.at || d.label); return; }
+      if (d.mode === 'prim') { guide(dgApplyLivePrim(d.rows, d.at || d.label)); return; }
       /* ─── v1.45.0：白灰階那一輪多帶回來的三個欄位 ──────────────────────────
          量測頁（v1.45.0 起）在 gray 模式掃完 L255 之後會再量純紅／綠／藍三步，
          並回報這一輪的總耗時與當時的換階等待。三個欄位都是**加在既有訊息上**，
@@ -14171,7 +14505,7 @@
       // v1.18.0：白灰階量完要進哪裡，由「是誰按的即時量測」決定（見 DG_LIVE_DEST）
       if (dest === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label, meta);
       else if (dest === 'conf') dgConfApplyLive(d.rows, d.at || d.label, meta);   // v1.24.0
-      else dgApplyLiveRows(d.rows, d.at || d.label, meta);
+      else guide(dgApplyLiveRows(d.rows, d.at || d.label, meta));
     });
 
     // v1.8.0：說明浮動視窗。內容直接取自頁面上那些 display:none 的區塊，不維護第二份文字。
@@ -14277,7 +14611,25 @@
     $('dg-modal-conf').addEventListener('click', function (e) {
       if (e.target === $('dg-modal-conf')) dgStepModalClose('dg-modal-conf');
     });
+    /* ═══ 🔴 v1.72.0：要確認 ⇒ 自檢模式下先走「更新 T-CON RGB LUT」那一層 ═══════
+       🔴 **只有工作模式＝T-CON 自檢畫面時才多這一層**（Bruce 明示）：電腦畫面那條路
+          我們碰不到面板裡的表，擺一顆按了一定失敗的鈕只會誤導。
+       🔴 分流寫在這裡而不是用 `data-wmode-only` 藏鈕：那個屬性是用 `style.display`
+          在管，而浮動視窗的分層（`dgStepModalStep`）也是用 `style.display` 在管，
+          同一個屬性被兩支搶著寫，結果會隨呼叫順序變 —— 這種 bug 不會每次重現。 */
     $('dg-btn-conf-yes').addEventListener('click', function () {
+      if (DG_WMODE === 'tcon') {
+        dgStepModalStep('dg-modal-conf', 'push');
+        dgP4PushEnter();
+        return;
+      }
+      dgStepModalStep('dg-modal-conf', 'path');
+    });
+    $('dg-btn-conf-push').addEventListener('click', dgConfPushGo);
+    $('dg-btn-conf-push-next').addEventListener('click', function () {
+      /* 🔴 沒有核對相符就不讓往下 —— 這一顆本來就只在相符時才出現，這一行是
+          第二道閘（程式化點擊、或視窗停在舊狀態時也擋得住）。 */
+      if (!dgP4Pushed()) { dgP4PushSync(); return; }
       dgStepModalStep('dg-modal-conf', 'path');
     });
     $('dg-btn-conf-no').addEventListener('click', function () {
@@ -14373,6 +14725,7 @@
     dgRefreshSdBadge();
     dgRefreshOutputs();
     dgRefreshReady();
+    dgFoldInit();          // v1.72.0：三個部分的標題列變成收折開關（起始全部展開）
     dgConfSync();          // v1.24.0：第 4 部分的起始狀態（未確認、圖表容器收起）
     dgRoundSync();         // v1.25.0：起始輪數（第一輪 ⇒ 標註不顯示）
     dgDrawCharts(null);
@@ -14714,6 +15067,52 @@
     confApply: dgConfApply,
     confClear: dgConfReset,
     confAsked: function () { return DG_CONF_ASKED; },
+    /* ═══ v1.72.0 驗證用：第 4 部分「先更新 T-CON RGB LUT」══════════════════════
+       🔴 這裡**沒有**「直接把它標成已更新」的寫入口 —— 指紋只能由自檢分頁真的
+          回報 ok 才會留下，否則夾具驗到的通過不算數。
+       🔴 `pushGo`／`pushResult` 走的是產品那顆鈕與那個訊息處理器的同一支。 */
+    p4PushSig: function () { return DG_P4_PUSH_SIG; },
+    p4Pushed: dgP4Pushed,
+    p4LutSig: dgP4LutSig,
+    p4PushGo: dgConfPushGo,
+    p4PushProgress: dgP4PushProgress,
+    p4PushResult: dgP4PushResult,
+    p4PushPending: function () { return DG_P4_PUSH_PEND ? { task: DG_P4_PUSH_PEND.task } : null; },
+    p4PushSay: function () {
+      var e = $('dg-conf-push-say');
+      if (!e || e.style.display === 'none') return null;
+      return { text: e.textContent, cls: e.className };
+    },
+    p4PushNextVisible: function () {
+      var e = $('dg-conf-push-next-row');
+      return e ? e.style.display !== 'none' : null;
+    },
+    p4PushNextClick: function () { var e = $('dg-btn-conf-push-next'); if (e) e.click(); },
+    p4PushBtnDisabled: function () { var e = $('dg-btn-conf-push'); return e ? !!e.disabled : null; },
+    confYesClick: function () { var e = $('dg-btn-conf-yes'); if (e) e.click(); },
+    confStepShown: function () {
+      var out = null;
+      Array.prototype.forEach.call(
+        document.querySelectorAll('#dg-modal-conf .dg-lut-step'), function (s) {
+          if (s.style.display !== 'none') out = s.getAttribute('data-step');
+        });
+      return out;
+    },
+    /* v1.72.0 驗證用：三個部分的收折（純視覺）。 */
+    partFolded: dgPartFolded,
+    partFoldSet: dgPartFoldSet,
+    partHeadClick: function (part) {
+      var el = dgPartEl(part), h = el ? el.querySelector('.dg-part-head') : null;
+      if (h) h.click();
+      return dgPartFolded(part);
+    },
+    partBodyVisible: function (part) {
+      var el = dgPartEl(part), b = el ? el.querySelector('.dg-part-body') : null;
+      if (!b) return null;
+      /* jsdom 沒有版面，所以問的是「收折這條規則有沒有套上去」，不是量高度。 */
+      return !el.classList.contains('folded');
+    },
+    guideAfterLive: dgGuideAfterLive,
     // v1.25.0 驗證用（唯讀／既有路徑的薄包裝）
     round: function () { return DG_ROUND; },
     roundName: dgRoundName,

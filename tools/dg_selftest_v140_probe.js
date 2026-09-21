@@ -410,21 +410,29 @@ async function armed(opts) {
     CHECK(/dst-btn/.test(cls), '仍然是一般的 .dst-btn');
     CHECK(/\.dst-btn\.on[^}]*#064e3b|\.dst-btn\.on,/.test(SRC), '開啟時才變綠（.dst-btn.on）');
 
-    /* 🔴 功能面：對位畫面關著也照樣能掃 */
+    /* ═══ 🔴 修復（dgself v1.11.0）：這一段自 v1.10.1 起就是**爆掉**的 ═════════
+       原因：`#dst-run`（「開始掃描」那一顆獨立按鈕）在 v1.10.1 依 Bruce 裁示
+       **整顆移除**，量測改由步驟卡 ②③ 那一顆兩段式的鈕（`#dst-go-gray`）發動。
+       這支夾具還在對一個不存在的元素取 `.disabled` ⇒ `TypeError` ⇒ **整支中斷**，
+       後面所有組別一條都沒跑到。這不是本輪改出來的，但留著就是一支假死的夾具。
+
+       🔴 驗的**事情沒有變**：對位畫面開著或關著，都不影響「能不能開始量」。
+          只是那個閘門現在掛在 `#dst-go-gray` 上（`dstRenderSteps()` 裡那一段）。
+       🔴 程式碼層面那一條也跟著改成對 `dst-go-gray` 查，語意相同：
+          啟用條件裡不得出現 `dstShowing`。 */
     const { w, P } = await armed({});
     await P.scanIdentify();
+    const goDis = () => { const e = w.document.getElementById('dst-go-gray'); return e ? e.disabled : null; };
     CHECK(P.showing() === null, '起始：沒有任何畫面是開著的');
-    CHECK(w.document.getElementById('dst-run').disabled === false,
-      '🔴 對位畫面沒開 ⇒ 「開始掃描」**仍然可以按**');
+    CHECK(goDis() === false, '🔴 對位畫面沒開 ⇒ ②③ 那顆「開始量」**仍然可以按**', goDis());
     await P.alignToggle();
     CHECK(P.showing() === 'align', '按一下 ⇒ 對位畫面開著');
-    CHECK(w.document.getElementById('dst-run').disabled === false, '開著也可以按');
+    CHECK(goDis() === false, '開著也可以按', goDis());
     await P.alignToggle();
     CHECK(P.showing() === null, '再按一下 ⇒ 關掉');
-    CHECK(w.document.getElementById('dst-run').disabled === false,
-      '🔴 他自己關掉之後 ⇒ 還是可以按（Bruce 明確要求）');
-    CHECK(!/dstShowing[^\n]*dst-run|dst-run[^\n]*dstShowing/.test(CODE),
-      '程式碼裡「開始掃描」的啟用條件與 dstShowing 無關');
+    CHECK(goDis() === false, '🔴 他自己關掉之後 ⇒ 還是可以按（Bruce 明確要求）', goDis());
+    CHECK(!/dstShowing[^\n]*dst-go-gray|dst-go-gray[^\n]*dstShowing/.test(CODE),
+      '程式碼裡「開始量」的啟用條件與 dstShowing 無關');
   }
 
   /* ═══ I. 進度計數 ═══════════════════════════════════════════════════════ */
@@ -473,7 +481,16 @@ async function armed(opts) {
         + (DG.match(/dgApplyGrayTailPrim\(meta\.prim, at\)/g) || []).length >= 2,
       '三個目的地都會走到它');
 
-    CHECK(/'dst\.dgSentTwo'/.test(SRC), '頁面用了兩組分開講的那個 key');
+    /* 🔴 修復（dgself v1.11.0）：v1.10.0 把「兩組分開講」那一句**改用本頁自己的
+       `dst.dgSentBoth`**（掛在 dg-selftest.html 裡，理由是改 common/i18n.js 會逼
+       每一頁 bump `?v=`）。這支還在找舊的 `dst.dgSentTwo` ⇒ 自那時起就是紅的。
+       驗的事情沒有變：**兩組要分開講**，而且句子裡要出現第 3 部分。
+       🔴 共用檔裡那一筆 `dst.dgSentTwo` 目前已經沒有任何一頁在用；它屬於
+          common/i18n.js 的清理範圍（動它要 bump 十幾頁的 `?v=`），本輪不動。 */
+    CHECK(/'dst\.dgSentBoth'/.test(SRC), '頁面用了兩組分開講的那個 key（dst.dgSentBoth）');
+    CHECK(/第 3 部分|dest3/.test(
+      SRC.slice(SRC.indexOf("I18N['dst.dgSentBoth']"), SRC.indexOf("I18N['dst.dgSentBoth']") + 700)),
+      '🔴 那一句真的把第 3 部分講出來（不是只說「也送了」）');
     ['zh-TW', 'zh-CN', 'en'].forEach(L => {
       const i = I18N.indexOf("'dst.dgSentTwo':");
       CHECK(i > 0 && I18N.slice(i, i + 900).indexOf("'" + L + "'") >= 0, 'dst.dgSentTwo 有 ' + L);

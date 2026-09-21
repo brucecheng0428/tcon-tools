@@ -80,6 +80,13 @@ async function load(opts) {
     P.setIcForTest('EM02A1', -1);
   }
   if (opts.ca !== false) P.__attachFakeMeter(meter);
+  /* 🔴 修復（dgself v1.11.0）：一定要重畫一次。
+     `__attachFakeMeter()` 自己會呼叫 dstRenderBtns，所以 `ca !== false` 的路徑
+     「剛好」是對的；而 `ca:false` 那條路**完全沒有重畫**，讀到的按鈕狀態是
+     頁面剛載入（什麼都沒連）時留下來的 —— 於是「儀器沒連 ⇒ 鈕是灰的」在舊版
+     裡是**因為沒重畫才綠的**，不是因為產品判對了。那是假綠。
+     ⇒ 一律重畫，讓兩條路讀到的都是真的狀態。（與 v1.10.1 夾具同一個做法。） */
+  if (P.__renderBtns) P.__renderBtns();
   await sleep(20);
   return { dom, w, doc: w.document, P };
 }
@@ -114,27 +121,48 @@ function fitScroll(win, el, rowH, viewH) {
                      { i2c: true, ca: false, align: false }, { i2c: true, ca: false, align: true }]) {
       const { doc, P } = await load({ i2c: o.i2c, ca: o.ca });
       if (o.align) { await P.alignToggle(); await sleep(60); }
+      /* ═══ 🔴 修復（dgself v1.11.0）：這一段自 v1.10.1 起就是**爆掉**的 ═══════════
+         原因：`#dst-run`（「開始掃描」那一顆獨立按鈕）在 v1.10.1 依 Bruce 裁示
+         **整顆移除**，量測改由步驟卡 ②③ 那一顆兩段式的鈕（`#dst-go-gray`）發動。
+         這支還在對一個不存在的元素取 `.disabled` ⇒ `TypeError` ⇒ **整支中斷**，
+         第 ②③ 組一條都沒跑到。不是本輪改出來的，但留著就是一支假死的夾具。
+         🔴 驗的事情沒有變：**對位這一維不影響「能不能開始量」**。 */
       rows.push({ ca: o.ca, align: o.align,
-                  disabled: doc.getElementById('dst-run').disabled, showing: P.showing() });
+                  disabled: doc.getElementById('dst-go-gray').disabled, showing: P.showing() });
     }
     EQ(rows[1].showing, 'align', '前置：對位畫面真的進去了');
     EQ(rows[3].showing, 'align', '前置：CA 未連時對位畫面也進得去');
     CHECK(rows[0].disabled === rows[1].disabled,
-      '🔴 儀器連著：對位開／關 ⇒ 開始掃描的 disabled **相同**', [rows[0].disabled, rows[1].disabled]);
+      '🔴 儀器連著：對位開／關 ⇒ ②③ 那顆鈕的 disabled **相同**', [rows[0].disabled, rows[1].disabled]);
     CHECK(rows[2].disabled === rows[3].disabled,
-      '🔴 儀器未連：對位開／關 ⇒ 開始掃描的 disabled **相同**', [rows[2].disabled, rows[3].disabled]);
+      '🔴 儀器未連：對位開／關 ⇒ ②③ 那顆鈕的 disabled **相同**', [rows[2].disabled, rows[3].disabled]);
     CHECK(rows[0].disabled === false, '儀器連著 ⇒ 可按', rows[0].disabled);
-    CHECK(rows[2].disabled === true, '🔴 真正讓它變灰的是「儀器沒連」，不是對位', rows[2].disabled);
+    /* 🔴 v1.10.1 起語意改了（這是**產品的刻意改動**，不是夾具遷就）：那顆鈕是兩段式的，
+       第一段只是出對位畫面 —— 那件事根本用不到量測儀，所以未連時第一段照樣可按。
+       「沒接儀器不能量」那道閘門搬到**第二段**，下面那一組專門驗它。 */
+    CHECK(rows[2].disabled === false,
+      '🔴 儀器未連 ⇒ 第一段（出對位畫面）仍可按（用不到儀器）', rows[2].disabled);
   }
-  H('① 按下「開始掃描」會自動離開對位畫面再掃（v1.3.0 起就在做）');
+  H('① 沒接量測儀 ⇒ 第二段（開始量測）才變灰');
   {
-    const { w, doc, P } = await load({});
+    const { doc, P } = await load({ ca: false });
+    await P.goGrayClick(); await sleep(80);
+    EQ(P.grayArmed(), true, '前置：第一段按完，進到第二段');
+    CHECK(doc.getElementById('dst-go-gray').disabled === true,
+      '🔴 真正讓它變灰的是「儀器沒連」，而且是在第二段（v1.10.1 起）',
+      doc.getElementById('dst-go-gray').disabled);
+  }
+  H('① 按下「開始量測」會自動離開對位畫面再掃（v1.3.0 起就在做）');
+  {
+    const { doc, P } = await load({});
     doc.getElementById('dst-settle').value = '300';
     await P.alignToggle(); await sleep(60);
     EQ(P.showing(), 'align', '前置：對位畫面開著');
-    doc.getElementById('dst-run').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    await P.goGrayClick(); await sleep(80);       // 第一段：對位畫面（仍然開著）
+    EQ(P.grayArmed(), true, '第一段按完 ⇒ 鈕進到「開始量測」那一段');
+    P.goGrayClick();                              // 第二段：真的開始量
     await sleep(300);
-    EQ(P.showing(), null, '🔴 按下去之後對位畫面**自動關掉**（dstRun L1820 的離開序列）');
+    EQ(P.showing(), null, '🔴 按下去之後對位畫面**自動關掉**（dstRun 開頭的離開序列）');
     CHECK(/1\/256/.test(P.progText() || ''), '🔴 而且掃描真的跑起來了', P.progText());
     EQ(P.sayRun(), '', '沒有任何錯誤訊息擋住他');
   }

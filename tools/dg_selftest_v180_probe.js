@@ -5,9 +5,11 @@
      ① 三個部分都要有進自檢的入口，而且**開的是同一個視窗**，從哪一部分進來就把
         對應那一步標成「目前這一步」
      ② 自檢頁上一張三步清單，每一步做完當場回傳 DG 並打勾（不強迫三件都做）
-     ③ 「回到 DG 頁」＝**左上角那一顆返回出口**（v1.8.1 起與它合成一顆）：
-        `opener.focus()`，有打勾過就轉強調色；沒有 opener 時退回「‹ 返回主頁」
-        並照舊指向 index.html，剪貼簿退路則出現
+     ③ 回傳／返回那兩顆出口的**文案與去向**（🔴 dgself v1.11.0 改判，見下）：
+        · 步驟卡第 ④ 項那一顆 ＝「資料回傳 DG」，按下去回傳＋提示切分頁，
+          有打勾過就轉強調色；沒有 opener 時退回「返回主頁」並指向 index.html
+        · 左上角那一顆 ＝**永遠是「‹ 返回主頁」**，永遠導向 index.html
+        沒有 opener 時剪貼簿退路出現
      ④ 第 1 部分的回填：index 0 ～ N−1（不含附加末筆），來源標示「從 T-CON 讀回」
 
    ═══ 這支釘住的東西（逐條對應上面四件事）═══════════════════════════════════
@@ -390,9 +392,18 @@ async function loadDg(src) {
     EQ(P.stepRow('lut').done, true, '① 那一列掛上 done');
     CHECK((P.saySteps() || '').indexOf('256') >= 0 && (P.saySteps() || '').indexOf('第 1 部分') >= 0,
       '🔴 訊息沿用既有格式：「256 筆 RGB LUT 已回到 DG 的第 1 部分」', P.saySteps());
-    /* 左上角的返回出口：有打勾 ⇒ 轉強調色 */
-    EQ(P.backText(), '‹ 回到 DG 頁', '🔴 有 opener ⇒ 左上角那顆寫「‹ 回到 DG 頁」');
-    EQ(P.backIsPri(), true, '🔴 有一步打勾過 ⇒ 它轉成強調色');
+    /* ═══ 🔴 dgself v1.11.0 改判：這三條原本驗的是**左上角那一顆** ═════════════
+       刪改原因（不是為了讓測試變綠）：Bruce 2026-09-21 真機實測 ——「左上角那邊的
+       按鈕按了也不會回到 DG 頁，所以左上角那個按鈕就把它變成『回到首頁』吧」。
+       v1.8.1 起「有 opener 就把它改叫『回到 DG 頁』並攔掉導覽」的做法，讓**名字與
+       行為對不起來**（叫回到 DG，按下去只是印一行字）。v1.11.0 依裁示：
+         · 左上角 ⇒ 永遠「‹ 返回主頁」、永遠真的導向 index.html（下面另驗）
+         · 回傳那件事 ⇒ 改由步驟卡第 ④ 項那一顆負責，名字就叫「資料回傳 DG」
+       ⇒ 這幾條**整條搬到第 ④ 項那一顆上**，驗的事情一件都沒少。 */
+    EQ(P.backBotText(), '資料回傳 DG', '🔴 有 opener ⇒ ④ 那一顆寫「資料回傳 DG」（名字＝它真的會做的事）');
+    EQ(P.backBotIsPri(), true, '🔴 有一步打勾過 ⇒ ④ 那一顆轉成強調色');
+    EQ(P.backText(), '‹ 返回主頁', '🔴 v1.11.0：左上角那一顆**永遠**是「‹ 返回主頁」');
+    EQ(P.backIsPri(), false, '🔴 左上角那一顆不再轉強調色（它只是離開這一頁的出口）');
     EQ(P.copyHidden(), true, '有 opener ⇒ 剪貼簿退路不出現');
     /* ═══ 🔴 dgself v1.10.1 改判：原本這裡驗的是 `opener.focused` 有沒有 +1 ═══════
        刪改原因（不是為了讓測試變綠）：`window.opener.focus()` 在真瀏覽器**本來就
@@ -402,15 +413,18 @@ async function loadDg(src) {
        整支拿掉，改成在自檢頁講清楚下一步。
        ⇒ 改驗**使用者真的看得到的那件事**：按下去畫面上會出現「請切回 DG 分頁」。
        🔴 不改成「驗 focus 沒有被呼叫」—— 那還是在驗一個已經不存在的東西。 */
-    /* 🔴 走的是**畫面上那顆 <a> 的 click**（產品路徑），不是直接呼叫 dstBackToDg() */
-    P.backClick();
+    /* 🔴 走的是**畫面上那顆 <a> 的 click**（產品路徑），不是直接呼叫 dstBackToDg()。
+       🔴 v1.11.0：按的改成第 ④ 項那一顆（回傳那件事現在是它的職責）。 */
+    P.backBotClick();
     await sleep(20);
     CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') >= 0,
-      '🔴 按左上角那顆 ⇒ 畫面上出現「請切回 DG 分頁繼續」（v1.10.1 起的行為）',
+      '🔴 按 ④ 那一顆 ⇒ 畫面上出現「請切回 DG 分頁繼續」',
       P.saySteps());
     EQ(opener.msgs.length, 1, '🔴 它沒有再送任何訊息過去，也沒有重開視窗');
+    EQ(P.backBotHref(), 'index.html',
+      '④ 那一顆的 href 仍是 index.html（有 opener 時由 click 處理器攔掉導覽，不動 href）');
     EQ(P.backHref(), 'index.html',
-      'href 仍是 index.html（有 opener 時由 click 處理器攔掉導覽，不動 href）');
+      '🔴 v1.11.0：左上角那一顆 href 是 index.html，而且**沒有**任何攔截 —— 按下去真的會去首頁');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -436,7 +450,9 @@ async function loadDg(src) {
     EQ(out.rows.map(r => r[0]), ['r', 'g', 'b'], 'rows 形狀與 v1.1.0 逐字相同');
     EQ(P.stepDone(), { lut: false, gray: false, prim: true }, '🔴 只有 ③ 打勾');
     EQ(P.stepRow('prim').tick, '✔', '🔴 ③ 那一列變成 ✔');
-    EQ(P.backIsPri(), true, '🔴 打勾過 ⇒ 左上角那顆轉強調色');
+    /* 🔴 v1.11.0 改判（理由同上面第 ④-1 組那一段）：強調色搬到 ④ 那一顆身上。 */
+    EQ(P.backBotIsPri(), true, '🔴 打勾過 ⇒ ④「資料回傳 DG」那一顆轉強調色');
+    EQ(P.backIsPri(), false, '🔴 左上角那一顆不轉強調色');
   }
 
   /* ② 白灰階：驗回傳那條路會打勾（整輪 259 階太慢，見檔頭「沒驗到的」）*/
@@ -480,9 +496,13 @@ async function loadDg(src) {
     const { P, w } = await loadSelf({ ws, ic: 'EM01A1', opener: null, qs: '' });
     EQ(P.dgState().linked, false, '前置條件：沒有 opener');
     EQ(P.backText(), '‹ 返回主頁',
-      '🔴 沒有 opener ⇒ 左上角那顆退回「‹ 返回主頁」（不留一顆按了沒反應的死鈕）');
+      '🔴 沒有 opener ⇒ 左上角那顆是「‹ 返回主頁」（v1.11.0 起有沒有 opener 都一樣）');
     EQ(P.backHref(), 'index.html', '🔴 而且 href 是 index.html');
-    EQ(P.backIsPri(), false, '沒有 opener ⇒ 不會轉強調色（沒有東西送過去）');
+    EQ(P.backIsPri(), false, '左上角那顆不會轉強調色');
+    /* 🔴 v1.11.0 新增：沒有 DG 可回傳時，④ 那一顆退回「返回主頁」—— 名字仍然等於
+       它會做的事（那時它就是一顆指向 index.html 的返回鈕）。 */
+    EQ(P.backBotText(), '‹ 返回主頁', '🔴 沒有 opener ⇒ ④ 那一顆退回「‹ 返回主頁」（沒有 DG 可回傳）');
+    EQ(P.backBotIsPri(), false, '沒有 opener ⇒ ④ 那一顆不會轉強調色（沒有東西送過去）');
     EQ(P.copyHidden(), false, '🔴 沒有 opener ⇒「複製到剪貼簿」出現');
     EQ(P.copyDisabled(), true, '還沒讀過 ⇒ 複製鈕是灰的（沒東西可複製）');
     EQ([P.stepRow('lut').to, P.stepRow('gray').to, P.stepRow('prim').to], ['', '', ''],
