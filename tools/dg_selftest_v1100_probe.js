@@ -222,8 +222,12 @@ async function loadReady(opts) {
       EQ(P.hwHasCtrl(id), { n: 1, inCard: true },
         '🔴 ' + id + ' 全頁只有一個，而且就在這張卡裡');
     });
-    /* 原處沒有留空殼：「量測」那張卡裡沒有任何量測儀的連線鈕 */
-    const meas = doc.getElementById('dst-run').closest('.card');
+    /* 原處沒有留空殼：「量測」那張卡裡沒有任何量測儀的連線鈕
+       🔴 dgself v1.10.1 改判：原本用 `#dst-run`（「開始掃描」）當錨點找那張卡，
+          而那顆鈕在 v1.10.1 依 Bruce 裁示整顆移除了。改用結果表 `#dst-res-wrap`
+          —— 它是「量測」卡**獨有而且不會搬走**的東西（結果一律留在這張卡）。
+          這是換錨點，驗的東西一個字都沒變。 */
+    const meas = doc.getElementById('dst-res-wrap').closest('.card');
     CHECK(!meas.querySelector('.dst-toggle'),
       '🔴「量測」那張卡裡已經沒有任何連線開關（原處沒留空殼）');
     CHECK(!!meas.querySelector('#dst-v-hz'),
@@ -442,10 +446,15 @@ async function loadReady(opts) {
     EQ(ctrls[ctrls.length - 1].id, 'dst-back-bot', '🔴 它是這張卡裡最後一個控制項');
     EQ(P.backBotText(), '‹ 回到 DG 頁', '🔴 有 opener ⇒ 寫「‹ 回到 DG 頁」');
     EQ(P.backBotText(), P.backText(), '🔴 文案與左上角那一顆逐字相同（同一組值填的）');
-    const before = opener.focused;
+    /* ═══ 🔴 dgself v1.10.1 改判：原本這裡驗的是 `opener.focused` 有沒有 +1 ═══════
+       刪改原因（不是為了讓測試變綠）：`window.opener.focus()` 在真瀏覽器**本來就
+       無效**（Bruce 2026-09-21 真機實測按下去完全沒反應），jsdom 的 focus 是假的
+       ⇒ 這一條從一開始就是**假綠**。v1.10.1 依 Bruce 裁示把那個呼叫整支拿掉，
+       改成在自檢頁講清楚下一步。改驗使用者真的看得到的那件事。 */
     P.backBotClick();
     await sleep(20);
-    EQ(opener.focused, before + 1, '🔴 按下去 ⇒ opener.focus()（把既有那個 DG 視窗叫到前面）');
+    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') >= 0,
+      '🔴 按下去 ⇒ 畫面上出現「請切回 DG 分頁繼續」（v1.10.1 起的行為）', P.saySteps());
     EQ(opener.msgs.length, 0, '🔴 它沒有送任何訊息過去');
     EQ(P.backBotHref(), 'index.html', 'href 仍是 index.html（有 opener 時由處理器攔掉導覽）');
     /* 有一步打勾過 ⇒ 兩顆一起轉強調色 */
@@ -551,8 +560,10 @@ async function loadReady(opts) {
   }
   /* ── M1-b（①）：把量測儀那顆**複製**一份回「量測」卡（而不是搬過來）── */
   {
-    const anchor = '<button class="dst-btn pri" id="dst-run"';
-    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M1-b：找得到「開始掃描」那一顆（插入點）');
+    /* 🔴 v1.10.1 改判：原本插在「開始掃描」那一顆前面，而那顆鈕已移除。
+       改插在「量測」卡的結果表前面 —— 插入點換了，驗的東西沒變。 */
+    const anchor = '<div class="dst-tbl-wrap dst-hidden" id="dst-res-wrap"';
+    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M1-b：找得到「量測」卡的結果表（插入點）');
     const mut = SELF_SRC.replace(anchor,
       '<button id="dst-ca" class="dst-toggle"></button>' + anchor);
     const { P } = await loadSelf({ src: mut, opener: null });

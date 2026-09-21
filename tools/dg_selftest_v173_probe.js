@@ -150,6 +150,24 @@ function attachSerial(w, mode) {
   return f;
 }
 
+
+/* ═══ 🔴 dgself v1.10.1 改判：本檔原本用 `#dst-run`（「開始掃描」）當「閘門有沒有
+   擋住」的觀測點，而那一顆依 Bruce 2026-09-21 裁示**整顆移除**了（量測只留步驟卡
+   那一顆兩段式鈕）。
+   刪改原因不是為了讓測試變綠：本檔驗的是「鈕、閘門、畫面上那行原因三處一致」，
+   這件事一個字都沒變 —— **只是承接那道閘門的鈕換了一顆**。
+   現在擋「沒接量測儀」的是步驟卡那顆的**第二段**，所以先走一次對位（第一段不需要
+   量測儀）進到第二段，再看它是不是灰的。 */
+async function armGray(P) { await P.stepAlign(); await sleep(20); }
+function grayDisabled(doc) {
+  const e = doc.getElementById('dst-go-gray');
+  return e ? e.disabled : null;
+}
+/* 🔴 「連上之後閘門有沒有跟著重畫」這件事，**必須先進第二段、再連儀器**再讀 ——
+   反過來做的話 `stepAlign()` 自己就會重畫一次，把「忘了重畫」這個缺陷蓋掉
+   （第 ④ 組的突變 1 當場抓到這一點：先連再 arm 會讓那個突變變成綠的）。 */
+async function armedGrayDisabled(P, doc) { await armGray(P); return grayDisabled(doc); }
+
 (async function main() {
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -161,7 +179,7 @@ function attachSerial(w, mode) {
     EQ(P.caLinked(), false, '前置條件：儀器沒連');
     EQ(P.caPressed(), 'false', '那顆鈕的 aria-pressed ＝ false');
     EQ(P.runWhyKey(), 'dst.whyNoMeter', '閘門的原因是「沒有儀器」');
-    EQ(doc.getElementById('dst-run').disabled, true, '「開始掃描」是灰的');
+    EQ(await armedGrayDisabled(P, doc), true, '🔴 步驟卡那顆的第二段「開始量測」是灰的');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -182,7 +200,7 @@ function attachSerial(w, mode) {
       '🔴 失敗後鈕上的字是「儀器未連線」', P.caText());
     /* 🔴 而且閘門與鈕說的是同一件事（這才是截圖裡矛盾的那一半） */
     EQ(P.runWhyKey(), 'dst.whyNoMeter', '🔴 閘門仍說「沒有儀器」—— 與鈕一致');
-    EQ(doc.getElementById('dst-run').disabled, true, '「開始掃描」仍是灰的');
+    EQ(await armedGrayDisabled(P, doc), true, '🔴 第二段「開始量測」仍是灰的');
     /* 🔴 log：失敗那一次**不可以**出現 serial opened */
     const log = doc.getElementById('dst-log').textContent || '';
     CHECK(log.indexOf('serial open failed') >= 0, 'log 有記下 open failed');
@@ -208,6 +226,8 @@ function attachSerial(w, mode) {
   H('②-2 open 成功後三處一致');
   {
     const { w, P, doc } = await load({ ws: makeBridge(EM01_REGS), ic: 'EM01A1' });
+    await armGray(P);                      // 🔴 先進第二段，再連儀器（見 armedGrayDisabled 的說明）
+    EQ(grayDisabled(doc), true, '前置條件：還沒連儀器 ⇒ 第二段是灰的');
     attachSerial(w, 'ok');
     const ok = await P.caOpen();
     await sleep(30);
@@ -217,7 +237,7 @@ function attachSerial(w, mode) {
     /* 🔴 這一條就是截圖裡的主症狀：鈕綠了，閘門卻還說沒儀器 */
     EQ(P.runWhyKey(), null, '🔴 連上之後閘門不再說「沒有儀器」');
     EQ(P.runWhyText(), '', '🔴 而且畫面上那一行原因一個字都不留');
-    EQ(doc.getElementById('dst-run').disabled, false, '🔴「開始掃描」可以按了');
+    EQ(grayDisabled(doc), false, '🔴 第二段「開始量測」可以按了（連上之後閘門有跟著重畫）');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -293,12 +313,13 @@ function attachSerial(w, mode) {
     const mut = SRC.replace(orig, '}\n/* ═══ v1.3.0：畫面測試那張卡的字與**選取態**');
     CHECK(mut !== SRC, '突變 1 真的套上去了');
     const { w, P, doc } = await load({ src: mut, ws: makeBridge(EM01_REGS), ic: 'EM01A1' });
+    await armGray(P);                      // 🔴 先進第二段，再連儀器
     attachSerial(w, 'ok');
     await P.caOpen();
     await sleep(30);
     EQ(P.caLinked(), true, '突變後也連上了（鈕是對的）');
-    EQ(doc.getElementById('dst-run').disabled, true,
-      '🔴 突變後「開始掃描」仍是灰的 ⇒ 重現截圖裡的矛盾，證明第 ②-2 組真的在驗東西');
+    EQ(grayDisabled(doc), true,
+      '🔴 突變後第二段「開始量測」仍是灰的 ⇒ 重現截圖裡的矛盾，證明第 ②-2 組真的在驗東西');
     CHECK((P.runWhyText() || '').indexOf('儀器') >= 0,
       '🔴 突變後那行原因還說「沒有儀器」（鈕卻是綠的）', P.runWhyText());
   }
