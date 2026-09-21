@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260921dst171"></script>
+<script src="common/version.js?v=20260921dst172"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -336,14 +336,6 @@
 
       <div id="dst-lut-body" class="dst-hidden">
         <div class="dst-lutchart" id="dst-lut-chart"></div>
-        <!-- 🔴 前後各幾筆**不收起來**：他要「一眼看出讀到什麼」。 -->
-        <div class="dst-note" id="dst-lut-prevsum" style="margin-top:10px">&nbsp;</div>
-        <div class="dst-tbl-wrap" style="margin-top:6px">
-          <table class="dst-tbl">
-            <thead><tr><th data-i18n="dst.lutThIdx">index</th><th>R</th><th>G</th><th>B</th></tr></thead>
-            <tbody id="dst-lut-prevtb"></tbody>
-          </table>
-        </div>
         <!-- 全表預設收起來：要逐筆核對時才展開，不要一進頁面就被 257 列洗版。 -->
         <details id="dst-lut-det" style="margin-top:8px">
           <summary class="dst-sum" id="dst-lut-sum">—</summary>
@@ -479,16 +471,10 @@ function dstT(k, v) { return (typeof t === 'function') ? t(k, v) : k; }
    為什麼不寫進 `common/i18n.js`（那裡才是正常的地方）：
    改動 `common/*.js` 會觸發 `tools/check_cache_buster.py` —— 引用它的**每一頁**
    都必須 bump `?v=`，包含 `dg.html`／`i2c.html`。這一輪 Bruce 明確要求
-   「範圍收到最小、只改 dg-selftest.html」，為了五個字串去動十幾個檔案是反過來的。
+   「範圍收到最小、只改 dg-selftest.html」，為了幾個字串去動十幾個檔案是反過來的。
    ⇒ 掛在 `I18N` 上（`t()` 是呼叫當下才查表，所以掛得上），**三語一個都不少**。
-   下次有機會整理 i18n 時把這五筆搬回 `common/i18n.js` 並刪掉這一段。 */
+   下次有機會整理 i18n 時把這幾筆搬回 `common/i18n.js` 並刪掉這一段。 */
 if (typeof I18N === 'object' && I18N) {
-  /* 讀到的值本身（不是候選、不是猜測）——「前 {n} 筆與後 {n} 筆，共 {total} 筆」 */
-  I18N['dst.lutPreview'] = {
-    'zh-TW': '前 {n} 筆與後 {n} 筆（整張表共 {total} 筆，全部在下面展開）',
-    'en': 'First {n} and last {n} entries (the full table has {total}, expand below)',
-    'zh-CN': '前 {n} 笔与后 {n} 笔（整张表共 {total} 笔，全部在下面展开）'
-  };
   /* 這一顆沒有 DG LUT 的讀取規格 ⇒ 不拿別顆的位址去試 */
   I18N['dst.lutErrNoSpec'] = {
     'zh-TW': '這一顆（{detail}）沒有 DG LUT 的讀取規格 —— 記憶體位址、channel 位移、交錯方式逐顆不同，沒有出處就不拿別顆的來試。',
@@ -2593,22 +2579,14 @@ function dstRenderDg() {
 /* ═══ 🔴 v1.7.0：DG LUT 檢視那張卡的渲染 ══════════════════════════════════
    三條硬規矩（Bruce 明說這張卡是拿來「檢查是不是你亂讀的」）：
      ① 讀失敗 ⇒ **講失敗在哪一步**，不畫任何曲線。
-     ② 讀成功 ⇒ 前後各 6 筆直接攤在畫面上（不必展開），旁邊寫本次用的規格
-        （IC／slave／位移／筆數／mask）—— 這兩樣加起來才能判斷「是不是亂讀的」。
-     ③ 全表預設收起來。
+     ② 讀成功 ⇒ 寫出本次用的規格（IC／slave／位移／筆數／mask），才判斷得出
+        「是不是亂讀的」。
+     ③ 全表（index 0 ～ N−1）預設收起來，要逐筆核對時展開。
+   🔴 v1.7.2：「前六筆／後六筆」那張預覽表整個拿掉（Bruce 2026-09-21：「一點用
+      都沒有」）—— 它的每一列全表裡都有，是同一份資料的重複。
    🔴 v1.6.0 的「候選 packing 下拉 ＋ 分數表 ＋ 吻合度」整組拿掉（見 dstReadDgLut
       上方那一段）。identity 只剩一個用途：把全表裡與原廠預設表不同的列標紅。 */
-var DST_LUT_PREVIEW = 6;    // 前後各幾筆攤在畫面上
 
-/* 前後各 n 筆的索引清單；中間用 null 代表「…」那一列。筆數不夠就全給。 */
-function dstLutPreviewIdx(entries, n) {
-  var out = [], i;
-  if (entries <= n * 2 + 1) { for (i = 0; i < entries; i++) out.push(i); return out; }
-  for (i = 0; i < n; i++) out.push(i);
-  out.push(null);
-  for (i = entries - n; i < entries; i++) out.push(i);
-  return out;
-}
 /* 純函式：把一組曲線畫成 SVG（字串）。**不依賴 DOM**，夾具可以直接驗。
    viewBox 固定 640×260，外層用 width:100% 縮放 ⇒ 手機上也看得到。 */
 function dstLutChartSvg(rgb, depth) {
@@ -2675,28 +2653,15 @@ function dstRenderLut() {
   var ch = $('dst-lut-chart');
   if (ch) ch.innerHTML = dstLutChartSvg(rgb, dstLut.depth);
 
-  /* 一列：index 為 null ⇒ 「…」那一列。 */
+  /* 一列：index ＋ R／G／B 三個值。 */
   function row(tb, i) {
-    var tr = document.createElement('tr'), cells;
-    if (i === null) cells = ['…', '…', '…', '…'];
-    else {
-      cells = [i, rgb.r[i], rgb.g[i], rgb.b[i]];
-      /* 與原廠預設表不同的列標紅 —— 要逐筆核對時不必自己一列一列比。 */
-      if (rgb.r[i] !== ident[i] || rgb.g[i] !== ident[i] || rgb.b[i] !== ident[i]) tr.className = 'bad';
-    }
-    cells.forEach(function (v) {
+    var tr = document.createElement('tr');
+    /* 與原廠預設表不同的列標紅 —— 要逐筆核對時不必自己一列一列比。 */
+    if (rgb.r[i] !== ident[i] || rgb.g[i] !== ident[i] || rgb.b[i] !== ident[i]) tr.className = 'bad';
+    [i, rgb.r[i], rgb.g[i], rgb.b[i]].forEach(function (v) {
       var td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
     });
     tb.appendChild(tr);
-  }
-
-  /* ── 前後各 6 筆（不收起來）── */
-  var ps = $('dst-lut-prevsum');
-  if (ps) ps.textContent = dstT('dst.lutPreview', { n: DST_LUT_PREVIEW, total: n });
-  var ptb = $('dst-lut-prevtb');
-  if (ptb) {
-    ptb.innerHTML = '';
-    dstLutPreviewIdx(n, DST_LUT_PREVIEW).forEach(function (i) { row(ptb, i); });
   }
 
   /* ── 全表（預設收起）── */
@@ -3622,11 +3587,10 @@ window.dstProbe = {
   lutIdentity: dstLutIdentity,
   lutDegenerate: dstLutDegenerate,
   lutSpecText: dstLutSpecText,
-  lutPreviewIdx: dstLutPreviewIdx,
   lutChartSvg: dstLutChartSvg,
   lutConst: function () {
     return { ahb: DST_LUT_AHB, stride: DST_LUT_STRIDE, settleMs: DST_LUT_SETTLE_MS,
-             chunk: DST_LUT_CHUNK, preview: DST_LUT_PREVIEW };
+             chunk: DST_LUT_CHUNK };
   },
   readDgLut: function () { return dstReadDgLut(); },
   lutState: function () {
@@ -3646,9 +3610,8 @@ window.dstProbe = {
   lutHidden: function (id) { var e = $(id); return e ? e.classList.contains('dst-hidden') : null; },
   lutChartHtml: function () { var e = $('dst-lut-chart'); return e ? e.innerHTML : null; },
   lutRowCount: function () { var e = $('dst-lut-tb'); return e ? e.children.length : null; },
-  lutPrevRowCount: function () { var e = $('dst-lut-prevtb'); return e ? e.children.length : null; },
-  lutPrevRow: function (k) {
-    var e = $('dst-lut-prevtb');
+  lutRow: function (k) {
+    var e = $('dst-lut-tb');
     if (!e || !e.children[k]) return null;
     return Array.prototype.map.call(e.children[k].children, function (td) { return td.textContent; });
   },

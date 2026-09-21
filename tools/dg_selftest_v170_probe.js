@@ -327,11 +327,12 @@ async function load(opts) {
     EQ(P.lutHidden('dst-lut-body'), false, '成功後內容區塊出現');
     CHECK((P.lutChartHtml() || '').indexOf('<svg') === 0, '曲線是真的畫出來的 SVG');
     EQ((P.lutChartHtml().match(/<path /g) || []).length, 3, 'R/G/B 三條線都畫了');
-    EQ(P.lutPrevRowCount(), 13, '前後各 6 筆 ＋ 中間一列「…」= 13 列');
-    EQ(P.lutPrevRow(0), ['0', String(r[0]), String(g[0]), String(b[0])], '預覽第一列 = index 0 的三個值');
-    EQ(P.lutPrevRow(6), ['…', '…', '…', '…'], '中間那一列是「…」');
-    EQ(P.lutPrevRow(12), ['256', String(r[256]), String(g[256]), String(b[256])], '預覽最後一列 = index 256');
+    /* 🔴 v1.7.2：「前後各 6 筆」那張預覽表已整個移除，原本掛在它身上的四條斷言
+       （13 列／第一列／「…」那一列／最後一列）改掛到全表上 —— 值有沒有畫對
+       還是要驗，只是驗的對象換成使用者真正要看的那張表。 */
     EQ(P.lutRowCount(), 257, '全表 257 列');
+    EQ(P.lutRow(0), ['0', String(r[0]), String(g[0]), String(b[0])], '全表第一列 = index 0 的三個值');
+    EQ(P.lutRow(256), ['256', String(r[256]), String(g[256]), String(b[256])], '全表最後一列 = index 256');
     EQ(doc.getElementById('dst-lut-det').hasAttribute('open'), false, '全表預設收起來');
     const cfgTxt = P.lutText('dst-lut-cfg');
     for (const frag of ['EM02A1', '0x48', '0x800', '0x400', '257', '0x0F00'])
@@ -344,6 +345,8 @@ async function load(opts) {
     EQ(doc.getElementById('dst-lut-candtb'), null, '🔴 候選分數表已移除');
     EQ(doc.getElementById('dst-lut-bus'), null, '🔴 bus enable 候選下拉已移除');
     EQ(doc.getElementById('dst-lut-fit'), null, '🔴 吻合度那一列已移除');
+    EQ(doc.getElementById('dst-lut-prevtb'), null, '🔴 v1.7.2：前六筆／後六筆預覽表已移除');
+    EQ(doc.getElementById('dst-lut-prevsum'), null, '🔴 v1.7.2：預覽表那一行說明已移除');
 
     /* 🔴 刻意不連動 DG 第 1 部分（這一輪仍然只做讀） */
     EQ(P.dgLutWired(), null, '🔴 dstDgLut 仍是 null —— 這一輪只做讀，不做寫、不連動');
@@ -490,9 +493,10 @@ async function load(opts) {
   /* ═══════════════════════════════════════════════════════════════════════
      ⑧ i18n：本頁自己補的 key 三語齊全
      ═══════════════════════════════════════════════════════════════════════ */
-  H('⑧ i18n 三語（本頁補的 5 個 key）');
+  H('⑧ i18n 三語（本頁補的 4 個 key）');
   {
-    const keys = ['dst.lutPreview', 'dst.lutErrNoSpec', 'dst.lutErrBus', 'dst.lutErrData', 'dst.lutErrDepth'];
+    /* 🔴 v1.7.2：`dst.lutPreview` 隨預覽表一起刪掉了，所以不再檢查它的三語。 */
+    const keys = ['dst.lutErrNoSpec', 'dst.lutErrBus', 'dst.lutErrData', 'dst.lutErrDepth'];
     const bad = [];
     for (const k of keys) {
       const i = SRC.indexOf("I18N['" + k + "']");
