@@ -16,6 +16,9 @@
      G  左上角那一顆＝「‹ 回到首頁」，而且**共用的 `common.backToHome` 沒被動到**
      I  ④ **沒有按鈕**；回傳成功 ⇒ 自動打勾；回傳失敗 ⇒ **不准打勾**
      J  第 4 部分推送：**沒有 ack 就判定對面不是自檢頁**（不是等 180 秒）
+     K1 同一張卡裡同一句話**不准講兩次**（框外有話說 ⇒ 框內閉嘴），
+        但框內獨有的那一條（沒接量測儀）不得跟著消失
+     K2 指路要**指得到**：那一行寫的是那顆鈕**當下的字面**，兩段各自跟著換
 
    ═══ 🔴 怎麼避免「自己驗自己」═════════════════════════════════════════════
      · 每一條都配一個突變（M*）：把產品端改壞，對應的斷言必須變紅。
@@ -500,6 +503,101 @@ async function dgCalc(win, doc, outbit) {
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
+     K1：同一張卡裡同一句話不准講兩次（Bruce 2026-09-22 截圖）
+     ═══════════════════════════════════════════════════════════════════════ */
+  H('K1 重複的那句話：框外有話說，框內就閉嘴');
+  {
+    /* 情境一：沒連 I2C（他截到的那一種）⇒ 只有框外說話 */
+    const { P } = await loadSelf({ opener: null });
+    EQ(P.stepsWhyKey(), 'dst.stepsWhyLink', '前置：沒連 I2C ⇒ 框外那一支有話說');
+    EQ(P.runWhyKey(), 'dst.whyNoI2c', '前置：框內那一支**判準上**也成立（閘門沒被動到）');
+    CHECK((P.stepsWhyText() || '').indexOf('I2C') >= 0,
+      '🔴 框外那一行照常說明原因', P.stepsWhyText());
+    EQ(P.runWhyText(), '',
+      '🔴 框內那一行**一個字都不印**（同一件事不講兩次）');
+    /* 🔴 兩行不得同時有字 —— 這一條不看內容，只看「有沒有同時出現」，
+       所以措辭怎麼改都擋得住（列舉字串會漏）。 */
+    CHECK(!((P.stepsWhyText() || '').trim() && (P.runWhyText() || '').trim()),
+      '🔴 兩行不會同時有字');
+  }
+  {
+    /* 情境二：正在量測 —— **他沒截到，但條件一樣重疊**，通則要一起收 */
+    const { P } = await loadSelf({ opener: null });
+    /* 🔴 不做「有就跑、沒有就跳過」—— 那種寫法會靜默地什麼都沒驗到。
+       觀測口不在就直接紅。 */
+    CHECK(typeof P.__setRunningForTest === 'function', '產品端有「正在量測」的設定口');
+    P.__setRunningForTest(true);
+    await sleep(20);
+    EQ(P.running(), true, '前置：現在是量測中');
+    EQ(P.stepsWhyKey(), 'dst.stepsWhyRun', '前置：正在量測 ⇒ 框外有話說');
+    EQ(P.runWhyKey(), 'dst.whyRunning', '前置：框內判準上也成立（＝重疊的第二種）');
+    CHECK((P.stepsWhyText() || '').trim().length > 0, '🔴 框外照常說明原因', P.stepsWhyText());
+    EQ(P.runWhyText(), '',
+      '🔴 正在量測時框內也不重複（重疊的**不只**沒連 I2C 那一種）');
+    P.__setRunningForTest(false);
+  }
+  {
+    /* 🔴 反面：框內那一行**不能就此消失**。沒接量測儀是它獨有的那一條
+       （框外不判，因為 ① 讀 LUT 用不到量測儀）⇒ 這時候它必須說話。 */
+    /* 🔴 這一組是 K1 的反面，**不能跳過**：框內那一行不可以就此消失。
+       造出「框外沒話說、只剩沒接量測儀」的狀態要有 I2C ＋ 認得出 IC，
+       所以用既有的假 bridge（與 v1101 那一支同一招）。 */
+    const { P } = await loadSelf({ opener: null });
+    /* 🔴 只需要兩件事實：I2C 連上了、認得出 IC。用產品既有的兩個口子造出來，
+       **不建整套假 bridge** —— 這一組驗的是「畫面講了什麼」，不是 I2C 序列。 */
+    P.__attachFakeWs({ send: function () {}, close: function () {} });
+    P.setIcForTest('EM01A1', -1);
+    P.__renderBtns();
+    await sleep(20);
+    EQ(P.stepsWhyKey(), null, '前置：已連線、認得出 IC ⇒ 框外沒話說');
+    EQ(P.runWhyKey(), 'dst.whyNoMeter', '前置：只剩「沒接量測儀」這一條（框內獨有）');
+    CHECK((P.runWhyText() || '').indexOf('量測儀') >= 0,
+      '🔴 框內那一行仍然說得出它獨有的那個原因（沒有被一起砍掉）', P.runWhyText());
+    EQ(P.stepsWhyText(), '', '🔴 而這時候換框外閉嘴');
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     K2：「按上面那一顆」要指得到（帶入那顆鈕當下的字面）
+     ═══════════════════════════════════════════════════════════════════════ */
+  H('K2 指路：寫出那顆鈕當下的字面');
+  {
+    const { P, doc } = await loadSelf({ opener: null });
+    /* 第一段：鈕上是「對位畫面」 */
+    const t1 = P.group23Text() || '';
+    CHECK(t1.indexOf('上面那一顆') < 0 && t1.indexOf('上面那顆') < 0,
+      '🔴「上面那一顆」這種指不到的講法已經不在畫面上', t1);
+    CHECK(t1.indexOf('「' + P.goGrayText() + '」') >= 0,
+      '🔴 第一段：那一行寫的就是鈕上當下的字面（' + P.goGrayText() + '）', t1);
+    CHECK(t1.indexOf('{btn}') < 0, '🔴 佔位符沒有漏到畫面上', t1);
+    CHECK(t1.indexOf('不必再量') >= 0, '而且原本的重點（第 3 項不必再量）還在', t1);
+    /* 🔴 那一行**會不會跟著換**：換語言是最乾淨的驗法 —— 鈕上的字一定會變，
+       而且不需要任何硬體（進第二段要真的對位，那條路要真治具）。
+       這同時驗掉三語那一半：切到英文之後，指路指的必須是英文的鈕面字。 */
+    doc.defaultView.applyLang('en');
+    P.__renderSteps();
+    await sleep(20);
+    const t2 = P.group23Text() || '';
+    CHECK(P.goGrayText() !== '對位畫面',
+      '前置：換語言之後鈕上的字真的變了（' + P.goGrayText() + '）');
+    CHECK(t2.indexOf('“' + P.goGrayText() + '”') >= 0 || t2.indexOf('「' + P.goGrayText() + '」') >= 0,
+      '🔴 那一行跟著換成鈕上新的字面（' + P.goGrayText() + '）', t2);
+    CHECK(t1 !== t2, '🔴 兩種語言的文字確實不同（不是填一次就不管了）');
+    CHECK(t2.indexOf('{btn}') < 0, '🔴 換語言之後佔位符也沒有漏到畫面上', t2);
+    doc.defaultView.applyLang('zh-TW');
+    P.__renderSteps();
+    await sleep(20);
+    /* 三語都要有 {btn}，否則換語言就指不到了 */
+    LANGS.forEach(L => {
+      const v = P.i18nValues('dst.group23');
+      CHECK(v && v[L] && v[L].indexOf('{btn}') >= 0,
+        '🔴 dst.group23 的 ' + L + ' 也帶 {btn}', v && v[L]);
+    });
+    /* 🔴 `data-i18n` 必須拿掉，否則 applyLang 會把帶佔位符的原字串洗回畫面 */
+    CHECK(SELF_SRC.indexOf('data-i18n="dst.group23"') < 0,
+      '🔴 那一行不再掛 data-i18n（不然切語言會把 {btn} 洗回畫面上）');
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
      突變：證明上面每一組真的在驗東西
      ═══════════════════════════════════════════════════════════════════════ */
   H('M 突變測試');
@@ -598,6 +696,26 @@ async function dgCalc(win, doc, outbit) {
     const w2 = win.dgApi.p4PushWaitMs();
     CHECK(!(w2.ack < w2.write),
       '🔴 突變後兩段等待一樣長（＝乾等三分鐘）⇒ J 那條會紅', w2);
+  }
+  /* MK1：把框內那一行改回「照 runWhyKey 無條件印」⇒ K1 那幾條必須紅 */
+  {
+    const orig = "    var runWhy = dstStepsWhyKey() ? null : dstRunWhyKey();";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'MK1：找得到「框外有話就閉嘴」那一行');
+    const mut1 = SELF_SRC.replace(orig, "    var runWhy = dstRunWhyKey();");
+    const { P } = await loadSelf({ src: mut1, opener: null });
+    CHECK((P.stepsWhyText() || '').trim() && (P.runWhyText() || '').trim(),
+      '🔴 突變後兩行又同時有字（＝ Bruce 截到的那個重複）⇒ K1 那幾條會紅',
+      [P.stepsWhyText(), P.runWhyText()]);
+  }
+  /* MK2：把指路那一行寫死成「上面那一顆」⇒ K2 那幾條必須紅 */
+  {
+    const orig = "  if (g23) g23.textContent = dstT('dst.group23', { btn: goTxt });";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'MK2：找得到指路那一行的填字');
+    const mut2 = SELF_SRC.replace(orig,
+      "  if (g23) g23.textContent = '按上面那一顆會一次量完 ②③，第 3 項不必再量一次。';");
+    const { P } = await loadSelf({ src: mut2, opener: null });
+    CHECK((P.group23Text() || '').indexOf('上面那一顆') >= 0,
+      '🔴 突變後又變回指不到的講法 ⇒ K2 那幾條會紅', P.group23Text());
   }
 
   console.log('\n' + '═'.repeat(64));
