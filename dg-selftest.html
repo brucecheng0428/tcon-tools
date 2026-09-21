@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260921dst173"></script>
+<script src="common/version.js?v=20260921dst180"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -128,6 +128,23 @@
                        font-size: 14px; font-weight: 600; }
   .dst-hidden { display: none !important; }
 
+  /* ═══ v1.8.0：三步清單 ═══════════════════════════════════════════════════
+     Bruce 2026-09-21：「使用者在進到自檢頁以後可以形成閉環，但同時又要能知道要
+     回到 DG 檢查量測的 curve」「讓人一眼看到接上機台能做的就這三件」。
+     🔴 **沒有新色票**：打勾的綠 `#6ee7b7` 與「目前這一步」的 `var(--accent)`
+        都是本頁既有的兩個顏色（`.dst-btn.on` 與 `.dst-icname` 用的就是它們）。
+        同一頁裡「完成」與「現在在這裡」各只能有一種長相，否則要學兩次。
+     🔴 列的排版沿用 `.dst-kv` 的骨架（flex ＋ 底線分隔），不另造一套版型。 */
+  .dst-step { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+              padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .dst-step:last-of-type { border-bottom: none; }
+  .dst-step-tick { flex: 0 0 16px; text-align: center; font-weight: 700; color: var(--text-sub); }
+  .dst-step.done .dst-step-tick { color: #6ee7b7; }
+  .dst-step-txt { flex: 1 1 220px; }
+  /* 「目前這一步」＝ 從 DG 哪一個部分按進來的。只換顏色與粗細，不動位置。 */
+  .dst-step.cur .dst-step-txt { color: var(--accent); font-weight: 700; }
+  .dst-step-to { color: var(--text-sub); font-size: 11.5px; }
+
   /* ═══ v1.2.0：量測失敗的警告視窗 ═════════════════════════════════════════
      🔴 為什麼不用 window.confirm：它只有「確定／取消」兩顆瀏覽器自己的按鈕，
         文字不能改、不能翻譯，而這裡要問的是「再試一次 / 中止整輪」—— 兩個都是
@@ -176,17 +193,15 @@
 
 <div class="container">
 
-  <!-- ═══ 0-a. DG 指派的任務（v1.1.0）═════════════════════════════════════
-       只有從 DG 的「即時量測 → T-CON 自檢畫面量測」開過來才出現；直接開這一頁
-       時整張卡不在畫面上（沒資料的東西不顯示）。
-       🔴 步驟名稱與「量什麼」**用 DG 給的字**，本頁不自己造第二套名稱。 -->
-  <div class="card dst-hidden" id="dst-dg-card">
-    <div class="card-body">
-      <div class="dst-kv"><span data-i18n="dst.dgStep">這一次量給</span><span id="dst-dg-step">—</span></div>
-      <div class="dst-kv"><span data-i18n="dst.dgWhat">量什麼</span><span id="dst-dg-what">—</span></div>
-      <div class="dst-note" data-i18n="dst.dgNote">掃描跑完會自動回到 DG 那一頁，不用手動搬。中止或出錯則不回傳。</div>
-    </div>
-  </div>
+  <!-- ═══ 🔴 v1.8.0：v1.1.0 的「DG 指派的任務」那張卡**已移除** ════════════
+       它只有兩列唯讀資訊（「這一次量給 第 2 部分」「量什麼 白灰階亮度」），而
+       v1.8.0 的三步清單把同一件事講得更清楚（對應那一步直接標成「目前這一步」，
+       而且旁邊就是那一步的動作鈕）。兩張卡講同一件事 ＝ 使用者要看兩次才確定，
+       違反「畫面上只留使用者會按的東西」。
+       🔴 **資訊沒有掉**：`dstDgDest`／`dstDgWhat` 仍然照收、仍然進 log，
+          「目前這一步」的判定就是用它們（見 dstDgStepOf）。
+       ⚠ 這一條是我自行判斷合併的（Bruce 的原話沒有指名要刪那張卡），已在回報中
+          點名請覆核。 -->
 
   <!-- ═══ 1. 連線 ═══════════════════════════════════════════════════════
        ═══ 🔴 v1.4.0：這張卡砍掉六項 ═════════════════════════════════════════
@@ -248,6 +263,83 @@
              會把標籤原樣印在畫面上。 -->
         <div class="dst-note" data-i18n-html="dst.dlShared">「I2C 讀寫測試」那一頁用的是<b>同一支程式</b>：已經下載過就不必再載一次，執行起來這一頁就連得上。</div>
         <div class="dst-note" data-i18n-html="dst.ownerNote">I2C Bridge 一次只給一個分頁用 —— 切到哪一頁就由哪一頁接手，被接手的那一頁會顯示未連線；<b>正在量測的那一頁不會被接手</b>。</div>
+
+        <!-- ═══ 🔴 v1.8.0：狀態碼對照表（預設收起，按了才展開）════════════════
+             ── 起因（Bruce 2026-09-21）──────────────────────────────────────
+               有同事回報「要用管理者權限開啟才能用」。
+             🔴 **那是誤歸因，而且刻意不寫那句話**（Bruce 2026-09-21 裁示「只放狀態碼
+                對照表，不要寫管理者權限」）。查過 bridge 的源碼：它綁
+                `127.0.0.1:8899`（非特權 port）、走使用者層級的 D2XX，**沒有任何需要
+                提權的操作**。寫「請用管理者權限開啟」會讓人停止找真正的原因。
+             🔴 真正常見的四個是 **T**（在壓縮檔預覽裡直接跑 exe，dll 沒跟出來）、
+                **F**（ftd2xx.dll 沒裝）、**U**（原廠 UI 佔著治具）、**P**（已經有一支在跑）
+                —— 這四個都會在黑視窗最後印出一個大寫字母，以前只能把 log 寄給我查
+                （見「I2C 讀寫測試」那一頁的說明），現在自己看得懂。
+             🔴 內容照 `tools/i2c-bridge/README.md` 的表，語意不改寫，只做兩件事：
+               ① 廠商產品名照全站慣例改成中性代號（README 寫「原廠 PQ Tool／AUX GUI」
+                  ⇒ 畫面上一律「原廠 UI」）。`libMPSSE.dll`／`ftd2xx.dll` 保留 ——
+                  那是使用者真的要去找的**檔名**，`tools/check_ui_jargon.js` 也明文豁免。
+               ② **不列 `B`**（README 那一列已經過時）：v1.7.0 起 exe 根本不開瀏覽器，
+                  源碼裡 `g_browserOk = 1` 是無條件的、判定鏈上那一支已經移除
+                  （`i2c_bridge.c:3390`、`:3405`），現在提供的每一個下載包都 ≥ v1.7.0
+                  ⇒ **這個字母印不出來**。畫面上放一列永遠不會發生的狀況是雜訊。
+               ⚠ 這兩點是我自行判斷的，已在回報中點名請覆核。
+             🔴 `<details>` 預設收起 ⇒ 不佔版面（「說明不是刪掉就是收進按了才出現」）。 -->
+        <details id="dst-sc-det" style="margin-top:8px">
+          <summary class="dst-sum" data-i18n="dst.scSum">黑視窗最後印的那個字母是什麼意思？</summary>
+          <div class="dst-tbl-wrap" style="max-height:300px;margin-top:6px">
+            <table class="dst-tbl">
+              <thead><tr><th data-i18n="dst.scThCode">字母</th><th data-i18n="dst.scThWhat">意思與處置</th></tr></thead>
+              <tbody id="dst-sc-tb"></tbody>
+            </table>
+          </div>
+          <div class="dst-note" data-i18n="dst.scLog">完整的英文細節在 exe 旁邊的 i2c-bridge.log。</div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 🔴 1-b. v1.8.0：三步清單（閉環的核心）════════════════════════════
+       Bruce 2026-09-21：「讓人一眼看到接上機台能做的就這三件」「使用者在進到自檢頁
+       以後可以形成閉環，但同時又要能知道要回到 DG 檢查量測的 curve」。
+
+       🔴 三步**彼此獨立、可重做、不強迫做完**：沒有任何一步會因為「前一步沒做」
+          而變暗（那正是本頁 v1.4.0 已經清掉過一次的毛病）。唯一會讓它們變暗的
+          條件是「這台機器現在做不到」—— 未連線／認不出 IC／正在跑。
+       🔴 每一步的動作鈕走的都是**既有的產品路徑**：① `dstReadDgLut()`（v1.7.0 那一支，
+          一個字沒改）、②③ `dstRun()`（就是下面「開始掃描」那一顆的同一支）。
+          這裡沒有第二份讀取／掃描實作。
+       🔴 「回到 DG 頁」只做 `window.opener.focus()` —— 把**既有那個 DG 視窗**叫到
+          前面，不重開、不導航、不送任何東西過去。沒有 opener 時整顆不顯示
+          （按了會什麼都不發生的鈕不要放在畫面上）。 -->
+  <div class="card" id="dst-steps-card">
+    <div class="card-header"><span class="icon">🧭</span><span data-i18n="dst.hdSteps">接上機台能做的三件事</span></div>
+    <div class="card-body">
+      <div class="dst-step" id="dst-step-lut">
+        <span class="dst-step-tick" id="dst-tick-lut">○</span>
+        <span class="dst-step-txt"><span data-i18n="dst.stepLut">① 讀回目前的 RGB LUT</span>
+          <span class="dst-step-to" id="dst-to-lut"></span></span>
+        <button class="dst-btn" id="dst-go-lut" data-i18n="dst.goLut">讀回並回傳</button>
+        <!-- 沒有 opener 時的退路：TSV 進剪貼簿，格式與 DG 的「一鍵複製 RGB」相同 -->
+        <button class="dst-btn dst-hidden" id="dst-copy-lut" data-i18n="dst.copyLut">複製到剪貼簿</button>
+      </div>
+      <div class="dst-step" id="dst-step-gray">
+        <span class="dst-step-tick" id="dst-tick-gray">○</span>
+        <span class="dst-step-txt"><span data-i18n="dst.stepGray">② 量白灰階</span>
+          <span class="dst-step-to" id="dst-to-gray"></span></span>
+        <button class="dst-btn" id="dst-go-gray" data-i18n="dst.goScan">開始量</button>
+      </div>
+      <div class="dst-step" id="dst-step-prim">
+        <span class="dst-step-tick" id="dst-tick-prim">○</span>
+        <span class="dst-step-txt"><span data-i18n="dst.stepPrim">③ 量 RGB 純色 Pattern</span>
+          <span class="dst-step-to" id="dst-to-prim"></span></span>
+        <button class="dst-btn" id="dst-go-prim" data-i18n="dst.goScan">開始量</button>
+      </div>
+      <!-- 🔴 停用時才有字，可按時一個字都不出現（本頁既有準則）。 -->
+      <div class="dst-note" id="dst-steps-why"></div>
+      <div class="dst-say" id="dst-say-steps"></div>
+      <div class="dst-row dst-hidden" id="dst-back-row" style="margin-top:10px">
+        <button class="dst-btn" id="dst-back-dg" data-i18n="dst.backDg">回到 DG 頁</button>
       </div>
     </div>
   </div>
@@ -435,9 +527,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260921dst173"></script>
-<script src="common/xlsx.js?v=20260921dst173"></script>
-<script src="common/common.js?v=20260921dst173"></script>
+<script src="common/i18n.js?v=20260921dst180"></script>
+<script src="common/xlsx.js?v=20260921dst180"></script>
+<script src="common/common.js?v=20260921dst180"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -511,6 +603,90 @@ if (typeof I18N === 'object' && I18N) {
     'en': 'LUT_MODE is currently {detail}, which is not a DG mode. That mode stores its data elsewhere with a different layout and entry count, so nothing was read. Switch LUT_MODE to 0:DG-10bit or 5:DG-8bit to read the DG LUT.',
     'zh-CN': '目前的 LUT_MODE 是 {detail}，不是 DG 模式 —— 这个模式的数据不在这条 DG LUT 路径上（摆法与笔数都不同），所以一个 byte 都没读。要看 DG LUT 请先把 LUT_MODE 切到 0:DG-10bit 或 5:DG-8bit。'
   };
+
+  /* ═══ v1.8.0：三步清單 ═════════════════════════════════════════════════
+     🔴 掛在這裡的理由與上面那一批**逐字相同**（改 common/i18n.js 會讓每一個
+        引用它的頁面都必須 bump `?v=`，而這一輪的範圍是 dg.html ＋ 本頁兩支）。
+     🔴 三語一個都不少 —— `t()` 查不到翻譯會靜默回傳 key 本身，
+        `tools/scan_untranslated_keys.js` 擋的就是那個。 */
+  I18N['dst.hdSteps']  = { 'zh-TW': '接上機台能做的三件事', 'en': 'Three things you can do with the rig connected', 'zh-CN': '接上机台能做的三件事' };
+  I18N['dst.stepLut']  = { 'zh-TW': '① 讀回目前的 RGB LUT', 'en': '① Read back the current RGB LUT', 'zh-CN': '① 读回目前的 RGB LUT' };
+  I18N['dst.stepGray'] = { 'zh-TW': '② 量白灰階', 'en': '② Measure the white gray scale', 'zh-CN': '② 量白灰阶' };
+  I18N['dst.stepPrim'] = { 'zh-TW': '③ 量 RGB 純色 Pattern', 'en': '③ Measure the RGB primaries', 'zh-CN': '③ 量 RGB 纯色 Pattern' };
+  I18N['dst.goLut']    = { 'zh-TW': '讀回並回傳', 'en': 'Read and send back', 'zh-CN': '读回并回传' };
+  I18N['dst.goScan']   = { 'zh-TW': '開始量', 'en': 'Start', 'zh-CN': '开始量' };
+  I18N['dst.copyLut']  = { 'zh-TW': '複製到剪貼簿', 'en': 'Copy to clipboard', 'zh-CN': '复制到剪贴板' };
+  I18N['dst.backDg']   = { 'zh-TW': '回到 DG 頁', 'en': 'Back to the DG page', 'zh-CN': '回到 DG 页' };
+  /* 「→ 回 DG 第 N 部分」。{part} 用的是 DG 自己那組字（第 1／2／3 部分），本頁不另造。 */
+  I18N['dst.stepTo']   = { 'zh-TW': '→ 回 DG 的{part}', 'en': '→ back to DG ({part})', 'zh-CN': '→ 回 DG 的{part}' };
+  /* 清單為什麼整組停用。順序＝「先發生的先講」，與 dstRunWhyKey 同一個準則。 */
+  I18N['dst.stepsWhyRun']  = { 'zh-TW': '正在量測，量完才能按。', 'en': 'A measurement is running; wait for it to finish.', 'zh-CN': '正在量测，量完才能按。' };
+  I18N['dst.stepsWhyLink'] = { 'zh-TW': '還沒連上 I2C —— 按上面那顆「未連線」先連。', 'en': 'Not connected over I2C yet — press “Not connected” above first.', 'zh-CN': '还没连上 I2C —— 按上面那颗「未连线」先连。' };
+  I18N['dst.stepsWhyIc']   = { 'zh-TW': '認不出板子上是哪一顆 IC —— 按「重新識別」。認不出來就不寫任何位址。', 'en': 'The chip on the board was not identified — press “Identify again”. Nothing is written to any address until it is.', 'zh-CN': '认不出板子上是哪一颗 IC —— 按「重新识别」。认不出来就不写任何地址。' };
+  /* ① 讀好了但不是從 DG 開過來的 ⇒ 講退路，不假裝送出去了 */
+  I18N['dst.stepLutNoDg']  = { 'zh-TW': '已讀回 {n} 筆。這一頁不是從 DG 開的，按「複製到剪貼簿」帶到 DG 第 1 部分貼上。', 'en': 'Read {n} entries. This page was not opened from DG — use “Copy to clipboard” and paste into DG part 1.', 'zh-CN': '已读回 {n} 笔。这一页不是从 DG 开的，按「复制到剪贴板」带到 DG 第 1 部分贴上。' };
+  I18N['dst.dgLabelLut']   = { 'zh-TW': '從 T-CON 讀回', 'en': 'Read back from the T-CON', 'zh-CN': '从 T-CON 读回' };
+  I18N['dst.dgSentLut']    = { 'zh-TW': '✔ {n} 筆 RGB LUT 已回到 DG 的{dest}。', 'en': '✔ {n} RGB LUT entries are back in DG ({dest}).', 'zh-CN': '✔ {n} 笔 RGB LUT 已回到 DG 的{dest}。' };
+  I18N['dst.dgLutTooFew']  = { 'zh-TW': '只解出 {n} 筆（至少要 2 筆），沒有回傳。', 'en': 'Only {n} entries were decoded (at least 2 are needed); nothing was sent.', 'zh-CN': '只解出 {n} 笔（至少要 2 笔），没有回传。' };
+  I18N['dst.copyOk']       = { 'zh-TW': '✔ {n} 筆已複製。到 DG 第 1 部分的表格點一下任一格再貼上。', 'en': '✔ {n} entries copied. Click any cell in DG part 1’s table and paste.', 'zh-CN': '✔ {n} 笔已复制。到 DG 第 1 部分的表格点一下任一格再贴上。' };
+  I18N['dst.copyFail']     = { 'zh-TW': '瀏覽器拒絕了複製。', 'en': 'The browser refused the copy.', 'zh-CN': '浏览器拒绝了复制。' };
+
+  /* ═══ v1.8.0：I2C Bridge 狀態碼對照表 ═══════════════════════════════════
+     🔴 內容逐條對應 `tools/i2c-bridge/README.md` 的那張表，語意不改寫。
+        廠商產品名改成中性的「原廠 UI」（全站去商標化慣例）；`libMPSSE.dll`／
+        `ftd2xx.dll`／`i2c-bridge.log` 是使用者要找的檔名，保留。
+     🔴 **沒有 `B`**：v1.7.0 起 exe 不開瀏覽器，那個字母印不出來（見 HTML 那一段）。 */
+  I18N['dst.scSum']     = { 'zh-TW': '黑視窗最後印的那個字母是什麼意思？', 'en': 'What does the letter at the end of the console window mean?', 'zh-CN': '黑窗口最后印的那个字母是什么意思？' };
+  I18N['dst.scThCode']  = { 'zh-TW': '字母', 'en': 'Letter', 'zh-CN': '字母' };
+  I18N['dst.scThWhat']  = { 'zh-TW': '意思與處置', 'en': 'What it means and what to do', 'zh-CN': '意思与处置' };
+  I18N['dst.scG'] = {
+    'zh-TW': '一切正常，已開已連 —— 直接回來按這一頁的「未連線」。',
+    'en': 'All good: it started and connected. Come back and press “Not connected” on this page.',
+    'zh-CN': '一切正常，已开已连 —— 直接回来按这一页的「未连线」。'
+  };
+  I18N['dst.scT'] = {
+    'zh-TW': '在壓縮檔預覽／暫存目錄裡直接跑 exe，libMPSSE.dll 沒跟出來 ⇒ 把整包解壓到一個資料夾，再從那裡雙擊 exe。',
+    'en': 'The exe was run from inside the zip preview (a temp folder), so libMPSSE.dll was left behind. Extract the whole zip to a real folder and run the exe from there.',
+    'zh-CN': '在压缩档预览／临时目录里直接跑 exe，libMPSSE.dll 没跟出来 ⇒ 把整包解压到一个文件夹，再从那里双击 exe。'
+  };
+  I18N['dst.scD'] = {
+    'zh-TW': 'libMPSSE.dll 檔不存在 ⇒ 它本來就跟 exe 一起在壓縮檔裡；若你把 exe 搬出來了，把 libMPSSE.dll 放回 exe 旁邊（或直接在解壓的資料夾裡跑）。',
+    'en': 'libMPSSE.dll is missing. It ships next to the exe; if you moved the exe out, copy libMPSSE.dll back beside it (or just run it from the folder you unzipped).',
+    'zh-CN': 'libMPSSE.dll 文件不存在 ⇒ 它本来就跟 exe 一起在压缩档里；若你把 exe 搬出来了，把 libMPSSE.dll 放回 exe 旁边（或直接在解压的文件夹里跑）。'
+  };
+  /* 🔴 「原廠 UI」在這兩條裡被 `tools/check_ui_jargon.js` 擋下來，理由是它自己寫的：
+     「『原廠』也不準：他自己寫的 UI 也會來搶治具，改用『別的程式』」。
+     照它改 —— 這兩句要講的本來就是「有另一支程式握著／裝過驅動」，不是哪一家的。 */
+  I18N['dst.scF'] = {
+    'zh-TW': '找到 libMPSSE.dll，但相依的 ftd2xx.dll 載不到 ⇒ 裝 FTDI D2XX 驅動（或先跑一次會一併安裝它的那支量測程式），再重跑。',
+    'en': 'libMPSSE.dll was found but its dependency ftd2xx.dll could not be loaded. Install the FTDI D2XX driver (or run once whichever measurement program installs it), then start it again.',
+    'zh-CN': '找到 libMPSSE.dll，但相依的 ftd2xx.dll 载不到 ⇒ 装 FTDI D2XX 驱动（或先跑一次会一并安装它的那支测量程序），再重跑。'
+  };
+  I18N['dst.scX'] = {
+    'zh-TW': 'libMPSSE.dll 載得起來但不對（位元數不合或損壞）⇒ 換 32 位元的 libMPSSE.dll。',
+    'en': 'libMPSSE.dll loads but is the wrong one (wrong bitness or corrupt). Use the 32-bit libMPSSE.dll.',
+    'zh-CN': 'libMPSSE.dll 载得起来但不对（位数不合或损坏）⇒ 换 32 位的 libMPSSE.dll。'
+  };
+  I18N['dst.scJ'] = {
+    'zh-TW': '找不到治具 ⇒ 插上治具（USB 與電源都要），再重跑。',
+    'en': 'The adapter was not found. Plug it in (both USB and power), then start it again.',
+    'zh-CN': '找不到工装 ⇒ 插上工装（USB 与电源都要），再重跑。'
+  };
+  I18N['dst.scU'] = {
+    'zh-TW': '治具被別的程式佔著 ⇒ 關掉那支程式，再重跑。',
+    'en': 'The adapter is in use by another program. Close that program, then start it again.',
+    'zh-CN': '工装被别的程序占着 ⇒ 关掉那支程序，再重跑。'
+  };
+  I18N['dst.scP'] = {
+    'zh-TW': '127.0.0.1:8899 被佔用 ⇒ 已經有一支 I2C Bridge 在跑，關掉再開一支。',
+    'en': 'Port 127.0.0.1:8899 is busy: another I2C Bridge is already running. Close it, then start one again.',
+    'zh-CN': '127.0.0.1:8899 被占用 ⇒ 已经有一支 I2C Bridge 在跑，关掉再开一支。'
+  };
+  I18N['dst.scLog'] = {
+    'zh-TW': '完整的英文細節在 exe 旁邊的 i2c-bridge.log。',
+    'en': 'The full English details are in i2c-bridge.log, next to the exe.',
+    'zh-CN': '完整的英文细节在 exe 旁边的 i2c-bridge.log。'
+  };
 }
 
 /* ═══ 常數 ═══════════════════════════════════════════════════════════════ */
@@ -568,6 +744,24 @@ var dstDgMode = (dstQs('mode') === 'prim') ? 'prim' : 'gray';
 var dstDgTask = (function () { var n = parseInt(dstQs('task'), 10); return isFinite(n) ? n : 0; })();
 var dstDgDest = dstQs('dest');      // 「第 2 部分」這種步驟名稱，字串由 DG 給，本頁不自己造
 var dstDgWhat = dstQs('what');      // 「白灰階亮度」／「RGB 純色 Pattern」
+
+/* ═══ 🔴 v1.8.0：第五個參數 `step`（三步清單的「目前這一步」）══════════════
+   為什麼不是把 `mode` 加第三個值：`mode` 是**量測模式**，整條掃描計畫
+   （dstPlan／dstScanValues／dstProg／dstDgRows）都吃它。第 1 部分那一步根本
+   不掃描（它讀 LUT），塞成 `mode=lut` 會讓上面每一支都多一個它處理不了的值。
+   ⇒ 另開一個**只管畫面上哪一列被標成「目前這一步」**的參數，量測邏輯零改動。
+
+   🔴 **缺席時退回 `mode`** —— 這一條讓 v1.68.x 的 DG（不帶 `step`）開過來時，
+      gray ⇒ ②、prim ⇒ ③，與加這個參數之前逐字相同。新舊互接不會壞。
+   🔴 `what` 的字仍然由 DG 給，本頁不自己造第二套名稱（v1.1.0 起的規矩）。 */
+var DST_STEPS = ['lut', 'gray', 'prim'];
+function dstDgStepOf(v, mode) {
+  return (DST_STEPS.indexOf(v) >= 0) ? v : ((mode === 'prim') ? 'prim' : 'gray');
+}
+var dstDgStep = dstDgStepOf(dstQs('step'), dstDgMode);
+/* 哪幾步已經送出去過。🔴 只有「真的送出去了」才打勾 —— 讀到一半失敗、掃描中止、
+   沒有 opener 都不算（打了假勾等於騙他「東西在 DG 那邊了」）。 */
+var dstStepDone = { lut: false, gray: false, prim: false };
 var dstDgRunT0 = 0;                 // 這一輪掃描的起點（回傳 durMs 用）
 
 function dstDgAlive() { return !!(window.opener && !window.opener.closed); }
@@ -2854,6 +3048,11 @@ function dstRenderBtns() {
      「連著 ＋ 認得出 IC ＋ 這顆有 dgLut 設定」時可按。 */
   var lr = $('dst-lut-read');
   if (lr) lr.disabled = !(dstLinked && dstIc && dstIc.dgLut) || dstRunning || dstBusy || dstLutBusy;
+  /* 🔴 v1.8.0：三步清單掛在這裡，不在連線／識別／掃描每一條路上各補一次。
+     這一支本來就是本頁「狀態變了要重畫」的唯一匯流點（連線、識別、開始／結束掃描、
+     dstGuard 的忙碌旗標全部會經過它）—— 列舉呼叫點漏一個的症狀是「連上了但清單
+     還是灰的」，而那種漏掉不會有人發現。 */
+  dstRenderSteps();
 }
 /* ═══ 🔴🔴 v1.4.0：進度計數整個重做 ════════════════════════════════════════
    Bruce 2026-09-20（**第二次講同一件事**）：「你現在是 259 分之幾，而這個『幾』
@@ -3391,6 +3590,15 @@ function dstDgSend() {
      🔴 純色沒有湊齊三筆時（上面 `prim:` 那一行會送 null）**不講那一句** ——
         沒送出去的東西不可以出現在「已回到」的訊息裡。
      🔴 「RGB 純色」這五個字與進度條共用 `dst.primGroup`，兩個出口同一組措辭。 */
+  /* v1.8.0：真的送出去了才在三步清單上打勾。
+     🔴 位置在 `postMessage` 之後、而且**只有走到這一行才會執行** —— 上面每一條
+        退場（沒有 opener／這一輪作廢／筆數不足／postMessage 丟例外）都已經 return，
+        所以不會有「沒送出去卻打了勾」。
+     🔴 打在 `dstDgMode` 那一步：gray ⇒ ②、prim ⇒ ③。灰階那一輪順便帶回來的三個
+        純色端點**不算 ③ 做完** —— ③ 是「量 RGB 純色 Pattern」這個動作，而那三筆
+        是 ② 的副產物；把它算成 ③ 會讓他以為純色那一步不必再跑。 */
+  dstStepDone[dstDgMode] = true;
+  dstRenderSteps();
   var primSent = (dstDgMode === 'gray' && s.prim.length === 3);
   dstSay('dst-say-run', primSent
     ? dstT('dst.dgSentTwo', { n: rows.length, dest: dstDgDest || 'DG',
@@ -3414,15 +3622,186 @@ function dstDgPostHello(taskId) {
   } catch (e) { /* 對方已經不在：DG 那端有超時，這裡不需要也不應該補救 */ }
 }
 
-/* 這一頁正在幫 DG 量什麼 —— 只有從 DG 開過來才顯示，直接開這一頁時整張卡不佔位。 */
-function dstDgRenderTask() {
-  var card = $('dst-dg-card');
+/* ═══════════════════════════════════════════════════════════════════════════
+   🔴 v1.8.0：三步清單（DG ⇄ 自檢頁的閉環）
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 每一步回到 DG 的哪一個部分。**只在畫面上講給人看**，DG 那一端的落點不看這裡
+   （灰階看「是誰按的即時量測」、純色與 LUT 各自固定，見 dg.html 的收訊處理器）。
+   🔴 用詞與 dg.html 的 `DG_LIVE_WHAT`／各部分標題同一組字（第 1／2／3 部分）。 */
+var DST_STEP_PART = { lut: '第 1 部分', gray: '第 2 部分', prim: '第 3 部分' };
+
+/* 清單為什麼整組停用。可按 ⇒ 回傳 null（一個字都不顯示）。
+   🔴 順序＝「先發生的先講」，與 dstRunWhyKey() 同一個準則，不另立第二套。
+   🔴 **沒有「前一步沒做」這種條件** —— 三步彼此獨立（Bruce 明示）。 */
+function dstStepsWhyKey() {
+  if (dstRunning) return 'dst.stepsWhyRun';
+  if (!dstLinked) return 'dst.stepsWhyLink';
+  if (!dstIc) return 'dst.stepsWhyIc';
+  return null;
+}
+
+function dstRenderSteps() {
+  var card = $('dst-steps-card');
   if (!card) return;
-  var on = !!(dstDgAlive() && (dstDgDest || dstDgWhat));
-  card.classList.toggle('dst-hidden', !on);
-  if (!on) return;
-  $('dst-dg-step').textContent = dstDgDest || '—';
-  $('dst-dg-what').textContent = dstDgWhat || '—';
+  var why = dstStepsWhyKey();
+  var alive = dstDgAlive();
+  DST_STEPS.forEach(function (k) {
+    var row = $('dst-step-' + k);
+    if (!row) return;
+    row.classList.toggle('done', !!dstStepDone[k]);
+    /* 「目前這一步」只在真的從 DG 開過來時標 —— 直接開這一頁沒有「目前」這件事。 */
+    row.classList.toggle('cur', alive && dstDgStep === k);
+    var tick = $('dst-tick-' + k);
+    if (tick) tick.textContent = dstStepDone[k] ? '✔' : '○';
+    /* 「→ 回 DG 的第 N 部分」只在有 opener 時寫：沒有 DG 可回的時候那句話是假的。 */
+    var to = $('dst-to-' + k);
+    if (to) to.textContent = alive ? dstT('dst.stepTo', { part: DST_STEP_PART[k] }) : '';
+    var go = $('dst-go-' + k);
+    if (go) {
+      /* ① 那一步多一道條件：這顆 IC 要有 DG LUT 的讀取規格
+         （與「讀取 DG LUT」那顆鈕逐字相同的判準，不放寬）。 */
+      go.disabled = !!why || (k === 'lut' && !(dstIc && dstIc.dgLut)) || dstBusy || dstLutBusy;
+    }
+  });
+  var w = $('dst-steps-why');
+  if (w) w.textContent = why ? dstT(why) : '';
+  /* 沒有 opener ⇒「回到 DG 頁」整顆不顯示；剪貼簿退路換它上場。 */
+  var backRow = $('dst-back-row');
+  if (backRow) backRow.classList.toggle('dst-hidden', !alive);
+  var back = $('dst-back-dg');
+  /* 🔴 有任何一步打勾過就轉成強調色 —— 那個當下的意思是「東西送過去了，回去看 curve」。
+     沿用既有的 `.pri`（本頁「開始掃描」「讀取 DG LUT」用的就是它），不新增色票。 */
+  if (back) back.classList.toggle('pri', DST_STEPS.some(function (k) { return dstStepDone[k]; }));
+  var cp = $('dst-copy-lut');
+  if (cp) {
+    cp.classList.toggle('dst-hidden', alive);
+    cp.disabled = !dstLut;
+  }
+}
+
+/* ── ① 讀回目前的 RGB LUT ────────────────────────────────────────────────
+   🔴 讀取走的是 v1.7.0 的 `dstReadDgLut()`，**一個字都沒改**（規格、bus enable、
+      交錯、mask、LUT_MODE 判定全在那一支裡，那些剛在真機驗過）。這裡只負責
+      「讀完之後把它交出去」。 */
+async function dstStepLut() {
+  dstSay('dst-say-steps', '');
+  await dstReadDgLut();
+  if (!dstLut) { dstRenderSteps(); return false; }   // 失敗原因由 dstRenderLut() 講
+  if (!dstDgAlive()) {
+    dstSay('dst-say-steps', dstT('dst.stepLutNoDg', { n: dstLutMainCount(dstLut.entries) }));
+    dstRenderSteps();
+    return false;
+  }
+  return dstDgSendLut();
+}
+
+/* 主表筆數（不含附加末筆）。
+   🔴 口徑**與 DG 的「一鍵複製 RGB」相同**：DG 那一頁的表格與一鍵複製一律只給
+      主表 0 ～ N−1，附加末筆只出現在下載的 LUT 檔（dg.html 該處註解）。
+      本頁讀回來的 257／1025 筆就是「主表 256／1024 ＋ 末筆 1」。
+   🔴 判準用「entries − 1 是不是 2 的次方」而不是寫死 257／1025：
+      257 ⇒ 256（2^8）✓、1025 ⇒ 1024（2^10）✓；萬一哪天有一顆的表就是 256 筆
+      （沒有末筆），entries − 1 ＝ 255 不是 2 的次方 ⇒ 整張送，不會誤砍一筆。 */
+function dstLutMainCount(entries) {
+  var n = entries - 1;
+  return (n > 0 && (n & (n - 1)) === 0) ? n : entries;
+}
+
+/* 讀回來的表 → DG 要的列：`[[index, R, G, B], …]`，index 0 ～ N−1。 */
+function dstDgLutRows() {
+  if (!dstLut) return [];
+  var n = Math.min(dstLutMainCount(dstLut.entries),
+                   dstLut.rgb.r.length, dstLut.rgb.g.length, dstLut.rgb.b.length);
+  var out = [];
+  for (var i = 0; i < n; i++) {
+    if (!isFinite(dstLut.rgb.r[i]) || !isFinite(dstLut.rgb.g[i]) || !isFinite(dstLut.rgb.b[i])) continue;
+    out.push([i, dstLut.rgb.r[i], dstLut.rgb.g[i], dstLut.rgb.b[i]]);
+  }
+  return out;
+}
+
+/* 把讀回來的 LUT 回傳 DG 的第 1 部分。回傳 true ＝ 真的送出去了。
+   🔴 **沿用既有的那一個管道與型別**（`dg-measure-result`），只多一個 mode 值
+      `'lut'` —— DG 那一端因此只多一個分支，不必認「這是哪一頁送來的」。
+   🔴 `depth`／`entries` 是**附帶說明用**（DG 只拿來寫在方框裡給人看），不參與
+      任何計算：本頁沒有把它換算成 DG 的「內容深度」選單，那是使用者自己選的。 */
+function dstDgSendLut() {
+  if (!dstDgAlive()) return false;
+  if (!dstLut) return false;
+  var rows = dstDgLutRows();
+  if (rows.length < 2) {
+    dstSay('dst-say-steps', dstT('dst.dgLutTooFew', { n: rows.length }));
+    dstLog('!  DG LUT send skipped: only ' + rows.length + ' usable entries', 'e');
+    return false;
+  }
+  try {
+    window.opener.postMessage({
+      type: 'dg-measure-result',
+      mode: 'lut',
+      label: dstT('dst.dgLabelLut'),
+      task: dstDgTask,
+      at: new Date().toLocaleString(),
+      rows: rows,
+      depth: dstLut.depth,
+      entries: dstLut.entries,
+      icKey: dstLut.icKey
+    }, DST_DG_ORIGIN);
+  } catch (e) {
+    dstLog('!  DG LUT send failed: ' + dstErrMsg(e), 'e');
+    return false;
+  }
+  dstStepDone.lut = true;
+  dstSay('dst-say-steps',
+    dstT('dst.dgSentLut', { n: rows.length, dest: DST_STEP_PART.lut }));
+  dstLog('== sent DG LUT: task=' + dstDgTask + ' entries=' + rows.length
+    + '/' + dstLut.entries + ' depth=' + dstLut.depth + 'bit', 'o');
+  dstRenderSteps();
+  return true;
+}
+
+/* ── ②③ 量白灰階 ／ 量 RGB 純色 ─────────────────────────────────────────
+   🔴 走的是**下面「開始掃描」那一顆的同一支 `dstRun()`**，這裡只先把量測模式
+      切成那一步要的（與 DG 換任務時 dstDgApplyTask() 做的同一件事）。
+      沒有第二份掃描實作，也沒有第二套閘門。 */
+function dstStepScan(mode) {
+  if (dstRunning) return Promise.resolve(false);
+  dstSay('dst-say-steps', '');
+  dstDgMode = (mode === 'prim') ? 'prim' : 'gray';
+  dstDgStep = dstDgMode;
+  dstRenderDgBits();
+  dstRenderSteps();
+  return dstRun();
+}
+
+/* ── 回到 DG 頁 ──────────────────────────────────────────────────────────
+   🔴 只有 `focus()`：把**既有那個 DG 視窗**叫到前面。不重開、不導航、不送訊息
+      —— DG 那一頁可能已經收了好幾步的資料，重開會把它們全部丟掉。 */
+function dstBackToDg() {
+  if (!dstDgAlive()) return false;
+  try { window.opener.focus(); } catch (e) { return false; }
+  dstLog('== focus back to DG', 'o');
+  return true;
+}
+
+/* ── 沒有 opener 時的退路：TSV 進剪貼簿 ──────────────────────────────────
+   🔴 格式**與 DG 的「一鍵複製 RGB」逐字相同**（表頭 Index/RLUT/GLUT/BLUT、
+      tab 分隔、CRLF 換行、結尾再一個 CRLF）—— DG 第 1 部分的表格本來就吃這個，
+      所以這條退路不需要 DG 那一端多寫任何東西。 */
+function dstLutTsv() {
+  var rows = dstDgLutRows();
+  var lines = [['Index', 'RLUT', 'GLUT', 'BLUT'].join('\t')];
+  for (var i = 0; i < rows.length; i++) lines.push(rows[i].join('\t'));
+  return lines.join('\r\n') + '\r\n';
+}
+function dstCopyLut() {
+  var rows = dstDgLutRows();
+  if (!rows.length) return false;
+  try { navigator.clipboard.writeText(dstLutTsv()); }
+  catch (e) { dstSay('dst-say-steps', dstT('dst.copyFail')); return false; }
+  dstSay('dst-say-steps', dstT('dst.copyOk', { n: rows.length }));
+  dstLog('== copied ' + rows.length + ' LUT entries to clipboard (TSV)', 'o');
+  return true;
 }
 
 /* 換任務（DG 在分頁已經開著時只發訊息、不重新導航 —— 頁面不重載，
@@ -3434,10 +3813,14 @@ function dstDgApplyTask(d) {
   dstDgMode = (d.mode === 'prim') ? 'prim' : 'gray';
   dstDgDest = d.dest || '';
   dstDgWhat = d.what || '';
-  dstDgRenderTask();
+  /* v1.8.0：換任務也要換「目前這一步」。🔴 `d.step` 缺席時退回 `d.mode`
+     （舊版 DG 不帶這個欄位）—— 與網址那條路同一支 dstDgStepOf()，不是第二套。 */
+  dstDgStep = dstDgStepOf(d.step, dstDgMode);
+  dstRenderSteps();
   dstRenderDgBits();     // v1.2.0：換任務之後 gray/prim 可能變了，警語要跟著重算
   dstSay('dst-say-run', dstT('dst.dgSwitched', { dest: dstDgDest || 'DG' }));
-  dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' dest=' + dstDgDest, 'o');
+  dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' step=' + dstDgStep
+    + ' dest=' + dstDgDest, 'o');
 }
 
 window.addEventListener('message', function (e) {
@@ -3461,10 +3844,60 @@ function dstRenderDl() {
   box.classList.remove('dst-hidden');
   a.setAttribute('href', DST_PKG.file + '?v=' + (DST_PKG.pkg || ''));
   $('dst-dl-ver').textContent = DST_PKG.pkg || '';
+  dstRenderSc();
+}
+
+/* ═══ 🔴 v1.8.0：I2C Bridge 狀態碼對照表 ══════════════════════════════════
+   🔴 **順序照 `i2c_bridge.c` 的判定優先序**（`:3398`–`3406`），不是照字母排：
+      P > T > D > F > X > J > U > G。使用者看到的那個字母就是這條鏈上第一個成立的，
+      照同一個順序列，他往下讀到自己那一個字母時，上面每一條都已經被排除掉了。
+      🔴 G 排在最後（它是「全部都沒問題」那一格）。
+   🔴 列的內容一律走 `t()`（三語），**這一支不寫任何字面文案**。
+   🔴 `B` 不在表裡 —— 見 HTML 那一段的說明（v1.7.0 起印不出來）。 */
+var DST_STATUS_CODES = ['P', 'T', 'D', 'F', 'X', 'J', 'U', 'G'];
+function dstRenderSc() {
+  var tb = $('dst-sc-tb');
+  if (!tb) return;
+  tb.innerHTML = '';
+  DST_STATUS_CODES.forEach(function (c) {
+    var tr = document.createElement('tr');
+    var td1 = document.createElement('td');
+    td1.textContent = c;
+    var td2 = document.createElement('td');
+    /* 🔴 靠左：這一格是一句話，不是數字（`.dst-tbl td` 預設是靠右對齊的）。 */
+    td2.style.textAlign = 'left';
+    td2.textContent = dstT('dst.sc' + c);
+    tr.appendChild(td1); tr.appendChild(td2);
+    tb.appendChild(tr);
+  });
 }
 
 /* ═══ 接線 ═══════════════════════════════════════════════════════════════ */
 function dstBind() {
+  /* ═══ 🔴 v1.8.0：本頁自己補的 I18N key 要再套一次語言 ══════════════════════
+     ── 這是夾具當場抓到的，不是預防性的 ────────────────────────────────────
+       v1.8.0 第一版把三步清單與狀態碼表的字掛成 `data-i18n`，結果畫面上印的是
+       **`dst.hdSteps`／`dst.stepLut`／`dst.goLut`／`dst.scSum` 這些 key 本身**。
+
+     ── 根因 ────────────────────────────────────────────────────────────────
+       `common/common.js:205` 的 `applyLang(savedLang)` 寫在一個**立即執行**的
+       IIFE 裡 ⇒ 它在 common.js 被剖析的那一刻就掃完整份 DOM 的 `data-i18n`。
+       而本頁補的那幾十個 key 是掛在**這個 inline script**裡的（見檔頭那一段
+       說明：為了不動 common/i18n.js 而波及十幾個頁面的 `?v=`），
+       inline script 比 common.js 晚執行 ⇒ 掃的時候 `I18N` 還沒有這些 key
+       ⇒ `t()` 查不到就**回傳 key 本身**（靜默，console 不會叫）。
+       🔴 v1.7.0 那一批 inline key 之所以沒出事，是因為它們**只在 `t()` 呼叫時**
+          用到（錯誤訊息），沒有一個走 `data-i18n` 這條在載入當下就定案的路。
+
+     ── 修法 ────────────────────────────────────────────────────────────────
+       key 都註冊完之後（本檔頂端那一段），在 dstBind() 的**第一行**再套一次語言。
+     🔴 一定要排在下面那些 render 之前：`dstRenderPick()` 等幾支會用 JS 覆寫按鈕
+        文字（四顆色鈕的字要帶當前位元深度的滿刻度，所以它們的 `data-i18n` 是
+        刻意拿掉的）。applyLang 先跑、JS 後跑，兩邊都不會被對方蓋掉。
+     🔴 `currentLang` 是 common.js 的全域；沒載到 common.js 時整段跳過（不硬取值）。 */
+  if (typeof applyLang === 'function') {
+    try { applyLang(typeof currentLang === 'string' ? currentLang : 'zh-TW'); } catch (e) {}
+  }
   dstBuildSettle();
   dstSetBits(8);
   dstRenderRes();
@@ -3473,7 +3906,16 @@ function dstBind() {
   dstRenderCa();
   dstRenderBtns();
   dstRenderDl();          // v1.1.0：I2C Bridge 下載入口（版號來自 HELPER_PKG）
-  dstDgRenderTask();      // v1.1.0：DG 指派的任務（沒有就整張卡不顯示）
+  dstRenderSteps();       // v1.8.0：三步清單（未連線時停用並講明原因）
+
+  /* ═══ v1.8.0：三步清單的四顆鈕 ════════════════════════════════════════════
+     🔴 每一顆都包在 dstGuard 裡（與「重新識別」那一顆相同）—— 忙碌旗標是所有
+        I2C 動作共用的那一個，不另開第二套。 */
+  $('dst-go-lut').addEventListener('click', function () { dstGuard(dstStepLut); });
+  $('dst-go-gray').addEventListener('click', function () { dstStepScan('gray'); });
+  $('dst-go-prim').addEventListener('click', function () { dstStepScan('prim'); });
+  $('dst-back-dg').addEventListener('click', dstBackToDg);
+  $('dst-copy-lut').addEventListener('click', dstCopyLut);
 
   $('dst-link').addEventListener('click', function () {
     if (dstLinked) dstDisconnect(); else dstConnect();
@@ -3586,7 +4028,7 @@ function dstBind() {
     dstBuildSettle();
     dstSetBits(dstBits);
     dstRenderRes(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();
-    dstRenderDl(); dstDgRenderTask(); dstRenderDg(); dstRenderLut();
+    dstRenderDl(); dstRenderSteps(); dstRenderDg(); dstRenderLut();
     if (dstIc) dstShow('dst-v-ic', dstIcName() + dstAlsoText(dstIc), true);
     if (!dstLinked) {
       dstShow('dst-v-bridge', '—', false); dstShow('dst-v-ic', '—', false);
@@ -3783,6 +4225,59 @@ window.dstProbe = {
   dgSend: dstDgSend,
   dgApplyTask: dstDgApplyTask,
   dgPostHello: dstDgPostHello,
+  /* ═══ v1.8.0：三步清單（唯讀狀態 ＋ 產品路徑的薄包裝）═══════════════════════
+     🔴 這裡**沒有**「直接把某一步標成完成」的寫入口：打勾只能由真的送出去那條
+        路產生，否則夾具驗到的通過不算數。 */
+  steps: function () { return DST_STEPS.slice(); },
+  stepCur: function () { return dstDgStep; },
+  stepDone: function () { return JSON.parse(JSON.stringify(dstStepDone)); },
+  stepsWhyKey: dstStepsWhyKey,
+  stepsWhyText: function () { var e = $('dst-steps-why'); return e ? e.textContent : null; },
+  saySteps: function () { var e = $('dst-say-steps'); return e ? e.textContent : null; },
+  /* 清單上每一列此刻的長相：打勾、是不是「目前這一步」、動作鈕能不能按、
+     「→ 回 DG 的第 N 部分」那一段有沒有字。 */
+  stepRow: function (k) {
+    var row = $('dst-step-' + k), go = $('dst-go-' + k), to = $('dst-to-' + k),
+        tick = $('dst-tick-' + k);
+    if (!row) return null;
+    return { done: row.classList.contains('done'), cur: row.classList.contains('cur'),
+             tick: tick ? tick.textContent : null,
+             to: to ? to.textContent : null,
+             disabled: go ? !!go.disabled : null };
+  },
+  backRowHidden: function () {
+    var e = $('dst-back-row'); return e ? e.classList.contains('dst-hidden') : null;
+  },
+  backIsPri: function () {
+    var e = $('dst-back-dg'); return e ? e.classList.contains('pri') : null;
+  },
+  copyHidden: function () {
+    var e = $('dst-copy-lut'); return e ? e.classList.contains('dst-hidden') : null;
+  },
+  copyDisabled: function () { var e = $('dst-copy-lut'); return e ? !!e.disabled : null; },
+  stepPart: function () { return JSON.parse(JSON.stringify(DST_STEP_PART)); },
+  lutMainCount: dstLutMainCount,
+  dgLutRows: dstDgLutRows,
+  dgSendLut: dstDgSendLut,
+  lutTsv: dstLutTsv,
+  copyLut: dstCopyLut,
+  backToDg: dstBackToDg,
+  /* 🔴 走的是產品那兩顆鈕呼叫的同一支（不是夾具自己組流程）。 */
+  stepLut: function () { return dstStepLut(); },
+  stepScan: function (m) { return dstStepScan(m); },
+  stepOf: dstDgStepOf,
+  /* v1.8.0：I2C Bridge 狀態碼對照表（唯讀）。夾具驗「區塊在、預設收起、
+     每一列都有字、不含未翻譯的 key、也不含管理者權限那句」。 */
+  scCodes: function () { return DST_STATUS_CODES.slice(); },
+  scOpen: function () { var e = $('dst-sc-det'); return e ? !!e.open : null; },
+  scRows: function () {
+    var tb = $('dst-sc-tb');
+    if (!tb) return null;
+    return Array.prototype.map.call(tb.children, function (tr) {
+      return Array.prototype.map.call(tr.children, function (td) { return td.textContent; });
+    });
+  },
+  scText: function () { var e = $('dst-sc-det'); return e ? e.textContent : null; },
   /* 🔴 語意 ＝「假裝剛剛**乾淨地跑完**一輪，結果是這些列」，所以它一併把
      dstRunOk 設成 true —— 否則每一個夾具都要多記一步，而忘記那一步的症狀
      （dgSend 靜靜回 false）看起來會像產品壞了。要驗作廢那一半的，用
