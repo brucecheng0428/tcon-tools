@@ -333,7 +333,20 @@ async function load(opts) {
     EQ(P.lutRowCount(), 257, '全表 257 列');
     EQ(P.lutRow(0), ['0', String(r[0]), String(g[0]), String(b[0])], '全表第一列 = index 0 的三個值');
     EQ(P.lutRow(256), ['256', String(r[256]), String(g[256]), String(b[256])], '全表最後一列 = index 256');
-    EQ(doc.getElementById('dst-lut-det').hasAttribute('open'), false, '全表預設收起來');
+    /* ═══ 🔴 dgself v1.12.0：這一條的**方向反過來了**（Bruce 2026-09-21 指定）═══
+       「我發現 DGLUT RGB 檢視，為什麼只有圖而沒有表呢？」「它不要有收折功能，
+       而是永遠展開的。」
+       ⇒ `<details id="dst-lut-det">` 整組移除，表格直接掛在畫面上。
+       🔴 舊斷言寫的是 `…det.hasAttribute('open') === false`，元素一旦不存在就會
+          丟 `TypeError` ⇒ **整支夾具從這一行起不再執行**（後面幾十項都不會跑，
+          而且看起來像「只有一條紅」）。所以這裡改成**正面驗「表看得到」**：
+          ① 收折容器不存在 ② 表格本體仍在 ③ 它不在任何 <details> 裡面。
+       🔴 上面那三條（257 列／第一列／最後一列）一個字沒改 —— 表的內容本來就對，
+          這一版只是讓它不再被收起來。 */
+    EQ(doc.getElementById('dst-lut-det'), null, '🔴 v1.12.0：收折容器已移除（表不再收折）');
+    const lutTb = doc.getElementById('dst-lut-tb');
+    CHECK(!!lutTb, '🔴 v1.12.0：數值表本體仍在');
+    CHECK(!!lutTb && !lutTb.closest('details'), '🔴 v1.12.0：數值表不在任何 <details> 裡 ⇒ 永遠展開');
     const cfgTxt = P.lutText('dst-lut-cfg');
     for (const frag of ['EM02A1', '0x48', '0x800', '0x400', '257', '0x0F00'])
       CHECK(cfgTxt.indexOf(frag) >= 0, '規格列印出 ' + frag, cfgTxt);

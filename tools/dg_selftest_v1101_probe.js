@@ -360,8 +360,14 @@ function renderLang(w, lang) {
     /* 下拉是真的有選項（搬過去之後 JS 仍然把 DST_SETTLE_CHOICES 填進來） */
     CHECK(sel.options.length > 0, '🔴 換階等待的選項有被填進來（不是一個空下拉）',
       sel.options.length);
-    CHECK(String(P.settleMs ? P.settleMs() : sel.value) === '700',
-      '🔴 預設仍是 700 ms（這一輪沒有動任何預設值）', sel.value);
+    /* 🔴 dgself v1.12.0 改判：Bruce 2026-09-21 指定「量測 Gamma 換接等待預設改成
+       300ms 好了」。這一條原本是 v1.10.1 用來釘「搬家沒有順手改掉預設值」的，
+       現在預設值**是這一版刻意要改的東西**，所以改成釘新值，並多釘一條
+       「清單一格沒少」—— 他要調回 700 仍然選得到。 */
+    CHECK(String(P.settleMs ? P.settleMs() : sel.value) === '300',
+      '🔴 v1.12.0：預設改成 300 ms（Bruce 指定）', sel.value);
+    EQ(P.settleChoices(), [300, 400, 500, 600, 700, 800, 900, 1000],
+      '🔴 清單一格都沒少（他要調回 700 仍然選得到）');
     CHECK(g.contains(doc.getElementById('dst-xlsx')), '🔴 匯出 XLSX 在 ②③ 那一格裡');
   }
   {
@@ -422,21 +428,30 @@ function renderLang(w, lang) {
       '🔴 ④ 排在清單第四項（本檔寫死的順序）');
     EQ(P.backRowTick(), '○', '🔴 ④ 的圈圈是空心的');
     EQ(P.backRowDone(), false, '🔴 ④ 沒有 done（它本來就不該有完成狀態）');
-    /* 沒有 opener ⇒ 那一顆是「返回主頁」，那條路是好的 ⇒ 不貼警語 */
-    EQ(P.backWarnHidden(), true,
-      '🔴 直接開這一頁（沒有 opener）時不貼「可能不會動」——那時走的是首頁連結，是好的');
+    /* ═══ 🔴 dgself v1.12.0 改判：這一行的工作換了 ═══════════════════════════
+       v1.10.1 時它是「按之前的警告」，沒有 opener 時貼上去會變成假警告 ⇒ 藏起來。
+       v1.12.0 起 ④ 沒有鈕、改成自動回傳，而「沒有 opener ⇒ 永遠不會自動回傳」
+       正是使用者最需要被告知的一件事（Bruce：失敗要「講清楚原因與退路」）
+       ⇒ 這一行改成**一定看得見**，內容換成原因＋退路。 */
+    EQ(P.backWarnHidden(), false,
+      '🔴 v1.12.0：沒有 opener 時那一行要看得見（要講為什麼不會自動回傳）');
+    CHECK((P.backWarnText() || '').indexOf('不是從 DG 開的') >= 0,
+      '🔴 講出原因', P.backWarnText());
   }
   {
     const opener = fakeWin();
     const { P, doc } = await loadReady({ mem: buildSram(N, VALS), opener,
       qs: '?task=7&dest=' + encodeURIComponent('第 1 部分') + '&step=lut' });
 
-    EQ(P.backBotIsPri(), false, '前置條件：一步都還沒完成 ⇒ ④ 還不是強調色');
+    EQ(P.backBotIsPri(), null, '🔴 v1.12.0：④ 那一顆鈕已移除 ⇒ 沒有強調色可言');
+    EQ(P.backSent(), false, '前置條件：還沒送出去任何東西 ⇒ ④ 不打勾');
     EQ(P.backWarnHidden(), false,
-      '🔴 從 DG 開過來時**按之前就先講明**：那一行看得見');
+      '🔴 從 DG 開過來時**送出去之前就先講明**：那一行看得見');
     const warn = P.backWarnText() || '';
+    CHECK(warn.indexOf('自動回傳') >= 0,
+      '🔴 v1.12.0：先講「量完會自動回傳，不必按任何東西」', warn);
     CHECK(warn.indexOf('切') >= 0 && warn.indexOf('分頁') >= 0,
-      '🔴 那一行講的是「請自己切回 DG 分頁」（中性，不解釋技術原因）', warn);
+      '🔴 那一行仍然講「請自己切回 DG 分頁」（中性，不解釋技術原因）', warn);
     CHECK(warn.indexOf('opener') < 0 && warn.indexOf('focus') < 0
        && warn.indexOf('API') < 0 && warn.indexOf('瀏覽器') < 0,
       '🔴 那一行沒有技術名詞', warn);
@@ -445,28 +460,29 @@ function renderLang(w, lang) {
        🔴 這裡**不驗 `opener.focus()` 有沒有被呼叫** —— 那個呼叫已經整支拿掉，
           而且它本來在真瀏覽器就無效；jsdom 的 focus 是假的，驗了只會得到假綠。
           驗的是使用者真的看得到的三件事：提示出現、④ 轉強調態、④ 仍不打勾。 */
-    EQ(P.backRowCur(), false, '前置條件：還沒按 ④ ⇒ 那一列還不是強調態');
+    /* ═══ 🔴 dgself v1.12.0 改判：沒有 ④ 那一顆鈕可以按了 ═══════════════════════
+       Bruce 2026-09-21 需求變更：「不要做成按鈕式的…第三部分跑完以後，第四部分就
+       自動打勾，也就是它自己會回傳 DG」。
+       ⇒ 原本這一段驗的是「按下去會怎樣」。現在改驗**不按任何東西、走產品那條路
+         真的回傳一次之後**會怎樣 —— 驗的事情一件沒少（提示出現、④ 的狀態正確、
+         沒有第二條回傳路徑），只是觸發點從「他按」換成「它自己」。 */
+    EQ(P.backRowCur(), false, '前置條件：還沒送出去 ⇒ 那一列還不是強調態');
+    EQ(doc.getElementById('dst-back-bot'), null, '🔴 v1.12.0：④ 那一顆鈕不在 DOM 裡');
     const before = opener.msgs.length;
-    doc.getElementById('dst-back-bot').click();
-    await sleep(30);
-    EQ(P.saySteps(), '已送回 DG，請切回 DG 分頁繼續。',
-      '🔴 按下 ④ ⇒ 畫面上出現「已送回 DG，請切回 DG 分頁繼續。」');
-    EQ(P.backRowCur(), true, '🔴 按下 ④ ⇒ 那一列轉成強調態（既有的 .cur）');
-    EQ(P.backRowTick(), '○', '🔴 按了之後 ④ **仍然不打勾**');
-    EQ(P.backRowDone(), false, '🔴 按了之後 ④ 仍然沒有 done');
-    EQ(P.stepRowOrder()[3], 'dst-step-back', '🔴 按了之後 ④ 仍然排在第四項');
-    EQ(opener.msgs.length, before,
-      '🔴 按 ④ **不送任何東西給 DG**（它只是講一句話，不是第二條回傳路徑）');
-    CHECK(!doc.defaultView.closed, '🔴 按 ④ **不關頁**（關頁會丟掉 I2C 連線與 IC 識別）');
 
-    /* 走產品那條路完成第一步 */
+    /* 走產品那條路完成第一步（① 讀回 LUT 並回傳）*/
     doc.getElementById('dst-go-lut').click();
     await waitFor(() => P.stepDone().lut, 5000);
     await sleep(60);
     EQ(P.stepDone().lut, true, '① 已完成（走的是畫面上那顆鈕）');
-    EQ(P.backBotIsPri(), true, '🔴 前三步任一完成 ⇒ ④ 轉成強調色');
-    EQ(P.backRowTick(), '○', '🔴 ①完成了，④ 的圈圈**仍然**是空心的（永遠不打勾）');
-    EQ(P.backRowDone(), false, '🔴 ④ 仍然沒有 done');
+    EQ(opener.msgs.length, before + 1, '🔴 而且真的送了一則出去（只有一則）');
+    EQ(P.backSent(), true, '🔴 v1.12.0：真的送出去了 ⇒ ④ 自動打勾');
+    EQ(P.backRowTick(), '✔', '🔴 ④ 那一列自動變成 ✔（不必按任何東西）');
+    EQ(P.backRowDone(), true, '🔴 ④ 有 done（它現在代表「資料真的離開這一頁了」）');
+    EQ(P.backWarnText(), '已送回 DG，請切回 DG 分頁繼續。',
+      '🔴 提示自動換成「已送回 DG，請切回 DG 分頁繼續。」');
+    EQ(P.stepRowOrder()[3], 'dst-step-back', '🔴 ④ 仍然排在第四項');
+    CHECK(!doc.defaultView.closed, '🔴 **不關頁**（關頁會丟掉 I2C 連線與 IC 識別）');
 
     /* 三語都要有字（不漏 key） */
     ['zh-TW', 'en', 'zh-CN'].forEach(L => {
@@ -647,8 +663,9 @@ function renderLang(w, lang) {
   }
   /* ── M5（⑤）：把 ④ 那一列排到最前面 ── */
   {
-    const row = /<div class="dst-step" id="dst-step-back">[\s\S]*?<\/div>\s*<\/div>/;
-    const m = SELF_SRC.match(/<div class="dst-step" id="dst-step-back">[\s\S]*?<\/a>\s*<\/div>/);
+    /* 🔴 v1.12.0：④ 那一列裡已經沒有 <a>（鈕移除了），所以錨點收在 </span> 上。
+       突變目標不變：把 ④ 那一列搬到第一項 ⇒「排在第四項」那一條必須紅。 */
+    const m = SELF_SRC.match(/<div class="dst-step" id="dst-step-back">[\s\S]*?<\/span>\s*<\/div>/);
     CHECK(!!m, 'M5：找得到 ④ 那一列');
     const mut = SELF_SRC.replace(m[0], '')
       .replace('<div class="dst-step" id="dst-step-lut">', m[0] + '<div class="dst-step" id="dst-step-lut">');
@@ -656,23 +673,34 @@ function renderLang(w, lang) {
     EQ(P.stepRowOrder()[0], 'dst-step-back',
       '🔴 突變後 ④ 跑到第一項 ⇒「排在第四項」那一條會紅');
   }
-  /* ── M5-a2（⑤）：按下 ④ 不顯示提示（回到「按了沒反應」那個狀態）── */
+  /* ── M5-a2（⑤）🔴 v1.12.0 換了突變目標 ────────────────────────────────────
+     原本突變的是「按下 ④ 之後那一句提示」，而 v1.12.0 起沒有鈕可以按，提示改由
+     `dstRenderSteps()` 依「有沒有真的送出去」決定。
+     ⇒ 突變成**永遠顯示「還沒送出去」那一句**（＝回傳成功了畫面卻不說）
+       ⇒ 「提示自動換成已送回 DG」那幾條必須紅。 */
   {
-    const orig = "  dstSay('dst-say-steps', dstT('dst.backSwitchTab'));";
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-a2：找得到按下 ④ 之後那一句提示');
-    const mut = SELF_SRC.replace(orig, '');
+    const orig = "      : (dstBackSent ? dstT('dst.backSwitchTab') : dstT('dst.backHint'));";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-a2：找得到那一行三選一的提示');
+    const mut = SELF_SRC.replace(orig, "      : dstT('dst.backHint');");
     const opener = fakeWin();
-    const { P, doc } = await loadReady({ src: mut, opener, qs: '?task=1&step=lut' });
-    doc.getElementById('dst-back-bot').click();
-    await sleep(30);
-    EQ(P.saySteps(), '',
-      '🔴 突變後按 ④ 什麼都不說（＝ Bruce 回報的「按了沒反應」）⇒ 那一條會紅');
+    /* 🔴 `mem` 不能省：① 讀回 LUT 要真的讀到東西才會回傳，沒有記憶體內容就
+       不會送出去，那樣測到的紅是「沒送出去」而不是突變造成的。 */
+    const { P, doc } = await loadReady({ src: mut, opener, mem: buildSram(N, VALS),
+                                        qs: '?task=1&step=lut' });
+    doc.getElementById('dst-go-lut').click();
+    await waitFor(() => P.stepDone().lut, 5000);
+    await sleep(60);
+    EQ(P.backSent(), true, '突變前置：確實送出去了');
+    EQ(P.backWarnIsSwitchTab(), false,
+      '🔴 突變後送出去了畫面卻還在講「量完會自動回傳」（＝沒告訴他該切分頁了）⇒ 那一條會紅');
   }
   /* ── M5-b（⑤）：把按之前那一行永遠藏起來 ── */
   {
-    const orig = "  if (bw) bw.classList.toggle('dst-hidden', !alive);";
+    /* 🔴 v1.12.0：錨點跟著產品改了（那一行現在一定看得見，內容三選一）。
+       突變目標不變：把那一行藏起來 ⇒「如實標註」那幾條必須紅。 */
+    const orig = "    bw.classList.remove('dst-hidden');";
     CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-b：找得到那一行的顯示判斷');
-    const mut = SELF_SRC.replace(orig, "  if (bw) bw.classList.add('dst-hidden');");
+    const mut = SELF_SRC.replace(orig, "    bw.classList.add('dst-hidden');");
     const { P } = await loadSelf({ src: mut, opener: fakeWin() });
     EQ(P.backWarnHidden(), true,
       '🔴 突變後從 DG 開過來也看不到那一行 ⇒「如實標註」那一條會紅');
@@ -715,15 +743,18 @@ function renderLang(w, lang) {
     EQ(P.stepRow('lut').disabled, true,
       '🔴 突變後 ① 也被鎖住了 ⇒ 第 ⑥ 組那條反面斷言會紅（接手要接對地方）');
   }
-  /* ── M5-c（⑤）：讓 ④ 也會打勾 ── */
+  /* ── M5-c（⑤）🔴 v1.12.0 反轉：④ 現在**會**打勾，要釘的是「打勾＝真的送到了」──
+     Bruce 2026-09-21：「自動回傳失敗時不准自動打勾…打勾必須等於真的送到了，
+     不能是『我送了，不知道有沒有到』。」
+     ⇒ 突變成「不管送沒送出去都打勾」⇒「沒有 opener ⇒ ④ 維持 ○」那幾條必須紅。 */
   {
-    const orig = "  var bw = $('dst-back-warn');";
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-c：找得到 ④ 那一段的起點');
-    const mut = SELF_SRC.replace(orig,
-      "  var _bt = $('dst-tick-back'); if (_bt) _bt.textContent = '✔';\n" + orig);
+    const orig = "  if (bt) bt.textContent = dstBackSent ? '✔' : '○';";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-c：找得到 ④ 那一列的打勾判定');
+    const mut = SELF_SRC.replace(orig, "  if (bt) bt.textContent = '✔';");
     const { P } = await loadSelf({ src: mut, opener: null });
+    EQ(P.backSent(), false, '突變前置：沒有 opener ⇒ 什麼都沒送出去');
     EQ(P.backRowTick(), '✔',
-      '🔴 突變後 ④ 打勾了 ⇒「永遠不打勾」那一條會紅');
+      '🔴 突變後「什麼都沒送出去」也打勾了 ⇒「打勾＝真的送到了」那一條會紅');
   }
 
   console.log('\n' + '═'.repeat(64));
