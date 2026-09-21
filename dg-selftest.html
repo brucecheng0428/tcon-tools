@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260921dst170"></script>
+<script src="common/version.js?v=20260921dst171"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -443,9 +443,9 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260921dst170"></script>
+<script src="common/i18n.js?v=20260921dst171"></script>
 <script src="common/xlsx.js?v=20260921dst140"></script>
-<script src="common/common.js?v=20260921dst170"></script>
+<script src="common/common.js?v=20260921dst171"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -512,6 +512,18 @@ if (typeof I18N === 'object' && I18N) {
     'zh-TW': 'LUT 深度旗標讀不到（{detail}），無法決定要遮 10-bit 還是 12-bit，已停住 —— 用預設值硬跑的話，解出來的數字看起來會很正常但其實是錯的。',
     'en': 'The LUT depth flag could not be read ({detail}), so it is unknown whether to mask 10-bit or 12-bit. Stopped here: running with a default would produce numbers that look fine but are wrong.',
     'zh-CN': 'LUT 深度标志读不到（{detail}），无法决定要遮 10-bit 还是 12-bit，已停住 —— 用默认值硬跑的话，解出来的数字看起来会很正常但其实是错的。'
+  };
+  /* v1.7.1：LUT_MODE 那顆暫存器讀不到 ⇒ 不知道整張表有幾筆 ⇒ 停住 */
+  I18N['dst.lutErrMode'] = {
+    'zh-TW': 'LUT_MODE 讀不到（{detail}），無法決定整張表有幾筆，已停住 —— 退回預設的 1025 筆的話，DG-8bit 的機台會在第 257 筆之後畫出一整段記憶體殘值。',
+    'en': 'The LUT_MODE register could not be read ({detail}), so the entry count is unknown. Stopped here: falling back to 1025 would draw leftover memory past entry 257 on a DG-8bit panel.',
+    'zh-CN': 'LUT_MODE 读不到（{detail}），无法决定整张表有几笔，已停住 —— 退回默认的 1025 笔的话，DG-8bit 的机台会在第 257 笔之后画出一整段内存残值。'
+  };
+  /* v1.7.1：目前的 LUT_MODE 不是 DG LUT（DDG／MP／Dynamic）⇒ 不硬讀 */
+  I18N['dst.lutErrModeNotDg'] = {
+    'zh-TW': '目前的 LUT_MODE 是 {detail}，不是 DG 模式 —— 這個模式的資料不在這條 DG LUT 路徑上（擺法與筆數都不同），所以一個 byte 都沒讀。要看 DG LUT 請先把 LUT_MODE 切到 0:DG-10bit 或 5:DG-8bit。',
+    'en': 'LUT_MODE is currently {detail}, which is not a DG mode. That mode stores its data elsewhere with a different layout and entry count, so nothing was read. Switch LUT_MODE to 0:DG-10bit or 5:DG-8bit to read the DG LUT.',
+    'zh-CN': '目前的 LUT_MODE 是 {detail}，不是 DG 模式 —— 这个模式的数据不在这条 DG LUT 路径上（摆法与笔数都不同），所以一个 byte 都没读。要看 DG LUT 请先把 LUT_MODE 切到 0:DG-10bit 或 5:DG-8bit。'
   };
 }
 
@@ -729,15 +741,66 @@ var DST_ICS = [
          · memSlave 0x58：EM01 的 LUT 記憶體 slave（不是「暫存器 slave − 0x10」）
          · chSpan 0x2000：R/G/B 三個 channel 的間距
          · oddOff 0x1000：bank 位移；**每 4 筆換一次 bank**（group 4）
-         · entries 1025、stride 4 byte、mask 固定 0x0F00（12-bit 容器，
-           **不隨 DG_EN 那顆 byte 的深度旗標變** —— 這是 EM01 與 EM02 的差別之一） */
+         · stride 4 byte、mask 固定 0x0F00（12-bit 容器，
+           **不隨 DG_EN 那顆 byte 的深度旗標變** —— 這是 EM01 與 EM02 的差別之一）
+       🔴 v1.7.1：**筆數不是常數**。見下方 modeSel／modes。 */
     dgLut: {
       memSlave: 0x58,
       busEn: { addr: 0x00A0, bit: 5, docd: true,
                src: 'BANK-EM01:sys h00A0 bit5 reg_dgm_ahb_bus_en' },
       chSpan: 0x2000, oddOff: 0x1000, group: 4,
+      /* 🔴 v1.7.1（Bruce 2026-09-21 EM01 機台實測「0~256 對，之後全是垃圾」）：
+         v1.7.0 把筆數寫死成 1025，但 EM01 的筆數由 **LUT_MODE** 決定
+         （＝暫存器欄位 `reg_dg_mode_sel`，就是原廠 UI 上那個下拉）。
+         Bruce 的機台是 `5:DG-8bit` ⇒ 正確筆數 257（index 0~256），
+         第 257 筆以後讀到的是同一段記憶體裡的殘值。
+
+         ── `reg_dg_mode_sel` 的位址推算（逐步，行號可覆核）──────────────
+         ① 讀法：`RApp_Table.cpp:12081`
+              `RApp_BIN_Header_Get_Registar(slave, BK_DGM_TOP + 0x00,
+                                            sizeof(Reg_GAMMA_t), (U8*)&Reg_GAMMA_t)`
+            ⇒ 整個 `Table_GAMMA_Reg_st` 從 `BK_DGM_TOP` 起**逐 byte 線性**映射。
+         ② `BK_DGM_TOP` ＝ **0x1160**（`App/RApp_Common.h:76`；同檔 :153／:187
+            的另外兩個定義都被註解掉了）。
+         ③ struct 內位移（`RApp_Table.h:2005-2211`，逐欄累加，每一組 bitfield
+            都剛好湊滿 8 bit）：
+              byte 0      dgm_en:1 / 8bit12bit_en:1 / target_en:1 / :4 / eng_mode_en:1
+              byte 1..9   union u8GAMMA_reg_eng_mode[9]（內部 72 bit ＝ 9 byte）
+              byte 10     reg_div34_7_0:8
+              byte 11     reg_div34_15_8:8
+              byte 12     reg_div34_19_16:4 / :4
+              byte 13     reg_th_l_r:8
+              byte 14     reg_th_h_r:8
+              byte 15     reg_slop_r_7_0:8
+              byte 16     reg_slop_r_11_8:4 / **reg_dg_mode_sel:3** / :1   ← 這裡
+            ⇒ 位移 **0x10**、位元 **[6:4]**（`RApp_Table.h:2041-2043`，
+              欄位寬度 `U8 reg_dg_mode_sel:3` 在 :2042）。
+         ④ 絕對位址 ＝ 0x1160 + 0x10 ＝ **0x1170**，bit[6:4]。
+         ⑤ 獨立佐證（不是同一條推理的重複）：`RApp_Table.cpp:11870` 讀
+            `BK_DGM_TOP+0x4E` 兩個 byte 後做 `(u16 >> 2) & 0x3FFF`＝
+            `ro_dynamic_cnt[15:2]`。依同一份 struct 算，0x4E 正是
+            `reg_dgm_gain_v_block_div_9_8:2`（bit[1:0]）＋
+            `reg_dynamic_cnt_5_0:6`（bit[7:2]）那一格 —— 右移 2 位與欄位邊界
+            逐位元吻合，證明整份 struct 的 byte 對位沒算錯。 */
+      modeSel: { addr: 0x1170, shift: 4, width: 3,
+                 src: 'RApp_Common.h:76 (BK_DGM_TOP 0x1160) + RApp_Table.h:2005-2043 (offset 0x10, bit[6:4])' },
+      /* LUT_MODE → 這一模式的表長。出處：`RApp_Table.cpp:11711-11772`
+         `RApp_Table_GAMMA_LUT_Mode_Sel_Handler()` 逐 case（RowCount / Chart 上限 /
+         Edit_GAMMA_Table_size），以及 `Data_To_Bin_Gamma` :17833-17876（1025／257）。
+         🔴 `dg:false` ＝ 那個模式的資料**不是這條 DG LUT 路徑**，一律停住不讀。 */
+      modes: {
+        0: { name: 'DG-10bit', entries: 1025, entryBits: 10, dg: true },
+        1: { name: 'MP-only',  dg: false },
+        2: { name: 'DDG-8bit', dg: false },
+        3: { name: 'DDG',      dg: false },
+        4: { name: 'Dynamic',  dg: false },
+        5: { name: 'DG-8bit',  entries: 257,  entryBits: 8,  dg: true }
+      },
+      /* 🔴 這兩格是 **modes[0] 那一列的值**，只給規格表對照用。
+         執行期有 `modeSel` 的顆一律走 `dstLutModeInfo()`，**不讀這兩格**
+         （夾具有一條釘住它們與 modes[0] 不得分岔）。 */
       entries: 1025, entryBits: 10, mask: 0x0F00,
-      src: 'RApp_Table.cpp:17538-17551'
+      src: 'RApp_Table.cpp:17538-17551 (layout), :11711-11772 (mode -> entries)'
     },
     wr: [[0x1200, 0x12FF], [0x0002, 0x0002], [0xFF20, 0xFF25]],
     obs: { icid: { addr: 0xFF00, len: 3 }, agbsen: { addr: 0xFFC5, bit: 1 },
@@ -1551,8 +1614,10 @@ var dstDgLut = null;    // { r:[], g:[], b:[] } 或 null（見上；v1.6.0 仍�
            讀之前開 bus enable、讀完關掉（原廠讀路徑也是這樣）。
      EM02／E512：slave 0x48、chSpan 0x800、oddOff 0x400、group 1、257 筆
                  （`:18009-18015` even/odd memcpy、`:18025-18037` idx%2 交錯與解碼）
-     EM01      ：slave 0x58、chSpan 0x2000、oddOff 0x1000、group 4、1025 筆
-                 （`:17538-17551`）
+     EM01      ：slave 0x58、chSpan 0x2000、oddOff 0x1000、group 4、
+                 **筆數由 LUT_MODE 決定**（v1.7.1；`0x1170` bit[6:4]，
+                 0:DG-10bit ⇒ 1025、5:DG-8bit ⇒ 257，其餘模式停住不讀）
+                 （`:17538-17551` layout、`:11711-11772` mode → 筆數）
      mask：EM01 **固定 0x0F00**；EM02／E512 依深度旗標 —— 10-bit ⇒ 0x0300、
            12-bit ⇒ 0x0F00（EM02 的旗標 ＝ 0x005D bit2，已在 `dgEn.depthBit`）。
 
@@ -1579,6 +1644,24 @@ function dstLutMask(cfg, depth) {
 /* mask → 深度（畫面標示與 identity 參照用；兩者是一對一的）。 */
 function dstLutDepthOfMask(mask) { return mask === 0x0300 ? 10 : (mask === 0x0F00 ? 12 : null); }
 
+/* ── v1.7.1：LUT_MODE（EM01 的 `reg_dg_mode_sel`）─────────────────────────
+   🔴 筆數從這裡來，**不從 cfg.entries 來**。讀不到就停住，不退回預設值 ——
+      退回 1025 的話，DG-8bit 的機台會在第 257 筆之後畫出一整段殘值，而且
+      曲線看起來「只是尾巴怪怪的」，正是 Bruce 這次實測撞到的樣子。 */
+function dstLutModeOfByte(byteVal, ms) {
+  return (byteVal >> ms.shift) & ((1 << ms.width) - 1);
+}
+/* 模式值 → { val, name, entries, entryBits, dg }。查不到（超出 modes 表）回 null。 */
+function dstLutModeInfo(cfg, v) {
+  var t = cfg && cfg.modes; if (!t) return null;
+  var m = t[v]; if (!m) return null;
+  return { val: v, name: m.name, dg: !!m.dg,
+           entries: m.entries == null ? null : m.entries,
+           entryBits: m.entryBits == null ? null : m.entryBits };
+}
+/* 畫面與紀錄上的寫法：`5:DG-8bit`（與原廠 UI 下拉的字串同形，Bruce 一眼對得上）。 */
+function dstLutModeText(mi) { return mi ? (mi.val + ':' + mi.name) : '?'; }
+
 /* 第 i 筆落在偶數區還是奇數區。group ＝ 幾筆換一次區段（EM02／E512 是 1，
    EM01 是 4 ⇒ `idx/4 % 2`）。 */
 function dstLutIsEven(i, group) { return Math.floor(i / group) % 2 === 0; }
@@ -1589,9 +1672,12 @@ function dstLutRegionCounts(entries, group) {
   return { even: e, odd: o };
 }
 /* 讀取計畫：三個 channel × 兩個區段，每一段的位址與長度都算死。
-   🔴 這是**唯一**決定要讀哪些位址的地方 —— 夾具直接驗它，不必等硬體。 */
-function dstLutPlan(cfg, base) {
-  var cnt = dstLutRegionCounts(cfg.entries, cfg.group), out = [], ch;
+   🔴 這是**唯一**決定要讀哪些位址的地方 —— 夾具直接驗它，不必等硬體。
+   🔴 v1.7.1：`entries` 改成明給。正式流程一律明給（EM01 來自 LUT_MODE）；
+      省略時才退回 `cfg.entries`，那只給既有夾具的純函式測用。 */
+function dstLutPlan(cfg, base, entries) {
+  var n = (entries == null) ? cfg.entries : entries;
+  var cnt = dstLutRegionCounts(n, cfg.group), out = [], ch;
   for (ch = 0; ch < 3; ch++) {
     var chBase = (base + ch * cfg.chSpan) >>> 0;
     out.push({ ch: ch, region: 'even', addr: chBase, len: cnt.even * DST_LUT_STRIDE });
@@ -1676,13 +1762,20 @@ async function dstLutReadAhb(memSlave, base, len) {
 
 /* 畫面上那一行「本次用的規格」。刻意全部是符號與數字（不必翻譯），
    因為它要對照的是原廠源碼裡的常數，不是一句說明。 */
-function dstLutSpecText(icKey, cfg, mask, depth) {
+function dstLutSpecText(icKey, cfg, mask, depth, entries, modeInfo) {
+  var n = (entries == null) ? cfg.entries : entries;
   return icKey
     + ' · slave 0x' + cfg.memSlave.toString(16).toUpperCase()
     + ' · ch +0x' + cfg.chSpan.toString(16).toUpperCase()
     + ' · odd +0x' + cfg.oddOff.toString(16).toUpperCase()
     + (cfg.group > 1 ? ' /' + cfg.group : '')
-    + ' · ' + cfg.entries + ' × ' + DST_LUT_STRIDE + 'B'
+    /* 🔴 v1.7.1：LUT_MODE 與它推出來的筆數擺在一起（`LUT_MODE 5:DG-8bit ⇒ 257 筆`），
+       讓 Bruce 一眼對得上他 UI 下拉上的設定。沒有 modeSel 的顆維持原樣。 */
+    + (modeInfo ? ' · LUT_MODE ' + dstLutModeText(modeInfo)
+                  + ' @' + dstAddrText(cfg.modeSel.addr)
+                  + '[' + (cfg.modeSel.shift + cfg.modeSel.width - 1) + ':' + cfg.modeSel.shift + ']'
+                  + ' ⇒ ' : ' · ')
+    + n + ' × ' + DST_LUT_STRIDE + 'B'
     + ' · mask 0x' + ('000' + mask.toString(16).toUpperCase()).slice(-4)
     + ' (' + depth + '-bit)';
 }
@@ -1710,9 +1803,36 @@ async function dstReadDgLut() {
       return;
     }
     var depth = dstLutDepthOfMask(mask);
-    var plan  = dstLutPlan(cfg, DST_LUT_AHB);
+
+    /* ①-2 🔴 v1.7.1：LUT_MODE ⇒ 筆數。只有 EM01 有 `modeSel`。
+       讀不到、或那個模式根本不是 DG LUT ⇒ **停住**，不退回任何預設筆數。 */
+    var entries = cfg.entries, entryBits = cfg.entryBits, modeInfo = null;
+    if (cfg.modeSel) {
+      var ms = cfg.modeSel, mb = null;
+      try { mb = await dstReadReg(ms.addr, 1); }
+      catch (eM) { mb = null; }
+      if (!mb || !mb.length || dstIsBusIdle(mb.slice(0, 1))) {
+        dstLutErr = { stepKey: 'dst.lutErrMode', detail: ic.key + ' ' + dstAddrText(ms.addr) };
+        dstLog('!  DG LUT: LUT_MODE register ' + dstAddrText(ms.addr) + ' unreadable -> stop (no default entry count)', 'e');
+        return;
+      }
+      var mv = dstLutModeOfByte(mb[0] & 0xFF, ms);
+      modeInfo = dstLutModeInfo(cfg, mv);
+      dstLog('-- LUT_MODE raw 0x' + ('0' + (mb[0] & 0xFF).toString(16).toUpperCase()).slice(-2)
+        + ' @' + dstAddrText(ms.addr) + ' bit[' + (ms.shift + ms.width - 1) + ':' + ms.shift + ']'
+        + ' = ' + mv + (modeInfo ? ' (' + modeInfo.name + ')' : ' (not in table)'));
+      if (!modeInfo || !modeInfo.dg || !modeInfo.entries) {
+        dstLutErr = { stepKey: 'dst.lutErrModeNotDg',
+                      detail: dstLutModeText(modeInfo || { val: mv, name: '?' }) };
+        dstLog('!  DG LUT: LUT_MODE ' + mv + ' is not a DG LUT mode -> stop', 'e');
+        return;
+      }
+      entries = modeInfo.entries; entryBits = modeInfo.entryBits;
+    }
+
+    var plan  = dstLutPlan(cfg, DST_LUT_AHB, entries);
     var total = plan.reduce(function (s, p) { return s + p.len; }, 0);
-    dstLog('== read DG LUT: ' + dstLutSpecText(ic.key, cfg, mask, depth)
+    dstLog('== read DG LUT: ' + dstLutSpecText(ic.key, cfg, mask, depth, entries, modeInfo)
       + '  [' + cfg.src + ']');
     dstLog('-- plan: ' + plan.map(function (p) {
       return 'ch' + p.ch + '/' + p.region + ' @0x' + p.addr.toString(16).toUpperCase() + ' x' + p.len;
@@ -1751,7 +1871,7 @@ async function dstReadDgLut() {
     /* ④ 解碼：每個 channel 兩段（偶／奇），交錯規則由 cfg.group 決定。 */
     var chans = ['r', 'g', 'b'], rgb = {}, ci;
     for (ci = 0; ci < 3; ci++) {
-      var one = dstLutDecodeCh(segs[ci * 2], segs[ci * 2 + 1], cfg.entries, cfg.group, mask);
+      var one = dstLutDecodeCh(segs[ci * 2], segs[ci * 2 + 1], entries, cfg.group, mask);
       if (!one) {
         dstLutErr = { stepKey: 'dst.lutErrDecode', detail: 'ch' + ci };
         return;
@@ -1759,11 +1879,12 @@ async function dstReadDgLut() {
       rgb[chans[ci]] = one;
     }
 
-    dstLut = { icKey: ic.key, cfg: cfg, mask: mask, depth: depth, entries: cfg.entries,
-               entryBits: cfg.entryBits, rgb: rgb, nBytes: all.length, bus: b };
-    dstLog('-- decoded ' + cfg.entries + ' entries/ch'
-      + '   R[0..3]=' + rgb.r.slice(0, 4).join(',') + ' … R[last]=' + rgb.r[cfg.entries - 1]
-      + '   G[last]=' + rgb.g[cfg.entries - 1] + '   B[last]=' + rgb.b[cfg.entries - 1], 'o');
+    dstLut = { icKey: ic.key, cfg: cfg, mask: mask, depth: depth, entries: entries,
+               entryBits: entryBits, mode: modeInfo, rgb: rgb, nBytes: all.length, bus: b };
+    dstLog('-- decoded ' + entries + ' entries/ch'
+      + (modeInfo ? '  (LUT_MODE ' + dstLutModeText(modeInfo) + ')' : '')
+      + '   R[0..3]=' + rgb.r.slice(0, 4).join(',') + ' … R[last]=' + rgb.r[entries - 1]
+      + '   G[last]=' + rgb.g[entries - 1] + '   B[last]=' + rgb.b[entries - 1], 'o');
   } catch (e) {
     dstLutErr = { stepKey: 'dst.lutErrStep', detail: dstErrMsg(e) };
     dstLog('!  DG LUT read failed: ' + dstErrMsg(e), 'e');
@@ -2541,7 +2662,8 @@ function dstRenderLut() {
     return;
   }
   /* ── 本次用的規格：IC／slave／channel 位移／奇數區位移／筆數／mask ── */
-  dstShow('dst-lut-cfg', dstLutSpecText(dstLut.icKey, dstLut.cfg, dstLut.mask, dstLut.depth), true);
+  dstShow('dst-lut-cfg', dstLutSpecText(dstLut.icKey, dstLut.cfg, dstLut.mask, dstLut.depth,
+                                        dstLut.entries, dstLut.mode), true);
   dstShow('dst-lut-bususe', dstLut.bus
     ? (dstAddrText(dstLut.bus.addr) + ' bit' + dstLut.bus.bit + '  ' + dstLut.bus.src) : '—', !!dstLut.bus);
   if (body) body.classList.remove('dst-hidden');
@@ -3490,6 +3612,9 @@ window.dstProbe = {
         lutUnpack*／lutScore／lutCandidates／lutBusList 一起不再暴露。 */
   lutMask: dstLutMask,
   lutDepthOfMask: dstLutDepthOfMask,
+  lutModeOfByte: dstLutModeOfByte,
+  lutModeInfo: dstLutModeInfo,
+  lutModeText: dstLutModeText,
   lutIsEven: dstLutIsEven,
   lutRegionCounts: dstLutRegionCounts,
   lutPlan: dstLutPlan,
@@ -3507,6 +3632,8 @@ window.dstProbe = {
   lutState: function () {
     if (!dstLut) return null;
     return { icKey: dstLut.icKey, entries: dstLut.entries, entryBits: dstLut.entryBits,
+             mode: dstLut.mode ? dstLut.mode.val : null,
+             modeName: dstLut.mode ? dstLut.mode.name : null,
              mask: dstLut.mask, depth: dstLut.depth, memSlave: dstLut.cfg.memSlave,
              chSpan: dstLut.cfg.chSpan, oddOff: dstLut.cfg.oddOff, group: dstLut.cfg.group,
              busAddr: dstLut.bus ? dstLut.bus.addr : null,
