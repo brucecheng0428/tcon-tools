@@ -3674,8 +3674,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20260919wfg4530"></script>
-<script src="common/i18n.js?v=20260919wfg4530"></script>
+<script src="common/version.js?v=20260921wfg4531"></script>
+<script src="common/i18n.js?v=20260921wfg4531"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -5178,6 +5178,28 @@ function _wfgBuildAnalogDeps() {
     }
     _wfgAnalogDeps[gi] = deps;
   }
+  /* 🔴 v4.53.1：Subpixel（type 3）的相依必須**繼承上游**。
+     `_wfgPrecomputeSpxChannel()` 讀的是 `src[wfgSd1SlotIdx()]`（充電目標電壓）與
+     `src[wfgGateSlotIdx()]`（TFT 開關窗）—— 見該函式開頭兩行。上面那個迴圈卻只給
+     type 3 加了「自己 ＋ xpol」，於是改 SD1 的任何參數時，SPX **根本不在**
+     `wfgInvalidateDirty()` 的 `_affectedAnalog` 裡 ⇒ precompute 不會被刪，波形靜默
+     停在舊值（Bruce 2026-09-21 真機回報：改 SD1 電壓 Vpix 不動，要把 Feedthrough
+     取消再勾才會重算 —— 那顆走的是 `_wfgInvalidateLsOnly()`，有刪 type 3）。
+
+     為什麼做第二趟而不是塞進上面的迴圈：上游兩條的 deps 要先建好才能 union。
+     為什麼只 union 這兩條而不是全刪：SPX 的上游就只有這兩條，多刪等於把這條
+     「改參數即時重算」的快路徑退化成全量重算（它存在的目的正是避免全量）。 */
+  var _spxSdIdx = wfgSd1SlotIdx(), _spxGateIdx = wfgGateSlotIdx();
+  for (var sgi in _wfgAnalogDeps) {
+    var sGpio = wfgGpios[sgi | 0];
+    if (!sGpio || sGpio.waveform_type !== 3) continue;
+    var sDeps = _wfgAnalogDeps[sgi];
+    var _ups = [_wfgAnalogDeps[_spxSdIdx], _wfgAnalogDeps[_spxGateIdx]];
+    for (var ui = 0; ui < _ups.length; ui++) {
+      if (!_ups[ui]) continue;
+      _ups[ui].forEach(function (d) { sDeps.add(d); });
+    }
+  }
 }
 
 function wfgInvalidateDirty(gpioIdx) {
@@ -5247,6 +5269,17 @@ function wfgInvalidateDirty(gpioIdx) {
         else delete _wfgPrecomputed[_dpk];
       }
       if (_dpkGpio.waveform_type === 2 && _wfgLsParamDirty) {
+        if (_deferPrecompDelete) _wfgDeferredPrecompDelete[_dpk] = true;
+        else delete _wfgPrecomputed[_dpk];
+      }
+      /* 🔴 v4.53.1：type 3（Subpixel／Vpix）也要刪。判準與非同步全量重算那條路徑
+         （`waveform_type === 3 && !recompSD && !recompLS` 才保留）逐字一致 —— 只有
+         這條即時快路徑漏了，所以改 SD1 電壓時 SD1 重算了、Vpix 沿用舊 precompute。
+         `_wfgSpxStale()` 也攔不到：它比的是上游的 base／computedExtent，而重算前後
+         視窗一樣、只有**值**變了 ⇒ 回 false。不刪就沒有任何一層會發現它過期了。
+         這裡仍受 `_affectedAnalog[_dpk]` 這道閘門管，而 SPX 的 deps 就是
+         SD1 ∪ Gate（見 `_wfgBuildAnalogDeps()` 的第二趟）⇒ 只有真的相依才刪。 */
+      if (_dpkGpio.waveform_type === 3 && (_wfgSdParamDirty || _wfgLsParamDirty)) {
         if (_deferPrecompDelete) _wfgDeferredPrecompDelete[_dpk] = true;
         else delete _wfgPrecomputed[_dpk];
       }

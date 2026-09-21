@@ -2,6 +2,85 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.53.1 — 2026-09-21 ｜ PATCH ｜ ⚠ 輸出變更
+
+**改 SD1 的電壓值時，Subpixel（Vpix）的波形會跟著更新了。原本只有 SD1 自己會動，Vpix 停在舊值，要把 Feedthrough 取消勾選再勾回來才會重算 —— 那個 workaround 現在不需要了。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| §1 判定表「既有功能的輸出：**修正為原本就該有的行為**」 | **PATCH** | Vpix 本來就該跟著上游 SD1 走（非同步全量重算那條路徑一直是這樣做的），只有即時快路徑漏了。這是本版的最高級別 |
+| §2 案例 2「改一個 bug」 | **PATCH** | 回到應有行為 |
+| R1「修 bug 即使畫面會變仍算 PATCH，但要標 `⚠ 輸出變更`」 | **成立，已標** | 見下方〈為什麼標 ⚠ 輸出變更〉 |
+| R3「使用者能做的事有沒有多一件」 | **沒有** | 可調的參數、看得到的通道一個都沒增減 ⇒ 不到 MINOR |
+| R4「起始狀態／預設值改變」 | **不適用** | 沒有任何預設值被動到 |
+| 不是 MAJOR | — | 沒有控制項移位或消失，使用者原本會的操作一字不變；舊結果不需要重新確認（Vpix 只要走過那個 workaround，值本來就是對的） |
+| 🔴 實際採用 | **PATCH** | wfg v4.53.0 → v4.53.1 |
+
+### 起因
+
+Bruce 2026-09-21 真機回報：「在 WFG 網頁設定 SD1 的電壓值時，Subpixel 的波形不會跟著更新 —— 只有 SD1 自己的波形更新了。」他當時的繞法是**把 Feedthrough 取消勾選再勾回來**。
+
+### 根因（兩層，缺一層就修不好）
+
+`wfgInvalidateDirty()` 這條「改參數 ＝ 即時同步重算」的快路徑，對 Subpixel（`waveform_type === 3`）兩層都沒接上：
+
+| 層 | 原本 | 後果 |
+|---|---|---|
+| ① 相依表 `_wfgBuildAnalogDeps()` | type 3 的 deps 只有「自己 ＋ xpol」 | 改 SD1 時 Vpix **根本不在** `_affectedAnalog` 裡 |
+| ② 刪除迴圈 `wfgInvalidateDirty()` | 只處理 type 1（SD）與 type 2（LS/CKO） | 就算進得了 `_affectedAnalog` 也不會被刪 |
+
+而 Vpix 的電壓來源就是 SD1 與 Gate —— `_wfgPrecomputeSpxChannel()` 開頭兩行直接讀 `src[wfgSd1SlotIdx()]`（充電目標電壓）與 `src[wfgGateSlotIdx()]`（TFT 開關窗）。
+
+🔴 **後面沒有任何一層會發現它過期了**：
+
+- `_wfgSpxStale()` 比的是上游的 `base` / `computedExtent`。SD1 被刪掉重算之後**視窗一樣、只有值變了** ⇒ 回 `false`。
+- `wfgPrecomputeAnalog()` 的 `srcSdExtent` / `srcSdBase` 比對同理，`continue` 跳過。
+- 300 ms 的 `_wfgScheduleFullRecompute()` 只是把 `_wfgPrecomputeVer` 歸零再 render，走的還是上面那一支 ⇒ 等再久也不會更新。
+
+Feedthrough 那顆走的是 `_wfgInvalidateLsOnly()`（`wfg.html:5343`），那裡寫的是 `waveform_type === 2 || waveform_type === 3` —— **有**刪 type 3。所以他等於手動繞去走了正確的那條路。非同步全量重算（`waveform_type === 3 && !recompSD && !recompLS` 才保留）也一直是對的。**只有這條即時快路徑漏了。**
+
+### 改了什麼
+
+| 位置 | 改動 |
+|---|---|
+| `wfg.html` `_wfgBuildAnalogDeps()` | 新增**第二趟**：把每一條 type 3 的 deps union 上 SD1 與 Gate 兩條上游的 deps。做第二趟是因為上游的 deps 要先建好才 union 得到 |
+| `wfg.html` `wfgInvalidateDirty()` | 刪除迴圈補上 `waveform_type === 3 && (_wfgSdParamDirty \|\| _wfgLsParamDirty)` 一支，判準與非同步全量重算那條路徑逐字一致 |
+| `tools/wfg_spx_sd_sync_probe.js` | 新增夾具（正反兩面都釘，見下） |
+| `common/version.js`、`wfg.html`／`index.html` 的 `?v=` | v4.53.1 ／ `20260921wfg4531` |
+
+🔴 **刻意不用「一律全刪」解決。** 那會讓每次調參數都變成全量重算，而這條快路徑存在的目的正是避免全量。修法保留 `_affectedAnalog` 這道閘門，只是把 Vpix 的相依補正確 —— 實測改 SD1 電壓時只重算 **2 條**（SD1 ＋ Vpix），12 條 CKO 一條都沒被牽連。
+
+### 為什麼標 `⚠ 輸出變更`
+
+依 R1 的範圍定義第三列「**同一操作序列得到不同結果**（即使舊結果本身是 bug 造成的，仍要標）」：舊版「改 SD1 電壓 → 截圖」拿到的是**沒跟著更新的** Vpix，新版拿到的是更新後的。拿舊版建立的回歸基線在這一段會失效。
+
+### 驗證
+
+新增 `tools/wfg_spx_sd_sync_probe.js`（真瀏覽器，走 UI 的同一支 handler）。期望值不是「有沒有呼叫某支函式」，而是 `window.wfgDumpSpx()` 回來的**逐段電壓值**（每段 `v[]` 的 FNV-1a 雜湊 ＋ `v0`／`vMid`／`vEnd`）。
+
+| 項目 | 結果 |
+|---|---|
+| **正面**：改 SD1 VGMA1 ⇒ Vpix 逐段電壓真的變了 | `3e3c1cbb/seg5` → `7bd4823e/seg5` ✅ |
+| **反面**：沒有退化成全量重算 | `recomputed=2 (SD=1 LS=0)` ✅（只有 SD1 ＋ Vpix） |
+| 改回基準值 ⇒ 指紋回到一模一樣 | `3e3c1cbb` vs `3e3c1cbb` ✅（證明是真重算，不是亂變） |
+| workaround 已不需要：直接改的結果 ＝ 取消再勾 Feedthrough 之後的結果 | `7bd4823e` vs `7bd4823e` ✅ |
+| LS 那一半：改 CK1 的 ST_LINE（Gate 的上游）⇒ Vpix 也跟著變、改回去也回得來 | ✅ |
+| 新夾具總計 | **12 / 12 全過** |
+| **突變測試** M1（只拿掉刪除迴圈那一支） | 正面那條變紅：`3e3c1cbb` → `3e3c1cbb`（值沒變）；且 workaround 那條重現原始災情：直接改 `3e3c1cbb` vs 繞一圈 `7bd4823e` |
+| **突變測試** M2（只拿掉相依表第二趟） | 同樣 4 條變紅 ⇒ **兩層都是必要的**，不是其中一層就夠 |
+| **突變測試** M3（兩層都拿掉，＝修正前的 HEAD） | 同上 4 條變紅 |
+| `tools/wfg_oax_chain_probe.js` | **38 / 38 全過**（與 v4.50.1 同數量，無退步） |
+| `tools/wfg_cpv_trig_probe.js` | **56 / 56 全過**（同上） |
+| `tools/wfg_clear_ask_probe.js` | **51 / 51 全過** |
+| `tools/wfg_ls_edge_dump_probe.js` | 全過 |
+| `tools/check_nb_code_import.js` ／ `check_em01_code_import.js` ／ `check_ui_jargon.js` ／ `check_legend_items.js` ／ `check_line_buffer_half_step.py` | 全部通過 |
+
+> 三支需要真實設定檔的 probe 一律帶 `WFG_CFG=~/ClaudeData/wfg_in/wfg-config-20260919.txt` 跑（真檔不進版控）。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.71.0 — 2026-09-21 ｜ MINOR ｜ ⚠ 操作流程變更
 
 迭代校正分頁**最上方先選工作模式**，選了才展開下方卡片；並在連上 T-CON 認出 IC 的當下，把「位元深度與目標設定」整張卡片依機台實況更新。
