@@ -305,8 +305,12 @@ async function loadDg(src) {
     EQ(P.stepRow('prim').to, '→ 回 DG 的第 3 部分', '③ 那一列寫著回 DG 第 3 部分');
     /* 🔴 未連線 ⇒ 三步都停用，而且畫面上講明原因（不要讓人按了才失敗） */
     EQ(P.stepsWhyKey(), 'dst.stepsWhyLink', '未連線 ⇒ 原因是「還沒連上 I2C」');
+    /* 🔴 dgself v1.10.0 起 ③ **沒有自己的動作鈕**（Bruce：「第 3 項不得有自己的
+       獨立開始按鈕」，②③ 共用一顆）⇒ `stepRow('prim').disabled` 回 null。
+       原本這一行期望 `[true, true, true]`，第三個值已經不存在，改判前兩顆；
+       「③ 沒有按鈕」本身由 dg_selftest_v1100_probe.js 第 ③ 組正面釘住。 */
     EQ([P.stepRow('lut').disabled, P.stepRow('gray').disabled, P.stepRow('prim').disabled],
-       [true, true, true], '🔴 未連線 ⇒ 三顆動作鈕全部停用');
+       [true, true, null], '🔴 未連線 ⇒ ①② 兩顆動作鈕停用（③ v1.10.0 起沒有自己的鈕）');
     CHECK((P.stepsWhyText() || '').indexOf('I2C') >= 0, '🔴 原因真的印在畫面上了', P.stepsWhyText());
   }
   {
@@ -339,8 +343,9 @@ async function loadDg(src) {
     const { P } = await loadSelf({ ws, ic: 'EM01A1', qs: '?step=lut' });
     EQ(P.stepsWhyKey(), null, '🔴 連上 ＋ 認出 IC ⇒ 沒有原因');
     EQ(P.stepsWhyText(), '', '🔴 可按時畫面上一個字都不出現');
+    /* 🔴 同上：v1.10.0 起 ③ 沒有自己的鈕 ⇒ 第三個值是 null。 */
     EQ([P.stepRow('lut').disabled, P.stepRow('gray').disabled, P.stepRow('prim').disabled],
-       [false, false, false], '🔴 三顆動作鈕都可以按');
+       [false, false, null], '🔴 ①② 兩顆動作鈕都可以按（③ v1.10.0 起沒有自己的鈕）');
     /* 🔴 三步彼此獨立：①②③ 沒有任何一顆因為「前一步沒做」而變暗 —— 上面那一行
        已經證明（三步都沒打勾，三顆都可按）。這一行把它寫成明示的斷言。 */
     EQ(P.stepDone(), { lut: false, gray: false, prim: false },
