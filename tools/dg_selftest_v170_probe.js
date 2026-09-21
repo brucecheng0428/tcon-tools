@@ -414,18 +414,78 @@ async function load(opts) {
   /* ═══════════════════════════════════════════════════════════════════════
      ⑥ 端到端：E512（與 EM02 同路徑，只有 bus enable 不同）
      ═══════════════════════════════════════════════════════════════════════ */
-  H('⑥ E512：bus enable 0x0011 bit1；深度讀不到就停住');
+  /* ═══ 🔴 v1.9.0 改寫過的一組 —— 原因記在這裡供覆核 ═══════════════════════
+     v1.7.0～v1.8.1 這一組驗的是「**E512 的 dgEn 沒有 depthBit** ⇒ 深度讀不到
+     ⇒ 停在『深度未知』」。v1.9.0 從 C 原始碼把 depthBit 補上了
+     （`E512/App/Table/RApp_Table.h:1569-1573` 的 struct ＋ `RApp_Table.cpp:10340`
+       從 `BK_SYS+0x2F` 讀同一個 struct；`RApp_Common.h:9` BK_SYS=0x0000），
+     所以那個前提**不再成立** —— 它不是壞掉，是被事實推翻了。
+
+     🔴 刪改原則：**「停住」那一條規則一個字都沒放寬**，只是「什麼情況叫讀不到」
+        變窄了。所以這一組改成三段，前兩段驗新走得通的路，第三段仍然把
+        「真的讀不到 ⇒ 停住」釘在原位（改用匯流排沒回應 0xFF 製造）。
+     ⚠ E512 的 LUT 讀取**尚未在真機驗過**（手邊沒有 E512 板子）。 */
+  H('⑥ E512：bus enable 0x0011 bit1；深度旗標 0x002F bit2（v1.9.0 補上出處）');
   {
     const sp = SPEC.E512AX;
-    const r = markedTable(sp, 0);
-    const mem = buildSram(sp, r, r, r);
-    /* 🔴 E512 的 dgEn 沒有 depthBit ⇒ 深度讀不到 ⇒ 必須停在「深度未知」 */
+    const r = markedTable(sp, 0), g = markedTable(sp, 1), b = markedTable(sp, 2);
+    const mem = buildSram(sp, r, g, b);
+    /* (a) 0x002F = 0x01 ⇒ bit0 DG_EN=1、**bit2=0 ⇒ 10-bit** */
     const ws = makeBridge({ regs: { 0xFF00: [0x12, 0xE5, 0xA0], 0x002F: 0x01, 0x0011: 0x00 },
                             mem, busAddr: 0x0011, busBit: 1 });
     const { P } = await load({ ws, ic: 'E512AX' });
     await P.readDgLut();
     await sleep(30);
-    EQ(P.lutState(), null, '沒有讀出結果');
+    const st = P.lutState();
+    CHECK(!!st, '(a) 深度旗標 0 ⇒ 讀得出結果');
+    if (st) {
+      EQ(st.mask, 0x0300, '🔴 mask 0x0300（10-bit）');
+      EQ(st.depth, 10, '畫面上標 10-bit');
+      EQ(st.memSlave, 0x48, '走 slave 0x48（與 EM02 同路徑）');
+      EQ(st.entries, 257, '257 筆');
+      /* 🔴 mask 只遮**高位元組**（解碼是 `((b1 & maskHi) << 8) | b0`，見 ④ 那一組：
+         0xFFF 在 0x0300 下解出 0x3FF，不是 0x300）。markedTable 的值高位元組是
+         0x01／0x02，在 0x0300 下原樣通過 ⇒ 期望值就是原表。 */
+      EQ(st.r, r, '🔴 R 逐筆相符');
+      EQ(st.b, b, '🔴 B 逐筆相符');
+    }
+    const ahb = ws.trace.filter(m => m.type === 'read' && m.awid === 4);
+    CHECK(ahb.length > 0 && ahb.every(m => m.slave === 0x48), 'AHB 讀取都走 slave 0x48');
+    CHECK(ws.trace.some(m => m.type === 'rawwrite'), '🔴 bus enable（0x0011 bit1）有被開');
+    EQ((ws.reg(0x0011) >> 1) & 1, 0, 'bus enable 清回去了');
+  }
+  {
+    /* (b) 0x002F = 0x05 ⇒ bit2=1 ⇒ **12-bit**，mask 換成 0x0F00 */
+    const sp = SPEC.E512AX;
+    const full = [];
+    for (let i = 0; i < sp.entries; i++) full.push(0xFFF);
+    const mem = buildSram(sp, full, full, full);
+    const ws = makeBridge({ regs: { 0xFF00: [0x12, 0xE5, 0xA0], 0x002F: 0x05, 0x0011: 0x00 },
+                            mem, busAddr: 0x0011, busBit: 1 });
+    const { P } = await load({ ws, ic: 'E512AX' });
+    await P.readDgLut();
+    await sleep(30);
+    const st = P.lutState();
+    CHECK(!!st, '(b) 深度旗標 1 ⇒ 讀得出結果');
+    if (st) {
+      EQ(st.mask, 0x0F00, '🔴 mask 0x0F00（12-bit）');
+      EQ(st.depth, 12, '畫面上標 12-bit');
+      EQ(st.r[0], 0xFFF, '🔴 0xFFF 在 12-bit 下原樣通過（對照 ④ 的 10-bit：同樣的 0xFFF 解成 0x3FF）');
+    }
+  }
+  {
+    /* (c) 🔴 **「真的讀不到就停住」這一條沒有被放寬** —— 匯流排沒回應（0xFF）時，
+       dstReadDgEn 會把整包判成 idle ⇒ depth 仍然是 null ⇒ 必須停在同一個地方，
+       錯誤鍵也必須還是 dst.lutErrDepth。 */
+    const sp = SPEC.E512AX;
+    const r = markedTable(sp, 0);
+    const mem = buildSram(sp, r, r, r);
+    const ws = makeBridge({ regs: { 0xFF00: [0x12, 0xE5, 0xA0], 0x002F: 0xFF, 0x0011: 0x00 },
+                            mem, busAddr: 0x0011, busBit: 1 });
+    const { P } = await load({ ws, ic: 'E512AX' });
+    await P.readDgLut();
+    await sleep(30);
+    EQ(P.lutState(), null, '(c) 深度旗標讀不回來 ⇒ 沒有讀出結果');
     EQ(P.lutErr().stepKey, 'dst.lutErrDepth', '🔴 明講是「深度旗標讀不到」，不是別的步驟');
     EQ(ws.trace.filter(m => m.awid === 4).length, 0, '🔴 一個 AHB 讀取都沒發出去');
     EQ(ws.trace.filter(m => m.type === 'rawwrite').length, 0, '🔴 bus enable 也沒碰（停在讀深度那一步）');
