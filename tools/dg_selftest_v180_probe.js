@@ -394,12 +394,20 @@ async function loadDg(src) {
     EQ(P.backText(), '‹ 回到 DG 頁', '🔴 有 opener ⇒ 左上角那顆寫「‹ 回到 DG 頁」');
     EQ(P.backIsPri(), true, '🔴 有一步打勾過 ⇒ 它轉成強調色');
     EQ(P.copyHidden(), true, '有 opener ⇒ 剪貼簿退路不出現');
-    /* focus，不重開 */
-    const before = opener.focused;
+    /* ═══ 🔴 dgself v1.10.1 改判：原本這裡驗的是 `opener.focused` 有沒有 +1 ═══════
+       刪改原因（不是為了讓測試變綠）：`window.opener.focus()` 在真瀏覽器**本來就
+       無效**（現代 Chrome 不讓網頁把別的分頁叫到前景，Bruce 2026-09-21 真機實測按
+       下去完全沒反應），而 jsdom 的 focus 是假的 —— 這一條從寫下來的那天起就是
+       **假綠**：它綠著，而使用者手上的按鈕是壞的。v1.10.1 依 Bruce 裁示把那個呼叫
+       整支拿掉，改成在自檢頁講清楚下一步。
+       ⇒ 改驗**使用者真的看得到的那件事**：按下去畫面上會出現「請切回 DG 分頁」。
+       🔴 不改成「驗 focus 沒有被呼叫」—— 那還是在驗一個已經不存在的東西。 */
     /* 🔴 走的是**畫面上那顆 <a> 的 click**（產品路徑），不是直接呼叫 dstBackToDg() */
     P.backClick();
     await sleep(20);
-    EQ(opener.focused, before + 1, '🔴 按左上角那顆 ⇒ opener.focus()（把既有那個 DG 視窗叫到前面）');
+    CHECK((P.saySteps() || '').indexOf('切回 DG 分頁') >= 0,
+      '🔴 按左上角那顆 ⇒ 畫面上出現「請切回 DG 分頁繼續」（v1.10.1 起的行為）',
+      P.saySteps());
     EQ(opener.msgs.length, 1, '🔴 它沒有再送任何訊息過去，也沒有重開視窗');
     EQ(P.backHref(), 'index.html',
       'href 仍是 index.html（有 opener 時由 click 處理器攔掉導覽，不動 href）');

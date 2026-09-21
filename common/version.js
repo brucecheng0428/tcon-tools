@@ -18,7 +18,7 @@ var TOOL_VERSIONS = {
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
      `app` 這一輪不動 —— 首頁上看不到任何新東西。等入口接上去再依
      docs/VERSIONING.md §2 案例 12 把 app 進一次 MINOR。 */
-  dgself:  'v1.10.0',       // TCON 自檢畫面量測（由 TCON 自己出圖）
+  dgself:  'v1.10.1',       // TCON 自檢畫面量測（由 TCON 自己出圖）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）

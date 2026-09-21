@@ -2677,7 +2677,9 @@ var I18N = {
   'dst.alignNote':      { 'zh-TW': '按一次出對位畫面（灰底＋正中心紅十字，線寬不可調）；再按一次離開出圖模式，面板回到原本的畫面。',
                           'en': 'Press once for the alignment picture (a grey field with a red cross at the centre; the cross width cannot be set). Press again to leave pattern mode — the panel goes back to its original image.',
                           'zh-CN': '按一次出对位画面（灰底＋正中心红十字，线宽不可调）；再按一次离开出图模式，面板回到原本的画面。' },
-  'dst.btnRun':         { 'zh-TW': '開始掃描', 'en': 'Start scan', 'zh-CN': '开始扫描' },
+  /* 🔴 `dst.btnRun`（「開始掃描」）於 dgself v1.10.1 移除：那顆鈕依 Bruce 2026-09-21
+     裁示整顆拿掉，量測只留步驟卡那一個兩段式入口（「對位畫面」→「開始量測」，
+     走 dst.goAlign／dst.goMeasure）。留著一個沒有任何頁面會用的 key 就是死碼。 */
   'dst.btnStop':        { 'zh-TW': '■ 停止', 'en': '■ Stop', 'zh-CN': '■ 停止' },
   /* 🔴 dgself v1.3.0：`dst.btnCsv` 已刪除（匯出 CSV 整顆移除，原廠 UI 只匯 XLSX）。 */
   'dst.btnCopyLog':     { 'zh-TW': '複製紀錄', 'en': 'Copy log', 'zh-CN': '复制纪录' },
