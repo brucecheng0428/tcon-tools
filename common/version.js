@@ -12,7 +12,7 @@ var TOOL_VERSIONS = {
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.53.1',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
-  dg:      'v1.73.2',      // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
+  dg:      'v1.73.3',      // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
   i2c:     'v1.25.1',       // I2C（讀寫測試）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
