@@ -2651,9 +2651,10 @@ var I18N = {
   /* 🔴 dgself v1.12.0：砍到一句（Bruce 2026-09-21：「說明文字少一點…要精簡、無腦」）。
      被砍掉的「這裡的調整不會影響下面實際量測的 L0…L255」講的是**不會發生的事**，
      不是他要做的事 —— 這一輪整頁的刪減都照同一條判準。 */
-  'dst.testNote':       { 'zh-TW': '量測前先看出圖正不正常，並用對位畫面擺好量測儀。',
-                          'en': 'Before measuring: check the picture looks right, and use the alignment picture to place the meter.',
-                          'zh-CN': '量测前先看出图正不正常，并用对位画面摆好量测仪。' },
+  /* 🔴 v1.13.0（F）：「看出圖正不正常」「擺好」是口語 ⇒ 中性敘述。 */
+  'dst.testNote':       { 'zh-TW': '量測前先確認出圖正常，並用對位畫面對準量測儀。',
+                          'en': 'Before measuring: confirm the picture is correct, and use the alignment picture to align the meter.',
+                          'zh-CN': '量测前先确认出图正常，并用对位画面对准量测仪。' },
   'dst.hdMeasure':      { 'zh-TW': '量測', 'en': 'Measurement', 'zh-CN': '量测' },
   'dst.hdLog':          { 'zh-TW': '紀錄', 'en': 'Log', 'zh-CN': '纪录' },
 
@@ -2718,13 +2719,16 @@ var I18N = {
   'dst.dgWarnOn':       { 'zh-TW': '⚠ DG 目前是開啟的 ⇒ 量到的是已套用 DG 的曲線，不是面板原生曲線。要量原生曲線請先關閉 DG。',
                           'en': '⚠ DG is on, so what you measure is the curve after DG, not the panel\u2019s native curve. Turn DG off first if you want the native curve.',
                           'zh-CN': '⚠ DG 目前是开启的 ⇒ 量到的是已套用 DG 的曲线，不是面板原生曲线。要量原生曲线请先关闭 DG。' },
-  'dst.dgWriteMismatch':{ 'zh-TW': 'DG 寫入後讀回來的狀態不是預期的：想要 {want}，讀回 {got}。IC 端沒有照做，請確認這顆 IC 的 DG 開關是不是被別的設定鎖住。',
+  /* 🔴 v1.13.0（F）：「沒有照做」是擬人、「是不是被別的設定鎖住」是反問 ⇒ 中性敘述。 */
+  'dst.dgWriteMismatch':{ 'zh-TW': 'DG 寫入後讀回來的狀態不是預期的：想要 {want}，讀回 {got}。IC 未套用該設定，請確認這顆 IC 的 DG 開關是否被其他設定鎖住。',
                           'en': 'After writing DG the read-back does not match: wanted {want}, read {got}. The IC did not take it — check whether this chip\u2019s DG switch is locked by another setting.',
-                          'zh-CN': 'DG 写入后读回来的状态不是预期的：想要 {want}，读回 {got}。IC 端没有照做，请确认这颗 IC 的 DG 开关是不是被别的设定锁住。' },
+                          'zh-CN': 'DG 写入后读回来的状态不是预期的：想要 {want}，读回 {got}。IC 未套用该设定，请确认这颗 IC 的 DG 开关是否被其他设定锁住。' },
   'dst.dgWriteFail':    { 'zh-TW': 'DG 開關寫入失敗：{err}', 'en': 'Writing the DG switch failed: {err}', 'zh-CN': 'DG 开关写入失败：{err}' },
-  'dst.dgNoLut':        { 'zh-TW': 'DG 開啟中 ⇒ 面板實際收到的是 DG LUT 查出來的值，而本頁目前讀不到那張表，所以匯出的 Drive_R/G/B 三欄留空。',
-                          'en': 'DG is on, so what the panel actually receives comes out of the DG LUT — this page cannot read that table yet, so the exported Drive_R/G/B columns are left blank.',
-                          'zh-CN': 'DG 开启中 ⇒ 面板实际收到的是 DG LUT 查出来的值，而本页目前读不到那张表，所以导出的 Drive_R/G/B 三栏留空。' },
+  /* 🔴 v1.13.0（B1）：原本的後果寫的是「匯出的 Drive_R/G/B 三欄留空」，而匯出已經移除
+     ⇒ 那個後果不存在了。改寫成**現在真正的後果**：無法對照每一階實際被驅動的碼。 */
+  'dst.dgNoLut':        { 'zh-TW': 'DG 開啟中 ⇒ 面板實際收到的是 DG LUT 查出來的值，而本頁目前讀不到那張表，因此無法對照每一階實際被驅動的碼。',
+                          'en': 'DG is on, so what the panel actually receives comes out of the DG LUT; this page cannot read that table, so the code actually driven at each step cannot be cross-checked.',
+                          'zh-CN': 'DG 开启中 ⇒ 面板实际收到的是 DG LUT 查出来的值，而本页目前读不到那张表，因此无法对照每一阶实际被驱动的码。' },
 
   /* ═══ dgself v1.6.0：DG LUT（RGB）檢視 ═══════════════════════════════════
      Bruce 2026-09-21：「可以在自檢畫面這邊多一個確認 RGB LUT 的卡片…要把那個讀
@@ -2776,8 +2780,9 @@ var I18N = {
   'dst.lutThMono':      { 'zh-TW': '單調', 'en': 'monotonic', 'zh-CN': '单调' },
   'dst.lutThLast':      { 'zh-TW': '末筆 R/G/B', 'en': 'last R/G/B', 'zh-CN': '末笔 R/G/B' },
   /* 失敗：**講在哪一步**，不要只說「失敗」。 */
-  'dst.lutErrLink':     { 'zh-TW': '還沒連上 I2C Bridge，沒有讀任何東西。', 'en': 'Not connected to the I2C Bridge — nothing was read.', 'zh-CN': '还没连上 I2C Bridge，没有读任何东西。' },
-  'dst.lutErrNoIc':     { 'zh-TW': '還沒認出是哪一顆 IC，沒有讀任何東西。', 'en': 'The IC has not been identified yet — nothing was read.', 'zh-CN': '还没认出是哪一颗 IC，没有读任何东西。' },
+  /* 🔴 v1.13.0（F）：「沒有讀任何東西」⇒ 中性敘述「未讀取任何資料」。 */
+  'dst.lutErrLink':     { 'zh-TW': '還沒連上 I2C Bridge，未讀取任何資料。', 'en': 'Not connected to the I2C Bridge — no data was read.', 'zh-CN': '还没连上 I2C Bridge，未读取任何资料。' },
+  'dst.lutErrNoIc':     { 'zh-TW': '還沒認出是哪一顆 IC，未讀取任何資料。', 'en': 'The IC has not been identified yet — no data was read.', 'zh-CN': '还没认出是哪一颗 IC，未读取任何资料。' },
   'dst.lutErrNoCfg':    { 'zh-TW': '這一顆（{detail}）查不到 DG LUT 的 bus enable 位址，本頁只對 EM01／EM02 這兩個家族有出處，其餘不猜。',
                           'en': 'No DG LUT bus-enable address is known for this chip ({detail}). Only the EM01 and EM02 families have a source here; the rest are not guessed.',
                           'zh-CN': '这一颗（{detail}）查不到 DG LUT 的 bus enable 地址，本页只对 EM01／EM02 这两个家族有出处，其余不猜。' },
@@ -2832,10 +2837,10 @@ var I18N = {
   /* ── 設定與說明 ───────────────────────────────────────────────────── */
   'dst.lbBits':         { 'zh-TW': '灰階位元深度', 'en': 'Grey-level bit depth', 'zh-CN': '灰阶位深度' },
   'dst.lbSettle':       { 'zh-TW': '換階等待', 'en': 'Settle time between steps', 'zh-CN': '换阶等待' },
-  /* 🔴 dgself v1.12.0：預設值改成 300 ms（Bruce 2026-09-21 指定），而且這一行
-     **不再寫死任何毫秒數** —— 預設值的唯一來源是 `DST_SETTLE_DEFAULT`，寫在文案裡
-     等於第二份，改一邊忘另一邊就會出現「說是 700、實際選 300」。 */
-  'dst.settleNote':     { 'zh-TW': '出圖之後、叫儀器量之前等這麼久。', 'en': 'How long to wait after painting a step, before asking the meter to measure.', 'zh-CN': '出图之后、叫仪器量之前等这么久。' },
+  /* 🔴 dgself v1.13.0（F）：`dst.settleNote`（「出圖之後、叫儀器量之前等這麼久。」）
+     **整個 key 已刪除**，連同 v1.12.0 寫在這裡的那段說明一併移走 —— key 不在了，
+     講它「不再寫死毫秒數」的註解就是懸空的，會讓下一個人去找一個不存在的字串。
+     （預設值的唯一來源仍然是 `DST_SETTLE_DEFAULT`，那件事寫在它自己那一行。） */
   /* 🔴 dgself v1.3.0：這一行不再出現任何 12-bit 值（舊版講 `× {mul}` 與
      `送出去是 {end12}`）。`{max}` 是這個深度的滿刻度（255／1023／4095，也是四顆
      色鈕與拉霸的上限），`{end}` 是掃描實際會量到的最後一階（255／1020／4080）。
@@ -2893,15 +2898,17 @@ var I18N = {
   'dst.errWsClosed':    { 'zh-TW': 'I2C Bridge 連線關閉', 'en': 'The I2C Bridge connection closed', 'zh-CN': 'I2C Bridge 连线关闭' },
   'dst.errBridgeOld':   { 'zh-TW': 'I2C Bridge 版本太舊（它是 proto {proto}，本頁需要 proto {need}）', 'en': 'The I2C Bridge is too old (it reports proto {proto}, this page needs proto {need})', 'zh-CN': 'I2C Bridge 版本太旧（它是 proto {proto}，本页需要 proto {need}）' },
   'dst.errLocked':      { 'zh-TW': '另一個頁面正在量測中，暫時不能接手。等它跑完，或到那一頁按停止。', 'en': 'Another page is measuring right now, so the fixture cannot be taken over. Wait for it to finish, or press stop on that page.', 'zh-CN': '另一个页面正在量测中，暂时不能接手。等它跑完，或到那一页按停止。' },
-  'dst.errOpenAllFail': { 'zh-TW': '連試 {n} 次都開不了治具通道 —— 治具有沒有插好？是不是有別的程式正佔著它？', 'en': 'The fixture channel could not be opened after {n} attempts — is the fixture plugged in? Is another program holding it?', 'zh-CN': '连试 {n} 次都开不了治具通道 —— 治具有没有插好？是不是有别的程序正占着它？' },
-  'dst.errFfReadback':  { 'zh-TW': '回讀 {addr} 是 0xFF ⇒ 這顆 IC 的回應不符預期，已中止（不對著空氣改寫暫存器）', 'en': 'Reading {addr} back gave 0xFF ⇒ this IC is not responding as expected, so the operation was stopped (a register is never rewritten into thin air)', 'zh-CN': '回读 {addr} 是 0xFF ⇒ 这颗 IC 的回应不符预期，已中止（不对着空气改写暂存器）' },
+  /* 🔴 v1.13.0（F）：原句是兩個反問（「有沒有插好？」「是不是…佔著它？」）⇒ 改中性敘述。 */
+  'dst.errOpenAllFail': { 'zh-TW': '連試 {n} 次都開不了治具通道 —— 請確認治具已插上（USB 與電源），且沒有其他程式正在使用它。', 'en': 'The fixture channel could not be opened after {n} attempts — check that the fixture is plugged in (USB and power) and that no other program is using it.', 'zh-CN': '连试 {n} 次都开不了治具通道 —— 请确认治具已插上（USB 与电源），且没有其他程序正在使用它。' },
+  /* 🔴 v1.13.0（F）：「不對著空氣改寫暫存器」是比喻 ⇒ 直述同一件事。 */
+  'dst.errFfReadback':  { 'zh-TW': '回讀 {addr} 是 0xFF ⇒ 這顆 IC 的回應不符預期，已中止（IC 沒有回應時不寫入暫存器）', 'en': 'Reading {addr} back gave 0xFF ⇒ this IC is not responding as expected, so the operation was stopped (registers are not written while the IC is unresponsive)', 'zh-CN': '回读 {addr} 是 0xFF ⇒ 这颗 IC 的回应不符预期，已中止（IC 没有回应时不写入暂存器）' },
   'dst.errNoSerial':    { 'zh-TW': '這個瀏覽器沒有序列埠功能（請用桌面版 Chrome／Edge）', 'en': 'This browser has no serial port support (use desktop Chrome or Edge)', 'zh-CN': '这个浏览器没有串口功能（请用桌面版 Chrome／Edge）' },
   'dst.errSerialOpen':  { 'zh-TW': '開啟量測儀失敗：{m}', 'en': 'Opening the meter failed: {m}', 'zh-CN': '开启量测仪失败：{m}' },
   'dst.errNeedI2c':     { 'zh-TW': '請先連上 I2C', 'en': 'Link the I2C side first', 'zh-CN': '请先连上 I2C' },
   'dst.errNeedCa':      { 'zh-TW': '請先連上量測儀', 'en': 'Link the meter first', 'zh-CN': '请先连上量测仪' },
   'dst.errCaStuck':     { 'zh-TW': '量測儀沒有回應，卡在 {cmd}', 'en': 'The meter did not respond; stuck at {cmd}', 'zh-CN': '量测仪没有回应，卡在 {cmd}' },
   'dst.errCaErr':       { 'zh-TW': '量測儀回錯誤 {r}（{cmd}）', 'en': 'The meter returned an error {r} ({cmd})', 'zh-CN': '量测仪回错误 {r}（{cmd}）' },
-  'dst.errZero':        { 'zh-TW': '零校正失敗（{r}）—— 蓋好遮光蓋再按一次', 'en': 'Zero calibration failed ({r}) — put the cap back on and try again', 'zh-CN': '零校正失败（{r}）—— 盖好遮光盖再按一次' },
+  'dst.errZero':        { 'zh-TW': '零校正失敗（{r}）—— 請確認遮光蓋已蓋上，再按一次', 'en': 'Zero calibration failed ({r}) — make sure the cap is on, then try again', 'zh-CN': '零校正失败（{r}）—— 请确认遮光盖已盖上，再按一次' },
 
   /* ── 確認 ─────────────────────────────────────────────────────────── */
   /* 🔴 dgself v1.3.0：`dst.confirmRun` 與 `dst.confirmAligned` **兩個 key 都已刪除**。
@@ -2914,7 +2921,8 @@ var I18N = {
   'dst.pgLeave':        { 'zh-TW': '先離開出圖模式…', 'en': 'Leaving pattern mode first…', 'zh-CN': '先离开出图模式…' },
   'dst.pgEnter':        { 'zh-TW': '進入出圖模式…', 'en': 'Entering pattern mode…', 'zh-CN': '进入出图模式…' },
   'dst.pgInit':         { 'zh-TW': '設定量測儀 {i}/{n}：{what}', 'en': 'Setting up the meter {i}/{n}: {what}', 'zh-CN': '设定量测仪 {i}/{n}：{what}' },
-  'dst.pgZero':         { 'zh-TW': '零校正中 —— 蓋上遮光蓋，十秒別動', 'en': 'Zero calibration — put the cap on and hold still for ten seconds', 'zh-CN': '零校正中 —— 盖上遮光盖，十秒别动' },
+  /* 🔴 v1.13.0（F）：「十秒別動」是口語 ⇒ 中性敘述。 */
+  'dst.pgZero':         { 'zh-TW': '零校正中 —— 請蓋上遮光蓋，約十秒內保持靜止', 'en': 'Zero calibration — put the cap on and keep still for about ten seconds', 'zh-CN': '零校正中 —— 请盖上遮光盖，约十秒内保持静止' },
   'dst.pgDone':         { 'zh-TW': '掃描完成', 'en': 'Scan complete', 'zh-CN': '扫描完成' },
 
   /* ── 中止時「面板現在是什麼」──────────────────────────────────────── */
@@ -2923,9 +2931,12 @@ var I18N = {
   'dst.paintRgb':       { 'zh-TW': '停在 R={r} G={g} B={b}（12-bit）這一張畫面', 'en': 'it is stopped on the R={r} G={g} B={b} (12-bit) image', 'zh-CN': '停在 R={r} G={g} B={b}（12-bit）这一张画面' },
   /* 🔴 dgself v1.3.0：「離開出圖模式」那顆鈕已移除 ⇒ 這一行改指現在真的做得到的
      兩條路。按一次「對位畫面」會出對位圖（此時它變成開啟中），再按一次就離開。 */
-  'dst.abortedAt':      { 'zh-TW': '已停止。TCON 現在{what}。要回到正常畫面：按上面的「對位畫面」鈕，它亮起來之後再按一次就會離開出圖模式；直接按「開始掃描」也會先送離開序列。',
-                          'en': 'Stopped. The TCON right now: {what}. To get back to the normal image: press the “Alignment picture” button above, then press it again once it lights up — that leaves pattern mode. Pressing “Start scan” also sends the leave sequence first.',
-                          'zh-CN': '已停止。TCON 现在{what}。要回到正常画面：按上面的「对位画面」钮，它亮起来之后再按一次就会离开出图模式；直接按「开始扫描」也会先送离开序列。' },
+  /* 🔴 v1.13.0：兩件事 —— ①（F）「它亮起來之後再按一次就會…」是旁白式口語
+     ②「開始掃描」那顆鈕 **v1.10.1 起已經不存在**（現在是兩段式的「對位畫面／開始量測」），
+        指向一顆不存在的鈕比講得囉嗦更糟。改成指「畫面測試」卡那一顆真的會 toggle 回去的鈕。 */
+  'dst.abortedAt':      { 'zh-TW': '已停止。TCON 現在{what}。要回到正常畫面：到「畫面測試」卡按「對位畫面」，再按一次即回到原本畫面；按「開始量測」也會先送出離開出圖模式的序列。',
+                          'en': 'Stopped. The TCON is now: {what}. To return to the normal image: in the “Picture test” card press “Alignment picture”, then press it again to go back. Pressing “Start measuring” also sends the leave-pattern-mode sequence first.',
+                          'zh-CN': '已停止。TCON 现在{what}。要回到正常画面：到「画面测试」卡按「对位画面」，再按一次即回到原本画面；按「开始量测」也会先送出离开出图模式的序列。' },
 
   /* ── 連線說明 ─────────────────────────────────────────────────────── */
   'dst.sayNoBridge':    { 'zh-TW': '連不到本機的 I2C Bridge。它要先在這台電腦上跑起來 —— 取得與安裝在「I2C 讀寫測試」那一頁。', 'en': 'The local I2C Bridge cannot be reached. It has to be running on this computer first — get it and install it from the “I2C read/write test” page.', 'zh-CN': '连不到本机的 I2C Bridge。它要先在这台电脑上跑起来 —— 取得与安装在「I2C 读写测试」那一页。' },
@@ -2980,17 +2991,7 @@ var I18N = {
                           'en': '<b>Same program</b> as the I2C Read/Write Test page — if you have it, just run it.',
                           'zh-CN': '与「I2C 读写测试」那一页是<b>同一支程序</b>，载过就直接执行。' },
   /* ═══ v1.2.0：匯出（版面逐欄照上游工具）═════════════════════ */
-  'dst.btnXlsx':        { 'zh-TW': '匯出 XLSX', 'en': 'Export XLSX', 'zh-CN': '导出 XLSX' },
-  'dst.expNoData':      { 'zh-TW': '還沒有任何量測結果可以匯出。',
-                          'en': 'There are no measurement results to export yet.',
-                          'zh-CN': '还没有任何量测结果可以导出。' },
   /* 🔴 Bruce 2026-09-20：「只要有量測失敗的，是不能匯出 CSV 的。」 */
-  'dst.expVoid':        { 'zh-TW': '這一輪沒有完整跑完（中止或量測失敗），已作廢 —— 不得匯出，也不會回傳 DG。請先排除量測儀器的問題，再重新掃一次。',
-                          'en': 'This round did not finish cleanly (stopped, or a measurement failed), so it is void — it cannot be exported and nothing was sent back to DG. Fix the meter first, then run the scan again.',
-                          'zh-CN': '这一轮没有完整跑完（中止或量测失败），已作废 —— 不得导出，也不会回传 DG。请先排除量测仪器的问题，再重新扫一次。' },
-  'dst.expNoLib':       { 'zh-TW': 'common/xlsx.js 沒有載入 —— 無法產生 Excel 檔。請重新整理這一頁。',
-                          'en': 'common/xlsx.js did not load — the Excel file cannot be produced. Please reload this page.',
-                          'zh-CN': 'common/xlsx.js 没有载入 —— 无法生成 Excel 文件。请重新刷新这一页。' },
 
   /* ═══ v1.2.0：量測失敗不准跳過 ════════════════════════════ */
   'dst.pgRetry':        { 'zh-TW': '{key}（重試 {k}/{n}）', 'en': '{key} (retry {k}/{n})', 'zh-CN': '{key}（重试 {k}/{n}）' },
@@ -3002,31 +3003,40 @@ var I18N = {
                           'en': 'The meter replied: {raw} (already retried automatically {tries} times).',
                           'zh-CN': '量测仪器的回应：{raw}（已经自动试了 {tries} 次）。' },
   'dst.failTimeout':    { 'zh-TW': '（逾時，完全沒有回應）', 'en': '(timed out — no reply at all)', 'zh-CN': '（超时，完全没有回应）' },
-  'dst.failCheck':      { 'zh-TW': '請檢查量測儀器：USB 線有沒有鬆、探頭有沒有貼緊面板、遮光蓋是不是還蓋著、機身有沒有跳錯誤訊息，以及面板是不是還停在出圖畫面上。',
-                          'en': 'Check the meter: is the USB cable loose, is the probe flush against the panel, is the light cap still on, is there an error on the meter itself, and is the panel still showing the test pattern?',
-                          'zh-CN': '请检查量测仪器：USB 线有没有松、探头有没有贴紧面板、遮光盖是不是还盖着、机身有没有跳错误信息，以及面板是不是还停在出图画面上。' },
-  'dst.failVoidWarn':   { 'zh-TW': '這一階不會被跳過。選「中止整輪」的話，這一輪作廢 —— 不匯出、也不回傳 DG。',
-                          'en': 'This step will not be skipped. If you abort, the whole round is void — nothing is exported and nothing goes back to DG.',
-                          'zh-CN': '这一阶不会被跳过。选「中止整轮」的话，这一轮作废 —— 不导出、也不回传 DG。' },
+  /* 🔴 v1.13.0（F）：原句是一串「有沒有／是不是」反問 ⇒ 改成中性的檢查項目列舉。 */
+  'dst.failCheck':      { 'zh-TW': '請檢查量測儀器：USB 線是否鬆脫、探頭是否貼緊面板、遮光蓋是否已移除、儀器本身是否顯示錯誤，以及面板是否仍停在出圖畫面。',
+                          'en': 'Check the meter: USB cable seating, probe contact against the panel, whether the light cap is still on, any error shown on the meter itself, and whether the panel is still showing the test pattern.',
+                          'zh-CN': '请检查量测仪器：USB 线是否松脱、探头是否贴紧面板、遮光盖是否已移除、仪器本身是否显示错误，以及面板是否仍停在出图画面。' },
+  /* 🔴 v1.13.0（B1）：「不匯出」已不成立（匯出鈕移除），整句只留真的還會發生的事。 */
+  'dst.failVoidWarn':   { 'zh-TW': '這一階不會被跳過。選「中止整輪」的話，這一輪作廢，不會回傳 DG。',
+                          'en': 'This step will not be skipped. Choosing “Abort the whole round” voids the round; nothing goes back to DG.',
+                          'zh-CN': '这一阶不会被跳过。选「中止整轮」的话，这一轮作废，不会回传 DG。' },
   'dst.failRetry':      { 'zh-TW': '再試一次這一階', 'en': 'Retry this step', 'zh-CN': '再试一次这一阶' },
   'dst.failAbort':      { 'zh-TW': '中止整輪（作廢）', 'en': 'Abort the round (void)', 'zh-CN': '中止整轮（作废）' },
   /* 🔴 dgself v1.4.0：分母拆成「灰階 {gray} 階 ＋ RGB 純色 {prim} 個」，不再是
      兩組相加的那個數字（Bruce：「我有說過不要 259 啊」）。 */
-  'dst.voidRun':        { 'zh-TW': '⚠ 這一輪已作廢：只量到 {detail}。下面的表格只是給你看停在哪裡，不會匯出、也沒有回傳 DG。排除問題後請重新掃一次。',
-                          'en': '⚠ This round is void: only {detail} came in. The table below is only there to show where it stopped — it will not be exported and nothing was sent back to DG. Fix the problem and run the scan again.',
-                          'zh-CN': '⚠ 这一轮已作废：只量到 {detail}。下面的表格只是给你看停在哪里，不会导出、也没有回传 DG。排除问题后请重新扫一次。' },
-  'dst.dgVoidNoSend':   { 'zh-TW': '這一輪沒有完整跑完，一筆都沒有回傳 DG。半套的灰階曲線灌進去會錯得很安靜。',
-                          'en': 'This round did not finish cleanly, so nothing at all was sent back to DG. A half-finished grey ramp would go wrong very quietly.',
-                          'zh-CN': '这一轮没有完整跑完，一笔都没有回传 DG。半套的灰阶曲线灌进去会错得很安静。' },
+  /* 🔴 v1.13.0：兩件事一起改 —— ①（F）「只是給你看」是口語旁白 ②（B1）「不會匯出」
+     在匯出鈕移除之後已經**不成立**，留著就是講一件不存在的事。 */
+  'dst.voidRun':        { 'zh-TW': '⚠ 這一輪已作廢：只量到 {detail}。下面的表格僅供確認停在哪一階，沒有回傳 DG。排除問題後請重新掃一次。',
+                          'en': '⚠ This round is void: only {detail} came in. The table below only shows which step it stopped at; nothing was sent back to DG. Fix the problem and run the scan again.',
+                          'zh-CN': '⚠ 这一轮已作废：只量到 {detail}。下面的表格仅供确认停在哪一阶，没有回传 DG。排除问题后请重新扫一次。' },
+  /* 🔴 v1.13.0（F）：「半套…灌進去會錯得很安靜」是口語比喻 ⇒ 直述後果。 */
+  'dst.dgVoidNoSend':   { 'zh-TW': '這一輪沒有完整跑完，一筆都沒有回傳 DG。不完整的灰階曲線寫進 DG 會產生沒有徵兆的錯誤結果。',
+                          'en': 'This round did not finish cleanly, so nothing at all was sent back to DG. An incomplete grey ramp written into DG produces wrong results with no visible symptom.',
+                          'zh-CN': '这一轮没有完整跑完，一笔都没有回传 DG。不完整的灰阶曲线写进 DG 会产生没有征兆的错误结果。' },
   /* 🔴 v1.2.0：已知缺陷的事前揭露（不是修它）—— 見 dstRenderDgBits。 */
-  'dst.dgBitsWarn':     { 'zh-TW': '⚠ 這一輪是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐階不跳號）的灰階，{bits}-bit 量完會被 DG 擋下。要回填 DG 請改選 8-bit；只是要拿匯出檔的話不受影響。',
-                          'en': '⚠ This round is {bits}-bit. DG part 2 currently only accepts an 8-bit ramp (L0…L255 with no gaps), so a {bits}-bit round will be rejected by DG. Switch to 8-bit if you need it fed back into DG; the exported file is unaffected.',
-                          'zh-CN': '⚠ 这一轮是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐阶不跳号）的灰阶，{bits}-bit 量完会被 DG 挡下。要回填 DG 请改选 8-bit；只是要拿导出文件的话不受影响。' },
+  /* 🔴 v1.13.0（B1）：原句結尾是「只是要拿匯出檔的話不受影響」。本頁的匯出鈕已隨
+     B1 整顆移除 ⇒ 那個「不受影響」的東西已經不存在，留著就是承諾一條走不到的路。
+     匯出現在只在 DG 的「光學資料比較」，而 10／12-bit 這一輪根本不會被 DG 收下
+     ⇒ 也不會在那邊出現任何可匯出的一組。所以這裡只剩一條退路：改選 8-bit。 */
+  'dst.dgBitsWarn':     { 'zh-TW': '⚠ 這一輪是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐階不跳號）的灰階，{bits}-bit 量完會被 DG 擋下，也不會進入「光學資料比較」。要讓這一輪留得下來請改選 8-bit。',
+                          'en': '⚠ This round is {bits}-bit. DG part 2 currently only accepts an 8-bit ramp (L0…L255 with no gaps), so a {bits}-bit round is rejected by DG and never reaches “Optical data comparison”. Switch to 8-bit to keep this round.',
+                          'zh-CN': '⚠ 这一轮是 {bits}-bit：DG 的第 2 部分目前只收得下 8-bit（L0…L255 逐阶不跳号）的灰阶，{bits}-bit 量完会被 DG 挡下，也不会进入「光学资料比较」。要让这一轮留得下来请改选 8-bit。' },
 
   /* 🔴 dgself v1.12.0：砍成一句。「被接手的那一頁會顯示未連線」是結果的複述，
      他在畫面上看得到；<b> 只留真正會踩到的那一半（量測中不會被搶走）。 */
-  'dst.ownerNote':      { 'zh-TW': '一次只給一個分頁用，切到哪一頁就換哪一頁接手；<b>量測中不會被搶走</b>。',
+  'dst.ownerNote':      { 'zh-TW': '一次只給一個分頁用，切到哪一頁就換哪一頁接手；<b>量測中不會被其他分頁接手</b>。',
                           'en': 'Only one tab uses it at a time — whichever tab you switch to takes over; <b>a tab that is measuring will not be taken over</b>.',
-                          'zh-CN': '一次只给一个分页用，切到哪一页就换哪一页接手；<b>量测中不会被抢走</b>。' },
+                          'zh-CN': '一次只给一个分页用，切到哪一页就换哪一页接手；<b>量测中不会被其他分页接手</b>。' },
 
 };

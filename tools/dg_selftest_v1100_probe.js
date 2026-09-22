@@ -475,12 +475,18 @@ async function loadReady(opts) {
     /* 位置：④ 仍然是清單的最後一列（Bruce 只說不要做成按鈕，沒有說換位置） */
     EQ(P.stepRowOrder()[P.stepRowOrder().length - 1], 'dst-step-back',
       '🔴 ④ 那一列仍然排在清單最後');
-    /* 這張卡裡最後一個控制項現在是「匯出 XLSX」—— 它是 Bruce 自己在 v1.10.1 指名
-       要放進 ②③ 那一格的，這一輪沒有動它（移除既有入口要他裁示）。 */
+    /* ═══ 🔴 v1.13.0（B1）：期望值換了 —— 最後一個控制項不再是「匯出 XLSX」════════
+       v1.12.0 當時的註記是「它是 Bruce 自己在 v1.10.1 指名要放進 ②③ 那一格的，
+       這一輪沒有動它（移除既有入口要他裁示）」。他 2026-09-22 裁示了：整顆移除。
+       ⇒ 這張卡最後一個控制項變成「停止」（`#dst-stop`，量測當下的動作，留在原地）。
+       🔴 不是把斷言刪掉：期望值換成新的事實，同時**正面釘住匯出鈕不在卡裡**，
+          有人接回來一樣會紅。 */
     const card = doc.getElementById('dst-steps-card');
     const ctrls = Array.prototype.slice.call(card.querySelectorAll('button, a'));
-    EQ(ctrls[ctrls.length - 1].id, 'dst-xlsx',
-      '🔴 v1.12.0：④ 沒有鈕之後，這張卡最後一個控制項是「匯出 XLSX」');
+    EQ(ctrls[ctrls.length - 1].id, 'dst-stop',
+      '🔴（B1）匯出鈕移除後，這張卡最後一個控制項是「停止」');
+    CHECK(ctrls.every(e => e.id !== 'dst-xlsx'),
+      '🔴（B1）這張卡裡找不到匯出 XLSX 那一顆', ctrls.map(e => e.id));
     /* ═══ 🔴 dgself v1.11.0 改判：名字改了，而且**兩顆不再是同一件事** ═══════════
        刪改原因（不是為了讓測試變綠）：Bruce 2026-09-21 真機實測 ——「那個按鈕名稱
        不應該叫做『回到 DG 頁』，應該叫做『資料回傳 DG』之類。因為按下去並不會回到
@@ -507,14 +513,24 @@ async function loadReady(opts) {
     EQ(opener.msgs.length, 0, '🔴 沒有鈕可按 ⇒ 沒有送任何訊息過去');
     EQ(P.backBotHref(), null, '🔴 v1.12.0：鈕已移除 ⇒ 沒有 href');
     EQ(P.backSent(), false, '🔴 按一個不存在的東西不會讓 ④ 打勾');
-    /* ═══ 🔴 v1.12.0 的核心：**真的送出去** ⇒ ④ 自動打勾 ＋ 自動提示 ═════════════ */
+    /* ═══ 🔴 v1.12.0 的核心：**真的送出去** ⇒ ④ 自動打勾 ＋ 自動提示 ═════════════
+       ═══ 🔴 v1.13.0（A）：「送出去」的定義收緊成 **②③ 都送出去** ════════════════
+       Bruce 2026-09-22 實機：「為什麼在第三步驟還在量的時候，第四步驟的資料自動
+       回傳 DG 就已經打勾了？…這個等於是先偷跑囉。」
+       ⇒ 原本這一段只送白灰階（沒有純色），舊實作照樣打勾 —— 這幾條驗的正是那個
+         bug。改成把白灰階 ＋ 三個純色端點一起送（產品端的 primSent 那條路），
+         ②③ 齊了才打勾。
+       🔴 「只送 ② ⇒ 不打勾」那一格釘在 `tools/dg_selftest_v1120_probe.js` 的 I 組。 */
     P.__setRowsForTest([
       { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
-      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 },
+      { key: 'R', group: 'prim', idx: 255, r12: 4080, x: 0.64, y: 0.33, lv: 60 },
+      { key: 'G', group: 'prim', idx: 255, r12: 4080, x: 0.30, y: 0.60, lv: 200 },
+      { key: 'B', group: 'prim', idx: 255, r12: 4080, x: 0.15, y: 0.06, lv: 25 }
     ]);
     P.dgSend();
     await sleep(20);
-    EQ(P.backSent(), true, '🔴 postMessage 真的送出去了 ⇒ ④ 自動打勾');
+    EQ(P.backSent(), true, '🔴（A）②③ 都 postMessage 出去了 ⇒ ④ 自動打勾');
     EQ(P.backRowTick(), '✔', '🔴 ④ 那一列自動變成 ✔（不必按任何東西）');
     EQ(P.backWarnIsSwitchTab(), true,
       '🔴 提示自動換成「已送回 DG，請切回 DG 分頁繼續。」');
@@ -537,9 +553,14 @@ async function loadReady(opts) {
     EQ(P.backRowTick(), '○', '🔴 ④ 那一列維持 ○（不編造「已回傳」）');
     CHECK((P.backWarnText() || '').indexOf('不是從 DG 開的') >= 0,
       '🔴 講出原因：這一頁不是從 DG 開的', P.backWarnText());
-    CHECK((P.backWarnText() || '').indexOf('複製到剪貼簿') >= 0
-       && (P.backWarnText() || '').indexOf('匯出 XLSX') >= 0,
-      '🔴 講出兩條退路（剪貼簿／匯出 XLSX）', P.backWarnText());
+    /* 🔴 v1.13.0（B1）：匯出鈕移除 ⇒ 這條路上 ②③ 真的沒有出口了。
+       期望值改成「① 那條退路還在 ＋ ②③ 如實說沒有」，而不是放寬成「有提到剪貼簿
+       就好」—— 那會讓「指向一顆不存在的鈕」重新通過。 */
+    CHECK((P.backWarnText() || '').indexOf('複製到剪貼簿') >= 0,
+      '🔴（B1）① 的退路（複製到剪貼簿）還在', P.backWarnText());
+    CHECK((P.backWarnText() || '').indexOf('沒有出口') >= 0
+       && (P.backWarnText() || '').indexOf('XLSX') < 0,
+      '🔴（B1）②③ 如實講「這一頁沒有出口」，整句不再出現 XLSX', P.backWarnText());
     EQ(P.backText(), '‹ 回到首頁', '🔴 左上角那一顆仍然是「‹ 回到首頁」');
   }
 
@@ -706,19 +727,25 @@ async function loadReady(opts) {
      都不存在了。新的機制是「送出去 ⇒ 自動打勾」，所以突變改成**把自動打勾那一行
      拿掉** —— 正面那幾條（backSent／✔／提示換成切分頁）就必須全部變紅。 */
   {
-    const orig = "  dstBackSent = true;      // v1.12.0：postMessage 沒丟例外 ⇒ ④ 自動打勾（見宣告處）";
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6：找得到「送出去就自動打勾」那一行');
-    const mut = SELF_SRC.replace(orig, "  /* mutated: no auto tick */");
+    /* 🔴 v1.13.0：突變目標換了。v1.12.0 突變的是 `dstBackSent = true` 那一行，而
+       v1.13.0（A）起 `dstBackSent` 是**推導函式、沒有任何賦值**（那正是修 A 的方式）
+       ⇒ 突變改成把那支判準整個改成「永不打勾」，正面那幾條同樣必須全紅。 */
+    const orig = "  return ks.length > 0 && ks.every(function (k) { return !!dstStepDone[k]; });";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6：找得到 ④ 判準那一行');
+    const mut = SELF_SRC.replace(orig, "  return false;   /* mutated: never tick */");
     const opener = fakeWin();
     const { P } = await loadReady({ src: mut, opener });
     P.__setRowsForTest([
       { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
-      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 },
+      { key: 'R', group: 'prim', idx: 255, r12: 4080, x: 0.64, y: 0.33, lv: 60 },
+      { key: 'G', group: 'prim', idx: 255, r12: 4080, x: 0.30, y: 0.60, lv: 200 },
+      { key: 'B', group: 'prim', idx: 255, r12: 4080, x: 0.15, y: 0.06, lv: 25 }
     ]);
-    CHECK(P.dgSend() === true, '突變前置：這一輪確實有送出去');
+    CHECK(P.dgSend() === true, '突變前置：②③ 確實都有送出去');
     await sleep(20);
     EQ(P.backSent(), false,
-      '🔴 突變後即使送出去了 ④ 也不打勾 ⇒ 證明第 ⑥ 組「自動打勾」那條真的在驗東西');
+      '🔴 突變後即使 ②③ 都送出去了 ④ 也不打勾 ⇒ 證明第 ⑥ 組「自動打勾」那條真的在驗東西');
     EQ(P.backRowTick(), '○', '🔴 突變後 ④ 那一列停在 ○');
   }
   /* ── 🔴 v1.12.0 新增 M6-b：**打勾必須等於真的送到了**（Bruce 明文要求的反面）──
@@ -726,10 +753,11 @@ async function loadReady(opts) {
      這樣一來「沒有 opener ⇒ 不打勾」就會變成假的 ⇒ 下面那條必須紅。
      🔴 這是這一組最重要的一條：假勾等於騙他「東西在 DG 那邊了」。 */
   {
-    const anchor = "function dstDgSend() {\n  if (!dstDgAlive()) return false;";
-    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M6-b：找得到 dstDgSend() 的第一道守衛');
-    const mut = SELF_SRC.replace(anchor,
-      "function dstDgSend() {\n  dstBackSent = true; dstRenderSteps();\n  if (!dstDgAlive()) return false;");
+    /* 🔴 v1.13.0：同上，突變目標改成那支判準本身 —— 讓它無條件回 true，
+       ＝「我送了，不知道有沒有到」那種寫法。「沒有 opener ⇒ 不打勾」就會變成假的。 */
+    const anchor = "  return ks.length > 0 && ks.every(function (k) { return !!dstStepDone[k]; });";
+    CHECK(SELF_SRC.indexOf(anchor) > 0, 'M6-b：找得到 ④ 判準那一行');
+    const mut = SELF_SRC.replace(anchor, "  return true;   /* mutated: always tick */");
     const { P } = await loadReady({ src: mut, opener: null });
     EQ(P.dgState().linked, false, '突變前置：沒有 opener');
     P.__setRowsForTest([

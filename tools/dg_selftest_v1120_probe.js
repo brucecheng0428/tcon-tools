@@ -200,10 +200,18 @@ async function dgCalc(win, doc, outbit) {
     CHECK(boxes[1].contains(doc.getElementById('dst-step-gray'))
        && boxes[1].contains(doc.getElementById('dst-step-prim')),
       '🔴 ②③ 兩列在**同一個**框裡（Bruce：步驟二、步驟三應該也要同一個外框）');
-    CHECK(boxes[1].contains(doc.getElementById('dst-settle'))
-       && boxes[1].contains(doc.getElementById('dst-stop'))
-       && boxes[1].contains(doc.getElementById('dst-xlsx')),
-      '🔴 v1.10.1 搬進來的三個控制項仍然在這個框裡（沒有被外框改動弄丟）');
+    /* 🔴 v1.13.0：這一條**是斷言過時，不是功能壞掉** —— v1.10.1 搬進來的三個控制項
+       裡，兩個在 v1.13.0 依 Bruce 交辦離開了這一格：
+         · `#dst-settle` → 搬進「光學量測儀」那一組（E），這裡**不准留第二份**
+         · `#dst-xlsx`   → 整顆移除（B1），全頁都不該再找得到
+         · `#dst-stop`   → 留在原地（它是量測當下的動作）
+       三件事各釘一條，不是把舊斷言刪掉了事。 */
+    CHECK(boxes[1].contains(doc.getElementById('dst-stop')),
+      '🔴 「停止」仍在 ②③ 這個框裡');
+    CHECK(!boxes[1].contains(doc.getElementById('dst-settle')),
+      '🔴（E）「換階等待」已不在 ②③ 這個框裡');
+    EQ(doc.getElementById('dst-xlsx'), null,
+      '🔴（B1）`#dst-xlsx` 整顆移除，全頁找不到');
     CHECK(boxes[2].contains(doc.getElementById('dst-step-back')), '🔴 第三個框裝 ④');
     /* 🔴 舊的「左邊一條線」記號已經移除（框本身就是記號，同一件事不講兩次） */
     CHECK(stripComments(SELF_SRC).indexOf('border-left: 2px solid var(--primary)') < 0,
@@ -223,9 +231,22 @@ async function dgCalc(win, doc, outbit) {
     const sel = doc.getElementById('dst-settle');
     sel.value = '700';
     EQ(P.settleMs(), 700, '🔴 選 700 就是 700（只改預設值，沒有鎖住）');
-    /* 🔴 說明那一行**不准再寫死任何毫秒數** —— 寫了就是第二份來源 */
-    const note = doc.querySelector('[data-i18n="dst.settleNote"]').textContent;
-    CHECK(!/\d/.test(note), '🔴 說明那一行沒有任何數字（預設值只有一個來源）', note);
+    /* 🔴 v1.13.0（F）：原本這裡驗「說明那一行沒有任何數字」。Bruce 2026-09-22：
+       「它為什麼後面註明什麼『出圖之後，叫儀器量之前等這麼久』？這種口語的說明不要用」
+       ⇒ 那一行**整句刪掉**。斷言跟著改成「它不存在」＋「i18n key 也刪了」，
+       而不是放寬成「有的話才驗」——那種寫法會靜默地什麼都沒驗到。 */
+    EQ(doc.querySelector('[data-i18n="dst.settleNote"]'), null,
+      '🔴（F）「出圖之後、叫儀器量之前等這麼久」那一行已整句移除');
+    /* 🔴 v1.13.0：判準從「字串整個不出現」改成「**沒有定義**這個 key」。
+       原本的寫法連註解裡提到這個 key 都會紅 —— 而註解裡寫「這個 key 為什麼被刪」
+       正是應該留下的決策紀錄。判準改成 schema 層的事實（有沒有 `'key':` 這個定義），
+       措辭與註解怎麼寫都不影響，跟 `version_bump_check.py` 用具名欄位是同一個道理。 */
+    CHECK(!/['"]dst\.settleNote['"]\s*:/.test(I18N_SRC),
+      '🔴（F）`dst.settleNote` 這個 key 在 common/i18n.js 裡已經沒有定義（不留死資料）');
+    /* 🔴（E）搬家之後要在「光學量測儀」那一組裡，而且全頁**只有一個** */
+    EQ(doc.querySelectorAll('#dst-settle').length, 1, '🔴（E）全頁只有一個 #dst-settle');
+    CHECK(doc.getElementById('dst-hwgrp-meter').contains(sel),
+      '🔴（E）「換階等待」已搬進「光學量測儀」那一組');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -249,9 +270,13 @@ async function dgCalc(win, doc, outbit) {
       '🔴 收尾明講「請切回 DG 分頁繼續」（不是叫他在這裡匯出 Excel）', say);
     CHECK(say.indexOf('Excel') < 0 && say.indexOf('XLSX') < 0,
       '🔴 收尾那一句完全沒有提匯出', say);
-    /* 匯出鈕本身**沒有被刪掉**（它是 Bruce 自己在 v1.10.1 指名放進那一格的） */
-    EQ(P.ctrlInGroup23('dst-xlsx'), { n: 1, inGroup: true },
-      '🔴 匯出 XLSX 仍在 ②③ 那一格（移除既有入口要 Bruce 裁示，本輪不動）');
+    /* ═══ 🔴 v1.13.0（B1）：這一條**是斷言過時，不是功能壞掉** ════════════════════
+       v1.12.0 當時寫的是「匯出鈕**沒有被刪掉**（移除既有入口要 Bruce 裁示，本輪不動）」。
+       Bruce 2026-09-22 已裁示移除 ⇒ 期望值整個翻面：那顆鈕**全頁都不該找得到**。
+       🔴 不是把舊斷言刪掉了事 —— 改成正面釘「它不在」，而且連 `ctrlInGroup23()` 的
+          回傳都一起釘（n=0、inGroup=false），免得日後有人放一顆同 id 的回來。 */
+    EQ(P.ctrlInGroup23('dst-xlsx'), { n: 0, inGroup: false },
+      '🔴（B1）匯出 XLSX 那一顆已整顆移除，②③ 那一格裡找不到、全頁也找不到');
     /* 三語都要有那一句 */
     LANGS.forEach(L => {
       const v = P.i18nValues('dst.dgSentBoth');
@@ -318,17 +343,88 @@ async function dgCalc(win, doc, outbit) {
     EQ(P.backRowTick(), '○', '還沒送 ⇒ ④ 是 ○');
     CHECK((P.backWarnText() || '').indexOf('自動回傳') >= 0,
       '🔴 送出去之前先講「量完會自動回傳，不必按任何東西」', P.backWarnText());
-    /* ③ 真的送出去 ⇒ 自動打勾 ＋ 提示換成切分頁 */
+    /* ═══ 🔴 v1.13.0（A）：期望值翻面 —— ④ 的勾 ＝ **②③ 都完成**，不是「送過任何一步」═
+       Bruce 2026-09-22 實機：「為什麼在第三步驟還在量的時候，第四步驟的資料自動回傳 DG
+       就已經打勾了？…這個等於是先偷跑囉。」
+       ⇒ 這一段原本只送**白灰階**（沒有純色），舊實作照樣把 ④ 打勾 —— 那正是他看到的
+         偷跑。現在同一個情境必須是 ○，等 ③ 也送出去才變 ✔。
+       🔴 兩半都驗（這是 CLAUDE.md 記過三次的破口：只驗「壞的會被擋」不算數）：
+         · 反面：只送 ② ⇒ ④ **不打勾**
+         · 正面：②③ 都送 ⇒ ④ **要打勾**（不能改成「永遠不打勾」那種假安全） */
     P.__setRowsForTest([
       { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
       { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
     ]);
-    CHECK(P.dgSend() === true, '前置條件：真的送出去了');
+    CHECK(P.dgSend() === true, '前置條件：白灰階真的送出去了');
     await sleep(20);
-    EQ(P.backSent(), true, '🔴 送出去了 ⇒ ④ 自動打勾');
-    EQ(P.backRowTick(), '✔', '🔴 ④ 那一列自動變成 ✔');
-    EQ(P.backRowDone(), true, '🔴 ④ 有 done');
-    EQ(P.backWarnIsSwitchTab(), true, '🔴 提示自動換成「已送回 DG，請切回 DG 分頁繼續。」');
+    EQ(P.stepDone(), { lut: false, gray: true, prim: false }, '前置條件：只有 ② 完成');
+    EQ(P.backSent(), false,
+      '🔴（A）只送了 ②、③ 還沒量 ⇒ ④ **不打勾**（Bruce 看到的「偷跑」正是這一格）');
+    EQ(P.backRowTick(), '○', '🔴（A）④ 那一列維持 ○');
+    EQ(P.backRowDone(), false, '🔴（A）④ 沒有 done');
+    EQ(P.backWarnIsSwitchTab(), false, '🔴（A）也還不能說「已送回 DG」');
+    /* 🔴（A）判準**不得列舉步驟名**（Bruce 明示）。這裡釘的是「名單從 ②③ 那個框
+       讀出來」這個結構事實：名單就是框裡那兩列，而且 ① 不在裡面。 */
+    EQ(P.backStepKeys().slice().sort(), ['gray', 'prim'],
+      '🔴（A）④ 的判準名單＝②③ 那個框裡的步驟，① 不在裡面');
+    const bare = stripComments(SELF_SRC);
+    CHECK(bare.indexOf('dstStepDone.gray && dstStepDone.prim') < 0,
+      '🔴（A）產品端沒有把步驟名寫死成 `dstStepDone.gray && dstStepDone.prim`（列舉必漏）');
+    /* 🔴（A）根因那一條：`dstBackSent` **不准再有任何寫入點**。原本的 bug 是
+       `dstDgSendLut()`（① 的回傳路徑）也寫了一次 `dstBackSent = true`。
+       改成推導之後它是函式、沒有變數可以被賦值 —— 這一條把「下一個人順手補一行」
+       這條路直接封死（比只驗這一次的症狀有效）。 */
+    CHECK(!/dstBackSent\s*=[^=]/.test(bare),
+      '🔴（A）`dstBackSent` 全頁沒有任何賦值（它是推導出來的，沒有第二份真相）');
+  }
+  {
+    /* ═══ 🔴 v1.13.0（A）正面那一半：②③ 都完成 ⇒ ④ **要**打勾 ═════════════════
+       只驗「不打勾」會被一個「永遠不打勾」的實作通過 —— 那是假安全，CLAUDE.md
+       記過三次的同一個破口。這一組送的是**白灰階 ＋ 三個純色端點**（產品端的
+       `primSent` 路徑，與 E 那一組同一條），②③ 一次同時完成。 */
+    const opener = fakeWin();
+    const { P } = await loadSelf({ opener, qs: '?task=9&dest=' + encodeURIComponent('第 2 部分') + '&step=gray' });
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 },
+      { key: 'R', group: 'prim', idx: 255, r12: 4080, x: 0.64, y: 0.33, lv: 60 },
+      { key: 'G', group: 'prim', idx: 255, r12: 4080, x: 0.30, y: 0.60, lv: 200 },
+      { key: 'B', group: 'prim', idx: 255, r12: 4080, x: 0.15, y: 0.06, lv: 25 }
+    ]);
+    CHECK(P.dgSend() === true, '前置條件：白灰階 ＋ 三個純色端點都送出去了');
+    await sleep(20);
+    EQ(P.stepDone(), { lut: false, gray: true, prim: true }, '前置條件：②③ 都完成');
+    EQ(P.backSent(), true, '🔴（A）②③ 都送出去了 ⇒ ④ 自動打勾');
+    EQ(P.backRowTick(), '✔', '🔴（A）④ 那一列自動變成 ✔');
+    EQ(P.backRowDone(), true, '🔴（A）④ 有 done');
+    EQ(P.backWarnIsSwitchTab(), true, '🔴（A）提示自動換成「已送回 DG，請切回 DG 分頁繼續。」');
+  }
+  {
+    /* ═══ 🔴 v1.13.0（C）：藍色＝**依序**第一個還沒完成的那一組（①→②③→④）════════
+       Bruce 2026-09-22 實機：「為什麼第二步驟『量白灰階』的字要用藍色來 highlight？
+       …這個藍色如果你是定義成『現在做到哪個步驟』，那它最後應該要停在『資料自動
+       回傳 DG』這邊。」
+       ── 舊實作是 `alive && dstDgStep === k`＝「DG 派給我的那一步」，整輪不變
+          ⇒ 藍色從頭到尾黏在 ②。這裡釘的就是**那一格**：帶著 `step=gray` 進來、
+          一步都沒做的時候，藍色必須在 ①，而不是 ②。
+       🔴 「①做完才輪到②③」「全完成一列都不藍」那兩格需要真的跑完 ① 讀回 LUT
+          （要假 I2C Bridge），釘在 `tools/dg_selftest_v180_probe.js` 的第 ②-cur
+          組 —— 那一支本來就有 bridge 夾具，不在這裡複製第二份。 */
+    const opener = fakeWin();
+    const { P } = await loadSelf({ opener, qs: '?task=10&step=gray' });
+    EQ(P.curRows(), ['dst-step-lut'],
+      '🔴（C）一步都沒做 ⇒ 藍色在 ①（**不是** DG 派來的 step=gray 那一步）');
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
+    ]);
+    CHECK(P.dgSend() === true, '前置條件：② 送出去了（① 還沒做）');
+    await sleep(20);
+    EQ(P.curRows(), ['dst-step-lut'],
+      '🔴（C）① 還沒完成 ⇒ 藍色留在 ①（順序判準，不是「誰剛做完就跳誰」）');
+    /* 🔴（C）判準不得列舉步驟名：藍色走的是 `.dst-box` 的分組，不是寫死的名單。 */
+    CHECK(stripComments(SELF_SRC).indexOf('dstDgStep === k') < 0,
+      '🔴（C）藍色不再是「DG 派給我的那一步」（`dstDgStep === k` 已不存在）');
   }
   {
     /* 🔴 反面一：這一輪作廢 ⇒ 一個 byte 都沒送 ⇒ **不准打勾** */
@@ -359,7 +455,17 @@ async function dgCalc(win, doc, outbit) {
     EQ(P.backSent(), false, '🔴 沒有 opener ⇒ ④ 不打勾');
     const t = P.backWarnText() || '';
     CHECK(t.indexOf('不是從 DG 開的') >= 0, '🔴 講出原因', t);
-    CHECK(t.indexOf('複製到剪貼簿') >= 0 && t.indexOf('匯出 XLSX') >= 0, '🔴 講出兩條退路', t);
+    /* ═══ 🔴 v1.13.0（B1）：期望值從「兩條退路」改成「一條退路 ＋ 如實說沒有」════
+       原本這一行驗的是「① 走剪貼簿、②③ 走匯出 XLSX」。匯出鈕已隨 B1 移除
+       ⇒ 這條路上 ②③ 的資料**真的沒有出口了**。
+       🔴 不放寬成「有提到剪貼簿就好」——那會讓「指向一顆不存在的鈕」重新通過。
+          改成正面釘兩件事：① 那條路還在、②③ 那條路如實講沒有出口，
+          而且整句**不准再出現 XLSX／Excel**。 */
+    CHECK(t.indexOf('複製到剪貼簿') >= 0, '🔴（B1）① 的退路（複製到剪貼簿）還在', t);
+    CHECK(t.indexOf('沒有出口') >= 0 && t.indexOf('從 DG 開這一頁') >= 0,
+      '🔴（B1）②③ 那條路如實講「這一頁沒有出口，要留下它請從 DG 開這一頁」', t);
+    CHECK(t.indexOf('XLSX') < 0 && t.indexOf('Excel') < 0,
+      '🔴（B1）整句不再指向任何一顆已經不存在的匯出鈕', t);
     EQ(P.backWarnHidden(), false, '🔴 而且那一行看得見（不是藏起來假裝沒事）');
     LANGS.forEach(L => {
       const v = P.i18nValues('dst.backNoDg');
@@ -716,6 +822,67 @@ async function dgCalc(win, doc, outbit) {
     const { P } = await loadSelf({ src: mut2, opener: null });
     CHECK((P.group23Text() || '').indexOf('上面那一顆') >= 0,
       '🔴 突變後又變回指不到的講法 ⇒ K2 那幾條會紅', P.group23Text());
+  }
+  /* ═══ 🔴 v1.13.0 新增斷言的突變（新斷言必須配突變，否則不知道它有沒有在驗東西）══ */
+  /* MA：把 ④ 的判準改回「送過任何一步就亮」⇒ A 那幾條必須紅。
+     這一個突變**就是 Bruce 看到的那個症狀**（every → some），不是隨便改壞。 */
+  {
+    const orig = "  return ks.length > 0 && ks.every(function (k) { return !!dstStepDone[k]; });";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'MA：找得到 ④ 判準那一行');
+    const mut = SELF_SRC.replace(orig,
+      "  return ks.length > 0 && ks.some(function (k) { return !!dstStepDone[k]; });");
+    const opener = fakeWin();
+    const { P } = await loadSelf({ src: mut, opener, qs: '?task=20&step=gray' });
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 }
+    ]);
+    P.dgSend();
+    await sleep(20);
+    EQ(P.backSent(), true,
+      '🔴 突變後只送 ② 就把 ④ 打勾了（＝ Bruce 截到的「偷跑」）⇒ A 那幾條會紅');
+  }
+  /* MA2：把 ④ 的名單改成含 ①（＝ ① 的勾借給 ④）⇒ backStepKeys 那一條必須紅 */
+  {
+    const orig = "  return ks.length > 0 && ks.every(function (k) { return !!dstStepDone[k]; });";
+    const mutSrc = SELF_SRC.replace(
+      "function dstMeasureStepKeys() {\n  var box = $('dst-group23');",
+      "function dstMeasureStepKeys() {\n  var box = $('dst-steps-card');");
+    CHECK(mutSrc !== SELF_SRC && SELF_SRC.indexOf(orig) > 0, 'MA2：找得到 ④ 名單的來源那一行');
+    const { P } = await loadSelf({ src: mutSrc, opener: fakeWin(), qs: '?task=21&step=gray' });
+    CHECK((P.backStepKeys() || []).indexOf('lut') >= 0,
+      '🔴 突變後 ① 被算進 ④ 的名單 ⇒ backStepKeys 那一條會紅', P.backStepKeys());
+  }
+  /* MC：把藍色改回「DG 派給我的那一步」⇒ C 那幾條必須紅（那正是它黏在 ② 不動的原因） */
+  {
+    const orig = "    rows.forEach(function (r) { r.el.classList.toggle('cur', gi === curIdx); });";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'MC：找得到藍色一次貼完那一行');
+    const mut = SELF_SRC.replace(orig,
+      "    rows.forEach(function (r) { r.el.classList.toggle('cur', alive && dstDgStep === r.key); });");
+    const { P } = await loadSelf({ src: mut, opener: fakeWin(), qs: '?task=22&step=gray' });
+    EQ(P.curRows(), ['dst-step-gray'],
+      '🔴 突變後藍色又黏在 DG 派來的 ②（一步都沒做卻標在 ②）⇒ C 那幾條會紅');
+  }
+  /* MB1：把匯出鈕放回 ②③ 那一格 ⇒ B1 那幾條必須紅 */
+  {
+    const orig = '<div class="dst-note" id="dst-group23-note">';
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'MB1：找得到 ②③ 那一格的指路行');
+    const mut = SELF_SRC.replace(orig,
+      '<div class="dst-row"><button class="dst-btn" id="dst-xlsx" disabled>匯出 XLSX</button></div>'
+      + '<div class="dst-note" id="dst-group23-note">');
+    const { P } = await loadSelf({ src: mut, opener: null });
+    EQ(P.ctrlInGroup23('dst-xlsx'), { n: 1, inGroup: true },
+      '🔴 突變後匯出鈕又回到 ②③ 那一格 ⇒ B1 那一條會紅');
+  }
+  /* ME2：把「換階等待」留一份在 ②③ 那一格 ⇒ E 那兩條必須紅（搬家不准留第二份） */
+  {
+    const orig = '<div class="dst-note" id="dst-group23-note">';
+    const mut = SELF_SRC.replace(orig,
+      '<div class="field"><label>換階等待</label><select id="dst-settle" class="dst-sel"></select></div>'
+      + orig);
+    const { doc } = await loadSelf({ src: mut, opener: null });
+    EQ(doc.querySelectorAll('#dst-settle').length, 2,
+      '🔴 突變後全頁有兩個 #dst-settle（＝搬家留了第二份）⇒ E 那一條會紅');
   }
 
   console.log('\n' + '═'.repeat(64));

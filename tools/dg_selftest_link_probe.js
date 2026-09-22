@@ -271,11 +271,23 @@ function primLines(dgWin) {
     CHECK(r === false, '作廢的一輪：dgSend() 回 false', r);
     CHECK(seen.length === 0, '作廢的一輪：postMessage 收到 0 則（線上什麼都沒有）', seen.length);
     CHECK(grayLines(dgWin).length === 0, '作廢的一輪：DG 第 2 部分仍然是空的', grayLines(dgWin).length);
-    CHECK(P.exportBlocked() !== null, '作廢的一輪：匯出被擋（有理由字串）', P.exportBlocked());
-    CHECK(sWin.document.getElementById('dst-xlsx').disabled === true, '作廢的一輪：XLSX 鈕是灰的');
-    /* dgself v1.3.0：CSV 鈕整顆移除（Bruce 裁示，原廠 UI 只匯 XLSX）。
-       🔴 不是放寬 —— 斷言的對象換成「它不存在」，接回來一樣會紅。 */
-    CHECK(sWin.document.getElementById('dst-csv') === null, '作廢的一輪：CSV 鈕已不存在（v1.3.0）');
+    /* ═══ 🔴 dgself v1.13.0（B1）：這三條是**斷言過時**，不是功能壞掉 ═══════════
+       原本驗的是「作廢的一輪：匯出被擋、XLSX 鈕是灰的、CSV 鈕不存在」。
+       Bruce 2026-09-22 裁示：「第三個步驟做完以後，不要有匯出 XLSX 的按鈕，應該要
+       讓統一匯出表格這件事情回到 DG 網頁裡面的『光學資料比較』。」
+       ⇒ 自檢頁的匯出**整組移除**（鈕、產生器、觀測口 `exportBlocked` 全部沒了），
+         `P.exportBlocked()` 已不是函式 —— 原本的寫法會讓整支夾具在這裡丟
+         TypeError 中斷，後面一條都跑不到。
+       🔴 不是把它們刪掉了事：斷言的對象換成「它們都不存在」，任何人把匯出接回
+          自檢頁都會在這裡變紅。而「作廢的一輪不准有資料流出去」那件事**沒有變弱**
+          —— 上面三條（dgSend() 回 false、postMessage 0 則、DG 第 2 部分是空的）
+          本來就是它真正的守門，而且走的是線上實際訊息，不是按鈕的 disabled 屬性。 */
+    CHECK(typeof P.exportBlocked !== 'function',
+      '🔴（B1）自檢頁的匯出觀測口 exportBlocked 已隨匯出一起移除');
+    CHECK(sWin.document.getElementById('dst-xlsx') === null,
+      '🔴（B1）XLSX 鈕已整顆移除（不是變灰）');
+    CHECK(sWin.document.getElementById('dst-csv') === null,
+      '作廢的一輪：CSV 鈕已不存在（v1.3.0）');
   }
 
   console.log('\n' + '═'.repeat(60));

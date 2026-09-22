@@ -320,12 +320,24 @@ async function loadDg(src) {
     const { P } = await loadSelf({ qs: '?task=2&dest=' + encodeURIComponent('第 2 部分')
       + '&what=' + encodeURIComponent('白灰階亮度') });
     EQ(P.stepCur(), 'gray', '🔴 沒帶 step（舊版 DG）⇒ 退回 mode＝gray');
-    EQ(P.stepRow('gray').cur, true, '② 被標成「目前這一步」');
+    /* ═══ 🔴 v1.13.0（C）：`cur` 的意思換了，這兩條的期望值跟著翻面 ═══════════════
+       舊語意：`cur` ＝「DG 派給我的那一步」（`dstDgStep === k`）⇒ 帶 step=gray
+       進來，② 從頭到尾是藍的、做完也不會走。Bruce 2026-09-22 實機打掉了這個語意：
+       「這個藍色如果你是定義成『現在做到哪個步驟』，那它最後應該要停在
+        『資料自動回傳 DG』這邊。」
+       新語意：`cur` ＝ **依序第一個還沒完成的那一組**（①→②③→④）。
+       ⇒ 一步都沒做的時候，不管 DG 派的是哪一步，藍色都在 ①。
+       🔴 `dstDgStep` **沒有消失**，只是不再決定顏色：它仍然決定回傳的 mode／
+          「→ 回 DG 的第 N 部分」那一段，`P.stepCur()` 讀的就是它 —— 上一行
+          正面驗著它還在。 */
+    EQ([P.stepRow('lut').cur, P.stepRow('gray').cur, P.stepRow('prim').cur], [true, false, false],
+      '🔴（C）一步都沒做 ⇒ 藍色在 ①（不再跟著 DG 派來的 step=gray 走）');
   }
   {
     const { P } = await loadSelf({ qs: '?mode=prim&task=3&step=prim' });
-    EQ(P.stepCur(), 'prim', 'step=prim 讀到了');
-    EQ(P.stepRow('prim').cur, true, '③ 被標成「目前這一步」');
+    EQ(P.stepCur(), 'prim', 'step=prim 讀到了（dstDgStep 仍然存在，只是不決定顏色）');
+    EQ([P.stepRow('lut').cur, P.stepRow('gray').cur, P.stepRow('prim').cur], [true, false, false],
+      '🔴（C）帶 step=prim 進來也一樣：一步都沒做 ⇒ 藍色在 ①');
   }
   {
     /* 連上了但認不出 IC ⇒ 停用，原因換成 IC */
@@ -436,16 +448,65 @@ async function loadDg(src) {
          所以現在 ④ 應該已經是 ✔、提示已經是「請切回 DG 分頁繼續」。
        🔴 `backBotClick()` 仍然呼叫一次：要證明**按一個不存在的東西不會爆**
           （那一支現在是 no-op），而且不會多送任何訊息。 */
+    /* ═══ 🔴 v1.13.0（A）：期望值翻面 —— ① 回傳成功**不代表** ④ 完成 ═════════════
+       Bruce 2026-09-22 實機：「為什麼在第三步驟還在量的時候，第四步驟的資料自動
+       回傳 DG 就已經打勾了？…這個等於是先偷跑囉。」
+       根因就是這一格驗著的那件事：`dstDgSendLut()`（① 的回傳路徑）也設了
+       `dstBackSent = true`，所以 v1.12.0 這幾條**驗的正是那個 bug**（綠著的假綠）。
+       ⇒ ④ 現在只看 ②③ 那一組。① 有自己的勾，不借給 ④。 */
     P.backBotClick();
     await sleep(20);
-    EQ(P.backSent(), true, '🔴 v1.12.0：① 回傳成功 ⇒ ④ 自動視為已回傳');
-    EQ(P.backRowTick(), '✔', '🔴 v1.12.0：④ 自動打勾（不必按任何東西）');
-    EQ(P.backWarnIsSwitchTab(), true,
-      '🔴 v1.12.0：提示自動變成「已送回 DG，請切回 DG 分頁繼續。」');
+    EQ(P.stepDone(), { lut: true, gray: false, prim: false }, '前置條件：只有 ① 完成');
+    EQ(P.backSent(), false,
+      '🔴（A）① 回傳成功**不打勾** ④ —— ②③ 還沒量（Bruce 看到的「偷跑」就是這裡）');
+    EQ(P.backRowTick(), '○', '🔴（A）④ 那一列維持 ○');
+    EQ(P.backWarnIsSwitchTab(), false, '🔴（A）也還不能說「已送回 DG」');
+    /* 🔴（C）① 做完了 ⇒ 藍色往下走到 ②③ 那一組，而且**兩列一起**亮
+       （②③ 共用一個 `.dst-box`，兩列一起亮是框的結果，不是特例）。 */
+    EQ([P.stepRow('lut').cur, P.stepRow('gray').cur, P.stepRow('prim').cur], [false, true, true],
+      '🔴（C）① 完成 ⇒ 藍色離開 ①、②③ 兩列一起變藍');
     EQ(opener.msgs.length, 1, '🔴 它沒有再送任何訊息過去，也沒有重開視窗');
     EQ(P.backBotHref(), null, '🔴 v1.12.0：④ 那一顆鈕已移除 ⇒ 沒有 href');
     EQ(P.backHref(), 'index.html',
       '🔴 v1.11.0：左上角那一顆 href 是 index.html，而且**沒有**任何攔截 —— 按下去真的會去首頁');
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     🔴 v1.13.0（A＋C）：①②③ 全部完成的那一格
+        —— ④ 這時候才打勾，而且**沒有任何一列是藍的**
+     ───────────────────────────────────────────────────────────────────────
+     Bruce 2026-09-22：「第三步驟跑完以後，應該要全部變回白色，然後到第四步驟
+     再變成藍色才對…最後應該要停在『資料自動回傳 DG』這邊。」
+     ⇒ ④ 是推導出來的：②③ 齊了它就同時齊了 ⇒ 三組全完成 ⇒ 一列都不亮。
+     🔴 這一組是 A 與 C 的**正面那一半**。只驗「不打勾／不變藍」會被一個
+        「永遠不打勾／永遠不變藍」的實作通過 —— 那是假安全（CLAUDE.md 記過三次）。
+     ═══════════════════════════════════════════════════════════════════════ */
+  H('③-b ①②③ 全完成：④ 打勾、一列都不藍');
+  {
+    const ws = makeBridge({ regs: em01Regs(5), mem: buildSram(N, VALS),
+                            busAddr: EM01.busAddr, busBit: EM01.busBit });
+    const opener = fakeWin();
+    const { P } = await loadSelf({ ws, ic: 'EM01A1', opener,
+      qs: '?task=17&dest=' + encodeURIComponent('第 2 部分') + '&step=lut' });
+    CHECK(await P.stepLut() === true, '前置條件：① 讀回並回傳成功');
+    await sleep(60);
+    /* ②③ 一次送齊（白灰階 ＋ 三個純色端點，走產品端的 primSent 那條路） */
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 },
+      { key: 'R', group: 'prim', idx: 255, r12: 4080, x: 0.64, y: 0.33, lv: 60 },
+      { key: 'G', group: 'prim', idx: 255, r12: 4080, x: 0.30, y: 0.60, lv: 200 },
+      { key: 'B', group: 'prim', idx: 255, r12: 4080, x: 0.15, y: 0.06, lv: 25 }
+    ]);
+    CHECK(P.dgSend() === true, '前置條件：②③ 也真的送出去了');
+    await sleep(20);
+    EQ(P.stepDone(), { lut: true, gray: true, prim: true }, '前置條件：①②③ 都完成');
+    EQ(P.backSent(), true, '🔴（A）②③ 齊了 ⇒ ④ 這時候才打勾');
+    EQ(P.backRowTick(), '✔', '🔴（A）④ 那一列變成 ✔');
+    EQ(P.backWarnIsSwitchTab(), true, '🔴（A）提示換成「已送回 DG，請切回 DG 分頁繼續。」');
+    EQ([P.stepRow('lut').cur, P.stepRow('gray').cur, P.stepRow('prim').cur], [false, false, false],
+      '🔴（C）全部完成 ⇒ ①②③ 沒有一列是藍的');
+    EQ(P.curRows(), [], '🔴（C）整張卡（含 ④）一列都不藍 —— 都做完了就沒有「現在該做」');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -474,8 +535,9 @@ async function loadDg(src) {
     /* 🔴 v1.12.0 再改判（理由同上面第 ④-1 組那一段）：④ 沒有鈕了，強調色這件事
        不再存在；改驗**它自動打勾了**，而且打勾的來源是「真的送出去過」。 */
     EQ(P.backBotIsPri(), null, '🔴 v1.12.0：④ 沒有鈕 ⇒ 沒有強調色可言');
-    EQ(P.backSent(), true, '🔴 v1.12.0：③ 回傳成功 ⇒ ④ 自動打勾');
-    EQ(P.backRowTick(), '✔', '🔴 v1.12.0：④ 那一列變成 ✔');
+    /* 🔴 v1.13.0（A）：期望值翻面 —— 這一組只量了 ③（② 還沒），④ 不准打勾。 */
+    EQ(P.backSent(), false, '🔴（A）只有 ③ 回傳成功 ⇒ ④ **不打勾**（② 還沒量）');
+    EQ(P.backRowTick(), '○', '🔴（A）④ 那一列維持 ○');
     EQ(P.backIsPri(), false, '🔴 左上角那一顆不轉強調色');
   }
 
@@ -531,9 +593,16 @@ async function loadDg(src) {
     EQ(P.backRowTick(), '○', '🔴 ④ 那一列維持 ○');
     CHECK((P.backWarnText() || '').indexOf('不是從 DG 開的') >= 0,
       '🔴 ④ 講清楚為什麼不會自動回傳', P.backWarnText());
-    CHECK((P.backWarnText() || '').indexOf('複製到剪貼簿') >= 0
-       && (P.backWarnText() || '').indexOf('匯出 XLSX') >= 0,
-      '🔴 ④ 同時講出兩條退路（LUT 走剪貼簿、量測結果走匯出）', P.backWarnText());
+    /* ═══ 🔴 v1.13.0（B1）：期望值從「兩條退路」改成「一條 ＋ 如實說沒有」════════
+       匯出 XLSX 那顆鈕已依 Bruce 2026-09-22 裁示整顆移除 ⇒ 這條路上 ②③ 的資料
+       **真的沒有出口了**。原本這一條會讓「指向一顆不存在的鈕」通過。 */
+    CHECK((P.backWarnText() || '').indexOf('複製到剪貼簿') >= 0,
+      '🔴（B1）① 的退路（複製到剪貼簿）還在', P.backWarnText());
+    CHECK((P.backWarnText() || '').indexOf('沒有出口') >= 0,
+      '🔴（B1）②③ 那條路如實講「這一頁沒有出口」，不指向已不存在的匯出鈕',
+      P.backWarnText());
+    CHECK((P.backWarnText() || '').indexOf('XLSX') < 0,
+      '🔴（B1）整句不再出現 XLSX', P.backWarnText());
     EQ(P.copyHidden(), false, '🔴 沒有 opener ⇒「複製到剪貼簿」出現');
     EQ(P.copyDisabled(), true, '還沒讀過 ⇒ 複製鈕是灰的（沒東西可複製）');
     EQ([P.stepRow('lut').to, P.stepRow('gray').to, P.stepRow('prim').to], ['', '', ''],
@@ -692,8 +761,14 @@ async function loadDg(src) {
      ═══════════════════════════════════════════════════════════════════════ */
   H('⑦ i18n 三語齊全');
   {
+    /* 🔴 v1.13.0：`dst.goScan`（「開始量」）**已從名單移除** —— 不是為了讓測試變綠：
+       ②③ 自 v1.10.0 起共用一顆兩段式的鈕（`dst.goAlign`／`dst.goMeasure`），
+       `dst.goScan` 從那時起就沒有任何引用點（逐檔 grep 過：產品端 0 筆），
+       這一輪把死掉的 key 定義刪掉，名單也跟著刪。
+       🔴 它接手的那兩個 key **加進名單裡**，驗的事情沒有少一件。 */
     const keys = ['dst.hdSteps', 'dst.stepLut', 'dst.stepGray', 'dst.stepPrim', 'dst.goLut',
-                  'dst.goScan', 'dst.copyLut', 'dst.backDg', 'dst.stepTo', 'dst.stepsWhyRun',
+                  'dst.goAlign', 'dst.goMeasure',
+                  'dst.copyLut', 'dst.backDg', 'dst.stepTo', 'dst.stepsWhyRun',
                   'dst.stepsWhyLink', 'dst.stepsWhyIc', 'dst.stepLutNoDg', 'dst.dgLabelLut',
                   'dst.dgSentLut', 'dst.dgLutTooFew', 'dst.copyOk', 'dst.copyFail',
                   'dst.scSum', 'dst.scThCode', 'dst.scThWhat', 'dst.scLog',
