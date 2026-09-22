@@ -1,5 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<!-- 🔴 v1.75.2：`data-dg-boot` 是**寫死在靜態 HTML 裡**的開機閘門旗標，不是 JS 加上去的。
+     整段理由寫在 </head> 前面那一塊註解。放在這裡的唯一理由：它必須在第一次 paint
+     之前就成立，而「瀏覽器讀到 <html> 這一行」是最早、而且不可能沒跑到的時機。 -->
+<html lang="zh-TW" data-dg-boot>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -882,6 +885,79 @@
   } catch (e) {}
 })();
 </script>
+
+<!-- ══ 🔴 v1.75.2：開機閘門 —— 讓「該隱藏」在第一次 paint 當下就已經成立 ═══════════
+     Bruce 2026-09-23：「重新整理 DG 頁面的時候，下面原本應該隱藏的卡片，居然會在還沒
+     重新整理完的過程中顯露出來，直到全部重新整理完才隱藏起來。」
+
+     ── 病因（覆核過，屬實）────────────────────────────────────────────────────
+     `#dg-main-cards` 在 HTML 裡沒有任何隱藏標記，要等 `dgWmodeSync()` 跑到
+     `bag.style.display = (DG_WMODE || DG_PQ) ? '' : 'none'` 那一行才被藏起來。
+     那一支在 `dgInit()` 裡、掛在 DOMContentLoaded 上，而主 script 的起點在 <body>
+     中段、本檔 1.1 MB ⇒ 瀏覽器**先把整袋卡片畫出來、之後才被藏掉**。
+
+     ── 為什麼這裡可以用純靜態 CSS 解，不必讀任何儲存 ────────────────────────────
+     🔴 **每一次載入的起點必為「還沒選」**，有兩個獨立依據：
+        · `dgInit()` 末尾寫死 `DG_WMODE = null;`，註解是「起點一律是『還沒選』——
+          每一次載入都問，不看上次選了什麼」（v1.71.0，Bruce 第 6 條裁示）。
+        · `DG_PQ` 的宣告初值是 `false`，全檔只有「匯入 PQ Tools 檔案」那一條路
+          會把它設成 true，那是使用者動作，不可能發生在載入當下。
+     ⇒ `(DG_WMODE || DG_PQ)` 在**第一次 paint 當下恆為 false**，正確狀態就是「隱藏」，
+       而且這個答案不必讀 localStorage／sessionStorage 就能斷定。
+     🔴 所以這**不是**「讓 JS 跑得更早」（那只是把時間差縮小、消滅不了它）——
+        答案直接寫進靜態 HTML＋CSS，瀏覽器第一次畫的時候它就已經成立，時間差為零。
+     🔴 **不會製造反向閃爍**（「本來就該顯示、卻先空白一片」）：依上一段，那個情況
+        在本頁**不存在**。
+        ⚠ 這條 CSS 與 `dgInit()` 裡 `DG_WMODE = null;` 那一行是**綁在一起的**：哪一天
+          改成「重整後沿用上次選的模式」，這個預設就會從『零閃爍』變成『反向閃爍』，
+          兩邊必須一起改。該行旁邊留了一句指回這裡，避免只改一邊。
+     🔴 判準用屬性 `[data-dg-bootgate]`、不列舉卡片 id：理由與 `data-wmode-only`
+        那一段（本檔 dgWmodeSync 上方）相同 —— 列舉式清單漏一個不會有任何錯誤訊息。
+
+     ── 範圍：`[data-wmode-only]` 那些鈕要不要一起處理（grep 查過）───────────────
+     全檔 5 個 `[data-wmode-only]` 都**不在** `#dg-main-cards` 裡（袋子是 999～1645 行，
+     那 5 顆在 1886／1987／1988／2137／2138），所以藏袋子救不到它們。
+     但它們**不需要救**：5 顆全部落在 `#dg-modal-lut`／`#dg-modal-gray`／`#dg-modal-prim`
+     這三個 `.dg-modal` 裡，而 `.dg-modal` 的 CSS 預設就是 `display: none`（本檔
+     `.dg-modal` 規則），要按鈕開了才 `.open`。⇒ 它們在第一次 paint 當下本來就看不到，
+     沒有先畫再藏的問題。`dgWmodeSync()` 底下那圈 `.dg-lut-opt` 同理（全在 modal 內）。
+
+     ── JS 沒跑起來時的退路（[[feedback_guard_must_leave_a_way_out]]）────────────
+     這道閘門的作用方向是「隱藏」，所以它壞掉的方向是「使用者看不到東西」，必須留出口。
+       ① **JS 被關掉** ⇒ 底下的 <noscript> 直接放行。畫面回到 v1.75.1 的樣子（卡片全部
+          看得到、只是按了沒反應）—— 與本版**之前**JS 壞掉時的樣貌相同，沒有變糟。
+       ② **JS 開著但主 script 掛掉**（`dgWmodeSync()` 從來沒跑到）⇒ 底下那段 watchdog
+          在 `load` 時放行，同樣回到 v1.75.1 的樣子。
+       ③ **正常** ⇒ `dgWmodeSync()` 在寫 inline display 的**同一個 tick** 內放行，
+          兩件事之間不會有 paint。
+     ⇒ 三條路同一句話：**閘門只擋到「JS 表態」為止；JS 沒表態就放行。**
+     ⚠ 仍然蓋不到的一種情況（誠實寫出來，不假裝完備）：某個同源子資源卡住不回，
+       `load` 永遠不觸發、主 script 也跑不到 ⇒ 閘門留著。那時畫面上是「標題列 ＋ 最上方
+       那張三選一的入口卡」，**不是整頁空白**；按鈕按了沒反應，看得出這頁沒載完。
+       刻意不補一個 setTimeout 兜底：秒數只能用猜的，而猜短了會在慢網路下先放行、
+       再被 dgWmodeSync 藏回去 —— 那是自己製造一次閃爍來救一個更罕見的情況。 -->
+<style>
+  /* !important 是必要的：放行**之前**要壓得過 dgWmodeSync() 寫上去的 inline display。
+     放行＝拿掉 <html> 上的 data-dg-boot，那之後就完全由 inline style 說了算。 */
+  html[data-dg-boot] [data-dg-bootgate] { display: none !important; }
+</style>
+<noscript><style>
+  /* 退路①：JS 被關掉，上面那條沒有人會來放行 ⇒ 這裡直接放行，不要把人鎖在空畫面。 */
+  html[data-dg-boot] [data-dg-bootgate] { display: block !important; }
+</style></noscript>
+<script>
+(function () {
+  /* 退路②：只做一件事 —— 到了「頁面都載完了、JS 還是沒表態」的時候把閘門放行。
+     🔴 刻意**不**在這裡判斷該不該顯示：該不該顯示是 dgWmodeSync() 的事，這裡只負責
+        不要把使用者鎖在一個看不出原因的空畫面裡。多一個地方下判斷就會多一份可能與
+        事實不一致的狀態。
+     🔴 放行是冪等的（removeAttribute），正常路徑早就放行過了，這裡再做一次沒有副作用，
+        所以不需要記「有沒有放過」。 */
+  window.addEventListener('load', function () {
+    document.documentElement.removeAttribute('data-dg-boot');
+  });
+})();
+</script>
 </head>
 <body>
 <div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text">下拉刷新</span></div>
@@ -996,7 +1072,10 @@
        結果卡片與第 4 部分自己就用 `.dg-out-hidden` 在管 display，逐張寫 inline style
        會與它們的既有規則互相覆蓋；包一層則是「整袋看不看得到」與「袋子裡誰該亮」
        兩件事各自獨立，誰都不必知道對方。 -->
-  <div id="dg-main-cards">
+  <!-- 🔴 v1.75.2：`data-dg-bootgate` ＝ 開機閘門要蓋住的東西（理由與整套機制寫在 head
+       那一塊註解）。掛在**袋子**上而不是逐張卡片：袋子本來就是「整袋看不看得到」的
+       那一層，閘門要管的正好是同一件事。 -->
+  <div id="dg-main-cards" data-dg-bootgate>
 
   <!-- ══ 快捷預設（比照其他分頁：卡片左上角小標籤 ＋ 橘色脈動下拉）══════ -->
   <div class="card dg-preset-card" id="dg-preset-card">
@@ -2498,12 +2577,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260922dg1751"></script>
-<script src="common/i18n.js?v=20260922dg1751"></script>
+<script src="common/version.js?v=20260923dg1752"></script>
+<script src="common/i18n.js?v=20260923dg1752"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260922dg1751"></script>
-<script src="common/common.js?v=20260922dg1751"></script>
+<script src="common/xlsx.js?v=20260923dg1752"></script>
+<script src="common/common.js?v=20260923dg1752"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -13736,6 +13815,12 @@
        填好了，袋子不展開的話畫面上什麼都看不到。 */
     var bag = $('dg-main-cards');
     if (bag) bag.style.display = (DG_WMODE || DG_PQ) ? '' : 'none';
+    /* 🔴 v1.75.2：放行 head 裡那道開機閘門（`html[data-dg-boot]`，整套理由寫在 head）。
+       🔴 位置是刻意的 —— 就接在寫完 inline display 的下一行，**同一個同步區塊內**：
+          瀏覽器不會在這兩行之間 paint，所以「放行」本身不可能造成閃一下。
+       🔴 每次呼叫都做、不記「放過了沒有」：removeAttribute 是冪等的，而多記一份狀態
+          就多一份可能跟事實不一致的東西。 */
+    document.documentElement.removeAttribute('data-dg-boot');
     DG_WMODE_KEYS.forEach(function (k) {
       var b = $('dg-btn-wmode-' + k);
       if (b) {
@@ -15954,7 +16039,12 @@
       }
     }
     if (!_dgAsWrap) _dgAsWrap = dgAsBlankWrap();
-    /* 🔴 起點一律是「還沒選」—— 每一次載入都問，不看上次選了什麼。 */
+    /* 🔴 起點一律是「還沒選」—— 每一次載入都問，不看上次選了什麼。
+       ⚠ v1.75.2 起這一行**與 head 裡的開機閘門綁在一起**：閘門之所以敢把
+         `#dg-main-cards` 預設藏起來（純 CSS、零 JS），依據就是這一行讓
+         `(DG_WMODE || DG_PQ)` 在第一次 paint 當下恆為 false。
+         **要改成「重整後沿用上次選的模式」的話，head 那條 CSS 必須同時改掉**，
+         否則會從「零閃爍」變成「先空白一片、JS 跑完才冒出來」的反向閃爍。 */
     DG_WMODE = null;
     dgWmodeSync();
 
@@ -16342,7 +16432,16 @@
     wmode: function () { return DG_WMODE; },
     wmodeSet: function (m) { return dgWmodeSet(m); },
     wmodeClear: function (m) { return dgWmodeClear(m); },
-    wmodeCardsVisible: function () { var b = $('dg-main-cards'); return !!(b && b.style.display !== 'none'); },
+    /* 🔴 v1.75.2：多判一次開機閘門。理由是這一支的語意是「畫面上看不看得到」，而從
+       v1.75.2 起 inline display 不再是唯一的決定因素 —— 閘門還沒放行時，inline
+       display 即使是 ''（＝看得到）畫面上也還是空的。只看 inline style 會在那一段
+       時間內回報一個與畫面相反的答案，而這一支存在的意義就是拿來覆核畫面。 */
+    wmodeCardsVisible: function () {
+      var b = $('dg-main-cards');
+      if (!b) return false;
+      if (document.documentElement.hasAttribute('data-dg-boot')) return false;
+      return b.style.display !== 'none';
+    },
     icInfo: function () { return DG_IC ? JSON.parse(JSON.stringify(DG_IC)) : null; },
     applyIcInfo: function (d) { return dgApplyIcInfo(d); },
     slotModes: function () { return DG_SLOTS.map(function (s) { return s.srcMode || null; }); },

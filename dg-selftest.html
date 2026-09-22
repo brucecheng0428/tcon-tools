@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<!-- 🔴 v1.17.2：`data-dst-boot` ＝ 開機閘門旗標，寫死在靜態 HTML 裡（不是 JS 加的）。
+     整段理由寫在下面 </head> 前那一塊註解。 -->
+<html lang="zh-TW" data-dst-boot>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260922dst1171"></script>
+<script src="common/version.js?v=20260923dst1172"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -387,6 +389,62 @@
               background: #431418; color: #fca5a5; font-size: 14px; line-height: 1.65; margin-top: 10px; }
   .dst-void:empty { display: none; }
 </style>
+
+<!-- ══ 🔴 v1.17.2：開機閘門 —— 與 dg.html v1.75.2 同一套機制、同一個病 ═══════════════
+     Bruce 2026-09-23 順帶指定要查本頁有沒有「卡片先畫再藏」。**查了，有一處。**
+
+     ── 盤點結果（全檔逐個看過，不是抽樣）────────────────────────────────────────
+     本頁完全不動 `style.display`（全檔 grep `.display` ＝ 0 筆），隱藏一律走
+     `.dst-hidden { display: none !important }` 這個 class。會在載入時被 JS 藏起來的
+     元素共 7 個，其中 6 個在 HTML markup 裡**本來就帶著** `dst-hidden`：
+       `dst-dl-box`／`dst-alt`／`dst-dg-warn`／`dst-copy-lut`／`dst-lut-body`／`dst-res-wrap`
+     ⇒ 它們第一次 paint 就是隱藏的，沒有問題。
+     **唯一的例外是 `#dst-seq-box`**（「要重做或跳過某一步？」那塊 `<details>`）：
+     markup 沒有 `dst-hidden`，要等 `dstRenderSteps()` 跑到
+     `sbox.classList.toggle('dst-hidden', !alive)` 才被藏起來 ⇒ **不是從 DG 開過來的
+     時候（`alive` 為 false），它會先畫出來再被藏掉**。本檔 493 KB，看得見。
+     `dst-back-warn` 看起來像同一類，但它那一行是無條件 `remove('dst-hidden')`
+     ＝最終一定看得到、markup 也是看得到 ⇒ 沒有先畫再藏，不動它。
+
+     ── 這裡為什麼需要一行 JS，而 dg.html 不需要 ───────────────────────────────
+     dg.html 的正確狀態「恆為隱藏」，純 CSS 就寫得出來。本頁不同：該不該顯示取決於
+     `dstDgAlive()` ＝ `!!(window.opener && !window.opener.closed)`，這是**只有執行期
+     才知道**的事實，靜態 HTML 裡沒有任何東西對應得到它。
+     🔴 但這仍然不是「讓 JS 跑得更早」那種解法。下面那段是 <head> 裡的**同步
+        （parser-blocking）script**：瀏覽器在它跑完之前**不可能**畫出 <body> 的任何東西
+        —— 這是規格上的保證，不是「搶在前面」的競速。時間差不是被縮小，是不存在。
+     ⇒ 兩種情況在第一次 paint 當下都已經是對的：
+        · 從 DG 開過來（alive）⇒ 下面立刻放行 ⇒ 一開始就看得到，**不會反向閃爍**
+          （這是常見路徑，讓它先空白再冒出來才是更糟的那一種）。
+        · 自己單獨開（不 alive）⇒ 閘門留著 ⇒ 一開始就是隱藏的，之後
+          `dstRenderSteps()` 補上 `dst-hidden` 並放行，交接期間畫面不變。
+
+     ── JS 沒跑起來時的退路（[[feedback_guard_must_leave_a_way_out]]）────────────
+     🔴 這一塊本身就是**退路 UI**（「要重做或跳過某一步？」），把退路藏住是最不該犯的
+        錯，所以放行的方向一律是「露出來」：
+       ① JS 被關掉 ⇒ <noscript> 直接放行。
+       ② JS 開著但主 script 掛掉（`dstRenderSteps()` 沒跑到）⇒ `load` 時放行。
+          那時它是露出來的 —— 與 v1.17.1 的樣貌相同，沒有變糟。
+       ③ 正常 ⇒ `dstRenderSteps()` 在設完 class 的同一個 tick 內放行。
+     ⚠ 蓋不到的情況與 dg.html 那邊一樣（子資源卡住 ⇒ `load` 不觸發），理由同樣寫在那裡。 -->
+<style>
+  /* !important：放行前要壓得過元素自己的 display（<details> 預設是 block）。 */
+  html[data-dst-boot] [data-dst-bootgate] { display: none !important; }
+</style>
+<noscript><style>
+  html[data-dst-boot] [data-dst-bootgate] { display: block !important; }
+</style></noscript>
+<script>
+(function () {
+  function release() { document.documentElement.removeAttribute('data-dst-boot'); }
+  /* 🔴 判準與 `dstDgAlive()` 逐字相同（本檔）。刻意重寫一次而不是呼叫它：那一支
+     宣告在檔尾的主 script 裡，這裡比它早得多，呼叫不到。兩處都很短，而且哪一天
+     `dstDgAlive()` 的定義改了，最壞的後果只是這裡多閃一下、不會出錯 ——
+     真正的狀態仍然由 dstRenderSteps() 定案。 */
+  try { if (window.opener && !window.opener.closed) release(); } catch (e) { /* 跨來源讀 .closed 是允許的，仍兜底 */ }
+  window.addEventListener('load', release);
+})();
+</script>
 </head>
 <body>
 
@@ -839,7 +897,9 @@
               不自己寫開合是刻意的 —— 自己寫就會多一份「現在是開還是關」的狀態。
            🔴 解除之後**藍色 highlight 一個字都不變**：它仍然指著照順序該做的那一步，
               解除只是允許你按別的。兩者讀同一個 `dstCurGroupIdx()`。 -->
-      <details class="dst-seq" id="dst-seq-box">
+      <!-- 🔴 v1.17.2：`data-dst-bootgate` ＝ 開機閘門要蓋住的東西（理由寫在 head 那一塊）。
+           本頁只有這一個元素掛它 —— 其餘會被藏的元素 markup 裡本來就有 `dst-hidden`。 -->
+      <details class="dst-seq" id="dst-seq-box" data-dst-bootgate>
         <summary data-i18n="dst.seqMore">要重做或跳過某一步？</summary>
         <div class="dst-note" data-i18n="dst.seqNote">步驟預設照 ①→②③→④ 的順序開放：做完的會鎖起來，還沒輪到的也按不下去。某一步的結果不對想重做，就在這裡解除限制。</div>
         <div class="dst-row">
@@ -1031,8 +1091,8 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260922dst1171"></script>
-<script src="common/common.js?v=20260922dst1171"></script>
+<script src="common/i18n.js?v=20260923dst1172"></script>
+<script src="common/common.js?v=20260923dst1172"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -5603,6 +5663,10 @@ function dstRenderSteps() {
      🔴 鈕面字**等於它按下去會發生的事**（本專案既有紀律），所以兩種狀態兩句話。 */
   var sbox = $('dst-seq-box');
   if (sbox) sbox.classList.toggle('dst-hidden', !alive);
+  /* 🔴 v1.17.2：放行 head 裡那道開機閘門（`html[data-dst-boot]`，理由寫在 head）。
+     位置刻意接在設完 class 的下一行 —— 同一個同步區塊內，兩者之間不會有 paint，
+     所以放行本身不可能造成閃一下。removeAttribute 冪等，每次呼叫都做不必記狀態。 */
+  document.documentElement.removeAttribute('data-dst-boot');
   var sbtn = $('dst-seq-unlock');
   if (sbtn) sbtn.textContent = dstT(dstSeqUnlock ? 'dst.seqRelock' : 'dst.seqUnlock');
   var snote = $('dst-seq-state');
